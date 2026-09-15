@@ -362,7 +362,7 @@ export class FeishuChannelAdapter implements IChannelAdapter {
       }
 
       const instanceId = await this.getOrCreateInstance(session.sessionKey)
-      const activeSession = { ...session, instanceId }
+      const sessionWithInstance = { ...session, instanceId }
 
       try {
         this.bridge.conversationRepo.saveMessage({
@@ -404,7 +404,7 @@ export class FeishuChannelAdapter implements IChannelAdapter {
           message: prompt,
           strategy: this.contextStrategy,
           adapter: this,
-          session: activeSession,
+          session: sessionWithInstance,
         })
       } finally {
         this.bridge.unregisterNodeStreamCallback(instanceId)
@@ -412,9 +412,9 @@ export class FeishuChannelAdapter implements IChannelAdapter {
 
       const replyText = finalTexts.join('\n').trim()
       if (replyText && replyText !== 'NO_REPLY') {
-        await this.sendTextReply(activeSession, replyText)
+        await this.sendTextReply(sessionWithInstance, replyText)
       } else if (streamError) {
-        await this.sendTextReply(activeSession, buildChannelErrorMessage(streamError))
+        await this.sendTextReply(sessionWithInstance, buildChannelErrorMessage(streamError))
       }
     } catch (err) {
       log.error(`[handleMessage] 异常: ${err instanceof Error ? err.message : String(err)}`)

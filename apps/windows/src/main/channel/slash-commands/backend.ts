@@ -1,3 +1,10 @@
+/**
+ * /backend — 查看当前 ACP 后端与可用后端列表。
+ *
+ * 注册范围：**仅微信与飞书**（QQ / 企微的 adapter 未接 ACP 分流，故未注册本命令）。
+ * 会话级选择以 dev-context 为准（10-S3b：`/claude` 等同时写会话级 dev-context），
+ * 这里的 peer 级值是「该渠道用户的默认」兜底。
+ */
 import type { CommandHandler, CommandContext } from '../types'
 import { CODING_DEV_BACKEND_LABELS } from '../../coding-dev-backends-stub/contracts.js'
 

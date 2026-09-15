@@ -8,6 +8,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { petApi } from './pet-api'
 import type { PetElectronAPI } from '../shared/pet-mode'
+import type { ChannelFeatureSettings } from '../shared/channel-features'
 // 仅类型引用，编译期擦除，不会把主进程代码打进 preload
 import type { UsageSummary } from '../main/usage-store'
 import type { NewsSnapshot } from '../main/news-store'
@@ -1473,10 +1474,8 @@ declare global {
     }
     channelService: {
       list: () => Promise<{ channels: unknown[] }>
-      getFeatures: () => Promise<{ crossChannelContinuityEnabled: boolean }>
-      setFeatures: (patch: {
-        crossChannelContinuityEnabled?: boolean
-      }) => Promise<{ crossChannelContinuityEnabled: boolean }>
+      getFeatures: () => Promise<ChannelFeatureSettings>
+      setFeatures: (patch: Partial<ChannelFeatureSettings>) => Promise<ChannelFeatureSettings>
       send: (params: {
         channel: 'feishu' | 'weixin' | 'wecom' | 'qbot'
         to: string

@@ -8,15 +8,15 @@
  * （渠道分区已不再使用）。
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
+import {
+  DEFAULT_CHANNEL_FEATURES,
+  type ChannelFeatureSettings,
+} from '../../../../../shared/channel-features'
 
-/** 与主进程 channel-feature-store 对齐 */
-export interface ChannelFeatureSettings {
-  crossChannelContinuityEnabled: boolean
-}
+/** 读取失败时的回落值：与主进程同一份默认（全关） */
+const DEFAULTS = DEFAULT_CHANNEL_FEATURES
 
-const DEFAULTS: ChannelFeatureSettings = {
-  crossChannelContinuityEnabled: false,
-}
+export type { ChannelFeatureSettings }
 
 export interface UseChannelFeaturesResult {
   features: ChannelFeatureSettings

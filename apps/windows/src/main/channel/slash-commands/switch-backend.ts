@@ -1,3 +1,14 @@
+/**
+ * /claude、/codex、/opencode、/cursor、/lumii —— 切换本会话的编码后端。
+ *
+ * 一次切换写三处（各自解决一个不同的问题）：
+ *   1. **会话级 dev-context**（10-S3b 起）——「本会话用哪个工具」，按会话 id 索引，
+ *      用户换渠道续聊时跟着走；`resolveDevContext` 优先取它；
+ *   2. **peer 级 backend-selection** ——「该渠道用户的默认」，供 adapter 的兜底解析；
+ *   3. **user-global + 推事件** —— 让客户端输入框标签与实际路由一致（见下）。
+ *
+ * 注册范围：**仅微信与飞书**（QQ / 企微未接 ACP 分流）。
+ */
 import type { CommandHandler, CommandContext } from '../types'
 import type { CodingDevBackendId } from '../../coding-dev-backends-stub/contracts.js'
 import {

@@ -1,9 +1,12 @@
 /**
- * /project — 查看 / 切换本会话的开发项目（对话级）。
+ * /project — 查看 / 切换本会话的开发项目（会话级）。
  *
  * 项目来自 app.json codingDevProjects（客户端「设置 → 开发类 AI 工具」注册）。
- * 切换写入 peer 级 dev-context；下一条 ACP 消息即以该项目目录为 cwd。
- * 编码工具切换见 /claude、/codex、/opencode、/cursor、/lumii。
+ * 切换写入**会话级** dev-context（10-S3b 起按会话 id 索引，用户换渠道续聊时项目跟着走）；
+ * 下一条 ACP 消息即以该项目目录为 cwd。编码工具切换见 /claude、/codex、/opencode、/cursor、/lumii。
+ *
+ * 注册范围：**仅微信与飞书**——QQ 与企业微信的 adapter 没有接 ACP 分流
+ * （见各 adapter 的 buildRegistry），因此未注册本命令；在那两个渠道发 /project 只会得到「未知命令」。
  */
 import type { CommandHandler, CommandContext } from '../types'
 import { getCodingDevConfig } from '../../coding-dev-env.js'

@@ -47,10 +47,10 @@ export const qbotApi = {
     ipcRenderer.invoke('qbot:saveCredentials', appId, appSecret),
 }
 
-/** 渠道实验性功能开关（§5.4 跨渠道接续） */
-export interface ChannelFeatureSettings {
-  crossChannelContinuityEnabled: boolean
-}
+/** 渠道实验性功能开关（§5.4 跨渠道接续）：形状在 shared，main / preload / renderer 共用一份 */
+import type { ChannelFeatureSettings } from '../../shared/channel-features'
+
+export type { ChannelFeatureSettings }
 
 export const channelApi = {
   /** 列出已注册渠道快照（含未连接渠道） */

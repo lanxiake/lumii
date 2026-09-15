@@ -11,20 +11,18 @@
 import { app } from 'electron'
 import { join } from 'node:path'
 import fs from 'node:fs'
+import {
+  DEFAULT_CHANNEL_FEATURES,
+  type ChannelFeatureSettings,
+} from '../../shared/channel-features'
 
 const log = {
   info: (...args: unknown[]) => console.log('[channel-feature-store]', ...args),
   warn: (...args: unknown[]) => console.warn('[channel-feature-store]', ...args),
 }
 
-export interface ChannelFeatureSettings {
-  /** 跨渠道会话接续询问（§5.4）：默认关（实验性，会主动发询问消息） */
-  crossChannelContinuityEnabled: boolean
-}
-
-export const DEFAULT_CHANNEL_FEATURES: ChannelFeatureSettings = {
-  crossChannelContinuityEnabled: false,
-}
+// 开关的形状与默认值在 shared/channel-features.ts（main / preload / renderer 共用一份）
+export { DEFAULT_CHANNEL_FEATURES, type ChannelFeatureSettings }
 
 let cache: ChannelFeatureSettings | null = null
 

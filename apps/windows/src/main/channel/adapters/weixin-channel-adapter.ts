@@ -51,16 +51,6 @@ import { resolveContinuityForChannel } from '../cross-channel-continuity'
 import { getChannelSessionStore, type RouteSource } from '../channel-session-store'
 import { ChannelRouteService } from '../channel-route'
 import { registerChannelAdapter } from '../channel-adapter-registry'
-import {
-  consumeHandoff,
-  findLatestHandoffFor,
-  isHandoffConfirmText,
-} from '../../agent-runtime/handoff-store'
-import {
-  NO_CLI_BINDING_HINT,
-  formatHandoffReport,
-  runDevHandoff,
-} from '../../ipc/agent-runtime/dev-handoff-executor'
 import { getChannelFeatures } from '../channel-feature-store'
 import {
   getChannelVoiceAsrFailedHint,
@@ -332,12 +322,7 @@ export class WeixinChannelAdapter implements IChannelAdapter {
     const session = this.buildSession(msg)
     log.info(`[handleMessage] 开始处理消息: sessionKey=${session.sessionKey} promptLen=${prompt.length}`)
 
-    try {
-      // 转交确认（F3）：主助手在本会话提出过待确认的转交提案，本条即确认回复——
-      // 必须在普通消息处理之前拦截，否则「1」会被当成新需求发给主助手。
-      if (await this.tryConsumeHandoffConfirm(msg, session, userTextOnly)) return
-
-      this.bridge.ensureConversationExists(session.sessionKey, `微信对话 - ${msg.channelUserId}`, this.channelType)
+    try {      this.bridge.ensureConversationExists(session.sessionKey, `微信对话 - ${msg.channelUserId}`, this.channelType)
 
       // 斜杠命令处理
       if (prompt.startsWith('/')) {
@@ -396,7 +381,7 @@ export class WeixinChannelAdapter implements IChannelAdapter {
 
       // 主代理：走原有 bridge.prompt() 路径
       const instanceId = await this.getOrCreateInstance(session.sessionKey)
-      const activeSession = { ...session, instanceId }
+      const sessionWithInstance = { ...session, instanceId }
 
       // 持久化用户消息
       try {
@@ -452,7 +437,7 @@ export class WeixinChannelAdapter implements IChannelAdapter {
           message: prompt,
           strategy: this.contextStrategy,
           adapter: this,
-          session: activeSession,
+          session: sessionWithInstance,
         })
       } finally {
         this.bridge.unregisterNodeStreamCallback(instanceId)
@@ -468,10 +453,10 @@ export class WeixinChannelAdapter implements IChannelAdapter {
         if (sentViaTool) {
           log.info(`[handleMessage] 本轮已通过 message 工具发送，跳过空/NO_REPLY 文本回复`)
         } else if (streamError) {
-          await this.sendTextReply(activeSession, buildChannelErrorMessage(streamError))
+          await this.sendTextReply(sessionWithInstance, buildChannelErrorMessage(streamError))
         }
       } else {
-        await this.sendTextReply(activeSession, replyText)
+        await this.sendTextReply(sessionWithInstance, replyText)
       }
     } catch (err) {
       log.error(`[handleMessage] Agent 处理异常: ${err instanceof Error ? err.message : String(err)}`)
@@ -637,70 +622,6 @@ export class WeixinChannelAdapter implements IChannelAdapter {
         await this.sendTextReply(session, `❌ ACP 执行失败：${err instanceof Error ? err.message : String(err)}`)
       }
     }
-  }
-
-  /**
-   * 转交确认（F3）：主助手在本会话提出过转交提案（10 分钟内）且用户回复确认词 →
-   * 消费提案，按开发上下文（含 code-dev 的 Agent 绑定，与桌面 F2 同一套配置）直达 CLI，
-   * 完整复用 ACP 回执链（工具进度 + 完成原文）。返回 true 表示本条消息已消费。
-   */
-  private async tryConsumeHandoffConfirm(
-    msg: WeixinNormalizedMessage,
-    session: ChannelSession,
-    text: string,
-  ): Promise<boolean> {
-    if (!isHandoffConfirmText(text)) return false
-    const handoff = findLatestHandoffFor(session.sessionKey, 10 * 60 * 1000)
-    if (!handoff) return false
-    consumeHandoff(handoff.id)
-
-    const manualBackend = this.acpBackendManager.getBackend(msg.channelUserId, session.sessionKey)
-    const devContext = resolveDevContext({
-      appConfig: getCodingDevConfig(),
-      sessionKey: session.sessionKey,
-      // 以「灵栖开发」的名义解析：命中 code-dev 的 Agent 绑定（与桌面同一套）
-      agentId: 'code-dev',
-      fallbackBackendId: manualBackend,
-    })
-    log.info(
-      `[tryConsumeHandoffConfirm] 确认转交 handoffId=${handoff.id} backend=${devContext.backendId} source=${devContext.source} cwd=${devContext.projectPath ?? '(无)'}`,
-    )
-
-    if (devContext.backendId === DEFAULT_CODING_DEV_BACKEND_ID) {
-      await this.sendTextReply(session, NO_CLI_BINDING_HINT).catch(() => undefined)
-      return true
-    }
-
-    // 提案指定的项目优先于渠道会话自身的 /project 选择（主助手已确认项目归属）
-    const effectiveProjectName = handoff.projectName ?? devContext.projectName
-
-    await this.sendTextReply(
-      session,
-      `✅ 已确认，交给灵栖开发执行${effectiveProjectName ? `（项目：${effectiveProjectName}）` : ''}…`,
-    ).catch(() => undefined)
-
-    // 执行空间 = 灵栖开发的开发会话（新建/复用最近）；完成后异步把结果汇报回本会话
-    try {
-      await runDevHandoff({
-        bridge: this.bridge,
-        task: handoff.task,
-        sessionMode: handoff.sessionMode,
-        title: handoff.summary,
-        ...(handoff.projectName ? { projectName: handoff.projectName } : {}),
-        report: (payload) =>
-          this.sendTextReply(session, formatHandoffReport(handoff.summary, payload)).catch((err) => {
-            log.warn(
-              `[tryConsumeHandoffConfirm] 完成汇报失败: ${err instanceof Error ? err.message : String(err)}`,
-            )
-          }),
-      })
-    } catch (err) {
-      await this.sendTextReply(
-        session,
-        `❌ 转交发起失败：${err instanceof Error ? err.message : String(err)}`,
-      ).catch(() => undefined)
-    }
-    return true
   }
 
   /** 销毁指定 sessionKey 的实例缓存 */

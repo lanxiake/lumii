@@ -115,7 +115,9 @@ export function registerHandoffTools(deps: BridgeToolRegistrarDeps, ctx: ToolExe
 
       const projectHint = projectName ? `（项目：${projectName}）` : ''
 
-      // 宿主未注入执行入口（测试 / 裁剪场景）：退回「仅提案」的旧行为
+      // 宿主未注入执行入口（测试 / 裁剪场景）：退回「仅提案」。
+      // 这条路上的确认只剩桌面卡片（handoff:confirm）——渠道侧的「回复 1」确认已在
+      // 10-S6 删除：自动执行落地后它永远等不到 pending 提案，只是白白多一个裸词消费者。
       if (!deps.autoRunHandoff) {
         return jsonToolResult({
           status: 'proposed',
@@ -135,8 +137,8 @@ export function registerHandoffTools(deps: BridgeToolRegistrarDeps, ctx: ToolExe
         sessionMode: handoff.sessionMode,
         ...(projectName ? { projectName } : {}),
       })
-      // 立即消费提案：自动执行后已无需人工确认，若留在 pending 里，
-      // 渠道侧 10 分钟内的「回复 1」会被 tryConsumeHandoffConfirm 再触发一次（重复执行）。
+      // 立即消费提案：自动执行后已无需人工确认。留着只会白占 pending 名额
+      // （上限 50 会淘汰最旧的，可能挤掉真正待确认的那条）。
       consumeHandoff(handoff.id)
 
       if (!started.ok) {

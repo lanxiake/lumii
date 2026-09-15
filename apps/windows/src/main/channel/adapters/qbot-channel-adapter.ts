@@ -26,18 +26,6 @@ import {
   CHANNEL_ACK_TEXT,
   buildChannelErrorMessage,
 } from '../channel-error-helper'
-import {
-  consumeHandoff,
-  findLatestHandoffFor,
-  isHandoffConfirmText,
-} from '../../agent-runtime/handoff-store'
-import { getCodingDevConfig, resolveDevContext } from '../../coding-dev-env.js'
-import { DEFAULT_CODING_DEV_BACKEND_ID } from '../../coding-dev-backends-stub/contracts.js'
-import {
-  NO_CLI_BINDING_HINT,
-  formatHandoffReport,
-  runDevHandoff,
-} from '../../ipc/agent-runtime/dev-handoff-executor'
 import { resolveContinuityForChannel } from '../cross-channel-continuity'
 import { getChannelSessionStore, type RouteSource } from '../channel-session-store'
 import { ChannelRouteService } from '../channel-route'
@@ -264,12 +252,7 @@ export class QbotChannelAdapter implements IChannelAdapter {
     const session = this.buildSession(msg)
     log.info(`[handleMessage] sessionKey=${session.sessionKey} type=${msg.type} promptLen=${prompt.length}`)
 
-    try {
-      // 转交确认（F3）：主助手提出过待确认的转交提案，本条即确认回复——
-      // 必须在普通消息处理之前拦截，否则「1」会被当成新需求发给主助手。
-      if (await this.tryConsumeHandoffConfirm(msg, session, userText)) return
-
-      this.bridge.ensureConversationExists(session.sessionKey, `QQ - ${msg.channelUserId}`, this.channelType)
+    try {      this.bridge.ensureConversationExists(session.sessionKey, `QQ - ${msg.channelUserId}`, this.channelType)
 
       if (prompt.startsWith('/')) {
         const args = SlashCommandRegistry.parseArgs(prompt)
@@ -299,7 +282,7 @@ export class QbotChannelAdapter implements IChannelAdapter {
       this.bridge.notifyNavigateToSession(session.sessionKey)
 
       const instanceId = await this.getOrCreateInstance(session.sessionKey)
-      const activeSession = { ...session, instanceId }
+      const sessionWithInstance = { ...session, instanceId }
 
       try {
         this.bridge.conversationRepo.saveMessage({
@@ -331,7 +314,7 @@ export class QbotChannelAdapter implements IChannelAdapter {
           message: prompt,
           strategy: this.contextStrategy,
           adapter: this,
-          session: activeSession,
+          session: sessionWithInstance,
         })
       } finally {
         this.bridge.unregisterNodeStreamCallback(instanceId)
@@ -339,9 +322,9 @@ export class QbotChannelAdapter implements IChannelAdapter {
 
       const replyText = finalTexts.join('\n').trim()
       if (replyText && replyText !== 'NO_REPLY') {
-        await this.sendTextReply(activeSession, replyText)
+        await this.sendTextReply(sessionWithInstance, replyText)
       } else if (streamError) {
-        await this.sendTextReply(activeSession, buildChannelErrorMessage(streamError))
+        await this.sendTextReply(sessionWithInstance, buildChannelErrorMessage(streamError))
       }
     } catch (err) {
       log.error(`[handleMessage] 异常: ${err instanceof Error ? err.message : String(err)}`)
@@ -351,70 +334,6 @@ export class QbotChannelAdapter implements IChannelAdapter {
         log.warn(`[handleMessage] 发送错误回传失败: ${replyErr instanceof Error ? replyErr.message : String(replyErr)}`)
       }
     }
-  }
-
-  /**
-   * 转交确认（F3）：主助手在本会话提出过转交提案（10 分钟内）且用户回复确认词 →
-   * 消费提案，按开发上下文（含 code-dev 的 Agent 绑定，与桌面 F2 同一套配置）直达 CLI。
-   * 返回 true 表示本条消息已消费。
-   */
-  private async tryConsumeHandoffConfirm(
-    msg: QbotNormalizedMessage,
-    session: ChannelSession,
-    text: string,
-  ): Promise<boolean> {
-    if (!isHandoffConfirmText(text)) return false
-    const handoff = findLatestHandoffFor(session.sessionKey, 10 * 60 * 1000)
-    if (!handoff) return false
-    consumeHandoff(handoff.id)
-
-    const manualBackend = this.acpBackendManager.getBackend(msg.channelUserId, session.sessionKey)
-    const devContext = resolveDevContext({
-      appConfig: getCodingDevConfig(),
-      sessionKey: session.sessionKey,
-      // 以「灵栖开发」的名义解析：命中 code-dev 的 Agent 绑定（与桌面同一套）
-      agentId: 'code-dev',
-      fallbackBackendId: manualBackend,
-    })
-    log.info(
-      `[tryConsumeHandoffConfirm] 确认转交 handoffId=${handoff.id} backend=${devContext.backendId} source=${devContext.source} cwd=${devContext.projectPath ?? '(无)'}`,
-    )
-
-    if (devContext.backendId === DEFAULT_CODING_DEV_BACKEND_ID) {
-      await this.sendTextReply(session, NO_CLI_BINDING_HINT).catch(() => undefined)
-      return true
-    }
-
-    // 提案指定的项目优先于渠道会话自身的 /project 选择（主助手已确认项目归属）
-    const effectiveProjectName = handoff.projectName ?? devContext.projectName
-
-    await this.sendTextReply(
-      session,
-      `✅ 已确认，交给灵栖开发执行${effectiveProjectName ? `（项目：${effectiveProjectName}）` : ''}…`,
-    ).catch(() => undefined)
-
-    // 执行空间 = 灵栖开发的开发会话（新建/复用最近）；完成后异步把结果汇报回本会话
-    try {
-      await runDevHandoff({
-        bridge: this.bridge,
-        task: handoff.task,
-        sessionMode: handoff.sessionMode,
-        title: handoff.summary,
-        ...(handoff.projectName ? { projectName: handoff.projectName } : {}),
-        report: (payload) =>
-          this.sendTextReply(session, formatHandoffReport(handoff.summary, payload)).catch((err) => {
-            log.warn(
-              `[tryConsumeHandoffConfirm] 完成汇报失败: ${err instanceof Error ? err.message : String(err)}`,
-            )
-          }),
-      })
-    } catch (err) {
-      await this.sendTextReply(
-        session,
-        `❌ 转交发起失败：${err instanceof Error ? err.message : String(err)}`,
-      ).catch(() => undefined)
-    }
-    return true
   }
 
   private buildSession(msg: QbotNormalizedMessage): ChannelSession {
