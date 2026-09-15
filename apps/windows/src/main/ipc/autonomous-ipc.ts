@@ -82,8 +82,8 @@ function safeJsonArray(raw: string): unknown[] {
   }
 }
 
-/** 空数据时的降级形状：保持 enabled 语义，其余归零 */
-function emptyStatus(enabled = true) {
+/** 空数据时的降级形状：保持 enabled 语义（缺省禁用），其余归零 */
+function emptyStatus(enabled = false) {
   return {
     enabled,
     satisfaction: {
