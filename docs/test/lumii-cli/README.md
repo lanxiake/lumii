@@ -15,12 +15,22 @@ docs/test/lumii-cli/
 ├── wiki/                  # Wiki 知识库专项
 ├── autonomous/            # 自主进化专项
 ├── agent-team/            # 一等公民 Agent 团队：场景化旅程（成员会话/日报送达/开发模式续接）
+├── channel-routing/       # 渠道会话路由（CR）：手工用例——跨渠道接续/路由/项目跟随/转交回流
 ├── prompt-style/          # 提示词风格实验（PS）：两档转储形态 + 真实任务双档对照
 ├── cloud-sync/            # 云同步专项
 └── materials/             # 真实文档样本（docx/mp4/PDF，gitignore 不提交）
 ```
 
 ## 测试套件
+
+### 渠道会话路由（channel-routing/）
+
+| 文件 | 说明 |
+|---|---|
+| [channel-routing-test-cases.md](./channel-routing/channel-routing-test-cases.md) | **手工**用例 CR-01~CR-18：迁移与开关、转交结果回流、身份分组、路由一致性、项目跟随、接续提示、卫生回归 |
+
+> 本套件是**手工执行**（不走 CLI harness）：要点分布在客户端界面、渠道消息与真实 CLI 三处，
+> 且涉及「跨渠道续聊」这类难以脚本化的时序，脚本化收益低于维护成本。执行前置见文档 §零。
 
 ### 通用 CLI（general/）
 
