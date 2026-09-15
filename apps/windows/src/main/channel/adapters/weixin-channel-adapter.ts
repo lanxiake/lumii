@@ -305,7 +305,13 @@ export class WeixinChannelAdapter implements IChannelAdapter {
     // 斜杠命令不问：它是明确的会话操作，不该被打断。
     // 接续只改路由，不写 bindingManager（那是 /link 的显式绑定）。
     if (!userTextOnly.startsWith('/')) {
-      this.continuity()?.maybeNotice({ adapter: this, session: this.buildSession(msg) })
+      const noticeSession = this.buildSession(msg)
+      this.continuity()?.maybeNotice({
+        adapter: this,
+        session: noticeSession,
+        // 该会话正等审批/提问答复时不发接续提示：两套「回复…」不抢同一条消息（10-S5 消歧）
+        hasPendingInteraction: this.interactionHub.hasPending(noticeSession.sessionKey),
+      })
     }
 
     // 有指令：取出挂起的附件合并

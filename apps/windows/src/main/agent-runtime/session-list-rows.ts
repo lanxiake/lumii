@@ -8,13 +8,14 @@
  */
 
 import { resolveChannelIdentity } from '../channel/channel-identity'
+import { RECENT_SCAN_LIMIT, sortByUpdatedAtDesc } from '../channel/recent-conversations'
 
 /** 默认返回条数 / 上限（一次给太多会撑长工具结果、白耗 token） */
 export const DEFAULT_SESSION_LIST_LIMIT = 20
 export const MAX_SESSION_LIST_LIMIT = 50
 
-/** 扫描窗口：底层是「置顶优先」序，取太少会让真正最近的会话排不进来 */
-export const SESSION_SCAN_LIMIT = 200
+/** 扫描窗口：与其它「最近会话」消费方共用一份口径（见 channel/recent-conversations.ts） */
+export const SESSION_SCAN_LIMIT = RECENT_SCAN_LIMIT
 
 /** 工具返回给模型的单条会话 */
 export interface SessionListRow {
@@ -45,18 +46,15 @@ export function buildSessionListRows(
   const limit = Math.min(Math.max(opts.limit ?? DEFAULT_SESSION_LIST_LIMIT, 1), MAX_SESSION_LIST_LIMIT)
   const current = opts.currentSessionKey ?? null
 
-  return rows
-    .map((row) => ({ row, ts: Date.parse(row.last_msg_at ?? row.created_at) }))
-    // 时间戳坏掉的行直接丢：排不了序，也说不清新旧
-    .filter((entry) => Number.isFinite(entry.ts))
-    .sort((a, b) => b.ts - a.ts)
-    .map(({ row }) => ({
+  return sortByUpdatedAtDesc(
+    rows.map((row) => ({
       id: row.id,
       title: row.title ?? '新对话',
       channel: resolveChannelIdentity(row.id, row.channel_type).label || '系统',
       updatedAt: row.last_msg_at ?? row.created_at,
       isCurrent: row.id === current,
-    }))
+    })),
+  )
     .filter((s) => !keyword || s.title.toLowerCase().includes(keyword))
     .slice(0, limit)
 }

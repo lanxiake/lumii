@@ -21,6 +21,7 @@
  */
 
 import type { RuntimeStateRepo } from '@mtbot/agent-runtime'
+import { RECENT_SCAN_LIMIT, sortByUpdatedAtDesc } from './recent-conversations'
 
 const log = {
   info: (...args: unknown[]) => console.log('[ChannelSessionStore]', ...args),
@@ -28,9 +29,6 @@ const log = {
 }
 
 const KEY_PREFIX = 'channel:active:'
-
-/** 兜底查「本渠道最近会话」时扫描的条数（底层是置顶优先序，要足够多才能兜住自己的会话） */
-const OWN_LOOKUP_LIMIT = 200
 
 /**
  * 当前路由的来源。
@@ -246,18 +244,15 @@ export class ChannelSessionStore {
    * 兜底找「本渠道本人的最近会话」。
    *
    * 不能直接取 `listRecent(1)`：底层 SQL 是 `is_pinned DESC, last_msg_at DESC`，
-   * 置顶的旧会话会压过五分钟前的真实会话。这里取一批后自己按时间排序。
+   * 置顶的旧会话会压过五分钟前的真实会话。取宽窗口后自己按时间排（见 recent-conversations.ts）。
    */
   private lookupOwn(channelType: string, channelUserId: string): string | null {
     if (!this.listRecent) return null
     try {
-      const mine = this.listRecent(OWN_LOOKUP_LIMIT).filter((c) =>
+      const mine = this.listRecent(RECENT_SCAN_LIMIT).filter((c) =>
         isOwnChannelSessionKey(channelType, channelUserId, c.id),
       )
-      if (mine.length === 0) return null
-      return mine.reduce((latest, c) =>
-        Date.parse(c.updatedAt) > Date.parse(latest.updatedAt) ? c : latest,
-      ).id
+      return sortByUpdatedAtDesc(mine)[0]?.id ?? null
     } catch (err) {
       log.warn(
         `[lookupOwn] 查询失败 channelUserId=${channelUserId}: ${err instanceof Error ? err.message : err}`,

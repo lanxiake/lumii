@@ -25,6 +25,7 @@
 
 import type { ChannelSession, IChannelAdapter } from './types'
 import { resolveChannelIdentity } from './channel-identity'
+import { RECENT_SCAN_LIMIT, sortByUpdatedAtDesc } from './recent-conversations'
 
 const log = {
   info: (...args: unknown[]) => console.log('[CrossChannelContinuity]', ...args),
@@ -33,11 +34,6 @@ const log = {
 
 /** 提示的有效期：用户在这段时间内回 1 才兑现；过期什么都不发生 */
 export const CONTINUITY_OFFER_TTL_MS = 10 * 60 * 1000
-
-/**
- * 候选扫描条数。底层列表是「置顶优先」序，取太少会让真正最近的渠道会话排不进来。
- */
-const CANDIDATE_SCAN_LIMIT = 50
 
 /** 候选会话：来自其它渠道的近期活跃会话 */
 export interface ContinuityCandidate {
@@ -99,20 +95,17 @@ export function pickContinuityCandidate(params: {
   }
 
   // 底层列表是「置顶优先」序而非时间序（conversation-repo.listActiveConversations），
-  // 置顶的旧会话会压过真正最近的会话。自己按时间排一遍，否则会挑到两天前的闲聊。
-  const ordered = recent
-    .map((conv) => ({ conv, ts: Date.parse(conv.updatedAt) }))
-    .filter((entry) => Number.isFinite(entry.ts))
-    .sort((a, b) => b.ts - a.ts)
+  // 置顶的旧会话会压过真正最近的会话。先按时间排一遍，否则会挑到两天前的闲聊。
+  const ordered = sortByUpdatedAtDesc(recent)
 
-  for (const { conv, ts } of ordered) {
+  for (const conv of ordered) {
     if (conv.id === currentSessionKey) continue
 
     const { ownership, label } = resolveChannelIdentity(conv.id, conv.channelType)
     // 同渠道 / 非用户会话不作候选
     if (ownership === currentChannelType || !label) continue
 
-    if (now - ts > windowMs) continue
+    if (now - Date.parse(conv.updatedAt) > windowMs) continue
 
     return {
       conversationId: conv.id,
@@ -124,13 +117,19 @@ export function pickContinuityCandidate(params: {
   return null
 }
 
-/** 提示文案（方案 A：不承诺「不回就默认接续」，如实说明两条路各会发生什么） */
+/**
+ * 提示文案（10-S5 消歧）：**不再要求用户回裸数字**。
+ *
+ * 渠道里另有一套「回 1/2/3」的协议（审批与提问选项，见 `channel-interaction-store.ts`），
+ * 两套都问「1」时用户无法表达自己在回答哪一个。审批那一套是位阶选择，天然用数字；
+ * 所以这里改用词，让两种提示在词面上就分得开（`parseContinuityReply` 仍容忍 1/0/是/否 等旧写法）。
+ */
 export function formatContinuityPrompt(candidate: ContinuityCandidate): string {
   return [
     `检测到你在【${candidate.channelLabel}】有进行中的对话：`,
     `「${candidate.title}」`,
     '',
-    '回复 1 继续那条对话（本条消息仍在这里回答），回复 0 忽略。',
+    '回复「接续」继续那条对话（本条消息仍在这里回答），回复「不接续」忽略。',
   ].join('\n')
 }
 
@@ -190,19 +189,28 @@ export class CrossChannelContinuity {
    *
    * **不拦截消息**：返回值只表示「是否发了提示」，调用方照常处理这条消息——
    * 用户选择接续是下一次发言才生效的事。
+   *
+   * @param hasPendingInteraction 该会话是否正等用户答复审批/提问。是则**不发提示**：
+   *   用户下一条消息会被那套协议吃掉，此时再给一个「回复…」只会让两条提示抢同一条消息。
    */
-  maybeNotice(params: { adapter: IChannelAdapter; session: ChannelSession }): boolean {
-    const { adapter, session } = params
+  maybeNotice(params: {
+    adapter: IChannelAdapter
+    session: ChannelSession
+    hasPendingInteraction?: boolean
+  }): boolean {
+    const { adapter, session, hasPendingInteraction } = params
     const { sessionKey, channelType, channelUserId } = session
     const userKey = userKeyOf(channelType, channelUserId)
 
     // 同一路由只提示一次。用户换会话（/new、/resume、/back）后路由变了，可以再提示。
     if (this.noticedRoute.get(userKey) === sessionKey) return false
+    // 有挂起的审批/提问时不提示（也不记为看过：等那套流程结束再评估）
+    if (hasPendingInteraction) return false
 
     let candidate: ContinuityCandidate | null = null
     try {
       candidate = pickContinuityCandidate({
-        recent: this.deps.listRecent(CANDIDATE_SCAN_LIMIT),
+        recent: this.deps.listRecent(RECENT_SCAN_LIMIT),
         currentSessionKey: sessionKey,
         currentSessionOwnership: this.deps.lookupOwnership(sessionKey),
         currentChannelType: channelType,

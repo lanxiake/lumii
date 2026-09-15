@@ -289,7 +289,13 @@ export class FeishuChannelAdapter implements IChannelAdapter {
     // 用户回 1 是下一次发言才生效的事，本条照常处理（旧版会扣住并重放整条消息）。
     // 斜杠命令不问：它是明确的会话操作，不该被打断。
     if (!userText.startsWith('/')) {
-      this.continuity()?.maybeNotice({ adapter: this, session: this.buildSession(msg) })
+      const noticeSession = this.buildSession(msg)
+      this.continuity()?.maybeNotice({
+        adapter: this,
+        session: noticeSession,
+        // 该会话正等审批/提问答复时不发接续提示：两套「回复…」不抢同一条消息（10-S5 消歧）
+        hasPendingInteraction: this.interactionHub.hasPending(noticeSession.sessionKey),
+      })
     }
 
     // 有指令：取出挂起的附件合并

@@ -1,5 +1,6 @@
 import type { CommandHandler, CommandContext } from '../types'
 import { resolveChannelIdentity } from '../channel-identity'
+import { RECENT_SCAN_LIMIT } from '../recent-conversations'
 
 /** 每条列表项：会话 + 来源渠道标签 */
 interface ResumeEntry {
@@ -16,8 +17,8 @@ const GROUP_ORDER = ['客户端', '微信', '飞书', '企业微信', 'QQ']
 /** 每组最多列几条：渠道是纯文本，全量 dump 会超长被截断，序号也就跟着失效 */
 const MAX_PER_GROUP = 10
 
-/** 拉取窗口：底层是「置顶优先」排序，取太少会让渠道自己的会话被挤出列表 */
-const LOOKUP_LIMIT = 100
+/** 拉取窗口：与其它「最近会话」消费方共用一份口径（见 channel/recent-conversations.ts） */
+const LOOKUP_LIMIT = RECENT_SCAN_LIMIT
 
 /**
  * 组装会话列表：按来源渠道分组、组内按时间倒序、序号跨组连续。

@@ -222,8 +222,11 @@ describe('CrossChannelContinuity 提示状态机（10-S4 方案 A）', () => {
     expect(c.maybeNotice({ adapter, session })).toBe(true)
     expect(sent[0]).toContain('重构登录模块')
     expect(sent[0]).toContain('客户端')
-    // 提示里如实说明两条路各会发生什么，不再承诺「不回就默认接续」
-    expect(sent[0]).toContain('回复 1 继续那条对话')
+    // 提示里如实说明两条路各会发生什么，且**不再要求回复裸数字**（10-S5 消歧）：
+    // 渠道里另一套「回 1/2/3」是审批/提问选项，两套都问「1」时用户没法表达在答哪个
+    expect(sent[0]).toContain('回复「接续」')
+    expect(sent[0]).toContain('不接续')
+    expect(sent[0]).not.toContain('回复 1')
     expect(sent[0]).not.toContain('默认接续')
   })
 
@@ -242,6 +245,14 @@ describe('CrossChannelContinuity 提示状态机（10-S4 方案 A）', () => {
     expect(c.maybeNotice({ adapter, session })).toBe(false)
     expect(sent).toHaveLength(0)
     expect(c.maybeNotice({ adapter, session })).toBe(false)
+  })
+
+  it('该会话正等审批/提问答复时不发提示（10-S5 消歧：两套「回复…」不抢同一条消息）', () => {
+    const c = make()
+    expect(c.maybeNotice({ adapter, session, hasPendingInteraction: true })).toBe(false)
+    expect(sent).toHaveLength(0)
+    // 也不记为「看过」：那套流程结束后仍应正常提示
+    expect(c.maybeNotice({ adapter, session })).toBe(true)
   })
 
   it('候选查询抛错时跳过提示，不阻断消息', () => {
