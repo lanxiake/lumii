@@ -1,11 +1,11 @@
 /**
- * 跨渠道接续（§5.4）：候选判定 + 询问状态机 + 1 分钟超时。
+ * 跨渠道接续（§5.4 / 10-S4 方案 A）：候选判定 + 提示状态机（不扣消息、无定时器）。
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import {
   CrossChannelContinuity,
-  CONTINUITY_TIMEOUT_MS,
+  CONTINUITY_OFFER_TTL_MS,
   parseContinuityReply,
   pickContinuityCandidate,
   type RecentConversation,
@@ -171,7 +171,7 @@ describe('parseContinuityReply', () => {
   })
 })
 
-describe('CrossChannelContinuity 状态机', () => {
+describe('CrossChannelContinuity 提示状态机（10-S4 方案 A）', () => {
   const session: ChannelSession = {
     sessionKey: 'weixin:u1',
     channelType: 'weixin',
@@ -182,8 +182,8 @@ describe('CrossChannelContinuity 状态机', () => {
   let sent: string[]
   let adapter: IChannelAdapter
   let setActive: ReturnType<typeof vi.fn>
-  let bind: ReturnType<typeof vi.fn>
-  let replay: ReturnType<typeof vi.fn>
+  /** 可控时钟：状态机内部没有任何 timer，过期靠惰性判定 */
+  let clock: number
 
   const recent: RecentConversation[] = [
     { id: 'conv-client', title: '重构登录模块', updatedAt: new Date().toISOString() },
@@ -194,15 +194,14 @@ describe('CrossChannelContinuity 状态机', () => {
       listRecent: () => recentList,
       // 归属落库值：本组用例不涉及「当前会话归属」的差异，统一返回 null（回退前缀）
       lookupOwnership: () => null,
+      now: () => clock,
     })
   }
 
   beforeEach(() => {
-    vi.useFakeTimers()
+    clock = Date.parse('2026-09-15T10:00:00.000Z')
     sent = []
     setActive = vi.fn()
-    bind = vi.fn()
-    replay = vi.fn()
     adapter = {
       channelType: 'weixin',
       sendTextReply: async (_s, text) => {
@@ -211,158 +210,137 @@ describe('CrossChannelContinuity 状态机', () => {
       notifyIncomingMessage: () => {},
       notifyNavigateToSession: () => {},
       getContextStrategy: () => ({ beforePrompt: async () => {}, afterPrompt: async () => {} }),
+      // 路由写入后回读：默认读回被写入的目标（模拟写入成功）
       setActiveSessionKey: setActive,
+      getActiveSessionKey: () => 'conv-client',
     }
   })
 
-  afterEach(() => {
-    vi.useRealTimers()
-  })
-
-  it('有候选时发出询问并扣住消息', () => {
+  // ── 提示 ────────────────────────────────────────────────────────────────────
+  it('有候选时发出提示（消息不扣留：调用方照常处理本条）', () => {
     const c = make()
-    expect(c.maybeAsk({ adapter, session, replay })).toBe(true)
-    expect(c.hasPending('weixin:u1')).toBe(true)
+    expect(c.maybeNotice({ adapter, session })).toBe(true)
     expect(sent[0]).toContain('重构登录模块')
     expect(sent[0]).toContain('客户端')
-    // 扣住：还没投给 Agent
-    expect(replay).not.toHaveBeenCalled()
+    // 提示里如实说明两条路各会发生什么，不再承诺「不回就默认接续」
+    expect(sent[0]).toContain('回复 1 继续那条对话')
+    expect(sent[0]).not.toContain('默认接续')
   })
 
-  it('回复 1 → 绑定目标会话并重放消息', () => {
+  it('同一路由只提示一次；用户换了会话（/new、/back）后可以再提示', () => {
     const c = make()
-    c.maybeAsk({ adapter, session, replay, bind })
-    expect(c.tryConsumeReply('weixin:u1', '1')).toBe(true)
+    expect(c.maybeNotice({ adapter, session })).toBe(true)
+    expect(c.maybeNotice({ adapter, session })).toBe(false)
+    expect(sent).toHaveLength(1)
 
-    expect(bind).toHaveBeenCalledWith('u1', 'conv-client')
-    expect(setActive).toHaveBeenCalledWith('u1', 'conv-client', 'continuity')
-    expect(replay).toHaveBeenCalledTimes(1)
-    expect(c.hasPending('weixin:u1')).toBe(false)
+    const afterNew: ChannelSession = { ...session, sessionKey: 'weixin:u1:169' }
+    expect(c.maybeNotice({ adapter, session: afterNew })).toBe(true)
   })
 
-  it('回复 0 → 不绑定，仍重放消息到原会话', () => {
-    const c = make()
-    c.maybeAsk({ adapter, session, replay, bind })
-    expect(c.tryConsumeReply('weixin:u1', '0')).toBe(true)
-
-    expect(bind).not.toHaveBeenCalled()
-    expect(setActive).not.toHaveBeenCalled()
-    expect(replay).toHaveBeenCalledTimes(1)
-  })
-
-  it('回复 0 → 路由显式改回本渠道会话，且新 key 不再被追问', () => {
-    const reset = vi.fn(() => 'weixin:u1:169')
-    const c = make()
-    c.maybeAsk({ adapter: { ...adapter, resetToChannelSession: reset }, session, replay })
-    expect(c.tryConsumeReply('weixin:u1', '0')).toBe(true)
-
-    expect(reset).toHaveBeenCalledWith('u1')
-    expect(replay).toHaveBeenCalledTimes(1)
-    // 重放后 buildSession 拿到的是 own（新 key），不标记就会被当作新会话再问一次
-    const afterReset: ChannelSession = { ...session, sessionKey: 'weixin:u1:169' }
-    expect(
-      c.maybeAsk({ adapter: { ...adapter, resetToChannelSession: reset }, session: afterReset, replay }),
-    ).toBe(false)
-  })
-
-  it('回到本渠道会话失败时不阻断重放', () => {
-    const reset = vi.fn(() => {
-      throw new Error('store 不可用')
-    })
-    const c = make()
-    c.maybeAsk({ adapter: { ...adapter, resetToChannelSession: reset }, session, replay })
-    expect(() => c.tryConsumeReply('weixin:u1', '0')).not.toThrow()
-
-    expect(replay).toHaveBeenCalledTimes(1)
-  })
-
-  it('1 分钟超时 → 默认接续，消息不丢', () => {
-    const c = make()
-    c.maybeAsk({ adapter, session, replay, bind })
-
-    vi.advanceTimersByTime(CONTINUITY_TIMEOUT_MS)
-
-    expect(bind).toHaveBeenCalledWith('u1', 'conv-client')
-    expect(setActive).toHaveBeenCalledWith('u1', 'conv-client', 'continuity')
-    expect(replay).toHaveBeenCalledTimes(1)
-    expect(c.hasPending('weixin:u1')).toBe(false)
-  })
-
-  it('答复无法识别 → 放行为普通消息，且被扣住的那条补投出去', () => {
-    const c = make()
-    c.maybeAsk({ adapter, session, replay })
-    // 用户压根没理询问，直接换了话题
-    expect(c.tryConsumeReply('weixin:u1', '帮我查下天气')).toBe(false)
-    expect(c.hasPending('weixin:u1')).toBe(false)
-    // 被扣的消息从没进过 Agent，必须补投，否则用户发了消息永远等不到回音
-    expect(replay).toHaveBeenCalledTimes(1)
-  })
-
-  it('同一会话只问一次', () => {
-    const c = make()
-    expect(c.maybeAsk({ adapter, session, replay })).toBe(true)
-    c.tryConsumeReply('weixin:u1', '0')
-    // 第二条消息不再询问
-    expect(c.maybeAsk({ adapter, session, replay })).toBe(false)
-  })
-
-  it('无候选时不询问，且记为问过（避免每条消息重查）', () => {
+  it('无候选时不提示，也记为看过（避免每条消息重查 DB）', () => {
     const c = make([])
-    expect(c.maybeAsk({ adapter, session, replay })).toBe(false)
+    expect(c.maybeNotice({ adapter, session })).toBe(false)
     expect(sent).toHaveLength(0)
-    // 再次进来直接短路
-    expect(c.maybeAsk({ adapter, session, replay })).toBe(false)
+    expect(c.maybeNotice({ adapter, session })).toBe(false)
   })
 
-  it('接续后目标会话不会被再问一次', () => {
-    const c = make([
-      { id: 'conv-client', title: '重构登录模块', updatedAt: new Date().toISOString() },
-    ])
-    c.maybeAsk({ adapter, session, replay })
-    c.tryConsumeReply('weixin:u1', '1')
-
-    // 重放后 adapter 会用新 sessionKey 再进一次
-    const bound: ChannelSession = { ...session, sessionKey: 'conv-client' }
-    expect(c.maybeAsk({ adapter, session: bound, replay })).toBe(false)
-  })
-
-  it('候选查询抛错时跳过询问，不阻断消息', () => {
+  it('候选查询抛错时跳过提示，不阻断消息', () => {
     const c = new CrossChannelContinuity({
       listRecent: () => {
         throw new Error('db closed')
       },
       lookupOwnership: () => null,
     })
-    expect(c.maybeAsk({ adapter, session, replay, bind })).toBe(false)
+    expect(c.maybeNotice({ adapter, session })).toBe(false)
   })
 
-  it('绑定失败时留在原会话，消息仍投出去', () => {
-    bind.mockImplementation(() => {
-      throw new Error('binding manager 不可用')
-    })
+  // ── 答复 ────────────────────────────────────────────────────────────────────
+  it('回复 1 → 后续消息路由到目标会话，并回执提示 /back', () => {
     const c = make()
-    c.maybeAsk({ adapter, session, replay, bind })
-    c.tryConsumeReply('weixin:u1', '1')
+    c.maybeNotice({ adapter, session })
 
-    expect(replay).toHaveBeenCalledTimes(1)
-  })
-
-  it('无 bind 的渠道（飞书/企微/QQ）靠 setActiveSessionKey 路由，不报错', () => {
-    const c = make()
-    c.maybeAsk({ adapter, session, replay })
-    expect(c.tryConsumeReply('weixin:u1', '1')).toBe(true)
-
+    expect(c.tryConsumeReply(adapter, session, '1')).toBe(true)
     expect(setActive).toHaveBeenCalledWith('u1', 'conv-client', 'continuity')
-    expect(replay).toHaveBeenCalledTimes(1)
+    expect(sent.at(-1)).toContain('已接续')
+    expect(sent.at(-1)).toContain('/back')
   })
 
-  it('clear 后可重新询问，且不补投被扣消息（/clear、/new 语义）', () => {
+  it('回复 1 但目标会话已不可用（写入被拒）→ 如实告知，不改路由', () => {
     const c = make()
-    c.maybeAsk({ adapter, session, replay })
-    c.clear('weixin:u1')
-    expect(c.hasPending('weixin:u1')).toBe(false)
-    // 用户已明确作废该会话，被扣的旧消息不投递
-    expect(replay).not.toHaveBeenCalled()
-    expect(c.maybeAsk({ adapter, session, replay })).toBe(true)
+    c.maybeNotice({ adapter, session })
+    const stale = { ...adapter, getActiveSessionKey: () => 'weixin:u1' }
+
+    expect(c.tryConsumeReply(stale, session, '1')).toBe(true)
+    expect(sent.at(-1)).toContain('已不可用')
+  })
+
+  it('回复 0 → 什么都不变（方案 A 的默认就是保持现状）', () => {
+    const c = make()
+    c.maybeNotice({ adapter, session })
+
+    expect(c.tryConsumeReply(adapter, session, '0')).toBe(true)
+    expect(setActive).not.toHaveBeenCalled()
+    expect(sent.at(-1)).toContain('留在当前会话')
+  })
+
+  it('答复无法识别 → 不消费，当普通消息放行', () => {
+    const c = make()
+    c.maybeNotice({ adapter, session })
+    expect(c.tryConsumeReply(adapter, session, '帮我查下天气')).toBe(false)
+    expect(setActive).not.toHaveBeenCalled()
+  })
+
+  it('没有提示时不消费（不会顺手吃掉无关的「1」）', () => {
+    const c = make()
+    expect(c.tryConsumeReply(adapter, session, '1')).toBe(false)
+    expect(setActive).not.toHaveBeenCalled()
+  })
+
+  it('超过有效期后提示失效：回 1 不再切会话（旧版是「1 分钟不回就默认接续」）', () => {
+    const c = make()
+    c.maybeNotice({ adapter, session })
+
+    clock += CONTINUITY_OFFER_TTL_MS + 1
+
+    expect(c.tryConsumeReply(adapter, session, '1')).toBe(false)
+    expect(setActive).not.toHaveBeenCalled()
+  })
+
+  it('有效期边界内仍可兑现', () => {
+    const c = make()
+    c.maybeNotice({ adapter, session })
+
+    clock += CONTINUITY_OFFER_TTL_MS - 1
+
+    expect(c.tryConsumeReply(adapter, session, '1')).toBe(true)
+  })
+
+  it('兑现一次即作废（不会连续切两次）', () => {
+    const c = make()
+    c.maybeNotice({ adapter, session })
+    expect(c.tryConsumeReply(adapter, session, '1')).toBe(true)
+    expect(c.tryConsumeReply(adapter, session, '1')).toBe(false)
+  })
+
+  it('clear 作废未兑现的提示（斜杠命令、/stop 时调用）', () => {
+    const c = make()
+    c.maybeNotice({ adapter, session })
+
+    c.clear('weixin', 'u1')
+
+    expect(c.tryConsumeReply(adapter, session, '1')).toBe(false)
+    // 但「已提示过这条路由」的记录保留：用户发条命令不该又被问一遍
+    expect(c.maybeNotice({ adapter, session })).toBe(false)
+  })
+
+  it('resetNotice 完全重新武装（/clear 语义：清空即重新开始）', () => {
+    const c = make()
+    c.maybeNotice({ adapter, session })
+
+    c.resetNotice('weixin', 'u1')
+
+    expect(c.tryConsumeReply(adapter, session, '1')).toBe(false)
+    // 与 clear 不同：可以就同一条路由再提示一次
+    expect(c.maybeNotice({ adapter, session })).toBe(true)
   })
 })

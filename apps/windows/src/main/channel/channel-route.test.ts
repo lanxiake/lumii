@@ -8,7 +8,7 @@
 
 import { describe, expect, it, vi } from 'vitest'
 import type { RuntimeStateRepo } from '@mtbot/agent-runtime'
-import { ChannelSessionStore } from './channel-session-store'
+import { ChannelSessionStore, getChannelSessionStore, __resetChannelSessionStore } from './channel-session-store'
 import { ChannelRouteService, type ChannelBindingPort } from './channel-route'
 
 function makeRepo() {
@@ -156,5 +156,31 @@ describe('ChannelRouteService · 失效目标', () => {
 
     expect(route.setActive(UID, 'conv-deleted', 'resume')).toBe(false)
     expect(route.activeKey(UID)).toBe('qbot:u1')
+  })
+})
+
+describe('getChannelSessionStore（进程单例）', () => {
+  it('多次获取得到同一实例——四个 adapter 共用一份路由表', () => {
+    __resetChannelSessionStore()
+    const a = getChannelSessionStore({ repo: makeRepo().repo })
+    const b = getChannelSessionStore({ repo: makeRepo().repo })
+
+    expect(a).toBe(b)
+
+    __resetChannelSessionStore()
+  })
+
+  it('同一份表里，两个渠道的路由互不干扰', () => {
+    __resetChannelSessionStore()
+    const store = getChannelSessionStore({ repo: makeRepo().repo })
+    const weixin = new ChannelRouteService({ channelType: 'weixin', store })
+    const qbot = new ChannelRouteService({ channelType: 'qbot', store })
+
+    weixin.setActive('u1', 'weixin:u1:169', 'own')
+
+    expect(weixin.activeKey('u1')).toBe('weixin:u1:169')
+    expect(qbot.activeKey('u1')).toBe('qbot:u1')
+
+    __resetChannelSessionStore()
   })
 })

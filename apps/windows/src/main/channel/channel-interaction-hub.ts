@@ -187,7 +187,7 @@ export function getChannelInteractionHub(bridge: AgentRuntimeBridge): ChannelInt
  * 插队处理：绕过 adapter 的 userQueues 直接消费三类消息。
  *
  * 1. 挂起的提问/审批答复 —— 正在跑的那一轮正等着它，排队会死锁
- * 2. 挂起的跨渠道接续答复（§5.4）—— 同理，且它扣着用户那条待投递的消息
+ * 2. 接续答复（§5.4）—— 同理：用户回「1」是要换会话，排在一轮对话后面等于这条指令失效
  * 3. /stop 打断 —— 目的就是终止正在跑的那一轮，排在它后面毫无意义
  *
  * 四个渠道 adapter 的逻辑完全一致，抽出来避免四份拷贝各自漂移。
@@ -204,10 +204,8 @@ export function tryHandleChannelOutOfBand(params: {
   onError: (err: unknown) => void
   /** 跨渠道接续状态机（§5.4，功能关闭时为 undefined） */
   continuity?: {
-    hasPending: (sessionKey: string) => boolean
-    tryConsumeReply: (sessionKey: string, text: string) => boolean
-    clear: (sessionKey: string) => void
-    abandonWithReplay: (sessionKey: string) => void
+    tryConsumeReply: (adapter: IChannelAdapter, session: ChannelSession, text: string) => boolean
+    clear: (channelType: string, channelUserId: string) => void
   }
 }): boolean {
   const { hub: interactionHub, bridge, adapter, session, text, sessionManager, onError, continuity } = params
@@ -222,19 +220,16 @@ export function tryHandleChannelOutOfBand(params: {
       interactionHub.clear(sessionKey)
       log.info(`[tryHandleChannelOutOfBand] 斜杠命令作废挂起提问 sessionKey=${sessionKey}`)
     }
-    // 接续询问同理要让路，但它扣着用户更早发的那条消息，得补投出去
-    if (continuity?.hasPending(sessionKey)) {
-      continuity.abandonWithReplay(sessionKey)
-      log.info(`[tryHandleChannelOutOfBand] 斜杠命令让接续询问让路 sessionKey=${sessionKey}`)
-    }
+    // 接续提示同理让路：作废未兑现的提示即可（10-S4 起不再有「被扣住的消息」要补投）
+    continuity?.clear(session.channelType, session.channelUserId)
   } else {
     if (interactionHub.hasPending(sessionKey)) {
       void interactionHub.tryConsumeReply(sessionKey, text).catch(onError)
       return true
     }
 
-    // 接续答复也必须插队：它扣着用户那条原始消息，排在运行中的轮次后面等于永远不投递
-    if (continuity?.hasPending(sessionKey) && continuity.tryConsumeReply(sessionKey, text)) {
+    // 接续答复也必须插队：用户回「1」是切换后续消息的路由，排在运行中的轮次后面就失效了
+    if (continuity?.tryConsumeReply(adapter, session, text)) {
       return true
     }
   }
@@ -242,7 +237,7 @@ export function tryHandleChannelOutOfBand(params: {
   if (text === '/stop' || text === '/abort') {
     const aborted = bridge.abortSession(sessionKey)
     interactionHub.clear(sessionKey)
-    continuity?.clear(sessionKey)
+    continuity?.clear(session.channelType, session.channelUserId)
     sessionManager.clearLock(sessionKey)
     void adapter
       .sendTextReply(

@@ -236,16 +236,11 @@ export class QbotChannelAdapter implements IChannelAdapter {
       return
     }
 
-    // 跨渠道接续询问（§5.4）：必须在 drain 之前扣住整条消息，
-    // 否则挂起附件已被取走，重放时只剩文本，附件丢失。
-    // 斜杠命令不问：它是明确的会话操作，不该被接续打断。
+    // 跨渠道接续提示（§5.4 / 10-S4 方案 A）：**只提示，不扣消息** ——
+    // 用户回 1 是下一次发言才生效的事，本条照常处理（旧版会扣住并重放整条消息）。
+    // 斜杠命令不问：它是明确的会话操作，不该被打断。
     if (!userText.startsWith('/')) {
-      const asked = this.continuity()?.maybeAsk({
-        adapter: this,
-        session: this.buildSession(msg),
-        replay: () => void this.handleMessage(msg),
-      })
-      if (asked) return
+      this.continuity()?.maybeNotice({ adapter: this, session: this.buildSession(msg) })
     }
 
     // 有指令：取出挂起的附件合并

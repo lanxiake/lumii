@@ -1,18 +1,26 @@
 /**
- * 跨渠道会话接续（§5.4，P2）
+ * 跨渠道会话接续（§5.4，P2；2026-09-15 按 10-S4 方案 A 重做）
  *
  * 用户在客户端聊了一半，转到微信继续说「接着刚才的」——Agent 本来不知道「刚才」是哪个会话。
- * 本模块在渠道消息进入 Agent 之前插一步询问：
+ * 本模块在渠道消息进入 Agent 之前**提示**一句，把选择权交给用户：
  *
  *   渠道消息到达（非斜杠命令、非挂起答复）
- *         │ 该 channelUserId 在别的渠道有近期活跃会话，且本会话没问过
+ *         │ 该 channelUserId 在别的渠道有近期活跃会话，且**当前路由**还没提示过
  *         ▼
- *   回一条「检测到你在【客户端】有进行中的对话：<标题>，回 1 接续 / 0 不接续」
- *         ├─ 回 1  → 绑定到该会话，后续消息走它
- *         ├─ 回 0  → 留在当前会话
- *         └─ 1 分钟无回复 → 默认接续
+ *   回一条「检测到你在【客户端】有进行中的对话：<标题>；回 1 继续那条，回 0 忽略」
+ *         ├─ 回 1  → **后续消息**路由到该会话（本条消息仍在当前会话里回答）
+ *         ├─ 回 0  → 什么都不变
+ *         └─ 不回  → 什么都不变（提示 10 分钟后失效）
  *
- * 「只问一次」用内存 Map：重启后重问一次的成本可接受，不值得落库（设计 §5.4）。
+ * 与旧实现（S4 之前）的区别，正是「混乱」的来源，逐条记在这里：
+ *   - **不扣消息**：旧版把当前消息扣在 pending 里，等答复后靠 `replay()` 让 adapter 重跑
+ *     一遍 `handleMessage`。重放不走 `userQueues`，与紧随的 `/clear` 竞态（清空后旧消息又冒出来），
+ *     且每条作废路径都要想清楚要不要补投。现在消息照常处理，没有「被扣住的消息」这回事。
+ *   - **无定时器**：旧版 1 分钟无回复就默认接续——用户没看见提示也会被换会话。现在默认什么都不变，
+ *     提示只在有效期内（10 分钟）可被「1」兑现，过期即作废（惰性判定，不挂 timer）。
+ *   - **按用户记，不按会话记**：旧版 `asked: Set<sessionKey>` 只增不减，且键是「路由」而非「用户」，
+ *     接续后路由变成借来的键，还得手工补两处标记。现在记「该用户已就**哪条**路由提示过」，
+ *     用户换会话（/new、/resume、/back）后自然可以再提示一次。
  */
 
 import type { ChannelSession, IChannelAdapter } from './types'
@@ -23,8 +31,8 @@ const log = {
   warn: (...args: unknown[]) => console.warn('[CrossChannelContinuity]', ...args),
 }
 
-/** 询问超时（设计 §5.4：1 分钟内不回复默认接续） */
-export const CONTINUITY_TIMEOUT_MS = 60_000
+/** 提示的有效期：用户在这段时间内回 1 才兑现；过期什么都不发生 */
+export const CONTINUITY_OFFER_TTL_MS = 10 * 60 * 1000
 
 /**
  * 候选扫描条数。底层列表是「置顶优先」序，取太少会让真正最近的渠道会话排不进来。
@@ -54,7 +62,7 @@ export interface RecentConversation {
 /**
  * 从最近会话列表里挑一个「其它渠道的活跃会话」作为接续候选。
  *
- * 排除：当前会话自己、同渠道的其它会话（同渠道用 /resume 即可，不需要接续询问）、
+ * 排除：当前会话自己、同渠道的其它会话（同渠道用 /resume 即可，不需要接续提示）、
  * 定时任务等非用户会话、超出时间窗的旧会话。
  *
  * 归属判定一律走 `resolveChannelIdentity`（落库值优先，缺了才回退前缀）——
@@ -116,17 +124,17 @@ export function pickContinuityCandidate(params: {
   return null
 }
 
-/** 询问文案（设计 §5.4） */
+/** 提示文案（方案 A：不承诺「不回就默认接续」，如实说明两条路各会发生什么） */
 export function formatContinuityPrompt(candidate: ContinuityCandidate): string {
   return [
     `检测到你在【${candidate.channelLabel}】有进行中的对话：`,
     `「${candidate.title}」`,
     '',
-    '是否接续该对话？回复 1 接续，0 不接续（1 分钟内不回复默认接续）。',
+    '回复 1 继续那条对话（本条消息仍在这里回答），回复 0 忽略。',
   ].join('\n')
 }
 
-/** 解析用户对询问的回复：1=接续，0=不接续，null=没看懂 */
+/** 解析用户对提示的回复：1=接续，0=不接续，null=没看懂 */
 export function parseContinuityReply(text: string): boolean | null {
   const t = text.trim().toLowerCase()
   if (t === '1' || t === 'y' || t === 'yes' || t === '是' || t === '接续') return true
@@ -136,25 +144,9 @@ export function parseContinuityReply(text: string): boolean | null {
 
 // ── 状态机 ────────────────────────────────────────────────────────────────────
 
-interface PendingAsk {
+interface ContinuityOffer {
   candidate: ContinuityCandidate
-  adapter: IChannelAdapter
-  session: ChannelSession
-  timer: NodeJS.Timeout
-  /**
-   * 重放被扣住的那条消息 —— 即 adapter 再跑一次自己的 handleMessage。
-   *
-   * 不自己拼投递逻辑：重放时 adapter 会重新 buildSession()，
-   * 接续已改过 activeSessionKey，路由自然落到目标会话（复用既有优先级链）。
-   */
-  replay: () => void
-  /**
-   * 持久化绑定（仅微信有 WeixinSessionBindingManager）。
-   *
-   * 必须随 pending 存：本类是跨渠道单例，bind 属于发起询问的那个 adapter，
-   * 存进构造依赖会让先注册的渠道的 bind 被用到其它渠道的会话上。
-   */
-  bind?: (channelUserId: string, conversationId: string) => void
+  expiresAt: number
 }
 
 export interface ContinuityDeps {
@@ -166,40 +158,46 @@ export interface ContinuityDeps {
    * 查不到返回 null，交由 `resolveChannelIdentity` 回退前缀。
    */
   lookupOwnership: (conversationId: string) => string | null
+  /** 时钟（测试注入） */
+  now?: () => number
+}
+
+/** 用户键：接续是**用户级**事实，与当前路由无关 */
+function userKeyOf(channelType: string, channelUserId: string): string {
+  return `${channelType}:${channelUserId}`
 }
 
 /**
- * 接续询问状态机。全局单例（与 ChannelInteractionHub 同理：各渠道共用一份问过记录）。
+ * 接续提示状态机。全局单例（与 ChannelInteractionHub 同理：各渠道共用一份记录）。
+ *
+ * 只存两样东西：有效期内可兑现的提示、以及「该用户已就哪条路由提示过」。
+ * 没有 pending、没有定时器、没有重放。
  */
 export class CrossChannelContinuity {
-  /** sessionKey → 挂起的询问 */
-  private readonly pending = new Map<string, PendingAsk>()
-  /** 已问过的 sessionKey（只问一次；进程内有效） */
-  private readonly asked = new Set<string>()
+  /** 用户键 → 未过期的提示 */
+  private readonly offers = new Map<string, ContinuityOffer>()
+  /** 用户键 → 已提示过的路由（换会话后可再提示一次） */
+  private readonly noticedRoute = new Map<string, string>()
 
   constructor(private readonly deps: ContinuityDeps) {}
 
-  /** 该会话是否正在等接续答复 */
-  hasPending(sessionKey: string): boolean {
-    return this.pending.has(sessionKey)
+  private now(): number {
+    return this.deps.now?.() ?? Date.now()
   }
 
   /**
-   * 尝试就本轮消息发起接续询问。
+   * 就本轮消息给出接续提示（若该用户确有别的渠道的活跃会话）。
    *
-   * @returns true 表示已发出询问并扣住这条消息，调用方不要再交给 Agent
+   * **不拦截消息**：返回值只表示「是否发了提示」，调用方照常处理这条消息——
+   * 用户选择接续是下一次发言才生效的事。
    */
-  maybeAsk(params: {
-    adapter: IChannelAdapter
-    session: ChannelSession
-    replay: () => void
-    /** 持久化绑定（仅微信有；其它渠道靠 setActiveSessionKey 的进程内路由） */
-    bind?: (channelUserId: string, conversationId: string) => void
-  }): boolean {
-    const { adapter, session, replay, bind } = params
-    const { sessionKey, channelType } = session
+  maybeNotice(params: { adapter: IChannelAdapter; session: ChannelSession }): boolean {
+    const { adapter, session } = params
+    const { sessionKey, channelType, channelUserId } = session
+    const userKey = userKeyOf(channelType, channelUserId)
 
-    if (this.asked.has(sessionKey) || this.pending.has(sessionKey)) return false
+    // 同一路由只提示一次。用户换会话（/new、/resume、/back）后路由变了，可以再提示。
+    if (this.noticedRoute.get(userKey) === sessionKey) return false
 
     let candidate: ContinuityCandidate | null = null
     try {
@@ -210,161 +208,103 @@ export class CrossChannelContinuity {
         currentChannelType: channelType,
       })
     } catch (err) {
-      log.warn(`[maybeAsk] 候选查询失败，跳过询问: ${err instanceof Error ? err.message : err}`)
+      log.warn(`[maybeNotice] 候选查询失败，跳过提示: ${err instanceof Error ? err.message : err}`)
       return false
     }
-    if (!candidate) {
-      // 没有候选也算问过：避免每条消息都重查 DB
-      this.asked.add(sessionKey)
-      return false
-    }
+    // 没有候选也记一笔：避免每条消息都重查一次 DB（与旧实现一致）
+    this.noticedRoute.set(userKey, sessionKey)
+    if (!candidate) return false
 
-    const timer = setTimeout(() => {
-      this.resolve(sessionKey, true, '超时')
-    }, CONTINUITY_TIMEOUT_MS)
-    // 询问是可选增强，不该让 Electron 进程为它多活 1 分钟
-    timer.unref?.()
-
-    this.pending.set(sessionKey, { candidate, adapter, session, timer, replay, bind })
-    this.asked.add(sessionKey)
-
-    void adapter.sendTextReply(session, formatContinuityPrompt(candidate)).catch((err) => {
-      log.warn(`[maybeAsk] 询问推送失败 sessionKey=${sessionKey}: ${err}`)
+    this.offers.set(userKey, {
+      candidate,
+      expiresAt: this.now() + CONTINUITY_OFFER_TTL_MS,
     })
+    void adapter.sendTextReply(session, formatContinuityPrompt(candidate)).catch((err) => {
+      log.warn(`[maybeNotice] 提示推送失败 ${userKey}: ${err}`)
+    })
+    log.info(`[maybeNotice] 已提示接续 ${userKey} → 候选=${candidate.conversationId}（${candidate.channelLabel}）`)
+    return true
+  }
+
+  /**
+   * 拦截入站文字：若该用户有未过期的提示，且这条是有效答复，则消费掉。
+   *
+   * @returns true 表示已作为答复消费，调用方不要再交给 Agent
+   */
+  tryConsumeReply(adapter: IChannelAdapter, session: ChannelSession, text: string): boolean {
+    const { channelType, channelUserId } = session
+    const userKey = userKeyOf(channelType, channelUserId)
+    const offer = this.liveOffer(userKey)
+    if (!offer) return false
+
+    const decision = parseContinuityReply(text)
+    // 没看懂：本条当普通消息放行（用户可能压根不想理这个提示，直接换了话题）
+    if (decision === null) return false
+
+    this.offers.delete(userKey)
+    if (!decision) {
+      void adapter.sendTextReply(session, '好的，留在当前会话。').catch(() => {})
+      log.info(`[tryConsumeReply] 用户选择不接续 ${userKey}`)
+      return true
+    }
+
+    // 接续：只改路由，后续消息走目标会话。本条消息已在当前会话里回答过/正在回答，不带过去。
+    adapter.setActiveSessionKey?.(channelUserId, offer.candidate.conversationId, 'continuity')
+    // 回读确认：目标会话可能已被删除（store 会拒绝这种写入）
+    const applied = adapter.getActiveSessionKey?.(channelUserId) === offer.candidate.conversationId
+    void adapter
+      .sendTextReply(
+        session,
+        applied
+          ? `✅ 已接续「${offer.candidate.title}」，后续消息会发到那条会话。\n（发送 /back 可回到本渠道会话）`
+          : '⚠️ 那条会话已不可用（可能已被删除），留在当前会话。',
+      )
+      .catch(() => {})
     log.info(
-      `[maybeAsk] 已询问接续 sessionKey=${sessionKey} → 候选=${candidate.conversationId}（${candidate.channelLabel}）`,
+      `[tryConsumeReply] ${applied ? '已接续' : '接续失败'} ${userKey} → ${offer.candidate.conversationId}`,
     )
     return true
   }
 
   /**
-   * 拦截入站文字：若该会话正等接续答复，消费掉这条消息。
+   * 作废该用户的挂起提示（`/stop`、斜杠命令时调用）。
    *
-   * @returns true 表示已作为答复消费，adapter 不应再当普通消息处理
+   * 不清 `noticedRoute`：用户已就这条路由做过决定，不该因为发了条命令又被问一次。
    */
-  tryConsumeReply(sessionKey: string, text: string): boolean {
-    const entry = this.pending.get(sessionKey)
-    if (!entry) return false
-
-    const decision = parseContinuityReply(text)
-    if (decision === null) {
-      // 没看懂：本条不消费，当普通消息放行（用户可能压根不想理这个询问，直接换了话题）。
-      // 但被扣住的那条必须补投 —— 它从没进过 Agent、也没落库，一走了之就是凭空消失。
-      this.abandon(sessionKey, { replayHeld: true, reason: '答复无法识别' })
-      return false
-    }
-
-    this.resolve(sessionKey, decision, '用户回复')
-    return true
-  }
-
-  /** /clear、/new、中止时清掉挂起询问，避免陈旧询问吃掉下一条正常消息 */
-  clear(sessionKey: string): void {
-    // 被扣住的旧消息不补投：用户已明确作废这个会话（清空 / 新建 / 打断）
-    this.abandon(sessionKey, { replayHeld: false, reason: 'clear' })
-    this.asked.delete(sessionKey)
+  clear(channelType: string, channelUserId: string): void {
+    this.offers.delete(userKeyOf(channelType, channelUserId))
   }
 
   /**
-   * 放弃挂起询问，但把被扣住的那条消息补投出去。
+   * 完全重新武装（`/clear` 调用）：作废提示，并允许就当前路由再提示一次。
    *
-   * 用于「斜杠命令插队」：用户发的是一条明确的会话操作（/resume、/new…），
-   * 不能被接续询问扣住；而他在此之前发的那条消息仍然要处理，不能跟着一起丢。
+   * 其它换会话的命令（`/new`、`/resume`、`/back`）不需要它——路由一变，
+   * `noticedRoute` 自然对不上，下次消息就会重新评估。
    */
-  abandonWithReplay(sessionKey: string): void {
-    this.abandon(sessionKey, { replayHeld: true, reason: '斜杠命令插队' })
+  resetNotice(channelType: string, channelUserId: string): void {
+    const userKey = userKeyOf(channelType, channelUserId)
+    this.offers.delete(userKey)
+    this.noticedRoute.delete(userKey)
   }
 
   // ── 内部 ────────────────────────────────────────────────────────────────────
 
-  /**
-   * 放弃挂起的询问。所有「丢弃 pending」的路径都必须经过这里。
-   *
-   * @param replayHeld 是否把被扣住的那条消息投出去。被扣的消息从没进过 Agent，
-   *   任何一走了之的路径都会让它凭空消失（用户发了消息却永远等不到回音）。
-   */
-  private abandon(sessionKey: string, opts: { replayHeld: boolean; reason: string }): void {
-    const entry = this.pending.get(sessionKey)
-    if (!entry) return
-    this.clearPending(sessionKey)
-    log.info(
-      `[abandon] 放弃挂起询问 sessionKey=${sessionKey} reason=${opts.reason} replay=${opts.replayHeld}`,
-    )
-    if (opts.replayHeld) this.replaySafely(entry, opts.reason)
-  }
-
-  /** 重放被扣住的消息；失败时明确告知用户（否则这条消息既不落库也无回音，只能干等） */
-  private replaySafely(entry: PendingAsk, reason: string): void {
-    try {
-      entry.replay()
-    } catch (err) {
-      log.warn(`[replay] 被扣消息重放失败（${reason}）: ${err instanceof Error ? err.message : err}`)
-      void entry.adapter
-        .sendTextReply(entry.session, '⚠️ 你上一条消息没能投递出去，麻烦再发一次。')
-        .catch(() => {})
+  /** 取未过期的提示（惰性过期：不挂 timer，读到过期即删） */
+  private liveOffer(userKey: string): ContinuityOffer | null {
+    const offer = this.offers.get(userKey)
+    if (!offer) return null
+    if (this.now() > offer.expiresAt) {
+      this.offers.delete(userKey)
+      return null
     }
-  }
-
-  private clearPending(sessionKey: string): void {
-    const entry = this.pending.get(sessionKey)
-    if (!entry) return
-    clearTimeout(entry.timer)
-    this.pending.delete(sessionKey)
-  }
-
-  /** 收敛一次询问：接续则先绑定再重放，不接续直接重放（两种都要把扣住的消息投出去） */
-  private resolve(sessionKey: string, accepted: boolean, reason: string): void {
-    const entry = this.pending.get(sessionKey)
-    if (!entry) return
-    this.clearPending(sessionKey)
-
-    const { candidate, adapter, session, bind } = entry
-    log.info(`[resolve] sessionKey=${sessionKey} accepted=${accepted} reason=${reason}`)
-
-    if (accepted) {
-      try {
-        bind?.(session.channelUserId, candidate.conversationId)
-        adapter.setActiveSessionKey?.(session.channelUserId, candidate.conversationId, 'continuity')
-        // 标记目标会话也已问过：否则重放时它成了「新会话」，会被再问一次
-        this.asked.add(candidate.conversationId)
-        void adapter
-          .sendTextReply(
-            { ...session, sessionKey: candidate.conversationId, instanceId: null },
-            `✅ 已接续「${candidate.title}」，继续处理你刚才的消息…\n（发送 /back 可回到本渠道会话）`,
-          )
-          .catch(() => {})
-      } catch (err) {
-        log.warn(`[resolve] 绑定失败，留在原会话: ${err instanceof Error ? err.message : err}`)
-      }
-    } else {
-      // 不接续：把路由显式改回本渠道自己的会话。
-      // 不能只「什么都不做」—— 残留的跨渠道覆盖会让消息继续落到别的会话，
-      // 而回落到一个从没用过的 {渠道}:{uid} 又会被 ensureConversationExists 建成空会话。
-      try {
-        const own = adapter.resetToChannelSession?.(session.channelUserId)
-        if (own && own !== sessionKey) {
-          // 重放时 buildSession 拿到的是新 sessionKey，不标记就会被当成「新会话」再问一次
-          this.asked.add(own)
-          void adapter
-            .sendTextReply(session, '好的，已回到你自己渠道的会话继续。')
-            .catch(() => {})
-        }
-      } catch (err) {
-        log.warn(`[resolve] 回到本渠道会话失败: ${err instanceof Error ? err.message : err}`)
-      }
-    }
-
-    // 重放：adapter 重新 buildSession()，接续后路由自然落到目标会话
-    this.replaySafely(entry, reason)
+    return offer
   }
 }
 
-/** 全局单例：各渠道共用一份「问过 / 挂起」记录 */
+/** 全局单例：各渠道共用一份「提示过 / 待兑现」记录 */
 let instance: CrossChannelContinuity | null = null
 
-export function getCrossChannelContinuity(
-  deps: ContinuityDeps,
-): CrossChannelContinuity {
+export function getCrossChannelContinuity(deps: ContinuityDeps): CrossChannelContinuity {
   if (!instance) instance = new CrossChannelContinuity(deps)
   return instance
 }
