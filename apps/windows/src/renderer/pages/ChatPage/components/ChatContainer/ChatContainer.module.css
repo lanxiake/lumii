@@ -62,6 +62,19 @@
 }
 
 /*
+ * 空消息行不产出任何 DOM 内容，但仍会占一个 flex gap 项 —— 相邻两条消息之间会多出
+ * 一整份 gap（16px）。改动前这条消息根本不产生元素，所以是本片引入的。
+ *
+ * 命中者是 `ChatMessage` 对「无正文 / 无 parts / 无思考 / 无 error 且非流式」的
+ * assistant 消息的 null 守卫（实测本机库 579 条 assistant 里有 1 条，可复现）。
+ *
+ * 占位行同样是「无子节点」的，靠 data-row-placeholder 区分：只藏真正空的那种。
+ */
+.message-row:empty:not([data-row-placeholder]) {
+  display: none;
+}
+
+/*
  * 离屏但仍在窗口带内的行：让 Chromium 跳过其布局与绘制。
  * 它不卸载 DOM、不回收内存，只是把「滚动时不必付的那部分代价」省掉。
  *

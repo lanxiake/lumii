@@ -206,17 +206,23 @@ class FakeResizeObserver {
   }
 
   readonly targets = new Set<Element>()
+  /** 每个元素被 observe 过几次：用于断言「作废缓存后会强制重新测量」 */
+  readonly observeCounts = new Map<Element, number>()
   constructor(private readonly callback: ResizeObserverCallback) {
     FakeResizeObserver.instances.push(this)
   }
   observe(el: Element) {
     this.targets.add(el)
+    this.observeCounts.set(el, (this.observeCounts.get(el) ?? 0) + 1)
   }
   unobserve(el: Element) {
     this.targets.delete(el)
   }
   disconnect() {
     this.targets.clear()
+  }
+  observeCount(el: Element): number {
+    return this.observeCounts.get(el) ?? 0
   }
   /** 投喂一批实测尺寸 */
   emit(sizes: Array<{ target: Element; height: number }>) {
@@ -470,5 +476,44 @@ describe('useWindowedRows 接线', () => {
     rerender(<Harness keys={['b']} />)
     rerender(<Harness keys={['a', 'b']} />)
     expect(screen.getByTestId('row-a').dataset.wasCollapsed).toBe('false')
+  })
+
+  it('字号变化后作废高度缓存：防抖后才生效，且强制重新测量一次', async () => {
+    vi.stubGlobal('IntersectionObserver', FakeIntersectionObserver)
+    vi.stubGlobal('ResizeObserver', FakeResizeObserver)
+    render(<Harness keys={['a']} />)
+
+    markAllVisible(['a'])
+    measure([['a', 120]])
+    act(() => {
+      FakeIntersectionObserver.byMargin(`${ROW_OVERSCAN_PX}px 0px`).emit(false, [screen.getByTestId('row-a')])
+    })
+    expect(screen.getByTestId('row-a').dataset.collapsed).toBe('true')
+
+    const rowA = screen.getByTestId('row-a')
+    const observesBefore = FakeResizeObserver.current.observeCount(rowA)
+
+    // TitleBar 的 A−/A+ 改的就是这个变量
+    act(() => {
+      document.documentElement.style.setProperty('--chat-font-size', '23px')
+    })
+
+    // 防抖窗口内不动：拖动窗口/分隔条时宽度每帧都变，逐帧作废会把整份会话按帧重挂
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 60))
+    })
+    expect(screen.getByTestId('row-a').dataset.collapsed).toBe('true')
+
+    // 布局静默后：缓存作废 → 行退回真实渲染
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 240))
+    })
+    expect(screen.getByTestId('row-a').dataset.collapsed).toBe('false')
+
+    // 并且强制重新 observe 了一次 —— 否则「高度与宽度无关」的行（纯代码块等）重新展开时
+    // 盒子尺寸没变、RO 不再回调，高度记录就永远回不来了
+    expect(FakeResizeObserver.current.observeCount(screen.getByTestId('row-a'))).toBeGreaterThan(observesBefore)
+
+    document.documentElement.style.removeProperty('--chat-font-size')
   })
 })

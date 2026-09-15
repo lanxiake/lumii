@@ -141,15 +141,20 @@ function readChatFontSize(): string {
   return getComputedStyle(document.documentElement).getPropertyValue('--chat-font-size').trim()
 }
 
+/** 布局信号静默多久后才认定为「一次布局变更」—— 见 useLayoutEpoch 的防抖说明 */
+const LAYOUT_SETTLE_MS = 200
+
 /**
  * 全局布局纪元：消息字号（TitleBar A−/A+ → `--chat-font-size`）或滚动容器宽度一变，值 +1。
  *
  * 为什么需要它：折叠行的高度是内联钉死的。一旦发生全局重排（改字号、Ctrl+滚轮 zoom、
  * 窗口缩放、拖动工作区面板），已挂载的行会经 RO 更新，而折叠行停在旧值 ——
- * scrollHeight 与实际布局对不上，每滚回一行就跳一次。纪元变化时上层清空高度缓存，
- * 让这些行退回「未测高」并重新渲染、重新测量：以「暂时多挂几行」换布局正确。
+ * scrollHeight 与实际布局对不上，每滚回一行就跳一次。纪元变化时上层清空高度缓存并
+ * 强制重测，以「暂时多挂几行」换布局正确。
  *
- * 两个信号各管一半，且都刻意避开会造成自激的量：
+ * 两个信号都经**防抖**才 +1，且刻意避开会造成自激的量：
+ * - 防抖：拖动窗口边缘/分隔条时宽度每帧都在变，若每帧作废，折叠行会逐帧走
+ *   「展开 → 重测 → 再折叠」，等于把整份会话按帧重挂一遍（卡死）。等布局静默下来算一次。
  * - 宽度取 **border box**（`getBoundingClientRect`）：滚动条出现/消失会改变 content box，
  *   若跟着失效就会「失效 → 展开行 → 撑出滚动条 → 再失效」来回震荡；
  * - 字号只在根元素 style 上的 `--chat-font-size` 真的变了才算数：根元素还有别的内联变量
@@ -161,6 +166,15 @@ function useLayoutEpoch(scrollRoot: HTMLElement | null): number {
   useEffect(() => {
     if (!scrollRoot) return
 
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const bump = () => {
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(() => {
+        timer = null
+        setEpoch((n) => n + 1)
+      }, LAYOUT_SETTLE_MS)
+    }
+
     let width = scrollRoot.getBoundingClientRect().width
     const ro =
       typeof ResizeObserver !== 'undefined'
@@ -168,7 +182,7 @@ function useLayoutEpoch(scrollRoot: HTMLElement | null): number {
             const next = scrollRoot.getBoundingClientRect().width
             if (Math.abs(next - width) < 1) return
             width = next
-            setEpoch((n) => n + 1)
+            bump()
           })
         : null
     ro?.observe(scrollRoot)
@@ -180,12 +194,13 @@ function useLayoutEpoch(scrollRoot: HTMLElement | null): number {
             const next = readChatFontSize()
             if (next === fontSize) return
             fontSize = next
-            setEpoch((n) => n + 1)
+            bump()
           })
         : null
     mo?.observe(document.documentElement, { attributes: true, attributeFilter: ['style'] })
 
     return () => {
+      if (timer) clearTimeout(timer)
       ro?.disconnect()
       mo?.disconnect()
     }
@@ -384,6 +399,15 @@ export function useWindowedRows({
     if (epochRef.current === layoutEpoch) return
     epochRef.current = layoutEpoch
     setHeights(new Map())
+
+    // 清空还不够，得**强制**重新测量一次：RO 只在尺寸变化时回调，而「高度与宽度无关」
+    // 的行（纯代码块、max-height 锁死的折叠块、单行短消息）清空后重新展开时，盒子尺寸
+    // 与占位高度完全相同（正是不变式 2）→ 不再回调 → 记录永远回不来 → 该行从此不再折叠，
+    // 而它恰恰是 span 大户。unobserve + observe 会投递一次初始条目，把这批捞回来。
+    for (const el of elementsRef.current.values()) {
+      roRef.current?.unobserve(el)
+      roRef.current?.observe(el)
+    }
   }, [layoutEpoch])
 
   const registerRow = useCallback((key: string) => {

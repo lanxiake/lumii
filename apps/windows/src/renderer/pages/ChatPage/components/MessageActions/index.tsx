@@ -51,6 +51,15 @@ const MessageActions: React.FC<MessageActionsProps> = ({
   const nextPlayTimeRef = useRef<number>(0)
   /** 为 true 时处理预览音频块；停止朗读或播完后置 false，避免订阅依赖 isSpeaking 反复挂载 */
   const acceptTtsChunksRef = useRef(false)
+  /**
+   * 本次挂载是否**由本组件**发起过朗读。
+   *
+   * `voice:tts:stop-preview` 不带 messageId，是全局停；而卸载清理过去是无条件发的，
+   * 于是「任意一行卸载」都会掐断用户正在听的朗读。窗口化渲染让这件事变成日常路径 ——
+   * 滚动时窗口带外的行会被卸载，用户一边听一边滚动就会被打断。所以只在本次挂载确实
+   * 起过朗读时才停自己的那一次。
+   */
+  const startedPreviewRef = useRef(false)
   /** 根据 AudioContext 队列剩余时长，在真正播放结束后收起「朗读中」状态 */
   const playbackEndTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -114,6 +123,7 @@ const MessageActions: React.FC<MessageActionsProps> = ({
 
     if (isSpeaking) {
       acceptTtsChunksRef.current = false
+      startedPreviewRef.current = false
       clearPlaybackEndTimer()
       await electronAPI.voice.sendCommand({ type: 'voice:tts:stop-preview' }).catch(() => {})
       audioCtxRef.current?.close()
@@ -126,6 +136,7 @@ const MessageActions: React.FC<MessageActionsProps> = ({
     await electronAPI.voice.sendCommand({ type: 'voice:tts:stop-preview' }).catch(() => {})
     clearPlaybackEndTimer()
     acceptTtsChunksRef.current = true
+    startedPreviewRef.current = true
 
     // 初始化 AudioContext
     if (!audioCtxRef.current || audioCtxRef.current.state === 'closed') {
@@ -227,8 +238,12 @@ const MessageActions: React.FC<MessageActionsProps> = ({
     return () => {
       acceptTtsChunksRef.current = false
       clearPlaybackEndTimer()
-      const electronAPI = (window as any).electronAPI
-      electronAPI?.voice?.sendCommand({ type: 'voice:tts:stop-preview' }).catch(() => {})
+      // 只停「本组件发起的那一次」（理由见 startedPreviewRef）：无条件发会让任意一行
+      // 卸载都掐断别人的朗读，而窗口化让「滚动导致卸载」成了日常路径
+      if (startedPreviewRef.current) {
+        const electronAPI = (window as any).electronAPI
+        electronAPI?.voice?.sendCommand({ type: 'voice:tts:stop-preview' }).catch(() => {})
+      }
       audioCtxRef.current?.close()
     }
   }, [])

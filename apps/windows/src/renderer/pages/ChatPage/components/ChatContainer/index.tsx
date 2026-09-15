@@ -638,6 +638,9 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
               // 入场错峰按「行序」下发（前 5 行）。不用 :nth-child，是因为它按所有兄弟计数，
               // 列表里还有 history-loader / 输入指示器，行序会被它们挤偏
               data-enter-index={index < 5 ? index : undefined}
+              // 占位行也是「无子节点」的，靠这个属性与「空消息行」区分开
+              // （后者由 CSS 藏掉，否则会白占一份 flex gap），见 ChatContainer.module.css
+              data-row-placeholder={collapsed ? 'true' : undefined}
               className={clsx(
                 styles['message-row'],
                 skippable && styles['message-row--skippable'],
