@@ -307,7 +307,10 @@ const CHRONICLER_DEF: AgentDefinition = {
   ],
   maxTurns: 30,
   canSpawnSubAgents: false,
-  memory: { scope: "user", autoExtract: true },
+  // readView: "user" —— 汇总型 Agent 的立身之本：日报/周复盘的素材来自**其他 Agent**
+  // 的工作痕迹（用户在主 Agent 里干活的记录），只读自己名下必然是空的。
+  // 其余内置 Agent 保持缺省 "own"：各自关注自己平时工作用的记忆。
+  memory: { scope: "user", readView: "user", autoExtract: true },
   selectable: true,
   isActive: true,
 };

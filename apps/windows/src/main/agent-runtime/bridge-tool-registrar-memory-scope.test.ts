@@ -1,9 +1,13 @@
 /**
  * memory_manage 的读取作用域与时间窗枚举（2026-09-15）
  *
- * 背景：汇总类 Agent（chronicler，definition.memory.scope === "user"）必须跨 Agent
- * 读到用户在主 Agent 里积累的工作记忆，否则日报永远「工作记忆为空」——2026-09-14/15
- * 两天的日报就是这么静默失败的。同时汇总任务需要按时间窗取全量，不能走 top-N 截断。
+ * 两类 Agent 的读取行为不同：
+ * - **汇总型**（chronicler，`memory.readView === "user"`）：素材来自**其他 Agent** 的工作痕迹，
+ *   必须跨 Agent 查询汇总「用户某段时间做了什么」。只读自己必然是空的——09-14/15 两天的
+ *   日报就是这么静默输出「工作记忆为空」的。
+ * - **普通 Agent**（缺省 `readView: "own"`）：只关注自己平时工作所使用的记忆，保持隔离。
+ *
+ * 汇总任务另需按时间窗取全量，不能走 top-N 截断。
  */
 import { describe, expect, it, vi } from 'vitest'
 import { registerClientCommandTools } from './bridge-tool-registrar-client-cmd'
@@ -14,16 +18,39 @@ interface RegisteredTool {
   execute: (id: string, params: unknown) => Promise<unknown>
 }
 
+interface MemoryListItem {
+  id: string
+  agent_id: string
+  category: string
+  content: string
+}
+
+interface WindowParams {
+  userId: string
+  agentId?: string
+  scope?: 'agent' | 'user'
+  since: string
+  limit?: number
+  offset?: number
+}
+
 function makeMemoryManager() {
   return {
-    listActive: vi.fn(() => [{ id: 'own-1', category: 'project', content: '本 Agent 的记忆' }]),
-    listActiveAllAgents: vi.fn(() => [
-      { id: 'other-1', category: 'project', content: '主 Agent 记的用户工作' },
-    ]),
-    listByWindow: vi.fn(() => ({
+    listActive: vi.fn(
+      (_agentId: string, _userId: string): MemoryListItem[] => [
+        { id: 'own-1', agent_id: 'chronicler', category: 'project', content: '本 Agent 的记忆' },
+      ],
+    ),
+    listActiveAllAgents: vi.fn(
+      (_userId: string): MemoryListItem[] => [
+        { id: 'other-1', agent_id: 'assistant', category: 'project', content: '主 Agent 记的用户工作' },
+      ],
+    ),
+    listByWindow: vi.fn((_params: WindowParams) => ({
       entries: [
         {
           id: 'w-1',
+          agent_id: 'assistant',
           category: 'project',
           importance: 0.5,
           created_at: '2026-09-15T10:00:00.000Z',
@@ -34,7 +61,7 @@ function makeMemoryManager() {
       total: 42,
       hasMore: true,
     })),
-    addMemory: vi.fn(() => ({ id: 'new-1', category: 'general' })),
+    addMemory: vi.fn((_params: Record<string, unknown>) => ({ id: 'new-1', category: 'general' })),
   }
 }
 

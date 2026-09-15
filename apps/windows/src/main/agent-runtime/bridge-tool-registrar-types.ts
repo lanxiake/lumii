@@ -58,8 +58,9 @@ export interface BridgeToolRegistrarDeps {
   getDefinitionIdByInstanceId: (instanceId: string) => string | undefined
   /**
    * 由 instanceId 解析记忆读取作用域。
-   * definition 声明 `memory.scope === "user"` 时返回 `"user"`（跨 Agent 读取该用户工作记忆），
-   * 否则 `"agent"`。汇总类 Agent（chronicler 等）依赖它读到用户在主 Agent 积累的工作。
+   * definition 设 `memory.readView === "user"` 时返回 `"user"`（跨 Agent 读取该用户的记忆），
+   * 否则 `"agent"`（只读本 Agent 自己写的）。汇总型 Agent（chronicler）依赖前者——
+   * 它的素材来自其他 Agent 的工作痕迹，只读自己必然是空的。
    */
   getMemoryReadScopeByInstanceId: (instanceId: string) => 'agent' | 'user'
   toolCallInstanceMap: Map<string, string>

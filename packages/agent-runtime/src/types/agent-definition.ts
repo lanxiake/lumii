@@ -51,12 +51,27 @@ export interface AgentToolPermissions {
 
 export interface MemoryConfig {
   /**
-   * 记忆作用域
+   * 记忆作用域（**持久化**语义：记忆存在哪一层、活多久）
    * - user: 用户级（跨 Agent、跨会话持久化）
    * - conversation: 会话级（当前对话内持久化）
    * - none: 无记忆（纯无状态）
+   *
+   * 注意：它**不**决定读取时能看见谁写的记忆，那是 {@link readView} 的事。
    */
   readonly scope: "user" | "conversation" | "none";
+  /**
+   * 记忆读取视图（**可见性**语义：这个 Agent 读记忆时看谁写的）。
+   *
+   * - `"own"`（默认）：只读本 Agent 自己写的记忆。普通 Agent 属这一类——
+   *   它们关注「自己平时工作所使用的记忆」。
+   * - `"user"`：读该用户**全部 Agent** 的记忆。汇总型 Agent 属这一类——
+   *   灵栖记事（chronicler）的职责就是跨 Agent 查询汇总「用户某段时间做了什么」，
+   *   它的素材本来就来自别的 Agent 的工作痕迹，只读自己必然是空的。
+   *
+   * 存量数据里每条记忆仍按写入者归属（`agent_memories.agent_id` 不变），
+   * 该字段只影响读取过滤，因此写操作永远落在当前 Agent 名下。
+   */
+  readonly readView?: "own" | "user";
   /** 是否自动从对话中提取记忆 */
   readonly autoExtract?: boolean;
   /** 自动提取间隔（每 N 轮提取一次） */

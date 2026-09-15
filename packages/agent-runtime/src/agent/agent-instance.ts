@@ -169,12 +169,15 @@ export class AgentInstance {
   readonly id: string;
   readonly definitionId: string;
   /**
-   * 记忆读取作用域：definition 声明 `memory.scope === "user"` 时返回 `"user"`，
-   * 表示跨 Agent 读取该用户的全部工作记忆（见 MemoryConfig.scope 的「用户级（跨 Agent）」语义）。
-   * 未声明 / `"conversation"` / `"none"` 一律按 `"agent"` 处理，保持既有隔离行为。
+   * 记忆读取作用域：definition 设 `memory.readView === "user"` 时返回 `"user"`，
+   * 表示跨 Agent 读取该用户全部 Agent 的记忆（汇总型 Agent：灵栖记事）。
+   * 缺省 `"agent"` = 只读本 Agent 自己写的记忆（普通 Agent）。
+   *
+   * 注意与 `memory.scope`（持久化语义）的区别：后者是"记忆存在哪一层"，
+   * 不是"能看见谁写的"。
    */
   get memoryReadScope(): MemoryReadScope {
-    return this.memoryConfig?.scope === "user" ? "user" : "agent";
+    return this.memoryConfig?.readView === "user" ? "user" : "agent";
   }
   private readonly agent: Agent;
   private readonly listeners = new Set<(e: AgentRuntimeEvent) => void>();

@@ -257,8 +257,9 @@ export function registerClientCommandTools(deps: BridgeToolRegistrarDeps, ctx: T
     return (instanceId && deps.getDefinitionIdByInstanceId(instanceId)) ?? 'default'
   }
   /**
-   * 读作用域：definition 声明 memory.scope === "user" 的 Agent 跨 Agent 读取该用户的工作记忆。
-   * 写操作仍按 agentId 归属（谁写的记在谁名下），只有读共享。
+   * 读作用域：definition 设 memory.readView === "user" 的 Agent（汇总型，如 chronicler）
+   * 跨 Agent 读取该用户的记忆——它的素材本就来自其他 Agent 的工作痕迹；
+   * 其余 Agent 缺省只读自己写的。写操作一律按 agentId 归属（读共享、写归属）。
    */
   const resolveReadScope = (toolCallId: string): 'agent' | 'user' => {
     const instanceId = resolveInstanceId(toolCallId)
@@ -295,7 +296,12 @@ export function registerClientCommandTools(deps: BridgeToolRegistrarDeps, ctx: T
             agentId,
             scope: readScope,
             count: entries.length,
-            entries: entries.map((e) => ({ id: e.id, category: e.category, content: e.content })),
+            entries: entries.map((e) => ({
+              id: e.id,
+              agent_id: e.agent_id,
+              category: e.category,
+              content: e.content,
+            })),
           })
         }
         case 'window': {
@@ -322,6 +328,8 @@ export function registerClientCommandTools(deps: BridgeToolRegistrarDeps, ctx: T
             hasMore,
             entries: entries.map((e) => ({
               id: e.id,
+              // 汇总型 Agent 靠它区分「这条工作是谁记的」；同用户下来源 Agent 不同但服务同一个用户
+              agent_id: e.agent_id,
               category: e.category,
               importance: e.importance,
               created_at: e.created_at,
