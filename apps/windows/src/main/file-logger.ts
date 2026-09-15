@@ -1,9 +1,9 @@
 /**
  * FileLogger - 文件日志模块
  *
- * 将 console.log/error/warn 输出同时写入日志文件
+ * 将 console.log/error/warn/debug 输出同时写入日志文件
  * 日志文件位于客户端数据根下 logs/app/（默认 ~/.lumii/logs/app/），按日期滚动：
- * - mtbot-YYYY-MM-DD.log       全量日志（INFO/WARN/ERROR）
+ * - mtbot-YYYY-MM-DD.log       全量日志（DEBUG/INFO/WARN/ERROR）
  * - mtbot-error-YYYY-MM-DD.log 仅 ERROR，供崩溃后直接抓取
  * 便携版（PORTABLE_EXECUTABLE_DIR）写入 EXE 同级 logs/ 目录
  */
@@ -153,6 +153,7 @@ class FileLogger {
   private originalConsoleLog = console.log
   private originalConsoleError = console.error
   private originalConsoleWarn = console.warn
+  private originalConsoleDebug = console.debug
 
   /**
    * 初始化日志系统
@@ -293,6 +294,15 @@ class FileLogger {
       this.safeConsoleWrite(this.originalConsoleWarn, ...args)
       this.writeLog('WARN', ...args)
     }
+
+    // debug 只落主日志、不进错误日志：它承载的是子进程 stderr 这类「平时没人看、
+    // 出事时唯一线索」的输出。2026-09-15 MemPalace 整天写不进记忆，点破根因的
+    // `backend resolution failed … BackendMismatchError` 就在这条通道上——而当时它
+    // 没被拦截，不进任何文件，只能靠人工在终端里抓。
+    console.debug = (...args: unknown[]) => {
+      this.safeConsoleWrite(this.originalConsoleDebug, ...args)
+      this.writeLog('DEBUG', ...args)
+    }
   }
 
   /**
@@ -334,6 +344,7 @@ class FileLogger {
     console.log = this.originalConsoleLog
     console.error = this.originalConsoleError
     console.warn = this.originalConsoleWarn
+    console.debug = this.originalConsoleDebug
 
     this.initialized = false
   }

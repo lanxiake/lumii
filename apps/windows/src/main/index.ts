@@ -783,7 +783,9 @@ async function initAgentRuntime(): Promise<void> {
         })
         return { drawerId: result.drawer_id }
       } catch (err) {
-        log.warn(`[MemPalace] 段归档失败: ${err instanceof Error ? err.message : String(err)}`)
+        // 写入失败按 ERROR 记账（读/搜索失败仍是 WARN）：内容永久丢失且幂等重试不会补上，
+        // 而 WARN 只进主日志——2026-09-15 整天写不进一条记忆，错误日志里却一条都没有。
+        log.error(`[MemPalace] 段归档失败: ${err instanceof Error ? err.message : String(err)}`)
         return undefined
       }
     },
@@ -871,7 +873,8 @@ async function initAgentRuntime(): Promise<void> {
           })
           log.info(`[MemPalace] 记忆已写入 convId=${convId} drawer=${added.drawer_id} len=${assistantText.length}`)
         } catch (err) {
-          log.warn(`[MemPalace] 记忆写入失败: ${err instanceof Error ? err.message : String(err)}`)
+          // 与段归档同理：这是内容没进宫殿的最终记账点，必须出现在错误日志里
+          log.error(`[MemPalace] 记忆写入失败: ${err instanceof Error ? err.message : String(err)}`)
         }
       })()
 

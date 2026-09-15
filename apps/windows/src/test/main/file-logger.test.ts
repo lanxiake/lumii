@@ -6,7 +6,7 @@
  * 唯一会被翻出来的东西。这里把「各按各的配额、互不挤占」锁住。
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { mkdtempSync, rmSync, writeFileSync, readdirSync, utimesSync } from 'fs'
+import { mkdtempSync, rmSync, writeFileSync, readdirSync, readFileSync, utimesSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
 
@@ -14,7 +14,8 @@ vi.mock('electron', () => ({
   app: { getPath: vi.fn(() => tmpdir()), isPackaged: false },
 }))
 
-import { cleanOldLogs } from '../../main/file-logger'
+import { cleanOldLogs, fileLogger } from '../../main/file-logger'
+import { getLocalDateString } from '../../main/local-time'
 
 let dir: string
 
@@ -90,5 +91,56 @@ describe('cleanOldLogs', () => {
 
   it('目录不存在时静默返回', () => {
     expect(() => cleanOldLogs(join(dir, 'not-exist'))).not.toThrow()
+  })
+})
+
+/** 轮询等文件出现指定文本；写流是异步落盘的，不能立刻断言 */
+async function readWhenContains(file: string, needle: string): Promise<string> {
+  const deadline = Date.now() + 3000
+  let text = ''
+  do {
+    try {
+      text = readFileSync(file, 'utf8')
+    } catch {
+      text = ''
+    }
+    if (text.includes(needle)) return text
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  } while (Date.now() < deadline)
+  return text
+}
+
+describe('console 拦截', () => {
+  /**
+   * debug 必须落盘：mempalace 子进程的 stderr 走 console.debug 透传，
+   * 2026-09-15 那次「记忆整天写不进去」的根因（backend resolution failed /
+   * BackendMismatchError）就只出现在这条通道上——不被拦截时它不进任何文件，
+   * 只能靠人手工抓终端。同时它不能污染错误日志：错误日志要能一眼看完。
+   */
+  it('debug 只进主日志；error 主日志与错误日志都进', async () => {
+    const logRoot = mkdtempSync(join(tmpdir(), 'lumii-logger-'))
+    const previous = process.env.LUMII_CLIENT_DATA_DIR
+    process.env.LUMII_CLIENT_DATA_DIR = logRoot
+    try {
+      fileLogger.initialize()
+      console.debug('[MemPalace MCP] backend resolution failed: BackendMismatchError')
+      console.error('[MemPalace] 记忆写入失败: boom')
+      fileLogger.destroy() // 结束流，把缓冲刷下去
+
+      const today = getLocalDateString()
+      const logDir = join(logRoot, 'logs', 'app')
+      const errorText = await readWhenContains(join(logDir, `mtbot-error-${today}.log`), '记忆写入失败')
+      const mainText = await readWhenContains(join(logDir, `mtbot-${today}.log`), 'backend resolution failed')
+
+      expect(mainText).toContain('[ERROR] [MemPalace] 记忆写入失败: boom')
+      expect(mainText).toContain('[DEBUG] [MemPalace MCP] backend resolution failed: BackendMismatchError')
+      // 错误日志只留 ERROR：debug 不进，否则它会被子进程 stderr 淹没
+      expect(errorText).toContain('[ERROR] [MemPalace] 记忆写入失败: boom')
+      expect(errorText).not.toContain('backend resolution failed')
+    } finally {
+      if (previous === undefined) delete process.env.LUMII_CLIENT_DATA_DIR
+      else process.env.LUMII_CLIENT_DATA_DIR = previous
+      rmSync(logRoot, { recursive: true, force: true })
+    }
   })
 })
