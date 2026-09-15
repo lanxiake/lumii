@@ -22,6 +22,7 @@ import {
   ZoomOut,
 } from 'lucide-react'
 import { MarkdownExternalLink } from '../../utils/markdown-external-link'
+import { escapeUnknownHtmlTags } from '../../utils/markdown-unknown-tags'
 import { writeFile } from '../../services/file-service'
 import { openFilePreviewWindow } from '../../services/file-preview-service'
 import { writeClipboardFiles } from '../../services/clipboard-service'
@@ -534,6 +535,16 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
   const isMarkdown = useMemo(
     () => result?.mimeType === 'text/markdown' && route === 'code',
     [result, route],
+  )
+
+  /**
+   * 预览用的正文。渲染前把 `<N>` 这类伪标签转义掉——预览会解析原始 HTML，
+   * 不转义的话占位符会被当成未知标签、从界面上消失（详见 escapeUnknownHtmlTags）。
+   * 「源码」视图仍显示原始文本，不受影响。
+   */
+  const previewMarkdown = useMemo(
+    () => escapeUnknownHtmlTags(result?.content ?? ''),
+    [result?.content],
   )
 
   /** 当前内容是否支持缩放（内容已加载且非 Markdown 编辑态） */
@@ -1057,7 +1068,7 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
               ) : (
                 <div style={zoom !== 1 ? { zoom } : undefined}>
                   <MDEditor.Markdown
-                    source={result.content ?? ''}
+                    source={previewMarkdown}
                     style={{ background: 'transparent', color: 'inherit' }}
                     components={{
                       img: ({ src, alt }) => (

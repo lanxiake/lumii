@@ -73,6 +73,36 @@ export interface HotMemoryConfig {
    * 默认 true。避免"问 A 却注入无关的 B 记忆"。
    */
   readonly gateContextualByRelevance?: boolean;
+
+  // ==================== 时间感知席位（2026-09-15） ====================
+  // 背景：纯 score 排序下，新条目（importance 默认 0.5）会被历史高 importance 条目
+  // 永久挤出注入席位，导致"今天记的当天看不见"。席位是绕过 score 的保底通道，
+  // 只按 created_at 判定（不可变字段），不按 last_used —— 后者每次注入都被刷新，
+  // 用它做保底会形成"注入过的更容易再被注入"的自激循环。
+
+  /**
+   * 近 24h 新建条目的保底席位数上限，默认 5。
+   * 这些席位不参与 relevance 门控（今日条目与当前话题无关也保留），
+   * 保证"今天记的当天一定看得见"。设为 0 关闭保底。
+   */
+  readonly freshSeats24h?: number;
+  /** 近 7d 新建条目的次级席位数上限，默认 3（用剩余席位，同样免门控）。 */
+  readonly recentSeats7d?: number;
+  /**
+   * importance 项的年龄衰减半衰期（天），默认 21。
+   * `importance * categoryWeights * max(floor, 0.5^(ageDays/halfLife))`，
+   * 让同年份的高 importance 旧条目不再无条件碾压新条目。基于 created_at。
+   */
+  readonly ageDecayHalfLifeDays?: number;
+  /** 年龄衰减下限系数，默认 0.4（防止老条目基础分完全归零）。 */
+  readonly ageDecayFloor?: number;
+  /** use_count 轻微加成权重，默认 0.05：`min(0.15, w * ln(1 + use_count))`。 */
+  readonly useCountWeight?: number;
+  /**
+   * 注入时跳过"从未被用过且已过期"的条目：use_count=0 且 created_at 早于 N 天，默认 30。
+   * 只影响注入选取，不改存储数据（不归档、不删除）。设为 0 关闭。
+   */
+  readonly skipUnusedOlderThanDays?: number;
 }
 
 /** 默认热记忆配置 */
@@ -91,7 +121,16 @@ export const DEFAULT_HOT_MEMORY_CONFIG: HotMemoryConfig = {
   recencyHalfLifeDays: 30,
   minQueryTokens: 2,
   gateContextualByRelevance: true,
+  freshSeats24h: 5,
+  recentSeats7d: 3,
+  ageDecayHalfLifeDays: 21,
+  ageDecayFloor: 0.4,
+  useCountWeight: 0.05,
+  skipUnusedOlderThanDays: 30,
 } as const;
+
+/** 记忆读取作用域（见 AgentDefinition.memory.scope） */
+export type MemoryReadScope = "agent" | "user";
 
 /** 记忆提取候选 */
 export interface ExtractedCandidate {

@@ -40,6 +40,14 @@ export interface MemPalaceDrawerDetail {
   metadata: Record<string, unknown>
 }
 
+export interface MemPalaceAddResult {
+  drawer_id: string
+  wing: string
+  room: string
+  /** 超长内容被切成的分块数；命中幂等（内容已存在）时可能缺省 */
+  chunks?: number
+}
+
 interface JsonRpcResponse {
   jsonrpc: '2.0'
   id: number
@@ -279,6 +287,39 @@ export class MemPalaceMcpBridge {
     if (Array.isArray(raw)) return raw
     if ((raw as { error?: string }).error) return []
     return (raw as { results?: MemPalaceSearchItem[] }).results ?? []
+  }
+
+  /**
+   * 写入一个 drawer（对话原文 / 段原文归档）。
+   *
+   * mempalace 的写工具用「返回值」而非异常报错：写入失败返回 `{"success": false, "error": …}`，
+   * collection 打不开时（后端不匹配、库缺失等）更是直接返回 `{"error": …}`——两者在 JSON-RPC
+   * 层都算成功响应。不校验 `success` 就会把失败静默记成写入成功：2026-09-15 排查发现，
+   * 子进程整天在 chroma upsert 上崩溃（access violation）的同期，日志仍报出 100 次
+   * 「记忆已写入」而宫殿里 0 条新数据，故障因此被掩盖。
+   * 这里统一把失败收敛成抛异常，让调用方的 catch 如实记账。
+   */
+  async addDrawer(params: {
+    wing: string
+    room: string
+    content: string
+    addedBy: string
+    sourceFile?: string
+  }): Promise<MemPalaceAddResult> {
+    const raw = (await this.callTool('mempalace_add_drawer', {
+      wing: params.wing,
+      room: params.room,
+      content: params.content,
+      added_by: params.addedBy,
+      ...(params.sourceFile != null ? { source_file: params.sourceFile } : {}),
+    })) as { success?: boolean; drawer_id?: string; error?: string } | null
+
+    // 内容已存在时 Python 侧返回 {success: true, reason: 'already_exists', drawer_id}，同属成功
+    if (raw?.success === true && raw.drawer_id) {
+      this.statusCache = null
+      return raw as MemPalaceAddResult
+    }
+    throw new Error(raw?.error ?? (raw ? '未返回 success 标记' : '未返回结果'))
   }
 
   async deleteDrawer(drawerId: string): Promise<void> {
