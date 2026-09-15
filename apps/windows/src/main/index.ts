@@ -763,7 +763,7 @@ async function initAgentRuntime(): Promise<void> {
      * 段原文归档进 MemPalace（诉求 A · 宫殿互引）。
      * MemPalace 3.5.x 的 mempalace_add_drawer 仅接受 wing/room/content/source_file/added_by，
      * 不接受 drawer_id/metadata；drawer_id 由 Python 侧 make_drawer_id_from_content 生成并返回。
-     * 同一 (wing, room, content) 重复归档幂等。返回值优先用 Python 的 drawer_id，否则回退本地 ID。
+     * 同一 (wing, room, content) 重复归档幂等。
      * 未安装/失败返回 undefined（runtime 降级，仅保留原文回溯不互引）。
      */
     archiveMempalaceDrawer: async (params) => {
@@ -773,15 +773,15 @@ async function initAgentRuntime(): Promise<void> {
         await ensureMemPalacePalaceDir()
         const bridge = getMemPalaceBridge()
         const segmentId = params.metadata?.segmentId
-        const result = (await bridge.callTool('mempalace_add_drawer', {
+        const result = await bridge.addDrawer({
           content: params.content,
           wing: params.wing,
           room: params.room,
-          added_by: 'mtbot-windows',
+          addedBy: 'mtbot-windows',
           // 3.5.x 无 metadata 参数，用 source_file 保留段溯源
-          ...(segmentId != null ? { source_file: `segment:${String(segmentId)}` } : {}),
-        })) as { drawer_id?: string; id?: string } | null
-        return { drawerId: result?.drawer_id ?? result?.id ?? params.drawerId }
+          ...(segmentId != null ? { sourceFile: `segment:${String(segmentId)}` } : {}),
+        })
+        return { drawerId: result.drawer_id }
       } catch (err) {
         log.warn(`[MemPalace] 段归档失败: ${err instanceof Error ? err.message : String(err)}`)
         return undefined
@@ -863,13 +863,13 @@ async function initAgentRuntime(): Promise<void> {
           if (!installed) return
           await ensureMemPalacePalaceDir()
           const bridge = getMemPalaceBridge()
-          await bridge.callTool('mempalace_add_drawer', {
+          const added = await bridge.addDrawer({
             wing: 'conversations',
             room: convId,
             content: assistantText,
-            added_by: 'mtbot-windows',
+            addedBy: 'mtbot-windows',
           })
-          log.info(`[MemPalace] 记忆已写入 convId=${convId} len=${assistantText.length}`)
+          log.info(`[MemPalace] 记忆已写入 convId=${convId} drawer=${added.drawer_id} len=${assistantText.length}`)
         } catch (err) {
           log.warn(`[MemPalace] 记忆写入失败: ${err instanceof Error ? err.message : String(err)}`)
         }

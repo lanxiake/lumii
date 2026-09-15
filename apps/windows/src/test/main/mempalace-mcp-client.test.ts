@@ -73,3 +73,58 @@ describe('MemPalaceMcpBridge 子进程崩溃', () => {
     }
   }, 30_000)
 })
+
+describe('MemPalaceMcpBridge.addDrawer 返回值校验', () => {
+  /**
+   * mempalace 的写工具用返回值报错，而不是抛异常：写入失败是 `{success:false,error}`，
+   * collection 打不开时是裸 `{error}`——两者在 JSON-RPC 层都是成功响应。
+   * 调用方不校验 success 就会把失败记成「记忆已写入」：2026-09-15 排查中，
+   * 子进程整天在 chroma upsert 上崩溃的同期，日志仍报出 100 次写入成功，
+   * 而宫殿里 0 条新数据，故障因此被掩盖。
+   *
+   * 这里只桩掉传输层：被测对象是「返回值 → 成败」这段判定，
+   * 真实子进程的请求/响应链路由上面的崩溃回归覆盖。
+   */
+  const params = { wing: 'conversations', room: 'conv-1', content: '正文', addedBy: 'mtbot-windows' }
+
+  function bridgeReturning(result: unknown): MemPalaceMcpBridge {
+    const bridge = new MemPalaceMcpBridge('C:/fake/python.exe', 'C:/fake/palace')
+    vi.spyOn(bridge, 'callTool').mockResolvedValue(result)
+    return bridge
+  }
+
+  it('success:false 时抛错（Python 侧写入失败的形态）', async () => {
+    const bridge = bridgeReturning({
+      success: false,
+      error: 'Idempotency check failed before write: boom',
+    })
+    await expect(bridge.addDrawer(params)).rejects.toThrow(/Idempotency check failed/)
+  })
+
+  it('裸 error 字典抛错（collection 打不开的形态）', async () => {
+    const bridge = bridgeReturning({ error: 'No palace found', hint: 'Run: mempalace init <dir>' })
+    await expect(bridge.addDrawer(params)).rejects.toThrow(/No palace found/)
+  })
+
+  it('缺少 success 标记时抛错，不当作成功', async () => {
+    const bridge = bridgeReturning({ drawer_id: 'drawer_x' })
+    await expect(bridge.addDrawer(params)).rejects.toThrow(/未返回 success 标记/)
+  })
+
+  it('callTool 没有返回内容时抛错', async () => {
+    const bridge = bridgeReturning(null)
+    await expect(bridge.addDrawer(params)).rejects.toThrow(/未返回结果/)
+  })
+
+  it('success:true 时返回 drawer_id', async () => {
+    const bridge = bridgeReturning({
+      success: true, drawer_id: 'drawer_ok', wing: 'conversations', room: 'conv-1', chunks: 1,
+    })
+    await expect(bridge.addDrawer(params)).resolves.toMatchObject({ drawer_id: 'drawer_ok' })
+  })
+
+  it('内容已存在（already_exists）同样算成功', async () => {
+    const bridge = bridgeReturning({ success: true, reason: 'already_exists', drawer_id: 'drawer_dup' })
+    await expect(bridge.addDrawer(params)).resolves.toMatchObject({ drawer_id: 'drawer_dup' })
+  })
+})
