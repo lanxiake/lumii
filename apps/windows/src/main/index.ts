@@ -1214,6 +1214,7 @@ async function initialize(): Promise<void> {
   registerLocalMediaProtocolHandler()
   // 服务启动时在控制台打印日志文件路径
   log.info('日志文件:', fileLogger.getCurrentLogFilePath())
+  log.info('错误日志文件:', fileLogger.getCurrentErrorLogFilePath())
 
   // 初始化性能监控（IPC 耗时/慢调用/内存快照），日志与主日志目录同层级下的 perf 子目录
   const perfMemorySnapshotIntervalMs = 60000
