@@ -157,8 +157,8 @@
   }
 }
 
-/* 入场错峰已移到 ChatContainer.module.css 的 .message-row:nth-child(N)：
-   消息列表给每条消息包了一层窗口化行容器（见 use-windowed-rows.ts），
+/* 入场错峰已移到 ChatContainer.module.css 的 [data-enter-index]：
+   消息列表给每条消息包了一层窗口化行容器（见 useWindowedRows.ts），
    .message 在行内恒为第 1 个子元素，挂在这里的 nth-child 规则会全部退化成 0ms。 */
 
 .message.user {

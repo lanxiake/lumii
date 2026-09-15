@@ -45,7 +45,7 @@
 }
 
 /*
- * 行包裹层：窗口化渲染的挂载单元（见 use-windowed-rows.ts）。
+ * 行包裹层：窗口化渲染的挂载单元（见 useWindowedRows.ts）。
  *
  * 必须是 flex 容器，且方向同为 column —— .message 依赖父级是 flex 上下文才有
  * align-self（user 靠 flex-end 右对齐）与「宽度收缩到内容」的语义；换成普通块级
@@ -65,24 +65,28 @@
  * 离屏但仍在窗口带内的行：让 Chromium 跳过其布局与绘制。
  * 它不卸载 DOM、不回收内存，只是把「滚动时不必付的那部分代价」省掉。
  *
- * contain-intrinsic-block-size 的 auto 关键字让浏览器记住上次渲染的尺寸；
- * var(--row-h) 是 ResizeObserver 实测值，作为首次跳过时的兜底。二者一致，
- * 所以跳过期间行高不变 —— 实测高度只有测过才会加这个类。
+ * `contain-intrinsic-block-size` 决定跳过期间这个盒子多高，必须等于真实高度，
+ * 否则行高变化会把滚动位置顶掉。`--row-h` 是 ResizeObserver 实测值（内联下发），
+ * `auto` 关键字让浏览器优先用「上次渲染记住的尺寸」—— 二者一致，所以跳过是无声的。
+ *
+ * 240px 那个兜底 **不参与判定**：这个类只在「已实测高度」的行上才加，所以它永远用不到，
+ * 纯粹是防「变量没写进来」时属性整体失效（那会让行塌成 0 高，比一个不准的兜底更糟）。
  */
 .message-row--skippable {
   content-visibility: auto;
   contain-intrinsic-block-size: auto var(--row-h, 240px);
 }
 
-/* 入场错峰：原先挂在 .message:nth-child(N) 上，多了一层行包裹后每条消息都是
-   所属行的第 1 个子元素，那组规则全部退化为 0ms。这里按行序重新给出延迟。
-   用 .messages-list > 提升一级特异性，避免与 ChatMessage.module.css 里残留的
-   nth-child 规则（同为 0,2,0）依赖打包顺序决胜。 */
-.messages-list > .message-row:nth-child(1) > * { animation-delay: 0ms; }
-.messages-list > .message-row:nth-child(2) > * { animation-delay: 50ms; }
-.messages-list > .message-row:nth-child(3) > * { animation-delay: 100ms; }
-.messages-list > .message-row:nth-child(4) > * { animation-delay: 150ms; }
-.messages-list > .message-row:nth-child(5) > * { animation-delay: 200ms; }
+/* 入场错峰：按行序下发（前 5 行各错开 50ms）。
+   原先挂在 .message:nth-child(N) 上 —— 多了一层行包裹后，.message 在行内恒为第 1 个子元素，
+   那组规则会全部退化成 0ms；而改用 .message-row:nth-child(N) 也不行，:nth-child 是按
+   所有兄弟计数，列表里还有 history-loader / 输入指示器等节点，会把行序挤偏一位。
+   所以由 ChatContainer 直接按 index 写 data-enter-index，规则一一对应、不受邻居影响。 */
+.messages-list > .message-row[data-enter-index='0'] > * { animation-delay: 0ms; }
+.messages-list > .message-row[data-enter-index='1'] > * { animation-delay: 50ms; }
+.messages-list > .message-row[data-enter-index='2'] > * { animation-delay: 100ms; }
+.messages-list > .message-row[data-enter-index='3'] > * { animation-delay: 150ms; }
+.messages-list > .message-row[data-enter-index='4'] > * { animation-delay: 200ms; }
 
 /* 会话切换时：容器整体淡入 */
 @keyframes session-fade-in {

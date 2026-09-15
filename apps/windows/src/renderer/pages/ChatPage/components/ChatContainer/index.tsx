@@ -7,7 +7,7 @@ import { EmptyState } from '../EmptyState'
 import { CompactionCard } from '../CompactionCard'
 import { TodoPanel } from '../TodoPanel'
 import { useStableMapById } from '../../../../utils/useStableMapById'
-import { useWindowedRows } from './use-windowed-rows'
+import { useWindowedRows } from './useWindowedRows'
 import type { ChatSession, ChatMessage as ChatMessageType, AgentWorkflowItem, ToolCall } from '../../../../hooks/business/useChat'
 import type { AssistantPart, FileChangeEntry } from '@mtbot/agent-runtime/browser'
 import { groupSubAgentRuns, type SubAgentRun } from './sub-agent-runs'
@@ -65,6 +65,9 @@ interface CompactionItem {
 type ChatItem = MessageItem | CompactionItem
 
 const EMPTY_TOOL_ITEMS: readonly AgentWorkflowItem[] = []
+
+/** 无流式行时的空 pinned 集合：保持引用稳定，避免击穿下游 memo */
+const EMPTY_ROW_KEYS: ReadonlySet<string> = new Set()
 
 /**
  * 行的稳定 key。刻意不用 index：前插历史会让所有行错位，
@@ -129,7 +132,6 @@ function extractCompactSummaryFromMessage(item: MessageItem): string | null {
 /** 单条消息行的渲染 props：从 ChatItem 中收窄为消息专属字段，便于稳定引用 */
 interface ChatMessageRowProps {
   item: MessageItem
-  index: number
   isStreaming: boolean
   isLatestAssistant: boolean
   streamingThinkingText?: string
@@ -149,7 +151,6 @@ interface ChatMessageRowProps {
  */
 const ChatMessageRow: React.FC<ChatMessageRowProps> = ({
   item,
-  index,
   isStreaming,
   isLatestAssistant,
   streamingThinkingText,
@@ -208,7 +209,9 @@ const ChatMessageRow: React.FC<ChatMessageRowProps> = ({
 
   return (
     <ChatMessage
-      key={`${item.id}-${index}`}
+      // 这里刻意不给 key：单元素上的 key 只会在值变化时把子树卸载重挂，
+      // 而带上 index 的值一遇「前插历史 / 压缩卡插入 / 子消息被摘出」就整体位移，
+      // 于是每条消息的 markdown+高亮都要重解析一遍 —— 与行 key 去位置化是同一件事
       message={message}
       sessionBusy={isStreaming}
       toolItems={toolItems}
@@ -504,19 +507,27 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
   // Check if we need to show typing indicator (sending state OR streaming with last message from user)
   const showTypingIndicator = (isSending || isStreaming) && messages.length > 0 && messages[messages.length - 1].role === 'user'
 
-  // 窗口化：只保持视口附近的行真实挂载（见 use-windowed-rows.ts）
-  const rowKeys = useMemo(() => chatItems.map(rowKeyOf), [chatItems])
+  // 窗口化：只保持视口附近的行真实挂载（见 useWindowedRows.ts）
+  //
+  // rowKeys 用 useStableMapById 而不是 chatItems.map()：流式期间 chatItems 每个 delta 都换
+  // 新身份，而 key 序列其实只在增删消息时变。复用同一数组才能让下游两个决策 memo 与
+  // prune 效果不随每个 token 重跑（否则每 token 都要全量扫一遍并重建两个几百项的 Set）。
+  const rowKeys = useStableMapById(chatItems, rowKeyOf, rowKeyOf)
   /**
    * 永不占位的行：正在流式输出的那条。
-   * 它高度每帧都在变，占位/回填会与之来回打架；且它就在视口底部，本也不会被判离屏。
+   * 它高度每帧都在变，占位/跳过的冻结效果都会与之打架；且它就在视口底部，本也不会被判离屏。
+   *
+   * 先取「流式行的 key 签名」再据此建 Set：签名只在流式行增删时变，于是 Set 的引用
+   * 在流式期间保持稳定，同样是为了不击穿下游 memo。
    */
-  const pinnedRowKeys = useMemo(() => {
-    const pinned = new Set<string>()
-    for (const item of chatItems) {
-      if (item.itemType === 'message' && item.isStreaming) pinned.add(rowKeyOf(item))
-    }
-    return pinned
-  }, [chatItems])
+  const streamingRowKeySignature = useMemo(
+    () => chatItems.filter((item) => item.itemType === 'message' && item.isStreaming).map(rowKeyOf).join('\n'),
+    [chatItems],
+  )
+  const pinnedRowKeys = useMemo(
+    () => (streamingRowKeySignature ? new Set(streamingRowKeySignature.split('\n')) : EMPTY_ROW_KEYS),
+    [streamingRowKeySignature],
+  )
   const windowed = useWindowedRows({ scrollRoot, keys: rowKeys, pinnedKeys: pinnedRowKeys })
 
   if (isLoading && chatItems.length === 0) {
@@ -539,7 +550,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
    * 渲染单行的真实内容。占位替换由调用方做（collapsed 时根本不调这个函数），
    * 所以这里不必关心窗口化。
    */
-  const renderRowBody = (item: ChatItem, index: number): React.ReactNode => {
+  const renderRowBody = (item: ChatItem): React.ReactNode => {
     if (item.itemType === 'compaction') {
       return (
         <CompactionCard
@@ -569,7 +580,6 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
     return (
       <ChatMessageRowMemo
         item={item}
-        index={index}
         isStreaming={isStreaming}
         isLatestAssistant={isLatestAssistant}
         streamingThinkingText={streamingThinkingText}
@@ -610,10 +620,12 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
           const rowKey = rowKeyOf(item)
           const collapsed = windowed.isCollapsed(rowKey)
           const measured = windowed.heightOf(rowKey)
+          // 两处都要用同一个谓词：算一次存下来，避免同一轮渲染里查两遍、也避免将来分叉
+          const skippable = !collapsed && windowed.isSkippable(rowKey)
           // 占位高度用实测值：替换前后行高一致，scrollHeight 不变，滚动位置不动
           const rowStyle: React.CSSProperties | undefined = collapsed
             ? { height: measured }
-            : windowed.isSkippable(rowKey) && measured !== undefined
+            : skippable && measured !== undefined
               ? ({ '--row-h': `${measured}px` } as React.CSSProperties)
               : undefined
 
@@ -623,13 +635,16 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
               // data-row-key 由 hook 的 ref 回调写入（它的观察器回调靠这个属性回认 key），
               // 这里不再重复声明，避免两处写同一属性
               ref={windowed.registerRow(rowKey)}
+              // 入场错峰按「行序」下发（前 5 行）。不用 :nth-child，是因为它按所有兄弟计数，
+              // 列表里还有 history-loader / 输入指示器，行序会被它们挤偏
+              data-enter-index={index < 5 ? index : undefined}
               className={clsx(
                 styles['message-row'],
-                !collapsed && windowed.isSkippable(rowKey) && styles['message-row--skippable'],
+                skippable && styles['message-row--skippable'],
               )}
               style={rowStyle}
             >
-              {collapsed ? null : renderRowBody(item, index)}
+              {collapsed ? null : renderRowBody(item)}
             </div>
           )
         })}

@@ -20,7 +20,7 @@ import {
   readEntryBlockSize,
   useWindowedRows,
   ROW_OVERSCAN_PX,
-} from '../../renderer/pages/ChatPage/components/ChatContainer/use-windowed-rows'
+} from '../../renderer/pages/ChatPage/components/ChatContainer/useWindowedRows'
 
 // ---------------------------------------------------------------
 // 决策纯函数
@@ -66,31 +66,38 @@ describe('selectSkippableKeys', () => {
 
   it('只挑「在窗口带内 + 视口外 + 已测高」的行', () => {
     // 带外：a（该走占位）；视口外但在带内：b；视口内：c
-    const skippable = selectSkippableKeys(keys, heights, new Set(['a']), new Set(['b']), allSeen)
+    const skippable = selectSkippableKeys(keys, heights, new Set(['a']), new Set(['b']), allSeen, new Set())
     expect([...skippable]).toEqual(['b'])
   })
 
   it('视口内的行永不跳过 —— content-visibility 的 paint containment 会裁掉入场动画', () => {
-    const skippable = selectSkippableKeys(keys, heights, new Set(), new Set(), allSeen)
+    const skippable = selectSkippableKeys(keys, heights, new Set(), new Set(), allSeen, new Set())
     expect(skippable.size).toBe(0)
   })
 
   it('尚未收到视口 observer 报告的行不跳过（宁可不省，不可裁切）', () => {
-    const skippable = selectSkippableKeys(keys, heights, new Set(), new Set(['c']), allSeen)
+    const skippable = selectSkippableKeys(keys, heights, new Set(), new Set(['c']), allSeen, new Set())
     expect(skippable.has('a')).toBe(false)
     expect(skippable.has('b')).toBe(false)
   })
 
   it('没被看见过的行不跳过 —— 跳过期间不跑动画，会把它推迟到用户滚到时才播', () => {
     // a/b/c 都在视口外，但只有 c 进过视口（seen）→ 只有 c 可跳过
-    const skippable = selectSkippableKeys(keys, heights, new Set(), new Set(keys), new Set(['c']))
+    const skippable = selectSkippableKeys(keys, heights, new Set(), new Set(keys), new Set(['c']), new Set())
     expect([...skippable]).toEqual(['c'])
     expect(skippable.has('a')).toBe(false)
     expect(skippable.has('b')).toBe(false)
   })
 
+  it('pinned 行不跳过 —— 跳过期间行高被 size containment 冻住，流式输出会停止长高', () => {
+    // 其余条件都满足，唯独 a 是 pinned
+    const skippable = selectSkippableKeys(keys, heights, new Set(), new Set(keys), allSeen, new Set(['a']))
+    expect(skippable.has('a')).toBe(false)
+    expect([...skippable]).toEqual(['b', 'c'])
+  })
+
   it('未测高的行不跳过', () => {
-    const skippable = selectSkippableKeys(['d'], new Map(), new Set(), new Set(['d']), new Set(['d']))
+    const skippable = selectSkippableKeys(['d'], new Map(), new Set(), new Set(['d']), new Set(['d']), new Set())
     expect(skippable.size).toBe(0)
   })
 })
@@ -245,6 +252,7 @@ function Harness({ keys, pinned = [] }: { keys: string[]; pinned?: string[] }) {
             data-testid={`row-${key}`}
             data-collapsed={collapsed ? 'true' : 'false'}
             data-skippable={skippable ? 'true' : 'false'}
+            data-was-collapsed={windowed.wasCollapsed(key) ? 'true' : 'false'}
             style={collapsed ? { height: windowed.heightOf(key) } : undefined}
           >
             {collapsed ? null : <span data-testid={`body-${key}`}>{key}</span>}
@@ -405,5 +413,62 @@ describe('useWindowedRows 接线', () => {
     })
 
     expect(screen.getByTestId('row-a').dataset.skippable).toBe('false')
+  })
+
+  it('流式行（pinned）不给 content-visibility —— 跳过会把它的行高冻住', () => {
+    vi.stubGlobal('IntersectionObserver', FakeIntersectionObserver)
+    vi.stubGlobal('ResizeObserver', FakeResizeObserver)
+    render(<Harness keys={['a', 'b']} pinned={['a']} />)
+
+    markAllVisible(['a', 'b'])
+    measure([['a', 120], ['b', 240]])
+    // 两个都滚出视口（但仍在 ±2000px 带内，所以走的是「跳过」而不是「占位」）
+    act(() => {
+      FakeIntersectionObserver.byMargin('0px').emit(false, [
+        screen.getByTestId('row-a'),
+        screen.getByTestId('row-b'),
+      ])
+    })
+
+    expect(screen.getByTestId('row-a').dataset.skippable).toBe('false')
+    expect(screen.getByTestId('row-b').dataset.skippable).toBe('true')
+  })
+
+  it('已从列表移除的 key 收到的迟到 observer 条目被丢弃，不会留下幽灵记录', () => {
+    vi.stubGlobal('IntersectionObserver', FakeIntersectionObserver)
+    vi.stubGlobal('ResizeObserver', FakeResizeObserver)
+    const { rerender } = render(<Harness keys={['a', 'b']} />)
+
+    markAllVisible(['a', 'b'])
+    measure([['a', 120], ['b', 240]])
+    const staleRowA = screen.getByTestId('row-a')
+
+    // a 被移出列表（切会话 / 压缩移出消息），随后它的迟到条目才送达
+    rerender(<Harness keys={['b']} />)
+    act(() => {
+      FakeIntersectionObserver.byMargin(`${ROW_OVERSCAN_PX}px 0px`).emit(false, [staleRowA])
+    })
+
+    // a 重新回到列表：不应带着「离屏」状态复活（那会在首帧就被占位而闪一下）
+    rerender(<Harness keys={['a', 'b']} />)
+    expect(screen.getByTestId('row-a').dataset.collapsed).toBe('false')
+    expect(screen.getByTestId('row-a').dataset.wasCollapsed).toBe('false')
+  })
+
+  it('曾被占位的 key 在移出列表后不再留下标记（everCollapsed 也参与 prune）', () => {
+    vi.stubGlobal('IntersectionObserver', FakeIntersectionObserver)
+    vi.stubGlobal('ResizeObserver', FakeResizeObserver)
+    const { rerender } = render(<Harness keys={['a', 'b']} />)
+
+    markAllVisible(['a', 'b'])
+    measure([['a', 120], ['b', 240]])
+    act(() => {
+      FakeIntersectionObserver.byMargin(`${ROW_OVERSCAN_PX}px 0px`).emit(false, [screen.getByTestId('row-a')])
+    })
+    expect(screen.getByTestId('row-a').dataset.wasCollapsed).toBe('true')
+
+    rerender(<Harness keys={['b']} />)
+    rerender(<Harness keys={['a', 'b']} />)
+    expect(screen.getByTestId('row-a').dataset.wasCollapsed).toBe('false')
   })
 })
