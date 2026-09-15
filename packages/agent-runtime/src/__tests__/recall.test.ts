@@ -20,10 +20,12 @@ describe("loadTopMemories 相关性召回", () => {
     repo.saveCandidate({ agentId: "a1", userId: "u1", category: "project", content: "用户在准备 CPA 注册会计师考试", importance: 0.5, tags: [] });
     repo.saveCandidate({ agentId: "a1", userId: "u1", category: "project", content: "用户在学习吉他每周练习两次", importance: 0.5, tags: [] });
     // 说明（2026-09-13 起 hot 同样受相关性门控，此步骤已非必需；保留以模拟真实时间分布）
+    // created_at 与 last_used 一起回拨：注入端有「近 24h 新建保底席位」（2026-09-15），
+    // 只回拨 last_used 会让这三条"老记忆"仍以新建身份占保底席位。
     const fifteenDaysAgo = new Date(Date.now() - 15 * 86_400_000).toISOString();
-    db.prepare("UPDATE agent_memories SET last_used = ? WHERE agent_id = 'a1' AND user_id = 'u1'").run(
-      fifteenDaysAgo,
-    );
+    db.prepare(
+      "UPDATE agent_memories SET last_used = ?, created_at = ? WHERE agent_id = 'a1' AND user_id = 'u1'",
+    ).run(fifteenDaysAgo, fifteenDaysAgo);
   });
 
   it("含 query 时相关记忆排序靠前", () => {

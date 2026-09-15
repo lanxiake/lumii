@@ -56,6 +56,12 @@ export interface BridgeToolRegistrarDeps {
   getCurrentToolExecutorInstanceId: () => string | undefined
   /** 由 instanceId 解析 Agent 定义 ID（= 工作记忆的 agentId），用于 memory_manage 精确命中 */
   getDefinitionIdByInstanceId: (instanceId: string) => string | undefined
+  /**
+   * 由 instanceId 解析记忆读取作用域。
+   * definition 声明 `memory.scope === "user"` 时返回 `"user"`（跨 Agent 读取该用户工作记忆），
+   * 否则 `"agent"`。汇总类 Agent（chronicler 等）依赖它读到用户在主 Agent 积累的工作。
+   */
+  getMemoryReadScopeByInstanceId: (instanceId: string) => 'agent' | 'user'
   toolCallInstanceMap: Map<string, string>
   getDefinitionStore: () => AgentDefinitionStore | null
   /** 惰性获取 orchestrator（首次调用时创建） */

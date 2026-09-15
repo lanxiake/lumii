@@ -6,7 +6,13 @@
 
 import type { DatabaseAdapter } from "../storage/local-database.js";
 import { withTransaction } from "../storage/local-database.js";
-import type { MemoryEntry, MemoryRow, MemoryCategory, HotMemoryConfig } from "./types.js";
+import type {
+  MemoryEntry,
+  MemoryRow,
+  MemoryCategory,
+  HotMemoryConfig,
+  MemoryReadScope,
+} from "./types.js";
 import { DEFAULT_HOT_MEMORY_CONFIG, isPersonalCategory } from "./types.js";
 import { tokenizeForRelevance, tokenizeBigram, overlapCoefficient } from "./segmentation.js";
 import { scoreMemory } from "./scorer.js";
@@ -19,6 +25,12 @@ import {
 
 /** 相关性门控阈值：与当前 query 的 overlap 低于此值的记忆不注入（宁缺毋滥，防上下文污染） */
 const RELEVANCE_GATE_THRESHOLD = 0.15;
+
+/**
+ * 时间窗候选通道的硬上限（仅防异常数据量的保护性上限，非语义截断）。
+ * 近 7 天新建条目一般远低于此值；超出说明有批量导入等异常，取最近的 N 条。
+ */
+const WINDOW_CANDIDATE_CAP = 500;
 
 /** 粗估 token 数（中文约 2 字符 = 1 token，英文约 4 字符 = 1 token） */
 function estimateTokens(text: string): number {
@@ -53,43 +65,48 @@ export class AgentMemoryRepo {
   }
 
   /**
-   * 加载热记忆：按 importance 降序取候选集，内存中按 score 重排序，
-   * 截断到 maxItems 和 maxTokenBudget，更新 last_used 和 use_count。
+   * 加载热记忆：时间感知的分层席位选取。
+   *
+   * 选取顺序（总量与 token 预算不变，不增加上下文体积）：
+   * 1. **近 24h 席位**（`freshSeats24h`，默认 5）：`created_at` 在 24h 内的条目按 score 占位，
+   *    **免 relevance 门控** —— 保证「今天记的当天一定看得见」。
+   * 2. **近 7d 席位**（`recentSeats7d`，默认 3）：7 天内新建的剩余条目，同样免门控。
+   * 3. **其余席位**：cold 过滤 + 相关性门控后按 score 排序填充。
+   *
+   * 席位只按 `created_at` 判定、不按 `last_used`：后者每次注入都被刷新，
+   * 用作保底会形成「注入过的更容易再被注入」的自激循环。
    *
    * @param query 可选，当前用户消息。提供且有效 token 达门槛时，叠加关键词相关性加分
-   *   （overlap 系数），让召回偏向"与当前对话相关"而非仅"重要"。相关性是加分项非过滤项，
-   *   重要记忆不会被排除。query 为空/过短时退化为纯标量评分（行为同现状）。
+   *   （overlap 系数），让召回偏向"与当前对话相关"而非仅"重要"。
+   * @param scope 读取作用域。`"agent"`（默认）只看本 Agent 的记忆；`"user"` 跨 Agent
+   *   读取该用户的全部工作记忆（对应 `AgentDefinition.memory.scope === "user"`）。
    */
   loadTopMemories(
     agentId: string,
     userId: string,
     config: HotMemoryConfig = DEFAULT_HOT_MEMORY_CONFIG,
     query?: string,
+    scope: MemoryReadScope = "agent",
   ): readonly MemoryEntry[] {
+    const now = Date.now();
+
     // query 质量门槛：有效 token 达标才启用相关性（用停用词过滤后的 token 判断）
     const minQueryTokens = config.minQueryTokens ?? 2;
     const queryTokens = query ? tokenizeForRelevance(query) : null;
     const useRelevance = !!queryTokens && queryTokens.size >= minQueryTokens;
 
-    // 1. 从 SQLite 取候选（启用相关性时取更宽，避免高相关低重要项被 importance 预筛挡掉）
+    // 1. 取候选集（时间窗通道 + importance 预筛通道，合并去重）
     const candidateLimit = useRelevance
       ? Math.max(config.maxItems * 2.5, 200)
       : Math.max(config.maxItems * 2.5, 50);
-    const rows = this.db
-      .prepare<MemoryRow>(
-        `SELECT * FROM agent_memories
-       WHERE agent_id = ? AND user_id = ? AND is_archived = 0
-       ORDER BY importance DESC
-       LIMIT ?`,
-      )
-      .all(agentId, userId, candidateLimit);
+    const candidates = this.loadCandidates(agentId, userId, scope, candidateLimit, now);
 
-    // 2. 计算 score（含相关性），score 公式抽到 scorer.ts:scoreMemory 纯函数
-    const now = Date.now();
-    const scored = rows.map((row) => {
+    // 2. 计算 score（含相关性、年龄衰减、use_count 加成）
+    const scored = candidates.map((row) => {
       const relevance = useRelevance
         ? overlapCoefficient(queryTokens, tokenizeForRelevance(row.content))
         : 0;
+      const createdAtMs = new Date(row.created_at).getTime();
       const score = scoreMemory(
         {
           now,
@@ -97,66 +114,78 @@ export class AgentMemoryRepo {
           importance: row.importance,
           category: row.category as MemoryCategory,
           relevance,
+          createdAt: createdAtMs,
+          useCount: row.use_count,
         },
         config,
       );
-      return { row, score, relevance };
+      return { row, score, relevance, createdAtMs };
     });
 
-    // 2.1 相关性门控（2026-09-13 修订）：取消 hot 免门控——importance 高 ≠ 与当前话题相关，
-    //     高重要度旧记忆每轮无条件注入会污染上下文（实测问"蓝鲸计划"注入 11 条全无关）。
-    //     宁缺毋滥：与当前消息不相关的记忆一律不注入。
-    const gateContextual = config.gateContextualByRelevance ?? true;
-    // 无有效 query 且门控开启：无法判断相关性，不注入任何工作记忆
-    if (!useRelevance && gateContextual) {
-      return [];
-    }
-    const gated = scored.filter(({ row, relevance }) => {
-      // 显式关闭门控（配置）：相关性仅做加分，不过滤
-      if (!useRelevance || !gateContextual) return true;
-
-      const temp = computeTemperature(
-        {
-          category: row.category as MemoryCategory,
-          lastUsedAt: new Date(row.last_used).getTime(),
-          importance: row.importance,
-          now,
-        },
-        DEFAULT_TEMPERATURE_THRESHOLDS,
-      );
-      // cold → 不注入
-      if (temp === "cold") return false;
-      // 个人类（画像/交互偏好）是 Agent 底层人设，始终注入、不受相关性门控
-      if (isPersonalCategory(row.category as MemoryCategory)) return true;
-      // hot / warm 的上下文类记忆一律过相关性门槛
-      return relevance >= RELEVANCE_GATE_THRESHOLD;
-    });
-
-    gated.sort((a, b) => b.score - a.score);
-
-    // 2.5 按 content 去重（同内容保留 score 最高的一条，消除历史重复记录影响）
+    // 2.5 按 score 降序 + 按 content 去重（同内容保留 score 最高的一条，消除历史重复影响）
+    scored.sort((a, b) => b.score - a.score);
     const seenContent = new Set<string>();
-    const dedupedScored = gated.filter(({ row }) => {
+    const deduped = scored.filter(({ row }) => {
       const key = `${row.category}:${row.content}`;
       if (seenContent.has(key)) return false;
       seenContent.add(key);
       return true;
     });
 
-    // 3. 按 token 预算截取
+    // 3. 分层席位
+    const freshCutoff = now - 24 * 3_600_000;
+    const recentCutoff = now - 7 * 86_400_000;
+    const freshSeats = Math.max(0, config.freshSeats24h ?? 5);
+    const recentSeats = Math.max(0, config.recentSeats7d ?? 3);
+
+    const freshTier = deduped.filter((m) => m.createdAtMs >= freshCutoff);
+    // 近 7d 次级席位仍走门控：它只保证"近期且相关"的条目优先于 score 排序占位，
+    // 不像 24h 保底席位那样免门控 —— 否则 7 天窗口会把大量无关条目一并注入。
+    const recentTier = deduped.filter(
+      (m) =>
+        m.createdAtMs < freshCutoff &&
+        m.createdAtMs >= recentCutoff &&
+        this.passesInjectionGates(m, now, config, useRelevance),
+    );
+    const restTier = deduped.filter(
+      (m) =>
+        m.createdAtMs < recentCutoff &&
+        this.passesInjectionGates(m, now, config, useRelevance),
+    );
+
     const selected: MemoryRow[] = [];
+    const takenIds = new Set<string>();
     let tokenSum = 0;
-    for (const { row } of dedupedScored) {
-      if (selected.length >= config.maxItems) break;
-      const tokens = estimateTokens(row.content);
-      if (tokenSum + tokens > config.maxTokenBudget && selected.length > 0) break;
-      selected.push(row);
+
+    const tryTake = (m: { readonly row: MemoryRow }): void => {
+      if (selected.length >= config.maxItems) return;
+      if (takenIds.has(m.row.id)) return;
+      // 预算超限时跳过本条而非整体中断：避免一条超长记忆挡掉后面所有保底席位
+      const tokens = estimateTokens(m.row.content);
+      if (tokenSum + tokens > config.maxTokenBudget && selected.length > 0) return;
+      selected.push(m.row);
+      takenIds.add(m.row.id);
       tokenSum += tokens;
+    };
+
+    const freshQuota = Math.min(freshSeats, config.maxItems);
+    for (const m of freshTier) {
+      if (selected.length >= freshQuota) break;
+      tryTake(m);
+    }
+    const recentQuota = Math.min(freshSeats + recentSeats, config.maxItems);
+    for (const m of recentTier) {
+      if (selected.length >= recentQuota) break;
+      tryTake(m);
+    }
+    for (const m of restTier) {
+      if (selected.length >= config.maxItems) break;
+      tryTake(m);
     }
 
     // 4. 批量更新 last_used 和 use_count
     if (selected.length > 0) {
-      const nowIso = new Date().toISOString();
+      const nowIso = new Date(now).toISOString();
       const updateStmt = this.db.prepare(
         "UPDATE agent_memories SET last_used = ?, use_count = use_count + 1 WHERE id = ?",
       );
@@ -168,6 +197,161 @@ export class AgentMemoryRepo {
     }
 
     return selected.map(rowToEntry);
+  }
+
+  /**
+   * 取候选行集：两条通道合并去重。
+   *
+   * - **时间窗通道**：近 7 天创建的活跃条目全量（有硬上限保护），保证低 importance
+   *   的新条目不会被 `ORDER BY importance DESC` 预筛挤出候选之外（席位保底的前提）。
+   * - **评分通道**：按 importance 降序的预筛池，供其余席位使用。
+   */
+  private loadCandidates(
+    agentId: string,
+    userId: string,
+    scope: MemoryReadScope,
+    candidateLimit: number,
+    now: number,
+  ): readonly MemoryRow[] {
+    const scopeWhere = scope === "user" ? "" : "agent_id = ? AND ";
+    const scopeArgs: readonly string[] = scope === "user" ? [] : [agentId];
+
+    const byId = new Map<string, MemoryRow>();
+
+    const windowStart = new Date(now - 7 * 86_400_000).toISOString();
+    const windowRows = this.db
+      .prepare<MemoryRow>(
+        `SELECT * FROM agent_memories
+       WHERE ${scopeWhere}user_id = ? AND is_archived = 0 AND created_at >= ?
+       ORDER BY created_at DESC
+       LIMIT ?`,
+      )
+      .all(...scopeArgs, userId, windowStart, WINDOW_CANDIDATE_CAP);
+    for (const r of windowRows) byId.set(r.id, r);
+
+    const scoreRows = this.db
+      .prepare<MemoryRow>(
+        `SELECT * FROM agent_memories
+       WHERE ${scopeWhere}user_id = ? AND is_archived = 0
+       ORDER BY importance DESC
+       LIMIT ?`,
+      )
+      .all(...scopeArgs, userId, candidateLimit);
+    for (const r of scoreRows) byId.set(r.id, r);
+
+    return [...byId.values()];
+  }
+
+  /**
+   * 非保底席位的注入门控：冷数据降权 + 温度 cold 丢弃 + 相关性门控。
+   *
+   * 近 24h 保底席位不走此门控 —— 它的存在意义就是绕过 score 与门控。
+   *
+   * 无有效 query 且门控开启时**一律不通过**（含画像类），保持 2026-09-13
+   * 「相关性无法判断则宁缺毋滥」的语义；此时工作记忆的可见部分仅剩近 24h 保底席位。
+   */
+  private passesInjectionGates(
+    m: { readonly row: MemoryRow; readonly relevance: number },
+    now: number,
+    config: HotMemoryConfig,
+    useRelevance: boolean,
+  ): boolean {
+    const { row } = m;
+    const category = row.category as MemoryCategory;
+
+    // 冷数据降权（只影响注入选取，不改存储数据）：从未被用过且已过期
+    const skipDays = config.skipUnusedOlderThanDays ?? 30;
+    if (skipDays > 0 && row.use_count === 0) {
+      const ageDays = (now - new Date(row.created_at).getTime()) / 86_400_000;
+      if (ageDays > skipDays) return false;
+    }
+
+    const temp = computeTemperature(
+      {
+        category,
+        lastUsedAt: new Date(row.last_used).getTime(),
+        importance: row.importance,
+        now,
+      },
+      DEFAULT_TEMPERATURE_THRESHOLDS,
+    );
+    // cold → 不注入
+    if (temp === "cold") return false;
+
+    // 无有效 query：无法判断相关性，门控开启时宁缺毋滥
+    if (!useRelevance) return !(config.gateContextualByRelevance ?? true);
+    // 个人类（画像/交互偏好）是 Agent 底层人设，始终注入、不受相关性门控
+    if (isPersonalCategory(category)) return true;
+    // 显式关闭门控（配置）：相关性仅做加分，不过滤
+    if (!(config.gateContextualByRelevance ?? true)) return true;
+    // hot / warm 的上下文类记忆一律过相关性门槛
+    return m.relevance >= RELEVANCE_GATE_THRESHOLD;
+  }
+
+  /**
+   * 按时间窗全量枚举记忆（分页，**不叠加条数上限**）。
+   *
+   * 供「日报 / 周复盘」这类汇总任务取「自上次 daily 以来」「最近 7 天」的全量素材：
+   * 低 importance 的当日条目同样可达，不走 top-N 截断、不经相关性门控。
+   *
+   * @param params.scope `"agent"` 只看本 Agent；`"user"` 跨 Agent 取该用户全部工作记忆
+   *   （汇总类 Agent 用后者，否则读不到用户在主 Agent 里积累的工作）。
+   * @param params.field 时间字段，默认 `created_at`（条目产生时间）；`last_used` 为活跃时间。
+   */
+  listByWindow(params: {
+    readonly userId: string;
+    readonly agentId?: string;
+    readonly scope?: MemoryReadScope;
+    readonly since: string;
+    readonly until?: string;
+    readonly field?: "created_at" | "last_used";
+    readonly categories?: readonly MemoryCategory[];
+    readonly limit?: number;
+    readonly offset?: number;
+  }): { readonly entries: readonly MemoryEntry[]; readonly total: number; readonly hasMore: boolean } {
+    const scope = params.scope ?? "agent";
+    const field = params.field ?? "created_at";
+    const limit = Math.max(1, Math.min(Math.floor(params.limit ?? 200), 1000));
+    const offset = Math.max(0, Math.floor(params.offset ?? 0));
+
+    const clauses: string[] = [];
+    const args: (string | number)[] = [];
+    if (scope !== "user") {
+      if (!params.agentId) throw new Error("listByWindow: agentId is required when scope='agent'");
+      clauses.push("agent_id = ?");
+      args.push(params.agentId);
+    }
+    clauses.push("user_id = ?", "is_archived = 0", `${field} >= ?`);
+    args.push(params.userId, params.since);
+    if (params.until) {
+      clauses.push(`${field} <= ?`);
+      args.push(params.until);
+    }
+    if (params.categories && params.categories.length > 0) {
+      clauses.push(`category IN (${params.categories.map(() => "?").join(", ")})`);
+      args.push(...params.categories);
+    }
+    const where = clauses.join(" AND ");
+
+    const total =
+      this.db
+        .prepare<{ count: number }>(`SELECT COUNT(*) AS count FROM agent_memories WHERE ${where}`)
+        .get(...args)?.count ?? 0;
+
+    const rows = this.db
+      .prepare<MemoryRow>(
+        `SELECT * FROM agent_memories
+       WHERE ${where}
+       ORDER BY ${field} DESC, id ASC
+       LIMIT ? OFFSET ?`,
+      )
+      .all(...args, limit, offset);
+
+    return {
+      entries: rows.map(rowToEntry),
+      total,
+      hasMore: offset + rows.length < total,
+    };
   }
 
   /**

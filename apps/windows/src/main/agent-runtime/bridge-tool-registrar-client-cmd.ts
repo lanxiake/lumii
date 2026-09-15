@@ -249,11 +249,20 @@ export function registerClientCommandTools(deps: BridgeToolRegistrarDeps, ctx: T
   }
   deps.toolRegistry.register(createMtBotTool(infoStatusConfig, ctx))
 
-  // memory_manage — 工作记忆单条增删改 + list/clear
+  // memory_manage — 工作记忆单条增删改 + list/window/clear
+  const resolveInstanceId = (toolCallId: string): string | undefined =>
+    deps.toolCallInstanceMap.get(toolCallId) ?? deps.getCurrentToolExecutorInstanceId()
   const resolveAgentId = (toolCallId: string): string => {
-    const instanceId =
-      deps.toolCallInstanceMap.get(toolCallId) ?? deps.getCurrentToolExecutorInstanceId()
+    const instanceId = resolveInstanceId(toolCallId)
     return (instanceId && deps.getDefinitionIdByInstanceId(instanceId)) ?? 'default'
+  }
+  /**
+   * 读作用域：definition 声明 memory.scope === "user" 的 Agent 跨 Agent 读取该用户的工作记忆。
+   * 写操作仍按 agentId 归属（谁写的记在谁名下），只有读共享。
+   */
+  const resolveReadScope = (toolCallId: string): 'agent' | 'user' => {
+    const instanceId = resolveInstanceId(toolCallId)
+    return instanceId ? deps.getMemoryReadScopeByInstanceId(instanceId) : 'agent'
   }
   const memoryManageConfig: MtBotToolConfig = {
     ...memoryManageToolConfig,
@@ -264,20 +273,61 @@ export function registerClientCommandTools(deps: BridgeToolRegistrarDeps, ctx: T
         content?: string
         category?: 'project' | 'reference' | 'general'
         importance?: number
+        days?: number
+        since?: string
+        limit?: number
+        offset?: number
       }
       const memoryManager = getMemoryManager()
       if (!memoryManager) return jsonToolResult({ ok: false, message: 'memoryManager not initialized' })
       const agentId = resolveAgentId(toolCallId)
+      const readScope = resolveReadScope(toolCallId)
       const userId = 'local-user'
 
       switch (p.action) {
         case 'list': {
-          const entries = memoryManager.listActive(agentId, userId)
+          const entries =
+            readScope === 'user'
+              ? memoryManager.listActiveAllAgents(userId)
+              : memoryManager.listActive(agentId, userId)
           return jsonToolResult({
             ok: true,
             agentId,
+            scope: readScope,
             count: entries.length,
             entries: entries.map((e) => ({ id: e.id, category: e.category, content: e.content })),
+          })
+        }
+        case 'window': {
+          // 时间窗全量枚举：分页、不叠加条数上限、不经相关性门控。
+          // 供日报/周复盘取「自上次 daily 以来」「最近 N 天」的低 importance 当日条目。
+          const since =
+            (p.since ?? '').trim() ||
+            new Date(Date.now() - Math.max(0.01, p.days ?? 1) * 86_400_000).toISOString()
+          const { entries, total, hasMore } = memoryManager.listByWindow({
+            userId,
+            agentId,
+            scope: readScope,
+            since,
+            limit: p.limit,
+            offset: p.offset,
+          })
+          return jsonToolResult({
+            ok: true,
+            agentId,
+            scope: readScope,
+            since,
+            total,
+            count: entries.length,
+            hasMore,
+            entries: entries.map((e) => ({
+              id: e.id,
+              category: e.category,
+              importance: e.importance,
+              created_at: e.created_at,
+              last_used: e.last_used,
+              content: e.content,
+            })),
           })
         }
         case 'add': {

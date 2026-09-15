@@ -291,16 +291,21 @@ export class AgentRuntimeBridge {
     },
     // 工作记忆注入（构建期填充占位符）：按实例 definitionId 注入对应 Agent 的 agent_memories
     // （2026-09-13 共享层修正：此前硬编码 'assistant'，专家自己积累的记忆注不进模型）
+    // （2026-09-15 作用域修正：definition 声明 memory.scope === "user" 的 Agent —— assistant/
+    //  code-dev/system-keeper/chronicler/info-curator —— 按用户级跨 Agent 读取；此前该声明
+    //  从未被实现，导致 chronicler 这类汇总 Agent 只读到自己的空库，日报永远「工作记忆为空」）
     fillWorkMemoryPlaceholder: (prompt, query, instanceId) => {
       const mgr = this._memoryManager
       if (!mgr) return null
-      const agentId = this.agentRegistry.get(instanceId)?.definitionId ?? 'assistant'
+      const inst = this.agentRegistry.get(instanceId)
+      const agentId = inst?.definitionId ?? 'assistant'
       const { updatedPrompt, injected } = mgr.injectIntoSystemPrompt(
         prompt,
         agentId,
         LOCAL_USER_ID,
         undefined,
         query,
+        inst?.memoryReadScope ?? 'agent',
       )
       return { prompt: updatedPrompt, injected: injected.length }
     },
@@ -954,6 +959,8 @@ export class AgentRuntimeBridge {
       instanceToConversation: this.instanceToConversation,
       getCurrentToolExecutorInstanceId: () => this.currentToolExecutorInstanceIdRef.value,
       getDefinitionIdByInstanceId: (instanceId) => this.agentRegistry.get(instanceId)?.definitionId,
+      getMemoryReadScopeByInstanceId: (instanceId) =>
+        this.agentRegistry.get(instanceId)?.memoryReadScope ?? 'agent',
       toolCallInstanceMap: this.toolCallInstanceMap,
       getDefinitionStore: () => this.definitionStore,
       ensureOrchestrator: () => this.lifecycle.ensureOrchestrator(),

@@ -195,6 +195,7 @@ const MemoryManageParams = Type.Object({
   action: Type.Union(
     [
       Type.Literal("list"),
+      Type.Literal("window"),
       Type.Literal("add"),
       Type.Literal("update"),
       Type.Literal("delete"),
@@ -203,7 +204,7 @@ const MemoryManageParams = Type.Object({
     ],
     {
       description:
-        "list: show working-memory entries; add: create one entry; update: replace one entry's content by id; delete: permanently remove one entry by id; archive: soft-delete one entry by id; clear: delete ALL entries for the current agent.",
+        "list: show working-memory entries; window: enumerate entries by time window (since/days) for daily/weekly summaries — paginated and NOT capped to top-N, so low-importance entries from today are reachable; add: create one entry; update: replace one entry's content by id; delete: permanently remove one entry by id; archive: soft-delete one entry by id; clear: delete ALL entries for the current agent.",
     },
   ),
   id: Type.Optional(
@@ -223,6 +224,24 @@ const MemoryManageParams = Type.Object({
   ),
   importance: Type.Optional(
     Type.Number({ description: "Importance 0..1 for add (default 0.5)." }),
+  ),
+  days: Type.Optional(
+    Type.Number({
+      description:
+        "window only: look back N days from now (default 1). Ignored when `since` is provided.",
+    }),
+  ),
+  since: Type.Optional(
+    Type.String({
+      description:
+        "window only: inclusive ISO-8601 lower bound on created_at, e.g. \"2026-09-14T00:00:00Z\" (use for «since the last daily»). Overrides `days`.",
+    }),
+  ),
+  limit: Type.Optional(
+    Type.Number({ description: "window only: page size, default 200 (max 1000)." }),
+  ),
+  offset: Type.Optional(
+    Type.Number({ description: "window only: page offset for pagination, default 0." }),
   ),
 });
 type MemoryManageInput = Static<typeof MemoryManageParams>;

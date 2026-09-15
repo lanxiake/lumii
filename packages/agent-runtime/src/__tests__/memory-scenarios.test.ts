@@ -16,13 +16,19 @@ const A = "assistant";
 const U = "local-user";
 
 /**
- * 说明（2026-09-13 起 hot 同样受相关性门控，降温步骤已非必需；保留以模拟真实时间分布）
+ * 把记忆整体回拨到 15 天前（created_at + last_used）。
+ *
+ * created_at 必须一起回拨：注入端自 2026-09-15 起有「近 24h 新建保底席位」，
+ * 只改 last_used 会让这些"老记忆"仍以新建身份占据保底席位，fixture 不自洽。
+ * 画像类（user/feedback）也一并回拨：其温度由类别决定、与时间无关，
+ * 这样「画像类始终注入」的用例才真正验证的是"免相关性门控"而非"恰好是新建条目"。
+ * （2026-09-13 起 hot 同样受相关性门控，降温步骤已非必需；保留以模拟真实时间分布）
  */
 function ageToWarm(db: DatabaseAdapter, agentId: string, userId: string): void {
   const fifteenDaysAgo = new Date(Date.now() - 15 * 86_400_000).toISOString();
   db.prepare(
-    "UPDATE agent_memories SET last_used = ? WHERE agent_id = ? AND user_id = ? AND category NOT IN ('user','feedback')",
-  ).run(fifteenDaysAgo, agentId, userId);
+    "UPDATE agent_memories SET last_used = ?, created_at = ? WHERE agent_id = ? AND user_id = ?",
+  ).run(fifteenDaysAgo, fifteenDaysAgo, agentId, userId);
 }
 
 describe("记忆场景：召回相关性门控（用户反馈的核心问题）", () => {

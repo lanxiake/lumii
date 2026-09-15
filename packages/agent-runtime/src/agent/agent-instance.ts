@@ -17,6 +17,7 @@ import type { AgentTool } from "../types/tool.js";
 import type { AgentDefinition } from "../types/agent-definition.js";
 import { type AgentRuntimeEvent, type AgentInstanceState, mapAgentEvent } from "../types/events.js";
 import type { MemoryManager } from "../memory/manager.js";
+import type { MemoryReadScope } from "../memory/types.js";
 import {
   createTransformContext,
   DEFAULT_COMPACTION_TRIGGER_RATIO,
@@ -167,6 +168,14 @@ export interface AgentInstanceConfig {
 export class AgentInstance {
   readonly id: string;
   readonly definitionId: string;
+  /**
+   * 记忆读取作用域：definition 声明 `memory.scope === "user"` 时返回 `"user"`，
+   * 表示跨 Agent 读取该用户的全部工作记忆（见 MemoryConfig.scope 的「用户级（跨 Agent）」语义）。
+   * 未声明 / `"conversation"` / `"none"` 一律按 `"agent"` 处理，保持既有隔离行为。
+   */
+  get memoryReadScope(): MemoryReadScope {
+    return this.memoryConfig?.scope === "user" ? "user" : "agent";
+  }
   private readonly agent: Agent;
   private readonly listeners = new Set<(e: AgentRuntimeEvent) => void>();
   private _state: AgentInstanceState = "idle";

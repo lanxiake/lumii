@@ -18,7 +18,13 @@ import {
 } from "./memory-consolidation.js";
 import { injectMemories, stripMemoryPlaceholder } from "./memory-injector.js";
 import { mergeCandidates } from "./merge.js";
-import type { MemoryEntry, MemoryCategory, HotMemoryConfig, ExtractedCandidate } from "./types.js";
+import type {
+  MemoryEntry,
+  MemoryCategory,
+  HotMemoryConfig,
+  MemoryReadScope,
+  ExtractedCandidate,
+} from "./types.js";
 import { DEFAULT_HOT_MEMORY_CONFIG, isPersonalCategory } from "./types.js";
 
 /** MemoryManager 构造选项 */
@@ -100,6 +106,10 @@ export class MemoryManager {
 
   /**
    * 一轮 Agent 运行开始前：加载热记忆并拼入 system prompt
+   *
+   * @param scope 读取作用域。`"user"` 跨 Agent 读取该用户的全部工作记忆，
+   *   对应 `AgentDefinition.memory.scope === "user"` 的声明（汇总类 Agent 必须用它，
+   *   否则读不到用户在主 Agent 里积累的工作）。
    */
   injectIntoSystemPrompt(
     systemPrompt: string,
@@ -107,8 +117,9 @@ export class MemoryManager {
     userId: string,
     config: HotMemoryConfig = DEFAULT_HOT_MEMORY_CONFIG,
     query?: string,
+    scope: MemoryReadScope = "agent",
   ): { readonly updatedPrompt: string; readonly injected: readonly MemoryEntry[] } {
-    const injected = this.repo.loadTopMemories(agentId, userId, config, query);
+    const injected = this.repo.loadTopMemories(agentId, userId, config, query, scope);
     if (injected.length === 0) {
       // 占位符必须出清：无记忆可注入时替换为空串，防字面量泄漏进模型输入
       return { updatedPrompt: stripMemoryPlaceholder(systemPrompt), injected: [] };
@@ -117,6 +128,26 @@ export class MemoryManager {
       updatedPrompt: injectMemories(systemPrompt, injected),
       injected,
     };
+  }
+
+  /**
+   * 按时间窗全量枚举工作记忆（分页，**不叠加条数上限、不经相关性门控**）。
+   *
+   * 供日报/周复盘这类汇总任务取「自上次 daily 以来」「最近 7 天」的全量素材：
+   * 低 importance 的当日条目同样可达。作用域传 `"user"` 时跨 Agent 读取。
+   */
+  listByWindow(params: {
+    readonly userId: string;
+    readonly agentId?: string;
+    readonly scope?: MemoryReadScope;
+    readonly since: string;
+    readonly until?: string;
+    readonly field?: "created_at" | "last_used";
+    readonly categories?: readonly MemoryCategory[];
+    readonly limit?: number;
+    readonly offset?: number;
+  }): { readonly entries: readonly MemoryEntry[]; readonly total: number; readonly hasMore: boolean } {
+    return this.repo.listByWindow(params);
   }
 
   /**

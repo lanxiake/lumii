@@ -17,7 +17,12 @@ describe("温度流转：cold/warm/hot 分档与归档", () => {
   const A = "agent1";
   const U = "user1";
 
-  /** 写一条记忆并覆写 last_used 到指定天数前 */
+  /**
+   * 写一条记忆并把它整体回拨到 N 天前（created_at + last_used 同步）。
+   *
+   * created_at 必须一起回拨：注入端自 2026-09-15 起有「近 24h 新建保底席位」，
+   * 只回拨 last_used 会让这些"老记忆"仍以新建身份占据保底席位，fixture 不自洽。
+   */
   function saveWithAge(
     content: string,
     importance: number,
@@ -33,7 +38,11 @@ describe("温度流转：cold/warm/hot 分档与归档", () => {
       tags: [],
     });
     const past = new Date(Date.now() - daysAgo * 86_400_000).toISOString();
-    db.prepare("UPDATE agent_memories SET last_used = ? WHERE id = ?").run(past, entry.id);
+    db.prepare("UPDATE agent_memories SET last_used = ?, created_at = ? WHERE id = ?").run(
+      past,
+      past,
+      entry.id,
+    );
     return entry.id;
   }
 
