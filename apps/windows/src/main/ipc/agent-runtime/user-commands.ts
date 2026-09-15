@@ -11,6 +11,7 @@ import type { AgentRuntimeEvent } from '../../../shared/agent-runtime-events'
 import { deriveConversationTitleFromUserText } from '../../../shared/conversation-title'
 import { recordFeedbackSignal } from '../../agent-runtime/autonomous-wiring'
 import { StatefulContextStrategy } from '../../channel/context-strategy/stateful-strategy'
+import { channelOwnershipFromKey } from '../../channel/channel-identity'
 import type { CodingDevBackendId } from '../../coding-dev-backends-stub/contracts.js'
 import { DEFAULT_CODING_DEV_BACKEND_ID } from '../../coding-dev-backends-stub/contracts.js'
 import { getCodingDevConfig, resolveDevContext } from '../../coding-dev-env.js'
@@ -109,13 +110,20 @@ export async function handleUserSend(
     log.warn(`[user:send] 会话 ${command.sessionKey} 不存在，自动创建`)
     const agentId = command.agentId ?? 'assistant'
     // 直接插入数据库，使用前端传入的 sessionKey 作为 conversation.id
+    // 归属：这里是**建会话的那一刻**，键就是身份（渠道消息先于会话记录到达时也走这条）
     const now = new Date().toISOString()
     bridge.conversationRepo['db']
       .prepare(
-        `INSERT INTO conversations (id, user_id, title, is_active, created_at)
-             VALUES (?, ?, ?, 1, ?)`,
+        `INSERT INTO conversations (id, user_id, title, is_active, created_at, channel_type)
+             VALUES (?, ?, ?, 1, ?, ?)`,
       )
-      .run(command.sessionKey, LOCAL_USER_ID, '新对话', now)
+      .run(
+        command.sessionKey,
+        LOCAL_USER_ID,
+        '新对话',
+        now,
+        channelOwnershipFromKey(command.sessionKey),
+      )
     // 插入参与者（user + agent）
     const insertParticipant = bridge.conversationRepo['db'].prepare(
       `INSERT INTO conversation_participants (conversation_id, participant_type, participant_id, joined_at)

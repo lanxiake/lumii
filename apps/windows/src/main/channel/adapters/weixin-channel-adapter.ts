@@ -261,7 +261,7 @@ export class WeixinChannelAdapter implements IChannelAdapter {
     ) {
       const session = this.buildSession(msg)
       log.info(`[handleMessage] 语音 ASR 失败，提示用户 channelUserId=${msg.channelUserId}`)
-      this.bridge.ensureConversationExists(session.sessionKey, `微信对话 - ${msg.channelUserId}`)
+      this.bridge.ensureConversationExists(session.sessionKey, `微信对话 - ${msg.channelUserId}`, this.channelType)
       this.bridge.notifyIncomingMessage(session.sessionKey, rawText)
       this.bridge.notifyNavigateToSession(session.sessionKey)
       if (currentAttachments.length > 0) {
@@ -287,7 +287,7 @@ export class WeixinChannelAdapter implements IChannelAdapter {
       if (isFirstOfBatch) {
         const session = this.buildSession(msg)
         // 通知渲染进程展示用户消息，避免对话断层
-        this.bridge.ensureConversationExists(session.sessionKey, `微信对话 - ${msg.channelUserId}`)
+        this.bridge.ensureConversationExists(session.sessionKey, `微信对话 - ${msg.channelUserId}`, this.channelType)
         this.bridge.notifyIncomingMessage(session.sessionKey, rawText)
         this.bridge.notifyNavigateToSession(session.sessionKey)
         await this.sendTextReply(session, ATTACHMENT_HELD_HINT).catch((err) => {
@@ -334,7 +334,7 @@ export class WeixinChannelAdapter implements IChannelAdapter {
       // 必须在普通消息处理之前拦截，否则「1」会被当成新需求发给主助手。
       if (await this.tryConsumeHandoffConfirm(msg, session, userTextOnly)) return
 
-      this.bridge.ensureConversationExists(session.sessionKey, `微信对话 - ${msg.channelUserId}`)
+      this.bridge.ensureConversationExists(session.sessionKey, `微信对话 - ${msg.channelUserId}`, this.channelType)
 
       // 斜杠命令处理
       if (prompt.startsWith('/')) {

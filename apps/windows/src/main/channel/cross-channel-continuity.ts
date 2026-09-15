@@ -16,6 +16,7 @@
  */
 
 import type { ChannelSession, IChannelAdapter } from './types'
+import { resolveChannelIdentity } from './channel-identity'
 
 const log = {
   info: (...args: unknown[]) => console.log('[CrossChannelContinuity]', ...args),
@@ -44,36 +45,11 @@ export interface RecentConversation {
   id: string
   title: string
   updatedAt: string
+  /** 归属落库值（conversations.channel_type）；缺失时按前缀回退 */
+  channelType?: string | null
 }
 
 // ── 纯函数：候选判定 ──────────────────────────────────────────────────────────
-
-/** 已知渠道前缀 → 中文名。无前缀 = 客户端会话 */
-const SESSION_PREFIX_LABELS: Record<string, string> = {
-  weixin: '微信',
-  feishu: '飞书',
-  wecom: '企业微信',
-  qbot: 'QQ',
-}
-
-/** 非用户会话的前缀（定时任务、工具进化等），不作为接续候选 */
-const NON_USER_PREFIXES = new Set(['cron', 'evolution'])
-
-/**
- * 从 sessionKey 反推渠道来源。
- * 约定：渠道会话形如 `weixin:{userId}`；客户端会话是裸 conversationId（无已知前缀）。
- */
-export function channelOfSessionKey(sessionKey: string): {
-  channelType: string
-  label: string
-} {
-  const prefix = sessionKey.split(':')[0] ?? ''
-  if (prefix in SESSION_PREFIX_LABELS) {
-    return { channelType: prefix, label: SESSION_PREFIX_LABELS[prefix]! }
-  }
-  if (NON_USER_PREFIXES.has(prefix)) return { channelType: prefix, label: '' }
-  return { channelType: 'ipc', label: '客户端' }
-}
 
 /**
  * 从最近会话列表里挑一个「其它渠道的活跃会话」作为接续候选。
@@ -81,15 +57,20 @@ export function channelOfSessionKey(sessionKey: string): {
  * 排除：当前会话自己、同渠道的其它会话（同渠道用 /resume 即可，不需要接续询问）、
  * 定时任务等非用户会话、超出时间窗的旧会话。
  *
+ * 归属判定一律走 `resolveChannelIdentity`（落库值优先，缺了才回退前缀）——
+ * 前缀只说明会话从哪来，不说明此刻谁在说话（10 号计划 §2.1 的日志实证）。
+ *
  * @param recent 按 updatedAt 降序的最近会话（bridge.listRecentConversations）
  * @param currentSessionKey 本轮消息所属会话
- * @param currentChannelType 本轮消息来源渠道
+ * @param currentSessionOwnership 当前会话的归属落库值（缺省回退前缀）
+ * @param currentChannelType 本轮消息来源渠道（**当前在说话的那个渠道**）
  * @param now 当前时间戳（注入便于测试）
  * @param windowMs 活跃时间窗（默认 3 天）
  */
 export function pickContinuityCandidate(params: {
   recent: readonly RecentConversation[]
   currentSessionKey: string
+  currentSessionOwnership?: string | null
   currentChannelType: string
   now?: number
   windowMs?: number
@@ -97,6 +78,7 @@ export function pickContinuityCandidate(params: {
   const {
     recent,
     currentSessionKey,
+    currentSessionOwnership,
     currentChannelType,
     now = Date.now(),
     windowMs = 3 * 24 * 60 * 60 * 1000,
@@ -104,7 +86,9 @@ export function pickContinuityCandidate(params: {
 
   // 当前会话并不属于本渠道 —— 用户已经在别的会话里了（/link 绑定，或上次接续的结果）。
   // 此时再问「是否接续」既没有语义，又危险：回 0 会把他从自己选定的会话里踢出去。
-  if (channelOfSessionKey(currentSessionKey).channelType !== currentChannelType) return null
+  if (resolveChannelIdentity(currentSessionKey, currentSessionOwnership).ownership !== currentChannelType) {
+    return null
+  }
 
   // 底层列表是「置顶优先」序而非时间序（conversation-repo.listActiveConversations），
   // 置顶的旧会话会压过真正最近的会话。自己按时间排一遍，否则会挑到两天前的闲聊。
@@ -116,9 +100,9 @@ export function pickContinuityCandidate(params: {
   for (const { conv, ts } of ordered) {
     if (conv.id === currentSessionKey) continue
 
-    const { channelType, label } = channelOfSessionKey(conv.id)
+    const { ownership, label } = resolveChannelIdentity(conv.id, conv.channelType)
     // 同渠道 / 非用户会话不作候选
-    if (channelType === currentChannelType || !label) continue
+    if (ownership === currentChannelType || !label) continue
 
     if (now - ts > windowMs) continue
 
@@ -176,6 +160,12 @@ interface PendingAsk {
 export interface ContinuityDeps {
   /** 最近会话列表（bridge.listRecentConversations）。bridge 是单例，可作全局依赖 */
   listRecent: (limit: number) => readonly RecentConversation[]
+  /**
+   * 查会话归属落库值（`conversations.channel_type`）。
+   * 归属是「会话从哪来」，与「此刻谁在说话」不同——守卫要用它判断「当前会话是否属于本渠道」。
+   * 查不到返回 null，交由 `resolveChannelIdentity` 回退前缀。
+   */
+  lookupOwnership: (conversationId: string) => string | null
 }
 
 /**
@@ -216,6 +206,7 @@ export class CrossChannelContinuity {
       candidate = pickContinuityCandidate({
         recent: this.deps.listRecent(CANDIDATE_SCAN_LIMIT),
         currentSessionKey: sessionKey,
+        currentSessionOwnership: this.deps.lookupOwnership(sessionKey),
         currentChannelType: channelType,
       })
     } catch (err) {
@@ -394,10 +385,15 @@ export function resolveContinuityForChannel(params: {
   enabled: boolean
   bridge: {
     listRecentConversations: (limit: number) => readonly RecentConversation[]
+    /** 读会话归属落库值（`conversations.channel_type`） */
+    getConversationOwnership?: (conversationId: string) => string | null
   }
 }): CrossChannelContinuity | undefined {
   if (!params.enabled) return undefined
   return getCrossChannelContinuity({
     listRecent: (limit) => params.bridge.listRecentConversations(limit),
+    // 桥未提供查归属（测试桩/裁剪宿主）时返回 null → 回退前缀推断
+    lookupOwnership: (conversationId) =>
+      params.bridge.getConversationOwnership?.(conversationId) ?? null,
   })
 }

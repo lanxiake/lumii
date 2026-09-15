@@ -278,6 +278,8 @@ export class AgentRuntimeBridge {
     },
     getTaskRepo: () => this._taskRepo,
     instanceToConversation: this.instanceToConversation,
+    // 渠道偏好按会话归属加载（10-S2）：前缀只说明会话从哪来，落库值才是权威
+    getConversationOwnership: (conversationId) => this.getConversationOwnership(conversationId),
     instanceStates: this.instanceStates,
     consumeConcernToRaise: (conversationId) => {
       if (!this.localDb || isEvolutionConversationId(conversationId)) return null
@@ -2265,8 +2267,8 @@ export class AgentRuntimeBridge {
   }
 
   /** 确保对话记录存在（idempotent） */
-  ensureConversationExists(conversationId: string, title?: string): boolean {
-    return this.conversationManager.ensureConversationExists(conversationId, title)
+  ensureConversationExists(conversationId: string, title?: string, channelType?: string): boolean {
+    return this.conversationManager.ensureConversationExists(conversationId, title, channelType)
   }
 
   /** 读某个会话级禁用集 */
@@ -2410,7 +2412,25 @@ export class AgentRuntimeBridge {
     this._segmentMemoryService?.flush(conversationId, 'conversation_cleared')
     this.conversationManager.clearConversationMessages(conversationId)
   }
-  listRecentConversations(limit = 10): readonly { id: string; title: string; updatedAt: string }[] { return this.conversationManager.listRecentConversations(limit) }
+  listRecentConversations(
+    limit = 10,
+  ): readonly { id: string; title: string; updatedAt: string; channelType: string | null }[] {
+    return this.conversationManager.listRecentConversations(limit)
+  }
+
+  /**
+   * 读会话归属渠道（`conversations.channel_type`，10-S2 起落库）。
+   *
+   * 与「当前路由」（谁在说话）是两件事：用户可以跨渠道续聊同一个会话。
+   * 查不到（会话不存在 / 老库未回填）返回 null，由 `resolveChannelIdentity` 回退前缀。
+   */
+  getConversationOwnership(conversationId: string): string | null {
+    try {
+      return this.conversationRepo?.getConversation(conversationId)?.channel_type ?? null
+    } catch {
+      return null
+    }
+  }
   notifyIncomingMessage(sessionKey: string, text: string, messageId?: string): void { this.lifecycle.notifyIncomingMessage(sessionKey, text, messageId) }
   notifyNavigateToSession(sessionKey: string, title?: string): void { this.lifecycle.notifyNavigateToSession(sessionKey, title) }
   triggerCronNotification(title: string, body: string, convId?: string): void { this.lifecycle.triggerCronNotification(title, body, convId) }

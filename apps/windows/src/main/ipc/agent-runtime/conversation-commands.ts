@@ -9,6 +9,7 @@ import type { AgentRuntimeBridge } from '../../agent-runtime/bridge'
 import { parseThinkTagsFromRaw } from '../../agent-runtime/event-converter'
 import { isCompactSummaryText } from '../../../shared/compact-summary-text'
 import { isEvolutionConversationId } from '@mtbot/agent-runtime'
+import { resolveChannelIdentity } from '../../channel/channel-identity'
 import { acpSessionStateKey } from '../../coding-dev-acp-run.js'
 import { normalizeAgentIdForBinding } from '../../coding-dev-env.js'
 
@@ -282,7 +283,7 @@ export function handleConversationList(
       hasRunning: bridge.hasStreamingMessages(c.id),
       isPinned: c.is_pinned === 1,
       wasInterrupted: bridge.isConversationInterrupted(c.id),
-      channel: resolveConversationChannel(c.id, weixinConvIds),
+      channel: resolveConversationChannel(c.id, weixinConvIds, c.channel_type),
     }
   })
 }
@@ -638,24 +639,43 @@ export async function handleConversationFork(
 // ============================================================
 
 /**
- * 根据会话 ID / 微信绑定推断渠道标记。
- * - wechat：微信绑定会话，或 id 以 weixin: 开头
- * - wecom / feishu：id 前缀
+ * 根据会话归属 / 微信绑定推断渠道标记。
+ *
+ * 归属优先读 `conversations.channel_type`（V41 落库，10-S2）——id 前缀只说明会话从哪来，
+ * 不说明此刻谁在说话；前缀仅作老库回退。微信 `/link` 绑定是**路由**不是归属，
+ * 但它决定了「这条会话最近由微信在用」，故仍覆盖显示（用户按这个认知找会话）。
+ *
+ * - wechat / wecom / feishu / qbot：渠道会话
  * - cron：定时任务专属会话（cron:<jobId>）
  * - evolution：自主进化内心独白会话（evolution:main）
  * - default：其余（含客户端本地新建）
+ *
+ * TODO(07-新手指引)：`onboarding:` 向导会话落地后需要自己的归类——归进 `default`
+ * 会与用户自己的会话混在同一个 tab（评审 P2-8 的守卫 d 项）。
  */
 export function resolveConversationChannel(
   conversationId: string,
   weixinConvIds: Set<string>,
+  storedOwnership?: string | null,
 ): 'default' | 'wechat' | 'wecom' | 'feishu' | 'qbot' | 'cron' | 'evolution' {
   if (weixinConvIds.has(conversationId) || conversationId.startsWith('weixin:')) {
     return 'wechat'
   }
-  if (conversationId.startsWith('wecom:')) return 'wecom'
-  if (conversationId.startsWith('feishu:')) return 'feishu'
-  if (conversationId.startsWith('qbot:')) return 'qbot'
-  if (isEvolutionConversationId(conversationId)) return 'evolution'
-  if (conversationId.startsWith('cron:')) return 'cron'
-  return 'default'
+  const { ownership } = resolveChannelIdentity(conversationId, storedOwnership)
+  switch (ownership) {
+    case 'weixin':
+      return 'wechat'
+    case 'wecom':
+      return 'wecom'
+    case 'feishu':
+      return 'feishu'
+    case 'qbot':
+      return 'qbot'
+    case 'cron':
+      return 'cron'
+    case 'evolution':
+      return 'evolution'
+    default:
+      return 'default'
+  }
 }

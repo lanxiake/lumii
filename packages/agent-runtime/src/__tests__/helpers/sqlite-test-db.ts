@@ -142,3 +142,20 @@ export function runMigration27(db: DatabaseAdapter): void {
   if (!entry) throw new Error("V27 migration not found in MIGRATIONS");
   db.exec(entry[1]);
 }
+
+/** 建一个只迁移到 V40（即将执行 V41 之前）的内存库，供 V41 迁移测试构造 fixture */
+export function createPreV41TestDb(): DatabaseAdapter {
+  const db = createTestSqliteAdapter();
+  for (const [version, sql] of MIGRATIONS) {
+    if (version >= 41) continue;
+    db.exec(sql);
+  }
+  return db;
+}
+
+/** 对一个 pre-V41 库执行 V41 迁移 SQL */
+export function runMigration41(db: DatabaseAdapter): void {
+  const entry = MIGRATIONS.find(([version]) => version === 41);
+  if (!entry) throw new Error("V41 migration not found in MIGRATIONS");
+  db.exec(entry[1]);
+}

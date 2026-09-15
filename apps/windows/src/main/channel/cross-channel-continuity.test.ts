@@ -6,7 +6,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import {
   CrossChannelContinuity,
   CONTINUITY_TIMEOUT_MS,
-  channelOfSessionKey,
   parseContinuityReply,
   pickContinuityCandidate,
   type RecentConversation,
@@ -18,22 +17,6 @@ const iso = (msAgo: number) => new Date(NOW - msAgo).toISOString()
 const MINUTE = 60 * 1000
 const HOUR = 60 * MINUTE
 const DAY = 24 * HOUR
-
-describe('channelOfSessionKey', () => {
-  it('按前缀识别渠道会话', () => {
-    expect(channelOfSessionKey('weixin:user-1')).toEqual({ channelType: 'weixin', label: '微信' })
-    expect(channelOfSessionKey('qbot:user-1')).toEqual({ channelType: 'qbot', label: 'QQ' })
-  })
-
-  it('无已知前缀的裸 id 视为客户端会话', () => {
-    expect(channelOfSessionKey('abc123def')).toEqual({ channelType: 'ipc', label: '客户端' })
-  })
-
-  it('定时任务等非用户会话不给标签（不作候选）', () => {
-    expect(channelOfSessionKey('cron:daily-report').label).toBe('')
-    expect(channelOfSessionKey('evolution:main').label).toBe('')
-  })
-})
 
 describe('pickContinuityCandidate', () => {
   const base = { currentSessionKey: 'weixin:u1', currentChannelType: 'weixin', now: NOW }
@@ -74,6 +57,54 @@ describe('pickContinuityCandidate', () => {
       { id: 'cron:daily', title: '每日汇报', updatedAt: iso(HOUR) },
     ]
     expect(pickContinuityCandidate({ ...base, recent })).toBeNull()
+  })
+
+  // ── 归属落库值（10-S2） ──────────────────────────────────────────────────
+  it('当前会话归属读落库值：qbot 键被微信适配器服务时仍按 QQ 判定（不问）', () => {
+    const recent: RecentConversation[] = [
+      { id: 'conv-client', title: '客户端里的会话', updatedAt: iso(HOUR) },
+    ]
+    // 真实场景（10 号计划 §2.1 日志实证）：用户在微信里说，但路由在 qbot: 会话上
+    expect(
+      pickContinuityCandidate({
+        ...base,
+        currentSessionKey: 'qbot:964A',
+        currentSessionOwnership: 'qbot',
+        currentChannelType: 'weixin',
+        recent,
+      }),
+    ).toBeNull()
+    // 同一会话若归属确为微信，则应正常询问
+    expect(
+      pickContinuityCandidate({
+        ...base,
+        currentSessionKey: 'qbot:964A',
+        currentSessionOwnership: 'weixin',
+        currentChannelType: 'weixin',
+        recent,
+      }),
+    ).toMatchObject({ conversationId: 'conv-client' })
+  })
+
+  it('候选归属读落库值：系统会话（onboarding）即使无已知前缀也不作候选', () => {
+    const recent: RecentConversation[] = [
+      { id: 'guide-1', title: '新手导览', updatedAt: iso(HOUR), channelType: 'onboarding' },
+      { id: 'conv-client', title: '客户端会话', updatedAt: iso(2 * HOUR) },
+    ]
+    // guide-1 被跳过（系统会话），落在下一条候选上
+    expect(pickContinuityCandidate({ ...base, recent })).toMatchObject({
+      conversationId: 'conv-client',
+    })
+  })
+
+  it('候选归属落库值优先于前缀（脏前缀不再误判渠道）', () => {
+    const recent: RecentConversation[] = [
+      { id: 'weixin:u9', title: '实际是客户端的会话', updatedAt: iso(HOUR), channelType: 'ipc' },
+    ]
+    // 落库标为客户端 → 对微信用户而言是合法候选（与「同渠道跳过」相反）
+    expect(pickContinuityCandidate({ ...base, recent })).toMatchObject({
+      channelLabel: '客户端',
+    })
   })
 
   // 守卫：当前会话已经不属于本渠道（/link 绑定、或上次接续的结果）时不能再问。
@@ -159,7 +190,11 @@ describe('CrossChannelContinuity 状态机', () => {
   ]
 
   function make(recentList = recent): CrossChannelContinuity {
-    return new CrossChannelContinuity({ listRecent: () => recentList })
+    return new CrossChannelContinuity({
+      listRecent: () => recentList,
+      // 归属落库值：本组用例不涉及「当前会话归属」的差异，统一返回 null（回退前缀）
+      lookupOwnership: () => null,
+    })
   }
 
   beforeEach(() => {
@@ -296,6 +331,7 @@ describe('CrossChannelContinuity 状态机', () => {
       listRecent: () => {
         throw new Error('db closed')
       },
+      lookupOwnership: () => null,
     })
     expect(c.maybeAsk({ adapter, session, replay, bind })).toBe(false)
   })

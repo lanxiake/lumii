@@ -7,7 +7,7 @@
  * 直接照搬会让模型挑错会话，所以这里自己重排。
  */
 
-import { channelOfSessionKey } from '../channel/cross-channel-continuity'
+import { resolveChannelIdentity } from '../channel/channel-identity'
 
 /** 默认返回条数 / 上限（一次给太多会撑长工具结果、白耗 token） */
 export const DEFAULT_SESSION_LIST_LIMIT = 20
@@ -32,6 +32,8 @@ export interface SessionSourceRow {
   title: string | null
   last_msg_at: string | null
   created_at: string
+  /** 归属落库值（conversations.channel_type）；缺省按前缀回退 */
+  channel_type?: string | null
 }
 
 /** 组装 session_list 的输出：按时间倒序、可选关键词过滤、截断到 limit */
@@ -51,7 +53,7 @@ export function buildSessionListRows(
     .map(({ row }) => ({
       id: row.id,
       title: row.title ?? '新对话',
-      channel: channelOfSessionKey(row.id).label || '系统',
+      channel: resolveChannelIdentity(row.id, row.channel_type).label || '系统',
       updatedAt: row.last_msg_at ?? row.created_at,
       isCurrent: row.id === current,
     }))

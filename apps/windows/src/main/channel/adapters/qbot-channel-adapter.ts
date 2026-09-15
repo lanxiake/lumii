@@ -60,7 +60,7 @@ const qbotNewCommand: CommandHandler = {
     const { channelUserId } = session
     const newSessionKey = `qbot:${channelUserId}:${Date.now()}`
     const newTitle = `QQ - ${new Date().toLocaleString('zh-CN')}`
-    bridge.ensureConversationExists(newSessionKey, newTitle)
+    bridge.ensureConversationExists(newSessionKey, newTitle, adapter.channelType)
     adapter.setActiveSessionKey?.(channelUserId, newSessionKey)
     bridge.notifyNavigateToSession(newSessionKey, newTitle)
     bridge.notifyIncomingMessage(newSessionKey, '/new')
@@ -272,7 +272,7 @@ export class QbotChannelAdapter implements IChannelAdapter {
       // 必须在普通消息处理之前拦截，否则「1」会被当成新需求发给主助手。
       if (await this.tryConsumeHandoffConfirm(msg, session, userText)) return
 
-      this.bridge.ensureConversationExists(session.sessionKey, `QQ - ${msg.channelUserId}`)
+      this.bridge.ensureConversationExists(session.sessionKey, `QQ - ${msg.channelUserId}`, this.channelType)
 
       if (prompt.startsWith('/')) {
         const args = SlashCommandRegistry.parseArgs(prompt)

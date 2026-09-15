@@ -18,6 +18,7 @@ import {
   type LocalStorageStats,
 } from '@mtbot/agent-runtime'
 import type { AgentMessage } from '@mariozechner/pi-agent-core'
+import { channelOwnershipFromKey, isChannelOwnership } from '../channel/channel-identity'
 import type { BridgeSessionModelCatalog } from './bridge-session-model-catalog'
 import { agentRuntimeLog as log } from './bridge-utils'
 
@@ -58,7 +59,18 @@ export class BridgeConversationManager {
 
   // ── Conversation 生命周期 ──
 
-  ensureConversationExists(conversationId: string, title?: string): boolean {
+  /**
+   * 建会话（存在即 no-op）。
+   *
+   * @param channelType 会话归属渠道（10-S2 起落库为 `conversations.channel_type`）。
+   *   渠道 adapter 传自己的 `channelType`；未传时按 id 前缀推断（存量调用点与系统会话的安全网）。
+   *   注意二者语义不同：**归属 = 会话从哪来**，与「此刻谁在说话」无关（见 channel-identity.ts）。
+   */
+  ensureConversationExists(
+    conversationId: string,
+    title?: string,
+    channelType?: string,
+  ): boolean {
     const repo = this.deps.getConversationRepo()
     if (!repo) {
       log.warn(`[ensureConversationExists] ConversationRepo 未初始化`)
@@ -67,13 +79,16 @@ export class BridgeConversationManager {
     const existing = repo.getConversation(conversationId)
     if (existing) return false
 
+    const ownership = isChannelOwnership(channelType)
+      ? channelType
+      : channelOwnershipFromKey(conversationId)
     const now = new Date().toISOString()
     const db = this.deps.localDb.db
     try {
       db.prepare(
-        `INSERT OR IGNORE INTO conversations (id, user_id, type, title, is_active, created_at)
-         VALUES (?, ?, ?, ?, 1, ?)`
-      ).run(conversationId, 'local-user', 'direct', title ?? conversationId, now)
+        `INSERT OR IGNORE INTO conversations (id, user_id, type, title, is_active, created_at, channel_type)
+         VALUES (?, ?, ?, ?, 1, ?, ?)`
+      ).run(conversationId, 'local-user', 'direct', title ?? conversationId, now, ownership)
       db.prepare(
         `INSERT OR IGNORE INTO conversation_participants (conversation_id, participant_type, participant_id, joined_at)
          VALUES (?, ?, ?, ?)`
@@ -161,12 +176,16 @@ export class BridgeConversationManager {
     log.info(`[clearConversationMessages] 已清空消息: conversationId=${conversationId}`)
   }
 
-  listRecentConversations(limit = 10): readonly { id: string; title: string; updatedAt: string }[] {
+  listRecentConversations(
+    limit = 10,
+  ): readonly { id: string; title: string; updatedAt: string; channelType: string | null }[] {
     const conversations = this.deps.getConversationRepo()?.listActiveConversations('local-user', limit) ?? []
     return conversations.map((c) => ({
       id: c.id,
       title: c.title ?? '新对话',
       updatedAt: c.last_msg_at ?? c.created_at,
+      // 归属落库值（可能为 NULL：老库未回填 / 非本模块创建的会话）→ 消费方按前缀回退
+      channelType: c.channel_type ?? null,
     }))
   }
 

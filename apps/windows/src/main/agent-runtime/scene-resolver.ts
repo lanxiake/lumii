@@ -9,7 +9,7 @@
  * 设计文档：docs/design/记忆设计/2026-09-12-scene-memory-design.md
  */
 
-import { channelOfSessionKey } from '../channel/cross-channel-continuity'
+import { isSystemOwnership, resolveChannelIdentity } from '../channel/channel-identity'
 import {
   loadRegistry,
   resolveSceneFilePath,
@@ -55,14 +55,20 @@ export interface ChannelResolution {
 /**
  * sessionKey → 用户渠道（含中文展示名）。
  * 客户端会话（ipc）、定时任务（cron）、进化任务（evolution）返回 null——这些不是需要区分偏好的渠道。
+ *
+ * @param storedOwnership `conversations.channel_type` 落库值（10-S2）。缺省回退前缀推断——
+ *   前缀只说明会话从哪来，落库值才是权威来源。
  */
-export function resolveChannel(sessionKey: string | undefined): ChannelResolution | null {
+export function resolveChannel(
+  sessionKey: string | undefined,
+  storedOwnership?: string | null,
+): ChannelResolution | null {
   if (!sessionKey) return null
-  const { channelType, label } = channelOfSessionKey(sessionKey)
-  if (channelType === 'ipc' || channelType === 'cron' || channelType === 'evolution') {
+  const { ownership, label } = resolveChannelIdentity(sessionKey, storedOwnership)
+  if (ownership === 'ipc' || isSystemOwnership(ownership)) {
     return null
   }
-  return { channelType, label: label || channelType }
+  return { channelType: ownership, label: label || ownership }
 }
 
 /**
@@ -103,11 +109,16 @@ export async function resolveSceneHits(params: {
   baseDir: string
   sessionKey?: string
   userMessage?: string
+  /** 查会话归属落库值（10-S2）；缺省回退前缀推断 */
+  lookupOwnership?: (conversationId: string) => string | null
 }): Promise<SceneHit[]> {
-  const { baseDir, sessionKey, userMessage } = params
+  const { baseDir, sessionKey, userMessage, lookupOwnership } = params
   const hits: SceneHit[] = []
 
-  const channel = resolveChannel(sessionKey)
+  const channel = resolveChannel(
+    sessionKey,
+    sessionKey ? (lookupOwnership?.(sessionKey) ?? null) : null,
+  )
   if (channel) {
     hits.push({
       scene: 'channel',

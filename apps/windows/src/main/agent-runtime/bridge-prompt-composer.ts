@@ -37,6 +37,11 @@ export interface BridgePromptComposerDeps {
   getMemoryInjectionSettings?: () => Promise<MemoryInjectionSettings>
   getTaskRepo: () => TaskRepo | null
   instanceToConversation: Map<string, string>
+  /**
+   * 读会话归属渠道（`conversations.channel_type`，10-S2）。
+   * 未注入时渠道偏好按 id 前缀回退推断（裁剪宿主 / 测试桩）。
+   */
+  getConversationOwnership?: (conversationId: string) => string | null
   /** Per-instance 聚合状态存储（提供 memoryGuideInjected / skipTaskInjection） */
   instanceStates: InstanceStateStore
   /** 取一条可提起的牵挂并标记已提起（返回牵挂描述或 null 表示无可提） */
@@ -523,6 +528,9 @@ export class BridgePromptComposer {
         baseDir: resolveWindowsClientDataRoot(),
         sessionKey,
         userMessage,
+        ...(this.deps.getConversationOwnership
+          ? { lookupOwnership: this.deps.getConversationOwnership }
+          : {}),
       })
       const sections: string[] = []
       for (const hit of hits) {

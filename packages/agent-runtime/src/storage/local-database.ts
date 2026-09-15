@@ -717,6 +717,8 @@ export class LocalDatabase {
           return hasColumn("messages", "compacted_at");
         case 39:
           return hasColumn("wiki_sources", "user_path");
+        case 41:
+          return hasColumn("conversations", "channel_type");
         default:
           return false;
       }

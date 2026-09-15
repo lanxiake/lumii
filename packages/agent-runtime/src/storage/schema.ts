@@ -6,7 +6,7 @@
  */
 
 /** 当前 schema 版本号 */
-export const SCHEMA_VERSION = 40;
+export const SCHEMA_VERSION = 41;
 
 /**
  * V1 DDL — 初始 schema
@@ -1424,6 +1424,32 @@ CREATE INDEX IF NOT EXISTS idx_goals_agent_status_created
   ON autonomous_goals (agent_id, status, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_goals_created
   ON autonomous_goals (created_at DESC);
+`,
+  ],
+  // V41: 会话归属渠道落库（10-S2）
+  //
+  // 此前「会话属于哪个渠道」全靠 id 前缀推断，而前缀只说明会话从哪来、不说明此刻谁在说话
+  // （同一个 qbot: 键会被微信适配器服务）。落成一列后，接续守门、/resume 分组、渠道偏好、
+  // 侧栏标签、cron 默认推送目标都读数据，不再猜。
+  //
+  // 回填规则 = 建表时的归属规则：渠道前缀 = 该渠道；cron/evolution/onboarding = 系统会话；
+  // 其余（裸 conversationId，含被 /link 绑定的客户端会话）= ipc——**绑定是路由，不改归属**。
+  // 纯 SQL 可完成（无需 JS），故直接写在迁移里。
+  [
+    41,
+    `
+ALTER TABLE conversations ADD COLUMN channel_type TEXT;
+
+UPDATE conversations SET channel_type = CASE
+  WHEN id LIKE 'weixin:%'     THEN 'weixin'
+  WHEN id LIKE 'feishu:%'     THEN 'feishu'
+  WHEN id LIKE 'wecom:%'      THEN 'wecom'
+  WHEN id LIKE 'qbot:%'       THEN 'qbot'
+  WHEN id LIKE 'cron:%'       THEN 'cron'
+  WHEN id LIKE 'evolution:%'  THEN 'evolution'
+  WHEN id LIKE 'onboarding:%' THEN 'onboarding'
+  ELSE 'ipc'
+END;
 `,
   ],
 ] as const;

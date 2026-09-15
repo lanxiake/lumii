@@ -39,6 +39,14 @@ export interface ConversationRow {
   readonly is_pinned: number;
   readonly created_at: string;
   readonly last_msg_at: string | null;
+  /**
+   * 会话归属渠道（V41 起落库）：`ipc` / `weixin` / `feishu` / `wecom` / `qbot` /
+   * `cron` / `evolution` / `onboarding`。
+   *
+   * 判「这个会话从哪来」读它，别读 id 前缀——用户可以跨渠道续聊，
+   * 同一个键会被别的渠道适配器服务（详见 channel/channel-identity.ts）。
+   */
+  readonly channel_type?: string | null;
 }
 
 export interface MessageRow {

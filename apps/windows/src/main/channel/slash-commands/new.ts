@@ -6,10 +6,11 @@ export const newCommand: CommandHandler = {
     const { session, adapter, bridge, sessionManager } = ctx
     const { channelUserId } = session
 
-    const newSessionKey = `weixin:${channelUserId}:${Date.now()}`
+    // 键前缀取 adapter 自己的 channelType（此前写死 weixin:，换渠道注册就会串号）
+    const newSessionKey = `${adapter.channelType}:${channelUserId}:${Date.now()}`
     const newTitle = `微信对话 - ${new Date().toLocaleString('zh-CN')}`
 
-    bridge.ensureConversationExists(newSessionKey, newTitle)
+    bridge.ensureConversationExists(newSessionKey, newTitle, adapter.channelType)
 
     // 清除旧会话的 prompt 锁（避免旧会话的 prompt 阻塞新会话）
     sessionManager?.clearLock(session.sessionKey)

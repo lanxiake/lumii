@@ -400,7 +400,11 @@ export function registerIntegrationTools(deps: BridgeToolRegistrarDeps): void {
         if (!channelType) {
           const instanceId = deps.getCurrentToolExecutorInstanceId()
           const sessionKey = instanceId ? deps.instanceToConversation.get(instanceId) : undefined
-          const channel = resolveChannel(sessionKey)
+          // 归属取落库值（10-S2）：前缀只说明会话从哪来，落库值才是权威
+          const stored = sessionKey
+            ? deps.getConversationRepo()?.getConversation(sessionKey)?.channel_type ?? null
+            : null
+          const channel = resolveChannel(sessionKey, stored)
           if (!channel) {
             return jsonToolResult({
               ok: false,

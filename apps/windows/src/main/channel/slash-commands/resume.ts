@@ -1,5 +1,5 @@
 import type { CommandHandler, CommandContext } from '../types'
-import { channelOfSessionKey } from '../cross-channel-continuity'
+import { resolveChannelIdentity } from '../channel-identity'
 
 /** 每条列表项：会话 + 来源渠道标签 */
 interface ResumeEntry {
@@ -26,7 +26,7 @@ const LOOKUP_LIMIT = 100
  * 补标「微信」（光看 id 前缀认不出来）。
  */
 export function buildResumeEntries(params: {
-  recent: readonly { id: string; title: string; updatedAt: string }[]
+  recent: readonly { id: string; title: string; updatedAt: string; channelType?: string | null }[]
   currentSessionKey: string
   weixinBoundIds: ReadonlySet<string>
 }): ResumeEntry[] {
@@ -36,7 +36,7 @@ export function buildResumeEntries(params: {
   const seen = new Set<string>()
   for (const conv of recent) {
     if (seen.has(conv.id)) continue
-    const { label } = channelOfSessionKey(conv.id)
+    const { label } = resolveChannelIdentity(conv.id, conv.channelType)
     const boundLabel = weixinBoundIds.has(conv.id) ? '微信' : ''
     const channelLabel = boundLabel || label
     // 空标签 = 定时任务/自主进化会话，不是给用户恢复的

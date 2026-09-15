@@ -49,7 +49,7 @@ const wecomNewCommand: CommandHandler = {
     const { channelUserId } = session
     const newSessionKey = `wecom:${channelUserId}:${Date.now()}`
     const newTitle = `企业微信 - ${new Date().toLocaleString('zh-CN')}`
-    bridge.ensureConversationExists(newSessionKey, newTitle)
+    bridge.ensureConversationExists(newSessionKey, newTitle, adapter.channelType)
     adapter.setActiveSessionKey?.(channelUserId, newSessionKey)
     bridge.notifyNavigateToSession(newSessionKey, newTitle)
     bridge.notifyIncomingMessage(newSessionKey, '/new')
@@ -287,7 +287,7 @@ export class WecomChannelAdapter implements IChannelAdapter {
     log.info(`[handleMessage] sessionKey=${session.sessionKey} type=${msg.type} promptLen=${prompt.length}`)
 
     try {
-      this.bridge.ensureConversationExists(session.sessionKey, `企业微信 - ${msg.channelUserId}`)
+      this.bridge.ensureConversationExists(session.sessionKey, `企业微信 - ${msg.channelUserId}`, this.channelType)
 
       if (prompt.startsWith('/')) {
         const args = SlashCommandRegistry.parseArgs(prompt)

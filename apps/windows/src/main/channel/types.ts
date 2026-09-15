@@ -7,6 +7,7 @@
 import type { AgentRuntimeBridge } from '../agent-runtime/bridge'
 import type { AcpBackendManager } from './acp-backend-manager'
 import type { WeixinSessionBindingManager } from './weixin-session-binding'
+import { channelLabelOfOwnership } from './channel-identity'
 
 // ── 通道会话 ──────────────────────────────────────────────────────────────────
 
@@ -130,11 +131,6 @@ export interface IChannelAdapter {
 /** 渠道标识 → 中文名；未知渠道 fallback「消息渠道」。ipc 返回 undefined（客户端默认，不强加） */
 export function channelLabelOf(channelType: string): string | undefined {
   if (channelType === 'ipc') return undefined
-  const map: Record<string, string> = {
-    weixin: '微信',
-    feishu: '飞书',
-    wecom: '企业微信',
-    qbot: 'QQ',
-  }
-  return map[channelType] ?? '消息渠道'
+  // 标签表只有一份，在 channel-identity.ts（10-S2 收敛；此处保留旧签名供既有调用方使用）
+  return channelLabelOfOwnership(channelType) || '消息渠道'
 }
