@@ -1,39 +1,310 @@
 [
   {
+    "case": "PC-C1-MINIMAL",
+    "style": "minimal",
+    "tools": [
+      "todo_write",
+      "todo_write",
+      "file_mkdir",
+      "file_write",
+      "file_write",
+      "file_write",
+      "file_write",
+      "file_write",
+      "file_write",
+      "todo_write",
+      "bash",
+      "file_write",
+      "glob",
+      "todo_write",
+      "task_complete",
+      "task_complete"
+    ],
+    "promptStats": {
+      "chars": 17275,
+      "staticChars": 10069,
+      "dynamicChars": 3720,
+      "sections": 25,
+      "sectionTotal": 13766,
+      "categoryTokens": {
+        "systemPrompt": 2586,
+        "tools": 12122,
+        "skills": 289,
+        "mcp": 90,
+        "subagents": 1168,
+        "dynamicContext": 3108,
+        "conversation": 5319
+      }
+    },
+    "py": "file-stats\\stats.py",
+    "report": "file-stats\\readme.md"
+  },
+  {
+    "case": "PC-C1-TERSE",
+    "style": "terse",
+    "tools": [
+      "todo_write",
+      "file_mkdir",
+      "file_write",
+      "file_write",
+      "file_write",
+      "file_write",
+      "todo_write",
+      "file_write",
+      "bash",
+      "todo_write",
+      "file_write",
+      "glob",
+      "todo_write",
+      "task_complete",
+      "task_complete"
+    ],
+    "promptStats": {
+      "chars": 19498,
+      "staticChars": 10223,
+      "dynamicChars": 5788,
+      "sections": 25,
+      "sectionTotal": 15988,
+      "categoryTokens": {
+        "systemPrompt": 2480,
+        "tools": 16265,
+        "skills": 278,
+        "mcp": 195,
+        "subagents": 1120,
+        "dynamicContext": 3839,
+        "conversation": 5726
+      }
+    },
+    "py": "file-stats\\stats.py",
+    "report": "file-stats\\guide.md"
+  },
+  {
+    "case": "PC-C1-DETAILED",
+    "style": "detailed",
+    "tools": [
+      "todo_write",
+      "todo_write",
+      "file_write",
+      "file_write",
+      "file_write",
+      "file_write",
+      "todo_write",
+      "file_write",
+      "todo_write",
+      "bash",
+      "todo_write",
+      "file_write",
+      "glob",
+      "todo_write",
+      "task_complete",
+      "task_complete"
+    ],
+    "promptStats": {
+      "chars": 35499,
+      "staticChars": 26117,
+      "dynamicChars": 5895,
+      "sections": 26,
+      "sectionTotal": 31988,
+      "categoryTokens": {
+        "systemPrompt": 4853,
+        "tools": 17050,
+        "skills": 1885,
+        "mcp": 184,
+        "subagents": 1452,
+        "dynamicContext": 3666,
+        "conversation": 5033
+      }
+    },
+    "py": "file-stats\\stats.py",
+    "report": "file-stats\\readme.md"
+  },
+  {
+    "case": "PC-C2-MINIMAL",
+    "style": "minimal",
+    "tools": [
+      "spawn_agent",
+      "glob",
+      "file_read",
+      "web_fetch",
+      "web_fetch",
+      "web_fetch",
+      "web_search",
+      "web_search",
+      "web_search",
+      "web_search",
+      "web_search",
+      "web_fetch",
+      "web_search",
+      "web_search",
+      "web_search",
+      "web_search",
+      "web_search",
+      "web_search",
+      "file_write",
+      "task_complete",
+      "bash",
+      "task_complete"
+    ],
+    "promptStats": {
+      "chars": 14751,
+      "staticChars": 6863,
+      "dynamicChars": 3723,
+      "sections": 24,
+      "sectionTotal": 10564,
+      "categoryTokens": {
+        "systemPrompt": 1654,
+        "tools": 11190,
+        "skills": 185,
+        "mcp": 78,
+        "subagents": 747,
+        "dynamicContext": 1988,
+        "conversation": 20961
+      }
+    },
+    "file": "ai-coding-tools-brief\\AI编程工具简报-2026-09-15.md"
+  },
+  {
+    "case": "PC-C2-TERSE",
+    "style": "terse",
+    "tools": [
+      "spawn_agent",
+      "file_read",
+      "task_complete",
+      "task_complete"
+    ],
+    "promptStats": {
+      "chars": 18869,
+      "staticChars": 7017,
+      "dynamicChars": 5791,
+      "sections": 24,
+      "sectionTotal": 12786,
+      "categoryTokens": {
+        "systemPrompt": 1758,
+        "tools": 16316,
+        "skills": 197,
+        "mcp": 163,
+        "subagents": 794,
+        "dynamicContext": 2721,
+        "conversation": 2559
+      }
+    },
+    "file": "ai-coding-tools-brief\\ai编程工具简报-20260915.md"
+  },
+  {
+    "case": "PC-C2-DETAILED",
+    "style": "detailed",
+    "tools": [
+      "spawn_agent",
+      "web_fetch",
+      "web_fetch",
+      "web_search",
+      "web_fetch",
+      "web_search",
+      "file_write",
+      "bash",
+      "memory_manage",
+      "task_complete",
+      "task_complete",
+      "bash",
+      "task_complete",
+      "task_complete",
+      "bash",
+      "task_complete",
+      "task_complete",
+      "bash",
+      "task_complete",
+      "task_complete",
+      "bash",
+      "task_complete",
+      "task_complete",
+      "bash",
+      "task_complete",
+      "task_complete",
+      "bash",
+      "task_complete",
+      "task_complete",
+      "task_complete",
+      "bash",
+      "task_complete",
+      "bash",
+      "task_complete",
+      "task_complete",
+      "bash",
+      "task_complete",
+      "task_complete",
+      "bash",
+      "task_complete",
+      "task_complete",
+      "task_complete",
+      "task_complete",
+      "bash",
+      "task_complete",
+      "task_complete",
+      "bash",
+      "task_complete",
+      "task_complete",
+      "bash",
+      "task_complete",
+      "task_complete",
+      "bash",
+      "task_complete",
+      "task_complete",
+      "bash",
+      "task_complete",
+      "task_complete",
+      "task_complete",
+      "task_complete",
+      "bash",
+      "task_complete",
+      "task_complete",
+      "bash",
+      "task_complete",
+      "task_complete",
+      "bash"
+    ],
+    "promptStats": {
+      "chars": 31496,
+      "staticChars": 21316,
+      "dynamicChars": 5898,
+      "sections": 25,
+      "sectionTotal": 27191
+    },
+    "file": "ai-coding-tools-brief\\AI编程工具简报-2026-09-15.md"
+  },
+  {
     "case": "PC-C3-MINIMAL",
     "style": "minimal",
     "tools": [
       "web_search",
       "web_fetch",
+      "bash",
       "web_fetch"
     ],
     "promptStats": {
-      "chars": 13399,
-      "staticChars": 6308,
-      "dynamicChars": 3604,
-      "sections": 23,
-      "sectionTotal": 9891,
+      "chars": 17274,
+      "staticChars": 10069,
+      "dynamicChars": 3720,
+      "sections": 25,
+      "sectionTotal": 13766,
       "categoryTokens": {
-        "systemPrompt": 1807,
-        "tools": 12226,
-        "skills": 202,
-        "mcp": 86,
-        "subagents": 816,
-        "dynamicContext": 2171,
-        "conversation": 915
+        "systemPrompt": 2611,
+        "tools": 12237,
+        "skills": 292,
+        "mcp": 91,
+        "subagents": 1179,
+        "dynamicContext": 3136,
+        "conversation": 1769
       }
     },
-    "reply": "The user is asking about the current weather in Beijing, in one sentence, with just the temperature. Let me search the web.\nThe search didn't return the weather. Let me try directly fetching a weather source. Either fetch a weather API like wttr.in (no key required) with web_fetch, or use open-meteo"
+    "reply": "The user wants to know the current weather in Beijing, and they're just looking for the temperature in one sentence. Let me search.\nThe search results didn't give me real-time weather. Let me try fetching a weather API directly. A wttr.in or weather API source might be good. Let me try web_fetch aga"
   },
   {
     "case": "PC-C3-TERSE",
     "style": "terse",
     "tools": [
-      "web_search",
       "web_fetch",
-      "bash",
-      "bash",
-      "bash",
+      "web_fetch",
+      "web_search",
       "web_fetch"
     ],
     "promptStats": {
@@ -43,22 +314,21 @@
       "sections": 25,
       "sectionTotal": 15988,
       "categoryTokens": {
-        "systemPrompt": 1752,
-        "tools": 16253,
-        "skills": 197,
-        "mcp": 162,
-        "subagents": 791,
-        "dynamicContext": 2711,
-        "conversation": 2353
+        "systemPrompt": 2538,
+        "tools": 16643,
+        "skills": 284,
+        "mcp": 200,
+        "subagents": 1146,
+        "dynamicContext": 3928,
+        "conversation": 2266
       }
     },
-    "reply": "搜索结果都是旅游页面，没有实时数据，我直接抓一下天气源。"
+    "reply": "北京现在（9月15日傍晚）晴天，气温约 **18°C**，明天白天会升到 30°C 左右，昼夜温差挺大。"
   },
   {
     "case": "PC-C3-DETAILED",
     "style": "detailed",
     "tools": [
-      "web_fetch",
       "web_search",
       "web_fetch"
     ],
@@ -69,15 +339,15 @@
       "sections": 26,
       "sectionTotal": 31988,
       "categoryTokens": {
-        "systemPrompt": 4785,
-        "tools": 16811,
-        "skills": 1859,
+        "systemPrompt": 4794,
+        "tools": 16843,
+        "skills": 1863,
         "mcp": 182,
-        "subagents": 1432,
-        "dynamicContext": 3614,
-        "conversation": 996
+        "subagents": 1435,
+        "dynamicContext": 3621,
+        "conversation": 740
       }
     },
-    "reply": "The user is asking about the current weather in Beijing, and they want the temperature in a single sentence. I'll use web_search or web_fetch. Quick approach: search for \"北京 当前天气 温度\" (Beijing current weather temperature). Maybe it's better to fetch a weather API page like wttr.in. Let me try web_fet"
+    "reply": "北京现在（晚上11点多）气温约 **24°C**。"
   }
 ]

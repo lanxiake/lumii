@@ -116,4 +116,19 @@
 - 极简轮完整提示词转储核对：Workspace 紧凑版、Runtime 客户端上下文一行版、MCP 章节只列 `` `mcp__excel-mcp__read_excel` ``（无描述）、prompt_guide 引导可发现。
 - 脚本与证据：`docs/test/lumii-cli/prompt-style/verify-minimal-ab.mjs` + `minimal-ab-evidence.json`。
 
-**遗留：** 复杂工具保留清单的按需增减（一处常量）；MCP 工具数量多的场景可再做一轮观测。
+**真机复杂任务三档实测（2026-09-15 23:10，CLI 驱动 3 场景 × 3 档 = 9 轮）：**
+
+| 用例 | minimal | terse | detailed |
+|---|---|---|---|
+| PC-C1 多步文件工具链 | ✅ 16 调用 / 36s | ✅ 15 / 52s | ✅ 16 / 44s |
+| PC-C2 委派式调研落盘 | ✅ 22 / 188s | ❌ 断言误伤（子代理检索不可见）/ 4 | ✅ 67 / 328s（completion 重试风暴） |
+| PC-C3 时效查询 | ✅ 4 / 45s | ❌ 断言局限（web_fetch 路径）/ 4 | ❌ 同左 / 2 |
+| **通过** | **3/3** | 1/3 | 2/3 |
+
+- 工具定义 token：极简 11.2–12.2K vs 简要 16.3–16.6K vs 详细 16.8–17.1K（**−25~31%**，与静态实测 / 逐轮 A/B 互证）；提示词整份比简要 −11~22%、比详细 −51~53%；MCP 类目 −54%。
+- 极简档多步工具链产物齐备（stats.py + report.md 含统计逻辑）、调研简报落盘合规、天气回复含温度——复杂任务无退化。
+- 3 个 FAIL 全部归因断言口径（子代理轨迹 / web_fetch 不识别），非风格回归；P2 已记录同类误伤。
+- 分析归档：`docs/test/lumii-cli/prompt-style/prompt-style-complex-3way-analysis.md`（traces/report/evidence 同目录）。
+- 套件修正（本轮）：`getStyle` 三态化（原会把 minimal 读成 detailed、恢复步骤可能写错档）；`PC_STYLES` / `PC_SUITE` 环境变量；工作区探测三级回退（渲染层设置 → 主进程 `app.workspaceDirectory` → 日志实测 cwd）。
+
+**遗留：** 复杂工具保留清单的按需增减（一处常量）；C2/C3 断言口径升级（子代理轨迹合并 / web_fetch 纳入）；PC-C2-DETAILED 的 completion 重试风暴另查。
