@@ -109,6 +109,8 @@ export class MemPalaceMcpBridge {
       },
     })
 
+    this.attachChildHandlers(this.proc)
+
     // 注册行解析器——mcp_server 每行一条 JSON-RPC 响应
     const rl = createInterface({ input: this.proc.stdout! })
     rl.on('line', (line) => {
@@ -134,20 +136,6 @@ export class MemPalaceMcpBridge {
     this.proc.stderr?.on('data', (chunk: Buffer) => {
       const text = chunk.toString().trim()
       if (text) console.debug('[MemPalace MCP]', text)
-    })
-
-    // 进程退出时清理挂起调用，并在未超过重试上限时自动重启
-    this.proc.on('exit', (code) => {
-      console.warn(`[MemPalace MCP] 进程退出，code=${code}`)
-      this._cleanup()
-      if (this.restartCount < MAX_RESTARTS) {
-        this.restartCount++
-        const delay = Math.min(2000 * this.restartCount, 8000)
-        console.warn(`[MemPalace MCP] ${delay}ms 后重启（第 ${this.restartCount} 次）`)
-        setTimeout(() => { this.ensureRunning().catch(() => {}) }, delay)
-      } else {
-        console.error('[MemPalace MCP] 达到最大重启次数，停止重试')
-      }
     })
 
     // 等待进程实际启动（给它 200ms 预热），然后发送 initialize 握手
@@ -300,6 +288,46 @@ export class MemPalaceMcpBridge {
 
   async getDrawer(drawerId: string): Promise<MemPalaceDrawerDetail> {
     return await this.callTool('mempalace_get_drawer', { drawer_id: drawerId }) as MemPalaceDrawerDetail
+  }
+
+  /**
+   * 挂起子进程的生命周期处理：stdio 管道 'error' 与进程 'exit'。
+   *
+   * 为什么必须挂 'error'：EventEmitter 的 'error' 没有监听者时会直接抛成
+   * uncaughtException，被主进程全局兜底（只放行 EPIPE/EOF/ERR_STREAM_DESTROYED）
+   * 判定为致命错误并 process.exit(1)——子进程的死会连带整个客户端退出。
+   * 这里统一降级为「本次调用失败 + 走 exit 分支的自动重启」。
+   *
+   * 独立成方法是为了能在单测里注入假子进程（见 mempalace-mcp-client.test.ts）。
+   */
+  private attachChildHandlers(proc: ChildProcess): void {
+    const onChildGone = (err: Error) => {
+      console.warn('[MemPalace MCP] 子进程通信中断:', err.message)
+      this._cleanup()
+      try {
+        proc.kill()
+      } catch {
+        // 进程已退出，kill 无事可做
+      }
+    }
+    proc.on('error', onChildGone)
+    proc.stdin?.on('error', onChildGone)
+    proc.stdout?.on('error', onChildGone)
+    proc.stderr?.on('error', onChildGone)
+
+    // 进程退出时清理挂起调用，并在未超过重试上限时自动重启
+    proc.on('exit', (code) => {
+      console.warn(`[MemPalace MCP] 进程退出，code=${code}`)
+      this._cleanup()
+      if (this.restartCount < MAX_RESTARTS) {
+        this.restartCount++
+        const delay = Math.min(2000 * this.restartCount, 8000)
+        console.warn(`[MemPalace MCP] ${delay}ms 后重启（第 ${this.restartCount} 次）`)
+        setTimeout(() => { this.ensureRunning().catch(() => {}) }, delay)
+      } else {
+        console.error('[MemPalace MCP] 达到最大重启次数，停止重试')
+      }
+    })
   }
 
   private _cleanup(): void {

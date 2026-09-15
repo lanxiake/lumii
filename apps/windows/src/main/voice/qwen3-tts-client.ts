@@ -659,23 +659,7 @@ export class Qwen3TtsClient {
         TRANSFORMERS_OFFLINE: '1',
       }),
     }) as ChildProcessWithoutNullStreams
-
-    this.child.stdout.setEncoding('utf8')
-    this.child.stderr.setEncoding('utf8')
-    this.child.stdout.on('data', (chunk: string) => this.onStdout(chunk))
-    this.child.stderr.on('data', (chunk: string) => {
-      const t = chunk.trim()
-      if (t) log.warn('[sidecar]', t.slice(-500))
-    })
-    this.child.on('exit', (code) => {
-      log.warn(`sidecar 退出 code=${code}`)
-      for (const [, p] of this.pending) {
-        p.reject(new Error(`sidecar 已退出 (code=${code})`))
-      }
-      this.pending.clear()
-      this.child = null
-      this.loadedKey = null
-    })
+    this.attachChildHandlers(this.child)
 
     const ping = await this.call('ping', {})
     if (!ping.ok) throw new Error(ping.error || 'sidecar ping 失败')
@@ -842,22 +826,79 @@ export class Qwen3TtsClient {
   }
 
   /**
+   * 把一个 sidecar 子进程接到客户端上：stdout 解析、stderr 转日志、
+   * 管道 'error' 与进程 'exit' 的生命周期处理。
+   *
+   * 为什么必须挂 'error'：EventEmitter 的 'error' 没有监听者时会直接抛成
+   * uncaughtException，被主进程全局兜底（只放行 EPIPE/EOF/ERR_STREAM_DESTROYED）
+   * 判定为致命错误并 process.exit(1)——子进程的死会连带整个客户端退出。
+   * 这里统一降级为「挂起调用失败 + child 置空」，下次 ensureStarted() 会重新拉起。
+   *
+   * 独立成方法是为了能在单测里注入假子进程（见 qwen3-tts-client.test.ts）。
+   */
+  private attachChildHandlers(startedChild: ChildProcessWithoutNullStreams): void {
+    startedChild.stdout.setEncoding('utf8')
+    startedChild.stderr.setEncoding('utf8')
+    startedChild.stdout.on('data', (chunk: string) => this.onStdout(chunk))
+    startedChild.stderr.on('data', (chunk: string) => {
+      const t = chunk.trim()
+      if (t) log.warn('[sidecar]', t.slice(-500))
+    })
+
+    const onChildGone = (err: Error) => {
+      // 旧进程迟到的 error 事件：此时客户端可能已经拉到新进程，不能跟着清掉
+      if (this.child !== startedChild) return
+      log.warn('[sidecar] 通信中断:', err.message)
+      this.resetChild(`sidecar 通信中断: ${err.message}`)
+      try {
+        startedChild.kill()
+      } catch {
+        /* 进程已退出，kill 无事可做 */
+      }
+    }
+    startedChild.on('error', onChildGone)
+    startedChild.stdin.on('error', onChildGone)
+    startedChild.stdout.on('error', onChildGone)
+    startedChild.stderr.on('error', onChildGone)
+
+    startedChild.on('exit', (code) => {
+      log.warn(`sidecar 退出 code=${code}`)
+      if (this.child !== startedChild) return
+      this.resetChild(`sidecar 已退出 (code=${code})`)
+    })
+  }
+
+  /**
+   * 子进程已不可用：拒绝所有挂起调用并清空状态。
+   * 不在此处重启——调用方每次操作前都会 ensureStarted()，届时会重新拉起。
+   */
+  private resetChild(reason: string): void {
+    for (const [, p] of this.pending) {
+      p.reject(new Error(reason))
+    }
+    this.pending.clear()
+    this.child = null
+    this.loadedKey = null
+  }
+
+  /**
    * 销毁 sidecar
    */
   async destroy(): Promise<void> {
-    if (!this.child) return
+    const child = this.child
+    if (!child) return
     try {
       await this.call('shutdown', {}, 10_000)
     } catch {
       /* ignore */
     }
     try {
-      this.child.kill()
+      child.kill()
     } catch {
       /* ignore */
     }
-    this.child = null
-    this.loadedKey = null
+    // 拒绝仍在飞的调用（销毁后不会再 ensureStarted），并清空引用
+    this.resetChild('sidecar 已销毁')
   }
 
   /**

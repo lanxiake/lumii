@@ -9,17 +9,20 @@
  */
 
 /**
- * 全局 EPIPE 错误保护
+ * 全局管道错误保护
  *
- * 当父进程终端关闭后，stdout/stderr 管道断开，
- * Node.js 的 SyncWriteStream.writeSync 会抛出 EPIPE 同步异常，
- * 导致 Electron 弹出 "A JavaScript error occurred in the main process" 崩溃对话框。
+ * 管道对端消失时会产生一类同族错误：
+ * - EPIPE：向已关闭的管道写入（父进程终端关闭后 stdout/stderr 断开，
+ *   Node.js 的 SyncWriteStream.writeSync 会同步抛出，导致 Electron 弹出
+ *   "A JavaScript error occurred in the main process" 崩溃对话框）；
+ * - EOF：写入时对端进程已退出（消息为 "write EOF"，栈在
+ *   WriteWrap.onWriteComplete），典型场景是子进程崩溃后主进程仍在写它的 stdin；
+ * - ERR_STREAM_DESTROYED：向已销毁的流写入。
  *
- * 此处通过 uncaughtException 过滤 EPIPE 错误，仅静默忽略管道断开，
- * 其他未捕获异常仍正常传播。
+ * 三者都不是本进程的缺陷，此处一并静默忽略，其他未捕获异常仍正常传播。
  */
 process.on('uncaughtException', (err: NodeJS.ErrnoException) => {
-  if (err.code === 'EPIPE' || err.code === 'ERR_STREAM_DESTROYED') {
+  if (err.code === 'EPIPE' || err.code === 'EOF' || err.code === 'ERR_STREAM_DESTROYED') {
     return
   }
   // eslint-disable-next-line no-console
