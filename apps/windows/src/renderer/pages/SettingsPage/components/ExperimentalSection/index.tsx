@@ -1,14 +1,15 @@
 /**
  * ExperimentalSection - 实验功能设置
  *
- * 列表入口 + 设置内栈式详情：提示词风格、自主进化。
+ * 列表入口 + 设置内栈式详情：提示词风格、自主进化、跨渠道会话接续。
  * 工具进化已移至「工具」菜单。提示词风格切换写 localStorage 并经 IPC
- * 同步主进程缓存，下一轮对话生效。
+ * 同步主进程缓存，下一轮对话生效；跨渠道接续写主进程 JSON，下次渠道消息即时生效。
  */
 
 import React, { useCallback, useEffect, useState } from 'react'
 import { ChevronLeft, ChevronRight } from '../../../../components/ui/Icon'
 import { Badge } from '../../../../components/ui/Badge/Badge'
+import { Switch } from '../../../../components/ui/Switch/Switch'
 import { AutonomousPage } from '../../../AutonomousPage/AutonomousPage'
 import {
   useSettings,
@@ -17,10 +18,11 @@ import {
 } from '../../../../hooks/business/useSettings'
 import { updatePromptStyle } from '../../../../services/settings-service'
 import { getAutonomousStatus } from '../../../../services/autonomous-service'
+import { useChannelFeatures } from './useChannelFeatures'
 import settingsStyles from '../../SettingsPage.module.css'
 import styles from './ExperimentalSection.module.css'
 
-type ExperimentalView = 'list' | 'promptStyle' | 'autonomous'
+type ExperimentalView = 'list' | 'promptStyle' | 'autonomous' | 'channelContinuity'
 
 /** 提示词风格详情：详细/简要切换与说明（无段清单表） */
 function PromptStyleDetail({ onBack }: { onBack: () => void }) {
@@ -81,9 +83,48 @@ function PromptStyleDetail({ onBack }: { onBack: () => void }) {
   )
 }
 
-/** 详情子页顶栏：返回 + 标题 */
-function DetailHeader({ title, onBack }: { title: string; onBack: () => void }) {
+/**
+ * 跨渠道会话接续详情：一个开关 + 行为说明。
+ *
+ * 开关值在主进程（`channel-features.json`），渠道 adapter 每条消息现读，
+ * 所以切换后**下一轮渠道消息即生效，无需重启**。
+ */
+function ChannelContinuityDetail({
+  onBack,
+  enabled,
+  saving,
+  onToggle,
+}: {
+  onBack: () => void
+  enabled: boolean
+  saving: boolean
+  onToggle: (value: boolean) => void
+}) {
   return (
+    <div className={styles.detail}>
+      <DetailHeader title="跨渠道会话接续" onBack={onBack} />
+      <div className={`${settingsStyles['settings-section']} ${styles.detailBody}`}>
+        <div className={settingsStyles['setting-row']}>
+          <span className={settingsStyles['setting-label']}>启用接续询问</span>
+          <Switch
+            id="channel-cross-continuity"
+            checked={enabled}
+            disabled={saving}
+            onChange={onToggle}
+          />
+        </div>
+        <p className={settingsStyles['setting-hint']}>
+          在渠道（微信 / QQ / 飞书 / 企微）里发消息时，若你近期在客户端或其它渠道有进行中的对话，
+          会先问一句是否接续：回复 1 接续，0 不接续，1 分钟内不回复则默认接续；同一会话只问一次。
+          关闭后渠道消息一律留在本渠道自己的会话里。切换后下一轮渠道消息即生效，无需重启。
+        </p>
+      </div>
+    </div>
+  )
+}
+
+/** 详情子页顶栏：返回 + 标题 */
+function DetailHeader({ title, onBack }: { title: string; onBack: () => void }) {  return (
     <div className={styles.detailHeader}>
       <button type="button" className={styles.backBtn} onClick={onBack} aria-label="返回实验功能列表">
         <ChevronLeft size={18} aria-hidden />
@@ -128,6 +169,8 @@ export function ExperimentalSection() {
   const [view, setView] = useState<ExperimentalView>('list')
   const [autonomousEnabled, setAutonomousEnabled] = useState<boolean | null>(null)
   const [pendingGoals, setPendingGoals] = useState(0)
+  const { features, loading: featuresLoading, saving: featuresSaving, setFeature } =
+    useChannelFeatures()
 
   const currentStyle = settings.promptStyle?.style === 'terse' ? 'terse' : 'detailed'
   const styleSummary = currentStyle === 'terse' ? '当前：简要' : '当前：详细'
@@ -137,6 +180,11 @@ export function ExperimentalSection() {
       : autonomousEnabled
         ? '状态：已启用'
         : '状态：已禁用'
+  const continuitySummary = featuresLoading
+    ? '加载中…'
+    : features.crossChannelContinuityEnabled
+      ? '状态：已启用'
+      : '状态：已关闭'
 
   useEffect(() => {
     let cancelled = false
@@ -164,6 +212,17 @@ export function ExperimentalSection() {
     return <PromptStyleDetail onBack={goList} />
   }
 
+  if (view === 'channelContinuity') {
+    return (
+      <ChannelContinuityDetail
+        onBack={goList}
+        enabled={features.crossChannelContinuityEnabled}
+        saving={featuresSaving}
+        onToggle={(v) => void setFeature('crossChannelContinuityEnabled', v)}
+      />
+    )
+  }
+
   if (view === 'autonomous') {
     return (
       <div className={styles.detail}>
@@ -188,6 +247,11 @@ export function ExperimentalSection() {
           title="提示词风格（实验）"
           summary={styleSummary}
           onClick={() => setView('promptStyle')}
+        />
+        <FeatureRow
+          title="跨渠道会话接续"
+          summary={continuitySummary}
+          onClick={() => setView('channelContinuity')}
         />
         <FeatureRow
           title="自主进化"

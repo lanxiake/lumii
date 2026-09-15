@@ -3,6 +3,9 @@
  *
  * 开关落在主进程 JSON，不用 localStorage：渠道消息按长连接时序到达，
  * 与渲染窗口是否存活无关，主进程必须能独立读到值。
+ *
+ * 2026-09-15：随「跨渠道会话接续」开关从「渠道设置」搬到「实验功能」，文件一并挪来
+ * （渠道分区已不再使用）。
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 

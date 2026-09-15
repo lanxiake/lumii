@@ -21,19 +21,29 @@ const getStatus = vi.fn(async () => ({
     breakdown: { taskCompletion: 0, userFeedback: 0, efficiency: 0, knowledgeGrowth: 0 },
   },
 }))
+/** 渠道功能开关（跨渠道会话接续）：主进程 JSON，渲染层经 channelService 读写 */
+const getFeatures = vi.fn(async () => ({ crossChannelContinuityEnabled: false }))
+const setFeatures = vi.fn(async (patch: Record<string, unknown>) => ({
+  crossChannelContinuityEnabled: false,
+  ...patch,
+}))
 
 beforeEach(() => {
   localStorage.clear()
   updatePromptStyle.mockClear()
   getStatus.mockClear()
+  getFeatures.mockClear()
+  setFeatures.mockClear()
   ;(window as unknown as { electronAPI?: unknown }).electronAPI = {
     settings: { updatePromptStyle },
     autonomous: { getStatus },
   }
+  ;(window as unknown as { channelService?: unknown }).channelService = { getFeatures, setFeatures }
 })
 
 afterEach(() => {
   delete (window as unknown as { electronAPI?: unknown }).electronAPI
+  delete (window as unknown as { channelService?: unknown }).channelService
 })
 
 describe('ExperimentalSection — 列表与栈导航', () => {
@@ -93,5 +103,38 @@ describe('ExperimentalSection — 列表与栈导航', () => {
     fireEvent.click(screen.getByRole('button', { name: /提示词风格（实验）/ }))
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
     expect(screen.queryByText('段 ID')).not.toBeInTheDocument()
+  })
+})
+
+describe('ExperimentalSection — 跨渠道会话接续开关（2026-09-15 从渠道设置搬入）', () => {
+  it('列表展示该项与当前状态', async () => {
+    render(<ExperimentalSection />)
+    expect(screen.getByRole('button', { name: /跨渠道会话接续/ })).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByText('状态：已关闭')).toBeInTheDocument())
+    expect(getFeatures).toHaveBeenCalled()
+  })
+
+  it('进入详情可开启：写主进程开关，返回列表状态同步', async () => {
+    render(<ExperimentalSection />)
+    fireEvent.click(screen.getByRole('button', { name: /跨渠道会话接续/ }))
+
+    expect(screen.getByRole('heading', { name: '跨渠道会话接续' })).toBeInTheDocument()
+    const sw = screen.getByRole('switch')
+    expect(sw).toHaveAttribute('aria-checked', 'false')
+
+    fireEvent.click(sw)
+    await waitFor(() =>
+      expect(setFeatures).toHaveBeenCalledWith({ crossChannelContinuityEnabled: true }),
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '返回实验功能列表' }))
+    await waitFor(() => expect(screen.getByText('状态：已启用')).toBeInTheDocument())
+  })
+
+  it('读取失败时回落「已关闭」，不阻塞其余实验项', async () => {
+    getFeatures.mockRejectedValueOnce(new Error('ipc down'))
+    render(<ExperimentalSection />)
+    await waitFor(() => expect(screen.getByText('状态：已关闭')).toBeInTheDocument())
+    expect(screen.getByRole('button', { name: /提示词风格（实验）/ })).toBeInTheDocument()
   })
 })
