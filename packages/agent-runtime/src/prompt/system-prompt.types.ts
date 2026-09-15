@@ -212,11 +212,21 @@ export const PROMPT_SECTION_TAGS = [
 export type PromptSectionTag = (typeof PROMPT_SECTION_TAGS)[number]
 
 /**
- * 系统提示词风格（全局两态，实验功能，取代旧「按模型档位调详度」调度）
+ * 系统提示词风格（全局三态，实验功能，取代旧「按模型档位调详度」调度）
  * - detailed：现状基线（standard 为主，吸收旧 full 专属段），默认
  * - terse：索引式 + 渐进式加载（段尾引导句经 prompt_guide / 既有工具按需展开）
+ * - minimal（极简）：terse 之上再收——发给模型的工具定义只保留名称+参数
+ *   （复杂工具保留完整定义），MCP 章节等提示词残余描述一并收敛
  */
-export type PromptStyle = "detailed" | "terse"
+export type PromptStyle = "detailed" | "terse" | "minimal"
+
+/**
+ * 是否走索引式精简渲染：terse 与 minimal 共用各段的 terse 正文，
+ * minimal 另有更激进的专属渲染（MCP 章节 / bundledCapabilities / Workspace / Runtime 客户端上下文）。
+ */
+export function isLeanStyle(style: PromptStyle): boolean {
+  return style !== "detailed"
+}
 
 export interface ClientSystemPromptParams {
   /** Agent 定义（含系统提示词和描述） */

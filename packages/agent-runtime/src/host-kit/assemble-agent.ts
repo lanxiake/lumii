@@ -50,7 +50,7 @@ export interface AssembleAgentRuntime {
   };
   /** Workspace 子目录布局 */
   readonly workspaceLayout?: WorkspaceLayout;
-  /** 提示词风格（全局两态：detailed/terse，实验功能） */
+  /** 提示词风格（全局三态：detailed/terse/minimal，实验功能） */
   readonly promptStyle?: PromptStyle;
   /** 是否子 Agent（影响提示词协作段与委派约束） */
   readonly isSubAgent?: boolean;

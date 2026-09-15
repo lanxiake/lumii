@@ -2,7 +2,7 @@
  * Tooling section 构建函数（工具分组、渐进式加载、系统规则、工具命名契约）
  */
 
-import type { PromptStyle } from "../system-prompt.types.js"
+import { isLeanStyle, type PromptStyle } from "../system-prompt.types.js"
 
 // === 工具分组映射（使用实际注册的工具名） ===
 
@@ -237,6 +237,7 @@ function partitionToolNames(toolNames: readonly string[]) {
 /**
  * terse 折叠渲染（P2-T1）：只报「组名 + 数量」与两条高价值组注，
  * 逐工具摘要与全部组注走 `prompt_guide(section: "tooling")`（展开不回流系统提示词）。
+ * 极简档（minimal）共用本渲染——工具名与参数已在发往模型的工具定义载荷中。
  */
 function buildTerseToolingLines(toolNames: readonly string[]): string[] {
   const { groups, otherTools, lowFrequency } = partitionToolNames(toolNames)
@@ -252,7 +253,7 @@ function buildTerseToolingLines(toolNames: readonly string[]): string[] {
 }
 
 export function categorizeTools(toolNames: readonly string[], style: PromptStyle = "detailed"): string[] {
-  if (style === "terse") return buildTerseToolingLines(toolNames)
+  if (isLeanStyle(style)) return buildTerseToolingLines(toolNames)
 
   const lines: string[] = []
   const { groups, otherTools, lowFrequency } = partitionToolNames(toolNames)
@@ -332,8 +333,8 @@ export function buildProgressiveLoadingSection(toolNames: readonly string[], sty
 
   if (!hasFileRead && !hasGrep) return []
 
-  // terse：核心句 + prompt_guide 引导（细节按需展开）
-  if (style === "terse") {
+  // terse/minimal：核心句 + prompt_guide 引导（细节按需展开）
+  if (isLeanStyle(style)) {
     return [
       "## Context and Input Handling",
       'Use bounded, progressive reads: inspect indexes or summaries first, then load only what is needed.\nDetails: `prompt_guide(section: "progressiveLoading")`.',
@@ -375,7 +376,7 @@ export function buildProgressiveLoadingSection(toolNames: readonly string[], sty
  * 补齐当前提示词缺失的几条核心运行规则：工具被拒不重试、标签语义、
  * 绝不臆造 URL、防 prompt injection。其中「臆造 URL」与「注入防范」按是否
  * 具备「外部数据类工具」（web/browser/bash）条件注入，避免无关会话看到无效约束。
- * 红线段：两种风格（detailed/terse）下均渲染完整文案，不做索引化。
+ * 红线段：各风格档（detailed/terse/minimal）下均渲染完整文案，不做索引化。
  */
 export function buildSystemRulesSection(toolNames: readonly string[]): string[] {
   const hasWebTools =

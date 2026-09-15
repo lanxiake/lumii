@@ -4,6 +4,9 @@
  * P1-T2：详度轴（compact/standard/full）已移除，改全局两态风格（detailed/terse）。
  * - 默认 detailed = 原 standard 基线（吸收 full 专属段：代码细则 / 命名契约 / Disk-Index）
  * - terse 档的红线段（safety / verification / language / taskCompletion / 压缩告知等）不变
+ *
+ * P3：新增极简档 minimal——terse 之上收敛 MCP 章节 / bundledCapabilities /
+ * Workspace / Runtime 客户端上下文四个段（工具定义载荷裁剪在 tools 层，另有专门测试）。
  */
 
 import { describe, expect, it } from "vitest";
@@ -343,5 +346,117 @@ describe("terse 极致覆盖（P2）", () => {
     const tc = terse.sectionStats.find((s) => s.id === "selfLearning")?.chars ?? 0;
     const dc = detailed.sectionStats.find((s) => s.id === "selfLearning")?.chars ?? 0;
     expect(tc / dc).toBeLessThan(0.6);
+  });
+});
+
+describe("极简档 minimal（P3）", () => {
+  const P3_TOOLS = [
+    "file_read",
+    "file_write",
+    "bash",
+    "skill_search",
+    "skill_list",
+    "memory_search",
+    "message",
+    "todo_write",
+    "task_complete",
+  ];
+
+  const MCP_HINTS = [
+    {
+      name: "sqlite",
+      instructions: "只读查询本地数据库。",
+      tools: [
+        { name: "mcp__sqlite__query", description: "执行 SELECT 查询" },
+        { name: "mcp__sqlite__list_tables", description: "列出全部表" },
+      ],
+    },
+  ];
+
+  const SKILLS = [
+    {
+      id: "weekly-report",
+      name: "周报助手",
+      description: "生成结构化周报，汇总本周工作项与下周计划。",
+      location: "/skills/weekly-report/SKILL.md",
+    },
+  ];
+
+  const build = (
+    promptStyle: "detailed" | "terse" | "minimal",
+    extra: Record<string, unknown> = {},
+  ) =>
+    buildClientSystemPromptStructured({
+      agentDefinition: BASE_DEF,
+      toolNames: P3_TOOLS,
+      cwd: "/workspace",
+      runtimeInfo: { channel: "windows-agent-runtime", host: "test-host - MtBot Windows" },
+      promptStyle,
+      ...extra,
+    });
+
+  const sectionChars = (r: ReturnType<typeof build>, id: string) =>
+    r.sectionStats.find((s) => s.id === id)?.chars ?? 0;
+
+  it("MCP 章节：只列 server 名 + 工具名，instructions 保留、逐工具描述移出", () => {
+    const minimal = build("minimal", { mcpServerHints: MCP_HINTS });
+    const terse = build("terse", { mcpServerHints: MCP_HINTS });
+
+    expect(minimal.fullPrompt).toContain("### sqlite");
+    expect(minimal.fullPrompt).toContain("只读查询本地数据库。");
+    expect(minimal.fullPrompt).toContain("`mcp__sqlite__query`");
+    expect(minimal.fullPrompt).not.toContain("执行 SELECT 查询");
+    // terse 档保持逐工具描述（P2 未覆盖 mcp 段）
+    expect(terse.fullPrompt).toContain("执行 SELECT 查询");
+    expect(sectionChars(minimal, "mcp")).toBeLessThan(sectionChars(terse, "mcp"));
+  });
+
+  it("bundledCapabilities：只列技能名，描述移出", () => {
+    const minimal = build("minimal", { skills: SKILLS, bundledSkillIds: ["weekly-report"] });
+    const terse = build("terse", { skills: SKILLS, bundledSkillIds: ["weekly-report"] });
+
+    expect(minimal.fullPrompt).toContain("- 周报助手");
+    expect(minimal.fullPrompt).not.toContain("生成结构化周报");
+    expect(terse.fullPrompt).toContain("生成结构化周报");
+  });
+
+  it("Workspace 紧凑版：硬约束保留、段内字符数明显小于 terse", () => {
+    const minimal = build("minimal");
+    const terse = build("terse");
+
+    expect(minimal.fullPrompt).toContain("Never write into the workspace root");
+    expect(minimal.fullPrompt).toContain("`outputs/<project-or-task>/`");
+    expect(minimal.fullPrompt).toContain("`temp/<task>/`");
+    expect(minimal.fullPrompt).toContain("under 50 characters");
+    expect(sectionChars(minimal, "workspace")).toBeGreaterThan(0);
+    expect(sectionChars(minimal, "workspace")).toBeLessThan(sectionChars(terse, "workspace") * 0.5);
+  });
+
+  it("Runtime 客户端上下文：极简一行（terse 保留整段）", () => {
+    const minimal = build("minimal");
+    const terse = build("terse");
+
+    expect(minimal.fullPrompt).toContain("MtBot Windows desktop client (Electron)");
+    expect(minimal.fullPrompt).not.toContain("You are running inside the **MtBot Windows desktop client**");
+    expect(terse.fullPrompt).toContain("You are running inside the **MtBot Windows desktop client**");
+    expect(sectionChars(minimal, "runtime")).toBeLessThan(sectionChars(terse, "runtime"));
+  });
+
+  it("红线段与 terse 逐字节同量（safety / verification / language / taskCompletion）", () => {
+    const minimal = build("minimal");
+    const terse = build("terse");
+    for (const id of ["safety", "verification", "language", "taskCompletion"]) {
+      expect(sectionChars(minimal, id), id).toBe(sectionChars(terse, id));
+      expect(sectionChars(minimal, id), id).toBeGreaterThan(0);
+    }
+  });
+
+  it("terse 共用段与 terse 渲染同量（skills / tooling / taskOrchestration）", () => {
+    const minimal = build("minimal", { skills: SKILLS });
+    const terse = build("terse", { skills: SKILLS });
+    for (const id of ["skills", "tooling", "taskOrchestration", "selfLearning"]) {
+      expect(sectionChars(minimal, id), id).toBe(sectionChars(terse, id));
+      expect(sectionChars(minimal, id), id).toBeGreaterThan(0);
+    }
   });
 });

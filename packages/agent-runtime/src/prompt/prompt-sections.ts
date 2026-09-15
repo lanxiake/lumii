@@ -69,8 +69,15 @@ export interface PromptSectionMeta {
    * 是否具备 terse 渲染（P1 首批 5 段 + P2 扩容：tooling/skills/协作/编排/wiki/
    * selfLearning/deviceControl/动态段等；红线段 safety/verification/language/
    * taskCompletion 永久 false）。P2 后仅剩身份/权限/红线类与少数能力段不做 terse。
+   * 极简档（minimal）共用 terse 渲染，另有 minimal 专属段的见下。
    */
   readonly terse: boolean
+  /**
+   * 极简档是否有专属渲染（比 terse 更激进；P3 首批：mcp 章节只列名称、
+   * bundledCapabilities 只列名、workspace 紧凑版、runtime 客户端上下文一行）。
+   * 守卫测试据此校验「minimal 渲染 ≠ terse 渲染」。
+   */
+  readonly minimal?: boolean
   /** 展开方式（terse 为 true 时必填） */
   readonly expandVia?: PromptExpandRoute
   /** expandVia=existing-tool 时：指向的既有工具名（terse 文案中必须可发现） */
@@ -93,12 +100,12 @@ export const PROMPT_SECTIONS: readonly PromptSectionMeta[] = [
   { id: "systemRules", group: "rules", zone: "static", terse: false },
   { id: "toolPreference", group: "capabilities", zone: "static", terse: false },
   { id: "operatingPrinciples", group: "rules", zone: "static", terse: true, expandVia: "prompt-guide" },
-  { id: "bundledCapabilities", group: "capabilities", zone: "static", terse: false },
+  { id: "bundledCapabilities", group: "capabilities", zone: "static", terse: false, minimal: true },
   { id: "progressUpdates", group: "rules", zone: "static", terse: false },
   { id: "verification", group: "rules", zone: "static", terse: false },
   { id: "toolNamingContract", group: "rules", zone: "static", terse: false },
   { id: "progressiveLoading", group: "capabilities", zone: "static", terse: true, expandVia: "prompt-guide" },
-  { id: "mcp", group: "capabilities", zone: "static", terse: false },
+  { id: "mcp", group: "capabilities", zone: "static", terse: false, minimal: true },
   { id: "skills", group: "capabilities", zone: "static", terse: true, expandVia: "existing-tool", expandTool: "skill_search" },
   { id: "selfLearning", group: "capabilities", zone: "static", terse: true, expandVia: "existing-tool", expandTool: "profile_memory" },
   { id: "taskOrchestration", group: "collaboration", zone: "static", terse: true, expandVia: "prompt-guide" },
@@ -116,11 +123,11 @@ export const PROMPT_SECTIONS: readonly PromptSectionMeta[] = [
   { id: "silentReplies", group: "rules", zone: "static", terse: false },
   // —— 动态段 ——
   { id: "memory", group: "memory", zone: "dynamic", terse: false },
-  { id: "workspace", group: "runtime", zone: "dynamic", terse: false },
+  { id: "workspace", group: "runtime", zone: "dynamic", terse: false, minimal: true },
   { id: "projectContext", group: "runtime", zone: "dynamic", terse: false },
   { id: "userDevices", group: "runtime", zone: "dynamic", terse: true, expandVia: "none" },
   { id: "activeTasks", group: "runtime", zone: "dynamic", terse: false },
-  { id: "runtime", group: "runtime", zone: "dynamic", terse: false },
+  { id: "runtime", group: "runtime", zone: "dynamic", terse: false, minimal: true },
   { id: "contextManagement", group: "runtime", zone: "dynamic", terse: true, expandVia: "none" },
   { id: "skillActivation", group: "capabilities", zone: "dynamic", terse: false },
   { id: "routingRationale", group: "collaboration", zone: "dynamic", terse: false },

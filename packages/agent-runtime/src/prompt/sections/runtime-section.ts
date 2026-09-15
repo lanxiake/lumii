@@ -2,7 +2,7 @@
  * Runtime & Workspace sections
  */
 
-import type { ClientSystemPromptParams, WorkspaceLayout, ActiveTaskInfo, PromptStyle } from "../system-prompt.types.js"
+import { isLeanStyle, type ClientSystemPromptParams, type WorkspaceLayout, type ActiveTaskInfo, type PromptStyle } from "../system-prompt.types.js"
 
 /**
  * Build the Runtime section (detailed format).
@@ -10,8 +10,13 @@ import type { ClientSystemPromptParams, WorkspaceLayout, ActiveTaskInfo, PromptS
  *
  * @param params - 系统提示词构建参数
  * @param currentModelId - 当前实际使用的模型 ID（覆盖 params.modelId，用于每轮动态刷新）
+ * @param style - 提示词风格（极简档把 Windows 客户端上下文压成一行）
  */
-export function buildRuntimeSection(params: ClientSystemPromptParams, currentModelId?: string): string[] {
+export function buildRuntimeSection(
+  params: ClientSystemPromptParams,
+  currentModelId?: string,
+  style: PromptStyle = "detailed",
+): string[] {
   const parts: string[] = []
   const ri = params.runtimeInfo
 
@@ -35,7 +40,9 @@ export function buildRuntimeSection(params: ClientSystemPromptParams, currentMod
   if (isWindowsClient) {
     clientContextLines.push(
       "",
-      "**Client context:** You are running inside the **MtBot Windows desktop client** (Electron). The local workspace, user files (uploads/outputs/files), user-installed skills, and user-defined agents below all live on this machine. Prefer local tools (`file_*`, `bash`, `glob`, `grep`) for anything involving the user's files. Use `message` / `channel_send` only when explicitly targeting a channel.",
+      style === "minimal"
+        ? "**Client context:** MtBot Windows desktop client (Electron); the workspace, user files, skills, and agents below live on this machine — prefer local tools (`file_*`, `bash`, `glob`, `grep`), and use `message` / `channel_send` only when targeting a channel."
+        : "**Client context:** You are running inside the **MtBot Windows desktop client** (Electron). The local workspace, user files (uploads/outputs/files), user-installed skills, and user-defined agents below all live on this machine. Prefer local tools (`file_*`, `bash`, `glob`, `grep`) for anything involving the user's files. Use `message` / `channel_send` only when explicitly targeting a channel.",
     )
   }
 
@@ -66,7 +73,7 @@ export function buildContextManagementSection(
   const hasFileWrite = toolNames.includes("file_write")
   const persistTarget = hasFileWrite ? "`file_write` or memory" : "memory"
 
-  if (style === "terse") {
+  if (isLeanStyle(style)) {
     const line =
       `When the conversation grows, the system may summarize older history and continue with that summary. Continue normally; keep important decisions, paths, and results in ${persistTarget} because compaction is lossy.` +
       (canRecall ? " Recover exact details via `memory_search` → `memory_read`." : "")
@@ -154,11 +161,28 @@ export function buildActiveTasksSection(tasks?: readonly ActiveTaskInfo[]): stri
 /**
  * Build the Workspace section (gateway-aligned full version).
  * Includes file organization and strict naming rules.
+ * 极简档：紧凑版——保留全部硬约束，删示例与解释。
  */
-export function buildWorkspaceSection(cwd: string, layout?: WorkspaceLayout): string[] {
+export function buildWorkspaceSection(
+  cwd: string,
+  layout?: WorkspaceLayout,
+  style: PromptStyle = "detailed",
+): string[] {
   const uploads = layout?.uploadsDir ?? "uploads"
   const outputs = layout?.outputsDir ?? "outputs"
   const files = layout?.filesDir ?? "files"
+
+  if (style === "minimal") {
+    return [
+      "## Workspace",
+      `Your working directory is: ${cwd} — the single global workspace for file operations unless explicitly instructed otherwise.`,
+      `- \`${uploads}/\` user uploads (read) · \`${outputs}/\` deliverables (ALWAYS write here) · \`temp/<task>/\` scratch · \`skills/\` your skills · \`${files}/\` user's personal files (do not write unless asked)`,
+      `- Never write into the workspace root or create new top-level directories. Only write elsewhere when the user explicitly names a path.`,
+      `- Outputs go in \`${outputs}/<project-or-task>/\` (short name derived from the goal, not the prompt text; reuse the same directory for continued work; never dump files flat). Split by kind only when a task really produces several kinds: \`documents/\` \`data/\` \`images/\` \`audio/\` \`video/\` \`code/\`. Truly one-off files → directly under \`${outputs}/\`. Scratch belongs in \`temp/<task>/\` and is deleted when the task is done.`,
+      "- File & directory names: letters, digits, hyphens, underscores, dots, spaces, CJK only; never `:` `\\` `/` `<` `>` `|` `?` `*` quotes or `..`; under 50 characters.",
+      "",
+    ]
+  }
 
   return [
     "## Workspace",

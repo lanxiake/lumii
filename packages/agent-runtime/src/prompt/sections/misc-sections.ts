@@ -5,7 +5,7 @@
  * Browser、Device、MCP、A2UI、File Output、Silent Replies、Project Context
  */
 
-import type { PromptStyle, ContextFile, UserDeviceInfo, McpServerHint } from "../system-prompt.types.js"
+import { isLeanStyle, type PromptStyle, type ContextFile, type UserDeviceInfo, type McpServerHint } from "../system-prompt.types.js"
 import { MEMORY_GUIDE_CONTENT } from "../guides/index.js"
 
 /**
@@ -15,7 +15,7 @@ import { MEMORY_GUIDE_CONTENT } from "../guides/index.js"
  * 与原 Safety 红线（无独立目标、优先人类监督）。两者合并为一段，统一中文，避免
  * 「执行安全」+「Safety」两段分散、中英混排。
  * 操作守则仅在具备「可产生外部影响」的工具时注入；红线始终注入。
- * 红线段：两种风格（detailed/terse）下均渲染本完整文案，不做索引化。
+ * 红线段：各风格档（detailed/terse/minimal）下均渲染本完整文案，不做索引化。
  */
 export function buildSafetySection(toolNames: readonly string[]): string[] {
   const hasRiskyTools =
@@ -60,7 +60,7 @@ export function buildSafetySection(toolNames: readonly string[]): string[] {
  *
  * 各条按工具能力条件注入：核心「工具调用即行动」对任何带工具的会话生效；
  * 「用 file_read/glob 验证产出」依赖文件读取工具；委派核实依赖 spawn_agent。
- * 红线段：两种风格（detailed/terse）下均渲染本完整文案，不做索引化。
+ * 红线段：各风格档（detailed/terse/minimal）下均渲染本完整文案，不做索引化。
  */
 export function buildVerificationSection(toolNames: readonly string[]): string[] {
   const hasTools = toolNames.length > 0
@@ -117,7 +117,7 @@ export function buildOperatingPrinciplesSection(
 ): string[] {
   const lines = [
     "## Operating Principles",
-    style === "terse"
+    isLeanStyle(style)
       ? 'Infer the real goal, stay within scope, fix root causes, and avoid speculative design.\nFull principles: `prompt_guide(section: "operatingPrinciples")`.'
       : "- Infer the user's real goal from context; do not answer vague requests mechanically.\n- Complete the requested scope without speculative features, abstractions, or unrelated refactors.\n- Find root causes; never bypass checks or hooks just to hide an error.\n- For exploratory questions, recommend an approach and its main trade-off before acting.\n- Prefer editing existing files. Do not create documentation unless requested.\n- Keep solutions minimal: no premature design, half-finished work, impossible-case defenses, or compatibility shims.",
   ]
@@ -236,7 +236,7 @@ export function buildWikiKnowledgeSection(
   const hasBash = toolNames.includes("bash");
   if (!hasWikiRead && !hasBash) return [];
 
-  if (style === "terse") {
+  if (isLeanStyle(style)) {
     const lines: string[] = ["## Wiki Knowledge Base (资料库)"];
     if (hasWikiRead) {
       lines.push("**Read** (in-process): `wiki_overview` → `wiki_search` → `wiki_read` (overview first).");
@@ -297,7 +297,7 @@ export function buildMessagingSection(params: {
   const isWeixin =
     params.runtimeChannel === "weixin" || params.toolNames.includes("weixin_send_guide")
 
-  if (params.style === "terse") {
+  if (isLeanStyle(params.style ?? "detailed")) {
     const lines = ["## Messaging"]
     if (hasMessage && hasChannelOutbound) {
       lines.push("- `message` = in-turn reply only (NO_REPLY flow); cross-peer delivery uses `channel_send` (call `channel_list` first).")
@@ -355,7 +355,7 @@ export function buildMessagingSection(params: {
 export function buildBrowserSection(toolNames: readonly string[], style: PromptStyle = "detailed"): string[] {
   const hasBrowser = toolNames.some((t) => t.startsWith("browser_"))
   if (!hasBrowser) return []
-  if (style === "terse") {
+  if (isLeanStyle(style)) {
     return [
       "",
       "## Browser Control",
@@ -379,8 +379,22 @@ export function buildBrowserSection(toolNames: readonly string[], style: PromptS
  * Build the MCP Server section.
  * Injects MCP server tool lists and usage instructions.
  */
-export function buildMcpSection(hints?: readonly McpServerHint[]): string[] {
+export function buildMcpSection(hints?: readonly McpServerHint[], style: PromptStyle = "detailed"): string[] {
   if (!hints?.length) return []
+
+  // 极简档：逐工具描述不发（名称+参数已在工具定义载荷中），保留 server 级 instructions
+  if (style === "minimal") {
+    const lines: string[] = ["## MCP Servers", ""]
+    for (const hint of hints) {
+      if (hint.tools.length === 0) continue
+      lines.push(`### ${hint.name}`)
+      if (hint.instructions?.trim()) {
+        lines.push(hint.instructions.trim(), "")
+      }
+      lines.push(hint.tools.map((tool) => `\`${tool.name}\``).join(", "), "")
+    }
+    return lines
+  }
 
   const lines: string[] = [
     "## MCP Servers",
@@ -430,7 +444,7 @@ export function buildA2UISection(toolNames: readonly string[]): string[] {
 export function buildFileOutputSection(toolNames: readonly string[], style: PromptStyle = "detailed"): string[] {
   if (!toolNames.includes("file_write")) return []
 
-  if (style === "terse") {
+  if (isLeanStyle(style)) {
     return [
       "## File Output Standards",
       'Write deliverables under `outputs/<task>/` (never flat, never workspace root); reuse the task directory for continued work.\nPath discipline: use returned paths verbatim; verify before citing.\nDetails: `prompt_guide(section: "fileOutput")`.',
@@ -493,7 +507,7 @@ export function buildUserDevicesSection(
 ): string[] {
   if (!devices?.length) return []
 
-  if (style === "terse") {
+  if (isLeanStyle(style)) {
     const lines: string[] = [
       "## User Devices",
       "",
@@ -559,7 +573,7 @@ export function buildDeviceControlSection(
 
   if (!hasFileTools && !hasBash) return []
 
-  if (style === "terse") {
+  if (isLeanStyle(style)) {
     return [
       "## Device Node Control",
       "",

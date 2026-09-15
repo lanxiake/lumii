@@ -11,7 +11,7 @@ import type {
   PromptSectionTag,
   PromptStyle,
 } from "./system-prompt.types.js"
-import { CACHE_BOUNDARY_MARKER, PROMPT_SECTION_TAGS } from "./system-prompt.types.js"
+import { isLeanStyle, CACHE_BOUNDARY_MARKER, PROMPT_SECTION_TAGS } from "./system-prompt.types.js"
 import type { PromptSectionId, PromptSectionStat } from "./prompt-sections.js"
 import { MEMORY_PLACEHOLDER } from "../memory/memory-injector.js"
 import { DEFAULT_SOUL_CONTENT } from "./default-soul.js"
@@ -227,7 +227,7 @@ export function buildClientSystemPromptStructured(params: ClientSystemPromptPara
   }
 
   // === 2.3. 进度更新（迁移映射 #5：terse 档用原 compact 精简文案） ===
-  if (style === "terse") {
+  if (isLeanStyle(style)) {
     emit("static", "progressUpdates", [
       "## Progress Updates",
       "Before the first tool call, state the intent in one sentence. During execution, speak only for key findings, direction changes, or blockers. End with the result and next step; omit filler.",
@@ -311,7 +311,7 @@ export function buildClientSystemPromptStructured(params: ClientSystemPromptPara
 
   // === 3.4. MCP Server Instructions ===
   if (params.mcpServerHints && params.mcpServerHints.length > 0) {
-    emit("static", "mcp", [...tagged("mcp_servers", buildMcpSection(params.mcpServerHints))])
+    emit("static", "mcp", [...tagged("mcp_servers", buildMcpSection(params.mcpServerHints, style))])
   }
 
   // === 3.5. Skills（按白名单过滤）===
@@ -340,6 +340,10 @@ export function buildClientSystemPromptStructured(params: ClientSystemPromptPara
         "The following skills are pre-loaded and activated for this Agent — use them directly without skill_search:",
       )
       for (const s of bundledSkills) {
+        if (style === "minimal") {
+          bundledLines.push(`- ${s.name}`)
+          continue
+        }
         const desc = s.description.length > 80 ? s.description.slice(0, 79) + "…" : s.description
         bundledLines.push(`- **${s.name}**: ${desc}`)
       }
@@ -426,7 +430,7 @@ export function buildClientSystemPromptStructured(params: ClientSystemPromptPara
 
   // === D2. Workspace ===
   if (cwd) {
-    emit("dynamic", "workspace", [...buildWorkspaceSection(cwd, params.workspaceLayout)])
+    emit("dynamic", "workspace", [...buildWorkspaceSection(cwd, params.workspaceLayout, style)])
   }
 
   // === D3. Project Context（BOOTSTRAP.md 等） ===
@@ -439,7 +443,7 @@ export function buildClientSystemPromptStructured(params: ClientSystemPromptPara
   emit("dynamic", "activeTasks", [...buildActiveTasksSection(params.activeTasks)])
 
   // === D6. Runtime（含日期等动态信息） ===
-  emit("dynamic", "runtime", [...buildRuntimeSection(params, params.currentModelId)])
+  emit("dynamic", "runtime", [...buildRuntimeSection(params, params.currentModelId, style)])
 
   // === D6.1. 上下文自动压缩告知（紧邻 Runtime，对齐 Claude Code Context management） ===
   emit("dynamic", "contextManagement", [...buildContextManagementSection(effectiveToolNames, style)])

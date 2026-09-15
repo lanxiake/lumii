@@ -2,7 +2,7 @@
  * Skills section 构建函数（技能列表、激活提示、自我学习）
  */
 
-import type { SkillInfo, SkillActivationHint, PromptStyle } from "../system-prompt.types.js"
+import { isLeanStyle, type SkillInfo, type SkillActivationHint, type PromptStyle } from "../system-prompt.types.js"
 
 /**
  * 构建 Skills section
@@ -32,7 +32,7 @@ export function buildSkillsSection(
     // 按 usageCount 降序排序，未提供时视为 0
     const sorted = [...skills].sort((a, b) => (b.usageCount ?? 0) - (a.usageCount ?? 0))
 
-    if (style === "terse") {
+    if (isLeanStyle(style)) {
       const MAX_TERSE = 12
       const visible = sorted.slice(0, MAX_TERSE)
       const hiddenCount = sorted.length - visible.length
@@ -256,8 +256,8 @@ export function buildSelfLearningSection(
   const hasSkillTools = toolNames.includes("skill_search") || toolNames.includes("skill_list")
   if (!hasMemory && !hasSoul && !hasSkillTools) return []
 
-  // terse（P2）：一行版（按能力条件拼接子句）
-  if (style === "terse") {
+  // terse/minimal（P2）：一行版（按能力条件拼接子句）
+  if (isLeanStyle(style)) {
     const parts: string[] = []
     if (hasMemory) {
       parts.push("save corrected lessons and confirmed non-obvious approaches as feedback memories (`profile_memory`)")

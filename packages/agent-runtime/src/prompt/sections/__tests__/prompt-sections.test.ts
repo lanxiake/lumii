@@ -63,14 +63,22 @@ const GUARD_DEF: AgentDefinition = {
   isActive: true,
 };
 
-const GUARD_BUILD = (promptStyle: "detailed" | "terse") =>
+const GUARD_BUILD = (promptStyle: "detailed" | "terse" | "minimal") =>
   buildClientSystemPromptStructured({
     agentDefinition: GUARD_DEF,
     toolNames: GUARD_TOOLS,
     cwd: "/workspace",
-    runtimeInfo: { channel: "weixin" },
+    runtimeInfo: { channel: "weixin", host: "guard-host - MtBot Windows" },
     skills: GUARD_SKILLS,
     customAgents: GUARD_AGENTS,
+    // P3：触发 minimal 专属段（mcp 章节 / bundledCapabilities）
+    mcpServerHints: [
+      {
+        name: "guard-mcp",
+        tools: [{ name: "mcp__guard-mcp__ping", description: "Ping the MCP server" }],
+      },
+    ],
+    bundledSkillIds: ["skill-a"],
     promptStyle,
   });
 
@@ -145,5 +153,39 @@ describe("terse 引导可发现性守卫（渲染级）", () => {
   it("detailed 档不出现任何 prompt_guide 引导字面量", () => {
     const { fullPrompt } = GUARD_BUILD("detailed");
     expect(fullPrompt).not.toContain("prompt_guide(section:");
+  });
+});
+
+describe("极简档守卫（P3）", () => {
+  const sectionChars = (r: ReturnType<typeof GUARD_BUILD>, id: string) =>
+    r.sectionStats.find((s) => s.id === id)?.chars ?? 0;
+
+  it("元数据 minimal 标记的段：极简渲染与 terse 不同（专属渲染生效）", () => {
+    const minimal = GUARD_BUILD("minimal");
+    const terse = GUARD_BUILD("terse");
+    const flagged = PROMPT_SECTIONS.filter((s) => s.minimal);
+    expect(flagged.length).toBeGreaterThan(0);
+    for (const s of flagged) {
+      expect(sectionChars(minimal, s.id), s.id).toBeGreaterThan(0);
+      expect(sectionChars(minimal, s.id), s.id).not.toBe(sectionChars(terse, s.id));
+    }
+  });
+
+  it("红线段三档一致（detailed / terse / minimal）", () => {
+    const detailed = GUARD_BUILD("detailed");
+    const terse = GUARD_BUILD("terse");
+    const minimal = GUARD_BUILD("minimal");
+    for (const id of RED_LINE_SECTION_IDS) {
+      expect(sectionChars(terse, id), id).toBe(sectionChars(detailed, id));
+      expect(sectionChars(minimal, id), id).toBe(sectionChars(detailed, id));
+    }
+  });
+
+  it("极简档沿用 terse 引导（prompt-guide 字面量仍可发现）", () => {
+    const { fullPrompt } = GUARD_BUILD("minimal");
+    for (const s of PROMPT_SECTIONS) {
+      if (!s.terse || s.expandVia !== "prompt-guide") continue;
+      expect(fullPrompt, s.id).toContain(`prompt_guide(section: "${s.id}")`);
+    }
   });
 });

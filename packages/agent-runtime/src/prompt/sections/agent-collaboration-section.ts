@@ -2,7 +2,7 @@
  * Agent Collaboration & Task Orchestration sections
  */
 
-import type { CustomAgentInfo, RouterResultLite, PromptStyle } from "../system-prompt.types.js"
+import { isLeanStyle, type CustomAgentInfo, type RouterResultLite, type PromptStyle } from "../system-prompt.types.js"
 
 /**
  * 过滤注入「Multi-Agent Collaboration」段的 Agent 列表。
@@ -119,11 +119,11 @@ export function buildAgentCollaborationSection(
     ...agentListLines,
     "### Selection",
     "",
-    ...(style === "terse" ? buildTerseSelectionLines() : selectionLines),
+    ...(isLeanStyle(style) ? buildTerseSelectionLines() : selectionLines),
     "",
   ]
 
-  if (style === "terse") {
+  if (isLeanStyle(style)) {
     lines.push("`spawn_agent` is the only delegation mechanism; do not delegate via `send_message`.")
     if (hasSendMessage) {
       lines.push(
@@ -201,7 +201,7 @@ export function buildTaskOrchestrationSection(
 
   if (!hasSpawn && !hasTodo) return []
 
-  if (style === "terse") {
+  if (isLeanStyle(style)) {
     const terseLines: string[] = [
       "## Task Orchestration",
       "- Create a task list when the task spans 3+ steps or multiple agents; skip single-output tasks.",
