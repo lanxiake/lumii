@@ -1,0 +1,83 @@
+[
+  {
+    "case": "PC-C3-MINIMAL",
+    "style": "minimal",
+    "tools": [
+      "web_search",
+      "web_fetch",
+      "web_fetch"
+    ],
+    "promptStats": {
+      "chars": 13399,
+      "staticChars": 6308,
+      "dynamicChars": 3604,
+      "sections": 23,
+      "sectionTotal": 9891,
+      "categoryTokens": {
+        "systemPrompt": 1807,
+        "tools": 12226,
+        "skills": 202,
+        "mcp": 86,
+        "subagents": 816,
+        "dynamicContext": 2171,
+        "conversation": 915
+      }
+    },
+    "reply": "The user is asking about the current weather in Beijing, in one sentence, with just the temperature. Let me search the web.\nThe search didn't return the weather. Let me try directly fetching a weather source. Either fetch a weather API like wttr.in (no key required) with web_fetch, or use open-meteo"
+  },
+  {
+    "case": "PC-C3-TERSE",
+    "style": "terse",
+    "tools": [
+      "web_search",
+      "web_fetch",
+      "bash",
+      "bash",
+      "bash",
+      "web_fetch"
+    ],
+    "promptStats": {
+      "chars": 19498,
+      "staticChars": 10223,
+      "dynamicChars": 5788,
+      "sections": 25,
+      "sectionTotal": 15988,
+      "categoryTokens": {
+        "systemPrompt": 1752,
+        "tools": 16253,
+        "skills": 197,
+        "mcp": 162,
+        "subagents": 791,
+        "dynamicContext": 2711,
+        "conversation": 2353
+      }
+    },
+    "reply": "搜索结果都是旅游页面，没有实时数据，我直接抓一下天气源。"
+  },
+  {
+    "case": "PC-C3-DETAILED",
+    "style": "detailed",
+    "tools": [
+      "web_fetch",
+      "web_search",
+      "web_fetch"
+    ],
+    "promptStats": {
+      "chars": 35499,
+      "staticChars": 26117,
+      "dynamicChars": 5895,
+      "sections": 26,
+      "sectionTotal": 31988,
+      "categoryTokens": {
+        "systemPrompt": 4785,
+        "tools": 16811,
+        "skills": 1859,
+        "mcp": 182,
+        "subagents": 1432,
+        "dynamicContext": 3614,
+        "conversation": 996
+      }
+    },
+    "reply": "The user is asking about the current weather in Beijing, and they want the temperature in a single sentence. I'll use web_search or web_fetch. Quick approach: search for \"北京 当前天气 温度\" (Beijing current weather temperature). Maybe it's better to fetch a weather API page like wttr.in. Let me try web_fet"
+  }
+]

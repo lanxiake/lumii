@@ -1,0 +1,125 @@
+{
+  "ts": "2026-09-15T14:57:14.728Z",
+  "session": "52da0051107fa1c74eea7f6ff3c98386",
+  "originalStyle": "minimal",
+  "message": "请只回复：收到",
+  "rows": [
+    {
+      "turn": 1,
+      "style": "minimal",
+      "promptLine": "[2026-09-15 22:56:05.365] [INFO] [AgentRuntime] [llm-prompt] instanceId=agent-1789484163750-8mol0w style=minimal chars=17517 static=10069 dynamic=3720",
+      "chars": 17517,
+      "staticChars": 10069,
+      "dynamicChars": 3720,
+      "sections": 25,
+      "sectionTotalChars": 13766,
+      "breakdown": {
+        "systemPrompt": 2563,
+        "tools": 12013,
+        "skills": 287,
+        "mcp": 90,
+        "subagents": 1157,
+        "dynamicContext": 3183,
+        "conversation": 45
+      },
+      "cliBreakdown": {
+        "systemPrompt": 2563,
+        "tools": 12013,
+        "skills": 287,
+        "mcp": 90,
+        "subagents": 1157,
+        "dynamicContext": 3183,
+        "conversation": 45
+      }
+    },
+    {
+      "turn": 2,
+      "style": "terse",
+      "promptLine": "[2026-09-15 22:56:23.016] [INFO] [AgentRuntime] [llm-prompt] instanceId=agent-1789484163750-8mol0w style=terse chars=19741 static=10223 dynamic=5788",
+      "chars": 19741,
+      "staticChars": 10223,
+      "dynamicChars": 5788,
+      "sections": 25,
+      "sectionTotalChars": 15988,
+      "breakdown": {
+        "systemPrompt": 2478,
+        "tools": 16249,
+        "skills": 277,
+        "mcp": 195,
+        "subagents": 1119,
+        "dynamicContext": 3936,
+        "conversation": 70
+      },
+      "cliBreakdown": {
+        "systemPrompt": 2478,
+        "tools": 16249,
+        "skills": 277,
+        "mcp": 195,
+        "subagents": 1119,
+        "dynamicContext": 3936,
+        "conversation": 70
+      }
+    },
+    {
+      "turn": 3,
+      "style": "detailed",
+      "promptLine": "[2026-09-15 22:56:40.515] [INFO] [AgentRuntime] [llm-prompt] instanceId=agent-1789484163750-8mol0w style=detailed chars=35738 static=26117 dynamic=5895",
+      "chars": 35738,
+      "staticChars": 26117,
+      "dynamicChars": 5895,
+      "sections": 26,
+      "sectionTotalChars": 31988,
+      "breakdown": {
+        "systemPrompt": 4736,
+        "tools": 16639,
+        "skills": 1840,
+        "mcp": 180,
+        "subagents": 1417,
+        "dynamicContext": 3669,
+        "conversation": 138
+      },
+      "cliBreakdown": {
+        "systemPrompt": 4736,
+        "tools": 16639,
+        "skills": 1840,
+        "mcp": 180,
+        "subagents": 1417,
+        "dynamicContext": 3669,
+        "conversation": 138
+      }
+    },
+    {
+      "turn": 4,
+      "style": "minimal",
+      "promptLine": "[2026-09-15 22:56:57.888] [INFO] [AgentRuntime] [llm-prompt] instanceId=agent-1789484163750-8mol0w style=minimal chars=17518 static=10069 dynamic=3720",
+      "chars": 17518,
+      "staticChars": 10069,
+      "dynamicChars": 3720,
+      "sections": 25,
+      "sectionTotalChars": 13766,
+      "breakdown": {
+        "systemPrompt": 2545,
+        "tools": 11929,
+        "skills": 285,
+        "mcp": 89,
+        "subagents": 1149,
+        "dynamicContext": 3161,
+        "conversation": 241
+      },
+      "cliBreakdown": {
+        "systemPrompt": 2545,
+        "tools": 11929,
+        "skills": 285,
+        "mcp": 89,
+        "subagents": 1149,
+        "dynamicContext": 3161,
+        "conversation": 241
+      }
+    }
+  ],
+  "summary": {
+    "minimalToolsAvg": 11971,
+    "untrimmedToolsAvg": 16444,
+    "toolsDropPct": "27.2"
+  }
+}

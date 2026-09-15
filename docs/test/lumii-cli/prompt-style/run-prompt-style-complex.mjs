@@ -33,6 +33,7 @@ import {
   preflight,
   parseContentJson,
   DATA_ROOT,
+  DEV_LOG,
 } from '../lib/cli-harness.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -40,20 +41,57 @@ const SESSION_PREFIX = '[pc-suite]'
 const TURN_TIMEOUT_MS = Number(process.env.PC_TURN_TIMEOUT_MS || 300000)
 const NO_RESTORE = process.env.PC_NO_RESTORE === '1'
 const ONLY = process.env.PC_ONLY || ''
+/** 被测档位（逗号分隔；默认保持 P2 双档；P3 三档用 PC_STYLES=minimal,terse,detailed） */
+const STYLES = (process.env.PC_STYLES || 'detailed,terse')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean)
+/** 产物基名（避免覆盖历史归档：PC_SUITE=prompt-style-complex-3way） */
+const SUITE = process.env.PC_SUITE || 'prompt-style-complex'
 
-/** 工作区 outputs 真实路径（设置里 workspace.directory，用户可自定义） */
+/**
+ * 工作区 outputs 真实路径。
+ * 探测链（2026-09-15 修：渲染层设置常为空，真实值在主进程 app 配置）：
+ *   ① 渲染层设置 settings.workspace.directory（旧口径）
+ *   ② 主进程配置 ~/.lumii/config/app.json → app.workspaceDirectory（当前权威来源）
+ *   ③ 应用日志最后一次 [llm-prompt:full] 的 "Your working directory is:"（Agent 实际 cwd，兜底）
+ *   ④ DATA_ROOT/outputs（最终兜底）
+ */
 function resolveWorkspaceOutputs() {
   try {
     const r = okJson(ui(['settings', 'get', 'workspace.directory']), 'settings get workspace.directory')
     const dir = typeof r.value === 'string' && r.value.trim() ? r.value.trim() : null
     if (dir) return path.join(dir, 'outputs')
   } catch {
-    /* 回退默认 */
+    /* 回退下一档 */
+  }
+  try {
+    const cfg = JSON.parse(fs.readFileSync(path.join(DATA_ROOT, 'config', 'app.json'), 'utf-8'))
+    const dir =
+      typeof cfg?.app?.workspaceDirectory === 'string' && cfg.app.workspaceDirectory.trim()
+        ? cfg.app.workspaceDirectory.trim()
+        : null
+    if (dir) return path.join(dir, 'outputs')
+  } catch {
+    /* 回退下一档 */
+  }
+  try {
+    if (DEV_LOG && fs.existsSync(DEV_LOG)) {
+      const raw = fs.readFileSync(DEV_LOG, 'utf-8')
+      const matches = [...raw.matchAll(/Your working directory is:\s*(.+)/g)]
+      const last = matches[matches.length - 1]
+      if (last) {
+        const dir = last[1].replace(/\s+—.*$/, '').replace(/\r$/, '').trim()
+        if (dir) return path.join(dir, 'outputs')
+      }
+    }
+  } catch {
+    /* 回退下一档 */
   }
   return path.join(DATA_ROOT, 'outputs')
 }
 
-const ev = createEvidence(__dirname, 'prompt-style-complex', '提示词风格实验 P2 复杂任务实测')
+const ev = createEvidence(__dirname, SUITE, '提示词风格实验 复杂任务实测')
 const fails = { count: 0 }
 /** 双档对照指标 */
 const metrics = []
@@ -74,7 +112,8 @@ function maybe(id, fn) {
 
 function getStyle() {
   const r = okJson(ui(['settings', 'get', 'promptStyle.style']), 'settings get promptStyle.style')
-  return r.value === 'terse' ? 'terse' : 'detailed'
+  // 三态原样返回（P3 起含 minimal；此前把非 terse 一律归一成 detailed，会让恢复步骤写错档）
+  return r.value === 'terse' || r.value === 'minimal' ? r.value : 'detailed'
 }
 
 function setStyle(style) {
@@ -82,12 +121,13 @@ function setStyle(style) {
   assert(getStyle() === style, `风格写入未生效：期望 ${style}`)
 }
 
-/** 本轮 [llm-prompt] / [prompt-section] 摘要（应用日志） */
+/** 本轮 [llm-prompt] / [prompt-section] / contextUsage 摘要（应用日志） */
 function turnPromptStats(cursor, style) {
   if (!logChannelAvailable()) return null
   const lines = logLinesSince(cursor)
   const summary = [...lines].reverse().find((l) => /\[llm-prompt\] instanceId=/.test(l) && l.includes(`style=${style}`))
   const section = [...lines].reverse().find((l) => /\[prompt-section\] instanceId=/.test(l) && l.includes(`style=${style}`))
+  const usage = [...lines].reverse().find((l) => /推送 contextUsage/.test(l) && l.includes('breakdown='))
   const out = {}
   const m1 = summary?.match(/chars=(\d+) static=(\d+) dynamic=(\d+)/)
   if (m1) {
@@ -99,6 +139,16 @@ function turnPromptStats(cursor, style) {
   if (m2) {
     out.sections = Number(m2[1])
     out.sectionTotal = Number(m2[2])
+  }
+  // 类目 token（工具定义差异的核心观测位；无标定读数的回合可能缺 breakdown）
+  const m3 = usage?.match(/breakdown=([^ ]+)/)
+  if (m3) {
+    const map = {}
+    for (const pair of m3[1].split(',')) {
+      const [k, v] = pair.split(':')
+      if (k && v) map[k] = Number(v)
+    }
+    out.categoryTokens = map
   }
   return Object.keys(out).length ? out : null
 }
@@ -226,7 +276,8 @@ function runFileChainCase(style) {
 
       metrics.push({
         case: id, style, elapsedMs, tools: tools.join('>') || '(未解析出)',
-        promptChars: stats?.chars, note: `报告含统计=${/txt|\.md|扩展名/.test(reportContent) ? '是' : '否'}；bash=${ranBash}`,
+        promptChars: stats?.chars, toolsTokens: stats?.categoryTokens?.tools, mcpTokens: stats?.categoryTokens?.mcp,
+        note: `报告含统计=${/txt|\.md|扩展名/.test(reportContent) ? '是' : '否'}；bash=${ranBash}`,
       })
       ev.record(`${id}-trace`, 'INFO', `工具序列=[${tools.join('>')}]`, {})
       traces.push({ case: id, style, tools, promptStats: stats, py: path.relative(wsOutputs, py[0]), report: path.relative(wsOutputs, report[0]) })
@@ -306,6 +357,7 @@ function runResearchCase(style) {
 
       metrics.push({
         case: id, style, elapsedMs, tools: tools.join('>') || '(未解析出)', promptChars: stats?.chars,
+        toolsTokens: stats?.categoryTokens?.tools, mcpTokens: stats?.categoryTokens?.mcp,
         note: `${rel}；web_search=${usedSearch}；3条=${hasThreeItems}；命名=${nameOk}`,
       })
       ev.record(`${id}-trace`, 'INFO', `工具序列=[${tools.join('>')}]`, {})
@@ -361,6 +413,7 @@ function runSkillCase(style) {
 
     metrics.push({
       case: id, style, elapsedMs, tools: tools.join('>') || '(未解析出)', promptChars: stats?.chars,
+      toolsTokens: stats?.categoryTokens?.tools, mcpTokens: stats?.categoryTokens?.mcp,
       note: `skill检索=${usedSkillSearch}；skill加载=${usedSkillInvoke}；bash=${usedBash}；回复含温度=${replyOk}`,
     })
     ev.record(`${id}-trace`, 'INFO', `工具序列=[${tools.join('>')}]`, {})
@@ -394,12 +447,17 @@ try {
 console.log(`ℹ️  当前风格=${originalStyle}（套件结束${NO_RESTORE ? '不' : ''}恢复）`)
 
 try {
-  runFileChainCase('detailed')
-  if (fails.count < 3) runFileChainCase('terse')
-  if (fails.count < 3) runResearchCase('detailed')
-  if (fails.count < 3) runResearchCase('terse')
-  if (fails.count < 3) runSkillCase('detailed')
-  if (fails.count < 3) runSkillCase('terse')
+  const scenarios = [
+    ['PC-C1', runFileChainCase],
+    ['PC-C2', runResearchCase],
+    ['PC-C3', runSkillCase],
+  ]
+  outer: for (const [, fn] of scenarios) {
+    for (const style of STYLES) {
+      if (fails.count >= 3) break outer
+      fn(style)
+    }
+  }
 } catch (err) {
   console.error('❌ 套件异常中断：', err)
 }
@@ -414,25 +472,29 @@ if (!NO_RESTORE) {
 }
 
 fs.writeFileSync(
-  path.join(__dirname, 'prompt-style-complex-traces.json'),
+  path.join(__dirname, `${SUITE}-traces.json`),
   JSON.stringify(traces, null, 2),
   'utf-8',
 )
 
 const cmpRows = metrics
-  .map((m) => `| ${m.case} | ${m.style} | ${m.promptChars ?? '-'} | ${m.elapsedMs ? (m.elapsedMs / 1000).toFixed(1) + 's' : '-'} | ${m.tools ?? '-'} | ${m.note ?? ''} |`)
+  .map(
+    (m) =>
+      `| ${m.case} | ${m.style} | ${m.promptChars ?? '-'} | ${m.toolsTokens ?? '-'} | ${m.mcpTokens ?? '-'} | ${m.elapsedMs ? (m.elapsedMs / 1000).toFixed(1) + 's' : '-'} | ${m.tools ?? '-'} | ${m.note ?? ''} |`,
+  )
   .join('\n')
 
 ev.writeReport({
   meta: {
     风格切换: 'app-ui CLI `settings set promptStyle.style`（结束恢复原值）',
     探针会话前缀: SESSION_PREFIX,
-    说明: '复杂任务（多工具调用）双档对照；工具序列来自助手消息 JSON 解析',
+    被测档位: STYLES.join(' / '),
+    说明: '复杂任务（多工具调用）多档对照；工具序列来自助手消息 JSON 解析；工具定义 token 来自 contextUsage 日志',
   },
-  extraSections: `## 复杂任务双档对照
+  extraSections: `## 复杂任务多档对照
 
-| 用例 | 档位 | 提示词 chars | 回合耗时 | 工具序列 | 备注 |
-|---|---|---|---|---|---|
-${cmpRows || '| - | - | - | - | - | 无 |'}
+| 用例 | 档位 | 提示词 chars | 工具定义 token | MCP token | 回合耗时 | 工具序列 | 备注 |
+|---|---|---|---|---|---|---|---|
+${cmpRows || '| - | - | - | - | - | - | - | 无 |'}
 `,
 })
