@@ -9,6 +9,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import { petApi } from './pet-api'
 import type { PetElectronAPI } from '../shared/pet-mode'
 import type { ChannelFeatureSettings } from '../shared/channel-features'
+import type { PromptStyleValue } from '../shared/prompt-style'
 // 仅类型引用，编译期擦除，不会把主进程代码打进 preload
 import type { UsageSummary } from '../main/usage-store'
 import type { NewsSnapshot } from '../main/news-store'
@@ -880,8 +881,8 @@ export interface ElectronAPI {
       injectPersonalMemory?: boolean
       injectWorkMemory?: boolean
     }) => Promise<void>
-    /** 同步系统提示词风格（实验：detailed/terse）到主进程缓存 */
-    updatePromptStyle: (config: { style: 'detailed' | 'terse' }) => Promise<void>
+    /** 同步系统提示词风格（实验：detailed/terse/minimal）到主进程缓存 */
+    updatePromptStyle: (config: { style: PromptStyleValue }) => Promise<void>
   }
 
   // 认证 Token 安全存储（主进程 DPAPI 加密�?
@@ -1345,8 +1346,8 @@ const electronAPI: ElectronAPI = {
       injectPersonalMemory?: boolean
       injectWorkMemory?: boolean
     }): Promise<void> => ipcRenderer.invoke('settings:updateMemoryInjection', config),
-    /** 同步系统提示词风格（实验：detailed/terse）到主进程缓存 */
-    updatePromptStyle: (config: { style: 'detailed' | 'terse' }): Promise<void> =>
+    /** 同步系统提示词风格（实验：detailed/terse/minimal）到主进程缓存 */
+    updatePromptStyle: (config: { style: PromptStyleValue }): Promise<void> =>
       ipcRenderer.invoke('settings:updatePromptStyle', config),
   },
 

@@ -59,33 +59,44 @@ describe('ExperimentalSection — 列表与栈导航', () => {
     })
   })
 
-  it('进入提示词风格详情后可切换简要并返回列表', async () => {
+  it('进入提示词风格详情：默认简要档，可切极简并回列表同步', async () => {
     render(<ExperimentalSection />)
     fireEvent.click(screen.getByRole('button', { name: /提示词风格（实验）/ }))
 
     expect(screen.getByRole('heading', { name: '提示词风格（实验）' })).toBeInTheDocument()
     const detailedBtn = screen.getByRole('radio', { name: '详细' })
     const terseBtn = screen.getByRole('radio', { name: '简要' })
-    expect(detailedBtn).toHaveAttribute('aria-checked', 'true')
+    const minimalBtn = screen.getByRole('radio', { name: '极简' })
+    // 系统初始化默认 = 简要档（2026-09-15 起）
+    expect(terseBtn).toHaveAttribute('aria-checked', 'true')
+    expect(detailedBtn).toHaveAttribute('aria-checked', 'false')
+    expect(minimalBtn).toHaveAttribute('aria-checked', 'false')
 
-    fireEvent.click(terseBtn)
-    expect(updatePromptStyle).toHaveBeenCalledWith({ style: 'terse' })
+    fireEvent.click(minimalBtn)
+    expect(updatePromptStyle).toHaveBeenCalledWith({ style: 'minimal' })
     const stored = JSON.parse(localStorage.getItem('mtbot-assistant-settings') ?? '{}')
-    expect(stored.promptStyle).toEqual({ style: 'terse' })
+    expect(stored.promptStyle).toEqual({ style: 'minimal' })
 
     fireEvent.click(screen.getByRole('button', { name: '返回实验功能列表' }))
     expect(screen.getByRole('heading', { name: '实验功能' })).toBeInTheDocument()
     await waitFor(() => {
-      expect(screen.getByText('当前：简要')).toBeInTheDocument()
+      expect(screen.getByText('当前：极简')).toBeInTheDocument()
     })
   })
 
-  it('重复点击当前档位不触发写入', () => {
+  it('重复点击当前档位不触发写入', async () => {
     render(<ExperimentalSection />)
     fireEvent.click(screen.getByRole('button', { name: /提示词风格（实验）/ }))
-    updatePromptStyle.mockClear()
-    fireEvent.click(screen.getByRole('radio', { name: '详细' }))
-    expect(updatePromptStyle).not.toHaveBeenCalled()
+    // 先切到极简，确保当前档位与再点击目标一致（默认简要 → 直接点简要本就是 no-op）
+    fireEvent.click(screen.getByRole('radio', { name: '极简' }))
+    await waitFor(() => expect(updatePromptStyle).toHaveBeenCalledWith({ style: 'minimal' }))
+    // 冲掉事件广播引发的同步尾巴，再取基线
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    const callsAfterSwitch = updatePromptStyle.mock.calls.length
+
+    fireEvent.click(screen.getByRole('radio', { name: '极简' }))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(updatePromptStyle.mock.calls.length).toBe(callsAfterSwitch)
   })
 
   it('进入自主进化详情并返回', () => {

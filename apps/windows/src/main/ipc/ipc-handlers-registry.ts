@@ -16,6 +16,7 @@ import type { FeishuLoginService } from '../feishu-login-service'
 import type { QbotLoginService } from '../qbot-login-service'
 import type { ChannelHub } from '../channel/channel-hub-bootstrap'
 import type { AgentRuntimeBridge } from '../agent-runtime'
+import type { PromptStyleValue } from '../../shared/prompt-style'
 
 import {
   setWorkspaceIpcDeps,
@@ -80,7 +81,7 @@ export interface IpcHandlersDeps {
     injectPersonalMemory?: boolean
     injectWorkMemory?: boolean
   }) => void
-  setPromptStyleSettings: (settings: { style?: 'detailed' | 'terse' }) => void
+  setPromptStyleSettings: (settings: { style?: PromptStyleValue }) => void
   isQuittingGetter: () => boolean
   setIsQuitting: (value: boolean) => void
   restartCloudSyncScheduler?: (cfg: CloudSyncConfig) => void

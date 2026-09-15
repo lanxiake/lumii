@@ -2,6 +2,8 @@
  * useSettings.types.ts - 设置管理类型定义
  */
 
+import type { PromptStyleValue } from '../../../../shared/prompt-style'
+
 /** 主题配置 */
 export interface ThemeConfig {
   /** light/dark/system 为标准模式；ragdoll 为奶油布偶猫治愈浅色主题（原型 UI 方案一） */
@@ -78,11 +80,12 @@ export interface MemoryConfig {
 
 /**
  * 系统提示词风格（实验功能）
- * - detailed：现状基线（参数/作用/规则描述清楚），默认
- * - terse：索引式 + 渐进式加载（段尾引导句按需展开），面向强模型
+ * - detailed：现状基线（参数/作用/规则描述清楚）
+ * - terse：索引式 + 渐进式加载（段尾引导句按需展开），面向强模型；系统初始化默认
+ * - minimal：极简——terse 之上，发给模型的工具定义只保留名称+参数（复杂工具保留描述）
  */
 export interface PromptStyleConfig {
-  style: 'detailed' | 'terse'
+  style: PromptStyleValue
 }
 
 /** 录屏设置（设计 §4.5） */

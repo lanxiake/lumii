@@ -17,6 +17,7 @@ import {
   SETTINGS_UPDATE_EVENT,
 } from '../../../../hooks/business/useSettings'
 import { updatePromptStyle } from '../../../../services/settings-service'
+import { normalizePromptStyle, type PromptStyleValue } from '../../../../../shared/prompt-style'
 import { getAutonomousStatus } from '../../../../services/autonomous-service'
 import { useChannelFeatures } from './useChannelFeatures'
 import settingsStyles from '../../SettingsPage.module.css'
@@ -24,13 +25,13 @@ import styles from './ExperimentalSection.module.css'
 
 type ExperimentalView = 'list' | 'promptStyle' | 'autonomous' | 'channelContinuity'
 
-/** 提示词风格详情：详细/简要切换与说明（无段清单表） */
+/** 提示词风格详情：详细/简要/极简三态切换与说明（无段清单表） */
 function PromptStyleDetail({ onBack }: { onBack: () => void }) {
   const { settings } = useSettings()
-  const currentStyle = settings.promptStyle?.style === 'terse' ? 'terse' : 'detailed'
+  const currentStyle = normalizePromptStyle(settings.promptStyle?.style)
 
   const handleStyleChange = useCallback(
-    (style: 'detailed' | 'terse') => {
+    (style: PromptStyleValue) => {
       if (style === currentStyle) return
       const nextSettings = {
         ...settings,
@@ -72,11 +73,21 @@ function PromptStyleDetail({ onBack }: { onBack: () => void }) {
             >
               简要
             </button>
+            <button
+              type="button"
+              role="radio"
+              aria-checked={currentStyle === 'minimal'}
+              className={currentStyle === 'minimal' ? styles['style-switch-active'] : undefined}
+              onClick={() => handleStyleChange('minimal')}
+            >
+              极简
+            </button>
           </div>
         </div>
         <p className={settingsStyles['setting-hint']}>
-          简要档按索引式渲染系统提示词段落（段尾附展开引导，模型可按需获取完整规则），
-          面向强模型减少冗余描述；切换后下一轮对话生效。
+          简要档按索引式渲染系统提示词段落（段尾附展开引导，模型可按需获取完整规则）。
+          极简档在简要基础上，把发给模型的工具定义收缩为「名称 + 参数」（复杂工具保留使用提示），
+          MCP 章节等残余描述一并收敛，面向强模型进一步降开销。切换后下一轮对话生效。
         </p>
       </div>
     </div>
@@ -173,8 +184,9 @@ export function ExperimentalSection() {
   const { features, loading: featuresLoading, saving: featuresSaving, setFeature } =
     useChannelFeatures()
 
-  const currentStyle = settings.promptStyle?.style === 'terse' ? 'terse' : 'detailed'
-  const styleSummary = currentStyle === 'terse' ? '当前：简要' : '当前：详细'
+  const currentStyle = normalizePromptStyle(settings.promptStyle?.style)
+  const styleSummary =
+    currentStyle === 'terse' ? '当前：简要' : currentStyle === 'minimal' ? '当前：极简' : '当前：详细'
   const autonomousSummary =
     autonomousEnabled === null
       ? '加载中…'

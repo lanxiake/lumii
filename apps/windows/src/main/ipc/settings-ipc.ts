@@ -2,13 +2,14 @@
  * 设置和记忆注入相关 IPC handlers
  */
 import { ipcMain } from 'electron'
+import type { PromptStyleValue } from '../../shared/prompt-style'
 
 interface SettingsIpcDeps {
   setMemoryInjectionSettings: (settings: {
     injectPersonalMemory?: boolean
     injectWorkMemory?: boolean
   }) => void
-  setPromptStyleSettings: (settings: { style?: 'detailed' | 'terse' }) => void
+  setPromptStyleSettings: (settings: { style?: PromptStyleValue }) => void
 }
 
 let deps: SettingsIpcDeps | null = null
@@ -32,7 +33,7 @@ export function registerSettingsIpcHandlers(): void {
   // === 系统提示词风格（实验功能；主进程缓存，供每轮 prompt 重建读取）===
   ipcMain.handle(
     'settings:updatePromptStyle',
-    async (_event, payload: { style?: 'detailed' | 'terse' }) => {
+    async (_event, payload: { style?: PromptStyleValue }) => {
       if (!payload || typeof payload !== 'object') return
       deps!.setPromptStyleSettings(payload)
     },

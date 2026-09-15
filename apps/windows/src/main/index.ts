@@ -54,6 +54,7 @@ import {
   setActiveDashboardFeedId,
 } from './dashboard-feed-store'
 import { getLatency } from './provider-latency'
+import { normalizePromptStyle, type PromptStyleValue } from '../shared/prompt-style'
 import { UpdaterService, setupUpdaterIpcHandlers } from './updater-service'
 import { ClientSkillRuntime } from './skill-runtime'
 import { wrapSingleFile } from './skill-wrapper'
@@ -747,14 +748,14 @@ async function initAgentRuntime(): Promise<void> {
       memoryInjectionSettingsCache = resolved
       return resolved
     },
-    /** 读取系统提示词风格（实验功能；从渲染进程 localStorage 同步，默认 detailed） */
+    /** 读取系统提示词风格（实验功能；从渲染进程 localStorage 同步，缺省 = 简要档） */
     getPromptStyleSettings: async () => {
       if (promptStyleSettingsCache) {
         return promptStyleSettingsCache
       }
       const settings = await getRendererSettings()
       const resolved = {
-        style: settings?.promptStyle?.style === 'terse' ? ('terse' as const) : ('detailed' as const),
+        style: normalizePromptStyle(settings?.promptStyle?.style),
       }
       promptStyleSettingsCache = resolved
       return resolved
@@ -1034,22 +1035,22 @@ function setMemoryInjectionSettingsCache(settings: {
   }
 }
 
-/** 系统提示词风格主进程缓存（避免 executeJavaScript 失败时始终回退为 detailed） */
-let promptStyleSettingsCache: { style: 'detailed' | 'terse' } | null = null
+/** 系统提示词风格主进程缓存（避免 executeJavaScript 失败时始终回退为默认档） */
+let promptStyleSettingsCache: { style: PromptStyleValue } | null = null
 
 /**
  * 同步系统提示词风格到主进程缓存（渲染进程切换时 IPC 调用；实验功能）
  */
-function setPromptStyleSettingsCache(settings: { style?: 'detailed' | 'terse' }): void {
+function setPromptStyleSettingsCache(settings: { style?: PromptStyleValue }): void {
   promptStyleSettingsCache = {
-    style: settings.style === 'terse' ? 'terse' : 'detailed',
+    style: normalizePromptStyle(settings.style),
   }
 }
 
 async function getRendererSettings(): Promise<{
   workspace?: { directory?: string }
   memory?: { injectPersonalMemory?: boolean; injectWorkMemory?: boolean }
-  promptStyle?: { style?: 'detailed' | 'terse' }
+  promptStyle?: { style?: PromptStyleValue }
 } | null> {
   if (!mainWindow || mainWindow.isDestroyed()) {
     return null

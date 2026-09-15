@@ -14,6 +14,7 @@ import type {
   MemoryConfig,
 } from './useSettings.types'
 import { updateMemoryInjection, updatePromptStyle } from '../../../services/settings-service'
+import { normalizePromptStyle } from '../../../../shared/prompt-style'
 import {
   SETTINGS_STORAGE_KEY,
   SETTINGS_UPDATE_EVENT,
@@ -38,7 +39,7 @@ function syncSettingsToMain(): void {
       injectWorkMemory: stored?.memory?.injectWorkMemory !== false,
     })
     void updatePromptStyle({
-      style: stored?.promptStyle?.style === 'terse' ? 'terse' : 'detailed',
+      style: normalizePromptStyle(stored?.promptStyle?.style),
     })
   } catch {
     // 忽略本地读取失败（主进程侧各自有默认值兜底）

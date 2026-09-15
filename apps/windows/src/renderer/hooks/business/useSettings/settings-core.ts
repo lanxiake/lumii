@@ -6,6 +6,7 @@
  */
 
 import type { AppSettings } from './useSettings.types'
+import { DEFAULT_PROMPT_STYLE } from '../../../../shared/prompt-style'
 
 /** localStorage 中应用设置的存储 key（渲染进程与主进程读取需保持一致） */
 export const SETTINGS_STORAGE_KEY = 'mtbot-assistant-settings'
@@ -61,7 +62,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     injectWorkMemory: true,
   },
   promptStyle: {
-    style: 'detailed',
+    style: DEFAULT_PROMPT_STYLE,
   },
   screenRecord: {
     enabled: true,
