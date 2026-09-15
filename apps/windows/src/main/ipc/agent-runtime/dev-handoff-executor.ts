@@ -160,7 +160,6 @@ export async function runDevHandoff(
   // 所以这里判定的 backendId 就是实际执行时会用的那个。
   const preview = resolveDevContext({
     appConfig: getCodingDevConfig(),
-    accountId: LOCAL_USER_ID,
     // new 模式会话尚未创建：空键必然无会话级记录，不会误命中其它会话
     sessionKey: devSessionKey ?? '',
     agentId: CODE_DEV_AGENT_ID,
@@ -196,7 +195,7 @@ export async function runDevHandoff(
   // 不写这一步，即使项目已注册，开发会话也会退化成全局 workspace。
   // 仅在提案指定了项目时写入；未指定则保持会话原状（recent 模式不覆盖用户既有选择）。
   if (params.projectName) {
-    setDevContext(LOCAL_USER_ID, devSessionKey, { projectName: params.projectName })
+    setDevContext(devSessionKey, { projectName: params.projectName }, LOCAL_USER_ID)
     log.info(
       `[runDevHandoff] 写入开发上下文 projectName=${params.projectName} session=${devSessionKey}`,
     )

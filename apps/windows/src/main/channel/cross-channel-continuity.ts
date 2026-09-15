@@ -324,7 +324,7 @@ export class CrossChannelContinuity {
     if (accepted) {
       try {
         bind?.(session.channelUserId, candidate.conversationId)
-        adapter.setActiveSessionKey?.(session.channelUserId, candidate.conversationId)
+        adapter.setActiveSessionKey?.(session.channelUserId, candidate.conversationId, 'continuity')
         // 标记目标会话也已问过：否则重放时它成了「新会话」，会被再问一次
         this.asked.add(candidate.conversationId)
         void adapter

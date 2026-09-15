@@ -235,7 +235,7 @@ describe('CrossChannelContinuity 状态机', () => {
     expect(c.tryConsumeReply('weixin:u1', '1')).toBe(true)
 
     expect(bind).toHaveBeenCalledWith('u1', 'conv-client')
-    expect(setActive).toHaveBeenCalledWith('u1', 'conv-client')
+    expect(setActive).toHaveBeenCalledWith('u1', 'conv-client', 'continuity')
     expect(replay).toHaveBeenCalledTimes(1)
     expect(c.hasPending('weixin:u1')).toBe(false)
   })
@@ -283,7 +283,7 @@ describe('CrossChannelContinuity 状态机', () => {
     vi.advanceTimersByTime(CONTINUITY_TIMEOUT_MS)
 
     expect(bind).toHaveBeenCalledWith('u1', 'conv-client')
-    expect(setActive).toHaveBeenCalledWith('u1', 'conv-client')
+    expect(setActive).toHaveBeenCalledWith('u1', 'conv-client', 'continuity')
     expect(replay).toHaveBeenCalledTimes(1)
     expect(c.hasPending('weixin:u1')).toBe(false)
   })
@@ -352,7 +352,7 @@ describe('CrossChannelContinuity 状态机', () => {
     c.maybeAsk({ adapter, session, replay })
     expect(c.tryConsumeReply('weixin:u1', '1')).toBe(true)
 
-    expect(setActive).toHaveBeenCalledWith('u1', 'conv-client')
+    expect(setActive).toHaveBeenCalledWith('u1', 'conv-client', 'continuity')
     expect(replay).toHaveBeenCalledTimes(1)
   })
 

@@ -211,7 +211,6 @@ export async function handleUserSend(
   const manualBackend = acpMgr.getBackendWithFallback(LOCAL_USER_ID, command.sessionKey)
   const devContext = resolveDevContext({
     appConfig: getCodingDevConfig(),
-    accountId: LOCAL_USER_ID,
     sessionKey: command.sessionKey,
     agentId: bridge.conversationRepo.getAgentParticipantId(command.sessionKey),
     fallbackBackendId: manualBackend,

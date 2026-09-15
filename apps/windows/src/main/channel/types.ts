@@ -7,6 +7,7 @@
 import type { AgentRuntimeBridge } from '../agent-runtime/bridge'
 import type { AcpBackendManager } from './acp-backend-manager'
 import type { WeixinSessionBindingManager } from './weixin-session-binding'
+import type { RouteSource } from './channel-session-store'
 import { channelLabelOfOwnership } from './channel-identity'
 
 // ── 通道会话 ──────────────────────────────────────────────────────────────────
@@ -113,8 +114,13 @@ export interface IChannelAdapter {
   notifyNavigateToSession(session: ChannelSession): void
   /** 返回该通道使用的上下文策略 */
   getContextStrategy(): ContextStrategy
-  /** 切换活跃 sessionKey（/new、/resume、/link 命令调用，可选） */
-  setActiveSessionKey?(channelUserId: string, sessionKey: string): void
+  /**
+   * 切换活跃 sessionKey（/new、/resume、/link 命令与跨渠道接续调用，可选）。
+   *
+   * @param source 这次切换的来源（own / link / continuity / resume），用于 `/back` 与诊断。
+   *   缺省 `own`。决策落在 `ChannelRouteService`，四个渠道共用。
+   */
+  setActiveSessionKey?(channelUserId: string, sessionKey: string, source?: RouteSource): void
   /** 当前活跃 sessionKey（可选） */
   getActiveSessionKey?(channelUserId: string): string
   /**

@@ -190,7 +190,7 @@ export function registerClientCommandTools(deps: BridgeToolRegistrarDeps, ctx: T
         })
       }
 
-      adapter.setActiveSessionKey(origin.channelUserId, target)
+      adapter.setActiveSessionKey(origin.channelUserId, target, 'resume')
       log.info(
         `[session_resume] 渠道路由已切换 channel=${origin.channelType} user=${origin.channelUserId} → ${target}`,
       )

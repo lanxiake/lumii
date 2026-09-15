@@ -152,7 +152,7 @@ export const resumeCommand: CommandHandler = {
 
     const resumedSession = { ...session, sessionKey: target.id, instanceId: null }
     // 持久化切换，使后续消息路由到恢复的会话（重启后仍生效）
-    adapter.setActiveSessionKey?.(session.channelUserId, target.id)
+    adapter.setActiveSessionKey?.(session.channelUserId, target.id, 'resume')
     bridge.notifyNavigateToSession(target.id, target.title)
     await adapter.sendTextReply(
       resumedSession,

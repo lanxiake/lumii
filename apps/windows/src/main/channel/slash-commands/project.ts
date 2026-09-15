@@ -28,7 +28,7 @@ export const projectCommand: CommandHandler = {
     const { session, adapter } = ctx
     const { channelUserId, sessionKey } = session
     const args = ctx.args.trim()
-    const current = getDevContext(channelUserId, sessionKey)?.projectName
+    const current = getDevContext(sessionKey)?.projectName
 
     if (!args) {
       await adapter.sendTextReply(session, `📁 开发项目：\n${renderProjectList(current)}`)
@@ -36,7 +36,7 @@ export const projectCommand: CommandHandler = {
     }
 
     if (args === 'off') {
-      setDevContext(channelUserId, sessionKey, { projectName: null })
+      setDevContext(sessionKey, { projectName: null }, channelUserId)
       await adapter.sendTextReply(session, '✅ 已清除本会话项目，后续按全局活动项目执行。')
       return
     }
@@ -47,7 +47,7 @@ export const projectCommand: CommandHandler = {
       return
     }
 
-    setDevContext(channelUserId, sessionKey, { projectName: target.name })
+    setDevContext(sessionKey, { projectName: target.name }, channelUserId)
     await adapter.sendTextReply(
       session,
       `✅ 本会话开发项目：${target.name}\n目录：${target.realPath}\n（切换编码工具用 /claude、/codex 等）`,

@@ -18,7 +18,7 @@ export const newCommand: CommandHandler = {
     sessionManager?.clearLock(newSessionKey)
 
     // 持久化新 sessionKey，使后续消息路由到新会话
-    adapter.setActiveSessionKey?.(channelUserId, newSessionKey)
+    adapter.setActiveSessionKey?.(channelUserId, newSessionKey, 'own')
 
     // 通知渲染进程导航到新会话
     const newSession = { ...session, sessionKey: newSessionKey, instanceId: null }

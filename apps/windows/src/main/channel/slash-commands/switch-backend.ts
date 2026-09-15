@@ -6,6 +6,7 @@ import {
   DEFAULT_CODING_DEV_BACKEND_ID,
 } from '../../coding-dev-backends-stub/contracts.js'
 import { pushAgentRuntimeEvent, LOCAL_USER_ID } from '../../ipc/agent-runtime-ipc.js'
+import { setDevContext } from '../../coding-dev-dev-context.js'
 
 /**
  * 把渠道侧的后端切换同步到客户端。
@@ -38,6 +39,9 @@ export function createSwitchBackendCommand(backendId: CodingDevBackendId): Comma
         return
       }
 
+      // 会话级选择写进 dev-context（按**会话**索引，10-S3b）：这样用户转到别的渠道
+      // 继续聊时工具选择跟着走。peer 级那份保留，作为「该渠道用户的默认」兜底。
+      setDevContext(sessionKey, { backendId }, channelUserId)
       await acpBackendManager.setBackend(backendId, 'peer', channelUserId, sessionKey)
       await syncBackendToClient(acpBackendManager, backendId)
       const label = CODING_DEV_BACKEND_LABELS[backendId]
@@ -59,6 +63,8 @@ export const lumiiCommand: CommandHandler = {
     // 先尝试清除 peer 级选择，再写入主代理 ID 确保覆盖用户级全局
     await acpBackendManager.clearBackend('peer', channelUserId, sessionKey)
     await acpBackendManager.setBackend(DEFAULT_CODING_DEV_BACKEND_ID, 'peer', channelUserId, sessionKey)
+    // 会话级同样显式写回主代理（dev-context 的会话覆盖优先级最高，不写会继续走 CLI）
+    setDevContext(sessionKey, { backendId: DEFAULT_CODING_DEV_BACKEND_ID }, channelUserId)
     await syncBackendToClient(acpBackendManager, DEFAULT_CODING_DEV_BACKEND_ID)
 
     await adapter.sendTextReply(

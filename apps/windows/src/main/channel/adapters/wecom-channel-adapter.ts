@@ -29,7 +29,8 @@ import {
 } from '../channel-error-helper'
 import { compileForWecom } from '../format/channel-message-compiler'
 import { resolveContinuityForChannel } from '../cross-channel-continuity'
-import { ChannelSessionStore } from '../channel-session-store'
+import { getChannelSessionStore, type RouteSource } from '../channel-session-store'
+import { ChannelRouteService } from '../channel-route'
 import { registerChannelAdapter } from '../channel-adapter-registry'
 import { getChannelFeatures } from '../channel-feature-store'
 import {
@@ -73,9 +74,8 @@ export class WecomChannelAdapter implements IChannelAdapter {
   readonly channelType = 'wecom'
 
   private readonly sessionToInstance = new Map<string, string>()
-  private readonly activeSession = new Map<string, string>()
-  /** 活跃会话路由的持久化（重启后仍能回到上次用的会话） */
-  private readonly sessionStore: ChannelSessionStore
+  /** 会话路由：唯一决策点（进程单例的路由表 + 本渠道的兜底规则） */
+  private readonly route: ChannelRouteService
   private readonly userQueues = new Map<string, Promise<void>>()
   private readonly contextStrategy: StatelessContextStrategy
   private readonly registry: SlashCommandRegistry
@@ -91,11 +91,13 @@ export class WecomChannelAdapter implements IChannelAdapter {
     this.sessionManager = new SessionManager(bridge)
     this.interactionHub = getChannelInteractionHub(bridge)
     this.acpBackendManager = new AcpBackendManager()
-    this.sessionStore = new ChannelSessionStore({
-      repo: bridge.runtimeStateRepo,
+    this.route = new ChannelRouteService({
       channelType: 'wecom',
-      listRecent: (limit) => bridge.listRecentConversations(limit),
-      conversationExists: (id) => Boolean(bridge.conversationRepo.getConversation(id)),
+      store: getChannelSessionStore({
+        repo: bridge.runtimeStateRepo,
+        listRecent: (limit) => bridge.listRecentConversations(limit),
+        conversationExists: (id) => Boolean(bridge.conversationRepo.getConversation(id)),
+      }),
     })
     this.registry = this.buildRegistry()
     registerChannelAdapter(this)
@@ -196,32 +198,23 @@ export class WecomChannelAdapter implements IChannelAdapter {
     })
   }
 
-  /**
-   * 获取当前活跃 sessionKey。
-   */
-  /** 获取当前活跃 sessionKey（优先级：内存覆盖 > 持久化覆盖 > 默认） */
+  /** 当前活跃 sessionKey（路由表 > /link 绑定 > 渠道默认；决策在 ChannelRouteService） */
   getActiveSessionKey(channelUserId: string): string {
-    return (
-      this.activeSession.get(channelUserId) ??
-      this.sessionStore.getActive(channelUserId) ??
-      `wecom:${channelUserId}`
-    )
+    return this.route.activeKey(channelUserId)
   }
 
-  /** 设置活跃 sessionKey（由 /new、/resume 命令与跨渠道接续调用） */
-  setActiveSessionKey(channelUserId: string, sessionKey: string): void {
-    this.activeSession.set(channelUserId, sessionKey)
-    this.sessionStore.setActive(channelUserId, sessionKey)
+  /** 切换路由（由 /new、/resume 命令与跨渠道接续调用；来源用于 /back 与诊断） */
+  setActiveSessionKey(
+    channelUserId: string,
+    sessionKey: string,
+    source: RouteSource = 'own',
+  ): void {
+    this.route.setActive(channelUserId, sessionKey, source)
   }
 
-  /** 回到本渠道自己的会话（跨渠道接续被拒、/back 调用） */
+  /** 回到本渠道自己的会话（跨渠道接续被拒、/back、/unlink 调用） */
   resetToChannelSession(channelUserId: string): string {
-    const previous = this.getActiveSessionKey(channelUserId)
-    const own = this.sessionStore.getOwn(channelUserId) ?? `wecom:${channelUserId}`
-    this.activeSession.set(channelUserId, own)
-    this.sessionStore.setActive(channelUserId, own)
-    log.info(`[resetToChannelSession] channelUserId=${channelUserId} ${previous} → ${own}`)
-    return own
+    return this.route.resetToOwn(channelUserId)
   }
 
   /**

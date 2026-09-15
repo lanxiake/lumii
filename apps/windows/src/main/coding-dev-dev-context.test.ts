@@ -28,42 +28,130 @@ afterEach(() => {
 
 describe('coding-dev-dev-context', () => {
   it('写入 / 读取 / 合并会话级开发上下文', () => {
-    expect(getDevContext('local-user', 'conv-1')).toBeUndefined()
-    setDevContext('local-user', 'conv-1', { projectName: 'lumii' })
-    expect(getDevContext('local-user', 'conv-1')?.projectName).toBe('lumii')
+    expect(getDevContext('conv-1')).toBeUndefined()
+    setDevContext('conv-1', { projectName: 'lumii' })
+    expect(getDevContext('conv-1')?.projectName).toBe('lumii')
 
-    setDevContext('local-user', 'conv-1', { backendId: 'claude' })
-    const rec = getDevContext('local-user', 'conv-1')
+    setDevContext('conv-1', { backendId: 'claude' })
+    const rec = getDevContext('conv-1')
     expect(rec?.projectName).toBe('lumii')
     expect(rec?.backendId).toBe('claude')
   })
 
   it('补丁传 null 清除单项；两项皆空时删除整条记录', () => {
-    setDevContext('local-user', 'conv-2', { projectName: 'a', backendId: 'codex' })
-    setDevContext('local-user', 'conv-2', { projectName: null })
-    expect(getDevContext('local-user', 'conv-2')?.backendId).toBe('codex')
+    setDevContext('conv-2', { projectName: 'a', backendId: 'codex' })
+    setDevContext('conv-2', { projectName: null })
+    expect(getDevContext('conv-2')?.backendId).toBe('codex')
 
-    const gone = setDevContext('local-user', 'conv-2', { backendId: null })
+    const gone = setDevContext('conv-2', { backendId: null })
     expect(gone).toBeUndefined()
-    expect(getDevContext('local-user', 'conv-2')).toBeUndefined()
+    expect(getDevContext('conv-2')).toBeUndefined()
   })
 
   it('显式写入 lumii 作为退出开发模式的压制值', () => {
-    setDevContext('local-user', 'conv-4', { backendId: 'lumii', projectName: 'lumii' })
-    expect(getDevContext('local-user', 'conv-4')?.backendId).toBe('lumii')
+    setDevContext('conv-4', { backendId: 'lumii', projectName: 'lumii' })
+    expect(getDevContext('conv-4')?.backendId).toBe('lumii')
   })
 
   it('clearDevContext 返回原记录是否存在', () => {
-    expect(clearDevContext('local-user', 'nope')).toBe(false)
-    setDevContext('local-user', 'conv-3', { backendId: 'lumii' })
-    expect(clearDevContext('local-user', 'conv-3')).toBe(true)
-    expect(getDevContext('local-user', 'conv-3')).toBeUndefined()
+    expect(clearDevContext('nope')).toBe(false)
+    setDevContext('conv-3', { backendId: 'lumii' })
+    expect(clearDevContext('conv-3')).toBe(true)
+    expect(getDevContext('conv-3')).toBeUndefined()
   })
 
   it('损坏文件回退为空（不抛错）', () => {
     fs.mkdirSync(path.join(dir, 'coding-dev-backends'), { recursive: true })
     fs.writeFileSync(path.join(dir, 'coding-dev-backends', 'dev-context.json'), '{not json', 'utf-8')
-    expect(getDevContext('local-user', 'conv-x')).toBeUndefined()
+    expect(getDevContext('conv-x')).toBeUndefined()
+  })
+})
+
+/**
+ * 10-S3b：键从 `${accountId}:${会话id}` 改成**会话 id**。
+ *
+ * 起因：同一条会话被别的渠道续聊时（用户可以跨渠道接着聊），项目与工具选择会"丢"——
+ * 因为算成了两个键。会话是全局唯一的，项目跟会话走，与谁在说话无关。
+ */
+describe('coding-dev-dev-context · 会话维度（10-S3b）', () => {
+  /** 直接写文件，构造 S3b 之前的旧格式（`{accountId}:{会话id}`） */
+  function writeLegacyFile(contexts: Record<string, unknown>): void {
+    fs.mkdirSync(path.join(dir, 'coding-dev-backends'), { recursive: true })
+    fs.writeFileSync(
+      path.join(dir, 'coding-dev-backends', 'dev-context.json'),
+      JSON.stringify({ version: 1, contexts }),
+      'utf-8',
+    )
+  }
+
+  it('旧格式（渠道键）仍能读出：同一会话换个渠道继续聊，项目不丢', () => {
+    writeLegacyFile({
+      'o9cq801:weixin:o9cq801': {
+        projectName: 'lumii',
+        updatedAt: '2026-09-14T00:00:00.000Z',
+      },
+    })
+
+    expect(getDevContext('weixin:o9cq801')?.projectName).toBe('lumii')
+  })
+
+  it('多个旧键指向同一会话时取最新的一条', () => {
+    writeLegacyFile({
+      'o9cq801:qbot:964A': { projectName: 'old', updatedAt: '2026-09-10T00:00:00.000Z' },
+      'local-user:qbot:964A': { projectName: 'new', updatedAt: '2026-09-14T00:00:00.000Z' },
+    })
+
+    expect(getDevContext('qbot:964A')?.projectName).toBe('new')
+  })
+
+  it('新键优先于旧键（用户在新格式下改过就以新的为准）', () => {
+    writeLegacyFile({
+      'local-user:conv-9': { projectName: 'legacy', updatedAt: '2026-09-14T00:00:00.000Z' },
+      'conv-9': { projectName: 'current', updatedAt: '2026-09-01T00:00:00.000Z' },
+    })
+
+    expect(getDevContext('conv-9')?.projectName).toBe('current')
+  })
+
+  it('写入新键时清掉旧键（不留两条互相矛盾的记录）', () => {
+    writeLegacyFile({
+      'o9cq801:weixin:o9cq801': { projectName: 'lumii', updatedAt: '2026-09-14T00:00:00.000Z' },
+    })
+    setDevContext('weixin:o9cq801', { projectName: 'blog' })
+
+    const raw = JSON.parse(
+      fs.readFileSync(path.join(dir, 'coding-dev-backends', 'dev-context.json'), 'utf-8'),
+    ) as { contexts: Record<string, unknown> }
+    expect(Object.keys(raw.contexts)).toEqual(['weixin:o9cq801'])
+    expect(getDevContext('weixin:o9cq801')?.projectName).toBe('blog')
+  })
+
+  it('写入者只作诊断记录，不参与索引', () => {
+    setDevContext('conv-10', { projectName: 'lumii' }, 'o9cq801')
+    expect(getDevContext('conv-10')?.accountId).toBe('o9cq801')
+    // 换个人读同一会话，读到的还是同一份
+    expect(getDevContext('conv-10')?.projectName).toBe('lumii')
+  })
+
+  it('clearDevContext 同时清掉新键与旧键', () => {
+    writeLegacyFile({
+      'o9cq801:weixin:o9cq801': { projectName: 'lumii', updatedAt: '2026-09-14T00:00:00.000Z' },
+    })
+
+    expect(clearDevContext('weixin:o9cq801')).toBe(true)
+    expect(getDevContext('weixin:o9cq801')).toBeUndefined()
+  })
+
+  it('账号段必须不含冒号：含冒号会话 id 不会被更短的会话 id 误配', () => {
+    writeLegacyFile({
+      // 账号 'a' × 会话 'b:964A' —— 合法旧键
+      'a:b:964A': { projectName: '属于 b:964A', updatedAt: '2026-09-14T00:00:00.000Z' },
+    })
+
+    // 会话 '964A' 不能读到它（否则账号段会变成 'a:b'，那不是一个账号）
+    expect(getDevContext('964A')).toBeUndefined()
+    // 真正的归属会话读得到
+    expect(getDevContext('b:964A')?.projectName).toBe('属于 b:964A')
   })
 })
 
@@ -110,14 +198,13 @@ describe('resolveDevContext · 转交写入项目后的解析（09-P2 链路）'
   const resolve = (sessionKey: string, cfg: unknown = appConfig) =>
     resolveDevContext({
       appConfig: cfg as AppConfig,
-      accountId: 'local-user',
       sessionKey,
       agentId: 'code-dev',
       fallbackBackendId: 'lumii',
     })
 
   it('会话级项目优先于 Agent 绑定的 workspace，且 source=session', () => {
-    setDevContext('local-user', 'dev-conv-1', { projectName: 'blog' })
+    setDevContext('dev-conv-1', { projectName: 'blog' })
     const ctx = resolve('dev-conv-1')
     expect(ctx.source).toBe('session')
     expect(ctx.projectName).toBe('blog')

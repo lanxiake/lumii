@@ -191,15 +191,16 @@ export type ResolvedDevContext = {
 /**
  * 解析会话的最终开发上下文：会话显式（dev-context）> Agent 绑定 > 全局默认（调用方传入）。
  * 桌面与渠道共用（渠道无 Agent 绑定层，agentId 传 undefined）。
+ *
+ * 会话显式那层按**会话**索引（10-S3b）：同一条会话被别的渠道续聊时，项目与工具跟着走。
  */
 export function resolveDevContext(params: {
   appConfig: CodingDevConfigSlice
-  accountId: string
   sessionKey: string
   agentId?: string
   fallbackBackendId: CodingDevBackendId
 }): ResolvedDevContext {
-  const devCtx = getDevContext(params.accountId, params.sessionKey)
+  const devCtx = getDevContext(params.sessionKey)
   const binding = resolveAgentDevBinding(params.appConfig, params.agentId)
   const backendId = devCtx?.backendId ?? binding?.backendId ?? params.fallbackBackendId
   const projectName = devCtx?.projectName

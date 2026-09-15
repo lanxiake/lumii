@@ -38,7 +38,7 @@ export const linkCommand: CommandHandler = {
     bindingManager?.bind(session.channelUserId, conversationId)
 
     // 立即更新活跃会话（让下一条消息直接路由到绑定会话）
-    adapter.setActiveSessionKey?.(session.channelUserId, conversationId)
+    adapter.setActiveSessionKey?.(session.channelUserId, conversationId, 'link')
 
     await adapter.sendTextReply(
       session,

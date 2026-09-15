@@ -85,7 +85,7 @@ describe('runDevHandoff · 项目上下文（P2）', () => {
       report: () => {},
     })
 
-    expect(getDevContext('local-user', 'dev-session-1')?.projectName).toBe('lumii')
+    expect(getDevContext('dev-session-1')?.projectName).toBe('lumii')
   })
 
   it('未指定项目时不写 dev-context（不覆盖会话既有选择）', async () => {
@@ -97,13 +97,13 @@ describe('runDevHandoff · 项目上下文（P2）', () => {
       report: () => {},
     })
 
-    expect(getDevContext('local-user', 'dev-session-1')).toBeUndefined()
+    expect(getDevContext('dev-session-1')).toBeUndefined()
   })
 
   it('dev-context 在发起任务消息之前写入（首个回合即命中）', async () => {
     const seenAtSend: Array<string | undefined> = []
     vi.mocked(handleUserSend).mockImplementation(async () => {
-      seenAtSend.push(getDevContext('local-user', 'dev-session-1')?.projectName)
+      seenAtSend.push(getDevContext('dev-session-1')?.projectName)
       return { runId: 'run-1' }
     })
 
@@ -197,7 +197,7 @@ describe('runDevHandoff · 绑定预检（P3）', () => {
         updatedAt: '2026-01-01T00:00:00.000Z',
       } as never,
     ])
-    setDevContext('local-user', 'dev-conv-1', { backendId: 'lumii' })
+    setDevContext('dev-conv-1', { backendId: 'lumii' })
 
     const reports: DevHandoffReport[] = []
     await runDevHandoff({

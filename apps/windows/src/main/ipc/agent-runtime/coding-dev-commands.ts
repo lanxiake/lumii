@@ -56,7 +56,7 @@ export async function handleCodingDevSetBackend(
     if (!isCodingDevBackendId(command.backendId)) {
       throw new Error(`未知后端: ${command.backendId}`)
     }
-    setDevContext(LOCAL_USER_ID, command.sessionKey, { backendId: command.backendId })
+    setDevContext(command.sessionKey, { backendId: command.backendId }, LOCAL_USER_ID)
     // 按 Agent 粘住：同一切换同时写为该 Agent 的默认后端（其他 Agent 不受影响）
     await persistAgentBackendDefault(bridge, command.sessionKey, command.backendId)
     return { ok: true }
@@ -121,7 +121,7 @@ export function handleCodingDevSetProject(
     const exists = (getCodingDevConfig().codingDevProjects ?? []).some((p) => p.name === projectName)
     if (!exists) throw new Error(`项目不存在或未注册: ${projectName}`)
   }
-  setDevContext(LOCAL_USER_ID, command.sessionKey, { projectName })
+  setDevContext(command.sessionKey, { projectName }, LOCAL_USER_ID)
   return { ok: true, ...(projectName ? { projectName } : {}) }
 }
 
@@ -133,7 +133,6 @@ export function handleCodingDevGetDevContext(
   const mgr = getAcpBackendManager()
   return resolveDevContext({
     appConfig: getCodingDevConfig(),
-    accountId: LOCAL_USER_ID,
     sessionKey: command.sessionKey,
     agentId: bridge.conversationRepo.getAgentParticipantId(command.sessionKey),
     fallbackBackendId: mgr.getBackendWithFallback(LOCAL_USER_ID, command.sessionKey),
