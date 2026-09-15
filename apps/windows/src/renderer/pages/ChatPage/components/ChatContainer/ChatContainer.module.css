@@ -44,6 +44,46 @@
   min-width: 0;
 }
 
+/*
+ * 行包裹层：窗口化渲染的挂载单元（见 use-windowed-rows.ts）。
+ *
+ * 必须是 flex 容器，且方向同为 column —— .message 依赖父级是 flex 上下文才有
+ * align-self（user 靠 flex-end 右对齐）与「宽度收缩到内容」的语义；换成普通块级
+ * 容器后 user 气泡会被撑满 max-width，与原先不同。
+ *
+ * flex 容器同时保证子元素的外边距不与容器折叠（CompactionCard 的 8px 上下边距
+ * 会计入本层高度），这样实测高度可以原样用作占位高度。
+ */
+.message-row {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-width: 0;
+}
+
+/*
+ * 离屏但仍在窗口带内的行：让 Chromium 跳过其布局与绘制。
+ * 它不卸载 DOM、不回收内存，只是把「滚动时不必付的那部分代价」省掉。
+ *
+ * contain-intrinsic-block-size 的 auto 关键字让浏览器记住上次渲染的尺寸；
+ * var(--row-h) 是 ResizeObserver 实测值，作为首次跳过时的兜底。二者一致，
+ * 所以跳过期间行高不变 —— 实测高度只有测过才会加这个类。
+ */
+.message-row--skippable {
+  content-visibility: auto;
+  contain-intrinsic-block-size: auto var(--row-h, 240px);
+}
+
+/* 入场错峰：原先挂在 .message:nth-child(N) 上，多了一层行包裹后每条消息都是
+   所属行的第 1 个子元素，那组规则全部退化为 0ms。这里按行序重新给出延迟。
+   用 .messages-list > 提升一级特异性，避免与 ChatMessage.module.css 里残留的
+   nth-child 规则（同为 0,2,0）依赖打包顺序决胜。 */
+.messages-list > .message-row:nth-child(1) > * { animation-delay: 0ms; }
+.messages-list > .message-row:nth-child(2) > * { animation-delay: 50ms; }
+.messages-list > .message-row:nth-child(3) > * { animation-delay: 100ms; }
+.messages-list > .message-row:nth-child(4) > * { animation-delay: 150ms; }
+.messages-list > .message-row:nth-child(5) > * { animation-delay: 200ms; }
+
 /* 会话切换时：容器整体淡入 */
 @keyframes session-fade-in {
   from { opacity: 0; }

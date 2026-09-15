@@ -7,6 +7,7 @@ import { EmptyState } from '../EmptyState'
 import { CompactionCard } from '../CompactionCard'
 import { TodoPanel } from '../TodoPanel'
 import { useStableMapById } from '../../../../utils/useStableMapById'
+import { useWindowedRows } from './use-windowed-rows'
 import type { ChatSession, ChatMessage as ChatMessageType, AgentWorkflowItem, ToolCall } from '../../../../hooks/business/useChat'
 import type { AssistantPart, FileChangeEntry } from '@mtbot/agent-runtime/browser'
 import { groupSubAgentRuns, type SubAgentRun } from './sub-agent-runs'
@@ -64,6 +65,15 @@ interface CompactionItem {
 type ChatItem = MessageItem | CompactionItem
 
 const EMPTY_TOOL_ITEMS: readonly AgentWorkflowItem[] = []
+
+/**
+ * 行的稳定 key。刻意不用 index：前插历史会让所有行错位，
+ * 位置型 key 会把整列行全部卸载重挂（高度缓存也随之作废）。
+ * 前缀区分消息与压缩卡片，避免两类 id 撞车。
+ */
+function rowKeyOf(item: ChatItem): string {
+  return item.itemType === 'compaction' ? `c:${item.id}` : `m:${item.id}`
+}
 
 interface ChatContainerProps {
   session: ChatSession | null
@@ -233,7 +243,16 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
   onLoadOlderMessages,
 }) => {
   const messagesEndRef = useRef<HTMLDivElement>(null)
-  const scrollContainerRef = useRef<HTMLDivElement>(null)
+  // 显式带上 null 联合类型：useRef<T>(null) 得到的是只读 RefObject，
+  // 而下面要在 ref 回调里写 .current
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null)
+  // 滚动容器元素同时进 state：窗口化要拿它当 IntersectionObserver 的 root，
+  // 而 ref 变化不触发重渲染，等不到效果回调重建观察器
+  const [scrollRoot, setScrollRoot] = useState<HTMLDivElement | null>(null)
+  const attachScrollContainer = useCallback((el: HTMLDivElement | null) => {
+    scrollContainerRef.current = el
+    setScrollRoot(el)
+  }, [])
   // 用户是否"粘在底部"：true=自动跟随滚动；false=用户往上滚了，暂停自动滚
   const stickToBottomRef = useRef<boolean>(true)
   // 提示"回到最新消息"按钮是否展示
@@ -485,6 +504,21 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
   // Check if we need to show typing indicator (sending state OR streaming with last message from user)
   const showTypingIndicator = (isSending || isStreaming) && messages.length > 0 && messages[messages.length - 1].role === 'user'
 
+  // 窗口化：只保持视口附近的行真实挂载（见 use-windowed-rows.ts）
+  const rowKeys = useMemo(() => chatItems.map(rowKeyOf), [chatItems])
+  /**
+   * 永不占位的行：正在流式输出的那条。
+   * 它高度每帧都在变，占位/回填会与之来回打架；且它就在视口底部，本也不会被判离屏。
+   */
+  const pinnedRowKeys = useMemo(() => {
+    const pinned = new Set<string>()
+    for (const item of chatItems) {
+      if (item.itemType === 'message' && item.isStreaming) pinned.add(rowKeyOf(item))
+    }
+    return pinned
+  }, [chatItems])
+  const windowed = useWindowedRows({ scrollRoot, keys: rowKeys, pinnedKeys: pinnedRowKeys })
+
   if (isLoading && chatItems.length === 0) {
     return (
       <div className={styles['chat-container']}>
@@ -501,9 +535,57 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
     )
   }
 
+  /**
+   * 渲染单行的真实内容。占位替换由调用方做（collapsed 时根本不调这个函数），
+   * 所以这里不必关心窗口化。
+   */
+  const renderRowBody = (item: ChatItem, index: number): React.ReactNode => {
+    if (item.itemType === 'compaction') {
+      return (
+        <CompactionCard
+          tokensBefore={item.tokensBefore}
+          tokensAfter={item.tokensAfter}
+          messagesRemoved={item.messagesRemoved}
+          messagesBefore={item.messagesBefore}
+          messagesAfter={item.messagesAfter}
+          summaryText={item.summaryText}
+        />
+      )
+    }
+
+    const rowKey = rowKeyOf(item)
+    const isLatestAssistant = item.id === latestAssistantMessageId
+    const hasPartsTimeline = (item.parts?.length ?? 0) > 0
+
+    // Gateway 模式仍走 workflowItems；本地 Runtime 有 parts 时由时间线渲染工具
+    const workflowToolItems = !hasPartsTimeline && item.role === 'assistant' && item.runId
+      ? (workflowByRunId.get(item.runId) || [])
+      : EMPTY_TOOL_ITEMS
+
+    const fileAttachments = item.role === 'assistant'
+      ? (filesByMessageId.get(item.id) ?? undefined)
+      : undefined
+
+    return (
+      <ChatMessageRowMemo
+        item={item}
+        index={index}
+        isStreaming={isStreaming}
+        isLatestAssistant={isLatestAssistant}
+        streamingThinkingText={streamingThinkingText}
+        // 曾被占位的行重新挂载时补 no-enter：滚回来的旧内容不该再弹一次入场动画
+        noEnterMessages={noEnterMessages || windowed.wasCollapsed(rowKey)}
+        fileAttachments={fileAttachments}
+        replayMessageId={replayMessageId}
+        workflowToolItems={workflowToolItems}
+        subAgentRuns={subAgentRunsByParent.get(item.id)}
+      />
+    )
+  }
+
   return (
     <div
-      ref={scrollContainerRef}
+      ref={attachScrollContainer}
       onScroll={handleScroll}
       className={styles['chat-container']}
     >
@@ -525,46 +607,30 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
         )}
 
         {chatItems.map((item, index) => {
-          if (item.itemType === 'compaction') {
-            return (
-              <CompactionCard
-                key={`compaction-${item.id}-${index}`}
-                tokensBefore={item.tokensBefore}
-                tokensAfter={item.tokensAfter}
-                messagesRemoved={item.messagesRemoved}
-                messagesBefore={item.messagesBefore}
-                messagesAfter={item.messagesAfter}
-                summaryText={item.summaryText}
-              />
-            )
-          }
-
-          const isLatestAssistant = item.id === latestAssistantMessageId
-          const hasPartsTimeline = (item.parts?.length ?? 0) > 0
-
-          // Gateway 模式仍走 workflowItems；本地 Runtime 有 parts 时由时间线渲染工具
-          const workflowToolItems = !hasPartsTimeline && item.role === 'assistant' && item.runId
-            ? (workflowByRunId.get(item.runId) || [])
-            : EMPTY_TOOL_ITEMS
-
-          const fileAttachments = item.role === 'assistant'
-            ? (filesByMessageId.get(item.id) ?? undefined)
-            : undefined
+          const rowKey = rowKeyOf(item)
+          const collapsed = windowed.isCollapsed(rowKey)
+          const measured = windowed.heightOf(rowKey)
+          // 占位高度用实测值：替换前后行高一致，scrollHeight 不变，滚动位置不动
+          const rowStyle: React.CSSProperties | undefined = collapsed
+            ? { height: measured }
+            : windowed.isSkippable(rowKey) && measured !== undefined
+              ? ({ '--row-h': `${measured}px` } as React.CSSProperties)
+              : undefined
 
           return (
-            <ChatMessageRowMemo
-              key={`${item.id}-${index}`}
-              item={item}
-              index={index}
-              isStreaming={isStreaming}
-              isLatestAssistant={isLatestAssistant}
-              streamingThinkingText={streamingThinkingText}
-              noEnterMessages={noEnterMessages}
-              fileAttachments={fileAttachments}
-              replayMessageId={replayMessageId}
-              workflowToolItems={workflowToolItems}
-              subAgentRuns={subAgentRunsByParent.get(item.id)}
-            />
+            <div
+              key={rowKey}
+              // data-row-key 由 hook 的 ref 回调写入（它的观察器回调靠这个属性回认 key），
+              // 这里不再重复声明，避免两处写同一属性
+              ref={windowed.registerRow(rowKey)}
+              className={clsx(
+                styles['message-row'],
+                !collapsed && windowed.isSkippable(rowKey) && styles['message-row--skippable'],
+              )}
+              style={rowStyle}
+            >
+              {collapsed ? null : renderRowBody(item, index)}
+            </div>
           )
         })}
 
