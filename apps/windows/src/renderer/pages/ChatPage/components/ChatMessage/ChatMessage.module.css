@@ -59,11 +59,79 @@
   border: none;
 }
 
+/* ---------------------------------------------------------------
+ * 超长正文的降级视图（见 index.tsx 的 LargeTextBlock）
+ * 默认纯文本 + 独立滚动区：既立刻显示全文，又不让一条粘贴的日志
+ * 把整个会话的滚动高度撑到几十万 px。
+ *
+ * 配色一律用 currentColor 派生，而不是固定的 surface 令牌：这类正文绝大多数
+ * 出现在用户消息里，而用户气泡本身是带色调的渐变底（见 .message.user .message-text），
+ * 固定中性底色会在气泡内形成突兀的「框中框」，也压不住气泡上的文字对比度。
+ * --------------------------------------------------------------- */
+.large-text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+  width: 100%;
+  min-width: 0;
+}
+
+.large-text__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--spacing-2);
+}
+
+.large-text__meta {
+  font-family: var(--mt-font-mono);
+  font-size: 11px;
+  color: color-mix(in srgb, currentColor 72%, transparent);
+}
+
+.large-text__toggle {
+  padding: 2px 10px;
+  font-family: var(--mt-font-mono);
+  font-size: 11px;
+  color: inherit;
+  background: color-mix(in srgb, currentColor 8%, transparent);
+  border: 1px solid color-mix(in srgb, currentColor 22%, transparent);
+  border-radius: var(--mt-radius-full);
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.large-text__toggle:hover {
+  background: color-mix(in srgb, currentColor 15%, transparent);
+  border-color: color-mix(in srgb, currentColor 38%, transparent);
+}
+
+.large-text__body {
+  margin: 0;
+  padding: var(--spacing-3);
+  max-height: 420px;
+  overflow: auto;
+  font-family: var(--mt-font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  color: inherit;
+  background: color-mix(in srgb, currentColor 4%, transparent);
+  border: 1px solid color-mix(in srgb, currentColor 14%, transparent);
+  border-radius: var(--mt-radius-md);
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
 /* 子 Agent 运行块的内层容器（外层身份/折叠由 SubAgentRunBlock 负责） */
 .sub-agent-inner {
   padding: 0 var(--spacing-3) var(--spacing-2);
 }
 
+/* 注意：这里刻意不声明 will-change。常驻的 will-change 会让每条消息各占一个
+   合成层，40+ 条消息叠加即层爆炸（超长消息单条可高 2 万 px，还要再切成多个纹理
+   tile），滚动与切换都要为此付出代价，而消息入场后其实再没有合成层需求。
+   transform/opacity 动画运行期间浏览器本就会自动提升，结束后自动释放。 */
 .message {
   display: flex;
   gap: var(--spacing-3);
@@ -71,7 +139,6 @@
   max-width: 100%;
   width: 100%;
   animation: message-enter 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
-  will-change: transform, opacity;
 }
 
 /* 会话切换时批量加载的消息禁用弹跳入场，避免"批量弹出"感 */

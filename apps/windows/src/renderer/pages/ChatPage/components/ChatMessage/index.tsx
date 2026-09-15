@@ -37,6 +37,12 @@ import type { SubAgentRun } from '../ChatContainer/sub-agent-runs'
 import { getStatusLabel } from '../ToolCallCard'
 import { ActivityFold } from '../ActivityFold'
 import { useChatMessageActions } from '../../contexts/ChatMessageActionsContext'
+import {
+  markLargeCodeBlocks,
+  PLAIN_TEXT_THRESHOLD,
+  MATH_MAX_CHARS,
+  type HastNode,
+} from './markdown-limits'
 import styles from './ChatMessage.module.css'
 
 interface ChatMessageProps {
@@ -73,8 +79,38 @@ interface ChatMessageProps {
 // Markdown 渲染配置（模块顶层，避免每次渲染创建新引用）
 // ---------------------------------------------------------------
 
-const REMARK_PLUGINS = [remarkMath, remarkGfm]
-const REHYPE_PLUGINS = [rehypeKatex, rehypeHighlight]
+/**
+ * 高亮的体积闸门：给超长代码块打上 `no-highlight` 标记，让 rehype-highlight 原样跳过。
+ * lowlight 实例在模块顶层创建一次，避免每次渲染重新注册语言。
+ */
+const highlightCode = rehypeHighlight() as unknown as (tree: HastNode, file: unknown) => void
+
+function rehypeHighlightLimited() {
+  return (tree: HastNode, file: unknown): void => {
+    markLargeCodeBlocks(tree)
+    highlightCode(tree, file)
+  }
+}
+
+/**
+ * 插件数组按「正文是否超长」分两套模块级常量。
+ * 必须是稳定引用：ReactMarkdown 看到新数组会重新解析整条正文，
+ * 所以这里不按内容构造，只在这两套常量之间二选一。
+ */
+const SHORT_REMARK_PLUGINS = [remarkMath, remarkGfm]
+const SHORT_REHYPE_PLUGINS = [rehypeKatex, rehypeHighlightLimited]
+const LONG_REMARK_PLUGINS = [remarkGfm]
+const LONG_REHYPE_PLUGINS = [rehypeHighlightLimited]
+
+type MarkdownPluginList = React.ComponentProps<typeof ReactMarkdown>['remarkPlugins']
+
+function remarkPluginsFor(text: string): MarkdownPluginList {
+  return text.length > MATH_MAX_CHARS ? LONG_REMARK_PLUGINS : SHORT_REMARK_PLUGINS
+}
+
+function rehypePluginsFor(text: string): MarkdownPluginList {
+  return text.length > MATH_MAX_CHARS ? LONG_REHYPE_PLUGINS : SHORT_REHYPE_PLUGINS
+}
 
 const ARTIFACT_LANGS = new Set(['html', 'javascript', 'js', 'svg'])
 
@@ -199,6 +235,70 @@ function buildMarkdownComponents(isStreaming: boolean): Components {
     },
     a: MarkdownExternalLink,
   }
+}
+
+// ---------------------------------------------------------------
+// LargeTextBlock — 超长正文的降级渲染
+// ---------------------------------------------------------------
+
+interface LargeTextBlockProps {
+  content: string
+}
+
+/**
+ * LargeTextBlock 专用的组件映射。这条路径永远不在流式期间——流式正文在
+ * renderTextContent 开头就短路了——所以固定 isStreaming=false。
+ * 模块级常量，引用天然稳定。
+ */
+const LARGE_TEXT_MARKDOWN_COMPONENTS = buildMarkdownComponents(false)
+
+/**
+ * 超过 PLAIN_TEXT_THRESHOLD 的正文默认按纯文本渲染，需要时再由用户切到 Markdown。
+ *
+ * 三点取舍：
+ * - **不截断**。显示全文，只是不解析——避免出现「内容被藏起来」的观感。
+ * - **与流式分支同为 <pre>**。流式期间正文本来就走纯文本（见 renderTextContent），
+ *   落地复用同样的形态，流式结束不会出现「全文 → 折叠」的跳变。
+ * - **代价后置**。Markdown 解析、KaTeX、语法高亮只在用户显式点击时才支付一次。
+ */
+const LargeTextBlock: React.FC<LargeTextBlockProps> = ({ content }) => {
+  const [mode, setMode] = useState<'plain' | 'markdown'>('plain')
+
+  const lineCount = React.useMemo(() => {
+    let count = 1
+    for (let i = 0; i < content.length; i++) {
+      if (content.charCodeAt(i) === 10) count++
+    }
+    return count
+  }, [content])
+
+  const toggle = useCallback(() => {
+    setMode((prev) => (prev === 'plain' ? 'markdown' : 'plain'))
+  }, [])
+
+  return (
+    <div className={styles['large-text']}>
+      <div className={styles['large-text__bar']}>
+        <span className={styles['large-text__meta']}>
+          长文本 · {lineCount} 行 · {Math.round(content.length / 1024)}KB
+        </span>
+        <button type="button" className={styles['large-text__toggle']} onClick={toggle}>
+          {mode === 'plain' ? '渲染 Markdown' : '收起为纯文本'}
+        </button>
+      </div>
+      {mode === 'plain' ? (
+        <pre className={styles['large-text__body']}>{content}</pre>
+      ) : (
+        <ReactMarkdown
+          remarkPlugins={remarkPluginsFor(content)}
+          rehypePlugins={rehypePluginsFor(content)}
+          components={LARGE_TEXT_MARKDOWN_COMPONENTS}
+        >
+          {content}
+        </ReactMarkdown>
+      )}
+    </div>
+  )
 }
 
 // ---------------------------------------------------------------
@@ -606,6 +706,15 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
       )
     }
 
+    // 超长正文（多为粘贴的日志/堆栈）：默认纯文本，解析代价留给用户显式触发（见 LargeTextBlock）
+    if (content.length > PLAIN_TEXT_THRESHOLD) {
+      return (
+        <div className={styles['message-content-text']}>
+          <LargeTextBlock content={content} />
+        </div>
+      )
+    }
+
     const segments = parseA2UIBlocks(content)
 
     // 仅一段纯 markdown（常见路径）→ 直接渲染
@@ -613,8 +722,8 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
       return (
         <div className={styles['message-content-text']}>
           <ReactMarkdown
-            remarkPlugins={REMARK_PLUGINS}
-            rehypePlugins={REHYPE_PLUGINS}
+            remarkPlugins={remarkPluginsFor(segments[0].content)}
+            rehypePlugins={rehypePluginsFor(segments[0].content)}
             components={markdownComponents}
           >
             {segments[0].content}
@@ -630,8 +739,8 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
             return (
               <ReactMarkdown
                 key={i}
-                remarkPlugins={REMARK_PLUGINS}
-                rehypePlugins={REHYPE_PLUGINS}
+                remarkPlugins={remarkPluginsFor(seg.content)}
+                rehypePlugins={rehypePluginsFor(seg.content)}
                 components={markdownComponents}
               >
                 {seg.content}
