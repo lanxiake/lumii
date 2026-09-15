@@ -35,8 +35,14 @@ function buildReport(overrides: Partial<Record<string, unknown>> = {}) {
       averageLatency: 85,
     },
     memoryStats: {
-      current: { mainProcess: { heapUsed: 100 * 1024 * 1024, external: 10, rss: 300 * 1024 * 1024 }, childProcesses: [] },
-      peak: { mainProcess: { heapUsed: 150 * 1024 * 1024, external: 20, rss: 400 * 1024 * 1024 }, childProcesses: [] },
+      current: {
+        mainProcess: { heapUsed: 100 * 1024 * 1024, heapTotal: 150 * 1024 * 1024, external: 10, arrayBuffers: 4, rss: 300 * 1024 * 1024 },
+        childProcesses: [],
+      },
+      peak: {
+        mainProcess: { heapUsed: 150 * 1024 * 1024, heapTotal: 200 * 1024 * 1024, external: 20, arrayBuffers: 6, rss: 400 * 1024 * 1024 },
+        childProcesses: [],
+      },
     },
     health: 'good',
     ...overrides,
@@ -48,6 +54,31 @@ function buildHistory(overrides: Partial<Record<string, unknown>> = {}) {
     ipcAggregates: [],
     memorySnapshots: [],
     ...overrides,
+  }
+}
+
+/** 本面板不消费 native 读数，只需形状合法 */
+function nativeZeros() {
+  return {
+    rss: 0,
+    heapTotal: 0,
+    heapUsed: 0,
+    external: 0,
+    arrayBuffers: 0,
+    v8UsedHeap: 0,
+    v8TotalPhysical: 0,
+    v8Malloced: 0,
+    v8PeakMalloced: 0,
+    blinkAllocated: 0,
+    blinkTotal: 0,
+    resImages: 0,
+    resImagesLive: 0,
+    resScripts: 0,
+    resCss: 0,
+    resFonts: 0,
+    resOther: 0,
+    selfPrivate: 0,
+    selfWorkingSet: 0,
   }
 }
 
@@ -69,6 +100,7 @@ describe('PerformanceDiagnostics', () => {
         openLogFolder: vi.fn(async () => ({ success: true })),
         getHistory: vi.fn(async () => buildHistory()),
         recordRendererMemory: vi.fn(async () => ({ success: true })),
+        readRendererNativeMemory: vi.fn(async () => nativeZeros()),
       },
     } as typeof window.electronAPI
   })
@@ -115,6 +147,7 @@ describe('PerformanceDiagnostics', () => {
         openLogFolder: vi.fn(),
         getHistory: vi.fn(async () => buildHistory()),
         recordRendererMemory: vi.fn(async () => ({ success: true })),
+        readRendererNativeMemory: vi.fn(async () => nativeZeros()),
       },
     } as typeof window.electronAPI
 
@@ -141,13 +174,14 @@ describe('PerformanceDiagnostics', () => {
         capture: vi.fn(async () => ({ success: true })),
         openLogFolder: vi.fn(async () => ({ success: true })),
         recordRendererMemory: vi.fn(async () => ({ success: true })),
+        readRendererNativeMemory: vi.fn(async () => nativeZeros()),
         getHistory: vi.fn(async () =>
           buildHistory({
             memorySnapshots: [
               {
                 timestamp: Date.now(),
                 kind: 'memory.snapshot',
-                mainProcess: { heapUsed: 100 * 1024 * 1024, external: 10, rss: 300 * 1024 * 1024 },
+                mainProcess: { heapUsed: 100 * 1024 * 1024, heapTotal: 150 * 1024 * 1024, external: 10, arrayBuffers: 4, rss: 300 * 1024 * 1024 },
                 childProcesses: [],
               },
             ],

@@ -323,6 +323,27 @@ describe('PerformanceMonitor', () => {
         fileEvents: 37,
         compactionEvents: 0,
         topSessions: '394c9ea33cee:122',
+        native: {
+          rss: 5_400_000_000,
+          heapTotal: 300 * 1024 * 1024,
+          heapUsed: 209 * 1024 * 1024,
+          external: 12 * 1024 * 1024,
+          arrayBuffers: 8 * 1024 * 1024,
+          v8UsedHeap: 209 * 1024 * 1024,
+          v8TotalPhysical: 300 * 1024 * 1024,
+          v8Malloced: 4 * 1024 * 1024,
+          v8PeakMalloced: 6 * 1024 * 1024,
+          blinkAllocated: 1_500_000,
+          blinkTotal: 1_800_000,
+          resImages: 2 * 1024 * 1024,
+          resImagesLive: 2 * 1024 * 1024,
+          resScripts: 30 * 1024 * 1024,
+          resCss: 4 * 1024 * 1024,
+          resFonts: 1024 * 1024,
+          resOther: 512 * 1024,
+          selfPrivate: 5_300_000,
+          selfWorkingSet: 5_200_000,
+        },
         ...overrides,
       }
     }
@@ -338,7 +359,7 @@ describe('PerformanceMonitor', () => {
       monitor.recordMemorySnapshot({
         timestamp: Date.now(),
         kind: 'memory.snapshot',
-        mainProcess: { heapUsed: 1, external: 2, rss: 3 },
+        mainProcess: { heapUsed: 1, heapTotal: 2, external: 2, arrayBuffers: 1, rss: 3 },
         childProcesses: [],
       })
       monitor.recordRendererMemory(sample())

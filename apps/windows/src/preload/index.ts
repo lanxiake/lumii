@@ -15,6 +15,8 @@ import type { NewsSnapshot } from '../main/news-store'
 import type { DashboardFeedSnapshot, DashboardFeedPage, DashboardFeedMeta } from '../main/dashboard-feed-store'
 import type { LatencyView } from '../main/provider-latency'
 import type { PerformanceReport, IpcAggregateEvent, MemorySnapshotEvent, RendererMemorySample } from '../main/perf/performance-types'
+import type { RendererNativeMemory } from '../main/perf/performance-types'
+import { readRendererNativeMemory } from './renderer-native-memory'
 // 导入提取的 API 模块
 import {
   fileApi,
@@ -1161,6 +1163,11 @@ export interface ElectronAPI {
      * 时间戳与 pid 由主进程补，这里只递交读数。
      */
     recordRendererMemory: (sample: RendererMemorySample) => Promise<{ success: boolean; error?: string }>
+    /**
+     * 读一次本进程的原生内存口径（V8 堆外 / Blink 分配器 / Blink 资源缓存 / 进程级）。
+     * 只有 preload 够得着这几个 Electron 接口，故由这里读、渲染层的探针并进采样。
+     */
+    readRendererNativeMemory: () => Promise<RendererNativeMemory>
   }
 
   // 自主进化
@@ -1408,6 +1415,7 @@ const electronAPI: ElectronAPI = {
     getHistory: () => ipcRenderer.invoke('performance:getHistory'),
     recordRendererMemory: (sample: RendererMemorySample) =>
       ipcRenderer.invoke('performance:recordRendererMemory', sample),
+    readRendererNativeMemory: () => readRendererNativeMemory(),
   },
 
   // 自主进化

@@ -37,7 +37,9 @@ describe('performance-types', () => {
       kind: 'memory.snapshot',
       mainProcess: {
         heapUsed: 50 * 1024 * 1024,
+        heapTotal: 80 * 1024 * 1024,
         external: 5 * 1024 * 1024,
+        arrayBuffers: 3 * 1024 * 1024,
         rss: 150 * 1024 * 1024,
       },
       childProcesses: [
@@ -70,11 +72,11 @@ describe('performance-types', () => {
       },
       memoryStats: {
         current: {
-          mainProcess: { heapUsed: 100, external: 10, rss: 300 },
+          mainProcess: { heapUsed: 100, heapTotal: 150, external: 10, arrayBuffers: 4, rss: 300 },
           childProcesses: [],
         },
         peak: {
-          mainProcess: { heapUsed: 150, external: 20, rss: 450 },
+          mainProcess: { heapUsed: 150, heapTotal: 200, external: 20, arrayBuffers: 6, rss: 450 },
           childProcesses: [],
         },
       },

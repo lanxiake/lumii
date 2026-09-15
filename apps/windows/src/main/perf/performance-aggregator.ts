@@ -193,7 +193,7 @@ export class PerformanceAggregator {
 
   getMemoryStats(): MemoryStats {
     if (this.memorySnapshots.length === 0) {
-      const empty = { heapUsed: 0, external: 0, rss: 0 }
+      const empty = { heapUsed: 0, heapTotal: 0, external: 0, arrayBuffers: 0, rss: 0 }
       return {
         current: { mainProcess: empty, childProcesses: [] },
         peak: { mainProcess: empty, childProcesses: [] },

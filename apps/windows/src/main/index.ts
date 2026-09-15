@@ -1237,7 +1237,9 @@ async function initialize(): Promise<void> {
       kind: 'memory.snapshot',
       mainProcess: {
         heapUsed: memoryUsage.heapUsed,
+        heapTotal: memoryUsage.heapTotal,
         external: memoryUsage.external,
+        arrayBuffers: memoryUsage.arrayBuffers,
         rss: memoryUsage.rss,
       },
       childProcesses: app.getAppMetrics().map(metric => ({

@@ -5,7 +5,7 @@
  * 算错口径就等于下次出事仍然查不出来，所以各口计数都要锁住。
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import type { RendererMemorySample } from '@main/perf/performance-types'
+import type { RendererMemorySample, RendererNativeMemory } from '@main/perf/performance-types'
 import {
   collectRendererMemorySample,
   startRendererMemoryProbe,
@@ -14,8 +14,37 @@ import { resetRuntimeStore, updateSessionState, getDefaultPerSessionState } from
 
 const PROBE_FLAG = '__lumiiRendererMemoryProbeStarted'
 
+/** 一份字段齐全的 native 读数，供测试按需覆写 */
+function fakeNative(overrides: Partial<RendererNativeMemory> = {}): RendererNativeMemory {
+  return {
+    rss: 2_600_000_000,
+    heapTotal: 300 * 1024 * 1024,
+    heapUsed: 209 * 1024 * 1024,
+    external: 12 * 1024 * 1024,
+    arrayBuffers: 8 * 1024 * 1024,
+    v8UsedHeap: 209 * 1024 * 1024,
+    v8TotalPhysical: 300 * 1024 * 1024,
+    v8Malloced: 4 * 1024 * 1024,
+    v8PeakMalloced: 6 * 1024 * 1024,
+    blinkAllocated: 1_500_000,
+    blinkTotal: 1_800_000,
+    resImages: 2 * 1024 * 1024,
+    resImagesLive: 2 * 1024 * 1024,
+    resScripts: 30 * 1024 * 1024,
+    resCss: 4 * 1024 * 1024,
+    resFonts: 1024 * 1024,
+    resOther: 512 * 1024,
+    selfPrivate: 5_300_000,
+    selfWorkingSet: 5_200_000,
+    ...overrides,
+  }
+}
+
 /** 装一个只关心 recordRendererMemory 的 preload 假实现（其余方法补齐仅为满足类型） */
-function stubPerformanceApi(recordRendererMemory: (sample: RendererMemorySample) => Promise<{ success: boolean }>): void {
+function stubPerformanceApi(
+  recordRendererMemory: (sample: RendererMemorySample) => Promise<{ success: boolean }>,
+  readRendererNativeMemory: () => Promise<RendererNativeMemory> = async () => fakeNative(),
+): void {
   window.electronAPI = {
     ...window.electronAPI,
     performance: {
@@ -24,6 +53,7 @@ function stubPerformanceApi(recordRendererMemory: (sample: RendererMemorySample)
       openLogFolder: vi.fn(),
       getHistory: vi.fn(),
       recordRendererMemory,
+      readRendererNativeMemory,
     },
   } as typeof window.electronAPI
 }
@@ -174,6 +204,55 @@ describe('startRendererMemoryProbe', () => {
 
     expect(() => startRendererMemoryProbe()).not.toThrow()
     expect(warn).toHaveBeenCalled()
+    warn.mockRestore()
+  })
+
+  it('把 preload 读到的原生口径并进采样一起上报', async () => {
+    vi.useFakeTimers()
+    const recordRendererMemory = vi.fn(async (_sample: RendererMemorySample) => ({ success: true }))
+    // 2.6GB 进程私有内存 vs 112MB JS 堆——正是这次要查的那种账
+    const native = fakeNative({ selfPrivate: 2_600_000, blinkTotal: 1_900_000 })
+    stubPerformanceApi(recordRendererMemory, async () => native)
+    stubHeap(112 * 1024 * 1024, 4096 * 1024 * 1024)
+
+    startRendererMemoryProbe()
+    await vi.advanceTimersByTimeAsync(10_000)
+
+    const sent = recordRendererMemory.mock.calls[0]![0]
+    expect(sent.native).toEqual(native)
+    expect(sent.jsHeapUsed).toBe(112 * 1024 * 1024)
+  })
+
+  it('原生读数抛错时整条采样仍要上报，native 记 0', async () => {
+    vi.useFakeTimers()
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const recordRendererMemory = vi.fn(async (_sample: RendererMemorySample) => ({ success: true }))
+    stubPerformanceApi(recordRendererMemory, async () => {
+      throw new Error('getBlinkMemoryInfo 不可用')
+    })
+
+    startRendererMemoryProbe()
+    await vi.advanceTimersByTimeAsync(10_000)
+
+    expect(recordRendererMemory).toHaveBeenCalledTimes(1)
+    expect(recordRendererMemory.mock.calls[0]![0].native.blinkTotal).toBe(0)
+    expect(warn).toHaveBeenCalled()
+    warn.mockRestore()
+  })
+
+  it('原生读数持续失败时告警只打一次，不每分钟刷屏', async () => {
+    vi.useFakeTimers()
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const recordRendererMemory = vi.fn(async (_sample: RendererMemorySample) => ({ success: true }))
+    stubPerformanceApi(recordRendererMemory, async () => {
+      throw new Error('不可用')
+    })
+
+    startRendererMemoryProbe()
+    await vi.advanceTimersByTimeAsync(10_000 + 60_000 * 3)
+
+    expect(recordRendererMemory).toHaveBeenCalledTimes(4)
+    expect(warn).toHaveBeenCalledTimes(1)
     warn.mockRestore()
   })
 })

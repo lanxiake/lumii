@@ -10,11 +10,16 @@
  * - jsHeap*：V8 堆（JS 侧持有）
  * - domNodes / imgs / canvas / iframes：Blink 侧体量
  * - sessions / messages / contentChars：运行时 store 的数据体量
+ * - native：V8 堆外 / Blink 分配器 / Blink 资源缓存 / 进程级读数（preload 侧读）
+ *
+ * native 那一组是 2026-09-15 复测后补的：当时渲染进程私有内存 2.6GB，而上面
+ * 页面口径全部加起来不到 10MB——说明缺口根本不在页面上。没有 native 就只能看到
+ * 「有 2.4GB 不知去向」，有了它才能分辨是 Blink 分配器、资源缓存，还是堆外 ArrayBuffer。
  *
  * 采样发往主进程而非写本地日志，渲染进程崩溃后样本仍在主进程手里。
  */
 
-import type { RendererMemorySample } from '@main/perf/performance-types'
+import type { RendererMemorySample, RendererPageSample, RendererNativeMemory } from '@main/perf/performance-types'
 import { runtimeStore } from '../hooks/business/useAgentRuntime/agent-runtime-store'
 
 /** 采样间隔：够密能看清趋势，又不至于自己污染读数 */
@@ -110,8 +115,8 @@ function readStoreSize(): Pick<
   }
 }
 
-/** 采集一次完整样本 */
-export function collectRendererMemorySample(): RendererMemorySample {
+/** 采集一次完整样本（不含 native——那部分由 preload 另读） */
+export function collectRendererMemorySample(): RendererPageSample {
   const heap = readHeap()
   return {
     jsHeapUsed: heap?.usedJSHeapSize ?? 0,
@@ -122,15 +127,56 @@ export function collectRendererMemorySample(): RendererMemorySample {
   }
 }
 
+/** native 读不到时的占位：宁可记 0，也不能让整条采样丢掉 */
+const ZERO_NATIVE: RendererNativeMemory = {
+  rss: 0,
+  heapTotal: 0,
+  heapUsed: 0,
+  external: 0,
+  arrayBuffers: 0,
+  v8UsedHeap: 0,
+  v8TotalPhysical: 0,
+  v8Malloced: 0,
+  v8PeakMalloced: 0,
+  blinkAllocated: 0,
+  blinkTotal: 0,
+  resImages: 0,
+  resImagesLive: 0,
+  resScripts: 0,
+  resCss: 0,
+  resFonts: 0,
+  resOther: 0,
+  selfPrivate: 0,
+  selfWorkingSet: 0,
+}
+
+/** native 读取失败的告警只打一次，避免每分钟刷屏 */
+let nativeReadWarned = false
+
 /** 上报一次采样；失败静默——采样本身不该影响业务 */
-function reportSample(): void {
+async function reportSample(): Promise<void> {
   const api = window.electronAPI?.performance
   if (!api?.recordRendererMemory) return
-  void api
-    .recordRendererMemory(collectRendererMemorySample())
-    .catch(() => {
-      // 主进程未注册处理器（如 preload 版本不匹配）时忽略
-    })
+
+  const page = collectRendererMemorySample()
+
+  let native = ZERO_NATIVE
+  try {
+    native = (await api.readRendererNativeMemory?.()) ?? ZERO_NATIVE
+  } catch (err) {
+    if (!nativeReadWarned) {
+      nativeReadWarned = true
+      console.warn('[RendererMemoryProbe] 原生内存读数失败，本次按 0 记录', err)
+    }
+  }
+
+  const sample: RendererMemorySample = { ...page, native }
+
+  try {
+    await api.recordRendererMemory(sample)
+  } catch {
+    // 主进程未注册处理器（如 preload 版本不匹配）时忽略
+  }
 }
 
 /**
@@ -146,6 +192,9 @@ export function startRendererMemoryProbe(): void {
     console.warn('[RendererMemoryProbe] preload 未暴露 recordRendererMemory，采样已跳过')
     return
   }
+
+  // 每次启动重新起算告警闩（生产里只启动一次，等价于初始值；测试里可反复起停）
+  nativeReadWarned = false
 
   setTimeout(reportSample, FIRST_SAMPLE_DELAY_MS)
   setInterval(reportSample, SAMPLE_INTERVAL_MS)

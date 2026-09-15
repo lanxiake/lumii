@@ -191,4 +191,45 @@ describe('normalizeRendererSample', () => {
     expect(sample?.domNodes).toBe(0)
     expect(sample?.topSessions).toBe('')
   })
+
+  it('keeps the native readings as reported', () => {
+    const sample = normalizeRendererSample({
+      native: {
+        selfPrivate: 2_620_000,
+        selfWorkingSet: 2_583_000,
+        arrayBuffers: 8_388_608,
+        blinkTotal: 1_800_000,
+        resImagesLive: 1_048_576,
+      },
+    })
+    expect(sample?.native).toMatchObject({
+      selfPrivate: 2_620_000,
+      selfWorkingSet: 2_583_000,
+      arrayBuffers: 8_388_608,
+      blinkTotal: 1_800_000,
+      resImagesLive: 1_048_576,
+    })
+  })
+
+  it('normalizes a dirty native block field by field instead of dropping the sample', () => {
+    const sample = normalizeRendererSample({
+      jsHeapUsed: 1024,
+      native: { selfPrivate: NaN, blinkTotal: -5, arrayBuffers: '8388608' },
+    })
+    expect(sample).not.toBeNull()
+    expect(sample?.jsHeapUsed).toBe(1024)
+    expect(sample?.native.selfPrivate).toBe(0)
+    expect(sample?.native.blinkTotal).toBe(0)
+    expect(sample?.native.arrayBuffers).toBe(0)
+  })
+
+  it('fills a missing or non-object native block with zeros', () => {
+    // 旧版 preload 的采样（还没有 native 字段）不该被判成非法
+    for (const native of [undefined, null, 'x', 42]) {
+      const sample = normalizeRendererSample({ jsHeapUsed: 1024, native })
+      expect(sample).not.toBeNull()
+      expect(sample?.native.selfPrivate).toBe(0)
+      expect(sample?.native.resImagesLive).toBe(0)
+    }
+  })
 })

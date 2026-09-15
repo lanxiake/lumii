@@ -1,6 +1,6 @@
 import { ipcMain, shell } from 'electron'
 import type { PerformanceMonitor } from '../perf/performance-monitor'
-import type { RendererMemorySample } from '../perf/performance-types'
+import type { RendererMemorySample, RendererNativeMemory } from '../perf/performance-types'
 import { resolvePerfLogsDir } from '../paths'
 import { createLogger } from '../logger'
 
@@ -20,6 +20,35 @@ const MAX_TOP_SESSIONS_CHARS = 200
 function toCount(value: unknown): number {
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return 0
   return Math.min(Math.trunc(value), MAX_SAMPLE_VALUE)
+}
+
+/**
+ * 规整渲染进程上报的原生口径。缺字段/脏字段一律归零——这些读数来自
+ * Electron 的各路接口，个别平台本就可能读不到。
+ */
+function normalizeNativeMemory(raw: unknown): RendererNativeMemory {
+  const r = (raw != null && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
+  return {
+    rss: toCount(r.rss),
+    heapTotal: toCount(r.heapTotal),
+    heapUsed: toCount(r.heapUsed),
+    external: toCount(r.external),
+    arrayBuffers: toCount(r.arrayBuffers),
+    v8UsedHeap: toCount(r.v8UsedHeap),
+    v8TotalPhysical: toCount(r.v8TotalPhysical),
+    v8Malloced: toCount(r.v8Malloced),
+    v8PeakMalloced: toCount(r.v8PeakMalloced),
+    blinkAllocated: toCount(r.blinkAllocated),
+    blinkTotal: toCount(r.blinkTotal),
+    resImages: toCount(r.resImages),
+    resImagesLive: toCount(r.resImagesLive),
+    resScripts: toCount(r.resScripts),
+    resCss: toCount(r.resCss),
+    resFonts: toCount(r.resFonts),
+    resOther: toCount(r.resOther),
+    selfPrivate: toCount(r.selfPrivate),
+    selfWorkingSet: toCount(r.selfWorkingSet),
+  }
 }
 
 /**
@@ -44,6 +73,7 @@ export function normalizeRendererSample(raw: unknown): RendererMemorySample | nu
     fileEvents: toCount(r.fileEvents),
     compactionEvents: toCount(r.compactionEvents),
     topSessions: typeof r.topSessions === 'string' ? r.topSessions.slice(0, MAX_TOP_SESSIONS_CHARS) : '',
+    native: normalizeNativeMemory(r.native),
   }
 }
 
@@ -84,7 +114,9 @@ export function setupPerformanceIpcHandlers(performanceMonitor: PerformanceMonit
         kind: 'memory.snapshot',
         mainProcess: {
           heapUsed: memoryUsage.heapUsed,
+          heapTotal: memoryUsage.heapTotal,
           external: memoryUsage.external,
+          arrayBuffers: memoryUsage.arrayBuffers,
           rss: memoryUsage.rss,
         },
         childProcesses: [],

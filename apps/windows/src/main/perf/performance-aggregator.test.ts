@@ -120,7 +120,7 @@ describe('PerformanceAggregator', () => {
     const snapshot: MemorySnapshotEvent = {
       timestamp: Date.now(),
       kind: 'memory.snapshot',
-      mainProcess: { heapUsed: 100, external: 10, rss: 300 },
+      mainProcess: { heapUsed: 100, heapTotal: 150, external: 10, arrayBuffers: 5, rss: 300 },
       childProcesses: [],
     }
     aggregator.recordMemorySnapshot(snapshot)
@@ -134,13 +134,13 @@ describe('PerformanceAggregator', () => {
     aggregator.recordMemorySnapshot({
       timestamp: Date.now(),
       kind: 'memory.snapshot',
-      mainProcess: { heapUsed: 100, external: 10, rss: 300 },
+      mainProcess: { heapUsed: 100, heapTotal: 150, external: 10, arrayBuffers: 5, rss: 300 },
       childProcesses: [],
     })
     aggregator.recordMemorySnapshot({
       timestamp: Date.now() + 1000,
       kind: 'memory.snapshot',
-      mainProcess: { heapUsed: 150, external: 20, rss: 400 },
+      mainProcess: { heapUsed: 150, heapTotal: 200, external: 20, arrayBuffers: 5, rss: 400 },
       childProcesses: [],
     })
 
