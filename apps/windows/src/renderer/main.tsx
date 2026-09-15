@@ -157,6 +157,8 @@ if (isPetMode) {
       </RootErrorBoundary>
     </React.StrictMode>,
   )
+  // 渲染进程内存采样：每分钟上报一次，落进 perf 日志（见 renderer/perf/renderer-memory-probe.ts）
+  void import('./perf/renderer-memory-probe').then((m) => m.startRendererMemoryProbe())
 }
 
 console.log('[Renderer] React 应用已挂载')

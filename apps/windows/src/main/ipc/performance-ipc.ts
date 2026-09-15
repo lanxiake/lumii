@@ -1,9 +1,51 @@
 import { ipcMain, shell } from 'electron'
 import type { PerformanceMonitor } from '../perf/performance-monitor'
+import type { RendererMemorySample } from '../perf/performance-types'
 import { resolvePerfLogsDir } from '../paths'
 import { createLogger } from '../logger'
 
 const log = createLogger('ipc/performance')
+
+/** 单个字段的上界：超过即视为脏数据，按上限截断而不是原样落盘 */
+const MAX_SAMPLE_VALUE = Number.MAX_SAFE_INTEGER
+/** topSessions 摘要串长度上限 */
+const MAX_TOP_SESSIONS_CHARS = 200
+
+/**
+ * 取一个非负整数计数，非法值一律归零。
+ *
+ * 采样来自渲染进程，属于跨进程边界：类型断言挡不住运行时脏数据，
+ * 而一个 NaN/Infinity 写进 jsonl 会让整行不再是合法 JSON。
+ */
+function toCount(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return 0
+  return Math.min(Math.trunc(value), MAX_SAMPLE_VALUE)
+}
+
+/**
+ * 规整渲染进程内存采样。非对象载荷整体判非法，字段级脏数据按零处理——
+ * 采样宁可少几个字段，也不能因为一个坏值丢掉整次记录。
+ */
+export function normalizeRendererSample(raw: unknown): RendererMemorySample | null {
+  if (raw == null || typeof raw !== 'object') return null
+  const r = raw as Record<string, unknown>
+  return {
+    jsHeapUsed: toCount(r.jsHeapUsed),
+    jsHeapLimit: toCount(r.jsHeapLimit),
+    domNodes: toCount(r.domNodes),
+    imgs: toCount(r.imgs),
+    imageBytes: toCount(r.imageBytes),
+    canvases: toCount(r.canvases),
+    canvasBytes: toCount(r.canvasBytes),
+    iframes: toCount(r.iframes),
+    sessions: toCount(r.sessions),
+    messages: toCount(r.messages),
+    contentChars: toCount(r.contentChars),
+    fileEvents: toCount(r.fileEvents),
+    compactionEvents: toCount(r.compactionEvents),
+    topSessions: typeof r.topSessions === 'string' ? r.topSessions.slice(0, MAX_TOP_SESSIONS_CHARS) : '',
+  }
+}
 
 export function setupPerformanceIpcHandlers(performanceMonitor: PerformanceMonitor): void {
   // 获取性能诊断报告
@@ -51,6 +93,28 @@ export function setupPerformanceIpcHandlers(performanceMonitor: PerformanceMonit
       return { success: true }
     } catch (err) {
       log.error('[capture] 快照捕获失败', err)
+      return { success: false, error: err instanceof Error ? err.message : String(err) }
+    }
+  })
+
+  // 渲染进程内存采样：渲染层每分钟上报一次，与 memory.snapshot 落在同一份 perf 日志里。
+  // 时间戳与 pid 由主进程补——渲染层自填的 pid 没有可信度，而崩溃后要靠它认领进程。
+  ipcMain.handle('performance:recordRendererMemory', async (event, raw: unknown) => {
+    try {
+      const sample = normalizeRendererSample(raw)
+      if (!sample) {
+        log.warn('[recordRendererMemory] 采样载荷非法，已忽略')
+        return { success: false, error: 'invalid-sample' }
+      }
+      performanceMonitor.recordRendererMemory({
+        timestamp: Date.now(),
+        kind: 'renderer.memory',
+        pid: event.sender.getOSProcessId(),
+        ...sample,
+      })
+      return { success: true }
+    } catch (err) {
+      log.error('[recordRendererMemory] 采样写入失败', err)
       return { success: false, error: err instanceof Error ? err.message : String(err) }
     }
   })

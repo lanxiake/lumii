@@ -6,6 +6,7 @@ import type {
   PerformanceEvent,
   PerformanceMonitorConfig,
   MemorySnapshotEvent,
+  RendererMemoryEvent,
   StartupPhaseEvent,
   IpcAggregateEvent,
 } from './performance-types'
@@ -246,6 +247,19 @@ export class PerformanceMonitor {
 
     this.aggregator.recordMemorySnapshot(snapshot)
     this.enqueueEvent(snapshot)
+  }
+
+  /**
+   * 渲染进程内存采样入队。
+   *
+   * 不进 aggregator：它服务的是性能诊断页面的趋势图与健康度报告，
+   * 口径是「进程级内存快照」，混入渲染进程的堆级读数会污染那份报告。
+   * 这里只把事件写进 perf jsonl——需要的是留档，不是实时图表。
+   */
+  recordRendererMemory(event: RendererMemoryEvent) {
+    if (!this.config.enabled) return
+
+    this.enqueueEvent(event)
   }
 
   private enqueueEvent(event: PerformanceEvent) {

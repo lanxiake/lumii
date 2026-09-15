@@ -301,4 +301,95 @@ describe('PerformanceMonitor', () => {
     // 三次 flush 之后，聚合事件应只被写入一次，而不是三次
     expect(aggregateEvents.length).toBe(1)
   })
+
+  describe('recordRendererMemory', () => {
+    /** 造一条渲染进程采样（字段完整，和真实上报同形） */
+    function sample(overrides: Record<string, unknown> = {}) {
+      return {
+        timestamp: Date.now(),
+        kind: 'renderer.memory' as const,
+        pid: 4321,
+        jsHeapUsed: 209 * 1024 * 1024,
+        jsHeapLimit: 4096 * 1024 * 1024,
+        domNodes: 12139,
+        imgs: 2,
+        imageBytes: 2 * 1024 * 1024,
+        canvases: 1,
+        canvasBytes: 5 * 1024 * 1024,
+        iframes: 0,
+        sessions: 1,
+        messages: 122,
+        contentChars: 860_000,
+        fileEvents: 37,
+        compactionEvents: 0,
+        topSessions: '394c9ea33cee:122',
+        ...overrides,
+      }
+    }
+
+    /** 读出 tempDir 里唯一 jsonl 的解析后事件 */
+    function readEvents(): { kind: string; [k: string]: unknown }[] {
+      const files = fs.readdirSync(tempDir)
+      const content = fs.readFileSync(path.join(tempDir, files[0]!), 'utf-8')
+      return content.trim().split('\n').filter(Boolean).map(line => JSON.parse(line))
+    }
+
+    it('把采样写进与 memory.snapshot 同一份 perf 日志', async () => {
+      monitor.recordMemorySnapshot({
+        timestamp: Date.now(),
+        kind: 'memory.snapshot',
+        mainProcess: { heapUsed: 1, external: 2, rss: 3 },
+        childProcesses: [],
+      })
+      monitor.recordRendererMemory(sample())
+      await monitor.flush()
+
+      const events = readEvents()
+      const kinds = events.map(e => e.kind)
+      expect(kinds).toContain('memory.snapshot')
+      expect(kinds).toContain('renderer.memory')
+
+      const rendererEvent = events.find(e => e.kind === 'renderer.memory')!
+      expect(rendererEvent.pid).toBe(4321)
+      expect(rendererEvent.domNodes).toBe(12139)
+      expect(rendererEvent.topSessions).toBe('394c9ea33cee:122')
+    })
+
+    it('不进入聚合器：性能报告的内存口径仍是进程级', async () => {
+      monitor.recordRendererMemory(sample())
+      await monitor.flush()
+
+      const report = monitor.getReport()
+      expect(report.memoryStats.current.childProcesses ?? []).toHaveLength(0)
+      expect(monitor.getMemorySnapshotHistory()).toHaveLength(0)
+    })
+
+    it('超出队列上限时丢弃最旧的采样，不无限增长', () => {
+      const smallQueue = new PerformanceMonitor({
+        enabled: true,
+        ipcSlowThresholdMs: 200,
+        memorySnapshotIntervalMs: 10000,
+        maxQueueSize: 3,
+        logDir: tempDir,
+      })
+      for (let i = 0; i < 5; i++) smallQueue.recordRendererMemory(sample({ domNodes: i }))
+      expect(smallQueue.getQueueSize()).toBe(3)
+      smallQueue.destroy()
+    })
+
+    it('disabled 时直接丢弃', async () => {
+      const disabled = new PerformanceMonitor({
+        enabled: false,
+        ipcSlowThresholdMs: 200,
+        memorySnapshotIntervalMs: 10000,
+        maxQueueSize: 200,
+        logDir: tempDir,
+      })
+      disabled.recordRendererMemory(sample())
+      expect(disabled.getQueueSize()).toBe(0)
+      await disabled.flush()
+      expect(fs.readdirSync(tempDir)).toHaveLength(0)
+      disabled.destroy()
+    })
+  })
 })

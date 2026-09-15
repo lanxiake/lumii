@@ -68,6 +68,7 @@ describe('PerformanceDiagnostics', () => {
         capture: vi.fn(async () => ({ success: true })),
         openLogFolder: vi.fn(async () => ({ success: true })),
         getHistory: vi.fn(async () => buildHistory()),
+        recordRendererMemory: vi.fn(async () => ({ success: true })),
       },
     } as typeof window.electronAPI
   })
@@ -113,6 +114,7 @@ describe('PerformanceDiagnostics', () => {
         capture: vi.fn(),
         openLogFolder: vi.fn(),
         getHistory: vi.fn(async () => buildHistory()),
+        recordRendererMemory: vi.fn(async () => ({ success: true })),
       },
     } as typeof window.electronAPI
 
@@ -138,6 +140,7 @@ describe('PerformanceDiagnostics', () => {
         getReport: vi.fn(async () => buildReport()),
         capture: vi.fn(async () => ({ success: true })),
         openLogFolder: vi.fn(async () => ({ success: true })),
+        recordRendererMemory: vi.fn(async () => ({ success: true })),
         getHistory: vi.fn(async () =>
           buildHistory({
             memorySnapshots: [

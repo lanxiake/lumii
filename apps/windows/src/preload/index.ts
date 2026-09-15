@@ -14,7 +14,7 @@ import type { UsageSummary } from '../main/usage-store'
 import type { NewsSnapshot } from '../main/news-store'
 import type { DashboardFeedSnapshot, DashboardFeedPage, DashboardFeedMeta } from '../main/dashboard-feed-store'
 import type { LatencyView } from '../main/provider-latency'
-import type { PerformanceReport, IpcAggregateEvent, MemorySnapshotEvent } from '../main/perf/performance-types'
+import type { PerformanceReport, IpcAggregateEvent, MemorySnapshotEvent, RendererMemorySample } from '../main/perf/performance-types'
 // 导入提取的 API 模块
 import {
   fileApi,
@@ -1156,6 +1156,11 @@ export interface ElectronAPI {
     openLogFolder: () => Promise<{ success: boolean; error?: string }>
     /** 获取历史时间序列（IPC 60秒窗口聚合 + 内存快照序列），用于运行时趋势图 */
     getHistory: () => Promise<{ ipcAggregates: IpcAggregateEvent[]; memorySnapshots: MemorySnapshotEvent[] }>
+    /**
+     * 上报一次渲染进程内存采样，落到与 memory.snapshot 同一份 perf 日志。
+     * 时间戳与 pid 由主进程补，这里只递交读数。
+     */
+    recordRendererMemory: (sample: RendererMemorySample) => Promise<{ success: boolean; error?: string }>
   }
 
   // 自主进化
@@ -1401,6 +1406,8 @@ const electronAPI: ElectronAPI = {
     capture: () => ipcRenderer.invoke('performance:capture'),
     openLogFolder: () => ipcRenderer.invoke('performance:openLogFolder'),
     getHistory: () => ipcRenderer.invoke('performance:getHistory'),
+    recordRendererMemory: (sample: RendererMemorySample) =>
+      ipcRenderer.invoke('performance:recordRendererMemory', sample),
   },
 
   // 自主进化
