@@ -283,7 +283,9 @@ describe('FeishuLoginService.replySmart', () => {
     expect(reply).toHaveBeenCalledTimes(2)
     const fallbackReq = reply.mock.calls[1]?.[0] as ImRequest
     expect(fallbackReq.data.msg_type).toBe('text')
-    expect(JSON.parse(fallbackReq.data.content)).toEqual({ text: '【标签】\n标题\n\n正文内容' })
+    // 回退文本 = 标题标签 + 正文的移动端纯文本形态；正文里的 `# 标题` 按移动端
+    // 约定渲染成「【标题】」（见 channel-message-compiler.test.ts 的 heading 断言）。
+    expect(JSON.parse(fallbackReq.data.content)).toEqual({ text: '【标签】\n【标题】\n\n正文内容' })
   })
 })
 

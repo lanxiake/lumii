@@ -5,7 +5,7 @@
  * 绕过 vite-node 对 "node:sqlite" 的静态解析；better-sqlite3 原生绑定在本环境编译
  * 版本不匹配，不可用作回退）。
  */
-import { describe, expect, it, vi } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
@@ -61,6 +61,10 @@ import {
 import { DEFAULT_TOPIC_TREE, PARKING_CATEGORY, WikiReclassifier, WikiEroRepo } from '@mtbot/agent-runtime'
 import { securityUtils } from '../../security-utils'
 import * as wikiVaultHost from '../../agent-runtime/wiki-vault-host'
+import {
+  _resetActiveWorkspaceDirGetterForTest,
+  setActiveWorkspaceDirGetter,
+} from '../../workspace-paths'
 
 /** 内存库 + 全量迁移，等价于用户首启后的真实 schema */
 function createMigratedDb(): DatabaseAdapter {
@@ -103,6 +107,23 @@ function buildBridge(
 function createWikiRepo(): WikiRepo {
   return new WikiRepo(createMigratedDb())
 }
+
+/**
+ * 把 workspace 指到临时目录：这些用例会经 `vaultSyncSource` 真实写盘，
+ * 不隔离的话侧车文件会堆进用户 ~/.lumii/workspace/wiki/（历史上已累积数十个
+ * 「一年级语文下册-N.lumii-ref」这种测试垃圾）。
+ */
+let tmpWorkspace = ''
+
+beforeAll(() => {
+  tmpWorkspace = fs.mkdtempSync(path.join(os.tmpdir(), 'lumii-wiki-cmd-'))
+  setActiveWorkspaceDirGetter(() => tmpWorkspace)
+})
+
+afterAll(() => {
+  _resetActiveWorkspaceDirGetterForTest()
+  fs.rmSync(tmpWorkspace, { recursive: true, force: true })
+})
 
 describe('wiki commands', () => {
   it('inbox list/retry/discard/organize 全流程', () => {
@@ -795,6 +816,25 @@ describe('wiki commands', () => {
       subtopic: '在学',
     })
     expect((list.sources[0] as { title: string }).title).toBe('一年级语文下册.pdf')
+  })
+
+  it('source:list 侧车名自带后缀时直接取用，标题原样保留', () => {
+    const repo = createWikiRepo()
+    const bridge = buildBridge(repo)
+    const source = repo.createSource({
+      agentId: 'assistant',
+      userId: 'local-user',
+      title: '会议纪要',
+      sourcePath: 'wiki/工作/项目/会议纪要.docx.lumii-ref',
+    })
+    repo.updateSourceTopic('assistant', 'local-user', source.id, '工作', '项目')
+    const list = handleWikiSourceList(bridge, {
+      type: 'wiki:source:list',
+      agentId: 'assistant',
+      category: '工作',
+      subtopic: '项目',
+    })
+    expect((list.sources[0] as { title: string }).title).toBe('会议纪要.docx')
   })
 
   it('source:move-to-parking 写入临时存放，subtopic 为 null', () => {

@@ -175,7 +175,7 @@ console.log(db.prepare('SELECT channel_type, COUNT(*) c FROM conversations GROUP
 - 渠道与客户端**原有功能不受影响**：微信/QQ 收发消息正常、`/new`、`/clear`、`/stop`、`/link`、`/resume` 行为与升级前一致；
 - 桌面端会话列表、分组、置顶、删除正常；
 - 定时任务（若有）到点仍能推送；
-- **任何失败都先对照「既有基线」**：本机 `apps/windows` 全量测试有 6 个既有失败用例（与本计划无关）+ 个别顺序敏感摆动位，别误判成新引入的问题。
+- **任何失败都先对照「基线」**：原先的 6 个既有失败（`command-allowlist` / `goto` / `feishu-login-service` / `wiki-commands` / `WikiTopicPicker`×2）已于 2026-09-15 全部修掉，全量跑（`pnpm test:all`）应只剩**顺序/时序敏感摆动位**——已记录的有 `workspace-vcs/vcs-repo.test.ts`（`diffCommits` 偶发 30s 超时）、`WikiGraphView` 点击 subtopic、`pet/pet-model-resolver.test.ts`。单跑这些文件通过即视为摆动，不是新引入的问题。
 
 ## 四、记录方式
 

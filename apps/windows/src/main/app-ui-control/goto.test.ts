@@ -12,10 +12,14 @@ describe('parseGotoInput', () => {
     expect(result).toEqual({ ok: true, input: { view: 'settings', category: 'voice' } })
   })
 
+  // 下面两份清单**故意手抄**：它们是「运行时可接受的取值」的独立副本，
+  // 与 goto.ts/types.ts 一起改才算数（`autonomous` 当年改成 `experimental` 时
+  // 只改了实现、漏了这里，本测试就是为此报的警——别把它们抽成共享常量，那样就测不到漂移了）。
   it('所有 ViewType 均合法', () => {
     const views = [
       'dashboard',
       'chat',
+      'autonomous',
       'skills',
       'settings',
       'memories',
@@ -41,7 +45,7 @@ describe('parseGotoInput', () => {
       'pet',
       'usage',
       'privacy',
-      'autonomous',
+      'experimental',
       'aboutAndUpdate',
     ] as const
     for (const category of categories) {

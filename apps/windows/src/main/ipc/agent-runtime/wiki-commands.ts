@@ -26,6 +26,7 @@ import {
   buildNavSectionGuide,
   vaultDirSegmentsForSource,
   resolveOriginalFilePath,
+  type WikiVaultSyncDeps,
   buildLibraryInventory,
   STRUCTURE_BATCH_SIZE,
   CONTENT_BATCH_SIZE,
@@ -46,7 +47,7 @@ import {
 } from '../../agent-runtime/wiki-vault-host'
 import { resolveWikiDir } from '../../workspace-paths'
 import { securityUtils } from '../../security-utils'
-import { titleWithOriginalExt } from './wiki-display-title'
+import { originalFileExtension, titleWithOriginalExt } from './wiki-display-title'
 import { createWikiSourceFileExistsChecker } from '../../agent-runtime/wiki-broken-source-purge'
 
 const LOCAL_USER_ID = 'local-user'
@@ -996,17 +997,33 @@ export function handleWikiReclassifyCancel(
 }
 
 /**
- * 列表 DTO：不读 vault ref、不带正文，避免 800+ 条时逐条磁盘 IO 与巨型 IPC。
+ * 列表展示标题：标题缺原文件后缀就补上，让用户在列表里分得清 PDF 与纯文本。
+ *
+ * vault 同步后 `source_path` 变成 `.lumii-ref` 侧车，而侧车名取自**标题**：
+ * 标题本来就没带后缀时（标题与文件名不一致的导入），侧车里也就没有真后缀，
+ * 只有解引用侧车读回 `targetPath` 才拿得到原始文件名——与 inbox 列表同一口径。
+ * 侧车名自带后缀（`x.pdf.lumii-ref`，绝大多数资料）时不读盘。
+ */
+function listTitleForSource(source: WikiSource, deps: () => WikiVaultSyncDeps): string {
+  if (originalFileExtension(source.source_path)) {
+    return titleWithOriginalExt(source.title, source.source_path)
+  }
+  return titleWithOriginalExt(source.title, resolveOriginalFilePath(deps(), source) ?? source.source_path)
+}
+
+/**
+ * 列表 DTO：不带正文，避免 800+ 条时巨型 IPC。
  */
 function mapSourceListItem(
   source: NonNullable<ReturnType<AgentRuntimeBridge['wikiRepo']['findSourceById']>>,
+  deps: () => WikiVaultSyncDeps,
 ) {
   const summary = source.summary ?? null
   const userPath = source.user_path ? safeParseJsonArray(source.user_path) : null
   const tags = source.tags ? safeParseJsonArray(source.tags) : null
   return {
     id: source.id,
-    title: titleWithOriginalExt(source.title, source.source_path),
+    title: listTitleForSource(source, deps),
     sourcePath: source.source_path,
     mediaType: source.media_type,
     topicCategory: source.topic_category,
@@ -1048,7 +1065,10 @@ export function handleWikiSourceList(
     archived: command.archived,
     mediaType: command.mediaType as never,
   })
-  return { sources: sources.map((s) => mapSourceListItem(s)) }
+  // vault 侧车路径要读盘才解析得出原始文件名（`createWikiVaultSyncDeps` 会顺带建 wiki/ 目录），
+  // 按需构造：绝大多数资料的侧车名自带后缀，走不到这一步。
+  let deps: WikiVaultSyncDeps | null = null
+  return { sources: sources.map((s) => mapSourceListItem(s, () => (deps ??= createWikiVaultSyncDeps()))) }
 }
 
 /**
