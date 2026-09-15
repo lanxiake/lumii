@@ -274,13 +274,16 @@ function startWatchCompletion(
  * 完成后把结果写回原会话（主助手会话），保证「原会话知道任务结果」。
  *
  * 从 `handoff-commands` 移入此处：它是执行链的收尾动作，且自动转交（见下）也要用。
+ *
+ * 两条出口并存：**渠道会话**（QQ / 飞书 / 微信 / 企微）把结果推到渠道——那里的用户看不到开发会话，
+ * 也收不到桌面通知，只落库等于「没有任何响应」；**桌面**则照旧只在用户不在原会话时补一条通知。
  */
-export function reportToOriginSession(
+export async function reportToOriginSession(
   bridge: AgentRuntimeBridge,
   originSessionKey: string,
   summary: string,
   payload: DevHandoffReport,
-): void {
+): Promise<void> {
   if (!originSessionKey) return
   const text = formatHandoffReport(summary, payload)
   try {
@@ -300,6 +303,13 @@ export function reportToOriginSession(
       },
     })
     log.info(`[handoff] 已向原会话汇报结果 sessionKey=${originSessionKey}`)
+
+    // 渠道出站：会话在渠道上（ChannelInteractionHub 存有它的回复上下文）就把结果发出去——
+    // 渠道用户看不到开发会话，只落库等于「没有任何响应」。
+    // 不作为桌面通知的替代分支：adapter 的 sendTextReply 失败时只记日志不抛错，
+    // 拿它的返回值当「已送达」会变成静默失败；两条出口并存，桌面行为与改动前一致。
+    const pushed = await bridge.pushChannelText(originSessionKey, text)
+    if (pushed) log.info(`[handoff] 结果已推送到渠道 sessionKey=${originSessionKey}`)
 
     // 用户不在原会话时补桌面通知（点击直达）；在原会话则消息已实时可见，不打扰
     if (bridge.getLastActiveConversationId() !== originSessionKey) {
@@ -345,8 +355,8 @@ export async function runHandoffFromProposal(params: {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     log.error(`[runHandoffFromProposal] 执行失败: ${message}`)
-    // 失败也要让原会话知道，否则用户以为转交生效了
-    reportToOriginSession(params.bridge, params.originSessionKey, params.summary, {
+    // 失败也要让原会话知道（含渠道），否则用户以为转交生效了
+    await reportToOriginSession(params.bridge, params.originSessionKey, params.summary, {
       ok: false,
       devSessionKey: '',
       text: `转交发起失败：${message}`,

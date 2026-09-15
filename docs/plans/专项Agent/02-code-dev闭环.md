@@ -238,4 +238,4 @@ if (effectiveBackend !== DEFAULT_CODING_DEV_BACKEND_ID) {
 |---|---|
 | resume 参数与某些 CLI 版本不兼容 | 参数集中在一处，可逐后端回退为「不续接」；降级重试兜底 |
 | 桌面 `/claude` 从 user-global 改会话级造成预期差 | 设置面板「默认编码后端」承担全局；chip 明示；回滚点 = B3/B4 提交 |
-| cursor `.cmd` 多行 argv 截断 | 已知问题不恶化：长任务建议单行描述；stdin 方案列阶段 2 |
+| cursor `.cmd` 多行 argv 截断 | **已修（2026-09-15）**：claude 的 prompt 改走 stdin、cursor 的 prompt 移到 argv 末位（`buildLocalCliArgs`）；见 05 §七「转交自动执行」 |

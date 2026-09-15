@@ -2585,6 +2585,36 @@ export class AgentRuntimeBridge {
   }
 
   /**
+   * 渠道主动出站：把**异步**产出（转交完成汇报等）推给渠道会话。
+   * 由 ChannelInteractionHub 在构造时注册（回复上下文只有它持有）。
+   */
+  private channelTextPusher:
+    | ((sessionKey: string, text: string) => Promise<boolean>)
+    | null = null
+
+  setChannelTextPusher(
+    pusher: ((sessionKey: string, text: string) => Promise<boolean>) | null,
+  ): void {
+    this.channelTextPusher = pusher
+  }
+
+  /**
+   * 供异步汇报调用：把文本推到该会话所在的渠道。
+   * @returns true = 已送达渠道；false = 该会话不在渠道上（或推送失败），调用方自行兜底
+   */
+  async pushChannelText(sessionKey: string, text: string): Promise<boolean> {
+    if (!this.channelTextPusher) return false
+    try {
+      return await this.channelTextPusher(sessionKey, text)
+    } catch (err) {
+      log.warn(
+        `[pushChannelText] 渠道推送失败 sessionKey=${sessionKey}: ${err instanceof Error ? err.message : String(err)}`,
+      )
+      return false
+    }
+  }
+
+  /**
    * 渲染进程「自动审批」开关的镜像。
    * 开启时审批请求会被渲染进程立刻放行，渠道无需再推文字审批消息（纯噪音）。
    */

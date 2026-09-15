@@ -84,7 +84,7 @@ export function buildAgentCollaborationSection(
   }
   if (toolNames.includes("propose_dev_handoff")) {
     selectionLines.push(
-      "- Code development in a registered/bound project (user names a project and asks for fixes/features there) → propose a handoff with `propose_dev_handoff` (session-based specialists are never spawned); the user confirms on the handoff card before the dev session starts. Small one-off snippets or casual edits outside a project dev workflow → handle them yourself; do not over-escalate",
+      "- Project-level work in a registered/bound project — development there, or project-scoped analysis / review / research (the user names the project) → hand it off with `propose_dev_handoff` (session-based specialists are never spawned). It starts IMMEDIATELY on that call — there is no confirmation step: briefly tell the user it went to 灵栖开发, never ask them to confirm. Small one-off snippets or casual edits outside a project dev workflow → handle them yourself; do not over-escalate",
     )
   }
   selectionLines.push("- No match → omit `agentType` and describe the role in `prompt`")
@@ -101,7 +101,7 @@ export function buildAgentCollaborationSection(
     }
     if (toolNames.includes("propose_dev_handoff")) {
       terse.push(
-        "- Code development in a registered/bound project (user names a project and asks for fixes/features there) → you MUST propose a handoff with `propose_dev_handoff` instead of editing that project yourself — even when you could do it directly with basic tools; the user confirms on the handoff card (desktop) or by replying \"1\" (channels) before the dev session starts. Only small one-off snippets outside any named project → handle yourself",
+        "- Project-level work in a registered/bound project — development there, or project-scoped analysis / review / research (the user names the project) → you MUST hand it off with `propose_dev_handoff` instead of doing it yourself — even when you could do it directly with basic tools. It starts immediately (no confirmation step): just tell the user it went to 灵栖开发 and that the result comes back here. Only small one-off snippets outside any named project → handle yourself",
       )
     }
     terse.push("- No match → omit `agentType` and describe the role in `prompt`.")

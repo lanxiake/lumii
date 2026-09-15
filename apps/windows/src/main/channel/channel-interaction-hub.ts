@@ -35,6 +35,8 @@ export class ChannelInteractionHub {
 
   constructor(private readonly bridge: AgentRuntimeBridge) {
     bridge.setChannelInteractionNotifier((req) => this.onInteraction(req))
+    // 主动出站（转交完成汇报等异步产出）：入站消息刷新过的会话才推得出去
+    bridge.setChannelTextPusher((sessionKey, text) => this.pushText(sessionKey, text))
   }
 
   /**
@@ -53,6 +55,31 @@ export class ChannelInteractionHub {
   /** 该会话当前是否在等用户回答 */
   hasPending(sessionKey: string): boolean {
     return this.store.get(sessionKey) !== undefined
+  }
+
+  /**
+   * 主动推送文本到某渠道会话——转交完成汇报等**异步**结果出渠道的唯一通道。
+   *
+   * 只对「本轮进程内收到过消息」的会话可用：回复上下文（QQ 的 chatId、微信的一次性 token）
+   * 来自最近一次入站消息（`trackSession` 每轮刷新），应用重启或该会话长期静默后会缺失，
+   * 此时返回 false，由调用方决定兜底方式（桌面通知 / 日志）。
+   */
+  async pushText(sessionKey: string, text: string): Promise<boolean> {
+    const route = this.routes.get(sessionKey)
+    if (!route) {
+      log.warn(`[pushText] 无该会话的回复上下文，无法主动推送 sessionKey=${sessionKey}`)
+      return false
+    }
+    try {
+      await route.adapter.sendTextReply(route.session, text)
+      log.info(`[pushText] 已推送异步消息到渠道 sessionKey=${sessionKey} len=${text.length}`)
+      return true
+    } catch (err) {
+      log.warn(
+        `[pushText] 推送失败 sessionKey=${sessionKey}: ${err instanceof Error ? err.message : String(err)}`,
+      )
+      return false
+    }
   }
 
   /**
