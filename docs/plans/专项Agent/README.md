@@ -20,7 +20,7 @@
 
 ## 二、共同基线（每片开工前先跑一遍）
 
-1. **测试基线**：`apps/windows` 的完整测试存在既有失败（约 39 个 / 8 个文件，以开工实测为准）——不是本计划引入。开工前记录失败集合，完工后对比「不新增」。
+1. **测试基线**：`apps/windows` 全量（`pnpm --filter ./apps/windows test:all`）**当前无既有失败**——旧账 39 个（8 文件）与 6 个（`command-allowlist` / `goto` / `feishu-login-service` / `wiki-commands` / `WikiTopicPicker`×2）已于 2026-09-15 先后清零；只剩满载跑序下偶发的 30 秒超时摆动位（`vcs-repo` / `performance-monitor` / `WikiGraphView` / `pet-model-resolver`），**单跑通过即视为摆动**。开工前仍按实测记录失败集合，完工后对比「不新增」；**各计划文档里写的旧数字（39 个等）以本条为准**。
 2. **重启纪律**：改主进程后必须重启应用（`pnpm dev:restart`；被单实例锁拦住时用 `stop-dev.ps1 -KillAllElectron` 清干净再起）。
 3. **心跳红线**：任何与自主 / 心跳相关的验证前，先查 `SELECT COUNT(*) FROM messages WHERE is_streaming=1`，非 0 先清理（abort 残留占位会让心跳全部空转，有两次稳定复现的教训）。
 4. **回归套件**：自主相关统一跑 `docs/test/lumii-cli/run-autonomous-life-e2e.mjs`（23 用例）与 `run-autonomous-full-e2e.mjs`（11 用例）。

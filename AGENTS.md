@@ -9,7 +9,7 @@
 3. **架构边界**：通用 Agent、记忆、工具逻辑放入 `packages/agent-runtime`；Electron 专属逻辑放入 `apps/windows/src/main`。`packages/pet-core` 必须保持纯 TypeScript，不得依赖 React、Electron、Pixi 或 DOM。
 4. **组件与界面**：组件保持单一职责；页面必须处理加载、空数据、错误和成功状态；UI 变更遵循可访问性、键盘操作和现有设计令牌。
 5. **功能开发**：新增 IPC 必须同步更新 main handler、preload `ElectronAPI` 类型/方法和 renderer 调用方；跨层变更先写清数据流和错误处理。
-6. **测试与验证**：单元/集成测试使用 Vitest，端到端测试使用 Playwright；测试文件命名为 `*.test.ts(x)`，与被测代码就近放置。提交前至少运行相关包测试、类型检查和 lint。
+6. **测试与验证**：单元/集成测试使用 Vitest，端到端测试使用 Playwright；测试文件命名为 `*.test.ts(x)`，与被测代码就近放置。提交前至少运行相关包测试与类型检查——**动过 `src/main/**` 就必须跑 `apps/windows` 全量**（`test:all`；默认的 `test` 只覆盖 `src/test/`，全绿是假象）。
 7. **文档与提交**：多阶段工作先检查 `docs/plans/`；提交使用简洁的 Conventional Commit 风格，如 `refactor(agent-runtime): ...`、`chore: ...`。PR 需说明影响、验证命令和配置/Windows 特殊要求，UI 改动附截图或录屏。
 
 ## 常用命令
@@ -19,11 +19,13 @@ pnpm install       # 安装依赖并重建原生模块
 pnpm dev           # 启动 Windows Electron 开发环境
 pnpm typecheck     # 全 workspace 类型检查
 pnpm build         # 构建 Windows 应用
-pnpm --filter ./apps/windows lint
-pnpm --filter ./apps/windows test
+pnpm --filter ./apps/windows test        # 单测：只覆盖 src/test/（快，改渲染层够用）
+pnpm --filter ./apps/windows test:all    # 全量：含 src/main/** 与 src/renderer/**，改主进程必跑
 pnpm --filter ./packages/agent-runtime test
 pnpm --filter ./packages/pet-core test
 ```
+
+**测试基线（2026-09-15）**：`test:all` 全量应**无失败**（此前 6 个既有失败已修正）。仅在满载跑序下有个别 30 秒超时/摆动位——`main/workspace-vcs/vcs-repo`（`diffCommits`）、`main/perf/performance-monitor`（日志轮转）、`test/components/WikiGraphView`（subtopic 点击）、`main/pet/pet-model-resolver`；**单跑这些文件通过即视为摆动**，不是新引入的问题。另：vitest 请在包目录下执行，在仓库根跑会命中 root 配置（缺 jest-dom setup），组件测试会以 `expect is not defined` 假失败。
 
 ## 专题规范
 
