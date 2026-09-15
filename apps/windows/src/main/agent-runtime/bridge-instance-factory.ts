@@ -52,7 +52,9 @@ import { createSkillHitRateHook } from './hooks/skill-hit-rate-hook'
 import { createToolUsageHook } from './hooks/tool-usage-hook'
 import {
   createBashCommandLogHook,
+  applyToolDefinitionStyle,
   type BashCommandRepo,
+  type PromptStyle,
 } from '@mtbot/agent-runtime'
 import type { McpStdioClient } from '@mtbot/agent-runtime'
 import type { PermissionController } from './permission-controller'
@@ -618,6 +620,10 @@ export class BridgeInstanceFactory {
 
     // host-kit 总装：resolveModel → streamFn(工厂+宿主包装) → 工具装配 → 提示词装配 →
     // registry.create（含压缩参数 + 领域提示推断）→ 订阅 eventSink → 设初始提示词。
+    // 提示词风格（实验功能）：创建时读一次作为初始快照；每轮由 dispatcher 传入最新值覆盖。
+    // 同一次读取同时决定工具定义是否按极简档裁剪（见下方 InstanceState 装配）。
+    const initialPromptStyle: PromptStyle | undefined = (await this.deps.config.getPromptStyleSettings?.())
+      ?.style
     const runtime: AssembleAgentRuntime = {
       registry: this.deps.agentRegistry,
       permissionMemory: this.deps.permissionController.memory,
@@ -630,8 +636,8 @@ export class BridgeInstanceFactory {
         thinkingLevel: 'low',
       },
       workspaceLayout: { uploadsDir: 'uploads', outputsDir: 'outputs', filesDir: 'files' },
-      // 提示词风格（实验功能）：创建时读一次作为初始快照；每轮由 dispatcher 传入最新值覆盖
-      promptStyle: (await this.deps.config.getPromptStyleSettings?.())?.style,
+      // 提示词风格（实验功能）：创建时快照，每轮由 dispatcher 传入最新值覆盖
+      promptStyle: initialPromptStyle,
       // 注意：此处仅控制「系统提示词」是否走子 Agent 分支。改前 bridge 的 buildClientSystemPromptStructured
       // 从不传 isSubAgent（恒为 undefined→falsy），故保持 false 以等价复现旧提示词。
       // 子 Agent 的事件处理分支由下方 createAgentInstanceRuntimeEventHandler 的 isSubAgent 独立控制。
@@ -731,6 +737,14 @@ export class BridgeInstanceFactory {
         s.skillsSnapshot = res.prompt.effectiveSkills
         // host-kit dispose 同时取消订阅 + 销毁实例，挂到 unsubscribe 供 lifecycle.destroy 调用
         s.unsubscribe = res.dispose
+        // 极简档工具定义裁剪：留存原始（未裁剪）定义供逐轮样式切换重裁/还原；
+        // 子 Agent 无逐轮 dispatcher，创建时即应用。
+        const appliedStyle: PromptStyle = initialPromptStyle ?? 'detailed'
+        s.originalToolDefs = instance.getTools()
+        if (appliedStyle === 'minimal') {
+          instance.setTools([...applyToolDefinitionStyle(s.originalToolDefs, 'minimal')])
+        }
+        s.appliedToolDefStyle = appliedStyle
       }
     }
 

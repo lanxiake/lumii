@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { Type } from "@sinclair/typebox";
 import { createRunContext } from "./event-converter";
 import { createInstanceState, InstanceStateStore } from "./bridge-instance-state";
 import { BridgePromptDispatcher } from "./bridge-prompt-dispatcher";
@@ -306,7 +307,7 @@ describe("BridgePromptDispatcher 提示词风格传递（P1-T4）", () => {
         _hints?: readonly unknown[],
         _currentModelId?: string,
         _routerResult?: unknown,
-        _promptStyle?: 'detailed' | 'terse',
+        _promptStyle?: 'detailed' | 'terse' | 'minimal',
       ) => ({
         staticPrompt: "static",
         dynamicPrompt: "",
@@ -319,11 +320,13 @@ describe("BridgePromptDispatcher 提示词风格传递（P1-T4）", () => {
     instanceStates.set("instance-1", state);
 
     const setSystemPrompt = vi.fn();
+    const setTools = vi.fn();
     const dispatcher = new BridgePromptDispatcher({
       agentRegistry: {
         get: () => ({
           state: "idle",
           setSystemPrompt,
+          setTools,
           setMemoryInjectionFlags: () => {},
           prompt: async () => {},
         }),
@@ -356,7 +359,7 @@ describe("BridgePromptDispatcher 提示词风格传递（P1-T4）", () => {
       getConversationRepo: () => ({ loadMessagesAsPiFormat: () => [] }),
     } as never);
 
-    return { dispatcher, rebuilder, setSystemPrompt, workspaceDir };
+    return { dispatcher, rebuilder, setSystemPrompt, setTools, state, workspaceDir };
   }
 
   it("settings 返回 terse 时 rebuilder 收到第 4 参 terse，并生效系统提示词", async () => {
@@ -379,6 +382,79 @@ describe("BridgePromptDispatcher 提示词风格传递（P1-T4）", () => {
       await dispatcher.prompt("instance-1", "新消息");
       expect(rebuilder).toHaveBeenCalledTimes(1);
       expect(rebuilder.mock.calls[0]![3]).toBeUndefined();
+    } finally {
+      fs.rmSync(workspaceDir, { recursive: true, force: true });
+    }
+  });
+
+  it("minimal 档：样式变化时裁剪实例工具定义（简单工具去描述，复杂工具保留原引用）", async () => {
+    const simpleTool = {
+      name: "file_read",
+      label: "Read File",
+      description: "Read a file from the workspace.",
+      parameters: Type.Object({
+        filePath: Type.String({ description: "path" }),
+      }),
+      execute: async () => ({ content: [], details: undefined }),
+    };
+    const complexTool = {
+      name: "spawn_agent",
+      label: "Spawn Agent",
+      description: "Launch a sub-agent.",
+      parameters: Type.Object({}),
+      execute: async () => ({ content: [], details: undefined }),
+    };
+
+    const { dispatcher, setTools, state, workspaceDir } = makeHarness({
+      getPromptStyleSettings: async () => ({ style: "minimal" }),
+    });
+    state.originalToolDefs = [simpleTool, complexTool];
+    state.appliedToolDefStyle = "terse";
+    try {
+      await dispatcher.prompt("instance-1", "新消息");
+
+      expect(setTools).toHaveBeenCalledTimes(1);
+      const applied = setTools.mock.calls[0]![0] as Array<(typeof simpleTool) | (typeof complexTool)>;
+      expect(applied[0]!.description).toBe("");
+      expect(
+        (applied[0]!.parameters as { properties: { filePath: { description?: string } } }).properties
+          .filePath.description,
+      ).toBeUndefined();
+      // 复杂工具整条保留（对象引用不变）
+      expect(applied[1]).toBe(complexTool);
+      expect(state.appliedToolDefStyle).toBe("minimal");
+
+      // 第二轮样式未变：不再重复 setTools（幂等）
+      await dispatcher.prompt("instance-1", "第二条消息");
+      expect(setTools).toHaveBeenCalledTimes(1);
+    } finally {
+      fs.rmSync(workspaceDir, { recursive: true, force: true });
+    }
+  });
+
+  it("从 minimal 切回 detailed：工具定义还原为原始数组", async () => {
+    const simpleTool = {
+      name: "file_read",
+      label: "Read File",
+      description: "Read a file from the workspace.",
+      parameters: Type.Object({}),
+      execute: async () => ({ content: [], details: undefined }),
+    };
+    const original = [simpleTool];
+
+    const { dispatcher, setTools, state, workspaceDir } = makeHarness({
+      getPromptStyleSettings: async () => ({ style: "detailed" }),
+    });
+    state.originalToolDefs = original;
+    state.appliedToolDefStyle = "minimal";
+    try {
+      await dispatcher.prompt("instance-1", "新消息");
+
+      expect(setTools).toHaveBeenCalledTimes(1);
+      const applied = setTools.mock.calls[0]![0] as typeof original;
+      expect(applied[0]).toBe(simpleTool);
+      expect(applied[0]!.description.length).toBeGreaterThan(0);
+      expect(state.appliedToolDefStyle).toBe("detailed");
     } finally {
       fs.rmSync(workspaceDir, { recursive: true, force: true });
     }

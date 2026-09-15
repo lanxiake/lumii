@@ -13,12 +13,14 @@
 
 import type { StreamFn } from '@mariozechner/pi-agent-core'
 import type {
+  AgentTool,
   AssistantPart,
   SystemPromptResult,
   SkillInfo,
   SkillActivationHint,
   ProactivityScheduler,
   RouterResultLite,
+  PromptStyle,
 } from '@mtbot/agent-runtime'
 import type { RunContext } from './event-converter'
 import type { SkillHitRateTracker } from './hooks/skill-hit-rate-hook'
@@ -60,8 +62,15 @@ export interface InstanceState {
     hints: readonly SkillActivationHint[],
     currentModelId?: string,
     routerResult?: RouterResultLite,
-    promptStyle?: 'detailed' | 'terse',
+    promptStyle?: PromptStyle,
   ) => SystemPromptResult
+  /**
+   * 极简档工具定义裁剪：实例原始（未裁剪）工具定义快照。
+   * 逐轮样式切换时据此重裁（minimal）或还原（detailed/terse），子 Agent 无逐轮刷新、靠创建时应用。
+   */
+  originalToolDefs?: readonly AgentTool[]
+  /** 已应用到实例的工具定义风格（与 originalToolDefs 配套，避免每轮重复 setTools） */
+  appliedToolDefStyle?: PromptStyle
   /** 本实例当前的 skills 快照（用于 ActivationResolver 输入） */
   skillsSnapshot: readonly SkillInfo[]
   /** 技能命中率监控 tracker（P3 监控） */

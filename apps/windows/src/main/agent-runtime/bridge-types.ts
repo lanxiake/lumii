@@ -10,6 +10,7 @@ import type {
   CustomAgentInfo,
   UserDeviceInfo,
   AgentDefinition,
+  PromptStyle,
 } from '@mtbot/agent-runtime'
 
 export interface AgentRuntimeBridgeConfig {
@@ -150,10 +151,10 @@ export interface AgentRuntimeBridgeConfig {
   }>
   /**
    * 读取系统提示词风格（实验功能；由 index.ts 从渲染进程 localStorage 同步读取）
-   * detailed = 现状基线（默认）；terse = 索引式 + 渐进加载
+   * detailed = 现状基线；terse = 索引式 + 渐进加载（缺省）；minimal = 极简（工具定义去描述）
    */
   getPromptStyleSettings?: () => Promise<{
-    style: 'detailed' | 'terse'
+    style: PromptStyle
   }>
   /**
    * 段原文归档进 MemPalace（由 index.ts 注入，调用 MemPalaceMcpBridge.callTool）。

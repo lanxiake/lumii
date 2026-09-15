@@ -18,6 +18,8 @@ import {
   type SkillActivationHint,
   type SkillInfo,
   type CustomAgentInfo,
+  type PromptStyle,
+  applyToolDefinitionStyle,
   resolveSkillActivations,
   estimateTokenCount,
   microcompactToolResults,
@@ -108,7 +110,7 @@ export interface BridgePromptDispatcherDeps {
 function logPromptSections(
   instanceId: string,
   stats: readonly PromptSectionStat[] | undefined,
-  style?: 'detailed' | 'terse',
+  style?: PromptStyle,
 ): void {
   if (!stats?.length) return
   const totalChars = stats.reduce((n, s) => n + s.chars, 0)
@@ -264,7 +266,7 @@ export class BridgePromptDispatcher {
     const stateForRebuild = this.deps.instanceStates.get(instanceId)
     let baseResult = stateForRebuild?.basePrompt
     /** 本轮实际使用的提示词风格（用于完整提示词打印日志；未重建时保持 undefined） */
-    let turnPromptStyle: 'detailed' | 'terse' | undefined
+    let turnPromptStyle: PromptStyle | undefined
 
     // 获取用户当前选择的模型 ID（用于 Runtime section 实时更新）
     const ctx = stateForRebuild?.ctx
@@ -325,6 +327,20 @@ export class BridgePromptDispatcher {
         }
         // 提示词风格（实验功能）：每轮读取最新设置；pi 每轮快照系统提示词，故下一轮对话生效
         turnPromptStyle = (await this.deps.config.getPromptStyleSettings?.())?.style
+        // 极简档工具定义裁剪：与提示词同口径逐轮应用（仅样式变化时 setTools，避免无谓替换）
+        if (
+          stateForRebuild?.originalToolDefs &&
+          turnPromptStyle &&
+          stateForRebuild.appliedToolDefStyle !== turnPromptStyle
+        ) {
+          const targetInstance = this.deps.agentRegistry.get(instanceId)
+          if (targetInstance) {
+            targetInstance.setTools([
+              ...applyToolDefinitionStyle(stateForRebuild.originalToolDefs, turnPromptStyle),
+            ])
+            stateForRebuild.appliedToolDefStyle = turnPromptStyle
+          }
+        }
         baseResult = rebuilder(hints, currentModelId, routerLite, turnPromptStyle)
         if (state) state.basePrompt = baseResult
         logPromptSections(instanceId, baseResult.sectionStats, turnPromptStyle)

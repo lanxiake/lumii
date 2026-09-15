@@ -92,7 +92,9 @@ export function registerSyncConflictTool(deps: BridgeToolRegistrarDeps): void {
             status: 'error',
             success: false,
             error: r.error ?? '解决冲突失败',
-            hint: '若持续超时，请到设置关闭云同步，或清理 ~/.lumii/sync/.git 后重试；不要反复调用本工具。',
+            hint:
+              '若返回「冲突信息已刷新」，说明远端在落决期间有新提交：可重新读取三方内容后再处理一次。' +
+              '若持续超时，同步仍会在后台完成并自动重试，无需手动清理任何目录。',
           }),
           isError: true,
         }
