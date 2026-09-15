@@ -11,6 +11,13 @@ import { voiceEventBus } from '../voice/voice-event-bus.js'
 type Queued = { event: IpcEvent; timestamp: number }
 
 /**
+ * 离线队列上限。队列只在渲染进程不可达期间暂存事件，且 flush 依赖窗口恢复；
+ * 没有上限时，渲染进程崩溃后主进程会一直往里堆事件（含完整消息正文）而不释放，
+ * 变成一条只写不读的泄漏路径。超限丢弃最旧的一条，UI 侧本就以 DB 为准。
+ */
+const MAX_QUEUED_IPC_EVENTS = 500
+
+/**
  * 封装主窗口 webContents.send 与离线消息队列
  */
 export class BridgeRendererIpcChannel {
@@ -19,13 +26,28 @@ export class BridgeRendererIpcChannel {
   constructor(private readonly getWindow: () => BrowserWindow | null) {}
 
   /**
-   * 判断主窗口渲染进程是否可接收 IPC（窗口/webContents 未销毁）。
+   * 判断主窗口渲染进程是否可接收 IPC。
+   *
+   * 除窗口/webContents 未销毁外，还必须排除「渲染进程已崩溃但 webContents 对象还在」
+   * 的中间态：此时 frame 已被 dispose，`webContents.send` 会在 Electron 内部抛错并
+   * 由 Electron 自己 `console.error("Error sending from webFrameMain: ...")`，
+   * 调用方的 try/catch 拦不住，只会刷屏。必须在这里提前判定，别让它走到 send。
    */
   canReachRenderer(): boolean {
     const win = this.getWindow()
     if (!win || win.isDestroyed()) return false
     const wc = win.webContents
-    return !wc.isDestroyed()
+    return !wc.isDestroyed() && !wc.isCrashed()
+  }
+
+  /**
+   * 丢弃离线队列。渲染进程崩溃重载后 UI 会从 DB 重建状态，
+   * 旧事件既送不到也没有重放价值，留着只会占用主进程内存。
+   */
+  clearIpcQueue(): void {
+    if (this.ipcMessageQueue.length === 0) return
+    log.info(`[clearIpcQueue] 丢弃 ${this.ipcMessageQueue.length} 条离线事件`)
+    this.ipcMessageQueue = []
   }
 
   /**
@@ -95,6 +117,8 @@ export class BridgeRendererIpcChannel {
     }
     const sent = this.trySendToRenderer(event)
     if (!sent) {
+      // 渲染进程崩溃后 canReachRenderer 恒为 false，若不设上限这里会一直堆事件
+      if (this.ipcMessageQueue.length >= MAX_QUEUED_IPC_EVENTS) this.ipcMessageQueue.shift()
       this.ipcMessageQueue.push({ event, timestamp: Date.now() })
       // 主窗口离线时宠物窗口仍可展示流式字幕/表情
       this.mirrorToPetWindow(event)

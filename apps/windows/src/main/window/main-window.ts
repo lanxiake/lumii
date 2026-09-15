@@ -1,7 +1,7 @@
 import { BrowserWindow, Menu, screen } from 'electron'
 import { join } from 'path'
 import { getAppIconPath } from '../asset-paths'
-import { setIpcMainWindow } from '../agent-runtime'
+import { setIpcMainWindow, getAgentRuntimeBridge } from '../agent-runtime'
 import type { ScreenRecordService } from '../screen-record'
 import { installPreviewZoomGuard } from './preview-zoom-guard'
 import { openExternalWithFallback } from './in-app-browser'
@@ -178,6 +178,12 @@ export function createMainWindow(
     void openExternalWithFallback(targetUrl, (message) => logger.warn(message))
   })
 
+  // 渲染进程崩溃自愈的限流参数（见下方 render-process-gone 处理）
+  const CRASH_RELOAD_WINDOW_MS = 5 * 60_000
+  const MAX_CRASH_RELOADS = 3
+  const CRASH_RELOAD_DELAY_MS = 800
+  let crashReloadTimestamps: number[] = []
+
   // 渲染进程诊断：把渲染层 console / 崩溃 / 加载失败转写到文件日志。
   // 生产环境默认无 DevTools，渲染层报错原本不可见（表现为黑屏），此处使其可追踪。
   window.webContents.on('console-message', (_event, level, message, line, sourceId) => {
@@ -189,6 +195,32 @@ export function createMainWindow(
   window.webContents.on('render-process-gone', (_event, details) => {
     logger.error(`[Renderer] 渲染进程崩溃 reason=${details.reason} exitCode=${details.exitCode}`)
     void getScreenRecordService()?.handleRendererGone()
+    // 崩溃后 frame 已 dispose：离线队列里的事件既送不到、也没有重放价值，直接丢弃
+    getAgentRuntimeBridge()?.clearIpcQueue()
+
+    // 自愈：Electron 不会自动重建渲染进程，窗口会一直停在空白页（用户看到的就是「客户端崩了」）。
+    // 渲染层状态全部来自 DB，重载即可恢复；但崩溃若由某个必崩数据触发，重载会立刻再崩，
+    // 故按窗口限流，超限就停手并把现场留在日志里。
+    const now = Date.now()
+    const recent = crashReloadTimestamps.filter((t) => now - t < CRASH_RELOAD_WINDOW_MS)
+    recent.push(now)
+    crashReloadTimestamps = recent
+
+    if (recent.length > MAX_CRASH_RELOADS) {
+      logger.error(
+        `[Renderer] ${CRASH_RELOAD_WINDOW_MS / 60_000} 分钟内第 ${recent.length} 次崩溃，停止自动重载`,
+      )
+      return
+    }
+    if (isQuitting()) return
+
+    // 递增延迟：给崩溃现场留出写日志的时间，也避免连续重载打满 CPU
+    const delay = CRASH_RELOAD_DELAY_MS * recent.length
+    logger.info(`[Renderer] ${delay}ms 后自动重载（本窗口第 ${recent.length} 次）`)
+    setTimeout(() => {
+      if (isQuitting() || window.isDestroyed()) return
+      if (window.webContents.isCrashed()) window.webContents.reload()
+    }, delay)
   })
   window.webContents.on('destroyed', () => {
     void getScreenRecordService()?.handleRendererGone()

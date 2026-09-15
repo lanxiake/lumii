@@ -2683,6 +2683,7 @@ export class AgentRuntimeBridge {
 
   updateConfig(config: Partial<AgentRuntimeBridgeConfig>): void { this.config = { ...this.config, ...config } }
   flushIpcQueue(): void { this.ipcChannel.flushIpcQueue() }
+  clearIpcQueue(): void { this.ipcChannel.clearIpcQueue() }
 
   /** Router 命中率统计（供 admin/调试查询） */
   getRouterStats(): ReturnType<RouterHitRateTracker['getSummary']> {

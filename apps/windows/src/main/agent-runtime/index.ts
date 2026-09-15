@@ -5,6 +5,7 @@ export {
   setWeixinBindingManagerForIpc,
   setAudioTranscribeCallback,
   setIpcMainWindow,
+  getAgentRuntimeBridge,
   getAcpBackendManager,
   getSessionKeyForInstance,
   invalidateAgentInstancesForProviderChange,
