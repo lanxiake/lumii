@@ -521,6 +521,61 @@ describe('handleRuntimeEvent assistant parts', () => {
       expect.objectContaining({ text: '\n\n第二段', status: 'done' }),
     ])
   })
+
+  it('子 Agent 插队后，同 messageId 的续轮 message:start 不得再追加重复气泡', () => {
+    // 回归：ChatContainer 出现 duplicate key `m:<messageId>`，同轮渲染出两个「执行过程」。
+    // 场景：父消息流式中 → 子消息插入列表末尾 → 父续轮 message:start 时
+    // turnId 丢失（例如会话切换合并只保留了 DB 字段）且末条已是子消息，旧逻辑会再 push 一条同 id。
+    startAssistantMessage()
+    handleRuntimeEvent({
+      type: 'agent:thinking:delta',
+      runId: 'run-1',
+      sessionKey: 'session-1',
+      delta: '先想一轮',
+    })
+
+    runtimeStore.setState((prev) => {
+      const sessions = new Map(prev.sessions)
+      const current = sessions.get('session-1') ?? getDefaultPerSessionState()
+      const parent = current.messages[0]!
+      sessions.set('session-1', {
+        ...current,
+        messages: [
+          {
+            ...parent,
+            turnId: undefined,
+            isStreaming: true,
+          },
+          {
+            id: 'sub-msg-1',
+            role: 'assistant' as const,
+            content: [{ type: 'text' as const, text: '' }],
+            parts: [],
+            timestamp: Date.now(),
+            isStreaming: true,
+            toolCalls: [],
+            sourceAgent: { instanceId: 'inst-sub', label: '灵栖情报' },
+          },
+        ],
+      })
+      return { ...prev, sessions }
+    })
+
+    handleRuntimeEvent({
+      type: 'agent:message:start',
+      runId: 'run-2',
+      sessionKey: 'session-1',
+      messageId: 'message-1',
+      model: 'test-model',
+      timestamp: 200,
+    })
+
+    const messages = runtimeStore.getState().sessions.get('session-1')?.messages ?? []
+    const sameId = messages.filter((m) => m.id === 'message-1')
+    expect(sameId).toHaveLength(1)
+    expect(sameId[0]?.isStreaming).toBe(true)
+    expect(sameId[0]?.turnId).toBe('run-2')
+  })
 })
 
 describe('handleRuntimeEvent 异步子 Agent 完成通知', () => {

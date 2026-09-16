@@ -83,6 +83,37 @@ const subAgentStreamingMessageId = new Map<string, Map<string, string>>()
  */
 const runIdToSessionKey = new Map<string, string>()
 
+/**
+ * 每条主 Agent 消息在本轮 LLM 调用开始时的正文字符数。
+ * key: `${sessionKey}|${messageId}`；value: 本轮起点（含续轮分隔符）
+ *
+ * 用于 message:end 判断「本轮文本有没有进内存」：本轮增量全丢（IPC 丢失、
+ * 渲染进程刚重启）时，用事件携带的最终文本兜底，否则这条回复在界面上是空白。
+ */
+const turnTextStartByMessage = new Map<string, number>()
+
+/** 记录本轮正文起点；message:start 时调用 */
+function markTurnTextStart(sessionKey: string, messageId: string, startLength: number): void {
+  turnTextStartByMessage.set(`${sessionKey}|${messageId}`, startLength)
+}
+
+/** 取本轮正文起点（缺省 0 = 整条消息都是本轮） */
+function getTurnTextStart(sessionKey: string, messageId: string): number {
+  return turnTextStartByMessage.get(`${sessionKey}|${messageId}`) ?? 0
+}
+
+/** 清理某会话下已收尾消息的起点记录（避免长会话累积） */
+function clearTurnTextStart(sessionKey: string, messageId?: string): void {
+  if (messageId) {
+    turnTextStartByMessage.delete(`${sessionKey}|${messageId}`)
+    return
+  }
+  const prefix = `${sessionKey}|`
+  for (const key of turnTextStartByMessage.keys()) {
+    if (key.startsWith(prefix)) turnTextStartByMessage.delete(key)
+  }
+}
+
 // ============================================================
 // Delta 批处理 — 将高频 delta 事件合并为每帧一次 store 更新
 // ============================================================
@@ -317,6 +348,7 @@ export function resetAgentRuntimeEventHandlerForTests(): void {
   streamLlmStartByRunId.clear()
   subAgentStreamingMessageId.clear()
   runIdToSessionKey.clear()
+  turnTextStartByMessage.clear()
   pendingDeltaQueue.length = 0
   deltaFlushScheduled = false
   rendererPartIdSequence = 0
@@ -537,6 +569,34 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
           // 若 snapshot 尚未到达（竞态场景），回退到占位文案，后续 snapshot 会回填
           const matchedAgent = prev.activeAgents.find((a) => a.instanceId === subId)
           const label = matchedAgent?.name ?? '子 Agent'
+
+          // 同 messageId 已存在则复用，避免子 Agent 续轮把同一气泡推成两条
+          const existingIdx = prev.messages.findIndex(
+            (m) => m.id === event.messageId && m.role === 'assistant',
+          )
+          if (existingIdx >= 0) {
+            const msgs = [...prev.messages]
+            const existing = msgs[existingIdx]!
+            msgs[existingIdx] = {
+              ...existing,
+              isStreaming: true,
+              sourceAgent: {
+                instanceId: subId,
+                label: existing.sourceAgent?.label && existing.sourceAgent.label !== '子 Agent'
+                  ? existing.sourceAgent.label
+                  : label,
+              },
+            }
+            return {
+              ...prev,
+              activeRunId: event.runId,
+              isStreaming: true,
+              error: null,
+              currentLlmModelId: event.model,
+              messages: msgs,
+            }
+          }
+
           return {
             ...prev,
             activeRunId: event.runId,
@@ -565,7 +625,11 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
       }
       updateSessionState(sessionKey, (prev) => {
         // 同一 turn 内多次 LLM 调用复用同一条主 Agent 消息气泡（通过 turnId 识别）
-        // 优先级：1) 同一 turn 已有主 Agent 消息 → 复用；2) 最后一条是 streaming 主 Agent 消息 → 复用；3) 创建新消息
+        // 优先级：
+        // 1) 同一 turn 已有主 Agent 消息 → 复用
+        // 2) 已有同 messageId 的主 Agent 消息 → 复用（防 duplicate key / 双「执行过程」）
+        // 3) 向后找最近一条 streaming 主 Agent 消息 → 复用（子消息插队时末条兜底会失效）
+        // 4) 创建新消息
         const turnId = event.runId
 
         // 优先查找同一 turn 的主 Agent 消息（向后查找最近一条）
@@ -578,11 +642,25 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
           }
         }
 
-        // 若没找到同一 turn 的消息，再检查最后一条是否是 streaming 主 Agent 消息（兜底）
+        // 同 messageId 已存在：绝不能再 push，否则 ChatContainer 出现 duplicate key `m:<id>`
         if (reuseIdx < 0) {
-          const lastMsg = prev.messages.length > 0 ? prev.messages[prev.messages.length - 1] : null
-          if (lastMsg?.role === 'assistant' && lastMsg.isStreaming && !lastMsg.sourceAgent) {
-            reuseIdx = prev.messages.length - 1
+          for (let i = prev.messages.length - 1; i >= 0; i--) {
+            const m = prev.messages[i]!
+            if (m.role === 'assistant' && !m.sourceAgent && m.id === event.messageId) {
+              reuseIdx = i
+              break
+            }
+          }
+        }
+
+        // 向后找最近一条仍在流式的主 Agent 消息（不要求它是列表末条）
+        if (reuseIdx < 0) {
+          for (let i = prev.messages.length - 1; i >= 0; i--) {
+            const m = prev.messages[i]!
+            if (m.role === 'assistant' && m.isStreaming && !m.sourceAgent) {
+              reuseIdx = i
+              break
+            }
           }
         }
 
@@ -593,6 +671,8 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
           const msgs = [...prev.messages]
           const existingMessage = msgs[reuseIdx]!
           const acpBackend = extractAcpBackend(event.model)
+          // 续轮：本轮的正文从分隔符之后开始
+          markTurnTextStart(sessionKey, event.messageId, nextText.length)
           msgs[reuseIdx] = {
             ...existingMessage,
             id: event.messageId,
@@ -618,6 +698,8 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
         }
 
         const acpBackend = extractAcpBackend(event.model)
+        // 新建消息：整条都是本轮
+        markTurnTextStart(sessionKey, event.messageId, 0)
         return {
           ...prev,
           activeRunId: event.runId,
@@ -739,12 +821,17 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
       // NO_REPLY 协议：Agent 返回 NO_REPLY 表示无需展示消息，移除占位消息
       const finalText = event.content?.[0]?.text?.trim()
       if (finalText === 'NO_REPLY') {
+        clearTurnTextStart(sessionKey, event.messageId)
         updateSessionState(sessionKey, (prev) => {
           const msgs = [...prev.messages]
-          const lastIdx = msgs.length - 1
-          if (lastIdx >= 0 && msgs[lastIdx]?.role === 'assistant') {
-            msgs.splice(lastIdx, 1)
+          // 优先按 messageId 定位本轮占位：定时任务等场景下消息列表末尾可能是
+          // 刚推送进来的其它消息，按「最后一条」删会误伤不是本轮的消息
+          let targetIdx = event.messageId ? msgs.findIndex((m) => m.id === event.messageId) : -1
+          if (targetIdx < 0) {
+            const lastIdx = msgs.length - 1
+            targetIdx = lastIdx >= 0 && msgs[lastIdx]?.role === 'assistant' ? lastIdx : -1
           }
+          if (targetIdx >= 0) msgs.splice(targetIdx, 1)
           return { ...prev, messages: msgs, isStreaming: false }
         })
         break
@@ -783,11 +870,19 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
         if (keepStreamingMain) {
           finalContent = last.content
         } else {
-          // 始终使用流式累积的内容（state machine 已正确剥离 <think> 标签），
-          // 不使用 event.content（来自截断的 fullText，可能含 think 内容）。
-          // wasResumed 场景下 last.content 已包含前序轮次文本+当前轮流式文本，
-          // 直接使用即可，无需追加。
-          finalContent = last.content
+          // 优先使用流式累积的内容（state machine 已正确剥离 <think> 标签）；
+          // wasResumed 场景下 last.content 已包含前序轮次文本+当前轮流式文本。
+          //
+          // 但本轮增量可能一个都没到（IPC 丢失、渲染进程刚重启、窗口刚打开）——
+          // 此时内存正文停在本轮起点上，必须用事件携带的本轮最终文本补上，
+          // 否则这条回复是空白，会被空消息守卫隐藏成「Agent 没有回复」。
+          const accumulatedText = last.content.map((c) => c.text).join('')
+          const turnText = accumulatedText.slice(getTurnTextStart(sessionKey, event.messageId))
+          const eventText = event.content?.map((c) => c.text).join('') ?? ''
+          finalContent =
+            !turnText.trim() && eventText.trim()
+              ? [{ type: 'text' as const, text: accumulatedText + eventText }]
+              : last.content
         }
 
         const err = event.llmError
@@ -1111,6 +1206,7 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
       }
       // turn 正常结束，清理映射（下一 turn 的 turn:start 会重新注册）
       unregisterRunSession(event.runId)
+      clearTurnTextStart(sessionKey)
       updateSessionState(sessionKey, (prev) => {
         // 仅在确实有 streaming 消息时才创建新数组，避免无谓的引用变化触发下游重渲染
         const hasStreaming = prev.messages.some((msg) => msg.isStreaming)
@@ -1555,7 +1651,9 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
     }
 
     case 'session:cleared' as AgentRuntimeEventType: {
-      updateSessionState((event as unknown as { sessionKey: string }).sessionKey, (prev) => ({
+      const clearedKey = (event as unknown as { sessionKey: string }).sessionKey
+      clearTurnTextStart(clearedKey)
+      updateSessionState(clearedKey, (prev) => ({
         ...prev,
         messages: [],
       }))

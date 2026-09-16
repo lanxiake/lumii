@@ -273,7 +273,11 @@ export async function switchSession(sessionKey: string, preferredModelId?: strin
             ...dbMsg,
             content: memMsg.content,
             parts: memMsg.parts,
+            isStreaming: true,
+            // turnId 只存在于内存事件态；丢失后续轮 message:start 会误建同 id 气泡
+            ...(memMsg.turnId ? { turnId: memMsg.turnId } : {}),
             ...(memMsg.fileChanges ? { fileChanges: memMsg.fileChanges } : {}),
+            ...(memMsg.sourceAgent ? { sourceAgent: memMsg.sourceAgent } : {}),
           }
         }
         const shouldOverlayToolCalls = (memMsg.toolCalls?.length ?? 0) > (dbMsg.toolCalls?.length ?? 0)

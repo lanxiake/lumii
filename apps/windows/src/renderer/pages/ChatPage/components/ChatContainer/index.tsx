@@ -496,8 +496,14 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
       .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime())
 
     const items: ChatItem[] = []
+    const seenMessageIds = new Set<string>()
     for (const item of sorted) {
       if (item.itemType === 'message' && attachedMessageIds.has(item.id)) continue
+      // 防御：上游偶发同 id 双写时，React key `m:<id>` 会撞车并打出两个「执行过程」
+      if (item.itemType === 'message') {
+        if (seenMessageIds.has(item.id)) continue
+        seenMessageIds.add(item.id)
+      }
       items.push(item)
     }
 
