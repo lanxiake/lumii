@@ -335,6 +335,31 @@ export const webSearchToolConfig: MtBotToolConfig<typeof WebSearchInput> = {
       throw new Error(errorMessage + configHint);
     }
 
+    // 没有任何 provider 报错、却一条结果都没有。
+    //
+    // 这不是「搜索成功但没搜到」——Bing 的抓取路径下，解析不出 .b_algo 意味着拿到的
+    // 根本不是结果页（验证页 / 跳转页 / 真·无结果页，三者在这里分不开）。
+    // 原实现会以 provider="unknown" 静默返回「未找到」并**计为成功**：统计里看不出来，
+    // 模型也拿不到任何下一步线索，只能干瞪眼或原样重试。
+    // 这里不再假装它是成功的结果，但也不谎称是错误（那会污染失败率），
+    // 而是标成一个可辨认、可搜索的独立结局：provider='none' + 一句能照着做的下一步。
+    if (items.length === 0) {
+      console.warn(
+        `[web_search] 无结果且无错误: query="${query}" provider=none（多半是结果页被拦或查询词太生僻）`,
+      );
+      return {
+        content: [
+          {
+            type: "text",
+            text:
+              `搜索"${query}"一条条目都没返回。可能这个词太生僻，也可能结果页被拦截了。\n` +
+              `换更常见的说法重试；如果是找某个站点上的内容，直接 web_fetch 它的列表页更可靠。`,
+          },
+        ],
+        details: { items: [], query, provider: "none", count: 0, tookMs: Date.now() - startTime },
+      };
+    }
+
     const result: SearchResult = {
       items,
       query,
