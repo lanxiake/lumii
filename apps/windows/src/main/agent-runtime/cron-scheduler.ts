@@ -21,12 +21,17 @@ import { formatForTarget, formatDashboardFeedForPush } from './cron-notify-forma
 import { shouldSkipCronFocusMemoryWrite } from './cron-focus-memory'
 import { dispatchChannelTarget } from './channel-target-dispatch'
 import { isNoReplySentinel } from './bridge-agent-instance-events'
+import { buildSelfBriefing } from './self-briefing'
+import { readLatestMaintenanceReport } from '../maintenance-report-store'
 
 const log = {
   info: (...args: unknown[]) => console.log('[CronScheduler]', ...args),
   warn: (...args: unknown[]) => console.warn('[CronScheduler]', ...args),
   error: (...args: unknown[]) => console.error('[CronScheduler]', ...args),
 }
+
+/** 资产体检的归属 Agent。自述里带上期体检结论，只对它有意义 */
+const MAINTENANCE_AGENT_ID = 'system-keeper'
 
 /** 本地 Cron 任务记录（与 SQLite 表字段对应） */
 export type LocalCronJobRow = {
@@ -790,6 +795,70 @@ export class CronScheduler {
   }
 
   /**
+   * 该会话里**最后一次** assistant 产出（不限时间），带落库时刻。
+   *
+   * 与 readLatestAssistantText(…, since) 的区别：那个回答「本轮产生了什么」，
+   * 这个回答「上一次留下了什么」——自述要的是后者。
+   * 调用时机必须在 `prompt()` 之前，否则会读到本轮自己的回复。
+   */
+  private readPreviousAssistantTurn(
+    conversationId: string,
+  ): { text: string; at: number } | null {
+    try {
+      const row = this.localDb.db
+        .prepare<{ content_json: string; timestamp: string }>(
+          `SELECT content_json, timestamp FROM messages
+           WHERE conversation_id = ? AND role = 'assistant'
+           ORDER BY timestamp DESC LIMIT 1`
+        )
+        .get(conversationId)
+      if (!row) return null
+      const at = Date.parse(row.timestamp)
+      return {
+        text: extractTextFromContentJson(row.content_json) || '',
+        at: Number.isFinite(at) ? at : 0,
+      }
+    } catch (err) {
+      log.warn('[readPreviousAssistantTurn] 回读失败:', err)
+      return null
+    }
+  }
+
+  /**
+   * 拼「你上次的情况」段（B4）。
+   *
+   * cron 执行是全新实例、跑完即销毁，会话里累积的记录 Agent 看不到——
+   * 不显式注入，它每轮都从零开始：不知道昨天推过什么、上次体检发现了什么。
+   *
+   * 维护类任务额外带上期体检结论：那是 `maintenance_report_read` 本来就取得到的信息，
+   * 直接给它省一次工具调用，也免得它「忘了看」。
+   */
+  private buildSelfBriefingFor(convId: string, agentId: string): string {
+    const prev = this.readPreviousAssistantTurn(convId)
+    // NO_REPLY 是「本轮无话可说」的哨兵，不是产出——拿它当"上次说到哪"只会误导
+    const lastOutput = prev?.text && !isNoReplySentinel(prev.text) ? prev.text : null
+    const lastOutputAt = prev?.at || null
+
+    let report: ReturnType<typeof readLatestMaintenanceReport> = null
+    if (agentId === MAINTENANCE_AGENT_ID) {
+      try {
+        report = readLatestMaintenanceReport(agentId)
+      } catch (err) {
+        log.warn('[buildSelfBriefingFor] 读上期体检报告失败（忽略）:', err)
+      }
+    }
+
+    return buildSelfBriefing({
+      lastOutput,
+      lastOutputAt,
+      lastMaintenanceSummary: report?.summary ?? null,
+      lastMaintenanceScope: report?.scope ?? null,
+      lastMaintenanceFindingCount: report?.findings.length ?? null,
+      now: Date.now(),
+    })
+  }
+
+  /**
    * 按 notify_targets 派发执行结果。
    *
    * 未配置时回落系统通知 —— 老任务没有这一列，静默不通知会像任务没跑。
@@ -945,10 +1014,19 @@ export class CronScheduler {
         ? await this.deps.createRestrictedInstanceById(agentId, convId, convId)
         : await this.deps.createInstanceById(agentId, convId, convId)
     try {
-      // 构建完整消息：system_prompt + 通知工具指导 + task_text
+      // 构建完整消息：system_prompt + 通知工具指导 + 「自述」+ task_text
       const notifyPrompt = buildNotifyToolsPrompt(currentRow.notify_targets)
       const systemPart = currentRow.system_prompt ? `${currentRow.system_prompt}${notifyPrompt}` : ''
-      const message = systemPart ? `${systemPart}\n\n---\n\n${job.task_text}` : job.task_text
+      // 自述必须在 prompt() 之前取——晚一步就会读到本轮自己的回复。
+      // 放在任务指令之前：先「上次说到哪」，再「这次要做什么」。
+      const selfBriefing = this.buildSelfBriefingFor(convId, agentId)
+      log.info(
+        selfBriefing
+          ? `[driveAgent] 已注入自述 jobId=${job.id} ${selfBriefing.length} 字`
+          : `[driveAgent] 无自述可注入（首次执行）jobId=${job.id}`,
+      )
+      const head = [systemPart, selfBriefing].filter(Boolean).join('\n\n')
+      const message = head ? `${head}\n\n---\n\n${job.task_text}` : job.task_text
 
       await this.deps.prompt(instanceId, message)
       await this.deps.waitForInstanceIdle?.(instanceId)

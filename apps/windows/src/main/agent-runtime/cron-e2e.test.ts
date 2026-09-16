@@ -40,10 +40,14 @@ interface Captured {
   notifications: Array<{ title: string; body: string }>
   memories: string[]
   feishu: string[]
+  /** 每次驱动 Agent 时实际投喂的完整消息（自述注入的验证点） */
+  prompts: string[]
 }
 
-function makeScheduler(db: DatabaseAdapter, agentReply: string | null) {
-  const captured: Captured = { notifications: [], memories: [], feishu: [] }
+function makeScheduler(db: DatabaseAdapter, agentReply: string | null | (() => string)) {
+  const captured: Captured = { notifications: [], memories: [], feishu: [], prompts: [] }
+  const nextReply = (): string | null =>
+    typeof agentReply === 'function' ? agentReply() : agentReply
 
   const deps = {
     showCronNotification: (title: string, body: string) => {
@@ -76,8 +80,10 @@ function makeScheduler(db: DatabaseAdapter, agentReply: string | null) {
     // 必须带 rowid 兜底排序：秒内连跑多个任务时各会话的 created_at 会落在同一毫秒，
     // 只按 created_at DESC 取到的是并列中的任意一条（实测取到别的任务会话），
     // 于是生产侧 collectAssistantOutput 在本任务的会话里回读不到产出、白等满 30s 轮询上限。
-    prompt: async (_instanceId: string) => {
-      if (agentReply === null) return
+    prompt: async (_instanceId: string, message?: string) => {
+      captured.prompts.push(message ?? '')
+      const reply = nextReply()
+      if (reply === null) return
       const conv = db
         .prepare<{ id: string }>(`SELECT id FROM conversations ORDER BY created_at DESC, rowid DESC LIMIT 1`)
         .get()
@@ -88,7 +94,7 @@ function makeScheduler(db: DatabaseAdapter, agentReply: string | null) {
       ).run(
         `msg-${Math.random().toString(36).slice(2)}`,
         conv.id,
-        JSON.stringify({ type: 'text', text: agentReply }),
+        JSON.stringify({ type: 'text', text: reply }),
         new Date().toISOString(),
       )
     },
@@ -485,5 +491,63 @@ describe.skipIf(!hasFts5Db)('预置定时任务端到端', () => {
       .prepare<{ task_text: string }>(`SELECT task_text FROM local_cron_jobs WHERE id = 'news-pipeline'`)
       .get()
     expect(row?.task_text).toBe('我自己的资讯指令')
+  })
+
+  describe('执行时注入「自述」（B4）', () => {
+    /**
+     * cron 执行是全新实例、跑完即销毁，会话里累积的记录 Agent 看不到。
+     * 这组用例验证「第二次执行能拿到第一次留下了什么」——
+     * 且是**上一次**的，不是本轮自己的。
+     */
+    it('第一次执行没有自述可注入（不塞一个空的「你上次…」块）', async () => {
+      const newsJob = listJobs(db).find((j) => j.id === 'news-pipeline')!
+      const { run, captured } = makeScheduler(db, '第一次的产出')
+
+      await run({ id: 'news-pipeline', task_text: newsJob.task_text, agent_id: newsJob.agent_id })
+
+      expect(captured.prompts).toHaveLength(1)
+      expect(captured.prompts[0]).not.toContain('你上次的情况')
+    })
+
+    it('第二次执行拿得到第一次的真实产出，且排在任务指令之前', async () => {
+      const newsJob = listJobs(db).find((j) => j.id === 'news-pipeline')!
+      const { run, captured } = makeScheduler(db, '第一次推了 13 条增量')
+      const job = { id: 'news-pipeline', task_text: newsJob.task_text, agent_id: newsJob.agent_id }
+
+      await run(job)
+      await run(job)
+
+      expect(captured.prompts).toHaveLength(2)
+      const second = captured.prompts[1]
+      expect(second).toContain('你上次的情况')
+      expect(second).toContain('第一次推了 13 条增量')
+      expect(second).toContain('不是本轮任务')
+
+      // 顺序：自述在前，任务指令在分隔线之后（否则模型会以为任务已经做完了）
+      expect(second.indexOf('你上次的情况')).toBeLessThan(second.indexOf('---'))
+      expect(second.indexOf('---')).toBeLessThan(second.indexOf(job.task_text))
+
+      // 第一次的 prompt 不该带上它自己（那意味着读到了本轮回复）
+      expect(captured.prompts[0]).not.toContain('第一次推了 13 条增量')
+    })
+
+    it('第三次执行时给的是第二次的产出，不是第一次的', async () => {
+      const newsJob = listJobs(db).find((j) => j.id === 'news-pipeline')!
+      const job = { id: 'news-pipeline', task_text: newsJob.task_text, agent_id: newsJob.agent_id }
+      const replies = ['第一轮产出', '第二轮产出', '第三轮产出']
+      let turn = 0
+      const { run, captured } = makeScheduler(db, () => replies[turn++] ?? '备用')
+
+      await run(job)
+      await run(job)
+      await run(job)
+
+      expect(captured.prompts).toHaveLength(3)
+      // 第 1 次：无自述；第 2 次：看到第一轮；第 3 次：看到第二轮
+      expect(captured.prompts[0]).not.toContain('你上次的情况')
+      expect(captured.prompts[1]).toContain('第一轮产出')
+      expect(captured.prompts[2]).toContain('第二轮产出')
+      expect(captured.prompts[2]).not.toContain('第一轮产出')
+    })
   })
 })
