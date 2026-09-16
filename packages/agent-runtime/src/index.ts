@@ -235,6 +235,7 @@ export {
 } from "./agent/index.js";
 export {
   AgentOrchestrator,
+  composeSpawnPromptWithFallbackRole,
   type AgentOrchestratorDeps,
   type SpawnAgentParams,
   type SpawnAgentResult,

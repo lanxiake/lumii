@@ -37,6 +37,7 @@ export {
   BUILTIN_AGENT_ID_ALIASES,
   normalizeAgentTypeId,
   resolveBuiltinDisplayName,
+  resolveSpawnAgentTypeInput,
 } from "./agent/builtin/agent-display-names.js";
 
 export {

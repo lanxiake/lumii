@@ -19,8 +19,10 @@ export {
 export {
   BUILTIN_AGENT_DISPLAY_NAMES,
   BUILTIN_AGENT_ID_ALIASES,
+  INVENTED_SPAWN_AGENT_TYPES,
   normalizeAgentTypeId,
   resolveBuiltinDisplayName,
+  resolveSpawnAgentTypeInput,
 } from "./builtin/agent-display-names.js";
 export {
   HookExecutor,
@@ -58,6 +60,7 @@ export {
 } from "../compact/index.js";
 export {
   AgentOrchestrator,
+  composeSpawnPromptWithFallbackRole,
   type AgentOrchestratorDeps,
   type SpawnAgentParams,
   type SpawnAgentResult,

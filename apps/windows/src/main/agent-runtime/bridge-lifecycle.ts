@@ -237,7 +237,8 @@ export class BridgeLifecycle {
           }
           const builtIn = findBuiltInAgent(key)
           if (builtIn) return builtIn
-          // 禁止静默回落到默认 Agent：未知类型必须失败，便于父 Agent 做错误恢复
+          // 禁止静默在此处回落：未知类型由 orchestrator 按「省略 agentType」处理
+          //（回落 assistant + 角色写入 prompt）；本层仍抛错以便区分「真缺定义」与「模型编造」。
           throw new Error(`Unknown agent type: ${typeKey}`)
         },
         createChildInstance: async (opts) => {

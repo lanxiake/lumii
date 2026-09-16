@@ -34,6 +34,38 @@ export const BUILTIN_AGENT_ID_ALIASES: Readonly<Record<string, string>> = {
   default: "assistant",
 };
 
+/** 模型常编造、不在定义表中的「角色名」（等同省略 agentType） */
+export const INVENTED_SPAWN_AGENT_TYPES: Readonly<Set<string>> = new Set([
+  "worker",
+  "researcher",
+]);
+
+/**
+ * 解析 spawn_agent 的 agentType：缺省 assistant；编造角色名回落 assistant 并保留 roleHint。
+ */
+export function resolveSpawnAgentTypeInput(agentType: string | undefined): {
+  readonly typeKey: string;
+  readonly roleHint?: string;
+  readonly agentTypeNote?: string;
+} {
+  const trimmed = agentType?.trim() ?? "";
+  if (!trimmed) {
+    return { typeKey: "assistant" };
+  }
+  const lower = trimmed.toLowerCase();
+  if (INVENTED_SPAWN_AGENT_TYPES.has(lower)) {
+    const display = BUILTIN_AGENT_DISPLAY_NAMES.assistant ?? "assistant";
+    return {
+      typeKey: "assistant",
+      roleHint: trimmed,
+      agentTypeNote:
+        `agentType "${trimmed}" 不是已注册的 Agent id，已按协作规则省略并改用「${display}」；` +
+        `请在 prompt 中描述具体角色与任务。`,
+    };
+  }
+  return { typeKey: normalizeAgentTypeId(trimmed) };
+}
+
 /**
  * 把 agentType 归一为规范 id：命中历史别名则转换，其余（含用户自建 Agent id）原样返回。
  */

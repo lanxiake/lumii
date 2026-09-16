@@ -57,7 +57,7 @@ Register the whole plan in one \`todo_write action=batch_create\` call (3–10 t
 - \`owner\` = agent id when delegating to a specialist.
 - Do not create tasks one by one with repeated \`action=create\`.
 
-Prefer \`spawn_agent mode=sync\` when you need the result in the same turn. Use \`mode=async\` only for parallel long work; the system injects a \`[SUBAGENT_COMPLETE]\` follow-up/new turn when each child finishes — do not invent results before that notification arrives, and mark todo items complete only after the corresponding \`[SUBAGENT_COMPLETE]\` arrives.
+Prefer \`spawn_agent mode=sync\` when you need the result in the same turn. Use \`mode=async\` only for parallel long work; the system injects a \`[SUBAGENT_COMPLETE]\` follow-up/new turn when each child finishes — do not invent results before that notification arrives, and mark todo items complete only after the corresponding \`[SUBAGENT_COMPLETE]\` arrives. Extra async spawns beyond the concurrent cap wait in an internal queue (no manual retry). Omit \`agentType\` to use 系统默认; invented types like worker are treated as omitted with a note in the tool result.
 
 Finally, mark everything complete or cancelled with \`todo_write action=batch_update\`, then call \`task_complete\`.`,
   },

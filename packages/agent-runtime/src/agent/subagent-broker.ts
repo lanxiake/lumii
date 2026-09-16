@@ -10,10 +10,19 @@ export const SUBAGENT_DEFAULTS = {
   maxSpawnDepth: 1,
   maxConcurrentChildren: 5,
   hardMaxConcurrent: 10,
+  /** 并发满时 spawn 在工具内排队等待的最长时间 */
+  spawnQueueMaxWaitMs: 30 * 60 * 1000,
+  spawnQueuePollMs: 500,
   maxSummaryChars: 24_000,
   staleIdleMs: 180_000,
   staleCheckIntervalMs: 30_000,
 } as const;
+
+/** 排队等槽时的结果 */
+export interface AcquireSlotQueueResult {
+  readonly acquired: boolean;
+  readonly queuedMs: number;
+}
 
 /** 子 Agent 运行状态 */
 export type SubagentRunStatus =
@@ -87,6 +96,40 @@ export class SubagentBroker {
   /**
    * 尝试预订父下的一个并发槽：running+pending 已达 limit 则返回 false
    */
+  /**
+   * 并发满时在工具调用内排队等待空槽（不立刻失败，由父 Agent 自行重试）。
+   */
+  async acquireSlotWithQueue(
+    parentId: string,
+    limit: number,
+    opts?: { maxWaitMs?: number; pollMs?: number },
+  ): Promise<AcquireSlotQueueResult> {
+    const maxWaitMs = opts?.maxWaitMs ?? SUBAGENT_DEFAULTS.spawnQueueMaxWaitMs;
+    const pollMs = opts?.pollMs ?? SUBAGENT_DEFAULTS.spawnQueuePollMs;
+    const start = this.nowFn();
+    while (true) {
+      if (this.tryAcquireSlot(parentId, limit)) {
+        const queuedMs = Math.max(0, this.nowFn() - start);
+        if (queuedMs > 0) {
+          console.log(
+            `[SubagentBroker] acquire after queue parent=${parentId} queuedMs=${queuedMs} limit=${limit}`,
+          );
+        }
+        return { acquired: true, queuedMs };
+      }
+      const elapsed = this.nowFn() - start;
+      if (elapsed >= maxWaitMs) {
+        console.log(
+          `[SubagentBroker] acquire queue timeout parent=${parentId} waitedMs=${elapsed} limit=${limit}`,
+        );
+        return { acquired: false, queuedMs: elapsed };
+      }
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, Math.min(pollMs, maxWaitMs - elapsed));
+      });
+    }
+  }
+
   tryAcquireSlot(parentId: string, limit: number): boolean {
     const pending = this.pendingSlots.get(parentId) ?? 0;
     const running = this.countRunning(parentId);

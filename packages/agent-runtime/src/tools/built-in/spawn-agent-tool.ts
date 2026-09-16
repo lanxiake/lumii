@@ -17,7 +17,13 @@ const SpawnAgentParams = Type.Object({
   }),
   agentType: Type.Optional(
     Type.String({
-      description: 'Agent type/role that determines available tools (e.g., "worker", "researcher")',
+      description:
+        "Optional. Registered agent id from Multi-Agent Collaboration " +
+        '(e.g. "builtin:explore", "system-keeper"). ' +
+        "If omitted, defaults to the system assistant (系统默认). " +
+        "Do NOT use invented labels like worker/researcher — omit this field and describe the role in `prompt` instead. " +
+        "Unknown ids are treated as omitted (assistant + role in prompt) with a note in the result.",
+      default: "assistant",
     }),
   ),
   mode: Type.Optional(
@@ -53,7 +59,9 @@ export const spawnAgentToolConfig: MtBotToolConfig<typeof SpawnAgentParams> = {
   name: "spawn_agent",
   label: "Spawn Agent",
   description:
-    "Launch a new sub-agent to perform a task. Use sync mode for quick queries, async mode for long-running tasks.",
+    "Launch a sub-agent. Default agentType is assistant when omitted. " +
+    "If too many children are already running, this call waits in a queue for a free slot (no manual retry). " +
+    "Use sync for quick work; async for long parallel batches.",
   parameters: SpawnAgentParams,
   category: "agent",
   isReadOnly: false,

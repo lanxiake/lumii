@@ -22,6 +22,29 @@ import {
   type SubagentRunStatus,
 } from "./subagent-broker.js";
 import { guardSubagentSummary } from "./subagent-summary.js";
+import { resolveSpawnAgentTypeInput } from "./builtin/agent-display-names.js";
+
+/**
+ * 未知 agentType 时按「省略」处理：回落 assistant，并把虚构角色写进 prompt。
+ *
+ * 模型常把 schema 旧示例里的 `worker`/`researcher` 当成合法类型；
+ * 协作指引要求无匹配时省略 agentType、在 prompt 里定义角色——此处与该指引对齐。
+ */
+export function composeSpawnPromptWithFallbackRole(
+  prompt: string,
+  unknownTypeKey: string,
+  name?: string,
+): string {
+  const role = unknownTypeKey.trim();
+  if (!role || role === "assistant") return prompt;
+  const label = name?.trim() ? `${role} (${name.trim()})` : role;
+  const header = `[Role] You are acting as: ${label}. Follow the task below in that role.\n\n`;
+  // 避免重复注入（重试/父 Agent 已手写过角色段时）
+  if (prompt.startsWith("[Role]") || prompt.includes(`acting as: ${label}`)) {
+    return prompt;
+  }
+  return header + prompt;
+}
 
 /** listChildren 返回项 */
 export interface SubagentChildInfo {
@@ -72,6 +95,10 @@ export type SpawnAgentResult =
       readonly output: string;
       /** 当子 Agent 为 builtin:verify 时，解析出的结构化验证结论（主题5 P0-1） */
       readonly verdict?: Verdict;
+      /** 并发满时在工具内排队等待的毫秒数 */
+      readonly queuedMs?: number;
+      /** agentType 被省略/回落时的友好说明（回传父 Agent / UI） */
+      readonly agentTypeNote?: string;
     }
   | {
       readonly status: "ok";
@@ -81,6 +108,8 @@ export type SpawnAgentResult =
       readonly agentDefinitionId: string;
       readonly agentName: string;
       readonly message: string;
+      readonly queuedMs?: number;
+      readonly agentTypeNote?: string;
     }
   | { readonly status: "error"; readonly message: string };
 
@@ -126,8 +155,10 @@ export interface AgentOrchestratorDeps {
    * 未提供时使用 SUBAGENT_DEFAULTS.maxConcurrentChildren
    */
   readonly getParentMaxConcurrent?: (parentInstanceId: string) => number | undefined;
+  /** 并发满时 spawn 排队参数（单测可缩短 poll 间隔） */
+  readonly spawnQueue?: { readonly maxWaitMs?: number; readonly pollMs?: number };
   /**
-   * 异步子 Agent 完成（已 enqueue）后的宿主回调；bridge 负责投递泵与 destroy
+   * 异步子 Agent 完成（已 enqueue）后的宿主回调；bridge 负责投递与 destroy
    */
   readonly onAsyncSubagentComplete?: (payload: SubagentCompletionPayload) => void;
   /** 摘要落盘工作目录（可选） */
@@ -415,17 +446,24 @@ export class AgentOrchestrator {
 
     const parentKey = parentInstanceId ?? "__orphan__";
     const limit = this.resolveConcurrentLimit(parentInstanceId);
-    if (!this.broker.tryAcquireSlot(parentKey, limit)) {
+    const slot = await this.broker.acquireSlotWithQueue(
+      parentKey,
+      limit,
+      this.deps.spawnQueue,
+    );
+    if (!slot.acquired) {
+      const waitedSec = Math.max(1, Math.round(slot.queuedMs / 1000));
       console.log(
-        `[AgentOrchestrator] spawn denied concurrency parent=${parentKey} limit=${limit}`,
+        `[AgentOrchestrator] spawn queue timeout parent=${parentKey} limit=${limit} waitedMs=${slot.queuedMs}`,
       );
       return {
         status: "error",
         message:
-          `spawn_agent concurrency limit reached (max ${limit} running children). ` +
-          `Wait for a child to finish or interrupt one before spawning more.`,
+          `spawn_agent 并发已满（最多 ${limit} 个同时运行），已在工具内排队约 ${waitedSec}s 仍无空槽。` +
+          `请稍后再试，或 interrupt 一个正在运行的子 Agent 后重试。`,
       };
     }
+    const queuedMs = slot.queuedMs;
 
     const allowedCheck = this.validateAllowedTools(params.allowedTools, parentInstanceId);
     if (allowedCheck) {
@@ -436,14 +474,48 @@ export class AgentOrchestrator {
       return allowedCheck;
     }
 
-    const typeKey = params.agentType?.trim() || "assistant";
+    const typeInput = resolveSpawnAgentTypeInput(params.agentType);
     let agentDef: AgentDefinition;
+    let childPrompt = params.prompt;
+    let agentTypeNote = typeInput.agentTypeNote;
+    if (typeInput.roleHint) {
+      childPrompt = composeSpawnPromptWithFallbackRole(
+        params.prompt,
+        typeInput.roleHint,
+        params.name,
+      );
+    }
+    const requestedType = params.agentType?.trim() ?? "";
+    let typeKey = typeInput.typeKey;
     try {
       agentDef = await this.deps.resolveDefinition(typeKey);
     } catch (err) {
-      this.broker.releasePendingSlot(parentKey);
-      const message = err instanceof Error ? err.message : String(err);
-      return { status: "error", message: `resolveDefinition failed: ${message}` };
+      if (!requestedType || typeKey === "assistant") {
+        this.broker.releasePendingSlot(parentKey);
+        const message = err instanceof Error ? err.message : String(err);
+        return { status: "error", message: `resolveDefinition failed: ${message}` };
+      }
+      try {
+        agentDef = await this.deps.resolveDefinition("assistant");
+      } catch (fallbackErr) {
+        this.broker.releasePendingSlot(parentKey);
+        const message = fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr);
+        return { status: "error", message: `resolveDefinition failed: ${message}` };
+      }
+      typeKey = "assistant";
+      childPrompt = composeSpawnPromptWithFallbackRole(params.prompt, requestedType, params.name);
+      agentTypeNote =
+        agentTypeNote ??
+        `agentType "${requestedType}" 不是已注册的 Agent id，已改用「${agentDef.name}」并在 prompt 中保留任务角色。`;
+      console.log(
+        `[AgentOrchestrator] unknown agentType="${requestedType}" → omit & fallback assistant ` +
+          `(orig=${err instanceof Error ? err.message : String(err)})`,
+      );
+    }
+    if (queuedMs > 0 && !agentTypeNote) {
+      agentTypeNote = `并发已满，本委托在工具内排队约 ${Math.max(1, Math.round(queuedMs / 1000))}s 后开始执行。`;
+    } else if (queuedMs > 0 && agentTypeNote) {
+      agentTypeNote += ` 并发排队约 ${Math.max(1, Math.round(queuedMs / 1000))}s。`;
     }
 
     const childSessionKey = `child-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -502,7 +574,7 @@ export class AgentOrchestrator {
       });
 
       try {
-        await this.deps.prompt(childInstanceId, params.prompt);
+        await this.deps.prompt(childInstanceId, childPrompt);
         await childInstance.waitForIdle();
         this.finalizeWithGuard(childInstanceId, "succeeded", outputText);
       } catch (err) {
@@ -532,6 +604,8 @@ export class AgentOrchestrator {
           agentName: agentDef.name,
           output: `${banner}\n\n${guardedOutput}`,
           verdict,
+          ...(queuedMs > 0 ? { queuedMs } : {}),
+          ...(agentTypeNote ? { agentTypeNote } : {}),
         };
       }
 
@@ -542,6 +616,8 @@ export class AgentOrchestrator {
         agentDefinitionId: agentDef.id,
         agentName: agentDef.name,
         output: guardedOutput,
+        ...(queuedMs > 0 ? { queuedMs } : {}),
+        ...(agentTypeNote ? { agentTypeNote } : {}),
       };
     }
 
@@ -562,7 +638,7 @@ export class AgentOrchestrator {
 
     void (async () => {
       try {
-        await this.deps.prompt(childInstanceId, params.prompt);
+        await this.deps.prompt(childInstanceId, childPrompt);
         await child?.waitForIdle();
         if (this.broker.getRun(childInstanceId)?.status === "running") {
           this.finalizeWithGuard(childInstanceId, "succeeded", outputText);
@@ -582,13 +658,22 @@ export class AgentOrchestrator {
     console.log(
       `[AgentOrchestrator] spawn async started child=${childInstanceId} parent=${parentKey} name=${params.name}`,
     );
+    let asyncMessage = `Sub-agent "${params.name}" is running in the background.`;
+    if (queuedMs > 0) {
+      asyncMessage += ` Queued ~${Math.max(1, Math.round(queuedMs / 1000))}s for a free slot.`;
+    }
+    if (agentTypeNote) {
+      asyncMessage += ` ${agentTypeNote}`;
+    }
     return {
       status: "ok",
       mode: "async",
       instanceId: childInstanceId,
       agentDefinitionId: agentDef.id,
       agentName: agentDef.name,
-      message: `Sub-agent "${params.name}" is running in the background.`,
+      message: asyncMessage,
+      ...(queuedMs > 0 ? { queuedMs } : {}),
+      ...(agentTypeNote ? { agentTypeNote } : {}),
     };
   }
 

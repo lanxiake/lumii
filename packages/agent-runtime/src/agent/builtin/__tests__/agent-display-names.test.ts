@@ -4,6 +4,7 @@ import {
   BUILTIN_AGENT_ID_ALIASES,
   normalizeAgentTypeId,
   resolveBuiltinDisplayName,
+  resolveSpawnAgentTypeInput,
 } from "../agent-display-names.js";
 import { BUILTIN_AGENT_DEFINITIONS, findBuiltInAgent } from "../definitions.js";
 
@@ -64,5 +65,18 @@ describe("resolveBuiltinDisplayName", () => {
     expect(resolveBuiltinDisplayName("worker")).toBeUndefined();
     expect(resolveBuiltinDisplayName("researcher")).toBeUndefined();
     expect(resolveBuiltinDisplayName("user-1757000000000-abc123")).toBeUndefined();
+  });
+});
+
+describe("resolveSpawnAgentTypeInput", () => {
+  it("省略 agentType → assistant", () => {
+    expect(resolveSpawnAgentTypeInput(undefined)).toEqual({ typeKey: "assistant" });
+  });
+
+  it("worker/researcher → assistant + 友好说明", () => {
+    const w = resolveSpawnAgentTypeInput("worker");
+    expect(w.typeKey).toBe("assistant");
+    expect(w.roleHint).toBe("worker");
+    expect(w.agentTypeNote).toContain("worker");
   });
 });

@@ -254,6 +254,8 @@ export class BridgeToolRegistrar {
             agentName: result.agentName,
             output: result.output,
             ...(result.verdict ? { verdict: result.verdict } : {}),
+            ...(result.queuedMs ? { queuedMs: result.queuedMs } : {}),
+            ...(result.agentTypeNote ? { agentTypeNote: result.agentTypeNote } : {}),
             note:
               "You MUST now summarize or integrate the above `output` into your " +
               "reply to the user. Do not end your turn without reporting the " +
@@ -267,6 +269,8 @@ export class BridgeToolRegistrar {
           agentDefinitionId: result.agentDefinitionId,
           agentName: result.agentName,
           message: result.message,
+          ...(result.queuedMs ? { queuedMs: result.queuedMs } : {}),
+          ...(result.agentTypeNote ? { agentTypeNote: result.agentTypeNote } : {}),
         })
       },
     }

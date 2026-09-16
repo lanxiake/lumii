@@ -209,7 +209,7 @@ export function buildTaskOrchestrationSection(
     ]
     if (hasSpawn) {
       terseLines.push(
-        "- `spawn_agent mode=async`: mark tasks complete only after the matching `[SUBAGENT_COMPLETE]` arrives; use `mode=sync` when you need the result now.",
+        "- `spawn_agent mode=async`: mark tasks complete only after the matching `[SUBAGENT_COMPLETE]` arrives; use `mode=sync` when you need the result now. If many run at once, the runtime queues extra spawns — do not retry manually.",
       )
     }
     terseLines.push(
@@ -246,6 +246,7 @@ export function buildTaskOrchestrationSection(
       "Do not invent results before that notification arrives.",
       "When using todos with async children, mark tasks complete only after the",
       "corresponding `[SUBAGENT_COMPLETE]` arrives.",
+      "Only a limited number of children run at once; extra `spawn_agent` calls wait in a queue inside the tool — keep issuing spawns for parallel work, no manual retry for queueing.",
       "Execute in dependency order: start independent parallel work with `mode=async`, then continue serial steps after their `[SUBAGENT_COMPLETE]` notifications (or use `mode=sync` when you must block).",
       "The task list belongs to the orchestrator; sub-agents must not call `todo_write`.",
       "",

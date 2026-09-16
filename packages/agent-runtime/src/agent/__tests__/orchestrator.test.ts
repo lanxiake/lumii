@@ -281,21 +281,24 @@ describe("AgentOrchestrator", () => {
     expect(createChild).not.toHaveBeenCalled();
   });
 
-  it("并发：连续 async 超过 limit → 第 N+1 个 error", async () => {
+  it("并发满时第二个 async spawn 排队直到第一个释放槽", async () => {
     let n = 0;
+    let releaseFirst: (() => void) | undefined;
+    const firstIdle = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
     const children = new Map<string, AgentInstance>();
     const orch = new AgentOrchestrator(registry, bus, {
       resolveDefinition: async () => mockDef("assistant"),
       createChildInstance: async () => {
         n += 1;
         const id = `child-${n}`;
-        // 永不 idle，保持 running 占槽
         children.set(
           id,
           {
             id,
             subscribe: () => () => {},
-            waitForIdle: () => new Promise(() => {}),
+            waitForIdle: () => (id === "child-1" ? firstIdle : Promise.resolve()),
           } as unknown as AgentInstance,
         );
         return id;
@@ -307,15 +310,18 @@ describe("AgentOrchestrator", () => {
       findInstanceByRecipient: () => undefined,
       getDisplayNameForInstance: (id) => id,
       getParentMaxConcurrent: () => 1,
+      spawnQueue: { pollMs: 20, maxWaitMs: 5_000 },
     });
 
-    const r1 = await orch.spawnAgent({ name: "a", prompt: "1", mode: "async" }, "parent-1");
+    const r1Promise = orch.spawnAgent({ name: "a", prompt: "1", mode: "async" }, "parent-1");
+    await vi.waitFor(() => expect(n).toBe(1));
+    const r2Promise = orch.spawnAgent({ name: "b", prompt: "2", mode: "async" }, "parent-1");
+    releaseFirst?.();
+    const [r1, r2] = await Promise.all([r1Promise, r2Promise]);
     expect(r1.status).toBe("ok");
-
-    const r2 = await orch.spawnAgent({ name: "b", prompt: "2", mode: "async" }, "parent-1");
-    expect(r2.status).toBe("error");
-    if (r2.status === "error") {
-      expect(r2.message).toContain("concurrency limit");
+    expect(r2.status).toBe("ok");
+    if (r2.status === "ok" && r2.mode === "async") {
+      expect(r2.queuedMs).toBeGreaterThan(0);
     }
   });
 
@@ -463,5 +469,55 @@ describe("AgentOrchestrator", () => {
       "parent-1",
     );
     expect(ok.status).toBe("ok");
+  });
+
+  it("未知 agentType（如 worker）按省略处理：回落 assistant 并把角色写入 prompt", async () => {
+    const prompt = vi.fn().mockResolvedValue(undefined);
+    const resolveDefinition = vi.fn(async (typeKey: string) => {
+      if (typeKey === "assistant") return mockDef("assistant");
+      throw new Error(`unexpected type: ${typeKey}`);
+    });
+    const child = mockChild("child-fallback");
+    const orch = new AgentOrchestrator(registry, bus, {
+      resolveDefinition,
+      createChildInstance: async () => "child-fallback",
+      prompt,
+      followUp: vi.fn(),
+      destroy: vi.fn(),
+      getInstance: () => child,
+      findInstanceByRecipient: () => undefined,
+      getDisplayNameForInstance: (id) => id,
+    });
+
+    const r = await orch.spawnAgent(
+      {
+        name: "r-ch06",
+        prompt: "研究并撰写 ch06 反思与自我进化",
+        agentType: "worker",
+        mode: "async",
+      },
+      "parent-1",
+    );
+
+    expect(r.status).toBe("ok");
+    expect(resolveDefinition).toHaveBeenCalledWith("assistant");
+    expect(resolveDefinition).not.toHaveBeenCalledWith("worker");
+    if (r.status === "ok" && r.mode === "async") {
+      expect(r.agentTypeNote).toContain("worker");
+    }
+    expect(prompt).toHaveBeenCalledWith(
+      "child-fallback",
+      expect.stringContaining("[Role] You are acting as: worker (r-ch06)."),
+    );
+    expect(prompt.mock.calls[0]![1]).toContain("研究并撰写 ch06 反思与自我进化");
+  });
+});
+
+describe("composeSpawnPromptWithFallbackRole", () => {
+  it("为未知类型注入角色头，已有 Role 段时不重复", async () => {
+    const { composeSpawnPromptWithFallbackRole } = await import("../orchestrator.js");
+    const once = composeSpawnPromptWithFallbackRole("do work", "worker", "r-ch01");
+    expect(once.startsWith("[Role]")).toBe(true);
+    expect(composeSpawnPromptWithFallbackRole(once, "worker", "r-ch01")).toBe(once);
   });
 });

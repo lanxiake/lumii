@@ -143,6 +143,24 @@ describe("SubagentBroker", () => {
     expect(SUBAGENT_DEFAULTS.hardMaxConcurrent).toBe(10);
   });
 
+  it("acquireSlotWithQueue 在满槽时等待直至有空位", async () => {
+    let now = 0;
+    const broker = new SubagentBroker(() => now);
+    broker.tryAcquireSlot("p", 1);
+    broker.registerRun({ childId: "c1", parentId: "p", name: "a", mode: "async" });
+
+    const waitPromise = broker.acquireSlotWithQueue("p", 1, {
+      pollMs: 10,
+      maxWaitMs: 2_000,
+    });
+    now = 50;
+    broker.finalizeRun("c1", "succeeded", "done");
+
+    const slot = await waitPromise;
+    expect(slot.acquired).toBe(true);
+    expect(slot.queuedMs).toBeGreaterThan(0);
+  });
+
   it("findStaleRuns 仅命中超时的 async running", () => {
     let now = 1_000;
     const timed = new SubagentBroker(() => now);
