@@ -134,6 +134,72 @@ export function formatHandoffReport(summary: string, r: DevHandoffReport): strin
     : `❌ 转交执行失败：「${summary}」\n${truncate(r.text, 400)}`
 }
 
+/** 转交记忆的标签前缀（第二个 tag 存开发会话键，用作同一任务线的 upsert 键） */
+const HANDOFF_MEMORY_TAG = 'handoff'
+/** 记忆条目里保留的结果正文上限（记忆是"当前状态"的载体，不是全文档案） */
+const HANDOFF_MEMORY_MAX_CHARS = 400
+
+/**
+ * 任务摘要 + 结果正文 → 一条工作记忆的正文（压单行并截断）。
+ *
+ * 导出供测试直接断言。
+ */
+export function buildHandoffMemoryContent(summary: string, resultText: string): string {
+  const oneLine = resultText.replace(/\s+/g, ' ').trim()
+  if (!oneLine) return summary
+  const body =
+    oneLine.length > HANDOFF_MEMORY_MAX_CHARS
+      ? `${oneLine.slice(0, HANDOFF_MEMORY_MAX_CHARS)}…`
+      : oneLine
+  return `${summary}：${body}`
+}
+
+/**
+ * 把一次**成功**的转交记进「灵栖开发」的工作记忆。
+ *
+ * 为什么记在 code-dev 名下：这活是它干的。而记事与维护的 `readView` 都是 `user`
+ * （跨 Agent 可读），所以日报能汇总到开发的工作、维护做去重时也看得见它——这正是
+ * `CHRONICLER_PROMPT` 写着「开发 Agent 记代码任务」却一直空着的那块输入。
+ *
+ * 去重按**开发会话**：一个开发会话就是一条任务线（复用会话即延续任务，见
+ * `findRecentCodeDevSession` 的语义），因此同一会话的后续转交**覆盖**前一条，
+ * 记忆反映这条线的当前状态而不是流水账——一个任务反复迭代不会灌进一串半成品。
+ * 内容一字不差的重复触发另有 `MemoryRepo.saveCandidate` 自身的幂等兜底。
+ *
+ * 失败与中止不记（`ok === false`）：半成品进记忆库只会污染日报与维护的判据。
+ */
+function recordHandoffMemory(
+  bridge: AgentRuntimeBridge,
+  summary: string,
+  payload: DevHandoffReport,
+): void {
+  try {
+    const memoryManager = bridge.memoryManager
+    if (!memoryManager || !payload.devSessionKey) return
+    const content = buildHandoffMemoryContent(summary, payload.text)
+    const existing = memoryManager
+      .listActive(CODE_DEV_AGENT_ID, LOCAL_USER_ID)
+      .find((m) => m.tags.includes(payload.devSessionKey))
+    if (existing) {
+      // updateMemory 只改正文，tags 原样保留——upsert 键因此不会丢
+      memoryManager.updateMemory(existing.id, content)
+      log.info(`[handoff] 已更新开发记忆 id=${existing.id} session=${payload.devSessionKey}`)
+      return
+    }
+    const entry = memoryManager.addMemory({
+      agentId: CODE_DEV_AGENT_ID,
+      userId: LOCAL_USER_ID,
+      category: 'project',
+      content,
+      importance: 0.6,
+      tags: [HANDOFF_MEMORY_TAG, payload.devSessionKey],
+    })
+    log.info(`[handoff] 已记入开发记忆 id=${entry.id} session=${payload.devSessionKey}`)
+  } catch (err) {
+    log.error(`[handoff] 写入开发记忆失败: ${err instanceof Error ? err.message : String(err)}`)
+  }
+}
+
 /**
  * 发起转交并挂完成监听。
  * @returns 目标开发会话（供调用方回执/跳转）
@@ -321,6 +387,11 @@ export async function reportToOriginSession(
     }
   } catch (err) {
     log.error(`[handoff] 原会话汇报失败: ${err instanceof Error ? err.message : String(err)}`)
+  }
+
+  // 记忆落库放在汇报的 try 之外：它失败只该记日志，不能把「汇报成功」变成「汇报失败」
+  if (payload.ok) {
+    recordHandoffMemory(bridge, summary, payload)
   }
 }
 

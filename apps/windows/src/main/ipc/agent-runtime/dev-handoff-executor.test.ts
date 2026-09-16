@@ -25,7 +25,13 @@ import { getDevContext, setDevContext, setDevContextBaseDir } from '../../coding
 import { setCodingDevConfigGetter } from '../../coding-dev-env'
 import { handleConversationCreate, handleConversationList } from './conversation-commands'
 import { setAcpBackendManagerGetter } from './coding-dev-commands'
-import { NO_CLI_BINDING_HINT, runDevHandoff, type DevHandoffReport } from './dev-handoff-executor'
+import {
+  NO_CLI_BINDING_HINT,
+  buildHandoffMemoryContent,
+  reportToOriginSession,
+  runDevHandoff,
+  type DevHandoffReport,
+} from './dev-handoff-executor'
 import { handleUserSend } from './user-commands'
 
 /** 会话消息快照：用例可在 runDevHandoff 发起后改写它，模拟「ACP 把结果/错误落库」 */
@@ -279,5 +285,118 @@ describe('runDevHandoff · 完成判定（P3b）', () => {
     expect(reports).toHaveLength(1)
     expect(reports[0]!.ok).toBe(true)
     expect(reports[0]!.text).toContain('已修复分页边界')
+  })
+})
+
+describe('reportToOriginSession · 开发记忆（13-A2）', () => {
+  type ExistingMemory = { readonly id: string; readonly tags: readonly string[] }
+
+  /** 汇报链路需要的最小 bridge：会话仓库 + 事件转发 + 记忆管理器 */
+  function makeReportingBridge(existing: readonly ExistingMemory[] = []) {
+    const memoryManager = {
+      listActive: vi.fn((): readonly ExistingMemory[] => existing),
+      addMemory: vi.fn((p: Record<string, unknown>) => ({ id: 'mem-new', ...p })),
+      updateMemory: vi.fn(),
+    }
+    const bridge = {
+      memoryManager,
+      conversationRepo: { saveMessage: vi.fn(() => ({ id: 'msg-1' })) },
+      forwardIpcEvent: vi.fn(),
+      pushChannelText: vi.fn(async () => false),
+      getLastActiveConversationId: vi.fn(() => 'origin-1'),
+      triggerCronNotification: vi.fn(),
+    }
+    return { bridge: bridge as unknown as AgentRuntimeBridge, memoryManager }
+  }
+
+  const okReport = (over: Partial<DevHandoffReport> = {}): DevHandoffReport => ({
+    ok: true,
+    devSessionKey: 'dev-session-1',
+    devSessionTitle: '开发任务',
+    text: '已修复分页边界，改动 2 个文件。',
+    ...over,
+  })
+
+  it('成功时记入开发 Agent 的工作记忆（project 类、带任务线标签）', async () => {
+    const { bridge, memoryManager } = makeReportingBridge()
+    await reportToOriginSession(bridge, 'origin-1', '修复分页', okReport())
+
+    expect(memoryManager.addMemory).toHaveBeenCalledTimes(1)
+    expect(memoryManager.addMemory).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentId: 'code-dev',
+        userId: 'local-user',
+        category: 'project',
+        tags: ['handoff', 'dev-session-1'],
+      }),
+    )
+    expect(memoryManager.updateMemory).not.toHaveBeenCalled()
+  })
+
+  it('同一开发会话的后续转交覆盖前一条，不新增（一条任务线只留最新状态）', async () => {
+    const { bridge, memoryManager } = makeReportingBridge([
+      { id: 'mem-old', tags: ['handoff', 'dev-session-1'] },
+    ])
+    await reportToOriginSession(bridge, 'origin-1', '再改一版', okReport())
+
+    expect(memoryManager.updateMemory).toHaveBeenCalledWith(
+      'mem-old',
+      expect.stringContaining('再改一版'),
+    )
+    expect(memoryManager.addMemory).not.toHaveBeenCalled()
+  })
+
+  it('失败不记——半成品不进记忆库', async () => {
+    const { bridge, memoryManager } = makeReportingBridge()
+    await reportToOriginSession(
+      bridge,
+      'origin-1',
+      '修复分页',
+      okReport({ ok: false, text: 'ACP 执行失败' }),
+    )
+
+    expect(memoryManager.addMemory).not.toHaveBeenCalled()
+    expect(memoryManager.updateMemory).not.toHaveBeenCalled()
+  })
+
+  it('别的开发会话的条目不会被误认成同一任务线', async () => {
+    const { bridge, memoryManager } = makeReportingBridge([
+      { id: 'mem-other', tags: ['handoff', 'dev-session-OTHER'] },
+    ])
+    await reportToOriginSession(bridge, 'origin-1', '修复分页', okReport())
+
+    expect(memoryManager.addMemory).toHaveBeenCalledTimes(1)
+    expect(memoryManager.updateMemory).not.toHaveBeenCalled()
+  })
+
+  it('写记忆失败不影响汇报（它跑在汇报的 try 之外）', async () => {
+    const { bridge, memoryManager } = makeReportingBridge()
+    memoryManager.addMemory.mockImplementation(() => {
+      throw new Error('db locked')
+    })
+
+    await expect(
+      reportToOriginSession(bridge, 'origin-1', '修复分页', okReport()),
+    ).resolves.toBeUndefined()
+    expect(bridge.conversationRepo.saveMessage).toHaveBeenCalled()
+  })
+})
+
+describe('buildHandoffMemoryContent', () => {
+  it('摘要 + 压成单行的结果正文', () => {
+    expect(buildHandoffMemoryContent('修复分页', '改好了\n\n动了 2 个文件')).toBe(
+      '修复分页：改好了 动了 2 个文件',
+    )
+  })
+
+  it('正文超长时截断并留省略号', () => {
+    const out = buildHandoffMemoryContent('任务', 'x'.repeat(500))
+    expect(out.startsWith('任务：')).toBe(true)
+    expect(out.length).toBeLessThan(420)
+    expect(out.endsWith('…')).toBe(true)
+  })
+
+  it('正文为空时只留摘要', () => {
+    expect(buildHandoffMemoryContent('修复分页', '   ')).toBe('修复分页')
   })
 })
