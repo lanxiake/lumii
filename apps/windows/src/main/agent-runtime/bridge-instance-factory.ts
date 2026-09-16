@@ -441,7 +441,9 @@ export class BridgeInstanceFactory {
     const optionalHooks = [
       createLargeToolResultHook({ getCwd, getConversationId }),
       skillHitRateTracker.hook,
-      createToolUsageHook(),
+      // 失败审计与计数同源：两者都要在「所有工具的统一出口」上接线，
+      // 分开成两个 hook 只会多一遍遍历，且容易只接其中一个
+      createToolUsageHook({ logToolAudit }),
       // 工具进化 M1：逐条采集 bash 命令原文（模式挖掘数据源），失败静默不影响主链路
       // 挖掘由定时条件检查触发，不再在写日志后实时检查
       createBashCommandLogHook({
