@@ -17,7 +17,14 @@ const DashboardFeedItemParams = Type.Object({
   title: Type.String({ description: "条目标题" }),
   summary: Type.Optional(Type.String({ description: "一句话摘要" })),
   href: Type.Optional(Type.String({ description: "原文链接" })),
-  source: Type.Optional(Type.String({ description: "来源站点/媒体名" })),
+  source: Type.Optional(
+    Type.String({
+      description:
+        "来源站点/媒体名。格式：`媒体名` 或 `媒体名·栏目/转载源`，" +
+        "分隔符统一用 `·`（不要用 `/`、`|` 或空格混写）——" +
+        "同一家媒体的不同写法会散成不同的统计键，让「这家最近被推了几条」这类问题答不准。",
+    }),
+  ),
 });
 
 const DashboardFeedWriteParams = Type.Object({

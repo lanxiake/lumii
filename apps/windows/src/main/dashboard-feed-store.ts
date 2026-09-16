@@ -188,6 +188,35 @@ function normalizeMetadata(value: unknown): DashboardFeedMetadata | undefined {
   return Object.keys(metadata).length > 0 ? metadata : undefined
 }
 
+/**
+ * 来源里的分隔符写法。
+ *
+ * 实测（2026-09-16，215 条已推条目）：同一件事被写成 `36氪/新智元`、`36氪 / 新智元`、
+ * `36氪·新智元` 三种，**是三个不同的 key**。48 家媒体散成 97 个 source 取值。
+ * 任何按来源的统计（「这家最近被推了几条」「这个源该不该降权」）在这个前提下都不可靠。
+ */
+const SOURCE_SEPARATOR = /(?:\s*[/／|｜]\s*|\s*·\s*)/g
+
+/**
+ * 归一化来源写法：**只统一分隔符，不合并媒体名、不重排顺序**。
+ *
+ * - `36氪 / 新智元` / `36氪/新智元` → `36氪·新智元`
+ * - `机器之心 / 36氪` 保持原样——它与 `36氪 / 机器之心` 谁是媒体谁是转载源，
+ *   代码判不了；重排会把一个猜测写成事实。要按媒体聚合，查询时 split('·') 即可，
+ *   那是派生视图，不需要动存储。
+ * - `InfoQ` 与 `InfoQ 中文` 也不合并：那是两家不同的站点，不是写法差异。
+ */
+export function normalizeSource(raw: string | undefined): string | undefined {
+  const trimmed = raw?.trim()
+  if (!trimmed) return undefined
+  const unified = trimmed
+    .replace(SOURCE_SEPARATOR, '·')
+    .replace(/·{2,}/g, '·')
+    .replace(/^·+|·+$/g, '')
+    .trim()
+  return unified || undefined
+}
+
 function normalizeItem(
   raw: unknown,
   index: number,
@@ -201,6 +230,8 @@ function normalizeItem(
   const href = asNonEmptyString(value.href) ?? asNonEmptyString(value.link)
   const summary = asNonEmptyString(value.summary) ?? asNonEmptyString(value.excerpt)
   const timestamp = asFiniteNumber(value.timestamp) ?? asFiniteNumber(value.pubTs)
+  // 写入口归一化：模型每轮自由发挥的写法，不能让它直接变成不同的统计 key
+  const source = normalizeSource(asNonEmptyString(value.source))
   const id = uniqueDashboardFeedItemId(
     { id: asNonEmptyString(value.id), href, title },
     index,
@@ -212,7 +243,7 @@ function normalizeItem(
     title,
     ...(summary ? { summary } : {}),
     ...(href ? { href } : {}),
-    ...(asNonEmptyString(value.source) ? { source: asNonEmptyString(value.source) } : {}),
+    ...(source ? { source } : {}),
     ...(timestamp !== undefined ? { timestamp } : {}),
     ...(asNonEmptyString(value.kind) ? { kind: asNonEmptyString(value.kind) } : {}),
     ...(normalizeMetadata(value.metadata) ? { metadata: normalizeMetadata(value.metadata) } : {}),
@@ -724,6 +755,7 @@ export async function ensureDashboardFeedMigrated(feedId = DEFAULT_DASHBOARD_FEE
 export const __testables = {
   normalizeItem,
   normalizeSnapshot,
+  normalizeSource,
   validateFeedId,
   uniqueDashboardFeedItemId,
   MAX_FEED_ITEMS,

@@ -92,3 +92,57 @@ describe('dashboard-feed-store', () => {
     }
   })
 })
+
+describe('normalizeSource', () => {
+  const { normalizeSource } = __testables
+
+  it('把同一件事的几种分隔符写法收成一种', () => {
+    // 实测：这三个在库里是三个不同的 key
+    expect(normalizeSource('36氪/新智元')).toBe('36氪·新智元')
+    expect(normalizeSource('36氪 / 新智元')).toBe('36氪·新智元')
+    expect(normalizeSource('36氪·新智元')).toBe('36氪·新智元')
+  })
+
+  it('全角与竖线也收', () => {
+    expect(normalizeSource('36氪／新智元')).toBe('36氪·新智元')
+    expect(normalizeSource('36氪｜新智元')).toBe('36氪·新智元')
+  })
+
+  it('已有的 · 只规整它两侧的空格', () => {
+    expect(normalizeSource('澎湃新闻 · 10%公司')).toBe('澎湃新闻·10%公司')
+  })
+
+  it('不重排顺序（谁是媒体谁是转载源代码判不了，重排等于把猜测写成事实）', () => {
+    expect(normalizeSource('机器之心 / 36氪')).toBe('机器之心·36氪')
+    expect(normalizeSource('36氪 / 机器之心')).toBe('36氪·机器之心')
+  })
+
+  it('不合并媒体名（InfoQ 与 InfoQ 中文是两家站点，不是写法差异）', () => {
+    expect(normalizeSource('InfoQ 中文')).toBe('InfoQ 中文')
+    expect(normalizeSource('The Verge')).toBe('The Verge')
+  })
+
+  it('多段分隔符连着写也只留一个 ·', () => {
+    expect(normalizeSource('A / / B')).toBe('A·B')
+    expect(normalizeSource('A  ·  ·  B')).toBe('A·B')
+  })
+
+  it('首尾多余的分隔符去掉', () => {
+    expect(normalizeSource('/ 36氪')).toBe('36氪')
+    expect(normalizeSource('36氪 /')).toBe('36氪')
+  })
+
+  it('空白与空串返回 undefined（而不是空字符串这种「有值但没内容」）', () => {
+    expect(normalizeSource('')).toBeUndefined()
+    expect(normalizeSource('   ')).toBeUndefined()
+    expect(normalizeSource(undefined)).toBeUndefined()
+  })
+
+  it('经写入口生效：normalizeSnapshot 产出已归一化的 source', () => {
+    const snapshot = __testables.normalizeSnapshot(
+      { feedId: 'news', title: 't', updatedAt: 1, items: [{ title: 'a', source: '36氪 / 新智元' }] },
+      'news',
+    )
+    expect(snapshot?.items[0]?.source).toBe('36氪·新智元')
+  })
+})
