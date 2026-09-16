@@ -27,9 +27,10 @@ export interface ArchivePalaceMeta {
   /** 内容寻址 drawer_id（TS 侧确定性生成，宿主据此做幂等 upsert，P2） */
   readonly drawerId: string;
   /**
-   * 宫殿归档位置（wing/room）。由 runtime 计算并传出，确保宿主存储位置与
-   * drawerId 的内容寻址输入一致（drawerId = sha256(wing+room+content)）——
-   * 宿主不得自行重算，否则 id 与存储位置错位（P2 幂等失效）。
+   * 宫殿归档位置（wing/room）。由 runtime 计算并传出，供宿主按自己的后端
+   * 落地——宿主可以把它归一成后端收得下的名字（如 mempalace 只收字母数字
+   * 与 `_ . ' -` 空格），但**回填以宿主返回的 drawerId 为准**：只有真写进去了
+   * 才记账，见 archiveToPalace。
    */
   readonly wing: string;
   readonly room: string;
@@ -161,8 +162,11 @@ export class SegmentMemoryPipeline {
    * 段原文归档进记忆宫殿并回写 drawer_id（诉求 A · 宫殿互引）。
    *
    * drawer_id 由 TS 侧内容寻址确定性生成（P2）：sha256(wing+room+content)[:16]，
-   * 天然防重 + 与阶段二一致。先把 ID 回填到段与该段产出的记忆（不依赖宿主返回），
-   * 再调宿主 archivePalace 让宫殿做幂等 upsert。宿主未注入时跳过归档。
+   * 天然防重 + 与阶段二一致。它随 meta 传给宿主做幂等 upsert，但**回填只认宿主
+   * 真写进去的那一个**：宿主失败时返回空对象，若此时把本地算出的 ID 记进段与记忆，
+   * 就会留下指向不存在 drawer 的死链（2026-09-16 排查：宫殿重建后新增的 2 个段、
+   * 1 条记忆全是死链——同期 4 次归档都因 wing/room 名字非法被 Python 拒收）。
+   * 宿主未注入时跳过归档。
    */
   private async archiveToPalace(segmentId: string, conversationId: string): Promise<void> {
     const { archivePalace, conversationRepo, segmentRepo, memoryManager, agentId, userId } =
@@ -183,11 +187,7 @@ export class SegmentMemoryPipeline {
       const room = seg.createdAt.slice(0, 10); // 归档日期
       const drawerId = deterministicDrawerId(wing, room, text);
 
-      // 先回填内容寻址 ID（确定性，不依赖宿主返回）
-      segmentRepo.setPalaceDrawerId(seg.id, drawerId);
-      memoryManager.setPalaceDrawerIdBySegment(seg.id, drawerId);
-
-      // 再让宿主把原文 upsert 进宫殿（幂等）；返回的 drawerId 若不同则以宿主为准
+      // 让宿主把原文 upsert 进宫殿（幂等）；它返回的 drawerId 才是宫殿里的实际 ID
       const result = await archivePalace(text, {
         segmentId: seg.id,
         conversationId: seg.conversationId,
@@ -197,10 +197,15 @@ export class SegmentMemoryPipeline {
         wing,
         room,
       });
-      if (result.drawerId && result.drawerId !== drawerId) {
-        segmentRepo.setPalaceDrawerId(seg.id, result.drawerId);
-        memoryManager.setPalaceDrawerIdBySegment(seg.id, result.drawerId);
+
+      const storedId = result.drawerId;
+      if (!storedId) {
+        // 没写进去就不留痕：宁可没有 drawer_id，也不能记一个查不到的
+        console.warn(`[SegmentMemory] 段 ${seg.id} 未归档进宫殿，不回填 drawer_id`);
+        return;
       }
+      segmentRepo.setPalaceDrawerId(seg.id, storedId);
+      memoryManager.setPalaceDrawerIdBySegment(seg.id, storedId);
     } catch (err) {
       // 归档失败不影响记忆写入主流程
       console.warn(

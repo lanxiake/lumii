@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from 'child_process'
+import { createHash } from 'crypto'
 import { createInterface } from 'readline'
 
 export interface MemPalaceDrawer {
@@ -76,6 +77,76 @@ function sanitizeForUtf8(value: unknown): unknown {
 
 const MAX_RESTARTS = 3
 const CALL_TIMEOUT_MS = 30000
+
+/** wing/room 长度上限（对齐 mempalace.config.MAX_NAME_LENGTH） */
+const PALACE_NAME_MAX = 128
+/** 超长截断后拼接的哈希长度：截断位不同的长名不会撞成同一个 */
+const PALACE_NAME_HASH_LEN = 16
+
+/**
+ * mempalace 认的名字：首尾为字母/数字，中间可含字母数字与 `_ . ' -` 空格。
+ * 等价于 Python 侧 `mempalace.config._SAFE_NAME_RE`（那边 `\w` 即 isalnum + `_`）。
+ */
+const PALACE_NAME_OK_RE = /^(?:[\p{L}\p{N}]|[\p{L}\p{N}][\p{L}\p{N}_ .'-]{0,126}[\p{L}\p{N}])$/u
+
+/** 归一化时视为合法的字符（比 Python 窄：只留 `_` 和 `-`，避免造出 `..` 这类路径形态） */
+const PALACE_NAME_BAD_RE = /[^\p{L}\p{N}_-]+/gu
+
+/** 名字里至少要有字母或数字——首尾都得是它，全是符号的名字得换 fallback */
+const PALACE_ALNUM_RE = /[\p{L}\p{N}]/u
+
+/** drawer 正文上限（对齐 mempalace.config.sanitize_content 的 max_length） */
+const MAX_DRAWER_CONTENT = 100_000
+/** 截断说明：附在正文末尾，免得以后有人以为宫殿里存的原文本来就到这儿为止 */
+const TRUNCATION_NOTE = '\n\n[原文过长，此处截断；完整原文在本机会话库]'
+
+/**
+ * 正文归一：mempalace 的 sanitize_content 会拒收含 NUL 字节或超过 10 万字符的正文
+ * （同样是「返回值报错」，不处理就整条内容进不了宫殿，段与记忆都只剩空 drawer_id）。
+ *
+ * - NUL 一律换成 U+FFFD，与 mempalace 自己的 strip_nul_bytes 同款（#1235：NUL 会让
+ *   后端 SQLite/FTS5 的倒排索引损坏，殃及整个 collection，不只是这一条存不进去）。
+ *   会话原文里带 NUL 很正常——工具输出、文件内容、命令 stdout 都可能夹带。
+ * - 超长则截断并留说明。分片不做：宫殿里的段原文是「回查原文」的兜底，完整原文在
+ *   本机会话库（getMemoryProvenance 直接从那儿读），截断不影响回溯，还能保住
+ *   drawer_id 与内容的一一对应（分片会变成一对多，回填哪个 id 就说不清了）。
+ *
+ * 长度用 JS 的 `.length`（UTF-16 码元）比 Python 的 `len`（码点）只多不少，
+ * 所以按它判上限不会越界。
+ */
+function clampDrawerContent(content: string): string {
+  const safe = content.replace(/\u0000/g, '\uFFFD')
+  if (safe.length <= MAX_DRAWER_CONTENT) return safe
+  return safe.slice(0, MAX_DRAWER_CONTENT - TRUNCATION_NOTE.length) + TRUNCATION_NOTE
+}
+
+/**
+ * 把应用内的标识归一成 mempalace 收得下的 wing/room 名字。
+ *
+ * Python 侧 `sanitize_name` 只收上面那条正则允许的名字，否则 ValueError
+ * （`wing/room contains invalid characters`）；写工具把它当**返回值**报错，
+ * 于是内容一条都进不了宫殿。而应用里的标识偏偏带 `:`——段归档的 wing 默认是
+ * `${agentId}:${userId}`，会话 id 又是渠道前缀制（`cron:news-pipeline`、
+ * `feishu:ou_…`、`weixin:…@im.wechat`）。2026-09-16 错误日志里 4 条 MemPalace
+ * 写入失败全出于此，宫殿里也因此只有 `conversations` 一个 wing、room 全是纯 hex。
+ *
+ * 规则：已是合法名字的原样返回（宫殿里别的客户端写的名字不能被改写，否则按它
+ * 过滤会查不到）；否则非法字符统一换成 `_`、去掉首尾的 `_`/`-`，空则退回 fallback，
+ * 超长则截断接哈希。同一输入恒得同一名字，读写两端因此对得上。
+ *
+ * 注意这是有损映射（`cron:news` 与 `cron_news` 撞同一名字），可读性优先于唯一性：
+ * 调用方传的都是应用内的 id，形态固定，实际不会撞。
+ */
+export function toPalaceName(value: string, fallback = 'unnamed'): string {
+  const trimmed = value.trim()
+  if (PALACE_NAME_OK_RE.test(trimmed)) return trimmed
+  const cleaned = trimmed.replace(PALACE_NAME_BAD_RE, '_').replace(/^[_-]+|[_-]+$/g, '')
+  // 首尾的 `_` 去掉后还得剩下字母/数字（`:::`、`_-_` 这类只剩符号的退回 fallback）
+  if (!PALACE_ALNUM_RE.test(cleaned)) return fallback
+  if (cleaned.length <= PALACE_NAME_MAX) return cleaned
+  const hash = createHash('sha256').update(trimmed, 'utf8').digest('hex').slice(0, PALACE_NAME_HASH_LEN)
+  return `${cleaned.slice(0, PALACE_NAME_MAX - PALACE_NAME_HASH_LEN - 1)}_${hash}`
+}
 
 export class MemPalaceMcpBridge {
   private proc: ChildProcess | null = null
@@ -259,8 +330,8 @@ export class MemPalaceMcpBridge {
     const raw = await this.callTool('mempalace_list_drawers', {
       limit: params.limit ?? 20,
       offset: params.offset ?? 0,
-      ...(params.wing ? { wing: params.wing } : {}),
-      ...(params.room ? { room: params.room } : {}),
+      ...(params.wing ? { wing: toPalaceName(params.wing) } : {}),
+      ...(params.room ? { room: toPalaceName(params.room) } : {}),
     }) as { drawers?: MemPalaceDrawer[]; count?: number; offset?: number; limit?: number; error?: string }
 
     if (raw?.error) {
@@ -280,8 +351,8 @@ export class MemPalaceMcpBridge {
     const raw = await this.callTool('mempalace_search', {
       query: params.query,
       limit: params.limit ?? 20,
-      ...(params.wing ? { wing: params.wing } : {}),
-      ...(params.room ? { room: params.room } : {}),
+      ...(params.wing ? { wing: toPalaceName(params.wing) } : {}),
+      ...(params.room ? { room: toPalaceName(params.room) } : {}),
     }) as { results?: MemPalaceSearchItem[]; error?: string } | MemPalaceSearchItem[]
 
     if (Array.isArray(raw)) return raw
@@ -307,9 +378,12 @@ export class MemPalaceMcpBridge {
     sourceFile?: string
   }): Promise<MemPalaceAddResult> {
     const raw = (await this.callTool('mempalace_add_drawer', {
-      wing: params.wing,
-      room: params.room,
-      content: params.content,
+      // 调用方给的是应用内的标识（会话 id 带渠道前缀、wing 带 `:`），
+      // 必须归一后才过得了 Python 侧校验（见 toPalaceName）
+      wing: toPalaceName(params.wing),
+      room: toPalaceName(params.room),
+      // 正文同理：NUL 与超长都会让 sanitize_content 整条拒收（见 clampDrawerContent）
+      content: clampDrawerContent(params.content),
       added_by: params.addedBy,
       ...(params.sourceFile != null ? { source_file: params.sourceFile } : {}),
     })) as { success?: boolean; drawer_id?: string; error?: string } | null

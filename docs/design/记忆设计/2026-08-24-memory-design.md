@@ -332,8 +332,11 @@ user / feedback              project / reference / general
 - **管线与模型无关**。只依赖注入的 `callLLM`，宿主决定用哪个模型。
 - **灰度开关**。宿主 `enabled=false` 时不创建管线，完全走旧逻辑。
 - **内容寻址 drawer_id**。`deterministicDrawerId = sha256(wing + room + content)`，
-  同一段重复归档幂等。**wing/room 由 runtime 计算并传出，宿主不得自行重算**，
-  否则 id 与存储位置错位，幂等失效。
+  同一段重复归档幂等。wing/room 由 runtime 计算并随 meta 传出；宿主可按自己后端的
+  命名规则归一（如 mempalace 只收字母数字与 `_ . ' -` 空格，带 `:` 的会整条被拒），
+  但**回填只认宿主返回的 drawer_id**——归档失败时不留本地算出的那个，否则段与记忆
+  会指向宫殿里并不存在的 drawer（2026-09-16 排查修正：原先「先回填再归档」留下了
+  189 条死链）。
 
 ### 4.2 去重合并：写入前的收敛
 

@@ -5,7 +5,6 @@
 import path from 'node:path'
 import fs from 'node:fs'
 import os from 'node:os'
-import { execFileSync } from 'node:child_process'
 import {
   CACHE_BOUNDARY_MARKER,
   formatUserMemoryForPrompt,
@@ -20,6 +19,7 @@ import { agentRuntimeLog as log } from './bridge-utils'
 import { getVirtualHumanContext } from '../pet/virtual-human-activation'
 import { renderVirtualHumanPromptSection } from '../pet/virtual-human-context'
 import { resolveWindowsClientDataRoot } from '../client-data-root'
+import { getLocalDateString } from '../local-time'
 import { resolveSceneHits } from './scene-resolver'
 import { readSceneMemory } from './scene-memory-store'
 
@@ -62,7 +62,8 @@ export interface BridgePromptComposerDeps {
 interface ClientDiagnostics {
   sampledAt: number
   logsDir: string
-  cliHelp: string | null
+  /** 磁盘采样所在卷（如 `C:`），随数值一起展示，避免读者误以为是日志目录 */
+  diskRoot: string
   cpuPct: number
   cpuLogicalCores: number
   memTotalGB: number
@@ -87,9 +88,9 @@ const DIAG_CACHE_TTL_MS = 5_000
 /** 任务完成契约：注入 Active Tasks 段落后强制 LLM 自检，降低长任务幻觉率 */
 const TASK_COMPLETION_CONTRACT = [
   "## Task Integrity Rules (硬约束)",
-  "- 当上方的 Active Tasks 中存在 pending/in_progress 项时，**禁止**在回复中使用「全部完成」「已完成」「都做好了」等绝对完成表述。",
-  "- 工具调用返回错误时，**必须** (a) 将对应任务保留 in_progress (b) 在回复中显式说明「X 任务未完成，原因：Y」，不得静默跳过。",
-  "- 准备向用户宣告任务完成前，**必须先调用** todo_write 核对：所有项的 status 均为 completed 才可宣告，否则继续执行未完成项。",
+  "- Active Tasks 里还有 pending/in_progress 时，禁止说「全部完成」「已完成」「都做好了」。",
+  "- 工具报错：对应任务保持 in_progress，并在回复中说明「X 未完成，原因：Y」，不得静默跳过。",
+  "- 宣告完成前必须先 todo_write 核对，所有项 status 均为 completed 才可宣告。",
 ].join("\n")
 
 /** 牵挂注入段：轻量提示，LLM 自行判断是否顺带提起，绝不强制追问 */
@@ -107,11 +108,11 @@ function buildUserPresenceSection(presence: { userAtClient: boolean; channelLabe
   const label = presence.channelLabel ?? '消息渠道'
   return [
     "## User Presence（本轮回复载体）",
-    `用户此刻不在桌面客户端面前，只能收到纯文本（渠道：${label}），Markdown 记号原样显示为噪声，看不到工具卡片与文件树。`,
-    "- 风格：结论前置（1-2 句摘要开头）；口语化短句；用「1. 2. 3.」编号替代列表与表格。",
-    "- 详略：默认 ≤200 字；用户明确要求\"详细\"时再展开（仍用纯文本结构，不分层标题）。",
-    "- 禁忌：不输出表格、代码块、分层标题；不写「见左侧文件树」「点击下方按钮」等 UI 依赖表述。",
-    "- 生成文件时：告知文件名与保存位置；长内容（报告/笔记）写成 HTML 文件发送，聊天内只发 3 行摘要。",
+    `用户不在桌面客户端前，只能收到纯文本（渠道：${label}）；Markdown 记号、表格、代码块都会原样显示成噪声，也看不到工具卡片与文件树。`,
+    "- 结论前置（开头 1-2 句摘要），口语化短句；分点用「1. 2. 3.」，不用列表与表格。",
+    "- 默认 ≤200 字；用户明确要「详细」时再展开，但仍不分层标题。",
+    "- 不写「见左侧文件树」「点击下方按钮」这类依赖界面的表述。",
+    "- 产出文件时告知文件名与保存位置；报告/笔记等长内容写成 HTML 文件发送，聊天里只留 3 行摘要。",
     "",
   ].join("\n")
 }
@@ -124,63 +125,17 @@ let cpuPrev: { total: number; idle: number } | null = null
 
 /**
  * 执行一次系统诊断采样（CPU 100ms 间隔取增量、内存 os.totalmem/freemem、
- * 磁盘按 data-root 所在卷用 fs.statfsSync；日志目录与 CLI help 不经常变，
- * 但也走缓存避免同步 shell 反复执行）。
+ * 磁盘按 data-root 所在卷用 fs.statfsSync）。
+ *
+ * 不探测 CLI：`lumii --help` 的全文曾内联进 prompt（最长 3k 字符、每轮注入），
+ * 篇幅不划算——改为在诊断段里提示模型按需自己执行。
  */
 function sampleClientDiagnostics(): ClientDiagnostics {
   // 日志目录：与 client-data-root 保持一致（~/.lumii/logs）
   const dataRoot = resolveWindowsClientDataRoot()
   const logsDir = path.join(dataRoot, 'logs')
-
-  // CLI help：用 `lumii --help` 或 `node lumii.js --help`；找不到命令或失败返回 null
-  let cliHelp: string | null = null
-  try {
-    const nodeBin = process.execPath
-    // 优先尝试 Electron app.asar 所在路径下的 CLI 入口脚本（Windows 打包通常放 resources/）
-    const candidates: string[] = []
-    if (process.resourcesPath) {
-      candidates.push(path.join(process.resourcesPath, 'cli', 'lumii.cjs'))
-      candidates.push(path.join(process.resourcesPath, 'app.asar.unpacked', 'cli', 'lumii.cjs'))
-    }
-    // dev 模式：<repo>/apps/windows/scripts/lumii-cli-stub.js
-    candidates.push(path.join(process.cwd(), 'apps', 'windows', 'scripts', 'lumii-cli-stub.js'))
-    candidates.push(path.join(process.cwd(), 'scripts', 'lumii-cli-stub.js'))
-
-    let cliScript: string | null = null
-    for (const p of candidates) {
-      try {
-        fs.accessSync(p, fs.constants.X_OK)
-        cliScript = p
-        break
-      } catch {
-        try {
-          fs.accessSync(p, fs.constants.R_OK)
-          cliScript = p
-          break
-        } catch {
-          /* 继续下一个 */
-        }
-      }
-    }
-
-    if (cliScript) {
-      const stdout = execFileSync(nodeBin, [cliScript, '--help'], {
-        timeout: 800,
-        windowsHide: true,
-        encoding: 'utf-8',
-        stdio: ['ignore', 'pipe', 'ignore'],
-        maxBuffer: 200 * 1024,
-      }).trim()
-      if (stdout) {
-        cliHelp = stdout.length > 3000 ? stdout.slice(0, 3000) + '\n…(已截断，完整帮助请本地运行)' : stdout
-      }
-    } else {
-      cliHelp = '（未找到 lumii CLI 可执行脚本；如已安装请在 shell 中执行 lumii --help 查看完整帮助）'
-    }
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err)
-    cliHelp = `（lumii CLI help 拉取失败：${msg.slice(0, 200)}；可直接在 bash 工具中执行 'lumii --help' 或 'node <lumii-cli-script> --help'）`
-  }
+  // 磁盘采样卷（与下方 statfsSync 的目标一致），展示时带上以免被误读成日志目录
+  const diskRoot = path.parse(dataRoot).root.replace(/[\\/]+$/, '')
 
   // CPU：100ms 间隔两次快照差值计算使用率（百分比，0~100）
   const cpuLogicalCores = os.cpus().length
@@ -245,7 +200,7 @@ function sampleClientDiagnostics(): ClientDiagnostics {
   return {
     sampledAt: Date.now(),
     logsDir,
-    cliHelp,
+    diskRoot,
     cpuPct,
     cpuLogicalCores,
     memTotalGB,
@@ -268,53 +223,34 @@ function getOrSampleDiagnostics(): ClientDiagnostics {
   return d
 }
 
-/** 把诊断快照格式化为 Prompt 段（Markdown H2 标题 + 三小节） */
+/**
+ * 把诊断快照格式化为 Prompt 段。
+ *
+ * 篇幅纪律：该段每轮都注入，只留模型能直接行动的信息（路径 / 取证入口 / 异常），
+ * 不写采样实现、刷新周期与阈值口径——模型据此做不了任何事。
+ */
 function buildClientDiagnosticsSection(d: ClientDiagnostics): string {
-  const warnings: string[] = []
+  const today = getLocalDateString(new Date(d.sampledAt))
+  const alerts: string[] = []
   if (d.cpuPct >= DIAG_HEALTH.CPU_PCT_WARN) {
-    warnings.push(`- CPU 占用偏高：建议让用户关闭不必要的后台进程，或降低并发工具调用数。`)
+    alerts.push(`CPU 偏高：建议用户关掉吃 CPU 的后台程序，或减少并发工具调用。`)
   }
   if (d.memPct >= DIAG_HEALTH.MEM_PCT_WARN) {
-    warnings.push(`- 内存占用偏高：建议让用户关闭占用大的其他软件，或减少长上下文会话数。若 Agent 自身跑重任务，可拆分子任务 + 及时释放上下文。`)
+    alerts.push(`内存偏高：建议用户关掉占内存的其他软件；自己跑重活时拆子任务、及时释放上下文。`)
   }
   if (d.diskPct >= DIAG_HEALTH.DISK_PCT_WARN || (d.diskTotalGB > 0 && d.diskTotalGB - d.diskUsedGB < DIAG_HEALTH.DISK_GB_MIN_FREE)) {
-    warnings.push(`- 磁盘空间紧张：建议让用户清理磁盘，否则日志/SQLite/上传文件会写入失败。Agent 可考虑清理旧日志目录（仅删除 >7 天的老文件）。`)
+    alerts.push(`磁盘紧张：让用户清理磁盘，否则日志/SQLite/上传文件会写失败；可删 7 天前的旧日志。`)
   }
 
-  const cliBlock = d.cliHelp
-    ? `\`\`\`\n${d.cliHelp}\n\`\`\``
-    : '（CLI help 获取失败；可在 bash 工具中执行 `lumii --help` 查看）'
-
-  return `
-## Client Diagnostics（客户端运行时诊断 · 只读参考）
-- 信息来源：本机 Electron 主进程系统采样（每 ${(DIAG_CACHE_TTL_MS / 1000).toFixed(0)}s 刷新，注入时刻：${new Date(d.sampledAt).toISOString()}）。
-- 用途：用于 Agent **自我诊断**配置/运行异常，给出用户可执行的操作建议，而非向用户披露原始数值本身。
-- 修改原则：禁止让 Agent 自行修改用户数据/系统设置；如需修改必须先通过 ask_user_question 征得用户显式同意。
-
-### 1) lumii客户端日志目录
-- 绝对路径：\`${d.logsDir}\`
-- 说明：主进程 / 渲染进程 / Agent Runtime / 渠道适配器 / 工具 hook 的错误与运行日志都在该目录下。文件按日期滚动（如 \`main-YYYY-MM-DD.log\`、\`agent-runtime-YYYY-MM-DD.log\`）。
-
-### 2) lumii CLI（客户端配置命令行）
-- 执行方式：在 \`bash\` 工具中运行 \`lumii <command>\`（开发期通常是 \`node scripts/lumii-cli-stub.js <command>\`）。
-- 命令清单（来自 \`lumii --help\`）：
-${cliBlock}
-- 常见自愈场景（必须先 ask_user_question 确认再执行）：
-  - 切换模型提供商默认模型、修改 API 密钥、开关 provider → \`lumii provider set ...\`
-  - 列出 / 清理日志 → \`lumii logs list\` / \`lumii logs clean\`
-  - 查看应用状态 / 健康检查 → \`lumii doctor\`
-  - 重启桌面端（谨慎，需告知用户会中断当前对话）→ \`lumii app restart\`
-
-### 3) 系统资源使用情况
-- CPU：${d.cpuPct}%（${d.cpuLogicalCores} 逻辑核）${d.cpuPct >= DIAG_HEALTH.CPU_PCT_WARN ? ' ⚠️ 偏高' : ''}
-- 内存：${d.memPct}%（${d.memUsedGB}GB / ${d.memTotalGB}GB）${d.memPct >= DIAG_HEALTH.MEM_PCT_WARN ? ' ⚠️ 偏高' : ''}
-- 磁盘（${d.logsDir} 所在卷）：${d.diskPct}%（${d.diskUsedGB}GB / ${d.diskTotalGB}GB）${d.diskPct >= DIAG_HEALTH.DISK_PCT_WARN ? ' ⚠️ 紧张' : ''}
-${warnings.length > 0
-    ? `
-### 4) 健康建议（基于阈值自动生成）
-${warnings.join('\n')}
-`
-    : ''}`
+  return [
+    '## Client Diagnostics（本机快照 · 只读）',
+    '用于自查运行/配置异常，数值本身不必念给用户；改动用户数据或设置前必须先 ask_user_question 取得同意。',
+    `- 日志：\`${d.logsDir}\` —— \`app/mtbot-${today}.log\` 是全量（WARN 级故障只在这里），\`app/mtbot-error-${today}.log\` 只有 ERROR；排查先看全量。`,
+    '- CLI：自愈命令以 `lumii --help` 的实际输出为准（本机没有该命令就改为引导用户到设置页操作）；配置改动先 ask_user_question，`lumii app restart` 会中断当前对话。',
+    `- 资源：CPU ${d.cpuPct}%（${d.cpuLogicalCores} 核）· 内存 ${d.memPct}%（${d.memUsedGB}/${d.memTotalGB}GB）· 磁盘 ${d.diskRoot} ${d.diskPct}%（${d.diskUsedGB}/${d.diskTotalGB}GB）`,
+    ...alerts.map((a) => `- ⚠️ ${a}`),
+    '',
+  ].join('\n')
 }
 
 export class BridgePromptComposer {
@@ -475,7 +411,13 @@ export class BridgePromptComposer {
       log.warn('[buildPromptWithMemory] User Presence 注入失败，跳过:', err instanceof Error ? err.message : String(err))
     }
 
-    const dynamicPrompt = dynamicParts.join('')
+    // 段间统一补空行：各段自带的换行风格不一（有的带前导 \n、有的不带），
+    // 直接 join('') 会让 Task Integrity / Open Concerns 这类段粘在上一段末行，标题被读成正文。
+    const dynamicPrompt = dynamicParts
+      .map((part) => part.replace(/\s+$/, ''))
+      .filter((part) => part.length > 0)
+      .map((part, i) => (i === 0 ? part : '\n\n' + part.replace(/^\s+/, '')))
+      .join('')
     let finalPrompt = dynamicPrompt ? `${staticPrompt}${CACHE_BOUNDARY_MARKER}${dynamicPrompt}` : staticPrompt
 
     // 工作记忆：构建期就地填充 dynamic 段占位符（2026-09-13 由 agent_start 迁移——pi-agent-core

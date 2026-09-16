@@ -7,9 +7,10 @@
  * 3. updateMergedFields 命中已有记忆时保留最早来源（不覆盖非空）
  * 4. getMemoryProvenance 注入 repos 后回读段 + 原文区间
  * 5. SegmentMemoryPipeline.archiveToPalace 重复归档 → 同一 drawerId（幂等）
+ * 6. 宿主归档失败 → 不回填 drawer_id（不留死链）
  */
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { SegmentRepo } from "../storage/segment-repo.js";
 import { ConversationRepo } from "../storage/conversation-repo.js";
 import { AgentMemoryRepo } from "../memory/memory-repo.js";
@@ -234,5 +235,47 @@ describe("SegmentMemoryPipeline 宫殿归档幂等 (P2)", () => {
 
     expect(segRepo.findById("seg-1")?.palaceDrawerId).toBe("host-assigned-id");
     expect(mgr.listActive("a1", "u1")[0].palace_drawer_id).toBe("host-assigned-id");
+  });
+
+  /**
+   * 归档失败（宿主返回空对象，宿主侧已 catch）时不能留下 drawer_id。
+   *
+   * 线上形态：mempalace 的写工具用返回值报错，wing/room 含 `:` 被 Python 拒收后
+   * 宿主回 `{}`——若本地先把内容寻址 ID 记进段与记忆，就得到一个宫殿里查不到的
+   * 死链（2026-09-16 排查：宫殿重建后新增的 2 个段、1 条记忆全是死链）。
+   * 没有 drawer_id 只是不能互引，死链会让「回查原文」永远报 not found。
+   */
+  it("宿主未返回 drawerId（归档失败）→ 不回填，宁缺勿错", async () => {
+    const warned: string[] = [];
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation((...args: unknown[]) => {
+      warned.push(args.map(String).join(" "));
+    });
+    try {
+      const pipe = new SegmentMemoryPipeline({
+        segmentRepo: segRepo,
+        conversationRepo: convRepo,
+        memoryManager: mgr,
+        callLLM: async () =>
+          JSON.stringify([{ content: "用户偏好本地优先的模型", category: "preference", importance: 0.6, tags: [] }]),
+        agentId: "a1",
+        userId: "u1",
+        newId: () => `seg-${++idSeq}`,
+        minSummaryChars: 5,
+        archivePalace: async () => ({}), // 宿主归档失败：内容没进宫殿
+      });
+
+      convRepo.saveMessage({ id: "m1", conversationId: "c1", role: "user", contentJson: { type: "text", text: "以后都优先用本地模型来处理这些内容" } });
+      pipe.observe({ conversationId: "c1", userId: "u1", agentId: "a1", messageId: "m1", ts: 1_000_000, text: "以后都优先用本地模型来处理这些内容", role: "user" });
+      pipe.flush("c1", "session_end");
+      await pipe.settle();
+
+      // 记忆照常产出（归档失败不影响主流程），但不带宫殿死链
+      expect(mgr.listActive("a1", "u1")).toHaveLength(1);
+      expect(segRepo.findById("seg-1")?.palaceDrawerId).toBeNull();
+      expect(mgr.listActive("a1", "u1")[0].palace_drawer_id).toBeNull();
+      expect(warned.some((w) => w.includes("未归档进宫殿"))).toBe(true);
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 });

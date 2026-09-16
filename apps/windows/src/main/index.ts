@@ -30,6 +30,25 @@ process.on('uncaughtException', (err: NodeJS.ErrnoException) => {
   process.exit(1)
 })
 
+/**
+ * node:sqlite 至今仍是实验特性，首次加载就往 stderr 打一条 ExperimentalWarning；
+ * 主进程的 stderr 经 Electron 的 console 通道落进 logger，会被记成 ERROR——
+ * 每启动一次错误日志就多两行并不存在的「错误」，把真正要看的东西淹掉。
+ * 这里只把这一条降级到 DEBUG（主日志仍留痕），其余警告原样放行。
+ *
+ * 写在 imports 之前是有意的：本文件编译成 CJS 后这段先于所有 require 执行，
+ * 因此早于任何模块加载 node:sqlite（同上方 uncaughtException 的写法）。
+ */
+const originalEmitWarning = process.emitWarning.bind(process)
+process.emitWarning = ((warning: string | Error, ...rest: unknown[]) => {
+  if (String(warning).includes('SQLite is an experimental feature')) {
+    // eslint-disable-next-line no-console
+    console.debug('[Node ExperimentalWarning]', String(warning))
+    return
+  }
+  ;(originalEmitWarning as (...args: unknown[]) => void)(warning, ...rest)
+}) as typeof process.emitWarning
+
 import { execSync, spawn, execFile as _execFile } from 'child_process'
 import { promisify as _promisify } from 'util'
 import { app, BrowserWindow, ipcMain, dialog, shell, clipboard, screen } from 'electron'
