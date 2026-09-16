@@ -131,6 +131,7 @@ export {
   maintenanceReportWriteToolConfig,
   maintenanceReportReadToolConfig,
   assetCheckupToolConfig,
+  newsPreferenceToolConfig,
   workReportReadToolConfig,
   messageToolConfig,
   channelListToolConfig,

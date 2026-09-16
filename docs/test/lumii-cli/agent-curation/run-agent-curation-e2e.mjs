@@ -18,6 +18,7 @@
  * （会往概览页资讯卡追加条目，这是该任务的正常产出）。不改任何用户配置。
  */
 
+import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import * as h from '../lib/cli-harness.mjs'
@@ -422,6 +423,51 @@ async function ck09() {
   )
 }
 
+/**
+ * CK-10 资讯偏好的结构化落点：说一句「少推 X」，X 要落进 user-memory.md 的
+ * `## 资讯偏好` 章节，而不是散在某段自由文本里。
+ *
+ * 副作用控制：跑前快照 user-memory.md，跑后整份还原（含删掉新起的章节）。
+ * 探针内容用不可能与真实偏好撞车的字符串（`__ck-probe-<时间戳>__`）。
+ */
+async function ck10() {
+  if (SKIP_LLM) return ev.record('CK-10', 'SKIP', 'CK_SKIP_LLM=1')
+  const profilePath = path.join(h.DATA_DIR, 'user-memory.md')
+  const before = h.fileExists(profilePath) ? h.fileRead(profilePath) : null
+  const probe = `__ck-probe-${Date.now()}__`
+
+  let reply = null
+  try {
+    const sk = createAgentSession('info-curator', '资讯偏好落点')
+    reply = await waitTurn(
+      sk,
+      `以后少推「${probe}」这类内容。请把它记进你的资讯偏好里，然后告诉我现在记下的「少推」有哪些。`,
+    )
+    if (!reply) return ev.record('CK-10', 'FAIL', '回合超时或没有回复', { sessionKey: sk })
+
+    const text = h.assistantText(reply)
+    vlog(text.slice(0, 600))
+    const tools = toolsOf(reply)
+    const after = h.fileExists(profilePath) ? h.fileRead(profilePath) : ''
+    const inSection = /##\s*资讯偏好/.test(after)
+    const landed = after.includes(probe)
+    // 落点必须在「资讯偏好」章节内，不能散在别处
+    const sectionBody = inSection ? after.split(/##\s*资讯偏好/)[1]?.split(/\n##\s/)[0] ?? '' : ''
+
+    check(
+      'CK-10',
+      tools.includes('news_preference') && landed && sectionBody.includes(probe),
+      '偏好落进 user-memory.md 的「资讯偏好」章节',
+      `未落到结构化位置（tools=${tools.join(',') || '无'}；章节存在=${inSection}；正文命中=${landed}；章节内命中=${sectionBody.includes(probe)}）`,
+      { probe, tools },
+    )
+  } finally {
+    // 无论成败都还原用户记忆，绝不留探针
+    if (before !== null) fs.writeFileSync(profilePath, before, 'utf8')
+    else if (h.fileExists(profilePath)) fs.rmSync(profilePath, { force: true })
+  }
+}
+
 // ────────────────────────────────────────────────
 // 主流程
 // ────────────────────────────────────────────────
@@ -443,6 +489,7 @@ async function main() {
   if (selected('CK-07')) await ck07()
   if (selected('CK-08')) await ck08()
   if (selected('CK-09')) await ck09()
+  if (selected('CK-10')) await ck10()
 
   const summary = ev.writeReport({
     meta: {

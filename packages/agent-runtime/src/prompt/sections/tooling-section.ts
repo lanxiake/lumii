@@ -107,6 +107,7 @@ const TOOL_SUMMARIES: Record<string, string> = {
   maintenance_report_write: "Persist a maintenance check-up report (shows on the dashboard, diffed against the previous one)",
   maintenance_report_read: "Read previous maintenance reports (what was found, and whether it is still there)",
   asset_checkup: "Run the mechanical check-up items (budget, exact duplicates, residue, stale) — deterministic and free",
+  news_preference: "Read/update the user's news curation preferences (topics, avoid, sources, timing)",
 
   // Skills (pre-registered; not yet in the built-in registry)
   execute_skill: "Run an executable skill entry point",
@@ -169,6 +170,7 @@ const MAINTENANCE_TOOLS = new Set([
   "maintenance_report_write",
   "maintenance_report_read",
   "asset_checkup",
+  "news_preference",
 ])
 const BROWSER_TOOLS = new Set([
   "browser_navigate",
@@ -218,7 +220,7 @@ export const PROMPT_TOOL_GROUPS: Readonly<Record<string, ReadonlySet<string>>> =
   "Self-Configuration": SELF_CONFIG_TOOLS,
   Interaction: INTERACTION_TOOLS,
   Dashboard: DASHBOARD_TOOLS,
-  "Maintenance Report": MAINTENANCE_TOOLS,
+  "Maintenance & Curation": MAINTENANCE_TOOLS,
   "Browser Tools": BROWSER_TOOLS,
   "Session & Settings": SESSION_TOOLS,
   "Reference Guides": GUIDE_TOOLS,

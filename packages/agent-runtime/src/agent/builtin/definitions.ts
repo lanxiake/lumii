@@ -347,6 +347,8 @@ const INFO_CURATOR_DEF: AgentDefinition = {
     "dashboard_feed_write",
     // 回读卡片是策展的去重前提：卡片累积多轮产出，写之前先知道上面已有什么
     "dashboard_feed_read",
+    // 结构化偏好：固定位置 + 固定字段，避免「越用越准」落空
+    "news_preference",
     "memory_search",
     "memory_read",
     "memory_manage",
