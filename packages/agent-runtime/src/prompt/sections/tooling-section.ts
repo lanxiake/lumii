@@ -104,6 +104,8 @@ const TOOL_SUMMARIES: Record<string, string> = {
   // Dashboard
   dashboard_feed_write: "Persist news items to the dashboard feed card",
   dashboard_feed_read: "Read what is already on the dashboard feed card (dedupe before writing)",
+  maintenance_report_write: "Persist a maintenance check-up report (shows on the dashboard, diffed against the previous one)",
+  maintenance_report_read: "Read previous maintenance reports (what was found, and whether it is still there)",
 
   // Skills (pre-registered; not yet in the built-in registry)
   execute_skill: "Run an executable skill entry point",
@@ -162,6 +164,7 @@ const MESSAGING_TOOLS = new Set(["message", "channel_list", "channel_send"])
 const SELF_CONFIG_TOOLS = new Set(["profile_memory", "system_prompt"])
 const INTERACTION_TOOLS = new Set(["ask_user_question"])
 const DASHBOARD_TOOLS = new Set(["dashboard_feed_write", "dashboard_feed_read"])
+const MAINTENANCE_TOOLS = new Set(["maintenance_report_write", "maintenance_report_read"])
 const BROWSER_TOOLS = new Set([
   "browser_navigate",
   "browser_click",
@@ -210,6 +213,7 @@ export const PROMPT_TOOL_GROUPS: Readonly<Record<string, ReadonlySet<string>>> =
   "Self-Configuration": SELF_CONFIG_TOOLS,
   Interaction: INTERACTION_TOOLS,
   Dashboard: DASHBOARD_TOOLS,
+  "Maintenance Report": MAINTENANCE_TOOLS,
   "Browser Tools": BROWSER_TOOLS,
   "Session & Settings": SESSION_TOOLS,
   "Reference Guides": GUIDE_TOOLS,

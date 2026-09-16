@@ -126,6 +126,9 @@ export const SYSTEM_KEEPER_AUTONOMOUS_TOOLS: readonly string[] = [
   'skill_search',
   'skill_invoke',
   'todo_write',
+  // 报告落库/回读：自主巡检同样要留痕，否则用户看不到它半夜查出了什么
+  'maintenance_report_write',
+  'maintenance_report_read',
 ];
 
 /**

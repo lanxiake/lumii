@@ -14,6 +14,7 @@ import type { PromptStyleValue } from '../shared/prompt-style'
 import type { UsageSummary } from '../main/usage-store'
 import type { NewsSnapshot } from '../main/news-store'
 import type { DashboardFeedSnapshot, DashboardFeedPage, DashboardFeedMeta } from '../main/dashboard-feed-store'
+import type { MaintenanceReport, FindingDiff } from '../main/maintenance-report-store'
 import type { LatencyView } from '../main/provider-latency'
 import type { PerformanceReport, IpcAggregateEvent, MemorySnapshotEvent, RendererMemorySample } from '../main/perf/performance-types'
 import type { RendererNativeMemory } from '../main/perf/performance-types'
@@ -85,8 +86,15 @@ function subscribeVoiceEvent(callback: (event: unknown) => void): () => void {
 
 import type { ProjectGitStatus } from '../main/project-git/types'
 
+/** 概览页「资产体检」卡片一次拉取的载荷：最近几期 + 最新一期对上一期的差分 */
+export interface MaintenanceReportOverview {
+  reports: MaintenanceReport[]
+  /** 只有一期报告时为 null（没有可比对象） */
+  diff: FindingDiff | null
+}
+
 /**
- * ACP 项目条目（与 main/config/types.ts �?CodingDevProject 对齐�?
+ * ACP 项目条目（与 main/config/types.ts 的 CodingDevProject 对齐）
  */
 export interface CodingDevProject {
   name: string
@@ -271,6 +279,15 @@ export interface ElectronAPI {
     setActive: (feedId: string) => Promise<{
       success: boolean
       data?: DashboardFeedSnapshot | null
+      error?: string
+    }>
+  }
+
+  /** 维护体检报告（概览页「资产体检」卡片） */
+  maintenanceReport: {
+    overview: (limit?: number) => Promise<{
+      success: boolean
+      data?: MaintenanceReportOverview | null
       error?: string
     }>
   }
@@ -1230,6 +1247,11 @@ const electronAPI: ElectronAPI = {
       apiServerApi.getDashboardFeedPage(feedId, opts),
     refresh: () => apiServerApi.refreshDashboardFeed(),
     setActive: (feedId: string) => apiServerApi.setActiveDashboardFeed(feedId),
+  },
+
+  /** 维护体检报告：最近 N 期 + 最新一期与上一期的差分 */
+  maintenanceReport: {
+    overview: (limit?: number) => apiServerApi.getMaintenanceReportOverview(limit),
   },
 
   // 窗口操作 API

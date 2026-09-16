@@ -32,6 +32,10 @@ export const apiServerApi = {
   setActiveDashboardFeed: (feedId: string) =>
     ipcRenderer.invoke('dashboard-feed:set-active', feedId),
 
+  // 维护体检报告（概览页「资产体检」卡片）
+  getMaintenanceReportOverview: (limit?: number) =>
+    ipcRenderer.invoke('maintenance-report:overview', limit),
+
   // Agent 管理
   getAgents: () => ipcRenderer.invoke('api:getAgents'),
   getConfigModels: () => ipcRenderer.invoke('api:getConfigModels'),

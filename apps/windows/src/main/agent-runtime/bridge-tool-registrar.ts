@@ -22,6 +22,7 @@ import {
 } from '@mtbot/agent-runtime'
 import { registerBrowserTools as registerBrowserToolsFn } from './bridge-browser-tools'
 import { registerWikiTools } from './bridge-wiki-tools'
+import { registerMaintenanceReportTools } from './bridge-maintenance-tools'
 import { registerAppUiTools as registerAppUiToolsFn } from './bridge-app-ui-tools'
 import { registerScreenRecordTools as registerScreenRecordToolsFn } from './bridge-screen-record-tools'
 import { getScreenRecordService } from '../screen-record/accessor'
@@ -78,6 +79,8 @@ export class BridgeToolRegistrar {
       registerHandoffTools(this.deps, ctx)
       // Wiki 知识库工具（P0）：wiki_overview/wiki_search/wiki_read/wiki_capture
       registerWikiTools(this.deps.toolRegistry, ctx, this.deps)
+      // 维护体检报告工具：maintenance_report_write / maintenance_report_read
+      registerMaintenanceReportTools(this.deps)
     }
     // 浏览器控制工具（getBrowserContext 配置存在时注册）
     if (this.deps.config.getBrowserContext) {

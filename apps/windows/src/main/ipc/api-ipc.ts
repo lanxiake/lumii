@@ -31,6 +31,7 @@ import {
   newsFeedConversationTitle,
   resolveNewsFeedJob,
 } from '../news-feed-job'
+import { diffFindings, listMaintenanceReports } from '../maintenance-report-store'
 import {
   readActiveDashboardFeedSnapshot,
   readActiveDashboardFeedId,
@@ -248,6 +249,29 @@ export function registerApiIpcHandlers(): void {
       return { success: true, data: await readActiveDashboardFeedSnapshot() }
     } catch (error) {
       console.error('[IPC] dashboard-feed:set-active 失败:', error)
+      return { success: false, error: error instanceof Error ? error.message : String(error) }
+    }
+  })
+
+  /**
+   * 维护体检报告（概览页「资产体检」卡片）。
+   *
+   * 一次返回最近 N 期 + 「最新一期 vs 上一期」的差分：差分在主进程算，
+   * 因为它依赖 findings 的稳定 key 语义（`diffFindings`），渲染层不该重复实现一遍。
+   */
+  ipcMain.handle('maintenance-report:overview', async (_event, limit?: number) => {
+    try {
+      const reports = listMaintenanceReports({ limit: Math.max(1, Math.min(10, Math.trunc(limit ?? 5))) })
+      const [latest, previous] = reports
+      return {
+        success: true,
+        data: {
+          reports,
+          diff: latest && previous ? diffFindings(previous.findings, latest.findings) : null,
+        },
+      }
+    } catch (error) {
+      console.error('[IPC] maintenance-report:overview 失败:', error)
       return { success: false, error: error instanceof Error ? error.message : String(error) }
     }
   })

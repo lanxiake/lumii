@@ -19,6 +19,10 @@ export { sendMessageToolConfig } from "./send-message-tool.js";
 export { todoWriteToolConfig } from "./task-tools.js";
 export { cronCreateToolConfig, cronListToolConfig, cronDeleteToolConfig } from "./cron-tools.js";
 export { dashboardFeedWriteToolConfig, dashboardFeedReadToolConfig } from "./dashboard-feed-tool.js";
+export {
+  maintenanceReportWriteToolConfig,
+  maintenanceReportReadToolConfig,
+} from "./maintenance-report-tool.js";
 export { workReportReadToolConfig } from "./work-report-tool.js";
 export {
   messageToolConfig,
@@ -102,6 +106,10 @@ import { sendMessageToolConfig } from "./send-message-tool.js";
 import { todoWriteToolConfig } from "./task-tools.js";
 import { cronCreateToolConfig, cronListToolConfig, cronDeleteToolConfig } from "./cron-tools.js";
 import { dashboardFeedWriteToolConfig, dashboardFeedReadToolConfig } from "./dashboard-feed-tool.js";
+import {
+  maintenanceReportWriteToolConfig,
+  maintenanceReportReadToolConfig,
+} from "./maintenance-report-tool.js";
 import { workReportReadToolConfig } from "./work-report-tool.js";
 import {
   messageToolConfig,
@@ -169,6 +177,8 @@ export const ALL_BUILT_IN_TOOL_CONFIGS: readonly MtBotToolConfig<any, any>[] = [
   cronDeleteToolConfig,
   dashboardFeedWriteToolConfig,
   dashboardFeedReadToolConfig,
+  maintenanceReportWriteToolConfig,
+  maintenanceReportReadToolConfig,
   workReportReadToolConfig,
   messageToolConfig,
   channelListToolConfig,

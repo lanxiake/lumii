@@ -1,0 +1,270 @@
+/**
+ * AssetCheckup Styles - 资产体检（概览页）
+ *
+ * 与「最近资讯」卡同构：头部（图标/标题/元信息/刷新）+ 可滚动正文。
+ * 正文是「一期一段」：结论一行、发现若干、已查无问题一行，历史按期折叠。
+ */
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  max-height: 320px;
+  margin-bottom: 10px;
+  padding: 13px 15px 12px;
+  overflow: hidden;
+  border-color: color-mix(in srgb, var(--mt-accent-500) 12%, var(--mt-border));
+  background:
+    linear-gradient(
+      165deg,
+      color-mix(in srgb, var(--mt-accent-500) 5%, var(--mt-bg-elevated)) 0%,
+      var(--mt-bg-elevated) 42%
+    );
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  margin-bottom: 10px;
+}
+
+.head-icon {
+  color: var(--mt-accent-500);
+}
+
+.title {
+  color: var(--mt-fg-1);
+  font-size: 13.5px;
+  font-weight: var(--mt-fw-semibold);
+  letter-spacing: -0.01em;
+}
+
+.tag {
+  overflow: hidden;
+  max-width: 260px;
+  padding: 2px 8px;
+  border-radius: var(--mt-radius-full);
+  background: color-mix(in srgb, var(--mt-accent-500) 12%, transparent);
+  color: var(--mt-accent-600, var(--mt-accent-500));
+  font-size: 10px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.refresh {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  margin-left: auto;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--mt-fg-3);
+  cursor: pointer;
+}
+
+.refresh:hover:not(:disabled) {
+  color: var(--mt-fg-1);
+  background: color-mix(in srgb, var(--mt-accent-500) 10%, transparent);
+}
+
+.refresh:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.spin {
+  animation: mt-checkup-spin 0.9s linear infinite;
+}
+
+@keyframes mt-checkup-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.empty {
+  padding: 18px 4px;
+  color: var(--mt-fg-3);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.error {
+  margin-bottom: 8px;
+  color: var(--mt-error);
+  font-size: 12px;
+}
+
+.scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* 跨期差分条：新增 / 仍在 / 已解决 */
+.diff {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.diff-chip {
+  padding: 2px 8px;
+  border-radius: var(--mt-radius-full);
+  background: color-mix(in srgb, var(--mt-fg-3) 12%, transparent);
+  color: var(--mt-fg-2);
+  font-size: 10.5px;
+}
+
+.diff-chip--added {
+  background: color-mix(in srgb, var(--mt-warning) 18%, transparent);
+  color: var(--mt-warning-dark);
+}
+
+.diff-chip--resolved {
+  background: color-mix(in srgb, var(--mt-success) 16%, transparent);
+  color: var(--mt-success-dark);
+}
+
+.report {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 9px 11px;
+  border: 1px solid var(--mt-border-hairline);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--mt-surface-2) 62%, transparent);
+}
+
+.report-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.report-summary {
+  flex: 1;
+  min-width: 0;
+  color: var(--mt-fg-1);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.report-meta {
+  flex-shrink: 0;
+  color: var(--mt-fg-3);
+  font-size: 10.5px;
+}
+
+.clean {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--mt-success-dark);
+  font-size: 12px;
+}
+
+.findings {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.finding-body {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 8px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--mt-bg-elevated) 60%, transparent);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--mt-dur-fast) var(--mt-ease-standard);
+}
+
+.finding-body:hover {
+  border-color: color-mix(in srgb, var(--mt-accent-500) 34%, var(--mt-border));
+}
+
+.severity {
+  flex-shrink: 0;
+  align-self: flex-start;
+  padding: 1px 6px;
+  border-radius: 5px;
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.severity--high {
+  background: color-mix(in srgb, var(--mt-error) 16%, transparent);
+  color: var(--mt-error-dark);
+}
+
+.severity--medium {
+  background: color-mix(in srgb, var(--mt-warning) 18%, transparent);
+  color: var(--mt-warning-dark);
+}
+
+.severity--low {
+  background: color-mix(in srgb, var(--mt-fg-3) 14%, transparent);
+  color: var(--mt-fg-2);
+}
+
+.finding-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.finding-title {
+  color: var(--mt-fg-1);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.finding-evidence {
+  color: var(--mt-fg-3);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.finding-suggestion {
+  color: var(--mt-accent-600, var(--mt-accent-500));
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.checked {
+  color: var(--mt-fg-3);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.more {
+  align-self: flex-start;
+  padding: 4px 10px;
+  border: 1px solid var(--mt-border-hairline);
+  border-radius: var(--mt-radius-full);
+  background: transparent;
+  color: var(--mt-fg-2);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.more:hover {
+  border-color: color-mix(in srgb, var(--mt-accent-500) 34%, var(--mt-border));
+  color: var(--mt-fg-1);
+}

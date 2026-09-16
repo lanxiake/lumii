@@ -6,7 +6,7 @@
  */
 
 /** 当前 schema 版本号 */
-export const SCHEMA_VERSION = 41;
+export const SCHEMA_VERSION = 42;
 
 /**
  * V1 DDL — 初始 schema
@@ -1450,6 +1450,39 @@ UPDATE conversations SET channel_type = CASE
   WHEN id LIKE 'onboarding:%' THEN 'onboarding'
   ELSE 'ipc'
 END;
+`,
+  ],
+  // V42: 维护体检报告落库
+  //
+  // 「灵栖维护」的产出此前只是会话里的一段 markdown：用户看不出上次体检是什么时候、
+  // 发现了什么、这次还在不在。报告落库后才有「最新一期 + 与上一期对比」这个能力。
+  //
+  // 不给 scope / trigger 加 CHECK：资产类别（记忆 / Wiki / 指南 / 设置 / 工作区）与
+  // 触发来源都会随产品继续长，写成枚举约束等于每加一类都要来一次迁移；取值在 TS 侧校验。
+  //
+  // findings / checked 存 JSON 字符串：
+  // - findings: [{ key, severity, title, evidence, suggestion }]
+  //   key 是**跨期稳定**的问题标识（如 memory:duplicate），有了它才能做「上期有、这期没了 = 已解决」
+  //   的差分；title 会被模型改写，不能当身份用。
+  // - checked: string[] —— 查过且没问题的项。报告只说「发现 3 项」而不说「另外 4 项查过没事」时，
+  //   用户没法判断是没查还是真没事。
+  [
+    42,
+    `
+CREATE TABLE IF NOT EXISTS maintenance_reports (
+  id              TEXT PRIMARY KEY,
+  agent_id        TEXT NOT NULL,
+  scope           TEXT NOT NULL,
+  summary         TEXT NOT NULL,
+  findings        TEXT NOT NULL,
+  checked         TEXT,
+  trigger         TEXT NOT NULL,
+  conversation_id TEXT,
+  created_at      TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_maintenance_reports_created
+  ON maintenance_reports (created_at DESC, id DESC);
 `,
   ],
 ] as const;

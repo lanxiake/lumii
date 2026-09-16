@@ -264,6 +264,10 @@ const SYSTEM_KEEPER_DEF: AgentDefinition = {
     "memory_manage",
     "profile_memory",
     "scene_memory",
+    // 体检报告的落库与回读：报告是维护的产出载体（概览页「资产体检」卡片读它），
+    // 回读让它能接着上期说「上次那批问题还在不在」，而不是每期从零开始。
+    "maintenance_report_write",
+    "maintenance_report_read",
     SKILL_LIST_TOOL_NAME,
     SKILL_SEARCH_TOOL_NAME,
     SKILL_INVOKE_TOOL_NAME,
