@@ -15,6 +15,7 @@ import type { AgentRuntimeEvent } from '../shared/agent-runtime-events'
 import { runCodingDevAcpPrompt } from './coding-dev-backends-stub/run-coding-dev-acp-prompt.js'
 import { resolveAcpTimeoutMs } from './coding-dev-backends-stub/acp-config.js'
 import { ACP_CANCELLED_PREFIX, ACP_ERROR_PREFIX } from './coding-dev-acp-messages.js'
+import type { AssistantPart, AssistantPartsContent } from '@mtbot/agent-runtime'
 import type {
   CodingDevLightweightBackendOutput,
   CodingDevLightweightBackendProgress,
@@ -25,6 +26,25 @@ const log = {
   info: (...args: unknown[]) => console.log('[AcpRunController]', ...args),
   warn: (...args: unknown[]) => console.warn('[AcpRunController]', ...args),
   error: (...args: unknown[]) => console.error('[AcpRunController]', ...args),
+}
+
+/**
+ * 本次 run 收集到的一次工具调用。
+ *
+ * 与内核路径的 `AssistantPart(tool)` 一一对应，收尾时组装成 `assistant_parts` 落库——
+ * 此前这些信息只推给渲染层，重启后开发会话里就只剩「提问 + 一段总结」。
+ */
+export type CollectedToolCall = {
+  readonly id: string
+  name: string
+  args: Record<string, unknown>
+  result?: unknown
+  isError?: boolean
+  status: 'running' | 'done' | 'error'
+  /** 开始时刻，用于算耗时（此前误把文本位置当时间戳，工具卡片显示过天文数字） */
+  startedAt: number
+  /** 开始时已累积的正文长度，渲染层据此定位卡片；将来若要还原交错顺序也靠它 */
+  textPositionAtStart: number
 }
 
 export type AcpRunHandle = {
@@ -38,7 +58,8 @@ export type AcpRunHandle = {
   startedAt: number
   totalLength: number
   thinkingEmitted: boolean
-  toolStartTextPositions: Map<string, number>
+  /** toolCallId → 工具调用；Map 保持插入顺序，收尾时按序组装成 parts */
+  toolCalls: Map<string, CollectedToolCall>
   settled: boolean
   abortReason?: 'user_cancel' | 'timeout'
   userInputText: string
@@ -105,6 +126,42 @@ export function stripUserEcho(text: string, userInput: string): string {
   return head.slice(prompt.length).trimStart()
 }
 
+/**
+ * 把一次 ACP run 的产出组装成落库形态（与内核路径同格式，渲染层已有共享 parser 解析）。
+ *
+ * **工具在前、正文在后，不做交错**：正文取自 CLI 的 final_result（`runLocalAcpCli` 里的
+ * `finalResult ?? messageTexts`），与流式 message **不同源**——拿流式累积出来的
+ * `textPositionAtStart` 去切它必然错位。而 ACP 的输出形态本来就是「边做边说 + 最后一段
+ * 总结」，最终答复放末尾也更接近阅读顺序。
+ *
+ * 即使正文为空也要落库：工具过程本身就是「这一轮干了什么」的全部信息，失败与中止时
+ * 它恰恰最有价值——用户能看见卡在哪一步，而不是只有一个错误提示。
+ */
+export function buildAcpAssistantContent(
+  messageId: string,
+  text: string,
+  toolCalls: Iterable<CollectedToolCall>,
+): AssistantPartsContent {
+  const parts: AssistantPart[] = []
+  for (const call of toolCalls) {
+    parts.push({
+      type: 'tool',
+      id: call.id,
+      name: call.name,
+      args: call.args,
+      ...(call.result !== undefined ? { result: call.result } : {}),
+      ...(call.isError ? { isError: true } : {}),
+      // 没等到 end 的（中止 / 崩溃）落成 interrupted：它在 AssistantPart 里是**终端态**，
+      // 保留 running 会让重启后的卡片显示成「还在跑」。
+      status: call.status === 'running' ? 'interrupted' : call.status,
+    })
+  }
+  if (text) {
+    parts.push({ type: 'text', id: `${messageId}-text`, text, status: 'done' })
+  }
+  return { type: 'assistant_parts', parts }
+}
+
 export class AcpRunController {
   private readonly runs = new Map<string, AcpRunHandle>()
   private pendingMessageDelta = new Map<string, { messageId: string; text: string }>()
@@ -143,7 +200,7 @@ export class AcpRunController {
       startedAt,
       totalLength: 0,
       thinkingEmitted: false,
-      toolStartTextPositions: new Map(),
+      toolCalls: new Map(),
       settled: false,
       userInputText: text,
       echoStripped: false,
@@ -241,8 +298,15 @@ export class AcpRunController {
         })
       }
 
-      if (finalText) {
-        this.persistAssistantMessage(bridge, sessionKey, messageId, finalText)
+      // 有工具过程就落库——哪怕正文为空（CLI 只调工具不给总结时，过程本身就是全部信息）
+      if (finalText || handle.toolCalls.size > 0) {
+        this.persistAssistantMessage(
+          bridge,
+          sessionKey,
+          messageId,
+          finalText,
+          handle.toolCalls.values(),
+        )
       }
 
       handle.settled = true
@@ -290,7 +354,13 @@ export class AcpRunController {
           sessionKey,
           reason,
         })
-        this.persistAssistantMessage(bridge, sessionKey, messageId, friendlyMessage)
+        this.persistAssistantMessage(
+          bridge,
+          sessionKey,
+          messageId,
+          friendlyMessage,
+          handle.toolCalls.values(),
+        )
         pushEvent({
           type: 'conversation:message:new',
           sessionKey,
@@ -311,7 +381,13 @@ export class AcpRunController {
           errorMessage: failText,
           isRetryable: false,
         })
-        this.persistAssistantMessage(bridge, sessionKey, messageId, failText)
+        this.persistAssistantMessage(
+          bridge,
+          sessionKey,
+          messageId,
+          failText,
+          handle.toolCalls.values(),
+        )
         pushEvent({
           type: 'conversation:message:new',
           sessionKey,
@@ -442,7 +518,14 @@ export class AcpRunController {
 
     if (phase === 'start') {
       const textPositionAtStart = handle.totalLength
-      handle.toolStartTextPositions.set(toolCallId, textPositionAtStart)
+      handle.toolCalls.set(toolCallId, {
+        id: toolCallId,
+        name: toolName,
+        args: args ?? {},
+        status: 'running',
+        startedAt: Date.now(),
+        textPositionAtStart,
+      })
       pushEvent({
         type: 'agent:tool:start',
         runId,
@@ -470,9 +553,16 @@ export class AcpRunController {
     }
 
     if (phase === 'end') {
-      const startMs = handle.toolStartTextPositions.get(toolCallId) ?? Date.now()
-      const durationMs = Math.max(0, Date.now() - startMs)
-      handle.toolStartTextPositions.delete(toolCallId)
+      // 耗时取开始时刻。此前这里读的是 toolStartTextPositions（存的是**文本位置**），
+      // 拿 Date.now() 去减它得到的是天文数字——渲染层 formatDuration 又优先采信后端值，
+      // 于是工具卡片一直显示着错误的耗时。
+      const call = handle.toolCalls.get(toolCallId)
+      const durationMs = call ? Math.max(0, Date.now() - call.startedAt) : 0
+      if (call) {
+        call.status = isError ? 'error' : 'done'
+        if (result !== undefined) call.result = result
+        if (isError) call.isError = true
+      }
       pushEvent({
         type: 'agent:tool:end',
         runId,
@@ -544,13 +634,14 @@ export class AcpRunController {
     sessionKey: string,
     messageId: string,
     text: string,
+    toolCalls: Iterable<CollectedToolCall> = [],
   ): void {
     try {
       bridge.conversationRepo.saveMessage({
         id: messageId,
         conversationId: sessionKey,
         role: 'assistant',
-        contentJson: { type: 'text', text },
+        contentJson: buildAcpAssistantContent(messageId, text, toolCalls),
       })
     } catch (err) {
       log.error(`[persistAssistantMessage] failed: ${err instanceof Error ? err.message : String(err)}`)
