@@ -225,6 +225,7 @@ export function ensureSeedCronJobsSeeded(db: DatabaseAdapter): void {
   migrateRemovedWikiAutoSynthesisCron(db)
   migrateSystemPromptsForWorkReports(db)
   migrateMorningBriefingToWorkReportRead(db)
+  migrateWorkReportsToWindowQuery(db)
   migrateCronJobsRemoveFocusNotify(db)
   for (const job of SEED_JOBS) {
     try {
@@ -408,6 +409,40 @@ function migrateMorningBriefingToWorkReportRead(db: DatabaseAdapter): void {
     log.info('[migrateMorningBriefingToWorkReportRead] 早间简报 system_prompt → work_report_read')
   } catch (err) {
     log.error('[migrateMorningBriefingToWorkReportRead] 迁移失败:', err)
+  }
+}
+
+/**
+ * 日报 / 周复盘取数改用时间窗全量枚举（2026-09-16）。
+ *
+ * 旧文案让 chronicler「先看 system prompt 已注入的『工作记忆』段，必要时用
+ * `memory_manage action=list` 补全」——这两条路都取不到当天的低重要度条目：
+ * 注入只给 top-N，list 也按 importance 排序。改为一律走 `action=window` 按时间窗
+ * 取全量（支持翻页）。特征串锚定旧文案，用户自己改过的任务不动。
+ */
+function migrateWorkReportsToWindowQuery(db: DatabaseAdapter): void {
+  const targets: readonly { readonly id: string; readonly legacyMarker: string }[] = [
+    { id: 'seed-daily-report', legacyMarker: '必要时用 memory_manage action=list 补全' },
+    {
+      id: 'seed-weekly-review',
+      legacyMarker: '就用 memory_manage action=list 读取本周工作记忆来汇总',
+    },
+  ]
+  for (const { id, legacyMarker } of targets) {
+    try {
+      const row = db
+        .prepare<{ system_prompt: string | null }>(
+          `SELECT system_prompt FROM local_cron_jobs WHERE id = ?`,
+        )
+        .get(id)
+      if (!row?.system_prompt?.includes(legacyMarker)) continue
+      const next = SEED_JOBS.find((j) => j.id === id)?.systemPrompt
+      if (!next || row.system_prompt === next) continue
+      db.prepare(`UPDATE local_cron_jobs SET system_prompt = ? WHERE id = ?`).run(next, id)
+      log.info(`[migrateWorkReportsToWindowQuery] ${id} 取数改用 memory_manage action=window`)
+    } catch (err) {
+      log.error(`[migrateWorkReportsToWindowQuery] ${id} 迁移失败:`, err)
+    }
   }
 }
 

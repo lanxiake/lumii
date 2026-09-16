@@ -72,7 +72,7 @@ import {
 } from './provider-config'
 import { listProviderModels, testProviderConnection } from './provider-probe'
 import {
-  listAgents,
+  listAgentDefinitions,
   getAgentRecord,
   listUserAgentRecords,
   forkAgentRecord,
@@ -803,8 +803,12 @@ async function initAgentRuntime(): Promise<void> {
       return mapApiRecordToAgentDefinition(rec as unknown as Record<string, unknown>)
     },
     fetchAgentDefinitionsFromApi: async () => {
-      // 灵栖/Lumii：从本地 agents 仓库返回全部 Agent 定义
-      return listAgents().agents.map((a) => mapApiRecordToAgentDefinition(a as unknown as Record<string, unknown>))
+      // 灵栖/Lumii：返回全部 Agent 的运行时定义。
+      // 必须与上面的 fetchAgentDefinitionById 一致地让系统 Agent 走内置定义：
+      // record 往返（systemAgentRecords → mapApiRecordToAgentDefinition）会丢掉
+      // memory / tools / maxTurns（详见 listAgentDefinitions 的说明），而这份结果会被
+      // 写进 agent_definition_cache 并**优先于内置兜底**被读取，导致运行时配置静默失效。
+      return listAgentDefinitions()
     },
     showCronNotification: (title: string, body: string, convId?: string) => {
       log.info(`[AgentRuntime:CronNotify] title="${title}" body="${body.slice(0, 60)}" convId="${convId ?? ''}"`)

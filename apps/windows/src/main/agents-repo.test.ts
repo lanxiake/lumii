@@ -11,7 +11,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { _resetWindowsClientDataRootCacheForTest } from './client-data-root'
-import { forkAgentRecord, listAgents } from './agents-repo'
+import { forkAgentRecord, listAgentDefinitions, listAgents } from './agents-repo'
 
 let dir: string
 
@@ -25,6 +25,36 @@ afterEach(() => {
   delete process.env.LUMII_CLIENT_DATA_DIR
   _resetWindowsClientDataRootCacheForTest()
   fs.rmSync(dir, { recursive: true, force: true })
+})
+
+describe('listAgentDefinitions 运行时定义（供 DefinitionStore 同步缓存）', () => {
+  it('系统 Agent 用内置定义：memory / tools / maxTurns 不得在 record 往返中丢失', () => {
+    const defs = listAgentDefinitions()
+
+    // 这三个字段正是 record 往返（systemAgentRecords → mapApiRecordToAgentDefinition）
+    // 会丢成 undefined 的。缓存优先于内置兜底被读取，丢了就是静默失效：
+    // 2026-09-16 实测 chronicler 因此读不到跨 Agent 记忆，日报取数为 0。
+    const chronicler = defs.find((d) => d.id === 'chronicler')
+    expect(chronicler?.memory).toEqual({ scope: 'user', readView: 'user', autoExtract: true })
+    expect(chronicler?.tools?.length).toBeGreaterThan(0)
+    expect(chronicler?.maxTurns).toBe(30)
+
+    // 只读子 Agent 的 scope: "none"（本意不注入记忆）与只读约束同样必须保住。
+    // 注意 EXPLORE_DEF 用 disallowedTools 声明工具面（全工具减禁用），没有 tools 字段。
+    const explore = defs.find((d) => d.id === 'builtin:explore')
+    expect(explore?.memory?.scope).toBe('none')
+    expect(explore?.permissionMode).toBe('readOnly')
+    expect(explore?.maxTurns).toBe(30)
+    expect(explore?.disallowedTools?.length).toBeGreaterThan(0)
+  })
+
+  it('读取视图：普通 Agent 缺省 own，只有汇总型 Agent 跨 Agent', () => {
+    const defs = listAgentDefinitions()
+    for (const id of ['assistant', 'code-dev', 'system-keeper', 'info-curator']) {
+      expect(defs.find((d) => d.id === id)?.memory?.readView ?? 'own', id).toBe('own')
+    }
+    expect(defs.find((d) => d.id === 'chronicler')?.memory?.readView).toBe('user')
+  })
 })
 
 describe('agents-repo 系统 Agent 定义镜像', () => {

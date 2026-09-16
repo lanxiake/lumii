@@ -11,7 +11,7 @@
 
 import fs from 'node:fs'
 import path from 'node:path'
-import { BUILT_IN_AGENTS, type AgentDefinition } from '@mtbot/agent-runtime'
+import { BUILT_IN_AGENTS, findBuiltInAgent, mapApiRecordToAgentDefinition, type AgentDefinition } from '@mtbot/agent-runtime'
 import { resolveWindowsClientDataRoot } from './client-data-root.js'
 
 const LOCAL_USER_ID = 'local-user'
@@ -120,6 +120,28 @@ function saveUserAgents(agents: AgentRecord[]): void {
 export function listAgents(): { agents: AgentRecord[]; total: number } {
   const agents = [...systemAgentRecords(), ...loadUserAgents()]
   return { agents, total: agents.length }
+}
+
+/**
+ * 列出全部 Agent 的**运行时定义**（供 AgentDefinitionStore 同步缓存用）。
+ *
+ * 系统 Agent 直接返回内置定义（代码里的权威），**不要**走 `systemAgentRecords()` +
+ * `mapApiRecordToAgentDefinition` 的往返：`AgentRecord.definition` 是团队页「详情」
+ * 面板的展示镜像，只镜像了 tools/maxTurns/memoryScope 等少量字段，而该子对象不参与
+ * 顶层映射 —— 往返一圈会让内置 Agent 的 `memory` / `tools` / `maxTurns` 整批丢成
+ * undefined。这份缓存又优先于内置兜底被读取（definition-store 的解析顺序：
+ * 内存 → SQLite 缓存 → API → 内置兜底），于是运行时配置静默失效：
+ * chronicler 的 `readView: "user"` 不生效（日报取不到跨 Agent 记忆）、
+ * explore/plan/verify 的 `scope: "none"` 不生效（本该无记忆却注入）。
+ *
+ * 用户 Agent 没有内置定义，仍走 record 映射。
+ */
+export function listAgentDefinitions(): AgentDefinition[] {
+  return listAgents().agents.map(
+    (a) =>
+      findBuiltInAgent(a.id) ??
+      mapApiRecordToAgentDefinition(a as unknown as Record<string, unknown>),
+  )
 }
 
 /** 按 id 查单个 Agent */
