@@ -22,6 +22,8 @@ import {
   readDashboardFeedPage,
   readDashboardFeedBatches,
   ensureDashboardFeedMigrated,
+  normalizeHistoricalFeedSources,
+  __testables,
   MAX_FEED_ITEMS,
   type DashboardFeedSnapshot,
 } from './dashboard-feed-store'
@@ -44,6 +46,10 @@ function createFeedDb(): DatabaseAdapter {
       source TEXT NOT NULL DEFAULT 'agent', conversation_id TEXT, created_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_dfb_feed ON dashboard_feed_batches (feed_id, created_at DESC, id DESC);
+    -- 一次性回填的守卫记在这里（生产库由 SCHEMA_V1 建，夹具得自己补上）
+    CREATE TABLE IF NOT EXISTS runtime_state (
+      key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL
+    );
   `)
   return db
 }
@@ -326,5 +332,78 @@ describe('来源写法归一化的落库往返', () => {
     // 三种写法落库后是同一个值——这是「同一家媒体散成多个统计键」的正面证据
     expect(new Set(sources)).toEqual(new Set(['36氪·新智元']))
     db.close()
+  })
+})
+
+describe('历史 source 的一次性回填', () => {
+  /** 直接插库模拟「写入口归一化之前就已经落下的行」 */
+  function seedLegacySource(db: DatabaseAdapter, source: string, id: string): void {
+    db.prepare(
+      `INSERT INTO dashboard_feed_items (id, feed_id, title, source, timestamp, created_at)
+       VALUES (?, 'news', ?, ?, 1, ?)`,
+    ).run(id, `标题 ${id}`, source, new Date().toISOString())
+  }
+
+  it('把历史写法收成与写入口同一种，且用的是同一个 normalizeSource', async () => {
+    const db = createFeedDb()
+    setDashboardFeedDb(db)
+    seedLegacySource(db, '36氪 / 新智元', 'a')
+    seedLegacySource(db, '36氪/新智元', 'b')
+    seedLegacySource(db, '36氪·新智元', 'c') // 本来就对，不该被改写成别的
+    seedLegacySource(db, '澎湃新闻 · 10%公司', 'd')
+
+    normalizeHistoricalFeedSources()
+
+    const rows = db
+      .prepare<{ id: string; source: string }>(
+        `SELECT id, source FROM dashboard_feed_items ORDER BY id`,
+      )
+      .all()
+    expect(rows.map((r) => r.source)).toEqual([
+      '36氪·新智元',
+      '36氪·新智元',
+      '36氪·新智元',
+      '澎湃新闻·10%公司',
+    ])
+    // 与写入口逐字一致——这正是「不写 SQL 版」要守住的东西
+    expect(rows[0].source).toBe(__testables.normalizeSource('36氪 / 新智元'))
+    db.close()
+  })
+
+  it('只做一次：第二次调用不再扫表（runtime_state 有守卫）', async () => {
+    const db = createFeedDb()
+    setDashboardFeedDb(db)
+    seedLegacySource(db, 'A / B', 'a')
+
+    normalizeHistoricalFeedSources()
+    // 回填之后再塞一行旧的：它不该被第二次调用碰到（守卫已经立起来了）
+    seedLegacySource(db, 'C / D', 'b')
+    normalizeHistoricalFeedSources()
+
+    const c = db.prepare<{ source: string }>(`SELECT source FROM dashboard_feed_items WHERE id = 'b'`).get()
+    expect(c?.source).toBe('C / D')
+    expect(
+      db.prepare<{ value: string }>(`SELECT value FROM runtime_state WHERE key = ?`).get(
+        'dashboardFeed.sourcesNormalized',
+      )?.value,
+    ).toBe('1')
+    db.close()
+  })
+
+  it('整串就是分隔符的行落 NULL，而不是留一个空串', async () => {
+    const db = createFeedDb()
+    setDashboardFeedDb(db)
+    seedLegacySource(db, ' / ', 'a')
+
+    normalizeHistoricalFeedSources()
+
+    const row = db.prepare<{ source: string | null }>(`SELECT source FROM dashboard_feed_items`).get()
+    expect(row?.source).toBeNull()
+    db.close()
+  })
+
+  it('没有 db 时不抛（降级路径）', () => {
+    setDashboardFeedDb(null as unknown as DatabaseAdapter)
+    expect(() => normalizeHistoricalFeedSources()).not.toThrow()
   })
 })

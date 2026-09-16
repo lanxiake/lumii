@@ -733,8 +733,67 @@ export async function prependActiveDashboardFeedItem(
  * 一次性回填：老库升级到 V35 后，若 dashboard_feed_meta 无该 feed 且旧 latest.json 存在，
  * 导入旧快照到 DB。幂等（DB 已有该 feed 即跳过），由首个 dashboard-feed:* IPC 调用触发。
  */
+/** 一次性回填的守卫键（runtime_state） */
+const FEED_SOURCE_NORMALIZED_KEY = 'dashboardFeed.sourcesNormalized'
+
+/**
+ * 一次性回填：把历史上以自由文本写下的 `source` 收成同一种写法。
+ *
+ * 归一本应发生在写入口（`normalizeItem`），但那对**已经落库的行**无效——
+ * 实测本机 215 条里 45 行带 `/` 或 `|`，同一家媒体（如 36氪·新智元）散成多个 key，
+ * 让「这家最近被推了几条」这类问题答不准。
+ *
+ * **刻意用 TS 而不是 SQL 迁移**：归一规则已经由 `normalizeSource` 定义了一次，
+ * 再在 SQL 里用 `replace()` 写一遍就是两处口径，两边迟早漂开。这里直接调同一个函数，
+ * 一致性由构造保证，不靠人盯着。
+ *
+ * **用 runtime_state 记「做过」而不是靠「跑起来没变化」**：一次性的事就该有一次性的样子，
+ * 否则每次启动都扫一遍表；而且写入口真出了回归，也会被它悄悄盖住。
+ */
+export function normalizeHistoricalFeedSources(): void {
+  if (!dashboardFeedDb) return
+  try {
+    const done = dashboardFeedDb
+      .prepare<{ value: string }>(`SELECT value FROM runtime_state WHERE key = ?`)
+      .get(FEED_SOURCE_NORMALIZED_KEY)
+    if (done) return
+
+    const rows = dashboardFeedDb
+      .prepare<{ source: string }>(
+        `SELECT DISTINCT source FROM dashboard_feed_items WHERE source IS NOT NULL`,
+      )
+      .all()
+
+    const fixes: Array<[string, string | null]> = []
+    for (const row of rows) {
+      // 归一后为空（整串就是分隔符）时落 NULL，而不是留一个空串
+      const next = normalizeSource(row.source) ?? null
+      if (next !== row.source) fixes.push([row.source, next])
+    }
+    for (const [from, to] of fixes) {
+      dashboardFeedDb
+        .prepare(`UPDATE dashboard_feed_items SET source = ? WHERE source = ?`)
+        .run(to, from)
+    }
+    dashboardFeedDb
+      .prepare(
+        `INSERT INTO runtime_state (key, value, updated_at) VALUES (?, ?, ?)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+      )
+      .run(FEED_SOURCE_NORMALIZED_KEY, '1', new Date().toISOString())
+
+    if (fixes.length > 0) {
+      console.info(`[dashboard-feed] 已归一化 ${fixes.length} 种历史 source 写法`)
+    }
+  } catch (err) {
+    // 回填失败不该挡住读资讯——它只是一次格式整理，不是数据修复
+    console.error('[dashboard-feed] 归一化历史 source 失败（已忽略）:', err)
+  }
+}
+
 export async function ensureDashboardFeedMigrated(feedId = DEFAULT_DASHBOARD_FEED_ID): Promise<void> {
   if (!dashboardFeedDb) return
+  normalizeHistoricalFeedSources()
   const normalizedId = validateFeedId(feedId)
   const meta = dashboardFeedDb
     .prepare<{ feed_id: string }>(`SELECT feed_id FROM dashboard_feed_meta WHERE feed_id = ?`)
