@@ -39,8 +39,6 @@ export interface AgentDevBinding {
  * 应用配置
  */
 export interface AppConfig {
-  /** 应用版本 */
-  version: string
   /** 语言设置 */
   language: 'zh-CN' | 'en-US'
   /** 主题 */
@@ -114,7 +112,6 @@ export type PartialConfig = {
  */
 export const DEFAULT_CONFIG: Config = {
   app: {
-    version: '0.1.3',
     language: 'zh-CN',
     theme: 'auto',
     autoConnect: true,

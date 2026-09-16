@@ -27,6 +27,7 @@ import {
 } from './hooks/business/useAgentRuntime/useAgentRuntime'
 import { readPersistedSessionThinkingPrefs } from '../shared/session-thinking-prefs'
 import { getProviderConfig, isChatProviderReady } from './services/model-config-service'
+import { getAppVersion } from './services/app-service'
 import { setActiveSessionKey } from './services/pet-service'
 import { subscribeMainEvent } from './services/event-bus-service'
 import {
@@ -65,6 +66,8 @@ const AuthenticatedApp: React.FC<AuthenticatedAppProps> = ({ onShellReady }) => 
   const { showToast } = useToast()
   /** 本地 chat 模型是否已启用并可调用（独立版用此驱动标题栏绿点） */
   const [modelReady, setModelReady] = useState(false)
+  /** 应用版本（权威源：主进程 app.getVersion()，即 apps/windows/package.json 的 version） */
+  const [appVersion, setAppVersion] = useState('')
   const shellReadySent = useRef(false)
 
   /**
@@ -102,6 +105,13 @@ const AuthenticatedApp: React.FC<AuthenticatedAppProps> = ({ onShellReady }) => 
       window.removeEventListener('mtbot:chat-model-changed', onChanged)
     }
   }, [refreshModelReady])
+
+  // 应用版本：渲染层统一走主进程权威源，避免多处硬编码
+  useEffect(() => {
+    getAppVersion().then(setAppVersion).catch(() => {
+      console.warn('[App] 获取应用版本失败')
+    })
+  }, [])
 
   // 独立版：本地 chat 模型就绪即视为「已连接」
   const isConnected = modelReady
@@ -241,6 +251,7 @@ const AuthenticatedApp: React.FC<AuthenticatedAppProps> = ({ onShellReady }) => 
         themeToggle={themeToggleBtn}
         extraActions={<ScreenRecordTitleControl />}
         defaultSidebarCollapsed={false}
+        version={appVersion ? `v${appVersion}` : undefined}
       >
         <PetSessionSync />
         <Router activeView={activeView} onViewChange={handleViewChange} />

@@ -19,7 +19,7 @@ type UpdateStatus = 'idle' | 'checking' | 'available' | 'downloading' | 'downloa
 export const UpdaterView: React.FC<UpdaterViewProps> = ({ standalone = false }) => {
   const { success } = useToast()
   const [status, setStatus] = useState<UpdateStatus>('idle')
-  const [currentVersion, setCurrentVersion] = useState<string>('0.1.3')
+  const [currentVersion, setCurrentVersion] = useState<string>('')
   const [latestVersion, setLatestVersion] = useState<string>('')
   const [downloadProgress, setDownloadProgress] = useState<number>(0)
   const [errorMessage, setErrorMessage] = useState<string>('')

@@ -101,7 +101,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   const [internalCategory, setInternalCategory] = useState<MergedSettingsCategory>('general')
   const activeCategory = controlledCategory ?? internalCategory
   const setActiveCategory = setInternalCategory
-  const [appVersion, setAppVersion] = useState<string>('0.1.3')
+  const [appVersion, setAppVersion] = useState<string>('')
 
   /** 待审批目标数：整页模式「实验功能」导航红点（挂载时拉取，30s 刷新） */
   const [pendingAutonomousGoals, setPendingAutonomousGoals] = useState(0)
@@ -192,8 +192,9 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
    * 获取应用版本
    */
   useEffect(() => {
-    // TODO: 从 electronAPI 获取版本
-    setAppVersion('0.1.3')
+    getAppVersion().then(setAppVersion).catch(() => {
+      console.warn('[SettingsPage] 获取版本失败')
+    })
   }, [])
 
   /**

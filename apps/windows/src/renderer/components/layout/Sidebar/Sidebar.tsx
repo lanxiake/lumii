@@ -88,7 +88,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isConnected = false,
   collapsed = false,
   onCollapseChange,
-  version = 'v0.1.3',
+  version,
   className = '',
 }) => {
   const [internalCollapsed, setInternalCollapsed] = useState(collapsed);
@@ -170,7 +170,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </button>
 
         {/* 版本号 */}
-        {!isCollapsed && <div className={styles['app-version']}>{version}</div>}
+        {!isCollapsed && version && <div className={styles['app-version']}>{version}</div>}
       </div>
     </aside>
   );
