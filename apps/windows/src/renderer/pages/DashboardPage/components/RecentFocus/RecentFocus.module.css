@@ -48,7 +48,9 @@
 .seg {
   display: flex;
   gap: 2px;
-  width: 232px;
+  /* 四段（工作记忆/资料库/定时任务/资产体检）平分；按钮 flex:1 自适应，
+     这里只给容器留够宽度 */
+  width: 300px;
   margin-left: auto;
   padding: 4px;
   border: 1px solid var(--mt-border);

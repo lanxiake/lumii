@@ -1,16 +1,18 @@
 /**
- * AssetCheckup - 资产体检（概览页）
+ * AssetCheckup - 资产体检（概览页「近期关注」卡的第四个分段）
  *
  * 显示「灵栖维护」最近一次巡检的结论与发现，并标出与上一期相比：
  * 新出现 / 仍在 / 已解决。已解决由两期数据直接算出来，不需要用户手工标记——
  * 这也是报告要落库而不是只留在会话里的原因。
  *
+ * 这里只渲染**内容**（不含 Card 与标题）：标题与分段切换由「近期关注」卡提供，
+ * 卡片自身有固定高度上限，所以本组件高度铺满父级、内部滚动。
+ *
  * 点条目把追问请求预填进对话页（与资讯卡同一套交互），用户可以直接问「第 2 条怎么处理」。
  */
 
 import React, { useCallback, useEffect, useState } from 'react'
-import { HeartPulse, RefreshCw, ShieldCheck } from 'lucide-react'
-import { Card } from '../../../../components/ui/Card/Card'
+import { RefreshCw, ShieldCheck } from 'lucide-react'
 import type { ViewType } from '../../../../components/layout/Sidebar/Sidebar'
 import { fetchMaintenanceOverview, type MaintenanceOverview } from '../../../../services/maintenance-report-service'
 import type { MaintenanceFinding, MaintenanceSeverity } from '@main/maintenance-report-store'
@@ -62,16 +64,16 @@ function buildFollowUpPrompt(finding: MaintenanceFinding): string {
     .join('\n')
 }
 
-export interface AssetCheckupProps {
+export interface AssetCheckupPanelProps {
   onViewChange?: (view: ViewType) => void
 }
 
-export const AssetCheckup: React.FC<AssetCheckupProps> = ({ onViewChange }) => {
+export const AssetCheckupPanel: React.FC<AssetCheckupPanelProps> = ({ onViewChange }) => {
   const [data, setData] = useState<MaintenanceOverview>({ reports: [], diff: null })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string>()
   const [refreshing, setRefreshing] = useState(false)
-  /** 展示到第几期（默认只看最新一期，历史按期折叠） */
+  /** 展示到第几期（默认只看最新一期，历史按期按需展开） */
   const [visibleCount, setVisibleCount] = useState(1)
 
   const load = useCallback(async () => {
@@ -80,6 +82,7 @@ export const AssetCheckup: React.FC<AssetCheckupProps> = ({ onViewChange }) => {
     return overview
   }, [])
 
+  // 只在挂载时拉一次：分段切换会卸载/重挂本组件，等于「进这个 Tab 就取最新的」
   useEffect(() => {
     let cancelled = false
     void (async () => {
@@ -110,7 +113,7 @@ export const AssetCheckup: React.FC<AssetCheckupProps> = ({ onViewChange }) => {
     }
   }
 
-  /** 追问：跳对话页并把问题预填进输入框（新开会话，体检追问是独立话题） */
+  /** 追问：跳对话页并把问题预填进输入框（体检追问是独立话题，新开会话） */
   const ask = (finding: MaintenanceFinding) => {
     window.dispatchEvent(
       new CustomEvent('mtbot:chat-draft-request', {
@@ -124,15 +127,27 @@ export const AssetCheckup: React.FC<AssetCheckupProps> = ({ onViewChange }) => {
   const diff = data.diff
   const visibleReports = data.reports.slice(0, visibleCount)
 
+  if (loading) return <div className={styles.state}>正在读取体检记录…</div>
+  if (error) return <div className={styles.state}>{error}</div>
+  if (!latest) {
+    return (
+      <div className={styles.state}>
+        还没有体检记录。对「灵栖维护」说一句「帮我做一次资产体检」即可。
+      </div>
+    )
+  }
+
   return (
-    <Card className={styles.panel} flush>
-      <div className={styles.head}>
-        <HeartPulse size={14} strokeWidth={1.8} className={styles['head-icon']} />
-        <span className={styles.title}>资产体检</span>
-        <span className={styles.tag}>
-          {latest
-            ? `${SCOPE_LABELS[latest.scope] ?? latest.scope} · ${TRIGGER_LABELS[latest.trigger] ?? latest.trigger} · ${formatWhen(latest.createdAt)}`
-            : '尚未体检'}
+    /**
+     * 根元素**同时是**滚动容器：卡片是内容高度的 flex 列，多包一层 flex:1 的中间层
+     * 会让高度算不出来、内容被卡片 overflow:hidden 裁掉（实测：分段里只剩元信息行）。
+     * 与同卡的 `.list` 保持同一形态——一个 flex:1 + overflow-y:auto 的直系子元素。
+     */
+    <div className={styles.panel}>
+      <div className={styles.meta}>
+        <span className={styles['meta-text']}>
+          {SCOPE_LABELS[latest.scope] ?? latest.scope} · {TRIGGER_LABELS[latest.trigger] ?? latest.trigger} ·{' '}
+          {formatWhen(latest.createdAt)}
         </span>
         <button
           type="button"
@@ -146,101 +161,81 @@ export const AssetCheckup: React.FC<AssetCheckupProps> = ({ onViewChange }) => {
         </button>
       </div>
 
-      {error && <div className={styles.error}>{error}</div>}
-
-      {loading ? (
-        <div className={styles.empty}>正在读取体检记录…</div>
-      ) : !latest ? (
-        <div className={styles.empty}>
-          还没有体检记录。对「灵栖维护」说一句「帮我做一次资产体检」即可。
-        </div>
-      ) : (
-        <div className={styles.scroll}>
-          {/* 跨期差分：新增 / 仍在 / 已解决——已解决不必用户标记，两期数据一比就知道 */}
-          {diff && (diff.added.length > 0 || diff.resolved.length > 0) && (
-            <div className={styles.diff}>
-              {diff.added.length > 0 && (
-                <span className={`${styles['diff-chip']} ${styles['diff-chip--added']}`}>
-                  新增 {diff.added.length}
-                </span>
-              )}
-              {diff.persisting.length > 0 && (
-                <span className={styles['diff-chip']}>仍在 {diff.persisting.length}</span>
-              )}
-              {diff.resolved.length > 0 && (
-                <span className={`${styles['diff-chip']} ${styles['diff-chip--resolved']}`}>
-                  已解决 {diff.resolved.length}
-                </span>
-              )}
-            </div>
+      {/* 跨期差分：新增 / 仍在 / 已解决——已解决不必用户标记，两期数据一比就知道 */}
+      {diff && (diff.added.length > 0 || diff.resolved.length > 0) && (
+        <div className={styles.diff}>
+          {diff.added.length > 0 && (
+            <span className={`${styles['diff-chip']} ${styles['diff-chip--added']}`}>
+              新增 {diff.added.length}
+            </span>
           )}
-
-          {visibleReports.map((report, reportIndex) => (
-            <div key={report.id} className={styles.report}>
-              <div className={styles['report-head']}>
-                <span className={styles['report-summary']}>{report.summary}</span>
-                <span className={styles['report-meta']}>
-                  {reportIndex === 0 ? '最近一次 · ' : ''}
-                  {formatWhen(report.createdAt)}
-                </span>
-              </div>
-
-              {report.findings.length === 0 ? (
-                <div className={styles.clean}>
-                  <ShieldCheck size={13} strokeWidth={2} />
-                  未发现问题
-                </div>
-              ) : (
-                <ul className={styles.findings}>
-                  {report.findings.map((finding) => (
-                    <li key={`${report.id}:${finding.key}`} className={styles.finding}>
-                      <button
-                        type="button"
-                        className={styles['finding-body']}
-                        onClick={() => ask(finding)}
-                        title="点击让 Lumii 确认这个问题"
-                      >
-                        <span
-                          className={`${styles.severity} ${styles[`severity--${finding.severity}`]}`}
-                        >
-                          {SEVERITY_LABELS[finding.severity]}
-                        </span>
-                        <span className={styles['finding-main']}>
-                          <span className={styles['finding-title']}>{finding.title}</span>
-                          {finding.evidence && (
-                            <span className={styles['finding-evidence']}>{finding.evidence}</span>
-                          )}
-                          {finding.suggestion && (
-                            <span className={styles['finding-suggestion']}>→ {finding.suggestion}</span>
-                          )}
-                        </span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-
-              {report.checked.length > 0 && (
-                <div className={styles.checked}>
-                  已查无问题：{report.checked.join('；')}
-                </div>
-              )}
-            </div>
-          ))}
-
-          {data.reports.length > visibleCount && (
-            <button
-              type="button"
-              className={styles.more}
-              onClick={() => setVisibleCount((n) => n + 1)}
-            >
-              查看上一期体检（还有 {data.reports.length - visibleCount} 期）
-            </button>
+          {diff.persisting.length > 0 && (
+            <span className={styles['diff-chip']}>仍在 {diff.persisting.length}</span>
+          )}
+          {diff.resolved.length > 0 && (
+            <span className={`${styles['diff-chip']} ${styles['diff-chip--resolved']}`}>
+              已解决 {diff.resolved.length}
+            </span>
           )}
         </div>
       )}
-    </Card>
+
+      {visibleReports.map((report, reportIndex) => (
+          <div key={report.id} className={styles.report}>
+            <div className={styles['report-head']}>
+              <span className={styles['report-summary']}>{report.summary}</span>
+              {reportIndex > 0 && (
+                <span className={styles['report-meta']}>{formatWhen(report.createdAt)}</span>
+              )}
+            </div>
+
+            {report.findings.length === 0 ? (
+              <div className={styles.clean}>
+                <ShieldCheck size={13} strokeWidth={2} />
+                未发现问题
+              </div>
+            ) : (
+              <ul className={styles.findings}>
+                {report.findings.map((finding) => (
+                  <li key={`${report.id}:${finding.key}`} className={styles.finding}>
+                    {/*
+                      这一格只有 ~110px 高（卡片上限 220 减去分段头尾），所以每条发现压成一行：
+                      严重度点 + 标题。依据与建议放进 title 悬停看，正文完整版在点开后的对话里。
+                      铺开三段式会把发现整体挤到折叠线以下，用户只看到一段综述。
+                    */}
+                    <button
+                      type="button"
+                      className={styles['finding-body']}
+                      onClick={() => ask(finding)}
+                      title={[finding.title, finding.evidence, finding.suggestion && `→ ${finding.suggestion}`]
+                        .filter(Boolean)
+                        .join('\n')}
+                    >
+                      <span className={`${styles.severity} ${styles[`severity--${finding.severity}`]}`}>
+                        {SEVERITY_LABELS[finding.severity]}
+                      </span>
+                      <span className={styles['finding-title']}>{finding.title}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {report.checked.length > 0 && (
+              <div className={styles.checked} title={report.checked.join('；')}>
+                已查无问题：{report.checked.length} 项
+              </div>
+            )}
+          </div>
+        ))}
+
+        {data.reports.length > visibleCount && (
+          <button type="button" className={styles.more} onClick={() => setVisibleCount((n) => n + 1)}>
+            查看上一期体检（还有 {data.reports.length - visibleCount} 期）
+          </button>
+        )}
+    </div>
   )
 }
 
-export default AssetCheckup
+export default AssetCheckupPanel

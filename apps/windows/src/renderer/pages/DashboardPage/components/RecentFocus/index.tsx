@@ -1,10 +1,14 @@
 /**
  * RecentFocus - 近期关注
  *
- * 三个分段各自一个真实数据源，不做「AI 归纳过」的假象：
+ * 四个分段各自一个真实数据源，不做「AI 归纳过」的假象：
  * - 工作记忆：`agent:memories:list` 的 project/reference/general（= WORK_MEMORY_CATEGORIES）
  * - Wiki：`wiki:source:list` 最近使用的资料
  * - 定时任务：`cron:list` + `cron:runs` 的执行记录，点击看产出正文
+ * - 资产体检：「灵栖维护」的巡检报告（`maintenance-report:overview`），含与上一期的差分
+ *
+ * 资产体检放在这里而不是单独一张卡：概览页是一屏固定高度布局，资讯卡靠 flex 吃剩余高度，
+ * 再插一张固定高度卡片会把资讯卡压成 0（2026-09-16 实测踩过）。分段复用这一行的高度，零额外占用。
  */
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
@@ -14,15 +18,18 @@ import { useMemoryUsage } from '../../../../hooks/business/useMemoryUsage'
 import { useWikiPage } from '../../../../hooks/business/useWikiPage'
 import { openWikiLibrary } from '../../../../utils/open-wiki-library'
 import type { ViewType } from '../../../../components/layout/Sidebar/Sidebar'
+import { AssetCheckupPanel } from '../AssetCheckup'
 import clsx from 'clsx'
 import styles from './RecentFocus.module.css'
 
-type TabId = 'work' | 'wiki' | 'cron'
+type TabId = 'work' | 'wiki' | 'cron' | 'checkup'
 
 const TABS: ReadonlyArray<{ id: TabId; label: string; view: ViewType; action: string }> = [
   { id: 'work', label: '工作记忆', view: 'memories', action: '管理记忆' },
   { id: 'wiki', label: '资料库', view: 'wiki', action: '打开资料库' },
   { id: 'cron', label: '定时任务', view: 'cron', action: '任务中心' },
+  // 体检没有可跳转的页面（内容就在本分段里），action 留空 → 页脚不渲染入口
+  { id: 'checkup', label: '资产体检', view: 'dashboard', action: '' },
 ]
 
 /** 与 packages/agent-runtime WORK_MEMORY_CATEGORIES 对齐 */
@@ -55,6 +62,8 @@ const EMPTY_HINT: Record<TabId, string> = {
   work: '还没有工作记忆。多聊几轮，Lumii 会记下当前任务与用到的资源。',
   wiki: '还没有整理好的资料。上传文件、任务产物与搜索结果会自动归档到 Wiki。',
   cron: '还没有执行记录。定时任务跑过之后，产出会出现在这里。',
+  // 体检分段不走列表，空态由 AssetCheckupPanel 自己给
+  checkup: '',
 }
 
 export interface RecentFocusProps {
@@ -158,6 +167,12 @@ export const RecentFocus: React.FC<RecentFocusProps> = ({ onViewChange }) => {
   )
 
   useEffect(() => {
+    // 体检分段自带数据源（AssetCheckupPanel 挂载时自己拉），这里不发列表请求
+    if (activeTab === 'checkup') {
+      setItems([])
+      setLoading(false)
+      return
+    }
     let alive = true
     setLoading(true)
     const load = activeTab === 'work' ? loadWork : activeTab === 'wiki' ? loadWiki : loadCron
@@ -207,7 +222,9 @@ export const RecentFocus: React.FC<RecentFocusProps> = ({ onViewChange }) => {
         </div>
       </div>
 
-      {loading && items.length === 0 ? (
+      {activeTab === 'checkup' ? (
+        <AssetCheckupPanel onViewChange={onViewChange} />
+      ) : loading && items.length === 0 ? (
         <div className={styles.empty}>正在读取…</div>
       ) : items.length === 0 ? (
         <div className={styles.empty}>{EMPTY_HINT[activeTab]}</div>
@@ -237,10 +254,13 @@ export const RecentFocus: React.FC<RecentFocusProps> = ({ onViewChange }) => {
       )}
 
       <div className={styles.foot}>
-        <span>{loadedAt ? `最近读取 ${formatWhen(loadedAt)}` : '最近读取 —'}</span>
-        <button type="button" className={styles.link} onClick={handleFooterAction}>
-          {current.action}
-        </button>
+        <span>{activeTab === 'checkup' ? '报告来自「灵栖维护」的巡检' : loadedAt ? `最近读取 ${formatWhen(loadedAt)}` : '最近读取 —'}</span>
+        {/* 体检分段没有可跳转的页面，不渲染入口 */}
+        {current.action && (
+          <button type="button" className={styles.link} onClick={handleFooterAction}>
+            {current.action}
+          </button>
+        )}
       </div>
 
       <Modal

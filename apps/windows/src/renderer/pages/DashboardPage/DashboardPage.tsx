@@ -18,7 +18,6 @@ import type { ViewType } from '../../components/layout/Sidebar/Sidebar'
 import { Gauge } from './components/Gauge'
 import { RecentFocus } from './components/RecentFocus'
 import { NewsFeed } from './components/NewsFeed'
-import { AssetCheckup } from './components/AssetCheckup'
 import { VirtualHuman } from './components/VirtualHuman'
 import { sparkBars } from './spark-heights'
 import clsx from 'clsx'
@@ -158,9 +157,6 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ onViewChange }) => {
 
       {/* 最近资讯：点卡片把解读请求预填进对话页 */}
       <NewsFeed onViewChange={onViewChange} />
-
-      {/* 资产体检：维护最近一次的结论与发现（含与上一期的差分） */}
-      <AssetCheckup onViewChange={onViewChange} />
 
       {/* 底部：近期关注 + 虚拟人 */}
       <div className={styles['bottom-grid']}>
