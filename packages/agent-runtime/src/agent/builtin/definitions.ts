@@ -42,7 +42,6 @@ import {
   LIST_DIR_TOOL_NAME,
   SEND_MESSAGE_TOOL_NAME,
   SKILL_INVOKE_TOOL_NAME,
-  SKILL_LIST_TOOL_NAME,
   SKILL_SEARCH_TOOL_NAME,
   SPAWN_AGENT_TOOL_NAME,
   TODO_WRITE_TOOL_NAME,
@@ -201,7 +200,6 @@ const CODE_DEV_DEF: AgentDefinition = {
     GREP_TOOL_NAME,
     TODO_WRITE_TOOL_NAME,
     "profile_memory",
-    SKILL_LIST_TOOL_NAME,
     SKILL_SEARCH_TOOL_NAME,
     SKILL_INVOKE_TOOL_NAME,
     WEB_SEARCH_TOOL_NAME,
@@ -217,6 +215,16 @@ const CODE_DEV_DEF: AgentDefinition = {
 
 /**
  * system-keeper 的客户端面板工具集（app_* 前缀；均在工具注册表中存在）
+ *
+ * 2026-09-16 收敛：只动了 `app_scroll_to_bottom`——它并入 `app_scroll_to_text` 的
+ * `to='bottom'`，能力不变、只剩一个入口（近 7 天 1 次）。
+ *
+ * **另外两个复核后决定保留**，理由写在这里避免以后又被当成"语义重叠"砍掉：
+ * - `app_goto_and_screenshot`：它确实是宏，但 screen-tutorial-pipeline 的设计正是靠
+ *   这批高层工具把教程任务的工具调用从 40~60 次压到 8~15 次，设计文档明确要求
+ *   「goto → screenshot 分两步 ❌ 改用本工具」。删它是把既定优化反向推回去。
+ * - `app_fill_form`：`app_act` 的 type **必须给 ref**（label 只用于 select 选项），
+ *   按字段 label 定位填表只有它能做——这不是语义重叠，是唯一路径。
  */
 const APP_UI_TOOL_NAMES: readonly string[] = [
   "app_screenshot",
@@ -224,7 +232,6 @@ const APP_UI_TOOL_NAMES: readonly string[] = [
   "app_act",
   "app_fill_form",
   "app_scroll_to_text",
-  "app_scroll_to_bottom",
   "app_goto_and_screenshot",
 ];
 
@@ -270,7 +277,6 @@ const SYSTEM_KEEPER_DEF: AgentDefinition = {
     "maintenance_report_read",
     // 机械检查项：能判的交给代码，模型只做判断与表述
     "asset_checkup",
-    SKILL_LIST_TOOL_NAME,
     SKILL_SEARCH_TOOL_NAME,
     SKILL_INVOKE_TOOL_NAME,
     TODO_WRITE_TOOL_NAME,
@@ -309,7 +315,6 @@ const CHRONICLER_DEF: AgentDefinition = {
     "memory_manage",
     "wiki_search",
     "wiki_read",
-    SKILL_LIST_TOOL_NAME,
     SKILL_SEARCH_TOOL_NAME,
     SKILL_INVOKE_TOOL_NAME,
     TODO_WRITE_TOOL_NAME,
@@ -354,7 +359,6 @@ const INFO_CURATOR_DEF: AgentDefinition = {
     "memory_manage",
     "profile_memory",
     "wiki_search",
-    SKILL_LIST_TOOL_NAME,
     SKILL_SEARCH_TOOL_NAME,
     SKILL_INVOKE_TOOL_NAME,
     TODO_WRITE_TOOL_NAME,

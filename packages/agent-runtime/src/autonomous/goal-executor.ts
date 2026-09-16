@@ -42,7 +42,6 @@ const GOAL_EXECUTION_TOOLS: readonly string[] = [
   'wiki_overview',
   'wiki_search',
   'wiki_read',
-  'skill_list',
   'skill_search',
   // T1：自组织
   'todo_write',
@@ -122,7 +121,6 @@ export const SYSTEM_KEEPER_AUTONOMOUS_TOOLS: readonly string[] = [
   'memory_manage',
   'profile_memory',
   'scene_memory',
-  'skill_list',
   'skill_search',
   'skill_invoke',
   'todo_write',

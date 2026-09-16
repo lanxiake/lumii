@@ -35,7 +35,7 @@ metadata:
 | `screen_record_stop` | 停录，返回 `timeline`、`durationMs`、`mp4Path` |
 | `screen_record_narrate` | 一次性写字幕 + TTS 配音 + 烧录 + 导出 MP4；可传 `annotations` |
 | `screen_record_inspect` | 只读验收成片与字幕产物，替代目录扫盲 |
-| `app_goto_and_screenshot` / `app_scroll_to_text` / `app_scroll_to_bottom` / `app_fill_form` / `app_settings_model_config_save` | 高层 UI 工具，优先于原子 `app_act` 组合 |
+| `app_goto_and_screenshot` / `app_scroll_to_text`（含 `to='bottom'`）/ `app_fill_form` / `app_settings_model_config_save` | 高层 UI 工具，优先于原子 `app_act` 组合 |
 
 ## 标准工作流
 
@@ -62,7 +62,7 @@ metadata:
 
 1. **app_goto_and_screenshot** - 跳转+截图一步完成（替代 goto → sleep → screenshot）
 2. **app_scroll_to_text** - 自动查找目标并滚动到位（替代反复 scroll + screenshot 观察）
-3. **app_scroll_to_bottom** - 一次滚到底部（禁止多次调用同一容器）
+3. **app_scroll_to_text with to='bottom'** - 一次滚到底部（禁止多次调用同一容器）
 4. **app_fill_form** - 多字段一次填完（替代逐个 type）
 5. **app_settings_model_config_save** - 模型配置页保存（业务特化，优先用）
 6. **app_act** - 仅在上述工具无法覆盖时兜底
@@ -71,7 +71,7 @@ metadata:
 - `app_screenshot` → `app_act scroll` → `app_screenshot` 反复观察 ❌ 改用 `app_scroll_to_text`
 - `app_goto` → `app_screenshot` 分两步 ❌ 改用 `app_goto_and_screenshot`
 - 逐字段 `app_act type` ❌ 改用 `app_fill_form` 一次完成
-- 多次 `app_scroll_to_bottom` 在同一页 ❌ 一次即可到底
+- 多次滚到底部在同一页 ❌ 一次即可到底
 
 ### 1.b 探路输出：TutorialNavSpec v1（MUST 输出代码块，不做就不算完成探路）
 
@@ -149,7 +149,7 @@ metadata:
 |------|------|
 | `goto` | 等价 `app_goto` / `app_goto_and_screenshot` |
 | `scroll_to_heading` | 等价 `app_scroll_to_text({kind:'heading', text:targetName})` |
-| `scroll_to_bottom` | 等价 `app_scroll_to_bottom` |
+| `scroll_to_bottom` | 等价 `app_scroll_to_text` 带 `to='bottom'` |
 | `act_type_by_field_label` | 等价 `app_fill_form({fields:[{slotHeading,label,text,...}]})` |
 | `click_by_button_text` | 等价 `app_scroll_to_text({kind:'button', text})` 再 click |
 | `click_by_ref` | 兜底；仅在高层工具命中不准时用 |

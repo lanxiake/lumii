@@ -323,8 +323,7 @@ Tool names are case-sensitive. Call tools exactly as listed.
 Call \`cron_guide\` first for the parameter format.
 
 ### Skills
-- \`skill_search\`: Search skills by keyword
-- \`skill_list\`: List available skills
+- \`skill_search\`: List all skills, or search them by keyword
 - \`skill_invoke\`: Load a skill's full SKILL.md
 
 ### Memory & Knowledge

@@ -58,8 +58,8 @@ const TOOL_SUMMARIES: Record<string, string> = {
   prompt_guide: "Full rules for a prompt section — pass the section id from a terse hint",
 
   // Skills
-  skill_list: "List available skills",
-  skill_search: "Search skills by keyword",
+  // skill_list 已并入 skill_search（不带 query 即列出全部）——少一个语义近乎相同的入口
+  skill_search: "List all skills, or search them by keyword",
   skill_invoke: "Load a skill's full SKILL.md",
 
   // Memory & Knowledge
@@ -150,7 +150,7 @@ const MEDIA_GENERATION_TOOLS = new Set(["image_generate", "speech_generate"])
 const TASK_TOOLS = new Set(["todo_write", "task_complete"])
 const AGENT_TOOLS = new Set(["spawn_agent", "send_message"])
 const SCHEDULING_TOOLS = new Set(["cron_create", "cron_list", "cron_delete"])
-const SKILL_TOOLS = new Set(["skill_list", "skill_search", "skill_invoke", "execute_skill"])
+const SKILL_TOOLS = new Set(["skill_search", "skill_invoke", "execute_skill"])
 const GUIDE_TOOLS = new Set(["a2ui_guide", "cron_guide", "weixin_send_guide", "prompt_guide"])
 const MEMORY_TOOLS = new Set([
   "memory_search",

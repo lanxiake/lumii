@@ -39,7 +39,7 @@ const DANGEROUS_PATTERNS = [
 /** 内置工具名（不可重名覆盖） */
 const RESERVED_TOOL_NAMES = new Set([
   "bash", "file_read", "file_write", "file_edit", "file_copy", "file_move",
-  "file_mkdir", "file_delete", "glob", "grep", "list_dir", "skill_list",
+  "file_mkdir", "file_delete", "glob", "grep", "list_dir",
   "skill_search", "skill_invoke", "task_complete", "todo_write", "spawn_agent",
   "send_message", "ask_user_question",
 ]);

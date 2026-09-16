@@ -181,7 +181,6 @@ describe("系统提示词快照基线（重构对照，勿随意更新快照）"
         "web_search",
         "web_fetch",
         "skill_search",
-        "skill_list",
         "skill_invoke",
         "spawn_agent",
         "send_message",

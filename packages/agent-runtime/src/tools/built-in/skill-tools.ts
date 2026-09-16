@@ -43,53 +43,21 @@ function formatSkill(s: SkillInfo): { name: string; description: string } {
   return { name: s.name, description: truncate(s.description, MAX_DESC_CHARS) };
 }
 
-// ─── skill_list ───────────────────────────────────────────────────────────────
-
-const SkillListInput = Type.Object({});
-type SkillListInputType = Static<typeof SkillListInput>;
-
-export const skillListToolConfig: MtBotToolConfig<typeof SkillListInput> = {
-  name: "skill_list",
-  label: "List Skills",
-  description: "List all available skills with name and description.",
-  parameters: SkillListInput,
-  category: "filesystem",
-  isReadOnly: true,
-  needsPermission: false,
-  async execute(
-    _toolCallId: string,
-    _params: SkillListInputType,
-    context,
-  ): Promise<AgentToolResult<unknown>> {
-    if (!context.getSkills) return skillsNotAvailable();
-    const skills = context.getSkills();
-    return {
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify({
-            skills: skills.map(formatSkill),
-            total: skills.length,
-          }),
-        },
-      ],
-      details: undefined,
-    };
-  },
-};
-
-// ─── skill_search ─────────────────────────────────────────────────────────────
+// ─── skill_search（并入原 skill_list：不带 query 即列出全部） ────────────────
 
 const SkillSearchInput = Type.Object({
-  query: Type.String({
-    description:
-      "Search query supporting multi-keyword modes:\n" +
-      "- Space-separated (AND): 'pr review' → skills matching BOTH 'pr' AND 'review'\n" +
-      "- Comma-separated (OR): 'pr, review' → skills matching 'pr' OR 'review'\n" +
-      "- Combined: 'pr review, code analysis' → (pr AND review) OR (code AND analysis)\n" +
-      "Always search with BOTH Chinese and English keywords for better coverage, e.g. '公众号, wechat article, publish'. " +
-      "Use multiple OR terms rather than a single keyword.",
-  }),
+  query: Type.Optional(
+    Type.String({
+      description:
+        "Search query supporting multi-keyword modes:\n" +
+        "- Omitted: list ALL local skills (use this instead of a separate list tool)\n" +
+        "- Space-separated (AND): 'pr review' → skills matching BOTH 'pr' AND 'review'\n" +
+        "- Comma-separated (OR): 'pr, review' → skills matching 'pr' OR 'review'\n" +
+        "- Combined: 'pr review, code analysis' → (pr AND review) OR (code AND analysis)\n" +
+        "Always search with BOTH Chinese and English keywords for better coverage, e.g. '公众号, wechat article, publish'. " +
+        "Use multiple OR terms rather than a single keyword.",
+    }),
+  ),
 });
 type SkillSearchInputType = Static<typeof SkillSearchInput>;
 
@@ -97,8 +65,9 @@ export const skillSearchToolConfig: MtBotToolConfig<typeof SkillSearchInput> = {
   name: "skill_search",
   label: "Search Skills",
   description:
-    "Search LOCAL skills by keyword — searches name, description, and when-to-use fields. " +
-    "Supports multi-keyword AND (space-separated) and OR (comma-separated) logic. " +
+    "List or search LOCAL skills — searches name, description, and when-to-use fields. " +
+    "Call WITHOUT query to list every local skill; pass query for multi-keyword AND (space-separated) " +
+    "and OR (comma-separated) logic. " +
     "If no local skills match, ALWAYS call execute_skill with skillnet to search remote skills: " +
     "execute_skill('skillnet', 'search \"<query>\" --limit 5').",
   parameters: SkillSearchInput,
@@ -113,9 +82,27 @@ export const skillSearchToolConfig: MtBotToolConfig<typeof SkillSearchInput> = {
     if (!context.getSkills) return skillsNotAvailable();
     const skills = context.getSkills();
 
+    // 不带 query = 列出全部。这不是"顺手加的分支"——原来有个独立的 skill_list，
+    // 它的全部实现就是「无过滤条件的列举」，与这里的唯一区别是没有 query 参数。
+    const query = params.query?.trim() ?? "";
+    if (!query) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              skills: skills.map(formatSkill),
+              total: skills.length,
+            }),
+          },
+        ],
+        details: undefined,
+      };
+    }
+
     // 支持逗号分隔的 OR 组，每组内空格分隔为 AND 条件
     // 例："pr review, code analysis" → (pr AND review) OR (code AND analysis)
-    const orGroups = params.query
+    const orGroups = query
       .split(",")
       .map((group) => group.toLowerCase().trim().split(/\s+/).filter(Boolean))
       .filter((g) => g.length > 0);
@@ -131,7 +118,7 @@ export const skillSearchToolConfig: MtBotToolConfig<typeof SkillSearchInput> = {
         : {
             skills: [],
             total: 0,
-            hint: "No local skills matched. Call execute_skill with skillnet to search remote skills: execute_skill('skillnet', 'search \"" + params.query + "\" --limit 5')",
+            hint: "No local skills matched. Call execute_skill with skillnet to search remote skills: execute_skill('skillnet', 'search \"" + query + "\" --limit 5')",
           };
 
     return {

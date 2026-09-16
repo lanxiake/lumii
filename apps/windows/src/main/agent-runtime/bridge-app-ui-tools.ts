@@ -425,6 +425,12 @@ export function registerAppUiTools(
     ),
   )
 
+  // app_goto_and_screenshot 保留（2026-09-16 复核后决定不删）。
+  // 12b 的处置表判它「是 app_goto + app_screenshot 的宏，两步就能做」，但同仓库的
+  // screen-tutorial-pipeline 设计（docs/design/2026-08-16-agent-tutorial-recording-optimization-design.md）
+  // 正是为「减少工具调用」而引入这批高层工具的，量化目标是教程任务 40~60 次 → 8~15 次，
+  // 并明确写了「app_goto → app_screenshot 分两步 ❌ 改用 app_goto_and_screenshot」。
+  // 删它会把这个既定的优化反向推回去。近 7 天 5 次不代表没用——教程录制不是每周都做。
   reg(
     createMtBotTool(
       {
@@ -496,16 +502,30 @@ export function registerAppUiTools(
         category: 'channel' as const,
         description:
           '按子串文字滚动：逐屏滚动直到找到含指定文字的 heading/button/textbox/any。' +
-          '默认 direction=auto（先下后上）。命中后返回 matched + 最新 snapshot（同 screenshot 形态）。',
+          '默认 direction=auto（先下后上）。命中后返回 matched + 最新 snapshot（同 screenshot 形态）。' +
+          "也可用 to='bottom' 直接滚到页面底部（此时忽略 text/kind/direction）——" +
+          '原来这是独立的 app_scroll_to_bottom，两者都是「滚动直到某个位置」，合成一个。',
         parameters: Type.Object({
-          text: Type.String({ description: '要匹配的文字子串（大小写不敏感）' }),
+          text: Type.Optional(
+            Type.String({
+              description: "要匹配的文字子串（大小写不敏感）；to='bottom' 时可省略",
+            }),
+          ),
+          to: Type.Optional(
+            Type.String({
+              description:
+                "填 'bottom' 表示滚到页面底部（忽略 text/kind/direction）。省略则按 text 逐屏查找。",
+            }),
+          ),
           kind: Type.Optional(
             Type.String({ description: 'heading|button|textbox|any，默认 any' }),
           ),
           direction: Type.Optional(
             Type.String({ description: 'down|up|auto，默认 auto' }),
           ),
-          maxAttempts: Type.Optional(Type.Number({ description: '默认 10' })),
+          maxAttempts: Type.Optional(
+            Type.Number({ description: '按文字查找默认 10；滚到底部默认 6' }),
+          ),
         }),
         isReadOnly: false,
         needsPermission: true,
@@ -514,6 +534,21 @@ export function registerAppUiTools(
           if (blocked) return jsonToolResult(blocked)
           try {
             const p = rawParams as Record<string, unknown>
+            // 滚到底部：原来这是独立的 app_scroll_to_bottom。
+            // 两个工具都是「滚动直到某个位置」，差别只在终点怎么描述，合并不损失能力。
+            if (p.to === 'bottom') {
+              const result = await controller.scrollToBottom({
+                maxAttempts: typeof p.maxAttempts === 'number' ? p.maxAttempts : undefined,
+              })
+              return jsonToolResult(result)
+            }
+            if (typeof p.text !== 'string' || !p.text) {
+              return jsonToolResult({
+                ok: false,
+                error: 'usage',
+                message: "需要 text（要查找的文字），或 to='bottom'（滚到页面底部）",
+              })
+            }
             const kindRaw = typeof p.kind === 'string' ? p.kind : 'any'
             const kind =
               kindRaw === 'heading' ||
@@ -526,7 +561,7 @@ export function registerAppUiTools(
             const direction =
               dirRaw === 'down' || dirRaw === 'up' || dirRaw === 'auto' ? dirRaw : 'auto'
             const result = await controller.scrollToText({
-              text: String(p.text ?? ''),
+              text: p.text,
               kind,
               direction,
               maxAttempts: typeof p.maxAttempts === 'number' ? p.maxAttempts : undefined,
@@ -541,35 +576,8 @@ export function registerAppUiTools(
     ),
   )
 
-  reg(
-    createMtBotTool(
-      {
-        name: 'app_scroll_to_bottom',
-        label: 'App Scroll To Bottom (High-Level)',
-        category: 'channel' as const,
-        description: '滚到当前页面主内容底部；返回 atBottom/scrollTop + 最新截图 refs。',
-        parameters: Type.Object({
-          maxAttempts: Type.Optional(Type.Number({ description: '默认 6' })),
-        }),
-        isReadOnly: false,
-        needsPermission: false,
-        execute: async (_id, rawParams) => {
-          const blocked = await guardHighLevelAppUiTool()
-          if (blocked) return jsonToolResult(blocked)
-          try {
-            const p = rawParams as Record<string, unknown>
-            const result = await controller.scrollToBottom({
-              maxAttempts: typeof p.maxAttempts === 'number' ? p.maxAttempts : undefined,
-            })
-            return jsonToolResult(result)
-          } catch {
-            return jsonToolResult({ ok: false, error: 'scroll_to_bottom_failed' })
-          }
-        },
-      },
-      ctx,
-    ),
-  )
+  // app_scroll_to_bottom 已并入上面的 app_scroll_to_text（to='bottom'）。
+  // 近 7 天实测 1 次，合并零成本；保留两个入口只会让模型在「滚到某处」上二选一。
 
   reg(
     createMtBotTool(

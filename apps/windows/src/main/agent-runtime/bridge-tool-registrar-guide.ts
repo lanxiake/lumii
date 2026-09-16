@@ -10,7 +10,6 @@ import {
   type MtBotTool,
   type MtBotToolConfig,
   type SkillInfo,
-  skillListToolConfig,
   skillSearchToolConfig,
   skillInvokeToolConfig,
   getPromptSectionGuide,
@@ -207,7 +206,7 @@ export function registerGuideTools(deps: BridgeToolRegistrarDeps): void {
   // 泛型参数逆变：带类型参数的 MtBotTool 与 registry 的 MtBotTool<TSchema> 不重叠，需经 unknown 断言
   deps.toolRegistry.register(createMtBotTool(promptGuide, ctx) as unknown as MtBotTool)
 
-  // 注册 skill_list / skill_search / skill_invoke
+  // 注册 skill_search / skill_invoke
   // 覆盖 built-in 版本，注入 getSkills（从 instanceStates 按 instanceId 查找 skillsSnapshot）
   const getSkillsForCall = (toolCallId: string): readonly SkillInfo[] => {
     const instanceId = deps.toolCallInstanceMap.get(toolCallId) ?? deps.getCurrentToolExecutorInstanceId()
@@ -215,12 +214,7 @@ export function registerGuideTools(deps: BridgeToolRegistrarDeps): void {
     return deps.instanceStates.get(instanceId)?.skillsSnapshot ?? []
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const skillListOverride: MtBotToolConfig<any> = {
-    ...skillListToolConfig,
-    execute: (toolCallId, params, toolCtx, signal, onUpdate) =>
-      skillListToolConfig.execute(toolCallId, params, { ...toolCtx, getSkills: () => getSkillsForCall(toolCallId) }, signal, onUpdate),
-  }
+  // skill_list 已并入 skill_search（不带 query 即列出全部）——这里也就少一份覆盖。
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const skillSearchOverride: MtBotToolConfig<any> = {
     ...skillSearchToolConfig,
@@ -233,9 +227,8 @@ export function registerGuideTools(deps: BridgeToolRegistrarDeps): void {
     execute: (toolCallId, params, toolCtx, signal, onUpdate) =>
       skillInvokeToolConfig.execute(toolCallId, params, { ...toolCtx, getSkills: () => getSkillsForCall(toolCallId) }, signal, onUpdate),
   }
-  deps.toolRegistry.register(createMtBotTool(skillListOverride, ctx))
   deps.toolRegistry.register(createMtBotTool(skillSearchOverride, ctx))
   deps.toolRegistry.register(createMtBotTool(skillInvokeOverride, ctx))
 
-  log.info('[registerGuideTools] a2ui_guide / cron_guide / weixin_send_guide / prompt_guide / skill_list / skill_search / skill_invoke 已注册')
+  log.info('[registerGuideTools] a2ui_guide / cron_guide / weixin_send_guide / prompt_guide / skill_search / skill_invoke 已注册')
 }

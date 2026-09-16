@@ -42,7 +42,6 @@ const TOOL_LABELS: Record<string, string> = {
   task_complete: '结束任务',
   ask_user_question: '追问用户',
   // 技能
-  skill_list: '查找技能',
   skill_search: '查找技能',
   skill_invoke: '调用技能',
   execute_skill: '调用技能',
@@ -81,7 +80,7 @@ const TOOL_LABELS: Record<string, string> = {
   app_act: '操作客户端界面',
   app_fill_form: '操作客户端界面',
   app_scroll_to_text: '操作客户端界面',
-  app_scroll_to_bottom: '操作客户端界面',
+  // app_scroll_to_bottom 已并入 app_scroll_to_text 的 to='bottom'
 }
 
 /** 单个工具名 → 白话标签；未收录时回落为原始名 */

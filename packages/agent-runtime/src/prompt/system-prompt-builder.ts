@@ -323,7 +323,7 @@ export function buildClientSystemPromptStructured(params: ClientSystemPromptPara
       : baseSkills
 
     if (filteredSkills.length > 0) {
-      const hasSkillTools = effectiveToolNames.includes("skill_list")
+      const hasSkillTools = effectiveToolNames.includes("skill_search")
       emit("static", "skills", [
         ...tagged("skills", buildSkillsSection(filteredSkills, readToolName, hasSkillTools, style)),
       ])

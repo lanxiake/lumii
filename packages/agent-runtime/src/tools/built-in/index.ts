@@ -57,7 +57,6 @@ export {
   type AskUserQuestionAnswer,
 } from "./ask-user-question-tool.js";
 export {
-  skillListToolConfig,
   skillSearchToolConfig,
   skillInvokeToolConfig,
 } from "./skill-tools.js";
@@ -135,7 +134,6 @@ import {
 } from "./channel-tools.js";
 import { askUserQuestionToolConfig } from "./ask-user-question-tool.js";
 import {
-  skillListToolConfig,
   skillSearchToolConfig,
   skillInvokeToolConfig,
 } from "./skill-tools.js";
@@ -199,7 +197,6 @@ export const ALL_BUILT_IN_TOOL_CONFIGS: readonly MtBotToolConfig<any, any>[] = [
   wikiSearchToolConfig,
   wikiReadToolConfig,
   askUserQuestionToolConfig,
-  skillListToolConfig,
   skillSearchToolConfig,
   skillInvokeToolConfig,
   sessionCreateToolConfig,

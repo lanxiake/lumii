@@ -21,7 +21,6 @@ export const SPAWN_AGENT_TOOL_NAME = "spawn_agent";
 export const SEND_MESSAGE_TOOL_NAME = "send_message";
 export const TODO_WRITE_TOOL_NAME = "todo_write";
 export const ASK_USER_QUESTION_TOOL_NAME = "ask_user_question";
-export const SKILL_LIST_TOOL_NAME = "skill_list";
 export const SKILL_SEARCH_TOOL_NAME = "skill_search";
 export const SKILL_INVOKE_TOOL_NAME = "skill_invoke";
 /** 可执行技能入口（与 skill_invoke 区分） */

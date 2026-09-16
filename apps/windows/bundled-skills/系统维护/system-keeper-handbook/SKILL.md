@@ -69,7 +69,7 @@ description: Lumii 系统维护手册——Wiki / 记忆 / 用户指南三类资
 
 - **设置读写**：`lumii-ui settings get <key.path>` 读取；`lumii-ui settings set <key> <value>` 写入（经本机 HTTP 控制面 + Bearer）。只允许操作白名单键；拿不准的键先 `get` 再决定。`privacy.allowAgentAppUiControl` 是不可写字段，改不了自己。
 - **工具开关**：命令总线 `tools:toggle`；禁用列表存储在 runtime_state。
-- **界面操作**：`app_goto`（打开视图）→ `app_scroll_to_text` / `app_scroll_to_bottom` 定位 → `app_act` / `app_fill_form` 操作 → `app_screenshot` 截图确认。前提：设置页已开启 `privacy.allowAgentAppUiControl`。
+- **界面操作**：`app_goto`（打开视图）→ `app_scroll_to_text` 定位（滚到某段文字，或 `to='bottom'` 到底部） → `app_act` / `app_fill_form` 操作 → `app_screenshot` 截图确认。前提：设置页已开启 `privacy.allowAgentAppUiControl`。
 - **单轮配额**（每分钟按固定速率续杯，上限封顶）：截图 base 40 / 续杯 20 / 封顶 300；操作 act base 120 / 续杯 60 / 封顶 900；导航 goto base 60 / 续杯 20 / 封顶 300；高层组合工具 base 30 / 续杯 20 / 封顶 300。配额按**轮**计，超限返回 `quota_exceeded` 并告知重试等待秒数——不要硬撞，改成先出结论再补图。
 - **定时任务**：`cron_create` / `cron_list` / `cron_delete` / `cron_guide`。`cron_create` 只接受 `at`（时间戳）与 `every`（毫秒间隔）两种排期，**不接受 cron 表达式**；需要「每周日 20:00」这类周期，用 `every` 配 `7*24*3600*1000` 毫秒，或建议用户在定时任务页建。你自建的任务 id 以 `local-cron-` 开头（规划器落地的历史任务为 `agent-self:`），**只有这两类你能用 `cron_delete` 撤掉**；用户创建（UUID）与系统预置（`seed-*` / `news-pipeline`）的只能建议用户在任务页处理。
 - **常见排查**：

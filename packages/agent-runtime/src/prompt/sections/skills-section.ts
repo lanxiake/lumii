@@ -253,7 +253,7 @@ export function buildSelfLearningSection(
 ): string[] {
   const hasMemory = toolNames.includes("profile_memory") || toolNames.includes("memory_search")
   const hasSoul = toolNames.includes("system_prompt")
-  const hasSkillTools = toolNames.includes("skill_search") || toolNames.includes("skill_list")
+  const hasSkillTools = toolNames.includes("skill_search")
   if (!hasMemory && !hasSoul && !hasSkillTools) return []
 
   // terse/minimal（P2）：一行版（按能力条件拼接子句）

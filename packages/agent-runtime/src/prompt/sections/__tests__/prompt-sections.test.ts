@@ -27,7 +27,6 @@ const GUARD_TOOLS = [
   "browser_screenshot",
   "browser_eval",
   // P2：skills / taskOrchestration / agentCollaboration / wiki / selfLearning
-  "skill_list",
   "skill_search",
   "skill_invoke",
   "spawn_agent",

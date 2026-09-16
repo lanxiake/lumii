@@ -154,7 +154,6 @@ export {
   isKnownImageGenerationModel,
   normalizeImageModelId,
   type ImageGenerationModelOption,
-  skillListToolConfig,
   skillSearchToolConfig,
   skillInvokeToolConfig,
   sessionCreateToolConfig,

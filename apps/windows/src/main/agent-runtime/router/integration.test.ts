@@ -45,7 +45,7 @@ const MOCK_AGENT_DEF: AgentDefinition = {
 
 const BASE_PARAMS = {
   agentDefinition: MOCK_AGENT_DEF,
-  toolNames: ["spawn_agent", "skill_list", "skill_search", "skill_invoke", "send_message"],
+  toolNames: ["spawn_agent", "skill_search", "skill_invoke", "send_message"],
   cwd: "/tmp",
 }
 
