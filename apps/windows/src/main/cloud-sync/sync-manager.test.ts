@@ -437,6 +437,74 @@ describe('CloudSyncManager', () => {
     expect(base).toBe('memory-base')
   })
 
+  it('gitStatus：未初始化仓库返回 initialized=false', async () => {
+    const status = await manager.gitStatus()
+    expect(status.initialized).toBe(false)
+  })
+
+  it('gitStatus：冲突时含 conflictFiles 与 headOid', async () => {
+    await setupBase()
+    writeSync('shared.md', 'local')
+    await commitSync('local shared')
+    await commitRemote('shared.md', 'remote')
+    await manager.sync()
+    expect(manager.getStatus().state).toBe('conflict')
+
+    const status = await manager.gitStatus()
+    expect(status.initialized).toBe(true)
+    expect(status.state).toBe('conflict')
+    expect(status.conflictFiles).toContain('shared.md')
+    expect(status.headOid).toBeTruthy()
+  })
+
+  it('gitLog：返回提交历史，未初始化返回空 commits', async () => {
+    const empty = await manager.gitLog()
+    expect(empty.initialized).toBe(false)
+    expect(empty.commits).toEqual([])
+
+    await setupBase()
+    const log = await manager.gitLog(10)
+    expect(log.initialized).toBe(true)
+    const commits = log.commits as Array<{ oid: string; message: string }>
+    expect(commits.length).toBeGreaterThan(0)
+    expect(commits[0]!.oid).toBeTruthy()
+  })
+
+  it('gitRemote：getRemoteInfo 失败返回 reachable=false（脱敏）', async () => {
+    vi.spyOn(git, 'getRemoteInfo').mockRejectedValue(new Error('boom plain:test-token'))
+    const remote = await manager.gitRemote()
+    expect(remote.enabled).toBe(true)
+    expect(remote.reachable).toBe(false)
+    expect(String(remote.error)).toContain('***')
+    expect(String(remote.error)).not.toContain('test-token')
+  })
+
+  it('gitRemote：远端 tip 与本地分支一致 → pushed=true', async () => {
+    await setupBase()
+    const head = await localHead()
+    vi.spyOn(git, 'getRemoteInfo').mockResolvedValue({
+      refs: { 'refs/heads/main': head },
+    } as never)
+    const remote = await manager.gitRemote()
+    expect(remote.reachable).toBe(true)
+    expect(remote.headOid).toBe(head)
+    expect(remote.localHead).toBe(head)
+    expect(remote.pushed).toBe(true)
+  })
+
+  it('gitRemote：远端 tip 落后于本地 → pushed=false', async () => {
+    await setupBase()
+    const remoteHead = await localHead()
+    writeSync('extra.md', 'x')
+    await commitSync('本地前进')
+    vi.spyOn(git, 'getRemoteInfo').mockResolvedValue({
+      refs: { 'refs/heads/main': remoteHead },
+    } as never)
+    const remote = await manager.gitRemote()
+    expect(remote.reachable).toBe(true)
+    expect(remote.pushed).toBe(false)
+  })
+
   it('resolveConflict push 被拒 → 保持 conflict，不假成功', async () => {
     await setupBase()
     writeSync('shared.md', 'local')

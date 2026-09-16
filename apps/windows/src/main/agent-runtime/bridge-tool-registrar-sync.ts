@@ -1,5 +1,6 @@
 /**
- * 云同步工具注册：resolve_sync_conflict（冲突落决）+ cloud_sync_read_file（读三方内容）。
+ * 云同步工具注册：resolve_sync_conflict（冲突落决）+ cloud_sync_read_file（读三方内容）
+ * + cloud_sync_git（只读 git/远端诊断，落决超时后核实后台结果）。
  * 与 bridge-tool-registrar-cron 同模式：纯函数式注册，仅依赖注入的 deps。
  */
 import { Type } from '@sinclair/typebox'
@@ -103,5 +104,39 @@ export function registerSyncConflictTool(deps: BridgeToolRegistrarDeps): void {
     },
   }
   deps.toolRegistry.register(createMtBotTool(resolve, ctx))
-  log.info('[registerSyncConflictTool] cloud_sync_read_file / resolve_sync_conflict registered')
+
+  const gitDiag: MtBotToolConfig = {
+    name: 'cloud_sync_git',
+    label: 'Cloud Sync Git Diagnostics',
+    category: 'filesystem' as const,
+    description:
+      '只读查看云同步 git 仓库与远端状态，用于落决后核实后台结果。action：' +
+      'status=看同步状态/是否仍冲突/HEAD/未提交变更（判断后台落决是否已成功）；' +
+      'log=看本地提交历史（确认落决 commit 是否已生成）；' +
+      'remote=用配置的认证信息真实请求远端 tip（确认落决是否已推上去、远端是否前进，pushed=true 表示本地分支与远端 tip 一致）。' +
+      '配合 resolve_sync_conflict 使用：若落决返回超时/失败，不要反复重试，先用本工具核实结果。',
+    parameters: Type.Object({
+      action: Type.String({
+        enum: ['status', 'log', 'remote'],
+        description: 'status=仓库状态 / log=提交历史 / remote=远端 tip 查询',
+      }),
+      limit: Type.Optional(Type.Number({ description: 'log 的条数上限（默认 20）' })),
+    }),
+    isReadOnly: true,
+    needsPermission: false,
+    execute: async (_id, rawParams) => {
+      const p = rawParams as { action: 'status' | 'log' | 'remote'; limit?: number }
+      const m = getCloudSyncManager()
+      if (!m) return jsonToolResult({ status: 'error', message: '云同步未初始化' })
+      if (p.action === 'status') {
+        return jsonToolResult({ status: 'ok', ...(await m.gitStatus()) })
+      }
+      if (p.action === 'log') {
+        return jsonToolResult({ status: 'ok', ...(await m.gitLog(p.limit ?? 20)) })
+      }
+      return jsonToolResult({ status: 'ok', ...(await m.gitRemote()) })
+    },
+  }
+  deps.toolRegistry.register(createMtBotTool(gitDiag, ctx))
+  log.info('[registerSyncConflictTool] cloud_sync_read_file / resolve_sync_conflict / cloud_sync_git registered')
 }

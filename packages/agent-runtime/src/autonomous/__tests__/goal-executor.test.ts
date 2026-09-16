@@ -38,6 +38,7 @@ describe('buildGoalPrompt', () => {
     const prompt = buildGoalPrompt(makeGoal(GoalType.SYSTEM_MAINTENANCE));
     expect(prompt).toContain('cloud_sync_read_file');
     expect(prompt).toContain('resolve_sync_conflict');
+    expect(prompt).toContain('cloud_sync_git');
     expect(prompt).toContain('keep-local');
     expect(prompt).toContain('keep-remote');
     expect(prompt).toContain('per-file');
@@ -136,6 +137,7 @@ describe('getGoalToolAllowlist', () => {
     const allowlist = getGoalToolAllowlist('system-maintenance');
     expect(allowlist).toContain('cloud_sync_read_file');
     expect(allowlist).toContain('resolve_sync_conflict');
+    expect(allowlist).toContain('cloud_sync_git');
   });
 });
 

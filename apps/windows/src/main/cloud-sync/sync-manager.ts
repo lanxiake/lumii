@@ -47,6 +47,9 @@ const RESOLVE_PUSH_TIMEOUT_MS = 240_000
 /** 刷新冲突快照时重新 fetch 的超时 */
 const REFRESH_FETCH_TIMEOUT_MS = 300_000
 
+/** 只读远端 tip 查询（cloud_sync_git remote）超时：仅 getRemoteInfo，远短于 fetch */
+const REMOTE_INFO_TIMEOUT_MS = 60_000
+
 /** isomorphic-git 每次 fetch 会新增 pack；超过此数量则触发系统 git gc */
 const PACK_GC_THRESHOLD = 3
 
@@ -1324,6 +1327,121 @@ export class CloudSyncManager extends EventEmitter {
       return new TextDecoder().decode(blob)
     } catch {
       return null
+    }
+  }
+
+  /**
+   * 只读 git 状态快照（cloud_sync_git status）——落决超时后供 Agent 核实后台结果。
+   * 只读，不走 enqueueWorkspace（不写 index/refs，避免排在仍在后台的落决后面）。
+   */
+  async gitStatus(): Promise<Record<string, unknown>> {
+    const cfg = loadCloudSyncConfig()
+    const branch = cfg.branch || 'main'
+    const p = this.getSyncGitParams()
+    const initialized = fs.existsSync(path.join(this.syncDir, '.git'))
+    if (!initialized) {
+      return { initialized: false, state: this.state, branch, conflictFiles: [] }
+    }
+    try {
+      const headOid = await git.resolveRef({ ...p, ref: 'HEAD' }).catch(() => null)
+      const status = await git.statusMatrix({ ...p })
+      const dirtyFiles = status
+        .filter(([, head, workdir, stage]) => head !== workdir || workdir !== stage)
+        .map(([filepath]) => filepath)
+      return {
+        initialized: true,
+        state: this.state,
+        branch,
+        headOid,
+        conflictFiles: this.conflict?.files ?? [],
+        dirtyFiles,
+      }
+    } catch (err) {
+      return {
+        initialized: true,
+        state: this.state,
+        branch,
+        error: err instanceof Error ? err.message : String(err),
+        conflictFiles: this.conflict?.files ?? [],
+      }
+    }
+  }
+
+  /**
+   * 只读 git 提交历史（cloud_sync_git log）——确认落决 commit 是否已生成。
+   * 只读，不走 enqueueWorkspace。
+   */
+  async gitLog(limit = 20): Promise<Record<string, unknown>> {
+    const cfg = loadCloudSyncConfig()
+    const branch = cfg.branch || 'main'
+    const p = this.getSyncGitParams()
+    if (!fs.existsSync(path.join(this.syncDir, '.git'))) {
+      return { initialized: false, branch, commits: [] }
+    }
+    try {
+      const commits = await git.log({ ...p, ref: `refs/heads/${branch}`, depth: limit })
+      return {
+        initialized: true,
+        branch,
+        commits: commits.slice(0, limit).map((c) => ({
+          oid: c.oid,
+          message: c.commit.message,
+          author: c.commit.author.name,
+          timestamp: c.commit.author.timestamp,
+        })),
+      }
+    } catch (err) {
+      return {
+        initialized: true,
+        branch,
+        error: err instanceof Error ? err.message : String(err),
+        commits: [],
+      }
+    }
+  }
+
+  /**
+   * 只读远端 tip 查询（cloud_sync_git remote）——用配置的认证信息真实走网络，
+   * 确认落决是否已推上去 / 远端是否前进。带超时，无网络时返回可达性失败。
+   * pushed = 远端 tip 与本地分支 tip 一致（落决 commit 已上传）。
+   */
+  async gitRemote(): Promise<Record<string, unknown>> {
+    const cfg = loadCloudSyncConfig()
+    if (!cfg.enabled || !cfg.repoUrl) {
+      return { enabled: false, reachable: false, error: '云同步未启用或未配置仓库' }
+    }
+    try {
+      const provider = getProvider(cfg.provider)
+      const token = decryptToken(cfg.tokenEnc)
+      const info = await withTimeout(
+        git.getRemoteInfo({
+          http,
+          url: cfg.repoUrl.trim(),
+          onAuth: () => provider.auth(token),
+        }),
+        REMOTE_INFO_TIMEOUT_MS,
+        `git getRemoteInfo 超时（${REMOTE_INFO_TIMEOUT_MS}ms）`,
+      )
+      const refs = info.refs ?? {}
+      const headOid = (refs.HEAD ?? refs[`refs/heads/${cfg.branch || 'main'}`]) as string | undefined
+      // 本地分支 tip：与远端 tip 一致即已推送（落决 commit 已上传）
+      const p = this.getSyncGitParams()
+      const localHead = await git
+        .resolveRef({ ...p, ref: `refs/heads/${cfg.branch || 'main'}` })
+        .catch(() => null)
+      return {
+        enabled: true,
+        reachable: true,
+        headOid: headOid ?? null,
+        localHead: localHead ?? null,
+        pushed: !!(headOid && localHead && headOid === localHead),
+        branch: cfg.branch || 'main',
+      }
+    } catch (err) {
+      const token = decryptToken(cfg.tokenEnc)
+      const reason = err instanceof Error ? err.message : String(err)
+      const safeReason = token ? reason.split(token).join('***') : reason
+      return { enabled: true, reachable: false, error: safeReason }
     }
   }
 
