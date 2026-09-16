@@ -33,22 +33,28 @@ describe.skipIf(!hasFts5Db)('cron driveAgent 产出回读', () => {
   })
 
   it('Agent 落库延后时仍能从内存回读到真实日报，而不是任务指令', async () => {
+    // 必须钉住本次用例的 db：下面的 setTimeout 是**故意**留到用例之后的
+    // （用来模拟「prompt 先返回、落库 500ms 后才到」）。回调里若直接读 describe 作用域的
+    // `db`，它会在运行时取到**下一个用例 beforeEach 刚建的空库**，
+    // 往一个没有 conversations 行的库里插 messages → FOREIGN KEY constraint failed，
+    // 且因为是定时器回调，表现为 unhandled error，整个 test run 以 exit 1 结束。
+    const testDb = db
     const convId = 'cron:seed-daily-report'
     const taskText = '整理我今天的工作进度，生成一份简短日报。'
     const agentReply = '今天完成\n- 修复定时任务回读\n\n进行中\n- 无\n\n明天优先\n- 验证早间简报'
 
-    db.prepare(
+    testDb.prepare(
       `INSERT INTO local_cron_jobs
        (id, name, task_text, agent_id, schedule_type, schedule_expr, next_run_at, interval_ms, enabled, created_at, notify_targets, system_prompt)
        VALUES ('seed-daily-report', '工作日报整理', ?, 'assistant', 'cron', '0 18 * * *', 0, NULL, 1, 0, 'system', '写日报')`,
     ).run(taskText)
 
-    db.prepare(
+    testDb.prepare(
       `INSERT INTO conversations (id, user_id, type, title, created_at) VALUES (?, 'local-user', 'direct', '定时任务', ?)`,
     ).run(convId, new Date().toISOString())
 
     let destroyed = false
-    const scheduler = new CronScheduler({ isOpen: true, db } as never, {
+    const scheduler = new CronScheduler({ isOpen: true, db: testDb } as never, {
       showCronNotification: vi.fn(),
       getLastActiveConvId: () => null,
       ensureConversationExists: () => true,
@@ -59,18 +65,20 @@ describe.skipIf(!hasFts5Db)('cron driveAgent 产出回读', () => {
       prompt: async () => {
         // 模拟 bridge agent:end 异步落库：prompt 先返回，DB 稍后才写入
         setTimeout(() => {
-          db.prepare(
-            `INSERT INTO messages (id, conversation_id, agent_id, role, content_json, timestamp)
+          testDb
+            .prepare(
+              `INSERT INTO messages (id, conversation_id, agent_id, role, content_json, timestamp)
              VALUES (?, ?, 'assistant', 'assistant', ?, ?)`,
-          ).run(
-            'msg-delay',
-            convId,
-            JSON.stringify({
-              type: 'assistant_parts',
-              parts: [{ type: 'text', id: 't1', text: agentReply, status: 'done' }],
-            }),
-            new Date().toISOString(),
-          )
+            )
+            .run(
+              'msg-delay',
+              convId,
+              JSON.stringify({
+                type: 'assistant_parts',
+                parts: [{ type: 'text', id: 't1', text: agentReply, status: 'done' }],
+              }),
+              new Date().toISOString(),
+            )
         }, 500)
       },
       destroy: () => {
