@@ -55,8 +55,11 @@ export const NEWS_PIPELINE_TASK_TEXT =
 export const NEWS_PIPELINE_SYSTEM_PROMPT = [
   '你在为用户生成资讯汇总，请：',
   '0. 先读用户偏好（profile_memory / memory_search）：关注的领域、反感的内容类型，按偏好调整选题侧重；',
+  '0b. 再回读资讯卡已有条目（dashboard_feed_read）：同一事件的同一篇稿子本轮不要再推；',
+  '    同一事件的新进展可以推，但摘要里要写明是进展，不要当成新事件；',
   '1. 用 web_search 搜索今天的热门资讯；',
-  '2. 挑选 10-12 条有实质信息量的条目，逐条给出：标题、一句话正文摘要、来源站点、原文链接。',
+  '2. 挑选 10-12 条有实质信息量的条目（具体的事件、数字、结论；剔除标题党、纯观点、无来源的稿件），',
+  '   逐条给出：标题、一句话正文摘要、来源站点、原文链接。',
   '   摘要精简成一句话，交代清楚事件本身即可，不要长篇展开；',
   '3. 最后写一段不超过 120 字的整体综述，点出这批资讯里最值得关注的 1-2 个趋势。',
   '4. 完成后用 memory_manage 记一条本次筛选依据（侧重什么、排除了什么及原因）。',
@@ -574,11 +577,17 @@ function migrateNewsPipelineToInfoCurator(db: DatabaseAdapter): void {
     }
 
     const sp = row.system_prompt ?? ''
-    if (sp.includes('用 web_search 搜索今天的热门资讯') && !sp.includes('先读用户偏好')) {
+    // 两个历史版本都要升级到「先读偏好 + 回读去重」版：
+    // - 最早版：用 web_search 搜索今天的热门资讯（无「先读用户偏好」）
+    // - 中间版：有「先读用户偏好」但还没有 dashboard_feed_read 去重步骤
+    // 两个特征串都只可能出现在我们自己种的文案里，用户手改过的一律不碰。
+    const isFirstVersion = sp.includes('用 web_search 搜索今天的热门资讯') && !sp.includes('先读用户偏好')
+    const isPreDedupeVersion = sp.includes('先读用户偏好') && !sp.includes('dashboard_feed_read')
+    if (isFirstVersion || isPreDedupeVersion) {
       db.prepare(`UPDATE local_cron_jobs SET system_prompt = ? WHERE id = 'news-pipeline'`).run(
         NEWS_PIPELINE_SYSTEM_PROMPT,
       )
-      log.info('[migrateNewsPipelineToInfoCurator] system_prompt 已升级（先读偏好 + 记录筛选依据）')
+      log.info('[migrateNewsPipelineToInfoCurator] system_prompt 已升级（先读偏好 + 回读去重 + 记录筛选依据）')
     }
   } catch (err) {
     log.error('[migrateNewsPipelineToInfoCurator] 迁移失败:', err)

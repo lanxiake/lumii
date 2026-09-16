@@ -67,6 +67,36 @@ describe('dashboard-feed-store (SQLite)', () => {
     db.close()
   })
 
+  it('重复抓到同一条不刷新时间戳：旧稿不会被顶到最前、也不会显示成「刚刚」', async () => {
+    const db = createFeedDb()
+    setDashboardFeedDb(db)
+
+    // 首次抓取：旧稿比新稿早
+    await writeDashboardFeedSnapshot(
+      snapshotWith([
+        { id: 'old', title: '三天前的稿子', timestamp: 100 },
+        { id: 'new', title: '今天的稿子', timestamp: 200 },
+      ]),
+    )
+    // 第二轮抓取：同一篇旧稿又出现在搜索结果里，写入方给的是当下的抓取时刻
+    await writeDashboardFeedSnapshot(
+      snapshotWith([
+        { id: 'old', title: '三天前的稿子（摘要更新）', timestamp: 999 },
+        { id: 'newer', title: '更新的一条', timestamp: 300 },
+      ]),
+    )
+
+    const snap = await readDashboardFeedSnapshot('news')
+    const old = snap?.items.find((i) => i.id === 'old')
+    // 时间戳保持首见时刻（排序位置与「N 天前」的显示都据此）
+    expect(old?.timestamp).toBe(100)
+    // 内容仍然按最新覆盖
+    expect(old?.title).toBe('三天前的稿子（摘要更新）')
+    // 因此旧稿不会挤到最前
+    expect(snap?.items[snap.items.length - 1].id).toBe('old')
+    db.close()
+  })
+
   it('条目按时间倒序，最多保留 MAX_FEED_ITEMS 条', async () => {
     const db = createFeedDb()
     setDashboardFeedDb(db)

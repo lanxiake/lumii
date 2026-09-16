@@ -11,8 +11,8 @@ import {
   cronListToolConfig,
   cronDeleteToolConfig,
   dashboardFeedWriteToolConfig,
+  dashboardFeedReadToolConfig,
   workReportReadToolConfig,
-  SELF_CRON_ID_PREFIX,
 } from '@mtbot/agent-runtime'
 import {
   agentRuntimeLog as log,
@@ -22,9 +22,11 @@ import {
 } from './bridge-utils'
 import {
   writeDashboardFeedSnapshot,
+  readDashboardFeedPage,
   DEFAULT_DASHBOARD_FEED_ID,
   uniqueDashboardFeedItemId,
 } from '../dashboard-feed-store'
+import { classifyCronJobSource } from './cron-job-meta'
 import type { BridgeToolRegistrarDeps } from './bridge-tool-registrar-types'
 
 /**
@@ -219,12 +221,17 @@ export function registerLocalCronTools(deps: BridgeToolRegistrarDeps): void {
       if (!id) {
         return jsonToolResult({ status: 'error', message: 'id is required' })
       }
-      // id 前缀守卫（硬防线）：Agent 只能撤掉自己（规划器）自建的 agent-self:* 任务，
-      // 不能删除用户自建、预置（news-pipeline / autonomous-tick）或其他 Agent 的任务。
-      if (!id.startsWith(SELF_CRON_ID_PREFIX)) {
+      // 来源守卫（硬防线）：Agent 只能撤掉**自己这一类**任务——规划器落地的
+      // `agent-self:*` 与 cron_create 自建的 `local-cron-*`，不能删用户手工创建
+      // （UUID id）、系统预置（seed-* / news-pipeline）或其他 Agent 的任务。
+      //
+      // 判定复用 cron-job-meta 的唯一起源分类，不要在这里另写前缀表：
+      // 原先只放行 `agent-self:*`，于是 Agent 建得出任务却删不掉自己刚建的
+      // （cron_create 生成的是 `local-cron-*`），手册却写着可以——两边长期不一致。
+      if (classifyCronJobSource(id) !== 'agent') {
         return jsonToolResult({
           status: 'error',
-          message: '只能删除自主规划的自建任务（agent-self:*）',
+          message: '只能删除自己创建的任务（agent-self:* / local-cron-*）',
         })
       }
       deps.getCronScheduler().clearLocalCronTimer(id)
@@ -297,6 +304,41 @@ export function registerDashboardFeedTool(deps: BridgeToolRegistrarDeps): void {
   }
   deps.toolRegistry.register(createMtBotTool(dashboardFeedWrite, ctx))
   log.info('[registerDashboardFeedTool] dashboard_feed_write registered')
+
+  const dashboardFeedRead: MtBotToolConfig = {
+    ...dashboardFeedReadToolConfig,
+    execute: async (_id, rawParams) => {
+      const p = rawParams as { limit?: number }
+      const requested = Number.isFinite(p.limit) ? Number(p.limit) : 30
+      const limit = Math.max(1, Math.min(100, Math.trunc(requested)))
+      try {
+        const page = await readDashboardFeedPage(DEFAULT_DASHBOARD_FEED_ID, { limit })
+        return jsonToolResult({
+          status: 'ok',
+          feedId: DEFAULT_DASHBOARD_FEED_ID,
+          count: page.items.length,
+          hasMore: page.nextCursor !== null,
+          items: page.items.map((item) => ({
+            title: item.title,
+            ...(item.summary ? { summary: item.summary } : {}),
+            ...(item.source ? { source: item.source } : {}),
+            ...(item.href ? { href: item.href } : {}),
+            ...(typeof item.timestamp === 'number'
+              ? { timestamp: new Date(item.timestamp).toISOString() }
+              : {}),
+            ...(item.kind ? { kind: item.kind } : {}),
+          })),
+        })
+      } catch (err) {
+        return jsonToolResult({
+          status: 'error',
+          message: err instanceof Error ? err.message : String(err),
+        })
+      }
+    },
+  }
+  deps.toolRegistry.register(createMtBotTool(dashboardFeedRead, ctx))
+  log.info('[registerDashboardFeedTool] dashboard_feed_read registered')
 }
 
 /**

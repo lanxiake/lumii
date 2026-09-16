@@ -56,6 +56,7 @@ const GOAL_EXECUTION_TOOLS: readonly string[] = [
   'file_move',
   'file_copy',
   'dashboard_feed_write',
+  'dashboard_feed_read',
   // 云同步冲突解决（system-maintenance 类型专用，仅在存在冲突时可用）
   'cloud_sync_read_file',
   'resolve_sync_conflict',
@@ -103,11 +104,16 @@ export function getGoalToolAllowlist(_goalType: string): string[] {
 /**
  * system-keeper 的自主档工具白名单：维护类只读 + 记忆写入 + 自组织。
  * 不含 bash / file_write / app_* —— 维护者自主运行只出建议，改动类动作需用户在场（设计 §6.4）。
+ *
+ * 与交互档的差别只应是「写盘类」：`scene_memory`（项目/渠道记忆也是资产，体检要读得到）
+ * 与 `cron_guide`（排期口径，自主档自己建巡检任务时要查）都属于读/自组织，故一并保留。
+ * 导出供单测断言「写类工具确实不在其中」。
  */
-const SYSTEM_KEEPER_AUTONOMOUS_TOOLS: readonly string[] = [
+export const SYSTEM_KEEPER_AUTONOMOUS_TOOLS: readonly string[] = [
   'cron_list',
   'cron_create',
   'cron_delete',
+  'cron_guide',
   'wiki_overview',
   'wiki_search',
   'wiki_read',
@@ -115,6 +121,7 @@ const SYSTEM_KEEPER_AUTONOMOUS_TOOLS: readonly string[] = [
   'memory_read',
   'memory_manage',
   'profile_memory',
+  'scene_memory',
   'skill_list',
   'skill_search',
   'skill_invoke',

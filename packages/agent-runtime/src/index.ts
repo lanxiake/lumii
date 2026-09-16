@@ -127,6 +127,7 @@ export {
   cronListToolConfig,
   cronDeleteToolConfig,
   dashboardFeedWriteToolConfig,
+  dashboardFeedReadToolConfig,
   workReportReadToolConfig,
   messageToolConfig,
   channelListToolConfig,

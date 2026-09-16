@@ -48,12 +48,14 @@ describe('listAgentDefinitions 运行时定义（供 DefinitionStore 同步缓�
     expect(explore?.disallowedTools?.length).toBeGreaterThan(0)
   })
 
-  it('读取视图：普通 Agent 缺省 own，只有汇总型 Agent 跨 Agent', () => {
+  it('读取视图：作业型缺省 own，巡访型（素材/体检对象来自全用户）跨 Agent', () => {
     const defs = listAgentDefinitions()
-    for (const id of ['assistant', 'code-dev', 'system-keeper', 'info-curator']) {
+    for (const id of ['assistant', 'code-dev']) {
       expect(defs.find((d) => d.id === id)?.memory?.readView ?? 'own', id).toBe('own')
     }
-    expect(defs.find((d) => d.id === 'chronicler')?.memory?.readView).toBe('user')
+    for (const id of ['chronicler', 'system-keeper', 'info-curator']) {
+      expect(defs.find((d) => d.id === id)?.memory?.readView, id).toBe('user')
+    }
   })
 })
 

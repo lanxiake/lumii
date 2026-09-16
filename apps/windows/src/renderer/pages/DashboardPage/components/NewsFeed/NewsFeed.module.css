@@ -156,6 +156,33 @@
   gap: 9px;
 }
 
+/**
+ * 跨天分隔：跨越两列的一整行，把「今天推的」与更早的批次分开。
+ * 卡片是累积的，没有分隔时新旧条目混成一条长列，看不出今天到底新增了什么。
+ */
+.day-sep {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 3px;
+  padding-bottom: 5px;
+  border-bottom: 1px solid var(--mt-border-hairline);
+}
+
+.day-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--mt-text-secondary);
+  letter-spacing: 0.02em;
+}
+
+.day-count {
+  font-size: 11px;
+  color: var(--mt-text-secondary);
+  opacity: 0.7;
+}
+
 .card {
   --i: 0;
   display: flex;

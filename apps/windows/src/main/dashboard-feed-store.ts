@@ -391,6 +391,11 @@ export async function readDashboardFeedPage(
  *
  * 按 id UPSERT 去重（同一条资讯多次抓取只保留一行，内容覆盖更新），
  * 时间倒序后裁剪到 MAX_FEED_ITEMS。db 未注入时回退旧文件覆盖写（兼容测试）。
+ *
+ * **时间戳只在首次写入时落定，重复抓到同一条不刷新**（`timestamp` 不参与 DO UPDATE）。
+ * 写入方给的是「抓取时刻」，若每次抓取都覆盖它，一篇三天前的旧稿只要再次出现在搜索结果里
+ * 就会被顶到卡片最前、并显示成「1 分钟前」——用户看到的是「新资讯」，实际是旧的。
+ * 内容（标题/摘要/来源）仍按最新的覆盖更新，只是排序位置与时间显示保持不变。
  */
 export async function writeDashboardFeedSnapshot(snapshot: DashboardFeedSnapshot): Promise<void> {
   const feedId = validateFeedId(snapshot.feedId)
@@ -423,7 +428,6 @@ export async function writeDashboardFeedSnapshot(snapshot: DashboardFeedSnapshot
        href = excluded.href,
        source = excluded.source,
        kind = excluded.kind,
-       timestamp = excluded.timestamp,
        metadata = excluded.metadata`,
   )
 

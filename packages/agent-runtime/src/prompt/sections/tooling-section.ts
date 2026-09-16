@@ -103,6 +103,7 @@ const TOOL_SUMMARIES: Record<string, string> = {
 
   // Dashboard
   dashboard_feed_write: "Persist news items to the dashboard feed card",
+  dashboard_feed_read: "Read what is already on the dashboard feed card (dedupe before writing)",
 
   // Skills (pre-registered; not yet in the built-in registry)
   execute_skill: "Run an executable skill entry point",
@@ -160,7 +161,7 @@ const MEMORY_TOOLS = new Set([
 const MESSAGING_TOOLS = new Set(["message", "channel_list", "channel_send"])
 const SELF_CONFIG_TOOLS = new Set(["profile_memory", "system_prompt"])
 const INTERACTION_TOOLS = new Set(["ask_user_question"])
-const DASHBOARD_TOOLS = new Set(["dashboard_feed_write"])
+const DASHBOARD_TOOLS = new Set(["dashboard_feed_write", "dashboard_feed_read"])
 const BROWSER_TOOLS = new Set([
   "browser_navigate",
   "browser_click",

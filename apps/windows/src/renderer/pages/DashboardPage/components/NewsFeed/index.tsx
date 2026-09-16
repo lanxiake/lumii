@@ -50,6 +50,25 @@ function formatWhen(ts?: number): string {
 }
 
 /**
+ * 条目所属的「天」标签，用于在列表里插入日期分隔。
+ *
+ * 卡片是跨天累积的（一次抓取推十几条，历史上的越堆越多），只按相对时间排成一长列
+ * 会分不清哪些是今天新推的、哪些是旧的。分隔按自然日切，今天/昨天用相对词，
+ * 更早写明日期。同一天的条目返回同一个字符串，渲染时与上一条比较即可决定是否插分隔。
+ */
+function dayLabel(ts?: number): string {
+  if (!ts) return '未知时间'
+  const d = new Date(ts)
+  const today = new Date()
+  const startOfDay = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime()
+  const days = Math.round((startOfDay(today) - startOfDay(d)) / 86_400_000)
+  if (days <= 0) return '今天'
+  if (days === 1) return '昨天'
+  if (days < 7) return `${days} 天前`
+  return `${d.getMonth() + 1} 月 ${d.getDate()} 日`
+}
+
+/**
  * 拼给 AI 的解读请求（带上卡片标题、来源、摘要等完整信息）
  */
 function buildInterpretPrompt(item: FeedItem): string {
@@ -198,6 +217,25 @@ export const NewsFeed: React.FC<NewsFeedProps> = ({ onViewChange }) => {
     [firstScreenCount],
   )
 
+  /**
+   * 按天分组的派生数据，一次算好供渲染用（避免在 map 里反复 filter 成 O(n²)）：
+   * - labelOf[i]：第 i 条属于哪一天（相邻不同即插入日期分隔）
+   * - total：该天总条数（分隔行右侧的计数）
+   * - ordinal[i]：该条在本天内的序号（卡片左上角的编号）
+   */
+  const dayIndex = useMemo(() => {
+    const labelOf = items.map((item) => dayLabel(item.timestamp))
+    const total = new Map<string, number>()
+    for (const label of labelOf) total.set(label, (total.get(label) ?? 0) + 1)
+    const seen = new Map<string, number>()
+    const ordinal = labelOf.map((label) => {
+      const next = (seen.get(label) ?? 0) + 1
+      seen.set(label, next)
+      return next
+    })
+    return { labelOf, total, ordinal }
+  }, [items])
+
   return (
     <Card className={styles.panel} flush>
       <div className={styles.head}>
@@ -239,48 +277,61 @@ export const NewsFeed: React.FC<NewsFeedProps> = ({ onViewChange }) => {
       ) : (
         <div className={styles.scroll}>
           <div className={styles.grid}>
-            {items.map((item, index) => (
-              <div
-                key={item.id}
-                className={styles.card}
-                style={
-                  cardDelay(index) === undefined
-                    ? undefined
-                    : ({ ['--i' as string]: cardDelay(index) } as React.CSSProperties)
-                }
-              >
-                <button
-                  type="button"
-                  className={styles['card-body']}
-                  onClick={() => interpret(item)}
-                  title="点击让 Lumii 解读这条资讯"
-                >
-                  <span className={styles.idx} aria-hidden="true">
-                    {String(index + 1).padStart(2, '0')}
-                  </span>
-                  <span className={styles['card-main']}>
-                    <span className={styles['card-title']}>{item.title}</span>
-                    {item.summary && (
-                      <span className={styles['card-excerpt']}>{item.summary}</span>
-                    )}
-                  </span>
-                </button>
-                <span className={styles['card-foot']}>
-                  {item.source && <span className={styles.source}>{item.source}</span>}
-                  <span className={styles.when}>{formatWhen(item.timestamp)}</span>
-                  {item.href && (
+            {items.map((item, index) => {
+              // 跨天分隔：与上一条不同日才插一行（分页追加时同样成立，因为比较的是相邻项）
+              const day = dayIndex.labelOf[index]
+              const showDay = index === 0 || dayIndex.labelOf[index - 1] !== day
+              return (
+                <React.Fragment key={item.id}>
+                  {showDay && (
+                    <div className={styles['day-sep']} role="separator">
+                      <span className={styles['day-label']}>{day}</span>
+                      <span className={styles['day-count']}>{dayIndex.total.get(day) ?? 0} 条</span>
+                    </div>
+                  )}
+                  <div
+                    className={styles.card}
+                    style={
+                      cardDelay(index) === undefined
+                        ? undefined
+                        : ({ ['--i' as string]: cardDelay(index) } as React.CSSProperties)
+                    }
+                  >
                     <button
                       type="button"
-                      className={styles['card-open']}
-                      onClick={() => openExternalUrl(item.href!)}
-                      title="在浏览器中打开原文"
+                      className={styles['card-body']}
+                      onClick={() => interpret(item)}
+                      title="点击让 Lumii 解读这条资讯"
                     >
-                      查看原文
+                      {/* 序号在「天」内从 01 起，而不是整列连续编号——用户扫读时关心的是今天第几条 */}
+                      <span className={styles.idx} aria-hidden="true">
+                        {String(dayIndex.ordinal[index]).padStart(2, '0')}
+                      </span>
+                      <span className={styles['card-main']}>
+                        <span className={styles['card-title']}>{item.title}</span>
+                        {item.summary && (
+                          <span className={styles['card-excerpt']}>{item.summary}</span>
+                        )}
+                      </span>
                     </button>
-                  )}
-                </span>
-              </div>
-            ))}
+                    <span className={styles['card-foot']}>
+                      {item.source && <span className={styles.source}>{item.source}</span>}
+                      <span className={styles.when}>{formatWhen(item.timestamp)}</span>
+                      {item.href && (
+                        <button
+                          type="button"
+                          className={styles['card-open']}
+                          onClick={() => openExternalUrl(item.href!)}
+                          title="在浏览器中打开原文"
+                        >
+                          查看原文
+                        </button>
+                      )}
+                    </span>
+                  </div>
+                </React.Fragment>
+              )
+            })}
           </div>
           {(hasMore || loadingMore) && (
             <div ref={sentinelRef} className={styles.sentinel}>

@@ -108,7 +108,8 @@ function buildNotifyToolsPrompt(notifyTargets: string | null): string {
         break
       case 'news':
         toolInstructions.push(
-          '- 最近资讯：使用 dashboard_feed_write 工具将结果写入概览页资讯卡片。' +
+          '- 最近资讯：先用 dashboard_feed_read 回读卡片上已有的条目（同一事件的同一篇稿子不要重复推），' +
+          '再用 dashboard_feed_write 工具将结果写入概览页资讯卡片。' +
           '每条资讯需包含：标题、正文摘要（2-3 句话）、来源、链接。' +
           '整体综述控制在 120 字内。'
         )

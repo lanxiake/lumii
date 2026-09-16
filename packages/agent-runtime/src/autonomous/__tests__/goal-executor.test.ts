@@ -69,6 +69,35 @@ describe('getAutonomousToolsForAgent', () => {
     expect(tools).not.toContain('file_edit');
   });
 
+  it('system-keeper 自主档保留体检与排期所需的读类工具', () => {
+    const tools = getAutonomousToolsForAgent('system-keeper', 'learning');
+    // 场景记忆也是资产，体检要读得到；排期口径（cron_guide）自主建巡检任务时要查
+    expect(tools).toContain('scene_memory');
+    expect(tools).toContain('cron_guide');
+  });
+
+  it('维护白名单是「只读 + 记忆写」的闭集：写盘与代操一律不在其中', () => {
+    // 设计 §6.4：自主运行只出建议。这里用黑名单兜住未来误加——
+    // 新增工具若属于「改动类」，必须先想清楚它在无人在场时是否安全。
+    const forbidden = [
+      'bash',
+      'file_write',
+      'file_edit',
+      'file_mkdir',
+      'file_move',
+      'file_copy',
+      'app_act',
+      'app_fill_form',
+      'spawn_agent',
+      'send_message',
+      'channel_send',
+    ];
+    const tools = getAutonomousToolsForAgent('system-keeper', 'learning');
+    for (const name of forbidden) {
+      expect(tools, `${name} 不应出现在维护自主档`).not.toContain(name);
+    }
+  });
+
   it('其他 Agent 沿用通用白名单（行为不变）', () => {
     const tools = getAutonomousToolsForAgent('assistant', 'learning');
     expect(tools).toEqual(getGoalToolAllowlist('learning'));

@@ -272,7 +272,11 @@ const SYSTEM_KEEPER_DEF: AgentDefinition = {
   ],
   maxTurns: 60,
   canSpawnSubAgents: false,
-  memory: { scope: "user", autoExtract: true },
+  // readView: "user" —— 维护者的体检对象就是**全用户**的工作记忆。
+  // 默认的 "own" 只让 Agent 读到自己写的条目：system-keeper 平时不参与干活，
+  // 自己名下几乎是空的，拿它做「去重 / 找矛盾 / 清过期」等于在量空气。
+  // 写操作仍按写入者归属（memory_manage 的写路径不受 readView 影响）。
+  memory: { scope: "user", readView: "user", autoExtract: true },
   selectable: true,
   isActive: true,
 };
@@ -335,6 +339,8 @@ const INFO_CURATOR_DEF: AgentDefinition = {
     WEB_FETCH_TOOL_NAME,
     "bing_search",
     "dashboard_feed_write",
+    // 回读卡片是策展的去重前提：卡片累积多轮产出，写之前先知道上面已有什么
+    "dashboard_feed_read",
     "memory_search",
     "memory_read",
     "memory_manage",
@@ -347,7 +353,9 @@ const INFO_CURATOR_DEF: AgentDefinition = {
   ],
   maxTurns: 40,
   canSpawnSubAgents: false,
-  memory: { scope: "user", autoExtract: true },
+  // readView: "user" —— 情报要按**用户**的偏好吃穿，而偏好常被其它 Agent 先记下
+  // （主助手记「用户不想看标题党」、开发记「用户做端侧推理」）。只读自己名下会漏掉大半画像。
+  memory: { scope: "user", readView: "user", autoExtract: true },
   selectable: true,
   isActive: true,
 };
