@@ -118,31 +118,6 @@
   text-decoration: underline;
 }
 
-.digest {
-  display: flex;
-  align-items: flex-start;
-  gap: 7px;
-  flex-shrink: 0;
-  margin-bottom: 10px;
-  padding: 8px 11px;
-  border: 1px solid color-mix(in srgb, var(--mt-accent-500) 26%, var(--mt-border));
-  border-radius: 10px;
-  background: linear-gradient(
-    120deg,
-    color-mix(in srgb, var(--mt-accent-500) 14%, transparent),
-    color-mix(in srgb, #22d3ee 10%, transparent)
-  );
-  color: var(--mt-fg-2);
-  font-size: 11.5px;
-  line-height: 1.55;
-}
-
-.digest > svg {
-  flex-shrink: 0;
-  margin-top: 2px;
-  color: var(--mt-accent-500);
-}
-
 .scroll {
   flex: 1;
   min-height: 0;
@@ -157,30 +132,89 @@
 }
 
 /**
- * 跨天分隔：跨越两列的一整行，把「今天推的」与更早的批次分开。
- * 卡片是累积的，没有分隔时新旧条目混成一条长列，看不出今天到底新增了什么。
+ * 一期：期头（时间 / 来源 / 条数）+ 本期综述 + 展开时的条目网格。
+ * 期是阅读单位——「今天推了几期、每期讲了什么」一眼可见，
+ * 而不是把几天的条目混成一条看不出边界的流水。
  */
-.day-sep {
-  grid-column: 1 / -1;
+.batch {
   display: flex;
-  align-items: baseline;
+  flex-direction: column;
+  gap: 7px;
+  padding-bottom: 4px;
+}
+
+.batch + .batch {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--mt-border-hairline);
+}
+
+.batch-head {
+  display: flex;
+  align-items: center;
   gap: 8px;
-  margin-top: 3px;
-  padding-bottom: 5px;
-  border-bottom: 1px solid var(--mt-border-hairline);
+  width: 100%;
+  padding: 2px 0;
+  border: none;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
 }
 
-.day-label {
+.batch-caret {
+  width: 10px;
+  color: var(--mt-fg-3);
+  font-size: 9px;
+  line-height: 1;
+}
+
+.batch-time {
+  color: var(--mt-fg-1);
   font-size: 12px;
-  font-weight: 600;
-  color: var(--mt-text-secondary);
-  letter-spacing: 0.02em;
+  font-weight: var(--mt-fw-semibold);
 }
 
-.day-count {
+.batch-source {
+  padding: 1px 6px;
+  border-radius: var(--mt-radius-full);
+  background: color-mix(in srgb, var(--mt-accent-500) 12%, transparent);
+  color: var(--mt-accent-600, var(--mt-accent-500));
+  font-size: 10px;
+}
+
+.batch-count {
+  color: var(--mt-fg-3);
   font-size: 11px;
-  color: var(--mt-text-secondary);
-  opacity: 0.7;
+}
+
+.batch-latest {
+  margin-left: auto;
+  color: var(--mt-accent-600, var(--mt-accent-500));
+  font-size: 10px;
+}
+
+.batch-summary {
+  display: flex;
+  gap: 6px;
+  padding: 6px 9px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--mt-accent-500) 7%, transparent);
+  color: var(--mt-fg-2);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.batch-summary > svg {
+  flex-shrink: 0;
+  margin-top: 3px;
+  color: var(--mt-accent-500);
+}
+
+.batch-summary > span {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
 }
 
 .card {
@@ -293,13 +327,6 @@
   line-height: 1.5;
   white-space: nowrap;
   text-overflow: ellipsis;
-}
-
-.when {
-  color: var(--mt-fg-4);
-  font-family: var(--mt-font-mono);
-  font-size: 10px;
-  white-space: nowrap;
 }
 
 .card-open {

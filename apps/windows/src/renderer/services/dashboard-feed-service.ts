@@ -8,6 +8,8 @@ import type {
   DashboardFeedCursor,
   DashboardFeedMeta,
   DashboardFeedPage,
+  DashboardFeedBatchPage,
+  DashboardFeedBatchCursor,
 } from '@main/dashboard-feed-store'
 
 /** 当前激活 feed 的元信息（标题/综述/更新时间）；失败返回 null */
@@ -35,4 +37,17 @@ export async function fetchFeedPage(
 export async function refreshDashboardFeed(): Promise<void> {
   const res = await window.electronAPI?.dashboardFeed?.refresh()
   if (!res?.success) throw new Error(res?.error ?? '抓取失败')
+}
+
+/** 按期拉取（期刊视图）；接口不可用或失败抛错 */
+export async function fetchFeedBatches(
+  feedId: string,
+  opts?: { limit?: number; before?: DashboardFeedBatchCursor | null },
+): Promise<DashboardFeedBatchPage> {
+  const api = window.electronAPI?.dashboardFeed
+  if (!api?.batches) throw new Error('资讯接口不可用')
+  const res = await api.batches(feedId, opts)
+  if (!res) throw new Error('资讯接口不可用')
+  if (!res.success) throw new Error(res.error ?? '读取资讯失败')
+  return res.data ?? { feedId, batches: [], nextCursor: null }
 }

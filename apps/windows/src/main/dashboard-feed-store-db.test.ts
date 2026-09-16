@@ -20,6 +20,7 @@ import {
   writeDashboardFeedSnapshot,
   readDashboardFeedSnapshot,
   readDashboardFeedPage,
+  readDashboardFeedBatches,
   ensureDashboardFeedMigrated,
   MAX_FEED_ITEMS,
   type DashboardFeedSnapshot,
@@ -27,16 +28,22 @@ import {
 
 function createFeedDb(): DatabaseAdapter {
   const db = createTestSqliteAdapter()
-  // 只建 feed 两表（V35 的表），其余 migration 不必全跑
+  // 只建 feed 两表 + V43 的期表，其余 migration 不必全跑
   db.exec(`
     CREATE TABLE IF NOT EXISTS dashboard_feed_meta (
       feed_id TEXT PRIMARY KEY, title TEXT NOT NULL, summary TEXT, updated_at INTEGER NOT NULL
     );
     CREATE TABLE IF NOT EXISTS dashboard_feed_items (
       id TEXT PRIMARY KEY, feed_id TEXT NOT NULL, title TEXT NOT NULL, summary TEXT,
-      href TEXT, source TEXT, kind TEXT, timestamp INTEGER NOT NULL, metadata TEXT, created_at TEXT NOT NULL
+      href TEXT, source TEXT, kind TEXT, timestamp INTEGER NOT NULL, metadata TEXT, created_at TEXT NOT NULL,
+      batch_id TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_dfi_feed_ts ON dashboard_feed_items (feed_id, timestamp DESC, id);
+    CREATE TABLE IF NOT EXISTS dashboard_feed_batches (
+      id TEXT PRIMARY KEY, feed_id TEXT NOT NULL, summary TEXT,
+      source TEXT NOT NULL DEFAULT 'agent', conversation_id TEXT, created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_dfb_feed ON dashboard_feed_batches (feed_id, created_at DESC, id DESC);
   `)
   return db
 }
@@ -47,6 +54,118 @@ function snapshotWith(items: DashboardFeedSnapshot['items'], updatedAt = 1000): 
 
 afterEach(() => {
   setDashboardFeedDb(null as unknown as DatabaseAdapter)
+})
+
+describe('dashboard-feed-store 按期（期刊）', () => {
+  it('每次写入成一期：各自的综述与条目互不覆盖', async () => {
+    const db = createFeedDb()
+    setDashboardFeedDb(db)
+
+    await writeDashboardFeedSnapshot({
+      ...snapshotWith([{ id: 'a', title: '第一期条目', timestamp: 100 }]),
+      summary: '第一期综述',
+      batch: { source: 'agent', conversationId: 'cron:news' },
+    })
+    await writeDashboardFeedSnapshot({
+      ...snapshotWith([{ id: 'b', title: '第二期条目', timestamp: 200 }], 2000),
+      summary: '第二期综述',
+      batch: { source: 'agent' },
+    })
+
+    const page = await readDashboardFeedBatches('news', { limit: 5 })
+    expect(page.batches).toHaveLength(2)
+    // 最新一期在前
+    expect(page.batches[0].summary).toBe('第二期综述')
+    expect(page.batches[0].items.map((i) => i.id)).toEqual(['b'])
+    // 上一期的综述没有被覆盖——这正是建期的理由
+    expect(page.batches[1].summary).toBe('第一期综述')
+    expect(page.batches[1].conversationId).toBe('cron:news')
+    db.close()
+  })
+
+  it('重复抓到的条目留在原来那一期，不跳到最新一期', async () => {
+    const db = createFeedDb()
+    setDashboardFeedDb(db)
+
+    await writeDashboardFeedSnapshot({
+      ...snapshotWith([{ id: 'old', title: '第一篇', timestamp: 100 }]),
+      batch: { source: 'agent' },
+    })
+    // 第二轮又抓到同一篇（外加一条新的）
+    await writeDashboardFeedSnapshot({
+      ...snapshotWith([
+        { id: 'old', title: '第一篇', timestamp: 999 },
+        { id: 'new', title: '新的一篇', timestamp: 500 },
+      ], 2000),
+      batch: { source: 'agent' },
+    })
+
+    const page = await readDashboardFeedBatches('news', { limit: 5 })
+    const first = page.batches.find((b) => b.items.some((i) => i.id === 'old'))
+    expect(first?.items.map((i) => i.id)).toEqual(['old'])
+    expect(page.batches[0].items.map((i) => i.id)).toEqual(['new'])
+    db.close()
+  })
+
+  it('整批都是旧条目时不留空期', async () => {
+    const db = createFeedDb()
+    setDashboardFeedDb(db)
+
+    await writeDashboardFeedSnapshot({
+      ...snapshotWith([{ id: 'a', title: '甲', timestamp: 100 }]),
+      batch: { source: 'agent' },
+    })
+    await writeDashboardFeedSnapshot({
+      ...snapshotWith([{ id: 'a', title: '甲', timestamp: 100 }], 2000),
+      batch: { source: 'agent' },
+    })
+
+    const page = await readDashboardFeedBatches('news', { limit: 5 })
+    expect(page.batches).toHaveLength(1)
+    const rows = db.prepare<{ n: number }>(`SELECT COUNT(*) AS n FROM dashboard_feed_batches`).get()
+    expect(rows?.n).toBe(1)
+    db.close()
+  })
+
+  it('按期分页：游标指向更早的期，翻页不重不漏', async () => {
+    const db = createFeedDb()
+    setDashboardFeedDb(db)
+    for (let i = 0; i < 5; i += 1) {
+      await writeDashboardFeedSnapshot({
+        ...snapshotWith([{ id: `item-${i}`, title: `t${i}`, timestamp: 100 + i }], 1000 + i),
+        summary: `第 ${i} 期`,
+        batch: { source: 'agent' },
+      })
+    }
+
+    const first = await readDashboardFeedBatches('news', { limit: 2 })
+    expect(first.batches.map((b) => b.summary)).toEqual(['第 4 期', '第 3 期'])
+    expect(first.nextCursor).not.toBeNull()
+
+    const second = await readDashboardFeedBatches('news', { limit: 2, before: first.nextCursor })
+    expect(second.batches.map((b) => b.summary)).toEqual(['第 2 期', '第 1 期'])
+    expect(second.nextCursor).not.toBeNull()
+
+    const third = await readDashboardFeedBatches('news', { limit: 2, before: second.nextCursor })
+    expect(third.batches.map((b) => b.summary)).toEqual(['第 0 期'])
+    expect(third.nextCursor).toBeNull()
+    db.close()
+  })
+
+  it('条目被裁掉后不留孤儿期（空期不展示）', async () => {
+    const db = createFeedDb()
+    setDashboardFeedDb(db)
+    await writeDashboardFeedSnapshot({
+      ...snapshotWith([{ id: 'a', title: '甲', timestamp: 100 }]),
+      batch: { source: 'agent' },
+    })
+    // 模拟裁剪把该期条目删光
+    db.prepare(`DELETE FROM dashboard_feed_items`).run()
+
+    const page = await readDashboardFeedBatches('news', { limit: 5 })
+    expect(page.batches).toHaveLength(0)
+    db.close()
+  })
 })
 
 describe('dashboard-feed-store (SQLite)', () => {

@@ -28,6 +28,8 @@ export const apiServerApi = {
   getDashboardFeedMeta: (feedId: string) => ipcRenderer.invoke('dashboard-feed:meta', feedId),
   getDashboardFeedPage: (feedId: string, opts?: { limit?: number; before?: { timestamp: number; id: string } | null }) =>
     ipcRenderer.invoke('dashboard-feed:page', feedId, opts),
+  getDashboardFeedBatches: (feedId: string, opts?: { limit?: number; before?: { createdAt: string; id: string } | null }) =>
+    ipcRenderer.invoke('dashboard-feed:batches', feedId, opts),
   refreshDashboardFeed: () => ipcRenderer.invoke('dashboard-feed:refresh'),
   setActiveDashboardFeed: (feedId: string) =>
     ipcRenderer.invoke('dashboard-feed:set-active', feedId),

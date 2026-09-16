@@ -77,6 +77,8 @@ describe('dispatchNotifications', () => {
     expect(s.addMemory).toHaveBeenCalledWith('测试提醒：今天三件事', 'assistant')
     expect(prependMock).toHaveBeenCalledWith(
       expect.objectContaining({ title: '测试提醒', summary: '今天三件事', source: '定时任务' }),
+      undefined,
+      { source: 'cron', conversationId: 'cron:custom-job' },
     )
   })
 

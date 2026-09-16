@@ -26,6 +26,9 @@ export const MAX_FEED_ITEMS = 1000
  */
 let feedWriteVersion = 0
 
+/** 期 id 的进程内自增序号：让同一毫秒内写出的多期也有稳定顺序（见 writeDashboardFeedSnapshot） */
+let batchSeq = 0
+
 /** 读取当前写盘版本，跨模块用。 */
 export function getDashboardFeedWriteVersion(): number {
   return feedWriteVersion
@@ -62,6 +65,28 @@ export interface DashboardFeedSnapshot {
   updatedAt: number
   summary?: string
   items: DashboardFeedItem[]
+  /**
+   * 这一批的出处（可选）。每次 write 调用 = 一期，期上记着综述、来源与会话，
+   * 才能回答「这条是谁什么时候推的」，也让综述不再随下次抓取被覆盖掉。
+   */
+  batch?: {
+    /** 'agent'（Agent 主动推）| 'cron'（定时任务推送）| 'manual' | 'legacy'（V43 前的历史回填） */
+    source?: string
+    /** 出自哪个会话，用于从卡片跳回当时的对话 */
+    conversationId?: string
+  }
+}
+
+/** 一期推送：一段时间的条目 + 这一期自己的综述 */
+export interface DashboardFeedBatch {
+  id: string
+  feedId: string
+  /** 本期综述；legacy 回填的历史期为 null */
+  summary?: string
+  source: string
+  conversationId?: string
+  createdAt: string
+  items: DashboardFeedItem[]
 }
 
 /** 游标分页游标：上一页最后一条的 (timestamp, id) */
@@ -74,6 +99,19 @@ export interface DashboardFeedPage {
   feedId: string
   items: DashboardFeedItem[]
   nextCursor: DashboardFeedCursor | null
+}
+
+/** 按期分页游标：上一期最后一条的 (created_at, id)，与条目游标分开是因为期的时间是 ISO 串 */
+export interface DashboardFeedBatchCursor {
+  createdAt: string
+  id: string
+}
+
+/** 按期分页：一期为一组，返回的游标指向「比这批更早的期」 */
+export interface DashboardFeedBatchPage {
+  feedId: string
+  batches: DashboardFeedBatch[]
+  nextCursor: DashboardFeedBatchCursor | null
 }
 
 /** feed 元信息（标题/综述/更新时间），供概览页头部展示，不与条目一起全量读取 */
@@ -347,8 +385,7 @@ export async function readDashboardFeedSnapshot(
 export async function readDashboardFeedPage(
   feedId = DEFAULT_DASHBOARD_FEED_ID,
   opts: { limit?: number; before?: DashboardFeedCursor | null } = {},
-): Promise<DashboardFeedPage> {
-  const normalizedId = validateFeedId(feedId)
+): Promise<DashboardFeedPage> {  const normalizedId = validateFeedId(feedId)
   const limit = Math.max(1, Math.min(opts.limit ?? 20, MAX_FEED_ITEMS))
 
   if (!dashboardFeedDb) {
@@ -386,6 +423,104 @@ export async function readDashboardFeedPage(
   return { feedId: normalizedId, items, nextCursor }
 }
 
+interface BatchRow {
+  id: string
+  feed_id: string
+  summary: string | null
+  source: string
+  conversation_id: string | null
+  created_at: string
+  item_count: number
+}
+
+/**
+ * 按期读取（期刊视图）：一期为一组，期内条目按时间倒序全量返回。
+ *
+ * 期的游标用 `(created_at, id)`——与条目游标同形，但比较的是期本身的时间，
+ * 因此翻页时不会因为某期条目多寡而错位。一期通常十几条，整期返回比再套一层
+ * 条目分页更简单，也让「展开这一期」不需要二次请求。
+ */
+export async function readDashboardFeedBatches(
+  feedId = DEFAULT_DASHBOARD_FEED_ID,
+  opts: { limit?: number; before?: DashboardFeedBatchCursor | null } = {},
+): Promise<DashboardFeedBatchPage> {
+  const normalizedId = validateFeedId(feedId)
+  const limit = Math.max(1, Math.min(opts.limit ?? 5, 50))
+
+  if (!dashboardFeedDb) {
+    const snapshot = await readDashboardFeedSnapshot(normalizedId)
+    const items = snapshot?.items ?? []
+    return {
+      feedId: normalizedId,
+      batches: items.length
+        ? [
+            {
+              id: 'legacy:file',
+              feedId: normalizedId,
+              source: 'legacy',
+              createdAt: new Date(snapshot?.updatedAt ?? Date.now()).toISOString(),
+              ...(snapshot?.summary ? { summary: snapshot.summary } : {}),
+              items,
+            },
+          ]
+        : [],
+      nextCursor: null,
+    }
+  }
+
+  const before = opts.before ?? null
+  const batchRows = before
+    ? dashboardFeedDb
+        .prepare<BatchRow>(
+          `SELECT b.id, b.feed_id, b.summary, b.source, b.conversation_id, b.created_at,
+                  (SELECT COUNT(*) FROM dashboard_feed_items i WHERE i.batch_id = b.id) AS item_count
+           FROM dashboard_feed_batches b
+           WHERE b.feed_id = ?
+             AND (b.created_at < ? OR (b.created_at = ? AND b.id < ?))
+           ORDER BY b.created_at DESC, b.id DESC
+           LIMIT ?`,
+        )
+        .all(normalizedId, before.createdAt, before.createdAt, before.id, limit)
+    : dashboardFeedDb
+        .prepare<BatchRow>(
+          `SELECT b.id, b.feed_id, b.summary, b.source, b.conversation_id, b.created_at,
+                  (SELECT COUNT(*) FROM dashboard_feed_items i WHERE i.batch_id = b.id) AS item_count
+           FROM dashboard_feed_batches b
+           WHERE b.feed_id = ?
+           ORDER BY b.created_at DESC, b.id DESC
+           LIMIT ?`,
+        )
+        .all(normalizedId, limit)
+
+  const batches: DashboardFeedBatch[] = []
+  for (const row of batchRows) {
+    // 空期（条目已被 MAX_FEED_ITEMS 裁掉）不展示：它在 UI 上只是一行没有内容的标题
+    if (row.item_count === 0) continue
+    const items = dashboardFeedDb
+      .prepare<FeedItemRow>(
+        `SELECT id, title, summary, href, source, kind, timestamp, metadata
+         FROM dashboard_feed_items
+         WHERE batch_id = ?
+         ORDER BY timestamp DESC, id DESC`,
+      )
+      .all(row.id)
+      .map(rowToItem)
+    batches.push({
+      id: row.id,
+      feedId: row.feed_id,
+      source: row.source,
+      createdAt: row.created_at,
+      ...(row.summary ? { summary: row.summary } : {}),
+      ...(row.conversation_id ? { conversationId: row.conversation_id } : {}),
+      items,
+    })
+  }
+
+  const last = batchRows.length === limit ? batchRows[batchRows.length - 1] : undefined
+  const nextCursor = last ? { createdAt: last.created_at, id: last.id } : null
+  return { feedId: normalizedId, batches, nextCursor }
+}
+
 /**
  * 写入工作流产出的规范化 Dashboard feed 快照（DB 合并累积）。
  *
@@ -396,6 +531,10 @@ export async function readDashboardFeedPage(
  * 写入方给的是「抓取时刻」，若每次抓取都覆盖它，一篇三天前的旧稿只要再次出现在搜索结果里
  * 就会被顶到卡片最前、并显示成「1 分钟前」——用户看到的是「新资讯」，实际是旧的。
  * 内容（标题/摘要/来源）仍按最新的覆盖更新，只是排序位置与时间显示保持不变。
+ *
+ * **每次调用 = 一期**（V43）：本期的综述记在 `dashboard_feed_batches` 上，不再覆盖上一期；
+ * 条目在本期首次入库时打上 `batch_id`，此后重复抓到不会改期（与 timestamp 同理）。
+ * 若本批条目全都是别期已有的（重复抓取），本期没有任何新成员，则把空期删掉，不留噪音。
  */
 export async function writeDashboardFeedSnapshot(snapshot: DashboardFeedSnapshot): Promise<void> {
   const feedId = validateFeedId(snapshot.feedId)
@@ -409,6 +548,11 @@ export async function writeDashboardFeedSnapshot(snapshot: DashboardFeedSnapshot
   }
 
   const now = new Date().toISOString()
+  // 期 id 必须**单调可排序**：分页游标是 (created_at, id)，而同一毫秒内可能连写两期
+  // （重试、连跑），此时 created_at 相同、排序只能靠 id。用随机后缀兜底等于随机翻页，
+  // 所以这里带一个进程内自增序号（补零后字典序 = 数值序）。
+  batchSeq += 1
+  const batchId = `batch-${Date.now()}-${String(batchSeq).padStart(6, '0')}`
   const upsertMeta = dashboardFeedDb.prepare(
     `INSERT INTO dashboard_feed_meta (feed_id, title, summary, updated_at)
      VALUES (?, ?, ?, ?)
@@ -417,10 +561,14 @@ export async function writeDashboardFeedSnapshot(snapshot: DashboardFeedSnapshot
        summary = excluded.summary,
        updated_at = excluded.updated_at`,
   )
+  const insertBatch = dashboardFeedDb.prepare(
+    `INSERT INTO dashboard_feed_batches (id, feed_id, summary, source, conversation_id, created_at)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+  )
   const upsertItem = dashboardFeedDb.prepare(
     `INSERT INTO dashboard_feed_items
-       (id, feed_id, title, summary, href, source, kind, timestamp, metadata, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       (id, feed_id, title, summary, href, source, kind, timestamp, metadata, created_at, batch_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET
        feed_id = excluded.feed_id,
        title = excluded.title,
@@ -444,6 +592,14 @@ export async function writeDashboardFeedSnapshot(snapshot: DashboardFeedSnapshot
 
   tx(() => {
     upsertMeta.run(feedId, normalized.title, normalized.summary ?? null, normalized.updatedAt)
+    insertBatch.run(
+      batchId,
+      feedId,
+      normalized.summary ?? null,
+      snapshot.batch?.source ?? 'agent',
+      snapshot.batch?.conversationId ?? null,
+      now,
+    )
     for (const item of normalized.items) {
       upsertItem.run(
         item.id,
@@ -456,6 +612,7 @@ export async function writeDashboardFeedSnapshot(snapshot: DashboardFeedSnapshot
         item.timestamp ?? normalized.updatedAt,
         metadataToJson(item.metadata),
         now,
+        batchId,
       )
     }
     // 裁剪到 MAX_FEED_ITEMS：保留最新的 N 条，删除更旧的
@@ -468,9 +625,30 @@ export async function writeDashboardFeedSnapshot(snapshot: DashboardFeedSnapshot
          LIMIT -1 OFFSET ?
        )`,
     ).run(feedId, feedId, MAX_FEED_ITEMS)
+    // 本期没有任何新成员（整批都是别期已有的重复抓取）→ 删掉这个空期，不留噪音
+    const members = dashboardFeedDb!
+      .prepare<{ n: number }>(`SELECT COUNT(*) AS n FROM dashboard_feed_items WHERE batch_id = ?`)
+      .get(batchId)
+    if (!members || members.n === 0) {
+      dashboardFeedDb!.prepare(`DELETE FROM dashboard_feed_batches WHERE id = ?`).run(batchId)
+    }
   })
 
   feedWriteVersion++
+}
+
+/**
+ * 该 feed 当前有多少条（不含已裁剪的）。
+ * 供 `dashboard_feed_read` 回答「卡片上总共多少条」——只给分页条数会让模型
+ * 以为看到的就是全部。db 未注入时回落到文件快照的长度。
+ */
+export function countDashboardFeedItems(feedId = DEFAULT_DASHBOARD_FEED_ID): number {
+  const normalizedId = validateFeedId(feedId)
+  if (!dashboardFeedDb) return 0
+  const row = dashboardFeedDb
+    .prepare<{ n: number }>(`SELECT COUNT(*) AS n FROM dashboard_feed_items WHERE feed_id = ?`)
+    .get(normalizedId)
+  return row?.n ?? 0
 }
 
 export async function readActiveDashboardFeedId(): Promise<string> {
@@ -500,12 +678,13 @@ export async function readActiveDashboardFeedSnapshot(): Promise<DashboardFeedSn
  * 向当前活跃 feed 头部插入一条内容（定时任务结果推送用）。
  *
  * 写活跃 feed 而不是独立的 cron feed：概览页只渲染活跃 feed，
- * 独立 feed 用户根本看不到。代价是下次资讯抓取会整体重建 news feed 覆盖掉这条，
- * 需要长期留存就得让 feed 支持多来源合并。
+ * 独立 feed 用户根本看不到。这条自成一期（source='cron'），
+ * 因此它与资讯抓取各自的综述不会互相覆盖。
  */
 export async function prependActiveDashboardFeedItem(
   item: DashboardFeedItem,
   maxItems = 30,
+  batch: { source?: string; conversationId?: string } = { source: 'cron' },
 ): Promise<void> {
   const feedId = await readActiveDashboardFeedId()
   const existing = await readDashboardFeedSnapshot(feedId)
@@ -514,6 +693,7 @@ export async function prependActiveDashboardFeedItem(
     title: existing?.title ?? (feedId === DEFAULT_DASHBOARD_FEED_ID ? '最近资讯' : feedId),
     updatedAt: Date.now(),
     ...(existing?.summary ? { summary: existing.summary } : {}),
+    batch,
     items: [item, ...(existing?.items ?? []).filter((i) => i.id !== item.id)].slice(0, maxItems),
   })
 }

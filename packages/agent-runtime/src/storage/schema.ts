@@ -6,7 +6,7 @@
  */
 
 /** 当前 schema 版本号 */
-export const SCHEMA_VERSION = 42;
+export const SCHEMA_VERSION = 43;
 
 /**
  * V1 DDL — 初始 schema
@@ -1483,6 +1483,53 @@ CREATE TABLE IF NOT EXISTS maintenance_reports (
 
 CREATE INDEX IF NOT EXISTS idx_maintenance_reports_created
   ON maintenance_reports (created_at DESC, id DESC);
+`,
+  ],
+  // V43: 资讯卡片「按期」——每次推送 = 一期
+  //
+  // 此前卡片是一条无界流水：所有批次平铺在 items 里，靠时间戳排序，而 meta.summary
+  // 只有一行、每次抓取覆盖——**上一期的综述直接被抹掉**（已经存在的静默数据损失）。
+  // 建期之后：综述有了归属、保留策略可以按期做（不会把一期拆成半个）、
+  // 「今天推了什么」= 最新一期的内容，而不是「时间戳落在今天的条目」。
+  //
+  // 回填：既有条目按自然日各自合成一期（id 前缀 legacy:）。这是近似——
+  // created_at 是 UTC ISO 串，与用户本地日可能有几小时错位；历史数据只求能读，
+  // 从建表起的每一期才是精确边界。
+  //
+  // items.batch_id 只在首次写入时落定（与 timestamp 同理）：同一篇文章再次被抓到
+  // 时仍属最初那一期，不会因为重复出现就跳到最新一期里。
+  [
+    43,
+    `
+CREATE TABLE IF NOT EXISTS dashboard_feed_batches (
+  id              TEXT PRIMARY KEY,
+  feed_id         TEXT NOT NULL,
+  summary         TEXT,
+  source          TEXT NOT NULL DEFAULT 'agent',
+  conversation_id TEXT,
+  created_at      TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_dfb_feed
+  ON dashboard_feed_batches (feed_id, created_at DESC, id DESC);
+
+ALTER TABLE dashboard_feed_items ADD COLUMN batch_id TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_dfi_batch ON dashboard_feed_items (batch_id);
+
+INSERT OR IGNORE INTO dashboard_feed_batches (id, feed_id, summary, source, created_at)
+SELECT 'legacy:' || substr(created_at, 1, 10) || ':' || feed_id,
+       feed_id,
+       NULL,
+       'legacy',
+       min(created_at)
+FROM dashboard_feed_items
+WHERE batch_id IS NULL
+GROUP BY feed_id, substr(created_at, 1, 10);
+
+UPDATE dashboard_feed_items
+SET batch_id = 'legacy:' || substr(created_at, 1, 10) || ':' || feed_id
+WHERE batch_id IS NULL;
 `,
   ],
 ] as const;

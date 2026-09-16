@@ -13,7 +13,7 @@ import type { PromptStyleValue } from '../shared/prompt-style'
 // 仅类型引用，编译期擦除，不会把主进程代码打进 preload
 import type { UsageSummary } from '../main/usage-store'
 import type { NewsSnapshot } from '../main/news-store'
-import type { DashboardFeedSnapshot, DashboardFeedPage, DashboardFeedMeta } from '../main/dashboard-feed-store'
+import type { DashboardFeedSnapshot, DashboardFeedPage, DashboardFeedMeta, DashboardFeedBatchPage } from '../main/dashboard-feed-store'
 import type { MaintenanceReport, FindingDiff } from '../main/maintenance-report-store'
 import type { LatencyView } from '../main/provider-latency'
 import type { PerformanceReport, IpcAggregateEvent, MemorySnapshotEvent, RendererMemorySample } from '../main/perf/performance-types'
@@ -269,6 +269,12 @@ export interface ElectronAPI {
     page: (feedId: string, opts?: { limit?: number; before?: { timestamp: number; id: string } | null }) => Promise<{
       success: boolean
       data?: DashboardFeedPage | null
+      error?: string
+    }>
+    /** 按期读取（期刊视图） */
+    batches: (feedId: string, opts?: { limit?: number; before?: { createdAt: string; id: string } | null }) => Promise<{
+      success: boolean
+      data?: DashboardFeedBatchPage | null
       error?: string
     }>
     refresh: () => Promise<{
@@ -1245,6 +1251,8 @@ const electronAPI: ElectronAPI = {
     meta: (feedId: string) => apiServerApi.getDashboardFeedMeta(feedId),
     page: (feedId: string, opts?: { limit?: number; before?: { timestamp: number; id: string } | null }) =>
       apiServerApi.getDashboardFeedPage(feedId, opts),
+    batches: (feedId: string, opts?: { limit?: number; before?: { createdAt: string; id: string } | null }) =>
+      apiServerApi.getDashboardFeedBatches(feedId, opts),
     refresh: () => apiServerApi.refreshDashboardFeed(),
     setActive: (feedId: string) => apiServerApi.setActiveDashboardFeed(feedId),
   },

@@ -23,6 +23,7 @@ import {
 import {
   writeDashboardFeedSnapshot,
   readDashboardFeedPage,
+  countDashboardFeedItems,
   DEFAULT_DASHBOARD_FEED_ID,
   uniqueDashboardFeedItemId,
 } from '../dashboard-feed-store'
@@ -271,11 +272,17 @@ export function registerDashboardFeedTool(deps: BridgeToolRegistrarDeps): void {
         return jsonToolResult({ status: 'error', message: 'items must be a non-empty array' })
       }
       try {
+        // 本次写入 = 一期：综述记在本期上（不再覆盖上一期），并记录出自哪个会话。
+        // 两个取值都容错——工具注册的 deps 未必带这些反查能力（测试替身、精简装配），
+        // 缺了就退化成「来源未知的一期」，不能让一次资讯写入整个失败。
+        const executorId = deps.getCurrentToolExecutorInstanceId?.()
+        const convId = executorId ? deps.instanceToConversation?.get(executorId) : undefined
         await writeDashboardFeedSnapshot({
           feedId: DEFAULT_DASHBOARD_FEED_ID,
           title: p.title.trim(),
           updatedAt: Date.now(),
           ...(p.summary?.trim() ? { summary: p.summary.trim() } : {}),
+          batch: { source: 'agent', ...(convId ? { conversationId: convId } : {}) },
           items: (() => {
             const seenIds = new Map<string, number>()
             return p.items.map((item, index) => ({
@@ -317,6 +324,9 @@ export function registerDashboardFeedTool(deps: BridgeToolRegistrarDeps): void {
           status: 'ok',
           feedId: DEFAULT_DASHBOARD_FEED_ID,
           count: page.items.length,
+          // 卡片上总共多少条：只有 hasMore 而不给总数时，模型没法说清「还有多少没看到」，
+          // 容易被它当成没有更多。策展看的是「推过什么」，总数是这句判断的锚点。
+          totalCount: countDashboardFeedItems(DEFAULT_DASHBOARD_FEED_ID),
           hasMore: page.nextCursor !== null,
           items: page.items.map((item) => ({
             title: item.title,

@@ -1,22 +1,23 @@
 /**
  * NewsFeed - 最近资讯（概览页）
  *
- * 左右对称两列卡片（含序号），摘要两行便于扫读。
- * 点卡片把解读请求预填进对话页输入框。
+ * **按期（期刊）渲染**：每次 Agent 推送 = 一期，一期有自己的综述、时间与条目。
+ * 默认展开最新一期，更早的按期折叠（只显示时间 + 条数 + 综述首行）。
  *
- * 数据来自 SQLite 累积存储（最多 1000 条），前端不做缓存：挂载即拉首屏一页，
- * 底部哨兵触底后游标分页加载下一页，最多展示 1000 条。首屏之后只增量渲染新一页。
+ * 为什么不是一条流水：卡片是累积的，流水把所有批次平铺成一条长列，用户分不清
+ * 「今天推了什么」；而且综述只有一份、每次抓取覆盖，上一期讲过什么直接丢失。
+ * 按期之后三件事同时成立：边界清晰（本期 = 最新一期）、综述不再丢（每期各记一份）、
+ * 保留策略可按期做（不会把一期裁成半个）。
+ *
+ * 点条目把解读请求预填进对话页输入框；期头的「查看原文」打开本期没有的链接入口。
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Newspaper, RefreshCw, Sparkles } from 'lucide-react'
 import { Card } from '../../../../components/ui/Card/Card'
 import type { ViewType } from '../../../../components/layout/Sidebar/Sidebar'
-import {
-  fetchFeedMeta,
-  fetchFeedPage,
-  refreshDashboardFeed,
-} from '../../../../services/dashboard-feed-service'
+import { fetchFeedMeta, fetchFeedBatches, refreshDashboardFeed } from '../../../../services/dashboard-feed-service'
+import type { DashboardFeedBatch, DashboardFeedBatchCursor } from '@main/dashboard-feed-store'
 import { openExternalUrl } from '../../../../utils/markdown-external-link'
 import styles from './NewsFeed.module.css'
 
@@ -31,15 +32,10 @@ interface FeedItem {
   kind?: string
 }
 
-interface FeedCursor {
-  timestamp: number
-  id: string
-}
-
-/** 滑动分页上限：用户最多查看最近 1000 条 */
-const MAX_VISIBLE = 1000
-/** 每页条数（首屏与后续一致） */
-const PAGE_SIZE = 12
+/** 每页拉几期（一期十几条，5 期约一屏半） */
+const BATCH_PAGE_SIZE = 5
+/** 滑动分页上限：最多展示这么多期 */
+const MAX_BATCHES = 60
 
 function formatWhen(ts?: number): string {
   if (!ts) return ''
@@ -50,27 +46,32 @@ function formatWhen(ts?: number): string {
 }
 
 /**
- * 条目所属的「天」标签，用于在列表里插入日期分隔。
- *
- * 卡片是跨天累积的（一次抓取推十几条，历史上的越堆越多），只按相对时间排成一长列
- * 会分不清哪些是今天新推的、哪些是旧的。分隔按自然日切，今天/昨天用相对词，
- * 更早写明日期。同一天的条目返回同一个字符串，渲染时与上一条比较即可决定是否插分隔。
+ * 期的时间标签：「今天 14:00」「昨天 09:30」「9 月 12 日 08:00」。
+ * 期是人的阅读单位，显示成「3 小时前」会让「今天推了几期」看不出来。
  */
-function dayLabel(ts?: number): string {
-  if (!ts) return '未知时间'
-  const d = new Date(ts)
+function batchLabel(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return '未知时间'
+  const hhmm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
   const today = new Date()
   const startOfDay = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime()
   const days = Math.round((startOfDay(today) - startOfDay(d)) / 86_400_000)
-  if (days <= 0) return '今天'
-  if (days === 1) return '昨天'
-  if (days < 7) return `${days} 天前`
-  return `${d.getMonth() + 1} 月 ${d.getDate()} 日`
+  if (days <= 0) return `今天 ${hhmm}`
+  if (days === 1) return `昨天 ${hhmm}`
+  if (days < 7) return `${days} 天前 ${hhmm}`
+  return `${d.getMonth() + 1} 月 ${d.getDate()} 日 ${hhmm}`
 }
 
-/**
- * 拼给 AI 的解读请求（带上卡片标题、来源、摘要等完整信息）
- */
+/** 期的来源标签；legacy 是 V43 之前的历史数据按天合成的期 */
+const SOURCE_LABELS: Record<string, string> = {
+  agent: '情报推送',
+  // 不叫「定时任务」：期头右上角就有一个同名导航按钮，两个「定时任务」会打架
+  cron: '定时推送',
+  manual: '手动',
+  legacy: '历史',
+}
+
+/** 拼给 AI 的解读请求（带上卡片标题、来源、摘要等完整信息） */
 function buildInterpretPrompt(item: FeedItem): string {
   const lines = [
     `帮我解读这条内容：${item.title}`,
@@ -90,38 +91,35 @@ export interface NewsFeedProps {
 
 export const NewsFeed: React.FC<NewsFeedProps> = ({ onViewChange }) => {
   const [title, setTitle] = useState('最近资讯')
-  const [summary, setSummary] = useState<string | undefined>()
   const [updatedAt, setUpdatedAt] = useState<number | undefined>()
-  const [items, setItems] = useState<FeedItem[]>([])
+  const [batches, setBatches] = useState<DashboardFeedBatch[]>([])
   const [hasMore, setHasMore] = useState(false)
   const [loading, setLoading] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string>()
-  // 触发「整页重置」的信号：抓取后必须从第 0 条重新拉，否则游标错位
+  /** 手动折叠/展开过的期（默认只展开最新一期） */
+  const [collapsedOverride, setCollapsedOverride] = useState<Record<string, boolean>>({})
+  // 触发「整页重置」的信号：抓取后必须从第一期重新拉，否则游标错位
   const [resetToken, setResetToken] = useState(0)
 
-  const cursorRef = useRef<FeedCursor | null>(null)
+  const cursorRef = useRef<DashboardFeedBatchCursor | null>(null)
   const loadingMoreRef = useRef(false)
-  // 加载哨兵（底部触底即拉下一页）
   const sentinelRef = useRef<HTMLDivElement | null>(null)
 
   const reset = useCallback(() => {
-    setItems([])
+    setBatches([])
     setHasMore(false)
     cursorRef.current = null
     setResetToken((t) => t + 1)
   }, [])
 
-  // 加载一页：before 为 null 拉首屏；否则拉下一页累加
-  const loadPage = useCallback(async (before: FeedCursor | null) => {
-    return fetchFeedPage('news', {
-      limit: PAGE_SIZE,
-      before,
-    })
-  }, [])
+  const loadPage = useCallback(
+    (before: DashboardFeedBatchCursor | null) => fetchFeedBatches('news', { limit: BATCH_PAGE_SIZE, before }),
+    [],
+  )
 
-  // 首屏 / 重置后加载（拉 meta + 第一页）
+  // 首屏 / 重置后加载（拉 meta + 第一批期）
   useEffect(() => {
     let cancelled = false
     void (async () => {
@@ -130,17 +128,16 @@ export const NewsFeed: React.FC<NewsFeedProps> = ({ onViewChange }) => {
       try {
         const [meta, page] = await Promise.all([
           fetchFeedMeta('news'),
-          fetchFeedPage('news', { limit: PAGE_SIZE, before: null }),
+          fetchFeedBatches('news', { limit: BATCH_PAGE_SIZE, before: null }),
         ])
         if (cancelled) return
         if (meta) {
           setTitle(meta.title ?? '最近资讯')
-          setSummary(meta.summary)
           setUpdatedAt(meta.updatedAt)
         }
-        setItems(page.items)
+        setBatches(page.batches)
         cursorRef.current = page.nextCursor
-        setHasMore(page.nextCursor !== null && page.items.length > 0)
+        setHasMore(page.nextCursor !== null && page.batches.length > 0)
       } catch (err) {
         setError(err instanceof Error ? err.message : '读取资讯失败')
       } finally {
@@ -152,7 +149,7 @@ export const NewsFeed: React.FC<NewsFeedProps> = ({ onViewChange }) => {
     }
   }, [resetToken])
 
-  // 触底加载下一页
+  // 触底加载更早的期
   useEffect(() => {
     const sentinel = sentinelRef.current
     if (!sentinel) return
@@ -160,19 +157,18 @@ export const NewsFeed: React.FC<NewsFeedProps> = ({ onViewChange }) => {
       (entries) => {
         if (!entries.some((e) => e.isIntersecting)) return
         if (loadingMoreRef.current) return
-        if (!hasMore || items.length >= MAX_VISIBLE) return
+        if (!hasMore || batches.length >= MAX_BATCHES) return
         loadingMoreRef.current = true
         setLoadingMore(true)
         const before = cursorRef.current
         void loadPage(before)
           .then((page) => {
-            setItems((prev) => {
-              const seen = new Set(prev.map((i) => i.id))
-              const merged = [...prev, ...page.items.filter((i) => !seen.has(i.id))]
-              return merged.slice(0, MAX_VISIBLE)
+            setBatches((prev) => {
+              const seen = new Set(prev.map((b) => b.id))
+              return [...prev, ...page.batches.filter((b) => !seen.has(b.id))]
             })
             cursorRef.current = page.nextCursor
-            setHasMore(page.nextCursor !== null && page.items.length > 0)
+            setHasMore(page.nextCursor !== null && page.batches.length > 0)
           })
           .catch((err) => setError(err instanceof Error ? err.message : '加载更多失败'))
           .finally(() => {
@@ -184,14 +180,13 @@ export const NewsFeed: React.FC<NewsFeedProps> = ({ onViewChange }) => {
     )
     observer.observe(sentinel)
     return () => observer.disconnect()
-  }, [hasMore, items.length, loadPage])
+  }, [hasMore, batches.length, loadPage])
 
   const refresh = async () => {
     setRefreshing(true)
     setError(undefined)
     try {
       await refreshDashboardFeed()
-      // 抓取是 DB 累积合并，抓完从第 0 条重新拉，避免游标错位
       reset()
     } catch (err) {
       setError(err instanceof Error ? err.message : '抓取失败')
@@ -200,7 +195,7 @@ export const NewsFeed: React.FC<NewsFeedProps> = ({ onViewChange }) => {
     }
   }
 
-  /** 跳对话页并预填解读请求；解读资讯是独立话题，开新会话而不是接在当前对话后面。 */
+  /** 跳对话页并预填解读请求；解读资讯是独立话题，开新会话而不是接在当前对话后面 */
   const interpret = (item: FeedItem) => {
     window.dispatchEvent(
       new CustomEvent('mtbot:chat-draft-request', {
@@ -210,31 +205,20 @@ export const NewsFeed: React.FC<NewsFeedProps> = ({ onViewChange }) => {
     onViewChange?.('chat')
   }
 
-  // 首屏可见项才保留入场错落动画；后续页直接显示，避免整列表重放动画的性能负担
-  const firstScreenCount = Math.min(items.length, PAGE_SIZE)
-  const cardDelay = useMemo(
-    () => (index: number) => (index < firstScreenCount ? index : undefined),
-    [firstScreenCount],
+  const toggleBatch = (id: string, currentlyExpanded: boolean) => {
+    setCollapsedOverride((prev) => ({ ...prev, [id]: currentlyExpanded }))
+  }
+
+  /** 最新一期默认展开，其余默认折叠 */
+  const isExpanded = useCallback(
+    (batchId: string, index: number) => {
+      const override = collapsedOverride[batchId]
+      return override === undefined ? index === 0 : !override
+    },
+    [collapsedOverride],
   )
 
-  /**
-   * 按天分组的派生数据，一次算好供渲染用（避免在 map 里反复 filter 成 O(n²)）：
-   * - labelOf[i]：第 i 条属于哪一天（相邻不同即插入日期分隔）
-   * - total：该天总条数（分隔行右侧的计数）
-   * - ordinal[i]：该条在本天内的序号（卡片左上角的编号）
-   */
-  const dayIndex = useMemo(() => {
-    const labelOf = items.map((item) => dayLabel(item.timestamp))
-    const total = new Map<string, number>()
-    for (const label of labelOf) total.set(label, (total.get(label) ?? 0) + 1)
-    const seen = new Map<string, number>()
-    const ordinal = labelOf.map((label) => {
-      const next = (seen.get(label) ?? 0) + 1
-      seen.set(label, next)
-      return next
-    })
-    return { labelOf, total, ordinal }
-  }, [items])
+  const totalCount = useMemo(() => batches.reduce((sum, b) => sum + b.items.length, 0), [batches])
 
   return (
     <Card className={styles.panel} flush>
@@ -242,7 +226,9 @@ export const NewsFeed: React.FC<NewsFeedProps> = ({ onViewChange }) => {
         <Newspaper size={14} strokeWidth={1.8} className={styles['head-icon']} />
         <span className={styles.title}>{title}</span>
         <span className={styles.tag}>
-          {updatedAt ? `更新于 ${formatWhen(updatedAt)}` : '尚未抓取'}
+          {updatedAt
+            ? `${batches.length} 期 · ${totalCount} 条 · 更新于 ${formatWhen(updatedAt)}`
+            : '尚未抓取'}
         </span>
         <button
           type="button"
@@ -259,83 +245,95 @@ export const NewsFeed: React.FC<NewsFeedProps> = ({ onViewChange }) => {
         </button>
       </div>
 
-      {summary && (
-        <div className={styles.digest}>
-          <Sparkles size={12} strokeWidth={1.8} />
-          <span>{summary}</span>
-        </div>
-      )}
-
       {error && <div className={styles.error}>{error}</div>}
 
       {loading ? (
         <div className={styles.empty}>正在读取资讯…</div>
-      ) : items.length === 0 ? (
+      ) : batches.length === 0 ? (
         <div className={styles.empty}>
-          还没有数据。当前工作流每 2 小时运行一次，也可以点右侧刷新。
+          还没有数据。资讯任务按排期运行，也可以点右侧刷新。
         </div>
       ) : (
         <div className={styles.scroll}>
-          <div className={styles.grid}>
-            {items.map((item, index) => {
-              // 跨天分隔：与上一条不同日才插一行（分页追加时同样成立，因为比较的是相邻项）
-              const day = dayIndex.labelOf[index]
-              const showDay = index === 0 || dayIndex.labelOf[index - 1] !== day
-              return (
-                <React.Fragment key={item.id}>
-                  {showDay && (
-                    <div className={styles['day-sep']} role="separator">
-                      <span className={styles['day-label']}>{day}</span>
-                      <span className={styles['day-count']}>{dayIndex.total.get(day) ?? 0} 条</span>
-                    </div>
-                  )}
-                  <div
-                    className={styles.card}
-                    style={
-                      cardDelay(index) === undefined
-                        ? undefined
-                        : ({ ['--i' as string]: cardDelay(index) } as React.CSSProperties)
-                    }
-                  >
-                    <button
-                      type="button"
-                      className={styles['card-body']}
-                      onClick={() => interpret(item)}
-                      title="点击让 Lumii 解读这条资讯"
-                    >
-                      {/* 序号在「天」内从 01 起，而不是整列连续编号——用户扫读时关心的是今天第几条 */}
-                      <span className={styles.idx} aria-hidden="true">
-                        {String(dayIndex.ordinal[index]).padStart(2, '0')}
-                      </span>
-                      <span className={styles['card-main']}>
-                        <span className={styles['card-title']}>{item.title}</span>
-                        {item.summary && (
-                          <span className={styles['card-excerpt']}>{item.summary}</span>
-                        )}
-                      </span>
-                    </button>
-                    <span className={styles['card-foot']}>
-                      {item.source && <span className={styles.source}>{item.source}</span>}
-                      <span className={styles.when}>{formatWhen(item.timestamp)}</span>
-                      {item.href && (
+          {batches.map((batch, index) => {
+            const expanded = isExpanded(batch.id, index)
+            return (
+              <section key={batch.id} className={styles.batch}>
+                <button
+                  type="button"
+                  className={styles['batch-head']}
+                  onClick={() => toggleBatch(batch.id, expanded)}
+                  aria-expanded={expanded}
+                >
+                  <span className={styles['batch-caret']} aria-hidden="true">
+                    {expanded ? '▾' : '▸'}
+                  </span>
+                  <span className={styles['batch-time']}>{batchLabel(batch.createdAt)}</span>
+                  <span className={styles['batch-source']}>
+                    {SOURCE_LABELS[batch.source] ?? batch.source}
+                  </span>
+                  <span className={styles['batch-count']}>{batch.items.length} 条</span>
+                  {index === 0 && <span className={styles['batch-latest']}>最新</span>}
+                </button>
+
+                {batch.summary && (
+                  <div className={styles['batch-summary']} title={batch.summary}>
+                    <Sparkles size={11} strokeWidth={1.8} />
+                    <span>{batch.summary}</span>
+                  </div>
+                )}
+
+                {expanded && (
+                  <div className={styles.grid}>
+                    {batch.items.map((item, itemIndex) => (
+                      <div
+                        key={item.id}
+                        className={styles.card}
+                        style={
+                          index === 0 && itemIndex < 12
+                            ? ({ ['--i' as string]: itemIndex } as React.CSSProperties)
+                            : undefined
+                        }
+                      >
                         <button
                           type="button"
-                          className={styles['card-open']}
-                          onClick={() => openExternalUrl(item.href!)}
-                          title="在浏览器中打开原文"
+                          className={styles['card-body']}
+                          onClick={() => interpret(item)}
+                          title="点击让 Lumii 解读这条资讯"
                         >
-                          查看原文
+                          <span className={styles.idx} aria-hidden="true">
+                            {String(itemIndex + 1).padStart(2, '0')}
+                          </span>
+                          <span className={styles['card-main']}>
+                            <span className={styles['card-title']}>{item.title}</span>
+                            {item.summary && (
+                              <span className={styles['card-excerpt']}>{item.summary}</span>
+                            )}
+                          </span>
                         </button>
-                      )}
-                    </span>
+                        <span className={styles['card-foot']}>
+                          {item.source && <span className={styles.source}>{item.source}</span>}
+                          {item.href && (
+                            <button
+                              type="button"
+                              className={styles['card-open']}
+                              onClick={() => openExternalUrl(item.href!)}
+                              title="在浏览器中打开原文"
+                            >
+                              查看原文
+                            </button>
+                          )}
+                        </span>
+                      </div>
+                    ))}
                   </div>
-                </React.Fragment>
-              )
-            })}
-          </div>
+                )}
+              </section>
+            )
+          })}
           {(hasMore || loadingMore) && (
             <div ref={sentinelRef} className={styles.sentinel}>
-              {loadingMore ? '加载更多…' : ''}
+              {loadingMore ? '加载更早的推送…' : ''}
             </div>
           )}
         </div>

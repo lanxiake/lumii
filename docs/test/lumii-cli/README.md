@@ -16,6 +16,7 @@ docs/test/lumii-cli/
 ├── autonomous/            # 自主进化专项
 ├── agent-team/            # 一等公民 Agent 团队：场景化旅程（成员会话/日报送达/开发模式续接）
 ├── channel-routing/       # 渠道会话路由（CR）：手工用例——跨渠道接续/路由/项目跟随/转交回流
+├── agent-curation/        # 灵栖情报/维护专项（CK）：任务归属与职责能力
 ├── prompt-style/          # 提示词风格实验（PS）：两档转储形态 + 真实任务双档对照
 ├── cloud-sync/            # 云同步专项
 └── materials/             # 真实文档样本（docx/mp4/PDF，gitignore 不提交）
@@ -87,6 +88,17 @@ docs/test/lumii-cli/
 | [agent-team-test-cases.md](./agent-team/agent-team-test-cases.md) | 旅程地图 + 用例：找成员办事（开发/维护/情报）、日报送达、开发模式续接、日常回归 + L1/L2 数据链路 |
 | [run-agent-team-e2e.mjs](./agent-team/run-agent-team-e2e.mjs) | 执行器（`AT_ONLY=S3` 选择性运行、`AT_SKIP_LLM=1` 离线只跑 L1/L2、`AT_SKIP_CLI=1` 跳过 claude 场景、`AT_TICK=1` 启用 tick 条件用例） |
 | [agent-team-report.md](./agent-team/agent-team-report.md) | 最新报告（含副作用声明与覆盖限制） |
+
+### 灵栖情报 / 维护专项（agent-curation/）— 归属与职责能力
+
+| 文件 | 说明 |
+|---|---|
+| [agent-curation-test-cases.md](./agent-curation/agent-curation-test-cases.md) | 用例 CK-01~CK-08：任务归属与会话可见性（L1/L2）+ 职责能力（L3：维护读全用户记忆、情报回读资讯卡、资讯任务落成新一期、体检报告落库） |
+| [run-agent-curation-e2e.mjs](./agent-curation/run-agent-curation-e2e.mjs) | 执行器（`CK_ONLY=CK-05,CK-08` 选择性运行、`CK_SKIP_LLM=1` 离线只跑 L1/L2） |
+| [agent-curation-report.md](./agent-curation/agent-curation-report.md) | 最新报告 |
+
+> 与 AT 套件的分工：AT 覆盖**团队协作旅程**（主助手接单、委托、转交）；CK 覆盖**这两个 Agent 自身**
+> 的归属与取数能力。AT-S9 只按预置 id 断言 news-pipeline，用户自建的资讯任务与手动抓取路径都不在其覆盖内。
 
 ### 提示词风格实验（prompt-style/）— 两档对照
 

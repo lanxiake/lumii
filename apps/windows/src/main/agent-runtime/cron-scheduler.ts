@@ -822,14 +822,18 @@ export class CronScheduler {
             this.deps.showCronNotification?.(payload.title ?? '灵栖 定时任务', payload.body, `cron:${job.id}`)
             break
           case 'news':
-            await prependActiveDashboardFeedItem({
-              id: `cron-${Date.now()}`,
-              title: payload.title ?? label,
-              summary: payload.body,
-              source: '定时任务',
-              timestamp: Date.now(),
-              kind: 'cron',
-            })
+            await prependActiveDashboardFeedItem(
+              {
+                id: `cron-${Date.now()}`,
+                title: payload.title ?? label,
+                summary: payload.body,
+                source: '定时任务',
+                timestamp: Date.now(),
+                kind: 'cron',
+              },
+              undefined,
+              { source: 'cron', conversationId: `cron:${job.id}` },
+            )
             break
           case 'focus':
             if (

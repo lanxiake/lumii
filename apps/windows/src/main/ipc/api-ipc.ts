@@ -37,6 +37,7 @@ import {
   readActiveDashboardFeedId,
   readDashboardFeedMeta,
   readDashboardFeedPage,
+  readDashboardFeedBatches,
   ensureDashboardFeedMigrated,
   setActiveDashboardFeedId,
 } from '../dashboard-feed-store'
@@ -209,6 +210,24 @@ export function registerApiIpcHandlers(): void {
       return { success: false, error: error instanceof Error ? error.message : String(error) }
     }
   })
+
+  /**
+   * 按期读取（期刊视图）：一期为一组，组内是该期推送的条目。
+   * 概览页资讯卡用它渲染「第 N 期」式的分组，而不是一条无界流水。
+   */
+  ipcMain.handle(
+    'dashboard-feed:batches',
+    async (_event, feedId: string, opts?: { limit?: number; before?: { createdAt: string; id: string } | null }) => {
+      try {
+        const id = feedId ?? 'news'
+        await ensureDashboardFeedMigrated(id)
+        return { success: true, data: await readDashboardFeedBatches(id, opts ?? {}) }
+      } catch (error) {
+        console.error('[IPC] dashboard-feed:batches 失败:', error)
+        return { success: false, error: error instanceof Error ? error.message : String(error) }
+      }
+    },
+  )
 
   /**
    * 手动「立即抓取」：与定时任务走同一条 Agent 驱动路径，复用相同的固定 sessionKey，

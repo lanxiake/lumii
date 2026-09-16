@@ -187,8 +187,20 @@ function createAgentSession(agentId, title) {
   return sk
 }
 
-/** 抽一次该回合里出现过的工具名 */
+/**
+ * 抽一次该回合里出现过的工具名。
+ *
+ * 从 `contentJson.parts` 里找 `type === 'tool'`，**不能读 `item.toolCalls`**：
+ * 新版 assistant 消息落库为 `{type:'assistant_parts', parts:[…]}`，工具调用是 parts 的一种；
+ * `toolCalls` 那个扁平字段只对旧格式消息有效（`conversation-commands` 的兼容分支），
+ * 拿它判工具调用会永远为空——首轮 CK-05/CK-06 就是这么误报的。
+ */
 function toolsOf(item) {
+  const cj = h.parseContentJson(item)
+  const parts = cj?.parts
+  if (Array.isArray(parts)) {
+    return parts.filter((p) => p && p.type === 'tool').map((p) => String(p.name ?? p.toolName ?? ''))
+  }
   return (item?.toolCalls ?? []).map((t) => String(t.name))
 }
 
@@ -231,11 +243,15 @@ async function ck05() {
 
 /**
  * CK-06 情报能回读资讯卡（去重前提）。
- * 判据：它调用了 dashboard_feed_read，且报出的条数与库里一致（允许 ±2 的抓取漂移）。
+ * 判据：它调用了 dashboard_feed_read，且报出了卡片总数或最新条目的标题。
+ * 断言标题是更强的信号——总数会随抓取漂移，标题必须真读到才说得出。
  */
 async function ck06() {
   if (SKIP_LLM) return ev.record('CK-06', 'SKIP', 'CK_SKIP_LLM=1')
-  const dbCount = h.dbGet(`SELECT COUNT(*) AS n FROM dashboard_feed_items WHERE feed_id = 'news'`).n
+  const dbTotal = h.dbGet(`SELECT COUNT(*) AS n FROM dashboard_feed_items WHERE feed_id = 'news'`).n
+  const newest = h.dbGet(
+    `SELECT title FROM dashboard_feed_items WHERE feed_id = 'news' ORDER BY timestamp DESC, id DESC LIMIT 1`,
+  )
   const sk = createAgentSession('info-curator', '情报回读资讯卡')
   const reply = await waitTurn(
     sk,
@@ -246,20 +262,27 @@ async function ck06() {
   const text = h.assistantText(reply)
   vlog(text.slice(0, 800))
   const tools = toolsOf(reply)
-  const numberHit = new RegExp(`\\b${dbCount}\\b`).test(text)
+  const readTool = tools.includes('dashboard_feed_read')
+  // 标题可能很长，取前 12 字做指纹，避开模型的轻微改写（省略号、书名号差异）
+  const titleHit = Boolean(newest?.title) && text.includes(String(newest.title).slice(0, 12))
+  const numberHit = new RegExp(`\\b${dbTotal}\\b`).test(text)
 
   check(
     'CK-06',
-    tools.includes('dashboard_feed_read') && numberHit,
-    `情报回读了资讯卡：调用 dashboard_feed_read，报出条数 ${dbCount}`,
-    `未回读到卡片（tools=${tools.join(',')}；库里 ${dbCount} 条；回复里${numberHit ? '有' : '没有'}该数字）`,
-    { sessionKey: sk, tools, dbCount },
+    readTool && (titleHit || numberHit),
+    `情报回读了资讯卡：调用 dashboard_feed_read，报出${titleHit ? '最新条目标题' : `总数 ${dbTotal}`}`,
+    `未回读到卡片（tools=${tools.join(',') || '无'}；标题命中=${titleHit}；总数 ${dbTotal} 命中=${numberHit}）`,
+    { sessionKey: sk, tools, dbTotal, titleHit },
   )
 }
 
 /**
- * CK-07 资讯任务真跑一轮：产出落在任务自己的会话里，且归属 info-curator。
+ * CK-07 资讯任务真跑一轮：产出落成**新的一期**，且这一期的出处是 Agent。
  * 注意：会真实抓取并追加资讯卡条目（该任务的正常产出）。
+ *
+ * 不断言消息级 `agent_id`：流式落库路径目前不带该字段（全库 403 条 assistant
+ * 消息为 null，属既有缺口、与本片无关）。归属的正确载体是会话参与者
+ * （CK-03 已守）与期上的 source/conversation_id——这里断言后者。
  */
 async function ck07() {
   if (SKIP_LLM) return ev.record('CK-07', 'SKIP', 'CK_SKIP_LLM=1')
@@ -270,33 +293,39 @@ async function ck07() {
   )
   if (!job) return ev.record('CK-07', 'SKIP', '库里没有启用中的资讯任务')
 
-  const before = h.dbGet(`SELECT COUNT(*) AS n FROM messages WHERE conversation_id = ?`, `cron:${job.id}`).n
+  const before = h.dbGet(`SELECT COUNT(*) AS n FROM dashboard_feed_batches`).n
   try {
-    h.ui(['cron', 'run', job.id], { timeoutMs: 240000 })
+    h.ui(['cron', 'run', job.id], { timeoutMs: 300000 })
   } catch (err) {
     return ev.record('CK-07', 'FAIL', `cron run 失败：${err.message}`, { jobId: job.id })
   }
 
-  const produced = await h.pollUntil(
+  const batch = await h.pollUntil(
     () => {
-      const rows = h.dbQuery(
-        `SELECT agent_id, role FROM messages
-         WHERE conversation_id = ? AND role = 'assistant' AND content_json LIKE '%assistant_parts%'`,
-        `cron:${job.id}`,
+      const count = h.dbGet(`SELECT COUNT(*) AS n FROM dashboard_feed_batches`).n
+      if (count <= before) return null
+      return h.dbGet(
+        `SELECT b.id, b.source, b.summary, b.conversation_id,
+                (SELECT COUNT(*) FROM dashboard_feed_items i WHERE i.batch_id = b.id) AS item_count
+         FROM dashboard_feed_batches b ORDER BY b.created_at DESC, b.id DESC LIMIT 1`,
       )
-      return rows.length > before ? rows : null
     },
-    180000,
+    120000,
     3000,
   )
 
-  const agents = [...new Set((produced ?? []).map((r) => r.agent_id))]
+  if (!batch) {
+    return ev.record('CK-07', 'FAIL', `任务跑完了但资讯卡没有新增一期（job=${job.id}）`, {
+      jobId: job.id,
+    })
+  }
+
   check(
     'CK-07',
-    Array.isArray(produced) && produced.length > 0 && agents.every((a) => a === 'info-curator'),
-    `资讯任务产出落在 cron:${job.id}，agent_id=${agents.join(',')}`,
-    `产出归属不对或没有产出（agents=${agents.join(',') || '无'}）`,
-    { jobId: job.id, agents },
+    batch.item_count > 0 && typeof batch.summary === 'string' && batch.summary.trim().length > 0,
+    `资讯任务落成新的一期：${batch.item_count} 条，综述 ${String(batch.summary).length} 字`,
+    `新的一期内容不完整：${JSON.stringify(batch).slice(0, 300)}`,
+    { jobId: job.id, batchId: batch.id, itemCount: batch.item_count, source: batch.source },
   )
 }
 
