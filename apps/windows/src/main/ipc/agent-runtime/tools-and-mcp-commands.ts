@@ -8,6 +8,7 @@ import type { AgentRuntimeCommand } from '../../../shared/agent-runtime-commands
 import type { AgentRuntimeBridge } from '../../agent-runtime/bridge'
 import { getToolUsage, getToolUsageByAgent, UNKNOWN_AGENT_ID } from '../../tool-usage-store'
 import { BUILT_IN_AGENTS } from '@mtbot/agent-runtime'
+import { buildToolUsageExportPayload } from './tool-usage-export'
 
 const log = {
   info: (...args: unknown[]) => console.log('[AgentRuntime:IPC]', ...args),
@@ -81,6 +82,34 @@ export async function handleToolsUsageByAgent(days = 0): Promise<unknown> {
       }
     })
     .sort((a, b) => b.totalCalls - a.totalCalls)
+}
+
+/**
+ * 导出工具使用记录（按 Agent 明细 + 全局合计），供离线分析与工具面优化。
+ */
+export async function handleToolsUsageExport(): Promise<{ json: string }> {
+  const [byAgent, totals] = await Promise.all([
+    handleToolsUsageByAgent() as Promise<
+      ReadonlyArray<{
+        id: string
+        name: string
+        totalCalls: number
+        tools: ReadonlyArray<{
+          name: string
+          count: number
+          errorCount: number
+          lastUsedAt: number
+        }>
+      }>
+    >,
+    getToolUsage(),
+  ])
+  const payload = buildToolUsageExportPayload({
+    exportedAt: Date.now(),
+    byAgent,
+    totals,
+  })
+  return { json: JSON.stringify(payload, null, 2) }
 }
 
 // ============================================================

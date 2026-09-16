@@ -14,8 +14,8 @@ export const COMMAND_ALLOWLIST: ReadonlySet<string> = new Set([
   'cron:list', 'cron:runs', 'cron:run', 'cron:create', 'cron:update', 'cron:delete',
   // 工具开关
   'tools:list', 'tools:toggle',
-  // 逐 Agent 工具用量：只读聚合计数，与 tools:list 同风险级（不含参数、不含结果）
-  'tools:usage-by-agent',
+  // 逐 Agent 工具用量 / 导出：只读聚合计数，与 tools:list 同风险级（不含参数、不含结果）
+  'tools:usage-by-agent', 'tools:usage:export',
   // 会话偏好
   'session:preferredModel:set', 'session:thinkingPrefs:set',
   // 会话读写：create/send 仅用于自动化测试构造对话，字段被 COMMAND_FIELD_DENYLIST 收窄

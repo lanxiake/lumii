@@ -4,19 +4,23 @@
  * 集成内建工具、工具进化、搜索工具三个子模块
  */
 
-import React, { useState } from 'react'
+import React, { useCallback, useState } from 'react'
 import clsx from 'clsx'
-import { Wrench, FlaskConical, Search } from 'lucide-react'
+import { Wrench, FlaskConical, Search, Download } from 'lucide-react'
 import { PageHeader } from '../../components/ui/PageHeader/PageHeader'
 import { Card } from '../../components/ui/Card/Card'
 import { Input } from '../../components/ui/Input/Input'
+import { Button } from '../../components/ui/Button/Button'
 import { Loading } from '../../components/ui/Loading/Loading'
 import { Empty } from '../../components/ui/Empty/Empty'
+import { useToast } from '../../components/ui/Toast/useToast'
 import { ToolCard } from '../SkillsPage/components/ToolCard'
 import { ToolEvolutionPanel } from './ToolEvolutionPanel'
 import { AgentUsageView } from './AgentUsageView'
 import { SearchToolsSection } from '../SettingsPage/components/SearchToolsSection'
 import { useToolSearch } from '../../hooks/business/useToolSearch'
+import { saveFile } from '../../services/dialog-service'
+import { writeFile } from '../../services/file-service'
 import { CATEGORY_LABELS, CATEGORY_ORDER } from '../SkillsPage/SkillsPage.const'
 import styles from './ToolsPage.module.css'
 
@@ -29,9 +33,20 @@ interface ToolsPageProps {
   embedded?: boolean
 }
 
+/** 生成默认导出文件名 tool-usage-YYYY-MM-DD.json */
+function defaultExportFileName(): string {
+  const d = new Date()
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `tool-usage-${y}-${m}-${day}.json`
+}
+
 export const ToolsPage: React.FC<ToolsPageProps> = ({ embedded = false }) => {
   const [activeTab, setActiveTab] = useState<ToolsTabType>('builtin')
   const [usageMode, setUsageMode] = useState<UsageMode>('all')
+  const [exporting, setExporting] = useState(false)
+  const toast = useToast()
 
   const {
     filtered: filteredTools,
@@ -49,6 +64,33 @@ export const ToolsPage: React.FC<ToolsPageProps> = ({ embedded = false }) => {
   const builtinGrouped = new Map(
     Array.from(groupedTools.entries()).filter(([category]) => category !== 'channel')
   )
+
+  /** 导出工具使用记录到用户选择的 JSON 文件 */
+  const handleExportUsage = useCallback(async () => {
+    setExporting(true)
+    try {
+      const result = (await window.electronAPI.agentRuntime.sendCommand({
+        type: 'tools:usage:export',
+      })) as { json?: string }
+      const json = result?.json
+      if (typeof json !== 'string' || !json) {
+        toast.error('没有可导出的使用记录')
+        return
+      }
+      const filePath = await saveFile({
+        title: '导出工具使用记录',
+        defaultPath: defaultExportFileName(),
+        filters: [{ name: 'JSON', extensions: ['json'] }],
+      })
+      if (!filePath) return
+      await writeFile(filePath, json)
+      toast.success('已导出工具使用记录')
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : '导出失败')
+    } finally {
+      setExporting(false)
+    }
+  }, [toast])
 
   return (
     <div className={clsx(styles.toolsPage, embedded && styles.embedded)}>
@@ -109,6 +151,16 @@ export const ToolsPage: React.FC<ToolsPageProps> = ({ embedded = false }) => {
                 className={styles.search}
               />
             )}
+            <Button
+              variant="secondary"
+              size="sm"
+              loading={exporting}
+              onClick={() => void handleExportUsage()}
+              className={styles.exportBtn}
+            >
+              <Download size={14} />
+              导出使用记录
+            </Button>
           </div>
           <Card className={styles.card} bodyClassName={styles.cardBody}>
             {usageMode === 'byAgent' ? (

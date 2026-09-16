@@ -982,6 +982,11 @@ export interface ToolsUsageByAgentCommand {
   readonly days?: number
 }
 
+/** 导出工具累计使用记录（JSON），供离线分析 */
+export interface ToolsUsageExportCommand {
+  readonly type: 'tools:usage:export'
+}
+
 export interface McpStatusCommand {
   readonly type: 'mcp:status'
 }
@@ -1729,6 +1734,7 @@ export type AgentRuntimeCommand =
   | ToolsListCommand
   | ToolsToggleCommand
   | ToolsUsageByAgentCommand
+  | ToolsUsageExportCommand
   | McpStatusCommand
   | McpUpsertCommand
   | McpImportCommand
@@ -2278,6 +2284,7 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
         lastUsedAt: number
       }[]
     }[]
+  : T extends 'tools:usage:export' ? { json: string }
   : T extends 'mcp:status' ? McpStatusPayload
   : T extends 'mcp:readConfigFile' ? { path: string; content: string }
   : T extends 'mcp:writeConfigFile' ? { success: boolean; error?: string }

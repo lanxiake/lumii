@@ -67,6 +67,14 @@
   align-items: center;
 }
 
+.exportBtn {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
 .search {
   flex: 1;
   max-width: 400px;

@@ -198,6 +198,7 @@ import {
   handleToolsList,
   handleToolsToggle,
   handleToolsUsageByAgent,
+  handleToolsUsageExport,
   handleMcpStatus,
   handleMcpUpsert,
   handleMcpImport,
@@ -1033,6 +1034,9 @@ export async function handleCommand(
 
       case 'tools:usage-by-agent':
         return handleToolsUsageByAgent(command.days ?? 0)
+
+      case 'tools:usage:export':
+        return handleToolsUsageExport()
 
       case 'mcp:status':
         return handleMcpStatus(bridge)
