@@ -174,6 +174,9 @@ const SEED_JOBS: readonly SeedJob[] = [
   },
   {
     id: 'seed-workspace-tidy',
+    // 团队转正（2026-09-16）：工作区体检由「灵栖维护」执行——它是资产维护者，
+    // 工具面（list_dir/glob/grep/file_read）与「只体检、不擅自清理」的红线都对得上。
+    agentId: 'system-keeper',
     name: '工作区文件整理',
     taskText: '检查工作区里新增的文件，按类型归类并指出可以清理的内容。',
     systemPrompt: [
@@ -221,6 +224,8 @@ export function ensureSeedCronJobsSeeded(db: DatabaseAdapter): void {
   migrateLegacyNewsPipeline(db)
   migrateWorkReportsToChronicler(db)
   migrateNewsPipelineToInfoCurator(db)
+  migrateNewsFeedJobsToInfoCurator(db)
+  migrateWorkspaceTidyToSystemKeeper(db)
   migrateRemovedWikiEroExtractCron(db)
   migrateRemovedWikiAutoSynthesisCron(db)
   migrateSystemPromptsForWorkReports(db)
@@ -476,6 +481,59 @@ function migrateLegacyNewsPipeline(db: DatabaseAdapter): void {
 
 /** 仅供单测：断言「入库条数 == 定义条数」需要拿到定义本身 */
 export const __testables = { SEED_JOBS, seededKey }
+
+/**
+ * 工作区体检任务转正（2026-09-16）：执行者 assistant → system-keeper。
+ *
+ * 与 `migrateWorkReportsToChronicler` 同规格：只迁移「未被用户改过」的行
+ * （agent_id 仍为 'assistant'）；用户改过执行者 / 删过任务的不碰。
+ */
+function migrateWorkspaceTidyToSystemKeeper(db: DatabaseAdapter): void {
+  try {
+    const result = db
+      .prepare(
+        `UPDATE local_cron_jobs SET agent_id = 'system-keeper' WHERE id = 'seed-workspace-tidy' AND agent_id = 'assistant'`,
+      )
+      .run()
+    if (result.changes > 0) {
+      log.info('[migrateWorkspaceTidyToSystemKeeper] seed-workspace-tidy → system-keeper')
+    }
+  } catch (err) {
+    log.error('[migrateWorkspaceTidyToSystemKeeper] 迁移失败:', err)
+  }
+}
+
+/**
+ * 资讯类任务转正（2026-09-16）：凡是**驱动资讯卡**的定时任务都归「灵栖情报」。
+ *
+ * 与 `migrateNewsPipelineToInfoCurator` 的区别：那条只认预置 id `news-pipeline`，
+ * 用户自己新建的资讯任务（`local-cron-*`，任务指令里同样写着 `dashboard_feed_write`）
+ * 会漏网，于是产出记录挂在「默认」分组而不是「情报」分组。
+ *
+ * 判定依据取**任务指令里是否显式调用资讯卡工具**——这是「这活是情报的」唯一可靠特征，
+ * 与任务名（用户可随手改）无关。仍然只迁移 agent_id 为 'assistant' 的行；
+ * 用户显式选过其它执行者的不碰。
+ */
+function migrateNewsFeedJobsToInfoCurator(db: DatabaseAdapter): void {
+  try {
+    const rows = db
+      .prepare<{ id: string; name: string }>(
+        `SELECT id, name FROM local_cron_jobs
+         WHERE agent_id = 'assistant' AND task_text LIKE '%dashboard_feed_write%'`,
+      )
+      .all()
+    for (const row of rows) {
+      const result = db
+        .prepare(`UPDATE local_cron_jobs SET agent_id = 'info-curator' WHERE id = ?`)
+        .run(row.id)
+      if (result.changes > 0) {
+        log.info(`[migrateNewsFeedJobsToInfoCurator] ${row.id}（${row.name}）→ info-curator`)
+      }
+    }
+  } catch (err) {
+    log.error('[migrateNewsFeedJobsToInfoCurator] 迁移失败:', err)
+  }
+}
 
 /**
  * 工作简报类任务转正（2026-09-13 团队蓝图）：执行者 assistant → chronicler。

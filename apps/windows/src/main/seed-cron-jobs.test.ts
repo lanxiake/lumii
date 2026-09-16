@@ -32,6 +32,19 @@ function createFakeDb(): FakeDb {
           if (jobs.has(id)) {
             return { changes: 1, lastInsertRowid: 0 }
           }
+        } else if (sql.includes('UPDATE local_cron_jobs') && sql.includes('agent_id')) {
+          // 归属迁移：从 SQL 里取新 agent id。两种 WHERE 形态都要认——
+          // 预置任务用字面量 id（无参数），按任务查出来的行用占位符。
+          const nextAgent = /SET agent_id\s*=\s*'([^']+)'/.exec(sql)?.[1]
+          const literalId = /WHERE id = '([^']+)'/.exec(sql)?.[1]
+          const id = params.length > 0 ? String(params[0]) : (literalId ?? '')
+          const row = jobs.get(id)
+          const onlyDefaultAgent = sql.includes("agent_id = 'assistant'")
+          if (row && nextAgent && (!onlyDefaultAgent || row[COL.agentId] === 'assistant')) {
+            row[COL.agentId] = nextAgent
+            return { changes: 1, lastInsertRowid: 0 }
+          }
+          return { changes: 0, lastInsertRowid: 0 }
         } else if (sql.includes('INSERT OR REPLACE INTO runtime_state')) {
           state.set(String(params[0]), String(params[1] ?? '1'))
         } else if (sql.includes('DELETE FROM local_cron_jobs')) {
@@ -55,7 +68,16 @@ function createFakeDb(): FakeDb {
         }
         return undefined
       },
-      all: () => [],
+      all: (..._params: unknown[]) => {
+        // 资讯管线迁移：按「任务指令里带 dashboard_feed_write 且仍挂在默认 Agent」筛行
+        if (sql.includes('FROM local_cron_jobs') && sql.includes('dashboard_feed_write')) {
+          return [...jobs.values()]
+            .filter((row) => row[COL.agentId] === 'assistant')
+            .filter((row) => String(row[COL.taskText] ?? '').includes('dashboard_feed_write'))
+            .map((row) => ({ id: row[COL.id], name: row[COL.name] }))
+        }
+        return []
+      },
     }),
   } as unknown as DatabaseAdapter
 
@@ -132,6 +154,102 @@ describe('ensureSeedCronJobsSeeded', () => {
       expect(__testables.SEED_JOBS.find((j) => j.id === id)?.agentId, id).toBe('chronicler')
     }
     expect(__testables.SEED_JOBS.find((j) => j.id === 'news-pipeline')?.agentId).toBe('info-curator')
+  })
+
+  it('工作区体检挂到 system-keeper（维护的活归维护）', () => {
+    const db = createFakeDb()
+    ensureSeedCronJobsSeeded(db.adapter)
+    expect(db.jobs.get('seed-workspace-tidy')![COL.agentId]).toBe('system-keeper')
+    expect(__testables.SEED_JOBS.find((j) => j.id === 'seed-workspace-tidy')?.agentId).toBe('system-keeper')
+  })
+
+  it('老库升级：工作区体检从 assistant 迁到 system-keeper', () => {
+    const db = createFakeDb()
+    // 模拟老库：已按旧定义种下、执行者仍是 assistant
+    db.jobs.set('seed-workspace-tidy', [
+      'seed-workspace-tidy',
+      '工作区文件整理',
+      '检查工作区里新增的文件',
+      'assistant',
+      'cron',
+      '0 20 * * 0',
+      0,
+      null,
+      1,
+      0,
+      null,
+      null,
+      null,
+      null,
+      'system',
+    ])
+    ensureSeedCronJobsSeeded(db.adapter)
+    expect(db.jobs.get('seed-workspace-tidy')![COL.agentId]).toBe('system-keeper')
+  })
+
+  it('用户改过执行者的任务不被归属迁移覆盖', () => {
+    const db = createFakeDb()
+    db.jobs.set('seed-workspace-tidy', [
+      'seed-workspace-tidy',
+      '工作区文件整理',
+      '检查工作区里新增的文件',
+      'code-dev',
+      'cron',
+      '0 20 * * 0',
+      0,
+      null,
+      1,
+      0,
+      null,
+      null,
+      null,
+      null,
+      'system',
+    ])
+    ensureSeedCronJobsSeeded(db.adapter)
+    expect(db.jobs.get('seed-workspace-tidy')![COL.agentId]).toBe('code-dev')
+  })
+
+  it('用户自建的资讯任务也迁到 info-curator（按指令里的 dashboard_feed_write 认领）', () => {
+    const db = createFakeDb()
+    db.jobs.set('local-cron-1-abc', [
+      'local-cron-1-abc',
+      '资讯抓取与综述',
+      '搜索今天值得关注的热门资讯，调用 dashboard_feed_write 写入概览页资讯卡片。',
+      'assistant',
+      'cron',
+      '0 8 * * *',
+      0,
+      null,
+      1,
+      0,
+      null,
+      null,
+      null,
+      null,
+      'news,feishu',
+    ])
+    db.jobs.set('local-cron-2-def', [
+      'local-cron-2-def',
+      '随手记一句',
+      '把这句话记下来。',
+      'assistant',
+      'cron',
+      '0 9 * * *',
+      0,
+      null,
+      1,
+      0,
+      null,
+      null,
+      null,
+      null,
+      'system',
+    ])
+    ensureSeedCronJobsSeeded(db.adapter)
+    expect(db.jobs.get('local-cron-1-abc')![COL.agentId]).toBe('info-curator')
+    // 与资讯无关的任务不受影响
+    expect(db.jobs.get('local-cron-2-def')![COL.agentId]).toBe('assistant')
   })
 
   it('资讯任务 system_prompt 已升级：先读偏好 + 记录筛选依据', () => {

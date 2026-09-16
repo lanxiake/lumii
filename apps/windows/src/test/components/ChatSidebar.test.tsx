@@ -387,6 +387,16 @@ describe('Phase 4: 会话管理 - ChatSidebar组件', () => {
       expect(screen.getByText('定时任务 · 早间简报')).toBeInTheDocument()
     })
 
+    it.each([
+      ['info-curator', '情报', '定时任务 · 资讯抓取与综述'],
+      ['system-keeper', '维护', '定时任务 · 工作区文件整理'],
+    ])('归属 %s 的定时任务记录出现在「%s」分组下', (agentId, label, title) => {
+      renderSidebar({ sessions: [cronSession(agentId, title)] })
+
+      expect(screen.getByText(label)).toBeInTheDocument()
+      expect(screen.getByText(title)).toBeInTheDocument()
+    })
+
     it('系统默认 Agent 跑的后台任务不进「默认」分组（避免灌满后台记录）', () => {
       renderSidebar({ sessions: [cronSession('assistant', '定时任务 · 后台独白')] })
 

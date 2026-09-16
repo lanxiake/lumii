@@ -26,6 +26,12 @@ import { getLatency } from '../provider-latency'
 import { readNewsSnapshot } from '../news-store'
 import { NEWS_PIPELINE_TASK_TEXT, NEWS_PIPELINE_SYSTEM_PROMPT } from '../seed-cron-jobs'
 import {
+  newsFeedAgentId,
+  newsFeedConversationId,
+  newsFeedConversationTitle,
+  resolveNewsFeedJob,
+} from '../news-feed-job'
+import {
   readActiveDashboardFeedSnapshot,
   readActiveDashboardFeedId,
   readDashboardFeedMeta,
@@ -206,16 +212,26 @@ export function registerApiIpcHandlers(): void {
   /**
    * 手动「立即抓取」：与定时任务走同一条 Agent 驱动路径，复用相同的固定 sessionKey，
    * 两者在会话列表里是同一个会话，用户能看到 Agent 具体搜索/调用工具的完整过程。
+   *
+   * 会话与执行者都取自**当前承载资讯管线的那条定时任务**（`news-feed-job.ts`）：
+   * 任务在定时任务页被改过执行者 / 改过指令时，手动抓取跟着一起变；
+   * 任务被删时退回 `cron:news-pipeline` + 「灵栖情报」，手动抓取不因此失效。
    */
   ipcMain.handle('dashboard-feed:refresh', async () => {
     try {
       const agentRuntimeBridge = deps!.getAgentRuntimeBridge()
       if (!agentRuntimeBridge) throw new Error('Agent Runtime 未就绪')
-      const convId = 'cron:news-pipeline'
-      agentRuntimeBridge.ensureConversationExists(convId, '定时任务 · 资讯抓取与综述')
-      const instanceId = await agentRuntimeBridge.createInstanceById('assistant', convId, convId)
+      const job = resolveNewsFeedJob(agentRuntimeBridge.db)
+      const convId = newsFeedConversationId(job)
+      const agentId = newsFeedAgentId(job)
+      agentRuntimeBridge.ensureConversationExists(convId, newsFeedConversationTitle(job))
+      // 会话归属对齐执行者：侧栏据此把这条记录归到「情报」分组
+      agentRuntimeBridge.conversationRepo.updateAgentParticipant(convId, agentId)
+      const instanceId = await agentRuntimeBridge.createInstanceById(agentId, convId, convId)
       try {
-        await agentRuntimeBridge.prompt(instanceId, `${NEWS_PIPELINE_SYSTEM_PROMPT}\n\n---\n\n${NEWS_PIPELINE_TASK_TEXT}`)
+        const systemPrompt = job?.systemPrompt?.trim() || NEWS_PIPELINE_SYSTEM_PROMPT
+        const taskText = job?.taskText?.trim() || NEWS_PIPELINE_TASK_TEXT
+        await agentRuntimeBridge.prompt(instanceId, `${systemPrompt}\n\n---\n\n${taskText}`)
       } finally {
         agentRuntimeBridge.destroy(instanceId)
       }

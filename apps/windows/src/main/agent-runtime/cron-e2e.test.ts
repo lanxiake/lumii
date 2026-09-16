@@ -72,10 +72,14 @@ function makeScheduler(db: DatabaseAdapter, agentReply: string | null) {
     // timestamp 用 ISO 字符串，与 conversation-repo.saveMessage 写入格式一致。
     // convId 由生产代码在调用 prompt 前已 ensureConversationExists，这里从最新一条会话记录里取，
     // 保持与 runLocalCronJob 内部使用的 `cron:${job.id}` 一致（测试不重复该字符串拼接逻辑，直接查表）。
+    //
+    // 必须带 rowid 兜底排序：秒内连跑多个任务时各会话的 created_at 会落在同一毫秒，
+    // 只按 created_at DESC 取到的是并列中的任意一条（实测取到别的任务会话），
+    // 于是生产侧 collectAssistantOutput 在本任务的会话里回读不到产出、白等满 30s 轮询上限。
     prompt: async (_instanceId: string) => {
       if (agentReply === null) return
       const conv = db
-        .prepare<{ id: string }>(`SELECT id FROM conversations ORDER BY created_at DESC LIMIT 1`)
+        .prepare<{ id: string }>(`SELECT id FROM conversations ORDER BY created_at DESC, rowid DESC LIMIT 1`)
         .get()
       if (!conv) return
       db.prepare(
