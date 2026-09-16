@@ -189,6 +189,41 @@ function truncateText(value: string, maxChars: number): { text: string; truncate
   return { text: slice.trim(), truncated: true };
 }
 
+/**
+ * 非 2xx 时给模型「下一步怎么办」，而不是只丢一个状态码。
+ *
+ * 状态码本身不构成信息：模型看到 "HTTP 0" 学不到任何东西，于是对着同一个不可达的
+ * 域名反复重试——实测 zh.wikisource.org 在七天里被试了 18 次、arxiv.org 16 次。
+ * 把原因与出路写进错误里，它才有机会换源。
+ */
+function describeFetchFailure(status: number, url: string, body: string): string {
+  if (status === 0) {
+    // status 0 是宿主的「连接层就没成功」约定（见 apps/windows tool-providers/local-web.ts），
+    // 分类好的原因（超时 / DNS / 连接被重置）就在 body 里。
+    // 只有这一档取 body：其它状态码下 body 是站点的错误页 HTML，塞进来纯属噪声。
+    const reason = body.replace(/\s+/g, " ").trim() || "连接层失败（未给出原因）";
+    return `无法访问 ${url}：${reason}。该站点在当前网络下不可达——换一个来源，或用 web_search 找它的镜像与转载。`;
+  }
+  return `HTTP ${status}: ${url} ${nextStepForStatus(status)}`;
+}
+
+/** 按状态码给一句可执行的下一步 */
+function nextStepForStatus(status: number): string {
+  if (status === 404 || status === 410) {
+    return "页面不存在（链接已失效，或 URL 有误）。先用 web_search 确认真实链接，不要凭记忆拼 URL。";
+  }
+  if (status === 401 || status === 403) {
+    return "站点拒绝访问（可能需要登录，或有反爬限制）。换一个来源。";
+  }
+  if (status === 429) {
+    return "请求过于频繁被限流。稍后重试，或换一个来源。";
+  }
+  if (status >= 500) {
+    return "站点服务端出错，通常不是这个 URL 的问题。稍后重试，或换一个来源。";
+  }
+  return "取回失败，换一个来源试试。";
+}
+
 export const webFetchToolConfig: MtBotToolConfig<typeof WebFetchInput> = {
   name: "web_fetch",
   label: "Web Fetch",
@@ -219,7 +254,7 @@ export const webFetchToolConfig: MtBotToolConfig<typeof WebFetchInput> = {
     cleanup();
 
     if (response.status < 200 || response.status >= 300) {
-      throw new Error(`HTTP ${response.status}: Failed to fetch ${url}`);
+      throw new Error(describeFetchFailure(response.status, url, response.body));
     }
 
     // 解析 HTML → Markdown
