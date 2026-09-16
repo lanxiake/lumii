@@ -307,3 +307,24 @@ describe('dashboard-feed-store (SQLite)', () => {
     db.close()
   })
 })
+
+describe('来源写法归一化的落库往返', () => {
+  it('写入时归一化，读回来是同一种写法', async () => {
+    const db = createFeedDb()
+    setDashboardFeedDb(db)
+
+    await writeDashboardFeedSnapshot(
+      snapshotWith([
+        { id: 'a', title: '同一件事甲', source: '36氪 / 新智元', timestamp: 100 },
+        { id: 'b', title: '同一件事乙', source: '36氪·新智元', timestamp: 200 },
+        { id: 'c', title: '同一件事丙', source: '36氪/新智元', timestamp: 300 },
+      ]),
+    )
+
+    const snapshot = await readDashboardFeedSnapshot('news')
+    const sources = (snapshot?.items ?? []).map((i) => i.source)
+    // 三种写法落库后是同一个值——这是「同一家媒体散成多个统计键」的正面证据
+    expect(new Set(sources)).toEqual(new Set(['36氪·新智元']))
+    db.close()
+  })
+})
