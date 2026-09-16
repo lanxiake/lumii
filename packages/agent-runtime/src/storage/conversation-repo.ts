@@ -970,6 +970,45 @@ export class ConversationRepo {
   }
 
   /**
+   * 实例销毁时收尾该实例的流式占位行：空壳删除，已写入正文的转为已完成保留。
+   *
+   * 不能无条件删除：agent:end 的收尾落库要等工作区快照等异步步骤，可能比
+   * destroy 晚一秒以上（定时任务收尾后立即销毁实例），删除会让这一轮已经流式
+   * 落库的回复连同思考与工具轨迹一起消失，收尾 UPDATE 打空。
+   * 取舍与 finalizeStreamingMessagesForConversation 一致；不改 timestamp，
+   * 让消息留在原位，避免跳到会话末尾。
+   *
+   * @returns 'deleted' 空壳已删除；'finalized' 有内容已保留；'missing' 行不存在或已收尾
+   */
+  finalizeOrDeleteStreamingMessage(
+    messageId: string,
+    conversationId: string,
+  ): "deleted" | "finalized" | "missing" {
+    const row = this.db
+      .prepare<MessageRow>(
+        "SELECT * FROM messages WHERE id = ? AND conversation_id = ? AND is_streaming = 1",
+      )
+      .get(messageId, conversationId);
+    if (!row) return "missing";
+
+    const isEmpty = isEmptyAssistantContent(row.content_json);
+    withTransaction(this.db, () => {
+      if (isEmpty) {
+        this.db
+          .prepare("DELETE FROM messages WHERE id = ? AND conversation_id = ?")
+          .run(messageId, conversationId);
+      } else {
+        this.db
+          .prepare("UPDATE messages SET is_streaming = 0 WHERE id = ? AND conversation_id = ?")
+          .run(messageId, conversationId);
+      }
+    });
+    this.conversationCache.delete(conversationId);
+    this.messageCache.deleteWhere((k) => k.startsWith(`${conversationId}|`));
+    return isEmpty ? "deleted" : "finalized";
+  }
+
+  /**
    * 保存工具执行结果作为 tool role 消息。
    */
   saveToolResult(params: {

@@ -16,18 +16,20 @@ const INSTANCE_ID = 'instance-1'
 const SESSION_KEY = 'conversation-1'
 
 /** 搭一套最小可用的 BridgeLifecycle 依赖，只保留本用例关心的部分 */
-function createLifecycle(instanceState: 'idle' | 'running') {
+function createLifecycle(
+  instanceState: 'idle' | 'running',
+  opts: { conversationRepo?: unknown; streamingMsgId?: string } = {},
+) {
   const instanceStates = new InstanceStateStore()
-  instanceStates.set(
-    INSTANCE_ID,
-    createInstanceState(createRunContext(SESSION_KEY, INSTANCE_ID, SESSION_KEY), {
-      definitionId: 'agent',
-      runningStartedAt: null,
-      completedTurns: 0,
-      inputTokens: 0,
-      outputTokens: 0,
-    }),
-  )
+  const state = createInstanceState(createRunContext(SESSION_KEY, INSTANCE_ID, SESSION_KEY), {
+    definitionId: 'agent',
+    runningStartedAt: null,
+    completedTurns: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+  })
+  if (opts.streamingMsgId) state.streamingAssistantMsgId = opts.streamingMsgId
+  instanceStates.set(INSTANCE_ID, state)
 
   const registryDestroy = vi.fn()
   const forwardIpcEvent = vi.fn()
@@ -47,7 +49,7 @@ function createLifecycle(instanceState: 'idle' | 'running') {
     instanceStates,
     instanceToConversation: new Map([[INSTANCE_ID, SESSION_KEY]]),
     instanceToRootSessionKey: new Map([[INSTANCE_ID, SESSION_KEY]]),
-    getConversationRepo: () => null,
+    getConversationRepo: () => (opts.conversationRepo ?? null),
     messageBus: { unregister: vi.fn() },
     permissionController: { clearAll: vi.fn() },
     askUserQuestionController: { clearAll: vi.fn() },
@@ -125,6 +127,31 @@ describe('BridgeLifecycle.destroy 的运行中兜底', () => {
 
     const types = forwardIpcEvent.mock.calls.map(([event]) => (event as { type: string }).type)
     expect(types).not.toContain('agent:error')
+  })
+})
+
+describe('BridgeLifecycle.destroy 的流式占位行收尾', () => {
+  it('交给 finalizeOrDeleteStreamingMessage 按内容收尾，不整条删除（避免抹掉刚流式落库的回复）', () => {
+    const finalizeOrDeleteStreamingMessage = vi.fn()
+    const { lifecycle } = createLifecycle('idle', {
+      conversationRepo: { finalizeOrDeleteStreamingMessage },
+      streamingMsgId: 'msg-streaming',
+    })
+
+    lifecycle.destroy(INSTANCE_ID)
+
+    expect(finalizeOrDeleteStreamingMessage).toHaveBeenCalledWith('msg-streaming', SESSION_KEY)
+  })
+
+  it('没有流式占位时不触碰消息表', () => {
+    const finalizeOrDeleteStreamingMessage = vi.fn()
+    const { lifecycle } = createLifecycle('idle', {
+      conversationRepo: { finalizeOrDeleteStreamingMessage },
+    })
+
+    lifecycle.destroy(INSTANCE_ID)
+
+    expect(finalizeOrDeleteStreamingMessage).not.toHaveBeenCalled()
   })
 })
 

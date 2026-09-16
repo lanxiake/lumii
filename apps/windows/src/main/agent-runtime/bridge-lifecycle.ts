@@ -156,7 +156,9 @@ export class BridgeLifecycle {
     const conversationRepo = this.deps.getConversationRepo()
     if (streamMsgId && convId && conversationRepo) {
       try {
-        conversationRepo.deleteMessage(streamMsgId, convId)
+        // 空壳占位删除；已写入正文的转为已完成保留。agent:end 的收尾落库可能比
+        // destroy 晚一秒以上（要等工作区快照），无条件删除会抹掉整轮回复。
+        conversationRepo.finalizeOrDeleteStreamingMessage(streamMsgId, convId)
       } catch {
         // 忽略销毁时清理失败
       }

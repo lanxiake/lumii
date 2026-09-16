@@ -138,3 +138,151 @@ describe.skipIf(!hasFts5Db)('cron driveAgent 产出回读', () => {
     )
   })
 })
+
+describe.skipIf(!hasFts5Db)('cron driveAgent 会话归属与落库顺序', () => {
+  let db: DatabaseAdapter
+
+  beforeEach(() => {
+    db = createMigratedDb()
+  })
+
+  /** 插入一条 silent 定时任务与它的会话记录，返回会话 id */
+  function seedJob(jobId: string, agentId: string, taskText: string): string {
+    db.prepare(
+      `INSERT INTO local_cron_jobs
+       (id, name, task_text, agent_id, schedule_type, schedule_expr, next_run_at, interval_ms, enabled, created_at, notify_targets, system_prompt)
+       VALUES (?, '早间简报', ?, ?, 'cron', '30 8 * * 1', 0, NULL, 1, 0, 'silent', '写简报')`,
+    ).run(jobId, taskText, agentId)
+    const convId = `cron:${jobId}`
+    db.prepare(
+      `INSERT INTO conversations (id, user_id, type, title, created_at) VALUES (?, 'local-user', 'direct', '定时任务 · 早间简报', ?)`,
+    ).run(convId, new Date().toISOString())
+    return convId
+  }
+
+  function runWith(
+    reply: string,
+    saveMessage: ReturnType<typeof vi.fn>,
+    setConversationAgent: ReturnType<typeof vi.fn>,
+    opts: { onPrompt?: () => void } = {},
+  ) {
+    const scheduler = new CronScheduler({ isOpen: true, db } as never, {
+      showCronNotification: vi.fn(),
+      getLastActiveConvId: () => null,
+      ensureConversationExists: () => true,
+      setConversationAgent,
+      notifyIncomingMessage: vi.fn(),
+      createInstanceById: async () => 'inst-persist',
+      waitForInstanceIdle: async () => undefined,
+      getAssistantOutputFromInstance: () => reply,
+      prompt: async () => {
+        opts.onPrompt?.()
+      },
+      destroy: () => undefined,
+      getFileRepo: () => null,
+      getCwd: () => 'C:/tmp',
+      saveMessage,
+    } as never)
+    return (
+      scheduler as unknown as {
+        runLocalCronJob: (
+          job: { id: string; task_text: string; agent_id: string | null },
+          options?: { manual?: boolean },
+        ) => Promise<void>
+      }
+    ).runLocalCronJob({ id: 'seed-morning-briefing', task_text: '汇总今天要关注的事项', agent_id: 'chronicler' }, { manual: true })
+  }
+
+  it('会话归属执行它的 Agent，侧栏才能把记录归到「记事」分组', async () => {
+    const convId = seedJob('seed-morning-briefing', 'chronicler', '汇总今天要关注的事项')
+    const setConversationAgent = vi.fn()
+    await runWith('早间简报正文', vi.fn(), setConversationAgent)
+    expect(setConversationAgent).toHaveBeenCalledWith(convId, 'chronicler')
+  })
+
+  it('任务指令与兜底产出按时间递增落库，顺序稳定', async () => {
+    seedJob('seed-morning-briefing', 'chronicler', '汇总今天要关注的事项')
+    const saveMessage = vi.fn()
+    await runWith('早间简报正文', saveMessage, vi.fn())
+
+    const saved = saveMessage.mock.calls.map((call) => call[0] as { role: string; timestamp?: string })
+    const user = saved.find((m) => m.role === 'user')
+    const assistant = saved.find((m) => m.role === 'assistant')
+    expect(user?.timestamp).toBeTruthy()
+    expect(assistant?.timestamp).toBeTruthy()
+    expect(Date.parse(assistant!.timestamp!)).toBeGreaterThan(Date.parse(user!.timestamp!))
+  })
+
+  it('任务指令用任务开始时刻，不晚于流式回复的落库时刻（否则 UI 里回复排到指令上面）', async () => {
+    seedJob('seed-morning-briefing', 'chronicler', '汇总今天要关注的事项')
+    const saveMessage = vi.fn()
+    let streamedAt = 0
+    await runWith('早间简报正文', saveMessage, vi.fn(), {
+      // 模拟 bridge 的流式落库：回复以「收尾时刻」为 timestamp 写入会话
+      onPrompt: () => {
+        streamedAt = Date.now()
+      },
+    })
+
+    const user = saveMessage.mock.calls
+      .map((call) => call[0] as { role: string; timestamp?: string })
+      .find((m) => m.role === 'user')
+    expect(Date.parse(user!.timestamp!)).toBeLessThanOrEqual(streamedAt)
+  })
+
+  it('NO_REPLY 哨兵不落库为产出，会话里不会出现看不懂的 NO_REPLY 气泡', async () => {
+    seedJob('seed-morning-briefing', 'chronicler', '汇总今天要关注的事项')
+    const saveMessage = vi.fn()
+    await runWith('NO_REPLY', saveMessage, vi.fn())
+
+    const roles = saveMessage.mock.calls.map((call) => (call[0] as { role: string }).role)
+    expect(roles).toEqual(['user'])
+  })
+
+  it('流式回复已落库时不重复补写产出，同一回复不会在会话里出现两份', async () => {
+    const convId = seedJob('seed-morning-briefing', 'chronicler', '汇总今天要关注的事项')
+    const saveMessage = vi.fn()
+    await runWith('早间简报正文', saveMessage, vi.fn(), {
+      // 模拟 bridge 的流式落库：prompt 期间已把完整回复写进会话
+      onPrompt: () => {
+        db.prepare(
+          `INSERT INTO messages (id, conversation_id, role, content_json, timestamp, is_streaming)
+           VALUES ('msg-streamed', ?, 'assistant', ?, ?, 0)`,
+        ).run(
+          convId,
+          JSON.stringify({
+            type: 'assistant_parts',
+            parts: [{ type: 'text', id: 't1', text: '早间简报正文（含工具轨迹）', status: 'done' }],
+          }),
+          new Date().toISOString(),
+        )
+      },
+    })
+
+    const roles = saveMessage.mock.calls.map((call) => (call[0] as { role: string }).role)
+    expect(roles).toEqual(['user'])
+  })
+
+  it('本轮只有工具轨迹（无正文）时也算已落库，不再补写一份纯文本产出', async () => {
+    const convId = seedJob('seed-morning-briefing', 'chronicler', '汇总今天要关注的事项')
+    const saveMessage = vi.fn()
+    await runWith('本轮结论', saveMessage, vi.fn(), {
+      onPrompt: () => {
+        db.prepare(
+          `INSERT INTO messages (id, conversation_id, role, content_json, timestamp, is_streaming)
+           VALUES ('msg-tools', ?, 'assistant', ?, ?, 1)`,
+        ).run(
+          convId,
+          JSON.stringify({
+            type: 'assistant_parts',
+            parts: [{ type: 'tool', id: 'tool-1', name: 'work_report_read', args: {}, status: 'completed' }],
+          }),
+          new Date().toISOString(),
+        )
+      },
+    })
+
+    const roles = saveMessage.mock.calls.map((call) => (call[0] as { role: string }).role)
+    expect(roles).toEqual(['user'])
+  })
+})

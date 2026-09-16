@@ -1223,6 +1223,11 @@ export class AgentRuntimeBridge {
       getAssistantOutputFromInstance: (instanceId) => this.getAssistantOutputFromInstance(instanceId),
       destroy: (instanceId) => this.destroy(instanceId),
       ensureConversationExists: (conversationId, title) => this.ensureConversationExists(conversationId, title),
+      setConversationAgent: (conversationId, agentId) => {
+        // 归属已一致时不写库：syncConversationAgents 每次启动都会全量调一遍
+        if (this._conversationRepo?.getAgentParticipantId(conversationId) === agentId) return
+        this._conversationRepo?.updateAgentParticipant(conversationId, agentId)
+      },
       notifyIncomingMessage: (sessionKey, text) => this.notifyIncomingMessage(sessionKey, text),
       saveMessage: (params) => {
         this._conversationRepo?.saveMessage({
@@ -1230,6 +1235,7 @@ export class AgentRuntimeBridge {
           agentId: params.agentId ?? 'assistant',
           role: params.role,
           contentJson: { type: 'text', text: params.text },
+          ...(params.timestamp ? { timestamp: params.timestamp } : {}),
         })
       },
       getFileRepo: () => this._fileRepo,

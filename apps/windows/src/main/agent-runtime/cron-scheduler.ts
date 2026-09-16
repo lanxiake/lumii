@@ -20,6 +20,7 @@ import { DEFAULT_AGENT_ID } from '../seed-cron-jobs'
 import { formatForTarget, formatDashboardFeedForPush } from './cron-notify-format'
 import { shouldSkipCronFocusMemoryWrite } from './cron-focus-memory'
 import { dispatchChannelTarget } from './channel-target-dispatch'
+import { isNoReplySentinel } from './bridge-agent-instance-events'
 
 const log = {
   info: (...args: unknown[]) => console.log('[CronScheduler]', ...args),
@@ -200,12 +201,27 @@ export interface CronSchedulerDeps {
   destroy: (instanceId: string) => void
   /** 确保对话记录存在（cron 任务用固定 sessionKey，让每个任务在会话列表里有专属可查看的记录） */
   ensureConversationExists: (conversationId: string, title?: string) => boolean
+  /**
+   * 把定时任务会话归属到执行它的 Agent（写 conversations 的 agent 参与者）。
+   *
+   * 会话列表按这个归属把记录分到侧栏分组：归属 chronicler 的「早间简报」才能出现在
+   * 「记事」分组下，供用户查看与 Agent 回顾。创建会话时参与者写的是 'main'，
+   * 必须由执行者覆盖。实现方需保证幂等（相同值不重复写库）。
+   */
+  setConversationAgent?: (conversationId: string, agentId: string) => void
   /** 通知渲染进程有新的用户消息（不落库，仅推送 UI 展示；不跳转视图，避免打断用户当前操作） */
   notifyIncomingMessage: (sessionKey: string, text: string) => void
   /** 落库一条消息到指定会话。cron 实例不走 UI 流式落库路径，产出只在内存，
    *  必须手动持久化任务指令与 Agent 产出，否则会话历史在重启后为空。
-   *  agentId 为任务执行者归属（缺省回落 assistant），用于多 Agent 的产出归属。 */
-  saveMessage?: (params: { conversationId: string; role: 'user' | 'assistant'; text: string; agentId?: string }) => void
+   *  agentId 为任务执行者归属（缺省回落 assistant），用于多 Agent 的产出归属。
+   *  timestamp 用于固定任务指令与产出的先后顺序（同毫秒落库时 DB 按随机 id 排序会颠倒两者）。 */
+  saveMessage?: (params: {
+    conversationId: string
+    role: 'user' | 'assistant'
+    text: string
+    agentId?: string
+    timestamp?: string
+  }) => void
   /** 获取文件仓储（用于文件清理任务） */
   getFileRepo: () => FileRepo | null
   /** 获取 workspace 根目录（用于文件清理任务） */
@@ -637,8 +653,47 @@ export class CronScheduler {
         log.info(`[startLocalCronScheduler] 清除 ${stale.changes} 条启动时残留的 running 状态`)
       }
       log.info(`[startLocalCronScheduler] 已恢复 ${jobs.length} 个本地定时任务`)
+      this.syncConversationAgents()
     } catch (err) {
       log.error('[startLocalCronScheduler] 恢复本地定时任务失败:', err)
+    }
+  }
+
+  /**
+   * 校正历史定时任务会话的 Agent 归属（含已禁用任务的历史记录）。
+   *
+   * 老库里 `cron:<jobId>` 会话的参与者写的是 'main'，侧栏无法据此归组；
+   * 这里按 local_cron_jobs.agent_id 就地改写成真正的执行者。幂等，每次启动跑一遍。
+   * 只在会话已存在时更新 —— 不存在的会话等任务下次运行时由 driveAgent 建。
+   */
+  private syncConversationAgents(): void {
+    const setAgent = this.deps.setConversationAgent
+    if (!setAgent) return
+    try {
+      const jobs = this.localDb.db
+        .prepare<{ id: string; agent_id: string | null }>(
+          `SELECT id, agent_id FROM local_cron_jobs WHERE agent_id IS NOT NULL`
+        )
+        .all()
+      if (jobs.length === 0) return
+      const knownConvIds = new Set(
+        this.localDb.db
+          .prepare<{ id: string }>(`SELECT id FROM conversations WHERE id LIKE 'cron:%'`)
+          .all()
+          .map((row) => row.id)
+      )
+      let updated = 0
+      for (const job of jobs) {
+        const convId = `cron:${job.id}`
+        if (!knownConvIds.has(convId)) continue
+        setAgent(convId, job.agent_id!)
+        updated += 1
+      }
+      if (updated > 0) {
+        log.info(`[syncConversationAgents] 已校正 ${updated} 个定时任务会话的 Agent 归属`)
+      }
+    } catch (err) {
+      log.warn('[syncConversationAgents] 校正历史会话归属失败:', err)
     }
   }
 
@@ -706,6 +761,30 @@ export class CronScheduler {
     } catch (err) {
       log.warn('[readLatestAssistantText] 回读失败:', err)
       return null
+    }
+  }
+
+  /**
+   * 本轮运行是否已在会话里留下 assistant 行（正文或工具轨迹）。
+   *
+   * bridge 的流式落库（agent:start 建占位 → message:end 更新 → agent:end 收尾）
+   * 会写整轮回复，cron 再补一条纯文本产出会让同一回复显示两份；
+   * 只有流式行不存在（实例未起、会话刚建、非流式降级）时才需要兜底落库。
+   */
+  private hasAssistantMessageSince(conversationId: string, since: number): boolean {
+    try {
+      const row = this.localDb.db
+        .prepare<{ id: string }>(
+          `SELECT id FROM messages
+           WHERE conversation_id = ? AND role = 'assistant' AND timestamp >= ?
+           LIMIT 1`
+        )
+        // messages.timestamp 是 ISO 字符串，必须用同类型比较（见 readLatestAssistantText）
+        .get(conversationId, new Date(since).toISOString())
+      return Boolean(row)
+    } catch (err) {
+      log.warn('[hasAssistantMessageSince] 查询失败:', err)
+      return false
     }
   }
 
@@ -850,6 +929,8 @@ export class CronScheduler {
     log.info(`[driveAgent] 驱动 Agent agentId=${agentId} 执行任务 jobId=${job.id}`)
     const convId = `cron:${job.id}`
     this.deps.ensureConversationExists(convId, `定时任务 · ${currentRow.name}`)
+    // 会话归属执行者：侧栏据此把记录归到对应 Agent 分组（如「早间简报」→「记事」）
+    this.deps.setConversationAgent?.(convId, agentId)
     this.deps.notifyIncomingMessage(convId, job.task_text)
     // 硬防线：自主规划的自建任务（agent-self:*）必须走工具白名单受限实例，
     // 不能像预置/用户任务那样拿 assistant 全量工具。
@@ -872,20 +953,39 @@ export class CronScheduler {
         since: startedAt,
         fallback: job.task_text,
       })
-      // cron 实例不走 UI 流式落库路径，产出只存在实例内存（getAssistantOutputFromInstance），
-      // 必须手动落库任务指令(user) + Agent 产出(assistant)，否则会话历史在重启后为空。
+      // 落库任务指令(user)；Agent 产出(assistant)只在流式路径没留下内容时补写 ——
+      // cron 实例走的是普通实例路径，bridge 的流式落库（agent:start/message:end）
+      // 已经把完整回复（含思考与工具轨迹）写进会话，这里再补一条纯文本产出会让
+      // 用户看到两份相同内容；只有流式行没落下来（实例未起、会话刚建）才需要兜底。
+      //
+      // 指令的时间戳必须用「任务开始时刻」而不是落库时刻：流式回复的 timestamp 取自
+      // agent:end 收尾落库（updateMessageContent 会刷新 timestamp），收尾发生在本次
+      // driveAgent 落库之前 —— 若指令用落库时刻，它会晚于回复，UI 按时间排序后回复
+      // 排到指令上面，会话末尾是「我发的消息」，看起来像 Agent 没有回复。
+      const savedAt = Date.now()
       this.deps.saveMessage?.({
         conversationId: convId,
         role: 'user',
         text: job.task_text,
         agentId,
+        timestamp: new Date(startedAt).toISOString(),
       })
-      this.deps.saveMessage?.({
-        conversationId: convId,
-        role: 'assistant',
-        text: output,
-        agentId,
-      })
+      // NO_REPLY 是「本轮无话可说」的哨兵，不是产出 —— 落库只会在会话里留一个
+      // 用户看不懂的 NO_REPLY 气泡（流式落库侧已按同一判据丢弃）。
+      if (isNoReplySentinel(output)) {
+        log.info(`[driveAgent] Agent 本轮为 NO_REPLY 哨兵，跳过产出落库 jobId=${job.id}`)
+      } else if (this.hasAssistantMessageSince(convId, startedAt)) {
+        log.info(`[driveAgent] 本轮回复已由流式落库写入会话，跳过重复产出落库 jobId=${job.id}`)
+      } else {
+        this.deps.saveMessage?.({
+          conversationId: convId,
+          role: 'assistant',
+          text: output,
+          agentId,
+          // 晚于指令（startedAt）至少 1ms，保证 UI 里回复排在指令之后
+          timestamp: new Date(Math.max(savedAt, startedAt + 1)).toISOString(),
+        })
+      }
       return output
     } finally {
       this.deps.destroy(instanceId)
