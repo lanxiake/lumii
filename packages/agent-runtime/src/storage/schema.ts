@@ -6,7 +6,7 @@
  */
 
 /** 当前 schema 版本号 */
-export const SCHEMA_VERSION = 45;
+export const SCHEMA_VERSION = 46;
 
 /**
  * V1 DDL — 初始 schema
@@ -1582,6 +1582,44 @@ ALTER TABLE tool_audit_log ADD COLUMN definition_id TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_audit_definition
   ON tool_audit_log (definition_id, timestamp DESC);
+`,
+  ],
+  // V46: 工具用量的**按日**维度
+  //
+  // 动因：V44 给了「谁在用」，但答不了「**最近**还在用吗」。B1 的靶子搞错正是因为
+  // 拿累计数字当当前状态看（413→472 次调用里那 181 次失败全是历史存量）。
+  // B3 要拿这些数做逐 Agent 的工具取舍，不能重复同一个坑。
+  //
+  // 为什么不给 V44 那张表加 day 列、而是另起一张：
+  // - V44 那张是**累计**语义（用来回答「这个工具一共被用过几次」），
+  //   加 day 之后它就不再是累计表，所有读侧都要改成 SUM 聚合，等于换了一张表还改坏语义。
+  // - 两张表各自的**读法**不同、**写频**也不同：累计表几乎只增不减，
+  //   日表要有保留期（见下）。混在一起会让「清理旧数据」变成「删掉历史总数」。
+  // - 冗余的代价是每次调用多写一行，相对下面能正面解决的膨胀问题，这个代价是划算的。
+  //
+  // 之前否掉这个方案的两条理由，这次都正面解决而不是绕开：
+  // ① 行数膨胀 → 有界：只保留 DAILY_RETENTION_DAYS 天，装载时顺带清理。
+  //    真实增长量级是「实际用到的 (日 × Agent × 工具) 组合」，不是三者相乘的理论上限。
+  // ② flushToDb 整表 UPSERT → 改成脏键集合（这张表让问题从"浪费"变成"卡"，
+  //    所以必须一起改；累计表顺带受益）。
+  //
+  // day 用**本地日**（YYYY-MM-DD）：用户问的是「今天用了什么」，
+  // 拿 UTC 日会在东八区把凌晨 8 点前算进前一天。
+  [
+    46,
+    `
+CREATE TABLE IF NOT EXISTS tool_usage_daily (
+  day          TEXT NOT NULL,
+  agent_id     TEXT NOT NULL,
+  tool_name    TEXT NOT NULL,
+  count        INTEGER NOT NULL DEFAULT 0,
+  error_count  INTEGER NOT NULL DEFAULT 0,
+  last_used_at INTEGER,
+  PRIMARY KEY (day, agent_id, tool_name)
+);
+
+CREATE INDEX IF NOT EXISTS idx_tud_day
+  ON tool_usage_daily (day DESC);
 `,
   ],
 ] as const;

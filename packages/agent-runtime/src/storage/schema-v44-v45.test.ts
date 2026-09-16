@@ -1,5 +1,5 @@
 /**
- * V44 / V45 迁移验证：测量的两个维度。
+ * V44 / V45 / V46 迁移验证：测量的三个维度。
  *
  * V44 把 `tool_usage_stats` 从「只有 tool_name 主键」重建为 `(agent_id, tool_name)`。
  * 动因：原表答不了「维护到底用没用过 wiki_read」这类逐 Agent 的取舍问题，
@@ -8,8 +8,11 @@
  * V45 给 `tool_audit_log` 补 `definition_id`。动因：它的 agent_id 存的是**实例 id**
  * （`agent-1789048421480-wst9ns`），实例不落库，等于存了个没人能解的外键。
  *
- * 两条迁移共同的取舍：**旧数据不假装能归因**——V44 落 'unknown'、V45 留 NULL。
- * 这些用例把这条守住。
+ * V46 加 `tool_usage_daily`。动因：V44 答得了「谁在用」，答不了「**最近**还在用吗」——
+ * 而 B1 的靶子搞错正是因为拿累计数字当当前状态看。
+ *
+ * V44/V45 共同的取舍：**旧数据不假装能归因**——落 'unknown' / 留 NULL。这些用例守住它。
+ * V46 的另一条：旧数据**不进按日表**——没有时间信息，硬塞一个日期就是编造。
  */
 import { describe, expect, it } from 'vitest'
 import {
@@ -37,8 +40,8 @@ function columns(db: ReturnType<typeof createMigratedTestDb>, table: string): st
 }
 
 describe('schema V44 tool_usage_stats 加 agent 维度', () => {
-  it('SCHEMA_VERSION 已递增到 45', () => {
-    expect(SCHEMA_VERSION).toBeGreaterThanOrEqual(45)
+  it('SCHEMA_VERSION 已递增到 46', () => {
+    expect(SCHEMA_VERSION).toBeGreaterThanOrEqual(46)
   })
 
   it('新建库直接带 agent_id 列', () => {
@@ -165,5 +168,58 @@ describe('schema V45 tool_audit_log 补 definition_id', () => {
     const versions = MIGRATIONS.map(([v]) => v)
     expect(versions).toEqual([...versions].sort((a, b) => a - b))
     expect(new Set(versions).size).toBe(versions.length)
+  })
+})
+
+describe('schema V46 tool_usage_daily 按日维度', () => {
+  it('新建库直接带按日表', () => {
+    const db = createMigratedTestDb()
+    const cols = columns(db, 'tool_usage_daily')
+    expect(cols).toEqual(
+      expect.arrayContaining(['day', 'agent_id', 'tool_name', 'count', 'error_count', 'last_used_at']),
+    )
+    db.close()
+  })
+
+  it('同一天同一 Agent 同一工具只能有一行（累加而不是堆行）', () => {
+    const db = createMigratedTestDb()
+    const stmt = db.prepare(
+      `INSERT INTO tool_usage_daily (day, agent_id, tool_name, count, error_count, last_used_at)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(day, agent_id, tool_name) DO UPDATE SET count = excluded.count`,
+    )
+    stmt.run('2026-09-16', 'assistant', 'bash', 3, 0, 1)
+    stmt.run('2026-09-16', 'assistant', 'bash', 9, 1, 2)
+
+    const rows = db
+      .prepare<{ count: number; error_count: number }>(
+        `SELECT count, error_count FROM tool_usage_daily WHERE day = '2026-09-16'`,
+      )
+      .all()
+    expect(rows).toHaveLength(1)
+    expect(rows[0]?.count).toBe(9)
+    db.close()
+  })
+
+  it('V46 是纯新增：不碰累计表，历史存量原样留着', () => {
+    // 这条守住「加按日维度不能顺手把累计数据也改了」——
+    // 两张表分家的主要理由就是「清理旧数据」不该等于「删掉历史总数」。
+    const db = createPreV45TestDb()
+    runMigration45(db)
+    db.prepare(
+      `INSERT INTO tool_usage_stats (agent_id, tool_name, count, error_count, last_used_at) VALUES ('unknown', 'bash', 1940, 2, 1)`,
+    ).run()
+
+    const entry = MIGRATIONS.find(([v]) => v === 46)
+    expect(entry).toBeDefined()
+    db.exec(entry![1])
+
+    const stat = db
+      .prepare<{ count: number }>(`SELECT count FROM tool_usage_stats WHERE tool_name = 'bash'`)
+      .get()
+    expect(stat?.count).toBe(1940)
+    // 旧数据不进按日表：没有时间信息，硬塞一个日期就是编造
+    expect(db.prepare(`SELECT COUNT(*) n FROM tool_usage_daily`).get()).toMatchObject({ n: 0 })
+    db.close()
   })
 })

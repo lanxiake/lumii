@@ -49,10 +49,14 @@ export function handleToolsToggle(
  * 而那是逐 Agent 收敛工具面的唯一依据。之前只有全局累计计数，
  * 于是「维护用没用过 wiki_read」这类问题只能靠猜。
  *
+ * @param days >0 时只统计最近 N 天。**两种口径刻意不互相兜底**：
+ *   累计表里混着 V44 之前无法归因的存量，拿它当「最近 N 天」用，
+ *   就是 B1 那个坑（把历史存量当当前状态）的复发。
+ *
  * 在主进程就把名字解析好、排好序：渲染层只负责画。
  */
-export async function handleToolsUsageByAgent(): Promise<unknown> {
-  const byAgent = await getToolUsageByAgent()
+export async function handleToolsUsageByAgent(days = 0): Promise<unknown> {
+  const byAgent = await getToolUsageByAgent({ days })
   const nameById = new Map(BUILT_IN_AGENTS.map((a) => [a.id, a.name]))
 
   return Object.entries(byAgent)

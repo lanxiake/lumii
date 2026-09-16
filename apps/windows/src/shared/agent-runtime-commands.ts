@@ -973,6 +973,13 @@ export interface ToolsToggleCommand {
  */
 export interface ToolsUsageByAgentCommand {
   readonly type: 'tools:usage-by-agent'
+  /**
+   * 只统计最近 N 天（含今天）；省略或 0 表示累计。
+   *
+   * 两种口径来自不同的表，**不互相兜底**：累计表里混着 V44 之前无法归因的存量，
+   * 拿它当「最近 N 天」用，就会重演 B1 那个坑（把历史存量当成当前状态）。
+   */
+  readonly days?: number
 }
 
 export interface McpStatusCommand {

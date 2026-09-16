@@ -1032,7 +1032,7 @@ export async function handleCommand(
         return handleToolsToggle(bridge, command)
 
       case 'tools:usage-by-agent':
-        return handleToolsUsageByAgent()
+        return handleToolsUsageByAgent(command.days ?? 0)
 
       case 'mcp:status':
         return handleMcpStatus(bridge)

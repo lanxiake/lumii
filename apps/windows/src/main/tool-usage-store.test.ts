@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach, vi } from 'vitest'
+import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest'
 import os from 'node:os'
 import path from 'node:path'
 import { promises as fs } from 'node:fs'
@@ -183,5 +183,132 @@ describe('tool-usage-store · SQLite 路径', () => {
       errorCount: 181,
     })
     db.close()
+  })
+})
+
+describe('tool-usage-store · 按日维度与时间窗', () => {
+  /** 注入真实内存库并把系统时间钉在某一天，验证窗口的边界 */
+  async function storeAt(isoDate: string) {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(`${isoDate}T12:00:00`))
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'lumii-tool-usage-day-'))
+    vi.doMock('./client-data-root', () => ({ resolveWindowsClientDataRoot: () => dir }))
+    vi.resetModules()
+    const mod = await import('./tool-usage-store')
+    mod.__resetToolUsageCacheForTest()
+    const db = createMigratedTestDb()
+    mod.initToolUsageStore(db)
+    return { ...mod, db }
+  }
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('同一天多次调用累加到一行，跨天分成两行', async () => {
+    const s = await storeAt('2026-09-16')
+    await s.recordToolUsage('assistant', 'bash')
+    await s.recordToolUsage('assistant', 'bash', true)
+    await s.flushToolUsage()
+
+    const rows = s.db
+      .prepare<{ day: string; count: number; error_count: number }>(
+        `SELECT day, count, error_count FROM tool_usage_daily WHERE tool_name = 'bash'`,
+      )
+      .all()
+    expect(rows).toEqual([{ day: '2026-09-16', count: 2, error_count: 1 }])
+    s.db.close()
+  })
+
+  it('窗口只算窗口内的天数，累计不受影响', async () => {
+    const s = await storeAt('2026-09-10')
+    await s.recordToolUsage('assistant', 'bash') // 09-10
+    vi.setSystemTime(new Date('2026-09-16T12:00:00'))
+    await s.recordToolUsage('assistant', 'bash') // 09-16
+    await s.flushToolUsage()
+
+    const cumulative = await s.getToolUsageByAgent()
+    expect(cumulative['assistant']?.['bash']?.count).toBe(2)
+
+    // 含今天共 7 天 → 09-10 起，两天都在
+    const week = await s.getToolUsageByAgent({ days: 7 })
+    expect(week['assistant']?.['bash']?.count).toBe(2)
+
+    // 含今天共 3 天 → 09-14 起，只剩 09-16
+    const threeDays = await s.getToolUsageByAgent({ days: 3 })
+    expect(threeDays['assistant']?.['bash']?.count).toBe(1)
+    s.db.close()
+  })
+
+  it('窗口口径不拿累计数兜底（B1 那个坑不许复发）', async () => {
+    const s = await storeAt('2026-09-16')
+    // 直接塞一条只有累计表才有的存量行（模拟 V44 之前的未归因数据）
+    s.db
+      .prepare(
+        `INSERT INTO tool_usage_stats (agent_id, tool_name, count, error_count, last_used_at)
+         VALUES ('unknown', 'web_search', 472, 181, 1)`,
+      )
+      .run()
+    // 重新装载，让内存态看到这行
+    s.__resetToolUsageCacheForTest()
+    s.initToolUsageStore(s.db)
+
+    const cumulative = await s.getToolUsageByAgent()
+    expect(cumulative['unknown']?.['web_search']?.count).toBe(472)
+
+    // 窗口口径下它必须消失——它是无法归因的历史，不属于「最近 7 天」
+    const week = await s.getToolUsageByAgent({ days: 7 })
+    expect(week['unknown']).toBeUndefined()
+    s.db.close()
+  })
+
+  it('装载时清理超过保留期的按日行，累计表一行不动', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'lumii-tool-usage-prune-'))
+    vi.doMock('./client-data-root', () => ({ resolveWindowsClientDataRoot: () => dir }))
+    vi.resetModules()
+    const mod = await import('./tool-usage-store')
+    mod.__resetToolUsageCacheForTest()
+
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-09-16T12:00:00'))
+
+    const db = createMigratedTestDb()
+    const insert = db.prepare(
+      `INSERT INTO tool_usage_daily (day, agent_id, tool_name, count, error_count, last_used_at)
+       VALUES (?, 'assistant', 'bash', 1, 0, 1)`,
+    )
+    insert.run('2026-09-16') // 今天
+    insert.run('2026-01-01') // 远早于保留期
+    db.prepare(
+      `INSERT INTO tool_usage_stats (agent_id, tool_name, count, error_count, last_used_at)
+       VALUES ('unknown', 'bash', 1940, 2, 1)`,
+    ).run()
+
+    mod.initToolUsageStore(db)
+    await mod.getDailyCoverage() // 触发装载
+
+    const days = db
+      .prepare<{ day: string }>(`SELECT day FROM tool_usage_daily ORDER BY day`)
+      .all()
+      .map((r) => r.day)
+    expect(days).toEqual(['2026-09-16'])
+    // 累计表不受保留期影响——两件事分开是这两张表分家的主要理由
+    const stat = db
+      .prepare<{ count: number }>(`SELECT count FROM tool_usage_stats WHERE tool_name = 'bash'`)
+      .get()
+    expect(stat?.count).toBe(1940)
+    db.close()
+  })
+
+  it('覆盖率如实反映按日数据的起止（用来判断「窗口里到底有没有数据」）', async () => {
+    const s = await storeAt('2026-09-16')
+    expect(await s.getDailyCoverage()).toMatchObject({ since: null, until: null })
+
+    await s.recordToolUsage('assistant', 'bash')
+    const coverage = await s.getDailyCoverage()
+    expect(coverage.since).toBe('2026-09-16')
+    expect(coverage.until).toBe('2026-09-16')
+    expect(coverage.retentionDays).toBe(s.DAILY_RETENTION_DAYS)
+    s.db.close()
   })
 })
