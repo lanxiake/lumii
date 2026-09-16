@@ -261,7 +261,6 @@ async function handleMemory(args: string, ctx: CommandContext): Promise<void> {
       await api.sendCommand({
         type: 'agent:memories:clear',
         agentId: ctx.agentId ?? 'assistant',
-        userId: 'local-user',
       })
       ctx.addSystemMessage('✅ Agent 记忆已全部清除')
       ctx.showToast?.('记忆已清空', 'info')
@@ -272,25 +271,30 @@ async function handleMemory(args: string, ctx: CommandContext): Promise<void> {
     return
   }
 
-  // 查看记忆列表
+  // 查看记忆列表。IPC 直接返回记忆数组（见 handleAgentMemoriesList），没有 { memories } 包装：
+  // 早先按包装读，`result.memories` 恒为 undefined，于是 /memory 永远回「没有存储任何记忆」——
+  // 而记忆其实一直在库里。
   try {
-    const result = await api.sendCommand({
+    const memories = (await api.sendCommand({
       type: 'agent:memories:list',
       agentId: ctx.agentId ?? 'assistant',
-      userId: 'local-user',
-    }) as { memories: Array<{ id: string; content: string; type?: string; importance?: number }> }
+    })) as ReadonlyArray<{
+      id: string
+      content: string
+      category?: string
+      importance?: number
+    }>
 
-    const memories = result?.memories ?? []
-    if (memories.length === 0) {
+    if (!Array.isArray(memories) || memories.length === 0) {
       ctx.addSystemMessage('当前 Agent 没有存储任何记忆。')
       return
     }
 
     const lines: string[] = [`**Agent 记忆列表**（共 ${memories.length} 条）\n`]
     memories.forEach((m, i) => {
-      const typeTag = m.type ? ` [${m.type}]` : ''
+      const categoryTag = m.category ? ` [${m.category}]` : ''
       const importanceTag = m.importance !== undefined ? ` ★${m.importance}` : ''
-      lines.push(`${i + 1}. ${m.content}${typeTag}${importanceTag}`)
+      lines.push(`${i + 1}. ${m.content}${categoryTag}${importanceTag}`)
     })
     lines.push('\n> 使用 `/memory clear` 清除所有记忆')
 
