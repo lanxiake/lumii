@@ -130,6 +130,7 @@ export {
   dashboardFeedReadToolConfig,
   maintenanceReportWriteToolConfig,
   maintenanceReportReadToolConfig,
+  assetCheckupToolConfig,
   workReportReadToolConfig,
   messageToolConfig,
   channelListToolConfig,

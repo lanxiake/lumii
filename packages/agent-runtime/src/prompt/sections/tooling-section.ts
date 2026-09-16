@@ -106,6 +106,7 @@ const TOOL_SUMMARIES: Record<string, string> = {
   dashboard_feed_read: "Read what is already on the dashboard feed card (dedupe before writing)",
   maintenance_report_write: "Persist a maintenance check-up report (shows on the dashboard, diffed against the previous one)",
   maintenance_report_read: "Read previous maintenance reports (what was found, and whether it is still there)",
+  asset_checkup: "Run the mechanical check-up items (budget, exact duplicates, residue, stale) — deterministic and free",
 
   // Skills (pre-registered; not yet in the built-in registry)
   execute_skill: "Run an executable skill entry point",
@@ -164,7 +165,11 @@ const MESSAGING_TOOLS = new Set(["message", "channel_list", "channel_send"])
 const SELF_CONFIG_TOOLS = new Set(["profile_memory", "system_prompt"])
 const INTERACTION_TOOLS = new Set(["ask_user_question"])
 const DASHBOARD_TOOLS = new Set(["dashboard_feed_write", "dashboard_feed_read"])
-const MAINTENANCE_TOOLS = new Set(["maintenance_report_write", "maintenance_report_read"])
+const MAINTENANCE_TOOLS = new Set([
+  "maintenance_report_write",
+  "maintenance_report_read",
+  "asset_checkup",
+])
 const BROWSER_TOOLS = new Set([
   "browser_navigate",
   "browser_click",

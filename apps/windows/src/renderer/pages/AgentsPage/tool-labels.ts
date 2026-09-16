@@ -67,6 +67,7 @@ const TOOL_LABELS: Record<string, string> = {
   dashboard_feed_read: '读资讯卡',
   maintenance_report_write: '写体检报告',
   maintenance_report_read: '读体检报告',
+  asset_checkup: '资产体检',
   spawn_agent: '协调子 Agent',
   send_message: '给其他 Agent 发消息',
   message: '回复用户',

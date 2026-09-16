@@ -23,6 +23,7 @@ export {
   maintenanceReportWriteToolConfig,
   maintenanceReportReadToolConfig,
 } from "./maintenance-report-tool.js";
+export { assetCheckupToolConfig } from "./asset-checkup-tool.js";
 export { workReportReadToolConfig } from "./work-report-tool.js";
 export {
   messageToolConfig,
@@ -110,6 +111,7 @@ import {
   maintenanceReportWriteToolConfig,
   maintenanceReportReadToolConfig,
 } from "./maintenance-report-tool.js";
+import { assetCheckupToolConfig } from "./asset-checkup-tool.js";
 import { workReportReadToolConfig } from "./work-report-tool.js";
 import {
   messageToolConfig,
@@ -179,6 +181,7 @@ export const ALL_BUILT_IN_TOOL_CONFIGS: readonly MtBotToolConfig<any, any>[] = [
   dashboardFeedReadToolConfig,
   maintenanceReportWriteToolConfig,
   maintenanceReportReadToolConfig,
+  assetCheckupToolConfig,
   workReportReadToolConfig,
   messageToolConfig,
   channelListToolConfig,

@@ -385,6 +385,43 @@ async function ck08() {
   )
 }
 
+/**
+ * CK-09 机械检查项由代码跑（asset_checkup）。
+ * 判据：工具被调用，且它报出的 key 是代码约定的那几个——模型自己编不出来这些字符串。
+ */
+async function ck09() {
+  if (SKIP_LLM) return ev.record('CK-09', 'SKIP', 'CK_SKIP_LLM=1')
+  const sk = createAgentSession('system-keeper', '机械体检项')
+  const reply = await waitTurn(
+    sk,
+    '跑一次 asset_checkup（scope 用 memory），然后把返回的每一项原样列给我：key、status、detail。' +
+      '不要自己额外判断，也不要修改任何东西。',
+  )
+  if (!reply) return ev.record('CK-09', 'FAIL', '回合超时或没有回复', { sessionKey: sk })
+
+  const text = h.assistantText(reply)
+  vlog(text.slice(0, 900))
+  const tools = toolsOf(reply)
+  // 这几个 key 是代码里写死的字面量，模型凭空编不出
+  const expectedKeys = [
+    'memory:profile-budget',
+    'memory:working-duplicates',
+    'memory:json-residue',
+    'memory:instruction-residue',
+    'memory:stale',
+    'memory:tiny-entries',
+  ]
+  const hit = expectedKeys.filter((k) => text.includes(k))
+
+  check(
+    'CK-09',
+    tools.includes('asset_checkup') && hit.length >= 5,
+    `机械项由代码跑出：报出 ${hit.length}/6 个约定 key`,
+    `未跑出机械项（tools=${tools.join(',') || '无'}；命中 key=${hit.join(',') || '无'}）`,
+    { sessionKey: sk, tools, hitKeys: hit },
+  )
+}
+
 // ────────────────────────────────────────────────
 // 主流程
 // ────────────────────────────────────────────────
@@ -405,6 +442,7 @@ async function main() {
   if (selected('CK-06')) await ck06()
   if (selected('CK-07')) await ck07()
   if (selected('CK-08')) await ck08()
+  if (selected('CK-09')) await ck09()
 
   const summary = ev.writeReport({
     meta: {

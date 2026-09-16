@@ -268,6 +268,8 @@ const SYSTEM_KEEPER_DEF: AgentDefinition = {
     // 回读让它能接着上期说「上次那批问题还在不在」，而不是每期从零开始。
     "maintenance_report_write",
     "maintenance_report_read",
+    // 机械检查项：能判的交给代码，模型只做判断与表述
+    "asset_checkup",
     SKILL_LIST_TOOL_NAME,
     SKILL_SEARCH_TOOL_NAME,
     SKILL_INVOKE_TOOL_NAME,

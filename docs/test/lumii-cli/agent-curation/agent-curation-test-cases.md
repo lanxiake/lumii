@@ -21,7 +21,7 @@
 | 层 | 用例 | 是否需要 LLM | 说明 |
 |---|---|---|---|
 | L1/L2 数据链路 | CK-01 ~ CK-04 | 否 | 查库断言归属与任务定义，秒级 |
-| L3 真实对话 | CK-05 ~ CK-08 | 是 | 建指定 Agent 的会话跑真回合/真任务 |
+| L3 真实对话 | CK-05 ~ CK-09 | 是 | 建指定 Agent 的会话跑真回合/真任务 |
 
 `CK_SKIP_LLM=1` 可离线跑 L1/L2。`CK_ONLY=CK-05,CK-08` 选择性运行。
 
@@ -42,9 +42,10 @@
 | id | 步骤 | 断言 | 备注 |
 |---|---|---|---|
 | CK-05 | 建 **system-keeper** 会话，让它用 `memory_manage list` 报告读到的条目来自哪些 agent | 命中了库里除自己以外的写入者，且没有报「为空」 | 「记忆体检」的前提：读不到全用户记忆就等于在量空气 |
-| CK-06 | 建 **info-curator** 会话，问它资讯卡上有多少条、最新一条标题 | 调用了 `dashboard_feed_read`，且报出的条数与库一致 | 去重的前提：看得见自己推过什么 |
+| CK-06 | 建 **info-curator** 会话，问它资讯卡上有多少条、最新一条标题 | 调用了 `dashboard_feed_read`，且报出**总数或最新条目标题** | 断言标题比断言条数强：总数会随抓取漂移，标题必须真读到才说得出 |
 | CK-07 | 真跑一轮资讯任务（`cron run <jobId>`） | 资讯卡**新增一期**，条目数 > 0、综述非空 | 不断言消息级 `agent_id`（流式落库不带该字段，属既有缺口）；归属的正确载体是会话参与者与期上的 source |
 | CK-08 | 建 **system-keeper** 会话，让它做一次记忆体检并用 `maintenance_report_write` 落库 | `maintenance_reports` 新增一行，`agent_id=system-keeper`、summary 非空、findings 是数组 | 报告「看得见」是这一片的全部意义 |
+| CK-09 | 让它跑 `asset_checkup` 并原样列出返回项 | 调用了工具，且报出 ≥5 个代码约定的 key（`memory:profile-budget` 等） | 那几个 key 是代码里的字面量，模型编不出来——命中即证明机械项真由代码跑出 |
 
 > **建会话必须指定 Agent**：`conversation create` 子命令不带 agentId（默认建主助手会话）。
 > 本套件走命令总线 `command conversation:create --data '{"agentId":"…"}'`。

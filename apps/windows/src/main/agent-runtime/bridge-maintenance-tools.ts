@@ -16,9 +16,12 @@ import {
   createMtBotTool,
   maintenanceReportWriteToolConfig,
   maintenanceReportReadToolConfig,
+  assetCheckupToolConfig,
   type MtBotToolConfig,
 } from '@mtbot/agent-runtime'
 import { jsonToolResult } from './bridge-utils'
+import { readUserMemoryFile } from '../ipc/plugin-ipc'
+import { runMemoryCheckup } from '../asset-checkup'
 import type { BridgeToolRegistrarDeps } from './bridge-tool-registrar-types'
 import {
   listMaintenanceReports,
@@ -119,7 +122,37 @@ export function registerMaintenanceReportTools(deps: BridgeToolRegistrarDeps): v
   }
   deps.toolRegistry.register(createMtBotTool(readTool, ctx))
 
+  /**
+   * 机械检查项：预算 / 完全重复 / 序列化残迹 / 指令式话术 / 长期未用 / 过短条目。
+   * 由代码判定，结果稳定且不花 token；模型只在此基础上补判断类结论。
+   */
+  const checkupTool: MtBotToolConfig = {
+    ...assetCheckupToolConfig,
+    execute: async (_id, rawParams) => {
+      const p = rawParams as { scope?: string }
+      if (p.scope && p.scope !== 'memory') {
+        return jsonToolResult({ status: 'error', message: `unsupported scope: ${p.scope}` })
+      }
+      try {
+        const result = await runMemoryCheckup({
+          db: deps.localDb.db,
+          readUserMemory: async () => {
+            const file = await readUserMemoryFile()
+            return file?.content ?? null
+          },
+        })
+        return jsonToolResult({ status: 'ok', ...result })
+      } catch (err) {
+        return jsonToolResult({
+          status: 'error',
+          message: err instanceof Error ? err.message : String(err),
+        })
+      }
+    },
+  }
+  deps.toolRegistry.register(createMtBotTool(checkupTool, ctx))
+
   console.log(
-    '[registerMaintenanceReportTools] maintenance_report_write / maintenance_report_read registered',
+    '[registerMaintenanceReportTools] maintenance_report_write / maintenance_report_read / asset_checkup registered',
   )
 }
