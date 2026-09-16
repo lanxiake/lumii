@@ -38,18 +38,53 @@ describe('desktop-notify', () => {
     expect(showFns.every((s) => s.mock.calls.length === 1)).toBe(true)
   })
 
-  it('使用 default 超时，不常驻屏幕（never 会导致历史通知叠层）', async () => {
+  it('使用 never + 定时关闭：不随系统默认时长消失，也不会一直挂着', async () => {
     const { showDesktopTaskNotification } = await import('./desktop-notify')
     showDesktopTaskNotification('Lumii', '提醒用户休息')
     expect(NotificationMock).toHaveBeenCalledWith(
       expect.objectContaining({
         title: 'Lumii',
         body: '提醒用户休息',
-        timeoutType: 'default',
+        timeoutType: 'never',
       }),
     )
     const opts = NotificationMock.mock.calls[0]![0] as { urgency?: string }
     expect(opts.urgency).not.toBe('critical')
+  })
+
+  it('展示 30 秒后自动关闭（系统 default 约 5 秒，用户看不清）', async () => {
+    vi.useFakeTimers()
+    try {
+      const { showDesktopTaskNotification, DESKTOP_NOTIFY_DURATION_MS } = await import('./desktop-notify')
+      expect(DESKTOP_NOTIFY_DURATION_MS).toBe(30_000)
+      showDesktopTaskNotification('Lumii', '提醒用户休息')
+      vi.advanceTimersByTime(DESKTOP_NOTIFY_DURATION_MS - 1)
+      expect(closeFns[0]).not.toHaveBeenCalled()
+      vi.advanceTimersByTime(1)
+      expect(closeFns[0]).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('新通知顶掉旧通知后，旧定时器不会误关新通知', async () => {
+    vi.useFakeTimers()
+    try {
+      const { showDesktopTaskNotification, DESKTOP_NOTIFY_DURATION_MS } = await import('./desktop-notify')
+      showDesktopTaskNotification('Lumii', '第一条')
+      vi.advanceTimersByTime(10_000)
+      showDesktopTaskNotification('Lumii', '第二条')
+      // 弹出新通知时旧通知被立即关闭
+      expect(closeFns[0]).toHaveBeenCalledTimes(1)
+      // 走到旧定时器的原定到期时刻（t=30s），新通知仍在 —— 旧定时器已被清掉
+      vi.advanceTimersByTime(DESKTOP_NOTIFY_DURATION_MS - 10_000)
+      expect(closeFns[1]).not.toHaveBeenCalled()
+      // 再走到新通知自己的到期时刻（t=40s）才关闭
+      vi.advanceTimersByTime(10_000)
+      expect(closeFns[1]).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('主动消息默认提醒人标题为 Lumii', async () => {

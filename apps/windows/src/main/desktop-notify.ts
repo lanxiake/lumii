@@ -3,7 +3,9 @@
  *
  * 抽取自 index.ts / window-ipc.ts，统一：
  * - 弹出前关闭上一条，避免相同提醒叠两个常驻弹窗
- * - timeoutType 用 default（never 会一直挂着，多次触发就堆一排相同内容）
+ * - timeoutType 用 never + 定时关闭：Windows 原生 default 只有约 5 秒（用户看不清），
+ *   而 never 单用会让通知一直挂着、多次触发堆一排。两者组合既保证足够的阅读时长，
+ *   又能在超时后自动收起。
  * - 主动消息 system 渠道的默认提醒人标题为 Lumii
  */
 
@@ -11,6 +13,9 @@ import { Notification, type BrowserWindow } from 'electron'
 
 /** 主动消息（outreach）走 system 渠道时的通知标题 / 提醒人 */
 export const OUTREACH_SYSTEM_NOTIFY_TITLE = 'Lumii'
+
+/** 桌面通知展示时长（毫秒）：到时自动关闭，保证用户能读完 */
+export const DESKTOP_NOTIFY_DURATION_MS = 30_000
 
 export interface DesktopNotifyDeps {
   /** 写日志；缺省静默 */
@@ -23,11 +28,21 @@ export interface DesktopNotifyDeps {
 }
 
 let activeNotification: Notification | null = null
+/** 当前通知的自动关闭定时器；与 activeNotification 同生命周期 */
+let activeNotificationTimer: ReturnType<typeof setTimeout> | null = null
+
+/** 清掉自动关闭定时器（通知已被用户或新通知关掉时调用） */
+function clearActiveNotificationTimer(): void {
+  if (!activeNotificationTimer) return
+  clearTimeout(activeNotificationTimer)
+  activeNotificationTimer = null
+}
 
 /**
  * 关闭当前仍挂着的系统通知（若有），避免叠层。
  */
 function dismissActiveNotification(): void {
+  clearActiveNotificationTimer()
   if (!activeNotification) return
   try {
     activeNotification.close()
@@ -54,7 +69,7 @@ export function showDesktopTaskNotification(
 ): void {
   deps?.log?.info(`[DesktopNotify] title="${title}" body="${body.slice(0, 80)}" convId="${convId ?? ''}"`)
 
-  // 先关掉上一条，再弹新的 —— 否则 timeoutType 即使用 default，短时间内连发仍可能并排显示
+  // 先关掉上一条，再弹新的 —— 否则短时间内连发仍可能并排显示
   dismissActiveNotification()
 
   let usedElectron = false
@@ -64,7 +79,9 @@ export function showDesktopTaskNotification(
         title,
         body,
         silent: false,
-        timeoutType: 'default',
+        // never：通知不随系统默认时长（Windows 约 5 秒）消失，
+        // 由下面的定时器在 DESKTOP_NOTIFY_DURATION_MS 后主动关闭。
+        timeoutType: 'never',
         urgency: 'normal',
       })
       n.on('click', () => {
@@ -81,10 +98,19 @@ export function showDesktopTaskNotification(
         }
       })
       n.on('close', () => {
-        if (activeNotification === n) activeNotification = null
+        // 用户手动关掉（或系统收起）时清定时器，避免旧定时器误关后来的通知
+        if (activeNotification === n) {
+          activeNotification = null
+          clearActiveNotificationTimer()
+        }
       })
       n.show()
       activeNotification = n
+      activeNotificationTimer = setTimeout(() => {
+        if (activeNotification === n) dismissActiveNotification()
+      }, DESKTOP_NOTIFY_DURATION_MS)
+      // 不因这条定时器拖住主进程退出
+      activeNotificationTimer.unref?.()
       usedElectron = true
     }
   } catch (err) {

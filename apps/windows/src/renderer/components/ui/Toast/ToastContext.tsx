@@ -2,6 +2,12 @@ import React, { createContext, useCallback, useState } from 'react';
 
 export type ToastType = 'success' | 'error' | 'warning' | 'info';
 
+/**
+ * 提示条默认展示时长（毫秒）。
+ * 10 秒：短提示（3 秒）常常还没读完就消失，尤其是带操作按钮或较长文案的提示。
+ */
+export const TOAST_DEFAULT_DURATION_MS = 10_000;
+
 export interface ToastItem {
   id: string;
   type: ToastType;

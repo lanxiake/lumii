@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import clsx from 'clsx';
-import { ToastItem } from './ToastContext';
+import { ToastItem, TOAST_DEFAULT_DURATION_MS } from './ToastContext';
 import styles from './Toast.module.css';
 
 export interface ToastProps extends ToastItem {
@@ -14,7 +14,7 @@ const Toast: React.FC<ToastProps> = ({
   id,
   type = 'info',
   message,
-  duration = 3000,
+  duration = TOAST_DEFAULT_DURATION_MS,
   actionLabel,
   onAction,
   onClose,
