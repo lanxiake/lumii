@@ -221,7 +221,13 @@ export const webSearchToolConfig: MtBotToolConfig<typeof WebSearchInput> = {
   name: "web_search",
   label: "Web Search",
   description:
-    "Search the web and return structured results. Default provider: Bing (built-in, no config). Fallbacks: LangSearch API (requires LANGSEARCH_API_KEY) → SearXNG (requires SEARXNG_BASE_URL). Supports pagination via offset (Bing only).",
+    "搜索网页并返回结构化结果。默认走内置 Bing（无需配置）；备选 LangSearch（需 LANGSEARCH_API_KEY）→ SearXNG（需 SEARXNG_BASE_URL）。支持 offset 翻页（仅 Bing 生效）。\n\n" +
+    "本路径实测的边界，照做能省掉整轮白跑：\n" +
+    "- 擅长：新产品/新事件、英文技术资料、明确的实体名。\n" +
+    "- 不擅长：生僻中文专名、古文原文、带日期的时事长句——会被拆成单字，结果退化成字典页和日历页。\n" +
+    "- 不要用 site: 语法（本路径下被忽略）。要限定站点就直接 web_fetch 那个站点的列表页。\n" +
+    "- 时事要闻的正路：搜索只用来定位站点，搜「站点名 + 栏目」（如「36氪 快讯」）拿到站点后，用 web_fetch 抓它的列表页/栏目页。\n" +
+    "- 结果里集中出现 baike.baidu.com、字典站、日历站时，是查询不对的信号：换词，不要再翻页。",
   parameters: WebSearchInput,
   category: "web",
   isReadOnly: true,
