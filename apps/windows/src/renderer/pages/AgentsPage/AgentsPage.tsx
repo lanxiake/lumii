@@ -9,8 +9,9 @@ import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import { Zap, Rocket, Network, LayoutGrid, List, Check, X, Sparkles } from 'lucide-react'
 import clsx from 'clsx'
 import { useAgents } from '../../hooks/business/useAgents/useAgents'
-import { updateAgent, deleteAgent, getAgentLifecycleSnapshot, type ModelTier } from '../../services/agent-service'
+import { updateAgent, deleteAgent } from '../../services/agent-service'
 import { listInstalledSkills, searchStoreSkills, installStoreSkill } from '../../services/skills-service'
+import { listEnabledMcpServers, type McpServerOption } from '../../services/mcp-service'
 import { MapView } from './views/MapView'
 import { GridView } from './views/GridView'
 import { FeedView } from './views/FeedView'
@@ -20,7 +21,7 @@ import { GenerateTeamWizard } from './components/GenerateTeamWizard/GenerateTeam
 import { OptimizeTeamWizard } from './components/OptimizeTeamWizard/OptimizeTeamWizard'
 import { AgentBasicFields } from './components/AgentFormModal/AgentBasicFields'
 import { AgentRoutingFields } from './components/AgentFormModal/AgentRoutingFields'
-import { AgentCategoryModelFields } from './components/AgentFormModal/AgentCategoryModelFields'
+import { AgentCategoryField } from './components/AgentFormModal/AgentCategoryField'
 import { AgentSkillsField } from './components/AgentFormModal/AgentSkillsField'
 import { AgentCapabilitiesField } from './components/AgentFormModal/AgentCapabilitiesField'
 import {
@@ -28,13 +29,44 @@ import {
   capabilitiesToSkillBlacklist,
   skillBlacklistToCapabilityIds,
   defaultCapabilities,
-  DEFAULT_MODEL_TIER,
 } from './AgentsPage.const'
 import type { AgentFormData, UserSkill, AgentsPageProps } from './AgentsPage.types'
 import styles from './AgentsPage.module.css'
-import type { AgentRuntimeState } from './views/types'
 
 // ── 主页面 ───────────────────────────────────────────────────────────────
+
+/**
+ * 新建表单的空白初值（打开新建 Modal / 重置表单时复用）。
+ * MCP 默认全选——与「可用能力」一样默认全开，否则空数组会被反推成「全部禁用」。
+ */
+function emptyCreateForm(mcpServers: McpServerOption[] = []): AgentFormData {
+  return {
+    name: '',
+    description: '',
+    systemPrompt: '',
+    enabledCapabilities: defaultCapabilities(),
+    selectedSkills: [],
+    whenToUse: '',
+    triggerExamples: '',
+    bundledSkills: [],
+    mcpServers: mcpServers.map((s) => s.name),
+    category: '',
+  }
+}
+
+/** 未勾选的 MCP 服务 → 其工具全名列表（进该 Agent 的工具黑名单） */
+function disabledMcpTools(selected: string[], servers: McpServerOption[]): string[] {
+  const chosen = new Set(selected)
+  return servers.filter((s) => !chosen.has(s.name)).flatMap((s) => s.tools)
+}
+
+/** 从工具黑名单反推勾选状态：一个 server 的工具全被禁 = 当时没勾它 */
+function selectedMcpServers(blacklist: string[] | undefined, servers: McpServerOption[]): string[] {
+  const black = new Set(blacklist ?? [])
+  return servers
+    .filter((s) => !(s.tools.length > 0 && s.tools.every((t) => black.has(t))))
+    .map((s) => s.name)
+}
 
 const AgentsPage: React.FC<AgentsPageProps> = ({ onViewChange, embedded = false }) => {
   const {
@@ -54,18 +86,7 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ onViewChange, embedded = false 
   const [editingAgent, setEditingAgent] = useState<{ id: string; data: AgentFormData } | null>(null)
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [createSourceId, setCreateSourceId] = useState<string | null>(null)
-  const [createForm, setCreateForm] = useState<AgentFormData>({
-    name: '',
-    description: '',
-    systemPrompt: '',
-    enabledCapabilities: defaultCapabilities(),
-    modelTier: DEFAULT_MODEL_TIER,
-    selectedSkills: [],
-    whenToUse: '',
-    triggerExamples: '',
-    bundledSkills: '',
-    category: '',
-  })
+  const [createForm, setCreateForm] = useState<AgentFormData>(emptyCreateForm)
   const [showGenerateWizard, setShowGenerateWizard] = useState(false)
   const [showOptimizeWizard, setShowOptimizeWizard] = useState(false)
   // 技能同步：per-agent 缺失技能映射（agentId → 缺失技能列表）
@@ -74,10 +95,11 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ onViewChange, embedded = false 
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [resultMessage, setResultMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [userSkills, setUserSkills] = useState<UserSkill[]>([])
-  const [runtimeStateMap, setRuntimeStateMap] = useState<Record<string, AgentRuntimeState | undefined>>({})
+  /** 已启用的 MCP 服务：表单勾选用，未勾选的 server 工具进该 Agent 黑名单 */
+  const [mcpServers, setMcpServers] = useState<McpServerOption[]>([])
   /** 详情面板当前展示的 Agent（null = 关闭） */
   const [detailAgent, setDetailAgent] = useState<ViewAgent | null>(null)
-  // 用 ref 持有最新的 userAgents，避免 refreshRuntimeStates 依赖 userAgents 导致定时器频繁重置
+  // 用 ref 持有最新的 userAgents，避免技能差异检测依赖 userAgents 引用频繁重跑
   const userAgentsRef = useRef(userAgents)
 
   const showResult = useCallback((type: 'success' | 'error', text: string) => {
@@ -108,6 +130,17 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ onViewChange, embedded = false 
       }
     }
     fetchSkills()
+  }, [])
+
+  // 已启用的 MCP 服务（供「MCP 服务」勾选区；拿不到就不渲染勾选项）
+  useEffect(() => {
+    let cancelled = false
+    void listEnabledMcpServers().then((list) => {
+      if (!cancelled) setMcpServers(list)
+    })
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   // 技能差异检测：稳定的 skillFilter key，避免 userAgents 引用变化导致无限循环
@@ -251,36 +284,26 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ onViewChange, embedded = false 
           createForm.systemPrompt || undefined,
         )
         if (result) {
-          const blacklist = capabilitiesToSkillBlacklist(createForm.enabledCapabilities)
+          const blacklist = [
+            ...capabilitiesToSkillBlacklist(createForm.enabledCapabilities),
+            ...disabledMcpTools(createForm.mcpServers, mcpServers),
+          ]
           const splitLines = (s: string): string[] =>
             s.split('\n').map((l) => l.trim()).filter(Boolean)
           const triggerExamplesList = splitLines(createForm.triggerExamples)
-          const bundledSkillsList = splitLines(createForm.bundledSkills)
           await updateAgent(result.id, {
             systemPrompt: createForm.systemPrompt || null,
             skillBlacklist: blacklist.length > 0 ? blacklist : null,
             skillFilter: createForm.selectedSkills,
-            modelTier: createForm.modelTier,
             whenToUse: createForm.whenToUse || null,
             triggerExamples: triggerExamplesList.length > 0 ? triggerExamplesList : null,
-            bundledSkills: bundledSkillsList.length > 0 ? bundledSkillsList : null,
+            bundledSkills: createForm.bundledSkills.length > 0 ? createForm.bundledSkills : null,
             category: createForm.category || null,
-          } as any)
+          })
           await syncUserAgentDefinitions()
           showResult('success', `Agent「${result.name}」已创建`)
           setShowCreateModal(false)
-          setCreateForm({
-            name: '',
-            description: '',
-            systemPrompt: '',
-            enabledCapabilities: defaultCapabilities(),
-            modelTier: DEFAULT_MODEL_TIER,
-            selectedSkills: [],
-            whenToUse: '',
-            triggerExamples: '',
-            bundledSkills: '',
-            category: '',
-          })
+          setCreateForm(emptyCreateForm())
           await refreshAgents()
           window.dispatchEvent(new CustomEvent('mtbot:agents-changed'))
         }
@@ -290,7 +313,7 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ onViewChange, embedded = false 
         setIsSubmitting(false)
       }
     },
-    [createForm, forkSystemAgent, refreshAgents, showResult, syncUserAgentDefinitions],
+    [createForm, forkSystemAgent, mcpServers, refreshAgents, showResult, syncUserAgentDefinitions],
   )
 
   const handleCreateBlank = useCallback(async () => {
@@ -300,37 +323,20 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ onViewChange, embedded = false 
       return
     }
     setCreateSourceId(first.id)
-    setCreateForm({
-      name: '',
-      description: '',
-      systemPrompt: '',
-      enabledCapabilities: defaultCapabilities(),
-      modelTier: DEFAULT_MODEL_TIER,
-      selectedSkills: [],
-      whenToUse: '',
-      triggerExamples: '',
-      bundledSkills: '',
-      category: '',
-    })
+    setCreateForm(emptyCreateForm(mcpServers))
     setShowCreateModal(true)
-  }, [systemAgents, showResult])
+  }, [systemAgents, mcpServers, showResult])
 
   const handleForkSystem = useCallback((agentId: string, agentName: string, agentDescription?: string, agentSystemPrompt?: string) => {
     setCreateSourceId(agentId)
     setCreateForm({
+      ...emptyCreateForm(mcpServers),
       name: `${agentName}（副本）`,
       description: agentDescription || '',
       systemPrompt: agentSystemPrompt || '',
-      enabledCapabilities: defaultCapabilities(),
-      modelTier: DEFAULT_MODEL_TIER,
-      selectedSkills: [],
-      whenToUse: '',
-      triggerExamples: '',
-      bundledSkills: '',
-      category: '',
     })
     setShowCreateModal(true)
-  }, [])
+  }, [mcpServers])
 
   const handleOpenEdit = useCallback((agent: any) => {
     setEditingAgent({
@@ -340,37 +346,38 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ onViewChange, embedded = false 
         description: agent.description || '',
         systemPrompt: agent.systemPrompt || '',
         enabledCapabilities: skillBlacklistToCapabilityIds(agent.skillBlacklist),
-        modelTier: (agent.modelTier as ModelTier) || DEFAULT_MODEL_TIER,
         selectedSkills: agent.skillFilter || [],
         whenToUse: agent.whenToUse || '',
         triggerExamples: Array.isArray(agent.triggerExamples) ? agent.triggerExamples.join('\n') : '',
-        bundledSkills: Array.isArray(agent.bundledSkills) ? agent.bundledSkills.join('\n') : '',
+        bundledSkills: Array.isArray(agent.bundledSkills) ? agent.bundledSkills : [],
+        mcpServers: selectedMcpServers(agent.skillBlacklist, mcpServers),
         category: agent.category || '',
       },
     })
-  }, [])
+  }, [mcpServers])
 
   const handleSave = useCallback(async () => {
     if (!editingAgent) return
     setIsSubmitting(true)
     try {
-      const blacklist = capabilitiesToSkillBlacklist(editingAgent.data.enabledCapabilities)
+      const blacklist = [
+        ...capabilitiesToSkillBlacklist(editingAgent.data.enabledCapabilities),
+        ...disabledMcpTools(editingAgent.data.mcpServers, mcpServers),
+      ]
       const splitLines = (s: string): string[] =>
         s.split('\n').map((l) => l.trim()).filter(Boolean)
       const triggerExamplesList = splitLines(editingAgent.data.triggerExamples)
-      const bundledSkillsList = splitLines(editingAgent.data.bundledSkills)
       await updateAgent(editingAgent.id, {
         name: editingAgent.data.name,
         description: editingAgent.data.description || null,
         systemPrompt: editingAgent.data.systemPrompt || null,
         skillBlacklist: blacklist.length > 0 ? blacklist : null,
         skillFilter: editingAgent.data.selectedSkills,
-        modelTier: editingAgent.data.modelTier,
         whenToUse: editingAgent.data.whenToUse || null,
         triggerExamples: triggerExamplesList.length > 0 ? triggerExamplesList : null,
-        bundledSkills: bundledSkillsList.length > 0 ? bundledSkillsList : null,
+        bundledSkills: editingAgent.data.bundledSkills.length > 0 ? editingAgent.data.bundledSkills : null,
         category: editingAgent.data.category || null,
-      } as any)
+      })
       await syncUserAgentDefinitions()
       showResult('success', '保存成功')
       setEditingAgent(null)
@@ -381,7 +388,7 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ onViewChange, embedded = false 
     } finally {
       setIsSubmitting(false)
     }
-  }, [editingAgent, refreshAgents, showResult, syncUserAgentDefinitions])
+  }, [editingAgent, mcpServers, refreshAgents, showResult, syncUserAgentDefinitions])
 
   const handleDelete = useCallback(async () => {
     if (!confirmDeleteId) return
@@ -408,39 +415,10 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ onViewChange, embedded = false 
     })
   }, [])
 
-  // 同步最新的 userAgents 到 ref（不触发 refreshRuntimeStates 重建）
+  // 同步最新的 userAgents 到 ref（供技能差异检测读取）
   useEffect(() => {
     userAgentsRef.current = userAgents
   }, [userAgents])
-
-  /**
-   * 批量拉取用户 Agent 的运行时状态快照。
-   * 用于在 Feed / Grid / Map 中展示”运行中”动态图标。
-   * 使用 ref 读取最新 userAgents，避免依赖变化导致定时器频繁重置、Map 节点消失。
-   */
-  const refreshRuntimeStates = useCallback(async () => {
-    const ids = userAgentsRef.current.map((a) => a.id)
-    if (ids.length === 0) return  // 不清空已有数据，等列表加载完再更新
-    const entries = await Promise.all(
-      ids.map(async (id) => {
-        try {
-          const snapshot = await getAgentLifecycleSnapshot(id)
-          return [id, { anyRunning: !!snapshot.anyRunning, runningCount: Number(snapshot.runningCount ?? 0) } satisfies AgentRuntimeState] as const
-        } catch {
-          return [id, undefined] as const
-        }
-      }),
-    )
-    setRuntimeStateMap(Object.fromEntries(entries))
-  }, [])  // 无依赖：定时器只启动一次，通过 ref 读最新数据
-
-  useEffect(() => {
-    void refreshRuntimeStates()
-    const timer = window.setInterval(() => {
-      void refreshRuntimeStates()
-    }, 3000)
-    return () => window.clearInterval(timer)
-  }, [refreshRuntimeStates])  // refreshRuntimeStates 是稳定引用，定时器只创建一次
 
   const handleEditCapabilityChange = useCallback((id: string, enabled: boolean) => {
     setEditingAgent((prev) => {
@@ -604,7 +582,6 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ onViewChange, embedded = false 
             userAgents={viewUserAgents}
             systemAgents={viewSystemAgents}
             searchQuery={searchQuery}
-            runtimeStateMap={runtimeStateMap}
             onEdit={handleViewEdit}
             onDelete={handleViewDelete}
             onFork={handleViewFork}
@@ -619,7 +596,6 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ onViewChange, embedded = false 
             userAgents={viewUserAgents}
             systemAgents={viewSystemAgents}
             searchQuery={searchQuery}
-            runtimeStateMap={runtimeStateMap}
             onEdit={handleViewEdit}
             onDelete={handleViewDelete}
             onFork={handleViewFork}
@@ -634,7 +610,6 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ onViewChange, embedded = false 
             userAgents={viewUserAgents}
             systemAgents={viewSystemAgents}
             searchQuery={searchQuery}
-            runtimeStateMap={runtimeStateMap}
             onEdit={handleViewEdit}
             onDelete={handleViewDelete}
             onFork={handleViewFork}
@@ -678,8 +653,10 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ onViewChange, embedded = false 
                 value={editingAgent.data}
                 onChange={(patch) => setEditingAgent((prev) => prev ? { ...prev, data: { ...prev.data, ...patch } } : null)}
                 mode="edit"
+                userSkills={userSkills}
+                mcpServers={mcpServers}
               />
-              <AgentCategoryModelFields
+              <AgentCategoryField
                 value={editingAgent.data}
                 onChange={(patch) => setEditingAgent((prev) => prev ? { ...prev, data: { ...prev.data, ...patch } } : null)}
               />
@@ -742,8 +719,10 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ onViewChange, embedded = false 
                 value={createForm}
                 onChange={(patch) => setCreateForm((prev) => ({ ...prev, ...patch }))}
                 mode="create"
+                userSkills={userSkills}
+                mcpServers={mcpServers}
               />
-              <AgentCategoryModelFields
+              <AgentCategoryField
                 value={createForm}
                 onChange={(patch) => setCreateForm((prev) => ({ ...prev, ...patch }))}
               />

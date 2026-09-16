@@ -162,6 +162,11 @@
   -webkit-backdrop-filter: blur(var(--mt-glass-blur, 12px)) saturate(160%);
 }
 
+/* Step3 是左列表 + 右详情，比其余两步宽 */
+.wizardModal--wide {
+  width: 920px;
+}
+
 .wizardHeader {
   display: flex;
   align-items: center;
@@ -202,7 +207,6 @@
   display: flex;
   flex-direction: column;
 }
-
 /* ── Step2 styles ────────────────────────────── */
 .planningLoading {
   display: flex;
@@ -305,15 +309,6 @@
   display: flex;
   gap: 8px;
   align-items: center;
-}
-
-.modelBadge {
-  font-size: 11px;
-  padding: 2px 7px;
-  background: var(--mt-border-hairline);
-  color: var(--mt-fg-3);
-  border-radius: 4px;
-  border: 1px solid var(--mt-border);
 }
 
 .capabilityCount {
@@ -473,24 +468,228 @@
   cursor: not-allowed;
 }
 
-.configRow {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.modelTierBadge {
-  font-size: 11px;
-  padding: 2px 7px;
-  background: var(--mt-border-hairline);
-  color: var(--mt-fg-3);
-  border-radius: 4px;
-  border: 1px solid var(--mt-border);
-}
-
 .hint {
   font-size: 11px;
   color: var(--text-secondary, #94a3b8);
+}
+
+/* 常驻技能勾选（Step3）：与「可用能力」同款勾选交互 */
+.skillChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.skillChip {
+  font-size: 12px;
+  padding: 3px 10px;
+  border-radius: 12px;
+  background: var(--mt-bg-tertiary);
+  border: 1px solid var(--mt-border);
+  color: var(--mt-fg-3);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.skillChip:hover:not(:disabled) {
+  border-color: var(--mt-accent-400);
+  color: var(--mt-fg-1);
+}
+
+.skillChipChecked {
+  background: var(--color-primary-500-20, rgba(59, 130, 246, 0.2));
+  border-color: var(--mt-accent-400);
+  color: var(--mt-accent-400);
+}
+
+.skillChip:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── Step3：左列表 + 右详情 ───────────────────── */
+/* 滚动交给 wizardBody 统一处理，左列表 sticky 固定，避免内层嵌套滚动。
+   flex-shrink:0 很关键：默认收缩会把两栏内容压扁（不溢出就不会出现滚动条，内容直接被裁掉）。 */
+.reviewSplit {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  flex-shrink: 0;
+}
+
+.reviewList {
+  width: 210px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
+}
+
+.reviewList > *,
+.reviewDetail > * {
+  flex-shrink: 0;
+}
+
+.reviewItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--mt-border-hairline);
+  border: 1px solid transparent;
+  color: var(--mt-fg-2, #cbd5e1);
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.reviewItem:hover {
+  background: var(--mt-border);
+}
+
+.reviewItem--active {
+  background: var(--color-primary-500-10, rgba(59, 130, 246, 0.1));
+  border-color: var(--color-primary-500-20, rgba(59, 130, 246, 0.3));
+}
+
+.reviewEmoji {
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+.reviewMeta {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1;
+}
+
+.reviewName {
+  font-size: 13px;
+  color: var(--mt-fg-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reviewGroup {
+  font-size: 11px;
+  color: var(--mt-fg-4);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reviewStatus {
+  font-size: 10px;
+  flex-shrink: 0;
+  color: var(--mt-fg-4);
+}
+
+.reviewStatus--success { color: var(--mt-success-light, #86efac); }
+.reviewStatus--error { color: var(--mt-error-light, #fca5a5); }
+
+.reviewDetail {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* 勾选列表：技能 / 能力 / MCP 共用 */
+.checkList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.checkItem {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: var(--mt-border-hairline);
+  border: 1px solid var(--mt-border-hairline);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.checkItem:hover {
+  background: var(--mt-border);
+}
+
+.checkItem--on {
+  background: var(--color-primary-500-10, rgba(59, 130, 246, 0.08));
+  border-color: var(--color-primary-500-20, rgba(59, 130, 246, 0.25));
+}
+
+.checkItem input {
+  margin-top: 3px;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.checkItem input:disabled {
+  cursor: not-allowed;
+}
+
+.checkBody {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.checkLabel {
+  font-size: 13px;
+  color: var(--mt-fg-1);
+}
+
+/* 原始标识（工具名 / 技能 ID） */
+.checkRaw {
+  margin-left: 8px;
+  font-size: 11px;
+  color: var(--mt-fg-4);
+  font-family: var(--mt-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+}
+
+.checkDesc {
+  font-size: 11px;
+  color: var(--mt-fg-4);
+  line-height: 1.4;
+}
+
+.removeAgentBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  align-self: flex-start;
+  padding: 7px 14px;
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+  color: var(--mt-error-light, #fca5a5);
+  background: var(--color-error-10, rgba(239, 68, 68, 0.1));
+  border: 1px solid var(--color-error-15, rgba(239, 68, 68, 0.2));
+  transition: background 0.15s;
+}
+
+.removeAgentBtn:hover:not(:disabled) {
+  background: var(--color-error-15, rgba(239, 68, 68, 0.2));
+}
+
+.removeAgentBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .statusText {

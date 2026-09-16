@@ -780,6 +780,43 @@
   margin-left: 8px;
 }
 
+/* ── 路由信号：AI 自动填写 ─────────────────────────── */
+.routing-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ai-fill-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+  color: var(--mt-accent-400, #60a5fa);
+  background: var(--color-primary-500-10, rgba(59, 130, 246, 0.08));
+  border: 1px solid var(--color-primary-500-20, rgba(59, 130, 246, 0.25));
+  transition: background 0.15s;
+}
+
+.ai-fill-btn:hover:not(:disabled) {
+  background: var(--color-primary-500-20, rgba(59, 130, 246, 0.2));
+}
+
+.ai-fill-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.ai-fill-error {
+  font-size: 11px;
+  color: var(--mt-error-light, #fca5a5);
+  line-height: 1.4;
+}
+
 .capability-list {
   display: flex;
   flex-direction: column;
@@ -1023,6 +1060,15 @@
   font-size: 13px;
   font-weight: 500;
   color: var(--text-primary, #f1f5f9);
+}
+
+/* 技能/MCP 旁的原始标识（技能 ID、工具数） */
+.skill-raw {
+  margin-left: 8px;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-secondary, #94a3b8);
+  font-family: var(--mt-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
 }
 
 .skill-desc {

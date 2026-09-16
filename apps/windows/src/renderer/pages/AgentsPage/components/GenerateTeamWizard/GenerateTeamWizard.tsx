@@ -6,10 +6,12 @@
  */
 
 import React, { useState, useEffect } from 'react'
+import clsx from 'clsx'
 import { Step1Requirement } from './Step1Requirement'
 import { Step2Planning } from './Step2Planning'
 import { Step3Review } from './Step3Review'
-import type { GeneratedAgent, CapabilityOption } from './types'
+import type { GeneratedAgent, CapabilityOption, McpServerOption } from './types'
+import { listEnabledMcpServers } from '../../../../services/mcp-service'
 import styles from './GenerateTeamWizard.module.css'
 
 interface WizardProps {
@@ -77,6 +79,18 @@ export const GenerateTeamWizard: React.FC<WizardProps> = ({
   const [generatedAgents, setGeneratedAgents] = useState<GeneratedAgent[]>(
     draft?.generatedAgents ?? [],
   )
+  /** 已启用的 MCP 服务：给 AI 推荐用，也在 Step3 里供勾选 */
+  const [mcpServers, setMcpServers] = useState<McpServerOption[]>([])
+
+  useEffect(() => {
+    let cancelled = false
+    void listEnabledMcpServers().then((list) => {
+      if (!cancelled) setMcpServers(list)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   // 每当状态变化时持久化草稿
   useEffect(() => {
@@ -107,7 +121,10 @@ export const GenerateTeamWizard: React.FC<WizardProps> = ({
 
   return (
     <div className={styles.wizardOverlay} onClick={handleClose}>
-      <div className={styles.wizardModal} onClick={(e) => e.stopPropagation()}>
+      <div
+        className={clsx(styles.wizardModal, step === 3 && styles['wizardModal--wide'])}
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className={styles.wizardHeader}>
           <h2 className={styles.wizardTitle}>✨ AI 生成团队</h2>
           <button className={styles.wizardClose} onClick={handleClose} type="button">
@@ -122,6 +139,7 @@ export const GenerateTeamWizard: React.FC<WizardProps> = ({
             <Step2Planning
               requirement={requirement}
               userSkills={userSkills}
+              mcpServers={mcpServers}
               onBack={() => setStep(1)}
               onNext={handleStep2Next}
             />
@@ -132,6 +150,7 @@ export const GenerateTeamWizard: React.FC<WizardProps> = ({
               capabilityOptions={capabilityOptions}
               systemAgents={systemAgents}
               userSkills={userSkills}
+              mcpServers={mcpServers}
               onBack={() => {
                 setGeneratedAgents([])
                 setStep(2)

@@ -750,82 +750,6 @@ function caseF2() {
   return `提案 → ${confirmNote} → 新开发会话直达 claude（binding）；沙箱 pager.js 已被修复；原会话收到结果汇报`
 }
 
-/** AT-UI-01 在 AI 团队页真实点击「参与自主心跳」开关（位置无关 + 状态无关：点击→diff 识别翻转→再点→还原） */
-function caseUIToggleAutonomous() {
-  if (!selected('UI-01')) throw new Error('SKIP: 未选中（AT_ONLY）')
-  const before = readAppConfig().autonomousAgents ?? []
-
-  h.ui(['goto', '--view', 'agents'])
-  h.sleep(900)
-  clickRefByName('Grid', { role: 'button' })
-  h.sleep(500)
-
-  const clickLastVisibleCheckbox = () => {
-    const snap = screenshotRefs()
-    const boxes = (snap.refs || []).filter((r) => r.role === 'checkbox')
-    h.assert(boxes.length >= 1, `可视区未找到任何 Agent 开关（页面未在 Grid？实际 refs=${(snap.refs || []).length}）`)
-    const idx = boxes.length - 1
-    const res = h.ui(['click', '--ref', boxes[idx].ref, '--snapshot-id', String(snap.snapshotId)])
-    h.assert(res.code === 0 && res.json?.ok !== false, `开关点击失败: ${(res.out || '').slice(0, 120)}`)
-  }
-
-  /** 点击并轮询配置变化（HMR/浮层偶发吞点击时重试一次） */
-  const clickAndWaitForChange = () => {
-    for (let attempt = 1; attempt <= 2; attempt++) {
-      clickLastVisibleCheckbox()
-      const changed = h.pollUntil(() => {
-        const now = readAppConfig().autonomousAgents ?? []
-        return JSON.stringify([...now].sort()) !== JSON.stringify([...before].sort()) ? now : null
-      }, 6000, 500)
-      if (changed) return changed
-      if (attempt === 1) h.sleep(800)
-    }
-    return null
-  }
-
-  let flipped = null
-  try {
-    const changed = clickAndWaitForChange()
-    h.assert(changed, '点击后 app.json autonomousAgents 未变化（重试一次仍无效）')
-    const beforeSet = new Set(before)
-    const added = changed.filter((id) => !beforeSet.has(id))
-    const removed = before.filter((id) => !changed.includes(id))
-    h.assert(
-      added.length + removed.length === 1,
-      `期望恰好一个 Agent 翻转，实际 +[${added}] -[${removed}]`,
-    )
-    flipped = added[0] ?? removed[0]
-
-    clickLastVisibleCheckbox()
-    const restored = h.pollUntil(
-      () =>
-        JSON.stringify([...(readAppConfig().autonomousAgents ?? [])].sort()) ===
-        JSON.stringify([...before].sort()),
-      8000,
-      500,
-    )
-    h.assert(restored, `还原点击后未回到初始（当前 ${JSON.stringify(readAppConfig().autonomousAgents ?? [])}）`)
-    return `真实点击「${flipped}」开关：${added.length ? '开启' : '关闭'}→app.json 落盘；再点→还原初始`
-  } finally {
-    const now = readAppConfig().autonomousAgents ?? []
-    if (JSON.stringify([...now].sort()) !== JSON.stringify([...before].sort())) {
-      try {
-        clickLastVisibleCheckbox()
-        h.pollUntil(
-          () =>
-            JSON.stringify([...(readAppConfig().autonomousAgents ?? [])].sort()) ===
-            JSON.stringify([...before].sort()),
-          8000,
-          500,
-        )
-      } catch {
-        /* 尽力还原 */
-      }
-    }
-    h.ui(['goto', '--view', 'chat'])
-  }
-}
-
 /** AT-UI-02 侧栏分组结构（主助手组头「默认(N)」+ Agent 短名组头「开发/维护/记事/情报(N)」；无展开按钮） */
 function caseUISidebarGroups() {
   if (!selected('UI-02')) throw new Error('SKIP: 未选中（AT_ONLY）')
@@ -989,11 +913,11 @@ function caseL2DevContext() {
 function caseL2Tick() {
   if (!TICK) {
     throw new Error(
-      'SKIP: 未启用（AT_TICK=1 且 app.json autonomousAgents 非空时运行；人工验收：AgentsPage 对系统 Agent 打开自主开关后重跑）',
+      'SKIP: 未启用（AT_TICK=1 且 app.json autonomousAgents 非空时运行；人工验收：手动在 app.json 写入 autonomousAgents 后重跑）',
     )
   }
   const ids = (readAppConfig().autonomousAgents ?? []).map(String).filter(Boolean)
-  if (!ids.length) throw new Error('SKIP: app.json autonomousAgents 为空（先在 AgentsPage 打开目标 Agent 的自主开关）')
+  if (!ids.length) throw new Error('SKIP: app.json autonomousAgents 为空（先在 app.json 写入 autonomousAgents）')
 
   const expect = ['assistant', ...ids]
   let lastSummary = ''
@@ -1121,7 +1045,6 @@ try {
     ['AT-S8', 'C 片 · 灵栖维护代操设置', caseS8],
     ['AT-S9', 'D 片 · 灵栖情报跑资讯管线', caseS9],
     ['AT-F2', 'F2 队长制 · 一键转交闭环', caseF2],
-    ['AT-UI-01', 'UI · 自主开关真实点击', caseUIToggleAutonomous],
     ['AT-UI-02', 'UI · 侧栏分组结构', caseUISidebarGroups],
     ['AT-UI-03', 'UI · ACP 回复界面实时可见', caseUIAcpVisible],
     ['AT-L2-04', 'L2 tick 多 Agent（条件）', caseL2Tick],

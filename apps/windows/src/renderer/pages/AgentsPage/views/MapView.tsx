@@ -14,10 +14,9 @@ import {
 } from '@xyflow/react'
 import dagre from '@dagrejs/dagre'
 import '@xyflow/react/dist/style.css'
-import clsx from 'clsx'
 import { Bot, Wrench, Cpu } from '../../../components/ui/Icon'
 import type { ViewProps, Agent } from './types'
-import { agentColor, TIER_LABELS } from './types'
+import { agentColor } from './types'
 import { decodeGroupFromDescription } from '../components/GenerateTeamWizard/utils'
 import styles from './MapView.module.css'
 
@@ -59,7 +58,6 @@ function SystemNode({ data }: NodeProps) {
 
 function AgentNode({ data }: NodeProps) {
   const agent = data.agent as Agent
-  const runtimeState = data.runtimeState as { anyRunning?: boolean; runningCount?: number } | undefined
   const color = agentColor(agent)
   const toolCount = agent.skillBlacklist ? 6 - agent.skillBlacklist.length : 6
   // 显示干净的 description（去掉 [group:...] 编码）
@@ -74,23 +72,7 @@ function AgentNode({ data }: NodeProps) {
           <div className={styles['node-desc']}>{cleanDescription}</div>
         )}
         <div className={styles['node-tags']}>
-          {runtimeState?.anyRunning && (
-            <span className={styles['node-tag--running']}>
-              <span className={styles['runningDot']} />
-              运行中{runtimeState.runningCount ? ` (${runtimeState.runningCount})` : ''}
-            </span>
-          )}
-          {agent.modelTier && (
-            <span className={clsx(styles['node-tag'], styles[`node-tag--${agent.modelTier}`])}>
-              {TIER_LABELS[agent.modelTier]}
-            </span>
-          )}
           <span className={styles['node-tag']}><Wrench size={9} />{toolCount}</span>
-          {agent.model?.primary && (
-            <span className={styles['node-tag--model']}>
-              {agent.model.primary.split('/').pop()}
-            </span>
-          )}
         </div>
       </div>
     </div>
@@ -106,7 +88,6 @@ export const MapView: React.FC<ViewProps> = ({
   userAgents,
   systemAgents,
   searchQuery,
-  runtimeStateMap,
   onOpenDetail,
 }) => {
 
@@ -162,17 +143,6 @@ export const MapView: React.FC<ViewProps> = ({
     setNodes(layoutedNodes)
     setEdges(layoutedEdges)
   }, [layoutedNodes, layoutedEdges, setNodes, setEdges])
-
-  // 仅更新运行态，不触发布局重算
-  useEffect(() => {
-    setNodes((prev) =>
-      prev.map((node) => {
-        if (node.type !== 'agentNode') return node
-        const data = node.data as { agent?: Agent; runtimeState?: unknown }
-        return { ...node, data: { ...data, runtimeState: runtimeStateMap[node.id] } }
-      }),
-    )
-  }, [runtimeStateMap, setNodes])
 
   const handleNodeClick = useCallback(
     (_: React.MouseEvent, node: Node) => {

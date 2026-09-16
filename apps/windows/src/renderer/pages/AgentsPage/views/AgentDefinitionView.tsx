@@ -11,6 +11,8 @@ import React, { useEffect, useState } from 'react'
 import { groupTools } from '../tool-labels'
 import { CAPABILITY_OPTIONS, skillBlacklistToCapabilityIds } from '../AgentsPage.const'
 import { getCodingDevAgentBindings, type CodingDevAgentBinding } from '../../../services/coding-dev-service'
+import { listInstalledSkills } from '../../../services/skills-service'
+import { listEnabledMcpServers, type McpServerOption } from '../../../services/mcp-service'
 import type { Agent } from './types'
 import styles from './DetailPanel.module.css'
 
@@ -35,9 +37,9 @@ interface AgentDefinitionViewProps {
   agent: Agent
 }
 
-/** 悬停提示：原始工具名；无原始名时不挂 title */
-function rawToolTitle(tools: string[] | undefined): string | undefined {
-  return tools && tools.length > 0 ? tools.join('、') : undefined
+/** 原始工具名（并排展示用；无工具时不渲染） */
+function rawToolText(tools: string[] | undefined): string | undefined {
+  return tools && tools.length > 0 ? tools.join(' ') : undefined
 }
 
 /**
@@ -51,6 +53,12 @@ export function resolveWhenToUse(agent: Agent): string | undefined {
 
 export const AgentDefinitionView: React.FC<AgentDefinitionViewProps> = ({ agent }) => {
   const [binding, setBinding] = useState<CodingDevAgentBinding | undefined>(undefined)
+  /** 技能名（小写）→ 技能 ID，用于在技能后面并列原始标识 */
+  const [skillIds, setSkillIds] = useState<Record<string, string>>({})
+  /** 技能 ID（小写）→ 技能名，用于把常驻技能的 ID 还原成可读名 */
+  const [skillNames, setSkillNames] = useState<Record<string, string>>({})
+  /** 已启用的 MCP 服务（展示该 Agent 实际可用的 MCP 与原始工具名） */
+  const [mcpServers, setMcpServers] = useState<McpServerOption[]>([])
 
   const detail = agent.definition
   const isSystem = !agent.userId
@@ -77,6 +85,39 @@ export const AgentDefinitionView: React.FC<AgentDefinitionViewProps> = ({ agent 
     }
   }, [agent.id])
 
+  useEffect(() => {
+    let cancelled = false
+    void listInstalledSkills()
+      .then((list) => {
+        if (cancelled) return
+        const byName: Record<string, string> = {}
+        const byId: Record<string, string> = {}
+        for (const s of list) {
+          const display = s.name || s.id
+          byName[display.toLowerCase()] = s.id
+          byId[s.id.toLowerCase()] = display
+        }
+        setSkillIds(byName)
+        setSkillNames(byId)
+      })
+      .catch(() => {
+        // 拿不到技能列表时只少显示原始 ID，不影响主信息
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    void listEnabledMcpServers().then((list) => {
+      if (!cancelled) setMcpServers(list)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   const toolGroups = isSystem ? groupTools(detail?.tools ?? []) : []
   const disabledToolLabels = groupTools(detail?.disallowedTools ?? []).map((g) => g.label)
 
@@ -101,6 +142,23 @@ export const AgentDefinitionView: React.FC<AgentDefinitionViewProps> = ({ agent 
 
   // 仅开发类 Agent 有「外部 CLI / 内置内核」之分，其余不展示运行方式
   const showRunSurface = agent.id === 'code-dev' || binding !== undefined
+
+  /**
+   * 该 Agent 实际可用的 MCP 服务（含工具原始名）。
+   * 系统 Agent 由工具白名单决定；用户 Agent 从启用中的 server 扣掉被黑名单挡掉的工具。
+   */
+  const blacklistSet = new Set(agent.skillBlacklist ?? [])
+  const systemAllowsAllTools = !detail?.tools || detail.tools.includes('*')
+  const availableMcp = mcpServers
+    .map((server) => {
+      const tools = isSystem
+        ? systemAllowsAllTools
+          ? server.tools
+          : (detail?.tools ?? []).filter((t) => t.startsWith(`mcp__${server.name}__`))
+        : server.tools.filter((t) => !blacklistSet.has(t))
+      return { server: server.name, tools }
+    })
+    .filter((entry) => entry.tools.length > 0)
 
   return (
     <>
@@ -128,17 +186,18 @@ export const AgentDefinitionView: React.FC<AgentDefinitionViewProps> = ({ agent 
         {isSystem && toolGroups.length > 0 ? (
           <div className={styles.chipRow}>
             {toolGroups.map((group) => (
-              <span key={group.label} className={styles.chip} title={rawToolTitle(group.tools)}>
+              <span key={group.label} className={styles.chip}>
                 {group.label}
-                {group.tools.length > 1 && <span className={styles.chipCount}>{group.tools.length}</span>}
+                <span className={styles.chipRaw}>{rawToolText(group.tools)}</span>
               </span>
             ))}
           </div>
         ) : !isSystem && enabledCapabilities.length > 0 ? (
           <div className={styles.chipRow}>
             {enabledCapabilities.map((cap) => (
-              <span key={cap.id} className={styles.chip} title={rawToolTitle(cap.toolNames)}>
+              <span key={cap.id} className={styles.chip}>
                 {cap.label}
+                <span className={styles.chipRaw}>{rawToolText(cap.toolNames)}</span>
               </span>
             ))}
           </div>
@@ -154,17 +213,56 @@ export const AgentDefinitionView: React.FC<AgentDefinitionViewProps> = ({ agent 
           <div className={styles.muted}>已禁用：{disabledToolLabels.join('、')}</div>
         )}
 
-        <div className={styles.infoRow}>
-          <span className={styles.infoLabel}>技能</span>
-          <span className={styles.infoValue}>
-            {skillFilter.length > 0 ? skillFilter.join('、') : '未限制（全部已安装技能可用）'}
-          </span>
-        </div>
-        {bundledSkills.length > 0 && (
-          <div className={styles.infoRow}>
-            <span className={styles.infoLabel}>常驻技能</span>
-            <span className={styles.infoValue}>{bundledSkills.join('、')}</span>
+        <div className={styles.infoLabel}>技能</div>
+        {skillFilter.length > 0 ? (
+          <div className={styles.chipRow}>
+            {skillFilter.map((name) => {
+              const id = skillIds[name.toLowerCase()]
+              return (
+                <span key={name} className={styles.chip}>
+                  {name}
+                  {id && <span className={styles.chipRaw}>{id}</span>}
+                </span>
+              )
+            })}
           </div>
+        ) : (
+          <div className={styles.muted}>未限制（全部已安装技能可用）</div>
+        )}
+
+        {bundledSkills.length > 0 && (
+          <>
+            <div className={styles.infoLabel}>常驻技能</div>
+            <div className={styles.chipRow}>
+              {bundledSkills.map((id) => (
+                <span key={id} className={styles.chip}>
+                  {skillNames[id.toLowerCase()] ?? id}
+                  <span className={styles.chipRaw}>{id}</span>
+                </span>
+              ))}
+            </div>
+          </>
+        )}
+
+        <div className={styles.infoLabel}>MCP 服务</div>
+        {availableMcp.length > 0 ? (
+          <div className={styles.mcpList}>
+            {availableMcp.map(({ server, tools }) => (
+              <div key={server} className={styles.mcpItem}>
+                <div className={styles.mcpName}>
+                  {server}
+                  <span className={styles.chipRaw}>{tools.length} 个工具</span>
+                </div>
+                <div className={styles.mcpTools}>
+                  {tools.map((tool) => (
+                    <span key={tool} className={styles.mcpToolName}>{tool}</span>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className={styles.muted}>未使用 MCP 服务</div>
         )}
 
         {boundaries.length > 0 && <div className={styles.muted}>{boundaries.join(' · ')}</div>}

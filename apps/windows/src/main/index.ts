@@ -700,6 +700,10 @@ async function initAgentRuntime(): Promise<void> {
             id: a.id,
             name: a.name,
             description: a.description,
+            // 路由信号：用户 Agent 的表单（含「AI 自动填写」）写入，缺失时 Router 只能靠描述
+            whenToUse: a.whenToUse,
+            triggerExamples: a.triggerExamples,
+            category: a.category,
             emoji: a.identity?.emoji,
           })),
         ...systemExperts,

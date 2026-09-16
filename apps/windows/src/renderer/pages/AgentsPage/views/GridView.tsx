@@ -2,9 +2,7 @@ import React, { useMemo } from 'react'
 import clsx from 'clsx'
 import { Bot } from '../../../components/ui/Icon'
 import type { ViewProps, Agent } from './types'
-import { TIER_LABELS } from './types'
 import { SkillMissingBadge } from './SkillMissingBadge'
-import { AutonomousToggle } from '../components/AutonomousToggle'
 import { decodeGroupFromDescription } from '../components/GenerateTeamWizard/utils'
 import styles from './GridView.module.css'
 
@@ -21,7 +19,6 @@ function parseAgents(agents: Agent[]): ParsedAgent[] {
 
 function AgentCard({
   agent,
-  runtimeStateMap,
   onEdit,
   onDelete,
   onStartChat,
@@ -33,7 +30,6 @@ function AgentCard({
   onNavigateToStore,
 }: {
   agent: ParsedAgent
-  runtimeStateMap: Record<string, { anyRunning: boolean } | undefined>
   onEdit: (a: Agent) => void
   onDelete: (id: string) => void
   onStartChat: (id: string) => void
@@ -53,12 +49,6 @@ function AgentCard({
         <div className={styles.info}>
           <div className={styles.nameRow}>
             <div className={styles.name}>{agent.name}</div>
-            {runtimeStateMap[agent.id]?.anyRunning && (
-              <span className={styles['badge--running']} title="运行中">
-                <span className={styles['runningDot']} />
-                运行中
-              </span>
-            )}
           </div>
           {agent._cleanDesc && (
             <div className={styles.desc}>{agent._cleanDesc}</div>
@@ -72,30 +62,17 @@ function AgentCard({
           {agent.systemPrompt.length > 120 && '...'}
         </div>
       )}
-      {!isSystem && (
+      {!isSystem && missingSkills && missingSkills.length > 0 && onInstallSkill && onNavigateToStore && (
         <div className={styles.tags}>
-          {agent.modelTier && (
-            <span className={clsx(styles.tag, styles[`tag--${agent.modelTier}`])}>
-              {TIER_LABELS[agent.modelTier]}
-            </span>
-          )}
-          {agent.model?.primary && (
-            <span className={styles['tag--model']}>
-              {agent.model.primary.split('/').pop()}
-            </span>
-          )}
-          {missingSkills && missingSkills.length > 0 && onInstallSkill && onNavigateToStore && (
-            <SkillMissingBadge
-              agentId={agent.id}
-              missing={missingSkills}
-              popoverAlign="left"
-              onInstallSkill={onInstallSkill}
-              onNavigateToStore={onNavigateToStore}
-            />
-          )}
+          <SkillMissingBadge
+            agentId={agent.id}
+            missing={missingSkills}
+            popoverAlign="left"
+            onInstallSkill={onInstallSkill}
+            onNavigateToStore={onNavigateToStore}
+          />
         </div>
       )}
-      <AutonomousToggle agentId={agent.id} />
       <div className={styles.actions}>
         {isSystem ? (
           <>
@@ -119,7 +96,6 @@ export const GridView: React.FC<ViewProps> = ({
   userAgents,
   systemAgents,
   searchQuery,
-  runtimeStateMap,
   onEdit,
   onDelete,
   onFork,
@@ -148,7 +124,7 @@ export const GridView: React.FC<ViewProps> = ({
     )
   }
 
-  const cardProps = { runtimeStateMap, onEdit, onDelete, onStartChat, onOpenDetail }
+  const cardProps = { onEdit, onDelete, onStartChat, onOpenDetail }
 
   return (
     <div className={styles.container}>

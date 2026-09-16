@@ -3,7 +3,6 @@
  */
 
 import type React from 'react'
-import type { ModelTier } from '../../../../services/agent-service'
 
 /** 组内角色 */
 export type GroupRole = 'coordinator' | 'executor' | 'reviewer'
@@ -20,11 +19,21 @@ export interface GeneratedAgent {
   groupRole: GroupRole
   description: string
   systemPrompt: string
-  modelTier: ModelTier
   capabilities: string[]
-  /** AI 推荐分配的技能 ID 列表（来自用户已安装技能） */
+  /** AI 推荐分配的技能 ID 列表（来自用户已安装技能），写入 skillFilter */
   skills: string[]
+  /** AI 推荐的 MCP 服务名（来自全局已启用 server），未选中的 server 工具进工具黑名单 */
+  mcpServers?: string[]
+  /** 路由信号：用户视角的「何时使用」，写入 whenToUse */
+  whenToUse: string
+  /** 路由信号：用户可能说的原话，写入 triggerExamples */
+  triggerExamples: string[]
+  /** 常驻技能 ID 列表（启动即自动激活），写入 bundledSkills */
+  bundledSkills: string[]
 }
+
+/** MCP 服务选项（Step3/表单勾选用）；定义在 services 里，这里只做转出方便组件引用 */
+export type { McpServerOption } from '../../../../services/mcp-service'
 
 /** 精简编辑表单数据 */
 export interface GeneratedAgentForm extends GeneratedAgent {

@@ -105,12 +105,22 @@ export async function forkAgent(
   return unwrap(response, 'Fork Agent 失败')
 }
 
+/** 可传 null 清空的字段（主进程按 merge 语义写入，null 即清除该配置） */
+type NullableUpdateKeys =
+  | 'skillFilter'
+  | 'skillBlacklist'
+  | 'whenToUse'
+  | 'triggerExamples'
+  | 'bundledSkills'
+  | 'category'
+  | 'description'
+  | 'systemPrompt'
+
 /**
- * 更新载荷：技能过滤/黑名单允许传 null 以清空（主进程写入语义）
+ * 更新载荷：技能过滤/黑名单与路由信号允许传 null 以清空（主进程写入语义）
  */
-export type AgentUpdatePayload = Partial<Omit<Agent, 'skillFilter' | 'skillBlacklist'>> & {
-  skillFilter?: string[] | null
-  skillBlacklist?: string[] | null
+export type AgentUpdatePayload = Partial<Omit<Agent, NullableUpdateKeys>> & {
+  [K in NullableUpdateKeys]?: Agent[K] | null
 }
 
 /**
@@ -132,26 +142,4 @@ export async function deleteAgent(agentId: string): Promise<void> {
   if (!response.success) {
     throw new Error(response.error ?? '删除 Agent 失败')
   }
-}
-
-/** Agent 运行时生命周期快照（与 bridge.getLifecycleSnapshot 对齐；消费方按需收窄） */
-export interface AgentLifecycleSnapshot {
-  instanceCount?: number
-  runningCount?: number
-  anyRunning?: boolean
-  runningSinceMs?: number | null
-  totalTurns?: number
-  totalInputTokens?: number
-  totalOutputTokens?: number
-  subAgentsRunning?: number
-}
-
-/**
- * 获取指定 Agent 定义的生命周期快照。
- * 运行时接口不可用或调用失败时抛错，由调用方决定降级展示。
- */
-export async function getAgentLifecycleSnapshot(definitionId: string): Promise<AgentLifecycleSnapshot> {
-  const api = window.electronAPI?.agentRuntime
-  if (!api?.getLifecycleSnapshot) throw new Error('Agent 运行时不可用')
-  return (await api.getLifecycleSnapshot(definitionId)) as AgentLifecycleSnapshot
 }

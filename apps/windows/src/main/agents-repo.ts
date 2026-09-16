@@ -56,6 +56,14 @@ export interface AgentRecord {
   identity?: { emoji?: string; theme?: string; avatar?: string }
   skillFilter?: string[]
   skillBlacklist?: string[]
+  /** Pre-LLM Router 路由信号：何时使用（用户 Agent 由表单/AI 自动填写写入） */
+  whenToUse?: string
+  /** 路由信号：用户原话触发例子 */
+  triggerExamples?: string[]
+  /** 启动即自动激活的技能 ID（"Agent = 能力包"） */
+  bundledSkills?: string[]
+  /** UI 展示分类（coding / writing / learning / life / general） */
+  category?: string
   /** 只读定义详情（系统 Agent 由内置定义镜像；用户 Agent 无此字段） */
   definition?: AgentDefinitionDetail
   createdAt: string

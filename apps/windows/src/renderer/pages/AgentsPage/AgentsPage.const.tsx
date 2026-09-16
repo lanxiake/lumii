@@ -1,7 +1,6 @@
 import React from 'react'
 import { Search, Globe, FileText, FilePen, Terminal, CheckSquare, GitBranch, Clock } from 'lucide-react'
-import type { ModelTier } from '../../services/agent-service'
-import type { CapabilityOption, ModelTierOption } from './AgentsPage.types'
+import type { CapabilityOption } from './AgentsPage.types'
 
 // 工具名称与 bridge.ts 内 ALL_BUILT_IN_TOOL_CONFIGS 保持一致
 export const CAPABILITY_OPTIONS: CapabilityOption[] = [
@@ -88,26 +87,6 @@ export function skillBlacklistToCapabilityIds(blacklist: string[] | undefined): 
   return enabled
 }
 
-export const MODEL_TIER_OPTIONS: ModelTierOption[] = [
-  {
-    value: 'basic',
-    label: '基础',
-    description: '速度快、成本低，适合简单任务',
-  },
-  {
-    value: 'balanced',
-    label: '均衡',
-    description: '速度与能力兼顾，适合大多数任务',
-  },
-  {
-    value: 'performance',
-    label: '性能',
-    description: '最强推理能力，适合复杂任务',
-  },
-]
-
 export function defaultCapabilities(): Set<string> {
   return new Set(CAPABILITY_OPTIONS.map((c) => c.id))
 }
-
-export const DEFAULT_MODEL_TIER: ModelTier = 'basic'

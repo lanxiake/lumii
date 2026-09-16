@@ -1,15 +1,20 @@
+/* 遮罩铺满内容区，点击面板外任意空白处关闭；面板贴右侧滑入 */
 .overlay {
-  position: absolute; top: 0; right: 0; bottom: 0;
-  width: 340px; z-index: 10;
-  animation: slideIn 0.2s ease-out;
+  position: absolute; inset: 0;
+  z-index: 10;
+  display: flex; justify-content: flex-end;
+  background: rgba(0, 0, 0, 0.12);
+  animation: fadeIn 0.15s ease-out;
 }
 
-@keyframes slideIn {
-  from { transform: translateX(100%); opacity: 0; }
-  to { transform: translateX(0); opacity: 1; }
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 .panel {
+  width: 340px;
+  max-width: 100%;
   height: 100%;
   background: var(--mt-glass-bg);
   backdrop-filter: blur(var(--mt-glass-blur)) saturate(160%);
@@ -20,6 +25,12 @@
   flex-direction: column;
   gap: 16px;
   overflow-y: auto;
+  animation: slideIn 0.2s ease-out;
+}
+
+@keyframes slideIn {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
 }
 
 .header { display: flex; gap: 12px; align-items: flex-start; }
@@ -89,7 +100,7 @@
   color: var(--mt-fg-4);
 }
 
-/* 能力标签（白话分组；悬停看原始工具名） */
+/* 能力标签（白话名 + 原始工具名并排；不再依赖悬停） */
 .chipRow {
   display: flex;
   flex-wrap: wrap;
@@ -99,8 +110,9 @@
 
 .chip {
   display: inline-flex;
-  align-items: center;
-  gap: 4px;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 6px;
   max-width: 100%;
   padding: 3px 8px;
   border-radius: 10px;
@@ -108,32 +120,49 @@
   color: var(--mt-fg-2, var(--mt-fg-3));
   background: var(--mt-bg-tertiary);
   border: 1px solid var(--mt-border);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
-.chipCount {
+/* 原始标识（工具名 / 技能 ID / 计数） */
+.chipRaw {
   font-size: 10px;
   color: var(--mt-fg-4);
+  font-family: var(--mt-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  word-break: break-all;
 }
 
-.lifecycleRow {
+/* MCP：每个 server 一段，工具原始名逐个列出 */
+.mcpList {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
+  flex-direction: column;
+  gap: 6px;
+  margin: 4px 0 6px;
 }
 
-.lifecycleDot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--mt-border);
-  flex-shrink: 0;
+.mcpItem {
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: var(--mt-bg-tertiary);
+  border: 1px solid var(--mt-border);
 }
 
-.lifecycleDot[data-on="1"] {
-  background: var(--mt-success, #22c55e);
-  box-shadow: 0 0 6px rgba(34, 197, 94, 0.5);
+.mcpName {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--mt-fg-2, var(--mt-fg-3));
+}
+
+.mcpTools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px 8px;
+  margin-top: 3px;
+}
+
+.mcpToolName {
+  font-size: 10px;
+  color: var(--mt-fg-4);
+  font-family: var(--mt-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  word-break: break-all;
 }

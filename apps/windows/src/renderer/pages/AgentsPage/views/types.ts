@@ -1,4 +1,3 @@
-import type { ModelTier } from '../../../services/agent-service'
 import type { AgentDefinitionDetail } from '../../../services/agent-service'
 
 // Agent 数据结构（与 agent-service 保持一致）
@@ -11,8 +10,6 @@ export interface Agent {
   isDefault?: boolean
   /** 系统 Agent 是否出现在会话选择器（仅对话型系统 Agent 为 true） */
   selectable?: boolean
-  modelTier?: ModelTier
-  model?: { primary?: string }
   identity?: { emoji?: string; theme?: string }
   skillBlacklist?: string[]
   skillFilter?: string[]
@@ -30,12 +27,6 @@ export interface MissingSkill {
   inStore: boolean
 }
 
-/** Agent 运行态快照（用于列表/Map/Grid 动态标识） */
-export interface AgentRuntimeState {
-  readonly anyRunning: boolean
-  readonly runningCount: number
-}
-
 export type AgentView = 'map' | 'grid' | 'feed'
 
 export const VIEW_STORAGE_KEY = 'mtbot-ai-team-view'
@@ -44,12 +35,6 @@ export function getStoredView(): AgentView {
   const v = localStorage.getItem(VIEW_STORAGE_KEY)
   if (v === 'map' || v === 'grid' || v === 'feed') return v
   return 'grid'
-}
-
-export const TIER_LABELS: Record<ModelTier, string> = {
-  basic: '⚡ 基础',
-  balanced: '⚖️ 均衡',
-  performance: '🚀 性能',
 }
 
 export function agentColor(agent: Agent): string {
@@ -69,7 +54,6 @@ export interface ViewProps {
   userAgents: Agent[]
   systemAgents: Agent[]
   searchQuery: string
-  runtimeStateMap: Record<string, AgentRuntimeState | undefined>
   onEdit: (agent: Agent) => void
   onDelete: (agentId: string) => void
   onFork: (agent: Agent) => void

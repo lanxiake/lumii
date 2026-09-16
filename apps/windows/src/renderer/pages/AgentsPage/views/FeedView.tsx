@@ -1,16 +1,13 @@
 import React, { useState } from 'react'
 import clsx from 'clsx'
 import type { ViewProps, Agent } from './types'
-import { TIER_LABELS } from './types'
 import { SkillMissingBadge } from './SkillMissingBadge'
-import { AutonomousToggle } from '../components/AutonomousToggle'
 import styles from './FeedView.module.css'
 
 export const FeedView: React.FC<ViewProps> = ({
   userAgents,
   systemAgents,
   searchQuery,
-  runtimeStateMap,
   onEdit,
   onDelete,
   onFork,
@@ -29,8 +26,6 @@ export const FeedView: React.FC<ViewProps> = ({
 
   const renderRow = (agent: Agent, isSystem: boolean) => {
     const expanded = expandedId === agent.id
-    const runtime = runtimeStateMap[agent.id]
-    const isRunning = !!runtime?.anyRunning
     const agentMissing = !isSystem ? missingSkillsMap?.[agent.id] : undefined
     return (
       <div
@@ -53,22 +48,6 @@ export const FeedView: React.FC<ViewProps> = ({
             )}
           </div>
           <div className={styles['row-badges']}>
-            {isRunning && (
-              <span className={styles['badge--running']} title="运行中">
-                <span className={styles['runningDot']} />
-                运行中
-              </span>
-            )}
-            {agent.modelTier && (
-              <span className={clsx(styles.badge, styles[`badge--${agent.modelTier}`])}>
-                {TIER_LABELS[agent.modelTier]}
-              </span>
-            )}
-            {agent.model?.primary && (
-              <span className={styles['badge--model']}>
-                {agent.model.primary.split('/').pop()}
-              </span>
-            )}
             {isSystem && <span className={styles['badge--system']}>系统内置</span>}
             {agentMissing && agentMissing.length > 0 && onInstallSkill && onNavigateToStore && (
               <SkillMissingBadge
@@ -86,7 +65,6 @@ export const FeedView: React.FC<ViewProps> = ({
             className={styles['row-actions']}
             onClick={(e) => e.stopPropagation()}
           >
-            <AutonomousToggle agentId={agent.id} />
             {isSystem ? (
               <>
                 <button className={styles['btn--secondary']} onClick={() => onOpenDetail(agent)}>

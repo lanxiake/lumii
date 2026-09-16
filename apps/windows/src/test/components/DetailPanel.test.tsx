@@ -2,9 +2,10 @@
  * DetailPanel：内置 Agent 定义详情展示
  *
  * 覆盖用户能看到的四件事：何时使用 / 能力配置（工具白话分组 + 技能）/ 运行方式 / 边界。
+ * 面板已移除模型信息、运行状态与自主心跳开关，并支持点击面板外空白处关闭。
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 import '@testing-library/jest-dom'
 import { DetailPanel } from '../../renderer/pages/AgentsPage/views/DetailPanel'
 import type { Agent } from '../../renderer/pages/AgentsPage/views/types'
@@ -13,24 +14,8 @@ type Binding = { agentId: string; backendId: string; workspace?: string; enabled
 
 function mockElectronApi(bindings: Binding[] = []) {
   ;(window as any).electronAPI = {
-    agentRuntime: {
-      getLifecycleSnapshot: vi.fn(async () => ({
-        instanceCount: 0,
-        runningCount: 0,
-        anyRunning: false,
-        runningSinceMs: null,
-        totalTurns: 0,
-        totalInputTokens: 0,
-        totalOutputTokens: 0,
-        subAgentsRunning: 0,
-      })),
-    },
     app: {
       getCodingDevAgentBindings: vi.fn(async () => bindings),
-    },
-    autonomous: {
-      getAgents: vi.fn(async () => []),
-      setAgents: vi.fn(async () => ({ ok: true })),
     },
   }
 }
@@ -41,7 +26,6 @@ const codeDevAgent: Agent = {
   name: '灵栖开发',
   description: 'Bind a project and complete verifiable code changes in it.',
   systemPrompt: '你是「灵栖开发」…',
-  modelTier: 'balanced',
   definition: {
     tools: ['bash', 'file_read', 'glob', 'grep', 'file_edit', 'wiki_search', 'todo_write'],
     maxTurns: 80,
@@ -53,13 +37,13 @@ const codeDevAgent: Agent = {
 
 const noop = () => undefined
 
-function renderPanel(agent: Agent, bindings: Binding[] = []) {
+function renderPanel(agent: Agent, bindings: Binding[] = [], onClose: () => void = noop) {
   mockElectronApi(bindings)
   return render(
     <DetailPanel
       agent={agent}
       isSystem={!agent.userId}
-      onClose={noop}
+      onClose={onClose}
       onStartChat={noop}
       onEdit={noop}
       onDelete={noop}
@@ -81,13 +65,13 @@ describe('DetailPanel 内置 Agent 详情', () => {
       screen.getByText('Bind a project and complete verifiable code changes in it.'),
     ).toBeInTheDocument()
 
-    // 工具：按白话标签聚合，原始名进 title 供悬停查看
+    // 工具：白话标签旁直接列出原始工具名（不再依赖悬停）
     const capabilitySection = screen.getByText('能力配置')
     expect(capabilitySection).toBeInTheDocument()
-    const fileChip = screen.getByTitle('file_read、glob、grep')
-    expect(fileChip).toHaveTextContent('读取文件')
-    expect(fileChip).toHaveTextContent('3')
-    expect(screen.getByText('执行命令')).toBeInTheDocument()
+    const fileChip = screen.getByText('读取文件')
+    expect(fileChip).toHaveTextContent('file_read')
+    expect(fileChip).toHaveTextContent('glob')
+    expect(screen.getByText('执行命令')).toHaveTextContent('bash')
     expect(screen.getByText('资料库检索')).toBeInTheDocument()
 
     // 技能白名单为空 = 未限制
@@ -108,7 +92,7 @@ describe('DetailPanel 内置 Agent 详情', () => {
     expect(screen.getByText('全部工具')).toBeInTheDocument()
   })
 
-  it('app_* 工具合并为客户端界面两档，悬停可看原始名', () => {
+  it('app_* 工具合并为客户端界面两档，原始名并排展示', () => {
     renderPanel({
       id: 'system-keeper',
       name: '灵栖维护',
@@ -118,9 +102,11 @@ describe('DetailPanel 内置 Agent 详情', () => {
       },
     })
 
-    // 查看界面 2 个合并；操作界面 2 个合并
-    expect(screen.getByTitle('app_screenshot、app_goto_and_screenshot')).toHaveTextContent('查看客户端界面')
-    expect(screen.getByTitle('app_act、app_fill_form')).toHaveTextContent('操作客户端界面')
+    // 查看界面 2 个合并；操作界面 2 个合并，原始名直接可见
+    expect(screen.getByText('查看客户端界面')).toHaveTextContent('app_screenshot')
+    expect(screen.getByText('查看客户端界面')).toHaveTextContent('app_goto_and_screenshot')
+    expect(screen.getByText('操作客户端界面')).toHaveTextContent('app_act')
+    expect(screen.getByText('操作客户端界面')).toHaveTextContent('app_fill_form')
   })
 
   it('绑定外部 CLI 时展示工具与工作目录；未绑定则说明走内置内核', async () => {
@@ -158,5 +144,28 @@ describe('DetailPanel 内置 Agent 详情', () => {
     expect(screen.getByText('系统维护手册')).toBeInTheDocument()
     // 用户 Agent 不展示运行方式（未绑定 CLI）
     expect(screen.queryByText('运行方式')).not.toBeInTheDocument()
+  })
+
+  it('不再展示模型信息、运行状态与自主心跳开关', () => {
+    renderPanel(codeDevAgent)
+
+    expect(screen.queryByText('模型信息')).not.toBeInTheDocument()
+    expect(screen.queryByText('模型级别')).not.toBeInTheDocument()
+    expect(screen.queryByText('运行状态')).not.toBeInTheDocument()
+    expect(screen.queryByText('自主能力')).not.toBeInTheDocument()
+    expect(screen.queryByText('参与自主心跳')).not.toBeInTheDocument()
+  })
+
+  it('点击面板外空白处关闭，点击面板内部不关闭', () => {
+    const onClose = vi.fn()
+    const { container } = renderPanel(codeDevAgent, [], onClose)
+    const overlay = container.firstElementChild as HTMLElement
+    const panel = overlay.firstElementChild as HTMLElement
+
+    fireEvent.click(panel)
+    expect(onClose).not.toHaveBeenCalled()
+
+    fireEvent.click(overlay)
+    expect(onClose).toHaveBeenCalledTimes(1)
   })
 })
