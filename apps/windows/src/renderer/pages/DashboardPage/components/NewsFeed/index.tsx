@@ -13,8 +13,9 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Newspaper, RefreshCw, Sparkles } from 'lucide-react'
+import { Newspaper, RefreshCw, SlidersHorizontal, Sparkles } from 'lucide-react'
 import { Card } from '../../../../components/ui/Card/Card'
+import { NewsPreferencesPanel } from '../NewsPreferences'
 import type { ViewType } from '../../../../components/layout/Sidebar/Sidebar'
 import { fetchFeedMeta, fetchFeedBatches, refreshDashboardFeed } from '../../../../services/dashboard-feed-service'
 import type { DashboardFeedBatch, DashboardFeedBatchCursor } from '@main/dashboard-feed-store'
@@ -97,6 +98,7 @@ export const NewsFeed: React.FC<NewsFeedProps> = ({ onViewChange }) => {
   const [loading, setLoading] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
+  const [prefsOpen, setPrefsOpen] = useState(false)
   const [error, setError] = useState<string>()
   /** 手动折叠/展开过的期（默认只展开最新一期） */
   const [collapsedOverride, setCollapsedOverride] = useState<Record<string, boolean>>({})
@@ -240,10 +242,23 @@ export const NewsFeed: React.FC<NewsFeedProps> = ({ onViewChange }) => {
         >
           <RefreshCw size={12} strokeWidth={2} className={refreshing ? styles.spin : undefined} />
         </button>
+        {/* 偏好放这里而不是新开一张卡：用户是在看资讯的时候才想起「这条为什么推给我」，
+            放在被质疑的那份内容旁边，比放在别处更容易被找到 */}
+        <button
+          type="button"
+          className={styles.refresh}
+          onClick={() => setPrefsOpen(true)}
+          title="看资讯偏好会命中什么"
+          aria-label="资讯偏好"
+        >
+          <SlidersHorizontal size={12} strokeWidth={2} />
+        </button>
         <button type="button" className={styles.link} onClick={() => onViewChange?.('cron')}>
           定时任务
         </button>
       </div>
+
+      <NewsPreferencesPanel open={prefsOpen} onClose={() => setPrefsOpen(false)} />
 
       {error && <div className={styles.error}>{error}</div>}
 

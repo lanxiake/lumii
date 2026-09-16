@@ -982,6 +982,17 @@ export interface ToolsUsageByAgentCommand {
   readonly days?: number
 }
 
+/**
+ * 检视资讯偏好：每条规则会命中哪些已推条目 + 冲突裁决顺序。
+ *
+ * 「预览」与「规则日志」是**同一个计算的两个视图**——都回答
+ * 「这条规则现在生效的话会碰到哪些条目」，只是一个按需查、一个是常驻计数。
+ * 分两个命令会让两边口径漂开，那正好毁掉预览的意义。
+ */
+export interface NewsPreferencePreviewCommand {
+  readonly type: 'news-preference:preview'
+}
+
 /** 导出工具累计使用记录（JSON），供离线分析 */
 export interface ToolsUsageExportCommand {
   readonly type: 'tools:usage:export'
@@ -1735,6 +1746,7 @@ export type AgentRuntimeCommand =
   | ToolsToggleCommand
   | ToolsUsageByAgentCommand
   | ToolsUsageExportCommand
+  | NewsPreferencePreviewCommand
   | McpStatusCommand
   | McpUpsertCommand
   | McpImportCommand
@@ -2285,6 +2297,21 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
       }[]
     }[]
   : T extends 'tools:usage:export' ? { json: string }
+  : T extends 'news-preference:preview' ? {
+      /** 参与匹配的已推条目总数——「命中 0 篇」要靠它区分「规则没用」和「没数据」 */
+      itemCount: number
+      /** 裁决顺序的可读版本（界面直接显示，不再自己措辞） */
+      prioritySummary: string
+      /** 可做子串匹配的规则及其命中 */
+      rules: readonly {
+        field: string
+        value: string
+        count: number
+        hits: readonly { title: string; source: string; timestamp: number }[]
+      }[]
+      /** 不可预览的字段（推送时段是时间窗，没法拿关键词匹）——如实列出，不装作命中 0 */
+      nonMatchable: readonly { field: string; values: readonly string[] }[]
+    }
   : T extends 'mcp:status' ? McpStatusPayload
   : T extends 'mcp:readConfigFile' ? { path: string; content: string }
   : T extends 'mcp:writeConfigFile' ? { success: boolean; error?: string }

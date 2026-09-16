@@ -212,6 +212,7 @@ import {
   handleMcpReadConfigFile,
   handleMcpWriteConfigFile,
 } from './agent-runtime/tools-and-mcp-commands'
+import { handleNewsPreferencePreview } from './agent-runtime/news-commands'
 import {
   handleFilesList,
   handleFilesSearch,
@@ -1037,6 +1038,9 @@ export async function handleCommand(
 
       case 'tools:usage:export':
         return handleToolsUsageExport()
+
+      case 'news-preference:preview':
+        return handleNewsPreferencePreview()
 
       case 'mcp:status':
         return handleMcpStatus(bridge)
