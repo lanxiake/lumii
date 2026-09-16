@@ -33,6 +33,12 @@ export type ToolFailureAudit = (row: {
 }) => void
 
 export interface ToolUsageHookDeps {
+  /**
+   * 记到哪个 Agent 名下——**定义 id**（`system-keeper`），不是实例 id。
+   * 刻意做成必填：漏传会让所有调用静默落进 'unknown'，
+   * 而那正是 V44 之前「查不出谁在用」的老毛病，不该有第二次机会。
+   */
+  readonly agentId: string
   readonly logToolAudit?: ToolFailureAudit
 }
 
@@ -62,11 +68,12 @@ function summaryFromError(ctx: ToolHookErrorContext): string {
   return truncate(message || '工具抛错（无消息）')
 }
 
-export function createToolUsageHook(deps: ToolUsageHookDeps = {}): ToolHook {
+export function createToolUsageHook(deps: ToolUsageHookDeps): ToolHook {
+  const { agentId } = deps
   return {
     name: 'tool-usage-and-failure-audit',
     afterExecute(ctx) {
-      void recordToolUsage(ctx.toolName, ctx.isError)
+      void recordToolUsage(agentId, ctx.toolName, ctx.isError)
       if (ctx.isError) {
         deps.logToolAudit?.({
           toolName: ctx.toolName,
@@ -76,7 +83,7 @@ export function createToolUsageHook(deps: ToolUsageHookDeps = {}): ToolHook {
       }
     },
     onError(ctx) {
-      void recordToolUsage(ctx.toolName, true)
+      void recordToolUsage(agentId, ctx.toolName, true)
       deps.logToolAudit?.({
         toolName: ctx.toolName,
         resultSummary: summaryFromError(ctx),

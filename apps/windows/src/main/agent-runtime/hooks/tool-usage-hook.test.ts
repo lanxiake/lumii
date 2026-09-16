@@ -6,6 +6,9 @@ vi.mock('../../tool-usage-store', () => ({ recordToolUsage: recordToolUsageMock 
 
 const { createToolUsageHook, FAILURE_SUMMARY_MAX_CHARS } = await import('./tool-usage-hook')
 
+/** 定义 id（不是实例 id）——用例同时守住「记到谁名下」这件事 */
+const AGENT = 'system-keeper'
+
 function baseCtx(toolName: string): ToolHookContext {
   return {
     toolCallId: 'tc',
@@ -40,21 +43,21 @@ beforeEach(() => {
 describe('tool-usage hook', () => {
   it('成功时只计数，不写审计', async () => {
     const audit = vi.fn()
-    const hook = createToolUsageHook({ logToolAudit: audit })
+    const hook = createToolUsageHook({ agentId: AGENT, logToolAudit: audit })
 
     await hook.afterExecute!(resultCtx('web_search', '搜索"x"，共 8 条结果', false))
 
-    expect(recordToolUsageMock).toHaveBeenCalledWith('web_search', false)
+    expect(recordToolUsageMock).toHaveBeenCalledWith(AGENT, 'web_search', false)
     expect(audit).not.toHaveBeenCalled()
   })
 
   it('工具返回失败结果时，用结果正文当审计摘要', async () => {
     const audit = vi.fn()
-    const hook = createToolUsageHook({ logToolAudit: audit })
+    const hook = createToolUsageHook({ agentId: AGENT, logToolAudit: audit })
 
     await hook.afterExecute!(resultCtx('web_fetch', 'HTTP 404: Failed to fetch https://x/y', true))
 
-    expect(recordToolUsageMock).toHaveBeenCalledWith('web_fetch', true)
+    expect(recordToolUsageMock).toHaveBeenCalledWith(AGENT, 'web_fetch', true)
     expect(audit).toHaveBeenCalledWith({
       toolName: 'web_fetch',
       resultSummary: 'HTTP 404: Failed to fetch https://x/y',
@@ -64,11 +67,11 @@ describe('tool-usage hook', () => {
 
   it('工具抛错时，用异常消息当审计摘要', async () => {
     const audit = vi.fn()
-    const hook = createToolUsageHook({ logToolAudit: audit })
+    const hook = createToolUsageHook({ agentId: AGENT, logToolAudit: audit })
 
     await hook.onError!(errorCtx('web_fetch', new Error('HTTP 0: Failed to fetch https://a/b')))
 
-    expect(recordToolUsageMock).toHaveBeenCalledWith('web_fetch', true)
+    expect(recordToolUsageMock).toHaveBeenCalledWith(AGENT, 'web_fetch', true)
     expect(audit).toHaveBeenCalledWith({
       toolName: 'web_fetch',
       resultSummary: 'HTTP 0: Failed to fetch https://a/b',
@@ -78,7 +81,7 @@ describe('tool-usage hook', () => {
 
   it('非 Error 抛出物也能归因', async () => {
     const audit = vi.fn()
-    const hook = createToolUsageHook({ logToolAudit: audit })
+    const hook = createToolUsageHook({ agentId: AGENT, logToolAudit: audit })
 
     await hook.onError!(errorCtx('bash', 'boom'))
 
@@ -87,7 +90,7 @@ describe('tool-usage hook', () => {
 
   it('摘要压成单行并截断到上限', async () => {
     const audit = vi.fn()
-    const hook = createToolUsageHook({ logToolAudit: audit })
+    const hook = createToolUsageHook({ agentId: AGENT, logToolAudit: audit })
 
     await hook.onError!(errorCtx('web_search', new Error(`第一行\n第二行\n${'长'.repeat(500)}`)))
 
@@ -101,7 +104,7 @@ describe('tool-usage hook', () => {
 
   it('结果没有正文时给可辨认的兜底摘要，而不是空串', async () => {
     const audit = vi.fn()
-    const hook = createToolUsageHook({ logToolAudit: audit })
+    const hook = createToolUsageHook({ agentId: AGENT, logToolAudit: audit })
 
     await hook.afterExecute!({
       ...baseCtx('mcp__x__y'),
@@ -114,9 +117,9 @@ describe('tool-usage hook', () => {
   })
 
   it('未注入审计出口时静默降级，不影响计数', async () => {
-    const hook = createToolUsageHook()
+    const hook = createToolUsageHook({ agentId: AGENT })
 
     expect(() => hook.onError!(errorCtx('bash', new Error('x')))).not.toThrow()
-    expect(recordToolUsageMock).toHaveBeenCalledWith('bash', true)
+    expect(recordToolUsageMock).toHaveBeenCalledWith(AGENT, 'bash', true)
   })
 })

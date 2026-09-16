@@ -10,7 +10,10 @@ import type { DatabaseAdapter } from "./local-database.js";
 
 export interface AuditLogRow {
   readonly id: number;
+  /** 实例 id（`agent-1789…`）。V45 起另有 definition_id 可回连定义 */
   readonly agent_id: string;
+  /** Agent 定义 id（`system-keeper`）。V45 之前的旧行为 NULL——不假装能归因 */
+  readonly definition_id: string | null;
   readonly tool_name: string;
   readonly result_summary: string | null;
   readonly is_error: number;
@@ -28,6 +31,11 @@ export class AuditRepo {
    */
   log(params: {
     readonly agentId: string;
+    /**
+     * Agent **定义 id**（`system-keeper`）。agentId 那条路走不通：
+     * 它存的是实例 id，而实例不落库，等于存了个没人能解的外键。
+     */
+    readonly definitionId?: string;
     readonly toolName: string;
     readonly resultSummary?: string;
     readonly isError?: boolean;
@@ -39,11 +47,12 @@ export class AuditRepo {
 
     this.db
       .prepare(
-        `INSERT INTO tool_audit_log (agent_id, tool_name, result_summary, is_error, duration_ms, timestamp)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO tool_audit_log (agent_id, definition_id, tool_name, result_summary, is_error, duration_ms, timestamp)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         params.agentId,
+        params.definitionId ?? null,
         params.toolName,
         summary,
         params.isError ? 1 : 0,
@@ -59,7 +68,7 @@ export class AuditRepo {
     const n = Math.min(Math.max(1, limit), 200);
     return this.db
       .prepare<AuditLogRow>(
-        `SELECT id, agent_id, tool_name, result_summary, is_error, duration_ms, timestamp
+        `SELECT id, agent_id, definition_id, tool_name, result_summary, is_error, duration_ms, timestamp
        FROM tool_audit_log
        ORDER BY timestamp DESC
        LIMIT ?`,

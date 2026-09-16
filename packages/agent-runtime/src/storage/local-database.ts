@@ -719,6 +719,10 @@ export class LocalDatabase {
           return hasColumn("wiki_sources", "user_path");
         case 41:
           return hasColumn("conversations", "channel_type");
+        // V44 是重建表（RENAME → 建新 → 拷 → DROP）：重放一次不会报错，而是
+        // 静默把已归因的 agent 维度全部压回 'unknown'——比报错更糟，所以必须守卫。
+        case 44:
+          return hasColumn("tool_usage_stats", "agent_id");
         default:
           return false;
       }

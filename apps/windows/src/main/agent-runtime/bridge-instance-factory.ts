@@ -272,6 +272,7 @@ export class BridgeInstanceFactory {
               const isError = finalMessage?.stopReason === 'error'
               this.deps.getAuditRepo()?.log({
                 agentId: instanceId,
+                definitionId: def.id,
                 toolName: modelLabel,
                 resultSummary: isError
                   ? finalMessage.errorMessage ?? '请求失败'
@@ -283,6 +284,7 @@ export class BridgeInstanceFactory {
             .catch((err: unknown) => {
               this.deps.getAuditRepo()?.log({
                 agentId: instanceId,
+                definitionId: def.id,
                 toolName: modelLabel,
                 resultSummary: err instanceof Error ? err.message : String(err),
                 isError: true,
@@ -293,6 +295,7 @@ export class BridgeInstanceFactory {
         } catch (err) {
           this.deps.getAuditRepo()?.log({
             agentId: instanceId,
+            definitionId: def.id,
             toolName: modelLabel,
             resultSummary: err instanceof Error ? err.message : String(err),
             isError: true,
@@ -373,6 +376,9 @@ export class BridgeInstanceFactory {
       if (!auditRepo) return
       auditRepo.log({
         agentId: instanceId,
+        // 实例 id 回连不到定义（实例不落库），补一个可解的维度。
+        // def 就在当前作用域里，不必反查——反查还多一个「查不到」的失败态。
+        definitionId: def.id,
         toolName: row.toolName,
         resultSummary: row.resultSummary,
         isError: row.isError,
@@ -443,7 +449,7 @@ export class BridgeInstanceFactory {
       skillHitRateTracker.hook,
       // 失败审计与计数同源：两者都要在「所有工具的统一出口」上接线，
       // 分开成两个 hook 只会多一遍遍历，且容易只接其中一个
-      createToolUsageHook({ logToolAudit }),
+      createToolUsageHook({ agentId: def.id, logToolAudit }),
       // 工具进化 M1：逐条采集 bash 命令原文（模式挖掘数据源），失败静默不影响主链路
       // 挖掘由定时条件检查触发，不再在写日志后实时检查
       createBashCommandLogHook({

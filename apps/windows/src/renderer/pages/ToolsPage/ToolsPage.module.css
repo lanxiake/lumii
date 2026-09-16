@@ -110,3 +110,119 @@
   padding-bottom: 8px;
   border-bottom: 1px solid var(--mt-border, var(--color-border));
 }
+
+/* 「全部 / 按 Agent」二选一 */
+.segmented {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  background: var(--mt-bg-tertiary, var(--color-bg-tertiary));
+  border-radius: 8px;
+}
+
+.segBtn {
+  padding: 6px 14px;
+  border: none;
+  background: transparent;
+  color: var(--mt-fg-2, var(--color-text-secondary));
+  font-size: 13px;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: all 0.15s;
+}
+
+.segBtn:hover {
+  color: var(--mt-fg-1, var(--color-text-primary));
+}
+
+.segBtn.active {
+  background: var(--mt-bg-primary, var(--color-bg-primary));
+  color: var(--mt-fg-1, var(--color-text-primary));
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+.usageView {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow: hidden;
+}
+
+.usageToolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.usageSelect {
+  min-width: 260px;
+}
+
+.usageSummary {
+  font-size: 13px;
+  color: var(--mt-fg-3, var(--color-text-tertiary));
+}
+
+.usageList {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.usageRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--mt-border, var(--color-border));
+}
+
+.usageRow:last-child {
+  border-bottom: none;
+}
+
+.usageTool {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.usageToolName {
+  font-family: var(--font-mono, monospace);
+  font-size: 13px;
+  color: var(--mt-fg-1, var(--color-text-primary));
+}
+
+.usageToolLabel {
+  font-size: 12px;
+  color: var(--mt-fg-3, var(--color-text-tertiary));
+}
+
+.usageStats {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--mt-fg-2, var(--color-text-secondary));
+}
+
+.usageCount {
+  font-weight: 600;
+  color: var(--mt-fg-1, var(--color-text-primary));
+}
+
+.usageErrors {
+  color: var(--mt-danger-500, var(--color-danger, #d9534f));
+}
+
+.usageLast {
+  color: var(--mt-fg-3, var(--color-text-tertiary));
+  min-width: 84px;
+  text-align: right;
+}

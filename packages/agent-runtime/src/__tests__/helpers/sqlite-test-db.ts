@@ -159,3 +159,37 @@ export function runMigration41(db: DatabaseAdapter): void {
   if (!entry) throw new Error("V41 migration not found in MIGRATIONS");
   db.exec(entry[1]);
 }
+
+/** 建一个只迁移到 V43（即将执行 V44 之前）的内存库，供 V44 迁移测试构造 fixture */
+export function createPreV44TestDb(): DatabaseAdapter {
+  const db = createTestSqliteAdapter();
+  for (const [version, sql] of MIGRATIONS) {
+    if (version >= 44) continue;
+    db.exec(sql);
+  }
+  return db;
+}
+
+/** 对一个 pre-V44 库执行 V44 迁移 SQL（工具统计重建为 agent 维度） */
+export function runMigration44(db: DatabaseAdapter): void {
+  const entry = MIGRATIONS.find(([version]) => version === 44);
+  if (!entry) throw new Error("V44 migration not found in MIGRATIONS");
+  db.exec(entry[1]);
+}
+
+/** 建一个只迁移到 V44（即将执行 V45 之前）的内存库，供 V45 迁移测试构造 fixture */
+export function createPreV45TestDb(): DatabaseAdapter {
+  const db = createTestSqliteAdapter();
+  for (const [version, sql] of MIGRATIONS) {
+    if (version >= 45) continue;
+    db.exec(sql);
+  }
+  return db;
+}
+
+/** 对一个 pre-V45 库执行 V45 迁移 SQL（审计表补 definition_id） */
+export function runMigration45(db: DatabaseAdapter): void {
+  const entry = MIGRATIONS.find(([version]) => version === 45);
+  if (!entry) throw new Error("V45 migration not found in MIGRATIONS");
+  db.exec(entry[1]);
+}

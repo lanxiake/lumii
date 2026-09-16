@@ -6,7 +6,8 @@
 
 import type { AgentRuntimeCommand } from '../../../shared/agent-runtime-commands'
 import type { AgentRuntimeBridge } from '../../agent-runtime/bridge'
-import { getToolUsage } from '../../tool-usage-store'
+import { getToolUsage, getToolUsageByAgent, UNKNOWN_AGENT_ID } from '../../tool-usage-store'
+import { BUILT_IN_AGENTS } from '@mtbot/agent-runtime'
 
 const log = {
   info: (...args: unknown[]) => console.log('[AgentRuntime:IPC]', ...args),
@@ -39,6 +40,43 @@ export function handleToolsToggle(
     `[tools:toggle] toolName=${command.toolName} enabled=${command.enabled} success=${success}`,
   )
   return { success }
+}
+
+/**
+ * 逐 Agent 的工具用量。
+ *
+ * 这份数据的用途不是「看看数字」——是回答「某个工具到底有没有人用」，
+ * 而那是逐 Agent 收敛工具面的唯一依据。之前只有全局累计计数，
+ * 于是「维护用没用过 wiki_read」这类问题只能靠猜。
+ *
+ * 在主进程就把名字解析好、排好序：渲染层只负责画。
+ */
+export async function handleToolsUsageByAgent(): Promise<unknown> {
+  const byAgent = await getToolUsageByAgent()
+  const nameById = new Map(BUILT_IN_AGENTS.map((a) => [a.id, a.name]))
+
+  return Object.entries(byAgent)
+    .map(([id, tools]) => {
+      const rows = Object.entries(tools)
+        .map(([name, s]) => ({
+          name,
+          count: s.count,
+          errorCount: s.errorCount,
+          lastUsedAt: s.lastUsedAt,
+        }))
+        .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
+      return {
+        id,
+        // 内建 Agent 取显示名；自定义 Agent 与未归因桶回落 id —— 不编名字
+        name:
+          id === UNKNOWN_AGENT_ID
+            ? '未归因（V44 之前的存量）'
+            : (nameById.get(id) ?? id),
+        totalCalls: rows.reduce((sum, r) => sum + r.count, 0),
+        tools: rows,
+      }
+    })
+    .sort((a, b) => b.totalCalls - a.totalCalls)
 }
 
 // ============================================================

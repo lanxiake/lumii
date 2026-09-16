@@ -6,7 +6,7 @@
  */
 
 /** 当前 schema 版本号 */
-export const SCHEMA_VERSION = 43;
+export const SCHEMA_VERSION = 45;
 
 /**
  * V1 DDL — 初始 schema
@@ -1530,6 +1530,58 @@ GROUP BY feed_id, substr(created_at, 1, 10);
 UPDATE dashboard_feed_items
 SET batch_id = 'legacy:' || substr(created_at, 1, 10) || ':' || feed_id
 WHERE batch_id IS NULL;
+`,
+  ],
+  // V44: 工具统计加 agent 维度
+  //
+  // 原表只有 tool_name 一个主键——「维护到底用没用过 wiki_read」这个问题，
+  // 累计计数答不了。逐 Agent 的工具取舍（收敛/保留）全靠猜。
+  //
+  // 旧数据统一记为 'unknown'：全局计数没有被记下来是哪次调用贡献的，
+  // 不假装能归因。这不是「暂时空着，以后再补」——是**永久无法归因**。
+  //
+  // 为什么加的是 agent 维度、不是时间维度：B1 的原定靶子（web_search 43% 失败率）
+  // 之所以搞错，根因确实是这张表没有时间维度（把历史存量当成了当前状态）。
+  // 但时间维度用 tool_audit_log 回答更合适——它从 V44 起由 tool-usage-hook 在
+  // 所有工具的失败出口写入，每行自带 timestamp 与失败原因。往这张表塞
+  // (agent_id, tool_name, day) 会同时带来两个新问题：行数按天膨胀、
+  // 以及 flushToDb 的「整表 UPSERT」必须改写成脏键集合（否则每 2 秒重写几万行）。
+  // 结论：累计次数与「最近用过吗」放这里，时间窗与失败原因放 audit 表。
+  [
+    44,
+    `
+ALTER TABLE tool_usage_stats RENAME TO tool_usage_stats_v43;
+
+CREATE TABLE IF NOT EXISTS tool_usage_stats (
+  agent_id     TEXT NOT NULL,
+  tool_name    TEXT NOT NULL,
+  count        INTEGER NOT NULL DEFAULT 0,
+  error_count  INTEGER NOT NULL DEFAULT 0,
+  last_used_at INTEGER,
+  PRIMARY KEY (agent_id, tool_name)
+);
+
+INSERT INTO tool_usage_stats (agent_id, tool_name, count, error_count, last_used_at)
+SELECT 'unknown', tool_name, count, error_count, last_used_at FROM tool_usage_stats_v43;
+
+DROP TABLE tool_usage_stats_v43;
+`,
+  ],
+  // V45: 工具审计补 definition_id
+  //
+  // 审计日志是用来回答「这个 Agent 干了什么」的，而 agent_id 存的是**实例 id**
+  // （`agent-1789048421480-wst9ns`）——实例不落库，等于存了个没人能解的外键。
+  // 实测该表 14 个不同 agent_id 全是这个形状，一条都回连不到定义。
+  //
+  // 现有 agent_id 的语义**不改**（它确实记的是实例，可能有人拿它对时间线），
+  // 只是补一个可解的维度。旧行留空——同样不假装能归因。
+  [
+    45,
+    `
+ALTER TABLE tool_audit_log ADD COLUMN definition_id TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_audit_definition
+  ON tool_audit_log (definition_id, timestamp DESC);
 `,
   ],
 ] as const;

@@ -964,6 +964,17 @@ export interface ToolsToggleCommand {
   readonly enabled: boolean
 }
 
+/**
+ * 逐 Agent 的工具用量。
+ *
+ * 与 `tools:list` 分开而不是塞进它的返回值：`tools:list` 有好几个调用方
+ * （MCP 面板、技能页、输入框的加号菜单），每个都多背一份按 Agent 的明细
+ * 是白花成本；这个视图只有工具页用。
+ */
+export interface ToolsUsageByAgentCommand {
+  readonly type: 'tools:usage-by-agent'
+}
+
 export interface McpStatusCommand {
   readonly type: 'mcp:status'
 }
@@ -1710,6 +1721,7 @@ export type AgentRuntimeCommand =
   | WikiSourceSummaryCommand
   | ToolsListCommand
   | ToolsToggleCommand
+  | ToolsUsageByAgentCommand
   | McpStatusCommand
   | McpUpsertCommand
   | McpImportCommand
@@ -2243,6 +2255,20 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
       lastUsedAt?: number
     }[]
   : T extends 'tools:toggle' ? { success: boolean }
+  : T extends 'tools:usage-by-agent' ? readonly {
+      /** Agent 定义 id；V44 之前的存量归在 'unknown' */
+      id: string
+      /** 显示名（内建取定义名，未知回落 id） */
+      name: string
+      totalCalls: number
+      /** 该 Agent 用过的工具，按调用次数降序 */
+      tools: readonly {
+        name: string
+        count: number
+        errorCount: number
+        lastUsedAt: number
+      }[]
+    }[]
   : T extends 'mcp:status' ? McpStatusPayload
   : T extends 'mcp:readConfigFile' ? { path: string; content: string }
   : T extends 'mcp:writeConfigFile' ? { success: boolean; error?: string }

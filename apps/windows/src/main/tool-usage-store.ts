@@ -1,16 +1,20 @@
 /**
  * 工具调用次数统计（技能 / MCP / 系统工具）
  *
- * 存 SQLite `tool_usage_stats` 表（schema V13 新增），全量小对象（工具数量级几百），
- * 内存累加 + 延迟落盘：不像 usage-store 那样一次调用一行，
+ * 存 SQLite `tool_usage_stats` 表（schema V13 新增，V44 加 agent 维度），全量小对象
+ * （Agent 数 × 工具数量级），内存累加 + 延迟落盘：不像 usage-store 那样一次调用一行，
  * 这里只关心「累计次数 + 最后使用时间」，UPSERT 覆盖写最省事。
+ *
+ * **为什么有 agent 维度**：原表只有 tool_name 一个主键，「维护到底用没用过 wiki_read」
+ * 这类逐 Agent 的取舍问题答不了。归因用的是**定义 id**（`system-keeper`），不是实例 id
+ * （`agent-1789…`）——实例不落库，存下来等于埋一个解不开的外键。
  *
  * 为兼容历史版本，启动时如检测到旧 `~/.lumii/usage/tool-usage.json`，
  * 做一次性数据迁移（JSON → SQLite），完成后 JSON 重命名为 `.bak`。
  * 当 SQLite 适配器未注入（测试/降级路径）时，退化为纯内存 Map，
  * 保证统计失败绝不影响对话流程。
  *
- * 用途：让用户看到哪些工具高频、哪些从未用过，据此手动关掉长期不用的，省上下文。
+ * 用途：让用户看到哪些工具高频、哪些从未用过、谁在用，据此手动关掉长期不用的，省上下文。
  */
 
 import { promises as fs } from 'node:fs'
@@ -31,9 +35,18 @@ export interface ToolUsageStat {
 /** 工具名 → 用量 */
 export type ToolUsageMap = Record<string, ToolUsageStat>
 
+/** Agent 定义 id → 该 Agent 的工具用量 */
+export type ToolUsageByAgent = Record<string, ToolUsageMap>
+
+/**
+ * V44 之前的历史计数无法归因（全局计数没记下是哪次调用贡献的），统一落在这个 id 下。
+ * 不写 instanceId——那等于又埋一个解不开的外键。
+ */
+export const UNKNOWN_AGENT_ID = 'unknown'
+
 const SAVE_DEBOUNCE_MS = 2000
 
-let cache: ToolUsageMap | null = null
+let cache: Map<string, ToolUsageMap> | null = null
 let saveTimer: NodeJS.Timeout | null = null
 let dirty = false
 let dbAdapter: DatabaseAdapter | null = null
@@ -47,7 +60,7 @@ function isStat(value: unknown): value is ToolUsageStat {
   return typeof (value as ToolUsageStat)?.count === 'number'
 }
 
-/** 读取旧 JSON（仅迁移用）；失败返回空 map */
+/** 读取旧 JSON（仅迁移用）；失败返回空 map。旧文件没有 agent 维度 */
 async function readLegacyJson(): Promise<ToolUsageMap> {
   try {
     const raw = await fs.readFile(storePath(), 'utf-8')
@@ -68,43 +81,51 @@ async function readLegacyJson(): Promise<ToolUsageMap> {
   }
 }
 
-/** 从 SQLite 载入内存；没注入 db 时返回 {} */
-function loadFromDb(): ToolUsageMap {
-  if (!dbAdapter) return {}
+function toNumber(value: unknown, fallback = 0): number {
+  const n = typeof value === 'number' ? value : Number(value)
+  return Number.isFinite(n) ? n : fallback
+}
+
+/** 从 SQLite 载入内存；没注入 db 时返回空 */
+function loadFromDb(): Map<string, ToolUsageMap> {
+  const result = new Map<string, ToolUsageMap>()
+  if (!dbAdapter) return result
   try {
     const rows = dbAdapter
-      .prepare<{ tool_name: string; count: unknown; error_count: unknown; last_used_at: unknown }>(
-        'SELECT tool_name, count, error_count, last_used_at FROM tool_usage_stats',
-      )
+      .prepare<{
+        agent_id: string
+        tool_name: string
+        count: unknown
+        error_count: unknown
+        last_used_at: unknown
+      }>('SELECT agent_id, tool_name, count, error_count, last_used_at FROM tool_usage_stats')
       .all()
-    const result: ToolUsageMap = {}
     for (const row of rows) {
-      const count = typeof row.count === 'number' ? row.count : Number(row.count)
-      const errorCount = typeof row.error_count === 'number' ? row.error_count : Number(row.error_count)
-      const lastUsedAt =
-        row.last_used_at == null
-          ? 0
-          : typeof row.last_used_at === 'number'
-            ? row.last_used_at
-            : Number(row.last_used_at)
+      const count = toNumber(row.count, Number.NaN)
       if (!Number.isFinite(count)) continue
-      result[row.tool_name] = {
+      const agentId = row.agent_id || UNKNOWN_AGENT_ID
+      let bucket = result.get(agentId)
+      if (!bucket) {
+        bucket = {}
+        result.set(agentId, bucket)
+      }
+      bucket[row.tool_name] = {
         count,
-        errorCount: Number.isFinite(errorCount) ? errorCount : 0,
-        lastUsedAt: Number.isFinite(lastUsedAt) ? lastUsedAt : 0,
+        errorCount: toNumber(row.error_count),
+        lastUsedAt: row.last_used_at == null ? 0 : toNumber(row.last_used_at),
       }
     }
     return result
   } catch (err) {
     console.error('[ToolUsageStore] 从 SQLite 载入失败（退回空 map）:', err)
-    return {}
+    return new Map()
   }
 }
 
 /**
  * 旧 JSON → SQLite 一次性迁移。
  * - 以 JSON 为"真"（升级前的运行时最新值一定在 JSON）
- * - SQLite 中已有条目时：count/errorCount 取 max(last_used_at 新的那个的 count, json的count)；简单起见 JSON 有值就覆盖 SQLite
+ * - 旧文件没有 agent 维度，统一记到 `unknown`
  * - 成功后把 tool-usage.json → tool-usage.json.bak
  */
 async function tryMigrateLegacyJsonIfNeeded(): Promise<void> {
@@ -131,16 +152,9 @@ async function tryMigrateLegacyJsonIfNeeded(): Promise<void> {
   }
   try {
     dbAdapter.exec('BEGIN IMMEDIATE')
-    const stmt = dbAdapter.prepare(
-      `INSERT INTO tool_usage_stats (tool_name, count, error_count, last_used_at)
-       VALUES (?, ?, ?, ?)
-       ON CONFLICT(tool_name) DO UPDATE SET
-         count = excluded.count,
-         error_count = excluded.error_count,
-         last_used_at = excluded.last_used_at`,
-    )
+    const stmt = upsertStatement()
     for (const [toolName, s] of entries) {
-      stmt.run(toolName, s.count, s.errorCount, s.lastUsedAt || null)
+      stmt.run(UNKNOWN_AGENT_ID, toolName, s.count, s.errorCount, s.lastUsedAt || null)
     }
     dbAdapter.exec('COMMIT')
     console.info(`[ToolUsageStore] 已从 JSON 迁移 ${entries.length} 条工具统计到 SQLite`)
@@ -151,8 +165,13 @@ async function tryMigrateLegacyJsonIfNeeded(): Promise<void> {
     }
     // 合并进内存 cache（JSON 覆盖已载入的 DB 值）
     if (cache) {
+      let bucket = cache.get(UNKNOWN_AGENT_ID)
+      if (!bucket) {
+        bucket = {}
+        cache.set(UNKNOWN_AGENT_ID, bucket)
+      }
       for (const [toolName, s] of entries) {
-        cache[toolName] = s
+        bucket[toolName] = s
       }
     }
   } catch (err) {
@@ -165,8 +184,20 @@ async function tryMigrateLegacyJsonIfNeeded(): Promise<void> {
   }
 }
 
+function upsertStatement() {
+  if (!dbAdapter) throw new Error('dbAdapter not ready')
+  return dbAdapter.prepare(
+    `INSERT INTO tool_usage_stats (agent_id, tool_name, count, error_count, last_used_at)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(agent_id, tool_name) DO UPDATE SET
+       count = excluded.count,
+       error_count = excluded.error_count,
+       last_used_at = excluded.last_used_at`,
+  )
+}
+
 /** 读盘（仅首次）；文件缺失或损坏都退回空统计，绝不让统计影响对话 */
-async function ensureLoaded(): Promise<ToolUsageMap> {
+async function ensureLoaded(): Promise<Map<string, ToolUsageMap>> {
   if (cache) return cache
   cache = loadFromDb()
   // 先尝试异步迁移，不阻塞首次读（迁移完成后已写入 cache 中合并条目，下次读取会反映）
@@ -177,25 +208,15 @@ async function ensureLoaded(): Promise<ToolUsageMap> {
 /** 把内存 Map 全部 UPSERT 进 SQLite */
 function flushToDb(): void {
   if (!dbAdapter || !cache) return
-  const entries = Object.entries(cache)
-  if (entries.length === 0) return
+  const stmt = upsertStatement()
+  let written = 0
   try {
     dbAdapter.exec('BEGIN IMMEDIATE')
-    const stmt = dbAdapter.prepare(
-      `INSERT INTO tool_usage_stats (tool_name, count, error_count, last_used_at)
-       VALUES (?, ?, ?, ?)
-       ON CONFLICT(tool_name) DO UPDATE SET
-         count = excluded.count,
-         error_count = excluded.error_count,
-         last_used_at = excluded.last_used_at`,
-    )
-    for (const [toolName, s] of entries) {
-      stmt.run(
-        toolName,
-        s.count,
-        s.errorCount,
-        s.lastUsedAt > 0 ? s.lastUsedAt : null,
-      )
+    for (const [agentId, bucket] of cache) {
+      for (const [toolName, s] of Object.entries(bucket)) {
+        stmt.run(agentId, toolName, s.count, s.errorCount, s.lastUsedAt > 0 ? s.lastUsedAt : null)
+        written++
+      }
     }
     dbAdapter.exec('COMMIT')
   } catch (err) {
@@ -204,7 +225,7 @@ function flushToDb(): void {
     } catch {
       /* ignore */
     }
-    console.error('[ToolUsageStore] 写入 SQLite 失败（已忽略）:', err)
+    console.error(`[ToolUsageStore] 写入 SQLite 失败（已忽略，本次 ${written} 条）:`, err)
   }
 }
 
@@ -214,7 +235,21 @@ async function flushToLegacyJsonFallback(): Promise<void> {
   try {
     const file = storePath()
     await fs.mkdir(path.dirname(file), { recursive: true })
-    await fs.writeFile(file, JSON.stringify(cache), 'utf-8')
+    // 降级格式保持旧形状（无 agent 维度），下次启动迁移时统一记到 unknown
+    const flat: ToolUsageMap = {}
+    for (const bucket of cache.values()) {
+      for (const [toolName, s] of Object.entries(bucket)) {
+        const prev = flat[toolName]
+        flat[toolName] = prev
+          ? {
+              count: prev.count + s.count,
+              errorCount: prev.errorCount + s.errorCount,
+              lastUsedAt: Math.max(prev.lastUsedAt, s.lastUsedAt),
+            }
+          : s
+      }
+    }
+    await fs.writeFile(file, JSON.stringify(flat), 'utf-8')
   } catch (err) {
     console.error('[ToolUsageStore] 写入降级 JSON 失败（已忽略）:', err)
   }
@@ -253,8 +288,15 @@ export function initToolUsageStore(db: DatabaseAdapter | null | undefined): void
   if (cache) {
     // 合并 DB + 现有 cache（cache 为准，因缓存里可能是启动瞬间新产生的调用）
     const fromDb = loadFromDb()
-    for (const [k, v] of Object.entries(fromDb)) {
-      if (!cache[k]) cache[k] = v
+    for (const [agentId, bucket] of fromDb) {
+      let existing = cache.get(agentId)
+      if (!existing) {
+        existing = {}
+        cache.set(agentId, existing)
+      }
+      for (const [toolName, stat] of Object.entries(bucket)) {
+        if (!existing[toolName]) existing[toolName] = stat
+      }
     }
   }
   // 迁移尝试（即便 cache 还没初始化也没关系，tryMigrateLegacyJsonIfNeeded 里会先读旧 JSON）
@@ -264,13 +306,26 @@ export function initToolUsageStore(db: DatabaseAdapter | null | undefined): void
 /**
  * 记录一次工具调用。内存累加，延迟合并落盘。
  *
+ * @param agentId 归因到的 **Agent 定义 id**（`system-keeper`），不是实例 id；
+ *                取不到时传 {@link UNKNOWN_AGENT_ID}，不要编一个
+ *
  * 统计失败绝不能影响对话，因此不抛异常。
  */
-export async function recordToolUsage(toolName: string, isError = false): Promise<void> {
+export async function recordToolUsage(
+  agentId: string,
+  toolName: string,
+  isError = false,
+): Promise<void> {
   if (!toolName) return
   const map = await ensureLoaded()
-  const prev = map[toolName] ?? { count: 0, errorCount: 0, lastUsedAt: 0 }
-  map[toolName] = {
+  const key = agentId || UNKNOWN_AGENT_ID
+  let bucket = map.get(key)
+  if (!bucket) {
+    bucket = {}
+    map.set(key, bucket)
+  }
+  const prev = bucket[toolName] ?? { count: 0, errorCount: 0, lastUsedAt: 0 }
+  bucket[toolName] = {
     count: prev.count + 1,
     errorCount: prev.errorCount + (isError ? 1 : 0),
     lastUsedAt: Date.now(),
@@ -278,9 +333,35 @@ export async function recordToolUsage(toolName: string, isError = false): Promis
   scheduleSave()
 }
 
-/** 读取全部工具用量（从未调用过的工具不在其中，由调用方按 0 处理） */
+/** 读取全部工具用量，跨 Agent 汇总（从未调用过的工具不在其中，由调用方按 0 处理） */
 export async function getToolUsage(): Promise<ToolUsageMap> {
-  return { ...(await ensureLoaded()) }
+  const byAgent = await ensureLoaded()
+  const flat: ToolUsageMap = {}
+  for (const bucket of byAgent.values()) {
+    for (const [toolName, s] of Object.entries(bucket)) {
+      const prev = flat[toolName]
+      flat[toolName] = prev
+        ? {
+            count: prev.count + s.count,
+            errorCount: prev.errorCount + s.errorCount,
+            lastUsedAt: Math.max(prev.lastUsedAt, s.lastUsedAt),
+          }
+        : { ...s }
+    }
+  }
+  return flat
+}
+
+/** 读取逐 Agent 的工具用量（深拷贝，调用方改不到内部状态） */
+export async function getToolUsageByAgent(): Promise<ToolUsageByAgent> {
+  const byAgent = await ensureLoaded()
+  const out: ToolUsageByAgent = {}
+  for (const [agentId, bucket] of byAgent) {
+    out[agentId] = Object.fromEntries(
+      Object.entries(bucket).map(([toolName, s]) => [toolName, { ...s }]),
+    )
+  }
+  return out
 }
 
 /** 退出前强制落盘，避免丢掉 debounce 窗口内的计数 */

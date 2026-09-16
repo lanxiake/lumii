@@ -14,6 +14,7 @@ import { Loading } from '../../components/ui/Loading/Loading'
 import { Empty } from '../../components/ui/Empty/Empty'
 import { ToolCard } from '../SkillsPage/components/ToolCard'
 import { ToolEvolutionPanel } from './ToolEvolutionPanel'
+import { AgentUsageView } from './AgentUsageView'
 import { SearchToolsSection } from '../SettingsPage/components/SearchToolsSection'
 import { useToolSearch } from '../../hooks/business/useToolSearch'
 import { CATEGORY_LABELS, CATEGORY_ORDER } from '../SkillsPage/SkillsPage.const'
@@ -21,12 +22,16 @@ import styles from './ToolsPage.module.css'
 
 type ToolsTabType = 'builtin' | 'evolution' | 'search'
 
+/** 内建工具 tab 的两种看法：全量清单（可开关） / 逐 Agent 用量（只读） */
+type UsageMode = 'all' | 'byAgent'
+
 interface ToolsPageProps {
   embedded?: boolean
 }
 
 export const ToolsPage: React.FC<ToolsPageProps> = ({ embedded = false }) => {
   const [activeTab, setActiveTab] = useState<ToolsTabType>('builtin')
+  const [usageMode, setUsageMode] = useState<UsageMode>('all')
 
   const {
     filtered: filteredTools,
@@ -81,15 +86,34 @@ export const ToolsPage: React.FC<ToolsPageProps> = ({ embedded = false }) => {
             subtitle={`共 ${toolStats.total - (groupedTools.get('channel')?.length ?? 0)} 个系统工具`}
           />
           <div className={styles.toolbar}>
-            <Input
-              placeholder="搜索工具..."
-              value={toolQuery}
-              onChange={(e) => setToolQuery(e.target.value)}
-              className={styles.search}
-            />
+            {/* 全局合计答不了「这个工具到底有没有人用」——那要按 Agent 看 */}
+            <div className={styles.segmented}>
+              <button
+                className={clsx(styles.segBtn, usageMode === 'all' && styles.active)}
+                onClick={() => setUsageMode('all')}
+              >
+                全部
+              </button>
+              <button
+                className={clsx(styles.segBtn, usageMode === 'byAgent' && styles.active)}
+                onClick={() => setUsageMode('byAgent')}
+              >
+                按 Agent
+              </button>
+            </div>
+            {usageMode === 'all' && (
+              <Input
+                placeholder="搜索工具..."
+                value={toolQuery}
+                onChange={(e) => setToolQuery(e.target.value)}
+                className={styles.search}
+              />
+            )}
           </div>
           <Card className={styles.card} bodyClassName={styles.cardBody}>
-            {isToolsLoading ? (
+            {usageMode === 'byAgent' ? (
+              <AgentUsageView />
+            ) : isToolsLoading ? (
               <Loading text="加载工具中..." />
             ) : builtinTools.length === 0 ? (
               <Empty description={toolQuery ? '没有找到匹配的工具' : '暂无内建工具'} />

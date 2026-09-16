@@ -51,6 +51,11 @@ const BUILTIN_TOOL_I18N: Record<string, { label: string; description: string }> 
   cron_delete: { label: '删除定时任务', description: '按任务 ID 删除定时任务。' },
 }
 
+/** 调用的中文名（内建工具才有；未收录的返回 undefined，由调用方回落工具名） */
+export function builtinToolLabel(name: string): string | undefined {
+  return BUILTIN_TOOL_I18N[name]?.label
+}
+
 /** 调用次数的简短展示：0 次显示「未用过」，上千折成 k */
 export function formatToolUsageCount(count?: number): string {
   if (!count) return '未用过'
