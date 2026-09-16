@@ -1,7 +1,7 @@
 # 13 · 开发 Agent 的记忆与会话记录
 
 > 创建：2026-09-16
-> 状态：**讨论稿 · 部分拍板 · 未开工**（本文只做现状核实与方案对比，拍板后再拆可执行切片）
+> 状态：**讨论稿 · 部分拍板 · B1 已落地**（B1 见 §七；A2/A3 待拍板）
 > 上位：[12 · 一级公民的积累与演化](./12-一级公民的积累与演化.md)
 > 前置事实：另见 [12b](./12b-开发实施计划.md)（工具面收敛、预算守卫）
 >
@@ -70,7 +70,7 @@
 而两侧提示词都把「开发记代码任务」当作既定事实：`CHRONICLER_PROMPT` 的取数来源写着它，
 `SYSTEM_KEEPER_PROMPT` 的跨 Agent 去重素材也把它算在内。**这一块一直是空的。**
 
-### 2.3 缺口 B：工具过程不落库
+### 2.3 缺口 B：工具过程不落库 ✅ **已由 B1 解决**（`2a10df7c`，见 §七）
 
 ACP 路径下的 assistant 消息由 `AcpRunController.persistAssistantMessage` 落库，只写
 `{ type: 'text', text }` —— 工具调用、思考过程**只推事件给渲染层**（`agent:tool:start/end`），
@@ -202,7 +202,7 @@ Lumii 自身：只有 **MCP client**（`packages/agent-runtime/src/tools/mcp/mcp
 | 1 | ~~A1 做不做~~ | ✅ **已拍板：暂不做**（2026-09-16，理由见文首） |
 | 2 | A1 的 MCP server 实现方式 | ⏸ 随 A1 一并搁置（届时再定：引官方 SDK / 照 client 自研） |
 | 3 | A3 的白名单 | 待定（本文推荐不开；A3 不做则不涉及） |
-| 4 | 是否先做 B1 | **待拍板** |
+| 4 | ~~是否先做 B1~~ | ✅ **已落地**（`2a10df7c`，见 §七） |
 | 5 | A2 写记忆的粒度与节流 | **待拍板**（每次转交都写 / 仅成功时写 / 带节流） |
 
 ---
@@ -219,9 +219,51 @@ Lumii 自身：只有 **MCP client**（`packages/agent-runtime/src/tools/mcp/mcp
 - cursor 的 MCP 支持与配置方式（本机未安装）
 - codex / opencode 的 MCP 配置是写入全局 config 还是可按进程覆盖——若只能写全局，A1 会
   污染用户的 CLI 配置，需要另想注入方式
-- `phase: 'progress'` 在落库时如何表示（`AssistantPart` 没有对应态，可能直接丢弃）
-- ACP 的 `agent:tool:start` 事件带 `textPositionAtStart`，能否与文本交错还原成与内核路径
-  一致的 parts 顺序
+- ~~`phase: 'progress'` 在落库时如何表示~~ → **B1 已定**：只收集 start/end，progress 是流式
+  中间态，`AssistantPart` 没有对应态，直接丢弃
+- ~~`textPositionAtStart` 能否还原交错顺序~~ → **B1 已定**：不做交错，理由见 §七
 
 **相关**：[[12b]] 的工具预算守卫——若 A1 落地，给 code-dev 加工具需同步改
 `packages/agent-runtime/src/agent/builtin/__tests__/tool-budget.test.ts` 的预算并说明理由。
+
+---
+
+## 七、实施记录
+
+### B1 ✅ 工具过程落库（提交 `2a10df7c`）
+
+`AcpRunController` 在 `handleToolProgress` 里把 start/end 收集成 `CollectedToolCall`，run
+收尾时组装成 `assistant_parts`（与内核路径同格式），三处落库点（成功 / 中止 / 失败）都带上
+已收集的工具。原先 `AcpRunHandle` 上那个只服务于耗时计算的 `toolStartTextPositions` 并入
+`CollectedToolCall`。
+
+**三个决定**（都是查证后定的，不是拍脑袋）：
+
+1. **工具在前、正文在后，不做交错**。正文取自 CLI 的 `final_result`（`runLocalAcpCli` 的
+   `finalResult ?? messageTexts`），与流式 message **不同源**——拿流式累积的
+   `textPositionAtStart` 去切它必然错位。而渲染层的 `splitProcessAndAnswer` 本来就是
+   「最后一个工具之后才算答案区」，这个顺序正好落在它的预期里（过程折叠、答案外露）。
+2. **没等到 end 的工具落成 `interrupted`**，与渲染层 `finalizeAssistantParts` 的映射一致
+   （`08-委托可见性` §5 正是为这个加的），否则重启后卡片会显示成「还在跑」。
+3. **正文为空也落库**：失败与中止时过程本身就是最有价值的信息。
+
+**顺带修一个 bug**：工具耗时此前取的是 `toolStartTextPositions`（存的是**文本位置**），用
+`Date.now()` 去减它得到天文数字，而渲染层 `formatDuration` 优先采信后端值——工具卡片的
+耗时一直是错的。
+
+**真机验证**（重启客户端 → 建 code-dev 会话并把会话级 dev-context 指向 claude → 发一条
+「用 bash 执行 ls」）：
+
+| | assistant 消息的 `content_json` |
+|---|---|
+| 改前 | `{ type: 'text', text: '…' }` |
+| 改后 | `{ type: 'assistant_parts', parts: [ {type:'tool', name:'PowerShell', status:'done'}, {type:'text', …} ] }` |
+
+**验证时踩到的一个约束**（对以后的验证有用）：`lumii-ui` 的控制口**不允许向 composer
+注入文本**（`act --action type` 返回 `blocked_composer`），而 `send` 是绕过渲染层直达主进程
+的——所以「斜杠命令」类功能无法用 CLI 验证。反过来，**给会话配 ACP 后端可以绕开这个限制**：
+`dev-context.json` 每次读取都走文件（无缓存），直接往里写一条 `{backendId:'claude'}` 即可，
+不必重启。
+
+**遗留**：ACP 的工具 result 目前是短摘要（`File written: …`），与内核路径的完整 result
+（实测最大单条 14KB、整条消息 750KB）不同——这是 CLI 输出形态决定的，不是本次引入的问题。
