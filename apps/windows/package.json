@@ -79,6 +79,7 @@
     "sharp": "^0.34.5",
     "sherpa-onnx-node": "^1.11.3",
     "silk-wasm": "^3.7.1",
+    "undici": "^7.29.0",
     "utf-8-validate": "^6.0.6",
     "ws": "^8.16.0",
     "xlsx": "^0.18.5"

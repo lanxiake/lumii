@@ -1,5 +1,19 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import { classifyFetchError, fetchLocal } from './local-web'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { classifyFetchError, fetchLocal, isProxyWorthTrying } from './local-web'
+
+/**
+ * 把代理交给这个 mock 控制。
+ *
+ * 不 mock 的话，`fetchLocal` 的失败路径会去**真实探测本机代理**（环境变量 → 注册表 →
+ * 常见端口），单测就变成联网测试了：慢、不确定、还会因为别人机器上的端口不同而飘。
+ * 这里只切断 IO，不改被验的行为——「什么时候该试代理」仍由真实的 `isProxyWorthTrying` 决定。
+ */
+const retryViaLocalProxyMock = vi.fn(
+  async (..._args: unknown[]): Promise<{ status: number; body: string; via: string } | null> => null,
+)
+vi.mock('./local-proxy', () => ({
+  retryViaLocalProxy: (...args: unknown[]) => retryViaLocalProxyMock(...args),
+}))
 
 /** 复刻 undici 真实的错误形状：message 永远是 "fetch failed"，原因挂在 cause 上 */
 function undiciError(cause: unknown): Error {
@@ -108,5 +122,100 @@ describe('fetchLocal · 重试策略', () => {
     const result = await fetchLocal('https://nope.example/very/long/path')
 
     expect(result.body).not.toContain('https://nope.example')
+  })
+})
+
+describe('isProxyWorthTrying', () => {
+  it('连接层失败与按 IP 的拦截/限流值得换出口', () => {
+    // 0 = 连接层就没成功——本次要解决的主要对象（76% 的 web_fetch 失败是这一类）
+    expect(isProxyWorthTrying(0)).toBe(true)
+    expect(isProxyWorthTrying(403)).toBe(true)
+    expect(isProxyWorthTrying(451)).toBe(true)
+    expect(isProxyWorthTrying(429)).toBe(true)
+  })
+
+  it('换出口改变不了的失败不试（省一次无谓的往返）', () => {
+    expect(isProxyWorthTrying(404)).toBe(false) // 页面不存在，换个 IP 也不会凭空出现
+    expect(isProxyWorthTrying(410)).toBe(false)
+    expect(isProxyWorthTrying(401)).toBe(false) // 缺凭据，与走哪条线路无关
+    expect(isProxyWorthTrying(200)).toBe(false)
+  })
+
+  it('5xx 不试：那是服务器回的，说明我们已经连上它了', () => {
+    expect(isProxyWorthTrying(500)).toBe(false)
+    expect(isProxyWorthTrying(503)).toBe(false)
+  })
+})
+
+describe('fetchLocal · 直连失败后经本机代理', () => {
+  const realFetch = globalThis.fetch
+
+  const throwConnectTimeout = (): void => {
+    globalThis.fetch = (async () => {
+      throw Object.assign(new Error('fetch failed'), {
+        cause: Object.assign(new Error(''), { code: 'UND_ERR_CONNECT_TIMEOUT' }),
+      })
+    }) as typeof fetch
+  }
+  const respond = (status: number, body: string): void => {
+    globalThis.fetch = (async () => ({ status, text: async () => body })) as unknown as typeof fetch
+  }
+
+  beforeEach(() => retryViaLocalProxyMock.mockClear())
+  afterEach(() => {
+    globalThis.fetch = realFetch
+    retryViaLocalProxyMock.mockReset()
+    retryViaLocalProxyMock.mockResolvedValue(null)
+  })
+
+  it('直连连接层失败 → 经代理取回的内容被当作结果返回', async () => {
+    throwConnectTimeout()
+    retryViaLocalProxyMock.mockResolvedValue({ status: 200, body: '经代理取到了', via: '测试代理' })
+
+    const result = await fetchLocal('https://blocked.example/x')
+
+    expect(result).toEqual({ status: 200, body: '经代理取到了' })
+    expect(retryViaLocalProxyMock).toHaveBeenCalledTimes(1)
+    expect(retryViaLocalProxyMock.mock.calls[0][0]).toBe('https://blocked.example/x')
+  })
+
+  it('代理也拿不到时，返回的是**直连**的错误（不是代理的）', async () => {
+    throwConnectTimeout()
+    retryViaLocalProxyMock.mockResolvedValue(null)
+
+    const result = await fetchLocal('https://blocked.example/x')
+
+    expect(result.status).toBe(0)
+    expect(result.body).toContain('UND_ERR_CONNECT_TIMEOUT')
+  })
+
+  it('代理拿回一个 404 也照实返回——那是真实答案，比「连接超时」有用', async () => {
+    throwConnectTimeout()
+    retryViaLocalProxyMock.mockResolvedValue({ status: 404, body: 'Not Found', via: '测试代理' })
+
+    const result = await fetchLocal('https://blocked.example/x')
+
+    expect(result).toEqual({ status: 404, body: 'Not Found' })
+  })
+
+  it('403 也走代理（常见的按 IP / 地区拦截）', async () => {
+    respond(403, 'Forbidden')
+    retryViaLocalProxyMock.mockResolvedValue({ status: 200, body: '过了', via: '测试代理' })
+
+    expect(await fetchLocal('https://geo.example/x')).toEqual({ status: 200, body: '过了' })
+  })
+
+  it('404 完全不碰代理（换出口改变不了「页面不存在」）', async () => {
+    respond(404, 'Not Found')
+    retryViaLocalProxyMock.mockResolvedValue({ status: 200, body: '不该走到这', via: '测试代理' })
+
+    expect(await fetchLocal('https://x.example/missing')).toEqual({ status: 404, body: 'Not Found' })
+    expect(retryViaLocalProxyMock).not.toHaveBeenCalled()
+  })
+
+  it('直连成功时一次都不碰代理', async () => {
+    respond(200, '好的')
+    expect(await fetchLocal('https://ok.example/')).toEqual({ status: 200, body: '好的' })
+    expect(retryViaLocalProxyMock).not.toHaveBeenCalled()
   })
 })

@@ -126,6 +126,9 @@ importers:
       silk-wasm:
         specifier: ^3.7.1
         version: 3.7.1
+      undici:
+        specifier: ^7.29.0
+        version: 7.29.0
       utf-8-validate:
         specifier: ^6.0.6
         version: 6.0.6
