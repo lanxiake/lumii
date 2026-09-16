@@ -1,11 +1,53 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
   handleConversationDelete,
+  handleConversationList,
   handleConversationTransferAgent,
   setConversationDependencies,
   resolveConversationChannel,
 } from './conversation-commands'
 import { EVOLUTION_CONVERSATION_ID, isEvolutionConversationId } from '@mtbot/agent-runtime'
+
+describe('conversation:list Agent 归属归一化', () => {
+  /** 造一个只含会话列表所需方法的 bridge */
+  const makeListBridge = (participantId: string | undefined) =>
+    ({
+      conversationRepo: {
+        listActiveConversations: () => [
+          {
+            id: 'cron:seed-morning-briefing',
+            title: '定时任务 · 早间简报',
+            created_at: '2026-01-01T00:00:00.000Z',
+            last_msg_at: null,
+            is_pinned: 0,
+            channel_type: 'cron',
+          },
+        ],
+        loadLastMessagesForConversations: () => new Map(),
+        getAgentParticipantId: () => participantId,
+      },
+      hasStreamingMessages: () => false,
+      isConversationInterrupted: () => false,
+    }) as never
+
+  it('内部标记 main 归一为 assistant，侧栏不会多出与「默认」重复的 main 分组', () => {
+    setConversationDependencies({} as never)
+    const rows = handleConversationList(makeListBridge('main'))
+    expect(rows[0]?.agentId).toBe('assistant')
+  })
+
+  it('真实执行者 id 原样透传（定时任务记录才能归到对应 Agent 分组）', () => {
+    setConversationDependencies({} as never)
+    const rows = handleConversationList(makeListBridge('chronicler'))
+    expect(rows[0]?.agentId).toBe('chronicler')
+  })
+
+  it('无参与者行时保持 undefined', () => {
+    setConversationDependencies({} as never)
+    const rows = handleConversationList(makeListBridge(undefined))
+    expect(rows[0]?.agentId).toBeUndefined()
+  })
+})
 
 describe('conversation:delete 自主进化会话守卫', () => {
   it('拒绝删除自主进化专属会话', () => {

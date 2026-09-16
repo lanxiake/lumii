@@ -31,6 +31,7 @@ import {
 } from '../../../shared/session-thinking-prefs'
 import styles from './ChatPage.module.css'
 import { processFilesWithStrategies, appendAttachmentsToMessage } from './utils/file-attachment-strategy'
+import { isMainAgentSession } from './utils/main-agent-session'
 import { useVoiceCall } from '../../hooks/business/useVoiceCall'
 import { useConversationReplay } from '../../hooks/business/useConversationReplay'
 import type { AttachmentCategory } from './utils/file-attachment-strategy'
@@ -320,8 +321,8 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
     const agentId = localRuntimeSessions.find(
       (s) => s.sessionKey === runtimeCurrentSessionKey,
     )?.agentId
-    if (!agentId || agentId === 'default' || agentId === 'assistant') return null
-    return agentsMap.get(agentId) ?? null
+    if (isMainAgentSession(agentId)) return null
+    return agentsMap.get(agentId!) ?? null
   }, [localRuntimeSessions, runtimeCurrentSessionKey, agentsMap])
 
   /** 当前会话的 Agent 标识（用于 IPC 参数）：系统默认时回落到主 Agent 的 id */

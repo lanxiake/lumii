@@ -6,6 +6,7 @@ import type { ContextMenuItem } from '../ContextMenu'
 import { MoreHorizontal, Plus, Trash2 } from '../../../../components/ui/Icon'
 import { useAgents } from '../../../../hooks/business/useAgents/useAgents'
 import { useSettingsHub } from '../../../../components/SettingsHub'
+import { isMainAgentSession } from '../../utils/main-agent-session'
 import type { ClearGroupHistoryRequest } from '../../clearGroupPlan'
 import type { ChatSession } from '../../../../hooks/business/useChat'
 import styles from './ChatSidebar.module.css'
@@ -286,6 +287,10 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
    * 默认 tab 视图：把「系统默认」渠道的会话按 Agent 分组。
    * 系统默认（agentId 为空/default/assistant）恒为第一组且无标题；其余每个有会话的 Agent 一组，按最近活跃排序。
    * 非搜索态下没有会话的 Agent 也占位展示（含职责说明与「⋯」），便于发现和发起。
+   *
+   * 归属到具体 Agent 的定时任务记录（channel='cron'，如 chronicler 的「早间简报」）一并归入
+   * 该 Agent 分组，便于用户查看与 Agent 回顾；系统默认 Agent 跑的后台任务（自主进化等）不进组，
+   * 否则会把分组灌满后台记录。这些记录同时仍保留在「系统」tab 的「定时任务」分组下。
    */
   const agentGroups = useMemo(() => {
     if (tab !== 'default') return []
@@ -310,8 +315,10 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
     >()
 
     for (const session of filteredSessions) {
-      if (normalizeChannel(session.channel) !== 'default') continue
-      const isMain = !session.agentId || session.agentId === 'default' || session.agentId === 'assistant'
+      const ch = normalizeChannel(session.channel)
+      const isMain = isMainAgentSession(session.agentId)
+      const belongsToAgentGroup = ch === 'default' || (ch === 'cron' && !isMain)
+      if (!belongsToAgentGroup) continue
       const key = isMain ? '__main__' : session.agentId!
       let g = groups.get(key)
       if (!g) {
@@ -427,12 +434,17 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
     })
   }, [])
 
-  /** 取某 Agent 分组的全量会话（不受搜索过滤影响，清空历史用） */
+  /**
+   * 取某 Agent 分组的全量会话（不受搜索过滤影响，清空历史用）。
+   *
+   * 只含默认渠道：分组里同时展示的定时任务记录（channel='cron'）是任务产出，
+   * 不参与「清空历史」，否则一条「清空全部历史」会把早间简报之类的记录连带删掉。
+   */
   const sessionsOfAgentGroup = useCallback(
     (agentId: string | null) =>
       sessions.filter((s) => {
         if (normalizeChannel(s.channel) !== 'default') return false
-        const isMain = !s.agentId || s.agentId === 'default' || s.agentId === 'assistant'
+        const isMain = isMainAgentSession(s.agentId)
         return agentId ? !isMain && s.agentId === agentId : isMain
       }),
     [sessions],

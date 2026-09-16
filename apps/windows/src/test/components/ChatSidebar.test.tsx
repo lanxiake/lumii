@@ -370,4 +370,69 @@ describe('Phase 4: 会话管理 - ChatSidebar组件', () => {
       expect(screen.queryByRole('button', { name: '「自主进化」更多操作' })).not.toBeInTheDocument()
     })
   })
+
+  describe('TC-4.7 定时任务记录归入 Agent 分组', () => {
+    const cronSession = (agentId: string, title: string) =>
+      createMockSession({
+        id: `cron:${title}`,
+        title,
+        agentId,
+        channel: 'cron',
+      })
+
+    it('归属 chronicler 的定时任务记录出现在「记事」分组下', () => {
+      renderSidebar({ sessions: [cronSession('chronicler', '定时任务 · 早间简报')] })
+
+      expect(screen.getByText('记事')).toBeInTheDocument()
+      expect(screen.getByText('定时任务 · 早间简报')).toBeInTheDocument()
+    })
+
+    it('系统默认 Agent 跑的后台任务不进「默认」分组（避免灌满后台记录）', () => {
+      renderSidebar({ sessions: [cronSession('assistant', '定时任务 · 后台独白')] })
+
+      expect(screen.queryByText('定时任务 · 后台独白')).not.toBeInTheDocument()
+    })
+
+    it('同一批记录仍保留在系统 tab 的「定时任务」分组下（两处指向同一会话）', () => {
+      renderSidebar({ sessions: [cronSession('chronicler', '定时任务 · 早间简报')] })
+
+      fireEvent.click(screen.getByRole('tab', { name: '系统' }))
+      expect(screen.getByText('定时任务')).toBeInTheDocument()
+      expect(screen.getByText('定时任务 · 早间简报')).toBeInTheDocument()
+    })
+
+    it('「清除历史」不下发定时任务记录，只清该 Agent 的普通对话', () => {
+      const normal = createMockSession({ id: 's-normal', title: '和记事聊工作', agentId: 'chronicler' })
+      renderSidebar({
+        sessions: [normal, cronSession('chronicler', '定时任务 · 早间简报')],
+      })
+
+      fireEvent.click(screen.getByRole('button', { name: '「记事」更多操作' }))
+      fireEvent.click(screen.getByText('清空全部历史'))
+
+      expect(mockProps.onClearGroupHistory).toHaveBeenCalledWith(
+        expect.objectContaining({ label: '记事', sessions: [normal] }),
+      )
+    })
+
+    it('参与者是内部标记 main 的会话归入「默认」分组，不另开一个 main 分组', () => {
+      renderSidebar({
+        sessions: [
+          createMockSession({ id: 's-main', title: '历史会话', agentId: 'main' }),
+          createMockSession({ id: 's-default', title: '普通会话' }),
+        ],
+      })
+
+      expect(screen.queryByRole('button', { name: '「main」更多操作' })).not.toBeInTheDocument()
+      expect(screen.getByText('历史会话')).toBeInTheDocument()
+      expect(screen.getByText('普通会话')).toBeInTheDocument()
+    })
+
+    it('参与者是 main 的定时任务记录不进分组（执行者未知，只留在系统 tab）', () => {
+      renderSidebar({ sessions: [cronSession('main', '定时任务 · 已删除的任务')] })
+
+      expect(screen.queryByText('定时任务 · 已删除的任务')).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: '「main」更多操作' })).not.toBeInTheDocument()
+    })
+  })
 })

@@ -235,6 +235,19 @@ export function resolveLastMessagePreview(
   return userFallback ? userFallback.slice(0, PREVIEW_MAX_LENGTH) : undefined
 }
 
+/**
+ * 会话列表里的 Agent 归属归一化。
+ *
+ * `ensureConversationExists` 建的会话（渠道 / 定时任务 / 自主进化）参与者写的是内部标记
+ * `'main'`（主 Agent 实例，见 bridge-instance-factory 对 def.id === 'main' 的处理），
+ * 不是用户可见的 Agent id。直接透给渲染层，侧栏会据此多出一个名叫「main」的分组，
+ * 与「默认」分组重复 —— 语义上 `'main'` 就是系统默认 Agent。
+ */
+function normalizeConversationAgentId(agentId: string | undefined): string | undefined {
+  if (!agentId) return undefined
+  return agentId === 'main' ? 'assistant' : agentId
+}
+
 export function handleConversationList(
   bridge: AgentRuntimeBridge,
 ): readonly {
@@ -279,7 +292,7 @@ export function handleConversationList(
       sessionKey: c.id, // sessionKey 直接使用 conversationId，重启后不失效
       title: c.title ?? '新对话',
       updatedAt: c.last_msg_at ?? c.created_at,
-      agentId: bridge.conversationRepo.getAgentParticipantId(c.id),
+      agentId: normalizeConversationAgentId(bridge.conversationRepo.getAgentParticipantId(c.id)),
       hasRunning: bridge.hasStreamingMessages(c.id),
       isPinned: c.is_pinned === 1,
       wasInterrupted: bridge.isConversationInterrupted(c.id),
