@@ -21,6 +21,7 @@ import type {
   StartupStats,
   PerformanceReport,
   IpcAggregateEvent,
+  StartupPhaseEvent,
 } from './performance-types'
 
 interface IpcChannelData {
@@ -219,6 +220,24 @@ export class PerformanceAggregator {
         childProcesses: peak.childProcesses,
       },
     }
+  }
+
+  /**
+   * 从磁盘回放历史事件：只填充趋势图与启动阶段，不写入当前窗口 ipcByChannel。
+   * 这样诊断页重启后能看到今日曲线，而健康度汇总仍只反映本进程本次运行。
+   */
+  ingestFromHistory(
+    event: IpcAggregateEvent | MemorySnapshotEvent | StartupPhaseEvent,
+  ): void {
+    if (event.kind === 'ipc.aggregate') {
+      this.windowAggregates.push(event)
+      return
+    }
+    if (event.kind === 'memory.snapshot') {
+      this.recordMemorySnapshot(event)
+      return
+    }
+    this.recordStartupPhase(event.phase, event.duration)
   }
 
   /** 返回的数组只会随调用累积增长，从不清空或整体替换——PerformanceMonitor 的游标截取逻辑依赖此契约 */

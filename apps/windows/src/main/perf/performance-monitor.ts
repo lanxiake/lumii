@@ -1,4 +1,4 @@
-import { createWriteStream, readdirSync, unlinkSync, existsSync, mkdirSync, renameSync } from 'fs'
+import { createWriteStream, readdirSync, unlinkSync, existsSync, mkdirSync, renameSync, readFileSync } from 'fs'
 import type { WriteStream } from 'fs'
 import { join } from 'path'
 import { PerformanceAggregator } from './performance-aggregator'
@@ -38,6 +38,8 @@ export class PerformanceMonitor {
 
     if (this.config.enabled && this.config.logDir) {
       this.ensureLogDir()
+      // 先回放当天已有日志，再打开追加流——诊断页启动即可看到今日趋势
+      this.hydrateTodayFromDisk()
       this.initializeLogStream()
     }
   }
@@ -47,6 +49,143 @@ export class PerformanceMonitor {
     const month = String(date.getMonth() + 1).padStart(2, '0')
     const day = String(date.getDate()).padStart(2, '0')
     return `${year}-${month}-${day}`
+  }
+
+  /**
+   * 列出当天的 perf 日志文件（含 .N 归档段），按从旧到新排序。
+   * 归档规则：base → .1 → .2…，故归档序号越大越旧，base（序号 0）最新。
+   */
+  private listTodayLogFiles(): string[] {
+    if (!this.config.logDir) return []
+    const date = this.currentLogDate
+    const todayPattern = new RegExp(`^perf-${date}(?:\\.\\d+)?\\.jsonl$`)
+    const files = readdirSync(this.config.logDir).filter((f) => todayPattern.test(f))
+    return files.sort((a, b) => this.archiveIndex(b) - this.archiveIndex(a))
+  }
+
+  /** 归档序号：perf-date.jsonl → 0；perf-date.N.jsonl → N */
+  private archiveIndex(filename: string): number {
+    const match = filename.match(/\.(\d+)\.jsonl$/)
+    return match ? Number(match[1]) : 0
+  }
+
+  /**
+   * 从当天 perf jsonl（含归档段）回放历史事件。
+   *
+   * 只喂图表与启动阶段：ipc.aggregate / memory.snapshot / startup.phase。
+   * 不回放跨天，也不把历史灌进当前窗口的 ipcByChannel（健康度仍表示本进程本次运行）。
+   * 回放后校准 lastFlushedAggregateCount，避免下次 flush 把历史再写一遍。
+   */
+  hydrateTodayFromDisk(): void {
+    if (!this.config.enabled || !this.config.logDir) return
+    if (!existsSync(this.config.logDir)) return
+
+    try {
+      for (const file of this.listTodayLogFiles()) {
+        this.replayLogFile(join(this.config.logDir, file))
+      }
+      this.lastFlushedAggregateCount = this.aggregator.getAggregateEvents().length
+    } catch {
+      // 回放失败不影响性能监控主路径
+    }
+  }
+
+  /** 逐行解析 jsonl，把可回放事件送入 aggregator */
+  private replayLogFile(filePath: string): void {
+    if (!existsSync(filePath)) return
+    const content = readFileSync(filePath, 'utf-8')
+    if (!content) return
+
+    for (const line of content.split('\n')) {
+      const trimmed = line.trim()
+      if (!trimmed) continue
+      let raw: unknown
+      try {
+        raw = JSON.parse(trimmed)
+      } catch {
+        continue
+      }
+      const event = this.asHydratableEvent(raw)
+      if (event) this.aggregator.ingestFromHistory(event)
+    }
+  }
+
+  /**
+   * 把 jsonl 原始对象收窄为可回放事件；字段不齐则丢弃，避免脏行污染内存态。
+   */
+  private asHydratableEvent(
+    raw: unknown,
+  ): IpcAggregateEvent | MemorySnapshotEvent | StartupPhaseEvent | null {
+    if (raw == null || typeof raw !== 'object') return null
+    const e = raw as Record<string, unknown>
+    if (e.kind === 'ipc.aggregate') {
+      if (
+        typeof e.timestamp !== 'number' ||
+        typeof e.windowStart !== 'number' ||
+        typeof e.windowEnd !== 'number' ||
+        typeof e.channel !== 'string' ||
+        typeof e.totalCalls !== 'number' ||
+        typeof e.totalDuration !== 'number' ||
+        typeof e.errors !== 'number' ||
+        typeof e.minDuration !== 'number' ||
+        typeof e.maxDuration !== 'number'
+      ) {
+        return null
+      }
+      return {
+        timestamp: e.timestamp,
+        kind: 'ipc.aggregate',
+        windowStart: e.windowStart,
+        windowEnd: e.windowEnd,
+        channel: e.channel,
+        totalCalls: e.totalCalls,
+        totalDuration: e.totalDuration,
+        errors: e.errors,
+        minDuration: e.minDuration,
+        maxDuration: e.maxDuration,
+      }
+    }
+    if (e.kind === 'memory.snapshot') {
+      const main = e.mainProcess
+      if (main == null || typeof main !== 'object') return null
+      const m = main as Record<string, unknown>
+      if (
+        typeof e.timestamp !== 'number' ||
+        typeof m.heapUsed !== 'number' ||
+        typeof m.heapTotal !== 'number' ||
+        typeof m.external !== 'number' ||
+        typeof m.arrayBuffers !== 'number' ||
+        typeof m.rss !== 'number'
+      ) {
+        return null
+      }
+      return {
+        timestamp: e.timestamp,
+        kind: 'memory.snapshot',
+        mainProcess: {
+          heapUsed: m.heapUsed,
+          heapTotal: m.heapTotal,
+          external: m.external,
+          arrayBuffers: m.arrayBuffers,
+          rss: m.rss,
+        },
+        childProcesses: Array.isArray(e.childProcesses)
+          ? (e.childProcesses as MemorySnapshotEvent['childProcesses'])
+          : [],
+      }
+    }
+    if (e.kind === 'startup.phase') {
+      if (typeof e.timestamp !== 'number' || typeof e.phase !== 'string' || typeof e.duration !== 'number') {
+        return null
+      }
+      return {
+        timestamp: e.timestamp,
+        kind: 'startup.phase',
+        phase: e.phase as StartupPhaseEvent['phase'],
+        duration: e.duration,
+      }
+    }
+    return null
   }
 
   private ensureLogDir() {

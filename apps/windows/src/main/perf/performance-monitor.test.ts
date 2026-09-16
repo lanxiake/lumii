@@ -413,4 +413,166 @@ describe('PerformanceMonitor', () => {
       disabled.destroy()
     })
   })
+
+  describe('hydrateTodayFromDisk', () => {
+    /** 与 PerformanceMonitor.formatDate 同口径的本地日期 */
+    function todayStamp(): string {
+      const d = new Date()
+      const y = d.getFullYear()
+      const m = String(d.getMonth() + 1).padStart(2, '0')
+      const day = String(d.getDate()).padStart(2, '0')
+      return `${y}-${m}-${day}`
+    }
+
+    beforeEach(() => {
+      // 外层 beforeEach 已打开当日日志流；先关掉，避免与 writeFileSync / 第二个 monitor 抢文件
+      monitor.destroy()
+    })
+
+    it('启动时回放当天 jsonl 中的聚合与内存快照，忽略其他日期', () => {
+      const today = todayStamp()
+      const windowStart = Date.now() - 120_000
+      const agg = {
+        timestamp: windowStart + 60_000,
+        kind: 'ipc.aggregate',
+        windowStart,
+        windowEnd: windowStart + 60_000,
+        channel: 'agent-runtime:command',
+        totalCalls: 4,
+        totalDuration: 800,
+        errors: 0,
+        minDuration: 100,
+        maxDuration: 300,
+      }
+      const mem = {
+        timestamp: Date.now() - 30_000,
+        kind: 'memory.snapshot',
+        mainProcess: {
+          heapUsed: 50 * 1024 * 1024,
+          heapTotal: 80 * 1024 * 1024,
+          external: 1,
+          arrayBuffers: 1,
+          rss: 120 * 1024 * 1024,
+        },
+        childProcesses: [],
+      }
+      const startup = {
+        timestamp: Date.now() - 60_000,
+        kind: 'startup.phase',
+        phase: 'preload',
+        duration: 42,
+      }
+
+      fs.writeFileSync(
+        path.join(tempDir, `perf-${today}.jsonl`),
+        `${JSON.stringify(agg)}\n${JSON.stringify(mem)}\n${JSON.stringify(startup)}\n`,
+      )
+      // 昨天的文件不应进入历史
+      fs.writeFileSync(
+        path.join(tempDir, 'perf-2000-01-01.jsonl'),
+        `${JSON.stringify({ ...agg, channel: 'should-not-load' })}\n`,
+      )
+
+      // 构造时自动回放当天 jsonl
+      const hydrated = new PerformanceMonitor({
+        enabled: true,
+        ipcSlowThresholdMs: 200,
+        memorySnapshotIntervalMs: 10000,
+        maxQueueSize: 200,
+        logDir: tempDir,
+      })
+
+      const aggregates = hydrated.getIpcAggregateHistory()
+      expect(aggregates).toHaveLength(1)
+      expect(aggregates[0]!.channel).toBe('agent-runtime:command')
+      expect(aggregates[0]!.totalCalls).toBe(4)
+
+      const snapshots = hydrated.getMemorySnapshotHistory()
+      expect(snapshots).toHaveLength(1)
+      expect(snapshots[0]!.mainProcess.rss).toBe(120 * 1024 * 1024)
+
+      const report = hydrated.getReport()
+      expect(report.startupStats.phases.preload).toBe(42)
+
+      hydrated.destroy()
+    })
+
+    it('回放后 flush 不会把历史聚合事件再写一遍', async () => {
+      const today = todayStamp()
+      const windowStart = Date.now() - 120_000
+      const agg = {
+        timestamp: windowStart + 60_000,
+        kind: 'ipc.aggregate',
+        windowStart,
+        windowEnd: windowStart + 60_000,
+        channel: 'agent-runtime:command',
+        totalCalls: 2,
+        totalDuration: 200,
+        errors: 0,
+        minDuration: 100,
+        maxDuration: 100,
+      }
+      const logPath = path.join(tempDir, `perf-${today}.jsonl`)
+      fs.writeFileSync(logPath, `${JSON.stringify(agg)}\n`)
+
+      const hydrated = new PerformanceMonitor({
+        enabled: true,
+        ipcSlowThresholdMs: 200,
+        memorySnapshotIntervalMs: 10000,
+        maxQueueSize: 200,
+        logDir: tempDir,
+      })
+      await hydrated.flush()
+
+      const lines = fs.readFileSync(logPath, 'utf-8').trim().split('\n').filter(Boolean)
+      const aggregates = lines.map(l => JSON.parse(l)).filter((e: { kind: string }) => e.kind === 'ipc.aggregate')
+      expect(aggregates).toHaveLength(1)
+
+      hydrated.destroy()
+    })
+
+    it('同时回放当天归档段（perf-date.N.jsonl），按时间从旧到新', () => {
+      const today = todayStamp()
+      const older = {
+        timestamp: 1_000,
+        kind: 'ipc.aggregate',
+        windowStart: 0,
+        windowEnd: 60_000,
+        channel: 'older',
+        totalCalls: 1,
+        totalDuration: 10,
+        errors: 0,
+        minDuration: 10,
+        maxDuration: 10,
+      }
+      const newer = {
+        timestamp: 2_000,
+        kind: 'ipc.aggregate',
+        windowStart: 60_000,
+        windowEnd: 120_000,
+        channel: 'newer',
+        totalCalls: 1,
+        totalDuration: 20,
+        errors: 0,
+        minDuration: 20,
+        maxDuration: 20,
+      }
+      // .1 比 base 更旧（见 rollLogBySize）
+      fs.writeFileSync(path.join(tempDir, `perf-${today}.1.jsonl`), `${JSON.stringify(older)}\n`)
+      fs.writeFileSync(path.join(tempDir, `perf-${today}.jsonl`), `${JSON.stringify(newer)}\n`)
+
+      const hydrated = new PerformanceMonitor({
+        enabled: true,
+        ipcSlowThresholdMs: 200,
+        memorySnapshotIntervalMs: 10000,
+        maxQueueSize: 200,
+        logDir: tempDir,
+      })
+
+      const channels = hydrated.getIpcAggregateHistory().map(e => e.channel)
+      expect(channels).toEqual(['older', 'newer'])
+
+      hydrated.destroy()
+    })
+  })
 })
