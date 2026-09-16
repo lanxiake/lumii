@@ -200,6 +200,14 @@ const CODE_DEV_DEF: AgentDefinition = {
     GREP_TOOL_NAME,
     TODO_WRITE_TOOL_NAME,
     "profile_memory",
+    // 工作记忆（project/reference/general）的读写入口：记事与维护的提示词都把
+    // 「开发 Agent 记代码任务」当作既定事实（CHRONICLER_PROMPT 的取数来源、
+    // SYSTEM_KEEPER_PROMPT 的跨 Agent 去重素材），缺这组工具时开发名下只剩
+    // 分段总结自动产出的那几条，那两个 Agent 的输入里永远缺一块。
+    // search 一并给：manage 的 list 只按重要度排序，攒多了没法按关键词找。
+    // 仅在**内核兜底档**生效——走 ACP 时工具面由 CLI 自己决定（见上方「运行方式」）。
+    "memory_manage",
+    "memory_search",
     SKILL_SEARCH_TOOL_NAME,
     SKILL_INVOKE_TOOL_NAME,
     WEB_SEARCH_TOOL_NAME,
