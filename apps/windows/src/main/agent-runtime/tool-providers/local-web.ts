@@ -22,6 +22,13 @@ export async function fetchLocal(
   let lastError: Error | null = null
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    // 只有「已经拿到响应、读正文时才断掉」值得重试——那是真的可能抖动。
+    // 连接层建不起来（DNS/TCP/TLS）则不值得：2026-09-16 实测对同一个被拦的站点
+    // （zh.wikisource.org，TCP 能连上、TLS 握手被拦）连续 4 次尝试、含间隔 45 秒的
+    // 第 4 次，结果完全一致地是 UND_ERR_CONNECT_TIMEOUT(≈10.7s)。
+    // 重试一次 = 再花 10.7 秒 + 2 秒退避，换来同一个错误。
+    // 真正有效的「重试」是模型下一轮换个来源，而不是 2 秒后重打同一个域名。
+    let gotResponse = false
     try {
       if (attempt > 0) {
         log.info(`[fetchLocal] 第 ${attempt + 1} 次重试 url=${url}`)
@@ -31,6 +38,7 @@ export async function fetchLocal(
         headers,
         signal: opts?.signal ?? AbortSignal.timeout(45_000),
       })
+      gotResponse = true
       const body = await response.text()
       return { status: response.status, body }
     } catch (err) {
@@ -38,9 +46,8 @@ export async function fetchLocal(
       // 记分类后的原因而不是 err.message：后者永远是 "fetch failed"，
       // 日志里 133 行这样的记录等于没记
       log.warn(`[fetchLocal] 请求失败 (attempt=${attempt}) url=${url}: ${classifyFetchError(lastError)}`)
-      if (attempt < maxRetries) {
-        await new Promise((r) => setTimeout(r, 2000))
-      }
+      if (!gotResponse || attempt >= maxRetries) break
+      await new Promise((r) => setTimeout(r, 2000))
     }
   }
 

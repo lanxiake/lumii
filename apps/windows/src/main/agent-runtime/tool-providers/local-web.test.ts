@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import { classifyFetchError } from './local-web'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { classifyFetchError, fetchLocal } from './local-web'
 
 /** 复刻 undici 真实的错误形状：message 永远是 "fetch failed"，原因挂在 cause 上 */
 function undiciError(cause: unknown): Error {
@@ -53,5 +53,60 @@ describe('classifyFetchError', () => {
 
   it('null 不抛异常', () => {
     expect(classifyFetchError(null)).toBe('网络请求失败（未知错误）')
+  })
+})
+
+describe('fetchLocal · 重试策略', () => {
+  const realFetch = globalThis.fetch
+
+  afterEach(() => {
+    globalThis.fetch = realFetch
+  })
+
+  it('连接层就建不起来时不重试（实测重试对同一目标 4 次结果完全一致）', async () => {
+    let calls = 0
+    globalThis.fetch = (async () => {
+      calls++
+      throw Object.assign(new Error('fetch failed'), {
+        cause: Object.assign(new Error(''), { code: 'UND_ERR_CONNECT_TIMEOUT' }),
+      })
+    }) as typeof fetch
+
+    const result = await fetchLocal('https://blocked.example/x')
+
+    expect(calls).toBe(1)
+    expect(result.status).toBe(0)
+    expect(result.body).toContain('UND_ERR_CONNECT_TIMEOUT')
+  })
+
+  it('已经拿到响应、读正文时才断掉，仍然重试一次（这种可能是真抖动）', async () => {
+    let calls = 0
+    globalThis.fetch = (async () => {
+      calls++
+      return {
+        status: 200,
+        text: async () => {
+          throw Object.assign(new Error('terminated'), { cause: { code: 'ECONNRESET' } })
+        },
+      }
+    }) as unknown as typeof fetch
+
+    const result = await fetchLocal('https://flaky.example/x')
+
+    expect(calls).toBe(2)
+    expect(result.status).toBe(0)
+    expect(result.body).toContain('连接被重置')
+  }, 15_000)
+
+  it('重试时不再把 URL 重复塞进 body（调用方本来就知道 URL）', async () => {
+    globalThis.fetch = (async () => {
+      throw Object.assign(new Error('fetch failed'), {
+        cause: Object.assign(new Error(''), { code: 'ENOTFOUND' }),
+      })
+    }) as typeof fetch
+
+    const result = await fetchLocal('https://nope.example/very/long/path')
+
+    expect(result.body).not.toContain('https://nope.example')
   })
 })
