@@ -10,6 +10,7 @@ import {
   type MemoryProvenanceResult,
 } from '../../../../hooks/business/useMemoryUsage'
 import { writeClipboardText } from '../../../../services/clipboard-service'
+import { getAgents } from '../../../../services/agent-service'
 import styles from './MemoryViewer.module.css'
 
 /** 工作记忆分类标签（仅 project/reference/general） */
@@ -26,6 +27,18 @@ const CATEGORY_DESC: Record<string, string> = {
   project: '计划、日程、项目进展、截止日期等动态事项',
   reference: '常用工具、网址、联系人等外部资源',
   general: '对话中有跨会话价值的知识和信息',
+}
+
+/**
+ * 记忆归属 Agent 的归一化。
+ *
+ * `main` / `default` 是主 Agent 实例在会话参与者表里的历史写法，语义上就是
+ * 系统默认 Agent（同 `normalizeConversationAgentId` 的口径）——不归一的话，
+ * 筛选条里会冒出一个与「系统默认」同义的重复项。
+ */
+export function normalizeMemoryAgentId(agentId: string | undefined): string {
+  if (!agentId) return 'assistant'
+  return agentId === 'main' || agentId === 'default' ? 'assistant' : agentId
 }
 
 const PREVIEW_PER_CATEGORY = 3
@@ -61,6 +74,10 @@ const MemoryViewer: React.FC = () => {
   const [provId, setProvId] = useState<string | null>(null)
   const [provData, setProvData] = useState<MemoryProvenanceResult | null>(null)
   const [provLoading, setProvLoading] = useState(false)
+  /** Agent 筛选：'all' 或归一化后的 Agent 定义 ID */
+  const [agentFilter, setAgentFilter] = useState<string>('all')
+  /** Agent 定义 ID → 展示名（拉不到时回退显示 ID，筛选与徽标仍可用） */
+  const [agentNames, setAgentNames] = useState<Record<string, string>>({})
 
   const load = useCallback(async () => {
     const rows = await listMemories()
@@ -71,9 +88,47 @@ const MemoryViewer: React.FC = () => {
     void load()
   }, [load])
 
+  // 记忆只存 Agent 定义 ID，界面上要给人看名字
+  useEffect(() => {
+    void (async () => {
+      try {
+        const { agents } = await getAgents()
+        setAgentNames(Object.fromEntries(agents.map((a) => [a.id, a.name])))
+      } catch {
+        /* 名字拿不到不影响筛选与徽标（回退显示 ID） */
+      }
+    })()
+  }, [])
+
+  const agentLabel = useCallback((id: string) => agentNames[id] ?? id, [agentNames])
+
+  /** 切筛选时顺手收起展开态：新 Agent 的条数不同，沿用上一次的「全部展开」会突兀 */
+  const selectAgentFilter = useCallback((id: string) => {
+    setAgentFilter(id)
+    setExpanded(false)
+  }, [])
+
+  /** 出现过的归属 Agent 及条数（按条数降序），驱动筛选条 */
+  const agentGroups = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const row of items) {
+      const id = normalizeMemoryAgentId(row.agentId)
+      counts.set(id, (counts.get(id) ?? 0) + 1)
+    }
+    return [...counts.entries()].sort((a, b) => b[1] - a[1])
+  }, [items])
+
+  const visibleItems = useMemo(
+    () =>
+      agentFilter === 'all'
+        ? items
+        : items.filter((row) => normalizeMemoryAgentId(row.agentId) === agentFilter),
+    [items, agentFilter],
+  )
+
   const byCategory = useMemo(() => {
     const map = new Map<string, MemoryListItem[]>()
-    for (const row of items) {
+    for (const row of visibleItems) {
       const k = row.category || 'general'
       // 过滤掉个人记忆类别（user/feedback），工作记忆tab只显示工作记忆
       if (!WORK_MEMORY_CATEGORIES.includes(k as any)) continue
@@ -95,7 +150,9 @@ const MemoryViewer: React.FC = () => {
       deduped.set(cat, [...seen.values()].sort((a, b) => b.createdAt - a.createdAt))
     }
     return deduped
-  }, [items])
+    // 依赖 visibleItems 而非 items：切 Agent 筛选时 items 不变，
+    // 挂 items 会让分组沿用上一次的结果（筛选点了没反应）
+  }, [visibleItems])
 
   const handleDelete = async (id: string) => {
     if (!window.confirm('确定删除这条记忆？删除后 AI 将不再使用。')) return
@@ -210,6 +267,28 @@ const MemoryViewer: React.FC = () => {
         ) : null}
       </div>
 
+      {agentGroups.length > 1 ? (
+        <div className={styles.agentFilter}>
+          <button
+            type="button"
+            className={clsx(styles.filterChip, agentFilter === 'all' && styles.filterChipActive)}
+            onClick={() => selectAgentFilter('all')}
+          >
+            全部（{items.length}）
+          </button>
+          {agentGroups.map(([id, count]) => (
+            <button
+              key={id}
+              type="button"
+              className={clsx(styles.filterChip, agentFilter === id && styles.filterChipActive)}
+              onClick={() => selectAgentFilter(id)}
+            >
+              {agentLabel(id)}（{count}）
+            </button>
+          ))}
+        </div>
+      ) : null}
+
       {items.length === 0 ? (
         <p className={styles.empty}>暂无记忆。试试告诉 AI 你正在进行的计划、常用的工具、或说「请记住：...」来手动添加。</p>
       ) : (
@@ -254,6 +333,12 @@ const MemoryViewer: React.FC = () => {
                       <>
                         <p className={styles.cardText}>{m.content}</p>
                         <div className={styles.cardMeta}>
+                          {/* 筛到具体 Agent 时整列同源，徽标是噪音；「全部」视图才需要标出来源 */}
+                          {agentFilter === 'all' ? (
+                            <span className={styles.cardAgent}>
+                              {agentLabel(normalizeMemoryAgentId(m.agentId))}
+                            </span>
+                          ) : null}
                           <span className={styles.cardTime}>{formatMemoryTime(m.createdAt)}</span>
                           <span>重要度 {Math.round(m.importance * 100)}%</span>
                           {m.sourceSegmentId ? (

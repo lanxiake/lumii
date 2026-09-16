@@ -17,6 +17,11 @@ export interface MemoryListItem {
   readonly sourceSegmentId: string | null
   /** 对应的记忆宫殿语义片段（内容寻址 drawer_id），可空 */
   readonly palaceDrawerId: string | null
+  /**
+   * 归属 Agent 定义 ID（assistant / code-dev / system-keeper …）。
+   * 全量列表是跨 Agent 的，渲染层靠它区分来源与筛选。
+   */
+  readonly agentId: string
 }
 
 /** 记忆来源下转结果（与 IPC agent:memories:provenance 对齐） */

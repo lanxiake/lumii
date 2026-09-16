@@ -1935,6 +1935,8 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
       createdAt: number
       sourceSegmentId: string | null
       palaceDrawerId: string | null
+      /** 归属 Agent 定义 ID（不传 sessionKey/agentId 时列表跨 Agent，据此区分来源） */
+      agentId: string
     }[]
   : T extends 'agent:memories:delete' ? { success: boolean }
   : T extends 'agent:memories:update' ? { success: boolean }

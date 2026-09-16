@@ -52,6 +52,10 @@ export function handleAgentMemoriesList(
     createdAt: new Date(e.created_at).getTime(),
     sourceSegmentId: e.source_segment_id,
     palaceDrawerId: e.palace_drawer_id,
+    // 归属 Agent 定义 ID。全量视图把多个 Agent 的记忆混在一起返回，
+    // 不带这个字段渲染层就无从分辨「这条是谁记的」——记忆管理页的
+    // Agent 筛选与来源徽标都读它。
+    agentId: e.agent_id,
   }))
 }
 
