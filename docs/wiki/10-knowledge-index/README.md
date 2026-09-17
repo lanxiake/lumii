@@ -1,0 +1,48 @@
+# 10. 知识索引
+
+## 简介
+
+知识索引是整个 Wiki 的「搜索引擎入口」和「知识图谱导航台」，帮助读者在十大部分的数百篇文档中快速定位所需信息。不同于按软件开发流程组织的线性章节，本章节提供多维度的文档检索视图：按功能主题索引、按技术领域索引、按角色关注点索引、按问题场景索引。同时收录了项目完整的技术术语表（Glossary）、常见问题 FAQ 解答集以及精选的外部学习资源链接，构建起一个立体式的知识导航网络。
+
+本章节的价值在于消除知识孤岛。很多问题的解决需要跨章节的知识组合，比如实现一个 AI 功能需要同时参考需求工程的验收标准、架构设计的 Agent Runtime 接口、详细设计的状态机、实施指南的调试技巧、测试与质量的 AI 测试方法。知识索引通过主题索引将这些跨章节的关联文档串联成主题阅读路径，并在 FAQ 中直接给出「解决 X 问题请按顺序阅读 A→B→C」的快捷指引。同时维护一个持续更新的术语表，确保团队内专业名词的统一理解。
+
+## 本部分文档索引
+
+| 文件名 | 说明 | 状态 |
+|--------|------|------|
+| [00-文档清单总览.md](./00-文档清单总览.md) | 一页式知识清单：开发前期/核心能力/实施测试/后期经验 × 四阶段对照 + 36 篇文档逐条方法/结论/源文件交叉引用对照表 | ✅ 已创建 |
+| [01-文档快速索引.md](./01-文档快速索引.md) | 六大功能主题（自主进化/记忆/同步/Agent协作/录屏/性能）× 七技术领域 × 四问题场景三维交叉索引 | ✅ 已创建 |
+| [02-代码定位速查表.md](./02-代码定位速查表.md) | 八大功能域（启动/Agent/自主进化/记忆/同步/IPC/Schema/设计系统）绝对路径 + 类/函数 + 职责速查 | ✅ 已创建 |
+| [03-术语表.md](./03-术语表.md) | 六类 55 条核心术语（架构/Agent/记忆/同步/UI/测试）中英对照、定义、上下文、参考位置 | ✅ 已创建 |
+
+## 现有源文档交叉引用
+
+### 按主题快速跳转
+
+- **AI Agent 相关**：
+  - 优化方案：[`../design/AGENT优化/README.md`](../../design/AGENT优化/README.md)
+  - 自主进化系列：[`../../design/自主进化Agent/README.md`](../../design/自主进化Agent/README.md)
+  - 实施计划：[`../plans/AGENT自我进化/README.md`](../../plans/AGENT自我进化/README.md)
+  - 测试报告：[`../test/2026-08-27-agent-capability-test-report.md`](../../test/2026-08-27-agent-capability-test-report.md)
+
+- **Wiki 记忆系统相关**：
+  - 设计文档：[`../design/记忆设计/`](../../design/记忆设计/)
+  - 实施计划：[`../plans/记忆重构/`](../../plans/记忆重构/)
+  - 测试用例：[`../test/lumii-cli/wiki-p0-test-cases.md`](../../test/lumii-cli/wiki/wiki-p0-test-cases.md)
+
+- **数据同步相关**：
+  - 策略分析：[`../../analysis/2026-09-07-multi-device-data-sync-strategy.md`](../../analysis/2026-09-07-multi-device-data-sync-strategy.md)
+  - 功能设计：[`../design/数据同步功能/2026-09-05-workspace-cloud-sync-design.md`](../../design/数据同步功能/2026-09-05-workspace-cloud-sync-design.md)
+  - 实施总结：[`../../implementation/2026-09-07-cloud-sync-complete-summary.md`](../../implementation/2026-09-07-cloud-sync-complete-summary.md)
+  - 修复记录：[`../fix/2026-09-07-cloud-sync-conflict-detection-fix.md`](../../fix/2026-09-07-cloud-sync-conflict-detection-fix.md)
+
+- **性能与优化相关**：
+  - 上下文压缩：[`../design/2026-08-18-context-compression-multi-layer-engine.md`](../../design/2026-08-18-context-compression-multi-layer-engine.md)
+  - 性能监控：[`../../plans/性能优化/2026-08-22-performance-monitoring-implementation.md`](../../plans/性能优化/2026-08-22-performance-monitoring-implementation.md)
+  - 测试报告：[`../test/2026-08-24-context-compression-report.md`](../../test/2026-08-24-context-compression-report.md)
+
+- **项目总览类文档**：
+  - 项目协作总纲：[`../../../AGENTS.md`](../../../AGENTS.md)
+  - 开发规范索引：[`../standards/README.md`](../../standards/README.md)
+  - 用户指南：[`../guide/Lumii-Desktop-User-Guide.md`](../../guide/Lumii-Desktop-User-Guide.md)
+  - 测试总目录：[`../test/README.md`](../../test/README.md)

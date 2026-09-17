@@ -1,0 +1,27 @@
+# 08. 经验总结
+
+## 简介
+
+经验总结是团队知识资产沉淀的核心环节，将项目历程中的成功与失败转化为可复用的组织智慧。本章节收录 Lumii 项目各阶段的里程碑复盘、架构演进记录、技术债务管理策略、失败案例教训以及跨团队协作经验。不同于规范文档的「规范性正确」，经验总结更强调「实践性真实」，不回避决策失误、走的弯路和付出的代价，为后来者提供前车之鉴。
+
+本章节内容按时间维度和主题维度双轴组织：时间维度按季度/大版本节点整理交付复盘，主题维度按架构演进、性能优化、AI 工程化、团队协作等专题聚合深度反思。每篇经验总结都遵循「背景-目标-行动-结果-反思-改进」的结构化表达，确保经验不仅是故事叙述，更是可执行的改进输入。阅读本章能帮助新成员快速吸收团队数年积累的隐性知识，避免在已知的坑里重复踩坑。
+
+## 本部分文档索引
+
+| 文件名 | 说明 | 状态 |
+|--------|------|------|
+| [01-技术选型与对比.md](./01-技术选型与对比.md) | Agent/Hermes MOA 对比、11 个开源记忆项目总表、同步三方案长期路线、渲染与数据库选型决策 | ✅ 已创建 |
+| [02-技术攻克案例.md](./02-技术攻克案例.md) | Elo Rating 置信度调优、三层离线审批架构、Shapley 归因优化、心跳护栏、压缩三层引擎、Diff 20x+、IPC 合约 | ✅ 已创建 |
+| [03-项目反思与改进.md](./03-项目反思与改进.md) | 同步策略批判、自主进化 P0 过度设计教训、SettingsPage 大拆正反、AB 零迁移成本、返工三大根源 | ✅ 已创建 |
+| [04-工程实践最佳做法.md](./04-工程实践最佳做法.md) | Monorepo 包边界黄金法则、Schema 单向递增迁移机制、大文件拆分顺序、文档五件套、AI 护栏三闸 | ✅ 已创建 |
+
+## 现有源文档交叉引用
+
+- 多设备同步策略反思：[`../../analysis/2026-09-07-sync-strategy-reflection.md`](../../analysis/2026-09-07-sync-strategy-reflection.md)
+- 标准改进总结：[`../standards/improvements-summary.md`](../../standards/improvements-summary.md)
+- 自主进化 P1 实施总结：[`../plans/AGENT自我进化/P1-实施总结.md`](../../design/自主进化Agent/P1-实施总结.md)
+- 自主进化 P1 交付总结：[`../plans/AGENT自我进化/交付总结.md`](../../plans/AGENT自我进化/交付总结.md)
+- 自主进化前端实施总结：[`../自主进化前端实施总结.md`](../../design/自主进化Agent/前端可视化实施记录.md)
+- 上下文压缩报告：[`../test/2026-08-24-context-compression-report.md`](../../test/2026-08-24-context-compression-report.md)
+- 真实用户场景验证：[`../test/2026-08-24-real-user-scenario-validation.md`](../../test/2026-08-24-real-user-scenario-validation.md)
+- 云同步实施总结：[`../../implementation/2026-09-07-cloud-sync-complete-summary.md`](../../implementation/2026-09-07-cloud-sync-complete-summary.md)
