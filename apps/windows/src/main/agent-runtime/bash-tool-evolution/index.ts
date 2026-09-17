@@ -1,7 +1,7 @@
 /**
  * bash-tool-evolution — bash 命令工具进化（宿主装配）
  *
- * 详见 docs/plans/2026-09-08-Bash命令工具进化设计.md
+ * 详见 docs/design/Agent协作与提示词/2026-09-08-Bash命令工具进化设计.md
  */
 
 export {

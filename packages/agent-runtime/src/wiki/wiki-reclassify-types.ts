@@ -4,7 +4,7 @@
  * 单独成文件：WikiReclassifier 依赖 WikiRepo，而 WikiRepo 需要批次存储键，
  * 放在一起会形成循环 import。
  *
- * 设计：docs/design/记忆与Wiki/2026-08-27-Wiki用途目录重设计.md §9
+ * 设计：docs/design/Wiki知识库/2026-08-27-Wiki用途目录重设计.md §9
  */
 
 /** wiki_index_meta 中存放重编目批次的键前缀（实际键含 agentId/userId） */

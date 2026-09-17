@@ -20,6 +20,6 @@ Lumii 的测试体系面临一些特殊挑战：AI 生成内容的不确定性�
 - Lumii CLI 测试用例：[`../test/lumii-cli/lumii-cli-test-cases.md`](../../test/lumii-cli/general/lumii-cli-test-cases.md)
 - Wiki 功能测试报告：[`../test/lumii-cli/wiki-cli-test-report.md`](../../test/lumii-cli/wiki/wiki-cli-test-report.md)
 - 自主进化 Agent 测试用例：[`../test/lumii-cli/autonomous-life-test-cases.md`](../../test/lumii-cli/autonomous/autonomous-life-test-cases.md)
-- Agent 能力测试报告：[`../test/2026-08-27-agent-capability-test-report.md`](../../test/2026-08-27-Agent能力测试报告.md)
-- 上下文压缩测试指南：[`../CONTEXT_COMPRESSION_TEST_GUIDE.md`](../../test/2026-08-19-上下文压缩测试指南.md)
+- Agent 能力测试报告：[`../test/2026-08-27-agent-capability-test-report.md`](../../test/lumii-cli/agent-capability/agent-capability-report.md)
+- 上下文压缩测试指南：[`../CONTEXT_COMPRESSION_TEST_GUIDE.md`](../../test/历史归档/上下文压缩/2026-08-19-上下文压缩测试指南.md)
 - 代码风格规范（含测试规范）：[`../standards/code-style-guide.md`](../../standards/code-style-guide.md)

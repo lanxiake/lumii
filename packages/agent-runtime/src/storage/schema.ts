@@ -413,7 +413,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS agent_memories_fts USING fts5(
   ],
   // V16: Wiki 知识库 P0 —— 收件箱 / 资料层 / 知识层 / 修订层 / 运行日志 / 派生索引
   //
-  // 设计：`docs/design/记忆与Wiki/2026-08-25-Wiki知识库设计P0P1P2.md` §3.2
+  // 设计：`docs/design/Wiki知识库/2026-08-25-Wiki知识库设计P0P1P2.md` §3.2
   // 中文检索沿用 V15 agent_memories_fts 已验证的 bigram 预分词方案（unicode61 对中文
   // 2 字词零命中，已实测确认），FTS5 表存预分词结果，索引维护在 wiki-index.ts 手动做。
   [
@@ -565,7 +565,7 @@ CREATE INDEX IF NOT EXISTS idx_wiki_runs_agent_user
   ],
   // V18: Wiki 知识库 P1 —— 链接索引 + 附件表 + 页面状态列
   //
-  // 设计：`docs/plans/记忆与Wiki/2026-08-26-Wiki知识库P1实施计划.md` Task 1
+  // 设计：`docs/plans/Wiki知识库/基础与设置/2026-08-26-Wiki知识库P1实施计划.md` Task 1
   // wiki_links：页面间有向链接索引（反链与 P2 图谱的数据源）；target_page_id 不带外键约束，
   // 删除目标页时链接索引级联清理由 WikiRepo 显式完成，其他页正文中的 [[...]] 文本保留为未解析。
   [
@@ -602,7 +602,7 @@ ALTER TABLE wiki_pages ADD COLUMN status TEXT NOT NULL DEFAULT 'active'
   ],
   // V19: Wiki 知识库 P2 —— 综述合成运行记录
   //
-  // 设计：`docs/plans/记忆与Wiki/2026-08-26-Wiki知识库P2实施计划.md` Task 0
+  // 设计：`docs/plans/Wiki知识库/基础与设置/2026-08-26-Wiki知识库P2实施计划.md` Task 0
   // 候选是正式数据：先落 candidate_md + status='candidate'，用户接受后才建 syntheses/ 页面。
   // 拒绝的记录保留（可审计），不删除。
   [
@@ -765,7 +765,7 @@ ALTER TABLE wiki_sources ADD COLUMN storage_mode TEXT NOT NULL DEFAULT 'ref'
   // 旧小类值留存 legacy_subtopic 供审计；「计划与复盘」整类与「整合长文」小类
   // （综述产物专属落点，六大类下都有）无法机械映射到 v2 树，退回收件箱由用户/P5 编目重填。
   //
-  // 设计：docs/design/记忆与Wiki/2026-08-31-Wiki智能资料库设计.md v1.1 §3
+  // 设计：docs/design/Wiki知识库/2026-08-31-Wiki智能资料库设计.md v1.1 §3
   [
     26,
     `

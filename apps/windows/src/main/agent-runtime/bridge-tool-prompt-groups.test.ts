@@ -5,7 +5,7 @@
  * apps/windows 通过 bridge 注册的工具（guide / browser / app / screen）
  * 必须在这一侧校验，否则新增客户端工具会静默掉进 Other Tools。
  *
- * 计划依据：docs/plans/AGENT优化/2026-08-28-Tooling提示词重构实施计划.md P0-T8
+ * 计划依据：docs/plans/Agent协作与提示词/2026-08-28-Tooling提示词重构实施计划.md P0-T8
  *
  * 实现方式：直接从 bridge 源码提取 `name: 'xxx'` 字面量，避免为了拿工具名
  * 而拉起 Electron / ToolRegistry 依赖。

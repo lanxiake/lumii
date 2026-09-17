@@ -2,7 +2,7 @@
  * channel_list / channel_send — 渠道出站 Agent 工具 stub
  *
  * execute 由 Windows bridge（bridge-tool-registrar）覆盖，调用 ChannelOutboundRouter。
- * 设计：docs/design/渠道与在场/2026-08-14-渠道出站Hub设计.md §7.4
+ * 设计：docs/design/渠道与CLI/2026-08-14-渠道出站Hub设计.md §7.4
  */
 
 import { Type, type Static } from "@sinclair/typebox";

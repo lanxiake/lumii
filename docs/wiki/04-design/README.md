@@ -27,4 +27,4 @@ Lumii 中包含大量具有独立设计复杂度的子模块，如 Agent 元认�
 - 上下文压缩引擎设计：[`../design/2026-08-18-context-compression-multi-layer-engine.md`](../../design/上下文压缩/2026-08-18-上下文压缩多层化引擎设计.md)
 - Agent 应用 UI 控制设计：[`../design/2026-08-13-agent-app-ui-control-design.md`](../../design/客户端UI/2026-08-13-Agent操作客户端设计.md)
 - 屏幕录制设计系列：[`../design/2026-08-15-screen-record-design.md`](../../design/录屏与教程/2026-08-15-客户端录屏设计.md)
-- Wiki 知识库设计：[`../design/记忆设计/2026-08-23-memory-wiki-knowledge-base-design.md`](../../design/记忆与Wiki/2026-08-23-记忆与Wiki知识库技术设计.md)
+- Wiki 知识库设计：[`../design/记忆设计/2026-08-23-memory-wiki-knowledge-base-design.md`](../../design/Wiki知识库/2026-08-23-记忆与Wiki知识库技术设计.md)

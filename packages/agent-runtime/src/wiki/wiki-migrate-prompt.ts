@@ -4,7 +4,7 @@
  * MapPlan 阶段以文件夹簇为决策单元，少量 LLM 调用产出映射方案。
  * 复用 buildTaxonomyGuide / extractJsonPayload / validateTopicAssignment。
  *
- * 设计：docs/design/记忆与Wiki/2026-09-05-Wiki库级迁移设计.md §3.2
+ * 设计：docs/design/Wiki知识库/2026-09-05-Wiki库级迁移设计.md §3.2
  */
 
 import { extractJsonPayload, normalizeStringArray } from "./wiki-classifier.js";

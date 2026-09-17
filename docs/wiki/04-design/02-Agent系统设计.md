@@ -235,6 +235,6 @@ stateDiagram-v2
 
 ## 8. 参考链接
 
-- Hermes MOA 深度对比：`docs/design/AGENT优化/2026-08-26-hermes-moa-对比分析.md`
-- Hermes vs Lumii 差距分层与优化路线：`docs/design/AGENT优化/2026-08-26-hermes-moa-vs-lumii-对比与优化.md`
-- Lumii Agent 优化实施方案（P0/P1/P2/P3）：`docs/design/AGENT优化/2026-08-26-lumii-agent-优化方案.md`
+- Hermes MOA 深度对比：`docs/design/Agent协作与提示词/2026-08-26-hermes-moa-对比分析.md`
+- Hermes vs Lumii 差距分层与优化路线：`docs/design/Agent协作与提示词/2026-08-26-hermes-moa-vs-lumii-对比与优化.md`
+- Lumii Agent 优化实施方案（P0/P1/P2/P3）：`docs/design/Agent协作与提示词/2026-08-26-lumii-agent-优化方案.md`

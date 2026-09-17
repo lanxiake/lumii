@@ -1,8 +1,8 @@
 # Wiki 用途目录二期 CLI 测试用例
 
 - 日期：2026-08-28
-- 设计：`docs/design/记忆与Wiki/2026-08-27-Wiki用途目录重设计.md` §8–§12
-- 计划：`docs/plans/记忆与Wiki/2026-08-27-Wiki用途目录二期实施计划.md`
+- 设计：`docs/design/Wiki知识库/2026-08-27-Wiki用途目录重设计.md` §8–§12
+- 计划：`docs/plans/Wiki知识库/导航与图谱/2026-08-27-Wiki用途目录二期实施计划.md`
 - CLI：`node apps/windows/resources/app-ui-cli/lumii-ui.mjs`
 - 探针前缀：`wiki-cli-p2-*`（可识别、可清理）
 

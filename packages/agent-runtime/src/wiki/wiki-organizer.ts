@@ -5,7 +5,7 @@
  * wiki-organize-queue.ts 的 computeBackoffDelayMs）；单条无法归类（skip/越权/漏答）
  * 不建 source、条目留在收件箱待整理，不再臆造分类或落到兜底目录。
  *
- * 设计：docs/design/记忆与Wiki/2026-08-27-Wiki用途目录重设计.md §4
+ * 设计：docs/design/Wiki知识库/2026-08-27-Wiki用途目录重设计.md §4
  */
 
 import { classifyBatch, type ClassifiedItem } from "./wiki-classifier.js";

@@ -1,6 +1,6 @@
 /**
  * 结构轮/内容轮提示词与解析
- * 计划：docs/plans/记忆与Wiki/2026-08-31-Wiki智能资料库P5全库编目.md Task 2
+ * 计划：docs/plans/Wiki知识库/资料库/2026-08-31-Wiki智能资料库P5全库编目.md Task 2
  */
 
 import { describe, expect, it } from "vitest";

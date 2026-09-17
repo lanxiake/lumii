@@ -15,7 +15,7 @@
 
 ## 现有源文档交叉引用
 
-- 特性说明：[`../features/deepseek-responses-api-support.md`](../../features/2026-08-17-DeepSeek-Responses-API支持.md) — DeepSeek Responses API 集成需求规格示例
+- 特性说明：[`../features/deepseek-responses-api-support.md`](../../design/客户端UI/2026-08-17-DeepSeek提供商与ResponsesAPI支持.md) — DeepSeek Responses API 集成需求规格示例
 - 设计文档示例：[`../design/数据同步功能/2026-09-05-workspace-cloud-sync-design.md`](../../design/数据同步功能/2026-09-05-工作空间云同步设计.md) — 工作区云同步功能的需求与设计一体化文档
-- 自主进化 Agent 功能清单：[`../design/自主进化Agent/P1-功能清单.md`](../../design/自主进化Agent/2026-09-04-P1功能清单.md) — AI Agent P1 阶段的功能需求列表
+- 自主进化 Agent 功能清单：[`../design/自主进化Agent/P1-功能清单.md`](../../design/自主进化Agent/P1实施档案/2026-09-04-P1功能清单.md) — AI Agent P1 阶段的功能需求列表
 - 功能计划：[`../plans/`](../../plans/) — 各功能模块的实施计划文档，包含需求拆解与里程碑

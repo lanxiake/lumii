@@ -4,7 +4,7 @@
  * 单独成文件：WikiLibraryMigrate 依赖 WikiRepo，而 WikiRepo 需要批次存储键，
  * 放在一起会形成循环 import。
  *
- * 设计：docs/design/记忆与Wiki/2026-09-05-Wiki库级迁移设计.md
+ * 设计：docs/design/Wiki知识库/2026-09-05-Wiki库级迁移设计.md
  */
 
 /** wiki_index_meta 中存放迁移批次的键前缀（实际键含 agentId/userId） */

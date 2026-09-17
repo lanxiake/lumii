@@ -1,6 +1,6 @@
 /**
  * WikiReclassifyView：进度态、候选审阅、部分接受、applyError 保留
- * 计划：docs/plans/记忆与Wiki/2026-08-27-Wiki用途目录二期实施计划.md Task 6
+ * 计划：docs/plans/Wiki知识库/导航与图谱/2026-08-27-Wiki用途目录二期实施计划.md Task 6
  */
 
 import React from 'react'

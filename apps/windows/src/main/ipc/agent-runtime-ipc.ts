@@ -716,7 +716,7 @@ export async function submitVoiceTranscript(sessionKey: string, content: string,
 /**
  * 处理单个命令（IPC 与本机控制口共用）
  *
- * TODO: 继续按命令前缀拆分到 agent-runtime/ 子目录（参考 docs/plans/大文件重构分析处理/README.md P0-05）
+ * TODO: 继续按命令前缀拆分到 agent-runtime/ 子目录（参考 docs/plans/代码重构/大文件与死代码/2026-08-21-大文件重构分析报告.md P0-05）
  * 已完成：
  *   - image:* (3) → image-commands.ts
  *   - message:delete/edit (2) → message-commands.ts

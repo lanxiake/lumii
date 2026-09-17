@@ -1,7 +1,7 @@
 /**
  * Channel 层核心类型定义
  *
- * 入站统一架构 + 出站 Hub：docs/design/渠道与在场/2026-08-14-渠道出站Hub设计.md
+ * 入站统一架构 + 出站 Hub：docs/design/渠道与CLI/2026-08-14-渠道出站Hub设计.md
  */
 
 import type { AgentRuntimeBridge } from '../agent-runtime/bridge'

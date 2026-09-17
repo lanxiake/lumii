@@ -5,7 +5,7 @@
  * 遗忘分，改用 use_count 做轻微加权。embedder 为 null 时整体禁用，检索返回空数组，
  * 由调用方写 degradeReason，禁止静默降级。
  *
- * 设计：docs/design/记忆与Wiki/2026-08-27-Wiki用途目录重设计.md §5.1
+ * 设计：docs/design/Wiki知识库/2026-08-27-Wiki用途目录重设计.md §5.1
  */
 
 import type { DatabaseAdapter } from "../storage/local-database.js";
@@ -29,7 +29,7 @@ export const VECTOR_CORPUS_MAX_CHARS = 300;
  * （BM25 本就强于单向量），二者在 mergeSourceHybridRanks 里做 RRF —— 向量管
  * 语义改写查询，FTS 管精确匹配与长文。
  *
- * 设计：docs/design/记忆与Wiki/2026-08-31-Wiki智能资料库设计.md §5.8
+ * 设计：docs/design/Wiki知识库/2026-08-31-Wiki智能资料库设计.md §5.8
  */
 export function buildVectorCorpus(
   source: Pick<WikiSource, "title" | "summary" | "topic_category" | "topic_subtopic">,

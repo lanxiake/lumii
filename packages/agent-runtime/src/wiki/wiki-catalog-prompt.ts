@@ -4,7 +4,7 @@
  * 两轮制：结构轮（不带正文，模型可声明 needContent）+ 内容轮（仅 needContent 且有正文的补摘要）。
  * 全局印象段规模恒定 O(叶子数)，不随批次增长——见 buildLibraryImpression。
  *
- * 设计：docs/plans/记忆与Wiki/2026-08-31-Wiki智能资料库P5全库编目.md Task 2
+ * 设计：docs/plans/Wiki知识库/资料库/2026-08-31-Wiki智能资料库P5全库编目.md Task 2
  */
 
 import { extractJsonPayload, normalizeStringArray } from "./wiki-classifier.js";

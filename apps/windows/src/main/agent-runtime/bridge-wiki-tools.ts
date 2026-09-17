@@ -5,7 +5,7 @@
  * 库归属：全队共享同一个用户资料库（SHARED_WIKI_LIBRARY_AGENT_ID）——2026-09-13 拍板
  * 「维护官策展、全员检索」；此前按实例 definitionId 隔离，专家看见的是各自的空库。
  *
- * 设计：docs/design/记忆与Wiki/2026-08-25-Wiki知识库设计P0P1P2.md §3.9
+ * 设计：docs/design/Wiki知识库/2026-08-25-Wiki知识库设计P0P1P2.md §3.9
  */
 
 import {

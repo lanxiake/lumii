@@ -4,7 +4,7 @@
  * 取代 `wikiNavMapping.ts`。v2 树的大类名本身就是左栏分区名（工作/学习/生活/收藏），
  * 「旧大类 → nav 分区」这层映射随之消失——左栏、磁盘目录、DB 两列三者一一对应。
  *
- * 设计：docs/design/记忆与Wiki/2026-08-31-Wiki智能资料库设计.md v1.1 §2.3、§11
+ * 设计：docs/design/Wiki知识库/2026-08-31-Wiki智能资料库设计.md v1.1 §2.3、§11
  */
 
 import { PARKING_CATEGORY } from '@mtbot/agent-runtime/browser'

@@ -10,7 +10,7 @@
  * （见 memory-repo.ts 的 saveCandidate / updateContentById / removeById / clearAllForAgent），
  * 不再用 SQL 触发器自动同步。
  *
- * 设计：`docs/design/记忆与Wiki/2026-08-24-记忆系统设计.md` §3.2（已按此调整，见文档内说明）
+ * 设计：`docs/design/记忆系统/2026-08-24-记忆系统设计.md` §3.2（已按此调整，见文档内说明）
  */
 
 import type { DatabaseAdapter } from "../storage/local-database.js";

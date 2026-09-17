@@ -6,7 +6,7 @@
  * - 项目：当前用户消息 × 注册表别名的子串匹配（大小写不敏感），多个命中取最长匹配
  *
  * 纯逻辑 + 只读注册表，不做文件内容读取（调用方用 scene-memory-store 读取命中的 filePath）。
- * 设计文档：docs/design/记忆与Wiki/2026-09-12-场景记忆设计.md
+ * 设计文档：docs/design/记忆系统/2026-09-12-场景记忆设计.md
  */
 
 import { isSystemOwnership, resolveChannelIdentity } from '../channel/channel-identity'

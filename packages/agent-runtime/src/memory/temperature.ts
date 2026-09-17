@@ -2,7 +2,7 @@
  * computeTemperature — 记忆温度分档（P0，纯计算不落表）
  *
  * 温度是派生视图：不建列、不迁移，阈值调整立即对全量历史生效。
- * 设计：`docs/design/记忆与Wiki/2026-08-24-记忆系统设计.md` §3.4
+ * 设计：`docs/design/记忆系统/2026-08-24-记忆系统设计.md` §3.4
  */
 
 import type { MemoryCategory } from "./types.js";

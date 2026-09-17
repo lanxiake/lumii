@@ -20,26 +20,26 @@
 ### 按主题快速跳转
 
 - **AI Agent 相关**：
-  - 优化方案：[`../design/AGENT优化/README.md`](../../design/AGENT优化/README.md)
+  - 优化方案：[`../design/AGENT优化/README.md`](../../design/Agent协作与提示词/README.md)
   - 自主进化系列：[`../../design/自主进化Agent/README.md`](../../design/自主进化Agent/README.md)
-  - 实施计划：[`../plans/AGENT自我进化/README.md`](../../plans/自主进化Agent/README.md)
-  - 测试报告：[`../test/2026-08-27-agent-capability-test-report.md`](../../test/2026-08-27-Agent能力测试报告.md)
+  - 实施计划：[`../plans/自主进化Agent/README.md`](../../plans/自主进化Agent/README.md)
+  - 测试报告：[`../test/2026-08-27-agent-capability-test-report.md`](../../test/lumii-cli/agent-capability/agent-capability-report.md)
 
 - **Wiki 记忆系统相关**：
-  - 设计文档：[`../design/记忆设计/`](../../design/记忆与Wiki/)
-  - 实施计划：[`../plans/记忆重构/`](../../plans/记忆与Wiki/)
+  - 设计文档：[`../design/记忆系统/`](../../design/记忆系统/) · [`../design/Wiki知识库/`](../../design/Wiki知识库/)
+  - 实施计划：[`../plans/记忆系统/`](../../plans/记忆系统/) · [`../plans/Wiki知识库/`](../../plans/Wiki知识库/)
   - 测试用例：[`../test/lumii-cli/wiki-p0-test-cases.md`](../../test/lumii-cli/wiki/wiki-p0-test-cases.md)
 
 - **数据同步相关**：
-  - 策略分析：[`../../analysis/2026-09-07-多设备数据同步策略分析.md`](../../analysis/2026-09-07-多设备数据同步策略分析.md)
+  - 策略分析：[`../../analysis/2026-09-07-多设备数据同步策略分析.md`](../../design/数据同步功能/2026-09-07-多设备数据同步策略分析.md)
   - 功能设计：[`../design/数据同步功能/2026-09-05-workspace-cloud-sync-design.md`](../../design/数据同步功能/2026-09-05-工作空间云同步设计.md)
-  - 实施总结：[`../../implementation/2026-09-07-云同步完整实施总结.md`](../../implementation/2026-09-07-云同步完整实施总结.md)
+  - 实施总结：[`../../implementation/2026-09-07-云同步完整实施总结.md`](../../plans/数据同步功能/2026-09-07-云同步完整实施总结.md)
   - 修复记录：[`../fix/2026-09-07-cloud-sync-conflict-detection-fix.md`](../../fix/2026-09-07-云同步冲突检测修复.md)
 
 - **性能与优化相关**：
   - 上下文压缩：[`../design/2026-08-18-context-compression-multi-layer-engine.md`](../../design/上下文压缩/2026-08-18-上下文压缩多层化引擎设计.md)
   - 性能监控：[`../../plans/性能优化/2026-08-22-性能监控实施计划.md`](../../plans/性能优化/2026-08-22-性能监控实施计划.md)
-  - 测试报告：[`../test/2026-08-24-context-compression-report.md`](../../test/2026-08-24-上下文压缩测试报告.md)
+  - 测试报告：[`../test/2026-08-24-context-compression-report.md`](../../test/历史归档/上下文压缩/2026-08-24-上下文压缩测试报告.md)
 
 - **项目总览类文档**：
   - 项目协作总纲：[`../../../AGENTS.md`](../../../AGENTS.md)

@@ -356,7 +356,7 @@ export class BridgePromptComposer {
     }
 
     // 场景记忆段（项目/渠道）：命中才注入、不常驻
-    // 设计：docs/design/记忆与Wiki/2026-09-12-场景记忆设计.md
+    // 设计：docs/design/记忆系统/2026-09-12-场景记忆设计.md
     if (injPersonal !== false) {
       const sceneSections = await this.buildSceneMemorySections(instanceId, userMessage)
       for (const section of sceneSections) {

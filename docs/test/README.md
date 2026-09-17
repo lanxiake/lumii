@@ -2,25 +2,23 @@
 
 本目录存放 **CLI / 真实环境** 测试用例与报告（非单元测试源码）。
 
-## Lumii CLI 真实环境测试（2026-09-12 重组）
+## Lumii CLI 真实环境测试（现行）
 
-见子目录 [lumii-cli/](./lumii-cli/README.md)，现按功能域组织：`general/`（通用 CLI）、`chat/`（真实聊天模拟，L3）、`wiki/`、`autonomous/`、`cloud-sync/`。规范见 [CLI-TEST-SPEC.md](./lumii-cli/CLI-TEST-SPEC.md)。
+见子目录 [`lumii-cli/`](./lumii-cli/README.md)，按功能域组织，规范见 [`CLI-TEST-SPEC.md`](./lumii-cli/CLI-TEST-SPEC.md)。
 
-## Agent 能力（2026-08-27）
+| 域 | 说明 |
+| --- | --- |
+| [`general/`](./lumii-cli/general/) | 通用 CLI |
+| [`chat/`](./lumii-cli/chat/) | 真实聊天模拟（L3），含上下文压缩套件 |
+| [`wiki/`](./lumii-cli/wiki/) | Wiki 知识库 |
+| [`autonomous/`](./lumii-cli/autonomous/) | 自主进化 Agent（含原「自主进化Agent」套件，2026-09-17 合并） |
+| [`cloud-sync/`](./lumii-cli/cloud-sync/) | 云同步（含 GitCode 真实同步用例） |
+| [`agent-capability/`](./lumii-cli/agent-capability/) | Agent 能力全面测试（A–H 套件，2026-08-27） |
+| [`agent-curation/`](./lumii-cli/agent-curation/) · [`agent-deepdive/`](./lumii-cli/agent-deepdive/) · [`agent-team/`](./lumii-cli/agent-team/) | Agent 整理 / 体验深挖 / 团队 |
+| [`prompt-style/`](./lumii-cli/prompt-style/) · [`channel-routing/`](./lumii-cli/channel-routing/) | 提示词风格实验 / 渠道路由 |
 
-| 文件 | 说明 |
-|---|---|
-| [2026-08-27-Agent能力测试用例.md](./2026-08-27-Agent能力测试用例.md) | 全面测试用例（A–H 套件） |
-| [2026-08-27-Agent能力测试报告.md](./2026-08-27-Agent能力测试报告.md) | 本轮执行报告与结论 |
-| [2026-08-27-agent-capability-evidence.jsonl](./2026-08-27-agent-capability-evidence.jsonl) | 逐条 PASS/FAIL 证据 |
-| [run-agent-capability-suite.mjs](./run-agent-capability-suite.mjs) | E2E 执行器（主套件） |
-| [run-agent-capability-suite-continue.mjs](./run-agent-capability-suite-continue.mjs) | 中断后续跑 |
-| [run-agent-capability-skipped.mjs](./run-agent-capability-skipped.mjs) | SKIP 项 + abort CLI 补跑 |
+> ⚠️ `CLI-TEST-SPEC.md` §5 规定子目录深度固定为 `docs/test/lumii-cli/<域>`——执行器内的 `ROOT` 按 4 层计算，**不要在这个层级再加子目录**，移动套件后必须同步 `ROOT` 相对层级。
 
-## 上下文压缩（既有）
+## 历史归档
 
-| 文件 | 说明 |
-|---|---|
-| `2026-08-21-context-compression-test-cases.md` | 压缩引擎用例 |
-| `2026-08-24-context-compression-*.md` | 压缩验证/边界/报告 |
-| `2026-08-24-real-user-scenario-validation.md` | 真实用户场景 |
+[`历史归档/`](./历史归档/) 存放已被取代的一次性测试文档（Phase 1/2/3 时代的上下文压缩测试等），只作追溯用。

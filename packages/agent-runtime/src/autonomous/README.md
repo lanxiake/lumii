@@ -268,11 +268,11 @@ pnpm test autonomous/__tests__/integration/
 
 完整设计参考：
 
-- `docs/design/自主进化Agent/1-顶层设计.md`
+- `docs/design/自主进化Agent/1-核心设计理念.md`
 - `docs/design/自主进化Agent/2-元认知引擎算法.md`
-- `docs/design/自主进化Agent/3-内在目标生成器.md`
-- `docs/design/自主进化Agent/4-Prompt进化引擎.md`
-- `docs/design/自主进化Agent/5-人格追踪系统.md`
+- `docs/design/自主进化Agent/3-内在目标生成算法.md`
+- `docs/design/自主进化Agent/4-人格进化算法.md`
+- `docs/design/自主进化Agent/5-多层进化协同.md`
 - `docs/design/自主进化Agent/6-实施计划.md`
 
 ## 故障降级

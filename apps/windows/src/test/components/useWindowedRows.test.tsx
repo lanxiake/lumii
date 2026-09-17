@@ -7,7 +7,7 @@
  * - useWindowedRows 接线（用假 IntersectionObserver/ResizeObserver 驱动）：测高 → 报告
  *   离屏 → 行折叠为等高占位；无观察器时退化为全量渲染
  *
- * 背景见 docs/plans/客户端优化/06-消息列表虚拟化.md。
+ * 背景见 docs/plans/代码重构/客户端切片/06-消息列表虚拟化.md。
  */
 import { describe, it, expect, afterEach, vi } from 'vitest'
 import { useState } from 'react'

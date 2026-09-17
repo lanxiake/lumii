@@ -5,7 +5,7 @@
  * （wiki_page_embeddings 表已在 V27 DROP）。本文件只保留资料层
  * wiki-source-vector.ts 复用的通用工具函数。
  *
- * 设计：`docs/plans/记忆与Wiki/2026-08-26-Wiki知识库P2实施计划.md` §9.1
+ * 设计：`docs/plans/Wiki知识库/基础与设置/2026-08-26-Wiki知识库P2实施计划.md` §9.1
  */
 
 import { tokenizeBigram } from "../memory/segmentation.js";

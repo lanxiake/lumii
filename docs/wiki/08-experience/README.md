@@ -17,11 +17,11 @@
 
 ## 现有源文档交叉引用
 
-- 多设备同步策略反思：[`../../analysis/2026-09-07-同步策略反思.md`](../../analysis/2026-09-07-同步策略反思.md)
+- 多设备同步策略反思：[`../../analysis/2026-09-07-同步策略反思.md`](../../design/数据同步功能/2026-09-07-同步策略反思.md)
 - 标准改进总结：[`../standards/improvements-summary.md`](../../standards/improvements-summary.md)
-- 自主进化 P1 实施总结：[`../plans/AGENT自我进化/P1-实施总结.md`](../../design/自主进化Agent/2026-09-04-P1实施总结.md)
+- 自主进化 P1 实施总结：[`../plans/AGENT自我进化/P1-实施总结.md`](../../design/自主进化Agent/P1实施档案/2026-09-04-P1实施总结.md)
 - 自主进化 P1 交付总结：[`../plans/AGENT自我进化/交付总结.md`](../../plans/自主进化Agent/2026-09-04-自主进化Agent交付总结.md)
-- 自主进化前端实施总结：[`../自主进化前端实施总结.md`](../../design/自主进化Agent/2026-09-04-前端可视化实施记录.md)
-- 上下文压缩报告：[`../test/2026-08-24-context-compression-report.md`](../../test/2026-08-24-上下文压缩测试报告.md)
-- 真实用户场景验证：[`../test/2026-08-24-real-user-scenario-validation.md`](../../test/2026-08-24-真实用户场景验证报告.md)
-- 云同步实施总结：[`../../implementation/2026-09-07-云同步完整实施总结.md`](../../implementation/2026-09-07-云同步完整实施总结.md)
+- 自主进化前端实施总结：[`../自主进化前端实施总结.md`](../../design/自主进化Agent/P1实施档案/前端可视化/2026-09-04-前端可视化实施记录.md)
+- 上下文压缩报告：[`../test/2026-08-24-context-compression-report.md`](../../test/历史归档/上下文压缩/2026-08-24-上下文压缩测试报告.md)
+- 真实用户场景验证：[`../test/2026-08-24-real-user-scenario-validation.md`](../../test/历史归档/上下文压缩/2026-08-24-真实用户场景验证报告.md)
+- 云同步实施总结：[`../../implementation/2026-09-07-云同步完整实施总结.md`](../../plans/数据同步功能/2026-09-07-云同步完整实施总结.md)

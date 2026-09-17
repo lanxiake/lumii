@@ -481,7 +481,7 @@ export function CloudSyncSection() {
 
 | IPC | 说明 | 参考 |
 |-----|------|------|
-| `channel:list` | 列所有 ChannelPeer，可选只列 active | `docs/design/渠道与在场/2026-08-14-渠道出站Hub设计.md` §8.4 IPC + §7.4 工具契约 |
+| `channel:list` | 列所有 ChannelPeer，可选只列 active | `docs/design/渠道与CLI/2026-08-14-渠道出站Hub设计.md` §8.4 IPC + §7.4 工具契约 |
 | `channel:send` | 发送，需权限确认（非 self:// 弹确认） | 同上 |
 | `channelService.*` | renderer 侧分组命名（不是 channel:*） | 同上 |
 

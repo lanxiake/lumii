@@ -1,6 +1,6 @@
 /**
  * LibraryInventory 全局盘点：排除规则、叶子占用、聚簇、scope 过滤
- * 计划：docs/plans/记忆与Wiki/2026-08-31-Wiki智能资料库P5全库编目.md Task 1
+ * 计划：docs/plans/Wiki知识库/资料库/2026-08-31-Wiki智能资料库P5全库编目.md Task 1
  */
 
 import { describe, expect, it } from "vitest";

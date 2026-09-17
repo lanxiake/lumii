@@ -1,8 +1,8 @@
 # Wiki 知识图谱三期 CLI 测试用例
 
 - 日期：2026-08-28
-- 设计：`docs/design/记忆与Wiki/2026-08-27-Wiki用途目录重设计.md` §13
-- 计划：`docs/plans/记忆与Wiki/2026-08-28-Wiki知识图谱三期实施计划.md`
+- 设计：`docs/design/Wiki知识库/2026-08-27-Wiki用途目录重设计.md` §13
+- 计划：`docs/plans/Wiki知识库/导航与图谱/2026-08-28-Wiki知识图谱三期实施计划.md`
 - CLI：`node apps/windows/resources/app-ui-cli/lumii-ui.mjs`
 - 探针前缀：`wiki-cli-p3-*`
 

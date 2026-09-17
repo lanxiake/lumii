@@ -1,7 +1,7 @@
 /**
  * Wiki ERO 最小模型：实体 / 观察 / 关系
  *
- * 设计：`docs/design/记忆与Wiki/2026-08-25-Wiki知识库设计P0P1P2.md` §5.3
+ * 设计：`docs/design/Wiki知识库/2026-08-25-Wiki知识库设计P0P1P2.md` §5.3
  * 关系重复以概率并集强化 strength：1-(1-a)(1-b)；观察退役用 retired_at，不物理删。
  */
 

@@ -1,7 +1,7 @@
 /**
  * Wiki 主题树 mutation — 纯函数：校验规则 + 文件级联计划
  *
- * 设计：docs/design/记忆与Wiki/2026-08-27-Wiki用途目录重设计.md §8.1 / §8.2
+ * 设计：docs/design/Wiki知识库/2026-08-27-Wiki用途目录重设计.md §8.1 / §8.2
  * 只由用户 UI 触发（AI 永不改主题树）。删除带文件的节点必须给去向 disposition。
  * 主题一律两列，key 用 topicCountKey（JSON.stringify），禁止 `大类/小类` 拼接串。
  */

@@ -1,7 +1,7 @@
 # 提示词风格实验（PS）CLI 场景化验收用例
 
 > 所属：提示词风格实验 P1-T5 场景化验收
-> 设计依据：`docs/design/AGENT优化/2026-09-13-提示词风格实验设计.md` §6.2（评审已确认的用户旅程）
+> 设计依据：`docs/design/Agent协作与提示词/2026-09-13-提示词风格实验设计.md` §6.2（评审已确认的用户旅程）
 > 执行器：[run-prompt-style-e2e.mjs](./run-prompt-style-e2e.mjs)；产物：`prompt-style-suite-evidence.jsonl` + `prompt-style-suite-report.md`
 > 规范：CLI-TEST-SPEC.md（L3 真实聊天模拟；软/硬断言；探针命名空间）
 

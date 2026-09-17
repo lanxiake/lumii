@@ -13,12 +13,14 @@ docs/test/lumii-cli/
 ├── general/               # 通用 CLI：help/UI/错误处理
 ├── chat/                  # 真实聊天模拟（L3）：核心对话/记忆/压缩/Wiki 摄入
 ├── wiki/                  # Wiki 知识库专项
-├── autonomous/            # 自主进化专项
+├── autonomous/            # 自主进化专项（含原「自主进化Agent」套件，2026-09-17 合并）
+├── agent-capability/      # Agent 能力全面测试（A–H 套件）
 ├── agent-team/            # 一等公民 Agent 团队：场景化旅程（成员会话/日报送达/开发模式续接）
 ├── channel-routing/       # 渠道会话路由（CR）：手工用例——跨渠道接续/路由/项目跟随/转交回流
 ├── agent-curation/        # 灵栖情报/维护专项（CK）：任务归属与职责能力
 ├── prompt-style/          # 提示词风格实验（PS）：两档转储形态 + 真实任务双档对照
-├── cloud-sync/            # 云同步专项
+├── agent-deepdive/        # 体验深挖 · 地基篇（G1-G4）真实使用旅程 E2E
+├── cloud-sync/            # 云同步专项（含 GitCode 真实同步用例）
 └── materials/             # 真实文档样本（docx/mp4/PDF，gitignore 不提交）
 ```
 
@@ -71,9 +73,11 @@ docs/test/lumii-cli/
 | 文件 | 说明 |
 |---|---|
 | [autonomous-test-cases.md](./autonomous/autonomous-test-cases.md) | 15 条 DB/算法用例（SQL 播种 + CLI 回读） |
+| [p1-test-cases.md](./autonomous/p1-test-cases.md) | P1 能力边界检测与自我反思（15 条）。**原在 `自主进化Agent/` 套件，2026-09-17 并入本目录** |
 | [autonomous-life-test-cases.md](./autonomous/autonomous-life-test-cases.md) | 心跳 tick/主动消息/Mood/牵挂/日记/token 预算 |
 | [autonomous-effectiveness-test-cases.md](./autonomous/autonomous-effectiveness-test-cases.md) | **有效性验证（EVO-A/B/C）**：变体淘汰学习 / 短板闭环 / 生命感——回答「是否真的有用、能否真的自主进化」 |
 | [run-autonomous-cli-suite.mjs](./autonomous/run-autonomous-cli-suite.mjs) | 数据链路执行器 |
+| [run-autonomous-p1-cli.mjs](./autonomous/run-autonomous-p1-cli.mjs) | P1 能力边界/反思执行器（原 `run-p1-cli-suite.mjs`，2026-09-17 随套件并入并改名） |
 | [run-autonomous-e2e.mjs](./autonomous/run-autonomous-e2e.mjs) | 真实对话触发回合结束管道（满意度/能力/进化反馈） |
 | [run-autonomous-full-e2e.mjs](./autonomous/run-autonomous-full-e2e.mjs) | 全链路：目标→执行→审批→反思 |
 | [run-autonomous-life-e2e.mjs](./autonomous/run-autonomous-life-e2e.mjs) | 生命化：心跳/主动消息/日记/预算 |
@@ -100,6 +104,14 @@ docs/test/lumii-cli/
 > 与 AT 套件的分工：AT 覆盖**团队协作旅程**（主助手接单、委托、转交）；CK 覆盖**这两个 Agent 自身**
 > 的归属与取数能力。AT-S9 只按预置 id 断言 news-pipeline，用户自建的资讯任务与手动抓取路径都不在其覆盖内。
 
+### 体验深挖 · 地基篇（agent-deepdive/）
+
+| 文件 | 说明 |
+|---|---|
+| [agent-deepdive-test-cases.md](./agent-deepdive/agent-deepdive-test-cases.md) | G1–G4 真实使用旅程 E2E 用例 |
+| [run-agent-deepdive-e2e.mjs](./agent-deepdive/run-agent-deepdive-e2e.mjs) | 执行器（父进程编排：并行 + UI 串行） |
+| [agent-deepdive-report.md](./agent-deepdive/agent-deepdive-report.md) | 最新报告 |
+
 ### 提示词风格实验（prompt-style/）— 两档对照
 
 | 文件 | 说明 |
@@ -112,7 +124,21 @@ docs/test/lumii-cli/
 | 文件 | 说明 |
 |---|---|
 | [run-cloud-sync-suite.mjs](./cloud-sync/run-cloud-sync-suite.mjs) | Schema/导出 JSONL/merge 规则/完整同步流程 |
+| [sync-e2e-test-cases.md](./cloud-sync/sync-e2e-test-cases.md) | 端到端同步用例（本地 smart-HTTP git 远程，A–E 组） |
+| [gitcode-sync-test-cases.md](./cloud-sync/gitcode-sync-test-cases.md) | GitCode 真实远程同步用例（Track A/B，需真实私有仓库与令牌）。**原在 `test/` 根，2026-09-17 归入本套件** |
 | [cloud-sync-cli-test-report.md](./cloud-sync/cloud-sync-cli-test-report.md) | 最新报告 |
+
+### Agent 能力全面测试（agent-capability/）
+
+| 文件 | 说明 |
+|---|---|
+| [agent-capability-test-cases.md](./agent-capability/agent-capability-test-cases.md) | 全面测试用例（A–H 套件） |
+| [agent-capability-report.md](./agent-capability/agent-capability-report.md) | 执行报告与结论 |
+| [run-agent-capability-suite.mjs](./agent-capability/run-agent-capability-suite.mjs) | E2E 执行器（主套件） |
+| [run-agent-capability-suite-continue.mjs](./agent-capability/run-agent-capability-suite-continue.mjs) | 中断后续跑 |
+| [run-agent-capability-skipped.mjs](./agent-capability/run-agent-capability-skipped.mjs) | SKIP 项 + abort CLI 补跑 |
+
+> 本套件 2026-09-17 从 `test/` 根迁入，执行器内的 `ROOT` 已同步改为 4 层（`'../../../..'`）——迁移脚本目录后必须核对这一处，否则全部用例 exit 3。
 
 ### 测试素材（materials/，不提交 Git）
 
@@ -174,5 +200,5 @@ node docs/test/lumii-cli/cloud-sync/run-cloud-sync-suite.mjs
 
 - [CLI-TEST-SPEC.md](./CLI-TEST-SPEC.md) — 测试规范（分层/方法/格式/安全）
 - [autonomous/autonomous-effectiveness-report.md](./autonomous/autonomous-effectiveness-report.md) — 自主进化有效性验证报告（三问结论 / 缺陷清单 / 条件清单）
-- `docs/design/记忆与Wiki/2026-09-12-场景记忆设计.md` — 场景记忆设计（chat 记忆套件的验证对象）
+- `docs/design/记忆系统/2026-09-12-场景记忆设计.md` — 场景记忆设计（chat 记忆套件的验证对象）
 - `docs/design/数据同步功能/2026-09-09-轻量云同步设计.md` — 云同步设计

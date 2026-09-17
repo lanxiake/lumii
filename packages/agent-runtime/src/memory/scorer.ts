@@ -2,7 +2,7 @@
  * scoreMemory — 记忆打分纯函数（从 memory-repo.ts:loadTopMemories 抽取）
  *
  * `now` 显式传入，不依赖 Date.now()，便于固定时间戳单测。
- * 设计：`docs/design/记忆与Wiki/2026-08-24-记忆系统设计.md` §3.3
+ * 设计：`docs/design/记忆系统/2026-08-24-记忆系统设计.md` §3.3
  */
 
 import type { MemoryCategory, HotMemoryConfig } from "./types.js";
