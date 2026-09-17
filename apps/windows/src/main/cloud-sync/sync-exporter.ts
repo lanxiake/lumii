@@ -471,12 +471,20 @@ export class SyncExporter {
     const srcFiles = path.join(this.options.workspaceDir, 'files')
     const dstFiles = path.join(this.options.syncDir, 'workspace/files')
     if (fs.existsSync(srcFiles)) {
+      const rules = this.options.scopeRules
       const r = copySyncDirectory(srcFiles, dstFiles, {
         mirror: true,
         skipUnchanged: true,
         ...copyOpts,
+        // 排除规则在 files/ 同样生效（设计 §4.5：排除者「永不参与同步」，未限定目录）。
+        // files/ 没有阈值，故不传 shouldForceInclude —— 强制包含的语义是「无视阈值」，
+        // 在没有阈值的地方无意义。被排除的项不复制、也不计入镜像待删集合。
+        ...(rules ? { shouldSkipFile: (rel: string) => isExcluded(rel, rules) } : {}),
       })
       errors.push(...r.errors)
+      if (r.skippedExcluded > 0) {
+        logger.info(`[exportUserFiles] files 因范围规则跳过 ${r.skippedExcluded} 个`)
+      }
       this.logMirrorResult('workspace/files', r)
     }
 
