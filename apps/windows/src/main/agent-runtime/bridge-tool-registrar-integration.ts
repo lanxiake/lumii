@@ -159,9 +159,30 @@ export function registerIntegrationTools(deps: BridgeToolRegistrarDeps): void {
   }
   deps.toolRegistry.register(createMtBotTool(messageTool, ctx))
 
+  /**
+   * 记忆检索结果的一条命中。`provider` 标出来源通道——三条通道的分数量纲不可比
+   * （BM25 负分、余弦相似度、文件行匹配硬编码分），故不跨通道比大小，只分段返回。
+   */
+  type MemorySearchHit = {
+    provider: 'work-memory' | 'mempalace' | 'profile' | 'scene'
+    content: string
+    score: number
+    /** 工作记忆条目的 id（可接 memory_manage 读取/修正） */
+    id?: string
+    drawer_id?: string
+    category?: string
+    source?: string
+    line?: number
+  }
+
+  const resolveToolInstanceId = (toolCallId: string): string | undefined =>
+    deps.toolCallInstanceMap.get(toolCallId) ?? deps.getCurrentToolExecutorInstanceId()
+
   const memorySearchTool: MtBotToolConfig = {
     ...memorySearchToolConfig,
-    execute: async (_id, rawParams) => {
+    description:
+      'Search your memory. Covers working memory (task/project facts recorded by you or other agents), the memory palace (archived conversation transcripts), and the user profile / scene memory files. Results carry a `provider` field telling you where each hit came from — weight them accordingly. To read a full archived transcript, take its `drawer_id` to `memory_read`.',
+    execute: async (toolCallId, rawParams) => {
       const p = rawParams as { query?: string; maxResults?: number; sessionKey?: string }
       const query = (p.query ?? '').trim()
       if (!query) {
@@ -169,6 +190,40 @@ export function registerIntegrationTools(deps: BridgeToolRegistrarDeps): void {
       }
       const limit = Math.max(1, Math.min(p.maxResults ?? 10, 50))
       const sessionKey = (p.sessionKey ?? '').trim()
+
+      const hits: MemorySearchHit[] = []
+      const counts = { workMemory: 0, palace: 0, profile: 0, scene: 0 }
+
+      // ── 通道 1：工作记忆（SQLite agent_memories，FTS5 + BM25，中文 bigram 分词）──
+      // 2026-09-17 接通：此前 memory_search 从不查这张表，导致 Agent 只能看见每轮注入的
+      // 6 条热记忆，其余 200+ 条毫无通道（评审 §2.4.1）。
+      const memoryManager = deps.getMemoryManager()
+      if (memoryManager) {
+        try {
+          const instanceId = resolveToolInstanceId(toolCallId)
+          const agentId = (instanceId && deps.getDefinitionIdByInstanceId(instanceId)) ?? 'default'
+          const readScope = instanceId ? deps.getMemoryReadScopeByInstanceId(instanceId) : 'agent'
+          const entries = memoryManager.searchMemories(
+            agentId,
+            'local-user',
+            query,
+            limit,
+            readScope,
+          )
+          for (const e of entries) {
+            hits.push({
+              provider: 'work-memory',
+              id: e.id,
+              content: e.content,
+              category: e.category,
+              score: 1,
+            })
+          }
+          counts.workMemory = entries.length
+        } catch (err) {
+          log.warn('[memory_search] 工作记忆通道失败:', err)
+        }
+      }
 
       /**
        * 取某会话已归档段的 palace drawer_id 集合，用于 memory_search 会话级过滤。
@@ -183,10 +238,10 @@ export function registerIntegrationTools(deps: BridgeToolRegistrarDeps): void {
         return new Set(rows.map((r) => r.palace_drawer_id).filter(Boolean))
       }
 
-      // 优先使用 MemPalace 语义搜索
-      if (deps.config.searchMempalace) {
+      // ── 通道 2：记忆宫殿（MemPalace；未安装/失败则跳过，不影响通道 1）──
+      if (deps.config.searchMempalace && hits.length < limit) {
         try {
-          let items = await deps.config.searchMempalace(query, limit)
+          let items = await deps.config.searchMempalace(query, limit - hits.length)
           if (items !== null) {
             if (sessionKey) {
               const allowed = drawerIdsForSession(sessionKey)
@@ -194,67 +249,91 @@ export function registerIntegrationTools(deps: BridgeToolRegistrarDeps): void {
                 items = items.filter((item) => allowed.has(item.drawer_id))
               }
             }
-            const results = items.map((item) => ({
-              content: item.text,
-              score: item.similarity,
-              source: `${item.wing}/${item.room}`,
-              drawer_id: item.drawer_id,
-            }))
-            return jsonToolResult({
-              results,
-              provider: 'mempalace',
-              query,
-              ...(sessionKey ? { sessionKey, sessionScoped: true } : {}),
-            })
+            for (const item of items) {
+              hits.push({
+                provider: 'mempalace',
+                drawer_id: item.drawer_id,
+                content: item.text,
+                score: item.similarity,
+                source: `${item.wing}/${item.room}`,
+              })
+            }
+            counts.palace = items.length
           }
-        } catch {
-          // MemPalace 不可用，降级到 user_memory
+        } catch (err) {
+          log.warn('[memory_search] 宫殿通道失败，跳过:', err)
         }
       }
 
-      // 降级：从 user_memory 文本文档 + 场景记忆文件（项目/渠道）做关键词搜索
-      const q = query.toLowerCase()
-      const matched: Array<{ content: string; line?: number; score: number; source: string }> = []
+      // ── 通道 3：个人记忆 + 场景记忆文件（行级关键词匹配）──
+      if (hits.length < limit) {
+        const q = query.toLowerCase()
+        const matched: MemorySearchHit[] = []
 
-      const memory = await deps.config.getUserMemory?.()
-      const content = memory?.content ?? ''
-      if (content.trim()) {
-        content.split(/\r?\n/).forEach((line, idx) => {
-          if (line.toLowerCase().includes(q)) {
-            matched.push({ content: line.trim(), line: idx + 1, score: 0.8, source: 'user_memory' })
-          }
-        })
-      }
-
-      // 场景记忆：来源标注适用范围，方便 agent 判断该规则是否适用于当前任务
-      try {
-        const baseDir = resolveWindowsClientDataRoot()
-        const scenes = await listScenes(baseDir)
-        for (const scene of scenes) {
-          if (!scene.hasMemory) continue
-          const file = await readSceneMemory(
-            resolveSceneFilePath(baseDir, scene.scene, scene.key, scene.path),
-          )
-          if (!file?.content) continue
-          const sourceLabel =
-            scene.scene === 'project' ? `项目记忆:${scene.name}` : `渠道记忆:${scene.name}`
-          file.content.split(/\r?\n/).forEach((line, idx) => {
+        const memory = await deps.config.getUserMemory?.()
+        const content = memory?.content ?? ''
+        if (content.trim()) {
+          content.split(/\r?\n/).forEach((line, idx) => {
             if (line.toLowerCase().includes(q)) {
-              matched.push({ content: line.trim(), line: idx + 1, score: 0.75, source: sourceLabel })
+              matched.push({
+                provider: 'profile',
+                content: line.trim(),
+                line: idx + 1,
+                score: 0.8,
+                source: 'user_memory',
+              })
             }
           })
         }
-      } catch {
-        // 场景记忆读取失败不影响全局记忆搜索
+
+        // 场景记忆：来源标注适用范围，方便 agent 判断该规则是否适用于当前任务
+        try {
+          const baseDir = resolveWindowsClientDataRoot()
+          const scenes = await listScenes(baseDir)
+          for (const scene of scenes) {
+            if (!scene.hasMemory) continue
+            const file = await readSceneMemory(
+              resolveSceneFilePath(baseDir, scene.scene, scene.key, scene.path),
+            )
+            if (!file?.content) continue
+            const sourceLabel =
+              scene.scene === 'project' ? `项目记忆:${scene.name}` : `渠道记忆:${scene.name}`
+            file.content.split(/\r?\n/).forEach((line, idx) => {
+              if (line.toLowerCase().includes(q)) {
+                matched.push({
+                  provider: 'scene',
+                  content: line.trim(),
+                  line: idx + 1,
+                  score: 0.75,
+                  source: sourceLabel,
+                })
+              }
+            })
+          }
+        } catch {
+          // 场景记忆读取失败不影响全局记忆搜索
+        }
+
+        const room = limit - hits.length
+        const taken = matched.slice(0, room)
+        hits.push(...taken)
+        counts.profile = taken.filter((h) => h.provider === 'profile').length
+        counts.scene = taken.filter((h) => h.provider === 'scene').length
       }
 
-      if (matched.length === 0) {
-        return jsonToolResult({ results: [], provider: 'user-memory', note: 'no match' })
+      if (hits.length === 0) {
+        return jsonToolResult({
+          results: [],
+          provider: 'none',
+          query,
+          note: 'no match in work-memory / palace / profile / scene',
+        })
       }
       return jsonToolResult({
-        results: matched.slice(0, limit),
-        provider: 'user-memory',
-        updatedAt: memory?.updatedAt,
+        results: hits,
+        providers: counts,
+        query,
+        ...(sessionKey ? { sessionKey, sessionScoped: true } : {}),
       })
     },
   }

@@ -565,12 +565,24 @@ export class AgentMemoryRepo {
    * 避免用户输入的原始文本被解释为 FTS5 查询语法（AND / OR / 前缀通配 / NEAR 等）。
    * 注意：bm25() 必须引用虚表真实名，不能对 agent_memories_fts 取别名（SQLite 限制）。
    * 分词结果为空（如纯符号/emoji）或 FTS 表缺失（迁移未跑、手动 DROP）时回落 LIKE。
+   *
+   * @param scope `"agent"`（默认）只搜本 Agent；`"user"` 跨 Agent 搜该用户全部工作记忆
+   *   （对应 `AgentDefinition.memory.readView === "user"` 的汇总型 Agent，如 chronicler）。
+   *   scope 与注入/列表口径一致，避免同一 Agent 在注入里看得到、在检索里搜不到。
    */
-  search(agentId: string, userId: string, keyword: string, limit = 10): readonly MemoryEntry[] {
+  search(
+    agentId: string,
+    userId: string,
+    keyword: string,
+    limit = 10,
+    scope: MemoryReadScope = "agent",
+  ): readonly MemoryEntry[] {
     const tokens = [...tokenizeBigram(keyword)];
     if (tokens.length === 0) {
-      return this.searchByLike(agentId, userId, keyword, limit);
+      return this.searchByLike(agentId, userId, keyword, limit, scope);
     }
+    const scopeWhere = scope === "user" ? "" : "m.agent_id = ? AND ";
+    const scopeArgs: readonly string[] = scope === "user" ? [] : [agentId];
     const query = tokens.map((t) => `"${t.replace(/"/g, '""')}"`).join(" OR ");
     try {
       const rows = this.db
@@ -578,15 +590,15 @@ export class AgentMemoryRepo {
           `SELECT m.*
          FROM agent_memories_fts
          JOIN agent_memories m ON m.rowid = agent_memories_fts.rowid
-         WHERE agent_memories_fts MATCH ? AND m.agent_id = ? AND m.user_id = ? AND m.is_archived = 0
+         WHERE agent_memories_fts MATCH ? AND ${scopeWhere}m.user_id = ? AND m.is_archived = 0
          ORDER BY bm25(agent_memories_fts)
          LIMIT ?`,
         )
-        .all(query, agentId, userId, limit);
+        .all(query, ...scopeArgs, userId, limit);
       return rows.map(rowToEntry);
     } catch (err) {
       console.warn("[AgentMemoryRepo.search] FTS5 查询失败，回落 LIKE:", err);
-      return this.searchByLike(agentId, userId, keyword, limit);
+      return this.searchByLike(agentId, userId, keyword, limit, scope);
     }
   }
 
@@ -595,15 +607,18 @@ export class AgentMemoryRepo {
     userId: string,
     keyword: string,
     limit: number,
+    scope: MemoryReadScope = "agent",
   ): readonly MemoryEntry[] {
+    const scopeWhere = scope === "user" ? "" : "agent_id = ? AND ";
+    const scopeArgs: readonly string[] = scope === "user" ? [] : [agentId];
     const rows = this.db
       .prepare<MemoryRow>(
         `SELECT * FROM agent_memories
-       WHERE agent_id = ? AND user_id = ? AND is_archived = 0 AND content LIKE ?
+       WHERE ${scopeWhere}user_id = ? AND is_archived = 0 AND content LIKE ?
        ORDER BY importance DESC
        LIMIT ?`,
       )
-      .all(agentId, userId, `%${keyword}%`, limit);
+      .all(...scopeArgs, userId, `%${keyword}%`, limit);
     return rows.map(rowToEntry);
   }
 

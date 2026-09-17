@@ -31,9 +31,14 @@ interface RulePattern {
  */
 const RULE_PATTERNS: readonly RulePattern[] = [
   // ① 显式记忆指令：用户明确要求存一条记忆（最高优先）
+  //
+  // 捕获段按**句读边界**截断（`[^。！？!?\n]`），不再用 `.` 贪婪吃满 200 字符。
+  // 历史缺陷（2026-09-17 定位）：`.` 会把用户消息里的后续内容一并吞入——实测库中
+  // 5 条含 JSON 残片的记忆（半句话 + 悬空 `"}]`）全部来自本模式，且因 importance 0.95
+  // 拿到最高优先级。原输入形如「记住：X。只回复"Y"」+ 粘贴的 JSON 模板。
   {
     regex:
-      /(?:请?记住|请?帮我记住?|请?记下|存一下(?:这个|这条)?|保存(?:到|为)?记忆|remember\s+this|save\s+to\s+memory)\s*[:：]?\s*(.{2,200})/i,
+      /(?:请?记住|请?帮我记住?|请?记下|存一下(?:这个|这条)?|保存(?:到|为)?记忆|remember\s+this|save\s+to\s+memory)\s*[:：]?\s*([^。！？!?\n]{2,200})/i,
     category: "general",
     importance: 0.95,
     tags: ["explicit"],
@@ -118,6 +123,89 @@ export function extractByRules(userMessages: readonly string[]): readonly Extrac
   }
 
   return candidates;
+}
+
+// ─── 写入侧 schema 门 ───
+
+/** 候选被拒的原因（供日志与「写入拒绝率」统计） */
+export type CandidateRejectionReason = "json_fragment" | "too_short" | "too_long";
+
+export interface CandidateRejection {
+  readonly candidate: ExtractedCandidate;
+  readonly reason: CandidateRejectionReason;
+}
+
+export interface CandidateValidationResult {
+  readonly accepted: readonly ExtractedCandidate[];
+  readonly rejected: readonly CandidateRejection[];
+}
+
+/**
+ * 内容长度门槛。
+ *
+ * 下限取 5 而非更高：真实规则产出可能是短事实（「用户叫李明」6 字、「用户是素食者」6 字），
+ * 误拒一条好记忆的代价高于放行一条短记忆。真正的碎片（「好的」「收到」）都在 4 字以内。
+ *
+ * 上限 600：超过这个长度基本是整段总结，该走段落管线而非落成记忆条目。
+ */
+export const MIN_MEMORY_CHARS = 5;
+export const MAX_MEMORY_CHARS = 600;
+
+/**
+ * JSON 残片特征。三类的共同点是**高精度**——正常中文记忆里几乎不会出现
+ * 引号紧邻 `]`/`}`、或 `{`/`[` 紧邻引号、或引号包着的 key 后跟冒号。
+ */
+const JSON_FRAGMENT_PATTERNS: readonly RegExp[] = [
+  /["'`]\s*[\]}]/, // "}] / "} / "]
+  /[[{]\s*["'`]/, // [" / {"
+  /["'`]\s*:\s*["'`[{]/, // "key": " / "key": [
+];
+
+/**
+ * 写入侧 schema 门：把解释工作放在写路径，读路径就不必替垃圾买单。
+ *
+ * 设计依据：`docs/design/记忆系统/2026-09-17-记忆系统评审.md` §4.2。
+ * 实测库中 5 条含 JSON 残片的记忆全部由规则提取的贪婪正则带入（见 RULE_PATTERNS[0] 注释），
+ * 故本门是那条正则之外的第二道防线——正则只挡住已知句式，这里挡住形态。
+ *
+ * **本门不做去重**：重复候选的合并（tags 并集、importance 取高、来源补填）由
+ * `mergeCandidates` 负责，且它的归一化键（去标点/空白/小写）比精确比对更宽。
+ * 若在此拦掉重复项，会连带丢掉 tags 并集与 `source_segment_id` 回填（溯源链路）。
+ *
+ * **`importance` 不在此校验**：字段缺失时按类别给保守默认值，丢一条好记忆的代价
+ * 高于存一条默认重要度的记忆。提高区分度靠提取提示词里的分档锚点。
+ */
+export function validateCandidates(candidates: readonly ExtractedCandidate[]): CandidateValidationResult {
+  const accepted: ExtractedCandidate[] = [];
+  const rejected: CandidateRejection[] = [];
+
+  for (const candidate of candidates) {
+    const content = candidate.content.trim();
+    const reason = rejectReason(content);
+    if (reason) {
+      rejected.push({ candidate, reason });
+      continue;
+    }
+    accepted.push(content === candidate.content ? candidate : { ...candidate, content });
+  }
+
+  return { accepted, rejected };
+}
+
+function rejectReason(content: string): CandidateRejectionReason | null {
+  if (JSON_FRAGMENT_PATTERNS.some((re) => re.test(content))) return "json_fragment";
+  if (content.length < MIN_MEMORY_CHARS) return "too_short";
+  if (content.length > MAX_MEMORY_CHARS) return "too_long";
+  return null;
+}
+
+/** 把拒绝记录成可统计的日志（不落库、不影响主流程） */
+export function logRejections(rejected: readonly CandidateRejection[], scope: string): void {
+  if (rejected.length === 0) return;
+  const detail = rejected
+    .map((r) => `${r.reason}:"${r.candidate.content.slice(0, 40)}"`)
+    .join(" | ");
+  console.warn(`[MemoryExtractor] ${scope} 拒绝 ${rejected.length} 条候选: ${detail}`);
 }
 
 // ─── 关键词触发 ───
@@ -263,6 +351,19 @@ export function buildExtractionPrompt(
     "- 已有记忆的去重、合并、冲突消解由**独立的整理流程**处理，不要在本任务输出整理后的 Markdown",
     "- 闲聊/寒暄（如「你好」「在吗」）若无新的跨会话信息，**必须返回 []**",
     "- 不要因为已有记忆重复或冲突，就尝试输出「整理建议」或非 JSON 内容",
+    "",
+    "## importance 打分锚点（0-1，必填且要有区分度）",
+    "",
+    "importance 决定这条记忆未来被注入的优先级，**不要给所有条目同一个值**。对照下表打：",
+    "",
+    "| 分值 | 什么内容 | 例子 |",
+    "|------|----------|------|",
+    "| 0.9-1.0 | 用户明确要求记住的事实/规则；被反复纠正过的做法 | 「生图必须调用 image_generate」 |",
+    "| 0.7-0.8 | 有明确适用范围的项目约束、工具/方法选型决策 | 「本仓库用 pnpm」 |",
+    "| 0.5-0.6 | 一般背景信息、资源位置、联系人 | 「K8s 系列文章放在 outputs/ 下」 |",
+    "| 0.3-0.4 | 时效性强的进展快照，很快会被新状态取代 | 「某任务今天推进到第 3 步」 |",
+    "",
+    "拿不准时给 0.6；**不要默认给 0.7**。",
     "",
     "## 输出格式",
     "返回 JSON 数组，每条记忆包含 content, category, importance (0-1), tags (字符串数组)。",

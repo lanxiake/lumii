@@ -10,6 +10,8 @@ import type { ConversationRepo } from "../storage/conversation-repo.js";
 import {
   extractByRules,
   extractByLLM,
+  logRejections,
+  validateCandidates,
   type ExistingMemoryContext,
 } from "./memory-extractor.js";
 import {
@@ -180,13 +182,20 @@ export class MemoryManager {
     userId: string,
     source?: SummarizedSource,
   ): number {
+    const existing = this.repo.listActive(agentId, userId);
+
+    // 写入侧 schema 门：三道写路径（规则提取 / LLM 提取 / 段落总结）都汇到这里，
+    // 故门设在这一层，垃圾不进库，读路径就不必替它买单（评审 §4.2）。
+    // 只做形态校验，不做去重——重复项的合并与来源补填交给下面的 mergeCandidates。
+    const { accepted, rejected } = validateCandidates(candidates);
+    logRejections(rejected, `writeCandidatesMerged(agent=${agentId})`);
+    if (accepted.length === 0) return 0;
+
     const personal: ExtractedCandidate[] = [];
     const ai: ExtractedCandidate[] = [];
-    for (const c of candidates) {
+    for (const c of accepted) {
       (isPersonalCategory(c.category) ? personal : ai).push(c);
     }
-
-    const existing = this.repo.listActive(agentId, userId);
 
     // project 快照压缩：归档旧的同主题快照
     const projectCandidates = ai.filter((c) => c.category === "project");
@@ -298,14 +307,20 @@ export class MemoryManager {
     return this.repo.archiveCold(agentId, userId, Date.now());
   }
 
-  /** 按关键词搜索记忆（FTS5 + BM25） */
+  /**
+   * 按关键词搜索记忆（FTS5 + BM25）
+   *
+   * @param scope `"user"` 跨 Agent 读该用户全部工作记忆，与 `injectIntoSystemPrompt`
+   *   的 scope 口径一致（汇总型 Agent 必须用后者，否则检索里搜不到注入里看得到的东西）。
+   */
   searchMemories(
     agentId: string,
     userId: string,
     keyword: string,
     limit?: number,
+    scope: MemoryReadScope = "agent",
   ): readonly MemoryEntry[] {
-    return this.repo.search(agentId, userId, keyword, limit);
+    return this.repo.search(agentId, userId, keyword, limit, scope);
   }
 
   /** 重建 FTS5 派生索引，返回重建后的行数 */
