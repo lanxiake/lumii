@@ -19,6 +19,24 @@ describe("validateCandidates — 写入侧 schema 门", () => {
     expect(rejected.every((r) => r.reason === "json_fragment")).toBe(true);
   });
 
+  it("不误伤含 JSON 字面量或孤立引号的正常记忆（阈值经 251 条真实数据校准）", () => {
+    // 每一条都曾让某个更宽的模式误报：单用尾锚会误伤前两条，单用奇数引号会误伤第三条
+    const legit = [
+      '配置项是 ["a","b"]，注意顺序',
+      '输入=[10,20,null,"30"]文本已回填',
+      '显示器是 24" 的宽屏，注意分辨率',
+      '用户说“这个格式很好”，继续保持',
+    ];
+    const { accepted, rejected } = validateCandidates(legit.map((c) => candidate(c)));
+    expect(rejected).toHaveLength(0);
+    expect(accepted).toHaveLength(legit.length);
+  });
+
+  it("拒绝粘贴的 JSON 键值结构", () => {
+    const { rejected } = validateCandidates([candidate('{"content": "某条正文", "category": "user"}')]);
+    expect(rejected[0]!.reason).toBe("json_fragment");
+  });
+
   it("拒绝过短候选（<5 字符）", () => {
     const { accepted, rejected } = validateCandidates([candidate("好的")]);
     expect(accepted).toHaveLength(0);

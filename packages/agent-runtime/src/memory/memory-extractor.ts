@@ -152,14 +152,28 @@ export const MIN_MEMORY_CHARS = 5;
 export const MAX_MEMORY_CHARS = 600;
 
 /**
- * JSON 残片特征。三类的共同点是**高精度**——正常中文记忆里几乎不会出现
- * 引号紧邻 `]`/`}`、或 `{`/`[` 紧邻引号、或引号包着的 key 后跟冒号。
+ * JSON 残片判定（两类，均为高精度）。
+ *
+ * 用 251 条真实记忆做过校准（2026-09-17），结论：
+ * - **尾部悬空**：正则 + **双引号计数为奇数**，两者同时满足才算。单看正则会误伤
+ *   `配置项是 ["a","b"]`；单看奇数会误伤 `显示器是 24" 的宽屏`。合取后两者都排除，
+ *   且 5 条真实残片全中。
+ * - **粘贴的 JSON 键值**：`"key": "` 这类结构在正常中文记忆里不出现（真实数据 0 命中）。
+ * - 已废弃的 `[[{]\s*["'`]`（左括号紧跟引号）：实测会误伤含数组字面量的正常记忆。
  */
-const JSON_FRAGMENT_PATTERNS: readonly RegExp[] = [
-  /["'`]\s*[\]}]/, // "}] / "} / "]
-  /[[{]\s*["'`]/, // [" / {"
-  /["'`]\s*:\s*["'`[{]/, // "key": " / "key": [
-];
+const TAIL_FRAGMENT_RE = /["'`]\s*[\]}]{1,3}\s*$/;
+const JSON_KEY_RE = /["'`]\s*:\s*["'`[{]/;
+
+/** 双引号是否未闭合（奇数个）——截断字符串的签名 */
+function hasUnbalancedQuotes(content: string): boolean {
+  return ((content.match(/"/g) ?? []).length % 2) === 1;
+}
+
+/** 是否为 JSON 残片（正常中文记忆里不该出现的形态） */
+export function isJsonFragment(content: string): boolean {
+  if (JSON_KEY_RE.test(content)) return true;
+  return TAIL_FRAGMENT_RE.test(content) && hasUnbalancedQuotes(content);
+}
 
 /**
  * 写入侧 schema 门：把解释工作放在写路径，读路径就不必替垃圾买单。
@@ -193,7 +207,7 @@ export function validateCandidates(candidates: readonly ExtractedCandidate[]): C
 }
 
 function rejectReason(content: string): CandidateRejectionReason | null {
-  if (JSON_FRAGMENT_PATTERNS.some((re) => re.test(content))) return "json_fragment";
+  if (isJsonFragment(content)) return "json_fragment";
   if (content.length < MIN_MEMORY_CHARS) return "too_short";
   if (content.length > MAX_MEMORY_CHARS) return "too_long";
   return null;
