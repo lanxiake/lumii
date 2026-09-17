@@ -15,6 +15,14 @@ export type {
 
 export { contentAddressId, deterministicDrawerId, DRAWER_ID_HEX_LEN } from "./content-address.js";
 
+// 个人记忆条目化（P1-2）：结构字段（id / 创建日期）由 harness 独占，模型只改正文
+export {
+  parsePersonalMemory,
+  reconcilePersonalMemory,
+  stripPersonalMemoryMeta,
+} from "./personal-memory-entries.js";
+export type { PersonalMemoryEntry } from "./personal-memory-entries.js";
+
 export {
   extractByRules,
   extractByLLM,

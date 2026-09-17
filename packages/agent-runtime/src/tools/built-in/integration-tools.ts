@@ -126,7 +126,7 @@ export const profileMemoryToolConfig: MtBotToolConfig<typeof ProfileMemoryParams
   name: "profile_memory",
   label: "Profile Memory",
   description:
-    "Read/edit the user profile-memory document (stable identity & preferences). Prefer append (add one block) or remove_section (drop one '## ' section) over update_memory (full overwrite — risky, can wipe content). Do NOT save: one-off queries, weather/news, secrets (passwords, API keys), or already-recorded info.",
+    "Read/edit the user profile-memory document (stable identity & preferences). Prefer append (add one block) or remove_section (drop one '## ' section) over update_memory (full overwrite — risky, can wipe content). Each entry carries system-managed metadata (an id and creation date in a trailing HTML comment) — keep it intact when you copy a line, and never invent or edit it: the system restores the correct values on write. Do NOT save: one-off queries, weather/news, secrets (passwords, API keys), or already-recorded info.",
   parameters: ProfileMemoryParams,
   category: "memory",
   isReadOnly: false,

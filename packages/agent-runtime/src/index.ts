@@ -369,6 +369,9 @@ export {
   validateCandidates,
   MIN_MEMORY_CHARS,
   MAX_MEMORY_CHARS,
+  parsePersonalMemory,
+  reconcilePersonalMemory,
+  stripPersonalMemoryMeta,
 } from "./memory/index.js";
 export type {
   ExistingMemoryContext,
@@ -384,6 +387,7 @@ export type {
   CandidateRejection,
   CandidateRejectionReason,
   CandidateValidationResult,
+  PersonalMemoryEntry,
 } from "./memory/index.js";
 export { SegmentMemoryPipeline } from "./memory/segment-memory-pipeline.js";
 export type {

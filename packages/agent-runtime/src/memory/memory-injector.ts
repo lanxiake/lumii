@@ -11,6 +11,7 @@
 
 import type { MemoryEntry, MemoryCategory } from "./types.js";
 import { MEMORY_LAYER_RULES } from "./memory-architecture.js";
+import { stripPersonalMemoryMeta } from "./personal-memory-entries.js";
 
 /** 工作记忆注入占位符（Task 3 P0：取代 indexOf 字符串手术） */
 export const MEMORY_PLACEHOLDER = "{{LUMII_MEMORY_BLOCK}}";
@@ -39,7 +40,10 @@ const CATEGORY_ORDER: readonly MemoryCategory[] = [
  * 个人记忆层：跨会话稳定的用户画像与交互偏好。
  */
 export function formatUserMemoryForPrompt(userMemoryContent: string): string {
-  if (!userMemoryContent.trim()) return "";
+  // 注入前剥掉条目元数据注释（`<!--m:id date-->`）——那是 harness 的记账字段，
+  // 模型既不该看见也不需要看见，留着纯属浪费 token（P1-2 条目化）
+  const cleanContent = stripPersonalMemoryMeta(userMemoryContent);
+  if (!cleanContent.trim()) return "";
 
   return [
     "",
@@ -47,7 +51,7 @@ export function formatUserMemoryForPrompt(userMemoryContent: string): string {
     "",
     "以下为用户画像与交互偏好，全局适用。与工作记忆（当前任务）冲突时，任务级规则优先于全局偏好；与用户当前陈述冲突时，以当前陈述为准。",
     "",
-    userMemoryContent.trim(),
+    cleanContent.trim(),
     "",
     "**硬约束**：",
     "- 同一规则只执行最新版本，禁止同时遵循互相矛盾的旧规则",

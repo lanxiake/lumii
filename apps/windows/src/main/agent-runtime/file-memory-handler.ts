@@ -10,7 +10,7 @@
 import path from 'node:path'
 import fs from 'node:fs'
 import type { FileRepo } from '@mtbot/agent-runtime'
-import { consolidateUserMemory, resolveAgentFilePath } from '@mtbot/agent-runtime'
+import { consolidateUserMemory, reconcilePersonalMemory, resolveAgentFilePath } from '@mtbot/agent-runtime'
 import type { InstanceStateStore } from './bridge-instance-state'
 import type { AgentRuntimeEvent as IpcEvent } from '../../shared/agent-runtime-events'
 
@@ -342,7 +342,17 @@ export class FileMemoryHandler {
         return
       }
 
-      await this.deps.updateUserMemory(updated)
+      // 条目化对账（P1-2）：结构字段（id / 创建日期）由 harness 独占。
+      // 模型全量重写后，正文未变的条目沿用旧身份，新正文分配新身份——
+      // 这样模型既改不动结构字段，整理也不会把条目的来历抹掉。
+      const reconciled = reconcilePersonalMemory(updated, currentContent)
+      if (reconciled.removed > 0) {
+        log.info(
+          `[appendToUserMemory] 整理对账：新增 ${reconciled.added}、沿用 ${reconciled.kept}、删除 ${reconciled.removed}`,
+        )
+      }
+
+      await this.deps.updateUserMemory(reconciled.content)
       log.info(
         `[appendToUserMemory] 已${merged ? 'LLM 整理合并' : '追加'}个人记忆 (${allCandidates.length} 条候选)`,
       )

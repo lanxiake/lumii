@@ -109,14 +109,37 @@ export async function writeUserMemoryFile(content: string): Promise<{ updatedAt:
   try {
     const p = getUserMemoryFilePath()
     await fs.mkdir(dirname(p), { recursive: true })
-    // 备份旧内容到 .bak（Task 5 P0：整理失败时可回滚）
+    // 备份旧内容（Task 5 P0：整理失败时可回滚）。
+    // P1-2 升级：从单层 `.bak` 改为**带时间戳的快照序列**——个人记忆每次整理都是
+    // 一次全量重写，只留一层意味着连错两次就把原文彻底丢掉，而「整理吞内容」
+    // 恰恰是这条路径最需要复盘的事故。
     if (existsSync(p)) {
       await fs.copyFile(p, `${p}.bak`)
+      const snapshotDir = join(dirname(p), 'backups', 'user-memory')
+      await fs.mkdir(snapshotDir, { recursive: true })
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+      await fs.copyFile(p, join(snapshotDir, `${stamp}.md`))
+      await pruneUserMemorySnapshots(snapshotDir)
     }
     await fs.writeFile(p, content, 'utf-8')
     return { updatedAt: new Date().toISOString() }
   } catch {
     return undefined
+  }
+}
+
+/** 快照保留期（份数）：够复盘最近几次整理，又不至于无限堆积 */
+const USER_MEMORY_SNAPSHOT_KEEP = 30
+
+/** 按文件名（时间戳）倒序保留最近 N 份，其余删除。失败不影响写入主流程。 */
+async function pruneUserMemorySnapshots(dir: string): Promise<void> {
+  try {
+    const names = (await fs.readdir(dir)).filter((n) => n.endsWith('.md')).sort()
+    for (const name of names.slice(0, Math.max(0, names.length - USER_MEMORY_SNAPSHOT_KEEP))) {
+      await fs.rm(join(dir, name), { force: true })
+    }
+  } catch {
+    // 清理失败不影响本次写入
   }
 }
 
