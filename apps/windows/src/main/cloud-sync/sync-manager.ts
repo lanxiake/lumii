@@ -336,7 +336,14 @@ export class CloudSyncManager extends EventEmitter {
 
   /** 唯一同步入口，进程内串行；conflict/syncing 期间重入直接返回 */
   async sync(): Promise<{ success: boolean; state: SyncState }> {
-    const result = await enqueueWorkspace(this.workspaceDir, () => this.syncInner())
+    // 请求到达即留痕：与「进入 syncInner」之间隔着一次排队，
+    // 排队永不返回时（队列被别的任务堵死）这条日志是唯一的证据
+    logger.info(`[sync] 收到同步请求（工作区 ${this.workspaceDir}）`)
+    const result = await enqueueWorkspace(
+      this.workspaceDir,
+      () => this.syncInner(),
+      'cloud-sync:sync',
+    )
     // 阶段一完成且空闲 → 顺带推动阶段二：大文件后台慢慢传，不阻塞小文件到位
     if (result.success && this.state === 'idle') {
       this.kickLargeQueue()
@@ -354,7 +361,7 @@ export class CloudSyncManager extends EventEmitter {
           getGitParams: () => this.getSyncGitParams(),
           push: (localRef) => this.pushBranch(localRef),
           getState: () => this.state,
-          enqueue: (fn) => enqueueWorkspace(this.workspaceDir, fn),
+          enqueue: (fn) => enqueueWorkspace(this.workspaceDir, fn, 'cloud-sync:large-batch'),
           getLimits: () => {
             const cfg = loadCloudSyncConfig()
             return {
@@ -1114,7 +1121,7 @@ export class CloudSyncManager extends EventEmitter {
       } finally {
         this.localCommitInFlight = false
       }
-    })
+    }, 'cloud-sync:commit-local')
   }
 
   /**
@@ -1214,10 +1221,13 @@ export class CloudSyncManager extends EventEmitter {
     if (this.state === 'conflict') {
       this.setState('conflict', '落决后台执行中（补远端变更 → 落决提交 → 推送）…')
     }
-    const inner = enqueueWorkspace(this.workspaceDir, () =>
-      this.resolveInner(strategy, choices).finally(() => {
-        this.resolveInFlight = false
-      }),
+    const inner = enqueueWorkspace(
+      this.workspaceDir,
+      () =>
+        this.resolveInner(strategy, choices).finally(() => {
+          this.resolveInFlight = false
+        }),
+      'cloud-sync:resolve',
     )
     return withTimeout(
       inner,
