@@ -73,7 +73,7 @@ import {
   _resetActiveWorkspaceDirGetterForTest,
 } from '../workspace-paths'
 import { _resetWindowsClientDataRootCacheForTest } from '../client-data-root'
-import { resetWorkspaceVcs } from '../workspace-vcs/vcs-snapshot'
+import { enqueueWorkspace, resetWorkspaceVcs } from '../workspace-vcs/vcs-snapshot'
 
 const REMOTE_FS = { promises: fsp } as unknown as PromiseFsClient
 
@@ -948,5 +948,66 @@ describe('CloudSyncManager', () => {
     expect(r1.success || r2.success).toBe(true)
     expect(manager.getStatus().state).toBe('idle')
     expect(await localHead()).toBe(await remoteHead())
+  })
+
+  /**
+   * 排队可见性（2026-09-17 P0 回归）。
+   *
+   * 云同步与 Turn 快照共用一条串行队列，快照高峰期单个要跑 30–80 秒、队列深度可达 14，
+   * `sync()` 排在后面等好几分钟。此前的症状是「设置页按钮一直转圈，状态栏却显示上一次的
+   * 同步完成」—— 因为排队期间状态一个字都不变，看起来和一切正常完全一样。
+   */
+  it('排队中：status 报出前面还有几个任务，且不污染 state 与 lastSyncAt', async () => {
+    // 用一条未完成的任务占住工作区队列，模拟 Turn 快照正在跑
+    let release!: () => void
+    const gate = new Promise<void>((r) => {
+      release = r
+    })
+    const blocker = enqueueWorkspace(workspaceDir, () => gate, 'test:blocker')
+
+    const before = manager.getStatus().lastSyncAt
+    const p = manager.sync() // 不 await：它会排在 blocker 后面
+
+    const s = manager.getStatus()
+    expect(s.queuedBehind).toBe(1)
+    // 排队不是「引擎在跑同步」—— state 必须留在 idle，
+    // 否则会打断 watcher 的抑制判断与 commitLocalChanges 的 state 守卫
+    expect(s.state).toBe('idle')
+    // 排队不是一次同步，不能更新 lastSyncAt（否则「最近同步」显示成从没发生过的时刻）
+    expect(s.lastSyncAt).toBe(before)
+    expect(s.message).toContain('前面还有 1 个任务')
+
+    release()
+    await blocker
+    await p
+    // 任何真实状态迁移之后，排队标记都必须被清掉，不能一直挂着「排队中」
+    expect(manager.getStatus().queuedBehind).toBeUndefined()
+  })
+
+  it('未排队时 status 不带 queuedBehind（避免把「已完成」误读成「在排队」）', async () => {
+    await setupBase()
+    await manager.sync()
+    expect(manager.getStatus().queuedBehind).toBeUndefined()
+  })
+
+  it('syncInner 提前返回时也要清掉排队标记（不能永远挂着「排队中」）', async () => {
+    // syncInner 有多条**不调 setState** 的提前返回路径（未启用 / conflict / syncing）。
+    // 排队标记若只靠 setState 清，这些路径会把「排队中」永远留在状态栏上 ——
+    // 所以清除动作放在「任务真正开始执行」那一步。
+    vi.mocked(loadCloudSyncConfig).mockReturnValue({ ...baseCfg, enabled: false })
+
+    let release!: () => void
+    const gate = new Promise<void>((r) => {
+      release = r
+    })
+    const blocker = enqueueWorkspace(workspaceDir, () => gate, 'test:blocker')
+
+    const p = manager.sync()
+    expect(manager.getStatus().queuedBehind).toBe(1)
+
+    release()
+    await blocker
+    await p
+    expect(manager.getStatus().queuedBehind).toBeUndefined()
   })
 })

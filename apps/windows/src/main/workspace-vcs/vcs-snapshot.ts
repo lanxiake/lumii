@@ -23,12 +23,25 @@ const queues = new Map<string, Promise<unknown>>()
 /** per-workspace 的队列深度（诊断用：看清「谁堵住了谁」） */
 const depths = new Map<string, number>()
 
+/**
+ * 已经打过「首次使用」日志的队列键。
+ *
+ * 队列是按 workspaceDir **字符串**分桶的，而调用方各自推导这个字符串：
+ * 云同步走 resolveActiveWorkspaceDir()（path.resolve 归一化 + `||` 兜底），
+ * Turn 快照走 getCwd()（原样返回 + `??` 兜底）—— 两条路一旦算出不同的串，
+ * 「共享串行队列」就静默裂成两条，互相不再互斥也不再互相阻塞。
+ * 这条日志让这种分裂在日志里直接可见（每个键每次进程只打一行）。
+ */
+const loggedKeys = new Set<string>()
+
 /** 排队超过这个时长才值得记一行（正常情况队列是空的，不该刷屏） */
 const QUEUE_SLOW_WAIT_MS = 2_000
 /** 单个任务执行超过这个时长记一行 */
 const QUEUE_SLOW_RUN_MS = 10_000
-/** 看门狗节奏：任务仍在排队或仍在执行时，按这个间隔持续告警 */
-const QUEUE_WATCHDOG_MS = 30_000
+/** 看门狗检查节奏 */
+const QUEUE_WATCHDOG_MS = 15_000
+/** 排队或执行超过这个时长才算「卡住」，按检查节奏持续告警 */
+const QUEUE_STUCK_MS = 60_000
 
 /** per-workspace 的 WorkspaceVcs 实例缓存（按 workspaceDir 复用） */
 const repos = new Map<string, WorkspaceVcs>()
@@ -52,6 +65,11 @@ function getRepo(workspaceDir: string): WorkspaceVcs {
  * （不中断、不超时），只保证「谁堵住了队列、堵了多久」一定留痕。
  */
 function enqueue<T>(workspaceDir: string, task: () => Promise<T>, label = 'task'): Promise<T> {
+  if (!loggedKeys.has(workspaceDir)) {
+    loggedKeys.add(workspaceDir)
+    log.info(`[queue] 首次使用队列键「${workspaceDir}」（来自 ${label}）`)
+  }
+
   const prev = queues.get(workspaceDir) ?? Promise.resolve()
   const depth = (depths.get(workspaceDir) ?? 0) + 1
   depths.set(workspaceDir, depth)
@@ -61,14 +79,19 @@ function enqueue<T>(workspaceDir: string, task: () => Promise<T>, label = 'task'
 
   const watchdog = setInterval(() => {
     const now = Date.now()
-    if (startedAt === 0) {
+    // 从「入队」和「开始」两个时刻**分别**计时：看门狗起算点是入队时刻，
+    // 若只按它算，一个排队 30s 刚开跑的任务会被误报成「已执行 30s」。
+    const queuedMs = startedAt === 0 ? now - queuedAt : 0
+    const runningMs = startedAt === 0 ? 0 : now - startedAt
+    if (queuedMs > QUEUE_STUCK_MS) {
       log.warn(
-        `[queue] ${label} 已排队 ${Math.round((now - queuedAt) / 1000)}s 仍未开始` +
+        `[queue] ${label} 已排队 ${Math.round(queuedMs / 1000)}s 仍未开始` +
           `（队列深度 ${depths.get(workspaceDir) ?? 0}，工作区 ${workspaceDir}）`,
       )
-    } else {
+    }
+    if (runningMs > QUEUE_STUCK_MS) {
       log.warn(
-        `[queue] ${label} 已执行 ${Math.round((now - startedAt) / 1000)}s 未结束` +
+        `[queue] ${label} 已执行 ${Math.round(runningMs / 1000)}s 未结束` +
           `（工作区 ${workspaceDir}）`,
       )
     }
@@ -117,30 +140,91 @@ export function enqueueWorkspace<T>(
 }
 
 /**
- * Agent 轮次结束后触发的自动快照。失败不抛出。
+ * 某工作区队列中尚未完成的任务数（**含正在执行的那个**）。
+ *
+ * 调用方在入队**之前**读它，得到的就是「前面还有几个任务」。
+ * 用途是让「排队等待」这件事可见 —— 2026-09-17 的 P0 里，
+ * 云同步排在十几个 Turn 快照后面等了好几分钟，而状态栏一直显示上一次的「同步完成」。
  */
-export async function maybeSnapshot(params: {
+export function getWorkspaceQueueDepth(workspaceDir: string): number {
+  return depths.get(workspaceDir) ?? 0
+}
+
+/**
+ * 同一工作区**已排队待执行**的快照请求（合并冗余用）。
+ *
+ * 快照提交的是「执行那一刻的工作区状态」——同一时刻排在队列里的多个请求
+ * 看到的是同一棵树，除了最后一个之外全是冗余。实测多 Agent 并行时队列深度
+ * 达到 14，而每个快照要跑 30–80 秒（1977 个文件逐个 `git.add`），把共用同一条
+ * 队列的云同步堵到分钟级（2026-09-17 P0）。这里把排队中的请求合并成一个：
+ * 后来的调用只把归属信息（谁触发的）更新为最新一次，不再重复排队。
+ *
+ * 注意是「排队中」才合并：**已在执行**的快照不参与合并 —— 它可能已经读完了树，
+ * 此后到达的请求必须排新的，才能捕获本轮之后的变更。
+ */
+interface PendingSnapshot {
+  conversationId?: string
+  runId?: string
+  /** 被合并进来的请求数（只为日志，便于观察实际收益） */
+  coalesced: number
+  promise: Promise<VcsCommit | null>
+}
+
+const pendingSnapshots = new Map<string, PendingSnapshot>()
+
+/**
+ * Agent 轮次结束后触发的自动快照。失败不抛出。
+ *
+ * 排队中的重复请求会被合并（见 `pendingSnapshots`），因此返回值代表
+ * 「合并后那一次快照」的结果 —— 现有唯一调用方是 `void maybeSnapshot(...)`，
+ * 不消费返回值。
+ */
+export function maybeSnapshot(params: {
   readonly workspaceDir: string
   readonly conversationId?: string
   readonly runId?: string
 }): Promise<VcsCommit | null> {
   const { workspaceDir, conversationId, runId } = params
-  if (!workspaceDir) return null
+  if (!workspaceDir) return Promise.resolve(null)
 
-  return enqueue(
+  const pending = pendingSnapshots.get(workspaceDir)
+  if (pending) {
+    pending.conversationId = conversationId
+    pending.runId = runId
+    pending.coalesced += 1
+    return pending.promise
+  }
+
+  const slot: PendingSnapshot = {
+    conversationId,
+    runId,
+    coalesced: 0,
+    // 占位，紧接在 enqueue 之后赋值；enqueue 的任务体最早也在微任务里跑，
+    // 同步代码先执行完，任务体读到的必然是已赋值的 promise
+    promise: undefined as unknown as Promise<VcsCommit | null>,
+  }
+
+  slot.promise = enqueue(
     workspaceDir,
     async () => {
+      // 出队即摘牌：此后到达的请求会排一个新的，捕获本轮之后的变更
+      pendingSnapshots.delete(workspaceDir)
+      if (slot.coalesced > 0) {
+        log.info(`[maybeSnapshot] 合并了 ${slot.coalesced} 个排队中的重复快照请求`)
+      }
       try {
         const repo = getRepo(workspaceDir)
-        const summary = conversationId ? `auto: 对话 ${conversationId.slice(0, 8)}` : 'auto: 自动快照'
+        const summary = slot.conversationId
+          ? `auto: 对话 ${slot.conversationId.slice(0, 8)}`
+          : 'auto: 自动快照'
         const commit = await repo.commit({
           author: 'agent',
           message: summary,
-          conversationId,
-          runId,
+          conversationId: slot.conversationId,
+          runId: slot.runId,
         })
         if (commit) {
-          log.info(`[maybeSnapshot] 已快照 oid=${commit.oid.slice(0, 8)} runId=${runId ?? '无'}`)
+          log.info(`[maybeSnapshot] 已快照 oid=${commit.oid.slice(0, 8)} runId=${slot.runId ?? '无'}`)
         }
         return commit
       } catch (err) {
@@ -152,6 +236,8 @@ export async function maybeSnapshot(params: {
     },
     'vcs:snapshot',
   )
+  pendingSnapshots.set(workspaceDir, slot)
+  return slot.promise
 }
 
 /**

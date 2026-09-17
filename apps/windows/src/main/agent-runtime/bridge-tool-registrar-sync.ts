@@ -215,8 +215,10 @@ export function registerSyncConflictTool(deps: BridgeToolRegistrarDeps): void {
     label: 'Cloud Sync Now',
     category: 'filesystem' as const,
     description:
-      '立即触发一次完整同步（等价设置页「立即同步」按钮）。秒回 —— 同步在后台执行，' +
-      '需要核实进度或结果时用 cloud_sync_git 的 status / log / remote。',
+      '提交一次完整同步请求（等价设置页「立即同步」按钮）。秒回 —— 同步在后台执行。' +
+      '同步与工作区 Turn 快照**共用一条串行队列**，高峰期可能需要排队；返回值里的 ' +
+      '`queuedBehind` 是排队时前面的任务数（0 = 可直接开跑）。**排队不等于已执行**：' +
+      '需要核实进度用 cloud_sync_git 的 status（queuedBehind>0 即仍在排队），不要重复调用本工具。',
     parameters: Type.Object({}),
     isReadOnly: false,
     // 与定时同步等价，不额外要求确认
@@ -226,10 +228,19 @@ export function registerSyncConflictTool(deps: BridgeToolRegistrarDeps): void {
       if (!m) {
         return { ...jsonToolResult({ status: 'error', message: '云同步未初始化' }), isError: true }
       }
+      // 先读队列深度再触发：这个数就是「前面还有几个任务」，秒回时如实报给 Agent。
+      // 此前无论排多长的队都回「已触发同步」，Agent 据此断言「同步成功」——
+      // 2026-09-17 实测队列被 Turn 快照堵了 14 分钟，期间每次调用都是这句不实之词。
+      const queuedBehind = m.getQueueDepth()
       void m.sync()
       return jsonToolResult({
         status: 'started',
-        message: '已触发同步（后台执行）。需要核实进度用 cloud_sync_git 的 status。',
+        queuedBehind,
+        message:
+          queuedBehind > 0
+            ? `已提交同步请求，但前面还有 ${queuedBehind} 个任务（工作区快照等）在排队，**尚未开始执行**。` +
+              '不要重复调用本工具；用 cloud_sync_git 的 status 看 queuedBehind 字段判断是否已轮到。'
+            : '已提交同步请求（后台执行）。用 cloud_sync_git 的 status 核实进度。',
       })
     },
   }

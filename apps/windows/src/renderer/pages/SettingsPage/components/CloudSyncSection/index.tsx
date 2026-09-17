@@ -304,11 +304,17 @@ export function CloudSyncSection() {
         <div className={styles['setting-item']}>
           <label className={styles['setting-label']} data-app-ui-label>同步状态</label>
           <div className={styles['setting-hint']}>
-            当前状态：{STATE_LABEL[status.state] ?? status.state}
-            {status.message ? ` · ${status.message}` : ''}
-            {status.state === 'idle' && status.lastSyncAt
-              ? ` · 最近同步：${new Date(status.lastSyncAt).toLocaleString()}`
-              : ''}
+            {/* 排队中单独显示：state 仍是 idle（排队不是「引擎在跑」），
+                只靠 message 会被读成「空闲 · 一切正常」，看不出请求还没轮到 */}
+            {status.queuedBehind ? (
+              <>当前状态：排队中 · {status.message}</>
+            ) : (
+              <>
+                当前状态：{STATE_LABEL[status.state] ?? status.state}
+                {status.message ? ` · ${status.message}` : ''}
+              </>
+            )}
+            {status.lastSyncAt ? ` · 最近同步：${new Date(status.lastSyncAt).toLocaleString()}` : ''}
           </div>
           {status.state === 'error' && status.lastError && (
             <div className={styles['setting-hint']}>错误：{status.lastError}</div>

@@ -12,7 +12,7 @@ import { promisify } from 'node:util'
 import git, { TREE } from 'isomorphic-git'
 import type { PromiseFsClient, WalkerEntry } from 'isomorphic-git'
 import http from 'isomorphic-git/http/node'
-import { enqueueWorkspace } from '../workspace-vcs/vcs-snapshot'
+import { enqueueWorkspace, getWorkspaceQueueDepth } from '../workspace-vcs/vcs-snapshot'
 import { SyncLargeQueue, type LargeQueueStats } from './sync-large-queue'
 import { scopeRulesFromConfig } from './sync-scope'
 import { resolveActiveWorkspaceDir } from '../workspace-paths'
@@ -299,6 +299,37 @@ export class CloudSyncManager extends EventEmitter {
     return this.status
   }
 
+  /** 当前工作区队列中尚未完成的任务数（含正在执行的那个）—— 供工具如实回报排队情况 */
+  getQueueDepth(): number {
+    return getWorkspaceQueueDepth(this.workspaceDir)
+  }
+
+  /**
+   * 标记「请求已收下、正在排队」。
+   *
+   * 刻意**不走 setState**：排队不是一次同步，不能污染 `lastSyncAt`，
+   * 也不能让 `state` 离开 `idle`（会打断 watcher 抑制判断与 commitLocalChanges 守卫，
+   * 见 SyncStatus.queuedBehind 的注释）。`queuedBehind` 由 setState 在
+   * 任何真实状态迁移时统一清除。
+   */
+  private markQueued(queuedBehind: number): void {
+    this.status = {
+      ...this.status,
+      message: `前面还有 ${queuedBehind} 个任务，尚未开始同步`,
+      queuedBehind,
+    }
+    this.emit('status', this.status)
+    logger.info(`[sync] 排队等待中（前面还有 ${queuedBehind} 个任务，尚未开始）`)
+  }
+
+  /** 清除排队标记（任务开始执行、或任何真实状态迁移时调用） */
+  private clearQueued(): void {
+    if (this.status.queuedBehind === undefined) return
+    const { queuedBehind: _drop, ...rest } = this.status
+    this.status = rest
+    this.emit('status', this.status)
+  }
+
   getConflict(): ConflictInfo | undefined {
     return this.conflict
   }
@@ -336,12 +367,23 @@ export class CloudSyncManager extends EventEmitter {
 
   /** 唯一同步入口，进程内串行；conflict/syncing 期间重入直接返回 */
   async sync(): Promise<{ success: boolean; state: SyncState }> {
-    // 请求到达即留痕：与「进入 syncInner」之间隔着一次排队，
-    // 排队永不返回时（队列被别的任务堵死）这条日志是唯一的证据
-    logger.info(`[sync] 收到同步请求（工作区 ${this.workspaceDir}）`)
+    const workspaceDir = this.workspaceDir
+    // 入队**之前**读深度 = 前面还有几个任务。这条日志与下面的 markQueued 一起，
+    // 让「排队等待」不再无声：此前状态停留在上一次同步留下的「同步完成」，
+    // 用户看到的是按钮一直转圈，而界面/CLI 都显示一切正常（2026-09-17 P0）。
+    const queuedBehind = getWorkspaceQueueDepth(workspaceDir)
+    logger.info(`[sync] 收到同步请求（工作区 ${workspaceDir}，前面还有 ${queuedBehind} 个任务）`)
+    if (queuedBehind > 0) this.markQueued(queuedBehind)
+
     const result = await enqueueWorkspace(
-      this.workspaceDir,
-      () => this.syncInner(),
+      workspaceDir,
+      () => {
+        // 任务真正开始 = 排队结束。清在这里而不是只靠 syncInner 的 setState：
+        // syncInner 在 conflict/syncing 时会**提前 return 且不调 setState**，
+        // 只靠 setState 清的话，那条路径会把「排队中」永远挂在状态栏上
+        this.clearQueued()
+        return this.syncInner()
+      },
       'cloud-sync:sync',
     )
     // 阶段一完成且空闲 → 顺带推动阶段二：大文件后台慢慢传，不阻塞小文件到位
@@ -681,9 +723,17 @@ export class CloudSyncManager extends EventEmitter {
   }
 
   /** 成功收尾：先切回 idle（UI 立即更新），再尝试压缩对象库 */
+  /**
+   * 收尾：把状态置回 idle。
+   *
+   * **git gc 必须在 setState 之前** —— 它跑在同一条串行队列里（预算 600s），
+   * 先宣告「同步完成」再 gc，会出现「设置页显示已完成、队列其实还被占着」的假象：
+   * 此时用户点「立即同步」会一直排队，而状态栏一切正常，无从察觉
+   * （2026-09-17 排查实测：一次同步任务在「已宣告完成」之后仍占队列 44s）。
+   */
   private async finishIdle(message: string): Promise<{ success: true; state: 'idle' }> {
-    this.setState('idle', message)
     await this.maybePruneObjectStore()
+    this.setState('idle', message)
     return { success: true, state: 'idle' }
   }
 
@@ -1624,8 +1674,14 @@ export class CloudSyncManager extends EventEmitter {
     const branch = cfg.branch || 'main'
     const p = this.getSyncGitParams()
     const initialized = fs.existsSync(path.join(this.syncDir, '.git'))
+    // 同步状态文案 + 排队深度：Agent 靠这两项区分「请求在排队」与「已经跑完」——
+    // 只有 state 的话，排队中（state 仍是 idle）和已完成长得一模一样
+    const statusHint = {
+      message: this.status.message,
+      ...(this.status.queuedBehind ? { queuedBehind: this.status.queuedBehind } : {}),
+    }
     if (!initialized) {
-      return { initialized: false, state: this.state, branch, conflictFiles: [] }
+      return { initialized: false, state: this.state, branch, conflictFiles: [], ...statusHint }
     }
     try {
       const headOid = await git.resolveRef({ ...p, ref: 'HEAD' }).catch(() => null)
@@ -1640,6 +1696,7 @@ export class CloudSyncManager extends EventEmitter {
         headOid,
         conflictFiles: this.conflict?.files ?? [],
         dirtyFiles,
+        ...statusHint,
       }
     } catch (err) {
       return {
@@ -1732,8 +1789,11 @@ export class CloudSyncManager extends EventEmitter {
 
   private setState(state: SyncState, message: string): void {
     this.state = state
+    // 任何真实状态迁移都意味着「排队等待」结束了 —— 统一在这里清掉 queuedBehind，
+    // 免得每个 setState 调用点都要记得清（漏一处就会一直显示「排队中」）
+    const { queuedBehind: _cleared, ...rest } = this.status
     this.status = {
-      ...this.status,
+      ...rest,
       state,
       message,
       lastSyncAt: state === 'idle' ? Date.now() : this.status.lastSyncAt,

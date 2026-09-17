@@ -166,8 +166,21 @@ export class WorkspaceVcs {
    * 暂存工作区全部变更（含新增、修改、删除），遵循 .gitignore。
    *
    * 不依赖 statusMatrix 的 worktree 列（其 stat 快速路径会漏检同秒同大小的小文件），
-   * 而是：① 递归 walk 工作树实际文件并逐个 git.add（add 内部按内容重算 blob hash）；
+   * 而是：① 暂存工作树实际文件 —— 默认走一次 `git.add('.')`，重目录未被忽略时
+   *        退回逐个 add（见 canBatchStage）；两条路径都按内容重算 blob hash，
+   *        实测对「等长 + mtime/ctime 全同」的改写同样能检出；
    *       ② 对 HEAD/index 中存在但工作树已不存在的文件执行 git.remove。
+   *
+   * **「无变更短路」暂未实现（2026-09-17 评估后搁置）**：2069 文件 / 700MB 的工作区
+   * 每次都要重算全部 blob hash（批量路径实测 18.3 秒），而 148 次快照里有 125 次（84%）
+   * 扫完才发现无变更 —— 用 stat 签名短路看似很值。但判据不够硬：对「写入等长内容 +
+   * `utimesSync` 把 mtime 还原」这种改动，size 与 mtimeMs 完全不变，ctime 也**只在
+   * 跨时钟 tick 时才变**（同一 tick 内分辨不出，即 git 的 racy-timestamp 问题）。
+   * 而云同步导入路径恰好就做 `utimesSync(dst, srcStat.atime, srcStat.mtime)`。
+   * 短路一旦漏检，那个改动就永远进不了快照（要等该文件下次再变才补上）。
+   * 真要做，得连带实现 racy 判定（文件 mtime >= 记录签名的时刻就强制重扫）——
+   * 那是一次独立的行为变更：本模块此前是刻意比 git 的 index stat cache 更严的，
+   * 应该由明确决策引入，而不是顺手加上。
    */
   private async stageAll(): Promise<void> {
     await this.withIndexRepair('stageAll', () => this.stageAllOnce())
@@ -175,22 +188,69 @@ export class WorkspaceVcs {
 
   /** stageAll 的实际执行体（不含 index 损坏自愈，由 stageAll 统一包裹） */
   private async stageAllOnce(): Promise<void> {
-    // ① 收集工作树实际文件（相对路径，POSIX 分隔），并 add
-    const worktreeFiles = await this.walkWorktreeFiles()
-    for (const filepath of worktreeFiles) {
-      const ignored = await git.isIgnored({ ...this.base, filepath }).catch(() => false)
-      if (ignored) continue
-      await git.add({ ...this.base, filepath })
+    const t0 = Date.now()
+
+    // ① 暂存工作树全部文件（新增 + 修改）
+    const batched = await this.canBatchStage()
+    if (batched) {
+      await git.add({ ...this.base, filepath: '.' })
+    } else {
+      await this.stagePerFile()
     }
 
     // ② 处理删除：index/HEAD 有、但工作树已无的文件
     const matrix = await git.statusMatrix(this.base)
-    const present = new Set(worktreeFiles)
+    const present = new Set(await this.walkWorktreeFiles())
     for (const [filepath, head, workdir, stage] of matrix) {
       const existsOnDisk = present.has(filepath)
       if (!existsOnDisk && (head !== 0 || stage !== 0) && workdir === 0) {
         await git.remove({ ...this.base, filepath })
       }
+    }
+
+    // 这条路径是 Turn 快照的热点（每个助手消息一次），也是 2026-09-17 P0 的瓶颈所在
+    // —— 优化前 2069 文件要 30–80 秒。必须能持续观测，否则下次劣化没人发现。
+    // 500ms 以下不记，免得正常时段刷屏。
+    const stageMs = Date.now() - t0
+    if (stageMs > 500) {
+      log.info(`[stageAll] 暂存耗时 ${stageMs}ms（${batched ? '批量' : '逐个'}路径）`)
+    }
+  }
+
+  /**
+   * 能否走批量暂存（`git.add('.')`）。
+   *
+   * 批量路径一次走完工作树、只写一次 index —— 逐个 add 的代价几乎全在
+   * 「每次调用重建一遍 index」，实测 2000 文件 9.7s vs 批量 1.3s，且差距随文件数增长。
+   *
+   * 但 `add('.')` 会走**整个**工作树，包括 `.mtbot-vcs` 自己 —— 实测若不忽略它，
+   * 它会把 `.mtbot-vcs/index`、`objects/**`、`refs/heads/main` 一并索引进自己的 index。
+   * 逐个路径靠 `walkWorktreeFiles` 硬剪枝（不依赖 .gitignore 内容），是道配置无关的防线；
+   * 批量路径把这道防线换成了「.gitignore 必须正确」。所以先实测两个最要命的目录是否确被忽略，
+   * 不满足就退回逐个路径 —— 宁慢，也不能自我索引。
+   *
+   * 只探测 `.mtbot-vcs` 与 `node_modules`：前者漏了是灾难，后者漏了是重灾（上万文件）。
+   * 用 `isIgnored` 实测而非解析 .gitignore 文本 —— 规则可能来自任意一层，手写解析只会得出错误结论。
+   */
+  private async canBatchStage(): Promise<boolean> {
+    for (const probe of ['.mtbot-vcs/index', 'node_modules/.probe']) {
+      const ignored = await git.isIgnored({ ...this.base, filepath: probe }).catch(() => false)
+      if (!ignored) {
+        log.warn(
+          `[canBatchStage] ${probe} 未被 .gitignore 忽略，退回逐个 add（避免把 VCS 自身索引进 index）`,
+        )
+        return false
+      }
+    }
+    return true
+  }
+
+  /** 逐个 add 的回退路径（安全但不依赖 .gitignore：由 walkWorktreeFiles 剪枝） */
+  private async stagePerFile(): Promise<void> {
+    for (const filepath of await this.walkWorktreeFiles()) {
+      const ignored = await git.isIgnored({ ...this.base, filepath }).catch(() => false)
+      if (ignored) continue
+      await git.add({ ...this.base, filepath })
     }
   }
 

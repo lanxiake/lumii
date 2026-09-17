@@ -6,6 +6,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import path from 'node:path'
 import fs from 'node:fs'
 import os from 'node:os'
+import git from 'isomorphic-git'
 import { WorkspaceVcs } from './vcs-repo'
 
 describe('WorkspaceVcs', () => {
@@ -264,5 +265,72 @@ describe('WorkspaceVcs', () => {
     for (const e of diff) {
       expect(e.hunks?.length).toBeGreaterThan(0)
     }
+  })
+
+  // ── 批量暂存（git.add('.')）的安全边界 ──
+  //
+  // 背景：逐个 add 的代价几乎全在「每次调用重建一遍 index」（实测 2000 文件 9.7s
+  // vs 批量 1.3s），改成一次 add('.') 后，工作区快照从 30–80 秒降到秒级。
+  // 代价是 add('.') 会走**整个**工作树 —— 包括 .mtbot-vcs 自己，而它只被
+  // .gitignore 挡着。下面三个用例守住这条边界。
+
+  const listHead = () => git.listFiles({ ...vcs.getGitParams(), ref: 'HEAD' })
+
+  it('批量暂存不会把 .mtbot-vcs 自身索引进 index', async () => {
+    writeFile('a.md', 'hello')
+    await vcs.commit({ author: 'user', message: 'init' })
+
+    const files = await listHead()
+    expect(files).toContain('a.md')
+    // 漏了这条就等于 VCS 把自己的对象库版本化 —— index/refs/objects 全量自引用
+    expect(files.some((f) => f.startsWith('.mtbot-vcs/'))).toBe(false)
+  })
+
+  it('.gitignore 不再忽略 .mtbot-vcs 时退回逐个路径，仍不自我索引', async () => {
+    await vcs.ensureInitialized()
+    // 模拟用户把默认规则删掉：批量路径的前置条件不成立
+    fs.writeFileSync(path.join(workspaceDir, '.gitignore'), '# 用户清空了规则\n', 'utf-8')
+    writeFile('a.md', 'hello')
+
+    await vcs.commit({ author: 'user', message: 'no-default-ignore' })
+
+    const files = await listHead()
+    // 回退路径靠 walkWorktreeFiles 硬剪枝，不依赖 .gitignore 内容 —— 这正是留着它的理由
+    expect(files).toContain('a.md')
+    expect(files.some((f) => f.startsWith('.mtbot-vcs/'))).toBe(false)
+  })
+
+  // ── 等长 + 时间戳还原的改写必须被检出 ──
+  //
+  // 这是 stageAll 坚持按**内容**重算 blob hash 的理由：批量 add 与逐个 add 都实测过，
+  // 对这种「size 与 mtime 都看不出变化」的改写仍能检出。
+  //
+  // 关于 ctime：实测它**只在跨时钟 tick 时**才变 —— 同一 tick 内的「写+还原」
+  // 它同样分辨不出（即 git 的 racy-timestamp 问题）。所以不能拿 stat 当
+  // 「没变更」的判据（见 vcs-repo.ts 的 stageAll 注释里对短路的取舍说明）。
+  it('等长且时间戳被还原的改写，仍能被检出并提交', async () => {
+    await vcs.ensureInitialized()
+    const abs = path.join(workspaceDir, 'a.md')
+    writeFile('a.md', 'AAAA')
+
+    // 先把 mtime 归一到整数毫秒（utimes 回写会被舍入），让后面的「还原」
+    // 真的能还原成同一个值 —— 否则测到的只是「mtime 变了」
+    const st0 = fs.statSync(abs)
+    fs.utimesSync(abs, st0.atime, st0.mtime)
+    const ref = fs.statSync(abs)
+    await vcs.commit({ author: 'user', message: 'init' })
+
+    fs.writeFileSync(abs, 'ZZZZ') // 等长改写
+    fs.utimesSync(abs, ref.atime, ref.mtime) // mtime 还原
+    const now = fs.statSync(abs)
+    expect(now.size).toBe(ref.size)
+    expect(now.mtimeMs).toBe(ref.mtimeMs)
+    // 注：ctime 是否变化取决于两次操作是否落在同一个时钟 tick ——
+    // 同 tick 内「写+还原」它分辨不出（git 的 racy-timestamp 问题），跨 tick 才会变。
+    // 所以这里不断言 ctime，只断言真正要守的东西：内容改写必须被检出。
+
+    const c = await vcs.commit({ author: 'agent', message: '等长改写' })
+    expect(c).not.toBeNull()
+    expect(await vcs.readFileAt(c!.oid, 'a.md')).toBe('ZZZZ')
   })
 })

@@ -56,6 +56,15 @@ export interface SyncStatus {
   lastError?: string
   message?: string
   conflict?: ConflictInfo
+  /**
+   * 同步请求已提交但尚未开始执行时，排在它前面的任务数（0/undefined = 未排队）。
+   *
+   * `state` 刻意保持 `idle` —— 排队期间把 state 改成别的值会连带打断
+   * watcher 的抑制判断（`state !== 'idle'` 即不提交）与 `commitLocalChanges`
+   * 的 `state !== 'idle'` 守卫。排队是「请求已收下、还没轮到」，
+   * 与「引擎正在跑同步」是两回事，故用独立字段表达，不用新状态。
+   */
+  queuedBehind?: number
 }
 
 /** 冲突信息（filepaths 等来自 MergeConflictError.data；baseOid 来自 findMergeBase） */
