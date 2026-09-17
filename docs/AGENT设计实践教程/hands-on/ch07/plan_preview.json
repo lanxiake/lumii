@@ -1,0 +1,791 @@
+{
+  "version": 1,
+  "generated_at": "2026-09-16T15:37:18",
+  "default_action": "push",
+  "priority_chain": [
+    {
+      "rule": "R4",
+      "name": "医保相关必须推",
+      "action": "push",
+      "priority": 5
+    },
+    {
+      "rule": "R5",
+      "name": "标题党解读稿静音",
+      "action": "mute",
+      "priority": 5
+    },
+    {
+      "rule": "R1",
+      "name": "AI 垂直源直接推",
+      "action": "push",
+      "priority": 10
+    },
+    {
+      "rule": "R2",
+      "name": "高转发就推",
+      "action": "push",
+      "priority": 20
+    },
+    {
+      "rule": "R3",
+      "name": "科技类先静音",
+      "action": "mute",
+      "priority": 30
+    },
+    {
+      "rule": "R6",
+      "name": "低质营销源静音",
+      "action": "mute",
+      "priority": 40
+    }
+  ],
+  "rule_hits": [
+    {
+      "id": "R3",
+      "name": "科技类先静音",
+      "action": "mute",
+      "priority": 30,
+      "matched": [
+        "N01",
+        "N02",
+        "N03",
+        "N04",
+        "N05",
+        "N06",
+        "N29"
+      ]
+    },
+    {
+      "id": "R1",
+      "name": "AI 垂直源直接推",
+      "action": "push",
+      "priority": 10,
+      "matched": [
+        "N01",
+        "N02",
+        "N04",
+        "N06"
+      ]
+    },
+    {
+      "id": "R2",
+      "name": "高转发就推",
+      "action": "push",
+      "priority": 20,
+      "matched": [
+        "N01",
+        "N03",
+        "N07",
+        "N14",
+        "N17",
+        "N18",
+        "N20",
+        "N21",
+        "N26",
+        "N27",
+        "N29"
+      ]
+    },
+    {
+      "id": "R6",
+      "name": "低质营销源静音",
+      "action": "mute",
+      "priority": 40,
+      "matched": [
+        "N09",
+        "N12",
+        "N25"
+      ]
+    },
+    {
+      "id": "R4",
+      "name": "医保相关必须推",
+      "action": "push",
+      "priority": 5,
+      "matched": [
+        "N20",
+        "N21",
+        "N22",
+        "N23"
+      ]
+    },
+    {
+      "id": "R5",
+      "name": "标题党解读稿静音",
+      "action": "mute",
+      "priority": 5,
+      "matched": [
+        "N22"
+      ]
+    }
+  ],
+  "shadowed_rules": [],
+  "conflicts": [
+    {
+      "item": "N01",
+      "title": "OpenAI 正式发布 GPT-5：多模态推理能力大幅提升",
+      "trace": [
+        {
+          "rule": "R1",
+          "name": "AI 垂直源直接推",
+          "action": "push",
+          "priority": 10
+        },
+        {
+          "rule": "R2",
+          "name": "高转发就推",
+          "action": "push",
+          "priority": 20
+        },
+        {
+          "rule": "R3",
+          "name": "科技类先静音",
+          "action": "mute",
+          "priority": 30
+        }
+      ],
+      "resolved_action": "push",
+      "unresolved": false
+    },
+    {
+      "item": "N02",
+      "title": "OpenAI 发布 GPT-5，API 价格同步下调",
+      "trace": [
+        {
+          "rule": "R1",
+          "name": "AI 垂直源直接推",
+          "action": "push",
+          "priority": 10
+        },
+        {
+          "rule": "R3",
+          "name": "科技类先静音",
+          "action": "mute",
+          "priority": 30
+        }
+      ],
+      "resolved_action": "push",
+      "unresolved": false
+    },
+    {
+      "item": "N03",
+      "title": "GPT-5 来了：OpenAI 宣布正式开放多模态推理",
+      "trace": [
+        {
+          "rule": "R2",
+          "name": "高转发就推",
+          "action": "push",
+          "priority": 20
+        },
+        {
+          "rule": "R3",
+          "name": "科技类先静音",
+          "action": "mute",
+          "priority": 30
+        }
+      ],
+      "resolved_action": "push",
+      "unresolved": false
+    },
+    {
+      "item": "N04",
+      "title": "国产多模态模型集中开源，社区跑分对比出炉",
+      "trace": [
+        {
+          "rule": "R1",
+          "name": "AI 垂直源直接推",
+          "action": "push",
+          "priority": 10
+        },
+        {
+          "rule": "R3",
+          "name": "科技类先静音",
+          "action": "mute",
+          "priority": 30
+        }
+      ],
+      "resolved_action": "push",
+      "unresolved": false
+    },
+    {
+      "item": "N06",
+      "title": "编程助手接入 GPT-5 后首周错误率数据公布",
+      "trace": [
+        {
+          "rule": "R1",
+          "name": "AI 垂直源直接推",
+          "action": "push",
+          "priority": 10
+        },
+        {
+          "rule": "R3",
+          "name": "科技类先静音",
+          "action": "mute",
+          "priority": 30
+        }
+      ],
+      "resolved_action": "push",
+      "unresolved": false
+    },
+    {
+      "item": "N22",
+      "title": "专家解读医保门诊共济：家庭共用不等于随意套现",
+      "trace": [
+        {
+          "rule": "R4",
+          "name": "医保相关必须推",
+          "action": "push",
+          "priority": 5
+        },
+        {
+          "rule": "R5",
+          "name": "标题党解读稿静音",
+          "action": "mute",
+          "priority": 5
+        }
+      ],
+      "resolved_action": "push",
+      "unresolved": true
+    },
+    {
+      "item": "N29",
+      "title": "AI 法案修正案通过 高风险用途需事前合规评估",
+      "trace": [
+        {
+          "rule": "R2",
+          "name": "高转发就推",
+          "action": "push",
+          "priority": 20
+        },
+        {
+          "rule": "R3",
+          "name": "科技类先静音",
+          "action": "mute",
+          "priority": 30
+        }
+      ],
+      "resolved_action": "push",
+      "unresolved": false
+    }
+  ],
+  "unresolved": [
+    "N22"
+  ],
+  "decisions": [
+    {
+      "id": "N01",
+      "title": "OpenAI 正式发布 GPT-5：多模态推理能力大幅提升",
+      "action": "push",
+      "decided_by": [
+        "R1"
+      ],
+      "trace": [
+        {
+          "rule": "R1",
+          "name": "AI 垂直源直接推",
+          "action": "push",
+          "priority": 10
+        },
+        {
+          "rule": "R2",
+          "name": "高转发就推",
+          "action": "push",
+          "priority": 20
+        },
+        {
+          "rule": "R3",
+          "name": "科技类先静音",
+          "action": "mute",
+          "priority": 30
+        }
+      ],
+      "unresolved": false,
+      "via": "rule"
+    },
+    {
+      "id": "N02",
+      "title": "OpenAI 发布 GPT-5，API 价格同步下调",
+      "action": "push",
+      "decided_by": [
+        "R1"
+      ],
+      "trace": [
+        {
+          "rule": "R1",
+          "name": "AI 垂直源直接推",
+          "action": "push",
+          "priority": 10
+        },
+        {
+          "rule": "R3",
+          "name": "科技类先静音",
+          "action": "mute",
+          "priority": 30
+        }
+      ],
+      "unresolved": false,
+      "via": "rule"
+    },
+    {
+      "id": "N03",
+      "title": "GPT-5 来了：OpenAI 宣布正式开放多模态推理",
+      "action": "push",
+      "decided_by": [
+        "R2"
+      ],
+      "trace": [
+        {
+          "rule": "R2",
+          "name": "高转发就推",
+          "action": "push",
+          "priority": 20
+        },
+        {
+          "rule": "R3",
+          "name": "科技类先静音",
+          "action": "mute",
+          "priority": 30
+        }
+      ],
+      "unresolved": false,
+      "via": "rule"
+    },
+    {
+      "id": "N04",
+      "title": "国产多模态模型集中开源，社区跑分对比出炉",
+      "action": "push",
+      "decided_by": [
+        "R1"
+      ],
+      "trace": [
+        {
+          "rule": "R1",
+          "name": "AI 垂直源直接推",
+          "action": "push",
+          "priority": 10
+        },
+        {
+          "rule": "R3",
+          "name": "科技类先静音",
+          "action": "mute",
+          "priority": 30
+        }
+      ],
+      "unresolved": false,
+      "via": "rule"
+    },
+    {
+      "id": "N05",
+      "title": "某芯片厂商发布新一代推理加速卡",
+      "action": "mute",
+      "decided_by": [
+        "R3"
+      ],
+      "trace": [
+        {
+          "rule": "R3",
+          "name": "科技类先静音",
+          "action": "mute",
+          "priority": 30
+        }
+      ],
+      "unresolved": false,
+      "via": "rule"
+    },
+    {
+      "id": "N06",
+      "title": "编程助手接入 GPT-5 后首周错误率数据公布",
+      "action": "push",
+      "decided_by": [
+        "R1"
+      ],
+      "trace": [
+        {
+          "rule": "R1",
+          "name": "AI 垂直源直接推",
+          "action": "push",
+          "priority": 10
+        },
+        {
+          "rule": "R3",
+          "name": "科技类先静音",
+          "action": "mute",
+          "priority": 30
+        }
+      ],
+      "unresolved": false,
+      "via": "rule"
+    },
+    {
+      "id": "N07",
+      "title": "央行宣布下调存款准备金率 0.5 个百分点",
+      "action": "push",
+      "decided_by": [
+        "R2"
+      ],
+      "trace": [
+        {
+          "rule": "R2",
+          "name": "高转发就推",
+          "action": "push",
+          "priority": 20
+        }
+      ],
+      "unresolved": false,
+      "via": "rule"
+    },
+    {
+      "id": "N08",
+      "title": "降准 0.5 个百分点落地 银行体系流动性趋于充裕",
+      "action": "push",
+      "decided_by": [],
+      "trace": [],
+      "unresolved": false,
+      "via": "default"
+    },
+    {
+      "id": "N09",
+      "title": "降准预期落空？多位专家回应房地产市场传闻",
+      "action": "mute",
+      "decided_by": [
+        "R6"
+      ],
+      "trace": [
+        {
+          "rule": "R6",
+          "name": "低质营销源静音",
+          "action": "mute",
+          "priority": 40
+        }
+      ],
+      "unresolved": false,
+      "via": "rule"
+    },
+    {
+      "id": "N10",
+      "title": "央行行长在陆家嘴论坛谈人民币汇率弹性",
+      "action": "push",
+      "decided_by": [],
+      "trace": [],
+      "unresolved": false,
+      "via": "default"
+    },
+    {
+      "id": "N11",
+      "title": "星辰科技第二季度营收 218 亿元 同比增长 34%",
+      "action": "push",
+      "decided_by": [],
+      "trace": [],
+      "unresolved": false,
+      "via": "default"
+    },
+    {
+      "id": "N12",
+      "title": "星辰科技第二季度营收 218 亿元 同比增长 34%",
+      "action": "mute",
+      "decided_by": [
+        "R6"
+      ],
+      "trace": [
+        {
+          "rule": "R6",
+          "name": "低质营销源静音",
+          "action": "mute",
+          "priority": 40
+        }
+      ],
+      "unresolved": false,
+      "via": "rule"
+    },
+    {
+      "id": "N13",
+      "title": "星辰科技 CEO 张明辞职 由 CFO 临时接任",
+      "action": "push",
+      "decided_by": [],
+      "trace": [],
+      "unresolved": false,
+      "via": "default"
+    },
+    {
+      "id": "N14",
+      "title": "地铁 11 号线今日开通运营 全长 42 公里设 18 座车站",
+      "action": "push",
+      "decided_by": [
+        "R2"
+      ],
+      "trace": [
+        {
+          "rule": "R2",
+          "name": "高转发就推",
+          "action": "push",
+          "priority": 20
+        }
+      ],
+      "unresolved": false,
+      "via": "rule"
+    },
+    {
+      "id": "N15",
+      "title": "11 号线通车首日，家住建外苑的王先生：出小区步行 8 分钟到地铁站",
+      "action": "push",
+      "decided_by": [],
+      "trace": [],
+      "unresolved": false,
+      "via": "default"
+    },
+    {
+      "id": "N16",
+      "title": "11 号线沿线二手房挂牌量明显上升",
+      "action": "push",
+      "decided_by": [],
+      "trace": [],
+      "unresolved": false,
+      "via": "default"
+    },
+    {
+      "id": "N17",
+      "title": "台风“海燕”在浙江台州沿海登陆 中心附近最大风力 13 级",
+      "action": "push",
+      "decided_by": [
+        "R2"
+      ],
+      "trace": [
+        {
+          "rule": "R2",
+          "name": "高转发就推",
+          "action": "push",
+          "priority": 20
+        }
+      ],
+      "unresolved": false,
+      "via": "rule"
+    },
+    {
+      "id": "N18",
+      "title": "台风“海燕”登陆台州 沿海 23 万人提前转移",
+      "action": "push",
+      "decided_by": [
+        "R2"
+      ],
+      "trace": [
+        {
+          "rule": "R2",
+          "name": "高转发就推",
+          "action": "push",
+          "priority": 20
+        }
+      ],
+      "unresolved": false,
+      "via": "rule"
+    },
+    {
+      "id": "N19",
+      "title": "新台风或将生成，下周可能影响华东沿海",
+      "action": "push",
+      "decided_by": [],
+      "trace": [],
+      "unresolved": false,
+      "via": "default"
+    },
+    {
+      "id": "N20",
+      "title": "医保门诊共济新规 9 月 20 日起实施 个人账户可家庭共用",
+      "action": "push",
+      "decided_by": [
+        "R4"
+      ],
+      "trace": [
+        {
+          "rule": "R4",
+          "name": "医保相关必须推",
+          "action": "push",
+          "priority": 5
+        },
+        {
+          "rule": "R2",
+          "name": "高转发就推",
+          "action": "push",
+          "priority": 20
+        }
+      ],
+      "unresolved": false,
+      "via": "rule"
+    },
+    {
+      "id": "N21",
+      "title": "9 月 20 日起医保个人账户家庭共济落地",
+      "action": "push",
+      "decided_by": [
+        "R4"
+      ],
+      "trace": [
+        {
+          "rule": "R4",
+          "name": "医保相关必须推",
+          "action": "push",
+          "priority": 5
+        },
+        {
+          "rule": "R2",
+          "name": "高转发就推",
+          "action": "push",
+          "priority": 20
+        }
+      ],
+      "unresolved": false,
+      "via": "rule"
+    },
+    {
+      "id": "N22",
+      "title": "专家解读医保门诊共济：家庭共用不等于随意套现",
+      "action": "push",
+      "decided_by": [
+        "R4",
+        "R5"
+      ],
+      "trace": [
+        {
+          "rule": "R4",
+          "name": "医保相关必须推",
+          "action": "push",
+          "priority": 5
+        },
+        {
+          "rule": "R5",
+          "name": "标题党解读稿静音",
+          "action": "mute",
+          "priority": 5
+        }
+      ],
+      "unresolved": true,
+      "via": "rule"
+    },
+    {
+      "id": "N23",
+      "title": "门诊共济保障机制实施细则发布 个人账户能给家人用",
+      "action": "push",
+      "decided_by": [
+        "R4"
+      ],
+      "trace": [
+        {
+          "rule": "R4",
+          "name": "医保相关必须推",
+          "action": "push",
+          "priority": 5
+        }
+      ],
+      "unresolved": false,
+      "via": "rule"
+    },
+    {
+      "id": "N24",
+      "title": "华晨新能源召回 2.4 万辆电动车 涉及车窗升降开关缺陷",
+      "action": "push",
+      "decided_by": [],
+      "trace": [],
+      "unresolved": false,
+      "via": "default"
+    },
+    {
+      "id": "N25",
+      "title": "缺陷车窗升降开关存在隐患 华晨召回涉及 2.4 万辆",
+      "action": "mute",
+      "decided_by": [
+        "R6"
+      ],
+      "trace": [
+        {
+          "rule": "R6",
+          "name": "低质营销源静音",
+          "action": "mute",
+          "priority": 40
+        }
+      ],
+      "unresolved": false,
+      "via": "rule"
+    },
+    {
+      "id": "N26",
+      "title": "世界杯决赛：阿根廷点球战胜巴西 夺冠",
+      "action": "push",
+      "decided_by": [
+        "R2"
+      ],
+      "trace": [
+        {
+          "rule": "R2",
+          "name": "高转发就推",
+          "action": "push",
+          "priority": 20
+        }
+      ],
+      "unresolved": false,
+      "via": "rule"
+    },
+    {
+      "id": "N27",
+      "title": "阿根廷国内出现大规模夺冠庆祝人群，警方维持秩序",
+      "action": "push",
+      "decided_by": [
+        "R2"
+      ],
+      "trace": [
+        {
+          "rule": "R2",
+          "name": "高转发就推",
+          "action": "push",
+          "priority": 20
+        }
+      ],
+      "unresolved": false,
+      "via": "rule"
+    },
+    {
+      "id": "N28",
+      "title": "欧洲议会通过 AI 法案修正案 高风险系统须事前评估",
+      "action": "push",
+      "decided_by": [],
+      "trace": [],
+      "unresolved": false,
+      "via": "default"
+    },
+    {
+      "id": "N29",
+      "title": "AI 法案修正案通过 高风险用途需事前合规评估",
+      "action": "push",
+      "decided_by": [
+        "R2"
+      ],
+      "trace": [
+        {
+          "rule": "R2",
+          "name": "高转发就推",
+          "action": "push",
+          "priority": 20
+        },
+        {
+          "rule": "R3",
+          "name": "科技类先静音",
+          "action": "mute",
+          "priority": 30
+        }
+      ],
+      "unresolved": false,
+      "via": "rule"
+    },
+    {
+      "id": "N30",
+      "title": "全国铁路中秋假期运输方案发布 预计发送旅客 1.2 亿人次",
+      "action": "push",
+      "decided_by": [],
+      "trace": [],
+      "unresolved": false,
+      "via": "default"
+    }
+  ],
+  "rules_hash": "d73332d4e2ea7c19",
+  "data_hash": "bd7fbbf260c51e40",
+  "plan_hash": "a1317e23fa046c21"
+}

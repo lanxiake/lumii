@@ -1,0 +1,56 @@
+[
+  {"id": "A01", "title": "OpenAI 正式发布 GPT-5：多模态推理能力大幅提升", "source": "机器之心", "published": "2026-09-14T09:05", "truth": "G1", "expect": "merge"},
+  {"id": "A02", "title": "OpenAI 正式发布 GPT-5，多模态推理能力大幅提升", "source": "量子位", "published": "2026-09-14T09:31", "truth": "G1", "expect": "merge"},
+  {"id": "A03", "title": "快讯丨OpenAI 发布 GPT-5 模型", "source": "财联社", "published": "2026-09-14T09:40", "truth": "G1", "expect": "merge"},
+  {"id": "A04", "title": "GPT-5 来了：OpenAI 宣布正式开放多模态推理", "source": "新浪科技（转载机器之心）", "published": "2026-09-14T10:15", "truth": "G1", "expect": "merge"},
+  {"id": "A05", "title": "OpenAI 发布 GPT-5，API 价格同步下调", "source": "InfoQ", "published": "2026-09-14T11:20", "truth": "G1", "expect": "merge"},
+  {"id": "A06", "title": "GPT-5 发布一周后：开发者总结的十个实用用法", "source": "少数派", "published": "2026-09-15T10:00", "truth": "G1", "expect": "miss-time"},
+  {"id": "A07", "title": "GPT-5 发布 40 小时后：OpenAI 公布首批企业客户名单", "source": "TechCrunch 中文", "published": "2026-09-16T06:00", "truth": "G1", "expect": "miss-time"},
+
+  {"id": "B01", "title": "地铁 11 号线今日开通运营 全长 42 公里设 18 座车站", "source": "市交通运输委", "published": "2026-09-14T05:50", "truth": "G2", "expect": "merge"},
+  {"id": "B02", "title": "11 号线今天开通，全长 42 公里、18 座车站", "source": "本地晚报", "published": "2026-09-14T07:10", "truth": "G2", "expect": "merge"},
+  {"id": "B03", "title": "快讯丨地铁 11 号线开通运营", "source": "澎湃新闻", "published": "2026-09-14T06:05", "truth": "G2", "expect": "merge"},
+  {"id": "B04", "title": "11 号线通车首日，家住建外苑的王先生：出小区步行 8 分钟到地铁站", "source": "社区花园里", "published": "2026-09-14T09:30", "truth": "G2", "expect": "miss-local"},
+  {"id": "B05", "title": "东西向通勤有望缩短 25 分钟——居民眼中的 11 号线首日", "source": "城市观察笔记", "published": "2026-09-14T11:40", "truth": "G2", "expect": "miss-local"},
+  {"id": "B06", "title": "11 号线沿线二手房挂牌量明显上升", "source": "房产观察", "published": "2026-09-14T15:20", "truth": "D3", "expect": "merge"},
+
+  {"id": "C01", "title": "央行宣布下调存款准备金率 0.5 个百分点", "source": "人民银行", "published": "2026-09-14T17:00", "truth": "G3", "expect": "merge"},
+  {"id": "C02", "title": "中国人民银行：下调金融机构存款准备金率 0.5 个百分点", "source": "新华社", "published": "2026-09-14T17:20", "truth": "G3", "expect": "merge"},
+  {"id": "C03", "title": "快讯丨央行降准 0.5 个百分点 释放长期资金约 1 万亿元", "source": "财联社", "published": "2026-09-14T17:12", "truth": "G3", "expect": "merge"},
+  {"id": "C04", "title": "降准 0.5 个百分点落地 银行体系流动性趋于充裕", "source": "经济观察报", "published": "2026-09-14T19:05", "truth": "G3", "expect": "merge"},
+  {"id": "C05", "title": "降准预期落空？多位专家回应房地产市场传闻", "source": "财经头条号", "published": "2026-09-14T20:00", "truth": "D1", "expect": "merge"},
+  {"id": "C06", "title": "央行行长在陆家嘴论坛谈人民币汇率弹性", "source": "第一财经", "published": "2026-09-14T18:30", "truth": "D2", "expect": "merge"},
+
+  {"id": "E01", "title": "星辰科技第二季度营收 218 亿元 同比增长 34%", "source": "公司公告", "published": "2026-09-14T21:30", "truth": "G4", "expect": "merge"},
+  {"id": "E02", "title": "星辰科技 Q2 营收 218 亿元，同比增长 34%", "source": "格隆汇", "published": "2026-09-14T21:45", "truth": "G4", "expect": "merge"},
+  {"id": "E03", "title": "星辰科技发布第二季度财报：云业务增速 61%", "source": "界面新闻", "published": "2026-09-14T22:10", "truth": "G4", "expect": "merge"},
+  {"id": "E04", "title": "星辰科技第二季度营收 218 亿元 同比增长 34%", "source": "某财富号（转载公司公告）", "published": "2026-09-15T00:20", "truth": "G4", "expect": "merge"},
+  {"id": "E05", "title": "星辰科技 CEO 张明辞职 由 CFO 临时接任", "source": "雷峰网", "published": "2026-09-15T08:00", "truth": "D5", "expect": "merge"},
+
+  {"id": "F01", "title": "台风“海燕”在浙江台州沿海登陆 中心附近最大风力 13 级", "source": "中央气象台", "published": "2026-09-14T14:20", "truth": "G5", "expect": "merge"},
+  {"id": "F02", "title": "今年第 12 号台风“海燕”于 14 日 14 时在台州登陆", "source": "新华社", "published": "2026-09-14T15:00", "truth": "G5", "expect": "merge"},
+  {"id": "F03", "title": "台风“海燕”登陆台州 沿海 23 万人提前转移", "source": "浙江在线", "published": "2026-09-14T16:10", "truth": "G5", "expect": "merge"},
+  {"id": "F04", "title": "新台风或将生成，下周可能影响华东沿海", "source": "中央气象台", "published": "2026-09-15T09:00", "truth": "D4", "expect": "merge"},
+
+  {"id": "H01", "title": "世界杯决赛：阿根廷点球战胜巴西 夺冠", "source": "懂球帝", "published": "2026-09-15T03:10", "truth": "G6", "expect": "merge"},
+  {"id": "H02", "title": "阿根廷点球大战击败巴西，捧起世界杯", "source": "直播吧", "published": "2026-09-15T03:40", "truth": "G6", "expect": "merge"},
+  {"id": "H03", "title": "世界杯决赛点球决胜 阿根廷夺得冠军", "source": "体坛周报", "published": "2026-09-15T05:00", "truth": "G6", "expect": "merge"},
+  {"id": "H04", "title": "阿根廷国内出现大规模夺冠庆祝人群，警方维持秩序", "source": "海外网", "published": "2026-09-15T09:20", "truth": "D7", "expect": "merge"},
+
+  {"id": "K01", "title": "华晨新能源召回 2.4 万辆电动车 涉及车窗升降开关缺陷", "source": "市场监管总局", "published": "2026-09-14T16:00", "truth": "G7", "expect": "merge"},
+  {"id": "K02", "title": "华晨新能源召回 24000 辆电动车，车窗升降开关存在缺陷", "source": "汽车之家", "published": "2026-09-14T16:40", "truth": "G7", "expect": "merge"},
+  {"id": "K03", "title": "车窗升降开关缺陷 华晨新能源召回部分纯电动车", "source": "第一财经", "published": "2026-09-14T17:30", "truth": "G7", "expect": "merge"},
+  {"id": "K04", "title": "缺陷车窗升降开关存在隐患 华晨召回涉及 2.4 万辆", "source": "车主指南", "published": "2026-09-14T18:20", "truth": "G7", "expect": "merge"},
+  {"id": "K05", "title": "另一品牌电动车因动力电池包问题召回 1.1 万辆", "source": "市场监管总局", "published": "2026-09-15T11:00", "truth": "D6", "expect": "merge"},
+
+  {"id": "M01", "title": "医保门诊共济新规 9 月 20 日起实施 个人账户可家庭共用", "source": "医保局", "published": "2026-09-15T10:30", "truth": "G8", "expect": "merge"},
+  {"id": "M02", "title": "9 月 20 日起医保个人账户家庭共济落地", "source": "新华社", "published": "2026-09-15T11:00", "truth": "G8", "expect": "merge"},
+  {"id": "M03", "title": "门诊共济保障机制实施细则发布 个人账户能给家人用", "source": "健康时报", "published": "2026-09-15T12:15", "truth": "G8", "expect": "merge"},
+  {"id": "M04", "title": "专家解读医保门诊共济：家庭共用不等于随意套现", "source": "医学界", "published": "2026-09-15T22:00", "truth": "G8", "expect": "merge"},
+
+  {"id": "P01", "title": "欧洲议会通过 AI 法案修正案 高风险系统须事前评估", "source": "Reuters 中文", "published": "2026-09-15T19:00", "truth": "G9", "expect": "merge"},
+  {"id": "P02", "title": "欧洲议会表决通过 AI 法案修正案", "source": "财新", "published": "2026-09-15T19:30", "truth": "G9", "expect": "merge"},
+  {"id": "P03", "title": "AI 法案修正案通过 高风险用途需事前合规评估", "source": "腾讯科技", "published": "2026-09-15T20:40", "truth": "G9", "expect": "merge"},
+
+  {"id": "Z01", "title": "全国铁路中秋假期运输方案发布 预计发送旅客 1.2 亿人次", "source": "中国铁路", "published": "2026-09-15T14:00", "truth": "D8", "expect": "merge"}
+]

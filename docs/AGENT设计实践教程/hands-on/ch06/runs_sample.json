@@ -1,0 +1,517 @@
+{
+  "note": "第 6 章实验 A 样例数据：60 条 agent 运行记录。mem_017 为『自信的错误解释』，由 r005 失败后的自动反思写入，此后 12 次被引用、11 次伴随失败——对应 Honest Lying 论文的 memory confabulation 模式。",
+  "memories": [
+    {
+      "memory_id": "mem_003",
+      "text": "导出类任务先拉 1 条样本，确认返回结构与接口文档一致后再跑全量。",
+      "source": "human",
+      "created_from_run": null
+    },
+    {
+      "memory_id": "mem_008",
+      "text": "推送重复时直接重跑整个任务即可，接口是幂等的。",
+      "source": "auto-reflection",
+      "created_from_run": "r012"
+    },
+    {
+      "memory_id": "mem_017",
+      "text": "工单接口返回空列表说明当天没有新数据，直接按 0 条上报即可，不必翻页，也不必调整时间窗。",
+      "source": "auto-reflection",
+      "created_from_run": "r005"
+    },
+    {
+      "memory_id": "mem_021",
+      "text": "工具调用报错时，绕过该工具改用 bash 重跑整条流程。",
+      "source": "auto-reflection",
+      "created_from_run": "r008"
+    },
+    {
+      "memory_id": "mem_042",
+      "text": "sjsc 接口字段沿用旧文档的驼峰命名（iptTime、orderId、ticketNo）。",
+      "source": "auto-reflection",
+      "created_from_run": "r004"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "r002",
+      "success": false,
+      "error_type": "pagination_truncated",
+      "referenced_memory_id": "mem_003",
+      "task_family": "order_report",
+      "trace_snippet": "order.list(page=1) 返回 20/437 条，Agent 用这 20 条汇总了当日订单金额。"
+    },
+    {
+      "run_id": "r004",
+      "success": false,
+      "error_type": "schema_mismatch",
+      "referenced_memory_id": "mem_042",
+      "task_family": "ticket_export",
+      "trace_snippet": "按 iptTime 构造查询参数，接口 400：unknown field iptTime。"
+    },
+    {
+      "run_id": "r005",
+      "success": false,
+      "error_type": "pagination_truncated",
+      "referenced_memory_id": null,
+      "task_family": "feed_digest",
+      "trace_snippet": "ticket.search 返回 has_more=true，Agent 只看第一页 20 条就判定『没有新工单』。"
+    },
+    {
+      "run_id": "r006",
+      "success": false,
+      "error_type": "silent_empty_result",
+      "referenced_memory_id": null,
+      "task_family": "order_report",
+      "trace_snippet": "09:05 查询当日订单返回空列表，Agent 上报『今日暂无订单』。"
+    },
+    {
+      "run_id": "r008",
+      "success": false,
+      "error_type": "hallucinated_tool",
+      "referenced_memory_id": "mem_021",
+      "task_family": "inventory_sync",
+      "trace_snippet": "调用不存在的 inventory.reconcile_v2 失败后，用 bash 直接改写了库存表文件。"
+    },
+    {
+      "run_id": "r009",
+      "success": false,
+      "error_type": "time_window_misread",
+      "referenced_memory_id": "mem_021",
+      "task_family": "kpi_dashboard",
+      "trace_snippet": "把数据源的 UTC 截止时间当本地时间用，统计窗口整体偏移 8 小时。"
+    },
+    {
+      "run_id": "r011",
+      "success": false,
+      "error_type": "silent_empty_result",
+      "referenced_memory_id": "mem_017",
+      "task_family": "order_report",
+      "trace_snippet": "依据记忆 mem_017：空列表=无新数据，直接上报 0 单，未翻页未换窗。"
+    },
+    {
+      "run_id": "r012",
+      "success": false,
+      "error_type": "duplicate_side_effect",
+      "referenced_memory_id": "mem_008",
+      "task_family": "feed_digest",
+      "trace_snippet": "整单重跑导致同一条工单被推送两次。"
+    },
+    {
+      "run_id": "r013",
+      "success": false,
+      "error_type": "schema_mismatch",
+      "referenced_memory_id": "mem_042",
+      "task_family": "ticket_export",
+      "trace_snippet": "响应解析按驼峰字段取值，全部取空，导出 CSV 半数为空列。"
+    },
+    {
+      "run_id": "r014",
+      "success": false,
+      "error_type": "pagination_truncated",
+      "referenced_memory_id": null,
+      "task_family": "ticket_export",
+      "trace_snippet": "导出只含第一页 100 条，实际总数 2,612 条。"
+    },
+    {
+      "run_id": "r016",
+      "success": false,
+      "error_type": "time_window_misread",
+      "referenced_memory_id": "mem_017",
+      "task_family": "kpi_dashboard",
+      "trace_snippet": "先命中空结果，再依据 mem_017 判定『窗口里没有工单』，跳过了时间窗核对。"
+    },
+    {
+      "run_id": "r017",
+      "success": false,
+      "error_type": "hallucinated_tool",
+      "referenced_memory_id": null,
+      "task_family": "order_report",
+      "trace_snippet": "臆造了 report.render 工具名，重试 3 次后放弃。"
+    },
+    {
+      "run_id": "r018",
+      "success": false,
+      "error_type": "silent_empty_result",
+      "referenced_memory_id": "mem_017",
+      "task_family": "feed_digest",
+      "trace_snippet": "引用 mem_017 后直接上报 0 条新工单，实际当日有 41 条。"
+    },
+    {
+      "run_id": "r019",
+      "success": false,
+      "error_type": "schema_mismatch",
+      "referenced_memory_id": "mem_042",
+      "task_family": "inventory_sync",
+      "trace_snippet": "用旧驼峰 orderId 作为关联键，与下游 snake_case 对不上，关联全丢。"
+    },
+    {
+      "run_id": "r021",
+      "success": false,
+      "error_type": "time_window_misread",
+      "referenced_memory_id": null,
+      "task_family": "order_report",
+      "trace_snippet": "把 ipttime（北京时间）按 UTC 解析，窗口右边界少算 8 小时。"
+    },
+    {
+      "run_id": "r022",
+      "success": false,
+      "error_type": "pagination_truncated",
+      "referenced_memory_id": null,
+      "task_family": "inventory_sync",
+      "trace_snippet": "库存差异清单只取了第一页，漏了 214 条差异。"
+    },
+    {
+      "run_id": "r023",
+      "success": false,
+      "error_type": "duplicate_side_effect",
+      "referenced_memory_id": "mem_008",
+      "task_family": "ticket_export",
+      "trace_snippet": "重跑整个导出流程，3 张工单被重复推送。"
+    },
+    {
+      "run_id": "r024",
+      "success": false,
+      "error_type": "silent_empty_result",
+      "referenced_memory_id": "mem_017",
+      "task_family": "ticket_export",
+      "trace_snippet": "引用 mem_017 直接结束：『接口说没数据』，未做 total 核对。"
+    },
+    {
+      "run_id": "r026",
+      "success": false,
+      "error_type": "schema_mismatch",
+      "referenced_memory_id": "mem_042",
+      "task_family": "order_report",
+      "trace_snippet": "按 camelCase 组装 JSON 写入失败，整批订单丢失。"
+    },
+    {
+      "run_id": "r027",
+      "success": false,
+      "error_type": "time_window_misread",
+      "referenced_memory_id": "mem_021",
+      "task_family": "feed_digest",
+      "trace_snippet": "窗口算错导致空结果，随后走 mem_021 的 bash 兜底，绕过了接口校验。"
+    },
+    {
+      "run_id": "r028",
+      "success": false,
+      "error_type": "pagination_truncated",
+      "referenced_memory_id": "mem_017",
+      "task_family": "order_report",
+      "trace_snippet": "首页为空即触发 mem_017 规则终止翻页，实为游标参数放错位置。"
+    },
+    {
+      "run_id": "r029",
+      "success": false,
+      "error_type": "hallucinated_tool",
+      "referenced_memory_id": "mem_021",
+      "task_family": "ticket_export",
+      "trace_snippet": "调用了已下线的 export.csv_async，失败后用 bash 拼接 CSV 绕过校验。"
+    },
+    {
+      "run_id": "r031",
+      "success": false,
+      "error_type": "silent_empty_result",
+      "referenced_memory_id": "mem_017",
+      "task_family": "kpi_dashboard",
+      "trace_snippet": "周报窗口首日为空，依 mem_017 判定无数据，周报漏掉 12 单。"
+    },
+    {
+      "run_id": "r033",
+      "success": false,
+      "error_type": "time_window_misread",
+      "referenced_memory_id": null,
+      "task_family": "feed_digest",
+      "trace_snippet": "对『昨天 18 点以后』理解为本地时区，数据源按 UTC 分片。"
+    },
+    {
+      "run_id": "r034",
+      "success": false,
+      "error_type": "schema_mismatch",
+      "referenced_memory_id": "mem_042",
+      "task_family": "kpi_dashboard",
+      "trace_snippet": "聚合脚本按 iptTime 取数得到 None，KPI 面板当日数据缺失。"
+    },
+    {
+      "run_id": "r035",
+      "success": false,
+      "error_type": "pagination_truncated",
+      "referenced_memory_id": null,
+      "task_family": "feed_digest",
+      "trace_snippet": "摘要只覆盖前 50 条，用户追问时才发现共 780 条。"
+    },
+    {
+      "run_id": "r037",
+      "success": false,
+      "error_type": "silent_empty_result",
+      "referenced_memory_id": "mem_017",
+      "task_family": "ticket_export",
+      "trace_snippet": "空结果 + mem_017，未核对源侧 12:00 才补数的事实。"
+    },
+    {
+      "run_id": "r038",
+      "success": false,
+      "error_type": "duplicate_side_effect",
+      "referenced_memory_id": null,
+      "task_family": "inventory_sync",
+      "trace_snippet": "失败重试时未带幂等键，库存调整单生成两条。"
+    },
+    {
+      "run_id": "r039",
+      "success": false,
+      "error_type": "time_window_misread",
+      "referenced_memory_id": "mem_017",
+      "task_family": "order_report",
+      "trace_snippet": "窗口错→空→mem_017 收口，错误解释闭环。"
+    },
+    {
+      "run_id": "r041",
+      "success": false,
+      "error_type": "hallucinated_tool",
+      "referenced_memory_id": null,
+      "task_family": "kpi_dashboard",
+      "trace_snippet": "臆造 dashboard.push_metrics，重试耗尽。"
+    },
+    {
+      "run_id": "r042",
+      "success": false,
+      "error_type": "silent_empty_result",
+      "referenced_memory_id": "mem_017",
+      "task_family": "feed_digest",
+      "trace_snippet": "再次引用 mem_017：『上游又没推数据』，实际窗口右边界算错。"
+    },
+    {
+      "run_id": "r044",
+      "success": false,
+      "error_type": "pagination_truncated",
+      "referenced_memory_id": "mem_017",
+      "task_family": "inventory_sync",
+      "trace_snippet": "首页空后停止，mem_017 被用来解释『库存无变动』。"
+    },
+    {
+      "run_id": "r046",
+      "success": false,
+      "error_type": "schema_mismatch",
+      "referenced_memory_id": null,
+      "task_family": "feed_digest",
+      "trace_snippet": "上游把 ticketNo 改成 case_id，解析空转。"
+    },
+    {
+      "run_id": "r047",
+      "success": false,
+      "error_type": "time_window_misread",
+      "referenced_memory_id": null,
+      "task_family": "inventory_sync",
+      "trace_snippet": "月末窗口跨界计算错一天。"
+    },
+    {
+      "run_id": "r049",
+      "success": false,
+      "error_type": "silent_empty_result",
+      "referenced_memory_id": "mem_017",
+      "task_family": "order_report",
+      "trace_snippet": "空列表时直接引用 mem_017 上报 0，实际是鉴权过期导致 401 被吞成空。"
+    },
+    {
+      "run_id": "r051",
+      "success": false,
+      "error_type": "pagination_truncated",
+      "referenced_memory_id": null,
+      "task_family": "kpi_dashboard",
+      "trace_snippet": "分页参数 max_results 未传，默认 20 条当全量。"
+    },
+    {
+      "run_id": "r053",
+      "success": false,
+      "error_type": "duplicate_side_effect",
+      "referenced_memory_id": null,
+      "task_family": "order_report",
+      "trace_snippet": "无幂等键重试，同一日报生成两份。"
+    },
+    {
+      "run_id": "r055",
+      "success": false,
+      "error_type": "silent_empty_result",
+      "referenced_memory_id": null,
+      "task_family": "ticket_export",
+      "trace_snippet": "空结果未做任何核对即上报，与 r006 同型。"
+    },
+    {
+      "run_id": "r001",
+      "success": true,
+      "error_type": null,
+      "referenced_memory_id": "mem_003",
+      "task_family": "order_report",
+      "trace_snippet": "先拉 1 条样本核对字段，再全量导出，437 条全部翻页取回。"
+    },
+    {
+      "run_id": "r003",
+      "success": true,
+      "error_type": null,
+      "referenced_memory_id": "mem_003",
+      "task_family": "ticket_export",
+      "trace_snippet": "样本核对发现字段已是 snake_case，改用 case_id 关联成功。"
+    },
+    {
+      "run_id": "r007",
+      "success": true,
+      "error_type": null,
+      "referenced_memory_id": "mem_003",
+      "task_family": "feed_digest",
+      "trace_snippet": "先取 1 条确认结构，再按 total 循环翻页拉全 780 条。"
+    },
+    {
+      "run_id": "r010",
+      "success": true,
+      "error_type": null,
+      "referenced_memory_id": "mem_003",
+      "task_family": "kpi_dashboard",
+      "trace_snippet": "先核对样本结构，窗口按数据源更新时间对齐后出数。"
+    },
+    {
+      "run_id": "r015",
+      "success": true,
+      "error_type": null,
+      "referenced_memory_id": null,
+      "task_family": "inventory_sync",
+      "trace_snippet": "空结果时按契约核对：窗口覆盖更新时间且 total=0，判定确无变动。"
+    },
+    {
+      "run_id": "r020",
+      "success": true,
+      "error_type": null,
+      "referenced_memory_id": "mem_003",
+      "task_family": "order_report",
+      "trace_snippet": "导出前先验证字段，翻页至 has_more=false。"
+    },
+    {
+      "run_id": "r025",
+      "success": true,
+      "error_type": null,
+      "referenced_memory_id": null,
+      "task_family": "feed_digest",
+      "trace_snippet": "空结果触发重试与窗口平移复核，第二窗取回 41 条。"
+    },
+    {
+      "run_id": "r030",
+      "success": true,
+      "error_type": null,
+      "referenced_memory_id": "mem_003",
+      "task_family": "ticket_export",
+      "trace_snippet": "样本核对 + 分页循环 + 幂等键，导出 2,612 条无重复。"
+    },
+    {
+      "run_id": "r032",
+      "success": true,
+      "error_type": null,
+      "referenced_memory_id": null,
+      "task_family": "kpi_dashboard",
+      "trace_snippet": "输出请求窗三要素（源更新时间/起/止）后再取数。"
+    },
+    {
+      "run_id": "r036",
+      "success": true,
+      "error_type": null,
+      "referenced_memory_id": "mem_003",
+      "task_family": "feed_digest",
+      "trace_snippet": "先拉样本，发现新增字段后调整解析，全量成功。"
+    },
+    {
+      "run_id": "r040",
+      "success": true,
+      "error_type": null,
+      "referenced_memory_id": "mem_003",
+      "task_family": "order_report",
+      "trace_snippet": "按 snake_case 组装写入，先 1 条试写再全量。"
+    },
+    {
+      "run_id": "r043",
+      "success": true,
+      "error_type": null,
+      "referenced_memory_id": null,
+      "task_family": "ticket_export",
+      "trace_snippet": "重试带幂等键，未产生重复推送。"
+    },
+    {
+      "run_id": "r045",
+      "success": true,
+      "error_type": null,
+      "referenced_memory_id": "mem_003",
+      "task_family": "kpi_dashboard",
+      "trace_snippet": "结构核对 + 窗口对齐 + 分页循环一次通过。"
+    },
+    {
+      "run_id": "r048",
+      "success": true,
+      "error_type": null,
+      "referenced_memory_id": null,
+      "task_family": "feed_digest",
+      "trace_snippet": "跨时区窗口显式换算为 UTC 后取数正确。"
+    },
+    {
+      "run_id": "r050",
+      "success": true,
+      "error_type": null,
+      "referenced_memory_id": "mem_017",
+      "task_family": "inventory_sync",
+      "trace_snippet": "本次空结果碰巧真实（源侧确认 total=0），侥幸成功。"
+    },
+    {
+      "run_id": "r052",
+      "success": true,
+      "error_type": null,
+      "referenced_memory_id": "mem_003",
+      "task_family": "order_report",
+      "trace_snippet": "样本核对 + 全量翻页 + 行数比对通过。"
+    },
+    {
+      "run_id": "r054",
+      "success": true,
+      "error_type": null,
+      "referenced_memory_id": "mem_021",
+      "task_family": "kpi_dashboard",
+      "trace_snippet": "一次工具抖动后用 bash 兜底成功（低概率奏效）。"
+    },
+    {
+      "run_id": "r056",
+      "success": true,
+      "error_type": null,
+      "referenced_memory_id": "mem_003",
+      "task_family": "ticket_export",
+      "trace_snippet": "先核对结构后导出，字段映射无误。"
+    },
+    {
+      "run_id": "r057",
+      "success": true,
+      "error_type": null,
+      "referenced_memory_id": null,
+      "task_family": "feed_digest",
+      "trace_snippet": "空结果时按『三重核对』流程确认确属无数据，判定正确。"
+    },
+    {
+      "run_id": "r058",
+      "success": true,
+      "error_type": null,
+      "referenced_memory_id": "mem_003",
+      "task_family": "order_report",
+      "trace_snippet": "导出前样本核对，437/437 行校验通过。"
+    },
+    {
+      "run_id": "r059",
+      "success": true,
+      "error_type": null,
+      "referenced_memory_id": null,
+      "task_family": "inventory_sync",
+      "trace_snippet": "带幂等键的分页同步，无重复无遗漏。"
+    },
+    {
+      "run_id": "r060",
+      "success": true,
+      "error_type": null,
+      "referenced_memory_id": null,
+      "task_family": "ticket_export",
+      "trace_snippet": "窗口三要素先行输出，取数一次成功。"
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "now": "2026-09-16T00:00:00Z",
+  "comment": "20 条模拟记忆。NOW 固定在 2026-09-16，保证输出可复现。字段：id/text/importance(1-10)/created_at/tags。gold_queries 标注每个演示查询的『应检索到』条目。",
+  "memories": [
+    {"id": "M01", "text": "用户要求：微信渠道的回复保持简短，不要超过约两百字", "importance": 9, "created_at": "2026-07-03T09:12:00Z", "tags": ["偏好", "渠道"]},
+    {"id": "M02", "text": "数据层决定从 MySQL 迁移到 PostgreSQL，下季度执行", "importance": 8, "created_at": "2026-08-07T02:30:00Z", "tags": ["架构", "数据库"]},
+    {"id": "M03", "text": "jtj-tscl 定时任务更新 wyc_sb 表报 Unknown column labelName，mapper 与表结构不一致", "importance": 9, "created_at": "2026-09-15T05:00:00Z", "tags": ["故障", "工单"]},
+    {"id": "M04", "text": "今天的推送早报共 6 条，其中 2 条来自 36氪 快讯", "importance": 2, "created_at": "2026-09-15T00:05:00Z", "tags": ["推送", "日报"]},
+    {"id": "M05", "text": "昨天的推送早报共 5 条，用户未点击", "importance": 2, "created_at": "2026-09-14T00:05:00Z", "tags": ["推送", "日报"]},
+    {"id": "M06", "text": "前天推送早报后收到反馈：最近推得太浅，希望加深摘要", "importance": 6, "created_at": "2026-09-13T01:20:00Z", "tags": ["推送", "偏好"]},
+    {"id": "M07", "text": "备份脚本改为每周日凌晨执行，失败时发渠道通知", "importance": 4, "created_at": "2026-09-10T22:00:00Z", "tags": ["运维", "备份"]},
+    {"id": "M08", "text": "web_search 结果被日历与导航类页面污染，直接抓 36氪 快讯列表页更可靠", "importance": 8, "created_at": "2026-09-12T08:00:00Z", "tags": ["经验", "检索"]},
+    {"id": "M09", "text": "用户提到孩子九月开学，晚上十点后不要推送打扰", "importance": 7, "created_at": "2026-08-30T13:40:00Z", "tags": ["偏好", "渠道"]},
+    {"id": "M10", "text": "维护 Agent 工具面 31 个超过警告区间，收敛目标小于 20", "importance": 7, "created_at": "2026-09-08T10:00:00Z", "tags": ["架构"]},
+    {"id": "M11", "text": "MySQL 慢查询日志显示 t_complaintinfo 全表扫描，考虑加索引", "importance": 5, "created_at": "2026-09-11T03:15:00Z", "tags": ["数据库", "性能"]},
+    {"id": "M12", "text": "12345 工单补数洪峰在北京 12:00-15:20，对账要错开该时段", "importance": 6, "created_at": "2026-09-05T07:30:00Z", "tags": ["工单", "运维"]},
+    {"id": "M13", "text": "周报格式偏好：先结论后过程，重点用表格", "importance": 5, "created_at": "2026-08-21T09:00:00Z", "tags": ["偏好", "格式"]},
+    {"id": "M14", "text": "今天推送的 AI 快讯里有一条关于开源模型发布，用户回复了哈哈", "importance": 1, "created_at": "2026-09-15T12:00:00Z", "tags": ["推送", "日报"]},
+    {"id": "M15", "text": "postgres 连接池上限设为 50，迁移窗口定在低峰", "importance": 4, "created_at": "2026-08-25T05:45:00Z", "tags": ["数据库", "架构"]},
+    {"id": "M16", "text": "用户不喜欢模板化套话，觉得 AI 味太浓", "importance": 6, "created_at": "2026-07-28T15:10:00Z", "tags": ["偏好", "风格"]},
+    {"id": "M17", "text": "上午推送列表已生成待发：3 条财经、2 条 AI", "importance": 1, "created_at": "2026-09-16T00:02:00Z", "tags": ["推送"]},
+    {"id": "M18", "text": "Tomcat 日志出现 PermGen 告警，JVM 参数已调整", "importance": 3, "created_at": "2026-06-20T02:00:00Z", "tags": ["运维"]},
+    {"id": "M19", "text": "工单 mapper 的字段要与表结构逐列核对后再发版", "importance": 5, "created_at": "2026-07-15T06:20:00Z", "tags": ["工单", "经验"]},
+    {"id": "M20", "text": "用户重申：微信回复要短，长内容改发文档", "importance": 9, "created_at": "2026-09-02T11:05:00Z", "tags": ["偏好", "渠道"]}
+  ],
+  "gold_queries": [
+    {"query": "微信 渠道 回复 简短 偏好", "gold": "M01", "why": "老而重要（75 天前）：论文默认权重下勉强第 2；换成偏近期的 B 档被挤到第 14 名，C 档又捞回第 1——权重就是命运"},
+    {"query": "MySQL PostgreSQL 迁移 数据库", "gold": "M02", "why": "相关但比近期噪音早 40 天：B 档把它压到第 13，C 档回到第 1；对比 M11/M15 看 relevance 分层"},
+    {"query": "mapper 表结构 不一致 报错", "gold": "M03", "why": "新且相关且重要：对照组，三档全部第 1——『该检索的检索不到』从不发生在它身上"}
+  ]
+}

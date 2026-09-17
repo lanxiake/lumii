@@ -1,0 +1,84 @@
+{
+  "log_file": "runlog_sample.json",
+  "total": 36,
+  "passed": 14,
+  "failed": 22,
+  "taxonomy": [
+    {
+      "label": "date_format",
+      "name": "日期格式/时区口径错误",
+      "count": 6,
+      "share_of_failures": 0.273,
+      "record_ids": [
+        "T-015",
+        "T-016",
+        "T-017",
+        "T-018",
+        "T-019",
+        "T-020"
+      ],
+      "rule": "date 字段一律输出 YYYY-MM-DD 纯日期（北京时间口径），不带时间、时区、秒，也不用其他语言或分隔符写法。"
+    },
+    {
+      "label": "format_invalid_json",
+      "name": "输出不是合法 JSON",
+      "count": 5,
+      "share_of_failures": 0.227,
+      "record_ids": [
+        "T-026",
+        "T-027",
+        "T-028",
+        "T-029",
+        "T-030"
+      ],
+      "rule": "只输出一个严格合法的 JSON：双引号、无注释、无尾逗号，JSON 前后不附加任何文字。"
+    },
+    {
+      "label": "amount_format",
+      "name": "金额单位/精度错误",
+      "count": 5,
+      "share_of_failures": 0.227,
+      "record_ids": [
+        "T-021",
+        "T-022",
+        "T-023",
+        "T-024",
+        "T-025"
+      ],
+      "rule": "amount 字段按原文照抄为两位小数的数字字符串：不换算成分/整数，不带货币符号和单位文字。"
+    },
+    {
+      "label": "missing_field",
+      "name": "字段遗漏或置空",
+      "count": 3,
+      "share_of_failures": 0.136,
+      "record_ids": [
+        "T-031",
+        "T-032",
+        "T-033"
+      ],
+      "rule": "input 中出现的信息必须逐字摘录到对应字段，禁止输出 null 或省略字段；只有原文确实没提供时才输出 null。"
+    },
+    {
+      "label": "hallucination",
+      "name": "抽取了原文没有的内容（幻觉）",
+      "count": 2,
+      "share_of_failures": 0.091,
+      "record_ids": [
+        "T-034",
+        "T-035"
+      ],
+      "rule": "只做逐字摘录：原文没有的信息一律输出 null，不得填入默认值、客服电话等看似合理的内容。"
+    },
+    {
+      "label": "refusal",
+      "name": "不该拒绝时拒绝",
+      "count": 1,
+      "share_of_failures": 0.045,
+      "record_ids": [
+        "T-036"
+      ],
+      "rule": "本任务是授权范围内的字段抽取：个人信息按字段要求原样摘录即可，这不是隐私违规，不要拒绝或解释，直接输出 JSON。"
+    }
+  ]
+}

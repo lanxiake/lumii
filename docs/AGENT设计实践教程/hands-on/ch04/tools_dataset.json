@@ -1,0 +1,102 @@
+{
+  "meta": {
+    "name": "ch04 工具选择混淆合成数据集",
+    "tool_count": 40,
+    "request_count": 30,
+    "note": "合成数据，仅用于观察『语义相近工具互相干扰』现象。cluster 标注语义组；converged 段定义 40→18 的收敛映射（deep_research 与 broadcast_message 因成本/风险语义不同而刻意不合并）。freq 标注工具的使用频率，用于讨论『高频常驻 + 低频延迟加载』。"
+  },
+  "tools": [
+    {"name": "web_search", "desc": "搜索公开互联网上的信息、新闻和网页内容；需要查询最新的外部消息或事实时使用。", "params": {"query": "string，搜索关键词"}, "cluster": "search", "freq": "high"},
+    {"name": "search_news", "desc": "搜索新闻报道、资讯和新闻稿；需要查找某事件或话题的新闻报道时使用。", "params": {"query": "string，话题或事件", "days": "int，限定最近 N 天，默认 7"}, "cluster": "search", "freq": "high"},
+    {"name": "search_docs", "desc": "搜索产品文档与帮助中心；需要查找官方文档中的使用说明和配置说明时使用。", "params": {"query": "string，关键词"}, "cluster": "search", "freq": "mid"},
+    {"name": "kb_query", "desc": "检索个人知识库；查找以前保存过的笔记、资料和信息。", "params": {"query": "string，查询语句"}, "cluster": "search", "freq": "mid"},
+    {"name": "web_search_images", "desc": "在互联网上搜索图片；需要查找图片、照片或设计参考图时使用。", "params": {"query": "string，画面描述"}, "cluster": "search", "freq": "low"},
+
+    {"name": "read_file", "desc": "读取文件内容；返回指定文件的全文。", "params": {"path": "string，文件路径"}, "cluster": "file", "freq": "high"},
+    {"name": "read_file_head", "desc": "读取文件开头的若干行；适合查看文件头部或日志的前 N 行。", "params": {"path": "string，文件路径", "lines": "int，行数，默认 20"}, "cluster": "file", "freq": "mid"},
+    {"name": "read_file_tail", "desc": "读取文件末尾的若干行；适合查看日志尾部或文件的最后 N 行。", "params": {"path": "string，文件路径", "lines": "int，行数，默认 50"}, "cluster": "file", "freq": "mid"},
+    {"name": "view_document", "desc": "预览文档内容；将 PDF、Word、PPT 转成纯文本后返回。", "params": {"path": "string，文档路径", "pages": "string，页码范围，如 1-3"}, "cluster": "file", "freq": "mid"},
+    {"name": "write_file", "desc": "写入文件；把内容写入指定路径，会覆盖原有内容。", "params": {"path": "string，文件路径", "content": "string，完整内容"}, "cluster": "file", "freq": "high"},
+    {"name": "edit_file", "desc": "编辑文件；在文件中查找旧字符串并替换成新字符串。", "params": {"path": "string，文件路径", "old": "string，被替换文本", "new": "string，新文本"}, "cluster": "file", "freq": "high"},
+    {"name": "append_file", "desc": "追加文件；把内容添加到文件末尾，不覆盖原内容。", "params": {"path": "string，文件路径", "content": "string，追加内容"}, "cluster": "file", "freq": "mid"},
+
+    {"name": "memory_search", "desc": "检索长期记忆；查找以往的经验、结论和信息。", "params": {"query": "string，语义查询"}, "cluster": "memory", "freq": "high"},
+    {"name": "memory_read", "desc": "读取长期记忆中的某条记录；返回该抽屉的完整原文。", "params": {"drawer_id": "string，抽屉编号"}, "cluster": "memory", "freq": "mid"},
+    {"name": "memory_manage", "desc": "管理长期记忆；删除、更新、整理记忆条目，归档过时内容。", "params": {"op": "enum：delete|update|archive", "id": "string"}, "cluster": "memory", "freq": "low"},
+
+    {"name": "note_create", "desc": "创建笔记；新写一条笔记内容。", "params": {"title": "string，标题", "content": "string"}, "cluster": "note", "freq": "high"},
+    {"name": "note_append", "desc": "追加笔记；往某条既有笔记里补充内容。", "params": {"id": "string，笔记编号", "content": "string"}, "cluster": "note", "freq": "mid"},
+    {"name": "note_update", "desc": "更新笔记；修改已有笔记的内容，覆盖原来的段落。", "params": {"id": "string，笔记编号", "content": "string"}, "cluster": "note", "freq": "mid"},
+    {"name": "note_search", "desc": "搜索笔记；查找和某个主题相关的笔记记录。", "params": {"query": "string，关键词"}, "cluster": "note", "freq": "mid"},
+
+    {"name": "send_message", "desc": "发送即时消息；把文本消息发给指定联系人或群。", "params": {"peer": "string，联系人或群", "text": "string"}, "cluster": "messaging", "freq": "high"},
+    {"name": "send_email", "desc": "发送邮件；把内容投递到指定邮箱，支持附件。", "params": {"to": "string，邮箱地址", "subject": "string", "body": "string", "attachments": "array，可选"}, "cluster": "messaging", "freq": "high"},
+    {"name": "send_sms", "desc": "发送短信；把文本消息发到指定手机号。", "params": {"phone": "string，手机号", "text": "string"}, "cluster": "messaging", "freq": "low"},
+    {"name": "broadcast_message", "desc": "群发消息；向全员群或组织内所有人发送一条通知，适合公告。", "params": {"text": "string，公告内容"}, "cluster": "messaging", "freq": "low"},
+
+    {"name": "calendar_list_events", "desc": "查看日程；列出指定时间段内的日程事项。", "params": {"from": "string，开始日期", "to": "string，结束日期"}, "cluster": "calendar", "freq": "mid"},
+    {"name": "calendar_create_event", "desc": "创建日程；在日历上新建一个日程事项，可设提醒。", "params": {"title": "string", "start": "string，ISO 时间", "duration_min": "int"}, "cluster": "calendar", "freq": "high"},
+    {"name": "calendar_find_free_slot", "desc": "查询空闲时段；在给定范围内找出能容纳指定时长的空闲时间。", "params": {"from": "string", "to": "string", "duration_min": "int"}, "cluster": "calendar", "freq": "mid"},
+
+    {"name": "translate_text", "desc": "翻译文本；把一段文本翻译成目标语言。", "params": {"text": "string，原文", "target_lang": "enum：en|ja|zh|fr|de|es，默认 en"}, "cluster": "translate", "freq": "high"},
+    {"name": "translate_document", "desc": "翻译文档；把 docx、md 等整份文件逐段翻译后输出成文件，适合长文档。", "params": {"path": "string，文件路径", "target_lang": "string"}, "cluster": "translate", "freq": "low"},
+
+    {"name": "summarize_text", "desc": "摘要文本；对一段粘贴进来的长文生成摘要。", "params": {"text": "string，长文"}, "cluster": "summarize", "freq": "mid"},
+    {"name": "summarize_url", "desc": "摘要网页；抓取链接并读取页面内容后生成摘要。", "params": {"url": "string，网页链接"}, "cluster": "summarize", "freq": "high"},
+    {"name": "summarize_file", "desc": "摘要文件；读取指定文件并生成要点摘要。", "params": {"path": "string，文件路径"}, "cluster": "summarize", "freq": "mid"},
+
+    {"name": "deep_research", "desc": "执行多步深度调研任务，产出调研报告；适合需要多轮搜索、交叉核验与汇总的行业分析。耗时为普通搜索的 10-30 倍。", "params": {"topic": "string，调研主题", "budget": "enum：fast|standard|thorough，默认 standard"}, "cluster": null, "freq": "low"},
+    {"name": "run_shell", "desc": "在本机工作目录执行一条 shell 命令；返回标准输出与错误输出。", "params": {"cmd": "string，命令"}, "cluster": null, "freq": "high"},
+    {"name": "image_generate", "desc": "根据文字描述生成一张图片。", "params": {"prompt": "string，画面描述"}, "cluster": null, "freq": "mid"},
+    {"name": "get_weather", "desc": "查询指定城市当前的天气与未来三天预报。", "params": {"city": "string，城市名"}, "cluster": null, "freq": "low"},
+    {"name": "text_to_speech", "desc": "把文本合成为语音文件。", "params": {"text": "string", "voice": "string，音色，默认 female-1"}, "cluster": null, "freq": "low"},
+    {"name": "list_dir", "desc": "列出目录下的文件和子目录。", "params": {"path": "string，目录路径"}, "cluster": null, "freq": "mid"},
+    {"name": "find_files", "desc": "按文件名模式（如 *.py）在目录树中查找文件。", "params": {"pattern": "string，glob 模式", "path": "string，根目录"}, "cluster": null, "freq": "mid"},
+    {"name": "grep_files", "desc": "在代码库中按正则表达式搜索文件内容，返回匹配行与行号。", "params": {"pattern": "string，正则", "path": "string，根目录"}, "cluster": null, "freq": "mid"},
+    {"name": "set_timer", "desc": "设置一个倒计时提醒，N 分钟后提醒。", "params": {"minutes": "int，分钟数", "label": "string，备注"}, "cluster": null, "freq": "low"}
+  ],
+  "requests": [
+    {"id": "r01", "query": "查一下昨天 OpenAI 发布会宣布了什么内容", "gold": "web_search"},
+    {"id": "r02", "query": "把最近关于美联储加息的新闻报道找几篇出来", "gold": "search_news"},
+    {"id": "r03", "query": "产品文档里哪里讲了新用户的 SSO 配置？", "gold": "search_docs"},
+    {"id": "r04", "query": "我知识库里有没有存过关于工具面收敛的资料？", "gold": "kb_query"},
+    {"id": "r05", "query": "帮我搜几张福建土楼的高清参考图片", "gold": "web_search_images"},
+    {"id": "r06", "query": "就固态电池企业的资本周期给我出一份深度调研报告", "gold": "deep_research"},
+    {"id": "r07", "query": "把会议纪要/2026-09-15.md 的内容完整读给我听", "gold": "read_file"},
+    {"id": "r08", "query": "看看 app.log 的最前 20 行是什么", "gold": "read_file_head"},
+    {"id": "r09", "query": "app.log 里最后 50 行报了什么错？", "gold": "read_file_tail"},
+    {"id": "r10", "query": "把合同 草案v3.pdf 的前三页转成文字给我看看", "gold": "view_document"},
+    {"id": "r11", "query": "把下面这段配置直接覆盖写入 config.yaml", "gold": "write_file"},
+    {"id": "r12", "query": "把 settings.py 里的 localhost:8080 替换成 0.0.0.0:9090", "gold": "edit_file"},
+    {"id": "r13", "query": "将这条记录追加到 CHANGELOG.md 文件末尾", "gold": "append_file"},
+    {"id": "r14", "query": "我记忆里有没有存过 MySQL 连接池那次排查的经验？", "gold": "memory_search"},
+    {"id": "r15", "query": "把记忆里『12345 数据链路排查』那个抽屉的完整原文给我", "gold": "memory_read"},
+    {"id": "r16", "query": "把记忆里过时的条目清理归档一下", "gold": "memory_manage"},
+    {"id": "r17", "query": "为周报封面生成一张海上日出的图片", "gold": "image_generate"},
+    {"id": "r18", "query": "往今天的工作笔记里追加这条待办", "gold": "note_append"},
+    {"id": "r19", "query": "评审会笔记里地点那一段写错了，帮我修改过来", "gold": "note_update"},
+    {"id": "r20", "query": "搜索一下笔记里关于供应商谈判地点的记录", "gold": "note_search"},
+    {"id": "r21", "query": "在微信上给老王发条消息：路上堵车晚到十分钟", "gold": "send_message"},
+    {"id": "r22", "query": "把这张发票发到 finance@corp.com 的邮箱", "gold": "send_email"},
+    {"id": "r23", "query": "把这段晨读材料生成语音，我在路上听", "gold": "text_to_speech"},
+    {"id": "r24", "query": "向全员群发一条今晚系统维护的公告通知", "gold": "broadcast_message"},
+    {"id": "r25", "query": "列出我明天的全部日程安排", "gold": "calendar_list_events"},
+    {"id": "r26", "query": "下周三下午三点建一个产品评审会，记得设提醒", "gold": "calendar_create_event"},
+    {"id": "r27", "query": "看看这周哪天能腾出一小时和客户开视频会", "gold": "calendar_find_free_slot"},
+    {"id": "r28", "query": "把这段中文翻译成英文", "gold": "translate_text"},
+    {"id": "r29", "query": "把 README.md 这份英文文档逐段翻译成中文并输出成新文件", "gold": "translate_document"},
+    {"id": "r30", "query": "这篇公众号文章讲了什么？帮我总结这个链接的要点", "gold": "summarize_url"}
+  ],
+  "converged": [
+    {"name": "search", "members": ["web_search", "search_news", "search_docs", "kb_query", "web_search_images"], "note": "五个搜索类工具按 action 合并；action 即路由字段"},
+    {"name": "file", "members": ["read_file", "read_file_head", "read_file_tail", "view_document", "write_file", "edit_file", "append_file"], "note": "读写合一，action=read|head|tail|preview|write|edit|append"},
+    {"name": "memory", "members": ["memory_search", "memory_read", "memory_manage"], "note": "action=search|read|manage"},
+    {"name": "note", "members": ["note_create", "note_append", "note_update", "note_search"], "note": "action=create|append|update|search"},
+    {"name": "messaging", "members": ["send_message", "send_email", "send_sms"], "note": "action=send + channel 参数；broadcast_message 刻意保留独立（群发风险高，需要独立闸门）"},
+    {"name": "calendar", "members": ["calendar_list_events", "calendar_create_event", "calendar_find_free_slot"], "note": "action=list|create|find_free"},
+    {"name": "translate", "members": ["translate_text", "translate_document"], "note": "action=text|document"},
+    {"name": "summarize", "members": ["summarize_text", "summarize_url", "summarize_file"], "note": "action=text|url|file"}
+  ],
+  "kept_solo": ["deep_research", "broadcast_message", "run_shell", "image_generate", "get_weather", "text_to_speech", "list_dir", "find_files", "grep_files", "set_timer"],
+  "kept_solo_note": "deep_research（成本是普通搜索 10-30 倍，合并进 search 会掩盖成本差异）与 broadcast_message（影响面大，保留独立工具与确认闸门）是『收敛不等于无脑归并』的两个注脚。"
+}
