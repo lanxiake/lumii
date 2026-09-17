@@ -1,7 +1,7 @@
 /**
  * Wiki ERO 抽取器 — 从最近更新页面经 LLM 抽取实体、关系与观察
  *
- * 设计：`docs/superpowers/specs/2026-08-27-wiki-auto-synthesis-and-kg-design.md` §3
+ * 设计：`docs/design/记忆设计/2026-08-27-wiki-auto-synthesis-and-kg-design.md` §3
  * 单页失败不中断整批；实体名与已有页面标题匹配时绑定 page_id。
  */
 

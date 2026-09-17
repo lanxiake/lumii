@@ -1328,7 +1328,7 @@ CREATE INDEX IF NOT EXISTS idx_wiki_sources_topic
   ],
   // V38: 云同步软删除支持 — 为同步表添加 deleted_at 字段
   //
-  // 设计：docs/superpowers/specs/2026-09-09-lightweight-cloud-sync-design.md
+  // 设计：docs/design/数据同步功能/2026-09-09-lightweight-cloud-sync-design.md
   // 为需要跨设备同步的4个表添加软删除标记，支持删除操作的传播。
   // 软删除记录不物理删除，通过 deleted_at IS NULL 过滤活跃记录。
   [

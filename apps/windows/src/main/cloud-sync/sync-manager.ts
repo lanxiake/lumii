@@ -801,7 +801,7 @@ export class CloudSyncManager extends EventEmitter {
   /**
    * 导出数据并提交（如果有变更）
    *
-   * 设计：docs/superpowers/specs/2026-09-09-lightweight-cloud-sync-design.md
+   * 设计：docs/design/数据同步功能/2026-09-09-lightweight-cloud-sync-design.md
    * - 在事务中导出，确保一致性快照
    * - 导出后检查 git status，有变更才提交（删除需显式 stage，见 stageAllChanges）
    *
@@ -885,7 +885,7 @@ export class CloudSyncManager extends EventEmitter {
   /**
    * 导入数据（从 sync/ 目录）
    *
-   * 设计：docs/superpowers/specs/2026-09-09-lightweight-cloud-sync-design.md
+   * 设计：docs/design/数据同步功能/2026-09-09-lightweight-cloud-sync-design.md
    * - jsonl 按时间戳 merge 规则合并到本地数据库，在事务中执行
    * - 用户文件按 git 树差异应用（新增/修改复制、删除删除），**不做目录扫描式镜像**
    *

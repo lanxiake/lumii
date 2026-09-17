@@ -273,7 +273,7 @@ export class SyncExporter {
   /**
    * 导出 Wiki 知识库（JSONL 格式，每表一个文件，每行一条记录）
    *
-   * 设计：docs/superpowers/specs/2026-09-09-lightweight-cloud-sync-design.md
+   * 设计：docs/design/数据同步功能/2026-09-09-lightweight-cloud-sync-design.md
    * - 每表独立 .jsonl 文件，避免单文件过大导致 git merge 冲突扩散
    * - 在事务中读取，防止导出期间数据被修改（窗口期保护）
    * - 软删除记录也导出（deleted_at 字段），确保删除操作能传播到其他设备
@@ -346,7 +346,7 @@ export class SyncExporter {
   /**
    * 导出 Agent 记忆（JSONL 格式）
    *
-   * 设计：docs/superpowers/specs/2026-09-09-lightweight-cloud-sync-design.md
+   * 设计：docs/design/数据同步功能/2026-09-09-lightweight-cloud-sync-design.md
    * - 在事务中读取，防止导出期间数据被修改
    * - 包含软删除记录（deleted_at IS NOT NULL），确保删除传播
    * - 不再过滤 is_archived，软删除字段已取代归档标记

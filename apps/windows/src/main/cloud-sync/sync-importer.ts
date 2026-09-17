@@ -245,7 +245,7 @@ export class SyncImporter {
   /**
    * 导入 Wiki（从 JSONL，每表一个文件）
    *
-   * 设计：docs/superpowers/specs/2026-09-09-lightweight-cloud-sync-design.md
+   * 设计：docs/design/数据同步功能/2026-09-09-lightweight-cloud-sync-design.md
    * - 按时间戳merge规则合并：remote_ts > local_ts 则覆盖
    * - 相同时间戳时，优先传播删除操作（remote.deleted_at 非空且 local.deleted_at 为空）
    * - 在事务中执行，确保一致性
@@ -454,7 +454,7 @@ export class SyncImporter {
   /**
    * 导入 Agent 记忆（JSONL 格式）
    *
-   * 设计：docs/superpowers/specs/2026-09-09-lightweight-cloud-sync-design.md
+   * 设计：docs/design/数据同步功能/2026-09-09-lightweight-cloud-sync-design.md
    * - 按时间戳merge规则：比较 last_used 字段
    * - remote.last_used > local.last_used 则覆盖整条记录
    * - 时间戳相同时，优先传播删除操作（deleted_at）
