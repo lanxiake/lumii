@@ -56,6 +56,34 @@ export async function retryCloudSyncConflict(): Promise<CloudSyncActionResult> {
   return window.electronAPI.cloudSync.retryConflict()
 }
 
+/** 待用户确认的批量删除（删除安全阀挡下时非空）；失败或无数据返回 null */
+export async function fetchPendingMassDelete(): Promise<{
+  fingerprint: string
+  count: number
+  createdAt: number
+} | null> {
+  const r = await window.electronAPI.cloudSync.getPendingMassDelete()
+  return r.success && r.data ? r.data : null
+}
+
+/** 用户显式确认批量删除（必须回传 fetchPendingMassDelete 给出的指纹）；结果原样返回 */
+export async function confirmCloudSyncMassDelete(
+  fingerprint: string,
+): Promise<CloudSyncActionResult> {
+  return window.electronAPI.cloudSync.confirmMassDelete(fingerprint)
+}
+
+/** 阶段二（大文件队列）进度快照；失败或无数据返回 null */
+export async function fetchLargeQueueStats(): Promise<{
+  pendingFiles: number
+  pendingBytes: number
+  pumping: boolean
+  at: number
+} | null> {
+  const r = await window.electronAPI.cloudSync.getLargeQueueStats()
+  return r.success && r.data ? r.data : null
+}
+
 /** 订阅主进程状态广播，返回取消订阅函数 */
 export function subscribeCloudSyncStatus(handler: (status: SyncStatus) => void): () => void {
   return window.electronAPI.cloudSync.onStatusChange(handler)

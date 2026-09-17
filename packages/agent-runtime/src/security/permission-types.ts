@@ -155,4 +155,7 @@ export const WRITE_TOOL_NAMES = new Set([
   "notebook_edit",
   "channel_send",
   "app_act",
+  // 云同步：主动决定"推什么上去"是高危写操作（数据外发不可逆）—— 需用户确认。
+  // 注意：只声明 needsPermission 而不入本集合，default 模式会静默放行。
+  "cloud_sync_push",
 ]);

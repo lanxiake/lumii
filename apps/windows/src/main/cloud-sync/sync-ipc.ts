@@ -110,6 +110,25 @@ export function registerCloudSyncIpcHandlers(): void {
     return { success: true, result: summary ?? '无冲突待处理' }
   })
 
+  // 批量删除安全阀（2026-09-16 事故修复）：超阈值删除必须由用户显式确认才放行。
+  // 确认绑定到待删集合指纹 —— 集合变化即失效，自动同步永远拿不到匹配指纹。
+  ipcMain.handle('cloudSync:getPendingMassDelete', () => {
+    const m = getCloudSyncManager()
+    return { success: true, data: m?.getPendingMassDelete() ?? null }
+  })
+
+  ipcMain.handle('cloudSync:confirmMassDelete', (_e, fingerprint: string) => {
+    const m = getCloudSyncManager()
+    if (!m) return { success: false, error: '云同步未初始化' }
+    return m.confirmMassDelete(fingerprint)
+  })
+
+  // 阶段二（大文件队列）进度：供设置页展示「还剩多少在传」
+  ipcMain.handle('cloudSync:getLargeQueueStats', () => {
+    const m = getCloudSyncManager()
+    return { success: true, data: m?.getLargeQueueStats() ?? null }
+  })
+
   // 状态推送：manager EventEmitter → 渲染层；冲突态过渡时弹系统通知
   let lastPushedState: string | null = null
   getCloudSyncManager()?.on('status', (status) => {

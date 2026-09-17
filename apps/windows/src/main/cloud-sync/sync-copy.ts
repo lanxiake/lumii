@@ -6,13 +6,20 @@
  * 仅 export 方向（本地 → sync）应开启；import 方向必须用默认值，
  * 否则会用远端快照删空本地 —— 两侧状态无法区分「删除」与「新增」。
  */
+import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { createLogger } from '../logger'
 
 const logger = createLogger('cloud-sync/copy')
 
-/** outputs 同步单文件上限：超过则跳过（避免仓库膨胀与推送超时） */
+/**
+ * outputs 单文件同步上限的**兜底值**（配置缺 `smallFileThresholdBytes` 时使用）。
+ *
+ * 分级传输（T4.4）后真正的阈值由 `CloudSyncConfig.smallFileThresholdBytes` 驱动：
+ * 阶段一只传 ≤ 阈值 的文件，更大者由 `sync-large-queue` 分批传 ——
+ * 超限不再是"跳过即丢弃"（旧语义），而是"交给阶段二"。
+ */
 export const SYNC_OUTPUTS_MAX_BYTES = 5 * 1024 * 1024
 
 /** 镜像删除单次上限：待删条目超过此数则整批放弃 */
@@ -21,8 +28,33 @@ export const SYNC_MIRROR_MAX_DELETES = 200
 /** 镜像删除比例上限：待删占目标条目数比例超过此值则整批放弃 */
 export const SYNC_MIRROR_MAX_DELETE_RATIO = 0.5
 
+/**
+ * mtime 比对容差（毫秒）。
+ *
+ * **不能要求严格相等**：源文件的 mtime 是文件系统原生精度（NTFS 100ns，`mtimeMs`
+ * 带亚毫秒小数），而 `utimesSync` 回写后读回会被舍入到整数 ms —— 实测差 0.218ms。
+ * 严格比较会让「刚复制完的文件」下一轮又被判为未同步，阶段二队列因此陷入死循环
+ * （2026-09-17 实测：108 批全在传同一个 32.5MB 文件，本地 tip 始终追不上远端）。
+ *
+ * 2ms 足以覆盖这种舍入（也覆盖 FAT 的秒级精度差异），又远小于任何人手改文件的间隔
+ * —— 不会漏检真实变更。
+ */
+export const SYNC_MTIME_TOLERANCE_MS = 2
+
 /** 待删条目少于此数时不套用比例阈值：小目录删一半是正常操作，不是事故 */
 export const SYNC_MIRROR_RATIO_MIN_COUNT = 10
+
+/**
+ * 待删集合的指纹：排序后取 sha256 前 16 位。
+ *
+ * 用于把「用户确认」绑定到**具体这一批**待删项 —— 集合一变指纹就变，确认自动失效。
+ * 这是 2026-09-16 远端清空事故的修复核心：原来的布尔确认在两次自动同步之间
+ * 就自行放行了，等于没有确认。
+ */
+export function computeStaleFingerprint(stalePaths: readonly string[]): string {
+  const sorted = [...stalePaths].sort()
+  return createHash('sha256').update(sorted.join('\n')).digest('hex').slice(0, 16)
+}
 
 /**
  * 遍历复制时直接剪枝的目录名（与 workspace VCS 重目录策略对齐）。
@@ -48,10 +80,31 @@ export interface CopySyncDirectoryOptions {
   /** 覆盖 SYNC_MIRROR_MAX_DELETES */
   maxDeletes?: number
   /**
-   * true：跳过全部安全阀，直接执行镜像删除。
-   * 用于「用户已二次确认」的批量删除 —— 见 CloudSyncManager 的二次确认逻辑。
+   * 已确认放行的待删集合指纹（来自显式用户确认）。
+   *
+   * **只有**本次实际待删集合的指纹与之完全一致时才跳过安全阀 —— 用指纹而非布尔，
+   * 是因为"用户确认的是这一批"。自动触发的同步永远拿不到匹配指纹，因此不会再自行放行。
    */
-  forceDeletes?: boolean
+  confirmedFingerprint?: string
+  /**
+   * 增量短路：源与目标的 size + mtime 都相同则跳过复制（默认关闭）。
+   *
+   * 开启后每次复制会用 utimesSync 把源文件的 mtime 写到目标上 —— 否则目标 mtime
+   * 恒为复制时刻，比对永不相等，短路形同虚设。
+   *
+   * 仅应在 **export 方向**开启：import 方向是「远端覆盖本地」，宁可多复制一次，
+   * 也不要冒漏更新的风险。
+   */
+  skipUnchanged?: boolean
+  /**
+   * 路径级排除（相对 src 目录、`/` 分隔）：返回 true 则跳过该文件。
+   *
+   * **跳过的名字仍留在 srcNames 里** —— 目标侧同名旧版本不会被镜像删除误删
+   * （与"跳过大文件"同一语义：跳过 ≠ 删除）。
+   */
+  shouldSkipFile?: (relPath: string) => boolean
+  /** 强制包含（相对 src 目录）：命中者无视 maxSize 上限 */
+  shouldForceInclude?: (relPath: string) => boolean
 }
 
 export interface CopySyncDirectoryResult {
@@ -59,10 +112,25 @@ export interface CopySyncDirectoryResult {
   skippedLarge: number
   skippedDirs: number
   errors: string[]
+  /**
+   * 因超 maxSize 被跳过的文件**绝对路径**。
+   *
+   * 上层据此从 git stage 的「删除判定」中排除它们：分级传输下阶段一导出跳过的大文件
+   * 不在工作区却存在于 HEAD，不排除的话每跑一次阶段一就把阶段二提交的大文件删一次。
+   */
+  skippedLargePaths: string[]
+  /** 增量短路跳过的文件数（size + mtime 均未变） */
+  skippedUnchanged: number
+  /** 被同步范围规则排除的文件数 */
+  skippedExcluded: number
   /** 镜像模式下实际删除的条目数 */
   deleted: number
   /** 镜像删除因超阈值被整批放弃（源目录可能异常，删除未传播） */
   deleteAborted: boolean
+  /** 被挡下时：待删集合指纹。用户确认时需原样回传该值 */
+  abortedFingerprint?: string
+  /** 被挡下时：待删条目数（供 UI 展示） */
+  abortedCount?: number
 }
 
 /** 递归过程的可变上下文：整棵树收集完待删项后再统一判定阈值 */
@@ -99,6 +167,9 @@ export function copySyncDirectory(
     skippedLarge: 0,
     skippedDirs: 0,
     errors: [],
+    skippedLargePaths: [],
+    skippedUnchanged: 0,
+    skippedExcluded: 0,
     deleted: 0,
     deleteAborted: false,
   }
@@ -165,16 +236,47 @@ function copyLevel(src: string, dst: string, ctx: CopyContext): void {
     }
 
     try {
-      if (options?.maxSize != null) {
-        const stat = fs.statSync(srcPath)
-        if (stat.size > options.maxSize) {
-          result.skippedLarge += 1
-          logger.warn(`[copySyncDirectory] 跳过大文件: ${srcPath} (${stat.size} bytes)`)
-          // 名字留在 srcNames 里：目标侧同名旧版本不删，避免「跳过」被误当成「删除」
-          continue
+      const srcStat = fs.statSync(srcPath)
+      const rel = path.relative(src, srcPath).split(path.sep).join('/')
+
+      // 同步范围排除：名字已留在 srcNames → 不触发镜像删除
+      if (options?.shouldSkipFile?.(rel)) {
+        result.skippedExcluded += 1
+        continue
+      }
+
+      if (
+        options?.maxSize != null &&
+        srcStat.size > options.maxSize &&
+        !options.shouldForceInclude?.(rel)
+      ) {
+        result.skippedLarge += 1
+        result.skippedLargePaths.push(srcPath)
+        logger.warn(`[copySyncDirectory] 跳过大文件: ${srcPath} (${srcStat.size} bytes)`)
+        // 名字留在 srcNames 里：目标侧同名旧版本不删，避免「跳过」被误当成「删除」
+        continue
+      }
+
+      // 增量短路：size + mtime 双条件都相同才认为内容一致。
+      // 单看 size 会漏掉等长改写；单看 mtime 会被精度差异干扰 —— 两条都要满足。
+      if (options?.skipUnchanged && isSameStat(dstPath, srcStat)) {
+        result.skippedUnchanged += 1
+        continue
+      }
+
+      fs.copyFileSync(srcPath, dstPath)
+      // 关键：把源 mtime 回写到目标。copyFileSync 不保留 mtime，目标恒为复制时刻，
+      // 不回写的话下一轮比对永不相等，短路永远不生效 —— 整个优化就等于没写。
+      if (options?.skipUnchanged) {
+        try {
+          fs.utimesSync(dstPath, srcStat.atime, srcStat.mtime)
+        } catch (err) {
+          // 回写失败只影响下次能否短路，不影响正确性
+          logger.warn(
+            `[copySyncDirectory] 保留 mtime 失败（下次将重新复制）: ${dstPath} (${err instanceof Error ? err.message : String(err)})`,
+          )
         }
       }
-      fs.copyFileSync(srcPath, dstPath)
       result.copied += 1
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
@@ -195,8 +297,13 @@ function applyMirrorDeletes(ctx: CopyContext): void {
   const { options, result, stale } = ctx
   if (!options?.mirror || stale.length === 0) return
 
-  if (options.forceDeletes) {
-    logger.warn(`[copySyncDirectory] 跳过安全阀，直接删除 ${stale.length} 项（用户已确认）`)
+  const fingerprint = computeStaleFingerprint(stale)
+
+  // 显式确认放行：指纹必须与本次实际待删集合完全一致
+  if (options.confirmedFingerprint && options.confirmedFingerprint === fingerprint) {
+    logger.warn(
+      `[copySyncDirectory] 用户已显式确认，执行批量删除 ${stale.length} 项（fingerprint=${fingerprint}）`,
+    )
     for (const target of stale) {
       if (removeEntry(target, result)) result.deleted += 1
     }
@@ -210,10 +317,12 @@ function applyMirrorDeletes(ctx: CopyContext): void {
 
   if (stale.length > maxDeletes || ratioExceeded) {
     result.deleteAborted = true
+    result.abortedFingerprint = fingerprint
+    result.abortedCount = stale.length
     logger.warn(
-      `[copySyncDirectory] 镜像删除已挡下一次：待删 ${stale.length} 项 / 目标 ${ctx.scanned} 项` +
+      `[copySyncDirectory] 镜像删除已被安全阀挡下：待删 ${stale.length} 项 / 目标 ${ctx.scanned} 项` +
         `（上限 ${maxDeletes} 项或 ${SYNC_MIRROR_MAX_DELETE_RATIO * 100}%）。` +
-        `源目录可能异常，本次删除未传播；再次同步即视为用户确认并执行。` +
+        `源目录可能异常。删除必须由用户在设置页显式确认后才会执行（fingerprint=${fingerprint}）。` +
         `样例: ${stale.slice(0, 3).join(', ')}`,
     )
     return
@@ -225,8 +334,26 @@ function applyMirrorDeletes(ctx: CopyContext): void {
   logger.info(`[copySyncDirectory] 镜像删除 ${result.deleted} 项`)
 }
 
-/** 删除条目（文件或目录），失败记入 errors 并返回 false */
-function removeEntry(target: string, result: CopySyncDirectoryResult): boolean {
+/**
+ * 目标文件与源的 size + mtime 是否一致（可跳过复制）。
+ *
+ * mtime 用**容差**比较而非严格相等 —— 原因见 `SYNC_MTIME_TOLERANCE_MS` 的注释
+ * （utimesSync 的舍入会让严格比较永远失败）。
+ * 目标不存在或读取失败一律返回 false（必须复制）。
+ */
+function isSameStat(dstPath: string, srcStat: fs.Stats): boolean {
+  try {
+    const dstStat = fs.statSync(dstPath)
+    return (
+      dstStat.size === srcStat.size &&
+      Math.abs(dstStat.mtimeMs - srcStat.mtimeMs) <= SYNC_MTIME_TOLERANCE_MS
+    )
+  } catch {
+    return false
+  }
+}
+
+/** 删除条目（文件或目录），失败记入 errors 并返回 false */function removeEntry(target: string, result: CopySyncDirectoryResult): boolean {
   if (!fs.existsSync(target)) return false
   try {
     fs.rmSync(target, { recursive: true, force: true })

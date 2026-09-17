@@ -1027,6 +1027,15 @@ export class AgentRuntimeBridge {
     if (this._syncConflictInFlight) return 'already-running'
     const m = getCloudSyncManager()
     if (!m) return null
+
+    // 上一轮落决仍在后台队列里跑（resolveConflict 的超时只让调用方提前返回，任务不可取消）。
+    // 此时再驱动一轮只会重复读文件 + 重复决策 + 再排一个落决：
+    // 心跳每 10 分钟驱动一次、落决超时 5 分钟 —— 数学上必然重入，2026-09-17 的死循环即由此而来。
+    if (m.isResolveInFlight()) {
+      log.info('[executeSyncConflictGoal] 上一轮落决仍在后台执行，跳过本轮驱动')
+      return 'skipped: resolve-in-flight'
+    }
+
     const conflict = m.getConflict()
     if (!conflict) {
       // 无冲突但存在残留 goal → 标记完成

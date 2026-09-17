@@ -23,6 +23,13 @@ export const DEFAULT_CLOUD_SYNC_CONFIG: CloudSyncConfig = {
   repoUrl: '',
   branch: 'main',
   intervalMinutes: 15,
+  // 分级阈值：阶段一只传 ≤1MB 的文件（实测 68% 的文件只占 1.6% 的体积，
+  // 几十秒即可到位），更大者交给阶段二队列分批传（T4.4 已就绪）
+  smallFileThresholdBytes: 1024 * 1024,
+  largeFileBatchBytes: 50 * 1024 * 1024,
+  // 同步范围规则默认空：不清空任何既有行为，用户按需添加
+  syncExcludePatterns: [],
+  syncForceIncludePatterns: [],
 }
 
 function encryptToken(token: string): string {
@@ -64,6 +71,12 @@ export function saveConfigFromView(view: CloudSyncConfigView): CloudSyncConfig {
     branch: view.branch?.trim() || 'main',
     intervalMinutes: view.intervalMinutes,
     tokenEnc,
+    // 分级阈值暂不经设置页编辑，保存时**沿用现值** —— 否则每次保存配置
+    // 都会被 View（不含这两个字段）覆写回 undefined
+    smallFileThresholdBytes: cur.smallFileThresholdBytes,
+    largeFileBatchBytes: cur.largeFileBatchBytes,
+    syncExcludePatterns: cur.syncExcludePatterns,
+    syncForceIncludePatterns: cur.syncForceIncludePatterns,
   }
   fs.mkdirSync(path.dirname(configFile()), { recursive: true })
   fs.writeFileSync(configFile(), JSON.stringify(next, null, 2), 'utf-8')

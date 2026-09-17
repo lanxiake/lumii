@@ -53,6 +53,26 @@ describe('sync-config', () => {
     expect(loadCloudSyncConfig()).toEqual(DEFAULT_CLOUD_SYNC_CONFIG)
   })
 
+  it('默认配置含分级传输阈值（1MB / 50MB）', () => {
+    const cfg = loadCloudSyncConfig()
+    expect(cfg.smallFileThresholdBytes).toBe(1024 * 1024)
+    expect(cfg.largeFileBatchBytes).toBe(50 * 1024 * 1024)
+  })
+
+  it('saveConfigFromView 保留分级阈值 —— View 不含该字段，不能被覆写丢失', () => {
+    // 落盘一个非默认阈值（模拟将来拨到 1MB）
+    const file = path.join(tmpDir, 'config', 'cloud-sync.json')
+    fs.mkdirSync(path.dirname(file), { recursive: true })
+    fs.writeFileSync(
+      file,
+      JSON.stringify({ ...DEFAULT_CLOUD_SYNC_CONFIG, smallFileThresholdBytes: 1048576 }),
+    )
+
+    saveConfigFromView({ ...baseView })
+
+    expect(loadCloudSyncConfig().smallFileThresholdBytes).toBe(1048576)
+  })
+
   it('decryptToken 处理 plain 前缀与空值', () => {
     expect(decryptToken('plain:secret')).toBe('secret')
     expect(decryptToken('')).toBe('')

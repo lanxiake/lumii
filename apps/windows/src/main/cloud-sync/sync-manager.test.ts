@@ -19,14 +19,38 @@ vi.mock('./sync-config', () => ({
 vi.mock('./sync-log', () => ({
   appendSyncLog: vi.fn(),
 }))
+
+/** 可控的导出结果：让测试能模拟「被删除安全阀挡下」并断言确认指纹的传递 */
+const mockExportState = vi.hoisted(() => ({
+  deleteAborted: false,
+  abortedFingerprint: undefined as string | undefined,
+  abortedCount: undefined as number | undefined,
+  /** 最近一次 SyncExporter 的构造参数 */
+  lastOptions: undefined as { confirmedMassDeleteFingerprint?: string } | undefined,
+}))
+
 vi.mock('./sync-exporter', () => ({
   SyncExporter: class {
+    constructor(options: { confirmedMassDeleteFingerprint?: string }) {
+      mockExportState.lastOptions = options
+    }
+    private result() {
+      return {
+        success: true,
+        exportedFiles: [],
+        errors: [],
+        stats: {},
+        deleteAborted: mockExportState.deleteAborted,
+        abortedFingerprint: mockExportState.abortedFingerprint,
+        abortedCount: mockExportState.abortedCount,
+      }
+    }
     async export() {
-      return { success: true, exportedFiles: [], errors: [], stats: {} }
+      return this.result()
     }
     /** 同步流程第 0 步的轻量导出（只 profile + workspace 用户文件） */
     async exportLocalEdits() {
-      return { success: true, exportedFiles: [], errors: [], stats: {} }
+      return this.result()
     }
   },
 }))
@@ -43,7 +67,7 @@ vi.mock('./sync-importer', () => ({
 }))
 
 import { loadCloudSyncConfig } from './sync-config'
-import { CloudSyncManager } from './sync-manager'
+import { CloudSyncManager, PushTimeoutError, computeStagePlan } from './sync-manager'
 import {
   setActiveWorkspaceDirGetter,
   _resetActiveWorkspaceDirGetterForTest,
@@ -160,6 +184,10 @@ describe('CloudSyncManager', () => {
     remoteDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lumii-sync-remote-'))
     remoteGitdir = path.join(remoteDir, '.git')
     rejectPush = false
+    mockExportState.deleteAborted = false
+    mockExportState.abortedFingerprint = undefined
+    mockExportState.abortedCount = undefined
+    mockExportState.lastOptions = undefined
 
     process.env.LUMII_CLIENT_DATA_DIR = clientRoot
     _resetWindowsClientDataRootCacheForTest()
@@ -234,6 +262,151 @@ describe('CloudSyncManager', () => {
     const r = await manager.sync()
     expect(r.success).toBe(false)
     expect(r.state).toBe('idle')
+  })
+
+  // ── 批量删除确认（2026-09-16 远端清空事故的回归防护） ──────────────────
+
+  it('批量删除：被挡下只记录待确认，绝不自动放行', async () => {
+    await setupBase()
+
+    mockExportState.deleteAborted = true
+    mockExportState.abortedFingerprint = 'fp-abc123'
+    mockExportState.abortedCount = 896
+    await manager.sync()
+
+    const pending = manager.getPendingMassDelete()
+    expect(pending?.fingerprint).toBe('fp-abc123')
+    expect(pending?.count).toBe(896)
+
+    // 关键回归点：**不确认**就再同步一次。
+    // 旧实现会在这一步自动放行（正是事故根因）；现在绝不携带确认指纹。
+    mockExportState.lastOptions = undefined
+    await manager.sync()
+    const optsAfterUnconfirmedRetry = mockExportState.lastOptions as
+      | { confirmedMassDeleteFingerprint?: string }
+      | undefined
+    expect(optsAfterUnconfirmedRetry?.confirmedMassDeleteFingerprint).toBeUndefined()
+  })
+
+  it('批量删除：指纹不匹配被拒，匹配才放行', async () => {
+    await setupBase()
+
+    mockExportState.deleteAborted = true
+    mockExportState.abortedFingerprint = 'fp-abc123'
+    mockExportState.abortedCount = 896
+    await manager.sync()
+
+    // 指纹不匹配 → 拒绝，待确认保留
+    expect(manager.confirmMassDelete('fp-wrong').success).toBe(false)
+    expect(manager.getPendingMassDelete()).toBeDefined()
+
+    // 指纹匹配 → 放行，待确认清空
+    expect(manager.confirmMassDelete('fp-abc123').success).toBe(true)
+    expect(manager.getPendingMassDelete()).toBeUndefined()
+
+    // 确认后下一次同步携带该指纹（真正是否删除由 sync-copy 比对决定）
+    await manager.sync()
+    expect(mockExportState.lastOptions?.confirmedMassDeleteFingerprint).toBe('fp-abc123')
+  })
+
+  it('批量删除：无待确认时确认被拒；源侧恢复后待确认作废', async () => {
+    await setupBase()
+    expect(manager.getPendingMassDelete()).toBeUndefined()
+    expect(manager.confirmMassDelete('any').success).toBe(false)
+
+    mockExportState.deleteAborted = true
+    mockExportState.abortedFingerprint = 'fp-1'
+    mockExportState.abortedCount = 10
+    await manager.sync()
+    expect(manager.getPendingMassDelete()).toBeDefined()
+
+    // 源侧恢复正常（本次无超阈值删除）→ 先前的待确认作废
+    mockExportState.deleteAborted = false
+    mockExportState.abortedFingerprint = undefined
+    mockExportState.abortedCount = undefined
+    await manager.sync()
+    expect(manager.getPendingMassDelete()).toBeUndefined()
+  })
+
+  // ── 落决守卫（2026-09-17 心跳重入死循环的回归防护） ────────────────────
+
+  it('落决守卫：resolveInner 未结束时拒绝重复请求，结束后复位', async () => {
+    await setupBase()
+
+    let releaseGate!: () => void
+    const gate = new Promise<void>((r) => {
+      releaseGate = r
+    })
+    const spy = vi
+      .spyOn(
+        manager as unknown as {
+          resolveInner: (s: string, c?: unknown) => Promise<{ success: boolean }>
+        },
+        'resolveInner',
+      )
+      .mockImplementation(async () => {
+        await gate
+        return { success: true }
+      })
+
+    expect(manager.isResolveInFlight()).toBe(false)
+
+    // 发起落决但不等待完成 —— 模拟「超时后仍在后台跑」的状态
+    const inflight = manager.resolveConflict('keep-local')
+    await new Promise((r) => setTimeout(r, 20))
+    expect(manager.isResolveInFlight()).toBe(true)
+
+    // 飞行中重复请求被拒（心跳/调度器每轮都会来一次，必须挡住）
+    const dup = await manager.resolveConflict('keep-local')
+    expect(dup.success).toBe(false)
+    expect(dup.error).toContain('仍在后台执行')
+
+    releaseGate()
+    await inflight
+    expect(manager.isResolveInFlight()).toBe(false)
+
+    spy.mockRestore()
+  })
+
+  // ── stage 计划：分级传输的误删防护（statusMatrix 行 = [路径, HEAD, 工作区, index]） ──
+
+  it('computeStagePlan：HEAD 有 + 工作区没有 → 判为删除', () => {
+    const status: Array<[string, number, number, number]> = [['gone.md', 1, 0, 1]]
+    const plan = computeStagePlan(status, () => false)
+
+    expect(plan.hasChanges).toBe(true)
+    expect(plan.removals).toEqual(['gone.md'])
+  })
+
+  it('computeStagePlan：排除集内的大文件不判删除 —— 阶段一不能删掉阶段二的成果', () => {
+    // 这正是分级传输的核心风险：大文件在 HEAD 里（阶段二提交过），
+    // 但阶段一导出时被 1MB 阈值过滤掉、不在工作区 → 默认会被判成删除
+    const status: Array<[string, number, number, number]> = [
+      ['workspace/outputs/big.mp4', 1, 0, 1],
+    ]
+    const plan = computeStagePlan(status, (f) => f === 'workspace/outputs/big.mp4')
+
+    expect(plan.hasChanges).toBe(false)
+    expect(plan.removals).toEqual([])
+  })
+
+  it('computeStagePlan：排除集只豁免被排除的路径，其他删除照常判定', () => {
+    const status: Array<[string, number, number, number]> = [
+      ['workspace/outputs/big.mp4', 1, 0, 1], // 被排除
+      ['workspace/outputs/small.md', 1, 0, 1], // 未排除 → 真删除
+    ]
+    const plan = computeStagePlan(status, (f) => f.endsWith('.mp4'))
+
+    expect(plan.hasChanges).toBe(true)
+    expect(plan.removals).toEqual(['workspace/outputs/small.md'])
+  })
+
+  it('computeStagePlan：内容变化计入 hasChanges 但不产生 remove', () => {
+    const status: Array<[string, number, number, number]> = [['a.md', 1, 2, 1]]
+    const plan = computeStagePlan(status, () => false)
+
+    expect(plan.hasChanges).toBe(true)
+    expect(plan.removals).toEqual([])
   })
 
   it('仅本地新提交 → push 成功，远程收到', async () => {
@@ -713,7 +886,7 @@ describe('CloudSyncManager', () => {
         value: localOid,
         force: true,
       })
-      throw new Error('git push 超时（1ms），已中止等待')
+      throw new PushTimeoutError(1)
     }) as unknown as typeof git.push)
 
     const r = await manager.resolveConflict('keep-local')

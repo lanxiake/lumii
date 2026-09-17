@@ -10,10 +10,13 @@ import {
   fetchCloudSyncConfig,
   fetchCloudSyncStatus,
   fetchCloudSyncLogs,
+  fetchPendingMassDelete,
+  fetchLargeQueueStats,
   saveCloudSyncConfig,
   testCloudSyncConnection,
   syncCloudSyncNow,
   retryCloudSyncConflict,
+  confirmCloudSyncMassDelete,
   subscribeCloudSyncStatus,
 } from '../../../../services/cloud-sync-service'
 import { openExternal } from '../../../../services/app-service'
@@ -38,6 +41,17 @@ export function CloudSyncSection() {
   const [retrying, setRetrying] = useState(false)
   const [guideOpen, setGuideOpen] = useState(true)
   const [logs, setLogs] = useState<SyncLogEntry[]>([])
+  const [pendingDelete, setPendingDelete] = useState<{
+    fingerprint: string
+    count: number
+    createdAt: number
+  } | null>(null)
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
+  const [largeStats, setLargeStats] = useState<{
+    pendingFiles: number
+    pendingBytes: number
+    pumping: boolean
+  } | null>(null)
 
   const load = useCallback(async () => {
     const cfg = await fetchCloudSyncConfig()
@@ -46,6 +60,8 @@ export function CloudSyncSection() {
     if (st) setStatus(st)
     const lg = await fetchCloudSyncLogs()
     if (lg) setLogs(lg)
+    setPendingDelete(await fetchPendingMassDelete())
+    setLargeStats(await fetchLargeQueueStats())
   }, [])
 
   const refreshStatusAndLogs = useCallback(async () => {
@@ -53,6 +69,8 @@ export function CloudSyncSection() {
     if (st) setStatus(st)
     const lg = await fetchCloudSyncLogs()
     if (lg) setLogs(lg)
+    setPendingDelete(await fetchPendingMassDelete())
+    setLargeStats(await fetchLargeQueueStats())
   }, [])
 
   useEffect(() => {
@@ -118,6 +136,25 @@ export function CloudSyncSection() {
       toast.error(err instanceof Error ? err.message : '重试失败')
     } finally {
       setRetrying(false)
+    }
+  }
+
+  /** 用户显式确认批量删除：确认后立即同步一次让删除执行（指纹由主进程比对） */
+  const confirmMassDelete = async (fingerprint: string) => {
+    setConfirmingDelete(true)
+    try {
+      const r = await confirmCloudSyncMassDelete(fingerprint)
+      if (r.success) {
+        toast.info('已确认，正在执行该批删除')
+        await syncCloudSyncNow()
+        await refreshStatusAndLogs()
+      } else {
+        toast.error(r.error || '确认失败')
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '确认失败')
+    } finally {
+      setConfirmingDelete(false)
     }
   }
 
@@ -281,6 +318,13 @@ export function CloudSyncSection() {
               冲突文件（{status.conflict.files.length}）：{status.conflict.files.join('、')}
             </div>
           )}
+          {largeStats && largeStats.pendingFiles > 0 && (
+            <div className={styles['setting-hint']}>
+              大文件待传：{largeStats.pendingFiles} 个 ·{' '}
+              {(largeStats.pendingBytes / 1048576).toFixed(1)} MB
+              {largeStats.pumping ? ' · 传输中…' : ' · 等待下一轮同步'}
+            </div>
+          )}
           {status.state === 'conflict' && (
             <div style={{ marginTop: 8 }}>
               <Button variant="secondary" onClick={retryConflict} loading={retrying}>
@@ -288,6 +332,27 @@ export function CloudSyncSection() {
               </Button>
             </div>
           )}
+        </div>
+      )}
+
+      {pendingDelete && (
+        <div className={styles['setting-item']}>
+          <label className={styles['setting-label']} data-app-ui-label>
+            批量删除待确认
+          </label>
+          <div className={styles['setting-hint']}>
+            源目录中有 {pendingDelete.count} 个文件在云端存在、本地已不存在，同步会把它们从云端一并删除。
+            已被安全阀挡下、尚未执行。若不是你有意删除，请先检查工作空间（可能是同步异常，或某台设备数据不全）。
+          </div>
+          <div style={{ marginTop: 8 }}>
+            <Button
+              variant="secondary"
+              onClick={() => void confirmMassDelete(pendingDelete.fingerprint)}
+              loading={confirmingDelete}
+            >
+              确认删除 {pendingDelete.count} 项
+            </Button>
+          </div>
         </div>
       )}
 

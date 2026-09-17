@@ -34,6 +34,22 @@ export const cloudSyncApi = {
   /** 手动触发 Agent 重新处理云同步冲突（设置页「重试处理」按钮） */
   retryConflict: (): Promise<{ success: boolean; result?: string; error?: string }> =>
     ipcRenderer.invoke('cloudSync:retryConflict'),
+  /** 待用户确认的批量删除（删除安全阀挡下时非空；确认需原样回传 fingerprint） */
+  getPendingMassDelete: (): Promise<{
+    success: boolean
+    data?: { fingerprint: string; count: number; createdAt: number } | null
+  }> => ipcRenderer.invoke('cloudSync:getPendingMassDelete'),
+  /**
+   * 用户显式确认批量删除（设置页「确认删除」按钮）。
+   * 必须回传 getPendingMassDelete 给出的指纹 —— 集合变化时确认会被拒绝。
+   */
+  confirmMassDelete: (fingerprint: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('cloudSync:confirmMassDelete', fingerprint),
+  /** 阶段二（大文件队列）进度快照；队列未启动过时 data 为 null */
+  getLargeQueueStats: (): Promise<{
+    success: boolean
+    data?: { pendingFiles: number; pendingBytes: number; pumping: boolean; at: number } | null
+  }> => ipcRenderer.invoke('cloudSync:getLargeQueueStats'),
   onStatusChange: (callback: (status: SyncStatus) => void): (() => void) => {
     const handler = (_e: Electron.IpcRendererEvent, status: SyncStatus) => callback(status)
     ipcRenderer.on('cloudSync:status', handler)

@@ -7,6 +7,7 @@ import os from 'node:os'
 import path from 'node:path'
 import {
   SYNC_OUTPUTS_MAX_BYTES,
+  computeStaleFingerprint,
   copySyncDirectory,
   shouldSkipSyncCopyDir,
 } from './sync-copy'
@@ -205,23 +206,171 @@ describe('sync-copy', () => {
     expect(fs.existsSync(path.join(dst, 'stale.txt'))).toBe(false)
   })
 
-  it('mirror：forceDeletes 跳过安全阀直接执行（用户二次确认）', () => {
+  // ── 批量删除确认：指纹绑定（2026-09-16 远端清空事故的回归防护） ──────────
+
+  it('mirror：超阈值删除连续两次都被挡下 —— 绝不自动放行', () => {
     const { src, dst } = makePair()
     fs.mkdirSync(dst, { recursive: true })
     for (let i = 0; i < 5; i++) fs.writeFileSync(path.join(dst, `f${i}.txt`), 'x')
 
-    // 同样的输入，不给 forceDeletes 会被 maxDeletes=3 挡下
+    // 旧实现：第一次挡下后置位布尔，第二次同步即自动放行 —— 事故由此而来。
+    // 现在无论同步多少次，没有匹配指纹就永远挡下。
+    const first = copySyncDirectory(src, dst, { mirror: true, maxDeletes: 3 })
+    expect(first.deleteAborted).toBe(true)
+    expect(first.deleted).toBe(0)
+
+    const second = copySyncDirectory(src, dst, { mirror: true, maxDeletes: 3 })
+    expect(second.deleteAborted).toBe(true)
+    expect(second.deleted).toBe(0)
+
+    const third = copySyncDirectory(src, dst, { mirror: true, maxDeletes: 3 })
+    expect(third.deleteAborted).toBe(true)
+    expect(third.deleted).toBe(0)
+  })
+
+  it('mirror：挡下时返回待删集合指纹与条目数（供用户确认）', () => {
+    const { src, dst } = makePair()
+    fs.mkdirSync(dst, { recursive: true })
+    for (let i = 0; i < 5; i++) fs.writeFileSync(path.join(dst, `f${i}.txt`), 'x')
+
+    const blocked = copySyncDirectory(src, dst, { mirror: true, maxDeletes: 3 })
+
+    expect(blocked.deleteAborted).toBe(true)
+    expect(blocked.abortedFingerprint).toBeTruthy()
+    expect(blocked.abortedCount).toBe(5)
+  })
+
+  it('mirror：confirmedFingerprint 匹配时放行（用户显式确认的那一批）', () => {
+    const { src, dst } = makePair()
+    fs.mkdirSync(dst, { recursive: true })
+    for (let i = 0; i < 5; i++) fs.writeFileSync(path.join(dst, `f${i}.txt`), 'x')
+
     const blocked = copySyncDirectory(src, dst, { mirror: true, maxDeletes: 3 })
     expect(blocked.deleteAborted).toBe(true)
-    expect(blocked.deleted).toBe(0)
 
-    const forced = copySyncDirectory(src, dst, {
+    const confirmed = copySyncDirectory(src, dst, {
       mirror: true,
       maxDeletes: 3,
-      forceDeletes: true,
+      confirmedFingerprint: blocked.abortedFingerprint,
     })
-    expect(forced.deleteAborted).toBe(false)
-    expect(forced.deleted).toBe(5)
+
+    expect(confirmed.deleteAborted).toBe(false)
+    expect(confirmed.deleted).toBe(5)
+  })
+
+  it('mirror：待删集合变化后指纹不匹配，确认自动失效', () => {
+    const { src, dst } = makePair()
+    fs.mkdirSync(dst, { recursive: true })
+    for (let i = 0; i < 5; i++) fs.writeFileSync(path.join(dst, `f${i}.txt`), 'x')
+
+    const blocked = copySyncDirectory(src, dst, { mirror: true, maxDeletes: 3 })
+
+    // 确认前集合又变了（多了一个待删项）——用户确认的是旧的那一批，不该生效
+    fs.writeFileSync(path.join(dst, 'extra.txt'), 'x')
+
+    const stale = copySyncDirectory(src, dst, {
+      mirror: true,
+      maxDeletes: 3,
+      confirmedFingerprint: blocked.abortedFingerprint,
+    })
+
+    expect(stale.deleteAborted).toBe(true)
+    expect(stale.deleted).toBe(0)
+    expect(fs.existsSync(path.join(dst, 'f0.txt'))).toBe(true)
+  })
+
+  it('computeStaleFingerprint：与顺序无关，集合变化则指纹变化', () => {
+    const a = computeStaleFingerprint(['b.txt', 'a.txt'])
+    const b = computeStaleFingerprint(['a.txt', 'b.txt'])
+    const c = computeStaleFingerprint(['a.txt', 'c.txt'])
+
+    expect(a).toBe(b)
+    expect(a).not.toBe(c)
+  })
+
+  // ── 增量短路：size + mtime 未变则跳过复制 ──────────────────────────────
+
+  it('skipUnchanged：默认关闭，每次都复制', () => {
+    const { src, dst } = makePair()
+    fs.writeFileSync(path.join(src, 'a.txt'), 'a')
+
+    const first = copySyncDirectory(src, dst)
+    expect(first.copied).toBe(1)
+    expect(first.skippedUnchanged).toBe(0)
+
+    const second = copySyncDirectory(src, dst)
+    expect(second.copied).toBe(1)
+    expect(second.skippedUnchanged).toBe(0)
+  })
+
+  it('skipUnchanged：复制后目标 mtime 被回写，第二遍跳过复制', () => {
+    const { src, dst } = makePair()
+    const srcFile = path.join(src, 'a.txt')
+    fs.writeFileSync(srcFile, 'a')
+    // 固定 mtime，避免测试机时间精度抖动带来假失败
+    const fixed = new Date('2026-09-17T10:00:00Z')
+    fs.utimesSync(srcFile, fixed, fixed)
+
+    const first = copySyncDirectory(src, dst, { skipUnchanged: true })
+    expect(first.copied).toBe(1)
+    expect(first.skippedUnchanged).toBe(0)
+
+    // 关键：不回写 mtime 的话下一轮比对永不相等，短路等于没写
+    const dstStat = fs.statSync(path.join(dst, 'a.txt'))
+    expect(dstStat.mtimeMs).toBe(fs.statSync(srcFile).mtimeMs)
+
+    const second = copySyncDirectory(src, dst, { skipUnchanged: true })
+    expect(second.copied).toBe(0)
+    expect(second.skippedUnchanged).toBe(1)
+  })
+
+  it('skipUnchanged：等长改写（仅 mtime 变）会重新复制', () => {
+    const { src, dst } = makePair()
+    const srcFile = path.join(src, 'a.txt')
+    fs.writeFileSync(srcFile, 'a')
+    copySyncDirectory(src, dst, { skipUnchanged: true })
+
+    // 内容等长 —— 只有 mtime 能区分，这正是 size 单条件不够的原因
+    fs.writeFileSync(srcFile, 'b')
+    const later = new Date(Date.now() + 5000)
+    fs.utimesSync(srcFile, later, later)
+
+    const again = copySyncDirectory(src, dst, { skipUnchanged: true })
+    expect(again.copied).toBe(1)
+    expect(fs.readFileSync(path.join(dst, 'a.txt'), 'utf8')).toBe('b')
+  })
+
+  it('skipUnchanged：源 mtime 带亚毫秒精度时仍能短路（utimesSync 舍入回归）', () => {
+    // 真实故障场景（2026-09-17）：源文件 mtime 是 NTFS 100ns 精度（带小数），
+    // utimesSync 回写后读回被舍入到整数 ms —— 严格比较永远不等，短路永不生效。
+    const { src, dst } = makePair()
+    const srcFile = path.join(src, 'a.bin')
+    fs.writeFileSync(srcFile, 'x')
+    fs.utimesSync(srcFile, 1789142563.4877817, 1789142563.4877817)
+
+    const first = copySyncDirectory(src, dst, { skipUnchanged: true })
+    expect(first.copied).toBe(1)
+
+    const second = copySyncDirectory(src, dst, { skipUnchanged: true })
+    expect(second.copied).toBe(0)
+    expect(second.skippedUnchanged).toBe(1)
+  })
+
+  it('skipUnchanged：长度变化（仅 size 变）会重新复制', () => {
+    const { src, dst } = makePair()
+    const srcFile = path.join(src, 'a.txt')
+    const fixed = new Date('2026-09-17T10:00:00Z')
+    fs.writeFileSync(srcFile, 'aa')
+    fs.utimesSync(srcFile, fixed, fixed)
+    copySyncDirectory(src, dst, { skipUnchanged: true })
+
+    // 只改长度、把 mtime 按回原值 —— 只剩 size 能区分
+    fs.writeFileSync(srcFile, 'aaa')
+    fs.utimesSync(srcFile, fixed, fixed)
+
+    const again = copySyncDirectory(src, dst, { skipUnchanged: true })
+    expect(again.copied).toBe(1)
+    expect(fs.readFileSync(path.join(dst, 'a.txt'), 'utf8')).toBe('aaa')
   })
 
   it('mirror：源侧大文件被跳过时，目标侧同名文件不被误删', () => {

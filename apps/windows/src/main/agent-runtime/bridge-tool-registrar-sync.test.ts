@@ -87,3 +87,57 @@ describe('registerSyncConflictTool — cloud_sync_git', () => {
     expect(payload.reachable).toBe(true)
   })
 })
+
+/**
+ * 异步化：工具秒回，不等待落决完成。
+ *
+ * 此前同步等待会把 Agent 卡在工具调用里（300s 后拿到超时，而任务其实还在跑）
+ * —— 2026-09-17 死循环的一环。
+ */
+describe('resolve_sync_conflict — 异步化（秒回）', () => {
+  it('秒回 started —— 落决永不完成也不会卡住工具', async () => {
+    const { deps, registered } = makeDeps()
+    registerSyncConflictTool(deps)
+
+    // 落决 promise 永不 settle：若工具 await 它，本测试会超时失败
+    const resolveConflict = vi.fn(() => new Promise<{ success: boolean }>(() => {}))
+    vi.mocked(getCloudSyncManager).mockReturnValue({
+      isResolveInFlight: () => false,
+      resolveConflict,
+    } as never)
+
+    const tool = registered.get('resolve_sync_conflict')!
+    const payload = parseText(await tool.execute('call-1', { strategy: 'keep-local' }))
+
+    expect(payload.status).toBe('started')
+    expect(resolveConflict).toHaveBeenCalledWith('keep-local', undefined)
+  })
+
+  it('落决飞行中 → 秒回 running，不排队也不标错误', async () => {
+    const { deps, registered } = makeDeps()
+    registerSyncConflictTool(deps)
+
+    const resolveConflict = vi.fn()
+    vi.mocked(getCloudSyncManager).mockReturnValue({
+      isResolveInFlight: () => true,
+      resolveConflict,
+    } as never)
+
+    const tool = registered.get('resolve_sync_conflict')!
+    const payload = parseText(await tool.execute('call-1', { strategy: 'keep-local' }))
+
+    expect(payload.status).toBe('running')
+    expect(resolveConflict).not.toHaveBeenCalled()
+  })
+
+  it('per-file 缺 choices → 参数校验报错', async () => {
+    const { deps, registered } = makeDeps()
+    registerSyncConflictTool(deps)
+    vi.mocked(getCloudSyncManager).mockReturnValue({} as never)
+
+    const tool = registered.get('resolve_sync_conflict')!
+    const payload = parseText(await tool.execute('call-1', { strategy: 'per-file' }))
+
+    expect(payload.status).toBe('error')
+  })
+})

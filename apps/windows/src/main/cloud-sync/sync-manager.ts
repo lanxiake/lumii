@@ -13,6 +13,8 @@ import git, { TREE } from 'isomorphic-git'
 import type { PromiseFsClient, WalkerEntry } from 'isomorphic-git'
 import http from 'isomorphic-git/http/node'
 import { enqueueWorkspace } from '../workspace-vcs/vcs-snapshot'
+import { SyncLargeQueue, type LargeQueueStats } from './sync-large-queue'
+import { scopeRulesFromConfig } from './sync-scope'
 import { resolveActiveWorkspaceDir } from '../workspace-paths'
 import { resolveWindowsClientDataRoot } from '../client-data-root'
 import { createLogger } from '../logger'
@@ -27,22 +29,29 @@ import type { FileChangeSet } from './sync-importer'
 const logger = createLogger('cloud-sync/manager')
 const execFileAsync = promisify(execFile)
 
-/** push 超时，避免 Agent 工具永久挂起（错误仓库或超大对象库时） */
-const PUSH_TIMEOUT_MS = 120_000
+/**
+ * push 单步超时。
+ *
+ * 2026-09-17 由 120s 放宽：大仓库下明显不够 —— 落决路径实测 240s 仍超时
+ * （落决 commit 含 applyRemoteNonConflictingChanges 带来的大量变更对象）。
+ * 超时只中止**等待**，push 本身仍在后台跑，所以宁可给足时间也不要误判失败。
+ */
+const PUSH_TIMEOUT_MS = 600_000
 
 /** fetch 超时：网络黑洞时让同步失败等下轮，而不是永久占着串行队列 */
 const FETCH_TIMEOUT_MS = 300_000
 
 /**
- * 冲突落决对外的超时。
- * 落决包含「补远端变更 + 落决提交 + 推送上传」，纯 JS 打包上传可达数分钟；
- * 超时只是让 Agent 工具先拿到结果，操作本身在串行队列里继续跑完
- * （下一轮落决会排在它后面，不会并发改写同一个仓库）。
+ * 冲突落决对外的超时（**Agent 工具等待上限**，不是任务死亡时间）。
+ *
+ * 超时只让 Agent 先拿到结果，resolveInner 仍在串行队列里跑完 ——
+ * T1.1 的 isResolveInFlight 守卫保证这期间不会重入，因此本值与内部 push 超时
+ * 不必构成嵌套（内部已放宽到 600s，比本值长）。
  */
 const RESOLVE_TIMEOUT_MS = 300_000
 
-/** 冲突落决路径上的 push 超时（短于总超时，给 import/收尾留余量） */
-const RESOLVE_PUSH_TIMEOUT_MS = 240_000
+/** 冲突落决路径上的 push 超时（落决 commit 变更量大，实测 240s 不够用） */
+const RESOLVE_PUSH_TIMEOUT_MS = 600_000
 
 /** 刷新冲突快照时重新 fetch 的超时 */
 const REFRESH_FETCH_TIMEOUT_MS = 300_000
@@ -59,6 +68,18 @@ const LOOSE_SIZE_KIB_THRESHOLD = 200 * 1024
 
 /** git gc 超时：GB 级对象库重打包在 Windows 上可达数分钟 */
 const GC_TIMEOUT_MS = 600_000
+
+/** 分级参数兜底（正常由 DEFAULT_CLOUD_SYNC_CONFIG 提供；旧配置文件缺字段时用） */
+const FALLBACK_SMALL_THRESHOLD_BYTES = 5 * 1024 * 1024
+const FALLBACK_LARGE_BATCH_BYTES = 50 * 1024 * 1024
+
+/**
+ * 落决守卫的最长有效期。
+ *
+ * resolveInner 理论上不会永久挂起（内部 push 自带 4 分钟超时），但若真出现，
+ * 超过此时长视为守卫失效 —— 宁可重新驱动一轮，也不要让守卫变成永久死锁。
+ */
+const RESOLVE_IN_FLIGHT_MAX_MS = 30 * 60 * 1000
 
 /**
  * 生成物路径判定：DB 导出物（jsonl/json）的数据语义是「按时间戳记录级合并」，
@@ -97,14 +118,23 @@ type PushOptions = {
 /**
  * 给 Promise 加超时；超时后原 Promise 仍可能在后台继续，但调用方立即收到错误。
  */
-function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+/**
+ * 给 Promise 加墙钟超时。
+ *
+ * `message` 接受字符串或 Error 实例 —— 传类型化错误（如 PushTimeoutError）让调用方
+ * 能用 `instanceof` 判定，而不是去匹配消息文本。
+ */
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string | Error): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined
   return Promise.race([
     promise.finally(() => {
       if (timer) clearTimeout(timer)
     }),
     new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new Error(message)), ms)
+      timer = setTimeout(
+        () => reject(typeof message === 'string' ? new TimeoutError(message) : message),
+        ms,
+      )
     }),
   ])
 }
@@ -120,6 +150,29 @@ function isMergeConflict(err: unknown): err is { data: MergeConflictErrorData } 
   return (err as { code?: string } | null)?.code === 'MergeConflictError'
 }
 
+/**
+ * 从 statusMatrix 结果算出 stage 计划。
+ *
+ * **关键**：`HEAD 有 + 工作区没有` 默认判为删除，但**排除集内的路径例外**。
+ * 分级传输下阶段一导出会跳过 >阈值 的大文件 —— 它们不在工作区却存在于 HEAD，
+ * 不排除的话每跑一次阶段一就把阶段二刚提交的大文件删一次。
+ *
+ * 抽成纯函数是为了可单测：真正的误删风险在这段判定里，不在 git 调用上。
+ */
+export function computeStagePlan(
+  status: ReadonlyArray<readonly [string, number, number, number]>,
+  isExcluded: (filepath: string) => boolean,
+): { hasChanges: boolean; removals: string[] } {
+  let hasChanges = false
+  const removals: string[] = []
+  for (const [filepath, head, workdir, stage] of status) {
+    if (isExcluded(filepath)) continue
+    if (head !== workdir || workdir !== stage) hasChanges = true
+    if (head !== 0 && workdir === 0) removals.push(filepath)
+  }
+  return { hasChanges, removals }
+}
+
 function isMergeNotSupported(err: unknown): boolean {
   return (err as { code?: string } | null)?.code === 'MergeNotSupportedError'
 }
@@ -129,9 +182,39 @@ function isRejectedPush(err: unknown): boolean {
   return /\[rejected\]|non-fast-forward|not a simple fast-forward/i.test(msg)
 }
 
+/**
+ * withTimeout 的墙钟超时。
+ *
+ * 与内部业务失败必须区分：超时只说明**调用方等不下去了**，被包的任务仍在后台跑；
+ * 业务失败才是任务真的结束了。混淆两者正是 2026-09-17 死循环的一环
+ * （Agent 收到 isError 后重新决策，而上一轮其实还在跑）。
+ */
+class TimeoutError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'TimeoutError'
+  }
+}
+
+/**
+ * 推送整体超时的**类型化**错误。
+ *
+ * 原先靠 `err.message.includes('git push 超时')` 字符串匹配 —— 任何消息措辞变动都会
+ * 静默失效，而这条分支决定「是否走 refreshConflictFromRemote 去复核远端」，
+ * 一旦失效，远端其实已接受推送却会被当成普通失败处理。
+ *
+ * 导出以便测试构造同类型错误（模拟「服务端已接收但客户端等待超时」）。
+ */
+export class PushTimeoutError extends TimeoutError {
+  constructor(readonly timeoutMs: number) {
+    super(`git push 超时（${timeoutMs}ms），已中止等待`)
+    this.name = 'PushTimeoutError'
+  }
+}
+
 /** 推送整体超时（服务端可能已经收到全部对象并接受，客户端不知道结果，需要靠 fetch 复核） */
 function isPushTimeout(err: unknown): boolean {
-  return err instanceof Error && err.message.includes('git push 超时')
+  return err instanceof PushTimeoutError
 }
 
 /** 「远端没有该分支」与「拉取失败」的区分：前者是首次同步，后者必须报错等下轮 */
@@ -149,15 +232,32 @@ export class CloudSyncManager extends EventEmitter {
   private localCommitInFlight = false
 
   /**
-   * 删除安全阀的二次确认。
+   * 被安全阀挡下的批量删除，等待用户显式确认。
    *
-   * 熔断只是「挡一次」：源侧待删集合不会因为被挡而减少，若永久拒绝，
-   * 用户的批量删除（或清理动作）就再也传不出去了。所以被挡下后置位，
-   * 下一次同步放行；用户若不想删，那期间把文件恢复即可（源侧恢复后不再有待删项）。
+   * **2026-09-16 事故的根因与修复**：旧实现是「被挡下 → 置布尔 → 下一次同步自动放行」，
+   * 而"下一次同步"由 30 分钟定时器触发 —— 自动化流程里的二次确认等于没有确认。
+   * 实测：第二台设备在 60 秒内两次同步，第二次就把远端 896 个文件删掉了。
+   *
+   * 现在：挡下时只记录待删集合的**指纹**，必须由用户在设置页显式确认
+   * （confirmMassDelete）才可能放行；指纹与实际待删集合不一致时确认自动失效。
    */
-  private massDeleteConfirmed = false
-  /** 本次完整同步是否获准跳过安全阀（syncInner 开头从 massDeleteConfirmed 消费一次） */
-  private allowMassDeleteThisSync = false
+  private pendingMassDelete:
+    | { fingerprint: string; count: number; createdAt: number }
+    | undefined
+  /** 已被用户显式确认的待删集合指纹（syncInner 开头消费一次） */
+  private confirmedMassDeleteFingerprint: string | undefined
+  /** 本次完整同步携带的确认指纹（真正放行与否由 sync-copy 用指纹比对决定） */
+  private confirmedFingerprintThisSync: string | undefined
+
+  /**
+   * 落决任务是否在飞行中（已入队、尚未结束）。
+   *
+   * resolveConflict 的超时只让**调用方**提前返回，队列里的 resolveInner 不可取消、仍在跑。
+   * 心跳（autonomous-tick cron，默认每 10 分钟）会无条件驱动冲突处理，而外层超时是 5 分钟
+   * —— 不挡的话每轮都会再排一个落决并让 Agent 重新决策，形成 2026-09-17 实测的死循环。
+   */
+  private resolveInFlight = false
+  private resolveInFlightSince = 0
 
   /** 不缓存目录，每次惰性取（切工作空间无需重建实例） */
   private get workspaceDir(): string {
@@ -203,9 +303,115 @@ export class CloudSyncManager extends EventEmitter {
     return this.conflict
   }
 
+  /** 当前待用户确认的批量删除（供设置页展示；无则 undefined） */
+  getPendingMassDelete(): { fingerprint: string; count: number; createdAt: number } | undefined {
+    return this.pendingMassDelete
+  }
+
+  /**
+   * 用户显式确认批量删除（设置页「确认删除」按钮）。
+   *
+   * 只接受与当前 pendingMassDelete **完全一致**的指纹 —— 集合变了（用户恢复了文件、
+   * 或又删了更多）确认即失效，必须重新同步一轮让安全阀重新评估。
+   * 确认后需再触发一次同步，删除才会真正执行（指纹在该次同步中比对放行）。
+   */
+  confirmMassDelete(fingerprint: string): { success: boolean; error?: string } {
+    const pending = this.pendingMassDelete
+    if (!pending) {
+      return { success: false, error: '当前没有待确认的批量删除' }
+    }
+    if (pending.fingerprint !== fingerprint) {
+      return {
+        success: false,
+        error: '待删集合已变化，确认失效。请重新同步一次以获取最新待删清单。',
+      }
+    }
+    this.confirmedMassDeleteFingerprint = fingerprint
+    this.pendingMassDelete = undefined
+    logger.warn(
+      `[confirmMassDelete] 用户已显式确认批量删除 ${pending.count} 项（fingerprint=${fingerprint}）`,
+    )
+    return { success: true }
+  }
+
   /** 唯一同步入口，进程内串行；conflict/syncing 期间重入直接返回 */
   async sync(): Promise<{ success: boolean; state: SyncState }> {
-    return enqueueWorkspace(this.workspaceDir, () => this.syncInner())
+    const result = await enqueueWorkspace(this.workspaceDir, () => this.syncInner())
+    // 阶段一完成且空闲 → 顺带推动阶段二：大文件后台慢慢传，不阻塞小文件到位
+    if (result.success && this.state === 'idle') {
+      this.kickLargeQueue()
+    }
+    return result
+  }
+
+  /** 阶段二大文件队列（惰性构造：目录用 getter，切工作空间无需重建） */
+  private largeQueue: SyncLargeQueue | null = null
+
+  private getLargeQueue(): SyncLargeQueue {
+    if (!this.largeQueue) {
+      this.largeQueue = new SyncLargeQueue(
+        {
+          getGitParams: () => this.getSyncGitParams(),
+          push: (localRef) => this.pushBranch(localRef),
+          getState: () => this.state,
+          enqueue: (fn) => enqueueWorkspace(this.workspaceDir, fn),
+          getLimits: () => {
+            const cfg = loadCloudSyncConfig()
+            return {
+              thresholdBytes: cfg.smallFileThresholdBytes ?? FALLBACK_SMALL_THRESHOLD_BYTES,
+              batchBytes: cfg.largeFileBatchBytes ?? FALLBACK_LARGE_BATCH_BYTES,
+              branch: cfg.branch || 'main',
+              rules: scopeRulesFromConfig(cfg),
+            }
+          },
+        },
+        () => ({
+          workspaceOutputsDir: path.join(this.workspaceDir, 'outputs'),
+          syncOutputsDir: path.join(this.syncDir, 'workspace/outputs'),
+        }),
+      )
+    }
+    return this.largeQueue
+  }
+
+  /** 阶段二进度快照（供 UI）；队列尚未初始化过时返回 undefined */
+  getLargeQueueStats(): LargeQueueStats | undefined {
+    return this.largeQueue?.getStats()
+  }
+
+  /**
+   * 按需推送指定路径（相对 outputs）—— 供 Agent 的 `cloud_sync_push` 工具。
+   * 不经扫描与阈值，直接作为一批提交推送。
+   */
+  async pushPaths(paths: readonly string[]): Promise<{ success: boolean; message: string }> {
+    return this.getLargeQueue().pushPaths(paths)
+  }
+
+  /** 供阶段二队列推送分支（复用内部 push 的认证、超时与脱敏） */
+  private async pushBranch(localRef: string): Promise<boolean> {
+    const cfg = loadCloudSyncConfig()
+    const token = decryptToken(cfg.tokenEnc)
+    const auth = (): ReturnType<AuthFn> => getProvider(cfg.provider).auth(token)
+    return this.push(this.getSyncGitParams(), cfg.repoUrl.trim(), localRef, auth)
+  }
+
+  /**
+   * 触发阶段二队列（**不 await**）：它在后台一批批传，每批都是独立队列任务，
+   * 批次之间会给高优先级同步让路。
+   */
+  private kickLargeQueue(): void {
+    void this.getLargeQueue()
+      .pump()
+      .then((r) => {
+        if (r.batches > 0) {
+          logger.info(
+            `[kickLargeQueue] 本轮传完 ${r.batches} 批 / ${r.files} 个文件 / ${(r.bytes / 1048576).toFixed(1)} MB${r.yielded ? '（让路结束，下轮继续）' : ''}`,
+          )
+        }
+      })
+      .catch((err) => {
+        logger.warn(`[kickLargeQueue] 异常: ${err instanceof Error ? err.message : String(err)}`)
+      })
   }
 
   private async syncInner(): Promise<{ success: boolean; state: SyncState }> {
@@ -217,9 +423,11 @@ export class CloudSyncManager extends EventEmitter {
     if (this.state === 'conflict') return { success: false, state: 'conflict' }
     if (this.state === 'syncing') return { success: false, state: 'syncing' }
 
-    // 消费一次二次确认（放在重入守卫之后：被挡回的重入不该消耗掉它）
-    this.allowMassDeleteThisSync = this.massDeleteConfirmed
-    this.massDeleteConfirmed = false
+    // 消费一次已确认的指纹（放在重入守卫之后：被挡回的重入不该消耗掉它）。
+    // 是否真正放行由 sync-copy 用指纹比对决定 —— 本次待删集合与用户确认过的那一批
+    // 不一致时确认自动失效，绝不存在"被挡下就下次自动放行"的路径。
+    this.confirmedFingerprintThisSync = this.confirmedMassDeleteFingerprint
+    this.confirmedMassDeleteFingerprint = undefined
 
     this.setState('syncing', '开始同步')
     try {
@@ -494,7 +702,7 @@ export class CloudSyncManager extends EventEmitter {
       onAuth: auth,
     })
     try {
-      await withTimeout(pushPromise, timeoutMs, `git push 超时（${timeoutMs}ms），已中止等待`)
+      await withTimeout(pushPromise, timeoutMs, new PushTimeoutError(timeoutMs))
       return true
     } catch (err) {
       if (isRejectedPush(err)) {
@@ -659,12 +867,15 @@ export class CloudSyncManager extends EventEmitter {
       syncDir: this.syncDir,
       workspaceDir: this.workspaceDir,
       dataDir: this.dataDir,
-      allowMassDelete: this.allowMassDeleteThisSync,
+      confirmedMassDeleteFingerprint: this.confirmedFingerprintThisSync,
+      outputsMaxBytes: loadCloudSyncConfig().smallFileThresholdBytes,
+      scopeRules: scopeRulesFromConfig(loadCloudSyncConfig()),
     })
-    await exporter.export()
+    const mergeExport = await exporter.export()
 
     // 4. stage 后提交双亲 commit（不传 tree：commit 会从 index 生成，index 此刻就是本地状态）
-    await this.stageAllChanges(p)
+    //    排除跳过的大文件：它们在 HEAD 里但不在工作区，不排除会被判成删除
+    await this.stageAllChanges(p, mergeExport.skippedLargePaths)
     await git.commit({
       ...p,
       ref: localRef,
@@ -762,21 +973,35 @@ export class CloudSyncManager extends EventEmitter {
     return { copy, delete: deleted }
   }
 
+/**
+ * 从 statusMatrix 结果算出 stage 计划。
+ *
+ * **关键**：`HEAD 有 + 工作区没有` 默认判为删除，但**排除集内的路径例外**。
+ * 分级传输下阶段一导出会跳过 >阈值 的大文件 —— 它们不在工作区却存在于 HEAD，
+ * 不排除的话每跑一次阶段一就把阶段二刚提交的大文件删一次。
+ *
+ * 抽成纯函数是为了可单测：真正的误删风险在这段判定里，不在 git 调用上。
+ */
   /**
    * 把工作树的变化 stage 进 index，返回是否有变更。
    *
    * isomorphic-git 的 add 从目录遍历文件，**已删除的文件不在遍历结果里** ——
    * 删除必须显式 git.remove，否则永远进不了 commit（「删了又回来」的根因之一）。
+   *
+   * @param excludeFromRemoval 这些路径不参与「已删除」判定、也不会被 remove
+   *        （用于阶段一跳过的大文件，见 computeStagePlan）
    */
-  private async stageAllChanges(p: GitParams): Promise<boolean> {
+  private async stageAllChanges(
+    p: GitParams,
+    excludeFromRemoval?: readonly string[],
+  ): Promise<boolean> {
     const status = await git.statusMatrix({ ...p })
-    const hasChanges = status.some(([, head, workdir, stage]) => head !== workdir || workdir !== stage)
+    const excluded = new Set(excludeFromRemoval ?? [])
+    const { hasChanges, removals } = computeStagePlan(status, (f) => excluded.has(f))
     if (!hasChanges) return false
 
-    for (const [filepath, head, workdir] of status) {
-      if (head !== 0 && workdir === 0) {
-        await git.remove({ ...p, filepath })
-      }
+    for (const filepath of removals) {
+      await git.remove({ ...p, filepath })
     }
     await git.add({ ...p, filepath: '.' })
     return true
@@ -819,7 +1044,9 @@ export class CloudSyncManager extends EventEmitter {
       syncDir: this.syncDir,
       workspaceDir: this.workspaceDir,
       dataDir: this.dataDir,
-      allowMassDelete: this.allowMassDeleteThisSync,
+      confirmedMassDeleteFingerprint: this.confirmedFingerprintThisSync,
+      outputsMaxBytes: loadCloudSyncConfig().smallFileThresholdBytes,
+      scopeRules: scopeRulesFromConfig(loadCloudSyncConfig()),
     })
     const exportResult = opts?.localEditsOnly
       ? await exporter.exportLocalEdits()
@@ -827,12 +1054,20 @@ export class CloudSyncManager extends EventEmitter {
     if (!exportResult.success) {
       logger.warn(`[exportAndCommit] 导出有错误: ${exportResult.errors.join(', ')}`)
     }
-    // 被安全阀挡下 → 置位，下次同步放行（二次确认）
-    if (exportResult.deleteAborted) {
-      this.massDeleteConfirmed = true
+    // 被安全阀挡下 → 记录待删集合指纹，等用户在设置页显式确认。
+    // **绝不自动放行**：这正是 2026-09-16 远端被清空 896 个文件的根因。
+    if (exportResult.deleteAborted && exportResult.abortedFingerprint) {
+      this.pendingMassDelete = {
+        fingerprint: exportResult.abortedFingerprint,
+        count: exportResult.abortedCount ?? 0,
+        createdAt: Date.now(),
+      }
+    } else if (!exportResult.deleteAborted) {
+      // 本次没有超阈值删除 → 源侧已恢复正常，先前的待确认作废
+      this.pendingMassDelete = undefined
     }
 
-    const hasChanges = await this.stageAllChanges(p)
+    const hasChanges = await this.stageAllChanges(p, exportResult.skippedLargePaths)
     if (!hasChanges) {
       logger.info('[exportAndCommit] 无变更需要提交')
       return null
@@ -861,8 +1096,8 @@ export class CloudSyncManager extends EventEmitter {
       // 队列内重新判定：同步可能已在此期间占用了 state
       if (this.state !== 'idle') return false
       if (this.localCommitInFlight) return false
-      // 轻量提交不参与二次确认的放行：它是自动触发的，不代表用户「再次确认」
-      this.allowMassDeleteThisSync = false
+      // 轻量提交不参与确认放行：它是自动触发的，永远不带确认指纹
+      this.confirmedFingerprintThisSync = undefined
       this.localCommitInFlight = true
       try {
         const p = this.getSyncGitParams()
@@ -965,18 +1200,58 @@ export class CloudSyncManager extends EventEmitter {
   async resolveConflict(
     strategy: 'keep-local' | 'keep-remote' | 'per-file',
     choices?: { path: string; side: 'local' | 'remote' }[],
-  ): Promise<{ success: boolean; error?: string }> {
-    const inner = enqueueWorkspace(this.workspaceDir, () => this.resolveInner(strategy, choices))
+  ): Promise<{ success: boolean; error?: string; stillRunning?: boolean }> {
+    // 上一轮落决未结束前拒绝新请求：队列任务不可取消，重复发起只会堆积；
+    // 且每一轮都要先花几分钟让 Agent 重新读三方内容 + 重新决策，纯属重复劳动。
+    if (this.isResolveInFlight()) {
+      const msg = '上一轮落决仍在后台执行，本次请求已跳过（避免重复排队）'
+      logger.warn(`[resolveConflict] ${msg}`)
+      return { success: false, error: msg }
+    }
+    this.resolveInFlight = true
+    this.resolveInFlightSince = Date.now()
+    // 状态消息透出给设置页：落决在后台跑、冲突尚未清除 —— 避免用户误以为卡住
+    if (this.state === 'conflict') {
+      this.setState('conflict', '落决后台执行中（补远端变更 → 落决提交 → 推送）…')
+    }
+    const inner = enqueueWorkspace(this.workspaceDir, () =>
+      this.resolveInner(strategy, choices).finally(() => {
+        this.resolveInFlight = false
+      }),
+    )
     return withTimeout(
       inner,
       RESOLVE_TIMEOUT_MS,
       `解决冲突超时（${RESOLVE_TIMEOUT_MS}ms）。落决仍在后台继续，无需手动清理，稍后会自动重试。`,
     ).catch((err) => {
       const reason = err instanceof Error ? err.message : String(err)
-      logger.error(`[resolveConflict] 解决失败: ${reason}`)
+      // 超时 ≠ 失败：任务仍在队列里跑（isResolveInFlight 仍为 true）。
+      // 必须让调用方（Agent 工具）知道这个区别 —— 收到 isError 会让 Agent
+      // 重新读文件、重新决策、再排一轮，而上一轮其实还在跑。
+      const stillRunning = err instanceof TimeoutError
+      logger.error(
+        `[resolveConflict] 解决失败${stillRunning ? '（仍在后台执行）' : ''}: ${reason}`,
+      )
       this.recordConflictResolutionFailure(reason)
-      return { success: false as const, error: reason }
+      return { success: false as const, error: reason, stillRunning }
     })
+  }
+
+  /**
+   * 落决是否仍在后台队列中执行。
+   *
+   * 供 bridge 的冲突驱动守卫使用：心跳/调度器驱动新一轮 Agent 前必须先查这里，
+   * 否则会在"上一轮还没跑完"时重复排队 —— 2026-09-17 死循环的直接成因。
+   */
+  isResolveInFlight(): boolean {
+    if (!this.resolveInFlight) return false
+    if (Date.now() - this.resolveInFlightSince > RESOLVE_IN_FLIGHT_MAX_MS) {
+      logger.warn(
+        `[resolveConflict] 落决已飞行超过 ${RESOLVE_IN_FLIGHT_MAX_MS / 60_000} 分钟，守卫失效放行（避免永久死锁）`,
+      )
+      return false
+    }
+    return true
   }
 
   /** 标记 Agent 开始处理冲突（仅更新 message + 日志，state 保持 conflict） */

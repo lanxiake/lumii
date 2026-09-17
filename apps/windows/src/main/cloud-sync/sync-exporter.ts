@@ -17,6 +17,7 @@ import { createLogger } from '../logger'
 import { SYNC_OUTPUTS_MAX_BYTES, copySyncDirectory } from './sync-copy'
 import type { CopySyncDirectoryResult } from './sync-copy'
 import { appendSyncLog } from './sync-log'
+import { isExcluded, isForceIncluded, type SyncScopeRules } from './sync-scope'
 
 const logger = createLogger('cloud-sync/exporter')
 
@@ -47,10 +48,20 @@ export interface SyncExportOptions {
   workspaceDir: string
   dataDir: string
   /**
-   * true：跳过镜像删除的安全阀（用户已二次确认的批量删除）。
-   * 由 CloudSyncManager 在上一次同步被挡下后置位。
+   * 已确认放行的待删集合指纹（来自用户在设置页的显式确认）。
+   * 只有本次实际待删集合的指纹与之完全一致时才跳过安全阀；
+   * 自动触发的同步永远拿不到匹配值，因此不会自行放行批量删除。
    */
-  allowMassDelete?: boolean
+  confirmedMassDeleteFingerprint?: string
+  /**
+   * outputs 单文件同步上限（字节）。缺省用 SYNC_OUTPUTS_MAX_BYTES。
+   *
+   * 分级传输（T4.3）后由 `CloudSyncConfig.smallFileThresholdBytes` 驱动 ——
+   * 超过此值的文件不进 sync 工作区、改由阶段二队列分批传（T4.4）。
+   */
+  outputsMaxBytes?: number
+  /** 同步范围规则（排除 / 强制包含），缺省视为空规则 */
+  scopeRules?: SyncScopeRules
 }
 
 export interface SyncExportResult {
@@ -60,12 +71,28 @@ export interface SyncExportResult {
   timestamp: string
   /** 本次镜像删除被安全阀挡下（源目录可能异常，删除未传播） */
   deleteAborted: boolean
+  /** 挡下时的待删集合指纹（用户确认时需原样回传；集合变化则指纹变化，确认自动失效） */
+  abortedFingerprint?: string
+  /** 挡下时的待删条目数（供 UI 展示） */
+  abortedCount?: number
+  /**
+   * 因超 maxSize 未导出的文件（**仓库相对路径**，如 `workspace/outputs/x.mp4`）。
+   *
+   * 供 stageAllChanges 排除：这些文件不在工作区却可能存在于 HEAD，
+   * 不排除的话会被判成「已删除」—— 分级传输下阶段一每跑一次就删一次阶段二的大文件。
+   */
+  skippedLargePaths: string[]
 }
 
 export class SyncExporter {
   private options: SyncExportOptions
   /** 本次导出中任一子树的镜像删除被安全阀挡下 */
   private deleteAborted = false
+  /** 挡下时的待删集合指纹与条目数（多子树被挡时取首个） */
+  private abortedFingerprint: string | undefined
+  private abortedCount: number | undefined
+  /** 本次导出中因超 maxSize 跳过的文件（仓库相对路径，`/` 分隔） */
+  private skippedLargePaths: string[] = []
 
   constructor(options: SyncExportOptions) {
     this.options = options
@@ -160,6 +187,9 @@ export class SyncExporter {
         errors,
         timestamp,
         deleteAborted: this.deleteAborted,
+        abortedFingerprint: this.abortedFingerprint,
+        abortedCount: this.abortedCount,
+        skippedLargePaths: this.skippedLargePaths,
       }
     } catch (err) {
       logger.error('[export] 导出失败:', err)
@@ -208,6 +238,9 @@ export class SyncExporter {
       errors,
       timestamp,
       deleteAborted: this.deleteAborted,
+      abortedFingerprint: this.abortedFingerprint,
+      abortedCount: this.abortedCount,
+      skippedLargePaths: this.skippedLargePaths,
     }
   }
 
@@ -431,12 +464,18 @@ export class SyncExporter {
    */
   private async exportUserFiles(): Promise<string[]> {
     const errors: string[] = []
-    const copyOpts = this.options.allowMassDelete ? { forceDeletes: true } : {}
+    const copyOpts = this.options.confirmedMassDeleteFingerprint
+      ? { confirmedFingerprint: this.options.confirmedMassDeleteFingerprint }
+      : {}
 
     const srcFiles = path.join(this.options.workspaceDir, 'files')
     const dstFiles = path.join(this.options.syncDir, 'workspace/files')
     if (fs.existsSync(srcFiles)) {
-      const r = copySyncDirectory(srcFiles, dstFiles, { mirror: true, ...copyOpts })
+      const r = copySyncDirectory(srcFiles, dstFiles, {
+        mirror: true,
+        skipUnchanged: true,
+        ...copyOpts,
+      })
       errors.push(...r.errors)
       this.logMirrorResult('workspace/files', r)
     }
@@ -444,14 +483,37 @@ export class SyncExporter {
     const srcOutputs = path.join(this.options.workspaceDir, 'outputs')
     const dstOutputs = path.join(this.options.syncDir, 'workspace/outputs')
     if (fs.existsSync(srcOutputs)) {
+      const maxBytes = this.options.outputsMaxBytes ?? SYNC_OUTPUTS_MAX_BYTES
+      const rules = this.options.scopeRules
       const r = copySyncDirectory(srcOutputs, dstOutputs, {
-        maxSize: SYNC_OUTPUTS_MAX_BYTES,
+        maxSize: maxBytes,
         mirror: true,
+        skipUnchanged: true,
         ...copyOpts,
+        // 同步范围规则：排除者永不参与；强制包含者无视阈值（排除优先）
+        ...(rules
+          ? {
+              shouldSkipFile: (rel: string) => isExcluded(rel, rules),
+              shouldForceInclude: (rel: string) => isForceIncluded(rel, rules),
+            }
+          : {}),
       })
       errors.push(...r.errors)
+      if (r.skippedExcluded > 0) {
+        logger.info(`[exportUserFiles] outputs 因范围规则跳过 ${r.skippedExcluded} 个`)
+      }
+      if (r.skippedUnchanged > 0) {
+        logger.info(`[exportUserFiles] outputs 未变更跳过 ${r.skippedUnchanged} 个`)
+      }
       if (r.skippedLarge > 0) {
-        logger.info(`[exportUserFiles] outputs 跳过大文件 ${r.skippedLarge} 个（阈值 ${SYNC_OUTPUTS_MAX_BYTES} bytes）`)
+        logger.info(`[exportUserFiles] outputs 跳过大文件 ${r.skippedLarge} 个（阈值 ${maxBytes} bytes）`)
+      }
+      // 记下跳过的文件（转成仓库相对路径）：stageAllChanges 必须排除它们，
+      // 否则「不在工作区但存在于 HEAD」会被判成删除 —— 分级传输下这是致命的
+      for (const abs of r.skippedLargePaths) {
+        this.skippedLargePaths.push(
+          'workspace/outputs/' + path.relative(srcOutputs, abs).split(path.sep).join('/'),
+        )
       }
       if (r.skippedDirs > 0) {
         logger.info(`[exportUserFiles] 跳过目录 ${r.skippedDirs} 个（含 .git/node_modules 等）`)
@@ -475,9 +537,14 @@ export class SyncExporter {
     }
     if (r.deleteAborted) {
       this.deleteAborted = true
+      // 取首个被挡下子树的指纹：多子树同时被挡时以先到者为准
+      if (!this.abortedFingerprint) {
+        this.abortedFingerprint = r.abortedFingerprint
+        this.abortedCount = r.abortedCount
+      }
       const msg =
         `${label} 本次删除未同步出去：待删条目超安全阈值（源目录可能异常，或一次删得太多）。` +
-        `已挡下一次；再同步一次即视为确认并执行。`
+        `已挡下，需在设置页显式确认后才会执行。`
       logger.warn(`[exportUserFiles] ${msg}`)
       // 写进同步日志（设置页「同步日志」可见），否则用户会以为删除已生效
       appendSyncLog('error', msg)
