@@ -31,6 +31,7 @@ import {
   makeTempRoot,
   assertIsolatedDataRoot,
   startClient,
+  waitFor,
   waitForReady,
   writeCloudSyncConfig,
   removeDirWithRetry,
@@ -148,6 +149,51 @@ const remoteTree = () =>
     .split('\n')
     .map((s) => s.trim())
     .filter(Boolean)
+
+// ── 分级传输：判定一个文件是走「阶段一」还是「阶段二」上传的 ──
+//
+// 两条路的提交信息不同：阶段一是 `sync: export at <ts>`，阶段二是 `sync: 大文件批次（N 个文件）`。
+// 用提交归属来判定比「同步返回后立刻看远端有没有」可靠 —— 后者与后台队列赛跑，
+// 文件小的时候队列可能在断言之前就传完了，测试会随机翻绿翻红。
+
+/** 最近一次阶段一提交的 oid */
+const lastExportCommit = () =>
+  gitBare(['log', '--format=%H', '-1', '--grep', '^sync: export at'])
+    .toString()
+    .trim()
+
+/** 指定提交里是否含某文件 */
+const fileInCommit = (oid, rel) => {
+  if (!oid) return false
+  try {
+    gitBare(['cat-file', '-e', `${oid}:${rel}`])
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** 阶段二批次提交的条数（用于断言「不再重复传」） */
+const batchCommitCount = () =>
+  gitBare(['log', '--format=%s'])
+    .toString()
+    .split('\n')
+    .filter((l) => l.includes('大文件批次')).length
+
+/** 在指定云同步配置下跑一段逻辑，结束后恢复基础配置 */
+async function withConfig(extra, fn) {
+  writeCloudSyncConfig(DATA_ROOT, {
+    repoUrl: REPO_URL,
+    token: TOKEN,
+    intervalMinutes: 1440,
+    extra,
+  })
+  try {
+    return await fn()
+  } finally {
+    writeCloudSyncConfig(DATA_ROOT, { repoUrl: REPO_URL, token: TOKEN, intervalMinutes: 1440 })
+  }
+}
 
 // ── 模拟「另一台设备」：在 clone 里改文件并推送（走 HTTP，必须异步）──
 
@@ -416,30 +462,68 @@ defineCase('SYNC-E2E-12', '未启用云同步时 sync 返回 success:false 且�
   return '未启用时安全短路'
 })
 
-defineCase('SYNC-E2E-13', '批量删除超安全阈值时挡一次，再次同步即确认执行', async () => {
-  const names = Array.from({ length: 12 }, (_, i) => `bulk-${i}.md`)
+/**
+ * 批量删除安全阀（2026-09-16 事故回归）。
+ *
+ * 用 **201 个文件**（> SYNC_MIRROR_MAX_DELETES=200）触发「数量上限」这条判定，
+ * 而不是原来 12 个文件靠「>50% 占比」—— 占比的分母是整个 sync 树的条目数，
+ * 全套件跑下来会随其它用例浮动，单独跑 SYNC_E2E_ONLY 时又完全不同，
+ * 结果这个用例的通过与否取决于跑在它前面的用例，不可靠。
+ */
+defineCase('SYNC-E2E-13', '超阈值删除：挡下后不自动放行，仅凭指纹确认才执行', async () => {
+  const names = Array.from({ length: 201 }, (_, i) => `bulk-${i}.md`)
   for (const n of names) localWrite(`files/${n}`, 'x')
   await syncNow()
-  const before = remoteTree().filter((p) => p.startsWith('workspace/files/bulk-')).length
-  if (before !== 12) throw new Error(`前置失败：远端应 12 个 bulk 文件，实际 ${before}`)
+  const countBulk = () => remoteTree().filter((p) => p.startsWith('workspace/files/bulk-')).length
+  const before = countBulk()
+  if (before !== 201) throw new Error(`前置失败：远端应 201 个 bulk 文件，实际 ${before}`)
 
-  // 一次删光 → 待删 12 项，占比 >50% 且 ≥10 → 安全阀挡下一次
   for (const n of names) localRm(`files/${n}`)
+
+  // ── 第 1 次同步：安全阀挡下，待删集合进 pendingMassDelete ──
   await syncNow()
-  const afterFirst = remoteTree().filter((p) => p.startsWith('workspace/files/bulk-')).length
-  if (afterFirst !== 12) {
-    throw new Error(`安全阀未生效：远端 bulk 从 12 变成 ${afterFirst}（不该删）`)
+  const s1 = await uiAsync(['cloudsync', 'status'], { timeoutMs: 30_000 })
+  const pending = s1.json?.status?.pendingMassDelete
+  if (!pending) {
+    throw new Error(`安全阀未挡下（status 无 pendingMassDelete）: ${JSON.stringify(s1.json)}`)
+  }
+  if (pending.count !== 201) throw new Error(`待删项数应为 201，实际 ${pending.count}`)
+  if (typeof pending.fingerprint !== 'string' || pending.fingerprint.length === 0) {
+    throw new Error('pendingMassDelete 未给出指纹，用户无从确认')
+  }
+  const afterFirst = countBulk()
+  if (afterFirst !== 201) {
+    throw new Error(`安全阀未生效：远端 bulk 从 201 变成 ${afterFirst}（不该删）`)
   }
 
-  // 再同步一次 = 用户确认，必须放行并真的删掉。
-  // 「挡一次」而非永久拒绝是有意的：源侧待删集合不会因被挡而减少，
-  // 若永久拒绝，用户的批量清理就再也传不出去了（死锁）。
+  // ── 第 2 次同步：**本用例的核心断言，也是事故根因的回归点** ──
+  // 旧实现：第一次挡下时置位布尔 massDeleteConfirmed，下一次自动同步即视为用户确认，
+  // 201 个文件会被静默删光（9-16 远端被清空 896 个文件即此路径）。
+  // 新实现：只认与当前待删集合完全一致的显式指纹，自动同步永远拿不到，必须继续挡。
   await syncNow()
-  const afterSecond = remoteTree().filter((p) => p.startsWith('workspace/files/bulk-')).length
-  if (afterSecond !== 0) {
-    throw new Error(`二次确认后仍残留 ${afterSecond} 个 bulk 文件`)
+  const afterSecond = countBulk()
+  if (afterSecond !== 201) {
+    throw new Error(
+      `⚠️ 再次同步被自动放行，删掉了 ${201 - afterSecond} 个文件 —— 2026-09-16 事故回归！`,
+    )
   }
-  return '首次被安全阀挡下；再次同步确认后正常删除'
+
+  // ── 错误指纹：必须拒绝 ──
+  const bad = await uiAsync(['cloudsync', 'confirm-delete', '--fingerprint', 'deadbeefdeadbeef'])
+  if (bad.json?.success !== false) {
+    throw new Error(`错误指纹不该被接受: ${JSON.stringify(bad.json)}`)
+  }
+  if (countBulk() !== 201) throw new Error('错误指纹竟触发了删除')
+
+  // ── 正确指纹：接受；删除在该次同步中执行 ──
+  const ok = await uiAsync(['cloudsync', 'confirm-delete', '--fingerprint', pending.fingerprint])
+  if (ok.json?.success !== true) {
+    throw new Error(`正确指纹应被接受: ${JSON.stringify(ok.json)}`)
+  }
+  await syncNow()
+  const afterConfirm = countBulk()
+  if (afterConfirm !== 0) throw new Error(`确认后仍残留 ${afterConfirm} 个 bulk 文件`)
+  return '挡下 → 再次同步仍挡下（事故回归）→ 错误指纹拒绝 → 正确指纹放行'
 })
 
 // ── E 组：边界 ────────────────────────────────────
@@ -581,6 +665,128 @@ defineCase('SYNC-E2E-19', '冲突期间远端再前进：落决被拒后自动�
   return '落决被拒 → 快照自动刷新 → 二轮收敛，远端新提交未丢失'
 })
 
+// ── F 组：分级传输与同步范围（v3+，2026-09-17） ──
+
+/** 等某文件出现在远端（阶段二是后台队列，没有可等待的同步返回值） */
+async function waitForRemote(rel, { timeoutMs = 240_000 } = {}) {
+  await waitFor(() => remoteExists(rel), {
+    timeoutMs,
+    intervalMs: 3_000,
+    label: `阶段二补传 ${rel}`,
+  })
+}
+
+defineCase('SYNC-E2E-20', '超阈值文件不阻塞阶段一，改由阶段二队列补传', async () => {
+  const bigRel = 'workspace/outputs/tier/big.bin'
+  const bigAbs = localPath('outputs/tier/big.bin')
+  fs.mkdirSync(path.dirname(bigAbs), { recursive: true })
+  // 8MB = 默认阈值（1MB）的 8 倍，确保落在阶段二
+  fs.writeFileSync(bigAbs, Buffer.alloc(8 * 1024 * 1024, 'z'))
+  localWrite('files/tier-small.md', 'small')
+
+  const t0 = Date.now()
+  await syncNow()
+  const stage1Ms = Date.now() - t0
+
+  // 用「提交归属」判定走的是哪条路 —— 同步返回后直接看远端有没有会和后台队列赛跑
+  const exp = lastExportCommit()
+  if (!exp) throw new Error('找不到阶段一提交（grep ^sync: export at 无结果）')
+  if (!fileInCommit(exp, 'workspace/files/tier-small.md')) {
+    throw new Error('小文件没进阶段一提交')
+  }
+  if (fileInCommit(exp, bigRel)) {
+    throw new Error(`8MB 文件进了阶段一提交（阈值未生效），阶段一耗时 ${stage1Ms}ms`)
+  }
+
+  await waitForRemote(bigRel)
+  const size = gitBare(['cat-file', '-s', `main:${bigRel}`]).toString().trim()
+  if (size !== String(8 * 1024 * 1024)) {
+    throw new Error(`远端大文件字节数 ${size} ≠ ${8 * 1024 * 1024}（内容不完整）`)
+  }
+  return `阶段一 ${stage1Ms}ms 未被 8MB 文件阻塞；阶段二补齐且字节数一致`
+})
+
+defineCase('SYNC-E2E-21', '已传完的大文件不再重传（mtime 精度死循环回归）', async () => {
+  const bigRel = 'workspace/outputs/tier/big.bin'
+  const srcAbs = localPath('outputs/tier/big.bin')
+  const mirrorAbs = path.join(DATA_ROOT, 'sync/workspace/outputs/tier/big.bin')
+  if (!remoteExists(bigRel)) throw new Error('前置失败：需先跑 SYNC-E2E-20')
+
+  // 直接断言修复本体：镜像副本的 mtime 必须落在源的容差内。
+  // 修复前 copyFileSync 不回写 mtime，目标恒为复制时刻，比对永远判「已变更」。
+  const srcMs = fs.statSync(srcAbs).mtimeMs
+  const dstMs = fs.statSync(mirrorAbs).mtimeMs
+  const delta = Math.abs(dstMs - srcMs)
+  if (delta > 2) {
+    throw new Error(`镜像 mtime 与源差 ${delta.toFixed(2)}ms（应在 2ms 容差内，否则必然重传）`)
+  }
+
+  const quiet = async () =>
+    waitFor(
+      async () => {
+        const s = await uiAsync(['cloudsync', 'status'], { timeoutMs: 30_000 })
+        const q = s.json?.status?.largeQueue
+        return q && q.pumping === false && q.pendingFiles === 0
+      },
+      { timeoutMs: 180_000, intervalMs: 2_500, label: '阶段二队列静默' },
+    )
+
+  const before = batchCommitCount()
+  const tipBefore = gitBare(['rev-parse', 'main']).toString().trim()
+  for (let i = 0; i < 2; i++) {
+    await syncNow()
+    await quiet()
+  }
+  const after = batchCommitCount()
+  if (after !== before) {
+    throw new Error(`重复同步又产生了 ${after - before} 个大文件批次提交（重传回归）`)
+  }
+  const tipAfter = gitBare(['rev-parse', 'main']).toString().trim()
+  return `mtime 差 ${delta.toFixed(2)}ms；两轮同步零重传（tip ${tipBefore.slice(0, 7)}→${tipAfter.slice(0, 7)}）`
+})
+
+defineCase('SYNC-E2E-22', '范围规则：排除项不参与同步，强制包含无视阈值走阶段一', async () => {
+  await withConfig(
+    { syncExcludePatterns: ['*.secret'], syncForceIncludePatterns: ['forced-*.bin'] },
+    async () => {
+      localWrite('files/a.secret', 'should-not-sync')
+      localWrite('outputs/b.secret', 'should-not-sync')
+      localWrite('files/plain.md', 'plain')
+      // 2MB：在 1MB 阈值之上，但被 forceInclude 命中 → 应回到阶段一
+      const forcedAbs = localPath('outputs/forced-big.bin')
+      fs.mkdirSync(path.dirname(forcedAbs), { recursive: true })
+      fs.writeFileSync(forcedAbs, Buffer.alloc(2 * 1024 * 1024, 'f'))
+
+      await syncNow()
+
+      if (remoteExists('workspace/files/a.secret')) {
+        throw new Error('files/ 下的排除项被同步了（排除规则未覆盖 files/）')
+      }
+      if (remoteExists('workspace/outputs/b.secret')) {
+        throw new Error('outputs/ 下的排除项被同步了')
+      }
+      if (remoteRead('workspace/files/plain.md')?.trim() !== 'plain') {
+        throw new Error('同目录下的正常文件反而没同步')
+      }
+      const exp = lastExportCommit()
+      if (!fileInCommit(exp, 'workspace/outputs/forced-big.bin')) {
+        throw new Error('强制包含未生效：2MB 文件没进阶段一提交')
+      }
+      // 被排除的项不得因「镜像删除」而被当成删除信号（名字应留在 srcNames 里）
+      if (remoteExists('workspace/files/plain.md') === false) {
+        throw new Error('排除规则连带删掉了正常文件')
+      }
+    },
+  )
+
+  // 撤掉规则后应恢复同步 —— 排除是规则不是永久拉黑
+  await syncNow()
+  if (!remoteExists('workspace/files/a.secret')) {
+    throw new Error('撤掉排除规则后 .secret 仍不同步')
+  }
+  return '排除命中 files/ 与 outputs/ 均不传；强制包含把 2MB 拉回阶段一；撤规则后恢复'
+})
+
 // ────────────────────────────────────────────────
 // 执行
 // ────────────────────────────────────────────────
@@ -661,11 +867,17 @@ async function main() {
       运行命令: 'node docs/test/lumii-cli/cloud-sync/run-sync-e2e.mjs',
       环境变量: `SYNC_E2E_ONLY=${ONLY ?? '(全部)'} SYNC_E2E_VERBOSE=${VERBOSE ? '1' : '0'}`,
       覆盖范围:
-        '本地→远端增删改、远端→本地增删改、无冲突自动合并、冲突检测、服务端 5xx、' +
-        '认证失败、未启用短路、批量删除熔断、嵌套目录、重目录剪枝、profile 同步、幂等性',
+        '本地→远端增删改、远端→本地增删改、无冲突自动合并、冲突检测、冲突落决（含快照过期重试）、' +
+        '服务端 5xx、认证失败、未启用短路、批量删除安全阀（含指纹确认与「不自动放行」事故回归）、' +
+        '嵌套目录、重目录剪枝、profile 同步、幂等性、' +
+        '分级传输（超阈值文件不阻塞阶段一 + 阶段二补传 + mtime 容差零重传）、同步范围规则（排除/强制包含）',
       已知限制:
-        '冲突落决（resolve_sync_conflict）无 CLI 入口，本套件只验证到「进入 conflict 且未误推送」；' +
-        '落决逻辑由单测 apps/windows/src/main/cloud-sync/sync-manager.test.ts 覆盖',
+        'Agent 侧 5 个云同步工具（cloud_sync_read_file / resolve_sync_conflict / cloud_sync_git / ' +
+        'cloud_sync_push / cloud_sync_now）需要真实 LLM 与真实会话，不进本套件（会引入非确定性）；' +
+        '日常由 apps/windows/src/main/agent-runtime/bridge-tool-registrar-sync.test.ts 覆盖，' +
+        '端到端由人工用 lumii-ui send 对真实客户端验证。' +
+        '同步范围规则里的 glob 按**每层目录名**匹配（如 *.secret 命中任意层级），' +
+        '不支持 docs/*.secret 这类带目录前缀的路径模式。',
     },
   })
 }

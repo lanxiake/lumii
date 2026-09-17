@@ -62,8 +62,17 @@ export function readRuntimeInfo(dataRoot) {
   }
 }
 
-/** 写云同步配置（绕过设置页的 URL 校验，指向本地 git server） */
-export function writeCloudSyncConfig(dataRoot, { repoUrl, token, intervalMinutes = 1440, enabled = true }) {
+/**
+ * 写云同步配置（绕过设置页的 URL 校验，指向本地 git server）。
+ *
+ * `extra` 用于 v3+ 的两个分级传输参数与同步范围规则
+ * （smallFileThresholdBytes / largeFileBatchBytes / syncExcludePatterns /
+ *  syncForceIncludePatterns）—— 缺省时主进程按内置默认值（1MB / 50MB / 空规则）加载。
+ */
+export function writeCloudSyncConfig(
+  dataRoot,
+  { repoUrl, token, intervalMinutes = 1440, enabled = true, extra = {} },
+) {
   const file = path.join(dataRoot, 'config', 'cloud-sync.json')
   fs.mkdirSync(path.dirname(file), { recursive: true })
   fs.writeFileSync(
@@ -76,6 +85,7 @@ export function writeCloudSyncConfig(dataRoot, { repoUrl, token, intervalMinutes
         branch: 'main',
         intervalMinutes,
         tokenEnc: `plain:${token}`,
+        ...extra,
       },
       null,
       2,
