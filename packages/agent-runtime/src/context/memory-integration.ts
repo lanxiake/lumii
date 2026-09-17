@@ -35,6 +35,14 @@ export interface MemoryIntegrationDeps {
   readonly getTurnCount: () => number;
   /** 是否注入工作记忆（宿主可动态关闭） */
   readonly getInjectWorkMemory: () => boolean;
+  /**
+   * 当前轮次所属的会话 id（可选）。
+   *
+   * 效用反馈行的 `session_id` 用它——**必须能 join 回会话**，否则抽样复核时
+   * 看不到"当时那条回复说了什么"，P1-5 的「代理判定对不对」就无从谈起。
+   * 未提供时退化为 `instanceId`（实例 id 无法反查会话，复核会断在这里）。
+   */
+  readonly getConversationId?: () => string | undefined;
 }
 
 /** 从单条消息提取纯文本（string 或 content block 数组） */
@@ -180,7 +188,7 @@ export class MemoryIntegration {
       const written = manager.recordInjectionOutcome(
         entries,
         reply,
-        this.deps.instanceId,
+        this.deps.getConversationId?.() ?? this.deps.instanceId,
         queryLength,
       );
       if (written > 0) {

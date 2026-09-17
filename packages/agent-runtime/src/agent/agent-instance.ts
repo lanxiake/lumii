@@ -328,6 +328,9 @@ export class AgentInstance {
       }),
       getTurnCount: () => this.turnCount,
       getInjectWorkMemory: () => this.injectWorkMemory,
+      // 效用反馈行的 session_id 用会话 id 而非实例 id——实例 id 反查不到会话，
+      // 抽样复核时看不到"当时的回复"，P1-5 的判定就无从做起
+      getConversationId: () => config.sessionKey,
     });
 
     this.selfHeal = new SelfHealController({
