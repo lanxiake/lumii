@@ -1273,7 +1273,8 @@ export const COMMANDS = [
     name: 'cloudsync status',
     group: '云同步',
     usage: 'cloudsync status',
-    summary: '查看云同步状态（state / lastSyncAt / conflict / lastError）',
+    summary:
+      '查看云同步状态（state / lastSyncAt / conflict / pendingMassDelete / largeQueue）',
     layer: 'B',
     route: { method: 'POST', path: '/ipc/cloudsync/status' },
     options: [],
@@ -1323,6 +1324,26 @@ export const COMMANDS = [
         }
       }
       return out
+    },
+  },
+  {
+    name: 'cloudsync confirm-delete',
+    group: '云同步',
+    usage: 'cloudsync confirm-delete --fingerprint <fp>',
+    summary:
+      '确认批量删除（等价于设置页「确认删除 N 项」按钮）；指纹取自 cloudsync status 的 pendingMassDelete',
+    layer: 'B',
+    route: { method: 'POST', path: '/ipc/cloudsync/confirm-mass-delete' },
+    options: [
+      {
+        flag: '--fingerprint <fp>',
+        desc: 'cloudsync status 返回的 pendingMassDelete.fingerprint；不匹配会被拒绝',
+      },
+    ],
+    build(args) {
+      const fingerprint = args.flags.fingerprint
+      if (typeof fingerprint !== 'string' || fingerprint.length === 0) return null
+      return { fingerprint }
     },
   },
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

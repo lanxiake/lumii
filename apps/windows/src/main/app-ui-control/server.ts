@@ -321,6 +321,10 @@ async function handleRoute(
       await handleCloudSyncResolveRoute(body, res)
       return
     }
+    case '/ipc/cloudsync/confirm-mass-delete': {
+      await handleCloudSyncConfirmMassDeleteRoute(body, res)
+      return
+    }
     default:
       sendJson(res, 404, { ok: false, error: 'not_found' })
   }
@@ -404,6 +408,9 @@ async function handlePetListModelsRoute(res: http.ServerResponse): Promise<void>
 
 /**
  * B 层：云同步状态（供 CLI 校验 state / lastSyncAt / conflict）。
+ *
+ * 一并返回 `pendingMassDelete` 与 `largeQueue` —— 这两项设置页会展示，
+ * CLI 若缺了就会「设置页报警、命令行说一切正常」，属于危险的观测盲区。
  */
 async function handleCloudSyncStatusRoute(res: http.ServerResponse): Promise<void> {
   const m = getCloudSyncManager()
@@ -411,7 +418,36 @@ async function handleCloudSyncStatusRoute(res: http.ServerResponse): Promise<voi
     sendJson(res, 200, { ok: false, error: 'not_ready' })
     return
   }
-  sendJson(res, 200, { ok: true, status: m.getStatus() })
+  sendJson(res, 200, {
+    ok: true,
+    status: {
+      ...m.getStatus(),
+      pendingMassDelete: m.getPendingMassDelete() ?? null,
+      largeQueue: m.getLargeQueueStats() ?? null,
+    },
+  })
+}
+
+/**
+ * B 层：确认批量删除（等价于设置页「确认删除 N 项」按钮）。
+ * 必须回传 status.pendingMassDelete.fingerprint —— 集合变化时确认会被拒绝。
+ */
+async function handleCloudSyncConfirmMassDeleteRoute(
+  body: unknown,
+  res: http.ServerResponse,
+): Promise<void> {
+  const m = getCloudSyncManager()
+  if (!m) {
+    sendJson(res, 200, { ok: false, error: 'not_ready' })
+    return
+  }
+  const fingerprint = (body as { fingerprint?: unknown } | null)?.fingerprint
+  if (typeof fingerprint !== 'string' || fingerprint.length === 0) {
+    sendJson(res, 200, { ok: false, error: 'usage: fingerprint is required' })
+    return
+  }
+  const result = m.confirmMassDelete(fingerprint)
+  sendJson(res, 200, { ok: true, ...result })
 }
 
 /**
