@@ -20,6 +20,10 @@ import {
 } from "./memory-consolidation.js";
 import { injectMemories, stripMemoryPlaceholder } from "./memory-injector.js";
 import { mergeCandidates } from "./merge.js";
+import {
+  computeContribution,
+  type MemoryInjectionOutcome,
+} from "./memory-feedback-repo.js";
 import type {
   MemoryEntry,
   MemoryCategory,
@@ -130,6 +134,77 @@ export class MemoryManager {
       updatedPrompt: injectMemories(systemPrompt, injected),
       injected,
     };
+  }
+
+  /**
+   * 记录本轮注入的效用观测（V47 · 评审 §4.3）。
+   *
+   * 在 `agent_end` 调用：拿本轮注入快照 + 回复文本，用 bigram 重叠近似判断
+   * 「这条记忆有没有被用上」，写 `memory_usage_feedback` 并递增 `utility_count`。
+   *
+   * **不进打分**：`utility_count` 只入库，`scoreMemory` 仍吃冻结的 `use_count`。
+   * 代理噪声未知，先积累数据、抽样验证后再决定是否接线（实施计划 P1-5）。
+   *
+   * @param entries 本轮注入的记忆（`MemoryIntegration.injectedSnapshot`）
+   * @param replyText 本轮最终的助手回复文本
+   * @param sessionId 会话标识（无则用实例 id）
+   * @param queryLength 触发本轮的用户消息长度（只为特征快照，不落原文）
+   * @returns 写入的反馈行数
+   */
+  recordInjectionOutcome(
+    entries: readonly MemoryEntry[],
+    replyText: string,
+    sessionId: string,
+    queryLength: number,
+  ): number {
+    if (entries.length === 0 || !replyText.trim()) return 0;
+
+    const now = Date.now();
+    const outcomes: MemoryInjectionOutcome[] = [];
+    for (const e of entries) {
+      const { contributionScore, overlap, keywordMatch } = computeContribution(
+        e.content,
+        replyText,
+      );
+      const ageDays = (now - new Date(e.created_at).getTime()) / 86_400_000;
+      const lastInjectedAt = new Date(e.last_injected_at ?? e.created_at).getTime();
+      outcomes.push({
+        memoryId: e.id,
+        sessionId,
+        queryLength,
+        wasUsedInResponse: contributionScore > 0,
+        contributionScore,
+        // MemoryRankingFeatures 的 12 个字段（autonomous/types.ts:415-445）。
+        // 当前不可得的填 0 / false —— 宁可留空，也不要编造会污染训练的特征。
+        features: {
+          semanticSimilarity: overlap,
+          keywordMatch,
+          queryLength,
+          memoryAge: ageDays,
+          accessCount: e.exposure_count,
+          lastAccessRecency: (now - lastInjectedAt) / 3_600_000,
+          memoryLength: e.content.length,
+          topicRelevance: overlap,
+          userFeedbackScore: 0,
+          taskTypeMatch: false,
+          avgUtilityScore: e.exposure_count > 0 ? e.utility_count / e.exposure_count : 0,
+          retrievalSuccessRate: 0,
+        },
+      });
+    }
+
+    try {
+      return this.repo.recordInjectionOutcomes(outcomes, new Date(now));
+    } catch (err) {
+      // 观测失败不能影响主流程
+      console.warn("[MemoryManager] 效用反馈写入失败:", err);
+      return 0;
+    }
+  }
+
+  /** 已积累的效用反馈条数（P1-5 抽样门槛 / 健康检查） */
+  countFeedback(): number {
+    return this.repo.countFeedback();
   }
 
   /**

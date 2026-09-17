@@ -28,7 +28,24 @@ export interface MemoryEntry {
   /** 对应的记忆宫殿 drawer 稳定 ID（内容寻址），可空 */
   readonly palace_drawer_id: string | null;
   readonly created_at: string;
+  /**
+   * 最近一次「被使用」的时间：注入、合并写入、用户编辑都算（V47）。
+   *
+   * 与旧 `last_used` 语义相同，是下游判定（温度分档 / 冷归档 / prune / 云同步合并键）
+   * 的读取列。自激的切断点不在这里，而在打分公式——`scoreMemory` 的 recency 只按
+   * `created_at`，故本列被注入刷新也不会反过来抬高分数。
+   */
+  readonly last_injected_at: string;
+  /** 被注入的次数（V47）。跨过 `skipUnusedOlderThanDays` 门控用 */
+  readonly exposure_count: number;
+  /**
+   * 被判定为「真的用上了」的次数（V47）。
+   * **P0 只记录，不参与打分**——效用代理噪声未验证（评审 §4.3 / 实施计划 P1-5）。
+   */
+  readonly utility_count: number;
+  /** @deprecated V47 起冻结不再写入，仅作历史累积值与云同步兼容之用 */
   readonly last_used: string;
+  /** @deprecated V47 起冻结不再写入；曝光语义见 `exposure_count` */
   readonly use_count: number;
   readonly is_archived: boolean;
 }
@@ -46,7 +63,12 @@ export interface MemoryRow {
   readonly source_segment_id: string | null;
   readonly palace_drawer_id: string | null;
   readonly created_at: string;
+  readonly last_injected_at: string;
+  readonly exposure_count: number;
+  readonly utility_count: number;
+  /** @deprecated V47 起冻结不再写入 */
   readonly last_used: string;
+  /** @deprecated V47 起冻结不再写入 */
   readonly use_count: number;
   readonly is_archived: number;
 }
@@ -99,8 +121,9 @@ export interface HotMemoryConfig {
   /** use_count 轻微加成权重，默认 0.05：`min(0.15, w * ln(1 + use_count))`。 */
   readonly useCountWeight?: number;
   /**
-   * 注入时跳过"从未被用过且已过期"的条目：use_count=0 且 created_at 早于 N 天，默认 30。
+   * 注入时跳过"从未被注入过且已过期"的条目：exposure_count=0 且 created_at 早于 N 天，默认 30。
    * 只影响注入选取，不改存储数据（不归档、不删除）。设为 0 关闭。
+   * V47 起判定依据由 `use_count`（曝光混同使用）改为 `exposure_count`。
    */
   readonly skipUnusedOlderThanDays?: number;
 }

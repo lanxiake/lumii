@@ -500,13 +500,17 @@ export class SyncImporter {
 
   /**
    * 合并单条记忆记录（时间戳规则）
+   *
+   * 时间戳键自 V47（2026-09-17）由 `last_used` 改为 `last_injected_at`——前者已冻结
+   * 不再写入，继续拿它比大小会让冲突判定永远停在历史值上。
+   * 远端若来自旧版本（无该列），回退读 `last_used`，行为与升级前一致。
    */
   private async mergeMemory(
     db: InstanceType<typeof DatabaseSync>,
     remoteRow: Record<string, SQLInputValue>,
   ): Promise<boolean> {
     const id = remoteRow.id
-    const remoteTs = remoteRow.last_used as string
+    const remoteTs = (remoteRow.last_injected_at ?? remoteRow.last_used) as string
 
     // 查询本地记录
     const localRow = db
@@ -523,7 +527,7 @@ export class SyncImporter {
       return true
     }
 
-    const localTs = localRow.last_used as string
+    const localTs = (localRow.last_injected_at ?? localRow.last_used) as string
 
     // 情况 2：远端更新（时间戳更大），覆盖本地
     if (remoteTs > localTs) {

@@ -6,7 +6,7 @@
  */
 
 /** 当前 schema 版本号 */
-export const SCHEMA_VERSION = 46;
+export const SCHEMA_VERSION = 47;
 
 /**
  * V1 DDL — 初始 schema
@@ -1620,6 +1620,42 @@ CREATE TABLE IF NOT EXISTS tool_usage_daily (
 
 CREATE INDEX IF NOT EXISTS idx_tud_day
   ON tool_usage_daily (day DESC);
+`,
+  ],
+
+  // V47: 记忆的「曝光 / 效用」分离
+  //
+  // 动因（评审 2026-09-17 §2.4.2）：`use_count` 记的是**被展示**而非**被使用**——它在注入时 +1，
+  // 而 `last_used` 也在注入时刷新，两者共同构成自激：被注入 → 分数变高 → 更容易再被注入。
+  // 实测 9 条记忆吃掉全部注入席位的 54%（单条最高 251 次）。
+  //
+  // 三个新列的分工：
+  // - `last_injected_at`：最近一次「被使用」的时间（注入 / 合并写入 / 用户编辑都算）。
+  //   语义与旧 `last_used` 相同，故全部下游消费者（温度分档、冷归档、prune、云同步合并键）
+  //   平移到本列即可，无需改变判定逻辑。
+  // - `exposure_count`：被注入的次数。
+  // - `utility_count`：被判定为「真的用上了」的次数。**P0 只记录，不参与打分**——
+  //   效用代理（回复与记忆的 bigram 重叠）噪声未知，需先抽样验证（评审 §4.3、实施计划 P1-5）。
+  //
+  // 为什么保留 `use_count` / `last_used` 而不删：它们是历史累积值与云同步的既有列，
+  // 删除需要跨设备迁移；冻结写入即可，读侧不再依赖。
+  //
+  // 为什么必须回填：新列全 0 会让 `passesInjectionGates` 把 155 条「其实用过」的记忆
+  // 误判成「从未用过」而集体跳过（实测 229 条中 155 条 use_count > 0）。
+  [
+    47,
+    `
+ALTER TABLE agent_memories ADD COLUMN last_injected_at TEXT;
+ALTER TABLE agent_memories ADD COLUMN exposure_count INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE agent_memories ADD COLUMN utility_count INTEGER NOT NULL DEFAULT 0;
+
+UPDATE agent_memories
+   SET exposure_count = use_count,
+       last_injected_at = last_used
+ WHERE last_injected_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_agent_memories_activity
+  ON agent_memories (agent_id, user_id, last_injected_at);
 `,
   ],
 ] as const;

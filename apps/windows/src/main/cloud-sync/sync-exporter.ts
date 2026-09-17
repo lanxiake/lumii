@@ -396,10 +396,12 @@ export class SyncExporter {
 
       try {
         // 导出所有记忆，包括软删除的（deleted_at 字段会随记录导出）
+        // V47 起的三个新列一并导出，否则跨设备同步后对端拿不到活动时间与曝光计数
         const memories = db.prepare(`
           SELECT id, agent_id, user_id, category, content,
                  importance, tags, created_at, last_used,
-                 use_count, is_archived, deleted_at
+                 use_count, is_archived, deleted_at,
+                 last_injected_at, exposure_count, utility_count
           FROM agent_memories
           ORDER BY created_at ASC
         `).all()

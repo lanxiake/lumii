@@ -115,8 +115,7 @@ export class MemoryIntegration {
     }
   }
 
-  /**
-   * 从 agent 消息历史中取"最后一条用户消息"的纯文本。
+  /** 从 agent 消息历史中取"最后一条用户消息"的纯文本。
    * 用于记忆触发关键词的快速判定。
    */
   private pickLatestUserText(): string | null {
@@ -128,6 +127,56 @@ export class MemoryIntegration {
       return text.length > 0 ? text : null;
     }
     return null;
+  }
+
+  /** 取最后一条助手回复的纯文本（效用观测的比对文本） */
+  private pickLatestAssistantText(): string | null {
+    const messages = this.deps.getAgent().messages;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const msg = messages[i];
+      if (messageRole(msg) !== "assistant") continue;
+      const text = messageToText(msg);
+      return text.length > 0 ? text : null;
+    }
+    return null;
+  }
+
+  /**
+   * 记录本轮注入的效用观测（V47 · 评审 §4.3）。**必须在 `clearInjectedSnapshot()` 之前调用。**
+   *
+   * 用本轮的注入快照 + 最终回复文本，近似判断"哪几条记忆真的被用上了"，
+   * 写 `memory_usage_feedback` 并递增 `utility_count`。
+   *
+   * 这是把「曝光」与「效用」分开的第一步：此前唯一的信号是注入时 +1 的 `use_count`，
+   * 记的是被展示而非被使用（实测 9 条吃掉 54% 的注入席位）。
+   *
+   * 失败静默（只告警）——观测不能影响主流程。
+   */
+  recordInjectionOutcome(): void {
+    const entries = this._injectedSnapshot;
+    if (entries.length === 0) return;
+    const manager = this.deps.memoryManager;
+    if (!manager) return;
+
+    const reply = this.pickLatestAssistantText();
+    if (!reply) return;
+    const queryLength = this.pickLatestUserText()?.length ?? 0;
+
+    try {
+      const written = manager.recordInjectionOutcome(
+        entries,
+        reply,
+        this.deps.instanceId,
+        queryLength,
+      );
+      if (written > 0) {
+        console.log(
+          `[AgentInstance:${this.deps.instanceId}] 记录 ${written} 条记忆效用观测`,
+        );
+      }
+    } catch (err) {
+      console.warn(`[AgentInstance:${this.deps.instanceId}] 记忆效用观测失败:`, err);
+    }
   }
 
   /**

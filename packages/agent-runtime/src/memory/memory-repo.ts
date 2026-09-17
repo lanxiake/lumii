@@ -18,6 +18,10 @@ import { tokenizeForRelevance, tokenizeBigram, overlapCoefficient } from "./segm
 import { scoreMemory } from "./scorer.js";
 import { MemoryIndexRepo } from "./memory-index.js";
 import {
+  MemoryFeedbackRepo,
+  type MemoryInjectionOutcome,
+} from "./memory-feedback-repo.js";
+import {
   computeTemperature,
   DEFAULT_TEMPERATURE_THRESHOLDS,
   type TemperatureThresholds,
@@ -51,6 +55,20 @@ function rowToEntry(row: MemoryRow): MemoryEntry {
   };
 }
 
+/**
+ * 活动时间（epoch ms）。V47 列，容错回退到 `created_at`。
+ *
+ * 为什么需要回退：云同步按整行合并，来自旧版本设备的记录不带 `last_injected_at`，
+ * 直接 `new Date(null).getTime()` 会得到 NaN，让温度分档的所有比较静默为 false。
+ * 测试里手工 INSERT 的行同理。
+ */
+function activityTimeMs(row: {
+  readonly last_injected_at?: string | null;
+  readonly created_at: string;
+}): number {
+  return new Date(row.last_injected_at ?? row.created_at).getTime();
+}
+
 function generateId(): string {
   const bytes = new Uint8Array(16);
   crypto.getRandomValues(bytes);
@@ -59,9 +77,24 @@ function generateId(): string {
 
 export class AgentMemoryRepo {
   private readonly indexRepo: MemoryIndexRepo;
+  private readonly feedbackRepo: MemoryFeedbackRepo;
 
   constructor(private readonly db: DatabaseAdapter) {
     this.indexRepo = new MemoryIndexRepo(db);
+    this.feedbackRepo = new MemoryFeedbackRepo(db);
+  }
+
+  /** 记录本轮注入的效用观测（V47）：写 memory_usage_feedback + 递增 utility_count */
+  recordInjectionOutcomes(
+    outcomes: readonly MemoryInjectionOutcome[],
+    now: Date = new Date(),
+  ): number {
+    return this.feedbackRepo.recordOutcomes(outcomes, now);
+  }
+
+  /** 已积累的效用反馈条数（P1-5 的抽样门槛、健康检查） */
+  countFeedback(): number {
+    return this.feedbackRepo.countAll();
   }
 
   /**
@@ -101,7 +134,7 @@ export class AgentMemoryRepo {
       : Math.max(config.maxItems * 2.5, 50);
     const candidates = this.loadCandidates(agentId, userId, scope, candidateLimit, now);
 
-    // 2. 计算 score（含相关性、年龄衰减、use_count 加成）
+    // 2. 计算 score（含相关性、年龄衰减、计数加成）
     const scored = candidates.map((row) => {
       const relevance = useRelevance
         ? overlapCoefficient(queryTokens, tokenizeForRelevance(row.content))
@@ -110,11 +143,11 @@ export class AgentMemoryRepo {
       const score = scoreMemory(
         {
           now,
-          lastUsedAt: new Date(row.last_used).getTime(),
           importance: row.importance,
           category: row.category as MemoryCategory,
           relevance,
           createdAt: createdAtMs,
+          // 冻结的历史曝光量；P1-5 抽样达标后改为 row.utility_count
           useCount: row.use_count,
         },
         config,
@@ -183,11 +216,13 @@ export class AgentMemoryRepo {
       tryTake(m);
     }
 
-    // 4. 批量更新 last_used 和 use_count
+    // 4. 批量更新活动时间与曝光计数（V47）
+    //    `last_used` / `use_count` 已冻结不再写入——它们是打分的上游，被注入刷新即形成自激。
+    //    打分公式已改为只按 created_at（scorer.ts），此处记的是**观测**而非**输入**。
     if (selected.length > 0) {
       const nowIso = new Date(now).toISOString();
       const updateStmt = this.db.prepare(
-        "UPDATE agent_memories SET last_used = ?, use_count = use_count + 1 WHERE id = ?",
+        "UPDATE agent_memories SET last_injected_at = ?, exposure_count = exposure_count + 1 WHERE id = ?",
       );
       withTransaction(this.db, () => {
         for (const row of selected) {
@@ -259,9 +294,11 @@ export class AgentMemoryRepo {
     const { row } = m;
     const category = row.category as MemoryCategory;
 
-    // 冷数据降权（只影响注入选取，不改存储数据）：从未被用过且已过期
+    // 冷数据降权（只影响注入选取，不改存储数据）：从未被注入且已过期。
+    // V47 起按 exposure_count 判定——原先读 use_count（曝光混同使用），
+    // 且该列已冻结，继续读会让所有新条目永远落在「从未用过」一侧。
     const skipDays = config.skipUnusedOlderThanDays ?? 30;
-    if (skipDays > 0 && row.use_count === 0) {
+    if (skipDays > 0 && row.exposure_count === 0) {
       const ageDays = (now - new Date(row.created_at).getTime()) / 86_400_000;
       if (ageDays > skipDays) return false;
     }
@@ -269,7 +306,7 @@ export class AgentMemoryRepo {
     const temp = computeTemperature(
       {
         category,
-        lastUsedAt: new Date(row.last_used).getTime(),
+        lastInjectedAt: activityTimeMs(row),
         importance: row.importance,
         now,
       },
@@ -390,8 +427,9 @@ export class AgentMemoryRepo {
         `INSERT INTO agent_memories
          (id, agent_id, user_id, category, content, importance, tags,
           source_message_id, source_segment_id, palace_drawer_id,
-          created_at, last_used, use_count, is_archived)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0)`,
+          created_at, last_used, use_count, is_archived,
+          last_injected_at, exposure_count, utility_count)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, 0, 0)`,
       )
       .run(
         id,
@@ -405,6 +443,9 @@ export class AgentMemoryRepo {
         params.sourceSegmentId ?? null,
         params.palaceDrawerId ?? null,
         now,
+        now,
+        // 创建时活动时间 = 创建时间：让「距上次使用天数」在从未注入时退化为条目年龄，
+        // 与旧 last_used 的行为一致（否则下游的温度分档会拿到 NULL）。
         now,
       );
     this.indexRepo.upsertRow(result.lastInsertRowid, params.content, tagsJson);
@@ -421,6 +462,9 @@ export class AgentMemoryRepo {
       source_segment_id: params.sourceSegmentId ?? null,
       palace_drawer_id: params.palaceDrawerId ?? null,
       created_at: now,
+      last_injected_at: now,
+      exposure_count: 0,
+      utility_count: 0,
       last_used: now,
       use_count: 0,
       is_archived: false,
@@ -431,12 +475,16 @@ export class AgentMemoryRepo {
   updateImportance(memoryId: string, newImportance: number): void {
     const clamped = Math.max(0, Math.min(1, newImportance));
     this.db
-      .prepare("UPDATE agent_memories SET importance = ?, last_used = ? WHERE id = ?")
+      .prepare("UPDATE agent_memories SET importance = ?, last_injected_at = ? WHERE id = ?")
       .run(clamped, new Date().toISOString(), memoryId);
   }
 
   /**
-   * 合并更新：tags（并集后）+ importance（取高），并刷新 last_used。用于去重合并写入。
+   * 合并更新：tags（并集后）+ importance（取高），并刷新活动时间。用于去重合并写入。
+   *
+   * 刷新 `last_injected_at` 是刻意的：被重新提取到说明这条记忆仍然成立，
+   * 属**外生活动**（不由打分驱动），不会构成自激——自激的切断点在打分公式
+   * （`scorer.ts` 只按 created_at），不在写入侧少写一个字段。
    *
    * 来源补填（诉求 A）：命中已有记忆时，若旧记忆 source_segment_id 为空且本次带来源，
    * 则补填；非空则保留最早来源（最早证据优先，符合 attribution 语义）。
@@ -449,7 +497,7 @@ export class AgentMemoryRepo {
   ): void {
     const clamped = Math.max(0, Math.min(1, importance));
     this.db
-      .prepare("UPDATE agent_memories SET tags = ?, importance = ?, last_used = ? WHERE id = ?")
+      .prepare("UPDATE agent_memories SET tags = ?, importance = ?, last_injected_at = ? WHERE id = ?")
       .run(JSON.stringify(tags), clamped, new Date().toISOString(), memoryId);
 
     // 来源补填：仅当现有为空时填入，保留最早来源
@@ -504,7 +552,7 @@ export class AgentMemoryRepo {
   }
 
   /**
-   * 批量归档冷记忆（last_used > 30 天，且非 user/feedback 画像类）。
+   * 批量归档冷记忆（last_injected_at > 30 天，且非 user/feedback 画像类）。
    * P0 Task 4：personal 类（user/feedback）不受温度影响，永不自动归档。
    */
   archiveCold(agentId: string, userId: string, now: number, coldDays = 30): number {
@@ -513,7 +561,7 @@ export class AgentMemoryRepo {
       .prepare(
         `UPDATE agent_memories SET is_archived = 1
        WHERE agent_id = ? AND user_id = ? AND is_archived = 0
-         AND last_used < ?
+         AND last_injected_at < ?
          AND category NOT IN ('user', 'feedback')`,
       )
       .run(agentId, userId, coldThreshold);
@@ -549,7 +597,7 @@ export class AgentMemoryRepo {
        WHERE id IN (
          SELECT id FROM agent_memories
          WHERE agent_id = ? AND user_id = ? AND is_archived = 0
-         ORDER BY importance ASC, last_used ASC
+         ORDER BY importance ASC, last_injected_at ASC
          LIMIT ?
        )`,
       )
@@ -690,7 +738,7 @@ export class AgentMemoryRepo {
 
   /**
    * 按 ID 更新单条记忆内容（用户在设置页手动编辑记忆时使用）。
-   * 仅更新内容并刷新 last_used，不触碰其他字段。
+   * 仅更新内容并刷新活动时间，不触碰其他字段。
    */
   updateContentById(memoryId: string, content: string): void {
     const row = this.db
@@ -700,7 +748,7 @@ export class AgentMemoryRepo {
       .get(memoryId);
     if (!row) return;
     this.db
-      .prepare("UPDATE agent_memories SET content = ?, last_used = ? WHERE id = ?")
+      .prepare("UPDATE agent_memories SET content = ?, last_injected_at = ? WHERE id = ?")
       .run(content, new Date().toISOString(), memoryId);
     this.indexRepo.upsertRow(row.rowid, content, row.tags);
   }
@@ -738,8 +786,13 @@ export class AgentMemoryRepo {
     thresholds: TemperatureThresholds = DEFAULT_TEMPERATURE_THRESHOLDS,
   ): { readonly hot: number; readonly warm: number; readonly cold: number } {
     const rows = this.db
-      .prepare<{ category: string; importance: number; last_used: string }>(
-        `SELECT category, importance, last_used FROM agent_memories
+      .prepare<{
+        category: string;
+        importance: number;
+        last_injected_at: string | null;
+        created_at: string;
+      }>(
+        `SELECT category, importance, last_injected_at, created_at FROM agent_memories
        WHERE agent_id = ? AND user_id = ? AND is_archived = 0`,
       )
       .all(agentId, userId);
@@ -751,7 +804,7 @@ export class AgentMemoryRepo {
       const temp = computeTemperature(
         {
           category: row.category as MemoryCategory,
-          lastUsedAt: new Date(row.last_used).getTime(),
+          lastInjectedAt: activityTimeMs(row),
           importance: row.importance,
           now,
         },

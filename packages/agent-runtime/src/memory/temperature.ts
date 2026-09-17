@@ -12,7 +12,8 @@ export type MemoryTemperature = "hot" | "warm" | "cold";
 
 export interface TemperatureInput {
   readonly category: MemoryCategory;
-  readonly lastUsedAt: number;
+  /** 最近一次「被使用」的时间（注入 / 合并写入 / 用户编辑），V47 起为 `last_injected_at` */
+  readonly lastInjectedAt: number;
   readonly importance: number;
   readonly now: number;
 }
@@ -45,7 +46,7 @@ export function computeTemperature(
   input: TemperatureInput,
   thresholds: TemperatureThresholds = DEFAULT_TEMPERATURE_THRESHOLDS,
 ): MemoryTemperature {
-  const daysSinceUse = (input.now - input.lastUsedAt) / 86_400_000;
+  const daysSinceUse = (input.now - input.lastInjectedAt) / 86_400_000;
 
   if (
     isPersonalCategory(input.category) ||

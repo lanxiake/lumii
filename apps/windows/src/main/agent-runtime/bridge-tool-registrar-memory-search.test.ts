@@ -64,7 +64,7 @@ function makeHarness(opts: {
     instanceToConversation: new Map<string, string>(),
     instanceStates: { get: () => undefined },
   } as unknown as BridgeToolRegistrarDeps
-  registerIntegrationTools(deps, {} as never)
+  registerIntegrationTools(deps)
   const tool = tools.get('memory_search')
   if (!tool) throw new Error('memory_search not registered')
   return tool

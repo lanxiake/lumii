@@ -6,13 +6,13 @@ const DAY = 86_400_000;
 const NOW = 1_700_000_000_000;
 
 describe("scoreMemory", () => {
-  it("刚用过 + 高 importance 打分最高", () => {
+  it("新建 + 高 importance 打分高于同 importance 的旧条目", () => {
     const fresh = scoreMemory(
-      { now: NOW, lastUsedAt: NOW, importance: 0.9, category: "project", relevance: 0 },
+      { now: NOW, createdAt: NOW, importance: 0.9, category: "project", relevance: 0 },
       DEFAULT_HOT_MEMORY_CONFIG,
     );
     const stale = scoreMemory(
-      { now: NOW, lastUsedAt: NOW - 60 * DAY, importance: 0.9, category: "project", relevance: 0 },
+      { now: NOW, createdAt: NOW - 60 * DAY, importance: 0.9, category: "project", relevance: 0 },
       DEFAULT_HOT_MEMORY_CONFIG,
     );
     expect(fresh).toBeGreaterThan(stale);
@@ -20,11 +20,11 @@ describe("scoreMemory", () => {
 
   it("超过 recencyHalfLifeDays 后 recency 加分为 0", () => {
     const atHalfLife = scoreMemory(
-      { now: NOW, lastUsedAt: NOW - 30 * DAY, importance: 0.5, category: "general", relevance: 0 },
+      { now: NOW, createdAt: NOW - 30 * DAY, importance: 0.5, category: "general", relevance: 0 },
       DEFAULT_HOT_MEMORY_CONFIG,
     );
     const beyondHalfLife = scoreMemory(
-      { now: NOW, lastUsedAt: NOW - 90 * DAY, importance: 0.5, category: "general", relevance: 0 },
+      { now: NOW, createdAt: NOW - 90 * DAY, importance: 0.5, category: "general", relevance: 0 },
       DEFAULT_HOT_MEMORY_CONFIG,
     );
     // 两者 recency 加分都应钳制为 0，故分数相等（不会变负）
@@ -33,11 +33,11 @@ describe("scoreMemory", () => {
 
   it("relevance 加分线性叠加", () => {
     const withRelevance = scoreMemory(
-      { now: NOW, lastUsedAt: NOW, importance: 0.5, category: "general", relevance: 0.5 },
+      { now: NOW, createdAt: NOW, importance: 0.5, category: "general", relevance: 0.5 },
       DEFAULT_HOT_MEMORY_CONFIG,
     );
     const withoutRelevance = scoreMemory(
-      { now: NOW, lastUsedAt: NOW, importance: 0.5, category: "general", relevance: 0 },
+      { now: NOW, createdAt: NOW, importance: 0.5, category: "general", relevance: 0 },
       DEFAULT_HOT_MEMORY_CONFIG,
     );
     expect(withRelevance - withoutRelevance).toBeCloseTo(
@@ -48,13 +48,22 @@ describe("scoreMemory", () => {
 
   it("类别权重生效（feedback > general，同 importance）", () => {
     const feedback = scoreMemory(
-      { now: NOW, lastUsedAt: NOW - 60 * DAY, importance: 0.5, category: "feedback", relevance: 0 },
+      { now: NOW, createdAt: NOW - 60 * DAY, importance: 0.5, category: "feedback", relevance: 0 },
       DEFAULT_HOT_MEMORY_CONFIG,
     );
     const general = scoreMemory(
-      { now: NOW, lastUsedAt: NOW - 60 * DAY, importance: 0.5, category: "general", relevance: 0 },
+      { now: NOW, createdAt: NOW - 60 * DAY, importance: 0.5, category: "general", relevance: 0 },
       DEFAULT_HOT_MEMORY_CONFIG,
     );
     expect(feedback).toBeGreaterThan(general);
+  });
+
+  it("计数加成封顶 0.15（高频条目不霸榜）", () => {
+    const base = { now: NOW, createdAt: NOW - 60 * DAY, importance: 0.5, category: "general" as const, relevance: 0 };
+    const huge = scoreMemory({ ...base, useCount: 100_000 }, DEFAULT_HOT_MEMORY_CONFIG);
+    const alsoHuge = scoreMemory({ ...base, useCount: 1_000_000 }, DEFAULT_HOT_MEMORY_CONFIG);
+    expect(huge - scoreMemory(base, DEFAULT_HOT_MEMORY_CONFIG)).toBeCloseTo(0.15, 9);
+    // 足够大之后增量趋于 0（对数级）
+    expect(alsoHuge - huge).toBeLessThan(0.01);
   });
 });

@@ -193,3 +193,20 @@ export function runMigration45(db: DatabaseAdapter): void {
   if (!entry) throw new Error("V45 migration not found in MIGRATIONS");
   db.exec(entry[1]);
 }
+
+/** 建一个只迁移到 V46（即将执行 V47 之前）的内存库，供 V47 迁移测试构造 fixture */
+export function createPreV47TestDb(): DatabaseAdapter {
+  const db = createTestSqliteAdapter();
+  for (const [version, sql] of MIGRATIONS) {
+    if (version >= 47) continue;
+    db.exec(sql);
+  }
+  return db;
+}
+
+/** 对一个 pre-V47 库执行 V47 迁移 SQL（记忆的曝光 / 效用分离） */
+export function runMigration47(db: DatabaseAdapter): void {
+  const entry = MIGRATIONS.find(([version]) => version === 47);
+  if (!entry) throw new Error("V47 migration not found in MIGRATIONS");
+  db.exec(entry[1]);
+}

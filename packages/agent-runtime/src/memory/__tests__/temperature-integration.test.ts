@@ -18,10 +18,10 @@ describe("温度流转：cold/warm/hot 分档与归档", () => {
   const U = "user1";
 
   /**
-   * 写一条记忆并把它整体回拨到 N 天前（created_at + last_used 同步）。
+   * 写一条记忆并把它整体回拨到 N 天前（created_at + last_injected_at 同步）。
    *
    * created_at 必须一起回拨：注入端自 2026-09-15 起有「近 24h 新建保底席位」，
-   * 只回拨 last_used 会让这些"老记忆"仍以新建身份占据保底席位，fixture 不自洽。
+   * 只回拨 last_injected_at 会让这些"老记忆"仍以新建身份占据保底席位，fixture 不自洽。
    */
   function saveWithAge(
     content: string,
@@ -38,7 +38,7 @@ describe("温度流转：cold/warm/hot 分档与归档", () => {
       tags: [],
     });
     const past = new Date(Date.now() - daysAgo * 86_400_000).toISOString();
-    db.prepare("UPDATE agent_memories SET last_used = ?, created_at = ? WHERE id = ?").run(
+    db.prepare("UPDATE agent_memories SET last_injected_at = ?, created_at = ? WHERE id = ?").run(
       past,
       past,
       entry.id,
@@ -94,7 +94,7 @@ describe("温度流转：cold/warm/hot 分档与归档", () => {
     }).id;
     // 手动把画像记忆也拨到 60 天前，验证即使很久没用仍是 hot
     const past = new Date(Date.now() - 60 * 86_400_000).toISOString();
-    db.prepare("UPDATE agent_memories SET last_used = ? WHERE id = ?").run(past, personalId);
+    db.prepare("UPDATE agent_memories SET last_injected_at = ? WHERE id = ?").run(past, personalId);
 
     const r = repo.loadTopMemories(A, U, DEFAULT_HOT_MEMORY_CONFIG, "今天天气怎么样");
     expect(r.some((m) => m.content.includes("张三"))).toBe(true);
@@ -111,7 +111,7 @@ describe("温度流转：cold/warm/hot 分档与归档", () => {
       tags: [],
     }).id;
     const past = new Date(Date.now() - 60 * 86_400_000).toISOString();
-    db.prepare("UPDATE agent_memories SET last_used = ? WHERE id = ?").run(past, personalId);
+    db.prepare("UPDATE agent_memories SET last_injected_at = ? WHERE id = ?").run(past, personalId);
 
     const changed = repo.archiveCold(A, U, Date.now());
     expect(changed).toBe(1);
@@ -141,7 +141,7 @@ describe("温度流转：cold/warm/hot 分档与归档", () => {
     expect(r.some((m) => m.id === coldId)).toBe(false);
 
     repo.unarchiveById(coldId);
-    // 恢复后 is_archived 标记必须已清除（unarchive 只解冻不解冷：last_used 仍是 35 天前，
+    // 恢复后 is_archived 标记必须已清除（unarchive 只解冻不解冷：last_injected_at 仍是 35 天前，
     // 仍会被温度门控挡在注入之外，但归档状态本身要恢复）
     const row = db
       .prepare<{ is_archived: number }>("SELECT is_archived FROM agent_memories WHERE id = ?")

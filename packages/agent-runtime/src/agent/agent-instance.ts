@@ -435,6 +435,8 @@ export class AgentInstance {
           return; // 正在自愈重试，抑制 agent:end 和状态转换
         }
 
+        // V47：效用观测。必须在 clearInjectedSnapshot 之前——它要读本轮注入快照。
+        this.memoryIntegration.recordInjectionOutcome();
         this.memoryIntegration.clearInjectedSnapshot();
         this.clearTimeoutTimer();
         // LLM 异步记忆提取（fire-and-forget，不阻塞主流程）

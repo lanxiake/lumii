@@ -138,10 +138,12 @@ describe("记忆场景：去重与重要度", () => {
     expect(r[0].importance).toBeGreaterThanOrEqual(r[r.length - 1].importance);
   });
 
-  it("召回会更新 use_count（被用过的记忆更热门）", () => {
+  it("召回会更新 exposure_count（V47：记的是曝光，不是「被用过」）", () => {
     save("user", "用户是成都的后端工程师");
     repo.loadTopMemories(A, U, DEFAULT_HOT_MEMORY_CONFIG, "我是做什么工作的");
     const all = repo.listActive(A, U);
-    expect(all[0].use_count).toBeGreaterThan(0);
+    expect(all[0].exposure_count).toBeGreaterThan(0);
+    // 打分输入 use_count 自 V47 起冻结，不再随注入增长
+    expect(all[0].use_count).toBe(0);
   });
 });

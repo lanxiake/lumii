@@ -21,7 +21,7 @@ const A = "assistant";
 const U = "local-user";
 const DAY = 86_400_000;
 
-/** 写一条记忆并整体回拨到 N 天前（created_at + last_used 同步，daysAgo=0 表示今天新建） */
+/** 写一条记忆并整体回拨到 N 天前（created_at + last_injected_at 同步，daysAgo=0 表示今天新建） */
 function saveAged(
   repo: AgentMemoryRepo,
   db: DatabaseAdapter,
@@ -43,11 +43,9 @@ function saveAged(
   });
   if (opts.daysAgo > 0) {
     const past = new Date(Date.now() - opts.daysAgo * DAY).toISOString();
-    db.prepare("UPDATE agent_memories SET created_at = ?, last_used = ? WHERE id = ?").run(
-      past,
-      past,
-      entry.id,
-    );
+    db.prepare(
+      "UPDATE agent_memories SET created_at = ?, last_injected_at = ? WHERE id = ?",
+    ).run(past, past, entry.id);
   }
   return entry.id;
 }
@@ -141,7 +139,6 @@ describe("组合分：年龄衰减 + use_count 加成", () => {
     const oldHigh = scoreMemory(
       {
         now,
-        lastUsedAt: now - 40 * DAY,
         createdAt: now - 40 * DAY,
         importance: 0.95,
         category: "project",
@@ -152,7 +149,6 @@ describe("组合分：年龄衰减 + use_count 加成", () => {
     const newLow = scoreMemory(
       {
         now,
-        lastUsedAt: now,
         createdAt: now,
         importance: 0.5,
         category: "project",
@@ -163,29 +159,12 @@ describe("组合分：年龄衰减 + use_count 加成", () => {
     expect(newLow).toBeGreaterThan(oldHigh);
   });
 
-  it("纯函数：缺省 createdAt 时不衰减（向后兼容）", () => {
-    const now = Date.now();
-    const noCreatedAt = scoreMemory(
-      { now, lastUsedAt: now, importance: 0.5, category: "project", relevance: 0 },
-      DEFAULT_HOT_MEMORY_CONFIG,
-    );
-    const fresh = scoreMemory(
-      {
-        now,
-        lastUsedAt: now,
-        createdAt: now,
-        importance: 0.5,
-        category: "project",
-        relevance: 0,
-      },
-      DEFAULT_HOT_MEMORY_CONFIG,
-    );
-    expect(noCreatedAt).toBeCloseTo(fresh, 6);
-  });
+  // 原「缺省 createdAt 时不衰减（向后兼容）」用例已删：V47 起 createdAt 为必填，
+  // 该兼容分支不复存在。自激切断的验证移到了 exposure-utility.test.ts（repo 级）。
 
   it("纯函数：use_count 对数加成且封顶 0.15", () => {
     const now = Date.now();
-    const base = { now, lastUsedAt: now, createdAt: now, importance: 0.5, category: "project" as const, relevance: 0 };
+    const base = { now, createdAt: now, importance: 0.5, category: "project" as const, relevance: 0 };
     const none = scoreMemory({ ...base, useCount: 0 }, DEFAULT_HOT_MEMORY_CONFIG);
     const some = scoreMemory({ ...base, useCount: 5 }, DEFAULT_HOT_MEMORY_CONFIG);
     const many = scoreMemory({ ...base, useCount: 500 }, DEFAULT_HOT_MEMORY_CONFIG);
@@ -196,14 +175,14 @@ describe("组合分：年龄衰减 + use_count 加成", () => {
   it("集成：同等相关下新低 importance 条目排在旧高 importance 条目之前", () => {
     const db = createMigratedTestDb();
     const repo = new AgentMemoryRepo(db);
-    // 旧条目给 use_count=1：真实的老高价值条目是被用过的，且 use_count=0 且超 30 天的
+    // 旧条目给 exposure_count=1：真实的老高价值条目是被用过的，且 exposure_count=0 且超 30 天的
     // 条目会被「冷数据跳过」拦掉（见下一个用例），那样对照组就不成立了
     const oldId = saveAged(repo, db, {
       content: "关西旅行计划：旧版本已过期",
       importance: 0.9,
       daysAgo: 40,
     });
-    db.prepare("UPDATE agent_memories SET use_count = 1 WHERE id = ?").run(oldId);
+    db.prepare("UPDATE agent_memories SET exposure_count = 1 WHERE id = ?").run(oldId);
     saveAged(repo, db, { content: "关西旅行计划：新版本待确认", importance: 0.5, daysAgo: 8 });
 
     // 两条与 query 的 overlap 相同（都含"关西旅行计划"），差异只在 importance × 年龄衰减
@@ -219,7 +198,7 @@ describe("组合分：年龄衰减 + use_count 加成", () => {
       importance: 0.9,
       daysAgo: 40,
     });
-    db.prepare("UPDATE agent_memories SET use_count = 1 WHERE id = ?").run(oldId);
+    db.prepare("UPDATE agent_memories SET exposure_count = 1 WHERE id = ?").run(oldId);
     saveAged(repo, db, { content: "关西旅行计划：新版本待确认", importance: 0.5, daysAgo: 8 });
 
     const withDecay = repo.loadTopMemories(A, U, DEFAULT_HOT_MEMORY_CONFIG, "关西旅行计划");
