@@ -4,7 +4,7 @@
 
 > 适用版本：2026-08 Wiki 资料库（引用优先 + 工作空间目录）  
 > 入口：**工作空间面板「资料库」** · **聊天工具栏书本图标** · **输入框「+」→ 打开资料库** · **设置中心 → 资料库**  
-> 设计说明：[2026-08-29-wiki-vault-ref-first-design.md](../design/记忆设计/2026-08-29-wiki-vault-ref-first-design.md)
+> 设计说明：[2026-08-29-wiki-vault-ref-first-design.md](../design/Wiki知识库/2026-08-29-Wiki资料库引用优先设计.md)
 
 ---
 
@@ -216,5 +216,5 @@ A：不会。只有主动 **迁入 wiki** 才会复制到 `wiki/`。
 
 ## 9. 相关文档
 
-- 产品设计：[2026-08-29-wiki-vault-ref-first-design.md](../design/记忆设计/2026-08-29-wiki-vault-ref-first-design.md)  
+- 产品设计：[2026-08-29-wiki-vault-ref-first-design.md](../design/Wiki知识库/2026-08-29-Wiki资料库引用优先设计.md)  
 - 开发者测试：`docs/test/lumii-cli/wiki-*.md`
