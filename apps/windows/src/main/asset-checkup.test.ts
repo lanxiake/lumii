@@ -52,7 +52,44 @@ describe('runMemoryCheckup', () => {
     const result = await runMemoryCheckup(makeDeps([row()]))
     expect(result.issueCount).toBe(0)
     expect(result.summary).toContain('均未发现问题')
-    expect(result.checks.every((c) => c.status === 'ok')).toBe(true)
+    // 段落管线项在未注入统计时为 skipped（不假装检查过），故排除它
+    expect(result.checks.filter((c) => c.key !== 'memory:segment-pipeline').every((c) => c.status === 'ok')).toBe(true)
+    expect(checkOf(result, 'memory:segment-pipeline').status).toBe('skipped')
+  })
+
+  it('段落管线：有失败时报 issue，放弃段单独提示', async () => {
+    const deps = {
+      ...makeDeps([row()]),
+      getSegmentStats: () => ({
+        summarised: 12,
+        emptyCandidates: 3,
+        noText: 1,
+        failed: 2,
+        abandoned: 1,
+        lastError: { at: '2026-09-17T09:00:00.000Z', message: 'LLM 连接超时' },
+      }),
+    }
+    const check = checkOf(await runMemoryCheckup(deps), 'memory:segment-pipeline')
+    expect(check.status).toBe('issue')
+    expect(check.detail).toContain('1 个段因反复失败被放弃')
+    expect(check.candidates?.[0].label).toContain('LLM 连接超时')
+  })
+
+  it('段落管线：无失败时报 ok 并给出产出计数', async () => {
+    const deps = {
+      ...makeDeps([row()]),
+      getSegmentStats: () => ({
+        summarised: 8,
+        emptyCandidates: 2,
+        noText: 0,
+        failed: 0,
+        abandoned: 0,
+        lastError: null,
+      }),
+    }
+    const check = checkOf(await runMemoryCheckup(deps), 'memory:segment-pipeline')
+    expect(check.status).toBe('ok')
+    expect(check.detail).toContain('已总结 8 段')
   })
 
   it('偏好层超预算：报出实际字数与超出量', async () => {
@@ -170,7 +207,8 @@ describe('runMemoryCheckup', () => {
   it('summary 同时给出检查项数与命中数', async () => {
     const result = await runMemoryCheckup(makeDeps([row({ id: 't', content: '好' })]))
     expect(result.issueCount).toBe(1)
-    expect(result.checkedCount).toBe(7) // 2026-09-17 起含命名空间检查
+    // 段落管线项在未注入统计时为 skipped，不计入 checkedCount
+    expect(result.checkedCount).toBe(7) // 命名空间 + 6 项机械检查
     expect(result.summary).toContain('7 项')
     expect(result.summary).toContain('1 项')
   })

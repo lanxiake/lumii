@@ -148,6 +148,7 @@ export function registerMaintenanceReportTools(deps: BridgeToolRegistrarDeps): v
             const file = await readUserMemoryFile()
             return file?.content ?? null
           },
+          ...(deps.getSegmentStats ? { getSegmentStats: deps.getSegmentStats } : {}),
         })
         return jsonToolResult({ status: 'ok', ...result })
       } catch (err) {

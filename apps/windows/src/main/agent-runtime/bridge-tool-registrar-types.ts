@@ -46,6 +46,11 @@ export interface BridgeToolRegistrarDeps {
   getMemoryManager: () => MemoryManager | null
   getConversationRepo: () => ConversationRepo | null
   getWikiRepo: () => WikiRepo | null
+  /**
+   * 段落管线的运行统计（未启用段落总结服务时为 null）。
+   * 供记忆体检回答「记忆产出是否停滞」——段落管线是工作记忆的唯一产出源。
+   */
+  getSegmentStats?: () => import('../asset-checkup').SegmentStatsLike | null
   getWikiIngestHook: () => WikiIngestHook | null
   /** 读取当前 feature flags（主题5：verification-nudge / task_complete 门禁 killswitch） */
   getFeatureFlags: () => AgentRuntimeFeatureFlags

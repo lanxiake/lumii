@@ -308,6 +308,10 @@ export class AgentRuntimeBridge {
         query,
         inst?.memoryReadScope ?? 'agent',
       )
+      // 回填本轮注入集：注入发生在这里（构建期），而消费者在 AgentInstance 里——
+      // UI 的「本轮注入了什么」与效用观测都读它。不回填则两处静默失效
+      //（2026-09-17 实测：注入在发生，但 memory_usage_feedback 恒 0 行）。
+      inst?.setInjectedMemories(injected)
       return { prompt: updatedPrompt, injected: injected.length }
     },
   })
@@ -957,6 +961,9 @@ export class AgentRuntimeBridge {
       getConversationRepo: () => this._conversationRepo,
       getWikiRepo: () => this._wikiRepo,
       getWikiIngestHook: () => this._wikiIngestHook,
+      // 段落管线统计：供记忆体检回答「记忆产出是否停滞」——停摆无报错、无崩溃，
+      // 只表现为「记忆不再增长」，只有计数能暴露（P1-3）
+      getSegmentStats: () => this._segmentMemoryService?.getStats() ?? null,
       getFeatureFlags: () => this.featureFlags,
       ipcChannel: this.ipcChannel,
       instanceStates: this.instanceStates,

@@ -57,6 +57,23 @@ export interface AssetCheckupDeps {
   readonly readUserMemory: () => Promise<string | null>
   /** 当前时刻（单测注入固定值） */
   readonly now?: () => number
+  /**
+   * 段落管线的运行统计（可选）。提供后体检会报告「记忆产出是否停滞」。
+   *
+   * 为什么放这里：段落管线是工作记忆的**唯一产出源**，它停摆时没有报错、没有崩溃，
+   * 只表现为「记忆不再增长」——这种故障只有计数能暴露，而体检正是机械判定项的归宿。
+   */
+  readonly getSegmentStats?: () => SegmentStatsLike | null
+}
+
+/** 与 @mtbot/agent-runtime 的 SummarizationStats 同构（避免主机侧深引 runtime 类型） */
+export interface SegmentStatsLike {
+  readonly summarised: number
+  readonly emptyCandidates: number
+  readonly noText: number
+  readonly failed: number
+  readonly abandoned: number
+  readonly lastError: { readonly at: string; readonly message: string } | null
 }
 
 function daysSince(iso: string, now: number): number | null {
@@ -166,6 +183,51 @@ function checkJsonResidue(rows: readonly MemoryRow[]): CheckResult {
     status: 'issue',
     detail: `${hit.length} 条正文以 "}] 之类的 JSON 片段结尾，提取时被截入`,
     candidates: hit.map((row) => ({ id: row.id, label: `${row.content.slice(0, 40)}…` })),
+  }
+}
+
+/**
+ * 段落管线健康：产出是否停滞。
+ *
+ * 段落管线是工作记忆的唯一产出源。它停摆时没有异常、没有崩溃，只表现为
+ * 「记忆不再增长」——这类故障只有计数能暴露（评审 §6 R3）。
+ * 未注入统计时跳过（skipped），不假装检查过。
+ */
+function checkSegmentPipeline(deps: AssetCheckupDeps): CheckResult {
+  const key = 'memory:segment-pipeline'
+  const s = deps.getSegmentStats?.() ?? null
+  if (!s) {
+    return {
+      key,
+      title: '段落管线产出',
+      status: 'skipped',
+      detail: '未注入段落管线统计（本进程未启用段落总结服务）',
+    }
+  }
+  if (s.abandoned > 0) {
+    return {
+      key,
+      title: '段落管线产出',
+      status: 'issue',
+      detail: `有 ${s.abandoned} 个段因反复失败被放弃（累计失败 ${s.failed} 次）——工作记忆会因此停止增长`,
+      candidates: s.lastError
+        ? [{ id: 'last-error', label: `最近错误 ${s.lastError.at.slice(0, 19)}：${s.lastError.message.slice(0, 80)}` }]
+        : undefined,
+    }
+  }
+  if (s.failed > 0) {
+    return {
+      key,
+      title: '段落管线产出',
+      status: 'issue',
+      detail: `段落总结失败 ${s.failed} 次（成功 ${s.summarised} 段）`,
+    }
+  }
+  return {
+    key,
+    title: '段落管线产出',
+    status: 'ok',
+    detail: `已总结 ${s.summarised} 段（其中空产出 ${s.emptyCandidates}、无原文 ${s.noText}），无失败`,
   }
 }
 
@@ -298,6 +360,7 @@ export async function runMemoryCheckup(deps: AssetCheckupDeps): Promise<AssetChe
     checkStale(rows, now),
     checkTinyRows(rows),
     checkNamespaceScope(deps),
+    checkSegmentPipeline(deps),
   ]
   const issues = checks.filter((c) => c.status === 'issue')
   const ran = checks.filter((c) => c.status !== 'skipped')

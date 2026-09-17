@@ -238,4 +238,67 @@ describe("MemoryIntegration", () => {
       expect(save).toHaveBeenCalledOnce();
     });
   });
+
+  /**
+   * 注入自 2026-09-13 起改在宿主侧构建期完成，本类里的 loadAndInjectMemories 不再被调用。
+   * 若不回填快照，两个消费者会静默失效：UI 的「本轮注入了什么」与效用观测。
+   * （2026-09-17 真实库实测：注入在发生，但 memory_usage_feedback 恒 0 行。）
+   */
+  describe("注入快照回填（setInjectedSnapshot）", () => {
+    it("宿主回填后，效用观测能读到该快照", () => {
+      const recordInjectionOutcome = vi.fn(() => 2);
+      const manager = makeManager({ recordInjectionOutcome });
+      const { deps } = makeDeps(
+        [userMsg("我们聊聊 pnpm"), assistantMsg("好的，后续安装依赖统一用 pnpm。")],
+        manager,
+      );
+      const mi = new MemoryIntegration(deps);
+      mi.setInjectedSnapshot([fakeMemory("用户偏好用 pnpm 而不是 npm")]);
+
+      expect(mi.injectedSnapshot).toHaveLength(1);
+      mi.recordInjectionOutcome();
+
+      expect(recordInjectionOutcome).toHaveBeenCalledOnce();
+      const [entries, reply, sessionId] = recordInjectionOutcome.mock.calls[0]!;
+      expect(entries).toHaveLength(1);
+      expect(reply).toContain("pnpm");
+      expect(sessionId).toBe("test");
+    });
+
+    it("快照为空时不做观测（不产生无源反馈）", () => {
+      const recordInjectionOutcome = vi.fn(() => 0);
+      const manager = makeManager({ recordInjectionOutcome });
+      const { deps } = makeDeps([userMsg("q"), assistantMsg("a")], manager);
+
+      new MemoryIntegration(deps).recordInjectionOutcome();
+
+      expect(recordInjectionOutcome).not.toHaveBeenCalled();
+    });
+
+    it("clearInjectedSnapshot 之后快照为空，观测不再触发", () => {
+      const recordInjectionOutcome = vi.fn(() => 1);
+      const manager = makeManager({ recordInjectionOutcome });
+      const { deps } = makeDeps([userMsg("q"), assistantMsg("a")], manager);
+      const mi = new MemoryIntegration(deps);
+      mi.setInjectedSnapshot([fakeMemory("某条记忆")]);
+
+      mi.clearInjectedSnapshot();
+      mi.recordInjectionOutcome();
+
+      expect(mi.injectedSnapshot).toHaveLength(0);
+      expect(recordInjectionOutcome).not.toHaveBeenCalled();
+    });
+
+    it("无助手回复时不观测（没有比对文本）", () => {
+      const recordInjectionOutcome = vi.fn(() => 1);
+      const manager = makeManager({ recordInjectionOutcome });
+      const { deps } = makeDeps([userMsg("只有用户消息")], manager);
+      const mi = new MemoryIntegration(deps);
+      mi.setInjectedSnapshot([fakeMemory("某条记忆")]);
+
+      mi.recordInjectionOutcome();
+
+      expect(recordInjectionOutcome).not.toHaveBeenCalled();
+    });
+  });
 });

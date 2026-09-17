@@ -73,6 +73,20 @@ export class MemoryIntegration {
     return this._injectedSnapshot;
   }
 
+  /**
+   * 记录本轮注入的热记忆（由宿主在**构建期注入**后回填）。
+   *
+   * 为什么需要这个 setter：热记忆自 2026-09-13 起改在宿主侧
+   * `BridgePromptComposer.buildPromptWithMemory` 构建期填充（pi-agent-core 在 run 开始
+   * 就快照 systemPrompt，agent_start 时注入晚于快照、进不了本轮模型），
+   * 而本类里负责赋值的 `loadAndInjectMemories()` 就此不再被调用。
+   * 结果 `_injectedSnapshot` 一直是空的——**UI 的「本轮注入了什么」与效用观测
+   * 读的都是这个死字段**（2026-09-17 实测：注入在发生、但 memory_usage_feedback 恒 0 行）。
+   */
+  setInjectedSnapshot(entries: readonly MemoryEntry[]): void {
+    this._injectedSnapshot = entries;
+  }
+
   /** 清空注入快照（agent_end 时调用） */
   clearInjectedSnapshot(): void {
     this._injectedSnapshot = [];

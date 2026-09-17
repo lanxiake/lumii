@@ -17,7 +17,7 @@ import type { AgentTool } from "../types/tool.js";
 import type { AgentDefinition } from "../types/agent-definition.js";
 import { type AgentRuntimeEvent, type AgentInstanceState, mapAgentEvent } from "../types/events.js";
 import type { MemoryManager } from "../memory/manager.js";
-import type { MemoryReadScope } from "../memory/types.js";
+import type { MemoryReadScope, MemoryEntry } from "../memory/types.js";
 import {
   createTransformContext,
   DEFAULT_COMPACTION_TRIGGER_RATIO,
@@ -720,6 +720,18 @@ export class AgentInstance {
     if (flags.injectWorkMemory !== undefined) {
       this.injectWorkMemory = flags.injectWorkMemory;
     }
+  }
+
+  /**
+   * 回填本轮注入的热记忆（宿主在构建期填充占位符后调用）。
+   *
+   * 注入自 2026-09-13 起发生在宿主侧 `BridgePromptComposer.buildPromptWithMemory`，
+   * 本类里的 `loadAndInjectMemories()` 不再被调用——若不回填，两处消费者会静默失效：
+   * UI 的「本轮注入了什么」（`message:end` 带出的 `injectedMemories`）与
+   * 效用观测（`recordInjectionOutcome` 读的那个快照）。
+   */
+  setInjectedMemories(entries: readonly MemoryEntry[]): void {
+    this.memoryIntegration.setInjectedSnapshot(entries);
   }
 
   /**
