@@ -671,9 +671,9 @@ http://localhost:3000/autonomous-dashboard
 
 ### 了解更多
 
-- [用户指南](docs/plans/AGENT自我进化/用户指南.md)
-- [设计文档](docs/design/自主进化Agent/)
-- [实施计划](docs/plans/AGENT自我进化/)
+- [交付总结](../../plans/AGENT自我进化/交付总结.md)
+- [设计文档](./)
+- [实施计划](../../plans/AGENT自我进化/README.md)
 ```
 
 ---

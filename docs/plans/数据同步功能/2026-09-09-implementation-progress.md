@@ -4,7 +4,7 @@
 
 按照 [2026-09-09-cloud-sync-v3-implementation-plan.md](./2026-09-09-cloud-sync-v3-implementation-plan.md) 进行实施。
 
-**设计文档**: [docs/superpowers/specs/2026-09-09-lightweight-cloud-sync-design.md](../../superpowers/specs/2026-09-09-lightweight-cloud-sync-design.md)
+**设计文档**: [docs/design/数据同步功能/2026-09-09-lightweight-cloud-sync-design.md](../../design/数据同步功能/2026-09-09-lightweight-cloud-sync-design.md)
 
 ## 已完成
 

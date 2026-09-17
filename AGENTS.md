@@ -10,7 +10,7 @@
 4. **组件与界面**：组件保持单一职责；页面必须处理加载、空数据、错误和成功状态；UI 变更遵循可访问性、键盘操作和现有设计令牌。
 5. **功能开发**：新增 IPC 必须同步更新 main handler、preload `ElectronAPI` 类型/方法和 renderer 调用方；跨层变更先写清数据流和错误处理。
 6. **测试与验证**：单元/集成测试使用 Vitest，端到端测试使用 Playwright；测试文件命名为 `*.test.ts(x)`，与被测代码就近放置。提交前至少运行相关包测试与类型检查——**动过 `src/main/**` 就必须跑 `apps/windows` 全量**（`test:all`；默认的 `test` 只覆盖 `src/test/`，全绿是假象）。
-7. **文档与提交**：多阶段工作先检查 `docs/plans/`；提交使用简洁的 Conventional Commit 风格，如 `refactor(agent-runtime): ...`、`chore: ...`。PR 需说明影响、验证命令和配置/Windows 特殊要求，UI 改动附截图或录屏。
+7. **文档与提交**：多阶段工作先查 [`docs/README.md`](docs/README.md)（文档中心：目录导航、文档产出规范、按任务找文档）与 `docs/plans/`；提交使用简洁的 Conventional Commit 风格，如 `refactor(agent-runtime): ...`、`chore: ...`。PR 需说明影响、验证命令和配置/Windows 特殊要求，UI 改动附截图或录屏。
 
 ## 常用命令
 

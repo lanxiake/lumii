@@ -388,12 +388,12 @@ apps/windows/src/main/
 
 ### 相关文档索引
 
-- [精简同步设计文档](docs/design/数据同步功能/2026-09-07-focused-multi-device-sync.md)
-- [策略反思文档](docs/analysis/2026-09-07-sync-strategy-reflection.md)
-- [实施记录文档](docs/implementation/2026-09-07-focused-sync-implementation.md)
-- [冲突修复文档](docs/fix-cloud-sync-conflict-detection-2026-09-07.md)
-- [CLI 测试总结](docs/test/2026-09-07-cloud-sync-cli-test-summary.md)
-- [测试报告](docs/test/lumii-cli/cloud-sync/cloud-sync-cli-test-report.md)
+- [精简同步设计文档](../design/数据同步功能/2026-09-07-focused-multi-device-sync.md)
+- [策略反思文档](../analysis/2026-09-07-sync-strategy-reflection.md)
+- [实施记录文档](2026-09-07-focused-sync-implementation.md)
+- [冲突修复文档](../fix/2026-09-07-cloud-sync-conflict-detection-fix.md)
+- [CLI 测试总结](../test/2026-09-06-cloud-sync-cli-test.md)
+- [测试报告](../test/lumii-cli/cloud-sync/cloud-sync-cli-test-report.md)
 
 ### 命令快速参考
 

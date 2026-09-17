@@ -19,7 +19,7 @@
 ### 实施计划（`docs/plans/AGENT自我进化/`）
 
 - **2026-09-04-autonomous-evolution-agent-implementation-p0.md** - P0 阶段实施计划
-- **2026-09-04-autonomous-evolution-agent-implementation-p1.md** - P1 阶段实施计划
+- **P1 阶段实施计划** - 见 [`docs/design/自主进化Agent/7-P1实施计划-能力边界与反思.md`](../../design/自主进化Agent/7-P1实施计划-能力边界与反思.md)（与 plans 同源，统一保留在设计系列中）
 - **2026-09-04-autonomous-evolution-agent-implementation-p2.md** - P2 阶段实施计划（多层进化协同）
 - **2026-09-04-autonomous-evolution-agent-implementation-p3.md** - P3 阶段实施计划（协同闭环落地 + 多 Agent 自组织）
 - **2026-09-05-autonomous-evolution-heartbeat-implementation.md** ⭐ 最新 - 心跳与生命感实施计划（对应设计文档 10、11）
@@ -237,7 +237,7 @@
 ## 相关文档
 
 - [P0 实施计划](2026-09-04-autonomous-evolution-agent-implementation-p0.md)
-- [P1 实施计划](2026-09-04-autonomous-evolution-agent-implementation-p1.md)
+- [P1 实施计划](../../design/自主进化Agent/7-P1实施计划-能力边界与反思.md)
 - [P2 实施计划](2026-09-04-autonomous-evolution-agent-implementation-p2.md)
 - [P3 实施计划](2026-09-04-autonomous-evolution-agent-implementation-p3.md)
 - [设计理念](../../design/自主进化Agent/1-核心设计理念.md)

@@ -150,11 +150,19 @@ lumii/
 │   ├── protocol/                    # Gateway 协议类型门面
 │   └── client-sdk/                  # Gateway 客户端原语
 │
-├── docs/
-│   ├── plans/                       # 带日期的设计与实施文档（30+ 份）
-│   ├── design/                      # 架构设计稿
-│   ├── standards/                   # 代码/组件/页面开发规范
-│   └── prompts/                     # 系统提示词模板
+├── docs/                            # 项目文档中心（总导航见 docs/README.md）
+│   ├── README.md                    #   文档总导航与产出规范
+│   ├── standards/                   #   开发规范（权威正本，AGENTS.md 指向此）
+│   ├── wiki/                        #   结构化知识库（10 大部分 36 篇）
+│   ├── design/                      #   设计文档（按领域分目录）
+│   ├── plans/                       #   实施计划与交付记录
+│   ├── test/                        #   CLI / E2E 测试资产（用例+执行器+证据+报告）
+│   ├── guide/                       #   用户指南源（经 sync:guides 同步进安装包）
+│   ├── fix/                         #   问题修复记录
+│   ├── implementation/              #   实施总结
+│   ├── analysis/                    #   方案分析与复盘
+│   ├── features/                    #   需求规格样例
+│   └── reference/                   #   外部技术参考
 │
 ├── demos/ui-tech-refresh/           # UI 视觉原型 demo
 ├── patches/                         # pnpm.overrides 补丁（当前 @mariozechner/pi-ai）

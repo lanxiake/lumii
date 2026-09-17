@@ -175,4 +175,4 @@ node docs/test/lumii-cli/cloud-sync/run-cloud-sync-suite.mjs
 - [CLI-TEST-SPEC.md](./CLI-TEST-SPEC.md) — 测试规范（分层/方法/格式/安全）
 - [autonomous/autonomous-effectiveness-report.md](./autonomous/autonomous-effectiveness-report.md) — 自主进化有效性验证报告（三问结论 / 缺陷清单 / 条件清单）
 - `docs/design/记忆设计/2026-09-12-scene-memory-design.md` — 场景记忆设计（chat 记忆套件的验证对象）
-- `docs/superpowers/specs/2026-09-09-lightweight-cloud-sync-design.md` — 云同步设计
+- `docs/design/数据同步功能/2026-09-09-lightweight-cloud-sync-design.md` — 云同步设计

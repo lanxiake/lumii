@@ -8,7 +8,7 @@
 
 **Tech Stack:** TypeScript 5, pnpm workspaces, Vitest, Electron Vite.
 
-**Spec:** `docs/superpowers/specs/2026-08-21-typecheck-baseline-and-cron-design.md`
+**Spec:** `docs/design/2026-08-21-typecheck-baseline-and-cron-design.md`
 
 ## Global Constraints
 

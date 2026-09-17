@@ -20,6 +20,36 @@
 
 ---
 
+## Global Constraints（硬约束，不得违反）
+
+> 来源：本计划早期版本 `2026-08-21-performance-monitoring-implementation.md`（已并入本文）。这些约束是本模块的**实现契约**，代码评审与后续改动均以其为准。
+
+- 只观测以下精选 IPC：`agent-runtime:command`、`voice:command`、`screen-record:start`、`screen-record:stop`、`screen-record:narrate`、`provider:listModels`、`provider:testConnection`。
+- 不修改 `ipcMain.handle` 全局行为，不 monkey patch `ipcMain`，不包装未列出的 IPC。
+- 不修改 `apps/windows/src/main/file-logger.ts` 的 console 拦截和业务日志格式；性能日志单独写入 `logs/performance/`。
+- 性能日志目录必须由 `resolveClientStateDir()` 派生，并沿用 `PORTABLE_EXECUTABLE_DIR` 便携版规则；性能模块不得复制一套数据根目录判断逻辑。
+- 监控默认启用；`LUMII_PERF_LOG=0` 仅作为开发/故障排查开关，不新增应用设置项。关闭时不得创建性能目录或性能文件。
+- 事件只记录计时、计数、状态和固定枚举；**禁止记录 Token、Key、Cookie、Prompt、消息正文、模型响应、命令参数、文件内容、URL 查询参数、异常 message 和完整路径以外的业务数据**。
+- 正常 IPC 不逐条写盘；慢调用阈值固定为 `200 ms`，仅写 `ipc.slow`；异常仅写 `ipc.error`，只记录错误类型。
+- 聚合窗口固定为 `60_000 ms`，内存采样间隔固定为 `60_000 ms`，队列上限 `200` 条，单条 JSONL 上限 `16 KB`，单文件上限 `20 MB`，保留最近 `14` 个日文件，报告最多读取最近 `7` 个文件。
+- p95 使用最多 `128` 个耗时样本的有界样本计算，报告必须标记 `approximate: true`，不得把近似 p95 表述为精确统计。
+- 写入、读取、解析、采样、打开目录失败都只能更新 `PerformanceHealth` 和业务 logger 的低频告警；不得让启动、IPC 返回、设置页渲染或退出流程失败。
+- 不引入数据库、图表库、远程上报、后台常驻上传、全量调用明细、命令行查看器或新的设置分类。
+- 所有新增公共类型只定义在 `performance-types.ts`；preload 和 renderer 直接引用该类型，不得复制同名接口。
+- 每个实现任务先补充/调整失败测试，再写实现；每个任务完成后只提交与该任务相关的文件。
+
+## Drift Prevention Checklist（完成前逐条核对）
+
+- [ ] Before implementation, confirm the seven channel names and phase names match this file and `docs/design/性能优化/性能监控与调用耗时统计方案.md`.
+- [ ] Before every IPC edit, verify the target is an explicit `ipcMain.handle` registration listed in Task 4; no shared/global IPC helper may be changed.
+- [ ] Before every path edit, verify the implementation calls existing `paths.ts` exports and does not reimplement portable path detection.
+- [ ] Before every renderer edit, verify the new component remains under the existing privacy category and calls only `window.electronAPI.performance`.
+- [ ] Before declaring completion, verify `readErrorCount` exists in the type, report, health UI, and malformed-line test; verify `openLogFolder` exists in main IPC, preload, renderer action, and manual check.
+- [ ] Search the final diff for `console.log`, raw `error.message`, raw IPC args, prompt/response fields, arbitrary path parameters, `ipcMain.handle =`, and unbounded arrays in performance code.
+- [ ] Search for unfinished markers, placeholder text, and copied duplicate performance interfaces; none are allowed in the completed implementation.
+
+---
+
 ## Task 1: 创建性能监控类型定义层
 
 **Files:**

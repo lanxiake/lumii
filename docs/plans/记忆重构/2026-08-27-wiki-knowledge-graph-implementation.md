@@ -8,7 +8,7 @@
 
 **Tech Stack:** TypeScript、Vitest、现有 WikiEroRepo / xyflow+dagre、Cron companion 指令。
 
-**Spec:** `docs/superpowers/specs/2026-08-27-wiki-auto-synthesis-and-kg-design.md` §3（本 plan **不**改综述自动成页逻辑）
+**Spec:** `docs/design/记忆设计/2026-08-27-wiki-auto-synthesis-and-kg-design.md` §3（本 plan **不**改综述自动成页逻辑）
 
 ## Global Constraints
 

@@ -8,7 +8,7 @@
 
 **Tech Stack:** React, CSS Modules, Vitest, Testing Library, 现有 settings/autonomous 服务
 
-**Spec:** `docs/superpowers/specs/2026-09-13-experimental-features-ui-redesign.md`
+**Spec:** `docs/design/2026-09-13-experimental-features-ui-redesign.md`
 
 ## Global Constraints
 

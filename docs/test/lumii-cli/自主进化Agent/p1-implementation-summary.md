@@ -208,7 +208,7 @@ priority = demand × gap
 - 测试用例：`docs/test/自主进化Agent/p1-test-cases.md`
 - CLI 测试脚本：`docs/test/自主进化Agent/run-p1-cli-suite.mjs`
 - 数据库迁移：`docs/test/自主进化Agent/migrate-to-v29.mjs`
-- 完成报告：`docs/design/自主进化Agent/9-P1实施完成报告.md`
+- 完成报告：`docs/design/自主进化Agent/P1-开发完成报告.md`
 
 ---
 

@@ -1,6 +1,6 @@
 # 云同步v3实施计划
 
-**基于设计文档**：`docs/superpowers/specs/2026-09-09-lightweight-cloud-sync-design.md`
+**基于设计文档**：`docs/design/数据同步功能/2026-09-09-lightweight-cloud-sync-design.md`
 
 **核心原则**：简单、实用、稳定 - 个人2-3设备同步场景
 

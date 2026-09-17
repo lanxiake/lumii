@@ -8,7 +8,7 @@
 
 **Tech Stack:** TypeScript、Vitest、React、SQLite schema 迁移（SCHEMA_VERSION 21）、现有 Electron IPC `agentRuntime.sendCommand`。
 
-**Spec:** `docs/superpowers/specs/2026-08-26-wiki-ux-fixes-design.md`
+**Spec:** `docs/design/记忆设计/2026-08-26-wiki-ux-fixes-design.md`
 
 ## Global Constraints
 

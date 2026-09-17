@@ -5,7 +5,7 @@
 > 核对提交：`f0cf09d105ae994880814eb36750225a367c103e`
 > 统计范围：`apps/windows` + `packages/*` 下所有 `.ts` / `.tsx`
 > 行数口径：**含空行与注释**（与 [`../大文件重构分析处理/README.md`](../大文件重构分析处理/README.md) 的"排除纯空行"口径不同，两者数值不可直接比较）
-> 关联文档：[死代码清理清单](./dead-code-cleanup-list.md)、[大文件重构分析处理](../大文件重构分析处理/README.md)、[Gateway 遗留代码分析](../gateway遗留代码处理/gateway-legacy-code-analysis.md)
+> 关联文档：[死代码清理清单](./dead-code-cleanup-list.md)、[大文件重构分析处理](../大文件重构分析处理/README.md)、[Gateway 遗留代码分析](./gateway-legacy-code-analysis.md)
 
 ---
 

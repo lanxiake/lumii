@@ -8,7 +8,7 @@
 
 **Tech Stack:** TypeScript、Vitest、现有 WikiSynthesizer / CronScheduler / companion 指令、Electron IPC。
 
-**Spec:** `docs/superpowers/specs/2026-08-27-wiki-auto-synthesis-and-kg-design.md` §2（本 plan **不**实现 §3 知识图谱）
+**Spec:** `docs/design/记忆设计/2026-08-27-wiki-auto-synthesis-and-kg-design.md` §2（本 plan **不**实现 §3 知识图谱）
 
 ## Global Constraints
 

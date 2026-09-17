@@ -48,8 +48,8 @@
 **结论：卡住的不是 app_act 工具，是 LLM 的"思考→下一个工具调用"之间的推理空档。**
 
 工具层证据（代码已核查）：
-- `bridge-app-ui-tools.ts` 的 `app_act.execute`（[bridge-app-ui-tools.ts#L321-L354](file:///e:/my-project/open-source/lumii/apps/windows/src/main/agent-runtime/bridge-app-ui-tools.ts#L321-L354)）无循环/无 sleep，`switch → controller.click/type/... → jsonToolResult` 一条直线。
-- `controller.click`（[controller.ts#L752-L809](file:///e:/my-project/open-source/lumii/apps/windows/src/main/app-ui-control/controller.ts#L752-L809)）也是同步注入 + 2 次 sendInputEvent，单次耗时 < 50ms。
+- `bridge-app-ui-tools.ts` 的 `app_act.execute`（`apps/windows/src/main/agent-runtime/bridge-app-ui-tools.ts`）无循环/无 sleep，`switch → controller.click/type/... → jsonToolResult` 一条直线。
+- `controller.click`（`apps/windows/src/main/app-ui-control/controller.ts`）也是同步注入 + 2 次 sendInputEvent，单次耗时 < 50ms。
 - 日志中每次 `[工具调用: app_act]` → `输出: {"ok":true}` 之间无时间差证据（几乎瞬时）。
 
 推理空档构成：
