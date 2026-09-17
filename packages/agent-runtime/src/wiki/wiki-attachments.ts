@@ -1,7 +1,7 @@
 /**
  * Wiki 附件引用语法——纯函数，agent-runtime 侧不依赖 DOM/File API
  *
- * 设计：`docs/plans/记忆重构/2026-08-26-wiki-p1-implementation.md` §7.1
+ * 设计：`docs/plans/记忆与Wiki/2026-08-26-Wiki知识库P1实施计划.md` §7.1
  * 引用语法沿用项目既有格式（见 apps/windows ChatPage 的 file-attachment-strategy.ts）：
  *   [media attached: /path/to/file (filename)]
  * 前端渲染把该语法替换为 <img> 或媒体播放器；本模块只负责生成/识别该行文本，

@@ -76,7 +76,8 @@ function perCall(yuan: number): ModelPrice {
 
 /**
  * 价格表。key 为小写模型 id 的匹配前缀，取最长匹配。
- * 数值来源：docs/temp/模型价格.md 与 docs/temp/deepseek价格文档.md
+ * 数值来源：各模型厂商官方定价页（原 `docs/temp/模型价格.md`、`deepseek价格文档.md`
+ * 草稿已随文档整理清理）。
  * 仅用于本地估算，不作账单依据。
  */
 const PRICES: Readonly<Record<string, ModelPrice>> = {

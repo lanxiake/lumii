@@ -12,7 +12,7 @@
  *
  * 支持参考图：image 字段传 data URL 数组（data:image/png;base64,...）。
  *
- * 接口文档见 docs/temp/绘图接口.md
+ * 接口文档：https://docs.right.codes/docs/rc_extension/draw
  */
 
 import { agentRuntimeLog as log } from './bridge-utils'

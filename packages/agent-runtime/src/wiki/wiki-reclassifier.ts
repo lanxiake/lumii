@@ -9,7 +9,7 @@
  * (2) 两轮线 — 结构轮（不带正文，模型可 needContent）→ 内容轮（仅 needContent 且有正文，补摘要）。
  * (3) 无正文线 — needContent 且无正文的资料留收件箱，不进内容轮，不产候选。
  *
- * 设计：docs/plans/记忆重构/2026-08-31-wiki-intelligent-vault-p5-cataloging.md
+ * 设计：docs/plans/记忆与Wiki/2026-08-31-Wiki智能资料库P5全库编目.md
  */
 
 import type { WikiRepo } from "./wiki-repo.js";

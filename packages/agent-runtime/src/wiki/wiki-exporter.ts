@@ -1,7 +1,7 @@
 /**
  * WikiExporter — 按用途目录结构批量导出资料为 Markdown
  *
- * 设计：`docs/plans/记忆重构/2026-08-31-wiki-intelligent-vault-p3-remove-pages.md` Task 5
+ * 设计：`docs/plans/记忆与Wiki/2026-08-31-Wiki智能资料库P3移除历史页面.md` Task 5
  * agent-runtime 不直接依赖 node:fs——文件系统操作通过 WikiExporterDeps 注入，
  * 宿主（apps/windows 主进程）负责实际写盘。逐条失败返回清单，不静默跳过。
  * 历史页面导出（exportPages）已随 P3 删除，导出维度统一切到资料层：

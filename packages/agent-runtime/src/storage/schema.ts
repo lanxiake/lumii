@@ -413,7 +413,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS agent_memories_fts USING fts5(
   ],
   // V16: Wiki 知识库 P0 —— 收件箱 / 资料层 / 知识层 / 修订层 / 运行日志 / 派生索引
   //
-  // 设计：`docs/design/记忆设计/2026-08-25-wiki-design-p0p1p2.md` §3.2
+  // 设计：`docs/design/记忆与Wiki/2026-08-25-Wiki知识库设计P0P1P2.md` §3.2
   // 中文检索沿用 V15 agent_memories_fts 已验证的 bigram 预分词方案（unicode61 对中文
   // 2 字词零命中，已实测确认），FTS5 表存预分词结果，索引维护在 wiki-index.ts 手动做。
   [
@@ -565,7 +565,7 @@ CREATE INDEX IF NOT EXISTS idx_wiki_runs_agent_user
   ],
   // V18: Wiki 知识库 P1 —— 链接索引 + 附件表 + 页面状态列
   //
-  // 设计：`docs/plans/记忆重构/2026-08-26-wiki-p1-implementation.md` Task 1
+  // 设计：`docs/plans/记忆与Wiki/2026-08-26-Wiki知识库P1实施计划.md` Task 1
   // wiki_links：页面间有向链接索引（反链与 P2 图谱的数据源）；target_page_id 不带外键约束，
   // 删除目标页时链接索引级联清理由 WikiRepo 显式完成，其他页正文中的 [[...]] 文本保留为未解析。
   [
@@ -602,7 +602,7 @@ ALTER TABLE wiki_pages ADD COLUMN status TEXT NOT NULL DEFAULT 'active'
   ],
   // V19: Wiki 知识库 P2 —— 综述合成运行记录
   //
-  // 设计：`docs/plans/记忆重构/2026-08-26-wiki-p2-implementation.md` Task 0
+  // 设计：`docs/plans/记忆与Wiki/2026-08-26-Wiki知识库P2实施计划.md` Task 0
   // 候选是正式数据：先落 candidate_md + status='candidate'，用户接受后才建 syntheses/ 页面。
   // 拒绝的记录保留（可审计），不删除。
   [
@@ -765,7 +765,7 @@ ALTER TABLE wiki_sources ADD COLUMN storage_mode TEXT NOT NULL DEFAULT 'ref'
   // 旧小类值留存 legacy_subtopic 供审计；「计划与复盘」整类与「整合长文」小类
   // （综述产物专属落点，六大类下都有）无法机械映射到 v2 树，退回收件箱由用户/P5 编目重填。
   //
-  // 设计：docs/design/记忆设计/2026-08-31-wiki-intelligent-vault-design.md v1.1 §3
+  // 设计：docs/design/记忆与Wiki/2026-08-31-Wiki智能资料库设计.md v1.1 §3
   [
     26,
     `
@@ -1012,7 +1012,7 @@ CREATE INDEX IF NOT EXISTS idx_reflections_agent_created
   ],
   // V30: 自主进化 Agent MVP P2 —— 多层进化协同
   //
-  // 设计：docs/plans/AGENT自我进化/2026-09-04-autonomous-evolution-agent-implementation-p2.md
+  // 设计：docs/plans/自主进化Agent/2026-09-04-自主进化Agent-P2实施计划.md
   // 5 张表支持记忆排序（Learning-to-Rank）、技能效果跟踪、工具选择
   // （Thompson Sampling）、协同贡献归因和帕累托前沿。
   // 同时扩展 autonomous_goals 以支持 skill-enhancement / memory-optimization。
@@ -1328,7 +1328,7 @@ CREATE INDEX IF NOT EXISTS idx_wiki_sources_topic
   ],
   // V38: 云同步软删除支持 — 为同步表添加 deleted_at 字段
   //
-  // 设计：docs/design/数据同步功能/2026-09-09-lightweight-cloud-sync-design.md
+  // 设计：docs/design/数据同步功能/2026-09-09-轻量云同步设计.md
   // 为需要跨设备同步的4个表添加软删除标记，支持删除操作的传播。
   // 软删除记录不物理删除，通过 deleted_at IS NULL 过滤活跃记录。
   [

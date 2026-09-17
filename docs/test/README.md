@@ -10,8 +10,8 @@
 
 | 文件 | 说明 |
 |---|---|
-| [2026-08-27-agent-capability-test-cases.md](./2026-08-27-agent-capability-test-cases.md) | 全面测试用例（A–H 套件） |
-| [2026-08-27-agent-capability-test-report.md](./2026-08-27-agent-capability-test-report.md) | 本轮执行报告与结论 |
+| [2026-08-27-Agent能力测试用例.md](./2026-08-27-Agent能力测试用例.md) | 全面测试用例（A–H 套件） |
+| [2026-08-27-Agent能力测试报告.md](./2026-08-27-Agent能力测试报告.md) | 本轮执行报告与结论 |
 | [2026-08-27-agent-capability-evidence.jsonl](./2026-08-27-agent-capability-evidence.jsonl) | 逐条 PASS/FAIL 证据 |
 | [run-agent-capability-suite.mjs](./run-agent-capability-suite.mjs) | E2E 执行器（主套件） |
 | [run-agent-capability-suite-continue.mjs](./run-agent-capability-suite-continue.mjs) | 中断后续跑 |

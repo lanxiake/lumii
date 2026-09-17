@@ -17,9 +17,9 @@ Lumii 的技术栈决定了问题的多样性：Electron 进程崩溃、渲染�
 ## 现有源文档交叉引用
 
 - 问题修复文档目录：[`../fix/`](../../fix/) — 历史 Bug 修复记录与分析
-- 数据库锁误检诊断：[`../database-lock-misdetection-diagnostic.md`](../../fix/2026-08-13-session-loss-db-lock-misdetection-fix.md) — SQLite 锁冲突问题的完整诊断案例
-- 语音通话问题诊断：[`../voice-call-diagnostic.md`](../../fix/2026-08-09-voice-call-realtime-transcript-fix.md) — ASR/TTS 故障排查记录
-- 上下文压缩修复计划：[`../test/2026-08-24-context-compression-fix-plan.md`](../../test/2026-08-24-context-compression-fix-plan.md)
-- Agent 消息顺序修复：[`../fix/2026-09-07-agent-message-order-fix.md`](../../fix/2026-09-07-agent-message-order-fix.md)
-- 云同步冲突检测修复：[`../fix/2026-09-07-cloud-sync-conflict-detection-fix.md`](../../fix/2026-09-07-cloud-sync-conflict-detection-fix.md)
-- 自主进化前端自测清单：[`../../design/自主进化Agent/前端可视化自测清单.md`](../../design/自主进化Agent/前端可视化自测清单.md)
+- 数据库锁误检诊断：[`../database-lock-misdetection-diagnostic.md`](../../fix/2026-08-13-新建会话丢失修复.md) — SQLite 锁冲突问题的完整诊断案例
+- 语音通话问题诊断：[`../voice-call-diagnostic.md`](../../fix/2026-08-09-语音通话实时转写修复.md) — ASR/TTS 故障排查记录
+- 上下文压缩修复计划：[`../test/2026-08-24-context-compression-fix-plan.md`](../../test/2026-08-24-上下文压缩缺陷修复计划.md)
+- Agent 消息顺序修复：[`../fix/2026-09-07-agent-message-order-fix.md`](../../fix/2026-09-07-Agent消息乱序修复.md)
+- 云同步冲突检测修复：[`../fix/2026-09-07-cloud-sync-conflict-detection-fix.md`](../../fix/2026-09-07-云同步冲突检测修复.md)
+- 自主进化前端自测清单：[`../../design/自主进化Agent/2026-09-04-前端可视化自测清单.md`](../../design/自主进化Agent/2026-09-04-前端可视化自测清单.md)

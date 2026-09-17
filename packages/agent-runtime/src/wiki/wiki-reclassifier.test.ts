@@ -1,6 +1,6 @@
 /**
  * WikiReclassifier 状态机：两轮制、断点续跑、部分接受
- * 计划：docs/plans/记忆重构/2026-08-31-wiki-intelligent-vault-p5-cataloging.md Task 3
+ * 计划：docs/plans/记忆与Wiki/2026-08-31-Wiki智能资料库P5全库编目.md Task 3
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";

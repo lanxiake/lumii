@@ -1,8 +1,8 @@
 /**
  * CleanupView — 清理建议扫描 + 筛选/全选/一键归档 + 批量归档/恢复/删除
  *
- * 设计：docs/plans/记忆重构/2026-08-26-wiki-p1-implementation.md Task 8 §10.2
- *       docs/plans/记忆重构/2026-08-26-wiki-p2-implementation.md Task 4/5
+ * 设计：docs/plans/记忆与Wiki/2026-08-26-Wiki知识库P1实施计划.md Task 8 §10.2
+ *       docs/plans/记忆与Wiki/2026-08-26-Wiki知识库P2实施计划.md Task 4/5
  * 扫描只读不执行，勾选后由用户确认才触发批量操作。页面状态候选已随 P3 历史页面删除一并移除。
  */
 import React, { useCallback, useEffect, useState } from 'react'

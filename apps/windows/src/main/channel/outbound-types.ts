@@ -1,7 +1,7 @@
 /**
  * 渠道出站 Hub 核心类型
  *
- * 设计文档：docs/design/2026-08-14-channel-outbound-hub-design.md
+ * 设计文档：docs/design/渠道与在场/2026-08-14-渠道出站Hub设计.md
  */
 
 /** Agent / cron 使用的渠道标识（一期） */

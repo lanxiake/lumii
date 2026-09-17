@@ -3,7 +3,7 @@
 > 创建：2026-09-12
 > 状态：**已立项，暂缓启动** —— 按决策 D11，先完成 Linux / 无头移植，再启动本议题
 > 范围：`packages/agent-runtime`（内核不动）× `apps/windows/src/main`（宿主边界重构）
-> 关联：[Linux 与无头部署调查分析](../../design/Linux客户端移植/Linux与无头部署调查分析.md) §7 —— 本立项的现状依据（含全部 file:line 证据）
+> 关联：[Linux 与无头部署调查分析](../../design/Linux客户端移植/2026-09-12-Linux与无头部署调查分析.md) §7 —— 本立项的现状依据（含全部 file:line 证据）
 > 关联：`docs/plans/客户端优化/`（renderer 侧切片计划，与本议题边界相邻但目标不同）
 
 ---

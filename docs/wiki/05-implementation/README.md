@@ -18,7 +18,7 @@ Lumii 作为多包（monorepo）管理的大型项目，涉及依赖安装的特
 
 - 实施总结文档目录：[`../implementation/`](../../implementation/) — 功能模块的实施完成报告与总结
 - 实施计划文档目录：[`../plans/`](../../plans/) — 各功能模块的分阶段实施计划，包含步骤拆解与里程碑
-- 性能监控实施方案：[`../design/性能优化/性能监控与调用耗时统计方案.md`](../../design/性能优化/性能监控与调用耗时统计方案.md)
+- 性能监控实施方案：[`../design/性能优化/性能监控与调用耗时统计方案.md`](../../design/性能优化/2026-08-21-性能监控与调用耗时统计方案.md)
 - 大文件重构分析：[`../plans/大文件重构分析处理/README.md`](../../plans/大文件重构分析处理/README.md)
-- 自主进化 Agent 前端快速开始：[`../自主进化前端快速开始.md`](../../design/自主进化Agent/前端可视化实施记录.md)
-- Qwen3 TTS CUDA 性能笔记：[`../plans/2026-08-08-qwen3-tts-cuda-graph-perf-notes.md`](../../plans/2026-08-08-qwen3-tts-cuda-graph-perf-notes.md)
+- 自主进化 Agent 前端快速开始：[`../自主进化前端快速开始.md`](../../design/自主进化Agent/2026-09-04-前端可视化实施记录.md)
+- Qwen3 TTS CUDA 性能笔记：[`../plans/2026-08-08-qwen3-tts-cuda-graph-perf-notes.md`](../../plans/语音与TTS/2026-08-08-Qwen3TTS推理加速笔记.md)

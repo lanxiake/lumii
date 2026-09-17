@@ -5,7 +5,7 @@
  * 此前两处各自硬编码同一段口诀，长期漂移成「classify 6 条易混、reclassify 只有 3 条」，
  * 换分类体系时要改两处且容易漏——故收拢到本模块。
  *
- * 设计：docs/design/记忆设计/2026-08-31-wiki-intelligent-vault-design.md v1.1 §4
+ * 设计：docs/design/记忆与Wiki/2026-08-31-Wiki智能资料库设计.md v1.1 §4
  */
 
 import type { WikiTopicTree } from "./wiki-topic-tree.js";

@@ -1,6 +1,6 @@
 # 一等公民 Agent 团队 测试用例（AT 套件）
 
-> 对应实现：`docs/plans/专项Agent/`（A 运行时贯通 / B code-dev 闭环 / C system-keeper / D 团队转正）与设计 `docs/design/专项AGENT/专项Agent设计.md` §2.5。
+> 对应实现：`docs/plans/专项Agent/`（A 运行时贯通 / B code-dev 闭环 / C system-keeper / D 团队转正）与设计 `docs/design/专项Agent/2026-09-13-专项Agent设计.md` §2.5。
 > 规范：`docs/test/lumii-cli/CLI-TEST-SPEC.md`；执行器：`run-agent-team-e2e.mjs`（严格复用 `lib/cli-harness.mjs`）。
 > **设计原则：以用户真实使用场景为主轴**——每个 L3 用例模拟「用户带着一个真实任务来找这位团队成员」的完整旅程，而不是逐接口冒烟。
 > 探针命名空间：会话前缀 `[agent-team]`；无 SQL 播种。

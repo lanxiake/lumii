@@ -1,7 +1,7 @@
 /**
  * Wiki 用途主题树 — 默认树、校验、读写辅助
  *
- * 设计：docs/design/记忆设计/2026-08-27-wiki-topic-hierarchy-redesign.md §1-§2
+ * 设计：docs/design/记忆与Wiki/2026-08-27-Wiki用途目录重设计.md §1-§2
  * 分类轴是「用途」（做事记录/学习资料/…），不是来源类型（sources/media）。
  * 「临时存放」是代码常量，不写进树 JSON，用户主动搁置用，AI 不可写。
  */

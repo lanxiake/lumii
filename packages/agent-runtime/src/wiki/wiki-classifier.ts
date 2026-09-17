@@ -5,7 +5,7 @@
  * 分类轴是「用途」（做事记录/学习资料/…），只能从当前主题树里选节点；
  * 拿不准、越权、模型漏答统一 skip/degraded，条目留待整理，不臆造分类、不写「临时存放」。
  *
- * 设计：docs/design/记忆设计/2026-08-27-wiki-topic-hierarchy-redesign.md §3
+ * 设计：docs/design/记忆与Wiki/2026-08-27-Wiki用途目录重设计.md §3
  */
 
 import type { WikiInboxItem } from "./types.js";

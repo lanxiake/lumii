@@ -1,7 +1,7 @@
 /**
  * bash-evolution — bash 命令工具进化（采集 + 挖掘 + 归一化）
  *
- * 管道总览（设计见 docs/plans/2026-09-08-bash-命令工具进化-design.md）：
+ * 管道总览（设计见 docs/plans/2026-09-08-Bash命令工具进化设计.md）：
  * - bash-command-log-hook：ToolRunner 全局 hook，逐条落库命令原文
  * - command-miner：规则归一化 + 聚合 + 过滤（纯函数，粗聚类）+ 高频价值筛选
  * - refine-patterns：LLM 精归一化（兼容保留；主路径已合并进 tool-drafter 单次调用）

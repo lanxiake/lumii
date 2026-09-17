@@ -1,6 +1,6 @@
 /**
  * 主题树编辑器：逐条 mutate、删除去向、不列临时存放
- * 计划：docs/plans/记忆重构/2026-08-27-wiki-topic-hierarchy-p2-implementation.md Task 3
+ * 计划：docs/plans/记忆与Wiki/2026-08-27-Wiki用途目录二期实施计划.md Task 3
  */
 
 import React from 'react'

@@ -19,5 +19,5 @@ Lumii 的架构涉及 Electron 主进程与渲染进程的双进程模型、Agen
 - 双重连接架构：[`../standards/dual-connection-architecture.md`](../../standards/dual-connection-architecture.md) — 官方规范中的架构模式说明
 - 项目结构规范：[`../standards/project-structure.md`](../../standards/project-structure.md) — 目录与模块划分的官方标准
 - 自主进化 Agent 核心设计：[`../design/自主进化Agent/1-核心设计理念.md`](../../design/自主进化Agent/1-核心设计理念.md) — AI Agent 子系统的架构设计起点
-- 多设备数据同步策略：[`../../analysis/2026-09-07-multi-device-data-sync-strategy.md`](../../analysis/2026-09-07-multi-device-data-sync-strategy.md) — 同步子系统的架构选型分析
+- 多设备数据同步策略：[`../../analysis/2026-09-07-多设备数据同步策略分析.md`](../../analysis/2026-09-07-多设备数据同步策略分析.md) — 同步子系统的架构选型分析
 - Hermes MOA 对比分析：[`../design/AGENT优化/2026-08-26-hermes-moa-对比分析.md`](../../design/AGENT优化/2026-08-26-hermes-moa-对比分析.md) — Agent 架构的对比研究

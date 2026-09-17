@@ -1,6 +1,6 @@
 /**
  * 主题树 mutation 纯函数规则测试
- * 计划：docs/plans/记忆重构/2026-08-27-wiki-topic-hierarchy-p2-implementation.md Task 1
+ * 计划：docs/plans/记忆与Wiki/2026-08-27-Wiki用途目录二期实施计划.md Task 1
  *
  * v1.1：不再依赖 DEFAULT_TOPIC_TREE 的具体内容（该树已改为 v2 的 4 大类，
  * 与本文件历史用例的六大类名不符）。这里的用例验证的是 planTopicMutation

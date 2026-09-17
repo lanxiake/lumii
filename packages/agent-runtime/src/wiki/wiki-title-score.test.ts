@@ -1,6 +1,6 @@
 /**
  * titleInfoScore：低信息标题判定
- * 计划：docs/plans/记忆重构/2026-08-31-wiki-intelligent-vault-p6-rename.md Task 2
+ * 计划：docs/plans/记忆与Wiki/2026-08-31-Wiki智能资料库P6文件重命名.md Task 2
  */
 
 import { describe, expect, it } from "vitest";

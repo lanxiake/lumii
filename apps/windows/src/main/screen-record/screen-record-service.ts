@@ -1,6 +1,6 @@
 /**
  * ScreenRecordService — 主进程录屏会话编排（状态机 / 确认 / 写盘）
- * 设计：docs/design/2026-08-15-screen-record-design.md §2.1
+ * 设计：docs/design/录屏与教程/2026-08-15-客户端录屏设计.md §2.1
  */
 
 import { randomUUID } from 'node:crypto'

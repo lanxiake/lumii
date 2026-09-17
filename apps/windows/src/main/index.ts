@@ -1030,7 +1030,7 @@ async function initAgentRuntime(): Promise<void> {
 
   // ── bash 命令工具进化引擎 ──
   // 自动挖掘高频 bash 命令 → LLM 草拟参数化工具 → 对话内审批 → 运行时注册。
-  // 设计见 docs/plans/2026-09-08-bash-命令工具进化-design.md
+  // 设计见 docs/plans/2026-09-08-Bash命令工具进化设计.md
   initToolEvolutionRuntime({
     bridge: agentRuntimeBridge!,
     getMainWindow: () => mainWindow,

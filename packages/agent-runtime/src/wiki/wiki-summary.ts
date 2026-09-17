@@ -6,7 +6,7 @@
  * 正文超过 EXTRACTIVE_MAX_TEXT 时触发，失败降级 extractive 而不抛错。
  * 摘要绝不写回 content_md/extracted_text，避免 LLM 幻觉污染原始资料。
  *
- * 设计：docs/design/记忆设计/2026-08-31-wiki-intelligent-vault-design.md v1.1 §5.7
+ * 设计：docs/design/记忆与Wiki/2026-08-31-Wiki智能资料库设计.md v1.1 §5.7
  */
 
 import { wikiBigramJoin } from "./wiki-index.js";

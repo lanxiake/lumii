@@ -6,9 +6,9 @@
 
 | 文档 | 问题 |
 | --- | --- |
-| [`2026-08-09-voice-call-realtime-transcript-fix.md`](2026-08-09-voice-call-realtime-transcript-fix.md) | 语音通话实时转写不显示（ASR 离线模式不支持流式中间结果） |
-| [`2026-08-13-session-loss-db-lock-misdetection-fix.md`](2026-08-13-session-loss-db-lock-misdetection-fix.md) | 新建会话重启后丢失（`isIoErr()` 误判数据库锁） |
-| [`2026-09-07-agent-message-order-fix.md`](2026-09-07-agent-message-order-fix.md) | Agent 消息顺序错乱 |
-| [`2026-09-07-cloud-sync-conflict-detection-fix.md`](2026-09-07-cloud-sync-conflict-detection-fix.md) | 云同步符号链接与冲突检测误触发 Agent 处理 |
+| [`2026-08-09-语音通话实时转写修复.md`](2026-08-09-语音通话实时转写修复.md) | 语音通话实时转写不显示（ASR 离线模式不支持流式中间结果） |
+| [`2026-08-13-新建会话丢失修复.md`](2026-08-13-新建会话丢失修复.md) | 新建会话重启后丢失（`isIoErr()` 误判数据库锁） |
+| [`2026-09-07-Agent消息乱序修复.md`](2026-09-07-Agent消息乱序修复.md) | Agent 消息顺序错乱 |
+| [`2026-09-07-云同步冲突检测修复.md`](2026-09-07-云同步冲突检测修复.md) | 云同步符号链接与冲突检测误触发 Agent 处理 |
 
 已沉淀为方法论的案例另见 [`../wiki/07-debugging-and-fixes/`](../wiki/07-debugging-and-fixes/)。

@@ -1,7 +1,7 @@
 /**
  * WikiCleanupScanner — 归档清理建议扫描（只读，不执行任何写操作）
  *
- * 设计：`docs/plans/记忆重构/2026-08-26-wiki-p1-implementation.md` Task 4 §6.1
+ * 设计：`docs/plans/记忆与Wiki/2026-08-26-Wiki知识库P1实施计划.md` Task 4 §6.1
  * 三条规则：长期未用 / 来源失效 / 内容重复。扫描结果只是「待清理清单」，
  * 一切写操作（归档/恢复/删除）由用户在 UI 确认后调用 WikiRepo 的批量方法。
  */

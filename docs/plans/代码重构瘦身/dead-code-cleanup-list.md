@@ -211,7 +211,7 @@ grep -rn "PipelinesTab\|ScheduleTab\|CronBuilder\|DateTimePicker\|IntervalPicker
 
 **更正**：原分析列这 6 个模块（`conflict-detector` / `coordinated-scheduler` / `memory-evolution` / `pareto-frontier` / `skill-evolution` / `tool-evolution`）为"仅测试引用，待确认"。深查后结论是 **全部必须保留**：
 
-- **这是路线图代码，不是废弃代码**。`docs/plans/AGENT自我进化/README.md:249` 写明"P0/P1 已完成，**P2 代码已落地待接线**，P3 设计阶段"；P3 计划开篇写"多层协同优化的算法部分已经在 P2 写完了，真正缺的是把它接进运行时"，主线 A 标注**必做**。
+- **这是路线图代码，不是废弃代码**。`docs/plans/自主进化Agent/README.md:249/` 写明"P0/P1 已完成，**P2 代码已落地待接线**，P3 设计阶段"；P3 计划开篇写"多层协同优化的算法部分已经在 P2 写完了，真正缺的是把它接进运行时"，主线 A 标注**必做**。
 - **测试是认真的**：6 个单测共 145 个 `it`、245 个 `expect`，覆盖边界（NaN、单调性、归一化）；`p2-e2e.test.ts` 761 行含 8 个端到端场景（重启恢复、隐私脱敏、性能 p95 门槛）。
 - 删除等于删掉 P3 的实施对象。
 

@@ -1,7 +1,7 @@
 /**
  * 遗忘曲线排序：新近度 + 使用频次加权，衰减随 use_count 变慢。
  *
- * 设计：`docs/plans/记忆重构/2026-08-26-wiki-p2-implementation.md` §9.2
+ * 设计：`docs/plans/记忆与Wiki/2026-08-26-Wiki知识库P2实施计划.md` §9.2
  * score = recency_weight × 时间衰减 + frequency_weight × log(1 + use_count)
  */
 

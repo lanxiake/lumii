@@ -1,7 +1,7 @@
 /**
  * Wiki 知识库类型定义
  *
- * 设计：`docs/design/记忆设计/2026-08-25-wiki-design-p0p1p2.md`
+ * 设计：`docs/design/记忆与Wiki/2026-08-25-Wiki知识库设计P0P1P2.md`
  */
 
 /** 固定顶层分类，AI 落点被约束在此集合内（P0 仅 sources/media/inbox 可自动写） */

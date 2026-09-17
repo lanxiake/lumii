@@ -2,7 +2,7 @@
 
 > **测试范围**：心跳 tick、专属会话、目标执行、主动消息预算、反思定时、Mood、牵挂、日记、设置参数、token 预算
 > **设计文档**：`docs/design/自主进化Agent/10-心跳与外部交互设计.md`、`11-参数配置与生命感设计.md`
-> **实施计划**：`docs/plans/AGENT自我进化/2026-09-05-autonomous-evolution-heartbeat-implementation.md`
+> **实施计划**：`docs/plans/自主进化Agent/2026-09-05-自主进化心跳实施计划.md`
 > **实现提交**：`003b0b8` 心跳执行链路与内在状态模块 及后续 `e019a25 / 1f320fb / c6aeb76 / b367295 / 5f4b686`
 > **日期**：2026-09-06
 

@@ -8,7 +8,7 @@
  * - 项目注册表：<data>/scene-memory/_registry.json（名称/别名/路径，供命中匹配）
  *
  * 全部函数接受 baseDir（客户端数据根，生产传 resolveClientStateDir()），便于测试隔离。
- * 设计文档：docs/design/记忆设计/2026-09-12-scene-memory-design.md
+ * 设计文档：docs/design/记忆与Wiki/2026-09-12-场景记忆设计.md
  */
 
 import path from 'node:path'

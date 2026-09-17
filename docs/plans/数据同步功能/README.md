@@ -8,10 +8,10 @@ Lumii 云同步（多设备数据同步）的完整文档入口。功能代码�
 
 | 角色 | 文档 |
 | --- | --- |
-| 设计 | [`docs/design/数据同步功能/2026-09-09-lightweight-cloud-sync-design.md`](../../design/数据同步功能/2026-09-09-lightweight-cloud-sync-design.md) |
-| 实施计划 | [`2026-09-09-cloud-sync-v3-implementation-plan.md`](./2026-09-09-cloud-sync-v3-implementation-plan.md) |
-| 实施进度 | [`2026-09-09-implementation-progress.md`](./2026-09-09-implementation-progress.md) |
-| 测试计划 | [`2026-09-09-test-plan.md`](./2026-09-09-test-plan.md) |
+| 设计 | [`docs/design/数据同步功能/2026-09-09-轻量云同步设计.md`](../../design/数据同步功能/2026-09-09-轻量云同步设计.md) |
+| 实施计划 | [`2026-09-09-云同步V3实施计划.md`](./2026-09-09-云同步V3实施计划.md) |
+| 实施进度 | [`2026-09-09-云同步V3实施进度.md`](./2026-09-09-云同步V3实施进度.md) |
+| 测试计划 | [`2026-09-09-云同步V3测试计划.md`](./2026-09-09-云同步V3测试计划.md) |
 | 测试套件 | [`docs/test/lumii-cli/cloud-sync/`](../../test/lumii-cli/cloud-sync/) — `run-cloud-sync-suite.mjs`、`run-sync-e2e.mjs` |
 
 ## 二、历史方案（存档，不代表当前实现）
@@ -20,8 +20,8 @@ Lumii 云同步（多设备数据同步）的完整文档入口。功能代码�
 
 | 代 | 时间 | 思路 | 文档 |
 | --- | --- | --- | --- |
-| v1 | 2026-09-05 | 工作空间云同步（依赖 workspace git） | 设计 [`2026-09-05-workspace-cloud-sync-design.md`](../../design/数据同步功能/2026-09-05-workspace-cloud-sync-design.md) / 计划 [`2026-09-05-workspace-cloud-sync-plan.md`](./2026-09-05-workspace-cloud-sync-plan.md) |
-| v2 | 2026-09-07 | 精简多设备同步（聚焦同步范围） | 设计 [`2026-09-07-focused-multi-device-sync.md`](../../design/数据同步功能/2026-09-07-focused-multi-device-sync.md) / 策略分析 [`docs/analysis/2026-09-07-multi-device-data-sync-strategy.md`](../../analysis/2026-09-07-multi-device-data-sync-strategy.md) / 反思 [`docs/analysis/2026-09-07-sync-strategy-reflection.md`](../../analysis/2026-09-07-sync-strategy-reflection.md) / 实施 [`docs/implementation/2026-09-07-focused-sync-implementation.md`](../../implementation/2026-09-07-focused-sync-implementation.md) / 总结 [`docs/implementation/2026-09-07-cloud-sync-complete-summary.md`](../../implementation/2026-09-07-cloud-sync-complete-summary.md) |
+| v1 | 2026-09-05 | 工作空间云同步（依赖 workspace git） | 设计 [`2026-09-05-workspace-cloud-sync-design.md`](../../design/数据同步功能/2026-09-05-工作空间云同步设计.md) / 计划 [`2026-09-05-工作空间云同步开发计划.md`](./2026-09-05-工作空间云同步开发计划.md) |
+| v2 | 2026-09-07 | 精简多设备同步（聚焦同步范围） | 设计 [`2026-09-07-focused-multi-device-sync.md`](../../design/数据同步功能/2026-09-07-精简多设备同步方案.md) / 策略分析 [`docs/analysis/2026-09-07-多设备数据同步策略分析.md`](../../analysis/2026-09-07-多设备数据同步策略分析.md) / 反思 [`docs/analysis/2026-09-07-同步策略反思.md`](../../analysis/2026-09-07-同步策略反思.md) / 实施 [`docs/implementation/2026-09-07-精简云同步实施总结.md`](../../implementation/2026-09-07-精简云同步实施总结.md) / 总结 [`docs/implementation/2026-09-07-云同步完整实施总结.md`](../../implementation/2026-09-07-云同步完整实施总结.md) |
 | v3 | 2026-09-09 | 轻量 JSONL + 软删除（当前） | 见上表 |
 
 **重要教训（v2 反思结论，v3 亦沿用）**：Git Squash 在多设备场景是毁灭性的——squash 丢弃原 commit ID，两设备各自 squash 后互相 non-ff，再 force push 会令对方全量冲突。同步层由此硬拦截 `--squash` 与 `--force`。
@@ -30,7 +30,7 @@ Lumii 云同步（多设备数据同步）的完整文档入口。功能代码�
 
 | 问题 | 文档 |
 | --- | --- |
-| 符号链接与冲突检测误触发 Agent | [`docs/fix/2026-09-07-cloud-sync-conflict-detection-fix.md`](../../fix/2026-09-07-cloud-sync-conflict-detection-fix.md) |
+| 符号链接与冲突检测误触发 Agent | [`docs/fix/2026-09-07-云同步冲突检测修复.md`](../../fix/2026-09-07-云同步冲突检测修复.md) |
 
 ## 四、同步范围（用户需求基线）
 

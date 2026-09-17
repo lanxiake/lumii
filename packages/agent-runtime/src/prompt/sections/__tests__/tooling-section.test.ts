@@ -2,7 +2,7 @@
  * Tooling section 漂移守卫测试
  *
  * 目的：锁死「提示词工具清单」与「运行时工具注册表」的一致性。
- * 计划依据：docs/plans/AGENT优化/2026-08-28-tooling-prompt-refactor-implementation.md P0-T8
+ * 计划依据：docs/plans/AGENT优化/2026-08-28-Tooling提示词重构实施计划.md P0-T8
  *
  * 这些测试是 P0/P1/P2 各阶段的验收闸门——任何新增工具漏配分组、
  * 或映射表残留已注销的工具名，都会在此处立即失败。

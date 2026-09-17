@@ -4,7 +4,7 @@
  * 盘点零 LLM；规划以文件夹簇为单元分批调 LLM；默认规划结束后自动 apply。
  * 与 WikiReclassifier 互斥：reclassify running 时拒绝启动 migrate。
  *
- * 设计：docs/design/记忆设计/2026-09-05-wiki-library-migrate-design.md
+ * 设计：docs/design/记忆与Wiki/2026-09-05-Wiki库级迁移设计.md
  */
 
 import { generateWikiId } from "./types.js";

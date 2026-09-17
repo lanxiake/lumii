@@ -1,6 +1,6 @@
 /**
  * 客户端录屏（AI 可控）共享类型、命令/事件与常量
- * 对齐设计 docs/design/2026-08-15-screen-record-design.md
+ * 对齐设计 docs/design/录屏与教程/2026-08-15-客户端录屏设计.md
  */
 
 /** 录屏源（screen/window），Lumii 自身源 isLumii=true */

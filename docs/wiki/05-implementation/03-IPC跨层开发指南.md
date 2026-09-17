@@ -470,7 +470,7 @@ export function CloudSyncSection() {
 
 | IPC / 事件 | Main handle 名 | Preload electronAPI.* | 渲染调用（service/Page） | 参考 |
 |-----------|---------------|-----------------------|------------------------|------|
-| getConfig | `cloudSync:getConfig` | `cloudSync.getConfig()` | `getCloudSyncConfig()` | `docs/design/数据同步功能/2026-09-05-workspace-cloud-sync-design.md` §9 设置页 IPC 表格 |
+| getConfig | `cloudSync:getConfig` | `cloudSync.getConfig()` | `getCloudSyncConfig()` | `docs/design/数据同步功能/2026-09-05-工作空间云同步设计.md` §9 设置页 IPC 表格 |
 | setConfig | `cloudSync:setConfig` | `cloudSync.setConfig(cfg)` | `setCloudSyncConfig(cfg)` | 同上 |
 | testConnection | `cloudSync:testConnection` | `cloudSync.testConnection()` | `testConnection()` | 同上 |
 | getStatus | `cloudSync:getStatus` | `cloudSync.getStatus()` | 轮询 + 订阅 | 同上 |
@@ -481,7 +481,7 @@ export function CloudSyncSection() {
 
 | IPC | 说明 | 参考 |
 |-----|------|------|
-| `channel:list` | 列所有 ChannelPeer，可选只列 active | `docs/design/2026-08-14-channel-outbound-hub-design.md` §8.4 IPC + §7.4 工具契约 |
+| `channel:list` | 列所有 ChannelPeer，可选只列 active | `docs/design/渠道与在场/2026-08-14-渠道出站Hub设计.md` §8.4 IPC + §7.4 工具契约 |
 | `channel:send` | 发送，需权限确认（非 self:// 弹确认） | 同上 |
 | `channelService.*` | renderer 侧分组命名（不是 channel:*） | 同上 |
 

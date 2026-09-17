@@ -4,7 +4,7 @@
  * 按源文件夹聚簇 inbox 条目，附带目录树与 wiki 库内占用/锚点摘要，
  * 供 MapPlan LLM 以文件夹为决策单元规划映射。
  *
- * 设计：docs/design/记忆设计/2026-09-05-wiki-library-migrate-design.md §3.1
+ * 设计：docs/design/记忆与Wiki/2026-09-05-Wiki库级迁移设计.md §3.1
  */
 
 import type { WikiInboxItem } from "./types.js";

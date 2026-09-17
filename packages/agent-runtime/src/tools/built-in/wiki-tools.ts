@@ -4,7 +4,7 @@
  * wiki_overview / wiki_search / wiki_read / wiki_capture
  * 平台集成（Electron bridge，见 apps/windows/src/main/agent-runtime/bridge-wiki-tools.ts）覆盖 execute。
  *
- * 设计：docs/design/记忆设计/2026-08-25-wiki-design-p0p1p2.md §3.9
+ * 设计：docs/design/记忆与Wiki/2026-08-25-Wiki知识库设计P0P1P2.md §3.9
  * 形态参照 memorySearchToolConfig / memoryReadToolConfig（integration-tools.ts）。
  */
 

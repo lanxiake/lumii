@@ -427,7 +427,7 @@ export function registerAppUiTools(
 
   // app_goto_and_screenshot 保留（2026-09-16 复核后决定不删）。
   // 12b 的处置表判它「是 app_goto + app_screenshot 的宏，两步就能做」，但同仓库的
-  // screen-tutorial-pipeline 设计（docs/design/2026-08-16-agent-tutorial-recording-optimization-design.md）
+  // screen-tutorial-pipeline 设计（docs/design/录屏与教程/2026-08-16-Agent录屏教程效率优化设计.md）
   // 正是为「减少工具调用」而引入这批高层工具的，量化目标是教程任务 40~60 次 → 8~15 次，
   // 并明确写了「app_goto → app_screenshot 分两步 ❌ 改用 app_goto_and_screenshot」。
   // 删它会把这个既定的优化反向推回去。近 7 天 5 次不代表没用——教程录制不是每周都做。

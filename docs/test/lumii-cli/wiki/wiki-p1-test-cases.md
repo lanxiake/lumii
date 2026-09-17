@@ -3,7 +3,7 @@
 > ⚠️ **过时标注（2026-09-12）**：大部分用例基于已下线的命令——`wiki backlinks`、`wiki unresolved`、`wiki revisions`、`wiki rollback` 均无 CLI；仅 cleanup scan / source archive / export 仍现行有效。当前执行器与报告：`run-wiki-cli-suite.mjs` / `wiki-cli-test-report.md`。
 
 - 日期：2026-08-27
-- 计划：`docs/plans/记忆重构/2026-08-26-wiki-p1-implementation.md`
+- 计划：`docs/plans/记忆与Wiki/2026-08-26-Wiki知识库P1实施计划.md`
 
 ## CLI 覆盖
 
