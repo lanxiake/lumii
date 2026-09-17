@@ -40,8 +40,8 @@ function seedMemory(
 }
 
 describe("V47 迁移", () => {
-  it("SCHEMA_VERSION 已推进到 47", () => {
-    expect(SCHEMA_VERSION).toBe(47);
+  it("SCHEMA_VERSION 已推进到 47 或更高（V48 起为 48）", () => {
+    expect(SCHEMA_VERSION).toBeGreaterThanOrEqual(47);
   });
 
   it("建出 last_injected_at / exposure_count / utility_count 三列，保留旧列", () => {

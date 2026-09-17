@@ -336,7 +336,10 @@ export function buildExtractionPrompt(
     "### project（进行中的事）→ 工作记忆",
     "保存时机：用户提到持续性活动、有截止日期的事项、长期计划",
     "内容结构：[项目/计划名] + [当前状态] + [关键约束/截止时间]",
-    '示例：{"content": "K8s 小红书系列：从序篇开始，深度长文 1200-1500 字，配图两种风格试水。状态：进行中。约束：每篇封面+5-6 张图", "category": "project", "importance": 0.8, "tags": ["k8s", "content"]}',
+    "**必须额外给 `project_key`**：同一项目的所有进度快照用**同一个** key（短、稳定、用项目名，不含状态与日期）。",
+    "它的作用是：新快照写入时把同 key 的旧快照标记为「已取代」——旧条目保留可回放，但不再占注入席位。",
+    '示例：{"content": "K8s 小红书系列：从序篇开始，深度长文 1200-1500 字，配图两种风格试水。状态：进行中。约束：每篇封面+5-6 张图", "category": "project", "importance": 0.8, "tags": ["k8s", "content"], "project_key": "K8s小红书系列"}',
+    "反例：`K8s小红书系列第3篇` / `K8s小红书系列-配图` 都是**错**的 key——状态与子任务不该进 key，否则同一个项目的快照会被当成不同项目，取代检测失效。",
     "",
     "### reference（外部资源）→ 工作记忆",
     "保存时机：用户分享常用工具、网站、联系人、文件位置等外部资源",
@@ -388,6 +391,7 @@ export function buildExtractionPrompt(
     "",
     "## 输出格式",
     "返回 JSON 数组，每条记忆包含 content, category, importance (0-1), tags (字符串数组)。",
+    "**category 为 project 时必须附 `project_key`**（见上文 project 小节）；其余类别不要给这个字段。",
     'feedback 类型请使用结构化格式："规则：... 原因：... 应用：..."（仅提取任何场景都成立的偏好；项目/渠道级内容一律不提取）',
     "如果没有值得保存的内容，返回空数组 []。",
     "",
@@ -398,6 +402,19 @@ export function buildExtractionPrompt(
 function validateCategory(raw: string): MemoryCategory {
   const valid: MemoryCategory[] = ["user", "feedback", "project", "reference", "general"];
   return valid.includes(raw as MemoryCategory) ? (raw as MemoryCategory) : "general";
+}
+
+/**
+ * 归一化 `project_key`：去标点空白、转小写、截断 40 字符。
+ *
+ * 归一化必须在写路径做——「K8s 小红书系列」与「k8s小红书系列」若被当成两个 key，
+ * 取代检测就永远配不上对。这与 `merge.ts` 的 `normalizeKey` 是同一个道理。
+ */
+export function normalizeProjectKey(raw: string): string {
+  return raw
+    .toLowerCase()
+    .replace(/[\s\p{P}\p{S}]/gu, "")
+    .slice(0, 40);
 }
 
 /**
@@ -422,6 +439,8 @@ export function parseCandidatesJson(response: string): ExtractedCandidate[] {
         typeof (item as Record<string, unknown>).category === "string"
       ) {
         const record = item as Record<string, unknown>;
+        const rawKey = record.project_key ?? record.projectKey;
+        const projectKey = typeof rawKey === "string" ? normalizeProjectKey(rawKey) : "";
         candidates.push({
           content: record.content as string,
           category: validateCategory(record.category as string),
@@ -432,6 +451,8 @@ export function parseCandidatesJson(response: string): ExtractedCandidate[] {
           tags: Array.isArray(record.tags)
             ? (record.tags as unknown[]).filter((t): t is string => typeof t === "string")
             : [],
+          // 空 key 视同未提供——取代检测器靠它比对，空串会让所有没给 key 的条目互相"取代"
+          ...(projectKey ? { projectKey } : {}),
         });
       }
     }

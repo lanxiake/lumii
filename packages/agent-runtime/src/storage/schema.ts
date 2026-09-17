@@ -6,7 +6,7 @@
  */
 
 /** 当前 schema 版本号 */
-export const SCHEMA_VERSION = 47;
+export const SCHEMA_VERSION = 48;
 
 /**
  * V1 DDL — 初始 schema
@@ -1656,6 +1656,39 @@ UPDATE agent_memories
 
 CREATE INDEX IF NOT EXISTS idx_agent_memories_activity
   ON agent_memories (agent_id, user_id, last_injected_at);
+`,
+  ],
+
+  // V48: 记忆的「非破坏失效」——取代语义
+  //
+  // 动因（评审 2026-09-17 §4.4 / §2.5.3）：`archiveOldProjectSnapshots` 是全系统唯一的
+  // 「新事实取代旧事实」机制，但它依据 `extractProjectTheme()` 的正则识别同主题快照——
+  // 实测只识别 18% 的 project 记忆、零重复主题、251 条零归档。根因是正则要求
+  // `项目：XXX` 而真实内容写的是 `XXX：项目当前状态为…`，方向反了。
+  //
+  // 修法不是把正则改对（自由文本 + 硬编码正则注定脱节），而是**把解释工作搬到写路径**：
+  // 提取时由模型产出结构化 `project_key`，检测器改成比对它。这正是 Schema-Grounded
+  // Memory 的「less like search, more like a system of record」。
+  //
+  // 四列分工：
+  // - `project_key`：同主题快照的稳定键（写路径解释的产物）
+  // - `superseded_at` / `superseded_by`：新快照取代旧快照——**旧条目保留可回放
+  //   「当时为什么那么认为」**，这是与归档（cold/pruned）语义上不同的失效
+  // - `archive_reason`：归档原因，供回放与统计（此前归档没有理由，事后无法解释）
+  //
+  // 为什么不与 `is_archived` 合并：被取代 ≠ 变冷。前者是「有新版本了」，
+  // 后者是「太久没用」。合并会让「这条为什么不见了」永远答不清楚。
+  [
+    48,
+    `
+ALTER TABLE agent_memories ADD COLUMN project_key TEXT;
+ALTER TABLE agent_memories ADD COLUMN superseded_at TEXT;
+ALTER TABLE agent_memories ADD COLUMN superseded_by TEXT;
+ALTER TABLE agent_memories ADD COLUMN archive_reason TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_agent_memories_project_key
+  ON agent_memories (agent_id, user_id, project_key)
+  WHERE project_key IS NOT NULL;
 `,
   ],
 ] as const;

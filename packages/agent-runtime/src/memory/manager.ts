@@ -272,16 +272,11 @@ export class MemoryManager {
       (isPersonalCategory(c.category) ? personal : ai).push(c);
     }
 
-    // project 快照压缩：归档旧的同主题快照
-    const projectCandidates = ai.filter((c) => c.category === "project");
-    if (projectCandidates.length > 0) {
-      this.archiveOldProjectSnapshots(projectCandidates, existing);
-    }
-
     const { toInsert, toUpdate } = mergeCandidates(existing, ai);
 
+    const writtenIds: string[] = [];
     for (const c of toInsert) {
-      this.repo.saveCandidate({
+      const saved = this.repo.saveCandidate({
         agentId,
         userId,
         category: c.category,
@@ -290,9 +285,12 @@ export class MemoryManager {
         tags: c.tags,
         sourceSegmentId: source?.segmentId,
         sourceMessageId: source?.representativeMessageId,
+        projectKey: c.projectKey,
       });
+      writtenIds.push(saved.id);
     }
     for (const u of toUpdate) {
+      writtenIds.push(u.id);
       this.repo.updateMergedFields(
         u.id,
         u.tags,
@@ -302,6 +300,9 @@ export class MemoryManager {
           : undefined,
       );
     }
+
+    // 取代旧 project 快照（V48）：写完之后做，这样刚写入的新快照能被排除在"被取代"之外
+    this.supersedeOldProjectSnapshots(agentId, userId, ai, writtenIds);
 
     // 个人记忆（user/feedback）不落 SQLite，走宿主的 user_memory Markdown 整理回调。
     // 回调缺失时这些候选**无处可写**，此前是静默消失——「记忆没长出来」这个故障
@@ -325,26 +326,24 @@ export class MemoryManager {
 
   /**
    * 归档旧的 project 快照：若新候选含某项目主题，归档 existing 中同主题的所有条目。
-   * 识别主题：提取 content 中 `项目：XXX` 的 XXX（前 40 字符归一化）。
+   * 识别主题：**按候选自带的 `project_key`**（V48），不再用正则猜内容格式。
    */
-  private archiveOldProjectSnapshots(
-    newProjectCandidates: readonly ExtractedCandidate[],
-    existingMemories: readonly MemoryEntry[],
+  private supersedeOldProjectSnapshots(
+    agentId: string,
+    userId: string,
+    newCandidates: readonly ExtractedCandidate[],
+    writtenIds: readonly string[],
   ): void {
-    const newThemes = new Set<string>();
-    for (const c of newProjectCandidates) {
-      const theme = extractProjectTheme(c.content);
-      if (theme) newThemes.add(theme);
+    const keys = new Set<string>();
+    for (const c of newCandidates) {
+      if (c.category === "project" && c.projectKey) keys.add(c.projectKey);
     }
+    if (keys.size === 0) return;
 
-    if (newThemes.size === 0) return;
-
-    for (const mem of existingMemories) {
-      if (mem.category !== "project") continue;
-      const theme = extractProjectTheme(mem.content);
-      if (theme && newThemes.has(theme)) {
-        console.log(`[MemoryManager] 归档旧 project 快照: ${mem.id} theme="${theme}"`);
-        this.repo.archive(mem.id);
+    for (const key of keys) {
+      const n = this.repo.supersedeByProjectKey(agentId, userId, key, writtenIds);
+      if (n > 0) {
+        console.log(`[MemoryManager] 取代旧 project 快照 ${n} 条: project_key="${key}"`);
       }
     }
   }
@@ -553,33 +552,12 @@ export class MemoryManager {
   }
 }
 
-/**
- * 从 project 类记忆 content 中提取项目主题（归一化键）。
- *
- * 主题识别优先级：
- * 1. 书名号《》「」『』内的标题（最稳定，如「10天架构师速通计划」）
- * 2. `项目：XXX` 中 XXX 的前 16 字符核心前缀
- *
- * 用稳定核心而非整短语，避免「配图与发布推进」「发布推进」等后缀差异
- * 导致同一项目被识别成不同主题。返回 null 表示无法识别。
- */
-function extractProjectTheme(content: string): string | null {
-  const normalize = (s: string): string =>
-    s.toLowerCase().replace(/[\s\p{P}\p{S}]/gu, "");
-
-  // 优先用书名号标题作为主题键
-  const titleMatch = content.match(/[《「『]([^》」』]{4,40})[》」』]/);
-  if (titleMatch?.[1]) {
-    const key = normalize(titleMatch[1]);
-    if (key.length >= 4) return key;
-  }
-
-  // 回退：项目名前 10 字符核心前缀（短前缀更易让"优化"vs"优化与自动化"等后缀差异归一）
-  const projectMatch = content.match(/项目[：:]\s*(.+?)(?:\s*[。.状态]|$)/);
-  if (projectMatch?.[1]) {
-    const key = normalize(projectMatch[1]).slice(0, 10);
-    if (key.length >= 6) return key;
-  }
-
-  return null;
-}
+// 已删除 `extractProjectTheme()`（2026-09-17，V48）。
+//
+// 它用正则从自由文本里猜项目主题，是「取代检测器」的旧实现。实测（评审 §2.5.3）：
+// 72 条 project 记忆只识别出 13 条（18%）、零重复主题、251 条零归档——根因是正则
+// 要求 `项目：XXX` 而真实内容写的是 `XXX：项目当前状态为…`，方向反了。
+//
+// 修法不是把正则改对：内容格式由模型自由生成，硬编码正则与它注定脱节。
+// 现在改由提取时的模型产出结构化 `project_key`（写路径解释），检测器比对它——
+// 即 Schema-Grounded Memory 的「less like search, more like a system of record」。

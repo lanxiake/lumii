@@ -210,3 +210,20 @@ export function runMigration47(db: DatabaseAdapter): void {
   if (!entry) throw new Error("V47 migration not found in MIGRATIONS");
   db.exec(entry[1]);
 }
+
+/** 建一个只迁移到 V47（即将执行 V48 之前）的内存库，供 V48 迁移测试构造 fixture */
+export function createPreV48TestDb(): DatabaseAdapter {
+  const db = createTestSqliteAdapter();
+  for (const [version, sql] of MIGRATIONS) {
+    if (version >= 48) continue;
+    db.exec(sql);
+  }
+  return db;
+}
+
+/** 对一个 pre-V48 库执行 V48 迁移 SQL（取代语义：project_key / superseded_* / archive_reason） */
+export function runMigration48(db: DatabaseAdapter): void {
+  const entry = MIGRATIONS.find(([version]) => version === 48);
+  if (!entry) throw new Error("V48 migration not found in MIGRATIONS");
+  db.exec(entry[1]);
+}

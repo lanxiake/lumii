@@ -357,10 +357,18 @@ describe("injectMemories", () => {
 
 describe("MemoryManager", () => {
   it("saveRuleExtractedCandidates 委托 repo 并返回保存条数", () => {
-    const saveCandidate = vi.fn();
+    // saveCandidate 的真实契约是返回 MemoryEntry（V48 起写入方要拿它的 id 做取代判定），
+    // mock 必须同样返回，否则 is not a function 会掩盖真正的断言失败
+    const saveCandidate = vi.fn().mockReturnValue({ id: "new-1" });
     const listActive = vi.fn().mockReturnValue([]); // merge 路径需要：返回空表示无已有记忆
     const updateMergedFields = vi.fn();
-    const repo = { saveCandidate, listActive, updateMergedFields } as unknown as AgentMemoryRepo;
+    const supersedeByProjectKey = vi.fn().mockReturnValue(0);
+    const repo = {
+      saveCandidate,
+      listActive,
+      updateMergedFields,
+      supersedeByProjectKey,
+    } as unknown as AgentMemoryRepo;
     const mgr = new MemoryManager(repo);
     const n = mgr.saveRuleExtractedCandidates(["请记住：mock 测试"], "a", "u");
     expect(n).toBeGreaterThan(0);

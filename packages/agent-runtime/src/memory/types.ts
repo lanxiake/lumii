@@ -47,6 +47,17 @@ export interface MemoryEntry {
   readonly last_used: string;
   /** @deprecated V47 起冻结不再写入；曝光语义见 `exposure_count` */
   readonly use_count: number;
+  /**
+   * 同主题快照的稳定键（V48）。由提取时的模型产出——**把解释工作放在写路径**，
+   * 取代检测器据此比对，而不是去猜自由文本的格式（评审 §2.5.3）。
+   */
+  readonly project_key: string | null;
+  /** 被新快照取代的时间（V48）。非空即失效：读路径排除，但保留可回放「当时为什么那么认为」 */
+  readonly superseded_at: string | null;
+  /** 取代者的 id（V48），指向同主题的新快照 */
+  readonly superseded_by: string | null;
+  /** 归档原因（V48）：'cold' | 'pruned' | 'batch' | 'user' | 'superseded' */
+  readonly archive_reason: string | null;
   readonly is_archived: boolean;
 }
 
@@ -70,6 +81,10 @@ export interface MemoryRow {
   readonly last_used: string;
   /** @deprecated V47 起冻结不再写入 */
   readonly use_count: number;
+  readonly project_key: string | null;
+  readonly superseded_at: string | null;
+  readonly superseded_by: string | null;
+  readonly archive_reason: string | null;
   readonly is_archived: number;
 }
 
@@ -161,6 +176,15 @@ export interface ExtractedCandidate {
   readonly category: MemoryCategory;
   readonly importance: number;
   readonly tags: readonly string[];
+  /**
+   * 同主题快照的稳定键（V48，可选）。仅 project 类需要产出。
+   *
+   * 用途：同一项目的多个进度快照（「写到第 3 篇了」「写到第 5 篇了」）用同一个 key，
+   * 写入时据此把旧快照标为「被取代」——新事实取代旧事实，旧条目保留可回放。
+   * 之所以由模型产出而不是代码猜：自由文本格式千变万化，正则识别实测只有 18% 命中率
+   * （评审 §2.5.3）。**解释工作放在写路径**，读路径才廉价且确定。
+   */
+  readonly projectKey?: string;
 }
 
 /** 记忆提取编排器配置 */

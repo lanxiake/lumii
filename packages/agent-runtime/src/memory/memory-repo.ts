@@ -16,6 +16,7 @@ import type {
 import { DEFAULT_HOT_MEMORY_CONFIG, isPersonalCategory } from "./types.js";
 import { tokenizeForRelevance, tokenizeBigram, overlapCoefficient } from "./segmentation.js";
 import { scoreMemory } from "./scorer.js";
+import { normalizeProjectKey } from "./memory-extractor.js";
 import { MemoryIndexRepo } from "./memory-index.js";
 import {
   MemoryFeedbackRepo,
@@ -257,7 +258,7 @@ export class AgentMemoryRepo {
     const windowRows = this.db
       .prepare<MemoryRow>(
         `SELECT * FROM agent_memories
-       WHERE ${scopeWhere}user_id = ? AND is_archived = 0 AND deleted_at IS NULL AND created_at >= ?
+       WHERE ${scopeWhere}user_id = ? AND is_archived = 0 AND deleted_at IS NULL AND superseded_at IS NULL AND created_at >= ?
        ORDER BY created_at DESC
        LIMIT ?`,
       )
@@ -267,7 +268,7 @@ export class AgentMemoryRepo {
     const scoreRows = this.db
       .prepare<MemoryRow>(
         `SELECT * FROM agent_memories
-       WHERE ${scopeWhere}user_id = ? AND is_archived = 0 AND deleted_at IS NULL
+       WHERE ${scopeWhere}user_id = ? AND is_archived = 0 AND deleted_at IS NULL AND superseded_at IS NULL
        ORDER BY importance DESC
        LIMIT ?`,
       )
@@ -358,7 +359,7 @@ export class AgentMemoryRepo {
       clauses.push("agent_id = ?");
       args.push(params.agentId);
     }
-    clauses.push("user_id = ?", "is_archived = 0 AND deleted_at IS NULL", `${field} >= ?`);
+    clauses.push("user_id = ?", "is_archived = 0 AND deleted_at IS NULL AND superseded_at IS NULL", `${field} >= ?`);
     args.push(params.userId, params.since);
     if (params.until) {
       clauses.push(`${field} <= ?`);
@@ -404,12 +405,14 @@ export class AgentMemoryRepo {
     readonly sourceMessageId?: string;
     readonly sourceSegmentId?: string;
     readonly palaceDrawerId?: string;
+    /** 同主题快照的稳定键（V48），由提取时的模型产出 */
+    readonly projectKey?: string;
   }): MemoryEntry {
     // 去重检查：相同 agent/user/category/content 且未归档时直接返回已有记录
     const existing = this.db
       .prepare<MemoryRow>(
         `SELECT * FROM agent_memories
-       WHERE agent_id = ? AND user_id = ? AND category = ? AND content = ? AND is_archived = 0 AND deleted_at IS NULL
+       WHERE agent_id = ? AND user_id = ? AND category = ? AND content = ? AND is_archived = 0 AND deleted_at IS NULL AND superseded_at IS NULL
        LIMIT 1`,
       )
       .get(params.agentId, params.userId, params.category, params.content);
@@ -426,10 +429,10 @@ export class AgentMemoryRepo {
       .prepare(
         `INSERT INTO agent_memories
          (id, agent_id, user_id, category, content, importance, tags,
-          source_message_id, source_segment_id, palace_drawer_id,
+          source_message_id, source_segment_id, palace_drawer_id, project_key,
           created_at, last_used, use_count, is_archived,
           last_injected_at, exposure_count, utility_count)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, 0, 0)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, 0, 0)`,
       )
       .run(
         id,
@@ -442,6 +445,9 @@ export class AgentMemoryRepo {
         params.sourceMessageId ?? null,
         params.sourceSegmentId ?? null,
         params.palaceDrawerId ?? null,
+        // 在存储边界归一化：绕开解析层直接调 saveCandidate 的调用方（如 memory_manage）
+        // 也要拿到同一个 key，否则「K8s 小红书系列」与「k8s小红书系列」配不上对
+        params.projectKey ? normalizeProjectKey(params.projectKey) : null,
         now,
         now,
         // 创建时活动时间 = 创建时间：让「距上次使用天数」在从未注入时退化为条目年龄，
@@ -467,8 +473,47 @@ export class AgentMemoryRepo {
       utility_count: 0,
       last_used: now,
       use_count: 0,
+      project_key: params.projectKey ?? null,
+      superseded_at: null,
+      superseded_by: null,
+      archive_reason: null,
       is_archived: false,
     };
+  }
+
+  /**
+   * 把同 `project_key` 的旧快照标记为「被取代」（V48 · 评审 §4.4）。
+   *
+   * **非破坏失效**：旧条目留在库里带 `superseded_at` / `superseded_by`，随时可回放
+   * 「当时为什么那么认为」；只是不再参与注入与检索（读路径统一排除）。
+   *
+   * 与归档的区别：归档是「太久没用」，取代是「有新版本了」。两者语义不同，
+   * 混为一谈会让「这条为什么不见了」永远答不清楚。
+   *
+   * @param keepIds 本次写入的新快照 id——不被取代，且写进旧条目的 `superseded_by`（取其首个）
+   * @returns 被取代的条数
+   */
+  supersedeByProjectKey(
+    agentId: string,
+    userId: string,
+    projectKey: string,
+    keepIds: readonly string[],
+  ): number {
+    if (!projectKey || keepIds.length === 0) return 0;
+    const key = normalizeProjectKey(projectKey);
+    if (!key) return 0;
+    const nowIso = new Date().toISOString();
+    const placeholders = keepIds.map(() => "?").join(", ");
+    const result = this.db
+      .prepare(
+        `UPDATE agent_memories
+            SET superseded_at = ?, superseded_by = ?, archive_reason = 'superseded'
+          WHERE agent_id = ? AND user_id = ? AND project_key = ?
+            AND id NOT IN (${placeholders})
+            AND superseded_at IS NULL AND deleted_at IS NULL`,
+      )
+      .run(nowIso, keepIds[0], agentId, userId, key, ...keepIds);
+    return result.changes ?? 0;
   }
 
   /** 更新记忆重要度 */
@@ -548,7 +593,7 @@ export class AgentMemoryRepo {
 
   /** 恢复归档（unarchive） */
   unarchiveById(memoryId: string): void {
-    this.db.prepare("UPDATE agent_memories SET is_archived = 0 AND deleted_at IS NULL WHERE id = ?").run(memoryId);
+    this.db.prepare("UPDATE agent_memories SET is_archived = 0 AND deleted_at IS NULL AND superseded_at IS NULL WHERE id = ?").run(memoryId);
   }
 
   /**
@@ -560,7 +605,7 @@ export class AgentMemoryRepo {
     const result = this.db
       .prepare(
         `UPDATE agent_memories SET is_archived = 1
-       WHERE agent_id = ? AND user_id = ? AND is_archived = 0 AND deleted_at IS NULL
+       WHERE agent_id = ? AND user_id = ? AND is_archived = 0 AND deleted_at IS NULL AND superseded_at IS NULL
          AND last_injected_at < ?
          AND category NOT IN ('user', 'feedback')`,
       )
@@ -573,7 +618,7 @@ export class AgentMemoryRepo {
     const result = this.db
       .prepare(
         `UPDATE agent_memories SET is_archived = 1
-       WHERE agent_id = ? AND user_id = ? AND is_archived = 0 AND deleted_at IS NULL AND importance < ?`,
+       WHERE agent_id = ? AND user_id = ? AND is_archived = 0 AND deleted_at IS NULL AND superseded_at IS NULL AND importance < ?`,
       )
       .run(agentId, userId, belowImportance);
     return result.changes;
@@ -584,7 +629,7 @@ export class AgentMemoryRepo {
     const countResult = this.db
       .prepare<{ count: number }>(
         `SELECT COUNT(*) as count FROM agent_memories
-       WHERE agent_id = ? AND user_id = ? AND is_archived = 0 AND deleted_at IS NULL`,
+       WHERE agent_id = ? AND user_id = ? AND is_archived = 0 AND deleted_at IS NULL AND superseded_at IS NULL`,
       )
       .get(agentId, userId);
 
@@ -596,7 +641,7 @@ export class AgentMemoryRepo {
         `UPDATE agent_memories SET is_archived = 1
        WHERE id IN (
          SELECT id FROM agent_memories
-         WHERE agent_id = ? AND user_id = ? AND is_archived = 0 AND deleted_at IS NULL
+         WHERE agent_id = ? AND user_id = ? AND is_archived = 0 AND deleted_at IS NULL AND superseded_at IS NULL
          ORDER BY importance ASC, last_injected_at ASC
          LIMIT ?
        )`,
@@ -638,7 +683,7 @@ export class AgentMemoryRepo {
           `SELECT m.*
          FROM agent_memories_fts
          JOIN agent_memories m ON m.rowid = agent_memories_fts.rowid
-         WHERE agent_memories_fts MATCH ? AND ${scopeWhere}m.user_id = ? AND m.is_archived = 0 AND deleted_at IS NULL
+         WHERE agent_memories_fts MATCH ? AND ${scopeWhere}m.user_id = ? AND m.is_archived = 0 AND deleted_at IS NULL AND superseded_at IS NULL
          ORDER BY bm25(agent_memories_fts)
          LIMIT ?`,
         )
@@ -662,7 +707,7 @@ export class AgentMemoryRepo {
     const rows = this.db
       .prepare<MemoryRow>(
         `SELECT * FROM agent_memories
-       WHERE ${scopeWhere}user_id = ? AND is_archived = 0 AND deleted_at IS NULL AND content LIKE ?
+       WHERE ${scopeWhere}user_id = ? AND is_archived = 0 AND deleted_at IS NULL AND superseded_at IS NULL AND content LIKE ?
        ORDER BY importance DESC
        LIMIT ?`,
       )
@@ -675,7 +720,7 @@ export class AgentMemoryRepo {
     const rows = this.db
       .prepare<MemoryRow>(
         `SELECT * FROM agent_memories
-       WHERE agent_id = ? AND user_id = ? AND is_archived = 0 AND deleted_at IS NULL
+       WHERE agent_id = ? AND user_id = ? AND is_archived = 0 AND deleted_at IS NULL AND superseded_at IS NULL
        ORDER BY importance DESC`,
       )
       .all(agentId, userId);
@@ -687,7 +732,7 @@ export class AgentMemoryRepo {
     const rows = this.db
       .prepare<MemoryRow>(
         `SELECT * FROM agent_memories
-       WHERE user_id = ? AND is_archived = 0 AND deleted_at IS NULL
+       WHERE user_id = ? AND is_archived = 0 AND deleted_at IS NULL AND superseded_at IS NULL
        ORDER BY importance DESC`,
       )
       .all(userId);
@@ -706,7 +751,7 @@ export class AgentMemoryRepo {
    * 对端记录仍是活的，下一轮合并会把行带回来。补上生产者，这条链路才闭合。
    *
    * 同时清 `agent_memories_fts` 索引行使其不可检索；主表行保留供审计与同步传播。
-   * 读路径全部带 `deleted_at IS NULL`，故已删条目不会再被注入或检索到。
+   * 读路径全部带 `deleted_at IS NULL AND superseded_at IS NULL`，故已删条目不会再被注入或检索到。
    *
    * 注：`removeByTag`（标签整批轮换）与 `clearAllForAgent`（用户主动清空）**保持硬删**——
    * 前者是临时数据的轮换、后者是用户明示的清空，都不需要墓碑语义。
@@ -722,14 +767,14 @@ export class AgentMemoryRepo {
       .prepare<{ rowid: number }>(
         `SELECT rowid FROM agent_memories
          WHERE agent_id = ? AND user_id = ? AND category = ? AND content = ?
-           AND deleted_at IS NULL`,
+           AND deleted_at IS NULL AND superseded_at IS NULL`,
       )
       .all(row.agent_id, row.user_id, row.category, row.content);
     this.db
       .prepare(
         `UPDATE agent_memories SET deleted_at = ?
          WHERE agent_id = ? AND user_id = ? AND category = ? AND content = ?
-           AND deleted_at IS NULL`,
+           AND deleted_at IS NULL AND superseded_at IS NULL`,
       )
       .run(nowIso, row.agent_id, row.user_id, row.category, row.content);
     this.indexRepo.deleteRows(dupes.map((d) => d.rowid));
@@ -810,7 +855,7 @@ export class AgentMemoryRepo {
         created_at: string;
       }>(
         `SELECT category, importance, last_injected_at, created_at FROM agent_memories
-       WHERE agent_id = ? AND user_id = ? AND is_archived = 0 AND deleted_at IS NULL`,
+       WHERE agent_id = ? AND user_id = ? AND is_archived = 0 AND deleted_at IS NULL AND superseded_at IS NULL`,
       )
       .all(agentId, userId);
 

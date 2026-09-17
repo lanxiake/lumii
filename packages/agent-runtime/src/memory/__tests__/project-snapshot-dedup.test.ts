@@ -1,97 +1,122 @@
 /**
- * Project 快照去重测试
+ * Project 快照取代（V48 · 评审 §4.4 / §2.5.3）
  *
- * 验证：同一项目的多个进度快照只保留最新，归档旧的。
- */
-
-import { describe, expect, it } from "vitest"
-
-/**
- * 从 project 类记忆 content 中提取项目主题（归一化键）。
+ * 旧实现用 `extractProjectTheme()` 的正则从自由文本里猜项目主题，实测只识别 18% 的
+ * project 记忆、零重复主题、251 条零归档——根因是正则要求 `项目：XXX`，而真实内容写的是
+ * `XXX：项目当前状态为…`，方向反了。
  *
- * 复制自 manager.ts 的私有函数用于单元测试。
+ * 现在改由提取时的模型产出结构化 `project_key`，检测器比对它：
+ * **把解释工作放在写路径**，读路径才廉价且确定。
+ *
+ * 本用例守住：
+ * 1. 同 key 的新快照写入后，旧快照被标记 superseded（非破坏：行还在，可回放）
+ * 2. 被取代的条目不再参与注入与检索
+ * 3. 不同 key、无 key 的条目不受影响
  */
-function extractProjectTheme(content: string): string | null {
-  const normalize = (s: string): string =>
-    s.toLowerCase().replace(/[\s\p{P}\p{S}]/gu, "")
+import { describe, it, expect, beforeEach } from "vitest";
+import { MemoryManager } from "../manager.js";
+import { AgentMemoryRepo } from "../memory-repo.js";
+import { DEFAULT_HOT_MEMORY_CONFIG } from "../types.js";
+import { createMigratedTestDb } from "../../__tests__/helpers/sqlite-test-db.js";
+import type { DatabaseAdapter } from "../../storage/local-database.js";
 
-  // 优先用书名号标题作为主题键
-  const titleMatch = content.match(/[《「『]([^》」』]{4,40})[》」』]/)
-  if (titleMatch?.[1]) {
-    const key = normalize(titleMatch[1])
-    if (key.length >= 4) return key
+const A = "assistant";
+const U = "local-user";
+
+describe("project 快照取代（按 project_key）", () => {
+  let db: DatabaseAdapter;
+  let repo: AgentMemoryRepo;
+  let manager: MemoryManager;
+
+  beforeEach(() => {
+    db = createMigratedTestDb();
+    repo = new AgentMemoryRepo(db);
+    manager = new MemoryManager(repo);
+  });
+
+  function saveSnapshot(content: string, projectKey?: string): void {
+    manager.saveSummarizedCandidates(
+      [{ content, category: "project", importance: 0.7, tags: [], ...(projectKey ? { projectKey } : {}) }],
+      A,
+      U,
+    );
   }
 
-  // 回退：项目名前 10 字符核心前缀
-  const projectMatch = content.match(/项目[：:]\s*(.+?)(?:\s*[。.状态]|$)/)
-  if (projectMatch?.[1]) {
-    const key = normalize(projectMatch[1]).slice(0, 10)
-    if (key.length >= 6) return key
+  function supersededAtOf(content: string): string | null {
+    return db
+      .prepare<{ superseded_at: string | null }>(
+        "SELECT superseded_at FROM agent_memories WHERE content = ?",
+      )
+      .get(content)!.superseded_at;
   }
 
-  return null
-}
+  it("同 key 的新快照写入后，旧快照被取代且仍留在库中", () => {
+    saveSnapshot("K8s 系列：写到第 3 篇", "k8s小红书系列");
+    saveSnapshot("K8s 系列：写到第 5 篇", "k8s小红书系列");
 
-describe("extractProjectTheme", () => {
-  it("从书名号提取主题（优先策略）", () => {
-    const c1 = "项目：小红书 K8s 系列「10天架构师速通计划」。状态：序篇配图已完成"
-    const c2 = "项目：小红书K8s系列「10天架构师速通计划」配图与发布推进。状态：第01篇"
-    const c3 = "项目：小红书K8s系列「10 天架构师速通计划」发布推进。状态：第2篇封面"
+    expect(supersededAtOf("K8s 系列：写到第 3 篇")).not.toBeNull();
+    expect(supersededAtOf("K8s 系列：写到第 5 篇")).toBeNull();
 
-    const t1 = extractProjectTheme(c1)
-    const t2 = extractProjectTheme(c2)
-    const t3 = extractProjectTheme(c3)
+    // 非破坏：旧行还在，带 superseded_by 指回新快照（可回放「当时为什么那么认为」）
+    const old = db
+      .prepare<{ superseded_by: string; archive_reason: string; c: number }>(
+        `SELECT m.superseded_by, m.archive_reason, (SELECT COUNT(*) FROM agent_memories WHERE id = m.superseded_by) AS c
+         FROM agent_memories m WHERE m.content = 'K8s 系列：写到第 3 篇'`,
+      )
+      .get()!;
+    expect(old.archive_reason).toBe("superseded");
+    expect(old.c).toBe(1); // 取代者确实存在
+  });
 
-    // 3 条都提取到同一书名号内容，归一化后完全相同
-    expect(t1).toBe("10天架构师速通计划")
-    expect(t2).toBe("10天架构师速通计划")
-    expect(t3).toBe("10天架构师速通计划")
-    expect(t1).toBe(t2)
-    expect(t2).toBe(t3)
-  })
+  it("被取代的条目不再参与注入与检索", () => {
+    saveSnapshot("K8s 系列：写到第 3 篇", "k8s小红书系列");
+    saveSnapshot("K8s 系列：写到第 5 篇", "k8s小红书系列");
 
-  it("无书名号时回退到前 10 字符核心前缀", () => {
-    const c1 = "项目：公众号文章发布流程优化。状态：需求分析阶段"
-    const c2 = "项目：公众号文章发布流程优化与自动化。状态：开发中"
+    const injected = repo
+      .loadTopMemories(A, U, DEFAULT_HOT_MEMORY_CONFIG, "K8s 系列 写到")
+      .map((e) => e.content);
+    expect(injected).toContain("K8s 系列：写到第 5 篇");
+    expect(injected).not.toContain("K8s 系列：写到第 3 篇");
 
-    const t1 = extractProjectTheme(c1)
-    const t2 = extractProjectTheme(c2)
+    expect(repo.search(A, U, "K8s 系列").map((e) => e.content)).toEqual(["K8s 系列：写到第 5 篇"]);
+    expect(repo.listActive(A, U).map((e) => e.content)).toEqual(["K8s 系列：写到第 5 篇"]);
+  });
 
-    // 归一化后取前 10 字符，两者前缀相同
-    expect(t1).toBe("公众号文章发布流程优")
-    expect(t2).toBe("公众号文章发布流程优")
-    expect(t1).toBe(t2)
-  })
+  it("不同 key 的 project 快照互不影响", () => {
+    saveSnapshot("K8s 系列：写到第 3 篇", "k8s小红书系列");
+    saveSnapshot("二十四史学习：第 2 课", "二十四史");
 
-  it("无法识别主题时返回 null", () => {
-    expect(extractProjectTheme("这是一条普通记忆，没有项目格式")).toBeNull()
-    expect(extractProjectTheme("项目：短")).toBeNull() // 太短
-    expect(extractProjectTheme("任务：做某事")).toBeNull() // 非"项目："
-  })
+    expect(supersededAtOf("K8s 系列：写到第 3 篇")).toBeNull();
+    expect(repo.listActive(A, U)).toHaveLength(2);
+  });
 
-  it("真实案例：9 条 K8s 快照归一化到同主题", () => {
-    const snapshots = [
-      "项目：小红书 K8s 系列「10 天架构师速通计划」。状态：12 篇正文已写完（序篇到完结篇）",
-      "项目：小红书K8s系列「10天架构师速通计划」配图与发布推进。状态：用户要求预览续篇",
-      "项目：小红书K8s系列「10天架构师速通计划」配图与发布推进。状态：需要批量生成剩余11篇配图",
-      "项目：小红书K8s系列「10天架构师速通计划」发布推进。状态：序篇（00-为什么要学K8s）配图已生成",
-      "项目：小红书 K8s 系列「10天架构师速通计划」配图与发布。状态：正在进行第01篇",
-      "项目：小红书K8s系列「10天架构师速通计划」第一篇（容器即集装箱 K8s即港口调度中心）",
-      "项目：小红书K8s系列「10天架构师速通计划」第2篇（kubectl apply 背后藏了6个打工仔）",
-      "项目：K8s系列文章配图与预览。状态：第1篇配图已生成但预览文件中路径不可见",
-      "项目：小红书K8s系列「10天架构师速通计划」第1篇（容器即集装箱 K8s即港口调度中心）",
-    ]
+  it("没有 project_key 的条目永不被取代（不能靠猜内容格式）", () => {
+    saveSnapshot("某个没给 key 的项目快照");
+    saveSnapshot("另一个没给 key 的项目快照");
 
-    const themes = snapshots.map(extractProjectTheme)
+    expect(repo.listActive(A, U)).toHaveLength(2);
+    expect(supersededAtOf("某个没给 key 的项目快照")).toBeNull();
+  });
 
-    // 前 7 条都有书名号，归一化到同一主题
-    expect(themes[0]).toBe("10天架构师速通计划")
-    expect(themes[1]).toBe("10天架构师速通计划")
-    expect(themes[6]).toBe("10天架构师速通计划")
-    expect(new Set(themes.slice(0, 7)).size).toBe(1)
+  it("非 project 类别带 key 也不触发取代（键只对 project 有意义）", () => {
+    manager.saveSummarizedCandidates(
+      [{ content: "一条 reference 内容", category: "reference", importance: 0.6, tags: [], projectKey: "k" }],
+      A,
+      U,
+    );
+    manager.saveSummarizedCandidates(
+      [{ content: "另一条 reference 内容", category: "reference", importance: 0.6, tags: [], projectKey: "k" }],
+      A,
+      U,
+    );
 
-    // 第 8 条无书名号，但前缀"k8s系列文章"与前面不同主题
-    expect(themes[7]).not.toBe(themes[0])
-    expect(themes[7]).toBe("k8s系列文章配图与")
-  })
-})
+    expect(repo.listActive(A, U)).toHaveLength(2);
+  });
+
+  it("key 归一化：大小写与标点差异视为同一个项目", () => {
+    saveSnapshot("K8s 系列：写到第 3 篇", "K8s 小红书系列");
+    saveSnapshot("K8s 系列：写到第 5 篇", "k8s小红书系列");
+
+    expect(supersededAtOf("K8s 系列：写到第 3 篇")).not.toBeNull();
+  });
+});
