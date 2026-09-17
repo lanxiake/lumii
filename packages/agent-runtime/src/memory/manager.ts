@@ -303,11 +303,24 @@ export class MemoryManager {
       );
     }
 
-    if (personal.length > 0 && this.options.onPersonalMemoryExtracted) {
-      this.options.onPersonalMemoryExtracted(personal);
+    // 个人记忆（user/feedback）不落 SQLite，走宿主的 user_memory Markdown 整理回调。
+    // 回调缺失时这些候选**无处可写**，此前是静默消失——「记忆没长出来」这个故障
+    // 在日志里完全不可见（评审 P0-5）。至少留一条告警，且不把它计进返回值。
+    let personalHandled = 0;
+    if (personal.length > 0) {
+      const onPersonal = this.options.onPersonalMemoryExtracted;
+      if (onPersonal) {
+        onPersonal(personal);
+        personalHandled = personal.length;
+      } else {
+        console.warn(
+          `[MemoryManager] 丢弃 ${personal.length} 条个人记忆候选：宿主未注入 onPersonalMemoryExtracted 回调` +
+            `（agent=${agentId}，内容示例：${personal[0]!.content.slice(0, 40)}）`,
+        );
+      }
     }
 
-    return toInsert.length + toUpdate.length + personal.length;
+    return toInsert.length + toUpdate.length + personalHandled;
   }
 
   /**

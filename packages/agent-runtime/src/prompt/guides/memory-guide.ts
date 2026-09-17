@@ -28,11 +28,11 @@ export const MEMORY_GUIDE_CONTENT = `## 记忆管理（完整指南）
 - 召回：热记忆注入 prompt 的「工作记忆」段
 - 变化快、任务导向
 
-**第三层：记忆宫殿（MemPalace）**
-- 存储：本地向量库（Wing→Room→Drawer 结构化 + 语义索引）
-- 用途：海量历史对话与知识的语义存档
-- 写入：对话结束自动归档 + \`memory_store\` 工具
-- 召回：\`memory_search\` 优先走语义检索
+**第三层：记忆宫殿**
+- 存储：本地归档（Wing→Room→Drawer 结构化 + 索引）
+- 用途：历史对话与知识的存档，召回细节用
+- 写入：**由段落管线在对话段结束时自动归档，你没有写入工具**
+- 召回：\`memory_search\`（命中后拿 \`drawer_id\` 用 \`memory_read\` 读原文）
 - 不直接全量注入 prompt，按需搜索召回细节
 
 ### 三层如何协作

@@ -55,11 +55,14 @@ export const MEMORY_LAYERS: readonly MemoryLayerInfo[] = [
   {
     id: "palace",
     label: "记忆宫殿",
-    storage: "MemPalace 本地（Wing→Room→Drawer + 向量检索）",
+    storage: "本地归档（Wing→Room→Drawer），经 memory_search 检索",
     categories: ["对话原文", "知识片段"],
     purpose:
-      "海量历史对话与知识的语义存档。按主题/时间结构化存储，通过语义搜索召回细节，不直接全量注入 prompt。",
-    writeTools: ["memory_store", "agent_end 自动归档"],
+      "海量历史对话与知识的存档。按主题/时间结构化存储，通过检索召回细节，不直接全量注入 prompt。",
+    // 写入由段落管线在段关闭时自动完成，**没有面向模型的写入工具**。
+    // 此前这里写的是 `memory_store`——该工具全仓不存在（2026-09-17 清理，评审 P0-5），
+    // 提示词把模型引向一个调不通的工具。
+    writeTools: ["段落管线自动归档"],
     readTools: ["memory_search", "memory_read"],
   },
 ] as const;
