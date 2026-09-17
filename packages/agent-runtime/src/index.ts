@@ -365,6 +365,10 @@ export {
   DEFAULT_TEMPERATURE_THRESHOLDS,
   MEMORY_PLACEHOLDER,
   stripMemoryPlaceholder,
+  isJsonFragment,
+  validateCandidates,
+  MIN_MEMORY_CHARS,
+  MAX_MEMORY_CHARS,
 } from "./memory/index.js";
 export type {
   ExistingMemoryContext,
@@ -377,6 +381,9 @@ export type {
   MemoryTemperature,
   TemperatureInput,
   TemperatureThresholds,
+  CandidateRejection,
+  CandidateRejectionReason,
+  CandidateValidationResult,
 } from "./memory/index.js";
 export { SegmentMemoryPipeline } from "./memory/segment-memory-pipeline.js";
 export type {
@@ -385,6 +392,7 @@ export type {
 } from "./memory/segment-memory-pipeline.js";
 export { SegmentTracker } from "./memory/segment-tracker.js";
 export { SummarizationQueue } from "./memory/summarization-queue.js";
+export type { SummarizationStats } from "./memory/summarization-queue.js";
 export { SegmentRepo } from "./storage/segment-repo.js";
 export type { MemorySegment, SegmentStatus } from "./storage/segment-repo.js";
 export type {

@@ -19,6 +19,7 @@ import {
   type ConversationRepo,
   type MemoryManager,
   type ArchivePalaceMeta,
+  type SummarizationStats,
 } from '@mtbot/agent-runtime'
 import { agentRuntimeLog as log } from './bridge-utils'
 
@@ -136,6 +137,9 @@ export class SegmentMemoryService {
   /** 优雅停止（app 退出） */
   async shutdown(): Promise<void> {
     if (!this.enabled) return
+    // 退出时把统计落一次日志：段落管线是工作记忆的唯一产出源，
+    // 「本次会话一条都没产出」这类情况只有计数能说明（评审 §6 R3）
+    this.logStats('shutdown')
     for (const pipe of this.pipelines.values()) {
       try {
         await pipe.settle()
@@ -144,6 +148,54 @@ export class SegmentMemoryService {
         // 退出阶段忽略
       }
     }
+  }
+
+  /**
+   * 段落管线的运行统计（跨 agent 汇总）。
+   *
+   * 用途：健康检查与故障排查——「记忆不再增长」没有报错、没有崩溃，
+   * 只有计数能把它暴露出来。`abandoned > 0` 是需要立刻看的信号。
+   */
+  getStats(): SummarizationStats & { readonly pipelines: number } {
+    const total: SummarizationStats = {
+      summarised: 0,
+      emptyCandidates: 0,
+      noText: 0,
+      failed: 0,
+      abandoned: 0,
+      lastError: null,
+    }
+    const acc = total as {
+      summarised: number
+      emptyCandidates: number
+      noText: number
+      failed: number
+      abandoned: number
+      lastError: { at: string; message: string } | null
+    }
+    for (const pipe of this.pipelines.values()) {
+      const s = pipe.getStats()
+      acc.summarised += s.summarised
+      acc.emptyCandidates += s.emptyCandidates
+      acc.noText += s.noText
+      acc.failed += s.failed
+      acc.abandoned += s.abandoned
+      if (s.lastError && (!acc.lastError || s.lastError.at > acc.lastError.at)) {
+        acc.lastError = s.lastError
+      }
+    }
+    return { ...total, pipelines: this.pipelines.size }
+  }
+
+  private logStats(trigger: string): void {
+    const s = this.getStats()
+    if (s.summarised === 0 && s.failed === 0 && s.abandoned === 0) return
+    log.info(
+      `[SegmentMemoryService] 统计(${trigger}) pipelines=${s.pipelines} ` +
+        `summarised=${s.summarised} empty=${s.emptyCandidates} noText=${s.noText} ` +
+        `failed=${s.failed} abandoned=${s.abandoned}` +
+        (s.lastError ? ` lastError="${s.lastError.message.slice(0, 120)}"` : ''),
+    )
   }
 
   private getPipeline(agentId: string): SegmentMemoryPipeline {

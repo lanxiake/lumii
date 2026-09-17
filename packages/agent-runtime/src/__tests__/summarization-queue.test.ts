@@ -2,7 +2,7 @@
  * SummarizationQueue 单测（S4）—— 真实 SegmentRepo + mock summarize/LLM
  */
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { SegmentRepo, type MemorySegment } from "../storage/segment-repo.js";
 import { SummarizationQueue } from "../memory/summarization-queue.js";
 import type { ExtractedCandidate } from "../memory/types.js";
@@ -194,5 +194,131 @@ describe("SummarizationQueue", () => {
 
     expect(processed).toEqual(["mine"]);
     expect(repo.findById("other-agent")?.status).toBe("closed"); // 仍待其归属 pipeline 处理
+  });
+});
+
+/**
+ * 可观测性（P1-3）。
+ *
+ * 段落管线是工作记忆的**唯一产出源**——它静默停摆时表现为「记忆不再增长」，
+ * 没有报错、没有崩溃，只有计数能把它暴露出来（评审 §6 R3）。
+ */
+describe("SummarizationQueue 运行统计", () => {
+  let repo: SegmentRepo;
+
+  beforeEach(() => {
+    repo = new SegmentRepo(createMigratedTestDb());
+  });
+
+  function makeQueue(summarize: () => Promise<readonly ExtractedCandidate[]>, text = "内容") {
+    return new SummarizationQueue({
+      repo,
+      listPending: (limit) => repo.findClosed(limit),
+      loadSegmentText: async () => text,
+      summarize: async () => summarize(),
+      onCandidates: () => {},
+    });
+  }
+
+  it("成功产出计入 summarised，不计入 emptyCandidates", async () => {
+    seedClosed(repo, "s1");
+    const q = makeQueue(async () => sampleCandidates);
+    q.enqueue("s1");
+    await q.settle();
+
+    const s = q.getStats();
+    expect(s.summarised).toBe(1);
+    expect(s.emptyCandidates).toBe(0);
+    expect(s.failed).toBe(0);
+  });
+
+  it("LLM 返回空候选计入 emptyCandidates（与失败可区分）", async () => {
+    seedClosed(repo, "s1");
+    const q = makeQueue(async () => []);
+    q.enqueue("s1");
+    await q.settle();
+
+    const s = q.getStats();
+    expect(s.summarised).toBe(1);
+    expect(s.emptyCandidates).toBe(1);
+    expect(s.failed).toBe(0); // 空产出不是错误，但要看得出「一直在空转」
+  });
+
+  it("异常计入 failed 并记录 lastError", async () => {
+    seedClosed(repo, "s1");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const q = makeQueue(async () => {
+      throw new Error("LLM 连接超时");
+    });
+    q.enqueue("s1");
+    await q.settle();
+
+    const s = q.getStats();
+    expect(s.failed).toBe(1);
+    expect(s.lastError?.message).toBe("LLM 连接超时");
+    expect(warn.mock.calls.some((c) => String(c[0]).includes("总结失败"))).toBe(true);
+    warn.mockRestore();
+  });
+
+  it("超过重试上限计入 abandoned 并给出累计数（关键故障信号）", async () => {
+    seedClosed(repo, "s1");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const q = new SummarizationQueue({
+      repo,
+      listPending: (limit) => repo.findClosed(limit),
+      loadSegmentText: async () => "内容",
+      summarize: async () => {
+        throw new Error("持续失败");
+      },
+      onCandidates: () => {},
+      maxRetry: 1,
+    });
+
+    // 第一次失败：留 closed 等重启恢复；手动重入队模拟恢复
+    q.enqueue("s1");
+    await q.settle();
+    expect(q.getStats().abandoned).toBe(0);
+
+    q.enqueue("s1");
+    await q.settle();
+
+    const s = q.getStats();
+    expect(s.abandoned).toBe(1);
+    expect(s.failed).toBe(2);
+    expect(
+      warn.mock.calls.some((c) => String(c[0]).includes("累计放弃 1 段")),
+    ).toBe(true);
+    warn.mockRestore();
+  });
+
+  it("无原文可总结计入 noText，且不调 summarize", async () => {
+    seedClosed(repo, "s1");
+    let called = false;
+    const q = new SummarizationQueue({
+      repo,
+      listPending: (limit) => repo.findClosed(limit),
+      loadSegmentText: async () => "   ",
+      summarize: async () => {
+        called = true;
+        return [];
+      },
+      onCandidates: () => {},
+    });
+    q.enqueue("s1");
+    await q.settle();
+
+    expect(called).toBe(false);
+    expect(q.getStats().noText).toBe(1);
+  });
+
+  it("getStats 返回快照副本（外部改动不回写内部状态）", async () => {
+    seedClosed(repo, "s1");
+    const q = makeQueue(async () => sampleCandidates);
+    q.enqueue("s1");
+    await q.settle();
+
+    const snap = q.getStats() as { summarised: number };
+    snap.summarised = 999;
+    expect(q.getStats().summarised).toBe(1);
   });
 });

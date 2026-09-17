@@ -12,7 +12,7 @@
  * 不落库、不写文件：产出一份结构化清单交给调用方（Agent），由它决定怎么呈现与是否写报告。
  */
 
-import type { DatabaseAdapter } from '@mtbot/agent-runtime'
+import { isJsonFragment, type DatabaseAdapter } from '@mtbot/agent-runtime'
 
 /** 偏好层的注入预算（字符）：与 bridge-prompt-composer 的截断口径一致 */
 export const PROFILE_BUDGET_CHARS = 2400
@@ -153,7 +153,10 @@ function checkWorkingDuplicates(rows: readonly MemoryRow[]): CheckResult {
 /** 工作记忆：JSON 序列化残迹（提取链路把 JSON 片段截进了正文） */
 function checkJsonResidue(rows: readonly MemoryRow[]): CheckResult {
   const key = 'memory:json-residue'
-  const hit = rows.filter((row) => /["!\]}]{2,}\s*$/.test(row.content.trim()))
+  // 与写入门共用同一个判据（`isJsonFragment`）——此前这里用的是 /["!\]}]{2,}\s*$/，
+  // 会把「配置项是 ["a","b"]」这类含数组字面量的正常记忆误报成残迹。
+  // 体检与写入门用两套规则，等于两处各自漂移（2026-09-17 统一）。
+  const hit = rows.filter((row) => isJsonFragment(row.content))
   if (hit.length === 0) {
     return { key, title: '记忆正文 JSON 残迹', status: 'ok', detail: '未发现以 JSON 片段结尾的条目' }
   }
@@ -161,8 +164,44 @@ function checkJsonResidue(rows: readonly MemoryRow[]): CheckResult {
     key,
     title: '记忆正文 JSON 残迹',
     status: 'issue',
-    detail: `${hit.length} 条正文以 "}] / !}] 之类的 JSON 片段结尾，提取时被截入`,
+    detail: `${hit.length} 条正文以 "}] 之类的 JSON 片段结尾，提取时被截入`,
     candidates: hit.map((row) => ({ id: row.id, label: `${row.content.slice(0, 40)}…` })),
+  }
+}
+
+/**
+ * 命名空间：`agent_memories.user_id` 只允许 `local-user`。
+ *
+ * 动因（2026-09-15 体检）：planner-landing 旧实现用裸 SQL 把自主调度待办写死 `user_id='local'`，
+ * 与记忆系统实际读取的 `local-user` 不一致——16 天积压 378 行，既不会被注入也不会被检索，
+ * 是纯粹的功能空转 + 表体积白涨。
+ *
+ * 写入方已修（`planner-landing.ts`），本检查作为**常驻回归断言**：任何新代码再写错命名空间，
+ * 下一次体检就会报出来，而不是等 16 天后再做一次专项排查。
+ */
+function checkNamespaceScope(deps: AssetCheckupDeps): CheckResult {
+  const key = 'memory:namespace-scope'
+  const rows = deps.db
+    .prepare<{ user_id: string; c: number }>(
+      'SELECT user_id, COUNT(*) AS c FROM agent_memories GROUP BY user_id',
+    )
+    .all()
+  const stray = rows.filter((r) => r.user_id !== 'local-user')
+  if (stray.length === 0) {
+    return {
+      key,
+      title: '记忆命名空间',
+      status: 'ok',
+      detail: '全部条目的 user_id 均为 local-user',
+    }
+  }
+  const total = stray.reduce((s, r) => s + r.c, 0)
+  return {
+    key,
+    title: '记忆命名空间',
+    status: 'issue',
+    detail: `${total} 条落在非 local-user 命名空间（${stray.map((r) => `${r.user_id}:${r.c}`).join('、')}），既不会被注入也不会被检索`,
+    candidates: stray.map((r) => ({ id: r.user_id, label: `${r.user_id}（${r.c} 条）` })),
   }
 }
 
@@ -258,6 +297,7 @@ export async function runMemoryCheckup(deps: AssetCheckupDeps): Promise<AssetChe
     checkInstructionResidue(rows),
     checkStale(rows, now),
     checkTinyRows(rows),
+    checkNamespaceScope(deps),
   ]
   const issues = checks.filter((c) => c.status === 'issue')
   const ran = checks.filter((c) => c.status !== 'skipped')

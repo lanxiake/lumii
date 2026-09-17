@@ -22,8 +22,20 @@ export {
   buildSegmentSummaryPrompt,
   parseCandidatesJson,
   hasMemoryTrigger,
+  // 写入侧 schema 门：判据单点定义，写入门与主机侧记忆体检（asset-checkup）共用，
+  // 避免两套规则各自漂移（2026-09-17）
+  isJsonFragment,
+  validateCandidates,
+  logRejections,
+  MIN_MEMORY_CHARS,
+  MAX_MEMORY_CHARS,
 } from "./memory-extractor.js";
-export type { ExistingMemoryContext } from "./memory-extractor.js";
+export type {
+  ExistingMemoryContext,
+  CandidateRejection,
+  CandidateRejectionReason,
+  CandidateValidationResult,
+} from "./memory-extractor.js";
 
 export {
   formatMemoriesForPrompt,

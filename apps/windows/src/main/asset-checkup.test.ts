@@ -30,9 +30,16 @@ function row(over: Partial<MemoryRow> = {}): MemoryRow {
   }
 }
 
-function makeDeps(rows: readonly MemoryRow[], markdown: string | null = '# 用户记忆\n## 基本信息\n- 称呼：老张\n') {
+function makeDeps(
+  rows: readonly MemoryRow[],
+  markdown: string | null = '# 用户记忆\n## 基本信息\n- 称呼：老张\n',
+  /** 命名空间分布（默认与 rows 自洽：全部 local-user） */
+  namespaces: readonly { user_id: string; c: number }[] = [{ user_id: 'local-user', c: rows.length }],
+) {
   const db = {
-    prepare: () => ({ all: () => rows }),
+    prepare: (sql: string) => ({
+      all: () => (sql.includes('GROUP BY user_id') ? namespaces : rows),
+    }),
   } as unknown as DatabaseAdapter
   return { db, readUserMemory: async () => markdown, now: () => NOW }
 }
@@ -85,10 +92,40 @@ describe('runMemoryCheckup', () => {
   })
 
   it('JSON 序列化残迹', async () => {
-    const rows = [row({ id: 'x', content: '我的幸运数字是 47。只回复"好的"}]' })]
+    // 形状取自库中真实残片：被截断的字符串 + 悬空的 JSON 对象闭合
+    const rows = [row({ id: 'x', content: '我的幸运数字是 47。只回复\\"好的\\"\\"}]' })]
     const check = checkOf(await runMemoryCheckup(makeDeps(rows)), 'memory:json-residue')
     expect(check.status).toBe('issue')
     expect(check.candidates?.[0].id).toBe('x')
+  })
+
+  it('含完整 JSON 字面量的正常记忆不算残迹（判据与写入门共用）', async () => {
+    // 旧模式 /["!\]}]{2,}\s*$/ 会把这两条误报成残迹
+    const rows = [
+      row({ id: 'a', content: '配置项是 ["a","b"]，注意顺序' }),
+      row({ id: 'b', content: '接口返回 {"code":0}，表示成功' }),
+    ]
+    const check = checkOf(await runMemoryCheckup(makeDeps(rows)), 'memory:json-residue')
+    expect(check.status).toBe('ok')
+  })
+
+  it('命名空间：全部 local-user 时 ok', async () => {
+    const check = checkOf(await runMemoryCheckup(makeDeps([row()])), 'memory:namespace-scope')
+    expect(check.status).toBe('ok')
+  })
+
+  it('命名空间：出现非 local-user 的行时报 issue（幽灵命名空间回归断言）', async () => {
+    const namespaces = [
+      { user_id: 'local-user', c: 220 },
+      { user_id: 'local', c: 24 },
+    ]
+    const check = checkOf(
+      await runMemoryCheckup(makeDeps([row()], undefined, namespaces)),
+      'memory:namespace-scope',
+    )
+    expect(check.status).toBe('issue')
+    expect(check.detail).toContain('24 条')
+    expect(check.candidates?.map((c) => c.id)).toEqual(['local'])
   })
 
   it('指令式话术残留', async () => {
@@ -133,8 +170,8 @@ describe('runMemoryCheckup', () => {
   it('summary 同时给出检查项数与命中数', async () => {
     const result = await runMemoryCheckup(makeDeps([row({ id: 't', content: '好' })]))
     expect(result.issueCount).toBe(1)
-    expect(result.checkedCount).toBe(6)
-    expect(result.summary).toContain('6 项')
+    expect(result.checkedCount).toBe(7) // 2026-09-17 起含命名空间检查
+    expect(result.summary).toContain('7 项')
     expect(result.summary).toContain('1 项')
   })
 })

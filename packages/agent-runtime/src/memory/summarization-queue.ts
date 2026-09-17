@@ -36,12 +36,47 @@ export interface SummarizationQueueDeps {
   readonly recoverLimit?: number;
 }
 
+/** 队列运行统计（可观测性：段落管线是工作记忆的唯一产出源，断供必须看得见） */
+export interface SummarizationStats {
+  /** 成功走完 summarize 的段数（含产出为空的情况） */
+  readonly summarised: number;
+  /** summarize 返回空候选的次数——正常（段里没有值得记的），但持续为 0 产出时可据此定位 */
+  readonly emptyCandidates: number;
+  /** 无原文可总结而跳过的段数 */
+  readonly noText: number;
+  /** 发生异常的次数（含重试） */
+  readonly failed: number;
+  /** 超过重试上限被放弃的段数——**这是"记忆不再增长"的关键信号** */
+  readonly abandoned: number;
+  /** 最近一次失败的时间与原因（无失败为 null） */
+  readonly lastError: { readonly at: string; readonly message: string } | null;
+}
+
 export class SummarizationQueue {
   private readonly pending = new Set<string>();
   private current: Promise<void> | null = null;
   private stopped = false;
+  private stats = {
+    summarised: 0,
+    emptyCandidates: 0,
+    noText: 0,
+    failed: 0,
+    abandoned: 0,
+    lastError: null as { at: string; message: string } | null,
+  };
 
   constructor(private readonly deps: SummarizationQueueDeps) {}
+
+  /**
+   * 运行统计快照。
+   *
+   * 之所以要给计数而不是只留日志：段落管线是工作记忆的**唯一产出源**，
+   * 它静默停摆时表现为「记忆不再增长」——这种故障没有报错、没有崩溃，
+   * 只有计数能把它暴露出来（评审 §6 R3）。
+   */
+  getStats(): SummarizationStats {
+    return { ...this.stats };
+  }
 
   /** 入队一个段（段关闭后调用） */
   enqueue(segmentId: string): void {
@@ -97,28 +132,35 @@ export class SummarizationQueue {
     try {
       const text = await this.deps.loadSegmentText(seg);
       if (!text.trim()) {
+        this.stats.noText++;
         repo.markSummarised(seg.id); // 无原文可总结，跳过
         return;
       }
       const candidates = await this.deps.summarize(text, seg);
       if (candidates.length > 0) {
         await this.deps.onCandidates(seg, candidates);
+      } else {
+        this.stats.emptyCandidates++;
       }
+      this.stats.summarised++;
       repo.markSummarised(seg.id);
     } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.stats.failed++;
+      this.stats.lastError = { at: new Date().toISOString(), message };
       const maxRetry = this.deps.maxRetry ?? 2;
       const retry = repo.incrementRetry(seg.id);
       if (retry > maxRetry) {
         // 超上限放弃：标 summarised 避免无限重试（记日志）
+        this.stats.abandoned++;
         repo.markSummarised(seg.id);
         console.warn(
-          `[SummarizationQueue] 段 ${seg.id} 总结失败 ${retry} 次，放弃: ${(err as Error).message}`,
+          `[SummarizationQueue] 段 ${seg.id} 总结失败 ${retry} 次，放弃: ${message}` +
+            `（累计放弃 ${this.stats.abandoned} 段 / 失败 ${this.stats.failed} 次）`,
         );
       } else {
         // 留 closed，下次 start() 重启恢复时再试（不立即重入避免快速重试循环）
-        console.warn(
-          `[SummarizationQueue] 段 ${seg.id} 总结失败（第 ${retry} 次），稍后重试: ${(err as Error).message}`,
-        );
+        console.warn(`[SummarizationQueue] 段 ${seg.id} 总结失败（第 ${retry} 次），稍后重试: ${message}`);
       }
     }
   }

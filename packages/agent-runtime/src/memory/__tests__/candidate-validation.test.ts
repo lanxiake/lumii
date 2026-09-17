@@ -7,10 +7,11 @@ function candidate(content: string, category: ExtractedCandidate["category"] = "
 }
 
 describe("validateCandidates — 写入侧 schema 门", () => {
-  it("拒绝含 JSON 残片的候选", () => {
+  it("拒绝含 JSON 残片的候选（形状取自库中真实残片）", () => {
     const { accepted, rejected } = validateCandidates([
-      candidate('某条正文。"}]'),
-      candidate('另一条。"}'),
+      // 真实残片：被截断的字符串 + 悬空的 JSON 对象闭合（引号未成对）
+      candidate('我的幸运数字是 47。只回复\\"好的\\"\\"}]'),
+      candidate('另一条正文。"}'),
       candidate("正常的记忆内容，长度足够"),
     ]);
     expect(accepted).toHaveLength(1);
@@ -19,12 +20,13 @@ describe("validateCandidates — 写入侧 schema 门", () => {
     expect(rejected.every((r) => r.reason === "json_fragment")).toBe(true);
   });
 
-  it("不误伤含 JSON 字面量或孤立引号的正常记忆（阈值经 251 条真实数据校准）", () => {
-    // 每一条都曾让某个更宽的模式误报：单用尾锚会误伤前两条，单用奇数引号会误伤第三条
+  it("不误伤含 JSON 字面量或孤立引号的正常记忆（正样本 5 条 / 负样本 246 条校准）", () => {
+    // 每一条都曾让某个更宽的模式误报：单用尾部会误伤前三条，单用奇数引号会误伤第四条
     const legit = [
       '配置项是 ["a","b"]，注意顺序',
       '输入=[10,20,null,"30"]文本已回填',
       '显示器是 24" 的宽屏，注意分辨率',
+      '接口返回 {"code":0}，表示成功',
       '用户说“这个格式很好”，继续保持',
     ];
     const { accepted, rejected } = validateCandidates(legit.map((c) => candidate(c)));

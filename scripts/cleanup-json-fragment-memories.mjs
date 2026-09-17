@@ -26,17 +26,18 @@ const DB_PATH =
   process.env.LUMII_DB_PATH ?? path.join(os.homedir(), '.lumii', 'data', 'agent-runtime.db')
 
 /**
- * 与 memory-extractor.ts 的 `isJsonFragment` 完全一致。用 251 条真实记忆校准过：
- * 尾锚「引号 + 括号」**且** 双引号计数为奇数（单用其一都会误伤——前者误伤
- * `配置项是 ["a","b"]`，后者误伤 `显示器是 24" 的宽屏`）；另加粘贴 JSON 键值特征。
+ * 与 memory-extractor.ts 的 `isJsonFragment` 完全一致。用真实数据校准过两轮：
+ * 以 `"}` / `"}]`（JSON 对象闭合）结尾**且**双引号计数为奇数——判别核心是"引号未闭合"，
+ * 那才是被截断的字符串；引号成对说明 JSON 完整，那是内容不是残片。
+ * 另加粘贴 JSON 键值特征（`"key": "`）。
  */
-const TAIL_FRAGMENT_RE = /["'`]\s*[\]}]{1,3}\s*$/
+const OBJECT_TAIL_RE = /["'`]\s*\}\s*\]?\s*$/
 const JSON_KEY_RE = /["'`]\s*:\s*["'`[{]/
 
 function isJsonFragment(content) {
   if (JSON_KEY_RE.test(content)) return true
   const unbalanced = ((content.match(/"/g) ?? []).length % 2) === 1
-  return TAIL_FRAGMENT_RE.test(content) && unbalanced
+  return OBJECT_TAIL_RE.test(content) && unbalanced
 }
 
 if (!fs.existsSync(DB_PATH)) {

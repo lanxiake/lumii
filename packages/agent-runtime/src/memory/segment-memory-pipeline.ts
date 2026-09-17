@@ -14,7 +14,7 @@ import type { ConversationRepo } from "../storage/conversation-repo.js";
 import type { MemoryManager } from "./manager.js";
 import type { BoundaryConfig } from "./segmentation.js";
 import { SegmentTracker, type ObserveParams } from "./segment-tracker.js";
-import { SummarizationQueue } from "./summarization-queue.js";
+import { SummarizationQueue, type SummarizationStats } from "./summarization-queue.js";
 import { buildSegmentSummaryPrompt, parseCandidatesJson } from "./memory-extractor.js";
 import { deterministicDrawerId } from "./content-address.js";
 
@@ -68,6 +68,8 @@ export interface SegmentMemoryPipelineDeps {
 export class SegmentMemoryPipeline {
   private readonly tracker: SegmentTracker;
   private readonly queue: SummarizationQueue;
+  /** 未注入 callLLM 的告警只打一次（每次总结都打会刷屏） */
+  private warnedNoLlm = false;
 
   constructor(private readonly deps: SegmentMemoryPipelineDeps) {
     this.queue = new SummarizationQueue({
@@ -81,7 +83,18 @@ export class SegmentMemoryPipeline {
           seg.endMessageId ?? seg.startMessageId,
         ),
       summarize: async (text, seg) => {
-        if (!deps.callLLM) return [];
+        if (!deps.callLLM) {
+          // 配置缺失 ≠ 段里没东西可记。两者此前都表现为「返回空数组」，无法区分；
+          // 而段落管线是工作记忆的唯一产出源，静默不产出就是「记忆不再增长」这个故障。
+          if (!this.warnedNoLlm) {
+            this.warnedNoLlm = true;
+            console.warn(
+              "[SegmentMemory] 未注入 callLLM：段落管线只分段、不产出记忆。" +
+                "工作记忆将停止增长（这是一条配置故障，不是「没有值得记的内容」）",
+            );
+          }
+          return [];
+        }
         console.log(`[SegmentMemory] 开始总结段 id=${seg.id} 原文长度=${text.length}`);
         const existingContext = await deps.memoryManager.buildExistingContext(
           deps.agentId,
@@ -152,6 +165,16 @@ export class SegmentMemoryPipeline {
   /** 等待后台总结处理完（优雅退出/测试用） */
   async settle(): Promise<void> {
     await this.queue.settle();
+  }
+
+  /**
+   * 管线运行统计（可观测性）。
+   *
+   * 段落管线是工作记忆的唯一产出源，它停摆时没有报错、没有崩溃，只表现为
+   * 「记忆不再增长」。计数是唯一能把它暴露出来的东西（评审 §6 R3）。
+   */
+  getStats(): SummarizationStats {
+    return this.queue.getStats();
   }
 
   stop(): void {

@@ -154,14 +154,21 @@ export const MAX_MEMORY_CHARS = 600;
 /**
  * JSON 残片判定（两类，均为高精度）。
  *
- * 用 251 条真实记忆做过校准（2026-09-17），结论：
- * - **尾部悬空**：正则 + **双引号计数为奇数**，两者同时满足才算。单看正则会误伤
- *   `配置项是 ["a","b"]`；单看奇数会误伤 `显示器是 24" 的宽屏`。合取后两者都排除，
- *   且 5 条真实残片全中。
+ * 用真实数据校准过两轮（2026-09-17）：正样本是库里实际存在的 5 条残片，
+ * 负样本是另外 246 条活跃记忆。结论：
+ *
+ * - **尾部悬空**：以 `"}` 或 `"}]`（JSON **对象**闭合）结尾，**且双引号计数为奇数**。
+ *   两个条件都必要：
+ *   - 只要求对象闭合 → 会误伤以完整 JSON 对象结尾的正常记忆（如 `接口返回 {"code":0"}`…）
+ *   - 只要求引号奇数 → 会误伤 `显示器是 24" 的宽屏`
+ *   合取后 5/5 命中、0/246 误伤。**尾部的判别核心是「引号未闭合」**——那正是被截断的字符串；
+ *   引号成对说明 JSON 是完整的，那是内容不是残片。
  * - **粘贴的 JSON 键值**：`"key": "` 这类结构在正常中文记忆里不出现（真实数据 0 命中）。
- * - 已废弃的 `[[{]\s*["'`]`（左括号紧跟引号）：实测会误伤含数组字面量的正常记忆。
+ *
+ * 已废弃的更宽模式（都误伤过）：`[[{]\s*["'`]`（左括号紧跟引号，误伤 `配置项是 ["a","b"]`）、
+ * `["'`]\s*[\]}]`（不要求对象闭合，误伤同一类）。
  */
-const TAIL_FRAGMENT_RE = /["'`]\s*[\]}]{1,3}\s*$/;
+const OBJECT_TAIL_RE = /["'`]\s*\}\s*\]?\s*$/;
 const JSON_KEY_RE = /["'`]\s*:\s*["'`[{]/;
 
 /** 双引号是否未闭合（奇数个）——截断字符串的签名 */
@@ -172,7 +179,7 @@ function hasUnbalancedQuotes(content: string): boolean {
 /** 是否为 JSON 残片（正常中文记忆里不该出现的形态） */
 export function isJsonFragment(content: string): boolean {
   if (JSON_KEY_RE.test(content)) return true;
-  return TAIL_FRAGMENT_RE.test(content) && hasUnbalancedQuotes(content);
+  return OBJECT_TAIL_RE.test(content) && hasUnbalancedQuotes(content);
 }
 
 /**
