@@ -54,11 +54,15 @@ docs/temp/
 .worktree/
 .claude/worktrees/
 .claude/
-docs/test/lumii-cli/materials/
 
 # Wiki 嵌入模型运行时缓存（约 140MB，不提交 Git）
 **/.lumii/models/wiki-embeddings/
 apps/windows/resources/wiki-embeddings/Xenova/
 apps/windows/resources/wiki-embeddings/.lumii-complete
 
-docs/wiki/
+# 测试素材：真实文档样本（docx/mp4/PDF）体积大，需手动放置，不入库
+# 见 docs/test/lumii-cli/CLI-TEST-SPEC.md §6
+docs/test/lumii-cli/materials/
+
+# CLI 测试运行时残留
+docs/test/**/.cap-session*
