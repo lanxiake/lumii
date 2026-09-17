@@ -23,6 +23,7 @@ import {
   LocalDatabase,
   AgentMemoryRepo,
   MemoryIndexRepo,
+  PalaceRepo,
   MemoryManager,
   ConversationRepo,
   SegmentRepo,
@@ -172,6 +173,7 @@ import { RouterService } from './router/router-service'
 import { RouterLlmCallerImpl } from './router/llm-caller'
 import { RouterHitRateTracker } from './router/router-hit-rate-tracker'
 import type { AgentRuntimeBridgeConfig, AgentLifecycleSnapshot } from './bridge-types'
+import { withBuiltinPalace } from './palace-backend'
 import { getCloudSyncManager } from '../cloud-sync/sync-accessor'
 import type { ConflictInfo } from '../cloud-sync/types'
 import { ensureProviderBaseUrl } from '../provider-config'
@@ -361,7 +363,10 @@ export class AgentRuntimeBridge {
   }
 
   constructor(config: AgentRuntimeBridgeConfig) {
-    this.config = config
+    // 记忆宫殿后端：默认换成自建 SQLite（PalaceRepo），`LUMII_PALACE_BACKEND=mempalace`
+    // 才回到 index.ts 注入的 Python 实现。必须在这里换——LocalDatabase 由本类持有，
+    // index.ts 的回调闭包拿不到 DB 句柄（见 palace-backend.ts 的说明）。
+    this.config = withBuiltinPalace(config, this.localDb)
     this.featureFlags = createFeatureFlags()
     this.imageServices = new BridgeImageServices({
       getModelRouter: () => this.modelRouter,
@@ -702,6 +707,21 @@ export class AgentRuntimeBridge {
       log.warn('[initialize] FTS 索引健康检查/重建失败，记忆搜索将降级到 LIKE:', err)
     }
 
+    // 宫殿索引同理：一次性回填脚本（scripts/palace-backfill.mjs）只写主表，分词在 JS 侧，
+    // 脚本里没有分词器——靠这里的重建把回填进来的原文补进 FTS。与上面 agent_memories_fts
+    // 的处理同一条路径（迁移/回填后「有数据但索引为空」是同一类故障）。
+    try {
+      const palaceRepo = new PalaceRepo(db)
+      const palaceHealth = palaceRepo.checkFtsHealth()
+      if (!palaceHealth.isHealthy) {
+        log.info(`[initialize] 宫殿 FTS 索引不健康: ${palaceHealth.reason}，自动重建...`)
+        const n = palaceRepo.rebuildIndex()
+        log.info(`[initialize] 宫殿 FTS 索引重建完成，${n} 行`)
+      }
+    } catch (err) {
+      log.warn('[initialize] 宫殿 FTS 索引健康检查/重建失败，宫殿检索将降级到 LIKE:', err)
+    }
+
     this._conversationRepo = new ConversationRepo(db)
     const segmentRepo = new SegmentRepo(db)
     this._memoryManager = new MemoryManager(this._memoryRepo, {
@@ -964,6 +984,8 @@ export class AgentRuntimeBridge {
       // 段落管线统计：供记忆体检回答「记忆产出是否停滞」——停摆无报错、无崩溃，
       // 只表现为「记忆不再增长」，只有计数能暴露（P1-3）
       getSegmentStats: () => this._segmentMemoryService?.getStats() ?? null,
+      // 宫殿归档统计：失败只有 WARN、没有消费者，表现是「宫殿检索永远返回空」（P2-3）
+      getPalaceStats: () => this._segmentMemoryService?.getPalaceStats() ?? null,
       getFeatureFlags: () => this.featureFlags,
       ipcChannel: this.ipcChannel,
       instanceStates: this.instanceStates,
@@ -2166,7 +2188,7 @@ export class AgentRuntimeBridge {
   getCwd(): string { return this.config.getCwd() }
 
   /**
-   * 段原文归档进 MemPalace（诉求 A · 宫殿互引）。
+   * 段原文归档进记忆宫殿（诉求 A · 宫殿互引）。
    * 由 SegmentMemoryPipeline 的 archivePalace 回调调用：drawer_id 已由 runtime
    * 内容寻址生成并回填，此处把原文 upsert 进宫殿（幂等）。宿主未注入则跳过。
    */
@@ -2174,7 +2196,7 @@ export class AgentRuntimeBridge {
     text: string,
     meta: ArchivePalaceMeta,
   ): Promise<{ drawerId?: string }> {
-    const archive = this.config.archiveMempalaceDrawer
+    const archive = this.config.archivePalaceDrawer
     if (!archive) return {}
     try {
       const result = await archive({
@@ -2182,6 +2204,9 @@ export class AgentRuntimeBridge {
         wing: meta.wing,
         room: meta.room,
         drawerId: meta.drawerId,
+        // 自建后端要按 (agent, user) 落库做作用域隔离；MemPalace 无此概念，忽略即可
+        agentId: meta.agentId,
+        userId: meta.userId,
         metadata: {
           source: 'segment',
           segmentId: meta.segmentId,

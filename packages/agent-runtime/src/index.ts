@@ -372,6 +372,11 @@ export {
   parsePersonalMemory,
   reconcilePersonalMemory,
   stripPersonalMemoryMeta,
+  // 自建记忆宫殿（去 Python 依赖）
+  PalaceRepo,
+  PalaceIndexRepo,
+  buildDrawerExcerpt,
+  SEARCH_EXCERPT_CHARS,
 } from "./memory/index.js";
 export type {
   ExistingMemoryContext,
@@ -388,11 +393,18 @@ export type {
   CandidateRejectionReason,
   CandidateValidationResult,
   PersonalMemoryEntry,
+  PalaceDrawerDetail,
+  PalaceDrawerInput,
+  PalaceScopeCounts,
+  PalaceSearchItem,
+  PalaceSearchParams,
+  PalaceFtsHealth,
 } from "./memory/index.js";
 export { SegmentMemoryPipeline } from "./memory/segment-memory-pipeline.js";
 export type {
   SegmentMemoryPipelineDeps,
   ArchivePalaceMeta,
+  PalaceArchiveStats,
 } from "./memory/segment-memory-pipeline.js";
 export { SegmentTracker } from "./memory/segment-tracker.js";
 export { SummarizationQueue } from "./memory/summarization-queue.js";

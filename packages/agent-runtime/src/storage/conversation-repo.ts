@@ -16,6 +16,7 @@ import type {
 import { finalizeAssistantParts } from "./assistant-parts.js";
 import {
   parseMessageContentJson,
+  extractMessageText,
   type ToolCallRecord,
   type TextMessageContent,
   type ToolResultContent,
@@ -534,8 +535,9 @@ export class ConversationRepo {
 
     const lines: string[] = [];
     for (const row of rows) {
-      const parsed = parseMessageContentJson(row.content_json);
-      const text = parsed && parsed.type === "text" ? (parsed.text ?? "").trim() : "";
+      // 必须走 extractMessageText：助手消息落库是 assistant_parts，只认扁平 text 会把
+      // 助手回复全漏掉——段原文与段落总结都会变成「只有用户发言的对话」（2026-09-17 修）
+      const text = extractMessageText(row.content_json);
       if (text) lines.push(`${row.role}: ${text}`);
     }
     return lines.join("\n");

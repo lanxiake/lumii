@@ -64,6 +64,24 @@ export interface AssetCheckupDeps {
    * 只表现为「记忆不再增长」——这种故障只有计数能暴露，而体检正是机械判定项的归宿。
    */
   readonly getSegmentStats?: () => SegmentStatsLike | null
+  /**
+   * 宫殿归档统计（可选）。提供后体检会报告「段原文到底有没有归档进去」。
+   *
+   * 为什么是计数而不是「近 N 天有段没归档」的推断：宫殿归档失败只有一条 WARN，
+   * 表现为检索永远返回空——看起来像「过去没聊过这件事」。而推断式的判据会误报
+   * （旧后端的欠账、碎段、原文已删的段都会落进窗口），只有在写入点计数才说得清
+   * 「现在坏没坏」。
+   */
+  readonly getPalaceStats?: () => PalaceStatsLike | null
+}
+
+/** 与 @mtbot/agent-runtime 的 PalaceArchiveStats 同构（避免主机侧深引 runtime 类型） */
+export interface PalaceStatsLike {
+  readonly attempted: number
+  readonly archived: number
+  readonly notStored: number
+  readonly failed: number
+  readonly lastError: { readonly at: string; readonly message: string } | null
 }
 
 /** 与 @mtbot/agent-runtime 的 SummarizationStats 同构（避免主机侧深引 runtime 类型） */
@@ -232,6 +250,95 @@ function checkSegmentPipeline(deps: AssetCheckupDeps): CheckResult {
 }
 
 /**
+ * 记忆宫殿：归档覆盖率与派生索引健康（P2-3）。
+ *
+ * 为什么值得常驻检查：宫殿此前由 Python（MemPalace + chromadb）承载，覆盖率实测 4/171 = 2.3%，
+ * 而**全程没有任何地方报错**——`memory_search` 的宫殿通道只是返回空，看起来就像
+ * 「过去没聊过这件事」。索引同理：`palace_drawers_fts` 的分词在 JS 侧、由应用维护，
+ * 一旦与主表不一致，检索会静默漏结果。
+ *
+ * **判据只认两类硬信号**，不做时间窗推断：
+ * 1. 索引与主表条数不一致（客观错误）
+ * 2. 本进程内归档失败的计数（写入点自己数的，见 `PalaceArchiveStats`）
+ *
+ * 为什么不做「近 N 天有段没归档」这类推断：第一版就是这么写的，真实库上直接报了
+ * 假警报——18 个「近 7 天已总结未归档」里 17 个是 2–49 字符的碎段，是旧 Python 后端
+ * 时代的欠账（2026-09-17 换自建后端之前），不是写路径断了。历史欠账推断不出「现在坏没坏」，
+ * 只会变成永远报警的假警报；要判断现在坏没坏，就得在写入点计数。
+ */
+function checkPalaceCoverage(deps: AssetCheckupDeps): CheckResult {
+  const key = 'memory:palace-coverage'
+  const title = '记忆宫殿归档'
+  let coverage: { total: number; withId: number }
+  let palace: { active: number | null; tombstoned: number | null }
+  let ftsCount: number
+  try {
+    coverage = deps.db
+      .prepare<{ total: number; withId: number }>(
+        `SELECT COUNT(*) AS total, SUM(palace_drawer_id IS NOT NULL) AS withId
+           FROM memory_segments WHERE char_count >= 50`,
+      )
+      .get() ?? { total: 0, withId: 0 }
+    palace = deps.db
+      .prepare<{ active: number | null; tombstoned: number | null }>(
+        `SELECT SUM(deleted_at IS NULL) AS active, SUM(deleted_at IS NOT NULL) AS tombstoned
+           FROM palace_drawers`,
+      )
+      .get() ?? { active: null, tombstoned: null }
+    ftsCount =
+      deps.db.prepare<{ c: number }>('SELECT COUNT(*) AS c FROM palace_drawers_fts').get()?.c ?? 0
+  } catch (err) {
+    return {
+      key,
+      title,
+      status: 'skipped',
+      detail: `宫殿表不可读（V49 迁移未跑？）：${err instanceof Error ? err.message : String(err)}`,
+    }
+  }
+
+  const active = palace.active ?? 0
+  if (active !== ftsCount) {
+    return {
+      key,
+      title,
+      status: 'issue',
+      detail: `派生索引与主表不一致：活跃 ${active} 行，索引 ${ftsCount} 行——检索会漏结果（重启应用会自动重建）`,
+    }
+  }
+
+  const archive = deps.getPalaceStats?.() ?? null
+  if (archive && archive.failed + archive.notStored > 0) {
+    return {
+      key,
+      title,
+      status: 'issue',
+      detail:
+        `本进程归档失败 ${archive.failed} 次、未落库 ${archive.notStored} 段` +
+        `（成功 ${archive.archived}/${archive.attempted}）——这些段的原文只能回会话里翻`,
+      candidates: archive.lastError
+        ? [
+            {
+              id: 'last-error',
+              label: `最近错误 ${archive.lastError.at.slice(0, 19)}：${archive.lastError.message.slice(0, 80)}`,
+            },
+          ]
+        : undefined,
+    }
+  }
+
+  const pct = coverage.total > 0 ? ((100 * coverage.withId) / coverage.total).toFixed(1) : '—'
+  const archivedNote = archive
+    ? `；本进程归档 ${archive.archived}/${archive.attempted} 段`
+    : '（未注入归档统计）'
+  return {
+    key,
+    title,
+    status: 'ok',
+    detail: `宫殿 ${active} 段（墓碑 ${palace.tombstoned ?? 0}），索引一致；段覆盖率 ${coverage.withId}/${coverage.total} = ${pct}%（历史欠账多为原文所在会话已删或碎段）${archivedNote}`,
+  }
+}
+
+/**
  * 命名空间：`agent_memories.user_id` 只允许 `local-user`。
  *
  * 动因（2026-09-15 体检）：planner-landing 旧实现用裸 SQL 把自主调度待办写死 `user_id='local'`，
@@ -361,6 +468,7 @@ export async function runMemoryCheckup(deps: AssetCheckupDeps): Promise<AssetChe
     checkTinyRows(rows),
     checkNamespaceScope(deps),
     checkSegmentPipeline(deps),
+    checkPalaceCoverage(deps),
   ]
   const issues = checks.filter((c) => c.status === 'issue')
   const ran = checks.filter((c) => c.status !== 'skipped')

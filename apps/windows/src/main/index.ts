@@ -723,21 +723,36 @@ async function initAgentRuntime(): Promise<void> {
     },
     /** 读取用户记忆（用于 profile_memory / memory_search 工具，本地文件 ~/.lumii/data/user-memory.md） */
     getUserMemory: async () => readUserMemoryFile(),
-    /** MemPalace 语义搜索（用于 memory_search 工具优先路径） */
-    searchMempalace: async (query: string, limit?: number) => {
+    /**
+     * 记忆宫殿检索 —— **MemPalace（Python）实现**。
+     *
+     * 默认不走这里：`AgentRuntimeBridge` 构造时会用自建 SQLite 实现覆盖掉本回调
+     * （见 agent-runtime/palace-backend.ts）。保留它是 `LUMII_PALACE_BACKEND=mempalace`
+     * 的逃生开关，一个版本周期后连同 mempalace-mcp-client.ts 一起删。
+     */
+    searchPalace: async (query: string, limit?: number) => {
       try {
         const installed = await checkMemPalaceInstalled()
         if (!installed) return null
         await ensureMemPalacePalaceDir()
         const bridge = getMemPalaceBridge()
-        return await bridge.searchDrawers({ query, limit: limit ?? 10 })
+        const items = await bridge.searchDrawers({ query, limit: limit ?? 10 })
+        // MemPalace 返回的是余弦相似度；统一到 searchPalace 的 score 语义
+        return items.map((it) => ({
+          text: it.text,
+          wing: it.wing,
+          room: it.room,
+          score: it.similarity,
+          drawer_id: it.drawer_id,
+          created_at: it.created_at,
+        }))
       } catch (err) {
         log.warn(`[MemPalace] 搜索失败: ${err instanceof Error ? err.message : String(err)}`)
         return null
       }
     },
-    /** 按 drawer_id 读取记忆宫殿归档原文（memory_read 工具） */
-    readMempalaceDrawer: async (drawerId: string) => {
+    /** 按 drawer_id 读取记忆宫殿归档原文（memory_read 工具）—— MemPalace（Python）实现 */
+    readPalaceDrawer: async (drawerId: string) => {
       try {
         const installed = await checkMemPalaceInstalled()
         if (!installed) return null
@@ -784,13 +799,15 @@ async function initAgentRuntime(): Promise<void> {
       return resolved
     },
     /**
-     * 段原文归档进 MemPalace（诉求 A · 宫殿互引）。
+     * 段原文归档进记忆宫殿（诉求 A · 宫殿互引）—— **MemPalace（Python）实现**。
      * MemPalace 3.5.x 的 mempalace_add_drawer 仅接受 wing/room/content/source_file/added_by，
      * 不接受 drawer_id/metadata；drawer_id 由 Python 侧 make_drawer_id_from_content 生成并返回。
      * 同一 (wing, room, content) 重复归档幂等。
      * 未安装/失败返回 undefined（runtime 降级，仅保留原文回溯不互引）。
+     *
+     * 默认不走这里（见上方的 searchPalace 说明）。
      */
-    archiveMempalaceDrawer: async (params) => {
+    archivePalaceDrawer: async (params) => {
       try {
         const installed = await checkMemPalaceInstalled()
         if (!installed) return undefined

@@ -41,7 +41,7 @@ function makeMemoryManager(results: Array<{ id: string; content: string; categor
 function makeHarness(opts: {
   readScope?: 'agent' | 'user'
   memoryManager: ReturnType<typeof makeMemoryManager> | null
-  searchMempalace?: (query: string, limit?: number) => Promise<unknown>
+  searchPalace?: (query: string, limit?: number, scope?: unknown) => Promise<unknown>
   userMemory?: string
 }) {
   const tools = new Map<string, RegisteredTool>()
@@ -49,7 +49,7 @@ function makeHarness(opts: {
     toolRegistry: { register: (t: RegisteredTool) => tools.set(t.name, t) },
     toolContext: {},
     config: {
-      searchMempalace: opts.searchMempalace,
+      searchPalace: opts.searchPalace,
       getUserMemory: async () => ({ content: opts.userMemory ?? '', updatedAt: '2026-09-17T00:00:00.000Z' }),
     },
     localDb: { db: { prepare: () => ({ all: () => [] }) } },
@@ -118,29 +118,29 @@ describe('memory_search · 工作记忆通道', () => {
     const mm = makeMemoryManager(
       Array.from({ length: 3 }, (_, i) => ({ id: `m-${i}`, content: `工作记忆 ${i}`, category: 'general' })),
     )
-    const searchMempalace = vi.fn(async () => [
-      { text: '宫殿命中', wing: 'w', room: 'r', similarity: 0.9, drawer_id: 'a'.repeat(16) },
+    const searchPalace = vi.fn(async () => [
+      { text: '宫殿命中', wing: 'w', room: 'r', score: -1.5, drawer_id: 'a'.repeat(16) },
     ])
-    const tool = makeHarness({ memoryManager: mm, searchMempalace, userMemory: '工作记忆 0 的行' })
+    const tool = makeHarness({ memoryManager: mm, searchPalace, userMemory: '工作记忆 0 的行' })
 
     const out = await invoke(tool, { query: '工作记忆', maxResults: 3 })
 
-    expect(searchMempalace).not.toHaveBeenCalled()
+    expect(searchPalace).not.toHaveBeenCalled()
     const results = out.results as Array<Record<string, unknown>>
     expect(results).toHaveLength(3)
     expect(results.every((r) => r.provider === 'work-memory')).toBe(true)
   })
 
   it('memoryManager 缺失时不报错，其他通道仍可用', async () => {
-    const searchMempalace = vi.fn(async () => [
-      { text: '宫殿命中', wing: 'w', room: 'r', similarity: 0.9, drawer_id: 'b'.repeat(16) },
+    const searchPalace = vi.fn(async () => [
+      { text: '宫殿命中', wing: 'w', room: 'r', score: -1.5, drawer_id: 'b'.repeat(16) },
     ])
-    const tool = makeHarness({ memoryManager: null, searchMempalace })
+    const tool = makeHarness({ memoryManager: null, searchPalace })
 
     const out = await invoke(tool, { query: '命中' })
 
     const results = out.results as Array<Record<string, unknown>>
-    expect(results[0]).toMatchObject({ provider: 'mempalace', drawer_id: 'b'.repeat(16) })
+    expect(results[0]).toMatchObject({ provider: 'palace', drawer_id: 'b'.repeat(16) })
   })
 
   it('三通道都无命中时返回 provider=none 与空数组', async () => {
@@ -150,5 +150,74 @@ describe('memory_search · 工作记忆通道', () => {
 
     expect(out.results).toEqual([])
     expect(out.provider).toBe('none')
+  })
+})
+
+describe('memory_search · 宫殿通道（自建 SQLite）', () => {
+  it('带作用域调用，命中标 provider=palace 并透出摘录标记', async () => {
+    const searchPalace = vi.fn(async () => [
+      {
+        text: '…这段在讲工单同步卡点…',
+        wing: 'assistant:local-user',
+        room: '2026-09-17',
+        score: 3.2,
+        drawer_id: 'c'.repeat(16),
+        char_count: 94473,
+        truncated: true,
+      },
+    ])
+    const tool = makeHarness({ memoryManager: makeMemoryManager([]), searchPalace })
+
+    const out = await invoke(tool, { query: '工单同步' })
+
+    expect(searchPalace).toHaveBeenCalledWith('工单同步', 10, {
+      userId: 'local-user',
+      agentId: 'assistant',
+    })
+    const results = out.results as Array<Record<string, unknown>>
+    expect(results[0]).toMatchObject({
+      provider: 'palace',
+      drawer_id: 'c'.repeat(16),
+      score: 3.2,
+      char_count: 94473,
+      truncated: true,
+    })
+    expect((out.providers as Record<string, number>).palace).toBe(1)
+  })
+
+  it('user 读作用域下不收窄 agent（与工作记忆通道同规则）', async () => {
+    const searchPalace = vi.fn(async () => [])
+    const tool = makeHarness({
+      memoryManager: makeMemoryManager([]),
+      searchPalace,
+      readScope: 'user',
+    })
+
+    await invoke(tool, { query: '任意' })
+
+    expect(searchPalace).toHaveBeenCalledWith('任意', 10, { userId: 'local-user' })
+  })
+
+  it('后端不可用（返回 null）时静默跳过，不影响其他通道', async () => {
+    const searchPalace = vi.fn(async () => null)
+    const mm = makeMemoryManager([{ id: 'm-1', content: '工作记忆命中', category: 'general' }])
+    const tool = makeHarness({ memoryManager: mm, searchPalace })
+
+    const out = await invoke(tool, { query: '命中' })
+
+    const results = out.results as Array<Record<string, unknown>>
+    expect(results.map((r) => r.provider)).toEqual(['work-memory'])
+  })
+
+  it('宫殿通道抛异常时被兜住，工作记忆结果照常返回', async () => {
+    const searchPalace = vi.fn(async () => {
+      throw new Error('database is locked')
+    })
+    const mm = makeMemoryManager([{ id: 'm-1', content: '工作记忆命中', category: 'general' }])
+    const tool = makeHarness({ memoryManager: mm, searchPalace })
+
+    const out = await invoke(tool, { query: '命中' })
+
+    expect((out.results as unknown[]).length).toBe(1)
   })
 })

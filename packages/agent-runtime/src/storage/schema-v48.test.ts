@@ -26,7 +26,8 @@ function columns(db: DatabaseAdapter, table: string): string[] {
 
 describe("V48 迁移", () => {
   it("SCHEMA_VERSION 已推进到 48", () => {
-    expect(SCHEMA_VERSION).toBe(48);
+    // 断言「不小于」：后续版本会继续推进（V49 起），写死等号会在每次加迁移时误报
+    expect(SCHEMA_VERSION).toBeGreaterThanOrEqual(48);
   });
 
   it("建出 project_key / superseded_at / superseded_by / archive_reason 四列", () => {

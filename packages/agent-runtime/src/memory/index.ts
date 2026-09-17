@@ -6,6 +6,18 @@ export { AgentMemoryRepo } from "./memory-repo.js";
 export { MemoryIndexRepo } from "./memory-index.js";
 export type { FtsHealth } from "./memory-index.js";
 
+// 自建记忆宫殿（去 Python 依赖）：palace_drawers + FTS5，替代 MemPalace
+export { PalaceRepo, buildDrawerExcerpt, SEARCH_EXCERPT_CHARS } from "./palace-repo.js";
+export type {
+  PalaceDrawerDetail,
+  PalaceDrawerInput,
+  PalaceScopeCounts,
+  PalaceSearchItem,
+  PalaceSearchParams,
+} from "./palace-repo.js";
+export { PalaceIndexRepo } from "./palace-index.js";
+export type { PalaceFtsHealth } from "./palace-index.js";
+
 export { MemoryManager } from "./manager.js";
 export type {
   MemoryManagerOptions,

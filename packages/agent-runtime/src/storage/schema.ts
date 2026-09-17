@@ -6,7 +6,7 @@
  */
 
 /** 当前 schema 版本号 */
-export const SCHEMA_VERSION = 48;
+export const SCHEMA_VERSION = 49;
 
 /**
  * V1 DDL — 初始 schema
@@ -1689,6 +1689,56 @@ ALTER TABLE agent_memories ADD COLUMN archive_reason TEXT;
 CREATE INDEX IF NOT EXISTS idx_agent_memories_project_key
   ON agent_memories (agent_id, user_id, project_key)
   WHERE project_key IS NOT NULL;
+`,
+  ],
+
+  // V49: 自建记忆宫殿（去 Python 依赖）
+  //
+  // 动因（评审 2026-09-17 §4.6 / 自建记忆宫殿实施计划）：宫殿原由 MemPalace（Python MCP +
+  // chromadb）承载，本机 chromadb 1.5.x 的 Rust 内核 upsert 直接 0xC0000005 崩溃；
+  // 即便能跑，`palace_drawer_id` 覆盖率也实测只有 4/171 = 2.3%——`memory_search` 的
+  // 宫殿通道形同虚设，「过去说过什么」没有任何可召回路径。
+  //
+  // 为什么放在 agent-runtime.db 而不是另起一个库：与工作记忆同库，段归档与记忆写入
+  // 可同事务回滚；备份、integrity_check、云同步排除清单也都是现成的（见 R6）。
+  //
+  // 为什么 FTS 只有一列：与 `agent_memories_fts` 同构。中文 2 字词在 unicode61 下切不开，
+  // 预分词只能在 JS 侧做（`tokenizeBigram`），`content` 列存的就是空格拼接后的 bigram。
+  // **不额外存一列原文**——原文在 unicode61 里会变成一整个巨型 token（中文连续串不切分），
+  // 检索上用不到，只把索引体积翻倍；需要原文时按 rowid 回主表取即可。
+  //
+  // `deleted_at` 必须有生产者（评审 §4.4 的教训）：生产者是 `PalaceRepo.deleteById()`。
+  // 且**重复归档不复活**已删除的 drawer——墓碑优先，与云同步合并同一原则。
+  //
+  // `segment_id` **刻意不加外键**（实施计划里写的是 REFERENCES memory_segments(id)
+  // ON DELETE SET NULL，实际去掉了——差异 #17）：归档发生在异步总结队列里，
+  // 用户完全可能在归档落地前删掉会话。加了外键，那次归档会直接被
+  // 「FOREIGN KEY constraint failed」打回，原文丢失——而这恰恰是存档最不该发生的事。
+  // 原文是自足的内容寻址对象，不依赖段行是否存在；`segment_id` 只是溯源信息。
+  [
+    49,
+    `
+CREATE TABLE IF NOT EXISTS palace_drawers (
+  drawer_id       TEXT PRIMARY KEY,
+  agent_id        TEXT NOT NULL,
+  user_id         TEXT NOT NULL,
+  conversation_id TEXT,
+  segment_id      TEXT,
+  wing            TEXT NOT NULL,
+  room            TEXT NOT NULL,
+  content         TEXT NOT NULL,
+  char_count      INTEGER NOT NULL,
+  created_at      TEXT NOT NULL,
+  deleted_at      TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_palace_drawers_scope
+  ON palace_drawers (agent_id, user_id, deleted_at);
+
+CREATE INDEX IF NOT EXISTS idx_palace_drawers_segment
+  ON palace_drawers (segment_id);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS palace_drawers_fts USING fts5(content);
 `,
   ],
 ] as const;

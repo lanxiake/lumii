@@ -20,6 +20,7 @@ import {
   type MemoryManager,
   type ArchivePalaceMeta,
   type SummarizationStats,
+  type PalaceArchiveStats,
 } from '@mtbot/agent-runtime'
 import { agentRuntimeLog as log } from './bridge-utils'
 
@@ -187,8 +188,34 @@ export class SegmentMemoryService {
     return { ...total, pipelines: this.pipelines.size }
   }
 
-  private logStats(trigger: string): void {
-    const s = this.getStats()
+  /**
+   * 宫殿归档统计（跨 pipeline 汇总）。
+   *
+   * 归档失败此前只有一条 WARN——不进错误日志、没有任何消费者，表现是
+   * 「宫殿检索永远返回空」。与段落总结统计同一个理由（P1-3）：断供必须看得见。
+   */
+  getPalaceStats(): PalaceArchiveStats & { readonly pipelines: number } {
+    const total = {
+      attempted: 0,
+      archived: 0,
+      notStored: 0,
+      failed: 0,
+      lastError: null as { at: string; message: string } | null,
+    }
+    for (const pipe of this.pipelines.values()) {
+      const s = pipe.getPalaceStats()
+      total.attempted += s.attempted
+      total.archived += s.archived
+      total.notStored += s.notStored
+      total.failed += s.failed
+      if (s.lastError && (!total.lastError || s.lastError.at > total.lastError.at)) {
+        total.lastError = { at: s.lastError.at, message: s.lastError.message }
+      }
+    }
+    return { ...total, pipelines: this.pipelines.size }
+  }
+
+  private logStats(trigger: string): void {    const s = this.getStats()
     if (s.summarised === 0 && s.failed === 0 && s.abandoned === 0) return
     log.info(
       `[SegmentMemoryService] 统计(${trigger}) pipelines=${s.pipelines} ` +

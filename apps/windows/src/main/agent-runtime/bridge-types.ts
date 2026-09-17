@@ -126,15 +126,23 @@ export interface AgentRuntimeBridgeConfig {
    */
   skillEvolutionEngine?: import('../skill-evolution/index').SkillEvolutionEngine
   /**
-   * MemPalace 语义搜索（由 index.ts 注入，调用 MemPalaceMcpBridge.searchDrawers）
-   * 返回 null 表示 MemPalace 未安装/未运行，此时降级到 user_memory 文本搜索
+   * 记忆宫殿检索（由 index.ts 注入 MemPalace 实现，或由 bridge 换成自建 SQLite 实现）。
+   * 返回 null 表示后端不可用，此时降级到 user_memory 文本搜索。
+   *
+   * `score` 是**相关性分数（越大越相关）**，不是相似度：BM25 无上界、不可跨查询比较，
+   * 伪造成 [0,1] 会重蹈效用代理的覆辙（评审 §4.3）。
+   * `text` 是摘录而非全文（段原文最长 94473 字符）——要全文就带 `drawer_id` 走 memory_read。
    */
-  searchMempalace?: (query: string, limit?: number) => Promise<Array<{ text: string; wing: string; room: string; similarity: number; drawer_id: string }> | null>
+  searchPalace?: (
+    query: string,
+    limit?: number,
+    scope?: { agentId?: string; userId?: string },
+  ) => Promise<PalaceSearchHit[] | null>
   /**
-   * 按 drawer_id 读取记忆宫殿归档原文（由 index.ts 注入，调用 MemPalaceMcpBridge.getDrawer）
-   * 返回 null 表示未找到或 MemPalace 不可用
+   * 按 drawer_id 读取记忆宫殿归档原文（memory_read 工具）
+   * 返回 null 表示未找到或后端不可用
    */
-  readMempalaceDrawer?: (drawerId: string) => Promise<{
+  readPalaceDrawer?: (drawerId: string) => Promise<{
     drawer_id: string
     content: string
     wing: string
@@ -157,18 +165,35 @@ export interface AgentRuntimeBridgeConfig {
     style: PromptStyle
   }>
   /**
-   * 段原文归档进 MemPalace（由 index.ts 注入，调用 MemPalaceMcpBridge.callTool）。
-   * drawer_id 由 runtime 内容寻址确定性生成（P2），传给 Python 做幂等 upsert。
-   * 返回宫殿实际写入的 drawer_id（可能与传入相同）；未安装/失败返回 undefined。
+   * 段原文归档进记忆宫殿（由 index.ts 注入 MemPalace 实现，或由 bridge 换成自建实现）。
+   * drawer_id 由 runtime 内容寻址确定性生成（P2），传给后端做幂等 upsert。
+   * 返回宫殿**实际写入**的 drawer_id；后端不可用/失败返回 undefined（runtime 不回填、不留死链）。
    * 记忆系统升级阶段一 · 诉求 A · 宫殿互引。
    */
-  archiveMempalaceDrawer?: (params: {
+  archivePalaceDrawer?: (params: {
     content: string
     wing: string
     room: string
     drawerId: string
+    /** 作用域（自建后端要落库；MemPalace 无此概念，忽略） */
+    agentId?: string
+    userId?: string
     metadata?: Record<string, unknown>
   }) => Promise<{ drawerId?: string } | undefined>
+}
+
+/** 记忆宫殿检索命中项 */
+export interface PalaceSearchHit {
+  text: string
+  wing: string
+  room: string
+  /** 相关性分数，越大越相关；**不是**相似度，不可跨查询比较 */
+  score: number
+  drawer_id: string
+  created_at?: string
+  /** 原文总长度（`text` 只是摘录时，远大于 `text.length`） */
+  char_count?: number
+  truncated?: boolean
 }
 
 /** 按 Agent 定义 ID 聚合的运行时快照（DetailPanel「运行状态」） */

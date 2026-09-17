@@ -212,6 +212,15 @@ describe("SegmentMemoryPipeline 宫殿归档幂等 (P2)", () => {
     expect(archiveCalls[0].drawerId).toBe(
       deterministicDrawerId(archiveCalls[0].wing, archiveCalls[0].room, text),
     );
+
+    // 归档计数（体检的判据来源）：成功 1，其余为 0
+    expect(pipe.getPalaceStats()).toMatchObject({
+      attempted: 1,
+      archived: 1,
+      notStored: 0,
+      failed: 0,
+      lastError: null,
+    });
   });
 
   it("宿主返回不同 drawerId → 以宿主为准回填段与记忆", async () => {
@@ -274,6 +283,48 @@ describe("SegmentMemoryPipeline 宫殿归档幂等 (P2)", () => {
       expect(segRepo.findById("seg-1")?.palaceDrawerId).toBeNull();
       expect(mgr.listActive("a1", "u1")[0].palace_drawer_id).toBeNull();
       expect(warned.some((w) => w.includes("未归档进宫殿"))).toBe(true);
+
+      // 失败要计数：此前只有一条 WARN，没有消费者，表现是「宫殿检索永远返回空」
+      expect(pipe.getPalaceStats()).toMatchObject({
+        attempted: 1,
+        archived: 0,
+        notStored: 1,
+        failed: 0,
+      });
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it("宿主抛异常 → 计 failed 并记 lastError（不是静默吞掉）", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const pipe = new SegmentMemoryPipeline({
+        segmentRepo: segRepo,
+        conversationRepo: convRepo,
+        memoryManager: mgr,
+        callLLM: async () =>
+          JSON.stringify([{ content: "用户在做周报自动化", category: "project", importance: 0.6, tags: [] }]),
+        agentId: "a1",
+        userId: "u1",
+        newId: () => `seg-${++idSeq}`,
+        minSummaryChars: 5,
+        archivePalace: async () => {
+          throw new Error("database is locked");
+        },
+      });
+
+      convRepo.saveMessage({ id: "m1", conversationId: "c1", role: "user", contentJson: { type: "text", text: "帮我把周报自动化这件事记一下" } });
+      pipe.observe({ conversationId: "c1", userId: "u1", agentId: "a1", messageId: "m1", ts: 1_000_000, text: "帮我把周报自动化这件事记一下", role: "user" });
+      pipe.flush("c1", "session_end");
+      await pipe.settle();
+
+      const stats = pipe.getPalaceStats();
+      expect(stats.attempted).toBe(1);
+      expect(stats.failed).toBe(1);
+      expect(stats.lastError?.message).toContain("database is locked");
+      // 归档失败不影响记忆产出
+      expect(mgr.listActive("a1", "u1")).toHaveLength(1);
     } finally {
       warnSpy.mockRestore();
     }

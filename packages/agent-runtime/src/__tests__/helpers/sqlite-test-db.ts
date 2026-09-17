@@ -227,3 +227,20 @@ export function runMigration48(db: DatabaseAdapter): void {
   if (!entry) throw new Error("V48 migration not found in MIGRATIONS");
   db.exec(entry[1]);
 }
+
+/** 建一个只迁移到 V48（即将执行 V49 之前）的内存库，供 V49 迁移测试构造 fixture */
+export function createPreV49TestDb(): DatabaseAdapter {
+  const db = createTestSqliteAdapter();
+  for (const [version, sql] of MIGRATIONS) {
+    if (version >= 49) continue;
+    db.exec(sql);
+  }
+  return db;
+}
+
+/** 对一个 pre-V49 库执行 V49 迁移 SQL（自建记忆宫殿：palace_drawers + FTS） */
+export function runMigration49(db: DatabaseAdapter): void {
+  const entry = MIGRATIONS.find(([version]) => version === 49);
+  if (!entry) throw new Error("V49 migration not found in MIGRATIONS");
+  db.exec(entry[1]);
+}

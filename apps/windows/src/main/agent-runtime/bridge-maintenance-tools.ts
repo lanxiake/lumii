@@ -149,6 +149,7 @@ export function registerMaintenanceReportTools(deps: BridgeToolRegistrarDeps): v
             return file?.content ?? null
           },
           ...(deps.getSegmentStats ? { getSegmentStats: deps.getSegmentStats } : {}),
+          ...(deps.getPalaceStats ? { getPalaceStats: deps.getPalaceStats } : {}),
         })
         return jsonToolResult({ status: 'ok', ...result })
       } catch (err) {

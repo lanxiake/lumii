@@ -28,16 +28,38 @@ export interface ArchivePalaceMeta {
   readonly drawerId: string;
   /**
    * 宫殿归档位置（wing/room）。由 runtime 计算并传出，供宿主按自己的后端
-   * 落地——宿主可以把它归一成后端收得下的名字（如 mempalace 只收字母数字
+   * 落地——宿主可以把它归一成后端收得下的名字（如旧 MemPalace 后端只收字母数字
    * 与 `_ . ' -` 空格），但**回填以宿主返回的 drawerId 为准**：只有真写进去了
    * 才记账，见 archiveToPalace。
+   *
+   * 注意 wing 要带上 agent 作用域：drawer_id 的内容寻址只含 (wing, room, content)。
    */
   readonly wing: string;
   readonly room: string;
 }
 
-export interface SegmentMemoryPipelineDeps {
-  readonly segmentRepo: SegmentRepo;
+/**
+ * 宫殿归档统计（可观测性）。
+ *
+ * 与段落总结的计数同一个理由（P1-3 的教训）：归档失败**全程不报错**——
+ * `archiveToPalace` 的 catch 只打一条 WARN，而 WARN 不进错误日志；
+ * 表现为「宫殿检索永远返回空」，看起来就像「过去没聊过这件事」。
+ * 2026-09-17 的实测就是如此：覆盖率 4/171 = 2.3%，没有任何一处报警。
+ */
+export interface PalaceArchiveStats {
+  /** 尝试归档的段数（原文非空、已注入 archivePalace） */
+  readonly attempted: number;
+  /** 真写进宫殿并回填了 drawer_id 的段数 */
+  readonly archived: number;
+  /** 宿主返回空（后端不可用/拒收）而**未**回填的段数——宁可没有 id 也不留死链 */
+  readonly notStored: number;
+  /** 抛异常的次数 */
+  readonly failed: number;
+  /** 最近一次失败的时间与原因（无失败为 null） */
+  readonly lastError: { readonly at: string; readonly message: string } | null;
+}
+
+export interface SegmentMemoryPipelineDeps {  readonly segmentRepo: SegmentRepo;
   readonly conversationRepo: ConversationRepo;
   readonly memoryManager: MemoryManager;
   /** LLM 调用（basic tier 由宿主选模型）；未提供则管线不总结（仅分段，不产出记忆） */
@@ -53,8 +75,8 @@ export interface SegmentMemoryPipelineDeps {
   /**
    * 段原文归档进记忆宫殿的回调（诉求 A · 宫殿互引）。
    *
-   * runtime 不可 import 插件，故由宿主（持有 mempalace MCP client）注入实现，
-   * runtime 只认接口。返回稳定 drawer_id 后回填段与该段产出的记忆。
+   * runtime 不可 import 插件，故由宿主（自建后端是 PalaceRepo，旧后端是 mempalace
+   * MCP client）注入实现，runtime 只认接口。返回稳定 drawer_id 后回填段与该段产出的记忆。
    * 未提供则跳过宫殿归档（仅做原文回溯，不互引）。
    */
   readonly archivePalace?: (
@@ -70,6 +92,13 @@ export class SegmentMemoryPipeline {
   private readonly queue: SummarizationQueue;
   /** 未注入 callLLM 的告警只打一次（每次总结都打会刷屏） */
   private warnedNoLlm = false;
+  private palaceStats = {
+    attempted: 0,
+    archived: 0,
+    notStored: 0,
+    failed: 0,
+    lastError: null as { at: string; message: string } | null,
+  };
 
   constructor(private readonly deps: SegmentMemoryPipelineDeps) {
     this.queue = new SummarizationQueue({
@@ -177,6 +206,11 @@ export class SegmentMemoryPipeline {
     return this.queue.getStats();
   }
 
+  /** 宫殿归档统计（未注入 archivePalace 时全为 0） */
+  getPalaceStats(): PalaceArchiveStats {
+    return { ...this.palaceStats };
+  }
+
   stop(): void {
     this.queue.stop();
   }
@@ -210,6 +244,7 @@ export class SegmentMemoryPipeline {
       const room = seg.createdAt.slice(0, 10); // 归档日期
       const drawerId = deterministicDrawerId(wing, room, text);
 
+      this.palaceStats.attempted++;
       // 让宿主把原文 upsert 进宫殿（幂等）；它返回的 drawerId 才是宫殿里的实际 ID
       const result = await archivePalace(text, {
         segmentId: seg.id,
@@ -224,13 +259,20 @@ export class SegmentMemoryPipeline {
       const storedId = result.drawerId;
       if (!storedId) {
         // 没写进去就不留痕：宁可没有 drawer_id，也不能记一个查不到的
+        this.palaceStats.notStored++;
         console.warn(`[SegmentMemory] 段 ${seg.id} 未归档进宫殿，不回填 drawer_id`);
         return;
       }
       segmentRepo.setPalaceDrawerId(seg.id, storedId);
       memoryManager.setPalaceDrawerIdBySegment(seg.id, storedId);
+      this.palaceStats.archived++;
     } catch (err) {
       // 归档失败不影响记忆写入主流程
+      this.palaceStats.failed++;
+      this.palaceStats.lastError = {
+        at: new Date().toISOString(),
+        message: (err as Error).message,
+      };
       console.warn(
         `[SegmentMemory] 段 ${segmentId} 宫殿归档失败: ${(err as Error).message}`,
       );

@@ -55,10 +55,12 @@ export const MEMORY_LAYERS: readonly MemoryLayerInfo[] = [
   {
     id: "palace",
     label: "记忆宫殿",
-    storage: "本地归档（Wing→Room→Drawer），经 memory_search 检索",
+    // 2026-09-17 起存储换成本地 SQLite（palace_drawers + FTS5），不再依赖 Python/chromadb：
+    // 原 MemPalace 后端在本机 upsert 直接崩，覆盖率实测 4/171 = 2.3%。
+    storage: "本地 SQLite palace_drawers（Wing→Room→Drawer 内容寻址），FTS5 检索",
     categories: ["对话原文", "知识片段"],
     purpose:
-      "海量历史对话与知识的存档。按主题/时间结构化存储，通过检索召回细节，不直接全量注入 prompt。",
+      "海量历史对话与知识的存档。按主题/时间结构化存储，通过检索召回细节（命中返回摘录，全文按 drawer_id 读），不直接全量注入 prompt。",
     // 写入由段落管线在段关闭时自动完成，**没有面向模型的写入工具**。
     // 此前这里写的是 `memory_store`——该工具全仓不存在（2026-09-17 清理，评审 P0-5），
     // 提示词把模型引向一个调不通的工具。

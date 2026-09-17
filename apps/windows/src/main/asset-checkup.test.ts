@@ -35,10 +35,19 @@ function makeDeps(
   markdown: string | null = '# 用户记忆\n## 基本信息\n- 称呼：老张\n',
   /** 命名空间分布（默认与 rows 自洽：全部 local-user） */
   namespaces: readonly { user_id: string; c: number }[] = [{ user_id: 'local-user', c: rows.length }],
+  /** 宫殿状态（P2-3）：默认与索引自洽的 3 段 */
+  palace: { segments?: number; withId?: number; active?: number; fts?: number } = {},
 ) {
+  const p = { segments: 3, withId: 3, active: 3, fts: 3, ...palace }
   const db = {
     prepare: (sql: string) => ({
       all: () => (sql.includes('GROUP BY user_id') ? namespaces : rows),
+      get: () => {
+        if (sql.includes('FROM memory_segments')) return { total: p.segments, withId: p.withId }
+        if (sql.includes('SUM(deleted_at IS NULL)')) return { active: p.active, tombstoned: 0 }
+        if (sql.includes('FROM palace_drawers_fts')) return { c: p.fts }
+        return undefined
+      },
     }),
   } as unknown as DatabaseAdapter
   return { db, readUserMemory: async () => markdown, now: () => NOW }
@@ -55,6 +64,71 @@ describe('runMemoryCheckup', () => {
     // 段落管线项在未注入统计时为 skipped（不假装检查过），故排除它
     expect(result.checks.filter((c) => c.key !== 'memory:segment-pipeline').every((c) => c.status === 'ok')).toBe(true)
     expect(checkOf(result, 'memory:segment-pipeline').status).toBe('skipped')
+  })
+
+  it('宫殿：索引与主表不一致时报 issue（检索会静默漏结果）', async () => {
+    const deps = makeDeps([row()], undefined, undefined, { active: 73, fts: 1 })
+    const check = checkOf(await runMemoryCheckup(deps), 'memory:palace-coverage')
+    expect(check.status).toBe('issue')
+    expect(check.detail).toContain('派生索引与主表不一致')
+    expect(check.detail).toContain('73')
+  })
+
+  it('宫殿：本进程归档失败计数 > 0 时报 issue（写入点自己数的）', async () => {
+    const deps = {
+      ...makeDeps([row()]),
+      getPalaceStats: () => ({
+        attempted: 5,
+        archived: 3,
+        notStored: 1,
+        failed: 1,
+        lastError: { at: '2026-09-17T11:00:00.000Z', message: 'database is locked' },
+      }),
+    }
+    const check = checkOf(await runMemoryCheckup(deps), 'memory:palace-coverage')
+    expect(check.status).toBe('issue')
+    expect(check.detail).toContain('归档失败 1 次')
+    expect(check.detail).toContain('未落库 1 段')
+    expect(check.candidates?.[0].label).toContain('database is locked')
+  })
+
+  it('宫殿：历史欠账（老段没 id）不算 issue，只报覆盖率', async () => {
+    // 老段的原文所在会话已被删、或本身是碎段，补不回来——推断式的判据会变成永远报警的假警报
+    const deps = makeDeps([row()], undefined, undefined, {
+      segments: 101,
+      withId: 73,
+      active: 73,
+      fts: 73,
+    })
+    const check = checkOf(await runMemoryCheckup(deps), 'memory:palace-coverage')
+    expect(check.status).toBe('ok')
+    expect(check.detail).toContain('73/101 = 72.3%')
+  })
+
+  it('宫殿：本进程全部归档成功时报 ok 并带上计数', async () => {
+    const deps = {
+      ...makeDeps([row()]),
+      getPalaceStats: () => ({ attempted: 4, archived: 4, notStored: 0, failed: 0, lastError: null }),
+    }
+    const check = checkOf(await runMemoryCheckup(deps), 'memory:palace-coverage')
+    expect(check.status).toBe('ok')
+    expect(check.detail).toContain('本进程归档 4/4 段')
+  })
+
+  it('宫殿：宫殿表不可读（迁移未跑）时 skipped，不假装检查过', async () => {
+    const db = {
+      prepare: (sql: string) => ({
+        all: () => (sql.includes('GROUP BY user_id') ? [{ user_id: 'local-user', c: 1 }] : [row()]),
+        get: () => {
+          if (sql.includes('FROM memory_segments')) throw new Error('no such table: palace_drawers')
+          return undefined
+        },
+      }),
+    } as unknown as DatabaseAdapter
+    const deps = { db, readUserMemory: async () => null, now: () => NOW }
+    const check = checkOf(await runMemoryCheckup(deps), 'memory:palace-coverage')
+    expect(check.status).toBe('skipped')
+    expect(check.detail).toContain('V49')
   })
 
   it('段落管线：有失败时报 issue，放弃段单独提示', async () => {
@@ -208,8 +282,8 @@ describe('runMemoryCheckup', () => {
     const result = await runMemoryCheckup(makeDeps([row({ id: 't', content: '好' })]))
     expect(result.issueCount).toBe(1)
     // 段落管线项在未注入统计时为 skipped，不计入 checkedCount
-    expect(result.checkedCount).toBe(7) // 命名空间 + 6 项机械检查
-    expect(result.summary).toContain('7 项')
+    expect(result.checkedCount).toBe(8) // 7 项机械检查 + 命名空间 + 宫殿（P2-3）
+    expect(result.summary).toContain('8 项')
     expect(result.summary).toContain('1 项')
   })
 })

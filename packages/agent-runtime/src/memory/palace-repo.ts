@@ -1,0 +1,418 @@
+/**
+ * PalaceRepo — 记忆宫殿的存储与检索（自建，去 Python 依赖）
+ *
+ * 背景（评审 2026-09-17 §4.6）：宫殿原由 MemPalace（Python MCP + chromadb）承载，
+ * 本机 chromadb 的 Rust 内核 upsert 直接 0xC0000005 崩溃；即便能跑，`palace_drawer_id`
+ * 覆盖率也只有 4/171 = 2.3%。结果是「过去说过什么」这条召回路径实际上不存在。
+ *
+ * 检索用 **FTS5 + BM25 + 中文 bigram 预分词**，与 `AgentMemoryRepo.search()` 同构。
+ * 为什么不上向量：评审 §2.5.2 已用本语料实测，本地 e5-small 相对 BM25 并无正收益
+ * （4 组对照打平 2、各胜 1，top-1 余弦全落在 0.873–0.893 无区分度）。换检索栈要有
+ * 数据依据，而不是「向量更高级」——依据由评测集给（P2-1，已产出 Recall@5 = 0.933 基线）。
+ *
+ * 两条刻意的不对称，都是有原因的：
+ *
+ * 1. **检索返回摘录，不返回原文**。段原文平均 6790 字符、最长 94473——把整段塞进
+ *    `memory_search` 的工具结果就是把上下文打爆。架构文档本来就写着「检索召回细节，
+ *    不直接全量注入 prompt」：命中后由 Agent 用 `memory_read` 按 drawer_id 取全文。
+ * 2. **`score` 是相关性分数（-bm25），不是相似度**。BM25 无上界、不可跨查询比较；
+ *    把它伪造成 [0,1] 的「相似度」会重蹈效用代理的覆辙（评审 §4.3）。要展示就在
+ *    展示层做相对归一，别在数据层说谎。
+ *
+ * **作用域靠 `wing` 承载**：内容寻址是 (wing, room, content)，agent/user 不在里面。
+ * 默认 wing 是 `${agentId}:${userId}`（见 `segment-memory-pipeline`），所以天然隔离；
+ * 自定义 `palaceWing` 时必须把 agent 作用域带进去，否则不同 Agent 的同内容会并成一条。
+ *
+ * 设计：`docs/plans/记忆系统/2026-09-17-自建记忆宫殿实施计划.md` §2.3 / T3
+ */
+
+import type { DatabaseAdapter } from "../storage/local-database.js";
+import { tokenizeBigram } from "./segmentation.js";
+import { deterministicDrawerId } from "./content-address.js";
+import { PalaceIndexRepo, type PalaceFtsHealth } from "./palace-index.js";
+
+/** 检索结果的摘录长度（字符）。够看清「这段在讲什么」，又不至于打爆上下文。 */
+export const SEARCH_EXCERPT_CHARS = 600;
+
+export interface PalaceDrawerInput {
+  readonly agentId: string;
+  readonly userId: string;
+  readonly wing: string;
+  readonly room: string;
+  readonly content: string;
+  readonly conversationId?: string | null;
+  readonly segmentId?: string | null;
+  /** 调用方算出的内容寻址 id；与 `deterministicDrawerId(wing, room, content)` 不符时以重算值为准 */
+  readonly drawerId?: string | null;
+  /** 归档时间，默认当前时刻 */
+  readonly createdAt?: string;
+}
+
+/** 检索命中项。`text` 是**摘录**（原文见 `memory_read`），`score` 是 -bm25，越大越相关 */
+export interface PalaceSearchItem {
+  readonly drawer_id: string;
+  readonly text: string;
+  readonly wing: string;
+  readonly room: string;
+  readonly score: number;
+  readonly created_at: string;
+  /** 原文总长度；远大于 `text.length` 说明需要 `memory_read` 取全文 */
+  readonly char_count: number;
+  readonly truncated: boolean;
+}
+
+export interface PalaceDrawerDetail {
+  readonly drawer_id: string;
+  readonly content: string;
+  readonly wing: string;
+  readonly room: string;
+  readonly metadata: Record<string, unknown>;
+}
+
+export interface PalaceScopeCounts {
+  readonly active: number;
+  readonly tombstoned: number;
+  readonly total: number;
+}
+
+export interface PalaceSearchParams {
+  readonly query: string;
+  /** 作用域：宫殿按用户隔离；`agentId` 不传 = 跨 Agent（宫殿是会话存档，本就跨助手可读） */
+  readonly userId: string;
+  readonly agentId?: string;
+  readonly limit?: number;
+  readonly wing?: string;
+  readonly room?: string;
+}
+
+interface DrawerRow {
+  drawer_id: string;
+  agent_id: string;
+  user_id: string;
+  conversation_id: string | null;
+  segment_id: string | null;
+  wing: string;
+  room: string;
+  content: string;
+  char_count: number;
+  created_at: string;
+  deleted_at: string | null;
+}
+
+/** 单次检索最多枚举的命中位置数（防止高频 bigram 在长文里枚举出上万条） */
+const MAX_ANCHOR_POSITIONS = 5000;
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * 找摘录锚点：**覆盖查询词最密集的那个窗口**的起点。
+ *
+ * 一开始写的是「取最长 token 的首次出现位置」，实测不成立：中文 bigram 全是 2 字符，
+ * 「的时」和「青竹」同长，于是最常见的那个 bigram 反而赢——正相反，短而常见的词
+ * 恰恰最不该当锚点。改成滑窗数「窗口内出现了多少个不同的查询 token」：查询词密集处
+ * 才是这段在讲什么的证据。
+ *
+ * 位置枚举用一次正则扫描（token 转义后取并集），不是逐 token 各扫一遍全串——
+ * 后者在 94K 字符的段上要做几十次全串 indexOf。
+ */
+function findExcerptAnchor(content: string, query: string, maxChars: number): number {
+  const tokens = [...tokenizeBigram(query)];
+  if (tokens.length === 0) return -1;
+
+  const re = new RegExp(tokens.map(escapeRegExp).join("|"), "g");
+  const lower = content.toLowerCase();
+  const positions: { pos: number; token: string }[] = [];
+  for (const m of lower.matchAll(re)) {
+    positions.push({ pos: m.index, token: m[0] });
+    if (positions.length >= MAX_ANCHOR_POSITIONS) break;
+  }
+  if (positions.length === 0) return -1;
+
+  positions.sort((a, b) => a.pos - b.pos);
+
+  const counts = new Map<string, number>();
+  let distinct = 0;
+  let bestDistinct = -1;
+  let bestStart = positions[0]!.pos;
+  let left = 0;
+  for (let right = 0; right < positions.length; right++) {
+    const tok = positions[right]!.token;
+    const c = (counts.get(tok) ?? 0) + 1;
+    counts.set(tok, c);
+    if (c === 1) distinct++;
+
+    while (positions[right]!.pos - positions[left]!.pos > maxChars) {
+      const lt = positions[left]!.token;
+      const lc = (counts.get(lt) ?? 0) - 1;
+      counts.set(lt, lc);
+      if (lc === 0) distinct--;
+      left++;
+    }
+    if (distinct > bestDistinct) {
+      bestDistinct = distinct;
+      bestStart = positions[left]!.pos;
+    }
+  }
+  return bestStart;
+}
+
+/**
+ * 取一段能代表命中位置的摘录。
+ *
+ * 窗口按 1/3 前置偏移，让命中点略偏左，保留一点上下文。
+ */
+export function buildDrawerExcerpt(
+  content: string,
+  query: string,
+  maxChars = SEARCH_EXCERPT_CHARS,
+): { text: string; truncated: boolean } {
+  if (content.length <= maxChars) return { text: content, truncated: false };
+
+  const anchor = findExcerptAnchor(content, query, maxChars);
+  const start =
+    anchor < 0
+      ? 0
+      : Math.max(0, Math.min(anchor - Math.floor(maxChars / 3), content.length - maxChars));
+  const end = start + maxChars;
+  const head = start > 0 ? "…" : "";
+  const tail = end < content.length ? "…" : "";
+  return { text: `${head}${content.slice(start, end)}${tail}`, truncated: true };
+}
+
+export class PalaceRepo {
+  private readonly index: PalaceIndexRepo;
+
+  constructor(private readonly db: DatabaseAdapter) {
+    this.index = new PalaceIndexRepo(db);
+  }
+
+  /**
+   * 写入/覆盖一条归档原文（幂等）。
+   *
+   * `drawer_id` **一律重算**而不采信传入值：内容寻址不变量（同 wing/room/content →
+   * 同 id）必须只有一个来源，否则「重复归档不产生第二行」就退化成调用方的约定。
+   * 传入值仅仅用来发现不一致（不一致说明调用方与这里的算法漂移了，要报出来）。
+   *
+   * 两条刻意的边界：
+   * - `created_at` 与 `deleted_at` **不在 DO UPDATE 里**：首见时间不该被重复归档改写；
+   *   被删除的 drawer 也不因再次归档而复活——墓碑优先，与云同步合并（P0-2）同一原则。
+   * - 只有真写进库才返回 id（沿用 `segment-memory-pipeline` 的「未回填不记账」语义）。
+   */
+  upsertDrawer(input: PalaceDrawerInput): { drawerId: string; inserted: boolean } {
+    const content = input.content;
+    const drawerId = deterministicDrawerId(input.wing, input.room, content);
+    if (input.drawerId && input.drawerId !== drawerId) {
+      console.warn(
+        `[PalaceRepo] 传入 drawerId=${input.drawerId} 与内容寻址结果不一致，以内容寻址为准（${drawerId}）`,
+      );
+    }
+    const createdAt = input.createdAt ?? new Date().toISOString();
+    const existing = this.db
+      .prepare<{ agent_id: string; user_id: string }>(
+        "SELECT agent_id, user_id FROM palace_drawers WHERE drawer_id = ?",
+      )
+      .get(drawerId);
+    if (existing && (existing.agent_id !== input.agentId || existing.user_id !== input.userId)) {
+      // 内容寻址只含 (wing, room, content)，作用域是靠 wing 带的（默认 wing = agentId:userId）。
+      // 同一段原文被两个作用域归档却不带作用域进 wing，就会合并成一条、归属来回改写，
+      // 结果是「段里记着 drawer_id，检索时却看不到」。这里只能报出来——id 规则不能在这里改，
+      // 回填脚本与线上归档必须算出同一个 id。
+      console.warn(
+        `[PalaceRepo] drawer ${drawerId} 已有归属 ${existing.agent_id}/${existing.user_id}，` +
+          `本次归档来自 ${input.agentId}/${input.userId}——wing 需要带上 agent 作用域`,
+      );
+    }
+
+    this.db
+      .prepare(
+        `INSERT INTO palace_drawers
+           (drawer_id, agent_id, user_id, conversation_id, segment_id, wing, room,
+            content, char_count, created_at, deleted_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+         ON CONFLICT(drawer_id) DO UPDATE SET
+           agent_id        = excluded.agent_id,
+           user_id         = excluded.user_id,
+           conversation_id = excluded.conversation_id,
+           segment_id      = excluded.segment_id,
+           wing            = excluded.wing,
+           room            = excluded.room,
+           content         = excluded.content,
+           char_count      = excluded.char_count`,
+      )
+      .run(
+        drawerId,
+        input.agentId,
+        input.userId,
+        input.conversationId ?? null,
+        input.segmentId ?? null,
+        input.wing,
+        input.room,
+        content,
+        content.length,
+        createdAt,
+      );
+
+    const row = this.db
+      .prepare<{ rowid: number }>("SELECT rowid FROM palace_drawers WHERE drawer_id = ?")
+      .get(drawerId);
+    if (row) this.index.upsertRow(row.rowid, content);
+
+    return { drawerId, inserted: !existing };
+  }
+
+  /** 按 drawer_id 读归档原文（含来源元信息，供 memory_read 展示） */
+  readById(drawerId: string): PalaceDrawerDetail | null {
+    const row = this.db
+      .prepare<DrawerRow>(
+        "SELECT * FROM palace_drawers WHERE drawer_id = ? AND deleted_at IS NULL",
+      )
+      .get(drawerId);
+    if (!row) return null;
+    return {
+      drawer_id: row.drawer_id,
+      content: row.content,
+      wing: row.wing,
+      room: row.room,
+      metadata: {
+        source: "segment",
+        agentId: row.agent_id,
+        userId: row.user_id,
+        conversationId: row.conversation_id,
+        segmentId: row.segment_id,
+        charCount: row.char_count,
+        createdAt: row.created_at,
+      },
+    };
+  }
+
+  /**
+   * 关键词检索：bigram 预分词 → FTS5 MATCH（OR 短语）→ BM25 排序。
+   *
+   * 每个 token 单独加引号转义（`"` 转 `""`），避免查询里的 FTS5 语法字符
+   * （AND / OR / NEAR / 前缀 `*`）被当语法解释。分词为空或虚表缺失时回落 LIKE。
+   */
+  searchDrawers(params: PalaceSearchParams): readonly PalaceSearchItem[] {
+    const limit = Math.max(1, params.limit ?? 10);
+    const tokens = [...tokenizeBigram(params.query)];
+    const scope = this.buildScope(params, "d.");
+    if (tokens.length === 0) {
+      return this.searchByLike(params, limit);
+    }
+    const match = tokens.map((t) => `"${t.replace(/"/g, '""')}"`).join(" OR ");
+    try {
+      const rows = this.db
+        .prepare<DrawerRow & { rank: number }>(
+          `SELECT d.*, bm25(palace_drawers_fts) AS rank
+             FROM palace_drawers_fts
+             JOIN palace_drawers d ON d.rowid = palace_drawers_fts.rowid
+            WHERE palace_drawers_fts MATCH ? AND d.deleted_at IS NULL${scope.sql}
+            ORDER BY bm25(palace_drawers_fts)
+            LIMIT ?`,
+        )
+        .all(match, ...scope.args, limit);
+      return rows.map((r) => this.toItem(r, params.query, -r.rank));
+    } catch (err) {
+      console.warn("[PalaceRepo.searchDrawers] FTS5 查询失败，回落 LIKE:", err);
+      return this.searchByLike(params, limit);
+    }
+  }
+
+  private buildScope(
+    params: PalaceSearchParams,
+    prefix: string,
+  ): { sql: string; args: unknown[] } {
+    let sql = ` AND ${prefix}user_id = ?`;
+    const args: unknown[] = [params.userId];
+    if (params.agentId) {
+      sql += ` AND ${prefix}agent_id = ?`;
+      args.push(params.agentId);
+    }
+    if (params.wing) {
+      sql += ` AND ${prefix}wing = ?`;
+      args.push(params.wing);
+    }
+    if (params.room) {
+      sql += ` AND ${prefix}room = ?`;
+      args.push(params.room);
+    }
+    return { sql, args };
+  }
+
+  private searchByLike(params: PalaceSearchParams, limit: number): readonly PalaceSearchItem[] {
+    const scope = this.buildScope(params, "");
+    const rows = this.db
+      .prepare<DrawerRow>(
+        `SELECT * FROM palace_drawers
+          WHERE deleted_at IS NULL${scope.sql} AND content LIKE ?
+          ORDER BY created_at DESC
+          LIMIT ?`,
+      )
+      .all(...scope.args, `%${params.query}%`, limit);
+    // LIKE 命中无相关性可言，score 给 0 并保持时间序（不编造一个假的分数）
+    return rows.map((r) => this.toItem(r, params.query, 0));
+  }
+
+  private toItem(row: DrawerRow, query: string, score: number): PalaceSearchItem {
+    const excerpt = buildDrawerExcerpt(row.content, query);
+    return {
+      drawer_id: row.drawer_id,
+      text: excerpt.text,
+      wing: row.wing,
+      room: row.room,
+      score,
+      created_at: row.created_at,
+      char_count: row.char_count,
+      truncated: excerpt.truncated,
+    };
+  }
+
+  /**
+   * 删除（**非破坏**）：写 `deleted_at` 墓碑，行与原文保留，同时从检索中摘除。
+   * 生产者在这里，不是空墓碑——评审 §4.4 的教训（`deleted_at` 字段有读侧没写侧，
+   * 结果是「删不掉」）。
+   */
+  deleteById(drawerId: string, now = new Date().toISOString()): boolean {
+    const row = this.db
+      .prepare<{ rowid: number; deleted_at: string | null }>(
+        "SELECT rowid, deleted_at FROM palace_drawers WHERE drawer_id = ?",
+      )
+      .get(drawerId);
+    if (!row || row.deleted_at) return false;
+    this.db
+      .prepare("UPDATE palace_drawers SET deleted_at = ? WHERE drawer_id = ?")
+      .run(now, drawerId);
+    this.index.deleteRow(row.rowid);
+    return true;
+  }
+
+  /** 作用域内的条数（活跃 / 墓碑 / 合计），用于覆盖率与体检 */
+  countByScope(userId: string, agentId?: string): PalaceScopeCounts {
+    const where = agentId ? "user_id = ? AND agent_id = ?" : "user_id = ?";
+    const args = agentId ? [userId, agentId] : [userId];
+    const row = this.db
+      .prepare<{ active: number; tombstoned: number; total: number }>(
+        `SELECT SUM(deleted_at IS NULL) AS active,
+                SUM(deleted_at IS NOT NULL) AS tombstoned,
+                COUNT(*) AS total
+           FROM palace_drawers WHERE ${where}`,
+      )
+      .get(...args);
+    return {
+      active: row?.active ?? 0,
+      tombstoned: row?.tombstoned ?? 0,
+      total: row?.total ?? 0,
+    };
+  }
+
+  /** 全量重建派生索引，返回重建后的索引行数 */
+  rebuildIndex(): number {
+    return this.index.rebuildFts();
+  }
+
+  /** 索引健康检查（主表活跃行数 vs 索引行数） */
+  checkFtsHealth(): PalaceFtsHealth {
+    return this.index.checkFtsHealth();
+  }
+}

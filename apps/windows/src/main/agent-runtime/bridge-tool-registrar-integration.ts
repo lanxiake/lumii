@@ -161,10 +161,10 @@ export function registerIntegrationTools(deps: BridgeToolRegistrarDeps): void {
 
   /**
    * 记忆检索结果的一条命中。`provider` 标出来源通道——三条通道的分数量纲不可比
-   * （BM25 负分、余弦相似度、文件行匹配硬编码分），故不跨通道比大小，只分段返回。
+   * （BM25 相关性分数、文件行匹配硬编码分），故不跨通道比大小，只分段返回。
    */
   type MemorySearchHit = {
-    provider: 'work-memory' | 'mempalace' | 'profile' | 'scene'
+    provider: 'work-memory' | 'palace' | 'profile' | 'scene'
     content: string
     score: number
     /** 工作记忆条目的 id（可接 memory_manage 读取/修正） */
@@ -173,6 +173,10 @@ export function registerIntegrationTools(deps: BridgeToolRegistrarDeps): void {
     category?: string
     source?: string
     line?: number
+    /** 宫殿命中：原文总长度。远大于 content.length 时说明 content 只是摘录 */
+    char_count?: number
+    /** 宫殿命中：content 是否为摘录（true 则需 memory_read 读全文） */
+    truncated?: boolean
   }
 
   const resolveToolInstanceId = (toolCallId: string): string | undefined =>
@@ -197,12 +201,13 @@ export function registerIntegrationTools(deps: BridgeToolRegistrarDeps): void {
       // ── 通道 1：工作记忆（SQLite agent_memories，FTS5 + BM25，中文 bigram 分词）──
       // 2026-09-17 接通：此前 memory_search 从不查这张表，导致 Agent 只能看见每轮注入的
       // 6 条热记忆，其余 200+ 条毫无通道（评审 §2.4.1）。
+      const instanceId = resolveToolInstanceId(toolCallId)
+      const agentId = (instanceId && deps.getDefinitionIdByInstanceId(instanceId)) ?? 'default'
+      const readScope = instanceId ? deps.getMemoryReadScopeByInstanceId(instanceId) : 'agent'
+
       const memoryManager = deps.getMemoryManager()
       if (memoryManager) {
         try {
-          const instanceId = resolveToolInstanceId(toolCallId)
-          const agentId = (instanceId && deps.getDefinitionIdByInstanceId(instanceId)) ?? 'default'
-          const readScope = instanceId ? deps.getMemoryReadScopeByInstanceId(instanceId) : 'agent'
           const entries = memoryManager.searchMemories(
             agentId,
             'local-user',
@@ -238,27 +243,36 @@ export function registerIntegrationTools(deps: BridgeToolRegistrarDeps): void {
         return new Set(rows.map((r) => r.palace_drawer_id).filter(Boolean))
       }
 
-      // ── 通道 2：记忆宫殿（MemPalace；未安装/失败则跳过，不影响通道 1）──
-      if (deps.config.searchMempalace && hits.length < limit) {
+      // ── 通道 2：记忆宫殿（自建 SQLite PalaceRepo；后端不可用/失败则跳过，不影响通道 1）──
+      // 2026-09-17 换掉 MemPalace：Python + chromadb 后端在本机 upsert 直接崩，覆盖率 2.3%。
+      // 命中返回的是**摘录**（段原文最长 94473 字符），全文走 memory_read。
+      if (deps.config.searchPalace && hits.length < limit) {
         try {
-          let items = await deps.config.searchMempalace(query, limit - hits.length)
+          const items = await deps.config.searchPalace(query, limit - hits.length, {
+            userId: 'local-user',
+            // 与工作记忆通道同一作用域规则：agent 作用域只看本 Agent，user 作用域跨 Agent
+            ...(readScope === 'agent' ? { agentId } : {}),
+          })
           if (items !== null) {
+            let taken = items
             if (sessionKey) {
               const allowed = drawerIdsForSession(sessionKey)
               if (allowed.size > 0) {
-                items = items.filter((item) => allowed.has(item.drawer_id))
+                taken = taken.filter((item) => allowed.has(item.drawer_id))
               }
             }
-            for (const item of items) {
+            for (const item of taken) {
               hits.push({
-                provider: 'mempalace',
+                provider: 'palace',
                 drawer_id: item.drawer_id,
                 content: item.text,
-                score: item.similarity,
+                score: item.score,
                 source: `${item.wing}/${item.room}`,
+                ...(item.char_count != null ? { char_count: item.char_count } : {}),
+                ...(item.truncated ? { truncated: true } : {}),
               })
             }
-            counts.palace = items.length
+            counts.palace = taken.length
           }
         } catch (err) {
           log.warn('[memory_search] 宫殿通道失败，跳过:', err)
@@ -346,15 +360,15 @@ export function registerIntegrationTools(deps: BridgeToolRegistrarDeps): void {
       if (!drawerId) {
         return jsonToolResult({ ok: false, message: 'drawerId is required' })
       }
-      // MemPalace drawer_id 为内容寻址 16 位 hex（见 content-address.ts）
+      // 宫殿 drawer_id 为内容寻址 16 位 hex（见 content-address.ts）
       if (!/^[a-f0-9]{16}$/i.test(drawerId)) {
         return jsonToolResult({ ok: false, message: 'drawerId 格式无效（应为 16 位十六进制）' })
       }
-      const readDrawer = deps.config.readMempalaceDrawer
+      const readDrawer = deps.config.readPalaceDrawer
       if (!readDrawer) {
         return jsonToolResult({
           ok: false,
-          message: 'MemPalace 未配置或不可用，无法读取归档原文',
+          message: '记忆宫殿后端未配置或不可用，无法读取归档原文',
         })
       }
       try {
@@ -363,7 +377,7 @@ export function registerIntegrationTools(deps: BridgeToolRegistrarDeps): void {
           return jsonToolResult({
             ok: false,
             drawerId,
-            message: '未找到该 drawer，或 MemPalace 未安装/未运行',
+            message: '未找到该 drawer（可能已被删除），或记忆宫殿后端不可用',
           })
         }
         return jsonToolResult({
@@ -373,7 +387,7 @@ export function registerIntegrationTools(deps: BridgeToolRegistrarDeps): void {
           room: detail.room,
           content: detail.content,
           metadata: detail.metadata,
-          provider: 'mempalace',
+          provider: 'palace',
         })
       } catch (err) {
         return jsonToolResult({

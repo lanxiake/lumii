@@ -104,3 +104,28 @@ export function parseMessageContentJson(raw: string): MessageContentJson | undef
   }
   return undefined;
 }
+
+/**
+ * 从 content_json 里取出「人看得见的对话正文」。
+ *
+ * 为什么需要它：落库格式有两种——助手消息是 `assistant_parts`（parts 为唯一真相），
+ * 用户消息与旧数据是扁平 `text`。只判 `type === "text"` 会把**助手说过的话全部漏掉**，
+ * 于是「段原文归档」与「段落总结」拿到的是一份只有用户发言的对话
+ * （2026-09-17 实测：多轮段的 5 条消息里有 2 条被静默丢弃）。
+ *
+ * thinking 与 tool part 不参与：前者是推理过程，后者是结构化结果，都不是对话正文。
+ */
+export function extractMessageText(raw: string, separator = "\n"): string {
+  const parsed = parseMessageContentJson(raw);
+  if (!parsed) return "";
+  if (parsed.type === "text") return (parsed.text ?? "").trim();
+  if (parsed.type === "assistant_parts") {
+    return parsed.parts
+      .filter((p): p is Extract<typeof p, { type: "text" }> => p.type === "text")
+      .map((p) => p.text.trim())
+      .filter(Boolean)
+      .join(separator)
+      .trim();
+  }
+  return "";
+}

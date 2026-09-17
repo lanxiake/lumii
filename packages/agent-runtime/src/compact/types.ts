@@ -245,7 +245,7 @@ export interface CompactConfig {
    * 是否在压缩回填消息末尾追加"回查原文"指针（可选，默认 false）
    *
    * 由 bridge 在该会话注册了记忆检索工具（memory_search + memory_read）时置 true，
-   * 引导 Agent 在需要被压缩掉的精确原文时用 memory_search → memory_read 回查 MemPalace 归档。
+   * 引导 Agent 在需要被压缩掉的精确原文时用 memory_search → memory_read 回查记忆宫殿归档。
    * 避免对无记忆能力的会话给出无效指针。
    */
   historyRecallHint?: boolean;
