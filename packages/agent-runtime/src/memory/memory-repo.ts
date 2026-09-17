@@ -257,7 +257,7 @@ export class AgentMemoryRepo {
     const windowRows = this.db
       .prepare<MemoryRow>(
         `SELECT * FROM agent_memories
-       WHERE ${scopeWhere}user_id = ? AND is_archived = 0 AND created_at >= ?
+       WHERE ${scopeWhere}user_id = ? AND is_archived = 0 AND deleted_at IS NULL AND created_at >= ?
        ORDER BY created_at DESC
        LIMIT ?`,
       )
@@ -267,7 +267,7 @@ export class AgentMemoryRepo {
     const scoreRows = this.db
       .prepare<MemoryRow>(
         `SELECT * FROM agent_memories
-       WHERE ${scopeWhere}user_id = ? AND is_archived = 0
+       WHERE ${scopeWhere}user_id = ? AND is_archived = 0 AND deleted_at IS NULL
        ORDER BY importance DESC
        LIMIT ?`,
       )
@@ -358,7 +358,7 @@ export class AgentMemoryRepo {
       clauses.push("agent_id = ?");
       args.push(params.agentId);
     }
-    clauses.push("user_id = ?", "is_archived = 0", `${field} >= ?`);
+    clauses.push("user_id = ?", "is_archived = 0 AND deleted_at IS NULL", `${field} >= ?`);
     args.push(params.userId, params.since);
     if (params.until) {
       clauses.push(`${field} <= ?`);
@@ -409,7 +409,7 @@ export class AgentMemoryRepo {
     const existing = this.db
       .prepare<MemoryRow>(
         `SELECT * FROM agent_memories
-       WHERE agent_id = ? AND user_id = ? AND category = ? AND content = ? AND is_archived = 0
+       WHERE agent_id = ? AND user_id = ? AND category = ? AND content = ? AND is_archived = 0 AND deleted_at IS NULL
        LIMIT 1`,
       )
       .get(params.agentId, params.userId, params.category, params.content);
@@ -548,7 +548,7 @@ export class AgentMemoryRepo {
 
   /** 恢复归档（unarchive） */
   unarchiveById(memoryId: string): void {
-    this.db.prepare("UPDATE agent_memories SET is_archived = 0 WHERE id = ?").run(memoryId);
+    this.db.prepare("UPDATE agent_memories SET is_archived = 0 AND deleted_at IS NULL WHERE id = ?").run(memoryId);
   }
 
   /**
@@ -560,7 +560,7 @@ export class AgentMemoryRepo {
     const result = this.db
       .prepare(
         `UPDATE agent_memories SET is_archived = 1
-       WHERE agent_id = ? AND user_id = ? AND is_archived = 0
+       WHERE agent_id = ? AND user_id = ? AND is_archived = 0 AND deleted_at IS NULL
          AND last_injected_at < ?
          AND category NOT IN ('user', 'feedback')`,
       )
@@ -573,7 +573,7 @@ export class AgentMemoryRepo {
     const result = this.db
       .prepare(
         `UPDATE agent_memories SET is_archived = 1
-       WHERE agent_id = ? AND user_id = ? AND is_archived = 0 AND importance < ?`,
+       WHERE agent_id = ? AND user_id = ? AND is_archived = 0 AND deleted_at IS NULL AND importance < ?`,
       )
       .run(agentId, userId, belowImportance);
     return result.changes;
@@ -584,7 +584,7 @@ export class AgentMemoryRepo {
     const countResult = this.db
       .prepare<{ count: number }>(
         `SELECT COUNT(*) as count FROM agent_memories
-       WHERE agent_id = ? AND user_id = ? AND is_archived = 0`,
+       WHERE agent_id = ? AND user_id = ? AND is_archived = 0 AND deleted_at IS NULL`,
       )
       .get(agentId, userId);
 
@@ -596,7 +596,7 @@ export class AgentMemoryRepo {
         `UPDATE agent_memories SET is_archived = 1
        WHERE id IN (
          SELECT id FROM agent_memories
-         WHERE agent_id = ? AND user_id = ? AND is_archived = 0
+         WHERE agent_id = ? AND user_id = ? AND is_archived = 0 AND deleted_at IS NULL
          ORDER BY importance ASC, last_injected_at ASC
          LIMIT ?
        )`,
@@ -638,7 +638,7 @@ export class AgentMemoryRepo {
           `SELECT m.*
          FROM agent_memories_fts
          JOIN agent_memories m ON m.rowid = agent_memories_fts.rowid
-         WHERE agent_memories_fts MATCH ? AND ${scopeWhere}m.user_id = ? AND m.is_archived = 0
+         WHERE agent_memories_fts MATCH ? AND ${scopeWhere}m.user_id = ? AND m.is_archived = 0 AND deleted_at IS NULL
          ORDER BY bm25(agent_memories_fts)
          LIMIT ?`,
         )
@@ -662,7 +662,7 @@ export class AgentMemoryRepo {
     const rows = this.db
       .prepare<MemoryRow>(
         `SELECT * FROM agent_memories
-       WHERE ${scopeWhere}user_id = ? AND is_archived = 0 AND content LIKE ?
+       WHERE ${scopeWhere}user_id = ? AND is_archived = 0 AND deleted_at IS NULL AND content LIKE ?
        ORDER BY importance DESC
        LIMIT ?`,
       )
@@ -675,7 +675,7 @@ export class AgentMemoryRepo {
     const rows = this.db
       .prepare<MemoryRow>(
         `SELECT * FROM agent_memories
-       WHERE agent_id = ? AND user_id = ? AND is_archived = 0
+       WHERE agent_id = ? AND user_id = ? AND is_archived = 0 AND deleted_at IS NULL
        ORDER BY importance DESC`,
       )
       .all(agentId, userId);
@@ -687,7 +687,7 @@ export class AgentMemoryRepo {
     const rows = this.db
       .prepare<MemoryRow>(
         `SELECT * FROM agent_memories
-       WHERE user_id = ? AND is_archived = 0
+       WHERE user_id = ? AND is_archived = 0 AND deleted_at IS NULL
        ORDER BY importance DESC`,
       )
       .all(userId);
@@ -695,26 +695,43 @@ export class AgentMemoryRepo {
   }
 
   /**
-   * 按 ID 永久删除一条记忆（用户在设置页主动删除错误记忆时使用）。
-   * 同时删除所有相同 agent_id+user_id+category+content 的重复记录，
+   * 删除一条记忆（用户在设置页主动删掉错误记忆时使用）——**写墓碑，不物理删除**（V38 列，P0-2 补上生产者）。
+   *
+   * 同时给所有相同 agent_id+user_id+category+content 的历史重复行写墓碑，
    * 确保用户删除后记忆不会因历史重复数据而复现。
+   *
+   * **为什么改成软删**：`deleted_at` 列自 V38 就为云同步软删除而建，同步器也认它
+   * （`sync-importer.ts` 的「优先传播删除」分支）、`asset-checkup` 也认它——
+   * 唯独没有生产者，本地删除走的是硬删。结果是删除**无法跨设备传播**：
+   * 对端记录仍是活的，下一轮合并会把行带回来。补上生产者，这条链路才闭合。
+   *
+   * 同时清 `agent_memories_fts` 索引行使其不可检索；主表行保留供审计与同步传播。
+   * 读路径全部带 `deleted_at IS NULL`，故已删条目不会再被注入或检索到。
+   *
+   * 注：`removeByTag`（标签整批轮换）与 `clearAllForAgent`（用户主动清空）**保持硬删**——
+   * 前者是临时数据的轮换、后者是用户明示的清空，都不需要墓碑语义。
    */
   removeById(memoryId: string): void {
     const row = this.db
       .prepare<MemoryRow>("SELECT * FROM agent_memories WHERE id = ?")
       .get(memoryId);
     if (!row) return;
-    // 删除所有相同内容的记录（包含历史重复），先取 rowid 以同步清理索引
+    const nowIso = new Date().toISOString();
+    // 同内容的历史重复行一并写墓碑，先取 rowid 以同步清理索引
     const dupes = this.db
       .prepare<{ rowid: number }>(
-        "SELECT rowid FROM agent_memories WHERE agent_id = ? AND user_id = ? AND category = ? AND content = ?",
+        `SELECT rowid FROM agent_memories
+         WHERE agent_id = ? AND user_id = ? AND category = ? AND content = ?
+           AND deleted_at IS NULL`,
       )
       .all(row.agent_id, row.user_id, row.category, row.content);
     this.db
       .prepare(
-        "DELETE FROM agent_memories WHERE agent_id = ? AND user_id = ? AND category = ? AND content = ?",
+        `UPDATE agent_memories SET deleted_at = ?
+         WHERE agent_id = ? AND user_id = ? AND category = ? AND content = ?
+           AND deleted_at IS NULL`,
       )
-      .run(row.agent_id, row.user_id, row.category, row.content);
+      .run(nowIso, row.agent_id, row.user_id, row.category, row.content);
     this.indexRepo.deleteRows(dupes.map((d) => d.rowid));
   }
 
@@ -793,7 +810,7 @@ export class AgentMemoryRepo {
         created_at: string;
       }>(
         `SELECT category, importance, last_injected_at, created_at FROM agent_memories
-       WHERE agent_id = ? AND user_id = ? AND is_archived = 0`,
+       WHERE agent_id = ? AND user_id = ? AND is_archived = 0 AND deleted_at IS NULL`,
       )
       .all(agentId, userId);
 

@@ -15,6 +15,7 @@ import type { DatabaseSync, SQLInputValue } from 'node:sqlite'
 import { SQLITE_BUSY_TIMEOUT_MS } from '@mtbot/agent-runtime'
 import { createLogger } from '../logger'
 import { copySyncDirectory } from './sync-copy'
+import { decideMemoryMerge } from './memory-merge-decision'
 
 const logger = createLogger('cloud-sync/importer')
 
@@ -504,6 +505,11 @@ export class SyncImporter {
    * 时间戳键自 V47（2026-09-17）由 `last_used` 改为 `last_injected_at`——前者已冻结
    * 不再写入，继续拿它比大小会让冲突判定永远停在历史值上。
    * 远端若来自旧版本（无该列），回退读 `last_used`，行为与升级前一致。
+   *
+   * **删除优先于时间戳**（P0-2）：墓碑一旦写下就必须赢，不论对端的时间戳有多新。
+   * 此前删除只在「时间戳相同」时才传播（原情况 4），而删除本身不改活动时间——
+   * 对端只要注入过一次，`last_injected_at` 就更大，于是走"远端更新"分支把
+   * `deleted_at` 覆盖回 NULL，已删记忆原地复活。这正是「删除无法跨设备传播」的另一半原因。
    */
   private async mergeMemory(
     db: InstanceType<typeof DatabaseSync>,
@@ -517,49 +523,41 @@ export class SyncImporter {
       .prepare('SELECT * FROM agent_memories WHERE id = ?')
       .get(id) as Record<string, SQLInputValue> | undefined
 
-    // 情况 1：本地没有，直接插入
-    if (!localRow) {
-      const columns = Object.keys(remoteRow)
-      const placeholders = columns.map(() => '?').join(', ')
-      const values = columns.map((col) => remoteRow[col])
+    const action = decideMemoryMerge({
+      localExists: !!localRow,
+      remoteTs,
+      localTs: (localRow?.last_injected_at ?? localRow?.last_used ?? '') as string,
+      remoteDeletedAt: remoteRow.deleted_at as string | null | undefined,
+      localDeletedAt: localRow?.deleted_at as string | null | undefined,
+    })
 
-      db.prepare(`INSERT INTO agent_memories (${columns.join(', ')}) VALUES (${placeholders})`).run(...values)
-      return true
+    switch (action) {
+      case 'insert': {
+        const columns = Object.keys(remoteRow)
+        const placeholders = columns.map(() => '?').join(', ')
+        const values = columns.map((col) => remoteRow[col])
+        db.prepare(`INSERT INTO agent_memories (${columns.join(', ')}) VALUES (${placeholders})`).run(...values)
+        return true
+      }
+      case 'take_remote': {
+        const columns = Object.keys(remoteRow).filter((col) => col !== 'id')
+        const setClause = columns.map((col) => `${col} = ?`).join(', ')
+        const values = [...columns.map((col) => remoteRow[col]), id]
+        db.prepare(`UPDATE agent_memories SET ${setClause} WHERE id = ?`).run(...values)
+        return true
+      }
+      case 'apply_remote_tombstone': {
+        // 只落墓碑，不用远端其它字段覆盖本地内容——删除是唯一要传播的事实
+        db.prepare('UPDATE agent_memories SET deleted_at = ? WHERE id = ?').run(
+          remoteRow.deleted_at as SQLInputValue,
+          id,
+        )
+        return true
+      }
+      default:
+        // keep_local / keep_local_tombstone
+        return false
     }
-
-    const localTs = (localRow.last_injected_at ?? localRow.last_used) as string
-
-    // 情况 2：远端更新（时间戳更大），覆盖本地
-    if (remoteTs > localTs) {
-      const columns = Object.keys(remoteRow).filter((col) => col !== 'id')
-      const setClause = columns.map((col) => `${col} = ?`).join(', ')
-      const values = [...columns.map((col) => remoteRow[col]), id]
-
-      db.prepare(`UPDATE agent_memories SET ${setClause} WHERE id = ?`).run(...values)
-      return true
-    }
-
-    // 情况 3：本地更新（时间戳更大），保持本地
-    if (remoteTs < localTs) {
-      return false
-    }
-
-    // 情况 4：时间戳相同，检查删除标记
-    const remoteDel = remoteRow.deleted_at
-    const localDel = localRow.deleted_at
-
-    // 优先传播删除操作
-    if (remoteDel !== null && remoteDel !== undefined && (localDel === null || localDel === undefined)) {
-      const columns = Object.keys(remoteRow).filter((col) => col !== 'id')
-      const setClause = columns.map((col) => `${col} = ?`).join(', ')
-      const values = [...columns.map((col) => remoteRow[col]), id]
-
-      db.prepare(`UPDATE agent_memories SET ${setClause} WHERE id = ?`).run(...values)
-      return true
-    }
-
-    // 情况 5：时间戳相同且没有删除差异，保持本地
-    return false
   }
 
   /**

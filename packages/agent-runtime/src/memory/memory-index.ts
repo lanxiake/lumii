@@ -51,14 +51,17 @@ export class MemoryIndexRepo {
   }
 
   /**
-   * 全量重建：清空后从 agent_memories 重新分词灌入。
+   * 全量重建：清空后从 `agent_memories` 重新分词灌入。
    * 用于：迁移后老数据补齐索引、`agent:memories:rebuildIndex` 命令、索引不健康时的手动修复。
+   *
+   * **只索引未删除的行**——已写墓碑（`deleted_at` 非空）的条目在 FTS 里必须缺席，
+   * 否则重建一次就把它们重新变成可检索的（P0-2 的墓碑语义会被重建操作悄悄抹掉）。
    */
   rebuildFts(): void {
     this.db.exec("DELETE FROM agent_memories_fts");
     const rows = this.db
       .prepare<{ rowid: number; content: string; tags: string | null }>(
-        "SELECT rowid, content, tags FROM agent_memories",
+        "SELECT rowid, content, tags FROM agent_memories WHERE deleted_at IS NULL",
       )
       .all();
     const insert = this.db.prepare(
@@ -70,15 +73,21 @@ export class MemoryIndexRepo {
   }
 
   /**
-   * 健康检查：比对主表条数与 FTS 行数是否一致。
+   * 健康检查：比对**活跃**主表条数与 FTS 行数是否一致。
    * FTS 表缺失（如手动 DROP）时视为不健康，不抛异常。
+   *
+   * 主表一侧必须排除已写墓碑的行：FTS 只索引活跃行，拿全表条数比会永远报「不一致」。
    */
   checkFtsHealth(): FtsHealth {
     let mainCount: number;
     let ftsCount: number;
     try {
       mainCount =
-        this.db.prepare<{ c: number }>("SELECT COUNT(*) as c FROM agent_memories").get()?.c ?? 0;
+        this.db
+          .prepare<{ c: number }>(
+            "SELECT COUNT(*) as c FROM agent_memories WHERE deleted_at IS NULL",
+          )
+          .get()?.c ?? 0;
     } catch {
       return { isHealthy: false, reason: "agent_memories 主表不可读" };
     }
@@ -92,7 +101,7 @@ export class MemoryIndexRepo {
     if (mainCount !== ftsCount) {
       return {
         isHealthy: false,
-        reason: `条数不一致：主表 ${mainCount} 条，索引 ${ftsCount} 条`,
+        reason: `条数不一致：活跃主表 ${mainCount} 条，索引 ${ftsCount} 条`,
       };
     }
     return { isHealthy: true };
