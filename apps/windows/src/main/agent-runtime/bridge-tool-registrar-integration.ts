@@ -380,9 +380,12 @@ export function registerIntegrationTools(deps: BridgeToolRegistrarDeps): void {
       if (!drawerId) {
         return jsonToolResult({ ok: false, message: 'drawerId is required' })
       }
-      // 宫殿 drawer_id 为内容寻址 16 位 hex（见 content-address.ts）
-      if (!/^[a-f0-9]{16}$/i.test(drawerId)) {
-        return jsonToolResult({ ok: false, message: 'drawerId 格式无效（应为 16 位十六进制）' })
+      // 只挡明显非法的输入。宫殿 drawer_id 现行是内容寻址 16 位 hex，但历史上存在
+      // Python 时代的 `drawer_<agent>_<user>_<date>_<hash>` 格式（实测库里仍有这种行）。
+      // 严格限 hex 会把它们判成「格式无效」——而模型手里的指针是**我们自己注入给它的**，
+      // 用格式挡掉自己的入口，比让它查一次、查不到再如实报错更糟。
+      if (!/^[A-Za-z0-9_:-]{4,128}$/.test(drawerId)) {
+        return jsonToolResult({ ok: false, message: 'drawerId 格式无效' })
       }
       const readDrawer = deps.config.readPalaceDrawer
       if (!readDrawer) {

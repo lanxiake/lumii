@@ -66,6 +66,23 @@ export interface UnifiedMemoryLimits {
   readonly related?: number;
 }
 
+/** 原文指针 `[d:xxxx]`。只匹配行首 32 字符内——大文本上跑全量正则没有意义 */
+const DRAWER_TAG_RE = /\[d:[0-9a-fA-F]{4,64}\]/;
+
+/**
+ * 指针图例：只讲「什么时候该读、什么时候不该读」。
+ *
+ * 不给这段，模型会倾向于把每条注入都读一遍——那比不读更糟（把注入省下的 token
+ * 又花回去，还多几轮往返）。给了指针不等于必须用它。
+ *
+ * 压到两行是算过账的：每轮注入 6 条记忆、约 500 token，图例占 4% 可以接受；
+ * 原先写的三行版本占 10%，而省下的那点解释力并不值这个价。
+ */
+const POINTER_LEGEND = [
+  "- 行首 `[d:xxxx]` 是**原文指针**：要细节、要原话，或与当前说法冲突需核实时，用 `memory_read` 读原文。不要逐条去读——记得的结论多数够用，原文是取证据时才翻的。",
+  "- 带指针的条目是**摘要**，原文可能长得多（决策的来龙去脉在其中）。",
+] as const;
+
 /**
  * 统一记忆注入块 — 单一 `## 记忆` 分层块。
  *
@@ -73,6 +90,11 @@ export interface UnifiedMemoryLimits {
  * - `### 关于用户` ← 个人记忆（user_memory Markdown）
  * - `### 工作记忆` ← SQLite 热记忆（project/reference/general）
  * - 记忆宫殿通过 memory_search 按需召回，不直接全量注入
+ *
+ * **原文指针**：条目前缀 `[d:xxxx]` 由调用方事先写进 `content`（且须经
+ * `PalaceRepo.existsByIds` 校验存在性——死链比没有指针更糟，模型点开报错会开始
+ * 怀疑整块记忆）。这里只负责"发现有没有指针、有就补图例"。校验留在调用方是因为
+ * 本模块是纯格式化、不持有 DB 句柄。
  */
 export function formatUnifiedMemoryBlock(
   userProfile: string | undefined,
@@ -102,6 +124,7 @@ export function formatUnifiedMemoryBlock(
     );
   }
 
+  let hasPointer = false;
   if (related.length > 0) {
     lines.push("### 工作记忆（当前任务与资源）");
     const groups = new Map<MemoryCategory, MemoryEntry[]>();
@@ -114,7 +137,10 @@ export function formatUnifiedMemoryBlock(
       const entries = groups.get(cat);
       if (!entries || entries.length === 0) continue;
       lines.push(`**${CATEGORY_LABELS[cat]}**`);
-      for (const e of entries) lines.push(`- ${e.content}`);
+      for (const e of entries) {
+        if (DRAWER_TAG_RE.test(e.content.slice(0, 32))) hasPointer = true;
+        lines.push(`- ${e.content}`);
+      }
     }
     lines.push("");
   }
@@ -122,6 +148,9 @@ export function formatUnifiedMemoryBlock(
   lines.push("### 使用原则");
   for (const rule of MEMORY_LAYER_RULES) {
     lines.push(`- ${rule}`);
+  }
+  if (hasPointer) {
+    for (const line of POINTER_LEGEND) lines.push(line);
   }
 
   return lines.join("\n");

@@ -10,6 +10,7 @@
  */
 
 import type { MemoryEntry, ExtractedCandidate, MemoryCategory } from "./types.js";
+import { stripDrawerPointer } from "./content-address.js";
 
 /** 待更新的已有记忆（合并后的字段） */
 export interface MemoryUpdate {
@@ -26,9 +27,13 @@ export interface MergeResult {
 /**
  * 归一化语义键：category + 去除空白与标点后的小写 content。
  * 分隔符用 "::"（category 为固定枚举无冒号、归一化后的 content 已剥离标点，故不会冲突）。
+ *
+ * **先剥原文指针**：指针 `[d:xxxx]` 是机器生成的 hex，随原文归档而变。不剥的话，
+ * 同一件事「有指针」与「无指针」两个版本会算出不同的键，去重整体失效（每次提取
+ * 都新增一条）。实测中这是覆盖率最高的一类记忆（段归档回填 id）必然踩到的路径。
  */
 export function normalizeKey(category: MemoryCategory, content: string): string {
-  const norm = content.toLowerCase().replace(/[\s\p{P}\p{S}]/gu, "");
+  const norm = stripDrawerPointer(content).toLowerCase().replace(/[\s\p{P}\p{S}]/gu, "");
   return `${category}::${norm}`;
 }
 

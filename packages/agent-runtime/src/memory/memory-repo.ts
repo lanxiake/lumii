@@ -14,9 +14,10 @@ import type {
   MemoryReadScope,
 } from "./types.js";
 import { DEFAULT_HOT_MEMORY_CONFIG, isPersonalCategory } from "./types.js";
-import { tokenizeForRelevance, tokenizeBigram, overlapCoefficient } from "./segmentation.js";
+import { tokenizeForRelevance, tokenizeBigram, overlapCoefficient, requiredTokenHits, countTokenHits } from "./segmentation.js";
 import { scoreMemory } from "./scorer.js";
 import { normalizeProjectKey } from "./memory-extractor.js";
+import { withDrawerPointer, stripDrawerPointer } from "./content-address.js";
 import { MemoryIndexRepo } from "./memory-index.js";
 import {
   MemoryFeedbackRepo,
@@ -30,6 +31,12 @@ import {
 
 /** 相关性门控阈值：与当前 query 的 overlap 低于此值的记忆不注入（宁缺毋滥，防上下文污染） */
 const RELEVANCE_GATE_THRESHOLD = 0.15;
+
+/**
+ * 检索候选池大小：取回多少条再做最小命中过滤（与 PalaceRepo 同口径）。
+ * 30 条足够让过滤后有 ≥10 条可返回；实测过滤后很少超过 10 条。
+ */
+const MEMORY_SEARCH_CANDIDATE_POOL = 30;
 
 /**
  * 时间窗候选通道的硬上限（仅防异常数据量的保护性上限，非语义截断）。
@@ -394,6 +401,10 @@ export class AgentMemoryRepo {
 
   /**
    * 保存候选记忆。相同 agent+user+category+content 的活跃记忆已存在时跳过（幂等写入）。
+   *
+   * 去重比对前**剥掉原文指针**：`content` 里可能已带 `[d:xxxx]`（写入时钉入或段归档
+   * 回填），而指针随原文归档与否而变。直接比字符串会让同一件事「有指针」与「无指针」
+   * 两个版本各自入库。
    */
   saveCandidate(params: {
     readonly agentId: string;
@@ -408,14 +419,28 @@ export class AgentMemoryRepo {
     /** 同主题快照的稳定键（V48），由提取时的模型产出 */
     readonly projectKey?: string;
   }): MemoryEntry {
-    // 去重检查：相同 agent/user/category/content 且未归档时直接返回已有记录
+    const bareContent = stripDrawerPointer(params.content);
+
+    // 去重检查：相同 agent/user/category/content 且未归档时直接返回已有记录。
+    // 已有行的 content 可能带指针，故用回退比较（先精确、再去指针）——
+    // SQLite 侧无法"剥前缀后比较"，用一条 LIKE 把候选缩小，再在 JS 侧逐条判定。
     const existing = this.db
       .prepare<MemoryRow>(
         `SELECT * FROM agent_memories
-       WHERE agent_id = ? AND user_id = ? AND category = ? AND content = ? AND is_archived = 0 AND deleted_at IS NULL AND superseded_at IS NULL
-       LIMIT 1`,
+       WHERE agent_id = ? AND user_id = ? AND category = ?
+         AND (content = ? OR content LIKE ?)
+         AND is_archived = 0 AND deleted_at IS NULL AND superseded_at IS NULL
+       LIMIT 5`,
       )
-      .get(params.agentId, params.userId, params.category, params.content);
+      .all(
+        params.agentId,
+        params.userId,
+        params.category,
+        params.content,
+        // 指针前缀最长约 22 字符，用「%+裸内容」把带指针的行也捞进来
+        `%${bareContent}`,
+      )
+      .find((r) => stripDrawerPointer(r.content) === bareContent);
     if (existing) {
       return rowToEntry(existing);
     }
@@ -424,6 +449,10 @@ export class AgentMemoryRepo {
     const now = new Date().toISOString();
     const importance = params.importance ?? 0.5;
     const tagsJson = params.tags ? JSON.stringify(params.tags) : null;
+
+    // 原文指针在**写入时**钉进内容（而不是注入时拼）：这样去重/合并/来源补填都会
+    // 自然带上它，注入侧不必知道 palace_drawer_id 这回事。见 withDrawerPointer。
+    const storedContent = withDrawerPointer(bareContent, params.palaceDrawerId);
 
     const result = this.db
       .prepare(
@@ -439,7 +468,7 @@ export class AgentMemoryRepo {
         params.agentId,
         params.userId,
         params.category,
-        params.content,
+        storedContent,
         importance,
         tagsJson,
         params.sourceMessageId ?? null,
@@ -454,14 +483,14 @@ export class AgentMemoryRepo {
         // 与旧 last_used 的行为一致（否则下游的温度分档会拿到 NULL）。
         now,
       );
-    this.indexRepo.upsertRow(result.lastInsertRowid, params.content, tagsJson);
+    this.indexRepo.upsertRow(result.lastInsertRowid, storedContent, tagsJson);
 
     return {
       id,
       agent_id: params.agentId,
       user_id: params.userId,
       category: params.category,
-      content: params.content,
+      content: storedContent,
       importance,
       tags: params.tags ? [...params.tags] : [],
       source_message_id: params.sourceMessageId ?? null,
@@ -564,18 +593,47 @@ export class AgentMemoryRepo {
     }
   }
 
-  /** 回填某记忆的宫殿 drawer_id（段原文归档拿到稳定 ID 后） */
+  /**
+   * 回填某记忆的宫殿 drawer_id（段原文归档拿到稳定 ID 后）。
+   *
+   * **同时把指针写进 content**：注入与检索都是从 `content` 里发现指针的，
+   * 只更新 `palace_drawer_id` 列的话，回填进来的 id 永远不会出现在提示词里——
+   * 实测这批段归档记忆正是覆盖率最高的一类（project 73 条里 42 条有 id），
+   * 只改列就等于这条路径白做。
+   */
   setPalaceDrawerId(memoryId: string, drawerId: string): void {
+    const row = this.db
+      .prepare<{ rowid: number; content: string; tags: string | null }>(
+        "SELECT rowid, content, tags FROM agent_memories WHERE id = ?",
+      )
+      .get(memoryId);
+    if (!row) return;
+    const next = withDrawerPointer(row.content, drawerId);
     this.db
-      .prepare("UPDATE agent_memories SET palace_drawer_id = ? WHERE id = ?")
-      .run(drawerId, memoryId);
+      .prepare("UPDATE agent_memories SET palace_drawer_id = ?, content = ? WHERE id = ?")
+      .run(drawerId, next, memoryId);
+    // FTS 里存的是分词后的 content，内容变了必须同步，否则新指针搜不到
+    this.indexRepo.upsertRow(row.rowid, next, row.tags);
   }
 
-  /** 批量回填某来源段产出的所有记忆的宫殿 drawer_id */
+  /** 批量回填某来源段产出的所有记忆的宫殿 drawer_id（含 content 指针与 FTS 同步） */
   setPalaceDrawerIdBySegment(segmentId: string, drawerId: string): void {
-    this.db
-      .prepare("UPDATE agent_memories SET palace_drawer_id = ? WHERE source_segment_id = ?")
-      .run(drawerId, segmentId);
+    const rows = this.db
+      .prepare<{ id: string; rowid: number; content: string; tags: string | null }>(
+        "SELECT id, rowid, content, tags FROM agent_memories WHERE source_segment_id = ?",
+      )
+      .all(segmentId);
+    if (rows.length === 0) return;
+    const update = this.db.prepare(
+      "UPDATE agent_memories SET palace_drawer_id = ?, content = ? WHERE id = ?",
+    );
+    withTransaction(this.db, () => {
+      for (const row of rows) {
+        const next = withDrawerPointer(row.content, drawerId);
+        update.run(drawerId, next, row.id);
+        this.indexRepo.upsertRow(row.rowid, next, row.tags);
+      }
+    });
   }
 
   /** 读取单条记忆（含来源字段），用于来源下转 */
@@ -651,13 +709,16 @@ export class AgentMemoryRepo {
   }
 
   /**
-   * 按关键词搜索记忆——FTS5 + BM25 排序（P0）。
+   * 按关键词搜索记忆——FTS5 + BM25 排序（P0），再经**最小命中**过滤。
    *
    * 查询词与写入时同样按 tokenizeBigram 切分（中文按 bigram，英文/数字按整词），
    * 拼成 OR 短语查询（每个 bigram 各自加引号转义，`"` 转 `""`），
    * 避免用户输入的原始文本被解释为 FTS5 查询语法（AND / OR / 前缀通配 / NEAR 等）。
    * 注意：bm25() 必须引用虚表真实名，不能对 agent_memories_fts 取别名（SQLite 限制）。
    * 分词结果为空（如纯符号/emoji）或 FTS 表缺失（迁移未跑、手动 DROP）时回落 LIKE。
+   *
+   * 最小命中与 `PalaceRepo.searchDrawers` 同一条纪律：OR 匹配下长文本蹭到一个 bigram
+   * 就能进结果，实测「代理 配置」现状 3/10 相关、过滤后 1/1。
    *
    * @param scope `"agent"`（默认）只搜本 Agent；`"user"` 跨 Agent 搜该用户全部工作记忆
    *   （对应 `AgentDefinition.memory.readView === "user"` 的汇总型 Agent，如 chronicler）。
@@ -679,16 +740,20 @@ export class AgentMemoryRepo {
     const query = tokens.map((t) => `"${t.replace(/"/g, '""')}"`).join(" OR ");
     try {
       const rows = this.db
-        .prepare<MemoryRow>(
-          `SELECT m.*
+        .prepare<MemoryRow & { fts_content: string }>(
+          `SELECT m.*, agent_memories_fts.content AS fts_content
          FROM agent_memories_fts
          JOIN agent_memories m ON m.rowid = agent_memories_fts.rowid
          WHERE agent_memories_fts MATCH ? AND ${scopeWhere}m.user_id = ? AND m.is_archived = 0 AND deleted_at IS NULL AND superseded_at IS NULL
          ORDER BY bm25(agent_memories_fts)
          LIMIT ?`,
         )
-        .all(query, ...scopeArgs, userId, limit);
-      return rows.map(rowToEntry);
+        .all(query, ...scopeArgs, userId, MEMORY_SEARCH_CANDIDATE_POOL);
+      const need = requiredTokenHits(tokens.length);
+      return rows
+        .filter((r) => countTokenHits(tokens, r.fts_content) >= need)
+        .slice(0, limit)
+        .map(rowToEntry);
     } catch (err) {
       console.warn("[AgentMemoryRepo.search] FTS5 查询失败，回落 LIKE:", err);
       return this.searchByLike(agentId, userId, keyword, limit, scope);

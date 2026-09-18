@@ -12,7 +12,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import type { DatabaseSync, SQLInputValue } from 'node:sqlite'
-import { SQLITE_BUSY_TIMEOUT_MS } from '@mtbot/agent-runtime'
+import { SQLITE_BUSY_TIMEOUT_MS, reconcilePersonalMemory } from '@mtbot/agent-runtime'
 import { createLogger } from '../logger'
 import { copySyncDirectory } from './sync-copy'
 import { decideMemoryMerge } from './memory-merge-decision'
@@ -228,10 +228,27 @@ export class SyncImporter {
     }
 
     // 复制 user-memory.md
+    //
+    // **导入要补条目身份**（2026-09-18）：远端/旧版本设备推来的版本可能不带
+    // `<!--m:id date-->`，直接覆盖会让本机已条目化的文档**退回去**——之后每次整理
+    // 都重新发一遍身份，等于身份永不稳定。以本地为基准沿用/补发，代价只是纯字符串处理。
+    //
+    // 注：`reconcilePersonalMemory(incoming, local)` 的返回内容是**incoming 的条目**
+    // 配本地已存在的身份；`added/removed` 说的是相对本地的增删，不是"身份发放数"。
+    // 只写本地，**不回写 sync**：sync 是 git 工作树，在导入阶段改它会让工作树与 HEAD
+    // 不一致，那个不一致由导出流程按内容差异自然处理。
     const memSrc = path.join(profileDir, 'user-memory.md')
     const memDst = path.join(this.options.dataDir, 'user-memory.md')
     if (fs.existsSync(memSrc)) {
-      fs.copyFileSync(memSrc, memDst)
+      const incoming = fs.readFileSync(memSrc, 'utf-8')
+      const local = fs.existsSync(memDst) ? fs.readFileSync(memDst, 'utf-8') : ''
+      const reconciled = reconcilePersonalMemory(incoming, local)
+      if (reconciled.content !== incoming) {
+        logger.info(
+          `[importProfile] user-memory 补条目身份：相对本地新增 ${reconciled.added}、沿用 ${reconciled.kept}、删除 ${reconciled.removed}`,
+        )
+      }
+      fs.writeFileSync(memDst, reconciled.content, 'utf-8')
     }
 
     // 导入场景记忆目录（无目录项目 + 渠道记忆）；整目录覆盖，与 user-memory.md 的覆盖语义一致

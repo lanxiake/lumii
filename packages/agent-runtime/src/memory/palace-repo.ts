@@ -27,12 +27,21 @@
  */
 
 import type { DatabaseAdapter } from "../storage/local-database.js";
-import { tokenizeBigram } from "./segmentation.js";
+import { tokenizeBigram, requiredTokenHits, countTokenHits } from "./segmentation.js";
 import { deterministicDrawerId } from "./content-address.js";
 import { PalaceIndexRepo, type PalaceFtsHealth } from "./palace-index.js";
 
 /** 检索结果的摘录长度（字符）。够看清「这段在讲什么」，又不至于打爆上下文。 */
 export const SEARCH_EXCERPT_CHARS = 600;
+
+/**
+ * 检索候选池大小：取回多少条再做最小命中过滤。
+ *
+ * 30 是实测定的下限——多个查询在池 30 处仍有 ≥10 条通过（如「ODS 表时间字段」22 条），
+ * 说明没有因为过滤把可返回的候选耗尽；池 10 在部分查询上只剩 3 条，会被填不满。
+ * 「日报」这类高频 bigram 命中 80+ 条时耗时约 1ms，不构成瓶颈。
+ */
+export const SEARCH_CANDIDATE_POOL = 30;
 
 export interface PalaceDrawerInput {
   readonly agentId: string;
@@ -324,10 +333,41 @@ export class PalaceRepo {
   }
 
   /**
-   * 关键词检索：bigram 预分词 → FTS5 MATCH（OR 短语）→ BM25 排序。
+   * 这些 drawer_id 里哪些真的存在（活跃、未写墓碑）。
+   *
+   * 用途是**注入侧的存在性校验**（`formatUnifiedMemoryBlock` 的 `[d:...]` 指针）：
+   * `agent_memories.palace_drawer_id` 是一条可能过期的快照——段被删、宫殿重建后
+   * 这个 id 就指向不存在的行。实测 96 条带 id 的记忆里 1 条是这种死链（还是 Python
+   * 时代 `drawer_chronicler_...` 的旧格式）。
+   *
+   * 为什么一定要校验：给了指针而点开报错，比不给指针更糟——模型会开始怀疑整块记忆。
+   * 一次查询完成（IN 列表），空输入不打 DB。
+   */
+  existsByIds(ids: readonly (string | null | undefined)[]): Set<string> {
+    const wanted = ids.filter((x): x is string => !!x);
+    if (wanted.length === 0) return new Set();
+    const placeholders = wanted.map(() => "?").join(", ");
+    const rows = this.db
+      .prepare<{ drawer_id: string }>(
+        `SELECT drawer_id FROM palace_drawers
+          WHERE deleted_at IS NULL AND drawer_id IN (${placeholders})`,
+      )
+      .all(...wanted);
+    return new Set(rows.map((r) => r.drawer_id));
+  }
+
+  /**
+   * 关键词检索：bigram 预分词 → FTS5 MATCH（OR 短语）→ BM25 排序 → 最小命中过滤。
    *
    * 每个 token 单独加引号转义（`"` 转 `""`），避免查询里的 FTS5 语法字符
    * （AND / OR / NEAR / 前缀 `*`）被当语法解释。分词为空或虚表缺失时回落 LIKE。
+   *
+   * **两处与"教科书 BM25 调参"不同，都是被实测推翻后改的**：
+   * 1. `bm25()` 的 k1/b 参数在本机 SQLite 3.53.3 上**不生效**——b=0 与 b=1 对同一
+   *    长文给出逐位相同的分数（合成语料验证）。所以长度归一化不能靠传参，只能靠
+   *    查询侧的最小命中来挡掉"长文蹭一个 bigram"。
+   * 2. 不做分数下限：实测相关项与无关项的分数区间完全重叠（「代理 配置」相关
+   *    3.5~5.6、无关 3.1~3.6），任何阈值都会同时伤及两者。
    */
   searchDrawers(params: PalaceSearchParams): readonly PalaceSearchItem[] {
     const limit = Math.max(1, params.limit ?? 10);
@@ -339,16 +379,20 @@ export class PalaceRepo {
     const match = tokens.map((t) => `"${t.replace(/"/g, '""')}"`).join(" OR ");
     try {
       const rows = this.db
-        .prepare<DrawerRow & { rank: number }>(
-          `SELECT d.*, bm25(palace_drawers_fts) AS rank
+        .prepare<DrawerRow & { rank: number; fts_content: string }>(
+          `SELECT d.*, bm25(palace_drawers_fts) AS rank, palace_drawers_fts.content AS fts_content
              FROM palace_drawers_fts
              JOIN palace_drawers d ON d.rowid = palace_drawers_fts.rowid
             WHERE palace_drawers_fts MATCH ? AND d.deleted_at IS NULL${scope.sql}
             ORDER BY bm25(palace_drawers_fts)
             LIMIT ?`,
         )
-        .all(match, ...scope.args, limit);
-      return rows.map((r) => this.toItem(r, params.query, -r.rank));
+        .all(match, ...scope.args, SEARCH_CANDIDATE_POOL);
+      const need = requiredTokenHits(tokens.length);
+      const kept = rows
+        .filter((r) => countTokenHits(tokens, r.fts_content) >= need)
+        .slice(0, limit);
+      return kept.map((r) => this.toItem(r, params.query, -r.rank));
     } catch (err) {
       console.warn("[PalaceRepo.searchDrawers] FTS5 查询失败，回落 LIKE:", err);
       return this.searchByLike(params, limit);

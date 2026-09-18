@@ -59,6 +59,42 @@ export function overlapCoefficient(a: Set<string>, b: Set<string>): number {
 }
 
 /**
+ * 多词查询的最少命中 token 数（写死 2，不做成配置）。
+ *
+ * **解决什么**：检索用 `"tok1" OR "tok2" ...` 匹配，长文档里蹭到**任意一个** bigram
+ * 就能进结果。实测（2026-09-18，848 条真实抽屉）：
+ *
+ * | 查询 | OR（现状） | ≥2 命中 |
+ * |---|---|---|
+ * | 代理 配置 | 5/10 相关 | 3/3 |
+ * | 情绪小龙动图 | 5/10 | 4/4 |
+ * | DeepSeek 降价 | 10/10 | 3/3 |
+ *
+ * 每个查询都是**返回变少、但全是相关项**——被砍掉的是「只蹭到一个 bigram 的长文」，
+ * 那正是 top-1 那些三五千字的 cron 日报。
+ *
+ * **为什么不按命中比例判**：实测同一查询的相关项与无关项比率完全重叠
+ * （「代理 配置」两侧都是 0.50），比例区分不开；离散度（命中位置跨度）同样重叠。
+ * 唯一被数据支持的信号就是这个绝对计数。所以宁可要一个可解释的弱信号，
+ * 也不要一个看起来聪明、实测无效的模型。
+ *
+ * 单选词查询（tokens=1）退化为 1，否则会一条都不返回。
+ */
+export const MIN_QUERY_TOKEN_HITS = 2;
+
+/** 双词及以上才启用最小命中；单词查询取 1 */
+export function requiredTokenHits(tokenCount: number): number {
+  return tokenCount >= MIN_QUERY_TOKEN_HITS ? MIN_QUERY_TOKEN_HITS : 1;
+}
+
+/** 一条 FTS 行命中了多少个查询 token（`ftsText` 是 bigramJoin 后的索引文本） */
+export function countTokenHits(tokens: readonly string[], ftsText: string): number {
+  let hits = 0;
+  for (const t of tokens) if (ftsText.includes(t)) hits++;
+  return hits;
+}
+
+/**
  * 相关性停用词（bigram / 英文词）：泛化的填充/动作/计划类词，几乎出现在任何 query 里，
  * 会造成"假相关"（如"规划路线"与"旅行规划中"共享"规划"）。算记忆相关性时剔除。
  * 不影响 tokenizeBigram（分段仍用全量，停用词对主题边界影响小）。

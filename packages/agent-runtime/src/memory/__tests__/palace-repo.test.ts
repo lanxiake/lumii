@@ -204,6 +204,44 @@ describe("PalaceRepo", () => {
     expect(() => search('AND OR NEAR * "')).not.toThrow();
   });
 
+  /**
+   * 最小命中过滤（2026-09-18）。实测背景：OR 匹配下长文档蹭到**任意一个** bigram
+   * 就能进结果，top-1 常是三五千字的 cron 日报。真实语料上「代理 配置」5/10 相关
+   * → 3/3、「情绪小龙动图」5/10 → 4/4。
+   */
+  describe("最小命中过滤", () => {
+    /** 中性填充：不含任何查询 token，用来把文档撑长 */
+    const filler = (n: number) =>
+      Array.from({ length: n }, (_, i) => `这是第 ${i} 段无关的填充内容，用来把篇幅拉长。`).join("");
+
+    it("只蹭到一个 bigram 的长文被挡掉", () => {
+      // 长文里只有「工单」命中，其余全是无关内容
+      archive(filler(40) + "顺带提了一句工单的事。" + filler(40));
+      // 短而集中的一条：两个词都命中
+      archive("工单同步卡点的排查：先看队列积压。");
+
+      const hits = search("工单 同步");
+      expect(hits).toHaveLength(1);
+      expect(hits[0]!.text).toContain("队列积压");
+    });
+
+    it("两个词都命中的长文仍然保留（过滤的是蹭词，不是长文）", () => {
+      archive(filler(40) + "工单同步的排查记录写在这里。" + filler(40));
+      expect(search("工单 同步")).toHaveLength(1);
+    });
+
+    it("单词查询不受影响（退化为 1 个命中）", () => {
+      archive("这段讲的是工单同步卡点的排查。");
+      archive("另一段也提到了工单，但没别的。");
+      expect(search("工单")).toHaveLength(2);
+    });
+
+    it("最低限度的四字查询仍能命中（2 个 bigram 都出现）", () => {
+      archive("讨论了数据库连接池的配置问题。");
+      expect(search("数据库连接")).toHaveLength(1);
+    });
+  });
+
   it("countByScope 分开统计活跃与墓碑", () => {
     const a = archive("第一条。");
     archive("第二条。");

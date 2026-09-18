@@ -19,6 +19,7 @@ import {
   needsPersonalMemoryConsolidation,
 } from "./memory-consolidation.js";
 import { injectMemories, stripMemoryPlaceholder } from "./memory-injector.js";
+import { stripDrawerPointer } from "./content-address.js";
 import { mergeCandidates } from "./merge.js";
 import {
   computeContribution,
@@ -81,6 +82,30 @@ export interface SummarizedSource {
   readonly representativeMessageId?: string;
 }
 
+/** 从内容开头剥掉原文指针（与 content-address 的写入侧共用同一个正则） */
+/**
+ * 剥掉指向不存在抽屉的 `[d:xxxx]` 前缀。
+ *
+ * 为什么值得一次 DB 查询：`palace_drawer_id` 是快照值，段被删或宫殿重建后即成死链
+ * （实测 96 条带 id 的记忆里 1 条如此）。给模型一个点开就报错的入口，比不给更糟——
+ * 它会开始怀疑整块记忆的可靠性，而那正是这套系统最不该丢的东西。
+ *
+ * 没有指针的条目**原样返回**（不复制对象，避免调用方拿到全新数组后浅比较失效）。
+ */
+function stripDeadDrawerPointers(
+  entries: readonly MemoryEntry[],
+  isAlive: (drawerId: string) => boolean,
+): readonly MemoryEntry[] {
+  let touched = false;
+  const out = entries.map((e) => {
+    const m = /^\[d:([0-9a-f]{1,64})\]\s/.exec(e.content);
+    if (!m || isAlive(m[1]!)) return e;
+    touched = true;
+    return { ...e, content: stripDrawerPointer(e.content) };
+  });
+  return touched ? out : entries;
+}
+
 export class MemoryManager {
   private readonly options: MemoryManagerOptions;
 
@@ -116,6 +141,9 @@ export class MemoryManager {
    * @param scope 读取作用域。`"user"` 跨 Agent 读取该用户的全部工作记忆，
    *   对应 `AgentDefinition.memory.scope === "user"` 的声明（汇总类 Agent 必须用它，
    *   否则读不到用户在主 Agent 里积累的工作）。
+   * @param isDrawerAlive 原文指针的存在性校验（可选）。给定时，指向已不存在的抽屉的
+   *   `[d:xxxx]` 前缀会被剥掉——死链比没有指针更糟（模型点开报错后会怀疑整块记忆）。
+   *   宿主在库打开时注入 `PalaceRepo.existsByIds`；库没打开时传 undefined 走无校验路径。
    */
   injectIntoSystemPrompt(
     systemPrompt: string,
@@ -124,8 +152,13 @@ export class MemoryManager {
     config: HotMemoryConfig = DEFAULT_HOT_MEMORY_CONFIG,
     query?: string,
     scope: MemoryReadScope = "agent",
+    isDrawerAlive?: (drawerId: string) => boolean,
   ): { readonly updatedPrompt: string; readonly injected: readonly MemoryEntry[] } {
-    const injected = this.repo.loadTopMemories(agentId, userId, config, query, scope);
+    const loaded = this.repo.loadTopMemories(agentId, userId, config, query, scope);
+    // 校验必须发生在格式化**之前**：死指针一旦写进提示词就捞不回来了。
+    // 剥在选取**之后**：分数、席位、token 预算都不该受指针影响；剥掉只会更短，
+    // 不会撑破预算。
+    const injected = isDrawerAlive ? stripDeadDrawerPointers(loaded, isDrawerAlive) : loaded;
     if (injected.length === 0) {
       // 占位符必须出清：无记忆可注入时替换为空串，防字面量泄漏进模型输入
       return { updatedPrompt: stripMemoryPlaceholder(systemPrompt), injected: [] };

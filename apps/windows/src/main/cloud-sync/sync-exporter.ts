@@ -12,7 +12,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
-import { SQLITE_BUSY_TIMEOUT_MS } from '@mtbot/agent-runtime'
+import { SQLITE_BUSY_TIMEOUT_MS, reconcilePersonalMemory } from '@mtbot/agent-runtime'
 import { createLogger } from '../logger'
 import { SYNC_OUTPUTS_MAX_BYTES, copySyncDirectory } from './sync-copy'
 import type { CopySyncDirectoryResult } from './sync-copy'
@@ -285,10 +285,27 @@ export class SyncExporter {
     }
 
     // 复制 user-memory.md
+    //
+    // **导出也要过对账**（2026-09-18）：条目元数据 `<!--m:id date-->` 由 harness 独占。
+    // 之所以需要这步，是因为**同步可能把无元数据的旧版本推回来**（旧设备、旧版本、
+    // 或冲突解决时选了偏旧的一侧）——那时本地文件已经丢了身份，导出前补回来。
+    //
+    // 基准取**本地对账后的结果**而非 sync 侧副本：sync 可能带着云端推来的内容，
+    // 拿它当基准会把本地内容替换掉（那属于冲突解决的职责，不归这里管）。
+    // `reconcilePersonalMemory(本地, 本地)` 是幂等的——已有身份原样保留，
+    // 缺失的用本地文档自身补发，不会新增也不会删除任何条目。
     const memSrc = path.join(this.options.dataDir, 'user-memory.md')
     const memDst = path.join(profileDir, 'user-memory.md')
     if (fs.existsSync(memSrc)) {
-      fs.copyFileSync(memSrc, memDst)
+      const local = fs.readFileSync(memSrc, 'utf-8')
+      const reconciled = reconcilePersonalMemory(local, local)
+      if (reconciled.content !== local) {
+        logger.info(
+          `[exportProfile] user-memory 缺元数据，已补发条目身份：新增 ${reconciled.added}、沿用 ${reconciled.kept}`,
+        )
+        fs.writeFileSync(memSrc, reconciled.content, 'utf-8')
+      }
+      fs.writeFileSync(memDst, reconciled.content, 'utf-8')
     } else {
       logger.info('[exportProfile] user-memory.md 不存在，跳过（不写默认值）')
     }

@@ -211,6 +211,24 @@ export class AgentRuntimeBridge {
   private readonly toolRegistry = new ToolRegistry()
   private readonly modelRouter = new ModelRouter()
   private readonly localDb = new LocalDatabase()
+
+  /**
+   * 注入前的原文指针存在性校验器（惰性）。
+   *
+   * 做成"给 `MemoryManager` 的谓词"而不是在 bridge 里就地剥，是因为剥了指针还要
+   * 重算 token 预算与去重（都在注入选取里做）——分两步会得到两套口径。
+   * 库没打开时返回 null，让调用方走无校验路径（总比不注入好）。
+   */
+  private palaceDrawerChecker(): ((id: string) => boolean) | null {
+    if (!this.localDb.isOpen) return null
+    try {
+      const repo = new PalaceRepo(this.localDb.db)
+      return (id: string) => repo.existsByIds([id]).size > 0
+    } catch (err) {
+      log.warn('[Palace] 注入前指针校验不可用，指针将按原样注入:', err)
+      return null
+    }
+  }
   /** Per-instance 聚合状态 */
   private readonly instanceStates = new InstanceStateStore()
   /** 当前打开的 SQLite 主文件路径（initialize 后可用） */
@@ -302,13 +320,21 @@ export class AgentRuntimeBridge {
       if (!mgr) return null
       const inst = this.agentRegistry.get(instanceId)
       const agentId = inst?.definitionId ?? 'assistant'
+      const scope = inst?.memoryReadScope ?? 'agent'
+      // 原文指针的存在性校验：`palace_drawer_id` 是可能过期的快照（段被删、宫殿重建），
+      // 实测 96 条带 id 的记忆里 1 条是死链，且还是 Python 时代 `drawer_chronicler_...`
+      // 的旧格式。给了指针而点开报错，比不给指针更糟——模型会开始怀疑整块记忆。
+      // 校验放在这里而不是 `formatUnifiedMemoryBlock`：后者是纯格式化、不持 DB。
+      const live = this.palaceDrawerChecker()
       const { updatedPrompt, injected } = mgr.injectIntoSystemPrompt(
         prompt,
         agentId,
         LOCAL_USER_ID,
         undefined,
         query,
-        inst?.memoryReadScope ?? 'agent',
+        scope,
+        // null（库未打开）→ undefined，走"无校验"路径：总比不注入好
+        live ?? undefined,
       )
       // 回填本轮注入集：注入发生在这里（构建期），而消费者在 AgentInstance 里——
       // UI 的「本轮注入了什么」与效用观测都读它。不回填则两处静默失效

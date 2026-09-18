@@ -186,7 +186,7 @@ import { loadVoiceEngineConfig } from './voice/voice-config-store.js'
 import { setChannelAsrReadyChecker } from './channel/channel-voice-asr-hint.js'
 import { getWorkspaceVcs, resetWorkspaceVcs } from './workspace-vcs/vcs-snapshot'
 import { getProjectGitStatus } from './project-git/project-git-status'
-import { findBuiltInAgent, mapApiRecordToAgentDefinition } from '@mtbot/agent-runtime'
+import { findBuiltInAgent, mapApiRecordToAgentDefinition, reconcilePersonalMemory } from '@mtbot/agent-runtime'
 import {
   applyCodingDevAcpEnvToProcess,
   buildCodingDevEnvInfo,
@@ -752,8 +752,29 @@ async function initAgentRuntime(): Promise<void> {
       promptStyleSettingsCache = resolved
       return resolved
     },
-    /** 更新用户记忆（用于 profile_memory 工具，写入本地文件 ~/.lumii/data/user-memory.md） */
-    updateUserMemory: async (content: string) => writeUserMemoryFile(content),
+    /**
+     * 更新用户记忆（写入本地文件 ~/.lumii/data/user-memory.md）。
+     *
+     * **对账在写入点做，不在调用方做**（2026-09-18）：条目元数据（`<!--m:id date-->`）
+     * 由 harness 独占，但四条写入路径里原先只有 `FileMemoryHandler.appendToUserMemory`
+     * 做了对账。定时任务 `companion-memory-deep`（本体是另一个 handler）、模型的
+     * `profile_memory` 工具、渲染层 IPC 全都直接写——实测 2026-09-18 12:01 的深度
+     * 整理把 9 条条目的身份**一次性抹平**，而这个过程完全无声。
+     *
+     * 放在这里是因为它是所有路径的必经之路，且对账是**纯 CPU 的字符串处理**
+     * （不需要 DB、不需要 LLM），放在最底层没有额外代价。调用方即使已经对过账，
+     * 再对一次也是幂等的。
+     */
+    updateUserMemory: async (content: string) => {
+      const previous = (await readUserMemoryFile())?.content ?? ''
+      const reconciled = reconcilePersonalMemory(content, previous)
+      if (reconciled.removed > 0 || reconciled.added > 0) {
+        log.info(
+          `[updateUserMemory] 条目对账：新增 ${reconciled.added}、沿用 ${reconciled.kept}、删除 ${reconciled.removed}`,
+        )
+      }
+      return writeUserMemoryFile(reconciled.content)
+    },
     /** 更新用户 SOUL 内容（写入本地文件 ~/.lumii/data/soul.md） */
     updateSoulContent: async (content: string) => writeSoulFile(content),
     fetchAgentDefinitionById: async (id: string) => {

@@ -8,6 +8,7 @@
 
 import type { MemoryCategory, ExtractedCandidate } from "./types.js";
 import { buildMemoryArchitectureSection } from "./memory-architecture.js";
+import { hasDrawerPointer } from "./content-address.js";
 
 // ─── 规则提取 ───
 
@@ -293,6 +294,7 @@ export function buildExtractionPrompt(
 
   const workMemories = existingContext.workMemories ?? [];
   const workSlice = workMemories.length > 25 ? workMemories.slice(-25) : workMemories;
+  const workHasPointer = workSlice.some((m) => hasDrawerPointer(m.content));
   const workText =
     workSlice.length > 0
       ? workSlice.map((m) => `- [${m.category}] ${m.content}`).join("\n") +
@@ -330,8 +332,8 @@ export function buildExtractionPrompt(
     "",
     "### feedback（交互偏好）→ 个人记忆",
     '保存时机：用户明确纠正你的做法（"不要..."、"以后别..."）；或用户明确认可你的做法（"这样很好"、"就是这个格式"）',
-    "内容结构：规则 + 原因 + 应用（任务级规则须加适用范围）",
-    '示例：{"content": "规则：生成图片必须调用 image_generate，禁止编造链接。原因：用户多次纠正。应用：任何生图任务都走工具。适用范围：全局", "category": "feedback", "importance": 0.9, "tags": ["correction", "tool"]}',
+    "内容结构：规则 + 原因（**不要写「应用」**——它只是规则的同义复述，实测纯占篇幅）。每条压到 100 字以内。",
+    '示例：{"content": "规则：生成图片必须调用 image_generate，禁止编造链接。原因：用户多次纠正。", "category": "feedback", "importance": 0.9, "tags": ["correction", "tool"]}',
     "",
     "### project（进行中的事）→ 工作记忆",
     "保存时机：用户提到持续性活动、有截止日期的事项、长期计划",
@@ -366,6 +368,14 @@ export function buildExtractionPrompt(
     "",
     "## 已有工作记忆（agent_memories，避免重复与冲突）",
     workText,
+    ...(workHasPointer
+      ? [
+          "",
+          "**行首的 `[d:xxxx]` 是原文指针，必须原样保留**：",
+          "- 你输出的候选行首也要带上同一个 `[d:xxxx]`，否则去重比对会把同一件事当成两条，条目会翻倍。",
+          "- 指针指向该条记忆的原文归档；缺失或写错都会让回溯链路断掉。**不要**自己编造 `[d:...]`——新候选（已有记忆里没有的）不加指针。",
+        ]
+      : []),
     "",
     "## 最近对话",
     messagesText,
