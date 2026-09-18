@@ -1,0 +1,103 @@
+{
+  "at": "2026-09-18T14:03:51.147Z",
+  "candidates": [
+    {
+      "query": "我之前跟你聊过的那个 TOCC 数据同步问题，结论是什么来着",
+      "fromConversation": "24ee0a5083c92128c326dde7a94db76c",
+      "at": "2026-09-18T13:29:46.553Z",
+      "anchoredDrawers": 0,
+      "anchors": []
+    },
+    {
+      "query": "之前我们聊过往返机票比价的事，还记得当时是怎么定的方案吗？简单回顾一下要点就行。",
+      "fromConversation": "e6b1e8096bfcf1ee1137f0c7afb9e9ce",
+      "at": "2026-09-18T01:39:30.612Z",
+      "anchoredDrawers": 1,
+      "anchors": [
+        {
+          "drawerId": "ce081ceb48e3c405",
+          "via": "之前我们聊过往返机票比价"
+        }
+      ]
+    },
+    {
+      "query": "搜索一下对应的记忆时间衰减算法，我记得源码中似乎有时间算法",
+      "fromConversation": "feishu:ou_ba9a79349951e82ceac99a505f3e2739",
+      "at": "2026-09-15T11:20:07.680Z",
+      "anchoredDrawers": 1,
+      "anchors": [
+        {
+          "drawerId": "45038c4934e31b3c",
+          "via": "搜索一下对应的记忆时间衰"
+        }
+      ]
+    },
+    {
+      "query": "@outputs/川大智胜项目分析/原有问需问计系统维护/04-运维整改/运维速查手册.md  12345给共享平台，共享平台给tocc，tocc给我们，这个数据测验证通了。但是当前用户反馈【新单子没过来、之前已经做了的又过来一部分】，需要到服务器上排查一下",
+      "fromConversation": "cb942cb63d1e3378d4664b2cd171b7e5",
+      "at": "2026-09-15T09:00:09.676Z",
+      "anchoredDrawers": 99,
+      "anchors": [
+        {
+          "drawerId": "46218593297088ec",
+          "via": "川大智胜项目分析"
+        },
+        {
+          "drawerId": "e2e360338fe67b4d",
+          "via": "川大智胜项目分析"
+        },
+        {
+          "drawerId": "2ab72dd764e4b517",
+          "via": "川大智胜项目分析"
+        }
+      ]
+    },
+    {
+      "query": "可以，完成后发给我。记得使用技能生成",
+      "fromConversation": "weixin:o9cq801LCaXHkMjBa_NBR82KYDPY@im.wechat",
+      "at": "2026-09-11T15:40:58.971Z",
+      "anchoredDrawers": 3,
+      "anchors": [
+        {
+          "drawerId": "bfe1b17157e55ffd",
+          "via": "完成后发给我"
+        },
+        {
+          "drawerId": "4ec3a7150eb20006",
+          "via": "完成后发给我"
+        },
+        {
+          "drawerId": "a194e91968e24313",
+          "via": "完成后发给我"
+        }
+      ]
+    },
+    {
+      "query": "刚才发了什么消息\n[语音转录: 刚才发了什么消息]",
+      "fromConversation": "weixin:o9cq801LCaXHkMjBa_NBR82KYDPY@im.wechat",
+      "at": "2026-09-11T13:21:48.381Z",
+      "anchoredDrawers": 4,
+      "anchors": [
+        {
+          "drawerId": "bfe1b17157e55ffd",
+          "via": "刚才发了什么消息"
+        },
+        {
+          "drawerId": "45038c4934e31b3c",
+          "via": "语音转录"
+        },
+        {
+          "drawerId": "a194e91968e24313",
+          "via": "语音转录"
+        }
+      ]
+    },
+    {
+      "query": "你还你刚才做了什么",
+      "fromConversation": "weixin:o9cq8050P6l3M34pqbOwVCesbKag@im.wechat",
+      "at": "2026-09-02T09:08:11.139Z",
+      "anchoredDrawers": 0,
+      "anchors": []
+    }
+  ]
+}

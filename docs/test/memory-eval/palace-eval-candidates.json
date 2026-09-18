@@ -1,0 +1,95 @@
+{
+  "minedAt": "2026-09-18T12:19:43.774Z",
+  "candidates": [
+    {
+      "id": "p01-book-no-regen",
+      "cat": "同义词错配",
+      "query": "绘本那个图是用代码拼出来的那套做法",
+      "expect": [
+        "不要重新生图，使用代码合成"
+      ],
+      "gold": "faf9f9e5bb65b488"
+    },
+    {
+      "id": "p02-blocked-host",
+      "cat": "同义词错配",
+      "query": "数据库把我这边 IP 拉黑了连不上",
+      "expect": [
+        "is blocked because of many connection errors"
+      ],
+      "gold": "46218593297088ec"
+    },
+    {
+      "id": "p03-docker-logs",
+      "cat": "语义改写",
+      "query": "生产服务器日志里反复报错的那批",
+      "expect": [
+        "docker logs -t --tail 500 e9e01399c40e"
+      ],
+      "gold": "4a564a87ff8db1f2"
+    },
+    {
+      "id": "p04-feishu-deliver",
+      "cat": "同义词错配",
+      "query": "课程做完用飞书发我",
+      "expect": [
+        "二十四史系统读史"
+      ],
+      "gold": "bfe1b17157e55ffd"
+    },
+    {
+      "id": "p05-restart-service",
+      "cat": "语义改写",
+      "query": "接收服务要不要重启一下",
+      "expect": [
+        "不需要重启，重启也解决不了这个问题"
+      ],
+      "gold": "418dd6500b672069"
+    },
+    {
+      "id": "p06-picture-book-skill",
+      "cat": "同义词错配",
+      "query": "用做绘本的那个技能生成",
+      "expect": [
+        "picture-book-studio"
+      ],
+      "gold": "185517215cb7c2cf"
+    },
+    {
+      "id": "p07-tunnel-machine",
+      "cat": "精确主题",
+      "query": "堡垒机的地址和账号",
+      "expect": [
+        "堡垒机信息"
+      ],
+      "gold": "f6263aee73a950f9"
+    },
+    {
+      "id": "p08-shiji-lecture",
+      "cat": "精确主题",
+      "query": "平准书那一课的讲义",
+      "expect": [
+        "平准书"
+      ],
+      "gold": "51d3e93f20a3d007"
+    },
+    {
+      "id": "p09-mysql-unlock",
+      "cat": "同义词错配",
+      "query": "数据库连不上要解封的命令",
+      "expect": [
+        "解锁命令如下"
+      ],
+      "gold": "a02d4a36d49ddc26"
+    },
+    {
+      "id": "p10-ods-stuck",
+      "cat": "精确主题",
+      "query": "ODS 同步卡住的那件事",
+      "expect": [
+        "ODS 同步卡点"
+      ],
+      "gold": "6f0d78b770f2eeca"
+    }
+  ]
+}

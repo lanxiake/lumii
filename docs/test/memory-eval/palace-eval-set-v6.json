@@ -1,0 +1,1947 @@
+{
+  "_comment": "v6：查询=真实用户提问，gold=**同一会话中该提问之前归档的最近一条抽屉**。因果性由 palace_drawers.created_at（归档时刻）与 messages.timestamp 的时间序保证；ctxOverlap = 提问与「归档当时原文切片」的 bigram 覆盖率，用于分层——低重叠档混有\"用户其实在聊别的\"的噪声，高重叠档才是干净信号。",
+  "generatedAt": "2026-09-18T14:58:08.361Z",
+  "buckets": {
+    "0.00-0.20": 76,
+    "0.20-0.40": 20,
+    "0.40-0.60": 1,
+    "0.60-0.80": 3,
+    "0.80-1.00": 7
+  },
+  "all": [
+    {
+      "id": "v6-0fd91adc-005314",
+      "query": "四川省和成都市对应的规划呢，综合比较一下，然后就是具体的实施情况。在这个大趋势下普通人该如何行动",
+      "gold": "0fd91adc2fbc8f3c",
+      "expect": [
+        "四川省和成都市对应的规划呢，综合比较一下，然后就是具体的实施情况。在这个大趋势下普通人该如何行动"
+      ],
+      "ctxOverlap": 0.049,
+      "goldChars": 1799,
+      "snapshotChars": 1799,
+      "conversation": "feishu:ou_ba9a79349951e82ceac99a505f3e2739",
+      "askedAt": "2026-09-02T00:53:14.292Z",
+      "goldArchivedAt": "2026-09-02T00:28:39.422Z"
+    },
+    {
+      "id": "v6-87f65cb5-041723",
+      "query": "26或者27号出发，小孩子6岁，可以和大人一起住。看下什么时候往返比较便宜",
+      "gold": "87f65cb583372ee0",
+      "expect": [
+        "26或者27号出发，小孩子6岁，可以和大人一起住。看下什么时候往返比较便宜"
+      ],
+      "ctxOverlap": 0.333,
+      "goldChars": 1519,
+      "snapshotChars": 1519,
+      "conversation": "weixin:o9cq8050P6l3M34pqbOwVCesbKag@im.wechat",
+      "askedAt": "2026-09-02T04:17:23.175Z",
+      "goldArchivedAt": "2026-09-02T03:41:51.930Z"
+    },
+    {
+      "id": "v6-9cb28131-042227",
+      "query": "将上述所有 组合以及方案输出成一份md文档，让我参考和选择",
+      "gold": "9cb28131c1fd1013",
+      "expect": [
+        "将上述所有 组合以及方案输出成一份md文档，让我参考和选择"
+      ],
+      "ctxOverlap": 0.273,
+      "goldChars": 1086,
+      "snapshotChars": 1086,
+      "conversation": "weixin:o9cq8050P6l3M34pqbOwVCesbKag@im.wechat",
+      "askedAt": "2026-09-02T04:22:27.070Z",
+      "goldArchivedAt": "2026-09-02T04:20:05.421Z"
+    },
+    {
+      "id": "v6-44ea00b7-062139",
+      "query": "帮我打开电脑上的腾讯电脑管家",
+      "gold": "44ea00b789f4f1bf",
+      "expect": [
+        "帮我打开电脑上的腾讯电脑管家"
+      ],
+      "ctxOverlap": 0,
+      "goldChars": 258,
+      "snapshotChars": 258,
+      "conversation": "weixin:o9cq8050P6l3M34pqbOwVCesbKag@im.wechat",
+      "askedAt": "2026-09-02T06:21:39.577Z",
+      "goldArchivedAt": "2026-09-02T04:24:10.762Z"
+    },
+    {
+      "id": "v6-c3971d7d-090405",
+      "query": "截图看下电脑管家页面是否打开",
+      "gold": "c3971d7da9eeb145",
+      "expect": [
+        "截图看下电脑管家页面是否打开"
+      ],
+      "ctxOverlap": 0.385,
+      "goldChars": 398,
+      "snapshotChars": 398,
+      "conversation": "weixin:o9cq8050P6l3M34pqbOwVCesbKag@im.wechat",
+      "askedAt": "2026-09-02T09:04:05.414Z",
+      "goldArchivedAt": "2026-09-02T06:26:13.012Z"
+    },
+    {
+      "id": "v6-a71aa23b-092014",
+      "query": "最近在读二十四史，你觉得二十四史，对当前国家规划的趋势和策略有哪些参考价值，该如何深入剖析二十四史的意义，有哪些参考价值",
+      "gold": "a71aa23b86b0a781",
+      "expect": [
+        "最近在读二十四史，你觉得二十四史，对当前国家规划的趋势和策略有哪些参考价值，该如何深入剖析二十四史的意义，有哪些参考价值"
+      ],
+      "ctxOverlap": 0.205,
+      "goldChars": 3965,
+      "snapshotChars": 3965,
+      "conversation": "feishu:ou_ba9a79349951e82ceac99a505f3e2739",
+      "askedAt": "2026-09-02T09:20:14.362Z",
+      "goldArchivedAt": "2026-09-02T00:55:17.062Z"
+    },
+    {
+      "id": "v6-05a6fe41-092749",
+      "query": "将上述内容整理成md文档发送给我",
+      "gold": "05a6fe41724f9e88",
+      "expect": [
+        "将上述内容整理成md文档发送给我"
+      ],
+      "ctxOverlap": 0,
+      "goldChars": 2352,
+      "snapshotChars": 2352,
+      "conversation": "feishu:ou_ba9a79349951e82ceac99a505f3e2739",
+      "askedAt": "2026-09-02T09:27:49.758Z",
+      "goldArchivedAt": "2026-09-02T09:21:47.434Z"
+    },
+    {
+      "id": "v6-36301e0b-113302",
+      "query": "先使用web_search.",
+      "gold": "36301e0bd50c04de",
+      "expect": [
+        "先使用web_search."
+      ],
+      "ctxOverlap": 0,
+      "goldChars": 142,
+      "snapshotChars": 142,
+      "conversation": "feishu:ou_ba9a79349951e82ceac99a505f3e2739",
+      "askedAt": "2026-09-02T11:33:02.543Z",
+      "goldArchivedAt": "2026-09-02T11:30:05.667Z"
+    },
+    {
+      "id": "v6-f4b1e9eb-122507",
+      "query": "拿取对应的原文下载到目录下面",
+      "gold": "f4b1e9eb8a660a34",
+      "expect": [
+        "拿取对应的原文下载到目录下面"
+      ],
+      "ctxOverlap": 0.077,
+      "goldChars": 407,
+      "snapshotChars": 407,
+      "conversation": "feishu:ou_ba9a79349951e82ceac99a505f3e2739",
+      "askedAt": "2026-09-02T12:25:07.038Z",
+      "goldArchivedAt": "2026-09-02T11:46:39.206Z"
+    },
+    {
+      "id": "v6-8a17853d-133032",
+      "query": "将其下载为md格式，原文和译文对照。",
+      "gold": "8a17853d9885979e",
+      "expect": [
+        "将其下载为md格式，原文和译文对照。"
+      ],
+      "ctxOverlap": 0.25,
+      "goldChars": 1037,
+      "snapshotChars": 1037,
+      "conversation": "feishu:ou_ba9a79349951e82ceac99a505f3e2739",
+      "askedAt": "2026-09-02T13:30:32.925Z",
+      "goldArchivedAt": "2026-09-02T12:35:11.665Z"
+    },
+    {
+      "id": "v6-450c97cd-161617",
+      "query": "资讯抓取与综述，定时任务改为每八小时执行一次",
+      "gold": "450c97cd0cfb2317",
+      "expect": [
+        "资讯抓取与综述，定时任务改为每八小时执行一次"
+      ],
+      "ctxOverlap": 0.053,
+      "goldChars": 554,
+      "snapshotChars": 554,
+      "conversation": "feishu:ou_ba9a79349951e82ceac99a505f3e2739",
+      "askedAt": "2026-09-02T16:16:17.108Z",
+      "goldArchivedAt": "2026-09-02T13:43:38.864Z"
+    },
+    {
+      "id": "v6-81cb6f9d-161744",
+      "query": "输出第三课的内容，以及第二课的答案",
+      "gold": "81cb6f9da1c8b202",
+      "expect": [
+        "输出第三课的内容，以及第二课的答案"
+      ],
+      "ctxOverlap": 0.077,
+      "goldChars": 165,
+      "snapshotChars": 165,
+      "conversation": "feishu:ou_ba9a79349951e82ceac99a505f3e2739",
+      "askedAt": "2026-09-03T16:17:44.342Z",
+      "goldArchivedAt": "2026-09-03T12:08:20.891Z"
+    },
+    {
+      "id": "v6-acd1a55f-135424",
+      "query": "将第五课做成有声书音频发给我",
+      "gold": "acd1a55f70cd8233",
+      "expect": [
+        "将第五课做成有声书音频发给我"
+      ],
+      "ctxOverlap": 0.154,
+      "goldChars": 148,
+      "snapshotChars": 148,
+      "conversation": "feishu:ou_ba9a79349951e82ceac99a505f3e2739",
+      "askedAt": "2026-09-04T13:54:24.570Z",
+      "goldArchivedAt": "2026-09-03T17:00:59.188Z"
+    },
+    {
+      "id": "v6-65eb01b1-131002",
+      "query": "将第六课内容做成HTML给我看一下呢，要好看、方便阅读的那种。",
+      "gold": "65eb01b1c68f1fd3",
+      "expect": [
+        "将第六课内容做成HTML给我看一下呢，要好看、方便阅读的那种。"
+      ],
+      "ctxOverlap": 0.048,
+      "goldChars": 678,
+      "snapshotChars": 678,
+      "conversation": "feishu:ou_ba9a79349951e82ceac99a505f3e2739",
+      "askedAt": "2026-09-07T13:10:02.838Z",
+      "goldArchivedAt": "2026-09-07T12:39:20.628Z"
+    },
+    {
+      "id": "v6-cf97dc9d-163247",
+      "query": "使用HTML输出后续9-12课内容，生僻字需要加拼音以及注解",
+      "gold": "cf97dc9d5f86765d",
+      "expect": [
+        "使用HTML输出后续9-12课内容，生僻字需要加拼音以及注解"
+      ],
+      "ctxOverlap": 0.15,
+      "goldChars": 748,
+      "snapshotChars": 748,
+      "conversation": "feishu:ou_ba9a79349951e82ceac99a505f3e2739",
+      "askedAt": "2026-09-07T16:32:47.952Z",
+      "goldArchivedAt": "2026-09-07T13:47:10.318Z"
+    },
+    {
+      "id": "v6-4f8fc76d-164846",
+      "query": "注意任务量比较大可以分步分批完成",
+      "gold": "4f8fc76d172ebb74",
+      "expect": [
+        "注意任务量比较大可以分步分批完成"
+      ],
+      "ctxOverlap": 0,
+      "goldChars": 211,
+      "snapshotChars": 211,
+      "conversation": "feishu:ou_ba9a79349951e82ceac99a505f3e2739",
+      "askedAt": "2026-09-07T16:48:46.243Z",
+      "goldArchivedAt": "2026-09-07T16:48:03.144Z"
+    },
+    {
+      "id": "v6-9a93098c-045025",
+      "query": "全部的课程重新编排一下，按照最初的学习初衷，需要系统性的学习历史。你先谈谈你的想法，列出课程大纲",
+      "gold": "9a93098c4ff331d4",
+      "expect": [
+        "全部的课程重新编排一下，按照最初的学习初衷，需要系统性的学习历史。你先谈谈你的想法，列出课程大纲"
+      ],
+      "ctxOverlap": 0.139,
+      "goldChars": 1002,
+      "snapshotChars": 1002,
+      "conversation": "feishu:ou_ba9a79349951e82ceac99a505f3e2739",
+      "askedAt": "2026-09-08T04:50:25.349Z",
+      "goldArchivedAt": "2026-09-08T04:46:58.864Z"
+    },
+    {
+      "id": "v6-87082025-051814",
+      "query": "可以，但是大纲需要拆分的更加详细一些避免内容过于粗糙。内容较大，分段输出",
+      "gold": "87082025cdb994d9",
+      "expect": [
+        "可以，但是大纲需要拆分的更加详细一些避免内容过于粗糙。内容较大，分段输出"
+      ],
+      "ctxOverlap": 1,
+      "goldChars": 10667,
+      "snapshotChars": 10667,
+      "conversation": "feishu:ou_ba9a79349951e82ceac99a505f3e2739",
+      "askedAt": "2026-09-08T05:18:14.399Z",
+      "goldArchivedAt": "2026-09-08T05:18:14.398Z"
+    },
+    {
+      "id": "v6-6d431d13-101005",
+      "query": "样式不需要过于复杂简单实用就好，多使用一些在线样式，减少代码量",
+      "gold": "6d431d13bd8526b0",
+      "expect": [
+        "样式不需要过于复杂简单实用就好，多使用一些在线样式，减少代码量"
+      ],
+      "ctxOverlap": 1,
+      "goldChars": 6803,
+      "snapshotChars": 6803,
+      "conversation": "feishu:ou_ba9a79349951e82ceac99a505f3e2739",
+      "askedAt": "2026-09-08T10:10:05.535Z",
+      "goldArchivedAt": "2026-09-08T10:10:05.534Z"
+    },
+    {
+      "id": "v6-c8e5f4db-102204",
+      "query": "1.样式和浅色调，尽量不使用emjor，增加导航标题，便于跳转  2.样式需要适合手机观看，注意换行和文字大小。 3.行文逻辑需要更加结构化，有条理，引导思辨",
+      "gold": "c8e5f4dbe8ace20c",
+      "expect": [
+        "1.样式和浅色调，尽量不使用emjor，增加导航标题，便于跳转  2.样式需要适合手机观看，注意换行和文字大小。 3.行文逻辑需要更加结构化，有条理，引导思辨"
+      ],
+      "ctxOverlap": 0.137,
+      "goldChars": 931,
+      "snapshotChars": 931,
+      "conversation": "feishu:ou_ba9a79349951e82ceac99a505f3e2739",
+      "askedAt": "2026-09-08T10:22:04.542Z",
+      "goldArchivedAt": "2026-09-08T10:11:56.352Z"
+    },
+    {
+      "id": "v6-31db6737-103154",
+      "query": "1.注意文件中的颜色搭配，像手绘笔记一样，添加一些不同颜色的标记，避免审美疲劳。2.有详略轻重之分",
+      "gold": "31db67372159f204",
+      "expect": [
+        "1.注意文件中的颜色搭配，像手绘笔记一样，添加一些不同颜色的标记，避免审美疲劳。2.有详略轻重之分"
+      ],
+      "ctxOverlap": 0.081,
+      "goldChars": 791,
+      "snapshotChars": 791,
+      "conversation": "feishu:ou_ba9a79349951e82ceac99a505f3e2739",
+      "askedAt": "2026-09-08T10:31:54.153Z",
+      "goldArchivedAt": "2026-09-08T10:23:50.997Z"
+    },
+    {
+      "id": "v6-49fb2c93-103540",
+      "query": "可以，就按照这个模板进行吧",
+      "gold": "49fb2c935dc1a4e2",
+      "expect": [
+        "可以，就按照这个模板进行吧"
+      ],
+      "ctxOverlap": 0.1,
+      "goldChars": 673,
+      "snapshotChars": 673,
+      "conversation": "feishu:ou_ba9a79349951e82ceac99a505f3e2739",
+      "askedAt": "2026-09-08T10:35:40.938Z",
+      "goldArchivedAt": "2026-09-08T10:33:21.682Z"
+    },
+    {
+      "id": "v6-46c52f2d-153008",
+      "query": "重新编写第二篇并发给我，内容需要生动形象一些不要那么多的专业词汇。想旧版12课那种行文结构，内容不要过于复杂。样式可以好看点",
+      "gold": "46c52f2dc3b961f2",
+      "expect": [
+        "重新编写第二篇并发给我，内容需要生动形象一些不要那么多的专业词汇。想旧版12课那种行文结构，内容不要过于复杂。样式可以好看点"
+      ],
+      "ctxOverlap": 0.061,
+      "goldChars": 831,
+      "snapshotChars": 831,
+      "conversation": "feishu:ou_ba9a79349951e82ceac99a505f3e2739",
+      "askedAt": "2026-09-08T15:30:08.003Z",
+      "goldArchivedAt": "2026-09-08T11:13:50.517Z"
+    },
+    {
+      "id": "v6-4f216a49-154215",
+      "query": "文字笔记颜色样式需要保留。内容比较多需要一些新鲜感，重点标记。内容还是需要以古论今的国家，个人经济政治决策规划对比。再重写第一篇，可以的话更新样式模板规范",
+      "gold": "4f216a49d5ad4d46",
+      "expect": [
+        "文字笔记颜色样式需要保留。内容比较多需要一些新鲜感，重点标记。内容还是需要以古论今的国家，个人经济政治决策规划对比。再重写第一篇，可以的话更新样式模板规范"
+      ],
+      "ctxOverlap": 0.117,
+      "goldChars": 655,
+      "snapshotChars": 655,
+      "conversation": "feishu:ou_ba9a79349951e82ceac99a505f3e2739",
+      "askedAt": "2026-09-08T15:42:15.415Z",
+      "goldArchivedAt": "2026-09-08T15:33:04.324Z"
+    },
+    {
+      "id": "v6-540aefdf-154917",
+      "query": "样式可以了，内容需要多些和当前时政，实时事热点对比引人思考的内容，可以使用网络搜索。更新编写规范。然后重新输出1-6篇。完成一篇，发送一篇给我。",
+      "gold": "540aefdf127f3b32",
+      "expect": [
+        "样式可以了，内容需要多些和当前时政，实时事热点对比引人思考的内容，可以使用网络搜索。更新编写规范。然后重新输出1-6篇。完成一篇，发送一篇给我。"
+      ],
+      "ctxOverlap": 0.269,
+      "goldChars": 897,
+      "snapshotChars": 897,
+      "conversation": "feishu:ou_ba9a79349951e82ceac99a505f3e2739",
+      "askedAt": "2026-09-08T15:49:17.500Z",
+      "goldArchivedAt": "2026-09-08T15:45:18.773Z"
+    },
+    {
+      "id": "v6-aaa9f624-161126",
+      "query": "按照当前HTML风格样式重写上述行动清单，然后发送给我",
+      "gold": "aaa9f624d834c832",
+      "expect": [
+        "按照当前HTML风格样式重写上述行动清单，然后发送给我"
+      ],
+      "ctxOverlap": 0.3,
+      "goldChars": 1397,
+      "snapshotChars": 1397,
+      "conversation": "feishu:ou_ba9a79349951e82ceac99a505f3e2739",
+      "askedAt": "2026-09-08T16:11:26.068Z",
+      "goldArchivedAt": "2026-09-08T15:59:45.596Z"
+    },
+    {
+      "id": "v6-7b57f354-162242",
+      "query": "AI 时代普通程序员行动清单.md  是这个文件中的内容",
+      "gold": "7b57f3549741acbe",
+      "expect": [
+        "AI 时代普通程序员行动清单.md  是这个文件中的内容"
+      ],
+      "ctxOverlap": 0.65,
+      "goldChars": 496,
+      "snapshotChars": 496,
+      "conversation": "feishu:ou_ba9a79349951e82ceac99a505f3e2739",
+      "askedAt": "2026-09-08T16:22:42.567Z",
+      "goldArchivedAt": "2026-09-08T16:22:42.342Z"
+    },
+    {
+      "id": "v6-263bf740-024713",
+      "query": "将上述行动清单拆分为一个可执行的计划，并做成定时任务的方式提醒我。",
+      "gold": "263bf7400c64fe5c",
+      "expect": [
+        "将上述行动清单拆分为一个可执行的计划，并做成定时任务的方式提醒我。"
+      ],
+      "ctxOverlap": 0.172,
+      "goldChars": 293,
+      "snapshotChars": 293,
+      "conversation": "feishu:ou_ba9a79349951e82ceac99a505f3e2739",
+      "askedAt": "2026-09-09T02:47:13.048Z",
+      "goldArchivedAt": "2026-09-08T16:23:24.247Z"
+    },
+    {
+      "id": "v6-f16986f4-085919",
+      "query": "你为什么不使用movefile的内置工具来操作",
+      "gold": "f16986f4de8a327f",
+      "expect": [
+        "你为什么不使用movefile的内置工具来操作"
+      ],
+      "ctxOverlap": 1,
+      "goldChars": 8082,
+      "snapshotChars": 8082,
+      "conversation": "feishu:ou_ba9a79349951e82ceac99a505f3e2739",
+      "askedAt": "2026-09-09T08:59:19.324Z",
+      "goldArchivedAt": "2026-09-09T08:59:19.323Z"
+    },
+    {
+      "id": "v6-2eae08c2-064642",
+      "query": "生产24史，后面4篇的课程。",
+      "gold": "2eae08c2ed566fb6",
+      "expect": [
+        "生产24史，后面4篇的课程。"
+      ],
+      "ctxOverlap": 1,
+      "goldChars": 8081,
+      "snapshotChars": 8081,
+      "conversation": "feishu:ou_ba9a79349951e82ceac99a505f3e2739",
+      "askedAt": "2026-09-10T06:46:42.158Z",
+      "goldArchivedAt": "2026-09-10T06:46:42.157Z"
+    },
+    {
+      "id": "v6-e34cef25-072957",
+      "query": "记住文章内容不要加入一些软件开发的专业术语和一些难以理解的概念，需要生动形象，普通读者也能顺畅有趣的阅读",
+      "gold": "e34cef259f4b7383",
+      "expect": [
+        "记住文章内容不要加入一些软件开发的专业术语和一些难以理解的概念，需要生动形象，普通读者也能顺畅有趣的阅读"
+      ],
+      "ctxOverlap": 0.022,
+      "goldChars": 1024,
+      "snapshotChars": 1024,
+      "conversation": "feishu:ou_ba9a79349951e82ceac99a505f3e2739",
+      "askedAt": "2026-09-10T07:29:57.695Z",
+      "goldArchivedAt": "2026-09-10T07:04:01.784Z"
+    },
+    {
+      "id": "v6-c0e3e5ab-075431",
+      "query": "再重新编写一下，现在AI味太浓了。",
+      "gold": "c0e3e5ab5e9ccff3",
+      "expect": [
+        "再重新编写一下，现在AI味太浓了。"
+      ],
+      "ctxOverlap": 1,
+      "goldChars": 8563,
+      "snapshotChars": 8563,
+      "conversation": "feishu:ou_ba9a79349951e82ceac99a505f3e2739",
+      "askedAt": "2026-09-10T07:54:31.846Z",
+      "goldArchivedAt": "2026-09-10T07:49:59.697Z"
+    },
+    {
+      "id": "v6-608a6185-084556",
+      "query": "可以看到我发送的语音消息吗？",
+      "gold": "608a6185e9b534d7",
+      "expect": [
+        "可以看到我发送的语音消息吗？"
+      ],
+      "ctxOverlap": 0,
+      "goldChars": 539,
+      "snapshotChars": 539,
+      "conversation": "wecom:wodXguNgAAro0Sjie9ahDmDYC2jSo5Tg",
+      "askedAt": "2026-09-10T08:45:56.862Z",
+      "goldArchivedAt": "2026-09-10T08:40:23.470Z"
+    },
+    {
+      "id": "v6-75ac7db9-131922",
+      "query": "[语音消息，未识别出内容]",
+      "gold": "75ac7db95d070649",
+      "expect": [
+        "[语音消息，未识别出内容]"
+      ],
+      "ctxOverlap": 0,
+      "goldChars": 502,
+      "snapshotChars": 502,
+      "conversation": "feishu:ou_ba9a79349951e82ceac99a505f3e2739",
+      "askedAt": "2026-09-10T13:19:22.410Z",
+      "goldArchivedAt": "2026-09-10T08:12:45.077Z"
+    },
+    {
+      "id": "v6-cf4851e8-135714",
+      "query": "制作一个龙猫的绘本，html版本",
+      "gold": "cf4851e81d2c2f35",
+      "expect": [
+        "制作一个龙猫的绘本，html版本"
+      ],
+      "ctxOverlap": 0.1,
+      "goldChars": 222,
+      "snapshotChars": 222,
+      "conversation": "feishu:ou_ba9a79349951e82ceac99a505f3e2739",
+      "askedAt": "2026-09-10T13:57:14.110Z",
+      "goldArchivedAt": "2026-09-10T13:21:16.150Z"
+    },
+    {
+      "id": "v6-d6faeab0-144501",
+      "query": "不要重新生图，使用代码合成",
+      "gold": "d6faeab062971dd3",
+      "expect": [
+        "不要重新生图，使用代码合成"
+      ],
+      "ctxOverlap": 0.1,
+      "goldChars": 156,
+      "snapshotChars": 156,
+      "conversation": "weixin:o9cq801LCaXHkMjBa_NBR82KYDPY@im.wechat",
+      "askedAt": "2026-09-10T14:45:01.288Z",
+      "goldArchivedAt": "2026-09-10T14:45:00.899Z"
+    },
+    {
+      "id": "v6-37a862d4-151449",
+      "query": "1.尽量使用在线样式，降低代码编写难度和代码量。\n2.文字背后还是有白色背景，背景需要透明。\n3.上一页下一页按钮还在，需要移除",
+      "gold": "37a862d4ef9875fd",
+      "expect": [
+        "1.尽量使用在线样式，降低代码编写难度和代码量。\n2.文字背后还是有白色背景，背景需要透明。\n3.上一页下一页按钮还在，需要移除"
+      ],
+      "ctxOverlap": 1,
+      "goldChars": 15415,
+      "snapshotChars": 15415,
+      "conversation": "weixin:o9cq801LCaXHkMjBa_NBR82KYDPY@im.wechat",
+      "askedAt": "2026-09-10T15:14:49.368Z",
+      "goldArchivedAt": "2026-09-10T15:14:49.367Z"
+    },
+    {
+      "id": "v6-5074346f-152307",
+      "query": "你换一个文件名呢。或者加上版本号",
+      "gold": "5074346ff973c1c6",
+      "expect": [
+        "你换一个文件名呢。或者加上版本号"
+      ],
+      "ctxOverlap": 0.154,
+      "goldChars": 338,
+      "snapshotChars": 338,
+      "conversation": "weixin:o9cq801LCaXHkMjBa_NBR82KYDPY@im.wechat",
+      "askedAt": "2026-09-10T15:23:07.801Z",
+      "goldArchivedAt": "2026-09-10T15:23:07.376Z"
+    },
+    {
+      "id": "v6-ccbc6ab0-160725",
+      "query": "按照重写版的内容风格和规范继续编写B5-B8的课程，需要加入手绘笔记风格的样式",
+      "gold": "ccbc6ab0a68c71df",
+      "expect": [
+        "按照重写版的内容风格和规范继续编写B5-B8的课程，需要加入手绘笔记风格的样式"
+      ],
+      "ctxOverlap": 0.065,
+      "goldChars": 506,
+      "snapshotChars": 506,
+      "conversation": "feishu:ou_ba9a79349951e82ceac99a505f3e2739",
+      "askedAt": "2026-09-10T16:07:25.023Z",
+      "goldArchivedAt": "2026-09-10T14:43:12.409Z"
+    },
+    {
+      "id": "v6-936bbf11-164446",
+      "query": "操作客户端打开飞书渠道对话页面",
+      "gold": "936bbf11a29653b1",
+      "expect": [
+        "操作客户端打开飞书渠道对话页面"
+      ],
+      "ctxOverlap": 0,
+      "goldChars": 182,
+      "snapshotChars": 182,
+      "conversation": "weixin:o9cq801LCaXHkMjBa_NBR82KYDPY@im.wechat",
+      "askedAt": "2026-09-10T16:44:46.613Z",
+      "goldArchivedAt": "2026-09-10T16:41:37.991Z"
+    },
+    {
+      "id": "v6-2e912034-235211",
+      "query": "将上述流程，样式风格，写作风格，规范等，编写成技能，便于后续复用，可以产出类似文章。",
+      "gold": "2e912034caef9355",
+      "expect": [
+        "将上述流程，样式风格，写作风格，规范等，编写成技能，便于后续复用，可以产出类似文章。"
+      ],
+      "ctxOverlap": 0,
+      "goldChars": 129,
+      "snapshotChars": 129,
+      "conversation": "feishu:ou_ba9a79349951e82ceac99a505f3e2739",
+      "askedAt": "2026-09-10T23:52:11.098Z",
+      "goldArchivedAt": "2026-09-10T19:07:59.174Z"
+    },
+    {
+      "id": "v6-2e912034-011153",
+      "query": "将上述历史文章制作流程，样式风格，写作风格，规范等，编写成技能，便于后续复用，可以产出类似文章。",
+      "gold": "2e912034caef9355",
+      "expect": [
+        "将上述历史文章制作流程，样式风格，写作风格，规范等，编写成技能，便于后续复用，可以产出类似文章。"
+      ],
+      "ctxOverlap": 0,
+      "goldChars": 129,
+      "snapshotChars": 129,
+      "conversation": "feishu:ou_ba9a79349951e82ceac99a505f3e2739",
+      "askedAt": "2026-09-11T01:11:53.613Z",
+      "goldArchivedAt": "2026-09-10T19:07:59.174Z"
+    },
+    {
+      "id": "v6-87a1d982-012513",
+      "query": "技能描述需要修改一下，不一定是中国历史，其余类似的写作也可以用这个技能",
+      "gold": "87a1d9820e3643d8",
+      "expect": [
+        "技能描述需要修改一下，不一定是中国历史，其余类似的写作也可以用这个技能"
+      ],
+      "ctxOverlap": 0.103,
+      "goldChars": 1209,
+      "snapshotChars": 1209,
+      "conversation": "feishu:ou_ba9a79349951e82ceac99a505f3e2739",
+      "askedAt": "2026-09-11T01:25:13.679Z",
+      "goldArchivedAt": "2026-09-11T01:17:24.606Z"
+    },
+    {
+      "id": "v6-41853647-012810",
+      "query": "根据上述作品，更新 @skills/内容创作与发布/picture-book-studio  技能的模板和相关样式、交互的规范",
+      "gold": "4185364738b9c52f",
+      "expect": [
+        "根据上述作品，更新 @skills/内容创作与发布/picture-book-studio  技能的模板和相关样式、交互的规范"
+      ],
+      "ctxOverlap": 0,
+      "goldChars": 991,
+      "snapshotChars": 991,
+      "conversation": "weixin:o9cq8050P6l3M34pqbOwVCesbKag@im.wechat",
+      "askedAt": "2026-09-11T01:28:10.040Z",
+      "goldArchivedAt": "2026-09-11T01:24:49.076Z"
+    },
+    {
+      "id": "v6-0a7f9429-101319",
+      "query": "你可以看到上述文件的内容吗",
+      "gold": "0a7f9429dc63a47a",
+      "expect": [
+        "你可以看到上述文件的内容吗"
+      ],
+      "ctxOverlap": 0,
+      "goldChars": 105,
+      "snapshotChars": 105,
+      "conversation": "wecom:wodXguNgAAro0Sjie9ahDmDYC2jSo5Tg",
+      "askedAt": "2026-09-11T10:13:19.208Z",
+      "goldArchivedAt": "2026-09-10T08:49:01.992Z"
+    },
+    {
+      "id": "v6-e430089c-111514",
+      "query": "删除资料库里面关于技能的文件。",
+      "gold": "e430089c0c3ae232",
+      "expect": [
+        "删除资料库里面关于技能的文件。"
+      ],
+      "ctxOverlap": 0.385,
+      "goldChars": 565,
+      "snapshotChars": 565,
+      "conversation": "wecom:wodXguNgAAro0Sjie9ahDmDYC2jSo5Tg",
+      "askedAt": "2026-09-11T11:15:14.818Z",
+      "goldArchivedAt": "2026-09-11T11:15:14.660Z"
+    },
+    {
+      "id": "v6-51f0d902-132148",
+      "query": "刚才发了什么消息\n[语音转录: 刚才发了什么消息]",
+      "gold": "51f0d90263f766cf",
+      "expect": [
+        "刚才发了什么消息\n[语音转录: 刚才发了什么消息]"
+      ],
+      "ctxOverlap": 0.3,
+      "goldChars": 358,
+      "snapshotChars": 358,
+      "conversation": "weixin:o9cq801LCaXHkMjBa_NBR82KYDPY@im.wechat",
+      "askedAt": "2026-09-11T13:21:48.381Z",
+      "goldArchivedAt": "2026-09-11T13:20:44.383Z"
+    },
+    {
+      "id": "v6-e344d624-151633",
+      "query": "使用生成绘本技能，再生成一个绘本。先和我讨论一下故事\n[语音转录: 使用生成绘本技能再生成一个绘本先和我讨论一下故事]",
+      "gold": "e344d624874f8812",
+      "expect": [
+        "使用生成绘本技能，再生成一个绘本。先和我讨论一下故事\n[语音转录: 使用生成绘本技能再生成一个绘本先和我讨论一下故事]"
+      ],
+      "ctxOverlap": 0.042,
+      "goldChars": 198,
+      "snapshotChars": 198,
+      "conversation": "weixin:o9cq801LCaXHkMjBa_NBR82KYDPY@im.wechat",
+      "askedAt": "2026-09-11T15:16:33.122Z",
+      "goldArchivedAt": "2026-09-11T15:13:12.303Z"
+    },
+    {
+      "id": "v6-d5fa6783-153037",
+      "query": "可以，他是幼儿园的还不认识拼音，只需要标红简单常用的字即可",
+      "gold": "d5fa6783555a68a4",
+      "expect": [
+        "可以，他是幼儿园的还不认识拼音，只需要标红简单常用的字即可"
+      ],
+      "ctxOverlap": 0.167,
+      "goldChars": 385,
+      "snapshotChars": 385,
+      "conversation": "weixin:o9cq801LCaXHkMjBa_NBR82KYDPY@im.wechat",
+      "askedAt": "2026-09-11T15:30:37.601Z",
+      "goldArchivedAt": "2026-09-11T15:24:33.125Z"
+    },
+    {
+      "id": "v6-6f899ccc-154058",
+      "query": "可以，完成后发给我。记得使用技能生成",
+      "gold": "6f899ccc759e4b75",
+      "expect": [
+        "可以，完成后发给我。记得使用技能生成"
+      ],
+      "ctxOverlap": 0.077,
+      "goldChars": 609,
+      "snapshotChars": 609,
+      "conversation": "weixin:o9cq801LCaXHkMjBa_NBR82KYDPY@im.wechat",
+      "askedAt": "2026-09-11T15:40:58.971Z",
+      "goldArchivedAt": "2026-09-11T15:31:10.262Z"
+    },
+    {
+      "id": "v6-8425442c-160816",
+      "query": "你使用录屏功能，将你上面制作这个绘本的过程录制下来，作为一个教学课程\n[语音转录: 你使用录屏功能将你上面制作这个绘本的过程录制下来作为一个教学课程]",
+      "gold": "8425442c3e4cc1c4",
+      "expect": [
+        "你使用录屏功能，将你上面制作这个绘本的过程录制下来，作为一个教学课程\n[语音转录: 你使用录屏功能将你上面制作这个绘本的过程录制下来作为一个教学课程]"
+      ],
+      "ctxOverlap": 0.029,
+      "goldChars": 164,
+      "snapshotChars": 164,
+      "conversation": "weixin:o9cq801LCaXHkMjBa_NBR82KYDPY@im.wechat",
+      "askedAt": "2026-09-11T16:08:16.651Z",
+      "goldArchivedAt": "2026-09-11T16:03:53.761Z"
+    },
+    {
+      "id": "v6-29d2e5d1-163355",
+      "query": "录屏只需要录制lumii客户端，展示一下制作全流程，重点是录制对话聊天页面的制作流程和最后的成果展示",
+      "gold": "29d2e5d1006bffd3",
+      "expect": [
+        "录屏只需要录制lumii客户端，展示一下制作全流程，重点是录制对话聊天页面的制作流程和最后的成果展示"
+      ],
+      "ctxOverlap": 0.25,
+      "goldChars": 2049,
+      "snapshotChars": 2049,
+      "conversation": "weixin:o9cq801LCaXHkMjBa_NBR82KYDPY@im.wechat",
+      "askedAt": "2026-09-11T16:33:55.352Z",
+      "goldArchivedAt": "2026-09-11T16:15:35.866Z"
+    },
+    {
+      "id": "v6-6c1607b4-171001",
+      "query": "把24史后面几篇做好的html，都发给我",
+      "gold": "6c1607b4e2afe2e3",
+      "expect": [
+        "把24史后面几篇做好的html，都发给我"
+      ],
+      "ctxOverlap": 0.154,
+      "goldChars": 2419,
+      "snapshotChars": 2419,
+      "conversation": "weixin:o9cq801LCaXHkMjBa_NBR82KYDPY@im.wechat",
+      "askedAt": "2026-09-11T17:10:01.167Z",
+      "goldArchivedAt": "2026-09-11T16:45:31.885Z"
+    },
+    {
+      "id": "v6-550b1dc5-002940",
+      "query": "搜索查看一下二十四史课程，将b8之后完成的html课程发送给我",
+      "gold": "550b1dc542036edc",
+      "expect": [
+        "搜索查看一下二十四史课程，将b8之后完成的html课程发送给我"
+      ],
+      "ctxOverlap": 0.091,
+      "goldChars": 191,
+      "snapshotChars": 191,
+      "conversation": "weixin:o9cq801LCaXHkMjBa_NBR82KYDPY@im.wechat",
+      "askedAt": "2026-09-14T00:29:40.897Z",
+      "goldArchivedAt": "2026-09-14T00:08:07.619Z"
+    },
+    {
+      "id": "v6-ad5f48f8-015528",
+      "query": "你的上一次执行被中断了（客户端重启）。请查看上面的对话历史，了解你已经完成了什么，然后继续完成剩余的任务。注意：已经执行过的操作不要重复执行。",
+      "gold": "ad5f48f806e4521e",
+      "expect": [
+        "你的上一次执行被中断了（客户端重启）。请查看上面的对话历史，了解你已经完成了什么，然后继续完成剩余的任务。注意：已经执行过的操作不要重复执行。"
+      ],
+      "ctxOverlap": 0.019,
+      "goldChars": 538,
+      "snapshotChars": 538,
+      "conversation": "weixin:o9cq801LCaXHkMjBa_NBR82KYDPY@im.wechat",
+      "askedAt": "2026-09-14T01:55:28.996Z",
+      "goldArchivedAt": "2026-09-14T01:24:11.991Z"
+    },
+    {
+      "id": "v6-ad5f48f8-015831",
+      "query": "不需要制作PDF，只需要HTML即可",
+      "gold": "ad5f48f806e4521e",
+      "expect": [
+        "不需要制作PDF，只需要HTML即可"
+      ],
+      "ctxOverlap": 0.125,
+      "goldChars": 538,
+      "snapshotChars": 538,
+      "conversation": "weixin:o9cq801LCaXHkMjBa_NBR82KYDPY@im.wechat",
+      "askedAt": "2026-09-14T01:58:31.779Z",
+      "goldArchivedAt": "2026-09-14T01:24:11.991Z"
+    },
+    {
+      "id": "v6-bb31d5c9-051526",
+      "query": "将完成后的html发送到微信",
+      "gold": "bb31d5c92cd9b533",
+      "expect": [
+        "将完成后的html发送到微信"
+      ],
+      "ctxOverlap": 0.222,
+      "goldChars": 946,
+      "snapshotChars": 946,
+      "conversation": "weixin:o9cq801LCaXHkMjBa_NBR82KYDPY@im.wechat",
+      "askedAt": "2026-09-14T05:15:26.671Z",
+      "goldArchivedAt": "2026-09-14T02:51:05.051Z"
+    },
+    {
+      "id": "v6-8fbf81f6-052831",
+      "query": "将b9到b12的24史课件发送给我",
+      "gold": "8fbf81f6d7a9c5bb",
+      "expect": [
+        "将b9到b12的24史课件发送给我"
+      ],
+      "ctxOverlap": 0,
+      "goldChars": 757,
+      "snapshotChars": 757,
+      "conversation": "feishu:ou_ba9a79349951e82ceac99a505f3e2739",
+      "askedAt": "2026-09-14T05:28:31.776Z",
+      "goldArchivedAt": "2026-09-11T11:17:52.588Z"
+    },
+    {
+      "id": "v6-43477128-023350",
+      "query": "使用开发AGENT删除【07-新手指引-评审.md】文档",
+      "gold": "43477128a1f26698",
+      "expect": [
+        "使用开发AGENT删除【07-新手指引-评审.md】文档"
+      ],
+      "ctxOverlap": 0.667,
+      "goldChars": 1395,
+      "snapshotChars": 1395,
+      "conversation": "bbbc46e7e9d6c0d79277689778b2fd01",
+      "askedAt": "2026-09-15T02:33:50.709Z",
+      "goldArchivedAt": "2026-09-15T02:05:40.039Z"
+    },
+    {
+      "id": "v6-8143708b-031307",
+      "query": "先输出计划吧，按照优先级排序",
+      "gold": "8143708b1242e0d2",
+      "expect": [
+        "先输出计划吧，按照优先级排序"
+      ],
+      "ctxOverlap": 0.091,
+      "goldChars": 3763,
+      "snapshotChars": 3763,
+      "conversation": "0b1bfe02761222050c3debc92ec8804b",
+      "askedAt": "2026-09-15T03:13:07.532Z",
+      "goldArchivedAt": "2026-09-15T03:03:48.364Z"
+    },
+    {
+      "id": "v6-6e22a208-031653",
+      "query": "1.待办就在记忆中吧，使用的时候也方便\n2.存量先全部清除吧，当前都是作为测试\n3.先完成P0的修改",
+      "gold": "6e22a20828819df6",
+      "expect": [
+        "1.待办就在记忆中吧，使用的时候也方便\n2.存量先全部清除吧，当前都是作为测试\n3.先完成P0的修改"
+      ],
+      "ctxOverlap": 0.222,
+      "goldChars": 1014,
+      "snapshotChars": 1014,
+      "conversation": "0b1bfe02761222050c3debc92ec8804b",
+      "askedAt": "2026-09-15T03:16:53.036Z",
+      "goldArchivedAt": "2026-09-15T03:14:35.349Z"
+    },
+    {
+      "id": "v6-308e2e25-032503",
+      "query": "完成后，先commit代码，并告诉我如何在客户端测试",
+      "gold": "308e2e258dab4d1a",
+      "expect": [
+        "完成后，先commit代码，并告诉我如何在客户端测试"
+      ],
+      "ctxOverlap": 0.188,
+      "goldChars": 1642,
+      "snapshotChars": 1642,
+      "conversation": "0b1bfe02761222050c3debc92ec8804b",
+      "askedAt": "2026-09-15T03:25:03.070Z",
+      "goldArchivedAt": "2026-09-15T03:24:57.089Z"
+    },
+    {
+      "id": "v6-7f5b3e8d-040908",
+      "query": "将原始材料文档和上述报告放在一起",
+      "gold": "7f5b3e8d825aeb6c",
+      "expect": [
+        "将原始材料文档和上述报告放在一起"
+      ],
+      "ctxOverlap": 0.133,
+      "goldChars": 411,
+      "snapshotChars": 411,
+      "conversation": "a465f54c6a770ada6f11f959a977392d",
+      "askedAt": "2026-09-15T04:09:08.637Z",
+      "goldArchivedAt": "2026-09-15T03:27:48.010Z"
+    },
+    {
+      "id": "v6-b8999c8d-044037",
+      "query": "tocc上报的数据到哪个子系统，有哪些数据",
+      "gold": "b8999c8da49dd1b5",
+      "expect": [
+        "tocc上报的数据到哪个子系统，有哪些数据"
+      ],
+      "ctxOverlap": 0,
+      "goldChars": 120,
+      "snapshotChars": 120,
+      "conversation": "weixin:o9cq801LCaXHkMjBa_NBR82KYDPY@im.wechat",
+      "askedAt": "2026-09-15T04:40:37.610Z",
+      "goldArchivedAt": "2026-09-15T03:18:35.241Z"
+    },
+    {
+      "id": "v6-4fbe5f57-055232",
+      "query": "你将需要执行的命令发送给我",
+      "gold": "4fbe5f57b14397c4",
+      "expect": [
+        "你将需要执行的命令发送给我"
+      ],
+      "ctxOverlap": 0.083,
+      "goldChars": 2287,
+      "snapshotChars": 2287,
+      "conversation": "394c9ea33cee439aa1355e61a82e6519",
+      "askedAt": "2026-09-15T05:52:32.562Z",
+      "goldArchivedAt": "2026-09-15T05:51:36.609Z"
+    },
+    {
+      "id": "v6-4adfe886-062543",
+      "query": "如何修复并恢复上述数据呢",
+      "gold": "4adfe886daa0349c",
+      "expect": [
+        "如何修复并恢复上述数据呢"
+      ],
+      "ctxOverlap": 0.182,
+      "goldChars": 2018,
+      "snapshotChars": 2018,
+      "conversation": "394c9ea33cee439aa1355e61a82e6519",
+      "askedAt": "2026-09-15T06:25:43.633Z",
+      "goldArchivedAt": "2026-09-15T06:24:44.458Z"
+    },
+    {
+      "id": "v6-57d0e04d-062950",
+      "query": "我这边需要重启服务吗，我没有服务的源码",
+      "gold": "57d0e04d128145c1",
+      "expect": [
+        "我这边需要重启服务吗，我没有服务的源码"
+      ],
+      "ctxOverlap": 0.133,
+      "goldChars": 1940,
+      "snapshotChars": 1940,
+      "conversation": "394c9ea33cee439aa1355e61a82e6519",
+      "askedAt": "2026-09-15T06:29:50.816Z",
+      "goldArchivedAt": "2026-09-15T06:29:31.157Z"
+    },
+    {
+      "id": "v6-f4aee0f6-063031",
+      "query": "对方重新推送，需要9-14 13:27到现在的全量数据吗",
+      "gold": "f4aee0f6cf3e39a8",
+      "expect": [
+        "对方重新推送，需要9-14 13:27到现在的全量数据吗"
+      ],
+      "ctxOverlap": 0.5,
+      "goldChars": 959,
+      "snapshotChars": 959,
+      "conversation": "394c9ea33cee439aa1355e61a82e6519",
+      "askedAt": "2026-09-15T06:30:31.692Z",
+      "goldArchivedAt": "2026-09-15T06:30:05.329Z"
+    },
+    {
+      "id": "v6-996525e1-064144",
+      "query": "还需要执行哪些命令发给我",
+      "gold": "996525e15f8095be",
+      "expect": [
+        "还需要执行哪些命令发给我"
+      ],
+      "ctxOverlap": 0.182,
+      "goldChars": 1386,
+      "snapshotChars": 1386,
+      "conversation": "394c9ea33cee439aa1355e61a82e6519",
+      "askedAt": "2026-09-15T06:41:44.363Z",
+      "goldArchivedAt": "2026-09-15T06:41:33.741Z"
+    },
+    {
+      "id": "v6-676b8981-065625",
+      "query": "tomcat8580 已经正常了，拉黑引信那个有安全要求，暂时不做。当前剩余工作是等待12345重新推送数据吗？",
+      "gold": "676b8981f4ef689c",
+      "expect": [
+        "tomcat8580 已经正常了，拉黑引信那个有安全要求，暂时不做。当前剩余工作是等待12345重新推送数据吗？"
+      ],
+      "ctxOverlap": 0.182,
+      "goldChars": 1069,
+      "snapshotChars": 1069,
+      "conversation": "394c9ea33cee439aa1355e61a82e6519",
+      "askedAt": "2026-09-15T06:56:25.658Z",
+      "goldArchivedAt": "2026-09-15T06:54:12.925Z"
+    },
+    {
+      "id": "v6-ebc83b50-065742",
+      "query": "你确定是对方重新推送数据，不是我们主动拉取？还是有中间库来同步数据。tocc_sjcj_wllzb",
+      "gold": "ebc83b508655a7b6",
+      "expect": [
+        "你确定是对方重新推送数据，不是我们主动拉取？还是有中间库来同步数据。tocc_sjcj_wllzb"
+      ],
+      "ctxOverlap": 0.233,
+      "goldChars": 1754,
+      "snapshotChars": 1754,
+      "conversation": "394c9ea33cee439aa1355e61a82e6519",
+      "askedAt": "2026-09-15T06:57:42.688Z",
+      "goldArchivedAt": "2026-09-15T06:56:59.321Z"
+    },
+    {
+      "id": "v6-08f9890e-070231",
+      "query": "需要找中间人来转达需求，他不懂技术，需要简单命令的三句话",
+      "gold": "08f9890e3ae80ce0",
+      "expect": [
+        "需要找中间人来转达需求，他不懂技术，需要简单命令的三句话"
+      ],
+      "ctxOverlap": 0,
+      "goldChars": 254,
+      "snapshotChars": 254,
+      "conversation": "394c9ea33cee439aa1355e61a82e6519",
+      "askedAt": "2026-09-15T07:02:31.441Z",
+      "goldArchivedAt": "2026-09-15T07:01:55.776Z"
+    },
+    {
+      "id": "v6-f8f672ff-071107",
+      "query": "对方已经恢复，如何查看是否正常",
+      "gold": "f8f672ffdf8332c3",
+      "expect": [
+        "对方已经恢复，如何查看是否正常"
+      ],
+      "ctxOverlap": 0.167,
+      "goldChars": 156,
+      "snapshotChars": 156,
+      "conversation": "394c9ea33cee439aa1355e61a82e6519",
+      "askedAt": "2026-09-15T07:11:07.652Z",
+      "goldArchivedAt": "2026-09-15T07:02:44.201Z"
+    },
+    {
+      "id": "v6-e18b900b-073551",
+      "query": "是否已经正常了，还需要输入什么命令验证",
+      "gold": "e18b900baf2c3241",
+      "expect": [
+        "是否已经正常了，还需要输入什么命令验证"
+      ],
+      "ctxOverlap": 0.188,
+      "goldChars": 1224,
+      "snapshotChars": 1224,
+      "conversation": "394c9ea33cee439aa1355e61a82e6519",
+      "askedAt": "2026-09-15T07:35:51.240Z",
+      "goldArchivedAt": "2026-09-15T07:34:41.619Z"
+    },
+    {
+      "id": "v6-b78febca-073749",
+      "query": "现在用户端可以收到工单数据了吗",
+      "gold": "b78febcaa68c8d85",
+      "expect": [
+        "现在用户端可以收到工单数据了吗"
+      ],
+      "ctxOverlap": 0.357,
+      "goldChars": 846,
+      "snapshotChars": 846,
+      "conversation": "394c9ea33cee439aa1355e61a82e6519",
+      "askedAt": "2026-09-15T07:37:49.094Z",
+      "goldArchivedAt": "2026-09-15T07:37:44.586Z"
+    },
+    {
+      "id": "v6-6c1d8123-074049",
+      "query": "总结一下上述排查过程的经验以及常用命令供后续复用。输出到对应的文档中。",
+      "gold": "6c1d81235c57fb04",
+      "expect": [
+        "总结一下上述排查过程的经验以及常用命令供后续复用。输出到对应的文档中。"
+      ],
+      "ctxOverlap": 0.032,
+      "goldChars": 610,
+      "snapshotChars": 610,
+      "conversation": "394c9ea33cee439aa1355e61a82e6519",
+      "askedAt": "2026-09-15T07:40:49.084Z",
+      "goldArchivedAt": "2026-09-15T07:38:01.247Z"
+    },
+    {
+      "id": "v6-1eb537c6-082757",
+      "query": "编写一份给领导汇报的html格式的成本评估分析。需要简单明了，突出重点内容，先总后分。明确项目关键点和关键工作量和风险",
+      "gold": "1eb537c6ac46a895",
+      "expect": [
+        "编写一份给领导汇报的html格式的成本评估分析。需要简单明了，突出重点内容，先总后分。明确项目关键点和关键工作量和风险"
+      ],
+      "ctxOverlap": 0.222,
+      "goldChars": 1166,
+      "snapshotChars": 1166,
+      "conversation": "394c9ea33cee439aa1355e61a82e6519",
+      "askedAt": "2026-09-15T08:27:57.392Z",
+      "goldArchivedAt": "2026-09-15T08:11:25.860Z"
+    },
+    {
+      "id": "v6-3938cdce-084307",
+      "query": "看起来有点复杂了需要简洁清晰，适合汇报总结性的描述，使用html格式，注意美观",
+      "gold": "3938cdceba123cf3",
+      "expect": [
+        "看起来有点复杂了需要简洁清晰，适合汇报总结性的描述，使用html格式，注意美观"
+      ],
+      "ctxOverlap": 0.143,
+      "goldChars": 1036,
+      "snapshotChars": 1036,
+      "conversation": "394c9ea33cee439aa1355e61a82e6519",
+      "askedAt": "2026-09-15T08:43:07.549Z",
+      "goldArchivedAt": "2026-09-15T08:35:18.777Z"
+    },
+    {
+      "id": "v6-6ab421f5-084725",
+      "query": "系统架构和成本等，都需要还一下描述和展示，需要不懂技术的人也看得懂",
+      "gold": "6ab421f5cef806ed",
+      "expect": [
+        "系统架构和成本等，都需要还一下描述和展示，需要不懂技术的人也看得懂"
+      ],
+      "ctxOverlap": 0.148,
+      "goldChars": 627,
+      "snapshotChars": 627,
+      "conversation": "394c9ea33cee439aa1355e61a82e6519",
+      "askedAt": "2026-09-15T08:47:25.983Z",
+      "goldArchivedAt": "2026-09-15T08:44:07.464Z"
+    },
+    {
+      "id": "v6-59f0f68a-085233",
+      "query": "你还是用系统名字和业务名字，上面的比喻更难理解了，他是不懂技术，不是不懂业务",
+      "gold": "59f0f68aa59b2738",
+      "expect": [
+        "你还是用系统名字和业务名字，上面的比喻更难理解了，他是不懂技术，不是不懂业务"
+      ],
+      "ctxOverlap": 0.296,
+      "goldChars": 731,
+      "snapshotChars": 731,
+      "conversation": "394c9ea33cee439aa1355e61a82e6519",
+      "askedAt": "2026-09-15T08:52:33.366Z",
+      "goldArchivedAt": "2026-09-15T08:48:56.433Z"
+    },
+    {
+      "id": "v6-010305a0-090444",
+      "query": "搜索一下相关记忆，将docker命令给我",
+      "gold": "010305a058b81052",
+      "expect": [
+        "搜索一下相关记忆，将docker命令给我"
+      ],
+      "ctxOverlap": 0.167,
+      "goldChars": 2535,
+      "snapshotChars": 2535,
+      "conversation": "cb942cb63d1e3378d4664b2cd171b7e5",
+      "askedAt": "2026-09-15T09:04:44.848Z",
+      "goldArchivedAt": "2026-09-15T09:00:45.063Z"
+    },
+    {
+      "id": "v6-e8bba700-102824",
+      "query": "查看一下lumii项目源码为什么今天没有工作记忆",
+      "gold": "e8bba70033659a21",
+      "expect": [
+        "查看一下lumii项目源码为什么今天没有工作记忆"
+      ],
+      "ctxOverlap": 0,
+      "goldChars": 438,
+      "snapshotChars": 438,
+      "conversation": "feishu:ou_ba9a79349951e82ceac99a505f3e2739",
+      "askedAt": "2026-09-15T10:28:24.052Z",
+      "goldArchivedAt": "2026-09-14T05:29:51.518Z"
+    },
+    {
+      "id": "v6-383893d5-112007",
+      "query": "搜索一下对应的记忆时间衰减算法，我记得源码中似乎有时间算法",
+      "gold": "383893d5284206b5",
+      "expect": [
+        "搜索一下对应的记忆时间衰减算法，我记得源码中似乎有时间算法"
+      ],
+      "ctxOverlap": 0.208,
+      "goldChars": 578,
+      "snapshotChars": 578,
+      "conversation": "feishu:ou_ba9a79349951e82ceac99a505f3e2739",
+      "askedAt": "2026-09-15T11:20:07.680Z",
+      "goldArchivedAt": "2026-09-15T11:13:30.812Z"
+    },
+    {
+      "id": "v6-07ce988e-113529",
+      "query": "调用开发agent对记忆时间权重进行优化修改，使其可以满足记事agent每天，每周总结记忆的需求，已经用户日常使用的需求",
+      "gold": "07ce988e0ab89c7c",
+      "expect": [
+        "调用开发agent对记忆时间权重进行优化修改，使其可以满足记事agent每天，每周总结记忆的需求，已经用户日常使用的需求"
+      ],
+      "ctxOverlap": 0.077,
+      "goldChars": 279,
+      "snapshotChars": 279,
+      "conversation": "feishu:ou_ba9a79349951e82ceac99a505f3e2739",
+      "askedAt": "2026-09-15T11:35:29.038Z",
+      "goldArchivedAt": "2026-09-15T11:21:37.289Z"
+    },
+    {
+      "id": "v6-36cad4be-123435",
+      "query": "注意添加序号、排版要适合阅读",
+      "gold": "36cad4bed4790d13",
+      "expect": [
+        "注意添加序号、排版要适合阅读"
+      ],
+      "ctxOverlap": 0,
+      "goldChars": 663,
+      "snapshotChars": 663,
+      "conversation": "394c9ea33cee439aa1355e61a82e6519",
+      "askedAt": "2026-09-15T12:34:35.488Z",
+      "goldArchivedAt": "2026-09-15T08:53:42.641Z"
+    },
+    {
+      "id": "v6-6af6a26b-124739",
+      "query": "1.上方的摘要和下面的补充说明，也需要结构化和序号",
+      "gold": "6af6a26b34a251e9",
+      "expect": [
+        "1.上方的摘要和下面的补充说明，也需要结构化和序号"
+      ],
+      "ctxOverlap": 0.19,
+      "goldChars": 470,
+      "snapshotChars": 470,
+      "conversation": "394c9ea33cee439aa1355e61a82e6519",
+      "askedAt": "2026-09-15T12:47:39.223Z",
+      "goldArchivedAt": "2026-09-15T12:35:47.363Z"
+    },
+    {
+      "id": "v6-b5ccde38-011330",
+      "query": "使用CLI模拟真实用户请求和系统运行行为实际测试一下",
+      "gold": "b5ccde384941a1f7",
+      "expect": [
+        "使用CLI模拟真实用户请求和系统运行行为实际测试一下"
+      ],
+      "ctxOverlap": 0.136,
+      "goldChars": 1672,
+      "snapshotChars": 1672,
+      "conversation": "b17abc4276e48f84b4096189cce18a21",
+      "askedAt": "2026-09-16T01:13:30.558Z",
+      "goldArchivedAt": "2026-09-15T12:13:31.653Z"
+    },
+    {
+      "id": "v6-12d44760-020124",
+      "query": "你看下我有哪些企业微信群",
+      "gold": "12d44760a85514c2",
+      "expect": [
+        "你看下我有哪些企业微信群"
+      ],
+      "ctxOverlap": 0.182,
+      "goldChars": 352,
+      "snapshotChars": 352,
+      "conversation": "wecom:wodXguNgAAro0Sjie9ahDmDYC2jSo5Tg",
+      "askedAt": "2026-09-16T02:01:24.264Z",
+      "goldArchivedAt": "2026-09-11T11:15:39.014Z"
+    },
+    {
+      "id": "v6-8c94fa77-020341",
+      "query": "现在你可以看到企业微信群了吗。我@你了",
+      "gold": "8c94fa77620be186",
+      "expect": [
+        "现在你可以看到企业微信群了吗。我@你了"
+      ],
+      "ctxOverlap": 0.6,
+      "goldChars": 1376,
+      "snapshotChars": 1376,
+      "conversation": "wecom:wodXguNgAAro0Sjie9ahDmDYC2jSo5Tg",
+      "askedAt": "2026-09-16T02:03:41.997Z",
+      "goldArchivedAt": "2026-09-16T02:03:11.087Z"
+    },
+    {
+      "id": "v6-36ae0f1a-022011",
+      "query": "原来的系统架构和业务架构使用专业一点的图来绘制，现在的不够清晰，不好了解",
+      "gold": "36ae0f1a1ca9e031",
+      "expect": [
+        "原来的系统架构和业务架构使用专业一点的图来绘制，现在的不够清晰，不好了解"
+      ],
+      "ctxOverlap": 0.1,
+      "goldChars": 396,
+      "snapshotChars": 396,
+      "conversation": "394c9ea33cee439aa1355e61a82e6519",
+      "askedAt": "2026-09-16T02:20:11.432Z",
+      "goldArchivedAt": "2026-09-15T12:48:21.015640+00:00"
+    },
+    {
+      "id": "v6-82f80e56-022404",
+      "query": "你用什么画的图，感觉还不错",
+      "gold": "82f80e563043029c",
+      "expect": [
+        "你用什么画的图，感觉还不错"
+      ],
+      "ctxOverlap": 0,
+      "goldChars": 1023,
+      "snapshotChars": 1023,
+      "conversation": "394c9ea33cee439aa1355e61a82e6519",
+      "askedAt": "2026-09-16T02:24:04.645Z",
+      "goldArchivedAt": "2026-09-16T02:22:17.960915+00:00"
+    },
+    {
+      "id": "v6-a7f928a9-102933",
+      "query": "将上述资料发送到我的QQ上",
+      "gold": "a7f928a91e3ceab2",
+      "expect": [
+        "将上述资料发送到我的QQ上"
+      ],
+      "ctxOverlap": 0.091,
+      "goldChars": 816,
+      "snapshotChars": 816,
+      "conversation": "e6b1e8096bfcf1ee1137f0c7afb9e9ce",
+      "askedAt": "2026-09-16T10:29:33.277Z",
+      "goldArchivedAt": "2026-09-16T09:54:57.596668+00:00"
+    },
+    {
+      "id": "v6-30ee08a2-110418",
+      "query": "搜索一下我当前的所有资料和记忆哪些数据和资料适合分享到小红书。并可以持续发布，也适合普通技术小白或者懂点技术的人，发点热点文章",
+      "gold": "30ee08a23ffca6ea",
+      "expect": [
+        "搜索一下我当前的所有资料和记忆哪些数据和资料适合分享到小红书。并可以持续发布，也适合普通技术小白或者懂点技术的人，发点热点文章"
+      ],
+      "ctxOverlap": 1,
+      "goldChars": 6904,
+      "snapshotChars": 6904,
+      "conversation": "6c826243bd2cea9f95489451d60c9fae",
+      "askedAt": "2026-09-16T11:04:18.687Z",
+      "goldArchivedAt": "2026-09-16T11:04:18.686Z"
+    },
+    {
+      "id": "v6-47796e63-111145",
+      "query": "现在要有差异化和故事性，你当前很多功能都是其他助手没有，比如像workbudy",
+      "gold": "47796e63253bdd65",
+      "expect": [
+        "现在要有差异化和故事性，你当前很多功能都是其他助手没有，比如像workbudy"
+      ],
+      "ctxOverlap": 0.074,
+      "goldChars": 442,
+      "snapshotChars": 442,
+      "conversation": "6c826243bd2cea9f95489451d60c9fae",
+      "askedAt": "2026-09-16T11:11:45.170Z",
+      "goldArchivedAt": "2026-09-16T11:11:11.371192+00:00"
+    },
+    {
+      "id": "v6-19fb8ad6-012708",
+      "query": "标题内容还是太普通了，不够吸引人",
+      "gold": "19fb8ad6f1c3116f",
+      "expect": [
+        "标题内容还是太普通了，不够吸引人"
+      ],
+      "ctxOverlap": 0.077,
+      "goldChars": 329,
+      "snapshotChars": 329,
+      "conversation": "6c826243bd2cea9f95489451d60c9fae",
+      "askedAt": "2026-09-17T01:27:08.247Z",
+      "goldArchivedAt": "2026-09-16T11:13:19.426538+00:00"
+    },
+    {
+      "id": "v6-e84ac7eb-012850",
+      "query": "这种风格的标题还可以，然后内容也需要修改，总体来说没什么亮点和其他的豆包\\workbuddy 没什么差异化",
+      "gold": "e84ac7ebd8f3c11d",
+      "expect": [
+        "这种风格的标题还可以，然后内容也需要修改，总体来说没什么亮点和其他的豆包\\workbuddy 没什么差异化"
+      ],
+      "ctxOverlap": 0.2,
+      "goldChars": 978,
+      "snapshotChars": 978,
+      "conversation": "6c826243bd2cea9f95489451d60c9fae",
+      "askedAt": "2026-09-17T01:28:50.651Z",
+      "goldArchivedAt": "2026-09-17T01:27:31.364255+00:00"
+    },
+    {
+      "id": "v6-d4398e64-013042",
+      "query": "深入调研一下其他竞品，形成调研分析文档，使用Index索引的方式归纳存放，方便后续添加竞品，以及解耦互不影响",
+      "gold": "d4398e6432905092",
+      "expect": [
+        "深入调研一下其他竞品，形成调研分析文档，使用Index索引的方式归纳存放，方便后续添加竞品，以及解耦互不影响"
+      ],
+      "ctxOverlap": 0.026,
+      "goldChars": 111,
+      "snapshotChars": 111,
+      "conversation": "6c826243bd2cea9f95489451d60c9fae",
+      "askedAt": "2026-09-17T01:30:42.395Z",
+      "goldArchivedAt": "2026-09-17T01:29:10.750218+00:00"
+    },
+    {
+      "id": "v6-e1ed57e2-061711",
+      "query": "总结当前资料收集、研究、编写的经验，便于下次研究其他课题时复用",
+      "gold": "e1ed57e282e1bfe0",
+      "expect": [
+        "总结当前资料收集、研究、编写的经验，便于下次研究其他课题时复用"
+      ],
+      "ctxOverlap": 0,
+      "goldChars": 242,
+      "snapshotChars": 242,
+      "conversation": "e6b1e8096bfcf1ee1137f0c7afb9e9ce",
+      "askedAt": "2026-09-17T06:17:11.411Z",
+      "goldArchivedAt": "2026-09-16T10:46:14.486621+00:00"
+    },
+    {
+      "id": "v6-4d59b14f-064525",
+      "query": "把 AGENT设计实践教程 下面的单个教程发送给我",
+      "gold": "4d59b14f132664c0",
+      "expect": [
+        "把 AGENT设计实践教程 下面的单个教程发送给我"
+      ],
+      "ctxOverlap": 0.063,
+      "goldChars": 687,
+      "snapshotChars": 687,
+      "conversation": "weixin:o9cq801LCaXHkMjBa_NBR82KYDPY@im.wechat",
+      "askedAt": "2026-09-17T06:45:25.613Z",
+      "goldArchivedAt": "2026-09-15T04:42:05.401Z"
+    },
+    {
+      "id": "v6-528753f4-091612",
+      "query": "记住：本项目验证用的暗号是「青竹三号」。只回复 ok",
+      "gold": "528753f47e69a023",
+      "expect": [
+        "记住：本项目验证用的暗号是「青竹三号」。只回复 ok"
+      ],
+      "ctxOverlap": 0.25,
+      "goldChars": 920,
+      "snapshotChars": 920,
+      "conversation": "e6b1e8096bfcf1ee1137f0c7afb9e9ce",
+      "askedAt": "2026-09-17T09:16:12.761Z",
+      "goldArchivedAt": "2026-09-17T09:13:33.447754+00:00"
+    },
+    {
+      "id": "v6-528753f4-092000",
+      "query": "「青竹验证项目」当前状态：检索通道与写入通道都已验证通过，下一步验证取代语义。约束：只在本会话内验证，不落任何外部文件。",
+      "gold": "528753f47e69a023",
+      "expect": [
+        "「青竹验证项目」当前状态：检索通道与写入通道都已验证通过，下一步验证取代语义。约束：只在本会话内验证，不落任何外部文件。"
+      ],
+      "ctxOverlap": 0.146,
+      "goldChars": 920,
+      "snapshotChars": 920,
+      "conversation": "e6b1e8096bfcf1ee1137f0c7afb9e9ce",
+      "askedAt": "2026-09-17T09:20:00.642Z",
+      "goldArchivedAt": "2026-09-17T09:13:33.447754+00:00"
+    },
+    {
+      "id": "v6-528753f4-092026",
+      "query": "对了，随手记一下就行，不用展开。",
+      "gold": "528753f47e69a023",
+      "expect": [
+        "对了，随手记一下就行，不用展开。"
+      ],
+      "ctxOverlap": 0,
+      "goldChars": 920,
+      "snapshotChars": 920,
+      "conversation": "e6b1e8096bfcf1ee1137f0c7afb9e9ce",
+      "askedAt": "2026-09-17T09:20:26.256Z",
+      "goldArchivedAt": "2026-09-17T09:13:33.447754+00:00"
+    },
+    {
+      "id": "v6-c2ace458-093652",
+      "query": "介绍一下你自己平时怎么用记忆。",
+      "gold": "c2ace458820122c9",
+      "expect": [
+        "介绍一下你自己平时怎么用记忆。"
+      ],
+      "ctxOverlap": 0.077,
+      "goldChars": 189,
+      "snapshotChars": 189,
+      "conversation": "e6b1e8096bfcf1ee1137f0c7afb9e9ce",
+      "askedAt": "2026-09-17T09:36:52.534Z",
+      "goldArchivedAt": "2026-09-17T09:34:46.447340+00:00"
+    },
+    {
+      "id": "v6-91575d09-013930",
+      "query": "之前我们聊过往返机票比价的事，还记得当时是怎么定的方案吗？简单回顾一下要点就行。",
+      "gold": "91575d092b773dfb",
+      "expect": [
+        "之前我们聊过往返机票比价的事，还记得当时是怎么定的方案吗？简单回顾一下要点就行。"
+      ],
+      "ctxOverlap": 0.059,
+      "goldChars": 751,
+      "snapshotChars": 751,
+      "conversation": "e6b1e8096bfcf1ee1137f0c7afb9e9ce",
+      "askedAt": "2026-09-18T01:39:30.612Z",
+      "goldArchivedAt": "2026-09-17T09:37:14.609117+00:00"
+    },
+    {
+      "id": "v6-fccf3788-024132",
+      "query": "简单回答一句就行：这次重启后一切正常吗？",
+      "gold": "fccf378800e3d219",
+      "expect": [
+        "简单回答一句就行：这次重启后一切正常吗？"
+      ],
+      "ctxOverlap": 0.063,
+      "goldChars": 1665,
+      "snapshotChars": 1665,
+      "conversation": "e6b1e8096bfcf1ee1137f0c7afb9e9ce",
+      "askedAt": "2026-09-18T02:41:32.805Z",
+      "goldArchivedAt": "2026-09-18T02:22:16.923Z"
+    },
+    {
+      "id": "v6-43ac6944-030122",
+      "query": "清单和时点如何确认和制定呢，似乎是一个特别复杂的工作",
+      "gold": "43ac69448af09b5e",
+      "expect": [
+        "清单和时点如何确认和制定呢，似乎是一个特别复杂的工作"
+      ],
+      "ctxOverlap": 0.043,
+      "goldChars": 101,
+      "snapshotChars": 101,
+      "conversation": "c724ab95417c97d894dc5a71e4e89d91",
+      "askedAt": "2026-09-18T03:01:22.463Z",
+      "goldArchivedAt": "2026-09-18T03:01:09.357Z"
+    },
+    {
+      "id": "v6-acb6fe6a-030914",
+      "query": "将ch01-Agent系统演化全景.md发送给我",
+      "gold": "acb6fe6a933a433b",
+      "expect": [
+        "将ch01-Agent系统演化全景.md发送给我"
+      ],
+      "ctxOverlap": 0.25,
+      "goldChars": 198,
+      "snapshotChars": 198,
+      "conversation": "weixin:o9cq801LCaXHkMjBa_NBR82KYDPY@im.wechat",
+      "askedAt": "2026-09-18T03:09:14.034Z",
+      "goldArchivedAt": "2026-09-17T06:54:51.120Z"
+    }
+  ],
+  "queries": [
+    {
+      "id": "v6-87f65cb5-041723",
+      "query": "26或者27号出发，小孩子6岁，可以和大人一起住。看下什么时候往返比较便宜",
+      "gold": "87f65cb583372ee0",
+      "expect": [
+        "26或者27号出发，小孩子6岁，可以和大人一起住。看下什么时候往返比较便宜"
+      ],
+      "ctxOverlap": 0.333,
+      "goldChars": 1519,
+      "snapshotChars": 1519,
+      "conversation": "weixin:o9cq8050P6l3M34pqbOwVCesbKag@im.wechat",
+      "askedAt": "2026-09-02T04:17:23.175Z",
+      "goldArchivedAt": "2026-09-02T03:41:51.930Z"
+    },
+    {
+      "id": "v6-9cb28131-042227",
+      "query": "将上述所有 组合以及方案输出成一份md文档，让我参考和选择",
+      "gold": "9cb28131c1fd1013",
+      "expect": [
+        "将上述所有 组合以及方案输出成一份md文档，让我参考和选择"
+      ],
+      "ctxOverlap": 0.273,
+      "goldChars": 1086,
+      "snapshotChars": 1086,
+      "conversation": "weixin:o9cq8050P6l3M34pqbOwVCesbKag@im.wechat",
+      "askedAt": "2026-09-02T04:22:27.070Z",
+      "goldArchivedAt": "2026-09-02T04:20:05.421Z"
+    },
+    {
+      "id": "v6-c3971d7d-090405",
+      "query": "截图看下电脑管家页面是否打开",
+      "gold": "c3971d7da9eeb145",
+      "expect": [
+        "截图看下电脑管家页面是否打开"
+      ],
+      "ctxOverlap": 0.385,
+      "goldChars": 398,
+      "snapshotChars": 398,
+      "conversation": "weixin:o9cq8050P6l3M34pqbOwVCesbKag@im.wechat",
+      "askedAt": "2026-09-02T09:04:05.414Z",
+      "goldArchivedAt": "2026-09-02T06:26:13.012Z"
+    },
+    {
+      "id": "v6-a71aa23b-092014",
+      "query": "最近在读二十四史，你觉得二十四史，对当前国家规划的趋势和策略有哪些参考价值，该如何深入剖析二十四史的意义，有哪些参考价值",
+      "gold": "a71aa23b86b0a781",
+      "expect": [
+        "最近在读二十四史，你觉得二十四史，对当前国家规划的趋势和策略有哪些参考价值，该如何深入剖析二十四史的意义，有哪些参考价值"
+      ],
+      "ctxOverlap": 0.205,
+      "goldChars": 3965,
+      "snapshotChars": 3965,
+      "conversation": "feishu:ou_ba9a79349951e82ceac99a505f3e2739",
+      "askedAt": "2026-09-02T09:20:14.362Z",
+      "goldArchivedAt": "2026-09-02T00:55:17.062Z"
+    },
+    {
+      "id": "v6-8a17853d-133032",
+      "query": "将其下载为md格式，原文和译文对照。",
+      "gold": "8a17853d9885979e",
+      "expect": [
+        "将其下载为md格式，原文和译文对照。"
+      ],
+      "ctxOverlap": 0.25,
+      "goldChars": 1037,
+      "snapshotChars": 1037,
+      "conversation": "feishu:ou_ba9a79349951e82ceac99a505f3e2739",
+      "askedAt": "2026-09-02T13:30:32.925Z",
+      "goldArchivedAt": "2026-09-02T12:35:11.665Z"
+    },
+    {
+      "id": "v6-540aefdf-154917",
+      "query": "样式可以了，内容需要多些和当前时政，实时事热点对比引人思考的内容，可以使用网络搜索。更新编写规范。然后重新输出1-6篇。完成一篇，发送一篇给我。",
+      "gold": "540aefdf127f3b32",
+      "expect": [
+        "样式可以了，内容需要多些和当前时政，实时事热点对比引人思考的内容，可以使用网络搜索。更新编写规范。然后重新输出1-6篇。完成一篇，发送一篇给我。"
+      ],
+      "ctxOverlap": 0.269,
+      "goldChars": 897,
+      "snapshotChars": 897,
+      "conversation": "feishu:ou_ba9a79349951e82ceac99a505f3e2739",
+      "askedAt": "2026-09-08T15:49:17.500Z",
+      "goldArchivedAt": "2026-09-08T15:45:18.773Z"
+    },
+    {
+      "id": "v6-aaa9f624-161126",
+      "query": "按照当前HTML风格样式重写上述行动清单，然后发送给我",
+      "gold": "aaa9f624d834c832",
+      "expect": [
+        "按照当前HTML风格样式重写上述行动清单，然后发送给我"
+      ],
+      "ctxOverlap": 0.3,
+      "goldChars": 1397,
+      "snapshotChars": 1397,
+      "conversation": "feishu:ou_ba9a79349951e82ceac99a505f3e2739",
+      "askedAt": "2026-09-08T16:11:26.068Z",
+      "goldArchivedAt": "2026-09-08T15:59:45.596Z"
+    },
+    {
+      "id": "v6-e430089c-111514",
+      "query": "删除资料库里面关于技能的文件。",
+      "gold": "e430089c0c3ae232",
+      "expect": [
+        "删除资料库里面关于技能的文件。"
+      ],
+      "ctxOverlap": 0.385,
+      "goldChars": 565,
+      "snapshotChars": 565,
+      "conversation": "wecom:wodXguNgAAro0Sjie9ahDmDYC2jSo5Tg",
+      "askedAt": "2026-09-11T11:15:14.818Z",
+      "goldArchivedAt": "2026-09-11T11:15:14.660Z"
+    },
+    {
+      "id": "v6-51f0d902-132148",
+      "query": "刚才发了什么消息\n[语音转录: 刚才发了什么消息]",
+      "gold": "51f0d90263f766cf",
+      "expect": [
+        "刚才发了什么消息\n[语音转录: 刚才发了什么消息]"
+      ],
+      "ctxOverlap": 0.3,
+      "goldChars": 358,
+      "snapshotChars": 358,
+      "conversation": "weixin:o9cq801LCaXHkMjBa_NBR82KYDPY@im.wechat",
+      "askedAt": "2026-09-11T13:21:48.381Z",
+      "goldArchivedAt": "2026-09-11T13:20:44.383Z"
+    },
+    {
+      "id": "v6-29d2e5d1-163355",
+      "query": "录屏只需要录制lumii客户端，展示一下制作全流程，重点是录制对话聊天页面的制作流程和最后的成果展示",
+      "gold": "29d2e5d1006bffd3",
+      "expect": [
+        "录屏只需要录制lumii客户端，展示一下制作全流程，重点是录制对话聊天页面的制作流程和最后的成果展示"
+      ],
+      "ctxOverlap": 0.25,
+      "goldChars": 2049,
+      "snapshotChars": 2049,
+      "conversation": "weixin:o9cq801LCaXHkMjBa_NBR82KYDPY@im.wechat",
+      "askedAt": "2026-09-11T16:33:55.352Z",
+      "goldArchivedAt": "2026-09-11T16:15:35.866Z"
+    },
+    {
+      "id": "v6-bb31d5c9-051526",
+      "query": "将完成后的html发送到微信",
+      "gold": "bb31d5c92cd9b533",
+      "expect": [
+        "将完成后的html发送到微信"
+      ],
+      "ctxOverlap": 0.222,
+      "goldChars": 946,
+      "snapshotChars": 946,
+      "conversation": "weixin:o9cq801LCaXHkMjBa_NBR82KYDPY@im.wechat",
+      "askedAt": "2026-09-14T05:15:26.671Z",
+      "goldArchivedAt": "2026-09-14T02:51:05.051Z"
+    },
+    {
+      "id": "v6-6e22a208-031653",
+      "query": "1.待办就在记忆中吧，使用的时候也方便\n2.存量先全部清除吧，当前都是作为测试\n3.先完成P0的修改",
+      "gold": "6e22a20828819df6",
+      "expect": [
+        "1.待办就在记忆中吧，使用的时候也方便\n2.存量先全部清除吧，当前都是作为测试\n3.先完成P0的修改"
+      ],
+      "ctxOverlap": 0.222,
+      "goldChars": 1014,
+      "snapshotChars": 1014,
+      "conversation": "0b1bfe02761222050c3debc92ec8804b",
+      "askedAt": "2026-09-15T03:16:53.036Z",
+      "goldArchivedAt": "2026-09-15T03:14:35.349Z"
+    },
+    {
+      "id": "v6-f4aee0f6-063031",
+      "query": "对方重新推送，需要9-14 13:27到现在的全量数据吗",
+      "gold": "f4aee0f6cf3e39a8",
+      "expect": [
+        "对方重新推送，需要9-14 13:27到现在的全量数据吗"
+      ],
+      "ctxOverlap": 0.5,
+      "goldChars": 959,
+      "snapshotChars": 959,
+      "conversation": "394c9ea33cee439aa1355e61a82e6519",
+      "askedAt": "2026-09-15T06:30:31.692Z",
+      "goldArchivedAt": "2026-09-15T06:30:05.329Z"
+    },
+    {
+      "id": "v6-ebc83b50-065742",
+      "query": "你确定是对方重新推送数据，不是我们主动拉取？还是有中间库来同步数据。tocc_sjcj_wllzb",
+      "gold": "ebc83b508655a7b6",
+      "expect": [
+        "你确定是对方重新推送数据，不是我们主动拉取？还是有中间库来同步数据。tocc_sjcj_wllzb"
+      ],
+      "ctxOverlap": 0.233,
+      "goldChars": 1754,
+      "snapshotChars": 1754,
+      "conversation": "394c9ea33cee439aa1355e61a82e6519",
+      "askedAt": "2026-09-15T06:57:42.688Z",
+      "goldArchivedAt": "2026-09-15T06:56:59.321Z"
+    },
+    {
+      "id": "v6-b78febca-073749",
+      "query": "现在用户端可以收到工单数据了吗",
+      "gold": "b78febcaa68c8d85",
+      "expect": [
+        "现在用户端可以收到工单数据了吗"
+      ],
+      "ctxOverlap": 0.357,
+      "goldChars": 846,
+      "snapshotChars": 846,
+      "conversation": "394c9ea33cee439aa1355e61a82e6519",
+      "askedAt": "2026-09-15T07:37:49.094Z",
+      "goldArchivedAt": "2026-09-15T07:37:44.586Z"
+    },
+    {
+      "id": "v6-1eb537c6-082757",
+      "query": "编写一份给领导汇报的html格式的成本评估分析。需要简单明了，突出重点内容，先总后分。明确项目关键点和关键工作量和风险",
+      "gold": "1eb537c6ac46a895",
+      "expect": [
+        "编写一份给领导汇报的html格式的成本评估分析。需要简单明了，突出重点内容，先总后分。明确项目关键点和关键工作量和风险"
+      ],
+      "ctxOverlap": 0.222,
+      "goldChars": 1166,
+      "snapshotChars": 1166,
+      "conversation": "394c9ea33cee439aa1355e61a82e6519",
+      "askedAt": "2026-09-15T08:27:57.392Z",
+      "goldArchivedAt": "2026-09-15T08:11:25.860Z"
+    },
+    {
+      "id": "v6-59f0f68a-085233",
+      "query": "你还是用系统名字和业务名字，上面的比喻更难理解了，他是不懂技术，不是不懂业务",
+      "gold": "59f0f68aa59b2738",
+      "expect": [
+        "你还是用系统名字和业务名字，上面的比喻更难理解了，他是不懂技术，不是不懂业务"
+      ],
+      "ctxOverlap": 0.296,
+      "goldChars": 731,
+      "snapshotChars": 731,
+      "conversation": "394c9ea33cee439aa1355e61a82e6519",
+      "askedAt": "2026-09-15T08:52:33.366Z",
+      "goldArchivedAt": "2026-09-15T08:48:56.433Z"
+    },
+    {
+      "id": "v6-383893d5-112007",
+      "query": "搜索一下对应的记忆时间衰减算法，我记得源码中似乎有时间算法",
+      "gold": "383893d5284206b5",
+      "expect": [
+        "搜索一下对应的记忆时间衰减算法，我记得源码中似乎有时间算法"
+      ],
+      "ctxOverlap": 0.208,
+      "goldChars": 578,
+      "snapshotChars": 578,
+      "conversation": "feishu:ou_ba9a79349951e82ceac99a505f3e2739",
+      "askedAt": "2026-09-15T11:20:07.680Z",
+      "goldArchivedAt": "2026-09-15T11:13:30.812Z"
+    },
+    {
+      "id": "v6-e84ac7eb-012850",
+      "query": "这种风格的标题还可以，然后内容也需要修改，总体来说没什么亮点和其他的豆包\\workbuddy 没什么差异化",
+      "gold": "e84ac7ebd8f3c11d",
+      "expect": [
+        "这种风格的标题还可以，然后内容也需要修改，总体来说没什么亮点和其他的豆包\\workbuddy 没什么差异化"
+      ],
+      "ctxOverlap": 0.2,
+      "goldChars": 978,
+      "snapshotChars": 978,
+      "conversation": "6c826243bd2cea9f95489451d60c9fae",
+      "askedAt": "2026-09-17T01:28:50.651Z",
+      "goldArchivedAt": "2026-09-17T01:27:31.364255+00:00"
+    },
+    {
+      "id": "v6-528753f4-091612",
+      "query": "记住：本项目验证用的暗号是「青竹三号」。只回复 ok",
+      "gold": "528753f47e69a023",
+      "expect": [
+        "记住：本项目验证用的暗号是「青竹三号」。只回复 ok"
+      ],
+      "ctxOverlap": 0.25,
+      "goldChars": 920,
+      "snapshotChars": 920,
+      "conversation": "e6b1e8096bfcf1ee1137f0c7afb9e9ce",
+      "askedAt": "2026-09-17T09:16:12.761Z",
+      "goldArchivedAt": "2026-09-17T09:13:33.447754+00:00"
+    },
+    {
+      "id": "v6-acb6fe6a-030914",
+      "query": "将ch01-Agent系统演化全景.md发送给我",
+      "gold": "acb6fe6a933a433b",
+      "expect": [
+        "将ch01-Agent系统演化全景.md发送给我"
+      ],
+      "ctxOverlap": 0.25,
+      "goldChars": 198,
+      "snapshotChars": 198,
+      "conversation": "weixin:o9cq801LCaXHkMjBa_NBR82KYDPY@im.wechat",
+      "askedAt": "2026-09-18T03:09:14.034Z",
+      "goldArchivedAt": "2026-09-17T06:54:51.120Z"
+    },
+    {
+      "id": "v6-87082025-051814",
+      "query": "可以，但是大纲需要拆分的更加详细一些避免内容过于粗糙。内容较大，分段输出",
+      "gold": "87082025cdb994d9",
+      "expect": [
+        "可以，但是大纲需要拆分的更加详细一些避免内容过于粗糙。内容较大，分段输出"
+      ],
+      "ctxOverlap": 1,
+      "goldChars": 10667,
+      "snapshotChars": 10667,
+      "conversation": "feishu:ou_ba9a79349951e82ceac99a505f3e2739",
+      "askedAt": "2026-09-08T05:18:14.399Z",
+      "goldArchivedAt": "2026-09-08T05:18:14.398Z"
+    },
+    {
+      "id": "v6-6d431d13-101005",
+      "query": "样式不需要过于复杂简单实用就好，多使用一些在线样式，减少代码量",
+      "gold": "6d431d13bd8526b0",
+      "expect": [
+        "样式不需要过于复杂简单实用就好，多使用一些在线样式，减少代码量"
+      ],
+      "ctxOverlap": 1,
+      "goldChars": 6803,
+      "snapshotChars": 6803,
+      "conversation": "feishu:ou_ba9a79349951e82ceac99a505f3e2739",
+      "askedAt": "2026-09-08T10:10:05.535Z",
+      "goldArchivedAt": "2026-09-08T10:10:05.534Z"
+    },
+    {
+      "id": "v6-7b57f354-162242",
+      "query": "AI 时代普通程序员行动清单.md  是这个文件中的内容",
+      "gold": "7b57f3549741acbe",
+      "expect": [
+        "AI 时代普通程序员行动清单.md  是这个文件中的内容"
+      ],
+      "ctxOverlap": 0.65,
+      "goldChars": 496,
+      "snapshotChars": 496,
+      "conversation": "feishu:ou_ba9a79349951e82ceac99a505f3e2739",
+      "askedAt": "2026-09-08T16:22:42.567Z",
+      "goldArchivedAt": "2026-09-08T16:22:42.342Z"
+    },
+    {
+      "id": "v6-f16986f4-085919",
+      "query": "你为什么不使用movefile的内置工具来操作",
+      "gold": "f16986f4de8a327f",
+      "expect": [
+        "你为什么不使用movefile的内置工具来操作"
+      ],
+      "ctxOverlap": 1,
+      "goldChars": 8082,
+      "snapshotChars": 8082,
+      "conversation": "feishu:ou_ba9a79349951e82ceac99a505f3e2739",
+      "askedAt": "2026-09-09T08:59:19.324Z",
+      "goldArchivedAt": "2026-09-09T08:59:19.323Z"
+    },
+    {
+      "id": "v6-2eae08c2-064642",
+      "query": "生产24史，后面4篇的课程。",
+      "gold": "2eae08c2ed566fb6",
+      "expect": [
+        "生产24史，后面4篇的课程。"
+      ],
+      "ctxOverlap": 1,
+      "goldChars": 8081,
+      "snapshotChars": 8081,
+      "conversation": "feishu:ou_ba9a79349951e82ceac99a505f3e2739",
+      "askedAt": "2026-09-10T06:46:42.158Z",
+      "goldArchivedAt": "2026-09-10T06:46:42.157Z"
+    },
+    {
+      "id": "v6-c0e3e5ab-075431",
+      "query": "再重新编写一下，现在AI味太浓了。",
+      "gold": "c0e3e5ab5e9ccff3",
+      "expect": [
+        "再重新编写一下，现在AI味太浓了。"
+      ],
+      "ctxOverlap": 1,
+      "goldChars": 8563,
+      "snapshotChars": 8563,
+      "conversation": "feishu:ou_ba9a79349951e82ceac99a505f3e2739",
+      "askedAt": "2026-09-10T07:54:31.846Z",
+      "goldArchivedAt": "2026-09-10T07:49:59.697Z"
+    },
+    {
+      "id": "v6-37a862d4-151449",
+      "query": "1.尽量使用在线样式，降低代码编写难度和代码量。\n2.文字背后还是有白色背景，背景需要透明。\n3.上一页下一页按钮还在，需要移除",
+      "gold": "37a862d4ef9875fd",
+      "expect": [
+        "1.尽量使用在线样式，降低代码编写难度和代码量。\n2.文字背后还是有白色背景，背景需要透明。\n3.上一页下一页按钮还在，需要移除"
+      ],
+      "ctxOverlap": 1,
+      "goldChars": 15415,
+      "snapshotChars": 15415,
+      "conversation": "weixin:o9cq801LCaXHkMjBa_NBR82KYDPY@im.wechat",
+      "askedAt": "2026-09-10T15:14:49.368Z",
+      "goldArchivedAt": "2026-09-10T15:14:49.367Z"
+    },
+    {
+      "id": "v6-43477128-023350",
+      "query": "使用开发AGENT删除【07-新手指引-评审.md】文档",
+      "gold": "43477128a1f26698",
+      "expect": [
+        "使用开发AGENT删除【07-新手指引-评审.md】文档"
+      ],
+      "ctxOverlap": 0.667,
+      "goldChars": 1395,
+      "snapshotChars": 1395,
+      "conversation": "bbbc46e7e9d6c0d79277689778b2fd01",
+      "askedAt": "2026-09-15T02:33:50.709Z",
+      "goldArchivedAt": "2026-09-15T02:05:40.039Z"
+    },
+    {
+      "id": "v6-8c94fa77-020341",
+      "query": "现在你可以看到企业微信群了吗。我@你了",
+      "gold": "8c94fa77620be186",
+      "expect": [
+        "现在你可以看到企业微信群了吗。我@你了"
+      ],
+      "ctxOverlap": 0.6,
+      "goldChars": 1376,
+      "snapshotChars": 1376,
+      "conversation": "wecom:wodXguNgAAro0Sjie9ahDmDYC2jSo5Tg",
+      "askedAt": "2026-09-16T02:03:41.997Z",
+      "goldArchivedAt": "2026-09-16T02:03:11.087Z"
+    },
+    {
+      "id": "v6-30ee08a2-110418",
+      "query": "搜索一下我当前的所有资料和记忆哪些数据和资料适合分享到小红书。并可以持续发布，也适合普通技术小白或者懂点技术的人，发点热点文章",
+      "gold": "30ee08a23ffca6ea",
+      "expect": [
+        "搜索一下我当前的所有资料和记忆哪些数据和资料适合分享到小红书。并可以持续发布，也适合普通技术小白或者懂点技术的人，发点热点文章"
+      ],
+      "ctxOverlap": 1,
+      "goldChars": 6904,
+      "snapshotChars": 6904,
+      "conversation": "6c826243bd2cea9f95489451d60c9fae",
+      "askedAt": "2026-09-16T11:04:18.687Z",
+      "goldArchivedAt": "2026-09-16T11:04:18.686Z"
+    }
+  ]
+}
