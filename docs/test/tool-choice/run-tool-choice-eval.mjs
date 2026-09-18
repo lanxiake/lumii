@@ -26,6 +26,7 @@
  *
  *   node docs/test/tool-choice/run-tool-choice-eval.mjs            # 全部
  *   TC_ONLY=t01 node docs/test/tool-choice/run-tool-choice-eval.mjs # 只跑某个
+ *   TC_COOLDOWN_MS=30000 ...                                       # 端点被压住时调大冷却
  *   TC_NO_RESTORE=1 ...                                            # 保留现场
  */
 
@@ -93,12 +94,39 @@ function isEnvError(err) {
 }
 
 /**
- * 环境错误重试。
+ * 模型侧被压住——**同样不是模型的失败**。
+ *
+ * 实测：并发打太高时（本套件 + 并行会话的探针同时压同一个模型端点），
+ * 回合会一路跑到超时也等不到 assistant 消息，报「回合等待超时」。
+ * 它和「模型选错了工具」在汇总里长得一模一样，但处置方向完全相反：
+ * 前者要退避重试，后者要改工具面。
+ *
+ * 判据只用超时措辞，不用 `timed out`——那句太宽，会把网络的
+ * `Request timed out` 也吞进来（那属于 isEnvError）。
+ */
+function isBusyError(err) {
+  return /回合等待超时|未等到新的 assistant 消息/i.test(String(err));
+}
+
+/**
+ * 可重试的两类错误及各自退避间隔。
  *
  * **为什么必须区分**：基线跑时 t12~t15 全部 `connection_failed`（应用当时忙于后台活动），
  * 它们在汇总里和"模型选错了工具"长得一样，直接把通过率从 ~73% 拉到 40%。
  * 那种数字会把人引向完全错误的结论——去查工具面，而问题在环境。
+ *
+ * 模型侧被压住同理，且退避要更长：端点卡住时立刻重试只会再压一次，
+ * 实测同一回合连撞两次超时并不罕见。
  */
+const RETRY_POLICY = [
+  { match: isEnvError, delayMs: 8000, label: 'ENV-ERROR' },
+  { match: isBusyError, delayMs: 30000, label: 'MODEL-BUSY' },
+];
+
+function classify(err) {
+  return RETRY_POLICY.find((p) => p.match(err)) ?? null;
+}
+
 function withEnvRetry(fn, attempts = 3) {
   let lastErr;
   for (let i = 0; i < attempts; i++) {
@@ -106,8 +134,9 @@ function withEnvRetry(fn, attempts = 3) {
       return fn();
     } catch (err) {
       lastErr = err;
-      if (!isEnvError(err)) throw err;
-      if (i < attempts - 1) sleep(8000);
+      const policy = classify(err);
+      if (!policy) throw err; // 真失败（断言炸了等）——不重试
+      if (i < attempts - 1) sleep(policy.delayMs);
     }
   }
   throw lastErr;
@@ -203,22 +232,63 @@ if (!todo.length) {
   process.exit(1);
 }
 
-for (const c of todo) {
+const MAX_CONSECUTIVE_BLOCKED = 3;
+
+/**
+ * 用例之间的冷却。
+ *
+ * **为什么需要**：本套件的"单个用例"远不止一次模型往返——实测单个回合最多发出
+ * 22 次工具调用（t09），每次都是一次往返。连着跑会持续压同一个模型端点，
+ * 而并行会话的探针也在压它。压过头就会整批回合超时（实测 t04/t05 双双
+ * 「回合等待超时（180000ms）」），那既浪费时间又把通过率算错。
+ * 冷却把压力摊开，是**降低评测自身并发**的主要手段。
+ */
+const COOLDOWN_MS = Number(process.env.TC_COOLDOWN_MS || 10000);
+
+let consecutiveBlocked = 0;
+let aborted = false;
+
+for (let i = 0; i < todo.length; i++) {
+  const c = todo[i];
+  if (i > 0 && COOLDOWN_MS > 0) sleep(COOLDOWN_MS);
   try {
     withEnvRetry(() => runCase(c));
+    consecutiveBlocked = 0;
   } catch (err) {
-    const env = isEnvError(err);
+    const policy = classify(err);
     results.push({
       id: c.id,
       category: c.category,
       pass: false,
-      envFail: env,
+      blocked: policy?.label ?? null,
       tools: [],
       problems: [String(err).slice(0, 160)],
     });
     console.error(
-      `${env ? "⚠️ " : "❌"} [${c.id}] ${env ? "ENV-ERROR（应用不可达，重试 3 次后仍失败——不计入通过率）" : "ERROR"} — ${String(err).slice(0, 160)}`,
+      policy
+        ? `⚠️  [${c.id}] ${policy.label}（重试 3 次仍失败——不计入通过率） — ${String(err).slice(0, 160)}`
+        : `❌ [${c.id}] ERROR — ${String(err).slice(0, 160)}`,
     );
+
+    if (policy) {
+      consecutiveBlocked++;
+      if (consecutiveBlocked >= MAX_CONSECUTIVE_BLOCKED) {
+        console.error(
+          `\n⛔ 连续 ${consecutiveBlocked} 条被环境/模型侧挡住，不再继续。`,
+        );
+        console.error(
+          `   ENV-ERROR 多见于应用在做后台重活（实测踩过：palace-vector 后台补齐期间控制口不响应，` +
+            `而日志里它在正常打进度、看起来不像故障）。`,
+        );
+        console.error(
+          `   MODEL-BUSY 多见于并发过高——本套件、并行会话的探针、应用自身在压同一个模型端点。` +
+            `调大 TC_COOLDOWN_MS（当前 ${COOLDOWN_MS}ms）后重跑。`,
+        );
+        console.error(`   剩余 ${todo.length - i - 1} 条不再跑：继续只会重复同样的失败。`);
+        aborted = true;
+        break;
+      }
+    }
   }
 }
 
@@ -227,13 +297,14 @@ for (const c of todo) {
 // ────────────────────────────────────────────────
 
 const passed = results.filter((r) => r.pass).length;
-const envFailed = results.filter((r) => r.envFail).length;
-/** 环境失败的**不计入分母**——它们反映的是"应用当时不可达"，不是模型的选法 */
-const graded = results.length - envFailed;
+const blocked = results.filter((r) => r.blocked);
+const blockedCount = blocked.length;
+/** 被环境/模型侧挡住的**不计入分母**——它们反映的不是模型的选法 */
+const graded = results.length - blockedCount;
 
 const byCategory = new Map();
 for (const r of results) {
-  if (r.envFail) continue;
+  if (r.blocked) continue;
   const k = r.category ?? "(未分类)";
   const v = byCategory.get(k) ?? { pass: 0, total: 0 };
   v.total++;
@@ -246,11 +317,23 @@ for (const [k, v] of byCategory) console.log(`  ${k.padEnd(18)} ${v.pass}/${v.to
 
 const pct = graded > 0 ? ((passed / graded) * 100).toFixed(1) : "0.0";
 console.log(`\n通过 ${passed}/${graded}（${pct}%）`);
-if (envFailed > 0) {
+if (aborted) {
   console.log(
-    `⚠️  另有 ${envFailed} 条因**环境不可达**未计入（${results.filter((r) => r.envFail).map((r) => r.id).join(", ")}）` +
-      `——应用当时忙或正在重启。它们不算模型的失败，但要重跑补齐。`,
+    `⛔ 本次**因连续被挡住提前终止**，统计只覆盖已跑的 ${results.length}/${todo.length} 条——` +
+      `这个数字不能当基线用，等条件恢复后重跑。`,
   );
+}
+if (blockedCount > 0) {
+  const byLabel = new Map();
+  for (const r of blocked) byLabel.set(r.blocked, [...(byLabel.get(r.blocked) ?? []), r.id]);
+  for (const [label, ids] of byLabel) {
+    console.log(
+      `⚠️  另有 ${ids.length} 条 ${label} 未计入（${ids.join(", ")}）` +
+        (label === "MODEL-BUSY"
+          ? `——模型端点被压住（并发过高）。它们不是模型的失败，调大 TC_COOLDOWN_MS 后重跑补齐。`
+          : `——应用当时不可达。同样不算模型的失败，要重跑补齐。`),
+    );
+  }
 }
 console.log();
 
