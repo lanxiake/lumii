@@ -777,32 +777,72 @@ export interface ElectronAPI {
     setSearchConfig: (config: { langSearchApiKey?: string; searxngBaseUrl?: string }) => Promise<{ success: boolean; error?: string }>
   }
 
-  // MemPalace 插件
-  mempalace: {
-    /** 检查安装状�?*/
-    getStatus: () => Promise<{ installed: boolean; runtimeDir: string }>
-    /** 安装 MemPalace（异步，通过 on('install:progress') 接收进度�?*/
-    install: () => Promise<{ success: boolean; error?: string }>
-    /** 监听安装进度 */
-    onInstallProgress: (cb: (msg: string) => void) => () => void
-    /** 分页列出记忆 */
-    list: (params?: { wing?: string; room?: string; limit?: number; offset?: number }) => Promise<{
-      drawers: Array<{ drawer_id: string; wing: string; room: string; content_preview: string }>
-      total: number; offset: number; limit: number; error?: string
-    }>
-    /** 语义搜索记忆 */
-    search: (params: { query: string; limit?: number; wing?: string; room?: string }) => Promise<{
-      results: Array<{ text: string; wing: string; room: string; similarity: number; drawer_id: string }>
+  /**
+   * 记忆宫殿（自研 SQLite + FTS5）。
+   *
+   * 与旧的 `mempalace` 契约的三处不同：
+   * - 没有 install/uninstall/onInstallProgress：数据在 `agent-runtime.db` 里，
+   *   随应用启动即有，不存在"装插件"这一步
+   * - `status` 报的是**可用性与条数**（`available` + `counts` + `wings`），
+   *   不再是 `installed` / `runtimeDir`
+   * - 检索返回 `score`（`-bm25`，无界相关性分数）而不是 `similarity`——
+   *   后端不把它伪装成 [0,1] 的相似度，展示层要做归一化在展示层做
+   */
+  palace: {
+    /** 状态：可用性、条数（活跃/墓碑/合计）、wing 分布 */
+    getStatus: () => Promise<{
+      available: boolean
+      counts: { active: number; tombstoned: number; total: number } | null
+      wings: Array<{ wing: string; count: number }>
       error?: string
     }>
-    /** 删除单条记忆 */
+    /** 分页列表（按归档时间倒序；只含元数据，正文走 read） */
+    list: (params?: { wing?: string; limit?: number; offset?: number }) => Promise<{
+      available: boolean
+      items: Array<{
+        drawer_id: string
+        wing: string
+        room: string
+        agent_id: string
+        conversation_id: string | null
+        char_count: number
+        created_at: string
+      }>
+      total: number
+      error?: string
+    }>
+    /** 全文检索（返回摘录；全文走 read） */
+    search: (params: { query: string; limit?: number; wing?: string }) => Promise<{
+      available: boolean
+      results: Array<{
+        drawer_id: string
+        text: string
+        wing: string
+        room: string
+        /** `-bm25` 相关性分数：越大越相关，无上界、不可跨查询比较 */
+        score: number
+        created_at: string
+        char_count: number
+        truncated: boolean
+      }>
+      error?: string
+    }>
+    /** 按 drawer_id 读原文 */
+    read: (drawerId: string) => Promise<{
+      available: boolean
+      detail: {
+        drawer_id: string
+        content: string
+        wing: string
+        room: string
+        metadata: Record<string, unknown>
+      } | null
+      error?: string
+    }>
+    /** 删除单条（写墓碑，非破坏：原文保留、只从检索摘除） */
     delete: (drawerId: string) => Promise<{ success: boolean; error?: string }>
-    /** 清空全部记忆 */
+    /** 清空全部（同样是墓碑，非破坏） */
     clear: () => Promise<{ success: boolean; deleted: number; error?: string }>
-    /** 监听清空进度 */
-    onClearProgress: (cb: (p: { deleted: number }) => void) => () => void
-    /** 卸载 MemPalace（删�?Python 运行时，不删除记忆数据） */
-    uninstall: () => Promise<{ success: boolean; error?: string }>
   }
 
   // 工作空间
@@ -1314,25 +1354,14 @@ const electronAPI: ElectronAPI = {
   // API Server HTTP 调用
   api: apiServerHttpApi,
 
-  // MemPalace 插件
-  mempalace: {
-    getStatus: () => ipcRenderer.invoke('plugin:mempalace:status'),
-    install: () => ipcRenderer.invoke('plugin:mempalace:install'),
-    onInstallProgress: (cb: (msg: string) => void) => {
-      const handler = (_event: Electron.IpcRendererEvent, msg: string) => cb(msg)
-      ipcRenderer.on('plugin:mempalace:install:progress', handler)
-      return () => ipcRenderer.removeListener('plugin:mempalace:install:progress', handler)
-    },
-    list: (params?: object) => ipcRenderer.invoke('plugin:mempalace:list', params),
-    search: (params: object) => ipcRenderer.invoke('plugin:mempalace:search', params),
-    delete: (drawerId: string) => ipcRenderer.invoke('plugin:mempalace:delete', drawerId),
-    clear: () => ipcRenderer.invoke('plugin:mempalace:clear'),
-    onClearProgress: (cb: (p: { deleted: number }) => void) => {
-      const handler = (_event: Electron.IpcRendererEvent, p: { deleted: number }) => cb(p)
-      ipcRenderer.on('plugin:mempalace:clear:progress', handler)
-      return () => ipcRenderer.removeListener('plugin:mempalace:clear:progress', handler)
-    },
-    uninstall: () => ipcRenderer.invoke('plugin:mempalace:uninstall'),
+  // 记忆宫殿（自研 SQLite + FTS5；见类型声明处的说明）
+  palace: {
+    getStatus: () => ipcRenderer.invoke('palace:status'),
+    list: (params?: object) => ipcRenderer.invoke('palace:list', params),
+    search: (params: object) => ipcRenderer.invoke('palace:search', params),
+    read: (drawerId: string) => ipcRenderer.invoke('palace:read', drawerId),
+    delete: (drawerId: string) => ipcRenderer.invoke('palace:delete', drawerId),
+    clear: () => ipcRenderer.invoke('palace:clear'),
   },
 
   // 工作空间 API

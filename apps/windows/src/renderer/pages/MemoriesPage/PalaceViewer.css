@@ -1,6 +1,6 @@
-/* MemPalaceViewer — 记忆可视化组件 */
+/* PalaceViewer — 记忆宫殿（自研 SQLite）数据面板 */
 
-.mpv-root {
+.pv-root {
   display: flex;
   flex-direction: column;
   gap: 0;
@@ -10,7 +10,7 @@
 
 /* ============ 工具栏 ============ */
 
-.mpv-toolbar {
+.pv-toolbar {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -19,7 +19,7 @@
   border-bottom: 1px solid var(--color-border);
 }
 
-.mpv-search-wrap {
+.pv-search-wrap {
   flex: 1;
   display: flex;
   align-items: center;
@@ -31,11 +31,11 @@
   transition: border-color 0.15s;
 }
 
-.mpv-search-wrap:focus-within {
+.pv-search-wrap:focus-within {
   border-color: var(--color-primary);
 }
 
-.mpv-search-input {
+.pv-search-input {
   flex: 1;
   background: none;
   border: none;
@@ -46,11 +46,11 @@
   min-width: 0;
 }
 
-.mpv-search-input::placeholder {
+.pv-search-input::placeholder {
   color: var(--color-text-tertiary);
 }
 
-.mpv-search-clear {
+.pv-search-clear {
   background: none;
   border: none;
   cursor: pointer;
@@ -61,11 +61,11 @@
   transition: color 0.15s;
 }
 
-.mpv-search-clear:hover {
+.pv-search-clear:hover {
   color: var(--color-text-primary);
 }
 
-.mpv-toolbar-actions {
+.pv-toolbar-actions {
   display: flex;
   align-items: center;
   gap: 4px;
@@ -74,7 +74,7 @@
 
 /* ============ 统计栏 ============ */
 
-.mpv-stats {
+.pv-stats {
   padding: 8px 20px;
   font-size: 12px;
   color: var(--color-text-tertiary);
@@ -82,12 +82,12 @@
   border-bottom: 1px solid var(--color-border);
 }
 
-.mpv-stats strong {
+.pv-stats strong {
   color: var(--color-text-primary);
   font-weight: 600;
 }
 
-.mpv-exit-search {
+.pv-exit-search {
   background: none;
   border: none;
   cursor: pointer;
@@ -100,20 +100,20 @@
 
 /* ============ 内容区 ============ */
 
-.mpv-content {
+.pv-content {
   flex: 1;
   overflow-y: auto;
   padding: 12px 20px;
   max-height: 480px;
 }
 
-.mpv-loading {
+.pv-loading {
   display: flex;
   justify-content: center;
   padding: 32px 0;
 }
 
-.mpv-empty {
+.pv-empty {
   text-align: center;
   padding: 40px 20px;
   font-size: 13px;
@@ -122,13 +122,13 @@
 
 /* ============ 卡片列表 ============ */
 
-.mpv-cards {
+.pv-cards {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
-.mpv-card {
+.pv-card {
   background: var(--color-bg-secondary);
   border: 1px solid var(--color-border);
   border-radius: 8px;
@@ -136,11 +136,11 @@
   transition: border-color 0.15s;
 }
 
-.mpv-card:hover {
+.pv-card:hover {
   border-color: var(--color-border-light, var(--color-primary));
 }
 
-.mpv-card-header {
+.pv-card-header {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -148,14 +148,14 @@
   flex-wrap: wrap;
 }
 
-.mpv-filed-at {
+.pv-filed-at {
   margin-left: auto;
   font-size: 11px;
   color: var(--color-text-tertiary);
   white-space: nowrap;
 }
 
-.mpv-card-text {
+.pv-card-text {
   margin: 0 0 8px;
   font-size: 13px;
   line-height: 1.55;
@@ -167,20 +167,20 @@
   overflow: hidden;
 }
 
-.mpv-card-footer {
+.pv-card-footer {
   display: flex;
   justify-content: flex-end;
 }
 
 /* ============ 标签 ============ */
 
-.mpv-tags {
+.pv-tags {
   display: flex;
   gap: 4px;
   flex-wrap: wrap;
 }
 
-.mpv-tag {
+.pv-tag {
   display: inline-block;
   padding: 1px 7px;
   border-radius: 10px;
@@ -188,19 +188,19 @@
   font-weight: 500;
 }
 
-.mpv-tag--wing {
+.pv-tag--wing {
   background: rgba(99, 102, 241, 0.15);
   color: var(--color-primary-400, #818cf8);
 }
 
-.mpv-tag--room {
+.pv-tag--room {
   background: rgba(148, 163, 184, 0.12);
   color: var(--color-text-secondary);
 }
 
 /* ============ 相似度徽章 ============ */
 
-.mpv-badge {
+.pv-badge {
   display: inline-block;
   padding: 1px 7px;
   border-radius: 10px;
@@ -209,24 +209,24 @@
   flex-shrink: 0;
 }
 
-.mpv-badge--high {
+.pv-badge--high {
   background: rgba(34, 197, 94, 0.15);
   color: #22c55e;
 }
 
-.mpv-badge--mid {
+.pv-badge--mid {
   background: rgba(245, 158, 11, 0.15);
   color: #f59e0b;
 }
 
-.mpv-badge--low {
+.pv-badge--low {
   background: rgba(148, 163, 184, 0.12);
   color: var(--color-text-tertiary);
 }
 
 /* ============ 分页器 ============ */
 
-.mpv-pagination {
+.pv-pagination {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -236,7 +236,7 @@
   background: var(--color-bg-secondary);
 }
 
-.mpv-page-info {
+.pv-page-info {
   font-size: 13px;
   color: var(--color-text-secondary);
   min-width: 80px;
@@ -245,19 +245,107 @@
 
 /* ============ Modal ============ */
 
-.mpv-modal-body {
+.pv-modal-body {
   padding: 4px 0 8px;
   font-size: 14px;
   color: var(--color-text-primary);
   line-height: 1.6;
 }
 
-.mpv-modal-body strong {
+.pv-modal-body strong {
   color: var(--color-error);
 }
 
-.mpv-modal-footer {
+.pv-modal-footer {
   display: flex;
   gap: 8px;
   justify-content: flex-end;
+}
+
+/* ============ wing 过滤条 ============ */
+
+.pv-wings {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 20px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.pv-wing-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.pv-wing-chip:hover {
+  border-color: var(--color-primary);
+}
+
+.pv-wing-chip--active {
+  color: var(--color-primary);
+  border-color: var(--color-primary);
+  background: var(--color-bg-primary);
+}
+
+.pv-wing-count {
+  opacity: 0.65;
+  font-size: 11px;
+}
+
+/* ============ 统计栏补充 ============ */
+
+.pv-stats-muted {
+  margin-left: 6px;
+  color: var(--color-text-secondary);
+  opacity: 0.8;
+}
+
+/* ============ 列表项元数据行（无正文时的占位） ============ */
+
+.pv-card-text--meta {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  font-family: var(--font-mono, monospace);
+}
+
+/* ============ 全文详情 Modal ============ */
+
+.pv-detail-body {
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.pv-detail-text {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--font-mono, monospace);
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--color-text-primary);
+}
+
+/* ============ 清空确认补充说明 ============ */
+
+.pv-modal-note {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+/* ============ 空态 ============ */
+
+.pv-empty {
+  padding: 40px 20px;
+  text-align: center;
+  color: var(--color-text-secondary);
 }

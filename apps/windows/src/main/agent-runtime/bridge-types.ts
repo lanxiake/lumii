@@ -101,7 +101,7 @@ export interface AgentRuntimeBridgeConfig {
    */
   recordSkillExecution?: (skillIdOrName: string) => Promise<void> | void
   /**
-   * 对话结束后回调（用于客户端侧记忆记录，如 MemPalace）。
+   * 对话结束后回调（客户端侧记忆记录：每轮助手回复即时归档进记忆宫殿）。
    * fire-and-forget，不阻塞事件处理。
    */
   onConversationEnd?: (convId: string, assistantText: string) => void
@@ -126,7 +126,7 @@ export interface AgentRuntimeBridgeConfig {
    */
   skillEvolutionEngine?: import('../skill-evolution/index').SkillEvolutionEngine
   /**
-   * 记忆宫殿检索（由 index.ts 注入 MemPalace 实现，或由 bridge 换成自建 SQLite 实现）。
+   * 记忆宫殿检索（由 bridge 注入自建 SQLite 实现，见 palace-backend.ts）。
    * 返回 null 表示后端不可用，此时降级到 user_memory 文本搜索。
    *
    * `score` 是**相关性分数（越大越相关）**，不是相似度：BM25 无上界、不可跨查询比较，
@@ -165,7 +165,7 @@ export interface AgentRuntimeBridgeConfig {
     style: PromptStyle
   }>
   /**
-   * 段原文归档进记忆宫殿（由 index.ts 注入 MemPalace 实现，或由 bridge 换成自建实现）。
+   * 段原文归档进记忆宫殿（由 bridge 注入自建 SQLite 实现）。
    * drawer_id 由 runtime 内容寻址确定性生成（P2），传给后端做幂等 upsert。
    * 返回宫殿**实际写入**的 drawer_id；后端不可用/失败返回 undefined（runtime 不回填、不留死链）。
    * 记忆系统升级阶段一 · 诉求 A · 宫殿互引。
@@ -175,7 +175,7 @@ export interface AgentRuntimeBridgeConfig {
     wing: string
     room: string
     drawerId: string
-    /** 作用域（自建后端要落库；MemPalace 无此概念，忽略） */
+    /** 作用域（按 (agent, user) 落库做隔离） */
     agentId?: string
     userId?: string
     metadata?: Record<string, unknown>

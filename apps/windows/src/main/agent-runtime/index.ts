@@ -1,5 +1,4 @@
 export { AgentRuntimeBridge, type AgentRuntimeBridgeConfig, type AgentLifecycleSnapshot } from './bridge'
-export { resolvePalaceBackend, type PalaceBackend } from './palace-backend'
 export {
   installAgentRuntimeCommandIpc,
   setAgentRuntimeBridgeForIpc,

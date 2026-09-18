@@ -111,12 +111,16 @@ for (const [key, parts] of groups) {
 }
 
 // ── 2. room → conversationId ─────────────────────────────────────────────
-// 旧宫殿把会话 id 里的 : . @ 换成了 _（Python 侧文件名安全化），导入时反查回来填进
-// `conversation_id` 列——**注意它不参与检索过滤**：`memory_search` 的会话级过滤走的是
-// `memory_segments.palace_drawer_id` 白名单（只认段管线归档的 drawer），导入行天然不在
-// 白名单里，所以在「那个会话内」搜索时反而搜不到它们。这是刻意的：会话内搜索只看本会话
-// 的段归档，导入行属于跨会话存档，靠不带 sessionKey 的检索召回。
-// conversation_id 的实际用途是溯源与运维排查（哪条归档来自哪个会话）。
+// 旧宫殿把会话 id 里的 : . @ 换成了 _（Python 侧文件名安全化）。导入时**反查回原样 id**，
+// 并用原样 id 作为 `room`——坐标必须与线上新写入一致，否则同一句话会出现两个 drawer_id。
+//
+// 2026-09-18 踩到的坑：第一版保留变形 room（想"忠实旧坐标"），结果与消息回填
+// （`palace-backfill-messages.mjs`，用原样 conversation_id）撞车——86 组同内容双行，
+// 检索时每句命中两次。**保留旧坐标看似忠实，实际是让同一内容有两种身份**；旧库即将整体
+// 废弃（一个版本周期后删 MemPalace），没有理由为它保持坐标。
+//
+// `conversation_id` 列本身不参与检索过滤（过滤走 `memory_segments` 的 drawer_id 白名单），
+// 用途是溯源与运维排查。
 const convRows = db.prepare('SELECT id FROM conversations').all()
 const convSet = new Set(convRows.map((r) => r.id))
 const normMap = new Map()
@@ -164,12 +168,15 @@ for (const r of records) {
   const conversationId = resolveConvId(r.room)
   const agentId = conversationId ? resolveAgentId(conversationId) : 'assistant'
   if (!conversationId) stats.noConv++
-  const drawerId = deterministicDrawerId(r.wing, r.room, r.content)
+  // room 必须用**原样** id（不是旧库的变形值）——坐标决定 drawer_id，与线上新写入
+  // 逐字一致才能保证同一内容只有一种身份。旧库变形值只用于反查 conversationId。
+  const room = conversationId ?? r.room
+  const drawerId = deterministicDrawerId(r.wing, room, r.content)
   if (existsStmt.get(drawerId)) {
     stats.already++
     continue
   }
-  planned.push({ ...r, conversationId, agentId, drawerId })
+  planned.push({ ...r, room, conversationId, agentId, drawerId })
 }
 
 console.log(`自建库: ${DB_PATH}`)

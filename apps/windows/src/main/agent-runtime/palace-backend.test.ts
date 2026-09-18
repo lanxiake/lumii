@@ -1,5 +1,5 @@
 /**
- * 记忆宫殿后端选择（自建 SQLite / 旧 MemPalace）
+ * 记忆宫殿的宿主侧接线（自建 SQLite）
  *
  * 动因（评审 2026-09-17 §4.6）：宫殿原由 MemPalace（Python + chromadb）承载，
  * 本机 chromadb 的 Rust 内核 upsert 直接 0xC0000005 崩溃 → 段原文一条也归档不进去，
@@ -7,10 +7,9 @@
  *
  * 1. 默认走自建，且**真的**把段原文写进 `palace_drawers`、能检索回来
  * 2. 数据库未打开时降级为「不可用」而不是抛异常——宫殿坏了不该让整轮对话失败
- * 3. `LUMII_PALACE_BACKEND=mempalace` 时原配置原样保留（逃生开关真的能回去）
  */
 import { describe, expect, it, vi } from 'vitest'
-import { withBuiltinPalace, resolvePalaceBackend } from './palace-backend'
+import { withBuiltinPalace } from './palace-backend'
 import type { AgentRuntimeBridgeConfig } from './bridge-types'
 import type { LocalDatabase } from '@mtbot/agent-runtime'
 import { createMigratedTestDb } from '../../../../../packages/agent-runtime/src/__tests__/helpers/sqlite-test-db'
@@ -21,21 +20,6 @@ function fakeLocalDb(db: unknown, isOpen = true): LocalDatabase {
 }
 
 const emptyConfig = {} as AgentRuntimeBridgeConfig
-
-describe('resolvePalaceBackend', () => {
-  it('默认自建；只有显式写 mempalace 才回退到 Python', () => {
-    expect(resolvePalaceBackend({} as NodeJS.ProcessEnv)).toBe('builtin')
-    expect(resolvePalaceBackend({ LUMII_PALACE_BACKEND: '  ' } as NodeJS.ProcessEnv)).toBe(
-      'builtin',
-    )
-    expect(
-      resolvePalaceBackend({ LUMII_PALACE_BACKEND: 'BUILTIN' } as NodeJS.ProcessEnv),
-    ).toBe('builtin')
-    expect(
-      resolvePalaceBackend({ LUMII_PALACE_BACKEND: 'mempalace' } as NodeJS.ProcessEnv),
-    ).toBe('mempalace')
-  })
-})
 
 describe('withBuiltinPalace', () => {
   it('归档 → 检索 → 读回闭环，且 drawer_id 由内容寻址给出', async () => {
@@ -134,15 +118,6 @@ describe('withBuiltinPalace', () => {
     ).resolves.toBeUndefined()
   })
 
-  it('mempalace 后端下原配置原样保留（逃生开关真的能回去）', () => {
-    const original = vi.fn(async () => null)
-    const config = { searchPalace: original } as unknown as AgentRuntimeBridgeConfig
-
-    const out = withBuiltinPalace(config, fakeLocalDb(createMigratedTestDb()), 'mempalace')
-
-    expect(out).toBe(config)
-    expect(out.searchPalace).toBe(original)
-  })
 
   it('归档时缺 agentId/userId 也不写坏数据（有默认作用域）', async () => {
     const db = createMigratedTestDb()
@@ -330,12 +305,4 @@ describe('onConversationEnd（每轮归档）', () => {
     expect(row.agent_id).toBe('assistant')
   })
 
-  it('mempalace 后端下 onConversationEnd 原样保留（交给 index.ts 的 Python 分支）', () => {
-    const original = vi.fn()
-    const config = { onConversationEnd: original } as unknown as AgentRuntimeBridgeConfig
-
-    const out = withBuiltinPalace(config, fakeLocalDb(createMigratedTestDb()), 'mempalace')
-
-    expect(out.onConversationEnd).toBe(original)
-  })
 })

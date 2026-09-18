@@ -4,7 +4,7 @@
  * Tab 结构：
  * - AI灵魂：定义 AI 助手的性格与风格，支持模板一键切换和手动编辑
  * - AI记忆：AI 从对话中自动提取的动态信息
- * - 记忆插件：MemPalace 向量记忆系统
+ * - 记忆宫殿：对话原文归档（本地 SQLite + 全文检索，见 PalaceViewer）
  */
 
 import React, { useState, useCallback, useEffect, useRef } from 'react'
@@ -16,7 +16,6 @@ import { ErrorBanner } from '../../components/ui/ErrorBanner/ErrorBanner'
 import { PageHeader } from '../../components/ui/PageHeader/PageHeader'
 import { Tooltip } from '../../components/ui/Tooltip/Tooltip'
 import { MemoryViewer } from '../SettingsPage/components/MemoryViewer/MemoryViewer'
-import { useMemPalace } from '../../hooks/business/useMemPalace/useMemPalace'
 import { usePluginsContext } from '../../contexts/PluginsContext/PluginsContext'
 import type { ViewType } from '../../components/Router'
 import { useSoul } from '../../hooks/business/useSoul/useSoul'
@@ -30,7 +29,7 @@ import { Checkbox } from '../../components/ui/Checkbox/Checkbox'
 import { updateMemoryInjection } from '../../services/settings-service'
 import { SOUL_TEMPLATES } from './soul-templates'
 import { DEFAULT_SOUL_CONTENT } from '../../../../../../packages/agent-runtime/src/prompt/default-soul'
-import { MemPalaceViewer } from './MemPalaceViewer'
+import { PalaceViewer } from './PalaceViewer'
 import './MemoriesPage.css'
 
 /** 记忆页内部子 Tab（资料库已提升为 Hub 顶栏独立模块） */
@@ -75,12 +74,8 @@ export const MemoriesPage: React.FC<MemoriesPageProps> = ({
     getDraft,
   } = useSoul()
 
-  // MemPalace 记忆数据管理（列表/搜索/删除）。安装状态改用共享 PluginsContext。
-  const mempalace = useMemPalace()
-  // 安装状态统一来自插件中心同源的 PluginsContext，保证两处状态一致。
-  const { statuses } = usePluginsContext()
-  const mempalaceInstalled = statuses['mempalace'].installed
-  const mempalaceChecking = statuses['mempalace'].installing || statuses['mempalace'].uninstalling
+  // 记忆宫殿（自研 SQLite）自带状态，与插件中心的安装态无关——
+  // 数据就在应用自己的库里，没有"装没装"这一步。
 
   const {
     memory: userMemoryData,
@@ -458,57 +453,33 @@ export const MemoriesPage: React.FC<MemoriesPageProps> = ({
         </div>
       )}
 
-      {/* 记忆插件 Tab */}
+      {/* 记忆宫殿 Tab */}
       {activeTab === 'plugin' && (
         <div className="memories-plugin-panel">
           <div className="plugin-card">
             <div className="plugin-card-header">
               <div className="plugin-card-icon"><Brain size={28} /></div>
               <div className="plugin-card-info">
-                <h3 className="plugin-card-name">MemPalace 长期记忆</h3>
+                <h3 className="plugin-card-name">记忆宫殿</h3>
                 <p className="plugin-card-desc">
-                  基于向量数据库的语义记忆系统，自动召回相关历史对话，让 AI 真正记住你。
+                  对话原文的本地归档（SQLite + 全文检索）。AI 用 memory_search 检索、memory_read 读回原文。
                 </p>
               </div>
+              {/* 自研实现没有安装态——数据就在应用自己的库里，随启动即有 */}
               <div className="plugin-card-status">
-                {mempalaceChecking ? (
-                  <span className="plugin-status plugin-status--loading">处理中...</span>
-                ) : mempalaceInstalled ? (
-                  <span className="plugin-status plugin-status--installed"><Check size={14} style={{ verticalAlign: 'middle', marginRight: 2 }} />已安装</span>
-                ) : (
-                  <span className="plugin-status plugin-status--not-installed">未安装</span>
-                )}
+                <span className="plugin-status plugin-status--installed">
+                  <Check size={14} style={{ verticalAlign: 'middle', marginRight: 2 }} />内置
+                </span>
               </div>
             </div>
-
-            {!mempalaceInstalled && (
-              <div className="plugin-card-body">
-                <p className="plugin-install-note">
-                  长期记忆插件的安装与卸载已统一到「插件中心」管理。安装完成后重启应用即可在此查看与管理记忆数据。
-                </p>
-                <Button
-                  variant="primary"
-                  onClick={() => onViewChange?.('plugins')}
-                  disabled={!onViewChange}
-                >
-                  前往插件中心安装
-                </Button>
-              </div>
-            )}
-
-            {mempalaceInstalled && mempalace.status?.runtimeDir && (
-              <div className="plugin-card-body">
-                <p className="plugin-data-dir">
-                  数据目录：<code>{mempalace.status.runtimeDir}</code>
-                </p>
-                <p className="plugin-install-note" style={{ marginTop: 8 }}>
-                  如需卸载，请前往「插件中心」操作。
-                </p>
-              </div>
-            )}
+            <div className="plugin-card-body">
+              <p className="plugin-install-note">
+                归档由段落管线在对话段结束时自动完成，无需安装任何插件。归档原文只存在本机。
+              </p>
+            </div>
           </div>
 
-          {mempalaceInstalled && <MemPalaceViewer />}
+          <PalaceViewer />
         </div>
       )}
     </div>

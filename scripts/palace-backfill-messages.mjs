@@ -57,11 +57,14 @@ function deterministicDrawerId(wing, room, content) {
  *
  *     parts.filter(type==='text').map(p => p.text).join('')   // 不 trim、不用分隔符
  *
- * 两处刻意与"看起来更整洁"的写法不同：
+ * 三处刻意与"看起来更整洁"的写法不同：
  * - **`join('')` 而非 `join('\n')`**：线上就是直接拼接，中间的空行属于正文（模型用空行分段）。
  *   2026-09-18 实测：改成 join('\n') 会让 60 条样本里 32 条算出不同的 id。
  * - **不 trim 单条 part**：仅对拼接结果 `trim()`（与 `assistantTextFromParts(...).trim()` 对齐，
  *   调用处 877 行判的就是 `.trim()` 后的非空）。
+ * - **剔除 `NO_REPLY` 哨兵 part**：线上 `partsForPersist` 会把它摘掉再去归档
+ *   （`bridge-agent-instance-events.ts:794`），哨兵是模型的"这轮不需要回话"协议，
+ *   不是用户看到的话。存量落库时没有这个剔除，所以照抄 parts 会把它当正文归档。
  *
  * 另外剥 thinking：更早期的消息把模型独白写在 text part 里（形如 `独白…</think>\n\n正文`），
  * 现行持久化已把 thinking 拆成独立 part（`parseThinkTagsFromRaw`），但存量没这个拆分。
@@ -73,7 +76,13 @@ function extractVisibleText(raw) {
     if (!o || typeof o !== 'object') return ''
     const source = Array.isArray(o.parts)
       ? o.parts
-          .filter((p) => p && p.type === 'text' && typeof p.text === 'string')
+          .filter(
+            (p) =>
+              p &&
+              p.type === 'text' &&
+              typeof p.text === 'string' &&
+              !isNoReplySentinel(p.text),
+          )
           .map((p) => p.text)
           .join('')
       : typeof o.text === 'string'
@@ -83,6 +92,11 @@ function extractVisibleText(raw) {
   } catch {
     return ''
   }
+}
+
+/** 与 `bridge-agent-instance-events.ts:57` 的 isNoReplySentinel 同构 */
+function isNoReplySentinel(text) {
+  return typeof text === 'string' && text.trim().toUpperCase() === 'NO_REPLY'
 }
 
 function stripThinking(raw) {

@@ -36,7 +36,7 @@ export interface SegmentMemoryServiceDeps {
   callLLM: (prompt: string) => Promise<string>
   /**
    * 段原文归档进记忆宫殿（诉求 A · 宫殿互引）。
-   * runtime 不可 import 插件，由宿主（持 mempalace MCP client）注入。
+   * runtime 不持有数据库，实现由宿主注入。
    */
   archivePalace?: (text: string, meta: ArchivePalaceMeta) => Promise<{ drawerId?: string }>
 }

@@ -237,6 +237,106 @@ describe("PalaceRepo", () => {
     expect(repo.checkFtsHealth().isHealthy).toBe(true);
     expect(search("灯笼")).toHaveLength(1);
   });
+
+  describe("listDrawers（UI 分页浏览）", () => {
+    it("total 是总数不是本页条数，且只返回元数据不带正文", () => {
+      archive("最早的一条。", { room: "r1" });
+      archive("中间的一条。", { room: "r2" });
+      archive("最新的一条。", { room: "r3" });
+
+      const page = repo.listDrawers({ userId: USER, limit: 2, offset: 0 });
+      expect(page.total).toBe(3);
+      expect(page.items).toHaveLength(2);
+      // 列表页一屏可能 20 条，正文一律走 readById 按需取
+      expect(page.items[0]).not.toHaveProperty("content");
+      expect(page.items[0]).toHaveProperty("drawer_id");
+      expect(page.items[0]).toHaveProperty("char_count");
+    });
+
+    it("翻页不重不漏（同一秒归档时按 drawer_id 兜底排序）", () => {
+      for (let i = 0; i < 5; i++) archive(`第 ${i} 条内容。`, { room: `r${i}` });
+      const ids = [0, 2, 4].flatMap((offset) =>
+        repo.listDrawers({ userId: USER, limit: 2, offset }).items.map((x) => x.drawer_id),
+      );
+      // 五条内容互不相同 → id 必不相同；分页拼接后应是 5 个不同的 id
+      expect(ids).toHaveLength(5);
+      expect(new Set(ids).size).toBe(5);
+    });
+
+    it("墓碑不出现在列表里，也不计进 total", () => {
+      const a = archive("会被删的一条。");
+      archive("保留的一条。");
+      repo.deleteById(a.drawerId);
+      const page = repo.listDrawers({ userId: USER });
+      expect(page.total).toBe(1);
+      expect(page.items.map((x) => x.drawer_id)).not.toContain(a.drawerId);
+    });
+
+    it("agentId 与 wing 可收窄范围", () => {
+      archive("别的 agent 的。", { agent: "code-dev", wing: "code-dev:local-user" });
+      archive("本 agent 的。", { wing: "assistant:local-user" });
+      expect(repo.listDrawers({ userId: USER, agentId: AGENT }).total).toBe(1);
+      expect(repo.listDrawers({ userId: USER, wing: "assistant:local-user" }).total).toBe(1);
+    });
+
+    it("limit 被夹在 [1, 200]（防止 UI 传 0 或超大值把库拖垮）", () => {
+      archive("唯一一条。");
+      expect(repo.listDrawers({ userId: USER, limit: 0 }).items.length).toBe(1);
+      expect(repo.listDrawers({ userId: USER, limit: 99999 }).items.length).toBe(1);
+    });
+  });
+
+  describe("countByWing", () => {
+    it("按 wing 分组统计活跃行，墓碑不计入", () => {
+      const a = archive("w1 的一条。", { wing: "w1" });
+      archive("w1 的另一条。", { wing: "w1" });
+      archive("w2 的一条。", { wing: "w2" });
+      repo.deleteById(a.drawerId);
+
+      const wings = repo.countByWing(USER);
+      // 两条 wing 的 count 相同 → 排序键并列，别断言顺序（SQL 不保证）
+      expect([...wings].sort((x, y) => x.wing.localeCompare(y.wing))).toEqual([
+        { wing: "w1", count: 1 },
+        { wing: "w2", count: 1 },
+      ]);
+    });
+  });
+
+  describe("clearAll", () => {
+    it("清空是**非破坏**的：行还在、原文还在，只是从检索里摘除", () => {
+      archive("第一条，关键词灯笼。");
+      archive("第二条，关键词灯笼。");
+
+      expect(repo.clearAll(USER)).toEqual({ cleared: 2 });
+
+      // 行与原文保留（墓碑）
+      expect(repo.countByScope(USER)).toEqual({ active: 0, tombstoned: 2, total: 2 });
+      // 检索与列表都看不到了
+      expect(search("灯笼")).toHaveLength(0);
+      expect(repo.listDrawers({ userId: USER }).total).toBe(0);
+      // 索引一致：墓碑要从索引里摘掉，否则健康检查会报不一致
+      expect(repo.checkFtsHealth().isHealthy).toBe(true);
+    });
+
+    it("只清自己作用域，别人的不动", () => {
+      archive("我的。");
+      archive("别人的。", { agent: "code-dev", wing: "code-dev:local-user" });
+      expect(repo.clearAll(USER, AGENT).cleared).toBe(1);
+      expect(repo.countByScope(USER, "code-dev").active).toBe(1);
+    });
+
+    it("已经是空的时候返回 0，不抛异常", () => {
+      expect(repo.clearAll(USER)).toEqual({ cleared: 0 });
+    });
+
+    it("清空后重复归档同内容不复活（墓碑优先）", () => {
+      archive("同一段原文，关键词灯笼。");
+      repo.clearAll(USER);
+      archive("同一段原文，关键词灯笼。");
+      expect(repo.countByScope(USER).active).toBe(0);
+      expect(search("灯笼")).toHaveLength(0);
+    });
+  });
 });
 
 describe("buildDrawerExcerpt", () => {

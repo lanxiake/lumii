@@ -440,8 +440,17 @@ export function convertOldEventToIpcEvents(
  * 从原始累积文本（可能含内联 <think> 标签）中分离推理内容和正文。
  *
  * 支持两种格式：
- * - 完整 <think>...</think> 块
- * - 孤立 </think>（DeepSeek 等模型直接推理后以 </think> 结束，无开头标签）
+ * - 完整 `<think>...</think>` 块
+ * - **孤立 `</think>`**（DeepSeek 等模型直接推理后以 `</think>` 结束，无开头标签）
+ *
+ * 孤立闭标签这一支曾经只在注释里声明、实现里没做（`:463` 那句"孤立 </think> 直接作为
+ * 正文输出"）——后果是**模型独白进正文并对用户可见**：2026-09-18 实测，8 条消息
+ * （`cron:seed-morning-briefing` 等）的 text part 里带着整段 `The user is asking about...`，
+ * UI 渲染的就是这串独白 + 正文。判决依据是**渲染管道里没有任何环节会剥它**——
+ * 落库走 `createAssistantPartsContent` → 本函数；展示走 parts 原样。
+ *
+ * 流式路径（`:158` 的状态机）同样是"只有见过 `<think>` 才进 in_think"，所以实时显示
+ * 也会漏。这里先修落库侧（有测试、可回归），流式的同构修复见 issue 跟踪。
  *
  * @returns { thinkingText, finalText }
  */
@@ -460,19 +469,25 @@ export function parseThinkTagsFromRaw(raw: string): { thinkingText: string; fina
     thinkingParts.push(match[1] ?? '')
     lastIndex = pairedRegex.lastIndex
   }
-  // 剩余部分（含孤立 </think>）直接作为正文输出
+  // 剩余部分（含孤立 </think>）先留着，下面统一处理
   if (lastIndex < raw.length) {
     finalParts.push(raw.slice(lastIndex))
   }
 
-  if (thinkingParts.length > 0) {
-    return {
-      thinkingText: thinkingParts.join('\n\n').trim(),
-      finalText: finalParts.join('').replace(/^\n+/, '').trimStart(),
-    }
+  let finalText = finalParts.join('')
+  const head = finalText
+
+  // 孤立 </think>：前面是推理、后面是正文。取**最后一个**闭标签之后的内容——
+  // 模型可能在推理里反复念叨这个标签，取最后一个才不会把中间的独白当正文带出来。
+  const closeIdx = finalText.lastIndexOf('</think>')
+  if (closeIdx >= 0) {
+    const orphanThinking = head.slice(0, closeIdx)
+    if (orphanThinking.trim()) thinkingParts.unshift(orphanThinking)
+    finalText = finalText.slice(closeIdx + '</think>'.length)
   }
+
   return {
-    thinkingText: '',
-    finalText: raw.replace(/^\n+/, '').trimStart(),
+    thinkingText: thinkingParts.join('\n\n').trim(),
+    finalText: finalText.replace(/^\n+/, '').trimStart(),
   }
 }

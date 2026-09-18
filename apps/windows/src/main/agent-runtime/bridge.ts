@@ -363,9 +363,8 @@ export class AgentRuntimeBridge {
   }
 
   constructor(config: AgentRuntimeBridgeConfig) {
-    // 记忆宫殿后端：默认换成自建 SQLite（PalaceRepo），`LUMII_PALACE_BACKEND=mempalace`
-    // 才回到 index.ts 注入的 Python 实现。必须在这里换——LocalDatabase 由本类持有，
-    // index.ts 的回调闭包拿不到 DB 句柄（见 palace-backend.ts 的说明）。
+    // 记忆宫殿：注入自建 SQLite 实现（PalaceRepo）。必须在这里接线——LocalDatabase
+    // 由本类持有，index.ts 的回调闭包拿不到 DB 句柄（见 palace-backend.ts 的说明）。
     this.config = withBuiltinPalace(config, this.localDb)
     this.featureFlags = createFeatureFlags()
     this.imageServices = new BridgeImageServices({
@@ -774,8 +773,8 @@ export class AgentRuntimeBridge {
       // 与宿主 this.callLLM(prompt, systemPromptOverride?, purpose?) 第三个参数对齐：
       // 段落总结目的固定为 'memory_extract'，此处用只接收 prompt 的闭包匹配接口签名。
       callLLM: (prompt: string) => this.callLLM(prompt, undefined, 'memory_extract'),
-      // 宫殿互引（诉求 A · P2）：段原文归档进 MemPalace，drawer_id 由内容寻址确定性生成。
-      // runtime 只认接口，此处由宿主注入 mempalace MCP 实现。
+      // 宫殿互引（诉求 A · P2）：段原文归档进记忆宫殿，drawer_id 由内容寻址确定性生成。
+      // runtime 只认接口，实现由宿主注入（自建 SQLite，见 palace-backend.ts）。
       archivePalace: (text, meta) => this.archiveSegmentToPalace(text, meta),
     })
     // app 退出前关闭所有残留 open 段（→ closed），下次启动 start() 重启恢复总结
@@ -2204,7 +2203,7 @@ export class AgentRuntimeBridge {
         wing: meta.wing,
         room: meta.room,
         drawerId: meta.drawerId,
-        // 自建后端要按 (agent, user) 落库做作用域隔离；MemPalace 无此概念，忽略即可
+        // 按 (agent, user) 落库做作用域隔离
         agentId: meta.agentId,
         userId: meta.userId,
         metadata: {
@@ -2433,7 +2432,7 @@ export class AgentRuntimeBridge {
   /** 写入本轮在场状态（P0：二元在场信号），由 SessionManager 在 prompt 前调用 */
   setInstancePresence(
     instanceId: string,
-    presence: { userAtClient: boolean; channelLabel?: string; channelType?: string; channelUserId?: string },
+    presence: { userAtClient: boolean; channelLabel?: string; channelType?: string; channelUserId?: string; replyTo?: string },
   ): void {
     const s = this.instanceStates.get(instanceId)
     if (s) s.presence = presence

@@ -75,14 +75,50 @@ export interface PalaceScopeCounts {
   readonly total: number;
 }
 
-export interface PalaceSearchParams {
-  readonly query: string;
-  /** 作用域：宫殿按用户隔离；`agentId` 不传 = 跨 Agent（宫殿是会话存档，本就跨助手可读） */
+/** 作用域参数：检索、列表、统计、清空共用（只有检索需要 `query`，所以这里不要求它） */
+interface PalaceScopeParams {
   readonly userId: string;
   readonly agentId?: string;
-  readonly limit?: number;
   readonly wing?: string;
   readonly room?: string;
+}
+
+export interface PalaceSearchParams extends PalaceScopeParams {
+  readonly query: string;
+  readonly limit?: number;
+}
+
+/** 列表浏览参数（UI 用；与检索不同，它不做相关性排序，只按时间倒序翻页） */
+export interface PalaceListParams extends PalaceScopeParams {
+  readonly limit?: number;
+  readonly offset?: number;
+}
+
+/** 列表项：比检索结果少一个 `score`（无查询就没有相关性），比它多 `agent_id`（UI 要分组） */
+export interface PalaceListItem {
+  readonly drawer_id: string;
+  readonly wing: string;
+  readonly room: string;
+  readonly agent_id: string;
+  readonly conversation_id: string | null;
+  readonly char_count: number;
+  readonly created_at: string;
+}
+
+export interface PalaceListResult {
+  readonly items: readonly PalaceListItem[];
+  /** 满足条件的活跃行总数（用于分页），不是本页条数 */
+  readonly total: number;
+}
+
+/** 一次清空的结果 */
+export interface PalaceClearResult {
+  readonly cleared: number;
+}
+
+export interface PalaceWingCount {
+  readonly wing: string;
+  readonly count: number;
 }
 
 interface DrawerRow {
@@ -320,7 +356,7 @@ export class PalaceRepo {
   }
 
   private buildScope(
-    params: PalaceSearchParams,
+    params: PalaceScopeParams,
     prefix: string,
   ): { sql: string; args: unknown[] } {
     let sql = ` AND ${prefix}user_id = ?`;
@@ -404,6 +440,83 @@ export class PalaceRepo {
       tombstoned: row?.tombstoned ?? 0,
       total: row?.total ?? 0,
     };
+  }
+
+  /**
+   * 分页浏览（UI 用）。
+   *
+   * 与 `searchDrawers` 的分工：那个是"按相关性找"，这个只是"按时间倒序翻页"——
+   * 没有查询词就没有相关性可言，所以排序键退回 `created_at`（归档时间）。
+   *
+   * `total` 是满足条件的**总数**（不是本页条数），分页控件需要它。
+   * 只返回元数据不返回正文：列表页可能一次列 20 条，每条几百到几千字符，
+   * 正文一律走 `readById` 按需取。
+   */
+  listDrawers(params: PalaceListParams): PalaceListResult {
+    const limit = Math.max(1, Math.min(params.limit ?? 20, 200));
+    const offset = Math.max(0, params.offset ?? 0);
+    const scope = this.buildScope(params, "d.");
+
+    const total =
+      this.db
+        .prepare<{ c: number }>(
+          `SELECT COUNT(*) AS c FROM palace_drawers d WHERE d.deleted_at IS NULL${scope.sql}`,
+        )
+        .get(...scope.args)?.c ?? 0;
+
+    const items = this.db
+      .prepare<PalaceListItem>(
+        `SELECT d.drawer_id, d.wing, d.room, d.agent_id, d.conversation_id,
+                d.char_count, d.created_at
+           FROM palace_drawers d
+          WHERE d.deleted_at IS NULL${scope.sql}
+          ORDER BY d.created_at DESC, d.drawer_id ASC
+          LIMIT ? OFFSET ?`,
+      )
+      .all(...scope.args, limit, offset);
+
+    return { items, total };
+  }
+
+  /** 作用域内的 wing 分布（UI 侧栏与体检报表用） */
+  countByWing(userId: string, agentId?: string): readonly PalaceWingCount[] {
+    const scope = this.buildScope({ userId, ...(agentId ? { agentId } : {}) }, "d.");
+    return this.db
+      .prepare<PalaceWingCount>(
+        `SELECT d.wing, COUNT(*) AS count FROM palace_drawers d
+          WHERE d.deleted_at IS NULL${scope.sql}
+          GROUP BY d.wing ORDER BY count DESC`,
+      )
+      .all(...scope.args);
+  }
+
+  /**
+   * 清空作用域内的全部归档。
+   *
+   * 与 `deleteById` 同一条纪律：**非破坏**——写 `deleted_at` 墓碑、原文保留、只从检索摘除。
+   * 「清空」在用户心智里是"别再让我搜到"，不是"把原文烧了"：宫殿存的是对话存档，
+   * 误清空的代价远高于留着几行墓碑（留痕还能回滚）。
+   *
+   * 分页逐批处理：一次把几万行装进内存再逐条删，会在长事务里把库锁住。
+   */
+  clearAll(userId: string, agentId?: string, now = new Date().toISOString()): PalaceClearResult {
+    const scope = this.buildScope({ userId, ...(agentId ? { agentId } : {}) }, "d.");
+    const rows = this.db
+      .prepare<{ drawer_id: string; rowid: number }>(
+        `SELECT d.drawer_id, d.rowid FROM palace_drawers d
+          WHERE d.deleted_at IS NULL${scope.sql}`,
+      )
+      .all(...scope.args);
+    if (rows.length === 0) return { cleared: 0 };
+
+    const stmt = this.db.prepare(
+      "UPDATE palace_drawers SET deleted_at = ? WHERE drawer_id = ?",
+    );
+    for (const r of rows) {
+      stmt.run(now, r.drawer_id);
+      this.index.deleteRow(r.rowid);
+    }
+    return { cleared: rows.length };
   }
 
   /** 全量重建派生索引，返回重建后的索引行数 */

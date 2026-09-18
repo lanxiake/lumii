@@ -33,10 +33,16 @@ const DEFAULT_STATUS = (id: PluginId): PluginStatus => ({
   uninstalling: false,
 })
 
+/**
+ * 插件中心的安装状态。
+ *
+ * 目前只剩 CloakBrowser 一个真·插件。记忆宫殿曾以 MemPalace 插件形式存在，
+ * 2026-09-18 换成本地 SQLite 自研实现后**没有安装态**了（数据就在应用自己的库里），
+ * 因此从这里移除——它的状态由 `usePalace` 自己管。
+ */
 export function usePlugins(): UsePluginsResult {
   const [statuses, setStatuses] = useState<Record<PluginId, PluginStatus>>({
     'cloak-browser': DEFAULT_STATUS('cloak-browser'),
-    'mempalace': DEFAULT_STATUS('mempalace'),
   })
 
   const unsubRef = useRef<(() => void) | null>(null)
@@ -66,16 +72,10 @@ export function usePlugins(): UsePluginsResult {
     patch('cloak-browser', { installed: s.installed, version: s.version, exePath: s.exePath })
   }, [patch])
 
-  const fetchMemPalaceStatus = useCallback(async () => {
-    const s = await window.electronAPI.mempalace.getStatus()
-    patch('mempalace', { installed: s.installed })
-  }, [patch])
-
-  // 初始化时查询所有状态
+  // 初始化时查询状态
   useEffect(() => {
     fetchCloakStatus()
-    fetchMemPalaceStatus()
-  }, [fetchCloakStatus, fetchMemPalaceStatus])
+  }, [fetchCloakStatus])
 
   const install = useCallback(async (id: PluginId) => {
     patch(id, { installing: true, error: undefined, progress: undefined })
@@ -85,17 +85,13 @@ export function usePlugins(): UsePluginsResult {
         // cancelled 不算失败，静默处理
         if (!result.success && result.error) throw new Error(result.error)
         await fetchCloakStatus()
-      } else if (id === 'mempalace') {
-        const result = await window.electronAPI.mempalace.install()
-        if (!result.success) throw new Error(result.error ?? '安装失败')
-        await fetchMemPalaceStatus()
       }
     } catch (err) {
       patch(id, { error: String(err instanceof Error ? err.message : err) })
     } finally {
       patch(id, { installing: false })
     }
-  }, [patch, fetchCloakStatus, fetchMemPalaceStatus])
+  }, [patch, fetchCloakStatus])
 
   const uninstall = useCallback(async (id: PluginId) => {
     patch(id, { uninstalling: true, error: undefined })
@@ -104,30 +100,24 @@ export function usePlugins(): UsePluginsResult {
         const result = await window.electronAPI.plugins.cloak_browser.uninstall()
         if (!result.success) throw new Error(result.error ?? '卸载失败')
         await fetchCloakStatus()
-      } else if (id === 'mempalace') {
-        const result = await window.electronAPI.mempalace.uninstall()
-        if (!result.success) throw new Error(result.error ?? '卸载失败')
-        await fetchMemPalaceStatus()
       }
     } catch (err) {
       patch(id, { error: String(err instanceof Error ? err.message : err) })
     } finally {
       patch(id, { uninstalling: false })
     }
-  }, [patch, fetchCloakStatus, fetchMemPalaceStatus])
+  }, [patch, fetchCloakStatus])
 
   const cancel = useCallback(async (id: PluginId) => {
     if (id === 'cloak-browser') {
       await window.electronAPI.plugins.cloak_browser.cancel()
       // 状态由 onProgress cancelled 事件回调重置，此处不重复 patch
     }
-    // mempalace 暂无取消支持
   }, [])
 
   const refresh = useCallback(async (id: PluginId) => {
     if (id === 'cloak-browser') await fetchCloakStatus()
-    else if (id === 'mempalace') await fetchMemPalaceStatus()
-  }, [fetchCloakStatus, fetchMemPalaceStatus])
+  }, [fetchCloakStatus])
 
   return { statuses, install, uninstall, cancel, refresh }
 }
