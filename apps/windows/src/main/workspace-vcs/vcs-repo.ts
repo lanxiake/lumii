@@ -1,9 +1,18 @@
 /**
  * WorkspaceVcs — 工作空间本地 Git 版本管理
  *
- * 基于 isomorphic-git（纯 JS，零系统 git 依赖）对 workspace 目录做快照、
- * 历史、diff 与回滚。元数据存于独立 gitdir（{workspaceDir}/.mtbot-vcs），
- * 与用户可能存在的标准 .git 隔离。
+ * 对 workspace 目录做快照、历史、diff 与回滚。元数据存于独立 gitdir
+ * （{workspaceDir}/.mtbot-vcs），与用户可能存在的标准 .git 隔离。
+ *
+ * 实现分两条路：
+ *  - **热路径**（暂存 + 提交，每个助手消息一次）优先走**真 git 子进程**，
+ *    不可用时回退 isomorphic-git。原因见 vcs-git-cli.ts 文件头：
+ *    isomorphic-git 按内容重算全部 blob hash 且跑在主线程上，2.7GB 工作区实测
+ *    中位 19.9 秒、最长 53.5 秒，会把主线程冻死（2026-09-18 由此触发
+ *    Windows 事件 1002「Application Hang」）。
+ *  - **冷路径**（log / diff / readBlob / rollback）留在 isomorphic-git——
+ *    它们只在用户打开版本面板时跑，不是每消息一次。
+ *    两种实现共用同一仓库已由 scripts/probe-vcs-git-interop.mjs 验证。
  *
  * 设计要点见 .qoder/design/conversation-rewind-and-workspace-git/。
  */
@@ -22,6 +31,7 @@ import type {
 import { buildDefaultGitignore, VCS_SKIP_DIRS, shouldSkipWalkDir, stripOutputsIgnoreRules, isVcsBinaryPath } from './vcs-ignore'
 import { computeFileDiff, computeDiffStats, MAX_DIFF_BYTES } from './vcs-diff'
 import { createVcsFs, VCS_TMP_SUFFIX } from './vcs-fs'
+import { commitCli, detectGit, hasStagedChangesCli, stageAllCli } from './vcs-git-cli'
 
 const log = {
   info: (...args: unknown[]) => console.log('[WorkspaceVcs]', ...args),
@@ -132,12 +142,12 @@ export class WorkspaceVcs {
       }
 
       // 首个 commit（即使工作区为空也建立 root commit，便于后续 diff/rollback）
-      await this.stageAll()
-      await git.commit({
-        ...this.base,
-        message: this.buildMessage('初始化工作空间版本管理', 'user'),
-        author: GIT_AUTHOR,
-      })
+      const initMessage = this.buildMessage('初始化工作空间版本管理', 'user')
+      const created = await this.stageAndCommit(initMessage)
+      if (!created && (await detectGit(this.workspaceDir, this.gitdir))) {
+        // 工作区确实为空（.gitignore 已存在且内容未变）时仍要落 root commit
+        await commitCli(this.workspaceDir, this.gitdir, initMessage, { allowEmpty: true })
+      }
       log.info('[ensureInitialized] 完成，已建立初始提交')
     }
 
@@ -165,6 +175,9 @@ export class WorkspaceVcs {
   /**
    * 暂存工作区全部变更（含新增、修改、删除），遵循 .gitignore。
    *
+   * **这是回退路径**——只在本机没有可用的真 git 时才会走到（正常走
+   * vcs-git-cli.ts 的 stageAllCli，约 100ms 且不占主线程）。
+   *
    * 不依赖 statusMatrix 的 worktree 列（其 stat 快速路径会漏检同秒同大小的小文件），
    * 而是：① 暂存工作树实际文件 —— 默认走一次 `git.add('.')`，重目录未被忽略时
    *        退回逐个 add（见 canBatchStage）；两条路径都按内容重算 blob hash，
@@ -181,6 +194,12 @@ export class WorkspaceVcs {
    * 真要做，得连带实现 racy 判定（文件 mtime >= 记录签名的时刻就强制重扫）——
    * 那是一次独立的行为变更：本模块此前是刻意比 git 的 index stat cache 更严的，
    * 应该由明确决策引入，而不是顺手加上。
+   *
+   * **2026-09-18 结论**：上述顾虑只在「自己实现 stat 短路」时才成立。真 git 的 index
+   * 本来就有 racy 判定（mtime 与 index 写入时刻相同即强制重查内容），实测能正确检出
+   * 「等长 + utimesSync 还原 mtime」的改写（scripts/probe-vcs-git-interop.mjs）。
+   * 所以问题不是"要不要放宽"，而是"别自己重算"——改用真 git 后，无变更场景从
+   * 20 秒降到约 100ms，且正确性不降。回退路径保持原行为不变。
    */
   private async stageAll(): Promise<void> {
     await this.withIndexRepair('stageAll', () => this.stageAllOnce())
@@ -281,24 +300,48 @@ export class WorkspaceVcs {
   }
 
   /**
+   * 暂存全部变更并提交；无变更返回 null。
+   *
+   * **热路径**：每个助手消息都会走到这里（bridge-instance-factory 的
+   * onAssistantMessagePersisted）。优先真 git 子进程——约 100ms 且不占主线程；
+   * 不可用时回退 isomorphic-git 全量哈希（正确但慢，见文件头）。
+   *
+   * 两条路的**语义一致**：都遵循 .gitignore、都含删除、无变更都不产生空提交。
+   */
+  private async stageAndCommit(message: string): Promise<string | null> {
+    if (await detectGit(this.workspaceDir, this.gitdir)) {
+      const t0 = Date.now()
+      await stageAllCli(this.workspaceDir, this.gitdir)
+      if (!(await hasStagedChangesCli(this.workspaceDir, this.gitdir))) return null
+      const oid = await commitCli(this.workspaceDir, this.gitdir, message)
+      // 与 stageAll 的 500ms 门槛同理：正常约 100ms，劣化时要看得见
+      const ms = Date.now() - t0
+      if (ms > 500) log.info(`[stageAndCommit] 真 git 快路径耗时 ${ms}ms`)
+      return oid
+    }
+
+    await this.stageAll()
+    if (!(await this.hasStagedChanges())) return null
+    return git.commit({ ...this.base, message, author: GIT_AUTHOR })
+  }
+
+  /**
    * 提交当前工作区全量变更。无变更返回 null（不产生空提交）。
    *
    * 注意：isomorphic-git 的 statusMatrix 基于文件 stat（mtime 秒级 + size）做快速路径，
-   * 同秒、同大小但内容不同的小文件会被漏检。故此处先 stageAll（强制按内容重算 blob hash 写入 index），
-   * 再以 index(stage) 与 HEAD tree 的差异判断是否真有变更，绕开 stat 缓存。
+   * 同秒、同大小但内容不同的小文件会被漏检。故此处先暂存（强制按内容重算 blob hash 写入 index），
+   * 再以 index 与 HEAD tree 的差异判断是否真有变更，绕开 stat 缓存。
+   * 真 git 路径自带 racy 判定，同一顾虑同样成立（已由 probe-vcs-git-interop 验证）。
    */
   async commit(opts: VcsCommitOptions): Promise<VcsCommit | null> {
     await this.ensureInitialized()
 
-    await this.stageAll()
-    const hasChanges = await this.hasStagedChanges()
-    if (!hasChanges) {
+    const message = this.buildMessage(opts.message, opts.author, opts.conversationId, opts.runId)
+    const oid = await this.stageAndCommit(message)
+    if (!oid) {
       log.info('[commit] 工作区无变更，跳过提交')
       return null
     }
-
-    const message = this.buildMessage(opts.message, opts.author, opts.conversationId, opts.runId)
-    const oid = await git.commit({ ...this.base, message, author: GIT_AUTHOR })
     log.info(`[commit] 已提交 oid=${oid.slice(0, 8)} author=${opts.author}`)
 
     return {
@@ -313,10 +356,14 @@ export class WorkspaceVcs {
 
   /**
    * 工作区是否有未提交变更（相对 HEAD）。
-   * 先 stageAll 重算 index，再比对 index(stage) 与 HEAD，避免 stat 缓存漏检。
+   * 先暂存重算/刷新 index，再比对 index 与 HEAD，避免 stat 缓存漏检。
    */
   async hasUncommittedChanges(): Promise<boolean> {
     await this.ensureInitialized()
+    if (await detectGit(this.workspaceDir, this.gitdir)) {
+      await stageAllCli(this.workspaceDir, this.gitdir)
+      return hasStagedChangesCli(this.workspaceDir, this.gitdir)
+    }
     await this.stageAll()
     return this.hasStagedChanges()
   }
@@ -550,17 +597,10 @@ export class WorkspaceVcs {
       }
     }
 
-    // 3. 暂存并追加一条线性回滚提交
-    await this.stageAll()
+    // 3. 暂存并追加一条线性回滚提交（stageAndCommit 内部已含「无变更不提交」，
+    //    不再需要先 stageAll 再 hasUncommittedChanges 重复暂存一遍）
     const short = oid.slice(0, 8)
-    const hasChanges = await this.hasUncommittedChanges()
-    if (hasChanges) {
-      await git.commit({
-        ...this.base,
-        message: this.buildMessage(`已回滚至 ${short}`, 'user'),
-        author: GIT_AUTHOR,
-      })
-    }
+    await this.stageAndCommit(this.buildMessage(`已回滚至 ${short}`, 'user'))
 
     log.info(`[rollbackTo] 已回滚至 ${short}，备份点=${backup?.oid.slice(0, 8) ?? '无'}`)
     return { backupOid: backup?.oid ?? null, restoredOid: oid }

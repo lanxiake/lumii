@@ -1,5 +1,10 @@
 /**
- * WorkspaceVcs 单元测试 — 真实 isomorphic-git + 临时目录全流程。
+ * WorkspaceVcs 单元测试 — 临时目录全流程。
+ *
+ * 注意：`commit` / `hasUncommittedChanges` 现在优先走**真 git 子进程**
+ * （见 vcs-git-cli.ts），只有本机没有 git 时才回退 isomorphic-git。
+ * 所以这些用例覆盖的是真 git 路径；`.mtbot-vcs` 自我索引与「等长改写必须检出」
+ * 两条边界（下方两段）正是换实现时最容易丢的保证，务必保持。
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
@@ -267,12 +272,16 @@ describe('WorkspaceVcs', () => {
     }
   })
 
-  // ── 批量暂存（git.add('.')）的安全边界 ──
+  // ── 暂存路径的自我索引边界 ──
   //
-  // 背景：逐个 add 的代价几乎全在「每次调用重建一遍 index」（实测 2000 文件 9.7s
-  // vs 批量 1.3s），改成一次 add('.') 后，工作区快照从 30–80 秒降到秒级。
-  // 代价是 add('.') 会走**整个**工作树 —— 包括 .mtbot-vcs 自己，而它只被
-  // .gitignore 挡着。下面三个用例守住这条边界。
+  // 背景：暂存整个工作树时，`.mtbot-vcs` 自己也在树里。漏了它等于 VCS 把
+  // 自己的对象库版本化（index/objects/refs 全量自引用）。
+  //
+  // 换真 git 后防线从「JS 侧 walkWorktreeFiles 硬剪枝」变成
+  // 「core.excludesFile 里的 gitignore 规则」（见 vcs-git-cli.ts 的 excludeRules）。
+  // 选 excludesFile 而非命令行 `:(exclude)` 是实测决定的：git 拒绝「已被忽略的路径
+  // 又被显式命名」，而默认 .gitignore 本来就含 `.mtbot-vcs/`，命令行排除在正常场景下
+  // 会直接退出码 1。下面两条分别守住「.gitignore 在场」与「用户清空规则」两种场景。
 
   const listHead = () => git.listFiles({ ...vcs.getGitParams(), ref: 'HEAD' })
 
@@ -286,28 +295,46 @@ describe('WorkspaceVcs', () => {
     expect(files.some((f) => f.startsWith('.mtbot-vcs/'))).toBe(false)
   })
 
-  it('.gitignore 不再忽略 .mtbot-vcs 时退回逐个路径，仍不自我索引', async () => {
+  it('.gitignore 不再忽略 .mtbot-vcs 时仍不自我索引（硬剪枝防线）', async () => {
     await vcs.ensureInitialized()
-    // 模拟用户把默认规则删掉：批量路径的前置条件不成立
+    // 模拟用户把默认规则删掉：此时只剩 excludesFile 这道防线
     fs.writeFileSync(path.join(workspaceDir, '.gitignore'), '# 用户清空了规则\n', 'utf-8')
     writeFile('a.md', 'hello')
 
     await vcs.commit({ author: 'user', message: 'no-default-ignore' })
 
     const files = await listHead()
-    // 回退路径靠 walkWorktreeFiles 硬剪枝，不依赖 .gitignore 内容 —— 这正是留着它的理由
     expect(files).toContain('a.md')
     expect(files.some((f) => f.startsWith('.mtbot-vcs/'))).toBe(false)
   })
 
+  it('工作区含 Windows 保留设备名（nul）时提交不失败', async () => {
+    await vcs.ensureInitialized()
+    writeFile('a.md', 'hello')
+    // 真实事故：shell 重定向 `> nul` 在非 cmd.exe 语境下会**真的建出文件**，
+    // 而真 git 对它 fatal（error: short read while indexing nul / fatal: updating files failed），
+    // isomorphic-git 却能容忍 —— 不处理就是回归。
+    try {
+      fs.writeFileSync(path.join(workspaceDir, 'nul'), 'ping output\n')
+    } catch {
+      return // 本平台不接受该文件名，用例无意义
+    }
+
+    const c = await vcs.commit({ author: 'agent', message: '含保留设备名' })
+    expect(c).not.toBeNull()
+    expect(await listHead()).toContain('a.md')
+  })
+
   // ── 等长 + 时间戳还原的改写必须被检出 ──
   //
-  // 这是 stageAll 坚持按**内容**重算 blob hash 的理由：批量 add 与逐个 add 都实测过，
-  // 对这种「size 与 mtime 都看不出变化」的改写仍能检出。
+  // 这是整条暂存路径存在的意义所在，也是**换实现时最容易丢掉**的保证。
   //
-  // 关于 ctime：实测它**只在跨时钟 tick 时**才变 —— 同一 tick 内的「写+还原」
-  // 它同样分辨不出（即 git 的 racy-timestamp 问题）。所以不能拿 stat 当
-  // 「没变更」的判据（见 vcs-repo.ts 的 stageAll 注释里对短路的取舍说明）。
+  // 原实现（isomorphic-git）靠"按内容重算全部 blob hash"保住它。
+  // 换真 git 后，默认的 stat 缓存路径会漏（真 git 只有在文件 mtime 不早于 index
+  // 写入时刻时才强制重查内容 —— 而本用例的还原恰好把它推回更早），
+  // 所以 vcs-git-cli.ts 的 stageAllCli 每次**先删掉 index**再 add -A，
+  // 逼 git 逐个读文件重算。实测代价 2469ms，比 isomorphic-git 的 19933ms 快 8 倍，
+  // 且跑在子进程里不占主线程 —— 这条保证现在的成本只是后台 CPU。见下方断言。
   it('等长且时间戳被还原的改写，仍能被检出并提交', async () => {
     await vcs.ensureInitialized()
     const abs = path.join(workspaceDir, 'a.md')
