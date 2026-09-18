@@ -73,7 +73,7 @@ export const memorySearchToolConfig: MtBotToolConfig<typeof MemorySearchParams> 
 const MemoryReadParams = Type.Object({
   drawerId: Type.String({
     description:
-      "Memory drawer ID from memory_search results. Use memory_search first to find the drawer_id, then read full archived content here.",
+      "Drawer ID to read. Two sources, both valid: (1) the `[d:xxxx]` pointer at the start of a memory line already injected into your context — read it directly, no search needed; (2) a drawer_id returned by memory_search.",
   }),
 });
 type MemoryReadInput = Static<typeof MemoryReadParams>;
@@ -83,7 +83,7 @@ export const memoryReadToolConfig: MtBotToolConfig<typeof MemoryReadParams> = {
   name: "memory_read",
   label: "Memory Read",
   description:
-    "Read the full archived content of one memory drawer (incl. original conversation transcript) by drawer_id. Use memory_search first to get the drawer_id, then read the full text here.",
+    "Read the full archived content of one memory drawer (incl. original conversation transcript) by drawer_id. The id comes from either a `[d:xxxx]` pointer on an injected memory line (read directly — no search needed) or a memory_search result. Use it whenever a summary lacks the detail being asked for.",
   parameters: MemoryReadParams,
   category: "memory",
   isReadOnly: true,
