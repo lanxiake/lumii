@@ -144,7 +144,7 @@ export class WorkspaceVcs {
       // 首个 commit（即使工作区为空也建立 root commit，便于后续 diff/rollback）
       const initMessage = this.buildMessage('初始化工作空间版本管理', 'user')
       const created = await this.stageAndCommit(initMessage)
-      if (!created && (await detectGit(this.workspaceDir, this.gitdir))) {
+      if (!created && (await detectGit())) {
         // 工作区确实为空（.gitignore 已存在且内容未变）时仍要落 root commit
         await commitCli(this.workspaceDir, this.gitdir, initMessage, { allowEmpty: true })
       }
@@ -309,7 +309,7 @@ export class WorkspaceVcs {
    * 两条路的**语义一致**：都遵循 .gitignore、都含删除、无变更都不产生空提交。
    */
   private async stageAndCommit(message: string): Promise<string | null> {
-    if (await detectGit(this.workspaceDir, this.gitdir)) {
+    if (await detectGit()) {
       const t0 = Date.now()
       await stageAllCli(this.workspaceDir, this.gitdir)
       if (!(await hasStagedChangesCli(this.workspaceDir, this.gitdir))) return null
@@ -360,7 +360,7 @@ export class WorkspaceVcs {
    */
   async hasUncommittedChanges(): Promise<boolean> {
     await this.ensureInitialized()
-    if (await detectGit(this.workspaceDir, this.gitdir)) {
+    if (await detectGit()) {
       await stageAllCli(this.workspaceDir, this.gitdir)
       return hasStagedChangesCli(this.workspaceDir, this.gitdir)
     }
