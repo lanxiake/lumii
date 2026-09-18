@@ -37,7 +37,6 @@ import {
 import type { AgentKernel } from "../kernel/types.js";
 import { PiAgentKernelAdapter } from "../kernel/pi-agent-kernel-adapter.js";
 import type { AgentTurnOrigin } from "../kernel/agent-turn-types.js";
-import type { CapabilityRegistry } from "../capability/capability-registry.js";
 import {
   defaultConvertToLlm,
   classifyLlmError,
@@ -146,8 +145,6 @@ export interface AgentInstanceConfig {
   lifecycleHooks?: AgentLifecycleCallbacks;
   /** 可注入的 AgentKernel 实现（测试/替换用，默认由 PiAgentKernelAdapter 包装内部 agent） */
   kernel?: AgentKernel;
-  /** 可选能力注册表（注入后每次 prompt 按 origin 过滤工具列表） */
-  capabilityRegistry?: CapabilityRegistry;
   /**
    * 发往 LLM 前的 thinking 裁剪策略（设计 §6.3），默认 `"deepseek"`。
    *
@@ -244,8 +241,6 @@ export class AgentInstance {
   private _promptDoneResolve: (() => void) | null = null;
   /** AgentKernel 抽象层（默认由 PiAgentKernelAdapter 包装，测试时可注入 FakeAgentKernel） */
   private readonly kernel: AgentKernel;
-  /** 可选能力注册表（每次 prompt 按 origin 过滤工具列表） */
-  private readonly capabilityRegistry: CapabilityRegistry | undefined;
 
   constructor(config: AgentInstanceConfig) {
     this.id = config.id;
@@ -321,7 +316,6 @@ export class AgentInstance {
     });
 
     this.kernel = config.kernel ?? new PiAgentKernelAdapter(this.agent);
-    this.capabilityRegistry = config.capabilityRegistry;
 
     this.memoryIntegration = new MemoryIntegration({
       instanceId: this.id,
@@ -580,14 +574,6 @@ export class AgentInstance {
       this._promptDoneResolve = resolve;
     });
     try {
-      // 若注入了 CapabilityRegistry，按 origin 过滤工具列表
-      if (this.capabilityRegistry) {
-        const allowedIds = new Set(
-          this.capabilityRegistry.getForOrigin(origin).map((c) => c.id),
-        );
-        const filtered = this.agent.state.tools?.filter((t) => allowedIds.has(t.name)) ?? [];
-        this.agent.setTools(filtered);
-      }
       await this.kernel.startTurn({
         message,
         images: images && images.length > 0 ? images.map(({ data, mimeType }) => ({ data, mimeType })) : undefined,

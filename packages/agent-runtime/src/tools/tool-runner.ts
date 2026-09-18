@@ -13,7 +13,6 @@ import type {
   ToolRunLifecycle,
 } from "./tool-hooks.js";
 import { reportToolMetrics, type ToolTelemetryCollector } from "./telemetry.js";
-import type { CapabilityRegistry } from "../capability/capability-registry.js";
 import type { AgentTurnOrigin } from "../kernel/agent-turn-types.js";
 
 /**
@@ -23,14 +22,11 @@ export class ToolRunner {
   private readonly globalHooks: ToolHook[] = [];
   /** 可选遥测收集器（主题6 P1-2，flag 关闭时不注入即无开销） */
   private readonly telemetry?: ToolTelemetryCollector;
-  /** 可选能力注册表：执行前查询 descriptor 并注入 meta，供 hooks 访问 */
-  private readonly capabilityRegistry?: CapabilityRegistry;
-  /** turn 来源（用于 capability 权限元数据记录） */
+  /** turn 来源 */
   private readonly origin: AgentTurnOrigin;
 
-  constructor(telemetry?: ToolTelemetryCollector, capabilityRegistry?: CapabilityRegistry, origin: AgentTurnOrigin = "local_ui") {
+  constructor(telemetry?: ToolTelemetryCollector, origin: AgentTurnOrigin = "local_ui") {
     this.telemetry = telemetry;
-    this.capabilityRegistry = capabilityRegistry;
     this.origin = origin;
   }
 
@@ -71,7 +67,6 @@ export class ToolRunner {
       startTime,
       meta: {
         origin: this.origin,
-        capabilityDescriptor: this.capabilityRegistry?.get(tool.name),
       },
     };
 
