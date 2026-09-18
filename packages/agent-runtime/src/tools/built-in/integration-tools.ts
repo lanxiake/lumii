@@ -73,7 +73,7 @@ export const memorySearchToolConfig: MtBotToolConfig<typeof MemorySearchParams> 
 const MemoryReadParams = Type.Object({
   drawerId: Type.String({
     description:
-      "Drawer ID to read. Two sources, both valid: (1) the `[d:xxxx]` pointer at the start of a memory line already injected into your context — read it directly, no search needed; (2) a drawer_id returned by memory_search.",
+      "The raw hex id only — 16 chars, e.g. `a3f9c21b8e4d0077`. If the id came from a `[d:xxxx]` pointer in your context, strip the `[d:` prefix and `]` suffix before passing it. Also accepts an id returned by memory_search.",
   }),
 });
 type MemoryReadInput = Static<typeof MemoryReadParams>;
@@ -83,7 +83,7 @@ export const memoryReadToolConfig: MtBotToolConfig<typeof MemoryReadParams> = {
   name: "memory_read",
   label: "Memory Read",
   description:
-    "Read the full archived content of one memory drawer (incl. original conversation transcript) by drawer_id. The id comes from either a `[d:xxxx]` pointer on an injected memory line (read directly — no search needed) or a memory_search result. Use it whenever a summary lacks the detail being asked for.",
+    "Read the full archived content of one memory drawer (incl. original conversation transcript) by drawer_id. The id comes from either the `[d:xxxx]` pointer on an injected memory line (pass just the hex — no search needed) or a memory_search result. Use it whenever a summary lacks the detail being asked for.",
   parameters: MemoryReadParams,
   category: "memory",
   isReadOnly: true,

@@ -1,17 +1,26 @@
 #!/usr/bin/env node
 /**
- * 指针使用探针 —— 测「注入块里的 `[d:xxxx]` 会不会被模型用上」。
+ * 指针使用探针 —— 测「注入块里的 `[d:xxxx]` 会不会被用上」。
  *
  * 判据是**数据库里的工具调用记录**，不是回答质量（后者要人判断，不可重复）。
- * 每轮记录：调了哪些记忆工具、有没有 memory_read、读的是哪个 drawer。
+ * 每轮记录：调了哪些记忆工具、有没有 memory_read、读的是不是注入给它的那个 drawer。
  *
  * 用法：
  *   node scripts/probe-pointer-usage.mjs <标签>
  * 输出：控制台 + ~/.lumii/data/probe-pointer-<标签>.json
  *
- * 为什么需要它：2026-09-18 实测模型**不用**注入的指针——它自己发起 memory_search、
- * 从摘录拼答案，`memory_read` 一次不调。改文案（图例 / 工具描述）的效果很难凭直觉
- * 预测，只能实测对比。
+ * 为什么需要它：2026-09-18 想验证「注入的指针会不会被用上」，前两次都得出**相反
+ * 结论**——第一次判据写错（字段名 `tool_call` vs 实际 `type:'tool'`）得出"模型从不
+ * 读原文"，实际它一轮读了 4 次；第二次单轮 n=1 又读到 4 次。这说明：**改文案的效果
+ * 既不能靠直觉预测，也不能靠单次运行判定。**
+ *
+ * 已用它得出的结论（每组 3 轮）：
+ * - 旧文案（memory_read 写着"先用 memory_search"）→ 命中 1/3
+ * - 只改注入块图例 → 1/3（**无效**，图例单独用等于没改）
+ * - 改工具描述 + 记忆指南 → 6/9
+ *
+ * **局限**：n=3~9，且实测同一变体重跑会有 1/3 ↔ 3/3 的抖动（`logs-12328` 探针最明显）。
+ * 它能区分"有效/无效"这种量级差异，区分不了 10% 级别的差异——小改动别指望它给结论。
  */
 
 import { request } from 'node:http'
@@ -53,12 +62,6 @@ const PROBES = [
     originalChars: 5511,
   },
 ]
-
-const label = process.argv[2]
-if (!label) {
-  console.error('用法: node scripts/probe-pointer-usage.mjs <标签>')
-  process.exit(2)
-}
 
 function send(sessionKey, content) {
   const body = JSON.stringify({
@@ -128,47 +131,78 @@ function toolCalls(convId) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
-const results = []
-for (const p of PROBES) {
+/**
+ * 一个探针跑一轮：发问 → 等轮次结束 → 取工具调用。
+ *
+ * **轮次完成的判据是「库里出现 assistant 消息」，不是固定 sleep**：固定 75s 在
+ * 长轮次上会截断（实测有轮次跑了 2 分钟还在调工具），把"还在跑"误判成"没读原文"。
+ */
+async function runProbe(label, p, attempt) {
   const sessionKey = `probe-${label}-${p.id}-${Date.now()}`
-  console.log(`\n▶ [${label}] ${p.id}  摘要${p.summaryChars}字/原文${p.originalChars}字`)
-  console.log(`  Q: ${p.q}`)
   await send(sessionKey, p.q)
-  // 等轮次跑完（工具调用 + 后续生成）
-  await sleep(75_000)
 
-  const calls = toolCalls(sessionKey)
+  let calls = []
+  let prevCount = -1
+  for (let i = 0; i < 40; i++) {
+    await sleep(8000)
+    calls = toolCalls(sessionKey)
+    const hasReply = (() => {
+      const db = new DatabaseSync(DB, { readOnly: true })
+      try {
+        return (
+          (db
+            .prepare(
+              "SELECT COUNT(*) c FROM messages WHERE conversation_id = ? AND role = 'assistant'",
+            )
+            .get(sessionKey)?.c ?? 0) > 0
+        )
+      } finally {
+        db.close()
+      }
+    })()
+    // 已有回复且工具集连续两轮不变 → 视为结束（再等一轮防止工具调用与回复交错）
+    if (hasReply && calls.length === prevCount) break
+    prevCount = calls.length
+  }
+
   const seq = calls.map((c) => c.tool)
   const readIdx = seq.indexOf('memory_read')
   const searchIdx = seq.indexOf('memory_search')
-
-  // **核心指标**：第一次读原文用的是不是注入里的那个 drawer
-  const usedInjectPointer = calls.some(
-    (c) =>
-      c.tool === 'memory_read' && String(c.args.drawerId ?? '').toLowerCase() === p.drawer,
-  )
-  // **更锐利**：读原文发生在任何搜索**之前** → 只可能来自注入的指针（搜索还没发生）
+  const readIds = calls
+    .filter((c) => c.tool === 'memory_read')
+    .map((c) => String(c.args.drawerId ?? '').toLowerCase())
+  // 核心指标：读了「注入块里给过指针」的那个抽屉
+  const usedInjectPointer = readIds.includes(p.drawer)
   const readBeforeSearch = readIdx >= 0 && (searchIdx < 0 || readIdx < searchIdx)
-  const searched = seq.filter((t) => t === 'memory_search').length
-  const read = seq.filter((t) => t === 'memory_read').length
 
-  console.log(`  工具: ${seq.join(' → ') || '（无）'}`)
   console.log(
-    `  用过注入的指针: ${usedInjectPointer ? '✅' : '❌'}   搜索前先读原文: ${readBeforeSearch ? '✅' : '❌'}` +
-      `   搜索 ${searched} / 读 ${read}`,
+    `  [${label}] ${p.id.padEnd(13)} 读${seq.filter((t) => t === 'memory_read').length}个` +
+      ` 命中注入指针=${usedInjectPointer ? '✅' : '❌'} 开场即读=${readBeforeSearch ? '✅' : '❌'}` +
+      `  | ${seq.join('→') || '(无)'}`,
   )
 
-  results.push({
+  return {
     probe: p.id,
+    attempt,
     drawer: p.drawer,
     seq,
-    searched,
-    read,
+    searched: seq.filter((t) => t === 'memory_search').length,
+    read: seq.filter((t) => t === 'memory_read').length,
     usedInjectPointer,
     readBeforeSearch,
-    calls,
-  })
+  }
 }
+
+
+// 并发跑：三个探针互不影响（不同 sessionKey = 不同 Agent 实例）
+const label = process.argv[2]
+if (!label) {
+  console.error('用法: node scripts/probe-pointer-usage.mjs <标签>')
+  process.exit(2)
+}
+
+console.log(`▶ [${label}] 并发跑 ${PROBES.length} 个探针…`)
+const results = await Promise.all(PROBES.map((p) => runProbe(label, p, 1)))
 
 const out = join(DATA, `probe-pointer-${label}.json`)
 writeFileSync(out, JSON.stringify({ label, at: new Date().toISOString(), results }, null, 2), 'utf-8')
@@ -176,7 +210,10 @@ writeFileSync(out, JSON.stringify({ label, at: new Date().toISOString(), results
 console.log(`\n═══ [${label}] 汇总 ═══`)
 const hit = results.filter((r) => r.usedInjectPointer).length
 const early = results.filter((r) => r.readBeforeSearch).length
-console.log(`  用过注入的指针: ${hit}/${results.length}`)
-console.log(`  搜索前先读原文: ${early}/${results.length}  ← 只可能来自注入的指针`)
-console.log(`  总搜索 ${results.reduce((a, r) => a + r.searched, 0)} 次 / 总读原文 ${results.reduce((a, r) => a + r.read, 0)} 次`)
+console.log(`  命中注入指针: ${hit}/${results.length}`)
+console.log(`  开场即读原文: ${early}/${results.length}  ← 搜索之前读，只可能来自注入`)
+console.log(
+  `  总搜索 ${results.reduce((a, r) => a + r.searched, 0)} 次 / 总读原文 ${results.reduce((a, r) => a + r.read, 0)} 次`,
+)
 console.log(`  明细: ${out}`)
+

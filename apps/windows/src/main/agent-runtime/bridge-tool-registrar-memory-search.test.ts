@@ -221,3 +221,75 @@ describe('memory_search · 宫殿通道（自建 SQLite）', () => {
     expect((out.results as unknown[]).length).toBe(1)
   })
 })
+
+/**
+ * memory_read 的 drawerId 容错（2026-09-18）。
+ *
+ * 实测：模型把注入的指针 `[d:060cdafe2bdab28a]` 传成 `d:060cdafe2bdab28a`（少了方括号），
+ * 直接报 `ok:false 未找到该 drawer`，整条回溯链路断在一次格式笔误上。
+ * 指针是**我们自己注入给模型的**，它写得不对不该让回溯失败——剥一次就是了。
+ */
+describe('memory_read · drawerId 容错', () => {
+  function makeReadHarness(known: string[]) {
+    const tools = new Map<string, RegisteredTool>()
+    const readPalaceDrawer = vi.fn(async (id: string) =>
+      known.includes(id)
+        ? { drawer_id: id, content: `原文-${id}`, wing: 'w', room: 'r', metadata: {} }
+        : null,
+    )
+    const deps = {
+      toolRegistry: { register: (t: RegisteredTool) => tools.set(t.name, t) },
+      toolContext: {},
+      config: { readPalaceDrawer },
+      localDb: { db: { prepare: () => ({ all: () => [] }) } },
+      ipcChannel: { forwardIpcEvent: vi.fn() },
+      getChannelRouter: () => null,
+      getMemoryManager: () => null,
+      getConversationRepo: () => null,
+      toolCallInstanceMap: new Map(),
+      getCurrentToolExecutorInstanceId: () => undefined,
+      instanceToConversation: new Map<string, string>(),
+      instanceStates: { get: () => undefined },
+    } as unknown as BridgeToolRegistrarDeps
+    registerIntegrationTools(deps)
+    const tool = tools.get('memory_read')
+    if (!tool) throw new Error('memory_read not registered')
+    return { tool, readPalaceDrawer }
+  }
+
+  const ID = '060cdafe2bdab28a'
+
+  it('裸 id 正常读', async () => {
+    const { tool } = makeReadHarness([ID])
+    const out = await invoke(tool, { drawerId: ID })
+    expect(out.ok).toBe(true)
+    expect(out.drawerId).toBe(ID)
+  })
+
+  it('传成 `d:xxx`（实测的写法）也能读到', async () => {
+    const { tool } = makeReadHarness([ID])
+    const out = await invoke(tool, { drawerId: `d:${ID}` })
+    expect(out.ok).toBe(true)
+    expect(out.drawerId).toBe(ID)
+  })
+
+  it('传成完整指针 `[d:xxx]` 也能读到', async () => {
+    const { tool } = makeReadHarness([ID])
+    const out = await invoke(tool, { drawerId: `[d:${ID}]` })
+    expect(out.ok).toBe(true)
+    expect(out.drawerId).toBe(ID)
+  })
+
+  it('容错只剥格式，不改写 id 本身——不存在的 id 仍然如实报错', async () => {
+    const { tool } = makeReadHarness([ID])
+    const out = await invoke(tool, { drawerId: 'd:deadbeefdeadbeef' })
+    expect(out.ok).toBe(false)
+    expect(String(out.message)).toContain('只传裸 id')
+  })
+
+  it('第一次失败后才重试（正常 id 不会触发二次查询）', async () => {
+    const { tool, readPalaceDrawer } = makeReadHarness([ID])
+    await invoke(tool, { drawerId: ID })
+    expect(readPalaceDrawer).toHaveBeenCalledTimes(1)
+  })
+})

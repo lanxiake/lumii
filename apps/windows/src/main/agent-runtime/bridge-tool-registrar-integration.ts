@@ -384,7 +384,7 @@ export function registerIntegrationTools(deps: BridgeToolRegistrarDeps): void {
       // Python 时代的 `drawer_<agent>_<user>_<date>_<hash>` 格式（实测库里仍有这种行）。
       // 严格限 hex 会把它们判成「格式无效」——而模型手里的指针是**我们自己注入给它的**，
       // 用格式挡掉自己的入口，比让它查一次、查不到再如实报错更糟。
-      if (!/^[A-Za-z0-9_:-]{4,128}$/.test(drawerId)) {
+      if (!/^[A-Za-z0-9_:[\]-]{4,140}$/.test(drawerId)) {
         return jsonToolResult({ ok: false, message: 'drawerId 格式无效' })
       }
       const readDrawer = deps.config.readPalaceDrawer
@@ -395,12 +395,23 @@ export function registerIntegrationTools(deps: BridgeToolRegistrarDeps): void {
         })
       }
       try {
-        const detail = await readDrawer(drawerId)
+        let detail = await readDrawer(drawerId)
+        // 容错：模型常把注入的指针 `[d:xxxx]` 原样或半剥地传进来（实测传过 `d:xxxx`，
+        // 少了方括号于是查不到）。这里再剥一次——模型写得不对不该让整个回溯失败，
+        // 而正确格式只可能是裸 id，剥完不匹配说明本来就不是指针。
+        if (!detail) {
+          // `^\s*` 与 `\s*$` 都要有：模型可能写出 ` d:xxx ` 这种两头带空白的形式，
+          // 而 `d:` 前缀与尾部 `]` 的顺序不固定（实测出现过 `[d:xxx` 缺后半括号）。
+          const salvage = /^\s*(?:\[?d:)?\s*([0-9a-f]{4,64})\s*\]?\s*$/i.exec(drawerId)
+          if (salvage && salvage[1] !== drawerId) detail = await readDrawer(salvage[1])
+        }
         if (!detail) {
           return jsonToolResult({
             ok: false,
             drawerId,
-            message: '未找到该 drawer（可能已被删除），或记忆宫殿后端不可用',
+            // 错误信息要能自我纠正：只说"没找到"时模型会再试同样的写法，
+            // 写上正确形状它下一轮就能改对。
+            message: '未找到该 drawer（可能已被删除）。注意 drawerId 只传裸 id（如 a3f9c21b8e4d0077），不要把 [d: 与 ] 带进来。',
           })
         }
         return jsonToolResult({
