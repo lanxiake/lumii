@@ -669,13 +669,20 @@ function tc05() {
     : null
 
   // 守卫射程（2026-09-18 扩射程后）：
-  //   packages 侧 tooling-section.test.ts —— 54 内置 + 13 客户端名 + execute_skill
+  //   packages 侧 tooling-section.test.ts —— 55 内置（含 2026-09-18 接线的 execute_skill）+ 13 客户端名
   //   apps/windows 侧 host-tool-prompt-coverage.test.ts —— 源码扫宿主注册器，37 个
-  //   并集 = 54 + 37 = 91（13 个 guide/browser 只在宿主侧出现，不重复计）
+  //   并集 = 55 + 37 = 92（13 个 guide/browser 只在宿主侧出现，不重复计）
+  //
+  // ⚠️ 这是**手写常量**，新增内置/宿主工具时要同步改——CLI 脚本是 .mjs，
+  // import 不了 TS 的 ALL_BUILT_IN_TOOL_CONFIGS，它不会自动跟着涨。
+  // 有意保留手写：这样"分母涨了、分子没涨"会以**覆盖率下降**的形式显示出来
+  // （2026-09-18 execute_skill 接线时就是这样发现此处失同步的，91 → 92），
+  // 而不是让覆盖率悄悄失真。
+  //
   // 剩下的是**运行时动态注册**的工具（工具进化产物，名字编译期不可知），
   // 由 tooling-section.ts 的 partitionToolNames 运行时告警兜底——它不在测试里，
   // 但在生产路径上，落进 Other Tools 就会进日志。
-  const GUARD_REACH_STATIC = 91
+  const GUARD_REACH_STATIC = 92
   const denominator = nonMcp ?? req.total
   const covered = Math.min(denominator, GUARD_REACH_STATIC)
   const pct = ((covered / denominator) * 100).toFixed(1)
