@@ -125,6 +125,7 @@ import {
   createChannelPeerStore,
   createWeixinReplyContextStore,
   type ChannelHub,
+  type ChannelPeerStore,
 } from './channel/channel-hub-bootstrap'
 import { handleChannelList, handleChannelSend } from './channel/channel-service-ipc'
 import { resolveWindowsClientDataRoot } from './client-data-root'
@@ -161,20 +162,16 @@ import {
   getAcpBackendManager,
   getSessionKeyForInstance,
   invalidateAgentInstancesForProviderChange,
-  resolvePalaceBackend,
 } from './agent-runtime'
 import { submitVoiceTranscript } from './ipc/agent-runtime-ipc.js'
 import {
-  checkMemPalaceInstalled,
-  ensureMemPalacePalaceDir,
-  getMemPalaceBridge,
   readSoulFile,
   readUserMemoryFile,
   setupCloakBrowserIpcHandlers,
-  setupMemPalaceIpcHandlers,
   writeSoulFile,
   writeUserMemoryFile,
 } from './ipc/plugin-ipc'
+import { setPalaceBridgeProvider, setupPalaceIpcHandlers } from './ipc/palace-ipc'
 import { registerAllIpcHandlers } from './ipc/ipc-handlers-registry'
 import { registerCodingDevIpcHandlers } from './ipc/coding-dev-ipc'
 import { CloudSyncManager } from './cloud-sync/sync-manager'
@@ -234,7 +231,7 @@ import { initPluginDependenciesOnStartup } from './plugin-bootstrap'
 
 /** Wiki 向量检索默认配置（国内镜像 + 启动预下载） */
 applyWikiEmbeddingEnvDefaults()
-/** 反检测浏览器 / MemPalace 启动预安装默认配置 */
+/** 反检测浏览器启动预安装默认配置 */
 applyPluginBootstrapEnvDefaults()
 
 const _execFileAsync = _promisify(_execFile)
@@ -725,55 +722,10 @@ async function initAgentRuntime(): Promise<void> {
     },
     /** 读取用户记忆（用于 profile_memory / memory_search 工具，本地文件 ~/.lumii/data/user-memory.md） */
     getUserMemory: async () => readUserMemoryFile(),
-    /**
-     * 记忆宫殿检索 —— **MemPalace（Python）实现**。
-     *
-     * 默认不走这里：`AgentRuntimeBridge` 构造时会用自建 SQLite 实现覆盖掉本回调
-     * （见 agent-runtime/palace-backend.ts）。保留它是 `LUMII_PALACE_BACKEND=mempalace`
-     * 的逃生开关，一个版本周期后连同 mempalace-mcp-client.ts 一起删。
-     */
-    searchPalace: async (query: string, limit?: number) => {
-      try {
-        const installed = await checkMemPalaceInstalled()
-        if (!installed) return null
-        await ensureMemPalacePalaceDir()
-        const bridge = getMemPalaceBridge()
-        const items = await bridge.searchDrawers({ query, limit: limit ?? 10 })
-        // MemPalace 返回的是余弦相似度；统一到 searchPalace 的 score 语义
-        return items.map((it) => ({
-          text: it.text,
-          wing: it.wing,
-          room: it.room,
-          score: it.similarity,
-          drawer_id: it.drawer_id,
-          created_at: it.created_at,
-        }))
-      } catch (err) {
-        log.warn(`[MemPalace] 搜索失败: ${err instanceof Error ? err.message : String(err)}`)
-        return null
-      }
-    },
-    /** 按 drawer_id 读取记忆宫殿归档原文（memory_read 工具）—— MemPalace（Python）实现 */
-    readPalaceDrawer: async (drawerId: string) => {
-      try {
-        const installed = await checkMemPalaceInstalled()
-        if (!installed) return null
-        await ensureMemPalacePalaceDir()
-        const bridge = getMemPalaceBridge()
-        const detail = await bridge.getDrawer(drawerId)
-        if (!detail?.drawer_id || !detail.content) return null
-        return {
-          drawer_id: detail.drawer_id,
-          content: detail.content,
-          wing: detail.wing,
-          room: detail.room,
-          metadata: detail.metadata,
-        }
-      } catch (err) {
-        log.warn(`[MemPalace] 读取 drawer 失败: ${err instanceof Error ? err.message : String(err)}`)
-        return null
-      }
-    },
+    // 记忆宫殿的三个回调（searchPalace / readPalaceDrawer / archivePalaceDrawer）由
+    // `AgentRuntimeBridge` 构造期的 withBuiltinPalace 注入（见 agent-runtime/palace-backend.ts）：
+    // 实现走自建 SQLite 的 PalaceRepo。这里**刻意不提供**——留一份宿主的备选实现意味着
+    // 两处都要维护，而 MemPalace（Python）已于 2026-09-18 整体移除。
     /** 读取记忆注入开关（从渲染进程 localStorage 同步） */
     getMemoryInjectionSettings: async () => {
       if (memoryInjectionSettingsCache) {
@@ -799,38 +751,6 @@ async function initAgentRuntime(): Promise<void> {
       }
       promptStyleSettingsCache = resolved
       return resolved
-    },
-    /**
-     * 段原文归档进记忆宫殿（诉求 A · 宫殿互引）—— **MemPalace（Python）实现**。
-     * MemPalace 3.5.x 的 mempalace_add_drawer 仅接受 wing/room/content/source_file/added_by，
-     * 不接受 drawer_id/metadata；drawer_id 由 Python 侧 make_drawer_id_from_content 生成并返回。
-     * 同一 (wing, room, content) 重复归档幂等。
-     * 未安装/失败返回 undefined（runtime 降级，仅保留原文回溯不互引）。
-     *
-     * 默认不走这里（见上方的 searchPalace 说明）。
-     */
-    archivePalaceDrawer: async (params) => {
-      try {
-        const installed = await checkMemPalaceInstalled()
-        if (!installed) return undefined
-        await ensureMemPalacePalaceDir()
-        const bridge = getMemPalaceBridge()
-        const segmentId = params.metadata?.segmentId
-        const result = await bridge.addDrawer({
-          content: params.content,
-          wing: params.wing,
-          room: params.room,
-          addedBy: 'mtbot-windows',
-          // 3.5.x 无 metadata 参数，用 source_file 保留段溯源
-          ...(segmentId != null ? { sourceFile: `segment:${String(segmentId)}` } : {}),
-        })
-        return { drawerId: result.drawer_id }
-      } catch (err) {
-        // 写入失败按 ERROR 记账（读/搜索失败仍是 WARN）：内容永久丢失且幂等重试不会补上，
-        // 而 WARN 只进主日志——2026-09-15 整天写不进一条记忆，错误日志里却一条都没有。
-        log.error(`[MemPalace] 段归档失败: ${err instanceof Error ? err.message : String(err)}`)
-        return undefined
-      }
     },
     /** 更新用户记忆（用于 profile_memory 工具，写入本地文件 ~/.lumii/data/user-memory.md） */
     updateUserMemory: async (content: string) => writeUserMemoryFile(content),
@@ -906,32 +826,11 @@ async function initAgentRuntime(): Promise<void> {
       }
     },
     onConversationEnd: (convId: string, assistantText: string) => {
-      // 每轮助手回复的即时归档（wing='conversations'）。
-      // builtin 下这一步已由 AgentRuntimeBridge 构造期的 withBuiltinPalace 接管
-      // （见 agent-runtime/palace-backend.ts）——这里只保留 MemPalace 逃生开关的分支。
-      // 2026-09-18 修复：此前无条件写 Python，P2-3 换了后端却漏了这一处，旧 sqlite
-      // 当天仍在增长，而那批内容在自建检索里永远搜不到（差异 #19）。
-      if (resolvePalaceBackend() === 'mempalace') {
-        void (async () => {
-          try {
-            const installed = await checkMemPalaceInstalled()
-            if (!installed) return
-            await ensureMemPalacePalaceDir()
-            const bridge = getMemPalaceBridge()
-            const added = await bridge.addDrawer({
-              wing: 'conversations',
-              room: convId,
-              content: assistantText,
-              addedBy: 'mtbot-windows',
-            })
-            log.info(`[MemPalace] 记忆已写入 convId=${convId} drawer=${added.drawer_id} len=${assistantText.length}`)
-          } catch (err) {
-            // 与段归档同理：这是内容没进宫殿的最终记账点，必须出现在错误日志里
-            log.error(`[MemPalace] 记忆写入失败: ${err instanceof Error ? err.message : String(err)}`)
-          }
-        })()
-      }
-
+      // 每轮助手回复的即时归档（wing='conversations'）已由 AgentRuntimeBridge 构造期的
+      // withBuiltinPalace 接管（见 agent-runtime/palace-backend.ts）——那个 wrapper 会
+      // 先转发本回调（自主进化的轮次结算挂在下面），再写自建宫殿。
+      // 2026-09-18 教训（差异 #19）：这条路径原先直连 Python 而不在后端开关里，
+      // 换了后端却漏切，旧库当天仍在增长而新检索读不到。
       // 自主进化：回合结束触发满意度评分与目标生成（旁路，失败不影响会话）
       void notifyAutonomousTurnEnd(convId)
     },
@@ -1470,7 +1369,9 @@ async function initialize(): Promise<void> {
   // 这些实例保持 null，相关能力（provider 配置、agents 存储）由本地能力层（阶段 4/5）接管。
   // setupApiIpcHandlers 仍注册（内部 handler 已对 !apiClient 做本地兜底/降级）。
   setupApiIpcHandlers()
-  setupMemPalaceIpcHandlers()
+  // 记忆宫殿（自研 SQLite）IPC
+  setPalaceBridgeProvider(() => agentRuntimeBridge)
+  setupPalaceIpcHandlers()
   setupCloakBrowserIpcHandlers()
 
   // 种子内置技能：必须在 initSkillRuntime 之前。
@@ -1490,7 +1391,7 @@ async function initialize(): Promise<void> {
   void initScriptRuntimes().catch((err) => {
     log.warn('脚本运行时初始化失败（不影响主流程，用到可执行技能时按需重试）:', err instanceof Error ? err.message : err)
   })
-  // 反检测浏览器（国内 GitHub 镜像）与 MemPalace（清华 PyPI）后台预安装，不阻塞启动
+  // 反检测浏览器（国内 GitHub 镜像）后台预安装，不阻塞启动
   initPluginDependenciesOnStartup()
   log.info('[Main] initScriptRuntimes + 插件预安装已触发，开始 initSkillWatcher')
 
