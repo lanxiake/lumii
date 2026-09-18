@@ -23,6 +23,7 @@ import {
 } from '@mtbot/agent-runtime'
 import { agentRuntimeLog as log, jsonToolResult, removeMarkdownSection } from './bridge-utils'
 import type { BridgeToolRegistrarDeps } from './bridge-tool-registrar-types'
+import { resolveOriginChannel } from './bridge-tool-registrar-client-cmd'
 import { resolveWindowsClientDataRoot } from '../client-data-root'
 import {
   findProject,
@@ -62,7 +63,7 @@ export function registerChannelTools(deps: BridgeToolRegistrarDeps): void {
 
   const channelSend: MtBotToolConfig = {
     ...channelSendToolConfig,
-    execute: async (_id, rawParams) => {
+    execute: async (toolCallId, rawParams) => {
       const router = deps.getChannelRouter()
       if (!router) {
         return jsonToolResult({
@@ -78,17 +79,36 @@ export function registerChannelTools(deps: BridgeToolRegistrarDeps): void {
         mediaPath?: string
         fileName?: string
       }
-      const channel = String(p.channel ?? '').trim() as 'feishu' | 'weixin' | 'qbot' | 'wecom'
+
+      // 省略 channel/to = 回本轮消息来源渠道的当前会话：
+      // 「发给我」的默认语义，避免模型在只有一个渠道有 peer 时误发到别的渠道。
+      const origin = resolveOriginChannel(deps, toolCallId)
+      const requestedChannel = String(p.channel ?? '').trim()
+      const requestedTo = String(p.to ?? '').trim()
+      const channel = requestedChannel || (origin?.channelType ?? '')
       if (channel !== 'feishu' && channel !== 'weixin' && channel !== 'qbot' && channel !== 'wecom') {
         return jsonToolResult({
           ok: false,
           errorCode: 'PEER_NOT_FOUND',
-          message: "channel 必须是 'feishu' | 'weixin' | 'qbot' | 'wecom'",
+          message: requestedChannel
+            ? "channel 必须是 'feishu' | 'weixin' | 'qbot' | 'wecom'"
+            : '当前不在任何消息渠道会话里，无法推断目标渠道；请先 channel_list 再显式指定 channel 和 to',
+          channels: null,
+        })
+      }
+      const to = requestedTo || origin?.replyTo || ''
+      if (!to) {
+        return jsonToolResult({
+          ok: false,
+          errorCode: 'PEER_NOT_FOUND',
+          message: origin
+            ? `省略 to 时只能在当前 ${channel} 会话内回复；本会话未提供默认收件人（可能是群聊或非会话内轮次），请先 channel_list 再显式指定 to`
+            : '收件人 to 必填，请先调用 channel_list 获取 peer id',
         })
       }
       const result = await router.send({
         channel,
-        to: String(p.to ?? ''),
+        to,
         text: String(p.text ?? ''),
         ...(p.mediaPath ? { mediaPath: String(p.mediaPath) } : {}),
         ...(p.fileName ? { fileName: String(p.fileName) } : {}),

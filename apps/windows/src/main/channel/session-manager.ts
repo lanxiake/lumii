@@ -43,6 +43,24 @@ export interface CompactResult {
   hadSummary: boolean
 }
 
+/**
+ * 本轮消息的「回信地址」——channel_send 省略 `to` 时的默认收件人。
+ *
+ * 单聊 = channelUserId（与渠道内 peer id 一致）。
+ * 群聊里二者不是一回事：QQ 群的 peer id 是 `group:{group_openid}`、企微群是群 chatId，
+ * 都用该群 chatId 表达；而 `session.channelUserId` 是发言人。
+ *
+ * @returns 缺席 = 回不到当前会话（客户端 session、群聊没带 chatId），调用方须回退到显式 to
+ */
+export function resolveReplyTo(session: ChannelSession): string | undefined {
+  if (session.channelType === 'ipc') return undefined
+  const chatType = session.replyContext?.chatType
+  if (chatType !== 'group') return session.channelUserId
+  const chatId = session.replyContext?.chatId
+  if (typeof chatId !== 'string' || !chatId) return undefined
+  return session.channelType === 'qbot' ? `group:${chatId}` : chatId
+}
+
 export class SessionManager {
   /**
    * sessionKey → 当前正在执行的 prompt Promise（用于串行化）
@@ -111,16 +129,19 @@ export class SessionManager {
       `[_doPrompt] 开始: instanceId=${instanceId} sessionKey=${sessionKey} msgLen=${message.length} imageCount=${imageAttachmentPaths?.length ?? 0}`,
     )
 
+    const replyTo = resolveReplyTo(session)
     await strategy.beforePrompt(instanceId, sessionKey, pendingUserMsgId)
     try {
       // 统一写入本轮在场状态（P0：二元在场信号）。所有主 Agent 路径都经此入口，
       // 一处写点替代各 adapter 各自写，channelLabel 映射也收敛到 channelLabelOf。
-      // channelType/channelUserId 是「消息来源」，供会话切换工具判断该改哪个渠道的路由。
+      // channelType/channelUserId 是「消息来源」，供会话切换工具判断该改哪个渠道的路由；
+      // replyTo 是「回给这里」，供 channel_send 省略 to 时默认回当前会话（群聊也成立）。
       this.bridge.setInstancePresence(instanceId, {
         userAtClient: session.channelType === 'ipc',
         channelLabel: channelLabelOf(session.channelType),
         channelType: session.channelType,
         channelUserId: session.channelUserId,
+        ...(replyTo ? { replyTo } : {}),
       })
       // pendingUserMsgId 继续透传给 bridge.prompt：prompt() 内的自动压缩块会从 DB
       // 重载历史做剪枝/摘要，同样必须排除本条消息，否则它会被 replaceMessages

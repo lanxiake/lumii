@@ -48,6 +48,15 @@ export interface InstanceState {
     channelType?: string
     /** 本轮消息的渠道用户 ID（与 channelType 一起用于把后续消息路由到目标会话） */
     channelUserId?: string
+    /**
+     * 回信地址：本轮消息「回给这里」的 channel_send `to`。
+     *
+     * 多数渠道等于 channelUserId；群聊里二者不同 —— QQ 群是 `group:{group_openid}`，
+     * 企微群是群 chatId。由 adapter 侧按群/单聊算出（见 channel/session-manager 的
+     * resolveReplyTo）。缺席表示「回不到当前会话」（客户端、cron、群聊信息不全），
+     * 工具须要求显式 to，不得猜。
+     */
+    replyTo?: string
   }
   /** toolCallId → 工具入参（tool:end 时合并写入 messages） */
   toolCallArgs: Map<string, Record<string, unknown>>

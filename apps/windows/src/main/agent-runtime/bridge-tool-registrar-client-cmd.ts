@@ -36,11 +36,14 @@ const LOCAL_USER_ID = 'local-user'
  * 走 instance 的 presence 而不是 sessionKey 前缀：跨渠道接续之后 sessionKey 属于
  * 目标会话（可能是客户端或另一个渠道的），从它反推出来的是「会话归属」而不是
  * 「这条消息从哪来」——而该改的是后者。
+ *
+ * channel_send 省略 channel/to 时也走这里取默认值（replyTo 是回信地址，
+ * 群聊里与 channelUserId 不同）。导出供 bridge-tool-registrar-integration 复用。
  */
-function resolveOriginChannel(
+export function resolveOriginChannel(
   deps: BridgeToolRegistrarDeps,
   toolCallId: string,
-): { channelType: string; channelUserId: string; channelLabel: string } | null {
+): { channelType: string; channelUserId: string; channelLabel: string; replyTo: string | null } | null {
   const instanceId = deps.toolCallInstanceMap.get(toolCallId) ?? deps.getCurrentToolExecutorInstanceId()
   if (!instanceId) return null
   const presence = deps.instanceStates.get(instanceId)?.presence
@@ -50,6 +53,7 @@ function resolveOriginChannel(
     channelType: presence.channelType,
     channelUserId: presence.channelUserId,
     channelLabel: presence.channelLabel ?? presence.channelType,
+    replyTo: presence.replyTo ?? null,
   }
 }
 
