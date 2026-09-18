@@ -177,6 +177,7 @@ import { RouterHitRateTracker } from './router/router-hit-rate-tracker'
 import type { AgentRuntimeBridgeConfig, AgentLifecycleSnapshot } from './bridge-types'
 import { withBuiltinPalace } from './palace-backend'
 import { setupPalaceVector, backfillPalaceVectors } from './palace-vector-runtime'
+import { waitForSherpa } from '../onnx-runtime-gate'
 import { createTransformersE5Embedder } from './wiki-transformers-embedder'
 import { getCloudSyncManager } from '../cloud-sync/sync-accessor'
 import type { ConflictInfo } from '../cloud-sync/types'
@@ -1895,6 +1896,10 @@ export class AgentRuntimeBridge {
    */
   private async setupPalaceVectorInBackground(): Promise<void> {
     try {
+      // **等 VAD 让行**（2026-09-18 实测：宫殿补齐是唯一「启动即跑 E5」的路径，
+      // 而 sherpa 的 VAD 与 onnxruntime-node 的 E5 会因同名 onnxruntime.dll 冲突，
+      // E5 先加载会让 VAD 在原生层崩溃。详见 onnx-runtime-gate.ts）
+      await waitForSherpa()
       const runtime = await setupPalaceVector({
         localDb: this.localDb,
         // 复用 wiki 侧已装配的 E5 嵌入器：同一个模型、同一份缓存，不重复加载

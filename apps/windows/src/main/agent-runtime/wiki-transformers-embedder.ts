@@ -13,6 +13,7 @@ import { createRequire } from 'node:module'
 import * as path from 'node:path'
 import * as fs from 'node:fs'
 import { createLogger } from '../logger'
+import { waitForSherpa } from '../onnx-runtime-gate'
 import { isWikiVectorEnabled } from './wiki-embedding-config'
 import { ensureWikiEmbeddingModelReady } from './wiki-embedding-model-downloader'
 import {
@@ -104,6 +105,12 @@ export function meanPoolAndNormalize(
  * 查询加 `query:` 前缀，文档加 `passage:` 前缀（E5 约定）。
  */
 export async function createTransformersE5Embedder(cacheDir?: string): Promise<WikiEmbedder> {
+  // **等 VAD 让行**（2026-09-18 实测）：本函数创建的是 transformers/onnxruntime-node
+  // 流水线，而 VAD 走 sherpa 自带的 ONNX Runtime。两者在进程里是同名 `onnxruntime.dll`
+  // 的不同版本（1.14 vs 1.27），E5 先加载会让 VAD 在原生层崩掉。
+  // 详见 apps/windows/src/main/onnx-runtime-gate.ts
+  await waitForSherpa()
+
   const localRoot = cacheDir ?? resolveWikiEmbeddingCacheDir()
   await fs.promises.mkdir(localRoot, { recursive: true })
   process.env.TRANSFORMERS_CACHE = localRoot

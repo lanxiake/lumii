@@ -897,10 +897,16 @@ async function initAgentRuntime(): Promise<void> {
   setLocalMediaWorkspaceCwdGetter(() => agentRuntimeBridge!.getCwd())
   // 注册 agent-runtime:command IPC handler（必须在 setAgentRuntimeBridgeForIpc 之后）
   installAgentRuntimeCommandIpc(performanceMonitor ?? undefined)
-  await agentRuntimeBridge.initialize()
-  log.info('客户端 Agent Runtime 初始化完成（新协议 agent-runtime:command）')
 
-  // 初始化语音通话服务
+  // ── VAD 预热必须排在 bridge 初始化之前（2026-09-18 实测，见 onnx-runtime-gate.ts）──
+  //
+  // sherpa 携带 `onnxruntime.dll` **1.27**，onnxruntime-node 携带同名 **1.14**；
+  // Windows 在**已加载模块**里按基名解析，而 sherpa-onnx-c-api.dll 只写裸文件名
+  // （二进制确认，无路径）。于是谁先加载，谁决定整个进程用哪个 ONNX Runtime——
+  // 而 1.14 加载不了 opset 27 的 VAD 模型，会直接把应用打崩（Exit 4294930435）。
+  //
+  // 因此：**初始化语音服务后立刻预热 VAD**，抢在 bridge 初始化里任何 E5 之前。
+  // bridge 侧还有一道 `waitForSherpa()` 兜底（挂起而非放行），两处一起构成顺序保证。
   const voiceServiceStartTime = performance.now()
   const voiceModelManager = new VoiceModelManager()
   const savedVoiceConfig = await loadVoiceEngineConfig()
@@ -921,16 +927,15 @@ async function initAgentRuntime(): Promise<void> {
   // 语音就绪后重挂一次，确保 generateAudioFile 闭包拿到最新实例（幂等）
   mountScreenRecordMediaServices()
 
-  // 启动后 5s 异步预热语音引擎（不阻塞启动，模型就绪时静默完成）
-  setTimeout(() => {
-    const ttsProvider = voiceCallService!.getConfig().tts.provider
-    if (voiceModelManager.areRequiredModelsReady(ttsProvider)) {
-      voiceCallService!.ensureInitialized().catch((e) => {
-        log.warn(`语音引擎预热失败（非致命）: ${e.message}`)
-      })
-    }
-  }, 5000)
+  // VAD 预热：**必须先于 bridge 初始化**。不阻塞启动（后台跑），但顺序是硬要求。
+  // 失败只记日志——VAD 不可用不该拦住对话（非 micless 通话会再走一次 ensureInitialized）。
+  void voiceCallService
+    .ensureInitialized()
+    .then(() => log.info('语音引擎预热完成（VAD 已占 ONNX 运行时）'))
+    .catch((e) => log.warn(`语音引擎预热失败（非致命）: ${e.message}`))
 
+  await agentRuntimeBridge.initialize()
+  log.info('客户端 Agent Runtime 初始化完成（新协议 agent-runtime:command）')
 
   // ── 技能自进化引擎（已关闭）──
   // 代码保留，但暂不启用，效果不太好。移除了以下内容：

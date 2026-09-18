@@ -34,6 +34,7 @@ import {
   getQwen3SynthConcurrency,
 } from './qwen3-tts-client.js'
 import { transcribePcm, transcribeAudioBuffer } from './voice-transcription.js'
+import { sherpaFirst, sherpaDone } from '../onnx-runtime-gate'
 
 const log = {
   info: (...args: unknown[]) => console.log('[VoiceService]', ...args),
@@ -318,37 +319,55 @@ export class VoiceCallService {
   /** 初始化完整语音通话链路（VAD + ASR + TTS） */
   async ensureInitialized(): Promise<void> {
     if (this.initialized) return
-    log.info('[ensureInitialized] 初始化语音引擎...')
 
-    if (!this.modelManager.areRequiredModelsReady(
-      this.config.tts.provider,
-      this.resolveActiveQwen3Variant(),
-    )) {
-      throw new Error('语音模型未就绪，请先下载所需本地模型（设置 → 语音设置）')
+    // **抢 ONNX 运行时闸必须同步发生在第一个 await 之前**（2026-09-18）。
+    // 放在下面任何 await（getModelPaths 等）之后都晚了：那期间宫殿向量侧可能
+    // 先调 waitForSherpa() 把闸门置为 e5Running，VAD 反而被拒——顺序就反了。
+    // 详见 apps/windows/src/main/onnx-runtime-gate.ts
+    if (!sherpaFirst()) {
+      throw new Error(
+        'VAD 初始化被拒绝：E5 嵌入已先占进程内的 ONNX Runtime（详见 onnx-runtime-gate.ts）',
+      )
     }
 
-    const paths = await this.modelManager.getModelPaths()
+    try {
+      log.info('[ensureInitialized] 初始化语音引擎...')
 
-    // VAD
-    this.vad = new VadEngine(paths.vad)
-    await this.vad.initialize(
-      this.config.vad.threshold,
-      this.config.vad.minSpeechMs,
-      this.config.vad.minSilenceMs,
-    )
+      if (!this.modelManager.areRequiredModelsReady(
+        this.config.tts.provider,
+        this.resolveActiveQwen3Variant(),
+      )) {
+        throw new Error('语音模型未就绪，请先下载所需本地模型（设置 → 语音设置）')
+      }
 
-    // ASR
-    this.asrProvider = createAsrProvider({
-      provider: this.config.asr.provider,
-      modelDir: paths.asr,
-      apiKey: this.config.asr.apiKey,
-    })
-    await this.asrProvider.initialize()
+      const paths = await this.modelManager.getModelPaths()
 
-    await this.ensureTtsInitialized()
+      // VAD（必须在任何 E5 之前完成加载）
+      this.vad = new VadEngine(paths.vad)
+      await this.vad.initialize(
+        this.config.vad.threshold,
+        this.config.vad.minSpeechMs,
+        this.config.vad.minSilenceMs,
+      )
 
-    this.initialized = true
-    log.info('[ensureInitialized] 语音引擎全部就绪')
+      // ASR
+      this.asrProvider = createAsrProvider({
+        provider: this.config.asr.provider,
+        modelDir: paths.asr,
+        apiKey: this.config.asr.apiKey,
+      })
+      await this.asrProvider.initialize()
+
+      await this.ensureTtsInitialized()
+
+      this.initialized = true
+      log.info('[ensureInitialized] 语音引擎全部就绪')
+    } finally {
+      // 无论走到哪一步退出都要放行 E5：ONNX 冲突只关乎 VAD 与 E5 谁先加载，
+      // 后续的 ASR/TTS 与之无关，没必要一直压着闸门。
+      // （`VadEngine.initialize` 内部也会放行一次，幂等无害。）
+      sherpaDone()
+    }
   }
 
   // ── 开始通话 ────────────────────────────────────────────────────────────
