@@ -111,6 +111,13 @@ const FAILURE_SEMANTICS: Record<string, FileFailureSemantics> = {
     how: "技能系统不可用（宿主未注入 getSkills）/ 技能不存在 / SKILL.md 读取失败",
     sites: 3,
   },
+  "execute-skill-tool.ts": {
+    tools: ["execute_skill"],
+    how:
+      "宿主未注入 SkillRuntime（context.executeSkill 缺失）/ 技能执行返回 success:false / 宿主调用抛异常。" +
+      "注意：**技能不存在**也走 success:false（由技能运行时判定 id），不是能力缺失——两者都用同一个出口",
+    sites: 3,
+  },
 
   // ── sites: 0：无失败分支需要标 ──
   "agent-management-tools.ts": {
@@ -378,6 +385,34 @@ describe("失败语义守卫", () => {
         mockContext({ getSkills: () => [] }),
       );
       expect(r.isError).toBe(true);
+    });
+
+    it("execute_skill：宿主未注入 SkillRuntime → isError", async () => {
+      const { executeSkillToolConfig } = await import("../built-in/execute-skill-tool.js");
+      const r = await executeSkillToolConfig.execute("t", { id: "some-skill" }, mockContext());
+      expect(r.isError, "能力缺失是确定的终态失败，不标的话模型会以为技能跑过了").toBe(true);
+    });
+
+    it("execute_skill：执行失败 → isError；成功 → 不标", async () => {
+      const { executeSkillToolConfig } = await import("../built-in/execute-skill-tool.js");
+
+      const fail = await executeSkillToolConfig.execute(
+        "t",
+        { id: "x" },
+        mockContext({
+          executeSkill: async () => ({ success: false, error: "boom", executionTimeMs: 1 }),
+        }),
+      );
+      expect(fail.isError).toBe(true);
+
+      const ok = await executeSkillToolConfig.execute(
+        "t",
+        { id: "x" },
+        mockContext({
+          executeSkill: async () => ({ success: true, result: { a: 1 }, executionTimeMs: 5 }),
+        }),
+      );
+      expect(ok.isError).toBeFalsy();
     });
 
     it("契约第 3 条回归：非理想结局不得被误标为失败", async () => {

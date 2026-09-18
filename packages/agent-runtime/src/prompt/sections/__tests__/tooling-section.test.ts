@@ -50,8 +50,20 @@ const CLIENT_REGISTERED_NAMES: readonly string[] = [
   "propose_dev_handoff",
 ]
 
-/** 已定义常量但尚未注册的工具名（预置分组，避免注册即无描述） */
-const PRE_REGISTERED_NAMES: readonly string[] = ["execute_skill"]
+/**
+ * 已定义常量但**尚未注册**的工具名（预置分组，避免注册即无描述）。
+ *
+ * ⚠️ **2026-09-18 批次 3：`execute_skill` 已从这里移出——它现在真的注册了。**
+ * 这个清单原本是个**合法化缺口**的机制：`execute_skill` 从未注册过
+ * （`new CapabilityRegistry` 那类"已实现未接线"的同类，见 `execute-skill-tool.ts` 的文件头），
+ * 但提示词里写着 "MUST be invoked via `execute_skill` tool"、`skill_search` 的 hint
+ * 还说 "ALWAYS call execute_skill"。把它列进来，等于让守卫**认定这是正常的**——
+ * 而它本该是守卫要抓的东西。
+ *
+ * 保留这个机制（"先写常量、后注册"确实会发生），但**往里加名字前先问**：
+ * 这是"还没轮到注册"，还是"注册那一步被忘了"？后者不该进这个清单。
+ */
+const PRE_REGISTERED_NAMES: readonly string[] = []
 
 const KNOWN_NAMES = new Set<string>([
   ...BUILT_IN_NAMES,

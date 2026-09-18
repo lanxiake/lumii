@@ -12,13 +12,22 @@
  */
 import { describe, expect, it } from 'vitest'
 import { BUILTIN_AGENT_DEFINITIONS } from '../definitions.js'
+import { ALL_BUILT_IN_TOOL_CONFIGS } from '../../../tools/built-in/index.js'
 
 /**
  * 每个 Agent 的工具数上限。改大之前先问两个问题：
  * 1. 新工具与已有工具**语义是否重叠**？（重叠的话是改旧工具，不是加新的）
  * 2. 它是「唯一路径」吗？（`app_fill_form` 就是靠这条留下来的）
+ *
+ * **`assistant` 用 `["*"]`**（2026-09-18 批次 3 纳入）——它是主对话 Agent，
+ * 工具面 = 全量注册表，因而最容易在"顺便加个工具"里悄悄膨胀。
+ * 但它数到的只是**内置**那部分：宿主注册的工具（`app_*` / `screen_record_*` 等）
+ * 在 `apps/windows`，这里看不见。所以这个预算守的是**内置工具面**的膨胀。
  */
 const TOOL_BUDGET: Record<string, number> = {
+  // 55 = 54 + `execute_skill`（2026-09-18 批次 3 接线：它此前从未注册，
+  // 提示词却一直写着"MUST be invoked via execute_skill tool"）
+  assistant: 55,
   'system-keeper': 31,
   'info-curator': 14,
   chronicler: 10,
@@ -31,7 +40,10 @@ const RETIRED_TOOLS = ['skill_list', 'app_scroll_to_bottom']
 function toolCount(agentId: string): number {
   const def = BUILTIN_AGENT_DEFINITIONS.find((a) => a.id === agentId)
   if (!def) throw new Error(`找不到 Agent 定义: ${agentId}`)
-  return (def.tools ?? []).length
+  const list = def.tools ?? []
+  // `["*"]` 展开为内置工具全量（`filterToolsByDefinition` 对通配符不做白名单过滤）
+  if (list.includes('*')) return ALL_BUILT_IN_TOOL_CONFIGS.length
+  return list.length
 }
 
 describe('Agent 工具面预算', () => {
@@ -66,9 +78,21 @@ describe('Agent 工具面预算', () => {
     }
   })
 
-  it('通配符 Agent 不参与预算（它的工具面是全量注册表，另有开关控制）', () => {
+  it('通配符 Agent 已纳入预算（2026-09-18 批次 3 起）', () => {
     const wildcard = BUILTIN_AGENT_DEFINITIONS.filter((a) => (a.tools ?? []).includes('*'))
-    // 记录这个事实：预算守护只覆盖显式白名单的 Agent
-    expect(wildcard.map((a) => a.id)).toContain('assistant')
+    // 事实记录：仍然只有 assistant 用通配符
+    expect(wildcard.map((a) => a.id)).toEqual(['assistant'])
+    // 且它在 TOOL_BUDGET 里——此前这条用例记录的是"不参与预算"，
+    // 而通配符恰恰是最容易膨胀的那种工具面（全量注册表），不该是唯一没守护的
+    for (const a of wildcard) {
+      expect(Object.keys(TOOL_BUDGET), `${a.id} 应纳入预算`).toContain(a.id)
+    }
+  })
+
+  it('通配符展开用的是内置工具全量，不是 1', () => {
+    // 元测试：防 `toolCount` 退回 `(def.tools ?? []).length`——
+    // 那样 `["*"]` 会被数成 1，预算形同虚设且**测试仍会通过**（1 <= 54）
+    expect(ALL_BUILT_IN_TOOL_CONFIGS.length).toBeGreaterThan(20)
+    expect(toolCount('assistant')).toBe(ALL_BUILT_IN_TOOL_CONFIGS.length)
   })
 })

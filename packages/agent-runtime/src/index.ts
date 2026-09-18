@@ -154,6 +154,7 @@ export {
   type ImageGenerationModelOption,
   skillSearchToolConfig,
   skillInvokeToolConfig,
+  executeSkillToolConfig,
   sessionCreateToolConfig,
   sessionClearToolConfig,
   sessionCompactToolConfig,

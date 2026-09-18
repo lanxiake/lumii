@@ -60,6 +60,7 @@ export {
   skillSearchToolConfig,
   skillInvokeToolConfig,
 } from "./skill-tools.js";
+export { executeSkillToolConfig } from "./execute-skill-tool.js";
 export {
   sessionCreateToolConfig,
   sessionClearToolConfig,
@@ -137,6 +138,7 @@ import {
   skillSearchToolConfig,
   skillInvokeToolConfig,
 } from "./skill-tools.js";
+import { executeSkillToolConfig } from "./execute-skill-tool.js";
 import {
   sessionCreateToolConfig,
   sessionClearToolConfig,
@@ -199,6 +201,7 @@ export const ALL_BUILT_IN_TOOL_CONFIGS: readonly MtBotToolConfig<any, any>[] = [
   askUserQuestionToolConfig,
   skillSearchToolConfig,
   skillInvokeToolConfig,
+  executeSkillToolConfig,
   sessionCreateToolConfig,
   sessionClearToolConfig,
   sessionCompactToolConfig,
