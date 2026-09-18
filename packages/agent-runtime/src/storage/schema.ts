@@ -6,7 +6,7 @@
  */
 
 /** 当前 schema 版本号 */
-export const SCHEMA_VERSION = 50;
+export const SCHEMA_VERSION = 51;
 
 /**
  * V1 DDL — 初始 schema
@@ -1750,6 +1750,36 @@ CREATE VIRTUAL TABLE IF NOT EXISTS palace_drawers_fts USING fts5(content);
     50,
     `
 DROP TABLE IF EXISTS tool_usage_feedback;
+`,
+  ],
+  // V51: 宫殿抽屉的向量索引（语义改写检索立项 T3）
+  //
+  // 与 `wiki_source_embeddings` **同构**（字段一一对应）——两侧共用
+  // `float32ToBuffer` / `cosineSimilarity` / `reciprocalRankFusion`，
+  // 表结构也保持一致，免得同一个概念长出两套。
+  //
+  // **为什么单独一张表而不是给 palace_drawers 加列**：
+  // 1) 向量是**派生数据**，随模型更换整体失效（`model_id` 变即需重算），
+  //    与主表生命周期不同；混在一起会让「换模型」变成主表的一次全表重写。
+  // 2) 关掉开关时不该在主表上留一堆 NULL 列。
+  //
+  // 设计依据：`docs/plans/记忆系统/2026-09-18-语义改写检索开发计划.md` §5.2
+  [
+    51,
+    `
+CREATE TABLE IF NOT EXISTS palace_drawer_embeddings (
+  drawer_id     TEXT PRIMARY KEY,
+  agent_id      TEXT NOT NULL,
+  user_id       TEXT NOT NULL,
+  model_id      TEXT NOT NULL,
+  dims          INTEGER NOT NULL,
+  embedding     BLOB NOT NULL,
+  content_hash  TEXT NOT NULL,
+  updated_at    TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_palace_emb_scope
+  ON palace_drawer_embeddings (agent_id, user_id, model_id);
 `,
   ],
 ] as const;

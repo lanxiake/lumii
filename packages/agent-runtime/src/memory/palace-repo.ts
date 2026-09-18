@@ -30,6 +30,7 @@ import type { DatabaseAdapter } from "../storage/local-database.js";
 import { tokenizeBigram, requiredTokenHits, countTokenHits } from "./segmentation.js";
 import { deterministicDrawerId } from "./content-address.js";
 import { PalaceIndexRepo, type PalaceFtsHealth } from "./palace-index.js";
+import { reciprocalRankFusion } from "../wiki/wiki-vector.js";
 
 /** 检索结果的摘录长度（字符）。够看清「这段在讲什么」，又不至于打爆上下文。 */
 export const SEARCH_EXCERPT_CHARS = 600;
@@ -109,6 +110,24 @@ export interface PalaceSearchParams extends PalaceScopeParams {
    * 否则会变成"注入即召回"的自我实现。钉入与落选共用同一个限额，挤占的是尾部席位。
    */
   readonly pinnedIds?: readonly string[];
+  /**
+   * 混合检索：给定向量检索器时，把 FTS 与向量召回做 RRF 融合后再排序。
+   *
+   * **为什么是注入而非在 repo 内部 new**：`agent-runtime` 保持零模型依赖
+   * （约束 §7.1），嵌入器由宿主提供；`null` 时行为与纯 FTS **逐字相同**——
+   * 这是开关关闭时的等价性保证。
+   */
+  readonly vectorSearch?: PalaceVectorSearch | null;
+}
+
+/** 向量召回的最小接口（`PalaceVectorIndex` 满足它；测试可用假的） */
+export interface PalaceVectorSearch {
+  searchSimilar(params: {
+    readonly query: string;
+    readonly userId: string;
+    readonly agentId?: string;
+    readonly limit: number;
+  }): Promise<readonly { drawerId: string; score: number }[]>;
 }
 
 /** 列表浏览参数（UI 用；与检索不同，它不做相关性排序，只按时间倒序翻页） */
@@ -407,23 +426,181 @@ export class PalaceRepo {
         .filter((r) => countTokenHits(tokens, r.fts_content) >= need)
         .slice(0, limit);
 
-      // 钉入：注入块里给过指针的原文，未被选上时按分数补位。
-      // 两段查询而不是改了上面的 top-N 重排——重排会连排序语义一起动（TOCC 那条分数
-      // 8.04 仍排不进 top-30），钉入要表达的正是"这条不是因为分数高才在场"。
-      const pinned = this.pinnedRows(params.pinnedIds ?? [], kept, match, scope, tokens, need);
-      // 补位挤的是**尾部**席位：原结果留 `limit - 钉入数` 条，其余给钉入的。
-      // 不能写成 `[...kept, ...pinned].slice(0, limit)`——kept 已经占满 limit，
-      // 追加再切等于把刚补上的一条切掉（2026-09-18 实测：钉入日志显示成功，
-      // 调用方收到的那份却没有它）。
-      const merged =
-        pinned.length > 0
-          ? [...kept.slice(0, Math.max(0, limit - pinned.length)), ...pinned]
-          : kept;
+      // 钉入两项工作（保住已在候选里的 + 补进没排上的），与融合路径共用 attachPinned
+      const merged = this.attachPinned(kept, params, limit);
       return merged.map((r) => this.toItem(r, params.query, -r.rank));
     } catch (err) {
       console.warn("[PalaceRepo.searchDrawers] FTS5 查询失败，回落 LIKE:", err);
       return this.searchByLike(params, limit);
     }
+  }
+
+  /**
+   * 混合检索：FTS 与向量召回做 RRF 融合（语义改写检索立项 T3）。
+   *
+   * ## 顺序是刻意的：融合 → 截断 → 钉入
+   *
+   * 钉入**排在融合之后**。理由：RRF 会把排序整体打散，而钉入的语义是
+   * 「这条在场不是因为分数高，而是因为注入层正在引用它」——让 RRF 去排它，
+   * 就等于把它重新变成"看分数"，那正是它要解决的问题。
+   *
+   * ## 与纯 FTS 的等价性
+   *
+   * `params.vectorSearch` 为 null（开关关闭）时，本方法**不再被调用**——
+   * 调用方直接走 `searchDrawers`，行为与加向量之前逐字相同。
+   *
+   * ## 失败即降级为纯 FTS
+   *
+   * 向量侧抛错（模型未就绪、索引缺失）时回落 FTS 并**记日志**，
+   * 不静默——沿用「禁止静默降级」的纪律。
+   */
+  async searchDrawersHybrid(
+    params: PalaceSearchParams,
+  ): Promise<{ items: readonly PalaceSearchItem[]; mode: "fts" | "hybrid" }> {
+    const limit = Math.max(1, params.limit ?? 10);
+    const vec = params.vectorSearch;
+    if (!vec) return { items: this.searchDrawers(params), mode: "fts" };
+
+    try {
+      const ftsRanked = this.ftsRankedRows(params);
+
+      const vecHits = await vec.searchSimilar({
+        query: params.query,
+        userId: params.userId,
+        ...(params.agentId ? { agentId: params.agentId } : {}),
+        limit: SEARCH_CANDIDATE_POOL,
+      });
+
+      // **先取两边再判断**：FTS 零命中而向量有命中，正是语义检索最该救的场景
+      // （用户措辞与内容零 token 重合）。早期版本在这里 `if (ftsRanked.length===0) return []
+      // 直接返回空，把向量结果整个丢掉——单测「向量把纯语义命中的抽屉带进结果」抓到了。
+      if (ftsRanked.length === 0 && vecHits.length === 0) return { items: [], mode: "fts" };
+      if (vecHits.length === 0) {
+        return {
+          items: ftsRanked.slice(0, limit).map((r) => this.toItem(r, params.query, -r.rank)),
+          mode: "fts",
+        };
+      }
+
+      // RRF：两侧各自的**排名**参与，不比较分数——FTS 是 BM25（无上界）、
+      // 向量是余弦（0.86~0.90 挤成一团），两套量纲不可比，这正是要用 RRF 的原因。
+      const rrf = reciprocalRankFusion([
+        ftsRanked.map((h) => h.drawer_id),
+        vecHits.map((h) => h.drawerId),
+      ]);
+      const byId = new Map(ftsRanked.map((h) => [h.drawer_id, h]));
+
+      // 向量命中的抽屉若不在 FTS 候选里——说明它对查询零 token 命中（纯语义改写，
+      // 正是这次要治的那类），要按 id 查回来补齐，否则融合只覆盖了交集。
+      const missing = vecHits
+        .map((h) => h.drawerId)
+        .filter((id) => !byId.has(id))
+        .slice(0, SEARCH_CANDIDATE_POOL);
+      if (missing.length > 0) {
+        const ph = missing.map(() => "?").join(", ");
+        const scope = this.buildScope(params, "d.");
+        const rows = this.db
+          .prepare<DrawerRow & { rank: number; fts_content: string }>(
+            `SELECT d.*, 0 AS rank, '' AS fts_content FROM palace_drawers d
+              WHERE d.drawer_id IN (${ph}) AND d.deleted_at IS NULL${scope.sql}`,
+          )
+          .all(...missing, ...scope.args);
+        for (const row of rows) byId.set(row.drawer_id, row);
+      }
+
+      const ranked = [...rrf.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .map(([id]) => byId.get(id))
+        .filter((r): r is DrawerRow & { rank: number; fts_content: string } => r !== undefined);
+
+      // 钉入排在融合**之后**（见方法注释）
+      const kept = this.attachPinned(ranked, params, limit);
+      return {
+        items: kept.map((r) => this.toItem(r, params.query, -r.rank)),
+        mode: "hybrid",
+      };    } catch (err) {
+      console.warn("[PalaceRepo.searchDrawersHybrid] 向量通道失败，回落纯 FTS:", err);
+      return { items: this.searchDrawers(params), mode: "fts" };
+    }
+  }
+
+  /**
+   * FTS 候选池的**原始行**（混合路径用）。
+   *
+   * 与 `searchDrawers` 的前半段同源，但它返回 row 而非加工后的 item——
+   * 融合需要 `rank` 与 `fts_content`，而 item 已经把它们丢掉了。
+   * 抽出来共用而不是让 `searchDrawers` 也返回 row：后者是公开 API，
+   * 改动它会影响所有既有调用方。
+   */
+  private ftsRankedRows(
+    params: PalaceSearchParams,
+  ): readonly (DrawerRow & { rank: number; fts_content: string })[] {
+    const tokens = [...tokenizeBigram(params.query)];
+    if (tokens.length === 0) return [];
+    const match = tokens.map((t) => `"${t.replace(/"/g, '""')}"`).join(" OR ");
+    const scope = this.buildScope(params, "d.");
+    const need = requiredTokenHits(tokens.length);
+    try {
+      const rows = this.db
+        .prepare<DrawerRow & { rank: number; fts_content: string }>(
+          `SELECT d.*, bm25(palace_drawers_fts) AS rank, palace_drawers_fts.content AS fts_content
+             FROM palace_drawers_fts
+             JOIN palace_drawers d ON d.rowid = palace_drawers_fts.rowid
+            WHERE palace_drawers_fts MATCH ? AND d.deleted_at IS NULL${scope.sql}
+            ORDER BY bm25(palace_drawers_fts)
+            LIMIT ?`,
+        )
+        .all(match, ...scope.args, SEARCH_CANDIDATE_POOL);
+      return rows.filter((r) => countTokenHits(tokens, r.fts_content) >= need);
+    } catch (err) {
+      console.warn("[PalaceRepo.ftsRankedRows] FTS5 查询失败:", err);
+      return [];
+    }
+  }
+
+  /**
+   * 把钉入项补到已排好的列表里。
+   *
+   * **只做两件事，且都不重排**：
+   * 1. **保住已被排进去的**——它可能落在 `limit` 之外被 `slice` 切掉。钉入的语义是
+   *    「这条必须在场」，不是「它排第几」，所以保留它**原来的位置**。
+   * 2. **补进没被排进去的**——对查询有命中但分数不够（`pinnedRows` 查回），插在尾部。
+   *
+   * **不把已在候选里的钉入项移到尾部**：那等于给了它一个它分数够不着的位次，
+   * 而 `toItem` 报的 score 仍是它原本的相关性分数——位置与分数会说谎。
+   * 这一点由 `palace-repo.test.ts` 的「钉入不改变原有排名」锁定，实现时踩过一次。
+   */
+  private attachPinned(
+    ranked: readonly (DrawerRow & { rank: number; fts_content: string })[],
+    params: PalaceSearchParams,
+    limit: number,
+  ): readonly (DrawerRow & { rank: number; fts_content: string })[] {
+    const ids = new Set(params.pinnedIds ?? []);
+    if (ids.size === 0) return ranked.slice(0, limit);
+
+    const tokens = [...tokenizeBigram(params.query)];
+    if (tokens.length === 0) return ranked.slice(0, limit);
+
+    // 已在候选里的钉入项：先按原顺序把它们**从截断里保下来**
+    const inList = ranked.filter((r) => ids.has(r.drawer_id));
+    const others = ranked.filter((r) => !ids.has(r.drawer_id));
+    // 保住的是"在场"，所以它们占尾部席位但**保持彼此原有相对顺序**；
+    // 不在候选里的按 FTS 查回来补位。
+    const match = tokens.map((t) => `"${t.replace(/"/g, '""')}"`).join(" OR ");
+    const scope = this.buildScope(params, "d.");
+    const fetched = this.pinnedRows([...ids], ranked, match, scope, tokens, requiredTokenHits(tokens.length));
+
+    // 已在候选里的那条：位置不动（留在 others 的排序里由 slice 自然处理），
+    // 只有**会被切掉的**才提到尾部保场。
+    const head = ranked.slice(0, limit);
+    const headIds = new Set(head.map((r) => r.drawer_id));
+    const rescued = inList.filter((r) => !headIds.has(r.drawer_id));
+    const mustAdd = [...rescued, ...fetched];
+    if (mustAdd.length === 0) return head;
+
+    const drop = new Set(mustAdd.map((r) => r.drawer_id));
+    const kept = head.filter((r) => !drop.has(r.drawer_id));
+    return [...kept.slice(0, Math.max(0, limit - mustAdd.length)), ...mustAdd].slice(0, limit);
   }
 
   /**

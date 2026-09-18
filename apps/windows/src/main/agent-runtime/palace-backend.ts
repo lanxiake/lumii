@@ -19,7 +19,7 @@
  * 而检索侧只读自建表，那批内容永远搜不到（差异 #19）。
  */
 
-import { PalaceRepo, type LocalDatabase } from '@mtbot/agent-runtime'
+import { PalaceRepo, PalaceVectorIndex, type LocalDatabase } from '@mtbot/agent-runtime'
 import type { AgentRuntimeBridgeConfig, PalaceSearchHit } from './bridge-types'
 
 /**
@@ -92,10 +92,39 @@ function resolveConversationAgentId(localDb: LocalDatabase, conversationId: stri
 export function withBuiltinPalace(
   config: AgentRuntimeBridgeConfig,
   localDb: LocalDatabase,
+  /**
+   * 取向量索引（语义改写检索立项 T3）。返回 null 时行为与加向量之前**逐字相同**
+   * （检索走 `searchDrawers`，归档不写向量）——这是开关关闭时的等价性保证。
+   *
+   * **为什么是 getter 而不是直接传索引**：`withBuiltinPalace` 在 bridge 构造期调用，
+   * 那时 DB 还没打开（向量索引需要 DB 句柄）；索引要到 `finalizeInitialize` 才能装。
+   * getter 让构造期接线、运行期取到同一个索引。
+   */
+  getVectorIndex: () => PalaceVectorIndex | null = () => null,
 ): AgentRuntimeBridgeConfig {
 
   /** 每次调用现取句柄：DB 在 initialize 阶段才打开，构造期拿不到 */
   const repo = (): PalaceRepo | null => (localDb.isOpen ? new PalaceRepo(localDb.db) : null)
+
+  /**
+   * 归档后写向量。**失败只记日志**——向量是派生数据，缺一条不该让归档失败
+   * （原文才是权威，向量可以由后台补齐）。
+   */
+  const indexVector = (drawer: {
+    drawerId: string
+    agentId: string
+    userId: string
+    content: string
+  }): void => {
+    const idx = getVectorIndex()
+    if (!idx) return
+    void idx.upsertDrawer(drawer).catch((err: unknown) => {
+      console.warn(
+        `[Palace] 向量写入失败 drawer=${drawer.drawerId.slice(0, 8)}:`,
+        err instanceof Error ? err.message : String(err),
+      )
+    })
+  }
 
   return {
     ...config,
@@ -118,13 +147,19 @@ export function withBuiltinPalace(
       if (!r || !text || !convId) return
       try {
         const agentId = resolveConversationAgentId(localDb, convId)
-        r.upsertDrawer({
+        const archived = r.upsertDrawer({
           agentId,
           userId: 'local-user',
           wing: PER_TURN_WING,
           room: convId,
           content: text,
           conversationId: convId,
+        })
+        indexVector({
+          drawerId: archived.drawerId,
+          agentId,
+          userId: 'local-user',
+          content: text,
         })
       } catch (err) {
         // 与段归档同一条纪律：内容没进宫殿的记账点必须出现在日志里
@@ -141,17 +176,20 @@ export function withBuiltinPalace(
     ): Promise<PalaceSearchHit[] | null> => {
       const r = repo()
       if (!r) return null
-      return [
-        ...r.searchDrawers({
-          query,
-          userId: scope?.userId ?? 'local-user',
-          // scope.agentId 缺省 = 跨 Agent（宫殿是会话存档，本就跨助手可读）；
-          // 与工作记忆通道同一条规则，避免同一 Agent 在注入里看得到、在检索里搜不到
-          ...(scope?.agentId ? { agentId: scope.agentId } : {}),
-          ...(scope?.pinnedIds?.length ? { pinnedIds: scope.pinnedIds } : {}),
-          limit: limit ?? 10,
-        }),
-      ]
+      const params = {
+        query,
+        userId: scope?.userId ?? 'local-user',
+        // scope.agentId 缺省 = 跨 Agent（宫殿是会话存档，本就跨助手可读）；
+        // 与工作记忆通道同一条规则，避免同一 Agent 在注入里看得到、在检索里搜不到
+        ...(scope?.agentId ? { agentId: scope.agentId } : {}),
+        ...(scope?.pinnedIds?.length ? { pinnedIds: scope.pinnedIds } : {}),
+        limit: limit ?? 10,
+      }
+      // 开关关闭（无向量索引）时走**同一条** searchDrawers，行为与加向量前逐字相同
+      const vec = getVectorIndex()
+      if (!vec) return [...r.searchDrawers(params)]
+      const hybrid = await r.searchDrawersHybrid({ ...params, vectorSearch: vec })
+      return [...hybrid.items]
     },
     readPalaceDrawer: async (drawerId: string) => {
       const r = repo()
@@ -173,6 +211,12 @@ export function withBuiltinPalace(
         drawerId: params.drawerId,
         conversationId,
         segmentId,
+      })
+      indexVector({
+        drawerId: result.drawerId,
+        agentId: params.agentId ?? 'assistant',
+        userId: params.userId ?? 'local-user',
+        content: params.content,
       })
       return { drawerId: result.drawerId }
     },

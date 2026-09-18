@@ -22,6 +22,13 @@ export type {
 } from "./palace-repo.js";
 export { PalaceIndexRepo } from "./palace-index.js";
 export type { PalaceFtsHealth } from "./palace-index.js";
+// 宫殿向量索引（语义改写检索立项 T3）：与 wiki 侧 WikiSourceVectorIndex 同构
+export {
+  PalaceVectorIndex,
+  buildPalaceVectorCorpus,
+  PALACE_VECTOR_CORPUS_MAX_CHARS,
+} from "./palace-vector.js";
+export type { PalaceVectorHit } from "./palace-vector.js";
 
 export { MemoryManager } from "./manager.js";
 export type {

@@ -24,6 +24,7 @@ import {
   AgentMemoryRepo,
   MemoryIndexRepo,
   PalaceRepo,
+  PalaceVectorIndex,
   MemoryManager,
   ConversationRepo,
   SegmentRepo,
@@ -175,6 +176,8 @@ import { RouterLlmCallerImpl } from './router/llm-caller'
 import { RouterHitRateTracker } from './router/router-hit-rate-tracker'
 import type { AgentRuntimeBridgeConfig, AgentLifecycleSnapshot } from './bridge-types'
 import { withBuiltinPalace } from './palace-backend'
+import { setupPalaceVector, backfillPalaceVectors } from './palace-vector-runtime'
+import { createTransformersE5Embedder } from './wiki-transformers-embedder'
 import { getCloudSyncManager } from '../cloud-sync/sync-accessor'
 import type { ConflictInfo } from '../cloud-sync/types'
 import { ensureProviderBaseUrl } from '../provider-config'
@@ -382,6 +385,14 @@ export class AgentRuntimeBridge {
    * 两者是同一轮的上下游。会话数有界（内存会话 + 少量 cron），不需要淘汰。
    */
   private readonly injectedDrawerIds = new Map<string, string[]>()
+  /**
+   * 宫殿向量索引（语义改写检索立项 T3）。
+   *
+   * 默认 null = 向量通道关闭。由 `setupPalaceVector` 在 `finalizeInitialize` 装配
+   * （那时 DB 已打开）。**只有 `LUMII_PALACE_VECTOR=1` 时才加载模型**——默认不加载，
+   * 没开就不付任何代价（模型 912ms + 索引 993 条 ≈ 32 秒）。
+   */
+  private _palaceVectorIndex: PalaceVectorIndex | null = null
 
   /** 主 Agent 实例的 innerStream / model（仅 def.id === 'main' 时设置） */
   private readonly mainInnerStreamRef: { value: ReturnType<typeof createDirectStreamFn> | null } = { value: null }
@@ -419,7 +430,8 @@ export class AgentRuntimeBridge {
   constructor(config: AgentRuntimeBridgeConfig) {
     // 记忆宫殿：注入自建 SQLite 实现（PalaceRepo）。必须在这里接线——LocalDatabase
     // 由本类持有，index.ts 的回调闭包拿不到 DB 句柄（见 palace-backend.ts 的说明）。
-    this.config = withBuiltinPalace(config, this.localDb)
+    // 向量索引走 getter：它需要 DB 句柄，而 DB 到 initialize 才打开（见该字段注释）。
+    this.config = withBuiltinPalace(config, this.localDb, () => this._palaceVectorIndex)
     this.featureFlags = createFeatureFlags()
     this.imageServices = new BridgeImageServices({
       getModelRouter: () => this.modelRouter,
@@ -1873,8 +1885,37 @@ export class AgentRuntimeBridge {
   }
 
   /** initialize() 子块 7/7：记忆整理 kickoff、置 initialized=true、ready 事件、启动 idle 轮询 */
-  private finalizeInitialize(): void {
-    // 启动时检查个人记忆是否需要主动整理（去重/冲突消解）
+  /**
+   * 后台装配宫殿向量索引（T3）。
+   *
+   * **默认关**：`LUMII_PALACE_VECTOR` 未开时直接返回，**连模型都不加载**——
+   * 没开就不该付任何代价（模型加载 912ms + 首次索引 993 条 ≈ 32 秒）。
+   *
+   * 失败只记日志：向量是派生通道，它不可用时检索照常走纯 FTS。
+   */
+  private async setupPalaceVectorInBackground(): Promise<void> {
+    try {
+      const runtime = await setupPalaceVector({
+        localDb: this.localDb,
+        // 复用 wiki 侧已装配的 E5 嵌入器：同一个模型、同一份缓存，不重复加载
+        embedderLoader: () => createTransformersE5Embedder(),
+      })
+      if (!runtime.index) {
+        log.info(`[palace-vector] 未启用：${runtime.disabledReason}`)
+        return
+      }
+      this._palaceVectorIndex = runtime.index
+      const done = await backfillPalaceVectors({
+        localDb: this.localDb,
+        index: runtime.index,
+      })
+      if (done > 0) log.info(`[palace-vector] 已后台补齐 ${done} 条向量`)
+    } catch (err) {
+      log.warn('[palace-vector] 装配失败（检索走纯 FTS）:', err)
+    }
+  }
+
+  private finalizeInitialize(): void {    // 启动时检查个人记忆是否需要主动整理（去重/冲突消解）
     void this._memoryManager!
       .maybeConsolidateExistingPersonalMemory()
       .then((done) => {
@@ -1885,6 +1926,10 @@ export class AgentRuntimeBridge {
     // 启动时恢复遗留的待总结段：pipeline 懒创建会让积压段堆到用户下一条消息时集中爆发
     // LLM 调用（2026-09-15 实测一条「你好」触发 9 次串行总结），改为启动后台消化
     this._segmentMemoryService?.recoverPending()
+
+    // 宫殿向量（T3）：默认关，开启时才加载模型。**全程后台**，不阻塞就绪——
+    // 异步装配 + 后台补齐（首次全量 993 条 ≈ 32 秒）
+    void this.setupPalaceVectorInBackground()
 
     this.initialized = true
     log.info(`Initialized with ${this.toolRegistry.size} built-in tools (stub overrides applied)`)

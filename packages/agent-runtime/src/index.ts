@@ -377,6 +377,10 @@ export {
   PalaceIndexRepo,
   buildDrawerExcerpt,
   SEARCH_EXCERPT_CHARS,
+  // 宫殿向量索引（语义改写检索立项 T3）
+  PalaceVectorIndex,
+  buildPalaceVectorCorpus,
+  PALACE_VECTOR_CORPUS_MAX_CHARS,
 } from "./memory/index.js";
 export type {
   ExistingMemoryContext,

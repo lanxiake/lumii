@@ -266,6 +266,186 @@ describe("PalaceRepo", () => {
     expect(hits).toHaveLength(0);
   });
 
+  /**
+   * 混合检索（语义改写检索立项 T3）—— FTS 与向量做 RRF 融合。
+   *
+   * 用**假向量检索器**而非真模型：单测要锁的是**融合与排序的契约**（顺序、
+   * 钉入、降级），不是模型质量——后者由 `scripts/semantic-eval.mjs` 在真实语料上评。
+   */
+  describe("searchDrawersHybrid", () => {
+    const fakeVec = (hits: readonly { drawerId: string; score: number }[]) => ({
+      searchSimilar: async () => hits,
+    })
+
+    it("不给向量检索器时行为与纯 FTS 逐字相同", async () => {
+      archive("工单同步的排查记录");
+      const plain = repo.searchDrawers({ query: "工单同步", userId: USER, limit: 10 });
+      const hybrid = await repo.searchDrawersHybrid({ query: "工单同步", userId: USER, limit: 10 });
+
+      expect(hybrid.mode).toBe("fts");
+      expect(hybrid.items).toEqual(plain);
+    });
+
+    it("向量把纯语义命中的抽屉带进结果（它对查询零 token 命中）", async () => {
+      // 这条与查询「数据库连接池」一个 bigram 都不重合
+      const semantic = archive("排查 Tomcat/HikariCP/Spring Boot 启动失败时，MySQL 报错包含 Host is blocked");
+      archive("完全无关的另一段内容");
+
+      const hybrid = await repo.searchDrawersHybrid({
+        query: "数据库连接池",
+        userId: USER,
+        limit: 5,
+        vectorSearch: fakeVec([{ drawerId: semantic.drawerId, score: 0.9 }]),
+      });
+
+      expect(hybrid.mode).toBe("hybrid");
+      expect(hybrid.items.map((h) => h.drawer_id)).toContain(semantic.drawerId);
+    });
+
+    it("两路都命中的抽屉排在只被一路命中的前面（RRF 的题中之义）", async () => {
+      const both = archive("工单同步排查：ODS 表时间字段问题");
+      const ftsOnly = archive("工单同步的日常巡检记录，一切正常");
+
+      const hybrid = await repo.searchDrawersHybrid({
+        query: "工单同步",
+        userId: USER,
+        limit: 5,
+        vectorSearch: fakeVec([{ drawerId: both.drawerId, score: 0.8 }]),
+      });
+
+      const ids = hybrid.items.map((h) => h.drawer_id);
+      expect(ids.indexOf(both.drawerId)).toBeLessThan(ids.indexOf(ftsOnly.drawerId));
+    });
+
+    it("**钉入排在融合之后**：RRF 打散排序不该把注入的指针挤掉", async () => {
+      // 造 5 条 FTS 命中把席位占满，钉入项在对查询零 token 命中时靠补位进来
+      for (let i = 0; i < 5; i++) archive(`工单同步记录 ${i}`);
+      const pinnedTarget = archive("完全不含查询词的原文");
+
+      const hybrid = await repo.searchDrawersHybrid({
+        query: "工单同步",
+        userId: USER,
+        limit: 5,
+        pinnedIds: [pinnedTarget.drawerId],
+        vectorSearch: fakeVec([{ drawerId: `${"a".repeat(15)}b`, score: 0.9 }]),
+      });
+
+      // 钉入项对查询零命中 → 过不了 pinnedRows 的相关性检查，本就不该进来；
+      // 这里锁的是**另一个方向**：融合后的结果数没被撑爆、且不重复
+      expect(hybrid.items.length).toBeLessThanOrEqual(5);
+      expect(new Set(hybrid.items.map((h) => h.drawer_id)).size).toBe(hybrid.items.length);
+    })
+
+    it("钉入项已被融合排进结果时，留在原位置不动（不因钉入而获得虚高位次）", async () => {
+      for (let i = 0; i < 5; i++) archive(`工单同步记录 ${i}`);
+      const pinnedTarget = archive("工单同步的深层排查：根因在 ODS 表时间字段");
+
+      const hybrid = await repo.searchDrawersHybrid({
+        query: "工单同步",
+        userId: USER,
+        limit: 6,
+        pinnedIds: [pinnedTarget.drawerId],
+        vectorSearch: fakeVec([]),
+      });
+
+      // 钉入的语义是「在场」，不是「排第几」——它的位置应与不钉入时一致
+      const plain = repo.searchDrawers({ query: "工单同步", userId: USER, limit: 6 });
+      const idxPinned = hybrid.items.findIndex((h) => h.drawer_id === pinnedTarget.drawerId);
+      const idxPlain = plain.findIndex((h) => h.drawer_id === pinnedTarget.drawerId);
+      expect(idxPinned).toBeGreaterThanOrEqual(0);
+      expect(idxPinned).toBe(idxPlain);
+    })
+
+    it("钉入项落在 limit 之外时被保回场内（否则 slice 会把它切掉）", async () => {
+      // **测试库的局限（如实记录）**：这里建不出「目标落在场外」的自然场景——
+      // 测试库无 IDF 区分度，目标恒排第 1（实测 7 条候选里它位置=1）。真实库里
+      // 这是「几十条重复语料 + BM25 断崖」的结果（实测 tocc-sync 排 52/608）。
+      // 故直接把手排顺序喂给 `attachPinned`，锁住**契约本身**：目标在末尾也得保回来。
+      for (let i = 0; i < 6; i++) archive(`工单同步记录 ${i} 巡检内容`);
+      const target = archive("工单同步的深层排查");
+
+      const rows = (repo as unknown as {
+        ftsRankedRows(p: unknown): (Record<string, unknown> & { drawer_id: string })[];
+      }).ftsRankedRows({ query: "工单同步", userId: USER, limit: 10 });
+      // 手工把目标挪到末尾，模拟"分数不够、落在场外"
+      const reordered = [
+        ...rows.filter((r) => r.drawer_id !== target.drawerId),
+        ...rows.filter((r) => r.drawer_id === target.drawerId),
+      ];
+      const out = (repo as unknown as {
+        attachPinned(
+          ranked: unknown,
+          params: { query: string; userId: string; pinnedIds: string[] },
+          limit: number,
+        ): readonly { drawer_id: string }[];
+      }).attachPinned(reordered, { query: "工单同步", userId: USER, pinnedIds: [target.drawerId] }, 3);
+
+      expect(out.map((r) => r.drawer_id)).toContain(target.drawerId);
+      expect(out.length).toBeLessThanOrEqual(3);
+    })
+
+    it("未钉入时不受影响：attachPinned 只做 slice", async () => {
+      for (let i = 0; i < 5; i++) archive(`工单同步记录 ${i}`);
+
+      const without = repo.searchDrawers({ query: "工单同步", userId: USER, limit: 3 });
+      const hybrid = await repo.searchDrawersHybrid({
+        query: "工单同步",
+        userId: USER,
+        limit: 3,
+        vectorSearch: fakeVec([]),
+      });
+
+      expect(hybrid.items.map((h) => h.drawer_id)).toEqual(without.map((h) => h.drawer_id));
+    })
+
+    it("向量侧抛错时回落纯 FTS，不静默吞掉", async () => {
+      archive("工单同步的排查记录");
+      const failing = {
+        searchSimilar: async () => {
+          throw new Error("模型未就绪")
+        },
+      };
+
+      const hybrid = await repo.searchDrawersHybrid({
+        query: "工单同步",
+        userId: USER,
+        limit: 5,
+        vectorSearch: failing,
+      });
+
+      expect(hybrid.mode).toBe("fts");
+      expect(hybrid.items.length).toBeGreaterThan(0);
+    })
+
+    it("向量无命中时退回 FTS 结果（mode 如实报 fts）", async () => {
+      archive("工单同步的排查记录");
+      const hybrid = await repo.searchDrawersHybrid({
+        query: "工单同步",
+        userId: USER,
+        limit: 5,
+        vectorSearch: fakeVec([]),
+      });
+
+      expect(hybrid.mode).toBe("fts");
+      expect(hybrid.items.length).toBeGreaterThan(0);
+    })
+
+    it("墓碑抽屉不被向量带回来（与 FTS 侧同一条读侧过滤）", async () => {
+      const gone = archive("会被删掉的工单同步内容");
+      repo.deleteById(gone.drawerId);
+      archive("正常保留的工单同步内容");
+
+      const hybrid = await repo.searchDrawersHybrid({
+        query: "工单同步",
+        userId: USER,
+        limit: 5,
+        vectorSearch: fakeVec([{ drawerId: gone.drawerId, score: 0.99 }]),
+      });
+
+      expect(hybrid.items.map((h) => h.drawer_id)).not.toContain(gone.drawerId);
+    })
+  })
+
   it("分词为空（纯符号查询）回落 LIKE，不抛异常", () => {
     archive("一段含「——」破折号的内容。");
     const hits = search("——");
