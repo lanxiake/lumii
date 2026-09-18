@@ -293,6 +293,24 @@ assert(marked.includes("not found in"), "失败来源必须是 oldString 未找�
 - **8b 反向断言的作用**：防"宿主工具一律标失败"——那种实现同样违反契约。
 - **预计回合**：2
 
+### 实测（2026-09-18）
+
+```
+✅ [TC-CONTRACT-08] PASS — 宿主工具失败载荷已标 isError（session_resume 1/1）；
+   成功的 session_list 1 次未被误标
+```
+
+| 项 | 结果 |
+| --- | --- |
+| 8a `session_resume` 传不存在的会话 | **1/1 标了失败**——`{ok:false, message:'会话不存在：…'}` 的载荷在真实链路上变成了 `is_error` |
+| 8b `session_list`（必然成功） | **未被误标** —— 证明判定不是"宿主工具一律标失败" |
+
+> **这条用例跨了两个包**，所以单测替代不了它：
+> `apps/windows` 的宿主工具 → `bridge-instance-factory` → `assembleAgent`
+> →（`packages/agent-runtime` 的 `tool-assembly.ts`）→ `ToolRunner`
+> → `tool-registry` 的 throw → pi-agent-core 的 `is_error`。
+> 单测能证明 `jsonToolResult` 返回了 `isError: true`，但证明不了这条路走通。
+
 ---
 
 ## 不在本套件覆盖范围内的
