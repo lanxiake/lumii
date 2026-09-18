@@ -28,6 +28,15 @@ export class SyncScheduler {
   private onConflictPendingCb?: () => Promise<void>
   private readonly watcher: SyncFileWatcher
 
+  /**
+   * 同步合并标记（见 tick 的注释）。
+   *
+   * 刻意**不在 stop() 里重置**：正在跑的同步无法取消，重置会让新 tick 误以为
+   * 可以再起一次，反而制造并发。它在跑的那次结束时由 finally 自行清干净。
+   */
+  private syncRunning = false
+  private syncQueued = false
+
   constructor(private manager: CloudSyncManager) {
     // 惰性取工作空间目录：切工作空间无需重建 watcher，ensureBound() 会重绑
     this.watcher = new SyncFileWatcher(manager, resolveActiveWorkspaceDir)
@@ -73,7 +82,44 @@ export class SyncScheduler {
     this.debounceTimer = setTimeout(() => void this.tick(), 60_000)
   }
 
+  /**
+   * tick 入口 —— **带合并**。
+   *
+   * 为什么必须合并：`onWorkspaceChanged` 的防抖只有 60 秒，而一次同步实测要 5~10 分钟
+   * （导出阶段走一遍整个工作区约 150 秒；提交阶段 isomorphic-git 按内容重算
+   * sync 仓库的 blob hash，1.3GB / 1153 文件，实测能到 600 秒以上）。
+   * 不挡的话，防抖窗口一到就再塞一次，而**排队者出队后不是被丢弃、是真跑一遍全量同步** ——
+   * 队列只增不减，还会把共用同一条串行队列的 `vcs:snapshot` 一起饿死
+   * （2026-09-18 实测：队列深度涨到 3、`cloud-sync:sync 已执行 627s 未结束`、
+   *  vcs:snapshot 已排队 183s 仍未开始）。
+   *
+   * 合并后：同一时刻至多一次在跑 + 一个「还欠一次」的标记。跑完若期间有过变更，
+   * 再补一次；补的过程中又来了就继续补 —— 始终只占一个队列位。
+   */
   private async tick(): Promise<void> {
+    if (this.syncRunning) {
+      if (!this.syncQueued) {
+        logger.info('[tick] 上一次同步仍在进行 → 本次合并，待其结束后补一次')
+      }
+      this.syncQueued = true
+      return
+    }
+    this.syncRunning = true
+    try {
+      do {
+        this.syncQueued = false
+        await this.runTick()
+      } while (this.syncQueued)
+    } finally {
+      // 兜底清标记：while 判断与这里之间到达的请求会置位后立刻被清掉，
+      // 丢掉的是「一次冗余同步」而非数据 —— 下一次 tick / 防抖会再触发。
+      this.syncRunning = false
+      this.syncQueued = false
+    }
+  }
+
+  /** 单次 tick 的实际工作：同步 → 冲突重试 → 24h 超时升级 */
+  private async runTick(): Promise<void> {
     try {
       // 切工作空间后重绑文件监听（目录未变时是 no-op）
       this.watcher.ensureBound()

@@ -13,6 +13,7 @@ import git, { TREE } from 'isomorphic-git'
 import type { PromiseFsClient, WalkerEntry } from 'isomorphic-git'
 import http from 'isomorphic-git/http/node'
 import { enqueueWorkspace, getWorkspaceQueueDepth } from '../workspace-vcs/vcs-snapshot'
+import { detectGit, runGit } from '../git-cli'
 import { SyncLargeQueue, type LargeQueueStats } from './sync-large-queue'
 import { scopeRulesFromConfig } from './sync-scope'
 import { resolveActiveWorkspaceDir } from '../workspace-paths'
@@ -1052,8 +1053,16 @@ export class CloudSyncManager extends EventEmitter {
     p: GitParams,
     excludeFromRemoval?: readonly string[],
   ): Promise<boolean> {
-    const status = await git.statusMatrix({ ...p })
     const excluded = new Set(excludeFromRemoval ?? [])
+
+    // 快路径：真 git 子进程（实测 73ms，且完全不占主线程）。
+    // 回退路径的 add('.') 是**按内容全量重算 blob hash**，sync 仓库 1.3GB / 1153 文件
+    // 实测能跑到 600 秒以上，而且全程在主线程上 —— 2026-09-18 客户端卡死的那一类。
+    if (await detectGit()) {
+      return this.stageAllChangesViaCli(p, excluded)
+    }
+
+    const status = await git.statusMatrix({ ...p })
     const { hasChanges, removals } = computeStagePlan(status, (f) => excluded.has(f))
     if (!hasChanges) return false
 
@@ -1062,6 +1071,46 @@ export class CloudSyncManager extends EventEmitter {
     }
     await git.add({ ...p, filepath: '.' })
     return true
+  }
+
+  /**
+   * stageAllChanges 的真 git 实现。
+   *
+   * `git add -A` 一步到位（含新增/修改/**删除**），但它会把「阶段一跳过的大文件」
+   * 一并判为删除 —— 那些文件不在工作区却存在于 HEAD，正是 `excludeFromRemoval`
+   * 要豁免的情形（否则每跑一次阶段一就把阶段二刚提交的大文件删一次）。
+   * 所以对这些路径补一步 `git reset --`：把 index 条目恢复成 HEAD 版本，等价于「没动过」。
+   *
+   * **只对工作区确实不存在的排除路径做这一步**：若它其实存在（边界情形），
+   * 就该和普通文件一样被正常暂存，不能拿 reset 抹掉它 —— 这也是原实现的行为
+   * （原实现走 `git.add('.')`，只遍历工作树里真实存在的文件）。
+   */
+  private async stageAllChangesViaCli(
+    p: GitParams,
+    excluded: ReadonlySet<string>,
+  ): Promise<boolean> {
+    const add = await runGit({ workTree: p.dir, gitDir: p.gitdir, args: ['add', '-A'] })
+    if (add.code !== 0) {
+      throw new Error(`git add -A 退出码 ${add.code}: ${add.stderr.trim().slice(0, 300)}`)
+    }
+
+    const absent = [...excluded].filter((f) => !fs.existsSync(path.join(p.dir, f)))
+    if (absent.length) {
+      const reset = await runGit({
+        workTree: p.dir,
+        gitDir: p.gitdir,
+        args: ['reset', '-q', 'HEAD', '--', ...absent],
+      })
+      if (reset.code !== 0) {
+        throw new Error(`git reset 退出码 ${reset.code}: ${reset.stderr.trim().slice(0, 300)}`)
+      }
+    }
+
+    // `diff --cached --quiet`：退出码 1 = 有暂存变更，0 = 无
+    const diff = await runGit({ workTree: p.dir, gitDir: p.gitdir, args: ['diff', '--cached', '--quiet'] })
+    if (diff.code === 0) return false
+    if (diff.code === 1) return true
+    throw new Error(`git diff --cached 退出码 ${diff.code}: ${diff.stderr.trim().slice(0, 300)}`)
   }
 
   /**

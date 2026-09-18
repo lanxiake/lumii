@@ -66,7 +66,14 @@ describe('CloudSyncManager 用户文件同步', () => {
     fs.writeFileSync(abs, content, 'utf-8')
   }
 
-  /** 递归拷贝 git 对象库（测试仓库全是 loose object） */
+  /**
+   * 递归拷贝 git 对象库（测试仓库全是 loose object）。
+   *
+   * 已存在就跳过（理由与 sync-manager.test.ts 里同名函数一致）：
+   * object 是内容寻址的，同一路径必然是同一份内容；而真 git 写出的 loose object
+   * 在 Windows 上带只读属性（实测 mode=444），对只读目标 copyFileSync 会 EPERM。
+   * 两侧实现保持一致 —— 改一处时另一处要同步改。
+   */
   const copyObjects = (fromGitdir: string, toGitdir: string) => {
     const src = path.join(fromGitdir, 'objects')
     if (!fs.existsSync(src)) return
@@ -77,6 +84,7 @@ describe('CloudSyncManager 用户文件同步', () => {
         if (e.isDirectory()) walk(abs, r)
         else {
           const target = path.join(toGitdir, 'objects', r)
+          if (fs.existsSync(target)) continue
           fs.mkdirSync(path.dirname(target), { recursive: true })
           fs.copyFileSync(abs, target)
         }

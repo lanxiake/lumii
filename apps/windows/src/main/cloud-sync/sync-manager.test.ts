@@ -142,7 +142,15 @@ describe('CloudSyncManager', () => {
     })
   }
 
-  /** 递归拷贝 git 对象库（测试仓库全是 loose object） */
+  /**
+   * 递归拷贝 git 对象库（测试仓库全是 loose object）。
+   *
+   * 已存在就跳过，不做覆盖：object 是**内容寻址**的，目标路径就是它的哈希 ——
+   * 同一路径必然是同一份内容，覆盖本身没有意义。
+   * 这个跳过不是优化而是必需：真 git 写出的 loose object 在 Windows 上带只读属性
+   * （实测 mode=444），对只读目标 copyFileSync 会 EPERM。
+   * 此前能工作只是因为 staged 路径全由 isomorphic-git 写、恰好可写 —— 那是个偶然依赖。
+   */
   const copyObjects = (fromGitdir: string, toGitdir: string) => {
     const src = path.join(fromGitdir, 'objects')
     if (!fs.existsSync(src)) return
@@ -153,6 +161,7 @@ describe('CloudSyncManager', () => {
         if (e.isDirectory()) walk(abs, r)
         else {
           const target = path.join(toGitdir, 'objects', r)
+          if (fs.existsSync(target)) continue
           fs.mkdirSync(path.dirname(target), { recursive: true })
           fs.copyFileSync(abs, target)
         }
@@ -399,6 +408,60 @@ describe('CloudSyncManager', () => {
 
     expect(plan.hasChanges).toBe(true)
     expect(plan.removals).toEqual(['workspace/outputs/small.md'])
+  })
+
+  // ── stageAllChanges 的**端到端**行为（含真 git 快路径）──
+  //
+  // 上面几条守的是 computeStagePlan 这个纯函数；而暂存现在优先走真 git 子进程
+  // （见 sync-manager.ts 的 stageAllChangesViaCli），**不再经过那个纯函数**。
+  // 于是「排除集内的大文件不能被判为删除」这条语义一度变成后端到端无人守 ——
+  // 而这正是分级传输的核心风险：大文件在 HEAD 里（阶段二提交过）、
+  // 阶段一导出时被阈值跳过 → 不做豁免就会每跑一次阶段一删掉阶段二的成果。
+
+  /** 直接调私有的 stageAllChanges（它是本用例的 SUT） */
+  const stageAll = (p: ReturnType<typeof syncParams>, excluded?: readonly string[]) =>
+    (
+      manager as unknown as {
+        stageAllChanges: (p: unknown, ex?: readonly string[]) => Promise<boolean>
+      }
+    ).stageAllChanges(p, excluded)
+
+  it('stageAllChanges：排除集内且工作区已不存在的路径不被暂存为删除', async () => {
+    await setupBase()
+    const p = syncParams()
+
+    // 模拟「阶段二已提交的大文件」：它在 HEAD 里
+    writeSync('workspace/files/big.bin', 'BIG-CONTENT')
+    await commitSync('phase2: 提交大文件')
+
+    // 阶段一导出按阈值跳过它 → 工作区里不存在
+    fs.rmSync(path.join(syncDir, 'workspace/files/big.bin'))
+
+    const changed = await stageAll(p, ['workspace/files/big.bin'])
+
+    // [filepath, head, workdir, stage]：stage 必须仍是 1（与 HEAD 一致）；
+    // 若被当成删除就是 0 —— 那等于每跑一次阶段一就删掉阶段二的成果
+    const row = (await git.statusMatrix({ ...p })).find(([f]) => f === 'workspace/files/big.bin')
+    expect(row?.[1]).toBe(1)
+    expect(row?.[3]).toBe(1)
+    // 排除集内是唯一差异 → 整轮判为无变更
+    expect(changed).toBe(false)
+  })
+
+  it('stageAllChanges：未被排除的删除照常暂存', async () => {
+    await setupBase()
+    const p = syncParams()
+
+    writeSync('workspace/files/gone.md', 'x')
+    await commitSync('加一个待删文件')
+    fs.rmSync(path.join(syncDir, 'workspace/files/gone.md'))
+
+    const changed = await stageAll(p, [])
+
+    expect(changed).toBe(true)
+    const row = (await git.statusMatrix({ ...p })).find(([f]) => f === 'workspace/files/gone.md')
+    expect(row?.[1]).toBe(1) // HEAD 里有
+    expect(row?.[3]).toBe(0) // index 里没了 = 已暂存为删除
   })
 
   it('computeStagePlan：内容变化计入 hasChanges 但不产生 remove', () => {
