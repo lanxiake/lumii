@@ -2,10 +2,15 @@
  * 工具 Hooks 类型定义 — 统一入口/出口的横切扩展点
  */
 
-import type { AgentToolResult, ToolCategory, ToolExecutionContext } from "../types/tool.js";
+import type { MtBotToolResult, ToolCategory, ToolExecutionContext } from "../types/tool.js";
 
-/** Hook 链路上的统一结果类型（与 MtBotTool 泛型对齐） */
-export type HookAgentToolResult = AgentToolResult<unknown>;
+/**
+ * Hook 链路上的统一结果类型（与 MtBotTool 泛型对齐）
+ *
+ * 用 `MtBotToolResult` 而非裸 `AgentToolResult`：hook 短路返回时也要能标顶层 `isError`，
+ * 且下游读取无需类型断言。契约见 `types/tool.ts`。
+ */
+export type HookAgentToolResult = MtBotToolResult;
 
 /** 工具执行前 Hook 上下文 */
 export interface ToolHookContext {

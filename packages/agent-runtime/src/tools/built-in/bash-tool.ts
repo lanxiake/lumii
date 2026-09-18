@@ -57,6 +57,12 @@ export const bashToolConfig: MtBotToolConfig<typeof BashInput> = {
     return {
       content: [{ type: "text", text: output || "(no output)" }],
       details: { exitCode: result.exitCode },
+      // 非零退出即失败（2026-09-18 批次 1 定案）。
+      // 依据：近 5 天 321 次调用里非零占 26.5%，而「非零属正常语义」的命令
+      // （grep 未匹配 / diff 有差异 / test 判假）在 bash_command_log 全量 1559 条里仅 22 条（1.4%）。
+      // 回退方案：若上线后错误率 > 40%（说明有未预料的语义性场景），
+      // 收窄为 `result.exitCode === 127 || result.exitCode === 255`（命令未找到 / 中断）。
+      isError: result.exitCode !== 0,
     };
   },
 };

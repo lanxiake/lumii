@@ -185,7 +185,8 @@ export function wrapMtBotToolsWithRunner(
         lifecycle,
       );
       // pi-agent-core 不读取 result.isError，必须通过 throw 才能让 UI/Agent 识别失败
-      if ((result as { isError?: boolean }).isError) {
+      // 注意：throw 后 pi-agent-core 会重建 result，`details` 被清空（见 types/tool.ts 契约第 2 条）
+      if (result.isError) {
         throw new Error(toolResultErrorMessage(result));
       }
       return result;

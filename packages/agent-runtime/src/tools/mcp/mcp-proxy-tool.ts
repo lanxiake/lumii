@@ -5,8 +5,7 @@
  */
 
 import { Type, type TSchema } from "@sinclair/typebox";
-import type { MtBotTool, ToolCategory } from "../../types/tool.js";
-import type { AgentToolResult } from "@mariozechner/pi-agent-core";
+import type { MtBotTool, MtBotToolResult, ToolCategory } from "../../types/tool.js";
 import type { McpStdioClient, McpToolDefinition } from "./mcp-client.js";
 
 /**
@@ -45,7 +44,7 @@ function createMcpProxyTool(
       _toolCallId: string,
       params: unknown,
       _signal?: AbortSignal,
-    ): Promise<AgentToolResult<unknown>> {
+    ): Promise<MtBotToolResult<unknown>> {
       const args = (params ?? {}) as Record<string, unknown>;
       try {
         const result = (await client.callTool(toolDef.name, args)) as {
@@ -60,10 +59,13 @@ function createMcpProxyTool(
 
         return {
           content: [{ type: "text", text: textContent || "(no output)" }],
+          // MCP 协议自带 isError 时提到顶层——它才是 ToolRunner/模型认得的失败信号。
+          // details 里**不再**冗余一份：顶层 isError 会被 tool-registry 转成 throw，
+          // 随后 pi-agent-core 清空 details，那份副本在失败路径上永远读不到。
+          isError: result.isError ?? false,
           details: {
             mcpServer: serverName,
             mcpTool: toolDef.name,
-            isError: result.isError ?? false,
           },
         };
       } catch (err) {
@@ -74,10 +76,12 @@ function createMcpProxyTool(
               text: `MCP tool error: ${err instanceof Error ? err.message : String(err)}`,
             },
           ],
+          // 此处刻意不 rethrow：MCP 传输层异常（server 崩溃/超时）对模型而言
+          // 与工具自报失败等价，转成 isError 即可，无需让 pi-agent-core 再包一层。
+          isError: true,
           details: {
             mcpServer: serverName,
             mcpTool: toolDef.name,
-            isError: true,
           },
         };
       }

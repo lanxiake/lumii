@@ -182,6 +182,7 @@ export const fileWriteToolConfig: MtBotToolConfig<typeof FileWriteInput> = {
             },
           ],
           details: { success: false, filePath },
+          isError: true,
         };
       }
       let existing = "";

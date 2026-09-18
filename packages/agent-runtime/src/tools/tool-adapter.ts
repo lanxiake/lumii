@@ -7,9 +7,9 @@
 import type { TSchema, Static } from "@sinclair/typebox";
 import type {
   MtBotTool,
+  MtBotToolResult,
   ToolCategory,
   ToolExecutionContext,
-  AgentToolResult,
   AgentToolUpdateCallback,
 } from "../types/tool.js";
 
@@ -23,13 +23,17 @@ export interface MtBotToolConfig<T extends TSchema = TSchema, TDetails = unknown
   needsPermission: boolean;
   /** 可选的自定义启用检查，默认 always true */
   isEnabled?: () => boolean;
+  /**
+   * 返回类型用 {@link MtBotToolResult}——失败分支必须带顶层 `isError: true`。
+   * 契约全文见 `types/tool.ts` 的 `MtBotToolResult`。
+   */
   execute: (
     toolCallId: string,
     params: Static<T>,
     context: ToolExecutionContext,
     signal?: AbortSignal,
     onUpdate?: AgentToolUpdateCallback<TDetails>,
-  ) => Promise<AgentToolResult<TDetails>>;
+  ) => Promise<MtBotToolResult<TDetails>>;
 }
 
 /**

@@ -13,7 +13,7 @@
 
 import { Type, type Static } from "@sinclair/typebox";
 import type { MtBotToolConfig } from "../tool-adapter.js";
-import type { AgentToolResult } from "@mariozechner/pi-agent-core";
+import type { MtBotToolResult } from "../../types/tool.js";
 import type { SkillInfo } from "../../prompt/system-prompt-builder.js";
 
 const MAX_DESC_CHARS = 150;
@@ -22,12 +22,13 @@ function truncate(s: string, max: number): string {
   return s.length <= max ? s : s.slice(0, max - 1) + "…";
 }
 
-function skillsNotAvailable(): AgentToolResult<unknown> {
+function skillsNotAvailable(): MtBotToolResult<unknown> {
   return {
     content: [
       { type: "text", text: JSON.stringify({ error: "Skills not available in this context." }) },
     ],
     details: undefined,
+    isError: true,
   };
 }
 
@@ -78,7 +79,7 @@ export const skillSearchToolConfig: MtBotToolConfig<typeof SkillSearchInput> = {
     _toolCallId: string,
     params: SkillSearchInputType,
     context,
-  ): Promise<AgentToolResult<unknown>> {
+  ): Promise<MtBotToolResult<unknown>> {
     if (!context.getSkills) return skillsNotAvailable();
     const skills = context.getSkills();
 
@@ -147,7 +148,7 @@ export const skillInvokeToolConfig: MtBotToolConfig<typeof SkillInvokeInput> = {
     _toolCallId: string,
     params: SkillInvokeInputType,
     context,
-  ): Promise<AgentToolResult<unknown>> {
+  ): Promise<MtBotToolResult<unknown>> {
     if (!context.getSkills) return skillsNotAvailable();
 
     const skills = context.getSkills();
@@ -167,6 +168,7 @@ export const skillInvokeToolConfig: MtBotToolConfig<typeof SkillInvokeInput> = {
           },
         ],
         details: undefined,
+        isError: true,
       };
     }
 
@@ -187,6 +189,7 @@ export const skillInvokeToolConfig: MtBotToolConfig<typeof SkillInvokeInput> = {
           },
         ],
         details: undefined,
+        isError: true,
       };
     }
 

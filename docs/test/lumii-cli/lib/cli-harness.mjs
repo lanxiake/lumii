@@ -697,7 +697,12 @@ export function preflight() {
   if (!fs.existsSync(LUMII_UI)) problems.push(`CLI 不存在: ${LUMII_UI}`)
   if (!fs.existsSync(DB_PATH)) warnings.push(`数据库不存在: ${DB_PATH}`)
 
-  const ping = ui(['help'])
+  // 探测必须**真正打到应用**。原先用的是 `ui(['help'])`——但 help 是 CLI 本地生成的
+  // 帮助文本，根本不连应用：应用挂着它照样返回 0，于是 preflight 永远通过，
+  // 问题要等第一个用例以 `connection_failed` 连续失败才暴露。
+  // （2026-09-18 实测踩到：套件连报 3 个 connection_failed 提前终止，
+  //   而 preflight 一声不吭——它探测的是"CLI 文件在不在"，不是"应用能不能用"。）
+  const ping = ui(['settings', 'get', 'promptStyle.style'])
   if (ping.code === 3 || /app_not_running|connection_failed/.test(ping.out)) {
     problems.push('Lumii 应用未运行或控制口不可达（请先 pnpm dev / 启动应用）')
   }

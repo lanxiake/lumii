@@ -40,6 +40,7 @@ export const listDirToolConfig: MtBotToolConfig<typeof ListDirInput> = {
       return {
         content: [{ type: "text", text: `Error: path does not exist: ${dirPath}` }],
         details: { success: false, path: dirPath },
+        isError: true,
       };
     }
     if (!stat.isDirectory()) {
@@ -51,6 +52,7 @@ export const listDirToolConfig: MtBotToolConfig<typeof ListDirInput> = {
           },
         ],
         details: { success: false, path: dirPath },
+        isError: true,
       };
     }
     const entries = await fs.readdir(dirPath, { withFileTypes: true });

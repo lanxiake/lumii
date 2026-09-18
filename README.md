@@ -199,7 +199,7 @@ lumii/
 | **图片/视频生成** | RightCodes API + 本地 H3 MiniMax 直连 | 兼容配置 `draw-config.json` |
 | **Git 集成** | `isomorphic-git` 1.38 | 工作区 Turn-level 快照 + diff |
 | **测试** | `vitest` 2.x（单测） · `@playwright/test` 1.58（E2E） · `@testing-library/react` 16（组件） |
-| **代码质量** | `eslint`（见 apps/windows `pnpm lint`） · `tsc --noEmit` 类型检查 |
+| **代码质量** | `tsc --noEmit` 类型检查（**本仓库无 ESLint 配置**，类型是唯一静态门禁） · `vitest` 行为守卫 |
 
 ### 4.3 关键工程技巧
 
@@ -486,10 +486,7 @@ pnpm dist
 ```bash
 cd apps/windows
 
-# ESLint
-pnpm lint
-
-# TypeScript 类型检查
+# TypeScript 类型检查（本仓库无 ESLint 配置；`pnpm lint` 在根与 apps/windows 均不存在）
 pnpm typecheck
 
 # 运行 src/test 下的单测 & 组件测试

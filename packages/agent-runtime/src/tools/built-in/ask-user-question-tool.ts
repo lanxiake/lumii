@@ -18,10 +18,9 @@
  */
 
 import { Type, type Static } from "@sinclair/typebox";
-import type { AgentToolResult } from "@mariozechner/pi-agent-core";
 import type { MtBotToolConfig } from "../tool-adapter.js";
 import { ASK_USER_QUESTION_TOOL_NAME } from "./tool-names.js";
-import type { ToolExecutionContext } from "../../types/tool.js";
+import type { MtBotToolResult, ToolExecutionContext } from "../../types/tool.js";
 
 const QuestionOption = Type.Object({
   label: Type.String({
@@ -135,7 +134,7 @@ export const askUserQuestionToolConfig: MtBotToolConfig<typeof AskUserQuestionPa
     toolCallId: string,
     params: AskUserQuestionInput,
     context: ToolExecutionContext,
-  ): Promise<AgentToolResult<unknown>> {
+  ): Promise<MtBotToolResult<unknown>> {
     // 1) 平台层未注入能力：返回结构化 not_implemented，避免挂起
     if (!context.askUserQuestion) {
       return {
@@ -152,6 +151,8 @@ export const askUserQuestionToolConfig: MtBotToolConfig<typeof AskUserQuestionPa
           },
         ],
         details: undefined,
+        // 能力缺失是确定的终态失败：不标的话模型会以为"问过了"，继续按自己的假设走。
+        isError: true,
       };
     }
 
@@ -174,6 +175,8 @@ export const askUserQuestionToolConfig: MtBotToolConfig<typeof AskUserQuestionPa
             },
           ],
           details: { requestId: toolCallId, outcome: "cancelled" },
+          // 刻意不标 isError：用户没答是用户意志，不是工具失败。
+          // 与云同步超时同类——问题已经问出去了，工具正常完成了它的工作。
         };
       }
 
@@ -204,6 +207,7 @@ export const askUserQuestionToolConfig: MtBotToolConfig<typeof AskUserQuestionPa
           },
         ],
         details: { requestId: toolCallId, outcome: "error", error: message },
+        isError: true,
       };
     }
   },

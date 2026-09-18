@@ -91,7 +91,7 @@ export class ToolRunner {
 
     if (shortCircuit !== undefined) {
       const durationMs = Date.now() - startTime;
-      const isError = Boolean((shortCircuit as { isError?: boolean }).isError);
+      const isError = Boolean(shortCircuit.isError);
       if (this.telemetry) {
         reportToolMetrics(this.telemetry, tool.name, durationMs, isError);
       }
@@ -130,7 +130,7 @@ export class ToolRunner {
     lifecycle?.afterActualToolExecute?.();
 
     const durationMs = Date.now() - startTime;
-    const isError = Boolean((result as { isError?: boolean }).isError);
+    const isError = Boolean(result.isError);
     if (this.telemetry) {
       reportToolMetrics(this.telemetry, tool.name, durationMs, isError);
     }

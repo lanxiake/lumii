@@ -223,6 +223,7 @@ export const fileEditToolConfig: MtBotToolConfig<typeof FileEditInput> = {
           },
         ],
         details: { success: false, filePath },
+        isError: true,
       };
     }
 
@@ -239,6 +240,7 @@ export const fileEditToolConfig: MtBotToolConfig<typeof FileEditInput> = {
           },
         ],
         details: { success: false, filePath },
+        isError: true,
       };
     }
 

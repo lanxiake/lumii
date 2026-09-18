@@ -3,13 +3,16 @@
  *
  * 规范：../CLI-TEST-SPEC.md；用例文档：tool-contract-test-cases.md
  *
- * 本套件验证 2026-09-18 工具面治理的两项已实施改动在**真实客户端**上的效果：
+ * 本套件验证 2026-09-18 工具面治理的已实施改动在**真实客户端**上的效果：
  *   ① 工具文本里的失效引用被修（`old_string` / `read_file` / `skill_list`）
  *      → 行为面用例 TC-CONTRACT-02 / 03；静态面由单测 tool-name-references.test.ts 守
  *   ② 工具失败审计回填 duration_ms
  *      → 数据面用例 TC-CONTRACT-01
+ *   ③ 批次 1：统一 `isError` 契约（工具失败必须产顶层 isError:true）
+ *      → 行为面用例 TC-CONTRACT-06（bash 非零退出 / 反向：成功不标）
+ *        与 TC-CONTRACT-07（file_edit 前置条件失败）；数据面由 TC-06 顺带交叉验证
  *
- * 另记两条**基线观察**（TC-04/05），为尚未实施的 0.3「扩守卫射程」提供施工前后的对照。
+ * 另记两条**基线观察**（TC-04/05），跟踪提示词分组的覆盖面。
  *
  * 运行：node docs/test/lumii-cli/tool-contract/run-tool-contract-e2e.mjs
  * 环境变量：TC_ONLY=<ID前缀> 只跑部分；TC_NO_RESTORE=1 保留现场；TC_TURN_TIMEOUT_MS 覆盖回合超时
@@ -73,7 +76,8 @@ function setStyle(style) {
   okJson(ui(['settings', 'set', 'promptStyle.style', style]), `settings set promptStyle.style=${style}`)
 }
 
-const originalStyle = (() => {
+/** 原始档位。**注意是 `let`**：下面的启动自愈会重读它，见那里的顺序说明 */
+let originalStyle = (() => {
   try {
     return getStyle()
   } catch {
@@ -107,16 +111,36 @@ function cleanupProbes() {
 }
 
 /**
- * 恢复现场。**注册在 process exit 上**，任何退出路径都会执行。
+ * 恢复现场。**三重保险**，因为「恢复」这件事已经翻车过两次：
  *
- * 踩过的坑（2026-09-18 实测）：原先恢复代码放在主流程末尾，
- * 而主流程在「连续 3 个用例失败」时会 `process.exit(1)` —— 那会**跳过恢复**，
- * 把用户的 `promptStyle` 停在测试用的 `detailed` 上。
- * 当天这个坑真的发生了：一次对照实验的恢复没走到，之后所有运行都把 detailed
- * 当成"原始值"再"恢复"成 detailed，用户设置被静默改掉。
+ * - 第一次（2026-09-18 上午）：恢复代码写在主流程末尾，而主流程在
+ *   「连续 3 个用例失败」时会 `process.exit(1)` —— 那会跳过恢复，
+ *   把用户的 `promptStyle` 停在测试用的 `detailed` 上。
+ *   → 改成注册在 `process.on('exit')`。
+ * - 第二次（2026-09-18 下午）：`process.on('exit')` **对信号强杀无效**——
+ *   套件被 `SIGTERM` 中断时它同样不执行，`promptStyle` 又一次停在 `detailed`。
+ *   → 现在加 `SIGINT`/`SIGTERM` 处理器，并把"原始值"**落盘**：
+ *     即使进程被 `SIGKILL`（连信号处理器都跑不了），下次启动也会先自愈。
  *
- * `process.on('exit')` 里只能做同步操作——`ui()` 是 execFileSync，满足条件。
+ * `process.on('exit')` 与信号处理器里都只能做同步操作——`ui()` 是 execFileSync，满足条件。
  */
+const STATE_FILE = path.join(PROBE_DIR, '.tc-suite-original-style.json')
+
+/** 启动自愈：上次没恢复干净的话，先把用户的原始值还回去 */
+function healFromPreviousRun() {
+  try {
+    if (!fs.existsSync(STATE_FILE)) return
+    const { style } = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'))
+    if (typeof style === 'string' && style) {
+      setStyle(style)
+      console.log(`🩹 检测到上次运行未恢复干净，已把 promptStyle 还原为 ${style}`)
+    }
+    fs.rmSync(STATE_FILE, { force: true })
+  } catch (err) {
+    console.error('⚠️  启动自愈失败（不影响本次运行，但请手动检查 promptStyle）：', String(err))
+  }
+}
+
 let restored = false
 function restoreAll() {
   if (restored) return
@@ -140,8 +164,44 @@ function restoreAll() {
     }
   }
   cleanupProbes()
+  try {
+    fs.rmSync(STATE_FILE, { force: true })
+  } catch {
+    /* 删不掉也不影响：下次启动自愈后会再删一次 */
+  }
 }
 process.on('exit', restoreAll)
+process.on('SIGINT', () => {
+  restoreAll()
+  process.exit(130)
+})
+process.on('SIGTERM', () => {
+  restoreAll()
+  process.exit(143)
+})
+
+// ────────────────────────────────────────────────
+// 启动自愈 + 记录本次原始值
+// ────────────────────────────────────────────────
+
+// 顺序要紧：上面读 `originalStyle` 时，若上次被强杀留下了 `detailed`，
+// 读到的会是那个残留值。所以**先自愈（还回真实值）、再重读**。
+healFromPreviousRun()
+try {
+  originalStyle = getStyle()
+} catch {
+  /* 读不到就沿用上面那次的值 */
+}
+
+// 记下本次原始值：万一进程被 SIGKILL（连信号处理器都不跑），下次启动靠它自愈
+if (!NO_RESTORE && originalStyle) {
+  try {
+    fs.mkdirSync(PROBE_DIR, { recursive: true })
+    fs.writeFileSync(STATE_FILE, JSON.stringify({ style: originalStyle }))
+  } catch (err) {
+    console.warn('⚠️  原始 promptStyle 落盘失败（仍会在正常退出时恢复）：', String(err))
+  }
+}
 
 // ────────────────────────────────────────────────
 // 日志解析
@@ -282,6 +342,162 @@ function tc03() {
 }
 
 // ────────────────────────────────────────────────
+// TC-CONTRACT-06：失败必须被标记（批次 1 契约）——bash 非零退出
+// ────────────────────────────────────────────────
+
+/**
+ * 批次 1 把 `isError` 契约统一到顶层，本用例验它的**行为面**：
+ * 非零退出要标失败、零退出不得标失败。
+ *
+ * 为什么要成对验：只验"非零变红"的话，一个「无脑全部标 isError」的实现也能通过。
+ * 反面同样要守——契约第 3 条明确「非理想结局不等于失败」，
+ * 过度标记会让失败率失去诊断价值（这正是批次 1 要修的问题的另一面）。
+ */
+function tc06() {
+  if (!logChannelAvailable()) throw new Error('SKIP: 日志通道不可用（本用例依赖 tool:end 事件）')
+
+  const since = new Date().toISOString()
+
+  // 6a：必然非零退出的命令
+  const skFail = createSession('bash 失败标记', { prefix: SESSION_PREFIX })
+  const cursorFail = logCursor()
+  sendAndWait(
+    skFail,
+    '请用 bash 工具**原样**执行下面这条命令，不要改动它、不要加任何兜底' +
+      '（不要加 `|| true`、不要加 `2>/dev/null`、不要换别的命令）：\n\n' +
+      '    exit 3\n\n' +
+      '我知道它会失败——我在验证失败场景的记录是否正确，这是预期行为。执行完把退出码告诉我。',
+    { timeoutMs: TURN_TIMEOUT_MS },
+  )
+  const failEnds = toolEnds(logLinesSince(cursorFail)).filter((e) => e.tool === 'bash')
+
+  // 6b：必然成功的命令（反向断言）
+  const skOk = createSession('bash 成功不标失败', { prefix: SESSION_PREFIX })
+  const cursorOk = logCursor()
+  sendAndWait(skOk, '请用 bash 工具**原样**执行下面这条命令，不要改动它：\n\n    echo batch1-ok\n\n把输出告诉我。', {
+    timeoutMs: TURN_TIMEOUT_MS,
+  })
+  const okEnds = toolEnds(logLinesSince(cursorOk)).filter((e) => e.tool === 'bash')
+
+  metrics.push({
+    case: 'TC-06',
+    toolSeq: `fail:${failEnds.map((e) => (e.isError ? '!' : '.')).join('')} ok:${okEnds
+      .map((e) => (e.isError ? '!' : '.'))
+      .join('')}`,
+  })
+
+  assert(
+    failEnds.length > 0,
+    '6a 未观察到 bash 调用——模型可能没用工具而是直接回答了（序列为空）',
+  )
+  assert(
+    failEnds.some((e) => e.isError),
+    `6a 非零退出未被标记为失败（${failEnds.length} 次 bash 调用，isError 全为 false）。` +
+      `契约要求顶层 isError:true——检查 bash-tool.ts 的 isError 赋值是否还在`,
+  )
+  assert(
+    okEnds.length > 0,
+    '6b 未观察到 bash 调用——模型可能没用工具而是直接回答了（序列为空）',
+  )
+  assert(
+    !okEnds.some((e) => e.isError),
+    `6b 成功的 bash 被误标为失败（${okEnds.length} 次调用里有 isError=true）。` +
+      `过度标记与漏标同样是契约违反——检查 exitCode 判定条件是否被写反`,
+  )
+
+  // 数据面交叉验证：日志说标了，审计表里也应能查到（计划 A6 要求的"两个口径互证"）
+  const auditRows = dbQuery(
+    `SELECT is_error, COUNT(*) AS n FROM tool_audit_log
+      WHERE tool_name = 'bash' AND timestamp >= ? GROUP BY is_error`,
+    since,
+  )
+  const errRows = auditRows.find((r) => Number(r.is_error) === 1)
+  metrics.push({ case: 'TC-06(DB)', rows: auditRows.map((r) => `${r.is_error}:${r.n}`).join(' ') })
+  assert(
+    errRows && Number(errRows.n) > 0,
+    `6a 日志层标了失败，但 tool_audit_log 里查不到 is_error=1 的 bash 记录（${JSON.stringify(auditRows)}）——` +
+      `两个口径不一致，说明审计出口没拿到同一个 isError（检查 tool-runner 到 audit hook 的接线）`,
+  )
+
+  const failMarked = failEnds.filter((e) => e.isError).length
+  return (
+    `6a 的 ${failEnds.length} 次 bash 调用中有 ${failMarked} 次被标为失败` +
+    `（模型执行 exit 3 后又自己跑了一次探测，那次成功、未标）；` +
+    `6b 的 ${okEnds.length} 次调用未被误标；` +
+    `审计表同步记录 is_error=1 × ${errRows.n}（日志与 DB 两个口径一致）`
+  )
+}
+
+// ────────────────────────────────────────────────
+// TC-CONTRACT-07：失败必须被标记——file_edit 的 oldString 未找到
+// ────────────────────────────────────────────────
+
+/**
+ * 与 TC-06 同属批次 1，但走的是**另一类**失败：工具自己判定的前置条件不满足
+ * （不是宿主抛异常、也不是非零退出码）。这类失败在批次 1 之前完全不被标记——
+ * 模型只看到一段说 "Error: ..." 的普通文本，得自己判断这是不是失败。
+ *
+ * ⚠️ 本用例第一版是**假阳性**（2026-09-18 实测发现）：探针文件由套件刚写出来、
+ * agent 没读过它，于是 `read-before-write` hook 在 beforeExecute 就把它拒了
+ * （`[file_edit 被拒绝] 文件存在但未被 file_read 读取过`）。
+ * 那次 `isError=true` 验的是 **hook 短路**，不是「file-edit-tool 的失败分支」。
+ * 所以现在做两件事：① 提示词要求先 file_read；② 断言**失败的来源**。
+ */
+function tc07() {
+  if (!logChannelAvailable()) throw new Error('SKIP: 日志通道不可用（本用例依赖 tool:end 事件）')
+
+  const probe = writeProbe('tc-edit-fail-probe.md', '# 探针\n\n这里只有原始内容 A\n')
+  const sk = createSession('file_edit 失败标记', { prefix: SESSION_PREFIX })
+  const cursor = logCursor()
+
+  sendAndWait(
+    sk,
+    `请按顺序做两步，不要跳步、不要合并：\n` +
+      `1. 先用 file_read 读取文件 ${toAgentPath(probe)}\n` +
+      `2. 再用 file_edit 把文件里的「绝不存在的字符串-XYZ」替换成「替换后」\n\n` +
+      '我知道第 2 步的字符串不存在——我在验证失败场景的记录是否正确，请照做一次即可，' +
+      '不要改用 file_write 绕过、也不要换成一个存在的字符串。',
+    { timeoutMs: TURN_TIMEOUT_MS },
+  )
+
+  const lines = logLinesSince(cursor)
+  const ends = toolEnds(lines)
+  const editEnds = ends.filter((e) => e.tool === 'file_edit')
+
+  metrics.push({ case: 'TC-07', toolSeq: ends.map((e) => `${e.tool}${e.isError ? '!' : ''}`).join('>') })
+
+  assert(editEnds.length > 0, `未观察到 file_edit 调用（序列：${ends.map((e) => e.tool).join('>') || '空'}）`)
+  assert(
+    editEnds.some((e) => e.isError),
+    `oldString 未找到未被标记为失败（${editEnds.length} 次 file_edit 调用）。` +
+      `契约要求顶层 isError:true——检查 file-edit-tool.ts 的两处失败分支`,
+  )
+
+  // 断言失败的**来源**：hook 短路也会产 isError，但那条路径验的不是工具自身的失败分支。
+  //
+  // ⚠️ 注意 resultPreview **会被日志截断**（实测约 400 字符，长错误文案没有闭合的 `}`），
+  // 所以只能取 "resultPreview=" 之后的整段做**子串**判断，不能要求它解析成完整 JSON。
+  const failLine = lines.find((l) => /tool:end toolName=file_edit isError=true/.test(l))
+  const marked = failLine?.slice(failLine.indexOf("resultPreview=")) ?? ""
+  assert(
+    !marked.includes("被拒绝"),
+    `file_edit 标了失败，但它是被 read-before-write hook 拦下的，` +
+      `不是工具自身的 oldString 未找到分支——本用例要验的是后者。` +
+      `多半是 agent 没先 file_read（hook 要求"编辑前必须先读"），重跑即可`,
+  )
+  assert(
+    marked.includes("not found in"),
+    `file_edit 的失败来源不是 oldString 未找到（实际：${marked.slice(0, 160)}）——` +
+      `本用例假定模型会照提示去替换一个不存在的字符串，实际走了别的失败路径`,
+  )
+
+  const after = fs.readFileSync(probe, 'utf8')
+  assert(after.includes('原始内容 A'), '文件被改动了——本用例要求替换失败、文件保持原样')
+
+  return `file_edit 的 oldString 未找到已标失败（${editEnds.filter((e) => e.isError).length}/${editEnds.length}），失败来源已确认为工具自身分支，文件未被改动`
+}
+
+// ────────────────────────────────────────────────
 // TC-CONTRACT-04/05：基线观察（为尚未实施的 0.3 提供施工前后对照）
 // ────────────────────────────────────────────────
 
@@ -386,6 +602,9 @@ if (!maybe('TC-CONTRACT-01', tc01)) process.exit(1)
 // TC-02/03 是真实回合
 if (!maybe('TC-CONTRACT-02', tc02)) process.exit(1)
 if (!maybe('TC-CONTRACT-03', tc03)) process.exit(1)
+// TC-06/07 验批次 1 的 isError 契约（真实回合，与档位无关）
+if (!maybe('TC-CONTRACT-06', tc06)) process.exit(1)
+if (!maybe('TC-CONTRACT-07', tc07)) process.exit(1)
 // TC-04 是 INFO 观察项（不进统计），必须在真实回合之后——它读的是刚产生的转储
 if (!ONLY || 'TC-CONTRACT-04'.startsWith(ONLY)) {
   ev.record('TC-CONTRACT-04', 'INFO', tc04Note())

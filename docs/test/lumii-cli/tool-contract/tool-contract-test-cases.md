@@ -8,12 +8,26 @@
 
 ## 这套件在验什么
 
-2026-09-18 的工具面复盘发现：**治理的射程按「层」切，而病灶长在「接缝」上**。其中两条已实施：
+2026-09-18 的工具面复盘发现：**治理的射程按「层」切，而病灶长在「接缝」上**。其中三项已实施：
 
 | 改动 | 内容 | 本套件怎么验 |
 |---|---|---|
 | ① | 修 5 处失效引用（`old_string` ×3 / `read_file` / `skill_list`） | TC-02（行为面）、TC-03（行为面） |
 | ② | 工具失败审计回填 `duration_ms` | TC-01（数据面） |
+| ③ | **批次 1：统一 `isError` 契约**——工具失败必须在**顶层**产 `isError: true` | TC-06（bash 非零退出 + 反向）、TC-07（file_edit 前置条件失败） |
+
+**改动 ③ 的分工**（与 ①② 不同，值得单说）：
+- **契约本身**（什么是失败、什么刻意不算失败）写在 `packages/agent-runtime/src/types/tool.ts`
+  的 `MtBotToolResult` doc 里——它是**给人和模型读的规范**，不是机器检查的；
+- **「表态与源码是否一致」**由单测 `tools/__tests__/failure-semantics-guard.test.ts` 守
+  （登记表 + 源码计数 + 行为断言，做过变红验证）；
+- **「在真实链路上是否真的生效」**由本套件守——单测直接调 `config.execute()`，
+  绕过了 `ToolRunner → ToolRegistry → pi-agent-core` 的转换链，
+  而那一段（顶层 isError → throw → `is_error` 发给模型）只有真实客户端能覆盖。
+
+**类型系统在这里是缺位的**（2026-09-18 实测）：`AgentToolResult<T>` 本身没有 `isError` 字段，
+且 `execute: async () => ({...})` 这种不标注返回类型的写法**不触发 TS 的多余属性检查**——
+拼错 `isEror` 也不报错。所以契约必须靠上面三层，不能靠类型。
 
 **文本本身**（schema 描述、错误文案里引用的工具名）由单测
 `packages/agent-runtime/src/tools/__tests__/tool-name-references.test.ts` 守——
@@ -133,6 +147,121 @@
   见 TC-05 的 note 与 `CLAUDE` 侧说明。
 - **预计回合**：0
 
+## TC-CONTRACT-06 失败必须被标记（批次 1）——bash 非零退出
+
+- **优先级**：P0
+- **层**：L3（真实聊天模拟）+ L2（数据面交叉验证）
+- **前置**：客户端已 `dev:restart`（批次 1 改的是 `packages/agent-runtime`，主进程直接读 `src`，无需 build）
+- **真实数据**：探针会话 + `tool_audit_log` 表
+- **步骤**：
+  1. **6a**：新建会话，要求 agent **原样**执行 `exit 3`（明说不要加 `|| true` 之类的兜底）
+  2. **6b**：另起会话，要求 agent 原样执行 `echo batch1-ok`
+  3. 从日志游标后的 `tool:end` 事件取两次的 `isError`
+  4. 查 `tool_audit_log` 中 6a 之后的 `bash` 记录，看 `is_error` 维度
+- **预期**：6a 至少一次 `bash isError=true`；6b 无一次 `isError=true`；审计表里有 `is_error=1` 的 bash 行
+- **断言**：三条全为**硬**
+- **为什么必须成对验**：只验"非零变红"的话，一个「无脑全部标 isError」的实现也能通过。
+  契约第 3 条明确「非理想结局 ≠ 失败」，而**过度标记与漏标同样是契约违反**——
+  它会让失败率失去诊断价值，那正是批次 1 要修的问题的另一面。
+- **为什么用 `exit 3` 而不是 `false`**：`false` 在部分 shell 里会被 agent 用 `|| true` 消解；
+  `exit 3` 的退出码明确且非 1，能从日志区分是不是它。
+  （注：日志目前只记 `isError`，不记 exitCode，所以这条区分用于人工复核，不进断言。）
+- **DB 口径为什么要一起查**：计划 §四 A6 要求"两个独立来源互证"。
+  日志说标了、DB 里查不到，说明审计出口没接到同一个 `isError`——
+  这条比单看日志多守一层接线错误。
+- **预计回合**：2
+
+### 实测（2026-09-18，批次 1 实施后）
+
+```
+✅ [TC-CONTRACT-06] PASS — 6a 的 2 次 bash 调用中有 1 次被标为失败
+   （模型执行 exit 3 后又自己跑了一次探测，那次成功、未标）；
+   6b 的 1 次调用未被误标；审计表同步记录 is_error=1 × 1（日志与 DB 两个口径一致）
+```
+
+**日志与审计表逐条对上了**——这是本用例最有说服力的一点：
+
+| 时刻 | 模型的动作 | 日志（`tool:end`） | 审计表 |
+| --- | --- | --- | --- |
+| 15:12:01.229 | 执行 `exit 3` | `isError=true`，`resultPreview.details = {}` | `is_error=1`，`179ms`，`(no output)` |
+| 15:12:06.724 | **自己**跑 `echo "prev_exit_code=$?"` 探测 | `isError=false`，`details = {"exitCode":0}` | 无（成功不写失败记录） |
+
+> **为什么第二次调用不是缺陷**：提示词已说明"这是预期行为"，模型仍要亲眼确认退出码——
+> 这是合理的行为，不是用例没写清楚。
+> 而它恰好带来两个**意外的观测**：
+
+1. **契约第 2 条的实证**：第一次的 `details` 是 `{}` —— 工具原本返回 `details: {exitCode: 3}`，
+   但顶层 `isError` 被转成 throw 后，pi-agent-core 重建 result 时**清空了 details**。
+   契约里写的那条副作用，在真实链路上被原样观测到。
+2. **同一次会话里两条路径对照**：失败 → `details: {}`；成功 → `details: {"exitCode":0}` 完整保留。
+   这说明 `isError` 不是"多写一个字段"，而是**改变 result 的形态**。
+
+> **审计表那条为什么只有 1 条**：不是漏记——**成功的调用本来就不写失败审计**，
+> 而 6a 里唯一失败的就是 `exit 3` 那一次。日志与 DB 在此处是 **1:1 精确对应**。
+
+## TC-CONTRACT-07 失败必须被标记（批次 1）——file_edit 前置条件失败
+
+- **优先级**：P0
+- **层**：L3
+- **前置**：客户端已 `dev:restart`
+- **真实数据**：探针文件 `temp/tc-edit-fail-probe.md`（内容含「原始内容 A」）
+- **步骤**：
+  1. 写探针文件，新建会话
+  2. 要求 agent 用 `file_edit` 把「绝不存在的字符串-XYZ」替换成「替换后」，
+     并明说这是刻意构造的失败场景，**不要**改用 `file_write` 绕过、也不要先读文件换个存在的字符串
+  3. 等回合完成，取 `tool:end` 里 `file_edit` 的 `isError`；回读探针文件
+- **预期**：至少一次 `file_edit isError=true`；文件内容保持原样（确实替换失败）
+- **断言**：两条全为**硬**
+- **这条与 TC-06 互补在哪**：TC-06 走的是"宿主抛异常/非零退出码"，
+  这条走的是**工具自己判定的前置条件不满足**——不是异常、不是退出码，
+  而是 `if (!result.found) return {...}` 这种**正常返回的失败**。
+  这类失败在批次 1 之前**完全不被标记**：模型只看到一段说 `Error: ...` 的普通文本，
+  得自己读出"这是失败"。这是契约最典型的盲区，也是 `details.success: false` 无消费方的直接后果。
+- **文件回读断言的作用**：防止"为了变红而制造假失败"——如果 agent 其实改成功了，
+  这条会红，说明用例的构造前提（字符串确实不存在）不成立。
+- **预计回合**：1
+
+### ⚠️ 本用例第一版是假阳性（2026-09-18 实测发现并修正）
+
+**症状**：用例 PASS，但 `is_error=1` 那条审计记录的 `result_summary` 是
+`[file_edit 被拒绝] ... 文件存在但未被 file_read 读取过`——而不是 `oldString not found`。
+
+**根因**：探针文件是套件用 `fs.writeFileSync` **刚创建**的，agent 没读过它，
+于是 `read-before-write` hook 在 **beforeExecute 阶段**就把它拦下了
+（`tool-runner.ts` 的短路路径同样会产生 `isError: true`）。
+**那次失败压根没进到 `file-edit-tool.ts` 内部**，验的是 hook 短路，不是工具的失败分支。
+
+**为什么危险**：它 PASS 了。如果不查 `result_summary`，这条用例会一直是绿的，
+并让人以为"file-edit-tool 的两处失败分支有覆盖"——**而实际上一次都没验到**。
+这与上一轮 A3a 的缺陷是同一类：**验收条件必须能让正确的对象变红**。
+
+**两处修正**：
+
+1. **提示词改成两步**（先 `file_read` 再 `file_edit`）——满足 hook 的"编辑前必须先读"，
+   让失败真正发生在工具内部；
+2. **断言失败的来源**，而不只是"失败了"：
+
+```js
+assert(!marked.includes("被拒绝"), "是 hook 拦的，不是工具自身分支")
+assert(marked.includes("not found in"), "失败来源必须是 oldString 未找到")
+```
+
+**实测（修正后）**：
+
+```
+✅ [TC-CONTRACT-07] PASS — file_edit 的 oldString 未找到已标失败（1/1），
+   失败来源已确认为工具自身分支，文件未被改动
+```
+
+日志证据（`tool:end` 事件的 resultPreview）：
+`Error: \`oldString\` not found in ...tc-edit-fail-probe.md (tried exact, line_trimmed, whitespace_normalized)`
+
+> **顺带发现的坑**：日志的 `resultPreview` **会被截断**（实测约 400 字符）。
+> 上面那行的文本在 `...verify the exact content before` 处就断了，**没有闭合的 `}`**——
+> 所以断言里**不能**用 `resultPreview=(\{.*\})` 这类要求完整 JSON 的正则，
+> 只能取 `resultPreview=` 之后的整段做**子串**判断。
+> （第一版修正正是踩了这个坑：断言写对了，但提取方式让它永远取到空串。）
+
 ---
 
 ## 不在本套件覆盖范围内的
@@ -141,9 +270,40 @@
 |---|---|---|
 | 描述文本里的工具名引用 | CLI 没有工具定义转储通道（只有 `tools=N/M` 计数与 system prompt 转储） | 单测 `tool-name-references.test.ts` |
 | 参数校验失败是否入库 | 事件层已可见（日志），入库是**观察项**（执行计划 §三 1.3 明确不立即做） | 执行计划 §四 A6 |
-| `isError` 契约统一（批次 1） | **尚未实施** | 执行计划 §三 批次 1 |
-| 扩守卫射程（0.3） | 已实施（2026-09-18）；本套件 TC-04/05 从"提供基线"变为"验证结果" | 执行计划 §三 0.3 |
+| `isError` 契约的**静态一致性** | CLI 测不了"源码里有没有标"，只能测"行为上标没标" | 单测 `failure-semantics-guard.test.ts`（登记表 + 变红验证） |
+| **宿主侧**工具的 `isError`（`jsonToolResult` 路径） | 见下方"批次 1 暴露的宿主侧缺口"——**尚未实施** | 执行计划 §三 批次 1 的发现记录 |
 | 云同步超时保持 `isError:false` | 属回归断言，需真实同步冲突场景 | 执行计划 §四 A6 的回归断言 |
+| `web_search` 零结果保持 `isError:false` | 零结果是"非理想结局"不是失败（契约第 3 条 b），需触发真实零结果查询 | 执行计划 §四 A6 的回归断言 |
+
+### 批次 1 暴露的宿主侧缺口（已记录，未实施）
+
+批次 1 只覆盖了 `packages/agent-runtime` 的**内置工具**。核查宿主侧时发现另一个结构性问题：
+
+`apps/windows` 的宿主工具用一个统一构造器返回结果——
+
+```ts
+// apps/windows/src/main/agent-runtime/bridge-utils.ts:30
+export function jsonToolResult(data: unknown): AgentToolResult<unknown> {
+  return { content: [{ type: 'text', text: JSON.stringify(data) }], details: undefined }
+}
+```
+
+它的返回类型是 `AgentToolResult<unknown>`——**类型上就没有 `isError`**，
+所以所有经它返回的失败（如 `app_screenshot` 的 `{ ok: false, error: 'capture_failed' }`）
+都只把失败编码进 JSON 文本，模型得自己读 `ok: false`。
+
+**规模**：`ok: false` 在宿主侧有 **95 处**，分布在 7 个文件
+（`bridge-screen-record-tools` 27 / `bridge-tool-registrar-integration` 26 /
+`bridge-tool-registrar-client-cmd` 18 / `bridge-app-ui-tools` 15 / `bridge-wiki-tools` 6 /
+`bridge-tool-registrar-handoff` 2 / `bridge-browser-tools` 1）。
+其中多少是**工具失败**、多少只是**业务字段**，需要逐个判语义——不能按数量直接改。
+
+**机制是通的**：宿主工具经 `bridge-instance-factory` → `assembleAgent` → `assembleTools`
+（`packages/agent-runtime/src/host-kit/tool-assembly.ts`）装配，**走同一个 ToolRunner**，
+所以顶层 `isError` 会被正常转成 throw。缺的只是"没人标"。
+
+**不在本套件范围内的原因**：范围与归属未定——是否纳入批次 1、还是作为独立批次，
+需要先决策（宿主侧还有一个文件正被其他会话修改）。
 
 ## 运行方式
 
@@ -161,9 +321,13 @@ TC_NO_RESTORE=1 node docs/test/lumii-cli/tool-contract/run-tool-contract-e2e.mjs
 **副作用与恢复**：套件会临时改 `promptStyle.style`（TC-02 需要 detailed），结束时恢复原值；
 探针文件写在 `~/.lumii/workspace/temp/` 下，结束时删除；不触碰任何用户业务数据。
 
+运行期间会在同目录留一个 `.tc-suite-original-style.json`（记录本次的原始档位）——
+**这是给"进程被强杀、来不及恢复"兜底的**：正常结束会删掉它，
+若它还在，说明上次没恢复干净，下次启动会自动还原（见下方"踩坑 3"）。
+
 ---
 
-## 本套件开发中踩到的两个坑（2026-09-18）
+## 本套件开发中踩到的三个坑（2026-09-18）
 
 ### 1. 恢复动作必须挂在 `process.on('exit')`，不能只写在末尾
 
@@ -190,3 +354,41 @@ prompt-style 套件用的是末尾恢复，同样有这个风险。
 **修法**：主流程开头加 `preflight()` 预检，不通过直接 `exit(3)` 并打印可读提示
 （"若刚 dev:restart 过，等约 20 秒再跑"）。**比让三条用例依次报错强**——
 后者会被误读成产品缺陷。
+
+### 3. `process.on('exit')` 对**信号强杀无效**——坑 1 的第二次发作
+
+**症状**（同一天下午）：套件被 `SIGTERM` 中断后，用户的 `promptStyle` **又一次**停在
+`detailed`，探针文件也残留了。
+
+**根因**：坑 1 的修法（把恢复注册到 `process.on('exit')`）只覆盖了「进程正常退出」。
+`SIGTERM` / `SIGINT` 的默认行为是**直接终止**，不触发 `exit` 事件——
+除非显式注册信号处理器。当时文档里写的"任何退出路径都会触发"是**错的**。
+
+**修法（三重保险，逐层兜底）**：
+
+| 层 | 手段 | 覆盖 |
+| --- | --- | --- |
+| 1 | 保留 `process.on('exit')` | 正常退出、未捕获异常 |
+| 2 | 新增 `SIGINT` / `SIGTERM` 处理器 | 可控中断（Ctrl+C、`TaskStop`） |
+| 3 | **把原始值落盘**，下次启动先自愈 | 连 `SIGKILL` 都能兜住——那种情况下**连信号处理器都不跑** |
+
+第 3 层是关键：它不依赖"进程有机会做善后"这个前提，而是把善后推迟到**下次启动**。
+
+> **顺序要紧**：启动时是「先自愈、再重读原始值」。
+> 因为读 `originalStyle` 时，若上次留下了 `detailed`，读到的就是那个残留值——
+> 直接用它当"原始值"，会把残留**固化**成用户设置（这正是坑 1 描述的那种连锁反应）。
+
+**验证（实测，不是"看代码觉得对"）**：手工制造残留现场
+（`promptStyle=detailed` + 状态文件记着 `terse`）后跑套件：
+
+```
+🩹 检测到上次运行未恢复干净，已把 promptStyle 还原为 terse
+   原始 promptStyle=terse（TC-02 会切 detailed，结束恢复）
+...
+↩️  已恢复 promptStyle=terse
+```
+
+跑完复核：`promptStyle=terse`，状态文件已清理。
+
+**通用性**：这条对**所有**"改了全局状态又必须还原"的测试套件都成立。
+`process.on('exit')` 不是"任何退出路径"的保证，只是"正常退出路径"的保证。

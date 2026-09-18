@@ -45,6 +45,7 @@ export const fileCopyToolConfig: MtBotToolConfig<typeof FileCopyInput> = {
       return {
         content: [{ type: "text", text: destinationExistsMessage(destination) }],
         details: { success: false, source, destination },
+        isError: true,
       };
     }
 
