@@ -34,12 +34,34 @@ export const DEFAULT_GIT_TIMEOUT_MS = 120_000
  * - `commit.gpgsign=false`：用户全局开了签名时，自动提交会去调 gpg（可能弹窗/挂住）。
  * - `index.version=2`：isomorphic-git 只支持 v2，真 git 在 feature.manyFiles 下会写 v4。
  * - `core.safecrlf=false`：配合 autocrlf=false，避免对混合行尾直接报错中断。
+ * - **`gc.auto=0`**：见下。
+ */
+
+/**
+ * 为什么必须关掉真 git 的自动 gc（这条是拿事故换来的）。
+ *
+ * 这两个仓库是**两种实现共用**的：真 git 负责暂存，isomorphic-git 负责
+ * log / diff / readBlob / rollback（工作区）与 fetch / merge / commit / push（云同步）。
+ *
+ * 真 git 在若干命令后会跑 `gc --auto`，把松散对象打包成 packfile。而 isomorphic-git
+ * 读 pack 是**整个读进内存**的，大 pack 直接失败：
+ *
+ *   Could not read packfile at .../objects/pack/pack-<oid>.pack.
+ *   The file may be missing, corrupted, or too large to read into memory.
+ *
+ * 2026-09-18 实测踩中：工作区 .mtbot-vcs 被压成一个 **1.38GB** 的 pack
+ * （松散对象 9877 → 56），sync 仓库 662MB，两个仓库的 isomorphic-git 读路径全废。
+ * 关掉 auto-gc 后对象只以松散形式增长，两种实现都能读。
+ *
+ * 代价是对象目录会慢慢变大（本就不小的 1.5GB 量级）。**这是刻意的取舍**：
+ * 仓库形状必须迁就能力更弱的那一方。
  */
 export const GIT_BASE_CONFIG: readonly string[] = [
   '-c', 'core.autocrlf=false',
   '-c', 'core.safecrlf=false',
   '-c', 'commit.gpgsign=false',
   '-c', 'index.version=2',
+  '-c', 'gc.auto=0',
 ]
 
 /** `git` 是否可用——进程级缓存，只探一次 */

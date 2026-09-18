@@ -325,46 +325,49 @@ describe('WorkspaceVcs', () => {
     expect(await listHead()).toContain('a.md')
   })
 
-  // ── 快照期间读者不该看到「index 不存在」──
+  // ── 暂存期间真 index 不该消失 ──
   //
-  // 背景：stageAllCli 一度靠 `rm index` 强制全量重算，于是出现一个读者可见的空窗 ——
+  // 背景：stageAllCli 一度靠 `rm index` 强制全量重算，于是出现一个长达数秒的空窗 ——
   // isomorphic-git 的 statusMatrix（版本面板的 statusDiff）此刻读不到 index，
   // 直接报 internal error（2026-09-18 日志里的 `[VCS-IPC] statusDiff 失败`）。
-  // 原实现没这问题：isomorphic-git 用「临时文件 + 改名」原子写 index。
-  // 现在改为 GIT_INDEX_FILE 指到临时路径 + 完成后原子改名，空窗消失。
+  // 现在改为 GIT_INDEX_FILE 指到临时路径 + 完成后原子改名，真 index 全程在位。
   //
-  // 造足够多的文件让全量重算有可观的时间窗，否则并发读者可能一次都没撞上，
-  // 用例会变成「永远绿但什么都没测」。
-  it('快照进行中并发读 index 不报错（读者看不到空窗）', async () => {
+  // ⚠️ 这里**刻意用轮询文件是否存在**，而不是并发调 statusDiff：
+  // isomorphic-git 的 GitWalkerFs 会 readdir + lstat 整个工作树，**包括自定义 gitdir
+  // `.mtbot-vcs` 自己**（它的跳过规则只认 `.git`），所以 gitdir 里任何瞬时文件
+  // （git 的 tmp_obj_*、原实现原子写 index 留下的 index.<pid>.<ts>.tmp）都可能让
+  // 并发遍历抛 `ENOENT: lstat`。那是**既有**竞态，与本用例要守的东西无关 ——
+  // 断言「并发读零错误」会变成一条随机红的用例，比没有还糟。
+  //
+  // 造足够多的文件撑开时间窗，否则轮询可能一次都没采样到。
+  it('暂存期间真 index 始终存在（不靠删 index 强制重算）', async () => {
     await vcs.ensureInitialized()
-    for (let i = 0; i < 600; i++) {
+    for (let i = 0; i < 500; i++) {
       writeFile(`bulk/f${i}.md`, `内容 ${i}\n`.repeat(30))
     }
     await vcs.commit({ author: 'user', message: 'bulk' })
     writeFile('bulk/f0.md', '改过了\n')
 
-    let reads = 0
-    const errors: string[] = []
+    const indexPath = path.join(workspaceDir, '.mtbot-vcs', 'index')
+    let samples = 0
+    let missing = 0
     let running = true
-    const reader = (async () => {
+    const poller = (async () => {
       while (running) {
-        reads++
-        try {
-          await vcs.statusDiff()
-        } catch (err) {
-          errors.push(err instanceof Error ? err.message : String(err))
-        }
+        samples++
+        if (!fs.existsSync(indexPath)) missing++
         await new Promise((r) => setImmediate(r))
       }
     })()
 
     const c = await vcs.commit({ author: 'agent', message: '并发快照' })
     running = false
-    await reader
+    await poller
 
     expect(c).not.toBeNull()
-    expect(reads).toBeGreaterThan(0)
-    expect(errors).toEqual([])
+    expect(samples).toBeGreaterThan(0)
+    // `rm index` 实现下这里会是几十到几百（窗口就是整个 git add -A 的耗时）
+    expect(missing).toBe(0)
   })
 
   // ── 等长 + 时间戳还原的改写必须被检出 ──
