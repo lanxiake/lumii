@@ -1,7 +1,7 @@
 # 工具选择评测（tool-choice）
 
 > 测的是**模型会不会按工具面的设计意图选工具**。
-> 对照集：[`eval-set.json`](./eval-set.json) · 跑分器：[`run-tool-choice-eval.mjs`](./run-tool-choice-eval.mjs) · 校验：[`../../scripts/verify-tool-choice-eval.mjs`](../../scripts/verify-tool-choice-eval.mjs)
+> 对照集：[`eval-set.json`](./eval-set.json) · 跑分器：[`run-tool-choice-eval.mjs`](./run-tool-choice-eval.mjs) · 校验：[`../../scripts/verify-tool-choice-eval.mjs`](../../scripts/verify-tool-choice-eval.mjs) · 历次结果：[`baseline.md`](./baseline.md)
 
 ## 它和别的套件分别管什么
 
