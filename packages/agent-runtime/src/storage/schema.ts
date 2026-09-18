@@ -6,7 +6,7 @@
  */
 
 /** 当前 schema 版本号 */
-export const SCHEMA_VERSION = 49;
+export const SCHEMA_VERSION = 50;
 
 /**
  * V1 DDL — 初始 schema
@@ -1736,6 +1736,20 @@ CREATE INDEX IF NOT EXISTS idx_palace_drawers_segment
   ON palace_drawers (segment_id);
 
 CREATE VIRTUAL TABLE IF NOT EXISTS palace_drawers_fts USING fts5(content);
+`,
+  ],
+  // V50: 删除 tool_usage_feedback（2026-09-18 批次 2 清理）
+  //
+  // 这张表（V30 建的）唯一的读写方是 `autonomous/tool-evolution.ts`——那个模块
+  // 零生产引用、`autonomous/index.ts` 也未导出它，已随批次 2 一起删除；
+  // live DB 实测 **0 行**。
+  //
+  // **为什么不直接删 V30 里那段**：迁移是历史记录，改了它会让"从任意旧版本升级"
+  // 的路径与新库产生差异。删表这件事本身要在**新版本**里做。
+  [
+    50,
+    `
+DROP TABLE IF EXISTS tool_usage_feedback;
 `,
   ],
 ] as const;

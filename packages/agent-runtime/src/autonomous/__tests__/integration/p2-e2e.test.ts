@@ -13,7 +13,6 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { ToolEvolution } from '../../tool-evolution';
 import { MemoryFeedbackRepo } from '../../../memory/memory-feedback-repo';
 import { createMigratedTestDb } from '../../../__tests__/helpers/sqlite-test-db';
 import { SkillEvolution } from '../../skill-evolution';
@@ -92,18 +91,6 @@ function makeDb(queryImpl?: (sql: string, params?: any[]) => any[]) {
     query: vi.fn(async (sql: string, params?: any[]) => (queryImpl ? queryImpl(sql, params) : []) as any),
   };
   return { db, executed };
-}
-
-/** 始终失败的数据库，用于故障注入 */
-function makeFailingDb(): DatabaseClient {
-  return {
-    execute: vi.fn(async () => {
-      throw new Error('database unavailable');
-    }),
-    query: vi.fn(async () => {
-      throw new Error('database unavailable');
-    }),
-  };
 }
 
 beforeEach(() => {
@@ -210,64 +197,6 @@ describe('场景 2：低满意度只探索一层', () => {
 
     expect(isContributionNormalized(contribution)).toBe(true);
     expect(contribution.prompt).toBeGreaterThan(contribution.memory);
-  });
-});
-
-
-describe('场景 4：工具全部失败时保留安全错误路径', () => {
-  it('连续失败不会扩大候选工具范围', async () => {
-    const { db } = makeDb();
-    const evolution = new ToolEvolution(db);
-    const context = { taskType: 'search', difficulty: 0.5 };
-
-    for (let i = 0; i < 40; i++) {
-      await evolution.recordFeedback({
-        toolName: i % 2 === 0 ? 'tool-a' : 'tool-b',
-        sessionId: 's',
-        context,
-        result: 'failure',
-        executionTime: 100,
-        timestamp: '2026-09-04T00:00:00.000Z',
-      });
-    }
-
-    // 即使全部失败，也只在给定候选中选择
-    for (let i = 0; i < 20; i++) {
-      const selected = await evolution.selectTool(['tool-a', 'tool-b'], context);
-      expect(['tool-a', 'tool-b']).toContain(selected);
-    }
-  });
-
-  it('空候选列表抛出明确错误，不静默兜底到任意工具', async () => {
-    const { db } = makeDb();
-
-    await expect(new ToolEvolution(db).selectTool([], { taskType: 'x', difficulty: 0.5 })).rejects.toThrow();
-  });
-
-  it('数据库失败时选择回退到候选中的第一个工具', async () => {
-    const evolution = new ToolEvolution(makeFailingDb());
-
-    const selected = await evolution.selectTool(['safe-a', 'safe-b'], { taskType: 'x', difficulty: 0.5 });
-
-    expect(['safe-a', 'safe-b']).toContain(selected);
-  });
-
-  it('全部失败后成功率估计趋近 0，反映真实风险', async () => {
-    const { db } = makeDb();
-    const evolution = new ToolEvolution(db);
-
-    for (let i = 0; i < 50; i++) {
-      await evolution.recordFeedback({
-        toolName: 'broken',
-        sessionId: 's',
-        context: { taskType: 'search', difficulty: 0.5 },
-        result: 'failure',
-        executionTime: 50,
-        timestamp: '2026-09-04T00:00:00.000Z',
-      });
-    }
-
-    expect((await evolution.getReport()).toolStats[0].successRate).toBeLessThan(0.1);
   });
 });
 
@@ -495,23 +424,6 @@ describe('场景 8：重启恢复', () => {
   // 「记忆排序模型权重可持久化并恢复」已删（2026-09-18）：被测对象
   // `MemoryRankingModel` 随 P1-5 判定（代理命中率 60% < 70% 门槛）一并删除。
 
-  it('工具采样统计可从数据库恢复', async () => {
-    const rows = Array.from({ length: 50 }, (_, i) => ({
-      tool_name: 'grep',
-      task_type: 'search',
-      difficulty: 0.5,
-      result: i < 40 ? 'success' : 'failure',
-    }));
-    const { db } = makeDb(() => rows);
-
-    const evolution = new ToolEvolution(db);
-    await evolution.loadFromDatabase(30);
-
-    const stats = (await evolution.getReport()).toolStats[0];
-    expect(stats.totalUsage).toBe(50);
-    expect(stats.successRate).toBeGreaterThan(0.7);
-  });
-
   it('调度器状态可完整恢复，决策保持一致', () => {
     const original = new CoordinatedScheduler({ random: () => 0.0 });
     for (let i = 0; i < 6; i++) {
@@ -602,25 +514,6 @@ describe('隐私与可观测性', () => {
     db.close();
   });
 
-  it('工具反馈只记录工具名与结果，不含参数', async () => {
-    const { db, executed } = makeDb();
-
-    await new ToolEvolution(db).recordFeedback({
-      toolName: 'bash',
-      sessionId: 's1',
-      context: { taskType: 'exec', difficulty: 0.5 },
-      result: 'success',
-      executionTime: 300,
-      timestamp: '2026-09-04T00:00:00.000Z',
-    });
-
-    const params = executed[0].params;
-    expect(params).toContain('bash');
-    expect(params).toContain('success');
-    // 参数数量固定为 7 个字段，不存在额外的自由文本
-    expect(params).toHaveLength(7);
-  });
-
   it('贡献归因结果总和接近 1，便于趋势监控', () => {
     const contribution = computeMarginalContribution([
       { layer: EvolutionLayer.PROMPT, score: 0.9, sampleCount: 30 },
@@ -660,23 +553,6 @@ describe('性能门槛', () => {
 
     durations.sort((a, b) => a - b);
     expect(durations[94]).toBeLessThan(50);
-  });
-
-  it('工具采样选择 p95 < 10ms', async () => {
-    const { db } = makeDb();
-    const evolution = new ToolEvolution(db);
-    const context = { taskType: 'search', difficulty: 0.5 };
-    const tools = Array.from({ length: 10 }, (_, i) => `tool-${i}`);
-
-    const durations: number[] = [];
-    for (let i = 0; i < 100; i++) {
-      const start = performance.now();
-      await evolution.selectTool(tools, context);
-      durations.push(performance.now() - start);
-    }
-
-    durations.sort((a, b) => a - b);
-    expect(durations[94]).toBeLessThan(10);
   });
 
   // 「100 条记忆候选排序 p95 < 50ms」已删（2026-09-18）：测的是已删除的

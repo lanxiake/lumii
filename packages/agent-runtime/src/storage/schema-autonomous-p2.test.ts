@@ -26,7 +26,8 @@ function runMigration30(db: DatabaseAdapter): void {
 const P2_TABLES = [
   "memory_usage_feedback",
   "skill_usage_records",
-  "tool_usage_feedback",
+  // tool_usage_feedback 已于 2026-09-18 删除（批次 2 清理）：它唯一的读写方是
+  // autonomous/tool-evolution.ts——零生产引用、live DB 0 行；V50 负责 DROP。
   "coordinated_evolution_history",
   "pareto_frontier",
   // memory_ranking_weights 已于 2026-09-18 删除（P1-5 判定效用代理不可用，
@@ -49,6 +50,20 @@ describe("autonomous P2 schema V30", () => {
       expect(row?.name, `表 ${table} 应存在`).toBe(table);
     }
 
+    db.close();
+  });
+
+  it("tool_usage_feedback 已被 V50 删除（批次 2 清理）", () => {
+    const db = createMigratedTestDb();
+    const row = db
+      .prepare<{ name: string }>(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name = 'tool_usage_feedback'",
+      )
+      .get();
+    expect(
+      row,
+      "该表应由 V50 DROP——它唯一的读写方 autonomous/tool-evolution.ts 已删除（零生产引用、live DB 0 行）",
+    ).toBeUndefined();
     db.close();
   });
 
@@ -142,23 +157,6 @@ describe("autonomous P2 schema V30", () => {
     expect(() => insert("medium", 1000)).not.toThrow();
     expect(() => insert("extreme", 1000)).toThrow();
     expect(() => insert("low", -1)).toThrow();
-
-    db.close();
-  });
-
-  it("tool_usage_feedback 约束 result 枚举与难度范围", () => {
-    const db = createMigratedTestDb();
-
-    const insert = (result: string, difficulty: number) =>
-      db.prepare(
-        `INSERT INTO tool_usage_feedback (tool_name, session_id, task_type, difficulty, result, execution_time, created_at)
-         VALUES ('t', 'sess', 'task', ?, ?, 100, '2026-09-04T00:00:00.000Z')`,
-      ).run(difficulty, result);
-
-    expect(() => insert("success", 0.5)).not.toThrow();
-    expect(() => insert("failure", 0.5)).not.toThrow();
-    expect(() => insert("timeout", 0.5)).toThrow();
-    expect(() => insert("success", 2)).toThrow();
 
     db.close();
   });
