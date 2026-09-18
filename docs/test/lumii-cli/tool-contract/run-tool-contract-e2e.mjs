@@ -12,6 +12,9 @@
  *      → 行为面用例 TC-CONTRACT-06（bash 非零退出 / 反向：成功不标）
  *        与 TC-CONTRACT-07（file_edit 前置条件失败）；数据面由 TC-06 顺带交叉验证
  *      → 宿主侧延伸由 TC-CONTRACT-08 验（宿主工具的两套载荷约定 ok:false / status:'error'）
+ *   ④ 失败的大输出落盘（两套 hook 并存的既有行为，不是本轮的改动）
+ *      → TC-CONTRACT-09：守批次 2「合并两套落盘 hook」时的回归——
+ *        两套都跳过才不落盘，合并时若保留"错误结果不落盘"就会让 1MB 直接进上下文
  *
  * 另记两条**基线观察**（TC-04/05），跟踪提示词分组的覆盖面。
  *
@@ -564,6 +567,58 @@ function tc08() {
 }
 
 // ────────────────────────────────────────────────
+// TC-CONTRACT-09：失败的大输出必须落盘，不直接进上下文
+// ────────────────────────────────────────────────
+
+/**
+ * 2026-09-18 复核批次 1 的连带影响时实测确认：**失败的大输出照常落盘**。
+ * 原因是宿主侧还有第二套落盘 hook（`permission-tool-wrap.ts` 的
+ * `createLargeToolResultHook`，30K 阈值，**没有** isError 判断），
+ * 而 packages 侧那套（50K，有 isError 判断）在失败时会跳过——两套并存让这件事成了。
+ *
+ * 这条链路此前**没有任何用例守着**。它是批次 2 的清理项（两套应合并），
+ * 一旦合并时改错（比如保留了"错误结果不落盘"那条策略），
+ * `local-bash.ts` 的 1MB `OUTPUT_CAP` 就会直接灌进上下文。
+ */
+function tc09() {
+  if (!logChannelAvailable()) throw new Error('SKIP: 日志通道不可用（本用例依赖 tool:end 事件）')
+
+  const sk = createSession('失败大输出落盘', { prefix: SESSION_PREFIX })
+  const cursor = logCursor()
+
+  // 输出约 20 万字符（2000 行 × ~100 字符），远超 30K 阈值，且必然非零退出
+  sendAndWait(
+    sk,
+    '请用 bash 工具**原样**执行下面这条命令（它必然失败，我在验证失败场景的处理方式）：\n\n' +
+      '    for i in $(seq 1 2000); do echo "ERROR line $i of 2000: connection refused while talking to backend service foo.bar.baz"; done; exit 1\n\n' +
+      '执行完告诉我：结果里说原始有多少字符、完整内容存在哪个路径。',
+    { timeoutMs: TURN_TIMEOUT_MS },
+  )
+
+  const lines = logLinesSince(cursor)
+  const ends = toolEnds(lines)
+  const bashEnds = ends.filter((e) => e.tool === 'bash')
+  const failEnds = bashEnds.filter((e) => e.isError)
+
+  metrics.push({ case: 'TC-09', toolSeq: bashEnds.map((e) => (e.isError ? '!' : '.')).join('') })
+
+  assert(failEnds.length > 0, `未观察到失败的 bash 调用（序列：${bashEnds.map((e) => (e.isError ? '!' : '.')).join('') || '空'}）`)
+
+  // 关键断言：失败调用的结果**不是原文**，而是"已落盘 + 路径"的提示
+  const failLine = lines.find((l) => /tool:end toolName=bash isError=true/.test(l))
+  const marked = failLine?.slice(failLine.indexOf('resultPreview=')) ?? ''
+  assert(
+    marked.includes('已落盘') || marked.includes('.tool-results'),
+    `失败的大输出没有落盘——模型看到的是原文（preview 前 200 字符：${marked.slice(0, 200)}）。` +
+      `这会让 local-bash.ts 的 1MB OUTPUT_CAP 直接灌进上下文。` +
+      `检查两套落盘 hook（packages 侧 tool-result-persist-hook / 宿主侧 large-tool-result）里` +
+      `是否有一处按长度照常处理——**两套都跳过才是不落盘**`,
+  )
+
+  return `失败的 bash 调用 ${failEnds.length} 次，其大输出已落盘（模型收到路径提示而非原文）`
+}
+
+// ────────────────────────────────────────────────
 // TC-CONTRACT-04/05：基线观察（为尚未实施的 0.3 提供施工前后对照）
 // ────────────────────────────────────────────────
 
@@ -673,6 +728,8 @@ if (!maybe('TC-CONTRACT-06', tc06)) process.exit(1)
 if (!maybe('TC-CONTRACT-07', tc07)) process.exit(1)
 // TC-08 验批次 1 的**宿主侧**延伸（宿主工具的两套载荷约定 → 同一个 ToolRunner）
 if (!maybe('TC-CONTRACT-08', tc08)) process.exit(1)
+// TC-09 守"失败的大输出必须落盘"（两套 hook 合并时的回归防线）
+if (!maybe('TC-CONTRACT-09', tc09)) process.exit(1)
 // TC-04 是 INFO 观察项（不进统计），必须在真实回合之后——它读的是刚产生的转储
 if (!ONLY || 'TC-CONTRACT-04'.startsWith(ONLY)) {
   ev.record('TC-CONTRACT-04', 'INFO', tc04Note())

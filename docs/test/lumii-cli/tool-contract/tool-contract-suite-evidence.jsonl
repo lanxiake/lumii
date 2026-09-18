@@ -1,8 +1,9 @@
-{"ts":"2026-09-18T08:27:03.925Z","id":"TC-CONTRACT-01","status":"PASS","note":"新增 1 条工具失败审计，duration_ms 全部有值（样例 74ms）","durationMs":18482}
-{"ts":"2026-09-18T08:27:23.865Z","id":"TC-CONTRACT-02","status":"PASS","note":"未出现 read_file；file_read 调用 1 次（序列：file_read）","durationMs":19939}
-{"ts":"2026-09-18T08:27:47.034Z","id":"TC-CONTRACT-03","status":"PASS","note":"file_edit 成功 1 次，无参数校验失败，文件内容已按预期替换","durationMs":23168}
-{"ts":"2026-09-18T08:28:23.171Z","id":"TC-CONTRACT-06","status":"PASS","note":"6a 的 3 次 bash 调用中有 2 次被标为失败（模型执行 exit 3 后又自己跑了一次探测，那次成功、未标）；6b 的 1 次调用未被误标；审计表同步记录 is_error=1 × 2（日志与 DB 两个口径一致）","durationMs":36136}
-{"ts":"2026-09-18T08:28:56.641Z","id":"TC-CONTRACT-07","status":"PASS","note":"file_edit 的 oldString 未找到已标失败（1/1），失败来源已确认为工具自身分支，文件未被改动","durationMs":33465}
-{"ts":"2026-09-18T08:29:33.866Z","id":"TC-CONTRACT-08","status":"PASS","note":"宿主工具失败载荷已标 isError（session_resume 1/1）；成功的 session_list 1 次未被误标","durationMs":37224}
-{"ts":"2026-09-18T08:29:33.987Z","id":"TC-CONTRACT-04","status":"INFO","note":"提示词分组现状：Other Tools=3，Desktop Control=18。未归类的是**运行时动态注册**的工具（静态守卫扫不到）——查日志里的 [tooling] 告警看具体是哪些"}
-{"ts":"2026-09-18T08:29:34.143Z","id":"TC-CONTRACT-05","status":"PASS","note":"本次请求工具面 116/116（含 MCP）；非 MCP 工具 94 个，静态守卫射程 91 → 覆盖 96.8%；运行时告警兜底 3 个动态注册工具（file-term-replace, node-read-file-script, replace-js-terms）","durationMs":155}
+{"ts":"2026-09-18T08:43:17.561Z","id":"TC-CONTRACT-01","status":"PASS","note":"新增 1 条工具失败审计，duration_ms 全部有值（样例 218ms）","durationMs":12278}
+{"ts":"2026-09-18T08:43:41.228Z","id":"TC-CONTRACT-02","status":"PASS","note":"未出现 read_file；file_read 调用 1 次（序列：file_read）","durationMs":23666}
+{"ts":"2026-09-18T08:44:19.340Z","id":"TC-CONTRACT-03","status":"PASS","note":"file_edit 成功 1 次，无参数校验失败，文件内容已按预期替换","durationMs":38111}
+{"ts":"2026-09-18T08:45:09.227Z","id":"TC-CONTRACT-06","status":"PASS","note":"6a 的 2 次 bash 调用中有 2 次被标为失败（模型执行 exit 3 后又自己跑了一次探测，那次成功、未标）；6b 的 1 次调用未被误标；审计表同步记录 is_error=1 × 2（日志与 DB 两个口径一致）","durationMs":49887}
+{"ts":"2026-09-18T08:45:50.708Z","id":"TC-CONTRACT-07","status":"PASS","note":"file_edit 的 oldString 未找到已标失败（1/1），失败来源已确认为工具自身分支，文件未被改动","durationMs":41477}
+{"ts":"2026-09-18T08:46:47.591Z","id":"TC-CONTRACT-08","status":"PASS","note":"宿主工具失败载荷已标 isError（session_resume 1/1）；成功的 session_list 1 次未被误标","durationMs":56018}
+{"ts":"2026-09-18T08:47:58.113Z","id":"TC-CONTRACT-09","status":"PASS","note":"失败的 bash 调用 1 次，其大输出已落盘（模型收到路径提示而非原文）","durationMs":70521}
+{"ts":"2026-09-18T08:47:58.352Z","id":"TC-CONTRACT-04","status":"INFO","note":"提示词分组现状：Other Tools=3，Desktop Control=18。未归类的是**运行时动态注册**的工具（静态守卫扫不到）——查日志里的 [tooling] 告警看具体是哪些"}
+{"ts":"2026-09-18T08:47:58.574Z","id":"TC-CONTRACT-05","status":"PASS","note":"本次请求工具面 116/116（含 MCP）；非 MCP 工具 94 个，静态守卫射程 91 → 覆盖 96.8%；运行时告警兜底 3 个动态注册工具（file-term-replace, node-read-file-script, replace-js-terms）","durationMs":220}

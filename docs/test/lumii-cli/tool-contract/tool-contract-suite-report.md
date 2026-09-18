@@ -1,6 +1,6 @@
 # 工具面治理验证（TC）CLI 场景化验收 测试报告
 
-- **生成时间**: 2026-09-18T08:29:34.511Z（开始 2026-09-18T08:26:45.161Z）
+- **生成时间**: 2026-09-18T08:47:59.123Z（开始 2026-09-18T08:43:04.778Z）
 - **驱动方式**: 全部经 lumii-ui CLI 真实调用（conversation/send/context 等），真实客户端 + 真实 LLM，无 SQL 播种
 - **数据库**: C:\Users\75791\.lumii\data\agent-runtime.db
 - **探针会话前缀**: [tc-suite]
@@ -11,8 +11,8 @@
 
 | 指标 | 值 |
 |---|---|
-| 总数 | 7 |
-| 通过 | 7 |
+| 总数 | 8 |
+| 通过 | 8 |
 | 失败 | 0 |
 | 跳过 | 0 |
 | 通过率 | 100.0% |
@@ -21,12 +21,13 @@
 
 | ID | 状态 | 说明 | 耗时 |
 |---|---|---|---|
-| TC-CONTRACT-01 | ✅ | 新增 1 条工具失败审计，duration_ms 全部有值（样例 74ms） | 18.5s |
-| TC-CONTRACT-02 | ✅ | 未出现 read_file；file_read 调用 1 次（序列：file_read） | 19.9s |
-| TC-CONTRACT-03 | ✅ | file_edit 成功 1 次，无参数校验失败，文件内容已按预期替换 | 23.2s |
-| TC-CONTRACT-06 | ✅ | 6a 的 3 次 bash 调用中有 2 次被标为失败（模型执行 exit 3 后又自己跑了一次探测，那次成功、未标）；6b 的 1 次调用未被误标；审计表同步记录 is_error=1 × 2（日志与 DB 两个口径一致） | 36.1s |
-| TC-CONTRACT-07 | ✅ | file_edit 的 oldString 未找到已标失败（1/1），失败来源已确认为工具自身分支，文件未被改动 | 33.5s |
-| TC-CONTRACT-08 | ✅ | 宿主工具失败载荷已标 isError（session_resume 1/1）；成功的 session_list 1 次未被误标 | 37.2s |
+| TC-CONTRACT-01 | ✅ | 新增 1 条工具失败审计，duration_ms 全部有值（样例 218ms） | 12.3s |
+| TC-CONTRACT-02 | ✅ | 未出现 read_file；file_read 调用 1 次（序列：file_read） | 23.7s |
+| TC-CONTRACT-03 | ✅ | file_edit 成功 1 次，无参数校验失败，文件内容已按预期替换 | 38.1s |
+| TC-CONTRACT-06 | ✅ | 6a 的 2 次 bash 调用中有 2 次被标为失败（模型执行 exit 3 后又自己跑了一次探测，那次成功、未标）；6b 的 1 次调用未被误标；审计表同步记录 is_error=1 × 2（日志与 DB 两个口径一致） | 49.9s |
+| TC-CONTRACT-07 | ✅ | file_edit 的 oldString 未找到已标失败（1/1），失败来源已确认为工具自身分支，文件未被改动 | 41.5s |
+| TC-CONTRACT-08 | ✅ | 宿主工具失败载荷已标 isError（session_resume 1/1）；成功的 session_list 1 次未被误标 | 56.0s |
+| TC-CONTRACT-09 | ✅ | 失败的 bash 调用 1 次，其大输出已落盘（模型收到路径提示而非原文） | 70.5s |
 | TC-CONTRACT-05 | ✅ | 本次请求工具面 116/116（含 MCP）；非 MCP 工具 94 个，静态守卫射程 91 → 覆盖 96.8%；运行时告警兜底 3 个动态注册工具（file-term-replace, node-read-file-script, replace-js-terms） | 0.2s |
 
 ## 失败与跳过明细
@@ -39,10 +40,11 @@
 | TC-01 | - | 1 | 0 | - | - | - |
 | TC-02 | file_read | - | - | - | - | - |
 | TC-03 | file_read>file_edit>file_read>task_complete>task_complete | - | - | - | - | - |
-| TC-06 | fail:!!. ok:. | - | - | - | - | - |
-| TC-06(DB) | - | 0:4 1:2 | - | - | - | - |
+| TC-06 | fail:!! ok:. | - | - | - | - | - |
+| TC-06(DB) | - | 0:3 1:2 | - | - | - | - |
 | TC-07 | file_read>file_edit! | - | - | - | - | - |
 | TC-08 | fail:! ok:. | - | - | - | - | - |
+| TC-09 | !. | - | - | - | - | - |
 | TC-04 | - | - | - | 3 | - | - |
 | TC-05 | - | - | - | - | 96.8 | 3（file-term-replace, node-read-file-script, replace-js-terms） |
 
