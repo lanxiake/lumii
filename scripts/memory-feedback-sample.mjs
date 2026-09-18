@@ -11,9 +11,16 @@
  * 门槛（实施计划 P1-5）：抽 50 条，命中率 ≥70% 才把 scoreMemory 的
  * useCountBonus 输入切到 utility_count；否则保持只记录。
  *
+ * **抽样池必须排除自动化流量**（`--exclude-probes`，判定时默认开）：
+ * 2026-09-18 实测反馈表 1068 行里 **426 行（40%）来自 `probe-*` 探针会话**——
+ * 那是三固定问题、三固定目标的重复压测。判定「代理准不准」用的是**代理与真实
+ * 使用的一致性**，把压测流量混进来测的是我自己造的分布；更糟的是探针的回复
+ * 本就围绕目标记忆展开，overlap 天然虚高，会把命中率整体抬上去。
+ *
  * 用法：
- *   node scripts/memory-feedback-sample.mjs            # 默认抽最近 50 条
+ *   node scripts/memory-feedback-sample.mjs            # 默认抽最近 50 条（含全部流量）
  *   node scripts/memory-feedback-sample.mjs --n 20
+ *   node scripts/memory-feedback-sample.mjs --exclude-probes   # 判定 P1-5 时用这个
  *   node scripts/memory-feedback-sample.mjs --json
  */
 
@@ -27,9 +34,14 @@ const DB_PATH =
 const argv = process.argv.slice(2)
 const n = argv.includes('--n') ? Number(argv[argv.indexOf('--n') + 1]) : 50
 const jsonOnly = argv.includes('--json')
+const excludeProbes = argv.includes('--exclude-probes')
 
 const THRESHOLD = 50
 const PASS_RATE = 0.7
+
+/** 探针会话的 session_id 前缀（`scripts/probe-pointer-usage.mjs` 造的那些） */
+const PROBE_PREFIX = 'probe-'
+const probeWhere = excludeProbes ? `WHERE f.session_id NOT LIKE '${PROBE_PREFIX}%'` : ''
 
 const db = new DatabaseSync(DB_PATH, { readOnly: true })
 
@@ -39,6 +51,7 @@ const rows = db
             f.contribution_score, f.features, f.created_at, m.content
        FROM memory_usage_feedback f
        LEFT JOIN agent_memories m ON m.id = f.memory_id
+      ${probeWhere}
       ORDER BY f.id DESC
       LIMIT ?`,
   )
@@ -74,6 +87,13 @@ const findReply = (sessionId, afterIso) => {
 }
 
 const total = db.prepare('SELECT COUNT(*) AS c FROM memory_usage_feedback').get().c
+// 门槛要按**抽样池**算，不是按全表：排除探针后总数会掉下来，
+// 拿含探针的总数去判「样本够了」等于用压测流量给自己凑数。
+const poolTotal = excludeProbes
+  ? db
+      .prepare("SELECT COUNT(*) AS c FROM memory_usage_feedback WHERE session_id NOT LIKE ?")
+      .get(`${PROBE_PREFIX}%`).c
+  : total
 const withUtility = db
   .prepare('SELECT COUNT(*) AS c FROM agent_memories WHERE utility_count > 0')
   .get().c
@@ -84,8 +104,11 @@ if (jsonOnly) {
   process.exit(0)
 }
 
-console.log(`反馈总行数: ${total}   其中被判「用上了」并抬高 utility_count 的记忆: ${withUtility}`)
-console.log(`本次抽样: ${rows.length} 条\n`)
+console.log(
+  `反馈总行数: ${total}${excludeProbes ? `（本池 ${poolTotal}，已排除 probe-* 探针流量 ${total - poolTotal} 行）` : ''}` +
+    `   其中被判「用上了」并抬高 utility_count 的记忆: ${withUtility}`,
+)
+console.log(`本次抽样: ${rows.length} 条${excludeProbes ? '（已排除探针）' : ''}\n`)
 
 console.log('判定方法：读下面每条的「记忆正文」与「回复」，人工回答——')
 console.log('  这条记忆真的被回复用上了吗？与 contribution_score 的判定一致吗？\n')
@@ -103,12 +126,18 @@ for (const r of rows) {
 }
 
 console.log('─'.repeat(60))
-if (total < THRESHOLD) {
-  console.log(`✗ 样本不足：${total} < ${THRESHOLD}。`)
+if (poolTotal < THRESHOLD) {
+  console.log(`✗ 样本不足：${poolTotal} < ${THRESHOLD}。`)
   console.log('  决策：维持「只记录不进打分」（实施计划约束 #6）。等反馈积累后再跑本脚本。')
 } else {
-  console.log(`样本 ${total} ≥ ${THRESHOLD}，可判定。`)
+  console.log(`样本 ${poolTotal} ≥ ${THRESHOLD}，可判定。`)
   console.log(`  把上面的逐条判定记下来：命中率 ≥ ${PASS_RATE * 100}% → 接线；否则保持只记录。`)
+  if (!excludeProbes) {
+    console.log(
+      `  ⚠️ 本次**未排除探针流量**。判定 P1-5 请加 --exclude-probes：` +
+        `探针是三固定问题的重复压测，且回复本就围绕目标记忆展开，会把命中率抬高。`,
+    )
+  }
 }
 
 db.close()

@@ -297,6 +297,25 @@ export function registerIntegrationTools(deps: BridgeToolRegistrarDeps): void {
       }
       const limit = Math.max(1, Math.min(p.maxResults ?? 10, 50))
       const sessionKey = (p.sessionKey ?? '').trim()
+      /**
+       * 每通道的席位上限 = 均分 `limit`。
+       *
+       * **为什么不能"先到先得"**：原实现是通道 1 吃满 `limit`、通道 2/3 只在
+       * `hits.length < limit` 时才跑。工作记忆有 230 条且 FTS 几乎对任何查询都能凑够
+       * 10 条，于是**宫殿通道整个被跳过**——`providers.palace` 报 0，看起来像"宫殿里
+       * 没有"，实际是根本没查。实测：同一句 query 一次 `palace:0`、换个词 `palace:9`。
+       *
+       * **每个通道各占 `perChannel`**（而非共用一条 `hits.length` 水位线）：共用水位线
+       * 时，通道 1 恰好填满自己的配额就会把水位抬到 `perChannel`，通道 2 判 `hits.length
+       * < perChannel` 不成立、同样被跳过——换成"均分"却仍是先到先得。各通道只受
+       * 自己的配额与总 `limit` 双重约束。
+       *
+       * 代价是工作记忆的席位被压到 1/3。这是**刻意的**：宫殿是这次自建的核心产物
+       * （968 条归档原文），让它在检索里永久缺席，等于白建。
+       */
+      const perChannel = Math.max(1, Math.floor(limit / 3))
+      /** 本通道可用席位数：自己的配额与总剩余取小 */
+      const roomFor = () => Math.min(perChannel, limit - hits.length)
 
       const hits: MemorySearchHit[] = []
       const counts = { workMemory: 0, palace: 0, profile: 0, scene: 0 }
@@ -330,10 +349,14 @@ export function registerIntegrationTools(deps: BridgeToolRegistrarDeps): void {
             agentId,
             'local-user',
             query,
-            limit,
+            // 超取一倍再截：`injectedMemoryIds` 去重会砍掉一部分，只取 perChannel
+            // 会凑不满席位（把本该属于本通道的席位白白让给后面的通道）。
+            Math.min(limit, perChannel * 2),
             readScope,
           )
+          const room = roomFor()
           for (const e of entries) {
+            if (hits.length >= room) break
             if (injectedMemoryIds.has(e.id)) continue
             hits.push({
               provider: 'work-memory',
@@ -369,9 +392,10 @@ export function registerIntegrationTools(deps: BridgeToolRegistrarDeps): void {
       // 2026-09-18 起带 `pinnedIds`：候选池按分数只取 30 条，一条真实的 5K 字排查段可能
       // 排到 52/608——长尾里的正确答案被重复语料（同批 cron 日报占了前 12 名）整体挤出，
       // 模型于是「搜了也找不到」。钉入让注入层正在引用的原文即使分数不够也进结果。
-      if (deps.config.searchPalace && hits.length < limit) {
+      // 各通道各占 `perChannel`，不再"先到先得"（见 `perChannel` 的说明）
+      if (deps.config.searchPalace && roomFor() > 0) {
         try {
-          const items = await deps.config.searchPalace(query, limit - hits.length, {
+          const items = await deps.config.searchPalace(query, perChannel, {
             userId: 'local-user',
             // 与工作记忆通道同一作用域规则：agent 作用域只看本 Agent，user 作用域跨 Agent
             ...(readScope === 'agent' ? { agentId } : {}),
@@ -405,8 +429,18 @@ export function registerIntegrationTools(deps: BridgeToolRegistrarDeps): void {
                 freshHits.push(base)
               }
             }
-            hits.push(...freshHits, ...injectedHits)
-            counts.palace = taken.length
+            // 截到本通道配额但**保住钉入的那几条**：它们排末尾，直接 slice 会先切掉它们
+            // ——而那正是这次要治的「注入里在讲、检索里没有」。
+            const room = roomFor()
+            const kept =
+              freshHits.length + injectedHits.length <= room
+                ? [...freshHits, ...injectedHits]
+                : [
+                    ...freshHits.slice(0, Math.max(0, room - injectedHits.length)),
+                    ...injectedHits.slice(0, room),
+                  ]
+            hits.push(...kept)
+            counts.palace = kept.length
           }
         } catch (err) {
           log.warn('[memory_search] 宫殿通道失败，跳过:', err)
@@ -414,7 +448,8 @@ export function registerIntegrationTools(deps: BridgeToolRegistrarDeps): void {
       }
 
       // ── 通道 3：个人记忆 + 场景记忆文件（行级关键词匹配）──
-      if (hits.length < limit) {
+      // 通道 3 同样按自己的配额给席位（此前是"吃剩下的"，工作记忆一多就永远轮不到）
+      if (roomFor() > 0) {
         const q = query.toLowerCase()
         const matched: MemorySearchHit[] = []
 
@@ -462,7 +497,7 @@ export function registerIntegrationTools(deps: BridgeToolRegistrarDeps): void {
           // 场景记忆读取失败不影响全局记忆搜索
         }
 
-        const room = limit - hits.length
+        const room = roomFor()
         const taken = matched.slice(0, room)
         hits.push(...taken)
         counts.profile = taken.filter((h) => h.provider === 'profile').length

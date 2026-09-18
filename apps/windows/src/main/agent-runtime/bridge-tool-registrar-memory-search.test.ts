@@ -104,7 +104,7 @@ describe('memory_search · 工作记忆通道', () => {
 
     const out = await invoke(tool, { query: '那条事实' })
 
-    expect(mm.searchMemories).toHaveBeenCalledWith('assistant', 'local-user', '那条事实', 10, 'agent')
+    expect(mm.searchMemories).toHaveBeenCalledWith('assistant', 'local-user', '那条事实', 6, 'agent')
     const results = out.results as Array<Record<string, unknown>>
     expect(results).toHaveLength(1)
     expect(results[0]).toMatchObject({
@@ -131,24 +131,57 @@ describe('memory_search · 工作记忆通道', () => {
 
     await invoke(tool, { query: '任意' })
 
-    expect(mm.searchMemories).toHaveBeenCalledWith('assistant', 'local-user', '任意', 10, 'user')
+    expect(mm.searchMemories).toHaveBeenCalledWith('assistant', 'local-user', '任意', 6, 'user')
   })
 
-  it('工作记忆占满 limit 时，后续通道不再追加（通道配额分段返回）', async () => {
+  it('三通道各占 limit/3，工作记忆吃满也不再挤掉宫殿（原「先到先得」会让 palace 整条跳过）', async () => {
     const mm = makeMemoryManager(
-      Array.from({ length: 3 }, (_, i) => ({ id: `m-${i}`, content: `工作记忆 ${i}`, category: 'general' })),
+      Array.from({ length: 10 }, (_, i) => ({
+        id: `m-${i}`,
+        content: `工作记忆 ${i}`,
+        category: 'general',
+      })),
     )
     const searchPalace = vi.fn(async () => [
       { text: '宫殿命中', wing: 'w', room: 'r', score: -1.5, drawer_id: 'a'.repeat(16) },
     ])
-    const tool = makeHarness({ memoryManager: mm, searchPalace, userMemory: '工作记忆 0 的行' })
+    const tool = makeHarness({ memoryManager: mm, searchPalace, userMemory: '' })
 
-    const out = await invoke(tool, { query: '工作记忆', maxResults: 3 })
+    const out = await invoke(tool, { query: '工作记忆', maxResults: 9 })
 
-    expect(searchPalace).not.toHaveBeenCalled()
+    // 原实现下工作记忆会把 9 个席位吃满、`hits.length < limit` 不成立，
+    // 宫殿通道**根本不会被调用**——`providers.palace` 报 0，看起来像"宫殿里没有"。
+    expect(searchPalace).toHaveBeenCalled()
     const results = out.results as Array<Record<string, unknown>>
-    expect(results).toHaveLength(3)
-    expect(results.every((r) => r.provider === 'work-memory')).toBe(true)
+    const byProvider = (p: string) => results.filter((r) => r.provider === p).length
+    expect(byProvider('work-memory')).toBe(3)
+    expect(byProvider('palace')).toBe(1)
+    expect(results.length).toBeLessThanOrEqual(9)
+  })
+
+  it('宫殿按配额截断，但**保住钉入的那几条**（否则又回到「注入里在讲、检索里没有」）', async () => {
+    // 5 条宫殿命中，limit=3 → perChannel=1；其中钉入的那条排在最后
+    const injected = 'f'.repeat(16)
+    const searchPalace = vi.fn(async () =>
+      Array.from({ length: 5 }, (_, i) => ({
+        text: `宫殿命中 ${i}`,
+        wing: 'w',
+        room: 'r',
+        score: -1,
+        drawer_id: i === 4 ? injected : String(i).repeat(16),
+      })),
+    )
+    const tool = makeHarness({
+      memoryManager: makeMemoryManager([]),
+      searchPalace,
+      pinnedDrawerIds: [injected],
+    })
+
+    const out = await invoke(tool, { query: '任意', maxResults: 3 })
+    const results = out.results as Array<Record<string, unknown>>
+
+    expect(results.filter((r) => r.provider === 'palace').length).toBeLessThanOrEqual(1)
+    expect(results.some((r) => r.drawer_id === injected)).toBe(true)
   })
 
   it('memoryManager 缺失时不报错，其他通道仍可用', async () => {
@@ -190,7 +223,7 @@ describe('memory_search · 宫殿通道（自建 SQLite）', () => {
 
     const out = await invoke(tool, { query: '工单同步' })
 
-    expect(searchPalace).toHaveBeenCalledWith('工单同步', 10, {
+    expect(searchPalace).toHaveBeenCalledWith('工单同步', 3, {
       userId: 'local-user',
       agentId: 'assistant',
     })
@@ -215,7 +248,7 @@ describe('memory_search · 宫殿通道（自建 SQLite）', () => {
 
     await invoke(tool, { query: '任意' })
 
-    expect(searchPalace).toHaveBeenCalledWith('任意', 10, { userId: 'local-user' })
+    expect(searchPalace).toHaveBeenCalledWith('任意', 3, { userId: 'local-user' })
   })
 
   it('后端不可用（返回 null）时静默跳过，不影响其他通道', async () => {
@@ -260,7 +293,7 @@ describe('memory_search · 注入指针钉入', () => {
 
     await invoke(tool, { query: '工单同步' })
 
-    expect(searchPalace).toHaveBeenCalledWith('工单同步', 10, {
+    expect(searchPalace).toHaveBeenCalledWith('工单同步', 3, {
       userId: 'local-user',
       agentId: 'assistant',
       pinnedIds: ['a'.repeat(16), 'b'.repeat(16)],
@@ -273,7 +306,7 @@ describe('memory_search · 注入指针钉入', () => {
 
     await invoke(tool, { query: '任意' })
 
-    expect(searchPalace).toHaveBeenCalledWith('任意', 10, {
+    expect(searchPalace).toHaveBeenCalledWith('任意', 3, {
       userId: 'local-user',
       agentId: 'assistant',
     })
