@@ -79,6 +79,9 @@ export interface WeixinRawMessage {
   create_time_ms?: number
   message_type?: number
   context_token?: string
+  /** 发送方显示名；iLink 在该字段回传昵称时用于 peer label 与会话标题 */
+  nickname?: string
+  display_name?: string
   item_list?: MessageItem[]
 }
 

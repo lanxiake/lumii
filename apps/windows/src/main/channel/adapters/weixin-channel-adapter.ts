@@ -128,7 +128,24 @@ export class WeixinChannelAdapter implements IChannelAdapter {
       updatedAt: Date.now(),
       ...(msg.botToken ? { botToken: msg.botToken } : {}),
       ...(msg.ilinkBaseUrl ? { ilinkBaseUrl: msg.ilinkBaseUrl } : {}),
+      ...(msg.nickname ? { lastNickname: msg.nickname } : {}),
     })
+  }
+
+  /**
+   * 会话活跃时把默认会话标题刷成用户昵称（与 App 内「微信对话 - id」对齐；
+   * 用户 /new 自建的会话也有频道专属标题，不在此处改名）。
+   */
+  private syncConversationTitleToNickname(msg: WeixinNormalizedMessage): void {
+    const nickname = msg.nickname?.trim()
+    if (!nickname) return
+    const sessionKey = this.getActiveSessionKey(msg.channelUserId)
+    const repo = this.bridge.conversationRepo
+    const existing = repo?.getConversation(sessionKey)
+    if (!existing) return
+    const desired = `微信对话 - ${nickname}`
+    if (existing.title === desired) return
+    repo.updateTitle(sessionKey, desired)
   }
 
   // ── IChannelAdapter 接口实现 ──────────────────────────────────────────────
@@ -169,6 +186,10 @@ export class WeixinChannelAdapter implements IChannelAdapter {
   startListening(): void {
     this.weixinLoginService.on('message', (msg: WeixinNormalizedMessage) => {
       const userId = msg.channelUserId
+      // 入站即落盘 reply context：出站 token 的保鲜只应以「用户发过消息」为准，
+      // 不能依赖后续处理路径（斜杠命令/接续提示会提前 return）
+      this.persistReplyContext(msg)
+      this.syncConversationTitleToNickname(msg)
       // 插队路径：答复挂起的提问/审批、以及 /stop 打断，都必须绕过 userQueues。
       // 正在运行的那一轮还占着队列，排队等于永远等不到。
       if (this.tryHandleOutOfBand(msg)) return

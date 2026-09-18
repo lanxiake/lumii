@@ -97,6 +97,8 @@ export interface WeixinNormalizedMessage {
    * Required for reply delivery — server uses this for session routing.
    */
   contextToken?: string
+  /** 发送方昵称（iLink 回传时可用；用于 peer label 与默认会话标题） */
+  nickname?: string
 }
 
 export class WeixinLoginService extends EventEmitter {
@@ -530,6 +532,10 @@ export class WeixinLoginService extends EventEmitter {
       ilinkBaseUrl: session?.baseUrl ?? this.baseUrl,
       // context_token is required for reply delivery (iLink session routing)
       contextToken: raw.context_token,
+      // 昵称字段随协议版本可能缺席；缺省时下游按 channelUserId 展示
+      ...(raw.nickname?.trim() || raw.display_name?.trim()
+        ? { nickname: (raw.nickname ?? raw.display_name)!.trim() }
+        : {}),
     }
   }
 
