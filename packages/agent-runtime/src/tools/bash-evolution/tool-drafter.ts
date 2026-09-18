@@ -13,7 +13,21 @@
  */
 
 import type { CommandPattern } from "./command-miner.js";
-import type { RefinedPattern } from "./refine-patterns.js";
+
+/**
+ * LLM 精修出的语义化命令模板。
+ *
+ * 2026-09-18（批次 2）：原先定义在 `refine-patterns.ts`。那个模块的
+ * `refinePatternWithLLM` 已无生产调用——主路径合并成了本模块的**单次 LLM 调用**
+ * （见文件头）。删那个模块时把这个类型搬来这里：它是**本模块的入参类型**，
+ * 不是"兼容保留"的残留。
+ */
+export interface RefinedPattern {
+  /** 精确模板：参数位为 {{语义名}}，其余保持真实命令结构 */
+  template: string;
+  /** 参数名 → 一句话说明（供工具草拟的 schema 描述使用） */
+  parameterHints: Record<string, string>;
+}
 
 export interface ToolDraft {
   name: string;

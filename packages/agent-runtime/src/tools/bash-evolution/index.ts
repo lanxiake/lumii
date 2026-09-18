@@ -4,8 +4,7 @@
  * 管道总览（设计见 docs/design/Agent协作与提示词/2026-09-08-Bash命令工具进化设计.md）：
  * - bash-command-log-hook：ToolRunner 全局 hook，逐条落库命令原文
  * - command-miner：规则归一化 + 聚合 + 过滤（纯函数，粗聚类）+ 高频价值筛选
- * - refine-patterns：LLM 精归一化（兼容保留；主路径已合并进 tool-drafter 单次调用）
- * - tool-drafter：单次 LLM 草拟参数化工具（含语义化模板）
+ * - tool-drafter：单次 LLM 草拟参数化工具（含语义化模板精修）
  */
 
 export { createBashCommandLogHook } from "./bash-command-log-hook.js";
@@ -25,10 +24,8 @@ export type {
   MinerOptions,
   HighValuePatternOptions,
 } from "./command-miner.js";
-export { refinePatternWithLLM } from "./refine-patterns.js";
-export type { RefinedPattern, RefinePatternDeps } from "./refine-patterns.js";
 export { draftToolFromPattern, buildDraftPrompt } from "./tool-drafter.js";
-export type { ToolDraft, DraftToolDeps } from "./tool-drafter.js";
+export type { RefinedPattern, ToolDraft, DraftToolDeps } from "./tool-drafter.js";
 export {
   checkToolDraft,
   sampleReplayRate,

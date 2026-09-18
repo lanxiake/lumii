@@ -9,7 +9,7 @@ import {
   sampleReplayRate,
 } from "./tool-quality-gate.js";
 import { normalizeCommand, type CommandPattern } from "./command-miner.js";
-import type { RefinedPattern } from "./refine-patterns.js";
+import type { RefinedPattern } from "./tool-drafter.js";
 import type { TemplateToolDefinition } from "../template-tool.js";
 
 const pattern: CommandPattern = {
