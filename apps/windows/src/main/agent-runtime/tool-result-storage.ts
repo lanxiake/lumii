@@ -1,16 +1,24 @@
 /**
- * 工具结果落盘预览替换 + 聚合预算
+ * 工具结果落盘预览替换
  *
  * 参考 Claude Code toolResultStorage.ts 设计：
- * 1. 单条工具结果超过 DEFAULT_MAX_RESULT_SIZE_CHARS 时，完整内容落盘到工作空间文件，
- *    上下文中替换为摘要预览（前 N 行 + 文件引用），避免单次工具调用撑爆上下文。
- * 2. 同一轮所有 toolResult 总量超过 MAX_TOOL_RESULTS_PER_TURN_CHARS 时，
- *    选择最大的若干块落盘替换，直到回到预算内。
+ * 单条工具结果超过 DEFAULT_MAX_RESULT_SIZE_CHARS 时，完整内容落盘到工作空间文件，
+ * 上下文中替换为摘要预览（前 N 行 + 文件引用），避免单次工具调用撑爆上下文。
  *
  * 落盘路径：workspace/.tool-results/{conversationId}/{toolCallId}.txt
  * Agent 可通过 file_read 按需读取完整内容。
  *
  * 设计依据: .qoder/design/agent-tools-skills/tool-layer-compaction-bridge-comparison.md §2.2-2.3
+ *
+ * **2026-09-18 批次 2 删除**：原设计还有第 2 条「同一轮所有结果的**聚合**预算
+ * （`MAX_TOOL_RESULTS_PER_TURN_CHARS` = 120K）」，实现为 `enforceToolResultBudget`。
+ * 它**从未被接线**（零调用；日志 `[toolResultBudget]` 全月 0 命中），已连同常量删除。
+ *
+ * ⚠️ **聚合保护是一个真实缺口，不是伪需求**——它管的是"单条都不超阈值、
+ * 但一轮里 10 条 25K 的结果合计 250K"这类场景，与上面的单条阈值互补。
+ * 删它的理由不是它没用，而是：① 批次 2 的定位是清理而非新增功能；
+ * ② **它的存在会让人误以为聚合保护已经生效**——那正是它比"没有"更危险的地方。
+ * 若要补回，需在 hook 里维护跨调用的轮次累计，那是一次独立的功能设计。
  */
 
 import fs from 'node:fs'
@@ -19,9 +27,6 @@ import { agentRuntimeLog as log } from './bridge-utils'
 
 /** 单条工具结果的落盘阈值（字符数）。超过此值时落盘并替换为预览。 */
 export const DEFAULT_MAX_RESULT_SIZE_CHARS = 30_000
-
-/** 同一轮所有 toolResult 的总预算（字符数）。超过时选择最大的落盘。 */
-export const MAX_TOOL_RESULTS_PER_TURN_CHARS = 120_000
 
 /** 预览中保留的前 N 行（让 Agent 看到结构/开头） */
 const PREVIEW_HEAD_LINES = 30
@@ -77,55 +82,6 @@ export function maybePersistLargeToolResult(
   }
 
   return buildPreviewWithReference(entry.content, entry.toolName, absPath)
-}
-
-/**
- * 对同一轮的所有 toolResult 做聚合预算检查
- *
- * 如果总量超过 MAX_TOOL_RESULTS_PER_TURN_CHARS，按大小降序选择最大的落盘替换，
- * 直到总量回到预算内。
- *
- * @returns 替换后的 entries（content 可能已被替换为预览）
- */
-export function enforceToolResultBudget(
-  entries: ToolResultEntry[],
-  cwd: string,
-  conversationId: string | undefined,
-  budgetChars: number = MAX_TOOL_RESULTS_PER_TURN_CHARS,
-): ToolResultEntry[] {
-  const totalChars = entries.reduce((sum, e) => sum + e.charCount, 0)
-  if (totalChars <= budgetChars) {
-    return entries
-  }
-
-  log.info(
-    `[toolResultBudget] 总量 ${totalChars} 超过预算 ${budgetChars}，开始选择性落盘`,
-  )
-
-  // 按大小降序排列索引
-  const indexed = entries.map((e, i) => ({ entry: e, index: i }))
-  indexed.sort((a, b) => b.entry.charCount - a.entry.charCount)
-
-  let currentTotal = totalChars
-  const replacedIndices = new Set<number>()
-
-  for (const { entry, index } of indexed) {
-    if (currentTotal <= budgetChars) break
-    if (EXEMPT_TOOL_NAMES.has(entry.toolName)) continue
-    if (entry.charCount <= 1000) continue
-
-    const replaced = maybePersistLargeToolResult(entry, cwd, conversationId, 0)
-    const saved = entry.charCount - replaced.length
-    currentTotal -= saved
-    replacedIndices.add(index)
-    entries[index] = { ...entry, content: replaced, charCount: replaced.length }
-  }
-
-  log.info(
-    `[toolResultBudget] 落盘 ${replacedIndices.size} 条，总量 ${totalChars} → ${currentTotal}`,
-  )
-
-  return entries
 }
 
 /**
