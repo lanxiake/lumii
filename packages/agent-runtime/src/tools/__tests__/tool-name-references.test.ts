@@ -130,6 +130,9 @@ describe('工具名引用守卫', () => {
       for (const m of src.matchAll(/`([a-z][a-z0-9_]{3,})`/g)) {
         const word = m[1]!
         if (REGISTERED.has(word) || ALLOWED_NON_TOOL_BACKTICKS.has(word)) continue
+        // 16 位纯 hex：drawer_id / 内容哈希的示例值（如 memory_read 参数说明里的样例）。
+        // 按模式豁免而不是逐个登记——示例值会变，但"纯 hex 不可能是工具名"恒成立。
+        if (/^[0-9a-f]{16}$/.test(word)) continue
         // 排除已经报过的失效名（上一条用例负责，避免重复噪声）
         if ([...BANNED_TOOL_NAMES, ...BANNED_PARAM_NAMES].some(([b]) => b === word)) continue
         unknown.push(`${file}: \`${word}\``)
