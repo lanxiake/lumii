@@ -2,7 +2,6 @@
  * AgentRuntimeBridge 共享工具函数与常量（与主类解耦，便于单测与复用）
  */
 
-import type { AgentToolResult } from '@mariozechner/pi-agent-core'
 import {
   BUILT_IN_AGENTS,
   findBuiltInAgent,
@@ -10,6 +9,7 @@ import {
   type AgentDefinition,
   type AgentInstance,
   type AgentTool,
+  type MtBotToolResult,
   type TaskStatus,
 } from '@mtbot/agent-runtime'
 
@@ -25,12 +25,41 @@ export const agentRuntimeLog = {
 }
 
 /**
- * 将任意 JSON 可序列化结果包装为 pi-agent 工具返回格式
+ * 宿主工具载荷里的失败标记。
+ *
+ * 宿主工具用**两套**载荷字段约定表达失败（历史原因，2026-09-18 核实，合计 196 处）：
+ *   - `{ ok: false }`                102 处：app-ui / screen-record / client-cmd / integration / wiki / browser
+ *   - `{ status: 'error' | ... }`     94 处：maintenance / cron / handoff / sync / todo-write
+ * 两者都指「工具没能完成它该做的事」。此前模型看不到这个语义——它只收到一段 JSON 文本，
+ * 得自己读 `ok:false` 才知道失败了。这里统一提到顶层 `isError`。
+ *
+ * **刻意不标的 status（标了有害，不是遗漏）**：
+ *   - `'running'` / `'started'`：云同步的后台落决仍在跑。这两条的文案里明确写着
+ *     「**不要重复调用本工具**」——标失败正好把 Agent 推向反面，重排一轮落决。
+ *     契约第 3 条 a 类，2026-09-17 T3.4 已定案，不得改回。
+ *   - `'proposed'`：开发转交在「宿主未启用自动执行」时的正常终态（提案已生成，等确认）。
  */
-export function jsonToolResult(data: unknown): AgentToolResult<unknown> {
+const FAILURE_STATUSES = new Set(['error', 'not_found', 'partial'])
+
+function payloadIsFailure(data: unknown): boolean {
+  if (typeof data !== 'object' || data === null) return false
+  const d = data as { ok?: unknown; status?: unknown }
+  if (d.ok === false) return true
+  return typeof d.status === 'string' && FAILURE_STATUSES.has(d.status)
+}
+
+/**
+ * 将任意 JSON 可序列化结果包装为 pi-agent 工具返回格式。
+ *
+ * 失败载荷会被提到**顶层** `isError`——那才是 ToolRunner / ToolRegistry / 模型
+ * 认得的失败信号（契约全文见 `packages/agent-runtime/src/types/tool.ts` 的 `MtBotToolResult`）。
+ * 载荷本体原样保留在 content 里，模型仍能看到 `ok:false` / `status:'error'` 与错误详情。
+ */
+export function jsonToolResult(data: unknown): MtBotToolResult<unknown> {
   return {
     content: [{ type: 'text', text: JSON.stringify(data) }],
     details: undefined,
+    ...(payloadIsFailure(data) ? { isError: true } : {}),
   }
 }
 

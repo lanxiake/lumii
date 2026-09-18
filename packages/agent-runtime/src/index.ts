@@ -7,6 +7,7 @@
 // === 类型导出 ===
 export type {
   MtBotTool,
+  MtBotToolResult,
   ToolCategory,
   ToolExecutionContext,
   AgentTool,

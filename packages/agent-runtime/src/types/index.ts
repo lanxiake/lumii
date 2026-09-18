@@ -1,5 +1,6 @@
 export type {
   MtBotTool,
+  MtBotToolResult,
   ToolCategory,
   ToolExecutionContext,
   AgentTool,

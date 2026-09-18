@@ -11,6 +11,7 @@
  *   ③ 批次 1：统一 `isError` 契约（工具失败必须产顶层 isError:true）
  *      → 行为面用例 TC-CONTRACT-06（bash 非零退出 / 反向：成功不标）
  *        与 TC-CONTRACT-07（file_edit 前置条件失败）；数据面由 TC-06 顺带交叉验证
+ *      → 宿主侧延伸由 TC-CONTRACT-08 验（宿主工具的两套载荷约定 ok:false / status:'error'）
  *
  * 另记两条**基线观察**（TC-04/05），跟踪提示词分组的覆盖面。
  *
@@ -498,6 +499,71 @@ function tc07() {
 }
 
 // ────────────────────────────────────────────────
+// TC-CONTRACT-08：宿主工具的失败也必须被标记（批次 1 宿主侧）
+// ────────────────────────────────────────────────
+
+/**
+ * 批次 1 先覆盖了 packages 的**内置工具**。宿主工具（`apps/windows`）是另一套载荷约定：
+ * `{ ok: false }`（102 处）与 `{ status: 'error' | 'not_found' | 'partial' }`（94 处），
+ * 由 `bridge-utils.ts` 的 `jsonToolResult` 统一提到顶层 isError。
+ *
+ * 这条链路值得单独验，因为它横跨两个包：宿主工具经
+ * `bridge-instance-factory → assembleAgent → assembleTools` 装配，
+ * **与内置工具走同一个 ToolRunner**——所以模型看到的应该是同一套失败语义。
+ * 单测只能证明 `jsonToolResult` 返回了 isError，证明不了它在真实链路上被转成 is_error。
+ */
+function tc08() {
+  if (!logChannelAvailable()) throw new Error('SKIP: 日志通道不可用（本用例依赖 tool:end 事件）')
+
+  // 8a：必然失败的宿主工具调用（session_resume 传一个不存在的会话）
+  const skFail = createSession('宿主工具失败标记', { prefix: SESSION_PREFIX })
+  const cursorFail = logCursor()
+  sendAndWait(
+    skFail,
+    '请调用 session_resume 工具，把 sessionKey 参数设为 "nonexistent-session-key-for-tc08"。\n' +
+      '我知道这个会话不存在——我在验证失败场景的记录是否正确，请照做一次即可，不要改用别的工具。',
+    { timeoutMs: TURN_TIMEOUT_MS },
+  )
+  const failEnds = toolEnds(logLinesSince(cursorFail)).filter((e) => e.tool === 'session_resume')
+
+  // 8b：必然成功的宿主工具调用（反向断言——防"宿主工具一律标失败"）
+  const skOk = createSession('宿主工具成功不标失败', { prefix: SESSION_PREFIX })
+  const cursorOk = logCursor()
+  sendAndWait(skOk, '请调用 session_list 工具列出当前会话，告诉我一共多少个。', {
+    timeoutMs: TURN_TIMEOUT_MS,
+  })
+  const okEnds = toolEnds(logLinesSince(cursorOk)).filter((e) => e.tool === 'session_list')
+
+  metrics.push({
+    case: 'TC-08',
+    toolSeq: `fail:${failEnds.map((e) => (e.isError ? '!' : '.')).join('')} ok:${okEnds
+      .map((e) => (e.isError ? '!' : '.'))
+      .join('')}`,
+  })
+
+  assert(
+    failEnds.length > 0,
+    '8a 未观察到 session_resume 调用——模型可能没用工具而是直接回答了',
+  )
+  assert(
+    failEnds.some((e) => e.isError),
+    `8a 宿主工具的失败载荷（{ok:false, message:'会话不存在'}）未被标为 isError。` +
+      `检查 bridge-utils.ts 的 jsonToolResult 是否仍把 ok:false / status:'error' 提到顶层`,
+  )
+  assert(okEnds.length > 0, '8b 未观察到 session_list 调用')
+  assert(
+    !okEnds.some((e) => e.isError),
+    `8b 成功的宿主工具被误标为失败（${okEnds.length} 次调用）。` +
+      `过度标记与漏标同样是契约违反——检查 payloadIsFailure 的判定条件`,
+  )
+
+  return (
+    `宿主工具失败载荷已标 isError（session_resume ${failEnds.filter((e) => e.isError).length}/${failEnds.length}）；` +
+    `成功的 session_list ${okEnds.length} 次未被误标`
+  )
+}
+
+// ────────────────────────────────────────────────
 // TC-CONTRACT-04/05：基线观察（为尚未实施的 0.3 提供施工前后对照）
 // ────────────────────────────────────────────────
 
@@ -605,6 +671,8 @@ if (!maybe('TC-CONTRACT-03', tc03)) process.exit(1)
 // TC-06/07 验批次 1 的 isError 契约（真实回合，与档位无关）
 if (!maybe('TC-CONTRACT-06', tc06)) process.exit(1)
 if (!maybe('TC-CONTRACT-07', tc07)) process.exit(1)
+// TC-08 验批次 1 的**宿主侧**延伸（宿主工具的两套载荷约定 → 同一个 ToolRunner）
+if (!maybe('TC-CONTRACT-08', tc08)) process.exit(1)
 // TC-04 是 INFO 观察项（不进统计），必须在真实回合之后——它读的是刚产生的转储
 if (!ONLY || 'TC-CONTRACT-04'.startsWith(ONLY)) {
   ev.record('TC-CONTRACT-04', 'INFO', tc04Note())

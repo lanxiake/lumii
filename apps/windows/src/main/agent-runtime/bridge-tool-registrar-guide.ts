@@ -191,7 +191,10 @@ export function registerGuideTools(deps: BridgeToolRegistrarDeps): void {
     execute: async (_toolCallId, params) => {
       const guide = getPromptSectionGuide(params.section)
       if (!guide) {
+        // `ok: false` 是本仓库宿主工具的失败载荷约定，也是 jsonToolResult 识别失败的依据
+        // （此前这里只写了 error 字段，形状与其余 196 处不一致，会被漏判）
         return jsonToolResult({
+          ok: false,
           error: `Unknown prompt section: ${params.section}`,
           available_sections: listPromptGuideSections(),
         })

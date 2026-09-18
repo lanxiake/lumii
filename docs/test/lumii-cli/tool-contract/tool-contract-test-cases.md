@@ -264,6 +264,37 @@ assert(marked.includes("not found in"), "失败来源必须是 oldString 未找�
 
 ---
 
+## TC-CONTRACT-08 宿主工具的失败也必须被标记（批次 1 宿主侧延伸）
+
+- **优先级**：P0
+- **层**：L3（真实聊天模拟）
+- **前置**：客户端已 `dev:restart`——**改的是 `apps/windows` 主进程**，不重启不生效
+- **真实数据**：探针会话；`session_resume` 传一个不存在的 sessionKey
+- **步骤**：
+  1. **8a**：新建会话，要求 agent 调用 `session_resume`，`sessionKey` 传 `nonexistent-session-key-for-tc08`
+  2. **8b**：另起会话，要求 agent 调用 `session_list`（必然成功）
+  3. 从日志游标后的 `tool:end` 事件取两次的 `isError`
+- **预期**：8a 至少一次 `isError=true`；8b 无一次 `isError=true`
+- **断言**：两条全为**硬**
+- **为什么必须单独验宿主机侧**：批次 1 先覆盖了 `packages` 的**内置工具**，
+  而宿主工具有**两套**载荷约定（2026-09-18 核实，合计 196 处）：
+
+  | 约定 | 处数 | 分布 |
+  | --- | --- | --- |
+  | `{ ok: false }` | 102 | app-ui / screen-record / client-cmd / integration / wiki / browser |
+  | `{ status: 'error' \| 'not_found' \| 'partial' }` | 94 | maintenance / cron / handoff / sync / todo-write |
+
+  两者由 `bridge-utils.ts` 的 `jsonToolResult` 统一提到顶层 `isError`。
+  这条链路**横跨两个包**——宿主工具经 `bridge-instance-factory → assembleAgent →
+  assembleTools` 装配，与内置工具**走同一个 ToolRunner**。
+  单测能证明 `jsonToolResult` 返回了 isError，但证明不了它在真实链路上被转成 `is_error` 发给模型。
+- **为什么选 `session_resume`**：它的失败是**确定性**的（传不存在的 key 必然 `{ok:false, message:'会话不存在'}`），
+  不需要构造环境异常（如 `app_screenshot` 的 `capture_failed` 得让 UI 出问题）。
+- **8b 反向断言的作用**：防"宿主工具一律标失败"——那种实现同样违反契约。
+- **预计回合**：2
+
+---
+
 ## 不在本套件覆盖范围内的
 
 | 项 | 为什么不在 | 在哪验 |
