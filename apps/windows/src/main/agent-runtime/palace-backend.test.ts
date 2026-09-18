@@ -184,3 +184,85 @@ describe('withBuiltinPalace', () => {
     expect(await config.searchPalace!('留下来', 10, { userId: 'local-user' })).toHaveLength(1)
   })
 })
+
+describe('onConversationEnd（每轮归档）', () => {
+  /** 造一个带会话 + 助手消息的最小库，供 resolveConversationAgentId 解析归属 */
+  function seedConversation(db: ReturnType<typeof createMigratedTestDb>, convId: string, agentId: string) {
+    db.prepare(
+      `INSERT INTO conversations (id, user_id, type, title, is_active, created_at, last_msg_at)
+       VALUES (?, 'local-user', 'direct', 't', 1, '2026-09-18T00:00:00Z', '2026-09-18T00:00:00Z')`,
+    ).run(convId)
+    db.prepare(
+      `INSERT INTO messages (id, conversation_id, agent_id, role, content_json, timestamp, is_streaming)
+       VALUES (?, ?, ?, 'assistant', '{"type":"text","text":"x"}', '2026-09-18T00:00:01Z', 0)`,
+    ).run(`m-${convId}`, convId, agentId)
+  }
+
+  it('每轮助手回复写进 builtin 宫殿，且能被检索命中', () => {
+    const db = createMigratedTestDb()
+    seedConversation(db, 'conv-1', 'assistant')
+    const config = withBuiltinPalace(emptyConfig, fakeLocalDb(db))
+
+    config.onConversationEnd!('conv-1', '这一轮在讨论雪山行程的住宿安排。')
+
+    const row = db
+      .prepare<{ wing: string; room: string; agent_id: string; user_id: string; conversation_id: string }>(
+        'SELECT wing, room, agent_id, user_id, conversation_id FROM palace_drawers',
+      )
+      .get()!
+    // wing/room 沿用旧宫殿的坐标，不重命名——旧 sqlite 里的历史内容用的就是这组，
+    // 改名会让同内容出现两个 drawer_id
+    expect(row.wing).toBe('conversations')
+    expect(row.room).toBe('conv-1')
+    expect(row.conversation_id).toBe('conv-1')
+    expect(row.user_id).toBe('local-user')
+    expect(row.agent_id).toBe('assistant')
+  })
+
+  it('先转发宿主原回调（自主进化的轮次结算还挂在上面）', () => {
+    const db = createMigratedTestDb()
+    seedConversation(db, 'conv-2', 'assistant')
+    const forwarded: [string, string][] = []
+    const config = withBuiltinPalace(
+      {
+        onConversationEnd: (c: string, t: string) => forwarded.push([c, t]),
+      } as unknown as AgentRuntimeBridgeConfig,
+      fakeLocalDb(db),
+    )
+
+    config.onConversationEnd!('conv-2', '宿主回调不能被整体替换掉。')
+
+    expect(forwarded).toEqual([['conv-2', '宿主回调不能被整体替换掉。']])
+  })
+
+  it('DB 未打开 / 空文本 / 空 convId 时静默跳过，不抛异常', () => {
+    const closed = withBuiltinPalace(emptyConfig, fakeLocalDb(createMigratedTestDb(), false))
+    expect(() => closed.onConversationEnd!('conv-1', '有内容')).not.toThrow()
+
+    const db = createMigratedTestDb()
+    const open = withBuiltinPalace(emptyConfig, fakeLocalDb(db))
+    expect(() => open.onConversationEnd!('conv-1', '   ')).not.toThrow()
+    expect(() => open.onConversationEnd!('', '有内容')).not.toThrow()
+    expect(db.prepare<{ c: number }>('SELECT COUNT(*) AS c FROM palace_drawers').get()!.c).toBe(0)
+  })
+
+  it('归档归属取会话的 Agent，而不是写死 assistant', () => {
+    const db = createMigratedTestDb()
+    seedConversation(db, 'conv-3', 'code-dev')
+    const config = withBuiltinPalace(emptyConfig, fakeLocalDb(db))
+
+    config.onConversationEnd!('conv-3', '这段归 code-dev。')
+
+    const row = db.prepare<{ agent_id: string }>('SELECT agent_id FROM palace_drawers').get()!
+    expect(row.agent_id).toBe('code-dev')
+  })
+
+  it('mempalace 后端下 onConversationEnd 原样保留（交给 index.ts 的 Python 分支）', () => {
+    const original = vi.fn()
+    const config = { onConversationEnd: original } as unknown as AgentRuntimeBridgeConfig
+
+    const out = withBuiltinPalace(config, fakeLocalDb(createMigratedTestDb()), 'mempalace')
+
+    expect(out.onConversationEnd).toBe(original)
+  })
+})

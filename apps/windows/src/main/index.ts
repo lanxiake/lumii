@@ -160,6 +160,7 @@ import {
   getAcpBackendManager,
   getSessionKeyForInstance,
   invalidateAgentInstancesForProviderChange,
+  resolvePalaceBackend,
 } from './agent-runtime'
 import { submitVoiceTranscript } from './ipc/agent-runtime-ipc.js'
 import {
@@ -904,24 +905,31 @@ async function initAgentRuntime(): Promise<void> {
       }
     },
     onConversationEnd: (convId: string, assistantText: string) => {
-      void (async () => {
-        try {
-          const installed = await checkMemPalaceInstalled()
-          if (!installed) return
-          await ensureMemPalacePalaceDir()
-          const bridge = getMemPalaceBridge()
-          const added = await bridge.addDrawer({
-            wing: 'conversations',
-            room: convId,
-            content: assistantText,
-            addedBy: 'mtbot-windows',
-          })
-          log.info(`[MemPalace] 记忆已写入 convId=${convId} drawer=${added.drawer_id} len=${assistantText.length}`)
-        } catch (err) {
-          // 与段归档同理：这是内容没进宫殿的最终记账点，必须出现在错误日志里
-          log.error(`[MemPalace] 记忆写入失败: ${err instanceof Error ? err.message : String(err)}`)
-        }
-      })()
+      // 每轮助手回复的即时归档（wing='conversations'）。
+      // builtin 下这一步已由 AgentRuntimeBridge 构造期的 withBuiltinPalace 接管
+      // （见 agent-runtime/palace-backend.ts）——这里只保留 MemPalace 逃生开关的分支。
+      // 2026-09-18 修复：此前无条件写 Python，P2-3 换了后端却漏了这一处，旧 sqlite
+      // 当天仍在增长，而那批内容在自建检索里永远搜不到（差异 #19）。
+      if (resolvePalaceBackend() === 'mempalace') {
+        void (async () => {
+          try {
+            const installed = await checkMemPalaceInstalled()
+            if (!installed) return
+            await ensureMemPalacePalaceDir()
+            const bridge = getMemPalaceBridge()
+            const added = await bridge.addDrawer({
+              wing: 'conversations',
+              room: convId,
+              content: assistantText,
+              addedBy: 'mtbot-windows',
+            })
+            log.info(`[MemPalace] 记忆已写入 convId=${convId} drawer=${added.drawer_id} len=${assistantText.length}`)
+          } catch (err) {
+            // 与段归档同理：这是内容没进宫殿的最终记账点，必须出现在错误日志里
+            log.error(`[MemPalace] 记忆写入失败: ${err instanceof Error ? err.message : String(err)}`)
+          }
+        })()
+      }
 
       // 自主进化：回合结束触发满意度评分与目标生成（旁路，失败不影响会话）
       void notifyAutonomousTurnEnd(convId)
