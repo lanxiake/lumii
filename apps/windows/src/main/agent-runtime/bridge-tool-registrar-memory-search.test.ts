@@ -46,13 +46,28 @@ function makeHarness(opts: {
   /** 注入指针：memory_search 会把它们钉进检索、并给命中的打 already_injected */
   pinnedDrawerIds?: readonly string[]
   injectedMemories?: Array<{ id: string }>
+  /** 宫殿读入口；不传时视为「后端不可用」，与线上 config 缺省一致 */
+  readPalaceDrawer?: (id: string) => Promise<unknown>
 }) {
+  const tools = makeTools(opts)
+  const tool = tools.get('memory_search')
+  if (!tool) throw new Error('memory_search not registered')
+  return tool
+}
+
+/** 与 `makeHarness` 同源，但返回**全部**已注册工具（用于对照两个入口是否同实现） */
+function toolsIn(opts: Parameters<typeof makeHarness>[0]): Map<string, RegisteredTool> {
+  return makeTools(opts)
+}
+
+function makeTools(opts: Parameters<typeof makeHarness>[0]): Map<string, RegisteredTool> {
   const tools = new Map<string, RegisteredTool>()
   const deps = {
     toolRegistry: { register: (t: RegisteredTool) => tools.set(t.name, t) },
     toolContext: {},
     config: {
       searchPalace: opts.searchPalace,
+      readPalaceDrawer: opts.readPalaceDrawer,
       getUserMemory: async () => ({ content: opts.userMemory ?? '', updatedAt: '2026-09-17T00:00:00.000Z' }),
     },
     localDb: { db: { prepare: () => ({ all: () => [] }) } },
@@ -72,9 +87,7 @@ function makeHarness(opts: {
     instanceStates: { get: () => undefined },
   } as unknown as BridgeToolRegistrarDeps
   registerIntegrationTools(deps)
-  const tool = tools.get('memory_search')
-  if (!tool) throw new Error('memory_search not registered')
-  return tool
+  return tools
 }
 
 async function invoke(tool: RegisteredTool, params: unknown): Promise<Record<string, unknown>> {
@@ -302,7 +315,90 @@ describe('memory_search · 注入指针钉入', () => {
 })
 
 /**
- * memory_read 的 drawerId 容错（2026-09-18）。
+ * 工具入口合并（2026-09-18）：`memory_search(drawerId=…)` 与 `memory_read` 是同一个实现。
+ *
+ * 合并的动机不是"少一个工具"，是消除一条实测确认的失败路径：两个工具并存时，
+ * 模型手里明明有 `[d:xxxx]` 指针，也常去搜一遍、搜到"差不多"的条目就不再回来读
+ * 那条原文（3/3 全错）。合并后 `drawerId` 一给就是直读全文，没有"先搜再读"这个
+ * 多余动作可做。
+ *
+ * 两个名字共用 `readDrawerResult`，所以**容错与错误措辞必须一致**——各写一份会漂移，
+ * 而格式容错正是模型最容易踩的地方（实测传过 `d:xxxx`、`[d:xxx` 缺右括号）。
+ */
+describe('memory_search · drawerId 直读（与 memory_read 同一实现）', () => {
+  const drawer = {
+    drawer_id: 'a'.repeat(16),
+    wing: 'conversations',
+    room: 'conv-1',
+    content: '归档原文',
+    metadata: {},
+  }
+
+  it('传 drawerId 时直读全文，不触发检索', async () => {
+    const searchPalace = vi.fn(async () => [])
+    const readPalaceDrawer = vi.fn(async () => drawer)
+    const tool = makeHarness({
+      memoryManager: makeMemoryManager([]),
+      searchPalace,
+      readPalaceDrawer,
+    })
+
+    const out = await invoke(tool, { drawerId: 'a'.repeat(16) })
+
+    expect(out).toMatchObject({ ok: true, drawerId: 'a'.repeat(16), provider: 'palace' })
+    expect(searchPalace).not.toHaveBeenCalled()
+  })
+
+  it('不带 drawerId 时照常检索（两种用法共用一个入口）', async () => {
+    const searchPalace = vi.fn(async () => [])
+    const readPalaceDrawer = vi.fn(async () => drawer)
+    const tool = makeHarness({
+      memoryManager: makeMemoryManager([{ id: 'm-1', content: '命中', category: 'general' }]),
+      searchPalace,
+      readPalaceDrawer,
+    })
+
+    const out = await invoke(tool, { query: '命中' })
+
+    expect((out.results as unknown[]).length).toBe(1)
+    expect(readPalaceDrawer).not.toHaveBeenCalled()
+  })
+
+  it('两个参数都缺时报错并说明原因', async () => {
+    const tool = makeHarness({ memoryManager: makeMemoryManager([]) })
+
+    const out = await invoke(tool, {})
+
+    expect(out.status).toBe('error')
+    expect(String(out.message)).toContain('drawerId')
+  })
+
+  it('drawerId 容错与 memory_read 一致（传 `d:xxx` 也能读到）', async () => {
+    const readPalaceDrawer = vi.fn(async (id: string) => (id === 'b'.repeat(16) ? drawer : null))
+    const tool = makeHarness({ memoryManager: makeMemoryManager([]), readPalaceDrawer })
+
+    const out = await invoke(tool, { drawerId: `d:${'b'.repeat(16)}` })
+
+    expect(out.ok).toBe(true)
+    expect(readPalaceDrawer).toHaveBeenCalledWith('b'.repeat(16))
+  })
+
+  it('两个入口的错误措辞一致（不同的模型写法都得到同一套自我纠正提示）', async () => {
+    const opts = { memoryManager: makeMemoryManager([]), readPalaceDrawer: async () => null }
+    const viaSearch = await invoke(makeHarness(opts), { drawerId: 'f'.repeat(16) })
+    const readTool = toolsIn(opts).get('memory_read')
+    if (!readTool) throw new Error('memory_read not registered')
+
+    const viaLegacy = await invoke(readTool, { drawerId: 'f'.repeat(16) })
+
+    expect(viaSearch.ok).toBe(false)
+    expect(viaSearch.message).toEqual(viaLegacy.message)
+    expect(String(viaSearch.message)).toContain('裸 id')
+  })
+})
+
+/**
+ * memory_read · drawerId 容错（2026-09-18）。
  *
  * 实测：模型把注入的指针 `[d:060cdafe2bdab28a]` 传成 `d:060cdafe2bdab28a`（少了方括号），
  * 直接报 `ok:false 未找到该 drawer`，整条回溯链路断在一次格式笔误上。

@@ -40,7 +40,18 @@ export const messageToolConfig: MtBotToolConfig<typeof MessageParams> = {
 };
 
 const MemorySearchParams = Type.Object({
-  query: Type.String({ description: "Semantic search query for user memory." }),
+  query: Type.Optional(
+    Type.String({
+      description:
+        "What to search for in memory. Omit it when you only pass drawerId (reading one known drawer).",
+    }),
+  ),
+  drawerId: Type.Optional(
+    Type.String({
+      description:
+        "Read one archived drawer in FULL by its id, skipping the search. Pass just the raw hex id (16 chars, e.g. `a3f9c21b8e4d0077`) — strip the `[d:` prefix and `]` suffix if it came from a `[d:xxxx]` pointer, and drop any `d:` prefix from a previous `memory_search` result. Use this whenever a summary is not enough: details, exact wording, full process, the trade-offs at the time.",
+    }),
+  ),
   maxResults: Type.Optional(Type.Number()),
   sessionKey: Type.Optional(
     Type.String({
@@ -51,10 +62,22 @@ const MemorySearchParams = Type.Object({
 });
 type MemorySearchInput = Static<typeof MemorySearchParams>;
 
+/**
+ * 记忆工具的**唯一入口**（原 memory_search 与 memory_read 合并）。
+ *
+ * 合并的理由不是"少一个工具"，是消除一条被实测确认的失败路径：两个工具并存时，
+ * 模型搜到替代品就不再回去读注入层给过指针的那条原文（3/3 全错），而它多搜一轮
+ * 只是把同一个东西找第二遍。合并后「搜」与「读」共用一个调用面，`drawerId` 一给
+ * 就是直读全文——没有"先搜再读"这个多余动作可做。
+ *
+ * 保留 `memory_read` 的注册（见宿主 registerIntegrationTools）：agent 定义里的
+ * 工具白名单按名字放行，直接删会让所有已定义的 Agent 失去这个入口。
+ */
 export const memorySearchToolConfig: MtBotToolConfig<typeof MemorySearchParams> = {
   name: "memory_search",
-  label: "Memory Search",
-  description: "Search long-term user memory and stored context.",
+  label: "Memory",
+  description:
+    "Your memory. Two ways to use it: (1) pass `query` to search working memory, the memory palace (archived transcripts), the user profile and scene memory files — results carry a `provider` field saying where each hit came from; (2) pass `drawerId` to read one archived transcript in FULL, no search needed. Anything already injected into your system prompt is left out of search results — if a search comes back empty or unrelated, the answer is probably in that injected block: rely on it (and read its `[d:xxxx]` original for detail) instead of answering from the search hits alone.",
   parameters: MemorySearchParams,
   category: "memory",
   isReadOnly: true,

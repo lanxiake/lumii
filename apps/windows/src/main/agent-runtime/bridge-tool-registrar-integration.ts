@@ -21,6 +21,7 @@ import {
   speechGenerateToolConfig,
   imageGenerateToolConfig,
 } from '@mtbot/agent-runtime'
+import type { AgentToolResult } from '@mariozechner/pi-agent-core'
 import { agentRuntimeLog as log, jsonToolResult, removeMarkdownSection } from './bridge-utils'
 import type { BridgeToolRegistrarDeps } from './bridge-tool-registrar-types'
 import { resolveOriginChannel } from './bridge-tool-registrar-client-cmd'
@@ -207,15 +208,92 @@ export function registerIntegrationTools(deps: BridgeToolRegistrarDeps): void {
   const resolveToolInstanceId = (toolCallId: string): string | undefined =>
     deps.toolCallInstanceMap.get(toolCallId) ?? deps.getCurrentToolExecutorInstanceId()
 
+  /**
+   * 按 drawer_id 读归档原文。
+   *
+   * `memory_search(drawerId=…)` 与保留的 `memory_read` **共用这一个实现**——
+   * 两个入口各写一份，格式容错与错误措辞就会漂移，而那正是模型最容易踩的地方
+   * （实测传过 `d:xxxx`、`[d:xxx` 缺右括号、带空格的写法）。
+   */
+  const readDrawerResult = async (raw: unknown): Promise<AgentToolResult<unknown>> => {
+    const drawerId = String(raw ?? '').trim()
+    if (!drawerId) {
+      return jsonToolResult({ ok: false, message: 'drawerId is required' })
+    }
+    // 只挡明显非法的输入。宫殿 drawer_id 现行是内容寻址 16 位 hex，但历史上存在
+    // Python 时代的 `drawer_<agent>_<user>_<date>_<hash>` 格式（实测库里仍有这种行）。
+    // 严格限 hex 会把它们判成「格式无效」——而模型手里的指针是**我们自己注入给它的**，
+    // 用格式挡掉自己的入口，比让它查一次、查不到再如实报错更糟。
+    if (!/^[A-Za-z0-9_:[\]-]{4,140}$/.test(drawerId)) {
+      return jsonToolResult({ ok: false, message: 'drawerId 格式无效' })
+    }
+    const readDrawer = deps.config.readPalaceDrawer
+    if (!readDrawer) {
+      return jsonToolResult({
+        ok: false,
+        message: '记忆宫殿后端未配置或不可用，无法读取归档原文',
+      })
+    }
+    try {
+      let detail = await readDrawer(drawerId)
+      // 容错：模型常把注入的指针 `[d:xxxx]` 原样或半剥地传进来（实测传过 `d:xxxx`，
+      // 少了方括号于是查不到）。这里再剥一次——模型写得不对不该让整个回溯失败，
+      // 而正确格式只可能是裸 id，剥完不匹配说明本来就不是指针。
+      if (!detail) {
+        // `^\s*` 与 `\s*$` 都要有：模型可能写出 ` d:xxx ` 这种两头带空白的形式，
+        // 而 `d:` 前缀与尾部 `]` 的顺序不固定（实测出现过 `[d:xxx` 缺后半括号）。
+        const salvage = /^\s*(?:\[?d:)?\s*([0-9a-f]{4,64})\s*\]?\s*$/i.exec(drawerId)
+        if (salvage && salvage[1] !== drawerId) detail = await readDrawer(salvage[1])
+      }
+      if (!detail) {
+        return jsonToolResult({
+          ok: false,
+          drawerId,
+          // 错误信息要能自我纠正：只说"没找到"时模型会再试同样的写法，
+          // 写上正确形状它下一轮就能改对。
+          message: '未找到该 drawer（可能已被删除）。注意 drawerId 只传裸 id（如 a3f9c21b8e4d0077），不要把 [d: 与 ] 带进来。',
+        })
+      }
+      return jsonToolResult({
+        ok: true,
+        drawerId: detail.drawer_id,
+        wing: detail.wing,
+        room: detail.room,
+        content: detail.content,
+        metadata: detail.metadata,
+        provider: 'palace',
+      })
+    } catch (err) {
+      return jsonToolResult({
+        ok: false,
+        drawerId,
+        message: err instanceof Error ? err.message : String(err),
+      })
+    }
+  }
+
   const memorySearchTool: MtBotToolConfig = {
     ...memorySearchToolConfig,
     description:
-      'Search your memory. Covers working memory (task/project facts recorded by you or other agents), the memory palace (archived conversation transcripts), and the user profile / scene memory files. Results carry a `provider` field telling you where each hit came from — weight them accordingly. To read a full archived transcript, take its `drawer_id` to `memory_read`. Anything already injected into your system prompt is left out of the results — if a search comes back empty or unrelated, the answer is probably in that injected block, not missing: rely on it (and read its `[d:xxxx]` original if you need detail) instead of answering from the search hits alone.',
+      'Your memory. Two ways to use it: (1) pass `query` to search working memory (task/project facts recorded by you or other agents), the memory palace (archived conversation transcripts), and the user profile / scene memory files — results carry a `provider` field telling you where each hit came from; (2) pass `drawerId` to read one archived transcript in FULL, no search needed. Anything already injected into your system prompt is left out of search results — if a search comes back empty or unrelated, the answer is probably in that injected block: rely on it (and read its `[d:xxxx]` original for detail) instead of answering from the search hits alone.',
     execute: async (toolCallId, rawParams) => {
-      const p = rawParams as { query?: string; maxResults?: number; sessionKey?: string }
+      const p = rawParams as {
+        query?: string
+        drawerId?: string
+        maxResults?: number
+        sessionKey?: string
+      }
+      // drawerId 一给就是**直读全文**，不走检索：模型手里常有 `[d:xxxx]` 指针，
+      // 让它"先搜一次再读"纯属多绕一圈，而这一圈正是实测里模型读错条目的地方。
+      if (p.drawerId) {
+        return readDrawerResult(p.drawerId)
+      }
       const query = (p.query ?? '').trim()
       if (!query) {
-        return jsonToolResult({ status: 'error', message: 'query is required' })
+        return jsonToolResult({
+          status: 'error',
+          message: 'query is required（除非传 drawerId 直读某条归档原文）',
+        })
       }
       const limit = Math.max(1, Math.min(p.maxResults ?? 10, 50))
       const sessionKey = (p.sessionKey ?? '').trim()
@@ -409,64 +487,15 @@ export function registerIntegrationTools(deps: BridgeToolRegistrarDeps): void {
   }
   deps.toolRegistry.register(createMtBotTool(memorySearchTool, ctx))
 
+  /**
+   * 保留 `memory_read`：入口已并入 `memory_search(drawerId=…)`，但 agent 定义里的
+   * 工具白名单按名字放行——直接删除会让所有已定义的 Agent 失去这个入口，而老会话
+   * 的历史消息里也还留着对这个名字的调用。实现走上面同一个 `readDrawerResult`。
+   */
   const memoryReadTool: MtBotToolConfig = {
     ...memoryReadToolConfig,
-    execute: async (_id, rawParams) => {
-      const drawerId = String((rawParams as { drawerId?: string }).drawerId ?? '').trim()
-      if (!drawerId) {
-        return jsonToolResult({ ok: false, message: 'drawerId is required' })
-      }
-      // 只挡明显非法的输入。宫殿 drawer_id 现行是内容寻址 16 位 hex，但历史上存在
-      // Python 时代的 `drawer_<agent>_<user>_<date>_<hash>` 格式（实测库里仍有这种行）。
-      // 严格限 hex 会把它们判成「格式无效」——而模型手里的指针是**我们自己注入给它的**，
-      // 用格式挡掉自己的入口，比让它查一次、查不到再如实报错更糟。
-      if (!/^[A-Za-z0-9_:[\]-]{4,140}$/.test(drawerId)) {
-        return jsonToolResult({ ok: false, message: 'drawerId 格式无效' })
-      }
-      const readDrawer = deps.config.readPalaceDrawer
-      if (!readDrawer) {
-        return jsonToolResult({
-          ok: false,
-          message: '记忆宫殿后端未配置或不可用，无法读取归档原文',
-        })
-      }
-      try {
-        let detail = await readDrawer(drawerId)
-        // 容错：模型常把注入的指针 `[d:xxxx]` 原样或半剥地传进来（实测传过 `d:xxxx`，
-        // 少了方括号于是查不到）。这里再剥一次——模型写得不对不该让整个回溯失败，
-        // 而正确格式只可能是裸 id，剥完不匹配说明本来就不是指针。
-        if (!detail) {
-          // `^\s*` 与 `\s*$` 都要有：模型可能写出 ` d:xxx ` 这种两头带空白的形式，
-          // 而 `d:` 前缀与尾部 `]` 的顺序不固定（实测出现过 `[d:xxx` 缺后半括号）。
-          const salvage = /^\s*(?:\[?d:)?\s*([0-9a-f]{4,64})\s*\]?\s*$/i.exec(drawerId)
-          if (salvage && salvage[1] !== drawerId) detail = await readDrawer(salvage[1])
-        }
-        if (!detail) {
-          return jsonToolResult({
-            ok: false,
-            drawerId,
-            // 错误信息要能自我纠正：只说"没找到"时模型会再试同样的写法，
-            // 写上正确形状它下一轮就能改对。
-            message: '未找到该 drawer（可能已被删除）。注意 drawerId 只传裸 id（如 a3f9c21b8e4d0077），不要把 [d: 与 ] 带进来。',
-          })
-        }
-        return jsonToolResult({
-          ok: true,
-          drawerId: detail.drawer_id,
-          wing: detail.wing,
-          room: detail.room,
-          content: detail.content,
-          metadata: detail.metadata,
-          provider: 'palace',
-        })
-      } catch (err) {
-        return jsonToolResult({
-          ok: false,
-          drawerId,
-          message: err instanceof Error ? err.message : String(err),
-        })
-      }
-    },
+    execute: async (_id, rawParams) =>
+      readDrawerResult((rawParams as { drawerId?: string }).drawerId),
   }
   deps.toolRegistry.register(createMtBotTool(memoryReadTool, ctx))
 

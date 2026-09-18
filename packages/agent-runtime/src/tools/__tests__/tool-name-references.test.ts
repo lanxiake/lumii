@@ -99,6 +99,10 @@ const ALLOWED_NON_TOOL_BACKTICKS = new Set([
   // 表名与参数名
   'maintenance_reports',
   'prompt',
+  // memory_search 的参数名与返回字段：合并 memory_read 后，描述里用反引号点出
+  // 「传 query 检索 / 传 drawerId 直读」两条路，以及结果里的来源标记
+  'query',
+  'provider',
   // 库名
   'lumii-ui',
 ])
