@@ -39,19 +39,26 @@ interface InjectCase {
 
 /** 待比较的参数组。`DEFAULT_HOT_MEMORY_CONFIG` 是线上现状，作为对照组 */
 const VARIANTS: readonly { name: string; config: HotMemoryConfig }[] = [
-  { name: "现状（24h 席位 5 / 加法）", config: DEFAULT_HOT_MEMORY_CONFIG },
+  { name: "现状（席位5/加法/门槛.15）", config: DEFAULT_HOT_MEMORY_CONFIG },
   {
-    name: "24h 席位→2",
+    name: "B1 席位→2",
     config: { ...DEFAULT_HOT_MEMORY_CONFIG, freshSeats24h: 2 },
   },
   {
-    name: "24h 席位→0（全部走门控）",
-    config: { ...DEFAULT_HOT_MEMORY_CONFIG, freshSeats24h: 0, recentSeats7d: 0 },
+    name: "B1 席位→2 + 门槛.30",
+    config: { ...DEFAULT_HOT_MEMORY_CONFIG, freshSeats24h: 2, relevanceGateThreshold: 0.3 },
   },
   {
-    name: "门控阈值提到 0.30",
-    config: { ...DEFAULT_HOT_MEMORY_CONFIG, freshSeats24h: 2 },
-    // 阈值是模块常量、不在 config 里，见下方说明——这一组只调席位，阈值另测
+    name: "B1 席位→2 + 门槛.45",
+    config: { ...DEFAULT_HOT_MEMORY_CONFIG, freshSeats24h: 2, relevanceGateThreshold: 0.45 },
+  },
+  {
+    name: "B2 乘法打分",
+    config: { ...DEFAULT_HOT_MEMORY_CONFIG, relevanceMode: "multiplicative" },
+  },
+  {
+    name: "B2 乘法 + 席位→2",
+    config: { ...DEFAULT_HOT_MEMORY_CONFIG, freshSeats24h: 2, relevanceMode: "multiplicative" },
   },
 ];
 

@@ -98,6 +98,30 @@ export interface HotMemoryConfig {
   readonly categoryWeights: Readonly<Record<MemoryCategory, number>>;
   /** 相关性加分权重（query 与记忆内容 overlap 的系数），默认 2.0（2026-09-13 由 1.0 提高，排序更偏向相关） */
   readonly relevanceBonus?: number;
+  /**
+   * 相关性如何进入打分。默认 `"additive"`（现状：`… + relevanceBonus × relevance`）。
+   *
+   * `"multiplicative"` 把相关性改成**乘法因子** `(base + relevance) × (1 + relevanceBonus × relevance)`，
+   * 让"完全不相关"的条目被整体压低、而不是只少一个加数——加法下 importance 高的
+   * 陈旧条目总能靠基础分压过相关的新条目（实测：真正结案的那条排第 6，而更新鲜的
+   * 中间快照排第 1）。
+   *
+   * **为什么做成开关而不是直接换掉**：实测数据（`injection-eval-params.real.test.ts`
+   * 与 `relevance-metric.real.test.ts`）显示本语料的相对排序里 relevance 与
+   * importance 的因子差只有 ~2 倍，而乘法会把这个差放到 **100 倍**——对本语料
+   * （单用户单项目，判别词稀缺，相关性 top1 命中仅 12/24）很可能是过度放大噪声。
+   * 开关留着是为了让这个判断**可以用数据检验**，而不是靠推理定论。
+   */
+  readonly relevanceMode?: "additive" | "multiplicative";
+  /**
+   * 相关性门控阈值，默认 0.15。上下文类记忆（project/reference/general）的
+   * overlap 低于此值则不注入——把"问 A 却注入无关的 B"挡在门外。
+   *
+   * 做成配置是为了让它可被 `injection-eval-params.real.test.ts` 扫参：
+   * 实测本语料的相关项与无关项中位排名几乎相同（8 vs 9），故"提高阈值"这个
+   * 直觉需要数据回答，不能靠推理。
+   */
+  readonly relevanceGateThreshold?: number;
   /** recency 加分权重，默认 0.1（P0 新增，原硬编码于 loadTopMemories） */
   readonly recencyWeight?: number;
   /** recency 加分衰减到 0 所需天数，默认 30（P0 新增，原硬编码于 loadTopMemories） */
@@ -165,6 +189,7 @@ export const DEFAULT_HOT_MEMORY_CONFIG: HotMemoryConfig = {
   ageDecayFloor: 0.4,
   useCountWeight: 0.05,
   skipUnusedOlderThanDays: 30,
+  relevanceMode: "additive",
 } as const;
 
 /** 记忆读取作用域（见 AgentDefinition.memory.scope） */

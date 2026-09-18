@@ -66,4 +66,45 @@ describe("scoreMemory", () => {
     // 足够大之后增量趋于 0（对数级）
     expect(alsoHuge - huge).toBeLessThan(0.01);
   });
+
+  /**
+   * 乘法模式（B2 的实验分支，默认关闭）。
+   *
+   * 与加法模式的**结构性差别**：加法下「高 importance 但零相关」总能靠基础分压过
+   * 「低 importance 但高相关」；乘法下后者的缩放因子足以反超。这正是「陈旧条目
+   * 压过真正相关的那条」这个实测问题的候选解法——是否真的更好由
+   * `injection-eval-params.real.test.ts` 在真实语料上回答，这里只锁住行为差异。
+   */
+  describe("relevanceMode: multiplicative", () => {
+    const mult = { ...DEFAULT_HOT_MEMORY_CONFIG, relevanceMode: "multiplicative" as const };
+
+    it("乘法对相关性的奖励**弱于**加法（实测据此判定乘法更差）", () => {
+      const staleImportant = { now: NOW, createdAt: NOW - 3 * DAY, importance: 0.9, category: "project" as const, relevance: 0 };
+      const relevantLight = { now: NOW, createdAt: NOW - 3 * DAY, importance: 0.3, category: "project" as const, relevance: 0.9 };
+
+      const addGain =
+        scoreMemory(relevantLight, DEFAULT_HOT_MEMORY_CONFIG) /
+        scoreMemory(staleImportant, DEFAULT_HOT_MEMORY_CONFIG);
+      const multGain = scoreMemory(relevantLight, mult) / scoreMemory(staleImportant, mult);
+
+      // 两者都能让相关项反超，但乘法的反超幅度更小——
+      // 加法是固定加项（低 base 下相对增益极大），乘法是比例缩放
+      expect(addGain).toBeGreaterThan(1);
+      expect(multGain).toBeGreaterThan(1);
+      expect(addGain).toBeGreaterThan(multGain);
+    });
+
+    it("relevance 的相对增益：加法是 1+r/k 型（base 越小越猛），乘法恒定 1+2r", () => {
+      const small = { now: NOW, createdAt: NOW, importance: 0.3, category: "general" as const, relevance: 0 };
+      // 乘法：增益倍数与 base 无关，恒为 1 + relevanceBonus × 0.5 = 2.0
+      const multRatio =
+        scoreMemory({ ...small, relevance: 0.5 }, mult) / scoreMemory(small, mult);
+      expect(multRatio).toBeCloseTo(2.0, 6);
+      // 加法：base 越小相对增益越大
+      const addRatio =
+        scoreMemory({ ...small, relevance: 0.5 }, DEFAULT_HOT_MEMORY_CONFIG) /
+        scoreMemory(small, DEFAULT_HOT_MEMORY_CONFIG);
+      expect(addRatio).toBeGreaterThan(multRatio);
+    });
+  });
 });

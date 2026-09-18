@@ -58,10 +58,21 @@ export function scoreMemory(input: MemoryScoreInput, cfg: HotMemoryConfig): numb
   const useCountWeight = cfg.useCountWeight ?? 0.05;
   const useCountBonus = Math.min(0.15, useCountWeight * Math.log(1 + (input.useCount ?? 0)));
 
-  return (
-    input.importance * cfg.categoryWeights[input.category] * ageFactor +
-    recencyBonus +
-    relevanceBonus * input.relevance +
-    useCountBonus
-  );
+  const base =
+    input.importance * cfg.categoryWeights[input.category] * ageFactor + recencyBonus + useCountBonus;
+
+  // 乘法模式：相关性成为**整体缩放因子**，让"完全不相关"的条目被按比例压低，
+  // 而不只是少一个加数。
+  //
+  // **实测结论（2026-09-18，`injection-eval-params.real.test.ts`）**：它并没有更好，
+  // 反而略差——「席位→2」时加法 22/25、乘法 20/25。原因在两种模式的量纲差别：
+  // 加法是**固定加项**（`+2.0×relevance`），在 base 小的时候相对增益极大
+  //（base=0.4 时加 1.0 就是 3.5 倍）；乘法是**比例缩放**，同样的 relevance 只给
+  // 2.0 倍。也就是说乘法对相关性的奖励**弱于**加法，把它换上去等于削弱现有的
+  // 相关性倾斜。保留这个分支是为了让该判断可复验，默认仍是 additive。
+  if (cfg.relevanceMode === "multiplicative") {
+    return base * (1 + relevanceBonus * input.relevance);
+  }
+
+  return base + relevanceBonus * input.relevance;
 }

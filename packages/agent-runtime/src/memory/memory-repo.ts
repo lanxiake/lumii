@@ -29,7 +29,10 @@ import {
   type TemperatureThresholds,
 } from "./temperature.js";
 
-/** 相关性门控阈值：与当前 query 的 overlap 低于此值的记忆不注入（宁缺毋滥，防上下文污染） */
+/**
+ * 相关性门控阈值的**缺省值**（可被 `HotMemoryConfig.relevanceGateThreshold` 覆盖）。
+ * 与当前 query 的 overlap 低于此值的记忆不注入（宁缺毋滥，防上下文污染）。
+ */
 const RELEVANCE_GATE_THRESHOLD = 0.15;
 
 /**
@@ -330,7 +333,7 @@ export class AgentMemoryRepo {
     // 显式关闭门控（配置）：相关性仅做加分，不过滤
     if (!(config.gateContextualByRelevance ?? true)) return true;
     // hot / warm 的上下文类记忆一律过相关性门槛
-    return m.relevance >= RELEVANCE_GATE_THRESHOLD;
+    return m.relevance >= (config.relevanceGateThreshold ?? RELEVANCE_GATE_THRESHOLD);
   }
 
   /**
