@@ -13,9 +13,9 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { MemoryEvolution } from '../../memory-evolution';
-import { MemoryRankingModel } from '../../memory-ranking-model';
 import { ToolEvolution } from '../../tool-evolution';
+import { MemoryFeedbackRepo } from '../../../memory/memory-feedback-repo';
+import { createMigratedTestDb } from '../../../__tests__/helpers/sqlite-test-db';
 import { SkillEvolution } from '../../skill-evolution';
 import { CoordinatedScheduler, computeExplorationBudget } from '../../coordinated-scheduler';
 import { ConflictDetector } from '../../conflict-detector';
@@ -213,59 +213,6 @@ describe('场景 2：低满意度只探索一层', () => {
   });
 });
 
-describe('场景 3：记忆检索失败时回退，不阻断回答', () => {
-  it('数据库不可用时排序仍返回全部候选', async () => {
-    const evolution = new MemoryEvolution(makeFailingDb());
-
-    const ranked = await evolution.rankMemories(
-      [
-        { id: 'm1', features: makeFeatures() },
-        { id: 'm2', features: makeFeatures({ semanticSimilarity: 0.9 }) },
-      ],
-      'query'
-    );
-
-    expect(ranked).toHaveLength(2);
-    expect(ranked.map((r) => r.id).sort()).toEqual(['m1', 'm2']);
-  });
-
-  it('低效记忆识别失败时降级为空列表，不抛错', async () => {
-    const evolution = new MemoryEvolution(makeFailingDb());
-
-    await expect(evolution.identifyIneffectiveMemories('agent-1')).resolves.toEqual([]);
-  });
-
-  it('重训练失败时不抛错，模型保持可用', async () => {
-    const evolution = new MemoryEvolution(makeFailingDb());
-
-    await expect(evolution.retrainModel(30)).resolves.toBeUndefined();
-
-    const ranked = await evolution.rankMemories([{ id: 'm', features: makeFeatures() }], 'q');
-    expect(ranked).toHaveLength(1);
-  });
-
-  it('反馈写入失败时模型权重回滚，后续排序仍然确定', async () => {
-    const evolution = new MemoryEvolution(makeFailingDb());
-    const features = makeFeatures();
-
-    const before = await evolution.rankMemories([{ id: 'm', features }], 'q');
-
-    await expect(
-      evolution.recordFeedback({
-        memoryId: 'm',
-        sessionId: 's',
-        query: 'q',
-        wasUsedInResponse: true,
-        contributionScore: 0.9,
-        features,
-        timestamp: '2026-09-04T00:00:00.000Z',
-      })
-    ).rejects.toThrow();
-
-    const after = await evolution.rankMemories([{ id: 'm', features }], 'q');
-    expect(after[0].score).toBe(before[0].score);
-  });
-});
 
 describe('场景 4：工具全部失败时保留安全错误路径', () => {
   it('连续失败不会扩大候选工具范围', async () => {
@@ -545,19 +492,8 @@ describe('场景 7：P0/P1/P2 目标共存与限流', () => {
 });
 
 describe('场景 8：重启恢复', () => {
-  it('记忆排序模型权重可持久化并恢复', () => {
-    const original = new MemoryRankingModel(0.3);
-    const features = makeFeatures({ semanticSimilarity: 0.9 });
-    for (let i = 0; i < 40; i++) original.learn(features, 1.0);
-
-    const snapshot = original.createSnapshot();
-
-    const restored = new MemoryRankingModel(0.3);
-    restored.restoreSnapshot(snapshot);
-
-    expect(restored.predict(features)).toBe(original.predict(features));
-    expect(restored.getVersion()).toBe(original.getVersion());
-  });
+  // 「记忆排序模型权重可持久化并恢复」已删（2026-09-18）：被测对象
+  // `MemoryRankingModel` 随 P1-5 判定（代理命中率 60% < 70% 门槛）一并删除。
 
   it('工具采样统计可从数据库恢复', async () => {
     const rows = Array.from({ length: 50 }, (_, i) => ({
@@ -606,9 +542,7 @@ describe('场景 8：重启恢复', () => {
 
   it('四层状态可在同一次重启中协同恢复', async () => {
     // 组装一个"重启前"的完整 P2 状态
-    const model = new MemoryRankingModel(0.2);
-    for (let i = 0; i < 20; i++) model.learn(makeFeatures({ semanticSimilarity: 0.9 }), 1.0);
-
+    // （记忆排序模型那一层已随 P1-5 判定删除，此处只余调度器与帕累托前沿两层）
     const scheduler = new CoordinatedScheduler({ random: () => 0.0 });
     scheduler.recordExploration(EvolutionLayer.MEMORY, 0.7);
 
@@ -616,42 +550,56 @@ describe('场景 8：重启恢复', () => {
     frontier.add(makeConfigs(), makeObjectives());
 
     const snapshot = {
-      weights: model.createSnapshot(),
       schedulerState: scheduler.getState(),
       frontier: frontier.getAll(),
     };
 
     // 重启后恢复
-    const restoredModel = new MemoryRankingModel(0.2);
-    restoredModel.restoreSnapshot(snapshot.weights);
     const restoredScheduler = new CoordinatedScheduler({ random: () => 0.0, state: snapshot.schedulerState });
     const restoredFrontier = new ParetoFrontier();
     restoredFrontier.load(snapshot.frontier);
 
-    expect(restoredModel.getVersion()).toBe(model.getVersion());
     expect(restoredScheduler.getState().recentExplorations).toHaveLength(1);
     expect(restoredFrontier.size()).toBe(1);
   });
 });
 
 describe('隐私与可观测性', () => {
-  it('记忆反馈不写入查询原文', async () => {
-    const { db, executed } = makeDb();
-    const sensitive = '我的 API key 是 sk-secret-123';
+  it('记忆反馈不写入查询原文', () => {
+    // 换成**生产**写入方 `MemoryFeedbackRepo` + 真实内存库（原用已删除的 MemoryEvolution
+    // 与 mock 数据库）。它收的是 `queryLength: number` 而非查询文本，所以"不写原文"
+    // 从外部断言升级为**类型层面的保证**——调用方想传原文都传不进来。
+    const db = createMigratedTestDb();
+    const repo = new MemoryFeedbackRepo(db);
+    const sensitiveLength = '我的 API key 是 sk-secret-123'.length;
 
-    await new MemoryEvolution(db).recordFeedback({
-      memoryId: 'm1',
-      sessionId: 's1',
-      query: sensitive,
-      wasUsedInResponse: true,
-      contributionScore: 0.7,
-      features: makeFeatures(),
-      timestamp: '2026-09-04T00:00:00.000Z',
-    });
+    repo.recordOutcomes(
+      [
+        {
+          memoryId: 'm1',
+          sessionId: 's1',
+          queryLength: sensitiveLength,
+          wasUsedInResponse: true,
+          contributionScore: 0.7,
+          features: makeFeatures(),
+        },
+      ],
+      new Date('2026-09-04T00:00:00.000Z'),
+    );
 
-    const serialized = JSON.stringify(executed);
+    const row = db
+      .prepare<{ query_length: number }>(
+        'SELECT query_length FROM memory_usage_feedback WHERE session_id = ?',
+      )
+      .get('s1');
+    expect(row?.query_length).toBe(sensitiveLength);
+    // 整行序列化后不含任何原文片段
+    const serialized = JSON.stringify(
+      db.prepare('SELECT * FROM memory_usage_feedback').all(),
+    );
     expect(serialized).not.toContain('sk-secret-123');
-    expect(serialized).not.toContain(sensitive);
+    expect(serialized).not.toContain('API key');
+    db.close();
   });
 
   it('工具反馈只记录工具名与结果，不含参数', async () => {
@@ -731,21 +679,9 @@ describe('性能门槛', () => {
     expect(durations[94]).toBeLessThan(10);
   });
 
-  it('100 条记忆候选排序 p95 < 50ms', async () => {
-    const { db } = makeDb();
-    const evolution = new MemoryEvolution(db);
-    const candidates = Array.from({ length: 100 }, (_, i) => ({ id: `m${i}`, features: makeFeatures() }));
-
-    const durations: number[] = [];
-    for (let i = 0; i < 50; i++) {
-      const start = performance.now();
-      await evolution.rankMemories(candidates, 'q');
-      durations.push(performance.now() - start);
-    }
-
-    durations.sort((a, b) => a - b);
-    expect(durations[47]).toBeLessThan(50);
-  });
+  // 「100 条记忆候选排序 p95 < 50ms」已删（2026-09-18）：测的是已删除的
+  // `MemoryEvolution.rankMemories`。现役的记忆排序是 `scoreMemory`（纯函数、无 DB），
+  // 它的性能由 `memory/__tests__/scorer.test.ts` 覆盖，不需要 DB 级门槛。
 
   it('帕累托前沿不超过配置上限', () => {
     const frontier = new ParetoFrontier(100);

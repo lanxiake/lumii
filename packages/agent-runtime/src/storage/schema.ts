@@ -1149,14 +1149,11 @@ CREATE TABLE IF NOT EXISTS pareto_frontier (
 CREATE INDEX IF NOT EXISTS idx_pareto_agent_satisfaction
   ON pareto_frontier (agent_id, user_satisfaction DESC);
 
--- memory_ranking_weights: 记忆排序模型权重快照（支持版本化回滚）
-CREATE TABLE IF NOT EXISTS memory_ranking_weights (
-  agent_id      TEXT NOT NULL,
-  version       INTEGER NOT NULL,
-  weights_json  TEXT NOT NULL,
-  created_at    TEXT NOT NULL,
-  PRIMARY KEY (agent_id, version)
-);
+-- memory_ranking_weights 已删除（2026-09-18，实施计划 §239「不满足」分支）：
+-- 它服务的 Learning-to-Rank 训练依赖 contribution_score 这个效用代理，而 P1-5
+-- 抽样判定该代理命中率仅 60%（门槛 70%）、误判是结构性的（bigram 词面重合 vs 语义因果）。
+-- 表在生产代码里只 CREATE、零读写，实测 0 行数据。
+-- 存量库里若已有该表，留着即可（SQLite 不因 schema 里少了定义而报错）。
 
 -- scheduler_state: 协同调度器状态（支持重启恢复）
 CREATE TABLE IF NOT EXISTS coordinated_scheduler_state (

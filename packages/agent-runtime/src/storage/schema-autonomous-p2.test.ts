@@ -29,7 +29,8 @@ const P2_TABLES = [
   "tool_usage_feedback",
   "coordinated_evolution_history",
   "pareto_frontier",
-  "memory_ranking_weights",
+  // memory_ranking_weights 已于 2026-09-18 删除（P1-5 判定效用代理不可用，
+  // 见实施计划 §239「不满足」分支）。存量库里若仍有该表，不影响任何读路径。
   "coordinated_scheduler_state",
 ];
 
@@ -199,22 +200,9 @@ describe("autonomous P2 schema V30", () => {
     db.close();
   });
 
-  it("memory_ranking_weights 支持按 agent + version 存多份快照", () => {
-    const db = createMigratedTestDb();
-
-    const insert = (version: number) =>
-      db.prepare(
-        `INSERT INTO memory_ranking_weights (agent_id, version, weights_json, created_at)
-         VALUES ('a1', ?, '{}', '2026-09-04T00:00:00.000Z')`,
-      ).run(version);
-
-    expect(() => insert(1)).not.toThrow();
-    expect(() => insert(2)).not.toThrow();
-    // 同一 agent 的同一版本重复写入应被主键拒绝
-    expect(() => insert(2)).toThrow();
-
-    db.close();
-  });
+  // 「memory_ranking_weights 支持按 agent + version 存多份快照」已删（2026-09-18）：
+  // 表随 P1-5 判定（效用代理命中率 60% < 70% 门槛）一并删除，它的唯一消费方
+  // MemoryEvolution / MemoryRankingModel 已不存在。
 
   it("coordinated_scheduler_state 每个 agent 只保留一行状态", () => {
     const db = createMigratedTestDb();

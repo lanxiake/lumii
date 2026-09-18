@@ -1,22 +1,25 @@
 /**
  * MemoryFeedbackRepo — 记忆被「用上」的观测记录（V47 · 评审 §4.3）
  *
- * 职责有两件，缺一不可：
- * 1. 往 `memory_usage_feedback` 写一行隐式反馈（供后续 Learning-to-Rank 训练，
- *    也供人工抽样验证代理有效性——实施计划 P1-5）
+ * 职责有两件：
+ * 1. 往 `memory_usage_feedback` 写一行隐式反馈
  * 2. 递增 `agent_memories.utility_count`（**只记录，不参与打分**）
  *
  * **为什么要有这张表与这两个计数**：V47 之前唯一的"使用"信号是 `use_count`，
  * 而它在**注入时** +1——记的是被展示，不是被使用。实测 9 条记忆吃掉全部注入席位的
  * 54%，其中很大一部分是"注入得越多、越容易被再注入"的自我强化（评审 §2.4.2）。
  *
- * **诚实的局限**：`contribution_score` 由回复文本与记忆正文的 bigram 重叠近似得出，
- * 是一个**代理**而非真值——模型转述记忆时未必复用原词。故 P0 阶段它只入库不进打分，
- * 等抽样验证命中率达标后再启用（实施计划 P1-5）。
+ * **诚实的局限（2026-09-18 已判定）**：`contribution_score` 由回复文本与记忆正文的
+ * bigram 重叠近似得出，**这个代理实测不可用**——P1-5 抽样判定命中率仅 60%（门槛 70%），
+ * 且误判是结构性的（它测词面重合，而"这条记忆真的影响了回复"是语义因果；短记忆尤甚）。
+ * 因此 `utility_count` **永久不参与打分**，LTR 训练路径（`MemoryEvolution` /
+ * `memory-ranking-model` / `memory_ranking_weights` 表）已按计划 §239 的"不满足"分支删除。
+ *
+ * 表与计数保留：它们仍在服务记忆体检与人工分析（本次判定就是用它做的）。
  *
  * 表约束（`schema.ts` memory_usage_feedback）：`query_length >= 0`、
  * `was_used_in_response IN (0,1)`、`contribution_score BETWEEN 0 AND 1`、`features NOT NULL`。
- * **不写 query 原文**，只写长度——与 `autonomous/memory-evolution.ts:49` 的既有约定一致。
+ * **不写 query 原文**，只写长度——这段原文没有任何下游消费者，存了只会扩大泄露面。
  */
 
 import type { DatabaseAdapter } from "../storage/local-database.js";
