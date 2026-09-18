@@ -80,6 +80,7 @@ import {
   saveDiary,
   todayDateKey,
   readSettings,
+  drawerPointerId,
 } from '@mtbot/agent-runtime'
 import type { ArchivePalaceMeta } from '@mtbot/agent-runtime'
 import type { AgentMessage, StreamFn } from '@mariozechner/pi-agent-core'
@@ -326,6 +327,10 @@ export class AgentRuntimeBridge {
       // 的旧格式。给了指针而点开报错，比不给指针更糟——模型会开始怀疑整块记忆。
       // 校验放在这里而不是 `formatUnifiedMemoryBlock`：后者是纯格式化、不持 DB。
       const live = this.palaceDrawerChecker()
+      // 钉入用的会话键沿用桥里既有的「实例 → 根会话」约定（与 abortSession /
+      // invalidateInstance 同源）。工具执行期用同一个实例 id 反查得到同一串，
+      // 而它正是 `PalaceRepo` 归档时写进 room 的那个坐标。
+      const pinKey = this.instanceToRootSessionKey.get(instanceId) ?? instanceId
       const { updatedPrompt, injected } = mgr.injectIntoSystemPrompt(
         prompt,
         agentId,
@@ -340,9 +345,25 @@ export class AgentRuntimeBridge {
       // UI 的「本轮注入了什么」与效用观测都读它。不回填则两处静默失效
       //（2026-09-17 实测：注入在发生，但 memory_usage_feedback 恒 0 行）。
       inst?.setInjectedMemories(injected)
+      // 注入指针按会话留档，供本轮 memory_search 钉入
+      this.injectedDrawerIds.set(pinKey, this.collectDrawerPointerIds(injected))
       return { prompt: updatedPrompt, injected: injected.length }
     },
   })
+
+  /**
+   * 本轮注入块里给过指针的抽屉 id（供 memory_search 钉入检索）。
+   *
+   * 幂等去重：同一条原文可能被两条记忆指向（合并的产物），钉一次就够。
+   */
+  private collectDrawerPointerIds(injected: readonly { content: string }[]): string[] {
+    const ids = new Set<string>()
+    for (const e of injected) {
+      const id = drawerPointerId(e.content)
+      if (id) ids.add(id)
+    }
+    return [...ids]
+  }
 
   private readonly mcpClients = new Map<string, McpStdioClient>()
   private mcpManager!: McpManager
@@ -354,6 +375,13 @@ export class AgentRuntimeBridge {
   private readonly modelCharsPerToken = new Map<string, number>()
   /** sessionKey → 最近一次回执对应的 modelId，用于取回该会话适用的标定比 */
   private readonly sessionLastModelId = new Map<string, string>()
+  /**
+   * sessionKey → 本轮注入块里给过指针的抽屉 id。
+   *
+   * 在 `fillWorkMemoryPlaceholder`（构建期）写、在 `memory_search`（工具执行期）读，
+   * 两者是同一轮的上下游。会话数有界（内存会话 + 少量 cron），不需要淘汰。
+   */
+  private readonly injectedDrawerIds = new Map<string, string[]>()
 
   /** 主 Agent 实例的 innerStream / model（仅 def.id === 'main' 时设置） */
   private readonly mainInnerStreamRef: { value: ReturnType<typeof createDirectStreamFn> | null } = { value: null }
@@ -1012,6 +1040,7 @@ export class AgentRuntimeBridge {
       // 宫殿归档统计：失败只有 WARN、没有消费者，表现是「宫殿检索永远返回空」（P2-3）
       getPalaceStats: () => this._segmentMemoryService?.getPalaceStats() ?? null,
       getFeatureFlags: () => this.featureFlags,
+      agentRegistry: this.agentRegistry,
       ipcChannel: this.ipcChannel,
       instanceStates: this.instanceStates,
       instanceToConversation: this.instanceToConversation,
@@ -1019,6 +1048,15 @@ export class AgentRuntimeBridge {
       getDefinitionIdByInstanceId: (instanceId) => this.agentRegistry.get(instanceId)?.definitionId,
       getMemoryReadScopeByInstanceId: (instanceId) =>
         this.agentRegistry.get(instanceId)?.memoryReadScope ?? 'agent',
+      // 本轮注入的原文指针：memory_search 用它们把注入里在讲的原文钉进检索结果。
+      // 键与写入侧同一个字典（instanceToRootSessionKey），工具期先由
+      // `toolCallInstanceMap` 拿到实例 id，再换成同一个会话键。
+      // 拷一份再给：消费方在别的调用栈上，直接给内部数组会让它读到下一轮已改写的状态。
+      getPinnedDrawerIdsByInstanceId: (instanceId) => {
+        const sessionKey = this.instanceToRootSessionKey.get(instanceId)
+        if (!sessionKey) return []
+        return [...(this.injectedDrawerIds.get(sessionKey) ?? [])]
+      },
       toolCallInstanceMap: this.toolCallInstanceMap,
       getDefinitionStore: () => this.definitionStore,
       ensureOrchestrator: () => this.lifecycle.ensureOrchestrator(),

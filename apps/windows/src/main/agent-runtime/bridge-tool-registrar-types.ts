@@ -8,6 +8,7 @@ import type {
   ToolRegistry,
   AgentDefinitionStore,
   AgentOrchestrator,
+  AgentRegistry,
   TaskRepo,
   MemoryManager,
   ConversationRepo,
@@ -70,6 +71,19 @@ export interface BridgeToolRegistrarDeps {
    * 它的素材来自其他 Agent 的工作痕迹，只读自己必然是空的。
    */
   getMemoryReadScopeByInstanceId: (instanceId: string) => 'agent' | 'user'
+  /**
+   * 本会话本轮注入过的原文指针（抽屉 id）。
+   *
+   * 供 `memory_search` 把它们**钉进**检索结果：候选池按分数取 30 条时，一条真实的
+   * 长排查段可能排到 52/608 而从未入池，模型就会读到别的条目并拿它作答。钉入表达的
+   * 是「这条在场不是因为分数高，而是因为注入层正在引用它」。
+   *
+   * 入参是工具执行实例 id——与 `getDefinitionIdByInstanceId` 同一口径，
+   * 免得调用方要自己猜「注入侧写下的键」该长什么样。
+   */
+  getPinnedDrawerIdsByInstanceId: (instanceId: string) => readonly string[]
+  /** 实例注册表：memory_search 用它读回本轮注入快照（避免重复返回注入层已有条目） */
+  agentRegistry: AgentRegistry
   toolCallInstanceMap: Map<string, string>
   getDefinitionStore: () => AgentDefinitionStore | null
   /** 惰性获取 orchestrator（首次调用时创建） */

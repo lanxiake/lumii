@@ -197,6 +197,11 @@ export function registerIntegrationTools(deps: BridgeToolRegistrarDeps): void {
     char_count?: number
     /** 宫殿命中：content 是否为摘录（true 则需 memory_read 读全文） */
     truncated?: boolean
+    /**
+     * 该抽屉的摘要**已经在你这轮的系统提示词里**（行首 `[d:xxxx]` 那条）。
+     * 它照样返回，是因为「搜不到」比「重复」更坏；排在各通道之后便于一眼认出。
+     */
+    already_injected?: boolean
   }
 
   const resolveToolInstanceId = (toolCallId: string): string | undefined =>
@@ -205,7 +210,7 @@ export function registerIntegrationTools(deps: BridgeToolRegistrarDeps): void {
   const memorySearchTool: MtBotToolConfig = {
     ...memorySearchToolConfig,
     description:
-      'Search your memory. Covers working memory (task/project facts recorded by you or other agents), the memory palace (archived conversation transcripts), and the user profile / scene memory files. Results carry a `provider` field telling you where each hit came from — weight them accordingly. To read a full archived transcript, take its `drawer_id` to `memory_read`.',
+      'Search your memory. Covers working memory (task/project facts recorded by you or other agents), the memory palace (archived conversation transcripts), and the user profile / scene memory files. Results carry a `provider` field telling you where each hit came from — weight them accordingly. To read a full archived transcript, take its `drawer_id` to `memory_read`. Anything already injected into your system prompt is left out of the results — if a search comes back empty or unrelated, the answer is probably in that injected block, not missing: rely on it (and read its `[d:xxxx]` original if you need detail) instead of answering from the search hits alone.',
     execute: async (toolCallId, rawParams) => {
       const p = rawParams as { query?: string; maxResults?: number; sessionKey?: string }
       const query = (p.query ?? '').trim()
@@ -218,10 +223,25 @@ export function registerIntegrationTools(deps: BridgeToolRegistrarDeps): void {
       const hits: MemorySearchHit[] = []
       const counts = { workMemory: 0, palace: 0, profile: 0, scene: 0 }
 
+      // 本轮注入块里给过指针的原文：检索时钉进结果（顺序上最后展示）、且**不重复展示**
+      // ——注入层的摘要已经在模型眼前，再回一份一模一样的工作记忆条目纯属占席位。
+      // 实测：模型搜完找不到那条「注入里正在讲的原文」，就转而读别的抽屉并拿它作答。
+      const instanceIdForPins = resolveToolInstanceId(toolCallId)
+      const pinnedDrawerIds = instanceIdForPins
+        ? deps.getPinnedDrawerIdsByInstanceId(instanceIdForPins)
+        : []
+      const injectedDrawerIdSet = new Set(pinnedDrawerIds)
+      // 已注入的工作记忆条目不再回一份——注入层的摘要已经在模型眼前，重复只是占席位。
+      const injectedMemoryIds = new Set(
+        instanceIdForPins
+          ? (deps.agentRegistry.get(instanceIdForPins)?.injectedMemories ?? []).map((m) => m.id)
+          : [],
+      )
+
       // ── 通道 1：工作记忆（SQLite agent_memories，FTS5 + BM25，中文 bigram 分词）──
       // 2026-09-17 接通：此前 memory_search 从不查这张表，导致 Agent 只能看见每轮注入的
       // 6 条热记忆，其余 200+ 条毫无通道（评审 §2.4.1）。
-      const instanceId = resolveToolInstanceId(toolCallId)
+      const instanceId = instanceIdForPins
       const agentId = (instanceId && deps.getDefinitionIdByInstanceId(instanceId)) ?? 'default'
       const readScope = instanceId ? deps.getMemoryReadScopeByInstanceId(instanceId) : 'agent'
 
@@ -236,6 +256,7 @@ export function registerIntegrationTools(deps: BridgeToolRegistrarDeps): void {
             readScope,
           )
           for (const e of entries) {
+            if (injectedMemoryIds.has(e.id)) continue
             hits.push({
               provider: 'work-memory',
               id: e.id,
@@ -244,7 +265,7 @@ export function registerIntegrationTools(deps: BridgeToolRegistrarDeps): void {
               score: 1,
             })
           }
-          counts.workMemory = entries.length
+          counts.workMemory = hits.length
         } catch (err) {
           log.warn('[memory_search] 工作记忆通道失败:', err)
         }
@@ -266,12 +287,17 @@ export function registerIntegrationTools(deps: BridgeToolRegistrarDeps): void {
       // ── 通道 2：记忆宫殿（自建 SQLite PalaceRepo；后端不可用/失败则跳过，不影响通道 1）──
       // 2026-09-17 换掉 MemPalace：Python + chromadb 后端在本机 upsert 直接崩，覆盖率 2.3%。
       // 命中返回的是**摘录**（段原文最长 94473 字符），全文走 memory_read。
+      //
+      // 2026-09-18 起带 `pinnedIds`：候选池按分数只取 30 条，一条真实的 5K 字排查段可能
+      // 排到 52/608——长尾里的正确答案被重复语料（同批 cron 日报占了前 12 名）整体挤出，
+      // 模型于是「搜了也找不到」。钉入让注入层正在引用的原文即使分数不够也进结果。
       if (deps.config.searchPalace && hits.length < limit) {
         try {
           const items = await deps.config.searchPalace(query, limit - hits.length, {
             userId: 'local-user',
             // 与工作记忆通道同一作用域规则：agent 作用域只看本 Agent，user 作用域跨 Agent
             ...(readScope === 'agent' ? { agentId } : {}),
+            ...(pinnedDrawerIds.length ? { pinnedIds: pinnedDrawerIds } : {}),
           })
           if (items !== null) {
             let taken = items
@@ -281,8 +307,12 @@ export function registerIntegrationTools(deps: BridgeToolRegistrarDeps): void {
                 taken = taken.filter((item) => allowed.has(item.drawer_id))
               }
             }
+            // 已注入的原文按钉入处理：**排在末尾**并打标。既守住"别读了再搜、搜完再读
+            // 同一个东西"，又保证模型搜的时候看得见它——它缺席正是问题所在。
+            const freshHits: MemorySearchHit[] = []
+            const injectedHits: MemorySearchHit[] = []
             for (const item of taken) {
-              hits.push({
+              const base: MemorySearchHit = {
                 provider: 'palace',
                 drawer_id: item.drawer_id,
                 content: item.text,
@@ -290,8 +320,14 @@ export function registerIntegrationTools(deps: BridgeToolRegistrarDeps): void {
                 source: `${item.wing}/${item.room}`,
                 ...(item.char_count != null ? { char_count: item.char_count } : {}),
                 ...(item.truncated ? { truncated: true } : {}),
-              })
+              }
+              if (injectedDrawerIdSet.has(item.drawer_id)) {
+                injectedHits.push({ ...base, already_injected: true })
+              } else {
+                freshHits.push(base)
+              }
             }
+            hits.push(...freshHits, ...injectedHits)
             counts.palace = taken.length
           }
         } catch (err) {

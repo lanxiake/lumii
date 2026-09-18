@@ -51,6 +51,17 @@ export function hasDrawerPointer(content: string): boolean {
 }
 
 /**
+ * 取出内容开头的原文指针里的 drawer_id；没有则 null。
+ *
+ * 与 `stripDrawerPointer` 是同一件事的两面：写侧存、读侧用。`POINTER_RE` 是模块内
+ * 私有的，所以取 id 必须走这里——两处各写一份正则，改格式时会漏改一处。
+ */
+export function drawerPointerId(content: string): string | null {
+  const m = POINTER_RE.exec(content);
+  return m ? m[0].slice(3, -2) : null;
+}
+
+/**
  * 给记忆条目加原文指针前缀。
  *
  * **为什么在写入时钉进 content、而不是注入时拼**：

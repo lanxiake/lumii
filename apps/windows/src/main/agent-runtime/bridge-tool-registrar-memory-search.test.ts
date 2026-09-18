@@ -43,6 +43,9 @@ function makeHarness(opts: {
   memoryManager: ReturnType<typeof makeMemoryManager> | null
   searchPalace?: (query: string, limit?: number, scope?: unknown) => Promise<unknown>
   userMemory?: string
+  /** 注入指针：memory_search 会把它们钉进检索、并给命中的打 already_injected */
+  pinnedDrawerIds?: readonly string[]
+  injectedMemories?: Array<{ id: string }>
 }) {
   const tools = new Map<string, RegisteredTool>()
   const deps = {
@@ -61,6 +64,10 @@ function makeHarness(opts: {
     getCurrentToolExecutorInstanceId: () => 'inst-1',
     getDefinitionIdByInstanceId: () => 'assistant',
     getMemoryReadScopeByInstanceId: () => opts.readScope ?? 'agent',
+    getPinnedDrawerIdsByInstanceId: () => opts.pinnedDrawerIds ?? [],
+    agentRegistry: {
+      get: () => ({ injectedMemories: opts.injectedMemories ?? [] }),
+    },
     instanceToConversation: new Map<string, string>(),
     instanceStates: { get: () => undefined },
   } as unknown as BridgeToolRegistrarDeps
@@ -219,6 +226,78 @@ describe('memory_search · 宫殿通道（自建 SQLite）', () => {
     const out = await invoke(tool, { query: '命中' })
 
     expect((out.results as unknown[]).length).toBe(1)
+  })
+})
+
+/**
+ * 注入指针的钉入（2026-09-18）。
+ *
+ * 实测：`tocc-sync` 那条原文在 bigram 检索里排 52/608，而候选池只取 30 条——
+ * 它**从没进过结果**。模型搜完找不到它，就读了别的抽屉并拿它作答（3/3 全错）。
+ * 这组用例锁住两件事：指针确实传给了检索层，且**已注入的排在末尾并打标**。
+ */
+describe('memory_search · 注入指针钉入', () => {
+  it('把本轮注入的指针透传给宫殿检索（钉入才有得钉）', async () => {
+    const searchPalace = vi.fn(async () => [])
+    const tool = makeHarness({
+      memoryManager: makeMemoryManager([]),
+      searchPalace,
+      pinnedDrawerIds: ['a'.repeat(16), 'b'.repeat(16)],
+    })
+
+    await invoke(tool, { query: '工单同步' })
+
+    expect(searchPalace).toHaveBeenCalledWith('工单同步', 10, {
+      userId: 'local-user',
+      agentId: 'assistant',
+      pinnedIds: ['a'.repeat(16), 'b'.repeat(16)],
+    })
+  })
+
+  it('无注入指针时不传 pinnedIds（不给检索层添无意义的参数）', async () => {
+    const searchPalace = vi.fn(async () => [])
+    const tool = makeHarness({ memoryManager: makeMemoryManager([]), searchPalace })
+
+    await invoke(tool, { query: '任意' })
+
+    expect(searchPalace).toHaveBeenCalledWith('任意', 10, {
+      userId: 'local-user',
+      agentId: 'assistant',
+    })
+  })
+
+  it('已注入的宫殿命中排到末尾并打 already_injected（不挤掉新命中）', async () => {
+    const injected = 'a'.repeat(16)
+    const searchPalace = vi.fn(async () => [
+      { text: '注入那条的摘录', wing: 'w', room: 'r', score: 9.9, drawer_id: injected },
+      { text: '别的新命中', wing: 'w', room: 'r', score: 1.2, drawer_id: 'b'.repeat(16) },
+    ])
+    const tool = makeHarness({
+      memoryManager: makeMemoryManager([]),
+      searchPalace,
+      pinnedDrawerIds: [injected],
+    })
+
+    const out = await invoke(tool, { query: '任意' })
+    const results = out.results as Array<Record<string, unknown>>
+
+    // 分数更高（9.9）但已注入 → 仍然排在后
+    expect(results.map((r) => r.drawer_id)).toEqual(['b'.repeat(16), injected])
+    expect(results[0]!.already_injected).toBeUndefined()
+    expect(results[1]!.already_injected).toBe(true)
+  })
+
+  it('已注入的工作记忆条目不再回一份（注入层已在眼前，重复只占席位）', async () => {
+    const mm = makeMemoryManager([
+      { id: 'm-injected', content: '已经在提示词里的那条', category: 'project' },
+      { id: 'm-fresh', content: '没注入过的新条目', category: 'project' },
+    ])
+    const tool = makeHarness({ memoryManager: mm, injectedMemories: [{ id: 'm-injected' }] })
+
+    const out = await invoke(tool, { query: '条目' })
+    const results = out.results as Array<Record<string, unknown>>
+
+    expect(results.map((r) => r.id)).toEqual(['m-fresh'])
   })
 })
 

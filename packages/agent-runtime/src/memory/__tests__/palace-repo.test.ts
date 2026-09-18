@@ -192,6 +192,80 @@ describe("PalaceRepo", () => {
     expect(search("房间", { room: "2026-09-16" })).toHaveLength(1);
   });
 
+  /**
+   * 钉入（`pinnedIds`）—— 2026-09-18 为「注入里在讲、检索里找不到」而加。
+   *
+   * 实测数据：tocc-sync 那条原文命中 8/19 个查询 token、分数 8.04，却在 608 条里排 52，
+   * 候选池只取前 30——它从没进过结果。模型搜完找不到，就读了别的抽屉并拿它作答。
+   */
+  it("钉入的抽屉真出现在返回里（旧写法 `[...kept,...pinned].slice(0,limit)` 会把它切掉）", () => {
+    // 这条用例锁的是一个**真实发生过的 bug**：kept 已经占满 limit，再追加 pinned
+    // 然后 slice(0, limit)，刚补上的那条正好被切掉——日志显示"钉入成功"，
+    // 调用方收到的那份却没有它（2026-09-18 端到端复现：PalaceRepo 钉入 7ccfb76d，
+    // [Palace] search 回来的 5 条里没有它）。
+    //
+    // 构造要求**目标不在 kept 里**，否则走的是"已选上不重复"的分支，抓不到切尾：
+    // 用 limit=2 只留前 2 席，目标排第 3 条进不去 kept。
+    archive("雪山路线甲：青竹三号可走。");
+    archive("雪山路线乙：碎石坡备用。");
+    const pinnedTarget = archive("雪山路线丙：这条只在钉入时才该出现。");
+
+    const without = search("雪山", { limit: 2 });
+    expect(without.some((h) => h.drawer_id === pinnedTarget.drawerId)).toBe(false);
+
+    const hits = search("雪山", { limit: 2, pinnedIds: [pinnedTarget.drawerId] });
+
+    expect(hits).toHaveLength(2);
+    expect(hits.some((h) => h.drawer_id === pinnedTarget.drawerId)).toBe(true);
+  });
+
+  it("钉入的抽屉排在末尾补位，不动原有排名", () => {
+    // 为什么必须钉：实测 tocc-sync 那条原文命中 8/19 个查询 token、分数 8.04，却在
+    // 608 条里排 52，候选池（`SEARCH_CANDIDATE_POOL = 30`）够不到它——它从没进过结果。
+    // 模型搜完找不到，就读了别的抽屉并拿它作答（3/3 全错）。
+    // 真实库上的验证记录：`docs`/提交信息所载的 52/608 排名，以及钉入查询能在 16ms 内
+    // 把它取回。
+    //
+    // **测试库的局限（如实记录）**：小样本里 BM25 的 IDF 没有区分度（本用例实测目标恒排
+    // 第一），这里**构造不出**"目标落在池外"的场景。所以本用例只锁两件能锁的事：
+    // ① 钉入不改变原有排名 ② 目标确实被带进结果（哪怕它本来就在）。
+    // 池外场景的真实验证见上面的实测数据，别把这条用例当成对它的证明。
+    for (let i = 0; i < 43; i++) {
+      archive(`同批日报 ${i}：工单同步任务的常规巡检记录，一切正常。`);
+    }
+    const target = archive("这条才是真正的排查原文：工单同步一推就断，根因在 ODS 表的时间字段。");
+
+    const plain = search("工单同步 排查", { limit: 5 });
+    const pinned = search("工单同步 排查", { limit: 5, pinnedIds: [target.drawerId] });
+
+    // 补位只补尾部席位；已在结果里的目标不因钉入而改变位置
+    expect(pinned.slice(0, 4)).toEqual(plain.slice(0, 4));
+    expect(pinned).toHaveLength(5);
+    expect(pinned.some((h) => h.drawer_id === target.drawerId)).toBe(true);
+  });
+
+  it("钉入不跳过相关性：对本次查询零命中的抽屉不会被钉进来", () => {
+    const unrelated = archive("这段话讲的是完全无关的另一件事：买咖啡豆。");
+    archive("查询命中的内容：雪山路线规划。");
+
+    const hits = search("雪山", { pinnedIds: [unrelated.drawerId] });
+    expect(hits.some((h) => h.drawer_id === unrelated.drawerId)).toBe(false);
+  });
+
+  it("钉入不产生重复行：已在候选里的抽屉只出现一次", () => {
+    const only = archive("雪山路线规划的唯一一条记录。");
+
+    const hits = search("雪山", { pinnedIds: [only.drawerId] });
+    expect(hits.filter((h) => h.drawer_id === only.drawerId)).toHaveLength(1);
+  });
+
+  it("钉入受作用域约束：别的 Agent 的抽屉钉不进来", () => {
+    const other = archive("乙助手的会话里提到了雪山。", { agent: "agent-b" });
+
+    const hits = search("雪山", { agentId: "agent-a", pinnedIds: [other.drawerId] });
+    expect(hits).toHaveLength(0);
+  });
+
   it("分词为空（纯符号查询）回落 LIKE，不抛异常", () => {
     archive("一段含「——」破折号的内容。");
     const hits = search("——");

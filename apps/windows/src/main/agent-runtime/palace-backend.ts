@@ -137,7 +137,7 @@ export function withBuiltinPalace(
     searchPalace: async (
       query: string,
       limit?: number,
-      scope?: { agentId?: string; userId?: string },
+      scope?: { agentId?: string; userId?: string; pinnedIds?: readonly string[] },
     ): Promise<PalaceSearchHit[] | null> => {
       const r = repo()
       if (!r) return null
@@ -148,6 +148,7 @@ export function withBuiltinPalace(
           // scope.agentId 缺省 = 跨 Agent（宫殿是会话存档，本就跨助手可读）；
           // 与工作记忆通道同一条规则，避免同一 Agent 在注入里看得到、在检索里搜不到
           ...(scope?.agentId ? { agentId: scope.agentId } : {}),
+          ...(scope?.pinnedIds?.length ? { pinnedIds: scope.pinnedIds } : {}),
           limit: limit ?? 10,
         }),
       ]

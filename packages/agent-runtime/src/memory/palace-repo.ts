@@ -95,6 +95,20 @@ interface PalaceScopeParams {
 export interface PalaceSearchParams extends PalaceScopeParams {
   readonly query: string;
   readonly limit?: number;
+  /**
+   * 钉入检索的抽屉 id（本轮注入的原文指针）。
+   *
+   * **为什么需要**：大段之间的 BM25 分数断崖很陡，候选池取 30 条时，一条 5K 字符的
+   * 真实排查段可能排到 52/608——它**根本没进过候选池**。实测 tocc-sync：目标抽屉
+   * 命中 8/19 个 token、分数 8.04，看起来不差，却输给了 30 条一模一样的 cron 日报
+   * （头部 23.54 / 17.00 / 16.36，前 12 条全是同一批日报）——重复语料把候选池占满，
+   * 长尾里的正确答案被挤掉。结果是模型「搜了也找不到」，转而读别的条目并拿它作答。
+   *
+   * 钉入的语义：这些 id **已经过注入侧的 `existsByIds` 校验**（活链），在这里只需
+   * 确认它们对当前查询有命中（`fts MATCH`）就保送进结果——**不跳过相关性检查**，
+   * 否则会变成"注入即召回"的自我实现。钉入与落选共用同一个限额，挤占的是尾部席位。
+   */
+  readonly pinnedIds?: readonly string[];
 }
 
 /** 列表浏览参数（UI 用；与检索不同，它不做相关性排序，只按时间倒序翻页） */
@@ -377,6 +391,7 @@ export class PalaceRepo {
       return this.searchByLike(params, limit);
     }
     const match = tokens.map((t) => `"${t.replace(/"/g, '""')}"`).join(" OR ");
+    const need = requiredTokenHits(tokens.length);
     try {
       const rows = this.db
         .prepare<DrawerRow & { rank: number; fts_content: string }>(
@@ -388,15 +403,58 @@ export class PalaceRepo {
             LIMIT ?`,
         )
         .all(match, ...scope.args, SEARCH_CANDIDATE_POOL);
-      const need = requiredTokenHits(tokens.length);
       const kept = rows
         .filter((r) => countTokenHits(tokens, r.fts_content) >= need)
         .slice(0, limit);
-      return kept.map((r) => this.toItem(r, params.query, -r.rank));
+
+      // 钉入：注入块里给过指针的原文，未被选上时按分数补位。
+      // 两段查询而不是改了上面的 top-N 重排——重排会连排序语义一起动（TOCC 那条分数
+      // 8.04 仍排不进 top-30），钉入要表达的正是"这条不是因为分数高才在场"。
+      const pinned = this.pinnedRows(params.pinnedIds ?? [], kept, match, scope, tokens, need);
+      // 补位挤的是**尾部**席位：原结果留 `limit - 钉入数` 条，其余给钉入的。
+      // 不能写成 `[...kept, ...pinned].slice(0, limit)`——kept 已经占满 limit，
+      // 追加再切等于把刚补上的一条切掉（2026-09-18 实测：钉入日志显示成功，
+      // 调用方收到的那份却没有它）。
+      const merged =
+        pinned.length > 0
+          ? [...kept.slice(0, Math.max(0, limit - pinned.length)), ...pinned]
+          : kept;
+      return merged.map((r) => this.toItem(r, params.query, -r.rank));
     } catch (err) {
       console.warn("[PalaceRepo.searchDrawers] FTS5 查询失败，回落 LIKE:", err);
       return this.searchByLike(params, limit);
     }
+  }
+
+  /**
+   * 钉入行的查询：只取 `pinnedIds` 里对当前查询**确有命中且过最小命中线**的行，
+   * 已在候选里选上的不再重复取。补位空间 = 总席位减去已选，避免过度返回。
+   */
+  private pinnedRows(
+    pinnedIds: readonly string[],
+    alreadyKept: readonly (DrawerRow & { rank: number; fts_content: string })[],
+    match: string,
+    scope: { sql: string; args: unknown[] },
+    tokens: readonly string[],
+    need: number,
+  ): (DrawerRow & { rank: number; fts_content: string })[] {
+    const keptIds = new Set(alreadyKept.map((r) => r.drawer_id));
+    const wanted = [...new Set(pinnedIds.filter((id) => id && !keptIds.has(id)))];
+    const room = SEARCH_CANDIDATE_POOL - alreadyKept.length;
+    if (wanted.length === 0 || room <= 0) return [];
+    const placeholders = wanted.map(() => "?").join(", ");
+    return this.db
+      .prepare<DrawerRow & { rank: number; fts_content: string }>(
+        `SELECT d.*, bm25(palace_drawers_fts) AS rank, palace_drawers_fts.content AS fts_content
+           FROM palace_drawers_fts
+           JOIN palace_drawers d ON d.rowid = palace_drawers_fts.rowid
+          WHERE palace_drawers_fts MATCH ? AND d.deleted_at IS NULL${scope.sql}
+            AND d.drawer_id IN (${placeholders})
+          ORDER BY bm25(palace_drawers_fts)
+          LIMIT ?`,
+      )
+      .all(match, ...scope.args, ...wanted, room)
+      .filter((r) => countTokenHits(tokens, r.fts_content) >= need);
   }
 
   private buildScope(

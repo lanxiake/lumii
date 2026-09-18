@@ -179,6 +179,14 @@ export class AgentInstance {
   get memoryReadScope(): MemoryReadScope {
     return this.memoryConfig?.readView === "user" ? "user" : "agent";
   }
+  /**
+   * 当前会话标识（`AgentInstanceConfig.sessionKey`）。
+   *
+   * 对外只读暴露是因为宿主需要按「实例 → 会话」反查本轮注入快照：注入发生在
+   * 提示词构建期，消费在工具执行期，中间只剩实例 id 这条线。以前只有
+   * `getConversationId()` 闭包（喂效用反馈用）能拿到它。
+   */
+  readonly sessionKey: string | undefined;
   private readonly agent: Agent;
   private readonly listeners = new Set<(e: AgentRuntimeEvent) => void>();
   private _state: AgentInstanceState = "idle";
@@ -242,6 +250,7 @@ export class AgentInstance {
   constructor(config: AgentInstanceConfig) {
     this.id = config.id;
     this.definitionId = config.definition.id;
+    this.sessionKey = config.sessionKey;
     this.timeoutMs = config.definition.timeoutMs;
     this.maxTurns = config.definition.maxTurns;
     this.enableTurnTokenBudget = config.enableTurnTokenBudget ?? false;
@@ -735,6 +744,16 @@ export class AgentInstance {
    */
   setInjectedMemories(entries: readonly MemoryEntry[]): void {
     this.memoryIntegration.setInjectedSnapshot(entries);
+  }
+
+  /**
+   * 本轮注入的热记忆快照（`setInjectedMemories` 写入的那份）。
+   *
+   * 宿主拿它做「搜索时别重复返回注入层已有条目」——同一批条目已经在提示词里，
+   * 再占检索席位只会把真正的新内容挤掉。
+   */
+  get injectedMemories(): readonly MemoryEntry[] {
+    return this.memoryIntegration.injectedSnapshot;
   }
 
   /**

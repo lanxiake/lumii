@@ -360,6 +360,7 @@ export {
   contentAddressId,
   deterministicDrawerId,
   DRAWER_ID_HEX_LEN,
+  drawerPointerId,
   scoreMemory,
   computeTemperature,
   DEFAULT_TEMPERATURE_THRESHOLDS,

@@ -19,6 +19,17 @@
  * - 只改注入块图例 → 1/3（**无效**，图例单独用等于没改）
  * - 改工具描述 + 记忆指南 → 6/9
  *
+ * **2026-09-18 纠正的一个错误结论**：上面这些数字里，"命中注入指针"当初是拿
+ * **手填的** drawer 去核对的，而每个探针手填的那条**未必是实际注入的那条**
+ * （实测 tocc/logs 两个探针填错了：注入的是 060cdafe / 7ccfb76d，填的却是
+ * 851dc264 / 3f36f155）。模型当时不读"手填的那条"是理性的——它根本不是注入内容。
+ * 现在一律从 `memory_usage_feedback` 反查**实际注入集**再做判据（见 `injectedPointers`）。
+ *
+ * **另一条要记住的**：模型不读注入指针，未必是文案问题。实测到两种情况都出现过——
+ * ① 注入的那条内容自认"已结案，仅作历史索引"，而用户问的是当时的排查过程；
+ * ② 那条原文排 52/608、候选池只取 30，**检索根本返回不了它**（后者的机制修复见
+ * `PalaceRepo` 的 `pinnedIds`）。判据要看数据，不要看直觉。
+ *
  * **局限**：n=3~9，且实测同一变体重跑会有 1/3 ↔ 3/3 的抖动（`logs-12328` 探针最明显）。
  * 它能区分"有效/无效"这种量级差异，区分不了 10% 级别的差异——小改动别指望它给结论。
  */
@@ -34,31 +45,67 @@ const DB = join(DATA, 'agent-runtime.db')
 const cfg = JSON.parse(readFileSync(join(homedir(), '.lumii', 'runtime', 'app-ui.json'), 'utf8'))
 
 /**
- * 探针：每个都用「注入摘要明显答不全、原文很厚」的记忆。
+ * 本轮**实际注入**给这个会话的原文指针集合。
  *
- * 关键设计——**问题措辞不能要求"读原文"**，否则测的是服从性而不是自发性。
- * 只表达"我要细节/完整过程"，是否值得翻原文由模型自己判断。
+ * **这是本探针最容易搞错、也最要紧的一环**（2026-09-18 踩过）：
+ * 原先每个探针手填一个 `drawer` 当"注入的指针"，再拿它去核对模型读了什么。
+ * 实际上注入的是 top-K 热记忆，**跟探针假定的话题未必是同一条**——实测：
+ *
+ * | 探针 | 手填的 | 实际注入的 |
+ * |---|---|---|
+ * | sjzh-service | 6888ae86… | 6888ae86… ✅ 一致 |
+ * | tocc-sync | 851dc264… | **060cdafe…** ❌ 另一条（内容自认"已结案，仅作索引"） |
+ * | logs-12328 | 3f36f155… | **7ccfb76d…** ❌ 另一条 |
+ *
+ * 于是"模型不读注入的指针"这个结论是**假的**：它对 tocc/logs 注入的本来就不是用户问的
+ * 那条，模型不读它是理性的，反而自己搜到了对的。判据必须来自库里的注入记录，不能手填。
+ *
+ * 注入集由 `memory_usage_feedback` 反查（`MemoryManager.recordInjectionOutcome` 在本轮
+ * 结束时把注入快照落库，`session_id` = 会话 id）。
+ */
+function injectedPointers(sessionKey) {
+  const db = new DatabaseSync(DB, { readOnly: true })
+  try {
+    const ids = db
+      .prepare('SELECT memory_id FROM memory_usage_feedback WHERE session_id = ?')
+      .all(sessionKey)
+      .map((r) => r.memory_id)
+    const idOf = db.prepare('SELECT content FROM agent_memories WHERE id = ?')
+    const out = new Set()
+    for (const id of ids) {
+      const row = idOf.get(id)
+      if (!row) continue
+      const m = /^\[d:([0-9a-f]{1,64})\]/.exec(row.content)
+      if (m) out.add(m[1].toLowerCase())
+    }
+    return [...out]
+  } finally {
+    db.close()
+  }
+}
+/**
+ * 探针话题。**不在这里假定注入的是哪条抽屉**——注入的是 top-K 热记忆，与话题未必
+ * 是同一条（见 `injectedPointers` 的说明）。判据一律从库里取。
+ *
+ * 措辞要求：必须指向「细节/原话/完整过程」，但不能直接说"读原文"——否则测的是
+ * 服从性而不是自发性。同时要覆盖**两件不同的事**：
+ * - 钉入是否生效：注入的指针能不能被搜索带回来（纯机制，与措辞无关）
+ * - 模型会不会去读：措辞得让它真的需要翻原文
  */
 const PROBES = [
   {
     id: 'sjzh-service',
-    drawer: '6888ae869706a8fd',
     q: 'sjzh-service 那个启动故障，当时排查的完整过程是什么',
-    summaryChars: 296,
     originalChars: 48042,
   },
   {
     id: 'logs-12328',
-    drawer: '3f36f1551df45a84',
     q: '12328 报送日志里那些反复出现的报错模式，具体是哪些，怎么处理的',
-    summaryChars: 492,
     originalChars: 85033,
   },
   {
     id: 'tocc-sync',
-    drawer: '851dc2648492000e',
     q: 'TOCC 数据同步到 12345 那个问题，排查的细节和结论是什么',
-    summaryChars: 235,
     originalChars: 5511,
   },
 ]
@@ -102,6 +149,10 @@ function send(sessionKey, content) {
  * 参数在 `args`。一开始按 `type: 'tool_call'` / `toolName` 去找，永远匹配不到，
  * 得出过「模型没调 memory_read」的错误结论（实测它调了 4 次）。判据写错会得出
  * 完全相反的结果——这个函数的正确性比探针本身还重要。
+ *
+ * 同时取回 **memory_search 的返回内容**：2026-09-18 之前的探针只看"调了哪些工具"，
+ * 于是把「搜了却找不到」误读成「模型不信任注入指针」。真相是那条原文排 52/608、
+ * 候选池只取 30，它**从没进过结果**。要判断钉入是否生效，必须看检索返回了什么。
  */
 function toolCalls(convId) {
   const db = new DatabaseSync(DB, { readOnly: true })
@@ -118,9 +169,23 @@ function toolCalls(convId) {
         continue
       }
       for (const p of Array.isArray(o.parts) ? o.parts : []) {
-        if (p.type === 'tool' && typeof p.name === 'string' && /^memory_/.test(p.name)) {
-          calls.push({ tool: p.name, args: p.args ?? {} })
+        if (p.type !== 'tool' || typeof p.name !== 'string') continue
+        if (!/^memory_/.test(p.name)) continue
+        const call = { tool: p.name, args: p.args ?? {} }
+        if (p.name === 'memory_search' && p.result) {
+          // 落库形状实测：`{content:[{type:'text',text:'<JSON 字符串>'}]}`。
+          // 用 JSON.stringify 兜底是为了形状变化时不至于静默取空。
+          const text = p.result.content?.[0]?.text ?? JSON.stringify(p.result)
+          const drawerIds = [...text.matchAll(/"drawer_id":\s*"([0-9a-f]{4,64})"/gi)].map(
+            (x) => x[1].toLowerCase(),
+          )
+          call.returned = drawerIds
+          call.flaggedInjected = [
+            ...text.matchAll(/"drawer_id":\s*"([0-9a-f]{4,64})"[^}]*already_injected/gi),
+          ].map((x) => x[1].toLowerCase())
+          call.empty = drawerIds.length === 0
         }
+        calls.push(call)
       }
     }
     return calls
@@ -171,25 +236,46 @@ async function runProbe(label, p, attempt) {
   const readIds = calls
     .filter((c) => c.tool === 'memory_read')
     .map((c) => String(c.args.drawerId ?? '').toLowerCase())
-  // 核心指标：读了「注入块里给过指针」的那个抽屉
-  const usedInjectPointer = readIds.includes(p.drawer)
   const readBeforeSearch = readIdx >= 0 && (searchIdx < 0 || readIdx < searchIdx)
 
+  // 判据全部落在「本轮**实际**注入的那组指针」上，不假定是哪条
+  const injectIds = injectedPointers(sessionKey)
+  const usedInjectPointer = readIds.some((id) => injectIds.includes(id))
+  const searched = calls.filter((c) => c.tool === 'memory_search' && Array.isArray(c.returned))
+  // 钉入生效？注入的那组指针里，有没有被检索返回过（返回了 = 模型至少看得见）
+  const newInject = injectIds.filter((id) => !readIds.includes(id))
+  const returned = newInject.filter((id) => searched.some((c) => c.returned.includes(id)))
+  const targetReturned = newInject.length > 0 && returned.length === newInject.length
+  const targetFlagged = searched.some((c) =>
+    (c.flaggedInjected ?? []).some((id) => injectIds.includes(id)),
+  )
+  const emptySearches = searched.filter((c) => c.empty).length
+  // 供排查：模型实际读的那些里，哪些是注入组里的
+  const readOutsideInject = readIds.filter((id) => !injectIds.includes(id))
+
   console.log(
-    `  [${label}] ${p.id.padEnd(13)} 读${seq.filter((t) => t === 'memory_read').length}个` +
-      ` 命中注入指针=${usedInjectPointer ? '✅' : '❌'} 开场即读=${readBeforeSearch ? '✅' : '❌'}` +
-      `  | ${seq.join('→') || '(无)'}`,
+    `  [${label}] ${p.id.padEnd(13)} 注入指针[${injectIds.map((i) => i.slice(0, 8)).join(',') || '无'}]` +
+      ` 读${readIds.length}个 命中注入=${usedInjectPointer ? '✅' : '❌'}` +
+      ` 开场即读=${readBeforeSearch ? '✅' : '❌'}` +
+      ` 钉入回传=${newInject.length === 0 ? '(已读过)' : returned.length + '/' + newInject.length}` +
+      ` 空结果${emptySearches}次` +
+      (readOutsideInject.length ? ` 另外读了[${readOutsideInject.map((i) => i.slice(0, 8)).join(',')}]` : ''),
   )
 
   return {
     probe: p.id,
     attempt,
-    drawer: p.drawer,
+    injectIds,
     seq,
     searched: seq.filter((t) => t === 'memory_search').length,
     read: seq.filter((t) => t === 'memory_read').length,
     usedInjectPointer,
     readBeforeSearch,
+    /** 钉入生效的直接证据：检索返回过注入指针指向的那个抽屉 */
+    targetReturned,
+    targetFlagged,
+    emptySearches,
+    searchReturns: searched.map((c) => c.returned),
   }
 }
 
@@ -210,8 +296,10 @@ writeFileSync(out, JSON.stringify({ label, at: new Date().toISOString(), results
 console.log(`\n═══ [${label}] 汇总 ═══`)
 const hit = results.filter((r) => r.usedInjectPointer).length
 const early = results.filter((r) => r.readBeforeSearch).length
-console.log(`  命中注入指针: ${hit}/${results.length}`)
-console.log(`  开场即读原文: ${early}/${results.length}  ← 搜索之前读，只可能来自注入`)
+const returned = results.filter((r) => r.targetReturned).length
+console.log(`  命中注入指针: ${hit}/${results.length}   ← 模型读了「本轮实际注入」的某条指针`)
+console.log(`  开场即读原文: ${early}/${results.length}   ← 搜索之前读，只可能来自注入`)
+console.log(`  钉入回传:     ${returned}/${results.length}   ← 注入的指针没读、且搜索把它带回来了（钉入生效）`)
 console.log(
   `  总搜索 ${results.reduce((a, r) => a + r.searched, 0)} 次 / 总读原文 ${results.reduce((a, r) => a + r.read, 0)} 次`,
 )
