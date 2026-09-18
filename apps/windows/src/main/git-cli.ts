@@ -120,12 +120,14 @@ export function runGit(opts: {
   args: readonly string[]
   config?: readonly string[]
   timeoutMs?: number
+  /** 追加/覆盖的环境变量（如 GIT_INDEX_FILE —— 见 workspace-vcs 的 stageAllCli） */
+  env?: Record<string, string>
 }): Promise<GitRunResult> {
   const argv = gitArgv(opts)
   return new Promise((resolve, reject) => {
     const child = spawn('git', argv, {
       cwd: opts.workTree,
-      env: gitEnvFor(opts.gitDir),
+      env: { ...gitEnvFor(opts.gitDir), ...(opts.env ?? {}) },
       windowsHide: true,
     })
 

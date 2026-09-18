@@ -325,6 +325,48 @@ describe('WorkspaceVcs', () => {
     expect(await listHead()).toContain('a.md')
   })
 
+  // ── 快照期间读者不该看到「index 不存在」──
+  //
+  // 背景：stageAllCli 一度靠 `rm index` 强制全量重算，于是出现一个读者可见的空窗 ——
+  // isomorphic-git 的 statusMatrix（版本面板的 statusDiff）此刻读不到 index，
+  // 直接报 internal error（2026-09-18 日志里的 `[VCS-IPC] statusDiff 失败`）。
+  // 原实现没这问题：isomorphic-git 用「临时文件 + 改名」原子写 index。
+  // 现在改为 GIT_INDEX_FILE 指到临时路径 + 完成后原子改名，空窗消失。
+  //
+  // 造足够多的文件让全量重算有可观的时间窗，否则并发读者可能一次都没撞上，
+  // 用例会变成「永远绿但什么都没测」。
+  it('快照进行中并发读 index 不报错（读者看不到空窗）', async () => {
+    await vcs.ensureInitialized()
+    for (let i = 0; i < 600; i++) {
+      writeFile(`bulk/f${i}.md`, `内容 ${i}\n`.repeat(30))
+    }
+    await vcs.commit({ author: 'user', message: 'bulk' })
+    writeFile('bulk/f0.md', '改过了\n')
+
+    let reads = 0
+    const errors: string[] = []
+    let running = true
+    const reader = (async () => {
+      while (running) {
+        reads++
+        try {
+          await vcs.statusDiff()
+        } catch (err) {
+          errors.push(err instanceof Error ? err.message : String(err))
+        }
+        await new Promise((r) => setImmediate(r))
+      }
+    })()
+
+    const c = await vcs.commit({ author: 'agent', message: '并发快照' })
+    running = false
+    await reader
+
+    expect(c).not.toBeNull()
+    expect(reads).toBeGreaterThan(0)
+    expect(errors).toEqual([])
+  })
+
   // ── 等长 + 时间戳还原的改写必须被检出 ──
   //
   // 这是整条暂存路径存在的意义所在，也是**换实现时最容易丢掉**的保证。
@@ -332,9 +374,8 @@ describe('WorkspaceVcs', () => {
   // 原实现（isomorphic-git）靠"按内容重算全部 blob hash"保住它。
   // 换真 git 后，默认的 stat 缓存路径会漏（真 git 只有在文件 mtime 不早于 index
   // 写入时刻时才强制重查内容 —— 而本用例的还原恰好把它推回更早），
-  // 所以 vcs-git-cli.ts 的 stageAllCli 每次**先删掉 index**再 add -A，
-  // 逼 git 逐个读文件重算。实测代价 2469ms，比 isomorphic-git 的 19933ms 快 8 倍，
-  // 且跑在子进程里不占主线程 —— 这条保证现在的成本只是后台 CPU。见下方断言。
+  // 所以 vcs-git-cli.ts 的 stageAllCli 用 **GIT_INDEX_FILE 指向临时 index** 再 add -A，
+  // 逼 git 逐个读文件重算，完成后原子改名盖回真 index。见下方断言。
   it('等长且时间戳被还原的改写，仍能被检出并提交', async () => {
     await vcs.ensureInitialized()
     const abs = path.join(workspaceDir, 'a.md')

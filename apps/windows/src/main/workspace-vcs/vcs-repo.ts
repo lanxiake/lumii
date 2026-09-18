@@ -31,7 +31,7 @@ import type {
 import { buildDefaultGitignore, VCS_SKIP_DIRS, shouldSkipWalkDir, stripOutputsIgnoreRules, isVcsBinaryPath } from './vcs-ignore'
 import { computeFileDiff, computeDiffStats, MAX_DIFF_BYTES } from './vcs-diff'
 import { createVcsFs, VCS_TMP_SUFFIX } from './vcs-fs'
-import { commitCli, detectGit, hasStagedChangesCli, stageAllCli } from './vcs-git-cli'
+import { detectGit, hasStagedChangesCli, stageAllCli } from './vcs-git-cli'
 
 const log = {
   info: (...args: unknown[]) => console.log('[WorkspaceVcs]', ...args),
@@ -144,9 +144,9 @@ export class WorkspaceVcs {
       // 首个 commit（即使工作区为空也建立 root commit，便于后续 diff/rollback）
       const initMessage = this.buildMessage('初始化工作空间版本管理', 'user')
       const created = await this.stageAndCommit(initMessage)
-      if (!created && (await detectGit())) {
+      if (!created) {
         // 工作区确实为空（.gitignore 已存在且内容未变）时仍要落 root commit
-        await commitCli(this.workspaceDir, this.gitdir, initMessage, { allowEmpty: true })
+        await git.commit({ ...this.base, message: initMessage, author: GIT_AUTHOR })
       }
       log.info('[ensureInitialized] 完成，已建立初始提交')
     }
@@ -303,8 +303,15 @@ export class WorkspaceVcs {
    * 暂存全部变更并提交；无变更返回 null。
    *
    * **热路径**：每个助手消息都会走到这里（bridge-instance-factory 的
-   * onAssistantMessagePersisted）。优先真 git 子进程——约 100ms 且不占主线程；
-   * 不可用时回退 isomorphic-git 全量哈希（正确但慢，见文件头）。
+   * onAssistantMessagePersisted）。
+   *
+   * 分工是刻意的：
+   *  - **暂存**走真 git 子进程（约 100ms~2.5 秒，且不占主线程）。这一步是瓶颈——
+   *    isomorphic-git 的 add 会按内容全量重算 blob hash。
+   *  - **提交**仍走 isomorphic-git。它又快又安全：blob 已由上一步写好，提交只写
+   *    tree/commit 对象；而真 git 的 commit 会在 gitdir 里创建 `index.lock`，
+   *    与 isomorphic-git 自己的遍历撞出 TOCTOU
+   *    （实测 `ENOENT: lstat '.mtbot-vcs/index.lock'`——目录读到了、lstat 时已被改名）。
    *
    * 两条路的**语义一致**：都遵循 .gitignore、都含删除、无变更都不产生空提交。
    */
@@ -313,10 +320,11 @@ export class WorkspaceVcs {
       const t0 = Date.now()
       await stageAllCli(this.workspaceDir, this.gitdir)
       if (!(await hasStagedChangesCli(this.workspaceDir, this.gitdir))) return null
-      const oid = await commitCli(this.workspaceDir, this.gitdir, message)
+      // 提交交给 isomorphic-git（不产生 index.lock，见上方注释）
+      const oid = await git.commit({ ...this.base, message, author: GIT_AUTHOR })
       // 与 stageAll 的 500ms 门槛同理：正常约 100ms，劣化时要看得见
       const ms = Date.now() - t0
-      if (ms > 500) log.info(`[stageAndCommit] 真 git 快路径耗时 ${ms}ms`)
+      if (ms > 500) log.info(`[stageAndCommit] 真 git 暂存快路径耗时 ${ms}ms`)
       return oid
     }
 

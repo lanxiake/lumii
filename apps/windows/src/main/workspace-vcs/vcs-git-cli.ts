@@ -136,7 +136,7 @@ function runGit(
   workspaceDir: string,
   gitdir: string,
   args: string[],
-  opts: { timeoutMs?: number } = {},
+  opts: { timeoutMs?: number; env?: Record<string, string> } = {},
 ): Promise<GitRunResult> {
   return sharedRunGit({
     workTree: workspaceDir,
@@ -144,6 +144,7 @@ function runGit(
     args,
     config: ['-c', `core.excludesFile=${ensureExcludeFile(gitdir)}`],
     timeoutMs: opts.timeoutMs,
+    env: opts.env,
   })
 }
 
@@ -163,10 +164,11 @@ async function runWithLockRetry(
   workspaceDir: string,
   gitdir: string,
   args: string[],
+  opts: { env?: Record<string, string> } = {},
 ): Promise<GitRunResult> {
   let last: GitRunResult | undefined
   for (let i = 0; i < LOCK_RETRY; i++) {
-    const r = await runGit(workspaceDir, gitdir, args)
+    const r = await runGit(workspaceDir, gitdir, args, opts)
     if (r.code === 0 || !isLockError(r)) return r
     last = r
     if (i < LOCK_RETRY - 1) await sleep(LOCK_RETRY_DELAY_MS * (i + 1))
@@ -177,36 +179,54 @@ async function runWithLockRetry(
 /**
  * 暂存工作区全部变更（新增 / 修改 / **删除**）。
  *
- * ## 为什么每次都要删掉 index 强制全量重算
+ * ## 为什么要强制全量重算
  *
- * 真 git 默认走 index 的 stat 缓存：mtime/size 没变就跳过读文件，实测**仅 82ms**。
- * 但它会漏掉「等长 + utimesSync 还原 mtime」的改写，而 vcs-repo.test.ts 有一条
- * 用例正是守这个（云同步导入路径确实会 utimesSync）。删掉 index 后 git 无从比对 stat，
- * 只能逐个读文件重算 hash —— **实测 2469ms**，比 isomorphic-git 的 19933ms 快 8 倍，
- * 而且跑在子进程里，主线程零开销。
+ * 原实现放弃 stat 快速路径，是为了保住一条保证：任何内容改写都被检出，包括
+ * 「等长 + utimesSync 还原 mtime」这种（云同步导入路径确实会 utimesSync）。
+ * 真 git 默认走 index 的 stat 缓存，在这种改写上实测**漏检**
+ * （vcs-repo.test.ts 有对应用例；探针见 scripts/probe-vcs-force-rehash.mjs
+ *  的对照组 C）。所以每次都要逼 git 逐个读文件重算 hash。
  *
- * 即：这条保证现在的代价只是"每两秒的后台 CPU"，不再是"每消息冻 20 秒 UI"。
+ * ## 为什么用「临时 index + 原子改名」而不是 `rm index`
  *
- * ⚠️ 82ms 那条路走过的弯路记在这里，免得后人重走：
- * 试过 `-c core.checkStat=default`（Windows 默认 minimal，只比 mtime+size 不比 ctime，
- * 而写文件必然改 ctime）想让 stat 路径也能检出 —— 探针结果自相矛盾（同一配置两次跑结论相反），
- * 说明那只在"index 写入时刻不晚于文件 mtime"的时序巧合下成立，是 git racy 判定的固有随机性，
- * 不可依赖。唯一的确定性判据是用例本身。
+ * 两者都能强制全量重算（实测均约 40ms），但 `rm index` 会制造一个
+ * **读者可见的空窗**：isomorphic-git 的 statusMatrix（版本面板的 statusDiff）
+ * 此刻读不到 index，直接报 internal error —— 2026-09-18 日志里的
+ * `[VCS-IPC] statusDiff 失败` 就是这么来的。原实现没这问题，因为 isomorphic-git
+ * 是「临时文件 + 改名」原子写 index，读者永远看不到中间态；`rm` 破坏了那条原子性。
  *
- * index 是可由工作树与 HEAD 完全重建的缓存（同 vcs-repo.ts 的 discardIndex），
- * 中途失败不会丢历史，下次快照重建即可。
+ * 把 index 写到 `GIT_INDEX_FILE` 指向的临时路径，git 同样无从比对 stat、只能全量重算；
+ * 完成后**原子改名**盖到真 index 上。读者全程看到旧 index，切换是一瞬间。
+ * （scripts/probe-vcs-temp-index.mjs 逐条验证：等长改写仍检出、增删改语义不变、
+ *  提交后工作树干净。）
+ *
+ * ⚠️ 另一个候选 `git add -A --renormalize` 已否决：它有 `-u` 语义，
+ * 有删除时会 `fatal: unable to stat '<已删文件>'`。
  */
 export async function stageAllCli(workspaceDir: string, gitdir: string): Promise<void> {
-  fs.rmSync(path.join(gitdir, 'index'), { force: true })
-  const r = await runWithLockRetry(workspaceDir, gitdir, ['add', '-A'])
-  if (r.code !== 0) {
-    throw new Error(`git add -A 退出码 ${r.code}: ${r.stderr.trim().slice(0, 300)}`)
+  const realIndex = path.join(gitdir, 'index')
+  const tmpIndex = path.join(gitdir, 'index.mtbot-tmp')
+  fs.rmSync(tmpIndex, { force: true })
+  try {
+    const r = await runWithLockRetry(workspaceDir, gitdir, ['add', '-A'], {
+      env: { GIT_INDEX_FILE: tmpIndex },
+    })
+    if (r.code !== 0) {
+      throw new Error(`git add -A 退出码 ${r.code}: ${r.stderr.trim().slice(0, 300)}`)
+    }
+    // 原子切换：Windows 上 renameSync 走 MOVEFILE_REPLACE_EXISTING，可直接盖掉已存在的 index
+    fs.renameSync(tmpIndex, realIndex)
+  } catch (err) {
+    fs.rmSync(tmpIndex, { force: true })
+    throw err
   }
 }
 
 /**
  * 是否有已暂存变更（index 相对 HEAD）。
+ *
  * `diff --cached --quiet` 约定：退出码 1 = 有差异，0 = 无差异，其它为真错误。
+ * 只读，不写 index —— 所以不会产生 `index.lock`（那会与 isomorphic-git 的遍历撞 TOCTOU）。
  */
 export async function hasStagedChangesCli(workspaceDir: string, gitdir: string): Promise<boolean> {
   const r = await runWithLockRetry(workspaceDir, gitdir, ['diff', '--cached', '--quiet'])
@@ -215,27 +235,13 @@ export async function hasStagedChangesCli(workspaceDir: string, gitdir: string):
   throw new Error(`git diff --cached 退出码 ${r.code}: ${r.stderr.trim().slice(0, 300)}`)
 }
 
-/**
- * 提交已暂存内容，返回新 commit 的完整 oid。
+/*
+ * 这里**刻意没有** commitCli。
  *
- * `--no-verify` 是**行为保持**而非优化：isomorphic-git 从不执行 hook，
- * 而真 git 默认会跑 .mtbot-vcs/hooks 下的 pre-commit / commit-msg。
+ * 提交仍由 isomorphic-git 完成（vcs-repo.ts 的 stageAndCommit 有说明）：真 git 的
+ * `commit` 会在 gitdir 里创建 `index.lock`，而 isomorphic-git 自己的 statusMatrix /
+ * walk 会去 lstat 这个路径，两者并发时撞出 TOCTOU：
+ *   ENOENT: no such file or directory, lstat '.mtbot-vcs/index.lock'
+ * （目录读到了这个文件，lstat 时它已被改名为 index）。
+ * 曾经为了「一致」把提交也交给真 git，结果就是这么挂的 —— 别再加回来。
  */
-export async function commitCli(
-  workspaceDir: string,
-  gitdir: string,
-  message: string,
-  opts: { allowEmpty?: boolean } = {},
-): Promise<string> {
-  const args = ['commit', '--no-verify', '-m', message]
-  if (opts.allowEmpty) args.push('--allow-empty')
-  const r = await runWithLockRetry(workspaceDir, gitdir, args)
-  if (r.code !== 0) {
-    throw new Error(`git commit 退出码 ${r.code}: ${r.stderr.trim().slice(0, 300)}`)
-  }
-  const rev = await runGit(workspaceDir, gitdir, ['rev-parse', 'HEAD'])
-  if (rev.code !== 0) {
-    throw new Error(`git rev-parse 退出码 ${rev.code}: ${rev.stderr.trim().slice(0, 300)}`)
-  }
-  return rev.stdout.trim()
-}
