@@ -40,22 +40,55 @@ const THRESHOLD = 50
 const PASS_RATE = 0.7
 
 /** 探针会话的 session_id 前缀（`scripts/probe-pointer-usage.mjs` 造的那些） */
-const PROBE_PREFIX = 'probe-'
-const probeWhere = excludeProbes ? `WHERE f.session_id NOT LIKE '${PROBE_PREFIX}%'` : ''
+const PROBE_PREFIX = 'probe' + '-'
 
 const db = new DatabaseSync(DB_PATH, { readOnly: true })
 
-const rows = db
+/**
+ * 抽样池只取**能复核的行**：`session_id` 必须能在 `messages` 里 join 回会话
+ * （V48 之前存的是实例 id，join 不回来，判定时"没有回复可看"= 判不了）。
+ * 能复核的行占比本身也是个信号：它低说明 `session_id` 口径还没铺开。
+ */
+const poolWhere = [
+  "EXISTS (SELECT 1 FROM messages msg WHERE msg.conversation_id = f.session_id)",
+  ...(excludeProbes ? [`f.session_id NOT LIKE '${PROBE_PREFIX}%'`] : []),
+].join(' AND ')
+
+const poolTotal = db
+  .prepare(`SELECT COUNT(*) AS c FROM memory_usage_feedback f WHERE ${poolWhere}`)
+  .get().c
+
+/**
+ * **随机**抽，不是取最近 N 条。
+ *
+ * 第一版是 `ORDER BY f.id DESC LIMIT n`，实测抽出来的是**最近 48 分钟**的 50 行、
+ * 14 个会话（还含 2 个 cron 会话）——那样量的是"最后一小时的代理表现"，
+ * 不能代表整个池，且同一会话的连续轮次高度相关、有效样本量远小于 50。
+ * 用 `ORDER BY RANDOM()` 在**全池**上抽，配合下面的会话去重。
+ */
+const rawSample = db
   .prepare(
     `SELECT f.id, f.memory_id, f.session_id, f.query_length, f.was_used_in_response,
             f.contribution_score, f.features, f.created_at, m.content
        FROM memory_usage_feedback f
        LEFT JOIN agent_memories m ON m.id = f.memory_id
-      ${probeWhere}
-      ORDER BY f.id DESC
+      WHERE ${poolWhere}
+      ORDER BY RANDOM()
       LIMIT ?`,
   )
-  .all(Math.max(1, Math.min(Number.isFinite(n) ? n : 50, 500)))
+  .all(Math.max(1, Math.min(Number.isFinite(n) ? n : 50, 500)) * 3)
+
+// 同一会话最多取 3 条：同一轮的注入反馈彼此高度相关，全取一个会话等于只测了一个场景
+const SAME_SESSION_CAP = 3
+const perSession = new Map()
+const rows = []
+for (const r of rawSample) {
+  const c = perSession.get(r.session_id) ?? 0
+  if (c >= SAME_SESSION_CAP) continue
+  perSession.set(r.session_id, c + 1)
+  rows.push(r)
+  if (rows.length >= Math.max(1, Number.isFinite(n) ? n : 50)) break
+}
 
 /**
  * 取该反馈时刻之后的**第一条助手回复**——判定「这条记忆有没有被用上」必须看到它，
@@ -87,13 +120,8 @@ const findReply = (sessionId, afterIso) => {
 }
 
 const total = db.prepare('SELECT COUNT(*) AS c FROM memory_usage_feedback').get().c
-// 门槛要按**抽样池**算，不是按全表：排除探针后总数会掉下来，
+// 门槛按**抽样池**算（上面那个），不是按全表：排除探针后会掉下来，
 // 拿含探针的总数去判「样本够了」等于用压测流量给自己凑数。
-const poolTotal = excludeProbes
-  ? db
-      .prepare("SELECT COUNT(*) AS c FROM memory_usage_feedback WHERE session_id NOT LIKE ?")
-      .get(`${PROBE_PREFIX}%`).c
-  : total
 const withUtility = db
   .prepare('SELECT COUNT(*) AS c FROM agent_memories WHERE utility_count > 0')
   .get().c
