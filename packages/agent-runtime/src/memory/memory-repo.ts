@@ -167,7 +167,10 @@ export class AgentMemoryRepo {
     });
 
     // 2.5 按 score 降序 + 按 content 去重（同内容保留 score 最高的一条，消除历史重复影响）
-    scored.sort((a, b) => b.score - a.score);
+    //     `id` 作 tie-breaker：同分条目的相对顺序必须确定，否则「今天同一秒写了两条、
+    //     席位只够一条」时，注入哪条会随候选枚举顺序漂移——测试会 flaky，线上则表现为
+    //     同一输入两次运行给出不同记忆。
+    scored.sort((a, b) => b.score - a.score || (a.row.id < b.row.id ? -1 : a.row.id > b.row.id ? 1 : 0));
     const seenContent = new Set<string>();
     const deduped = scored.filter(({ row }) => {
       const key = `${row.category}:${row.content}`;
@@ -269,7 +272,7 @@ export class AgentMemoryRepo {
       .prepare<MemoryRow>(
         `SELECT * FROM agent_memories
        WHERE ${scopeWhere}user_id = ? AND is_archived = 0 AND deleted_at IS NULL AND superseded_at IS NULL AND created_at >= ?
-       ORDER BY created_at DESC
+       ORDER BY created_at DESC, id ASC
        LIMIT ?`,
       )
       .all(...scopeArgs, userId, windowStart, WINDOW_CANDIDATE_CAP);
@@ -279,7 +282,7 @@ export class AgentMemoryRepo {
       .prepare<MemoryRow>(
         `SELECT * FROM agent_memories
        WHERE ${scopeWhere}user_id = ? AND is_archived = 0 AND deleted_at IS NULL AND superseded_at IS NULL
-       ORDER BY importance DESC
+       ORDER BY importance DESC, id ASC
        LIMIT ?`,
       )
       .all(...scopeArgs, userId, candidateLimit);

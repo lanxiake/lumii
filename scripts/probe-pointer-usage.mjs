@@ -47,21 +47,15 @@ const cfg = JSON.parse(readFileSync(join(homedir(), '.lumii', 'runtime', 'app-ui
 /**
  * 本轮**实际注入**给这个会话的原文指针集合。
  *
- * **这是本探针最容易搞错、也最要紧的一环**（2026-09-18 踩过）：
- * 原先每个探针手填一个 `drawer` 当"注入的指针"，再拿它去核对模型读了什么。
- * 实际上注入的是 top-K 热记忆，**跟探针假定的话题未必是同一条**——实测：
+ * **这是本探针最容易搞错、也最要紧的一环**（2026-09-18 踩过两次）：
  *
- * | 探针 | 手填的 | 实际注入的 |
- * |---|---|---|
- * | sjzh-service | 6888ae86… | 6888ae86… ✅ 一致 |
- * | tocc-sync | 851dc264… | **060cdafe…** ❌ 另一条（内容自认"已结案，仅作索引"） |
- * | logs-12328 | 3f36f155… | **7ccfb76d…** ❌ 另一条 |
- *
- * 于是"模型不读注入的指针"这个结论是**假的**：它对 tocc/logs 注入的本来就不是用户问的
- * 那条，模型不读它是理性的，反而自己搜到了对的。判据必须来自库里的注入记录，不能手填。
- *
- * 注入集由 `memory_usage_feedback` 反查（`MemoryManager.recordInjectionOutcome` 在本轮
- * 结束时把注入快照落库，`session_id` = 会话 id）。
+ * 1. **别手填**。原先每个探针手填一个 `drawer` 当"注入的指针"，再拿它去核对模型
+ *    读了什么。实际上注入的是 top-K 热记忆，**跟探针假定的话题未必是同一条**——
+ *    实测 tocc/logs 两个探针都填错了（注入的是 060cdafe / 7ccfb76d，填的却是
+ *    851dc264 / 3f36f155）。据此得出的"模型不信任注入指针"是假结论。
+ * 2. **别在轮次结束前读**。注入集由 `recordInjectionOutcome` 在 `agent_end` 落库，
+ *    而轮询循环判「轮次结束」的依据是「工具集连续两轮不变」——常在 `agent_end`
+ *    之前就 break，此时查询必然为空。故这里带重试（见 `withRetry` 的调用点）。
  */
 function injectedPointers(sessionKey) {
   const db = new DatabaseSync(DB, { readOnly: true })
@@ -71,17 +65,42 @@ function injectedPointers(sessionKey) {
       .all(sessionKey)
       .map((r) => r.memory_id)
     const idOf = db.prepare('SELECT content FROM agent_memories WHERE id = ?')
-    const out = new Set()
+    const out = []
     for (const id of ids) {
       const row = idOf.get(id)
       if (!row) continue
+      // 只取**行首**指针（`^\[d:`）。实测有记忆正文里引用了别的指针
+      // （如"…状态：见 [d:xxx]"），宽松匹配会把别人的 id 算成本轮注入的。
       const m = /^\[d:([0-9a-f]{1,64})\]/.exec(row.content)
-      if (m) out.add(m[1].toLowerCase())
+      if (m) out.push(m[1].toLowerCase())
     }
-    return [...out]
+    return [...new Set(out)]
   } finally {
     db.close()
   }
+}
+
+/** 注入集落库晚于轮次判定，给它几秒钟补齐；拿不到就按空集继续（如实记录，不编造） */
+async function injectedPointersWithRetry(sessionKey, tries = 5) {
+  for (let i = 0; i < tries; i++) {
+    const ids = injectedPointers(sessionKey)
+    if (ids.length > 0) return ids
+    await sleep(2000)
+  }
+  // 拿不到时把原因说清楚：是这个 key 没有反馈行，还是有行但都没指针
+  const db = new DatabaseSync(DB, { readOnly: true })
+  try {
+    const rows = db
+      .prepare('SELECT COUNT(*) c FROM memory_usage_feedback WHERE session_id = ?')
+      .get(sessionKey)?.c
+    console.warn(
+      `  [warn] 注入集为空 key=${sessionKey} 反馈行=${rows ?? 0}` +
+        (rows === 0 ? '（本轮没落库：可能轮次未结束查询、或该会话未触发注入记账）' : '（有行但都无行首指针）'),
+    )
+  } finally {
+    db.close()
+  }
+  return []
 }
 /**
  * 探针话题。**不在这里假定注入的是哪条抽屉**——注入的是 top-K 热记忆，与话题未必
@@ -172,7 +191,10 @@ function toolCalls(convId) {
         if (p.type !== 'tool' || typeof p.name !== 'string') continue
         if (!/^memory_/.test(p.name)) continue
         const call = { tool: p.name, args: p.args ?? {} }
-        if (p.name === 'memory_search' && p.result) {
+        // 只解析**纯搜索**（无 drawerId）的返回。合并后 memory_search 也承担直读，
+        // 直读的返回是单条正文、没有 results 数组，混在一起会让统计失真。
+        const isPureSearch = p.name === 'memory_search' && !call.args.drawerId
+        if (isPureSearch && p.result) {
           // 落库形状实测：`{content:[{type:'text',text:'<JSON 字符串>'}]}`。
           // 用 JSON.stringify 兜底是为了形状变化时不至于静默取空。
           const text = p.result.content?.[0]?.text ?? JSON.stringify(p.result)
@@ -231,15 +253,24 @@ async function runProbe(label, p, attempt) {
   }
 
   const seq = calls.map((c) => c.tool)
-  const readIdx = seq.indexOf('memory_read')
-  const searchIdx = seq.indexOf('memory_search')
-  const readIds = calls
-    .filter((c) => c.tool === 'memory_read')
-    .map((c) => String(c.args.drawerId ?? '').toLowerCase())
-  const readBeforeSearch = readIdx >= 0 && (searchIdx < 0 || readIdx < searchIdx)
+  // 读抽屉的入口有两个名字：合并后 `memory_search(drawerId=…)` 是主入口，
+  // `memory_read` 是保留的兼容壳。**两个都要算**，否则合并之后本探针会静默
+  // 把模型所有直读行为统计成 0。
+  const readCalls = calls.filter(
+    (c) => c.tool === 'memory_read' || (c.tool === 'memory_search' && c.args.drawerId),
+  )
+  const readIds = readCalls.map((c) => String(c.args.drawerId ?? '').toLowerCase())
+  // 开场即读：第一次读调用出现在第一次**纯搜索**之前（带 drawerId 的调用不算搜索）
+  const pureSearchIdx = calls.findIndex((c) => c.tool === 'memory_search' && !c.args.drawerId)
+  const firstReadIdx = calls.findIndex(
+    (c) => c.tool === 'memory_read' || (c.tool === 'memory_search' && c.args.drawerId),
+  )
+  const readBeforeSearch = firstReadIdx >= 0 && (pureSearchIdx < 0 || firstReadIdx < pureSearchIdx)
 
-  // 判据全部落在「本轮**实际**注入的那组指针」上，不假定是哪条
-  const injectIds = injectedPointers(sessionKey)
+  // 判据全部落在「本轮**实际**注入的那组指针」上，不假定是哪条。
+  // 时序：`memory_usage_feedback` 由 `recordInjectionOutcome` 在本轮**结束时**写入，
+  // 所以要等循环退出后再读——在发问前读会永远拿到空集。
+  const injectIds = await injectedPointersWithRetry(sessionKey)
   const usedInjectPointer = readIds.some((id) => injectIds.includes(id))
   const searched = calls.filter((c) => c.tool === 'memory_search' && Array.isArray(c.returned))
   // 钉入生效？注入的那组指针里，有没有被检索返回过（返回了 = 模型至少看得见）

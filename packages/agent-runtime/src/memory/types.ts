@@ -142,9 +142,20 @@ export interface HotMemoryConfig {
   // 用它做保底会形成"注入过的更容易再被注入"的自激循环。
 
   /**
-   * 近 24h 新建条目的保底席位数上限，默认 5。
+   * 近 24h 新建条目的保底席位数上限，默认 **2**（2026-09-18 由 5 下调）。
    * 这些席位不参与 relevance 门控（今日条目与当前话题无关也保留），
    * 保证"今天记的当天一定看得见"。设为 0 关闭保底。
+   *
+   * **为什么是 2 而不是 5**（`injection-eval-params.real.test.ts` 实测，25 条标注查询）：
+   * | 席位 | 期望命中 | 无误注入 |
+   * |---|---|---|
+   * | 5（原值） | 17/25 | 22/25 |
+   * | 2（现值） | **22/25** | 22/25 |
+   * | 0（全关） | 5/25 | 25/25 |
+   *
+   * 席位越多，"今天写过但与本轮无关"的条目（学习沉淀、日常收尾记录）越容易挤掉
+   * 真正相关的老条目——实测无关查询（"今天北京的天气"）下 5 个席位会把 5 条无关
+   * 内容全部推进提示词。而下调到 0 会崩到 5/25：保底通道本身是必要的，只是给多了。
    */
   readonly freshSeats24h?: number;
   /** 近 7d 新建条目的次级席位数上限，默认 3（用剩余席位，同样免门控）。 */
@@ -183,7 +194,7 @@ export const DEFAULT_HOT_MEMORY_CONFIG: HotMemoryConfig = {
   recencyHalfLifeDays: 30,
   minQueryTokens: 2,
   gateContextualByRelevance: true,
-  freshSeats24h: 5,
+  freshSeats24h: 2,
   recentSeats7d: 3,
   ageDecayHalfLifeDays: 21,
   ageDecayFloor: 0.4,

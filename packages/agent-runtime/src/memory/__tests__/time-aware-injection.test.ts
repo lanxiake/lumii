@@ -71,15 +71,19 @@ describe("近 24h 保底席位", () => {
         daysAgo: 45,
       });
     }
-    const freshIds = [
-      saveAged(repo, db, { content: "今天新建的排查结论甲", importance: 0.5, daysAgo: 0 }),
-      saveAged(repo, db, { content: "今天新建的排查结论乙", importance: 0.5, daysAgo: 0 }),
-      saveAged(repo, db, { content: "今天新建的排查结论丙", importance: 0.5, daysAgo: 0 }),
-    ];
+    const seats = DEFAULT_HOT_MEMORY_CONFIG.freshSeats24h!;
+    // **正好建 seats 条**：本用例验证的是「席位内的新条目进得来」，上限由下一条
+    // 用例（席位数上限）负责。多建一条会让「哪条出线」取决于毫秒级 created_at 差，
+    // 用例变成在测噪声。
+    const freshIds = Array.from({ length: seats }, (_, i) =>
+      saveAged(repo, db, { content: `今天新建的排查结论${i}`, importance: 0.5, daysAgo: 0 }),
+    );
 
     const r = repo.loadTopMemories(A, U, DEFAULT_HOT_MEMORY_CONFIG, UNRELATED_QUERY);
     const ids = r.map((m) => m.id);
-    // 三条今日条目与 query 零重叠，靠的是保底席位而非相关性
+    // 这些今日条目与 query 零重叠，靠的是保底席位而非相关性。
+    // 席位数本身是实测调出来的参数（2026-09-18 由 5 降为 2，见
+    // DEFAULT_HOT_MEMORY_CONFIG.freshSeats24h 的注释），这里跟着配置走不写死。
     for (const id of freshIds) expect(ids).toContain(id);
   });
 
