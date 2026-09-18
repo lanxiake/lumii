@@ -162,7 +162,7 @@ export const skillInvokeToolConfig: MtBotToolConfig<typeof SkillInvokeInput> = {
             type: "text",
             text: JSON.stringify({
               error: `Skill "${params.skillName}" not found.`,
-              hint: `Use skill_list to see available skills. Available: ${available || "(none)"}`,
+              hint: `Use skill_search (no query) to list all skills. Available: ${available || "(none)"}`,
             }),
           },
         ],

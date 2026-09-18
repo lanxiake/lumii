@@ -30,6 +30,8 @@ export type ToolFailureAudit = (row: {
   readonly toolName: string
   readonly resultSummary: string
   readonly isError: boolean
+  /** 执行耗时（ms）。`ctx.durationMs` 一直是现成的，此前只是没往审计里传 */
+  readonly durationMs?: number
 }) => void
 
 export interface ToolUsageHookDeps {
@@ -79,6 +81,7 @@ export function createToolUsageHook(deps: ToolUsageHookDeps): ToolHook {
           toolName: ctx.toolName,
           resultSummary: summaryFromResult(ctx),
           isError: true,
+          durationMs: ctx.durationMs,
         })
       }
     },
@@ -88,6 +91,7 @@ export function createToolUsageHook(deps: ToolUsageHookDeps): ToolHook {
         toolName: ctx.toolName,
         resultSummary: summaryFromError(ctx),
         isError: true,
+        durationMs: ctx.durationMs,
       })
     },
   }

@@ -119,6 +119,17 @@ docs/test/lumii-cli/
 | [prompt-style-test-cases.md](./prompt-style/prompt-style-test-cases.md) | 用例：提示词转储形态（硬）+ 真实任务双档对照（定时提醒/代码小任务/会话连续性）+ 人工验证补充 |
 | [run-prompt-style-e2e.mjs](./prompt-style/run-prompt-style-e2e.mjs) | 执行器（`PS_ONLY=PS-LOG` 选择性运行、`PS_NO_RESTORE=1` 保留风格切换、末尾自动恢复原风格） |
 
+### 工具面治理（tool-contract/）
+
+| 文件 | 说明 |
+|---|---|
+| [tool-contract-test-cases.md](./tool-contract/tool-contract-test-cases.md) | 用例：工具失败审计的 duration_ms（数据面硬断言）、file:// 场景不得调用不存在的 `read_file`、真实文件编辑无参数校验失败；另含两条 0.3 基线观察 |
+| [run-tool-contract-e2e.mjs](./tool-contract/run-tool-contract-e2e.mjs) | 执行器（`TC_ONLY=<ID前缀>` 选择性运行、`TC_NO_RESTORE=1` 保留现场；会临时切 detailed 档，末尾自动恢复） |
+| [tool-contract-suite-report.md](./tool-contract/tool-contract-suite-report.md) | 最新报告 |
+
+> 与单测的分工：**CLI 守行为，单测守文本**。schema 描述与错误文案里的工具名引用没有 CLI 转储通道
+> （只有 `tools=N/M` 计数），由 `packages/agent-runtime/src/tools/__tests__/tool-name-references.test.ts` 覆盖。
+
 ### 云同步专项（cloud-sync/）
 
 | 文件 | 说明 |

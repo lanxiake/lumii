@@ -193,7 +193,7 @@ export const fileEditToolConfig: MtBotToolConfig<typeof FileEditInput> = {
   label: "Edit File",
   description:
     "Make line-based edits to a text file by replacing exact string sequences with new content. " +
-    "The old_string must be unique unless replaceAll is true. " +
+    "The oldString must be unique unless replaceAll is true. " +
     "If exact match fails, retries with whitespace/indentation-tolerant matching. " +
     "Works within the workspace and any project directories registered in Settings → Development. " +
     "Prefer this over `bash` sed/awk.",
@@ -218,7 +218,7 @@ export const fileEditToolConfig: MtBotToolConfig<typeof FileEditInput> = {
           {
             type: "text",
             text:
-              `Error: old_string not found in ${filePath} (tried exact, line_trimmed, whitespace_normalized).\n` +
+              `Error: \`oldString\` not found in ${filePath} (tried exact, line_trimmed, whitespace_normalized).\n` +
               `Make sure the string appears verbatim (including line breaks). Re-read the file and verify the exact content before retrying.`,
           },
         ],
@@ -233,7 +233,7 @@ export const fileEditToolConfig: MtBotToolConfig<typeof FileEditInput> = {
           {
             type: "text",
             text:
-              `Error: old_string is not unique in ${filePath} ` +
+              `Error: \`oldString\` is not unique in ${filePath} ` +
               `(found ${result.count} occurrences via ${result.strategy ?? "unknown"} match). ` +
               `Use replaceAll: true or provide more surrounding context to make it unique.`,
           },

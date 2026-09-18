@@ -371,7 +371,12 @@ export class BridgeInstanceFactory {
 
     const getCwd = () => this.deps.config.getCwd()
     const getConversationId = () => this.deps.instanceToConversation.get(instanceId)
-    const logToolAudit = (row: { toolName: string; resultSummary: string; isError: boolean }) => {
+    const logToolAudit = (row: {
+      toolName: string
+      resultSummary: string
+      isError: boolean
+      durationMs?: number
+    }) => {
       const auditRepo = this.deps.getAuditRepo()
       if (!auditRepo) return
       auditRepo.log({
@@ -382,6 +387,8 @@ export class BridgeInstanceFactory {
         toolName: row.toolName,
         resultSummary: row.resultSummary,
         isError: row.isError,
+        // 权限决策路径不传（那时工具还没执行），工具执行出口才带
+        durationMs: row.durationMs,
       })
     }
 

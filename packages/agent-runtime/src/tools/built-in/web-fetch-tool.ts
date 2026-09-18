@@ -27,7 +27,7 @@ interface FetchResult extends FetchResultRaw {
 }
 
 const WebFetchInput = Type.Object({
-  url: Type.String({ description: "The URL to fetch content from. ONLY http:// and https:// protocols are supported. Do NOT use file:// URLs — use the read_file tool for local files instead." }),
+  url: Type.String({ description: "The URL to fetch content from. ONLY http:// and https:// protocols are supported. Do NOT use file:// URLs — use the `file_read` tool for local files instead." }),
   extractMode: Type.Optional(
     Type.Union([Type.Literal("markdown"), Type.Literal("text")], {
       description:

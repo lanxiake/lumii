@@ -159,6 +159,7 @@ ID 规则：`<域大写>-<子域>-<序号>`（`CHAT-CORE-01`、`MEM-03`、`CMP-0
 | 提示词风格（实验，detailed/terse） | — | — | `prompt-style/run-prompt-style-e2e.mjs`（转储形态硬断言 + 真实任务双档对照） |
 | 云同步 | cloudsync status | `cloud-sync/run-cloud-sync-suite` | 缺口（多设备同步难以单机模拟，见各报告限制） |
 | 工具进化 | tool-evolution* 命令面 | 缺口 | 缺口 |
+| 工具面治理（描述引用 / 审计契约） | 缺口（无专用命令面） | `tool-contract/run-tool-contract-e2e.mjs`（TC-01/04/05） | `tool-contract/run-tool-contract-e2e.mjs`（TC-02/03） |
 | 技能 / 设置 / 桌宠 | 缺口（无专用套件） | — | — |
 
 维护要求：新增功能域或套件时同步更新本矩阵；矩阵行「缺口」状态应逐步收敛。
@@ -177,3 +178,5 @@ ID 规则：`<域大写>-<子域>-<序号>`（`CHAT-CORE-01`、`MEM-03`、`CMP-0
 8. `abort` 为尽力而为：不假设「中止即停止生成」（实测中止后长文仍完整落库）；生成期间发送的后续消息会排队——发送新回合前先等会话安静，并为排队预留更宽的超时窗口。
 9. 测试消息可能经真实记忆链路写入全局 `user-memory.md`（提取链路正确工作的证据）——套件必须清理探针句（按行删除，不整文件恢复），避免污染用户真实记忆。
 10. 日志路径陷阱：仓库根 `.lumii-dev.log` 内容停滞（历史遗留），实时日志在 `~/.lumii/logs/app/mtbot-<日期>.log`——用错文件会让注入类断言全部假阴性（首次 MEM-03 即此原因）。
+11. **改全局设置（`promptStyle` / 模型 / 开关）的套件，恢复动作必须挂在 `process.on('exit')` 上**——`runCase` 在连续 3 个 FAIL 时会提前终止套件，写在末尾的恢复代码会被 `process.exit(1)` 跳过，用户的设置就被测试悄悄改掉了。踩坑实例与修法见 [`tool-contract/tool-contract-test-cases.md`](./tool-contract/tool-contract-test-cases.md) 末节。
+12. **`dev:restart` 后立刻跑套件会全线 `connection_failed`**——应用还没起来，控制口不可达。这是环境问题不是产品缺陷，但会被读成产品缺陷。套件应在主流程开头做 `preflight()` 预检并直接 `exit(3)` 给出可读提示，不要让它变成 3 条 FAIL。

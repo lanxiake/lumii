@@ -1,0 +1,5 @@
+{"ts":"2026-09-18T06:32:25.434Z","id":"TC-CONTRACT-01","status":"PASS","note":"新增 1 条工具失败审计，duration_ms 全部有值（样例 118ms）","durationMs":14622}
+{"ts":"2026-09-18T06:32:41.842Z","id":"TC-CONTRACT-02","status":"PASS","note":"未出现 read_file；file_read 调用 1 次（序列：memory_read>memory_read>file_read>memory_search）","durationMs":16405}
+{"ts":"2026-09-18T06:33:02.826Z","id":"TC-CONTRACT-03","status":"PASS","note":"file_edit 成功 1 次，无参数校验失败，文件内容已按预期替换","durationMs":20983}
+{"ts":"2026-09-18T06:33:02.907Z","id":"TC-CONTRACT-04","status":"INFO","note":"提示词分组现状：Other Tools=9，Desktop Control=18。这 9 个工具在 minimal 档下对模型只显示为一个数字（0.3 待修）"}
+{"ts":"2026-09-18T06:33:02.991Z","id":"TC-CONTRACT-05","status":"PASS","note":"本次请求工具面 116/116（含 MCP）；非 MCP 工具 94 个，守卫射程 68 → 覆盖 72.3%（缺口 26 个，0.3 待补）","durationMs":82}

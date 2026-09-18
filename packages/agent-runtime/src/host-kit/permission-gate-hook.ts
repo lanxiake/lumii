@@ -22,6 +22,13 @@ export interface ToolAuditRow {
   readonly toolName: string;
   readonly resultSummary: string;
   readonly isError: boolean;
+  /**
+   * 工具执行耗时（ms）。
+   *
+   * 权限决策（beforeExecute 阶段）写审计时**为空**——那时工具还没执行，没有耗时可言。
+   * 只有工具执行出口（tool-usage-hook 的 afterExecute / onError）能填。
+   */
+  readonly durationMs?: number;
 }
 
 /** 权限闸门 hook 依赖（runContext 仅取构造 PermissionRequest 所需字段） */

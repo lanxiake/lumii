@@ -62,6 +62,7 @@ describe('tool-usage hook', () => {
       toolName: 'web_fetch',
       resultSummary: 'HTTP 404: Failed to fetch https://x/y',
       isError: true,
+      durationMs: 3,
     })
   })
 
@@ -76,7 +77,24 @@ describe('tool-usage hook', () => {
       toolName: 'web_fetch',
       resultSummary: 'HTTP 0: Failed to fetch https://a/b',
       isError: true,
+      durationMs: 3,
     })
+  })
+
+  // 2026-09-18：此前审计只带 toolName/summary/isError，duration_ms 在库里恒为 null
+  // （llm:* 记录有值，真实工具 0/4158）。ctx.durationMs 一直可用，只是没往下传。
+  it('审计带上 ctx 的执行耗时（两条出口都要）', async () => {
+    const audit = vi.fn()
+    const hook = createToolUsageHook({ agentId: AGENT, logToolAudit: audit })
+
+    const resCtx = { ...resultCtx('file_edit', 'Error: 失败', true), durationMs: 1234 }
+    await hook.afterExecute!(resCtx)
+    expect(audit.mock.calls[0][0].durationMs).toBe(1234)
+
+    audit.mockClear()
+    const errCtx = { ...errorCtx('bash', new Error('boom')), durationMs: 5678 }
+    await hook.onError!(errCtx)
+    expect(audit.mock.calls[0][0].durationMs).toBe(5678)
   })
 
   it('非 Error 抛出物也能归因', async () => {
