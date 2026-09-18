@@ -33,6 +33,8 @@ import { getChannelSessionStore, type RouteSource } from '../channel-session-sto
 import { ChannelRouteService } from '../channel-route'
 import { registerChannelAdapter } from '../channel-adapter-registry'
 import { getChannelFeatures } from '../channel-feature-store'
+import type { ChannelPeerStore } from '../channel-peer-store'
+import type { WecomChannelProvider } from '../providers/wecom-outbound-provider'
 import {
   pendingAttachments,
   makePendingKey,
@@ -82,6 +84,9 @@ export class WecomChannelAdapter implements IChannelAdapter {
   private readonly sessionManager: SessionManager
   private readonly acpBackendManager: AcpBackendManager
   private readonly interactionHub: ReturnType<typeof getChannelInteractionHub>
+  /** 入站 peer 持久化（Hub 装配后注入；未注入时仅内存记录） */
+  private channelPeerStore: ChannelPeerStore | null = null
+  private outboundProvider: WecomChannelProvider | null = null
 
   constructor(
     private readonly wecomLoginService: WecomLoginService,
@@ -156,11 +161,35 @@ export class WecomChannelAdapter implements IChannelAdapter {
   }
 
   /**
+   * 注入入站 peer 持久化与出站 Provider（Hub 装配后调用）。
+   */
+  setChannelPeerStore(store: ChannelPeerStore, provider: WecomChannelProvider | null): void {
+    this.channelPeerStore = store
+    this.outboundProvider = provider
+  }
+
+  /**
+   * 记录入站 peer：内存表供 channel_list 即时可见，持久化表供主进程重启后恢复
+   * （企微不支持主动推送，记录用于展示与回复目标识别）。
+   */
+  private recordInboundPeer(msg: WecomNormalizedMessage): void {
+    this.outboundProvider?.rememberInboundPeer(msg.channelUserId)
+    this.channelPeerStore?.record({
+      channel: 'wecom',
+      peerId: msg.channelUserId,
+      chatType: msg.chatType,
+      lastInboundAt: Date.now(),
+    })
+  }
+
+  /**
    * 启动企微消息监听。
    */
   startListening(): void {
     this.wecomLoginService.on('message', (msg: WecomNormalizedMessage) => {
       const userId = msg.channelUserId
+      // 记录在插队判定之前：哪怕消息被 out-of-band 路径接走，也是这个 peer 在说话
+      this.recordInboundPeer(msg)
       // 插队路径：答复挂起的提问/审批、以及 /stop 打断，都必须绕过 userQueues。
       // 正在运行的那一轮还占着队列，排队等于永远等不到。
       if (this.tryHandleOutOfBand(msg)) return
@@ -388,7 +417,7 @@ export class WecomChannelAdapter implements IChannelAdapter {
       channelType: 'wecom',
       channelUserId: msg.channelUserId,
       instanceId: this.sessionToInstance.get(sessionKey) ?? null,
-      replyContext: { rawFrame: msg.rawFrame, chatId: msg.chatId, msgId: msg.msgId },
+      replyContext: { rawFrame: msg.rawFrame, chatId: msg.chatId, chatType: msg.chatType, msgId: msg.msgId },
     }
   }
 

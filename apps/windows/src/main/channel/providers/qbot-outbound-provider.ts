@@ -17,6 +17,20 @@ export class QbotChannelProvider implements IChannelOutboundProvider {
 
   constructor(private readonly login: QbotLoginService) {}
 
+  /**
+   * 启动时恢复最近入站 peer（持久化层只保住被动回复窗口内的记录）。
+   *
+   * 只改写 lastInboundAt：发送时是否走被动回复由 LoginService 的入站窗口自判，
+   * 超窗会降级主动推送并如实报错，这里不按时间过滤，避免 list 与 send 口径不一。
+   */
+  setSnapshotRestore(peers: readonly ChannelPeer[]): void {
+    for (const peer of peers) {
+      const id = peer.id.trim()
+      if (!id) continue
+      this.recentPeers.set(id, { ...peer, id, lastInboundAt: Date.now() })
+    }
+  }
+
   rememberInboundPeer(channelUserId: string, chatId: string, chatType: 'p2p' | 'group', label?: string): void {
     const id = channelUserId.trim()
     if (!id) return
@@ -51,6 +65,17 @@ export class QbotChannelProvider implements IChannelOutboundProvider {
         ok: false,
         errorCode: 'CHANNEL_NOT_CONNECTED',
         message: 'QQ 机器人未连接，请先在设置中扫码接入',
+        channel: 'qbot',
+        to: params.to,
+      }
+    }
+    // Router 的 peers 白名单校验以本快照为数据源，对「不在最近入站记录里的 to」是空校验；
+    // 真正兜底在这里：只允许回复最近入站过的 peer（被动回复窗口语义）
+    if (!this.recentPeers.has(params.to)) {
+      return {
+        ok: false,
+        errorCode: 'PEER_NOT_FOUND',
+        message: `QQ 最近没有来自 ${params.to} 的消息，无法投递；请让用户在 QQ 里给机器人发一条消息`,
         channel: 'qbot',
         to: params.to,
       }

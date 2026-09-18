@@ -21,6 +21,23 @@ export class WecomChannelProvider implements IChannelOutboundProvider {
   constructor(private readonly login: WecomLoginService) {}
 
   /**
+   * 启动时恢复最近入站 peer（供 list 展示与回复目标识别；canSend 恒为 false）。
+   */
+  setSnapshotRestore(peers: readonly ChannelPeer[]): void {
+    for (const peer of peers) {
+      const id = peer.id.trim()
+      if (!id) continue
+      this.recentPeers.set(id, {
+        ...peer,
+        id,
+        canSend: false,
+        blockedReason: 'UNSUPPORTED',
+        lastInboundAt: Date.now(),
+      })
+    }
+  }
+
+  /**
    * 记录最近入站用户（可选 label），供 channel_list 展示。
    */
   rememberInboundPeer(channelUserId: string, label?: string): void {

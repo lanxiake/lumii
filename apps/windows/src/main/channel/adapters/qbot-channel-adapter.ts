@@ -31,6 +31,8 @@ import { getChannelSessionStore, type RouteSource } from '../channel-session-sto
 import { ChannelRouteService } from '../channel-route'
 import { registerChannelAdapter } from '../channel-adapter-registry'
 import { getChannelFeatures } from '../channel-feature-store'
+import type { ChannelPeerStore } from '../channel-peer-store'
+import type { QbotChannelProvider } from '../providers/qbot-outbound-provider'
 import {
   pendingAttachments,
   makePendingKey,
@@ -78,6 +80,9 @@ export class QbotChannelAdapter implements IChannelAdapter {
   private readonly sessionManager: SessionManager
   private readonly interactionHub: ReturnType<typeof getChannelInteractionHub>
   private readonly acpBackendManager: AcpBackendManager
+  /** 入站 peer 持久化（Hub 装配后注入；未注入时仅内存记录） */
+  private channelPeerStore: ChannelPeerStore | null = null
+  private outboundProvider: QbotChannelProvider | null = null
 
   constructor(
     private readonly qbotLoginService: QbotLoginService,
@@ -99,8 +104,29 @@ export class QbotChannelAdapter implements IChannelAdapter {
     registerChannelAdapter(this)
   }
 
-  async sendTextReply(session: ChannelSession, text: string): Promise<void> {
-    const chatId = session.replyContext?.chatId as string | undefined
+  /**
+   * 注入入站 peer 持久化与出站 Provider（Hub 装配后调用）。
+   */
+  setChannelPeerStore(store: ChannelPeerStore, provider: QbotChannelProvider): void {
+    this.channelPeerStore = store
+    this.outboundProvider = provider
+  }
+
+  /**
+   * 记录入站 peer：内存表供 channel_list 即时可见，持久化表供主进程重启后恢复
+   * （被动回复窗口内仍可投递）。
+   */
+  private recordInboundPeer(msg: QbotNormalizedMessage): void {
+    this.outboundProvider?.rememberInboundPeer(msg.channelUserId, msg.chatId, msg.chatType)
+    this.channelPeerStore?.record({
+      channel: 'qbot',
+      peerId: msg.chatType === 'group' ? `group:${msg.chatId}` : msg.channelUserId,
+      chatType: msg.chatType,
+      lastInboundAt: Date.now(),
+    })
+  }
+
+  async sendTextReply(session: ChannelSession, text: string): Promise<void> {    const chatId = session.replyContext?.chatId as string | undefined
     if (!chatId) {
       log.warn(`[sendTextReply] 缺少 chatId: channelUserId=${session.channelUserId}`)
       return
@@ -127,6 +153,8 @@ export class QbotChannelAdapter implements IChannelAdapter {
   startListening(): void {
     this.qbotLoginService.on('message', (msg: QbotNormalizedMessage) => {
       const userId = msg.channelUserId
+      // 记录在插队判定之前：哪怕消息被 out-of-band 路径接走，也是这个 peer 在说话
+      this.recordInboundPeer(msg)
       if (this.tryHandleOutOfBand(msg)) return
       const prev = this.userQueues.get(userId) ?? Promise.resolve()
       const next = prev
@@ -343,7 +371,7 @@ export class QbotChannelAdapter implements IChannelAdapter {
       channelType: 'qbot',
       channelUserId: msg.channelUserId,
       instanceId: this.sessionToInstance.get(sessionKey) ?? null,
-      replyContext: { chatId: msg.chatId, msgId: msg.msgId, rawEvent: msg.rawEvent },
+      replyContext: { chatId: msg.chatId, chatType: msg.chatType, msgId: msg.msgId, rawEvent: msg.rawEvent },
     }
   }
 

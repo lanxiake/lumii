@@ -122,6 +122,7 @@ import { QbotChannelAdapter } from './channel/adapters/qbot-channel-adapter'
 import { AcpBackendManager } from './channel/acp-backend-manager'
 import {
   createChannelHub,
+  createChannelPeerStore,
   createWeixinReplyContextStore,
   type ChannelHub,
 } from './channel/channel-hub-bootstrap'
@@ -1526,8 +1527,12 @@ async function initialize(): Promise<void> {
   setImmediate(() => {
     void (async () => {
       // 声明 weixin 变量（在 try/catch 外层，供后续 channelHub 装配使用）
+      // 渠道 peer 持久化先行创建：adapter 早于 Hub 构造，入站记录要写进同一实例
+      const channelPeerStore = createChannelPeerStore(resolveWindowsClientDataRoot())
       let weixinReplyContextStore: ReturnType<typeof createWeixinReplyContextStore> | undefined
       let weixinChannelAdapter: WeixinChannelAdapter | undefined
+      let wecomChannelAdapter: WecomChannelAdapter | undefined
+      let qbotChannelAdapter: QbotChannelAdapter | undefined
 
       // 初始化微信(iLink)登录服务
       try {
@@ -1572,7 +1577,7 @@ async function initialize(): Promise<void> {
       try {
         wecomLoginService = new WecomLoginService()
         await wecomLoginService.initialize()
-        const wecomChannelAdapter = new WecomChannelAdapter(wecomLoginService, agentRuntimeBridge!)
+        wecomChannelAdapter = new WecomChannelAdapter(wecomLoginService, agentRuntimeBridge!)
         wecomChannelAdapter.startListening()
         wecomLoginService.on('statusChange', (status: string, session?: unknown) => {
           mainWindow?.webContents.send('wecom:statusChange', status, session)
@@ -1632,7 +1637,7 @@ async function initialize(): Promise<void> {
             return ''
           }
         }
-        const qbotChannelAdapter = new QbotChannelAdapter(qbotLoginService, agentRuntimeBridge!)
+        qbotChannelAdapter = new QbotChannelAdapter(qbotLoginService, agentRuntimeBridge!)
         qbotChannelAdapter.startListening()
         qbotLoginService.on('statusChange', (status: string, session?: unknown) => {
           mainWindow?.webContents.send('qbot:statusChange', status, session)
@@ -1656,10 +1661,20 @@ async function initialize(): Promise<void> {
         qbot: qbotLoginService ?? undefined,
         dataRoot: resolveWindowsClientDataRoot(),
         weixinStore: weixinReplyContextStore,
+        peerStore: channelPeerStore,
       })
       if (weixinChannelAdapter) {
         weixinChannelAdapter.setReplyContextStore(channelHub.weixinStore)
       }
+      // 入站 peer 记录：QQ/企微发送走被动回复窗口，peer 表此前只在内存里，
+      // 主进程重启即清空，导致 channel_list 永远找不到可投递对象
+      if (wecomChannelAdapter) {
+        wecomChannelAdapter.setChannelPeerStore(channelHub.peerStore, channelHub.wecomProvider)
+      }
+      if (qbotChannelAdapter && channelHub.qbotProvider) {
+        qbotChannelAdapter.setChannelPeerStore(channelHub.peerStore, channelHub.qbotProvider)
+      }
+      channelHub.restorePeerSnapshots()
       log.info('渠道出站 Hub 已装配')
     })()
   })

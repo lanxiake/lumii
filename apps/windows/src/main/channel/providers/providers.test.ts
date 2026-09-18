@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { FeishuChannelProvider } from './feishu-outbound-provider'
 import { WeixinChannelProvider } from './weixin-outbound-provider'
 import { WecomChannelProvider } from './wecom-outbound-provider'
+import { QbotChannelProvider } from './qbot-outbound-provider'
 import { WeixinReplyContextStore } from '../weixin-reply-context-store'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -164,5 +165,54 @@ describe('WecomChannelProvider', () => {
     const res = await provider.sendMedia({ to: 'u1', mediaPath: 'C:/tmp/a.png', fileName: 'a.png' })
     expect(res.ok).toBe(false)
     expect(res.errorCode).toBe('UNSUPPORTED_PUSH')
+  })
+
+  it('setSnapshotRestore 恢复的 peer 仍标记为不可主动发送', () => {
+    const login = { getStatus: () => 'connected' as const }
+    const provider = new WecomChannelProvider(login as never)
+    provider.setSnapshotRestore([{ id: 'u1', label: '同事', canSend: true }])
+    const snap = provider.getSnapshot()
+    expect(snap.peers[0]?.id).toBe('u1')
+    expect(snap.peers[0]?.canSend).toBe(false)
+    expect(snap.peers[0]?.blockedReason).toBe('UNSUPPORTED')
+  })
+})
+
+describe('QbotChannelProvider', () => {
+  it('未连接时 peers 为空，连接后恢复的 peer 可列出', () => {
+    let status = 'idle'
+    const login = { getStatus: () => status as 'idle' | 'connected' }
+    const provider = new QbotChannelProvider(login as never)
+    provider.setSnapshotRestore([{ id: 'openid_1', label: '小明', canSend: true }])
+    expect(provider.getSnapshot().peers).toHaveLength(0)
+    status = 'connected'
+    const snap = provider.getSnapshot()
+    expect(snap.peers[0]?.id).toBe('openid_1')
+    expect(snap.peers[0]?.canSend).toBe(true)
+    expect(snap.peers[0]?.lastInboundAt).toBeGreaterThan(0)
+  })
+
+  it('窗口过期时 send 一律走同一路径（不在 Provider 层按时间过滤 peer）', async () => {
+    const login = {
+      getStatus: () => 'connected' as const,
+      replyMarkdown: vi.fn(async () => false),
+    }
+    const provider = new QbotChannelProvider(login as never)
+    provider.setSnapshotRestore([{ id: 'openid_old', canSend: true }])
+    const res = await provider.sendText({ to: 'openid_old', text: 'hi' })
+    expect(login.replyMarkdown).toHaveBeenCalledWith('openid_old', 'hi', 'p2p', undefined)
+    expect(res.errorCode).toBe('UPSTREAM_ERROR')
+  })
+
+  it('向从未入站的 openid 发送被拒绝，不落到上游', async () => {
+    const login = {
+      getStatus: () => 'connected' as const,
+      replyMarkdown: vi.fn(async () => true),
+    }
+    const provider = new QbotChannelProvider(login as never)
+    const res = await provider.sendText({ to: 'openid_never_seen', text: 'hi' })
+    expect(res.ok).toBe(false)
+    expect(res.errorCode).toBe('PEER_NOT_FOUND')
+    expect(login.replyMarkdown).not.toHaveBeenCalled()
   })
 })
