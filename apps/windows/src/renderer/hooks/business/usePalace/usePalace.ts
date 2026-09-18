@@ -21,6 +21,10 @@ export interface PalaceListItem {
   conversation_id: string | null
   char_count: number
   created_at: string
+  /** 会话标题（IPC 层取回；取不到时缺省） */
+  conversationTitle?: string
+  /** 会话渠道（local / feishu / weixin / qbot / wecom / cron） */
+  channelType?: string | null
 }
 
 export interface PalaceSearchItem {
@@ -33,6 +37,9 @@ export interface PalaceSearchItem {
   created_at: string
   char_count: number
   truncated: boolean
+  /** 命中的归档所属会话标题（room 恰为会话 id 时才有） */
+  conversationTitle?: string
+  channelType?: string | null
 }
 
 export interface PalaceCounts {

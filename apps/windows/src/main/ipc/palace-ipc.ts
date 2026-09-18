@@ -69,6 +69,40 @@ function repo(): PalaceRepo | null {
   }
 }
 
+/**
+ * 批量取会话标题：`conversationId → { title, channelType }`。
+ *
+ * 为什么在 IPC 层而不是 `PalaceRepo` 里 JOIN：`PalaceRepo` 属于 `agent-runtime` 包，
+ * 那个包**不知道 `conversations` 表的存在**（它只认识 `palace_drawers`）。让 runtime
+ * 去读宿主的会话表会把两层的边界糊掉，而 IPC 层本来就是宿主边界，天然知道这两张表。
+ *
+ * 一次查一批（`IN (...)`）而不是每条查一次：列表一屏 20 条，逐条查就是 20 次往返。
+ */
+function loadConversationMeta(
+  conversationIds: readonly string[],
+): Map<string, { title: string; channelType: string | null }> {
+  const out = new Map<string, { title: string; channelType: string | null }>()
+  const ids = [...new Set(conversationIds.filter((x): x is string => Boolean(x)))]
+  if (ids.length === 0) return out
+  const bridge = _getBridge?.() ?? null
+  if (!bridge || !bridge.isInitialized) return out
+  try {
+    const placeholders = ids.map(() => '?').join(',')
+    const rows = bridge.db
+      .prepare<{ id: string; title: string | null; channel_type: string | null }>(
+        `SELECT id, title, channel_type FROM conversations WHERE id IN (${placeholders})`,
+      )
+      .all(...ids)
+    for (const r of rows) {
+      out.set(r.id, { title: r.title ?? '', channelType: r.channel_type })
+    }
+  } catch (err) {
+    // 标题只是展示增强：取不到就退回显示原始 id，不该让整个列表失败
+    logger.warn('[Palace] 取会话标题失败:', err instanceof Error ? err.message : err)
+  }
+  return out
+}
+
 export function setupPalaceIpcHandlers(): void {
   logger.info('设置记忆宫殿 IPC 处理器（自研 SQLite）')
 
@@ -105,7 +139,16 @@ export function setupPalaceIpcHandlers(): void {
           offset: params?.offset ?? 0,
           ...(params?.wing ? { wing: params.wing } : {}),
         })
-        return { available: true, items: result.items, total: result.total }
+        // 附带会话标题：列表页显示「飞书 · 帮我解读这条内容」比「feishu:ou_ba9a…」可读
+        const meta = loadConversationMeta(
+          result.items.map((it) => it.conversation_id).filter((x): x is string => Boolean(x)),
+        )
+        const items = result.items.map((it) => ({
+          ...it,
+          ...(it.conversation_id ? { conversationTitle: meta.get(it.conversation_id)?.title ?? '' } : {}),
+          ...(it.conversation_id ? { channelType: meta.get(it.conversation_id)?.channelType ?? null } : {}),
+        }))
+        return { available: true, items, total: result.total }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
         logger.error('[Palace] list 失败:', message)
@@ -127,7 +170,19 @@ export function setupPalaceIpcHandlers(): void {
           limit: Math.min(params.limit ?? DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE),
           ...(params.wing ? { wing: params.wing } : {}),
         })
-        return { available: true, results }
+        // 命中项只带 wing/room，没有 conversationId——room 在「每轮归档」坐标下就是会话 id，
+        // 但段归档坐标下是日期。两种都拿去查一次，查得到的才附标题。
+        const meta = loadConversationMeta(results.map((it) => it.room))
+        const enriched = results.map((it) => ({
+          ...it,
+          ...(meta.has(it.room)
+            ? {
+                conversationTitle: meta.get(it.room)?.title ?? '',
+                channelType: meta.get(it.room)?.channelType ?? null,
+              }
+            : {}),
+        }))
+        return { available: true, results: enriched }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
         logger.error('[Palace] search 失败:', message)

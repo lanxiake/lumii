@@ -97,52 +97,6 @@ export function buildBundledPipInstallArgs(
   ]
 }
 
-/**
- * 判断是否需要修复 google.rpc：chroma/OTLP 依赖它，但 pip --target 可能只留下元数据。
- */
-export function needsGoogleRpcRepair(opts: {
-  googleRpcExists: boolean
-  hasChromadb: boolean
-  hasGoogleapisCommonProtos: boolean
-}): boolean {
-  if (opts.googleRpcExists) return false
-  return opts.hasChromadb || opts.hasGoogleapisCommonProtos
-}
-
-/**
- * 若 `google.rpc` 文件缺失则强制重装 googleapis-common-protos（不用 --target）。
- *
- * @returns 是否执行了修复（未缺失则 false）
- */
-export async function repairGoogleRpcNamespaceIfNeeded(): Promise<boolean> {
-  const sitePackages = getBundledSitePackages()
-  const pythonExe = getBundledPythonExe()
-  if (!existsSync(pythonExe) || !existsSync(sitePackages)) return false
-
-  const shouldRepair = needsGoogleRpcRepair({
-    googleRpcExists: existsSync(join(sitePackages, 'google', 'rpc')),
-    hasChromadb: hasPackage('chromadb'),
-    hasGoogleapisCommonProtos: hasPackage('googleapis_common_protos'),
-  })
-  if (!shouldRepair) return false
-
-  log.warn('检测到 google.rpc 缺失，正在重装 googleapis-common-protos...')
-  await execFileAsync(pythonExe, [
-    ...buildBundledPipInstallArgs(['googleapis-common-protos'], ['--force-reinstall', '--no-deps']),
-  ], {
-    timeout: 120000,
-    windowsHide: true,
-    cwd: getPythonRuntimeDir(),
-    env: {
-      ...process.env,
-      PYTHONHOME: getPythonRuntimeDir(),
-      PYTHONNOUSERSITE: '1',
-    },
-  })
-  log.info('google.rpc 命名空间已修复')
-  return true
-}
-
 /** 内置 Python 子进程环境：钉 PYTHONHOME，避免混用用户站点包 */
 function bundledPythonProcEnv(): NodeJS.ProcessEnv {
   return {
@@ -177,7 +131,8 @@ async function canImportOnnxRuntime(pythonExe: string): Promise<boolean> {
 export async function repairOnnxRuntimeIfNeeded(): Promise<boolean> {
   const pythonExe = getBundledPythonExe()
   if (!existsSync(pythonExe)) return false
-  if (!hasPackage('onnxruntime') && !hasPackage('chromadb')) return false
+  // 原先还判 `hasPackage('chromadb')`——那是 MemPalace 拉来的包，已于 2026-09-18 随插件移除
+  if (!hasPackage('onnxruntime')) return false
   if (await canImportOnnxRuntime(pythonExe)) return false
 
   log.warn(`onnxruntime 无法加载，正在安装 ${BUNDLED_ONNXRUNTIME_SPEC}...`)

@@ -807,6 +807,10 @@ export interface ElectronAPI {
         conversation_id: string | null
         char_count: number
         created_at: string
+        /** 会话标题（IPC 层 JOIN conversations 取回；取不到时缺省，前端退回显示原始 id） */
+        conversationTitle?: string
+        /** 会话渠道类型（local / feishu / weixin / qbot / wecom / cron），供展示层中文化 */
+        channelType?: string | null
       }>
       total: number
       error?: string
@@ -824,6 +828,9 @@ export interface ElectronAPI {
         created_at: string
         char_count: number
         truncated: boolean
+        /** 命中的归档所属会话标题（room 恰为会话 id 时才有） */
+        conversationTitle?: string
+        channelType?: string | null
       }>
       error?: string
     }>

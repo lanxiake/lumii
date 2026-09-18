@@ -5,6 +5,7 @@ import { ErrorBanner } from '../../components/ui/ErrorBanner/ErrorBanner'
 import { Modal } from '../../components/ui/Modal/Modal'
 import { WIKI_MODAL_LAYER } from './components/wikiModalLayer'
 import { usePalace } from '../../hooks/business/usePalace/usePalace'
+import { drawerSubtitle, drawerTitle, wingLabel } from './palace-labels'
 import './PalaceViewer.css'
 
 /**
@@ -113,13 +114,6 @@ export const PalaceViewer: React.FC = () => {
     return <span className="pv-filed-at">{isToday ? `今天 ${time}` : `${date} ${time}`}</span>
   }
 
-  const renderWingRoom = (wing: string, room: string) => (
-    <span className="pv-tags">
-      {wing && <span className="pv-tag pv-tag--wing">{wing}</span>}
-      {room && <span className="pv-tag pv-tag--room">{room}</span>}
-    </span>
-  )
-
   const bestScore = searchResults.length > 0 ? Math.max(...searchResults.map((r) => r.score)) : 1
 
   if (!available) {
@@ -197,8 +191,9 @@ export const PalaceViewer: React.FC = () => {
               key={w.wing}
               className={`pv-wing-chip ${wingFilter === w.wing ? 'pv-wing-chip--active' : ''}`}
               onClick={() => selectWing(w.wing)}
+              title={w.wing}
             >
-              {w.wing} <span className="pv-wing-count">{w.count}</span>
+              {wingLabel(w.wing)} <span className="pv-wing-count">{w.count}</span>
             </button>
           ))}
         </div>
@@ -245,10 +240,11 @@ export const PalaceViewer: React.FC = () => {
                   {searchResults.map((item) => (
                     <div key={item.drawer_id} className="pv-card">
                       <div className="pv-card-header">
+                        <span className="pv-card-title">{drawerTitle(item)}</span>
                         {renderScoreBadge(item.score, bestScore)}
-                        {renderWingRoom(item.wing, item.room)}
                         {renderFiledAt(item.created_at)}
                       </div>
+                      <p className="pv-card-sub">{drawerSubtitle(item)}</p>
                       <p className="pv-card-text">{item.text}</p>
                       <div className="pv-card-footer">
                         {item.truncated && (
@@ -281,13 +277,10 @@ export const PalaceViewer: React.FC = () => {
                 {items.map((item) => (
                   <div key={item.drawer_id} className="pv-card">
                     <div className="pv-card-header">
-                      {renderWingRoom(item.wing, item.room)}
+                      <span className="pv-card-title">{drawerTitle(item)}</span>
                       {renderFiledAt(item.created_at)}
                     </div>
-                    <p className="pv-card-text pv-card-text--meta">
-                      {item.char_count} 字符 · {item.agent_id}
-                      {item.conversation_id ? ` · ${item.conversation_id}` : ''}
-                    </p>
+                    <p className="pv-card-sub">{drawerSubtitle(item)}</p>
                     <div className="pv-card-footer">
                       <Button
                         variant="ghost"

@@ -268,9 +268,9 @@ export const MemoriesPage: React.FC<MemoriesPageProps> = ({
               个人记忆
             </button>
           </Tooltip>
-          <Tooltip content="基于向量数据库的语义长期记忆，自动召回相关历史对话" placement="bottom">
+          <Tooltip content="对话原文的本地归档，可检索、可回看" placement="bottom">
             <button type="button" className={`memories-tab ${activeTab === 'plugin' ? 'memories-tab--active' : ''}`} onClick={() => setActiveTab('plugin')}>
-              记忆插件
+              记忆宫殿
             </button>
           </Tooltip>
         </div>
