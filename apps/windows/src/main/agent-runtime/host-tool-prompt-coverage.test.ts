@@ -90,4 +90,24 @@ describe('宿主工具 ↔ 提示词分组', () => {
       `以下分组成员在宿主注册器里找不到对应实现（工具可能已下线）：${dead.join(', ')}`,
     ).toEqual([])
   })
+
+  it('packages 侧 COMPLEX_TOOL_NAMES 引用的宿主工具名都真实注册', () => {
+    // 这份清单与 packages 侧 `tool-definition-style.test.ts` 的 `HOST_REGISTERED_TOOLS`
+    // 成对：那边断言"这些名字**不在**内置注册表里"（防止两边重复维护），
+    // 这里断言"它们**真的**被宿主注册"。两侧合起来才是完整的"成员存在性"——
+    // packages 看不到宿主源码，宿主看不到内置注册表，各守一半。
+    //
+    // 为什么值得守：名字写错时，`isComplexTool` 会对一个不存在的工具返回 true
+    // （无害但无用），而更要紧的是它通常意味着**某处引用了一个没注册的工具**——
+    // 2026-09-18 的 execute_skill 就是这样，它在 COMPLEX_TOOL_NAMES 里待了很久，
+    // 提示词还写着 "MUST be invoked via execute_skill tool"，却从未注册。
+    const referencedByPackages = ['cron_guide', 'a2ui_guide', 'weixin_send_guide', 'prompt_guide']
+    const registered = new Set(scanHostToolNames())
+    const missing = referencedByPackages.filter((n) => !registered.has(n))
+    expect(
+      missing,
+      `以下名字被 packages 侧的 COMPLEX_TOOL_NAMES 引用，但宿主源码里扫不到注册点：` +
+        `${missing.join(', ')}。要么补注册，要么从那份清单里删掉。`,
+    ).toEqual([])
+  })
 })

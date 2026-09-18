@@ -12,10 +12,49 @@ import { describe, it, expect } from "vitest";
 import { Type } from "@sinclair/typebox";
 import {
   COMPLEX_TOOL_MIN_PARAMS,
+  COMPLEX_TOOL_NAMES,
   applyToolDefinitionStyle,
   isComplexTool,
   stripToolDefinition,
 } from "../tool-definition-style.js";
+import { ALL_BUILT_IN_TOOL_CONFIGS } from "../built-in/index.js";
+
+/**
+ * 宿主注册的工具名：`packages` 看不见它们的注册点（在 `apps/windows/src/main/agent-runtime/`），
+ * 只能按清单核对。**这份清单由宿主侧的 `host-tool-prompt-coverage.test.ts` 反向验证**
+ * ——那边扫源码，能证明这些名字真的被注册。
+ *
+ * 两侧合起来才完整：这里防"清单里写了不存在的名字"，那边防"清单漏了已注册的工具"。
+ */
+const HOST_REGISTERED_TOOLS = new Set([
+  "cron_guide",
+  "a2ui_guide",
+  "weixin_send_guide",
+  "prompt_guide",
+]);
+
+describe("COMPLEX_TOOL_NAMES 的成员存在性", () => {
+  it("每个成员都真实存在（内置注册表或宿主注册清单）", () => {
+    const builtIn = new Set(ALL_BUILT_IN_TOOL_CONFIGS.map((c) => c.name));
+    const unknown = [...COMPLEX_TOOL_NAMES].filter(
+      (n) => !builtIn.has(n) && !HOST_REGISTERED_TOOLS.has(n),
+    );
+    expect(
+      unknown,
+      `COMPLEX_TOOL_NAMES 里有不存在的工具名：${unknown.join(", ")}\n` +
+        `它会让 isComplexTool 对一个永远不会出现的名字返回 true（无害但无用），\n` +
+        `更要紧的是——它通常意味着**某处引用了一个没注册的工具**。\n` +
+        `2026-09-18 批次 3 的 execute_skill 就是这样：在清单里待了很久，\n` +
+        `而提示词写着"MUST be invoked via execute_skill tool"，它却从未注册。`,
+    ).toEqual([]);
+  });
+
+  it("宿主清单里的名字不在内置注册表里（防止两边重复维护）", () => {
+    const builtIn = new Set(ALL_BUILT_IN_TOOL_CONFIGS.map((c) => c.name));
+    const both = [...HOST_REGISTERED_TOOLS].filter((n) => builtIn.has(n));
+    expect(both, `${both.join(", ")} 已在内置注册表里，应从 HOST_REGISTERED_TOOLS 移除`).toEqual([]);
+  });
+});
 
 const SIMPLE_TOOL = {
   name: "file_read",
