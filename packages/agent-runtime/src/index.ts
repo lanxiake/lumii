@@ -87,7 +87,6 @@ export type {
   ToolRunnerLogger,
   FileStateEntry,
   ToolMetric,
-  ToolMetricAggregate,
   TelemetrySink,
   TemplateToolDefinition,
   ToolDefinitionLike,

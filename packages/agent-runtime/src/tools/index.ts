@@ -43,7 +43,6 @@ export {
   ToolTelemetryCollector,
   reportToolMetrics,
   type ToolMetric,
-  type ToolMetricAggregate,
   type TelemetrySink,
 } from "./telemetry.js";
 export {

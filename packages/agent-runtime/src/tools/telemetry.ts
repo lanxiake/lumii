@@ -1,12 +1,18 @@
 /**
  * Tool Telemetry — 工具调用遥测埋点（主题6 P1-2）
  *
- * 轻量本地埋点：记录每次工具调用的 toolName / durationMs / success / errorType。
- * 默认聚合到内存计数器（供本地诊断），可注入自定义 sink 对接上报系统。
+ * 轻量本地埋点：记录每次工具调用的 toolName / durationMs / success / errorType，
+ * 通过注入的 sink 旁路转发（宿主据此写日志与审计）。
  *
  * 设计原则：
  * - 零外部依赖、同步、不抛错（埋点失败不能影响工具执行）
- * - sink 可替换（默认 no-op，由宿主决定是否写日志/上报）
+ * - sink 可替换（默认 no-op）
+ *
+ * **2026-09-18 批次 2 删除**：原设计除了 sink，还有一层「聚合到内存计数器
+ * （供本地诊断）」——`aggregates` Map 与 `getAggregate()` / `snapshot()` / `clear()`。
+ * 那半**无人读**（生产零调用，只有自己的测试在用），而 sink 那半一直在跑
+ * （日志里 `[ToolTelemetry]` 持续输出）——即**半套空转**：sink 在发，聚合白算。
+ * 已删掉聚合，只留出口。
  */
 
 /** 单次工具调用的遥测数据点 */
@@ -23,76 +29,26 @@ export interface ToolMetric {
   timestamp: number;
 }
 
-/** 单个工具的聚合统计 */
-export interface ToolMetricAggregate {
-  toolName: string;
-  calls: number;
-  successes: number;
-  failures: number;
-  totalDurationMs: number;
-  /** 平均耗时 */
-  avgDurationMs: number;
-}
-
 /** 遥测 sink：接收每个数据点（同步，不应抛错） */
 export type TelemetrySink = (metric: ToolMetric) => void;
 
 /**
  * 工具遥测收集器
  *
- * 内部维护 per-tool 聚合计数，可通过 sink 旁路转发原始数据点。
+ * 只做一件事：把数据点旁路转发给 sink。
+ * sink 异常被吞掉——埋点失败不能影响工具执行。
  */
 export class ToolTelemetryCollector {
-  private readonly aggregates = new Map<string, ToolMetricAggregate>();
-
   constructor(private readonly sink?: TelemetrySink) {}
 
   /** 上报单次工具调用 */
   report(metric: ToolMetric): void {
-    let agg = this.aggregates.get(metric.toolName);
-    if (!agg) {
-      agg = {
-        toolName: metric.toolName,
-        calls: 0,
-        successes: 0,
-        failures: 0,
-        totalDurationMs: 0,
-        avgDurationMs: 0,
-      };
-      this.aggregates.set(metric.toolName, agg);
+    if (!this.sink) return;
+    try {
+      this.sink(metric);
+    } catch {
+      // 埋点失败静默忽略
     }
-    agg.calls++;
-    if (metric.success) {
-      agg.successes++;
-    } else {
-      agg.failures++;
-    }
-    agg.totalDurationMs += metric.durationMs;
-    agg.avgDurationMs = Math.round(agg.totalDurationMs / agg.calls);
-
-    // 旁路转发原始数据点（sink 异常不影响聚合）
-    if (this.sink) {
-      try {
-        this.sink(metric);
-      } catch {
-        // 埋点失败静默忽略
-      }
-    }
-  }
-
-  /** 获取某工具的聚合统计 */
-  getAggregate(toolName: string): ToolMetricAggregate | undefined {
-    return this.aggregates.get(toolName);
-  }
-
-  /** 获取所有聚合统计快照 */
-  snapshot(): ToolMetricAggregate[] {
-    return Array.from(this.aggregates.values()).map((a) => ({ ...a }));
-  }
-
-  /** 清空所有统计 */
-  clear(): void {
-    this.aggregates.clear();
   }
 }
 
