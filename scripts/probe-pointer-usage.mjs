@@ -28,7 +28,21 @@
  * **另一条要记住的**：模型不读注入指针，未必是文案问题。实测到两种情况都出现过——
  * ① 注入的那条内容自认"已结案，仅作历史索引"，而用户问的是当时的排查过程；
  * ② 那条原文排 52/608、候选池只取 30，**检索根本返回不了它**（后者的机制修复见
- * `PalaceRepo` 的 `pinnedIds`）。判据要看数据，不要看直觉。
+ * `PalaceRepo` 的 `pinnedIds`）。
+ *
+ * ## 本探针**测不到**宫殿通道（2026-09-18 查明）
+ *
+ * 探针每轮都用**全新 sessionKey**，而生产 `memory_search` 的宫殿通道有会话级过滤：
+ * `bridge-tool-registrar-integration.ts` 里 `if (sessionKey) { allowed = drawerIdsForSession(sessionKey);
+ * if (allowed.size > 0) taken = taken.filter(...) }`——**全新会话没有任何归档抽屉**，
+ * 于是宫殿结果被整体丢掉。所以：
+ *
+ * - 本探针测的是**工作记忆通道**（`AgentMemoryRepo`，纯 FTS，**没有向量**）
+ * - 「钉入是否被向量融合挤掉」这类问题**本探针答不了**，要离线跑
+ *   `palace-prod-ab.mjs`（宫殿语料 + 生产口径）
+ *
+ * 想让它覆盖宫殿通道，得改造成「复用已归档的会话」——但那样会污染跨轮注入状态，
+ * 需要单独设计，不要顺手改。
  *
  * **局限**：n=3~9，且实测同一变体重跑会有 1/3 ↔ 3/3 的抖动（`logs-12328` 探针最明显）。
  * 它能区分"有效/无效"这种量级差异，区分不了 10% 级别的差异——小改动别指望它给结论。
@@ -129,12 +143,20 @@ const PROBES = [
   },
 ]
 
+/**
+ * **msgId 必须全局唯一**（2026-09-18 实测）：原先用 `Date.now()` 取后 12 位，
+ * 三个探针**并发**发送时同毫秒撞车 → `UNIQUE constraint failed: messages.id`
+ * → 该探针的消息根本没落库、Agent 回合从不启动，而探针会一直等到超时，
+ * 产出一份"模型什么都没做"的**假阴性**报告（比不跑更糟）。
+ */
+let msgSeq = 0
 function send(sessionKey, content) {
+  msgSeq += 1
   const body = JSON.stringify({
     type: 'user:send',
     sessionKey,
     content,
-    msgId: `00000000-0000-4000-8000-${String(Date.now()).slice(-12)}`,
+    msgId: `00000000-0000-4000-8000-${String(Date.now()).slice(-8)}${String(msgSeq).padStart(4, '0')}`,
   })
   return new Promise((resolve, reject) => {
     const req = request(
@@ -230,25 +252,47 @@ async function runProbe(label, p, attempt) {
 
   let calls = []
   let prevCount = -1
+  let idle = 0
   for (let i = 0; i < 40; i++) {
     await sleep(8000)
     calls = toolCalls(sessionKey)
-    const hasReply = (() => {
+    // **终局判据：最后一条 assistant 消息 `is_streaming = 0`。**
+    //
+    // 2026-09-18 实测踩到的坑：原先判「库里出现 assistant 消息」就当结束。但 Agent
+    // 每轮工具调用都会落一条 `stopReason: tool_use` 的中间消息，**它是 in-flight 的**
+    // ——探针在模型刚"想了一下"就收工，`toolCalls` 只取到解析完的那几个，
+    // 日志里模型还在继续跑（实测 22:02:57 还在发 memory_search，探针已退出）。
+    // 那次跑出的「总搜索 0 次」是**假阴性**，不是模型不读。
+    //
+    // `is_streaming = 0` 是 DB 写侧的终态标记（`is_streaming=1` 表示还在更新）。
+    // 再叠加「工具集连续两轮不变」，挡住"终态写了但工具调用行还在后落"的窄窗口。
+    const idleState = (() => {
       const db = new DatabaseSync(DB, { readOnly: true })
       try {
-        return (
-          (db
+        const cur = Number(
+          db
             .prepare(
-              "SELECT COUNT(*) c FROM messages WHERE conversation_id = ? AND role = 'assistant'",
+              "SELECT COUNT(*) c FROM messages WHERE conversation_id = ? AND role = 'assistant' AND is_streaming = 1",
             )
-            .get(sessionKey)?.c ?? 0) > 0
+            .get(sessionKey)?.c ?? 0,
         )
+        const total = Number(
+          db
+            .prepare("SELECT COUNT(*) c FROM messages WHERE conversation_id = ? AND role = 'assistant'")
+            .get(sessionKey)?.c ?? 0,
+        )
+        return { streaming: cur, total }
       } finally {
         db.close()
       }
     })()
-    // 已有回复且工具集连续两轮不变 → 视为结束（再等一轮防止工具调用与回复交错）
-    if (hasReply && calls.length === prevCount) break
+    const settled = idleState.total > 0 && idleState.streaming === 0
+    if (settled && calls.length === prevCount) {
+      idle += 1
+      if (idle >= 2) break
+    } else {
+      idle = 0
+    }
     prevCount = calls.length
   }
 
