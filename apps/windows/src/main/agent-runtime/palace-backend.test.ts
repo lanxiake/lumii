@@ -186,16 +186,29 @@ describe('withBuiltinPalace', () => {
 })
 
 describe('onConversationEnd（每轮归档）', () => {
-  /** 造一个带会话 + 助手消息的最小库，供 resolveConversationAgentId 解析归属 */
-  function seedConversation(db: ReturnType<typeof createMigratedTestDb>, convId: string, agentId: string) {
+  /**
+   * 造一个带会话 + 参与者 + 助手消息的最小库。
+   *
+   * 归属写进 `conversation_participants` 而**不是** `messages.agent_id`——后者在真实
+   * 库里几乎全是 NULL（主聊天路径落库不写它），照它取会得到清一色的兜底 `assistant`。
+   */
+  function seedConversation(
+    db: ReturnType<typeof createMigratedTestDb>,
+    convId: string,
+    agentId: string,
+  ) {
     db.prepare(
       `INSERT INTO conversations (id, user_id, type, title, is_active, created_at, last_msg_at)
        VALUES (?, 'local-user', 'direct', 't', 1, '2026-09-18T00:00:00Z', '2026-09-18T00:00:00Z')`,
     ).run(convId)
     db.prepare(
-      `INSERT INTO messages (id, conversation_id, agent_id, role, content_json, timestamp, is_streaming)
-       VALUES (?, ?, ?, 'assistant', '{"type":"text","text":"x"}', '2026-09-18T00:00:01Z', 0)`,
-    ).run(`m-${convId}`, convId, agentId)
+      `INSERT INTO conversation_participants (conversation_id, participant_type, participant_id, joined_at)
+       VALUES (?, 'agent', ?, '2026-09-18T00:00:00Z')`,
+    ).run(convId, agentId)
+    db.prepare(
+      `INSERT INTO messages (id, conversation_id, role, content_json, timestamp, is_streaming)
+       VALUES (?, ?, 'assistant', '{"type":"text","text":"x"}', '2026-09-18T00:00:01Z', 0)`,
+    ).run(`m-${convId}`, convId)
   }
 
   it('每轮助手回复写进 builtin 宫殿，且能被检索命中', () => {
@@ -235,6 +248,22 @@ describe('onConversationEnd（每轮归档）', () => {
     expect(forwarded).toEqual([['conv-2', '宿主回调不能被整体替换掉。']])
   })
 
+  it('宿主回调抛异常也不连累归档（内容仍要进宫殿）', () => {
+    const db = createMigratedTestDb()
+    seedConversation(db, 'conv-4', 'assistant')
+    const config = withBuiltinPalace(
+      {
+        onConversationEnd: () => {
+          throw new Error('宿主回调炸了')
+        },
+      } as unknown as AgentRuntimeBridgeConfig,
+      fakeLocalDb(db),
+    )
+
+    expect(() => config.onConversationEnd!('conv-4', '回调炸了也要归档。')).not.toThrow()
+    expect(db.prepare<{ c: number }>('SELECT COUNT(*) AS c FROM palace_drawers').get()!.c).toBe(1)
+  })
+
   it('DB 未打开 / 空文本 / 空 convId 时静默跳过，不抛异常', () => {
     const closed = withBuiltinPalace(emptyConfig, fakeLocalDb(createMigratedTestDb(), false))
     expect(() => closed.onConversationEnd!('conv-1', '有内容')).not.toThrow()
@@ -255,6 +284,50 @@ describe('onConversationEnd（每轮归档）', () => {
 
     const row = db.prepare<{ agent_id: string }>('SELECT agent_id FROM palace_drawers').get()!
     expect(row.agent_id).toBe('code-dev')
+  })
+
+  it('参与者是实例 id（main/default）时归一化成定义 id，不写成 main', () => {
+    // 真实库实测：178 个主会话的参与者是 'main'（实例 id），而宫殿/工作记忆用定义 id
+    // （'assistant'）。照抄会让 memory_search 按 agent 过滤时一条都搜不到——比空值更糟。
+    const db = createMigratedTestDb()
+    seedConversation(db, 'conv-main', 'main')
+    const config = withBuiltinPalace(emptyConfig, fakeLocalDb(db))
+
+    config.onConversationEnd!('conv-main', '主会话的归档。')
+
+    const row = db.prepare<{ agent_id: string }>('SELECT agent_id FROM palace_drawers').get()!
+    expect(row.agent_id).toBe('assistant')
+  })
+
+  it('没有参与者记录时退到 messages.agent_id', () => {
+    const db = createMigratedTestDb()
+    db.prepare(
+      `INSERT INTO conversations (id, user_id, type, title, is_active, created_at, last_msg_at)
+       VALUES ('conv-6', 'local-user', 'direct', 't', 1, '2026-09-18T00:00:00Z', '2026-09-18T00:00:00Z')`,
+    ).run()
+    db.prepare(
+      `INSERT INTO messages (id, conversation_id, agent_id, role, content_json, timestamp, is_streaming)
+       VALUES ('m6', 'conv-6', 'code-dev', 'assistant', '{"type":"text","text":"x"}', '2026-09-18T00:00:01Z', 0)`,
+    ).run()
+    const config = withBuiltinPalace(emptyConfig, fakeLocalDb(db))
+
+    config.onConversationEnd!('conv-6', '没有参与者但有消息归属。')
+
+    const row = db.prepare<{ agent_id: string }>('SELECT agent_id FROM palace_drawers').get()!
+    expect(row.agent_id).toBe('code-dev')
+  })
+
+  it('会话没有 agent 参与者时兜底 assistant（老会话/建会话竞态）', () => {
+    const db = createMigratedTestDb()
+    db.prepare(
+      `INSERT INTO conversations (id, user_id, type, title, is_active, created_at, last_msg_at)
+       VALUES ('conv-5', 'local-user', 'direct', 't', 1, '2026-09-18T00:00:00Z', '2026-09-18T00:00:00Z')`,
+    ).run()
+    const config = withBuiltinPalace(emptyConfig, fakeLocalDb(db))
+
+    expect(() => config.onConversationEnd!('conv-5', '没有参与者的会话。')).not.toThrow()
+    const row = db.prepare<{ agent_id: string }>('SELECT agent_id FROM palace_drawers').get()!
+    expect(row.agent_id).toBe('assistant')
   })
 
   it('mempalace 后端下 onConversationEnd 原样保留（交给 index.ts 的 Python 分支）', () => {

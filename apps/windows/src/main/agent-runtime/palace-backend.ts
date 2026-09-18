@@ -42,17 +42,48 @@ export function resolvePalaceBackend(env: NodeJS.ProcessEnv = process.env): Pala
  */
 const PER_TURN_WING = 'conversations'
 
-/** 会话归属的 Agent：取该会话最后一条带 agent_id 的助手消息；查不到按主 Agent 兜底 */
+/**
+ * 会话归属的 Agent。
+ *
+ * 三条来源，按可靠性排序（都不是完美的，所以三条都要）：
+ *
+ * 1. `messages.agent_id` —— 最准，但它**经常为空**：主聊天路径落库时 `saveMessage`
+ *    不带该参数，只有 cron 落库 / `send_message` 传话 / 迁移脚本会写。实测默认主会话的
+ *    60 条消息里 0 条有值。
+ * 2. `conversation_participants` —— 建会话时必写，但存的是**实例 id**（`main`/`default`），
+ *    不是宫殿与工作记忆用的**定义 id**（`assistant`/`code-dev`）。照抄会把 178 个主会话
+ *    全写成 `main`，而 `memory_search` 按定义 id 过滤 → 全都搜不到，比空值更糟。
+ * 3. 兜底 `assistant`（主 Agent 的定义 id）。
+ *
+ * 所以：先用实例 id → 定义 id 的映射把 participants 归一化，取不到再用 `messages.agent_id`，
+ * 最后兜底。定义 id 的映射表来自 AgentRegistry 的语义（`main`/`default` 都是主 Agent）。
+ */
+const INSTANCE_TO_DEFINITION: Record<string, string> = { main: 'assistant', default: 'assistant' }
+
 function resolveConversationAgentId(localDb: LocalDatabase, conversationId: string): string {
   try {
-    const row = localDb.db
+    // 参与者：实例 id → 定义 id；查不到映射说明它本来就是定义 id（code-dev 等）
+    const participant = localDb.db
+      .prepare<{ participant_id: string }>(
+        `SELECT participant_id FROM conversation_participants
+          WHERE conversation_id = ? AND participant_type = 'agent'
+          LIMIT 1`,
+      )
+      .get(conversationId)
+    const fromParticipant = participant?.participant_id
+    if (fromParticipant) return INSTANCE_TO_DEFINITION[fromParticipant] ?? fromParticipant
+
+    // 没有参与者记录（老会话 / 建会话竞态）时退到消息级归属
+    const msg = localDb.db
       .prepare<{ agent_id: string | null }>(
         `SELECT agent_id FROM messages
           WHERE conversation_id = ? AND agent_id IS NOT NULL
           ORDER BY timestamp DESC LIMIT 1`,
       )
       .get(conversationId)
-    return row?.agent_id ?? 'assistant'
+    if (msg?.agent_id) return INSTANCE_TO_DEFINITION[msg.agent_id] ?? msg.agent_id
+
+    return 'assistant'
   } catch {
     return 'assistant'
   }
@@ -83,8 +114,17 @@ export function withBuiltinPalace(
     ...config,
     onConversationEnd: (convId: string, assistantText: string) => {
       // 先转发原回调：index.ts 注入的那个还托管着自主进化的轮次结算，
-      // 整体替换会把那条旁路一起关掉
-      config.onConversationEnd?.(convId, assistantText)
+      // 整体替换会把那条旁路一起关掉。
+      // 单独 try：宿主回调抛异常不能连累下面的归档——否则本轮回合虽然结束了，
+      // 内容却既没进宫殿、记账还降级成调用方的 WARN。
+      try {
+        config.onConversationEnd?.(convId, assistantText)
+      } catch (err) {
+        console.error(
+          '[Palace] 宿主 onConversationEnd 回调异常:',
+          err instanceof Error ? err.message : String(err),
+        )
+      }
 
       const text = assistantText.trim()
       const r = repo()

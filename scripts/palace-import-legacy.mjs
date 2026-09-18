@@ -85,20 +85,38 @@ for (const d of raw) {
 }
 
 const records = []
+const dropped = { empty: 0, belowMin: 0 }
+const gapWarnings = []
 for (const [key, parts] of groups) {
   const [wing, room] = key.split('\0')
   parts.sort((a, b) => a.chunk - b.chunk)
   const content = parts.map((p) => p.text).join('').trim()
-  if (!content) continue
-  if (content.length < Math.max(0, Number.isFinite(minChars) ? minChars : 50)) continue
+  if (!content) {
+    dropped.empty++
+    continue
+  }
+  if (content.length < Math.max(0, Number.isFinite(minChars) ? minChars : 50)) {
+    dropped.belowMin++
+    continue
+  }
+  // 缺块检测：旧宫殿给超长内容切块，若只导出了部分块，拼出来就是**静默的半句话**——
+  // 检索时半句命中、读回时半截，比没有更难查。宁可报出来让人决定要不要导。
+  const idx = parts.map((p) => Number.isFinite(p.chunk) ? p.chunk : 0)
+  if (idx.length > 1 && (Math.min(...idx) !== 0 || Math.max(...idx) !== idx.length - 1)) {
+    gapWarnings.push({ room, have: idx.length, max: Math.max(...idx) })
+  }
   // 归档时间取该组最早的一条：它是这段内容第一次被写进宫殿的时刻
   const createdAt = parts.map((p) => p.createdAt).filter(Boolean).sort()[0] ?? new Date().toISOString()
   records.push({ wing, room, content, createdAt, chunks: parts.length })
 }
 
 // ── 2. room → conversationId ─────────────────────────────────────────────
-// 旧宫殿把会话 id 里的 : . @ 换成了 _（Python 侧文件名安全化），导入时反查回来，
-// 这样 conversation_id 列能填上，memory_search 的会话级过滤才认得它。
+// 旧宫殿把会话 id 里的 : . @ 换成了 _（Python 侧文件名安全化），导入时反查回来填进
+// `conversation_id` 列——**注意它不参与检索过滤**：`memory_search` 的会话级过滤走的是
+// `memory_segments.palace_drawer_id` 白名单（只认段管线归档的 drawer），导入行天然不在
+// 白名单里，所以在「那个会话内」搜索时反而搜不到它们。这是刻意的：会话内搜索只看本会话
+// 的段归档，导入行属于跨会话存档，靠不带 sessionKey 的检索召回。
+// conversation_id 的实际用途是溯源与运维排查（哪条归档来自哪个会话）。
 const convRows = db.prepare('SELECT id FROM conversations').all()
 const convSet = new Set(convRows.map((r) => r.id))
 const normMap = new Map()
@@ -110,11 +128,33 @@ const resolveConvId = (room) => {
   return null
 }
 
-const agentStmt = db.prepare(
+/**
+ * 会话归属的 Agent（与 palace-backend.ts 的 resolveConversationAgentId 同一条规则）。
+ *
+ * participants 存的是**实例 id**（main/default），而宫殿与工作记忆用**定义 id**
+ * （assistant/code-dev）。照抄会把主会话全写成 'main' → memory_search 按定义 id 过滤时
+ * 一条都搜不到。所以先做实例→定义映射，再退到 messages.agent_id，最后兜底 assistant。
+ */
+const INSTANCE_TO_DEFINITION = { main: 'assistant', default: 'assistant' }
+
+const participantStmt = db.prepare(
+  `SELECT participant_id FROM conversation_participants
+    WHERE conversation_id = ? AND participant_type = 'agent' LIMIT 1`,
+)
+const msgAgentStmt = db.prepare(
   `SELECT agent_id FROM messages
     WHERE conversation_id = ? AND agent_id IS NOT NULL
     ORDER BY timestamp DESC LIMIT 1`,
 )
+
+const resolveAgentId = (conversationId) => {
+  const p = participantStmt.get(conversationId)?.participant_id
+  if (p) return INSTANCE_TO_DEFINITION[p] ?? p
+  const m = msgAgentStmt.get(conversationId)?.agent_id
+  if (m) return INSTANCE_TO_DEFINITION[m] ?? m
+  return 'assistant'
+}
+
 const existsStmt = db.prepare('SELECT drawer_id FROM palace_drawers WHERE drawer_id = ?')
 
 // ── 3. 算好每条要做的事（dry-run 与 apply 走同一条计算路径）──────────────
@@ -122,13 +162,8 @@ const planned = []
 const stats = { noConv: 0, already: 0 }
 for (const r of records) {
   const conversationId = resolveConvId(r.room)
-  let agentId = 'assistant'
-  if (conversationId) {
-    const row = agentStmt.get(conversationId)
-    if (row?.agent_id) agentId = row.agent_id
-  } else {
-    stats.noConv++
-  }
+  const agentId = conversationId ? resolveAgentId(conversationId) : 'assistant'
+  if (!conversationId) stats.noConv++
   const drawerId = deterministicDrawerId(r.wing, r.room, r.content)
   if (existsStmt.get(drawerId)) {
     stats.already++
@@ -141,10 +176,22 @@ console.log(`自建库: ${DB_PATH}`)
 console.log(`旧宫殿: ${LEGACY_PATH}`)
 console.log(`模式: ${apply ? 'APPLY（会写库）' : 'DRY-RUN（只报数）'}   门槛: ${minChars} 字符`)
 console.log('')
-console.log(`旧宫殿文档: ${raw.length} 条 → 拼回 ${records.length} 组（元数据无法解析 ${badMeta} 条）`)
-console.log(`  已在自建宫殿（同 id）: ${stats.already}`)
-console.log(`  会话已不存在（仅留 room 作溯源）: ${stats.noConv}`)
+console.log(`旧宫殿文档: ${raw.length} 条 → 拼回 ${groups.size} 组（元数据无法解析 ${badMeta} 条）`)
+// 三类分开报：门槛丢弃与「已存在」是不同的事，混在一起会让「待写入」看起来像全量
+console.log(`  跳过·低于门槛（拼接后整组 < ${minChars}）: ${dropped.belowMin}`)
+console.log(`  跳过·拼接后为空: ${dropped.empty}`)
+console.log(`  可导入组: ${records.length}`)
+console.log(`    已在自建宫殿（同 id）: ${stats.already}`)
+console.log(`    会话已不存在（仅留 room 作溯源）: ${stats.noConv}`)
 console.log(`待写入: ${planned.length}`)
+if (gapWarnings.length > 0) {
+  console.log('')
+  console.log(`⚠ 缺块警告 ${gapWarnings.length} 组（chunk_index 不连续，拼接结果是半句话）：`)
+  for (const g of gapWarnings.slice(0, 10)) {
+    console.log(`   room=${g.room.slice(0, 40)} 有 ${g.have} 块、最大 index ${g.max}`)
+  }
+  console.log('   这批内容源头上就不完整，导入后也无法读全；先用 --min-chars 排掉或人工确认。')
+}
 console.log('')
 console.log('样例（前 3 条）:')
 for (const p of planned.slice(0, 3)) {
