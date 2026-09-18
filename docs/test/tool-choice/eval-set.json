@@ -1,0 +1,160 @@
+{
+  "_comment": "工具选择评测集（T 系列）。测的是**模型会不会按工具面的设计意图选工具**，而不是工具能不能跑——后者由 docs/test/lumii-cli 的 TC 套件覆盖。",
+
+  "_设计原则": [
+    "① 用例的判据必须能追溯到**提示词或工具描述里的原文**（写在 why 里），不是编出来的偏好。工具面的规则是给模型看的，评测就是验它有没有照做。",
+    "② reject 要尽量精确到**命令内容**：`bash` 本身不是错的（它可能是去干别的事），错的是用它跑 find/cat 这类有专用工具的操作。所以用 rejectCommandPatterns 而不是简单 reject 掉整个 bash。",
+    "③ 期望里只写「必须出现的工具」和「不该出现的模式」，**不规定完整序列**——同一件事有多种合理路径，评测锁的是底线不是走法。",
+    "④ 每条 note 记录为什么它值得单独一条（通常是「这里曾经出过事」或「这两个工具语义贴得近」）。",
+    "⑤ 工具名与规则原文由 scripts/verify-tool-choice-eval.mjs 核验存在性——评测集写错名字会静默通过（断言永远不会命中），比没有评测更糟。"
+  ],
+
+  "_语料说明": "不需要语料库：本评测的输入是自然语言请求，判据是工具调用序列与 bash 命令内容，全部来自真实回合。用例的 prompt 写成用户会说的话（含口语、含不精确的措辞），因为模型正是在这种输入下选工具。",
+
+  "cases": [
+    {
+      "id": "t01-find-vs-glob",
+      "category": "专用工具优先",
+      "prompt": "帮我找出 outputs/ 目录下所有的 .md 文件，列个清单给我",
+      "expectTools": ["glob"],
+      "rejectCommandPatterns": ["\\bfind\\b"],
+      "why": "bash-tool.ts 描述：File search -> use `glob` tool (NOT `find`)",
+      "note": "最经典的一条。模型对 `find` 的先验极强，而 bash 就在工具面里——这是「有专用工具却走 shell」的高发场景。"
+    },
+    {
+      "id": "t02-grep-command-vs-tool",
+      "category": "专用工具优先",
+      "prompt": "在 src/ 里搜一下哪些文件提到了 TODO，把文件和行号给我",
+      "expectTools": ["grep"],
+      "rejectCommandPatterns": ["(^|[|&;]\\s*|\\$\\(\\s*)(grep|rg)\\s"],
+      "why": "bash-tool.ts 描述：Content search -> use `grep` tool (NOT `grep` command)",
+      "note": "与 t01 同类但更容易犯：`grep` 既是 shell 命令**也是**注册工具名（工具名引用守卫里专门注明不要把它列进豁免表）。模型可能写 `grep -rn` 这种 shell 用法。⚠️ 模式必须锚在**命令位置**（行首 / `|` `&` `;` / `$(` 之后）：第一版写裸 `\\bgrep\\b`，结果命中了文件名里的 `outputs-md清单-grep`，把一次正确行为判成了错。"
+    },
+    {
+      "id": "t03-ls-vs-list-dir",
+      "category": "专用工具优先",
+      "prompt": "outputs/ 目录里都有什么？我看一眼",
+      "expectTools": ["list_dir"],
+      "rejectCommandPatterns": ["\\bls\\b", "\\bdir\\b"],
+      "why": "bash-tool.ts 描述：List a directory -> use `list_dir` (NOT `ls`/`dir`)",
+      "note": "prompt 用了「看一眼」这种口语，模型容易顺手 `ls`。"
+    },
+    {
+      "id": "t04-cat-vs-file-read",
+      "category": "专用工具优先",
+      "prompt": "把 outputs/document-analysis-training/README.md 的内容念给我听",
+      "expectTools": ["file_read"],
+      "rejectCommandPatterns": ["\\bcat\\b", "\\bhead\\b", "\\btail\\b"],
+      "why": "bash-tool.ts 描述：Read files -> use `file_read` tool (NOT `cat/head/tail`)",
+      "note": "「念给我听」是要求**展示内容**，与 t07（要求修改）是不同意图——两者都不该走 shell。"
+    },
+    {
+      "id": "t05-sed-vs-file-edit",
+      "category": "专用工具优先",
+      "prompt": "把 outputs/tc-choice-edit-probe.md 里的「原始内容 A」改成「修改后的内容 B」",
+      "setup": {
+        "writeFile": "outputs/tc-choice-edit-probe.md",
+        "content": "# 探针\n\n原始内容 A\n\n结尾行\n"
+      },
+      "expectTools": ["file_edit"],
+      "rejectCommandPatterns": ["(^|[|&;]\\s*|\\$\\(\\s*)(sed|awk|perl)\\s"],
+      "why": "bash-tool.ts 描述：Edit files -> use `file_edit` tool (NOT `sed/awk`)",
+      "note": "file_edit 还有 read-before-write 门禁（必须先读过）。走 sed 会绕过那道门禁——这正是规则背后的原因，不只是风格偏好。⚠️ 本用例第一版是**基线跑出来的假失败**：它引用了一个 TC 套件的临时文件（早被删），模型只读到了 glob 的空结果，判据却说它「没调 file_edit」。**用例的前提不成立时，失败看起来和模型选错一模一样**——所以加了 setup 机制自己造文件。"
+    },
+    {
+      "id": "t06-echo-redirect-vs-file-write",
+      "category": "专用工具优先",
+      "prompt": "新建一个 outputs/notes.md，内容写「待办：整理会议记录」",
+      "expectTools": ["file_write"],
+      "rejectCommandPatterns": [
+        "echo\\s+[^|;&]*?\\s*[^2\\s]>\\s*[^\\s&|]",
+        "cat\\s*<<",
+        "\\btee\\b\\s+\\S",
+        "printf\\s+[^|;&]*?>\\s*[^\\s&|]"
+      ],
+      "why": "bash-tool.ts 描述：Write files -> use `file_write` tool (NOT `echo >`/`cat <<EOF`)",
+      "note": "新建文件时模型倾向 `echo ... > file`。⚠️ 模式的两处收紧要记下来：① `[^|;&]*?` 不能跨分号——第一版写 `[^|]*` 时，`echo \"---grep---\"; ls ... > x` 这种「先 echo 一个分隔符、后面另有重定向」会被误判成写文件；② `[^2\\s]>` 是为了放过 `2>/dev/null`（那是丢弃而非写入）。**误报比漏报更伤**：它把正确行为记成失败，还会让人去改本没错的提示词。"
+    },
+    {
+      "id": "t07-mkdir-vs-file-mkdir",
+      "category": "专用工具优先",
+      "prompt": "在 outputs/ 下建一个新目录 archive-2026",
+      "expectTools": ["file_mkdir"],
+      "rejectCommandPatterns": ["\\bmkdir\\b"],
+      "why": "bash-tool.ts 描述：Create directories -> use `file_mkdir` (NOT `mkdir`)",
+      "note": "最容易「顺手」的一条：mkdir 只有一步，专用工具看起来是多余的。"
+    },
+    {
+      "id": "t08-mv-vs-file-move",
+      "category": "专用工具优先",
+      "prompt": "把 outputs/notes.md 重命名为 outputs/meeting-notes.md",
+      "expectTools": ["file_move"],
+      "rejectCommandPatterns": ["\\bmv\\b", "Move-Item"],
+      "why": "bash-tool.ts 描述：Move/rename -> use `file_move` (NOT `mv`/`Move-Item`)",
+      "note": "「重命名」在 shell 里就是 mv，模型对它的先验很强。"
+    },
+    {
+      "id": "t09-cp-vs-file-copy",
+      "category": "专用工具优先",
+      "prompt": "把 outputs/notes.md 复制一份叫 outputs/notes.backup.md",
+      "expectTools": ["file_copy"],
+      "rejectCommandPatterns": ["\\bcp\\b", "Copy-Item"],
+      "why": "bash-tool.ts 描述：Copy files -> use `file_copy` (NOT `cp`/`Copy-Item`)",
+      "note": "与 t08 成对。file_copy 会拒绝覆盖已存在的目标（避免静默丢数据），shell 的 cp 默认会覆盖——规则背后有数据安全理由。"
+    },
+    {
+      "id": "t10-memory-vs-wiki",
+      "category": "语义邻近工具",
+      "prompt": "我之前跟你聊过的那个 TOCC 数据同步问题，结论是什么来着",
+      "expectTools": ["memory_search"],
+      "rejectTools": ["wiki_search"],
+      "why": "memory_search 的描述：检索**对话记忆**；wiki_search 面向 Wiki 知识库。用户在问「之前跟你聊过的」。",
+      "note": "这两个工具名里都有「search」，描述也都提到「知识」。区分点是**来源**：对话 vs Wiki。模型选错会导致「明明聊过却查不到」。"
+    },
+    {
+      "id": "t11-skill-search-vs-invoke",
+      "category": "语义邻近工具",
+      "prompt": "有没有能做代码审查的技能？",
+      "expectTools": ["skill_search"],
+      "rejectTools": ["skill_invoke", "execute_skill"],
+      "why": "skill_search 不带 query 即列出全部、带 query 即搜索；skill_invoke 是「加载某个已知技能」；execute_skill 是「执行可执行技能」。此处用户在**找**，还不知道名字。",
+      "note": "三件套（search/invoke/execute）语义分层，模型容易越级——直接 invoke 一个猜的名字。"
+    },
+    {
+      "id": "t12-file-read-vs-wiki-read",
+      "category": "语义邻近工具",
+      "prompt": "wiki 里关于「部署流程」那页写了什么",
+      "expectTools": ["wiki_read", "wiki_search"],
+      "rejectTools": ["file_read"],
+      "why": "bash 描述里明确：Wiki read stays on `wiki_*` tools",
+      "note": "Wiki 内容落在磁盘上，模型可能绕过 wiki_* 直接 file_read 路径——能读到但拿不到 wiki 的元数据与图谱关系。"
+    },
+    {
+      "id": "t13-no-phantom-tools",
+      "category": "不存在的工具",
+      "prompt": "读一下 outputs/notes.md",
+      "expectTools": ["file_read"],
+      "rejectTools": ["read_file", "write_file", "edit_file", "file_manage", "global_search"],
+      "why": "这五个名字从未注册过（前三个是 gateway 时代旧名，后两个是模型臆造）。日志里分别出现过 1/0/0/2/1 次 `Tool xxx not found`。",
+      "note": "**这条测的是模型对工具面的读取是否准确**——它只该用实际出现在工具定义里的名字。文本层由 tool-name-references.test.ts 守（防描述里写错），行为层由本条守（防模型自己编）。两者互补。"
+    },
+    {
+      "id": "t14-batch-vs-serial",
+      "category": "批量与多步",
+      "prompt": "把 outputs/ 目录下所有 .tmp 文件删掉",
+      "expectTools": ["bash", "glob"],
+      "rejectCommandPatterns": [],
+      "why": "bash 描述：Batch operations: for multiple similar operations, merge into a single script execution, NOT serial tool calls per file.",
+      "note": "**这条是唯一允许 bash 的**——删除文件没有专用工具（无 file_delete），bash 是唯一路径。判据只要求别退化成「每个文件一次工具调用」：允许的工具集里含 glob + bash（先列出再批量删）。"
+    },
+    {
+      "id": "t15-guide-before-use",
+      "category": "引导先行",
+      "prompt": "帮我建一个每天早上 9 点跑的任务",
+      "expectTools": ["cron_create"],
+      "rejectTools": [],
+      "why": "cron_create 在 COMPLEX_TOOL_NAMES 里（参数格式复杂），其描述与 GROUP_NOTES 提示先读 cron_guide。",
+      "note": "这条**不做硬断言**（不强制 cron_guide 出现）——它是观察项：记录模型是否会主动查引导。写进集子是为了让「引导先行」这个意图在评测里有位置，而不是为了判红。"
+    }
+  ]
+}
