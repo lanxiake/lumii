@@ -45,6 +45,7 @@ const TOOL_SUMMARIES: Record<string, string> = {
   // Agent Delegation
   spawn_agent: "Delegate a task (mode=sync blocks, mode=async notifies on finish)",
   send_message: "Send a message to another agent",
+  propose_dev_handoff: "Propose handing a dev task to the code agent (user confirms via card)",
 
   // Scheduling
   cron_create: "Create a scheduled task",
@@ -109,6 +110,14 @@ const TOOL_SUMMARIES: Record<string, string> = {
   asset_checkup: "Run the mechanical check-up items (budget, exact duplicates, residue, stale) — deterministic and free",
   news_preference: "Read/update the user's news curation preferences (topics, avoid, sources, timing)",
 
+  // Cloud Sync —— 2026-09-18 补：此前这 5 个宿主工具不在任何分组，生产里落进
+  // `Other Tools (9)`，minimal 档下模型只看到一个数字。
+  cloud_sync_read_file: "Read the three-way content of a sync conflict (base / local / remote)",
+  cloud_sync_git: "Read-only sync diagnostics (git status / history of the sync repo)",
+  cloud_sync_now: "Trigger a full sync now (stage 1: bulk workspace)",
+  cloud_sync_push: "Push specific paths (stage 2: targeted, after stage 1)",
+  resolve_sync_conflict: "Resolve a workspace sync conflict using the content read above",
+
   // Skills (pre-registered; not yet in the built-in registry)
   execute_skill: "Run an executable skill entry point",
 }
@@ -129,6 +138,11 @@ const GROUP_NOTES: Record<string, string> = {
   "Memory & Knowledge":
     "Order matters: `memory_search` → `memory_read`; `wiki_overview` → `wiki_search` → `wiki_read`. Wiki **writes** (folder import, organize, archive) use `bash` + `lumii-ui`, not `wiki_*` tools — see `## Wiki Knowledge Base`.",
   "Browser Tools": "See `## Browser Control` for the interaction loop.",
+  // 这条不是客套话：`resolve_sync_conflict` 超时会返回 status='running' + isError=false，
+  // 因为落决在后台继续跑。Agent 若把它当失败重排，会排到还在跑的那一轮后面——
+  // 2026-09-17 实测就这样空转了 7 轮（每 10 分钟一次）。见 T3.4 与设计文档 §2.3。
+  "Cloud Sync":
+    "Conflict handling is read-then-resolve: `cloud_sync_read_file` → `resolve_sync_conflict`. The resolver waits up to 5 min; **a timeout is not a failure** — it keeps running in the background. Do not call it again; check with `cloud_sync_git` instead.",
   "Session & Settings":
     "Referring to a conversation by name? Call `session_list` first, then `session_resume` with the returned key — never invent a sessionKey. On a chat channel the switch also redirects the user's subsequent messages to that session.",
 }
@@ -148,7 +162,7 @@ const SHELL_TOOLS = new Set(["bash"])
 const WEB_TOOLS = new Set(["web_search", "web_fetch"])
 const MEDIA_GENERATION_TOOLS = new Set(["image_generate", "speech_generate"])
 const TASK_TOOLS = new Set(["todo_write", "task_complete"])
-const AGENT_TOOLS = new Set(["spawn_agent", "send_message"])
+const AGENT_TOOLS = new Set(["spawn_agent", "send_message", "propose_dev_handoff"])
 const SCHEDULING_TOOLS = new Set(["cron_create", "cron_list", "cron_delete"])
 const SKILL_TOOLS = new Set(["skill_search", "skill_invoke", "execute_skill"])
 const GUIDE_TOOLS = new Set(["a2ui_guide", "cron_guide", "weixin_send_guide", "prompt_guide"])
@@ -171,6 +185,20 @@ const MAINTENANCE_TOOLS = new Set([
   "maintenance_report_read",
   "asset_checkup",
   "news_preference",
+])
+/**
+ * 云同步工具（宿主注册，见 apps/windows/.../bridge-tool-registrar-sync.ts）。
+ *
+ * 2026-09-18 补入提示词：此前这 5 个不在任何分组，生产实测落进 `Other Tools`。
+ * 它们在被真实使用——`cloud_sync_read_file` 单日 105 次调用，
+ * 而 `resolve_sync_conflict` 曾因 Agent 误判超时重排了 7 轮（见执行计划 §二 场景 2）。
+ */
+const CLOUD_SYNC_TOOLS = new Set([
+  "cloud_sync_read_file",
+  "cloud_sync_git",
+  "cloud_sync_now",
+  "cloud_sync_push",
+  "resolve_sync_conflict",
 ])
 const BROWSER_TOOLS = new Set([
   "browser_navigate",
@@ -221,6 +249,7 @@ export const PROMPT_TOOL_GROUPS: Readonly<Record<string, ReadonlySet<string>>> =
   Interaction: INTERACTION_TOOLS,
   Dashboard: DASHBOARD_TOOLS,
   "Maintenance & Curation": MAINTENANCE_TOOLS,
+  "Cloud Sync": CLOUD_SYNC_TOOLS,
   "Browser Tools": BROWSER_TOOLS,
   "Session & Settings": SESSION_TOOLS,
   "Reference Guides": GUIDE_TOOLS,
@@ -243,6 +272,22 @@ function partitionToolNames(toolNames: readonly string[]) {
     (t) => t.startsWith("app_") || t.startsWith("screen_record_") || t === "screen_screenshot",
   )
   const otherTools = toolNames.filter((t) => !knownTools.has(t) && !t.startsWith("mcp__") && !lowFrequency.includes(t))
+
+  // 未归类工具 = 提示词分组的漏配信号。
+  //
+  // 为什么在这里兜底而不再加一条测试：宿主工具有一部分是**运行时动态注册**的
+  // （`bridge.ts` 的 registerEvolvedTool 走工具进化产物），静态守卫扫不到；
+  // 而本函数在生产路径上，无论工具从哪来都会经过——只要落进 Other Tools，
+  // 名字就会进日志（WARN 级会落盘）。
+  //
+  // 实测背景（2026-09-18）：生产暴露 94 个非 MCP 工具，其中 9 个落在 Other Tools，
+  // 而 minimal 档下模型只看到一句 `Other Tools (9)`——连名字都没有。
+  if (otherTools.length > 0) {
+    console.warn(
+      `[tooling] ${otherTools.length} 个工具未归入任何提示词分组: ${otherTools.join(", ")}`,
+    )
+  }
+
   return { groups, otherTools, lowFrequency }
 }
 

@@ -40,3 +40,26 @@ jobs:
       # 类型检查只需要声明文件，不需要可运行的二进制。
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - run: pnpm typecheck
+
+  # 2026-09-18 新增：此前 CI 一个测试都没跑，packages/agent-runtime 的
+  # 212 个文件 / 2153 个用例（含工具面守卫）全靠人记得在本地跑。
+  # 该包零原生依赖：better-sqlite3 是 Electron ABI，测试助手
+  # (src/__tests__/helpers/sqlite-test-db.ts) 会自动回退到 node:sqlite。
+  # ⚠️ 不要覆盖 vitest 的 pool —— 配置里用 forks + --experimental-sqlite，
+  #    Node 22 下 node:sqlite 仍需该 flag，56 个 DB 测试依赖它。
+  # ⚠️ apps/windows 的测试不在此 job：该套件有已知摆动用例（见 AGENTS.md），
+  #    做 CI 门禁会产生假红；它仍由提交前的 pnpm verify 覆盖。
+  test:
+    name: 测试
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.23.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - run: pnpm --filter @mtbot/agent-runtime test

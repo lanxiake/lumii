@@ -306,7 +306,9 @@ function tc04Note() {
   metrics.push({ case: 'TC-04', groups, otherCount, desktopCount })
   return (
     `提示词分组现状：Other Tools=${otherCount}，Desktop Control=${desktopCount}。` +
-    `${otherCount > 0 ? `这 ${otherCount} 个工具在 minimal 档下对模型只显示为一个数字（0.3 待修）` : '无未归类工具'}`
+    (otherCount > 0
+      ? `未归类的是**运行时动态注册**的工具（静态守卫扫不到）——查日志里的 [tooling] 告警看具体是哪些`
+      : '无未归类工具')
   )
 }
 
@@ -329,16 +331,35 @@ function tc05() {
         .reduce((a, b) => a + b, 0)
     : null
 
-  // 守卫射程 = 54 内置 + 13 硬编码客户端名 + execute_skill = 68（见执行计划 §二 场景 3）
-  const GUARD_REACH = 68
+  // 守卫射程（2026-09-18 扩射程后）：
+  //   packages 侧 tooling-section.test.ts —— 54 内置 + 13 客户端名 + execute_skill
+  //   apps/windows 侧 host-tool-prompt-coverage.test.ts —— 源码扫宿主注册器，37 个
+  //   并集 = 54 + 37 = 91（13 个 guide/browser 只在宿主侧出现，不重复计）
+  // 剩下的是**运行时动态注册**的工具（工具进化产物，名字编译期不可知），
+  // 由 tooling-section.ts 的 partitionToolNames 运行时告警兜底——它不在测试里，
+  // 但在生产路径上，落进 Other Tools 就会进日志。
+  const GUARD_REACH_STATIC = 91
   const denominator = nonMcp ?? req.total
-  const covered = Math.min(denominator, GUARD_REACH)
+  const covered = Math.min(denominator, GUARD_REACH_STATIC)
   const pct = ((covered / denominator) * 100).toFixed(1)
 
-  metrics.push({ case: 'TC-05', ...req, nonMcp, guardReach: GUARD_REACH, coverage: pct })
+  // 运行时告警抓到的那几个（用于报告里说明"为什么还剩几个"）
+  const warnLine = lastMatching(lines, /\[tooling\] (\d+) 个工具未归入任何提示词分组: (.+)/)
+  const runtimeOrphans = warnLine ? { count: Number(warnLine[1]), names: warnLine[2] } : null
+
+  metrics.push({
+    case: 'TC-05',
+    ...req,
+    nonMcp,
+    guardReach: GUARD_REACH_STATIC,
+    coverage: pct,
+    runtimeOrphans: runtimeOrphans ? `${runtimeOrphans.count}（${runtimeOrphans.names}）` : '无告警',
+  })
   return (
     `本次请求工具面 ${req.enabled}/${req.total}（含 MCP）；非 MCP 工具 ${denominator} 个，` +
-    `守卫射程 ${GUARD_REACH} → 覆盖 ${pct}%（缺口 ${denominator - covered} 个，0.3 待补）`
+    `静态守卫射程 ${GUARD_REACH_STATIC} → 覆盖 ${pct}%；` +
+    `运行时告警兜底 ${runtimeOrphans ? runtimeOrphans.count : 0} 个动态注册工具` +
+    `${runtimeOrphans ? `（${runtimeOrphans.names}）` : ''}`
   )
 }
 
@@ -376,28 +397,44 @@ if (!maybe('TC-CONTRACT-05', tc05)) process.exit(1)
 restoreAll()
 
 const metricRows = metrics
-  .map((m) => `| ${m.case} | ${m.toolSeq ?? '-'} | ${m.rows ?? '-'} | ${m.nullDuration ?? '-'} | ${m.otherCount ?? '-'} | ${m.coverage ?? '-'} |`)
+  .map(
+    (m) =>
+      `| ${m.case} | ${m.toolSeq ?? '-'} | ${m.rows ?? '-'} | ${m.nullDuration ?? '-'} | ${m.otherCount ?? '-'} | ${m.coverage ?? '-'} | ${m.runtimeOrphans ?? '-'} |`,
+  )
   .join('\n')
 
 ev.writeReport({
   meta: {
     探针会话前缀: SESSION_PREFIX,
     探针文件目录: PROBE_DIR,
-    验证范围: '改动 ①（失效引用修复）行为面 + 改动 ②（duration_ms 回填）数据面；TC-04/05 为 0.3 基线',
+    验证范围: '改动 ①（失效引用修复）行为面 + 改动 ②（duration_ms 回填）数据面 + 0.3 扩守卫射程',
   },
   extraSections: `## 指标对照
 
-| 用例 | 工具序列 | 审计行数 | duration 为空 | Other Tools | 守卫覆盖率 |
-|---|---|---|---|---|---|
-${metricRows || '| - | - | - | - | - | - |'}
+| 用例 | 工具序列 | 审计行数 | duration 为空 | Other Tools | 守卫覆盖率 | 运行时告警（动态注册） |
+|---|---|---|---|---|---|---|
+${metricRows || '| - | - | - | - | - | - | - |'}
 
-> **TC-CONTRACT-04 是 INFO 而非 PASS**：0.3「扩守卫射程」尚未实施，\`Other Tools\` 非零是已知待办，
-> 把它算成失败会掩盖"本套件验证的两项改动其实都通过了"这个事实。它的作用是提供施工前后对照。
+## 两层守卫的分工（2026-09-18 扩射程后）
 
-## 静态面的对应守卫
+| 层 | 位置 | 覆盖 | 触发时机 |
+|---|---|---|---|
+| 静态 | \`packages/.../tooling-section.test.ts\` | 54 内置 + 13 客户端名 + execute_skill | CI（批次 0.4 已接入） |
+| 静态 | \`apps/windows/.../host-tool-prompt-coverage.test.ts\` | 源码扫宿主注册器，37 个 | 本地 \`pnpm verify\`（apps/windows 套件有摆动用例，刻意不进 CI） |
+| **运行时** | \`tooling-section.ts\` 的 \`partitionToolNames\` | **动态注册的工具**（工具进化产物） | 每次渲染系统提示词 |
 
-本套件只覆盖**行为面与数据面**。文本本身（schema 描述 / 错误文案里的工具名引用）
-由单测 \`packages/agent-runtime/src/tools/__tests__/tool-name-references.test.ts\` 守——
-它能精确到"哪个文件的哪段文本引用了谁"，且已做变红验证（注入失效名即失败）。
-两层分工：**单测守文本，CLI 守行为**。`,
+**为什么第三层不可省**：实测这道告警抓到了 3 个静态守卫永远扫不到的工具——
+\`file-term-replace\` / \`node-read-file-script\` / \`replace-js-terms\`。
+它们是 \`bridge.ts\` 的 \`registerEvolvedTool\` 在运行时注册的（bash-evolution 挖掘产物，
+名字编译期不可知，所以**只能靠运行时兜底**）。
+
+> TC-CONTRACT-04 是 INFO 而非 PASS：0.3 实施后 \`Other Tools\` 从 9 降到 3，
+> 剩下 3 个是**已知的动态注册工具**而非漏配。把它算成失败会掩盖这个区别。
+
+## 文本面的对应守卫
+
+本套件只覆盖**行为面与数据面**。schema 描述与错误文案里的工具名引用由
+\`packages/agent-runtime/src/tools/__tests__/tool-name-references.test.ts\` 守——
+它能精确到"哪个文件的哪段文本引用了谁"，且做过变红验证（注入失效名即 2 条失败）。
+**单测守文本，CLI 守行为与数据。**`,
 })

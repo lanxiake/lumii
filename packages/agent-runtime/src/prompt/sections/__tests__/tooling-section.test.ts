@@ -8,7 +8,7 @@
  * 或映射表残留已注销的工具名，都会在此处立即失败。
  */
 
-import { describe, it, expect } from "vitest"
+import { describe, it, expect, vi } from "vitest"
 import { categorizeTools, TOOL_SUMMARIES, PROMPT_TOOL_GROUPS } from "../tooling-section.js"
 import { ALL_BUILT_IN_TOOL_CONFIGS } from "../../../tools/built-in/index.js"
 
@@ -18,7 +18,13 @@ const BUILT_IN_NAMES: readonly string[] = ALL_BUILT_IN_TOOL_CONFIGS.map((c) => c
 /**
  * 客户端（apps/windows）注册、runtime 编译期无法枚举的工具名。
  * 这些名字允许出现在 TOOL_SUMMARIES / 分组里而无对应 built-in config。
- * 注：P2-T4 会把这些元数据下沉到 apps/windows，届时本清单应当清空。
+ *
+ * ⚠️ 这份清单是手工维护的，会腐坏——2026-09-18 实测它漏了 6 个（云同步 5 个 + 开发转交 1 个），
+ * 那 6 个在生产里落进了 `Other Tools`。**漏配会被两道守卫接住**：
+ *   ① 本文件第 5 条「分组常量不含未注册的幽灵工具名」——加了分组却忘了加这里；
+ *   ② `apps/windows/src/main/agent-runtime/host-tool-prompt-coverage.test.ts`
+ *      （源码扫描宿主注册器）——加了工具却忘了加分组。
+ * 两份守卫合起来才闭环，改一处务必想着另一处。
  */
 const CLIENT_REGISTERED_NAMES: readonly string[] = [
   "a2ui_guide",
@@ -34,6 +40,14 @@ const CLIENT_REGISTERED_NAMES: readonly string[] = [
   "browser_eval",
   "browser_back",
   "browser_forward",
+  // 云同步（bridge-tool-registrar-sync.ts）与开发转交（bridge-tool-registrar-handoff.ts）
+  // 2026-09-18 补入提示词分组——此前它们在 Other Tools 里，minimal 档下只是个数字
+  "cloud_sync_read_file",
+  "cloud_sync_git",
+  "cloud_sync_now",
+  "cloud_sync_push",
+  "resolve_sync_conflict",
+  "propose_dev_handoff",
 ]
 
 /** 已定义常量但尚未注册的工具名（预置分组，避免注册即无描述） */
@@ -114,5 +128,44 @@ describe("tooling-section 漂移守卫", () => {
   it("完整注册表喂进去时不产生 Other Tools 分组", () => {
     const lines = categorizeTools([...BUILT_IN_NAMES, ...CLIENT_REGISTERED_NAMES])
     expect(lines).not.toContain("### Other Tools")
+  })
+
+  // ── 运行时告警（2026-09-18 补）────────────────────────────────────────────
+  // 静态守卫（apps/windows 的 host-tool-prompt-coverage.test.ts）扫的是源码，
+  // 覆盖不到运行时动态注册的工具（bridge.ts 的 registerEvolvedTool）。
+  // partitionToolNames 里的 console.warn 是那一半的兜底——这里给它上锁，
+  // 否则它只是"写了但没人验"，哪天被顺手删掉也不会有人发现。
+
+  it("未归类的工具触发运行时告警（兜住静态守卫扫不到的动态注册）", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    try {
+      categorizeTools(["some_dynamically_registered_tool"])
+      expect(warn).toHaveBeenCalledTimes(1)
+      const msg = String(warn.mock.calls[0]![0])
+      expect(msg).toContain("some_dynamically_registered_tool")
+      expect(msg).toContain("未归入任何提示词分组")
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  it("工具全部归组时不告警（否则告警会被当噪声忽略）", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    try {
+      categorizeTools([...BUILT_IN_NAMES, ...CLIENT_REGISTERED_NAMES])
+      expect(warn).not.toHaveBeenCalled()
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  it("Desktop Control 前缀不算未归类（它们本就不进正式分组）", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    try {
+      categorizeTools(["app_act", "screen_record_start", "screen_screenshot"])
+      expect(warn).not.toHaveBeenCalled()
+    } finally {
+      warn.mockRestore()
+    }
   })
 })
