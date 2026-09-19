@@ -20,6 +20,7 @@ import type { RunnerOptions, RunnerResult } from './ts-runner'
 import { extractResult } from './ts-runner'
 import { createLogger } from './logger'
 import { killProcessTree, spawnChildInGroup } from './platform/process-kill'
+import { buildSafeChildEnv } from './platform/shell-env'
 
 /** 日志 */
 const log = createLogger('ShellRunner')
@@ -60,7 +61,7 @@ export class ShellRunner {
           // chcp 65001 强制 UTF-8 输出，避免 GBK 乱码
           return { command: 'cmd.exe', args: ['/c', `chcp 65001 >nul 2>&1 & "${entryPath}"`] }
         }
-        log.warn('.bat/.cmd 脚本不支持在非 Windows 平台运行')
+        log.warn('.bat/.cmd 脚本是 Windows 专属，当前平台不支持', { entryPath })
         return null
 
       case '.sh':
@@ -71,6 +72,23 @@ export class ShellRunner {
         log.warn('不支持的脚本扩展名', { ext })
         return null
     }
+  }
+
+  /**
+   * 把「解析不出 shell」翻译成用户能照着做的报错。
+   *
+   * 收敛前一律报「不支持的脚本类型: .bat」——在 Linux 上这是**误导**：脚本类型
+   * 没问题，是平台不匹配。用户看到这句话不知道该换脚本还是换系统。
+   */
+  private describeUnsupported(entryPath: string): string {
+    const ext = path.extname(entryPath).toLowerCase()
+    if ((ext === '.bat' || ext === '.cmd') && process.platform !== 'win32') {
+      return `该技能提供的是 Windows 批处理脚本（${ext}），当前平台无法执行。请改用 .sh 版本，或联系技能作者补充跨平台入口。`
+    }
+    if (ext === '.ps1' && process.platform !== 'win32') {
+      return `该技能提供的是 PowerShell 脚本（.ps1），当前平台需要先安装 pwsh（PowerShell Core）才能执行。`
+    }
+    return `不支持的脚本类型: ${ext || '(无扩展名)'}`
   }
 
   /**
@@ -91,10 +109,9 @@ export class ShellRunner {
     const shellCmd = this.resolveShell(entryPath)
 
     if (!shellCmd) {
-      const ext = path.extname(entryPath).toLowerCase()
       return {
         success: false,
-        error: `不支持的脚本类型: ${ext}`,
+        error: this.describeUnsupported(entryPath),
         exitCode: null,
         executionTimeMs: Date.now() - startTime,
         stdout: '',
@@ -112,37 +129,10 @@ export class ShellRunner {
       let timeoutId: ReturnType<typeof setTimeout> | null = null
 
       try {
-        // 只传递必要的环境变量，避免暴露敏感信息（API密钥、数据库凭证等）
-        const safeEnv: Record<string, string> = {
-          PATH: process.env.PATH || '',
-          HOME: process.env.HOME || process.env.USERPROFILE || '',
-          TEMP: process.env.TEMP || process.env.TMP || '',
-          SKILL_PARAMS: JSON.stringify(params),
-        }
-
-        // Windows 特定环境变量
-        if (process.platform === 'win32') {
-          if (process.env.USERPROFILE)           safeEnv.USERPROFILE           = process.env.USERPROFILE
-          if (process.env.SYSTEMROOT)            safeEnv.SYSTEMROOT            = process.env.SYSTEMROOT
-          if (process.env.WINDIR)                safeEnv.WINDIR                = process.env.WINDIR
-          if (process.env.APPDATA)               safeEnv.APPDATA               = process.env.APPDATA
-          if (process.env.LOCALAPPDATA)          safeEnv.LOCALAPPDATA          = process.env.LOCALAPPDATA
-          if (process.env.COMSPEC)               safeEnv.COMSPEC               = process.env.COMSPEC
-          if (process.env.PATHEXT)               safeEnv.PATHEXT               = process.env.PATHEXT
-          if (process.env.HOMEDRIVE)             safeEnv.HOMEDRIVE             = process.env.HOMEDRIVE
-          if (process.env.HOMEPATH)              safeEnv.HOMEPATH              = process.env.HOMEPATH
-          const pf   = process.env['ProgramFiles']
-          const pf86 = process.env['ProgramFiles(x86)']
-          if (pf)   safeEnv['ProgramFiles']       = pf
-          if (pf86) safeEnv['ProgramFiles(x86)'] = pf86
-        }
-
-        // 合并调用方传入的自定义环境变量（保护 SKILL_PARAMS 不被覆盖）
-        if (extraEnv) {
-          for (const [k, v] of Object.entries(extraEnv)) {
-            if (k !== 'SKILL_PARAMS') safeEnv[k] = v
-          }
-        }
+        // 白名单构造环境：技能脚本是不可信代码，主进程环境里有 API key / 凭证，
+        // 所以默认拒绝、只放行脚本正常工作必需的键。平台差异（Windows 的
+        // SYSTEMROOT/PATHEXT、POSIX 的 LANG/DISPLAY/XDG_*）在 shell-env.ts 里统一处理。
+        const safeEnv = buildSafeChildEnv(params, extraEnv)
 
         child = spawnChildInGroup(shellCmd.command, shellCmd.args, {
           cwd: workDir,
