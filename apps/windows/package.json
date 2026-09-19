@@ -42,7 +42,8 @@
     "test:e2e:debug": "playwright test --debug",
     "rebuild:native": "node node_modules/@electron/rebuild/lib/cli.js --only better-sqlite3,sharp",
     "postinstall": "node node_modules/@electron/rebuild/lib/cli.js --only better-sqlite3,sharp",
-    "package:linux": "node scripts/package-app.js --platform linux",
+    "package:linux": "node scripts/package-app.js --platform linux --target both",
+    "package:linux:appimage": "node scripts/package-app.js --platform linux --target appimage",
     "package:linux:deb": "node scripts/package-app.js --platform linux --target deb"
   },
   "dependencies": {

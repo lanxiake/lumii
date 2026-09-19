@@ -14,8 +14,9 @@
  *   --arch             目标架构 (x64 | ia32 | both)，默认 x64
  *   --target           打包目标：
  *                        win   → nsis | portable | zip | dir
- *                        linux → appimage | deb | dir
+ *                        linux → appimage | deb | both | dir
  *                     默认 win=nsis / linux=appimage
+ *                     （linux 的 both = 一轮构建同时产出 AppImage + deb）
  *   --output-dir       指定输出目录
  *   --help             显示帮助
  */
@@ -51,7 +52,9 @@ const PLATFORM_PROFILES = {
   },
   linux: {
     label: 'Linux',
-    targets: ['appimage', 'deb', 'dir'],
+    // `both` = 一轮构建同时产出 AppImage + deb（设计 §9 的验收要求）。
+    // 只给 Linux：Windows 侧没有对应的「一次出多个安装包」需求，加了是多余分支。
+    targets: ['appimage', 'deb', 'both', 'dir'],
     defaultTarget: 'appimage',
     defaultArch: 'x64',
     builderFlag: '--linux',
@@ -75,6 +78,21 @@ function resolvePlatform(explicit) {
     throw new Error(`不支持的平台: ${explicit}（可选: ${Object.keys(PLATFORM_PROFILES).join(' | ')}）`)
   }
   return key
+}
+
+/**
+ * 把 `package-app.js` 的 target 名翻译成 electron-builder 的参数。
+ *
+ * `both` 是本脚本的伪 target，对应 electron-builder 的多目标语法
+ * （即 --linux 后面跟空格分隔的 appimage 与 deb 两个值）。
+ * 它存在的理由：设计 §9 要求「一次性产出 .AppImage 与 .deb」。分两次跑
+ * 不只是麻烦——每次都会跑一遍完整的 `electron-vite build` 与 asar 打包
+ * （单次约 130s，asar 332MB），等于把最贵的步骤做两遍。
+ *
+ * 只对 Linux 开放（见 PLATFORM_PROFILES.linux.targets）。
+ */
+function builderTarget(target) {
+  return target === 'both' ? 'appimage deb' : target
 }
 
 // ========== 工具函数 ==========
@@ -214,13 +232,15 @@ Lumii 客户端打包脚本（本地优先，不注入网关 / API Server）
   --arch <arch>       目标架构: x64 (默认) | ia32 | both（both 仅 win）
   --target <type>     打包目标:
                         win   → nsis (默认) | portable | zip | dir
-                        linux → appimage (默认) | deb | dir
+                        linux → appimage (默认) | deb | both | dir
+                                both = 一轮构建同时产出 AppImage + deb
   --output-dir <dir>  指定 electron-builder 输出目录
   --help, -h          显示帮助
 
 示例:
   node scripts/package-app.js --platform linux
   node scripts/package-app.js --platform linux --target deb
+  node scripts/package-app.js --platform linux --target both
   node scripts/package-app.js --platform win --target nsis --arch both
   node scripts/package-app.js --skip-clean
   node scripts/package-app.js --output-dir release-build
@@ -232,7 +252,8 @@ EBUSY 排查（Windows，app.asar 被占用）:
   4. 仍失败时使用 --output-dir release-build 绕过旧目录
 
 Linux 说明:
-  - 产物为 AppImage 与 deb（由 --target 选择其一，或 --target dir 只解包）
+  - 产物为 AppImage 与 deb：--target both 一轮出齐（设计 §9 的验收方式），
+    或 --target appimage / --target deb 单出，--target dir 只解包不打包
   - AppImage 与 deb 必须**在 Linux 上构建**：原生模块（better-sqlite3 等）不能在
     Windows 上交叉编译，electron-builder 也不支持跨平台产出 Linux 原生依赖
   - 构建需 Node 22（见仓库 Linux 构建说明）
@@ -551,7 +572,7 @@ function stepPackage(config) {
 
     while (retries > 0 && !success) {
       const result = run(
-        `npx electron-builder ${profile.builderFlag} ${config.target} --${arch} --config electron-builder.json --config.directories.output=${outputDir}`,
+        `npx electron-builder ${profile.builderFlag} ${builderTarget(config.target)} --${arch} --config electron-builder.json --config.directories.output=${outputDir}`,
         { returnError: true }
       )
 
@@ -605,7 +626,13 @@ function stepPackage(config) {
   if (fs.existsSync(outputPath)) {
     // 按本次 --target 过滤，而不是把该平台所有扩展名都列出来——
     // 否则 `--target deb` 会把上个 AppImage 也列上，看起来像两者都产出了。
-    const wantExt = config.target === 'dir' ? [] : [`.${config.target.replace(/^appimage$/, 'AppImage').toLowerCase()}`]
+    // `both` 例外：它本来就要两者都列。
+    const wantExt =
+      config.target === 'both'
+        ? profile.artifactExts
+        : config.target === 'dir'
+          ? []
+          : [`.${config.target.replace(/^appimage$/, 'AppImage').toLowerCase()}`]
     const files = fs.readdirSync(outputPath).filter((f) => {
       const ext = path.extname(f).toLowerCase()
       if (!profile.artifactExts.includes(ext)) return false
@@ -615,6 +642,8 @@ function stepPackage(config) {
     if (files.length === 0) {
       if (config.target === 'dir') {
         log(`--target dir 只产出解包目录，不生成安装包（${profile.unpackedDir}/）`)
+      } else if (config.target === 'both') {
+        warn(`未发现 any 产物（查找扩展名: ${profile.artifactExts.join(' / ')}）`)
       } else {
         warn(`未发现 ${config.target} 产物（查找扩展名: ${profile.artifactExts.join(' / ')}）`)
       }
