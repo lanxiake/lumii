@@ -31,7 +31,7 @@ import type {
 import { buildDefaultGitignore, VCS_SKIP_DIRS, shouldSkipWalkDir, stripOutputsIgnoreRules, isVcsBinaryPath } from './vcs-ignore'
 import { computeFileDiff, computeDiffStats, MAX_DIFF_BYTES } from './vcs-diff'
 import { createVcsFs, VCS_TMP_SUFFIX } from './vcs-fs'
-import { detectGit, hasStagedChangesCli, pinNoGc, stageAllCli } from './vcs-git-cli'
+import { detectGit, hasStagedChangesCli, pinIsoSafeConfig, stageAllCli } from './vcs-git-cli'
 
 const log = {
   info: (...args: unknown[]) => console.log('[WorkspaceVcs]', ...args),
@@ -135,12 +135,11 @@ export class WorkspaceVcs {
       log.info(`[ensureInitialized] 初始化工作空间仓库: ${this.workspaceDir}`)
       fs.mkdirSync(this.workspaceDir, { recursive: true })
       await git.init({ ...this.base, defaultBranch: 'main' })
-      // 本仓库**必须保持松散对象形态**：真 git 的 gc 会把它压成大 pack，
-      // 而 isomorphic-git 读 pack 是整个读进内存的，大 pack 直接失败
-      // （2026-09-18 实测：1.38GB 单包让 log/diff/readBlob 全废）。
-      // git-cli 的调用每次都带 `-c gc.auto=0`，这里再写死进仓库自身的 config ——
-      // 防止任何不带那些参数的 git 调用（手工调试、将来的新代码）把它打回去。
-      await pinNoGc(this.workspaceDir, this.gitdir)
+      // 本仓库与 isomorphic-git 共用，必须让它读得动：它读 pack 是整个读进内存的，
+      // 大包直接失败（2026-09-18 实测：1.38GB 单包让 log/diff/readBlob 全废）。
+      // git-cli 的调用每次都带 `-c gc.auto=0`，这里再把「禁自动 gc + 单包上限」
+      // 写死进仓库自身的 config —— 挡住任何不带那些参数的 git 调用。
+      await pinIsoSafeConfig(this.workspaceDir, this.gitdir)
 
       // 写默认 .gitignore（若用户已有则不覆盖）
       if (!fs.existsSync(gitignorePath)) {

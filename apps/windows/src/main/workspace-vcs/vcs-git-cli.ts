@@ -151,24 +151,34 @@ function runGit(
 export { detectGit }
 
 /**
- * 把 `gc.auto=0` 写死进仓库自身的 config。
+ * 把「本仓库必须保持 isomorphic-git 可读」写死进仓库自身的 config。
  *
- * 本仓库与 isomorphic-git 共用，**必须保持松散对象形态** —— 真 git 的 gc 会把它压成
- * 大 pack，而 isomorphic-git 读 pack 是整个读进内存的，大 pack 直接失败
- * （2026-09-18 实测：1.38GB 单包让 log/diff/readBlob 全废）。
+ * isomorphic-git 读 pack 是**把整个 pack 读进内存**的（`fs.read` 一个 Buffer），
+ * 大包直接读不动（2026-09-18 实测：1.38GB 单包让 log/diff/readBlob 全废）。
+ * 本仓库与它共用，所以要挡住两条路：
+ *
+ *  - `gc.auto=0`：挡住自动 gc（就是它压出了那个 1.38GB 单包）。
+ *  - `pack.packSizeLimit=64m`：万一有人手工 `git gc`，产出的也是多个小包 ——
+ *    isomorphic-git 的 readObjectPacked 遍历所有 `.idx`，多包对它透明。
  *
  * 调用方每次都带 `-c gc.auto=0`，这里再落一道到仓库自己身上 —— 防止任何不带那些参数
- * 的 git 调用（手工调试、将来的新代码、用户自己敲的 git）把它打回去。
+ * 的 git 调用（手工调试、将来的新代码、用户自己敲的 git）把它打回不可读的形态。
  * 失败不抛：真 git 不可用时本就没有这个风险。
  */
-export async function pinNoGc(workspaceDir: string, gitdir: string): Promise<void> {
-  try {
-    const r = await runGit(workspaceDir, gitdir, ['config', '--local', 'gc.auto', '0'])
-    if (r.code !== 0) {
-      log.warn(`[pinNoGc] 写入 gc.auto=0 失败（退出码 ${r.code}）：${r.stderr.trim().slice(0, 160)}`)
+export async function pinIsoSafeConfig(workspaceDir: string, gitdir: string): Promise<void> {
+  const pairs: Array<[string, string]> = [
+    ['gc.auto', '0'],
+    ['pack.packSizeLimit', '64m'],
+  ]
+  for (const [key, value] of pairs) {
+    try {
+      const r = await runGit(workspaceDir, gitdir, ['config', '--local', key, value])
+      if (r.code !== 0) {
+        log.warn(`[pinIsoSafeConfig] 写入 ${key} 失败（退出码 ${r.code}）：${r.stderr.trim().slice(0, 160)}`)
+      }
+    } catch (err) {
+      log.warn(`[pinIsoSafeConfig] 写入 ${key} 异常（真 git 不可用时可忽略）:`, err)
     }
-  } catch (err) {
-    log.warn('[pinNoGc] 写入 gc.auto=0 异常（真 git 不可用时可忽略）:', err)
   }
 }
 

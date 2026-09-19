@@ -70,6 +70,34 @@ const LOOSE_SIZE_KIB_THRESHOLD = 200 * 1024
 /** git gc 超时：GB 级对象库重打包在 Windows 上可达数分钟 */
 const GC_TIMEOUT_MS = 600_000
 
+/**
+ * gc 产出单包的上限。
+ *
+ * ## 为什么必须限制
+ *
+ * isomorphic-git 读 pack 是**把整个 pack 读进内存**（`fs.read(packFile)` 一个 Buffer，
+ * 失败即吞成 null 并报「too large to read into memory」）。所以包越大，
+ * 越依赖**当时的可用内存** —— 那是负载相关的偶发故障，不是稳定的失败：
+ * 同一个包在内存充裕时读得动、吃紧时读不动。2026-09-18 工作区仓库被压成
+ * 1.38GB 单包（成因是另一条路径的自动 gc）时就是这样，log/diff/readBlob 全废。
+ *
+ * cloud-sync 这边的 `git gc --prune=now` 原来不限制尺寸，压出的 sync 包实测 629MB ——
+ * 目前能读，纯属侥幸。
+ *
+ * ## 为什么这样修得通
+ *
+ * `git gc` 认 `pack.packSizeLimit`，会把对象分到多个包（scripts/probe-git-pack-size-limit.mjs
+ * 实测：6MB 内容 + 1m 限制 → 8 个包、最大 769KB）。而 isomorphic-git 的
+ * `readObjectPacked` 本来就遍历 `objects/pack` 下所有 `.idx`，**多包对它透明**。
+ *
+ * 取 64MB：当前 sync 仓库压后约 630MB → 十来个包，每个都能轻松读进内存。
+ * 再大就重新逼近内存风险；再小则包数过多，iso 每读一个对象都要多扫一批 `.idx`。
+ * （git 对这个值有 1MiB 下限，低于它会被夹上去。）
+ */
+const PACK_SIZE_LIMIT = '64m'
+/** 解析成字节，供 gc 后自检用 */
+const PACK_SIZE_LIMIT_BYTES = 64 * 1024 * 1024
+
 /** 分级参数兜底（正常由 DEFAULT_CLOUD_SYNC_CONFIG 提供；旧配置文件缺字段时用） */
 const FALLBACK_SMALL_THRESHOLD_BYTES = 5 * 1024 * 1024
 const FALLBACK_LARGE_BATCH_BYTES = 50 * 1024 * 1024
@@ -708,18 +736,45 @@ export class CloudSyncManager extends EventEmitter {
       `[maybePruneObjectStore] packs=${packCount} loose=${looseCount}(${Math.round(looseSizeKib / 1024)}MB)，执行 git gc…`,
     )
     try {
-      await execFileAsync('git', ['gc', '--prune=now'], {
-        cwd: this.syncDir,
-        timeout: GC_TIMEOUT_MS,
-        windowsHide: true,
-      })
+      // packSizeLimit 是关键：不限制就会压出 GB 级单包，而 isomorphic-git 要整个读进内存。
+      // 见 PACK_SIZE_LIMIT 的注释。
+      await execFileAsync(
+        'git',
+        ['-c', `pack.packSizeLimit=${PACK_SIZE_LIMIT}`, 'gc', '--prune=now'],
+        { cwd: this.syncDir, timeout: GC_TIMEOUT_MS, windowsHide: true },
+      )
       logger.info('[maybePruneObjectStore] git gc 完成')
+
+      // 自检而不是只看退出码：`git gc` 对不认识的配置是**静默忽略**的，
+      // 退出码 0 完全不能证明分包生效（今天刚被「退出码 0 但什么都没做」坑过一次）。
+      // 超限只告警不抛：它不影响同步本身，但必须让人看见 —— 否则就是下一个 1.38GB。
+      const oversize = this.listPacks().filter((p) => p.bytes > PACK_SIZE_LIMIT_BYTES)
+      if (oversize.length) {
+        logger.warn(
+          `[maybePruneObjectStore] ⚠️ 有 ${oversize.length} 个 pack 超过 ${PACK_SIZE_LIMIT} 上限` +
+            `（最大 ${Math.round(Math.max(...oversize.map((p) => p.bytes)) / 1048576)}MB）——` +
+            `isomorphic-git 可能读不动它们：${oversize.slice(0, 3).map((p) => p.name).join(', ')}`,
+        )
+      }
     } catch (err) {
       logger.warn(
         `[maybePruneObjectStore] git gc 失败（可忽略，不影响同步）: ${
           err instanceof Error ? err.message : String(err)
         }`,
       )
+    }
+  }
+
+  /** 列出 sync 仓库当前的所有 pack 及其字节数 */
+  private listPacks(): Array<{ name: string; bytes: number }> {
+    const packDir = path.join(this.syncDir, '.git', 'objects', 'pack')
+    try {
+      return fs
+        .readdirSync(packDir)
+        .filter((name) => name.endsWith('.pack'))
+        .map((name) => ({ name, bytes: fs.statSync(path.join(packDir, name)).size }))
+    } catch {
+      return []
     }
   }
 
