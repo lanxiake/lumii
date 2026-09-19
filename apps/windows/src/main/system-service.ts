@@ -23,6 +23,7 @@ import {
   sanitizeCommandArg,
 } from './security-utils'
 import { VCS_SKIP_DIRS } from './workspace-vcs/vcs-ignore'
+import { killPidTree } from './platform/process-kill'
 
 const execAsync = promisify(exec)
 
@@ -780,8 +781,9 @@ export class SystemService {
     const safePid = validatePid(pid)
 
     try {
-      // 使用参数化命令防止注入
-      await execAsync(`taskkill /PID ${safePid} /F`)
+      // 收敛到 platform/process-kill：原先只有 `taskkill /PID x /F`（无 /T，只杀单进程），
+      // 现在 Windows 走 /T 连子树一起收，POSIX 走进程组信号——见该模块的注释。
+      killPidTree(safePid)
       log.info(`进程已结束: ${safePid}`)
     } catch (error) {
       log.error(`结束进程失败: ${safePid}`, error)

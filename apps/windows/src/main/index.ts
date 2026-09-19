@@ -1688,6 +1688,19 @@ async function performCleanup(): Promise<void> {
     trayManager?.destroy()
     fileLogger.destroy()
 
+    // 最后收一次技能子进程（bash / python / node）。
+    //
+    // 为什么需要：POSIX 下 `spawnChildInGroup` 用了 `detached: true`，子进程不再
+    // 随父进程退出而终止——正常路径由各 runner 自己收拾，这里兜住
+    // 「Electron 被强杀 / 技能卡住不响应 abort」时的孤儿。
+    try {
+      const { killAllTrackedChildren } = await import('./platform/process-kill.js')
+      const n = killAllTrackedChildren()
+      if (n > 0) log.info(`[performCleanup] 已回收 ${n} 个残留技能子进程`)
+    } catch (err) {
+      log.warn('[performCleanup] 技能子进程回收失败:', err)
+    }
+
     log.info('资源清理完成')
   } catch (error) {
     log.error('清理资源时出错:', error)

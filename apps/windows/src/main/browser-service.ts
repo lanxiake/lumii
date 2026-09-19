@@ -32,6 +32,7 @@ const log = {
 // ============================================================================
 
 import type { BrowserServerState, BrowserRouteContext, ResolvedBrowserConfig } from '@mtbot/browser-control'
+import { killPidTree } from './platform/process-kill'
 
 export type { BrowserRouteContext }
 
@@ -102,7 +103,6 @@ function isMtbotChrome(commandLine: string | undefined): boolean {
  * 不 kill 用户自己的 Chrome 或其他非 mtbot 进程
  */
 async function killMtbotStaleBrowserProcess(port: number): Promise<boolean> {
-  const { spawn } = await import('node:child_process')
   const { inspectPortUsage } = await import('./vendor/ports-inspect.js')
 
   try {
@@ -119,11 +119,9 @@ async function killMtbotStaleBrowserProcess(port: number): Promise<boolean> {
       }
 
       log.warn(`[killMtbotStaleBrowserProcess] 发现 mtbot Chrome 残留 pid=${listener.pid} 占用端口 ${port}，正在 kill...`)
-      spawn('taskkill', ['/F', '/T', '/PID', String(listener.pid)], {
-        stdio: 'ignore',
-        detached: true,
-        windowsHide: true,
-      })
+      // 收敛到 platform/process-kill：Windows 走 taskkill /T /F，POSIX 走进程组信号。
+      // 这里杀的是**外部进程**（非本进程 spawn 的子进程），没有 child 句柄，故用 pid 版。
+      killPidTree(listener.pid)
       killed = true
     }
 

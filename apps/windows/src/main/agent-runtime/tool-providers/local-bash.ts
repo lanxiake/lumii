@@ -10,34 +10,21 @@
 // 与 shell-runner / ts-runner / python-runner 保持一致：统一用 node: 前缀。
 // 四处 forceKillProcess 将被 T3.1 合并到 main/platform/process-kill.ts，
 // 导入写法统一可避免合并时漏改。
-import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
+import { type ChildProcess } from 'node:child_process'
 import * as iconv from 'iconv-lite'
 import { resolveShell } from '@mtbot/agent-runtime'
 import { buildScriptEnv } from '../../runtime-env'
+import { killProcessTree, spawnChildInGroup } from '../../platform/process-kill'
 
 /**
  * 强制终止子进程（含进程树）。
  * Windows 上 SIGTERM/SIGKILL 只杀 shell 本身，孙进程（如 bash -c 里再起的 python）
  * 不会被终止，其占用的 stdio 管道 handle 会导致 'close' 事件永远不触发、Promise 永久挂起。
+ *
+ * 实现已收敛到 `platform/process-kill.ts`（与三个 runner 共用）。
  */
 function forceKillProcess(child: ChildProcess): void {
-  const pid = child.pid
-  if (!pid) {
-    child.kill('SIGKILL')
-    return
-  }
-  if (process.platform === 'win32') {
-    try {
-      spawnSync('taskkill', ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore', timeout: 5000, windowsHide: true })
-    } catch {
-      child.kill('SIGKILL')
-    }
-  } else {
-    child.kill('SIGTERM')
-    setTimeout(() => {
-      if (!child.killed) child.kill('SIGKILL')
-    }, 2000)
-  }
+  killProcessTree(child)
 }
 
 // 主题3 P1-1：输出上限提升到 1MB（配合 tool-result-persist hook 落盘）。
@@ -70,7 +57,7 @@ export async function executeLocalCommand(
       return
     }
 
-    const child = spawn(shellPath, shellArgs, {
+    const child = spawnChildInGroup(shellPath, shellArgs, {
       cwd,
       stdio: ['ignore', 'pipe', 'pipe'],
       // 追加内置 node / python shim 到 PATH，用户没装环境也能跑 `node x.js` / `python3 x.py`

@@ -10,13 +10,14 @@
  * - AbortSignal 外部取消
  */
 
-import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
+import { type ChildProcess } from 'node:child_process'
 import * as path from 'node:path'
 import * as fs from 'node:fs'
 import type { RunnerOptions, RunnerResult } from './ts-runner'
 import { extractResult } from './ts-runner'
 import { detectSystemPython, ensureBundledPython } from './python-env'
 import { buildScriptEnv } from './runtime-env'
+import { killProcessTree, spawnChildInGroup } from './platform/process-kill'
 
 /** 日志 */
 const log = {
@@ -109,7 +110,7 @@ export class PythonRunner {
       let timeoutId: ReturnType<typeof setTimeout> | null = null
 
       try {
-        child = spawn(args.command, args.args, {
+        child = spawnChildInGroup(args.command, args.args, {
           cwd: skillDir,
           env: buildScriptEnv({
             ...(extraEnv ?? {}),
@@ -265,23 +266,9 @@ export class PythonRunner {
  * 强制终止子进程（含进程树）。
  * Windows 上 kill('SIGTERM'/'SIGKILL') 只杀 python.exe 本身，若脚本又 fork 了子进程，
  * 其占用的 stdio 管道 handle 会导致 'close' 事件永远不触发、Promise 永久挂起。
+ *
+ * 实现已收敛到 `platform/process-kill.ts`（与 shell-runner / ts-runner / local-bash 共用）。
  */
 function forceKillProcess(child: ChildProcess): void {
-  const pid = child.pid
-  if (!pid) {
-    child.kill('SIGKILL')
-    return
-  }
-  if (process.platform === 'win32') {
-    try {
-      spawnSync('taskkill', ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore', timeout: 5000, windowsHide: true })
-    } catch {
-      child.kill('SIGKILL')
-    }
-  } else {
-    child.kill('SIGTERM')
-    setTimeout(() => {
-      if (!child.killed) child.kill('SIGKILL')
-    }, 2000)
-  }
+  killProcessTree(child)
 }

@@ -14,11 +14,12 @@
  * - .bat / .cmd → cmd.exe /c (Win)
  */
 
-import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
+import { type ChildProcess } from 'node:child_process'
 import * as path from 'node:path'
 import type { RunnerOptions, RunnerResult } from './ts-runner'
 import { extractResult } from './ts-runner'
 import { createLogger } from './logger'
+import { killProcessTree, spawnChildInGroup } from './platform/process-kill'
 
 /** 日志 */
 const log = createLogger('ShellRunner')
@@ -143,7 +144,7 @@ export class ShellRunner {
           }
         }
 
-        child = spawn(shellCmd.command, shellCmd.args, {
+        child = spawnChildInGroup(shellCmd.command, shellCmd.args, {
           cwd: workDir,
           env: safeEnv,
           stdio: ['ignore', 'pipe', 'pipe'],
@@ -266,32 +267,10 @@ export class ShellRunner {
   /**
    * 强制终止子进程（含进程树）
    *
-   * Windows 上 SIGTERM 对 cmd.exe/powershell 子进程树无效，
-   * 需要使用 taskkill /T /F 来终止整个进程树。
-   * Unix 上使用 SIGTERM → 2s → SIGKILL 的标准流程。
+   * 实现已收敛到 `platform/process-kill.ts`——Windows 的 `taskkill /T /F` 与
+   * POSIX 的 `SIGTERM → 2s → SIGKILL` 语义由那里统一保证。
    */
   private forceKillProcess(child: ChildProcess): void {
-    const pid = child.pid
-    if (!pid) {
-      child.kill('SIGKILL')
-      return
-    }
-
-    if (process.platform === 'win32') {
-      try {
-        spawnSync('taskkill', ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore', timeout: 5000, windowsHide: true })
-        log.debug('Windows 进程树已终止', { pid })
-      } catch {
-        // taskkill 失败时 fallback 到普通 kill
-        child.kill('SIGKILL')
-      }
-    } else {
-      child.kill('SIGTERM')
-      setTimeout(() => {
-        if (!child.killed) {
-          child.kill('SIGKILL')
-        }
-      }, 2000)
-    }
+    killProcessTree(child)
   }
 }

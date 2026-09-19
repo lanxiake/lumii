@@ -9,12 +9,13 @@
  * - 超时自动 kill
  */
 
-import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
+import { type ChildProcess } from 'node:child_process'
 import * as path from 'node:path'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import { createHash } from 'node:crypto'
 import { buildScriptEnv, resolveNodeExec } from './runtime-env'
+import { killProcessTree, spawnChildInGroup } from './platform/process-kill'
 
 /** 日志 */
 const log = {
@@ -120,7 +121,7 @@ export class TypeScriptRunner {
         const node = this.nodePath
           ? { command: this.nodePath, env: {} }
           : resolveNodeExec()
-        child = spawn(node.command, args, {
+        child = spawnChildInGroup(node.command, args, {
           // 始终使用原始入口文件的目录，确保技能内相对路径正确
           cwd: cwd ?? path.dirname(entryPath),
           env: buildScriptEnv({
@@ -246,18 +247,7 @@ export class TypeScriptRunner {
   }
 
   private forceKillProcess(child: ChildProcess): void {
-    const pid = child.pid
-    if (!pid) { child.kill('SIGKILL'); return }
-    if (process.platform === 'win32') {
-      try {
-        spawnSync('taskkill', ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore', timeout: 5000, windowsHide: true })
-      } catch {
-        child.kill('SIGKILL')
-      }
-    } else {
-      child.kill('SIGTERM')
-      setTimeout(() => { if (!child.killed) child.kill('SIGKILL') }, 2000)
-    }
+    killProcessTree(child)
   }
 }
 

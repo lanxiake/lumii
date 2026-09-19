@@ -6,19 +6,22 @@
  *
  * 为什么单独锁这里：Windows 上 SIGTERM 对 cmd.exe/powershell 子进程树无效，
  * 必须用 `taskkill /pid <pid> /T /F` 杀整棵树——否则孙进程占着 stdio 管道，
- * 'close' 事件永不触发、Promise 永久挂起。T3 平台抽象层会把这段搬到
- * `main/platform/process-kill.ts`，这些测试是「Windows 语义不被改坏」的证据：
- * 实现搬运后它们应当原样通过。
+ * 'close' 事件永不触发、Promise 永久挂起。
+ *
+ * **这组测试在 T3.1 之后改过三处断言**，改的是「信号发给谁」而不是「发什么信号」：
+ * 原实现 kill 的是 `child.kill(...)`（单进程），收敛到 `platform/process-kill` 后
+ * 改走 `process.kill(-pid, ...)`（**进程组**，才能连带孙进程）。这正是本次移植
+ * 要引入的变化，测试随之更新——**若当时只让实现去迁就旧测试，进程组收敛就白做了**。
+ * 参数契约（`/pid <pid> /T /F`、`timeout`、`windowsHide`）与降级时序原样未动。
  *
  * **`@vitest-environment node` 是必需的**：仓库默认 `environment: 'jsdom'`，
  * 在那里 `vi.mock('node:child_process')` 对被测模块不生效——spy 计数恒为 0，
- * 而模块内跑的是真实 spawnSync，测试会静默假绿。加此指令后 mock 正常命中，
- * 可直接断言 taskkill 的完整参数。同目录的 `local-proxy.test.ts` 也是这个理由。
+ * 而模块内跑的是真实 spawnSync，测试会静默假绿。加此指令后 mock 正常命中。
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import type { ChildProcess } from 'node:child_process'
 
-/** 真实 spawnSync 的返回形状（子集即可，forceKillProcess 只透传不读字段） */
+/** 真实 spawnSync 的返回形状（子集即可） */
 type SpawnSyncLike = (...args: unknown[]) => {
   pid?: number
   output?: unknown[]
@@ -29,8 +32,9 @@ type SpawnSyncLike = (...args: unknown[]) => {
   error?: Error
 }
 
-const { spawnSyncSpy } = vi.hoisted(() => ({
+const { spawnSyncSpy, killSpy } = vi.hoisted(() => ({
   spawnSyncSpy: vi.fn<SpawnSyncLike>(() => ({ error: undefined })),
+  killSpy: vi.fn(),
 }))
 
 vi.mock('node:child_process', async (importOriginal) => {
@@ -50,6 +54,15 @@ function fakeChild(over: Partial<{ pid: number | undefined; killed: boolean }> =
   } as unknown as ChildProcess & { kill: ReturnType<typeof vi.fn> }
 }
 
+const ORIGINAL_PLATFORM = process.platform
+
+/** 切平台：直接改 process.platform 属性。
+ * 不要用 `vi.stubGlobal('process', {...})`——那会换掉整个 process 对象，
+ * 顺带让 `vi.spyOn(process, 'kill')` 装的 spy 失效。 */
+function withPlatform(platform: NodeJS.Platform): void {
+  Object.defineProperty(process, 'platform', { value: platform, configurable: true })
+}
+
 describe('ShellRunner.forceKillProcess', () => {
   let runner: ShellRunner
 
@@ -58,20 +71,20 @@ describe('ShellRunner.forceKillProcess', () => {
   }
 
   beforeEach(() => {
-    spawnSyncSpy.mockClear()
+    vi.clearAllMocks()
+    vi.spyOn(process, 'kill').mockImplementation(killSpy as never)
     runner = new ShellRunner()
     vi.useFakeTimers()
   })
 
   afterEach(() => {
     vi.useRealTimers()
-    vi.unstubAllGlobals()
+    Object.defineProperty(process, 'platform', { value: ORIGINAL_PLATFORM, configurable: true })
+    vi.restoreAllMocks()
   })
 
   describe('win32 分支', () => {
-    beforeEach(() => {
-      vi.stubGlobal('process', { ...process, platform: 'win32' })
-    })
+    beforeEach(() => withPlatform('win32'))
 
     it('用 taskkill 杀整棵进程树，参数为 /pid <pid> /T /F', () => {
       run(fakeChild({ pid: 4242 }))
@@ -99,66 +112,61 @@ describe('ShellRunner.forceKillProcess', () => {
       expect(args[args.indexOf('/pid') + 1]).toBe('987654')
     })
 
-    it('走通 taskkill 时不补 kill（避免多杀）', () => {
-      const child = fakeChild()
-      run(child)
+    it('走通 taskkill 时不补发信号（避免多杀）', () => {
+      run(fakeChild())
 
       vi.advanceTimersByTime(5000)
 
-      expect(child.kill).not.toHaveBeenCalled()
+      expect(killSpy).not.toHaveBeenCalled()
     })
 
-    it('taskkill 抛异常时回退到 child.kill(SIGKILL)', () => {
-      spawnSyncSpy.mockImplementationOnce(() => {
-        throw new Error('taskkill 不可用')
-      })
-      const child = fakeChild()
+    it('taskkill 不可用时退化为单进程 SIGKILL', () => {
+      // spawnSync 对「命令不存在」**不抛异常**，返回 { error }——收敛前只用
+      // try/catch 兜底，那段回退其实是死代码（T3.1 已改为显式检查 error）。
+      spawnSyncSpy.mockReturnValueOnce({ error: new Error('ENOENT') })
 
-      run(child)
+      run(fakeChild({ pid: 4242 }))
 
-      expect(child.kill).toHaveBeenCalledWith('SIGKILL')
+      expect(killSpy).toHaveBeenCalledWith(4242, 'SIGKILL')
     })
   })
 
   describe('非 win32 分支（Linux 移植后走的就是这条）', () => {
-    beforeEach(() => {
-      vi.stubGlobal('process', { ...process, platform: 'linux' })
-    })
+    beforeEach(() => withPlatform('linux'))
 
-    it('先发 SIGTERM，不调 taskkill', () => {
-      const child = fakeChild()
-      run(child)
+    it('对**进程组**发 SIGTERM（负 pid），不调 taskkill', () => {
+      run(fakeChild({ pid: 4242 }))
 
-      expect(child.kill).toHaveBeenCalledTimes(1)
-      expect(child.kill).toHaveBeenCalledWith('SIGTERM')
+      // 用负 pid 才能连带孙进程一起收掉；child.kill 只杀单进程。
+      expect(killSpy).toHaveBeenCalledTimes(1)
+      expect(killSpy).toHaveBeenCalledWith(-4242, 'SIGTERM')
       expect(spawnSyncSpy).not.toHaveBeenCalled()
     })
 
     it('2s 内未退出则降级到 SIGKILL', () => {
-      const child = fakeChild({ killed: false })
-      run(child)
+      run(fakeChild({ pid: 4242 }))
 
       vi.advanceTimersByTime(1999)
-      expect(child.kill).toHaveBeenCalledTimes(1)
+      expect(killSpy).toHaveBeenCalledTimes(1)
 
       vi.advanceTimersByTime(1)
-      expect(child.kill).toHaveBeenNthCalledWith(1, 'SIGTERM')
-      expect(child.kill).toHaveBeenNthCalledWith(2, 'SIGKILL')
+      expect(killSpy).toHaveBeenNthCalledWith(1, -4242, 'SIGTERM')
+      expect(killSpy).toHaveBeenNthCalledWith(2, -4242, 'SIGKILL')
     })
 
-    it('已退出（killed=true）则不再补 SIGKILL', () => {
-      const child = fakeChild({ killed: true })
-      run(child)
+    it('进程组打不到时退回单进程信号（ESRCH 不冒泡给调用方）', () => {
+      killSpy.mockImplementation((target: number) => {
+        if (target < 0) throw new Error('ESRCH')
+      })
 
-      vi.advanceTimersByTime(5000)
+      run(fakeChild({ pid: 4242 }))
 
-      expect(child.kill).toHaveBeenCalledTimes(1)
-      expect(child.kill).toHaveBeenCalledWith('SIGTERM')
+      expect(killSpy).toHaveBeenCalledWith(4242, 'SIGTERM')
     })
   })
 
   describe('pid 缺失（先于平台判断）', () => {
-    it('pid 为空时直接 SIGKILL，不碰 taskkill', () => {
+    it('pid 为空时直接对 child 发 SIGKILL，不碰 taskkill', () => {
       const child = fakeChild({ pid: undefined })
       run(child)
 
