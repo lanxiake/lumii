@@ -138,3 +138,56 @@ t01/t02/t08/t09 本轮 PASS，其中 t08/t09 的**首个**调用就是 `file_mov
 t01/t02/t08/t09 一对一错，t05 一对一错）。后续改动工具面之后，应以上面这张
 **逐用例两轮表**为对照，而不是拿总分做趋势。
 
+---
+
+## 2026-09-19 · t11 修复与验证（第二轮之后，同日）
+
+### 诊断：不是"越级"，是被**失实指导**引过去的
+
+从日志取到第二轮 t11 的真实序列（13:39:50 起）：
+
+```
+skill_search("代码审查, code review, …") → skill_search("代码, 编程, …") → skill_search() 列出全部
+  → execute_skill('skillnet', 'search "code review 代码审查" --limit 5')   ← 失败：技能不存在
+  → skill_invoke("skillnet")                                              ← 加载 31,485 字符文档
+```
+
+每一步都不是模型自己发明的：
+
+- `skill_search` 的描述与零结果 hint 当时都写着「**If no local skills match, ALWAYS call
+  `execute_skill` with skillnet**」——模型照做了；
+- 而本机 `skillnet` 是**文档技能**（`[executable]` 列表里没有它），
+  `execute_skill('skillnet', …)` **必然失败**（"技能不存在: skillnet"）；
+- 失败 hint 又说「若是首次执行，可先用 `skill_invoke` 读它的 SKILL.md」——于是走到越级调用。
+
+**即：这是一条「提示词指向工具面没给的路径」的链**（与工具面治理文档 §二 场景 4 的
+`task_complete not found` 同类），不是"模型不守分层"。
+它同时说明本用例的 reject 判据抓的**不只是猜名字**——任何走不到 search 为止的行为链都会被抓住，
+这是对的：用户问的是一句话答案，不是一次 31KB 的文档加载。
+
+### 改动（最小面：三处文案，`skill-tools.ts` + `execute-skill-tool.ts`）
+
+| 位置 | 改动 |
+| --- | --- |
+| `skill_search` 描述 | 改为 **discovery first**：凡「有没有…的技能」这类问题先用它、并**从结果作答**；远程市场改为「用户主动的下一步，经 `skill_invoke` 加载，不是 `execute_skill`」 |
+| `skill_search` 零结果 hint | 改为「如实报告；远程市场是用户主动的下一步」——不再给一条必然失败的 execute 指令 |
+| `skill_invoke` 描述 | 补前置条件：传**已经知道**的名字（来自系统提示词列表或 skill_search 结果）；没有确切名字就先 search，**不要猜** |
+| `execute_skill` 描述 | 补「id 取 `[executable]` 列表；技能列表里可见的其他 id（如 `skillnet`）不可执行，到这里会失败」 |
+
+**守卫**（防回归）：
+- `skill-tools.test.ts` 新增两条断言——零结果 hint 不含 `execute_skill`、描述里市场入口是 `skill_invoke`；
+- `tool-name-references.test.ts` 的 `ALLOWED_NON_TOOL_BACKTICKS` 加 `skillnet`（技能名而非工具名，已附理由）。
+
+### 验证
+
+| 观测 | 结果 |
+| --- | --- |
+| 修复前（两轮评测） | ❌ ❌ —— 序列均含 `execute_skill` + `skill_invoke` |
+| 修复后连跑 4 次（`TC_ONLY=t11`） | ✅ ✅ ✅ ✅ —— **每次序列都只有 `skill_search`** |
+
+`@mtbot/agent-runtime` 全量 214 文件 / 2149 用例全绿；两包 `tsc` 干净。
+
+> **为什么 4 次够**：这条不是"调提示词碰运气"——修复的对象是一条**必然失败**的指令，
+> 删掉它之后"失败 hint 诱导 skill_invoke"的链条整体消失。修复前后各 2+ 次观测一致，
+> 且机理解释完整（见「诊断」）。**换工具面后仍应以本节的序列为准重跑。**
+
