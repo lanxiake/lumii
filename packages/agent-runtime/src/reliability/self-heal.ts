@@ -11,6 +11,32 @@ import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import { classifyLlmError, repairMessageSequence } from "./message-repair.js";
 import { pruneThinkingForDeepSeek } from "../agent/message-pruner.js";
 
+/**
+ * output_truncated 首次自愈注入：给方法，让模型换更小的输出单元。
+ *
+ * 措辞刻意点名 `file_write` 与 `mode='append'`：实测截断现场就是「一次性输出整篇长文档」，
+ * 只说「拆分任务」不够——模型不知道拆到什么粒度、用哪个参数接着写。6000 字符是留了余量
+ * 的经验值（实测 11.5k 字符处就截断，且思考模型的预算会被 thinking 吃掉大半）。
+ */
+const TRUNCATION_SPLIT_HINT = [
+  "上一轮回复因单次输出超长被截断（tool call 的参数 JSON 未闭合），该半截消息已被丢弃，该次调用没有生效。",
+  "请缩小单次输出后继续，不要在一次回复里重放被截断的全部内容：",
+  "- 写文件：先用 file_read 确认目标文件现状，再用 file_write（默认 overwrite）只写文件头部与首个章节，其余章节用 mode='append' 逐段追加，每次 content 不超过 6000 字符；",
+  "- 其他大参数工具：把一次调用拆成多次更小的调用；",
+  "- 全部完成后用一句话说明结果与文件路径。",
+].join("\n");
+
+/**
+ * output_truncated 第 2 次自愈注入：硬上限。
+ *
+ * 首次提示没生效说明模型仍按原文长度组织输出，必须给一个不容商量的字符数上限，
+ * 否则每轮重放还要再烧掉约 2.6 万 output token。
+ */
+const TRUNCATION_HARD_CAP_HINT = [
+  "仍因输出超长被截断。本轮只允许写不超过 3000 字符的内容（第一段即可），写完立即结束本轮，",
+  "不要输出其余章节；剩余部分留到下一轮用 file_write mode='append' 继续。",
+].join("\n");
+
 /** 自愈控制器所需的协作回调（由 AgentInstance 注入） */
 export interface SelfHealDeps {
   readonly instanceId: string;
@@ -142,9 +168,12 @@ export class SelfHealController {
   /**
    * 输出被截断（tool call arguments 半截 JSON）后重试。
    *
-   * 丢尾部错误 assistant 并注入「继续、拆分任务」的恢复提示，让模型在下一轮以更小
-   * 输出完成同一目标。这里不能像 prompt_too_long 那样丢历史——问题不在上下文超限，
-   * 而在单次输出超限，丢历史反而破坏续写上下文。
+   * 丢尾部错误 assistant 并注入「缩小单次输出」的恢复提示。只丢消息不降输出量，模型会
+   * 拿着同样的上下文原样重放一遍、再次撞上同一上限；必须让它换更小的输出单元（长文件
+   * 分次写）。这里不能像 prompt_too_long 那样丢历史——问题不在上下文超限，而在单次
+   * 输出超限，丢历史反而破坏续写上下文。
+   *
+   * 提示按 attempt 分级：首次给方法，再犯就是没听劝，收紧成「本轮只写 3000 字符」。
    */
   private healOutputTruncated(): void {
     const messages = this.deps.getMessages();
@@ -153,8 +182,15 @@ export class SelfHealController {
       return !(msg.role === "assistant" && msg.stopReason === "error");
     });
     this.deps.replaceMessages(cleaned as AgentMessage[]);
+    // 注入后最后一条即 user，continueRetry 的通用英文兜底句自动跳过（见其 role 判断）
+    this.deps.appendMessage({
+      role: "user",
+      content: this.attempts <= 1 ? TRUNCATION_SPLIT_HINT : TRUNCATION_HARD_CAP_HINT,
+      timestamp: Date.now(),
+    } as AgentMessage);
     console.log(
       `[AgentInstance:${this.deps.instanceId}] 自愈层: output_truncated 丢尾部错误 assistant 重试`,
+      `hint=${this.attempts <= 1 ? "split" : "hard-cap"}`,
       `before=${messages.length} after=${cleaned.length}`,
     );
     this.continueRetry();

@@ -13,6 +13,7 @@ function makeDeps(
   deps: SelfHealDeps;
   replaceMessages: ReturnType<typeof vi.fn>;
   continueAgent: ReturnType<typeof vi.fn>;
+  appendMessage: ReturnType<typeof vi.fn>;
   onError: ReturnType<typeof vi.fn>;
   onSettled: ReturnType<typeof vi.fn>;
   state: { messages: AgentMessage[] };
@@ -22,6 +23,7 @@ function makeDeps(
     state.messages = m;
   });
   const continueAgent = vi.fn(async () => {});
+  const appendMessage = vi.fn();
   const onError = vi.fn();
   const onSettled = vi.fn();
   const deps: SelfHealDeps = {
@@ -30,7 +32,7 @@ function makeDeps(
     cooldownMs: 10,
     getMessages: () => state.messages,
     replaceMessages,
-    appendMessage: vi.fn(),
+    appendMessage,
     continueAgent,
     isDestroyed: () => false,
     isEndingPause: () => false,
@@ -38,7 +40,7 @@ function makeDeps(
     onSettled,
     ...overrides,
   };
-  return { deps, replaceMessages, continueAgent, onError, onSettled, state };
+  return { deps, replaceMessages, continueAgent, appendMessage, onError, onSettled, state };
 }
 
 describe("SelfHealController", () => {
@@ -110,6 +112,43 @@ describe("SelfHealController", () => {
     const c = new SelfHealController(deps);
     expect(c.attemptSelfHeal()).toBe(true);
     expect(continueAgent).toHaveBeenCalledTimes(1);
+  });
+
+  it("output_truncated：首次注入分段写入提示，不注入通用英文兜底句", () => {
+    const messages: AgentMessage[] = [
+      { role: "user", content: "写一份长文档" } as unknown as AgentMessage,
+      errorMsg("Unterminated string in JSON at position 9723"),
+    ];
+    const { deps, appendMessage } = makeDeps(messages);
+    const c = new SelfHealController(deps);
+    expect(c.attemptSelfHeal()).toBe(true);
+    expect(appendMessage).toHaveBeenCalledTimes(1);
+    const injected = appendMessage.mock.calls[0]![0] as { role: string; content: string };
+    expect(injected.role).toBe("user");
+    expect(injected.content).toContain("mode='append'");
+    expect(injected.content).toContain("6000");
+    // 提示已注入 → continueRetry 的通用句必须让位（否则模型只看到「please continue」照样重放）
+    expect(injected.content).not.toContain("Please continue with the task");
+  });
+
+  it("output_truncated：第 2 次收紧为 3000 字符硬上限", () => {
+    const { deps, appendMessage, state } = makeDeps([
+      errorMsg("Unterminated string in JSON at position 9723"),
+    ]);
+    const c = new SelfHealController(deps);
+    expect(c.attemptSelfHeal()).toBe(true);
+    // 模拟重试后再次截断：新一轮 LLM 又落了一条 error assistant
+    state.messages = [
+      ...state.messages,
+      errorMsg("Unterminated string in JSON at position 12345"),
+    ];
+    expect(c.attemptSelfHeal()).toBe(true);
+    expect(appendMessage).toHaveBeenCalledTimes(2);
+    const second = appendMessage.mock.calls[1]![0] as { content: string };
+    expect(second.content).toContain("3000");
+    expect(second.content).not.toBe(
+      (appendMessage.mock.calls[0]![0] as { content: string }).content,
+    );
   });
 
   it("rate_limit：延迟后 continue 重试", async () => {

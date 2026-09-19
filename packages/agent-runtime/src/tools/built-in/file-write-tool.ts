@@ -130,7 +130,12 @@ export const fileWriteToolConfig: MtBotToolConfig<typeof FileWriteInput> = {
     "Supports overwrite (default), append (mode='append'), or line-range replace " +
     "(mode='range' with startLine/endLine, 1-based inclusive). " +
     "Works within the workspace and any project directories registered in Settings → Development. " +
-    "Prefer this over `bash` echo/redirection.",
+    "Prefer this over `bash` echo/redirection. " +
+    "LONG DOCUMENTS MUST BE WRITTEN IN SECTIONS: a whole document emitted in one call gets cut " +
+    "off by the model output limit (arguments become invalid JSON and the entire write is lost, " +
+    "the file is NOT created). For content longer than ~6,000 characters: first call writes the " +
+    "opening — headers/styles plus the first section — with mode='overwrite', then append each " +
+    "remaining section with mode='append', keeping every call's content under ~6,000 characters.",
   parameters: FileWriteInput,
   category: "filesystem",
   isReadOnly: false,
