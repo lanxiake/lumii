@@ -67,10 +67,12 @@ export class TrayManager {
     if (icon.isEmpty()) {
       log.error('托盘图标加载失败:', iconPath)
     } else {
-      // Windows 托盘约 16px；保留清晰缩略
+      // 托盘图标尺寸随平台：Windows 约 16px；Linux 的托盘（StatusNotifierItem）
+      // 在 GNOME/KDE 上按 22–24px 渲染，给 16px 会被放大成糊的。
+      const target = process.platform === 'linux' ? 22 : 16
       const size = icon.getSize()
-      if (size.width > 16 || size.height > 16) {
-        icon = icon.resize({ width: 16, height: 16, quality: 'best' })
+      if (size.width > target || size.height > target) {
+        icon = icon.resize({ width: target, height: target, quality: 'best' })
       }
     }
 
@@ -213,8 +215,14 @@ export class TrayManager {
 
   /**
    * 显示通知（托盘气球，Windows 专用）
+   *
+   * `displayBalloon` 只在 Windows 上有实现；其它平台调用会抛异常或静默无效。
+   * 非 Windows 上走 `desktop-notify`（Electron Notification，Linux 用
+   * libnotify / D-Bus），是另一条链路，所以这里直接 no-op。
    */
   showNotification(title: string, body: string): void {
+    if (process.platform !== 'win32') return
+
     if (this.tray) {
       this.tray.displayBalloon({
         title,
@@ -226,8 +234,12 @@ export class TrayManager {
 
   /**
    * 闪烁任务栏/托盘图标以提醒用户
+   *
+   * `flashFrame` 在 Linux 的多数桌面环境无效、macOS 上是 Dock 跳动（且需用户设置）。
+   * 加守卫避免「调了但没反应」被当成 bug 排查。
    */
   flashWindow(window: BrowserWindow): void {
+    if (process.platform !== 'win32') return
     window.flashFrame(true)
   }
 
@@ -235,6 +247,7 @@ export class TrayManager {
    * 停止闪烁任务栏/托盘图标
    */
   stopFlash(window: BrowserWindow): void {
+    if (process.platform !== 'win32') return
     window.flashFrame(false)
   }
 

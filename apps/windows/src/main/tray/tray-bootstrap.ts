@@ -5,6 +5,8 @@ import { isPetMode, switchPetMode, isPetForceIgnore, disablePetForceIgnore } fro
 
 export interface TrayLogger {
   info: (...args: unknown[]) => void
+  /** 托盘在 Linux 上可能不可用（GNOME 无 AppIndicator），失败时要能记一笔 */
+  warn: (...args: unknown[]) => void
 }
 
 export interface TrayBootstrapOptions {
@@ -16,11 +18,43 @@ export interface TrayBootstrapOptions {
 }
 
 /**
- * 初始化系统托盘
+ * 初始化系统托盘。
+ *
+ * **Linux 上托盘不是必然可用的**：GNOME 默认不带 StatusNotifierItem 支持，
+ * 需要扩展（如 AppIndicator）或 `libayatana-appindicator3-1` 才能显示。此时
+ * `new Tray()` 会抛异常——**不能让它冒泡出去**：调用点 `index.ts` 在启动序列里
+ * 裸调本函数，异常会中断后续初始化（系统服务、录屏、云同步全都起不来），
+ * 而托盘只是个可选入口。
+ *
+ * 失败时仅 warn 并继续：主窗口保留「切换模式 / 退出 / 设置」等入口（设计 §6.1
+ * 的「不把托盘作为唯一入口」），应用功能完整。
+ *
+ * @returns 托盘是否创建成功（调用方可用它决定是否还有别的入口需要保留）
  */
-export function initializeTray(options: TrayBootstrapOptions): void {
-  const { logger, getMainWindow, setTrayManager, setQuitting, getScreenRecordService } = options
+export function initializeTray(options: TrayBootstrapOptions): boolean {
+  const { logger } = options
   logger.info('初始化系统托盘')
+
+  try {
+    createTrayManager(options)
+    return true
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error)
+    logger.warn(
+      `创建系统托盘失败，应用继续运行（主窗口仍有完整入口）：${msg}`,
+    )
+    if (process.platform === 'linux') {
+      logger.warn(
+        '提示：GNOME 默认不显示托盘图标，需要 AppIndicator 扩展；' +
+          '或安装 libayatana-appindicator3-1 后重试。',
+      )
+    }
+    return false
+  }
+}
+
+function createTrayManager(options: TrayBootstrapOptions): void {
+  const { getMainWindow, setTrayManager, setQuitting, getScreenRecordService } = options
 
   const trayManager = new TrayManager({
     onShowWindow: () => {

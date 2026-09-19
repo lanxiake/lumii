@@ -1191,6 +1191,12 @@ async function initialize(): Promise<void> {
   // 通知/托盘等处的应用显示名（与 electron-builder productName 一致）
   app.setName('Lumii')
 
+  // 注：设计 §6.2 曾要求 Linux 上调 `app.setDesktopName('lumii.desktop')`，
+  // 但该 API **在 Electron 36 里并不存在**（electron.d.ts 中无此声明，实测编译报错）。
+  // Linux 桌面关联窗口与启动器图标靠的是 electron-builder 生成的 .desktop 里
+  // 的 StartupWMClass 字段（见 electron-builder.json 的 linux.desktop 段），
+  // 那一条已在 T2 配好，此处无需再做。
+
   // 初始化文件日志系统（必须在 app.whenReady() 之后）
   fileLogger.initialize()
   registerLocalMediaProtocolHandler()
