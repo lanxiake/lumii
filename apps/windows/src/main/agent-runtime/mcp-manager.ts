@@ -47,7 +47,33 @@ export class McpManager {
   /** 每个 Server 注册的工具名，断开时用于注销 */
   private readonly serverTools = new Map<string, string[]>()
   private readonly connecting = new Set<string>()
+  /**
+   * 已 spawn、但**握手尚未完成**的 client。
+   *
+   * 为什么单开一张表：`connect()` 只在 `await client.start()` 返回后才把 client
+   * 写进 `mcpClients`，而 `disconnect()` 只从 `mcpClients` 取 client。若应用恰好在
+   * 握手窗口内退出，那个 client 谁都够不到，带着子进程活过清理。
+   *
+   * 2026-09-20 冒烟实测的时序（桩子进程）：
+   *   205 `[connect] 连接 MCP Server: smoke-stub`
+   *   234 `应用即将退出`
+   *   246 `[disconnectAll] 正在停止 0 个 MCP Server`   ← 数不到
+   *   394 `[connect] MCP Server [smoke-stub] 已连接`     ← 清理之后才落地
+   *   406 `清理完成，调用 app.exit(0)`
+   */
+  private readonly inFlightClients = new Map<string, McpStdioClient>()
   private readonly lastErrors = new Map<string, string>()
+  /**
+   * 应用正在退出——`disconnectAll()` 置位后不再接受任何新连接。
+   *
+   * 为什么必须有：`load()` 是 `void this.mcpManager.load()` 发出去的（bridge.ts），
+   * 它逐个 `await` 连接配置里的 Server。若退出发生在中途，光把「当前那个」停掉不够——
+   * 循环会继续连下一个。2026-09-20 冒烟实测到了这一步：
+   *   `[connect] MCP Server [smoke-stub] 已连接`（清理之后）→
+   *   `[connect] 连接 MCP Server: excel-mcp`（还要接着连）
+   * 真实配置有 6 个启用的 Server，等于退出后仍会陆续 spawn 5 个子进程。
+   */
+  private shuttingDown = false
   /** 主动断开的 Server，用于抑制 exit 事件里的自动重连 */
   private readonly intentionalStops = new Set<string>()
 
@@ -71,6 +97,11 @@ export class McpManager {
     this.configs = new Map(configs.map((c) => [c.name, c]))
 
     for (const config of configs) {
+      // 退出途中不再开新连接（见 shuttingDown 注释）：否则循环会接着 spawn 下一个子进程
+      if (this.shuttingDown) {
+        log.info(`[load] 应用正在退出，跳过连接 MCP Server: ${config.name}`)
+        continue
+      }
       if (config.enabled === false) {
         log.info(`[load] 跳过已禁用的 MCP Server: ${config.name}`)
         continue
@@ -83,6 +114,8 @@ export class McpManager {
    * 连接单个 MCP Server，失败时最多重试 3 次
    */
   private async connect(config: McpServerEntry, retryCount = 0): Promise<void> {
+    // 退出途中绝不再 spawn（重连定时器也走这里，见 shuttingDown 注释）
+    if (this.shuttingDown) return
     // 会话中新装的 uv 会创建 ~/.local/bin，每次连接前刷新，避免仍 ENOENT
     refreshCommonCliPathsInProcessEnv()
     const { name, command, args, env, cwd } = expandEntry(config)
@@ -104,9 +137,18 @@ export class McpManager {
     const client = new McpStdioClient({ command, args, env, cwd })
     this.connecting.add(name)
     this.intentionalStops.delete(name)
+    // 先登记再握手：退出清理要能停掉「已 spawn 但还没握手完」的 client（见字段注释）
+    this.inFlightClients.set(name, client)
 
     try {
       await client.start()
+      // 握手期间应用可能已开始退出：此时不能再注册工具（toolRegistry 正在被拆），
+      // 把刚 spawn 的子进程停掉收尾。inFlightClients 里的登记由 finally 清理。
+      if (this.shuttingDown) {
+        log.info(`[connect] 应用正在退出，放弃已握手的 MCP Server [${name}]`)
+        await client.stop().catch(() => {})
+        return
+      }
       const tools = await loadMcpTools(client, name)
 
       for (const tool of tools) {
@@ -141,6 +183,7 @@ export class McpManager {
       await client.stop().catch(() => {})
     } finally {
       this.connecting.delete(name)
+      this.inFlightClients.delete(name)
     }
   }
 
@@ -177,13 +220,33 @@ export class McpManager {
    * `connecting`——卡在连接中的 Server 不在 `mcpClients` 里，`disconnect()`
    * 覆盖不到，留下的话退出后设置页仍显示「连接中」。
    *
+   * **但「清掉 connecting 标记」不等于「停掉那个 client」**：握手期的 client 不在
+   * `mcpClients` 里，得靠 `inFlightClients` 单独收（2026-09-20 冒烟实测的竞态，
+   * 见该字段注释）。两边都停才算真停干净。
+   *
    * 并发停止而非串行：退出路径上要快，且各 Server 互不依赖。
    */
   async disconnectAll(): Promise<void> {
+    // 先置位再停：置位前正在 await 的 connect() 会在恢复后看到它并放弃，
+    // 否则它会照常把 client 发起来、还登记进 inFlightClients（就没完没了了）
+    this.shuttingDown = true
     const names = [...this.mcpClients.keys()]
-    if (names.length === 0 && this.connecting.size === 0) return
-    log.info(`[disconnectAll] 正在停止 ${names.length} 个 MCP Server（应用退出）`)
+    // 连接中的 Server：可能既不在 mcpClients（握手未完成），也不在 serverTools
+    const inFlight = [...this.inFlightClients.entries()]
+    if (names.length === 0 && this.connecting.size === 0 && inFlight.length === 0) return
+    log.info(
+      `[disconnectAll] 正在停止 ${names.length} 个 MCP Server、${inFlight.length} 个连接中的（应用退出）`,
+    )
     await Promise.all(names.map((name) => this.disconnect(name)))
+    // 连接中的 client 不走 disconnect()：disconnect 会去动 mcpClients / serverTools，
+    // 而那些此刻本就不该有它们的条目；这里只负责把子进程停掉。
+    await Promise.all(
+      inFlight.map(async ([name, client]) => {
+        this.intentionalStops.add(name)
+        await client.stop().catch((err) => log.warn(`[disconnectAll] 停止连接中的 [${name}] 失败: ${err}`))
+      }),
+    )
+    this.inFlightClients.clear()
     this.connecting.clear()
   }
 

@@ -44,7 +44,8 @@
     "postinstall": "node node_modules/@electron/rebuild/lib/cli.js --only better-sqlite3,sharp",
     "package:linux": "node scripts/package-app.js --platform linux --target both",
     "package:linux:appimage": "node scripts/package-app.js --platform linux --target appimage",
-    "package:linux:deb": "node scripts/package-app.js --platform linux --target deb"
+    "package:linux:deb": "node scripts/package-app.js --platform linux --target deb",
+    "package:linux:dir": "node scripts/package-app.js --platform linux --target dir"
   },
   "dependencies": {
     "@ffmpeg-installer/ffmpeg": "^1.1.0",

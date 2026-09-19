@@ -96,3 +96,59 @@ describe('McpManager.disconnectAll', () => {
     expect(toolRegistry.unregister).toHaveBeenCalledWith('tool_y')
   })
 })
+
+/**
+ * 退出时**仍在连接中**的 Server（2026-09-20 真实冒烟查出的竞态）。
+ *
+ * 实测时序：`[connect] 连接 MCP Server: smoke-stub`（启动期发出）→
+ * `应用即将退出` → `disconnectAll 正在停止 0 个 MCP Server` →
+ * **`[connect] ... 已连接，加载 1 个工具`**——连接在清理之后才落地。
+ *
+ * 竞态窗口在 `connect()` 内部：client 对象要到 `await client.start()` 返回后才写进
+ * `mcpClients`，而 `disconnect()` 只从 `mcpClients` 里取 client。于是卡在握手期的
+ * 那个 client 谁都够不到——`disconnectAll` 数不到它，`unregisterTools` 也够不到它。
+ * 它带着一个已 spawn 的子进程活过清理，与本次修复要解决的问题同类。
+ */
+describe('McpManager.disconnectAll（连接中竞态）', () => {
+  let clients: Map<string, ReturnType<typeof fakeClient>>
+
+  beforeEach(() => {
+    clients = new Map()
+  })
+
+  it('停掉仍在连接中的 client（不能只看 mcpClients）', async () => {
+    // 模拟「client 已 spawn、握手未完成」：它还没进 mcpClients，
+    // 但 connect() 手上已经握着它，并登记在 connecting 里
+    const inFlight = fakeClient()
+    const { manager } = makeManager(clients)
+    const internals = manager as unknown as {
+      connecting: Set<string>
+      inFlightClients: Map<string, { stop: () => Promise<void> }>
+    }
+    internals.connecting.add('server-a')
+    internals.inFlightClients.set('server-a', inFlight)
+
+    await manager.disconnectAll()
+
+    expect(inFlight.stop).toHaveBeenCalledTimes(1)
+    expect(internals.connecting.size).toBe(0)
+    expect(internals.inFlightClients.size).toBe(0)
+  })
+
+  it('退出后不再发起新连接（load 循环与重连都必须停下）', async () => {
+    const { manager } = makeManager(clients)
+    // 冒烟实测：清理之后 load() 仍在往下连（`[connect] 连接 MCP Server: excel-mcp`）。
+    // 真实配置有 6 个启用的 Server，等于退出后还要陆续 spawn 5 个子进程。
+    await manager.disconnectAll()
+
+    await (
+      manager as unknown as { connect: (c: unknown, r?: number) => Promise<void> }
+    ).connect({ name: 'late-server', command: 'node', args: [] })
+
+    // 没有新 client 被登记——connect() 在起手就该放弃
+    expect(clients.size).toBe(0)
+    expect(
+      (manager as unknown as { inFlightClients: Map<string, unknown> }).inFlightClients.size,
+    ).toBe(0)
+  })
+})
