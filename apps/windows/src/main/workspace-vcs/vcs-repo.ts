@@ -135,11 +135,6 @@ export class WorkspaceVcs {
       log.info(`[ensureInitialized] 初始化工作空间仓库: ${this.workspaceDir}`)
       fs.mkdirSync(this.workspaceDir, { recursive: true })
       await git.init({ ...this.base, defaultBranch: 'main' })
-      // 本仓库与 isomorphic-git 共用，必须让它读得动：它读 pack 是整个读进内存的，
-      // 大包直接失败（2026-09-18 实测：1.38GB 单包让 log/diff/readBlob 全废）。
-      // git-cli 的调用每次都带 `-c gc.auto=0`，这里再把「禁自动 gc + 单包上限」
-      // 写死进仓库自身的 config —— 挡住任何不带那些参数的 git 调用。
-      await pinIsoSafeConfig(this.workspaceDir, this.gitdir)
 
       // 写默认 .gitignore（若用户已有则不覆盖）
       if (!fs.existsSync(gitignorePath)) {
@@ -155,6 +150,14 @@ export class WorkspaceVcs {
       }
       log.info('[ensureInitialized] 完成，已建立初始提交')
     }
+
+    // 本仓库与 isomorphic-git 共用，必须让它读得动：它读 pack 是整个读进内存的，
+    // 大包直接失败（2026-09-18 实测：1.38GB 单包让 log/diff/readBlob 全废）。
+    // 把「禁自动 gc + 单包上限」写死进仓库自身的 config。
+    //
+    // 放在 if(!isInitialized) **之外**：已存在的仓库（旧版本建的）同样需要这条，
+    // 否则历史仓库永远补不上。函数内部按 gitdir 记忆，每进程最多两次子进程。
+    await pinIsoSafeConfig(this.workspaceDir, this.gitdir)
 
     // 校正：去掉误忽略整个 outputs/ 的规则（Agent 产出需纳入版本管理）
     this.ensureOutputsTracked(gitignorePath)

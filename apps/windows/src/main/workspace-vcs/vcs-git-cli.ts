@@ -165,21 +165,30 @@ export { detectGit }
  * 的 git 调用（手工调试、将来的新代码、用户自己敲的 git）把它打回不可读的形态。
  * 失败不抛：真 git 不可用时本就没有这个风险。
  */
+/** 已确保写过安全配置的 gitdir（每进程一次即可，避免每个消息都多两次子进程） */
+const safeConfigReady = new Set<string>()
+
 export async function pinIsoSafeConfig(workspaceDir: string, gitdir: string): Promise<void> {
+  if (safeConfigReady.has(gitdir)) return
   const pairs: Array<[string, string]> = [
     ['gc.auto', '0'],
     ['pack.packSizeLimit', '64m'],
   ]
+  let allOk = true
   for (const [key, value] of pairs) {
     try {
       const r = await runGit(workspaceDir, gitdir, ['config', '--local', key, value])
       if (r.code !== 0) {
+        allOk = false
         log.warn(`[pinIsoSafeConfig] 写入 ${key} 失败（退出码 ${r.code}）：${r.stderr.trim().slice(0, 160)}`)
       }
     } catch (err) {
+      allOk = false
       log.warn(`[pinIsoSafeConfig] 写入 ${key} 异常（真 git 不可用时可忽略）:`, err)
     }
   }
+  // 只在全部成功时记账：失败就不记忆，下次再试（仓库处于不安全形态时不该静默放过）
+  if (allOk) safeConfigReady.add(gitdir)
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
