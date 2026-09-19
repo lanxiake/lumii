@@ -19,50 +19,17 @@
  * └── temp/
  */
 
-import os from 'node:os'
 import path from 'node:path'
+import { resolveClientStateDir } from './client-data-root'
 
 /**
- * 展开以 ~ 开头的路径为当前用户主目录下的绝对路径。
- */
-function expandUserPath(input: string): string {
-  const trimmed = input.trim()
-  if (!trimmed) {
-    return trimmed
-  }
-  if (trimmed.startsWith('~')) {
-    return path.resolve(trimmed.replace(/^~(?=$|[/\\])/, os.homedir()))
-  }
-  return path.resolve(trimmed)
-}
-
-const WINDOWS_CLIENT_DATA_DIRNAME = '.lumii' as const
-
-/** 缓存：进程生命周期内数据根不变，避免重复磁盘检查 */
-let _cachedClientStateDir: string | undefined
-
-/**
- * 解析 Lumii 独立版客户端数据根目录（用户文件、配置、日志、RFS 设备根等）。
- * 与原 MtBot 产品彻底隔离，避免目录冲突。
+ * 客户端数据根——实现已合并到 `client-data-root.ts`（T3.7）。
  *
- * 优先级: LUMII_CLIENT_DATA_DIR（自定义覆盖）→ 默认 ~/.lumii
- *
- * @returns 客户端数据根目录的绝对路径
+ * 合并前这里有一份与 `client-data-root.ts` **逐字重复**的实现（含 `expandUserPath`），
+ * 各持一份进程级缓存，是「改一处漏一处」的隐患。现在统一从那里导入，
+ * 两个导出名指向同一份实现与缓存；`expandUserPath` 也随之只剩一份。
  */
-export function resolveClientStateDir(): string {
-  if (_cachedClientStateDir !== undefined) {
-    return _cachedClientStateDir
-  }
-
-  const clientEnv = process.env.LUMII_CLIENT_DATA_DIR?.trim()
-  if (clientEnv) {
-    _cachedClientStateDir = expandUserPath(clientEnv)
-    return _cachedClientStateDir
-  }
-
-  _cachedClientStateDir = path.join(os.homedir(), WINDOWS_CLIENT_DATA_DIRNAME)
-  return _cachedClientStateDir
-}
+export { resolveClientStateDir, WINDOWS_CLIENT_DATA_DIRNAME } from './client-data-root'
 
 // ============================================================================
 // 共享资源路径 (根级别)
