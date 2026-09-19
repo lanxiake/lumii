@@ -187,6 +187,14 @@ export class AgentInstance {
   private readonly agent: Agent;
   private readonly listeners = new Set<(e: AgentRuntimeEvent) => void>();
   private _state: AgentInstanceState = "idle";
+  /**
+   * 本轮运行是否被 `abort()` 中止。
+   *
+   * 为什么不能只看 `state`：中止后 pi-agent-core 仍会发出 agent_end，状态被改回 "idle"，
+   * 编排层在 waitForIdle 之后分辨不出「正常跑完」与「被中止」。销毁（destroy）与
+   * 暂停（pause）不走 `abort()`，不会置位。下一次 prompt() 重置。
+   */
+  private _aborted = false;
   private accumulatedText = "";
   private unsubscribeAgent: (() => void) | null = null;
   /** 超时定时器句柄 */
@@ -569,6 +577,7 @@ export class AgentInstance {
       throw new Error(`Agent instance destroyed: ${this.id}`);
     }
     this.selfHeal.reset();
+    this._aborted = false;
     // 创建一个 Promise，等待整个自愈链完成（agent_end 不再触发自愈时 resolve）
     const done = new Promise<void>((resolve) => {
       this._promptDoneResolve = resolve;
@@ -596,6 +605,7 @@ export class AgentInstance {
   /** 中止当前运行 */
   abort(): void {
     this.endingPause = false;
+    this._aborted = true;
     this.agent.abort();
     this.setState("aborted");
     // 立刻结束 prompt() 等待，避免 SessionManager 会话锁卡住后续 user:send
@@ -614,6 +624,14 @@ export class AgentInstance {
   /** 获取当前状态 */
   get state(): AgentInstanceState {
     return this._state;
+  }
+
+  /**
+   * 本轮运行是否被 `abort()` 中止（下一次 prompt() 重置）。
+   * 供编排层在 waitForIdle 之后判定 sync 委托的中止终态——彼时 state 已被 agent_end 改回 idle。
+   */
+  get wasAborted(): boolean {
+    return this._aborted;
   }
 
   /** 获取对话消息历史 */

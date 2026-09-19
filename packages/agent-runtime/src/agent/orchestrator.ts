@@ -111,7 +111,20 @@ export type SpawnAgentResult =
       readonly queuedMs?: number;
       readonly agentTypeNote?: string;
     }
-  | { readonly status: "error"; readonly message: string };
+  | { readonly status: "error"; readonly message: string }
+  /**
+   * 被中止（用户级联 abort / 父级 interrupt / 运行超时兜底 abort）是**独立终态**：
+   * 以前这类收场照常走 succeeded 并返回 { status:"ok", output:"" }，
+   * 卡片与运行块于是显示「已完成」——中断被误读成完成（2026-09-20 冒烟实测）。
+   */
+  | {
+      readonly status: "aborted";
+      readonly mode: "sync";
+      readonly instanceId: string;
+      readonly agentDefinitionId: string;
+      readonly agentName: string;
+      readonly message: string;
+    };
 
 /**
  * 宿主必须提供的能力：解析定义、创建子实例、投递消息、销毁等
@@ -576,6 +589,34 @@ export class AgentOrchestrator {
       try {
         await this.deps.prompt(childInstanceId, childPrompt);
         await childInstance.waitForIdle();
+        if (childInstance.wasAborted) {
+          // 超时兜底（stale 监控）先杀后判：它走的是 abort()，但终态是「失败」不是「中断」，
+          // 如实回给父 Agent，别把看门狗杀的儿子包装成用户打断
+          const staleRun = this.broker.getRun(childInstanceId);
+          if (staleRun?.status === "stale") {
+            return {
+              status: "error",
+              message: staleRun.errorMessage ?? "Sub-agent stalled before completion.",
+            };
+          }
+          // 中止是中立的终端态：既不是成功（此前显示「已完成」，2026-09-20 冒烟实测），
+          // 也不是失败。interruptChild / 超时兜底可能已抢先 finalize（cancelled/stale）——
+          // broker 的 finalizeRun 幂等，重复调用会被忽略
+          this.finalizeWithGuard(
+            childInstanceId,
+            "cancelled",
+            outputText,
+            "interrupted before completion (aborted)",
+          );
+          return {
+            status: "aborted",
+            mode: "sync",
+            instanceId: childInstanceId,
+            agentDefinitionId: agentDef.id,
+            agentName: agentDef.name,
+            message: "Sub-agent run was aborted before completion; no usable output.",
+          };
+        }
         this.finalizeWithGuard(childInstanceId, "succeeded", outputText);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
@@ -641,7 +682,17 @@ export class AgentOrchestrator {
         await this.deps.prompt(childInstanceId, childPrompt);
         await child?.waitForIdle();
         if (this.broker.getRun(childInstanceId)?.status === "running") {
-          this.finalizeWithGuard(childInstanceId, "succeeded", outputText);
+          // 同上：被中止按 cancelled 收场，父 Agent 收到「已中止」而不是假的「已完成」
+          if (child?.wasAborted) {
+            this.finalizeWithGuard(
+              childInstanceId,
+              "cancelled",
+              outputText,
+              "interrupted before completion (aborted)",
+            );
+          } else {
+            this.finalizeWithGuard(childInstanceId, "succeeded", outputText);
+          }
           this.notifyAsyncComplete(childInstanceId);
         }
       } catch (e) {
