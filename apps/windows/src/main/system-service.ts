@@ -24,6 +24,10 @@ import {
 } from './security-utils'
 import { VCS_SKIP_DIRS } from './workspace-vcs/vcs-ignore'
 import { killPidTree } from './platform/process-kill'
+import {
+  getDiskInfo as platformGetDiskInfo,
+  getProcessList as platformGetProcessList,
+} from './platform/system-info'
 
 const execAsync = promisify(exec)
 
@@ -678,8 +682,10 @@ export class SystemService {
   }
 
   /**
-   * 获取磁盘信息 (Windows)
-   * 使用缓存减少 PowerShell 调用
+   * 获取磁盘信息
+   * 使用缓存减少调用（Windows 上每次都是一次 PowerShell 往返）
+   *
+   * 平台差异已收敛到 `platform/system-info.ts`：Windows 走 WMI，POSIX 走 df。
    */
   async getDiskInfo(): Promise<DiskInfo[]> {
     // 检查缓存
@@ -692,28 +698,7 @@ export class SystemService {
     log.info(`获取磁盘信息`)
 
     try {
-      // 使用 PowerShell 获取磁盘信息
-      const { stdout } = await execAsync(
-        'powershell -Command "Get-WmiObject Win32_LogicalDisk | Where-Object { $_.DriveType -eq 3 } | Select-Object DeviceID, Size, FreeSpace, FileSystem | ConvertTo-Json"'
-      )
-
-      const disks = JSON.parse(stdout)
-      const diskArray = Array.isArray(disks) ? disks : [disks]
-
-      const result: DiskInfo[] = diskArray.map((disk: { DeviceID: string; Size: number; FreeSpace: number; FileSystem: string }) => {
-        const total = disk.Size || 0
-        const free = disk.FreeSpace || 0
-        const used = total - free
-        return {
-          name: disk.DeviceID,
-          mount: disk.DeviceID,
-          type: disk.FileSystem || 'Unknown',
-          total,
-          free,
-          used,
-          usagePercent: total > 0 ? Math.round((used / total) * 100) : 0,
-        }
-      })
+      const result = await platformGetDiskInfo()
 
       // 缓存结果
       this.diskCache.set('disks', result)
@@ -728,7 +713,9 @@ export class SystemService {
 
   /**
    * 获取进程列表
-   * 使用缓存减少 PowerShell 调用
+   * 使用缓存减少调用
+   *
+   * 平台差异已收敛到 `platform/system-info.ts`：Windows 走 Get-Process，POSIX 走 ps。
    */
   async getProcessList(): Promise<ProcessInfo[]> {
     // 检查缓存
@@ -741,24 +728,7 @@ export class SystemService {
     log.info(`获取进程列表`)
 
     try {
-      // 使用 PowerShell 获取进程信息
-      const { stdout } = await execAsync(
-        'powershell -Command "Get-Process | Select-Object Id, ProcessName, CPU, WorkingSet64 | ConvertTo-Json"'
-      )
-
-      const processes = JSON.parse(stdout)
-      const processArray = Array.isArray(processes) ? processes : [processes]
-
-      const result: ProcessInfo[] = processArray.map(
-        (proc: { Id: number; ProcessName: string; CPU: number; WorkingSet64: number }) => ({
-          pid: proc.Id,
-          name: proc.ProcessName,
-          cpu: proc.CPU || 0,
-          memory: Math.round((proc.WorkingSet64 || 0) / 1024 / 1024), // 转换为 MB
-          memoryBytes: proc.WorkingSet64 || 0,
-          status: 'running',
-        })
-      )
+      const result = await platformGetProcessList()
 
       // 缓存结果
       this.processCache.set('processes', result)
