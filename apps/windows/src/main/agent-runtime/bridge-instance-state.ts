@@ -104,6 +104,13 @@ export interface InstanceState {
    * 事件里的 llmError——不接力就会把「为什么失败」从落库内容里抹掉。
    */
   lastLlmError?: { code: string; message: string; retryable: boolean }
+  /**
+   * 最近一次 message:end 是否为中止收场（该轮干净收场时清空）。
+   *
+   * 与 lastLlmError 同样的接力理由：message:end 只是流式中间态，最终行由 agent:end
+   * 收尾时重写；不接力，历史回放就分不清「被中止」与「已完成」（2026-09-20）。
+   */
+  lastAborted?: boolean
   /** 实例对应的 innerStream 与 model，供 compactContextAsync 按 instanceId 查找 */
   stream?: {
     innerStream: StreamFn

@@ -105,3 +105,94 @@ describe('agent:message:end 的正文兜底', () => {
     expect(text).toContain('第二轮正文')
   })
 })
+
+/**
+ * 中止标记（2026-09-20 冒烟实测）
+ *
+ * `isAborted` 此前全仓无写入方：气泡的「回复已中断」徽标与子运行块的「已中断」
+ * 都读它，但正常中止（user:abort → pi-ai abort）只发 message:end(stopReason='aborted')，
+ * 没人把它落到消息上——中止被显示成「已完成」。
+ */
+describe('agent:message:end 的中止标记', () => {
+  beforeEach(() => {
+    resetRuntimeStore()
+    resetAgentRuntimeEventHandlerForTests()
+  })
+
+  function messagesOf(sessionKey = SESSION_KEY) {
+    return runtimeStore.getState().sessions.get(sessionKey)?.messages ?? []
+  }
+
+  it('主消息 stopReason=aborted → 消息带 isAborted（气泡「回复已中断」的依据）', () => {
+    emitTurn([
+      { type: 'agent:turn:start', runId: RUN_ID, sessionKey: SESSION_KEY, turnIndex: 0, timestamp: Date.now() },
+      { type: 'agent:message:start', runId: RUN_ID, sessionKey: SESSION_KEY, messageId: MESSAGE_ID, model: 'test-model', timestamp: Date.now() },
+      { type: 'agent:message:delta', runId: RUN_ID, sessionKey: SESSION_KEY, messageId: MESSAGE_ID, delta: '说了一半', totalLength: 4 },
+      {
+        type: 'agent:message:end',
+        runId: RUN_ID,
+        sessionKey: SESSION_KEY,
+        messageId: MESSAGE_ID,
+        content: [{ type: 'text', text: '说了一半' }],
+        usage: { inputTokens: 10, outputTokens: 4 },
+        stopReason: 'aborted',
+      },
+    ])
+
+    expect(messagesOf().at(-1)?.isAborted).toBe(true)
+  })
+
+  it('正常 end_turn 不设 isAborted', () => {
+    emitTurn([
+      { type: 'agent:turn:start', runId: RUN_ID, sessionKey: SESSION_KEY, turnIndex: 0, timestamp: Date.now() },
+      { type: 'agent:message:start', runId: RUN_ID, sessionKey: SESSION_KEY, messageId: MESSAGE_ID, model: 'test-model', timestamp: Date.now() },
+      {
+        type: 'agent:message:end',
+        runId: RUN_ID,
+        sessionKey: SESSION_KEY,
+        messageId: MESSAGE_ID,
+        content: [{ type: 'text', text: '好好说完了' }],
+        usage: { inputTokens: 10, outputTokens: 5 },
+        stopReason: 'end_turn',
+      },
+    ])
+
+    expect(messagesOf().at(-1)?.isAborted).toBeUndefined()
+  })
+
+  it('子 Agent 消息同样带 isAborted（运行块「已中断」的依据）', () => {
+    const SUB_SESSION = 'child-session-1'
+    const SUB_MESSAGE_ID = 'sub-message-1'
+    const SUB_INSTANCE = 'inst-sub-1'
+
+    emitTurn([
+      { type: 'agent:turn:start', runId: RUN_ID, sessionKey: SESSION_KEY, turnIndex: 0, timestamp: Date.now() },
+      {
+        type: 'agent:message:start',
+        runId: RUN_ID,
+        sessionKey: SUB_SESSION,
+        rootSessionKey: SESSION_KEY,
+        instanceId: SUB_INSTANCE,
+        messageId: SUB_MESSAGE_ID,
+        model: 'test-model',
+        timestamp: Date.now(),
+      },
+      { type: 'agent:message:delta', runId: RUN_ID, sessionKey: SUB_SESSION, rootSessionKey: SESSION_KEY, instanceId: SUB_INSTANCE, messageId: SUB_MESSAGE_ID, delta: '子 Agent 说一半', totalLength: 8 },
+      {
+        type: 'agent:message:end',
+        runId: RUN_ID,
+        sessionKey: SUB_SESSION,
+        rootSessionKey: SESSION_KEY,
+        instanceId: SUB_INSTANCE,
+        messageId: SUB_MESSAGE_ID,
+        content: [{ type: 'text', text: '子 Agent 说一半' }],
+        usage: { inputTokens: 8, outputTokens: 4 },
+        stopReason: 'aborted',
+      },
+    ])
+
+    const sub = messagesOf().find((m) => m.id === SUB_MESSAGE_ID)
+    expect(sub?.isAborted).toBe(true)
+    expect(sub?.sourceAgent?.instanceId).toBe(SUB_INSTANCE)
+  })
+})

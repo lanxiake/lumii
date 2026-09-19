@@ -47,3 +47,30 @@ describe('toRuntimeMsg 的 llmError 回读', () => {
     expect(msg.llmError).toBeUndefined()
   })
 })
+
+describe('toRuntimeMsg 的中止标记回读', () => {
+  it('落库内容带 aborted → 映射为 isAborted（运行块/气泡显示「已中断」的依据）', () => {
+    const msg = toRuntimeMsg(
+      dbMsg({
+        type: 'assistant_parts',
+        parts: [{ type: 'thinking', id: 'th1', text: '想一半被中止', status: 'done' }],
+        sourceAgent: { instanceId: 'inst-b', label: '子 Agent' },
+        aborted: true,
+      }),
+    )
+
+    expect(msg.isAborted).toBe(true)
+    expect(msg.sourceAgent).toEqual({ instanceId: 'inst-b', label: '子 Agent' })
+  })
+
+  it('旧数据没有该字段 → 不凭空捏造（照常显示完成态）', () => {
+    const msg = toRuntimeMsg(
+      dbMsg({
+        type: 'assistant_parts',
+        parts: [{ type: 'text', id: 't1', text: '一切正常', status: 'done' }],
+      }),
+    )
+
+    expect(msg.isAborted).toBeUndefined()
+  })
+})

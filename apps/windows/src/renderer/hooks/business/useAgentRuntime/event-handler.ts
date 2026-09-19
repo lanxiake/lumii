@@ -812,6 +812,8 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
             usage: event.usage,
             ...(streamMetrics ? { streamMetrics } : {}),
             ...(llmErrorBlock ? { llmError: llmErrorBlock } : {}),
+            // 中止标记：子运行块据此显示「已中断」而不是「已完成」
+            ...(event.stopReason === 'aborted' ? { isAborted: true } : {}),
           }
           return { ...prev, messages: msgs, isStreaming: keepStreaming }
         })
@@ -920,6 +922,8 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
           ...(streamMetrics ? { streamMetrics } : {}),
           ...(llmErrorBlock ? { llmError: llmErrorBlock } : {}),
           ...(injected ? { injectedMemories: injected } : {}),
+          // 中止标记：气泡显示「回复已中断」徽标（此前该字段没有人写入）
+          ...(event.stopReason === 'aborted' ? { isAborted: true } : {}),
         }
         debugLog('[AgentRuntime] message:end updated:', {
           id: msgs[targetIdx]!.id,

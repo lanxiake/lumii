@@ -63,6 +63,8 @@ export function toRuntimeMsg(msg: DbMessage): RuntimeMessage {
     ...(fileChanges ? { fileChanges } : {}),
     // 历史回放的失败态来源：实时有事件，重开会话后只剩落库的 llmError
     ...(assistantContent?.llmError ? { llmError: assistantContent.llmError } : {}),
+    // 中止态同理：实时来自 message:end 的 stopReason='aborted'，重开会话后只剩落库标记
+    ...(assistantContent?.aborted ? { isAborted: true } : {}),
     ...(msg.isVoice ? { isVoice: true } : {}),
     ...(msg.audioWavBase64 ? { audioWavBase64: msg.audioWavBase64 } : {}),
   }

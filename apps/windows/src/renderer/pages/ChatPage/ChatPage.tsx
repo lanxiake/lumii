@@ -112,6 +112,7 @@ function mapRuntimeMessageToChatMessage(msg: RuntimeMessage) {
     thinkingText: msg.thinkingText,
     streamMetrics: msg.streamMetrics,
     llmError: msg.llmError,
+    isAborted: msg.isAborted,
     injectedMemories: msg.injectedMemories,
     sourceAgent: msg.sourceAgent,
     acpBackendLabel: msg.acpBackendLabel,
