@@ -9,9 +9,15 @@
  *
  * ## 判据
  *
- * 从日志取两样东西：
- * - `ToolRunner] → <tool> ... params={...}` —— 工具名**与参数**（判 `rejectCommandPatterns` 要用）
- * - `tool:end toolName=<tool> isError=<bool>` —— 完成状态
+ * 回合结束后，取**该会话落库的 assistant 消息 parts**——一个回合的全部工具调用（名 + 完整参数）：
+ * `parts[].type === 'tool'` 的 `name` / `args`。
+ *
+ * ⚠️ 证据来源曾是应用日志（`ToolRunner] → <tool> ... params={...}`）。2026-09-19 换源：
+ * 宿主把 params 预览**截断在 200 字符**，长参数调用（cron_create 的 taskText、
+ * ask_user_question、memory_manage…）行尾没有收尾 `}`，旧正则要求 `params={...}`
+ * 完整闭合——这些调用被**整条静默丢掉**（实测一回合 8 条丢 3 条，t15 因此被误记成
+ * 「没建任务」，而任务真在 DB 里）。日志还有渲染桥接口径问题（tool:end 类行走 UI 订阅，
+ * 后台回合不落盘）。消息 parts 是应用的权威记录，无截断、无桥接。
  *
  * 三组断言：
  * | 断言 | 含义 | 强度 |
@@ -37,17 +43,25 @@ import { fileURLToPath } from "node:url";
 
 import {
   createSession,
-  logChannelAvailable,
-  logCursor,
-  logLinesSince,
+  dbExec,
+  dbQuery,
+  fetchMessages,
+  parseContentJson,
   preflight,
   sendAndWait,
+  ui,
 } from "../lumii-cli/lib/cli-harness.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ONLY = process.env.TC_ONLY || "";
 const NO_RESTORE = process.env.TC_NO_RESTORE === "1";
-const TURN_TIMEOUT_MS = Number(process.env.TC_TURN_TIMEOUT_MS || 180000);
+/**
+ * 默认回合预算。**不能按"模型干活有多快"来定**：模型中途问用户时（评测环境无人应答），
+ * 回合要等提问超时被拒答（实测 ~5 分 13 秒）+ 拒答后继续干活，合法回合也要 6~9 分钟；
+ * 预算小于它，这类回合会被误判成 MODEL-BUSY 重试（2026-09-19 改 await 真回合终点后暴露）。
+ * 用例可用 `turnTimeoutMs` 再放宽（t15 走提问路径，设 12 分钟）。
+ */
+const TURN_TIMEOUT_MS = Number(process.env.TC_TURN_TIMEOUT_MS || 600000);
 
 const SESSION_PREFIX = "[tc-choice]";
 
@@ -84,6 +98,79 @@ function cleanupProbes() {
   }
 }
 process.on("exit", cleanupProbes);
+
+/**
+ * 用例副作用防线：快照 local_cron_jobs 的 id 集合。
+ *
+ * **为什么需要**：t15 是真实用户请求「建一个定时任务」——回合真的会在用户数据里
+ * 建出一条 enabled=1 的任务（2026-09-19 实测：模型建了「每日9点晨间简报」自续链，
+ * 明早会触发并自我重建）。本评测此前声称「不改任何全局设置」，是错的。
+ */
+function snapshotCronJobIds() {
+  try {
+    return new Set(dbQuery("SELECT id FROM local_cron_jobs").map((r) => r.id));
+  } catch (err) {
+    console.warn(`⚠️  无法快照定时任务（跳过清理）: ${String(err).slice(0, 120)}`);
+    return null;
+  }
+}
+
+/**
+ * 删除用例期间新建的定时任务，返回被删的 {id, name}。
+ *
+ * 优先走控制口 `cron:delete`（白名单内，连带清内存定时器，与用户手动删同路径）；
+ * 命令失败再退化为删行——删行同样安全：调度器触发前会重查 DB
+ * （cron-scheduler.ts:1087「已从 DB 删除，跳过执行」），只是会多留一条 warn 日志。
+ */
+function cleanupNewCronJobs(before) {
+  if (!before) return [];
+  const created = dbQuery("SELECT id, name FROM local_cron_jobs")
+    .filter((j) => !before.has(j.id))
+    .map((j) => ({ id: j.id, name: j.name }));
+  for (const j of created) {
+    const r = ui(["command", "cron:delete", "--data", JSON.stringify({ id: j.id })]);
+    if (r.code !== 0 || r.json?.ok === false) {
+      console.warn(`⚠️  cron:delete 未成功（${j.name}），退化为删行`);
+      dbExec("DELETE FROM local_cron_runs WHERE job_id = ?", j.id);
+      dbExec("DELETE FROM local_cron_jobs WHERE id = ?", j.id);
+    }
+  }
+  return created;
+}
+
+/**
+ * 用例副作用防线 2：快照 agent_memories 的 id 集合。
+ *
+ * **为什么需要**：t15 的真实回合里模型会顺手 `memory_manage add` 记一条
+ * 「AI新闻早报任务」参考（2026-09-19 实测）——任务本身被清理了，记忆却留在用户记忆库里，
+ * 变成指向不存在任务的误导信息。与定时任务同属"测试不得留用户数据"红线。
+ */
+function snapshotMemoryIds() {
+  try {
+    return new Set(dbQuery("SELECT id FROM agent_memories").map((r) => r.id));
+  } catch (err) {
+    console.warn(`⚠️  无法快照记忆库（跳过清理）: ${String(err).slice(0, 120)}`);
+    return null;
+  }
+}
+
+/**
+ * 删除用例期间新建的记忆条目，返回被删的 {id, snippet}。
+ *
+ * 只按 id 差集删——用例期间必须由用例自身写入才算数（评测跑的是用户本机的应用，
+ * 后台若有其它写记忆的活，其 id 会落进差集被误删；当前 autonomous-tick 是关的，
+ * 且这是"宁可清干净"的取向，故接受并用注释留痕）。
+ * 局限：模型若**去重更新**了一条已存在的记忆（实测 add 相同内容会更新而非新建），
+ * 变更不在差集里、不会回滚——遇到再补手段。
+ */
+function cleanupNewMemories(before) {
+  if (!before) return [];
+  const created = dbQuery("SELECT id, substr(content, 1, 50) AS snippet FROM agent_memories")
+    .filter((m) => !before.has(m.id))
+    .map((m) => ({ id: m.id, snippet: m.snippet }));
+  for (const m of created) dbExec("DELETE FROM agent_memories WHERE id = ?", m.id);
+  return created;
+}
 
 const sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 
@@ -142,30 +229,34 @@ function withEnvRetry(fn, attempts = 3) {
   throw lastErr;
 }
 
-/** 从日志行里抽工具调用（名字 + 参数） */
-function toolCalls(lines) {
-  const out = [];
-  for (const l of lines) {
-    // 贪婪 `.*` 到行尾：params 是嵌套 JSON，非贪婪会在第一个 `}` 处截断
-    // （`{"filePath":"a","opt":{"x":1}}` 会被切成半截，JSON.parse 失败后
-    //   bashCommands 只能退化成按原文匹配——那对 rejectCommandPatterns 是漏判）
-    const m = l.match(/ToolRunner\]\s*→\s*(\S+)\s*\([^)]*\)\s*params=(\{.*\})\s*$/);
-    if (m) out.push({ tool: m[1], rawParams: m[2] });
+/**
+ * 抽本回合的工具调用（名字 + 完整参数），来源 = 落库的 assistant 消息 parts。
+ *
+ * 为什么不解析日志见文件头「判据」：日志把 params 截断在 200 字符
+ * （logging-hook.ts:23 `JSON.stringify(params).slice(0, 200)`），长参数调用整条丢失。
+ */
+function toolCallsOfTurn(sk) {
+  const items = fetchMessages(sk, 10);
+  let last = null;
+  for (let i = items.length - 1; i >= 0; i--) {
+    if (items[i]?.role === "assistant") {
+      last = items[i];
+      break;
+    }
   }
-  return out;
+  const parts = parseContentJson(last)?.parts;
+  if (!Array.isArray(parts)) return [];
+  return parts
+    .filter((p) => p && p.type === "tool" && typeof p.name === "string")
+    .map((p) => ({ tool: p.name, params: p.args ?? {} }));
 }
 
-/** bash 命令文本（从 params JSON 里取 command 字段；解析失败返回空串） */
+/** bash 命令文本（parts 里的 args.command 是完整原文，无截断） */
 function bashCommands(calls) {
   const cmds = [];
   for (const c of calls) {
     if (c.tool !== "bash") continue;
-    try {
-      const p = JSON.parse(c.rawParams);
-      if (typeof p.command === "string") cmds.push(p.command);
-    } catch {
-      cmds.push(c.rawParams); // 解析失败就按原文匹配，宁可多判不可漏判
-    }
+    if (typeof c.params?.command === "string") cmds.push(c.params.command);
   }
   return cmds;
 }
@@ -177,12 +268,28 @@ function runCase(c) {
   // 每个用例用**独立会话**：工具选择受上下文影响（上一轮的对话会改变模型的倾向），
   // 共用会话会让后跑的用例被前面的对话污染，而那种失败看起来像"模型选错了工具"。
   const sk = createSession(`选择评测 ${c.id}`, { prefix: SESSION_PREFIX });
-  const cursor = logCursor();
-  sendAndWait(sk, c.prompt, { timeoutMs: TURN_TIMEOUT_MS });
-  const lines = logLinesSince(cursor);
-  const calls = toolCalls(lines);
-  const tools = calls.map((x) => x.tool);
-  const cmds = bashCommands(calls);
+  const jobsBefore = snapshotCronJobIds();
+  const memoriesBefore = snapshotMemoryIds();
+  // 用例级超时：提问挂起的回合（评测环境无人应答，问句要等超时被拒答、模型才继续）
+  // 需要比默认 600s 更宽的预算，见 eval-set 里 t15 的 turnTimeoutMs。
+  const turnTimeoutMs = c.turnTimeoutMs ?? TURN_TIMEOUT_MS;
+
+  let calls, tools, cmds;
+  let cleanedJobs = [];
+  let cleanedMemories = [];
+  try {
+    sendAndWait(sk, c.prompt, { timeoutMs: turnTimeoutMs });
+    // 回合终点（is_streaming=0）落定后消息 parts 才完整——见 cli-harness sendAndWait
+    calls = toolCallsOfTurn(sk);
+    tools = calls.map((x) => x.tool);
+    cmds = bashCommands(calls);
+  } finally {
+    // 副产物清理放 finally：用例失败（throw）时同样不能把用户数据留在被改动状态
+    if (!NO_RESTORE) {
+      cleanedJobs = cleanupNewCronJobs(jobsBefore);
+      cleanedMemories = cleanupNewMemories(memoriesBefore);
+    }
+  }
 
   const problems = [];
 
@@ -207,6 +314,12 @@ function runCase(c) {
     `${pass ? "✅" : "❌"} [${c.id}] ${pass ? "PASS" : "FAIL — " + problems.join("；")}`,
   );
   if (pass) console.log(`     工具序列：${tools.join(" > ") || "（无工具调用）"}`);
+  if (cleanedJobs.length || cleanedMemories.length) {
+    const parts = [];
+    if (cleanedJobs.length) parts.push(`定时任务 ${cleanedJobs.map((j) => j.name).join("、")}`);
+    if (cleanedMemories.length) parts.push(`记忆条目 ${cleanedMemories.length} 条`);
+    console.log(`     🧹 已清理用例期间的用户数据副产物：${parts.join("；")}`);
+  }
 }
 
 // ────────────────────────────────────────────────
@@ -215,10 +328,6 @@ function runCase(c) {
 
 console.log(`\n🧪 工具选择评测 —— ${cases.length} 个用例，回合超时 ${TURN_TIMEOUT_MS}ms\n`);
 
-if (!logChannelAvailable()) {
-  console.error("❌ 日志通道不可用——本评测依赖 tool:end 事件，无法降级运行");
-  process.exit(3);
-}
 const pf = preflight();
 if (!pf.ok) {
   console.error(`❌ 环境不就绪：${pf.problems.join("；")}`);
@@ -337,8 +446,10 @@ if (blockedCount > 0) {
 }
 console.log();
 
-if (!NO_RESTORE) {
-  console.log("ℹ️  本评测不改任何全局设置，无需恢复现场（TC_NO_RESTORE 在当前实现下无副作用）");
-}
+console.log(
+  NO_RESTORE
+    ? "ℹ️  TC_NO_RESTORE=1：用例期间新建的定时任务/记忆条目**保留现场**（不清理，仅供检查）"
+    : "ℹ️  本评测不切全局设置；用例期间产生的用户数据副产物（定时任务走控制口 cron:delete、记忆条目删 id 差集）已在用例内清理。",
+);
 
 process.exit(passed === results.length ? 0 : 1);

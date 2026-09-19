@@ -150,11 +150,12 @@
     {
       "id": "t15-guide-before-use",
       "category": "引导先行",
-      "prompt": "帮我建一个每天早上 9 点跑的任务",
+      "prompt": "帮我建一个每天早上 9 点跑的定时任务：搜集当天的 AI 新闻，写一句话摘要发给我",
       "expectTools": ["cron_create"],
       "rejectTools": [],
-      "why": "cron_create 在 COMPLEX_TOOL_NAMES 里（参数格式复杂），其描述与 GROUP_NOTES 提示先读 cron_guide。",
-      "note": "这条**不做硬断言**（不强制 cron_guide 出现）——它是观察项：记录模型是否会主动查引导。写进集子是为了让「引导先行」这个意图在评测里有位置，而不是为了判红。"
+      "turnTimeoutMs": 720000,
+      "why": "cron_create 在 COMPLEX_TOOL_NAMES 里（参数格式复杂），其描述与 GROUP_NOTES 提示先读 cron_guide。硬判据只锁**任务必须建出来**（cron_create 出现）；cron_guide 是否被调用是观察项（不硬断言），序列会在结果里打印。",
+      "note": "2026-09-19 复核：首轮「只调 cron_guide」与次轮「只调 cron_list、没建任务」都是**跑分器回合截断**造成的假记录——次轮真实回合（日志+DB 可查）是：cron_list → 问澄清（评测环境无人应答，超时被拒答）→ cron_guide → cron_create('cron' 表达式被工具拒绝) → cron_create('at' 自续链成功) → task_complete。题面在当天补全了任务内容（原来只有「建一个…任务」，缺「做什么」，模型合理地去问了），但保留「每天早上 9 点」这种真实问法——cron_create 实际只支持 at/every、做不到精确每天 9 点（every 从创建时刻起算），模型如何处理这个能力缺口本身是要观测的行为。turnTimeoutMs 放大到 12 分钟：提问挂起要等超时被拒答（~5 分钟）+ 拒答后继续干活，默认预算不够（见 README 与 cli-harness sendAndWait 的注释）。"
     }
   ]
 }
