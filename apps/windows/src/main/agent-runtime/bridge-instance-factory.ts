@@ -75,6 +75,7 @@ import {
 import { agentRuntimeLog as log, filterToolsByDefinition } from './bridge-utils'
 import { SHARED_WIKI_LIBRARY_AGENT_ID } from './wiki-library'
 import { ensureProviderBaseUrl } from '../provider-config'
+import { resolveModelThinking, resolveReasoningOptions, apiForProviderType } from '../model-thinking'
 import { resizeImageIfNeeded } from './image-resizer'
 import type { FileMemoryHandler } from './file-memory-handler'
 import type { WikiIngestHook } from '@mtbot/agent-runtime'
@@ -248,6 +249,9 @@ export class BridgeInstanceFactory {
             apiKey: cfg.apiKey,
             apiFormat: cfg.apiFormat ?? 'responses',
           },
+          // 思考能力由 provider 配置解析：pi-ai 只在 model.reasoning 为真时才发思考参数，
+          // 而这里用的是 {id, api} 最小模型，必须由宿主补上（见 model-thinking.ts）。
+          resolveModelProfile: (modelId) => resolveModelThinking(cfg, modelId),
           log: (msg) => log.info(msg),
         })
         const startedAt = Date.now()
@@ -316,6 +320,7 @@ export class BridgeInstanceFactory {
           apiKey: cfg?.apiKey,
         }
       },
+      resolveModelProfile: (modelId) => resolveModelThinking(readLiveProviderCfg(), modelId),
       log: (msg) => log.info(msg),
     })
 
@@ -332,22 +337,28 @@ export class BridgeInstanceFactory {
         )
         // 思考开关必须传到 direct 请求上。pi-ai 的 streamSimple 把 options.reasoning 映射成
         // reasoningEffort，再据此决定是否发 reasoning_effort（OpenAI 系）或 thinking:disabled
-        // （z.ai 系）。此前 direct 路径只读了偏好却没往下传，所以关掉思考后 DeepSeek 照旧推理。
+        // （z.ai 系）；模型是否支持思考由 resolveModelThinking 注入（见 model-thinking.ts）。
         // 注意不要顺手把 model.reasoning 改成 false：z.ai 的「显式关闭」分支依赖它为真，
         // 置 false 会导致该分支被跳过，反而回到服务端默认开启思考。
+        const targetRef = pref ?? resolved.model.id
+        const liveCfg = readLiveProviderCfg()
+        const apiOverride = apiForProviderType(liveCfg?.type)
+        const targetModel = this.deps.modelRouter.resolveExplicitModelId(targetRef, apiOverride)
+        const level = resolveReasoningOptions(
+          thinking.reasoningEffort,
+          targetModel.api,
+          liveCfg?.baseUrl ?? '',
+        )
         const streamOptions = thinking.thinkingEnabled
           ? {
               ...options,
-              // 应用档位只有 high|max，而 pi-ai 的 ThinkingLevel 无 max，
-              // 映射到其最高档 xhigh 以保住「最大思考强度」语义
-              reasoning:
-                options?.reasoning ??
-                (thinking.reasoningEffort === 'max' ? 'xhigh' : thinking.reasoningEffort),
+              reasoning: options?.reasoning ?? level.reasoning,
+              ...(level.thinkingBudgets ? { thinkingBudgets: level.thinkingBudgets } : {}),
             }
           : { ...options, reasoning: undefined, reasoningEffort: undefined }
 
         if (pref) {
-          const explicit = this.deps.modelRouter.resolveExplicitModelId(pref)
+          const explicit = this.deps.modelRouter.resolveExplicitModelId(pref, apiOverride)
           ctx.resolvedModelId = explicit.id
           log.info(`[streamFn] 使用用户选择模型(direct): ${explicit.id} (api=${explicit.api})`)
           return liveDirect(explicit, context, streamOptions)
@@ -485,7 +496,7 @@ export class BridgeInstanceFactory {
         const cfg = readLiveProviderCfg()
         if (cfg?.enabled && cfg.modelId?.trim()) {
           return {
-            model: this.deps.modelRouter.resolveExplicitModelId(cfg.modelId),
+            model: this.deps.modelRouter.resolveExplicitModelId(cfg.modelId, apiForProviderType(cfg.type)),
             providerSource: 'local',
           }
         }

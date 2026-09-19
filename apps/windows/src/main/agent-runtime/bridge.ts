@@ -142,6 +142,7 @@ import { isPetMode, onVirtualHumanSettingsChanged } from '../pet/pet-mode-ipc'
 import { getVirtualHumanSettings } from '../pet/pet-mode-store'
 import { BridgeSessionModelCatalog } from './bridge-session-model-catalog'
 import { BridgeSessionThinkingPrefs } from './bridge-session-thinking-prefs'
+import { loadStoredThinkingPrefs, saveStoredThinkingPrefs } from './session-thinking-store'
 import { BridgeRendererIpcChannel } from './bridge-renderer-ipc'
 import { initToolUsageStore } from '../tool-usage-store'
 import { setDashboardFeedDb } from '../dashboard-feed-store'
@@ -182,6 +183,7 @@ import { createTransformersE5Embedder } from './wiki-transformers-embedder'
 import { getCloudSyncManager } from '../cloud-sync/sync-accessor'
 import type { ConflictInfo } from '../cloud-sync/types'
 import { ensureProviderBaseUrl } from '../provider-config'
+import { resolveModelThinking, apiForProviderType } from '../model-thinking'
 
 /** 单机客户端固定 userId，与 wiki-commands 一致 */
 const LOCAL_USER_ID = 'local-user'
@@ -285,7 +287,7 @@ export class AgentRuntimeBridge {
 
   private readonly messageBus = new MessageBus()
   private readonly sessionModelCatalog = new BridgeSessionModelCatalog()
-  private readonly sessionThinkingPrefs = new BridgeSessionThinkingPrefs()
+  private readonly sessionThinkingPrefs = new BridgeSessionThinkingPrefs(loadStoredThinkingPrefs())
   private readonly ipcChannel = new BridgeRendererIpcChannel(() => this.config.getWindow())
 
   private readonly promptComposer = new BridgePromptComposer({
@@ -707,14 +709,18 @@ export class AgentRuntimeBridge {
           credentials: {
             baseUrl: ensureProviderBaseUrl(live.baseUrl, live.type),
             apiKey: live.apiKey,
+            // 与主对话路径保持一致：缺省 responses（旧代码漏传，导致同一槽位在不同
+            // 调用路径落到不同 API 格式）
+            apiFormat: live.apiFormat ?? 'responses',
           },
+          resolveModelProfile: (modelId) => resolveModelThinking(live, modelId),
           log: (msg) => log.info(`[callLlmFallback] ${msg}`),
         })
         return direct(model, context, options)
       }) as ReturnType<typeof createDirectStreamFn>
     }
 
-    const model = this.modelRouter.resolveExplicitModelId(modelId)
+    const model = this.modelRouter.resolveExplicitModelId(modelId, apiForProviderType(cfg.type))
     return { innerStream: this.callLlmFallbackStream, model }
   }
 
@@ -2299,6 +2305,18 @@ export class AgentRuntimeBridge {
     return this.sessionThinkingPrefs.setThinkingPrefs(sessionKey, patch)
   }
 
+  /**
+   * 更新全局默认思考偏好（对话页开关）：渠道会话/心跳/cron 等未显式设置过的
+   * 会话跟随它；同时落盘，重启后新实例仍继承。
+   */
+  setGlobalThinkingPrefs(
+    patch: Partial<import('./bridge-session-thinking-prefs.js').SessionThinkingPrefs>,
+  ) {
+    const next = this.sessionThinkingPrefs.setGlobalPrefs(patch)
+    saveStoredThinkingPrefs(next)
+    return next
+  }
+
   get isEnabled(): boolean { return this.featureFlags.CLIENT_AGENT_RUNTIME }
   getCwd(): string { return this.config.getCwd() }
 
@@ -2888,6 +2906,9 @@ export class AgentRuntimeBridge {
         apiKey: cfg.apiKey,
         apiFormat: cfg.apiFormat ?? 'responses',
       },
+      // 辅助调用（router/生图意图分类）不传 options.reasoning：qwen 类端点会据此显式
+      // 关思考，其余端点不发思考参数——分类任务不该烧思考预算。
+      resolveModelProfile: (modelId) => resolveModelThinking(cfg, modelId),
       log: (msg) => log.info(`[${logTag}] ${msg}`),
     })
   }

@@ -157,6 +157,16 @@ export interface SessionThinkingPrefsSetCommand {
   readonly reasoningEffort?: 'high' | 'max'
 }
 
+/**
+ * 更新全局默认思考偏好（对话页开关）：渠道会话 / 心跳 / cron 等没有会话级
+ * 偏好的实例跟随它，并落盘供重启后继承。
+ */
+export interface SessionThinkingPrefsSetGlobalCommand {
+  readonly type: 'session:thinkingPrefs:setGlobal'
+  readonly thinkingEnabled?: boolean
+  readonly reasoningEffort?: 'high' | 'max'
+}
+
 export interface ConversationCloseCommand {
   readonly type: 'conversation:close'
   readonly sessionKey: string
@@ -1646,6 +1656,7 @@ export type AgentRuntimeCommand =
   | SessionPreferredModelSetCommand
   | SessionPreferredModelPrimeCommand
   | SessionThinkingPrefsSetCommand
+  | SessionThinkingPrefsSetGlobalCommand
   | ConversationCreateCommand
   | ConversationCloseCommand
   | ConversationListCommand
@@ -1848,6 +1859,10 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
       triggerThreshold: number
     }
   : T extends 'session:thinkingPrefs:set' ? {
+      thinkingEnabled: boolean
+      reasoningEffort: 'high' | 'max'
+    }
+  : T extends 'session:thinkingPrefs:setGlobal' ? {
       thinkingEnabled: boolean
       reasoningEffort: 'high' | 'max'
     }

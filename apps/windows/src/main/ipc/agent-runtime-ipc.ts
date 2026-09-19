@@ -240,6 +240,7 @@ import {
   handleSessionPreferredModelSet,
   handleSessionPreferredModelPrime,
   handleSessionThinkingPrefsSet,
+  handleSessionThinkingPrefsSetGlobal,
   handleMessageDelete as handleMiscMessageDelete,
   handleMessageEdit as handleMiscMessageEdit,
   handleMessageEditAndResend,
@@ -783,6 +784,9 @@ export async function handleCommand(
 
       case 'session:thinkingPrefs:set':
         return handleSessionThinkingPrefsSet(bridge, command)
+
+      case 'session:thinkingPrefs:setGlobal':
+        return handleSessionThinkingPrefsSetGlobal(bridge, command)
 
       // ---- 会话管理 ----
       case 'conversation:create':

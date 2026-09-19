@@ -19,7 +19,7 @@ export const COMMAND_ALLOWLIST: ReadonlySet<string> = new Set([
   // 资讯偏好检视：只读（读 user-memory.md 的偏好章节 + 已推条目做子串匹配），不写任何东西
   'news-preference:preview',
   // 会话偏好
-  'session:preferredModel:set', 'session:thinkingPrefs:set',
+  'session:preferredModel:set', 'session:thinkingPrefs:set', 'session:thinkingPrefs:setGlobal',
   // 会话读写：create/send 仅用于自动化测试构造对话，字段被 COMMAND_FIELD_DENYLIST 收窄
   'conversation:list', 'conversation:messages', 'conversation:context-usage',
   'conversation:create', 'user:send', 'user:abort',

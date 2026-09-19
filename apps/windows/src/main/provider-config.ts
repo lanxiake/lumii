@@ -12,7 +12,31 @@ import { safeStorage } from 'electron'
 import { resolveWindowsClientDataRoot } from './client-data-root.js'
 
 /** provider 类型（决定默认 baseUrl 与 api 归一化） */
-export type ProviderType = 'openai' | 'anthropic' | 'gemini' | 'ollama' | 'lmstudio' | 'rightapi' | 'deepseek'
+export type ProviderType =
+  | 'openai'
+  | 'anthropic'
+  | 'gemini'
+  | 'ollama'
+  | 'lmstudio'
+  | 'rightapi'
+  | 'deepseek'
+  | 'openrouter'
+  | 'groq'
+  | 'xai'
+  | 'zai'
+  | 'dashscope'
+  | 'moonshot'
+  | 'minimax'
+  | 'siliconflow'
+
+/**
+ * 思考参数格式（OpenAI 兼容端点各自不同，pi-ai 只自带 openai/zai 两种）：
+ * - auto：按端点与模型推断（qwen 系模型走 chat_template_kwargs，z.ai 走 thinking）
+ * - openai：reasoning_effort（pi-ai 原生）
+ * - qwen：vLLM/SGLang 系，chat_template_kwargs.enable_thinking（服务端默认开思考，必须显式关）
+ * - zai：thinking:{type}（pi-ai 原生）
+ */
+export type ThinkingFormat = 'auto' | 'openai' | 'qwen' | 'zai'
 
 /** 模型能力槽（本阶段不含 ASR/TTS） */
 export type CapabilitySlot = 'chat' | 'vision' | 'image'
@@ -38,6 +62,13 @@ export interface LocalProviderConfig {
   apiFormat?: 'completions' | 'responses'
   /** 按模型覆盖上下文窗口，单位 K（持久化字段） */
   contextWindowK?: Record<string, number>
+  /**
+   * 按模型声明是否支持思考（reasoning）。缺省按内置默认表推断；
+   * 端点不认思考参数时置 false 可彻底不发相关字段。
+   */
+  modelReasoning?: Record<string, boolean>
+  /** 思考参数格式（见 ThinkingFormat），缺省 auto */
+  thinkingFormat?: ThinkingFormat
 }
 
 /** 渲染进程可见的单槽配置（含 apiKey 明文，仅本机用户可见） */
@@ -61,6 +92,42 @@ export const PROVIDER_DEFAULT_BASE_URL: Record<ProviderType, string> = {
   lmstudio: 'http://localhost:1234',
   rightapi: 'https://www.rightapi.ai/draw/v1',
   deepseek: 'https://api.deepseek.com',
+  openrouter: 'https://openrouter.ai/api/v1',
+  groq: 'https://api.groq.com/openai/v1',
+  xai: 'https://api.x.ai/v1',
+  zai: 'https://open.bigmodel.cn/api/paas/v4',
+  dashscope: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+  moonshot: 'https://api.moonshot.cn/v1',
+  minimax: 'https://api.minimaxi.com/v1',
+  siliconflow: 'https://api.siliconflow.cn/v1',
+}
+
+/**
+ * 各 provider 类型的默认参数：API 格式与思考参数格式。
+ * 切换 provider 类型时按此重置，避免沿用上一个端点的格式（例如从 DeepSeek 换到中转
+ * 却仍是 responses）。
+ */
+export const PROVIDER_TYPE_DEFAULTS: Record<
+  ProviderType,
+  { apiFormat?: 'completions' | 'responses'; thinkingFormat: ThinkingFormat }
+> = {
+  openai: { apiFormat: 'completions', thinkingFormat: 'auto' },
+  anthropic: { thinkingFormat: 'auto' },
+  gemini: { thinkingFormat: 'auto' },
+  ollama: { apiFormat: 'completions', thinkingFormat: 'auto' },
+  lmstudio: { apiFormat: 'completions', thinkingFormat: 'auto' },
+  rightapi: { thinkingFormat: 'auto' },
+  deepseek: { apiFormat: 'responses', thinkingFormat: 'auto' },
+  openrouter: { apiFormat: 'completions', thinkingFormat: 'auto' },
+  groq: { apiFormat: 'completions', thinkingFormat: 'auto' },
+  xai: { apiFormat: 'completions', thinkingFormat: 'auto' },
+  // 智谱与 z.ai 同源，用 thinking:{type} 二元开关
+  zai: { apiFormat: 'completions', thinkingFormat: 'zai' },
+  // 百炼兼容模式/DashScope：qwen 系，用 chat_template_kwargs
+  dashscope: { apiFormat: 'completions', thinkingFormat: 'qwen' },
+  moonshot: { apiFormat: 'completions', thinkingFormat: 'auto' },
+  minimax: { apiFormat: 'completions', thinkingFormat: 'auto' },
+  siliconflow: { apiFormat: 'completions', thinkingFormat: 'auto' },
 }
 
 /** 能力槽展示名 */
@@ -87,6 +154,8 @@ const DEFAULT_CHAT: LocalProviderConfigView = {
   apiKey: '',
   allowedModelIds: [],
   apiFormat: 'completions', // 通用中转通常不支持 responses
+  modelReasoning: {},
+  thinkingFormat: 'auto',
 }
 
 const DEFAULT_VISION: LocalProviderConfigView = {
@@ -97,6 +166,8 @@ const DEFAULT_VISION: LocalProviderConfigView = {
   apiKey: '',
   allowedModelIds: [],
   apiFormat: 'completions',
+  modelReasoning: {},
+  thinkingFormat: 'auto',
 }
 
 const DEFAULT_IMAGE: LocalProviderConfigView = {
@@ -105,6 +176,8 @@ const DEFAULT_IMAGE: LocalProviderConfigView = {
   baseUrl: PROVIDER_DEFAULT_BASE_URL.openai,
   modelId: '',
   apiKey: '',
+  modelReasoning: {},
+  thinkingFormat: 'auto',
 }
 
 /** 各槽默认配置 */
@@ -135,15 +208,29 @@ interface LegacyPersistedShape extends LocalProviderConfig {
 }
 
 /**
- * 规范化 OpenAI 兼容 Base URL：去尾斜杠，缺 /v1 时自动补全
+ * 需要补 `/v1` 的类型：OpenAI 兼容且默认端点不带版本段。
+ * 不带版本段的（OpenRouter/Groq/xAI 带 /v1，智谱带 /api/paas/v4，百炼带
+ * /compatible-mode/v1）一律保持原样，补了反而 404。
+ */
+const V1_PATH_TYPES: ReadonlySet<ProviderType> = new Set<ProviderType>([
+  'openai',
+  'ollama',
+  'lmstudio',
+  'deepseek',
+  'moonshot',
+  'minimax',
+  'siliconflow',
+])
+
+/**
+ * 规范化 OpenAI 兼容 Base URL：去尾斜杠，需要时补 /v1
  * anthropic / gemini 不强制追加 /v1
  * rightapi 保持原样（已含 /draw/v1）
  */
 export function ensureProviderBaseUrl(baseUrl: string, type: ProviderType): string {
-  let u = (baseUrl?.trim() || PROVIDER_DEFAULT_BASE_URL[type]).replace(/\/+$/, '')
-  const needsV1 = type === 'openai' || type === 'ollama' || type === 'lmstudio' || type === 'deepseek'
-  if (needsV1 && !/\/v1$/i.test(u)) {
-    u = `${u}/v1`
+  const u = (baseUrl?.trim() || PROVIDER_DEFAULT_BASE_URL[type]).replace(/\/+$/, '')
+  if (V1_PATH_TYPES.has(type) && !/\/v1$/i.test(u)) {
+    return `${u}/v1`
   }
   return u
 }
@@ -233,7 +320,26 @@ function normalizeSlotView(
     allowedModelIds,
     apiFormat: raw?.apiFormat ?? fallback.apiFormat,
     contextWindowK: normalizeContextWindowK(raw?.contextWindowK),
+    modelReasoning: normalizeModelReasoning(raw?.modelReasoning),
+    thinkingFormat: normalizeThinkingFormat(raw?.thinkingFormat) ?? fallback.thinkingFormat ?? 'auto',
   }
+}
+
+/** 规范化按模型的思考能力表：只保留布尔值与有效 key */
+export function normalizeModelReasoning(raw: unknown): Record<string, boolean> {
+  if (!raw || typeof raw !== 'object') return {}
+  const out: Record<string, boolean> = {}
+  for (const [id, value] of Object.entries(raw as Record<string, unknown>)) {
+    const key = id.trim()
+    if (key && typeof value === 'boolean') out[key] = value
+  }
+  return out
+}
+
+/** 规范化思考参数格式；非法值返回 undefined（调用方决定回退） */
+export function normalizeThinkingFormat(raw: unknown): ThinkingFormat | undefined {
+  if (raw === 'auto' || raw === 'openai' || raw === 'qwen' || raw === 'zai') return raw
+  return undefined
 }
 
 function normalizeContextWindowK(raw: unknown): Record<string, number> {
@@ -262,6 +368,8 @@ function toPersistedSlot(view: LocalProviderConfigView): PersistedSlot {
     allowedModelIds,
     apiFormat: view.apiFormat,
     contextWindowK: normalizeContextWindowK(view.contextWindowK),
+    modelReasoning: normalizeModelReasoning(view.modelReasoning),
+    thinkingFormat: normalizeThinkingFormat(view.thinkingFormat) ?? 'auto',
     apiKeyEnc: encryptApiKey(view.apiKey ?? ''),
   }
 }

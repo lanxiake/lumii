@@ -13,8 +13,10 @@ import {
   listProviderModels,
   testProviderConnection,
   PROVIDER_DEFAULT_BASE_URL,
+  PROVIDER_TYPE_DEFAULTS,
   PROVIDER_TYPE_LABEL,
   listProviderTypesForSlot,
+  supportsApiFormatChoice,
   CAPABILITY_SLOT_LABEL,
   CAPABILITY_SLOT_DESC,
   CAPABILITY_SLOTS,
@@ -24,7 +26,9 @@ import {
   type ProviderType,
   type CapabilitySlot,
   type ListedModel,
+  type ThinkingFormat,
   defaultContextWindowK,
+  defaultSupportsReasoning,
 } from '../../../../services/model-config-service'
 import styles from '../../SettingsPage.module.css'
 
@@ -135,6 +139,9 @@ export function ModelConfigSection() {
           baseUrl: chat.baseUrl,
           apiKey: chat.apiKey,
           modelId: chat.modelId,
+          // 端点级参数一并复制（apiFormat / 思考参数格式属于同一个 Provider）
+          apiFormat: chat.apiFormat,
+          thinkingFormat: chat.thinkingFormat,
           allowedModelIds: slot === 'vision' ? [...(chat.allowedModelIds ?? (chat.modelId ? [chat.modelId] : []))] : prev[slot].allowedModelIds,
           enabled: true,
         },
@@ -204,7 +211,7 @@ export function ModelConfigSection() {
           new CustomEvent('mtbot:chat-model-changed', { detail: { modelId: saved.chat.modelId } }),
         )
       }
-      toast.success('模型能力槽配置已保存')
+      toast.success('模型能力槽配置已保存（新会话生效）')
     } catch (err) {
       console.error('[ModelConfigSection] 保存 Provider 配置失败', err)
       toast.error('保存 Provider 配置失败')
@@ -227,6 +234,24 @@ export function ModelConfigSection() {
       else if (Number.isFinite(n) && n > 0) next[modelId] = n
       patchSlot(slot, { contextWindowK: next })
     }
+    const modelReasoning = cfg.modelReasoning ?? {}
+    /** 未显式勾选时显示内置默认表推断值（勾一次即落成显式值） */
+    const reasoningFor = (modelId: string) =>
+      modelReasoning[modelId] ?? defaultSupportsReasoning(modelId)
+    const setModelReasoning = (modelId: string, value: boolean) => {
+      patchSlot(slot, { modelReasoning: { ...modelReasoning, [modelId]: value } })
+    }
+    const thinkingCheckbox = (modelId: string) => (
+      <Checkbox
+        checked={reasoningFor(modelId)}
+        aria-label={`${modelId} 支持思考`}
+        onChange={(next) => setModelReasoning(modelId, next)}
+      >
+        <span className={styles['setting-desc']} title="该模型是否支持思考（reasoning）。不勾选时不会发送任何思考参数。">
+          思考
+        </span>
+      </Checkbox>
+    )
 
     return (
       <Card key={slot}>
@@ -288,11 +313,12 @@ export function ModelConfigSection() {
                     const isUntouched =
                       !cfg.baseUrl?.trim() ||
                       Object.values(PROVIDER_DEFAULT_BASE_URL).includes(cfg.baseUrl.trim())
-                    const defaultApiFormat = nextType === 'deepseek' ? 'responses' : 'completions'
+                    const defaults = PROVIDER_TYPE_DEFAULTS[nextType]
                     patchSlot(slot, {
                       type: nextType,
                       ...(isUntouched ? { baseUrl: PROVIDER_DEFAULT_BASE_URL[nextType] } : {}),
-                      apiFormat: defaultApiFormat,
+                      ...(defaults.apiFormat ? { apiFormat: defaults.apiFormat } : {}),
+                      thinkingFormat: defaults.thinkingFormat,
                     })
                   }}
                 />
@@ -307,7 +333,7 @@ export function ModelConfigSection() {
                     ? 'DeepSeek 使用固定端点，无需修改'
                     : cfg.type === 'rightapi'
                       ? '填到绘图根地址（含 /draw/v1）；任务查询地址会自动推导为站点级 /v1/tasks'
-                      : '无需手写 /v1，保存与调用时会自动补全（OpenAI 兼容 / Ollama / LM Studio）'}
+                      : '多数 OpenAI 兼容端点无需手写 /v1（会自动补全）；OpenRouter / 智谱 / 百炼 等预设已带完整路径'}
                 </span>
               </div>
               <div className={styles['setting-control']}>
@@ -351,7 +377,7 @@ export function ModelConfigSection() {
               </div>
             </div>
 
-            {(cfg.type === 'openai' || cfg.type === 'deepseek') && (
+            {supportsApiFormatChoice(cfg.type) && (
               <div className={styles['setting-item']}>
                 <div className={styles['setting-label']}>
                   <span data-app-ui-label>API 格式</span>
@@ -367,6 +393,33 @@ export function ModelConfigSection() {
                       { value: 'completions', label: 'Completions（传统）' },
                     ]}
                     onChange={(e) => patchSlot(slot, { apiFormat: e.target.value as 'completions' | 'responses' })}
+                  />
+                </div>
+              </div>
+            )}
+
+            {supportsApiFormatChoice(cfg.type) && (
+              <div className={styles['setting-item']}>
+                <div className={styles['setting-label']}>
+                  <span data-app-ui-label>思考参数格式</span>
+                  <span className={styles['setting-desc']}>
+                    自动会按端点推断：qwen 系模型用 chat_template_kwargs，z.ai 用 thinking，其余用
+                    reasoning_effort。端点不认某种格式时在这里改（对话页的思考开关依赖它才生效）
+                  </span>
+                </div>
+                <div className={styles['setting-control']}>
+                  <Select
+                    value={cfg.thinkingFormat ?? 'auto'}
+                    aria-label="思考参数格式"
+                    options={[
+                      { value: 'auto', label: '自动（按端点与模型推断）' },
+                      { value: 'openai', label: 'OpenAI：reasoning_effort' },
+                      { value: 'qwen', label: 'Qwen / vLLM：enable_thinking' },
+                      { value: 'zai', label: '智谱 z.ai：thinking.type' },
+                    ]}
+                    onChange={(e) =>
+                      patchSlot(slot, { thinkingFormat: e.target.value as ThinkingFormat })
+                    }
                   />
                 </div>
               </div>
@@ -445,6 +498,7 @@ export function ModelConfigSection() {
                                 aria-label={`${m.id} 上下文长度（K）`}
                               />
                               <span className={styles['setting-desc']}>K</span>
+                              {thinkingCheckbox(m.id)}
                             </div>
                           )
                         })}
@@ -480,6 +534,7 @@ export function ModelConfigSection() {
                           aria-label={`${id} 上下文长度（K）`}
                         />
                         <span className={styles['setting-desc']}>K</span>
+                        {thinkingCheckbox(id)}
                       </div>
                     ))}
                     {slotModelIdsText[slot] && slotModelIdsText[slot]!.split(',').map((id) => id.trim()).filter(Boolean).length === 1 && (() => {
@@ -488,6 +543,7 @@ export function ModelConfigSection() {
                         <span className={styles['setting-desc']}>上下文长度</span>
                         <Input type="number" min={1} step={1} value={String(contextWindowK[id] ?? defaultContextWindowK(id))} onChange={(e) => setContextWindowK(id, e.target.value)} style={{ width: 90 }} />
                         <span className={styles['setting-desc']}>K</span>
+                        {thinkingCheckbox(id)}
                       </div>
                     })()}
                     {(cfg.allowedModelIds?.length ?? 0) > 0 && (

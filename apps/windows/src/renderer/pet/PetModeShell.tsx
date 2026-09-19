@@ -125,6 +125,8 @@ export const PetModeShell: React.FC = () => {
     async (sessionKey: string) => {
       const prefs = readPersistedSessionThinkingPrefs()
       await agentActions.setSessionThinkingPrefs(sessionKey, prefs)
+      // 全局默认一并同步：渠道会话/心跳/cron 跟随对话页开关
+      await agentActions.setGlobalThinkingPrefs(prefs)
       log.info(
         `思考偏好已同步 sessionKey=${sessionKey} enabled=${prefs.thinkingEnabled} effort=${prefs.reasoningEffort}`,
       )

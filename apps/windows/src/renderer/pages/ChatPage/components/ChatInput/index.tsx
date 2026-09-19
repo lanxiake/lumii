@@ -939,7 +939,11 @@ const ChatInput: React.FC<ChatInputProps> = ({
                 className={styles['reasoning-effort-select']}
                 value={reasoningEffort}
                 disabled={isDisabled || !thinkingEnabled}
-                title={thinkingEnabled ? '推理努力程度' : '请先开启思考模式'}
+                title={
+                  thinkingEnabled
+                    ? '推理努力程度：OpenAI 兼容端点（含自建中转）上 Max 与 High 等效，Max 只对 Anthropic/Gemini 这类按思考预算的模型真正加大'
+                    : '请先开启思考模式'
+                }
                 aria-label="推理努力程度"
                 onChange={(e) => onReasoningEffortChange?.(e.target.value as 'high' | 'max')}
               >

@@ -107,13 +107,34 @@ export interface CodingDevProject {
  */
 export interface LocalProviderConfigView {
   enabled: boolean
-  type: 'openai' | 'anthropic' | 'gemini' | 'ollama' | 'lmstudio' | 'rightapi' | 'deepseek'
+  type:
+    | 'openai'
+    | 'anthropic'
+    | 'gemini'
+    | 'ollama'
+    | 'lmstudio'
+    | 'rightapi'
+    | 'deepseek'
+    | 'openrouter'
+    | 'groq'
+    | 'xai'
+    | 'zai'
+    | 'dashscope'
+    | 'moonshot'
+    | 'minimax'
+    | 'siliconflow'
   baseUrl: string
   modelId: string
   apiKey: string
   /** chat/vision：对话框可选模型列�?*/
     allowedModelIds?: string[]
     contextWindowK?: Record<string, number>
+    /** API 格式（openai/deepseek 用） */
+    apiFormat?: 'completions' | 'responses'
+    /** 按模型声明是否支持思考 */
+    modelReasoning?: Record<string, boolean>
+    /** 思考参数格式 */
+    thinkingFormat?: 'auto' | 'openai' | 'qwen' | 'zai'
 }
 
 /** 模型能力�?*/

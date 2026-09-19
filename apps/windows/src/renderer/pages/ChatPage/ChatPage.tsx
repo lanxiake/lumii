@@ -742,6 +742,8 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
     if (runtimeCurrentSessionKey) {
       void runtimeActions.setSessionThinkingPrefs(runtimeCurrentSessionKey, { thinkingEnabled: enabled })
     }
+    // 全局默认：渠道会话/心跳/cron 等没有会话级偏好的实例跟随对话页开关
+    void runtimeActions.setGlobalThinkingPrefs({ thinkingEnabled: enabled })
   }, [runtimeCurrentSessionKey, runtimeActions])
 
   /**
@@ -753,15 +755,17 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
     if (runtimeCurrentSessionKey && thinkingEnabled) {
       void runtimeActions.setSessionThinkingPrefs(runtimeCurrentSessionKey, { reasoningEffort: effort })
     }
+    void runtimeActions.setGlobalThinkingPrefs({ reasoningEffort: effort })
   }, [runtimeCurrentSessionKey, runtimeActions, thinkingEnabled])
 
-  /** 新建/切换会话时同步思考偏好到主进程 */
+  /** 新建/切换会话时同步思考偏好到主进程（含全局默认，覆盖重启前的落盘值） */
   useEffect(() => {
     if (!runtimeCurrentSessionKey) return
     void runtimeActions.setSessionThinkingPrefs(runtimeCurrentSessionKey, {
       thinkingEnabled,
       reasoningEffort,
     })
+    void runtimeActions.setGlobalThinkingPrefs({ thinkingEnabled, reasoningEffort })
   }, [runtimeCurrentSessionKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Gateway workflow 项（本地 Runtime 恒为空），用模块级稳定空占位保持 ChatContainer 接口兼容且不破坏 memo
