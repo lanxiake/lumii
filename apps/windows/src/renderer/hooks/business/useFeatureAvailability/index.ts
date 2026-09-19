@@ -23,7 +23,19 @@ export interface UseFeatureAvailabilityReturn {
   blockMessage: (id: FeatureId) => string | null
   /** 不可用的原因（便于按原因分支，如「缺运行时」给安装引导） */
   blockReason: (id: FeatureId) => BlockReason | undefined
-  /** 矩阵是否已从主进程取到 */
+  /**
+   * 矩阵是否已从主进程取到。
+   *
+   * **会主动发起 IPC 的挂载点要等这个标志**：`isAvailable` 在就绪前一律返回
+   * `true`（见文件头），拿它当判据的 `useEffect` 会在首次渲染就把请求发出去——
+   * 而被屏蔽平台上那些 handler 根本没注册（如 Linux 的 `pet:*`），控制台会刷
+   * `No handler registered`。正确写法是先 `if (!ready) return`，
+   * 等矩阵回来再决定发不发。
+   *
+   * 注意这**只约束副作用**，不约束按钮的 disabled：入口先亮着再置灰是无害的
+   * （设计 D4 只要求「不能静默可用」，不要求预知）。反过来「先禁用再解释」
+   * 会让用户看到一瞬间没有原因的灰按钮，那才是 D4 要避免的。
+   */
   ready: boolean
 }
 

@@ -21,7 +21,7 @@ import clsx from 'clsx'
 import styles from './VirtualHuman.module.css'
 
 export const VirtualHuman: React.FC = () => {
-  const { isAvailable, blockMessage } = useFeatureAvailability()
+  const { isAvailable, blockMessage, ready } = useFeatureAvailability()
   const petModeBlocked = !isAvailable('petMode')
   const [models, setModels] = useState<readonly PetModelConfigDTO[]>([])
   const [modelId, setModelId] = useState('')
@@ -29,7 +29,14 @@ export const VirtualHuman: React.FC = () => {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string>()
 
+  // 屏蔽平台上 pet:* 的 main 侧 handler 根本不注册（pet-mode-ipc.ts 入口层屏蔽），
+  // 仍去调用只会在控制台刷 "No handler registered for 'pet:list-models'"，
+  // 且拿不到任何数据。挂载点同样要在入口层短路，不是靠命令层兜底。
+  //
+  // **必须等 `ready`**：`isAvailable` 在矩阵取回前返回 true（见 hook 文件头），
+  // 只判 `petModeBlocked` 的话首次渲染就把请求发出去了，这条 effect 等于没加。
   useEffect(() => {
+    if (!ready || petModeBlocked) return undefined
     void listPetModels().then(setModels)
     void getCurrentPetModelId().then(setModelId)
     void getPetMode().then((mode) => {
@@ -37,7 +44,7 @@ export const VirtualHuman: React.FC = () => {
     })
     // 托盘 / 快捷键 / 控制坞切换也会广播到主窗口，状态由这一处统一同步
     return subscribePetModeChanged((mode) => setIsPetMode(mode === 'pet'))
-  }, [])
+  }, [ready, petModeBlocked])
 
   const model = models.find((m) => m.id === modelId) ?? models[0]
 

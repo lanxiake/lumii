@@ -32,7 +32,7 @@ const PET_AGENT_STORAGE_KEY = 'mtbot:pet-agent-id'
 
 export const PetSettingsSection: React.FC = () => {
   const toast = useToast()
-  const { isAvailable, blockMessage } = useFeatureAvailability()
+  const { isAvailable, blockMessage, ready } = useFeatureAvailability()
   const petModeBlocked = !isAvailable('petMode')
 
   // 宠物模式 Agent + 模型 + 设置
@@ -47,12 +47,19 @@ export const PetSettingsSection: React.FC = () => {
    * 加载 Agent 列表、模型列表与设置
    */
   useEffect(() => {
+    // Agent 列表与宠物模式无关，始终加载（本页其它设置项也要用）
     getAgents().then((r) => setPetAgents(r.agents ?? [])).catch(() => {})
+    // 屏蔽平台上 pet:* handler 未注册，调用只会在控制台刷 "No handler registered"。
+    // 挂载点要在入口层短路——与按钮置灰同一个判据。
+    //
+    // **必须等 `ready`**：`isAvailable` 在矩阵取回前返回 true（见 hook 文件头），
+    // 只判 `petModeBlocked` 的话首次渲染就把请求发出去了，这条短路等于没加。
+    if (!ready || petModeBlocked) return
     void listPetModels().then((m) => setVhModels([...m]))
     void getCurrentPetModelId().then(setVhCurrentModelId)
     void getVirtualHumanSettings().then((s) => { if (s) setVhSettings(s) })
     void getPetMode().then((mode) => setIsPetModeActive(mode === 'pet'))
-  }, [])
+  }, [ready, petModeBlocked])
 
   /**
    * 订阅主进程宠物模式变更事件，同步"进入/退出"按钮文案（托盘/快捷键/控制坞等路径均会触发）

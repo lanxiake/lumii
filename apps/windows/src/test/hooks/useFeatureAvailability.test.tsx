@@ -86,6 +86,35 @@ describe('useFeatureAvailability', () => {
     expect(result.current.blockMessage('petMode')).toBeNull()
   })
 
+  /**
+   * 回归（T4 冒烟查出）：`isAvailable` 在就绪前返回 true 是**有意的**，
+   * 但调用方若拿它单独当 `useEffect` 的判据，首次渲染就会把 IPC 发出去——
+   * Linux 上 `pet:*` 的 handler 根本没注册，控制台刷 `No handler registered`。
+   *
+   * 所以 `ready` 必须可观察、且就绪前为 false，调用方靠它把副作用挡在门外。
+   * 这条锁的是契约本身，不是某个组件的实现。
+   */
+  it('`ready` 在矩阵取回前为 false（调用方据此挡住副作用）', async () => {
+    let resolveApi: ((v: unknown) => void) | undefined
+    stubApi(
+      vi.fn(
+        () =>
+          new Promise((resolve) => {
+            resolveApi = resolve
+          }),
+      ),
+    )
+
+    const { result } = renderHook(() => useFeatureAvailability())
+    expect(result.current.ready).toBe(false)
+
+    resolveApi?.(LINUX_SNAPSHOT)
+    await waitFor(() => expect(result.current.ready).toBe(true))
+
+    // 就绪后按快照判定，与 ready=false 时的乐观值不同
+    expect(result.current.isAvailable('petMode')).toBe(false)
+  })
+
   it('IPC 失败时按「全部可用」降级，而不是禁用整个界面', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     stubApi(vi.fn().mockRejectedValue(new Error('IPC 挂了')))
