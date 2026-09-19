@@ -130,6 +130,12 @@ function enqueue<T>(workspaceDir: string, task: () => Promise<T>, label = 'task'
  * 造成提交被静默覆盖丢失。
  *
  * `label` 为诊断用标签（如 `cloud-sync:sync`），会出现在队列告警里。
+ *
+ * ⚠️ **这个队列的语义是「工作区串行」**，不是「云同步串行」。只该把**真正碰工作区**
+ * 的操作放进来（导出读工作区、导入写工作区、对工作区仓库的 commit）。云同步里那些
+ * 只操作 sync 仓库的活（fetch / push / gc）放进来会平白占住工作区锁 ——
+ * 实测一次 `git gc` 占住 222 秒，期间所有 Turn 快照排队等待。
+ * sync 仓库自己的维护请用 enqueueSyncMaintenance。
  */
 export function enqueueWorkspace<T>(
   workspaceDir: string,
@@ -137,6 +143,30 @@ export function enqueueWorkspace<T>(
   label = 'workspace-task',
 ): Promise<T> {
   return enqueue(workspaceDir, task, label)
+}
+
+/**
+ * 只串行 sync 仓库自身维护的队列（与工作区队列**互不相干**）。
+ *
+ * 目前唯一用户是 `maybePruneObjectStore` 的 `git gc`：它是纯 sync 仓库操作，
+ * 不读也不写工作区，却曾与 Turn 快照争同一条队列 —— 实测占住 222 秒，把工作区
+ * 快照全部堵在后面。而它当初占用工作区队列的理由（“别让用户看到同步已完成、
+ * 队列却被占着”）恰恰是在描述这个 bug 的症状，不是理由。
+ *
+ * 用独立队列而非「不排队」：gc 之间仍需互斥，否则两次 gc 撞在同一个 objects 目录上
+ * 会互相踩（git 自己有锁，但会以失败告终、白跑一遍）。
+ *
+ * ⚠️ 键必须**不可能**与工作区路径相同，否则会串回工作区队列。用 `::` 分隔的
+ * 合成键：Windows 路径不允许 `:` 出现在文件名里，所以真实路径不会长这样。
+ *
+ * 返回的 promise 会 reject 传播给调用方 —— 调用方应自行 catch（gc 失败不该影响同步）。
+ */
+export function enqueueSyncMaintenance<T>(
+  syncDir: string,
+  task: () => Promise<T>,
+  label = 'sync-maintenance',
+): Promise<T> {
+  return enqueue(`${syncDir}::sync-maintenance`, task, label)
 }
 
 /**

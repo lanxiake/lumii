@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { enqueueWorkspace, getWorkspaceQueueDepth, getWorkspaceVcs, maybeSnapshot } from "./vcs-snapshot";
+import { enqueueSyncMaintenance, enqueueWorkspace, getWorkspaceQueueDepth, getWorkspaceVcs, maybeSnapshot } from "./vcs-snapshot";
 
 describe("vcs-snapshot 队列", () => {
   let dir: string;
@@ -64,8 +64,53 @@ describe("vcs-snapshot 队列", () => {
     expect(getWorkspaceQueueDepth(dir)).toBe(0);
   });
 
-  it("不同工作区各自独立排队，不互相合并", async () => {
-    const other = fs.mkdtempSync(path.join(os.tmpdir(), "lumii-snapq-b-"));
+  // sync 仓库维护（目前是 maybePruneObjectStore 的 git gc）曾与 Turn 快照争同一条队列。
+  // 2026-09-19 实测：一次 gc 占住 222 秒，期间所有工作区快照排队等待 —— 用户侧就是
+  // 「客户端不动了」。它不读也不写工作区，凭什么堵住快照？改成独立队列。
+  it("sync 维护任务不阻塞工作区队列（gc 曾占 222 秒把快照全堵住）", async () => {
+    const syncDir = fs.mkdtempSync(path.join(os.tmpdir(), "lumii-syncmaint-"));
+    try {
+      let releaseGc!: () => void
+      const gcGate = new Promise<void>((r) => { releaseGc = r })
+      const gc = enqueueSyncMaintenance(syncDir, () => gcGate, "test:gc")
+
+      // 维护任务正在跑（且永不主动结束）—— 工作区队列必须完全不受影响
+      let ran = false
+      await enqueueWorkspace(dir, async () => { ran = true }, "test:quick")
+      expect(ran).toBe(true)
+      // 工作区队列的深度里不该看见维护任务
+      expect(getWorkspaceQueueDepth(dir)).toBe(0)
+
+      releaseGc()
+      await gc
+    } finally {
+      fs.rmSync(syncDir, { recursive: true, force: true })
+    }
+  })
+
+  it("sync 维护队列自身串行（避免两次 gc 撞同一个 objects 目录）", async () => {
+    const syncDir = fs.mkdtempSync(path.join(os.tmpdir(), "lumii-syncmaint2-"));
+    try {
+      const order: string[] = []
+      let releaseFirst!: () => void
+      const gate = new Promise<void>((r) => { releaseFirst = r })
+
+      const first = enqueueSyncMaintenance(syncDir, async () => { order.push("a-start"); await gate; order.push("a-end") }, "test:gc-a")
+      const second = enqueueSyncMaintenance(syncDir, async () => { order.push("b") }, "test:gc-b")
+
+      // 给第二个任务一个「本可以不排队就执行」的机会
+      await new Promise((r) => setTimeout(r, 30))
+      expect(order).toEqual(["a-start"]) // 第二个必须还在等
+
+      releaseFirst()
+      await Promise.all([first, second])
+      expect(order).toEqual(["a-start", "a-end", "b"])
+    } finally {
+      fs.rmSync(syncDir, { recursive: true, force: true })
+    }
+  })
+
+  it("不同工作区各自独立排队，不互相合并", async () => {    const other = fs.mkdtempSync(path.join(os.tmpdir(), "lumii-snapq-b-"));
     try {
       fs.writeFileSync(path.join(dir, "a.txt"), "v1");
       fs.writeFileSync(path.join(other, "b.txt"), "v1");

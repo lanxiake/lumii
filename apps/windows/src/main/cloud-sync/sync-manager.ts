@@ -12,7 +12,7 @@ import { promisify } from 'node:util'
 import git, { TREE } from 'isomorphic-git'
 import type { PromiseFsClient, WalkerEntry } from 'isomorphic-git'
 import http from 'isomorphic-git/http/node'
-import { enqueueWorkspace, getWorkspaceQueueDepth } from '../workspace-vcs/vcs-snapshot'
+import { enqueueSyncMaintenance, enqueueWorkspace, getWorkspaceQueueDepth } from '../workspace-vcs/vcs-snapshot'
 import { detectGit, runGit } from '../git-cli'
 import { SyncLargeQueue, type LargeQueueStats } from './sync-large-queue'
 import { scopeRulesFromConfig } from './sync-scope'
@@ -699,8 +699,27 @@ export class CloudSyncManager extends EventEmitter {
    * isomorphic-git 每次 fetch 都会落一份新 pack，提交又只写松散对象，都不会自动 gc。
    * pack 数或松散对象超过阈值时调用系统 git gc，避免对象库滚到数十 GB 拖死落决。
    * （系统 git 不可用时只按 pack 数判断，gc 失败仅告警，不影响同步。）
+   *
+   * ## 为什么走 enqueueSyncMaintenance 而不是工作区队列
+   *
+   * 这是纯 sync 仓库操作，不读也不写工作区。曾经它与 Turn 快照争同一条队列，
+   * 理由是「别让用户看到同步已完成、队列却被占着」—— 那句话其实是在描述这个 bug
+   * 的症状：实测一次 gc 占住 **222 秒**（11 packs / 238 loose），期间所有工作区
+   * 快照排队等待，用户侧表现为「客户端不动了」。
+   *
+   * 换成独立队列后，gc 之间仍互斥（两次 gc 撞在同一个 objects 目录上会白跑），
+   * 但不再阻塞任何工作区操作。
+   *
+   * 阈值判断放在队列**内部**：并发调用各自入队，第二个执行时会重新判阈值，
+   * 发现刚 gc 完就直接返回 —— 若放在外面判断，两次调用会看到同一份陈旧计数、
+   * 排出两次 gc。
    */
   private async maybePruneObjectStore(): Promise<void> {
+    return enqueueSyncMaintenance(this.syncDir, () => this.runObjectStorePrune(), 'cloud-sync:gc')
+  }
+
+  /** gc 的实际执行体（阈值判断 + 执行 + 自检），由 maybePruneObjectStore 包进队列 */
+  private async runObjectStorePrune(): Promise<void> {
     const packDir = path.join(this.syncDir, '.git', 'objects', 'pack')
     let packCount = 0
     try {
@@ -782,10 +801,11 @@ export class CloudSyncManager extends EventEmitter {
   /**
    * 收尾：把状态置回 idle。
    *
-   * **git gc 必须在 setState 之前** —— 它跑在同一条串行队列里（预算 600s），
-   * 先宣告「同步完成」再 gc，会出现「设置页显示已完成、队列其实还被占着」的假象：
-   * 此时用户点「立即同步」会一直排队，而状态栏一切正常，无从察觉
-   * （2026-09-17 排查实测：一次同步任务在「已宣告完成」之后仍占队列 44s）。
+   * gc 仍排在 setState 之前 —— 但理由变了。原先是因为它跑在**工作区队列**里：
+   * 先宣告「同步完成」再 gc，会出现「设置页显示已完成、队列其实还被占着」的假象，
+   * 用户点「立即同步」会一直排队而状态栏一切正常（2026-09-17 实测占队列 44s）。
+   * 现在 gc 走 enqueueSyncMaintenance 的独立队列，占不到工作区任何东西；
+   * 保持「先 gc 再 idle」只是为了让状态栏说的「完成」涵盖本次收尾动作本身。
    */
   private async finishIdle(message: string): Promise<{ success: true; state: 'idle' }> {
     await this.maybePruneObjectStore()
