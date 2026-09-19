@@ -47,8 +47,22 @@ const TRAILER_AUTHOR = 'Mtbot-Author:'
 /** 提交身份（isomorphic-git 要求 author/committer） */
 const GIT_AUTHOR = { name: 'Mtbot', email: 'vcs@mtbot.local' } as const
 
-/** isomorphic-git 解析 index 文件失败时的错误特征（文件被截断、零填充或校验和不符） */
-const INDEX_CORRUPTION_HINTS = ['dircache', 'Index file is empty', 'Invalid checksum in GitIndex']
+/**
+ * index 文件损坏（被截断、零填充或校验和不符）时的错误特征。
+ *
+ * **两种实现的措辞不同，都要认**：前三条是 isomorphic-git 的，后两条是真 git 的
+ * （`error: bad signature 0x00000000` / `fatal: index file corrupt`，由 stageAllCli
+ * 包进 Error.message）。曾经只有 iso 那三条 —— 因为那时快路径写的是临时 index，
+ * 永远碰不到坏 index，损坏只会在回退路径上出现；改回普通 `git add -A` 后快路径
+ * 也会撞上，漏掉真 git 的措辞就等于快路径没有自愈。
+ */
+const INDEX_CORRUPTION_HINTS = [
+  'dircache',
+  'Index file is empty',
+  'Invalid checksum in GitIndex',
+  'bad signature',
+  'index file corrupt',
+]
 
 /**
  * 判断错误是否由损坏的 git index 文件引起。
@@ -184,7 +198,7 @@ export class WorkspaceVcs {
    * 暂存工作区全部变更（含新增、修改、删除），遵循 .gitignore。
    *
    * **这是回退路径**——只在本机没有可用的真 git 时才会走到（正常走
-   * vcs-git-cli.ts 的 stageAllCli，约 100ms 且不占主线程）。
+   * vcs-git-cli.ts 的 stageAllCli，线上实测 76ms 且不占主线程）。
    *
    * 不依赖 statusMatrix 的 worktree 列（其 stat 快速路径会漏检同秒同大小的小文件），
    * 而是：① 暂存工作树实际文件 —— 默认走一次 `git.add('.')`，重目录未被忽略时
@@ -192,22 +206,15 @@ export class WorkspaceVcs {
    *        实测对「等长 + mtime/ctime 全同」的改写同样能检出；
    *       ② 对 HEAD/index 中存在但工作树已不存在的文件执行 git.remove。
    *
-   * **「无变更短路」暂未实现（2026-09-17 评估后搁置）**：2069 文件 / 700MB 的工作区
-   * 每次都要重算全部 blob hash（批量路径实测 18.3 秒），而 148 次快照里有 125 次（84%）
-   * 扫完才发现无变更 —— 用 stat 签名短路看似很值。但判据不够硬：对「写入等长内容 +
-   * `utimesSync` 把 mtime 还原」这种改动，size 与 mtimeMs 完全不变，ctime 也**只在
-   * 跨时钟 tick 时才变**（同一 tick 内分辨不出，即 git 的 racy-timestamp 问题）。
-   * 而云同步导入路径恰好就做 `utimesSync(dst, srcStat.atime, srcStat.mtime)`。
-   * 短路一旦漏检，那个改动就永远进不了快照（要等该文件下次再变才补上）。
-   * 真要做，得连带实现 racy 判定（文件 mtime >= 记录签名的时刻就强制重扫）——
-   * 那是一次独立的行为变更：本模块此前是刻意比 git 的 index stat cache 更严的，
-   * 应该由明确决策引入，而不是顺手加上。
+   * **这条回退路径刻意不做「无变更短路」。** 2069 文件 / 700MB 的工作区每次都要重算
+   * 全部 blob hash（批量路径实测 18.3 秒），而 148 次快照里有 125 次（84%）扫完才发现
+   * 无变更 —— 短路看似很值，但自己实现 stat 签名判据不够硬：同一时钟 tick 内的等长改写
+   * size/mtime/ctime 全都分辨不出（即 git 的 racy-timestamp 问题），漏检一次那个改动就
+   * 永远进不了快照。要做就得连带实现 racy 判定，那是一次独立的行为变更。
    *
-   * **2026-09-18 结论**：上述顾虑只在「自己实现 stat 短路」时才成立。真 git 的 index
-   * 本来就有 racy 判定（mtime 与 index 写入时刻相同即强制重查内容），实测能正确检出
-   * 「等长 + utimesSync 还原 mtime」的改写（scripts/probe-vcs-git-interop.mjs）。
-   * 所以问题不是"要不要放宽"，而是"别自己重算"——改用真 git 后，无变更场景从
-   * 20 秒降到约 100ms，且正确性不降。回退路径保持原行为不变。
+   * **结论是「别自己重算」而不是「放宽判据」**：真 git 的 index 自带 stat 缓存 + racy
+   * 判定，正确性够用且线上实测 76ms（详见 vcs-git-cli.ts 文件头）。所以快路径交给真 git，
+   * 这条回退路径保持原行为不变 —— 它只在本机没有 git 时才跑，慢但绝不漏。
    */
   private async stageAll(): Promise<void> {
     await this.withIndexRepair('stageAll', () => this.stageAllOnce())
@@ -314,7 +321,7 @@ export class WorkspaceVcs {
    * onAssistantMessagePersisted）。
    *
    * 分工是刻意的：
-   *  - **暂存**走真 git 子进程（约 100ms~2.5 秒，且不占主线程）。这一步是瓶颈——
+   *  - **暂存**走真 git 子进程（线上实测 76ms，且不占主线程）。这一步曾是瓶颈——
    *    isomorphic-git 的 add 会按内容全量重算 blob hash。
    *  - **提交**仍走 isomorphic-git。它又快又安全：blob 已由上一步写好，提交只写
    *    tree/commit 对象；而真 git 的 commit 会在 gitdir 里创建 `index.lock`，
@@ -322,15 +329,22 @@ export class WorkspaceVcs {
    *    （实测 `ENOENT: lstat '.mtbot-vcs/index.lock'`——目录读到了、lstat 时已被改名）。
    *
    * 两条路的**语义一致**：都遵循 .gitignore、都含删除、无变更都不产生空提交。
+   *
+   * 暂存与「有无变更」一起包进 withIndexRepair：坏 index 会让真 git 的 `add -A`
+   * 直接 fatal（`bad signature` / `index file corrupt`），自愈后重跑即可。
+   * 提交刻意留在外面 —— 它不读 index 的 stat 缓存，且重跑提交会产生重复提交。
    */
   private async stageAndCommit(message: string): Promise<string | null> {
     if (await detectGit()) {
       const t0 = Date.now()
-      await stageAllCli(this.workspaceDir, this.gitdir)
-      if (!(await hasStagedChangesCli(this.workspaceDir, this.gitdir))) return null
+      const hasChanges = await this.withIndexRepair('stageAndCommitCli', async () => {
+        await stageAllCli(this.workspaceDir, this.gitdir)
+        return hasStagedChangesCli(this.workspaceDir, this.gitdir)
+      })
+      if (!hasChanges) return null
       // 提交交给 isomorphic-git（不产生 index.lock，见上方注释）
       const oid = await git.commit({ ...this.base, message, author: GIT_AUTHOR })
-      // 与 stageAll 的 500ms 门槛同理：正常约 100ms，劣化时要看得见
+      // 与 stageAll 的 500ms 门槛同理：正常约 76ms，劣化时要看得见
       const ms = Date.now() - t0
       if (ms > 500) log.info(`[stageAndCommit] 真 git 暂存快路径耗时 ${ms}ms`)
       return oid
@@ -372,13 +386,17 @@ export class WorkspaceVcs {
 
   /**
    * 工作区是否有未提交变更（相对 HEAD）。
-   * 先暂存重算/刷新 index，再比对 index 与 HEAD，避免 stat 缓存漏检。
+   * 先暂存（让 index 反映工作树最新状态），再比对 index 与 HEAD。
+   *
+   * 快路径同样要包 withIndexRepair —— 见 stageAndCommit 的说明。
    */
   async hasUncommittedChanges(): Promise<boolean> {
     await this.ensureInitialized()
     if (await detectGit()) {
-      await stageAllCli(this.workspaceDir, this.gitdir)
-      return hasStagedChangesCli(this.workspaceDir, this.gitdir)
+      return this.withIndexRepair('hasUncommittedChangesCli', async () => {
+        await stageAllCli(this.workspaceDir, this.gitdir)
+        return hasStagedChangesCli(this.workspaceDir, this.gitdir)
+      })
     }
     await this.stageAll()
     return this.hasStagedChanges()
