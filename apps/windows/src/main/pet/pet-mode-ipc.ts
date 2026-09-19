@@ -105,8 +105,20 @@ export async function switchPetMode(
 /**
  * 注册宠物模式 IPC + 全局快捷键。
  * 在 main/index.ts 的 createWindow() 之后调用。
+ *
+ * **Linux 上直接不注册**（D13：宠物模式屏蔽，后续以精灵图形态重写）。
+ * 按设计 §7「屏蔽必须发生在入口层，被屏蔽功能的主进程初始化代码直接不执行」——
+ * 若只把 UI 置灰而这里照常建 PetWindowManager，会留下半初始化状态
+ * （窗口创建到一半、全局快捷键已占用、托盘监听残留），将来重写精灵图版时
+ * 还要先清理这些。**入口层屏蔽 + 命令层兜底**（switchPetMode 会报
+ * 「PetWindowManager 未初始化」）两层都保留。
  */
 export function registerPetModeIpc(deps: PetWindowManagerDeps): void {
+  if (process.platform === 'linux') {
+    log.info('Linux 平台不注册宠物模式（D13：后续以精灵图形态重写）')
+    return
+  }
+
   if (petWindowManager) {
     log.warn('registerPetModeIpc 已注册，跳过')
     return

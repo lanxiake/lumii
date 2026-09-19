@@ -7,6 +7,7 @@
 
 import { Tray, Menu, nativeImage, BrowserWindow } from 'electron'
 import { getTrayIconPath } from './asset-paths'
+import { getFeatureAvailability } from './platform/feature-probe'
 
 // 日志输出
 const log = {
@@ -102,45 +103,70 @@ export class TrayManager {
 
   /**
    * 更新右键菜单
+   *
+   * 被屏蔽的功能**置灰并给出原因**（D4：屏蔽入口 + 文案说明，禁止静默失败）。
+   * 菜单项不隐藏而是 disabled——用户能看到「有这功能但当前用不了」，
+   * 比凭空少一项更容易理解。
    */
   private updateContextMenu(): void {
     const elapsedSec = Math.floor(this.screenRecordElapsedMs / 1000)
     const mm = String(Math.floor(elapsedSec / 60)).padStart(2, '0')
     const ss = String(elapsedSec % 60).padStart(2, '0')
     const active = this.screenRecording || this.screenRecordPaused
+
+    // 能力矩阵（设计 §7）。主进程侧直读，不经 IPC——托盘在 main 里构建。
+    const features = getFeatureAvailability()
+    const petDisabledReason = features.petMode.available
+      ? null
+      : 'Linux 版暂不支持宠物模式，后续将以精灵图形态回归。'
+    const recordDisabledReason = features.screenRecord.available
+      ? null
+      : (features.screenRecord.reason === 'wayland-session'
+          ? 'Wayland 会话下录屏需要额外授权，当前版本暂不支持。'
+          : 'Linux 版暂不支持录屏，可使用系统自带录屏工具。')
+
     const recordItems =
       this.config.onStartScreenRecord || this.config.onStopScreenRecord
         ? [
-            ...(active
+            ...(recordDisabledReason
               ? [
-                  ...(this.screenRecording && this.config.onPauseScreenRecord
-                    ? [
-                        {
-                          label: `暂停录屏（${mm}:${ss}）`,
-                          click: () => this.config.onPauseScreenRecord?.(),
-                        },
-                      ]
-                    : []),
-                  ...(this.screenRecordPaused && this.config.onResumeScreenRecord
-                    ? [
-                        {
-                          label: `继续录屏（${mm}:${ss}）`,
-                          click: () => this.config.onResumeScreenRecord?.(),
-                        },
-                      ]
-                    : []),
                   {
-                    label: `停止录屏（${mm}:${ss}）`,
-                    click: () => this.config.onStopScreenRecord?.(),
+                    label: `开始录屏（${recordDisabledReason}）`,
+                    enabled: false,
                   },
+                  { type: 'separator' as const },
                 ]
-              : [
-                  {
-                    label: '开始录屏',
-                    click: () => this.config.onStartScreenRecord?.(),
-                  },
-                ]),
-            { type: 'separator' as const },
+              : active
+                ? [
+                    ...(this.screenRecording && this.config.onPauseScreenRecord
+                      ? [
+                          {
+                            label: `暂停录屏（${mm}:${ss}）`,
+                            click: () => this.config.onPauseScreenRecord?.(),
+                          },
+                        ]
+                      : []),
+                    ...(this.screenRecordPaused && this.config.onResumeScreenRecord
+                      ? [
+                          {
+                            label: `继续录屏（${mm}:${ss}）`,
+                            click: () => this.config.onResumeScreenRecord?.(),
+                          },
+                        ]
+                      : []),
+                    {
+                      label: `停止录屏（${mm}:${ss}）`,
+                      click: () => this.config.onStopScreenRecord?.(),
+                    },
+                    { type: 'separator' as const },
+                  ]
+                : [
+                    {
+                      label: '开始录屏',
+                      click: () => this.config.onStartScreenRecord?.(),
+                    },
+                    { type: 'separator' as const },
+                  ]),
           ]
         : []
 
@@ -151,21 +177,29 @@ export class TrayManager {
       },
       { type: 'separator' },
       ...(this.config.onTogglePetMode
-        ? [
-            {
-              label: this.petModeActive ? '退出宠物模式' : '进入宠物模式',
-              click: () => this.config.onTogglePetMode!(),
-            },
-            ...(this.petModeActive && this.forceIgnoreActive && this.config.onDisableForceIgnore
-              ? [
-                  {
-                    label: '退出穿透（恢复点击）',
-                    click: () => this.config.onDisableForceIgnore!(),
-                  },
-                ]
-              : []),
-            { type: 'separator' as const },
-          ]
+        ? petDisabledReason
+          ? [
+              {
+                label: `进入宠物模式（${petDisabledReason}）`,
+                enabled: false,
+              },
+              { type: 'separator' as const },
+            ]
+          : [
+              {
+                label: this.petModeActive ? '退出宠物模式' : '进入宠物模式',
+                click: () => this.config.onTogglePetMode!(),
+              },
+              ...(this.petModeActive && this.forceIgnoreActive && this.config.onDisableForceIgnore
+                ? [
+                    {
+                      label: '退出穿透（恢复点击）',
+                      click: () => this.config.onDisableForceIgnore!(),
+                    },
+                  ]
+                : []),
+              { type: 'separator' as const },
+            ]
         : []),
       ...recordItems,
       {

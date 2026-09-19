@@ -24,6 +24,7 @@ import {
   type VirtualHumanSettingsDTO,
   DEFAULT_VH_SETTINGS,
 } from '../../../../../shared/virtual-human'
+import { useFeatureAvailability } from '../../../../hooks/business/useFeatureAvailability'
 import styles from '../../SettingsPage.module.css'
 
 /** 宠物模式 Agent 选择的本地存储键 */
@@ -31,6 +32,8 @@ const PET_AGENT_STORAGE_KEY = 'mtbot:pet-agent-id'
 
 export const PetSettingsSection: React.FC = () => {
   const toast = useToast()
+  const { isAvailable, blockMessage } = useFeatureAvailability()
+  const petModeBlocked = !isAvailable('petMode')
 
   // 宠物模式 Agent + 模型 + 设置
   const [petAgents, setPetAgents] = useState<Agent[]>([])
@@ -253,6 +256,8 @@ export const PetSettingsSection: React.FC = () => {
           <div>
             <Button
               variant="primary"
+              disabled={petModeBlocked}
+              title={petModeBlocked ? (blockMessage('petMode') ?? undefined) : undefined}
               onClick={async () => {
                 const target = isPetModeActive ? 'desktop' : 'pet'
                 const r = await switchPetMode(target)
@@ -263,6 +268,10 @@ export const PetSettingsSection: React.FC = () => {
             >
               {isPetModeActive ? '退出宠物模式' : '进入宠物模式'}
             </Button>
+            {/* D4：屏蔽必须给出原因，不能只是把按钮变灰 */}
+            {petModeBlocked && (
+              <p className={styles['setting-hint']}>{blockMessage('petMode')}</p>
+            )}
           </div>
         </div>
       </Card>

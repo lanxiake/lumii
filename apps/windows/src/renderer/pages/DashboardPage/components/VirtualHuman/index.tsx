@@ -16,10 +16,13 @@ import {
   switchPetMode,
   subscribePetModeChanged,
 } from '../../../../services/pet-service'
+import { useFeatureAvailability } from '../../../../hooks/business/useFeatureAvailability'
 import clsx from 'clsx'
 import styles from './VirtualHuman.module.css'
 
 export const VirtualHuman: React.FC = () => {
+  const { isAvailable, blockMessage } = useFeatureAvailability()
+  const petModeBlocked = !isAvailable('petMode')
   const [models, setModels] = useState<readonly PetModelConfigDTO[]>([])
   const [modelId, setModelId] = useState('')
   const [isPetMode, setIsPetMode] = useState(false)
@@ -82,9 +85,17 @@ export const VirtualHuman: React.FC = () => {
         </span>
       </div>
 
-      <button type="button" className={styles.action} onClick={toggleMode} disabled={busy || !model}>
+      <button
+        type="button"
+        className={styles.action}
+        onClick={toggleMode}
+        disabled={busy || !model || petModeBlocked}
+        title={petModeBlocked ? (blockMessage('petMode') ?? undefined) : undefined}
+      >
         {isPetMode ? '退出宠物模式' : '进入宠物模式'}
       </button>
+      {/* D4：屏蔽必须给出原因，不能只是把按钮变灰 */}
+      {petModeBlocked && <div className={styles.sub}>{blockMessage('petMode')}</div>}
       {error && <div className={styles.error}>{error}</div>}
     </Card>
   )
