@@ -10,10 +10,12 @@ dist/
 build/
 out/
 release/
-release-build/
-release-build-*/
-release-ok-*/
+# package-app.js 的 --output-dir 可产出任意名字的目录（如 release-win-check、
+# release-linux-check）。上面的精确条目覆盖不到，用通配兜住，避免几百 MB 的
+# 解包产物出现在 git status 里。
+release*/
 **/win-unpacked.tmp/
+**/linux-unpacked.tmp/
 coverage/
 *.tsbuildinfo
 .tts-probe/

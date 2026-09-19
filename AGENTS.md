@@ -16,14 +16,41 @@
 
 ```bash
 pnpm install       # 安装依赖并重建原生模块
-pnpm dev           # 启动 Windows Electron 开发环境
+pnpm dev           # 启动 Electron 开发环境（Windows / Linux；Linux 自动处理沙箱，见下）
 pnpm typecheck     # 全 workspace 类型检查
-pnpm build         # 构建 Windows 应用
+pnpm build         # 构建应用
+pnpm dist:win      # 打包 Windows（NSIS / portable / zip）
+pnpm dist:linux    # 打包 Linux（AppImage + deb，须在 Linux 上执行）
 pnpm --filter ./apps/windows test        # 单测：只覆盖 src/test/（快，改渲染层够用）
 pnpm --filter ./apps/windows test:all    # 全量：含 src/main/** 与 src/renderer/**，改主进程必跑
 pnpm --filter ./packages/agent-runtime test
 pnpm --filter ./packages/pet-core test
 ```
+
+## Linux 构建
+
+**必须在 Linux 上构建**（原生模块按目标平台编译，不能交叉打包），且**固定 Node 22**（`engines: >=22.5`；仓库 CI 基线为 22）。
+
+```bash
+node -v             # 必须是 22.x
+pnpm install
+pnpm dist:linux     # 产物在 apps/windows/release/
+pnpm --filter ./apps/windows package:linux:deb   # 只要 deb
+```
+
+**运行产物的两个前提**：
+
+- **AppImage 需要 FUSE**：Ubuntu 24.04 默认不装 `libfuse2`，直接运行会报 `dlopen(): error loading libfuse.so.2`。
+  装 `sudo apt install libfuse2t64`，或临时用 `./Lumii-*.AppImage --appimage-extract-and-run`。
+- **deb 已自带沙箱修复**：`postinst` 会把 `chrome-sandbox` 设为 `root:root 4755`。这是 Ubuntu 24.04 必需的一步
+  （默认 `kernel.apparmor_restrict_unprivileged_userns=1`，Chromium 只能走 setuid sandbox）。
+
+**开发期（`pnpm dev`）不需要上述手工步骤**：`scripts/run-dev.cjs` 检测 `chrome-sandbox` 是否已正确配置，
+未配置时自动追加 electron-vite 的 `--noSandbox` 并打印提示（仅开发期；发布产物由 deb 的 postinst 保证）。
+
+**平台包声明注意**：`apps/windows` 有自己的 `node_modules`（electron-builder 的打包根），平台相关的
+optional 包（`@img/sharp-*`、`sherpa-onnx-*`、`onnxruntime-node`）**必须显式声明为 `apps/windows` 的
+`optionalDependencies`**——只在 `packages/*` 声明或被 pnpm hoist 到仓库根，打包时会静默丢失。
 
 **测试基线（2026-09-15）**：`test:all` 全量应**无失败**（此前 6 个既有失败已修正）。仅在满载跑序下有个别 30 秒超时/摆动位——`main/workspace-vcs/vcs-repo`（`diffCommits`）、`main/perf/performance-monitor`（日志轮转）、`main/perf/performance-ipc`（慢调用计时）、`test/components/WikiGraphView`（subtopic 点击）、`main/pet/pet-model-resolver`；**单跑这些文件通过即视为摆动**，不是新引入的问题。另：vitest 请在包目录下执行，在仓库根跑会命中 root 配置（缺 jest-dom setup），组件测试会以 `expect is not defined` 假失败。
 
