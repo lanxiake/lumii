@@ -111,6 +111,8 @@ export type AppUiSettingsCategory =
   | 'pet'
   | 'usage'
   | 'privacy'
+  | 'cloudSync'
+  | 'screenRecord'
   | 'experimental'
   | 'aboutAndUpdate'
 

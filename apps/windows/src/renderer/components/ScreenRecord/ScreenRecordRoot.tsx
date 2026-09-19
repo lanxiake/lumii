@@ -59,7 +59,7 @@ export const ScreenRecordTitleControl: React.FC<ScreenRecordTitleControlProps> =
       className={classNames}
       title={
         !enabled
-          ? '录屏功能已关闭，请到「设置 → 隐私与数据 → 录屏」启用'
+          ? '录屏功能已关闭，请到「设置 → 录屏」启用'
           : recording
             ? `录制中 ${formatDuration(elapsedMs)}，点击打开面板`
             : paused

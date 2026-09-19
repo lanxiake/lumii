@@ -20,6 +20,9 @@ export {
 // 主题图标
 export { Moon, Sun, Monitor } from 'lucide-react'
 
+// 同步图标
+export { Cloud } from 'lucide-react'
+
 // 操作图标
 export {
   Plus,

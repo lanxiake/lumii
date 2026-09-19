@@ -29,6 +29,8 @@ export type MergedSettingsCategory =
   | 'pet'
   | 'usage'
   | 'privacy'
+  | 'cloudSync'
+  | 'screenRecord'
   | 'experimental'
   | 'aboutAndUpdate'
 

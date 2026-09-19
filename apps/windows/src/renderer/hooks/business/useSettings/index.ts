@@ -3,7 +3,7 @@
  */
 
 export { useSettings } from './useSettings'
-export { SETTINGS_STORAGE_KEY, SETTINGS_UPDATE_EVENT } from './settings-core'
+export { SETTINGS_STORAGE_KEY, SETTINGS_UPDATE_EVENT, DEFAULT_SETTINGS, readStoredSettings } from './settings-core'
 export { useCategorySettings } from './useCategorySettings'
 export type { UseSettingsReturn } from './useSettings'
 export type { UseCategorySettingsReturn } from './useCategorySettings'
@@ -14,4 +14,5 @@ export type {
   PrivacyConfig,
   ShortcutConfig,
   WorkspaceConfig,
+  ScreenRecordConfig,
 } from './useSettings.types'
