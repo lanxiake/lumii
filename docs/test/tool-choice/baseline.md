@@ -74,3 +74,67 @@ node docs/test/tool-choice/run-tool-choice-eval.mjs
 ```
 
 宿主需先确认健康：应用空闲、无后台重活、模型端点没有别的会话在压。
+
+---
+
+## 2026-09-19 · 第二轮：**12/15（80.0%）**
+
+### 跑法
+
+同一份跑分器与对照集，**工具面与首轮完全一致**——`fe454abd..HEAD` 之间
+`tools/built-in`、`prompt/sections`、工具注册器零行为改动（唯一相关提交是一段类型注释）。
+宿主为同日 13:26 启动的 dev 实例（HEAD 构建）。15 条全部执行完毕，零 ENV-ERROR、零 MODEL-BUSY。
+冷却调至 20s（`TC_COOLDOWN_MS=20000`），仅降低端点并发、不影响判据。
+
+### 结果
+
+| 用例 | 首轮 09-18 | 本轮 09-19 | 本轮实际行为 |
+| --- | --- | --- | --- |
+| t01 find-vs-glob | ❌ | ✅ | `glob > bash` |
+| t02 grep-command-vs-tool | ❌ | ✅ | `grep > glob > list_dir > bash …`（首个调用就是 `grep`） |
+| t03 ls-vs-list-dir | ✅ | ✅ | `list_dir > bash > bash` |
+| t04 cat-vs-file-read | ✅ | ✅ | `file_read` |
+| t05 sed-vs-file-edit | ✅ | ❌ | `file_read > glob > glob > list_dir > grep`（没走到 `file_edit`） |
+| t06 echo-redirect-vs-file-write | ✅ | ✅ | `file_write > file_read > task_complete > bash` |
+| t07 mkdir-vs-file-mkdir | ✅ | ✅ | `file_mkdir` |
+| t08 mv-vs-file-move | ❌ | ✅ | `file_move > bash …` |
+| t09 cp-vs-file-copy | ❌ | ✅ | `file_copy > bash > glob > bash` |
+| t10 memory-vs-wiki | ✅ | ✅ | `memory_search > bash > file_read` |
+| t11 skill-search-vs-invoke | ❌ | ❌ | 越级直调 `skill_invoke` + `execute_skill` |
+| t12 file-read-vs-wiki-read | ✅ | ✅ | `bash > wiki_overview > wiki_search …` |
+| t13 no-phantom-tools | ✅ | ✅ | `file_read > list_dir > bash …` |
+| t14 batch-vs-serial | ✅ | ✅ | `glob > glob > bash` |
+| t15 guide-before-use | ❌ | ❌ | 只调 `cron_list`，没建任务 |
+
+| 类别 | 首轮 | 本轮 |
+| --- | --- | --- |
+| 专用工具优先 | 5/9 | **8/9** |
+| 语义邻近工具 | 2/3 | 2/3 |
+| 不存在的工具 | 1/1 | 1/1 |
+| 批量与多步 | 1/1 | 1/1 |
+| 引导先行 | 0/1 | 0/1 |
+
+### 判读
+
+**① 首轮的三条「shell 先验」失败本轮全部通过——而工具面没变。**
+t01/t02/t08/t09 本轮 PASS，其中 t08/t09 的**首个**调用就是 `file_move`/`file_copy`。
+两轮之间工具面零改动（见「跑法」），这只能归因于**模型随机性**（见上文特性一）。
+→ 按准入标准（两轮都失败才动手），**它们不再是合格候选**；
+「shell 本能压过专用工具」作为**系统性失败**未获数据支持，场景化工具集因此失去前提。
+
+**② 唯一在两轮里都失败的是 t11（技能三件套越级）**，且本轮形态与首轮一致：
+越级直调 `skill_invoke` + `execute_skill`。注意 `execute_skill` 是 09-18 才接线的（批次 3），
+**本轮是它在已注册状态下的复现**——不是"工具不存在"造成的。
+它是本轮唯一满足准入门槛的候选。
+
+**③ t15 两轮失败但形态变了**：首轮只调 `cron_guide`，本轮只调 `cron_list`——都是
+「查了但没执行」。仍属正向信号强度问题，需先设计判据（首轮判读 ③ 的结论不变），
+不做工具面改造。
+
+**④ t05 是新增的反向翻转（首轮 PASS → 本轮 FAIL）**：只失败一轮，按标准不构成候选。
+
+**⑤ 分数不可跨轮横向解读。** 12/15 vs 9/15 的差全部来自随机翻转（含一个反向的 t05），
+**两轮都过的稳定项是 11/15**（t03/t04/t06/t07/t10/t12/t13/t14 两轮全过，
+t01/t02/t08/t09 一对一错，t05 一对一错）。后续改动工具面之后，应以上面这张
+**逐用例两轮表**为对照，而不是拿总分做趋势。
+
