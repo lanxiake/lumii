@@ -112,10 +112,15 @@ function buildUninstallConfirmText(p: UninstallPreview | null): string {
 
 /**
  * 构造「让 AI 安装」的提示词：强调先查最新官方文档，再动手装并配置
+ *
+ * 文案**不写死平台**：Windows 之外（第一期 Linux 桌面端）这个入口同样存在，
+ * 只是「一键安装」被屏蔽、只保留手动路径（`coding-dev-cli-install.ts` 的
+ * `automatic` 判据）。与其在这句里猜平台，不如让 AI 自己确认环境——
+ * 提示词第 1 步本来就要求它先读官方文档核对前置依赖。
  */
 function buildAiInstallPrompt(t: LocalAcpToolStatusView): string {
   return [
-    `请帮我在这台 Windows 电脑上安装并配置 ${t.label}（命令行工具）。`,
+    `请帮我在这台电脑上安装并配置 ${t.label}（命令行工具）。`,
     '',
     '已知信息（可能已过时，请以最新官方文档为准）：',
     `- 官方文档：${t.installUrl}`,

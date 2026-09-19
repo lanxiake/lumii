@@ -342,11 +342,33 @@ async function withVersionInfo(
 }
 
 /**
+ * 按平台调整安装元数据。
+ *
+ * `LOCAL_ACP_TOOL_META` 里的 `installCommand` 是 **Windows 专属**的
+ * （`irm ... | iex` / `install.ps1`），在 Linux 上原样显示会误导用户去执行一条
+ * 跑不通的命令。渲染层还会把它拼进「让 AI 安装」的提示词——那条提示词也硬编码了
+ * 「这台 Windows 电脑上」。
+ *
+ * 不在这里改 `LOCAL_ACP_TOOL_META` 本身：它是 Windows 的配方表，被 `automatic`
+ * 判定（`Boolean(powershellCommand) && platform === 'win32'`）依赖，改掉会动摇
+ * 「Linux 上不自动安装」的依据。**只在出口处替换**，Windows 行为一字不变。
+ */
+function withPlatformInstallHints(meta: LocalAcpToolMeta): LocalAcpToolMeta {
+  if (process.platform === 'win32') return meta
+  return {
+    ...meta,
+    // 不再给出可执行命令，改为指向官方文档——具体命令让用户/AI 按官方最新文档取
+    installCommand: `见官方文档：${meta.installUrl}`,
+    installHint: `${meta.installHint}；当前平台请按官方文档选择对应安装方式`,
+  }
+}
+
+/**
  * 仅返回工具元数据清单（名称、链接、安装命令），无版本/状态探测。
  * 适用于初始渲染，避免批量探测阻塞 UI。
  */
 export function listLocalAcpToolsMetadata(): LocalAcpToolMeta[] {
-  return PRIMARY_LOCAL_ACP_TOOLS.map((id) => LOCAL_ACP_TOOL_META[id])
+  return PRIMARY_LOCAL_ACP_TOOLS.map((id) => withPlatformInstallHints(LOCAL_ACP_TOOL_META[id]))
 }
 
 /**

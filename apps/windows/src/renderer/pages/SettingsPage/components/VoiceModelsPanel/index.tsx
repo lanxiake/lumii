@@ -39,7 +39,10 @@ interface ProgressInfo {
 export type VoiceModelGroupId = 'asr-core' | 'tts-synth' | 'tts-clone'
 
 export interface VoiceModelsPanelProps {
-  /** 只展示这些分组；不传则展示全部 */
+  /**
+   * 只展示这些分组。**不传**（`undefined`）＝展示全部；传**空数组**＝一个都不展示。
+   * 两者语义不同，调用方要整体屏蔽该面板时传 `[]`，别指望「不渲染」以外的效果。
+   */
   groups?: VoiceModelGroupId[]
   /** 是否显示顶部总说明（整页总览时用；分区内一般关闭） */
   showGuide?: boolean
@@ -49,10 +52,8 @@ export interface VoiceModelsPanelProps {
   hint?: string
 }
 
-/**
- * 推断模型分组（兼容旧状态无 group 字段）
- */
-function resolveGroup(m: VoiceModelStatus): VoiceModelGroupId {
+/** 推断模型分组（兼容旧状态无 group 字段；导出供单测） */
+export function resolveVoiceModelGroup(m: VoiceModelStatus): VoiceModelGroupId {
   if (m.group === 'asr-core' || m.group === 'tts-synth' || m.group === 'tts-clone') {
     return m.group
   }
@@ -62,6 +63,21 @@ function resolveGroup(m: VoiceModelStatus): VoiceModelGroupId {
   if (id.includes('custom') || id.includes('tokenizer') || id.includes('vits') || id.startsWith('runtime-'))
     return 'tts-synth'
   return 'tts-synth'
+}
+
+/** 按分组过滤（导出供单测；`groups === undefined` 与 `[]` 语义不同，见 props 注释） */
+export function filterVoiceModelsByGroups(
+  models: VoiceModelStatus[],
+  groups: VoiceModelGroupId[] | undefined,
+): VoiceModelStatus[] {
+  // 用 `Array.isArray` 判「是否显式指定分组」，不是 `groups.length > 0`——
+  // 后者把 `groups={[]}`（显式要空集，用于整体屏蔽该面板）当成「不传」而放行全部，
+  // 语义正好反过来。屏蔽场景下那会显示全部本地模型，与意图相反。
+  const allow = Array.isArray(groups) ? new Set(groups) : null
+  return models.filter((m) => {
+    const g = resolveVoiceModelGroup(m)
+    return allow ? allow.has(g) : true
+  })
 }
 
 /**
@@ -165,13 +181,7 @@ export function VoiceModelsPanel({
     }
   }
 
-  const filtered = useMemo(() => {
-    const allow = groups && groups.length > 0 ? new Set(groups) : null
-    return models.filter((m) => {
-      const g = resolveGroup(m)
-      return allow ? allow.has(g) : true
-    })
-  }, [models, groups])
+  const filtered = useMemo(() => filterVoiceModelsByGroups(models, groups), [models, groups])
 
   /**
    * 渲染单个模型卡片

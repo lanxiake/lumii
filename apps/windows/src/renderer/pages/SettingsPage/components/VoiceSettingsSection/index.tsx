@@ -7,9 +7,15 @@ import { Select } from '../../../../components/ui/Select/Select'
 import { VoiceModelsPanel } from '../VoiceModelsPanel'
 import { VoiceProfilesPanel } from '../VoiceProfilesPanel'
 import { AsrLiveTestPanel } from '../AsrLiveTestPanel'
+import { useFeatureAvailability } from '../../../../hooks/business/useFeatureAvailability'
 import styles from '../../SettingsPage.module.css'
 
 export function VoiceSettingsSection() {
+  // D15：本地 TTS（MeloTTS / Qwen3）与声纹克隆依赖 sherpa-onnx 与内嵌运行时，
+  // 第一期在 Linux 上屏蔽。在线 Edge TTS 不受影响，是保留下来的那条链路。
+  const { isAvailable, blockMessage } = useFeatureAvailability()
+  const localTtsBlocked = !isAvailable('localTts')
+  const voiceCloningBlocked = !isAvailable('voiceCloning')
   const [voiceConfig, setVoiceConfig] = useState<{
     asr: { provider: string; language?: string; apiKey?: string }
     tts: {
@@ -465,11 +471,18 @@ export function VoiceSettingsSection() {
               Qwen3 下「内置音色」与「我的音色（克隆）」在同一列表里，选谁用谁。
             </p>
 
-            <VoiceModelsPanel
-              groups={['tts-synth', 'tts-clone']}
-              title="下载"
-              hint="内置音色：先下 Tokenizer 12Hz，再下 0.6B CustomVoice（9 种音色）。声音克隆额外需要 0.6B Base（或 1.7B）。权重下完后台预装依赖，进度见下方「测试」状态条。"
-            />
+            {/* 屏蔽时整个面板不渲染——只给理由，不给一个点了没用的下载入口 */}
+            {!localTtsBlocked && (
+              <VoiceModelsPanel
+                groups={['tts-synth', 'tts-clone']}
+                title="下载"
+                hint="内置音色：先下 Tokenizer 12Hz，再下 0.6B CustomVoice（9 种音色）。声音克隆额外需要 0.6B Base（或 1.7B）。权重下完后台预装依赖，进度见下方「测试」状态条。"
+              />
+            )}
+            {/* D4：屏蔽必须给出原因，不能只是把面板藏掉 */}
+            {localTtsBlocked && (
+              <p className={styles['voice-block-desc']}>{blockMessage('localTts')}</p>
+            )}
 
             <div className={styles['setting-group']}>
               <h5 className={styles['voice-block-subtitle']}>设置</h5>
@@ -480,18 +493,22 @@ export function VoiceSettingsSection() {
                   options={[
                     { label: 'Edge TTS（联网，免下载）', value: 'edge' },
                     {
-                      label: vitsDownloaded
-                        ? '本地 MeloTTS 中英混读（离线）'
-                        : '本地 MeloTTS 中英混读（需先下载）',
+                      label: localTtsBlocked
+                        ? '本地 MeloTTS（当前平台不支持）'
+                        : vitsDownloaded
+                          ? '本地 MeloTTS 中英混读（离线）'
+                          : '本地 MeloTTS 中英混读（需先下载）',
                       value: 'local-vits',
-                      disabled: !vitsDownloaded,
+                      disabled: localTtsBlocked || !vitsDownloaded,
                     },
                     {
-                      label: qwen3CustomReady
-                        ? 'Qwen3（本地多音色 + 声音克隆）'
-                        : 'Qwen3（需先下载 Tokenizer+CustomVoice）',
+                      label: localTtsBlocked
+                        ? 'Qwen3 本地多音色（当前平台不支持）'
+                        : qwen3CustomReady
+                          ? 'Qwen3（本地多音色 + 声音克隆）'
+                          : 'Qwen3（需先下载 Tokenizer+CustomVoice）',
                       value: 'qwen3',
-                      disabled: !qwen3CustomReady,
+                      disabled: localTtsBlocked || !qwen3CustomReady,
                     },
                   ]}
                   onChange={(e) => {
@@ -673,8 +690,12 @@ export function VoiceSettingsSection() {
                     onSelectProfile={selectCloneProfile}
                     onPreviewProfile={(id) => void handlePreviewProfile(id)}
                     previewing={voicePreviewing || runtimeBusy}
-                    cloneReady={qwen3CloneReady}
+                    cloneReady={qwen3CloneReady && !voiceCloningBlocked}
                   />
+                  {/* D4：克隆面板里也给出原因，否则用户只看到录制按钮不可用 */}
+                  {voiceCloningBlocked && (
+                    <p className={styles['setting-hint']}>{blockMessage('voiceCloning')}</p>
+                  )}
 
                   {qwen3CloneReady && (
                     <div className={styles['setting-item']} style={{ marginTop: 12 }}>
