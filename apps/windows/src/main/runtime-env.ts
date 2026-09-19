@@ -167,8 +167,10 @@ export async function writeShims(): Promise<void> {
 /**
  * 在 env 中把 shim 目录追加到 PATH 末尾。
  *
- * Windows 上 process.env 的键名大小写不定（通常是 Path），必须复用已有键名，
- * 否则子进程会拿到 PATH 与 Path 两个变量，行为取决于实现，容易出诡异 bug。
+ * PATH 的**键名大小写**两个平台不同：Windows 上 `process.env` 里通常是 `Path`
+ * 而非 `PATH`，POSIX 上是 `PATH`。必须复用已有键名，否则子进程会拿到
+ * `PATH` 与 `Path` 两个变量，行为取决于实现，容易出诡异 bug。
+ * （实现用 `toUpperCase() === 'PATH'` 比较，两个平台都已覆盖。）
  *
  * 同时注入搜索工具配置（从 ConfigManager 读取）。
  */
