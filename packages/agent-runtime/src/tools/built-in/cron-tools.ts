@@ -12,21 +12,23 @@ import type { AgentToolResult } from "@mariozechner/pi-agent-core";
 
 // ─── cron_create ─────────────────────────────────────────────────────────────
 
+// scheduleType 只声明 every/at：本仓唯一的平台实现（apps/windows 的 registerLocalCronTools）
+// 刻意不开放 cron 表达式（调度器本身支持，是 Agent 工具不收——让模型自己写 cron 容易出错）。
+// 2026-09-19：schema / 工具描述 / cron_guide 三处曾宣称支持 cron 并给 "0 9 * * 1-5" 示例，
+// 模型照做必然失败（t15 实测），三处已对齐为能力事实——别再改回去。
 const CronCreateParams = Type.Object({
   name: Type.String({ description: "Human-readable name for this scheduled task" }),
   taskText: Type.String({
     description: "Message or instruction to execute when the schedule triggers",
   }),
-  scheduleType: Type.Union([Type.Literal("cron"), Type.Literal("every"), Type.Literal("at")], {
+  scheduleType: Type.Union([Type.Literal("every"), Type.Literal("at")], {
     description:
-      "'cron' = cron expression (e.g. '0 9 * * 1-5'), " +
       "'every' = repeat interval in ms as plain integer string (e.g. '300000' for 5 min), " +
       "'at' = one-time schedule, use template expression or plain timestamp ms",
   }),
   scheduleExpr: Type.String({
     description:
       "Schedule expression matching scheduleType.\n" +
-      "• cron: standard cron expr, e.g. '0 9 * * 1-5'\n" +
       "• every: plain integer ms string, e.g. '300000'\n" +
       "• at (one-time): PREFERRED — use template expression so the time is evaluated at call time:\n" +
       "  - N ms from now:      `${Date.now() + N}`          e.g. `${Date.now() + 120000}` for 2 min\n" +
@@ -56,7 +58,7 @@ export const cronCreateToolConfig: MtBotToolConfig<typeof CronCreateParams> = {
   label: "Create Scheduled Task",
   description:
     "Create a scheduled task that triggers at specified times or intervals. " +
-    "Supports cron expression, repeat interval (every N ms), and one-time (at timestamp) schedules. " +
+    "Supports repeat interval (every N ms) and one-time (at timestamp) schedules. " +
     "The task runs asynchronously and will invoke the specified agent with taskText.",
   parameters: CronCreateParams,
   category: "agent",

@@ -75,23 +75,27 @@ export function registerGuideTools(deps: BridgeToolRegistrarDeps): void {
     isReadOnly: true,
     needsPermission: false,
     execute: async () => {
+      // 2026-09-19：本文案的 scheduleType/示例曾把 cron 表达式列为可用（包内 schema 与工具描述同病），
+      // 而本机 cron_create 必然拒绝 cron——模型照示例做必然碰壁（t15 实测：
+      // 试 "0 9 * * *" 被拒后自造了 at 自续链）。三处文案已对齐为能力事实。
+      // 注：本注释刻意放在 jsonToolResult 实参之外——host-tool-failure-semantics 守卫
+      // 会扫描实参文本，实参里出现「失败」等字样而无 ok/status 会被判成漏标的失败载荷。
       return jsonToolResult({
         tool: 'cron_create',
         params: {
           name: 'Human-readable name for the task',
           taskText: 'Message/instruction to execute when triggered',
-          scheduleType: '"cron" | "every" | "at"',
+          scheduleType: '"every" | "at"',
           scheduleExpr: 'Expression matching scheduleType (see below)',
           agentId: '(optional) Agent ID to run the task',
         },
         scheduleExpr_guide: {
-          cron: 'Standard 5-field cron expression. e.g. "0 9 * * 1-5" (weekdays 9am)',
           every: 'Repeat interval in milliseconds as integer string. e.g. "300000" (every 5 min)',
           at: 'One-time: PREFERRED use template expression: "${Date.now() + N}" where N is ms offset. e.g. "${Date.now() + 120000}" (2 min from now). Plain timestamp ms also accepted.',
         },
-        cron_syntax: 'Fields: minute hour day-of-month month day-of-week | * = any | */5 = every 5 | 1-5 = range',
+        limitation:
+          '不支持「每天固定时刻」（如 9:00）这类语义：every 的首次触发在「创建时刻 + 间隔」，不会对齐到整点。遇到固定时刻需求，如实告诉用户并确认改用间隔或一次性任务。',
         examples: {
-          weekday_morning: '{"name":"日报","taskText":"生成并发送今日工作日报","scheduleType":"cron","scheduleExpr":"0 9 * * 1-5"}',
           every_hour: '{"name":"每小时检查","taskText":"检查未读消息","scheduleType":"every","scheduleExpr":"3600000"}',
           in_30_min: '{"name":"提醒","taskText":"提醒用户开会","scheduleType":"at","scheduleExpr":"${Date.now() + 30 * 60 * 1000}"}',
         },
