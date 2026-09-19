@@ -164,6 +164,29 @@ export class McpManager {
     this.lastErrors.delete(name)
   }
 
+  /**
+   * 停止**所有** MCP Server，用于应用退出。
+   *
+   * 为什么必须有：MCP Server 是独立子进程，不终止就会拖住 Electron 的退出——
+   * 2026-09-20 实测（Linux，`--appimage-extract-and-run`）日志显示
+   * `清理完成，调用 app.exit(0)` 之后 `McpManager` 仍在重连、子进程仍在跑，
+   * GPU watchdog 在这段窗口里判定失败并 `FATAL: GPU process isn't usable`。
+   *
+   * `disconnect()` 已经做了三件事：标记 `intentionalStops`（抑制自动重连）、
+   * 停 client、从 `mcpClients` 删除。这里只需**遍历一遍**，并额外清掉
+   * `connecting`——卡在连接中的 Server 不在 `mcpClients` 里，`disconnect()`
+   * 覆盖不到，留下的话退出后设置页仍显示「连接中」。
+   *
+   * 并发停止而非串行：退出路径上要快，且各 Server 互不依赖。
+   */
+  async disconnectAll(): Promise<void> {
+    const names = [...this.mcpClients.keys()]
+    if (names.length === 0 && this.connecting.size === 0) return
+    log.info(`[disconnectAll] 正在停止 ${names.length} 个 MCP Server（应用退出）`)
+    await Promise.all(names.map((name) => this.disconnect(name)))
+    this.connecting.clear()
+  }
+
   /** 重连某个 Server（配置改动后调用），Server 已禁用则只断开 */
   async reconnect(name: string): Promise<void> {
     await this.disconnect(name)

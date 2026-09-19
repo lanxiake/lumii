@@ -1670,6 +1670,20 @@ async function performCleanup(): Promise<void> {
       log.info('[performCleanup] Agent Runtime Bridge 已销毁')
     }
 
+    // 停止 MCP Server 子进程。
+    //
+    // 为什么单独一步：MCP client 由 `mcpManager` 独立持有，`destroyAll()` 不覆盖
+    // 它（那管的是 agent 实例与调度器）。而这些是**独立子进程**，不终止就会拖住
+    // Electron 的退出——2026-09-20 Linux 实测：`app.exit(0)` 之后 McpManager 仍在
+    // 重连、子进程仍在跑，GPU watchdog 在窗口期判定失败并
+    // `FATAL: GPU process isn't usable. Goodbye.`（干净退出变成带 FATAL 的退出）。
+    try {
+      await agentRuntimeBridge?.stopMcpServers()
+      log.info('[performCleanup] MCP Server 已停止')
+    } catch (err) {
+      log.warn('[performCleanup] MCP Server 停止失败:', err)
+    }
+
     // 终止所有运行中的 ACP CLI 子进程（dispose 内部 abort 全部 run 并清理定时器）
     try {
       const { getAcpRunController } = await import('./coding-dev-acp-run.js')

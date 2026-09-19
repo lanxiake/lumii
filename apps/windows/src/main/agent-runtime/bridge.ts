@@ -2687,6 +2687,15 @@ export class AgentRuntimeBridge {
 
   getMcpStatus(): McpServerRuntimeStatus[] { return this.mcpManager.getStatus() }
 
+  /**
+   * 停止所有 MCP Server 子进程（应用退出时调用，见 `performCleanup`）。
+   *
+   * `destroyAll()` **不覆盖**这部分：它管的是 agent 实例与调度器，
+   * MCP client 由 `mcpManager` 独立持有。漏掉会让子进程拖住 Electron 退出
+   * （2026-09-20 Linux 实测：`app.exit(0)` 后仍在重连，GPU watchdog 报 FATAL）。
+   */
+  stopMcpServers(): Promise<void> { return this.mcpManager.disconnectAll() }
+
   getMcpConfigError(): string | null { return this.mcpManager.getConfigError() }
 
   readMcpConfigFile(): { path: string; content: string } { return this.mcpManager.readConfigFile() }
