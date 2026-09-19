@@ -1873,6 +1873,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
       {runtimePendingAskUser ? (
         <AskUserModal
           open
+          context={runtimePendingAskUser.context}
           questions={runtimePendingAskUser.questions}
           timeoutMs={runtimePendingAskUser.timeoutMs}
           onSubmit={(payload) => runtimeActions.respondAskUser(payload)}

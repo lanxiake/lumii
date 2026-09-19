@@ -999,6 +999,7 @@ export class AgentRuntimeBridge {
             kind: 'ask',
             requestId: input.requestId,
             sessionKey,
+            context: input.context,
             questions: input.questions,
           })
           if (!channelHandled) {
@@ -1017,6 +1018,7 @@ export class AgentRuntimeBridge {
             requestId: input.requestId,
             instanceId,
             rootSessionKey: sessionKey,
+            context: input.context,
             questions: input.questions,
             timeoutMs,
           })

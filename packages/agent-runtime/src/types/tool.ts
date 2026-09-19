@@ -213,6 +213,8 @@ export interface ToolExecutionContext {
 export interface AskUserQuestionContextInput {
   readonly requestId: string;
   readonly instanceId?: string;
+  /** 提问的前因后果（为什么问、查到什么、答了影响什么）；渲染在弹窗/渠道卡片里 */
+  readonly context?: string;
   readonly questions: readonly {
     readonly question: string;
     readonly header: string;

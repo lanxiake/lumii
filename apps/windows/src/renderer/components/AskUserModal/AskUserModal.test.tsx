@@ -190,3 +190,64 @@ describe('AskUserModal AI 推荐', () => {
     })
   })
 })
+
+describe('AskUserModal 关闭（= 拒绝回答，模型按默认方案继续）', () => {
+  it('点右上角 × 等同拒绝回答', async () => {
+    const onSubmit = renderModal([q1])
+    fireEvent.click(screen.getByRole('button', { name: '关闭' }))
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1))
+    expect(onSubmit.mock.calls[0][0]).toEqual({ answers: {}, declined: true })
+  })
+
+  it('Esc 与 × 同源：也走拒绝回答', async () => {
+    const onSubmit = renderModal([q1])
+    fireEvent.keyDown(window, { key: 'Escape' })
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1))
+    expect(onSubmit.mock.calls[0][0]).toEqual({ answers: {}, declined: true })
+  })
+
+  it('宿主给了 onDecline 时，关闭只走 onDecline（不落 answers）', async () => {
+    const onSubmit = vi.fn()
+    const onDecline = vi.fn()
+    render(
+      <AskUserModal
+        open
+        questions={[q1]}
+        timeoutMs={60000}
+        onSubmit={onSubmit}
+        onDecline={onDecline}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: '关闭' }))
+    await waitFor(() => expect(onDecline).toHaveBeenCalledTimes(1))
+    expect(onSubmit).not.toHaveBeenCalled()
+  })
+})
+
+describe('AskUserModal 前因后果（context）', () => {
+  it('渲染模型给的背景说明，避免用户面对弹窗无从选择', () => {
+    render(
+      <AskUserModal
+        open
+        context="已扫过本地技能库，没有代码审查类；下面决定要不要去远程市场找。"
+        questions={[q1]}
+        timeoutMs={60000}
+        onSubmit={vi.fn()}
+      />,
+    )
+    expect(
+      screen.getByText('已扫过本地技能库，没有代码审查类；下面决定要不要去远程市场找。'),
+    ).toBeInTheDocument()
+  })
+
+  it('context 缺失或空白时不渲染背景块（回归）', () => {
+    const { rerender } = render(
+      <AskUserModal open context="有背景的唯一标记文本" questions={[q1]} timeoutMs={60000} onSubmit={vi.fn()} />,
+    )
+    expect(document.body.textContent).toContain('有背景的唯一标记文本')
+    rerender(
+      <AskUserModal open context="   " questions={[q1]} timeoutMs={60000} onSubmit={vi.fn()} />,
+    )
+    expect(document.body.textContent).not.toContain('有背景的唯一标记文本')
+  })
+})

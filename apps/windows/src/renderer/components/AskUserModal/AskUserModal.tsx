@@ -32,6 +32,8 @@ export interface AskUserModalPayload {
 
 export interface AskUserModalProps {
   readonly open: boolean
+  /** 提问的前因后果（为什么问、查到什么、答了影响什么）；空则不展示 */
+  readonly context?: string
   readonly questions: readonly AskUserModalQuestion[]
   readonly timeoutMs: number
   readonly onSubmit: (payload: AskUserModalPayload) => void | Promise<void>
@@ -50,6 +52,7 @@ const AUTO_ADVANCE_DELAY_MS = 300
 
 export const AskUserModal: React.FC<AskUserModalProps> = ({
   open,
+  context,
   questions,
   timeoutMs,
   onSubmit,
@@ -273,9 +276,15 @@ export const AskUserModal: React.FC<AskUserModalProps> = ({
       title=" AI 请您回答以下问题"
       footer={footer}
       maskClosable={false}
+      // 右上角 × 与 Esc 都走「拒绝回答」：用户明确要的语义是「关掉 = 不答，
+      // 模型按推荐/默认方案继续」，而不是关不掉或静默等待。
+      onClose={() => void handleDecline()}
       width={560}
     >
       <div className={styles.body}>
+        {/* 前因后果：弹窗是突然出现的，不给背景用户无从判断选项 */}
+        {context?.trim() ? <p className={styles.context}>{context.trim()}</p> : null}
+
         {/* Tab 导航：多问题时显示 */}
         {questions.length > 1 && (
           <div className={styles.tabs}>

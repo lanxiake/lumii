@@ -6,8 +6,9 @@
  * - src/tools/AskUserQuestionTool/AskUserQuestionTool.tsx
  *
  * 设计要点（对照设计文档 §八 ask_user_question）：
- * 1. 入参：1-4 个问题；每个问题 2-4 个选项；支持 multiSelect、option.preview
- *    与 AI 推荐（option.recommended / option.recommendReason）
+ * 1. 入参：context（前因后果，必填——弹窗无其他背景，用户要靠它判断选项）+ 1-4 个问题；
+ *    每个问题 2-4 个选项；支持 multiSelect、option.preview 与 AI 推荐
+ *    （option.recommended / option.recommendReason）
  * 2. 出参：answers（按 question 文本 keyed）+ 可选 annotations（notes/preview）
  * 3. tool_result 文本格式：
  *    `User has answered your questions: "<q>"="<a>" [...]`
@@ -82,6 +83,13 @@ const Question = Type.Object({
 });
 
 export const AskUserQuestionParams = Type.Object({
+  context: Type.String({
+    minLength: 1,
+    description:
+      "Why you are asking — 1-3 sentences the user needs before they can choose: what you found or did " +
+      "so far, what depends on this answer, and what happens next. ALWAYS fill this: the dialog pops up " +
+      "with no other background, and without it the user cannot judge the options.",
+  }),
   questions: Type.Array(Question, {
     minItems: 1,
     maxItems: 4,
@@ -110,6 +118,11 @@ const ASK_DESCRIPTION =
   "Ask the user 1-4 structured multiple-choice questions to gather preferences, clarify " +
   "ambiguity, or offer implementation choices. Each question has 2-4 options. Users can " +
   "always select an automatically-provided 'Other' option to write free-form text. " +
+  "ALWAYS fill the top-level context field: the dialog appears with no other background, so give the " +
+  "user 1-3 sentences on why you are asking (what you found/did so far, what depends on the answer, " +
+  "what happens next) — without it they cannot judge the options. " +
+  "The user may dismiss the dialog instead of answering; that counts as a decline and you should " +
+  "then proceed with your recommended option or default plan. " +
   "IMPORTANT: do NOT use this tool for plan approval — for plan approval use plan mode completion. " +
   "RECOMMENDATION: whenever you have any basis for a preference, mark your suggested option with " +
   "recommended: true and explain why in recommendReason (one sentence) — the UI highlights it and " +
@@ -161,6 +174,7 @@ export const askUserQuestionToolConfig: MtBotToolConfig<typeof AskUserQuestionPa
       const answer = await context.askUserQuestion({
         requestId: toolCallId,
         instanceId: context.instanceId,
+        context: params.context,
         questions: params.questions,
       });
 
@@ -220,7 +234,11 @@ export const askUserQuestionToolConfig: MtBotToolConfig<typeof AskUserQuestionPa
  */
 export function formatAskUserQuestionResult(answer: AskUserQuestionAnswer): string {
   if (answer.declined) {
-    return "User declined to answer the questions. Proceed with your best judgement or ask differently.";
+    // 关闭弹窗 = 拒绝回答 = 授权模型按默认方案继续（用户明确要这个语义）
+    return (
+      "User declined to answer (dismissed the dialog without choosing). " +
+      "Proceed with your best judgement — go with the option you recommended, or your default plan."
+    );
   }
 
   const parts: string[] = [];

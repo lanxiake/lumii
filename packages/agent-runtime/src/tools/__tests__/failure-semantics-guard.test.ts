@@ -360,7 +360,10 @@ describe("失败语义守卫", () => {
     it("ask_user_question：宿主未注入能力 → isError（能力缺失是确定的终态失败）", async () => {
       const r = await askUserQuestionToolConfig.execute(
         "t",
-        { questions: [{ question: "q?", header: "h", options: [{ label: "a", description: "d" }, { label: "b", description: "d" }] }] },
+        {
+          context: "能力缺失路径的回归用例。",
+          questions: [{ question: "q?", header: "h", options: [{ label: "a", description: "d" }, { label: "b", description: "d" }] }],
+        },
         mockContext(),
       );
       expect(r.isError).toBe(true);
