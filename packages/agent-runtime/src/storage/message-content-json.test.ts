@@ -12,7 +12,7 @@
  * 3. `loadSegmentText` 两种格式都能读，且保持 role 前缀与时间顺序
  */
 import { describe, expect, it } from "vitest";
-import { extractMessageText } from "./message-content-json.js";
+import { extractMessageText, parseMessageContentJson } from "./message-content-json.js";
 import { ConversationRepo } from "./conversation-repo.js";
 import { createMigratedTestDb } from "../__tests__/helpers/sqlite-test-db.js";
 
@@ -144,5 +144,26 @@ describe("loadSegmentText", () => {
   it("起点消息不存在时返回空串（调用方据此跳过归档）", () => {
     const repo = makeRepo("c3");
     expect(repo.loadSegmentText("c3", "不存在", "也不存在")).toBe("");
+  });
+});
+
+/**
+ * llmError 透传（2026-09-20）
+ *
+ * 落盘侧写入后，回读必须原样带出——否则「历史回放显示失败原因」只完成了一半：
+ * parse 把字段丢掉 → 渲染层拿不到 → 失败的子 Agent 运行块又回到「已完成」。
+ */
+describe("parseMessageContentJson 透传 llmError", () => {
+  it("assistant_parts 的 llmError 原样返回", () => {
+    const llmError = { code: "insufficient_credits", message: "账户余额不足", retryable: false };
+    const parsed = parseMessageContentJson(
+      JSON.stringify({ type: "assistant_parts", parts: [], llmError }),
+    );
+    expect(parsed).toMatchObject({ type: "assistant_parts", llmError });
+  });
+
+  it("没有该字段时不凭空捏造（旧数据兼容）", () => {
+    const parsed = parseMessageContentJson(JSON.stringify({ type: "assistant_parts", parts: [] }));
+    expect(parsed).not.toHaveProperty("llmError");
   });
 });
