@@ -88,6 +88,38 @@
   background: color-mix(in srgb, var(--mt-accent-500) 10%, transparent);
 }
 
+/* 失败：与委托卡片同款错误色（--mt-error），一眼与「已完成」区分 */
+.status--failed {
+  color: var(--mt-error, #dc2626);
+  background: color-mix(in srgb, var(--mt-error, #dc2626) 16%, transparent);
+}
+
+/* 中断不是失败：中性灰，避免用户以为出了错 */
+.status--interrupted {
+  color: var(--mt-fg-3, rgba(255, 255, 255, 0.6));
+  background: color-mix(in srgb, var(--mt-fg-4, rgba(255, 255, 255, 0.45)) 18%, transparent);
+}
+
+/* 失败原因常驻头部下方一行（截断）；全文在展开体顶部 */
+.errorLine {
+  padding: 0 10px 6px;
+  font-size: 11.5px;
+  color: var(--mt-error, #dc2626);
+  word-break: break-word;
+}
+
+.run--embedded .errorLine {
+  padding-left: 4px;
+  padding-right: 4px;
+}
+
+.errorFull {
+  font-size: 11.5px;
+  color: var(--mt-error, #dc2626);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .spinner {
   animation: subAgentSpin 0.8s linear infinite;
 }
@@ -132,10 +164,31 @@
 
 /* 嵌在卡片里时不再叠加缩进，避免层层内缩 */
 .run--embedded .body {
-  padding: 6px 4px 0;
+  padding: 6px 4px;
+}
+
+/* 底部收起：长轨迹读到底后就地收起，不必再滑回顶部点头部 */
+.collapse {
+  align-self: flex-start;
+  margin-top: 1px;
+  padding: 3px 6px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--mt-fg-3, #94a3b8);
+  font-size: 11px;
+  cursor: pointer;
+  transition: color var(--mt-dur-fast) var(--mt-ease-standard),
+              background var(--mt-dur-fast) var(--mt-ease-standard);
+}
+
+.collapse:hover {
+  color: var(--mt-fg-1, #e2e8f0);
+  background: color-mix(in srgb, var(--mt-accent-500) 12%, transparent);
 }
 
 @media (prefers-reduced-motion: reduce) {
   .spinner { animation: none; }
-  .chevron { transition: none; }
+  .chevron,
+  .collapse { transition: none; }
 }

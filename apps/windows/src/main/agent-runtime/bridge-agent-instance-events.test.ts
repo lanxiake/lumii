@@ -151,51 +151,53 @@ describe("Wiki 摄入钩子接线", () => {
   });
 });
 
+/** 事件处理器测试用的最小依赖装配（落库类 describe 共用） */
+function buildHandler(conversationRepo: Record<string, unknown>) {
+  const ctx = createRunContext("session", "instance", "session");
+  const instanceStates = new InstanceStateStore();
+  const state = createInstanceState(ctx, {
+    definitionId: "agent",
+    runningStartedAt: null,
+    completedTurns: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+  });
+  state.streamingAssistantMsgId = "message-1";
+  instanceStates.set("instance", state);
+  const handler = createAgentInstanceRuntimeEventHandler({
+    instanceId: "instance",
+    ctx,
+    ipcChannel: { forwardIpcEvent: vi.fn(), forwardToRenderer: vi.fn() } as never,
+    conversationRepo: conversationRepo as never,
+    fileRepo: null,
+    fileMemoryHandler: {} as never,
+    getWikiIngestHook: () => null,
+    resolveWikiAgentId: () => "assistant",
+    instanceStates,
+    instanceToConversation: new Map([["instance", "conversation-1"]]),
+    toolCallInstanceMap: new Map(),
+    toolStartTimeMap: new Map(),
+    nodeStreamCallbacks: new Map(),
+    getCompactionForRootSession: () => ({
+      contextWindow: 128_000,
+      outputReserveTokens: 8_000,
+      summaryReserveTokens: 4_000,
+    }),
+    getSessionContextUsage: () => ({
+      usedTokens: 0,
+      contextWindow: 128_000,
+      triggerThreshold: 102_400,
+    }),
+    setSessionProviderInputTokens: vi.fn(),
+    calibrateSessionCharsPerToken: vi.fn(),
+    clearSessionProviderInputTokens: vi.fn(),
+    setCurrentToolExecutorInstanceId: vi.fn(),
+    getCwd: () => os.tmpdir(),
+  });
+  return { handler, state };
+}
+
 describe("NO_REPLY 哨兵轮的落库处理", () => {
-  function buildHandler(conversationRepo: Record<string, unknown>) {
-    const ctx = createRunContext("session", "instance", "session");
-    const instanceStates = new InstanceStateStore();
-    const state = createInstanceState(ctx, {
-      definitionId: "agent",
-      runningStartedAt: null,
-      completedTurns: 0,
-      inputTokens: 0,
-      outputTokens: 0,
-    });
-    state.streamingAssistantMsgId = "message-1";
-    instanceStates.set("instance", state);
-    const handler = createAgentInstanceRuntimeEventHandler({
-      instanceId: "instance",
-      ctx,
-      ipcChannel: { forwardIpcEvent: vi.fn(), forwardToRenderer: vi.fn() } as never,
-      conversationRepo: conversationRepo as never,
-      fileRepo: null,
-      fileMemoryHandler: {} as never,
-      getWikiIngestHook: () => null,
-      resolveWikiAgentId: () => "assistant",
-      instanceStates,
-      instanceToConversation: new Map([["instance", "conversation-1"]]),
-      toolCallInstanceMap: new Map(),
-      toolStartTimeMap: new Map(),
-      nodeStreamCallbacks: new Map(),
-      getCompactionForRootSession: () => ({
-        contextWindow: 128_000,
-        outputReserveTokens: 8_000,
-        summaryReserveTokens: 4_000,
-      }),
-      getSessionContextUsage: () => ({
-        usedTokens: 0,
-        contextWindow: 128_000,
-        triggerThreshold: 102_400,
-      }),
-      setSessionProviderInputTokens: vi.fn(),
-      calibrateSessionCharsPerToken: vi.fn(),
-      clearSessionProviderInputTokens: vi.fn(),
-      setCurrentToolExecutorInstanceId: vi.fn(),
-      getCwd: () => os.tmpdir(),
-    });
-    return { handler, state };
-  }
 
   it("整轮就是 NO_REPLY → 不落库并删除占位行（否则重开会话看到 NO_REPLY 气泡）", async () => {
     const updateMessageContent = vi.fn();
@@ -519,5 +521,76 @@ describe("assistant parts bridge persistence", () => {
     } finally {
       fs.rmSync(workspaceDir, { recursive: true, force: true });
     }
+  });
+});
+
+/**
+ * LLM 错误落盘（2026-09-20）
+ *
+ * 回归背景：实时失败态由事件流支撑，重开会话后事件早没了、只剩 content_json ——
+ * 不把 llmError 落盘，失败的子 Agent 运行块在历史里只能显示「已完成」，
+ * 原因也只剩正文里一段散文。
+ */
+describe("LLM 错误落盘（历史回放要能说出失败原因）", () => {
+  const LLM_ERROR = { code: "insufficient_credits", message: "账户余额不足", retryable: false };
+
+  function repoMocks() {
+    return {
+      updateMessageContent: vi.fn(),
+      deleteMessage: vi.fn(),
+      saveMessage: vi.fn(),
+      getConversation: vi.fn().mockReturnValue({ id: "conversation-1" }),
+      finalizeStreamingMessagesForConversation: vi.fn(),
+    };
+  }
+
+  function lastContentJson(repo: { updateMessageContent: ReturnType<typeof vi.fn> }) {
+    const arg = repo.updateMessageContent.mock.calls.at(-1)![0] as {
+      contentJson: Record<string, unknown>;
+    };
+    return arg.contentJson;
+  }
+
+  it("message:end 带 llmError → 落库内容带上 llmError", async () => {
+    const repo = repoMocks();
+    const { handler, state } = buildHandler(repo);
+    state.pendingParts = [{ type: "text", id: "t1", text: "本轮失败了", status: "done" }];
+
+    await handler({ type: "message:end", llmError: LLM_ERROR, stopReason: "error" } as never);
+
+    expect(lastContentJson(repo).llmError).toEqual(LLM_ERROR);
+  });
+
+  it("agent:error 收尾沿用本轮 llmError（重写同一行时不丢）", async () => {
+    const repo = repoMocks();
+    const { handler, state } = buildHandler(repo);
+    state.pendingParts = [{ type: "text", id: "t1", text: "本轮失败了", status: "done" }];
+
+    await handler({ type: "message:end", llmError: LLM_ERROR, stopReason: "error" } as never);
+    await handler({ type: "agent:error", error: "boom", errorCode: "insufficient_credits" } as never);
+
+    expect(lastContentJson(repo).llmError).toEqual(LLM_ERROR);
+  });
+
+  it("后续干净收尾清掉上一轮 llmError（自愈重试成功后不该显示失败）", async () => {
+    const repo = repoMocks();
+    const { handler, state } = buildHandler(repo);
+    state.pendingParts = [{ type: "text", id: "t1", text: "第一次失败", status: "done" }];
+
+    await handler({ type: "message:end", llmError: LLM_ERROR, stopReason: "error" } as never);
+    await handler({ type: "message:end", stopReason: "end_turn" } as never);
+    await handler({ type: "agent:end" } as never);
+
+    expect(lastContentJson(repo)).not.toHaveProperty("llmError");
+  });
+
+  it("没有 llmError 的轮次不写该字段（旧行为不变）", async () => {
+    const repo = repoMocks();
+    const { handler, state } = buildHandler(repo);
+    state.pendingParts = [{ type: "text", id: "t1", text: "一切正常", status: "done" }];
+
+    await handler({ type: "message:end", stopReason: "end_turn" } as never);
+
+    expect(lastContentJson(repo)).not.toHaveProperty("llmError");
   });
 });

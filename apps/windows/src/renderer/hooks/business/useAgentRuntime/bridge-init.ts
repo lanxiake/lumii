@@ -61,6 +61,8 @@ export function toRuntimeMsg(msg: DbMessage): RuntimeMessage {
         ? { sourceAgent: msg.sourceAgent }
         : {}),
     ...(fileChanges ? { fileChanges } : {}),
+    // 历史回放的失败态来源：实时有事件，重开会话后只剩落库的 llmError
+    ...(assistantContent?.llmError ? { llmError: assistantContent.llmError } : {}),
     ...(msg.isVoice ? { isVoice: true } : {}),
     ...(msg.audioWavBase64 ? { audioWavBase64: msg.audioWavBase64 } : {}),
   }

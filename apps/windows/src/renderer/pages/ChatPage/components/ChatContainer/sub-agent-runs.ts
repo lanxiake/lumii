@@ -28,6 +28,17 @@ export interface SubAgentRun {
   fileChanges?: readonly FileChangeEntry[]
   /** 该运行首条消息的时间 */
   readonly timestamp: Date
+  /**
+   * 失败原因（该运行以错误收场时）。来源与委托卡片同源：子消息的 llmError / error。
+   * 语义是**终态**：以该运行最后一条消息的结局为准——自愈重试后成功的那一轮会把
+   * 失败态清掉（失败的那次尝试作为历史仍在轨迹里）。
+   */
+  error?: string
+  /**
+   * 被中止（级联 abort / 进程重启残留）。中断不是失败：没有产出，也不该报警。
+   * 实时来源是消息的 isAborted；历史回放只剩持久化的 interrupted 工具态。
+   */
+  interrupted?: boolean
 }
 
 /** 归组输入所需的最小消息结构（MessageItem 满足此形状） */
@@ -39,6 +50,12 @@ export interface GroupableMessage {
   sourceAgent?: { instanceId: string; label: string }
   parts?: readonly AssistantPart[]
   fileChanges?: readonly FileChangeEntry[]
+  /** 结构化 LLM 错误（渲染层在 message:end 处写到对应消息上，子 Agent 消息同样有） */
+  llmError?: { code?: string; message: string; retryable?: boolean }
+  /** 消息级错误文本（非 LLM 错误的失败路径） */
+  error?: string
+  /** 该消息所在回合被中止 */
+  isAborted?: boolean
 }
 
 export interface SubAgentRunGrouping {
@@ -79,13 +96,22 @@ export function groupSubAgentRuns(messages: readonly GroupableMessage[]): SubAge
         existing.isStreaming = existing.isStreaming || Boolean(msg.isStreaming)
         const merged = mergeFileChanges(existing.fileChanges, msg.fileChanges)
         if (merged.length > 0) existing.fileChanges = merged
+        // 终态覆盖：最后一条消息干净收场（自愈重试成功了）就把失败态清掉
+        const failure = readRunFailure(msg)
+        if (failure) existing.error = failure
+        else delete existing.error
+        if (readRunInterrupted(msg)) existing.interrupted = true
       } else {
+        const failure = readRunFailure(msg)
+        const interrupted = readRunInterrupted(msg)
         runs.push({
           instanceId,
           label: msg.sourceAgent?.label ?? '子 Agent',
           isStreaming: Boolean(msg.isStreaming),
           parts: [...(msg.parts ?? [])],
           ...(msg.fileChanges && msg.fileChanges.length > 0 ? { fileChanges: msg.fileChanges } : {}),
+          ...(failure ? { error: failure } : {}),
+          ...(interrupted ? { interrupted: true } : {}),
           timestamp: msg.timestamp,
         })
       }
@@ -98,6 +124,23 @@ export function groupSubAgentRuns(messages: readonly GroupableMessage[]): SubAge
   }
 
   return { runsByParent, attachedMessageIds }
+}
+
+/** 该消息以错误收场时的原因（llmError 优先，其次 error 字段） */
+export function readRunFailure(msg: GroupableMessage): string | undefined {
+  const llm = msg.llmError?.message?.trim()
+  if (llm) return llm
+  return msg.error?.trim() || undefined
+}
+
+/**
+ * 是否被中止。两个来源：实时事件的 isAborted；以及**持久化**的 interrupted 工具状态
+ * —— 重开会话后 isAborted 不复存在，但 finalizeAssistantParts 已把停在 running 的工具
+ * 收尾为 interrupted（见 docs/plans/专项Agent/08-委托可见性.md §5），历史回放靠它。
+ */
+export function readRunInterrupted(msg: GroupableMessage): boolean {
+  if (msg.isAborted) return true
+  return (msg.parts ?? []).some((part) => part.type === 'tool' && part.status === 'interrupted')
 }
 
 /** 按 path 去重合并文件变更（子条目覆盖同路径父条目），与 mergeFileChanges 语义一致 */

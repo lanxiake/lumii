@@ -192,4 +192,102 @@ describe('groupSubAgentRuns', () => {
       { path: 'b.ts', status: 'added' },
     ])
   })
+
+  it('失败原因是终态：最后一条消息的结局说了算（中间失败、最后成功 → 不报失败）', () => {
+    const parent = msg({ id: 'p1', timestamp: t(0), parts: [] })
+    const failedFirst = msg({
+      id: 'c1',
+      timestamp: t(1),
+      sourceAgent: { instanceId: 'inst-a', label: 'A' },
+      parts: [],
+      llmError: { code: 'rate_limited', message: '请求过于频繁被限流', retryable: true },
+    })
+    const recovered = msg({
+      id: 'c2',
+      timestamp: t(2),
+      sourceAgent: { instanceId: 'inst-a', label: 'A' },
+      parts: [tool('t-1', 'file_write')],
+    })
+
+    // 自愈重试后成功 → 运行是「已完成」，不因中间那次失败而报红（失败尝试仍在轨迹里）
+    const run = groupSubAgentRuns([parent, failedFirst, recovered]).runsByParent.get('p1')![0]!
+    expect(run.error).toBeUndefined()
+  })
+
+  it('最后一条消息带 llmError → 失败原因取该条', () => {
+    const parent = msg({ id: 'p1', timestamp: t(0), parts: [] })
+    const c1 = msg({
+      id: 'c1',
+      timestamp: t(1),
+      sourceAgent: { instanceId: 'inst-a', label: 'A' },
+      parts: [],
+      llmError: { code: 'rate_limited', message: '请求过于频繁被限流', retryable: true },
+    })
+    const c2 = msg({
+      id: 'c2',
+      timestamp: t(2),
+      sourceAgent: { instanceId: 'inst-a', label: 'A' },
+      parts: [],
+      llmError: { code: 'insufficient_credits', message: '账户余额不足', retryable: false },
+    })
+
+    const run = groupSubAgentRuns([parent, c1, c2]).runsByParent.get('p1')![0]!
+    expect(run.error).toBe('账户余额不足')
+  })
+
+  it('没有 llmError 时回退到消息 error 字段', () => {
+    const parent = msg({ id: 'p1', timestamp: t(0), parts: [] })
+    const child = msg({
+      id: 'c1',
+      timestamp: t(1),
+      sourceAgent: { instanceId: 'inst-a', label: 'A' },
+      parts: [],
+      error: '子 Agent 异常退出',
+    })
+
+    const run = groupSubAgentRuns([parent, child]).runsByParent.get('p1')![0]!
+    expect(run.error).toBe('子 Agent 异常退出')
+    expect(run.interrupted).toBeUndefined()
+  })
+
+  it('中止标记：实时 isAborted 与历史回放的 interrupted 工具态都能识别', () => {
+    // 实时：级联中止 / 实例销毁时事件带 isAborted
+    const liveRun = groupSubAgentRuns([
+      msg({ id: 'p1', timestamp: t(0), parts: [] }),
+      msg({
+        id: 'c1',
+        timestamp: t(1),
+        sourceAgent: { instanceId: 'inst-a', label: 'A' },
+        parts: [],
+        isAborted: true,
+      }),
+    ]).runsByParent.get('p1')![0]!
+    expect(liveRun.interrupted).toBe(true)
+
+    // 历史回放：isAborted 不落库，靠 finalizeAssistantParts 收尾的 interrupted 工具态
+    const historyRun = groupSubAgentRuns([
+      msg({ id: 'p2', timestamp: t(0), parts: [] }),
+      msg({
+        id: 'c2',
+        timestamp: t(1),
+        sourceAgent: { instanceId: 'inst-b', label: 'B' },
+        parts: [{ type: 'tool', id: 't-1', name: 'bash', args: {}, status: 'interrupted' }],
+      }),
+    ]).runsByParent.get('p2')![0]!
+    expect(historyRun.interrupted).toBe(true)
+  })
+
+  it('正常收场的运行不带失败/中断标记（不误报）', () => {
+    const parent = msg({ id: 'p1', timestamp: t(0), parts: [] })
+    const child = msg({
+      id: 'c1',
+      timestamp: t(1),
+      sourceAgent: { instanceId: 'inst-a', label: 'A' },
+      parts: [tool('t-1', 'file_write')],
+    })
+
+    const run = groupSubAgentRuns([parent, child]).runsByParent.get('p1')![0]!
+    expect(run.error).toBeUndefined()
+    expect(run.interrupted).toBeUndefined()
+  })
 })

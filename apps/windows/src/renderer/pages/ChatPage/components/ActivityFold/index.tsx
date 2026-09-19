@@ -97,7 +97,19 @@ const ActivityFold: React.FC<ActivityFoldProps> = ({
         )}
         <span className={styles.hint}>{expanded ? '收起' : '展开'}</span>
       </button>
-      {expanded && <div className={styles.body}>{children}</div>}
+      {expanded && (
+        <div className={styles.body}>
+          {children}
+          {/* 底部收起：长轨迹读到底后就地收起，不必再滑回顶部点头部 */}
+          <button
+            type="button"
+            className={styles.collapse}
+            onClick={() => setExpanded(false)}
+          >
+            收起
+          </button>
+        </div>
+      )}
     </div>
   )
 }

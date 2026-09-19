@@ -311,6 +311,28 @@ describe('ChatMessage 团队委托卡片（spawn_agent）', () => {
     expect(text).toContain('并发上限已满')
   })
 
+  it('失败结果是裸文本（非 JSON 载荷）时，卡片仍显示原始失败原因', () => {
+    // 回归：spawn_agent 未注册时工具结果就是一句「Tool spawn_agent not found」，
+    // parseSpawnResult 解析不出载荷 → 此前卡片只显示笼统的「委托执行失败」，原因丢失。
+    const parts: AssistantPart[] = [
+      spawnPart({
+        status: 'error',
+        isError: true,
+        result: {
+          content: [{ type: 'text', text: 'Tool spawn_agent not found' }],
+        },
+      }),
+    ]
+    const { getByRole, container } = renderMessage(parts)
+    const text = container.textContent ?? ''
+    expect(text).toContain('失败')
+    expect(text).toContain('Tool spawn_agent not found')
+    expect(text).not.toContain('委托执行失败')
+
+    fireEvent.click(getByRole('button', { name: /团队委托/ }))
+    expect(container.textContent ?? '').toContain('失败原因')
+  })
+
   it('详情展开后显示完整任务与完整产出', () => {
     const { getByRole, container } = renderMessage([spawnPart()])
     expect(container.textContent ?? '').not.toContain('MARKER_SPAWN_PROMPT')

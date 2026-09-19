@@ -17,6 +17,12 @@ import { ChevronRight, Loader2 } from 'lucide-react'
 import type { SubAgentRun } from '../ChatContainer/sub-agent-runs'
 import styles from './SubAgentRun.module.css'
 
+/** 单行截断：失败原因常带 provider 原文，头部只留关键句，全文在展开体里给 */
+function truncate(text: string, max: number): string {
+  const one = text.replace(/\s*\n+\s*/g, ' ').trim()
+  return one.length > max ? `${one.slice(0, max)}…` : one
+}
+
 export interface SubAgentRunBlockProps {
   run: SubAgentRun
   /**
@@ -36,7 +42,19 @@ export const SubAgentRunBlock: React.FC<SubAgentRunBlockProps> = ({
   const [expanded, setExpanded] = useState(run.isStreaming)
 
   const toolCount = run.parts.filter((part) => part.type === 'tool').length
-  const statusText = run.isStreaming ? '执行中' : '已完成'
+  /**
+   * 四态。优先级：执行中 → 已中断 → 失败 → 已完成。
+   * 中断不是失败（中止/重启残留没有产出，但不该报警），失败必须给出原因——
+   * 否则死掉的子运行会和正常跑完的一模一样显示「已完成」，用户无从判断。
+   */
+  const status: 'running' | 'interrupted' | 'failed' | 'done' = run.isStreaming
+    ? 'running'
+    : run.interrupted
+      ? 'interrupted'
+      : run.error
+        ? 'failed'
+        : 'done'
+  const statusText = { running: '执行中', interrupted: '已中断', failed: '失败', done: '已完成' }[status]
 
   return (
     <div
@@ -44,6 +62,7 @@ export const SubAgentRunBlock: React.FC<SubAgentRunBlockProps> = ({
       data-testid="sub-agent-run"
       data-instance-id={run.instanceId}
       data-streaming={run.isStreaming ? 'true' : 'false'}
+      data-status={status}
     >
       <button
         type="button"
@@ -57,14 +76,33 @@ export const SubAgentRunBlock: React.FC<SubAgentRunBlockProps> = ({
           className={clsx(styles.chevron, expanded && styles['chevron--open'])}
         />
         <span className={styles.name}>{run.label}</span>
-        <span className={clsx(styles.status, run.isStreaming ? styles['status--running'] : styles['status--done'])}>
+        <span className={clsx(styles.status, styles[`status--${status}`])}>
           {run.isStreaming && <Loader2 size={11} className={styles.spinner} />}
           {statusText}
         </span>
         {toolCount > 0 && <span className={styles.meta}>{toolCount} 个工具</span>}
         <span className={styles.hint}>{expanded ? '收起' : '过程'}</span>
       </button>
-      {expanded && <div className={styles.body}>{children}</div>}
+      {/* 失败原因常驻头部下方一行（截断）；全文在展开体顶部 */}
+      {status === 'failed' && (
+        <div className={styles.errorLine}>{truncate(run.error ?? '', 160)}</div>
+      )}
+      {expanded && (
+        <div className={styles.body}>
+          {status === 'failed' && (
+            <div className={styles.errorFull}>{run.error}</div>
+          )}
+          {children}
+          {/* 底部收起：长轨迹读到底后就地收起，不必再滑回顶部点头部 */}
+          <button
+            type="button"
+            className={styles.collapse}
+            onClick={() => setExpanded(false)}
+          >
+            收起
+          </button>
+        </div>
+      )}
     </div>
   )
 }

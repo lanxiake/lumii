@@ -33,7 +33,11 @@ import { ToolBatchGroup, summarizeToolBatch } from '../ToolBatchGroup'
 import { HandoffCard } from '../HandoffCard'
 import { SpawnAgentCard, parseSpawnResult } from '../SpawnAgentCard'
 import { SubAgentRunBlock } from '../SubAgentRun'
-import type { SubAgentRun } from '../ChatContainer/sub-agent-runs'
+import {
+  readRunFailure,
+  readRunInterrupted,
+  type SubAgentRun,
+} from '../ChatContainer/sub-agent-runs'
 import { getStatusLabel } from '../ToolCallCard'
 import { ActivityFold } from '../ActivityFold'
 import { useChatMessageActions } from '../../contexts/ChatMessageActionsContext'
@@ -766,6 +770,9 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
    */
   const wrapSubAgent = (node: React.ReactNode) => {
     if (!message.sourceAgent) return node
+    // 孤儿子消息（挂不到父、独立渲染）同样是「一次子运行」，失败/中断态与归组路径共用同一判据
+    const failure = readRunFailure(message)
+    const interrupted = readRunInterrupted(message)
     const run: SubAgentRun = {
       instanceId: message.sourceAgent.instanceId,
       label: message.sourceAgent.label ?? '子 Agent',
@@ -774,6 +781,8 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
       ...(message.fileChanges && message.fileChanges.length > 0
         ? { fileChanges: message.fileChanges }
         : {}),
+      ...(failure ? { error: failure } : {}),
+      ...(interrupted ? { interrupted: true } : {}),
       timestamp: message.timestamp,
     }
     return (
