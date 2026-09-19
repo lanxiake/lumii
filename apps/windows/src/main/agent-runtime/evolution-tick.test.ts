@@ -167,4 +167,70 @@ describe('handleEvolutionTick', () => {
     const deps = makeDeps({ listAutonomousAgentIds: () => ['assistant'] })
     expect(await handleEvolutionTick(deps)).toBe('idle: liveness-ok')
   })
+
+  it('退出清场中（库已关）→ 入口检查点直接跳过，不碰任何 deps 回调', async () => {
+    const driveConflictGoal = vi.fn(async () => 'should-not-run')
+    const deps = makeDeps({ isShuttingDown: () => true, driveConflictGoal })
+    expect(await handleEvolutionTick(deps)).toBe('skipped: shutting down')
+    expect(driveConflictGoal).not.toHaveBeenCalled()
+    expect(deps.executeGoal).not.toHaveBeenCalled()
+  })
+
+  it('执行动作跑通关库边界：token 记账跳过，tick 不抛（此前 Database not initialized 炸成失败）', async () => {
+    let open = true
+    const db = {
+      get prepare() {
+        if (!open) throw new Error('Database not initialized. Call open() first.')
+        return () => ({
+          all: () => [{ id: 'g1', type: 'learning', description: '学点东西' }],
+          get: () => undefined,
+          run: () => undefined,
+        })
+      },
+    }
+    const executeGoal = vi.fn(async () => {
+      // 模拟：executeGoal 跑的几十秒里进程进入退出清场（关库）
+      open = false
+      return 'completed: g1'
+    })
+    const deps = makeDeps({
+      getDb: () => db as never,
+      isShuttingDown: () => !open,
+      executeGoal,
+    })
+
+    const result = await handleEvolutionTick(deps)
+
+    expect(result).toContain('execute-goal')
+  })
+
+  it('多 Agent：前一个 Agent 跑到关库边界后，后续 Agent 在检查点收手', async () => {
+    let open = true
+    const db = {
+      get prepare() {
+        if (!open) throw new Error('Database not initialized. Call open() first.')
+        return () => ({
+          all: () => [{ id: 'g1', type: 'learning', description: '学点东西' }],
+          get: () => undefined,
+          run: () => undefined,
+        })
+      },
+    }
+    const executeGoal = vi.fn(async (_goal: unknown, agentId: string) => {
+      if (agentId === 'assistant') open = false
+      return 'completed: g1'
+    })
+    const deps = makeDeps({
+      listAutonomousAgentIds: () => ['assistant', 'chronicler'],
+      getDb: () => db as never,
+      isShuttingDown: () => !open,
+      executeGoal,
+    })
+
+    const result = await handleEvolutionTick(deps)
+
+    expect(result).toBe(
+      'assistant=execute-goal: completed: g1; chronicler=skipped: shutting down',
+    )
+  })
 })
