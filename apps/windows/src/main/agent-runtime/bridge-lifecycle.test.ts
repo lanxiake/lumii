@@ -33,6 +33,8 @@ function createLifecycle(
 
   const registryDestroy = vi.fn()
   const forwardIpcEvent = vi.fn()
+  const cronStop = vi.fn()
+  const finalizeShutdown = vi.fn()
   const instance = { id: INSTANCE_ID, definitionId: 'agent', state: instanceState }
   let alive = true
 
@@ -45,6 +47,9 @@ function createLifecycle(
         alive = false
         registryDestroy(id)
       },
+      destroyAll: () => {
+        alive = false
+      },
     },
     instanceStates,
     instanceToConversation: new Map([[INSTANCE_ID, SESSION_KEY]]),
@@ -54,20 +59,32 @@ function createLifecycle(
     permissionController: { clearAll: vi.fn() },
     askUserQuestionController: { clearAll: vi.fn() },
     ipcChannel: { forwardIpcEvent },
-    getCronScheduler: () => undefined,
+    getCronScheduler: () => ({ stop: cronStop }),
     getDefinitionStore: () => null,
     toolStartTimeMap: new Map(),
     toolCallInstanceMap: new Map(),
     nodeStreamCallbacks: new Map(),
     setLastActiveConvId: vi.fn(),
-    finalizeShutdown: vi.fn(),
+    finalizeShutdown,
     createInstance: vi.fn(),
     prompt: vi.fn(),
     getFeatureFlags: () => ({}),
   } as unknown as BridgeLifecycleDeps
 
-  return { lifecycle: new BridgeLifecycle(deps), registryDestroy, forwardIpcEvent }
+  return { lifecycle: new BridgeLifecycle(deps), registryDestroy, forwardIpcEvent, cronStop, finalizeShutdown }
 }
+
+describe('BridgeLifecycle.destroyAll 的关闭顺序', () => {
+  it('先停 cron 调度器再关库：否则已关闭的 DB 撞上计时器触发，只会连环抛 Database not initialized', () => {
+    const { lifecycle, cronStop, finalizeShutdown } = createLifecycle('idle')
+    lifecycle.destroyAll()
+    expect(cronStop).toHaveBeenCalledTimes(1)
+    expect(finalizeShutdown).toHaveBeenCalledTimes(1)
+    expect(cronStop.mock.invocationCallOrder[0]!).toBeLessThan(
+      finalizeShutdown.mock.invocationCallOrder[0]!,
+    )
+  })
+})
 
 describe('BridgeLifecycle.invalidate', () => {
   it('空闲实例立即销毁', () => {

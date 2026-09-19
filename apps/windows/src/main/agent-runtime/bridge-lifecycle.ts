@@ -218,9 +218,11 @@ export class BridgeLifecycle {
       }
       this.orchestrator?.stopStaleMonitor()
       this.orchestrator = null
+      // 必须先停调度器再关库：finalizeShutdown 会 localDb.close()，若 cron 计时器还活着，
+      // 触发时只会连着抛 "Database not initialized"（2026-09-19 实测 autonomous-tick）
+      this.deps.getCronScheduler()?.stop()
       this.deps.finalizeShutdown()
     }
-    this.deps.getCronScheduler()?.stop()
     log.info('All agent instances destroyed, database closed')
   }
 

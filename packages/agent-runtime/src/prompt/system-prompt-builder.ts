@@ -15,6 +15,7 @@ import { isLeanStyle, CACHE_BOUNDARY_MARKER, PROMPT_SECTION_TAGS } from "./syste
 import type { PromptSectionId, PromptSectionStat } from "./prompt-sections.js"
 import { MEMORY_PLACEHOLDER } from "../memory/memory-injector.js"
 import { DEFAULT_SOUL_CONTENT } from "./default-soul.js"
+import { NO_DELEGATION_TOOLS_NOTE } from "../agent/builtin/prompts.js"
 import { extractToolName } from "../security/param-permission-parser.js"
 import {
   categorizeTools,
@@ -190,6 +191,15 @@ export function buildClientSystemPromptStructured(params: ClientSystemPromptPara
   // personality 注入（拼接在 identity 之后）
   if (agentDefinition.personality) {
     identityLines.push("", agentDefinition.personality)
+    // personality 与工具能力对不上时补更正：assistant 的 personality 写死了「必须用 spawn_agent 委派」，
+    // 而子 Agent / 自主进化受限实例继承它却已被摘掉该工具，模型会照指令去调一个不存在的工具
+    // （2026-09-19 实测：子 Agent 调 spawn_agent → "Tool spawn_agent not found"）。
+    if (
+      agentDefinition.personality.includes("spawn_agent") &&
+      !effectiveToolNames.includes("spawn_agent")
+    ) {
+      identityLines.push("", NO_DELEGATION_TOOLS_NOTE)
+    }
   }
   emit("static", "identity", identityLines)
 

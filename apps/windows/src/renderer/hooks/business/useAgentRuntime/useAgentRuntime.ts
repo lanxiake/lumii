@@ -623,6 +623,21 @@ export function useAgentRuntimeActions() {
     [],
   )
 
+  /**
+   * 更新全局默认思考偏好（对话页开关）：渠道会话/心跳/cron 等未设置过偏好的会话跟随它
+   */
+  const setGlobalThinkingPrefs = useCallback(
+    async (patch: { thinkingEnabled?: boolean; reasoningEffort?: 'high' | 'max' }) => {
+      const api = window.electronAPI?.agentRuntime
+      if (!api?.sendCommand) return
+      await api.sendCommand({
+        type: 'session:thinkingPrefs:setGlobal',
+        ...patch,
+      })
+    },
+    [],
+  )
+
   const deleteSession = useCallback(async (sessionKey: string) => {
     const api = window.electronAPI?.agentRuntime
     if (!api?.sendCommand) {
@@ -693,6 +708,7 @@ export function useAgentRuntimeActions() {
       syncModelCatalog,
       setSessionPreferredModel,
       setSessionThinkingPrefs,
+      setGlobalThinkingPrefs,
       refreshContextUsage,
       switchSession,
       loadOlderMessages,
@@ -716,6 +732,7 @@ export function useAgentRuntimeActions() {
       syncModelCatalog,
       setSessionPreferredModel,
       setSessionThinkingPrefs,
+      setGlobalThinkingPrefs,
       refreshContextUsage,
       switchSession,
       loadOlderMessages,

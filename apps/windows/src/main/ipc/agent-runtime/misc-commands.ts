@@ -95,6 +95,16 @@ export function handleSessionThinkingPrefsSet(
   })
 }
 
+export function handleSessionThinkingPrefsSetGlobal(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'session:thinkingPrefs:setGlobal' }>,
+): unknown {
+  return bridge.setGlobalThinkingPrefs({
+    ...(command.thinkingEnabled !== undefined ? { thinkingEnabled: command.thinkingEnabled } : {}),
+    ...(command.reasoningEffort !== undefined ? { reasoningEffort: command.reasoningEffort } : {}),
+  })
+}
+
 export function handleMessageDelete(
   bridge: AgentRuntimeBridge,
   command: Extract<AgentRuntimeCommand, { type: 'message:delete' }>,

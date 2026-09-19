@@ -179,3 +179,188 @@ describe("createDirectStreamFn", () => {
     expect(impl.mock.calls[0][0].api).toBe("openai-responses");
   });
 });
+
+describe("resolveModelProfile 注入", () => {
+  /** 取 mock impl 收到的 (model, context, options) */
+  function callWith(
+    profile: Parameters<typeof createDirectStreamFn>[0]["resolveModelProfile"],
+    modelOverrides: Record<string, unknown> = {},
+    options: Record<string, unknown> | undefined = undefined,
+  ) {
+    const impl = vi.fn(() => ({}) as never);
+    const fn = createDirectStreamFn({
+      credentials: { baseUrl: "http://relay.example/v1", apiFormat: "completions" },
+      resolveModelProfile: profile,
+      streamImpl: impl,
+    });
+    fn(fakeModel(modelOverrides as never), fakeContext, options as never);
+    const [model, , opts] = impl.mock.calls[0];
+    return { model: model as Record<string, unknown>, options: opts as Record<string, unknown> };
+  }
+
+  it("profile.reasoning=true 时合成 model.reasoning，并压回 system 角色", () => {
+    const { model } = callWith(() => ({ reasoning: true, thinkingFormat: "qwen" }), {
+      reasoning: undefined,
+      api: "openai",
+      provider: "openai",
+    });
+
+    expect(model.reasoning).toBe(true);
+    expect((model.compat as Record<string, unknown>).supportsDeveloperRole).toBe(false);
+  });
+
+  it("保留宿主已有的 compat 字段（不整体替换）", () => {
+    const { model } = callWith(
+      () => ({ reasoning: true }),
+      { reasoning: undefined, compat: { supportsStore: false } },
+    );
+
+    const compat = model.compat as Record<string, unknown>;
+    expect(compat.supportsStore).toBe(false);
+    expect(compat.supportsDeveloperRole).toBe(false);
+  });
+
+  it("显式 openai 格式会覆盖 pi-ai 对 z.ai 地址的自动探测", () => {
+    const { model } = callWith(() => ({ thinkingFormat: "openai" }), {
+      baseUrl: "https://api.z.ai/api/paas/v4",
+      api: "openai-completions",
+    });
+
+    expect((model.compat as Record<string, unknown>).thinkingFormat).toBe("openai");
+  });
+
+  it("anthropic 家族模型输出上限抬到 64000（否则思考预算会被压回）", () => {
+    const { model } = callWith(() => ({ reasoning: true }), {
+      id: "claude-sonnet-4-5",
+      api: "anthropic-messages",
+      maxTokens: undefined,
+      reasoning: undefined,
+    });
+
+    expect(model.maxTokens).toBe(64_000);
+    expect(model.reasoning).toBe(true);
+  });
+
+  it("google 家族模型输出上限抬到 65536，并修正 google-genai 别名", () => {
+    const { model } = callWith(() => ({ reasoning: true }), {
+      id: "gemini-2.5-pro",
+      api: "google-genai",
+      maxTokens: undefined,
+    });
+
+    expect(model.api).toBe("google-generative-ai");
+    expect(model.maxTokens).toBe(65_536);
+  });
+
+  it("预算型 provider 且给了思考预算时抬高 maxTokens（预算必须小于 max_tokens）", () => {
+    const { options } = callWith(
+      () => ({ reasoning: true }),
+      { id: "claude-sonnet-4-5", api: "anthropic-messages" },
+      { reasoning: "high", thinkingBudgets: { high: 32768 }, maxTokens: 16_384 },
+    );
+
+    expect(options.maxTokens).toBe(32_768 + 16_384);
+  });
+
+  it("非预算型 provider 不受思考预算影响（OpenAI 系是档位语义）", () => {
+    const { options } = callWith(
+      () => ({ reasoning: true }),
+      { api: "openai-completions" },
+      { reasoning: "high", thinkingBudgets: { high: 32768 }, maxTokens: 16_384 },
+    );
+
+    expect(options.maxTokens).toBe(16_384);
+  });
+});
+
+describe("onPayload 注入", () => {
+  function payloadAfter(
+    format: "auto" | "openai" | "qwen" | "zai",
+    apiFormat: "completions" | "responses",
+    options: Record<string, unknown> | undefined,
+    payload: Record<string, unknown>,
+    modelOverrides: Record<string, unknown> = {},
+  ) {
+    const impl = vi.fn(() => ({}) as never);
+    const fn = createDirectStreamFn({
+      credentials: { baseUrl: "http://relay.example/v1", apiFormat },
+      resolveModelProfile: () => ({ reasoning: true, thinkingFormat: format }),
+      streamImpl: impl,
+    });
+    fn(fakeModel({ reasoning: undefined, api: "openai", ...modelOverrides } as never), fakeContext, options as never);
+    const opts = impl.mock.calls[0][2] as { onPayload?: (p: unknown) => void };
+    opts.onPayload?.(payload);
+    return payload;
+  }
+
+  it("qwen 格式：thinking 开 → 注入 chat_template_kwargs.enable_thinking=true，删掉 reasoning_effort", () => {
+    const payload = payloadAfter("qwen", "completions", { reasoning: "high" }, {
+      model: "Qwen3.8-Flash-Next",
+      reasoning_effort: "high",
+    });
+
+    expect(payload.reasoning_effort).toBeUndefined();
+    expect(payload.chat_template_kwargs).toMatchObject({ enable_thinking: true });
+  });
+
+  it("qwen 格式：thinking 关 → enable_thinking=false（服务端默认开，必须显式关）", () => {
+    const payload = payloadAfter("qwen", "completions", {}, { model: "qwen3" });
+
+    expect(payload.chat_template_kwargs).toMatchObject({ enable_thinking: false });
+  });
+
+  it("qwen 格式不影响 responses 路径", () => {
+    const payload = payloadAfter("qwen", "responses", { reasoning: "high" }, { model: "qwen3" });
+
+    expect(payload.chat_template_kwargs).toBeUndefined();
+  });
+
+  it("responses 非官方端点：developer 角色归一为 system，并丢弃 Juice 提示", () => {
+    const payload = payloadAfter("openai", "responses", { reasoning: "high" }, {
+      model: "gpt-5.6-terra",
+      input: [
+        { role: "system", content: "sys" },
+        { role: "developer", content: [{ type: "input_text", text: "# Juice: 0 !important" }] },
+        { role: "developer", content: "prompt" },
+      ],
+    });
+
+    const roles = (payload.input as { role: string }[]).map((i) => i.role);
+    expect(roles).toEqual(["system", "system"]);
+  });
+
+  it("responses 官方 OpenAI 端点保留 developer 角色，不做改写", () => {
+    const impl = vi.fn(() => ({}) as never);
+    const fn = createDirectStreamFn({
+      credentials: { baseUrl: "https://api.openai.com/v1", apiFormat: "responses" },
+      resolveModelProfile: () => ({ reasoning: true }),
+      streamImpl: impl,
+    });
+    fn(fakeModel({ reasoning: undefined, api: "openai" } as never), fakeContext, undefined);
+    const opts = impl.mock.calls[0][2] as { onPayload?: (p: unknown) => void };
+    const payload = {
+      input: [{ role: "developer", content: "prompt" }],
+    };
+    opts.onPayload?.(payload);
+
+    expect((payload.input[0] as { role: string }).role).toBe("developer");
+  });
+
+  it("调用方自己的 onPayload 仍会被调用", () => {
+    const impl = vi.fn(() => ({}) as never);
+    const callerOnPayload = vi.fn();
+    const fn = createDirectStreamFn({
+      credentials: { baseUrl: "http://relay.example/v1", apiFormat: "completions" },
+      resolveModelProfile: () => ({ reasoning: true, thinkingFormat: "qwen" }),
+      streamImpl: impl,
+    });
+    fn(fakeModel({ reasoning: undefined, api: "openai" } as never), fakeContext, {
+      onPayload: callerOnPayload,
+    } as never);
+    const opts = impl.mock.calls[0][2] as { onPayload?: (p: unknown) => void };
+    opts.onPayload?.({ model: "qwen3", reasoning_effort: "high" });
+
+    expect(callerOnPayload).toHaveBeenCalledTimes(1);
+    expect((callerOnPayload.mock.calls[0][0] as Record<string, unknown>).reasoning_effort).toBeUndefined();
+  });
+});

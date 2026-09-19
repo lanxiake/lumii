@@ -45,6 +45,8 @@ describe('parseGotoInput', () => {
       'pet',
       'usage',
       'privacy',
+      'cloudSync',
+      'screenRecord',
       'experimental',
       'aboutAndUpdate',
     ] as const

@@ -6,7 +6,7 @@
  */
 
 /** 当前 schema 版本号 */
-export const SCHEMA_VERSION = 51;
+export const SCHEMA_VERSION = 52;
 
 /**
  * V1 DDL — 初始 schema
@@ -1780,6 +1780,30 @@ CREATE TABLE IF NOT EXISTS palace_drawer_embeddings (
 
 CREATE INDEX IF NOT EXISTS idx_palace_emb_scope
   ON palace_drawer_embeddings (agent_id, user_id, model_id);
+`,
+  ],
+  // V52: tool_audit_log 增加来源维度
+  //
+  // 动因（2026-09-18 工具面治理复盘，`docs/plans/Agent协作与提示词/2026-09-18-工具面治理执行计划与场景推演.md` §二 场景 6）：
+  // 这张表名实不符已到影响决策的程度。`SELECT COUNT(*) WHERE tool_name='bash'` 得到 2100，
+  // 但那是**权限检查次数**，不是调用次数——三个写入点（LLM 请求审计 / 权限决策 / 工具执行失败）
+  // 共用 is_error，而语义各不相同（请求失败 / 权限被拒 / 工具失败）。
+  // 更糟的是排序是反的：失败的工具会写「权限允许 + 失败」两行，成功的只写一行，
+  // 于是越失败的工具在这张表里出现越多。
+  //
+  // 为什么不拆表：三个写入点分布在两个包里（packages / apps），拆表要同时改
+  // 三处调用方与各自的 repo，且历史数据的归属已不可靠；加一列 source 的改动面
+  // 小得多，且让「这张表是什么」从"读代码才知道"变成可查询的事实。
+  //
+  // 为什么不回填历史数据：permission 与 tool 两类历史记录无法可靠区分
+  // （工具名相同、is_error 都可能为 1），硬猜会制造新的假数据。
+  // 历史行保持 'unknown'——**不假装能归因**，与 V45 的 definition_id 同一原则。
+  [
+    52,
+    `
+ALTER TABLE tool_audit_log ADD COLUMN source TEXT NOT NULL DEFAULT 'unknown';
+UPDATE tool_audit_log SET source = 'llm' WHERE tool_name LIKE 'llm:%';
+CREATE INDEX IF NOT EXISTS idx_tool_audit_source ON tool_audit_log (source, timestamp);
 `,
   ],
 ] as const;

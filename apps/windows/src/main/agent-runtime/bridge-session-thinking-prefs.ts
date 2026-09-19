@@ -21,28 +21,54 @@ export const DEFAULT_SESSION_THINKING_PREFS: SessionThinkingPrefs = {
 
 /**
  * 管理 UI 同步的会话级思考/推理强度参数
+ *
+ * 未显式设置过的会话（渠道会话、心跳/cron、后台维护等）跟随「全局默认」——
+ * 即用户在对话页的那个开关，而不是恒定的编译期默认值。
  */
 export class BridgeSessionThinkingPrefs {
   private readonly prefsBySessionKey = new Map<string, SessionThinkingPrefs>();
+  /** 全局默认（对话页开关），落盘后重启仍生效 */
+  private globalPrefs: SessionThinkingPrefs;
 
-  /**
-   * 读取会话思考偏好（未设置时返回默认值）
-   */
-  getThinkingPrefs(sessionKey: string): SessionThinkingPrefs {
-    const k = sessionKey.trim();
-    if (!k) return { ...DEFAULT_SESSION_THINKING_PREFS };
-    return this.prefsBySessionKey.get(k) ?? { ...DEFAULT_SESSION_THINKING_PREFS };
+  constructor(globalPrefs?: Partial<SessionThinkingPrefs>) {
+    this.globalPrefs = {
+      thinkingEnabled: globalPrefs?.thinkingEnabled ?? DEFAULT_SESSION_THINKING_PREFS.thinkingEnabled,
+      reasoningEffort: globalPrefs?.reasoningEffort ?? DEFAULT_SESSION_THINKING_PREFS.reasoningEffort,
+    };
+  }
+
+  /** 读取全局默认（对话页开关） */
+  getGlobalPrefs(): SessionThinkingPrefs {
+    return { ...this.globalPrefs };
+  }
+
+  /** 更新全局默认（部分字段合并），返回更新后的值 */
+  setGlobalPrefs(patch: Partial<SessionThinkingPrefs>): SessionThinkingPrefs {
+    this.globalPrefs = {
+      thinkingEnabled: patch.thinkingEnabled ?? this.globalPrefs.thinkingEnabled,
+      reasoningEffort: patch.reasoningEffort ?? this.globalPrefs.reasoningEffort,
+    };
+    return this.getGlobalPrefs();
   }
 
   /**
-   * 更新会话思考偏好（部分字段合并）
+   * 读取会话思考偏好：显式设置过用会话值，否则跟随全局默认
+   */
+  getThinkingPrefs(sessionKey: string): SessionThinkingPrefs {
+    const k = sessionKey.trim();
+    if (!k) return this.getGlobalPrefs();
+    return this.prefsBySessionKey.get(k) ?? this.getGlobalPrefs();
+  }
+
+  /**
+   * 更新会话思考偏好（部分字段合并）；空 sessionKey 视作只读全局默认，不写入
    */
   setThinkingPrefs(
     sessionKey: string,
     patch: Partial<SessionThinkingPrefs>,
   ): SessionThinkingPrefs {
     const k = sessionKey.trim();
-    if (!k) return { ...DEFAULT_SESSION_THINKING_PREFS };
+    if (!k) return this.getGlobalPrefs();
     const prev = this.getThinkingPrefs(k);
     const next: SessionThinkingPrefs = {
       thinkingEnabled: patch.thinkingEnabled ?? prev.thinkingEnabled,

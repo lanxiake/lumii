@@ -308,7 +308,7 @@ export const ScreenRecordPanel: React.FC<ScreenRecordPanelProps> = ({
               <div className={styles.panelBody}>
                 {!enabled && (
                   <p className={styles.hintWarn}>
-                    录屏功能已关闭，请到「设置 → 隐私与数据 → 录屏」启用。
+                    录屏功能已关闭，请到「设置 → 录屏」启用。
                   </p>
                 )}
 

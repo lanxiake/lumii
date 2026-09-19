@@ -497,13 +497,7 @@ export class CronScheduler {
     if (job.schedule_type === 'at') {
       const delay = Math.max(0, job.next_run_at - Date.now())
       const handle = setTimeout(() => {
-        void this.runLocalCronJob(job).finally(() => {
-          this.clearLocalCronTimer(job.id)
-          // one-shot 任务执行后仅禁用，保留记录与历史
-          this.localDb.db.prepare(`UPDATE local_cron_jobs SET enabled = 0 WHERE id = ?`).run(job.id)
-          // 已失效的一次性任务只保留近 20 条，超出的连同运行记录一并清理
-          this.pruneExpiredOneShotJobs()
-        })
+        void this.runLocalCronJob(job).finally(() => this.finishOneShotJob(job.id))
       }, delay)
       this.localCronTimers.set(job.id, handle)
       return
@@ -514,15 +508,11 @@ export class CronScheduler {
       if (wait > 0) {
         const firstHandle = setTimeout(() => {
           void this.runLocalCronJob(job).finally(() => {
-            this.localDb.db
-              .prepare(`UPDATE local_cron_jobs SET next_run_at = ? WHERE id = ?`)
-              .run(Date.now() + intervalMs, job.id)
+            this.writeNextRunAt(job.id, Date.now() + intervalMs)
           })
           const intervalHandle = setInterval(() => {
             void this.runLocalCronJob(job).finally(() => {
-              this.localDb.db
-                .prepare(`UPDATE local_cron_jobs SET next_run_at = ? WHERE id = ?`)
-                .run(Date.now() + intervalMs, job.id)
+              this.writeNextRunAt(job.id, Date.now() + intervalMs)
             })
           }, intervalMs)
           this.localCronTimers.set(job.id, intervalHandle)
@@ -538,16 +528,12 @@ export class CronScheduler {
           this.caughtUpEveryJobs.add(job.id)
           log.info(`[scheduleJob] every 任务已过期，补跑一次 jobId=${job.id} next_run_at=${job.next_run_at}`)
           void this.runLocalCronJob(job).finally(() => {
-            this.localDb.db
-              .prepare(`UPDATE local_cron_jobs SET next_run_at = ? WHERE id = ?`)
-              .run(Date.now() + intervalMs, job.id)
+            this.writeNextRunAt(job.id, Date.now() + intervalMs)
           })
         }
         const intervalHandle = setInterval(() => {
           void this.runLocalCronJob(job).finally(() => {
-            this.localDb.db
-              .prepare(`UPDATE local_cron_jobs SET next_run_at = ? WHERE id = ?`)
-              .run(Date.now() + intervalMs, job.id)
+            this.writeNextRunAt(job.id, Date.now() + intervalMs)
           })
         }, intervalMs)
         this.localCronTimers.set(job.id, intervalHandle)
@@ -560,11 +546,7 @@ export class CronScheduler {
         const cronInstance = new Cron(job.schedule_expr, { timezone: 'Asia/Shanghai' }, () => {
           void this.runLocalCronJob(job).finally(() => {
             const next = cronInstance.nextRun()
-            if (next) {
-              this.localDb.db
-                .prepare(`UPDATE local_cron_jobs SET next_run_at = ? WHERE id = ?`)
-                .run(next.getTime(), job.id)
-            }
+            if (next) this.writeNextRunAt(job.id, next.getTime())
           })
         })
         this.cronInstances.set(job.id, cronInstance)
@@ -614,6 +596,39 @@ export class CronScheduler {
       log.info(`[pruneExpiredOneShotJobs] 清理 ${stale.length} 条超额的已失效一次性任务`)
     } catch (err) {
       log.warn('[pruneExpiredOneShotJobs] 裁剪失败:', err)
+    }
+  }
+
+  /**
+   * 落「下次执行时间」。库已关闭（退出清场）或写入异常时静默跳过。
+   *
+   * 这些调用都来自 `.finally` 回调：没人接住它的异常，一抛就是
+   * UnhandledPromiseRejection（2026-09-19 退出时实测，栈指向 index.js 的 .finally）。
+   */
+  private writeNextRunAt(jobId: string, nextRunAt: number): void {
+    if (!this.localDb.isOpen) return
+    try {
+      this.localDb.db
+        .prepare(`UPDATE local_cron_jobs SET next_run_at = ? WHERE id = ?`)
+        .run(nextRunAt, jobId)
+    } catch (err) {
+      log.warn(`[writeNextRunAt] 写入下次执行时间失败 jobId=${jobId}（已忽略）:`, err)
+    }
+  }
+
+  /**
+   * 一次性任务收尾：清计时器 + 置 enabled=0（保留记录与历史）+ 裁剪超额失效任务。
+   * 库已关闭时只剩清计时器这一步——退出清场不该再写库。
+   */
+  private finishOneShotJob(jobId: string): void {
+    this.clearLocalCronTimer(jobId)
+    if (!this.localDb.isOpen) return
+    try {
+      this.localDb.db.prepare(`UPDATE local_cron_jobs SET enabled = 0 WHERE id = ?`).run(jobId)
+      // 已失效的一次性任务只保留近 20 条，超出的连同运行记录一并清理
+      this.pruneExpiredOneShotJobs()
+    } catch (err) {
+      log.warn(`[finishOneShotJob] 收尾失败 jobId=${jobId}（已忽略）:`, err)
     }
   }
 
@@ -1079,6 +1094,13 @@ export class CronScheduler {
     job: { id: string; task_text: string; agent_id: string | null },
     options: { manual?: boolean } = {},
   ): Promise<void> {
+    // 库已关闭 = 正在退出清场：计时器可能刚触发或已在飞行中。跳过而不是继续——
+    // 下面每一处 localDb.db 都会抛 "Database not initialized"，把整个 tick 炸成失败
+    // （2026-09-19 退出时 autonomous-tick 实测）。
+    if (!this.localDb.isOpen) {
+      log.warn(`[runLocalCronJob] 数据库已关闭（退出中），跳过 jobId=${job.id}`)
+      return
+    }
     if (this.localCronRunningJobs.has(job.id)) {
       log.info(`[runLocalCronJob] jobId=${job.id} 已在运行中，跳过`)
       return

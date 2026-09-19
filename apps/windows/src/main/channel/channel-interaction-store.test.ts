@@ -70,4 +70,16 @@ describe('formatAskPrompt', () => {
     expect(text).toContain('1. SQLite')
     expect(text).toContain('2. Postgres')
   })
+
+  it('带 context 时先给「背景」再列选项（前因后果，避免突然被问无从选择）', () => {
+    const text = formatAskPrompt(singleQuestion, '已扫过本地技能库，没有代码审查类。')
+    expect(text).toContain('背景：已扫过本地技能库，没有代码审查类。')
+    // 背景在问题之前
+    expect(text.indexOf('背景：')).toBeLessThan(text.indexOf('用哪个数据库？'))
+  })
+
+  it('无 context（或空白）时不出现背景行（回归）', () => {
+    expect(formatAskPrompt(singleQuestion)).not.toContain('背景：')
+    expect(formatAskPrompt(singleQuestion, '   ')).not.toContain('背景：')
+  })
 })

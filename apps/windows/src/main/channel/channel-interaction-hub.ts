@@ -154,7 +154,7 @@ export class ChannelInteractionHub {
         options: q.options.map((o) => ({ label: o.label, description: o.description })),
       }))
       interaction = { kind: 'ask', requestId: req.requestId, questions }
-      text = formatAskPrompt(questions)
+      text = formatAskPrompt(questions, req.context)
     }
 
     this.store.set(req.sessionKey, {

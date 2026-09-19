@@ -82,6 +82,8 @@ export type ChannelInteractionRequest =
       kind: 'ask'
       requestId: string
       sessionKey: string
+      /** 提问的前因后果（为什么问、查到什么、答了影响什么）；渠道卡片与桌面弹窗都会展示 */
+      context?: string
       questions: readonly {
         readonly question: string
         readonly header: string

@@ -47,7 +47,24 @@ export interface InstanceRuntimeMetrics {
   outputTokens: number
 }
 
-type AssistantPartsMetadata = Pick<AssistantPartsContent, 'usage' | 'sourceAgent' | 'fileChanges'>
+type AssistantPartsMetadata = Pick<
+  AssistantPartsContent,
+  'usage' | 'sourceAgent' | 'fileChanges' | 'llmError'
+>
+
+/**
+ * 事件里的 llmError 落盘前归一化：provider 只给自由文本时会缺 code/retryable。
+ * message 为空则不落（否则历史回放会出现一个「失败但没说原因」的红色态）。
+ */
+function toPersistedLlmError(err: {
+  code?: string
+  message?: string
+  retryable?: boolean
+}): { code: string; message: string; retryable: boolean } | undefined {
+  const message = err.message?.trim()
+  if (!message) return undefined
+  return { code: err.code ?? 'llm_error', message, retryable: err.retryable ?? false }
+}
 
 /**
  * NO_REPLY 哨兵：整轮回复就是这个值 = 本轮没有面向用户的话要说。
@@ -103,6 +120,7 @@ export function createAssistantPartsContent(
     ...(metadata.usage ? { usage: metadata.usage } : {}),
     ...(metadata.sourceAgent ? { sourceAgent: metadata.sourceAgent } : {}),
     ...(metadata.fileChanges ? { fileChanges: metadata.fileChanges } : {}),
+    ...(metadata.llmError ? { llmError: metadata.llmError } : {}),
   }
 }
 
@@ -146,12 +164,18 @@ function finalizeStreamingAssistantMessage(params: {
   parts: readonly AssistantPart[]
   usage?: { inputTokens: number; outputTokens: number; cacheRead?: number; cacheWrite?: number }
   sourceAgent?: { instanceId: string; label: string }
+  /** 本轮 LLM 错误（缺省不写）：历史回放靠它显示失败态与原因 */
+  llmError?: { code: string; message: string; retryable: boolean }
   logTag: string
   interrupted?: boolean
 }): boolean {
   const { conversationRepo, messageId, conversationId, parts, usage, sourceAgent, logTag } = params
   const finalizedParts = finalizeAssistantParts(parts, { interrupted: params.interrupted !== false })
-  const contentJson = createAssistantPartsContent(finalizedParts, { usage, sourceAgent })
+  const contentJson = createAssistantPartsContent(finalizedParts, {
+    usage,
+    sourceAgent,
+    ...(params.llmError ? { llmError: params.llmError } : {}),
+  })
   const hasContent = contentJson.parts.some(
     (part) => part.type === 'tool' || part.text.trim().length > 0,
   )
@@ -392,6 +416,8 @@ export function createAgentInstanceRuntimeEventHandler(
                 parts: prevParts,
                 usage: state?.lastAssistantUsage,
                 sourceAgent: sourceAgentInfo,
+                // 上一轮（多为自愈重试前的失败轮）的错误随行保留：这一行就是那次失败尝试
+                ...(state?.lastLlmError ? { llmError: state.lastLlmError } : {}),
                 logTag: 'agent:start',
               })
             } else {
@@ -408,6 +434,7 @@ export function createAgentInstanceRuntimeEventHandler(
         state.pendingParts = []
         state.toolCallArgs = new Map()
         state.lastAssistantUsage = undefined
+        state.lastLlmError = undefined
       }
       // 自愈重试时重置文本累积偏移，避免 message:start 误判为"续轮"导致前端文本重复
       ctx.accumulatedLength = 0
@@ -626,6 +653,8 @@ export function createAgentInstanceRuntimeEventHandler(
       }
       if (state) {
         state.pendingParts = applyAssistantPartEvent(state.pendingParts, { kind: 'thinking_end' })
+        // 记下本轮 LLM 结局：本轮干净收场就清空，失败则留到 agent:end / agent:error 收尾时落盘
+        state.lastLlmError = toPersistedLlmError(event.llmError ?? {})
         // LLM 失败（如 401 无效令牌）时本轮没有任何正文，若不写入错误文本，
         // agent:end 会把空占位行删掉，用户刷新后只看到「什么都没发生」
         if (event.llmError && !assistantTextFromParts(state.pendingParts).trim()) {
@@ -662,6 +691,7 @@ export function createAgentInstanceRuntimeEventHandler(
       const contentJson = createAssistantPartsContent(state?.pendingParts ?? [], {
         usage: event.usage,
         sourceAgent: sourceAgentInfo,
+        ...(state?.lastLlmError ? { llmError: state.lastLlmError } : {}),
       })
       if (msgId && convId && conversationRepo) {
         try {
@@ -726,6 +756,9 @@ export function createAgentInstanceRuntimeEventHandler(
           parts: state?.pendingParts ?? [],
           usage: state?.lastAssistantUsage,
           sourceAgent: sourceAgentInfo,
+          // 本轮 LLM 错误接力落盘：这条收尾会用 pendingParts 重写同一行，
+          // 不把 message:end 记下的错误带过去，「为什么失败」就没了
+          ...(state?.lastLlmError ? { llmError: state.lastLlmError } : {}),
           logTag: 'agent:error',
         })
         if (!preserved) {
@@ -779,6 +812,7 @@ export function createAgentInstanceRuntimeEventHandler(
         usage,
         sourceAgent: sourceAgentInfo,
         fileChanges,
+        ...(state?.lastLlmError ? { llmError: state.lastLlmError } : {}),
       })
       const text = assistantTextFromParts(contentJson.parts)
       const toolParts = contentJson.parts.filter(

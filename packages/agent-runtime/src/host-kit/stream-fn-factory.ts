@@ -8,6 +8,7 @@ import type { StreamFn } from "@mariozechner/pi-agent-core";
 import {
   createDirectStreamFn,
   type DirectStreamCredentials,
+  type ModelThinkingProfile,
 } from "../llm/direct-stream.js";
 import type {
   ResolvedModel,
@@ -21,6 +22,8 @@ export interface DirectStreamFnFactoryConfig {
    * 按 provider 来源解析直连凭据（host 本地持有，永不下发客户端）。
    */
   readonly resolveCredentials: (resolved: ResolvedModel) => DirectStreamCredentials;
+  /** 按模型解析思考能力档案（provider 配置注入） */
+  readonly resolveModelProfile?: (modelId: string) => ModelThinkingProfile | undefined;
   /** 脱敏日志 */
   readonly log?: (msg: string) => void;
 }
@@ -37,6 +40,7 @@ export function createDirectStreamFnFactory(
     create(resolved: ResolvedModel, _ctx: StreamFnContext): StreamFn {
       return createDirectStreamFn({
         credentials: config.resolveCredentials(resolved),
+        resolveModelProfile: config.resolveModelProfile,
         log: config.log,
       });
     },

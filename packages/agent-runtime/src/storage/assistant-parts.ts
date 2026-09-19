@@ -42,6 +42,14 @@ export type AssistantPartsContent = {
   };
   sourceAgent?: { instanceId: string; label: string };
   fileChanges?: FileChangeEntry[];
+  /**
+   * 本轮以模型错误收场时的结构化错误。
+   *
+   * 落盘的唯一理由是**历史回放**：实时态由事件流里的 llmError 支撑，重开会话后事件早没了，
+   * 只剩这条内容——不存它，失败的子 Agent 运行块只能显示「已完成」，原因也只剩正文里一段
+   * 散文（2026-09-20 补）。缺省不写该字段，旧数据不受影响。
+   */
+  llmError?: { code: string; message: string; retryable: boolean };
 };
 
 /** 流式事件，用于归约进 parts */

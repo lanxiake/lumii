@@ -42,11 +42,11 @@
 ### Responses 接口（推荐）
 
 - **优势**：支持 prompt caching，重复对话成本降低 90%+
-- **端点**：`/v1/responses`（Anthropic 格式）
+- **端点**：`/v1/responses`（OpenAI Responses 格式）
 - **适用**：
   - DeepSeek 官方 API
   - OpenAI 官方 API（gpt-4o 等）
-  - 明确支持 Anthropic Responses API 的中转
+  - 明确支持 OpenAI Responses API 的中转
 
 ### Completions 接口（传统）
 

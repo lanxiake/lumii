@@ -36,24 +36,28 @@ export interface SpawnResultPayload {
   message?: string
 }
 
+/** 从 jsonToolResult 的 content text 块取原始文本（成功与失败包装格式一致） */
+export function extractSpawnResultText(result: unknown): string | undefined {
+  if (typeof result === 'string') return result
+  if (result && typeof result === 'object') {
+    const content = (result as { content?: unknown }).content
+    if (Array.isArray(content)) {
+      const first = content.find(
+        (c): c is { type?: string; text: string } =>
+          !!c && typeof c === 'object' && (c as { type?: string }).type === 'text'
+            && typeof (c as { text?: unknown }).text === 'string',
+      )
+      if (first) return first.text
+    }
+  }
+  return undefined
+}
+
 /** 从 jsonToolResult 的 content text 块解析委托结果（与 HandoffCard 同一包装格式） */
 export function parseSpawnResult(result: unknown): SpawnResultPayload | null {
+  const text = extractSpawnResultText(result)
+  if (!text) return null
   try {
-    let text: string | undefined
-    if (typeof result === 'string') {
-      text = result
-    } else if (result && typeof result === 'object') {
-      const content = (result as { content?: unknown }).content
-      if (Array.isArray(content)) {
-        const first = content.find(
-          (c): c is { type?: string; text: string } =>
-            !!c && typeof c === 'object' && (c as { type?: string }).type === 'text'
-              && typeof (c as { text?: unknown }).text === 'string',
-        )
-        text = first?.text
-      }
-    }
-    if (!text) return null
     const parsed = JSON.parse(text) as SpawnResultPayload
     return parsed && typeof parsed === 'object' ? parsed : null
   } catch {
@@ -102,6 +106,15 @@ export const SpawnAgentCard: React.FC<SpawnAgentCardProps> = ({
   const [expanded, setExpanded] = useState(false)
 
   const result = useMemo(() => parseSpawnResult(part.result), [part.result])
+  /**
+   * 结果原文。失败时主进程不一定回 JSON 载荷——`spawn_agent` 未注册时结果是裸文本
+   * 「Tool spawn_agent not found」，parseSpawnResult 解析失败返回 null，但失败原因
+   * 恰恰就在这段文本里（2026-09-19：子 Agent 试图再委派，卡片只见「委托执行失败」）。
+   */
+  const rawResultText = useMemo(
+    () => extractSpawnResultText(part.result)?.trim() ?? '',
+    [part.result],
+  )
 
   const args = part.args ?? {}
   const agentType = typeof args.agentType === 'string' ? args.agentType.trim() : ''
@@ -158,7 +171,7 @@ export const SpawnAgentCard: React.FC<SpawnAgentCardProps> = ({
   const failureText =
     result && typeof result.message === 'string' && result.message.trim()
       ? result.message.trim()
-      : '委托执行失败'
+      : rawResultText || '委托执行失败'
 
   return (
     <div className={styles.card}>
@@ -205,6 +218,13 @@ export const SpawnAgentCard: React.FC<SpawnAgentCardProps> = ({
             <div className={styles.detailBlock}>
               <span className={styles.detailLabel}>任务</span>
               <pre className={styles.detailPre}>{prompt}</pre>
+            </div>
+          )}
+          {/* 失败原因给全文（折叠行的 160 字截断可能正好吃掉关键信息） */}
+          {isFailed && (
+            <div className={styles.detailBlock}>
+              <span className={styles.detailLabel}>失败原因</span>
+              <pre className={styles.detailPre}>{failureText}</pre>
             </div>
           )}
           {!isRunning && !isInterrupted && !isFailed && !isAsync && output && (

@@ -150,6 +150,7 @@ export const WikiTab: React.FC = () => {
     replanMigrate,
     updateMigrateMapping,
     loading,
+    withLoading,
   } = useWikiPage()
   const taskCenter = useWikiTaskCenter()
   const migrateTaskRef = useRef<{ taskId: string; runId: string } | null>(null)
@@ -236,35 +237,38 @@ export const WikiTab: React.FC = () => {
 
   /**
    * 按当前导航拉取可见列表，避免一次把全库 800+ 行塞进 React。
+   * 计数与列表串行拉取，整体包在一次加载态里，避免中途 loading 闪断。
    */
   const refreshSources = useCallback(async () => {
-    await refreshCounts()
-    if (nav.kind === 'section' || nav.kind === 'category') {
-      setSources(await listSources({ category: nav.name }))
-      return
-    }
-    if (nav.kind === 'subtopic') {
-      setSources(
-        await listSources({
-          category: nav.category,
-          ...(nav.subtopic === null
-            ? { subtopicUnfiled: true }
-            : { subtopic: nav.subtopic }),
-        }),
-      )
-      return
-    }
-    if (nav.kind === 'parking') {
-      setSources(await listSources({ parking: true }))
-      return
-    }
-    if (nav.kind === 'inbox') {
-      setUnfiledSources(await listSources({ unfiled: true }))
+    await withLoading(async () => {
+      await refreshCounts()
+      if (nav.kind === 'section' || nav.kind === 'category') {
+        setSources(await listSources({ category: nav.name }))
+        return
+      }
+      if (nav.kind === 'subtopic') {
+        setSources(
+          await listSources({
+            category: nav.category,
+            ...(nav.subtopic === null
+              ? { subtopicUnfiled: true }
+              : { subtopic: nav.subtopic }),
+          }),
+        )
+        return
+      }
+      if (nav.kind === 'parking') {
+        setSources(await listSources({ parking: true }))
+        return
+      }
+      if (nav.kind === 'inbox') {
+        setUnfiledSources(await listSources({ unfiled: true }))
+        setSources([])
+        return
+      }
       setSources([])
-      return
-    }
-    setSources([])
-  }, [listSources, nav, refreshCounts])
+    })
+  }, [listSources, nav, refreshCounts, withLoading])
 
   /** 按需拉取已归档资料，供归档分区与左栏角标使用。 */
   const refreshArchivedSources = useCallback(async () => {
@@ -275,10 +279,12 @@ export const WikiTab: React.FC = () => {
   }, [listSources])
 
   const refreshInbox = useCallback(async () => {
-    const [all, count] = await Promise.all([listInbox('pending'), countInbox('pending')])
-    setInboxItems(all)
-    setInboxPending(count)
-  }, [listInbox, countInbox])
+    await withLoading(async () => {
+      const [all, count] = await Promise.all([listInbox('pending'), countInbox('pending')])
+      setInboxItems(all)
+      setInboxPending(count)
+    })
+  }, [listInbox, countInbox, withLoading])
 
   /**
    * 拉取当前 migrate run 并同步本地状态。
@@ -333,7 +339,8 @@ export const WikiTab: React.FC = () => {
   useEffect(() => {
     const applyWikiInitNav = (): void => {
       if (consumeWikiInitNav() === 'inbox') {
-        setNav({ kind: 'inbox' })
+        // 相同导航保持原引用，避免无谓地重跑一次列表拉取
+        setNav((prev) => (prev.kind === 'inbox' ? prev : { kind: 'inbox' }))
       }
     }
     applyWikiInitNav()

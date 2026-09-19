@@ -53,6 +53,15 @@ describe("file_write 工具", () => {
     expect(fs.readFileSync(path.join(cwd, "a.txt"), "utf-8")).toBe("hello");
   });
 
+  it("description 明示长文档分段写入契约", () => {
+    // 这是防「一次性输出整篇长文档 → arguments 被截断」的源头约束：
+    // 被删掉后模型就只剩自愈层的兜底提示，首次截断无法避免，故锁死。
+    const desc = fileWriteToolConfig.description;
+    expect(desc).toContain("MUST BE WRITTEN IN SECTIONS");
+    expect(desc).toContain("mode='append'");
+    expect(desc).toMatch(/6,000 characters/);
+  });
+
   it("超长内容分段写入后全文一致", async () => {
     // 造一段 > 阈值、且跨换行的长文本（> 32K 字符）
     const line = "段" + "x".repeat(2_000) + "\n";

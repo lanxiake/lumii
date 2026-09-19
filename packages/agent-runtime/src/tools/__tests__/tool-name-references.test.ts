@@ -105,6 +105,10 @@ const ALLOWED_NON_TOOL_BACKTICKS = new Set([
   'provider',
   // 库名
   'lumii-ui',
+  // 技能名而不是工具名：本机 workspace/skills 下的 `skillnet` 是一个**文档技能**，
+  // 远程技能市场的入口——文案里始终写明「load the `skillnet` skill via skill_invoke」，
+  // 模型不会去调一个叫 skillnet 的工具（2026-09-19 t11 修正时引入）。
+  'skillnet',
 ])
 
 describe('工具名引用守卫', () => {

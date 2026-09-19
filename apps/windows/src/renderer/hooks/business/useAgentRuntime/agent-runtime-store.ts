@@ -116,6 +116,8 @@ export interface PendingPermission {
 export interface PendingAskUser {
   readonly requestId: string
   readonly instanceId?: string
+  /** 提问的前因后果（为什么问、查到什么、答了影响什么）；展示在弹窗里 */
+  readonly context?: string
   readonly questions: readonly {
     readonly question: string
     readonly header: string

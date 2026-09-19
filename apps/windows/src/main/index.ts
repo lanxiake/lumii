@@ -1651,6 +1651,11 @@ async function performCleanup(): Promise<void> {
       weixinLoginService.shutdown()
     }
 
+    // 工具调用计数是 debounce 落盘的，退出前补一次，避免丢掉最后几次调用。
+    // 必须排在 destroyAll 之前：它内部会关闭 agent-runtime 数据库，之后 flush 只会
+    // 报 "database is not open" 并落 0 条（2026-09-19 实测）。
+    await flushToolUsage()
+
     // 销毁所有 Agent 实例并关闭本地数据库
     // 触发 abort → agent:error 事件 → bridge 删除流式占位行，确保 is_streaming 不残留
     if (agentRuntimeBridge) {
@@ -1667,9 +1672,6 @@ async function performCleanup(): Promise<void> {
     } catch (err) {
       log.warn('[performCleanup] ACP 运行清理失败:', err)
     }
-
-    // 工具调用计数是 debounce 落盘的，退出前补一次，避免丢掉最后几次调用
-    await flushToolUsage()
 
     // 性能监控：停止周期快照定时器，把内存里尚未落盘的事件写完后再销毁流
     if (performanceMonitorTimer) {

@@ -6,10 +6,28 @@
  */
 
 /** provider 类型 */
-export type ProviderType = 'openai' | 'anthropic' | 'gemini' | 'ollama' | 'lmstudio' | 'rightapi' | 'deepseek'
+export type ProviderType =
+  | 'openai'
+  | 'anthropic'
+  | 'gemini'
+  | 'ollama'
+  | 'lmstudio'
+  | 'rightapi'
+  | 'deepseek'
+  | 'openrouter'
+  | 'groq'
+  | 'xai'
+  | 'zai'
+  | 'dashscope'
+  | 'moonshot'
+  | 'minimax'
+  | 'siliconflow'
 
 /** 模型能力槽 */
 export type CapabilitySlot = 'chat' | 'vision' | 'image'
+
+/** 思考参数格式（与 main/provider-config.ts 对齐） */
+export type ThinkingFormat = 'auto' | 'openai' | 'qwen' | 'zai'
 
 /** 单槽配置视图 */
 export interface LocalProviderConfigView {
@@ -23,6 +41,10 @@ export interface LocalProviderConfigView {
   /** API 格式（openai/deepseek 用）：completions 或 responses，默认 responses */
   apiFormat?: 'completions' | 'responses'
   contextWindowK?: Record<string, number>
+  /** 按模型声明是否支持思考；缺省按内置默认表推断 */
+  modelReasoning?: Record<string, boolean>
+  /** 思考参数格式，缺省 auto */
+  thinkingFormat?: ThinkingFormat
 }
 
 /** 全部能力槽 */
@@ -137,6 +159,42 @@ export function defaultContextWindowK(modelId: string): number {
   return hit?.[1] ?? 200
 }
 
+/**
+ * 内置「支持思考」模型名单 — 与 main/model-thinking.ts 的 REASONING_HINTS 保持同源。
+ * 未命中一律视为不支持（中转端点对未知参数常直接报错，宁可让用户显式勾选）。
+ */
+const REASONING_HINTS = [
+  'gpt-5',
+  'claude-3-7',
+  'claude-3.7',
+  'claude-4',
+  'claude-sonnet-4',
+  'claude-opus-4',
+  'claude-haiku-4',
+  'gemini-2.5',
+  'gemini-3',
+  'deepseek-reasoner',
+  'deepseek-v3.2',
+  'deepseek-v4',
+  'qwen3',
+  'qwq',
+  'glm-4.5',
+  'glm-4.6',
+  'glm-5',
+  'kimi-k2-thinking',
+  'kimi-k2.5',
+  'minimax-m2',
+  'grok-4',
+]
+
+/** 按模型 ID 推断是否支持思考（内置默认表，供设置页显示默认值） */
+export function defaultSupportsReasoning(modelId: string): boolean {
+  const id = modelId.trim().toLowerCase()
+  if (!id) return false
+  if (/(^|[-_/.])o(1|3|4)([-_/.]|$)/.test(id)) return true
+  return REASONING_HINTS.some((hint) => id.includes(hint))
+}
+
 /** 连通性测试结果 */
 export interface ProviderTestResult {
   ok: boolean
@@ -153,6 +211,36 @@ export const PROVIDER_DEFAULT_BASE_URL: Record<ProviderType, string> = {
   lmstudio: 'http://localhost:1234',
   rightapi: 'https://www.rightapi.ai/draw/v1',
   deepseek: 'https://api.deepseek.com',
+  openrouter: 'https://openrouter.ai/api/v1',
+  groq: 'https://api.groq.com/openai/v1',
+  xai: 'https://api.x.ai/v1',
+  zai: 'https://open.bigmodel.cn/api/paas/v4',
+  dashscope: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+  moonshot: 'https://api.moonshot.cn/v1',
+  minimax: 'https://api.minimaxi.com/v1',
+  siliconflow: 'https://api.siliconflow.cn/v1',
+}
+
+/** 各 provider 类型的默认参数（与 main/provider-config.ts 同源） */
+export const PROVIDER_TYPE_DEFAULTS: Record<
+  ProviderType,
+  { apiFormat?: 'completions' | 'responses'; thinkingFormat: ThinkingFormat }
+> = {
+  openai: { apiFormat: 'completions', thinkingFormat: 'auto' },
+  anthropic: { thinkingFormat: 'auto' },
+  gemini: { thinkingFormat: 'auto' },
+  ollama: { apiFormat: 'completions', thinkingFormat: 'auto' },
+  lmstudio: { apiFormat: 'completions', thinkingFormat: 'auto' },
+  rightapi: { thinkingFormat: 'auto' },
+  deepseek: { apiFormat: 'responses', thinkingFormat: 'auto' },
+  openrouter: { apiFormat: 'completions', thinkingFormat: 'auto' },
+  groq: { apiFormat: 'completions', thinkingFormat: 'auto' },
+  xai: { apiFormat: 'completions', thinkingFormat: 'auto' },
+  zai: { apiFormat: 'completions', thinkingFormat: 'zai' },
+  dashscope: { apiFormat: 'completions', thinkingFormat: 'qwen' },
+  moonshot: { apiFormat: 'completions', thinkingFormat: 'auto' },
+  minimax: { apiFormat: 'completions', thinkingFormat: 'auto' },
+  siliconflow: { apiFormat: 'completions', thinkingFormat: 'auto' },
 }
 
 /** provider 类型展示名 */
@@ -164,6 +252,14 @@ export const PROVIDER_TYPE_LABEL: Record<ProviderType, string> = {
   lmstudio: 'LM Studio（本地）',
   rightapi: 'RightAPI 异步生图',
   deepseek: 'DeepSeek',
+  openrouter: 'OpenRouter',
+  groq: 'Groq',
+  xai: 'xAI（Grok）',
+  zai: '智谱（GLM）',
+  dashscope: '阿里云百炼（通义）',
+  moonshot: '月之暗面（Kimi）',
+  minimax: 'MiniMax',
+  siliconflow: '硅基流动',
 }
 
 /** 仅在特定能力槽可选的 provider 类型 */
@@ -179,6 +275,20 @@ export function listProviderTypesForSlot(slot: CapabilitySlot): ProviderType[] {
     const allowed = PROVIDER_TYPE_SLOT_RESTRICTION[t]
     return !allowed || allowed.includes(slot)
   })
+}
+
+/**
+ * 该类型是否走「可切换 API 格式」的 OpenAI 兼容协议。
+ * anthropic/gemini 有各自的协议；rightapi 是生图专用；本地端点只支持 completions。
+ */
+export function supportsApiFormatChoice(type: ProviderType): boolean {
+  return (
+    type !== 'anthropic' &&
+    type !== 'gemini' &&
+    type !== 'rightapi' &&
+    type !== 'ollama' &&
+    type !== 'lmstudio'
+  )
 }
 
 /** 能力槽展示名 */
@@ -226,6 +336,8 @@ export function createDefaultSlotConfig(_slot: CapabilitySlot): LocalProviderCon
     modelId: '',
     apiKey: '',
     allowedModelIds: [],
+    modelReasoning: {},
+    thinkingFormat: 'auto',
   }
 }
 

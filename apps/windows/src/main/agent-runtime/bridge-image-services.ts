@@ -17,6 +17,7 @@ import { generateImageViaRightCodesDraw } from './right-codes-draw-client'
 import { generateImageViaRightApi, DEFAULT_RIGHTAPI_BASE_URL } from './rightapi-image-client'
 import { agentRuntimeLog as log } from './bridge-utils'
 import { loadSlotConfig, applyImageSlotToDrawEnv, ensureProviderBaseUrl } from '../provider-config'
+import { resolveModelThinking, apiForProviderType } from '../model-thinking'
 
 export interface BridgeImageServicesDeps {
   /** 模型路由器，用于按 tier / 显式 ID 解析模型 */
@@ -53,7 +54,7 @@ export class BridgeImageServices {
     // 解析实际使用的 Model：优先 explicit → vision 槽
     const resolvedModelId = options.modelId || visionSlot.modelId
     const model = resolvedModelId
-      ? router.resolveExplicitModelId(resolvedModelId)
+      ? router.resolveExplicitModelId(resolvedModelId, apiForProviderType(visionSlot.type))
       : router.resolve('balanced')
 
     // 直连时补全 image input，避免 pi-ai 拒绝
@@ -65,7 +66,11 @@ export class BridgeImageServices {
       credentials: {
         baseUrl: ensureProviderBaseUrl(visionSlot.baseUrl, visionSlot.type),
         apiKey: visionSlot.apiKey,
+        // 视觉槽自己的格式（此前漏传，槽里配了 completions 也会走 responses）
+        apiFormat: visionSlot.apiFormat ?? 'responses',
       },
+      // 用视觉槽自己的思考配置，不能套 chat 槽：视觉识别不该烧思考预算
+      resolveModelProfile: (modelId) => resolveModelThinking(visionSlot, modelId),
       log: (msg) => log.info(`[visionDirect] ${msg}`),
     })
 

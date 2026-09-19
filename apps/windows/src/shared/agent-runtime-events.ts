@@ -249,6 +249,8 @@ export interface AgentAskUserRequestEvent {
   readonly instanceId?: string
   /** 对话根 sessionKey，用于跨会话路由 Modal（渠道会话与当前 UI 会话不一致时） */
   readonly rootSessionKey?: string
+  /** 提问的前因后果（为什么问、查到什么、答了影响什么）；渲染在弹窗标题下方 */
+  readonly context?: string
   readonly questions: readonly {
     readonly question: string
     readonly header: string

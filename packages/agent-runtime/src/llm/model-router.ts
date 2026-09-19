@@ -20,16 +20,16 @@ const MODEL_API_MAP: Record<string, string> = {
   "gpt-4o-mini": "openai",
   "claude-sonnet-4-5": "anthropic-messages",
   "claude-haiku-4-5": "anthropic-messages",
-  "gemini-2.5-pro": "google-genai",
-  "gemini-2.5-flash": "google-genai",
+  "gemini-2.5-pro": "google-generative-ai",
+  "gemini-2.5-flash": "google-generative-ai",
 };
 
-/** 根据模型 ID 推断 API 类型 */
+/** 根据模型 ID 推断 API 类型（仅在宿主未给出 provider 类型时兜底） */
 function inferApi(modelId: string): string {
   if (MODEL_API_MAP[modelId]) return MODEL_API_MAP[modelId]!;
   if (modelId.includes("deepseek")) return "openai";
   if (modelId.includes("claude")) return "anthropic-messages";
-  if (modelId.includes("gemini")) return "google-genai";
+  if (modelId.includes("gemini")) return "google-generative-ai";
   return "openai"; // 默认 openai 兼容 API
 }
 
@@ -53,14 +53,18 @@ export class ModelRouter {
   /**
    * 将显式模型引用解析为单次调用的 Model（用户本地模型直连场景）。
    * 支持 `providerKey/modelId`（取 modelId 段）与裸 `modelId`。
+   *
+   * api 优先取宿主给的 provider 类型：中转上的 `anthropic/claude-*` 走的是 OpenAI
+   * 兼容协议，按模型 ID 猜 api 会被错误路由到 anthropic-messages。仅在宿主未给类型
+   * 时才回退到 ID 推断。
    */
-  resolveExplicitModelId(raw: string): Model<string> {
+  resolveExplicitModelId(raw: string, apiOverride?: string): Model<string> {
     const trimmed = raw.trim();
     const slash = trimmed.indexOf("/");
     const id = slash === -1 ? trimmed : trimmed.slice(slash + 1).trim();
     if (!id) {
       return this.resolve(FALLBACK_PURPOSE);
     }
-    return { id, api: inferApi(id) } as Model<string>;
+    return { id, api: apiOverride ?? inferApi(id) } as Model<string>;
   }
 }

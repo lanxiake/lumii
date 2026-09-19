@@ -66,11 +66,12 @@ export const skillSearchToolConfig: MtBotToolConfig<typeof SkillSearchInput> = {
   name: "skill_search",
   label: "Search Skills",
   description:
-    "List or search LOCAL skills — searches name, description, and when-to-use fields. " +
+    "Discover skills: list or search LOCAL skills by name, description, and when-to-use. " +
     "Call WITHOUT query to list every local skill; pass query for multi-keyword AND (space-separated) " +
     "and OR (comma-separated) logic. " +
-    "If no local skills match, ALWAYS call execute_skill with skillnet to search remote skills: " +
-    "execute_skill('skillnet', 'search \"<query>\" --limit 5').",
+    "Use this FIRST whenever the question is which skills exist (e.g. “有没有…的技能”), and answer from its results. " +
+    "If nothing local matches, say so — the remote marketplace (the `skillnet` skill) is a separate, " +
+    "user-initiated step, loaded via `skill_invoke` rather than `execute_skill`.",
   parameters: SkillSearchInput,
   category: "filesystem",
   isReadOnly: true,
@@ -119,7 +120,12 @@ export const skillSearchToolConfig: MtBotToolConfig<typeof SkillSearchInput> = {
         : {
             skills: [],
             total: 0,
-            hint: "No local skills matched. Call execute_skill with skillnet to search remote skills: execute_skill('skillnet', 'search \"" + query + "\" --limit 5')",
+            // 不再教 execute_skill：本机 skillnet 是**文档技能**（无 [executable]），
+            // 原提示让模型去执行一个必然失败的 id，失败文案又把它推向 skill_invoke
+            // （2026-09-19 t11 实测的完整越级链）。
+            hint:
+              "No local skills matched — report this to the user. Searching the remote marketplace is a separate, " +
+              "user-initiated step: load the `skillnet` skill (`skill_invoke`) only when the user asks to look beyond local skills.",
           };
 
     return {
@@ -139,7 +145,10 @@ type SkillInvokeInputType = Static<typeof SkillInvokeInput>;
 export const skillInvokeToolConfig: MtBotToolConfig<typeof SkillInvokeInput> = {
   name: "skill_invoke",
   label: "Invoke Skill",
-  description: "Load a skill's full SKILL.md instructions and list its available resources.",
+  description:
+    "Load a skill's full SKILL.md instructions and list its available resources. " +
+    "Pass a name you ALREADY have — from the skills list in the system prompt or from skill_search results. " +
+    "If you don't have an exact name yet, call skill_search first; never guess a name.",
   parameters: SkillInvokeInput,
   category: "filesystem",
   isReadOnly: true,

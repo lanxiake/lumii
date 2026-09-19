@@ -12,6 +12,8 @@ import {
   Info,
   Zap,
   FlaskConical,
+  Monitor,
+  Cloud,
 } from '../../components/ui/Icon'
 import { FileText } from 'lucide-react'
 import { Card } from '../../components/ui/Card/Card'
@@ -21,7 +23,7 @@ import { Checkbox } from '../../components/ui/Checkbox/Checkbox'
 import { Select } from '../../components/ui/Select/Select'
 import { Badge } from '../../components/ui/Badge/Badge'
 import { UpdaterView } from '../../components/business/UpdaterView'
-import { useSettings, useCategorySettings } from '../../hooks/business/useSettings'
+import { useSettings, useCategorySettings, DEFAULT_SETTINGS, readStoredSettings } from '../../hooks/business/useSettings'
 import { useToast } from '../../components/ui/Toast/useToast'
 import { PageHeader } from '../../components/ui/PageHeader/PageHeader'
 import { CodingDevAcpPanel } from './components/CodingDevAcpPanel'
@@ -39,11 +41,11 @@ import { AccountSection } from './components/AccountSection'
 import { WorkspaceSection } from './components/WorkspaceSection'
 import { CloudSyncSection } from './components/CloudSyncSection'
 import { NotificationSection } from './components/NotificationSection'
-import { PrivacySection } from './components/PrivacySection'
 import { ExperimentalSection } from './components/ExperimentalSection'
 import type {
   MergedSettingsCategory,
 } from '../../components/SettingsHub/types'
+import type { ScreenRecordConfig } from '../../hooks/business/useSettings'
 import styles from './SettingsPage.module.css'
 import { StorageInfo } from './components/StorageInfo'
 import { SecurityLogViewer } from './components/SecurityLogViewer/SecurityLogViewer'
@@ -67,6 +69,8 @@ const CATEGORIES: Array<{ id: MergedSettingsCategory; label: string; icon: React
   { id: 'pet', label: '宠物模式', icon: <Smartphone size={SETTINGS_ICON_SIZE} /> },
   { id: 'usage', label: '用量与花费', icon: <Zap size={SETTINGS_ICON_SIZE} /> },
   { id: 'privacy', label: '隐私与数据', icon: <Shield size={SETTINGS_ICON_SIZE} /> },
+  { id: 'cloudSync', label: '云同步', icon: <Cloud size={SETTINGS_ICON_SIZE} /> },
+  { id: 'screenRecord', label: '录屏', icon: <Monitor size={SETTINGS_ICON_SIZE} /> },
   { id: 'experimental', label: '实验功能', icon: <FlaskConical size={SETTINGS_ICON_SIZE} /> },
   { id: 'aboutAndUpdate', label: '关于与更新', icon: <Info size={SETTINGS_ICON_SIZE} /> },
 ]
@@ -187,6 +191,22 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
       await saveSettings()
     }
   })
+
+  const screenRecordSave = useCategorySettings({
+    category: 'screenRecord',
+    getCurrentValue: () => settings.screenRecord,
+    getSavedValue: () => readStoredSettings()?.screenRecord ?? DEFAULT_SETTINGS.screenRecord,
+    onSave: async () => {
+      await saveSettings()
+    }
+  })
+
+  /** 更新录屏配置：缺失字段以默认值补齐，避免逐项展开默认对象 */
+  const updateScreenRecord = useCallback((partial: Partial<ScreenRecordConfig>) => {
+    updateSettings({
+      screenRecord: { ...(settings.screenRecord ?? DEFAULT_SETTINGS.screenRecord), ...partial },
+    })
+  }, [settings.screenRecord, updateSettings])
 
   /**
    * 获取应用版本
@@ -311,6 +331,17 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   }
 
   /**
+   * 渲染云同步：GitCode 私有仓库多设备同步（独立一级菜单）
+   */
+  const renderCloudSyncSettings = () => {
+    return (
+      <div className={styles['settings-section']}>
+        <CloudSyncSection />
+      </div>
+    )
+  }
+
+  /**
    * 渲染本机 ACP / 开发工具设置
    */
   const renderCodingDevSettings = () => (
@@ -429,211 +460,6 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         </section>
 
         <section className={styles['panel-card']}>
-          <h4 className={styles['panel-card-title']} data-app-ui-heading>录屏</h4>
-          <div className={styles['panel-rows']}>
-            <div className={styles['panel-row']}>
-              <div className={styles['panel-row-text']}>
-                <span className={styles['panel-row-label']}>启用录屏功能</span>
-                <span className={styles['panel-row-hint']}>
-                  关闭后 AI 录屏/截屏工具与顶栏入口均不可用
-                </span>
-              </div>
-              <Checkbox
-                checked={settings.screenRecord?.enabled !== false}
-                onChange={(checked) =>
-                  updateSettings({
-                    screenRecord: {
-                      ...(settings.screenRecord ?? {
-                        enabled: true,
-                        alwaysAllow: false,
-                        includeMicDefault: true,
-                        includeSystemAudioDefault: true,
-                        exportMp4Default: false,
-                        narrateOriginalAudioGain: 0.35,
-                        confirmTimeoutSec: 120,
-                      }),
-                      enabled: checked,
-                    },
-                  })
-                }
-              />
-            </div>
-            <div className={styles['panel-row']}>
-              <div className={styles['panel-row-text']}>
-                <span className={styles['panel-row-label']}>始终允许录屏 / 截屏</span>
-                <span className={`${styles['panel-row-hint']} ${styles['panel-row-hint-warn']}`}>
-                  开启后 Agent 可不经确认录制或截取除本软件外的任意屏幕与窗口，请谨慎
-                </span>
-              </div>
-              <Checkbox
-                checked={settings.screenRecord?.alwaysAllow === true}
-                onChange={(checked) =>
-                  updateSettings({
-                    screenRecord: {
-                      ...(settings.screenRecord ?? {
-                        enabled: true,
-                        alwaysAllow: false,
-                        includeMicDefault: true,
-                        includeSystemAudioDefault: true,
-                        exportMp4Default: false,
-                        narrateOriginalAudioGain: 0.35,
-                        confirmTimeoutSec: 120,
-                      }),
-                      alwaysAllow: checked,
-                    },
-                  })
-                }
-              />
-            </div>
-            <div className={styles['panel-row']}>
-              <div className={styles['panel-row-text']}>
-                <span className={styles['panel-row-label']}>默认包含麦克风</span>
-                <span className={styles['panel-row-hint']}>新录制时「包含麦克风」开关的默认值</span>
-              </div>
-              <Checkbox
-                checked={settings.screenRecord?.includeMicDefault !== false}
-                onChange={(checked) =>
-                  updateSettings({
-                    screenRecord: {
-                      ...(settings.screenRecord ?? {
-                        enabled: true,
-                        alwaysAllow: false,
-                        includeMicDefault: true,
-                        includeSystemAudioDefault: true,
-                        exportMp4Default: false,
-                        narrateOriginalAudioGain: 0.35,
-                        confirmTimeoutSec: 120,
-                      }),
-                      includeMicDefault: checked,
-                    },
-                  })
-                }
-              />
-            </div>
-            <div className={styles['panel-row']}>
-              <div className={styles['panel-row-text']}>
-                <span className={styles['panel-row-label']}>默认包含系统声音</span>
-                <span className={styles['panel-row-hint']}>
-                  整屏录制时较可靠；单窗口可能无系统声（会自动降级）
-                </span>
-              </div>
-              <Checkbox
-                checked={settings.screenRecord?.includeSystemAudioDefault !== false}
-                onChange={(checked) =>
-                  updateSettings({
-                    screenRecord: {
-                      ...(settings.screenRecord ?? {
-                        enabled: true,
-                        alwaysAllow: false,
-                        includeMicDefault: true,
-                        includeSystemAudioDefault: true,
-                        exportMp4Default: false,
-                        narrateOriginalAudioGain: 0.35,
-                        confirmTimeoutSec: 120,
-                      }),
-                      includeSystemAudioDefault: checked,
-                    },
-                  })
-                }
-              />
-            </div>
-            <div className={styles['panel-row']}>
-              <div className={styles['panel-row-text']}>
-                <span className={styles['panel-row-label']}>停止时默认导出 MP4</span>
-                <span className={styles['panel-row-hint']}>
-                  转码成功后删除源 WebM；失败则保留 WebM
-                </span>
-              </div>
-              <Checkbox
-                checked={settings.screenRecord?.exportMp4Default === true}
-                onChange={(checked) =>
-                  updateSettings({
-                    screenRecord: {
-                      ...(settings.screenRecord ?? {
-                        enabled: true,
-                        alwaysAllow: false,
-                        includeMicDefault: true,
-                        includeSystemAudioDefault: true,
-                        exportMp4Default: false,
-                        narrateOriginalAudioGain: 0.35,
-                        confirmTimeoutSec: 120,
-                      }),
-                      exportMp4Default: checked,
-                    },
-                  })
-                }
-              />
-            </div>
-            <div className={styles['panel-row']}>
-              <div className={styles['panel-row-text']}>
-                <span className={styles['panel-row-label']}>旁白原声增益</span>
-                <span className={styles['panel-row-hint']}>配音混流时原片音量（0–1，默认 0.35）</span>
-              </div>
-              <div className={styles['setting-input-with-unit']}>
-                <Input
-                  type="number"
-                  min={0}
-                  max={1}
-                  step={0.05}
-                  value={settings.screenRecord?.narrateOriginalAudioGain ?? 0.35}
-                  onChange={(e) =>
-                    updateSettings({
-                      screenRecord: {
-                        ...(settings.screenRecord ?? {
-                          enabled: true,
-                          alwaysAllow: false,
-                          includeMicDefault: true,
-                          includeSystemAudioDefault: true,
-                          exportMp4Default: false,
-                          narrateOriginalAudioGain: 0.35,
-                          confirmTimeoutSec: 120,
-                        }),
-                        narrateOriginalAudioGain: Math.min(
-                          1,
-                          Math.max(0, Number(e.target.value)),
-                        ),
-                      },
-                    })
-                  }
-                />
-              </div>
-            </div>
-            <div className={styles['panel-row']}>
-              <div className={styles['panel-row-text']}>
-                <span className={styles['panel-row-label']}>AI 确认超时（秒）</span>
-                <span className={styles['panel-row-hint']}>超时未操作将自动拒绝</span>
-              </div>
-              <div className={styles['setting-input-with-unit']}>
-                <Input
-                  type="number"
-                  min={10}
-                  max={600}
-                  step={5}
-                  value={settings.screenRecord?.confirmTimeoutSec ?? 120}
-                  onChange={(e) =>
-                    updateSettings({
-                      screenRecord: {
-                        ...(settings.screenRecord ?? {
-                          enabled: true,
-                          alwaysAllow: false,
-                          includeMicDefault: true,
-                          includeSystemAudioDefault: true,
-                          exportMp4Default: false,
-                          narrateOriginalAudioGain: 0.35,
-                          confirmTimeoutSec: 120,
-                        }),
-                        confirmTimeoutSec: Number(e.target.value),
-                      },
-                    })
-                  }
-                />
-                <span className={styles['setting-unit']}>秒</span>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section className={styles['panel-card']}>
           <h4 className={styles['panel-card-title']} data-app-ui-heading>本地留存</h4>
           <div className={styles['panel-rows']}>
             <div className={styles['panel-row']}>
@@ -740,6 +566,143 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
               {privacySave.saveStatus === 'saved'
                 ? '✓ 已保存'
                 : privacySave.saveStatus === 'error'
+                  ? '保存失败'
+                  : '保存更改'}
+            </Button>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  /**
+   * 渲染录屏：AI 录屏/截屏工具总开关与录制默认参数（独立一级菜单）
+   */
+  const renderScreenRecordSettings = () => {
+    const screenRecord = { ...DEFAULT_SETTINGS.screenRecord, ...settings.screenRecord }
+    return (
+      <div className={styles['settings-panel']}>
+        <header className={styles['panel-header']}>
+          <h3 data-app-ui-section-title className={styles['panel-title']}>
+            录屏
+            {screenRecordSave.hasChanges && <Badge dot />}
+          </h3>
+          <p className={styles['panel-desc']}>
+            管理 AI 录屏 / 截屏工具与本机录制的默认参数。
+          </p>
+        </header>
+
+        <section className={styles['panel-card']}>
+          <h4 className={styles['panel-card-title']} data-app-ui-heading>录制选项</h4>
+          <div className={styles['panel-rows']}>
+            <div className={styles['panel-row']}>
+              <div className={styles['panel-row-text']}>
+                <span className={styles['panel-row-label']}>启用录屏功能</span>
+                <span className={styles['panel-row-hint']}>
+                  关闭后 AI 录屏/截屏工具与顶栏入口均不可用
+                </span>
+              </div>
+              <Checkbox
+                checked={screenRecord.enabled}
+                onChange={(checked) => updateScreenRecord({ enabled: checked })}
+              />
+            </div>
+            <div className={styles['panel-row']}>
+              <div className={styles['panel-row-text']}>
+                <span className={styles['panel-row-label']}>始终允许录屏 / 截屏</span>
+                <span className={`${styles['panel-row-hint']} ${styles['panel-row-hint-warn']}`}>
+                  开启后 Agent 可不经确认录制或截取除本软件外的任意屏幕与窗口，请谨慎
+                </span>
+              </div>
+              <Checkbox
+                checked={screenRecord.alwaysAllow}
+                onChange={(checked) => updateScreenRecord({ alwaysAllow: checked })}
+              />
+            </div>
+            <div className={styles['panel-row']}>
+              <div className={styles['panel-row-text']}>
+                <span className={styles['panel-row-label']}>默认包含麦克风</span>
+                <span className={styles['panel-row-hint']}>新录制时「包含麦克风」开关的默认值</span>
+              </div>
+              <Checkbox
+                checked={screenRecord.includeMicDefault}
+                onChange={(checked) => updateScreenRecord({ includeMicDefault: checked })}
+              />
+            </div>
+            <div className={styles['panel-row']}>
+              <div className={styles['panel-row-text']}>
+                <span className={styles['panel-row-label']}>默认包含系统声音</span>
+                <span className={styles['panel-row-hint']}>
+                  整屏录制时较可靠；单窗口可能无系统声（会自动降级）
+                </span>
+              </div>
+              <Checkbox
+                checked={screenRecord.includeSystemAudioDefault}
+                onChange={(checked) => updateScreenRecord({ includeSystemAudioDefault: checked })}
+              />
+            </div>
+            <div className={styles['panel-row']}>
+              <div className={styles['panel-row-text']}>
+                <span className={styles['panel-row-label']}>停止时默认导出 MP4</span>
+                <span className={styles['panel-row-hint']}>
+                  转码成功后删除源 WebM；失败则保留 WebM
+                </span>
+              </div>
+              <Checkbox
+                checked={screenRecord.exportMp4Default}
+                onChange={(checked) => updateScreenRecord({ exportMp4Default: checked })}
+              />
+            </div>
+            <div className={styles['panel-row']}>
+              <div className={styles['panel-row-text']}>
+                <span className={styles['panel-row-label']}>旁白原声增益</span>
+                <span className={styles['panel-row-hint']}>配音混流时原片音量（0–1，默认 0.35）</span>
+              </div>
+              <div className={styles['setting-input-with-unit']}>
+                <Input
+                  type="number"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={screenRecord.narrateOriginalAudioGain}
+                  onChange={(e) =>
+                    updateScreenRecord({
+                      narrateOriginalAudioGain: Math.min(1, Math.max(0, Number(e.target.value))),
+                    })
+                  }
+                />
+              </div>
+            </div>
+            <div className={styles['panel-row']}>
+              <div className={styles['panel-row-text']}>
+                <span className={styles['panel-row-label']}>AI 确认超时（秒）</span>
+                <span className={styles['panel-row-hint']}>超时未操作将自动拒绝</span>
+              </div>
+              <div className={styles['setting-input-with-unit']}>
+                <Input
+                  type="number"
+                  min={10}
+                  max={600}
+                  step={5}
+                  value={screenRecord.confirmTimeoutSec}
+                  onChange={(e) => updateScreenRecord({ confirmTimeoutSec: Number(e.target.value) })}
+                />
+                <span className={styles['setting-unit']}>秒</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {screenRecordSave.hasChanges && (
+          <div className={styles['category-save-actions']}>
+            <Button
+              onClick={screenRecordSave.save}
+              loading={screenRecordSave.isSaving}
+              disabled={screenRecordSave.isSaving}
+            >
+              {screenRecordSave.saveStatus === 'saved'
+                ? '✓ 已保存'
+                : screenRecordSave.saveStatus === 'error'
                   ? '保存失败'
                   : '保存更改'}
             </Button>
@@ -865,17 +828,12 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         )
       case 'workspace':
         return (
-          <>
-            <WorkspaceSection
-              settings={settings}
-              defaultWorkspaceDir={defaultWorkspaceDir}
-              updateWorkspace={updateWorkspace}
-              save={workspaceSave}
-            />
-            <div className={styles['settings-merged-block']}>
-              <CloudSyncSection />
-            </div>
-          </>
+          <WorkspaceSection
+            settings={settings}
+            defaultWorkspaceDir={defaultWorkspaceDir}
+            updateWorkspace={updateWorkspace}
+            save={workspaceSave}
+          />
         )
       case 'modelConfig':
         return <ModelConfigSection />
@@ -887,6 +845,10 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         return renderCodingDevSettings()
       case 'privacy':
         return renderPrivacySettings()
+      case 'cloudSync':
+        return renderCloudSyncSettings()
+      case 'screenRecord':
+        return renderScreenRecordSettings()
       case 'experimental':
         return <ExperimentalSection />
       case 'pet':

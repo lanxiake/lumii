@@ -90,18 +90,21 @@ export function formatPermissionPrompt(toolName: string, description?: string): 
     .join('\n')
 }
 
-/** 渠道提问提示文案：每个问题列出带序号的选项 */
+/** 渠道提问提示文案：每个问题列出带序号的选项；context 为模型给的前因后果 */
 export function formatAskPrompt(
   questions: Extract<ChannelInteraction, { kind: 'ask' }>['questions'],
+  context?: string,
 ): string {
   const blocks = questions.map((q, qi) => {
     const opts = q.options.map((o, oi) => `  ${oi + 1}. ${o.label}`).join('\n')
     const multiHint = q.multiSelect ? '（可多选，用逗号分隔序号）' : ''
     return `${questions.length > 1 ? `【问题 ${qi + 1}】` : ''}${q.question}${multiHint}\n${opts}`
   })
+  const ctx = context?.trim()
   return [
     '❓ Agent 需要你确认：',
     '',
+    ...(ctx ? [`背景：${ctx}`, ''] : []),
     ...blocks,
     '',
     questions.length > 1

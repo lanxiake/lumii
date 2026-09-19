@@ -1405,6 +1405,7 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
         pendingAskUser: {
           requestId: event.requestId,
           instanceId: event.instanceId,
+          context: event.context,
           questions: event.questions,
           timeoutMs: event.timeoutMs,
           receivedAt,

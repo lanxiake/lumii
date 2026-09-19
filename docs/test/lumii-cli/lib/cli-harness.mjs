@@ -213,7 +213,18 @@ export function lastUser(sk, limit = 30) {
 
 /**
  * 发送并等待回合完成。
- * 判定：出现新的 assistant 消息（id 不同于基线）且内容在两次轮询间稳定。
+ *
+ * 判定（2026-09-19 修正）：会话最新一条 assistant 消息的 `is_streaming` 落 0 ——
+ * 流式占位行由 agent:start 创建、agent:end 落定（bridge-agent-instance-events.ts:831），
+ * 这是宿主给出的「真回合终点」。
+ *
+ * 原判定是「正文文本连续两次轮询不变」，**长思考 / 等用户回答时正文恰好不变**，
+ * 回合会被提前判为结束。实测代价（t15）：13:42 就取走了证据、回合实际跑到 13:48，
+ * 连模型建任务都发生在快照之后，评测把它记成了「查了但没执行」。
+ * ⚠️ 新判定对**提问挂起的回合**意味着更长的等待：评测环境无人应答，问句要等超时
+ * 被拒答、模型继续之后回合才结束——这种用例应该调大 timeoutMs，而不是把判定改回去。
+ *
+ * 依赖 DB（CLI 的 context messages 不暴露 is_streaming）；与本库其它 DB 能力同源。
  * @returns {{assistant:object, text:string, elapsedMs:number}}
  */
 export function sendAndWait(sk, text, { timeoutMs = 180000, pollMs = 2500, limit = 30 } = {}) {
@@ -222,19 +233,16 @@ export function sendAndWait(sk, text, { timeoutMs = 180000, pollMs = 2500, limit
   const start = Date.now()
   send(sk, text)
 
-  let prevText = null
-  let stableHits = 0
   while (Date.now() - start < timeoutMs) {
     sleep(pollMs)
-    const cur = lastAssistant(sk, limit)
-    if (cur && cur.id !== baseId) {
-      const t = assistantText(cur)
-      if (t && t === prevText) {
-        stableHits++
-        if (stableHits >= 2) return { assistant: cur, text: t, elapsedMs: Date.now() - start }
-      } else {
-        stableHits = 0
-        prevText = t
+    const row = dbGet(
+      "SELECT id, is_streaming FROM messages WHERE conversation_id = ? AND role = 'assistant' ORDER BY timestamp DESC, rowid DESC LIMIT 1",
+      sk,
+    )
+    if (row && row.id !== baseId && row.is_streaming === 0) {
+      const cur = lastAssistant(sk, limit)
+      if (cur && cur.id === row.id) {
+        return { assistant: cur, text: assistantText(cur), elapsedMs: Date.now() - start }
       }
     }
   }

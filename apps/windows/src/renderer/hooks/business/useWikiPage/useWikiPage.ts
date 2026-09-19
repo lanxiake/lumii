@@ -5,7 +5,7 @@
  * 命令统一经 wiki-command.ts 的 sendWikiCommand（运行时守卫 + agentId 注入）。
  */
 
-import { useCallback, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { sendWikiCommand } from './wiki-command'
 import type {
   WikiInboxItem,
@@ -35,21 +35,35 @@ import type {
 
 export function useWikiPage() {
   const [loading, setLoading] = useState(false)
+  /** 进行中请求计数：进页时并发多个命令，全部结束才收起加载态，避免反复闪烁 */
+  const pendingRef = useRef(0)
 
-  const listInbox = useCallback(async (status?: string): Promise<readonly WikiInboxItem[]> => {
+  const trackLoading = useCallback(async <T>(task: () => Promise<T>): Promise<T> => {
+    pendingRef.current += 1
     setLoading(true)
     try {
-      const rows = (await sendWikiCommand({
-        type: 'wiki:inbox:list',
-        status,
-      })) as WikiInboxItem[]
-      return Array.isArray(rows) ? rows : []
-    } catch {
-      return []
+      return await task()
     } finally {
-      setLoading(false)
+      pendingRef.current -= 1
+      if (pendingRef.current === 0) setLoading(false)
     }
   }, [])
+
+  const listInbox = useCallback(
+    async (status?: string): Promise<readonly WikiInboxItem[]> =>
+      trackLoading(async () => {
+        try {
+          const rows = (await sendWikiCommand({
+            type: 'wiki:inbox:list',
+            status,
+          })) as WikiInboxItem[]
+          return Array.isArray(rows) ? rows : []
+        } catch {
+          return []
+        }
+      }),
+    [trackLoading],
+  )
 
   /** 返回收件箱条数（角标用，不受 list LIMIT 影响） */
   const countInbox = useCallback(async (status?: string): Promise<number> => {
@@ -234,20 +248,21 @@ export function useWikiPage() {
     }
   }, [])
 
-  const cleanupScan = useCallback(async (staleDays?: number): Promise<readonly WikiCleanupSuggestionItem[]> => {
-    setLoading(true)
-    try {
-      const rows = (await sendWikiCommand({
-        type: 'wiki:cleanup:scan',
-        staleDays,
-      })) as WikiCleanupSuggestionItem[]
-      return Array.isArray(rows) ? rows : []
-    } catch {
-      return []
-    } finally {
-      setLoading(false)
-    }
-  }, [])
+  const cleanupScan = useCallback(
+    async (staleDays?: number): Promise<readonly WikiCleanupSuggestionItem[]> =>
+      trackLoading(async () => {
+        try {
+          const rows = (await sendWikiCommand({
+            type: 'wiki:cleanup:scan',
+            staleDays,
+          })) as WikiCleanupSuggestionItem[]
+          return Array.isArray(rows) ? rows : []
+        } catch {
+          return []
+        }
+      }),
+    [trackLoading],
+  )
 
   const archiveSources = useCallback(async (sourceIds: readonly string[]): Promise<number> => {
     try {
@@ -277,21 +292,19 @@ export function useWikiPage() {
   }, [])
 
   const exportSources = useCallback(
-    async (targetDir: string): Promise<WikiExportResultItem | null> => {
-      setLoading(true)
-      try {
-        const r = (await sendWikiCommand({
-          type: 'wiki:export',
-          targetDir,
-        })) as WikiExportResultItem
-        return r ?? null
-      } catch {
-        return null
-      } finally {
-        setLoading(false)
-      }
-    },
-    [],
+    async (targetDir: string): Promise<WikiExportResultItem | null> =>
+      trackLoading(async () => {
+        try {
+          const r = (await sendWikiCommand({
+            type: 'wiki:export',
+            targetDir,
+          })) as WikiExportResultItem
+          return r ?? null
+        } catch {
+          return null
+        }
+      }),
+    [trackLoading],
   )
 
   /**
@@ -537,27 +550,25 @@ export function useWikiPage() {
       unfiled?: boolean
       archived?: boolean
       mediaType?: string
-    }): Promise<readonly WikiSourceListItem[]> => {
-      setLoading(true)
-      try {
-        const r = (await sendWikiCommand({
-          type: 'wiki:source:list',
-          category: filter?.category,
-          subtopic: filter?.subtopic,
-          subtopicUnfiled: filter?.subtopicUnfiled,
-          parking: filter?.parking,
-          unfiled: filter?.unfiled,
-          archived: filter?.archived,
-          mediaType: filter?.mediaType,
-        })) as { sources: WikiSourceListItem[] }
-        return Array.isArray(r?.sources) ? r.sources : []
-      } catch {
-        return []
-      } finally {
-        setLoading(false)
-      }
-    },
-    [],
+    }): Promise<readonly WikiSourceListItem[]> =>
+      trackLoading(async () => {
+        try {
+          const r = (await sendWikiCommand({
+            type: 'wiki:source:list',
+            category: filter?.category,
+            subtopic: filter?.subtopic,
+            subtopicUnfiled: filter?.subtopicUnfiled,
+            parking: filter?.parking,
+            unfiled: filter?.unfiled,
+            archived: filter?.archived,
+            mediaType: filter?.mediaType,
+          })) as { sources: WikiSourceListItem[] }
+          return Array.isArray(r?.sources) ? r.sources : []
+        } catch {
+          return []
+        }
+      }),
+    [trackLoading],
   )
 
   /**
@@ -657,25 +668,24 @@ export function useWikiPage() {
       if (!keyword.trim()) {
         return { hits: [], mode: 'fts', degradeReason: null }
       }
-      setLoading(true)
-      try {
-        const r = (await sendWikiCommand({
-          type: 'wiki:search',
-          keyword,
-          limit,
-        })) as { hits: WikiSourceSearchHit[]; mode: SearchMode; degradeReason: string | null }
-        return {
-          hits: Array.isArray(r?.hits) ? r.hits : [],
-          mode: r?.mode ?? 'fts',
-          degradeReason: r?.degradeReason ?? null,
+      return trackLoading(async () => {
+        try {
+          const r = (await sendWikiCommand({
+            type: 'wiki:search',
+            keyword,
+            limit,
+          })) as { hits: WikiSourceSearchHit[]; mode: SearchMode; degradeReason: string | null }
+          return {
+            hits: Array.isArray(r?.hits) ? r.hits : [],
+            mode: r?.mode ?? 'fts',
+            degradeReason: r?.degradeReason ?? null,
+          }
+        } catch {
+          return { hits: [], mode: 'fts' as SearchMode, degradeReason: null }
         }
-      } catch {
-        return { hits: [], mode: 'fts', degradeReason: null }
-      } finally {
-        setLoading(false)
-      }
+      })
     },
-    [],
+    [trackLoading],
   )
 
   /**
@@ -819,6 +829,7 @@ export function useWikiPage() {
 
   return {
     loading,
+    withLoading: trackLoading,
     listInbox,
     countInbox,
     retryInbox,

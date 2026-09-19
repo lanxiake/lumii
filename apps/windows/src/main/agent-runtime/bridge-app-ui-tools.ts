@@ -302,7 +302,7 @@ export function registerAppUiTools(
           category: Type.Optional(
             Type.String({
               description:
-                'Settings Hub 分类（可选）：general | workspace | modelConfig | voice | channels | codingDev | pet | usage | privacy | aboutAndUpdate',
+                'Settings Hub 分类（可选）：general | workspace | modelConfig | voice | channels | codingDev | pet | usage | privacy | cloudSync | screenRecord | experimental | aboutAndUpdate',
             }),
           ),
         }),
@@ -448,7 +448,7 @@ export function registerAppUiTools(
           category: Type.Optional(
             Type.String({
               description:
-                'Settings Hub 分类：general|workspace|modelConfig|voice|channels|codingDev|pet|usage|privacy|aboutAndUpdate',
+                'Settings Hub 分类：general|workspace|modelConfig|voice|channels|codingDev|pet|usage|privacy|cloudSync|screenRecord|experimental|aboutAndUpdate',
             }),
           ),
           refs_filter: refsFilterSchema,

@@ -12,6 +12,10 @@
  * 放在这个 hook 而不是各个工具内部：它是所有工具的统一出口，一处接线全工具受益。
  * 只记失败、不记成功——成功没有归因价值，全量落库只会把审计表淹掉。
  *
+ * ⚠️ `tool_audit_log` 有三个写入点，本 hook 只是其中之一（source='tool'）：
+ * permission-gate（'permission'，记的是权限决策）与 bridge 的 LLM 请求审计（'llm'）。
+ * 按 `COUNT(*)` 读这张表会把三种语义混在一起——先按 source 过滤。
+ *
  * 技能维度的命中率另有 skill-hit-rate-hook，这里只做「工具被调了几次」的朴素累加。
  */
 

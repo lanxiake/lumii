@@ -32,8 +32,8 @@ function objectNames(db: DatabaseAdapter): string[] {
 }
 
 describe("V51 迁移：宫殿向量索引", () => {
-  it("SCHEMA_VERSION 已递增到 51", () => {
-    expect(SCHEMA_VERSION).toBe(51);
+  it("SCHEMA_VERSION 已递增到 51 之后（V51 迁移仍在）", () => {
+    expect(SCHEMA_VERSION).toBeGreaterThanOrEqual(51);
   });
 
   it("建出 palace_drawer_embeddings，字段与 wiki_source_embeddings 同构", () => {

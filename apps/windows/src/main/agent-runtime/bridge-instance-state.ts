@@ -97,6 +97,13 @@ export interface InstanceState {
     cacheRead?: number
     cacheWrite?: number
   }
+  /**
+   * 最近一次 message:end 的 LLM 错误（该轮干净收场时清空）。
+   *
+   * 存在的理由：agent:error 收尾会用 pendingParts 重写同一行，重写路径拿不到 message:end
+   * 事件里的 llmError——不接力就会把「为什么失败」从落库内容里抹掉。
+   */
+  lastLlmError?: { code: string; message: string; retryable: boolean }
   /** 实例对应的 innerStream 与 model，供 compactContextAsync 按 instanceId 查找 */
   stream?: {
     innerStream: StreamFn
