@@ -743,10 +743,14 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
 
     case 'agent:message:end': {
       flushPendingDeltas()
-      // 0-token 空消息：仅在"确实没出错"时跳过，避免吞掉密钥无效、余额不足等错误提示
+      // 0-token 空消息：仅在"确实没出错"时跳过，避免吞掉密钥无效、余额不足等错误提示。
+      // 中止（aborted）同理不能跳过：被中止的那轮正文就是空的（模型还没来得及输出），
+      // 若在此 break，isAborted 永远写不到消息上——气泡徽标与子运行块都会退回「已完成」
+      // （2026-09-20 冒烟实测：卡片对了、运行块仍显示已完成，根因就在这条守卫）。
       if (
         !event.llmError
         && event.stopReason !== 'error'
+        && event.stopReason !== 'aborted'
         && !event.usage?.outputTokens
         && event.content?.[0]?.text === ''
       ) {

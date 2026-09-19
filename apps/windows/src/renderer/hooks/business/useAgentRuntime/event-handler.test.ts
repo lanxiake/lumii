@@ -142,6 +142,26 @@ describe('agent:message:end 的中止标记', () => {
     expect(messagesOf().at(-1)?.isAborted).toBe(true)
   })
 
+  it('中止的那轮正文为空（0 token、无 llmError）→ 不被「空消息」守卫吞掉，仍写 isAborted', () => {
+    // 生产实测形状：中止发生在模型输出之前，content 空、usage 0 —— 恰好命中
+    // message:end 顶部「0-token 空消息跳过」的全部条件（2026-09-20 冒烟：运行块因此显示已完成）
+    emitTurn([
+      { type: 'agent:turn:start', runId: RUN_ID, sessionKey: SESSION_KEY, turnIndex: 0, timestamp: Date.now() },
+      { type: 'agent:message:start', runId: RUN_ID, sessionKey: SESSION_KEY, messageId: MESSAGE_ID, model: 'test-model', timestamp: Date.now() },
+      {
+        type: 'agent:message:end',
+        runId: RUN_ID,
+        sessionKey: SESSION_KEY,
+        messageId: MESSAGE_ID,
+        content: [{ type: 'text', text: '' }],
+        usage: { inputTokens: 0, outputTokens: 0 },
+        stopReason: 'aborted',
+      },
+    ])
+
+    expect(messagesOf().at(-1)?.isAborted).toBe(true)
+  })
+
   it('正常 end_turn 不设 isAborted', () => {
     emitTurn([
       { type: 'agent:turn:start', runId: RUN_ID, sessionKey: SESSION_KEY, turnIndex: 0, timestamp: Date.now() },
@@ -160,7 +180,7 @@ describe('agent:message:end 的中止标记', () => {
     expect(messagesOf().at(-1)?.isAborted).toBeUndefined()
   })
 
-  it('子 Agent 消息同样带 isAborted（运行块「已中断」的依据）', () => {
+  it('子 Agent 消息同样带 isAborted（运行块「已中断」的依据）——空正文 + 0 token 的生产形状', () => {
     const SUB_SESSION = 'child-session-1'
     const SUB_MESSAGE_ID = 'sub-message-1'
     const SUB_INSTANCE = 'inst-sub-1'
@@ -177,7 +197,6 @@ describe('agent:message:end 的中止标记', () => {
         model: 'test-model',
         timestamp: Date.now(),
       },
-      { type: 'agent:message:delta', runId: RUN_ID, sessionKey: SUB_SESSION, rootSessionKey: SESSION_KEY, instanceId: SUB_INSTANCE, messageId: SUB_MESSAGE_ID, delta: '子 Agent 说一半', totalLength: 8 },
       {
         type: 'agent:message:end',
         runId: RUN_ID,
@@ -185,8 +204,8 @@ describe('agent:message:end 的中止标记', () => {
         rootSessionKey: SESSION_KEY,
         instanceId: SUB_INSTANCE,
         messageId: SUB_MESSAGE_ID,
-        content: [{ type: 'text', text: '子 Agent 说一半' }],
-        usage: { inputTokens: 8, outputTokens: 4 },
+        content: [{ type: 'text', text: '' }],
+        usage: { inputTokens: 0, outputTokens: 0 },
         stopReason: 'aborted',
       },
     ])
