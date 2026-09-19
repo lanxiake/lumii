@@ -7,7 +7,10 @@
  * 主题4 P1：shell 选择委托给 @mtbot/agent-runtime 的 resolveShell（bash everywhere + cmd 降级）。
  */
 
-import { spawn, spawnSync, type ChildProcess } from 'child_process'
+// 与 shell-runner / ts-runner / python-runner 保持一致：统一用 node: 前缀。
+// 四处 forceKillProcess 将被 T3.1 合并到 main/platform/process-kill.ts，
+// 导入写法统一可避免合并时漏改。
+import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
 import * as iconv from 'iconv-lite'
 import { resolveShell } from '@mtbot/agent-runtime'
 import { buildScriptEnv } from '../../runtime-env'

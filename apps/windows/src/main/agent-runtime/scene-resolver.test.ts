@@ -102,7 +102,8 @@ describe('scene-resolver', () => {
   describe('resolveSceneHits', () => {
     it('微信会话 + 消息命中项目 → 返回渠道与项目两个场景', async () => {
       const base = makeBaseDir()
-      await registerProject(base, { name: 'Lumii', path: 'E:/repo/lumii' })
+      const projectPath = require('node:path').sep === '\\' ? 'E:/repo/lumii' : '/repo/lumii'
+      await registerProject(base, { name: 'Lumii', path: projectPath })
 
       const hits = await resolveSceneHits({
         baseDir: base,
@@ -115,7 +116,9 @@ describe('scene-resolver', () => {
       const project = hits.find((h) => h.scene === 'project')
       expect(channel?.filePath).toBe(resolveSceneFilePath(base, 'channel', 'weixin'))
       expect(project?.key).toBe('lumii')
-      expect(project?.filePath).toBe(path.join('E:/repo/lumii', '.lumii', 'memory.md'))
+      // registerProject 会 path.resolve 传入路径：POSIX 上传 Windows 盘符会被当成
+      // 相对路径拼到 cwd 后，断言随之失配。故样例路径随平台取。
+      expect(project?.filePath).toBe(path.join(projectPath, '.lumii', 'memory.md'))
     })
 
     it('客户端会话不产生渠道命中', async () => {

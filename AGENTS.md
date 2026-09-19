@@ -52,7 +52,18 @@ pnpm --filter ./apps/windows package:linux:deb   # 只要 deb
 optional 包（`@img/sharp-*`、`sherpa-onnx-*`、`onnxruntime-node`）**必须显式声明为 `apps/windows` 的
 `optionalDependencies`**——只在 `packages/*` 声明或被 pnpm hoist 到仓库根，打包时会静默丢失。
 
-**测试基线（2026-09-15）**：`test:all` 全量应**无失败**（此前 6 个既有失败已修正）。仅在满载跑序下有个别 30 秒超时/摆动位——`main/workspace-vcs/vcs-repo`（`diffCommits`）、`main/perf/performance-monitor`（日志轮转）、`main/perf/performance-ipc`（慢调用计时）、`test/components/WikiGraphView`（subtopic 点击）、`main/pet/pet-model-resolver`；**单跑这些文件通过即视为摆动**，不是新引入的问题。另：vitest 请在包目录下执行，在仓库根跑会命中 root 配置（缺 jest-dom setup），组件测试会以 `expect is not defined` 假失败。
+**测试基线（2026-09-15，Windows 口径）**：`test:all` 全量应**无失败**（此前 6 个既有失败已修正）。仅在满载跑序下有个别 30 秒超时/摆动位——`main/workspace-vcs/vcs-repo`（`diffCommits`）、`main/perf/performance-monitor`（日志轮转）、`main/perf/performance-ipc`（慢调用计时）、`test/components/WikiGraphView`（subtopic 点击）、`main/pet/pet-model-resolver`；**单跑这些文件通过即视为摆动**，不是新引入的问题。另：vitest 请在包目录下执行，在仓库根跑会命中 root 配置（缺 jest-dom setup），组件测试会以 `expect is not defined` 假失败。
+
+**测试基线（2026-09-20，Linux 口径）**：Ubuntu 上 `test:all` = **1 failed / 2712 passed / 52 skipped**，唯一失败是 `test/main/qwen3-tts-client`（依赖 Windows 内嵌 Python，链路已由 Linux 移植 D15 移出范围）。**两个口径不矛盾，引用时须写明平台**。其余平台差异已在 T3.8 参数化处理。
+
+**写 `main/**` 单测的两个坑**：
+- mock **Node 内置模块**（`node:child_process` 等）时，仓库默认的 `environment: 'jsdom'` 会让
+  `vi.mock` **对被测模块不生效**——spy 计数恒为 0，模块内跑的是真实实现，**测试静默假绿**。
+  在该测试文件加 `/** @vitest-environment node */` 即恢复（见 `local-proxy.test.ts`、`shell-runner.test.ts`）。
+  **判据**：mock 了内置模块就必须验证 mock 真命中（变异测试或断言调用次数非零）。
+- 断言平台专属行为（Windows 路径、盘符、PowerShell 命令）时用「按平台取样例 / 按平台断言」，
+  不要硬编码 `C:\...`——POSIX 上 `path.resolve` 会把盘符当相对路径，`path.delimiter` 也会串味。
+  确实只在一端有意义的用例用 `it.skip`，**Windows 用例不要为了 Linux 变绿而删除**。
 
 ## 专题规范
 

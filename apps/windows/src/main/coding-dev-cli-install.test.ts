@@ -57,8 +57,15 @@ describe('previewUninstallLocalAcpTool', () => {
   it('opencode 装在 npm 全局目录时用 npm uninstall', async () => {
     mockDetect(stub('opencode', 'C:\\Users\\x\\AppData\\Roaming\\npm\\node_modules\\.bin\\opencode.cmd'))
     const p = await previewUninstallLocalAcpTool('opencode')
+    // displayCommand 是纯配方解析，跨平台一致
     expect(p.displayCommand).toBe('npm uninstall -g opencode-ai')
-    expect(p.automatic).toBe(true)
+    // automatic 带平台门控（coding-dev-cli-install.ts:442：非 win32 一律 false）——
+    // 配方里的 powershellCommand 在别的平台执行不了，标成「可自动」是错的。
+    if (process.platform === 'win32') {
+      expect(p.automatic).toBe(true)
+    } else {
+      expect(p.automatic).toBe(false)
+    }
   })
 
   it('opencode 装的是非 npm 的独立可执行文件时不能自动卸载（回归：曾误报 npm 卸载成功但实际未删除）', async () => {

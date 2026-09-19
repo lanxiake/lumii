@@ -77,7 +77,12 @@ describe('uv-installer', () => {
     expect(mockSpawn).not.toHaveBeenCalled()
   })
 
-  it('ensureUvxInstalled 缺失时执行官方脚本并在成功后返回', async () => {
+  // 本目录的用例并不都依赖 Windows：spawn 被注入 mock 后，多条路径在 Linux 上
+  // 同样能跑通（覆盖的是状态机与降级逻辑，不是 PowerShell 本身）。
+  // 只有这条在验证「用 PowerShell 跑官方安装脚本并断言命令行」，而实现非 win32
+  // 直接返回「仅 Windows 支持自动安装」（uv-installer.ts:133），跨平台跑会假失败。
+  const itOnWindows = process.platform === 'win32' ? it : it.skip
+  itOnWindows('ensureUvxInstalled 缺失时执行官方脚本并在成功后返回', async () => {
     let calls = 0
     mockResolveCommand.mockImplementation(() => {
       calls += 1
@@ -104,5 +109,15 @@ describe('uv-installer', () => {
     const result = await ensureUvxInstalled()
     expect(result.ok).toBe(false)
     expect(result.message).toMatch(/uv/)
+  })
+
+  it('非 Windows 上缺失 uvx 时明确拒绝，并给出手动安装链接', async () => {
+    if (process.platform === 'win32') return
+    mockUvxFound(false)
+
+    const result = await ensureUvxInstalled()
+
+    expect(result.ok).toBe(false)
+    expect(result.message).toContain('https://docs.astral.sh/uv/')
   })
 })

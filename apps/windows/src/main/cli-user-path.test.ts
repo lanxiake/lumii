@@ -1,11 +1,24 @@
 /**
- * 用户 CLI 目录并入 PATH 的单测
+ * @vitest-environment node
  */
-
+/**
+ * 用户 CLI 目录并入 PATH 的单测。
+ *
+ * 路径样例随运行平台取（`C:\...` vs `/...`）：在 Linux 上塞 Windows 路径会假失败——
+ * 路径里的 `:` 与 Linux 的 `path.delimiter` 撞车，切分错乱。这不是被测逻辑的问题，
+ * 是测试断言的平台假设问题。两种平台各自的语义都要保住，所以用参数化而不是删用例。
+ */
 import { describe, expect, it } from 'vitest'
 import os from 'node:os'
 import path from 'node:path'
 import { listUserCliBinDirs, mergePathWithCliDirs } from './cli-user-path'
+
+const isWin = process.platform === 'win32'
+
+/** 平台对应的一组路径样例：<用户 bin 目录, 系统目录> */
+const PATHS = isWin
+  ? { userBin: 'C:\\Users\\x\\.local\\bin', systemDir: 'C:\\Windows\\System32' }
+  : { userBin: '/home/x/.local/bin', systemDir: '/usr/bin' }
 
 describe('listUserCliBinDirs', () => {
   it('包含 uv 默认安装目录 ~/.local/bin', () => {
@@ -15,22 +28,36 @@ describe('listUserCliBinDirs', () => {
 
 describe('mergePathWithCliDirs', () => {
   it('把已存在且不在 PATH 里的目录前置', () => {
-    const extra = 'C:\\Users\\x\\.local\\bin'
-    const merged = mergePathWithCliDirs('C:\\Windows\\System32', [extra], (dir) => dir === extra)
+    const extra = PATHS.userBin
+    const merged = mergePathWithCliDirs(PATHS.systemDir, [extra], (dir) => dir === extra)
+
     expect(merged.split(path.delimiter)[0]).toBe(extra)
   })
 
   it('不存在的目录不写入 PATH', () => {
-    const extra = 'C:\\Users\\x\\.local\\bin'
-    const merged = mergePathWithCliDirs('C:\\Windows\\System32', [extra], () => false)
-    expect(merged).toBe('C:\\Windows\\System32')
+    const merged = mergePathWithCliDirs(PATHS.systemDir, [PATHS.userBin], () => false)
+
+    expect(merged).toBe(PATHS.systemDir)
   })
 
   it('已在 PATH 中的目录不重复前置', () => {
-    const extra = 'C:\\Users\\x\\.local\\bin'
-    const current = `${extra}${path.delimiter}C:\\Windows\\System32`
+    const extra = PATHS.userBin
+    const current = `${extra}${path.delimiter}${PATHS.systemDir}`
     const merged = mergePathWithCliDirs(current, [extra], () => true)
-    const hits = merged.split(path.delimiter).filter((p) => p.toLowerCase() === extra.toLowerCase())
+
+    // Windows 路径大小写不敏感，POSIX 敏感——比较方式随之切换
+    const hits = merged
+      .split(path.delimiter)
+      .filter((p) => (isWin ? p.toLowerCase() === extra.toLowerCase() : p === extra))
     expect(hits).toHaveLength(1)
+  })
+
+  it('多个候选目录按给定顺序前置', () => {
+    const a = isWin ? 'C:\\a' : '/a'
+    const b = isWin ? 'C:\\b' : '/b'
+    const merged = mergePathWithCliDirs(PATHS.systemDir, [a, b], () => true)
+
+    const parts = merged.split(path.delimiter)
+    expect(parts.indexOf(a)).toBeLessThan(parts.indexOf(b))
   })
 })
