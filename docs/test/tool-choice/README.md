@@ -43,13 +43,13 @@ node scripts/verify-tool-choice-eval.mjs
 ## 运行
 
 ```bash
-# 全部（15 用例，约 15~20 分钟——每个用例一个真实回合）
+# 全部（15 用例，约 20~40 分钟——每个用例一个真实回合；提问挂起的用例要多等 ~5 分钟）
 node docs/test/tool-choice/run-tool-choice-eval.mjs
 
 # 只跑某个
 TC_ONLY=t01 node docs/test/tool-choice/run-tool-choice-eval.mjs
 
-# 覆盖回合超时（默认 180s）
+# 覆盖默认回合预算（默认 600s；提问挂起要等超时被拒答，见「证据从会话消息取」与特性 2）
 TC_TURN_TIMEOUT_MS=240000 node docs/test/tool-choice/run-tool-choice-eval.mjs
 
 # 端点被压住时调大用例之间的冷却（默认 10s）
@@ -60,10 +60,13 @@ TC_COOLDOWN_MS=30000 node docs/test/tool-choice/run-tool-choice-eval.mjs
 对照 `memory-eval`——那边是离线读 DB 算分，可以随时跑；这边每个用例都要一个真实回合。
 所以定位是**按需跑**：改工具面、改工具描述、改系统提示词之后跑一次。
 
-**副作用**：不改任何全局设置（不像 TC 套件要切 `promptStyle`），只创建探针会话。
+**副作用**：不切全局设置（不像 TC 套件要切 `promptStyle`），但**会在真实用户数据上动手**——
+t15 是真实用户请求，回合会建定时任务、还可能写记忆条目（2026-09-19 实测）。
+跑分器在用例前后对 `local_cron_jobs` / `agent_memories` 做快照与清理（失败路径同样清理，
+见 `finally`）；`TC_NO_RESTORE=1` 保留现场供检查。
 用例各自独立会话——共用会话会让后跑的用例被前面的对话污染，而那种失败看起来像"模型选错了工具"。
 
-## 两个必须知道的特性（都是实测撞出来的）
+## 三个必须知道的特性（都是实测撞出来的）
 
 ### 1. 结果有波动——模型是随机的
 
@@ -84,7 +87,7 @@ TC_COOLDOWN_MS=30000 node docs/test/tool-choice/run-tool-choice-eval.mjs
 | 类别 | 触发条件 | 实测症状 |
 | --- | --- | --- |
 | `ENV-ERROR` | 应用不可达 | 全线 `connection_failed` |
-| `MODEL-BUSY` | 模型端点被压住（并发过高） | 整批「回合等待超时（180000ms）：未等到新的 assistant 消息」 |
+| `MODEL-BUSY` | 模型端点被压住（并发过高） | 整批「回合等待超时（…ms）：未等到新的 assistant 消息」 |
 
 `ENV-ERROR` 的实测来源：`palace-vector` 后台补齐 518 条向量时，控制口**只接受连接、不响应**。
 **日志里它还在正常打进度，看起来完全不像故障**——这一点最坑：不看日志会以为评测脚本坏了。
@@ -107,6 +110,22 @@ TC_COOLDOWN_MS=30000 node docs/test/tool-choice/run-tool-choice-eval.mjs
 > 同类事故在 2026-09-18 又以 `MODEL-BUSY` 重演一次（t04/t05 双双超时）。
 
 ⚠️ 熔断和冷却都不能替你判断「端点现在空不空」：跑之前最好确认没有别的会话在同时压模型。
+
+### 3. 证据从会话消息取，**不要退回日志解析**
+
+判据读取「该会话落库的 assistant 消息 parts」（`parts[type=tool].name/args`），
+即「这个回合真实发生的工具调用序列」。退回日志解析会踩两个实测过的坑：
+
+- **params 截断**：宿主把 `ToolRunner →` 行的参数预览**截断在 200 字符**
+  （`packages/agent-runtime/src/tools/hooks/logging-hook.ts:23`）——长参数调用
+  （`cron_create` 的 taskText、`ask_user_question`、`memory_manage`…）行尾**没有收尾 `}`**，
+  按 `params={...}` 解析的正则会**整条静默丢掉**（实测一个回合 8 条丢 3 条，
+  评测据此把 t15 记成「没建任务」——而任务真在 DB 里）；
+- **桥接口径**：`tool:end` 类日志行走渲染进程 console 桥接，后台/无 UI 订阅的回合不落盘。
+
+另外，**提问挂起的回合是合法回合**：评测环境无人应答 `ask_user_question`，
+问句要等超时被拒答（实测 ~5 分 13 秒）模型才继续——所以默认回合预算 600s、
+t15 单独放宽到 720s；预算小于它，这类回合会被误判成 MODEL-BUSY。
 
 ## 加用例
 

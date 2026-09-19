@@ -104,7 +104,7 @@ node docs/test/tool-choice/run-tool-choice-eval.mjs
 | t12 file-read-vs-wiki-read | ✅ | ✅ | `bash > wiki_overview > wiki_search …` |
 | t13 no-phantom-tools | ✅ | ✅ | `file_read > list_dir > bash …` |
 | t14 batch-vs-serial | ✅ | ✅ | `glob > glob > bash` |
-| t15 guide-before-use | ❌ | ❌ | 只调 `cron_list`，没建任务 |
+| t15 guide-before-use | ❌ | ❌ | 只调 `cron_list`，没建任务（⚠️ 失实，见文末更正） |
 
 | 类别 | 首轮 | 本轮 |
 | --- | --- | --- |
@@ -130,6 +130,10 @@ t01/t02/t08/t09 本轮 PASS，其中 t08/t09 的**首个**调用就是 `file_mov
 **③ t15 两轮失败但形态变了**：首轮只调 `cron_guide`，本轮只调 `cron_list`——都是
 「查了但没执行」。仍属正向信号强度问题，需先设计判据（首轮判读 ③ 的结论不变），
 不做工具面改造。
+
+> ⚠️ **2026-09-19 晚更正**：本条整段作废——**次轮记录可证失实**（模型实际执行了，连任务都建了，
+> 只是发生在证据快照之后）；首轮数据不可考、可疑同源。缺陷机理、判据重设计与验证见文末
+> 「t15 复核」一节。
 
 **④ t05 是新增的反向翻转（首轮 PASS → 本轮 FAIL）**：只失败一轮，按标准不构成候选。
 
@@ -190,4 +194,85 @@ skill_search("代码审查, code review, …") → skill_search("代码, 编程,
 > **为什么 4 次够**：这条不是"调提示词碰运气"——修复的对象是一条**必然失败**的指令，
 > 删掉它之后"失败 hint 诱导 skill_invoke"的链条整体消失。修复前后各 2+ 次观测一致，
 > 且机理解释完整（见「诊断」）。**换工具面后仍应以本节的序列为准重跑。**
+
+---
+
+## 2026-09-19 晚 · t15 复核：两轮「失败」都是**测量失真**（附跑分器两处修正）
+
+### 结论先说
+
+t15 此前记的两轮失败**都不是模型的失败**：
+
+- **次轮「只调 `cron_list`，没建任务」是假记录。** 真实回合（会话消息 parts 可完整复原）：
+  `cron_list → ask_user_question（渠道未承接，挂 5 分 13 秒被拒答）→ cron_guide
+  → cron_create('cron' 表达式被工具拒绝) → cron_create('at' 自续链成功) → task_complete`，
+  **任务真建进了 `local_cron_jobs`**（enabled、次日 09:00 首触发、自续）。
+- **首轮「只调 cron_guide」不可考**：09-18 的评测数据不在当前数据根
+  （`~/.lumii` 下 09-18 只有一个会话，当日应用日志也无任何 cron 工具行）。
+  同一跑分器、同一判定逻辑，可疑同源，但无法复原。
+
+### 失真来自两处（都已修）
+
+| # | 缺陷 | 机理 | 实测代价 |
+| --- | --- | --- | --- |
+| 1 | 回合终点判定 | `sendAndWait` 用「正文文本连续两次轮询（5s）不变」判回合结束——**长思考 / 等用户回答时正文恰好不变**，回合被提前判完 | t15：13:42:42 取走证据，回合 13:48:30 才结束（`agent:end` 落定）；连 13:42:37 的 `ask_user_question` 都差点漏掉 |
+| 2 | 日志参数截断 | `logging-hook.ts:23` 把 params 预览**截断在 200 字符**，长参数调用行尾没有收尾 `}`；跑分器正则要求 `params={...}` 完整闭合 → **整条调用被静默丢掉** | 复现回合 8 条调用只解析出 5 条：`ask_user_question` / `cron_create` / `memory_manage` 全丢（即使 #1 修好，t15 的 `cron_create` 照样丢） |
+
+### 修法
+
+| 层 | 改动 |
+| --- | --- |
+| `lumii-cli/lib/cli-harness.mjs` `sendAndWait` | 回合终点改为**最新 assistant 消息 `is_streaming=0`**（agent:start 建流式占位行、agent:end 落定；`bridge-agent-instance-events.ts:831`）——宿主给的唯一真终点 |
+| `run-tool-choice-eval.mjs` 证据源 | 日志 → **会话消息 parts**（`fetchMessages` → `parts[type=tool].name/args`）：无截断、无渲染桥接问题 |
+| `run-tool-choice-eval.mjs` 回合预算 | 默认 180s → **600s**：提问挂起要等超时被拒答（实测 ~5 分 13 秒）再继续；预算小于它会把合法回合误判成 MODEL-BUSY |
+| `run-tool-choice-eval.mjs` 副产物清理 | 用例前后快照 `local_cron_jobs` / `agent_memories`，结束（含失败路径）删除新增项——**评测真的会改用户数据**（见「副产物」） |
+
+### t15 判据重设计（用户拍板：保留真实问法）
+
+题面补全任务内容、**保留「每天早上 9 点」**：
+
+> 帮我建一个每天早上 9 点跑的定时任务：搜集当天的 AI 新闻，写一句话摘要发给我
+
+- 硬判据：`expectTools: ["cron_create"]`（任务必须建出来）；`cron_guide` 保持**观察项**（不硬断言，序列全程打印）；
+- `turnTimeoutMs: 720000`（提问路径最长要 ~9 分钟）；
+- **能力事实**（决定题面怎么解读）：`cron_create` 只支持 `at`/`every`，
+  **做不到精确的「每天 9 点」**（`every` 首次触发 = 创建时刻 + 间隔）——
+  模型如何处理这个缺口本身就是要观测的行为。
+
+### 顺带修掉的文案失实链（与 t11 同类）
+
+`cron_guide`、`cron_create` 的包内 schema 与工具描述**三处**都宣称支持 cron 表达式
+（guide 还给了 `"0 9 * * 1-5"` 示例），而本机唯一实现**必然拒绝** `cron`
+（`bridge-tool-registrar-cron.ts:97-103`：调度器支持，Agent 工具刻意不开放）。
+模型照 guide 做必然碰壁——真实回合里正是：试 `"0 9 * * *"` 被拒 → 自造 at 自续链。
+
+**验证**：修好后第一轮实测，模型读完新 guide **主动向用户说明限制**再确认方案
+（"有个限制需要先跟你确认"）——这正是期望行为。
+守卫插曲：`host-tool-failure-semantics.test.ts` 拦下第一次改法——把「失败」字样写进了
+`jsonToolResult` 实参内的注释，被判成漏标的失败载荷（注释已移到实参外）。
+
+### 验证记录
+
+| 观测 | 结果 |
+| --- | --- |
+| 修复前（两轮正赛） | ❌❌ —— 记录本身失真（见上） |
+| harness 修后、证据源未换（21:25:37 会话） | ❌ 8 条调用只解析出 5 条（`ask_user_question`/`cron_create`/`memory_manage` 被日志截断吞掉）→ 据此发现缺陷 #2 |
+| 证据源换 parts 后（21:28:34） | ✅ 序列 13 条全、含 `cron_create`；副产物已清理 |
+| 再跑（21:31:29） | ✅ 序列 7 条全、含 `cron_create`；副产物已清理 |
+| 第三次（21:41:13，验证记忆清理） | ✅ 序列 10 条全、含 `cron_create`；清理实证：1 个定时任务 + **1 条记忆条目** |
+| t11 回归（21:30:01） | ✅ 只有 `skill_search`，无越级——t11 修复保持 |
+| 全量单测 | agent-runtime 214 文件 / 2149 用例全绿；apps/windows 285 文件 / 2648 用例 0 失败；两包 `tsc` 干净 |
+| 数据侧终检 | 跑完后 `local_cron_jobs` / `agent_memories` 零残留 |
+
+### 副产物与清理（用户数据红线）
+
+这批复核**实证了评测会改用户数据**：
+
+| 副产物 | 来源 | 处置 |
+| --- | --- | --- |
+| `local_cron_jobs` 新任务（自续链、enabled=1、次日 09:00 触发） | t15 真实回合建任务（三轮各一条） | 全部已删；跑分器已加用例级快照/清理（走控制口 `cron:delete`，与用户手删同路径） |
+| `agent_memories` 一条 reference（「AI新闻早报-每天9点」） | 模型回合内 `memory_manage add` | 已删；跑分器已加同款差集清理 |
+
+残留局限（跑分器注释留痕）：模型若**去重更新**一条已存在的记忆（实测相同内容 `add`
+会更新而非新建），变更不在 id 差集里、不会回滚。
 
