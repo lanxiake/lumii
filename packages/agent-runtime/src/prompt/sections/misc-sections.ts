@@ -359,7 +359,7 @@ export function buildBrowserSection(toolNames: readonly string[], style: PromptS
     return [
       "",
       "## Browser Control",
-      'You control a live browser; after each action take a `browser_screenshot`, and locate elements via `browser_eval`.\nDetails: `prompt_guide(section: "browser")`.',
+      'You control a live browser: `browser_snapshot` lists interactive elements with refs — click/type by `ref: "e12"`, and take a `browser_screenshot` after each action.\nDetails: `prompt_guide(section: "browser")`.',
       "",
     ]
   }
@@ -368,8 +368,10 @@ export function buildBrowserSection(toolNames: readonly string[], style: PromptS
     "",
     "## Browser Control",
     "You control a live browser (see Browser Tools).",
+    '- Workflow: `browser_navigate` → `browser_snapshot` → act on the refs it returns (`browser_click` / `browser_type` with `ref: "e12"`).',
+    "- `browser_snapshot` returns the page as a text tree whose interactive elements carry refs; pass `full: true` when you need to read page text instead of acting.",
     "- `browser_screenshot` returns an image path only — it does NOT return element refs.",
-    "- `browser_click` / `browser_type` need a `ref`. No tool currently exposes refs, so locate elements with `browser_eval` (e.g. query the DOM and act on it) instead of guessing a ref.",
+    "- Refs go stale once the page changes: take a fresh `browser_snapshot` before the next click/type instead of reusing old refs.",
     "- After each action, take a `browser_screenshot` to observe the result before deciding the next step.",
     "",
   ]

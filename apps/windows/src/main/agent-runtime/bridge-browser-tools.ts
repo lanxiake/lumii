@@ -11,12 +11,19 @@ import { agentRuntimeLog as log, jsonToolResult } from './bridge-utils'
 
 type GetBrowserContext = () => import('../browser-service.js').BrowserRouteContext | null
 
+/** 浏览器路由请求：/snapshot 是 GET + query，其余路由都是 POST + body */
+type BrowserRouteRequest = {
+  method?: 'GET' | 'POST'
+  query?: Record<string, unknown>
+  body?: unknown
+}
+
 export function registerBrowserTools(
   toolRegistry: ToolRegistry,
   ctx: ToolExecutionContext,
   getBrowserContext: GetBrowserContext,
 ): void {
-  const dispatchBrowserProxy = async (path: string, body?: unknown): Promise<unknown> => {
+  const dispatchRoute = async (path: string, req: BrowserRouteRequest = {}): Promise<unknown> => {
     const browserCtx = getBrowserContext()
     if (!browserCtx) {
       throw new Error('浏览器控制服务未启动，请确认浏览器已打开')
@@ -24,7 +31,12 @@ export function registerBrowserTools(
     const { createBrowserRouteDispatcher } = await import('@mtbot/browser-control')
     const dispatcher = createBrowserRouteDispatcher(browserCtx)
     const normalizedPath = path.startsWith('/browser/') ? path.replace('/browser/', '/') : path
-    const response = await dispatcher.dispatch({ method: 'POST', path: normalizedPath, query: {}, body })
+    const response = await dispatcher.dispatch({
+      method: req.method ?? 'POST',
+      path: normalizedPath,
+      query: req.query ?? {},
+      body: req.body,
+    })
     if (response.status >= 400) {
       const errMsg =
         response.body && typeof response.body === 'object' && 'error' in response.body
@@ -35,13 +47,20 @@ export function registerBrowserTools(
     return response.body
   }
 
+  const dispatchBrowserProxy = (path: string, body?: unknown): Promise<unknown> =>
+    dispatchRoute(path, { body })
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const wrapExecute = (path: string, buildBody?: (p: Record<string, unknown>) => unknown): any =>
+  const wrapExecute = (
+    path: string,
+    buildBody?: (p: Record<string, unknown>) => unknown,
+    pick?: (body: unknown) => unknown,
+  ): any =>
     async (_id: string, rawParams: unknown) => {
       try {
         const p = rawParams as Record<string, unknown>
         const result = await dispatchBrowserProxy(path, buildBody ? buildBody(p) : undefined)
-        return jsonToolResult({ ok: true, result })
+        return jsonToolResult({ ok: true, result: pick ? pick(result) : result })
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
         return jsonToolResult({ ok: false, error: msg })
@@ -60,8 +79,63 @@ export function registerBrowserTools(
   }, ctx))
 
   reg(createMtBotTool({
+    name: 'browser_snapshot', label: 'Browser Snapshot', category: 'channel' as const,
+    description:
+      'Get the current page as a text tree whose interactive elements carry refs (e.g. [ref=e12]). ' +
+      'browser_click / browser_type take their `ref` from here, so call this before acting on a page. ' +
+      'The default tree is compact (interactive elements only); pass full=true to read page text instead.',
+    parameters: Type.Object({
+      full: Type.Optional(Type.Boolean({
+        description: 'Return full page content instead of the compact interactive tree — use it to read text, not to act',
+      })),
+      selector: Type.Optional(Type.String({ description: 'CSS selector to snapshot only a subtree' })),
+      maxChars: Type.Optional(Type.Number({ description: 'Truncate the snapshot (full mode) to this many characters' })),
+    }),
+    isReadOnly: true, needsPermission: false,
+    execute: async (_id: string, rawParams: unknown) => {
+      try {
+        const p = (rawParams ?? {}) as { full?: boolean; selector?: string; maxChars?: number }
+        const query: Record<string, unknown> = { format: 'ai' }
+        if (p.full) {
+          if (typeof p.maxChars === 'number' && p.maxChars > 0) query.maxChars = p.maxChars
+        } else {
+          // efficient = compact + interactive + 默认深度，产出带 ref 的小快照
+          query.mode = 'efficient'
+        }
+        const selector = typeof p.selector === 'string' ? p.selector.trim() : ''
+        if (selector) query.selector = selector
+
+        const body = (await dispatchRoute('/snapshot', { method: 'GET', query })) as {
+          snapshot?: unknown
+          targetId?: unknown
+          url?: unknown
+          refs?: Record<string, unknown>
+          stats?: { refs?: unknown }
+          truncated?: boolean
+        }
+        const snapshot = typeof body?.snapshot === 'string' ? body.snapshot.trim() : ''
+        if (!snapshot) {
+          return jsonToolResult({ ok: false, error: '快照为空：页面可能尚未加载完成' })
+        }
+        const refCount =
+          typeof body?.stats?.refs === 'number' ? body.stats.refs : Object.keys(body?.refs ?? {}).length
+        const header = `[page] ${String(body?.url ?? '')} refs=${refCount}${body?.truncated ? ' truncated' : ''}`
+        return {
+          content: [{ type: 'text', text: `${header}\n${snapshot}` }],
+          details: { targetId: body?.targetId, url: body?.url, refs: refCount },
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        return jsonToolResult({ ok: false, error: msg })
+      }
+    },
+  }, ctx))
+
+  reg(createMtBotTool({
     name: 'browser_screenshot', label: 'Browser Screenshot', category: 'channel' as const,
-    description: 'Take a screenshot of the current browser page and return the image path',
+    description:
+      'Take a screenshot of the current browser page and return the image path. ' +
+      'For element refs (needed by browser_click / browser_type) use browser_snapshot instead.',
     parameters: Type.Object({}),
     isReadOnly: true, needsPermission: false,
     execute: wrapExecute('/screenshot'),
@@ -70,10 +144,10 @@ export function registerBrowserTools(
   reg(createMtBotTool({
     name: 'browser_click', label: 'Browser Click', category: 'channel' as const,
     description:
-      'Click an element on the current page by ref. NOTE: browser_screenshot does not return refs; ' +
-      'no tool currently exposes them. Prefer browser_eval to locate and act on elements.',
+      'Click an element on the current page by ref. Refs come from browser_snapshot (e.g. [ref=e12]); ' +
+      'take a fresh snapshot after the page changes.',
     parameters: Type.Object({
-      ref: Type.Optional(Type.String({ description: 'Element ref (aria/role ref)' })),
+      ref: Type.Optional(Type.String({ description: 'Element ref from browser_snapshot, e.g. "e12"' })),
       index: Type.Optional(Type.Number({ description: 'Legacy index, will be converted to ref' })),
     }),
     isReadOnly: false, needsPermission: false,
@@ -86,9 +160,10 @@ export function registerBrowserTools(
   reg(createMtBotTool({
     name: 'browser_type', label: 'Browser Type', category: 'channel' as const,
     description:
-      'Type text into an input element on the current page by ref. Same ref caveat as browser_click.',
+      'Type text into an input element on the current page by ref. Same ref source as browser_click: ' +
+      'browser_snapshot.',
     parameters: Type.Object({
-      ref: Type.Optional(Type.String({ description: 'Element ref (aria/role ref)' })),
+      ref: Type.Optional(Type.String({ description: 'Element ref from browser_snapshot, e.g. "e12"' })),
       index: Type.Optional(Type.Number({ description: 'Legacy index, will be converted to ref' })),
       text: Type.String({ description: 'Text to type' }),
     }),
@@ -135,10 +210,19 @@ export function registerBrowserTools(
 
   reg(createMtBotTool({
     name: 'browser_eval', label: 'Browser Eval', category: 'channel' as const,
-    description: 'Evaluate JavaScript in the current browser page context',
+    description:
+      'Evaluate JavaScript in the current browser page context and return its value. ' +
+      'The script is evaluated as an expression or function body (wrap multi-step logic in an IIFE). ' +
+      'For clicking/typing prefer browser_snapshot + browser_click / browser_type; use this to read page ' +
+      'state or do something refs cannot express.',
     parameters: Type.Object({ script: Type.String({ description: 'JavaScript code to evaluate' }) }),
     isReadOnly: false, needsPermission: true,
-    execute: wrapExecute('/browser/eval', (p) => ({ script: p.script })),
+    // 服务端评估入口是 /act 的 evaluate 分支（没有独立的 /eval 路由）
+    execute: wrapExecute(
+      '/act',
+      (p) => ({ kind: 'evaluate', fn: p.script }),
+      (body) => (body as { result?: unknown } | undefined)?.result,
+    ),
   }, ctx))
 
   reg(createMtBotTool({
