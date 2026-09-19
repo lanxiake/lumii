@@ -1,24 +1,5 @@
 import path from "node:path";
 
-async function getMediaStore() {
-  try {
-    // Use variable to prevent Vite from statically resolving this optional peer dependency
-    const mod = "../../media/store.js";
-    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-    // @ts-ignore – optional peer dependency
-    return (await import(/* @vite-ignore */ mod)) as {
-      ensureMediaDir: () => Promise<void>;
-      saveMediaBuffer: (
-        buf: Buffer,
-        mime: string,
-        prefix: string,
-        maxBytes: number,
-      ) => Promise<{ path: string }>;
-    };
-  } catch {
-    return null;
-  }
-}
 import { captureScreenshot, snapshotAria } from "./cdp.js";
 import {
   DEFAULT_AI_SNAPSHOT_EFFICIENT_DEPTH,
@@ -38,6 +19,7 @@ import {
   requirePwAi,
   resolveProfileContext,
 } from "./agent.shared.js";
+import { getBrowserMediaStore } from "./media-store.js";
 import { jsonError, toBoolean, toNumber, toStringOrEmpty } from "./utils.js";
 import type { BrowserRouteRegistrar } from "./types.js";
 
@@ -90,7 +72,7 @@ export function registerBrowserAgentSnapshotRoutes(
         cdpUrl: profileCtx.profile.cdpUrl,
         targetId: tab.targetId,
       });
-      const mediaStore1 = await getMediaStore();
+      const mediaStore1 = getBrowserMediaStore();
       if (!mediaStore1) {
         return handleRouteError(ctx, res, new Error("media store not available"));
       }
@@ -160,7 +142,7 @@ export function registerBrowserAgentSnapshotRoutes(
         maxSide: DEFAULT_BROWSER_SCREENSHOT_MAX_SIDE,
         maxBytes: DEFAULT_BROWSER_SCREENSHOT_MAX_BYTES,
       });
-      const mediaStore2 = await getMediaStore();
+      const mediaStore2 = getBrowserMediaStore();
       if (!mediaStore2) {
         return jsonError(res, 500, "media store not available");
       }
@@ -289,7 +271,7 @@ export function registerBrowserAgentSnapshotRoutes(
             maxSide: DEFAULT_BROWSER_SCREENSHOT_MAX_SIDE,
             maxBytes: DEFAULT_BROWSER_SCREENSHOT_MAX_BYTES,
           });
-          const mediaStore3 = await getMediaStore();
+          const mediaStore3 = getBrowserMediaStore();
           if (!mediaStore3) {
             return jsonError(res, 500, "media store not available");
           }

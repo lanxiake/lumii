@@ -50,13 +50,15 @@ let browserContext: BrowserRouteContext | null = null
  * 构造 Windows 客户端专用的浏览器配置
  * 不读取网关配置文件，使用合理默认值
  */
-function buildWindowsBrowserConfig(
+export function buildWindowsBrowserConfig(
   cdpPort = DEFAULT_CDP_PORT,
   extensionRelayPort = DEFAULT_EXTENSION_RELAY_PORT,
 ): ResolvedBrowserConfig {
   return {
     enabled: true,
-    evaluateEnabled: false,
+    // /act 的 evaluate 分支承载 browser_eval 与 scroll/back/forward（无独立 /eval 路由）。
+    // 上游默认 false 是网关场景的保守值；本机客户端由工具层 needsPermission 把关。
+    evaluateEnabled: true,
     controlPort: DEFAULT_BROWSER_CONTROL_PORT,
     cdpProtocol: 'http',
     cdpHost: '127.0.0.1',
@@ -206,7 +208,11 @@ export async function startBrowserService(): Promise<boolean> {
   }
 
   try {
-    const { createBrowserRouteContext, ensureChromeExtensionRelayServer, resolveProfile } = await import('@mtbot/browser-control')
+    const { createBrowserRouteContext, ensureChromeExtensionRelayServer, resolveProfile, setBrowserMediaStore } = await import('@mtbot/browser-control')
+    const { createBrowserMediaStore } = await import('./browser-media-store.js')
+
+    // 截图 / PDF / labels 快照路由需要宿主落盘实现（未注入时这些路由恒定失败）
+    setBrowserMediaStore(createBrowserMediaStore())
 
     // 并行探测两个端口（CDP + 扩展中继），每次 +10，最多 3 次
     const [cdpPort, extensionRelayPort] = await Promise.all([
@@ -272,8 +278,9 @@ export async function stopBrowserService(): Promise<void> {
   browserContext = null
 
   try {
-    const { closePlaywrightBrowserConnection } = await import('@mtbot/browser-control')
+    const { closePlaywrightBrowserConnection, setBrowserMediaStore } = await import('@mtbot/browser-control')
     await closePlaywrightBrowserConnection()
+    setBrowserMediaStore(null)
   } catch {
     // ignore
   }
