@@ -95,17 +95,17 @@ const TurnFileChangesCard: React.FC<TurnFileChangesCardProps> = ({ changes, onRe
             </button>
           )
         })}
-        {hidden > 0 && (
-          <button
-            type="button"
-            className={styles.toggle}
-            onClick={() => setExpanded((v) => !v)}
-            aria-expanded={expanded}
-          >
-            {expanded ? '收起' : `展开其余 ${hidden} 个文件`}
-          </button>
-        )}
       </div>
+      {hidden > 0 && (
+        <button
+          type="button"
+          className={styles.toggle}
+          onClick={() => setExpanded((v) => !v)}
+          aria-expanded={expanded}
+        >
+          {expanded ? '收起' : `展开其余 ${hidden} 个文件`}
+        </button>
+      )}
     </div>
   )
 }
