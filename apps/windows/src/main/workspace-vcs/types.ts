@@ -1,7 +1,7 @@
 /**
  * Workspace VCS 类型定义
  *
- * 工作空间本地 Git 版本管理（基于 isomorphic-git）的共享类型。
+ * 工作空间本地 Git 版本管理的共享类型。
  * 跨端友好：不含 Electron 专有概念，便于未来 macOS / 移动端复用。
  */
 

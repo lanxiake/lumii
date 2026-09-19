@@ -1,14 +1,14 @@
 /**
- * Workspace VCS — 真 git 子进程封装（快路径）
+ * Workspace VCS — 写路径（暂存、排除规则、index 锁重试、仓库配置）
  *
- * ## 为什么要有这个文件
+ * ## 为什么工作区仓库改用真 git
  *
  * 原实现全部走 isomorphic-git（纯 JS）。它的 `git.add('.')` 会**按内容重算全部 blob
  * hash**，而这条路径挂在「每持久化一条助手消息」上（bridge-instance-factory.ts 的
  * onAssistantMessagePersisted）。实测工作区 2.7GB / 12866 文件时：
  *
  *   isomorphic-git：中位 19,933ms，p90 27,594ms，最大 53,550ms   ← 全在主进程主线程上
- *   真 git 子进程  ：约 100ms ~ 2.5 秒（取决于是否强制全量重算）
+ *   真 git 子进程  ：约 100ms
  *
  * 主线程被占住 = 渲染进程拿不到响应、日志停写。2026-09-18 实测因此触发
  * Windows 事件 1002「Application Hang」，electron.exe 被系统杀掉（用户侧表现为「客户端卡死」）。
@@ -16,26 +16,43 @@
  * 子进程调用与配置隔离的底座在 `../git-cli.ts`（cloud-sync 共用同一份，
  * 因为「哪些 -c 是必须的」这种事复制两份必然漂移）。
  *
- * ## 为什么可以只换热路径
+ * ## 为什么最后把 isomorphic-git 整体摘掉（2026-09-19）
  *
- * log / readBlob / diff / rollback 仍留在 isomorphic-git（它们只在用户打开版本面板时跑，
- * 不是每消息一次）。两种实现共用同一个仓库是安全的，已由 scripts/probe-vcs-git-interop.mjs
- * 逐条验证：真 git 认 isomorphic-git 写的 index、isomorphic-git 能读回真 git 的提交、
- * 交错提交 6 轮后双方一致、index 版本为 2（isomorphic-git 只支持 v2）。
+ * 中间版本是「真 git 暂存 + iso 提交/读历史」的混合。复盘后判定**双实现共用同一仓库
+ * 本身就是全部麻烦的源头**：仓库形状必须迁就能力更弱的那一方，于是要禁自动 gc、
+ * 限单包尺寸、gc 后自检，gitdir 里不能留瞬时文件，连 `git commit` 都要让位。
+ * 这些都是靠约定维系的防线，每一道都被踩穿过一次（绕开「禁 gc」的拆包脚本毁掉 1.3GB 历史）。
  *
- * ## 「等长改写必须被检出」这条保证怎么保住的
+ * 现在写路径在本文件、读路径与提交在 `git-ops.ts`，**全部走真 git**。
+ * 真 git 因此成为硬依赖（已确认接受）：detectGit() 失败时 VCS 停用并给出明确日志，
+ * 而不是退回一个会把主线程冻死的实现。cloud-sync 那侧仍用 iso 做 fetch/merge/push
+ * （网络与三方合并语义，替换风险高于收益），所以那个仓库仍需迁就它。
  *
- * 原实现放弃 stat 快速路径，是为了保住一条保证：任何内容改写都被检出，包括
- * 「等长 + utimesSync 还原 mtime」这种（云同步导入路径确实会 utimesSync）。
- * 真 git 默认的 stat 缓存**没有**这条保证 —— 它在 vcs-repo.test.ts 的对应用例上实测漏检。
+ * ## 为什么用 git 默认的 stat 缓存就够（2026-09-19 修正）
  *
- * 三条路线的实测代价：
- *   stat 缓存路径      82ms     ❌ 漏检
- *   删 index 全量重算  2469ms   ✅ 检出   ← 采用
- *   isomorphic-git     19933ms  ✅ 检出（但**在主线程上**，正是卡死的成因）
+ * 本文件曾经每次暂存都强制全量重算 hash（临时 index + 原子改名，线上实测 2920ms），
+ * 论据是「必须检出『等长 + utimesSync 还原 mtime』的改写，因为云同步导入路径会
+ * utimesSync」。**括号里那句是错的**，复核 cloud-sync 后：
  *
- * 全量重算跑在子进程里，所以这条保证现在的代价只是后台 CPU，不再是 UI 冻结。
- * 详见 stageAllCli 的注释。
+ *   - sync-copy.ts 的 utimesSync 只在 `skipUnchanged: true` 时执行；
+ *   - 只有 sync-exporter.ts 传了它，目标是 **sync 目录**，不是工作区；
+ *     sync-large-queue.ts 的回写目标同样是 sync 目录；
+ *   - 真正写工作区的 sync-importer.ts 只 copyFileSync、**不回写 mtime**，
+ *     sync-copy.ts 的注释还专门写明「仅应在 export 方向开启」。
+ *
+ * 所以工作区里根本不存在「等长 + mtime 不变」的改写。scripts/probe-vcs-stat-cache-sufficiency.mjs
+ * 用两组对照实测：importer 的真实行为（等长 + 不回写 mtime）被 stat 缓存**正确检出**
+ * （mtime 变新 → git 重读内容），而人为还原 mtime 的场景确实漏检 —— 但那个场景不会发生。
+ *
+ * 线上 workspace 仓库（2148 个 index 条目）实测：
+ *   stat 缓存      76ms     ← 采用
+ *   强制全量重算   2920ms
+ *   isomorphic-git 19933ms  （且**在主线程上**，正是卡死的成因）
+ *
+ * ⚠️ 这条结论依赖一个可检查的前提：**没有任何路径在写工作区文件后还原它的 mtime**。
+ * 若将来 sync-importer 开启 `skipUnchanged`，或新增别的「覆盖内容 + 保留 mtime」的
+ * 导入路径，这个假设就破了，必须同步回来改这里（重开全量重算，或给受影响路径
+ * 显式标记待重扫）。probe-vcs-stat-cache-sufficiency.mjs 的组 B 就是那个场景的复现。
  *
  * ## 排除防线为什么放 core.excludesFile
  *
@@ -52,8 +69,8 @@
  *   F. .gitignore 清空 + excludesFile          → ✅（**唯一两种场景都成立**）
  *
  * 另需挡住 Windows 保留设备名：工作区里真有一个 `nul`（某次 shell 重定向 `> nul`
- * 误建成真文件），真 git 对它 fatal（`error: short read while indexing nul`），
- * 而 isomorphic-git 能容忍 —— 不处理就是回归。
+ * 误建成真文件），真 git 对它 fatal（`error: short read while indexing nul`）。
+ * 这个文件至今还在线上工作区里，挡不住就是每次快照都直接挂。
  */
 
 import fs from 'node:fs'
@@ -73,8 +90,6 @@ const log = {
 /** index.lock 争用时的重试（用户回滚与后台快照并发时会撞上） */
 const LOCK_RETRY = 3
 const LOCK_RETRY_DELAY_MS = 300
-
-const AUTHOR = { name: 'Mtbot', email: 'vcs@mtbot.local' } as const
 
 /**
  * Windows 保留设备名。
@@ -115,7 +130,7 @@ const EXCLUDE_CONTENT = (() => {
 const excludeFileReady = new Set<string>()
 
 /** 写（或复用）排除规则文件，返回绝对路径 */
-function ensureExcludeFile(gitdir: string): string {
+export function ensureExcludeFile(gitdir: string): string {
   const p = path.join(gitdir, 'mtbot-vcs-exclude')
   if (excludeFileReady.has(gitdir)) return p
   try {
@@ -132,11 +147,11 @@ function ensureExcludeFile(gitdir: string): string {
 }
 
 /** 在本仓库上跑 git（自动带上硬剪枝的 excludesFile） */
-function runGit(
+export function runGit(
   workspaceDir: string,
   gitdir: string,
   args: string[],
-  opts: { timeoutMs?: number; env?: Record<string, string> } = {},
+  opts: { timeoutMs?: number } = {},
 ): Promise<GitRunResult> {
   return sharedRunGit({
     workTree: workspaceDir,
@@ -144,51 +159,43 @@ function runGit(
     args,
     config: ['-c', `core.excludesFile=${ensureExcludeFile(gitdir)}`],
     timeoutMs: opts.timeoutMs,
-    env: opts.env,
   })
 }
 
 export { detectGit }
 
 /**
- * 把「本仓库必须保持 isomorphic-git 可读」写死进仓库自身的 config。
+ * 把「本仓库不跑自动 gc」写死进仓库自身的 config。
  *
- * isomorphic-git 读 pack 是**把整个 pack 读进内存**的（`fs.read` 一个 Buffer），
- * 大包直接读不动（2026-09-18 实测：1.38GB 单包让 log/diff/readBlob 全废）。
- * 本仓库与它共用，所以要挡住两条路：
+ * **2026-09-19 修正理由**：这条原先是为了迁就 isomorphic-git（它把整个 pack 读进内存，
+ * 1.38GB 单包直接读不动），同时还要配 `pack.packSizeLimit` 限单包尺寸。isomorphic-git
+ * 已从工作区仓库整体摘除，那两条理由都不成立了，`packSizeLimit` 随之去掉。
  *
- *  - `gc.auto=0`：挡住自动 gc（就是它压出了那个 1.38GB 单包）。
- *  - `pack.packSizeLimit=64m`：万一有人手工 `git gc`，产出的也是多个小包 ——
- *    isomorphic-git 的 readObjectPacked 遍历所有 `.idx`，多包对它透明。
+ * 保留 `gc.auto=0` 换了个理由：本仓库是**规模敏感**的 —— 工作区可达数 GB，而
+ * `gc --auto` 会在某次提交后顺带跑一次 repack，那是一次不可预测的 IO 尖峰，
+ * 正好落在用户会话中间。仓库维护交给 cloud-sync 的 maybePruneObjectStore
+ * （它有明确节奏，且带 packSizeLimit 迁就 sync 仓库那侧的 isomorphic-git）。
  *
  * 调用方每次都带 `-c gc.auto=0`，这里再落一道到仓库自己身上 —— 防止任何不带那些参数
- * 的 git 调用（手工调试、将来的新代码、用户自己敲的 git）把它打回不可读的形态。
+ * 的 git 调用（手工调试、将来的新代码、用户自己敲的 git）意外触发 gc。
  * 失败不抛：真 git 不可用时本就没有这个风险。
  */
-/** 已确保写过安全配置的 gitdir（每进程一次即可，避免每个消息都多两次子进程） */
+/** 已确保写过安全配置的 gitdir（每进程一次即可，避免每个消息都多一次子进程） */
 const safeConfigReady = new Set<string>()
 
-export async function pinIsoSafeConfig(workspaceDir: string, gitdir: string): Promise<void> {
+export async function pinNoAutoGc(workspaceDir: string, gitdir: string): Promise<void> {
   if (safeConfigReady.has(gitdir)) return
-  const pairs: Array<[string, string]> = [
-    ['gc.auto', '0'],
-    ['pack.packSizeLimit', '64m'],
-  ]
-  let allOk = true
-  for (const [key, value] of pairs) {
-    try {
-      const r = await runGit(workspaceDir, gitdir, ['config', '--local', key, value])
-      if (r.code !== 0) {
-        allOk = false
-        log.warn(`[pinIsoSafeConfig] 写入 ${key} 失败（退出码 ${r.code}）：${r.stderr.trim().slice(0, 160)}`)
-      }
-    } catch (err) {
-      allOk = false
-      log.warn(`[pinIsoSafeConfig] 写入 ${key} 异常（真 git 不可用时可忽略）:`, err)
+  try {
+    const r = await runGit(workspaceDir, gitdir, ['config', '--local', 'gc.auto', '0'])
+    if (r.code !== 0) {
+      log.warn(`[pinNoAutoGc] 写入 gc.auto 失败（退出码 ${r.code}）：${r.stderr.trim().slice(0, 160)}`)
+      return // 不记账，下次再试
     }
+  } catch (err) {
+    log.warn('[pinNoAutoGc] 写入 gc.auto 异常（真 git 不可用时可忽略）:', err)
+    return
   }
-  // 只在全部成功时记账：失败就不记忆，下次再试（仓库处于不安全形态时不该静默放过）
-  if (allOk) safeConfigReady.add(gitdir)
+  safeConfigReady.add(gitdir)
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
@@ -205,11 +212,10 @@ async function runWithLockRetry(
   workspaceDir: string,
   gitdir: string,
   args: string[],
-  opts: { env?: Record<string, string> } = {},
 ): Promise<GitRunResult> {
   let last: GitRunResult | undefined
   for (let i = 0; i < LOCK_RETRY; i++) {
-    const r = await runGit(workspaceDir, gitdir, args, opts)
+    const r = await runGit(workspaceDir, gitdir, args)
     if (r.code === 0 || !isLockError(r)) return r
     last = r
     if (i < LOCK_RETRY - 1) await sleep(LOCK_RETRY_DELAY_MS * (i + 1))
@@ -220,69 +226,33 @@ async function runWithLockRetry(
 /**
  * 暂存工作区全部变更（新增 / 修改 / **删除**）。
  *
- * ## 为什么要强制全量重算
+ * 就是一条普通的 `git add -A`，走 git 自己的 index stat 缓存。为什么这样够用、
+ * 以及它依赖的那个**可检查前提**，见本文件头「为什么用 git 默认的 stat 缓存就够」。
  *
- * 原实现放弃 stat 快速路径，是为了保住一条保证：任何内容改写都被检出，包括
- * 「等长 + utimesSync 还原 mtime」这种（云同步导入路径确实会 utimesSync）。
- * 真 git 默认走 index 的 stat 缓存，在这种改写上实测**漏检**
- * （vcs-repo.test.ts 有对应用例；探针见 scripts/probe-vcs-force-rehash.mjs
- *  的对照组 C）。所以每次都要逼 git 逐个读文件重算 hash。
+ * ⚠️ 别改成 `git add -A --renormalize` 来「顺手强制重算」：它带 `-u` 语义，
+ * 工作区有删除时会 `fatal: unable to stat '<已删文件>'`。
  *
- * ## 为什么用「临时 index + 原子改名」而不是 `rm index`
- *
- * 两者都能强制全量重算（实测均约 40ms），但 `rm index` 会制造一个
- * **读者可见的空窗**：isomorphic-git 的 statusMatrix（版本面板的 statusDiff）
- * 此刻读不到 index，直接报 internal error —— 2026-09-18 日志里的
- * `[VCS-IPC] statusDiff 失败` 就是这么来的。原实现没这问题，因为 isomorphic-git
- * 是「临时文件 + 改名」原子写 index，读者永远看不到中间态；`rm` 破坏了那条原子性。
- *
- * 把 index 写到 `GIT_INDEX_FILE` 指向的临时路径，git 同样无从比对 stat、只能全量重算；
- * 完成后**原子改名**盖到真 index 上。读者全程看到旧 index，切换是一瞬间。
- * （scripts/probe-vcs-temp-index.mjs 逐条验证：等长改写仍检出、增删改语义不变、
- *  提交后工作树干净。）
- *
- * ⚠️ 另一个候选 `git add -A --renormalize` 已否决：它有 `-u` 语义，
- * 有删除时会 `fatal: unable to stat '<已删文件>'`。
+ * ⚠️ 也别改回「临时 index（GIT_INDEX_FILE）+ 原子改名」那套强制全量重算：
+ * 线上实测 2920ms vs 76ms，而它要防的场景在工作区里不会发生。若某天前提真的破了，
+ * 那套写法本身是对的（尤其**不能**退化成 `rm index` —— 那会制造读者可见的空窗，
+ * isomorphic-git 的 statusMatrix 此刻读不到 index 会直接报 internal error，
+ * 2026-09-18 日志里的 `[VCS-IPC] statusDiff 失败` 就是这么来的）。
  */
 export async function stageAllCli(workspaceDir: string, gitdir: string): Promise<void> {
-  const realIndex = path.join(gitdir, 'index')
-  const tmpIndex = path.join(gitdir, 'index.mtbot-tmp')
-  fs.rmSync(tmpIndex, { force: true })
-  try {
-    const r = await runWithLockRetry(workspaceDir, gitdir, ['add', '-A'], {
-      env: { GIT_INDEX_FILE: tmpIndex },
-    })
-    if (r.code !== 0) {
-      throw new Error(`git add -A 退出码 ${r.code}: ${r.stderr.trim().slice(0, 300)}`)
-    }
-    // 原子切换：Windows 上 renameSync 走 MOVEFILE_REPLACE_EXISTING，可直接盖掉已存在的 index
-    fs.renameSync(tmpIndex, realIndex)
-  } catch (err) {
-    fs.rmSync(tmpIndex, { force: true })
-    throw err
+  const r = await runWithLockRetry(workspaceDir, gitdir, ['add', '-A'])
+  if (r.code !== 0) {
+    throw new Error(`git add -A 退出码 ${r.code}: ${r.stderr.trim().slice(0, 300)}`)
   }
 }
 
-/**
- * 是否有已暂存变更（index 相对 HEAD）。
- *
- * `diff --cached --quiet` 约定：退出码 1 = 有差异，0 = 无差异，其它为真错误。
- * 只读，不写 index —— 所以不会产生 `index.lock`（那会与 isomorphic-git 的遍历撞 TOCTOU）。
- */
-export async function hasStagedChangesCli(workspaceDir: string, gitdir: string): Promise<boolean> {
-  const r = await runWithLockRetry(workspaceDir, gitdir, ['diff', '--cached', '--quiet'])
-  if (r.code === 0) return false
-  if (r.code === 1) return true
-  throw new Error(`git diff --cached 退出码 ${r.code}: ${r.stderr.trim().slice(0, 300)}`)
-}
-
 /*
- * 这里**刻意没有** commitCli。
+ * hasStagedChangesCli 与 commitCli 都在 git-ops.ts —— 它们属于「读/提交」路径，
+ * 不属于这里（写 index 的路径）。
  *
- * 提交仍由 isomorphic-git 完成（vcs-repo.ts 的 stageAndCommit 有说明）：真 git 的
- * `commit` 会在 gitdir 里创建 `index.lock`，而 isomorphic-git 自己的 statusMatrix /
- * walk 会去 lstat 这个路径，两者并发时撞出 TOCTOU：
- *   ENOENT: no such file or directory, lstat '.mtbot-vcs/index.lock'
- * （目录读到了这个文件，lstat 时它已被改名为 index）。
- * 曾经为了「一致」把提交也交给真 git，结果就是这么挂的 —— 别再加回来。
+ * 本文件的边界：暂存、排除规则文件、index 锁重试、仓库自身的安全配置。
+ *
+ * 曾经这里有一条「别用真 git 做 commit」的约束，理由是 `git commit` 产生的
+ * `index.lock` 会与 isomorphic-git 自己的 walk 撞出 TOCTOU
+ * （`ENOENT: lstat '.mtbot-vcs/index.lock'`）。isomorphic-git 已在 2026-09-19
+ * 从工作区仓库整体摘除，没有第二个实现去 lstat gitdir，那条约束随之消失。
  */

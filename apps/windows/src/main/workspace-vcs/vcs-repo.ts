@@ -4,34 +4,56 @@
  * 对 workspace 目录做快照、历史、diff 与回滚。元数据存于独立 gitdir
  * （{workspaceDir}/.mtbot-vcs），与用户可能存在的标准 .git 隔离。
  *
- * 实现分两条路：
- *  - **热路径**（暂存 + 提交，每个助手消息一次）优先走**真 git 子进程**，
- *    不可用时回退 isomorphic-git。原因见 vcs-git-cli.ts 文件头：
- *    isomorphic-git 按内容重算全部 blob hash 且跑在主线程上，2.7GB 工作区实测
- *    中位 19.9 秒、最长 53.5 秒，会把主线程冻死（2026-09-18 由此触发
- *    Windows 事件 1002「Application Hang」）。
- *  - **冷路径**（log / diff / readBlob / rollback）留在 isomorphic-git——
- *    它们只在用户打开版本面板时跑，不是每消息一次。
- *    两种实现共用同一仓库已由 scripts/probe-vcs-git-interop.mjs 验证。
+ * ## 实现：全部走真 git 子进程
+ *
+ * 这个模块曾经是**两种实现共用同一仓库**（真 git 暂存 + isomorphic-git 提交/读历史）。
+ * 2026-09-19 复盘后把 isomorphic-git 整体摘除，原因是双实现共用的全部麻烦都来自
+ * 「仓库形状必须迁就能力更弱的那一方」：
+ *
+ *  - iso 读 pack 是整个读进内存 → 要禁自动 gc、限单包尺寸、gc 后还要自检；
+ *    绕开「禁 gc」的拆包脚本曾毁掉 1.3GB 历史。
+ *  - iso 的 GitWalkerFs 会 lstat 整个工作树（含自定义 gitdir 自己）→ gitdir 里不能留
+ *    瞬时文件，连 `git commit` 产生的 `index.lock` 都会撞出 `ENOENT: lstat`。
+ *  - iso 跑在主线程上 → 冷路径（log/statusDiff/readBlob）大仓库上照样能卡到秒级，
+ *    只是因为它「只在用户打开面板时跑」才没被算进卡死账。
+ *
+ * 摘掉之后这些约束全部消失，两条路径都在子进程里。代价是真 git 成为**硬依赖**
+ * （已确认接受）：`detectGit()` 失败时本模块拒绝干活并给出明确日志，而不是退回一个
+ * 会把主线程冻死的实现。
+ *
+ * ## 分工
+ *
+ *   vcs-git-cli.ts  写路径（暂存、排除规则、index 锁重试、仓库安全配置）
+ *   git-ops.ts      读路径（历史、状态、diff、读 blob）+ 提交
+ *   本文件          组装与对外契约（trailer 元信息、回滚、二进制跳过等）
  *
  * 设计要点见 .qoder/design/conversation-rewind-and-workspace-git/。
  */
 
 import path from 'node:path'
 import fs from 'node:fs'
-import git from 'isomorphic-git'
-import type { PromiseFsClient } from 'isomorphic-git'
 import type {
   VcsCommit,
   VcsCommitOptions,
   VcsDiffEntry,
-  VcsFileStatus,
   VcsRollbackResult,
 } from './types'
-import { buildDefaultGitignore, VCS_SKIP_DIRS, shouldSkipWalkDir, stripOutputsIgnoreRules, isVcsBinaryPath } from './vcs-ignore'
-import { computeFileDiff, computeDiffStats, MAX_DIFF_BYTES } from './vcs-diff'
-import { createVcsFs, VCS_TMP_SUFFIX } from './vcs-fs'
-import { detectGit, hasStagedChangesCli, pinIsoSafeConfig, stageAllCli } from './vcs-git-cli'
+import { buildDefaultGitignore, stripOutputsIgnoreRules } from './vcs-ignore'
+import { detectGit, pinNoAutoGc, runGit, stageAllCli } from './vcs-git-cli'
+import {
+  GIT_AUTHOR,
+  commitCli,
+  diffCommitsCli,
+  diffFileCli,
+  hasStagedChangesCli,
+  initCli,
+  listFilesAt,
+  logCli,
+  readBlobBytes,
+  readFileAt,
+  statusDiffCli,
+  type RawLogEntry,
+} from './git-ops'
 
 const log = {
   info: (...args: unknown[]) => console.log('[WorkspaceVcs]', ...args),
@@ -44,30 +66,26 @@ const TRAILER_CONV = 'Mtbot-Conversation:'
 const TRAILER_RUN = 'Mtbot-Run:'
 const TRAILER_AUTHOR = 'Mtbot-Author:'
 
-/** 提交身份（isomorphic-git 要求 author/committer） */
-const GIT_AUTHOR = { name: 'Mtbot', email: 'vcs@mtbot.local' } as const
+/** 暂存耗时超过这个值就记一笔（正常约 76ms，劣化时要看得见） */
+const STAGE_SLOW_MS = 500
 
 /**
  * index 文件损坏（被截断、零填充或校验和不符）时的错误特征。
  *
- * **两种实现的措辞不同，都要认**：前三条是 isomorphic-git 的，后两条是真 git 的
- * （`error: bad signature 0x00000000` / `fatal: index file corrupt`，由 stageAllCli
- * 包进 Error.message）。曾经只有 iso 那三条 —— 因为那时快路径写的是临时 index，
- * 永远碰不到坏 index，损坏只会在回退路径上出现；改回普通 `git add -A` 后快路径
- * 也会撞上，漏掉真 git 的措辞就等于快路径没有自愈。
+ * 真 git 的措辞**不止一种**，实测撞到过：
+ *   - 零填充（写到一半断电）→ `error: bad signature 0x00000000` + `fatal: index file corrupt`
+ *   - 清空成 0 字节        → `fatal: index file smaller than expected`
+ * 后三条是 isomorphic-git 的 —— 工作区已不再用 iso，认着不亏（多认不会误判）。
  */
 const INDEX_CORRUPTION_HINTS = [
+  'bad signature',
+  'index file corrupt',
+  'index file smaller than expected',
   'dircache',
   'Index file is empty',
   'Invalid checksum in GitIndex',
-  'bad signature',
-  'index file corrupt',
 ]
 
-/**
- * 判断错误是否由损坏的 git index 文件引起。
- * isomorphic-git 会把细节放在 err.data.message，故两处都做匹配。
- */
 function isIndexCorruptionError(err: unknown): boolean {
   const segments: string[] = []
   if (err instanceof Error) segments.push(err.message)
@@ -81,23 +99,16 @@ export class WorkspaceVcs {
   private readonly workspaceDir: string
   private readonly gitdir: string
   private readonly indexPath: string
-  private readonly gitfs: PromiseFsClient
 
   constructor(opts: { workspaceDir: string }) {
     this.workspaceDir = opts.workspaceDir
     this.gitdir = path.join(opts.workspaceDir, '.mtbot-vcs')
     this.indexPath = path.join(this.gitdir, 'index')
-    this.gitfs = createVcsFs(this.indexPath)
   }
 
-  /** isomorphic-git 通用参数 */
-  private get base() {
-    return { fs: this.gitfs, dir: this.workspaceDir, gitdir: this.gitdir }
-  }
-
-  /** 供云同步复用同一仓库实例的 isomorphic-git 通用参数 */
-  getGitParams(): { fs: PromiseFsClient; dir: string; gitdir: string } {
-    return { fs: this.gitfs, dir: this.workspaceDir, gitdir: this.gitdir }
+  /** 真 git 是否可用（进程级缓存）。不可用时本模块拒绝干活，见文件头。 */
+  private isReady(): Promise<boolean> {
+    return detectGit()
   }
 
   /**
@@ -105,8 +116,17 @@ export class WorkspaceVcs {
    *
    * index 只是可由工作树与 HEAD 完全重建的暂存缓存，删除它不会丢失任何提交，
    * 因此自愈远优于让后续每一次快照都失败刷屏。
+   *
+   * `onRepair`（可选）：删掉 index **之后**、重试之前跑。删除本身不够 ——
+   * 空 index 会让 git 失去全部 stat 信息，把 HEAD 里每个文件都当成「已删除 +
+   * 未跟踪」（实测 `git status` 对同一条路径同时输出 `D  x` 与 `?? x`），
+   * 于是重试拿到的是一份**错误**结果而不是失败。需要重建 index 的调用方传这个钩子。
    */
-  private async withIndexRepair<T>(label: string, op: () => Promise<T>): Promise<T> {
+  private async withIndexRepair<T>(
+    label: string,
+    op: () => Promise<T>,
+    onRepair?: () => Promise<void>,
+  ): Promise<T> {
     try {
       return await op()
     } catch (err) {
@@ -114,26 +134,37 @@ export class WorkspaceVcs {
       const reason = err instanceof Error ? err.message : String(err)
       log.warn(`[${label}] index 文件已损坏，删除后重建：${reason}`)
       this.discardIndex()
+      if (onRepair) await onRepair()
       return op()
     }
   }
 
-  /** 删除损坏的 index 及其原子写入残留的临时文件 */
-  private discardIndex(): void {
-    try {
-      fs.rmSync(this.indexPath, { force: true })
-      const indexName = path.basename(this.indexPath)
-      for (const name of fs.readdirSync(this.gitdir)) {
-        if (name.startsWith(`${indexName}.`) && name.endsWith(VCS_TMP_SUFFIX)) {
-          fs.rmSync(path.join(this.gitdir, name), { force: true })
-        }
-      }
-    } catch (err) {
-      log.warn('[discardIndex] 清理损坏的 index 失败:', err)
+  /**
+   * 从 HEAD 重建 index（自愈用）。HEAD 未出生时无事可做 —— 那种情形本来就没有
+   * 可恢复的暂存状态，下一次 `add -A` 会自然建出完整 index。
+   */
+  private async rebuildIndexFromHead(): Promise<void> {
+    const r = await runGit(this.workspaceDir, this.gitdir, ['read-tree', 'HEAD'])
+    if (r.code !== 0) {
+      log.warn(`[rebuildIndexFromHead] 失败（退出码 ${r.code}）：${r.stderr.trim().slice(0, 160)}`)
     }
   }
 
-  /** 仓库是否已初始化 */
+  /**
+   * 删除损坏的 index 及其锁。
+   *
+   * 锁也要删：index 坏掉时往往留下一个残留的 `index.lock`，只删 index 的话重试仍会
+   * 失败（git 报 "Unable to create index.lock: File exists"）。两个都是可重建的暂存态。
+   */
+  private discardIndex(): void {
+    try {
+      fs.rmSync(this.indexPath, { force: true })
+      fs.rmSync(`${this.indexPath}.lock`, { force: true })
+    } catch (err) {
+      log.warn('[discardIndex] 删除损坏的 index 失败:', err)
+    }
+  }
+
   private isInitialized(): boolean {
     return fs.existsSync(path.join(this.gitdir, 'HEAD'))
   }
@@ -141,37 +172,40 @@ export class WorkspaceVcs {
   /**
    * 确保仓库存在：首次 init → 写 .gitignore → 首个 commit。
    * 幂等，可重复调用。已初始化时也会校正 .gitignore，确保 outputs/ 不被误忽略。
+   *
+   * 真 git 不可用时**直接返回**（不回退任何实现）：所有对外方法都以
+   * `isInitialized()` 为前置判断，仓库建不起来就等于整个 VCS 静默关闭，
+   * 只留一条 warn 说明原因。这是把「真 git」定为硬依赖后的明确取舍。
    */
   async ensureInitialized(): Promise<void> {
+    if (!(await this.isReady())) {
+      log.warn('[ensureInitialized] 真 git 不可用，工作区版本管理已停用')
+      return
+    }
+
     const gitignorePath = path.join(this.workspaceDir, '.gitignore')
 
     if (!this.isInitialized()) {
       log.info(`[ensureInitialized] 初始化工作空间仓库: ${this.workspaceDir}`)
       fs.mkdirSync(this.workspaceDir, { recursive: true })
-      await git.init({ ...this.base, defaultBranch: 'main' })
+      await initCli(this.workspaceDir, this.gitdir)
 
       // 写默认 .gitignore（若用户已有则不覆盖）
       if (!fs.existsSync(gitignorePath)) {
         fs.writeFileSync(gitignorePath, buildDefaultGitignore(), 'utf-8')
       }
 
-      // 首个 commit（即使工作区为空也建立 root commit，便于后续 diff/rollback）
+      // 首个提交：即使工作区为空也建立 root commit，便于后续 diff/rollback。
+      // `--allow-empty` 让空工作区也能落点（git-ops 的 commitCli 已带该参数）。
       const initMessage = this.buildMessage('初始化工作空间版本管理', 'user')
-      const created = await this.stageAndCommit(initMessage)
-      if (!created) {
-        // 工作区确实为空（.gitignore 已存在且内容未变）时仍要落 root commit
-        await git.commit({ ...this.base, message: initMessage, author: GIT_AUTHOR })
-      }
+      await this.stageAndCommit(initMessage)
       log.info('[ensureInitialized] 完成，已建立初始提交')
     }
 
-    // 本仓库与 isomorphic-git 共用，必须让它读得动：它读 pack 是整个读进内存的，
-    // 大包直接失败（2026-09-18 实测：1.38GB 单包让 log/diff/readBlob 全废）。
-    // 把「禁自动 gc + 单包上限」写死进仓库自身的 config。
-    //
-    // 放在 if(!isInitialized) **之外**：已存在的仓库（旧版本建的）同样需要这条，
-    // 否则历史仓库永远补不上。函数内部按 gitdir 记忆，每进程最多两次子进程。
-    await pinIsoSafeConfig(this.workspaceDir, this.gitdir)
+    // 把「本仓库不跑自动 gc」写死进仓库自身 config：本仓库规模敏感（工作区可达数 GB），
+    // `gc --auto` 会在某次提交后顺带 repack，那是落在用户会话中间的一次不可预测 IO 尖峰。
+    // 放在 if 之外：历史仓库同样需要这条。函数内按 gitdir 记忆，每进程最多一次子进程。
+    await pinNoAutoGc(this.workspaceDir, this.gitdir)
 
     // 校正：去掉误忽略整个 outputs/ 的规则（Agent 产出需纳入版本管理）
     this.ensureOutputsTracked(gitignorePath)
@@ -195,176 +229,45 @@ export class WorkspaceVcs {
   }
 
   /**
-   * 暂存工作区全部变更（含新增、修改、删除），遵循 .gitignore。
-   *
-   * **这是回退路径**——只在本机没有可用的真 git 时才会走到（正常走
-   * vcs-git-cli.ts 的 stageAllCli，线上实测 76ms 且不占主线程）。
-   *
-   * 不依赖 statusMatrix 的 worktree 列（其 stat 快速路径会漏检同秒同大小的小文件），
-   * 而是：① 暂存工作树实际文件 —— 默认走一次 `git.add('.')`，重目录未被忽略时
-   *        退回逐个 add（见 canBatchStage）；两条路径都按内容重算 blob hash，
-   *        实测对「等长 + mtime/ctime 全同」的改写同样能检出；
-   *       ② 对 HEAD/index 中存在但工作树已不存在的文件执行 git.remove。
-   *
-   * **这条回退路径刻意不做「无变更短路」。** 2069 文件 / 700MB 的工作区每次都要重算
-   * 全部 blob hash（批量路径实测 18.3 秒），而 148 次快照里有 125 次（84%）扫完才发现
-   * 无变更 —— 短路看似很值，但自己实现 stat 签名判据不够硬：同一时钟 tick 内的等长改写
-   * size/mtime/ctime 全都分辨不出（即 git 的 racy-timestamp 问题），漏检一次那个改动就
-   * 永远进不了快照。要做就得连带实现 racy 判定，那是一次独立的行为变更。
-   *
-   * **结论是「别自己重算」而不是「放宽判据」**：真 git 的 index 自带 stat 缓存 + racy
-   * 判定，正确性够用且线上实测 76ms（详见 vcs-git-cli.ts 文件头）。所以快路径交给真 git，
-   * 这条回退路径保持原行为不变 —— 它只在本机没有 git 时才跑，慢但绝不漏。
-   */
-  private async stageAll(): Promise<void> {
-    await this.withIndexRepair('stageAll', () => this.stageAllOnce())
-  }
-
-  /** stageAll 的实际执行体（不含 index 损坏自愈，由 stageAll 统一包裹） */
-  private async stageAllOnce(): Promise<void> {
-    const t0 = Date.now()
-
-    // ① 暂存工作树全部文件（新增 + 修改）
-    const batched = await this.canBatchStage()
-    if (batched) {
-      await git.add({ ...this.base, filepath: '.' })
-    } else {
-      await this.stagePerFile()
-    }
-
-    // ② 处理删除：index/HEAD 有、但工作树已无的文件
-    const matrix = await git.statusMatrix(this.base)
-    const present = new Set(await this.walkWorktreeFiles())
-    for (const [filepath, head, workdir, stage] of matrix) {
-      const existsOnDisk = present.has(filepath)
-      if (!existsOnDisk && (head !== 0 || stage !== 0) && workdir === 0) {
-        await git.remove({ ...this.base, filepath })
-      }
-    }
-
-    // 这条路径是 Turn 快照的热点（每个助手消息一次），也是 2026-09-17 P0 的瓶颈所在
-    // —— 优化前 2069 文件要 30–80 秒。必须能持续观测，否则下次劣化没人发现。
-    // 500ms 以下不记，免得正常时段刷屏。
-    const stageMs = Date.now() - t0
-    if (stageMs > 500) {
-      log.info(`[stageAll] 暂存耗时 ${stageMs}ms（${batched ? '批量' : '逐个'}路径）`)
-    }
-  }
-
-  /**
-   * 能否走批量暂存（`git.add('.')`）。
-   *
-   * 批量路径一次走完工作树、只写一次 index —— 逐个 add 的代价几乎全在
-   * 「每次调用重建一遍 index」，实测 2000 文件 9.7s vs 批量 1.3s，且差距随文件数增长。
-   *
-   * 但 `add('.')` 会走**整个**工作树，包括 `.mtbot-vcs` 自己 —— 实测若不忽略它，
-   * 它会把 `.mtbot-vcs/index`、`objects/**`、`refs/heads/main` 一并索引进自己的 index。
-   * 逐个路径靠 `walkWorktreeFiles` 硬剪枝（不依赖 .gitignore 内容），是道配置无关的防线；
-   * 批量路径把这道防线换成了「.gitignore 必须正确」。所以先实测两个最要命的目录是否确被忽略，
-   * 不满足就退回逐个路径 —— 宁慢，也不能自我索引。
-   *
-   * 只探测 `.mtbot-vcs` 与 `node_modules`：前者漏了是灾难，后者漏了是重灾（上万文件）。
-   * 用 `isIgnored` 实测而非解析 .gitignore 文本 —— 规则可能来自任意一层，手写解析只会得出错误结论。
-   */
-  private async canBatchStage(): Promise<boolean> {
-    for (const probe of ['.mtbot-vcs/index', 'node_modules/.probe']) {
-      const ignored = await git.isIgnored({ ...this.base, filepath: probe }).catch(() => false)
-      if (!ignored) {
-        log.warn(
-          `[canBatchStage] ${probe} 未被 .gitignore 忽略，退回逐个 add（避免把 VCS 自身索引进 index）`,
-        )
-        return false
-      }
-    }
-    return true
-  }
-
-  /** 逐个 add 的回退路径（安全但不依赖 .gitignore：由 walkWorktreeFiles 剪枝） */
-  private async stagePerFile(): Promise<void> {
-    for (const filepath of await this.walkWorktreeFiles()) {
-      const ignored = await git.isIgnored({ ...this.base, filepath }).catch(() => false)
-      if (ignored) continue
-      await git.add({ ...this.base, filepath })
-    }
-  }
-
-  /** 递归列出工作树下所有文件（相对工作区根、POSIX 分隔），跳过 .mtbot-vcs */
-  private async walkWorktreeFiles(): Promise<string[]> {
-    const results: string[] = []
-    const walk = (absDir: string, relDir: string): void => {
-      let entries: fs.Dirent[]
-      try {
-        entries = fs.readdirSync(absDir, { withFileTypes: true })
-      } catch {
-        return
-      }
-      for (const entry of entries) {
-        if (entry.name === '.mtbot-vcs' || entry.name === '.git') continue
-        if (shouldSkipWalkDir(relDir, entry.name)) continue
-        const abs = path.join(absDir, entry.name)
-        const rel = relDir ? `${relDir}/${entry.name}` : entry.name
-        if (entry.isDirectory()) {
-          walk(abs, rel)
-        } else if (entry.isFile()) {
-          results.push(rel)
-        }
-      }
-    }
-    walk(this.workspaceDir, '')
-    return results
-  }
-
-  /**
    * 暂存全部变更并提交；无变更返回 null。
    *
    * **热路径**：每个助手消息都会走到这里（bridge-instance-factory 的
-   * onAssistantMessagePersisted）。
+   * onAssistantMessagePersisted）。真 git 的 index 自带 stat 缓存 + racy 判定，
+   * 所以「无变更」场景也能便宜地走完（线上实测 76ms），不需要自己实现短路。
    *
-   * 分工是刻意的：
-   *  - **暂存**走真 git 子进程（线上实测 76ms，且不占主线程）。这一步曾是瓶颈——
-   *    isomorphic-git 的 add 会按内容全量重算 blob hash。
-   *  - **提交**仍走 isomorphic-git。它又快又安全：blob 已由上一步写好，提交只写
-   *    tree/commit 对象；而真 git 的 commit 会在 gitdir 里创建 `index.lock`，
-   *    与 isomorphic-git 自己的遍历撞出 TOCTOU
-   *    （实测 `ENOENT: lstat '.mtbot-vcs/index.lock'`——目录读到了、lstat 时已被改名）。
-   *
-   * 两条路的**语义一致**：都遵循 .gitignore、都含删除、无变更都不产生空提交。
-   *
-   * 暂存与「有无变更」一起包进 withIndexRepair：坏 index 会让真 git 的 `add -A`
-   * 直接 fatal（`bad signature` / `index file corrupt`），自愈后重跑即可。
-   * 提交刻意留在外面 —— 它不读 index 的 stat 缓存，且重跑提交会产生重复提交。
+   * 暂存与「有无变更」一起包进 withIndexRepair：坏 index 会让 `add -A` 直接 fatal，
+   * 自愈后重跑即可。提交刻意留在外面 —— 它不读 index 的 stat 缓存，
+   * 而重跑提交会产生重复提交。
    */
   private async stageAndCommit(message: string): Promise<string | null> {
-    if (await detectGit()) {
-      const t0 = Date.now()
-      const hasChanges = await this.withIndexRepair('stageAndCommitCli', async () => {
+    const t0 = Date.now()
+    const hasChanges = await this.withIndexRepair(
+      'stageAndCommit',
+      async () => {
         await stageAllCli(this.workspaceDir, this.gitdir)
         return hasStagedChangesCli(this.workspaceDir, this.gitdir)
-      })
-      if (!hasChanges) return null
-      // 提交交给 isomorphic-git（不产生 index.lock，见上方注释）
-      const oid = await git.commit({ ...this.base, message, author: GIT_AUTHOR })
-      // 与 stageAll 的 500ms 门槛同理：正常约 76ms，劣化时要看得见
-      const ms = Date.now() - t0
-      if (ms > 500) log.info(`[stageAndCommit] 真 git 暂存快路径耗时 ${ms}ms`)
-      return oid
-    }
+      },
+      // 重建后重试。这里其实不重建也行（紧接着的 add -A 会把 index 建全），
+      // 但统一走一条自愈路径比「每个调用点各自论证为什么可以不重建」更不容易错。
+      () => this.rebuildIndexFromHead(),
+    )
+    if (!hasChanges) return null
 
-    await this.stageAll()
-    if (!(await this.hasStagedChanges())) return null
-    return git.commit({ ...this.base, message, author: GIT_AUTHOR })
+    const oid = await commitCli(this.workspaceDir, this.gitdir, message, GIT_AUTHOR)
+    const ms = Date.now() - t0
+    if (ms > STAGE_SLOW_MS) log.info(`[stageAndCommit] 暂存并提交耗时 ${ms}ms`)
+    return oid
   }
 
   /**
    * 提交当前工作区全量变更。无变更返回 null（不产生空提交）。
    *
-   * 注意：isomorphic-git 的 statusMatrix 基于文件 stat（mtime 秒级 + size）做快速路径，
-   * 同秒、同大小但内容不同的小文件会被漏检。故此处先暂存（强制按内容重算 blob hash 写入 index），
-   * 再以 index 与 HEAD tree 的差异判断是否真有变更，绕开 stat 缓存。
-   * 真 git 路径自带 racy 判定，同一顾虑同样成立（已由 probe-vcs-git-interop 验证）。
+   * 判断「有无变更」用的是 index 与 HEAD 的差异，而不是工作树 stat ——
+   * 前者由 git 的 racy 判定兜底（内容变了就一定重算），后者在某些时序下会漏检。
    */
   async commit(opts: VcsCommitOptions): Promise<VcsCommit | null> {
     await this.ensureInitialized()
+    if (!this.isInitialized()) return null
 
     const message = this.buildMessage(opts.message, opts.author, opts.conversationId, opts.runId)
     const oid = await this.stageAndCommit(message)
@@ -387,26 +290,18 @@ export class WorkspaceVcs {
   /**
    * 工作区是否有未提交变更（相对 HEAD）。
    * 先暂存（让 index 反映工作树最新状态），再比对 index 与 HEAD。
-   *
-   * 快路径同样要包 withIndexRepair —— 见 stageAndCommit 的说明。
    */
   async hasUncommittedChanges(): Promise<boolean> {
     await this.ensureInitialized()
-    if (await detectGit()) {
-      return this.withIndexRepair('hasUncommittedChangesCli', async () => {
+    if (!this.isInitialized()) return false
+    return this.withIndexRepair(
+      'hasUncommittedChanges',
+      async () => {
         await stageAllCli(this.workspaceDir, this.gitdir)
         return hasStagedChangesCli(this.workspaceDir, this.gitdir)
-      })
-    }
-    await this.stageAll()
-    return this.hasStagedChanges()
-  }
-
-  /** 比对 index(stage) 与 HEAD tree：stage 列与 head 列不同即有待提交变更 */
-  private async hasStagedChanges(): Promise<boolean> {
-    const matrix = await this.withIndexRepair('hasStagedChanges', () => git.statusMatrix(this.base))
-    // 行格式 [filepath, head, workdir, stage]；head!==stage 表示已暂存的变更
-    return matrix.some(([, head, , stage]) => head !== stage)
+      },
+      () => this.rebuildIndexFromHead(),
+    )
   }
 
   /**
@@ -417,19 +312,9 @@ export class WorkspaceVcs {
 
     const limit = opts?.limit ?? 50
     const offset = opts?.offset ?? 0
-    const entries = await git.log({ ...this.base, depth: limit + offset })
+    const entries = await logCli(this.workspaceDir, this.gitdir, limit + offset)
 
-    return entries.slice(offset, offset + limit).map((e) => {
-      const msg = e.commit.message
-      return {
-        oid: e.oid,
-        message: this.stripTrailers(msg),
-        timestamp: e.commit.author.timestamp * 1000,
-        author: this.parseTrailer(msg, TRAILER_AUTHOR) === 'agent' ? 'agent' : 'user',
-        conversationId: this.parseTrailer(msg, TRAILER_CONV),
-        runId: this.parseTrailer(msg, TRAILER_RUN),
-      }
-    })
+    return entries.slice(offset, offset + limit).map((e) => this.toCommit(e))
   }
 
   /**
@@ -438,91 +323,26 @@ export class WorkspaceVcs {
    */
   async statusDiff(baseOid?: string): Promise<VcsDiffEntry[]> {
     if (!this.isInitialized()) return []
-    const ref = baseOid ?? 'HEAD'
-    const matrix = await this.withIndexRepair('statusDiff', () =>
-      git.statusMatrix({ ...this.base, ref }),
+    return this.withIndexRepair(
+      'statusDiff',
+      () => statusDiffCli(this.workspaceDir, this.gitdir, baseOid ?? 'HEAD'),
+      // 重建 index 后重试：光删 index 不够，空 index 会让 git 把 HEAD 里每个文件
+      // 都报成「已删除 + 未跟踪」。这里**不调 stageAllCli** —— statusDiff 是只读的，
+      // 它只报告「相对 HEAD 的变更」，不该顺手把工作树暂存进 index。
+      () => this.rebuildIndexFromHead(),
     )
-    const entries: VcsDiffEntry[] = []
-
-    for (const [filepath, head, workdir] of matrix) {
-      if (head === workdir) continue
-      const status: VcsFileStatus = head === 0 ? 'added' : workdir === 0 ? 'deleted' : 'modified'
-
-      if (isVcsBinaryPath(filepath)) {
-        entries.push({
-          filepath,
-          status,
-          insertions: status === 'deleted' ? 0 : 1,
-          deletions: status === 'added' ? 0 : 1,
-          truncated: true,
-          skipReason: '二进制文件（已纳入版本管理，跳过文本 diff）',
-        })
-        continue
-      }
-
-      const oldContent = head === 0 ? '' : (await this.readFileAt(ref, filepath)) ?? ''
-      const newContent = workdir === 0 ? '' : this.readWorktreeFile(filepath)
-      const stats = computeDiffStats(oldContent, newContent)
-      entries.push({ filepath, status, ...stats })
-    }
-    return entries
   }
 
   /**
    * 两个 commit 之间的文件级差异；withHunks=true 时附带逐行 hunks。
-   * 通过 git.walk 对比 tree OID，跳过未变更子树，避免全量 readBlob。
    */
   async diffCommits(
     fromOid: string,
     toOid: string,
     opts?: { withHunks?: boolean },
   ): Promise<VcsDiffEntry[]> {
-    const withHunks = opts?.withHunks === true
-    const entries: VcsDiffEntry[] = []
-
-    await git.walk({
-      ...this.base,
-      trees: [git.TREE({ ref: fromOid }), git.TREE({ ref: toOid })],
-      map: async (filepath, [a, b]) => {
-        if (filepath === '.') return
-        const aType = a ? await a.type() : null
-        const bType = b ? await b.type() : null
-        // 两侧都是 tree 且 OID 相同 → 剪枝整棵子树
-        if (aType === 'tree' || bType === 'tree') {
-          if (a && b && (await a.oid()) === (await b.oid())) return null
-          return undefined // 继续往下走
-        }
-        // blob（或一侧缺失）
-        const aOid = a ? await a.oid() : null
-        const bOid = b ? await b.oid() : null
-        if (aOid === bOid) return undefined
-
-        const status: VcsFileStatus = !a ? 'added' : !b ? 'deleted' : 'modified'
-        const oldContent = a
-          ? new TextDecoder().decode((await a.content()) ?? new Uint8Array())
-          : ''
-        const newContent = b
-          ? new TextDecoder().decode((await b.content()) ?? new Uint8Array())
-          : ''
-
-        if (withHunks) {
-          const d = computeFileDiff(filepath, oldContent, newContent)
-          entries.push({
-            filepath,
-            status,
-            insertions: d.insertions,
-            deletions: d.deletions,
-            hunks: d.hunks,
-          })
-        } else {
-          const stats = computeDiffStats(oldContent, newContent)
-          entries.push({ filepath, status, ...stats })
-        }
-        return undefined
-      },
-    })
-
-    return entries
+    if (fromOid === toOid) return []
+    return diffCommitsCli(this.workspaceDir, this.gitdir, fromOid, toOid, opts)
   }
 
   /**
@@ -530,66 +350,14 @@ export class WorkspaceVcs {
    * fromOid/toOid 可为 commit oid；toOid 也可为 'WORKTREE' 读工作区当前内容。
    */
   async diffFile(fromOid: string, toOid: string, filepath: string): Promise<VcsDiffEntry> {
-    const oldContent =
-      fromOid === 'WORKTREE'
-        ? this.readWorktreeFile(filepath)
-        : (await this.readFileAt(fromOid, filepath)) ?? ''
-    const newContent =
-      toOid === 'WORKTREE'
-        ? this.readWorktreeFile(filepath)
-        : (await this.readFileAt(toOid, filepath)) ?? ''
-    const status: VcsFileStatus =
-      oldContent === '' && newContent !== ''
-        ? 'added'
-        : newContent === '' && oldContent !== ''
-          ? 'deleted'
-          : 'modified'
-
-    if (
-      Buffer.byteLength(oldContent, 'utf8') > MAX_DIFF_BYTES ||
-      Buffer.byteLength(newContent, 'utf8') > MAX_DIFF_BYTES
-    ) {
-      return {
-        filepath,
-        status,
-        insertions: 0,
-        deletions: 0,
-        hunks: [],
-        truncated: true,
-        skipReason: '文件过大，已跳过逐行差异',
-      }
-    }
-
-    const d = computeFileDiff(filepath, oldContent, newContent)
-    return {
-      filepath,
-      status,
-      insertions: d.insertions,
-      deletions: d.deletions,
-      hunks: d.hunks,
-    }
+    return diffFileCli(this.workspaceDir, this.gitdir, fromOid, toOid, filepath)
   }
 
   /**
    * 读取某 commit 下单个文件内容。文件不存在返回 null。
    */
   async readFileAt(oid: string, filepath: string): Promise<string | null> {
-    try {
-      const { blob } = await git.readBlob({ ...this.base, oid, filepath })
-      return new TextDecoder().decode(blob)
-    } catch {
-      return null
-    }
-  }
-
-  /** 读取某 commit 下单文件的原始字节（用于回滚写回，保留二进制） */
-  private async readBlobBytes(oid: string, filepath: string): Promise<Uint8Array | null> {
-    try {
-      const { blob } = await git.readBlob({ ...this.base, oid, filepath })
-      return blob
-    } catch {
-      return null
-    }
+    return readFileAt(this.workspaceDir, this.gitdir, oid, filepath)
   }
 
   /**
@@ -607,12 +375,12 @@ export class WorkspaceVcs {
     })
 
     // 2. 用目标版本的文件内容覆盖工作树（纯内容回放，最可控）
-    const targetFiles = await this.listFilesAt(oid)
-    const currentFiles = await this.listFilesAt('HEAD')
+    const targetFiles = await listFilesAt(this.workspaceDir, this.gitdir, oid)
+    const currentFiles = await listFilesAt(this.workspaceDir, this.gitdir, 'HEAD')
 
     // 2a. 写回目标版本存在的文件
     for (const filepath of targetFiles) {
-      const content = await this.readBlobBytes(oid, filepath)
+      const content = await readBlobBytes(this.workspaceDir, this.gitdir, oid, filepath)
       if (content === null) continue
       const abs = path.join(this.workspaceDir, filepath)
       fs.mkdirSync(path.dirname(abs), { recursive: true })
@@ -631,8 +399,7 @@ export class WorkspaceVcs {
       }
     }
 
-    // 3. 暂存并追加一条线性回滚提交（stageAndCommit 内部已含「无变更不提交」，
-    //    不再需要先 stageAll 再 hasUncommittedChanges 重复暂存一遍）
+    // 3. 暂存并追加一条线性回滚提交（stageAndCommit 内部已含「无变更不提交」）
     const short = oid.slice(0, 8)
     await this.stageAndCommit(this.buildMessage(`已回滚至 ${short}`, 'user'))
 
@@ -657,7 +424,7 @@ export class WorkspaceVcs {
     const ref = oid === 'HEAD' || !oid ? 'HEAD' : oid
     const abs = path.join(this.workspaceDir, filepath)
 
-    const content = await this.readBlobBytes(ref, filepath)
+    const content = await readBlobBytes(this.workspaceDir, this.gitdir, ref, filepath)
     if (content === null) {
       // 目标版本无此文件：删除工作树中的该文件（等价于撤销「新增」）
       try {
@@ -681,40 +448,25 @@ export class WorkspaceVcs {
    */
   async findCommitByConversation(conversationId: string): Promise<VcsCommit | null> {
     if (!this.isInitialized()) return null
-    const entries = await git.log({ ...this.base, depth: 100 })
+    const entries = await logCli(this.workspaceDir, this.gitdir, 100)
     for (const e of entries) {
-      const msg = e.commit.message
-      const convId = this.parseTrailer(msg, TRAILER_CONV)
-      if (convId === conversationId) {
-        return {
-          oid: e.oid,
-          message: this.stripTrailers(msg),
-          timestamp: e.commit.author.timestamp * 1000,
-          author: this.parseTrailer(msg, TRAILER_AUTHOR) === 'agent' ? 'agent' : 'user',
-          conversationId: convId,
-          runId: this.parseTrailer(msg, TRAILER_RUN),
-        }
-      }
+      const convId = this.parseTrailer(e.body, TRAILER_CONV)
+      if (convId === conversationId) return this.toCommit(e)
     }
     return null
   }
 
   // ─── 内部工具 ───
 
-  private readWorktreeFile(filepath: string): string {
-    try {
-      return fs.readFileSync(path.join(this.workspaceDir, filepath), 'utf-8')
-    } catch {
-      return ''
-    }
-  }
-
-  private async listFilesAt(oid: string): Promise<Set<string>> {
-    try {
-      const files = await git.listFiles({ ...this.base, ref: oid })
-      return new Set(files)
-    } catch {
-      return new Set()
+  /** 把 git-ops 的原始 log 记录转成对外的 VcsCommit（trailer → 结构化字段） */
+  private toCommit(e: RawLogEntry): VcsCommit {
+    return {
+      oid: e.oid,
+      message: e.subject,
+      timestamp: e.tsSec * 1000,
+      author: this.parseTrailer(e.body, TRAILER_AUTHOR) === 'agent' ? 'agent' : 'user',
+      conversationId: this.parseTrailer(e.body, TRAILER_CONV),
+      runId: this.parseTrailer(e.body, TRAILER_RUN),
     }
   }
 
@@ -729,10 +481,6 @@ export class WorkspaceVcs {
     if (conversationId) lines.push(`${TRAILER_CONV} ${conversationId}`)
     if (runId) lines.push(`${TRAILER_RUN} ${runId}`)
     return lines.join('\n')
-  }
-
-  private stripTrailers(message: string): string {
-    return message.split('\n')[0] ?? message
   }
 
   private parseTrailer(message: string, key: string): string | undefined {

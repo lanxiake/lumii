@@ -71,6 +71,8 @@ export interface GitRunResult {
   code: number
   stdout: string
   stderr: string
+  /** 仅当 runGit 传了 raw: true 时有值；此时 stdout 为空串 */
+  stdoutRaw?: Buffer
 }
 
 /** 已确保写过空配置的 gitdir（每个进程写一次即可） */
@@ -130,6 +132,21 @@ export function gitArgv(opts: {
 }
 
 /**
+ * stderr 里有没有真 git 的致命错误。
+ *
+ * **为什么不能只看退出码**：实测 `git status --porcelain -z ...` 在 index 损坏时
+ * 会往 stderr 写 `fatal: <path>: index file smaller than expected`，然后**以退出码 0
+ * 结束**。只看退出码会把一次彻底失败当成成功，拿到半截输出继续解析 ——
+ * 这类「退出码 0 但什么也没干成」是这套工具最容易骗过人的地方（拆包脚本那次事故
+ * 也是同一个形状）。
+ *
+ * 匹配 `fatal:` / `error:` 行首：普通诊断（warning / hint）不在此列，不会误判。
+ */
+export function hasFatalError(stderr: string): boolean {
+  return /^(fatal|error):/m.test(stderr)
+}
+
+/**
  * 异步执行 git，绝不阻塞调用方（这与 isomorphic-git 的本质区别）。
  *
  * `cwd` 必须落在工作树内：`--git-dir`/`--work-tree` 不能替代它 ——
@@ -142,8 +159,24 @@ export function runGit(opts: {
   args: readonly string[]
   config?: readonly string[]
   timeoutMs?: number
-  /** 追加/覆盖的环境变量（如 GIT_INDEX_FILE —— 见 workspace-vcs 的 stageAllCli） */
+  /** 追加/覆盖的环境变量（覆盖 gitEnvFor 的同名项），如 GIT_INDEX_FILE */
   env?: Record<string, string>
+  /**
+   * 以字节返回 stdout（默认按 UTF-8 转字符串）。
+   *
+   * 读 blob（`git show <oid>:<path>`）必须开这个：逐 chunk `String(d)` 再拼接会把
+   * 多字节序列在 chunk 边界处截断、二进制内容直接毁掉。二进制文件要原样写回工作树，
+   * 所以 `stdoutRaw` 与 `stdout` 在 raw 模式下**只填一个**，别混用。
+   */
+  raw?: boolean
+  /**
+   * 写到子进程 stdin 的内容（写入后立即 end）。
+   *
+   * **不传就等于 stdin 是空的，会立刻关闭** —— 这一点很关键：`git commit -F -`
+   * 之类的命令会一直等 stdin 读到 EOF，若只 spawn 不写不关，进程就永远挂着
+   * （本模块第一版把 message 走 `-F -` 却没接 stdin，整个测试套直接跑不完）。
+   */
+  stdin?: string
 }): Promise<GitRunResult> {
   const argv = gitArgv(opts)
   return new Promise((resolve, reject) => {
@@ -152,9 +185,13 @@ export function runGit(opts: {
       env: { ...gitEnvFor(opts.gitDir), ...(opts.env ?? {}) },
       windowsHide: true,
     })
+    // 无论有没有内容都要 end()，见上面 stdin 的说明
+    child.stdin.on('error', () => { /* 子进程提前退出时 EPIPE，由 close 统一处理 */ })
+    child.stdin.end(opts.stdin ?? '')
 
     let stdout = ''
     let stderr = ''
+    const outChunks: Buffer[] = []
     let settled = false
     const timeoutMs = opts.timeoutMs ?? DEFAULT_GIT_TIMEOUT_MS
     const timer = setTimeout(() => {
@@ -164,7 +201,10 @@ export function runGit(opts: {
       reject(new Error(`git ${opts.args[0]} 超时（${timeoutMs}ms）`))
     }, timeoutMs)
 
-    child.stdout.on('data', (d) => { stdout += String(d) })
+    child.stdout.on('data', (d: Buffer) => {
+      if (opts.raw) outChunks.push(d)
+      else stdout += String(d)
+    })
     child.stderr.on('data', (d) => { stderr += String(d) })
     child.on('error', (err) => {
       if (settled) return
@@ -176,7 +216,9 @@ export function runGit(opts: {
       if (settled) return
       settled = true
       clearTimeout(timer)
-      resolve({ code: code ?? -1, stdout, stderr })
+      const result: GitRunResult = { code: code ?? -1, stdout, stderr }
+      if (opts.raw) result.stdoutRaw = Buffer.concat(outChunks)
+      resolve(result)
     })
   })
 }

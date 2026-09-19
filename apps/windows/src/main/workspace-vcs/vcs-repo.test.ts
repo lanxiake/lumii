@@ -11,7 +11,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import path from 'node:path'
 import fs from 'node:fs'
 import os from 'node:os'
-import git from 'isomorphic-git'
+import { execFileSync } from 'node:child_process'
 import { WorkspaceVcs } from './vcs-repo'
 
 describe('WorkspaceVcs', () => {
@@ -283,13 +283,22 @@ describe('WorkspaceVcs', () => {
   // 又被显式命名」，而默认 .gitignore 本来就含 `.mtbot-vcs/`，命令行排除在正常场景下
   // 会直接退出码 1。下面两条分别守住「.gitignore 在场」与「用户清空规则」两种场景。
 
-  const listHead = () => git.listFiles({ ...vcs.getGitParams(), ref: 'HEAD' })
+  // 用真 git 直接查 HEAD 的文件清单。**刻意不经过 WorkspaceVcs**：这里要验的就是
+  // 「仓库里到底存了什么」，从被测对象自己问会形成自证。
+  const listHead = (): string[] => {
+    const out = execFileSync('git', ['--git-dir', path.join(workspaceDir, '.mtbot-vcs'), 'ls-tree', '-r', '--name-only', 'HEAD'], {
+      cwd: workspaceDir,
+      encoding: 'utf8',
+      env: { ...process.env, GIT_CONFIG_NOSYSTEM: '1' },
+    })
+    return out.split('\n').filter(Boolean)
+  }
 
   it('批量暂存不会把 .mtbot-vcs 自身索引进 index', async () => {
     writeFile('a.md', 'hello')
     await vcs.commit({ author: 'user', message: 'init' })
 
-    const files = await listHead()
+    const files = listHead()
     expect(files).toContain('a.md')
     // 漏了这条就等于 VCS 把自己的对象库版本化 —— index/refs/objects 全量自引用
     expect(files.some((f) => f.startsWith('.mtbot-vcs/'))).toBe(false)
@@ -303,7 +312,7 @@ describe('WorkspaceVcs', () => {
 
     await vcs.commit({ author: 'user', message: 'no-default-ignore' })
 
-    const files = await listHead()
+    const files = listHead()
     expect(files).toContain('a.md')
     expect(files.some((f) => f.startsWith('.mtbot-vcs/'))).toBe(false)
   })
@@ -312,8 +321,8 @@ describe('WorkspaceVcs', () => {
     await vcs.ensureInitialized()
     writeFile('a.md', 'hello')
     // 真实事故：shell 重定向 `> nul` 在非 cmd.exe 语境下会**真的建出文件**，
-    // 而真 git 对它 fatal（error: short read while indexing nul / fatal: updating files failed），
-    // isomorphic-git 却能容忍 —— 不处理就是回归。
+    // 而真 git 对它 fatal（error: short read while indexing nul / fatal: updating files failed）——
+    // 靠 vcs-git-cli.ts 的 excludesFile 把它挡在暂存之外。不处理就是提交直接挂。
     try {
       fs.writeFileSync(path.join(workspaceDir, 'nul'), 'ping output\n')
     } catch {
@@ -322,7 +331,7 @@ describe('WorkspaceVcs', () => {
 
     const c = await vcs.commit({ author: 'agent', message: '含保留设备名' })
     expect(c).not.toBeNull()
-    expect(await listHead()).toContain('a.md')
+    expect(listHead()).toContain('a.md')
   })
 
   // ── 暂存期间真 index 不该消失 ──
@@ -330,7 +339,9 @@ describe('WorkspaceVcs', () => {
   // 背景：stageAllCli 一度靠 `rm index` 强制全量重算，于是出现一个长达数秒的空窗 ——
   // isomorphic-git 的 statusMatrix（版本面板的 statusDiff）此刻读不到 index，
   // 直接报 internal error（2026-09-18 日志里的 `[VCS-IPC] statusDiff 失败`）。
-  // 现在改为 GIT_INDEX_FILE 指到临时路径 + 完成后原子改名，真 index 全程在位。
+  // 中间版本改用 GIT_INDEX_FILE + 原子改名，2026-09-19 起是普通的 `git add -A`
+  // （强制重算的论据被证伪，见 vcs-git-cli.ts 文件头）—— **不变量不变**：真 index
+  // 全程在位，任何实现都别退回 `rm index`。
   //
   // ⚠️ 这里**刻意用轮询文件是否存在**，而不是并发调 statusDiff：
   // isomorphic-git 的 GitWalkerFs 会 readdir + lstat 整个工作树，**包括自定义 gitdir
@@ -340,7 +351,9 @@ describe('WorkspaceVcs', () => {
   // 断言「并发读零错误」会变成一条随机红的用例，比没有还糟。
   //
   // 造足够多的文件撑开时间窗，否则轮询可能一次都没采样到。
-  it('暂存期间真 index 始终存在（不靠删 index 强制重算）', async () => {
+  // 注：git 确实会在写 index 时创建 `index.lock`（不同于 index 本体的瞬时文件），
+  // 本用例只断言 index 本体，不涉及 lock。
+  it('暂存期间真 index 始终存在（任何实现都别退回 rm index）', async () => {
     await vcs.ensureInitialized()
     for (let i = 0; i < 500; i++) {
       writeFile(`bulk/f${i}.md`, `内容 ${i}\n`.repeat(30))
@@ -370,35 +383,34 @@ describe('WorkspaceVcs', () => {
     expect(missing).toBe(0)
   })
 
-  // ── 等长 + 时间戳还原的改写必须被检出 ──
+  // ── 等长改写的检出契约（2026-09-19 收窄）──
   //
-  // 这是整条暂存路径存在的意义所在，也是**换实现时最容易丢掉**的保证。
+  // 这里原本断言「等长 + utimesSync 还原 mtime 的改写也必须被检出」，依据是
+  // 「云同步导入路径会 utimesSync」。**那个依据是错的**：三处 utimesSync 全部落在
+  // sync 目录（export 方向），写工作区的 sync-importer 只 copyFileSync、不还原 mtime。
+  // 所以本文件现在只守真正存在的那条路：
+  //   ✅ 等长改写、mtime 变新（importer 的真实行为）→ 必须检出
+  //   ❌ mtime 被人为还原 → **不在契约内**（scripts/probe-vcs-stat-cache-sufficiency.mjs
+  //      的组 B 证明 git 的 stat 缓存会漏，这是已知且被接受的取舍）
   //
-  // 原实现（isomorphic-git）靠"按内容重算全部 blob hash"保住它。
-  // 换真 git 后，默认的 stat 缓存路径会漏（真 git 只有在文件 mtime 不早于 index
-  // 写入时刻时才强制重查内容 —— 而本用例的还原恰好把它推回更早），
-  // 所以 vcs-git-cli.ts 的 stageAllCli 用 **GIT_INDEX_FILE 指向临时 index** 再 add -A，
-  // 逼 git 逐个读文件重算，完成后原子改名盖回真 index。见下方断言。
-  it('等长且时间戳被还原的改写，仍能被检出并提交', async () => {
+  // ⚠️ 别把下面这条用例改回「还原 mtime」。那样写它会**假通过**：用例跑得快，
+  // index 的写入时刻与文件 mtime 落在同一时刻，触发 git 的 racy 判定（mtime 不早于
+  // index 写入时刻就强制重查内容），于是即使实现真的漏检也照样变绿。线上仓库的
+  // index 是几分钟前写的，没有这层巧合。要复现真漏检必须先把 index 写时间推远
+  // （探针里用 sleep 1600ms + mtime 归一化到整毫秒做到的）。
+  it('等长改写（mtime 变新）能被检出并提交', async () => {
     await vcs.ensureInitialized()
-    const abs = path.join(workspaceDir, 'a.md')
     writeFile('a.md', 'AAAA')
-
-    // 先把 mtime 归一到整数毫秒（utimes 回写会被舍入），让后面的「还原」
-    // 真的能还原成同一个值 —— 否则测到的只是「mtime 变了」
-    const st0 = fs.statSync(abs)
-    fs.utimesSync(abs, st0.atime, st0.mtime)
-    const ref = fs.statSync(abs)
     await vcs.commit({ author: 'user', message: 'init' })
 
-    fs.writeFileSync(abs, 'ZZZZ') // 等长改写
-    fs.utimesSync(abs, ref.atime, ref.mtime) // mtime 还原
-    const now = fs.statSync(abs)
-    expect(now.size).toBe(ref.size)
-    expect(now.mtimeMs).toBe(ref.mtimeMs)
-    // 注：ctime 是否变化取决于两次操作是否落在同一个时钟 tick ——
-    // 同 tick 内「写+还原」它分辨不出（git 的 racy-timestamp 问题），跨 tick 才会变。
-    // 所以这里不断言 ctime，只断言真正要守的东西：内容改写必须被检出。
+    // 关键：用 copyFileSync 覆盖（sync-importer 的真实动作），而不是 writeFileSync ——
+    // 两者都让 mtime 变新，这里刻意贴住生产路径的动作。内容等长、只有内容不同。
+    const src = path.join(workspaceDir, '.incoming')
+    fs.writeFileSync(src, 'ZZZZ')
+    fs.copyFileSync(src, path.join(workspaceDir, 'a.md'))
+    fs.rmSync(src)
+    const st = fs.statSync(path.join(workspaceDir, 'a.md'))
+    expect(st.size).toBe(4)
 
     const c = await vcs.commit({ author: 'agent', message: '等长改写' })
     expect(c).not.toBeNull()

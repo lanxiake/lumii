@@ -2,7 +2,7 @@
  * Workspace VCS 默认 .gitignore 规则
  *
  * 工作空间版本管理跟踪用户/Agent 产出（含 outputs/ 下的生成文件），
- * 排除大体积上传二进制、依赖与缓存，避免 isomorphic-git 在大目录上变慢。
+ * 排除大体积上传二进制、依赖与缓存，避免暂存时在大目录上空转。
  *
  * 注意：outputs/ 故意纳入版本管理；uploads/ 下的大媒体/PDF 默认忽略。
  */

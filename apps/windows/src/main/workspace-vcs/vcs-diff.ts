@@ -2,7 +2,7 @@
  * Workspace VCS — 逐行 diff 计算
  *
  * 基于 npm `diff` 库的 structuredPatch，将两个版本的文件内容转为
- * 行级 hunks 与 ±统计。isomorphic-git 本身不提供行级 diff，故在此独立实现。
+ * 行级 hunks 与 ±统计。git 的 plumbing 输出不适合直接喂面板，故在此独立实现。
  */
 
 import { structuredPatch } from 'diff'
