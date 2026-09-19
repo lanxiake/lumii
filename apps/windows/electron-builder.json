@@ -13,12 +13,8 @@
     "!out/**/*.map",
     "package.json",
     "node_modules/playwright-core/**/*",
-    "node_modules/@img/sharp-win32-x64/**/*",
-    "node_modules/sherpa-onnx-node/**/*",
-    "node_modules/sherpa-onnx-win-x64/**/*",
-    "node_modules/sherpa-onnx-win-ia32/**/*",
     "node_modules/msedge-tts/**/*",
-    "node_modules/silk-sdk/**/*",
+    "node_modules/silk-wasm/**/*",
     "node_modules/@xenova/transformers/**/*",
     "node_modules/onnxruntime-node/**/*",
     "node_modules/onnxruntime-common/**/*",
@@ -102,14 +98,10 @@
   ],
   "asar": true,
   "asarUnpack": [
-    "**/*.node",
     "**/*.wasm",
+    "**/*.node",
     "node_modules/sherpa-onnx-node/**/*",
-    "node_modules/sherpa-onnx-win-x64/**/*",
-    "node_modules/sherpa-onnx-win-ia32/**/*",
-    "node_modules/@img/sharp-win32-x64/**/*",
-    "node_modules/@ffmpeg-installer/**/*",
-    "node_modules/onnxruntime-node/**/*",
+    "node_modules/onnxruntime-node/bin/napi-v3/*/x64/*",
     "node_modules/@xenova/transformers/**/*"
   ],
   "win": {
@@ -140,7 +132,19 @@
     "artifactName": "${productName}-${version}-${arch}.${ext}",
     "requestedExecutionLevel": "asInvoker",
     "verifyUpdateCodeSignature": false,
-    "forceCodeSigning": false
+    "forceCodeSigning": false,
+    "files": [
+      "!node_modules/@img/sharp-linux-x64/**/*",
+      "!node_modules/@img/sharp-libvips-linux-x64/**/*",
+      "!node_modules/sherpa-onnx-linux-x64/**/*",
+      "!node_modules/onnxruntime-node/bin/napi-v3/linux/**/*",
+      "!node_modules/onnxruntime-node/bin/napi-v3/darwin/**/*"
+    ],
+    "asarUnpack": [
+      "node_modules/@img/sharp-win32-x64/**/*",
+      "node_modules/sherpa-onnx-win-x64/**/*",
+      "node_modules/sherpa-onnx-win-ia32/**/*"
+    ]
   },
   "nsis": {
     "oneClick": false,
@@ -172,6 +176,64 @@
   "portable": {
     "artifactName": "${productName}-${version}-portable.${ext}",
     "requestExecutionLevel": "user"
+  },
+  "linux": {
+    "target": [
+      {
+        "target": "AppImage",
+        "arch": [
+          "x64"
+        ]
+      },
+      {
+        "target": "deb",
+        "arch": [
+          "x64"
+        ]
+      }
+    ],
+    "icon": "assets/icon-512.png",
+    "executableName": "lumii",
+    "category": "Utility",
+    "artifactName": "${productName}-${version}-${arch}.${ext}",
+    "files": [
+      "!node_modules/@img/sharp-win32-x64/**/*",
+      "!node_modules/sherpa-onnx-win-x64/**/*",
+      "!node_modules/sherpa-onnx-win-ia32/**/*",
+      "!node_modules/onnxruntime-node/bin/napi-v3/win32/**/*",
+      "!node_modules/onnxruntime-node/bin/napi-v3/darwin/**/*"
+    ],
+    "asarUnpack": [
+      "node_modules/@img/sharp-linux-x64/**/*",
+      "node_modules/@img/sharp-libvips-linux-x64/**/*",
+      "node_modules/sherpa-onnx-linux-x64/**/*"
+    ],
+    "desktop": {
+      "entry": {
+        "Name": "Lumii",
+        "Name[zh_CN]": "灵栖 Lumii",
+        "Comment": "本地优先的 AI 桌面伙伴",
+        "Comment[zh_CN]": "本地优先的 AI 桌面伙伴",
+        "Categories": "Utility;",
+        "StartupWMClass": "lumii",
+        "Keywords": "ai;assistant;agent;"
+      }
+    }
+  },
+  "deb": {
+    "depends": [
+      "libsecret-1-0",
+      "libxss1"
+    ],
+    "recommends": [
+      "libayatana-appindicator3-1",
+      "fonts-noto-cjk",
+      "libnotify4"
+    ],
+    "afterInstall": "build-resources/deb-postinst.sh",
+    "afterRemove": "build-resources/deb-postrm.sh",
+    "artifactName": "${productName}-${version}-${arch}.${ext}",
+    "packageName": "lumii"
   },
   "publish": {
     "provider": "github",

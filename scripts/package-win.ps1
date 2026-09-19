@@ -21,7 +21,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $Root = Resolve-Path (Join-Path $PSScriptRoot '..')
 $WindowsRoot = Join-Path $Root 'apps\windows'
-$PackScript = Join-Path $WindowsRoot 'scripts\package-windows.js'
+$PackScript = Join-Path $WindowsRoot 'scripts\package-app.js'
 $StopScript = Join-Path $PSScriptRoot 'stop-dev.ps1'
 $Tag = 'Lumii'
 
@@ -41,7 +41,7 @@ function Set-Utf8Console {
 # Print usage help for the packaging wrapper.
 function Show-Help {
   Write-Host @"
-$Tag Windows packaging (wrapper around apps/windows/scripts/package-windows.js)
+$Tag Windows packaging (wrapper around apps/windows/scripts/package-app.js)
 
 Usage:
   .\scripts\package-win.ps1 [options]

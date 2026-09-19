@@ -12,12 +12,15 @@
     "dev:start": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/start-dev.ps1",
     "dev:stop": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/stop-dev.ps1",
     "dev:restart": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/start-dev.ps1 -Force",
-    "dist": "pnpm --filter ./apps/windows package:win",
-    "package:win": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/package-win.ps1",
+    "dist": "pnpm --filter ./apps/windows package",
+    "package:win": "node apps/windows/scripts/package-app.js --platform win",
     "typecheck": "pnpm -r typecheck",
     "check:large-files": "node scripts/check-large-files.mjs",
     "check:large-files:update": "node scripts/check-large-files.mjs --update",
     "verify": "pnpm typecheck && pnpm check:large-files && pnpm --filter @mtbot/agent-runtime test && pnpm --filter lumii-windows test:all",
-    "prepare": "echo skip githooks"
+    "prepare": "echo skip githooks",
+    "dist:win": "pnpm --filter ./apps/windows package:win",
+    "dist:linux": "pnpm --filter ./apps/windows package:linux",
+    "package:linux": "node apps/windows/scripts/package-app.js --platform linux"
   }
 }

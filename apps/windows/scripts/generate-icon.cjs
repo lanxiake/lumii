@@ -108,6 +108,24 @@ async function resizeIcon(size) {
 }
 
 /**
+ * Linux 图标需要 ≥512px 的 PNG（win 用 icon.ico）。
+ *
+ * 源图 assets/icon.png 只有 256px，这里升采样到 512。放大不会增加细节，
+ * 但 Linux 桌面图标要求该尺寸；待设计侧补出原生 512/1024 源图后，本函数自动
+ * 变成等比缩放，无需改动。
+ *
+ * 注意 assets/logo.png（663×653）不能当源图：它是无 alpha 的 RGB，四角是白底，
+ * 直接拿来会得到带白方块的图标。
+ */
+async function buildLinuxIcon(size) {
+  return sharp(ICON_PNG)
+    .resize(size, size, { fit: 'cover', position: 'centre' })
+    .ensureAlpha()
+    .png()
+    .toBuffer()
+}
+
+/**
  * 生成一帧 ICO 图像（小尺寸 BMP，大尺寸 PNG）。
  * @param {number} size
  */
@@ -142,7 +160,7 @@ function writeAtomic(dest, data) {
 }
 
 /**
- * 主入口：icon.png → icon.ico + tray-icon.png
+ * 主入口：icon.png → icon.ico（Windows）+ icon-512.png（Linux）+ tray-icon.png
  */
 async function main() {
   if (!fs.existsSync(ICON_PNG)) {
@@ -154,8 +172,9 @@ async function main() {
   const frames = await Promise.all(ICO_SIZES.map((size) => buildIconFrame(size)))
   writeAtomic(path.join(OUT_DIR, 'icon.ico'), imagesToIco(frames))
   writeAtomic(path.join(OUT_DIR, 'tray-icon.png'), await resizeIcon(32))
+  writeAtomic(path.join(OUT_DIR, 'icon-512.png'), await buildLinuxIcon(512))
 
-  console.log('[generate-icon] wrote icon.ico, tray-icon.png from assets/icon.png')
+  console.log('[generate-icon] wrote icon.ico, tray-icon.png, icon-512.png from assets/icon.png')
 }
 
 main().catch((err) => {

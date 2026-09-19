@@ -4,7 +4,8 @@
   "description": "灵栖 Lumii — 本地优先的 AI 桌面伙伴",
   "main": "out/main/index.js",
   "author": {
-    "name": "Lumii"
+    "name": "Lumii",
+    "email": "lumii@users.noreply.github.com"
   },
   "license": "MIT",
   "scripts": {
@@ -17,13 +18,12 @@
     "preview": "electron-vite preview",
     "clean": "node scripts/clean-build.js",
     "clean:deep": "rimraf out release node_modules/.cache",
-    "package": "node scripts/package-windows.js",
-    "package:win": "node scripts/package-windows.js",
+    "package": "node scripts/package-app.js",
+    "package:win": "node scripts/package-app.js --platform win",
     "package:win:x64": "pnpm build && electron-builder --win --x64 --config electron-builder.json",
     "package:win:ia32": "pnpm build && electron-builder --win --ia32 --config electron-builder.json",
     "package:nsis": "pnpm build && electron-builder --win nsis --x64 --ia32 --config electron-builder.json",
     "package:nsis:x64": "pnpm build && electron-builder --win nsis --x64 --config electron-builder.json",
-    "package:portable": "pnpm build && node scripts/package-portable.js",
     "package:zip": "pnpm build && electron-builder --win zip --x64 --config electron-builder.json",
     "package:dir": "pnpm build && electron-builder --dir --config electron-builder.json",
     "generate:icon": "node scripts/generate-icon.cjs",
@@ -41,11 +41,12 @@
     "test:e2e:headed": "playwright test --headed",
     "test:e2e:debug": "playwright test --debug",
     "rebuild:native": "node node_modules/@electron/rebuild/lib/cli.js --only better-sqlite3,sharp",
-    "postinstall": "node node_modules/@electron/rebuild/lib/cli.js --only better-sqlite3,sharp"
+    "postinstall": "node node_modules/@electron/rebuild/lib/cli.js --only better-sqlite3,sharp",
+    "package:linux": "node scripts/package-app.js --platform linux",
+    "package:linux:deb": "node scripts/package-app.js --platform linux --target deb"
   },
   "dependencies": {
     "@ffmpeg-installer/ffmpeg": "^1.1.0",
-    "@img/sharp-win32-x64": "^0.34.5",
     "@larksuiteoapi/node-sdk": "^1.73.3",
     "@mtbot/agent-runtime": "workspace:*",
     "@mtbot/browser-control": "workspace:*",
@@ -85,6 +86,12 @@
     "xlsx": "^0.18.5"
   },
   "optionalDependencies": {
+    "@img/sharp-libvips-linux-x64": "^1.2.4",
+    "@img/sharp-linux-x64": "^0.34.5",
+    "@img/sharp-win32-x64": "^0.34.5",
+    "onnxruntime-common": "1.14.0",
+    "onnxruntime-node": "1.14.0",
+    "sherpa-onnx-linux-x64": "^1.13.0",
     "sherpa-onnx-win-ia32": "^1.13.0",
     "sherpa-onnx-win-x64": "^1.13.0"
   },
@@ -130,5 +137,10 @@
     "vite": "^5.0.11",
     "vite-tsconfig-paths": "^6.1.1",
     "vitest": "^2.1.9"
+  },
+  "homepage": "https://github.com/lanxiake/lumii",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lanxiake/lumii.git"
   }
 }
