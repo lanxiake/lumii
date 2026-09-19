@@ -56,6 +56,8 @@ export const executeSkillToolConfig: MtBotToolConfig<typeof ExecuteSkillInput> =
   description:
     "Run an executable skill's entry point. Only for skills marked `[executable]` in the system prompt — " +
     "ordinary skills are documentation and go through `skill_invoke` instead. " +
+    "Pass an id from that `[executable]` list: other ids (even ones visible in the skills list, e.g. `skillnet`) " +
+    "are not executable and will fail here. " +
     "The skill runs locally, so it needs user confirmation.",
   parameters: ExecuteSkillInput,
   category: "agent",

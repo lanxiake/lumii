@@ -40,11 +40,21 @@ describe('skill_search', () => {
     expect(out.total).toBe(1)
   })
 
-  it('匹配不到时给 skillnet 兜底提示（且带上原始 query）', async () => {
+  it('匹配不到时如实报告；远程市场只是「用户主动的下一步」，不再教 execute_skill', async () => {
     const out = await run({ query: '不存在的技能xyz' })
     expect(out.total).toBe(0)
-    expect(out.hint).toContain('不存在的技能xyz')
     expect(out.hint).toContain('skillnet')
+    expect(out.hint).toContain('skill_invoke')
+    // 2026-09-19：本机 skillnet 是**文档技能**（无 [executable]），原提示让它去
+    // execute_skill('skillnet', …) —— 那条路径必然失败（"技能不存在"），
+    // 而失败文案又把模型推向 skill_invoke，构成 t11 实测到的完整越级链。
+    expect(out.hint).not.toContain('execute_skill')
+  })
+
+  it('工具描述里的远程市场入口是 skill_invoke 而不是 execute_skill', () => {
+    const desc = skillSearchToolConfig.description ?? ''
+    expect(desc).not.toMatch(/execute_skill\(\s*['"]skillnet/)
+    expect(desc).toContain('skill_invoke')
   })
 
   it('getSkills 缺失时给出可读结论而不是抛错', async () => {
