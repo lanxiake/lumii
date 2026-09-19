@@ -594,3 +594,72 @@ describe("LLM 错误落盘（历史回放要能说出失败原因）", () => {
     expect(lastContentJson(repo)).not.toHaveProperty("llmError");
   });
 });
+
+/**
+ * 中止标记落盘（2026-09-20 冒烟实测）
+ *
+ * 与 llmError 同一道理：实时中断态由 message:end 的 stopReason='aborted' 支撑，
+ * 重开会话后事件早没了、只剩 content_json —— 不落标记，被中止的子 Agent 运行块
+ * 在历史里只能显示「已完成」。
+ */
+describe("中止标记落盘（历史回放要能区分「已完成」与「已中断」）", () => {
+  function repoMocks() {
+    return {
+      updateMessageContent: vi.fn(),
+      deleteMessage: vi.fn(),
+      saveMessage: vi.fn(),
+      getConversation: vi.fn().mockReturnValue({ id: "conversation-1" }),
+      finalizeStreamingMessagesForConversation: vi.fn(),
+    };
+  }
+
+  function lastContentJson(repo: { updateMessageContent: ReturnType<typeof vi.fn> }) {
+    const arg = repo.updateMessageContent.mock.calls.at(-1)![0] as {
+      contentJson: Record<string, unknown>;
+    };
+    return arg.contentJson;
+  }
+
+  it("message:end stopReason=aborted → 落库内容带 aborted:true", async () => {
+    const repo = repoMocks();
+    const { handler, state } = buildHandler(repo);
+    state.pendingParts = [{ type: "thinking", id: "th1", text: "想一半被中止", status: "done" }];
+
+    await handler({ type: "message:end", stopReason: "aborted" } as never);
+
+    expect(lastContentJson(repo).aborted).toBe(true);
+  });
+
+  it("agent:end 收尾沿用中止标记（最终行重写时不丢）", async () => {
+    const repo = repoMocks();
+    const { handler, state } = buildHandler(repo);
+    state.pendingParts = [{ type: "thinking", id: "th1", text: "想一半被中止", status: "done" }];
+
+    await handler({ type: "message:end", stopReason: "aborted" } as never);
+    await handler({ type: "agent:end" } as never);
+
+    expect(lastContentJson(repo).aborted).toBe(true);
+  });
+
+  it("后续干净收尾清掉上一轮中止标记（不该把中断态粘到下一轮）", async () => {
+    const repo = repoMocks();
+    const { handler, state } = buildHandler(repo);
+    state.pendingParts = [{ type: "text", id: "t1", text: "被中止的一轮", status: "done" }];
+
+    await handler({ type: "message:end", stopReason: "aborted" } as never);
+    await handler({ type: "message:end", stopReason: "end_turn" } as never);
+    await handler({ type: "agent:end" } as never);
+
+    expect(lastContentJson(repo)).not.toHaveProperty("aborted");
+  });
+
+  it("正常轮次不写该字段（旧行为不变）", async () => {
+    const repo = repoMocks();
+    const { handler, state } = buildHandler(repo);
+    state.pendingParts = [{ type: "text", id: "t1", text: "一切正常", status: "done" }];
+
+    await handler({ type: "message:end", stopReason: "end_turn" } as never);
+
+    expect(lastContentJson(repo)).not.toHaveProperty("aborted");
+  });
+});

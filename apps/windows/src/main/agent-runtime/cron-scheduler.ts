@@ -266,6 +266,13 @@ export class CronScheduler {
   private readonly cronInstances = new Map<string, Cron>()
   /** 本次进程内已补跑过的过期 every 任务（防 reloadLocalCronScheduler 重复补跑） */
   private readonly caughtUpEveryJobs = new Set<string>()
+  /**
+   * stop() 后置位：飞行中的任务在下一个检查点安静退出（不再派发通知、不再记账）。
+   *
+   * 为什么不能只靠 isOpen：stop() 与 localDb.close() 之间还有窗口，
+   * 期间在飞的 tick 继续跑只会把「正在退出」拖成半完成收尾（2026-09-20 退出现场）。
+   */
+  private stopped = false
 
   constructor(
     private readonly localDb: LocalDatabase,
@@ -276,6 +283,7 @@ export class CronScheduler {
    * 启动所有调度器（在 bridge.initialize() 末尾调用）
    */
   start(): void {
+    this.stopped = false
     this.startLocalCronScheduler()
     this.startFileCleanupScheduler()
   }
@@ -284,6 +292,7 @@ export class CronScheduler {
    * 停止所有定时器（在 bridge.destroyAll() 中调用）
    */
   stop(): void {
+    this.stopped = true
     for (const timer of this.localCronTimers.values()) {
       clearTimeout(timer)
       clearInterval(timer)
@@ -596,6 +605,63 @@ export class CronScheduler {
       log.info(`[pruneExpiredOneShotJobs] 清理 ${stale.length} 条超额的已失效一次性任务`)
     } catch (err) {
       log.warn('[pruneExpiredOneShotJobs] 裁剪失败:', err)
+    }
+  }
+
+  /**
+   * 退出清场判据：调度器已停（stop()）或库已关闭（finalizeShutdown）。
+   * 飞行任务在每个检查点与每处记账写库前用它收手。
+   */
+  private isShuttingDown(): boolean {
+    return this.stopped || !this.localDb.isOpen
+  }
+
+  /**
+   * 任务状态记账（last_run_at / last_status）。库已关或调度已停时静默跳过。
+   *
+   * catch 路径也走这里：收尾写库若再抛，整个 promise 变成
+   * UnhandledPromiseRejection（2026-09-20 退出实测 ×2），且失败原因被二次错误顶掉。
+   */
+  private recordJobStatus(jobId: string, status: 'running' | 'ok' | 'error', at: number): void {
+    if (this.isShuttingDown()) return
+    try {
+      this.localDb.db
+        .prepare(`UPDATE local_cron_jobs SET last_run_at = ?, last_status = ? WHERE id = ?`)
+        .run(at, status, jobId)
+    } catch (err) {
+      log.warn(`[recordJobStatus] 写入任务状态失败 jobId=${jobId} status=${status}（已忽略）:`, err)
+    }
+  }
+
+  /** 执行记录记账（local_cron_runs）。守卫理由同 recordJobStatus。 */
+  private recordCronRun(run: {
+    id: string
+    jobId: string
+    status: 'ok' | 'error'
+    startedAt: number
+    finishedAt: number
+    summary: string | null
+    error: string | null
+  }): void {
+    if (this.isShuttingDown()) return
+    try {
+      this.localDb.db
+        .prepare(
+          `INSERT INTO local_cron_runs (id, job_id, status, started_at, finished_at, duration_ms, summary, error)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          run.id,
+          run.jobId,
+          run.status,
+          run.startedAt,
+          run.finishedAt,
+          run.finishedAt - run.startedAt,
+          run.summary,
+          run.error,
+        )
+    } catch (err) {
+      log.warn(`[recordCronRun] 写入执行记录失败 jobId=${run.jobId}（已忽略）:`, err)
     }
   }
 
@@ -1094,11 +1160,11 @@ export class CronScheduler {
     job: { id: string; task_text: string; agent_id: string | null },
     options: { manual?: boolean } = {},
   ): Promise<void> {
-    // 库已关闭 = 正在退出清场：计时器可能刚触发或已在飞行中。跳过而不是继续——
+    // 库已关闭 / 调度器已停 = 正在退出清场：计时器可能刚触发或已在飞行中。跳过而不是继续——
     // 下面每一处 localDb.db 都会抛 "Database not initialized"，把整个 tick 炸成失败
     // （2026-09-19 退出时 autonomous-tick 实测）。
-    if (!this.localDb.isOpen) {
-      log.warn(`[runLocalCronJob] 数据库已关闭（退出中），跳过 jobId=${job.id}`)
+    if (this.isShuttingDown()) {
+      log.warn(`[runLocalCronJob] 数据库已关闭或调度已停止（退出中），跳过 jobId=${job.id}`)
       return
     }
     if (this.localCronRunningJobs.has(job.id)) {
@@ -1144,9 +1210,7 @@ export class CronScheduler {
     log.info(`[runLocalCronJob] 开始执行 jobId=${job.id} taskText="${job.task_text.slice(0, 60)}" agentId=${job.agent_id ?? 'none'}`)
 
     // 执行前标记 running 状态
-    this.localDb.db.prepare(
-      `UPDATE local_cron_jobs SET last_run_at = ?, last_status = 'running' WHERE id = ?`
-    ).run(startedAt, job.id)
+    this.recordJobStatus(job.id, 'running', startedAt)
 
     try {
       // Companion 魔法指令拦截：优先走本地 companion handler，不创建 Agent 实例
@@ -1155,16 +1219,24 @@ export class CronScheduler {
         const companionResult = await companionHandler(job.task_text, {
           manual: options.manual === true,
         })
+        // 检查点：处理期间可能已进入退出清场（心跳要跑几十秒），就此安静收手
+        if (this.isShuttingDown()) {
+          log.warn(`[runLocalCronJob] 停机中，放弃收尾 jobId=${job.id}`)
+          return
+        }
         if (companionResult !== null) {
           log.info(`[runLocalCronJob] companion 指令处理完成 jobId=${job.id} result="${companionResult}"`)
           const finishedAt = Date.now()
-          this.localDb.db.prepare(
-            `UPDATE local_cron_jobs SET last_run_at = ?, last_status = 'ok' WHERE id = ?`
-          ).run(finishedAt, job.id)
-          this.localDb.db.prepare(
-            `INSERT INTO local_cron_runs (id, job_id, status, started_at, finished_at, duration_ms, summary, error)
-             VALUES (?, ?, 'ok', ?, ?, ?, ?, NULL)`
-          ).run(runId, job.id, startedAt, finishedAt, finishedAt - startedAt, companionResult)
+          this.recordJobStatus(job.id, 'ok', finishedAt)
+          this.recordCronRun({
+            id: runId,
+            jobId: job.id,
+            status: 'ok',
+            startedAt,
+            finishedAt,
+            summary: companionResult,
+            error: null,
+          })
           return
         }
       }
@@ -1185,6 +1257,12 @@ export class CronScheduler {
         } catch (err) {
           log.warn(`[runLocalCronJob] 回落默认 Agent 失败，退回通知模式 jobId=${job.id}:`, err)
         }
+      }
+      // 检查点：driveAgent 可能跑几十秒，其间进程可能已进入退出清场——
+      // 此时不再派发通知（推到一半没有意义）、不再记账（库已关，写了必抛）
+      if (this.isShuttingDown()) {
+        log.warn(`[runLocalCronJob] 停机中，跳过通知与记账 jobId=${job.id}`)
+        return
       }
       let notifyTargets = currentRow.notify_targets
       if (getDashboardFeedWriteVersion() > feedVersionBefore) {
@@ -1211,35 +1289,44 @@ export class CronScheduler {
       await this.deps.persistCronOutputToWiki?.(job.id, currentRow.name, output, finishedAt)
 
       // 更新任务状态为 ok + last_run_at
-      this.localDb.db.prepare(
-        `UPDATE local_cron_jobs SET last_run_at = ?, last_status = 'ok' WHERE id = ?`
-      ).run(finishedAt, job.id)
-      this.localDb.db.prepare(
-        `INSERT INTO local_cron_runs (id, job_id, status, started_at, finished_at, duration_ms, summary, error)
-         VALUES (?, ?, 'ok', ?, ?, ?, ?, NULL)`
-      ).run(runId, job.id, startedAt, finishedAt, finishedAt - startedAt, output.slice(0, 2000))
+      this.recordJobStatus(job.id, 'ok', finishedAt)
+      this.recordCronRun({
+        id: runId,
+        jobId: job.id,
+        status: 'ok',
+        startedAt,
+        finishedAt,
+        summary: output.slice(0, 2000),
+        error: null,
+      })
       log.info(`[runLocalCronJob] 执行完成 jobId=${job.id} durationMs=${finishedAt - startedAt}`)
     } catch (err) {
       log.error(`[runLocalCronJob] 执行失败 jobId=${job.id}:`, err)
       const finishedAt = Date.now()
       const message = err instanceof Error ? err.message : String(err)
-      // 更新任务状态为 error
-      this.localDb.db.prepare(
-        `UPDATE local_cron_jobs SET last_run_at = ?, last_status = 'error' WHERE id = ?`
-      ).run(finishedAt, job.id)
-      this.localDb.db.prepare(
-        `INSERT INTO local_cron_runs (id, job_id, status, started_at, finished_at, duration_ms, summary, error)
-         VALUES (?, ?, 'error', ?, ?, ?, NULL, ?)`
-      ).run(runId, job.id, startedAt, finishedAt, finishedAt - startedAt, message)
+      // 更新任务状态为 error（走守卫助手：退出竞态下记账写库不再抛，catch 绝不外抛）
+      this.recordJobStatus(job.id, 'error', finishedAt)
+      this.recordCronRun({
+        id: runId,
+        jobId: job.id,
+        status: 'error',
+        startedAt,
+        finishedAt,
+        summary: null,
+        error: message,
+      })
 
       // 失败必须外推：成功路径按 notify_targets 派发，失败此前零通知，
       // 命中的任务会静默消失（状态只在定时任务页里可见），用户无从知晓。
-      const failLabel = currentRow.name?.trim() || job.task_text.slice(0, 20)
-      const failBody = `执行失败：${message}`.slice(0, 120)
-      try {
-        this.deps.showCronNotification?.(`灵栖 · ${failLabel}`, failBody, `cron:${job.id}`)
-      } catch (notifyErr) {
-        log.warn(`[runLocalCronJob] 失败通知发送异常 jobId=${job.id}:`, notifyErr)
+      // 退出清场中的「失败」多是关库竞态产物（Database not initialized），不推。
+      if (!this.isShuttingDown()) {
+        const failLabel = currentRow.name?.trim() || job.task_text.slice(0, 20)
+        const failBody = `执行失败：${message}`.slice(0, 120)
+        try {
+          this.deps.showCronNotification?.(`灵栖 · ${failLabel}`, failBody, `cron:${job.id}`)
+        } catch (notifyErr) {
+          log.warn(`[runLocalCronJob] 失败通知发送异常 jobId=${job.id}:`, notifyErr)
+        }
       }
     } finally {
       this.localCronRunningJobs.delete(job.id)

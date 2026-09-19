@@ -357,6 +357,107 @@ describe("AgentOrchestrator", () => {
     expect(orch.broker.drainCompletions("parent-1")).toHaveLength(1);
   });
 
+  it("sync 委托被中止 → status:'aborted'，broker 记 cancelled（2026-09-20 前误记 succeeded）", async () => {
+    const child = {
+      id: "child-abort",
+      subscribe: () => () => {},
+      waitForIdle: async () => {},
+      wasAborted: true,
+    } as unknown as AgentInstance;
+
+    const orch = new AgentOrchestrator(registry, bus, {
+      resolveDefinition: async () => mockDef("assistant"),
+      createChildInstance: async () => "child-abort",
+      prompt: vi.fn().mockResolvedValue(undefined),
+      followUp: vi.fn(),
+      destroy: vi.fn(),
+      getInstance: () => child,
+      findInstanceByRecipient: () => undefined,
+      getDisplayNameForInstance: (id) => id,
+    });
+
+    const r = await orch.spawnAgent({ name: "sub", prompt: "go" }, "parent-1");
+
+    expect(r.status).toBe("aborted");
+    if (r.status === "aborted") {
+      expect(r.instanceId).toBe("child-abort");
+      expect(r.mode).toBe("sync");
+      expect(r.agentName).toBe("assistant");
+    }
+    // broker 端终态必须是 cancelled：下游（工具结果/卡片）据此显示「已中断」
+    expect(orch.broker.getRun("child-abort")?.status).toBe("cancelled");
+  });
+
+  it("sync 委托被 stale 看门狗杀掉 → 返回 error（不是 aborted，也不是成功）", async () => {
+    let aborted = false;
+    let releaseIdle: (() => void) | undefined;
+    const idleWait = new Promise<void>((resolve) => {
+      releaseIdle = resolve;
+    });
+    const child = {
+      id: "child-stale-sync",
+      subscribe: () => () => {},
+      waitForIdle: () => idleWait,
+      get wasAborted() {
+        return aborted;
+      },
+      abort: () => {
+        aborted = true;
+      },
+    } as unknown as AgentInstance;
+
+    const orch = new AgentOrchestrator(registry, bus, {
+      resolveDefinition: async () => mockDef("assistant"),
+      createChildInstance: async () => "child-stale-sync",
+      // 与真实场景同序：prompt 挂起期间看门狗先杀（abort + broker finalize stale），
+      // sync 等待随后才返回——此时终态应报「失败」，不是「中断」
+      prompt: vi.fn(async () => {
+        orch.handleStaleChild("child-stale-sync");
+        releaseIdle?.();
+      }),
+      followUp: vi.fn(),
+      destroy: vi.fn(),
+      getInstance: () => child,
+      findInstanceByRecipient: () => undefined,
+      getDisplayNameForInstance: (id) => id,
+      onAsyncSubagentComplete: vi.fn(),
+    });
+
+    const r = await orch.spawnAgent({ name: "slow", prompt: "go" }, "parent-1");
+
+    expect(r.status).toBe("error");
+    if (r.status === "error") {
+      expect(r.message).toContain("stale");
+    }
+  });
+
+  it("async 委托被中止 → 完成通知 status=cancelled（不是 succeeded）", async () => {
+    const onAsync = vi.fn();
+    const child = {
+      id: "child-abort-async",
+      subscribe: () => () => {},
+      waitForIdle: async () => {},
+      wasAborted: true,
+    } as unknown as AgentInstance;
+
+    const orch = new AgentOrchestrator(registry, bus, {
+      resolveDefinition: async () => mockDef("assistant"),
+      createChildInstance: async () => "child-abort-async",
+      prompt: vi.fn().mockResolvedValue(undefined),
+      followUp: vi.fn(),
+      destroy: vi.fn(),
+      getInstance: () => child,
+      findInstanceByRecipient: () => undefined,
+      getDisplayNameForInstance: (id) => id,
+      onAsyncSubagentComplete: onAsync,
+    });
+
+    await orch.spawnAgent({ name: "worker", prompt: "go", mode: "async" }, "parent-1");
+
+    await vi.waitFor(() => expect(onAsync).toHaveBeenCalledTimes(1));
+    expect((onAsync.mock.calls[0]![0] as SubagentCompletionPayload).status).toBe("cancelled");
+  });
+
   it("listChildren / interruptChild / steerChild", async () => {
     const onAsync = vi.fn();
     const abort = vi.fn();

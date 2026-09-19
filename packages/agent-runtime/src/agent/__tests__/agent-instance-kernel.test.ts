@@ -70,6 +70,27 @@ describe("AgentInstance with FakeAgentKernel", () => {
     expect(instance.state).toBe("aborted");
   });
 
+  it("abort() 置 wasAborted；下一次 prompt() 重置（编排层据此判定中止终态）", async () => {
+    const kernel = new FakeAgentKernel({ replyText: "ok" });
+    const instance = new AgentInstance(makeConfig(kernel));
+
+    expect(instance.wasAborted).toBe(false);
+    instance.abort();
+    expect(instance.wasAborted).toBe(true);
+
+    await instance.prompt("新的一轮");
+    expect(instance.wasAborted).toBe(false);
+  });
+
+  it("destroy() 不算中止（销毁是拆机，不是用户打断）", () => {
+    const kernel = new FakeAgentKernel({ replyText: "never" });
+    const instance = new AgentInstance(makeConfig(kernel));
+
+    instance.destroy();
+
+    expect(instance.wasAborted).toBe(false);
+  });
+
   it("destroyed 实例拒绝 prompt", async () => {
     const kernel = new FakeAgentKernel();
     const instance = new AgentInstance(makeConfig(kernel));

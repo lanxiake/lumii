@@ -239,6 +239,17 @@ export class BridgeToolRegistrar {
         if (result.status === 'error') {
           return jsonToolResult({ status: 'error', message: result.message })
         }
+        if (result.status === 'aborted') {
+          // 中止透传给渲染层：卡片据此显示「已中断」，而不是「已完成」
+          return jsonToolResult({
+            status: 'aborted',
+            instanceId: result.instanceId,
+            mode: 'sync' as const,
+            agentDefinitionId: result.agentDefinitionId,
+            agentName: result.agentName,
+            message: result.message,
+          })
+        }
         if (result.mode === 'sync') {
           // sync 返回时附带强制提示，避免主 Agent 收到 output 后仍然沉默、
           // 不把子 Agent 结果转达给用户（配合系统提示词的 Sub-agent Delegation 规则）。

@@ -50,6 +50,14 @@ export type AssistantPartsContent = {
    * 散文（2026-09-20 补）。缺省不写该字段，旧数据不受影响。
    */
   llmError?: { code: string; message: string; retryable: boolean };
+  /**
+   * 本轮以**被中止**收场（用户级联 abort / 超时兜底），历史回放靠它显示中断态。
+   *
+   * 与 llmError 同理：实时态由 message:end 的 stopReason 支撑，重开会话后事件早没了
+   * ——不存它，被中止的子 Agent 运行块只能显示「已完成」（2026-09-20 补）。
+   * 缺省不写该字段，旧数据不受影响。
+   */
+  aborted?: boolean;
 };
 
 /** 流式事件，用于归约进 parts */

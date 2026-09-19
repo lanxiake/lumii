@@ -32,6 +32,7 @@ const CLIENT_REGISTERED_NAMES: readonly string[] = [
   "weixin_send_guide",
   "prompt_guide",
   "browser_navigate",
+  "browser_snapshot",
   "browser_screenshot",
   "browser_click",
   "browser_type",

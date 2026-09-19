@@ -52,6 +52,13 @@ export interface EvolutionTickDeps {
   plan?: (agentId: string) => Promise<string | null>
   /** 当前时间（可注入，默认 new Date()；测试用于固定静默时段） */
   now?: () => Date
+  /**
+   * 是否正在退出清场（库已关闭）。缺省视为否——旧注入点不受影响。
+   *
+   * tick 的动作（executeGoal 等）可能跑几十秒，返回时进程可能已在关库；
+   * 记账写库前先问这里，避免把已完成的心跳炸成 "Database not initialized"（2026-09-20 退出实测）。
+   */
+  isShuttingDown?: () => boolean
   /** 驱动待处理的云同步冲突目标（系统维护，独立于自主进化开关与能量/预算门闩）。
    *  由 bridge 注入，在心跳 tick 中检测到 type='system-maintenance' 的 executing 目标时调用。
    *  冲突的主路径是 index.ts 的 onConflictDetected / SyncScheduler.setOnConflictPending，
@@ -70,6 +77,11 @@ export interface EvolutionTickDeps {
  * 返回值写入 local_cron_runs.summary，供定时任务页查看。
  */
 export async function handleEvolutionTick(deps: EvolutionTickDeps): Promise<string> {
+  // 退出清场检查点（最先）：库已关时下面每个 deps 回调一碰 DB 就抛
+  if (deps.isShuttingDown?.()) {
+    log.warn('[handleEvolutionTick] 退出清场中，跳过本次心跳')
+    return 'skipped: shutting down'
+  }
   try {
     // ── 云同步冲突目标优先处理 ──
     // 系统维护任务（assistant 专属），独立于自主进化开关 / 能量 / token 预算 / 用户对话阻塞。
@@ -117,6 +129,11 @@ export async function handleEvolutionTick(deps: EvolutionTickDeps): Promise<stri
 
 /** 单个 Agent 的「感知 → 决策 → 执行」 */
 async function runTickForAgent(deps: EvolutionTickDeps, agentId: string, now: Date): Promise<string> {
+  // 检查点：多 Agent 循环逐个体检时，前一个 Agent 跑完可能已到关库边界
+  if (deps.isShuttingDown?.()) {
+    log.warn(`[handleEvolutionTick] 退出清场中，跳过 agent=${agentId}`)
+    return 'skipped: shutting down'
+  }
   const signals = collectTickSignals(deps.getDb(), agentId, now)
 
   // 健康检查（保活看门狗）：卡死的 executing 目标只记日志告警，不阻断、不自动改状态。
@@ -149,23 +166,41 @@ async function runTickForAgent(deps: EvolutionTickDeps, agentId: string, now: Da
   }
   if (action.kind === 'execute-goal' && action.goal) {
     const result = await deps.executeGoal(action.goal, agentId, action.selfCheckBias)
-    recordTokenUsage(deps.getDb(), now, TOKEN_COST.executeGoal)
+    recordUsageIfLive(deps, now, TOKEN_COST.executeGoal, agentId)
     log.info(`[handleEvolutionTick] agent=${agentId} execute-goal goalId=${action.goal.id} result=${result}`)
     return `execute-goal: ${result}`
   }
   if (action.kind === 'reflect') {
     const result = await deps.reflect(agentId)
-    recordTokenUsage(deps.getDb(), now, TOKEN_COST.reflect)
+    recordUsageIfLive(deps, now, TOKEN_COST.reflect, agentId)
     log.info(`[handleEvolutionTick] agent=${agentId} reflect result=${result}`)
     return `reflect: ${result}`
   }
   if (action.kind === 'diary') {
     const result = await deps.writeDiary(agentId)
-    recordTokenUsage(deps.getDb(), now, TOKEN_COST.writeDiary)
+    recordUsageIfLive(deps, now, TOKEN_COST.writeDiary, agentId)
     log.info(`[handleEvolutionTick] agent=${agentId} diary result=${result}`)
     return `diary: ${result}`
   }
   return 'unknown'
+}
+
+/**
+ * token 记账守卫：动作（executeGoal 等）跑完时进程可能已在关库——
+ * 此刻 recordTokenUsage 必抛 "Database not initialized"，把一次已完成的心跳炸成失败。
+ * 记账只是预算簿记，停机中丢一条无妨。
+ */
+function recordUsageIfLive(
+  deps: EvolutionTickDeps,
+  now: Date,
+  tokens: number,
+  agentId: string,
+): void {
+  if (deps.isShuttingDown?.()) {
+    log.warn(`[handleEvolutionTick] 退出清场中，跳过 token 记账 agent=${agentId}`)
+    return
+  }
+  recordTokenUsage(deps.getDb(), now, tokens)
 }
 
 /**

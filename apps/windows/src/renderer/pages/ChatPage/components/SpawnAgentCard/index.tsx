@@ -146,8 +146,12 @@ export const SpawnAgentCard: React.FC<SpawnAgentCardProps> = ({
    */
   const hasResult = part.result !== undefined
   const isRunning = !hasResult && part.status === 'running' && messageStreaming !== false
-  /** 中断残留：既没有结果，消息也已不在流式。主动中断不是失败，单独成态。 */
-  const isInterrupted = !hasResult && !isRunning
+  /**
+   * 中断残留：既没有结果，消息也已不在流式。主动中断不是失败，单独成态。
+   * 有结果但 `status === 'aborted'` 同样是中断——orchestrator 现已把被中止的委托
+   * 标为独立终态（此前照常返回 ok，卡片显示「已完成」，2026-09-20 冒烟实测）。
+   */
+  const isInterrupted = (!hasResult && !isRunning) || result?.status === 'aborted'
   const isFailed = !isRunning && !isInterrupted && (part.isError === true || result?.status === 'error')
   const output = typeof result?.output === 'string' ? result.output.trim() : ''
 

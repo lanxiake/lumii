@@ -1439,6 +1439,7 @@ export class AgentRuntimeBridge {
             runEvolutionTick: () =>
               handleEvolutionTick({
                 getDb: () => this.localDb.db,
+                isShuttingDown: () => !this.localDb.isOpen,
                 isAutonomousEnabled: () => readAutonomousEnabled(this.localDb.db),
                 driveConflictGoal: () => this.executeSyncConflictGoal(),
                 listAutonomousAgentIds: () => this.listAutonomousAgentIds(),

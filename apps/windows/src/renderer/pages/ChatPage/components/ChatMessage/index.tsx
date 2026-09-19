@@ -47,6 +47,7 @@ import {
   MATH_MAX_CHARS,
   type HastNode,
 } from './markdown-limits'
+import { extractToolErrorText } from './tool-result-text'
 import styles from './ChatMessage.module.css'
 
 interface ChatMessageProps {
@@ -445,7 +446,7 @@ function toWorkflowItem(
     title: part.name,
     input: part.args,
     output: part.result,
-    error: part.isError ? String(part.result ?? '工具执行失败') : undefined,
+    error: part.isError ? extractToolErrorText(part.result) : undefined,
     startTime: context.timestamp,
     runId: context.runId ?? '',
     toolCallId: part.id,
@@ -666,7 +667,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
             lines.push(`输出:\n${typeof part.result === 'string' ? part.result : JSON.stringify(part.result, null, 2)}`)
           }
           if (part.isError) {
-            lines.push(`错误: ${String(part.result ?? '工具执行失败')}`)
+            lines.push(`错误: ${extractToolErrorText(part.result)}`)
           }
           parts.push(lines.join('\n'))
         }

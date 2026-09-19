@@ -45,3 +45,10 @@ export { ensureChromeExtensionRelayServer } from "./browser/extension-relay.js";
 
 // Routes dispatcher
 export { createBrowserRouteDispatcher } from "./browser/dispatcher.js";
+
+// 宿主落盘实现注入（截图 / PDF / labels 快照路由依赖）
+export {
+  setBrowserMediaStore,
+  getBrowserMediaStore,
+  type BrowserMediaStore,
+} from "./browser/media-store.js";

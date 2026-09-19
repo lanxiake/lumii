@@ -72,6 +72,11 @@ export interface RuntimeMessage {
   /** 结构化 LLM 错误（与 llmError 二选一展示） */
   readonly llmError?: { readonly code: string; readonly message: string; readonly retryable: boolean }
   /**
+   * 该消息所在回合被中止（message:end 的 stopReason === 'aborted'；历史回放来自落库标记）。
+   * 渲染层用它显示「回复已中断」徽标、让子 Agent 运行块显示「已中断」而不是「已完成」。
+   */
+  readonly isAborted?: boolean
+  /**
    * 本轮回复是否使用了本地热记忆（来自 IPC agent:message:end）
    */
   readonly injectedMemories?: readonly {
