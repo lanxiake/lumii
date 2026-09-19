@@ -21,6 +21,7 @@ import {
   type CapabilitySlot,
 } from '../provider-config'
 import { listProviderModels, testProviderConnection } from '../provider-probe'
+import { getOpenAtLogin, setOpenAtLogin } from '../platform/autostart'
 import { queryUsage, type UsageQuery } from '../usage-store'
 import { getLatency } from '../provider-latency'
 import { readNewsSnapshot } from '../news-store'
@@ -296,10 +297,12 @@ export function registerApiIpcHandlers(): void {
   })
 
   // === 开机启动 ===
+  // 平台差异收敛到 platform/autostart.ts：Windows/macOS 走 Electron 的
+  // setLoginItemSettings，Linux 走 XDG autostart（Electron 不支持该 API）。
   ipcMain.handle('app:getOpenAtLogin', async () => {
-    const loginItemSettings = app.getLoginItemSettings()
-    deps!.log.info('获取开机启动状态:', loginItemSettings.openAtLogin)
-    return loginItemSettings.openAtLogin
+    const enabled = getOpenAtLogin()
+    deps!.log.info('获取开机启动状态:', enabled)
+    return enabled
   })
 
   ipcMain.handle('app:setOpenAtLogin', async (_event, enable: boolean) => {
@@ -307,12 +310,7 @@ export function registerApiIpcHandlers(): void {
       throw new Error('参数必须为布尔值')
     }
     deps!.log.info('设置开机启动:', enable)
-    app.setLoginItemSettings({
-      openAtLogin: enable,
-      // 开机启动时携带参数，用于检测是否由系统自动启动（隐藏到托盘）
-      args: enable ? ['--startup-launched'] : [],
-    })
-    return app.getLoginItemSettings().openAtLogin
+    return setOpenAtLogin(enable)
   })
 
   // --- Agent 管理接口 ---
