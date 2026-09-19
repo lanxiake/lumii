@@ -460,3 +460,49 @@ describe("极简档 minimal（P3）", () => {
     }
   });
 });
+
+/**
+ * personality 与工具能力一致性
+ *
+ * 回归背景（2026-09-19）：assistant 的 personality 写死了「you MUST delegate ... use
+ * `spawn_agent`」，而子 Agent / 自主进化受限实例继承同一 personality 却没有该工具
+ * （bridge-lifecycle.createChildInstance、bridge.ts 的受限定义都摘掉了 spawn_agent）。
+ * 结果子 Agent 照指令调用 spawn_agent → "Tool spawn_agent not found"，任务白跑一轮。
+ */
+describe("buildClientSystemPromptStructured — personality 委派口径与工具对齐", () => {
+  /** 继承 assistant personality（含委派指令）的受限实例 */
+  const RESTRICTED_DEF: AgentDefinition = {
+    ...BASE_DEF,
+    personality: "=== Role ===\nFor non-trivial work, delegate with `spawn_agent`.",
+  };
+
+  const OVERRIDE_HEADER = "## Tool Availability (overrides the instructions above)";
+
+  it("personality 提到 spawn_agent 但工具缺失 → 追加更正说明", () => {
+    const { staticPrompt } = buildClientSystemPromptStructured({
+      agentDefinition: RESTRICTED_DEF,
+      toolNames: ["file_read", "file_write", "bash"],
+      cwd: "/workspace",
+    });
+    expect(staticPrompt).toContain(OVERRIDE_HEADER);
+    expect(staticPrompt).toContain("Ignore any earlier instruction to delegate");
+  });
+
+  it("工具齐全时不追加（主 Agent 照常委派）", () => {
+    const { staticPrompt } = buildClientSystemPromptStructured({
+      agentDefinition: RESTRICTED_DEF,
+      toolNames: ["spawn_agent", "file_read"],
+      cwd: "/workspace",
+    });
+    expect(staticPrompt).not.toContain(OVERRIDE_HEADER);
+  });
+
+  it("personality 未提委派 → 不追加（不给无委派能力的 Agent 灌口水）", () => {
+    const { staticPrompt } = buildClientSystemPromptStructured({
+      agentDefinition: { ...BASE_DEF, personality: "Concise and pragmatic." },
+      toolNames: ["file_read"],
+      cwd: "/workspace",
+    });
+    expect(staticPrompt).not.toContain("## Tool Availability");
+  });
+});

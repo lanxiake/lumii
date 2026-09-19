@@ -270,3 +270,15 @@ Your team also includes resident specialists (listed under "Team specialists" in
 export const ASSISTANT_WHEN_TO_USE =
   "General-purpose agent for research, code search, and multi-step tasks. " +
   "Use when you want a single agent to handle a task end-to-end without specialized sub-agent coordination.";
+
+/**
+ * 委派口径更正：personality 要求委派、但本实例没有 `spawn_agent` 时，由 system-prompt-builder 追加。
+ *
+ * 受限实例都长这样：`{...assistant 定义, canSpawnSubAgents: false, tools: 白名单}` ——
+ * 子 Agent（bridge-lifecycle.createChildInstance）与自主进化/目标执行实例（bridge.ts）共用这条路。
+ * personality 被原样继承，里面写着「you MUST delegate ... use spawn_agent」，工具却已被摘掉。
+ * 2026-09-19 实测：子 Agent 照指令调用 spawn_agent → 工具返回「Tool spawn_agent not found」，
+ * 同一实例连撞两次，任务白跑一轮。所以这段必须显式声明「覆盖上文」，而不是仅作补充。
+ */
+export const NO_DELEGATION_TOOLS_NOTE = `## Tool Availability (overrides the instructions above)
+Delegation is NOT available to this instance: \`spawn_agent\` and team handoff tools are absent from your tool set, and calling them fails with "Tool not found". Ignore any earlier instruction to delegate, spawn sub-agents, or hand work off — you are running as a delegated worker yourself. Do the task directly with the tools you have, then report the result.`;
