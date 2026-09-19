@@ -1,0 +1,529 @@
+{
+  "_comment": "v7 种子标注（人工）。与 v6 的根本区别：(1) gold 是 drawer_id，判据不做任何子串匹配；(2) query 由标注者**另行措辞**，刻意避开抽屉原文用词，从根上消除判据泄漏；(3) 允许多 gold（池化阶段补判，见 expand 脚本）。查询一律写成「用户回头找这件事」的回忆型，不是动作指令——这是 v6 最大的效度缺陷（81% 是动作指令）。intent 字段标注该查询考什么：lexical=字面词能命中，paraphrase=换了说法，semantic=几乎无字面重叠。",
+  "annotatedAt": "2026-09-19",
+  "annotator": "human-in-the-loop (读抽屉原文后手写查询)",
+  "criterion": "gold 命中判据 = 返回的 drawer_id ∈ golds。禁止子串匹配。",
+  "queries": [
+    {
+      "id": "v7-001",
+      "query": "早间简报那个定时任务为什么没用 cron 表达式写",
+      "golds": [
+        "f36d767d5866c61e"
+      ],
+      "intent": "paraphrase",
+      "note": "抽屉讲工具层只收 at/every、用链式续排；查询问「为什么不用 cron」"
+    },
+    {
+      "id": "v7-002",
+      "query": "每天九点推送资讯摘要的任务是怎么实现循环的",
+      "golds": [
+        "9e1edc7620e7fa62"
+      ],
+      "intent": "paraphrase",
+      "note": "一次性+自我续期"
+    },
+    {
+      "id": "v7-003",
+      "query": "之前把训练方案那个文档念成语音发飞书，用的什么声音",
+      "golds": [
+        "79e2a6016f7e4157"
+      ],
+      "intent": "paraphrase",
+      "note": "Serena 女声、正常语速"
+    },
+    {
+      "id": "v7-004",
+      "query": "命令输出太大的时候内容会被放到哪里",
+      "golds": [
+        "84449b56ce63049f",
+        "4c1fba8daf54ed39"
+      ],
+      "intent": "semantic",
+      "note": "落盘到 .tool-results/，对话只留预览"
+    },
+    {
+      "id": "v7-005",
+      "query": "shell 里非零退出码会不会被兜底吞掉",
+      "golds": [
+        "49a9e2a0a357b98f",
+        "c5b943c8032bd7a5"
+      ],
+      "intent": "semantic",
+      "note": "exit 3 实测，退出码如实传回"
+    },
+    {
+      "id": "v7-006",
+      "query": "切换到不存在的会话时工具怎么报错的",
+      "golds": [
+        "111556166ee36d96",
+        "59c6a1533eda4065"
+      ],
+      "intent": "paraphrase",
+      "note": "session_resume 返回明确错误+补救提示"
+    },
+    {
+      "id": "v7-007",
+      "query": "改文件时目标字符串找不到，匹配器会降级几次",
+      "golds": [
+        "a414c0fb3ed10bbe",
+        "29b73b05a1cd509c"
+      ],
+      "intent": "semantic",
+      "note": "三级：精确→行首尾裁剪→空白归一化"
+    },
+    {
+      "id": "v7-008",
+      "query": "读一个不存在的文件会抛什么系统错误",
+      "golds": [
+        "35f3d961854960c3",
+        "698373be9b41df0c",
+        "d60ddeb41c227e28"
+      ],
+      "intent": "paraphrase",
+      "note": "ENOENT，含错误码与完整路径"
+    },
+    {
+      "id": "v7-009",
+      "query": "搜过一个跟偷东西有关的词，四个通道都没结果那次",
+      "golds": [
+        "14aa2a519ba6de0b",
+        "179becb6173e3518"
+      ],
+      "intent": "semantic",
+      "note": "搜「盗窃」零命中；查询刻意不用「盗窃」二字"
+    },
+    {
+      "id": "v7-010",
+      "query": "教程全文发出去时哪个渠道失败了，原因是什么",
+      "golds": [
+        "d1bc095529a7a34f"
+      ],
+      "intent": "paraphrase",
+      "note": "QQ 通道从未激活、无可投递对象"
+    },
+    {
+      "id": "v7-011",
+      "query": "那次检索十条结果全来自同一个通道，是哪个",
+      "golds": [
+        "528753f47e69a023"
+      ],
+      "intent": "paraphrase",
+      "note": "全部 work-memory，palace/profile/scene 均 0"
+    },
+    {
+      "id": "v7-012",
+      "query": "做完那套教程后总结的研究流程，最值钱的几条规矩是什么",
+      "golds": [
+        "44178897853d2092"
+      ],
+      "intent": "semantic",
+      "note": "方法论复盘六条"
+    },
+    {
+      "id": "v7-013",
+      "query": "07 那个计划最后是怎么收场的",
+      "golds": [
+        "e76ab25db686a5bf"
+      ],
+      "intent": "semantic",
+      "note": "改名「暂时不做复杂且价值不大」并结案"
+    },
+    {
+      "id": "v7-014",
+      "query": "核验论文来源时被墙挡住，最后靠什么绕过去的",
+      "golds": [
+        "1ace1dcf2bf8c727"
+      ],
+      "intent": "semantic",
+      "note": "Bing 可达、anthropic.com/platform.claude.com 可直连、中文镜像"
+    },
+    {
+      "id": "v7-015",
+      "query": "那批研究 Agent 第一次启动全失败是什么原因",
+      "golds": [
+        "ff5d541bf3acddf5"
+      ],
+      "intent": "paraphrase",
+      "note": "agentType: worker 不是合法类型"
+    },
+    {
+      "id": "v7-016",
+      "query": "体检报告里那条结论互相矛盾的记录是关于哪个服务的",
+      "golds": [
+        "5d5250195a3ef191",
+        "1d28b8c7d70cedeb"
+      ],
+      "intent": "semantic",
+      "note": "sjzh-service 启动失败 vs 部署成功"
+    },
+    {
+      "id": "v7-017",
+      "query": "为什么企业微信列不出任何群",
+      "golds": [
+        "96f10246f4e13613"
+      ],
+      "intent": "lexical",
+      "note": "只回不推、没被 @ 过所以无可寻址会话"
+    },
+    {
+      "id": "v7-018",
+      "query": "记忆条目被挤掉的真正原因是时间衰减吗",
+      "golds": [
+        "86e4f177b985b649",
+        "c4647091e790ea97"
+      ],
+      "intent": "semantic",
+      "note": "不是衰减，是相关性门控 token overlap < 0.15"
+    },
+    {
+      "id": "v7-019",
+      "query": "排查那两台机器时为什么坚持用容器名而不是 ID",
+      "golds": [
+        "34094e453f5d0eef"
+      ],
+      "intent": "paraphrase",
+      "note": "ID 是快照、容器重建就变"
+    },
+    {
+      "id": "v7-020",
+      "query": "运维速查手册里每天巡检最关键的那条 SQL 查什么",
+      "golds": [
+        "bb1026d0e773f64d"
+      ],
+      "intent": "paraphrase",
+      "note": "lag_minutes"
+    },
+    {
+      "id": "v7-021",
+      "query": "补数之后为什么业务库还是认领不到工单",
+      "golds": [
+        "6177099959cb162f",
+        "676b8981f4ef689c",
+        "95de1a2ea93390f3",
+        "285e7ecdf58ce424"
+      ],
+      "intent": "semantic",
+      "note": "多 gold：sjsc 按业务时间筛窗口，历史补单落不进；两条抽屉都讲这个推演"
+    },
+    {
+      "id": "v7-022",
+      "query": "数据库把主机拉黑了怎么解开",
+      "golds": [
+        "b09d06665a58f97f",
+        "33cbafeb570f33b1",
+        "8c1576c6a8690d73"
+      ],
+      "intent": "paraphrase",
+      "note": "flush-hosts，先解封再重启"
+    },
+    {
+      "id": "v7-023",
+      "query": "那几个应用真正连的生产库到底是哪台",
+      "golds": [
+        "00a448f23586918b",
+        "b72d4eb05feef5ea"
+      ],
+      "intent": "paraphrase",
+      "note": ".161 实锤，159:9306 是注释掉的迁移遗留"
+    },
+    {
+      "id": "v7-024",
+      "query": "查 ODS 表查不到数据，是连不上还是表不在",
+      "golds": [
+        "6479c8fe86ee9446"
+      ],
+      "intent": "semantic",
+      "note": "连上了、表确实没有，数据源在别处"
+    },
+    {
+      "id": "v7-025",
+      "query": "日志里有密钥明文泄露那次是哪个平台的凭证",
+      "golds": [
+        "202c436d1a147941"
+      ],
+      "intent": "paraphrase",
+      "note": "钉钉 appkey+appsecret"
+    },
+    {
+      "id": "v7-026",
+      "query": "TOCC 到底是上报对象还是数据来源",
+      "golds": [
+        "4d59b14f132664c0"
+      ],
+      "intent": "lexical",
+      "note": "是上游数据源，不是上报对象"
+    },
+    {
+      "id": "v7-027",
+      "query": "启动时接管遗留段那个改动动了哪些文件",
+      "golds": [
+        "308e2e258dab4d1a"
+      ],
+      "intent": "paraphrase",
+      "note": "recoverPending()，segment-memory-service.ts + bridge.ts"
+    },
+    {
+      "id": "v7-028",
+      "query": "金砖那篇稿子里，转载摘要多出来的说法是什么",
+      "golds": [
+        "3a51c139f3ea0ee4"
+      ],
+      "intent": "semantic",
+      "note": "「结算机制」原文没有"
+    },
+    {
+      "id": "v7-029",
+      "query": "那台机器内存被吃穿，最大嫌疑是哪个组件",
+      "golds": [
+        "61afe8a9fcc455c3"
+      ],
+      "intent": "semantic",
+      "note": "RocketMQ 镜像默认 -Xmx8g"
+    },
+    {
+      "id": "v7-030",
+      "query": "清理工作空间时发现多少组重复文件",
+      "golds": [
+        "1b261c3d301c4d51"
+      ],
+      "intent": "paraphrase",
+      "note": "84 组，多是日期目录草稿图 = 成品图"
+    },
+    {
+      "id": "v7-031",
+      "query": "小星星那个绘本故事标红了多少个字",
+      "golds": [
+        "6f899ccc759e4b75"
+      ],
+      "intent": "paraphrase",
+      "note": "24 个不重复简单字"
+    },
+    {
+      "id": "v7-032",
+      "query": "讲义重排编号那次，哪一篇被整篇删掉了",
+      "golds": [
+        "42ef60f6c5a8225f",
+        "0d29f9fa61e56f12"
+      ],
+      "intent": "paraphrase",
+      "note": "旧 B5 王莽改制与汉中兴（内容被拆进新 B7/B8）"
+    },
+    {
+      "id": "v7-033",
+      "query": "补齐的那四讲里，哪一讲是从零新写的",
+      "golds": [
+        "3e449d1e2d5f7421"
+      ],
+      "intent": "paraphrase",
+      "note": "B7 魏晋南北朝"
+    },
+    {
+      "id": "v7-034",
+      "query": "去 AI 味那轮改造具体改了哪些写法",
+      "golds": [
+        "608a6185e9b534d7",
+        "185517215cb7c2cf"
+      ],
+      "intent": "semantic",
+      "note": "成段白话叙事、限制金句对仗、压缩彩色标记"
+    },
+    {
+      "id": "v7-035",
+      "query": "改文件名时目标已经存在，当时是怎么处理的",
+      "golds": [
+        "ff409f5cffb9c60f"
+      ],
+      "intent": "semantic",
+      "note": "三个文件逐字节相同，实际动作是删多余那份；先比对再删"
+    },
+    {
+      "id": "v7-036",
+      "query": "有个备份文件还在但主文件没了，是哪一对",
+      "golds": [
+        "e3aadf70b515780c"
+      ],
+      "intent": "semantic",
+      "note": "notes.backup.md 存在但 notes.md 不在"
+    },
+    {
+      "id": "v7-037",
+      "query": "要改的那个探针文件查了三处都没有，最后怎么答的",
+      "golds": [
+        "73d0f79d9fc23ab7"
+      ],
+      "intent": "paraphrase",
+      "note": "不凭空造文件、给两个选项让用户定"
+    },
+    {
+      "id": "v7-038",
+      "query": "那个 bash 工具失败时会不会把退出码数值透出来",
+      "golds": [
+        "711ed13f7bc97ddc",
+        "c5b943c8032bd7a5"
+      ],
+      "intent": "semantic",
+      "note": "不透出，只能确认非零退出；与 v7-005 不同侧面"
+    },
+    {
+      "id": "v7-039",
+      "query": "会话被清空后还能不能把原话找回来",
+      "golds": [
+        "0f1c745974edf8f6"
+      ],
+      "intent": "semantic",
+      "note": "87 条已删、宫殿无存档，只能按主题脉络还原"
+    },
+    {
+      "id": "v7-040",
+      "query": "我问机票比价那次，你说之前根本没聊过？",
+      "golds": [
+        "12ad9f926e6540ec"
+      ],
+      "intent": "semantic",
+      "note": "两轮检索零命中，拒绝顺杆编方案",
+      "disputed": {
+        "conflicting": "3666eae7dff565f4",
+        "reason": "该抽屉含机票比价的实际方案原文（9/27 出发 + 10/1 返程 ¥902/人），而 gold 是\"我说之前根本没聊过机票比价\"。两者矛盾 → 历史上确实聊过，gold 的前提站不住。排除该查询而非二选一。"
+      }
+    },
+    {
+      "id": "v7-041",
+      "query": "假币那条新闻讲的是什么骗局",
+      "golds": [
+        "d04822018a50f3d4",
+        "8af95148db102da2"
+      ],
+      "intent": "paraphrase",
+      "note": "直播间假原光币、百倍溢价专坑老人"
+    },
+    {
+      "id": "v7-042",
+      "query": "小红书那批稿子配图最后定的什么方案",
+      "golds": [
+        "47796e63253bdd65"
+      ],
+      "intent": "semantic",
+      "note": "真实截图混合 + 先攒稿不急发；A01 用 2 张实机截图 + 3 张笔记风"
+    },
+    {
+      "id": "v7-043",
+      "query": "中文标题做聚类时那个相似度阈值为什么不能直接搬",
+      "golds": [
+        "54e16209b2d64e64",
+        "4a1ebe75113d86ca"
+      ],
+      "intent": "semantic",
+      "note": "0.7 在中文 3-gram Jaccard 下几乎不合任何稿，同事件对只有 0.1~0.4"
+    },
+    {
+      "id": "v7-044",
+      "query": "体检查出记忆正文带 JSON 残渣，有几条",
+      "golds": [
+        "5b255b6c915b0d43"
+      ],
+      "intent": "paraphrase",
+      "note": "5 条以 }] 之类片段结尾"
+    },
+    {
+      "id": "v7-045",
+      "query": "那个群在设置里明明有，为什么发不了消息",
+      "golds": [
+        "8c94fa77620be186"
+      ],
+      "intent": "semantic",
+      "note": "企微仅回复模式，群会话要先被 @ 才登记"
+    },
+    {
+      "id": "v7-046",
+      "query": "老系统 12 个部署实际上是几套代码",
+      "golds": [
+        "3938cdceba123cf3",
+        "6ab421f5cef806ed"
+      ],
+      "intent": "paraphrase",
+      "note": "5 套：tscl×4 + sjsc×3 + 外围"
+    },
+    {
+      "id": "v7-047",
+      "query": "下游那个零认领后来发现不是故障，是什么原因",
+      "golds": [
+        "dc6e878cf6b618f9"
+      ],
+      "intent": "semantic",
+      "note": "时间巧合，问早了；大部队 15:10 才推到下游"
+    },
+    {
+      "id": "v7-048",
+      "query": "那些账号口令存哪了，会不会进记忆",
+      "golds": [
+        "a8d7b6d5e8b7e995"
+      ],
+      "intent": "semantic",
+      "note": "只落盘凭证清单文件，记忆系统不存口令"
+    },
+    {
+      "id": "v7-049",
+      "query": "堡垒机那条线为什么说可能是关键",
+      "golds": [
+        "a8d7b6d5e8b7e995"
+      ],
+      "intent": "semantic",
+      "note": "同一抽屉的另一侧面：.161/.176 只有库层口子、缺主机权限"
+    },
+    {
+      "id": "v7-050",
+      "query": "8580 上跑的应用到底叫什么名字",
+      "golds": [
+        "c2c74c9ec0a7fda6",
+        "a04f4797e7965e15"
+      ],
+      "intent": "paraphrase",
+      "note": "data12345，问需问计⇄12345 同步中间件"
+    },
+    {
+      "id": "v7-051",
+      "query": "清理 outputs 那次回收了多少空间",
+      "golds": [
+        "7246a3a16fdf121f"
+      ],
+      "intent": "paraphrase",
+      "note": "718.6MB → 640.6MB，约 78MB"
+    },
+    {
+      "id": "v7-052",
+      "query": "讲义有两份内容一样的运河文件，是哪两讲",
+      "golds": [
+        "6db2340eee9a753d",
+        "40aeca277c3a897f"
+      ],
+      "intent": "paraphrase",
+      "note": "B8/B11 互为副本"
+    },
+    {
+      "id": "v7-053",
+      "query": "第一讲试版的样式和图是怎么做到几乎零成本的",
+      "golds": [
+        "c8e5f4dbe8ace20c"
+      ],
+      "intent": "semantic",
+      "note": "Tailwind CDN + Mermaid，手写 CSS 只剩 5 行"
+    },
+    {
+      "id": "v7-054",
+      "query": "客户端截图那次 refs 一直是空的，查到什么原因",
+      "golds": [
+        "9c3dcc133431952d"
+      ],
+      "intent": "paraphrase",
+      "note": "快照的遮挡剔除逻辑是元凶；CLI goto 只能切视图"
+    }
+  ],
+  "_judgments": {
+    "pooledAt": "2026-09-19",
+    "method": "四路（fts/vec/convex α=0.6/rrf k=60）top-10 并集池化，聚焦最优方案 top-2 内未判项（62 个候选），人工逐条判。",
+    "addedGolds": 22,
+    "queriesTouched": 19,
+    "disputed": 1,
+    "note": "仍未做的：top-3~10 区间的未判项（约 158 个）。按 BEIR 经验这会继续低估方案，故当前所有指标应视为**保守下界**。"
+  }
+}

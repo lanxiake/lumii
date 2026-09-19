@@ -66,3 +66,7 @@ docs/test/lumii-cli/materials/
 
 # CLI 测试运行时残留
 docs/test/**/.cap-session*
+# 评测池化中间产物：保留抽屉原文片段，内含内网 IP 与凭证，不入库
+# （判断逻辑已固化在 scripts/merge-judgments.mjs，池子本身可随时用
+#  scripts/pool-candidates-for-judging.mjs 重建，见评测方法论文档 §4.3）
+docs/test/memory-eval/v7-pool.json
