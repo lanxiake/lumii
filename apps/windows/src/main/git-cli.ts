@@ -112,6 +112,12 @@ export function gitEnvFor(gitDir: string, author = { name: 'Mtbot', email: 'vcs@
     // 系统级 config（Git for Windows 安装器会把 core.autocrlf 写在这里）必须屏蔽
     GIT_CONFIG_NOSYSTEM: '1',
     ...(cfg ? { GIT_CONFIG_GLOBAL: cfg } : {}),
+    // 强制英文输出：git 的错误信息随 locale 变化，而调用方会按字符串匹配错误类型。
+    // 例：workspace-vcs 的 isIndexCorruptionError 只认 'bad signature' /
+    // 'index file corrupt'，中文 locale 下 git 报「坏的签名」「索引文件损坏」，
+    // 自愈机制会静默失效（实测 LANG=zh_CN.UTF-8 复现）。钉死英文后两种 locale 行为一致，
+    // 也避免将来往匹配表里逐个语言堆字符串。LC_ALL 优先级高于 LC_MESSAGES/LANG。
+    LC_ALL: 'C',
   }
 }
 
