@@ -23,8 +23,23 @@ vi.mock('../../renderer/services/dashboard-feed-service', () => ({
 
 const { NewsFeed } = await import('../../renderer/pages/DashboardPage/components/NewsFeed')
 
-function hoursAgo(hours: number): string {
-  return new Date(Date.now() - hours * 3600_000).toISOString()
+/**
+ * 锚定「今天」的时刻。
+ *
+ * 不要用「现在往前推 N 小时」造期时间：凌晨跑测时「5 小时前」会落到昨天，期头标签
+ * 从「今天 HH:MM」变成「昨天 HH:MM」，断言就随运行时段变红（2026-09-20 00:0x 实测）。
+ * 取当天固定钟点即可稳定——batchLabel 判定「今天」用 days <= 0（未来时刻也算今天），
+ * 且「最新一期」只按数组顺序取，与绝对时间无关。
+ */
+function todayAt(hours: number, minutes = 0): string {
+  const d = new Date()
+  d.setHours(hours, minutes, 0, 0)
+  return d.toISOString()
+}
+
+/** 更早的期：今天 06:00（与最新一期的 12:00 拉开固定钟点差）。按调用时计算，跨零点也稳 */
+function earlierBatchAt(): string {
+  return todayAt(6, 0)
 }
 
 const item = (id: string, title: string) => ({ id, title, source: '36氪', kind: 'news' })
@@ -35,7 +50,7 @@ function batch(over: Record<string, unknown> = {}) {
     feedId: 'news',
     source: 'agent',
     summary: '今天最集中的信号是 AI 圈的「限速」之争',
-    createdAt: hoursAgo(1),
+    createdAt: todayAt(12, 0),
     items: [item('a', '今天的甲'), item('b', '今天的乙')],
     ...over,
   }
@@ -53,7 +68,7 @@ describe('NewsFeed 期刊渲染', () => {
       feedId: 'news',
       batches: [
         batch({ id: 'b2', items: [item('c', '最新一期的条目')] }),
-        batch({ id: 'b1', createdAt: hoursAgo(5), items: [item('a', '上一期的条目')] }),
+        batch({ id: 'b1', createdAt: earlierBatchAt(), items: [item('a', '上一期的条目')] }),
       ],
       nextCursor: null,
     })
@@ -74,7 +89,7 @@ describe('NewsFeed 期刊渲染', () => {
         batch({ id: 'b2', items: [item('c', '最新')], summary: '本期综述' }),
         batch({
           id: 'b1',
-          createdAt: hoursAgo(5),
+          createdAt: earlierBatchAt(),
           items: [item('a', '甲'), item('b', '乙')],
           summary: '上一期的综述文字',
           source: 'cron',
@@ -97,7 +112,7 @@ describe('NewsFeed 期刊渲染', () => {
       feedId: 'news',
       batches: [
         batch({ id: 'b2', items: [item('c', '最新一期的条目')] }),
-        batch({ id: 'b1', createdAt: hoursAgo(5), items: [item('a', '上一期的条目')] }),
+        batch({ id: 'b1', createdAt: earlierBatchAt(), items: [item('a', '上一期的条目')] }),
       ],
       nextCursor: null,
     })
@@ -118,7 +133,7 @@ describe('NewsFeed 期刊渲染', () => {
       feedId: 'news',
       batches: [
         batch({ id: 'b2', items: [item('c', '甲')] }),
-        batch({ id: 'b1', createdAt: hoursAgo(5), items: [item('a', '乙'), item('b', '丙')] }),
+        batch({ id: 'b1', createdAt: earlierBatchAt(), items: [item('a', '乙'), item('b', '丙')] }),
       ],
       nextCursor: null,
     })
