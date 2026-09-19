@@ -336,10 +336,12 @@ export class CloudSyncManager extends EventEmitter {
   /**
    * 标记「请求已收下、正在排队」。
    *
-   * 刻意**不走 setState**：排队不是一次同步，不能污染 `lastSyncAt`，
-   * 也不能让 `state` 离开 `idle`（会打断 watcher 抑制判断与 commitLocalChanges 守卫，
-   * 见 SyncStatus.queuedBehind 的注释）。`queuedBehind` 由 setState 在
-   * 任何真实状态迁移时统一清除。
+   * 本方法**只写消息与 queuedBehind、不动 state**（避免把 lastSyncAt 污染成一次
+   * 并未发生的同步）。调用方 `sync()` 紧接着会显式置 `syncing` —— 那是**刻意**的：
+   * 2026-09-19 起 sync 会把等锁那段时间也算作 syncing，否则 watcher 的
+   * commitLocalChanges 与大文件队列会在空档里插进来（它们都以 `state !== 'idle'` 让路）。
+   * 早期版本的注释说「不能让 state 离开 idle」，那是当时把整条 syncInner 都包在
+   * 工作区锁里的设计下才成立的，现已不适用。
    */
   private markQueued(queuedBehind: number): void {
     this.status = {
@@ -394,32 +396,98 @@ export class CloudSyncManager extends EventEmitter {
     return { success: true }
   }
 
-  /** 唯一同步入口，进程内串行；conflict/syncing 期间重入直接返回 */
+  /**
+   * 唯一同步入口，进程内串行；conflict/syncing 期间重入直接返回。
+   *
+   * ## 这里**不再**整体持有工作区锁（2026-09-19）
+   *
+   * 原先整个 `syncInner` 被 `enqueueWorkspace` 包住，于是 fetch（网络，实测 100s）
+   * 与 push（网络上推）也占着工作区锁 —— 它们根本不碰工作区，却把 Turn 快照堵住。
+   * 现在只有读写工作区的步骤加锁（见 runWithWorkspaceLock / exportAndCommit /
+   * importData），网络与 sync 仓库操作裸调。
+   *
+   * ## 排队可见性（2026-09-17 P0 回归）保住了，但语义收窄了
+   *
+   * 原来「排队」= 排在整条工作区队列后面；现在 = 等**导出那一步**的锁。
+   * 这是同一个锁、同一批排队者，只是 sync 不再排在 fetch/push 期间的空档里。
+   * `clearQueued` 挂在**导出**上（见 signalExportStarted）而不是入队之后：
+   * 挂早了等于宣告「已开始」而其实还在等锁，正是这条特性要消除的假象。
+   *
+   * ## 进程内串行靠什么保证
+   *
+   * `sync()` 的唯一调用方是 sync-scheduler，它用 syncRunning 门控（同一时刻只有一个
+   * syncInner），所以 `syncInner` 里那条 `state === 'syncing'` 的自我守卫是多余的 ——
+   * 而它**必须**去掉：本方法现在要在入队之前就置 syncing（让 watcher 与大文件队列
+   * 立刻让路），否则 syncInner 会把自己刚设的状态当成「已有同步在跑」而直接返回。
+   */
   async sync(): Promise<{ success: boolean; state: SyncState }> {
     const workspaceDir = this.workspaceDir
-    // 入队**之前**读深度 = 前面还有几个任务。这条日志与下面的 markQueued 一起，
+
+    // 守卫必须先看一眼 **conflict**：此刻状态栏正显示「有冲突待处理」，
+    // 任何状态改动都会把它冲掉（用户会以为冲突自己没了）。所以冲突直接返回，
+    // 连排队标记都不打 —— 我们根本没打算做任何事。
+    if (this.state === 'conflict') return { success: false, state: 'conflict' }
+
+    // 入队**之前**读深度 = 前面还有几个任务。这条日志与 markQueued 一起，
     // 让「排队等待」不再无声：此前状态停留在上一次同步留下的「同步完成」，
     // 用户看到的是按钮一直转圈，而界面/CLI 都显示一切正常（2026-09-17 P0）。
     const queuedBehind = getWorkspaceQueueDepth(workspaceDir)
     logger.info(`[sync] 收到同步请求（工作区 ${workspaceDir}，前面还有 ${queuedBehind} 个任务）`)
     if (queuedBehind > 0) this.markQueued(queuedBehind)
 
-    const result = await enqueueWorkspace(
-      workspaceDir,
-      () => {
-        // 任务真正开始 = 排队结束。清在这里而不是只靠 syncInner 的 setState：
-        // syncInner 在 conflict/syncing 时会**提前 return 且不调 setState**，
-        // 只靠 setState 清的话，那条路径会把「排队中」永远挂在状态栏上
-        this.clearQueued()
-        return this.syncInner()
-      },
-      'cloud-sync:sync',
-    )
-    // 阶段一完成且空闲 → 顺带推动阶段二：大文件后台慢慢传，不阻塞小文件到位
-    if (result.success && this.state === 'idle') {
-      this.kickLargeQueue()
+    const cfg = loadCloudSyncConfig()
+    if (!cfg.enabled || !cfg.repoUrl || !cfg.tokenEnc) {
+      this.clearQueued()
+      this.setState('idle', '云同步未启用')
+      return { success: false, state: 'idle' }
     }
-    return result
+
+    // 先把状态置为 syncing（不是等拿到锁）：watcher 的 commitLocalChanges 与
+    // 大文件队列都以 `state !== 'idle'` 让路，等锁那段时间不能让它们插进来。
+    //
+    // **刻意不走 setState**：setState 会顺手清掉 queuedBehind（它的设计是「任何真实
+    // 状态迁移都意味着排队结束」），而这里恰恰要同时表达「正在等锁」与「前面还有 N 个」。
+    // 清 queuedBehind 的动作交给真正的开始点 —— exportAndCommit 拿到锁时的
+    // signalExportStarted()；不调 setState 的提前返回路径则由下面的 finally 兜底。
+    this.status = {
+      ...this.status,
+      state: 'syncing',
+      message: queuedBehind > 0 ? `前面还有 ${queuedBehind} 个任务，尚未开始同步` : '开始同步',
+      lastSyncAt: this.status.lastSyncAt,
+      lastError: undefined,
+    }
+    this.emit('status', this.status)
+    appendSyncLog('syncing', this.status.message ?? '')
+    this.exportStarted = false
+
+    try {
+      const result = await this.syncInner()
+      // 阶段一完成且空闲 → 顺带推动阶段二：大文件后台慢慢传，不阻塞小文件到位
+      if (result.success && this.state === 'idle') {
+        this.kickLargeQueue()
+      }
+      return result
+    } finally {
+      // 兜底：syncInner 有若干不调 setState 的提前返回路径（未启用 / conflict），
+      // 那条路径下排队标记不能永远挂着。
+      this.clearQueued()
+      this.exportStarted = false
+    }
+  }
+
+  /** 本次 sync 是否已经真正开始导出（即已拿到工作区锁） */
+  private exportStarted = false
+
+  /**
+   * 由 `exportAndCommit` 在**真正开始**执行时回调。
+   *
+   * 排队结束 = 拿到工作区锁那一刻，而不是 sync() 被调用的那一刻 —— 后者会让
+   * 状态栏在还在排队时就显示「开始同步」。
+   */
+  private signalExportStarted(): void {
+    if (this.exportStarted) return
+    this.exportStarted = true
+    this.clearQueued()
   }
 
   /** 阶段二大文件队列（惰性构造：目录用 getter，切工作空间无需重建） */
@@ -493,13 +561,9 @@ export class CloudSyncManager extends EventEmitter {
   }
 
   private async syncInner(): Promise<{ success: boolean; state: SyncState }> {
+    // 前置守卫（未启用 / conflict）**已上移到 sync()** —— 必须在改动任何状态之前，
+    // 否则会把状态栏上的冲突提示冲掉。这里只做剩下的执行工作。
     const cfg = loadCloudSyncConfig()
-    if (!cfg.enabled || !cfg.repoUrl || !cfg.tokenEnc) {
-      this.setState('idle', '云同步未启用')
-      return { success: false, state: 'idle' }
-    }
-    if (this.state === 'conflict') return { success: false, state: 'conflict' }
-    if (this.state === 'syncing') return { success: false, state: 'syncing' }
 
     // 消费一次已确认的指纹（放在重入守卫之后：被挡回的重入不该消耗掉它）。
     // 是否真正放行由 sync-copy 用指纹比对决定 —— 本次待删集合与用户确认过的那一批
@@ -507,7 +571,6 @@ export class CloudSyncManager extends EventEmitter {
     this.confirmedFingerprintThisSync = this.confirmedMassDeleteFingerprint
     this.confirmedMassDeleteFingerprint = undefined
 
-    this.setState('syncing', '开始同步')
     try {
       // 确保 sync 目录存在
       if (!fs.existsSync(this.syncDir)) {
@@ -1219,6 +1282,19 @@ export class CloudSyncManager extends EventEmitter {
     p: GitParams,
     opts?: { localEditsOnly?: boolean },
   ): Promise<string | null> {
+    // 读工作区文件 → 必须持有工作区锁（判据是数据流向，不是「是不是同步的一部分」）
+    return this.runWithWorkspaceLock('cloud-sync:export', () => {
+      // 拿到锁 = 排队结束。同步的状态栏据此从「前面还有 N 个任务」切到「开始同步」；
+      // 挂在锁里面而不是 sync() 开头，是为了不在还排队时就宣告已开始。
+      this.signalExportStarted()
+      return this.exportAndCommitInner(p, opts)
+    })
+  }
+
+  private async exportAndCommitInner(
+    p: GitParams,
+    opts?: { localEditsOnly?: boolean },
+  ): Promise<string | null> {
     logger.info(`[exportAndCommit] 导出数据到 sync/${opts?.localEditsOnly ? '（仅用户文件类）' : ''}...`)
     const exporter = new SyncExporter({
       dbPath: this.dbPath,
@@ -1264,6 +1340,29 @@ export class CloudSyncManager extends EventEmitter {
   }
 
   /**
+   * 在**工作区锁**下执行一段操作 —— 只有真正读写工作区（或工作区仓库）的步骤才需要。
+   *
+   * ## 为什么要有这个包装
+   *
+   * `enqueueWorkspace` 的语义是「工作区串行」，保护工作区仓库的 index/HEAD 与
+   * 工作区文件不被并发改动。但云同步一度把整个 `syncInner` 都塞进去，于是
+   * **只碰 sync 仓库的操作（fetch / push / gc）也占着工作区锁** —— 实测一轮同步
+   * 占队列 48~56 秒（启动首轮 240 秒），期间所有 Turn 快照排队等待。
+   *
+   * 现在按「是否碰工作区」细分：导出（读工作区）、导入（写工作区）走这里，
+   * fetch / push 直接裸调。判据是**数据流向**，不是「是不是同步的一部分」。
+   *
+   * ## 内层嵌套是安全的
+   *
+   * 队列自身可重入（见 vcs-snapshot.ts 的 executing 计数）：冲突落决那条路径把
+   * import→export 整体包在一个任务里（中途被快照插进来会捕获到半合并状态），
+   * 它内部再调这里会直接执行，不会死锁。
+   */
+  private runWithWorkspaceLock<T>(label: string, fn: () => Promise<T>): Promise<T> {
+    return enqueueWorkspace(this.workspaceDir, fn, label)
+  }
+
+  /**
    * 文件监听触发的轻量提交：只把本地用户文件类改动导出并提交，不 fetch、不 push。
    *
    * 与 sync() 共用同一串行队列；不改 state —— state 归完整同步所有，
@@ -1273,7 +1372,7 @@ export class CloudSyncManager extends EventEmitter {
     const cfg = loadCloudSyncConfig()
     if (!cfg.enabled || !cfg.repoUrl) return false
 
-    return enqueueWorkspace(this.workspaceDir, async () => {
+    return this.runWithWorkspaceLock('cloud-sync:commit-local', async () => {
       // 队列内重新判定：同步可能已在此期间占用了 state
       if (this.state !== 'idle') return false
       if (this.localCommitInFlight) return false
@@ -1295,7 +1394,7 @@ export class CloudSyncManager extends EventEmitter {
       } finally {
         this.localCommitInFlight = false
       }
-    }, 'cloud-sync:commit-local')
+    })
   }
 
   /**
@@ -1309,6 +1408,11 @@ export class CloudSyncManager extends EventEmitter {
    *        传 null 时退化为只增不删（首次同步 / 本地无 commit）。
    */
   private async importData(p: GitParams, baselineOid: string | null): Promise<void> {
+    // 写工作区文件 → 必须持有工作区锁（判据是数据流向，不是「是不是同步的一部分」）
+    return this.runWithWorkspaceLock('cloud-sync:import', () => this.importDataInner(p, baselineOid))
+  }
+
+  private async importDataInner(p: GitParams, baselineOid: string | null): Promise<void> {
     try {
       logger.info('[importData] 导入远程数据...')
 

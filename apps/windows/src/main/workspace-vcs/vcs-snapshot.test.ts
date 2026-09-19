@@ -88,8 +88,7 @@ describe("vcs-snapshot 队列", () => {
     }
   })
 
-  it("sync 维护队列自身串行（避免两次 gc 撞同一个 objects 目录）", async () => {
-    const syncDir = fs.mkdtempSync(path.join(os.tmpdir(), "lumii-syncmaint2-"));
+  it("sync 维护队列自身串行（避免两次 gc 撞同一个 objects 目录）", async () => {    const syncDir = fs.mkdtempSync(path.join(os.tmpdir(), "lumii-syncmaint2-"));
     try {
       const order: string[] = []
       let releaseFirst!: () => void
@@ -110,7 +109,49 @@ describe("vcs-snapshot 队列", () => {
     }
   })
 
-  it("不同工作区各自独立排队，不互相合并", async () => {    const other = fs.mkdtempSync(path.join(os.tmpdir(), "lumii-snapq-b-"));
+  // 队列是纯 promise 链（prev.then(wrapped)），嵌套入队会双方永久互等：
+  // 内层等外层 settle，外层等内层返回。2026-09-19 给 syncInner 按操作细分加锁时
+  // 发现这个形状 —— 冲突落决那条路径把 import→export 整体包住，内部再调就会嵌套。
+  it("队列可重入：任务内部再入队直接执行，不死锁", async () => {
+    const order: string[] = []
+    await enqueueWorkspace(
+      dir,
+      async () => {
+        order.push("outer-start")
+        // 这一层若重新排队，就永远等不到 —— 用例会超时而不是失败
+        await enqueueWorkspace(dir, async () => {
+          order.push("inner")
+        }, "test:inner")
+        order.push("outer-end")
+      },
+      "test:outer",
+    )
+    expect(order).toEqual(["outer-start", "inner", "outer-end"])
+  })
+
+  it("重入结束后队列恢复串行（计数必须正确退栈）", async () => {
+    const order: string[] = []
+    let releaseOuter!: () => void
+    const gate = new Promise<void>((r) => { releaseOuter = r })
+
+    const outer = enqueueWorkspace(dir, async () => {
+      await enqueueWorkspace(dir, async () => { order.push("inner") }, "test:inner")
+      await gate
+      order.push("outer-end")
+    }, "test:outer")
+
+    // 外层还在执行 → 新任务必须排队，不能因为「刚才重入过」就放行
+    const after = enqueueWorkspace(dir, async () => { order.push("after") }, "test:after")
+    await new Promise((r) => setTimeout(r, 30))
+    expect(order).toEqual(["inner"])
+
+    releaseOuter()
+    await Promise.all([outer, after])
+    expect(order).toEqual(["inner", "outer-end", "after"])
+  })
+
+  it("不同工作区各自独立排队，不互相合并", async () => {
+    const other = fs.mkdtempSync(path.join(os.tmpdir(), "lumii-snapq-b-"));
     try {
       fs.writeFileSync(path.join(dir, "a.txt"), "v1");
       fs.writeFileSync(path.join(other, "b.txt"), "v1");

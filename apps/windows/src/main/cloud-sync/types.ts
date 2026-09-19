@@ -57,12 +57,15 @@ export interface SyncStatus {
   message?: string
   conflict?: ConflictInfo
   /**
-   * 同步请求已提交但尚未开始执行时，排在它前面的任务数（0/undefined = 未排队）。
+   * 同步请求已提交但尚未真正开始导出时，排在它前面的任务数（undefined = 未排队）。
    *
-   * `state` 刻意保持 `idle` —— 排队期间把 state 改成别的值会连带打断
-   * watcher 的抑制判断（`state !== 'idle'` 即不提交）与 `commitLocalChanges`
-   * 的 `state !== 'idle'` 守卫。排队是「请求已收下、还没轮到」，
-   * 与「引擎正在跑同步」是两回事，故用独立字段表达，不用新状态。
+   * 「真正开始」的界是**拿到工作区锁**那一刻，不是 sync() 被调用的那一刻 ——
+   * 后者会在还排队时就宣告「开始同步」，正是这个字段当初要消除的假象。
+   *
+   * `state` 现在是 `syncing`（2026-09-19 起）：等锁那段时间也算 syncing，否则
+   * watcher 的 commitLocalChanges 与大文件队列会在空档里插进来。此前的注释说
+   * 「state 刻意保持 idle」，那是在「整条 syncInner 都占着工作区锁」的旧设计下
+   * 才成立的 —— 那时排队约等于整轮同步都在等，与现在只等导出那一步不同。
    */
   queuedBehind?: number
 }

@@ -17,8 +17,22 @@ const log = {
   error: (...args: unknown[]) => console.error('[WorkspaceVcsSnapshot]', ...args),
 }
 
-/** per-workspace 的串行执行队列 */
+/** per-workspace 的串行队列 */
 const queues = new Map<string, Promise<unknown>>()
+
+/**
+ * 正在**执行**的队列任务所属的工作区（不是「正在排队」）。
+ *
+ * 用于让队列**可重入**：一个队列任务内部再调 `enqueueWorkspace` 时，若
+ * 目标工作区正是自己，则直接执行 —— 重新排队会死锁（外层任务要等内层返回，
+ * 而内层要等外层 settle；2026-09-19 分析 `completeAutoResolvedMerge` 时发现）。
+ *
+ * 为什么需要重入：`syncInner` 要按「是否碰工作区」细分加锁 —— 导出/导入加锁、
+ * fetch/push 不加。而 `handleMergeConflict` 那条路径里 import→export→push 是
+ * **一个整体临界区**（中途被快照插进来会捕获到半合并状态），它必须整体加锁，
+ * 于是内部那两次调用就成了嵌套。
+ */
+const executing = new Map<string, number>()
 
 /** per-workspace 的队列深度（诊断用：看清「谁堵住了谁」） */
 const depths = new Map<string, number>()
@@ -65,6 +79,18 @@ function getRepo(workspaceDir: string): WorkspaceVcs {
  * （不中断、不超时），只保证「谁堵住了队列、堵了多久」一定留痕。
  */
 function enqueue<T>(workspaceDir: string, task: () => Promise<T>, label = 'task'): Promise<T> {
+  // 可重入：已经在**执行**本工作区的队列任务时，直接执行。
+  //
+  // 为什么必须有：队列是纯 promise 链（`prev.then(wrapped)`），嵌套入队时内层要等
+  // 外层 settle，而外层正在等内层返回 —— 双方永久互等。2026-09-19 分析
+  // `completeAutoResolvedMerge`（它外层被 sync 包住、内部又调 importData/exportAndCommit）
+  // 时发现这个形状。
+  //
+  // 「正在执行」用计数器而非布尔：同一次执行里可能有多个嵌套点，且异常路径要能正确退栈。
+  if ((executing.get(workspaceDir) ?? 0) > 0) {
+    return task()
+  }
+
   if (!loggedKeys.has(workspaceDir)) {
     loggedKeys.add(workspaceDir)
     log.info(`[queue] 首次使用队列键「${workspaceDir}」（来自 ${label}）`)
@@ -104,9 +130,15 @@ function enqueue<T>(workspaceDir: string, task: () => Promise<T>, label = 'task'
     if (waited > QUEUE_SLOW_WAIT_MS) {
       log.info(`[queue] ${label} 开始执行（排队等待 ${waited}ms）`)
     }
+    executing.set(workspaceDir, (executing.get(workspaceDir) ?? 0) + 1)
     try {
       return await task()
     } finally {
+      // 先退栈计数再清看门狗：计数归零后，后续的同工作区调用应当重新排队
+      const left = (executing.get(workspaceDir) ?? 1) - 1
+      if (left <= 0) executing.delete(workspaceDir)
+      else executing.set(workspaceDir, left)
+
       const ran = Date.now() - startedAt
       if (ran > QUEUE_SLOW_RUN_MS) {
         log.info(`[queue] ${label} 执行结束（耗时 ${ran}ms）`)

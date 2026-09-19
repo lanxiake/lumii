@@ -1020,7 +1020,7 @@ describe('CloudSyncManager', () => {
    * `sync()` 排在后面等好几分钟。此前的症状是「设置页按钮一直转圈，状态栏却显示上一次的
    * 同步完成」—— 因为排队期间状态一个字都不变，看起来和一切正常完全一样。
    */
-  it('排队中：status 报出前面还有几个任务，且不污染 state 与 lastSyncAt', async () => {
+  it('排队中：status 报出前面还有几个任务', async () => {
     // 用一条未完成的任务占住工作区队列，模拟 Turn 快照正在跑
     let release!: () => void
     const gate = new Promise<void>((r) => {
@@ -1032,10 +1032,11 @@ describe('CloudSyncManager', () => {
     const p = manager.sync() // 不 await：它会排在 blocker 后面
 
     const s = manager.getStatus()
+    // 2026-09-19 起排队等待**也算 syncing**：sync 不再整体占着工作区锁，只等
+    // 「导出」那一步；等锁期间若把 state 留在 idle，watcher 的 commitLocalChanges
+    // 与大文件队列（都以 state !== 'idle' 让路）就会插进来。
+    expect(s.state).toBe('syncing')
     expect(s.queuedBehind).toBe(1)
-    // 排队不是「引擎在跑同步」—— state 必须留在 idle，
-    // 否则会打断 watcher 的抑制判断与 commitLocalChanges 的 state 守卫
-    expect(s.state).toBe('idle')
     // 排队不是一次同步，不能更新 lastSyncAt（否则「最近同步」显示成从没发生过的时刻）
     expect(s.lastSyncAt).toBe(before)
     expect(s.message).toContain('前面还有 1 个任务')
@@ -1053,10 +1054,11 @@ describe('CloudSyncManager', () => {
     expect(manager.getStatus().queuedBehind).toBeUndefined()
   })
 
-  it('syncInner 提前返回时也要清掉排队标记（不能永远挂着「排队中」）', async () => {
-    // syncInner 有多条**不调 setState** 的提前返回路径（未启用 / conflict / syncing）。
-    // 排队标记若只靠 setState 清，这些路径会把「排队中」永远留在状态栏上 ——
-    // 所以清除动作放在「任务真正开始执行」那一步。
+  it('未启用时不打排队标记，且不会永远挂着「排队中」', async () => {
+    // 同步流程有多条**不调 setState** 的提前返回路径（disabled / conflict）。
+    // 2026-09-19 起 sync() 会在**改状态之前**判掉「未启用」——既然根本没打算做事，
+    // 就不该先宣告排队再撤销。所以这条路径上 queuedBehind 全程为 undefined。
+    // （另一条 conflict 路径同理直接返回，见「conflict 期间再调 sync」。）
     vi.mocked(loadCloudSyncConfig).mockReturnValue({ ...baseCfg, enabled: false })
 
     let release!: () => void
@@ -1066,7 +1068,9 @@ describe('CloudSyncManager', () => {
     const blocker = enqueueWorkspace(workspaceDir, () => gate, 'test:blocker')
 
     const p = manager.sync()
-    expect(manager.getStatus().queuedBehind).toBe(1)
+    // 立即返回的路径：状态已是 idle/未启用，没有任何残留的排队标记
+    expect(manager.getStatus().queuedBehind).toBeUndefined()
+    expect(manager.getStatus().state).toBe('idle')
 
     release()
     await blocker
