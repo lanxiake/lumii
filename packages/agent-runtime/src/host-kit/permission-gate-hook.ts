@@ -29,6 +29,11 @@ export interface ToolAuditRow {
    * 只有工具执行出口（tool-usage-hook 的 afterExecute / onError）能填。
    */
   readonly durationMs?: number;
+  /**
+   * 来源：`permission`=权限决策（本 hook）/ `tool`=工具执行失败（tool-usage-hook）。
+   * 两者共用同一张 `tool_audit_log`（见 V52 迁移），落库时靠这个字段区分。
+   */
+  readonly source?: "permission" | "tool";
 }
 
 /** 权限闸门 hook 依赖（runContext 仅取构造 PermissionRequest 所需字段） */
@@ -79,7 +84,12 @@ export function createPermissionGateHook(deps: PermissionGateHookDeps): ToolHook
           check.decision.behavior === "deny" && "message" in check.decision
             ? check.decision.message
             : "Permission denied";
-        audit({ toolName: ctx.toolName, resultSummary: `权限拒绝(策略): ${msg}`, isError: true });
+        audit({
+          toolName: ctx.toolName,
+          resultSummary: `权限拒绝(策略): ${msg}`,
+          isError: true,
+          source: "permission",
+        });
         return {
           content: [{ type: "text", text: msg }],
           details: { permissionDenied: true as const },
@@ -104,7 +114,12 @@ export function createPermissionGateHook(deps: PermissionGateHookDeps): ToolHook
           description: askMsg,
         });
         if (decision === "deny") {
-          audit({ toolName: ctx.toolName, resultSummary: "权限拒绝(用户取消)", isError: true });
+          audit({
+            toolName: ctx.toolName,
+            resultSummary: "权限拒绝(用户取消)",
+            isError: true,
+            source: "permission",
+          });
           return {
             content: [{ type: "text", text: "用户已拒绝执行该工具。" }],
             details: { permissionDenied: true as const },
@@ -117,9 +132,15 @@ export function createPermissionGateHook(deps: PermissionGateHookDeps): ToolHook
             toolName: ctx.toolName,
             resultSummary: "允许(同类工具 24h 内自动允许)",
             isError: false,
+            source: "permission",
           });
         } else {
-          audit({ toolName: ctx.toolName, resultSummary: "允许(仅本次)", isError: false });
+          audit({
+            toolName: ctx.toolName,
+            resultSummary: "允许(仅本次)",
+            isError: false,
+            source: "permission",
+          });
         }
       }
     },

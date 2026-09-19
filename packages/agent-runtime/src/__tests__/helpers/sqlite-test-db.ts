@@ -261,3 +261,20 @@ export function runMigration51(db: DatabaseAdapter): void {
   if (!entry) throw new Error("V51 migration not found in MIGRATIONS");
   db.exec(entry[1]);
 }
+
+/** 建一个迁移到 V51（即将执行 V52 之前）的内存库，供 V52 迁移测试构造 fixture */
+export function createPreV52TestDb(): DatabaseAdapter {
+  const db = createTestSqliteAdapter();
+  for (const [version, sql] of MIGRATIONS) {
+    if (version >= 52) continue;
+    db.exec(sql);
+  }
+  return db;
+}
+
+/** 对一个 pre-V52 库执行 V52 迁移 SQL（tool_audit_log 补 source 来源维度） */
+export function runMigration52(db: DatabaseAdapter): void {
+  const entry = MIGRATIONS.find(([version]) => version === 52);
+  if (!entry) throw new Error("V52 migration not found in MIGRATIONS");
+  db.exec(entry[1]);
+}

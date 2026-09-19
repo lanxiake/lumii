@@ -274,6 +274,7 @@ export class BridgeInstanceFactory {
                 agentId: instanceId,
                 definitionId: def.id,
                 toolName: modelLabel,
+                source: 'llm',
                 resultSummary: isError
                   ? finalMessage.errorMessage ?? '请求失败'
                   : `baseUrl=${resolveDirectBaseUrl(cfg) ?? '(none)'}`,
@@ -286,6 +287,7 @@ export class BridgeInstanceFactory {
                 agentId: instanceId,
                 definitionId: def.id,
                 toolName: modelLabel,
+                source: 'llm',
                 resultSummary: err instanceof Error ? err.message : String(err),
                 isError: true,
                 durationMs: Date.now() - startedAt,
@@ -297,6 +299,7 @@ export class BridgeInstanceFactory {
             agentId: instanceId,
             definitionId: def.id,
             toolName: modelLabel,
+            source: 'llm',
             resultSummary: err instanceof Error ? err.message : String(err),
             isError: true,
             durationMs: Date.now() - startedAt,
@@ -376,6 +379,8 @@ export class BridgeInstanceFactory {
       resultSummary: string
       isError: boolean
       durationMs?: number
+      /** 'permission'=权限闸门决策 / 'tool'=工具执行出口失败；缺省按 'tool' 落库 */
+      source?: 'permission' | 'tool'
     }) => {
       const auditRepo = this.deps.getAuditRepo()
       if (!auditRepo) return
@@ -389,6 +394,7 @@ export class BridgeInstanceFactory {
         isError: row.isError,
         // 权限决策路径不传（那时工具还没执行），工具执行出口才带
         durationMs: row.durationMs,
+        source: row.source ?? 'tool',
       })
     }
 

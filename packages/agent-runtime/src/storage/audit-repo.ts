@@ -40,6 +40,11 @@ export class AuditRepo {
     readonly resultSummary?: string;
     readonly isError?: boolean;
     readonly durationMs?: number;
+    /**
+     * 来源：`llm`=模型请求审计 / `permission`=权限决策 / `tool`=工具执行失败。
+     * 缺省 `unknown`——但生产三个写入点都应显式传，缺省值只服务历史行语义。
+     */
+    readonly source?: "llm" | "permission" | "tool";
   }): void {
     const now = new Date().toISOString();
     // 完整存储 result_summary，不做截断，方便用户查看和调试
@@ -47,8 +52,8 @@ export class AuditRepo {
 
     this.db
       .prepare(
-        `INSERT INTO tool_audit_log (agent_id, definition_id, tool_name, result_summary, is_error, duration_ms, timestamp)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO tool_audit_log (agent_id, definition_id, tool_name, result_summary, is_error, duration_ms, source, timestamp)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         params.agentId,
@@ -57,6 +62,7 @@ export class AuditRepo {
         summary,
         params.isError ? 1 : 0,
         params.durationMs ?? null,
+        params.source ?? "unknown",
         now,
       );
   }
