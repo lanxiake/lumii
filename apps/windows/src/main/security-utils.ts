@@ -6,7 +6,16 @@
  */
 
 import { normalize, resolve, isAbsolute, join } from 'path'
-import * as os from 'os'
+import { getSecurityPolicy, isUnderAllowedBase, CREDENTIAL_FORBIDDEN } from './platform/security-policy'
+
+/**
+ * 路径遍历检测（仅匹配**路径组件** `..`）。
+ *
+ * 用 `(?:^|[\\/])\.\.(?:[\\/]|$)` 而不是裸 `\.\.`：后者会把 `a..b.txt` 这种
+ * 正常文件名当成遍历。这条与平台无关，两个平台都要拦，因此单独提出来，
+ * 在「允许根优先」的短路分支里也照常生效。
+ */
+const TRAVERSAL_PATTERN = /(?:^|[\\/])\.\.(?:[\\/]|$)/
 
 // 日志输出
 const log = {
@@ -30,51 +39,44 @@ export interface SecurityConfig {
   maxFileSize: number
   /** 最大路径深度 */
   maxPathDepth: number
+  /**
+   * 路径长度上限（字符数）。
+   *
+   * 平台相关：Windows 的 `MAX_PATH` 是 260，POSIX 的 `PATH_MAX` 通常 4096。
+   * 收敛前硬编码 260，在 Linux 上是**过严**（正常的长路径会被拒）。
+   * 可选——不传时按当前平台取默认值。
+   */
+  maxPathLength?: number
 }
 
 /**
- * 默认安全配置
+ * 默认安全配置——**按平台取**（见 platform/security-policy.ts）。
+ *
+ * 收敛前这里写死了 Windows 命令白名单与两平台混合的路径黑名单，结果在 Linux 上
+ * `isCommandAllowed('ls')` 返回 false、而 `powershell` 反而"合法"（虽然根本不存在）。
  */
-const DEFAULT_CONFIG: SecurityConfig = {
-  allowedBasePaths: [
-    os.homedir(),
-    os.tmpdir(),
-  ],
-  forbiddenPatterns: [
-    /(?:^|[\\/])\.\.(?:[\\/]|$)/, // 禁止路径遍历（仅匹配路径组件 ..，不误报文件名中的 ..）
-    /^\/etc/i, // 系统配置目录
-    /^\/var/i, // 系统变量目录
-    /^C:\\Windows/i, // Windows 系统目录
-    /^C:\\Program Files/i, // 程序目录
-    /^C:\\ProgramData/i, // 程序数据目录
-    /System32/i, // 系统目录
-    /\.ssh/i, // SSH 密钥目录
-    /\.gnupg/i, // GPG 密钥目录
-    /\.aws/i, // AWS 凭证
-    /\.azure/i, // Azure 凭证
-    /credentials/i, // 凭证文件
-    /secrets/i, // 密钥文件
-  ],
-  allowedCommands: [
-    'powershell',
-    'cmd',
-    'tasklist',
-    'taskkill',
-    'systeminfo',
-    'wmic',
-  ],
-  maxFileSize: 100 * 1024 * 1024, // 100MB
-  maxPathDepth: 20,
-}
+const DEFAULT_CONFIG: SecurityConfig = (() => {
+  const policy = getSecurityPolicy()
+  return {
+    allowedBasePaths: policy.allowedBasePaths,
+    forbiddenPatterns: policy.forbiddenPatterns,
+    allowedCommands: policy.allowedCommands,
+    maxFileSize: 100 * 1024 * 1024, // 100MB
+    maxPathDepth: policy.maxPathDepth,
+  }
+})()
 
 /**
  * 安全工具类
  */
 export class SecurityUtils {
   private config: SecurityConfig
+  /** 生效的路径长度上限（构造时定死，见 SecurityConfig.maxPathLength） */
+  private readonly maxPathLength: number
 
   constructor(config: Partial<SecurityConfig> = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config }
+    this.maxPathLength = config.maxPathLength ?? getSecurityPolicy().maxPathLength
     log.info('安全工具初始化完成')
   }
 
@@ -99,7 +101,7 @@ export class SecurityUtils {
     const trimmedPath = inputPath.trim()
 
     // 检查路径长度
-    if (trimmedPath.length > 260) {
+    if (trimmedPath.length > this.maxPathLength) {
       throw new SecurityError('路径长度超出限制', 'PATH_TOO_LONG')
     }
 
@@ -113,12 +115,36 @@ export class SecurityUtils {
       throw new SecurityError('相对路径必须提供基础路径', 'RELATIVE_PATH_NO_BASE')
     }
 
-    // 检查禁止的模式
-    for (const pattern of this.config.forbiddenPatterns) {
+    // **顺序**（设计 §5.4 + T3.4 实测修正）：
+    // 1. 先查**凭证类**黑名单——即使在家目录里也必须拦。设计只说了「允许根优先」，
+    //    但那条会顺手放行 `~/.ssh/id_rsa`（它同样在家目录内）。凭证属于「不可放行」，
+    //    与「名字碰巧撞黑名单」是两回事，故单独拎出来、优先判断。
+    for (const pattern of CREDENTIAL_FORBIDDEN) {
       if (pattern.test(normalizedPath)) {
-        log.warn(`路径匹配禁止模式: ${normalizedPath}, 模式: ${pattern}`)
+        log.warn(`路径命中凭证保护规则: ${normalizedPath}`)
         throw new SecurityError('访问被禁止的路径', 'FORBIDDEN_PATH')
       }
+    }
+
+    const underAllowedRoot = isUnderAllowedBase(normalizedPath, this.config.allowedBasePaths)
+
+    if (!underAllowedRoot) {
+      // 2. 不在允许根内 → 本地策略黑名单必须过
+      for (const pattern of this.config.forbiddenPatterns) {
+        if (pattern.test(normalizedPath)) {
+          log.warn(`路径匹配禁止模式: ${normalizedPath}, 模式: ${pattern}`)
+          throw new SecurityError('访问被禁止的路径', 'FORBIDDEN_PATH')
+        }
+      }
+
+      log.warn(`路径不在允许范围内: ${normalizedPath}`)
+      throw new SecurityError('路径不在允许的访问范围内', 'PATH_NOT_ALLOWED')
+    }
+
+    // 3. 命中允许根：**路径遍历**仍要拦——那是结构性问题，与「在家目录里」无关
+    if (TRAVERSAL_PATTERN.test(normalizedPath)) {
+      log.warn(`路径遍历尝试: ${normalizedPath}`)
+      throw new SecurityError('访问被禁止的路径', 'FORBIDDEN_PATH')
     }
 
     // 检查路径深度
@@ -134,17 +160,6 @@ export class SecurityUtils {
         log.warn(`路径遍历尝试: ${normalizedPath} 不在 ${normalizedBase} 内`)
         throw new SecurityError('路径遍历攻击被阻止', 'PATH_TRAVERSAL')
       }
-    }
-
-    // 检查是否在允许的基础路径内
-    const isAllowed = this.config.allowedBasePaths.some((allowedBase) => {
-      const normalizedAllowed = normalize(resolve(allowedBase))
-      return normalizedPath.startsWith(normalizedAllowed)
-    })
-
-    if (!isAllowed) {
-      log.warn(`路径不在允许范围内: ${normalizedPath}`)
-      throw new SecurityError('路径不在允许的访问范围内', 'PATH_NOT_ALLOWED')
     }
 
     log.debug(`路径验证通过: ${normalizedPath}`)
