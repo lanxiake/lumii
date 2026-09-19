@@ -30,7 +30,7 @@ import type { DatabaseAdapter } from "../storage/local-database.js";
 import { tokenizeBigram, requiredTokenHits, countTokenHits } from "./segmentation.js";
 import { deterministicDrawerId } from "./content-address.js";
 import { PalaceIndexRepo, type PalaceFtsHealth } from "./palace-index.js";
-import { reciprocalRankFusion } from "../wiki/wiki-vector.js";
+import { convexScoreFusion } from "../wiki/wiki-vector.js";
 
 /** 检索结果的摘录长度（字符）。够看清「这段在讲什么」，又不至于打爆上下文。 */
 export const SEARCH_EXCERPT_CHARS = 600;
@@ -58,7 +58,18 @@ export interface PalaceDrawerInput {
   readonly createdAt?: string;
 }
 
-/** 检索命中项。`text` 是**摘录**（原文见 `memory_read`），`score` 是 -bm25，越大越相关 */
+/**
+ * 检索命中项。`text` 是**摘录**（原文见 `memory_read`）。
+ *
+ * `score` 的语义**随检索模式而异**，展示层做相对排序时可用，做跨查询比较时
+ * 需要先看 `PalaceSearchResult.mode`：
+ *
+ * - `mode: "fts"` —— `-bm25`，**无上界**，越大越相关（bm25 通常落在 -5~-38）
+ * - `mode: "hybrid"` —— 凸组合归一化分，落在 **[0, 1]**，越大越相关
+ *
+ * 两者量纲不同是**刻意的**：融合那一路本来就要把两个不可比的分数折到一起。
+ * 之前的注释写「score 是 -bm25」在混合模式下是错的（会静默误导展示层）。
+ */
 export interface PalaceSearchItem {
   readonly drawer_id: string;
   readonly text: string;
@@ -482,12 +493,13 @@ export class PalaceRepo {
         };
       }
 
-      // RRF：两侧各自的**排名**参与，不比较分数——FTS 是 BM25（无上界）、
-      // 向量是余弦（0.86~0.90 挤成一团），两套量纲不可比，这正是要用 RRF 的原因。
-      const rrf = reciprocalRankFusion([
-        ftsRanked.map((h) => h.drawer_id),
-        vecHits.map((h) => h.drawerId),
-      ]);
+      // 凸组合 α=0.6：`α·minmax(-bm25) + (1−α)·minmax(cos)`。
+      // 取代原 RRF——实测 RRF 比不融合还差（nDCG 0.794 vs 纯 FTS 0.844），
+      // 机制与数据见 `convexScoreFusion` 的注释。
+      const fused = convexScoreFusion(
+        ftsRanked.map((h) => ({ id: h.drawer_id, score: h.rank })),
+        vecHits.map((h) => ({ id: h.drawerId, score: h.score })),
+      );
       const byId = new Map(ftsRanked.map((h) => [h.drawer_id, h]));
 
       // 向量命中的抽屉若不在 FTS 候选里——说明它对查询零 token 命中（纯语义改写，
@@ -508,17 +520,28 @@ export class PalaceRepo {
         for (const row of rows) byId.set(row.drawer_id, row);
       }
 
-      const ranked = [...rrf.entries()]
+      const ranked = [...fused.entries()]
         .sort((a, b) => b[1] - a[1])
-        .map(([id]) => byId.get(id))
-        .filter((r): r is DrawerRow & { rank: number; fts_content: string } => r !== undefined);
+        .map(([id, score]) => ({ row: byId.get(id), score }))
+        .filter(
+          (x): x is { row: DrawerRow & { rank: number; fts_content: string }; score: number } =>
+            x.row !== undefined,
+        );
 
       // 钉入排在融合**之后**（见方法注释）
-      const kept = this.attachPinned(ranked, params, limit);
+      const kept = this.attachPinned(
+        ranked.map((x) => x.row),
+        params,
+        limit,
+      );
+      const scoreOf = new Map(ranked.map((x) => [x.row.drawer_id, x.score]));
       return {
-        items: kept.map((r) => this.toItem(r, params.query, -r.rank)),
+        items: kept.map((r) =>
+          this.toItem(r, params.query, scoreOf.get(r.drawer_id) ?? 0),
+        ),
         mode: "hybrid",
-      };    } catch (err) {
+      };
+    } catch (err) {
       console.warn("[PalaceRepo.searchDrawersHybrid] 向量通道失败，回落纯 FTS:", err);
       return { items: this.searchDrawers(params), mode: "fts" };
     }

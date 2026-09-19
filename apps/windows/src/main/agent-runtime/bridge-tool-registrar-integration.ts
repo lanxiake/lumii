@@ -183,6 +183,10 @@ export function registerIntegrationTools(deps: BridgeToolRegistrarDeps): void {
   /**
    * 记忆检索结果的一条命中。`provider` 标出来源通道——三条通道的分数量纲不可比
    * （BM25 相关性分数、文件行匹配硬编码分），故不跨通道比大小，只分段返回。
+   *
+   * `score` 在 palace 通道内部也**随检索模式而异**（见 `PalaceSearchItem.score`）：
+   * 纯 FTS 时是 `-bm25`（无上界），混合时是凸组合归一化分（[0,1]）。
+   * 模型看到的是原样透传的数值，别据此写跨模式的阈值判断。
    */
   type MemorySearchHit = {
     provider: 'work-memory' | 'palace' | 'profile' | 'scene'
