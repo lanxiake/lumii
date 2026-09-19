@@ -10,6 +10,8 @@ import { petApi } from './pet-api'
 import type { PetElectronAPI } from '../shared/pet-mode'
 import type { ChannelFeatureSettings } from '../shared/channel-features'
 import type { PromptStyleValue } from '../shared/prompt-style'
+import type { FeatureAvailability, FeatureId } from '../shared/feature-availability'
+import type { FEATURE_BLOCK_MESSAGES } from '../shared/feature-availability'
 // 仅类型引用，编译期擦除，不会把主进程代码打进 preload
 import type { UsageSummary } from '../main/usage-store'
 import type { NewsSnapshot } from '../main/news-store'
@@ -366,6 +368,15 @@ export interface ElectronAPI {
     getOpenAtLogin: () => Promise<boolean>
     /** 设置开机自�?*/
     setOpenAtLogin: (enable: boolean) => Promise<boolean>
+    /**
+     * 功能可用性（能力矩阵，设计 §7）。
+     *
+     * 渲染层据此把不支持的入口置灰并展示原因，而不是等用户点击后再报错。
+     */
+    getFeatureAvailability: () => Promise<{
+      features: Record<FeatureId, FeatureAvailability>
+      messages: typeof FEATURE_BLOCK_MESSAGES
+    }>
     /** 开发类 AI 工具（ACP）环境说明与当前解析的工作区 */
     getCodingDevEnvInfo: () => Promise<{
       resolvedWorkspace: string

@@ -22,6 +22,8 @@ import {
 } from '../provider-config'
 import { listProviderModels, testProviderConnection } from '../provider-probe'
 import { getOpenAtLogin, setOpenAtLogin } from '../platform/autostart'
+import { getFeatureAvailability } from '../platform/feature-probe'
+import { FEATURE_BLOCK_MESSAGES } from '../../shared/feature-availability'
 import { queryUsage, type UsageQuery } from '../usage-store'
 import { getLatency } from '../provider-latency'
 import { readNewsSnapshot } from '../news-store'
@@ -311,6 +313,18 @@ export function registerApiIpcHandlers(): void {
     }
     deps!.log.info('设置开机启动:', enable)
     return setOpenAtLogin(enable)
+  })
+
+  // === 功能可用性（能力矩阵，设计 §7）===
+  //
+  // 渲染层据此把不支持的入口置灰并展示原因（D4「屏蔽入口 + 文案说明，
+  // 禁止静默失败」）。矩阵本身是纯函数（shared/feature-availability.ts），
+  // 这里只负责把 main 侧的探测结果递过去。
+  ipcMain.handle('app:getFeatureAvailability', async () => {
+    return {
+      features: getFeatureAvailability(),
+      messages: FEATURE_BLOCK_MESSAGES,
+    }
   })
 
   // --- Agent 管理接口 ---

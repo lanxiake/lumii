@@ -11,6 +11,8 @@ export const appApi = {
   openLogFile: () => ipcRenderer.invoke('app:openLogFile'),
   getOpenAtLogin: () => ipcRenderer.invoke('app:getOpenAtLogin'),
   setOpenAtLogin: (enable: boolean) => ipcRenderer.invoke('app:setOpenAtLogin', enable),
+  /** 功能可用性（能力矩阵）：渲染层据此置灰入口并展示原因 */
+  getFeatureAvailability: () => ipcRenderer.invoke('app:getFeatureAvailability'),
   getPathForFile: (file: File) => webUtils.getPathForFile(file),
   getCodingDevEnvInfo: () => ipcRenderer.invoke('app:getCodingDevEnvInfo'),
   listCodingDevToolsMetadata: () => ipcRenderer.invoke('app:listCodingDevToolsMetadata'),
