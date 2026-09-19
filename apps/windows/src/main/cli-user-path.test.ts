@@ -24,6 +24,44 @@ describe('listUserCliBinDirs', () => {
   it('包含 uv 默认安装目录 ~/.local/bin', () => {
     expect(listUserCliBinDirs()).toContain(path.join(os.homedir(), '.local', 'bin'))
   })
+
+  if (isWin) {
+    it('包含 cargo 目录，且带 Windows 专属的 LOCALAPPDATA 候选', () => {
+      const dirs = listUserCliBinDirs()
+
+      expect(dirs).toContain(path.join(os.homedir(), '.cargo', 'bin'))
+      // LOCALAPPDATA 存在时必须补 uv / cursor-agent 两处
+      if (process.env.LOCALAPPDATA) {
+        expect(dirs).toContain(path.join(process.env.LOCALAPPDATA, 'Programs', 'uv'))
+      }
+      // POSIX 专属项不该出现在 Windows 上
+      expect(dirs).not.toContain('/usr/local/bin')
+    })
+  } else {
+    it('包含各包管理器的默认 bin 目录（Linux 上 CLI 落点分散）', () => {
+      const dirs = listUserCliBinDirs()
+      const home = os.homedir()
+
+      expect(dirs).toContain(path.join(home, '.cargo', 'bin'))
+      expect(dirs).toContain(path.join(home, '.npm-global', 'bin'))
+      expect(dirs).toContain(path.join(home, '.local', 'share', 'pnpm'))
+      expect(dirs).toContain(path.join(home, '.bun', 'bin'))
+      expect(dirs).toContain('/usr/local/bin')
+    })
+
+    it('不返回 Windows 专属项', () => {
+      const dirs = listUserCliBinDirs()
+
+      expect(dirs.some((d) => d.includes('Programs'))).toBe(false)
+      expect(dirs.some((d) => d.includes('cursor-agent'))).toBe(false)
+    })
+  }
+
+  it('返回的都是绝对路径（相对路径并入 PATH 没有意义）', () => {
+    for (const dir of listUserCliBinDirs()) {
+      expect(path.isAbsolute(dir), dir).toBe(true)
+    }
+  })
 })
 
 describe('mergePathWithCliDirs', () => {

@@ -10,10 +10,31 @@ import os from 'node:os'
 import path from 'node:path'
 
 /**
- * 用户机器上常见的 CLI 安装目录（uv、cargo、npm 全局 bin 等）
+ * 用户机器上常见的 CLI 安装目录。
+ *
+ * 两个平台各有一套：
+ * - **Windows**：uv 落 `%LOCALAPPDATA%\Programs\uv`，npm 全局落 `%APPDATA%\npm`，
+ *   早期 cursor-agent 落 `%LOCALAPPDATA%\cursor-agent`。
+ * - **POSIX**：除 `~/.local/bin`（uv 与各官方安装脚本的默认位置）与 `~/.cargo/bin`
+ *   （rustup）外，还有 npm 的常见前缀配置 `~/.npm-global/bin`、pnpm 的默认目录
+ *   `~/.local/share/pnpm`、以及 bun 的 `~/.bun/bin`。
+ *   另补 `/usr/local/bin`——Linux 上手工安装的 CLI 常落这里，而桌面环境下从
+ *   GUI 启动的进程**未必继承登录 shell 的完整 PATH**（这正是本模块存在的理由）。
  */
 export function listUserCliBinDirs(): string[] {
   const home = os.homedir()
+
+  if (process.platform !== 'win32') {
+    return [
+      path.join(home, '.local', 'bin'),
+      path.join(home, '.cargo', 'bin'),
+      path.join(home, '.npm-global', 'bin'),
+      path.join(home, '.local', 'share', 'pnpm'),
+      path.join(home, '.bun', 'bin'),
+      '/usr/local/bin',
+    ]
+  }
+
   const extras: string[] = [
     path.join(home, '.local', 'bin'),
     path.join(home, '.cargo', 'bin'),

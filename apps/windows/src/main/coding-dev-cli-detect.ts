@@ -173,20 +173,38 @@ export function pickBestWindowsCliPath(candidates: string[]): string | undefined
 }
 
 /**
- * Cursor Agent 的常见安装目录（Electron 进程可能读不到刚写入的 User PATH）
+ * 常见 CLI 的 well-known 安装目录（Electron 从 GUI 启动时未必继承登录 shell 的 PATH）。
  *
- * 官方安装脚本装到 ~/.local/bin（文档：cursor.com/cn/docs/cli/installation）；
- * %LOCALAPPDATA%\cursor-agent 是早期版本的位置，保留兜底。
+ * - **Windows**：官方安装脚本装到 `~/.local/bin`（文档：cursor.com/cn/docs/cli/installation）；
+ *   `%LOCALAPPDATA%\cursor-agent` 是早期版本的位置，保留兜底。
+ * - **POSIX**：同一批工具在这边落点更分散，把 `cli-user-path.ts` 的候选一并查——
+ *   **只查 PATH 会漏掉「装了但没进 PATH」这类最常见的情况**。
  */
-function windowsCursorAgentWellKnownPaths(command: string): string[] {
-  const roots = [path.join(os.homedir(), '.local', 'bin')]
+function cliWellKnownDirs(): string[] {
+  const home = os.homedir()
+  if (process.platform !== 'win32') {
+    return [
+      path.join(home, '.local', 'bin'),
+      path.join(home, '.cargo', 'bin'),
+      path.join(home, '.npm-global', 'bin'),
+      path.join(home, '.local', 'share', 'pnpm'),
+      path.join(home, '.bun', 'bin'),
+      '/usr/local/bin',
+    ]
+  }
+
+  const roots = [path.join(home, '.local', 'bin')]
   const local = process.env.LOCALAPPDATA
   if (local) roots.push(path.join(local, 'cursor-agent'))
+  return roots
+}
+
+function windowsCursorAgentWellKnownPaths(command: string): string[] {
   const names =
     command === 'agent'
       ? ['agent.exe', 'agent.cmd', 'cursor-agent.exe', 'cursor-agent.cmd']
       : ['cursor-agent.exe', 'cursor-agent.cmd', 'agent.exe', 'agent.cmd']
-  return roots.flatMap((root) => names.map((n) => path.join(root, n)))
+  return cliWellKnownDirs().flatMap((root) => names.map((n) => path.join(root, n)))
 }
 
 /**
@@ -215,6 +233,13 @@ async function resolveCommandPath(command: string): Promise<string | undefined> 
       }
       return pickBestWindowsCliPath([...wellKnown, ...whereCandidates])
     }
+    // POSIX：先查 well-known（覆盖「装了但没进 PATH」这一最常见情况），
+    // 再退回 which。GUI 启动的 Electron 常常拿不到登录 shell 的完整 PATH。
+    const wellKnown = cliWellKnownDirs()
+      .map((dir) => path.join(dir, command))
+      .filter((p) => fs.existsSync(p))
+    if (wellKnown.length > 0) return wellKnown[0]
+
     const { stdout } = await execFileAsync('which', [command], {
       timeout: 8_000,
       maxBuffer: 1024 * 256,
