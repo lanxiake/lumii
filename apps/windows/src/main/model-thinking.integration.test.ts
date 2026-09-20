@@ -4,6 +4,13 @@
  * 真起一个本地假端点，走真实的 resolveModelThinking + createDirectStreamFn，
  * 抓 pi-ai 实际发出的请求体。这是「思考开关失效」缺陷的回归防线：
  * 此前 model.reasoning 恒为 false，开关怎么切请求体都不变。
+ *
+ * `@vitest-environment node`：pi-ai 内部走 undici 的 globalThis.fetch，而 jsdom 的
+ * AbortSignal 过不了 undici 的跨 realm 校验（`RequestInit: Expected signal
+ * ("AbortSignal {}") to be an instance of AbortSignal`），表现为端点一个请求都收不到。
+ * 与同目录 local-proxy.test.ts 同因，那里也是同一处 docblock。
+ *
+ * @vitest-environment node
  */
 import http from 'node:http'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
