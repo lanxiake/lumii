@@ -38,12 +38,20 @@ pnpm dist:linux     # 产物在 apps/windows/release/
 pnpm --filter ./apps/windows package:linux:deb   # 只要 deb
 ```
 
-**运行产物的两个前提**：
+**运行产物的三个前提**：
 
 - **AppImage 需要 FUSE**：Ubuntu 24.04 默认不装 `libfuse2`，直接运行会报 `dlopen(): error loading libfuse.so.2`。
   装 `sudo apt install libfuse2t64`，或临时用 `./Lumii-*.AppImage --appimage-extract-and-run`。
 - **deb 已自带沙箱修复**：`postinst` 会把 `chrome-sandbox` 设为 `root:root 4755`。这是 Ubuntu 24.04 必需的一步
   （默认 `kernel.apparmor_restrict_unprivileged_userns=1`，Chromium 只能走 setuid sandbox）。
+- **浏览器控制需要本机装 Chrome 系浏览器**：`BrowserService` 通过 CDP 控制**本机已有**的
+  Chrome / Edge / Brave / Chromium（探测顺序见 `packages/browser-control/src/browser/chrome.executables.ts`，
+  含 `/usr/bin/*` 与 `/snap/bin/*`）。**Ubuntu 桌面默认只装 Firefox，因此开箱不可用**——
+  `browser_navigate` 会直接报 `No supported browser found`。
+  装一个即可：`sudo snap install chromium`（24.04 上 chromium 只以 snap 分发）。
+  应用另有一个 CloakBrowser 反检测浏览器兜底（`plugin-bootstrap.ts` 启动时后台下载），
+  但它从 GitHub 镜像拉取，国内网络实测 0.02–0.08 MB/s，**不能当作可依赖的自动方案**。
+  也可在浏览器配置里用 `executablePath` 手工指定任意 Chromium 系可执行文件。
 
 **开发期（`pnpm dev`）不需要上述手工步骤**：`scripts/run-dev.cjs` 检测 `chrome-sandbox` 是否已正确配置，
 未配置时自动追加 electron-vite 的 `--noSandbox` 并打印提示（仅开发期；发布产物由 deb 的 postinst 保证）。
