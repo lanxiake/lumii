@@ -1,9 +1,11 @@
 # start-dev.ps1 - Start Lumii local dev (electron-vite)
-# Usage: .\scripts\start-dev.ps1 [-Force] [-Foreground]
+# Usage: .\scripts\start-dev.ps1 [-Force] [-Foreground] [-Inspect <port>]
+#   -Inspect 5860  -> passes --inspect=5860 --sourcemap to the main process
 # Encoding: ASCII-only comments to avoid PS 5.1 parse issues without BOM
 param(
   [switch]$Force,
-  [switch]$Foreground
+  [switch]$Foreground,
+  [string]$Inspect = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -13,6 +15,10 @@ $LogFile = Join-Path $Root '.lumii-dev.log'
 $ErrFile = Join-Path $Root '.lumii-dev.err.log'
 $StopScript = Join-Path $PSScriptRoot 'stop-dev.ps1'
 $Tag = 'Lumii'
+
+# Args appended to `pnpm --filter ./apps/windows dev`.
+# NOTE the `--` separator: without it pnpm may swallow --inspect itself.
+$DevArgs = if ($Inspect) { "-- --inspect=$Inspect --sourcemap" } else { "" }
 
 # Switch console to UTF-8 to reduce Chinese mojibake
 function Set-Utf8Console {
@@ -73,7 +79,7 @@ Write-Host "$Tag : log  = $LogFile"
 
 if ($Foreground) {
   if (Test-Path $PidFile) { Remove-Item $PidFile -Force -ErrorAction SilentlyContinue }
-  pnpm --filter ./apps/windows dev
+  pnpm --filter ./apps/windows dev $DevArgs
   exit $LASTEXITCODE
 }
 
@@ -104,7 +110,7 @@ Write-Host ''
 # (measured: 8s ~ 606s). See docs/fix/2026-09-20-*.md section 6.
 # Let output flow to this process's stdout; the outer Start-Process does the
 # OS-level redirect to a file (a file has no reader, so it cannot stall).
-pnpm --filter ./apps/windows dev
+pnpm --filter ./apps/windows dev $DevArgs
 "@
 
 # Run the inner script from a FILE, not via -Command / -EncodedCommand:
