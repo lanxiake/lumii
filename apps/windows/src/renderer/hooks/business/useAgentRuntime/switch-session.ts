@@ -11,7 +11,7 @@ import {
   updateSessionState,
 } from './agent-runtime-store'
 import type { PerSessionState, RuntimeMessage, RuntimeToolCall, RuntimeFileEvent } from './agent-runtime-store'
-import type { ContextUsageBreakdownEntry } from '../../../../shared/agent-runtime-events'
+import type { SessionContextUsageResult } from '../../../../shared/agent-runtime-commands'
 import { toRuntimeMsg, debugLog } from './bridge-init'
 import { HISTORY_PAGE_SIZE, type DbMessagePage } from './useAgentRuntime.types'
 
@@ -175,12 +175,7 @@ export async function switchSession(sessionKey: string, preferredModelId?: strin
         api.sendCommand({
           type: 'conversation:context-usage',
           sessionKey,
-        }) as Promise<{
-          usedTokens: number
-          contextWindow: number
-          triggerThreshold: number
-          breakdown?: readonly ContextUsageBreakdownEntry[]
-        }>,
+        }) as Promise<SessionContextUsageResult>,
         fetchSessionMeta(),
       ])
       if (!isCurrentSwitch()) return
@@ -200,6 +195,7 @@ export async function switchSession(sessionKey: string, preferredModelId?: strin
             triggerThreshold: contextUsage.triggerThreshold,
             isNearThreshold: ratio > 0.6,
             ...(contextUsage.breakdown ? { breakdown: contextUsage.breakdown } : {}),
+            ...(contextUsage.budget ? { budget: contextUsage.budget } : {}),
           },
         }
       })
@@ -225,12 +221,7 @@ export async function switchSession(sessionKey: string, preferredModelId?: strin
     api.sendCommand({
       type: 'conversation:context-usage',
       sessionKey,
-    }).catch(() => null) as Promise<{
-      usedTokens: number
-      contextWindow: number
-      triggerThreshold: number
-      breakdown?: readonly ContextUsageBreakdownEntry[]
-    } | null>,
+    }).catch(() => null) as Promise<SessionContextUsageResult | null>,
   ])
 
   const dbFileEvents = meta.fileEvents
@@ -331,6 +322,7 @@ export async function switchSession(sessionKey: string, preferredModelId?: strin
             ? dbContextUsage.usedTokens / dbContextUsage.contextWindow > 0.6
             : false,
           ...(dbContextUsage.breakdown ? { breakdown: dbContextUsage.breakdown } : {}),
+          ...(dbContextUsage.budget ? { budget: dbContextUsage.budget } : {}),
         },
       } : {}),
     })

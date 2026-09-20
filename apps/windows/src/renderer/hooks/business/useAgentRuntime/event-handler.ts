@@ -1582,20 +1582,41 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
       const ratio = event.contextWindow > 0 ? event.usedTokens / event.contextWindow : 0
       // 占用率只影响 contextUsage 派生字段；isAutoCompacting 由压缩生命周期事件驱动，
       // 否则占用停在高位时每次 usage 推送都会把它重置为 true，spinner 永久转
-      updateSessionState(sessionKey, (prev) => ({
-        ...prev,
-        contextUsage: {
-          usedTokens: event.usedTokens,
-          contextWindow: event.contextWindow,
-          triggerThreshold: event.triggerThreshold,
-          isNearThreshold: ratio > 0.6,
-          ...(event.breakdown
-            ? { breakdown: event.breakdown }
-            : prev.contextUsage?.breakdown
-              ? { breakdown: prev.contextUsage.breakdown }
-              : {}),
-        },
-      }))
+      updateSessionState(sessionKey, (prev) => {
+        const cur = prev.contextUsage
+        // 每次 LLM 往返都会推一次，值没变就别换引用：useSyncExternalStore 没配
+        // equality 函数，换引用会让 ChatPage / ChatInput（memo 被 prop 击穿）白重渲染。
+        if (
+          cur
+          && cur.usedTokens === event.usedTokens
+          && cur.contextWindow === event.contextWindow
+          && cur.triggerThreshold === event.triggerThreshold
+          && event.breakdown === undefined
+          && event.budget === undefined
+        ) {
+          return prev
+        }
+        return {
+          ...prev,
+          contextUsage: {
+            usedTokens: event.usedTokens,
+            contextWindow: event.contextWindow,
+            triggerThreshold: event.triggerThreshold,
+            isNearThreshold: ratio > 0.6,
+            ...(event.breakdown
+              ? { breakdown: event.breakdown }
+              : cur?.breakdown
+                ? { breakdown: cur.breakdown }
+                : {}),
+            // 触发线快照只在完整推送里带，轻量推送沿用上一次
+            ...(event.budget
+              ? { budget: event.budget }
+              : cur?.budget
+                ? { budget: cur.budget }
+                : {}),
+          },
+        }
+      })
       break
     }
 

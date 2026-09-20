@@ -47,7 +47,8 @@ describe("Wiki 摄入钩子接线", () => {
       getSessionContextUsage: () => ({
         usedTokens: 0,
         contextWindow: 128_000,
-        triggerThreshold: 102_400,
+        // 与生产同义：ContextUsage 的 triggerThreshold 是比率，不是 token 数
+        triggerThreshold: 0.78,
       }),
       setSessionProviderInputTokens: vi.fn(),
       calibrateSessionCharsPerToken: vi.fn(),
@@ -661,5 +662,177 @@ describe("中止标记落盘（历史回放要能区分「已完成」与「已�
     await handler({ type: "message:end", stopReason: "end_turn" } as never);
 
     expect(lastContentJson(repo)).not.toHaveProperty("aborted");
+  });
+});
+
+describe("上下文占用推送（逐往返刷新 + 触发线）", () => {
+  /**
+   * 占用条原先只在 agent:end 推一次，带工具循环的一轮能跑十几分钟不动。
+   * 这里固定住新契约：每次 LLM 往返推轻量快照，agent:end 强推完整快照。
+   */
+  function buildHandler(opts?: { sessionKey?: string; rootSessionKey?: string }) {
+    const sessionKey = opts?.sessionKey ?? "session";
+    const rootSessionKey = opts?.rootSessionKey ?? sessionKey;
+    const ctx = createRunContext(sessionKey, "instance", rootSessionKey);
+    const instanceStates = new InstanceStateStore();
+    instanceStates.set(
+      "instance",
+      createInstanceState(ctx, {
+        definitionId: "agent",
+        runningStartedAt: null,
+        completedTurns: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+      }),
+    );
+
+    const forwardIpcEvent = vi.fn();
+    const setSessionProviderInputTokens = vi.fn();
+    // 生产实现里 withBreakdown: false 走轻量路径：不算分类明细与触发线快照
+    const getSessionContextUsage = vi.fn(
+      (_sessionKey: string, o?: { withBreakdown?: boolean }) => ({
+        usedTokens: 12_000,
+        contextWindow: 128_000,
+        triggerThreshold: 0.78,
+        ...(o?.withBreakdown === false
+          ? {}
+          : {
+              breakdown: [{ category: "conversation" as const, tokens: 5_000 }],
+              budget: {
+                compressibleTokens: 5_000,
+                budgetTokens: 100_000,
+                triggerTokens: 78_000,
+                exhausted: false,
+              },
+            }),
+      }),
+    );
+
+    const handler = createAgentInstanceRuntimeEventHandler({
+      instanceId: "instance",
+      ctx,
+      ipcChannel: { forwardIpcEvent, forwardToRenderer: vi.fn() } as never,
+      conversationRepo: null,
+      fileRepo: null,
+      fileMemoryHandler: {} as never,
+      getWikiIngestHook: () => null,
+      resolveWikiAgentId: () => "assistant",
+      instanceStates,
+      instanceToConversation: new Map(),
+      toolCallInstanceMap: new Map(),
+      toolStartTimeMap: new Map(),
+      nodeStreamCallbacks: new Map(),
+      getCompactionForRootSession: () => ({
+        contextWindow: 128_000,
+        outputReserveTokens: 8_000,
+        summaryReserveTokens: 4_000,
+      }),
+      getSessionContextUsage,
+      setSessionProviderInputTokens,
+      calibrateSessionCharsPerToken: vi.fn(),
+      clearSessionProviderInputTokens: vi.fn(),
+      setCurrentToolExecutorInstanceId: vi.fn(),
+      getCwd: () => os.tmpdir(),
+    });
+
+    const usageEvents = () =>
+      forwardIpcEvent.mock.calls
+        .map((call) => call[0] as { type?: string })
+        .filter((e) => e?.type === "agent:context:usage");
+
+    return { handler, usageEvents, getSessionContextUsage, setSessionProviderInputTokens };
+  }
+
+  /** 让 fire-and-forget 的事件处理跑完，再断言「没有推送」 */
+  const flushMicrotasks = () => new Promise((resolve) => setTimeout(resolve, 10));
+
+  it("message:end 就刷新占用条，且走轻量路径不算明细", async () => {
+    const { handler, usageEvents, getSessionContextUsage } = buildHandler();
+
+    await handler({
+      type: "message:end",
+      usage: { inputTokens: 12_000, outputTokens: 30 },
+      stopReason: "tool_use",
+      fullText: "中途",
+    } as never);
+
+    const events = usageEvents();
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      sessionKey: "session",
+      usedTokens: 12_000,
+      contextWindow: 128_000,
+      triggerThreshold: 0.78,
+    });
+    // 轻量路径：明细与触发线要遍历全部消息估算，逐往返重算会重演主进程冻结
+    expect(getSessionContextUsage).toHaveBeenCalledWith("session", { withBreakdown: false });
+    expect(events[0]).not.toHaveProperty("breakdown");
+    expect(events[0]).not.toHaveProperty("budget");
+  });
+
+  it("agent:end 强推完整快照（明细 + 触发线），阈值与查询口径一致", async () => {
+    const { handler, usageEvents } = buildHandler();
+
+    await handler({
+      type: "message:end",
+      usage: { inputTokens: 12_000, outputTokens: 30 },
+      stopReason: "tool_use",
+      fullText: "中途",
+    } as never);
+    await handler({ type: "agent:end" } as never);
+
+    const events = usageEvents();
+    expect(events).toHaveLength(2);
+    expect(events[1]).toMatchObject({
+      triggerThreshold: 0.78,
+      breakdown: [{ category: "conversation", tokens: 5_000 }],
+      budget: { compressibleTokens: 5_000, budgetTokens: 100_000, triggerTokens: 78_000, exhausted: false },
+    });
+  });
+
+  it("同一秒内的连续往返只推一次（节流），最终由 agent:end 兜底", async () => {
+    const { handler, usageEvents } = buildHandler();
+
+    await handler({
+      type: "message:end",
+      usage: { inputTokens: 1_000, outputTokens: 1 },
+      stopReason: "tool_use",
+      fullText: "a",
+    } as never);
+    await handler({
+      type: "message:end",
+      usage: { inputTokens: 2_000, outputTokens: 1 },
+      stopReason: "tool_use",
+      fullText: "b",
+    } as never);
+
+    expect(usageEvents()).toHaveLength(1);
+
+    await handler({ type: "agent:end" } as never);
+    expect(usageEvents()).toHaveLength(2);
+  });
+
+  it("子 Agent 会话不推（只有根会话的占用条要刷新）", async () => {
+    const { handler, usageEvents } = buildHandler({ sessionKey: "child-1", rootSessionKey: "session" });
+
+    await handler({
+      type: "message:end",
+      usage: { inputTokens: 1_000, outputTokens: 1 },
+      stopReason: "end_turn",
+      fullText: "x",
+    } as never);
+    await flushMicrotasks();
+
+    expect(usageEvents()).toHaveLength(0);
+  });
+
+  it("服务商没回传 usage 时不推（估算值不进占用条）", async () => {
+    const { handler, usageEvents, setSessionProviderInputTokens } = buildHandler();
+
+    await handler({ type: "message:end", stopReason: "end_turn", fullText: "x" } as never);
+    await flushMicrotasks();
+
+    expect(setSessionProviderInputTokens).not.toHaveBeenCalled();
+    expect(usageEvents()).toHaveLength(0);
   });
 });

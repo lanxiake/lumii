@@ -387,17 +387,37 @@ export interface ContextUsageBreakdownEntry {
   readonly tokens: number
 }
 
+/**
+ * 触发线快照。
+ *
+ * 压缩判断比的不是整窗百分比，而是「对话历史 vs 留给对话的空间 × 阈值比例」——
+ * 固定开销（系统提示/工具/MCP）挤占窗口时，整窗到 78% 未必压缩、对话占满预算
+ * 的 78% 才压缩。判据与来历见 `shared/context-budget.ts` 的模块注释。
+ */
+export interface ContextBudgetSnapshot {
+  /** 当前对话历史占用（可压缩量） */
+  readonly compressibleTokens: number
+  /** 留给对话历史的空间：窗口 − 固定开销 − 输出预留 */
+  readonly budgetTokens: number
+  /** 触发自动压缩的对话历史 token 线 = floor(budgetTokens × triggerThreshold) */
+  readonly triggerTokens: number
+  /** 固定开销已挤满窗口，压缩无法释放 */
+  readonly exhausted: boolean
+}
+
 export interface AgentContextUsageEvent {
   readonly type: 'agent:context:usage'
   readonly sessionKey: string
-  /** 当前已使用的 token 数（累计 inputTokens） */
+  /** 当前已使用的 token 数（inputTokens + cacheRead + cacheWrite，不是只取 inputTokens） */
   readonly usedTokens: number
   /** 模型上下文窗口总大小 */
   readonly contextWindow: number
-  /** 触发自动压缩的阈值比例（0-1，默认 0.8） */
+  /** 触发自动压缩的阈值比例（0-1），取值见 DEFAULT_COMPACTION_TRIGGER_RATIO */
   readonly triggerThreshold: number
   /** 分类明细（固定提示词、动态上下文和对话历史分别估算） */
   readonly breakdown?: readonly ContextUsageBreakdownEntry[]
+  /** 触发线快照；轻量推送（不带 breakdown 的逐往返刷新）时省略 */
+  readonly budget?: ContextBudgetSnapshot
 }
 
 /**

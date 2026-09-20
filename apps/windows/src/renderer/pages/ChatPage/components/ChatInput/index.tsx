@@ -112,19 +112,31 @@ function formatContextUsageLabel(contextUsage: ContextUsage): string {
   const total = contextUsage.contextWindow
   const ratio = total > 0 ? used / total : 0
   const percent = Math.round(ratio * 100)
-  const threshold = Math.round(contextUsage.triggerThreshold * 100)
-  const level = ratio >= contextUsage.triggerThreshold
-    ? '高风险，建议立即压缩'
-    : contextUsage.isNearThreshold
-      ? '接近阈值，建议尽快压缩'
-      : '状态健康'
+  const parts = [`上下文使用 ${formatTokenCount(used)} / ${formatTokenCount(total)} tokens，${percent}%`]
 
-  return [
-    `上下文使用 ${formatTokenCount(used)} / ${formatTokenCount(total)} tokens，${percent}%`,
-    `压缩阈值 ${threshold}%`,
-    `状态 ${level}`,
-    '点击可主动压缩上下文',
-  ].join('，')
+  const budget = contextUsage.budget
+  if (budget) {
+    // 压缩判断比的是「对话历史 vs 留给对话的空间」，不是整窗百分比——拿整窗数字去
+    // 说「接近阈值」会在固定开销吃满窗口时误报（口径见 ContextUsageCard）。
+    parts.push(
+      budget.exhausted
+        ? '固定开销已占满窗口，压缩无法释放空间'
+        : `对话历史 ${formatTokenCount(budget.compressibleTokens)}，触发线 ${formatTokenCount(budget.triggerTokens)}`
+          + (budget.compressibleTokens >= budget.triggerTokens ? '，建议立即压缩' : ''),
+    )
+  } else {
+    const threshold = Math.round(contextUsage.triggerThreshold * 100)
+    // level 不带「状态」二字，拼装时统一加前缀（原先写 '状态健康' 会输出「状态 状态健康」）
+    const level = ratio >= contextUsage.triggerThreshold
+      ? '高风险，建议立即压缩'
+      : contextUsage.isNearThreshold
+        ? '接近阈值，建议尽快压缩'
+        : '健康'
+    parts.push(`压缩阈值 ${threshold}%`, `状态 ${level}`)
+  }
+
+  parts.push('点击可主动压缩上下文')
+  return parts.join('，')
 }
 
 /**
@@ -630,6 +642,8 @@ const ChatInput: React.FC<ChatInputProps> = ({
         contextWindow: effectiveContextWindow,
         triggerThreshold: contextUsage?.triggerThreshold ?? 0.8,
         isNearThreshold: contextUsage?.isNearThreshold ?? false,
+        // 别漏：这里重建对象，漏字段会让触发线口径静默退回整窗百分比
+        ...(contextUsage?.budget ? { budget: contextUsage.budget } : {}),
       })
     : '点击可主动压缩上下文'
   const contextWindowText =

@@ -10,7 +10,7 @@
  * 改为按「可压缩预算」判断：只把对话历史与它实际可用的空间做比较。
  */
 
-import type { ContextUsageBreakdownEntry, ContextUsageCategory } from './agent-runtime-events'
+import type { ContextBudgetSnapshot, ContextUsageBreakdownEntry, ContextUsageCategory } from './agent-runtime-events'
 
 /** 不可压缩的分类：压缩动不了它们，只能靠禁用 MCP/技能来降 */
 const FIXED_CATEGORIES: readonly ContextUsageCategory[] = [
@@ -91,4 +91,32 @@ export function computeContextBudget(
 export function shouldCompactByBudget(budget: ContextBudget, triggerRatio: number): boolean {
   if (budget.exhausted) return false
   return budget.compressible > budget.budget * triggerRatio
+}
+
+/**
+ * 把预算结算压成可推送给 UI 的快照。
+ *
+ * 占用卡片原先只显示「整窗百分比 vs 阈值比例」，与真实判据（对话历史 vs 可压缩
+ * 预算）不是一回事：固定开销吃掉大半窗口时，整窗 74% 就可能已经越过触发线，反
+ * 之整窗 90% 也可能离得远。这里把真实比较的两侧一并交给 UI。
+ *
+ * 无 breakdown（无活跃实例）时返回 undefined —— 退化口径下 fixedOverhead 恒为 0，
+ * 算出的触发线会把固定开销也算成「可压缩」，反而误导。
+ */
+export function buildBudgetSnapshot(
+  usedTokens: number,
+  contextWindow: number,
+  breakdown: readonly ContextUsageBreakdownEntry[] | undefined,
+  reserveForCompletion: number,
+  triggerRatio: number,
+): ContextBudgetSnapshot | undefined {
+  if (!breakdown?.length) return undefined
+
+  const budget = computeContextBudget(usedTokens, contextWindow, breakdown, reserveForCompletion)
+  return {
+    compressibleTokens: budget.compressible,
+    budgetTokens: budget.budget,
+    triggerTokens: Math.floor(budget.budget * triggerRatio),
+    exhausted: budget.exhausted,
+  }
 }

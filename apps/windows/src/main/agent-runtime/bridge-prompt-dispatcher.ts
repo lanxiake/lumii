@@ -78,7 +78,10 @@ export interface BridgePromptDispatcherDeps {
    * 会话整窗用量与分类明细（用于把自动压缩阈值扣掉固定开销后再算）。
    * 无活跃实例时返回的 breakdown 为 undefined，预算计算会退化为整窗口径。
    */
-  getSessionContextUsage?: (sessionKey: string) => {
+  getSessionContextUsage?: (
+    sessionKey: string,
+    opts?: { withBreakdown?: boolean },
+  ) => {
     usedTokens: number
     contextWindow: number
     triggerThreshold: number
@@ -408,11 +411,15 @@ export class BridgePromptDispatcher {
           usage?.breakdown,
           comp.outputReserveTokens,
         )
-        const autoCompactThreshold = Math.floor(budget.budget * DEFAULT_COMPACTION_TRIGGER_RATIO)
+        // 阈值取会话解析出的比例（getSessionContextUsage 的 triggerThreshold），
+        // 不要在这里另写常量——同一条链路上留两处来源，迟早像占用条那样出现
+        // 显示 78%、实际按 80% 判断的分叉。
+        const triggerRatio = usage?.triggerThreshold ?? DEFAULT_COMPACTION_TRIGGER_RATIO
+        const autoCompactThreshold = Math.floor(budget.budget * triggerRatio)
         if (estimatedTokens > autoCompactThreshold && historyMessages.length > 4) {
           log.info(
             `[prompt] 自动压缩触发: estimatedTokens=${estimatedTokens} > threshold=${autoCompactThreshold} ` +
-              `(可压缩预算 ${budget.budget} × ${DEFAULT_COMPACTION_TRIGGER_RATIO}, 固定开销=${budget.fixedOverhead}/${comp.contextWindow}), sessionKey=${sessionKey}`,
+              `(可压缩预算 ${budget.budget} × ${triggerRatio}, 固定开销=${budget.fixedOverhead}/${comp.contextWindow}), sessionKey=${sessionKey}`,
           )
           if (budget.exhausted) {
             log.warn(

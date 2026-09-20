@@ -3,6 +3,7 @@
  */
 
 import React from 'react'
+import clsx from 'clsx'
 import type { ContextUsage } from '../../../../hooks/business/useAgentRuntime/agent-runtime-store'
 import type { ContextUsageCategory } from '../../../../../shared/agent-runtime-events'
 import { formatTokenCount } from '../../../../utils/format-token-count'
@@ -42,6 +43,20 @@ const ContextUsageCard: React.FC<ContextUsageCardProps> = ({ contextUsage, conte
   const percent = contextWindow > 0 ? Math.round((used / contextWindow) * 100) : 0
   const breakdown = contextUsage?.breakdown ?? []
   const threshold = Math.round((contextUsage?.triggerThreshold ?? 0.8) * 100)
+  const budget = contextUsage?.budget
+
+  /**
+   * 页脚按真实触发口径说话。
+   *
+   * 压缩判断比的是「对话历史 vs 留给对话的空间 × 阈值比例」，不是整窗百分比：
+   * 固定开销吃掉大半窗口时，整窗 74% 可能早已越过触发线。所以有 budget 快照时
+   * 直接给出触发线 token 数，避免用户拿整窗百分比去对那个比例。
+   */
+  const footerText = !budget
+    ? `超过 ${threshold}% 自动压缩对话历史 · 点击可立即压缩`
+    : budget.exhausted
+      ? '固定开销已占满窗口，压缩无法释放 · 建议关闭部分 MCP 服务'
+      : `对话历史 ${formatTokenCount(budget.compressibleTokens)} / 触发线 ${formatTokenCount(budget.triggerTokens)} · 点击可立即压缩`
 
   return (
     <div className={styles.card} role="tooltip">
@@ -104,8 +119,8 @@ const ContextUsageCard: React.FC<ContextUsageCardProps> = ({ contextUsage, conte
         <div className={styles.empty}>发送一条消息后可查看分类明细</div>
       )}
 
-      <div className={styles.footer}>
-        超过 {threshold}% 自动压缩对话历史 · 点击可立即压缩
+      <div className={clsx(styles.footer, budget?.exhausted && styles['footer-warn'])}>
+        {footerText}
       </div>
     </div>
   )

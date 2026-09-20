@@ -128,3 +128,8 @@
   font-size: var(--mt-fs-xs, 11px);
   color: var(--color-text-secondary);
 }
+
+/* 固定开销挤满窗口：压缩救不回空间，这条提示要显眼到用户去关 MCP */
+.footer-warn {
+  color: var(--color-warning);
+}

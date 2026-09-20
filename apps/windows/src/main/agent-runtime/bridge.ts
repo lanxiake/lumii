@@ -86,8 +86,8 @@ import {
 import type { ArchivePalaceMeta } from '@mtbot/agent-runtime'
 import type { AgentMessage, StreamFn } from '@mariozechner/pi-agent-core'
 import { buildContextUsageBreakdown, calibrateCharsPerToken, countPromptChars, aggregateMcpTokensByServer } from './context-usage-breakdown.js'
-import type { ContextUsageBreakdownEntry } from '../../shared/agent-runtime-events'
-import { computeContextBudget, shouldCompactByBudget } from '../../shared/context-budget'
+import type { ContextBudgetSnapshot, ContextUsageBreakdownEntry } from '../../shared/agent-runtime-events'
+import { buildBudgetSnapshot, computeContextBudget, shouldCompactByBudget } from '../../shared/context-budget'
 
 import {
   executeLocalCommand,
@@ -463,7 +463,9 @@ export class AgentRuntimeBridge {
       onSessionContextInvalidated: (sessionKey) => this.clearSessionProviderInputTokens(sessionKey),
       onSessionContextTokensUpdated: (sessionKey, usedTokens) =>
         this.setSessionProviderInputTokens(sessionKey, usedTokens),
-      getSessionContextUsage: (sessionKey) => this.getSessionContextUsage(sessionKey),
+      // 绑方法而非手写透传：少写一个参数时 TS 不报错（参数少的函数可赋给参数多的
+      // 类型），调用方传的 opts 会被静默吞掉。下面两处 deps 同理。
+      getSessionContextUsage: this.getSessionContextUsage.bind(this),
     })
     this.conversationManager = new BridgeConversationManager({
       localDb: this.localDb,
@@ -1861,7 +1863,8 @@ export class AgentRuntimeBridge {
       pushActivitySnapshot: (k) => this.lifecycle.pushActivitySnapshot(k),
       prompt: (id, msg) => this.prompt(id, msg),
       createSummaryGenerator: (innerStream, model) => createLlmSummaryGenerator(innerStream, model),
-      getSessionContextUsage: (sk) => this.getSessionContextUsage(sk),
+      // 绑方法而非手写透传，避免以后加参数时静默漏传（见构造函数里的说明）
+      getSessionContextUsage: this.getSessionContextUsage.bind(this),
       setSessionProviderInputTokens: (sk, tokens) => this.setSessionProviderInputTokens(sk, tokens),
       calibrateSessionCharsPerToken: (sk, modelId, tokens) =>
         this.calibrateSessionCharsPerToken(sk, modelId, tokens),
@@ -1888,7 +1891,8 @@ export class AgentRuntimeBridge {
       getSkillEvolutionEngine: () => this.config.skillEvolutionEngine,
       getToolEvolutionEngine: () => this._toolEvolutionEngine,
       getConversationRepo: () => this._conversationRepo,
-      getSessionContextUsage: (k) => this.getSessionContextUsage(k),
+      // 绑方法而非手写透传，避免以后加参数时静默漏传（见构造函数里的说明）
+      getSessionContextUsage: this.getSessionContextUsage.bind(this),
       routerService: this.createRouterService(),
       routerHitRateTracker: this.routerHitRateTracker,
       getSkillsSnapshot: this.config.getSkills,
@@ -2205,20 +2209,46 @@ export class AgentRuntimeBridge {
     return usedTokens
   }
 
-  getSessionContextUsage(sessionKey: string): {
+  /**
+   * 会话上下文占用（整窗已用 + 窗口 + 阈值比例；带明细时另附触发线快照）。
+   *
+   * `withBreakdown: false` 是给「每次 LLM 往返都刷新占用条」用的轻量路径：
+   * breakdown 要遍历全部消息做 token 估算（`estimateTokenCount`），而主进程冻结
+   * 排查（docs/fix/2026-09-20 §6.9）已确认这条栈正是冻结根因之一——一次请求十几
+   * 次往返全量重算，就是那次事故的形状。轻量路径只读刚写入的真实回执缓存，几乎免费。
+   */
+  getSessionContextUsage(
+    sessionKey: string,
+    opts?: { withBreakdown?: boolean },
+  ): {
     usedTokens: number
     contextWindow: number
     triggerThreshold: number
     breakdown?: readonly ContextUsageBreakdownEntry[]
+    budget?: ContextBudgetSnapshot
   } {
     const k = sessionKey.trim()
     const usedTokens = this.resolveSessionUsedTokens(k)
     const comp = this.sessionModelCatalog.getCompactionForRootSession(k)
+    const triggerThreshold = DEFAULT_COMPACTION_TRIGGER_RATIO
+
+    if (opts?.withBreakdown === false) {
+      return { usedTokens, contextWindow: comp.contextWindow, triggerThreshold }
+    }
+
+    const breakdown = this.resolveSessionUsageBreakdown(k, usedTokens)
     return {
       usedTokens,
       contextWindow: comp.contextWindow,
-      triggerThreshold: DEFAULT_COMPACTION_TRIGGER_RATIO,
-      breakdown: this.resolveSessionUsageBreakdown(k, usedTokens),
+      triggerThreshold,
+      breakdown,
+      budget: buildBudgetSnapshot(
+        usedTokens,
+        comp.contextWindow,
+        breakdown,
+        comp.outputReserveTokens,
+        triggerThreshold,
+      ),
     }
   }
 

@@ -22,9 +22,7 @@ import {
   type PendingPermissionSnapshot,
   type PendingAskUserSnapshot,
 } from './agent-runtime-store'
-import type {
-  ContextUsageBreakdownEntry,
-} from '../../../../shared/agent-runtime-events'
+import type { SessionContextUsageResult } from '../../../../shared/agent-runtime-commands'
 import { isCommandError } from '../../../../shared/agent-runtime-commands'
 import { debugLog, ensureIpcEventListener, sleep, LIST_NOT_READY_RETRY_MS, LIST_NOT_READY_MAX_ATTEMPTS } from './bridge-init'
 import { switchSession as switchSessionImpl } from './switch-session'
@@ -541,15 +539,7 @@ export function useAgentRuntimeActions() {
    * 将主进程返回的上下文用量写入会话 store
    */
   const applyContextUsage = useCallback(
-    (
-      sessionKey: string,
-      raw: {
-        usedTokens: number
-        contextWindow: number
-        triggerThreshold: number
-        breakdown?: readonly ContextUsageBreakdownEntry[]
-      },
-    ) => {
+    (sessionKey: string, raw: SessionContextUsageResult) => {
       const ratio = raw.contextWindow > 0 ? raw.usedTokens / raw.contextWindow : 0
       updateSessionState(sessionKey, (prev) => ({
         ...prev,
@@ -559,6 +549,7 @@ export function useAgentRuntimeActions() {
           triggerThreshold: raw.triggerThreshold,
           isNearThreshold: ratio > 0.6,
           ...(raw.breakdown ? { breakdown: raw.breakdown } : {}),
+          ...(raw.budget ? { budget: raw.budget } : {}),
         },
       }))
     },
@@ -576,12 +567,7 @@ export function useAgentRuntimeActions() {
         const usage = await api.sendCommand({
           type: 'conversation:context-usage',
           sessionKey,
-        }) as {
-          usedTokens: number
-          contextWindow: number
-          triggerThreshold: number
-          breakdown?: readonly ContextUsageBreakdownEntry[]
-        }
+        }) as SessionContextUsageResult
         applyContextUsage(sessionKey, usage)
       } catch (err) {
         debugLog(`[refreshContextUsage] 失败 sessionKey=${sessionKey}`, err)

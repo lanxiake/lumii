@@ -13,6 +13,7 @@
 import type {
   AgentRuntimeEvent,
   ContentBlock,
+  ContextBudgetSnapshot,
   ContextUsageBreakdownEntry,
   TokenUsage,
 } from '../../../../shared/agent-runtime-events'
@@ -146,7 +147,7 @@ export type LlmRouteStatus = 'healthy' | 'degraded' | 'error'
 
 /** 上下文使用量状态 */
 export interface ContextUsage {
-  /** 当前已使用的 token 数（累计 inputTokens） */
+  /** 当前已使用的 token 数（inputTokens + cacheRead + cacheWrite） */
   readonly usedTokens: number
   /** 模型上下文窗口总大小 */
   readonly contextWindow: number
@@ -156,6 +157,8 @@ export interface ContextUsage {
   readonly isNearThreshold: boolean
   /** 分类明细（主进程估算后按 usedTokens 缩放），无活跃实例时缺省 */
   readonly breakdown?: readonly ContextUsageBreakdownEntry[]
+  /** 触发线快照；逐往返的轻量推送不带，此时沿用上一次的值 */
+  readonly budget?: ContextBudgetSnapshot
 }
 
 /** 错误状态 */

@@ -154,12 +154,19 @@ export interface BridgeInstanceFactoryDeps {
     innerStream: StreamFn,
     model: import('@mariozechner/pi-ai').Model<any>,
   ) => any
-  /** 会话上下文用量（优先提供商 inputTokens，回退消息估算） */
-  getSessionContextUsage: (sessionKey: string) => {
+  /**
+   * 会话上下文用量（优先提供商 inputTokens，回退消息估算）。
+   * `withBreakdown: false` 走轻量路径，供逐往返刷新占用条用。
+   */
+  getSessionContextUsage: (
+    sessionKey: string,
+    opts?: { withBreakdown?: boolean },
+  ) => {
     usedTokens: number
     contextWindow: number
     triggerThreshold: number
     breakdown?: readonly import('../../shared/agent-runtime-events').ContextUsageBreakdownEntry[]
+    budget?: import('../../shared/agent-runtime-events').ContextBudgetSnapshot
   }
   /** 记录提供商返回的 inputTokens */
   setSessionProviderInputTokens: (sessionKey: string, inputTokens: number) => void
@@ -603,7 +610,8 @@ export class BridgeInstanceFactory {
       toolStartTimeMap: this.deps.toolStartTimeMap,
       nodeStreamCallbacks: this.deps.nodeStreamCallbacks,
       getCompactionForRootSession: (k) => this.deps.sessionModelCatalog.getCompactionForRootSession(k),
-      getSessionContextUsage: (k) => this.deps.getSessionContextUsage(k),
+      // 直接传引用：手写透传在签名加参数后会静默吞掉新增的实参（TS 不报错）
+      getSessionContextUsage: this.deps.getSessionContextUsage,
       setSessionProviderInputTokens: (k, tokens) => this.deps.setSessionProviderInputTokens(k, tokens),
       calibrateSessionCharsPerToken: (k, modelId, tokens) =>
         this.deps.calibrateSessionCharsPerToken(k, modelId, tokens),

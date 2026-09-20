@@ -11,7 +11,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { resetRuntimeStore, runtimeStore } from './agent-runtime-store'
 import { handleRuntimeEvent, resetAgentRuntimeEventHandlerForTests } from './event-handler'
-import type { AgentRuntimeEvent } from '../../../../shared/agent-runtime-events'
+import type { AgentContextUsageEvent, AgentRuntimeEvent } from '../../../../shared/agent-runtime-events'
 
 const SESSION_KEY = 'cron:seed-morning-briefing'
 const RUN_ID = 'run-bbcfab15'
@@ -213,5 +213,66 @@ describe('agent:message:end 的中止标记', () => {
     const sub = messagesOf().find((m) => m.id === SUB_MESSAGE_ID)
     expect(sub?.isAborted).toBe(true)
     expect(sub?.sourceAgent?.instanceId).toBe(SUB_INSTANCE)
+  })
+})
+
+/**
+ * 占用条改成「每次 LLM 往返推一次」后，推送密度上了一个量级。
+ * `useAgentRuntimeState` 用的 useSyncExternalStore 没配 equality 函数，
+ * 一旦每次推送都换 contextUsage 引用，ChatPage / ChatInput（memo 被 prop 击穿）
+ * 就会跟着白重渲染一遍。
+ */
+describe('agent:context:usage 的无变化短路', () => {
+  beforeEach(() => {
+    resetRuntimeStore()
+    resetAgentRuntimeEventHandlerForTests()
+  })
+
+  const usageEvent = (
+    over?: Partial<AgentContextUsageEvent>,
+  ): AgentContextUsageEvent => ({
+    type: 'agent:context:usage',
+    sessionKey: SESSION_KEY,
+    usedTokens: 12_000,
+    contextWindow: 128_000,
+    triggerThreshold: 0.78,
+    ...over,
+  })
+
+  const contextUsage = () => runtimeStore.getState().sessions.get(SESSION_KEY)?.contextUsage
+
+  it('逐往返推送同样数值时不换引用', () => {
+    handleRuntimeEvent(usageEvent())
+    const first = contextUsage()
+    expect(first).toMatchObject({ usedTokens: 12_000, contextWindow: 128_000, triggerThreshold: 0.78 })
+
+    handleRuntimeEvent(usageEvent())
+
+    // 引用相等 = store 没被写，下游不会重渲染
+    expect(contextUsage()).toBe(first)
+  })
+
+  it('数值变化时照常更新', () => {
+    handleRuntimeEvent(usageEvent())
+    handleRuntimeEvent(usageEvent({ usedTokens: 30_000 }))
+
+    expect(contextUsage()?.usedTokens).toBe(30_000)
+  })
+
+  it('轻量推送沿用上一次的明细与触发线，不把它们抹掉', () => {
+    const budget = {
+      compressibleTokens: 5_000,
+      budgetTokens: 100_000,
+      triggerTokens: 78_000,
+      exhausted: false,
+    }
+    handleRuntimeEvent(usageEvent({ breakdown: [{ category: 'conversation', tokens: 5_000 }], budget }))
+    expect(contextUsage()?.budget).toEqual(budget)
+
+    handleRuntimeEvent(usageEvent({ usedTokens: 13_000 }))
+
+    expect(contextUsage()?.usedTokens).toBe(13_000)
+    expect(contextUsage()?.breakdown).toEqual([{ category: 'conversation', tokens: 5_000 }])
+    expect(contextUsage()?.budget).toEqual(budget)
   })
 })

@@ -7,7 +7,26 @@
  * 设计依据: .qoder/design/client-agent-runtime/08-前端渲染与IPC通讯.md §2.2
  */
 
-import type { ContentBlock, ConversationMessageNewEvent } from './agent-runtime-events'
+import type {
+  ContentBlock,
+  ContextBudgetSnapshot,
+  ContextUsageBreakdownEntry,
+  ConversationMessageNewEvent,
+} from './agent-runtime-events'
+
+/**
+ * 会话上下文用量（`conversation:context-usage` 及同类命令的返回形状）。
+ *
+ * `breakdown` / `budget` 需要有活跃实例才算得出：轻量路径（逐往返刷新占用条）
+ * 只回前三个字段。
+ */
+export interface SessionContextUsageResult {
+  readonly usedTokens: number
+  readonly contextWindow: number
+  readonly triggerThreshold: number
+  readonly breakdown?: readonly ContextUsageBreakdownEntry[]
+  readonly budget?: ContextBudgetSnapshot
+}
 
 // ============================================================
 // 用户交互命令
@@ -1848,16 +1867,8 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
   : T extends 'user:permission:respond' ? void
   : T extends 'user:ask-user:respond' ? void
   : T extends 'runtime:modelCatalog:set' ? { ok: boolean }
-  : T extends 'session:preferredModel:set' ? {
-      usedTokens: number
-      contextWindow: number
-      triggerThreshold: number
-    }
-  : T extends 'session:preferredModel:prime' ? {
-      usedTokens: number
-      contextWindow: number
-      triggerThreshold: number
-    }
+  : T extends 'session:preferredModel:set' ? SessionContextUsageResult
+  : T extends 'session:preferredModel:prime' ? SessionContextUsageResult
   : T extends 'session:thinkingPrefs:set' ? {
       thinkingEnabled: boolean
       reasoningEffort: 'high' | 'max'
@@ -1887,11 +1898,7 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
       /** 本页最早一条消息的游标，回传给 before 即可取更早的一页 */
       nextCursor?: ConversationMessagesCursor
     }
-  : T extends 'conversation:context-usage' ? {
-      usedTokens: number
-      contextWindow: number
-      triggerThreshold: number
-    }
+  : T extends 'conversation:context-usage' ? SessionContextUsageResult
   : T extends 'conversation:delete' ? void
   : T extends 'conversation:rename' ? { success: boolean }
   : T extends 'conversation:pin-toggle' ? { isPinned: boolean }

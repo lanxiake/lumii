@@ -28,6 +28,7 @@ import type { FileMemoryHandler } from './file-memory-handler'
 import type { WikiIngestHook } from '@mtbot/agent-runtime'
 import type {
   AgentRuntimeEvent as RendererIpcEvent,
+  ContextBudgetSnapshot,
   ContextUsageBreakdownEntry,
 } from '../../shared/agent-runtime-events'
 import type { InstanceStateStore } from './bridge-instance-state'
@@ -231,12 +232,19 @@ export interface BridgeAgentInstanceEventDeps {
     outputReserveTokens: number
     summaryReserveTokens: number
   }
-  /** 按消息估算的上下文用量（优先提供商 inputTokens） */
-  getSessionContextUsage: (sessionKey: string) => {
+  /**
+   * 会话上下文用量（优先提供商 inputTokens）。
+   * `withBreakdown: false` 走轻量路径：不算分类明细与触发线快照，供逐往返刷新占用条用。
+   */
+  getSessionContextUsage: (
+    sessionKey: string,
+    opts?: { withBreakdown?: boolean },
+  ) => {
     usedTokens: number
     contextWindow: number
     triggerThreshold: number
     breakdown?: readonly ContextUsageBreakdownEntry[]
+    budget?: ContextBudgetSnapshot
   }
   /** 记录提供商返回的 inputTokens，供上下文用量条使用 */
   setSessionProviderInputTokens: (sessionKey: string, inputTokens: number) => void
@@ -260,7 +268,17 @@ export interface BridgeAgentInstanceEventDeps {
   onTurnComplete?: (instanceId: string, messages: import('../skill-evolution/types').ConversationMessage[]) => void
 }
 
-const CONTEXT_USAGE_TRIGGER_THRESHOLD = 0.8
+/**
+ * 逐往返刷新占用条时的最小推送间隔。
+ *
+ * 一轮请求可能含十几次 LLM 往返（工具循环），每次都推会让渲染层重复重渲染；
+ * `agent:end` 那次是无条件强推，所以最终值不会丢。500ms 远小于真实往返间隔
+ * （数秒起），正常情况下不会触发，只在同一秒内连续往返时兜底。
+ */
+const CONTEXT_USAGE_MIN_PUSH_INTERVAL_MS = 500
+
+/** 会话上下文用量快照（`getSessionContextUsage` 的返回形状）。 */
+type SessionContextUsage = ReturnType<BridgeAgentInstanceEventDeps['getSessionContextUsage']>
 
 /**
  * 构造 Agent 实例的 subscribe 回调：处理一轮内的持久化、IPC 与 Gateway 节点流回调。
@@ -362,6 +380,40 @@ export function createAgentInstanceRuntimeEventHandler(
     if (!streamingPersistTimer) return
     clearTimeout(streamingPersistTimer)
     streamingPersistTimer = undefined
+  }
+
+  let lastContextUsagePushAt = 0
+
+  /**
+   * 推送会话上下文占用。
+   *
+   * 每次 LLM 往返都会走一次（与上行/下行 token 同节奏），所以默认走轻量路径——
+   * 不算分类明细与触发线（明细要遍历全部消息估算，正是主进程冻结排查记下的那条
+   * 栈）。`force` 供 `agent:end` 与压缩后使用：既算明细也绕过节流。
+   *
+   * @returns 实际推送的用量；被节流跳过时返回 undefined（调用方据此决定是否打日志）
+   */
+  function pushContextUsage(
+    rootSessionKey: string,
+    force = false,
+  ): SessionContextUsage | undefined {
+    const now = Date.now()
+    if (!force && now - lastContextUsagePushAt < CONTEXT_USAGE_MIN_PUSH_INTERVAL_MS) {
+      return undefined
+    }
+    lastContextUsagePushAt = now
+
+    const usage = getSessionContextUsage(rootSessionKey, { withBreakdown: force })
+    ipcChannel.forwardIpcEvent({
+      type: 'agent:context:usage',
+      sessionKey: rootSessionKey,
+      usedTokens: usage.usedTokens,
+      contextWindow: usage.contextWindow,
+      triggerThreshold: usage.triggerThreshold,
+      ...(usage.breakdown ? { breakdown: usage.breakdown } : {}),
+      ...(usage.budget ? { budget: usage.budget } : {}),
+    } as unknown as RendererIpcEvent)
+    return usage
   }
 
   /**
@@ -680,6 +732,10 @@ export function createAgentInstanceRuntimeEventHandler(
           if (ctx.resolvedModelId) {
             calibrateSessionCharsPerToken(ctx.rootSessionKey, ctx.resolvedModelId, promptTokens)
           }
+          // 每次 LLM 往返就把占用条推进一格：只在 agent:end 推的话，带工具循环的
+          // 一轮可能跑十几分钟，期间占用条显示的一直是上一轮的残留值。
+          // 放在标定之后——明细的固定部分直算依赖刚更新的 charsPerToken。
+          pushContextUsage(ctx.rootSessionKey)
         }
       }
       // 落盘用量：只在服务商真给了 usage 时记，估算值不入库（否则花费统计会失真）
@@ -1045,21 +1101,16 @@ export function createAgentInstanceRuntimeEventHandler(
     }
 
     if (event.type === 'agent:end' && ctx.sessionKey === ctx.rootSessionKey) {
-      const usage = getSessionContextUsage(ctx.rootSessionKey)
-      ipcChannel.forwardIpcEvent({
-        type: 'agent:context:usage',
-        sessionKey: ctx.rootSessionKey,
-        usedTokens: usage.usedTokens,
-        contextWindow: usage.contextWindow,
-        triggerThreshold: CONTEXT_USAGE_TRIGGER_THRESHOLD,
-        ...(usage.breakdown ? { breakdown: usage.breakdown } : {}),
-      } as unknown as RendererIpcEvent)
-      const breakdownText = usage.breakdown?.length
-        ? ` breakdown=${usage.breakdown.map((e) => `${e.category}:${e.tokens}`).join(',')}`
-        : ''
-      log.info(
-        `[event] 推送 contextUsage: used=${usage.usedTokens}/${usage.contextWindow} (${usage.contextWindow > 0 ? ((usage.usedTokens / usage.contextWindow) * 100).toFixed(1) : '0'}%)${breakdownText}`,
-      )
+      // 无条件强推：补齐分类明细与触发线快照，并保证最终值一定落到 UI
+      const usage = pushContextUsage(ctx.rootSessionKey, true)
+      if (usage) {
+        const breakdownText = usage.breakdown?.length
+          ? ` breakdown=${usage.breakdown.map((e) => `${e.category}:${e.tokens}`).join(',')}`
+          : ''
+        log.info(
+          `[event] 推送 contextUsage: used=${usage.usedTokens}/${usage.contextWindow} (${usage.contextWindow > 0 ? ((usage.usedTokens / usage.contextWindow) * 100).toFixed(1) : '0'}%)${breakdownText}`,
+        )
+      }
     }
   }
 

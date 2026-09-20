@@ -68,7 +68,10 @@ export interface BridgeContextCompactorDeps {
   /** 压缩后写入整窗占用（只扣对话差值），避免下一次读数把 MCP 一并缩放 */
   onSessionContextTokensUpdated?: (sessionKey: string, usedTokens: number) => void
   /** 读取压缩前的整窗占用（与占用卡片同一口径） */
-  getSessionContextUsage?: (sessionKey: string) => {
+  getSessionContextUsage?: (
+    sessionKey: string,
+    opts?: { withBreakdown?: boolean },
+  ) => {
     usedTokens: number
     contextWindow: number
     triggerThreshold: number

@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { computeContextBudget, shouldCompactByBudget } from './context-budget'
+import { buildBudgetSnapshot, computeContextBudget, shouldCompactByBudget } from './context-budget'
 import type { ContextUsageBreakdownEntry } from './agent-runtime-events'
 
 /** 故障日志实测分布：固定开销 164805，对话仅 9578 */
@@ -99,5 +99,34 @@ describe('computeContextBudget', () => {
     const b = computeContextBudget(4000, 8000, undefined, 8192)
     expect(b.exhausted).toBe(true)
     expect(shouldCompactByBudget(b, 0.78)).toBe(false)
+  })
+})
+
+describe('buildBudgetSnapshot', () => {
+  it('把触发线折算成对话历史的 token 数', () => {
+    const snap = buildBudgetSnapshot(195915, 200000, REAL_BREAKDOWN, 8192, 0.78)
+    expect(snap).toEqual({
+      compressibleTokens: 29171,
+      budgetTokens: 25064,
+      // 25064 × 0.78 = 19549.92 → 取整不留小数，避免 UI 报出一个不存在的门槛
+      triggerTokens: 19549,
+      exhausted: false,
+    })
+  })
+
+  it('固定开销挤满窗口时标记 exhausted（UI 据此改提示语）', () => {
+    const breakdown: readonly ContextUsageBreakdownEntry[] = [
+      { category: 'mcp', tokens: 195000 },
+      { category: 'conversation', tokens: 3000 },
+    ]
+    const snap = buildBudgetSnapshot(198000, 200000, breakdown, 8192, 0.78)
+    expect(snap?.exhausted).toBe(true)
+    expect(snap?.budgetTokens).toBe(0)
+    expect(snap?.triggerTokens).toBe(0)
+  })
+
+  it('无 breakdown 时不给快照——退化口径会把固定开销也算成可压缩', () => {
+    expect(buildBudgetSnapshot(180000, 200000, undefined, 8192, 0.78)).toBeUndefined()
+    expect(buildBudgetSnapshot(180000, 200000, [], 8192, 0.78)).toBeUndefined()
   })
 })

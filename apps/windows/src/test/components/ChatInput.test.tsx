@@ -238,3 +238,97 @@ describe('Phase 3: 消息功能 - ChatInput组件', () => {
     })
   })
 })
+
+/**
+ * 上下文指示器的触发线口径。
+ *
+ * 这里的 contextUsage 会在组件内被重建成只含必要字段的新对象——漏传 budget 会让
+ * 口径**静默**退回整窗百分比（store 里明明有快照，label 却还说「压缩阈值 78%」，
+ * 且 TS 不会报错）。所以要断言最终落到 aria-label 上的文案。
+ */
+describe('上下文指示器的触发线口径', () => {
+  // 上一个 describe 的 mockProps 在其作用域内，这里自备一份
+  const compactProps = {
+    value: '',
+    onChange: vi.fn(),
+    onSend: vi.fn(),
+    disabled: false,
+    isStreaming: false,
+    isConnected: true,
+    placeholder: '输入消息...',
+    // 没有它整个上下文按钮不渲染
+    onCompactContext: vi.fn(),
+  }
+
+  const labelOf = (): string => {
+    const btn = document.querySelector('[aria-label^="上下文使用"]')
+    return btn?.getAttribute('aria-label') ?? ''
+  }
+
+  it('有触发线快照时报对话历史与触发线，而不是整窗百分比', () => {
+    render(
+      <ChatInput
+        {...compactProps}
+        contextUsage={{
+          usedTokens: 190_000,
+          contextWindow: 256_000,
+          triggerThreshold: 0.78,
+          isNearThreshold: true,
+          budget: {
+            compressibleTokens: 145_000,
+            budgetTokens: 214_000,
+            triggerTokens: 167_000,
+            exhausted: false,
+          },
+        }}
+      />,
+    )
+
+    const label = labelOf()
+    expect(label).toContain('对话历史 145K')
+    expect(label).toContain('触发线 167K')
+    // 有快照就不该再拿整窗百分比跟阈值比例作比较
+    expect(label).not.toContain('压缩阈值')
+  })
+
+  it('快照缺失时退回整窗百分比，且不出现「状态 状态健康」叠字', () => {
+    render(
+      <ChatInput
+        {...compactProps}
+        contextUsage={{
+          usedTokens: 26_000,
+          contextWindow: 200_000,
+          triggerThreshold: 0.78,
+          isNearThreshold: false,
+        }}
+      />,
+    )
+
+    const label = labelOf()
+    expect(label).toContain('压缩阈值 78%')
+    expect(label).toContain('状态 健康')
+    expect(label).not.toContain('状态 状态')
+  })
+
+  it('固定开销挤满窗口时给出可行动作', () => {
+    render(
+      <ChatInput
+        {...compactProps}
+        contextUsage={{
+          usedTokens: 198_000,
+          contextWindow: 200_000,
+          triggerThreshold: 0.78,
+          isNearThreshold: true,
+          budget: {
+            compressibleTokens: 3_000,
+            budgetTokens: 0,
+            triggerTokens: 0,
+            exhausted: true,
+          },
+        }}
+      />,
+    )
+
+    expect(labelOf()).toContain('固定开销已占满窗口，压缩无法释放空间')
+  })
+})
