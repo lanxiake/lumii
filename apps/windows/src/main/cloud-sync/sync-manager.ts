@@ -13,7 +13,7 @@ import git, { TREE } from 'isomorphic-git'
 import type { PromiseFsClient, WalkerEntry } from 'isomorphic-git'
 import http from 'isomorphic-git/http/node'
 import { enqueueSyncMaintenance, enqueueWorkspace, getWorkspaceQueueDepth } from '../workspace-vcs/vcs-snapshot'
-import { detectGit, runGit } from '../git-cli'
+import { detectGit, runGit, hasFatalError } from '../git-cli'
 import { SyncLargeQueue, type LargeQueueStats } from './sync-large-queue'
 import { scopeRulesFromConfig } from './sync-scope'
 import { resolveActiveWorkspaceDir } from '../workspace-paths'
@@ -1291,6 +1291,50 @@ export class CloudSyncManager extends EventEmitter {
     })
   }
 
+  /**
+   * 用**真 git** 提交 sync 仓库，取代 isomorphic-git 的 `git.commit`。
+   *
+   * ## 为什么换（2026-09-20 实测）
+   *
+   * 冻结现场捕获器定位到：`exportLocalEdits 完成` 到 `已提交本地变更` 之间有
+   * **6.5 秒空白**，而同一刻系统进程表里**没有 `git.exe`**、采样覆盖率只有 1.3%
+   * —— 符合「纯 JS 实现、时间花在读文件与 native 哈希上」。
+   *
+   * 全天统计「导出完成 → 提交完成」的耗时：无变更路径稳定 150~400ms，
+   * 而提交路径多数 500~900ms、**但有 ~15 次落在 3~7 秒**（最长 6925ms）。
+   * `git.commit` 是 isomorphic-git，要按内容全量重算 blob hash。
+   *
+   * ## 与「sync 仓库别用真 git commit」那条约定的关系
+   *
+   * 原先不用真 git 的理由有两条，现在都不成立：
+   * - **会触发 auto-gc** → `GIT_BASE_CONFIG` 里已经钉死 `gc.auto=0`（`gitArgv` 会带上）；
+   * - **`index.lock` 可能与 iso 的遍历撞** → `stageAllChanges` **早就在用真 git** 了
+   *   （`stageAllChangesViaCli`，同样会留 lock），这条在实践中已经不成立。
+   *
+   * 身份走环境变量，不读写用户 config —— 与暂存路径同一套。
+   */
+  private async commitViaCli(p: GitParams, message: string): Promise<string> {
+    const author = { name: 'Lumii CloudSync', email: 'sync@lumii.local' }
+    const r = await runGit({
+      workTree: p.dir,
+      gitDir: p.gitdir,
+      // -F - 走 stdin：message 含换行与时间戳，走命令行参数在 Windows 上要处理转义
+      args: ['commit', '-q', '--no-verify', '--allow-empty', '-F', '-'],
+      env: {
+        GIT_AUTHOR_NAME: author.name,
+        GIT_AUTHOR_EMAIL: author.email,
+        GIT_COMMITTER_NAME: author.name,
+        GIT_COMMITTER_EMAIL: author.email,
+      },
+      stdin: message,
+    })
+    if (r.code !== 0 || hasFatalError(r.stderr)) {
+      throw new Error(`git commit 退出码 ${r.code}: ${r.stderr.trim().slice(0, 300)}`)
+    }
+    const head = await runGit({ workTree: p.dir, gitDir: p.gitdir, args: ['rev-parse', 'HEAD'] })
+    return head.code === 0 ? head.stdout.trim() : ''
+  }
+
   private async exportAndCommitInner(
     p: GitParams,
     opts?: { localEditsOnly?: boolean },
@@ -1330,11 +1374,8 @@ export class CloudSyncManager extends EventEmitter {
       return null
     }
 
-    const oid = await git.commit({
-      ...p,
-      message: `sync: export at ${new Date().toISOString()}`,
-      author: { name: 'Lumii CloudSync', email: 'sync@lumii.local' },
-    })
+    // 走真 git：iso 的 commit 要按内容重算 blob hash，实测最长 6.9 秒（见 commitViaCli）
+    const oid = await this.commitViaCli(p, `sync: export at ${new Date().toISOString()}`)
     logger.info(`[exportAndCommit] 已提交本地变更 ${oid.slice(0, 8)}`)
     return oid
   }
