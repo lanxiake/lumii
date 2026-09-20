@@ -89,14 +89,54 @@ function resolveEdge(
   return best
 }
 
+/** 读一个令牌的实值；令牌必有定义，故不设兜底（缺了应去补定义而非就地兜底） */
+function readToken(name: string): string {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+}
+
+/** `#rrggbb` → `r, g, b`，供拼 `rgba()` 用；非 hex 返回 null */
+function hexToRgb(hex: string): [number, number, number] | null {
+  const m = hex.match(/^#([0-9a-fA-F]{6})$/)
+  if (!m) return null
+  const n = Number.parseInt(m[1]!, 16)
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255]
+}
+
+interface Accent {
+  /** 波浪描边与光斑最外层 */
+  light: string
+  /** 阴影色 */
+  mid: string
+  /** 光斑的 6 档色相（由外到内），已解成 `r, g, b` */
+  stops: Array<[number, number, number]>
+}
+
 /**
- * 读取主题强调色（带兜底）
+ * 读取主题强调色 —— **canvas 不解析 `var()`**，必须读计算值再拼字符串。
+ *
+ * 6 档色相逐档映射到令牌（原先硬编码，换主题时光晕不变色）：
+ *   accent-300/400/500/600 + sky-300 + accent-100。
+ * 最后两档原是 `#7dd3fc`(sky-300) 与 `#e0f2fe`（sky-100，仓内无此令牌），
+ * `#e0f2fe` 用最接近的 `--mt-accent-100`(#dbeafe) 替代。
  */
-function readAccent(): { light: string; mid: string } {
-  const style = getComputedStyle(document.documentElement)
+function readAccent(): Accent {
+  const light = readToken('--mt-accent-400')
+  const mid = readToken('--mt-accent-500')
+  // 逐档解析；令牌都已定义，解析不出只会是环境异常（如未挂载 DOM），
+  // 此时退回中性灰保证渐变仍可绘制，而不是拼出 `rgba(undefined, …)`。
+  const fallback: [number, number, number] = [128, 128, 128]
+  const toRgb = (name: string): [number, number, number] => hexToRgb(readToken(name)) ?? fallback
   return {
-    light: style.getPropertyValue('--mt-accent-400').trim() || '#60a5fa',
-    mid: style.getPropertyValue('--mt-accent-500').trim() || '#3b82f6',
+    light,
+    mid,
+    stops: [
+      toRgb('--mt-accent-300'),
+      toRgb('--mt-accent-400'),
+      toRgb('--mt-accent-500'),
+      toRgb('--mt-accent-600'),
+      toRgb('--mt-sky-300'),
+      toRgb('--mt-accent-100'),
+    ],
   }
 }
 
@@ -164,7 +204,12 @@ function drawWave(
 /**
  * 手电筒光斑：指针贴边投影处最亮，沿边与向内衰减
  */
-function drawFlashlight(ctx: CanvasRenderingContext2D, hit: EdgeHit, intensity: number) {
+function drawFlashlight(
+  ctx: CanvasRenderingContext2D,
+  hit: EdgeHit,
+  intensity: number,
+  accent: Accent,
+) {
   const { edge, x, y, w, h } = hit
   let cx = x
   let cy = y
@@ -183,12 +228,13 @@ function drawFlashlight(ctx: CanvasRenderingContext2D, hit: EdgeHit, intensity: 
     ctx.scale(GLOW_INWARD / GLOW_HALF_SPAN, 1)
   }
 
+  const [s0, s1, s2, s3, c0, c1] = accent.stops
   const grad = ctx.createRadialGradient(0, 0, 0, 0, 0, GLOW_HALF_SPAN)
-  grad.addColorStop(0, `rgba(147, 197, 253, ${0.55 * intensity})`)
-  grad.addColorStop(0.22, `rgba(96, 165, 250, ${0.32 * intensity})`)
-  grad.addColorStop(0.5, `rgba(59, 130, 246, ${0.12 * intensity})`)
-  grad.addColorStop(0.78, `rgba(37, 99, 235, ${0.04 * intensity})`)
-  grad.addColorStop(1, 'rgba(37, 99, 235, 0)')
+  grad.addColorStop(0, `rgba(${s0!.join(', ')}, ${0.55 * intensity})`)
+  grad.addColorStop(0.22, `rgba(${s1!.join(', ')}, ${0.32 * intensity})`)
+  grad.addColorStop(0.5, `rgba(${s2!.join(', ')}, ${0.12 * intensity})`)
+  grad.addColorStop(0.78, `rgba(${s3!.join(', ')}, ${0.04 * intensity})`)
+  grad.addColorStop(1, `rgba(${s3!.join(', ')}, 0)`)
 
   ctx.fillStyle = grad
   ctx.beginPath()
@@ -196,9 +242,9 @@ function drawFlashlight(ctx: CanvasRenderingContext2D, hit: EdgeHit, intensity: 
   ctx.fill()
 
   const core = ctx.createRadialGradient(0, 0, 0, 0, 0, GLOW_HALF_SPAN * 0.28)
-  core.addColorStop(0, `rgba(224, 242, 254, ${0.5 * intensity})`)
-  core.addColorStop(0.45, `rgba(125, 211, 252, ${0.2 * intensity})`)
-  core.addColorStop(1, 'rgba(125, 211, 252, 0)')
+  core.addColorStop(0, `rgba(${c1!.join(', ')}, ${0.5 * intensity})`)
+  core.addColorStop(0.45, `rgba(${c0!.join(', ')}, ${0.2 * intensity})`)
+  core.addColorStop(1, `rgba(${c0!.join(', ')}, 0)`)
   ctx.fillStyle = core
   ctx.beginPath()
   ctx.arc(0, 0, GLOW_HALF_SPAN * 0.28, 0, Math.PI * 2)
@@ -269,7 +315,7 @@ export const WindowEdgeGlow: React.FC<WindowEdgeGlowProps> = ({ disabled = false
 
       const intensity = Math.max(0, 1 - hit.t)
       const boost = intensity * intensity * 0.4 + intensity * 0.6
-      drawFlashlight(ctx, hit, boost)
+      drawFlashlight(ctx, hit, boost, accent)
       drawWave(ctx, hit, boost, phaseRef.current, accent)
     }
 

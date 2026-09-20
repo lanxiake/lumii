@@ -90,14 +90,40 @@ const selectableText: React.CSSProperties = {
   cursor: 'text',
 }
 
+// ─────────────────────────────────────────────────────────────
+// 色层
+//
+// 宠物模式跑在**独立窗口**里：main.tsx 直接渲染 PetModeShell，**不挂
+// AppProviders**（含 ThemeProvider），因此这个窗口没有 data-theme，
+// 也不该跟随主窗主题——用户用深色主题工作时，桌面宠物不该突然变成米黄色。
+// 所以这里**刻意不使用** `--mt-*` 主题令牌，色值都是本层自己的常量。
+//
+// 色相集中在这里：改「坞的亮度」只需改 LIGHT / DARK。
+// 透明度逐处保留——它们是设计刻度（描边 0.08~0.18、分隔线 0.08~0.12、
+// 文字 0.35~0.82），语义各不相同，合并会丢失层级。
+// ─────────────────────────────────────────────────────────────
+
+/** 浮层上的"亮色"（描边、分隔线、叠加底、次要文字） */
+const LIGHT: [number, number, number] = [255, 255, 255]
+/** 浮层上的"暗色"（坞底、内嵌区底、投影） */
+const DARK: [number, number, number] = [0, 0, 0]
+
+/** 按指定透明度取"亮色"。用法：`border: 1px solid ${light(0.12)}` */
+const light = (alpha: number): string => `rgba(${LIGHT.join(', ')}, ${alpha})`
+/** 按指定透明度取"暗色" */
+const dark = (alpha: number): string => `rgba(${DARK.join(', ')}, ${alpha})`
+
+/** 强调色底上的前景白——固定在有色底上，不参与"层亮度"调节 */
+const FG_ON_ACCENT = '#fff'
+
 const glass: React.CSSProperties = {
-  background: 'rgba(0, 0, 0, 0.72)',
+  background: dark(0.72),
   backdropFilter: 'blur(10px)',
   WebkitBackdropFilter: 'blur(10px)',
   borderRadius: 14,
-  boxShadow: '0 8px 32px rgba(0,0,0,0.45)',
-  border: '1px solid rgba(255,255,255,0.12)',
-  color: '#fff',
+  boxShadow: `0 8px 32px ${dark(0.45)}`,
+  border: `1px solid ${light(0.12)}`,
+  color: FG_ON_ACCENT,
 }
 
 /**
@@ -151,8 +177,8 @@ export const PetControlDock: React.FC<PetControlDockProps> = ({
         : voiceState === 'speaking'
           ? '#52c41a'
           : voiceState === 'thinking'
-            ? 'rgba(255,255,255,0.75)'
-            : 'rgba(255,255,255,0.55)'
+            ? `${light(0.75)}`
+            : `${light(0.55)}`
 
   useEffect(() => {
     const el = messagesRef.current
@@ -225,10 +251,10 @@ export const PetControlDock: React.FC<PetControlDockProps> = ({
             alignItems: 'center',
             justifyContent: 'space-between',
             padding: '8px 12px',
-            borderBottom: '1px solid rgba(255,255,255,0.1)',
+            borderBottom: `1px solid ${light(0.1)}`,
             cursor: 'grab',
             fontSize: 11,
-            color: 'rgba(255,255,255,0.45)',
+            color: `${light(0.45)}`,
             userSelect: 'none',
           }}
         >
@@ -258,7 +284,7 @@ export const PetControlDock: React.FC<PetControlDockProps> = ({
               padding: '12px 16px',
               maxHeight: 180,
               overflowY: 'auto',
-              borderBottom: '1px solid rgba(255,255,255,0.08)',
+              borderBottom: `1px solid ${light(0.08)}`,
               ...selectableText,
             }}
           >
@@ -269,7 +295,7 @@ export const PetControlDock: React.FC<PetControlDockProps> = ({
               <div
                 style={{
                   fontSize: 13,
-                  color: 'rgba(255,255,255,0.5)',
+                  color: `${light(0.5)}`,
                   fontStyle: 'italic',
                   marginTop: 4,
                   ...selectableText,
@@ -279,7 +305,7 @@ export const PetControlDock: React.FC<PetControlDockProps> = ({
               </div>
             )}
             {visibleMessages.length === 0 && !partialTranscript && inCall && voiceState === 'listening' && (
-              <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)', textAlign: 'center' }}>
+              <div style={{ fontSize: 12, color: `${light(0.35)}`, textAlign: 'center' }}>
                 对着麦克风说话开始对话
               </div>
             )}
@@ -293,8 +319,8 @@ export const PetControlDock: React.FC<PetControlDockProps> = ({
             alignItems: 'center',
             justifyContent: 'space-between',
             padding: '10px 14px',
-            background: 'rgba(0,0,0,0.35)',
-            borderBottom: '1px solid rgba(255,255,255,0.08)',
+            background: `${dark(0.35)}`,
+            borderBottom: `1px solid ${light(0.08)}`,
           }}
         >
           <div style={{ flex: 1, minWidth: 0 }}>
@@ -309,7 +335,7 @@ export const PetControlDock: React.FC<PetControlDockProps> = ({
                 marginLeft: 23,
                 fontSize: 11,
                 lineHeight: 1.45,
-                color: 'rgba(255,255,255,0.52)',
+                color: `${light(0.52)}`,
                 ...selectableText,
               }}
             >
@@ -367,8 +393,8 @@ export const PetControlDock: React.FC<PetControlDockProps> = ({
           <div
             style={{
               padding: '12px 14px',
-              background: 'rgba(0,0,0,0.28)',
-              borderBottom: '1px solid rgba(255,255,255,0.08)',
+              background: `${dark(0.28)}`,
+              borderBottom: `1px solid ${light(0.08)}`,
               display: 'flex',
               flexDirection: 'column',
               gap: 12,
@@ -381,7 +407,7 @@ export const PetControlDock: React.FC<PetControlDockProps> = ({
                 alignItems: 'center',
                 justifyContent: 'space-between',
                 fontSize: 12,
-                color: 'rgba(255,255,255,0.82)',
+                color: `${light(0.82)}`,
                 cursor: 'pointer',
               }}
             >
@@ -396,7 +422,7 @@ export const PetControlDock: React.FC<PetControlDockProps> = ({
 
             {/* 语音识别阈值（vad.threshold，越低越灵敏） */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'rgba(255,255,255,0.82)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: `${light(0.82)}` }}>
                 <span>语音识别阈值（越低越灵敏）</span>
                 <span style={{ color: '#a5f3fc' }}>{vadThreshold.toFixed(2)}</span>
               </div>
@@ -413,7 +439,7 @@ export const PetControlDock: React.FC<PetControlDockProps> = ({
 
             {/* 负面语音阈值（vad.energyGateMultiplier，越大越严格） */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'rgba(255,255,255,0.82)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: `${light(0.82)}` }}>
                 <span>负面语音阈值（越大越严格，过滤噪声/回声）</span>
                 <span style={{ color: '#a5f3fc' }}>{energyGateMultiplier.toFixed(1)}</span>
               </div>
@@ -449,9 +475,9 @@ export const PetControlDock: React.FC<PetControlDockProps> = ({
               flex: 1,
               padding: '8px 12px',
               borderRadius: 10,
-              border: '1px solid rgba(255,255,255,0.18)',
-              background: 'rgba(255,255,255,0.08)',
-              color: '#fff',
+              border: `1px solid ${light(0.18)}`,
+              background: `${light(0.08)}`,
+              color: FG_ON_ACCENT,
               fontSize: 13,
               outline: 'none',
             }}
@@ -473,9 +499,9 @@ export const PetControlDock: React.FC<PetControlDockProps> = ({
               flex: 1,
               padding: '8px 10px',
               borderRadius: 10,
-              border: '1px solid rgba(255,255,255,0.18)',
-              background: 'rgba(255,255,255,0.12)',
-              color: '#fff',
+              border: `1px solid ${light(0.18)}`,
+              background: `${light(0.12)}`,
+              color: FG_ON_ACCENT,
               fontSize: 12,
               fontWeight: 600,
               cursor: 'pointer',
@@ -514,7 +540,7 @@ const ChatBubble: React.FC<{ role: 'user' | 'assistant'; text: string }> = ({ ro
         style={{
           flexShrink: 0,
           fontSize: 11,
-          color: 'rgba(255,255,255,0.4)',
+          color: `${light(0.4)}`,
           lineHeight: '20px',
         }}
       >
@@ -524,8 +550,8 @@ const ChatBubble: React.FC<{ role: 'user' | 'assistant'; text: string }> = ({ ro
         style={{
           fontSize: 13,
           lineHeight: 1.5,
-          color: isUser ? 'rgba(255,255,255,0.92)' : '#a5f3fc',
-          background: isUser ? 'rgba(255,255,255,0.08)' : 'rgba(34,211,238,0.08)',
+          color: isUser ? `${light(0.92)}` : '#a5f3fc',
+          background: isUser ? `${light(0.08)}` : 'rgba(34,211,238,0.08)',
           borderRadius: 8,
           padding: '3px 8px',
           maxWidth: '82%',
@@ -558,8 +584,8 @@ const DockIconButton: React.FC<{
       height: 36,
       borderRadius: 10,
       border: 'none',
-      background: active ? accent : 'rgba(255,255,255,0.12)',
-      color: '#fff',
+      background: active ? accent : `${light(0.12)}`,
+      color: FG_ON_ACCENT,
       cursor: 'pointer',
       display: 'flex',
       alignItems: 'center',
@@ -587,8 +613,8 @@ const DockTextButton: React.FC<{
       padding: '8px 12px',
       borderRadius: 10,
       border: 'none',
-      background: active ? 'rgba(245,158,11,0.85)' : 'rgba(255,255,255,0.12)',
-      color: '#fff',
+      background: active ? 'rgba(245,158,11,0.85)' : `${light(0.12)}`,
+      color: FG_ON_ACCENT,
       fontSize: 12,
       fontWeight: 600,
       cursor: 'pointer',

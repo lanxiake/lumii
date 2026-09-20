@@ -1,7 +1,7 @@
 # 第 12 片 · canvas 与宠物色层收敛 — 实施计划
 
-> 创建：2026-09-20 · 状态：**规划中**
-> 范围：`WindowEdgeGlow` / `pet/` 系列 / `click-fireworks` 的 canvas 绘制取色，4 文件 / ~100 处
+> 创建：2026-09-20 · 状态：**已完成**（2026-09-20，两处判断经实测修正 + 修一处遗留缺口，见 §八）
+> 范围：`WindowEdgeGlow` 取色 + 宠物层色值收口 + `WaveformVisualizer` 主题重绘
 > 上位文档：[主题色系切片总览](./README.md)
 > 前置：[08 片](./08-主题令牌契约.md)（本片依赖"令牌保证存在"）
 
@@ -124,3 +124,86 @@ getComputedStyle(document.documentElement).getPropertyValue('--mt-accent-500').t
 | 2 | `PetModeShell` 的 `#6366f1` → `var(--mt-accent-500)` | 若宠物窗无 `data-theme`，取 `:root` 值（= `#3b82f6`）→ **会有轻微变化**，需截图确认 |
 | 3 | pet 坞 30 处收口 | **零变更**（`--pet-dock-*` 的初值就是原来的 `255,255,255` / `0,0,0`） |
 | 4 | `WaveformVisualizer` / `MoodAvatar` | **零变更**（第 7 片已改） |
+
+---
+
+## 八、执行记录（2026-09-20）
+
+### 8.1 `WindowEdgeGlow` —— 按计划实施，收益已核实
+
+6 档色相改走令牌（`accent-300/400/500/600` + `sky-300` + `accent-100`），
+新增 `readToken()` / `hexToRgb()` 两个小工具，`readAccent()` 返回解好的 RGB 三元组。
+去掉两处死 fallback（`|| '#60a5fa'` / `|| '#3b82f6'`）。
+
+逐主题核实（与运行时 `getComputedStyle` 同源）：
+
+| 档位 | dark | light | eye-care | |
+|---|---|---|---|---|
+| accent-300 | `#93c5fd` | `#8ab8fc` | `#e2bd7c` | ✓ 随主题变 |
+| accent-400 | `#60a5fa` | `#5292f8` | `#d19d4a` | ✓ |
+| accent-500 | `#3b82f6` | `#2a76f6` | `#b8863b` | ✓ |
+| accent-600 | `#2563eb` | `#1f5fd9` | `#9c6f2c` | ✓ |
+| sky-300 | `#7dd3fc` | 同 | 同 | · 三主题同值（在全局固定区） |
+| accent-100 | `#dbeafe` | 同 | 同 | · 同上 |
+
+**4 档主色相三主题各不相同**，旧实现全是硬编码、三主题完全一样。
+
+**一处替代已登记**：原 `rgba(224, 242, 254, …)` 是 sky-100，仓内**无对应令牌**
+（`--mt-sky-*` 只有 300/400/500），用最接近的 `--mt-accent-100`(#dbeafe) 替代。
+
+**使用点已确认**：`WindowEdgeGlow` 只在 `MainLayout` 使用（主窗），
+不进宠物窗 —— 计划 §3.1 担心的"宠物窗读不到 data-theme"问题不存在。
+
+### 8.2 宠物层：两处计划判断被实测修正
+
+**① "收口到 `--pet-dock-*`" 的形态与现实不符。** 计划说"20 hex + 30 rgba"，
+实测是 **23 处白色（用了 13 个不同透明度）+ 5 处黑色**，分散在 601 行的内联 style 里。
+且 pet 目录**没有任何 CSS 文件**，全是 TS 内联 style —— 注入 CSS 变量要先解决
+"内联 style 写 `var()`"的问题，收益（改一处调亮度）与风险不成比例。
+
+经与用户确认改为 **TS 常量 + 助手函数**：
+
+```ts
+const LIGHT: [number, number, number] = [255, 255, 255]
+const DARK:  [number, number, number] = [0, 0, 0]
+const light = (a: number) => `rgba(${LIGHT.join(', ')}, ${a})`
+const dark  = (a: number) => `rgba(${DARK.join(', ')}, ${a})`
+```
+
+24 处替换为 `light(α)` / `dark(α)`，**透明度原样保留**（它们是设计刻度，语义各异：
+描边 0.08~0.18、分隔线 0.08~0.12、文字 0.35~0.82，合并会丢层级）。
+另 4 处强调色底上的白字统一到 `FG_ON_ACCENT` 常量。**零视觉变更。**
+
+> 实施要点：这些值写在**单引号字符串**里（`'1px solid rgba(...)'`），
+> 直接插 `${...}` 会变成字面量文本 —— 必须同时把引号换成反引号。
+
+**② `#6366f1 → var(--mt-accent-500)` 被否决。** 实测宠物窗**没挂 `ThemeProvider`**
+（`main.tsx:121-131` 直接渲染 `PetModeShell`，绕过 `AppProviders`），令牌只会取
+`:root` 的兜底值，**不跟随主窗主题**。改了会引入颜色变化却不获得主题跟随。
+经确认**保留字面量**，并加注释说明"这是宠物窗自己的品牌色"。
+
+### 8.3 顺带修一处第 7 片遗留缺口
+
+`WaveformVisualizer` 的 `color` 是渲染时读一次的计算值，而 canvas 不会自动重绘 →
+**切主题后波形颜色停在旧值**。第 7 片给它加了 `useThemeAttr` 的注释记录，但实际
+**没接上**（全仓 `useThemeAttr` 只用在 `CapabilityRadar` / `SatisfactionChart`）。
+已补上并加入 effect 依赖。
+
+### 8.4 豁免项（已写代码注释，防下轮"顺手统一"）
+
+- `click-fireworks.ts` 的 7 色调色板 —— 每帧随机取色，读令牌要么每帧
+  `getComputedStyle`（性能反模式）要么缓存+失效重读（复杂度不成比例）
+- `PetDebugOverlay` 的终端绿
+- `ScreenRecordCapture` 的采样底色（算法输入，非 UI 色）
+
+### 8.5 验证结果
+
+- `typecheck` ✔
+- `test:all` 298 文件 / **2721 passed** / 0 failed
+- HMR 推送确认：Vite 模块里新的取色逻辑在用 6 个令牌，旧硬编码 `147, 197, 253` 已消失
+
+**一个与本次无关但需记录的问题**：`test:all` 满载跑序下偶发 1 个
+**Unhandled Error** —— `lottie-web` 的 `setInterval(checkReady)` 在 jsdom 环境
+拆除后仍触发（`ReferenceError: document is not defined`），测试本身全绿但
+**退出码为 1**。单跑该文件不复现，属跑序/生命周期问题，与本次改动无关（本次
+未触碰 `MoodAvatar` 及其测试）。建议单独排查。

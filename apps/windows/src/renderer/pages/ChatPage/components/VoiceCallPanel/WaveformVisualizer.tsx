@@ -4,6 +4,7 @@
  */
 import React, { useRef, useEffect } from 'react'
 import type { VoiceCallState } from '../../../../../shared/voice-events.js'
+import { useThemeAttr } from '../../../../hooks/common/useDataThemeColorMode/useDataThemeColorMode'
 import styles from './VoiceCallPanel.module.css'
 
 interface WaveformVisualizerProps {
@@ -28,6 +29,10 @@ const readToken = (name: string): string =>
 export function WaveformVisualizer({ state, analyserNode }: WaveformVisualizerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const rafRef = useRef<number | null>(null)
+
+  // 订阅主题变化：color 是渲染时读一次的计算值，canvas 又不会自己重绘，
+  // 少了这个钩子切主题后波形颜色会停在旧值。
+  const themeAttr = useThemeAttr()
 
   const isPulsing = state === 'listening' || state === 'recognizing'
   const color = readToken(STATE_TOKEN[state] ?? '--mt-fg-4')
@@ -102,7 +107,7 @@ export function WaveformVisualizer({ state, analyserNode }: WaveformVisualizerPr
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [analyserNode, isPulsing, color, state])
+  }, [analyserNode, isPulsing, color, state, themeAttr])
 
   // 静止状态显示圆形图标
   if (state === 'idle' || state === 'ending') {
