@@ -30,6 +30,9 @@ coverage/
 **/.env
 !**/.env.example
 **/config/.env.pack
+# 生图上游凭据（含真实 API key）。仓库里只保留 draw-config.example.json 作为模板。
+# 2026-09-20：此前真实配置被误提交，已取消跟踪；该 key 需在服务商后台轮换。
+apps/windows/config/draw-config.json
 
 # Logs & OS junk
 *.log
