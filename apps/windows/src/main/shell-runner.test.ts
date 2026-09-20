@@ -183,3 +183,56 @@ describe('ShellRunner.forceKillProcess', () => {
     })
   })
 })
+
+/**
+ * `describeUnsupported` 的用户可见文案。
+ *
+ * 一期验收有一条：「.bat/.cmd 技能执行给出『请改用 .sh』的明确报错」。原先的记录说
+ * T3.2 时端到端验过一次，但**没留下可复跑的东西**——结论写在文档里、证据在当时的终端里。
+ * 这里把它变成断言。
+ *
+ * 为什么值得锁：文案本身是功能的一部分。收敛前这里报「不支持的脚本类型: .bat」，
+ * Linux 用户看到它不知道该换脚本还是换系统——脚本类型没问题，是平台不匹配。
+ */
+describe('ShellRunner.execute —— 平台不匹配时的报错文案', () => {
+  const runner = new ShellRunner()
+
+  afterEach(() => {
+    Object.defineProperty(process, 'platform', { value: ORIGINAL_PLATFORM, configurable: true })
+  })
+
+  const run = (entryPath: string) =>
+    runner.execute({ entryPath, params: {}, timeoutMs: 5000 })
+
+  describe('非 win32', () => {
+    beforeEach(() => withPlatform('linux'))
+
+    it.each(['run.bat', 'run.cmd'])('%s：给出「改用 .sh」的可操作指引', async (name) => {
+      const res = await run(`/skills/demo/${name}`)
+
+      expect(res.success).toBe(false)
+      expect(res.error).toContain('Windows 批处理脚本')
+      expect(res.error).toContain('改用 .sh')
+      // 关键：不能退回那句让人无从下手的笼统报错
+      expect(res.error).not.toContain('不支持的脚本类型')
+    })
+
+    it('.bat 与 .cmd 各自报出自己的扩展名（用户才能对上是哪个文件）', async () => {
+      expect((await run('/skills/demo/run.bat')).error).toContain('（.bat）')
+      expect((await run('/skills/demo/run.cmd')).error).toContain('（.cmd）')
+    })
+  })
+
+  it('真的不支持的扩展名仍走笼统报错（两个平台一致）', async () => {
+    const res = await run('/skills/demo/run.py')
+
+    expect(res.success).toBe(false)
+    expect(res.error).toBe('不支持的脚本类型: .py')
+  })
+
+  it('无扩展名时显示占位，不留空', async () => {
+    const res = await run('/skills/demo/noext')
+
+    expect(res.error).toBe('不支持的脚本类型: (无扩展名)')
+  })
+})

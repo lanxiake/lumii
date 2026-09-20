@@ -10,6 +10,9 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { safeStorage } from 'electron'
 import { resolveWindowsClientDataRoot } from './client-data-root.js'
+import { createLogger } from './logger.js'
+
+const log = createLogger('ProviderConfig')
 
 /** provider 类型（决定默认 baseUrl 与 api 归一化） */
 export type ProviderType =
@@ -74,6 +77,14 @@ export interface LocalProviderConfig {
 /** 渲染进程可见的单槽配置（含 apiKey 明文，仅本机用户可见） */
 export interface LocalProviderConfigView extends LocalProviderConfig {
   apiKey: string
+  /**
+   * 盘上有密文、但解不开。
+   *
+   * 与「用户没填」是两回事：这一位为真时，`apiKey` 必然为空串是**读失败**的结果，
+   * 而不是用户的选择。设置页与报错文案据此区分，否则用户重填完仍看到
+   * 「请先填写 API Key」，无从判断到底哪一步坏了。
+   */
+  apiKeyDecryptFailed?: boolean
 }
 
 /** 全部能力槽配置视图 */
@@ -255,15 +266,40 @@ function encryptApiKey(apiKey: string): string {
 
 /**
  * 解密 API Key
+ *
+ * 失败必须与「没有密文」区分开（见 `LocalProviderConfigView.apiKeyDecryptFailed`）。
+ * 曾经这里直接 `catch { return '' }`，于是密钥环变更后用户看到的是
+ * 「请先在设置中填写文本对话模型的 API Key」——他重填、重存、重启，凭据依旧读不出来，
+ * 而屏幕上没有任何线索指向真正的原因。
+ *
+ * @returns value 为解出的明文（失败或没填时为空串）；failed 为「有密文但解不开」
  */
-function decryptApiKey(enc?: string): string {
-  if (!enc) return ''
-  if (enc.startsWith('plain:')) return enc.slice(6)
+function decryptApiKey(enc?: string): { value: string; failed: boolean } {
+  if (!enc) return { value: '', failed: false }
+  if (enc.startsWith('plain:')) return { value: enc.slice(6), failed: false }
   try {
-    return safeStorage.decryptString(Buffer.from(enc, 'base64'))
-  } catch {
-    return ''
+    return { value: safeStorage.decryptString(Buffer.from(enc, 'base64')), failed: false }
+  } catch (err) {
+    // 常见成因：密钥环条目被重建/换名、provider.json 从别的机器或别的 Electron 版本搬来。
+    // 不同平台写出的密文互不相认（Windows 走 DPAPI、Linux 走 libsecret，前缀可能都是 v10）。
+    log.warn(
+      `[decryptApiKey] 凭据解密失败，该槽的 API Key 将被视为未填写。` +
+        `密钥环可能已变更，或 provider.json 来自其他系统。原因：${(err as Error).message}`,
+    )
+    return { value: '', failed: true }
   }
+}
+
+/**
+ * 「没有可用 API Key」时给用户看的文案。
+ *
+ * 两种情况对用户的引导完全不同：没填 → 去填；填了解不开 → 重填也没用，
+ * 得先清掉坏的那份（或换个密钥环环境）。故必须分开说。
+ */
+export function missingApiKeyMessage(cfg?: { apiKeyDecryptFailed?: boolean }): string {
+  return cfg?.apiKeyDecryptFailed
+    ? '已保存的 API Key 无法解密（密钥环可能已变更，或配置来自其他系统），请重新填写文本对话模型的 API Key'
+    : '请先在设置中填写文本对话模型的 API Key'
 }
 
 /**
@@ -292,10 +328,13 @@ function normalizeSlotView(
   fallback: LocalProviderConfigView,
 ): LocalProviderConfigView {
   const type = (raw?.type ?? fallback.type) as ProviderType
-  const apiKey =
+  // 渲染进程回传的视图带明文 apiKey（用户刚编辑过）；盘上读出来的只有 apiKeyEnc。
+  const apiKeyFromView =
     raw && 'apiKey' in raw && typeof (raw as LocalProviderConfigView).apiKey === 'string'
       ? (raw as LocalProviderConfigView).apiKey
-      : decryptApiKey((raw as PersistedSlot | undefined)?.apiKeyEnc)
+      : null
+  const decrypted = apiKeyFromView === null ? decryptApiKey((raw as PersistedSlot | undefined)?.apiKeyEnc) : null
+  const apiKey = apiKeyFromView ?? decrypted?.value ?? ''
   const modelId = raw?.modelId?.trim() || fallback.modelId
   const rawAllowed =
     raw && Array.isArray((raw as LocalProviderConfigView).allowedModelIds)
@@ -316,7 +355,9 @@ function normalizeSlotView(
     type,
     baseUrl: (raw?.baseUrl?.trim() || PROVIDER_DEFAULT_BASE_URL[type] || fallback.baseUrl).replace(/\/+$/, ''),
     modelId: nextModelId,
-    apiKey: apiKey ?? '',
+    apiKey,
+    // 只在为真时才带上，避免视图里多一个恒为 false 的字段（该字段不进持久化）
+    apiKeyDecryptFailed: decrypted?.failed || undefined,
     allowedModelIds,
     apiFormat: raw?.apiFormat ?? fallback.apiFormat,
     contextWindowK: normalizeContextWindowK(raw?.contextWindowK),
@@ -437,17 +478,53 @@ export function loadSlotConfig(slot: CapabilitySlot): LocalProviderConfigView {
 }
 
 /**
+ * 读盘上原有的槽（**原始密文**，不经 normalizeSlotView——这里要的是 `apiKeyEnc` 本身）。
+ * 文件不存在或结构不对时返回空表，等价于「没有可保留的东西」。
+ */
+function readPersistedSlots(): PersistedSlotsFile['slots'] {
+  try {
+    const raw = JSON.parse(fs.readFileSync(configFilePath(), 'utf-8')) as
+      | PersistedSlotsFile
+      | LegacyPersistedShape
+    if (isLegacyShape(raw)) return { chat: raw }
+    return (raw as PersistedSlotsFile).slots ?? {}
+  } catch {
+    return {}
+  }
+}
+
+/**
+ * 保存时保住「有密文但当前环境解不开」的那一份。
+ *
+ * 为什么需要：解密失败时视图里的 `apiKey` 是空串，而设置页保存是**挑字段构造新对象**
+ * （`apiKeyDecryptFailed` 不会回传，见 `ModelConfigSection`）。于是
+ * 「打开设置 → 顺手改个模型 → 保存」就会把用户唯一的那份凭据**静默抹掉**；
+ * 万一密钥环能恢复、或这份配置要搬回原机器，就再没有恢复的可能。
+ *
+ * 判据刻意**不依赖视图上的标记**（渲染层会丢），而是回看盘上那份能不能解开：
+ * - 能解开 → 用户是主动清空，照清（原行为不变）；
+ * - 解不开 → 它对当前环境是惰性的，留着比抹掉好。
+ */
+function preserveUnreadableKey(next: PersistedSlot, prev: PersistedSlot | undefined): PersistedSlot {
+  if (next.apiKeyEnc || !prev?.apiKeyEnc) return next
+  if (!decryptApiKey(prev.apiKeyEnc).failed) return next
+  log.info('[saveProviderSlotsConfig] 保留原有 API Key 密文（当前环境解不开，不做静默覆盖）')
+  return { ...next, apiKeyEnc: prev.apiKeyEnc }
+}
+
+/**
  * 保存全部能力槽配置
  */
 export function saveProviderSlotsConfig(view: ProviderSlotsConfigView): void {
   const p = configFilePath()
   fs.mkdirSync(path.dirname(p), { recursive: true })
+  const prev = readPersistedSlots()
   const persisted: PersistedSlotsFile = {
     version: 1,
     slots: {
-      chat: toPersistedSlot(normalizeSlotView(view.chat, DEFAULT_CHAT)),
-      vision: toPersistedSlot(normalizeSlotView(view.vision, DEFAULT_VISION)),
-      image: toPersistedSlot(normalizeSlotView(view.image, DEFAULT_IMAGE)),
+      chat: preserveUnreadableKey(toPersistedSlot(normalizeSlotView(view.chat, DEFAULT_CHAT)), prev.chat),
+      vision: preserveUnreadableKey(toPersistedSlot(normalizeSlotView(view.vision, DEFAULT_VISION)), prev.vision),
+      image: preserveUnreadableKey(toPersistedSlot(normalizeSlotView(view.image, DEFAULT_IMAGE)), prev.image),
     },
   }
   fs.writeFileSync(p, JSON.stringify(persisted, null, 2), 'utf-8')

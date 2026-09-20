@@ -128,6 +128,8 @@ export interface LocalProviderConfigView {
   baseUrl: string
   modelId: string
   apiKey: string
+  /** 盘上有密文但解不开（此时 apiKey 为空是读失败，不是用户没填），见 main/provider-config.ts */
+  apiKeyDecryptFailed?: boolean
   /** chat/vision：对话框可选模型列�?*/
     allowedModelIds?: string[]
     contextWindowK?: Record<string, number>
