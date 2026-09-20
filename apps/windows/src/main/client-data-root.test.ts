@@ -51,8 +51,11 @@ describe('数据根解析（两个导出名必须一致）', () => {
     process.env.LUMII_CLIENT_DATA_DIR = '/custom/data/dir'
     const { resolveClientStateDir, resolveWindowsClientDataRoot } = await loadBoth()
 
-    expect(resolveClientStateDir()).toBe('/custom/data/dir')
-    expect(resolveWindowsClientDataRoot()).toBe('/custom/data/dir')
+    // 实现会对覆盖值做一次 path.resolve：Windows 上 '/custom/data/dir' 会带上当前盘符，
+    // 所以期望值也要过一遍 resolve，两端才一致（POSIX 上它就是原样）
+    const expected = path.resolve('/custom/data/dir')
+    expect(resolveClientStateDir()).toBe(expected)
+    expect(resolveWindowsClientDataRoot()).toBe(expected)
   })
 
   it('~ 开头按家目录展开', async () => {

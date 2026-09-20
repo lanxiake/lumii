@@ -64,10 +64,13 @@ describe('executeLocalCommand 的进程终止路径', () => {
   it('cwd 生效：命令在指定目录里执行', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lumii-local-bash-'))
     try {
-      const res = await executeLocalCommand('pwd', { cwd: dir, timeoutMs: 5000 })
+      // 不用 `pwd` 比对路径：Windows 上命令走 Git Bash，它输出 MSYS 风格路径
+      // （/tmp/...），与 os.tmpdir() 的 Windows 字面量对不上，realpathSync 会 ENOENT。
+      // 改成让命令写一个**相对路径**文件，再看它落在哪 —— 直接验证工作目录本身，
+      // 两端语义一致，也不依赖 shell 的路径风格。
+      await executeLocalCommand('echo marker > marker.txt', { cwd: dir, timeoutMs: 5000 })
 
-      // macOS 的 /tmp 是符号链接，用 realpath 比较避免平台差异
-      expect(fs.realpathSync(res.stdout.trim())).toBe(fs.realpathSync(dir))
+      expect(fs.existsSync(path.join(dir, 'marker.txt'))).toBe(true)
     } finally {
       fs.rmSync(dir, { recursive: true, force: true })
     }

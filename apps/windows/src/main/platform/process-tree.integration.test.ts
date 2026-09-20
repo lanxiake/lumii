@@ -20,6 +20,8 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import { spawnChildInGroup, killProcessTree, killPidTree } from './process-kill'
 
+const isWindows = process.platform === 'win32'
+
 /** 进程是否还活着（signal 0 只做存在性检查，不真的发信号） */
 function isAlive(pid: number): boolean {
   try {
@@ -39,7 +41,14 @@ async function waitUntil(predicate: () => boolean, timeoutMs = 5000): Promise<bo
   return predicate()
 }
 
-describe('进程组终止（真实进程）', () => {
+/**
+ * Windows 跳过：这一组验证的是 **POSIX 进程组语义** —— 对负 pid 发信号让整组一起收。
+ * Windows 没有进程组，等价手段是 `taskkill /PID <pid> /T /F`，那条路径的调用形状
+ * 由 `process-kill.test.ts` 的「killPidTree — Windows」三条用例覆盖（含异常退化）。
+ * 在 Windows 上强跑只会得到「sh 不存在 / 孙进程 pid 文件没生成」的假失败，
+ * 不构成任何保护，反而掩盖真实回归。
+ */
+describe.skipIf(isWindows)('进程组终止（真实进程）', () => {
   it('killProcessTree 连带收掉孙进程', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lumii-tree-'))
     const pidFile = path.join(dir, 'grandchild.pid')

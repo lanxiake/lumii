@@ -250,10 +250,21 @@ describe('platform/process-kill', () => {
     })
   })
 
-  it('平台判定读的是 process.platform（本机 linux 时不该出现 taskkill）', () => {
-    expect(ORIGINAL_PLATFORM).toBe('linux')
+  it('平台判定读的是 process.platform 本身，而不是本机真实平台', () => {
+    // 同一个进程、同一个 pid，只改 process.platform 属性：行为必须跟着变。
+    // 原写法断言 `ORIGINAL_PLATFORM === 'linux'`，那是「这台机器是 Linux」的断言，
+    // 在 Windows 上必然红，且证明不了「读的是这个属性」。
+    withPlatform('win32')
     killPidTree(4242)
+    expect(spawnSyncSpy).toHaveBeenCalledWith(
+      'taskkill',
+      ['/pid', '4242', '/T', '/F'],
+      expect.anything(),
+    )
 
+    vi.clearAllMocks()
+    withPlatform('linux')
+    killPidTree(4242)
     expect(spawnSyncSpy).not.toHaveBeenCalled()
   })
 })

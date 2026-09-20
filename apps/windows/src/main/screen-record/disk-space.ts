@@ -10,6 +10,10 @@ const execFileAsync = promisify(execFile)
 
 /** 解析盘符字母（Windows）；非 Windows 返回 null */
 export function extractDriveLetter(dirPath: string): string | null {
+  // 空输入直接返回 null：path.resolve('') 取的是 cwd，于是 Windows 上会凭空得到
+  // 当前盘符 —— 调用方传空串时查的是「当前目录所在盘」，与它的意图无关。
+  // 返回 null 让 getFreeDiskBytes 走宽松放行，而不是查一个不相干的卷。
+  if (!dirPath.trim()) return null
   const resolved = path.resolve(dirPath)
   const m = /^([A-Za-z]):/.exec(resolved)
   return m ? m[1]!.toUpperCase() : null
