@@ -62,6 +62,16 @@ const ACTION_POSES = {
     { name: 'shake_00', lift: 0, lean: -2 },
     { name: 'shake_01', lift: 0, lean: 2 },
   ],
+  /** 被拎起来：整体上提一点、前爪下垂（pawLift 负值），带一点左右晃 */
+  picked: [
+    { name: 'picked_00', lift: 2, lean: 3, pawLift: -3 },
+    { name: 'picked_01', lift: 2, lean: -3, pawLift: -3 },
+  ],
+  /** 落地：先压扁一下再回弹 */
+  land: [
+    { name: 'land_00', lift: -3 },
+    { name: 'land_01', lift: 1 },
+  ],
 }
 
 /** 表情（眼睛层）：四款，供 P0-b 对比用；量产按设计 §4.2 的 12 款外推 */
@@ -429,6 +439,16 @@ function buildActionAnimations(face) {
     {
       group: 'Shake', index: 0, kind: 'once', next: 'Idle', fps: 6,
       frames: [{ base: 'shake_00' }, { base: 'shake_01' }, { base: 'shake_00' }],
+    },
+    // 场景 A 的两个约定组：被抓着时循环（拎多久都成立），落地播一次回待机。
+    // 组名是**约定**——编排器按 'Picked' / 'Land' 找它们，模型没声明就静默跳过。
+    {
+      group: 'Picked', index: 0, kind: 'loop', fps: 4,
+      frames: [{ base: 'picked_00' }, { base: 'picked_01' }],
+    },
+    {
+      group: 'Land', index: 0, kind: 'once', next: 'Idle', fps: 8,
+      frames: [{ base: 'land_00' }, { base: 'land_01' }],
     },
   ]
 }

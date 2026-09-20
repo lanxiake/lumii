@@ -189,6 +189,35 @@
       ]
     },
     {
+      "group": "Picked",
+      "index": 0,
+      "kind": "loop",
+      "fps": 4,
+      "frames": [
+        {
+          "base": "picked_00"
+        },
+        {
+          "base": "picked_01"
+        }
+      ]
+    },
+    {
+      "group": "Land",
+      "index": 0,
+      "kind": "once",
+      "next": "Idle",
+      "fps": 8,
+      "frames": [
+        {
+          "base": "land_00"
+        },
+        {
+          "base": "land_01"
+        }
+      ]
+    },
+    {
       "group": "PlayBall",
       "index": 0,
       "kind": "once",

@@ -635,6 +635,14 @@ export const PetModeShell: React.FC = () => {
           modelId={currentModelId || undefined}
           onDegrade={handleDegrade}
           onModelLoaded={handleModelLoaded}
+          // 场景 A：抓起/落地时让编排器播约定动作（模型声明了 Picked / Land 才播）。
+          // 抛物线本身在 PetCanvas 里跑，这里只做动作衔接。
+          onInteraction={(e) => {
+            const orch = orchestratorRef.current
+            if (!orch) return
+            if (e.type === 'picked') orch.setPicked(true)
+            else orch.notifyLanded()
+          }}
         />
       )}
 

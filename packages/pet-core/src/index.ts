@@ -41,6 +41,9 @@ export * from "./model/pet-registry.js";
 export * from "./model/atlas-index.js";
 export * from "./model/pet-package.js";
 
+// 抓取/投掷物理（场景 A）：抛物线积分、落地判定、释放速度估计。纯函数，可脱离 DOM 单测。
+export * from "./interaction/throw-physics.js";
+
 // 精灵后端运行时（P0-b）：帧增量归一、槽位状态、口型取档、缩放吸附、多边形命中。
 // 同样零依赖、可脱开 WebGL 单测；客户端只负责把解析结果画出来。
 export * from "./render/sprite-runtime.js";

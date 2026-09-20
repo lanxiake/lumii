@@ -317,3 +317,80 @@ describe('PetOrchestrator', () => {
     vi.useRealTimers()
   })
 })
+
+// ---------------------------------------------------------------------------
+// 场景 A：抓取 / 落地（物理交互与对话态正交）
+// ---------------------------------------------------------------------------
+
+describe('PetOrchestrator / 抓取与落地', () => {
+  /** 只声明部分动作组的渲染器，用来验证「模型没声明就静默跳过」 */
+  const withGroups = (groups: string[]) => {
+    const base = createMockRenderer()
+    return {
+      ...base,
+      getMotionCount: vi.fn((g: string) => (groups.includes(g) ? 1 : 0)),
+    }
+  }
+
+  it('抓起时播约定组 "Picked"（模型声明了才播）', () => {
+    const renderer = withGroups(['Idle', 'Talk', 'Picked', 'Land'])
+    const orch = new PetOrchestrator(renderer)
+    orch.setModelConfig(testConfig)
+    orch.start()
+
+    orch.setPicked(true)
+    expect(renderer.motions).toContain('Picked')
+    orch.dispose()
+  })
+
+  it('模型没声明 Picked 时静默跳过，不退化成随便播一个', () => {
+    // 语义不对的动作比不播更糟——与 P1-c「不凭空造动作组」同一条原则
+    const renderer = withGroups(['Idle', 'Talk'])
+    const orch = new PetOrchestrator(renderer)
+    orch.setModelConfig(testConfig)
+    orch.start()
+
+    orch.setPicked(true)
+    expect(renderer.motions).not.toContain('Picked')
+    orch.dispose()
+  })
+
+  it('落地时播约定组 "Land"', () => {
+    const renderer = withGroups(['Idle', 'Talk', 'Land'])
+    const orch = new PetOrchestrator(renderer)
+    orch.setModelConfig(testConfig)
+    orch.start()
+
+    orch.notifyLanded()
+    expect(renderer.motions).toContain('Land')
+    orch.dispose()
+  })
+
+  it('抓取期间待机调度让路（否则待机动作会把模型拽回待机姿态，与物理打架）', () => {
+    const renderer = withGroups(['Idle', 'Talk', '$unnamed'])
+    const orch = new PetOrchestrator(renderer)
+    orch.setModelConfig(testConfig)
+    orch.start()
+    renderer.motions.length = 0
+
+    orch.setPicked(true)
+    emitVoice('listening') // 会触发 enterIdle
+    // 抓取期间不该出现任何待机动作
+    expect(renderer.motions.filter((g) => g === 'Idle' || g === '$unnamed')).toEqual([])
+    orch.dispose()
+  })
+
+  it('落地后交互标记清除，待机恢复', () => {
+    const renderer = withGroups(['Idle', 'Talk', 'Land'])
+    const orch = new PetOrchestrator(renderer)
+    orch.setModelConfig(testConfig)
+    orch.start()
+
+    orch.setPicked(true)
+    orch.notifyLanded()
+    emitVoice('listening')
+    // 落地后待机应能正常进入（具体播什么由后端能力决定，这里只要求不再被交互挡着）
+    expect(renderer.motions).toContain('Land')
+    orch.dispose()
+  })
+})

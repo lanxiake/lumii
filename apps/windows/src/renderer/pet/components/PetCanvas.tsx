@@ -24,6 +24,7 @@ import { ensureCubismCore } from '../utils/cubism-core-loader'
 import { getPetModelConfig } from '../config/pet-model-registry'
 import type { PetModelConfig } from '../config/pet-model-types'
 import { PET_MOTION_GROUP_UNNAMED } from '../config/pet-model-types'
+import { estimateVelocity, isThrowable, stepThrow, type DragSample, type ThrowBody } from '@mtbot/pet-core'
 import { petMetrics } from '../telemetry/pet-metrics'
 import type { PetHoverUpdate } from '../../../shared/pet-mode'
 import { spawnClickFireworks, disposeClickFireworks } from './click-fireworks'
@@ -47,7 +48,19 @@ export interface PetCanvasProps {
   onDegrade?: (reason: PetCanvasDegradeReason) => void
   /** 模型加载成功回调 */
   onModelLoaded?: (config: PetModelConfig) => void
+  /**
+   * 物理交互事件（场景 A 的抓取与落地）。
+   *
+   * 由上层转给编排器播「被拎起」/「落地」动作。**不接也照常工作**——
+   * 抛物线与落地是画布自己的事，动作衔接才是编排的事，两者解耦。
+   */
+  onInteraction?: (event: PetInteractionEvent) => void
 }
+
+/** 物理交互事件 */
+export type PetInteractionEvent =
+  | { type: 'picked' }
+  | { type: 'landed'; x: number; y: number }
 
 /** 暴露给上层的句柄 */
 export interface PetCanvasHandle {
@@ -71,7 +84,7 @@ function toCanvasLocal(e: MouseEvent, canvas: HTMLCanvasElement): { x: number; y
 }
 
 export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
-  ({ modelId, onDegrade, onModelLoaded }, ref) => {
+  ({ modelId, onDegrade, onModelLoaded, onInteraction }, ref) => {
     const canvasRef = useRef<HTMLCanvasElement>(null)
     const rendererRef = useRef<PetRendererProvider | null>(null)
     /** 模型配置：**必须先于渲染器拿到**，因为后端类型由它决定 */
@@ -96,13 +109,38 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
     const onModelLoadedRef = useRef(onModelLoaded)
     onDegradeRef.current = onDegrade
     onModelLoadedRef.current = onModelLoaded
-    // 拖拽状态
-    const dragRef = useRef<{ active: boolean; offsetX: number; offsetY: number; hit: boolean }>({
+    /**
+     * 交互回调同样放 ref：它被鼠标 effect 用，而那个 effect 的依赖是 `[ready]`。
+     * 直接当依赖会让父组件每次渲染都重装一遍鼠标监听（中途松手/丢失拖拽状态）。
+     */
+    const onInteractionRef = useRef(onInteraction)
+    onInteractionRef.current = onInteraction
+    /**
+     * 拖拽状态。
+     *
+     * `groundY` 是**拖拽开始时宠物所在的高度**——它就是这只宠物的"桌面"。
+     * 用屏幕底部当地面会让宠物落到一个从没待过的地方，用户视角里就是「掉出屏幕了」。
+     *
+     * `samples` 供释放时估速度；只看最后两个点会被鼠标事件间隔的不均匀坑到
+     * （详见 pet-core 的 estimateVelocity）。
+     */
+    const dragRef = useRef<{
+      active: boolean
+      offsetX: number
+      offsetY: number
+      hit: boolean
+      groundY: number
+      samples: DragSample[]
+    }>({
       active: false,
       offsetX: 0,
       offsetY: 0,
       hit: false,
+      groundY: 0,
+      samples: [],
     })
+    /** 抛掷中的 rAF 句柄 */
+    const throwRef = useRef<number | null>(null)
 
     useImperativeHandle(ref, () => ({
       getRenderer: () => rendererRef.current,
@@ -267,10 +305,49 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
         const { x, y } = toCanvasLocal(e, canvas)
         if (dragRef.current.active) {
           renderer.setPosition(x - dragRef.current.offsetX, y - dragRef.current.offsetY)
+          dragRef.current.samples.push({ x, y, t: performance.now() })
+          // 采样窗只需要最近一小段，长拖时不清会让数组无限增长
+          if (dragRef.current.samples.length > 200) dragRef.current.samples.shift()
           reportModelHover(true)
           return
         }
         reportModelHover(renderer.isPointerOverModel(x, y))
+      }
+
+      /** 停掉正在进行的抛掷（再抓住时、卸载时都要） */
+      const cancelThrow = () => {
+        if (throwRef.current !== null) {
+          cancelAnimationFrame(throwRef.current)
+          throwRef.current = null
+        }
+      }
+
+      /**
+       * 按初速度做抛物线。
+       *
+       * `dt` 上限 50ms：标签页切回来、断点续跑时两帧间隔可能是几秒，
+       * 不夹住的话宠物会一步跨到屏幕外。
+       */
+      const startThrow = (from: { x: number; y: number }, v: { vx: number; vy: number }, groundY: number) => {
+        let body: ThrowBody = { x: from.x, y: from.y, vx: v.vx, vy: v.vy }
+        const bounds = { minX: 0, maxX: canvas.clientWidth, groundY }
+        let last = performance.now()
+
+        const step = () => {
+          const now = performance.now()
+          const dt = Math.min(0.05, (now - last) / 1000)
+          last = now
+          const r = stepThrow(body, dt, bounds)
+          body = r.body
+          renderer.setPosition(body.x, body.y)
+          if (r.landed) {
+            throwRef.current = null
+            onInteractionRef.current?.({ type: 'landed', x: body.x, y: body.y })
+            return
+          }
+          throwRef.current = requestAnimationFrame(step)
+        }
+        throwRef.current = requestAnimationFrame(step)
       }
 
       const onMouseDown = (e: MouseEvent) => {
@@ -279,13 +356,18 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
         const over = hit || renderer.isPointerOverModel(x, y)
         if (over) {
           reportModelHover(true)
+          // 抓住正在飞的宠物：中断抛物线，不叠加
+          cancelThrow()
           const pos = renderer.getPosition()
           dragRef.current = {
             active: true,
             offsetX: x - pos.x,
             offsetY: y - pos.y,
             hit: !!hit,
+            groundY: pos.y,
+            samples: [{ x, y, t: performance.now() }],
           }
+          onInteractionRef.current?.({ type: 'picked' })
         }
       }
 
@@ -297,8 +379,10 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
         // 位移超阈值视为拖拽，否则视为点击（用 x/y 双轴距离判断，比单看 X 更准）
         const movedFar =
           Math.abs(x - startX) > 5 || Math.abs(y - startY) > 5
+        const { groundY, samples } = dragRef.current
         dragRef.current.active = false
         dragRef.current.hit = false
+        dragRef.current.samples = []
         // 点击（非拖拽）落在模型身上即触发互动：优先用命中的 hitArea，
         // 无命名 hitArea 的模型（如 mao_pro Name 全空）回退到 body，
         // 保证"点击宠物身上有反应"，不再因缺 hitArea 而静默。
@@ -309,6 +393,18 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
             triggerTapMotion(renderer, hit ?? 'body')
             // 点击特效：在点击位置绽放一簇烟花（受鼠标点击开关控制）
             if (tapInteractionEnabled) spawnClickFireworks(e.clientX, e.clientY)
+          }
+          onInteractionRef.current?.({ type: 'landed', x: renderer.getPosition().x, y: renderer.getPosition().y })
+        } else if (wasDrag) {
+          // 拖过：按释放速度决定"抛出去"还是"原地落下"
+          const v = estimateVelocity(samples)
+          const pos = renderer.getPosition()
+          if (isThrowable(v)) {
+            log.info(`[onMouseUp] 抛出 v=(${v.vx.toFixed(0)}, ${v.vy.toFixed(0)}) px/s`)
+            startThrow(pos, v, groundY)
+          } else {
+            log.info(`[onMouseUp] 速度不足（${Math.hypot(v.vx, v.vy).toFixed(0)} px/s），原地落下`)
+            onInteractionRef.current?.({ type: 'landed', x: pos.x, y: pos.y })
           }
         }
         reportModelHover(renderer.isPointerOverModel(x, y))

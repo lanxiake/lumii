@@ -85,6 +85,9 @@ export class PetOrchestrator {
   private enableIdleMotion = true
   /** Agent 对话进行中（阻止随机待机打断回复） */
   private dialogueActive = false
+
+  /** 物理交互（抓取/投掷）进行中：暂停待机调度，见 setPicked */
+  private interactionActive = false
   /** 对话已结束但 TTS/口型仍在播放，待结束后进入冷却 */
   private dialogueEndPendingCooldown = false
   /** 对话结束冷却中（10s 内不播随机待机） */
@@ -238,6 +241,8 @@ export class PetOrchestrator {
   private canScheduleRandomIdle(): boolean {
     return (
       this.enableIdleMotion &&
+      // 被抓着/在飞的时候不调度：待机动作会把模型拽回待机姿态，与物理状态打架
+      !this.interactionActive &&
       !this.dialogueActive &&
       !this.inPostDialogueCooldown &&
       !this.speaking &&
@@ -851,6 +856,12 @@ export class PetOrchestrator {
       log.info('[enterIdle] 对话进行中，跳过待机动作')
       return
     }
+    // 被抓着/在飞的时候不待机：待机动作与"被拎起来"的物理状态是冲突的，
+    // 而且待机调度会周期性把模型拽回待机姿态
+    if (this.interactionActive) {
+      log.info('[enterIdle] 物理交互进行中（被抓/在飞），跳过待机动作')
+      return
+    }
     this.idling = true
     const group = this.resolveIdleMotionGroup()
     const count = this.renderer.getMotionCount(group)
@@ -878,6 +889,43 @@ export class PetOrchestrator {
         motionGroup: this.idleGroup,
       })
     }
+  }
+
+  /**
+   * 抓取/释放（场景 A）。
+   *
+   * 「被拎起」是**物理**状态，与 `petStateMachine` 那套**对话**生命周期
+   * （idle/listening/thinking/speaking）正交——硬塞进状态机会让两个维度互相干扰。
+   * 所以这里只用一个布尔标记，作用是：暂停待机调度 + 播约定组的动作。
+   *
+   * @param picked true = 被抓起来了；false = 松手（接下来是自由落体，不播动作）
+   */
+  setPicked(picked: boolean): void {
+    this.interactionActive = picked
+    if (picked) this.playConventionalMotion('Picked')
+  }
+
+  /**
+   * 落地。播一次型「落地」动作（模型声明了才播），随后由渲染器按 `next` 回待机。
+   */
+  notifyLanded(): void {
+    this.interactionActive = false
+    this.playConventionalMotion('Land')
+  }
+
+  /**
+   * 播放**约定组名**的动作；模型没声明这一组时静默跳过。
+   *
+   * 不报错也不退化成随便播一个：语义不对的动作比不播更糟（与 P1-c 里
+   * 「不凭空造动作组」同一条原则）。
+   *
+   * @returns 是否真的播了
+   */
+  private playConventionalMotion(group: string): boolean {
+    if (this.renderer.getMotionCount(group) <= 0) return false
+    log.info(`[playConventionalMotion] 播放约定动作组 "${group}"`)
+    this.renderer.playMotion(group)
+    return true
   }
 
   /**
