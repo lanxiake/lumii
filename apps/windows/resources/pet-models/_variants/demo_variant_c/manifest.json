@@ -24,7 +24,15 @@
           "eye_open",
           "eye_shut",
           "eye_happy",
-          "eye_sad"
+          "eye_sad",
+          "eye_angry",
+          "eye_surprised",
+          "eye_wink",
+          "eye_half",
+          "eye_sparkle",
+          "eye_sleepy",
+          "eye_cry",
+          "eye_love"
         ],
         "mouth": [
           "m0",

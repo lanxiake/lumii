@@ -588,29 +588,104 @@
         "neutral": 0,
         "平静": 0,
         "默认": 0,
+        "exp_01": 0,
         "calm": 1,
         "闭眼": 1,
         "思考": 1,
         "沉思": 1,
+        "exp_02": 1,
         "joy": 2,
         "开心": 2,
         "微笑": 2,
         "smile": 2,
-        "兴奋": 2,
+        "轻松": 2,
+        "exp_03": 2,
         "sadness": 3,
+        "sad": 3,
         "难过": 3,
         "委屈": 3,
-        "sad": 3
+        "失落": 3,
+        "exp_04": 3,
+        "anger": 4,
+        "生气": 4,
+        "愤怒": 4,
+        "不满": 4,
+        "exp_05": 4,
+        "shocked": 5,
+        "surprise": 5,
+        "surprised": 5,
+        "惊讶": 5,
+        "震惊": 5,
+        "exp_06": 5,
+        "wink": 6,
+        "眨眼": 6,
+        "俏皮": 6,
+        "exp_07": 6,
+        "tired": 7,
+        "无语": 7,
+        "无奈": 7,
+        "冷漠": 7,
+        "exp_08": 7,
+        "sparkle": 8,
+        "闪亮": 8,
+        "兴奋": 8,
+        "激动": 8,
+        "exp_09": 8,
+        "sleepy": 9,
+        "困": 9,
+        "打瞌睡": 9,
+        "exp_10": 9,
+        "cry": 10,
+        "哭": 10,
+        "泪": 10,
+        "含泪": 10,
+        "exp_11": 10,
+        "love": 11,
+        "喜欢": 11,
+        "爱心": 11,
+        "害羞": 11,
+        "脸红": 11,
+        "exp_12": 11
       },
       "tapMotions": {
         "HitAreaHead": {
-          "Jump": 0
+          "Nod": 0
         },
         "HitAreaBody": {
-          "Talk": 0
+          "Wave": 0
         }
       },
       "actionMotions": {
+        "挥手": {
+          "group": "Wave",
+          "index": 0,
+          "description": "抬手左右摇摆打招呼，适合开场、道别"
+        },
+        "打招呼": {
+          "group": "Wave",
+          "index": 0,
+          "description": "同挥手"
+        },
+        "点头": {
+          "group": "Nod",
+          "index": 0,
+          "description": "低头再抬起的点头，表示赞同、明白"
+        },
+        "赞同": {
+          "group": "Nod",
+          "index": 0,
+          "description": "同点头"
+        },
+        "摇头": {
+          "group": "Shake",
+          "index": 0,
+          "description": "左右摇摆的摇头，表示否定、无奈"
+        },
+        "否定": {
+          "group": "Shake",
+          "index": 0,
+          "description": "同摇头"
+        },
         "跳跃": {
           "group": "Jump",
           "index": 0,
@@ -623,7 +698,7 @@
         }
       },
       "defaultExpression": 0,
-      "personaAddon": "你是像素猫，像素风格的小猫。表情用 [joy]/[calm]/[sadness] 切换眼神，动作可用 [motion:跳跃]。",
+      "personaAddon": "你是像素猫，像素风格的小猫。请积极用方括号标签驱动表情与动作，让形象真正「活」起来。\n\n**表情标签**（切换眼神）：\n- [neutral]/[平静]/[默认]：睁眼默认脸\n- [calm]/[闭眼]/[思考]：闭眼平静\n- [joy]/[开心]/[微笑]：笑眼\n- [sadness]/[难过]/[委屈]：下垂眼+八字眉\n- [anger]/[生气]/[不满]：竖眉瞪眼\n- [shocked]/[惊讶]/[震惊]：瞪大眼\n- [wink]/[眨眼]/[俏皮]：单眼眨\n- [tired]/[无语]/[无奈]：半睁眼\n- [sparkle]/[闪亮]/[兴奋]：亮眼+高光\n- [sleepy]/[困]/[打瞌睡]：眯眼\n- [cry]/[哭]/[含泪]：闭眼+泪滴\n- [love]/[喜欢]/[害羞]：心形眼\n\n**动作标签**（单次播放，播完自动回待机）：\n- [motion:挥手]/[motion:打招呼]：抬手打招呼\n- [motion:点头]/[motion:赞同]：点头同意\n- [motion:摇头]/[motion:否定]：摇头否定\n- [motion:跳跃]/[motion:蹦跳]：开心跳跃\n\n**组合示例**：[joy][motion:挥手]你来啦！/ [sadness][motion:摇头]不行呢… / [love][motion:点头]好呀好呀～ / [shocked][motion:跳跃]真的假的！\n回复口语化、适合朗读；每次情绪或话题变化务必切换标签，避免整段只用 [neutral]。",
       "toolPrompts": {
         "expression": true,
         "thinkTag": true
@@ -642,29 +717,104 @@
         "neutral": 0,
         "平静": 0,
         "默认": 0,
+        "exp_01": 0,
         "calm": 1,
         "闭眼": 1,
         "思考": 1,
         "沉思": 1,
+        "exp_02": 1,
         "joy": 2,
         "开心": 2,
         "微笑": 2,
         "smile": 2,
-        "兴奋": 2,
+        "轻松": 2,
+        "exp_03": 2,
         "sadness": 3,
+        "sad": 3,
         "难过": 3,
         "委屈": 3,
-        "sad": 3
+        "失落": 3,
+        "exp_04": 3,
+        "anger": 4,
+        "生气": 4,
+        "愤怒": 4,
+        "不满": 4,
+        "exp_05": 4,
+        "shocked": 5,
+        "surprise": 5,
+        "surprised": 5,
+        "惊讶": 5,
+        "震惊": 5,
+        "exp_06": 5,
+        "wink": 6,
+        "眨眼": 6,
+        "俏皮": 6,
+        "exp_07": 6,
+        "tired": 7,
+        "无语": 7,
+        "无奈": 7,
+        "冷漠": 7,
+        "exp_08": 7,
+        "sparkle": 8,
+        "闪亮": 8,
+        "兴奋": 8,
+        "激动": 8,
+        "exp_09": 8,
+        "sleepy": 9,
+        "困": 9,
+        "打瞌睡": 9,
+        "exp_10": 9,
+        "cry": 10,
+        "哭": 10,
+        "泪": 10,
+        "含泪": 10,
+        "exp_11": 10,
+        "love": 11,
+        "喜欢": 11,
+        "爱心": 11,
+        "害羞": 11,
+        "脸红": 11,
+        "exp_12": 11
       },
       "tapMotions": {
         "HitAreaHead": {
-          "Jump": 0
+          "Nod": 0
         },
         "HitAreaBody": {
-          "Talk": 0
+          "Wave": 0
         }
       },
       "actionMotions": {
+        "挥手": {
+          "group": "Wave",
+          "index": 0,
+          "description": "抬手左右摇摆打招呼，适合开场、道别"
+        },
+        "打招呼": {
+          "group": "Wave",
+          "index": 0,
+          "description": "同挥手"
+        },
+        "点头": {
+          "group": "Nod",
+          "index": 0,
+          "description": "低头再抬起的点头，表示赞同、明白"
+        },
+        "赞同": {
+          "group": "Nod",
+          "index": 0,
+          "description": "同点头"
+        },
+        "摇头": {
+          "group": "Shake",
+          "index": 0,
+          "description": "左右摇摆的摇头，表示否定、无奈"
+        },
+        "否定": {
+          "group": "Shake",
+          "index": 0,
+          "description": "同摇头"
+        },
         "跳跃": {
           "group": "Jump",
           "index": 0,
@@ -677,7 +827,7 @@
         }
       },
       "defaultExpression": 0,
-      "personaAddon": "你是高清少女，2D 风格。表情用 [joy]/[calm]/[sadness] 切换眼神，动作可用 [motion:跳跃]。",
+      "personaAddon": "你是高清少女，2D 高清风格的角色。请积极用方括号标签驱动表情与动作，让形象真正「活」起来。\n\n**表情标签**（切换眼神）：\n- [neutral]/[平静]/[默认]：睁眼默认脸\n- [calm]/[闭眼]/[思考]：闭眼平静\n- [joy]/[开心]/[微笑]：笑眼\n- [sadness]/[难过]/[委屈]：下垂眼+八字眉\n- [anger]/[生气]/[不满]：竖眉瞪眼\n- [shocked]/[惊讶]/[震惊]：瞪大眼\n- [wink]/[眨眼]/[俏皮]：单眼眨\n- [tired]/[无语]/[无奈]：半睁眼\n- [sparkle]/[闪亮]/[兴奋]：亮眼+高光\n- [sleepy]/[困]/[打瞌睡]：眯眼\n- [cry]/[哭]/[含泪]：闭眼+泪滴\n- [love]/[喜欢]/[害羞]：心形眼\n\n**动作标签**（单次播放，播完自动回待机）：\n- [motion:挥手]/[motion:打招呼]：抬手打招呼\n- [motion:点头]/[motion:赞同]：点头同意\n- [motion:摇头]/[motion:否定]：摇头否定\n- [motion:跳跃]/[motion:蹦跳]：开心跳跃\n\n**组合示例**：[joy][motion:挥手]你来啦！/ [sadness][motion:摇头]不行呢… / [love][motion:点头]好呀好呀～ / [shocked][motion:跳跃]真的假的！\n回复口语化、适合朗读；每次情绪或话题变化务必切换标签，避免整段只用 [neutral]。",
       "toolPrompts": {
         "expression": true,
         "thinkTag": true

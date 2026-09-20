@@ -10,14 +10,24 @@
  * mock electron 以允许模块加载（resolver 顶层 import app）。
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { promises as fs, mkdtempSync, rmSync } from 'node:fs'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 import { applyModelDefaults, type MergedPetModel } from '@mtbot/pet-core'
 
 const USER_DATA = 'C:\\fake\\userData'
 
+/**
+ * `getAppPath()` 要可变：动作解析那条路径真的会读盘（`resolvePetModelsDir()` 基于它拼路径），
+ * 所以测试把它指到真实临时目录，才好放一份真的清单进去。
+ * `vi.mock` 会被提升到 import 之前，故用 `vi.hoisted` 共享可变状态。
+ */
+const env = vi.hoisted(() => ({ appPath: 'E:\\fake\\app' }))
+
 vi.mock('electron', () => ({
   app: {
     isPackaged: false,
-    getAppPath: () => 'E:\\fake\\app',
+    getAppPath: () => env.appPath,
     getPath: (name: string) => {
       if (name === 'userData') return USER_DATA
       throw new Error(`未预期的 getPath: ${name}`)
@@ -27,7 +37,7 @@ vi.mock('electron', () => ({
   protocol: { registerSchemesAsPrivileged: vi.fn(), handle: vi.fn() },
 }))
 
-import { isExternalUrl, resolveMergedModel } from './pet-model-resolver'
+import { isExternalUrl, resolveMergedModel, resolveModelMotionActions } from './pet-model-resolver'
 
 /**
  * `toBuiltinUrl` 会看 `ELECTRON_RENDERER_URL` 决定走 dev 中间件还是 file://。
@@ -158,5 +168,130 @@ describe('pet-model-resolver / isExternalUrl', () => {
 
   it('lumii-pet 不算外部 URL（它是用户来源的相对路径解析结果，不该被当作透传）', () => {
     expect(isExternalUrl('lumii-pet://model/cat/manifest.json')).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 动作解析：两种后端的来源不同（P1-d）
+// ---------------------------------------------------------------------------
+
+describe('pet-model-resolver / resolveModelMotionActions', () => {
+  let root: string
+  let savedAppPath: string
+
+  beforeEach(async () => {
+    root = mkdtempSync(join(tmpdir(), 'pet-motion-'))
+    savedAppPath = env.appPath
+    env.appPath = root
+    await fs.mkdir(join(root, 'resources', 'pet-models', 'demo'), { recursive: true })
+  })
+  afterEach(() => {
+    env.appPath = savedAppPath
+    rmSync(root, { recursive: true, force: true })
+  })
+
+  const spriteConfig = (over: Record<string, unknown> = {}) =>
+    ({
+      id: 'demo',
+      name: 'demo',
+      rendererType: 'sprite',
+      modelUrl: 'demo/manifest.json',
+      idleMotionGroup: 'Idle',
+      talkMotionGroup: 'Talk',
+      agentId: '',
+      ...over,
+    }) as Record<string, unknown>
+
+  async function writeSpriteManifest(animations: unknown[]): Promise<void> {
+    await fs.writeFile(
+      join(root, 'resources', 'pet-models', 'demo', 'manifest.json'),
+      JSON.stringify({ id: 'demo', rendererType: 'sprite', animations }),
+    )
+  }
+
+  it('sprite：从清单的 animations 解析出动作组', async () => {
+    // 这是修复的那个缺口——此前只读 model3.json 的 FileReferences.Motions，
+    // sprite 清单里没有这个字段，于是恒定解析出空动作列表、控制坞一直显示「暂无动作」
+    await writeSpriteManifest([
+      { group: 'Idle', kind: 'loop' },
+      { group: 'Talk', kind: 'loop' },
+      { group: 'Wave', kind: 'once', next: 'Idle' },
+      { group: 'Nod', kind: 'once', next: 'Idle' },
+      { group: 'Shake', kind: 'once', next: 'Idle' },
+      { group: 'Jump', kind: 'once', next: 'Idle' },
+    ])
+    const actions = await resolveModelMotionActions(spriteConfig())
+    expect(actions.map((a) => a.group)).toEqual(['Wave', 'Nod', 'Shake', 'Jump'])
+  })
+
+  it('sprite：待机组与说话组被排除（避免模型主动触发待机、与编排打架）', async () => {
+    await writeSpriteManifest([
+      { group: 'Idle', kind: 'loop' },
+      { group: 'Talk', kind: 'loop' },
+      { group: 'Rest', kind: 'loop' },
+      { group: 'Wave', kind: 'once' },
+    ])
+    const actions = await resolveModelMotionActions(
+      spriteConfig({ idleMotionRandomGroups: ['Rest'] }),
+    )
+    expect(actions.map((a) => a.group)).toEqual(['Wave'])
+  })
+
+  it('sprite：同组多个动画各产生一个 index', async () => {
+    await writeSpriteManifest([
+      { group: 'Idle', kind: 'loop' },
+      { group: 'Wave', kind: 'once' },
+      { group: 'Wave', kind: 'once' },
+    ])
+    const actions = await resolveModelMotionActions(spriteConfig())
+    expect(actions).toEqual([
+      { tag: '1', group: 'Wave', index: 0, description: undefined },
+      { tag: '2', group: 'Wave', index: 1, description: undefined },
+    ])
+  })
+
+  it('sprite：组顺序按清单声明顺序，标签编号稳定', async () => {
+    await writeSpriteManifest([
+      { group: 'Idle', kind: 'loop' },
+      { group: 'Zebra', kind: 'once' },
+      { group: 'Alpha', kind: 'once' },
+    ])
+    const actions = await resolveModelMotionActions(spriteConfig())
+    // 不按字典序重排——作者写清单的顺序就是标签顺序
+    expect(actions.map((a) => a.group)).toEqual(['Zebra', 'Alpha'])
+  })
+
+  it('作者精选的 actionMotions 优先于自动解析', async () => {
+    await writeSpriteManifest([{ group: 'Wave', kind: 'once' }])
+    const actions = await resolveModelMotionActions(
+      spriteConfig({ actionMotions: { 挥手: { group: 'Wave', index: 0, description: '打招呼' } } }),
+    )
+    expect(actions).toEqual([{ tag: '挥手', group: 'Wave', index: 0, description: '打招呼' }])
+  })
+
+  it('Live2D：仍然读 model3.json 的 FileReferences.Motions', async () => {
+    await fs.writeFile(
+      join(root, 'resources', 'pet-models', 'demo', 'm.model3.json'),
+      JSON.stringify({ FileReferences: { Motions: { Idle: [{}, {}], Wave: [{}] } } }),
+    )
+    const actions = await resolveModelMotionActions(
+      spriteConfig({ rendererType: 'live2d', modelUrl: 'demo/m.model3.json' }),
+    )
+    expect(actions).toEqual([{ tag: '1', group: 'Wave', index: 0, description: undefined }])
+  })
+
+  it('文件缺失或格式不对时返回空数组，不抛', async () => {
+    const actions = await resolveModelMotionActions(
+      spriteConfig({ modelUrl: 'demo/不存在.json' }),
+    )
+    expect(actions).toEqual([])
+  })
+
+  it('animations 不是数组时按空处理（清单没过校验的情况）', async () => {
+    await fs.writeFile(
+      join(root, 'resources', 'pet-models', 'demo', 'manifest.json'),
+      JSON.stringify({ id: 'demo', animations: '坏了' }),
+    )
+    expect(await resolveModelMotionActions(spriteConfig())).toEqual([])
   })
 })

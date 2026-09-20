@@ -137,19 +137,42 @@ describe('三方案变体', () => {
     }
   })
 
-  it('方案 A 的帧数显著多于 B/C（组合爆炸的直接体现）', () => {
-    const count = (dir: string) => {
+  it('帧数关系符合两种方案的公式（断言不变式，不写死数字）', () => {
+    // 写死数字会在表情/口型数一变就失效（P1-d 把表情从 4 扩到 12 时就踩过一次）。
+    // 这里改成从变体 C 的清单里读出真实的表情数 / 口型数 / 身体帧数，再验证公式。
+    const manifestOf = (dir: string) => {
       const v = VARIANTS.find((x) => x.dir === dir)!
       const r = validateSpriteManifest(v.manifest)
       if (!r.ok) throw new Error(`${dir} 清单不合法`)
-      return resolveSpriteRuntime(r.manifest).animationsByGroup.get('Idle')?.[0]?.frames.length ?? 0
+      return r.manifest
     }
-    const a = count('demo_variant_a')
-    const c = count('demo_variant_c')
-    // 演示集下 4 表情 × 4 口型 × 3 身体帧 = 48，而混合方案只需要 3 帧身体
-    expect(a).toBe(48)
-    expect(c).toBeLessThan(20)
-    expect(a / c).toBeGreaterThan(3)
+    const idleFrames = (dir: string) => {
+      const m = manifestOf(dir)
+      return resolveSpriteRuntime(m).animationsByGroup.get('Idle')?.[0]?.frames ?? []
+    }
+
+    const cManifest = manifestOf('demo_variant_c')
+    const faceParts = cManifest.slots?.face?.parts ?? {}
+    const eyeCat = Object.keys(faceParts).find((c) => /eye/i.test(c))!
+    const eyes = faceParts[eyeCat].length
+    const mouths = cManifest.mouthLevels?.length ?? 0
+    // 身体帧数 = 变体 C 的 Idle 里出现过的不同 base 数
+    const bodies = new Set(idleFrames('demo_variant_c').map((f) => f.base)).size
+
+    // A 整体帧 = 身体帧 × 表情 × 口型（组合爆炸的来源）
+    expect(idleFrames('demo_variant_a').length).toBe(bodies * eyes * mouths)
+    // C 混合 = 身体帧 + 表情 + 口型（三者各自一套，不组合）
+    expect(idleFrames('demo_variant_c').length).toBe(bodies)
+    expect(eyes * mouths).toBeGreaterThan(bodies) // 前提：组合确实比加法多
+  })
+
+  it('表情数达到设计 §4.2 的目标规模（12）', () => {
+    const v = VARIANTS.find((x) => x.dir === 'demo_variant_c')!
+    const r = validateSpriteManifest(v.manifest)
+    if (!r.ok) throw new Error('清单不合法')
+    const faceParts = r.manifest.slots?.face?.parts ?? {}
+    const eyeCat = Object.keys(faceParts).find((c) => /eye/i.test(c))!
+    expect(faceParts[eyeCat].length).toBeGreaterThanOrEqual(12)
   })
 })
 

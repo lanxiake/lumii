@@ -24,7 +24,15 @@
           "eye_open",
           "eye_shut",
           "eye_happy",
-          "eye_sad"
+          "eye_sad",
+          "eye_angry",
+          "eye_surprised",
+          "eye_wink",
+          "eye_half",
+          "eye_sparkle",
+          "eye_sleepy",
+          "eye_cry",
+          "eye_love"
         ],
         "mouth": [
           "m0",
@@ -101,6 +109,67 @@
             "eyes": "eye_open",
             "mouth": "m0"
           }
+        }
+      ]
+    },
+    {
+      "group": "Wave",
+      "index": 0,
+      "kind": "once",
+      "next": "Idle",
+      "fps": 6,
+      "frames": [
+        {
+          "base": "wave_00"
+        },
+        {
+          "base": "wave_01",
+          "face": {
+            "eyes": "eye_happy",
+            "mouth": "m0"
+          }
+        },
+        {
+          "base": "wave_01"
+        },
+        {
+          "base": "wave_00"
+        }
+      ]
+    },
+    {
+      "group": "Nod",
+      "index": 0,
+      "kind": "once",
+      "next": "Idle",
+      "fps": 6,
+      "frames": [
+        {
+          "base": "nod_00"
+        },
+        {
+          "base": "nod_01"
+        },
+        {
+          "base": "nod_00"
+        }
+      ]
+    },
+    {
+      "group": "Shake",
+      "index": 0,
+      "kind": "once",
+      "next": "Idle",
+      "fps": 6,
+      "frames": [
+        {
+          "base": "shake_00"
+        },
+        {
+          "base": "shake_01"
+        },
+        {
+          "base": "shake_00"
         }
       ]
     }

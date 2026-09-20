@@ -266,16 +266,24 @@ export async function resolveModelMotionActions(
     }))
   }
 
-  // 2. 从 model3.json 自动解析非待机组动作
+  // 2. 从模型文件自动解析非待机组动作。
+  //    **两种后端的来源不同**：Live2D 读 model3.json 的 FileReferences.Motions；
+  //    sprite 读清单的 animations。此前只实现了前者，导致 sprite 模型恒定解析出
+  //    空动作列表、控制坞一直显示「暂无动作」。
   const diskPath = modelUrlToDiskPath(config.modelUrl as string)
   if (!diskPath) return []
-  let motions: Record<string, unknown[]> = {}
+  let counts: Map<string, number>
   try {
     const raw = await fs.readFile(diskPath, 'utf-8')
-    const parsed = JSON.parse(raw) as { FileReferences?: { Motions?: Record<string, unknown[]> } }
-    motions = parsed.FileReferences?.Motions ?? {}
+    const parsed = JSON.parse(raw) as {
+      FileReferences?: { Motions?: Record<string, unknown[]> }
+      animations?: { group?: unknown }[]
+    }
+    counts = config.rendererType === 'sprite'
+      ? countSpriteGroups(parsed.animations)
+      : countLive2dGroups(parsed.FileReferences?.Motions)
   } catch (err) {
-    log.warn(`[resolveModelMotionActions] 读取 model3 失败 ${diskPath}: ${(err as Error).message}`)
+    log.warn(`[resolveModelMotionActions] 读取模型文件失败 ${diskPath}: ${(err as Error).message}`)
     return []
   }
 
@@ -286,13 +294,38 @@ export async function resolveModelMotionActions(
 
   const actions: ResolvedMotionAction[] = []
   let seq = 0
-  for (const [group, list] of Object.entries(motions)) {
+  for (const [group, count] of counts) {
     if (reserved.has(group)) continue
-    const count = Array.isArray(list) ? list.length : 0
     for (let i = 0; i < count; i++) {
       seq += 1
       actions.push({ tag: String(seq), group, index: i })
     }
   }
   return actions
+}
+
+/** Live2D：组名 → 该组动作条数 */
+function countLive2dGroups(motions: Record<string, unknown[]> | undefined): Map<string, number> {
+  const out = new Map<string, number>()
+  for (const [group, list] of Object.entries(motions ?? {})) {
+    out.set(group, Array.isArray(list) ? list.length : 0)
+  }
+  return out
+}
+
+/**
+ * sprite：组名 → 该组动画条数。
+ *
+ * 按**声明顺序**首次出现的先后排列组，这样自动编号的动作标签在模型之间是稳定的
+ * （`Map` 保持插入顺序）。清单没通过校验时 `animations` 可能不是数组，按空处理。
+ */
+function countSpriteGroups(animations: unknown): Map<string, number> {
+  const out = new Map<string, number>()
+  if (!Array.isArray(animations)) return out
+  for (const anim of animations) {
+    const group = (anim as { group?: unknown })?.group
+    if (typeof group !== 'string' || !group) continue
+    out.set(group, (out.get(group) ?? 0) + 1)
+  }
+  return out
 }

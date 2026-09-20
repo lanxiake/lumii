@@ -45,72 +45,150 @@ const BODY_POSES = [
   { name: 'body_02', lift: 0 },
 ]
 
+/**
+ * 动作专用姿态。与待机姿态分开列：待机是循环的身体起伏，动作是「抬手/低头/左右摇」
+ * 这类有语义的单次姿态，混在一起会让待机轮播随机播到挥手。
+ */
+const ACTION_POSES = {
+  wave: [
+    { name: 'wave_00', lift: 0, pawLift: 0 },
+    { name: 'wave_01', lift: 1, pawLift: 7 },
+  ],
+  nod: [
+    { name: 'nod_00', lift: 0 },
+    { name: 'nod_01', lift: -2 },
+  ],
+  shake: [
+    { name: 'shake_00', lift: 0, lean: -2 },
+    { name: 'shake_01', lift: 0, lean: 2 },
+  ],
+}
+
 /** 表情（眼睛层）：四款，供 P0-b 对比用；量产按设计 §4.2 的 12 款外推 */
-const EYES = ['eye_open', 'eye_shut', 'eye_happy', 'eye_sad']
+const EYES = [
+  'eye_open', 'eye_shut', 'eye_happy', 'eye_sad',
+  'eye_angry', 'eye_surprised', 'eye_wink', 'eye_half',
+  'eye_sparkle', 'eye_sleepy', 'eye_cry', 'eye_love',
+]
 /** 口型（嘴层）：四档，对应 setMouthOpen 的四个等分档 */
 const MOUTHS = ['m0', 'm1', 'm2', 'm3']
 
 /**
  * 身体形状表。
+ *
  * @param {number} lift 整体上抬像素（做上下浮动）
+ * @param {number} pawLift 左前爪抬高像素（挥手用）
+ * @param {number} lean 整体水平偏移（摇头/歪头用）
  */
-function bodyShapes(lift) {
-  const cx = CANVAS.w / 2
+function bodyShapes(lift, pawLift = 0, lean = 0) {
+  const cx = CANVAS.w / 2 + lean
   const headY = 20 - lift
   const bodyY = 40 - lift
   return [
     // 耳朵（先画，让头部盖住根部）
-    { kind: 'poly', points: [[12, headY - 4], [18, headY - 16], [26, headY - 6]], fill: '#6b4a2f', stroke: '#2a1c12' },
-    { kind: 'poly', points: [[36, headY - 4], [30, headY - 16], [22, headY - 6]], fill: '#6b4a2f', stroke: '#2a1c12' },
+    { kind: 'poly', points: [[12 + lean, headY - 4], [18 + lean, headY - 16], [26 + lean, headY - 6]], fill: '#6b4a2f', stroke: '#2a1c12' },
+    { kind: 'poly', points: [[36 + lean, headY - 4], [30 + lean, headY - 16], [22 + lean, headY - 6]], fill: '#6b4a2f', stroke: '#2a1c12' },
     // 身体
     { kind: 'ellipse', cx, cy: bodyY + 6, rx: 15, ry: 13, fill: '#a9743f', stroke: '#2a1c12' },
     // 头
     { kind: 'ellipse', cx, cy: headY + 6, rx: 16, ry: 13, fill: '#c98f52', stroke: '#2a1c12' },
-    // 前爪
-    { kind: 'ellipse', cx: cx - 13, cy: bodyY + 15, rx: 6, ry: 4, fill: '#e8d3b0', stroke: '#2a1c12' },
+    // 前爪（左爪可抬）
+    { kind: 'ellipse', cx: cx - 13, cy: bodyY + 15 - pawLift, rx: 6, ry: 4, fill: '#e8d3b0', stroke: '#2a1c12' },
     { kind: 'ellipse', cx: cx + 13, cy: bodyY + 15, rx: 6, ry: 4, fill: '#e8d3b0', stroke: '#2a1c12' },
     // 尾巴
     { kind: 'ellipse', cx: cx + 16, cy: bodyY + 2, rx: 7, ry: 4, fill: '#a9743f', stroke: '#2a1c12' },
   ]
 }
 
-/** 眼睛形状表 */
+/**
+ * 眼睛形状表：12 款，对齐设计 §4.2 的目标表情数。
+ *
+ * 全部用现有的三种图元（圆 / 圆角矩形 / 多边形）拼出来，不引入新的绘制能力——
+ * 素材是占位用的，重点是让「12 表情 × 4 口型」的组合数成立，不是画得多好看。
+ */
 function eyeShapes(kind) {
   const cx = CANVAS.w / 2
   const y = 24
   const dx = 7
   const ink = '#2a1c12'
+  const white = '#ffffff'
+  const fur = '#c98f52'
+
+  /** 一只圆眼：白底 + 黑瞳 */
+  const openEye = (x, r = 4, ry = 5, pupil = 2) => [
+    { kind: 'ellipse', cx: x, cy: y + 2, rx: r, ry, fill: white, stroke: ink },
+    { kind: 'ellipse', cx: x, cy: y + 2, rx: pupil, ry: pupil + 1, fill: ink },
+  ]
+  /** 一条横线眼 */
+  const lineEye = (x, w = 8) => [{ kind: 'rect', x: x - w / 2, y: y + 1, w, h: 2, r: 1, fill: ink }]
+  /** 上凸弧（笑眼） */
+  const arcEye = (x) => [
+    { kind: 'ellipse', cx: x, cy: y + 3, rx: 4, ry: 3, fill: ink },
+    { kind: 'ellipse', cx: x, cy: y + 5, rx: 4, ry: 3, fill: fur },
+  ]
+  /** 眉毛：角度用两端高度差表达 */
+  const brow = (x, inner, outer) => [
+    { kind: 'poly', points: [[x - 5, y - 5 - inner], [x + 5, y - 5 - outer], [x + 5, y - 2 - outer], [x - 5, y - 2 - inner]], fill: ink },
+  ]
+
   switch (kind) {
     case 'eye_shut':
-      // 闭眼：两条短横线
-      return [
-        { kind: 'rect', x: cx - dx - 4, y, w: 8, h: 2, r: 1, fill: ink },
-        { kind: 'rect', x: cx + dx - 4, y, w: 8, h: 2, r: 1, fill: ink },
-      ]
+      return [...lineEye(cx - dx), ...lineEye(cx + dx)]
     case 'eye_happy':
-      // 笑眼：上凸的弧（用两个小圆与一条横线拼）
-      return [
-        { kind: 'ellipse', cx: cx - dx, cy: y + 3, rx: 4, ry: 3, fill: ink },
-        { kind: 'ellipse', cx: cx + dx, cy: y + 3, rx: 4, ry: 3, fill: ink },
-        { kind: 'ellipse', cx: cx - dx, cy: y + 5, rx: 4, ry: 3, fill: '#c98f52' },
-        { kind: 'ellipse', cx: cx + dx, cy: y + 5, rx: 4, ry: 3, fill: '#c98f52' },
-      ]
+      return [...arcEye(cx - dx), ...arcEye(cx + dx)]
     case 'eye_sad':
-      // 难过：下垂的内眼角
+      return [...openEye(cx - dx, 3, 4, 3), ...openEye(cx + dx, 3, 4, 3), ...brow(cx - dx, 0, 3), ...brow(cx + dx, 3, 0)]
+    case 'eye_angry':
+      return [...openEye(cx - dx, 4, 3, 2), ...openEye(cx + dx, 4, 3, 2), ...brow(cx - dx, 3, 0), ...brow(cx + dx, 0, 3)]
+    case 'eye_surprised':
+      return [...openEye(cx - dx, 5, 6, 1), ...openEye(cx + dx, 5, 6, 1)]
+    case 'eye_wink':
+      return [...openEye(cx - dx), ...lineEye(cx + dx)]
+    case 'eye_half':
       return [
-        { kind: 'ellipse', cx: cx - dx, cy: y + 2, rx: 3, ry: 4, fill: ink },
-        { kind: 'ellipse', cx: cx + dx, cy: y + 2, rx: 3, ry: 4, fill: ink },
-        { kind: 'rect', x: cx - dx - 5, y: y - 5, w: 8, h: 2, r: 1, fill: ink },
-        { kind: 'rect', x: cx + dx - 3, y: y - 3, w: 8, h: 2, r: 1, fill: ink },
+        ...openEye(cx - dx, 4, 5, 2),
+        ...openEye(cx + dx, 4, 5, 2),
+        // 上眼皮压下来一半
+        { kind: 'ellipse', cx: cx - dx, cy: y - 1, rx: 5, ry: 3, fill: fur },
+        { kind: 'ellipse', cx: cx + dx, cy: y - 1, rx: 5, ry: 3, fill: fur },
+      ]
+    case 'eye_sparkle':
+      return [
+        ...openEye(cx - dx, 5, 6, 3),
+        ...openEye(cx + dx, 5, 6, 3),
+        // 高光点
+        { kind: 'ellipse', cx: cx - dx - 1, cy: y, rx: 1, ry: 1, fill: white },
+        { kind: 'ellipse', cx: cx + dx - 1, cy: y, rx: 1, ry: 1, fill: white },
+      ]
+    case 'eye_sleepy':
+      return [
+        ...lineEye(cx - dx, 8),
+        ...lineEye(cx + dx, 8),
+        // 半睁的下缘
+        { kind: 'rect', x: cx - dx - 4, y: y + 3, w: 8, h: 1, fill: ink },
+        { kind: 'rect', x: cx + dx - 4, y: y + 3, w: 8, h: 1, fill: ink },
+      ]
+    case 'eye_cry':
+      return [
+        ...lineEye(cx - dx),
+        ...lineEye(cx + dx),
+        // 泪滴
+        { kind: 'poly', points: [[cx - dx, y + 4], [cx - dx - 2, y + 9], [cx - dx + 2, y + 9]], fill: '#5aa9e6' },
+        { kind: 'poly', points: [[cx + dx, y + 4], [cx + dx - 2, y + 9], [cx + dx + 2, y + 9]], fill: '#5aa9e6' },
+      ]
+    case 'eye_love':
+      return [
+        // 心形：两个圆 + 一个倒三角
+        { kind: 'ellipse', cx: cx - dx - 2, cy: y, rx: 3, ry: 3, fill: '#e0466e' },
+        { kind: 'ellipse', cx: cx - dx + 2, cy: y, rx: 3, ry: 3, fill: '#e0466e' },
+        { kind: 'poly', points: [[cx - dx - 5, y + 1], [cx - dx + 5, y + 1], [cx - dx, y + 8]], fill: '#e0466e' },
+        { kind: 'ellipse', cx: cx + dx - 2, cy: y, rx: 3, ry: 3, fill: '#e0466e' },
+        { kind: 'ellipse', cx: cx + dx + 2, cy: y, rx: 3, ry: 3, fill: '#e0466e' },
+        { kind: 'poly', points: [[cx + dx - 5, y + 1], [cx + dx + 5, y + 1], [cx + dx, y + 8]], fill: '#e0466e' },
       ]
     case 'eye_open':
     default:
-      return [
-        { kind: 'ellipse', cx: cx - dx, cy: y + 2, rx: 4, ry: 5, fill: '#ffffff', stroke: ink },
-        { kind: 'ellipse', cx: cx + dx, cy: y + 2, rx: 4, ry: 5, fill: '#ffffff', stroke: ink },
-        { kind: 'ellipse', cx: cx - dx, cy: y + 2, rx: 2, ry: 3, fill: ink },
-        { kind: 'ellipse', cx: cx + dx, cy: y + 2, rx: 2, ry: 3, fill: ink },
-      ]
+      return [...openEye(cx - dx), ...openEye(cx + dx)]
   }
 }
 
@@ -263,6 +341,37 @@ function rasterizePixel(layers) {
   return { buffer: out.data, width: out.w, height: out.h }
 }
 
+const ACTION_POSE_LIST = Object.values(ACTION_POSES).flat()
+
+/**
+ * 动作组（单次型，播完回 Idle）。
+ *
+ * 这三个是「补齐动作丰富度」的落点：此前示范模型只有 Idle/Talk/Jump，
+ * 控制坞里可点的动作标签很少。
+ */
+function buildActionAnimations(face) {
+  const f = face ?? { eyes: 'eye_happy', mouth: 'm0' }
+  return [
+    {
+      group: 'Wave', index: 0, kind: 'once', next: 'Idle', fps: 6,
+      frames: [
+        { base: 'wave_00' },
+        { base: 'wave_01', face: f },
+        { base: 'wave_01' },
+        { base: 'wave_00' },
+      ],
+    },
+    {
+      group: 'Nod', index: 0, kind: 'once', next: 'Idle', fps: 6,
+      frames: [{ base: 'nod_00' }, { base: 'nod_01' }, { base: 'nod_00' }],
+    },
+    {
+      group: 'Shake', index: 0, kind: 'once', next: 'Idle', fps: 6,
+      frames: [{ base: 'shake_00' }, { base: 'shake_01' }, { base: 'shake_00' }],
+    },
+  ]
+}
+
 /** 命名 + 光栅化（像素后端）。返回的 `raw` 让 sharp 知道这是裸像素而非已编码图片。 */
 function pixelImage(name, layers) {
   const { buffer, width, height } = rasterizePixel(layers)
@@ -392,7 +501,7 @@ function buildVariants() {
       for (const eye of EYES) {
         for (const mouth of MOUTHS) {
           const name = `${pose.name}__${eye}__${mouth}`
-          images.push(pixelImage(name, [bodyShapes(pose.lift), eyeShapes(eye), mouthShapes(mouthToLevel(mouth))]))
+          images.push(pixelImage(name, [bodyShapes(pose.lift, pose.pawLift ?? 0, pose.lean ?? 0), eyeShapes(eye), mouthShapes(mouthToLevel(mouth))]))
           frames.push({ base: name })
         }
       }
@@ -403,7 +512,7 @@ function buildVariants() {
   // ---- B 分层差分 ----
   {
     const images = []
-    for (const pose of BODY_POSES) images.push(pixelImage(pose.name, [bodyShapes(pose.lift)]))
+    for (const pose of BODY_POSES) images.push(pixelImage(pose.name, [bodyShapes(pose.lift, pose.pawLift ?? 0, pose.lean ?? 0)]))
     for (const eye of EYES) images.push(pixelImage(eye, [eyeShapes(eye)]))
     for (const mouth of MOUTHS) images.push(pixelImage(mouth, [mouthShapes(mouthToLevel(mouth))]))
     const frames = BODY_POSES.map((pose, i) => ({
@@ -425,7 +534,7 @@ function buildVariants() {
   // ---- C 混合 ----
   {
     const images = []
-    for (const pose of BODY_POSES) images.push(pixelImage(pose.name, [bodyShapes(pose.lift)]))
+    for (const pose of BODY_POSES) images.push(pixelImage(pose.name, [bodyShapes(pose.lift, pose.pawLift ?? 0, pose.lean ?? 0)]))
     for (const eye of EYES) images.push(pixelImage(eye, [eyeShapes(eye)]))
     for (const mouth of MOUTHS) images.push(pixelImage(mouth, [mouthShapes(mouthToLevel(mouth))]))
     const frames = BODY_POSES.map((pose, i) => ({
@@ -453,7 +562,7 @@ function mouthToLevel(name) {
 // ---------------------------------------------------------------------------
 
 /** 造一份完整的安装包目录（P0-a 的包结构） */
-async function writePackage(dir, { id, name, images, animFrames, slots, pixelArt, canvas, anchor, scale, variantNote }) {
+async function writePackage(dir, { id, name, images, animFrames, extraAnimations, slots, pixelArt, canvas, anchor, scale, variantNote }) {
   fs.rmSync(dir, { recursive: true, force: true })
   fs.mkdirSync(dir, { recursive: true })
 
@@ -495,6 +604,7 @@ async function writePackage(dir, { id, name, images, animFrames, slots, pixelArt
         fps: 8,
         frames: [animFrames[1] ?? animFrames[0], animFrames[0]],
       },
+      ...(extraAnimations ?? []),
     ],
     // 方案 A 没有独立嘴层（口型烘在整帧里），声明 mouthLevels 只会指向不存在的图集条目。
     ...(slots ? { mouthLevels: MOUTHS } : {}),
@@ -534,9 +644,12 @@ async function main() {
 
   // ---- 双示范模型：同一套几何，两种光栅化 ----
   const pixelImages = []
-  for (const pose of BODY_POSES) pixelImages.push(pixelImage(pose.name, [bodyShapes(pose.lift)]))
+  for (const pose of BODY_POSES) pixelImages.push(pixelImage(pose.name, [bodyShapes(pose.lift, pose.pawLift ?? 0, pose.lean ?? 0)]))
   for (const eye of EYES) pixelImages.push(pixelImage(eye, [eyeShapes(eye)]))
   for (const mouth of MOUTHS) pixelImages.push(pixelImage(mouth, [mouthShapes(mouthToLevel(mouth))]))
+  for (const pose of ACTION_POSE_LIST) {
+    pixelImages.push(pixelImage(pose.name, [bodyShapes(pose.lift ?? 0, pose.pawLift ?? 0, pose.lean ?? 0)]))
+  }
   const demoFrames = BODY_POSES.map((pose, i) => ({
     base: pose.name,
     ...(i === 0 ? { face: { eyes: EYES[0], mouth: MOUTHS[0] } } : {}),
@@ -553,6 +666,7 @@ async function main() {
     name: '像素猫',
     images: pixelImages,
     animFrames: demoFrames,
+    extraAnimations: buildActionAnimations(),
     slots: demoSlots,
     pixelArt: true,
     canvas: CANVAS,
@@ -565,7 +679,7 @@ async function main() {
   // 高清版：把同一份几何用矢量重画
   const hiresImages = []
   for (const pose of BODY_POSES) {
-    hiresImages.push({ name: pose.name, buffer: await rasterizeHires([bodyShapes(pose.lift)]), width: HI.w, height: HI.h })
+    hiresImages.push({ name: pose.name, buffer: await rasterizeHires([bodyShapes(pose.lift, pose.pawLift ?? 0, pose.lean ?? 0)]), width: HI.w, height: HI.h })
   }
   for (const eye of EYES) {
     hiresImages.push({ name: eye, buffer: await rasterizeHires([eyeShapes(eye)]), width: HI.w, height: HI.h })
@@ -573,11 +687,20 @@ async function main() {
   for (const mouth of MOUTHS) {
     hiresImages.push({ name: mouth, buffer: await rasterizeHires([mouthShapes(mouthToLevel(mouth))]), width: HI.w, height: HI.h })
   }
+  for (const pose of ACTION_POSE_LIST) {
+    hiresImages.push({
+      name: pose.name,
+      buffer: await rasterizeHires([bodyShapes(pose.lift ?? 0, pose.pawLift ?? 0, pose.lean ?? 0)]),
+      width: HI.w,
+      height: HI.h,
+    })
+  }
   const hiresPkg = await writePackage(path.join(outRoot, 'demo_hires_girl'), {
     id: 'demo_hires_girl',
     name: '高清少女',
     images: hiresImages,
     animFrames: demoFrames,
+    extraAnimations: buildActionAnimations(),
     slots: demoSlots,
     pixelArt: false,
     canvas: HI,
@@ -607,19 +730,24 @@ async function main() {
   }
 
   // ---- 对比数据 ----
-  const EXPR = 12 // 设计 §4.2 的目标表情数
-  const MOUTH = 4
-  const BODY = 3
+  // 表情数用 EYES.length 而不是写死的数：P1-d 把表情从 4 扩到 12 之后，
+  // 这里若还写 4，表就会与真实产出对不上（演示帧数是按 EYES 实际生成的）。
+  const EXPR = EYES.length
+  const MOUTH = MOUTHS.length
+  const BODY = BODY_POSES.length
   const projection = [
-    { 方案: 'A 整体帧', 演示帧数: BODY * 4 * MOUTH, 外推到12表情: EXPR * MOUTH * BODY, 公式: '表情 × 口型 × 身体帧' },
-    { 方案: 'B 分层差分', 演示帧数: BODY + 4 + MOUTH, 外推到12表情: BODY + EXPR + MOUTH, 公式: '身体 + 表情 + 口型' },
-    { 方案: 'C 混合', 演示帧数: BODY + 4 + MOUTH, 外推到12表情: BODY + EXPR + MOUTH, 公式: '身体帧 + 表情 + 口型' },
+    { 方案: 'A 整体帧', 演示帧数: BODY * EXPR * MOUTH, 公式: '身体帧 × 表情 × 口型' },
+    { 方案: 'B 分层差分', 演示帧数: BODY + EXPR + MOUTH, 公式: '身体 + 表情 + 口型' },
+    { 方案: 'C 混合', 演示帧数: BODY + EXPR + MOUTH, 公式: '身体帧 + 表情 + 口型' },
   ]
 
   console.log('\n=== 生成结果 ===')
   console.table(report)
-  console.log('\n=== 场景 B 资源量外推（12 表情 × 4 口型 × 3 身体帧）===')
+  console.log(
+    `\n=== 场景 B 资源量（${EXPR} 表情 × ${MOUTH} 口型 × ${BODY} 身体帧，即设计 §4.2 的目标规模）===`,
+  )
   console.table(projection)
+  console.log(`阈值 150 帧/角色：A ${BODY * EXPR * MOUTH < 150 ? '未超' : '**超出**'}，B/C ${BODY + EXPR + MOUTH < 150 ? '未超' : '**超出**'}`)
   console.log(`\n输出目录：${outRoot}`)
   console.log('注意：这是占位素材（设计 §7），量产链路单独立项。')
 }
