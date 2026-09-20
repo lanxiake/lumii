@@ -57,6 +57,8 @@
  */
 import fs from 'node:fs'
 import path from 'node:path'
+import os from 'node:os'
+import { execSync } from 'node:child_process'
 
 const argv = process.argv.slice(2)
 const arg = (name, dflt) => {
@@ -254,6 +256,77 @@ function hotspots(profile, fromWall, toWall) {
   }
 }
 
+/**
+ * 采样**系统进程表** —— 冻结发生时，捕获器是独立进程、不受主线程阻塞影响，
+ * 可以替被冻住的应用看一眼"此刻系统上有什么"。
+ *
+ * 动机：§6.8 那类「离开 V8 视野」的现场，profile 里只有裸 native 帧
+ * （`exec@native` 100% 覆盖数秒），看不出是谁在起子进程。进程表能直接回答
+ * 「是不是子进程风暴」——如果 `git.exe` 有几十上百个，方向就明确了。
+ *
+ * ⚠️ 这里的 `execSync` 会阻塞**捕获器自己**（几百毫秒），但它是独立进程，
+ * 不影响被测应用。
+ */
+function sampleProcesses() {
+  try {
+    const out = execSync('tasklist /FO CSV /NH', {
+      encoding: 'utf8',
+      timeout: 8000,
+      windowsHide: true,
+      maxBuffer: 8 * 1024 * 1024,
+    })
+    const counts = new Map()
+    let total = 0
+    for (const line of out.split('\n')) {
+      if (!line.trim()) continue
+      const name = /^"([^"]+)"/.exec(line)?.[1]
+      if (!name) continue
+      total++
+      counts.set(name, (counts.get(name) ?? 0) + 1)
+    }
+    const top = [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12)
+    return { total, top }
+  } catch (e) {
+    return { error: e.message }
+  }
+}
+
+/**
+ * 跟踪**整机 CPU 使用率** —— 用来区分两种截然不同的现象。
+ *
+ * 2026-09-20 把 91 次捕获按 `evaluate` 是否超时分成两类后，发现两个反直觉的点：
+ *   - A 类（evaluate **成功**）里有 8 次采样覆盖率只有 0.0~0.7% —— 主线程明明
+ *     能响应，采样却几乎为空；
+ *   - B 类（evaluate **超时**）里有覆盖率 28% 的 —— 有样本，却连着 5 秒不回话。
+ *
+ * V8 的采样线程是**独立线程**，系统 CPU 饱和时它自己就会被饿死 —— 于是
+ * 「覆盖率低」既可能是主线程卡住，也可能只是采样线程抢不到 CPU。
+ * 记录整机 CPU 使用率才能把这二者分开。
+ *
+ * Windows 上 `os.loadavg()` 恒为 0，所以用 `os.cpus()` 的累积 times 做差分。
+ */
+let lastCpuTimes = os.cpus().map((c) => ({ ...c.times }))
+let cpuPct = 0
+
+function updateCpu() {
+  const now = os.cpus()
+  let idle = 0
+  let total = 0
+  now.forEach((c, i) => {
+    const p = lastCpuTimes[i]
+    if (!p) return
+    const dUser = c.times.user - p.user
+    const dNice = c.times.nice - p.nice
+    const dSys = c.times.sys - p.sys
+    const dIdle = c.times.idle - p.idle
+    const dIrq = c.times.irq - p.irq
+    idle += dIdle
+    total += dUser + dNice + dSys + dIdle + dIrq
+  })
+  if (total > 0) cpuPct = Math.round((1 - idle / total) * 100)
+  lastCpuTimes = now.map((c) => ({ ...c.times }))
+}
+
 async function capture(kind, lagA, lagB) {
   busy = true
   if (rollTimer) clearInterval(rollTimer)
@@ -266,6 +339,12 @@ async function capture(kind, lagA, lagB) {
 
   const stamp = detectedAt.toISOString().replace(/[: .]/g, '-')
   const base = path.join(OUT, `freeze-${stamp}`)
+  // 趁冻结还在持续，先采一份系统进程表（这是独立进程做的，不受主线程影响）
+  const processes = sampleProcesses()
+  if (processes.top) {
+    const notable = processes.top.filter(([n]) => /git|node|electron|cmd|sh/i.test(n))
+    log(`冻结时刻系统进程 ${processes.total} 个；相关: ${notable.map(([n, c]) => `${n}×${c}`).join(' ')}`)
+  }
   const meta = {
     kind,
     heartbeatLagMs: lagA ?? null,
@@ -273,6 +352,9 @@ async function capture(kind, lagA, lagB) {
     detectedAt: detectedAt.toISOString(),
     frozenFrom: freezeFrom?.toISOString() ?? null,
     log: logTail(),
+    /** 整机 CPU 使用率（采样时的瞬时值）。用于区分「主线程卡」与「采样线程被饿死」 */
+    cpuPct,
+    processes,
     profile: null,
     note:
       'kind=js → 双心跳都停摆；kind=native → evaluate 超时（原生代码里没有检查点）。' +
@@ -382,6 +464,7 @@ async function session() {
   // 主循环：跑到断开为止
   for (;;) {
     await sleep(POLL_MS)
+    updateCpu() // 每轮更新整机 CPU，供 capture 记录
     if (closed) throw new Error('CDP 连接已断开')
     if (busy) continue
     const r = await send('Runtime.evaluate', { expression: READ_HB, returnByValue: true }, EVAL_TIMEOUT_MS)
