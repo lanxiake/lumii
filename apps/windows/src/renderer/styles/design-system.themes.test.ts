@@ -102,6 +102,58 @@ describe('tokens.css 主题变体完整性', () => {
       expect(blocks[theme], `${theme} 缺少 --mt-accent-rgb`).toContain('--mt-accent-rgb')
     }
   })
+
+  it('三个主题变体覆盖同一组 RGB 三元组', () => {
+    const rgbVars = (theme: string) =>
+      [...blocks[theme]!].filter((v) => v.endsWith('-rgb')).sort()
+    const base = rgbVars('light')
+    for (const theme of THEME_BLOCKS.slice(1)) {
+      expect(rgbVars(theme), `tokens.css 变体 ${theme} 的 rgb 三元组与 light 不一致`).toEqual(base)
+    }
+  })
+})
+
+describe('运行时取色的首帧兜底', () => {
+  /**
+   * `rgba(var(--mt-x-rgb), α)` 这类写法在令牌未定义时整条声明失效（不是回退到某个颜色，
+   * 是直接消失）。CSS 的 `var()` 只在**使用处**写了 fallback 时才回退，而这类写法通常
+   * 不写 fallback（写了也没法把 `r,g,b` 三元组拆开用）。所以每个被这样引用的三元组
+   * 都必须在 `:root` 有定义 —— 否则首帧（ThemeContext 给 <html> 加 data-theme 之前）
+   * 该处颜色直接失效。
+   *
+   * 实测踩过：--mt-surface-rgb 只在三个主题块里定义、:root 没有，而 Tooltip 用了它。
+   */
+  it('被 rgba(var(--mt-*-rgb)) 引用的三元组都在 :root 有定义', () => {
+    const rendererDir = path.resolve(STYLES_DIR, '..')
+    const files: string[] = []
+    const walk = (dir: string) => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        if (entry.name === 'node_modules' || entry.name === 'dist' || entry.name === 'styles') continue
+        const full = path.join(dir, entry.name)
+        if (entry.isDirectory()) walk(full)
+        else if (/\.(css|tsx?)$/.test(entry.name)) files.push(full)
+      }
+    }
+    for (const entry of fs.readdirSync(rendererDir, { withFileTypes: true })) {
+      if (entry.isDirectory() && entry.name !== 'node_modules' && entry.name !== 'styles') {
+        walk(path.join(rendererDir, entry.name))
+      }
+    }
+
+    const referenced = new Set<string>()
+    for (const file of files) {
+      for (const m of fs.readFileSync(file, 'utf8').matchAll(/rgba\(\s*var\((--mt-[\w-]+-rgb)\)/g)) {
+        referenced.add(m[1]!)
+      }
+    }
+
+    const rootVars = varsForSelector(tokens, ':root')
+    const missing = [...referenced].filter((name) => !rootVars.has(name)).sort()
+    expect(
+      { referenced: [...referenced].sort(), missing },
+      '以下 RGB 三元组被 rgba() 引用但 :root 未定义，首帧会整条声明失效',
+    ).toEqual({ referenced: [...referenced].sort(), missing: [] })
+  })
 })
 
 describe('令牌定义点唯一性', () => {

@@ -377,15 +377,21 @@
 
 /* ============================================================
    RGB 原始值 -- 用于构造 rgba() 透明变体
-   :root 里的是首帧兜底（无 data-theme 时按深色）；实际取值由下方
+   :root 里的是首帧兜底（无 data-theme 时按深色 —— 与 design-system.css 的
+   `:root, [data-theme="dark"]` 同义，深色是产品原生默认）。实际取值由下方
    各主题块覆盖——不覆盖就会出现"换主题时透明变体不变色"。
+
+   六个三元组都必须在这里有定义：`rgba(var(--mt-x-rgb), α)` 在令牌未定义时
+   是**整条声明失效**（不像普通颜色属性那样回退），而使用处没法写字面 fallback
+   （三元组拆不开）。守卫测试会校验"被引用的三元组都在 :root 有定义"。
    ============================================================ */
 :root {
+  --mt-surface-rgb: 30, 41, 59;     /* #1e293b secondary bg */
   --mt-accent-rgb:  59, 130, 246;   /* #3b82f6 蓝色品牌色 */
+  --mt-fg-rgb:      248, 250, 252;  /* #f8fafc 亮色文字 */
   --mt-success-rgb: 34, 197, 94;    /* #22c55e 成功绿 */
   --mt-warning-rgb: 245, 158, 11;   /* #f59e0b 警告黄 */
   --mt-error-rgb:   239, 68, 68;    /* #ef4444 错误红 */
-  --mt-fg-rgb:      248, 250, 252;  /* #f8fafc 亮色文字 */
 }
 
 /* 深色主题 RGB 变体 */
@@ -393,6 +399,9 @@
   --mt-surface-rgb: 30, 41, 59;   /* #1e293b secondary bg */
   --mt-accent-rgb:  59, 130, 246; /* #3b82f6 */
   --mt-fg-rgb:      248, 250, 252; /* #f8fafc */
+  --mt-success-rgb: 34, 197, 94;  /* #22c55e */
+  --mt-warning-rgb: 245, 158, 11; /* #f59e0b */
+  --mt-error-rgb:   239, 68, 68;  /* #ef4444 */
   /* 登录页背景：与深色画布、品牌主色协调，替代固定紫蓝渐变 */
   --gradient-auth-start: #0b1220;
   --gradient-auth-end: #1e1b4b;
@@ -404,6 +413,9 @@
   --mt-surface-rgb: 255, 255, 255; /* #ffffff elevated bg */
   --mt-accent-rgb: 42, 118, 246;   /* #2a76f6 与浅色品牌主色一致 */
   --mt-fg-rgb: 15, 23, 42;        /* #0f172a 冷调文字 */
+  --mt-success-rgb: 34, 197, 94;  /* #22c55e */
+  --mt-warning-rgb: 245, 158, 11; /* #f59e0b */
+  --mt-error-rgb:   239, 68, 68;  /* #ef4444 */
   /* 冷调浅色画布渐变（与 --mt-bg-primary 同系） */
   --gradient-auth-start: #f3f5f9;
   --gradient-auth-end: #e8eef6;
@@ -415,6 +427,9 @@
   --mt-surface-rgb: 255, 253, 247; /* #fffdf7 elevated bg */
   --mt-accent-rgb: 184, 134, 59;   /* #b8863b 琥珀金 */
   --mt-fg-rgb: 47, 42, 34;        /* #2f2a22 暖调文字 */
+  --mt-success-rgb: 34, 197, 94;  /* #22c55e —— 语义色三主题共用，与 design-system.css 一致 */
+  --mt-warning-rgb: 245, 158, 11; /* #f59e0b */
+  --mt-error-rgb:   239, 68, 68;  /* #ef4444 */
   /* 暖调画布渐变（与 --mt-bg-primary 同系） */
   --gradient-auth-start: #f5f1e8;
   --gradient-auth-end: #ece5d6;
