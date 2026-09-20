@@ -100,13 +100,13 @@ describe("validatePetPackage — 拒绝路径", () => {
     expect(errorsText(r)).toContain("cutout");
   });
 
-  it("atlas 用 .. 上跳引用包外文件 → 拒绝", () => {
+  it("atlas 用 .. 上跳引用包外文件 → 拒绝，且提示指向「包外引用」而非「文件名写错」", () => {
     const r = validatePetPackage({ ...manifest, atlas: "../../secret.png" }, {
       ...okCtx,
       files: [...files, "../../secret.png"],
     });
     expect(r.ok).toBe(false);
-    expect(errorsText(r)).toContain("包内相对路径");
+    expect(errorsText(r)).toContain("必须是包内相对路径");
   });
 
   it("atlas 用绝对路径 / URL → 拒绝", () => {
