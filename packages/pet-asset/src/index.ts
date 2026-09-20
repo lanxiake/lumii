@@ -12,3 +12,8 @@ export * from './image.js'
 export * from './cutout.js'
 export * from './io.js'
 export * from './commands.js'
+// 生成线工具链（P1）：切分 / 地线对齐 / 打包
+export * from './slice.js'
+export * from './align.js'
+export * from './pack.js'
+export * from './toolchain.js'
