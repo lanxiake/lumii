@@ -6,8 +6,8 @@ import type { PromptStyleValue } from '../../../../shared/prompt-style'
 
 /** 主题配置 */
 export interface ThemeConfig {
-  /** light/dark/system 为标准模式；ragdoll 为奶油布偶猫治愈浅色主题（原型 UI 方案一） */
-  mode: 'light' | 'dark' | 'system' | 'ragdoll'
+  /** light/dark/system 为标准模式；eye-care 为护眼暖色浅色主题 */
+  mode: 'light' | 'dark' | 'system' | 'eye-care'
   primaryColor: string
   fontSize: 'small' | 'medium' | 'large' | 'xlarge'
   enableAnimations: boolean

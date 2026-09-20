@@ -21,6 +21,7 @@ export type SettingsHubTab =
 /** 设置区内左侧分类 */
 export type MergedSettingsCategory =
   | 'general'
+  | 'appearance'
   | 'workspace'
   | 'modelConfig'
   | 'voice'

@@ -264,7 +264,7 @@
   font-weight: 700;
   font-size: 11px;
   background: var(--mt-accent-500, var(--color-primary));
-  color: white;
+  color: var(--mt-fg-on-accent);
 }
 
 .commandText {

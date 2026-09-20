@@ -100,7 +100,7 @@
 
 .edit-btn.save {
   background: var(--color-primary);
-  color: white;
+  color: var(--mt-fg-on-accent);
 }
 
 .edit-btn.save:hover {

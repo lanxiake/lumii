@@ -97,12 +97,12 @@
 
 .toast-success .toast-icon {
   background-color: var(--color-success);
-  color: white;
+  color: var(--mt-fg-on-accent);
 }
 
 .toast-error .toast-icon {
   background-color: var(--color-error);
-  color: white;
+  color: var(--mt-fg-on-accent);
 }
 
 .toast-warning .toast-icon {
@@ -112,7 +112,7 @@
 
 .toast-info .toast-icon {
   background-color: var(--color-info);
-  color: white;
+  color: var(--mt-fg-on-accent);
 }
 
 .toast-message {

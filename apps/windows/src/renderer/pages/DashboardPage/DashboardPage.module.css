@@ -13,10 +13,6 @@
   min-height: 0;
   margin: 0 auto;
   overflow: hidden;
-  /* 概览页局部提亮强调色（不改全局 token，避免自引用） */
-  --mt-accent-500: #4f8ff7;
-  --mt-tone-a: #22d3ee;
-  --mt-tone-b: #34d399;
 }
 
 /* 页头（原型 .ph）：不用通用 PageHeader，原型这里没有下边框、字号也更紧 */

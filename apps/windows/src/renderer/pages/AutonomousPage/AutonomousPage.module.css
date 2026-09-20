@@ -712,7 +712,7 @@
 .btnPrimary {
   border: none;
   background: var(--mt-accent-500);
-  color: white;
+  color: var(--mt-fg-on-accent);
 }
 
 .btnPrimary:hover {

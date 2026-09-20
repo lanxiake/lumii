@@ -164,7 +164,7 @@
 
 .title-bar-control-btn.close:hover {
   background-color: var(--color-error, #ef4444);
-  color: white;
+  color: var(--mt-fg-on-accent);
 }
 
 /* 响应式适配：标题栏高度始终跟随 --mt-titlebar-h，避免与固定定位面板错位 */

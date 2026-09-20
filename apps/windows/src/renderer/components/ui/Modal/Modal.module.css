@@ -200,7 +200,7 @@
 .modal-btn-primary {
   padding: var(--spacing-2) var(--spacing-4);
   background: var(--color-primary);
-  color: white;
+  color: var(--mt-fg-on-accent);
   border: none;
   border-radius: var(--radius-md);
   font-size: var(--font-size-sm);
@@ -233,7 +233,7 @@
 .modal-btn-danger {
   padding: var(--spacing-2) var(--spacing-4);
   background: var(--color-error);
-  color: white;
+  color: var(--mt-fg-on-accent);
   border: none;
   border-radius: var(--radius-md);
   font-size: var(--font-size-sm);

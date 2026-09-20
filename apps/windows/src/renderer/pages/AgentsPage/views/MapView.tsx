@@ -128,7 +128,7 @@ export const MapView: React.FC<ViewProps> = ({
         id: `e-${main.id}-${agent.id}`,
         source: main.id,
         target: agent.id,
-        style: { stroke: '#60a5fa', strokeWidth: 2, opacity: 0.4 },
+        style: { stroke: 'var(--mt-accent-400)', strokeWidth: 2, opacity: 0.4 },
         type: 'smoothstep',
       })
     }
@@ -168,7 +168,7 @@ export const MapView: React.FC<ViewProps> = ({
         maxZoom={2}
         proOptions={{ hideAttribution: true }}
       >
-        <Background color="rgba(255,255,255,0.03)" gap={24} />
+        <Background color="color-mix(in srgb, var(--mt-fg-1) 4%, transparent)" gap={24} />
         <Controls showInteractive={false} className={styles.controls} />
       </ReactFlow>
     </div>

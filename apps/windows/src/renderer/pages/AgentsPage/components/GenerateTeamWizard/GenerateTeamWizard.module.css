@@ -117,7 +117,7 @@
 .nextButton {
   padding: 8px 18px;
   background: var(--mt-accent-500, rgba(59, 130, 246, 0.8));
-  color: white;
+  color: var(--mt-fg-on-accent);
   border: none;
   border-radius: 8px;
   font-size: 13px;
@@ -363,7 +363,7 @@
 .retryButton {
   padding: 10px 20px;
   background: var(--mt-accent-500, rgba(59, 130, 246, 0.8));
-  color: white;
+  color: var(--mt-fg-on-accent);
   border: none;
   border-radius: 8px;
   font-size: 14px;
@@ -701,7 +701,7 @@
 .createButton {
   padding: 10px 20px;
   background: var(--mt-accent-500, rgba(59, 130, 246, 0.8));
-  color: white;
+  color: var(--mt-fg-on-accent);
   border: none;
   border-radius: 8px;
   font-size: 14px;

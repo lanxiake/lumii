@@ -423,7 +423,7 @@
   padding: 2px 6px;
   border-radius: 4px;
   font-weight: 600;
-  color: white;
+  color: var(--mt-fg-on-accent);
 }
 
 .badge-featured {
@@ -441,7 +441,7 @@
   left: 4px;
   font-size: 12px;
   background-color: rgba(34, 197, 94, 0.9);
-  color: white;
+  color: var(--mt-fg-on-accent);
   border-radius: 50%;
   width: 20px;
   height: 20px;
@@ -514,7 +514,7 @@
   height: 16px;
   border-radius: 50%;
   background: var(--color-success, #22c55e);
-  color: white;
+  color: var(--mt-fg-on-accent);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -610,6 +610,6 @@
 .filter-chip.active {
   background: var(--color-primary, #6366f1);
   border-color: var(--color-primary, #6366f1);
-  color: white;
+  color: var(--mt-fg-on-accent);
 }
 

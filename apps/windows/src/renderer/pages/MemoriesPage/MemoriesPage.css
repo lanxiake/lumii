@@ -219,10 +219,10 @@
   --color-fg-subtle: var(--color-text-tertiary) !important;
   --color-border-default: var(--color-border) !important;
   --color-border-muted: var(--color-border-light) !important;
-  --color-neutral-muted: rgba(99, 102, 241, 0.1) !important;
+  --color-neutral-muted: rgba(var(--mt-accent-rgb), 0.1) !important;
   --color-accent-fg: var(--color-primary-400) !important;
   --color-accent-emphasis: var(--color-primary-500) !important;
-  --color-accent-subtle: rgba(99, 102, 241, 0.15) !important;
+  --color-accent-subtle: rgba(var(--mt-accent-rgb), 0.15) !important;
   --color-danger-fg: var(--color-error) !important;
   --color-success-fg: var(--color-success) !important;
   --color-warning-fg: var(--color-warning) !important;

@@ -629,7 +629,7 @@
   border: none;
   border-radius: var(--radius-sm);
   background: var(--color-primary);
-  color: white;
+  color: var(--mt-fg-on-accent);
   font-size: var(--font-size-xs);
   cursor: pointer;
   transition: background 0.15s;
@@ -1139,11 +1139,11 @@
 
 .slash-item:hover,
 .slash-item--active {
-  background: rgba(var(--mt-accent-rgb, 59, 130, 246), 0.1);
+  background: rgba(var(--mt-accent-rgb), 0.1);
 }
 
 .slash-item--active {
-  background: rgba(var(--mt-accent-rgb, 59, 130, 246), 0.14);
+  background: rgba(var(--mt-accent-rgb), 0.14);
 }
 
 .slash-item-name {

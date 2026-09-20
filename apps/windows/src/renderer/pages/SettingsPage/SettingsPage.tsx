@@ -14,6 +14,7 @@ import {
   FlaskConical,
   Monitor,
   Cloud,
+  Palette,
 } from '../../components/ui/Icon'
 import { FileText } from 'lucide-react'
 import { Card } from '../../components/ui/Card/Card'
@@ -42,6 +43,7 @@ import { WorkspaceSection } from './components/WorkspaceSection'
 import { CloudSyncSection } from './components/CloudSyncSection'
 import { NotificationSection } from './components/NotificationSection'
 import { ExperimentalSection } from './components/ExperimentalSection'
+import { AppearanceSection } from './components/AppearanceSection'
 import type {
   MergedSettingsCategory,
 } from '../../components/SettingsHub/types'
@@ -61,6 +63,7 @@ const SETTINGS_ICON_SIZE = 16
  */
 const CATEGORIES: Array<{ id: MergedSettingsCategory; label: string; icon: ReactNode }> = [
   { id: 'general', label: '通用', icon: <User size={SETTINGS_ICON_SIZE} /> },
+  { id: 'appearance', label: '外观', icon: <Palette size={SETTINGS_ICON_SIZE} /> },
   { id: 'workspace', label: '工作空间', icon: <FolderOpen size={SETTINGS_ICON_SIZE} /> },
   { id: 'modelConfig', label: '模型配置', icon: <Cpu size={SETTINGS_ICON_SIZE} /> },
   { id: 'voice', label: '语音设置', icon: <Mic size={SETTINGS_ICON_SIZE} /> },
@@ -835,6 +838,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
             save={workspaceSave}
           />
         )
+      case 'appearance':
+        return <AppearanceSection />
       case 'modelConfig':
         return <ModelConfigSection />
       case 'voice':

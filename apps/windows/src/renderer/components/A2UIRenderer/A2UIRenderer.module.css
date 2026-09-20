@@ -194,7 +194,7 @@
   height: 32px;
   border-radius: 50%;
   background: var(--color-primary-500);
-  color: white;
+  color: var(--mt-fg-on-accent);
   border: none;
   cursor: pointer;
   display: flex;

@@ -6,7 +6,7 @@
  */
 
 import React from 'react'
-import { useDataThemeColorMode } from '../../hooks/common/useDataThemeColorMode/useDataThemeColorMode'
+import { useThemeAttr } from '../../hooks/common/useDataThemeColorMode/useDataThemeColorMode'
 import './CapabilityRadar.css'
 
 /**
@@ -25,10 +25,8 @@ const DIMENSION_LABELS: Record<string, string> = {
 
 /* canvas 画不了 CSS 变量，这里映射到 token 名，运行时取计算值，
    避免写死 hex 在浅色/深色主题下失真 */
-const readToken = (name: string, fallback: string): string => {
-  const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim()
-  return v || fallback
-}
+const readToken = (name: string): string =>
+  getComputedStyle(document.documentElement).getPropertyValue(name).trim()
 
 /** 雷达图绘制配色 */
 interface RadarColors {
@@ -63,7 +61,7 @@ interface CapabilityRadarProps {
  */
 export function CapabilityRadar({ capabilities, size = 280 }: CapabilityRadarProps) {
   const canvasRef = React.useRef<HTMLCanvasElement>(null)
-  const colorMode = useDataThemeColorMode()
+  const colorMode = useThemeAttr()
 
   const data = React.useMemo(() => {
     return Object.entries(capabilities).map(([dim, state]) => ({
@@ -83,14 +81,14 @@ export function CapabilityRadar({ capabilities, size = 280 }: CapabilityRadarPro
     if (!ctx) return
 
     const colors: RadarColors = {
-      grid: readToken('--mt-fg-3', '#94a3b8'),
-      axis: readToken('--mt-fg-3', '#94a3b8'),
-      levelFill: `rgba(${readToken('--mt-accent-rgb', '59, 130, 246')}, 0.28)`,
-      levelStroke: `rgba(${readToken('--mt-accent-rgb', '59, 130, 246')}, 0.85)`,
-      confFill: `rgba(${readToken('--mt-success-rgb', '34, 197, 94')}, 0.16)`,
-      confStroke: `rgba(${readToken('--mt-success-rgb', '34, 197, 94')}, 0.8)`,
-      label: readToken('--mt-fg-2', '#334155'),
-      sublabel: readToken('--mt-fg-3', '#64748b'),
+      grid: readToken('--mt-fg-3'),
+      axis: readToken('--mt-fg-3'),
+      levelFill: `rgba(${readToken('--mt-accent-rgb')}, 0.28)`,
+      levelStroke: `rgba(${readToken('--mt-accent-rgb')}, 0.85)`,
+      confFill: `rgba(${readToken('--mt-success-rgb')}, 0.16)`,
+      confStroke: `rgba(${readToken('--mt-success-rgb')}, 0.8)`,
+      label: readToken('--mt-fg-2'),
+      sublabel: readToken('--mt-fg-3'),
     }
 
     const dpr = globalThis.devicePixelRatio || 1

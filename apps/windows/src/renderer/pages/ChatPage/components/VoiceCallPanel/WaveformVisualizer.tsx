@@ -22,17 +22,15 @@ const STATE_TOKEN: Record<string, string> = {
   error:       '--mt-error',
 }
 
-const readToken = (name: string, fallback: string): string => {
-  const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim()
-  return v || fallback
-}
+const readToken = (name: string): string =>
+  getComputedStyle(document.documentElement).getPropertyValue(name).trim()
 
 export function WaveformVisualizer({ state, analyserNode }: WaveformVisualizerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const rafRef = useRef<number | null>(null)
 
   const isPulsing = state === 'listening' || state === 'recognizing'
-  const color = readToken(STATE_TOKEN[state] ?? '--mt-fg-4', '#94a3b8')
+  const color = readToken(STATE_TOKEN[state] ?? '--mt-fg-4')
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -47,8 +45,8 @@ export function WaveformVisualizer({ state, analyserNode }: WaveformVisualizerPr
 
     // 说话/聆听态用 violet→accent 竖向渐变，与通话条的紫框呼应
     const grad = ctx.createLinearGradient(0, 0, 0, H)
-    grad.addColorStop(0, readToken('--mt-violet', '#8b5cf6'))
-    grad.addColorStop(1, readToken('--mt-accent-500', '#3b82f6'))
+    grad.addColorStop(0, readToken('--mt-violet'))
+    grad.addColorStop(1, readToken('--mt-accent-500'))
     const fill = isPulsing || state === 'speaking' ? grad : color
 
     const drawBars = (freqData: Uint8Array | null) => {

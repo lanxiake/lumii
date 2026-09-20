@@ -6,7 +6,7 @@
  */
 
 import React from 'react'
-import { useDataThemeColorMode } from '../../hooks/common/useDataThemeColorMode/useDataThemeColorMode'
+import { useThemeAttr } from '../../hooks/common/useDataThemeColorMode/useDataThemeColorMode'
 import './SatisfactionChart.css'
 
 /**
@@ -38,7 +38,7 @@ const CHART_PAD = {
 
 /* canvas 画不了 CSS 变量，这里映射到 token 名，运行时取计算值，
    避免写死 hex 在浅色/深色主题下失真 */
-const readToken = (name: string, fallback: string): string => {
+const readToken = (name: string, fallback = ''): string => {
   const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim()
   return v || fallback
 }
@@ -71,7 +71,7 @@ export function SatisfactionChart({ history, window = '7d', fillHeight = false }
   const containerRef = React.useRef<HTMLDivElement>(null)
   const [hoveredPoint, setHoveredPoint] = React.useState<number | null>(null)
   const [size, setSize] = React.useState({ width: 640, height: 240 })
-  const colorMode = useDataThemeColorMode()
+  const colorMode = useThemeAttr()
   /** 全局字号档位；变化时触发重绘，让轴标签跟着缩放 */
   const [fontScale, setFontScale] = React.useState(() => readFontScale())
 
@@ -125,11 +125,11 @@ export function SatisfactionChart({ history, window = '7d', fillHeight = false }
     if (!ctx) return
 
     const colors: ChartColors = {
-      grid: readToken('--mt-fg-3', '#94a3b8'),
-      axisLabel: readToken('--mt-fg-3', '#94a3b8'),
-      line: readToken('--mt-accent-500', '#3b82f6'),
-      area: `rgba(${readToken('--mt-accent-rgb', '59, 130, 246')}, 0.12)`,
-      point: readToken('--mt-accent-500', '#3b82f6'),
+      grid: readToken('--mt-fg-3'),
+      axisLabel: readToken('--mt-fg-3'),
+      line: readToken('--mt-accent-500'),
+      area: `rgba(${readToken('--mt-accent-rgb')}, 0.12)`,
+      point: readToken('--mt-accent-500'),
     }
 
     const dpr = globalThis.devicePixelRatio || 1

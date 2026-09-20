@@ -30,7 +30,7 @@
 
 .close-button:hover {
   background-color: #e81123;
-  color: white;
+  color: var(--mt-fg-on-accent);
 }
 
 .window-control-button svg {
