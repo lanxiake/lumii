@@ -42,7 +42,10 @@ vi.mock('node:child_process', async (importOriginal) => {
   return { ...actual, spawnSync: spawnSyncSpy }
 })
 
-import { ShellRunner } from './shell-runner'
+import * as fs from 'node:fs'
+import * as os from 'node:os'
+import * as path from 'node:path'
+import { ShellRunner, findPwshExecutable } from './shell-runner'
 
 /** 假子进程：只暴露 forceKillProcess 真正用到的两个字段 */
 function fakeChild(over: Partial<{ pid: number | undefined; killed: boolean }> = {}) {
@@ -234,5 +237,100 @@ describe('ShellRunner.execute —— 平台不匹配时的报错文案', () => {
     const res = await run('/skills/demo/noext')
 
     expect(res.error).toBe('不支持的脚本类型: (无扩展名)')
+  })
+})
+
+/**
+ * `.ps1` 的 pwsh 探测。
+ *
+ * 修的是这样一条死路：`resolveShell()` 对 `.ps1` **无条件**返回 `{ command: 'pwsh' }`，
+ * 于是 `describeUnsupported()` 里那句「当前平台需要先安装 pwsh」**永远不会被执行到**。
+ * 没装 pwsh 的 Linux 上，用户看到的是 spawn 阶段的 ENOENT，不知道该去装什么。
+ *
+ * 现在探测放在解析期。探测本身用注入的 `exists` 测，确定性、不依赖本机装没装 pwsh
+ * ——否则这台机器哪天装上 pwsh，用例就会莫名其妙地红。
+ */
+describe('ShellRunner —— .ps1 的 pwsh 探测', () => {
+  const runner = new ShellRunner()
+  const never = () => false
+  const always = () => true
+
+  afterEach(() => {
+    Object.defineProperty(process, 'platform', { value: ORIGINAL_PLATFORM, configurable: true })
+  })
+
+  describe('findPwshExecutable', () => {
+    it('well-known 目录里有就返回它（覆盖「装了但没进 PATH」）', () => {
+      // 只放行 well-known 那一批，PATH 里的全判否
+      const before = process.env.PATH
+      process.env.PATH = '/nonexistent-dir-for-test'
+      try {
+        const found = findPwshExecutable((p) => p === '/usr/bin/pwsh')
+        expect(found).toBe('/usr/bin/pwsh')
+      } finally {
+        process.env.PATH = before
+      }
+    })
+
+    it('PATH 里有就返回 PATH 里的那个', () => {
+      const before = process.env.PATH
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pwsh-probe-'))
+      try {
+        process.env.PATH = dir
+        const expected = path.join(dir, 'pwsh')
+        expect(findPwshExecutable((p) => p === expected)).toBe(expected)
+      } finally {
+        process.env.PATH = before
+        fs.rmSync(dir, { recursive: true, force: true })
+      }
+    })
+
+    it('哪都没有则返回 null', () => {
+      expect(findPwshExecutable(never)).toBeNull()
+    })
+  })
+
+  describe('resolveShell(".ps1")', () => {
+    it('非 win32 且**没装** pwsh：返回 null，好让调用方给出「请先安装 pwsh」', () => {
+      withPlatform('linux')
+
+      expect(runner.resolveShell('/skills/demo/run.ps1', { exists: never })).toBeNull()
+    })
+
+    it('非 win32 且装了 pwsh：照常走 pwsh（别把能用的路径一起挡掉）', () => {
+      withPlatform('linux')
+
+      expect(runner.resolveShell('/skills/demo/run.ps1', { exists: always })).toEqual({
+        command: 'pwsh',
+        args: ['-File', '/skills/demo/run.ps1'],
+      })
+    })
+
+    it('win32 走 powershell.exe，与 pwsh 探测无关', () => {
+      withPlatform('win32')
+
+      expect(runner.resolveShell('/skills/demo/run.ps1', { exists: never })).toEqual({
+        command: 'powershell.exe',
+        args: ['-ExecutionPolicy', 'Bypass', '-File', '/skills/demo/run.ps1'],
+      })
+    })
+  })
+
+  it('端到端：解析不出 shell 时报出可操作的那句话，而不是底层 ENOENT', async () => {
+    withPlatform('linux')
+    // 这一条测的是「describeUnsupported 真的会被走到」——即上面那两环的**接线**。
+    // 探测逻辑本身由上一条覆盖，这里把 resolveShell 打桩成「什么都没解析出来」。
+    vi.spyOn(runner, 'resolveShell').mockReturnValue(null)
+
+    const res = await runner.execute({
+      entryPath: '/skills/demo/run.ps1',
+      params: {},
+      timeoutMs: 5000,
+    })
+
+    expect(res.success).toBe(false)
+    expect(res.error).toContain('pwsh')
+    expect(res.error).toContain('PowerShell Core')
+    expect(res.error).not.toContain('不支持的脚本类型')
   })
 })
