@@ -394,6 +394,9 @@ export class AgentRuntimeBridge {
    * 默认 null = 向量通道关闭。由 `setupPalaceVector` 在 `finalizeInitialize` 装配
    * （那时 DB 已打开）。**只有 `LUMII_PALACE_VECTOR=1` 时才加载模型**——默认不加载，
    * 没开就不付任何代价（模型 912ms + 索引 993 条 ≈ 32 秒）。
+   *
+   * **2026-09-20 定案：暂不引入**（测试用例不足，无法证明其真正效果）——
+   * 故 `null` 是**既定状态**，不是"等着被装配"。见 palace-vector-runtime.ts 头部。
    */
   private _palaceVectorIndex: PalaceVectorIndex | null = null
 
@@ -1901,6 +1904,10 @@ export class AgentRuntimeBridge {
    * **默认关**：`LUMII_PALACE_VECTOR` 未开时直接返回，**连模型都不加载**——
    * 没开就不该付任何代价（模型加载 912ms + 首次索引 993 条 ≈ 32 秒）。
    *
+   * **2026-09-20 定案：暂不引入**（测试用例不足，无法证明其真正效果）——
+   * 所以它当前**必然**走上面的早返回分支，这是预期行为而非故障。
+   * 详见 palace-vector-runtime.ts 头部。
+   *
    * 失败只记日志：向量是派生通道，它不可用时检索照常走纯 FTS。
    */
   private async setupPalaceVectorInBackground(): Promise<void> {
@@ -1941,8 +1948,9 @@ export class AgentRuntimeBridge {
     // LLM 调用（2026-09-15 实测一条「你好」触发 9 次串行总结），改为启动后台消化
     this._segmentMemoryService?.recoverPending()
 
-    // 宫殿向量（T3）：默认关，开启时才加载模型。**全程后台**，不阻塞就绪——
-    // 异步装配 + 后台补齐（首次全量 993 条 ≈ 32 秒）
+    // 宫殿向量（T3）：**2026-09-20 定案暂不引入**（测试用例不足），故当前恒为关；
+    // 开启时才加载模型。**全程后台**，不阻塞就绪——异步装配 + 后台补齐
+    // （首次全量 993 条 ≈ 32 秒）
     void this.setupPalaceVectorInBackground()
 
     this.initialized = true
