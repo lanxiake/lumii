@@ -43,6 +43,17 @@ const readToken = (name: string, fallback: string): string => {
   return v || fallback
 }
 
+/** 轴标签基准字号；随全局字号档位缩放（canvas 读不到 CSS 变量） */
+const AXIS_LABEL_BASE_PX = 11
+
+function readFontScale(): number {
+  if (typeof document === 'undefined') return 1
+  const scale = Number.parseFloat(
+    getComputedStyle(document.documentElement).getPropertyValue('--app-font-scale'),
+  )
+  return Number.isFinite(scale) && scale > 0 ? scale : 1
+}
+
 /** 折线图绘制配色 */
 interface ChartColors {
   grid: string
@@ -61,6 +72,15 @@ export function SatisfactionChart({ history, window = '7d', fillHeight = false }
   const [hoveredPoint, setHoveredPoint] = React.useState<number | null>(null)
   const [size, setSize] = React.useState({ width: 640, height: 240 })
   const colorMode = useDataThemeColorMode()
+  /** 全局字号档位；变化时触发重绘，让轴标签跟着缩放 */
+  const [fontScale, setFontScale] = React.useState(() => readFontScale())
+
+  React.useEffect(() => {
+    const root = document.documentElement
+    const observer = new MutationObserver(() => setFontScale(readFontScale()))
+    observer.observe(root, { attributes: true, attributeFilter: ['style', 'data-font-scale'] })
+    return () => observer.disconnect()
+  }, [])
 
   const filteredData = React.useMemo(() => {
     const now = Date.now()
@@ -119,8 +139,8 @@ export function SatisfactionChart({ history, window = '7d', fillHeight = false }
     canvas.style.height = `${size.height}px`
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
 
-    drawChart(ctx, size.width, size.height, filteredData, colors)
-  }, [filteredData, size, colorMode])
+    drawChart(ctx, size.width, size.height, filteredData, colors, fontScale)
+  }, [filteredData, size, colorMode, fontScale])
 
   if (filteredData.length === 0) {
     return (
@@ -207,16 +227,18 @@ function drawChart(
   height: number,
   data: SatisfactionDataPoint[],
   colors: ChartColors,
+  fontScale: number,
 ) {
   const { top, right, bottom, left } = CHART_PAD
   const chartWidth = Math.max(1, width - left - right)
   const chartHeight = Math.max(1, height - top - bottom)
+  const axisFont = `${Math.round(AXIS_LABEL_BASE_PX * fontScale)}px system-ui, "Segoe UI", sans-serif`
 
   ctx.clearRect(0, 0, width, height)
 
   // Y 轴网格与标签
   ctx.lineWidth = 1
-  ctx.font = '11px system-ui, "Segoe UI", sans-serif'
+  ctx.font = axisFont
 
   for (let i = 0; i <= 5; i++) {
     const y = top + (chartHeight * (5 - i)) / 5
@@ -282,7 +304,7 @@ function drawChart(
 
   // X 轴日期标签（短格式，避免溢出）
   ctx.fillStyle = colors.axisLabel
-  ctx.font = '11px system-ui, "Segoe UI", sans-serif'
+  ctx.font = axisFont
   ctx.textBaseline = 'top'
 
   const labelCount = Math.min(5, data.length)

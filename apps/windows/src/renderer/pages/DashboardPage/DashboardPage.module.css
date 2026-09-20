@@ -62,7 +62,7 @@
   gap: 7px;
   margin-top: 5px;
   color: var(--mt-fg-3);
-  font-size: 12px;
+  font-size: var(--font-size-xs);
 }
 
 .page-sub b {
@@ -200,7 +200,7 @@
 .rt-title {
   margin-bottom: 3px;
   color: var(--mt-fg-1);
-  font-size: 13.5px;
+  font-size: var(--font-size-sm);
   font-weight: var(--mt-fw-semibold);
   letter-spacing: -0.01em;
 }
@@ -208,7 +208,7 @@
 .rt-desc {
   overflow: hidden;
   color: var(--mt-fg-3);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   white-space: nowrap;
   text-overflow: ellipsis;
 }
@@ -268,7 +268,7 @@
   background: color-mix(in srgb, var(--mt-bg-elevated) 92%, var(--mt-accent-500));
   color: var(--mt-fg-1);
   font-family: var(--mt-font-sans, inherit);
-  font-size: 10.5px;
+  font-size: var(--font-size-xs);
   font-style: normal;
   line-height: 1.35;
   white-space: nowrap;
@@ -425,7 +425,7 @@
 
 .rt-stat-label {
   color: var(--mt-fg-4);
-  font-size: 10px;
+  font-size: var(--font-size-xs);
   letter-spacing: 0.02em;
 }
 
@@ -439,7 +439,7 @@
 .rt-stat-value b {
   color: var(--mt-fg-1);
   font-family: var(--mt-font-mono);
-  font-size: 16px;
+  font-size: var(--font-size-lg);
   font-weight: var(--mt-fw-semibold);
   font-style: normal;
 }
@@ -447,7 +447,7 @@
 .rt-stat-value em {
   color: var(--mt-fg-3);
   font-family: var(--mt-font-mono);
-  font-size: 10px;
+  font-size: var(--font-size-xs);
   font-style: normal;
 }
 

@@ -27,6 +27,17 @@ export interface UsageChartProps {
   groupBy: 'hour' | 'day'
 }
 
+/** 轴刻度基准字号；随全局档位缩放（recharts 只认数字，读不到 CSS 变量） */
+const AXIS_TICK_BASE_PX = 10
+
+function computeAxisTickFontSize(): number {
+  if (typeof document === 'undefined') return AXIS_TICK_BASE_PX
+  const scale = Number.parseFloat(
+    getComputedStyle(document.documentElement).getPropertyValue('--app-font-scale'),
+  )
+  return Math.round(AXIS_TICK_BASE_PX * (Number.isFinite(scale) && scale > 0 ? scale : 1))
+}
+
 const COLOR = {
   calls: '#06b6d4',
   cost: '#22c55e',
@@ -222,6 +233,7 @@ export const UsageChart: React.FC<UsageChartProps> = ({ buckets, groupBy }) => {
   }
 
   const colorForModel = new Map(models.map((m, i) => [m, PALETTE[(i * 2) % PALETTE.length]!]))
+  const axisTickFontSize = computeAxisTickFontSize()
 
   const bars = models.flatMap((m, i) => {
     const inFill = PALETTE[(i * 2) % PALETTE.length]
@@ -256,14 +268,14 @@ export const UsageChart: React.FC<UsageChartProps> = ({ buckets, groupBy }) => {
           <CartesianGrid strokeDasharray="3 3" stroke="var(--mt-border-hairline)" vertical={false} />
           <XAxis
             dataKey="label"
-            tick={{ fontSize: 10, fill: 'var(--mt-fg-4)' }}
+            tick={{ fontSize: axisTickFontSize, fill: 'var(--mt-fg-4)' }}
             axisLine={{ stroke: 'var(--mt-border)' }}
             tickLine={false}
             interval="preserveStartEnd"
           />
           <YAxis
             yAxisId="tok"
-            tick={{ fontSize: 10, fill: 'var(--mt-fg-4)' }}
+            tick={{ fontSize: axisTickFontSize, fill: 'var(--mt-fg-4)' }}
             axisLine={false}
             tickLine={false}
             width={40}
@@ -272,7 +284,7 @@ export const UsageChart: React.FC<UsageChartProps> = ({ buckets, groupBy }) => {
           <YAxis
             yAxisId="meta"
             orientation="right"
-            tick={{ fontSize: 10, fill: 'var(--mt-fg-4)' }}
+            tick={{ fontSize: axisTickFontSize, fill: 'var(--mt-fg-4)' }}
             axisLine={false}
             tickLine={false}
             width={44}
