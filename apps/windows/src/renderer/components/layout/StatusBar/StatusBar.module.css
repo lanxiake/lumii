@@ -59,7 +59,9 @@
   background-size: 220% 100%;
   -webkit-background-clip: text;
   background-clip: text;
-  color: transparent;
+  /* 用 -webkit-text-fill-color 配 background-clip:text；写 color:transparent
+     在裁切失效时会让文字不可见、渐变铺成实心块（LumiiLogo 实测踩过） */
+  -webkit-text-fill-color: transparent;
   animation: sloganShimmer 7s ease-in-out infinite, sloganBreath 4.5s ease-in-out infinite;
 }
 

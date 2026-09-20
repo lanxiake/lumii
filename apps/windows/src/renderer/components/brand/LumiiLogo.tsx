@@ -56,7 +56,11 @@ export const LumiiLogo: React.FC<LumiiLogoProps> = ({
             background: 'var(--mt-grad-brand)',
             WebkitBackgroundClip: 'text',
             backgroundClip: 'text',
-            color: 'transparent',
+            // 必须用 -webkit-text-fill-color 而不是 color: transparent：
+            // 后者在 background-clip: text 未生效时会让文字不可见、同时渐变
+            // 铺成一块实心色（曾实测到"蓝色方块 + 看不见字"）。
+            // -webkit-text-fill-color 与之配套，是 Chromium 下的正确写法。
+            WebkitTextFillColor: 'transparent',
           }}
         >
           Lumii
