@@ -18,6 +18,63 @@ type BrowserRouteRequest = {
   body?: unknown
 }
 
+/**
+ * 把 `@mtbot/browser-control` 抛出的英文报错翻成中文，并补上「该怎么办」。
+ *
+ * **为什么不改包里的原文**：该包与网关共用，包内**所有**面向用户的报错都是英文
+ * （`url is required` / `Unknown device "x"` …），只翻一句会让它中英混杂；
+ * 客户端才是说中文的那一层。这与 `shell-runner` 把平台不匹配翻译成人话是同一个思路。
+ *
+ * **认不出的一律原样透传**——猜错的翻译比英文更难排查，而且这里挡着的正是
+ * 「路由到底有没有命中」这类靠原文断言的信息（见本文件既有测试用的 `browser-route-reached`）。
+ *
+ * 末尾保留原始英文：报错可能被用户拿去搜索，且日志里按英文 grep 的老办法不能失效。
+ * 只剥掉 `Error: ` 前缀（`String(err)` 的产物，见 dispatcher.ts），那是噪音。
+ *
+ * 导出供测试直接断言映射表；**接线**（两处 catch 是否真的走了它）由工具级用例守住
+ * ——「实现了但没接上」在这个仓库里已经出现过不止一次（`.ps1` 死分支、`executablePath` 无人喂）。
+ */
+export function browserErrorText(err: unknown): string {
+  const raw = err instanceof Error ? err.message : String(err)
+  const withRaw = (zh: string) => `${zh}\n原始报错：${raw.replace(/^Error:\s*/, '')}`
+
+  // 一条都没装。Ubuntu 桌面默认只有 Firefox，而它不支持 CDP —— 这是最常见的首次失败。
+  if (raw.includes('No supported browser found')) {
+    return withRaw(
+      '本机没有可用于浏览器控制的浏览器（需要 Chrome / Edge / Brave / Chromium 之一；Firefox 不支持）。\n' +
+        '· 装一个：sudo snap install chromium\n' +
+        '· 或用环境变量 LUMII_BROWSER_EXECUTABLE 指向已有的 Chromium 系可执行文件，重启应用后生效',
+    )
+  }
+
+  // LUMII_BROWSER_EXECUTABLE 指错了。常见两种：指到目录、路径拼错。
+  const missingExe = raw.match(/browser\.executablePath not found:\s*(.+)/)
+  if (missingExe) {
+    return withRaw(
+      `浏览器可执行文件不存在：${missingExe[1].trim()}\n` +
+        '请检查环境变量 LUMII_BROWSER_EXECUTABLE——它要指向可执行文件本身' +
+        '（例如 …/chrome-linux64/chrome），不是它所在的目录',
+    )
+  }
+
+  // 进程起来了但 CDP 没通。手工解包的 Chromium 在 Ubuntu 23.10+ 上必然撞这条（AppArmor）。
+  const cdpFailed = raw.match(/Failed to start Chrome CDP on port (\d+)/)
+  if (cdpFailed) {
+    return withRaw(
+      `浏览器启动失败：在端口 ${cdpFailed[1]} 上等不到它的调试接口。\n` +
+        '若用的是手工解包的 Chromium（非 snap / apt 安装），Ubuntu 23.10+ 的 AppArmor 限制会拒绝它的沙箱，' +
+        '需另设 LUMII_BROWSER_NO_SANDBOX=1 再重启应用；包管理器安装的浏览器不受此影响',
+    )
+  }
+
+  const spawnFailed = raw.match(/Failed to spawn browser executable at "([^"]+)"[^:]*:\s*(.+?)(?:\.\s*Please ensure|$)/)
+  if (spawnFailed) {
+    return withRaw(`无法启动浏览器进程：${spawnFailed[1]}（${spawnFailed[2].trim()}）。请确认该文件存在且可执行`)
+  }
+
+  return raw
+}
+
 export function registerBrowserTools(
   toolRegistry: ToolRegistry,
   ctx: ToolExecutionContext,
@@ -62,8 +119,7 @@ export function registerBrowserTools(
         const result = await dispatchBrowserProxy(path, buildBody ? buildBody(p) : undefined)
         return jsonToolResult({ ok: true, result: pick ? pick(result) : result })
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err)
-        return jsonToolResult({ ok: false, error: msg })
+        return jsonToolResult({ ok: false, error: browserErrorText(err) })
       }
     }
 
@@ -125,8 +181,7 @@ export function registerBrowserTools(
           details: { targetId: body?.targetId, url: body?.url, refs: refCount },
         }
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err)
-        return jsonToolResult({ ok: false, error: msg })
+        return jsonToolResult({ ok: false, error: browserErrorText(err) })
       }
     },
   }, ctx))
