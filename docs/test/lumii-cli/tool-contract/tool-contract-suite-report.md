@@ -1,6 +1,6 @@
 # 工具面治理验证（TC）CLI 场景化验收 测试报告
 
-- **生成时间**: 2026-09-18T11:53:45.973Z（开始 2026-09-18T11:49:55.056Z）
+- **生成时间**: 2026-09-20T07:55:28.677Z（开始 2026-09-20T07:54:02.667Z）
 - **驱动方式**: 全部经 lumii-ui CLI 真实调用（conversation/send/context 等），真实客户端 + 真实 LLM，无 SQL 播种
 - **数据库**: C:\Users\75791\.lumii\data\agent-runtime.db
 - **探针会话前缀**: [tc-suite]
@@ -21,14 +21,14 @@
 
 | ID | 状态 | 说明 | 耗时 |
 |---|---|---|---|
-| TC-CONTRACT-01 | ✅ | 新增 1 条工具失败审计，duration_ms 全部有值（样例 158ms） | 13.1s |
-| TC-CONTRACT-02 | ✅ | 未出现 read_file；file_read 调用 1 次（序列：file_read） | 27.0s |
-| TC-CONTRACT-03 | ✅ | file_edit 成功 1 次，无参数校验失败，文件内容已按预期替换 | 51.2s |
-| TC-CONTRACT-06 | ✅ | 6a 的 1 次 bash 调用中有 1 次被标为失败（模型执行 exit 3 后又自己跑了一次探测，那次成功、未标）；6b 的 1 次调用未被误标；审计表同步记录 is_error=1 × 1（日志与 DB 两个口径一致） | 41.3s |
-| TC-CONTRACT-07 | ✅ | file_edit 的 oldString 未找到已标失败（1/1），失败来源已确认为工具自身分支，文件未被改动 | 34.2s |
-| TC-CONTRACT-08 | ✅ | 宿主工具失败载荷已标 isError（session_resume 1/1）；成功的 session_list 2 次未被误标 | 35.2s |
-| TC-CONTRACT-09 | ✅ | 失败的 bash 调用 1 次，其大输出已落盘（模型收到路径提示而非原文） | 28.0s |
-| TC-CONTRACT-05 | ✅ | 本次请求工具面 117/117（含 MCP）；非 MCP 工具 95 个，静态守卫射程 92 → 覆盖 96.8%；运行时告警兜底 3 个动态注册工具（file-term-replace, node-read-file-script, replace-js-terms） | 0.1s |
+| TC-CONTRACT-01 | ✅ | 新增 1 条工具失败审计，duration_ms 全部有值（样例 4ms） | 7.1s |
+| TC-CONTRACT-02 | ✅ | 未出现 read_file；file_read 调用 1 次（序列：file_read） | 6.8s |
+| TC-CONTRACT-03 | ✅ | file_edit 成功 1 次，无参数校验失败，文件内容已按预期替换 | 13.6s |
+| TC-CONTRACT-06 | ✅ | 6a 的 1 次 bash 调用中有 1 次被标为失败（模型执行 exit 3 后又自己跑了一次探测，那次成功、未标）；6b 的 1 次调用未被误标；审计表同步记录 is_error=1 × 1（日志与 DB 两个口径一致） | 17.4s |
+| TC-CONTRACT-07 | ✅ | file_edit 的 oldString 未找到已标失败（1/1），失败来源已确认为工具自身分支，文件未被改动 | 9.2s |
+| TC-CONTRACT-08 | ✅ | 宿主工具失败载荷已标 isError（session_resume 1/1）；成功的 session_list 1 次未被误标 | 18.9s |
+| TC-CONTRACT-09 | ✅ | 失败的 bash 调用 1 次，其大输出已落盘（模型收到路径提示而非原文） | 11.8s |
+| TC-CONTRACT-05 | ✅ | 本次请求工具面 118/118（含 MCP）；非 MCP 工具 96 个，静态守卫射程 92 → 覆盖 95.8%；运行时告警兜底 3 个动态注册工具（file-term-replace, node-read-file-script, replace-js-terms） | 0.1s |
 
 ## 失败与跳过明细
 
@@ -39,14 +39,14 @@
 |---|---|---|---|---|---|---|
 | TC-01 | - | 1 | 0 | - | - | - |
 | TC-02 | file_read | - | - | - | - | - |
-| TC-03 | file_read>file_edit>file_read>task_complete>task_complete | - | - | - | - | - |
+| TC-03 | file_read>file_edit>file_read>task_complete>grep>task_complete | - | - | - | - | - |
 | TC-06 | fail:! ok:. | - | - | - | - | - |
 | TC-06(DB) | - | 0:2 1:1 | - | - | - | - |
-| TC-07 | file_read>file_edit!>task_complete>task_complete | - | - | - | - | - |
-| TC-08 | fail:! ok:.. | - | - | - | - | - |
+| TC-07 | file_read>file_edit! | - | - | - | - | - |
+| TC-08 | fail:! ok:. | - | - | - | - | - |
 | TC-09 | ! | - | - | - | - | - |
 | TC-04 | - | - | - | 3 | - | - |
-| TC-05 | - | - | - | - | 96.8 | 3（file-term-replace, node-read-file-script, replace-js-terms） |
+| TC-05 | - | - | - | - | 95.8 | 3（file-term-replace, node-read-file-script, replace-js-terms） |
 
 ## 两层守卫的分工（2026-09-18 扩射程后）
 
