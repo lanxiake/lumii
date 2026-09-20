@@ -281,3 +281,84 @@ describe("validateSpriteManifest — 错误信息", () => {
     if (!r.ok) expect(r.errors.length).toBeGreaterThanOrEqual(3);
   });
 });
+
+// ---------------------------------------------------------------------------
+// 2026-09-20 追加（P0-b）：两条会导致「作者以为生效了、实际没有」的规则
+// ---------------------------------------------------------------------------
+
+describe("同组内 index 必须唯一", () => {
+  it("同组同 index 重复声明被拒绝", () => {
+    expectRejected(
+      validManifest({
+        animations: [
+          { group: "Idle", index: 0, kind: "loop", frames: [{ base: "a" }] },
+          { group: "Idle", index: 0, kind: "loop", frames: [{ base: "b" }] },
+        ],
+      }),
+      "重复",
+    );
+  });
+
+  it("不同组可以各自有 index 0", () => {
+    const r = validateSpriteManifest(
+      validManifest({
+        animations: [
+          { group: "Idle", index: 0, kind: "loop", frames: [{ base: "a" }] },
+          { group: "Talk", index: 0, kind: "loop", frames: [{ base: "a" }] },
+        ],
+      }),
+    );
+    expect(r.ok).toBe(true);
+  });
+
+  it("同组不同 index 正常通过", () => {
+    const r = validateSpriteManifest(
+      validManifest({
+        animations: [
+          { group: "Idle", index: 0, kind: "loop", frames: [{ base: "a" }] },
+          { group: "Idle", index: 1, kind: "loop", frames: [{ base: "a" }] },
+        ],
+      }),
+    );
+    expect(r.ok).toBe(true);
+  });
+});
+
+describe("帧只能引用已声明的槽位", () => {
+  const withFace = () =>
+    validManifest({
+      slots: {
+        base: { kind: "whole-frame" },
+        face: { kind: "layered", at: [0, 0], parts: { eyes: ["eye_open"] } },
+      },
+      animations: [
+        { group: "Idle", kind: "loop", frames: [{ base: "a", face: { eyes: "eye_open" } }] },
+      ],
+    });
+
+  it("引用已声明的槽位通过", () => {
+    expect(validateSpriteManifest(withFace()).ok).toBe(true);
+  });
+
+  it("引用未声明的槽位被拒绝（否则运行时会静默忽略）", () => {
+    const m = withFace();
+    (m.animations[0] as { frames: unknown[] }).frames = [
+      { base: "a", 手滑写错的槽: { eyes: "eye_open" } },
+    ];
+    expectRejected(m, "未在 slots 中声明");
+  });
+
+  it("没有 slots 字段时，任何非 base 槽位引用都被拒绝", () => {
+    expectRejected(
+      validManifest({
+        animations: [{ group: "Idle", kind: "loop", frames: [{ base: "a", face: { eyes: "x" } }] }],
+      }),
+      "未在 slots 中声明",
+    );
+  });
+
+  it("slots 里声明了 base 时，帧仍可引用 base", () => {
+    const r = validateSpriteManifest(withFace());
+    expect(r.ok).toBe(true);
+  });
+});

@@ -1,0 +1,24 @@
+{
+  "name": "像素猫",
+  "scale": 3,
+  "idleMotionGroup": "Idle",
+  "talkMotionGroup": "Talk",
+  "emotionMap": {
+    "neutral": 0,
+    "joy": 1,
+    "开心": 1,
+    "sad": 3,
+    "难过": 3,
+    "calm": 2,
+    "平静": 2
+  },
+  "tapMotions": {
+    "HitAreaHead": {
+      "Jump": 0
+    },
+    "HitAreaBody": {
+      "Talk": 0
+    }
+  },
+  "personaAddon": "你是像素猫。像素风格，缩放按整数倍吸附。"
+}

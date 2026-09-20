@@ -1,0 +1,24 @@
+{
+  "name": "方案 C（混合（身体整体帧 + 面部覆盖））",
+  "scale": 3,
+  "idleMotionGroup": "Idle",
+  "talkMotionGroup": "Talk",
+  "emotionMap": {
+    "neutral": 0,
+    "joy": 1,
+    "开心": 1,
+    "sad": 3,
+    "难过": 3,
+    "calm": 2,
+    "平静": 2
+  },
+  "tapMotions": {
+    "HitAreaHead": {
+      "Jump": 0
+    },
+    "HitAreaBody": {
+      "Talk": 0
+    }
+  },
+  "personaAddon": "你是方案 C（混合（身体整体帧 + 面部覆盖））。混合（身体整体帧 + 面部覆盖）"
+}

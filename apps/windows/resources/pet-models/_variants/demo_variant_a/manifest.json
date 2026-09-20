@@ -1,0 +1,397 @@
+{
+  "id": "demo_variant_a",
+  "rendererType": "sprite",
+  "pixelArt": true,
+  "canvas": {
+    "w": 48,
+    "h": 56
+  },
+  "anchor": [
+    24,
+    54
+  ],
+  "atlas": "atlas.png",
+  "atlasJson": "atlas.json",
+  "animations": [
+    {
+      "group": "Idle",
+      "index": 0,
+      "kind": "loop",
+      "fps": 4,
+      "frames": [
+        {
+          "base": "body_00__eye_open__m0"
+        },
+        {
+          "base": "body_00__eye_open__m1"
+        },
+        {
+          "base": "body_00__eye_open__m2"
+        },
+        {
+          "base": "body_00__eye_open__m3"
+        },
+        {
+          "base": "body_00__eye_shut__m0"
+        },
+        {
+          "base": "body_00__eye_shut__m1"
+        },
+        {
+          "base": "body_00__eye_shut__m2"
+        },
+        {
+          "base": "body_00__eye_shut__m3"
+        },
+        {
+          "base": "body_00__eye_happy__m0"
+        },
+        {
+          "base": "body_00__eye_happy__m1"
+        },
+        {
+          "base": "body_00__eye_happy__m2"
+        },
+        {
+          "base": "body_00__eye_happy__m3"
+        },
+        {
+          "base": "body_00__eye_sad__m0"
+        },
+        {
+          "base": "body_00__eye_sad__m1"
+        },
+        {
+          "base": "body_00__eye_sad__m2"
+        },
+        {
+          "base": "body_00__eye_sad__m3"
+        },
+        {
+          "base": "body_01__eye_open__m0"
+        },
+        {
+          "base": "body_01__eye_open__m1"
+        },
+        {
+          "base": "body_01__eye_open__m2"
+        },
+        {
+          "base": "body_01__eye_open__m3"
+        },
+        {
+          "base": "body_01__eye_shut__m0"
+        },
+        {
+          "base": "body_01__eye_shut__m1"
+        },
+        {
+          "base": "body_01__eye_shut__m2"
+        },
+        {
+          "base": "body_01__eye_shut__m3"
+        },
+        {
+          "base": "body_01__eye_happy__m0"
+        },
+        {
+          "base": "body_01__eye_happy__m1"
+        },
+        {
+          "base": "body_01__eye_happy__m2"
+        },
+        {
+          "base": "body_01__eye_happy__m3"
+        },
+        {
+          "base": "body_01__eye_sad__m0"
+        },
+        {
+          "base": "body_01__eye_sad__m1"
+        },
+        {
+          "base": "body_01__eye_sad__m2"
+        },
+        {
+          "base": "body_01__eye_sad__m3"
+        },
+        {
+          "base": "body_02__eye_open__m0"
+        },
+        {
+          "base": "body_02__eye_open__m1"
+        },
+        {
+          "base": "body_02__eye_open__m2"
+        },
+        {
+          "base": "body_02__eye_open__m3"
+        },
+        {
+          "base": "body_02__eye_shut__m0"
+        },
+        {
+          "base": "body_02__eye_shut__m1"
+        },
+        {
+          "base": "body_02__eye_shut__m2"
+        },
+        {
+          "base": "body_02__eye_shut__m3"
+        },
+        {
+          "base": "body_02__eye_happy__m0"
+        },
+        {
+          "base": "body_02__eye_happy__m1"
+        },
+        {
+          "base": "body_02__eye_happy__m2"
+        },
+        {
+          "base": "body_02__eye_happy__m3"
+        },
+        {
+          "base": "body_02__eye_sad__m0"
+        },
+        {
+          "base": "body_02__eye_sad__m1"
+        },
+        {
+          "base": "body_02__eye_sad__m2"
+        },
+        {
+          "base": "body_02__eye_sad__m3"
+        }
+      ],
+      "params": {
+        "bob": 1,
+        "breathe": 1.01
+      }
+    },
+    {
+      "group": "Talk",
+      "index": 0,
+      "kind": "loop",
+      "fps": 8,
+      "frames": [
+        {
+          "base": "body_00__eye_open__m0"
+        },
+        {
+          "base": "body_00__eye_open__m1"
+        },
+        {
+          "base": "body_00__eye_open__m2"
+        },
+        {
+          "base": "body_00__eye_open__m3"
+        },
+        {
+          "base": "body_00__eye_shut__m0"
+        },
+        {
+          "base": "body_00__eye_shut__m1"
+        },
+        {
+          "base": "body_00__eye_shut__m2"
+        },
+        {
+          "base": "body_00__eye_shut__m3"
+        },
+        {
+          "base": "body_00__eye_happy__m0"
+        },
+        {
+          "base": "body_00__eye_happy__m1"
+        },
+        {
+          "base": "body_00__eye_happy__m2"
+        },
+        {
+          "base": "body_00__eye_happy__m3"
+        },
+        {
+          "base": "body_00__eye_sad__m0"
+        },
+        {
+          "base": "body_00__eye_sad__m1"
+        },
+        {
+          "base": "body_00__eye_sad__m2"
+        },
+        {
+          "base": "body_00__eye_sad__m3"
+        },
+        {
+          "base": "body_01__eye_open__m0"
+        },
+        {
+          "base": "body_01__eye_open__m1"
+        },
+        {
+          "base": "body_01__eye_open__m2"
+        },
+        {
+          "base": "body_01__eye_open__m3"
+        },
+        {
+          "base": "body_01__eye_shut__m0"
+        },
+        {
+          "base": "body_01__eye_shut__m1"
+        },
+        {
+          "base": "body_01__eye_shut__m2"
+        },
+        {
+          "base": "body_01__eye_shut__m3"
+        },
+        {
+          "base": "body_01__eye_happy__m0"
+        },
+        {
+          "base": "body_01__eye_happy__m1"
+        },
+        {
+          "base": "body_01__eye_happy__m2"
+        },
+        {
+          "base": "body_01__eye_happy__m3"
+        },
+        {
+          "base": "body_01__eye_sad__m0"
+        },
+        {
+          "base": "body_01__eye_sad__m1"
+        },
+        {
+          "base": "body_01__eye_sad__m2"
+        },
+        {
+          "base": "body_01__eye_sad__m3"
+        },
+        {
+          "base": "body_02__eye_open__m0"
+        },
+        {
+          "base": "body_02__eye_open__m1"
+        },
+        {
+          "base": "body_02__eye_open__m2"
+        },
+        {
+          "base": "body_02__eye_open__m3"
+        },
+        {
+          "base": "body_02__eye_shut__m0"
+        },
+        {
+          "base": "body_02__eye_shut__m1"
+        },
+        {
+          "base": "body_02__eye_shut__m2"
+        },
+        {
+          "base": "body_02__eye_shut__m3"
+        },
+        {
+          "base": "body_02__eye_happy__m0"
+        },
+        {
+          "base": "body_02__eye_happy__m1"
+        },
+        {
+          "base": "body_02__eye_happy__m2"
+        },
+        {
+          "base": "body_02__eye_happy__m3"
+        },
+        {
+          "base": "body_02__eye_sad__m0"
+        },
+        {
+          "base": "body_02__eye_sad__m1"
+        },
+        {
+          "base": "body_02__eye_sad__m2"
+        },
+        {
+          "base": "body_02__eye_sad__m3"
+        }
+      ],
+      "params": {
+        "bob": 1
+      }
+    },
+    {
+      "group": "Jump",
+      "index": 0,
+      "kind": "once",
+      "next": "Idle",
+      "fps": 8,
+      "frames": [
+        {
+          "base": "body_00__eye_open__m1"
+        },
+        {
+          "base": "body_00__eye_open__m0"
+        }
+      ]
+    }
+  ],
+  "hitAreas": [
+    {
+      "id": "HitAreaHead",
+      "frames": [
+        "Idle",
+        "Talk",
+        "Jump"
+      ],
+      "points": [
+        [
+          14,
+          6
+        ],
+        [
+          34,
+          6
+        ],
+        [
+          34,
+          24
+        ],
+        [
+          14,
+          24
+        ]
+      ]
+    },
+    {
+      "id": "HitAreaBody",
+      "frames": [
+        "Idle",
+        "Talk",
+        "Jump"
+      ],
+      "points": [
+        [
+          12,
+          26
+        ],
+        [
+          36,
+          26
+        ],
+        [
+          36,
+          50
+        ],
+        [
+          12,
+          50
+        ]
+      ]
+    }
+  ]
+}

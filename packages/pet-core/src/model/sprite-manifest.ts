@@ -241,6 +241,12 @@ export function validateSpriteManifest(
   // ---- 动画 ----
   const frameNames: { path: string; name: string }[] = []
   const groupNames = new Set<string>()
+  /** 已占用的 (group, index)，用于检出重复声明 */
+  const usedSlots = new Map<string, string>()
+  /** 已声明的分层槽位名：帧引用只能落在这些槽位上（base 除外，它是内建的） */
+  const declaredSlots = new Set(
+    isPlainObject(input.slots) ? Object.keys(input.slots).filter((k) => k !== "base") : [],
+  )
 
   if (!Array.isArray(input.animations) || input.animations.length === 0) {
     errors.push({ path: "animations", message: "animations 必须是非空数组" })
@@ -269,6 +275,20 @@ export function validateSpriteManifest(
       }
       if (anim.index !== undefined && !(Number.isInteger(anim.index) && (anim.index as number) >= 0)) {
         errors.push({ path: `${p}.index`, message: "index 必须是非负整数" })
+      }
+      // 同组内 index 必须唯一。显式 index 与自动编号混用时重号会让一个动画悄悄顶掉另一个，
+      // 运行时按 index 取动画，作者只会看到「我写的动作没生效」。
+      if (isNonEmptyString(anim.group) && Number.isInteger(anim.index) && (anim.index as number) >= 0) {
+        const key = `${anim.group}#${anim.index}`
+        const prevAt = usedSlots.get(key)
+        if (prevAt) {
+          errors.push({
+            path: `${p}.index`,
+            message: `组 "${anim.group}" 的 index ${anim.index} 与 ${prevAt} 重复（同组内 index 必须唯一）`,
+          })
+        } else {
+          usedSlots.set(key, p)
+        }
       }
       if (anim.fps !== undefined && !(isFiniteNumber(anim.fps) && anim.fps > 0)) {
         errors.push({ path: `${p}.fps`, message: "fps 必须是正数" })
@@ -309,6 +329,15 @@ export function validateSpriteManifest(
             // 其余槽位引用
             for (const [k, v] of Object.entries(fr)) {
               if (FRAME_RESERVED.has(k)) continue
+              // 引用未声明的槽位是静默失败：运行时找不到槽位会直接忽略这一项，
+              // 作者只会看到「我写的表情没生效」。宁可在这里挡住。
+              if (!declaredSlots.has(k)) {
+                errors.push({
+                  path: `${fp}.${k}`,
+                  message: `槽位 "${k}" 未在 slots 中声明（可用的槽位：${["base", ...declaredSlots].join(" / ")}）`,
+                })
+                continue
+              }
               if (typeof v === "string") {
                 if (!isNonEmptyString(v)) {
                   errors.push({ path: `${fp}.${k}`, message: `槽位 "${k}" 的部件名必须是非空字符串` })

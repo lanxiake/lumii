@@ -1,0 +1,168 @@
+{
+  "id": "demo_variant_c",
+  "rendererType": "sprite",
+  "pixelArt": true,
+  "canvas": {
+    "w": 48,
+    "h": 56
+  },
+  "anchor": [
+    24,
+    54
+  ],
+  "atlas": "atlas.png",
+  "atlasJson": "atlas.json",
+  "slots": {
+    "face": {
+      "kind": "layered",
+      "at": [
+        0,
+        0
+      ],
+      "parts": {
+        "eyes": [
+          "eye_open",
+          "eye_shut",
+          "eye_happy",
+          "eye_sad"
+        ],
+        "mouth": [
+          "m0",
+          "m1",
+          "m2",
+          "m3"
+        ]
+      }
+    }
+  },
+  "animations": [
+    {
+      "group": "Idle",
+      "index": 0,
+      "kind": "loop",
+      "fps": 4,
+      "frames": [
+        {
+          "base": "body_00",
+          "face": {
+            "eyes": "eye_open",
+            "mouth": "m0"
+          }
+        },
+        {
+          "base": "body_01"
+        },
+        {
+          "base": "body_02"
+        }
+      ],
+      "params": {
+        "bob": 1,
+        "breathe": 1.01
+      }
+    },
+    {
+      "group": "Talk",
+      "index": 0,
+      "kind": "loop",
+      "fps": 8,
+      "frames": [
+        {
+          "base": "body_00",
+          "face": {
+            "eyes": "eye_open",
+            "mouth": "m0"
+          }
+        },
+        {
+          "base": "body_01"
+        },
+        {
+          "base": "body_02"
+        }
+      ],
+      "params": {
+        "bob": 1
+      }
+    },
+    {
+      "group": "Jump",
+      "index": 0,
+      "kind": "once",
+      "next": "Idle",
+      "fps": 8,
+      "frames": [
+        {
+          "base": "body_01"
+        },
+        {
+          "base": "body_00",
+          "face": {
+            "eyes": "eye_open",
+            "mouth": "m0"
+          }
+        }
+      ]
+    }
+  ],
+  "mouthLevels": [
+    "m0",
+    "m1",
+    "m2",
+    "m3"
+  ],
+  "hitAreas": [
+    {
+      "id": "HitAreaHead",
+      "frames": [
+        "Idle",
+        "Talk",
+        "Jump"
+      ],
+      "points": [
+        [
+          14,
+          6
+        ],
+        [
+          34,
+          6
+        ],
+        [
+          34,
+          24
+        ],
+        [
+          14,
+          24
+        ]
+      ]
+    },
+    {
+      "id": "HitAreaBody",
+      "frames": [
+        "Idle",
+        "Talk",
+        "Jump"
+      ],
+      "points": [
+        [
+          12,
+          26
+        ],
+        [
+          36,
+          26
+        ],
+        [
+          36,
+          50
+        ],
+        [
+          12,
+          50
+        ]
+      ]
+    }
+  ]
+}

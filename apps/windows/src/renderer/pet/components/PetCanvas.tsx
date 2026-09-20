@@ -17,6 +17,7 @@
 
 import React, { useEffect, useRef, useImperativeHandle, forwardRef, useState } from 'react'
 import { Live2dPetRenderer, CubismCoreMissingError } from '../renderer/live2d/Live2dPetRenderer'
+import { SpritePetRenderer } from '../renderer/sprite/SpritePetRenderer'
 import type { PetRendererProvider } from '../renderer/types'
 import { checkWebGLSupport } from '../utils/webgl-check'
 import { ensureCubismCore } from '../utils/cubism-core-loader'
@@ -72,10 +73,29 @@ function toCanvasLocal(e: MouseEvent, canvas: HTMLCanvasElement): { x: number; y
 export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
   ({ modelId, onDegrade, onModelLoaded }, ref) => {
     const canvasRef = useRef<HTMLCanvasElement>(null)
-    const rendererRef = useRef<Live2dPetRenderer | null>(null)
+    const rendererRef = useRef<PetRendererProvider | null>(null)
+    /** 模型配置：**必须先于渲染器拿到**，因为后端类型由它决定 */
+    const [config, setConfig] = useState<PetModelConfig | null>(null)
     const [ready, setReady] = useState(false)
     /** 渲染器（PIXI app）是否已初始化，模型加载 effect 据此等待 */
     const [rendererReady, setRendererReady] = useState(false)
+    /**
+     * 后端类型。**配置未到位前是 null，不能默认成 'live2d'**：
+     * 初始化 effect 只依赖它，若默认成 'live2d'，那么「首个模型就是 live2d」时
+     * 类型从头到尾没变过，effect 不会跑，渲染器永远不会被创建。
+     */
+    const rendererType = config?.rendererType ?? null
+
+    /**
+     * 回调放进 ref。初始化 effect **不能依赖父组件传来的回调**——父组件每次渲染都可能
+     * 给出新的函数身份，effect 就会重跑：先 destroy 再在同一个 canvas 上重建 PIXI，
+     * 而那个 canvas 的 WebGL context 刚随 destroy 失效，结果是 init 完立刻
+     * 「WebGL context lost」。这正是本文件一直警告的那个坑，实测踩过一次。
+     */
+    const onDegradeRef = useRef(onDegrade)
+    const onModelLoadedRef = useRef(onModelLoaded)
+    onDegradeRef.current = onDegrade
+    onModelLoadedRef.current = onModelLoaded
     // 拖拽状态
     const dragRef = useRef<{ active: boolean; offsetX: number; offsetY: number; hit: boolean }>({
       active: false,
@@ -88,10 +108,37 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
       getRenderer: () => rendererRef.current,
     }))
 
-    // 一次性初始化渲染器（WebGL 检测 → Cubism Core → PIXI app）。
-    // 关键：renderer.init() 创建的 PIXI Application 绑定在 canvas 的 WebGL context 上，
-    // 绝不能随 modelId 变化而 destroy（会损坏 React 复用的 canvas，导致切模型后整个画面空白）。
+    // 1) 先取配置。后端类型由 rendererType 决定，所以这一步必须排在初始化之前。
+    //
+    // **不要在这里 setConfig(null)**：那会让 rendererType 短暂变成 null，canvas 的 key
+    // 跟着变，于是每次切模型都换一次 canvas 元素、销毁一次 WebGL context。
+    // 保留旧配置直到新配置到达；只有后端类型**真的变了**才该换 canvas。
     useEffect(() => {
+      let cancelled = false
+      void (async () => {
+        const cfg = await getPetModelConfig(modelId ?? '')
+        if (cancelled) return
+        if (!cfg) {
+          onDegradeRef.current?.({ kind: 'model-load-failed', message: '未找到模型配置（注册表为空？）' })
+          return
+        }
+        setConfig(cfg)
+      })()
+      return () => {
+        cancelled = true
+      }
+    }, [modelId])
+
+    // 2) 按 rendererType 初始化对应后端。**依赖只有 rendererType**（见上方 ref 说明）。
+    //
+    // canvas 用 key={rendererType} 绑定：切换后端类型时 React 会换一个**新的 canvas 元素**。
+    // 这是刻意的——renderer.init() 创建的 PIXI Application 绑定在 canvas 的 WebGL context 上，
+    // 在同一个元素上销毁重建会拿到已丢失的 context（现有注释警告过的那个坑）。
+    // 换元素则旧 context 随旧元素整体消亡，不存在"在坏 context 上重建"。
+    // 同类型切换（live2d→live2d、sprite→sprite）时 key 不变、effect 不重跑，
+    // 只走下面的"重载模型"分支。
+    useEffect(() => {
+      if (!rendererType) return
       let disposed = false
       const canvas = canvasRef.current
       if (!canvas) return
@@ -100,21 +147,26 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
         const webgl = checkWebGLSupport()
         if (!webgl.supported) {
           log.warn(`[setup] WebGL 不支持: ${webgl.reason}`)
-          onDegrade?.({ kind: 'webgl', message: webgl.reason ?? 'WebGL 不可用' })
+          onDegradeRef.current?.({ kind: 'webgl', message: webgl.reason ?? 'WebGL 不可用' })
           return
         }
 
-        try {
-          await ensureCubismCore()
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err)
-          log.warn(`[setup] Cubism Core 加载失败: ${message}`)
-          onDegrade?.({ kind: 'core-missing', message })
-          return
+        // Cubism Core 只服务 Live2D 后端。sprite 后端用普通纹理，不该被专有 Core 的
+        // 加载失败连带拖下水——那是两件不相干的事。
+        if (rendererType === 'live2d') {
+          try {
+            await ensureCubismCore()
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err)
+            log.warn(`[setup] Cubism Core 加载失败: ${message}`)
+            onDegradeRef.current?.({ kind: 'core-missing', message })
+            return
+          }
+          if (disposed) return
         }
-        if (disposed) return
 
-        const renderer = new Live2dPetRenderer()
+        const renderer =
+          rendererType === 'sprite' ? new SpritePetRenderer() : new Live2dPetRenderer()
         await renderer.init({
           canvas,
           width: window.innerWidth,
@@ -126,7 +178,7 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
         }
         rendererRef.current = renderer
         setRendererReady(true)
-        log.info('[setup] 渲染器初始化完成')
+        log.info(`[setup] 渲染器初始化完成（${rendererType}）`)
       }
 
       void setup()
@@ -136,39 +188,36 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
         rendererRef.current?.destroy()
         rendererRef.current = null
         setRendererReady(false)
+        setReady(false)
       }
-    }, [onDegrade])
+    }, [rendererType])
 
-    // 模型加载 / 热切换：渲染器就绪后，modelId 变化只重载模型（不碰 WebGL context）。
+    // 3) 模型加载 / 热切换：渲染器就绪后加载配置里的模型（**不碰 WebGL context**）。
     // loadModel 内部已含"卸载旧模型 + 加载新模型"，故切换/切回都安全。
     useEffect(() => {
-      if (!rendererReady) return
+      if (!rendererReady || !config) return
       const renderer = rendererRef.current
       if (!renderer) return
       let cancelled = false
 
       const loadModel = async () => {
         try {
-          const config = await getPetModelConfig(modelId ?? '')
-          if (!config) {
-            onDegrade?.({ kind: 'model-load-failed', message: '未找到模型配置（注册表为空？）' })
-            return
-          }
           const loadStart = performance.now()
           await renderer.loadModel(config)
           petMetrics.recordModelLoad(performance.now() - loadStart)
           if (cancelled) return
+          setTapModelConfig(config)
           setReady(true)
-          onModelLoaded?.(config)
+          onModelLoadedRef.current?.(config)
           log.info(`[loadModel] 模型就绪 ${config.id}`)
         } catch (err) {
           if (cancelled) return
           if (err instanceof CubismCoreMissingError) {
-            onDegrade?.({ kind: 'core-missing', message: err.message })
+            onDegradeRef.current?.({ kind: 'core-missing', message: err.message })
           } else {
             const message = err instanceof Error ? err.message : String(err)
             log.error(`[loadModel] 模型加载失败: ${message}`)
-            onDegrade?.({ kind: 'model-load-failed', message })
+            onDegradeRef.current?.({ kind: 'model-load-failed', message })
           }
         }
       }
@@ -177,7 +226,7 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
       return () => {
         cancelled = true
       }
-    }, [rendererReady, modelId, onDegrade, onModelLoaded])
+    }, [rendererReady, config])
 
     // 视口尺寸变化
     useEffect(() => {
@@ -297,6 +346,8 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
 
     return (
       <canvas
+        // key 绑定后端类型：类型切换时换新元素（见上方初始化 effect 的说明）
+        key={rendererType ?? 'pending'}
         ref={canvasRef}
         style={{
           position: 'fixed',
