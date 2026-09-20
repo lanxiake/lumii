@@ -65,7 +65,6 @@ export const FEATURE_BLOCK_MESSAGES: Record<FeatureId, Partial<Record<BlockReaso
     'platform-unsupported': 'Linux 版暂不支持宠物模式，后续将以精灵图形态回归。',
   },
   screenRecord: {
-    'platform-unsupported': 'Linux 版暂不支持录屏，可使用系统自带录屏工具。',
     'wayland-session': 'Wayland 会话下录屏需要额外授权，当前版本暂不支持。',
   },
   systemAudioCapture: {
@@ -105,7 +104,7 @@ function isLinux(platform: NodeJS.Platform): boolean {
  * | 功能 | 判定 |
  * |------|------|
  * | `petMode` | D13：Linux 屏蔽，后续以**精灵图**形态重写（不是移植现有实现） |
- * | `screenRecord` | D14：Linux 屏蔽；Wayland 会话另有单独原因（便于将来只支持 X11） |
+ * | `screenRecord` | D14 **修订**（2026-09-20）：X11 实测可用 → 改为**按会话类型**判定，仅 Wayland 屏蔽 |
  * | `systemAudioCapture` | **全平台**屏蔽（Windows 侧也没实现） |
  * | `pythonSkills` | Linux 上看**运行时是否存在**——装了 Python 3 就能用 |
  * | `codingCliAutoInstall` | Linux 屏蔽**自动安装**，手动指引保留 |
@@ -121,10 +120,16 @@ export function resolveFeatureAvailability(
     // D13：宠物模式在 Linux 上屏蔽。将来以精灵图重写后，这里改为「探测精灵图资源」。
     petMode: linux || headless ? blocked('platform-unsupported') : WIN_ONLY,
 
-    // D14：录屏屏蔽。Wayland 单列一个原因——将来若只支持 X11，文案不用改结构。
-    screenRecord: linux
-      ? blocked(input.waylandSession ? 'wayland-session' : 'platform-unsupported')
-      : WIN_ONLY,
+    // D14 修订（2026-09-20）：X11 下实测跑通（捕获 + 音频 + 成片 + 中文烧字幕），
+    // 由「Linux 全屏蔽」改为「**按会话类型**判定」——只有 Wayland 仍屏蔽
+    // （桌面捕获的授权模型不同，第一期不接；原因单列，将来只支持 X11 时文案不用改结构）。
+    screenRecord: !linux
+      ? WIN_ONLY
+      : headless
+        ? blocked('headless')
+        : input.waylandSession === true
+          ? blocked('wayland-session')
+          : WIN_ONLY,
 
     // 全平台屏蔽：Windows 侧也没有实现，不是平台差异问题。
     systemAudioCapture: blocked('platform-unsupported'),

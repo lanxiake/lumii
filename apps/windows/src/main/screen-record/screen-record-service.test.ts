@@ -189,6 +189,23 @@ describe('ScreenRecordService — 状态机基础（设计 §9.1）', () => {
     }
   })
 
+  it('确认弹窗载荷带发起方：用户点面板 → user，AI 工具 → agent', async () => {
+    // 弹窗文案要区分「AI 请求录制」与用户自己点的，缺省必须是 user
+    await svc.start({ sourceId: 'screen-1' })
+    expect(deps.notifyRendererConfirmRequested).toHaveBeenLastCalledWith(
+      expect.objectContaining({ initiator: 'user' }),
+    )
+    expect(svc.getStatus()).toMatchObject({ initiator: 'user' })
+
+    // 取消掉再让 AI 发起一次
+    await svc.stop()
+    await svc.start({ sourceId: 'screen-1', initiator: 'agent' })
+    expect(deps.notifyRendererConfirmRequested).toHaveBeenLastCalledWith(
+      expect.objectContaining({ initiator: 'agent' }),
+    )
+    expect(svc.getStatus()).toMatchObject({ initiator: 'agent' })
+  })
+
   it('非自身源 + alwaysAllow=true → 直接 recording，跳过 pending_confirm', async () => {
     deps = makeFakeDeps({ alwaysAllow: true })
     svc = createScreenRecordService(deps)

@@ -8,6 +8,7 @@
 import { Tray, Menu, nativeImage, BrowserWindow } from 'electron'
 import { getTrayIconPath } from './asset-paths'
 import { getFeatureAvailability } from './platform/feature-probe'
+import { getFeatureBlockMessage } from '../shared/feature-availability'
 
 // 日志输出
 const log = {
@@ -115,15 +116,15 @@ export class TrayManager {
     const active = this.screenRecording || this.screenRecordPaused
 
     // 能力矩阵（设计 §7）。主进程侧直读，不经 IPC——托盘在 main 里构建。
+    // 文案一律走共享表 `getFeatureBlockMessage`：这里是**副本**的话，判定一改
+    // 就会出现「矩阵说可用、托盘还写着 Linux 不支持」的自相矛盾。
     const features = getFeatureAvailability()
     const petDisabledReason = features.petMode.available
       ? null
-      : 'Linux 版暂不支持宠物模式，后续将以精灵图形态回归。'
+      : getFeatureBlockMessage('petMode', features.petMode.reason ?? 'platform-unsupported')
     const recordDisabledReason = features.screenRecord.available
       ? null
-      : (features.screenRecord.reason === 'wayland-session'
-          ? 'Wayland 会话下录屏需要额外授权，当前版本暂不支持。'
-          : 'Linux 版暂不支持录屏，可使用系统自带录屏工具。')
+      : getFeatureBlockMessage('screenRecord', features.screenRecord.reason ?? 'platform-unsupported')
 
     const recordItems =
       this.config.onStartScreenRecord || this.config.onStopScreenRecord

@@ -21,6 +21,8 @@ export interface ScreenRecordConfirmPayload {
   startedAt: number
   /** 录屏或桌面截图确认 */
   purpose: 'record' | 'screenshot'
+  /** 发起方（缺省 = 用户操作）。用户自己点面板也会弹确认，措辞不能一概写成「AI 请求」 */
+  initiator?: 'user' | 'agent'
 }
 
 /**
@@ -73,6 +75,7 @@ export function useScreenRecord() {
           timeoutSec: event.timeoutSec,
           startedAt: event.startedAt,
           purpose: event.purpose === 'screenshot' ? 'screenshot' : 'record',
+          initiator: event.initiator,
         })
       } else if (event.type === 'screen-record:event:cancelled') {
         setPendingConfirm(null)
@@ -101,6 +104,7 @@ export function useScreenRecord() {
             timeoutSec: s.confirmTimeoutSec ?? 0,
             startedAt: Date.now(),
             purpose: s.purpose ?? 'record',
+            initiator: s.initiator,
           })
         }
       }

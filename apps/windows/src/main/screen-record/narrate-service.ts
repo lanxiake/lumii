@@ -49,11 +49,20 @@ export function escapeFfmpegSubtitlesPath(absPath: string): string {
  */
 export function resolveBurnFontPath(): string | null {
   const candidates = [
+    // Windows：系统自带中文字体（fontsdir 指向 %WINDIR%\Fonts，与 FontName 配对）
     'C:\\Windows\\Fonts\\msyh.ttc',
     'C:\\Windows\\Fonts\\msyh.ttf',
     'C:\\Windows\\Fonts\\simhei.ttf',
     'C:\\Windows\\Fonts\\simsun.ttc',
     'C:\\Windows\\Fonts\\arial.ttf',
+    // Linux：常见 CJK 字体包（fonts-noto-cjk / fonts-wqy-* / fonts-arphic-*）。
+    // 配 SUBTITLE_FONT_NAME 用；都找不到时返回 null，libass 走 fontconfig 回退。
+    '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
+    '/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc',
+    '/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc',
+    '/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc',
+    '/usr/share/fonts/truetype/wqy/wqy-microhei.ttc',
+    '/usr/share/fonts/truetype/arphic/uming.ttc',
   ]
   for (const p of candidates) {
     if (fs.existsSync(p)) return p

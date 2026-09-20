@@ -77,6 +77,12 @@ export interface ScreenRecordStartParams {
   includeSystemAudio?: boolean
   /** 默认 1800；>7200 截断 7200；<0 报 usage */
   maxDurationSec?: number
+  /**
+   * 发起方。确认弹窗据此措辞（「AI 请求录制」vs「请求录制」）——
+   * 用户自己点面板时也走确认流程，笼统写成 AI 请求会让人以为被偷录。
+   * 缺省按 'user' 处理（IPC 路径即用户操作）。
+   */
+  initiator?: 'user' | 'agent'
 }
 
 /** start 返回（needs_confirmation 时不阻塞 Agent） */
@@ -229,6 +235,8 @@ export type ScreenRecordStatusResult =
       sourceType?: 'screen' | 'window'
       /** 确认恢复用：pending_confirm 时的用途（record / screenshot） */
       purpose?: 'record' | 'screenshot'
+      /** 确认恢复用：发起方（刷新窗口后重建弹窗时仍要能区分 AI / 用户） */
+      initiator?: 'user' | 'agent'
     }
   | { ok: false; error: ScreenRecordErrorCode }
 
@@ -366,6 +374,8 @@ export type ScreenRecordEvent =
       startedAt: number
       /** 默认为 record；screenshot 为桌面/窗口单帧截图确认 */
       purpose?: 'record' | 'screenshot'
+      /** 发起方（缺省视为用户操作）；弹窗据此措辞 */
+      initiator?: 'user' | 'agent'
     }
   | {
       readonly type: 'screen-record:event:start-capture'

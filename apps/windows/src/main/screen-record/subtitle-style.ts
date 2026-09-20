@@ -15,8 +15,16 @@ export const SUBTITLE_FONT_SIZE_MAX = 120
 /** 描边宽度上限 */
 const OUTLINE_MAX = 8
 
-/** 烧录使用的中文字体名（配合 fontsdir 指向系统字体目录） */
-export const SUBTITLE_FONT_NAME = 'Microsoft YaHei'
+/**
+ * 烧录使用的中文字体名。
+ *
+ * Windows 用系统自带的微软雅黑（与 `resolveBurnFontPath()` 的 fontsdir 配对）；
+ * Linux 用 Noto Sans CJK SC——各发行版最常见的 CJK 字体包。
+ * 找不到时 libass 仍会经 fontconfig 回退（实测不指定字体也能出中文），
+ * 所以这个值只是让渲染结果**可预期**，不是必需条件。
+ */
+export const SUBTITLE_FONT_NAME =
+  process.platform === 'win32' ? 'Microsoft YaHei' : 'Noto Sans CJK SC'
 
 /**
  * #RRGGBB → ASS 颜色字面量 &HAABBGGRR（ASS 为 BGR 序，AA=00 表示不透明）。

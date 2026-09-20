@@ -51,8 +51,9 @@ describe('resolveFeatureAvailability — Linux', () => {
     expect(linux.petMode.reason).toBe('platform-unsupported')
   })
 
-  it('D14：录屏屏蔽', () => {
-    expect(linux.screenRecord.available).toBe(false)
+  it('D14 修订：X11 下录屏可用（不再是「Linux 全屏蔽」）', () => {
+    expect(linux.screenRecord.available).toBe(true)
+    expect(linux.screenRecord.reason).toBeUndefined()
   })
 
   it('D15：本地 TTS 与声纹克隆屏蔽（在线 Edge TTS 不受影响）', () => {
@@ -95,10 +96,10 @@ describe('resolveFeatureAvailability — Wayland', () => {
     expect(wayland.screenRecord.reason).toBe('wayland-session')
   })
 
-  it('非 Wayland 的 Linux 上录屏原因是 platform-unsupported', () => {
+  it('非 Wayland 的 Linux（X11）上录屏可用', () => {
     const x11 = resolveFeatureAvailability({ platform: 'linux', waylandSession: false })
 
-    expect(x11.screenRecord.reason).toBe('platform-unsupported')
+    expect(x11.screenRecord.available).toBe(true)
   })
 
   it('Wayland 只影响录屏，不影响其它功能的判定', () => {
@@ -117,6 +118,13 @@ describe('resolveFeatureAvailability — 无头形态（第二期预留）', () 
     const headless = resolveFeatureAvailability({ platform: 'linux', headless: true })
 
     expect(headless.petMode.available).toBe(false)
+  })
+
+  it('headless 下录屏屏蔽（没有图形会话可录）', () => {
+    const headless = resolveFeatureAvailability({ platform: 'linux', headless: true })
+
+    expect(headless.screenRecord.available).toBe(false)
+    expect(headless.screenRecord.reason).toBe('headless')
   })
 
   it('headless 不影响 pythonSkills（终端里更依赖它）', () => {

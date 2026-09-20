@@ -3,7 +3,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { SCREEN_RECORD_SUBTITLE_STYLE_DEFAULTS } from '../../shared/screen-record'
-import { buildSubtitleForceStyle, hexToAssColor, normalizeSubtitleStyle } from './subtitle-style'
+import { buildSubtitleForceStyle, hexToAssColor, normalizeSubtitleStyle, SUBTITLE_FONT_NAME } from './subtitle-style'
 
 describe('hexToAssColor', () => {
   it('#RRGGBB 转为 ASS 的 &H00BBGGRR', () => {
@@ -38,7 +38,8 @@ describe('buildSubtitleForceStyle', () => {
       outline: 3,
     })
 
-    expect(style).toContain('FontName=Microsoft YaHei')
+    // 字体名按平台取（Windows 微软雅黑 / Linux Noto Sans CJK SC），断言常量而非字面量
+    expect(style).toContain(`FontName=${SUBTITLE_FONT_NAME}`)
     expect(style).toContain('FontSize=40')
     expect(style).toContain('PrimaryColour=&H0000CCFF')
     expect(style).toContain('OutlineColour=&H00000000')

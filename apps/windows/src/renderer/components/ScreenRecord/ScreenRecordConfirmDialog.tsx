@@ -37,9 +37,15 @@ export const ScreenRecordConfirmDialog: React.FC<ScreenRecordConfirmDialogProps>
   if (!payload) return null
 
   const isScreenshot = payload.purpose === 'screenshot'
+  // 截图只有 AI 入口；录屏则用户点面板也会走到这里（源不是 Lumii 本窗时），
+  // 一概写成「AI 请求」会让人以为被偷录——按发起方措辞。
+  // 缺省按用户：漏传时宁可少指控 AI，也不要凭空说「AI 请求」。
+  const byAgent = payload.initiator === 'agent'
   const title = isScreenshot
     ? `AI 请求截取「${payload.sourceName}」`
-    : `AI 请求录制「${payload.sourceName}」`
+    : byAgent
+      ? `AI 请求录制「${payload.sourceName}」`
+      : `请求录制「${payload.sourceName}」`
   const allowLabel = isScreenshot ? '允许截图' : '允许录制'
 
   return (
