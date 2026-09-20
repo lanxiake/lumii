@@ -197,6 +197,9 @@ export default defineConfig({
         exclude: [
           'electron-updater', 'ws', 'bufferutil', 'utf-8-validate', 'iconv-lite',
           '@mtbot/agent-runtime', '@mtbot/browser-control', '@mtbot/pet-core',
+          // P1-b：工具链在主进程内执行（见 main/pet/pet-asset-ipc.ts）。它 import sharp，
+          // 而 sharp 是原生模块、不进白名单 → 外部化由 Electron 运行时从 node_modules 解析。
+          '@mtbot/pet-asset',
           // @tencent-connect/qqbot-connector（QQ 扫码绑定）必须内联：它的 dist/cjs
           // 缺少 {"type":"commonjs"} 标记，而 package.json 是 "type":"module"，
           // 外部化后 Electron 主进程 require() 会把 CJS 产物当 ESM 解析并抛

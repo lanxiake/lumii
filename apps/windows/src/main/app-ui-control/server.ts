@@ -309,6 +309,10 @@ async function handleRoute(
       await handlePetListModelsRoute(res)
       return
     }
+    case '/pet/asset': {
+      await handlePetAssetRoute(body, res)
+      return
+    }
     case '/ipc/cloudsync/status': {
       await handleCloudSyncStatusRoute(res)
       return
@@ -404,6 +408,34 @@ async function handlePetListModelsRoute(res: http.ServerResponse): Promise<void>
   const { loadPetModelRegistry } = await import('../pet/pet-model-resolver')
   const { models } = await loadPetModelRegistry()
   sendJson(res, 200, { ok: true, models })
+}
+
+/**
+ * B 层：宠物素材工具链（P1-b）。
+ *
+ * 端点是**固定的**：调用方只能选调哪个 op、传什么参数，不能注入代码。
+ * 工具链在主进程内执行（sharp 与 pet-core 已打进 bundle），dev 与打包同一条路径——
+ * 详见 main/pet/pet-asset-ipc.ts 的模块注释。
+ *
+ * 请求体：`{ op: 'validate'|'install'|'cutout'|'slice'|'align'|'pack', args?: {...} }`
+ * 另有 `op: 'roots'` 返回允许写入的根目录，便于调用方决定输出落点。
+ */
+async function handlePetAssetRoute(body: unknown, res: http.ServerResponse): Promise<void> {
+  const { runPetAssetOp, isPetAssetOp, describeRoots } = await import('../pet/pet-asset-ipc')
+  const op = (body as { op?: unknown } | null)?.op
+  const args = (body as { args?: Record<string, unknown> } | null)?.args
+
+  if (op === 'roots') {
+    sendJson(res, 200, { ok: true, result: describeRoots() })
+    return
+  }
+  if (!isPetAssetOp(op)) {
+    sendJson(res, 200, { ok: false, error: 'usage: op 必须是 validate/install/cutout/slice/align/pack/roots' })
+    return
+  }
+
+  const result = await runPetAssetOp({ op, args })
+  sendJson(res, 200, result)
 }
 
 /**

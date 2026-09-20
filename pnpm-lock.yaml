@@ -33,6 +33,9 @@ importers:
       '@mtbot/browser-control':
         specifier: workspace:*
         version: link:../../packages/browser-control
+      '@mtbot/pet-asset':
+        specifier: workspace:*
+        version: link:../../packages/pet-asset
       '@mtbot/pet-core':
         specifier: workspace:*
         version: link:../../packages/pet-core
