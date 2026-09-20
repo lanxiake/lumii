@@ -21,35 +21,14 @@ import type { GotoInput } from '@main/app-ui-control/types'
 import { SplashOverlay } from './components/SplashOverlay/SplashOverlay'
 import { useTheme, type AppliedTheme } from './contexts/ThemeContext/ThemeContext'
 import { useToast } from './components/ui/Toast/useToast'
-import {
-  useAgentRuntimeActions,
-  useAgentRuntimeGlobalState,
-} from './hooks/business/useAgentRuntime/useAgentRuntime'
-import { readPersistedSessionThinkingPrefs } from '../shared/session-thinking-prefs'
 import { getProviderConfig, isChatProviderReady } from './services/model-config-service'
 import { getAppVersion } from './services/app-service'
-import { setActiveSessionKey } from './services/pet-service'
+import { PetSessionSync } from './components/PetSessionSync'
 import { subscribeMainEvent } from './services/event-bus-service'
 import {
   removeEarlySplashIfPresent,
   shouldSkipSplash,
 } from './utils/splash-preference'
-
-/**
- * 宠物模式会话同步：把主窗口当前 sessionKey 同步到主进程，
- * 供独立宠物窗口语音通话跟随当前 Chat 会话（D4 决策）。
- */
-const PetSessionSync: React.FC = () => {
-  const currentSessionKey = useAgentRuntimeGlobalState((s) => s.currentSessionKey)
-  const runtimeActions = useAgentRuntimeActions()
-  useEffect(() => {
-    if (!currentSessionKey) return
-    void setActiveSessionKey(currentSessionKey)
-    const prefs = readPersistedSessionThinkingPrefs()
-    void runtimeActions.setSessionThinkingPrefs(currentSessionKey, prefs)
-  }, [currentSessionKey, runtimeActions])
-  return null
-}
 
 /** 标题栏主题按钮的悬停文案：说明"点一下会切到哪一档"（与 ThemeContext.toggleTheme 的循环一致） */
 const THEME_TOGGLE_TITLES: Record<AppliedTheme, string> = {
