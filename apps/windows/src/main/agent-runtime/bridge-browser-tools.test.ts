@@ -12,7 +12,7 @@
 import { describe, expect, it } from 'vitest'
 import { ToolRegistry, type ToolExecutionContext } from '@mtbot/agent-runtime'
 import type { BrowserRouteContext } from '@mtbot/browser-control'
-import { registerBrowserTools } from './bridge-browser-tools'
+import { registerBrowserTools, browserErrorText } from './bridge-browser-tools'
 import { parseJsonToolResultPayload } from './bridge-utils'
 import { buildWindowsBrowserConfig } from '../browser-service'
 
@@ -34,6 +34,11 @@ function stubContext(): ToolExecutionContext {
 
 /** 假浏览器 context：profile 解析成功，一碰 tab 就抛标记错误 */
 function stubBrowserContext(): BrowserRouteContext {
+  return stubBrowserContextThrowing(ROUTE_REACHED)
+}
+
+/** 同上，但可指定抛出什么——用来喂各条真实报错文案，验接线 */
+function stubBrowserContextThrowing(message: string): BrowserRouteContext {
   const profile = {
     name: 'mtbot',
     cdpUrl: 'http://127.0.0.1:18791',
@@ -50,7 +55,7 @@ function stubBrowserContext(): BrowserRouteContext {
     forProfile: () => ({
       profile,
       ensureTabAvailable: async (): Promise<never> => {
-        throw new Error(ROUTE_REACHED)
+        throw new Error(message)
       },
     }),
     mapTabError: () => null,
@@ -59,9 +64,13 @@ function stubBrowserContext(): BrowserRouteContext {
 }
 
 /** 注册全部浏览器工具并取指定工具的 execute */
-function registerAndGetExecute(toolName: string) {
+function registerAndGetExecute(toolName: string, thrown?: string) {
   const registry = new ToolRegistry()
-  registerBrowserTools(registry, stubContext(), () => stubBrowserContext())
+  registerBrowserTools(
+    registry,
+    stubContext(),
+    () => (thrown ? stubBrowserContextThrowing(thrown) : stubBrowserContext()),
+  )
   const tool = registry.get(toolName)
   expect(tool).toBeDefined()
   return tool!.execute.bind(tool)
@@ -118,6 +127,115 @@ describe('registerBrowserTools', () => {
     const payload = parseJsonToolResultPayload(result)
     // 报错来自假 profile 的 tab 阶段，说明 /act 处理器已命中且未在 kind 校验处被拦
     expect(String(payload?.error)).toContain(ROUTE_REACHED)
+  })
+})
+
+/**
+ * 报错中文化。
+ *
+ * 两个方向都要锁，而且**透传那个方向更危险**：匹配写得太宽会把无关报错也吞掉，
+ * 而这里流过的正是「路由到底命中没有」这类靠原文断言的信息（上面 `ROUTE_REACHED` 那几条）。
+ */
+describe('browserErrorText —— 报错中文化', () => {
+  /**
+   * 生产形态带 `Error: ` 前缀：dispatcher 用 `String(err)` 写进 body.error，
+   * 客户端再 `new Error(该字符串)` 抛出，于是 message 里就带着它（真机实测确认）。
+   * 匹配必须对这个前缀免疫，所以两种形态都跑。
+   */
+  const errorPrefix = (msg: string) => [msg, `Error: ${msg}`] as const
+
+  it.each(errorPrefix('No supported browser found (Chrome/Brave/Edge/Chromium on macOS, Linux, or Windows).'))(
+    '没装浏览器：给中文说明 + 两条可照做的出路（原始形态：%s）',
+    (raw) => {
+      const zh = browserErrorText(new Error(raw))
+      expect(zh).toContain('没有可用于浏览器控制的浏览器')
+      expect(zh).toContain('Firefox 不支持')
+      expect(zh).toContain('sudo snap install chromium')
+      expect(zh).toContain('LUMII_BROWSER_EXECUTABLE')
+    },
+  )
+
+  it.each(errorPrefix('browser.executablePath not found: /home/me/cft'))(
+    'executablePath 指错：带上用户写的那条路径，并说明要指向文件本身（原始形态：%s）',
+    (raw) => {
+      const zh = browserErrorText(new Error(raw))
+      expect(zh).toContain('/home/me/cft')
+      expect(zh).toContain('不是它所在的目录')
+    },
+  )
+
+  it.each(errorPrefix('Failed to start Chrome CDP on port 18791 for profile "mtbot".'))(
+    'CDP 等不到：点出 AppArmor 沙箱这个最常见成因（原始形态：%s）',
+    (raw) => {
+      const zh = browserErrorText(new Error(raw))
+      expect(zh).toContain('18791')
+      expect(zh).toContain('AppArmor')
+      expect(zh).toContain('LUMII_BROWSER_NO_SANDBOX=1')
+    },
+  )
+
+  it.each(
+    errorPrefix(
+      'Failed to spawn browser executable at "/x/chrome": spawn EACCES. ' +
+        'Please ensure the browser is installed correctly or configure browser.executablePath.',
+    ),
+  )('spawn 失败：翻出路径与底层原因（原始形态：%s）', (raw) => {
+    const zh = browserErrorText(new Error(raw))
+    // 只看中文段：`原始报错：` 之后是刻意保留的英文原文，不该拿它做断言
+    const chinesePart = zh.split('原始报错：')[0]
+    expect(chinesePart).toContain('/x/chrome')
+    expect(chinesePart).toContain('EACCES')
+    expect(chinesePart).not.toContain('Please ensure')
+    expect(chinesePart).not.toContain('Failed to spawn')
+  })
+
+  it('认不出的报错原样透传（方向性风险：宁可漏翻，不可错翻）', () => {
+    for (const raw of [
+      'browser-route-reached',
+      'url is required',
+      'Unknown device "iPhone 15".',
+      'HTTP 500',
+      'Error: url is required',
+    ]) {
+      expect(browserErrorText(new Error(raw)), raw).toBe(raw)
+    }
+  })
+
+  it('非 Error 值也能处理（catch 到的是 unknown）', () => {
+    expect(browserErrorText('some string failure')).toBe('some string failure')
+  })
+
+  it('中文化后仍保留英文原文，便于搜索与按英文 grep 日志', () => {
+    const raw = 'No supported browser found (Chrome/Brave/Edge/Chromium on macOS, Linux, or Windows).'
+    const zh = browserErrorText(new Error(`Error: ${raw}`))
+    expect(zh).toContain(raw)
+    // `Error: ` 是 String(err) 的产物，展示时剥掉
+    expect(zh).toContain(`原始报错：${raw}`)
+    expect(zh).not.toContain('原始报错：Error:')
+  })
+
+  it('透传时不动原文，连 Error: 前缀也照旧（只有翻译过的才剥）', () => {
+    expect(browserErrorText(new Error('Error: some unknown failure'))).toBe(
+      'Error: some unknown failure',
+    )
+  })
+})
+
+describe('browserErrorText —— 接线（两处 catch 是否真的走了它）', () => {
+  const NO_BROWSER = 'No supported browser found (Chrome/Brave/Edge/Chromium on macOS, Linux, or Windows).'
+
+  it('browser_navigate（wrapExecute 的 catch）返回中文', async () => {
+    const execute = registerAndGetExecute('browser_navigate', NO_BROWSER)
+    const payload = parseJsonToolResultPayload(await execute('tc1', { url: 'https://example.com' }))
+    expect(payload?.ok).toBe(false)
+    expect(String(payload?.error)).toContain('sudo snap install chromium')
+  })
+
+  it('browser_snapshot（自带 catch，不是 wrapExecute）同样返回中文', async () => {
+    const execute = registerAndGetExecute('browser_snapshot', NO_BROWSER)
+    const payload = parseJsonToolResultPayload(await execute('tc1', { full: true }))
+    expect(payload?.ok).toBe(false)
+    expect(String(payload?.error)).toContain('sudo snap install chromium')
   })
 })
 

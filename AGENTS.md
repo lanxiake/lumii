@@ -38,12 +38,46 @@ pnpm dist:linux     # 产物在 apps/windows/release/
 pnpm --filter ./apps/windows package:linux:deb   # 只要 deb
 ```
 
-**运行产物的两个前提**：
+**运行产物的三个前提**：
 
 - **AppImage 需要 FUSE**：Ubuntu 24.04 默认不装 `libfuse2`，直接运行会报 `dlopen(): error loading libfuse.so.2`。
   装 `sudo apt install libfuse2t64`，或临时用 `./Lumii-*.AppImage --appimage-extract-and-run`。
 - **deb 已自带沙箱修复**：`postinst` 会把 `chrome-sandbox` 设为 `root:root 4755`。这是 Ubuntu 24.04 必需的一步
   （默认 `kernel.apparmor_restrict_unprivileged_userns=1`，Chromium 只能走 setuid sandbox）。
+- **浏览器控制需要本机装 Chrome 系浏览器**：`BrowserService` 通过 CDP 控制**本机已有**的
+  Chrome / Edge / Brave / Chromium（探测顺序见 `packages/browser-control/src/browser/chrome.executables.ts`，
+  含 `/usr/bin/*` 与 `/snap/bin/*`）。**Ubuntu 桌面默认只装 Firefox，而 Firefox 不支持 CDP，
+  因此开箱不可用**——`browser_navigate` 会直接报 `No supported browser found`。两条路任选：
+
+  1. **装一个（推荐）**：`sudo snap install chromium`（24.04 上 chromium 只以 snap 分发）。
+     包管理器装出来的浏览器**自带 AppArmor profile**，渲染进程沙箱完好，装完即用。
+  2. **指向任意一份自己已有的 Chromium**（无需 root），用两个环境变量：
+
+     ```bash
+     export LUMII_BROWSER_EXECUTABLE=$HOME/.local/share/lumii-tools/chrome-for-testing/chrome-linux64/chrome
+     export LUMII_BROWSER_NO_SANDBOX=1
+     ```
+
+     `LUMII_BROWSER_EXECUTABLE` 优先于一切自动探测（含 CloakBrowser）。现成包可用
+     Chrome for Testing，国内从 npmmirror 拉（实测 **2.2 MB/s**，对比 GitHub 全源失败）：
+
+     ```bash
+     curl -L -o cft.zip https://cdn.npmmirror.com/binaries/chrome-for-testing/153.0.8010.52/linux64/chrome-linux64.zip
+     unzip -q cft.zip    # 得到 chrome-linux64/chrome
+     ```
+
+     **`LUMII_BROWSER_NO_SANDBOX=1` 在这条路上是必需的**：Ubuntu 23.10+ 默认
+     `kernel.apparmor_restrict_unprivileged_userns=1`，手工解包的 Chromium 没有配套 AppArmor
+     profile，会以 `FATAL:zygote_host_impl_linux.cc(129)] No usable sandbox!` 启动失败
+     （与 AppImage 同一个根因）。它关掉的是渲染进程沙箱，属**安全降级**，所以只认 `1`/`true`、
+     **必须显式开启**，不要为图省事常驻在环境里。
+
+  应用另有一个 CloakBrowser 反检测浏览器兜底（`plugin-bootstrap.ts` 启动时后台下载），
+  但**国内网络下实测四个源全部失败**（`github.com` 直连 / `ghfast.top` / `gh-proxy.com` 连接超时，
+  `gh.ddlc.top` HTTP 429），**不能当作可依赖的自动方案**。
+
+  两个变量都在**应用启动时读一次**（`buildWindowsBrowserConfig()` 随 `startBrowserService()` 调用），
+  改完要重启应用才生效。
 
 **开发期（`pnpm dev`）不需要上述手工步骤**：`scripts/run-dev.cjs` 检测 `chrome-sandbox` 是否已正确配置，
 未配置时自动追加 electron-vite 的 `--noSandbox` 并打印提示（仅开发期；发布产物由 deb 的 postinst 保证）。

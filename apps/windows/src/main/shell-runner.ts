@@ -15,6 +15,8 @@
  */
 
 import { type ChildProcess } from 'node:child_process'
+import * as fs from 'node:fs'
+import * as os from 'node:os'
 import * as path from 'node:path'
 import type { RunnerOptions, RunnerResult } from './ts-runner'
 import { extractResult } from './ts-runner'
@@ -29,6 +31,38 @@ const log = createLogger('ShellRunner')
 const SUPPORTED_EXTENSIONS = new Set(['.sh', '.bash', '.ps1', '.bat', '.cmd'])
 
 /**
+ * pwsh（PowerShell Core）在 Linux 上的常见安装位置。
+ *
+ * **不能只查 PATH**：Electron 从 GUI 启动时未必继承登录 shell 的完整 PATH，
+ * 「装了但没进 PATH」是最常见的情况——与 T3.5 处理 CLI 探测时是同一个结论。
+ * （官方 apt 包会同时建 `/usr/bin/pwsh` 软链，所以这里列 `/usr/bin` 通常就够。）
+ */
+function pwshWellKnownPaths(): string[] {
+  return [
+    '/usr/bin/pwsh',
+    '/usr/local/bin/pwsh',
+    '/snap/bin/pwsh',
+    path.join(os.homedir(), '.local', 'bin', 'pwsh'),
+  ]
+}
+
+/**
+ * 找本机的 pwsh 可执行文件；找不到返回 `null`。
+ *
+ * @param exists 判断路径是否存在，供测试注入；默认 `fs.existsSync`
+ */
+export function findPwshExecutable(exists: (p: string) => boolean = fs.existsSync): string | null {
+  const fromPath = (process.env.PATH ?? '')
+    .split(path.delimiter)
+    .filter(Boolean)
+    .map((dir) => path.join(dir, 'pwsh'))
+  for (const candidate of [...pwshWellKnownPaths(), ...fromPath]) {
+    if (exists(candidate)) return candidate
+  }
+  return null
+}
+
+/**
  * Shell/Batch/PowerShell 技能脚本运行器
  */
 export class ShellRunner {
@@ -36,9 +70,13 @@ export class ShellRunner {
    * 根据文件扩展名和平台解析 shell 命令
    *
    * @param entryPath - 入口脚本的绝对路径
+   * @param deps.exists - 仅供测试注入「路径是否存在」；默认 `fs.existsSync`
    * @returns spawn 参数，不支持的扩展名返回 null
    */
-  resolveShell(entryPath: string): { command: string; args: string[] } | null {
+  resolveShell(
+    entryPath: string,
+    deps: { exists?: (p: string) => boolean } = {},
+  ): { command: string; args: string[] } | null {
     const ext = path.extname(entryPath).toLowerCase()
     const isWin = process.platform === 'win32'
 
@@ -52,7 +90,15 @@ export class ShellRunner {
             args: ['-ExecutionPolicy', 'Bypass', '-File', entryPath],
           }
         }
-        // Unix 上也可以用 pwsh（如果安装了）
+        // Unix 上也可以用 pwsh（如果装了）。**必须先确认它真的在**：
+        // 无条件返回 `{ command: 'pwsh' }` 的话，没装时失败发生在 spawn 阶段，
+        // 用户看到的是一句底层的 ENOENT，不知道该去装什么；同时
+        // `describeUnsupported()` 里那句「请先安装 pwsh」**永远不会被执行到**（曾经如此）。
+        // 探测放在解析期，才能把「缺什么」翻译成用户能照做的报错。
+        if (!findPwshExecutable(deps.exists)) {
+          log.warn('未找到 pwsh（PowerShell Core），无法执行 .ps1 技能', { entryPath })
+          return null
+        }
         return { command: 'pwsh', args: ['-File', entryPath] }
 
       case '.bat':
@@ -79,6 +125,10 @@ export class ShellRunner {
    *
    * 收敛前一律报「不支持的脚本类型: .bat」——在 Linux 上这是**误导**：脚本类型
    * 没问题，是平台不匹配。用户看到这句话不知道该换脚本还是换系统。
+   *
+   * 两条平台专属分支的前提是 `resolveShell()` 在对应情况下返回 `null`：
+   * `.bat/.cmd` 一直如此；`.ps1` **原先不是**（无条件返回 `pwsh`），
+   * 所以那句话从未被执行到——现在 `resolveShell()` 会先探测 pwsh 是否存在。
    */
   private describeUnsupported(entryPath: string): string {
     const ext = path.extname(entryPath).toLowerCase()

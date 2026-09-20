@@ -84,3 +84,57 @@ describe('ModelConfigSection 思考配置', () => {
     expect(saved.chat.thinkingFormat).toBe('qwen')
   })
 })
+
+/**
+ * 「已保存的凭据解不开」在设置页的提示。
+ *
+ * 为什么要有这一组：main 侧把解密失败与「没填」分开了（视图上的
+ * `apiKeyDecryptFailed`），但如果渲染层不读它，用户第一眼看到的仍是
+ * **一个空的 API Key 输入框**——他会以为自己没填过，重填、保存、重启，问题照旧。
+ * 这一组锁的就是「这个标记真的被界面用上了」。
+ */
+describe('ModelConfigSection 凭据解密失败提示', () => {
+  function setGetConfig(cfg: ProviderSlotsConfigView) {
+    window.electronAPI = {
+      ...window.electronAPI,
+      provider: {
+        getConfig: vi.fn(async () => cfg),
+        setConfig: vi.fn(async (c: unknown) => c),
+        listModels: vi.fn(async () => []),
+        testConnection: vi.fn(async () => ({ ok: true, message: '' })),
+      },
+    } as unknown as typeof window.electronAPI
+  }
+
+  const ALERT = /已保存的凭据无法解密/
+
+  it('标记为真时明确说明「读不出来」而不是显示一个空框', async () => {
+    setGetConfig(buildConfig({ apiKey: '', apiKeyDecryptFailed: true }))
+    renderSection()
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(ALERT)
+    // 得告诉用户重填就行，且旧密文不会被保存覆盖
+    expect(alert).toHaveTextContent('重新填写')
+    expect(alert).toHaveTextContent('原密文会保留')
+  })
+
+  it('没有该标记时不出现（正常用户不该看到这句）', async () => {
+    setGetConfig(buildConfig({ apiKey: 'sk-test' }))
+    renderSection()
+
+    await waitFor(() => expect(screen.getByText('API Key')).toBeInTheDocument())
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('用户一开始重填就撤掉提示（别挂在已填好的框下面）', async () => {
+    setGetConfig(buildConfig({ apiKey: '', apiKeyDecryptFailed: true }))
+    renderSection()
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(ALERT)
+
+    fireEvent.change(screen.getByPlaceholderText('sk-...'), { target: { value: 'sk-new' } })
+
+    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument())
+  })
+})

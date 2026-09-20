@@ -48,8 +48,46 @@ let browserContext: BrowserRouteContext | null = null
 // ============================================================================
 
 /**
+ * 从环境变量读浏览器可执行文件覆盖（`LUMII_BROWSER_EXECUTABLE`）。空串按未设置处理。
+ *
+ * **为什么需要这个口子**：`resolveBrowserExecutableForPlatform()` 只认系统级安装路径
+ * （`/usr/bin/*`、`/snap/bin/*`），而 Ubuntu 24.04 桌面**默认只装 Firefox**，Firefox
+ * 不支持 CDP——于是浏览器控制在全新系统上开箱即坏（实测 `No supported browser found`）。
+ * 自带的 CloakBrowser 兜底要从 GitHub 镜像下载，国内实测四源全部失败（连接超时 / HTTP 429），
+ * 不能依赖。有了它，用户指向任意一份自己已有的 Chromium 系可执行文件即可，无需写系统目录。
+ *
+ * 路径不存在时由 `resolveBrowserExecutableForPlatform()` 抛
+ * `browser.executablePath not found: …`——比静默回退到探测更利于排查。
+ */
+function readExecutablePathOverride(): string | undefined {
+  return process.env.LUMII_BROWSER_EXECUTABLE?.trim() || undefined
+}
+
+/**
+ * 从环境变量读「是否给浏览器加 `--no-sandbox`」（`LUMII_BROWSER_NO_SANDBOX`，`1`/`true` 为真）。
+ *
+ * Ubuntu 23.10+ 默认 `kernel.apparmor_restrict_unprivileged_userns=1`，**非包管理器安装**的
+ * Chromium（例如手工解包的 Chrome for Testing）没有配套的 AppArmor profile，直接起不来：
+ *
+ * ```
+ * FATAL:zygote_host_impl_linux.cc(129)] No usable sandbox! If you are running on Ubuntu 23.10+ …
+ * ```
+ *
+ * **不能默认开**：`--no-sandbox` 关掉的是渲染进程的沙箱，是实打实的安全降级，
+ * 面对不可信网页时不能替用户做这个决定。而包管理器装出来的浏览器自带 profile、
+ * 根本不需要它——所以这里要求用户显式选择。优先路径始终是 `sudo snap install chromium`。
+ */
+function readNoSandboxOverride(): boolean {
+  const raw = process.env.LUMII_BROWSER_NO_SANDBOX?.trim().toLowerCase()
+  return raw === '1' || raw === 'true'
+}
+
+/**
  * 构造 Windows 客户端专用的浏览器配置
  * 不读取网关配置文件，使用合理默认值
+ *
+ * 两个覆盖项都只从环境变量取（`LUMII_BROWSER_EXECUTABLE` / `LUMII_BROWSER_NO_SANDBOX`）——
+ * 目前没有需要程序化注入的调用方，多开参数只会让签名变长。
  */
 export function buildWindowsBrowserConfig(
   cdpPort = DEFAULT_CDP_PORT,
@@ -67,9 +105,9 @@ export function buildWindowsBrowserConfig(
     remoteCdpTimeoutMs: 1500,
     remoteCdpHandshakeTimeoutMs: 3000,
     color: '#4285F4',
-    executablePath: undefined,
+    executablePath: readExecutablePathOverride(),
     headless: false,
-    noSandbox: false,
+    noSandbox: readNoSandboxOverride(),
     attachOnly: false,
     defaultProfile: 'mtbot',
     profiles: {

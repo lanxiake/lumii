@@ -698,7 +698,7 @@ export class AgentRuntimeBridge {
     }
     const isLocal = cfg.type === 'ollama' || cfg.type === 'lmstudio'
     if (!isLocal && !cfg.apiKey?.trim()) {
-      log.warn('[callLLM fallback] 缺少 API Key，无法创建兜底 stream')
+      log.warn(`[callLLM fallback] 缺少 API Key，无法创建兜底 stream${cfg.apiKeyDecryptFailed ? '（凭据存在但解密失败）' : ''}`)
       return undefined
     }
 
@@ -2941,7 +2941,7 @@ export class AgentRuntimeBridge {
     }
     const isLocal = cfg.type === 'ollama' || cfg.type === 'lmstudio'
     if (!isLocal && !cfg.apiKey?.trim()) {
-      log.warn(`[${logTag}] chat 能力槎位缺少 API Key，跳过`)
+      log.warn(`[${logTag}] chat 能力槎位缺少 API Key，跳过${cfg.apiKeyDecryptFailed ? '（凭据存在但解密失败）' : ''}`)
       return undefined
     }
     if (!cfg.modelId?.trim()) {

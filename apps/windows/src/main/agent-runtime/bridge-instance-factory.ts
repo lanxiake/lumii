@@ -74,7 +74,7 @@ import {
 } from './bridge-agent-instance-events'
 import { agentRuntimeLog as log, filterToolsByDefinition } from './bridge-utils'
 import { SHARED_WIKI_LIBRARY_AGENT_ID } from './wiki-library'
-import { ensureProviderBaseUrl } from '../provider-config'
+import { ensureProviderBaseUrl, missingApiKeyMessage } from '../provider-config'
 import { resolveModelThinking, resolveReasoningOptions, apiForProviderType } from '../model-thinking'
 import { resizeImageIfNeeded } from './image-resizer'
 import type { FileMemoryHandler } from './file-memory-handler'
@@ -245,7 +245,8 @@ export class BridgeInstanceFactory {
         }
         const isLocal = cfg.type === 'ollama' || cfg.type === 'lmstudio'
         if (!isLocal && !cfg.apiKey?.trim()) {
-          throw new Error('请先在设置中填写文本对话模型的 API Key')
+          // 区分「没填」与「填了但解不开」——后者重填没用，得先说清坏在哪
+          throw new Error(missingApiKeyMessage(cfg))
         }
         if (!cfg.modelId?.trim() && !model?.id) {
           throw new Error('请先在设置中填写或选择文本对话模型 ID')

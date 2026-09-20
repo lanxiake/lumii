@@ -8,6 +8,7 @@ import {
   type ProviderType,
   PROVIDER_DEFAULT_BASE_URL,
   ensureProviderBaseUrl,
+  missingApiKeyMessage,
 } from './provider-config.js'
 
 export interface ListedModel {
@@ -163,7 +164,7 @@ export async function testProviderConnection(
   }
   const isLocal = cfg.type === 'ollama' || cfg.type === 'lmstudio'
   if (!isLocal && !cfg.apiKey?.trim()) {
-    return { ok: false, message: '请填写 API Key' }
+    return { ok: false, message: missingApiKeyMessage(cfg) }
   }
 
   const started = Date.now()
