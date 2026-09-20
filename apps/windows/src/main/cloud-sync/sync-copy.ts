@@ -252,7 +252,12 @@ function copyLevel(src: string, dst: string, ctx: CopyContext): void {
       ) {
         result.skippedLarge += 1
         result.skippedLargePaths.push(srcPath)
-        logger.warn(`[copySyncDirectory] 跳过大文件: ${srcPath} (${srcStat.size} bytes)`)
+        // ⚠️ 这里**刻意不逐条打日志**（2026-09-20 改）。原因见
+        // docs/fix/2026-09-20-主进程冻结调查与修复.md 第六节：
+        // 这条路一天能产生数万条 WARN（09-19 实测 71893 条），而 Windows 上 Node 对
+        // **管道** stdout 是**同步写** —— 日志量撑爆管道缓冲（约 64KB）且读端跟不上时，
+        // 同步写会阻塞主线程，**冻结时长完全由读端决定**（实测到 8 秒、54 秒、606 秒）。
+        // 数量与路径都已记入 result，调用方 sync-exporter 会打一条带示例的汇总。
         // 名字留在 srcNames 里：目标侧同名旧版本不删，避免「跳过」被误当成「删除」
         continue
       }

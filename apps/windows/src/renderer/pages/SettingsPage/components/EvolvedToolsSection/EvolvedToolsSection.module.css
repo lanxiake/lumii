@@ -10,19 +10,19 @@
   margin: 0 0 4px;
   font-size: 13px;
   line-height: 1.7;
-  color: var(--mt-fg-2, var(--text-secondary, #718096));
+  color: var(--mt-fg-2, var(--text-secondary));
 }
 
 .status {
   margin: 8px 0;
   font-size: 13px;
-  color: var(--mt-fg-4, var(--text-secondary, #a0aec0));
+  color: var(--mt-fg-4, var(--text-secondary));
 }
 
 .error {
   margin: 8px 0;
   font-size: 13px;
-  color: var(--mt-error, #ef4444);
+  color: var(--mt-error);
 }
 
 .groupTitle {
@@ -32,7 +32,7 @@
   margin: 18px 0 8px;
   font-size: 13px;
   font-weight: 600;
-  color: var(--mt-fg-1, var(--text-primary, #1a202c));
+  color: var(--mt-fg-1, var(--text-primary));
 }
 
 .groupTitle:first-of-type {
@@ -46,9 +46,9 @@
   gap: 12px;
   padding: 12px 14px;
   margin-bottom: 8px;
-  border: 1px solid var(--mt-border-hairline, var(--border-color, #e2e8f0));
+  border: 1px solid var(--mt-border-hairline, var(--border-color));
   border-radius: 10px;
-  background: var(--mt-surface-2, var(--bg-secondary, #f7fafc));
+  background: var(--mt-surface-2, var(--bg-secondary));
 }
 
 .itemMain {
@@ -67,19 +67,19 @@
   font-family: var(--mt-font-mono, Consolas, Monaco, monospace);
   font-size: 13px;
   font-weight: 600;
-  color: var(--mt-accent-600, var(--color-primary, #4299e1));
+  color: var(--mt-accent-600, var(--color-primary));
 }
 
 .meta {
   font-size: 11px;
-  color: var(--mt-fg-4, var(--text-secondary, #a0aec0));
+  color: var(--mt-fg-4, var(--text-secondary));
 }
 
 .desc {
   margin: 4px 0 6px;
   font-size: 12.5px;
   line-height: 1.6;
-  color: var(--mt-fg-2, var(--text-secondary, #4a5568));
+  color: var(--mt-fg-2, var(--text-secondary));
   word-break: break-all;
 }
 
@@ -88,7 +88,7 @@
   margin-right: 6px;
   font-size: 11px;
   font-weight: 600;
-  color: var(--mt-fg-3, #718096);
+  color: var(--mt-fg-3);
 }
 
 .advice {
@@ -102,7 +102,7 @@
   margin: 0;
   font-size: 12px;
   line-height: 1.5;
-  color: var(--mt-fg-2, #4a5568);
+  color: var(--mt-fg-2);
 }
 
 .dupWarn {
@@ -127,7 +127,7 @@
 .sampleCmd {
   font-family: var(--mt-font-mono, Consolas, Monaco, monospace);
   font-size: 11px;
-  color: var(--mt-fg-3, #718096);
+  color: var(--mt-fg-3);
   word-break: break-all;
 }
 
@@ -137,8 +137,8 @@
   border-radius: 6px;
   font-family: var(--mt-font-mono, Consolas, Monaco, monospace);
   font-size: 12px;
-  color: var(--mt-fg-2, #4a5568);
-  background: var(--mt-code-bg, var(--bg-code, #edf2f7));
+  color: var(--mt-fg-2);
+  background: var(--mt-code-bg, var(--bg-code));
   overflow-x: auto;
   white-space: pre;
 }
@@ -264,7 +264,7 @@
   font-weight: 700;
   font-size: 11px;
   background: var(--mt-accent-500, var(--color-primary));
-  color: white;
+  color: var(--mt-fg-on-accent);
 }
 
 .commandText {

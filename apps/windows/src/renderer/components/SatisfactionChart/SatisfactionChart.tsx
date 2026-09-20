@@ -6,7 +6,7 @@
  */
 
 import React from 'react'
-import { useDataThemeColorMode } from '../../hooks/common/useDataThemeColorMode/useDataThemeColorMode'
+import { useThemeAttr } from '../../hooks/common/useDataThemeColorMode/useDataThemeColorMode'
 import './SatisfactionChart.css'
 
 /**
@@ -38,9 +38,20 @@ const CHART_PAD = {
 
 /* canvas 画不了 CSS 变量，这里映射到 token 名，运行时取计算值，
    避免写死 hex 在浅色/深色主题下失真 */
-const readToken = (name: string, fallback: string): string => {
+const readToken = (name: string, fallback = ''): string => {
   const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim()
   return v || fallback
+}
+
+/** 轴标签基准字号；随全局字号档位缩放（canvas 读不到 CSS 变量） */
+const AXIS_LABEL_BASE_PX = 11
+
+function readFontScale(): number {
+  if (typeof document === 'undefined') return 1
+  const scale = Number.parseFloat(
+    getComputedStyle(document.documentElement).getPropertyValue('--app-font-scale'),
+  )
+  return Number.isFinite(scale) && scale > 0 ? scale : 1
 }
 
 /** 折线图绘制配色 */
@@ -60,7 +71,16 @@ export function SatisfactionChart({ history, window = '7d', fillHeight = false }
   const containerRef = React.useRef<HTMLDivElement>(null)
   const [hoveredPoint, setHoveredPoint] = React.useState<number | null>(null)
   const [size, setSize] = React.useState({ width: 640, height: 240 })
-  const colorMode = useDataThemeColorMode()
+  const colorMode = useThemeAttr()
+  /** 全局字号档位；变化时触发重绘，让轴标签跟着缩放 */
+  const [fontScale, setFontScale] = React.useState(() => readFontScale())
+
+  React.useEffect(() => {
+    const root = document.documentElement
+    const observer = new MutationObserver(() => setFontScale(readFontScale()))
+    observer.observe(root, { attributes: true, attributeFilter: ['style', 'data-font-scale'] })
+    return () => observer.disconnect()
+  }, [])
 
   const filteredData = React.useMemo(() => {
     const now = Date.now()
@@ -105,11 +125,11 @@ export function SatisfactionChart({ history, window = '7d', fillHeight = false }
     if (!ctx) return
 
     const colors: ChartColors = {
-      grid: readToken('--mt-fg-3', '#94a3b8'),
-      axisLabel: readToken('--mt-fg-3', '#94a3b8'),
-      line: readToken('--mt-accent-500', '#3b82f6'),
-      area: `rgba(${readToken('--mt-accent-rgb', '59, 130, 246')}, 0.12)`,
-      point: readToken('--mt-accent-500', '#3b82f6'),
+      grid: readToken('--mt-fg-3'),
+      axisLabel: readToken('--mt-fg-3'),
+      line: readToken('--mt-accent-500'),
+      area: `rgba(${readToken('--mt-accent-rgb')}, 0.12)`,
+      point: readToken('--mt-accent-500'),
     }
 
     const dpr = globalThis.devicePixelRatio || 1
@@ -119,8 +139,8 @@ export function SatisfactionChart({ history, window = '7d', fillHeight = false }
     canvas.style.height = `${size.height}px`
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
 
-    drawChart(ctx, size.width, size.height, filteredData, colors)
-  }, [filteredData, size, colorMode])
+    drawChart(ctx, size.width, size.height, filteredData, colors, fontScale)
+  }, [filteredData, size, colorMode, fontScale])
 
   if (filteredData.length === 0) {
     return (
@@ -207,16 +227,18 @@ function drawChart(
   height: number,
   data: SatisfactionDataPoint[],
   colors: ChartColors,
+  fontScale: number,
 ) {
   const { top, right, bottom, left } = CHART_PAD
   const chartWidth = Math.max(1, width - left - right)
   const chartHeight = Math.max(1, height - top - bottom)
+  const axisFont = `${Math.round(AXIS_LABEL_BASE_PX * fontScale)}px system-ui, "Segoe UI", sans-serif`
 
   ctx.clearRect(0, 0, width, height)
 
   // Y 轴网格与标签
   ctx.lineWidth = 1
-  ctx.font = '11px system-ui, "Segoe UI", sans-serif'
+  ctx.font = axisFont
 
   for (let i = 0; i <= 5; i++) {
     const y = top + (chartHeight * (5 - i)) / 5
@@ -282,7 +304,7 @@ function drawChart(
 
   // X 轴日期标签（短格式，避免溢出）
   ctx.fillStyle = colors.axisLabel
-  ctx.font = '11px system-ui, "Segoe UI", sans-serif'
+  ctx.font = axisFont
   ctx.textBaseline = 'top'
 
   const labelCount = Math.min(5, data.length)

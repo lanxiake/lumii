@@ -90,8 +90,8 @@
   height: 36px;
   margin-top: 2px;
   border-radius: var(--mt-radius-full);
-  background: color-mix(in srgb, var(--mt-accent-500) 88%, #60a5fa);
-  color: #fff;
+  background: color-mix(in srgb, var(--mt-accent-500) 88%, var(--mt-accent-400));
+  color: var(--mt-fg-on-accent);
   box-shadow: 0 6px 14px -4px color-mix(in srgb, var(--mt-accent-500) 55%, transparent);
 }
 
@@ -160,8 +160,8 @@
 }
 
 .chip-ic--out {
-  background: color-mix(in srgb, #8b5cf6 14%, transparent);
-  color: #8b5cf6;
+  background: color-mix(in srgb, var(--mt-violet) 14%, transparent);
+  color: var(--mt-violet);
 }
 
 .chip-lab {
@@ -219,7 +219,7 @@
 }
 
 .stat-ic--avg {
-  background: color-mix(in srgb, #f59e0b 16%, transparent);
+  background: color-mix(in srgb, var(--mt-warning) 16%, transparent);
   color: #d97706;
 }
 
@@ -277,7 +277,7 @@
   border-radius: inherit;
   background: linear-gradient(
     90deg,
-    color-mix(in srgb, var(--mt-success) 75%, #86efac),
+    color-mix(in srgb, var(--mt-success) 75%, var(--mt-success-light)),
     var(--mt-success)
   );
   transition: width var(--mt-dur-slow) var(--mt-ease-decel);

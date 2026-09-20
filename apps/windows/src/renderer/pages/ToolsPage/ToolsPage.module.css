@@ -58,7 +58,7 @@
 
 .tab.active .badge {
   background: var(--mt-accent-500, var(--color-primary));
-  color: white;
+  color: var(--mt-fg-on-accent);
 }
 
 .toolbar {
@@ -226,7 +226,7 @@
 }
 
 .usageErrors {
-  color: var(--mt-danger-500, var(--color-danger, #d9534f));
+  color: var(--mt-error);
 }
 
 .usageLast {

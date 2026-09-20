@@ -13,10 +13,6 @@
   min-height: 0;
   margin: 0 auto;
   overflow: hidden;
-  /* 概览页局部提亮强调色（不改全局 token，避免自引用） */
-  --mt-accent-500: #4f8ff7;
-  --mt-tone-a: #22d3ee;
-  --mt-tone-b: #34d399;
 }
 
 /* 页头（原型 .ph）：不用通用 PageHeader，原型这里没有下边框、字号也更紧 */
@@ -50,7 +46,9 @@
   );
   background-clip: text;
   -webkit-background-clip: text;
-  color: transparent;
+  /* 用 -webkit-text-fill-color 配 background-clip:text；写 color:transparent
+     在裁切失效时会让文字不可见、渐变铺成实心块（LumiiLogo 实测踩过） */
+  -webkit-text-fill-color: transparent;
   font-size: 22px;
   font-weight: var(--mt-fw-bold);
   letter-spacing: -0.025em;
@@ -62,7 +60,7 @@
   gap: 7px;
   margin-top: 5px;
   color: var(--mt-fg-3);
-  font-size: 12px;
+  font-size: var(--font-size-xs);
 }
 
 .page-sub b {
@@ -81,10 +79,10 @@
 /* 状态点：向外扩散一圈再消失，表示「还在跑」 */
 @keyframes mt-dash-ping {
   70% {
-    box-shadow: 0 0 0 7px rgba(34, 197, 94, 0);
+    box-shadow: 0 0 0 7px rgba(var(--mt-success-rgb), 0);
   }
   100% {
-    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0);
+    box-shadow: 0 0 0 0 rgba(var(--mt-success-rgb), 0);
   }
 }
 
@@ -94,7 +92,7 @@
   height: 7px;
   border-radius: var(--mt-radius-full);
   background: var(--mt-success);
-  box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.5);
+  box-shadow: 0 0 0 0 rgba(var(--mt-success-rgb), 0.5);
   animation: mt-dash-ping var(--mt-dur-breathe) var(--mt-ease-standard) infinite;
 }
 
@@ -116,7 +114,7 @@
     linear-gradient(
       115deg,
       color-mix(in srgb, var(--mt-accent-500) 12%, var(--mt-bg-elevated)) 0%,
-      color-mix(in srgb, var(--mt-tone-a, #38bdf8) 9%, var(--mt-surface-2)) 48%,
+      color-mix(in srgb, var(--mt-tone-a) 9%, var(--mt-surface-2)) 48%,
       color-mix(in srgb, var(--mt-tone-b) 5%, var(--mt-bg-elevated)) 100%
     );
   animation: mt-dash-runtime-in 0.55s var(--mt-ease-standard) 0.06s both;
@@ -141,7 +139,7 @@
   background: linear-gradient(
     180deg,
     var(--mt-accent-500),
-    color-mix(in srgb, var(--mt-tone-a, #38bdf8) 70%, transparent),
+    color-mix(in srgb, var(--mt-tone-a) 70%, transparent),
     color-mix(in srgb, var(--mt-tone-b) 80%, transparent)
   );
   border-radius: 0 2px 2px 0;
@@ -200,7 +198,7 @@
 .rt-title {
   margin-bottom: 3px;
   color: var(--mt-fg-1);
-  font-size: 13.5px;
+  font-size: var(--font-size-sm);
   font-weight: var(--mt-fw-semibold);
   letter-spacing: -0.01em;
 }
@@ -208,7 +206,7 @@
 .rt-desc {
   overflow: hidden;
   color: var(--mt-fg-3);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   white-space: nowrap;
   text-overflow: ellipsis;
 }
@@ -237,7 +235,7 @@
     180deg,
     color-mix(in srgb, var(--mt-accent-500) 85%, #fff) 0%,
     var(--mt-accent-500) 35%,
-    color-mix(in srgb, var(--mt-tone-a, #38bdf8) 80%, transparent) 100%
+    color-mix(in srgb, var(--mt-tone-a) 80%, transparent) 100%
   );
   box-shadow: 0 0 10px color-mix(in srgb, var(--mt-accent-500) 45%, transparent);
   transform-origin: bottom;
@@ -268,7 +266,7 @@
   background: color-mix(in srgb, var(--mt-bg-elevated) 92%, var(--mt-accent-500));
   color: var(--mt-fg-1);
   font-family: var(--mt-font-sans, inherit);
-  font-size: 10.5px;
+  font-size: var(--font-size-xs);
   font-style: normal;
   line-height: 1.35;
   white-space: nowrap;
@@ -425,7 +423,7 @@
 
 .rt-stat-label {
   color: var(--mt-fg-4);
-  font-size: 10px;
+  font-size: var(--font-size-xs);
   letter-spacing: 0.02em;
 }
 
@@ -439,7 +437,7 @@
 .rt-stat-value b {
   color: var(--mt-fg-1);
   font-family: var(--mt-font-mono);
-  font-size: 16px;
+  font-size: var(--font-size-lg);
   font-weight: var(--mt-fw-semibold);
   font-style: normal;
 }
@@ -447,7 +445,7 @@
 .rt-stat-value em {
   color: var(--mt-fg-3);
   font-family: var(--mt-font-mono);
-  font-size: 10px;
+  font-size: var(--font-size-xs);
   font-style: normal;
 }
 

@@ -88,9 +88,9 @@ const FilePreviewWindowInner: React.FC = () => {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          color: 'var(--mt-fg-2, #666)',
+          color: 'var(--mt-fg-2)',
           fontSize: 14,
-          background: 'var(--mt-surface-1, #f7f4ef)',
+          background: 'var(--mt-surface-1)',
         }}
       >
         {error}
@@ -106,9 +106,9 @@ const FilePreviewWindowInner: React.FC = () => {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          color: 'var(--mt-fg-3, #999)',
+          color: 'var(--mt-fg-3)',
           fontSize: 13,
-          background: 'var(--mt-surface-1, #f7f4ef)',
+          background: 'var(--mt-surface-1)',
         }}
       >
         加载中…

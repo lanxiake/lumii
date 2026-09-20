@@ -106,6 +106,30 @@ export function deepMerge<T extends object>(target: T, source: Partial<T>): T {
   return result
 }
 
+/** 历史主题值的别名（'ragdoll' 是护眼主题的早期占位名，从未在 CSS 落地） */
+const LEGACY_THEME_MODES: Record<string, AppSettings['theme']['mode']> = {
+  ragdoll: 'eye-care',
+}
+
+/** 归一化主题值：未知值回落到默认，历史值映射到现值 */
+function normalizeThemeMode(value: unknown): AppSettings['theme']['mode'] | undefined {
+  if (typeof value !== 'string') return undefined
+  const mapped = LEGACY_THEME_MODES[value] ?? value
+  const known: AppSettings['theme']['mode'][] = ['light', 'dark', 'eye-care', 'system']
+  return known.includes(mapped as AppSettings['theme']['mode'])
+    ? (mapped as AppSettings['theme']['mode'])
+    : undefined
+}
+
+/** 归一化历史主题值：'ragdoll'（护眼主题的早期占位名，从未在 CSS 落地）→ 'eye-care' */
+function normalizeThemeAliases(raw: Partial<AppSettings>): Partial<AppSettings> {
+  const mode = normalizeThemeMode(raw.theme?.mode)
+  if (!mode) {
+    return raw.theme ? { ...raw, theme: { ...raw.theme, mode: DEFAULT_SETTINGS.theme.mode } } : raw
+  }
+  return { ...raw, theme: { ...DEFAULT_SETTINGS.theme, ...raw.theme, mode } }
+}
+
 /** 读取已存设置并合并默认值（含旧 SettingsContext key 的一次性迁移）；解析失败抛出，由调用方兜底 */
 export function loadInitialSettings(): AppSettings {
   // 独立版：不拉取远程配置，仅用本地默认值
@@ -123,7 +147,7 @@ export function loadInitialSettings(): AppSettings {
         // 映射旧字段到新结构
         base = {
           theme: legacyParsed.theme
-            ? { ...effectiveDefaults.theme, mode: legacyParsed.theme as AppSettings['theme']['mode'] }
+            ? { ...effectiveDefaults.theme, mode: normalizeThemeMode(legacyParsed.theme) ?? effectiveDefaults.theme.mode }
             : undefined,
           language: legacyParsed.language as AppSettings['language'] | undefined,
           window: {
@@ -151,7 +175,7 @@ export function loadInitialSettings(): AppSettings {
       }
     }
   } else {
-    base = JSON.parse(stored) as Partial<AppSettings>
+    base = normalizeThemeAliases(JSON.parse(stored) as Partial<AppSettings>)
   }
 
   return deepMerge(effectiveDefaults, base)

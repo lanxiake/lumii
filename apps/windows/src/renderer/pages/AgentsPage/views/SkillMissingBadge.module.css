@@ -5,20 +5,20 @@
   display: inline-flex; align-items: center; gap: 4px;
   font-size: 11px; font-weight: 500; padding: 2px 8px;
   border-radius: var(--mt-radius-full, 9999px);
-  background: rgba(245, 158, 11, 0.12);
-  color: var(--mt-warning, #f59e0b);
-  border: 1px solid rgba(245, 158, 11, 0.28);
+  background: rgba(var(--mt-warning-rgb), 0.12);
+  color: var(--mt-warning);
+  border: 1px solid rgba(var(--mt-warning-rgb), 0.28);
   cursor: pointer; white-space: nowrap; line-height: 1.6;
   transition: background 0.15s, border-color 0.15s;
   user-select: none;
 }
 .badge:hover {
-  background: rgba(245, 158, 11, 0.2);
-  border-color: rgba(245, 158, 11, 0.45);
+  background: rgba(var(--mt-warning-rgb), 0.2);
+  border-color: rgba(var(--mt-warning-rgb), 0.45);
 }
 .badge-dot {
   width: 5px; height: 5px; border-radius: 50%;
-  background: var(--mt-warning, #f59e0b);
+  background: var(--mt-warning);
   flex-shrink: 0;
   animation: badge-pulse 2s ease-in-out infinite;
 }
@@ -30,8 +30,8 @@
 /* ── Popover 面板 ───────────────────────────────────── */
 .popover {
   position: absolute; top: calc(100% + 8px); z-index: 200;
-  background: var(--mt-bg-elevated, #1e293b);
-  border: 1px solid var(--mt-border, #334155);
+  background: var(--mt-bg-elevated);
+  border: 1px solid var(--mt-border);
   border-radius: var(--mt-radius-xl, 12px);
   padding: 0; width: 264px;
   box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45), 0 4px 12px rgba(0, 0, 0, 0.25);
@@ -44,28 +44,28 @@
 .popover-header {
   display: flex; align-items: center; gap: 8px;
   padding: 12px 14px 10px;
-  border-bottom: 1px solid var(--mt-border, #334155);
+  border-bottom: 1px solid var(--mt-border);
 }
 .popover-header-icon { font-size: 14px; flex-shrink: 0; }
 .popover-header-text { flex: 1; min-width: 0; }
 .popover-title {
   font-size: 12px; font-weight: 600;
-  color: var(--mt-fg-1, #f8fafc);
+  color: var(--mt-fg-1);
   line-height: 1.3;
 }
 .popover-subtitle {
-  font-size: 11px; color: var(--mt-fg-3, #94a3b8);
+  font-size: 11px; color: var(--mt-fg-3);
   margin-top: 1px;
 }
 .popover-close {
   display: flex; align-items: center; justify-content: center;
   width: 22px; height: 22px; border-radius: var(--mt-radius-md, 6px);
   background: transparent; border: none; cursor: pointer;
-  color: var(--mt-fg-3, #94a3b8); flex-shrink: 0;
+  color: var(--mt-fg-3); flex-shrink: 0;
   transition: background 0.12s, color 0.12s;
   font-size: 14px; line-height: 1;
 }
-.popover-close:hover { background: var(--mt-bg-tertiary, #334155); color: var(--mt-fg-1, #f8fafc); }
+.popover-close:hover { background: var(--mt-bg-tertiary); color: var(--mt-fg-1); }
 
 /* ── 技能列表 ───────────────────────────────────────── */
 .skill-list { padding: 6px 0; }
@@ -75,7 +75,7 @@
   padding: 7px 14px;
   transition: background 0.1s;
 }
-.skill-row:hover { background: var(--mt-bg-tertiary, #1e293b); }
+.skill-row:hover { background: var(--mt-bg-tertiary); }
 
 .skill-icon {
   width: 28px; height: 28px; border-radius: var(--mt-radius-md, 6px);
@@ -87,7 +87,7 @@
 .skill-info { flex: 1; min-width: 0; }
 .skill-name {
   font-size: 12px; font-weight: 500;
-  color: var(--mt-fg-1, #f8fafc);
+  color: var(--mt-fg-1);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
@@ -98,7 +98,7 @@
   font-size: 11px; font-weight: 500; padding: 4px 10px;
   border-radius: var(--mt-radius-md, 6px);
   background: rgba(59, 130, 246, 0.15);
-  color: var(--mt-accent-500, #3b82f6);
+  color: var(--mt-accent-500);
   border: 1px solid rgba(59, 130, 246, 0.25);
   cursor: pointer; white-space: nowrap;
   transition: background 0.15s, border-color 0.15s;
@@ -110,7 +110,7 @@
 .btn-download:disabled { opacity: 0.55; cursor: default; }
 
 .status-error {
-  font-size: 11px; color: var(--mt-error, #ef4444);
+  font-size: 11px; color: var(--mt-error);
   display: inline-flex; align-items: center; gap: 3px;
 }
 
@@ -119,7 +119,7 @@
   font-size: 11px; font-weight: 500; padding: 4px 10px;
   border-radius: var(--mt-radius-md, 6px);
   background: rgba(255, 255, 255, 0.05);
-  color: var(--mt-fg-2, #cbd5e1);
+  color: var(--mt-fg-2);
   border: 1px solid rgba(255, 255, 255, 0.1);
   cursor: pointer; white-space: nowrap;
   transition: background 0.15s, border-color 0.15s;
@@ -127,21 +127,21 @@
 .btn-search-store:hover {
   background: rgba(255, 255, 255, 0.1);
   border-color: rgba(255, 255, 255, 0.2);
-  color: var(--mt-fg-1, #f8fafc);
+  color: var(--mt-fg-1);
 }
 
 /* ── 底部跳转区 ─────────────────────────────────────── */
 .popover-footer {
   display: flex; align-items: center; justify-content: center;
   padding: 8px 14px 12px;
-  border-top: 1px solid var(--mt-border, #334155);
+  border-top: 1px solid var(--mt-border);
 }
 .btn-goto-store {
   display: inline-flex; align-items: center; gap: 6px;
   font-size: 12px; font-weight: 500; padding: 6px 16px;
   border-radius: var(--mt-radius-lg, 8px);
   background: rgba(59, 130, 246, 0.1);
-  color: var(--mt-accent-500, #3b82f6);
+  color: var(--mt-accent-500);
   border: 1px solid rgba(59, 130, 246, 0.2);
   cursor: pointer; width: 100%; justify-content: center;
   transition: background 0.15s, border-color 0.15s;

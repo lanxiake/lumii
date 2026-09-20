@@ -725,22 +725,41 @@ export class ConversationRepo {
   > {
     if (conversationIds.length === 0) return new Map();
 
-    // 使用 ROW_NUMBER() 对每个会话分区，只取最近 limit 条（is_streaming=0）。
-    // SQLite 3.25+ 支持窗口函数；node:sqlite 捆绑的是现代版 SQLite，可用。
+    // ⚠️ 这里是**相关子查询**（`m2.conversation_id = m.conversation_id`），不是窗口函数。
+    // 曾用 `ROW_NUMBER() OVER (PARTITION BY conversation_id ...)` + 外层 `rn <= ?`：
+    // 那要求 SQLite 先对**全部候选行**（实测 2530 行 / content_json 合计 39MB）算出
+    // 行号，最后才丢弃绝大多数；而且窗口里带着 content_json，排序时整个载荷都在物化。
+    //
+    // 2026-09-20 实测（686 会话 / 1691 结果行，只读副本，取最优 3 次）：
+    //   | 写法                                   | 耗时      | 语义 |
+    //   | 窗口函数（原实现）                      | 1080 ms  | 基准 |
+    //   | 窗口函数但不带 content_json，JOIN 回取   |  543 ms  | 一致 |
+    //   | **相关子查询（本实现）**                | **144 ms** | **一致** |
+    //   | SQL 里用 JSON1 直接抽取预览文本          |  209 ms  | **不一致**（见下） |
+    //
+    // 相关子查询能走 `idx_messages_conversation_ts (conversation_id, timestamp ASC)`：
+    // 每个会话只倒序取 limit 行，**不需要对全表排序**。**瓶颈是窗口函数的排序，
+    // 不是 19.4MB 的载荷传输** —— 本写法载荷同样是 19.4MB，却快 7.5 倍。
+    //
+    // 没选 JSON1 版本的原因：SQLite 的 `trim()` 默认只去空格，不去 `\n`/`\t`，
+    // 而 `extractPreviewText` 用的是 JS 的 `.trim()`（去所有空白）。实测 686 条里
+    // 468 条与 JS 版**不一致**（差异多为前导换行）。为省带宽改语义不值得。
+    //
     // 构造 IN (?,?,...) 子句，每个 conversation_id 一个占位符
     const placeholders = conversationIds.map(() => "?").join(",");
     const sql = `
-      WITH ranked AS (
-        SELECT conversation_id, role, content_json, timestamp,
-               ROW_NUMBER() OVER (PARTITION BY conversation_id ORDER BY timestamp DESC) AS rn
-        FROM messages
-        WHERE conversation_id IN (${placeholders})
-          AND is_streaming = 0
-      )
-      SELECT conversation_id, role, content_json, timestamp
-      FROM ranked
-      WHERE rn <= ?
-      ORDER BY conversation_id, timestamp ASC
+      SELECT m.conversation_id, m.role, m.content_json, m.timestamp
+      FROM messages m
+      WHERE m.is_streaming = 0
+        AND m.conversation_id IN (${placeholders})
+        AND m.id IN (
+          SELECT m2.id FROM messages m2
+          WHERE m2.conversation_id = m.conversation_id
+            AND m2.is_streaming = 0
+          ORDER BY m2.timestamp DESC
+          LIMIT ?
+        )
+      ORDER BY m.conversation_id, m.timestamp ASC
     `;
 
     const rows = this.db

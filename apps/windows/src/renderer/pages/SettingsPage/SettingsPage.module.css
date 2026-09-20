@@ -155,7 +155,7 @@
 }
 
 .voice-speaker-item:hover {
-  background: color-mix(in srgb, var(--color-primary, #0ea5e9) 8%, transparent);
+  background: color-mix(in srgb, var(--color-primary) 8%, transparent);
 }
 
 /* 语音运行时状态条（安装依赖 / 加载模型 / 预览失败等） */
@@ -170,19 +170,19 @@
 }
 
 .voice-runtime-status-busy {
-  border-color: color-mix(in srgb, #0ea5e9 45%, var(--color-border));
-  background: color-mix(in srgb, #0ea5e9 12%, transparent);
+  border-color: color-mix(in srgb, var(--mt-sky-500) 45%, var(--color-border));
+  background: color-mix(in srgb, var(--mt-sky-500) 12%, transparent);
 }
 
 .voice-runtime-status-error {
-  border-color: color-mix(in srgb, var(--color-danger, #ef4444) 45%, var(--color-border));
-  background: color-mix(in srgb, var(--color-danger, #ef4444) 10%, transparent);
-  color: var(--color-danger, #b91c1c);
+  border-color: color-mix(in srgb, var(--color-danger) 45%, var(--color-border));
+  background: color-mix(in srgb, var(--color-danger) 10%, transparent);
+  color: var(--color-danger);
 }
 
 .voice-runtime-status-ready {
-  border-color: color-mix(in srgb, var(--color-success, #16a34a) 40%, var(--color-border));
-  background: color-mix(in srgb, var(--color-success, #16a34a) 10%, transparent);
+  border-color: color-mix(in srgb, var(--color-success) 40%, var(--color-border));
+  background: color-mix(in srgb, var(--color-success) 10%, transparent);
 }
 
 .voice-runtime-phase {
@@ -654,7 +654,7 @@
 }
 
 .security-badge.coming-soon {
-  background-color: var(--color-warning-10, rgba(245, 158, 11, 0.1));
+  background-color: var(--color-warning-10);
   color: var(--color-warning);
 }
 
@@ -721,14 +721,14 @@
 }
 
 .slot-enable-btn--on {
-  background: color-mix(in srgb, var(--mt-success, #22c55e) 22%, transparent);
-  color: var(--mt-success-dark, #15803d);
+  background: color-mix(in srgb, var(--mt-success) 22%, transparent);
+  color: var(--mt-success-dark);
   font-weight: 600;
 }
 
 .slot-enable-btn--off {
-  background: color-mix(in srgb, var(--mt-error, #ef4444) 16%, transparent);
-  color: var(--mt-error-dark, #b91c1c);
+  background: color-mix(in srgb, var(--mt-error) 16%, transparent);
+  color: var(--mt-error-dark);
   font-weight: 600;
 }
 
@@ -785,13 +785,13 @@
   padding: 14px 16px;
   border-radius: 12px;
   border: 1px solid var(--mt-border-hairline, var(--color-border));
-  background: color-mix(in srgb, var(--mt-bg-primary, #0a101c) 22%, transparent);
+  background: color-mix(in srgb, var(--mt-bg-primary) 22%, transparent);
   box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 4%, transparent);
 }
 
 .panel-card--danger {
-  border-color: color-mix(in srgb, var(--mt-error, #ef4444) 28%, transparent);
-  background: color-mix(in srgb, var(--mt-error, #ef4444) 6%, transparent);
+  border-color: color-mix(in srgb, var(--mt-error) 28%, transparent);
+  background: color-mix(in srgb, var(--mt-error) 6%, transparent);
 }
 
 .panel-card--about {
@@ -858,7 +858,7 @@
 }
 
 [data-theme='dark'] .panel-row-hint-warn {
-  color: var(--mt-warning, #f59e0b);
+  color: var(--mt-warning);
 }
 
 .panel-actions {
@@ -929,7 +929,7 @@
 }
 
 .cloud-guide-toggle:hover {
-  background: color-mix(in srgb, var(--color-primary, #0ea5e9) 6%, transparent);
+  background: color-mix(in srgb, var(--color-primary) 6%, transparent);
 }
 
 .cloud-guide-toggle-hint {
@@ -1008,13 +1008,13 @@
 }
 
 .cloud-log-state-idle {
-  color: var(--color-success, #16a34a);
-  background: color-mix(in srgb, var(--color-success, #16a34a) 12%, transparent);
+  color: var(--color-success);
+  background: color-mix(in srgb, var(--color-success) 12%, transparent);
 }
 
 .cloud-log-state-syncing {
-  color: #0ea5e9;
-  background: color-mix(in srgb, #0ea5e9 12%, transparent);
+  color: var(--mt-sky-500);
+  background: color-mix(in srgb, var(--mt-sky-500) 12%, transparent);
 }
 
 .cloud-log-state-conflict {
@@ -1023,8 +1023,8 @@
 }
 
 .cloud-log-state-error {
-  color: var(--color-danger, #ef4444);
-  background: color-mix(in srgb, var(--color-danger, #ef4444) 12%, transparent);
+  color: var(--color-danger);
+  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
 }
 
 .cloud-log-msg {

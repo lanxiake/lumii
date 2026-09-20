@@ -18,7 +18,7 @@
   border-radius: var(--radius-sm);
   background: transparent;
   border: none;
-  color: var(--color-text-tertiary, #94a3b8);
+  color: var(--color-text-tertiary);
   cursor: pointer;
   flex-shrink: 0;
 }
@@ -39,15 +39,15 @@
 }
 
 .action-btn.active {
-  color: var(--color-primary, #3b82f6);
+  color: var(--color-primary);
 }
 
 .action-btn.liked {
-  color: var(--color-success, #22c55e);
+  color: var(--color-success);
 }
 
 .action-btn.disliked {
-  color: var(--color-error, #ef4444);
+  color: var(--color-error);
 }
 
 .action-btn svg {
@@ -100,7 +100,7 @@
 
 .edit-btn.save {
   background: var(--color-primary);
-  color: white;
+  color: var(--mt-fg-on-accent);
 }
 
 .edit-btn.save:hover {

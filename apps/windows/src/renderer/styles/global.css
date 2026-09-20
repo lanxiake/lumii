@@ -73,18 +73,23 @@ html, body {
 
 /* 选中文本样式：与对话输入框一致，便于观察 */
 ::selection {
-  background-color: var(--mt-accent-500, #3b82f6);
-  color: #fff;
+  background-color: var(--mt-accent-500);
+  color: var(--mt-fg-on-accent);
 }
 
 [data-theme='light'] ::selection {
-  background-color: var(--mt-accent-300, #93c5fd);
-  color: #0f172a;
+  background-color: var(--mt-accent-300);
+  color: var(--mt-fg-1);
 }
 
 [data-theme='dark'] ::selection {
-  background-color: var(--mt-accent-500, #3b82f6);
-  color: #fff;
+  background-color: var(--mt-accent-500);
+  color: var(--mt-fg-on-accent);
+}
+
+[data-theme='eye-care'] ::selection {
+  background-color: var(--mt-accent-300);
+  color: var(--mt-fg-1);
 }
 
 /* 默认允许复制选中；标题栏/纯图标按钮等再单独关闭 */

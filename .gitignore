@@ -1,6 +1,10 @@
 # Lumii local dev runtime files
 .lumii-dev.pid
 .lumii-dev.log
+# stderr 与内层脚本：start-dev.ps1 生成（后者落成文件用 -File 执行，
+# 避开 -Command 传多行脚本的再解析问题），都由脚本每次重建，不入库
+.lumii-dev.err.log
+.lumii-dev-inner.ps1
 
 # Dependencies
 node_modules/

@@ -121,12 +121,12 @@
 }
 
 .title-bar-status.connected {
-  background-color: var(--color-success, #10b981);
-  box-shadow: 0 0 6px var(--color-success, #10b981);
+  background-color: var(--color-success);
+  box-shadow: 0 0 6px var(--color-success);
 }
 
 .title-bar-status.disconnected {
-  background-color: var(--color-error, #ef4444);
+  background-color: var(--color-error);
 }
 
 /* 可拖拽区域 */
@@ -163,8 +163,8 @@
 }
 
 .title-bar-control-btn.close:hover {
-  background-color: var(--color-error, #ef4444);
-  color: white;
+  background-color: var(--color-error);
+  color: var(--mt-fg-on-accent);
 }
 
 /* 响应式适配：标题栏高度始终跟随 --mt-titlebar-h，避免与固定定位面板错位 */

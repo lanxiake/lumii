@@ -25,7 +25,7 @@
     0 0 0 1px color-mix(in srgb, var(--mt-tone, var(--mt-accent-500)) 24%, transparent),
     0 0 18px color-mix(in srgb, var(--mt-tone, var(--mt-accent-500)) 32%, transparent);
   font-family: var(--mt-font-mono);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   font-weight: var(--mt-fw-semibold);
   transition: --mt-p var(--mt-dur-slow) var(--mt-ease-standard),
     transform var(--mt-dur-normal) var(--mt-ease-spring),
@@ -65,7 +65,7 @@
   right: 0;
   bottom: -15px;
   left: 0;
-  font-size: 9.5px;
+  font-size: var(--font-size-xs);
   font-style: normal;
   color: var(--mt-fg-4);
   text-align: center;

@@ -2,16 +2,16 @@
   margin: 0 0 16px;
   font-size: 13px;
   line-height: 1.55;
-  color: var(--color-text-secondary, #8c8c8c);
+  color: var(--color-text-secondary);
 }
 
 .error {
   margin-bottom: 14px;
   padding: 10px 12px;
-  background: color-mix(in srgb, var(--color-error, #ef4444) 10%, transparent);
-  border: 1px solid color-mix(in srgb, var(--color-error, #ef4444) 28%, transparent);
+  background: color-mix(in srgb, var(--color-error) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-error) 28%, transparent);
   border-radius: 8px;
-  color: var(--color-error, #cf1322);
+  color: var(--color-error);
   font-size: 13px;
   line-height: 1.45;
 }
@@ -27,9 +27,9 @@
   flex-direction: column;
   gap: 14px;
   padding: 16px;
-  border: 1px solid var(--mt-border-hairline, var(--color-border, rgba(128, 128, 128, 0.18)));
+  border: 1px solid var(--mt-border-hairline, var(--color-border));
   border-radius: 12px;
-  background: var(--mt-surface-2, var(--color-bg-elevated, var(--color-bg-tertiary, rgba(128, 128, 128, 0.04))));
+  background: var(--mt-surface-2, var(--color-bg-elevated, var(--color-bg-tertiary)));
 }
 
 .rowHeader {
@@ -79,7 +79,7 @@
 .rowDesc {
   margin-top: 6px;
   font-size: 12.5px;
-  color: var(--color-text-secondary, #8c8c8c);
+  color: var(--color-text-secondary);
   line-height: 1.5;
 }
 
@@ -94,7 +94,7 @@
   gap: 8px;
   justify-content: flex-end;
   padding-top: 2px;
-  border-top: 1px solid var(--mt-border-hairline, rgba(128, 128, 128, 0.12));
+  border-top: 1px solid var(--mt-border-hairline);
 }
 
 .qrBody {
@@ -115,7 +115,7 @@
   display: block;
   border-radius: 8px;
   background: #fff;
-  box-shadow: 0 0 0 1px var(--mt-border-hairline, rgba(0, 0, 0, 0.06));
+  box-shadow: 0 0 0 1px var(--mt-border-hairline);
 }
 
 .qrPlaceholder {
@@ -125,15 +125,15 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--color-bg-secondary, #f5f5f5);
+  background: var(--color-bg-secondary);
   border-radius: 8px;
-  color: var(--color-text-tertiary, #999);
+  color: var(--color-text-tertiary);
   font-size: 14px;
 }
 
 .qrHint {
   margin: 0;
-  color: var(--color-text-secondary, #666);
+  color: var(--color-text-secondary);
   font-size: 13px;
   line-height: 1.5;
   text-align: center;

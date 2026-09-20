@@ -4,9 +4,9 @@
   display: flex;
   flex-direction: column;
   margin: 6px 12px 0 12px;
-  border: 1px solid var(--color-border, rgba(255, 255, 255, 0.08));
+  border: 1px solid var(--color-border);
   border-radius: 8px;
-  background: var(--color-surface, rgba(255, 255, 255, 0.03));
+  background: var(--color-surface);
   overflow: hidden;
   flex-shrink: 0;
 }
@@ -25,7 +25,7 @@
   background: transparent;
   border: none;
   cursor: pointer;
-  color: var(--color-text-secondary, rgba(255, 255, 255, 0.65));
+  color: var(--color-text-secondary);
   font-size: 12px;
   font-weight: 500;
   text-align: left;
@@ -34,12 +34,12 @@
 }
 
 .header:hover {
-  background: var(--color-surface-hover, rgba(255, 255, 255, 0.04));
+  background: var(--color-surface-hover);
 }
 
 .headerIcon {
   font-size: 10px;
-  color: var(--color-text-tertiary, rgba(255, 255, 255, 0.45));
+  color: var(--color-text-tertiary);
   width: 12px;
   display: inline-flex;
   justify-content: center;
@@ -47,15 +47,15 @@
 
 .headerTitle {
   flex: 1;
-  color: var(--color-text-primary, rgba(255, 255, 255, 0.85));
+  color: var(--color-text-primary);
 }
 
 .headerCount {
   font-size: 11px;
   padding: 1px 6px;
   border-radius: 10px;
-  background: color-mix(in srgb, var(--color-primary-400, #60a5fa) 18%, transparent);
-  color: var(--color-primary-400, #60a5fa);
+  background: color-mix(in srgb, var(--color-primary-400) 18%, transparent);
+  color: var(--color-primary-400);
   font-family: var(--font-family-mono, monospace);
 }
 
@@ -66,7 +66,7 @@
   padding: 4px 8px 8px 8px;
   max-height: 240px;
   overflow-y: auto;
-  border-top: 1px solid var(--color-border, rgba(255, 255, 255, 0.06));
+  border-top: 1px solid var(--color-border);
 }
 
 /* 单个文件行 */
@@ -76,18 +76,18 @@
   gap: 8px;
   padding: 6px 8px;
   border-radius: 6px;
-  background: var(--color-surface-elevated, rgba(255, 255, 255, 0.04));
+  background: var(--color-surface-elevated);
   border: 1px solid transparent;
   transition: background 0.15s ease, border-color 0.15s ease;
 }
 
 .row:hover {
-  background: var(--color-surface-hover, rgba(255, 255, 255, 0.06));
-  border-color: var(--color-border, rgba(255, 255, 255, 0.08));
+  background: var(--color-surface-hover);
+  border-color: var(--color-border);
 }
 
 .rowUpload {
-  border-left: 2px solid color-mix(in srgb, var(--color-primary-400, #60a5fa) 50%, transparent);
+  border-left: 2px solid color-mix(in srgb, var(--color-primary-400) 50%, transparent);
 }
 
 .icon {
@@ -107,7 +107,7 @@
 .name {
   font-size: 13px;
   font-weight: 500;
-  color: var(--color-text-primary, rgba(255, 255, 255, 0.9));
+  color: var(--color-text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -118,7 +118,7 @@
   align-items: center;
   gap: 6px;
   font-size: 11px;
-  color: var(--color-text-tertiary, rgba(255, 255, 255, 0.45));
+  color: var(--color-text-tertiary);
   flex-wrap: wrap;
 }
 
@@ -135,23 +135,23 @@
 }
 
 .badgeUpload {
-  background: color-mix(in srgb, var(--color-primary-400, #60a5fa) 18%, transparent);
-  color: var(--color-primary-400, #60a5fa);
+  background: color-mix(in srgb, var(--color-primary-400) 18%, transparent);
+  color: var(--color-primary-400);
 }
 
 .badgeOutput {
-  background: color-mix(in srgb, var(--color-success, #34d399) 18%, transparent);
-  color: var(--color-success, #34d399);
+  background: color-mix(in srgb, var(--color-success) 18%, transparent);
+  color: var(--color-success);
 }
 
 .error {
-  color: var(--color-error, #f87171);
+  color: var(--color-error);
 }
 
 .localPath {
   font-family: var(--font-family-mono, monospace);
   font-size: 10px;
-  color: var(--color-text-tertiary, #94a3b8);
+  color: var(--color-text-tertiary);
   max-width: 260px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -168,18 +168,18 @@
 .btn {
   padding: 3px 10px;
   font-size: 12px;
-  border: 1px solid var(--color-border, rgba(255, 255, 255, 0.12));
+  border: 1px solid var(--color-border);
   border-radius: 4px;
-  background: var(--color-surface, rgba(255, 255, 255, 0.05));
-  color: var(--color-text-primary, rgba(255, 255, 255, 0.85));
+  background: var(--color-surface);
+  color: var(--color-text-primary);
   cursor: pointer;
   transition: background 0.15s ease, border-color 0.15s ease;
   line-height: 1.4;
 }
 
 .btn:hover:not(:disabled) {
-  background: var(--color-surface-hover, rgba(255, 255, 255, 0.1));
-  border-color: var(--color-border-strong, rgba(255, 255, 255, 0.18));
+  background: var(--color-surface-hover);
+  border-color: var(--color-border-strong);
 }
 
 .btn:disabled {
@@ -188,24 +188,24 @@
 }
 
 .btnPrimary {
-  background: color-mix(in srgb, var(--color-primary-400, #60a5fa) 18%, transparent);
-  border-color: color-mix(in srgb, var(--color-primary-400, #60a5fa) 40%, transparent);
-  color: var(--color-primary-400, #60a5fa);
+  background: color-mix(in srgb, var(--color-primary-400) 18%, transparent);
+  border-color: color-mix(in srgb, var(--color-primary-400) 40%, transparent);
+  color: var(--color-primary-400);
 }
 
 .btnPrimary:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--color-primary-400, #60a5fa) 28%, transparent);
-  border-color: color-mix(in srgb, var(--color-primary-400, #60a5fa) 60%, transparent);
+  background: color-mix(in srgb, var(--color-primary-400) 28%, transparent);
+  border-color: color-mix(in srgb, var(--color-primary-400) 60%, transparent);
 }
 
 .btnDanger {
-  border-color: color-mix(in srgb, var(--color-error, #f87171) 45%, transparent);
-  color: var(--color-error, #f87171);
+  border-color: color-mix(in srgb, var(--color-error) 45%, transparent);
+  color: var(--color-error);
 }
 
 .btnDanger:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--color-error, #f87171) 14%, transparent);
-  border-color: color-mix(in srgb, var(--color-error, #f87171) 55%, transparent);
+  background: color-mix(in srgb, var(--color-error) 14%, transparent);
+  border-color: color-mix(in srgb, var(--color-error) 55%, transparent);
 }
 
 /* ── 紧凑模式：小图标 + 悬停弹出层 ── */
@@ -221,18 +221,18 @@
   gap: 4px;
   height: 26px;
   padding: 0 8px;
-  border: 1px solid color-mix(in srgb, var(--color-border, rgba(255, 255, 255, 0.08)) 35%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-border) 35%, transparent);
   border-radius: var(--radius-md, 6px);
   background: transparent;
-  color: var(--color-text-secondary, rgba(255, 255, 255, 0.65));
+  color: var(--color-text-secondary);
   cursor: default;
   transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
 
 .compactWrap:hover .compactTrigger {
-  border-color: var(--color-primary, #60a5fa);
-  color: var(--color-primary, #60a5fa);
-  background: var(--color-primary-500-10, rgba(59, 130, 246, 0.1));
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  background: var(--color-primary-500-10);
 }
 
 .compactBadge {
@@ -264,9 +264,9 @@
 .compactPopoverInner {
   min-width: 320px;
   max-width: min(480px, 90vw);
-  border: 1px solid var(--color-border, rgba(255, 255, 255, 0.08));
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-md, 8px);
-  background: var(--color-bg-primary, #1a1a2e);
+  background: var(--color-bg-primary);
   box-shadow: var(--mt-shadow-lg, 0 8px 24px rgba(0, 0, 0, 0.35));
   overflow: hidden;
 }
@@ -275,9 +275,9 @@
   padding: 8px 12px;
   font-size: 12px;
   font-weight: 600;
-  color: var(--color-text-primary, rgba(255, 255, 255, 0.85));
-  border-bottom: 1px solid var(--color-border, rgba(255, 255, 255, 0.06));
-  background: var(--color-bg-secondary, rgba(255, 255, 255, 0.03));
+  color: var(--color-text-primary);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg-secondary);
 }
 
 .compactWrap .list {
@@ -289,9 +289,9 @@
 
 .inlineCard {
   width: 100%;
-  border: 1px solid var(--mt-border-hairline, rgba(0, 0, 0, 0.08));
+  border: 1px solid var(--mt-border-hairline);
   border-radius: 10px;
-  background: color-mix(in srgb, var(--mt-bg-primary, #fff) 88%, transparent);
+  background: color-mix(in srgb, var(--mt-bg-primary) 88%, transparent);
   overflow: hidden;
 }
 
@@ -320,7 +320,7 @@
 .inlineChevron {
   flex-shrink: 0;
   font-size: 10px;
-  color: var(--mt-fg-4, #9ca3af);
+  color: var(--mt-fg-4);
   transition: transform 0.15s ease;
   transform: rotate(-90deg);
 }
@@ -332,7 +332,7 @@
 .inlineHeaderTitle {
   font-size: 12px;
   font-weight: 500;
-  color: var(--mt-fg-3, #6b7280);
+  color: var(--mt-fg-3);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -343,15 +343,15 @@
   background: transparent;
   padding: 2px 4px;
   font-size: 12px;
-  color: var(--mt-fg-3, #6b7280);
+  color: var(--mt-fg-3);
   cursor: pointer;
   flex-shrink: 0;
   border-radius: 4px;
 }
 
 .inlineReview:hover {
-  color: var(--mt-fg-1, #111);
-  background: var(--mt-surface-2, rgba(0, 0, 0, 0.04));
+  color: var(--mt-fg-1);
+  background: var(--mt-surface-2);
 }
 
 .inlineList {
@@ -368,7 +368,7 @@
 }
 
 .inlineRowWrap:hover {
-  background: var(--mt-surface-2, rgba(0, 0, 0, 0.04));
+  background: var(--mt-surface-2);
 }
 
 .inlineRow {
@@ -381,7 +381,7 @@
   border: none;
   border-radius: 6px;
   background: transparent;
-  color: var(--mt-fg-1, #111);
+  color: var(--mt-fg-1);
   font-size: 12px;
   text-align: left;
   cursor: pointer;
@@ -399,7 +399,7 @@
   border: none;
   border-radius: 6px;
   background: transparent;
-  color: var(--mt-fg-4, #9ca3af);
+  color: var(--mt-fg-4);
   font-size: 16px;
   line-height: 1;
   cursor: pointer;
@@ -412,8 +412,8 @@
 }
 
 .inlineMoreBtn:hover {
-  background: var(--mt-surface-3, rgba(0, 0, 0, 0.06));
-  color: var(--mt-fg-1, #111);
+  background: var(--mt-surface-3);
+  color: var(--mt-fg-1);
 }
 
 .inlineMoreMenu {
@@ -421,8 +421,8 @@
   z-index: 600;
   min-width: 152px;
   padding: 4px;
-  background: var(--mt-bg-primary, #fff);
-  border: 1px solid var(--mt-border, #e5e7eb);
+  background: var(--mt-bg-primary);
+  border: 1px solid var(--mt-border);
   border-radius: 8px;
   box-shadow: var(--mt-shadow-lg, 0 8px 24px rgba(0, 0, 0, 0.12));
   display: flex;
@@ -434,18 +434,18 @@
   padding: 7px 12px;
   border: none;
   background: transparent;
-  color: var(--mt-fg-1, #111);
+  color: var(--mt-fg-1);
   font-size: 12px;
   cursor: pointer;
   border-radius: 6px;
 }
 
 .inlineMoreItem:hover {
-  background: var(--mt-surface-2, #f3f4f6);
+  background: var(--mt-surface-2);
 }
 
 .inlineMoreItemDanger {
-  color: var(--mt-error, #dc2626);
+  color: var(--mt-error);
 }
 
 .inlineBadge {
@@ -461,7 +461,7 @@
   font-weight: 700;
   font-family: var(--mt-font-mono, ui-monospace, monospace);
   line-height: 1;
-  color: #fff;
+  color: var(--mt-fg-on-accent);
   background: #6b7280;
 }
 
@@ -500,7 +500,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--mt-fg-1, #1f2937);
+  color: var(--mt-fg-1);
 }
 
 .inlineRowMeta {
@@ -513,7 +513,7 @@
 }
 
 .inlineSize {
-  color: var(--mt-fg-4, #9ca3af);
+  color: var(--mt-fg-4);
 }
 
 .inlineTag {
@@ -525,7 +525,7 @@
 }
 
 .inlineTagUpload {
-  color: #2563eb;
+  color: var(--mt-accent-600);
 }
 
 .inlineShowMore {
@@ -535,13 +535,13 @@
   border: none;
   background: transparent;
   font-size: 12px;
-  color: var(--mt-fg-4, #9ca3af);
+  color: var(--mt-fg-4);
   text-align: left;
   cursor: pointer;
 }
 
 .inlineShowMore:hover {
-  color: var(--mt-fg-2, #374151);
+  color: var(--mt-fg-2);
 }
 
 /* 左侧轨道：Files Changed 风格（遗留） */
@@ -549,9 +549,9 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
-  border: 1px solid var(--mt-border, #e5e7eb);
+  border: 1px solid var(--mt-border);
   border-radius: 12px;
-  background: var(--mt-bg-primary, #fff);
+  background: var(--mt-bg-primary);
   box-shadow: var(--mt-shadow-sm, 0 1px 3px rgba(0, 0, 0, 0.04));
   overflow: hidden;
 }
@@ -561,7 +561,7 @@
   align-items: center;
   gap: 8px;
   padding: 8px 10px;
-  border-bottom: 1px solid var(--mt-border-hairline, rgba(0, 0, 0, 0.06));
+  border-bottom: 1px solid var(--mt-border-hairline);
 }
 
 .railHeaderTitle {
@@ -569,7 +569,7 @@
   min-width: 0;
   font-size: 11px;
   font-weight: 500;
-  color: var(--mt-fg-3, #6b7280);
+  color: var(--mt-fg-3);
 }
 
 .railReview {
@@ -577,12 +577,12 @@
   background: transparent;
   padding: 0;
   font-size: 11px;
-  color: var(--mt-fg-3, #6b7280);
+  color: var(--mt-fg-3);
   cursor: pointer;
 }
 
 .railReview:hover {
-  color: var(--mt-accent-500, #4f8ef7);
+  color: var(--mt-accent-500);
 }
 
 .railList {
@@ -604,14 +604,14 @@
   border: none;
   border-radius: 8px;
   background: transparent;
-  color: var(--mt-fg-1, #111);
+  color: var(--mt-fg-1);
   font-size: 12px;
   text-align: left;
   cursor: pointer;
 }
 
 .railRow:hover {
-  background: var(--mt-surface-2, #f3f4f6);
+  background: var(--mt-surface-2);
 }
 
 .railRowIcon {
@@ -640,5 +640,5 @@
 }
 
 .railRowTagUpload {
-  color: #2563eb;
+  color: var(--mt-accent-600);
 }

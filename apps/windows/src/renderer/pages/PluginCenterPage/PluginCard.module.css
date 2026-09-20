@@ -61,8 +61,8 @@
 }
 
 .tagInstalled {
-  background: color-mix(in srgb, var(--color-success, #22c55e) 15%, transparent);
-  color: var(--color-success, #22c55e);
+  background: color-mix(in srgb, var(--color-success) 15%, transparent);
+  color: var(--color-success);
 }
 
 .tagNotInstalled {
@@ -145,8 +145,8 @@
 
 .error {
   font-size: var(--font-size-xs);
-  color: var(--color-error, #ef4444);
-  background: color-mix(in srgb, var(--color-error, #ef4444) 10%, transparent);
+  color: var(--color-error);
+  background: color-mix(in srgb, var(--color-error) 10%, transparent);
   border-radius: var(--radius-md);
   padding: var(--spacing-2) var(--spacing-3);
 }
@@ -161,7 +161,7 @@
 .btnInstall {
   padding: var(--spacing-2) var(--spacing-5);
   background: var(--color-primary-500);
-  color: #fff;
+  color: var(--mt-fg-on-accent);
   border: none;
   border-radius: var(--radius-lg);
   font-size: var(--font-size-sm);
@@ -182,8 +182,8 @@
 .btnUninstall {
   padding: var(--spacing-2) var(--spacing-5);
   background: transparent;
-  color: var(--color-error, #ef4444);
-  border: 1px solid var(--color-error, #ef4444);
+  color: var(--color-error);
+  border: 1px solid var(--color-error);
   border-radius: var(--radius-lg);
   font-size: var(--font-size-sm);
   font-weight: 500;
@@ -192,7 +192,7 @@
 }
 
 .btnUninstall:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--color-error, #ef4444) 10%, transparent);
+  background: color-mix(in srgb, var(--color-error) 10%, transparent);
 }
 
 .btnUninstall:disabled {

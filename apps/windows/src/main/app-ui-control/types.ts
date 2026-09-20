@@ -103,6 +103,7 @@ export type AppUiViewType =
 /** Settings Hub 分类（对齐 SettingsHub/types MergedSettingsCategory） */
 export type AppUiSettingsCategory =
   | 'general'
+  | 'appearance'
   | 'workspace'
   | 'modelConfig'
   | 'voice'

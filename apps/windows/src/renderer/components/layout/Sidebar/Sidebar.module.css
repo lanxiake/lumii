@@ -40,26 +40,6 @@
   color: var(--color-primary-500);
 }
 
-.sidebar-logo-text {
-  font-size: var(--mt-fs-base);
-  font-weight: var(--mt-fw-bold);
-  white-space: nowrap;
-  background: var(--mt-grad-brand);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
-
-.sidebar-logo-mark {
-  font-size: 18px;
-  font-weight: 800;
-  line-height: 1;
-  background: var(--mt-grad-brand);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
-
 .sidebar-collapse-btn {
   display: flex;
   align-items: center;

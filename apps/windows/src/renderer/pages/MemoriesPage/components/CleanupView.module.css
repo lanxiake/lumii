@@ -24,9 +24,9 @@
 }
 
 .wiki-cleanup-filter-chip--active {
-  border-color: var(--color-primary, #3b82f6);
-  background: var(--color-primary-bg, #eff6ff);
-  color: var(--color-primary, #3b82f6);
+  border-color: var(--color-primary);
+  background: var(--color-primary-bg);
+  color: var(--color-primary);
 }
 
 .wiki-cleanup-toolbar {
@@ -73,11 +73,11 @@
 }
 
 .wiki-cleanup-item-reason--broken_source {
-  background: var(--color-danger-bg, #fee2e2);
-  color: var(--color-danger, #dc2626);
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
 }
 
 .wiki-cleanup-item-reason--duplicate_content {
-  background: var(--color-warning-bg, #fef3c7);
-  color: var(--color-warning-text, #92400e);
+  background: var(--color-warning-bg);
+  color: var(--color-warning-text);
 }

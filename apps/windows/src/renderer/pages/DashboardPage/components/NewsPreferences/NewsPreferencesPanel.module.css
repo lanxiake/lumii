@@ -14,12 +14,12 @@
   border-radius: 8px;
   background: var(--mt-bg-tertiary, var(--color-bg-tertiary));
   color: var(--mt-fg-2, var(--color-text-secondary));
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   line-height: 1.5;
 }
 
 .hint {
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   color: var(--mt-fg-3, var(--color-text-tertiary));
 }
 
@@ -27,7 +27,7 @@
   padding: 10px 12px;
   border-radius: 8px;
   background: var(--mt-bg-tertiary, var(--color-bg-tertiary));
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   color: var(--mt-fg-2, var(--color-text-secondary));
   line-height: 1.6;
 }
@@ -64,7 +64,7 @@
   cursor: pointer;
   text-align: left;
   color: inherit;
-  font-size: 13px;
+  font-size: var(--font-size-sm);
 }
 
 .ruleHead:disabled {
@@ -72,7 +72,7 @@
 }
 
 .ruleHead:not(:disabled):hover {
-  background: var(--mt-bg-hover, var(--color-bg-hover));
+  background: var(--mt-bg-tertiary);
   border-radius: 6px;
 }
 
@@ -87,7 +87,7 @@
   border-radius: 4px;
   background: var(--mt-bg-tertiary, var(--color-bg-tertiary));
   color: var(--mt-fg-2, var(--color-text-secondary));
-  font-size: 11px;
+  font-size: var(--font-size-xs);
 }
 
 .value {
@@ -101,14 +101,14 @@
 
 .count {
   flex-shrink: 0;
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   font-weight: 600;
   color: var(--mt-accent-500, var(--color-primary));
 }
 
 .countZero {
   flex-shrink: 0;
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   color: var(--mt-fg-3, var(--color-text-tertiary));
 }
 
@@ -125,7 +125,7 @@
   display: flex;
   align-items: baseline;
   gap: 8px;
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   color: var(--mt-fg-2, var(--color-text-secondary));
 }
 
@@ -149,7 +149,7 @@
 }
 
 .hitMore {
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   color: var(--mt-fg-3, var(--color-text-tertiary));
 }
 
@@ -157,7 +157,7 @@
   padding: 10px 12px;
   border-radius: 8px;
   border: 1px solid var(--mt-border, var(--color-border));
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   line-height: 1.7;
   color: var(--mt-fg-2, var(--color-text-secondary));
 }

@@ -688,7 +688,7 @@
 .goalStatus_executing { color: var(--mt-warning); border-color: var(--mt-warning); }
 .goalStatus_completed { color: var(--mt-success); border-color: var(--mt-success); }
 .goalStatus_rejected { color: var(--mt-fg-3); }
-.goalStatus_failed { color: #ef4444; border-color: #ef4444; }
+.goalStatus_failed { color: var(--mt-error); border-color: var(--mt-error); }
 
 .goalJumpHint {
   padding-top: var(--spacing-2);
@@ -712,7 +712,7 @@
 .btnPrimary {
   border: none;
   background: var(--mt-accent-500);
-  color: white;
+  color: var(--mt-fg-on-accent);
 }
 
 .btnPrimary:hover {
@@ -798,8 +798,8 @@
 }
 
 .plannedGoalDelete:hover {
-  color: #ef4444;
-  background: color-mix(in srgb, #ef4444 10%, transparent);
+  color: var(--mt-error);
+  background: color-mix(in srgb, var(--mt-error) 10%, transparent);
 }
 
 .settingsForm {
@@ -866,7 +866,7 @@
 
 .settingsSaved {
   font-size: var(--font-size-xs);
-  color: var(--mt-success, #2e7d32);
+  color: var(--mt-success);
 }
 
 /* ===== 内心：心情 + 牵挂上排，日记通栏下排 ===== */

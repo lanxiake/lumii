@@ -27,8 +27,8 @@
   gap: 2px;
   padding: 3px;
   border-radius: 11px;
-  background: color-mix(in srgb, var(--mt-bg-primary, #0a101c) 35%, transparent);
-  border: 1px solid var(--mt-border-hairline, rgba(255, 255, 255, 0.06));
+  background: color-mix(in srgb, var(--mt-bg-primary) 35%, transparent);
+  border: 1px solid var(--mt-border-hairline);
   box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 4%, transparent);
   overflow-x: auto;
   backdrop-filter: blur(12px);
@@ -54,15 +54,15 @@
 
 .hubTab:hover {
   color: var(--mt-fg-1, var(--color-text-primary));
-  background: color-mix(in srgb, var(--mt-fg-1, #fff) 5%, transparent);
+  background: color-mix(in srgb, var(--mt-fg-1) 5%, transparent);
 }
 
 .hubTabActive {
-  background: color-mix(in srgb, var(--mt-accent-500, #3b82f6) 16%, var(--mt-surface-2, rgba(22, 32, 51, 0.85)));
+  background: color-mix(in srgb, var(--mt-accent-500) 16%, var(--mt-surface-2));
   color: var(--mt-fg-1, var(--color-text-primary));
   box-shadow:
-    inset 0 0 0 1px color-mix(in srgb, var(--mt-accent-400, #60a5fa) 28%, transparent),
-    0 0 16px color-mix(in srgb, var(--mt-accent-500, #3b82f6) 12%, transparent);
+    inset 0 0 0 1px color-mix(in srgb, var(--mt-accent-400) 28%, transparent),
+    0 0 16px color-mix(in srgb, var(--mt-accent-500) 12%, transparent);
 }
 
 .hubBody {
@@ -87,7 +87,7 @@
   gap: 2px;
   padding: var(--mt-space-3, 12px);
   border-right: 1px solid var(--mt-border-hairline, var(--color-border));
-  background: color-mix(in srgb, var(--mt-bg-primary, #0a101c) 28%, transparent);
+  background: color-mix(in srgb, var(--mt-bg-primary) 28%, transparent);
   overflow-y: auto;
 }
 
@@ -111,15 +111,15 @@
 }
 
 .categoryItem:hover {
-  background: color-mix(in srgb, var(--mt-fg-1, #fff) 5%, transparent);
+  background: color-mix(in srgb, var(--mt-fg-1) 5%, transparent);
   color: var(--mt-fg-1, var(--color-text-primary));
 }
 
 .categoryItemActive {
-  background: color-mix(in srgb, var(--mt-accent-500, #3b82f6) 14%, transparent);
-  color: color-mix(in srgb, var(--mt-accent-300, #93c5fd) 70%, var(--mt-fg-1, #fff));
+  background: color-mix(in srgb, var(--mt-accent-500) 14%, transparent);
+  color: color-mix(in srgb, var(--mt-accent-300) 70%, var(--mt-fg-1));
   font-weight: 500;
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--mt-accent-400, #60a5fa) 22%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--mt-accent-400) 22%, transparent);
 }
 
 .categoryIcon {
@@ -140,7 +140,7 @@
   min-width: 0;
   overflow-y: auto;
   padding: var(--mt-space-4, 16px) var(--mt-space-5, 20px);
-  background: color-mix(in srgb, var(--mt-bg-primary, #0a101c) 12%, transparent);
+  background: color-mix(in srgb, var(--mt-bg-primary) 12%, transparent);
 }
 
 .embedPane {

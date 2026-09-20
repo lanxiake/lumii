@@ -18,6 +18,7 @@ const VALID_VIEWS: ReadonlySet<string> = new Set<AppUiViewType>([
 /** 合法 MergedSettingsCategory 集合（对齐 SettingsHub/types.ts） */
 const VALID_CATEGORIES: ReadonlySet<string> = new Set<AppUiSettingsCategory>([
   'general',
+  'appearance',
   'workspace',
   'modelConfig',
   'voice',

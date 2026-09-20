@@ -51,7 +51,7 @@
 .filterChipActive {
   background: var(--color-primary);
   border-color: var(--color-primary);
-  color: #fff;
+  color: var(--mt-fg-on-accent);
 }
 
 .empty {
@@ -135,7 +135,7 @@
   border: none;
   padding: 0;
   font-size: 13px;
-  color: var(--color-primary, #6366f1);
+  color: var(--color-primary);
   cursor: pointer;
   text-decoration: underline;
 }
@@ -151,8 +151,8 @@
 .provenance {
   margin-top: 10px;
   padding: 10px 12px;
-  border-left: 2px solid var(--color-primary, #6366f1);
-  background: var(--color-bg-subtle, rgba(99, 102, 241, 0.06));
+  border-left: 2px solid var(--color-primary);
+  background: var(--color-bg-subtle);
   border-radius: 0 6px 6px 0;
 }
 

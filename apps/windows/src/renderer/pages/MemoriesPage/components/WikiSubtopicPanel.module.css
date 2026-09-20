@@ -41,7 +41,9 @@
 }
 
 .wiki-subtopic-chip--active {
-  background: var(--color-accent-subtle, var(--color-bg-hover));
+  /* --color-accent-subtle 只在 .w-md-editor 作用域内声明，这里取不到值；
+     原先 fallback 又指向同样无定义的 --color-bg-hover，整条声明会失效。 */
+  background: rgba(var(--mt-accent-rgb), 0.15);
   color: var(--color-accent, var(--color-text-primary));
   font-weight: 600;
 }

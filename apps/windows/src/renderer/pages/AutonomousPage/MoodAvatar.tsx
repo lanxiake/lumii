@@ -22,17 +22,18 @@ export interface MoodAvatarMood {
 export type MoodEmotion = 'joy' | 'sadness' | 'sleepy' | 'surprise' | 'neutral'
 
 interface EmotionStyle {
-  glow: string // 光晕 RGB 分量
-  accent: string // 情绪徽标颜色
+  /** 光晕颜色（CSS 颜色，支持 color-mix 的基准色），随主题取 token */
+  glow: string
   label: string
 }
 
+/* 情绪 → 主题令牌：颜色跟着主题走，换色系不用改这里 */
 const EMOTION_STYLES: Record<MoodEmotion, EmotionStyle> = {
-  joy: { glow: '251, 191, 36', accent: '#f59e0b', label: '开心' },
-  sadness: { glow: '96, 165, 250', accent: '#60a5fa', label: '低落' },
-  sleepy: { glow: '129, 140, 248', accent: '#818cf8', label: '困倦' },
-  surprise: { glow: '167, 139, 250', accent: '#a78bfa', label: '好奇' },
-  neutral: { glow: '56, 189, 248', accent: '#38bdf8', label: '平静' },
+  joy: { glow: 'var(--mt-warning)', label: '开心' },
+  sadness: { glow: 'var(--mt-accent-400)', label: '低落' },
+  sleepy: { glow: 'var(--mt-violet)', label: '困倦' },
+  surprise: { glow: 'var(--mt-tone-d)', label: '好奇' },
+  neutral: { glow: 'var(--mt-tone-a)', label: '平静' },
 }
 
 /** 三维情绪 → 表情（对齐 moodToPetEmotion，扩展困倦） */
@@ -91,7 +92,6 @@ export function MoodAvatar({ mood, size = 96 }: MoodAvatarProps) {
   const cssVars = {
     '--mood-glow': e.glow,
     '--mood-glow-opacity': glowOpacity.toFixed(2),
-    '--mood-accent': e.accent,
     '--mood-float-duration': `${floatDuration}s`,
     '--mood-float-amp': `${floatAmp}px`,
   } as React.CSSProperties

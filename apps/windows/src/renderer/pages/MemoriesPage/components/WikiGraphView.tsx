@@ -67,14 +67,14 @@ const LAYER_OPTIONS: readonly { value: LayerControl; label: string }[] = [
   { value: 'all', label: '全部' },
 ]
 
-const CATEGORY_COLOR = 'var(--color-primary-500, #3b82f6)'
+const CATEGORY_COLOR = 'var(--color-primary-500)'
 const SUBTOPIC_COLOR = 'var(--color-border)'
 const SOURCE_MEDIA_TYPE_COLORS: Record<string, string> = {
-  'application/pdf': '#ef4444',
+  'application/pdf': 'var(--mt-error)',
   'text/plain': '#10b981',
   'text/markdown': '#10b981',
-  'image/png': '#8b5cf6',
-  'image/jpeg': '#8b5cf6',
+  'image/png': 'var(--mt-violet)',
+  'image/jpeg': 'var(--mt-violet)',
 }
 const ENTITY_BORDER_COLOR = '#ec4899'
 

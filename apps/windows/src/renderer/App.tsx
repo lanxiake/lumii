@@ -19,7 +19,7 @@ import {
 } from './components/ScreenRecord'
 import type { GotoInput } from '@main/app-ui-control/types'
 import { SplashOverlay } from './components/SplashOverlay/SplashOverlay'
-import { useTheme } from './contexts/ThemeContext/ThemeContext'
+import { useTheme, type AppliedTheme } from './contexts/ThemeContext/ThemeContext'
 import { useToast } from './components/ui/Toast/useToast'
 import {
   useAgentRuntimeActions,
@@ -49,6 +49,13 @@ const PetSessionSync: React.FC = () => {
     void runtimeActions.setSessionThinkingPrefs(currentSessionKey, prefs)
   }, [currentSessionKey, runtimeActions])
   return null
+}
+
+/** 标题栏主题按钮的悬停文案：说明"点一下会切到哪一档"（与 ThemeContext.toggleTheme 的循环一致） */
+const THEME_TOGGLE_TITLES: Record<AppliedTheme, string> = {
+  light: '切换为护眼主题',
+  'eye-care': '切换为深色主题',
+  dark: '切换为浅色主题',
 }
 
 export interface AuthenticatedAppProps {
@@ -200,8 +207,7 @@ const AuthenticatedApp: React.FC<AuthenticatedAppProps> = ({ onShellReady }) => 
     return () => window.removeEventListener('voice:models:need-download', handler)
   }, [openHub, showToast])
 
-  const themeToggleBtn = (
-    <button
+  const themeToggleBtn = (    <button
       type="button"
       style={{
         display: 'flex',
@@ -219,8 +225,8 @@ const AuthenticatedApp: React.FC<AuthenticatedAppProps> = ({ onShellReady }) => 
         padding: 0,
       }}
       onClick={toggleTheme}
-      title={appliedTheme === 'dark' ? '切换为浅色主题' : '切换为深色主题'}
-      aria-label={appliedTheme === 'dark' ? '切换为浅色主题' : '切换为深色主题'}
+      title={THEME_TOGGLE_TITLES[appliedTheme]}
+      aria-label={THEME_TOGGLE_TITLES[appliedTheme]}
     >
       {appliedTheme === 'dark' ? (
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -232,6 +238,11 @@ const AuthenticatedApp: React.FC<AuthenticatedAppProps> = ({ onShellReady }) => 
           <line x1="21" y1="12" x2="23" y2="12" />
           <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
           <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
+        </svg>
+      ) : appliedTheme === 'eye-care' ? (
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z" />
+          <circle cx="12" cy="12" r="3" />
         </svg>
       ) : (
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

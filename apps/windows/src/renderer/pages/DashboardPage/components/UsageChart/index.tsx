@@ -27,22 +27,32 @@ export interface UsageChartProps {
   groupBy: 'hour' | 'day'
 }
 
+/** 轴刻度基准字号；随全局档位缩放（recharts 只认数字，读不到 CSS 变量） */
+const AXIS_TICK_BASE_PX = 10
+
+function computeAxisTickFontSize(): number {
+  if (typeof document === 'undefined') return AXIS_TICK_BASE_PX
+  const scale = Number.parseFloat(
+    getComputedStyle(document.documentElement).getPropertyValue('--app-font-scale'),
+  )
+  return Math.round(AXIS_TICK_BASE_PX * (Number.isFinite(scale) && scale > 0 ? scale : 1))
+}
+
 const COLOR = {
-  calls: '#06b6d4',
-  cost: '#22c55e',
+  calls: 'var(--mt-chart-8)',
+  cost: 'var(--mt-success)',
 } as const
 
-/** 模型分色调色板；输入取偶数槽、输出取奇数槽，模型多时循环 */
-const PALETTE = [
-  '#3b82f6', '#93c5fd',
-  '#8b5cf6', '#c4b5fd',
-  '#22c55e', '#86efac',
-  '#f59e0b', '#fcd34d',
-  '#ef4444', '#fca5a5',
-  '#06b6d4', '#67e8f9',
-  '#ec4899', '#f9a8d4',
-  '#f97316', '#fdba74',
-] as const
+/**
+ * 模型分色调色板：每个色系占两槽（输入取前槽、输出取后槽），模型多时循环。
+ * 后槽是同色系的浅色变体（`color-mix` 提高明度），避免手写两套色值。
+ * 走 `--mt-chart-*` 而非语义色——这里没有固定语义，只是要让相邻系列能分辨。
+ */
+const CHART_SLOTS = 8
+const PALETTE = Array.from({ length: CHART_SLOTS * 2 }, (_, i) => {
+  const base = `var(--mt-chart-${(i >> 1) + 1})`
+  return i % 2 === 0 ? base : `color-mix(in srgb, ${base} 55%, white)`
+})
 
 const IN_KEY = (m: string): string => `${m}::in`
 const OUT_KEY = (m: string): string => `${m}::out`
@@ -222,6 +232,7 @@ export const UsageChart: React.FC<UsageChartProps> = ({ buckets, groupBy }) => {
   }
 
   const colorForModel = new Map(models.map((m, i) => [m, PALETTE[(i * 2) % PALETTE.length]!]))
+  const axisTickFontSize = computeAxisTickFontSize()
 
   const bars = models.flatMap((m, i) => {
     const inFill = PALETTE[(i * 2) % PALETTE.length]
@@ -256,14 +267,14 @@ export const UsageChart: React.FC<UsageChartProps> = ({ buckets, groupBy }) => {
           <CartesianGrid strokeDasharray="3 3" stroke="var(--mt-border-hairline)" vertical={false} />
           <XAxis
             dataKey="label"
-            tick={{ fontSize: 10, fill: 'var(--mt-fg-4)' }}
+            tick={{ fontSize: axisTickFontSize, fill: 'var(--mt-fg-4)' }}
             axisLine={{ stroke: 'var(--mt-border)' }}
             tickLine={false}
             interval="preserveStartEnd"
           />
           <YAxis
             yAxisId="tok"
-            tick={{ fontSize: 10, fill: 'var(--mt-fg-4)' }}
+            tick={{ fontSize: axisTickFontSize, fill: 'var(--mt-fg-4)' }}
             axisLine={false}
             tickLine={false}
             width={40}
@@ -272,7 +283,7 @@ export const UsageChart: React.FC<UsageChartProps> = ({ buckets, groupBy }) => {
           <YAxis
             yAxisId="meta"
             orientation="right"
-            tick={{ fontSize: 10, fill: 'var(--mt-fg-4)' }}
+            tick={{ fontSize: axisTickFontSize, fill: 'var(--mt-fg-4)' }}
             axisLine={false}
             tickLine={false}
             width={44}

@@ -55,7 +55,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background-color: white;
+  /* 滑块恒为白色（开关是中性控件，不随主题染色） */
+  background-color: #fff;
   border-radius: var(--radius-full);
   transition: transform var(--transition-fast);
   box-shadow: var(--shadow-sm);

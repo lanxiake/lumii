@@ -162,5 +162,5 @@
 
 .style-switch button.style-switch-active {
   background: var(--color-primary-600);
-  color: #fff;
+  color: var(--mt-fg-on-accent);
 }

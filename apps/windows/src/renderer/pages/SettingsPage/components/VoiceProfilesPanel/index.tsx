@@ -458,7 +458,7 @@ export function VoiceProfilesPanel({
         创建后到上方「AI 声音」列表选中它即生效。
       </p>
       {!cloneReady && (
-        <p className={styles.hint} style={{ color: 'var(--color-warning, #d97706)' }}>
+        <p className={styles.hint} style={{ color: 'var(--color-warning)' }}>
           克隆 Base 模型尚未下载，试听与出声不可用。请先在上方「下载」区下载 Base 模型。
         </p>
       )}

@@ -2,8 +2,13 @@
  * loadLastMessagesForConversations 批量预览查询
  *
  * 背景：会话列表原先对每条会话各查一次最后消息（50 会话 = 50 次 SQL，N+1）。
- * 这里用 ROW_NUMBER() 窗口函数一次取回所有会话的最近 N 条，
- * 本测试同时验证分组正确性与 node:sqlite 对窗口函数的支持。
+ * 这里一次取回所有会话的最近 N 条。
+ *
+ * 实现在 2026-09-20 从 `ROW_NUMBER() OVER (PARTITION BY ...)` 换成**相关子查询**：
+ * 窗口函数要求 SQLite 先对全部候选行算完行号再丢弃，686 会话 / 1691 结果行的
+ * 真实库上实测 1080ms；相关子查询走 `idx_messages_conversation_ts` 逐个会话倒序取，
+ * 同一份数据 **144ms**。本测试守住的是**语义**（分组、每条会话各自取最近 limit 条、
+ * 正序、跳过流式），这三种写法都必须满足。
  */
 
 import { describe, it, expect } from "vitest";
@@ -104,6 +109,43 @@ describe("loadLastMessagesForConversations", () => {
       "消息 7",
       "消息 8",
       "消息 9",
+    ]);
+  });
+
+  it("多个会话**各自**取最近 limit 条，互不挤占（防退化成全局 limit）", () => {
+    const db = createMigratedTestDb();
+    insertConversation(db, "conv-a");
+    insertConversation(db, "conv-b");
+    for (let i = 0; i < 10; i++) {
+      const mm = String(i).padStart(2, "0");
+      insertMessage(db, {
+        id: `a${i}`,
+        conversationId: "conv-a",
+        role: "assistant",
+        text: `A${i}`,
+        timestamp: `2026-06-30T10:00:${mm}.000Z`,
+      });
+      insertMessage(db, {
+        id: `b${i}`,
+        conversationId: "conv-b",
+        role: "assistant",
+        text: `B${i}`,
+        timestamp: `2026-06-30T10:01:${mm}.000Z`,
+      });
+    }
+
+    const repo = new ConversationRepo(db);
+    const map = repo.loadLastMessagesForConversations(["conv-a", "conv-b"], 3);
+
+    expect(map.get("conv-a")!.map((m) => JSON.parse(m.content_json).text)).toEqual([
+      "A7",
+      "A8",
+      "A9",
+    ]);
+    expect(map.get("conv-b")!.map((m) => JSON.parse(m.content_json).text)).toEqual([
+      "B7",
+      "B8",
+      "B9",
     ]);
   });
 

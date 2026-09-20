@@ -6,6 +6,12 @@
  * 组合：PetCanvas（Live2D 渲染）+ PetOrchestrator（语音状态→动画+口型）
  *       + PetControlDock（统一控制坞，参考 OLV InputSubtitle）。
  * 语音链路在本窗口自跑（D4）：useVoiceCall 的麦克风采集 + TTS 播放都在宠物窗口。
+ *
+ * **本窗口不接主题**：`main.tsx` 直接渲染本组件，**不挂 `AppProviders`**
+ * （含 `ThemeProvider`），因此这里没有 `data-theme`，`--mt-*` 令牌只会取
+ * `:root` 的兜底值。这是刻意的——宠物是浮在桌面上的独立层，用户用深色主题
+ * 工作时，桌面宠物不该突然变成米黄色。所以本目录下的色值都是自带常量，
+ * **下一轮重构请勿"顺手统一"到主题令牌**。
  */
 
 import React, { useCallback, useRef, useState, useEffect } from 'react'

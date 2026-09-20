@@ -17,7 +17,7 @@
   flex: 1;
   padding: 10px 2px;
   color: var(--mt-fg-3);
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   line-height: 1.6;
 }
 
@@ -30,7 +30,7 @@
 
 .meta-text {
   color: var(--mt-fg-3);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
 }
 
 .refresh {
@@ -81,7 +81,7 @@
   border-radius: var(--mt-radius-full);
   background: color-mix(in srgb, var(--mt-fg-3) 12%, transparent);
   color: var(--mt-fg-2);
-  font-size: 10.5px;
+  font-size: var(--font-size-xs);
 }
 
 .diff-chip--added {
@@ -118,14 +118,14 @@
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   color: var(--mt-fg-1);
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   line-height: 1.5;
 }
 
 .report-meta {
   flex-shrink: 0;
   color: var(--mt-fg-3);
-  font-size: 10.5px;
+  font-size: var(--font-size-xs);
 }
 
 .clean {
@@ -133,7 +133,7 @@
   align-items: center;
   gap: 6px;
   color: var(--mt-success-dark);
-  font-size: 12px;
+  font-size: var(--font-size-xs);
 }
 
 .findings {
@@ -167,7 +167,7 @@
   flex-shrink: 0;
   padding: 1px 6px;
   border-radius: 5px;
-  font-size: 10px;
+  font-size: var(--font-size-xs);
   white-space: nowrap;
 }
 
@@ -192,7 +192,7 @@
   min-width: 0;
   overflow: hidden;
   color: var(--mt-fg-1);
-  font-size: 11.5px;
+  font-size: var(--font-size-xs);
   line-height: 1.45;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -201,7 +201,7 @@
 .checked {
   overflow: hidden;
   color: var(--mt-fg-3);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   line-height: 1.5;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -214,7 +214,7 @@
   border-radius: var(--mt-radius-full);
   background: transparent;
   color: var(--mt-fg-2);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   cursor: pointer;
 }
 

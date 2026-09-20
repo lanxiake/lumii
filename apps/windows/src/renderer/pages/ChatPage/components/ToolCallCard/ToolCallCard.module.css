@@ -44,7 +44,7 @@
   align-items: center;
   justify-content: center;
   font-size: 11px;
-  color: var(--color-text-tertiary, rgba(255,255,255,0.4));
+  color: var(--color-text-tertiary);
   flex-shrink: 0;
   line-height: 1;
 }
@@ -57,7 +57,7 @@
 
 .spinIcon {
   animation: spin 1.5s linear infinite;
-  color: var(--color-primary-400, #60a5fa);
+  color: var(--color-primary-400);
 }
 
 /* 子 Agent 来源标签徽章 */
@@ -92,7 +92,7 @@
 .label {
   flex: 1;
   font-size: 12px;
-  color: var(--color-text-secondary, rgba(255,255,255,0.55));
+  color: var(--color-text-secondary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -101,20 +101,20 @@
 
 /* 运行中 - 略微加亮 */
 .running .label {
-  color: var(--color-text-primary, rgba(255,255,255,0.75));
+  color: var(--color-text-primary);
 }
 
 /* 失败 - 红色 */
 .failed .icon,
 .failed .label {
-  color: var(--color-error, #f87171);
+  color: var(--color-error);
   opacity: 0.8;
 }
 
 /* 展开/折叠切换符 */
 .toggle {
   font-size: 9px;
-  color: var(--color-text-tertiary, rgba(255,255,255,0.3));
+  color: var(--color-text-tertiary);
   flex-shrink: 0;
   line-height: 1;
   padding: 0 2px;
@@ -123,14 +123,14 @@
 /* todo_write 内联预览（折叠即可见，不必依赖「已写入文件」误分类） */
 .todoPreviewWrap {
   padding: 4px 6px 6px 22px;
-  border-top: 1px solid var(--color-border, rgba(255, 255, 255, 0.06));
+  border-top: 1px solid var(--color-border);
 }
 
 .todoList {
   margin: 0;
   padding: 0 0 0 16px;
   font-size: 11px;
-  color: var(--color-text-secondary, rgba(255, 255, 255, 0.55));
+  color: var(--color-text-secondary);
   line-height: 1.45;
 }
 
@@ -140,7 +140,7 @@
 }
 
 .todoId {
-  color: var(--color-text-tertiary, rgba(255, 255, 255, 0.4));
+  color: var(--color-text-tertiary);
   margin-right: 6px;
   font-variant-numeric: tabular-nums;
 }
@@ -151,7 +151,7 @@
 
 .todoStatus {
   font-size: 10px;
-  color: var(--color-text-tertiary, rgba(255, 255, 255, 0.35));
+  color: var(--color-text-tertiary);
 }
 
 /* 任务状态徽章 */
@@ -179,7 +179,7 @@
 
 .todoStatusBadge--in_progress {
   background: rgba(59, 130, 246, 0.15);
-  color: #60a5fa;
+  color: var(--mt-accent-400);
 }
 
 .todoStatusBadge--review {
@@ -188,12 +188,12 @@
 }
 
 .todoStatusBadge--done {
-  background: rgba(34, 197, 94, 0.15);
+  background: rgba(var(--mt-success-rgb), 0.15);
   color: #4ade80;
 }
 
 .todoStatusBadge--blocked {
-  background: rgba(239, 68, 68, 0.15);
+  background: rgba(var(--mt-error-rgb), 0.15);
   color: #f87171;
 }
 
@@ -205,7 +205,7 @@
 
 .todoSingle {
   font-size: 11px;
-  color: var(--color-text-secondary, rgba(255, 255, 255, 0.55));
+  color: var(--color-text-secondary);
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -213,12 +213,12 @@
 
 .todoMeta {
   font-size: 10px;
-  color: var(--color-text-tertiary, rgba(255, 255, 255, 0.35));
+  color: var(--color-text-tertiary);
 }
 
 .todoPreviewError {
   font-size: 11px;
-  color: var(--color-error, #f87171);
+  color: var(--color-error);
 }
 
 /* 详情区域 — 展开体压暗，与头部行分层 */
@@ -249,9 +249,9 @@
   font-size: 10px;
   padding: 1px 6px;
   border-radius: var(--radius-sm, 4px);
-  border: 1px solid var(--color-border, rgba(255,255,255,0.1));
+  border: 1px solid var(--color-border);
   background: transparent;
-  color: var(--color-text-tertiary, rgba(255,255,255,0.35));
+  color: var(--color-text-tertiary);
   cursor: pointer;
   transition: all 0.15s;
   line-height: 1.6;
@@ -259,33 +259,33 @@
 }
 
 .copy-btn:hover {
-  background: var(--color-bg-tertiary, rgba(255,255,255,0.06));
-  color: var(--color-text-secondary, rgba(255,255,255,0.55));
-  border-color: var(--color-border-hover, rgba(255,255,255,0.18));
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-secondary);
+  border-color: var(--color-border-hover);
 }
 
 .copy-btn--copied {
-  color: var(--color-success, #34d399);
-  border-color: var(--color-success, #34d399);
+  color: var(--color-success);
+  border-color: var(--color-success);
 }
 
 .detailLabel {
   font-size: 10px;
   font-weight: 600;
-  color: var(--color-text-tertiary, rgba(255,255,255,0.35));
+  color: var(--color-text-tertiary);
   text-transform: uppercase;
   letter-spacing: 0.4px;
 }
 
 .code {
-  background: var(--color-bg-secondary, rgba(0,0,0,0.2));
-  border: 1px solid var(--color-border, rgba(255,255,255,0.08));
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-sm, 4px);
   padding: 6px 8px;
   font-family: var(--font-family-mono, monospace);
   font-size: 11px;
   line-height: 1.5;
-  color: var(--color-text-primary, rgba(255,255,255,0.8));
+  color: var(--color-text-primary);
   overflow-x: auto;
   white-space: pre-wrap;
   word-break: break-all;
@@ -313,7 +313,7 @@
 
 .errorText {
   font-size: 12px;
-  color: var(--color-error, #f87171);
+  color: var(--color-error);
 }
 
 /* 列表容器 */
@@ -327,20 +327,20 @@
 
 /* 子 Agent 卡片 - 视觉上更突出，与普通工具调用区分 */
 .subagentRow {
-  border-left: 2px solid var(--color-primary-500, #6366f1);
+  border-left: 2px solid var(--color-primary-500);
   border-radius: 0 var(--radius-md, 6px) var(--radius-md, 6px) 0;
-  background: var(--color-bg-secondary, rgba(99, 102, 241, 0.04));
+  background: var(--color-bg-secondary);
   margin: 2px 0;
   overflow: hidden;
 }
 
 .subagentRow.running {
-  border-left-color: var(--color-primary-400, #818cf8);
+  border-left-color: var(--color-primary-400);
   background: rgba(99, 102, 241, 0.07);
 }
 
 .subagentRow.failed {
-  border-left-color: var(--color-error, #f87171);
+  border-left-color: var(--color-error);
   background: rgba(248, 113, 113, 0.04);
 }
 
@@ -357,7 +357,7 @@
 }
 
 .subagentHeader:hover {
-  background: var(--color-bg-tertiary, rgba(255, 255, 255, 0.04));
+  background: var(--color-bg-tertiary);
 }
 
 /* 子 Agent 图标 */
@@ -368,13 +368,13 @@
   align-items: center;
   justify-content: center;
   font-size: 13px;
-  color: var(--color-primary-400, #818cf8);
+  color: var(--color-primary-400);
   flex-shrink: 0;
   line-height: 1;
 }
 
 .subagentRow.failed .subagentIcon {
-  color: var(--color-error, #f87171);
+  color: var(--color-error);
 }
 
 /* 子 Agent 主要信息列 */
@@ -389,7 +389,7 @@
 /* 子 Agent 任务标签 */
 .subagentTask {
   font-size: 12px;
-  color: var(--color-text-primary, rgba(255,255,255,0.82));
+  color: var(--color-text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -398,17 +398,17 @@
 }
 
 .subagentRow.running .subagentTask {
-  color: var(--color-text-primary, rgba(255,255,255,0.9));
+  color: var(--color-text-primary);
 }
 
 .subagentRow.failed .subagentTask {
-  color: var(--color-error, #f87171);
+  color: var(--color-error);
 }
 
 /* 子 Agent 会话 Key / 标签 */
 .subagentMeta {
   font-size: 10px;
-  color: var(--color-text-tertiary, rgba(255,255,255,0.35));
+  color: var(--color-text-tertiary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -427,7 +427,7 @@
 /* 耗时显示 */
 .subagentDuration {
   font-size: 10px;
-  color: var(--color-text-tertiary, rgba(255,255,255,0.3));
+  color: var(--color-text-tertiary);
   font-family: var(--font-family-mono, monospace);
 }
 
@@ -443,26 +443,26 @@
 
 .subagentBadge--running {
   background: rgba(99, 102, 241, 0.2);
-  color: var(--color-primary-300, #a5b4fc);
+  color: var(--color-primary-300);
   border: 1px solid rgba(99, 102, 241, 0.3);
 }
 
 .subagentBadge--completed {
   background: rgba(52, 211, 153, 0.12);
-  color: var(--color-success, #34d399);
+  color: var(--color-success);
   border: 1px solid rgba(52, 211, 153, 0.2);
 }
 
 .subagentBadge--failed {
   background: rgba(248, 113, 113, 0.12);
-  color: var(--color-error, #f87171);
+  color: var(--color-error);
   border: 1px solid rgba(248, 113, 113, 0.2);
 }
 
 /* 展开折叠符 */
 .subagentToggle {
   font-size: 9px;
-  color: var(--color-text-tertiary, rgba(255,255,255,0.3));
+  color: var(--color-text-tertiary);
   padding: 0 2px;
   flex-shrink: 0;
   line-height: 1;
@@ -474,7 +474,7 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
-  border-top: 1px solid var(--color-border, rgba(255,255,255,0.06));
+  border-top: 1px solid var(--color-border);
 }
 
 /* 子 Agent 会话信息块 */
@@ -493,7 +493,7 @@
 .subagentSessionLabel {
   font-size: 10px;
   font-weight: 600;
-  color: var(--color-text-tertiary, rgba(255,255,255,0.35));
+  color: var(--color-text-tertiary);
   text-transform: uppercase;
   letter-spacing: 0.4px;
   flex-shrink: 0;
@@ -502,7 +502,7 @@
 
 .subagentSessionValue {
   font-size: 10px;
-  color: var(--color-text-secondary, rgba(255,255,255,0.5));
+  color: var(--color-text-secondary);
   font-family: var(--font-family-mono, monospace);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -531,7 +531,7 @@
 .subagentName {
   font-size: 11px;
   font-weight: 600;
-  color: var(--color-primary-300, #a5b4fc);
+  color: var(--color-primary-300);
   font-family: var(--font-family-mono, monospace);
   white-space: nowrap;
   overflow: hidden;
@@ -541,13 +541,13 @@
 }
 
 .subagentRow.failed .subagentName {
-  color: var(--color-error, #f87171);
+  color: var(--color-error);
 }
 
 /* 运行中提示文字（脉冲效果） */
 .subagentRunningHint {
   font-size: 10px;
-  color: var(--color-text-tertiary, rgba(255,255,255,0.35));
+  color: var(--color-text-tertiary);
   font-style: italic;
   margin-top: 1px;
   animation: pulse 2s ease-in-out infinite;
@@ -556,7 +556,7 @@
 /* 内联错误（卡片未展开时也可见） */
 .subagentInlineError {
   font-size: 10px;
-  color: var(--color-error, #f87171);
+  color: var(--color-error);
   margin-top: 1px;
   white-space: nowrap;
   overflow: hidden;
@@ -566,7 +566,7 @@
 /* 内联摘要（卡片未展开时也可见） */
 .subagentInlineSummary {
   font-size: 10px;
-  color: var(--color-text-secondary, rgba(255,255,255,0.5));
+  color: var(--color-text-secondary);
   margin-top: 1px;
   white-space: nowrap;
   overflow: hidden;
@@ -584,13 +584,13 @@
 
 .childToolRow {
   border-radius: 4px;
-  border-left: 2px solid var(--color-border, rgba(255,255,255,0.1));
+  border-left: 2px solid var(--color-border);
   overflow: hidden;
 }
 
-.childTool--running { border-left-color: var(--color-accent, #6366f1); }
-.childTool--completed { border-left-color: var(--color-success, #22c55e); }
-.childTool--failed { border-left-color: var(--color-error, #f87171); }
+.childTool--running { border-left-color: var(--color-accent); }
+.childTool--completed { border-left-color: var(--color-success); }
+.childTool--failed { border-left-color: var(--color-error); }
 
 .childToolHeader {
   display: flex;
@@ -599,7 +599,7 @@
   padding: 3px 6px;
   cursor: pointer;
   font-size: 11px;
-  color: var(--color-text-secondary, rgba(255,255,255,0.6));
+  color: var(--color-text-secondary);
   background: rgba(255,255,255,0.02);
   user-select: none;
 }
@@ -617,7 +617,7 @@
   flex: 1;
   font-family: var(--font-mono, monospace);
   font-size: 11px;
-  color: var(--color-text, rgba(255,255,255,0.8));
+  color: var(--color-text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -625,20 +625,20 @@
 
 .childToolDuration {
   font-size: 10px;
-  color: var(--color-text-secondary, rgba(255,255,255,0.4));
+  color: var(--color-text-secondary);
   flex-shrink: 0;
 }
 
 .childToolToggle {
   font-size: 9px;
-  color: var(--color-text-secondary, rgba(255,255,255,0.4));
+  color: var(--color-text-secondary);
   flex-shrink: 0;
 }
 
 /* 普通工具调用耗时 */
 .duration {
   font-size: 10px;
-  color: var(--color-text-tertiary, rgba(255,255,255,0.3));
+  color: var(--color-text-tertiary);
   font-family: var(--font-family-mono, monospace);
   flex-shrink: 0;
 }
@@ -646,14 +646,14 @@
 /* 子 Agent 折叠状态工具计数 */
 .subagentChildCount {
   font-size: 10px;
-  color: var(--color-text-tertiary, rgba(255,255,255,0.35));
+  color: var(--color-text-tertiary);
   margin-top: 1px;
 }
 
 /* 智能输出折叠 */
 .outputToggle {
   font-size: 10px;
-  color: var(--color-primary-400, #60a5fa);
+  color: var(--color-primary-400);
   cursor: pointer;
   margin-top: 2px;
 }
@@ -678,11 +678,11 @@
   flex-shrink: 0;
   padding: 1px 6px;
   border-radius: 4px;
-  background: var(--color-surface-elevated, rgba(255, 255, 255, 0.06));
-  border: 1px solid var(--color-border, rgba(255, 255, 255, 0.08));
+  background: var(--color-surface-elevated);
+  border: 1px solid var(--color-border);
   font-size: 11px;
   font-family: var(--font-family-mono, monospace);
-  color: var(--color-text-secondary, rgba(255, 255, 255, 0.65));
+  color: var(--color-text-secondary);
   max-width: 240px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -692,15 +692,15 @@
 
 .fileChipClickable {
   cursor: pointer;
-  color: var(--color-primary-400, #60a5fa);
-  border-color: color-mix(in srgb, var(--color-primary-400, #60a5fa) 35%, transparent);
-  background: color-mix(in srgb, var(--color-primary-400, #60a5fa) 8%, transparent);
+  color: var(--color-primary-400);
+  border-color: color-mix(in srgb, var(--color-primary-400) 35%, transparent);
+  background: color-mix(in srgb, var(--color-primary-400) 8%, transparent);
   transition: background 0.15s ease, border-color 0.15s ease;
 }
 
 .fileChipClickable:hover {
-  background: color-mix(in srgb, var(--color-primary-400, #60a5fa) 18%, transparent);
-  border-color: color-mix(in srgb, var(--color-primary-400, #60a5fa) 60%, transparent);
+  background: color-mix(in srgb, var(--color-primary-400) 18%, transparent);
+  border-color: color-mix(in srgb, var(--color-primary-400) 60%, transparent);
   text-decoration: underline;
 }
 
@@ -714,8 +714,8 @@
   font-size: 10px;
   padding: 0 4px;
   border-radius: 3px;
-  background: var(--color-bg-secondary, rgba(0, 0, 0, 0.18));
-  color: var(--color-text-primary, rgba(255, 255, 255, 0.85));
+  background: var(--color-bg-secondary);
+  color: var(--color-text-primary);
   font-weight: 500;
   opacity: 0.75;
 }
@@ -724,14 +724,14 @@
 
 .imagePreviewWrap {
   padding: 6px 8px 8px 8px;
-  border-top: 1px solid var(--color-border, rgba(255,255,255,0.06));
+  border-top: 1px solid var(--color-border);
 }
 
 .imageThumb {
   max-width: 200px;
   max-height: 150px;
   border-radius: 6px;
-  border: 1px solid var(--color-border, rgba(255,255,255,0.1));
+  border: 1px solid var(--color-border);
   object-fit: contain;
   cursor: pointer;
   transition: opacity 0.15s;
@@ -746,7 +746,7 @@
   max-width: 100%;
   max-height: 400px;
   border-radius: 6px;
-  border: 1px solid var(--color-border, rgba(255,255,255,0.1));
+  border: 1px solid var(--color-border);
   object-fit: contain;
   display: block;
   margin-bottom: 6px;
@@ -754,12 +754,12 @@
 
 .imageMeta {
   font-size: 10px;
-  color: var(--color-text-tertiary, rgba(255,255,255,0.35));
+  color: var(--color-text-tertiary);
   font-family: var(--font-family-mono, monospace);
 }
 
 .imageLoading {
   font-size: 11px;
-  color: var(--color-text-tertiary, rgba(255,255,255,0.35));
+  color: var(--color-text-tertiary);
   padding: 6px 0;
 }

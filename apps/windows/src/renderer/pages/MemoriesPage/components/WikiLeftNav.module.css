@@ -65,7 +65,7 @@
 
 .wiki-left-nav-count--warn {
   background: var(--color-error);
-  color: #fff;
+  color: var(--mt-fg-on-accent);
 }
 
 /* 窄窗口：左栏折叠为图标条，顶栏允许搜索独占一行。 */

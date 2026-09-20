@@ -15,7 +15,7 @@
   height: 32px;
   border: none;
   background: transparent;
-  color: var(--text-primary, #333);
+  color: var(--text-primary);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -30,7 +30,7 @@
 
 .close-button:hover {
   background-color: #e81123;
-  color: white;
+  color: var(--mt-fg-on-accent);
 }
 
 .window-control-button svg {

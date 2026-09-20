@@ -1,0 +1,53 @@
+/**
+ * AppearanceSection 样式 — 主题四选一分段控件
+ */
+
+.theme-switch {
+  display: inline-flex;
+  padding: 2px;
+  border: 1px solid var(--mt-border);
+  border-radius: var(--mt-radius-lg);
+  background: var(--mt-surface-2);
+  gap: 2px;
+}
+
+.theme-switch button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border: none;
+  border-radius: var(--mt-radius-md);
+  background: transparent;
+  color: var(--mt-fg-2);
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+  transition:
+    background var(--mt-dur-normal) var(--mt-ease-standard),
+    color var(--mt-dur-normal) var(--mt-ease-standard);
+}
+
+.theme-switch button:hover {
+  color: var(--mt-fg-1);
+}
+
+.theme-switch button.theme-switch-active {
+  background: var(--mt-bg-elevated);
+  color: var(--mt-fg-1);
+  font-weight: var(--mt-fw-semibold);
+  box-shadow: var(--mt-shadow-xs);
+}
+
+/* 三格预览：画布 / 卡片 / 强调色 */
+.swatch {
+  display: inline-flex;
+  overflow: hidden;
+  width: 24px;
+  height: 12px;
+  border: 1px solid var(--mt-border);
+  border-radius: 3px;
+}
+
+.swatch > i {
+  flex: 1;
+}

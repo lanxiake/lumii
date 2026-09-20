@@ -12,6 +12,7 @@
     "dev:start": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/start-dev.ps1",
     "dev:stop": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/stop-dev.ps1",
     "dev:restart": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/start-dev.ps1 -Force",
+    "dev:inspect": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/start-dev.ps1 -Force -Inspect 5860",
     "dist": "pnpm --filter ./apps/windows package",
     "package:win": "node apps/windows/scripts/package-app.js --platform win",
     "typecheck": "pnpm -r typecheck",

@@ -36,7 +36,7 @@
 
 /* 工作区根目录 wiki/ 文件夹：与资料库入口视觉呼应 */
 .node--wiki {
-  background: color-mix(in srgb, var(--color-warning, #faad14) 8%, transparent);
+  background: color-mix(in srgb, var(--color-warning) 8%, transparent);
 }
 
 .node--wiki .name {
@@ -84,7 +84,7 @@
 }
 
 .fileIcon--dir {
-  color: var(--color-primary, #3b82f6);
+  color: var(--color-primary);
   opacity: 0.85;
 }
 

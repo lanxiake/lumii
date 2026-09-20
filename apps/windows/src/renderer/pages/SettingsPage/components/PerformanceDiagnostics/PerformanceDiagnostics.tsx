@@ -42,16 +42,20 @@ const HEALTH_LABEL: Record<PerformanceReport['health'], string> = {
   critical: '严重',
 }
 
+/** 健康状态是**语义**色（好/警告/严重），保留语义令牌而非图表色板 */
 const HEALTH_COLOR: Record<PerformanceReport['health'], string> = {
-  good: '#10b981',
-  warning: '#f59e0b',
-  critical: '#ef4444',
+  good: 'var(--mt-success)',
+  warning: 'var(--mt-warning)',
+  critical: 'var(--mt-error)',
 }
 
-const MEMORY_COLOR = { rss: '#3b82f6', heapUsed: '#8b5cf6' } as const
-const IPC_COLOR = { avgLatency: '#22c55e' } as const
-/** IPC 通道分色调色板，多通道时循环取色 */
-const CHANNEL_PALETTE = ['#06b6d4', '#f59e0b', '#ef4444', '#8b5cf6', '#3b82f6', '#ec4899'] as const
+const MEMORY_COLOR = { rss: 'var(--mt-chart-1)', heapUsed: 'var(--mt-chart-5)' } as const
+const IPC_COLOR = { avgLatency: 'var(--mt-chart-2)' } as const
+/** IPC 通道分色无固定语义，走图表色板（多通道时循环取色） */
+const CHANNEL_PALETTE = [
+  'var(--mt-chart-8)', 'var(--mt-chart-3)', 'var(--mt-chart-4)',
+  'var(--mt-chart-5)', 'var(--mt-chart-1)', 'var(--mt-chart-7)',
+] as const
 
 /** 本地时区 HH:mm:ss，与 file-logger.ts / logger.ts 的本地时区展示口径保持一致 */
 function formatLocalTime(ts: number): string {

@@ -1,7 +1,7 @@
 /**
  * ThemeContext - 主题切换上下文
  *
- * 管理当前主题（light/dark），支持监听系统主题变化
+ * 管理当前主题（light / dark / eye-care），支持监听系统主题变化
  */
 
 import React, { createContext, useContext, useState, useCallback, useEffect, ReactNode } from 'react'
@@ -9,12 +9,19 @@ import React, { createContext, useContext, useState, useCallback, useEffect, Rea
 /**
  * 主题类型
  */
-export type Theme = 'light' | 'dark' | 'system'
+export type Theme = 'light' | 'dark' | 'eye-care' | 'system'
 
 /**
- * 实际应用的主题模式
+ * 实际应用的主题模式（system 已按系统偏好解析）
  */
-export type AppliedTheme = 'light' | 'dark'
+export type AppliedTheme = 'light' | 'dark' | 'eye-care'
+
+/** 合法主题值；loadTheme / 设置同步都拿它做校验，新增主题只改这里 */
+const THEME_VALUES: readonly Theme[] = ['light', 'dark', 'eye-care', 'system']
+
+function isTheme(value: unknown): value is Theme {
+  return typeof value === 'string' && (THEME_VALUES as readonly string[]).includes(value)
+}
 
 /**
  * 主题状态
@@ -32,7 +39,7 @@ export interface ThemeState {
  * 主题上下文类型
  */
 interface ThemeContextType extends ThemeState {
-  /** 切换主题（light <-> dark） */
+  /** 切换主题（浅色 → 护眼 → 深色 循环） */
   toggleTheme: () => void
   /** 设置指定主题 */
   setTheme: (theme: Theme) => void
@@ -58,8 +65,8 @@ function loadTheme(): Theme {
     const settingsStored = localStorage.getItem(SETTINGS_STORAGE_KEY)
     if (settingsStored) {
       const settings = JSON.parse(settingsStored)
-      if (settings.theme?.mode && ['light', 'dark', 'system'].includes(settings.theme.mode)) {
-        return settings.theme.mode as Theme
+      if (isTheme(settings.theme?.mode)) {
+        return settings.theme.mode
       }
     }
   } catch (error) {
@@ -69,8 +76,8 @@ function loadTheme(): Theme {
   // 回退到独立存储
   try {
     const stored = localStorage.getItem(STORAGE_KEY)
-    if (stored && ['light', 'dark', 'system'].includes(stored)) {
-      return stored as Theme
+    if (isTheme(stored)) {
+      return stored
     }
   } catch (error) {
     console.error('[ThemeContext] 加载主题设置失败:', error)
@@ -168,17 +175,10 @@ export const ThemeProvider: React.FC<ThemeProviderProps> = ({
 
     // 兼容: 保留 body class 和 data-theme，不影响现有样式引用
     const body = document.body
-    const lightClass = `${themeClassPrefix}light`
-    const darkClass = `${themeClassPrefix}dark`
-
-    if (appliedTheme === 'light') {
-      body.classList.remove(darkClass)
-      body.classList.add(lightClass)
-    } else {
-      body.classList.remove(lightClass)
-      body.classList.add(darkClass)
+    for (const cls of ['theme-light', 'theme-dark', 'theme-eye-care']) {
+      body.classList.remove(cls)
     }
-
+    body.classList.add(`${themeClassPrefix}${appliedTheme}`)
     body.setAttribute('data-theme', appliedTheme)
 
     console.log('[ThemeContext] 主题已应用:', appliedTheme)
@@ -203,10 +203,12 @@ export const ThemeProvider: React.FC<ThemeProviderProps> = ({
   }, [applyThemeToDOM])
 
   /**
-   * 切换主题
+   * 切换主题（按 浅色 → 护眼 → 深色 循环；跟随系统态下从当前生效值起步）
    */
   const toggleTheme = useCallback(() => {
-    const newTheme: Theme = state.appliedTheme === 'light' ? 'dark' : 'light'
+    const order: AppliedTheme[] = ['light', 'eye-care', 'dark']
+    const idx = order.indexOf(state.appliedTheme)
+    const newTheme: Theme = order[(idx + 1) % order.length]
     updateTheme(newTheme)
   }, [state.appliedTheme, updateTheme])
 
@@ -291,8 +293,8 @@ export const ThemeProvider: React.FC<ThemeProviderProps> = ({
         const settingsStored = localStorage.getItem(SETTINGS_STORAGE_KEY)
         if (settingsStored) {
           const settings = JSON.parse(settingsStored)
-          if (settings.theme?.mode && ['light', 'dark', 'system'].includes(settings.theme.mode)) {
-            const newTheme = settings.theme.mode as Theme
+          if (isTheme(settings.theme?.mode)) {
+            const newTheme = settings.theme.mode
             // 仅当主题发生变化时才更新
             setState(prev => {
               if (prev.theme !== newTheme) {

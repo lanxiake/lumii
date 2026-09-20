@@ -4,7 +4,7 @@
   display: flex;
   flex-direction: column;
   margin-bottom: var(--spacing-1, 4px);
-  border: 1px solid var(--mt-border-hairline, rgba(255, 255, 255, 0.06));
+  border: 1px solid var(--mt-border-hairline);
   border-radius: var(--mt-radius-lg, 8px);
   background: color-mix(in srgb, var(--mt-accent-500) 4%, transparent);
   overflow: hidden;
@@ -12,7 +12,7 @@
 }
 
 .fold--streaming {
-  border-color: color-mix(in srgb, var(--color-primary-400, #818cf8) 40%, transparent);
+  border-color: color-mix(in srgb, var(--color-primary-400) 40%, transparent);
 }
 
 /* 流式时顶部一条流光扫描线，表达「正在执行」的科技感 */
@@ -23,8 +23,8 @@
   background: linear-gradient(
     90deg,
     transparent,
-    var(--color-primary-400, #818cf8),
-    var(--mt-violet, #8b5cf6),
+    var(--color-primary-400),
+    var(--mt-violet),
     transparent
   );
   background-size: 40% 100%;
@@ -48,7 +48,7 @@
   background: transparent;
   cursor: pointer;
   font-family: var(--mt-font-mono);
-  color: var(--mt-fg-3, #94a3b8);
+  color: var(--mt-fg-3);
   text-align: left;
   width: 100%;
   transition: background var(--mt-dur-normal) var(--mt-ease-standard);
@@ -60,13 +60,13 @@
 }
 
 .header--expanded {
-  border-bottom: 1px solid var(--mt-border-hairline, rgba(255, 255, 255, 0.06));
+  border-bottom: 1px solid var(--mt-border-hairline);
 }
 
 /* 左侧 chevron：折叠→收起随状态旋转，符合用户习惯 */
 .chevron {
   flex-shrink: 0;
-  color: var(--color-primary-400, #818cf8);
+  color: var(--color-primary-400);
   transition: transform var(--mt-dur-normal) var(--mt-ease-spring);
 }
 
@@ -82,12 +82,12 @@
   flex-shrink: 0;
   font-size: 12px;
   font-weight: 600;
-  color: var(--mt-fg-2, #cbd5e1);
+  color: var(--mt-fg-2);
 }
 
 /* 标签内的旋转 loader（流式） */
 .spinner {
-  color: var(--color-primary-400, #818cf8);
+  color: var(--color-primary-400);
   animation: activitySpin 0.8s linear infinite;
 }
 
@@ -99,7 +99,7 @@
 .label::after {
   content: '·';
   margin-left: 5px;
-  color: var(--mt-fg-4, #64748b);
+  color: var(--mt-fg-4);
   font-weight: 400;
 }
 
@@ -108,7 +108,7 @@
   flex: 1;
   min-width: 0;
   font-size: 12px;
-  color: var(--color-primary-400, #818cf8);
+  color: var(--color-primary-400);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -119,7 +119,7 @@
   flex: 1;
   min-width: 0;
   font-size: 12px;
-  color: var(--mt-fg-3, #94a3b8);
+  color: var(--mt-fg-3);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -128,7 +128,7 @@
 .duration {
   flex-shrink: 0;
   font-size: 10px;
-  color: var(--mt-fg-4, #64748b);
+  color: var(--mt-fg-4);
   font-family: var(--mt-font-mono, monospace);
 }
 
@@ -138,15 +138,15 @@
   font-size: 11px;
   padding: 1px 7px;
   border-radius: 999px;
-  color: var(--mt-fg-3, #94a3b8);
+  color: var(--mt-fg-3);
   background: color-mix(in srgb, var(--mt-accent-500) 10%, transparent);
   transition: color var(--mt-dur-fast) var(--mt-ease-standard),
               background var(--mt-dur-fast) var(--mt-ease-standard);
 }
 
 .header:hover .hint {
-  color: var(--color-primary-400, #818cf8);
-  background: color-mix(in srgb, var(--color-primary-400, #818cf8) 16%, transparent);
+  color: var(--color-primary-400);
+  background: color-mix(in srgb, var(--color-primary-400) 16%, transparent);
 }
 
 /* 展开体：按时间线渲染 thinking / 工具组 / 中间文本，行间留白拉开层次 */
@@ -172,7 +172,7 @@
   border: none;
   border-radius: 4px;
   background: transparent;
-  color: var(--mt-fg-3, #94a3b8);
+  color: var(--mt-fg-3);
   font-size: 11px;
   cursor: pointer;
   transition: color var(--mt-dur-fast) var(--mt-ease-standard),
@@ -180,7 +180,7 @@
 }
 
 .collapse:hover {
-  color: var(--mt-fg-1, #e2e8f0);
+  color: var(--mt-fg-1);
   background: color-mix(in srgb, var(--mt-accent-500) 12%, transparent);
 }
 

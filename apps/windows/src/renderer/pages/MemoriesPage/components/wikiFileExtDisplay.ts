@@ -2,57 +2,68 @@
  * Wiki 文件列表：后缀解析与手绘笔记风格着色
  *
  * 色板刻意低饱和、略偏暖，贴近纸面手账而非高对比 UI 霓虹色。
+ *
+ * 色值走 `--mt-file-*` 令牌（定义在 design-system.css 三个主题块）：
+ * light 与 eye-care 用同一组浅色原值——实测它们在各自底色上对比度
+ * 3.46~5.74、与底色 ΔE ≥ 49，本来就没有问题；**dark 用亮化版**
+ * （色相不变、只提明度），因为原值在深底上有 7 个落到 2.55~3.00。
+ *
+ * 刻意**不**跟随主题变暖：手账色与米黄底正是靠冷暖差才立得住，
+ * 整体暖化会与 eye-care 背景糊在一起（见 14 片文档）。
+ *
+ * 这里返回 `var(...)` 字符串——消费点是 DOM 内联 style（`style={{ color }}`），
+ * 天然支持 CSS 变量，无需读计算值。
  */
 
 /** 大类图标色（手绘笔记风） */
 const MEDIA_ICON_COLORS: Readonly<Record<string, string>> = {
-  document: '#8B7355', // 赭石
-  image: '#C0785A', // 砖红
-  audio: '#5B8A7A', // 青绿
-  video: '#7A6B8A', // 葡萄紫
+  document: 'var(--mt-file-other)', // 赭石
+  image: 'var(--mt-file-image)', // 砖红
+  audio: 'var(--mt-file-audio)', // 青绿
+  video: 'var(--mt-file-video)', // 葡萄紫
 }
 
-const DEFAULT_INK = '#6B6560' // 石墨灰
+const DEFAULT_INK = 'var(--mt-file-txt)' // 石墨灰
 
 /**
  * 后缀徽章色：同大类内可区分，整体仍偏纸面手账
  */
 const EXT_BADGE_COLORS: Readonly<Record<string, string>> = {
   // 文档族：赭石 / 墨绿 / 靛蓝 / 砖褐
-  md: '#7A6F4D',
-  markdown: '#7A6F4D',
-  txt: '#6B7F6A',
-  log: '#6B7F6A',
-  pdf: '#A65D4F',
-  doc: '#5B6B8A',
-  docx: '#5B6B8A',
-  rtf: '#5B6B8A',
-  xls: '#6A7A5B',
-  xlsx: '#6A7A5B',
-  csv: '#6A7A5B',
-  ppt: '#9A6B5A',
-  pptx: '#9A6B5A',
-  json: '#5A6B7A',
-  html: '#5A6B7A',
-  htm: '#5A6B7A',
+  md: 'var(--mt-file-doc)',
+  markdown: 'var(--mt-file-doc)',
+  txt: 'var(--mt-file-ink)',
+  log: 'var(--mt-file-ink)',
+  pdf: 'var(--mt-file-pdf)',
+  doc: 'var(--mt-file-office)',
+  docx: 'var(--mt-file-office)',
+  rtf: 'var(--mt-file-office)',
+  xls: 'var(--mt-file-sheet)',
+  xlsx: 'var(--mt-file-sheet)',
+  csv: 'var(--mt-file-sheet)',
+  ppt: 'var(--mt-file-slide)',
+  pptx: 'var(--mt-file-slide)',
+  json: 'var(--mt-file-code)',
+  html: 'var(--mt-file-code)',
+  htm: 'var(--mt-file-code)',
   // 图片族：砖红 / 琥珀
-  png: '#C0785A',
-  jpg: '#B87A4A',
-  jpeg: '#B87A4A',
-  gif: '#A86B6B',
-  webp: '#A86B6B',
-  svg: '#A86B6B',
-  bmp: '#B87A4A',
+  png: 'var(--mt-file-image)',
+  jpg: 'var(--mt-file-image-2)',
+  jpeg: 'var(--mt-file-image-2)',
+  gif: 'var(--mt-file-image-3)',
+  webp: 'var(--mt-file-image-3)',
+  svg: 'var(--mt-file-image-3)',
+  bmp: 'var(--mt-file-image-2)',
   // 音视频：青绿 / 葡萄紫
-  mp3: '#5B8A7A',
-  m4a: '#5B8A7A',
-  wav: '#4F7F72',
-  flac: '#4F7F72',
-  ogg: '#5B8A7A',
-  mp4: '#7A6B8A',
-  mov: '#7A6B8A',
-  webm: '#6F6280',
-  mkv: '#6F6280',
+  mp3: 'var(--mt-file-audio)',
+  m4a: 'var(--mt-file-audio)',
+  wav: 'var(--mt-file-audio-2)',
+  flac: 'var(--mt-file-audio-2)',
+  ogg: 'var(--mt-file-audio)',
+  mp4: 'var(--mt-file-video)',
+  mov: 'var(--mt-file-video)',
+  webm: 'var(--mt-file-video-2)',
+  mkv: 'var(--mt-file-video-2)',
 }
 
 /**

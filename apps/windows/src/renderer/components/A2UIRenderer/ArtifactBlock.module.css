@@ -112,7 +112,7 @@
   right: 60px;
   padding: 2px 8px;
   background: var(--color-primary-500);
-  color: white;
+  color: var(--mt-fg-on-accent);
   border-radius: var(--radius-sm);
   font-size: 0.8em;
   pointer-events: none;

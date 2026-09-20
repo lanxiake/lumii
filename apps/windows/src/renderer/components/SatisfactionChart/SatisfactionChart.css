@@ -28,7 +28,7 @@
   justify-content: center;
   padding: 24px;
   text-align: center;
-  color: var(--mt-fg-4, #999);
+  color: var(--mt-fg-4);
   font-size: 13px;
 }
 
@@ -45,8 +45,9 @@
   bottom: calc(100% - 36px);
   margin-bottom: 10px;
   padding: 8px 12px;
-  background: rgba(15, 23, 42, 0.9);
-  color: white;
+  /* 浮层用主题的深色画布，浅色主题下自动反色 */
+  background: color-mix(in srgb, var(--mt-fg-1) 92%, transparent);
+  color: var(--mt-bg-secondary);
   border-radius: 6px;
   font-size: 12px;
   pointer-events: none;
@@ -61,7 +62,7 @@
   left: 50%;
   transform: translateX(-50%);
   border: 5px solid transparent;
-  border-top-color: rgba(15, 23, 42, 0.9);
+  border-top-color: color-mix(in srgb, var(--mt-fg-1) 92%, transparent);
 }
 
 .tooltip-date {
@@ -72,5 +73,5 @@
 .tooltip-score {
   font-size: 13px;
   font-weight: 600;
-  color: #93c5fd;
+  color: var(--mt-accent-300);
 }
