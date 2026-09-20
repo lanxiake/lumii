@@ -41,6 +41,21 @@
           "m3"
         ]
       }
+    },
+    "scene": {
+      "kind": "layered",
+      "at": [
+        0,
+        0
+      ],
+      "parts": {
+        "prop": [
+          "prop_none",
+          "prop_ball",
+          "prop_star",
+          "prop_heart"
+        ]
+      }
     }
   },
   "animations": [
@@ -170,6 +185,41 @@
         },
         {
           "base": "shake_00"
+        }
+      ]
+    },
+    {
+      "group": "PlayBall",
+      "index": 0,
+      "kind": "once",
+      "next": "Idle",
+      "fps": 6,
+      "frames": [
+        {
+          "base": "body_00",
+          "scene": {
+            "prop": "prop_ball"
+          },
+          "face": {
+            "eyes": "eye_sparkle",
+            "mouth": "m1"
+          }
+        },
+        {
+          "base": "body_01",
+          "scene": {
+            "prop": "prop_star"
+          }
+        },
+        {
+          "base": "body_00",
+          "scene": {
+            "prop": "prop_none"
+          },
+          "face": {
+            "eyes": "eye_open",
+            "mouth": "m0"
+          }
         }
       ]
     }

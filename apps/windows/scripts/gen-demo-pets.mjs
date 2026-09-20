@@ -192,6 +192,67 @@ function eyeShapes(kind) {
   }
 }
 
+/**
+ * 道具形状表（scene 槽的部件）。
+ *
+ * 画在角色右爪附近——scene 槽在图层顺序上排在身体之后，所以道具会**压在角色身上**，
+ * 看起来像被拿着/举着，而不是飘在旁边。
+ *
+ *  返回空形状表 → 整张图全透明。这是不显示道具的表达方式，
+ * 不需要为它加任何特判：对齐时全透明帧会被排除出基准计算，打包时照常占一个格子。
+ */
+function propShapes(kind) {
+  const x = 34
+  const y = 33
+  const ink = '#2a1c12'
+  switch (kind) {
+    case 'prop_ball':
+      return [
+        { kind: 'ellipse', cx: x, cy: y, rx: 5, ry: 5, fill: '#4a9de0', stroke: ink },
+        { kind: 'ellipse', cx: x - 1, cy: y - 1, rx: 2, ry: 2, fill: '#bfe3ff' },
+      ]
+    case 'prop_star':
+      return [
+        {
+          kind: 'poly',
+          points: [[x, y - 6], [x + 2, y - 2], [x + 6, y - 2], [x + 3, y + 1], [x + 4, y + 5], [x, y + 3], [x - 4, y + 5], [x - 3, y + 1], [x - 6, y - 2], [x - 2, y - 2]],
+          fill: '#f2c744',
+          stroke: ink,
+        },
+      ]
+    case 'prop_heart':
+      return [
+        { kind: 'ellipse', cx: x - 2, cy: y - 2, rx: 3, ry: 3, fill: '#e0466e', stroke: ink },
+        { kind: 'ellipse', cx: x + 2, cy: y - 2, rx: 3, ry: 3, fill: '#e0466e', stroke: ink },
+        { kind: 'poly', points: [[x - 5, y - 1], [x + 5, y - 1], [x, y + 5]], fill: '#e0466e', stroke: ink },
+      ]
+    case 'prop_none':
+    default:
+      return []
+  }
+}
+
+const PROPS = ['prop_none', 'prop_ball', 'prop_star', 'prop_heart']
+
+/**
+ * 场景/道具动画：同一段动作里切换道具，演示 scene 槽是能被帧驱动的普通槽位。
+ *
+ * 刻意不给它设计新 API——帧本来就能声明任意槽位，为 scene 单独开一套接口等于
+ * 承认槽位抽象漏了东西（那要改的是抽象，不是打补丁）。
+ */
+function buildSceneAnimations() {
+  return [
+    {
+      group: 'PlayBall', index: 0, kind: 'once', next: 'Idle', fps: 6,
+      frames: [
+        { base: 'body_00', scene: { prop: 'prop_ball' }, face: { eyes: 'eye_sparkle', mouth: 'm1' } },
+        { base: 'body_01', scene: { prop: 'prop_star' } },
+        { base: 'body_00', scene: { prop: 'prop_none' }, face: { eyes: 'eye_open', mouth: 'm0' } },
+      ],
+    },
+  ]
+}
+
 /** 嘴形状表：档位越高张得越大 */
 function mouthShapes(level) {
   const cx = CANVAS.w / 2
@@ -650,12 +711,15 @@ async function main() {
   for (const pose of ACTION_POSE_LIST) {
     pixelImages.push(pixelImage(pose.name, [bodyShapes(pose.lift ?? 0, pose.pawLift ?? 0, pose.lean ?? 0)]))
   }
+  for (const prop of PROPS) pixelImages.push(pixelImage(prop, [propShapes(prop)]))
   const demoFrames = BODY_POSES.map((pose, i) => ({
     base: pose.name,
     ...(i === 0 ? { face: { eyes: EYES[0], mouth: MOUTHS[0] } } : {}),
   }))
   const demoSlots = {
     face: { kind: 'layered', at: [0, 0], parts: { eyes: EYES, mouth: MOUTHS } },
+    // 场景/道具层。顺序在 face 之后 → 道具画在最上层（像被举着）
+    scene: { kind: 'layered', at: [0, 0], parts: { prop: PROPS } },
   }
 
   const variantsRoot = path.join(outRoot, '_variants')
@@ -666,7 +730,7 @@ async function main() {
     name: '像素猫',
     images: pixelImages,
     animFrames: demoFrames,
-    extraAnimations: buildActionAnimations(),
+    extraAnimations: [...buildActionAnimations(), ...buildSceneAnimations()],
     slots: demoSlots,
     pixelArt: true,
     canvas: CANVAS,
@@ -695,12 +759,20 @@ async function main() {
       height: HI.h,
     })
   }
+  for (const prop of PROPS) {
+    hiresImages.push({
+      name: prop,
+      buffer: await rasterizeHires([propShapes(prop)]),
+      width: HI.w,
+      height: HI.h,
+    })
+  }
   const hiresPkg = await writePackage(path.join(outRoot, 'demo_hires_girl'), {
     id: 'demo_hires_girl',
     name: '高清少女',
     images: hiresImages,
     animFrames: demoFrames,
-    extraAnimations: buildActionAnimations(),
+    extraAnimations: [...buildActionAnimations(), ...buildSceneAnimations()],
     slots: demoSlots,
     pixelArt: false,
     canvas: HI,

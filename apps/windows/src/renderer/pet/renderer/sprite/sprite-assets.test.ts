@@ -183,3 +183,59 @@ function motionGroupsWithFrames(rt: ReturnType<typeof resolveSpriteRuntime>): st
   }
   return out
 }
+
+// ---------------------------------------------------------------------------
+// 场景 / 道具层（P1-e）
+// ---------------------------------------------------------------------------
+
+describe('scene 槽（场景/道具层）', () => {
+  const manifestOf = (dir: string) => {
+    const v = SHIPPED.find((x) => x.dir === dir)!
+    const r = validateSpriteManifest(v.manifest)
+    if (!r.ok) throw new Error(`${dir} 清单不合法`)
+    return r.manifest
+  }
+
+  it.each(SHIPPED.map((p) => [p.dir, p] as const))('%s 声明了 scene 槽与道具部件', (_n, pkg) => {
+    const r = validateSpriteManifest(pkg.manifest)
+    if (!r.ok) throw new Error('清单不合法')
+    const scene = r.manifest.slots?.scene
+    expect(scene?.kind).toBe('layered')
+    expect(Object.keys(scene?.parts ?? {})).toContain('prop')
+    expect(scene!.parts!.prop.length).toBeGreaterThanOrEqual(2)
+  })
+
+  it.each(SHIPPED.map((p) => [p.dir, p] as const))(
+    '%s 的每个道具都能在图集里找到（含"不显示道具"的那个空帧）',
+    (_n, pkg) => {
+      const r = validateSpriteManifest(pkg.manifest, {
+        atlasFrames: Object.keys(
+          (readJson(join(RESOURCES, pkg.dir, 'atlas.json')) as { frames: Record<string, unknown> }).frames,
+        ),
+      })
+      if (!r.ok) throw new Error(`交叉校验失败：${r.errors.map((e) => e.message).join(' | ')}`)
+      expect(r.ok).toBe(true)
+    },
+  )
+
+  it('道具能被帧驱动：解析后的帧快照里带着 scene 状态', () => {
+    const m = manifestOf('demo_pixel_cat')
+    const rt = resolveSpriteRuntime(m)
+    const play = rt.animationsByGroup.get('PlayBall')?.[0]
+    expect(play).toBeDefined()
+    // 三个帧各自的道具不同，最后一帧回到"不显示"
+    expect(play!.frames.map((f) => f.layered.scene?.prop)).toEqual([
+      'prop_ball',
+      'prop_star',
+      'prop_none',
+    ])
+  })
+
+  it('未声明 scene 的帧沿用上一帧的道具（增量语义对 scene 同样成立）', () => {
+    const m = manifestOf('demo_pixel_cat')
+    const rt = resolveSpriteRuntime(m)
+    const idle = rt.animationsByGroup.get('Idle')?.[0]
+    // Idle 的帧没声明 scene → 取默认（PROPS 的首个 = prop_none）
+    expect(idle!.frames.every((f) => f.layered.scene?.prop === 'prop_none')).toBe(true)
+  })
+})
