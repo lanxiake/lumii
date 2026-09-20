@@ -125,6 +125,8 @@ export function registerScreenRecordTools(
                 includeMic: p.includeMic,
                 includeSystemAudio: p.includeSystemAudio,
                 maxDurationSec,
+                // 让确认弹窗能区分「AI 请求录制」与用户自己点的
+                initiator: 'agent',
               }),
             )
           } catch (e) {

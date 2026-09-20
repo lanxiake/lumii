@@ -85,6 +85,8 @@ export interface ScreenRecordServiceDeps {
     timeoutSec: number
     startedAt: number
     purpose?: 'record' | 'screenshot'
+    /** 发起方（缺省 = 用户操作）；截图路径恒为 agent */
+    initiator?: 'user' | 'agent'
   }) => void
   /**
    * 抓取指定源的一帧 JPEG（desktopCapturer 高分辨率缩略图）。
@@ -151,6 +153,8 @@ interface InternalState {
   confirmTimeoutSec: number
   /** 确认用途（status 回读给刷新后的渲染层恢复弹窗用） */
   confirmPurpose: 'record' | 'screenshot' | null
+  /** 确认发起方（同上，回读用；截图路径恒为 agent） */
+  confirmInitiator: 'user' | 'agent' | null
   confirmTimer: ReturnType<typeof setTimeout> | null
   maxDurationTimer: ReturnType<typeof setTimeout> | null
   nextChunkIndex: number
@@ -224,6 +228,7 @@ function createIdleState(): InternalState {
     confirmStartedAt: null,
     confirmTimeoutSec: SCREEN_RECORD_SETTINGS_DEFAULTS.confirmTimeoutSec,
     confirmPurpose: null,
+    confirmInitiator: null,
     confirmTimer: null,
     maxDurationTimer: null,
     nextChunkIndex: 0,
@@ -326,6 +331,7 @@ export function createScreenRecordService(deps: ScreenRecordServiceDeps): Screen
         ? {
             sourceType: state.sourceType ?? undefined,
             purpose: state.confirmPurpose ?? undefined,
+            initiator: state.confirmInitiator ?? undefined,
           }
         : {}
     return {
@@ -760,6 +766,8 @@ export function createScreenRecordService(deps: ScreenRecordServiceDeps): Screen
 
       const sessionId = randomUUID()
       const needConfirm = !source.isLumii && !settings.alwaysAllow
+      // 用户从面板发起时也走确认流（源不是 Lumii 本窗），弹窗措辞要区分开
+      const initiator: 'user' | 'agent' = params.initiator === 'agent' ? 'agent' : 'user'
 
       if (needConfirm) {
         const startedAt = deps.nowMs()
@@ -777,6 +785,7 @@ export function createScreenRecordService(deps: ScreenRecordServiceDeps): Screen
           confirmStartedAt: startedAt,
           confirmTimeoutSec: settings.confirmTimeoutSec,
           confirmPurpose: 'record',
+          confirmInitiator: initiator,
           startLock: false,
         }
         deps.notifyRendererConfirmRequested({
@@ -788,6 +797,7 @@ export function createScreenRecordService(deps: ScreenRecordServiceDeps): Screen
           timeoutSec: settings.confirmTimeoutSec,
           startedAt,
           purpose: 'record',
+          initiator,
         })
         clearConfirmTimer()
         state.confirmTimer = setTimeout(() => {

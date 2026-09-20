@@ -15,6 +15,13 @@
  *
  * 判断「是否已开启」用**文件是否存在**，与 Windows 侧读注册表语义一致；
  * 不解析文件内容，避免用户手工改过 .desktop 后我们的解析失败反而报「未开启」。
+ *
+ * **由此带来的一处已知残留（一期不修，设计 §6.3 勘误）**：因为只看存在性，
+ * 当 `.desktop` 指向的目标已失效（典型场景：AppImage 用户开了自启后把 AppImage
+ * 删了），本模块既检测不到、也不清理，`~/.config/autostart/lumii.desktop`
+ * 会一直留着。这不是疏漏而是刻意取舍——校验目标会要求解析 `.desktop` 内容，
+ * 正好推翻上一条的结论。第二期随 autostart 一起处理。
+ * 注：deb 的 `postrm` 也不清它（不同用户家目录卸载时不可穷举）。
  */
 import * as fs from 'node:fs'
 import * as os from 'node:os'

@@ -9,6 +9,7 @@ import {
 } from '../../hooks/business/useSettings'
 import type { AppSettings } from '../../hooks/business/useSettings/useSettings.types'
 import { useScreenRecordContext } from './ScreenRecordContext'
+import { useFeatureAvailability } from '../../hooks/business/useFeatureAvailability'
 import { ScreenRecordPanel, formatDuration } from './ScreenRecordPanel'
 import { ScreenRecordConfirmDialog } from './ScreenRecordConfirmDialog'
 import * as screenRecordApi from '../../services/screen-record-api'
@@ -38,6 +39,11 @@ export const ScreenRecordTitleControl: React.FC<ScreenRecordTitleControlProps> =
 }) => {
   const { status, elapsedMs, panelOpen, setPanelOpen } = useScreenRecordContext()
   const { settings } = useSettings()
+  const { isAvailable, blockMessage } = useFeatureAvailability()
+  // D14 修订后录屏在 Linux/X11 可用，只有 Wayland（与 headless）仍屏蔽——
+  // 入口置灰必须跟着矩阵走，不能再假设「非 Windows 就不可用」。
+  // disabled 只判 blocked、不等 ready（先亮后灰无害，反之会闪出没有原因的灰按钮）。
+  const screenRecordBlocked = !isAvailable('screenRecord')
   const enabled = settings.screenRecord?.enabled !== false
   const recording = status === 'recording'
   const paused = status === 'paused'
@@ -58,17 +64,22 @@ export const ScreenRecordTitleControl: React.FC<ScreenRecordTitleControlProps> =
       type="button"
       className={classNames}
       title={
-        !enabled
-          ? '录屏功能已关闭，请到「设置 → 录屏」启用'
-          : recording
-            ? `录制中 ${formatDuration(elapsedMs)}，点击打开面板`
-            : paused
-              ? `已暂停 ${formatDuration(elapsedMs)}，点击打开面板`
-              : '录屏'
+        screenRecordBlocked
+          ? (blockMessage('screenRecord') ?? '当前环境不支持录屏')
+          : !enabled
+            ? '录屏功能已关闭，请到「设置 → 录屏」启用'
+            : recording
+              ? `录制中 ${formatDuration(elapsedMs)}，点击打开面板`
+              : paused
+                ? `已暂停 ${formatDuration(elapsedMs)}，点击打开面板`
+                : '录屏'
       }
       aria-label={active ? '打开录屏面板' : '打开录屏面板'}
-      disabled={!enabled && !active}
-      onClick={() => setPanelOpen(!panelOpen)}
+      disabled={screenRecordBlocked || (!enabled && !active)}
+      onClick={() => {
+        if (screenRecordBlocked) return
+        setPanelOpen(!panelOpen)
+      }}
     >
       {recording ? (
         <>

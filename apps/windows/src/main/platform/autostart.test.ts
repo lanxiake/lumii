@@ -15,7 +15,7 @@
  * 这些用例直接调 `setLinuxAutostart` 等函数（不经过 `getOpenAtLogin` 的平台分派），
  * 因此**在 Windows 上也能跑**——它们验证的是 Linux 侧实现本身的正确性。
  */
-import { describe, it, expect, afterEach, vi } from 'vitest'
+import { describe, it, expect, afterAll, afterEach, beforeEach, vi } from 'vitest'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
@@ -84,9 +84,60 @@ describe('resolveAutostartExecPath', () => {
 describe('setLinuxAutostart — 真实读写 .desktop', () => {
   const file = path.join(os.homedir(), '.config', 'autostart', 'lumii.desktop')
 
-  afterEach(() => {
+  /** 用户**真实的**初始状态，全部用例跑完后按它还原 */
+  const TRUE_ORIGINAL = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null
+  /** 模拟「用户本来就用设置页开着自启」时该文件长什么样 */
+  const USER_OWNED = '[Desktop Entry]\nName=Lumii\nExec="/opt/Lumii/lumii" --startup-launched\n'
+
+  // 在**收集期**就放一份用户文件，因而先于所有 beforeEach 执行。
+  // 这样整组用例都跑在「用户本来就开着自启」的前提下——
+  // 本机恰好没有这个文件，不造出这个前提就永远测不到下面那条断言。
+  fs.mkdirSync(path.dirname(file), { recursive: true })
+  fs.writeFileSync(file, USER_OWNED, 'utf8')
+
+  /**
+   * 全部用例（含 afterEach）跑完后断言：用户那份文件必须**原样还在**。
+   *
+   * 这是对 afterEach **接线**的唯一有效断言——用例内部直接调 restoreSnapshot()
+   * 只能证明那个函数对；把 afterEach 改成不调它（或改回无条件 rmSync），
+   * 只有这里会红。先前用「照抄一遍还原逻辑」的写法验证过一版，
+   * 变异测试显示它抓不到，故改为在 describe 末尾收口。
+   */
+  afterAll(() => {
+    const stillThere = fs.existsSync(file)
+    const content = stillThere ? fs.readFileSync(file, 'utf8') : null
+    // 先还原真实状态再断言：断言失败时也不该把用户的目录留在半路
+    if (TRUE_ORIGINAL === null) fs.rmSync(file, { force: true })
+    else fs.writeFileSync(file, TRUE_ORIGINAL, 'utf8')
+
+    expect(stillThere, '用户原有的 autostart 文件被测试用例删掉了').toBe(true)
+    expect(content).toBe(USER_OWNED)
+  })
+
+  let savedContent: string | null = null
+
+  /**
+   * 把 `~/.config/autostart/lumii.desktop` 还原成快照状态。
+   *
+   * 抽成具名函数是为了让 `afterEach` 与用例共用同一份实现——但**仅靠共用还不够**：
+   * 用例直接调用它，只能证明这个函数对；把 afterEach 改成不调它，用例照样绿。
+   * 真正管住那条接线的是下面 describe 末尾的 `afterAll`。
+   */
+  function restoreSnapshot(): void {
+    if (savedContent === null) {
+      fs.rmSync(file, { force: true })
+      return
+    }
+    fs.mkdirSync(path.dirname(file), { recursive: true })
+    fs.writeFileSync(file, savedContent, 'utf8')
+  }
+
+  beforeEach(() => {
+    savedContent = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null
     fs.rmSync(file, { force: true })
   })
+
+  afterEach(restoreSnapshot)
 
   it('开启后文件存在，关闭后文件被删除', () => {
     setLinuxAutostart(true)
@@ -96,6 +147,26 @@ describe('setLinuxAutostart — 真实读写 .desktop', () => {
     setLinuxAutostart(false)
     expect(fs.existsSync(file)).toBe(false)
     expect(isLinuxAutostartEnabled()).toBe(false)
+  })
+
+  it('跑完这组用例不会改动用户原有的自启状态', () => {
+    // 回归本体：先写入一份「用户已有的」内容，模拟「本来就开着自启」的机器，
+    // 再用例跑一遍——afterEach 必须把它原样放回去，而不是删掉
+    const userOwned = '[Desktop Entry]\nName=Lumii\nExec="/opt/Lumii/lumii" --startup-launched\n'
+    // 用「存旧值再还原」而不是直接置 null：真实快照未必是 null
+    // （describe 收集期已经放了一份 USER_OWNED 来模拟用户开着自启），
+    // 置 null 会让**后续**每条用例的 afterEach 都去删文件，本用例却照样绿
+    const prevSnapshot = savedContent
+    savedContent = userOwned
+
+    setLinuxAutostart(true)
+    expect(fs.readFileSync(file, 'utf8')).not.toBe(userOwned) // 用例确实覆盖过它
+
+    // 调用 afterEach **同一个函数**（不是照抄一份逻辑）
+    restoreSnapshot()
+    expect(fs.readFileSync(file, 'utf8')).toBe(userOwned)
+
+    savedContent = prevSnapshot
   })
 
   it('关闭一个本来就没开的自启不报错（幂等）', () => {

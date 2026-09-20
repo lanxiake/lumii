@@ -13,6 +13,12 @@ import { showItemInFolder } from '../../services/app-service'
 import { RecordingSubtitleEditor } from './RecordingSubtitleEditor'
 import styles from './ScreenRecord.module.css'
 
+/**
+ * 仅用于**文案分支**的平台判断（不是能力判定——能力判定一律走 feature-availability 矩阵）。
+ * 为此单开一条 IPC 不划算，navigator 足够；判定错了顶多是提示语不贴切。
+ */
+const IS_LINUX = typeof navigator !== 'undefined' && /Linux/i.test(navigator.userAgent)
+
 export interface ScreenRecordPanelProps {
   open: boolean
   onClose: () => void
@@ -407,7 +413,9 @@ export const ScreenRecordPanel: React.FC<ScreenRecordPanelProps> = ({
                       </Checkbox>
                     </div>
                     <p className={styles.switchHint}>
-                      系统声在整屏录制时较可靠；单窗口可能无音轨（会自动降级）
+                      {IS_LINUX
+                        ? 'Linux 下系统声需要 PipeWire 回环支持，多数发行版拿不到（会降级为仅麦克风）'
+                        : '系统声在整屏录制时较可靠；单窗口可能无音轨（会自动降级）'}
                     </p>
                     <div className={styles.switchRow}>
                       <Checkbox checked={exportMp4} onChange={setExportMp4}>
