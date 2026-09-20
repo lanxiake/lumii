@@ -3,7 +3,7 @@
 .summaryRow { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .summaryRow .summary { flex: 1; }
 .cleanupBtn { display: inline-flex; align-items: center; gap: 4px; padding: 5px 10px; border: 1px solid var(--color-border); border-radius: 5px; background: transparent; color: var(--color-text-secondary); font-size: 12px; cursor: pointer; flex-shrink: 0; }
-.cleanupBtn:hover { border-color: var(--color-error, #dc2626); color: var(--color-error, #dc2626); }
+.cleanupBtn:hover { border-color: var(--color-error); color: var(--color-error); }
 .cleanupBtn:disabled { opacity: 0.45; cursor: not-allowed; }
 .jobList { display: flex; flex-direction: column; gap: 8px; }
 .jobItem { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px; border: 1px solid var(--color-border); border-radius: 6px; background: var(--color-bg-primary); }
@@ -12,15 +12,15 @@
 .jobName { margin: 0; overflow: hidden; color: var(--color-text-primary); font-size: 14px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .jobMeta { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 7px; color: var(--color-text-secondary); font-size: 12px; }
 .jobMeta span { display: inline-flex; align-items: center; gap: 4px; }
-.errorIcon, .errorText { color: var(--color-error, #dc2626); }
+.errorIcon, .errorText { color: var(--color-error); }
 .errorText { margin: 7px 0 0; overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .jobControls { display: flex; align-items: center; gap: 5px; flex-shrink: 0; }
 .iconButton { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; padding: 0; border: 1px solid transparent; border-radius: 5px; background: transparent; color: var(--color-text-secondary); cursor: pointer; }
 .iconButton:hover { border-color: var(--color-border); background: var(--color-bg-secondary); color: var(--color-text-primary); }
 .iconButton:disabled { opacity: 0.45; cursor: not-allowed; }
 .iconButton:disabled:hover { border-color: transparent; background: transparent; color: var(--color-text-secondary); }
-.dangerButton:hover { color: var(--color-error, #dc2626); }
-.runningBadge { display: inline-flex; align-items: center; gap: 3px; padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 500; color: var(--color-primary-600, #2563eb); background: color-mix(in srgb, var(--color-primary-500, #3b82f6) 12%, transparent); flex-shrink: 0; }
+.dangerButton:hover { color: var(--color-error); }
+.runningBadge { display: inline-flex; align-items: center; gap: 3px; padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 500; color: var(--color-primary-600); background: color-mix(in srgb, var(--color-primary-500) 12%, transparent); flex-shrink: 0; }
 .spin { animation: cron-spin 1s linear infinite; }
 @keyframes cron-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 .switch { position: relative; display: inline-flex; width: 34px; height: 20px; cursor: pointer; }

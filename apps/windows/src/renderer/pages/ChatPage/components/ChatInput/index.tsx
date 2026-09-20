@@ -1114,7 +1114,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
                     <div className={styles['help-section-title']}>
                       后端切换
                       <span style={{ marginLeft: 6, fontSize: 10, color: 'var(--color-text-tertiary)', fontWeight: 400 }}>
-                        当前：<strong style={{ color: 'var(--color-accent, #4f8ef7)' }}>
+                        当前：<strong style={{ color: 'var(--color-accent)' }}>
                           {currentBackend === MAIN_BACKEND_ID ? '灵栖' : currentBackend}
                         </strong>
                       </span>

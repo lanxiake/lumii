@@ -215,7 +215,7 @@
 .compactWrap:hover .compactTrigger {
   border-color: var(--color-primary);
   color: var(--color-primary);
-  background: var(--color-primary-500-10, rgba(59, 130, 246, 0.1));
+  background: var(--color-primary-500-10);
 }
 
 .compactBadge {
@@ -287,9 +287,9 @@
 
 .inlineCard {
   width: 100%;
-  border: 1px solid var(--mt-border-hairline, rgba(0, 0, 0, 0.08));
+  border: 1px solid var(--mt-border-hairline);
   border-radius: 10px;
-  background: color-mix(in srgb, var(--mt-bg-primary, #fff) 88%, transparent);
+  background: color-mix(in srgb, var(--mt-bg-primary) 88%, transparent);
   overflow: hidden;
 }
 
@@ -308,13 +308,13 @@
 }
 
 .inlineHeader:hover {
-  background: var(--mt-surface-2, rgba(0, 0, 0, 0.03));
+  background: var(--mt-surface-2);
 }
 
 .inlineChevron {
   flex-shrink: 0;
   font-size: 10px;
-  color: var(--mt-fg-4, #9ca3af);
+  color: var(--mt-fg-4);
   transition: transform 0.15s ease;
   transform: rotate(-90deg);
 }
@@ -326,7 +326,7 @@
 .inlineTitle {
   font-size: 12px;
   font-weight: 500;
-  color: var(--mt-fg-3, #6b7280);
+  color: var(--mt-fg-3);
   flex-shrink: 0;
 }
 
@@ -340,14 +340,14 @@
 .inlineStatActive {
   font-size: 10px;
   font-weight: 600;
-  color: var(--mt-accent-500, #4f8ef7);
+  color: var(--mt-accent-500);
 }
 
 .inlineCount {
   font-family: var(--mt-font-mono, ui-monospace, monospace);
   font-size: 11px;
   font-weight: 500;
-  color: var(--mt-fg-4, #9ca3af);
+  color: var(--mt-fg-4);
 }
 
 .inlineCard .taskList {
@@ -368,9 +368,9 @@
 
 /* 左侧轨道：任务进度卡 */
 .railCard {
-  border: 1px solid var(--mt-border, #e5e7eb);
+  border: 1px solid var(--mt-border);
   border-radius: 12px;
-  background: var(--mt-bg-primary, #fff);
+  background: var(--mt-bg-primary);
   overflow: hidden;
   box-shadow: var(--mt-shadow-sm, 0 1px 3px rgba(0, 0, 0, 0.04));
 }
@@ -382,11 +382,11 @@
   padding: 8px 10px 6px;
   font-size: 12px;
   font-weight: 600;
-  color: var(--mt-fg-2, #374151);
+  color: var(--mt-fg-2);
 }
 
 .railHeaderIcon {
-  color: var(--mt-fg-3, #9ca3af);
+  color: var(--mt-fg-3);
   font-size: 11px;
 }
 
@@ -399,7 +399,7 @@
   font-family: var(--mt-font-mono, ui-monospace, monospace);
   font-size: 11px;
   font-weight: 500;
-  color: var(--mt-fg-3, #6b7280);
+  color: var(--mt-fg-3);
 }
 
 .railCard .taskList {

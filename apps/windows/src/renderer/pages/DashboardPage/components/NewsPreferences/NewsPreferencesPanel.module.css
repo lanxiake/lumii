@@ -72,7 +72,7 @@
 }
 
 .ruleHead:not(:disabled):hover {
-  background: var(--mt-bg-hover, var(--color-bg-hover));
+  background: var(--mt-bg-tertiary);
   border-radius: 6px;
 }
 

@@ -18,7 +18,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--color-primary, #6366f1);
+  color: var(--color-primary);
   margin-bottom: var(--spacing-4);
   animation: float 4s ease-in-out infinite;
   opacity: 0.85;

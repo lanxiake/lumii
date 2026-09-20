@@ -108,7 +108,7 @@
 
 .toggle-btn.on {
   background-color: rgba(245, 158, 11, 0.15);
-  color: var(--color-warning, #f59e0b);
+  color: var(--color-warning);
 }
 
 .toggle-btn.on:hover:not(:disabled) {
@@ -117,7 +117,7 @@
 
 .toggle-btn.off {
   background-color: rgba(34, 197, 94, 0.15);
-  color: var(--color-success, #22c55e);
+  color: var(--color-success);
 }
 
 .toggle-btn.off:hover:not(:disabled) {

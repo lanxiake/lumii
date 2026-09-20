@@ -226,7 +226,7 @@
 }
 
 .usageErrors {
-  color: var(--mt-danger-500, var(--color-danger, #d9534f));
+  color: var(--mt-error);
 }
 
 .usageLast {

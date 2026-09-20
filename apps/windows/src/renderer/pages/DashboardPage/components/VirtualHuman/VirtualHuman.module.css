@@ -165,7 +165,7 @@
 
 .error {
   margin-top: 6px;
-  color: var(--mt-error, #ef4444);
+  color: var(--mt-error);
   font-size: var(--font-size-xs);
   text-align: center;
 }

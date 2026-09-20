@@ -866,7 +866,7 @@
 
 .settingsSaved {
   font-size: var(--font-size-xs);
-  color: var(--mt-success, #2e7d32);
+  color: var(--mt-success);
 }
 
 /* ===== 内心：心情 + 牵挂上排，日记通栏下排 ===== */

@@ -380,7 +380,7 @@
 .error {
   flex-shrink: 0;
   margin-bottom: 8px;
-  color: var(--mt-error, #ef4444);
+  color: var(--mt-error);
   font-size: var(--font-size-xs);
 }
 

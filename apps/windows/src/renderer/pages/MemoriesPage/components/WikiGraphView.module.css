@@ -28,8 +28,8 @@
 }
 
 .wiki-graph-layer-chip--active {
-  border-color: var(--color-primary-500, #3b82f6);
-  background: color-mix(in srgb, var(--color-primary-500, #3b82f6) 12%, transparent);
+  border-color: var(--color-primary-500);
+  background: color-mix(in srgb, var(--color-primary-500) 12%, transparent);
   color: var(--color-text-primary);
   font-weight: 500;
 }

@@ -13,13 +13,13 @@
 .stepTitle {
   font-size: 17px;
   font-weight: 600;
-  color: var(--text-primary, #f1f5f9);
+  color: var(--text-primary);
   margin: 0 0 6px 0;
 }
 
 .stepDesc {
   font-size: 13px;
-  color: var(--text-secondary, #94a3b8);
+  color: var(--text-secondary);
   margin: 0;
 }
 
@@ -44,11 +44,11 @@
 }
 
 .requirementTextarea:focus {
-  border-color: var(--mt-accent-500, rgba(59, 130, 246, 0.5));
+  border-color: var(--mt-accent-500);
 }
 
 .requirementTextarea::placeholder {
-  color: var(--text-secondary, #94a3b8);
+  color: var(--text-secondary);
 }
 
 .templateSection {
@@ -60,7 +60,7 @@
 .templateTitle {
   font-size: 12px;
   font-weight: 600;
-  color: var(--text-secondary, #94a3b8);
+  color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
@@ -92,12 +92,12 @@
 .templateCardTitle {
   font-size: 13px;
   font-weight: 500;
-  color: var(--text-primary, #f1f5f9);
+  color: var(--text-primary);
 }
 
 .templateCardDesc {
   font-size: 11px;
-  color: var(--text-secondary, #94a3b8);
+  color: var(--text-secondary);
   line-height: 1.4;
 }
 
@@ -111,12 +111,12 @@
 
 .stepIndicator {
   font-size: 12px;
-  color: var(--text-secondary, #94a3b8);
+  color: var(--text-secondary);
 }
 
 .nextButton {
   padding: 8px 18px;
-  background: var(--mt-accent-500, rgba(59, 130, 246, 0.8));
+  background: var(--mt-accent-500);
   color: var(--mt-fg-on-accent);
   border: none;
   border-radius: 8px;
@@ -127,7 +127,7 @@
 }
 
 .nextButton:not(:disabled):hover {
-  background: var(--mt-accent-600, rgba(59, 130, 246, 1));
+  background: var(--mt-accent-600);
 }
 
 .nextButton:disabled {
@@ -152,8 +152,8 @@
   width: 560px;
   max-width: 90vw;
   max-height: 85vh;
-  background: var(--mt-glass-bg, var(--bg-surface, #1e293b));
-  border: 1px solid var(--mt-glass-stroke, rgba(255, 255, 255, 0.1));
+  background: var(--mt-glass-bg, var(--bg-surface));
+  border: 1px solid var(--mt-glass-stroke);
   border-radius: 14px;
   display: flex;
   flex-direction: column;
@@ -177,7 +177,7 @@
 .wizardTitle {
   font-size: 16px;
   font-weight: 600;
-  color: var(--text-primary, #f1f5f9);
+  color: var(--text-primary);
   margin: 0;
 }
 
@@ -229,7 +229,7 @@
 
 .loadingText {
   font-size: 14px;
-  color: var(--text-secondary, #94a3b8);
+  color: var(--text-secondary);
 }
 
 .agentPreviewGrid {
@@ -257,8 +257,8 @@
 .agentEmoji {
   width: 36px;
   height: 36px;
-  background: var(--color-primary-500-20, rgba(59, 130, 246, 0.2));
-  color: var(--mt-accent-300, #93c5fd);
+  background: var(--color-primary-500-20);
+  color: var(--mt-accent-300);
   border-radius: 10px;
   display: flex;
   align-items: center;
@@ -276,23 +276,23 @@
 .agentName {
   font-size: 14px;
   font-weight: 600;
-  color: var(--text-primary, #f1f5f9);
+  color: var(--text-primary);
   margin-bottom: 2px;
 }
 
 .agentDesc {
   font-size: 12px;
-  color: var(--text-secondary, #94a3b8);
+  color: var(--text-secondary);
   line-height: 1.4;
 }
 
 .removeButton {
   width: 24px;
   height: 24px;
-  background: var(--color-error-10, rgba(239, 68, 68, 0.1));
-  border: 1px solid var(--color-error-15, rgba(239, 68, 68, 0.2));
+  background: var(--color-error-10);
+  border: 1px solid var(--color-error-15);
   border-radius: 6px;
-  color: var(--mt-error-light, #fca5a5);
+  color: var(--mt-error-light);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -302,7 +302,7 @@
 }
 
 .removeButton:hover {
-  background: var(--color-error-15, rgba(239, 68, 68, 0.2));
+  background: var(--color-error-15);
 }
 
 .agentMeta {
@@ -313,7 +313,7 @@
 
 .capabilityCount {
   font-size: 11px;
-  color: var(--text-secondary, #94a3b8);
+  color: var(--text-secondary);
 }
 
 .backButton {
@@ -356,13 +356,13 @@
 
 .errorMessage {
   font-size: 15px;
-  color: var(--mt-error-light, #fca5a5);
+  color: var(--mt-error-light);
   margin-bottom: 16px;
 }
 
 .retryButton {
   padding: 10px 20px;
-  background: var(--mt-accent-500, rgba(59, 130, 246, 0.8));
+  background: var(--mt-accent-500);
   color: var(--mt-fg-on-accent);
   border: none;
   border-radius: 8px;
@@ -372,7 +372,7 @@
 }
 
 .retryButton:hover {
-  background: var(--mt-accent-600, rgba(59, 130, 246, 1));
+  background: var(--mt-accent-600);
 }
 
 /* ── Step3 styles ────────────────────────────── */
@@ -394,8 +394,8 @@
 
 .agentEditCardSuccess {
   composes: agentEditCard;
-  background: var(--color-success-10, rgba(34, 197, 94, 0.04));
-  border-color: var(--color-success-15, rgba(34, 197, 94, 0.15));
+  background: var(--color-success-10);
+  border-color: var(--color-success-15);
 }
 
 .agentEditHeader {
@@ -433,7 +433,7 @@
 .editLabel {
   font-size: 12px;
   font-weight: 600;
-  color: var(--text-secondary, #94a3b8);
+  color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
@@ -470,7 +470,7 @@
 
 .hint {
   font-size: 11px;
-  color: var(--text-secondary, #94a3b8);
+  color: var(--text-secondary);
 }
 
 /* 常驻技能勾选（Step3）：与「可用能力」同款勾选交互 */
@@ -497,7 +497,7 @@
 }
 
 .skillChipChecked {
-  background: var(--color-primary-500-20, rgba(59, 130, 246, 0.2));
+  background: var(--color-primary-500-20);
   border-color: var(--mt-accent-400);
   color: var(--mt-accent-400);
 }
@@ -542,7 +542,7 @@
   border-radius: 8px;
   background: var(--mt-border-hairline);
   border: 1px solid transparent;
-  color: var(--mt-fg-2, #cbd5e1);
+  color: var(--mt-fg-2);
   cursor: pointer;
   text-align: left;
   transition: background 0.15s, border-color 0.15s;
@@ -553,8 +553,8 @@
 }
 
 .reviewItem--active {
-  background: var(--color-primary-500-10, rgba(59, 130, 246, 0.1));
-  border-color: var(--color-primary-500-20, rgba(59, 130, 246, 0.3));
+  background: var(--color-primary-500-10);
+  border-color: var(--color-primary-500-20);
 }
 
 .reviewEmoji {
@@ -592,8 +592,8 @@
   color: var(--mt-fg-4);
 }
 
-.reviewStatus--success { color: var(--mt-success-light, #86efac); }
-.reviewStatus--error { color: var(--mt-error-light, #fca5a5); }
+.reviewStatus--success { color: var(--mt-success-light); }
+.reviewStatus--error { color: var(--mt-error-light); }
 
 .reviewDetail {
   flex: 1;
@@ -627,8 +627,8 @@
 }
 
 .checkItem--on {
-  background: var(--color-primary-500-10, rgba(59, 130, 246, 0.08));
-  border-color: var(--color-primary-500-20, rgba(59, 130, 246, 0.25));
+  background: var(--color-primary-500-10);
+  border-color: var(--color-primary-500-20);
 }
 
 .checkItem input {
@@ -677,14 +677,14 @@
   border-radius: 6px;
   font-size: 12px;
   cursor: pointer;
-  color: var(--mt-error-light, #fca5a5);
-  background: var(--color-error-10, rgba(239, 68, 68, 0.1));
-  border: 1px solid var(--color-error-15, rgba(239, 68, 68, 0.2));
+  color: var(--mt-error-light);
+  background: var(--color-error-10);
+  border: 1px solid var(--color-error-15);
   transition: background 0.15s;
 }
 
 .removeAgentBtn:hover:not(:disabled) {
-  background: var(--color-error-15, rgba(239, 68, 68, 0.2));
+  background: var(--color-error-15);
 }
 
 .removeAgentBtn:disabled {
@@ -700,7 +700,7 @@
 
 .createButton {
   padding: 10px 20px;
-  background: var(--mt-accent-500, rgba(59, 130, 246, 0.8));
+  background: var(--mt-accent-500);
   color: var(--mt-fg-on-accent);
   border: none;
   border-radius: 8px;
@@ -711,7 +711,7 @@
 }
 
 .createButton:not(:disabled):hover {
-  background: var(--mt-accent-600, rgba(59, 130, 246, 1));
+  background: var(--mt-accent-600);
 }
 
 .createButton:disabled {
@@ -736,7 +736,7 @@
 .groupName {
   font-size: 12px;
   font-weight: 600;
-  color: var(--mt-fg-2, #cbd5e1);
+  color: var(--mt-fg-2);
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
@@ -749,7 +749,7 @@
 
 .groupCount {
   font-size: 11px;
-  color: var(--mt-fg-3, #64748b);
+  color: var(--mt-fg-3);
 }
 
 .groupRoleBadge {
@@ -780,5 +780,5 @@
 
 .groupRoleLabel {
   font-size: 10px;
-  color: var(--mt-fg-3, #64748b);
+  color: var(--mt-fg-3);
 }

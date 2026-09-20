@@ -150,7 +150,7 @@
 }
 
 .wiki-source-detail-error {
-  color: var(--color-danger, #dc2626);
+  color: var(--color-danger);
   font-size: 13px;
 }
 

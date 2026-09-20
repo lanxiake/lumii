@@ -16,8 +16,8 @@
   width: 580px;
   max-width: 92vw;
   max-height: 88vh;
-  background: var(--mt-glass-bg, var(--bg-surface, #1e293b));
-  border: 1px solid var(--mt-glass-stroke, rgba(255, 255, 255, 0.1));
+  background: var(--mt-glass-bg, var(--bg-surface));
+  border: 1px solid var(--mt-glass-stroke);
   border-radius: 14px;
   display: flex;
   flex-direction: column;
@@ -36,7 +36,7 @@
 .title {
   font-size: 15px;
   font-weight: 600;
-  color: var(--text-primary, #f1f5f9);
+  color: var(--text-primary);
   margin: 0;
   display: flex;
   align-items: center;
@@ -92,7 +92,7 @@
 .sectionLabel {
   font-size: 12px;
   font-weight: 600;
-  color: var(--text-secondary, #94a3b8);
+  color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
@@ -122,7 +122,7 @@
 }
 
 .agentItemSelected {
-  border-color: var(--mt-accent-500, rgba(59, 130, 246, 0.5));
+  border-color: var(--mt-accent-500);
   background: rgba(59, 130, 246, 0.08);
 }
 
@@ -135,11 +135,11 @@
 .agentItemName {
   flex: 1;
   font-size: 13px;
-  color: var(--text-primary, #f1f5f9);
+  color: var(--text-primary);
 }
 
 .checkIcon {
-  color: var(--mt-accent-400, #60a5fa);
+  color: var(--mt-accent-400);
   flex-shrink: 0;
 }
 
@@ -157,7 +157,7 @@
 }
 
 .textarea:focus {
-  border-color: var(--mt-accent-500, rgba(59, 130, 246, 0.5));
+  border-color: var(--mt-accent-500);
 }
 
 .modeGroup {
@@ -184,20 +184,20 @@
 }
 
 .modeOptionActive {
-  border-color: var(--mt-accent-500, rgba(59, 130, 246, 0.5));
+  border-color: var(--mt-accent-500);
   background: rgba(59, 130, 246, 0.08);
 }
 
 .modeTitle {
   font-size: 13px;
   font-weight: 500;
-  color: var(--text-primary, #f1f5f9);
+  color: var(--text-primary);
   margin-bottom: 2px;
 }
 
 .modeDesc {
   font-size: 11px;
-  color: var(--text-secondary, #94a3b8);
+  color: var(--text-secondary);
 }
 
 /* ── Step2 ── */
@@ -218,7 +218,7 @@
 
 .loadingIcon {
   animation: pulse 1.5s infinite;
-  color: var(--mt-accent-400, #60a5fa);
+  color: var(--mt-accent-400);
 }
 
 @keyframes pulse {
@@ -228,7 +228,7 @@
 
 .loadingText {
   font-size: 14px;
-  color: var(--text-secondary, #94a3b8);
+  color: var(--text-secondary);
 }
 
 .errorState {
@@ -237,7 +237,7 @@
   align-items: center;
   gap: 12px;
   padding: 40px 24px;
-  color: var(--mt-error-light, #fca5a5);
+  color: var(--mt-error-light);
 }
 
 .errorText {
@@ -246,7 +246,7 @@
 
 .retryBtn {
   padding: 8px 16px;
-  background: var(--mt-accent-500, rgba(59, 130, 246, 0.8));
+  background: var(--mt-accent-500);
   color: var(--mt-fg-on-accent);
   border: none;
   border-radius: 8px;
@@ -298,7 +298,7 @@
   flex: 1;
   font-size: 13px;
   font-weight: 500;
-  color: var(--text-primary, #f1f5f9);
+  color: var(--text-primary);
 }
 
 .diffStatus {
@@ -308,7 +308,7 @@
 }
 
 .diffStatus--pending { color: var(--mt-fg-3); }
-.diffStatus--applying { color: var(--mt-accent-400, #60a5fa); }
+.diffStatus--applying { color: var(--mt-accent-400); }
 .diffStatus--success { color: #4ade80; }
 .diffStatus--error { color: #fca5a5; }
 .diffStatus--skipped { color: var(--mt-fg-3); }
@@ -330,7 +330,7 @@
 .diffFieldLabel {
   font-size: 11px;
   font-weight: 600;
-  color: var(--text-secondary, #94a3b8);
+  color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
@@ -395,7 +395,7 @@
 
 .primaryBtn {
   padding: 8px 18px;
-  background: var(--mt-accent-500, rgba(59, 130, 246, 0.8));
+  background: var(--mt-accent-500);
   color: var(--mt-fg-on-accent);
   border: none;
   border-radius: 8px;
@@ -406,7 +406,7 @@
 }
 
 .primaryBtn:not(:disabled):hover {
-  background: var(--mt-accent-600, rgba(59, 130, 246, 1));
+  background: var(--mt-accent-600);
 }
 
 .primaryBtn:disabled {

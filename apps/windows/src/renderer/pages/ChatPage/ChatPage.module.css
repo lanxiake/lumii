@@ -231,19 +231,19 @@
   height: 8px;
   border-radius: 50%;
   flex-shrink: 0;
-  background: var(--color-text-tertiary, #94a3b8);
+  background: var(--color-text-tertiary);
 }
 
 .route-dot--healthy {
-  background: var(--mt-success, #22c55e);
+  background: var(--mt-success);
 }
 
 .route-dot--degraded {
-  background: var(--mt-warning, #f59e0b);
+  background: var(--mt-warning);
 }
 
 .route-dot--error {
-  background: var(--mt-error, #ef4444);
+  background: var(--mt-error);
 }
 
 .route-text {

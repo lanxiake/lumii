@@ -5,7 +5,7 @@
   align-items: center;
   gap: 6px;
   padding: 6px 12px;
-  background: var(--color-accent, #4a90e2);
+  background: var(--color-accent);
   border-radius: 20px;
   min-width: 60px;
   color: #fff;
@@ -496,9 +496,9 @@
 .tool-calls-section {
   margin: 6px calc(-1 * var(--spacing-4, 16px));
   padding: 4px var(--spacing-3, 12px);
-  background: var(--mt-bg-overlay, rgba(0, 0, 0, 0.1));
-  border-top: 1px solid var(--mt-border-hairline, rgba(255, 255, 255, 0.06));
-  border-bottom: 1px solid var(--mt-border-hairline, rgba(255, 255, 255, 0.06));
+  background: var(--mt-bg-overlay);
+  border-top: 1px solid var(--mt-border-hairline);
+  border-bottom: 1px solid var(--mt-border-hairline);
   display: flex;
   flex-direction: column;
   gap: 1px;
@@ -816,7 +816,7 @@
   padding: var(--spacing-2) var(--spacing-3);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
-  background: var(--color-bg-secondary, #f1f5f9);
+  background: var(--color-bg-secondary);
   font-size: var(--font-size-sm);
   font-weight: 500;
   color: var(--color-text-secondary);
@@ -837,7 +837,7 @@
   margin-bottom: var(--spacing-2);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
-  background: var(--color-bg-secondary, #f1f5f9);
+  background: var(--color-bg-secondary);
   animation: thinking-fade-in 0.25s ease;
 }
 
@@ -923,7 +923,7 @@
   margin-bottom: 8px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
-  background: var(--color-bg-secondary, #f1f5f9);
+  background: var(--color-bg-secondary);
   animation: thinking-fade-in 0.25s ease;
   overflow: hidden;
 }
@@ -953,15 +953,15 @@
 .rt-icon-spinning {
   display: inline-block;
   animation: rt-spin 1s linear infinite;
-  color: var(--color-text-tertiary, #94a3b8);
+  color: var(--color-text-tertiary);
 }
 
 .rt-icon-done {
-  color: var(--color-success, #22c55e);
+  color: var(--color-success);
 }
 
 .rt-icon-fail {
-  color: var(--color-error, #ef4444);
+  color: var(--color-error);
 }
 
 .rt-header-title {
@@ -970,7 +970,7 @@
 
 .rt-header-meta {
   font-size: 12px;
-  color: var(--color-text-tertiary, #94a3b8);
+  color: var(--color-text-tertiary);
   font-weight: 400;
 }
 
@@ -988,7 +988,7 @@
 .rt-header-chevron::before {
   content: '▸';
   font-size: 11px;
-  color: var(--color-text-tertiary, #94a3b8);
+  color: var(--color-text-tertiary);
   transition: transform 0.15s ease;
   display: inline-block;
 }
@@ -1004,7 +1004,7 @@
   margin-top: 4px;
   padding: 0 4px;
   font-size: 11px;
-  color: var(--color-text-tertiary, #94a3b8);
+  color: var(--color-text-tertiary);
   font-style: italic;
   white-space: nowrap;
   overflow: hidden;
@@ -1049,8 +1049,8 @@
   font-size: 10px;
   padding: 1px 5px;
   border-radius: 4px;
-  background: var(--color-primary-subtle, #dbeafe);
-  color: var(--color-primary, #3b82f6);
+  background: var(--color-primary-subtle);
+  color: var(--color-primary);
   font-weight: 600;
   letter-spacing: 0.02em;
 }
@@ -1061,7 +1061,7 @@
   font-size: 12px;
   line-height: 1.6;
   color: var(--color-text-secondary);
-  background: var(--color-bg-tertiary, #e2e8f0);
+  background: var(--color-bg-tertiary);
   border-radius: 6px;
   white-space: pre-wrap;
   word-break: break-word;
@@ -1112,7 +1112,7 @@
   width: 18px;
   height: 18px;
   border-radius: 50%;
-  background: var(--color-bg-tertiary, #e2e8f0);
+  background: var(--color-bg-tertiary);
   color: var(--color-text-secondary);
   font-size: 10px;
   font-weight: 600;
@@ -1358,9 +1358,9 @@
   gap: 8px;
   max-width: 100%;
   padding: 6px 10px;
-  border: 1px solid color-mix(in srgb, var(--mt-accent-500, #3b82f6) 28%, var(--mt-border, var(--color-border)));
+  border: 1px solid color-mix(in srgb, var(--mt-accent-500) 28%, var(--mt-border, var(--color-border)));
   border-radius: 8px;
-  background: color-mix(in srgb, var(--mt-accent-500, #3b82f6) 8%, var(--mt-surface-2, var(--color-bg-secondary)));
+  background: color-mix(in srgb, var(--mt-accent-500) 8%, var(--mt-surface-2, var(--color-bg-secondary)));
   color: var(--mt-fg-2, var(--color-text-primary));
   font-size: 12px;
   line-height: 1.3;
@@ -1382,8 +1382,8 @@
   width: 10px;
   height: 10px;
   flex-shrink: 0;
-  border: 1.5px solid color-mix(in srgb, var(--mt-accent-500, #3b82f6) 35%, transparent);
-  border-top-color: var(--mt-accent-500, #3b82f6);
+  border: 1.5px solid color-mix(in srgb, var(--mt-accent-500) 35%, transparent);
+  border-top-color: var(--mt-accent-500);
   border-radius: 50%;
   animation: rt-spin 0.7s linear infinite;
 }
@@ -1412,7 +1412,7 @@
   flex-shrink: 0;
   padding: 1px 6px;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--mt-accent-500, #3b82f6) 14%, transparent);
+  background: color-mix(in srgb, var(--mt-accent-500) 14%, transparent);
   color: var(--mt-fg-3, var(--color-text-secondary));
   font-size: 10px;
 }
@@ -1456,14 +1456,14 @@
   margin-top: 8px;
   padding: 10px 12px;
   border-radius: var(--radius-md, 8px);
-  border: 1px dashed var(--color-border, rgba(128,128,128,0.28));
-  background: var(--color-bg-secondary, rgba(128,128,128,0.06));
+  border: 1px dashed var(--color-border);
+  background: var(--color-bg-secondary);
   font-size: 12px;
 }
 
 .edit-branch-hint {
   margin: 0 0 8px;
-  color: var(--color-text-secondary, rgba(128,128,128,0.85));
+  color: var(--color-text-secondary);
 }
 
 .edit-branch-actions {
@@ -1478,7 +1478,7 @@
   gap: 5px;
   padding: 4px 10px;
   border-radius: var(--radius-sm, 4px);
-  border: 1px solid var(--color-border, rgba(128,128,128,0.28));
+  border: 1px solid var(--color-border);
   background: var(--color-bg-primary, transparent);
   font-size: 12px;
   color: var(--color-text-primary, inherit);
@@ -1487,23 +1487,23 @@
 }
 
 .edit-branch-btn:hover {
-  background: var(--color-bg-tertiary, rgba(128,128,128,0.12));
+  background: var(--color-bg-tertiary);
 }
 
 .edit-branch-note {
   margin: 8px 0 0;
   font-size: 11px;
   line-height: 1.5;
-  color: var(--color-text-tertiary, rgba(128,128,128,0.65));
+  color: var(--color-text-tertiary);
 }
 
 .edit-branch-note-btn {
   display: inline;
   padding: 1px 4px;
-  border: 1px solid var(--color-accent, #3b82f6);
+  border: 1px solid var(--color-accent);
   border-radius: 3px;
   background: transparent;
-  color: var(--color-accent, #3b82f6);
+  color: var(--color-accent);
   font-size: 11px;
   cursor: pointer;
   text-decoration: underline;
@@ -1511,7 +1511,7 @@
 }
 
 .edit-branch-note-btn:hover {
-  background: var(--color-accent-15, rgba(59, 130, 246, 0.1));
+  background: var(--color-accent-15);
 }
 
 /* ── 消息操作按钮：默认隐藏，hover / 键盘聚焦时淡入 ── */
@@ -1594,7 +1594,7 @@
 .fold-note {
   width: 100%;
   padding: 2px 6px 2px 28px;
-  color: var(--mt-fg-2, #cbd5e1);
+  color: var(--mt-fg-2);
   font-size: 12.5px;
   line-height: 1.6;
 }

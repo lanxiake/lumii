@@ -170,19 +170,19 @@
 /* 输入框选中高亮：蓝底，分主题保证文字对比度 */
 .chat-textarea::selection,
 .steer-input::selection {
-  background-color: var(--mt-accent-500, #3b82f6);
+  background-color: var(--mt-accent-500);
   color: #fff;
 }
 
 [data-theme='light'] .chat-textarea::selection,
 [data-theme='light'] .steer-input::selection {
-  background-color: var(--mt-accent-300, #93c5fd);
+  background-color: var(--mt-accent-300);
   color: #0f172a;
 }
 
 [data-theme='dark'] .chat-textarea::selection,
 [data-theme='dark'] .steer-input::selection {
-  background-color: var(--mt-accent-500, #3b82f6);
+  background-color: var(--mt-accent-500);
   color: #fff;
 }
 
@@ -637,7 +637,7 @@
 }
 
 .steer-send-btn:hover:not(:disabled) {
-  background: var(--color-primary-dark, var(--mt-accent-600, #4338ca));
+  background: var(--color-primary-dark, var(--mt-accent-600));
 }
 
 .steer-send-btn:disabled {
@@ -760,7 +760,7 @@
 }
 
 .command-item:hover {
-  background: var(--color-bg-hover, var(--mt-border-hairline, rgba(255,255,255,0.06)));
+  background: var(--color-bg-hover, var(--mt-border-hairline));
 }
 
 .command-item--active {
@@ -789,7 +789,7 @@
   padding: 2px 8px;
   border-radius: var(--radius-sm);
   background: rgba(79, 142, 247, 0.12);
-  color: var(--color-accent, #4f8ef7);
+  color: var(--color-accent);
   font-size: 11px;
   font-weight: 500;
   white-space: nowrap;
@@ -915,7 +915,7 @@
 .context-compact-compacting {
   background: rgba(59, 130, 246, 0.12);
   border-color: rgba(59, 130, 246, 0.3);
-  color: var(--color-primary, #3b82f6);
+  color: var(--color-primary);
   cursor: default;
 }
 

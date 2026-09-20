@@ -180,4 +180,74 @@ describe('令牌定义点唯一性', () => {
     )
     expect(offenders, '以下文件局部覆写了 --mt-accent-* 色阶，换肤时不会跟随').toEqual([])
   })
+
+  /**
+   * 颜色令牌**不需要**字面 fallback —— `global.css` 由 `main.tsx:15` 无条件导入，
+   * `styles/` 与 `styles/` 下的令牌在所有渲染入口（含 file-preview 独立窗，它同样
+   * 走 main.tsx 懒加载）都已就位。
+   *
+   * 而字面 fallback 是有害的：
+   *   - 它是死代码，却让「这个颜色从哪来」多一个误导性答案（值往往是几轮前的旧色）
+   *   - 主题漏定义某令牌时，它会把「某主题下颜色不对」掩盖成「看起来正常」
+   *   - 它让 `changed 令牌` 与 `changed 使用处` 两种排查思路都更难
+   *
+   * 需要 fallback 的正确做法是补令牌定义，而不是在使用处打补丁。
+   */
+  it('颜色令牌的使用处不写死字面 fallback（应补令牌定义而非就地兜底）', () => {
+    const rendererDir = path.resolve(STYLES_DIR, '..')
+    const files: string[] = []
+    const walk = (dir: string) => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        if (entry.name === 'node_modules' || entry.name === 'dist') continue
+        const full = path.join(dir, entry.name)
+        // 令牌**定义**文件自身不扫（`tokens.css` 的映射层定义里会用到字面 fallback）
+        if (entry.isDirectory()) walk(full)
+        else if (/\.(css|tsx?)$/.test(entry.name)) files.push(full)
+      }
+    }
+    walk(rendererDir)
+    const skip = new Set([DESIGN_SYSTEM, TOKENS])
+
+    const HEX = /^#[0-9a-fA-F]{3,8}$/
+    const RGB = /^(rgba?|hsla?)\s*\(/i
+    const offenders: string[] = []
+
+    for (const file of files) {
+      if (skip.has(file)) continue
+      const src = fs.readFileSync(file, 'utf8')
+      const lines = src.split('\n')
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i]!
+        // 匹配 var(--x, <可能是颜色的 fallback>) —— 允许 fallback 内含嵌套括号
+        const re = /var\(\s*(--[\w-]+)\s*,\s*/g
+        for (const m of line.matchAll(re)) {
+          const rest = line.slice(m.index + m[0].length)
+          // 取到本 var() 的配对右括号为止
+          let depth = 0
+          let end = rest.length
+          for (let k = 0; k < rest.length; k++) {
+            if (rest[k] === '(') depth++
+            else if (rest[k] === ')') {
+              if (depth === 0) {
+                end = k
+                break
+              }
+              depth--
+            }
+          }
+          const fb = rest.slice(0, end).trim()
+          if (HEX.test(fb) || RGB.test(fb)) {
+            offenders.push(
+              `${path.relative(rendererDir, file).replace(/\\/g, '/')}:${i + 1}  var(${m[1]}, ${fb})`,
+            )
+          }
+        }
+      }
+    }
+
+    expect(
+      offenders,
+      '以下位置给颜色令牌写了字面 fallback。若令牌缺失，请补齐它的定义；否则删掉 fallback。',
+    ).toEqual([])
+  })
 })

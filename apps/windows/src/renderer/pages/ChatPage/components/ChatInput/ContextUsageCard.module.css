@@ -65,7 +65,7 @@
   height: 6px;
   border-radius: 999px;
   overflow: hidden;
-  background: var(--color-bg-tertiary, rgba(148, 163, 184, 0.28));
+  background: var(--color-bg-tertiary);
 }
 
 .bar-segment {

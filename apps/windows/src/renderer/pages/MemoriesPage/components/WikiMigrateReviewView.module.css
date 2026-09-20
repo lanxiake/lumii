@@ -44,7 +44,7 @@
 }
 
 .wiki-migrate-review-error {
-  color: var(--color-danger, #c0392b);
+  color: var(--color-danger);
   font-size: 13px;
 }
 
@@ -115,13 +115,13 @@
 }
 
 .wiki-migrate-review-status--ok {
-  background: var(--color-success-bg, #e8f5e9);
-  color: var(--color-success, #2e7d32);
+  background: var(--color-success-bg);
+  color: var(--color-success);
 }
 
 .wiki-migrate-review-status--conflict {
-  background: var(--color-warning-bg, #fff3e0);
-  color: var(--color-warning, #e65100);
+  background: var(--color-warning-bg);
+  color: var(--color-warning);
 }
 
 .wiki-migrate-review-status--needContent {
@@ -134,7 +134,7 @@
 }
 
 .wiki-migrate-review-row--conflict {
-  background: color-mix(in srgb, var(--color-warning, #e65100) 6%, transparent);
+  background: color-mix(in srgb, var(--color-warning) 6%, transparent);
 }
 
 .wiki-migrate-review-ignored-label {

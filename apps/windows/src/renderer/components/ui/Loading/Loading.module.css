@@ -4,13 +4,13 @@
   align-items: center;
   justify-content: center;
   gap: var(--spacing-3);
-  color: var(--color-text-secondary, #a0aec0);
+  color: var(--color-text-secondary);
 }
 
 .loading-spinner {
   border-style: solid;
-  border-color: var(--color-border, #3a3a5a);
-  border-top-color: var(--color-primary-500, #6366f1);
+  border-color: var(--color-border);
+  border-top-color: var(--color-primary-500);
   border-radius: 50%;
   animation: loading-spin 0.8s linear infinite;
 }
@@ -42,7 +42,7 @@
 
 .loading-text {
   font-size: var(--font-size-base);
-  color: var(--color-text-secondary, #a0aec0);
+  color: var(--color-text-secondary);
 }
 
 .loading-sm .loading-text {

@@ -11,8 +11,8 @@
   padding: calc(var(--chat-overlay-top, 44px) + 10px) 10px calc(var(--chat-overlay-bottom, 210px) + 8px) 12px;
   overflow-x: hidden;
   overflow-y: auto;
-  border-right: 1px solid var(--mt-border-hairline, rgba(0, 0, 0, 0.06));
-  background: color-mix(in srgb, var(--mt-bg-primary, #fff) 55%, transparent);
+  border-right: 1px solid var(--mt-border-hairline);
+  background: color-mix(in srgb, var(--mt-bg-primary) 55%, transparent);
   scrollbar-width: thin;
 }
 

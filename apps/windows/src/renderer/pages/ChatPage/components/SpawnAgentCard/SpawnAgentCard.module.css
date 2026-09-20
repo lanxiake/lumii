@@ -3,9 +3,9 @@
 .card {
   margin: 8px 0;
   padding: 10px 12px;
-  border: 1px solid var(--mt-border-hairline, rgba(255, 255, 255, 0.12));
+  border: 1px solid var(--mt-border-hairline);
   border-radius: 10px;
-  background: var(--mt-surface-3, rgba(255, 255, 255, 0.04));
+  background: var(--mt-surface-3);
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -28,14 +28,14 @@
 .badge {
   padding: 1px 8px;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--mt-accent-400, #60a5fa) 18%, transparent);
-  color: var(--mt-accent-400, #60a5fa);
+  background: color-mix(in srgb, var(--mt-accent-400) 18%, transparent);
+  color: var(--mt-accent-400);
   flex-shrink: 0;
 }
 
 .expert {
   font-size: 12.5px;
-  color: var(--mt-fg-1, rgba(255, 255, 255, 0.92));
+  color: var(--mt-fg-1);
   font-weight: 500;
   flex-shrink: 0;
 }
@@ -43,8 +43,8 @@
 .modeTag {
   padding: 1px 6px;
   border-radius: 6px;
-  border: 1px solid var(--mt-border-hairline, rgba(255, 255, 255, 0.16));
-  color: var(--mt-fg-4, rgba(255, 255, 255, 0.45));
+  border: 1px solid var(--mt-border-hairline);
+  color: var(--mt-fg-4);
   font-size: 11px;
   flex-shrink: 0;
 }
@@ -57,52 +57,52 @@
 }
 
 .status--running {
-  background: color-mix(in srgb, var(--mt-accent-400, #60a5fa) 16%, transparent);
-  color: var(--mt-accent-400, #60a5fa);
+  background: color-mix(in srgb, var(--mt-accent-400) 16%, transparent);
+  color: var(--mt-accent-400);
 }
 
 .status--done {
-  background: color-mix(in srgb, var(--mt-success, #34d399) 16%, transparent);
-  color: var(--mt-success, #34d399);
+  background: color-mix(in srgb, var(--mt-success) 16%, transparent);
+  color: var(--mt-success);
 }
 
 .status--failed {
-  background: color-mix(in srgb, var(--mt-error, #dc2626) 16%, transparent);
-  color: var(--mt-error, #dc2626);
+  background: color-mix(in srgb, var(--mt-error) 16%, transparent);
+  color: var(--mt-error);
 }
 
 /* 中断不是失败：用中性灰，避免用户以为出了错 */
 .status--interrupted {
-  background: color-mix(in srgb, var(--mt-fg-4, rgba(255, 255, 255, 0.45)) 18%, transparent);
-  color: var(--mt-fg-3, rgba(255, 255, 255, 0.6));
+  background: color-mix(in srgb, var(--mt-fg-4) 18%, transparent);
+  color: var(--mt-fg-3);
 }
 
 .toggle {
   margin-left: auto;
-  color: var(--mt-fg-4, rgba(255, 255, 255, 0.45));
+  color: var(--mt-fg-4);
   flex-shrink: 0;
 }
 
 .task {
   font-size: 13px;
   line-height: 1.5;
-  color: var(--mt-fg-1, rgba(255, 255, 255, 0.92));
+  color: var(--mt-fg-1);
 }
 
 .hint {
   font-size: 12px;
-  color: var(--mt-fg-4, rgba(255, 255, 255, 0.45));
+  color: var(--mt-fg-4);
 }
 
 .summary {
   font-size: 12.5px;
   line-height: 1.5;
-  color: var(--mt-fg-2, rgba(255, 255, 255, 0.75));
+  color: var(--mt-fg-2);
 }
 
 .errorText {
   font-size: 12.5px;
-  color: var(--mt-error, #dc2626);
+  color: var(--mt-error);
 }
 
 .details {
@@ -110,7 +110,7 @@
   flex-direction: column;
   gap: 8px;
   padding-top: 4px;
-  border-top: 1px solid var(--mt-border-hairline, rgba(255, 255, 255, 0.08));
+  border-top: 1px solid var(--mt-border-hairline);
 }
 
 .detailBlock {
@@ -121,17 +121,17 @@
 
 .detailLabel {
   font-size: 11px;
-  color: var(--mt-fg-4, rgba(255, 255, 255, 0.45));
+  color: var(--mt-fg-4);
 }
 
 .detailPre {
   margin: 0;
   padding: 8px 10px;
   border-radius: 8px;
-  background: var(--mt-surface-2, rgba(0, 0, 0, 0.2));
+  background: var(--mt-surface-2);
   font-size: 12px;
   line-height: 1.5;
-  color: var(--mt-fg-2, rgba(255, 255, 255, 0.78));
+  color: var(--mt-fg-2);
   white-space: pre-wrap;
   word-break: break-word;
   max-height: 320px;

@@ -16,7 +16,7 @@
 
 .error-message {
   flex: 1;
-  color: var(--color-text-primary, #f8fafc);
+  color: var(--color-text-primary);
   font-size: var(--font-size-base);
 }
 
@@ -30,7 +30,7 @@
 .error-dismiss {
   background: none;
   border: none;
-  color: var(--color-text-secondary, #94a3b8);
+  color: var(--color-text-secondary);
   font-size: 16px;
   cursor: pointer;
   padding: var(--spacing-1);
@@ -39,7 +39,7 @@
 }
 
 .error-dismiss:hover {
-  color: var(--color-text-primary, #f8fafc);
+  color: var(--color-text-primary);
 }
 
 /* 响应式 */

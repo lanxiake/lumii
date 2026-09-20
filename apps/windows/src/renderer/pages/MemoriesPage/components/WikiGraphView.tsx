@@ -67,7 +67,7 @@ const LAYER_OPTIONS: readonly { value: LayerControl; label: string }[] = [
   { value: 'all', label: '全部' },
 ]
 
-const CATEGORY_COLOR = 'var(--color-primary-500, #3b82f6)'
+const CATEGORY_COLOR = 'var(--color-primary-500)'
 const SUBTOPIC_COLOR = 'var(--color-border)'
 const SOURCE_MEDIA_TYPE_COLORS: Record<string, string> = {
   'application/pdf': '#ef4444',

@@ -362,7 +362,7 @@ export const StorageInfo: React.FC<StorageInfoProps> = ({ toast }) => {
       </div>
 
       {expanded && (
-        <div className={styles['setting-item']} style={{ fontSize: 13, color: 'var(--text-secondary, #8c8c8c)' }}>
+        <div className={styles['setting-item']} style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
           <div>会话数：{stats.conversationCount}</div>
           <div>消息数：{stats.messageCount}</div>
           <div>备份数：{stats.backupCount}</div>
@@ -428,12 +428,12 @@ export const StorageInfo: React.FC<StorageInfoProps> = ({ toast }) => {
                   justifyContent: 'space-between',
                   gap: 8,
                   padding: '8px 0',
-                  borderBottom: '1px solid var(--border-color, rgba(255,255,255,0.08))',
+                  borderBottom: '1px solid var(--border-color)',
                 }}
               >
                 <div style={{ minWidth: 0, flex: 1 }}>
                   <div style={{ wordBreak: 'break-all' }}>{b.fileName}</div>
-                  <div style={{ color: 'var(--text-secondary, #8c8c8c)', marginTop: 2 }}>
+                  <div style={{ color: 'var(--text-secondary)', marginTop: 2 }}>
                     {formatLocalTime(b.modifiedAt)} · {formatBytes(b.sizeBytes)}
                   </div>
                 </div>
