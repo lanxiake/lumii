@@ -24,8 +24,11 @@ function toPetModelConfig(dto: PetModelConfigDTO): PetModelConfig {
     emotionMap: dto.emotionMap,
     tapMotions: dto.tapMotions,
     defaultExpression: dto.defaultExpression,
+    actionMotions: dto.actionMotions,
     personaAddon: dto.personaAddon,
     thumbnailUrl: dto.thumbnailUrl,
+    source: dto.source,
+    shadowedBuiltin: dto.shadowedBuiltin,
   }
 }
 

@@ -1,0 +1,30 @@
+{
+  "name": "@mtbot/pet-asset",
+  "version": "0.1.0",
+  "description": "宠物素材工具链 CLI：cutout 抠底 / validate 包校验 / install 两段式安装。构建期与 Agent 侧使用，不进运行时。",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "pet-asset": "./dist/cli.mjs"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@mtbot/pet-core": "workspace:*",
+    "sharp": "0.34.5"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.1",
+    "typescript": "^5.9.3",
+    "vite": "^5.4.0",
+    "vitest": "^2.1.9"
+  }
+}

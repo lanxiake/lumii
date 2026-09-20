@@ -67,3 +67,8 @@ jobs:
       # 既未接入本 workflow，也未接入根 pnpm verify，等于没有防线。
       # 该包是纯 TS（零原生依赖、零 I/O），用例确定性强、秒级完成，适合做 CI 门禁。
       - run: pnpm --filter @mtbot/pet-core test
+      # 2026-09-20 新增：pet-asset（宠物素材工具链）的两段式安装与路径越界防线。
+      # 依赖 sharp，但它的原生二进制来自预编译可选依赖 @img/sharp-win32-x64
+      # （该包无 install 脚本），所以上面的 --ignore-scripts 不影响它加载。
+      # 用例全部在临时目录里跑，不碰用户目录。
+      - run: pnpm --filter @mtbot/pet-asset test

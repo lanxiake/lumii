@@ -58,6 +58,10 @@ import {
   registerLocalMediaProtocolHandler,
   setLocalMediaWorkspaceCwdGetter,
 } from './local-media-protocol'
+import {
+  registerPetAssetSchemePrivileged,
+  registerPetAssetProtocolHandler,
+} from './pet/pet-asset-protocol'
 import { join, extname, basename, dirname } from 'path'
 import { promises as fs, existsSync, readdirSync } from 'fs'
 import { TrayManager } from './tray-manager'
@@ -1168,6 +1172,8 @@ async function initialize(): Promise<void> {
 
   // lumii-local 须在 ready 前注册 privileged scheme
   registerLocalMediaSchemePrivileged()
+  // 用户宠物目录的资源通道（lumii-pet://），同样须在 ready 前注册
+  registerPetAssetSchemePrivileged()
 
   // 窗口录制：改用 Windows Graphics Capture，支持被遮挡窗口，减少黑屏
   if (process.platform === 'win32') {
@@ -1200,6 +1206,10 @@ async function initialize(): Promise<void> {
   // 初始化文件日志系统（必须在 app.whenReady() 之后）
   fileLogger.initialize()
   registerLocalMediaProtocolHandler()
+  // 用户宠物目录的资源通道（lumii-pet://）。与 lumii-local 同理：
+  // scheme 须在 ready 前 registerSchemesAsPrivileged（见上），
+  // handler 则须在 ready 后 protocol.handle。
+  registerPetAssetProtocolHandler()
   // 服务启动时在控制台打印日志文件路径
   log.info('日志文件:', fileLogger.getCurrentLogFilePath())
   log.info('错误日志文件:', fileLogger.getCurrentErrorLogFilePath())

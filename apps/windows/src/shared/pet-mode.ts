@@ -18,12 +18,20 @@ export type AppMode = 'desktop' | 'pet'
 
 /**
  * 主进程返回给渲染层的模型配置 DTO（已规范化 + URL 解析）。
- * 字段与渲染层 PetModelConfig 对齐，但 modelUrl 已是可加载的 file:///http URL。
+ * 字段与渲染层 PetModelConfig 对齐，但 modelUrl 已是可加载的 file:///http/lumii-pet:// URL。
+ *
+ * 两段式扫描产物：`source` 标出模型来自内置还是用户宠物目录，
+ * `shadowedBuiltin` 标出这条用户模型覆盖了一个同 id 的内置模型（供「恢复内置版本」用）。
  */
 export interface PetModelConfigDTO {
   id: string
   name: string
   rendererType: 'live2d' | 'sprite'
+  /**
+   * 模型入口 URL：
+   * 内置 → dev `/pet-models/<rel>` / 打包 `file://`
+   * 用户 → `lumii-pet://model/<rel>`（见 main/pet/pet-asset-protocol.ts）
+   */
   modelUrl: string
   scale: number
   idleMotionGroup: string
@@ -33,10 +41,16 @@ export interface PetModelConfigDTO {
   emotionMap: Record<string, number>
   tapMotions: Record<string, Record<string, number>>
   defaultExpression: number
+  /** 作者精选的语义动作：`[motion:tag]` 的 tag → 动作组 */
+  actionMotions?: Record<string, { group: string; index?: number; description?: string }>
   agentId?: string
   personaAddon?: string
   toolPrompts?: { expression?: boolean; thinkTag?: boolean }
   thumbnailUrl?: string
+  /** 模型来源（两段式扫描写入） */
+  source?: 'builtin' | 'user'
+  /** true = 该用户模型覆盖了同 id 的内置模型 */
+  shadowedBuiltin?: boolean
 }
 
 /** pet IPC 通道名常量（主进程与 preload 共用，避免散落字符串） */

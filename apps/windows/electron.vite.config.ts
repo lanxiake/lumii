@@ -180,6 +180,12 @@ export default defineConfig({
         // iconv-lite 用于 Windows 命令行输出编码转换，必须外部化
         // @mtbot/* workspace 包入口为 .ts 源码，若外部化进 node_modules，
         // Electron 运行时 Node 无法对 node_modules 内文件做 TS type stripping（ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING）
+        //
+        // pet-core 2026-09-20 补进白名单：此前它只被渲染层 import（Vite 会打包，不受影响），
+        // P0-a 起主进程的 pet-model-resolver 也要用它做两段式注册表合并。外部化后实测**启动即崩**：
+        // pnpm 的符号链接让 Node 拿到的真实路径在 node_modules 之外，type stripping 确实执行了，
+        // 但 pet-core 内部按 TS NodeNext 规范用 `./x.js` 指代 `./x.ts`，Node 不做这个改写，
+        // 于是 ERR_MODULE_NOT_FOUND。打进 bundle 由 Rollup 解析才是这条路。
         // —— 注意：上面这一条只适用于 TS 源码包。@mariozechner/pi-ai / pi-agent-core / typebox
         // 是已编译的纯 JS 包（dist/），外部化后 Electron 可正常从 node_modules（pnpm 符号链接）加载，
         // 并由 pnpm 正确传递它们的 provider SDK（@anthropic-ai/sdk、@google/genai、@aws-sdk/*）依赖。
@@ -190,7 +196,7 @@ export default defineConfig({
         // 运行时从 apps/windows/node_modules 解析（与 playwright 官方建议一致）。
         exclude: [
           'electron-updater', 'ws', 'bufferutil', 'utf-8-validate', 'iconv-lite',
-          '@mtbot/agent-runtime', '@mtbot/browser-control',
+          '@mtbot/agent-runtime', '@mtbot/browser-control', '@mtbot/pet-core',
           // @tencent-connect/qqbot-connector（QQ 扫码绑定）必须内联：它的 dist/cjs
           // 缺少 {"type":"commonjs"} 标记，而 package.json 是 "type":"module"，
           // 外部化后 Electron 主进程 require() 会把 CJS 产物当 ESM 解析并抛

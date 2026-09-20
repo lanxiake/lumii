@@ -326,6 +326,28 @@ importers:
         specifier: ^5.7.0
         version: 5.9.3
 
+  packages/pet-asset:
+    dependencies:
+      '@mtbot/pet-core':
+        specifier: workspace:*
+        version: link:../pet-core
+      sharp:
+        specifier: 0.34.5
+        version: 0.34.5
+    devDependencies:
+      esbuild:
+        specifier: ^0.28.1
+        version: 0.28.1
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+      vite:
+        specifier: ^5.4.0
+        version: 5.4.21(@types/node@25.9.5)
+      vitest:
+        specifier: ^2.1.9
+        version: 2.1.9(@types/node@25.9.5)(jsdom@28.1.0(@noble/hashes@2.2.0))
+
   packages/pet-core:
     devDependencies:
       typescript:
