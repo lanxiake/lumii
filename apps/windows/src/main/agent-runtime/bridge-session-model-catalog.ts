@@ -124,6 +124,10 @@ export class BridgeSessionModelCatalog {
     for (const [sk, raw] of this.sessionPreferredModelRaw) {
       this.applyCompactionForSession(sk, raw)
     }
+    // 无会话偏好的会话跟着默认模型走：目录/配置变了要重新解析，否则会一直用旧窗口
+    for (const sk of [...this.sessionCompactionBySessionKey.keys()]) {
+      if (!this.sessionPreferredModelRaw.has(sk)) this.sessionCompactionBySessionKey.delete(sk)
+    }
   }
 
   /**
@@ -166,16 +170,21 @@ export class BridgeSessionModelCatalog {
     summaryReserveTokens: number
   } {
     const d = BridgeSessionModelCatalog.DEFAULT_SESSION_COMPACTION
-    if (!modelRef?.trim()) {
+    const slotCfg = loadProviderConfig()
+    // 没有会话级偏好时，回退到 chat 槽配的默认模型（运行时实际会用的那个），
+    // 而不是硬编码窗口：定时任务 / 进化 / 子 Agent / 后台渠道这些会话从不经过
+    // UI 的 prime，会一直按 200K 算预算，而用户可能已把模型窗口调到 256K ——
+    // 预算偏小会让压缩触发得过早，白丢对话历史。
+    const rawId = modelRef?.trim() || slotCfg.modelId?.trim() || ''
+    if (!rawId) {
       return {
         contextWindow: d.contextWindow,
         outputReserveTokens: d.outputReserveTokens,
         summaryReserveTokens: d.summaryReserveTokens,
       }
     }
-    const rawId = modelRef.trim()
     const hit = this.lookupCatalogEntry(rawId)
-    const configuredK = loadProviderConfig().contextWindowK ?? {}
+    const configuredK = slotCfg.contextWindowK ?? {}
     const configured = configuredK[rawId] ?? configuredK[this.normalizeModelKey(rawId)]
     const cw = Math.max(4096, configured && configured > 0 ? Math.floor(configured * 1000) : (hit?.contextWindow ?? d.contextWindow))
     // output/summary 预留只用于「压缩到多少」（computeMaxEstimatedHistoryTokens），
@@ -232,7 +241,11 @@ export class BridgeSessionModelCatalog {
       return comp
     }
 
-    return { ...BridgeSessionModelCatalog.DEFAULT_SESSION_COMPACTION }
+    // 没 prime 过的会话（后台渠道 / 定时任务 / 子 Agent）也走默认模型解析，
+    // 不要落回硬编码窗口。解析要读一次 provider 配置，顺手落缓存避免每次读盘。
+    const fallback = this.resolveCompactionFromModelRef(undefined)
+    this.sessionCompactionBySessionKey.set(k, fallback)
+    return fallback
   }
 
   /**

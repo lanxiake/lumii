@@ -15,6 +15,7 @@ import type {
 } from "./assistant-parts.js";
 import { finalizeAssistantParts } from "./assistant-parts.js";
 import {
+  assistantUsageOf,
   parseMessageContentJson,
   extractMessageText,
   type ToolCallRecord,
@@ -23,6 +24,7 @@ import {
   type MessageContentJson,
 } from "./message-content-json.js";
 export {
+  assistantUsageOf,
   parseMessageContentJson,
   type ToolCallRecord,
   type TextMessageContent,
@@ -342,8 +344,8 @@ export class ConversationRepo {
       .all(conversationId);
 
     for (const row of rows) {
-      const parsed = parseMessageContentJson(row.content_json);
-      const usage = parsed?.type === "text" ? parsed.usage : undefined;
+      // 助手消息落库为 assistant_parts，只认 text 会让这条回退路径永远查不到真实回执
+      const usage = assistantUsageOf(row.content_json);
       if (!usage) continue;
       const promptTokens = providerPromptTokens(usage);
       if (promptTokens > 0) {

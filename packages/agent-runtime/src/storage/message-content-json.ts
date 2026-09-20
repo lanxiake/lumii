@@ -106,6 +106,26 @@ export function parseMessageContentJson(raw: string): MessageContentJson | undef
 }
 
 /**
+ * 助手消息的 token 用量（两种落库形态共用同一形状）
+ */
+export type AssistantUsage = NonNullable<TextMessageContent["usage"]>;
+
+/**
+ * 从 content_json 里取助手消息的 usage。
+ *
+ * 与 `extractMessageText` 是同一个坑：助手消息落库为 `assistant_parts`（parts 为唯一真相），
+ * 只有旧数据和用户消息才是扁平 `text`。只判 `type === "text"` 会让「最近一次真实回执」
+ * 永远查不到 —— 上下文用量在重启 / 切会话后静默退化成按消息估算
+ * （2026-09-20 实测：一个真实 26.4K 的会话，切回去显示成 424）。
+ */
+export function assistantUsageOf(rawContentJson: string): AssistantUsage | undefined {
+  const parsed = parseMessageContentJson(rawContentJson);
+  if (!parsed) return undefined;
+  if (parsed.type === "text" || parsed.type === "assistant_parts") return parsed.usage;
+  return undefined;
+}
+
+/**
  * 从 content_json 里取出「人看得见的对话正文」。
  *
  * 为什么需要它：落库格式有两种——助手消息是 `assistant_parts`（parts 为唯一真相），
