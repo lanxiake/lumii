@@ -201,17 +201,37 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
     readonly { sessionKey: string; title: string; updatedAt: string; agentId?: string; lastMessagePreview?: string; hasRunning?: boolean; isPinned?: boolean; wasInterrupted?: boolean; channel?: string }[]
   >([])
 
+  /** 拉取的并发状态（**必须是 ref**：跨渲染共享，而 useCallback 随 activeView 重建）。
+   * 本组件有五个触发点会调 refreshLocalSessions，彼此无去重，而每次拉取在主进程是
+   * 一条**同步** SQL（686 会话时约 1s）——09-20 实测两次主线程冻结即三次并发叠加。
+   * 策略**合并而非丢弃**：飞行中收到新调用只记标记，结束后补拉一次，N 次并发 → 2 次。
+   */
+  const refreshStateRef = useRef({ running: false, again: false })
+
   /**
    * 从主进程拉取会话列表写入侧栏；打日志便于排查「启动后为空、点新建才有」类竞态问题。
    */
   const refreshLocalSessions = useCallback(async () => {
-    logger.info('[ChatPage] refreshLocalSessions 开始', { activeView })
+    const st = refreshStateRef.current
+    if (st.running) {
+      st.again = true
+      return
+    }
+    st.running = true
     try {
-      const sessions = await listSessions()
-      logger.info('[ChatPage] refreshLocalSessions 完成', { count: sessions.length, activeView })
-      setLocalRuntimeSessions(sessions)
-    } catch (err) {
-      logger.error('[ChatPage] refreshLocalSessions 失败', err)
+      do {
+        st.again = false
+        try {
+          logger.info('[ChatPage] refreshLocalSessions 开始', { activeView })
+          const sessions = await listSessions()
+          logger.info('[ChatPage] refreshLocalSessions 完成', { count: sessions.length, activeView })
+          setLocalRuntimeSessions(sessions)
+        } catch (err) {
+          logger.error('[ChatPage] refreshLocalSessions 失败', err)
+        }
+      } while (st.again)
+    } finally {
+      st.running = false
     }
   }, [listSessions, activeView])
 
