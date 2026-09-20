@@ -53,7 +53,7 @@ export const LumiiLogo: React.FC<LumiiLogoProps> = ({
             fontWeight: 700,
             fontSize: Math.max(14, size * 0.55),
             letterSpacing: '0.02em',
-            background: 'linear-gradient(180deg, #7dd3fc 0%, #38bdf8 35%, #2563eb 100%)',
+            background: 'var(--mt-grad-brand)',
             WebkitBackgroundClip: 'text',
             backgroundClip: 'text',
             color: 'transparent',

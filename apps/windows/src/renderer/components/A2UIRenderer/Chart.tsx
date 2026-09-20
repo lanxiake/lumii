@@ -15,9 +15,12 @@ import {
 import type { A2UIChart } from './types'
 import styles from './A2UIRenderer.module.css'
 
+/** 多数据集循环取色。走图表色板令牌以跟随主题；末位保留中性灰，
+ *  给"其他/未分类"这类不该抢眼的数据集。 */
 const COLORS = [
-  '#6366f1', '#0ea5e9', '#10b981', '#f59e0b', '#ef4444',
-  '#8b5cf6', '#ec4899', '#14b8a6', '#f97316', '#64748b',
+  'var(--mt-chart-1)', 'var(--mt-chart-8)', 'var(--mt-chart-2)', 'var(--mt-chart-3)',
+  'var(--mt-chart-5)', 'var(--mt-chart-4)', 'var(--mt-chart-7)', 'var(--mt-chart-6)',
+  'var(--mt-chart-8)', 'var(--mt-fg-3)',
 ]
 
 /** 将 A2UI data 格式转为 recharts 数据格式 */

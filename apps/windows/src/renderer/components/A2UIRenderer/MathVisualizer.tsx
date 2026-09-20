@@ -82,7 +82,7 @@ export const MathVisualizerComponent: React.FC<A2UIMathVisualizer> = ({ expressi
         height={250}
       >
         <Coordinates.Cartesian />
-        <Plot.OfX y={fn} color="#6366f1" />
+        <Plot.OfX y={fn} color="var(--mt-accent-500)" />
       </Mafs>
     </div>
   )

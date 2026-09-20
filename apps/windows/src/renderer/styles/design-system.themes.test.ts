@@ -334,3 +334,45 @@ describe('语义色不写字面量', () => {
     ).toEqual([])
   })
 })
+
+describe('图表调色板令牌化', () => {
+  /**
+   * 图表组件的调色板必须是 `var(--mt-chart-N)` / 语义令牌字符串，
+   * 不能写死颜色——否则换主题时图表保持旧配色。
+   *
+   * 前提（已实证）：recharts 的颜色 prop（`fill` / `stroke` / `tick.fill` 等）
+   * 类型是 `string`，直接透传给 SVG 属性，认 CSS 变量。
+   * **只对 fontSize 不成立**——recharts 内部拿它做数值运算算文本宽高，
+   * 传字符串会变成 NaN，所以字号仍需 getComputedStyle 读数字。
+   */
+  const CHART_FILES = [
+    'pages/DashboardPage/components/UsageChart/index.tsx',
+    'pages/SettingsPage/components/PerformanceDiagnostics/PerformanceDiagnostics.tsx',
+    'components/A2UIRenderer/Chart.tsx',
+    'components/A2UIRenderer/MathVisualizer.tsx',
+  ]
+
+  it('图表调色板不写死颜色字面量', () => {
+    const rendererDir = path.resolve(STYLES_DIR, '..')
+    const HEX = /#[0-9a-fA-F]{6}\b/
+
+    const offenders: string[] = []
+    for (const relPath of CHART_FILES) {
+      const file = path.join(rendererDir, relPath)
+      if (!fs.existsSync(file)) continue
+      const lines = fs.readFileSync(file, 'utf8').split('\n')
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i]!
+        const t = line.trim()
+        if (t.startsWith('//') || t.startsWith('*') || t.startsWith('/*')) continue
+        const m = line.match(HEX)
+        if (m) offenders.push(`${relPath}:${i + 1}  ${m[0]}`)
+      }
+    }
+
+    expect(
+      offenders,
+      '以下图表调色板写了字面色值，换主题时不会跟随。请改用 var(--mt-chart-N) 或语义令牌。',
+    ).toEqual([])
+  })
+})

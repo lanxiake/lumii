@@ -57,6 +57,7 @@
   --mt-info-dark:     #1d4ed8;
   --mt-info-light:    #93c5fd;
 
+
   /* 指标卡分色（原型 --tone-a..d）：只用于区分四张卡，不承载语义 */
   --mt-tone-a: #38bdf8;
   --mt-tone-b: #2dd4bf;
@@ -211,6 +212,33 @@
   --mt-tone-c: #60a5fa;
   --mt-tone-d: #fb923c;
 
+  /* 图表分类色板 — 8 色，供折线/饼图等需要"多系列可区分"的场景。
+     与语义色不同：这里每色**没有**固定语义，只为让相邻系列能分辨，
+     所以必须逐主题给值（明度要贴合各自底色），不能三主题共用一套。
+     选色约束（scripts/.chart-palette-plan.mjs 核算）：
+       两两 ΔE ≥ 20（低于此值肉眼易混）、与画布对比度 ≥ 2.3。 */
+  --mt-chart-1: #60a5fa;
+  --mt-chart-2: #2dd4bf;
+  --mt-chart-3: #fbbf24;
+  --mt-chart-4: #f472b6;
+  --mt-chart-5: #a78bfa;
+  --mt-chart-6: #4ade80;
+  --mt-chart-7: #fb923c;
+  --mt-chart-8: #38bdf8;
+
+  /* 语义色 — 显式声明（值同全局固定区）。
+     深色块选择器是 `:root, [data-theme="dark"]`：`:root` 承担"无 data-theme 时的
+     首帧兜底"，所以这里必须和全局固定区取同值，改了会让首帧与深色主题不一致。 */
+  --mt-success:       #22c55e;
+  --mt-success-dark:  #15803d;
+  --mt-success-light: #86efac;
+  --mt-warning:       #f59e0b;
+  --mt-warning-dark:  #b45309;
+  --mt-warning-light: #fde047;
+  --mt-error:         #ef4444;
+  --mt-error-dark:    #b91c1c;
+  --mt-error-light:   #fca5a5;
+
   /* 前景文字 */
   --mt-fg-1: #f8fafc;   /* 主文字 */
   --mt-fg-2: #cbd5e1;   /* 次要文字 */
@@ -284,6 +312,33 @@
   --mt-tone-b: #0d9488;
   --mt-tone-c: #2563eb;
   --mt-tone-d: #ea580c;
+
+  /* 图表分类色板 — 浅底上需压深（ΔE 最低 22.7，对比度 ≥2.3） */
+  --mt-chart-1: #2a76f6;
+  --mt-chart-2: #0d9488;
+  --mt-chart-3: #b45309;
+  --mt-chart-4: #db2777;
+  --mt-chart-5: #7c3aed;
+  --mt-chart-6: #166534;
+  --mt-chart-7: #ea580c;
+  --mt-chart-8: #60a5fa;
+
+  /* 语义色 — 浅底上压深同色相提对比。
+     此前 light 块完全没覆盖语义色，导致 `--mt-success`(#22c55e) 在浅底上
+     对比度只有 2.09（不达正文标准）。这里把三个 base 换到各自 `-dark` 级
+     （深一个档的同色相），对比度提到 4.6 以上；`-dark` 级本身再压深一档，
+     避免"底座和深色变体同值"导致层级丢失。
+     `-light` 三级是**深色主题专用**（默认分支用 -dark，dark 块切到 -light），
+     浅色主题下用不到，但仍需声明以满足三主题块变量集一致的守卫。 */
+  --mt-success:       #15803d;
+  --mt-success-dark:  #166534;
+  --mt-success-light: #86efac;
+  --mt-warning:       #b45309;
+  --mt-warning-dark:  #92400e;
+  --mt-warning-light: #fde047;
+  --mt-error:         #b91c1c;
+  --mt-error-dark:    #991b1b;
+  --mt-error-light:   #fca5a5;
 
   /* 前景文字 — 冷调 Slate（原型 --fg1..--fg4） */
   --mt-fg-1: #0f172a;   /* 主文本 */
@@ -359,6 +414,32 @@
   --mt-tone-b: #4f7a3a;
   --mt-tone-c: #9c6f2c;
   --mt-tone-d: #b5473b;
+
+  /* 图表分类色板 — 暖调为主，靠明度与冷暖拉开（ΔE 最低 21.0，对比度 ≥2.9） */
+  --mt-chart-1: #b8863b;
+  --mt-chart-2: #4f7a3a;
+  --mt-chart-3: #9c3a30;
+  --mt-chart-4: #7a4fa3;
+  --mt-chart-5: #2f6f8f;
+  --mt-chart-6: #7f5820;
+  --mt-chart-7: #a34a6b;
+  --mt-chart-8: #1f6b6b;
+
+  /* 语义色 — 暖调改写。
+     原先三主题共用一套冷调绿/黄/红（全局固定区），护眼主题下与暖底不协调。
+     对比度经核算全部不劣化（scripts/.eyecare-warm-plan.mjs）：
+     error-dark 7.83→8.25、warning 1.91→3.37、error 3.34→4.74。
+     -light 三级保持原值——它们是**深色主题专用**（默认分支用 -dark，dark 块切到 -light），
+     在浅底上低对比属预期，改动会破坏深色主题。 */
+  --mt-success:       #4f7a3a;
+  --mt-success-dark:  #3d6b32;
+  --mt-success-light: #86efac;
+  --mt-warning:       #b5751d;
+  --mt-warning-dark:  #8f5e14;
+  --mt-warning-light: #fde047;
+  --mt-error:         #b5473b;
+  --mt-error-dark:    #9c3a30;
+  --mt-error-light:   #fca5a5;
 
   /* 前景文字 — 暖褐灰 */
   --mt-fg-1: #2f2a22;   /* 主文本 */
