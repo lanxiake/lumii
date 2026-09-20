@@ -1011,13 +1011,12 @@ export class CloudSyncManager extends EventEmitter {
       { baseOid: ctx.baseOid, remoteOid: ctx.remoteOid },
       ctx.conflictFiles,
     )
-    await git.commit({
-      ...p,
-      ref: localRef,
-      parent: [ctx.localOid, ctx.remoteOid],
-      message: '合并远程变更（生成物冲突自动取远端）',
-      author: { name: 'Lumii CloudSync', email: 'sync@lumii.local' },
-    })
+    await this.mergeCommitViaCli(
+      p,
+      localRef,
+      [ctx.localOid, ctx.remoteOid],
+      '合并远程变更（生成物冲突自动取远端）',
+    )
     await this.attachHeadToBranch(p, localRef)
 
     await this.importData(p, ctx.baselineOid)
@@ -1072,13 +1071,7 @@ export class CloudSyncManager extends EventEmitter {
     // 4. stage 后提交双亲 commit（不传 tree：commit 会从 index 生成，index 此刻就是本地状态）
     //    排除跳过的大文件：它们在 HEAD 里但不在工作区，不排除会被判成删除
     await this.stageAllChanges(p, mergeExport.skippedLargePaths)
-    await git.commit({
-      ...p,
-      ref: localRef,
-      parent: [localOid, remoteOid],
-      message: '合并无关历史的远端数据',
-      author: { name: 'Lumii CloudSync', email: 'sync@lumii.local' },
-    })
+    await this.mergeCommitViaCli(p, localRef, [localOid, remoteOid], '合并无关历史的远端数据')
     // 挂回分支指针，避免 detached（否则后续 commit 落到游离提交、push 推空）
     await this.attachHeadToBranch(p, localRef)
     logger.info('[mergeUnrelatedHistory] 已提交双亲合并，本地历史保留')
@@ -1333,6 +1326,66 @@ export class CloudSyncManager extends EventEmitter {
     }
     const head = await runGit({ workTree: p.dir, gitDir: p.gitdir, args: ['rev-parse', 'HEAD'] })
     return head.code === 0 ? head.stdout.trim() : ''
+  }
+
+  /**
+   * 用**真 git** 做**双亲合并提交**（取代 iso 的 `commit({ parent: [a, b] })`）。
+   *
+   * 三处用到：合并远程变更（`:1014`）、合并无关历史（`:1075`）、冲突落决（`:1713`）。
+   * 它们此前与普通提交同源 —— 同样要按内容重算 blob hash，同样能把主线程卡住几秒。
+   *
+   * 真 git 没有一步到位的等价物，要三个原子操作拼起来：
+   *   1. `git write-tree` —— 从 index 生成 tree（iso 那句「不传 tree 会从 index
+   *      生成」对应的就是它）；
+   *   2. `git commit-tree <tree> -p <p1> -p <p2> -F -` —— 造出双亲 commit，
+   *      **不更新任何 ref**（正是我们要的：先造对象，再决定挂哪）；
+   *   3. `git update-ref <ref> <oid>` —— 挂到目标 ref 上。
+   *
+   * HEAD 仍由 `attachHeadToBranch` 直接写文件挂回 —— 那条路径与 iso 时代一致，
+   * 不需要动（`ref: ${localRef}` 对真 git 同样合法）。
+   */
+  private async mergeCommitViaCli(
+    p: GitParams,
+    localRef: string,
+    parents: readonly [string, string],
+    message: string,
+  ): Promise<string> {
+    const author = { name: 'Lumii CloudSync', email: 'sync@lumii.local' }
+    const env = {
+      GIT_AUTHOR_NAME: author.name,
+      GIT_AUTHOR_EMAIL: author.email,
+      GIT_COMMITTER_NAME: author.name,
+      GIT_COMMITTER_EMAIL: author.email,
+    }
+
+    const treeR = await runGit({ workTree: p.dir, gitDir: p.gitdir, args: ['write-tree'], env })
+    if (treeR.code !== 0 || hasFatalError(treeR.stderr)) {
+      throw new Error(`git write-tree 退出码 ${treeR.code}: ${treeR.stderr.trim().slice(0, 300)}`)
+    }
+    const tree = treeR.stdout.trim()
+
+    const commitR = await runGit({
+      workTree: p.dir,
+      gitDir: p.gitdir,
+      args: ['commit-tree', tree, '-p', parents[0], '-p', parents[1], '-F', '-'],
+      env,
+      stdin: message,
+    })
+    if (commitR.code !== 0 || hasFatalError(commitR.stderr)) {
+      throw new Error(`git commit-tree 退出码 ${commitR.code}: ${commitR.stderr.trim().slice(0, 300)}`)
+    }
+    const oid = commitR.stdout.trim()
+
+    const refR = await runGit({
+      workTree: p.dir,
+      gitDir: p.gitdir,
+      args: ['update-ref', localRef, oid],
+      env,
+    })
+    if (refR.code !== 0 || hasFatalError(refR.stderr)) {
+      throw new Error(`git update-ref 退出码 ${refR.code}: ${refR.stderr.trim().slice(0, 300)}`)
+    }
+    return oid
   }
 
   private async exportAndCommitInner(
@@ -1751,13 +1804,12 @@ export class CloudSyncManager extends EventEmitter {
           }
         }
       }
-      await git.commit({
-        ...p,
-        ref: localRef,
-        message: `解决云同步冲突（${strategy}）`,
-        parent: [c.localOid, c.remoteOid],
-        author: { name: 'Lumii CloudSync', email: 'sync@lumii.local' },
-      })
+      await this.mergeCommitViaCli(
+        p,
+        localRef,
+        [c.localOid, c.remoteOid],
+        `解决云同步冲突（${strategy}）`,
+      )
       // 挂回分支指针，避免 detached；禁止全量 force checkout（对象库过大时会挂死工具）
       await this.attachHeadToBranch(p, localRef)
       await this.push(p, cfg.repoUrl.trim(), localRef, auth, {
