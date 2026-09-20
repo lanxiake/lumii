@@ -13,9 +13,36 @@
 
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 
-/** CJK 及常见东亚字符范围（中文、日文假名、韩文） */
-const CJK_CHAR_RE =
-  /[一-鿿㐀-䶿豈-﫿぀-ゟ゠-ヿ가-힯]/u;
+/**
+ * CJK 及常见东亚字符的**码点范围**判断。
+ *
+ * 取代原先「逐字符 `CJK_CHAR_RE.test(ch)`」的写法：那段代码对**每一个字符**
+ * 跑一次带 `u` 标志的正则，而 `estimateTokenCount` 会遍历整个消息列表
+ * （含 tool_result 内容与 toolCall 的 `JSON.stringify`）——上下文一大，单次估算
+ * 就能到秒级，而它跑在主进程主线程上。
+ *
+ * 2026-09-20 实测（400 条真实 content_json / 36.3M 字符 / 逐条比对语义一致）：
+ * - 旧（逐字符 + 正则 test）**654ms** → 新（码点整数比较）**118ms**（5.6×）
+ * - 模拟一个回合里的 20 次反复估算：**13155ms → 2381ms**
+ *
+ * 触发场景是 CLI 测试（多套件同时跑时上下文堆得大）。冻结现场捕获器抓到的栈
+ * 完全一致地指向这个函数，见 docs/fix/2026-09-20-主进程冻结调查与修复.md。
+ *
+ * ⚠️ 第三条范围的起点是 **U+8C48** 而不是 U+F900：原正则字面量写的是「豈」，
+ * 它的码点就是 U+8C48。这看着像笔误（大约想写兼容表意区 U+F900–FAFF），
+ * 但它**把私用区 U+E000–F8FF 也圈了进来**，而真实语料里确实出现这类字符。
+ * 本次是**性能优化、不改语义**，故按原范围逐字复现；是否修正留作独立议题。
+ */
+function isCjkCodePoint(cp: number): boolean {
+  return (
+    (cp >= 0x4e00 && cp <= 0x9fff) || // CJK 统一表意
+    (cp >= 0x3400 && cp <= 0x4dbf) || // 扩展 A
+    (cp >= 0x8c48 && cp <= 0xfaff) || // 兼容表意（含私用区，见上）
+    (cp >= 0x3040 && cp <= 0x309f) || // 平假名
+    (cp >= 0x30a0 && cp <= 0x30ff) || // 片假名
+    (cp >= 0xac00 && cp <= 0xd7af) // 韩文
+  );
+}
 
 /**
  * 估算单段文本的 token 数（按字符类型加权）
@@ -23,8 +50,12 @@ const CJK_CHAR_RE =
 export function estimateTextTokenCount(text: string): number {
   if (!text) return 0;
   let tokens = 0;
-  for (const ch of text) {
-    tokens += CJK_CHAR_RE.test(ch) ? 0.6 : 0.3;
+  // 按**码点**遍历（与原 `for...of` 的语义一致）：一个代理对算一个字符
+  for (let i = 0; i < text.length; i++) {
+    const cp = text.codePointAt(i);
+    if (cp === undefined) break;
+    if (cp > 0xffff) i += 1; // 跳过低位代理
+    tokens += isCjkCodePoint(cp) ? 0.6 : 0.3;
   }
   return tokens;
 }
