@@ -1,0 +1,77 @@
+{
+  "results": {
+    "validate": true,
+    "anchorFixed": true,
+    "footStable": true,
+    "motionPresent": true,
+    "continuous": true
+  },
+  "all": true,
+  "samples": [
+    {
+      "t": 0,
+      "offsetX": 0,
+      "offsetY": 0,
+      "scale": 1,
+      "rotation": 0,
+      "blinkClosed": false
+    },
+    {
+      "t": 0.75,
+      "offsetX": 0,
+      "offsetY": 3,
+      "scale": 1.0123463313526981,
+      "rotation": 2.2554670952042764,
+      "blinkClosed": false
+    },
+    {
+      "t": 1.5,
+      "offsetX": 0,
+      "offsetY": 3.6739403974420594e-16,
+      "scale": 1.034142135623731,
+      "rotation": 1.090368004645482,
+      "blinkClosed": false
+    },
+    {
+      "t": 2.25,
+      "offsetX": 0,
+      "offsetY": -3,
+      "scale": 1.0384775906502257,
+      "rotation": 1.55652840064638,
+      "blinkClosed": false
+    },
+    {
+      "t": 3,
+      "offsetX": 0,
+      "offsetY": -7.347880794884119e-16,
+      "scale": 1.02,
+      "rotation": 0.7557495743542596,
+      "blinkClosed": false
+    },
+    {
+      "t": 3.75,
+      "offsetX": 0,
+      "offsetY": 3,
+      "scale": 1.0015224093497743,
+      "rotation": -2.373706535987591,
+      "blinkClosed": false
+    },
+    {
+      "t": 4.5,
+      "offsetX": 0,
+      "offsetY": 1.102182119232618e-15,
+      "scale": 1.005857864376269,
+      "rotation": -1.718267443158571,
+      "blinkClosed": false
+    },
+    {
+      "t": 5.25,
+      "offsetX": 0,
+      "offsetY": -3,
+      "scale": 1.027653668647302,
+      "rotation": -0.7593528284278095,
+      "blinkClosed": false
+    }
+  ],
+  "stripPath": "C:\\myself\\projects\\my\\open-source\\lumii\\docs\\test\\pet-sprite\\evidence\\procedural-filmstrip.png"
+}

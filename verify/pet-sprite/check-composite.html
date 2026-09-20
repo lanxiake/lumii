@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<title>验证点 C — 运行时合成</title>
+<style>
+  html, body { margin: 0; padding: 0; background: transparent; overflow: hidden; }
+  #stage { display: block; }
+</style>
+</head>
+<body>
+<canvas id="stage"></canvas>
+<script src="/pixi.min.js"></script>
+<script>
+/**
+ * check-composite.html — 验证点 C：运行时合成（验证计划 T4）
+ *
+ * 验证四类内容能否无冲突共存：
+ *   1. base 槽      帧序列（单帧 + 程序化位移模拟步进）
+ *   2. face 槽      眼/嘴覆盖层（按锚点定位）
+ *   3. 程序化原语   对**整体**施加 bob/breathe/sway
+ *   4. 嘴型切档     setMouthOpen(0~1) → 档位切换
+ *
+ * 同时用两个模式暴露一个经典坑：
+ *   mode=correct  根容器原点设在锚点 → 缩放/旋转以锚点为轴，锚点屏幕位置恒定
+ *   mode=naive    根容器留在舞台原点 → 以舞台左上角为轴，放大时角色整体漂移
+ *
+ * 页面本身不含断言；由 check-composite.mjs 驱动并读取像素判定。
+ */
+
+const PARAMS = new URLSearchParams(location.search)
+const MODE = PARAMS.get('mode') || 'correct'
+
+// 角色局部坐标系（与 fixtures/parts/*.png 一致）
+const W = 64, H = 64
+const ANCHOR = { x: 32, y: 60 }      // 锚点：脚底中心
+const EYE_AT = { x: 24, y: 24 }      // 眼部件左上角（局部坐标）
+const MOUTH_AT = { x: 24, y: 30 }    // 嘴部件左上角（局部坐标）
+
+// 舞台留足余量，使 2× 放大也不出界
+const STAGE_W = 220, STAGE_H = 220
+const ANCHOR_SCREEN = { x: 110, y: 175 }   // 锚点默认落在屏幕的位置
+
+const load = (url) => new Promise((res, rej) => {
+  const img = new Image()
+  img.onload = () => res(PIXI.Texture.from(img))
+  img.onerror = () => rej(new Error('加载失败: ' + url))
+  img.src = url
+})
+
+async function boot() {
+  const app = new PIXI.Application({
+    view: document.getElementById('stage'),
+    width: STAGE_W,
+    height: STAGE_H,
+    backgroundAlpha: 0,
+    antialias: false,
+    resolution: 1,
+  })
+  // 像素风：必须 nearest，线性采样会把像素糊掉
+  PIXI.settings.SCALE_MODE = PIXI.SCALE_MODES.NEAREST
+  PIXI.settings.ROUND_PIXELS = true
+
+  const [bodyTex, eyeOpenTex, eyeClosedTex, mouth0, mouth1, mouth2, mouth3] = await Promise.all([
+    load('/fixtures/parts/body.png'),
+    load('/fixtures/parts/eye-open.png'),
+    load('/fixtures/parts/eye-closed.png'),
+    load('/fixtures/parts/mouth-0.png'),
+    load('/fixtures/parts/mouth-1.png'),
+    load('/fixtures/parts/mouth-2.png'),
+    load('/fixtures/parts/mouth-3.png'),
+  ])
+  const mouthTex = [mouth0, mouth1, mouth2, mouth3]
+
+  const root = new PIXI.Container()
+  app.stage.addChild(root)
+
+  /**
+   * 子元素一律用 anchor(0,0)，位置换算成「相对根容器原点」的坐标。
+   *
+   * correct：根容器原点 = 锚点 → 子元素坐标要减去锚点，缩放自然以锚点为轴。
+   * naive  ：根容器原点 = 舞台原点 → 子元素直接用局部坐标（这就是那个坑）。
+   */
+  const localToRoot = (x, y) =>
+    MODE === 'correct' ? { x: x - ANCHOR.x, y: y - ANCHOR.y } : { x, y }
+
+  const baseSprite = new PIXI.Sprite(bodyTex)
+  let p = localToRoot(0, 0)
+  baseSprite.position.set(p.x, p.y)
+  root.addChild(baseSprite)
+
+  const eyeSprite = new PIXI.Sprite(eyeOpenTex)
+  p = localToRoot(EYE_AT.x, EYE_AT.y)
+  eyeSprite.position.set(p.x, p.y)
+  root.addChild(eyeSprite)
+
+  const mouthSprite = new PIXI.Sprite(mouthTex[0])
+  p = localToRoot(MOUTH_AT.x, MOUTH_AT.y)
+  mouthSprite.position.set(p.x, p.y)
+  root.addChild(mouthSprite)
+
+  app.ticker.stop()   // 由驱动器逐帧控制，保证可复现
+
+  let state = {
+    scale: 1, rotation: 0, offsetX: 0, offsetY: 0,
+    mouthLevel: 0, blinkClosed: false,
+    anchorScreenX: ANCHOR_SCREEN.x, anchorScreenY: ANCHOR_SCREEN.y,
+  }
+
+  /** 根容器原点在屏幕上的位置 */
+  const rootOrigin = () => MODE === 'correct'
+    ? { x: state.anchorScreenX + state.offsetX, y: state.anchorScreenY + state.offsetY }
+    : { x: state.offsetX, y: state.offsetY }
+
+  function apply() {
+    const o = rootOrigin()
+    root.position.set(o.x, o.y)
+    root.scale.set(state.scale)
+    root.rotation = (state.rotation * Math.PI) / 180
+    eyeSprite.texture = state.blinkClosed ? eyeClosedTex : eyeOpenTex
+    mouthSprite.texture = mouthTex[Math.max(0, Math.min(3, state.mouthLevel))]
+    app.render()
+  }
+  apply()
+
+  window.__pet = {
+    ready: true,
+    MODE,
+    setState(patch) { state = { ...state, ...patch }; apply(); return this.getState() },
+    getState: () => ({ ...state, mode: MODE }),
+    /** 该模式下「锚点应落在屏幕何处」—— correct 应恒定，naive 会随缩放漂移 */
+    anchorScreen: () => {
+      const o = rootOrigin()
+      const rad = (state.rotation * Math.PI) / 180
+      const cos = Math.cos(rad), sin = Math.sin(rad)
+      const bx = MODE === 'correct' ? ANCHOR.x : 0
+      const by = MODE === 'correct' ? ANCHOR.y : 0
+      const dx = (ANCHOR.x - bx) * state.scale
+      const dy = (ANCHOR.y - by) * state.scale
+      return { x: o.x + dx * cos - dy * sin, y: o.y + dx * sin + dy * cos }
+    },
+    /** 局部坐标 → 屏幕坐标 */
+    project(lx, ly) {
+      const o = rootOrigin()
+      const rad = (state.rotation * Math.PI) / 180
+      const cos = Math.cos(rad), sin = Math.sin(rad)
+      const bx = MODE === 'correct' ? ANCHOR.x : 0
+      const by = MODE === 'correct' ? ANCHOR.y : 0
+      const dx = (lx - bx) * state.scale
+      const dy = (ly - by) * state.scale
+      return { x: o.x + dx * cos - dy * sin, y: o.y + dx * sin + dy * cos }
+    },
+    constants: { W, H, ANCHOR, EYE_AT, MOUTH_AT, STAGE_W, STAGE_H },
+  }
+}
+
+boot().catch((e) => {
+  window.__pet = { ready: false, error: String((e && e.message) || e) }
+})
+</script>
+</body>
+</html>

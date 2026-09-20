@@ -1,0 +1,37 @@
+{
+  "body.png": {
+    "width": 64,
+    "height": 64,
+    "channels": 4
+  },
+  "eye-open.png": {
+    "width": 16,
+    "height": 16,
+    "channels": 4
+  },
+  "eye-closed.png": {
+    "width": 16,
+    "height": 16,
+    "channels": 4
+  },
+  "mouth-0.png": {
+    "width": 16,
+    "height": 16,
+    "channels": 4
+  },
+  "mouth-1.png": {
+    "width": 16,
+    "height": 16,
+    "channels": 4
+  },
+  "mouth-2.png": {
+    "width": 16,
+    "height": 16,
+    "channels": 4
+  },
+  "mouth-3.png": {
+    "width": 16,
+    "height": 16,
+    "channels": 4
+  }
+}

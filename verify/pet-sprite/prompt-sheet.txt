@@ -1,0 +1,8 @@
+请只做一件事：调用 image_generate 工具生成一张图片。
+
+- filename: "pet_sheet_2x2"
+- width: 1024
+- height: 1024
+- prompt: "sprite sheet, 2 by 2 grid, four poses of the SAME pixel art character arranged in four equal quadrants. The character is a small orange tabby cat standing upright on two legs, simple flat colors, thick dark brown outline. Top-left quadrant: standing still, arms down. Top-right quadrant: waving its right front paw beside its head. Bottom-left quadrant: sitting down on its haunches. Bottom-right quadrant: jumping with both arms raised. Every quadrant has a flat solid magenta background exact color #D9218F. Each cat is fully inside its own quadrant, centered, same size, same proportions, identical character design, no shadow, no gradient, no text, no grid lines, no borders, no labels."
+
+调用完成后，把工具返回的 filePath **原样**贴出来即可。不要做任何其他事，不要写文件，不要解释。

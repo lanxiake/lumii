@@ -1,0 +1,149 @@
+{
+  "correct": {
+    "mode": "correct",
+    "coexist": {
+      "base": true,
+      "overlay": true,
+      "blink": true,
+      "mouth": true,
+      "primitives": true
+    },
+    "coexistDetail": {
+      "eyePixels": 58,
+      "blinkDiff": 106,
+      "mouthDiff": 74
+    },
+    "c1": true,
+    "scaleRows": [
+      {
+        "scale": 1,
+        "foot": {
+          "x": 109.5,
+          "y": 174
+        },
+        "expect": {
+          "x": 110,
+          "y": 175
+        },
+        "driftX": 0,
+        "driftY": 0
+      },
+      {
+        "scale": 1.5,
+        "foot": {
+          "x": 109,
+          "y": 174
+        },
+        "expect": {
+          "x": 110,
+          "y": 175
+        },
+        "driftX": 0.5,
+        "driftY": 0
+      },
+      {
+        "scale": 2,
+        "foot": {
+          "x": 109.5,
+          "y": 174
+        },
+        "expect": {
+          "x": 110,
+          "y": 175
+        },
+        "driftX": 0,
+        "driftY": 0
+      }
+    ],
+    "maxDrift": 0.5,
+    "c2": true,
+    "rel": {
+      "rel1": {
+        "x": 18.5,
+        "y": 25.058823529411768
+      },
+      "rel2": {
+        "x": 18.75,
+        "y": 25.308823529411768
+      },
+      "relErr": 0.25
+    },
+    "c3": true,
+    "uniformity": 1,
+    "c5": true
+  },
+  "naive": {
+    "mode": "naive",
+    "coexist": {
+      "base": true,
+      "overlay": true,
+      "blink": true,
+      "mouth": true,
+      "primitives": true
+    },
+    "coexistDetail": {
+      "eyePixels": 58,
+      "blinkDiff": 106,
+      "mouthDiff": 74
+    },
+    "c1": true,
+    "scaleRows": [
+      {
+        "scale": 1,
+        "foot": {
+          "x": 31.5,
+          "y": 59
+        },
+        "expect": {
+          "x": 32,
+          "y": 60
+        },
+        "driftX": 0,
+        "driftY": 0
+      },
+      {
+        "scale": 1.5,
+        "foot": {
+          "x": 47,
+          "y": 89
+        },
+        "expect": {
+          "x": 48,
+          "y": 90
+        },
+        "driftX": 15.5,
+        "driftY": 30
+      },
+      {
+        "scale": 2,
+        "foot": {
+          "x": 63.5,
+          "y": 119
+        },
+        "expect": {
+          "x": 64,
+          "y": 120
+        },
+        "driftX": 32,
+        "driftY": 60
+      }
+    ],
+    "maxDrift": 60,
+    "c2": false,
+    "rel": {
+      "rel1": {
+        "x": 18.5,
+        "y": 25.058823529411764
+      },
+      "rel2": {
+        "x": 18.75,
+        "y": 25.308823529411764
+      },
+      "relErr": 0.25
+    },
+    "c3": true,
+    "uniformity": 1,
+    "c5": true
+  },
+  "pass": true
+}

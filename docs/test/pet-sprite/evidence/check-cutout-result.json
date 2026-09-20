@@ -1,0 +1,186 @@
+{
+  "a1": {
+    "pass": true,
+    "v1": {
+      "rows": [
+        {
+          "name": "过松",
+          "tLow": 10,
+          "tHigh": 40,
+          "alphaMAE": 0.007461847043504858,
+          "pmMAE": 0.9671633651833155,
+          "total": 384,
+          "kept": 383,
+          "rate": 0.9973958333333334,
+          "meanSpill": 43.37897310513448,
+          "meanSpillWeighted": 40.53978533726224,
+          "edgePixels": 818,
+          "pass": false
+        },
+        {
+          "name": "适中",
+          "tLow": 25,
+          "tHigh": 70,
+          "alphaMAE": 0.006888236251531895,
+          "pmMAE": 0.8908528845294672,
+          "total": 384,
+          "kept": 0,
+          "rate": 0,
+          "meanSpill": 32.01803051317614,
+          "meanSpillWeighted": 31.569355707326633,
+          "edgePixels": 721,
+          "pass": false
+        },
+        {
+          "name": "偏紧",
+          "tLow": 40,
+          "tHigh": 110,
+          "alphaMAE": 0.008225205365349245,
+          "pmMAE": 1.1620414584290832,
+          "total": 384,
+          "kept": 0,
+          "rate": 0,
+          "meanSpill": 18.925981873111784,
+          "meanSpillWeighted": 20.630084922334127,
+          "edgePixels": 662,
+          "pass": false
+        },
+        {
+          "name": "过紧",
+          "tLow": 60,
+          "tHigh": 150,
+          "alphaMAE": 0.009477323644301363,
+          "pmMAE": 1.300681040645442,
+          "total": 384,
+          "kept": 0,
+          "rate": 0,
+          "meanSpill": 7.731497418244406,
+          "meanSpillWeighted": 9.482436834228366,
+          "edgePixels": 581,
+          "pass": false
+        }
+      ],
+      "anyPass": false
+    },
+    "v3": {
+      "rows": [
+        {
+          "name": "tSolid=140",
+          "tLow": 25,
+          "tSolid": 140,
+          "alphaMAE": 0.0007682052313112784,
+          "pmMAE": 0.08846116408803067,
+          "total": 384,
+          "kept": 384,
+          "rate": 1,
+          "meanSpill": 9.456043956043956,
+          "meanSpillWeighted": 9.76505230530802,
+          "edgePixels": 728,
+          "trapEnclosed": 384,
+          "trapLeaked": 0,
+          "solidSeeds": 20227,
+          "pass": true
+        },
+        {
+          "name": "tSolid=160",
+          "tLow": 25,
+          "tSolid": 160,
+          "alphaMAE": 0.0005019842409620084,
+          "pmMAE": 0.05417859445210336,
+          "total": 384,
+          "kept": 384,
+          "rate": 1,
+          "meanSpill": 6.516483516483516,
+          "meanSpillWeighted": 6.072972777701958,
+          "edgePixels": 728,
+          "trapEnclosed": 384,
+          "trapLeaked": 0,
+          "solidSeeds": 20150,
+          "pass": true
+        },
+        {
+          "name": "tSolid=178",
+          "tLow": 25,
+          "tSolid": 178,
+          "alphaMAE": 0.000283633961397058,
+          "pmMAE": 0.026475135952818567,
+          "total": 384,
+          "kept": 384,
+          "rate": 1,
+          "meanSpill": 4.010989010989011,
+          "meanSpillWeighted": 2.868079226925239,
+          "edgePixels": 728,
+          "trapEnclosed": 384,
+          "trapLeaked": 0,
+          "solidSeeds": 20032,
+          "pass": true
+        },
+        {
+          "name": "tSolid=200",
+          "tLow": 25,
+          "tSolid": 200,
+          "alphaMAE": 0.08653815774355741,
+          "pmMAE": 11.349576443936067,
+          "total": 384,
+          "kept": 0,
+          "rate": 0,
+          "meanSpill": 0.5906593406593407,
+          "meanSpillWeighted": 0.21210186076670687,
+          "edgePixels": 728,
+          "trapEnclosed": 0,
+          "trapLeaked": 384,
+          "solidSeeds": 600,
+          "pass": false
+        },
+        {
+          "name": "tLow=18/178",
+          "tLow": 18,
+          "tSolid": 178,
+          "alphaMAE": 0.00024186676623774437,
+          "pmMAE": 0.024787653505412507,
+          "total": 384,
+          "kept": 384,
+          "rate": 1,
+          "meanSpill": 4.44109947643979,
+          "meanSpillWeighted": 2.9571916122469033,
+          "edgePixels": 764,
+          "trapEnclosed": 384,
+          "trapLeaked": 0,
+          "solidSeeds": 20032,
+          "pass": true
+        }
+      ],
+      "best": {
+        "name": "tLow=18/178",
+        "tLow": 18,
+        "tSolid": 178,
+        "alphaMAE": 0.00024186676623774437,
+        "pmMAE": 0.024787653505412507,
+        "total": 384,
+        "kept": 384,
+        "rate": 1,
+        "meanSpill": 4.44109947643979,
+        "meanSpillWeighted": 2.9571916122469033,
+        "edgePixels": 764,
+        "trapEnclosed": 384,
+        "trapLeaked": 0,
+        "solidSeeds": 20032,
+        "pass": true
+      }
+    },
+    "edgePixels": 728
+  },
+  "a2": {
+    "pass": true,
+    "distinct": 16,
+    "reversible": true
+  },
+  "a3": {
+    "pass": true,
+    "eyesErr": 0,
+    "evenOk": true,
+    "anchorIntOk": true,
+    "evenPlacementOk": true
+  },
+  "all": true
+}

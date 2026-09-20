@@ -1,0 +1,96 @@
+{
+  "all": false,
+  "usable": true,
+  "verdict": "◐ 可用，但必须逐格归一化",
+  "s1": true,
+  "s2": false,
+  "s3": false,
+  "s4": true,
+  "s5": true,
+  "minOverlap": 0.932974762101779,
+  "areaSpread": 0.7337402259970096,
+  "grid": {
+    "cols": 2,
+    "rows": 2,
+    "cellW": 627,
+    "cellH": 627
+  },
+  "cells": [
+    {
+      "idx": 0,
+      "bg": [
+        212,
+        26,
+        129
+      ],
+      "bbox": {
+        "minX": 182,
+        "minY": 138,
+        "maxX": 478,
+        "maxY": 556,
+        "w": 297,
+        "h": 419
+      },
+      "bleed": 0,
+      "tSolid": 191,
+      "leakAt": 201
+    },
+    {
+      "idx": 1,
+      "bg": [
+        212,
+        26,
+        129
+      ],
+      "bbox": {
+        "minX": 165,
+        "minY": 138,
+        "maxX": 451,
+        "maxY": 557,
+        "w": 287,
+        "h": 420
+      },
+      "bleed": 0,
+      "tSolid": 180,
+      "leakAt": 191
+    },
+    {
+      "idx": 2,
+      "bg": [
+        212,
+        26,
+        129
+      ],
+      "bbox": {
+        "minX": 0,
+        "minY": 141,
+        "maxX": 478,
+        "maxY": 626,
+        "w": 479,
+        "h": 486
+      },
+      "bleed": 0,
+      "tSolid": 180,
+      "leakAt": 191
+    },
+    {
+      "idx": 3,
+      "bg": [
+        212,
+        26,
+        129
+      ],
+      "bbox": {
+        "minX": 140,
+        "minY": 70,
+        "maxX": 460,
+        "maxY": 487,
+        "w": 321,
+        "h": 418
+      },
+      "bleed": 0,
+      "tSolid": 180,
+      "leakAt": 191
+    }
+  ]
+}
