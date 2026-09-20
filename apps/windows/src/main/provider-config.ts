@@ -274,7 +274,7 @@ function encryptApiKey(apiKey: string): string {
  *
  * @returns value 为解出的明文（失败或没填时为空串）；failed 为「有密文但解不开」
  */
-function decryptApiKey(enc?: string): { value: string; failed: boolean } {
+function decryptApiKey(enc?: string, slotLabel?: CapabilitySlot): { value: string; failed: boolean } {
   if (!enc) return { value: '', failed: false }
   if (enc.startsWith('plain:')) return { value: enc.slice(6), failed: false }
   try {
@@ -282,8 +282,10 @@ function decryptApiKey(enc?: string): { value: string; failed: boolean } {
   } catch (err) {
     // 常见成因：密钥环条目被重建/换名、provider.json 从别的机器或别的 Electron 版本搬来。
     // 不同平台写出的密文互不相认（Windows 走 DPAPI、Linux 走 libsecret，前缀可能都是 v10）。
+    // **必须带槽名**：三个槽各自的密文独立，只报「解密失败」在排查时无法定位是哪一个
+    // （本次移植中就踩到过：只看到告警、不知道该去重填哪个槽）。
     log.warn(
-      `[decryptApiKey] 凭据解密失败，该槽的 API Key 将被视为未填写。` +
+      `[decryptApiKey] ${slotLabel ?? '?'} 槽的凭据解密失败，该槽的 API Key 将被视为未填写。` +
         `密钥环可能已变更，或 provider.json 来自其他系统。原因：${(err as Error).message}`,
     )
     return { value: '', failed: true }
@@ -326,6 +328,8 @@ export function normalizeAllowedModelIds(
 function normalizeSlotView(
   raw: Partial<LocalProviderConfigView> | PersistedSlot | undefined,
   fallback: LocalProviderConfigView,
+  /** 仅用于日志：哪个槽的凭据解不开（三个槽各自的密文是独立的，不写出来无法定位） */
+  slotLabel?: CapabilitySlot,
 ): LocalProviderConfigView {
   const type = (raw?.type ?? fallback.type) as ProviderType
   // 渲染进程回传的视图带明文 apiKey（用户刚编辑过）；盘上读出来的只有 apiKeyEnc。
@@ -333,7 +337,7 @@ function normalizeSlotView(
     raw && 'apiKey' in raw && typeof (raw as LocalProviderConfigView).apiKey === 'string'
       ? (raw as LocalProviderConfigView).apiKey
       : null
-  const decrypted = apiKeyFromView === null ? decryptApiKey((raw as PersistedSlot | undefined)?.apiKeyEnc) : null
+  const decrypted = apiKeyFromView === null ? decryptApiKey((raw as PersistedSlot | undefined)?.apiKeyEnc, slotLabel) : null
   const apiKey = apiKeyFromView ?? decrypted?.value ?? ''
   const modelId = raw?.modelId?.trim() || fallback.modelId
   const rawAllowed =
@@ -440,7 +444,7 @@ export function loadProviderSlotsConfig(): ProviderSlotsConfigView {
     const raw = JSON.parse(fs.readFileSync(p, 'utf-8')) as PersistedSlotsFile | LegacyPersistedShape
 
     if (isLegacyShape(raw)) {
-      const chat = normalizeSlotView(raw, DEFAULT_CHAT)
+      const chat = normalizeSlotView(raw, DEFAULT_CHAT, 'chat')
       return {
         chat,
         vision: { ...DEFAULT_VISION },
@@ -450,9 +454,9 @@ export function loadProviderSlotsConfig(): ProviderSlotsConfigView {
 
     const file = raw as PersistedSlotsFile
     return {
-      chat: normalizeSlotView(file.slots?.chat, DEFAULT_CHAT),
-      vision: normalizeSlotView(file.slots?.vision, DEFAULT_VISION),
-      image: normalizeSlotView(file.slots?.image, DEFAULT_IMAGE),
+      chat: normalizeSlotView(file.slots?.chat, DEFAULT_CHAT, 'chat'),
+      vision: normalizeSlotView(file.slots?.vision, DEFAULT_VISION, 'vision'),
+      image: normalizeSlotView(file.slots?.image, DEFAULT_IMAGE, 'image'),
     }
   } catch {
     return {
@@ -505,10 +509,14 @@ function readPersistedSlots(): PersistedSlotsFile['slots'] {
  * - 能解开 → 用户是主动清空，照清（原行为不变）；
  * - 解不开 → 它对当前环境是惰性的，留着比抹掉好。
  */
-function preserveUnreadableKey(next: PersistedSlot, prev: PersistedSlot | undefined): PersistedSlot {
+function preserveUnreadableKey(
+  next: PersistedSlot,
+  prev: PersistedSlot | undefined,
+  slotLabel: CapabilitySlot,
+): PersistedSlot {
   if (next.apiKeyEnc || !prev?.apiKeyEnc) return next
-  if (!decryptApiKey(prev.apiKeyEnc).failed) return next
-  log.info('[saveProviderSlotsConfig] 保留原有 API Key 密文（当前环境解不开，不做静默覆盖）')
+  if (!decryptApiKey(prev.apiKeyEnc, slotLabel).failed) return next
+  log.info(`[saveProviderSlotsConfig] ${slotLabel} 槽保留原有 API Key 密文（当前环境解不开，不做静默覆盖）`)
   return { ...next, apiKeyEnc: prev.apiKeyEnc }
 }
 
@@ -522,9 +530,9 @@ export function saveProviderSlotsConfig(view: ProviderSlotsConfigView): void {
   const persisted: PersistedSlotsFile = {
     version: 1,
     slots: {
-      chat: preserveUnreadableKey(toPersistedSlot(normalizeSlotView(view.chat, DEFAULT_CHAT)), prev.chat),
-      vision: preserveUnreadableKey(toPersistedSlot(normalizeSlotView(view.vision, DEFAULT_VISION)), prev.vision),
-      image: preserveUnreadableKey(toPersistedSlot(normalizeSlotView(view.image, DEFAULT_IMAGE)), prev.image),
+      chat: preserveUnreadableKey(toPersistedSlot(normalizeSlotView(view.chat, DEFAULT_CHAT, 'chat')), prev.chat, 'chat'),
+      vision: preserveUnreadableKey(toPersistedSlot(normalizeSlotView(view.vision, DEFAULT_VISION, 'vision')), prev.vision, 'vision'),
+      image: preserveUnreadableKey(toPersistedSlot(normalizeSlotView(view.image, DEFAULT_IMAGE, 'image')), prev.image, 'image'),
     },
   }
   fs.writeFileSync(p, JSON.stringify(persisted, null, 2), 'utf-8')
@@ -535,7 +543,7 @@ export function saveProviderSlotsConfig(view: ProviderSlotsConfigView): void {
  */
 export function saveProviderConfig(view: LocalProviderConfigView): void {
   const slots = loadProviderSlotsConfig()
-  slots.chat = normalizeSlotView(view, DEFAULT_CHAT)
+  slots.chat = normalizeSlotView(view, DEFAULT_CHAT, 'chat')
   saveProviderSlotsConfig(slots)
 }
 
