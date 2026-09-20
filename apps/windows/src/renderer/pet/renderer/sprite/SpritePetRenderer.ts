@@ -67,6 +67,16 @@ const log = {
 const EYES_NAMES = ['eyes', 'eye', 'expression', 'face']
 const MOUTH_NAMES = ['mouth', 'mouths']
 
+/**
+ * sprite 桌宠的视口高度占比上限。
+ *
+ * 不用 Live2D 那边的 0.78——那是"站姿全身角色"的口径，占屏高七八成是常态。
+ * 桌宠是桌面上的小陪衬，占满屏幕既挡住工作区、又违背「不打扰」。0.35 是**兜底**，
+ * 不是目标值：正常由注册表的 `scale` 决定大小，这条只防"某个模型把 scale 配大了"
+ * 演变成占满整屏。
+ */
+export const SPRITE_MAX_HEIGHT_RATIO = 0.35
+
 /** 正在播放的动画状态 */
 interface PlayingState {
   anim: ResolvedAnimation
@@ -475,10 +485,17 @@ export class SpritePetRenderer implements PetRendererProvider {
   private applyAdaptiveScale(manifest: SpriteManifest): void {
     if (!this.app) return
     const requested = this.config?.scale ?? 1
-    const s = adaptiveScale(manifest.canvas.h, this.app.renderer.height, requested, this.pixelArt)
+    const s = adaptiveScale(
+      manifest.canvas.h,
+      this.app.renderer.height,
+      requested,
+      this.pixelArt,
+      SPRITE_MAX_HEIGHT_RATIO,
+    )
     this.baseScale = s
     log.info(
-      `[applyAdaptiveScale] 画布高 ${manifest.canvas.h}，请求缩放 ${requested} → 实际 ${s}${this.pixelArt ? '（像素取整）' : ''}`,
+      `[applyAdaptiveScale] 画布高 ${manifest.canvas.h}，请求缩放 ${requested} → 实际 ${s}${this.pixelArt ? '（像素取整）' : ''}，` +
+        `屏幕高约 ${(manifest.canvas.h * s).toFixed(0)}px（视口 ${this.app.renderer.height}px）`,
     )
   }
 
@@ -494,12 +511,17 @@ export class SpritePetRenderer implements PetRendererProvider {
       // 像素风：直接在整数倍上台阶，避免出现 1.6 倍这种"每列宽度不齐"的缩放
       const current = snapPixelScale(this.effectiveScale())
       const next = Math.max(1, current + (delta < 0 ? 1 : -1))
+      // 已经顶到上下限时不再改动、也不打日志：滚轮是高频事件，
+      // 触底后每滚一格刷一行会把日志淹掉（实测刷了 143 行）
+      if (next === current) return
       this.userScaleFactor = next / (this.baseScale || 1)
       log.info(`[adjustScaleByDelta] 像素吸附 ${current} → ${next}`)
       return
     }
     const FACTOR = 0.0015
+    const before = this.userScaleFactor
     this.userScaleFactor = Math.max(0.4, Math.min(5.0, this.userScaleFactor * (1 - delta * FACTOR)))
+    if (Math.abs(this.userScaleFactor - before) < 1e-6) return
     log.info(`[adjustScaleByDelta] userScale=${this.userScaleFactor.toFixed(3)}`)
   }
 
@@ -611,6 +633,24 @@ export class SpritePetRenderer implements PetRendererProvider {
       anchorX: manifest.anchor[0],
       anchorY: manifest.anchor[1],
     }
+  }
+
+  /**
+   * 诊断用：把当前生效的姿态变换暴露出去。
+   *
+   * 命中判定走的是这一份变换（不含程序化浮动）。pet-lab 的命中区探测要拿它反算
+   * 「某个屏幕点落在清单坐标的哪里」，才能独立于渲染器自己算一遍期望值——
+   * 用渲染器的输出去验证渲染器自己是没有意义的。
+   */
+  getHitTransform(): {
+    positionX: number
+    positionY: number
+    scale: number
+    anchorX: number
+    anchorY: number
+  } | null {
+    if (!this.runtime) return null
+    return this.modelTransform(this.runtime.manifest)
   }
 
   hitTest(localX: number, localY: number): HitArea {

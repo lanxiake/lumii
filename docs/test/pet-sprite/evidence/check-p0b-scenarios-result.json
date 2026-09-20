@@ -1,0 +1,515 @@
+{
+  "generatedAt": "2026-09-20T14:06:01.982Z",
+  "browser": "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe",
+  "models": [
+    {
+      "modelId": "demo_pixel_cat",
+      "snap": {
+        "modelId": "demo_pixel_cat",
+        "canvas": {
+          "w": 48,
+          "h": 56
+        },
+        "anchor": [
+          24,
+          54
+        ],
+        "pixelArt": true,
+        "slots": [
+          "face"
+        ],
+        "groups": [
+          "Idle",
+          "Talk",
+          "Jump"
+        ],
+        "idleFrames": 3,
+        "atlasBytes": 1210,
+        "loadMs": 10.5,
+        "fps": 60,
+        "position": {
+          "x": 440,
+          "y": 410
+        },
+        "hitTransform": {
+          "positionX": 440,
+          "positionY": 410,
+          "scale": 1,
+          "anchorX": 24,
+          "anchorY": 54
+        }
+      },
+      "probe": {
+        "matched": 11330,
+        "total": 11330,
+        "transformMatch": true,
+        "reported": {
+          "positionX": 440,
+          "positionY": 410,
+          "scale": 1,
+          "anchorX": 24,
+          "anchorY": 54
+        },
+        "independent": {
+          "positionX": 440,
+          "positionY": 410,
+          "scale": 1,
+          "anchorX": 24,
+          "anchorY": 54
+        },
+        "probeLog": "ref: <Node>"
+      },
+      "mouth": {
+        "levels": [
+          0,
+          0.33,
+          0.66,
+          1
+        ],
+        "counts": [
+          196,
+          262,
+          388,
+          670
+        ],
+        "monotonic": true
+      },
+      "expression": {
+        "diffs": [
+          0.00274390243902439,
+          0.002886640798226164,
+          0.0027633037694013303
+        ],
+        "allChanged": true
+      },
+      "motion": {
+        "group": "Jump",
+        "diff": 0.003878880266075388
+      },
+      "sceneA": {
+        "before": {
+          "x": 440,
+          "y": 410
+        },
+        "after": {
+          "x": 220,
+          "y": 205
+        },
+        "dx": -220,
+        "dy": -205,
+        "stillHits": 5106,
+        "samples": 5106
+      },
+      "error": null
+    },
+    {
+      "modelId": "demo_hires_girl",
+      "snap": {
+        "modelId": "demo_hires_girl",
+        "canvas": {
+          "w": 144,
+          "h": 168
+        },
+        "anchor": [
+          72,
+          162
+        ],
+        "pixelArt": false,
+        "slots": [
+          "face"
+        ],
+        "groups": [
+          "Idle",
+          "Talk",
+          "Jump"
+        ],
+        "idleFrames": 3,
+        "atlasBytes": 14928,
+        "loadMs": 11,
+        "fps": 60,
+        "position": {
+          "x": 440,
+          "y": 410
+        },
+        "hitTransform": {
+          "positionX": 440,
+          "positionY": 410,
+          "scale": 1,
+          "anchorX": 72,
+          "anchorY": 162
+        }
+      },
+      "probe": {
+        "matched": 11330,
+        "total": 11330,
+        "transformMatch": true,
+        "reported": {
+          "positionX": 440,
+          "positionY": 410,
+          "scale": 1,
+          "anchorX": 72,
+          "anchorY": 162
+        },
+        "independent": {
+          "positionX": 440,
+          "positionY": 410,
+          "scale": 1,
+          "anchorX": 72,
+          "anchorY": 162
+        },
+        "probeLog": "ref: <Node>"
+      },
+      "mouth": {
+        "levels": [
+          0,
+          0.33,
+          0.66,
+          1
+        ],
+        "counts": [
+          1135,
+          2807,
+          5074,
+          8270
+        ],
+        "monotonic": true
+      },
+      "expression": {
+        "diffs": [
+          0.022336474501108646,
+          0.03373891352549889,
+          0.026061529933481153
+        ],
+        "allChanged": true
+      },
+      "motion": {
+        "group": "Jump",
+        "diff": 0.0259769955654102
+      },
+      "sceneA": {
+        "before": {
+          "x": 440,
+          "y": 410
+        },
+        "after": {
+          "x": 220,
+          "y": 205
+        },
+        "dx": -220,
+        "dy": -205,
+        "stillHits": 5106,
+        "samples": 5106
+      },
+      "error": null
+    },
+    {
+      "modelId": "demo_variant_a",
+      "snap": {
+        "modelId": "demo_variant_a",
+        "canvas": {
+          "w": 48,
+          "h": 56
+        },
+        "anchor": [
+          24,
+          54
+        ],
+        "pixelArt": true,
+        "slots": [],
+        "groups": [
+          "Idle",
+          "Talk",
+          "Jump"
+        ],
+        "idleFrames": 48,
+        "atlasBytes": 7170,
+        "loadMs": 5.9000000059604645,
+        "fps": 60,
+        "position": {
+          "x": 440,
+          "y": 410
+        },
+        "hitTransform": {
+          "positionX": 440,
+          "positionY": 410,
+          "scale": 1,
+          "anchorX": 24,
+          "anchorY": 54
+        }
+      },
+      "probe": {
+        "matched": 11330,
+        "total": 11330,
+        "transformMatch": true,
+        "reported": {
+          "positionX": 440,
+          "positionY": 410,
+          "scale": 1,
+          "anchorX": 24,
+          "anchorY": 54
+        },
+        "independent": {
+          "positionX": 440,
+          "positionY": 410,
+          "scale": 1,
+          "anchorX": 24,
+          "anchorY": 54
+        },
+        "probeLog": "ref: <Node>"
+      },
+      "mouth": null,
+      "expression": {
+        "diffs": [
+          0.013167960088691796,
+          0.014832317073170731,
+          0.017382206208425722
+        ],
+        "allChanged": true
+      },
+      "motion": {
+        "group": "Jump",
+        "diff": 0.021281873614190688
+      },
+      "sceneA": {
+        "before": {
+          "x": 440,
+          "y": 410
+        },
+        "after": {
+          "x": 220,
+          "y": 205
+        },
+        "dx": -220,
+        "dy": -205,
+        "stillHits": 5106,
+        "samples": 5106
+      },
+      "error": null
+    },
+    {
+      "modelId": "demo_variant_b",
+      "snap": {
+        "modelId": "demo_variant_b",
+        "canvas": {
+          "w": 48,
+          "h": 56
+        },
+        "anchor": [
+          24,
+          54
+        ],
+        "pixelArt": true,
+        "slots": [
+          "body",
+          "face"
+        ],
+        "groups": [
+          "Idle",
+          "Talk",
+          "Jump"
+        ],
+        "idleFrames": 3,
+        "atlasBytes": 1210,
+        "loadMs": 4.700000017881393,
+        "fps": 60,
+        "position": {
+          "x": 440,
+          "y": 410
+        },
+        "hitTransform": {
+          "positionX": 440,
+          "positionY": 410,
+          "scale": 1,
+          "anchorX": 24,
+          "anchorY": 54
+        }
+      },
+      "probe": {
+        "matched": 11330,
+        "total": 11330,
+        "transformMatch": true,
+        "reported": {
+          "positionX": 440,
+          "positionY": 410,
+          "scale": 1,
+          "anchorX": 24,
+          "anchorY": 54
+        },
+        "independent": {
+          "positionX": 440,
+          "positionY": 410,
+          "scale": 1,
+          "anchorX": 24,
+          "anchorY": 54
+        },
+        "probeLog": "ref: <Node>"
+      },
+      "mouth": {
+        "levels": [
+          0,
+          0.33,
+          0.66,
+          1
+        ],
+        "counts": [
+          0,
+          1032,
+          2488,
+          5578
+        ],
+        "monotonic": true
+      },
+      "expression": {
+        "diffs": [
+          0.014230875831485587,
+          0.012985033259423504,
+          0.01299750554323725
+        ],
+        "allChanged": true
+      },
+      "motion": {
+        "group": "Jump",
+        "diff": 0.01231430155210643
+      },
+      "sceneA": {
+        "before": {
+          "x": 440,
+          "y": 410
+        },
+        "after": {
+          "x": 220,
+          "y": 205
+        },
+        "dx": -220,
+        "dy": -205,
+        "stillHits": 5106,
+        "samples": 5106
+      },
+      "error": null
+    },
+    {
+      "modelId": "demo_variant_c",
+      "snap": {
+        "modelId": "demo_variant_c",
+        "canvas": {
+          "w": 48,
+          "h": 56
+        },
+        "anchor": [
+          24,
+          54
+        ],
+        "pixelArt": true,
+        "slots": [
+          "face"
+        ],
+        "groups": [
+          "Idle",
+          "Talk",
+          "Jump"
+        ],
+        "idleFrames": 3,
+        "atlasBytes": 1210,
+        "loadMs": 7.5999999940395355,
+        "fps": 60,
+        "position": {
+          "x": 440,
+          "y": 410
+        },
+        "hitTransform": {
+          "positionX": 440,
+          "positionY": 410,
+          "scale": 1,
+          "anchorX": 24,
+          "anchorY": 54
+        }
+      },
+      "probe": {
+        "matched": 11330,
+        "total": 11330,
+        "transformMatch": true,
+        "reported": {
+          "positionX": 440,
+          "positionY": 410,
+          "scale": 1,
+          "anchorX": 24,
+          "anchorY": 54
+        },
+        "independent": {
+          "positionX": 440,
+          "positionY": 410,
+          "scale": 1,
+          "anchorX": 24,
+          "anchorY": 54
+        },
+        "probeLog": "ref: <Node>"
+      },
+      "mouth": {
+        "levels": [
+          0,
+          0.33,
+          0.66,
+          1
+        ],
+        "counts": [
+          0,
+          1744,
+          4128,
+          9142
+        ],
+        "monotonic": true
+      },
+      "expression": {
+        "diffs": [
+          0.01029240576496674,
+          0.01582871396895787,
+          0.013960643015521064
+        ],
+        "allChanged": true
+      },
+      "motion": {
+        "group": "Jump",
+        "diff": 0.015457317073170732
+      },
+      "sceneA": {
+        "before": {
+          "x": 440,
+          "y": 410
+        },
+        "after": {
+          "x": 220,
+          "y": 205
+        },
+        "dx": -220,
+        "dy": -205,
+        "stillHits": 5106,
+        "samples": 5106
+      },
+      "error": null
+    }
+  ],
+  "projection": {
+    "demoSet": {
+      "expressions": 4,
+      "mouths": 4,
+      "bodyPoses": 3
+    },
+    "threshold": 150,
+    "perScheme": {
+      "A": {
+        "demoFrames": 48,
+        "at12Expressions": 144
+      },
+      "B": {
+        "demoFrames": 3,
+        "at12Expressions": 19
+      },
+      "C": {
+        "demoFrames": 3,
+        "at12Expressions": 19
+      }
+    }
+  },
+  "pageErrors": [],
+  "failedRequests": []
+}

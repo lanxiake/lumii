@@ -371,3 +371,26 @@ describe("applyOverrides — 表情/口型叠加在帧之上", () => {
     expect(out.layered.face.mouth).toBe("m0");
   });
 });
+
+describe("adaptiveScale — 视口占比上限可调（sprite 桌宠比 Live2D 小得多）", () => {
+  it("默认上限沿用 Live2D 口径 0.78", () => {
+    // 自然高 1000，视口 1000 → 压到 0.78
+    expect(adaptiveScale(1000, 1000, 1, false)).toBeCloseTo(0.78, 5)
+  });
+
+  it("传入更小的上限时按新上限压", () => {
+    expect(adaptiveScale(1000, 1000, 1, false, 0.35)).toBeCloseTo(0.35, 5)
+  });
+
+  it("未超上限时上限值不影响结果", () => {
+    expect(adaptiveScale(56, 1400, 2, true, 0.35)).toBe(2)
+    expect(adaptiveScale(56, 1400, 2, true, 0.78)).toBe(2)
+  });
+
+  it("上限会把配大的 scale 兜住（0.35 × 视口高 / 画布高）", () => {
+    // 画布 100、视口 1000、请求 10 倍 → 1000px，远超 350px 上限 → 压到 3.5
+    expect(adaptiveScale(100, 1000, 10, false, 0.35)).toBeCloseTo(3.5, 5)
+    // 像素模型再取整
+    expect(adaptiveScale(100, 1000, 10, true, 0.35)).toBe(4)
+  });
+});

@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>精灵图后端 Lab — 三方案对比 / 场景 A · B</title>
+    <style>
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; height: 100vh; display: flex; overflow: hidden;
+        font-family: -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+        background: #1a1a1e; color: #e8e8ea;
+      }
+      #stage { flex: 1; position: relative; background-color: #1e1e22; }
+      /* 棋盘底：透明区一眼可辨，便于确认「角色之外的点击会穿透」 */
+      #stage::before {
+        content: ''; position: absolute; inset: 0; opacity: .5;
+        background:
+          linear-gradient(45deg, #26262c 25%, transparent 25%) -10px 0,
+          linear-gradient(-45deg, #26262c 25%, transparent 25%) -10px 0,
+          linear-gradient(45deg, transparent 75%, #26262c 75%),
+          linear-gradient(-45deg, transparent 75%, #26262c 75%);
+        background-size: 20px 20px;
+      }
+      #petCanvas { position: relative; width: 100%; height: 100%; display: block; }
+      #panel {
+        width: 400px; padding: 16px; overflow-y: auto;
+        background: #232329; border-left: 1px solid #35353c;
+      }
+      h1 { font-size: 15px; margin: 0 0 12px; color: #9ad; }
+      h2 { font-size: 13px; margin: 16px 0 8px; color: #8a8; border-bottom: 1px solid #35353c; padding-bottom: 4px; }
+      select { width: 100%; padding: 8px 10px; background: #16161a; border: 1px solid #44444c; border-radius: 5px; color: #e8e8ea; font-size: 13px; }
+      button {
+        display: block; width: 100%; margin: 5px 0; padding: 8px 10px;
+        background: #33333a; color: #cde; border: 1px solid #44444c;
+        border-radius: 5px; font-size: 12px; cursor: pointer; text-align: left;
+      }
+      button:hover { background: #3d3d46; }
+      button.primary { background: #2f7; color: #123; border-color: #2f7; font-weight: 600; }
+      button.primary:hover { background: #4f9; }
+      button.warn { background: #553; color: #fd8; border-color: #775; }
+      .row { display: flex; gap: 5px; flex-wrap: wrap; margin: 5px 0; }
+      .chip {
+        padding: 4px 8px; background: #33333a; border: 1px solid #44444c;
+        border-radius: 5px; font-size: 12px; cursor: pointer; color: #cde;
+      }
+      .chip:hover { background: #3d3d46; }
+      .chip.on { background: #2a4a3a; border-color: #4a8; color: #afd; }
+      .metrics {
+        font-size: 11px; font-family: 'Cascadia Code', monospace; line-height: 1.7;
+        background: #16161a; padding: 9px 10px; border-radius: 6px;
+        white-space: pre-wrap; color: #9ab; max-height: 240px; overflow-y: auto;
+      }
+      .metrics b { color: #fc8; font-weight: 600; }
+      #log {
+        font-size: 11px; font-family: 'Cascadia Code', monospace; line-height: 1.5;
+        background: #141417; padding: 8px; border-radius: 6px; margin-top: 8px;
+        height: 130px; overflow-y: auto; color: #8a9;
+      }
+      label { font-size: 12px; color: #aab; display: block; margin: 8px 0 3px; }
+      .hint { font-size: 11px; color: #778; line-height: 1.6; margin: 4px 0 0; }
+    </style>
+  </head>
+  <body>
+    <div id="stage"><canvas id="petCanvas"></canvas></div>
+    <div id="panel">
+      <h1>精灵图后端 Lab</h1>
+      <p class="hint">
+        三方案（整体帧 / 分层差分 / 混合）与双示范模型共用同一份渲染器，
+        <b>差异只来自资源组织</b>。场景 A / B 对应设计 §8 的两个淘汰场景。
+      </p>
+
+      <label>模型</label>
+      <select id="modelSelect"></select>
+
+      <h2>场景 B｜表情 × 动作 × 口型 叠加</h2>
+      <button class="primary" id="scnB">▶ 跑一轮（表情轮播 × 口型扫描 × 动作）</button>
+      <div class="row" id="exprChips"></div>
+      <div class="row" id="mouthChips"></div>
+      <div class="row" id="motionChips"></div>
+
+      <h2>场景 A｜抓取—拖拽—投掷—落地</h2>
+      <button class="primary" id="scnA">▶ 跑一轮（拖到随机点 → 抛掷 → 落地）</button>
+      <button id="probe">◎ 探测命中区正确性（网格取样）</button>
+      <p class="hint">
+        淘汰标准：若某方案在拖拽/换帧后无法维持正确命中区域，该方案不可用于量产。
+      </p>
+
+      <h2>度量</h2>
+      <div class="metrics" id="metrics">未加载</div>
+      <div id="log"></div>
+    </div>
+    <script type="module" src="./sprite-lab.ts"></script>
+  </body>
+</html>

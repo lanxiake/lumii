@@ -347,8 +347,9 @@ export function snapPixelScale(scale: number): number {
 /**
  * 计算自适应缩放：把模型高度压进视口上限内。
  *
- * 与 Live2D 后端同口径（上限 = 视口高度 × 0.78），保证两种后端切换时观感一致。
- *
+ * @param maxRatio 视口高度的占比上限。默认 0.78 是**沿用 Live2D 后端**的口径
+ *   （那边是站姿全身角色，占屏高七八成是常态）；sprite 桌宠是小体量陪衬，
+ *   调用方应传一个更小的值，否则一个配错 scale 的模型能占满整屏。
  * @param pixelArt 像素模型取整（见 snapPixelScale）
  */
 export function adaptiveScale(
@@ -356,8 +357,8 @@ export function adaptiveScale(
   viewportHeight: number,
   requestedScale: number,
   pixelArt: boolean,
+  maxRatio = 0.78,
 ): number {
-  const maxRatio = 0.78;
   let s = requestedScale > 0 ? requestedScale : 1;
   const rendered = naturalHeight * s;
   const max = viewportHeight * maxRatio;
