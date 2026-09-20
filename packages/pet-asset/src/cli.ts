@@ -14,7 +14,7 @@ import { resolve } from 'node:path'
 import { resolveUserPetDir } from './paths.js'
 import { runCutout, runInstall, runValidate } from './commands.js'
 import { describeBackground } from './commands.js'
-import { runAlign, runPack, runSlice } from './toolchain.js'
+import { runAlign, runNormalize, runPack, runSlice } from './toolchain.js'
 
 const USAGE = `pet-asset —— 宠物素材工具链
 
@@ -23,6 +23,7 @@ const USAGE = `pet-asset —— 宠物素材工具链
   pet-asset cutout   <输入图> <输出图> [选项]          连通性抠底
   pet-asset slice    <输入图> <输出目录> [选项]        网格切分（用于直出图集）
   pet-asset align    <图片目录> [选项]                 报告地线对齐落位（只读）
+  pet-asset normalize <图片目录> <输出目录> [选项]     归一化到目标画布（缩放 + 按锚点落位）
   pet-asset pack     <图片目录> <输出目录> [选项]      打包成图集
   pet-asset validate <包目录>                          只读校验，报出全部问题
   pet-asset install  <包目录> [--target <目录>]        校验通过才搬运
@@ -39,6 +40,11 @@ slice 选项：
 
 align 选项：
   --baseline bottom|top|center 垂直对齐基准（默认 bottom，即地线）
+
+normalize 选项：
+  --w <n> --h <n>        目标画布尺寸（清单里的 canvas）
+  --anchorX <n> --anchorY <n>  锚点，默认 (w/2, h-2) 即脚底中心
+  --fit <n>              角色高度占画布高度的比例（默认 0.94）
 
 pack 选项：
   --cols <n>       每行最多几格（默认 8）
@@ -248,6 +254,31 @@ async function main(): Promise<number> {
         }
       }
       return 0
+    }
+
+    case 'normalize': {
+      const [dir, outDir] = args.positional
+      if (!dir || !outDir) fail('normalize 需要 <图片目录> <输出目录>')
+      const w = numArg(args.flags.get('w'), 'w')
+      const h = numArg(args.flags.get('h'), 'h')
+      const ax = numArg(args.flags.get('anchorX'), 'anchorX')
+      const ay = numArg(args.flags.get('anchorY'), 'anchorY')
+      if (!w || !h) fail('normalize 需要 --w 与 --h（目标画布尺寸）')
+      const r = await runNormalize(resolve(dir), resolve(outDir), {
+        canvas: { w, h },
+        anchor: [ax ?? Math.floor(w / 2), ay ?? h - 2],
+        fit: numArg(args.flags.get('fit'), 'fit'),
+      })
+      if (json) {
+        console.log(JSON.stringify(r, null, 2))
+      } else {
+        console.log(`✓ 归一化完成 → ${r.outDir}`)
+        console.log(`  ${r.count} 张 → ${r.canvas.w}×${r.canvas.h}，共同倍率 ${r.scale.toFixed(4)}`)
+        if (r.clipped.length > 0) {
+          console.log(`  ! ${r.clipped.length} 张被裁：${r.clipped.join(', ')}（检查 --fit 或素材）`)
+        }
+      }
+      return r.clipped.length === 0 ? 0 : 1
     }
 
     case 'pack': {

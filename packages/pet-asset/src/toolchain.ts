@@ -10,7 +10,13 @@ import { basename, extname, join } from 'node:path'
 import sharp from 'sharp'
 import { readRgba, writeRgbaPng } from './image.js'
 import { planGrid, type SliceCell, type SliceGridOptions } from './slice.js'
-import { computeAlignPlacements, type AlignOptions, type AlignResult } from './align.js'
+import {
+  computeAlignPlacements,
+  computeNormalize,
+  type AlignOptions,
+  type AlignResult,
+  type NormalizeOptions,
+} from './align.js'
 import { buildAtlasIndex, planAtlasLayout, type PackLayoutOptions } from './pack.js'
 import { listFilesRecursive } from './io.js'
 import { parseAtlasIndex } from '@mtbot/pet-core'
@@ -206,4 +212,66 @@ function blit(
       dst.set(src.subarray(si, si + 4), (ty * dstW + tx) * 4)
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// normalize（归一化到目标画布）
+// ---------------------------------------------------------------------------
+
+export interface NormalizeOutcome {
+  input: string
+  outDir: string
+  canvas: { w: number; h: number }
+  /** 所有帧共用的缩放倍率 */
+  scale: number
+  count: number
+  /** 因缩放或落位而超出画布被裁掉的帧（正常情况应为 0） */
+  clipped: string[]
+}
+
+/**
+ * 把一组图归一化到目标画布：按共同倍率缩放，再按锚点落位。
+ *
+ * 输出与输入同名、同尺寸（都等于 canvas），供 `pack` 直接打包。
+ * 缩放的目标尺寸由`computeNormalize` 按共同倍率算好，所以这里直接用 `fit: fill`
+ * （宽高已保比例，再让 sharp 自己 contain 会二次缩放）。落位后超出画布的部分会被裁掉
+ * 并记进 `clipped`——那说明 `fit` 太大或素材本身有问题，不该静默丢掉像素。
+ */
+export async function runNormalize(
+  inputDir: string,
+  outDir: string,
+  opts: NormalizeOptions,
+): Promise<NormalizeOutcome> {
+  const frames = await readFrames(inputDir)
+  const placements = computeNormalize(frames, opts)
+  const scale = placements[0]?.scale ?? 1
+
+  await fs.mkdir(outDir, { recursive: true })
+  const clipped: string[] = []
+
+  for (const [i, p] of placements.entries()) {
+    const src = frames[i]
+    // 判"被裁"要看**内容**（包围盒）而不是整张图：缩放后整张图通常远大于画布
+    // （四周大片透明留白），拿它比会 8 张全报假警报。真正要紧的是角色本体有没有被切。
+    if (p.bbox) {
+      const bx0 = p.x + p.bbox.minX * p.scale
+      const by0 = p.y + p.bbox.minY * p.scale
+      const bx1 = p.x + (p.bbox.maxX + 1) * p.scale
+      const by1 = p.y + (p.bbox.maxY + 1) * p.scale
+      if (bx0 < -0.5 || by0 < -0.5 || bx1 > opts.canvas.w + 0.5 || by1 > opts.canvas.h + 0.5) {
+        clipped.push(p.name)
+      }
+    }
+
+    const resized = await sharp(src.data, { raw: { width: src.width, height: src.height, channels: 4 } })
+      .resize(p.width, p.height, { fit: 'fill', kernel: 'nearest' })
+      .raw()
+      .toBuffer()
+
+    const canvasBuf = Buffer.alloc(opts.canvas.w * opts.canvas.h * 4)
+    blit(canvasBuf, opts.canvas.w, resized, p.width, p.height, p.x, p.y)
+    await writeRgbaPng(join(outDir, `${p.name}.png`), canvasBuf, opts.canvas.w, opts.canvas.h)
+  }
+
+  return { input: inputDir, outDir, canvas: opts.canvas, scale, count: placements.length, clipped }
 }

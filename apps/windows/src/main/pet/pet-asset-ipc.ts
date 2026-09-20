@@ -30,6 +30,7 @@ import {
   runAlign,
   runCutout,
   runInstall,
+  runNormalize,
   runPack,
   runSlice,
   runValidate,
@@ -41,9 +42,24 @@ const log = {
   warn: (...args: unknown[]) => console.warn('[pet-asset-ipc]', ...args),
 }
 
-export type PetAssetOp = 'validate' | 'install' | 'cutout' | 'slice' | 'align' | 'pack'
+export type PetAssetOp =
+  | 'validate'
+  | 'install'
+  | 'cutout'
+  | 'slice'
+  | 'align'
+  | 'normalize'
+  | 'pack'
 
-const OPS: readonly PetAssetOp[] = ['validate', 'install', 'cutout', 'slice', 'align', 'pack']
+const OPS: readonly PetAssetOp[] = [
+  'validate',
+  'install',
+  'cutout',
+  'slice',
+  'align',
+  'normalize',
+  'pack',
+]
 
 export function isPetAssetOp(v: unknown): v is PetAssetOp {
   return typeof v === 'string' && (OPS as readonly string[]).includes(v)
@@ -167,6 +183,28 @@ export async function runPetAssetOp(call: PetAssetCall): Promise<PetAssetResult>
               baseline === 'bottom' || baseline === 'top' || baseline === 'center'
                 ? baseline
                 : undefined,
+          }),
+        }
+      }
+
+      case 'normalize': {
+        const dir = str(a.dir)
+        const outDir = str(a.outDir)
+        if (!dir || !outDir) return { ok: false, error: '缺少 dir / outDir' }
+        if (!isAllowedWritePath(outDir)) {
+          return { ok: false, error: `输出目录不在允许范围内：${outDir}` }
+        }
+        const canvas = a.canvas as { w?: unknown; h?: unknown } | undefined
+        const w = num(canvas?.w)
+        const h = num(canvas?.h)
+        if (!w || !h) return { ok: false, error: '缺少 canvas: { w, h }' }
+        const anchor = Array.isArray(a.anchor) ? a.anchor : undefined
+        return {
+          ok: true,
+          result: await runNormalize(resolve(dir), resolve(outDir), {
+            canvas: { w, h },
+            anchor: [num(anchor?.[0]) ?? Math.floor(w / 2), num(anchor?.[1]) ?? h - 2],
+            fit: num(a.fit),
           }),
         }
       }

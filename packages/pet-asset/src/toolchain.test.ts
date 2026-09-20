@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import sharp from 'sharp'
 import { parseAtlasIndex, validateSpriteManifest } from '@mtbot/pet-core'
-import { runSlice, runAlign, runPack } from './toolchain.js'
+import { runSlice, runAlign, runPack, runNormalize } from './toolchain.js'
 import { listFilesRecursive } from './io.js'
 import { alphaBBox } from './cutout.js'
 
@@ -179,5 +179,66 @@ describe('runPack', () => {
     const emptyDir = join(root, 'empty')
     await fs.mkdir(emptyDir, { recursive: true })
     await expect(runPack(emptyDir, join(root, 'out'))).rejects.toThrow()
+  })
+})
+
+describe('runNormalize', () => {
+  /** 造一张「角色只占中间一小块、四周大片透明」的图 —— 直出图集切出来的格子就长这样 */
+  async function makeSparse(dir: string, name: string, size: number, block: { w: number; h: number }): Promise<void> {
+    const buf = Buffer.alloc(size * size * 4)
+    const x0 = Math.floor((size - block.w) / 2)
+    const y0 = Math.floor((size - block.h) / 2)
+    for (let y = y0; y < y0 + block.h; y++) {
+      for (let x = x0; x < x0 + block.w; x++) {
+        const i = (y * size + x) * 4
+        buf[i] = 40
+        buf[i + 1] = 40
+        buf[i + 2] = 48
+        buf[i + 3] = 255
+      }
+    }
+    await fs.mkdir(dir, { recursive: true })
+    await sharp(buf, { raw: { width: size, height: size, channels: 4 } }).png().toFile(join(dir, `${name}.png`))
+  }
+
+  it('缩放到目标画布，且输出尺寸正好等于 canvas', async () => {
+    const src = join(root, 'sparse')
+    await makeSparse(src, 'a', 128, { w: 40, h: 48 })
+    const out = join(root, 'norm')
+    const r = await runNormalize(src, out, { canvas: { w: 48, h: 56 }, anchor: [24, 54] })
+    expect(r.canvas).toEqual({ w: 48, h: 56 })
+    const meta = await sharp(join(out, 'a.png')).metadata()
+    expect({ w: meta.width, h: meta.height }).toEqual({ w: 48, h: 56 })
+  })
+
+  it('裁剪判据看**内容**而不是整张图 —— 四周大片透明留白不算被裁', async () => {
+    // 缩放后整张图（128×128 → 约 140×140）远大于 48×56 的画布，
+    // 但角色本体只占中间一块，装得下 → 不该报"被裁"。
+    // 第一版判据拿整张图比，8 张全报假警报。
+    const src = join(root, 'sparse')
+    await makeSparse(src, 'a', 128, { w: 40, h: 48 })
+    const r = await runNormalize(src, join(root, 'norm2'), {
+      canvas: { w: 48, h: 56 },
+      anchor: [24, 54],
+    })
+    expect(r.clipped).toEqual([])
+  })
+
+  it('内容真的超出画布时才报被裁', async () => {
+    const src = join(root, 'sparse')
+    // 角色占满整格 → 缩放后 fit=1.5 会顶出画布
+    await makeSparse(src, 'big', 128, { w: 128, h: 128 })
+    const r = await runNormalize(src, join(root, 'norm3'), {
+      canvas: { w: 48, h: 56 },
+      anchor: [24, 54],
+      fit: 1.5,
+    })
+    expect(r.clipped).toEqual(['big'])
+  })
+
+  it('空目录报错', async () => {
+    const empty = join(root, 'empty-norm')
+    await fs.mkdir(empty, { recursive: true })
+    await expect(runNormalize(empty, join(root, 'o'), { canvas: { w: 8, h: 8 }, anchor: [4, 7] })).rejects.toThrow()
   })
 })

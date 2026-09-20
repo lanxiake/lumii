@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { computeAlignPlacements, type AlignFrame } from './align.js'
+import { computeAlignPlacements, computeNormalize, type AlignFrame } from './align.js'
 
 /** 造一帧：在 w×h 的不透明底（全透明）上画一个方块 */
 function frame(name: string, w: number, h: number, block?: { x: number; y: number; w: number; h: number }): AlignFrame {
@@ -120,5 +120,55 @@ describe('基准取整的边界（实测踩过）', () => {
     for (const p of r.placements) expect(p.x).toBe(0)
     // 公共画布不该因为取整而变宽
     expect(r.canvas.w).toBe(48)
+  })
+})
+
+describe('computeNormalize — 归一化到目标画布', () => {
+  const rect = (n: string, w: number, h: number, block: { x: number; y: number; w: number; h: number }) =>
+    frame(n, w, h, block)
+
+  it('所有帧共用同一倍率（按最高的那格算）——逐帧撑满会让蹲下的帧被放大到站着一样高', () => {
+    const tall = rect('tall', 200, 200, { x: 0, y: 0, w: 100, h: 100 })
+    const short = rect('short', 200, 200, { x: 0, y: 0, w: 100, h: 50 })
+    const r = computeNormalize([tall, short], { canvas: { w: 48, h: 56 }, anchor: [24, 54] })
+    expect(r[0].scale).toBe(r[1].scale)
+    // 缩放后「矮的那格」仍然矮一半，比例没被抹平
+    expect(r[1].bbox!.h * r[1].scale).toBeCloseTo((r[0].bbox!.h * r[0].scale) / 2, 5)
+  })
+
+  it('包围盒底边落在锚点上（脚沾地）', () => {
+    const f = rect('a', 200, 200, { x: 20, y: 30, w: 100, h: 90 })
+    const r = computeNormalize([f], { canvas: { w: 48, h: 56 }, anchor: [24, 54] })
+    const p = r[0]
+    // 画布上的底边 = y + bbox.maxY * scale
+    const bottom = p.y + p.bbox!.maxY * p.scale
+    expect(Math.abs(bottom - 54)).toBeLessThanOrEqual(1)
+  })
+
+  it('包围盒水平中心落在锚点 x 上', () => {
+    const f = rect('a', 200, 200, { x: 20, y: 30, w: 100, h: 90 })
+    const r = computeNormalize([f], { canvas: { w: 48, h: 56 }, anchor: [24, 54] })
+    const p = r[0]
+    const center = p.x + ((p.bbox!.minX + p.bbox!.maxX) / 2) * p.scale
+    expect(Math.abs(center - 24)).toBeLessThanOrEqual(1)
+  })
+
+  it('最高的那格缩放后正好占满 fit 比例的高度', () => {
+    const f = rect('a', 200, 200, { x: 0, y: 0, w: 100, h: 100 })
+    const r = computeNormalize([f], { canvas: { w: 48, h: 56 }, anchor: [24, 54], fit: 0.9 })
+    expect(r[0].bbox!.h * r[0].scale).toBeCloseTo(56 * 0.9, 5)
+  })
+
+  it('全透明帧不参与"最高"的计算，但仍有落位', () => {
+    const tall = rect('tall', 200, 200, { x: 0, y: 0, w: 100, h: 100 })
+    const empty = frame('empty', 200, 200)
+    const r = computeNormalize([tall, empty], { canvas: { w: 48, h: 56 }, anchor: [24, 54] })
+    expect(r[1].bbox).toBeNull()
+    expect(r[0].bbox!.h * r[0].scale).toBeCloseTo(56 * 0.94, 5) // 基准仍按"最高的有效帧"
+    expect(Number.isFinite(r[1].x)).toBe(true)
+  })
+
+  it('空输入不抛', () => {
+    expect(computeNormalize([], { canvas: { w: 48, h: 56 }, anchor: [24, 54] })).toEqual([])
   })
 })

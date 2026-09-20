@@ -140,3 +140,74 @@ export function computeAlignPlacements(
     alignedCount: usable.length,
   }
 }
+
+// ---------------------------------------------------------------------------
+// 归一化到目标画布
+// ---------------------------------------------------------------------------
+
+export interface NormalizeOptions {
+  /** 目标画布尺寸（清单里的 canvas） */
+  canvas: { w: number; h: number }
+  /** 锚点（通常是脚底中心），角色按它落位 */
+  anchor: [number, number]
+  /** 角色高度占画布高度的比例；默认 0.94（留一点顶边余量） */
+  fit?: number
+}
+
+export interface NormalizePlacement {
+  name: string
+  /** 该帧的缩放倍率 */
+  scale: number
+  /** 缩放后整张图左上角在画布上的落位（可能为负，由调用方裁剪） */
+  x: number
+  y: number
+  /** 缩放后的图片尺寸 */
+  width: number
+  height: number
+  /** 原图包围盒；全透明帧为 null */
+  bbox: BBox | null
+}
+
+/**
+ * 计算「归一化到目标画布」的落位与缩放（纯函数）。
+ *
+ * **为什么必须有这一步**：直出图集的每格是模型自由取景的（人物大小、站位都不一样），
+ * 而清单声明的 `canvas` 是渲染时的坐标空间。不归一化就直接拼图集，会出现两个后果：
+ * 一是角色在画布里的位置与锚点对不上（脚不沾地），二是画布尺寸与素材尺寸严重不符
+ * （实测 128×128 的切片配上 48×56 的清单，桌面上会变成一大坨）。
+ *
+ * **所有帧共用一个缩放倍率**（按最高的那格算），不是逐帧各自撑满：
+ * 逐帧撑满会把「蹲下」的帧放大到和「站直」一样高，角色看起来像在抽搐。
+ */
+export function computeNormalize(
+  frames: readonly AlignFrame[],
+  options: NormalizeOptions,
+): NormalizePlacement[] {
+  const fit = options.fit ?? 0.94
+  const targetH = options.canvas.h * fit
+
+  const boxes = frames.map((f) => alphaBBox(f.data, f.width, f.height))
+  const usable = boxes.filter((b): b is BBox => b !== null)
+  const tallest = usable.length > 0 ? Math.max(...usable.map((b) => b.h)) : 0
+  const scale = tallest > 0 ? targetH / tallest : 1
+
+  return frames.map((f, i) => {
+    const bbox = boxes[i]
+    const width = Math.max(1, Math.round(f.width * scale))
+    const height = Math.max(1, Math.round(f.height * scale))
+    if (!bbox) return { name: f.name, scale, x: 0, y: height, width, height, bbox: null }
+
+    // 包围盒缩放后的位置：底边落在 anchor.y，水平中心落在 anchor.x
+    const bboxMinY = options.anchor[1] - bbox.h * scale
+    const bboxMinX = options.anchor[0] - (bbox.w * scale) / 2
+    return {
+      name: f.name,
+      scale,
+      x: Math.round(bboxMinX - bbox.minX * scale),
+      y: Math.round(bboxMinY - bbox.minY * scale),
+      width,
+      height,
+      bbox,
+    }
+  })
+}
