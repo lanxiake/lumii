@@ -8,20 +8,28 @@ import type { ContextUsageCategory } from '../../../../../shared/agent-runtime-e
 import { formatTokenCount } from '../../../../utils/format-token-count'
 import styles from './ContextUsageCard.module.css'
 
-/** 分类展示文案与色板（色板同时用于堆叠条与行内色块） */
+/**
+ * 分类展示文案与色板（色板同时用于堆叠条与行内色块）。
+ *
+ * 走 `--mt-chart-*` 而非语义 / tone 令牌：这 8 类**没有固定语义**，
+ * 只需要彼此可区分。图表色板正是按这个约束选色的（两两 ΔE ≥ 20、对比度 ≥ 2.3）。
+ * 实测复用 tone/violet/success 那组的方案在护眼主题下会出现 ΔE = 0 —— 11 片给
+ * 护眼语义色选的 `--mt-success` 恰好等于它原有的 `--mt-tone-b`（都是 #4f7a3a）。
+ * `--mt-fg-3` 用于「记忆与规则」，中性灰与其余彩色拉开距离。
+ */
 const CATEGORY_META: Record<ContextUsageCategory, { label: string; color: string; hint: string }> = {
-  systemPrompt: { label: '系统提示词', color: '#9ca3af', hint: '身份、语言与通用指令' },
-  tools: { label: '工具定义', color: '#7c3aed', hint: '内置工具的名称、描述与参数 schema' },
-  skills: { label: '技能', color: '#f59e0b', hint: '已启用技能的说明' },
+  systemPrompt: { label: '系统提示词', color: 'var(--mt-chart-3)', hint: '身份、语言与通用指令' },
+  tools: { label: '工具定义', color: 'var(--mt-chart-5)', hint: '内置工具的名称、描述与参数 schema' },
+  skills: { label: '技能', color: 'var(--mt-chart-6)', hint: '已启用技能的说明' },
   mcp: {
     label: 'MCP 与动态工具',
-    color: '#ec4899',
+    color: 'var(--mt-chart-2)',
     hint: '已连接 MCP 服务的工具定义（mcp__*）及系统提示中的 MCP 章节，不是对话内容；压缩不会删除它们',
   },
-  subagents: { label: '子 Agent 定义', color: '#0ea5e9', hint: '多 Agent 协作相关定义' },
-  memory: { label: '记忆与规则', color: '#22c55e', hint: '长期记忆与用户规则' },
-  dynamicContext: { label: '动态上下文', color: '#14b8a6', hint: '每轮变化的记忆、工作区、运行时和任务信息；压缩对话不会删除' },
-  conversation: { label: '对话历史', color: '#f97316', hint: '当前会话消息；压缩只裁剪这一项' },
+  subagents: { label: '子 Agent 定义', color: 'var(--mt-chart-8)', hint: '多 Agent 协作相关定义' },
+  memory: { label: '记忆与规则', color: 'var(--mt-fg-3)', hint: '长期记忆与用户规则' },
+  dynamicContext: { label: '动态上下文', color: 'var(--mt-chart-1)', hint: '每轮变化的记忆、工作区、运行时和任务信息；压缩对话不会删除' },
+  conversation: { label: '对话历史', color: 'var(--mt-chart-7)', hint: '当前会话消息；压缩只裁剪这一项' },
 }
 
 export interface ContextUsageCardProps {
