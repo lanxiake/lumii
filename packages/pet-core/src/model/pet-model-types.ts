@@ -12,8 +12,27 @@
 /** 渲染后端类型 */
 export type PetRendererType = "live2d" | "sprite";
 
+/**
+ * 模型来源。两段式扫描的产物标记：
+ *  - `builtin`：随包发布，只读，同 id 会被用户版本覆盖
+ *  - `user`：用户宠物目录，可写，优先级更高
+ *
+ * 该字段由 [mergePetRegistries](./pet-registry.ts) 写入，注册表文件里不必声明。
+ */
+export type PetModelSource = "builtin" | "user";
+
 /** 注册表占位符：解析为模型内未命名（空 key）或多动作组 */
 export const PET_MOTION_GROUP_UNNAMED = "$unnamed";
+
+/** 作者精选的语义动作：tag → 动作组与说明 */
+export interface PetActionMotion {
+  /** 动作组名 */
+  group: string;
+  /** 组内 index（省略=该组随机） */
+  index?: number;
+  /** 给模型看的语义描述 */
+  description?: string;
+}
 
 /** 单个宠物模型配置 */
 export interface PetModelConfig {
@@ -45,6 +64,11 @@ export interface PetModelConfig {
   tapMotions: Record<string, Record<string, number>>;
   /** 默认表情索引 */
   defaultExpression: number;
+  /**
+   * 作者精选的语义动作：`[motion:tag]` 的 tag → 动作组。
+   * 声明时按此命名（最高优先级），否则由 model3.json 的非常规组自动编号。
+   */
+  actionMotions?: Record<string, PetActionMotion>;
   /** 该虚拟人默认绑定的 Agent ID（可被用户设置覆盖） */
   agentId?: string;
   /** 虚拟人专属 system prompt 片段 */
@@ -56,6 +80,10 @@ export interface PetModelConfig {
   };
   /** 预览缩略图 */
   thumbnailUrl?: string;
+  /** 来源（两段式扫描写入，非注册表字段） */
+  source?: PetModelSource;
+  /** true = 该用户模型覆盖了一个同 id 的内置模型（供「恢复内置版本」用） */
+  shadowedBuiltin?: boolean;
 }
 
 /** 注册表文件结构 */
@@ -88,13 +116,20 @@ export type PartialPetModelConfig = Pick<
 /**
  * 用默认值补全模型配置的缺失字段（纯函数）。
  * 供各端注册表加载后归一，替代散落在各端的默认值拼装逻辑。
+ *
+ * 值为 `null` / `undefined` 的键按「未声明」处理——它们可能来自手写或机器生成的
+ * JSON（`null` 是合法 JSON），若直接展开会以 `null` 覆盖掉默认值。
  */
 export function applyModelDefaults(partial: PartialPetModelConfig): PetModelConfig {
+  const declared: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(partial)) {
+    if (v !== null && v !== undefined) declared[k] = v;
+  }
   return {
     ...PET_MODEL_DEFAULTS,
-    ...partial,
+    ...declared,
     // 深合并可选对象字段，避免 undefined 覆盖默认空对象
-    emotionMap: partial.emotionMap ?? PET_MODEL_DEFAULTS.emotionMap,
-    tapMotions: partial.tapMotions ?? PET_MODEL_DEFAULTS.tapMotions,
-  };
+    emotionMap: declared.emotionMap ?? PET_MODEL_DEFAULTS.emotionMap,
+    tapMotions: declared.tapMotions ?? PET_MODEL_DEFAULTS.tapMotions,
+  } as PetModelConfig;
 }

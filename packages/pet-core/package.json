@@ -14,12 +14,11 @@
     "build": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest",
-    "preview": "vite --config preview/vite.config.ts"
+    "test:watch": "vitest"
   },
   "devDependencies": {
     "typescript": "^5.9.3",
     "vite": "^5.4.0",
-    "vitest": "^4.1.0"
+    "vitest": "^2.1.9"
   }
 }

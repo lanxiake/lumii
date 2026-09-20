@@ -63,3 +63,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - run: pnpm --filter @mtbot/agent-runtime test
+      # 2026-09-20 新增：pet-core 的套件此前**能跑但没人跑** ——
+      # 既未接入本 workflow，也未接入根 pnpm verify，等于没有防线。
+      # 该包是纯 TS（零原生依赖、零 I/O），用例确定性强、秒级完成，适合做 CI 门禁。
+      - run: pnpm --filter @mtbot/pet-core test

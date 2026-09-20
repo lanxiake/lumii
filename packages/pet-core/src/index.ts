@@ -20,6 +20,7 @@ export const PET_CORE_VERSION = "0.1.0";
 
 // 阶段 B：零依赖资产
 export * from "./model/pet-model-types.js";
+export * from "./model/sprite-manifest.js";
 export * from "./lipsync/mouth-waveform.js";
 export * from "./mapping/emotion-tag-parser.js";
 
@@ -29,6 +30,16 @@ export * from "./mapping/agentSignalMapper.js";
 
 // 阶段 D：渲染后端语义接口（DOM 无关，各端 implements/extends）
 export * from "./render/pet-renderer.js";
+
+// 程序化动画原语（呼吸/摇摆/眨眼/浮动/点头）—— 让静态部件动起来，
+// 是「AI 出静态部件 + 代码做动画」路线的基础
+export * from "./render/procedural-motion.js";
+
+// 宠物自制系统基础设施（P0-a）：两段式注册表合并 / 图集索引解析 / 安装包校验与安装计划。
+// 纯函数、零依赖，客户端运行时与构建期工具链（packages/pet-asset）共用同一份实现。
+export * from "./model/pet-registry.js";
+export * from "./model/atlas-index.js";
+export * from "./model/pet-package.js";
 
 // 阶段 E：WebView 渲染适配（指令协议 + postMessage 实现）
 export * from "./render/webview-command.js";
