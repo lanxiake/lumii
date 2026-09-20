@@ -8,17 +8,19 @@
  *   [pet] mode:switch desktop→pet durationMs=xxx 日志（验收项）。
  */
 
-import { ipcMain, globalShortcut } from 'electron'
+import { ipcMain, globalShortcut, powerMonitor } from 'electron'
 import {
   type AppMode,
   type PetClickRegion,
   type PetCursorEvent,
   type PetHoverUpdate,
+  type PetIdleEvent,
   type PetModeSwitchResult,
   PET_IPC,
 } from '../../shared/pet-mode'
 import { PetWindowManager, type PetWindowManagerDeps } from './pet-window-manager'
 import { startCursorTracking, stopCursorTracking } from './pet-cursor-tracker'
+import { startIdleWatching, stopIdleWatching, getCurrentIdleStage } from './idle-watcher'
 import {
   getStoredModelId,
   getVirtualHumanSettings,
@@ -100,10 +102,12 @@ export async function switchPetMode(
     if (mode === 'pet') {
       await petWindowManager.enterPetMode(modelId)
       startCursorTrackingIfNeeded()
+      startIdleWatchingIfNeeded()
     } else {
       await petWindowManager.exitPetMode()
-      // 退出就停：注视只在宠物模式里有意义，别让轮询在桌面模式下白跑
+      // 退出就停：注视与闲置感知只在宠物模式里有意义，别让轮询在桌面模式下白跑
       stopCursorTracking()
+      stopIdleWatching()
     }
     const durationMs = Date.now() - startedAt
     log.info(`mode:switch ${from}→${mode} durationMs=${durationMs}`)
@@ -135,6 +139,28 @@ function startCursorTrackingIfNeeded(): void {
       if (!win || win.isDestroyed()) return
       const evt: PetCursorEvent = { type: 'pet:cursor', x, y }
       win.webContents.send(PET_IPC.evtCursor, evt)
+    },
+  })
+}
+
+/**
+ * 启动闲置轮询（打盹/睡着）。
+ *
+ * 与光标轮询同一套约定：`isEnabled` 每轮现读设置（开关改了不必重启轮询），
+ * 退出宠物模式即整个停掉。
+ *
+ * 闲置秒数走**注入**而不是在 watcher 里 import `powerMonitor`：那样 watcher 就是
+ * 纯计时逻辑，单测不必 mock Electron（真值只有这一处读）。
+ */
+function startIdleWatchingIfNeeded(): void {
+  startIdleWatching({
+    getIdleSeconds: () => powerMonitor.getSystemIdleTime(),
+    isEnabled: () => getVirtualHumanSettings().enableIdleAwareness,
+    send: (stage) => {
+      const win = petWindowManager?.getPetBrowserWindow()
+      if (!win || win.isDestroyed()) return
+      const evt: PetIdleEvent = { type: 'pet:idle', stage }
+      win.webContents.send(PET_IPC.evtIdle, evt)
     },
   })
 }
@@ -202,6 +228,9 @@ export function registerPetModeIpc(deps: PetWindowManagerDeps): void {
   ipcMain.handle(PET_IPC.setCurrentModelId, (_evt, modelId: string) => {
     petWindowManager?.setCurrentModelId(modelId, true)
   })
+
+  // 当前闲置阶段（渲染层挂载时补问一次，见 idle-watcher 的 getCurrentIdleStage）
+  ipcMain.handle(PET_IPC.getIdleStage, () => getCurrentIdleStage() ?? 'awake')
 
   // 模型注册表
   ipcMain.handle(PET_IPC.listModels, async () => {
@@ -301,7 +330,7 @@ export function registerPetModeIpc(deps: PetWindowManagerDeps): void {
   log.info('宠物模式 IPC 已注册')
 }
 
-/** 应用退出时清理（注销快捷键 + 销毁宠物窗口） */
+/** 应用退出时清理（注销快捷键 + 停轮询 + 销毁宠物窗口） */
 export function disposePetModeIpc(): void {
   try {
     globalShortcut.unregister(SHORTCUT_TOGGLE_PET_MODE)
@@ -309,6 +338,10 @@ export function disposePetModeIpc(): void {
   } catch {
     // 忽略
   }
+  // 两个轮询都停掉：进程退出时会一起没，但这里是文档化的清理入口，
+  // 将来若有别的调用方（如重载宠物子系统）复用它会指望这里收干净。
+  stopCursorTracking()
+  stopIdleWatching()
   petWindowManager?.dispose()
   petWindowManager = null
 }

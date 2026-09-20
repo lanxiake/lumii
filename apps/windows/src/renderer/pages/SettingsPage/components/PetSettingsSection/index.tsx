@@ -220,6 +220,19 @@ export const PetSettingsSection: React.FC = () => {
             </span>
           </div>
 
+          {/* 闲置感知 */}
+          <div className={styles['setting-item']}>
+            <Checkbox
+              checked={vhSettings.enableIdleAwareness}
+              onChange={(checked) => void patchVh({ enableIdleAwareness: checked })}
+            >
+              闲置感知
+            </Checkbox>
+            <span className={styles['setting-hint']}>
+              离开一会儿宠物会打盹，久了闭眼睡着，回来即醒。关闭则一直保持清醒（只读取系统闲置时长，不涉及任何按键内容）
+            </span>
+          </div>
+
           {/* 强制穿透默认值 */}
           <div className={styles['setting-item']}>
             <Checkbox

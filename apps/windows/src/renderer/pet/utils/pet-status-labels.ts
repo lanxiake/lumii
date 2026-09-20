@@ -179,6 +179,9 @@ export function formatAvatarStatusLine(
     `表情: ${formatExpressionLabel(status?.expressionKey)}`,
     `动作: ${formatMotionLabel(status)}`,
   ]
+  // 打盹/睡着要说出来：「它睡着了」和「它卡死了」在屏幕上长得一样（P2-c §3.7）
+  if (status?.idleStage === 'drowsy') parts.push('打盹中')
+  else if (status?.idleStage === 'asleep') parts.push('睡着')
   if (opts?.idleMotionEnabled === false) parts.push('随动: 关')
   if (status?.postDialogueCooldown) parts.push('对话冷却中')
   return parts.join(' · ')

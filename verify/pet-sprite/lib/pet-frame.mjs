@@ -53,45 +53,72 @@ export async function shootPet(post) {
 }
 
 /**
- * 常驻光标服务：写一行 `"x,y"` 就移动一次，读到 `ok` 表示已生效。
- * 用完必须 `close()`（不然 PowerShell 进程会一直挂着）。
+ * 常驻光标服务：写一行 `"x,y"` 就移动一次，写 `poke` 就制造一次真实输入，
+ * 读到 `ok` 表示已生效。用完必须 `close()`（不然 PowerShell 进程会一直挂着）。
+ *
+ * ## ⚠️ `move` 与 `poke` 是两回事，实测过
+ *
+ * `Cursor.Position = …`（即 `SetCursorPos`）**不更新系统闲置计时**——
+ * 实测闲置从 663063ms 一路涨到 663516ms，一点没归零；而 `mouse_event` 一调就归零到 422ms。
+ * 所以：
+ *   · 要摆光标位置（注视那类按绝对坐标量效果的）→ 用 `move`
+ *   · 要「假装用户动了」（闲置感知那类按输入判定的）→ 必须用 `poke`
+ *
+ * 当年看这条的是 `check-idle-sleep.mjs`：它起初用 `move` 保持清醒，
+ * 结果宠物在脚本「抖光标」期间照样睡死了——因为系统根本不认为有人动过。
  */
 export function startCursorServer() {
-  const ps = spawn(
-    'powershell',
-    [
-      '-NoProfile',
-      '-NonInteractive',
-      '-Command',
-      `Add-Type -AssemblyName System.Windows.Forms
-       while ($true) {
-         $line = [Console]::ReadLine()
-         if ($null -eq $line) { break }
-         $p = $line.Split(',')
-         [System.Windows.Forms.Cursor]::Position = New-Object System.Drawing.Point([int]$p[0], [int]$p[1])
-         [Console]::Out.WriteLine('ok')
-         [Console]::Out.Flush()
-       }`,
-    ],
-    { stdio: ['pipe', 'pipe', 'inherit'], windowsHide: true },
-  )
+  // 用数组拼行而不是模板串里直接缩进：PowerShell 的 here-string（`@"` … `"@`）要求
+  // 收尾的 `"@` **顶格**，一缩进就报 WhitespaceBeforeHereStringFooter；
+  // 单引号串可以跨行，所以干脆把 C# 放进单引号串里，彻底躲开缩进问题。
+  const PS_SCRIPT = [
+    `Add-Type -AssemblyName System.Windows.Forms`,
+    `Add-Type -TypeDefinition 'using System;`,
+    `using System.Runtime.InteropServices;`,
+    `public class LumiiPoke {`,
+    `  [DllImport("user32.dll")] public static extern void mouse_event(uint f, int dx, int dy, uint d, IntPtr e);`,
+    `  public static void Poke() { mouse_event(1, 2, 0, 0, IntPtr.Zero); mouse_event(1, -2, 0, 0, IntPtr.Zero); }`,
+    `}'`,
+    `while ($true) {`,
+    `  $line = [Console]::ReadLine()`,
+    `  if ($null -eq $line) { break }`,
+    `  if ($line.Trim() -eq 'poke') {`,
+    `    [LumiiPoke]::Poke()`,
+    `  } else {`,
+    `    $p = $line.Split(',')`,
+    `    [System.Windows.Forms.Cursor]::Position = New-Object System.Drawing.Point([int]$p[0], [int]$p[1])`,
+    `  }`,
+    `  [Console]::Out.WriteLine('ok')`,
+    `  [Console]::Out.Flush()`,
+    `}`,
+  ].join('\n')
+  const ps = spawn('powershell', ['-NoProfile', '-NonInteractive', '-Command', PS_SCRIPT], {
+    stdio: ['pipe', 'pipe', 'inherit'],
+    windowsHide: true,
+  })
   const rl = createInterface({ input: ps.stdout })
   const queue = []
   rl.on('line', (line) => {
     const resolve = queue.shift()
     if (resolve && line.trim() === 'ok') resolve()
   })
-  return {
-    /** 把光标移到屏幕坐标 (x, y) */
-    move(x, y) {
-      return new Promise((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error('光标移动超时')), 5000)
-        queue.push(() => {
-          clearTimeout(timer)
-          resolve()
-        })
-        ps.stdin.write(`${Math.round(x)},${Math.round(y)}\n`)
+  const send = (cmd) =>
+    new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(`光标服务超时：${cmd}`)), 5000)
+      queue.push(() => {
+        clearTimeout(timer)
+        resolve()
       })
+      ps.stdin.write(`${cmd}\n`)
+    })
+  return {
+    /** 把光标移到屏幕坐标 (x, y)。**不算用户输入**，不影响系统闲置 */
+    move(x, y) {
+      return send(`${Math.round(x)},${Math.round(y)}`)
+    },
+    /** 制造一次真实输入（相对移动 ±2px）。会把系统闲置计时清零，视觉上几乎无位移 */
+    poke() {
+      return send('poke')
     },
     close() {
       ps.kill()

@@ -394,3 +394,193 @@ describe('PetOrchestrator / 抓取与落地', () => {
     orch.dispose()
   })
 })
+
+// ---------------------------------------------------------------------------
+// P2-c：闲置感知（打盹 / 睡着）
+//
+// 「用户离开」是**环境**状态，与对话生命周期正交——这一组测试守的就是
+// 「它只影响待机调度与表情，不去动对话那套状态」。
+// ---------------------------------------------------------------------------
+
+/** demo 两兄弟的表情集（`calm`=1=eye_shut 闭眼，`sleepy`=9=eye_sleepy 半眯） */
+const demoEmotionMap = {
+  neutral: 0,
+  calm: 1,
+  闭眼: 1,
+  shocked: 5,
+  sleepy: 9,
+  困: 9,
+}
+
+describe('PetOrchestrator / 闲置感知', () => {
+  /** 有装饰随机源（$unnamed 组 3 个动作）的渲染器——睡着要停的正是它 */
+  const withRandomIdle = () => {
+    const base = createMockRenderer()
+    vi.mocked(base.getMotionCount).mockImplementation((g: string) => (g === 'Idle' ? 1 : 3))
+    return base
+  }
+
+  it('睡着后不再出现随机动作（呼吸由程序化原语继续，不归编排器管）', () => {
+    vi.useFakeTimers()
+    try {
+      const renderer = withRandomIdle()
+      const orch = new PetOrchestrator(renderer)
+      orch.setModelConfig({ ...testConfig, idleMotionFallbackGroup: '$unnamed' })
+      orch.start() // enterIdle 会立刻播一次随机装饰动作
+      const before = vi.mocked(renderer.playRandomMotion).mock.calls.length
+      expect(before).toBeGreaterThan(0)
+
+      orch.setIdleStage('asleep')
+      vi.advanceTimersByTime(120_000) // 两分钟，足够跑过好几轮正常间隔
+      expect(vi.mocked(renderer.playRandomMotion).mock.calls.length).toBe(before)
+
+      orch.dispose()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('打盹时间隔变长：正常上限内不触发，超了才触发', () => {
+    vi.useFakeTimers()
+    try {
+      const renderer = withRandomIdle()
+      const orch = new PetOrchestrator(renderer)
+      orch.setModelConfig({ ...testConfig, idleMotionFallbackGroup: '$unnamed' })
+      orch.start()
+
+      orch.setIdleStage('drowsy') // 重排成 ×3 的间隔：24~45s
+      const before = vi.mocked(renderer.playRandomMotion).mock.calls.length
+
+      // 15s 是醒着时的**上限**——打盹时到这个点必须还没动静
+      vi.advanceTimersByTime(15_000)
+      expect(vi.mocked(renderer.playRandomMotion).mock.calls.length).toBe(before)
+
+      vi.advanceTimersByTime(30_000) // 累计 45s = 打盹间隔上限
+      expect(vi.mocked(renderer.playRandomMotion).mock.calls.length).toBeGreaterThan(before)
+
+      orch.dispose()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('打盹贴半眯、睡着贴闭眼（demo 的表情名）', () => {
+    const renderer = createMockRenderer()
+    const orch = new PetOrchestrator(renderer)
+    orch.setModelConfig({ ...testConfig, emotionMap: demoEmotionMap })
+
+    orch.setIdleStage('drowsy')
+    expect(renderer.setExpression).toHaveBeenLastCalledWith(9) // sleepy
+
+    orch.setIdleStage('asleep')
+    expect(renderer.setExpression).toHaveBeenLastCalledWith(1) // calm
+
+    orch.dispose()
+  })
+
+  it('模型没有困/睡这档表情时不硬贴：只停动作，脸上不演', () => {
+    // 不凭空造动作组、也不瞎借一个表情——语义不对的表情比没有更糟（P1-c 同一条原则）
+    const renderer = createMockRenderer()
+    const orch = new PetOrchestrator(renderer)
+    orch.setModelConfig({ ...testConfig, emotionMap: {} })
+
+    orch.setIdleStage('drowsy')
+    orch.setIdleStage('asleep')
+    expect(renderer.setExpression).not.toHaveBeenCalled()
+
+    orch.dispose()
+  })
+
+  it('从睡着醒来：先给一次「被吵醒」的表情，随后回到默认', () => {
+    vi.useFakeTimers()
+    try {
+      const renderer = createMockRenderer()
+      const orch = new PetOrchestrator(renderer)
+      orch.setModelConfig({ ...testConfig, emotionMap: demoEmotionMap })
+      orch.setIdleStage('asleep')
+      vi.mocked(renderer.setExpression).mockClear()
+
+      orch.setIdleStage('awake')
+      expect(renderer.setExpression).toHaveBeenLastCalledWith(5) // shocked
+
+      vi.advanceTimersByTime(1_200)
+      expect(renderer.setExpression).toHaveBeenLastCalledWith(0) // 默认
+
+      orch.dispose()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('打盹中醒来不播反馈：只有真睡着过才有「被吵醒」这回事', () => {
+    const renderer = createMockRenderer()
+    const orch = new PetOrchestrator(renderer)
+    orch.setModelConfig({ ...testConfig, emotionMap: demoEmotionMap })
+    orch.setIdleStage('drowsy')
+    vi.mocked(renderer.setExpression).mockClear()
+
+    orch.setIdleStage('awake')
+    expect(renderer.setExpression).toHaveBeenLastCalledWith(0) // 直接回默认
+    orch.dispose()
+  })
+
+  it('醒来只回退自己贴的那张脸：别处设的表情不归闲置感知管', () => {
+    const renderer = createMockRenderer()
+    const orch = new PetOrchestrator(renderer)
+    orch.setModelConfig({ ...testConfig, emotionMap: demoEmotionMap })
+    orch.setIdleStage('asleep') // 贴 calm(1)
+    orch.setExpression(4, 'anger') // 别处（mood 事件 / AI 表情标签）改了脸
+    vi.mocked(renderer.setExpression).mockClear()
+
+    orch.setIdleStage('awake')
+    expect(renderer.setExpression).not.toHaveBeenCalled()
+    orch.dispose()
+  })
+
+  it('对话进行中只登记状态、不动脸（AI 正在演它自己的表情）', () => {
+    const renderer = createMockRenderer()
+    const orch = new PetOrchestrator(renderer)
+    orch.setModelConfig({ ...testConfig, emotionMap: demoEmotionMap })
+    let last: { idleStage?: string } = {}
+    orch.setStatusListener((s) => (last = s))
+    orch.start()
+
+    orch.setDialogueActive(true)
+    vi.mocked(renderer.setExpression).mockClear()
+    orch.setIdleStage('asleep')
+
+    expect(renderer.setExpression).not.toHaveBeenCalled()
+    expect(last.idleStage).toBe('asleep') // 但阶段登记了，对话结束时会补落表情
+    orch.dispose()
+  })
+
+  it('同一阶段重复到达是空操作（主进程已只在变化时发，这里是第二道保险）', () => {
+    const renderer = createMockRenderer()
+    const orch = new PetOrchestrator(renderer)
+    orch.setModelConfig({ ...testConfig, emotionMap: demoEmotionMap })
+
+    orch.setIdleStage('asleep')
+    const n = vi.mocked(renderer.setExpression).mock.calls.length
+    orch.setIdleStage('asleep')
+    expect(vi.mocked(renderer.setExpression).mock.calls.length).toBe(n)
+    orch.dispose()
+  })
+
+  it('关掉随动开关时，闲置阶段照常登记但不调度（两个闸门是「与」的关系）', () => {
+    vi.useFakeTimers()
+    try {
+      const renderer = withRandomIdle()
+      const orch = new PetOrchestrator(renderer)
+      orch.setModelConfig({ ...testConfig, idleMotionFallbackGroup: '$unnamed' })
+      orch.setEnableIdleMotion(false)
+      orch.start()
+
+      orch.setIdleStage('drowsy')
+      vi.advanceTimersByTime(60_000)
+      expect(vi.mocked(renderer.playRandomMotion).mock.calls.length).toBe(0)
+      orch.dispose()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})

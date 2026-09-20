@@ -1,0 +1,86 @@
+{
+  "generatedAt": "2026-09-20T16:46:21.467Z",
+  "modelId": "mao_pro",
+  "thresholds": {
+    "drowsySec": 3,
+    "asleepSec": 8,
+    "source": "客户端启动日志（环境变量覆盖）"
+  },
+  "metric": "日志里的阶段迁移 + 编排器 [setExpression] 的 index/name（同一份 mtbot-<日期>.log）",
+  "timeline": {
+    "readyAt": "2026-09-20T16:45:53.587Z",
+    "drowsyMs": 3840,
+    "asleepMs": 5014,
+    "wakeMs": 471
+  },
+  "faces": {
+    "baseline": {
+      "index": 0,
+      "name": "neutral"
+    },
+    "drowsy": {
+      "index": 9,
+      "name": "tired"
+    },
+    "asleep": {
+      "index": 2,
+      "name": "闭眼"
+    }
+  },
+  "hasRandomIdlePool": true,
+  "randomIdleMotionsWhileAwake": 3,
+  "randomIdleMotionsWhileAsleep": 0,
+  "screenshotAtAsleep": "C:\\Users\\75791\\.lumii\\workspace\\temp\\screenshots\\6.jpg",
+  "checks": [
+    {
+      "label": "醒着时有随机待机动作（正对照）",
+      "ok": true,
+      "detail": "40s 内 3 次（随机间隔 8~15s，有装饰组才播）"
+    },
+    {
+      "label": "闲置到阈值即进入打盹",
+      "ok": true,
+      "detail": "3.8s 后（阈值 3s）"
+    },
+    {
+      "label": "打盹切了表情",
+      "ok": true,
+      "detail": "index=9 name=tired"
+    },
+    {
+      "label": "闲置再久一档即睡着",
+      "ok": true,
+      "detail": "5.0s 后（阈值 8s）"
+    },
+    {
+      "label": "睡着切了表情",
+      "ok": true,
+      "detail": "index=2 name=闭眼"
+    },
+    {
+      "label": "打盹与睡着是两张不同的脸",
+      "ok": true,
+      "detail": "打盹 tired(9) vs 睡着 闭眼(2)"
+    },
+    {
+      "label": "睡着期间没有随机待机动作",
+      "ok": true,
+      "detail": "16s 内 0 次（正对照：醒着时 3 次）"
+    },
+    {
+      "label": "有输入即醒（1Hz 轮询，最迟约 1s）",
+      "ok": true,
+      "detail": "0.5s 后"
+    },
+    {
+      "label": "醒来给了一次「被吵醒」的反馈",
+      "ok": true,
+      "detail": "ager] [pet:renderer] [PetOrchestrator] [playWakeFeedback] 醒来反馈 shocked（index=10）"
+    },
+    {
+      "label": "反馈之后回到默认表情",
+      "ok": true,
+      "detail": "index=0 name=neutral（睡前的基准是 neutral(0)）"
+    }
+  ]
+}

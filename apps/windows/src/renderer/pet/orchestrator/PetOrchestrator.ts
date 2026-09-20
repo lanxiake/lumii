@@ -19,11 +19,14 @@
 
 import type { PetRendererProvider, PetMotionPlayedInfo } from '../renderer/types'
 import type { PetModelConfig } from '../config/pet-model-types'
+import type { PetIdleStage } from '@mtbot/pet-core'
 import { PET_MOTION_GROUP_UNNAMED } from '../config/pet-model-types'
 import { PetBus } from './pet-bus'
 import { bindPetEventAdapter } from './pet-event-adapter'
 import { PetLipSync } from './PetLipSync'
 import { PetFakeLipSync } from './PetFakeLipSync'
+// pet-status-labels 对本模块只有 `import type`，所以这条反向依赖不会形成运行时环
+import { resolveEmotionKeyByIndex } from '../utils/pet-status-labels'
 
 const log = {
   info: (...args: unknown[]) => console.log('[PetOrchestrator]', ...args),
@@ -32,8 +35,34 @@ const log = {
 /** 待机随机动作的间隔范围（ms）：8~15s 随机，避免机械轮播 */
 const IDLE_MOTION_MIN_MS = 8000
 const IDLE_MOTION_MAX_MS = 15000
+/**
+ * 打盹时随机动作间隔的倍数：8~15s → 24~45s。
+ *
+ * 打盹要的是「明显变少」而不是「换个节奏」，所以是乘法不是平移；
+ * 睡着则是**完全停掉**（见 canScheduleRandomIdle），不是把间隔再拉长。
+ */
+const IDLE_MOTION_DROWSY_FACTOR = 3
 /** 对话结束后恢复随机待机动作的冷却时间（ms） */
 const POST_DIALOGUE_IDLE_DELAY_MS = 10_000
+/** 醒来反馈表情的停留时间（ms）：太短看不见，太长会盖住紧接着的对话表情 */
+const WAKE_FEEDBACK_MS = 1200
+
+/**
+ * 打盹 / 睡着 / 醒来各自往 `emotionMap` 里找的表情名，**按序探测**，第一个命中的生效。
+ *
+ * 为什么要一串候选：模型之间的表情集差别很大（见计划 §七），没有一个名字是通用的。
+ * - 打盹：demo 两兄弟是 `sleepy`（`eye_sleepy`）；`tired` 排最后是因为它在 demo 里
+ *   指的是「无语/冷漠」（index 7 = `eye_half`），只有当模型没有更明确的「困」脸时才用它。
+ * - 睡着：`闭眼` 排在 `calm` 前面——万一某个模型里 `calm` 指的是「平静」而不是「闭眼」，
+ *   中文名不会歧义。
+ * - 醒来：`shocked` 是「被吵醒」最贴切的一张；退而求其次用任何表示精神一振的表情。
+ *
+ * 全都没有时**脸上不演，只停动作**（与 P1-c/P2-a「不凭空造动作组」同一条原则）——
+ * 那不是缺陷，是那类模型确实没有这张脸。
+ */
+const DROWSY_EMOTIONS = ['sleepy', '困', '打瞌睡', 'drowsy', 'tired']
+const ASLEEP_EMOTIONS = ['闭眼', '睡着', 'sleep', 'calm']
+const WAKE_EMOTIONS = ['shocked', '惊讶', 'surprise', 'surprised', 'joy', '开心']
 
 /** 动作展示类型（UI 层转中文） */
 export type PetMotionKind = 'none' | 'idle' | 'idle-random' | 'talk' | 'cooldown'
@@ -64,6 +93,8 @@ export interface PetAvatarStatus {
   idleMotionEnabled: boolean
   /** 对话结束后冷却中（尚未恢复随机待机） */
   postDialogueCooldown?: boolean
+  /** 用户闲置阶段（打盹/睡着）；控制坞据此显示「它睡着了」而不是让人以为卡死 */
+  idleStage?: PetIdleStage
 }
 
 export class PetOrchestrator {
@@ -88,6 +119,18 @@ export class PetOrchestrator {
 
   /** 物理交互（抓取/投掷）进行中：暂停待机调度，见 setPicked */
   private interactionActive = false
+  /** 用户闲置阶段（P2-c）。**与环境有关，与对话生命周期正交**，故不进 petStateMachine */
+  private idleStage: PetIdleStage = 'awake'
+  /**
+   * 打盹/睡着时**我们自己贴上去**的表情索引。
+   *
+   * 醒来时只回退「自己贴的那张脸」：别处的表情（`autonomous:mood:emotion`、
+   * AI 的 [emotion] 标签）不受我们管辖，醒一次就把它们抹掉是越权。
+   * null = 当前脸上没有我们的东西。
+   */
+  private idleFaceIndex: number | null = null
+  /** 醒来反馈表情的回收定时器（见 playWakeFeedback） */
+  private wakeTimer: ReturnType<typeof setTimeout> | null = null
   /** 对话已结束但 TTS/口型仍在播放，待结束后进入冷却 */
   private dialogueEndPendingCooldown = false
   /** 对话结束冷却中（10s 内不播随机待机） */
@@ -117,6 +160,7 @@ export class PetOrchestrator {
     phase: 'idle',
     motionKind: 'none',
     idleMotionEnabled: true,
+    idleStage: 'awake',
   }
 
   constructor(private readonly renderer: PetRendererProvider) {
@@ -243,6 +287,8 @@ export class PetOrchestrator {
       this.enableIdleMotion &&
       // 被抓着/在飞的时候不调度：待机动作会把模型拽回待机姿态，与物理状态打架
       !this.interactionActive &&
+      // 睡着时不调度：呼吸（程序化原语）继续跑，停的是随机动作
+      this.idleStage !== 'asleep' &&
       !this.dialogueActive &&
       !this.inPostDialogueCooldown &&
       !this.speaking &&
@@ -863,6 +909,9 @@ export class PetOrchestrator {
       return
     }
     this.idling = true
+    // 对话结束时兜底把闲置阶段的表情落回来：对话开始时我们故意没动脸（见 applyIdleStage），
+    // 若这期间用户一直没回来（宠物仍睡着），现在轮到我们演了。
+    if (this.idleStage !== 'awake' && this.canShowIdleFace()) this.applyIdleFace()
     const group = this.resolveIdleMotionGroup()
     const count = this.renderer.getMotionCount(group)
     const canRandom = this.canScheduleRandomIdle()
@@ -948,20 +997,166 @@ export class PetOrchestrator {
   private exitIdle(): void {
     this.idling = false
     this.clearIdleMotionTimer()
+    // 对话要开始了：取消醒来反馈的回收定时器，别让 1.2s 后的一刀盖住 AI 刚设的表情。
+    // exitIdle 的三个调用方（setDialogueActive(true) / startTextReply / startSpeaking）
+    // 恰好都是「对话开始」，放在这里比在每处各写一遍可靠。
+    this.clearWakeFeedback()
   }
 
-  /** 安排下一次随机待机动作（8~15s 随机间隔） */
+  /** 安排下一次随机待机动作（醒着 8~15s，打盹 ×3） */
   private scheduleNextIdleMotion(): void {
     if (!this.canScheduleRandomIdle()) return
     this.clearIdleMotionTimer()
+    const factor = this.idleStage === 'drowsy' ? IDLE_MOTION_DROWSY_FACTOR : 1
     const delay =
-      IDLE_MOTION_MIN_MS + Math.random() * (IDLE_MOTION_MAX_MS - IDLE_MOTION_MIN_MS)
+      (IDLE_MOTION_MIN_MS + Math.random() * (IDLE_MOTION_MAX_MS - IDLE_MOTION_MIN_MS)) * factor
     this.idleTimer = setTimeout(() => {
       if (!this.idling || !this.canScheduleRandomIdle()) return
       log.info('[scheduleNextIdleMotion] 触发随机待机')
       this.playRandomIdleNow()
       this.scheduleNextIdleMotion()
     }, delay)
+  }
+
+  /**
+   * 用户闲置阶段变更（P2-c，由 PetModeShell 从主进程事件转来）。
+   *
+   * 「用户离开/回来」是**环境**状态，与 `petStateMachine` 那套**对话**生命周期
+   * （idle/listening/thinking/speaking）正交——硬塞进去会让两个维度互相干扰。
+   * 照抄 `setPicked` 的先例：只用一个标记影响待机调度与表情。
+   *
+   * 幂等：同一阶段重复到达直接返回（主进程已经只在变化时发，这里是第二道保险）。
+   */
+  setIdleStage(stage: PetIdleStage): void {
+    if (stage === this.idleStage) return
+    const prev = this.idleStage
+    this.idleStage = stage
+    log.info(`[setIdleStage] ${prev} → ${stage}`)
+    this.patchStatus({ idleStage: stage })
+    this.applyIdleStage(prev)
+  }
+
+  /**
+   * 把当前阶段落到「随机动作调度 + 表情」上。
+   *
+   * 对话期间**只登记状态、不动脸**：AI 正在演它自己的表情，睡眠/唤醒的表情会把它盖掉
+   * （真正要紧的那半件事——睡着时不播随机动作——由 `canScheduleRandomIdle` 的闸门保证，
+   * 而对话中那个闸门本来就是关的）。等对话结束走 `enterIdle` 时会重新落一次表情。
+   */
+  private applyIdleStage(prev: PetIdleStage): void {
+    const stage = this.idleStage
+
+    if (stage === 'awake') {
+      if (this.canShowIdleFace()) {
+        // 「被吵醒」只在**确实是我们把它哄睡的那张脸**上播。若这期间别处已经改过表情
+        // （mood 事件 / AI 的表情标签），那就没有「从睡到醒」这回事，不该横插一手。
+        if (prev === 'asleep' && this.ownsIdleFace()) this.playWakeFeedback()
+        else this.revertIdleFace()
+      }
+      // 睡着期间定时器是停的，醒来要重新起一轮；打盹改回正常间隔
+      if (this.idling && !this.speaking && !this.dialogueActive && !this.inPostDialogueCooldown) {
+        this.scheduleNextIdleMotion()
+      }
+      return
+    }
+
+    // 打盹：换成更长的间隔重排；睡着：直接停掉（canScheduleRandomIdle 也会拦住）
+    this.clearIdleMotionTimer()
+    if (stage === 'drowsy' && this.idling) this.scheduleNextIdleMotion()
+    if (this.canShowIdleFace()) this.applyIdleFace()
+  }
+
+  /** 此刻是否适合由闲置感知改表情（对话/说话/冷却中都不适合） */
+  private canShowIdleFace(): boolean {
+    return !this.dialogueActive && !this.speaking && !this.inPostDialogueCooldown
+  }
+
+  /** 按当前阶段贴睡眠表情；模型没有对应表情时脸上不演（只停动作） */
+  private applyIdleFace(): void {
+    const candidates = this.idleStage === 'asleep' ? ASLEEP_EMOTIONS : DROWSY_EMOTIONS
+    const hit = this.findEmotion(candidates)
+    if (!hit) {
+      log.info(
+        `[applyIdleFace] ${this.idleStage}：模型没有对应表情（找过 ${candidates.join('/')}），只停动作不动脸`,
+      )
+      return
+    }
+    this.idleFaceIndex = hit.index
+    this.setExpression(hit.index, hit.name)
+  }
+
+  /**
+   * 当前脸上是不是**我们自己贴的那张**睡眠表情。
+   *
+   * 与 `status.expressionIndex` 比而不是与渲染器比：编排器里所有改表情的路径都会
+   * `patchStatus({expressionIndex})`，status 就是「编排器认知里的当前表情」。
+   */
+  private ownsIdleFace(): boolean {
+    return this.idleFaceIndex !== null && this.status.expressionIndex === this.idleFaceIndex
+  }
+
+  /**
+   * 醒来：把**我们自己贴的那张脸**换回默认表情。
+   *
+   * 只认自己贴的那张：`autonomous:mood:emotion` 或 AI 的 [emotion] 标签留下的表情
+   * 不归闲置感知管，醒一次就把它们抹掉是越权。
+   */
+  private revertIdleFace(): void {
+    const ours = this.idleFaceIndex
+    this.idleFaceIndex = null
+    if (ours === null) return
+    if (this.status.expressionIndex !== ours) {
+      log.info(`[revertIdleFace] 当前表情 index=${this.status.expressionIndex} 不是我们贴的，保留`)
+      return
+    }
+    this.resetExpressionToDefault()
+  }
+
+  /**
+   * 从**睡着**醒来时给一次「被吵醒」的反馈（§3.5），随后回到默认表情。
+   *
+   * 只切表情、不播动作：模型规格里没有「醒来」这个约定动作组，
+   * 为一个功能凭空造一组正是 P1-c/P2-a 反复警告过的事（模型没声明的组播不出来）。
+   */
+  private playWakeFeedback(): void {
+    this.clearWakeFeedback()
+    const hit = this.findEmotion(WAKE_EMOTIONS)
+    if (!hit) {
+      this.revertIdleFace()
+      return
+    }
+    log.info(`[playWakeFeedback] 醒来反馈 ${hit.name}（index=${hit.index}）`)
+    this.idleFaceIndex = null
+    this.setExpression(hit.index, hit.name)
+    this.wakeTimer = setTimeout(() => {
+      this.wakeTimer = null
+      this.resetExpressionToDefault()
+    }, WAKE_FEEDBACK_MS)
+  }
+
+  /** 取消醒来反馈的回收定时器（对话开始时用：别让 1.2s 后的一刀盖住 AI 刚设的表情） */
+  private clearWakeFeedback(): void {
+    if (this.wakeTimer !== null) {
+      clearTimeout(this.wakeTimer)
+      this.wakeTimer = null
+    }
+  }
+
+  /** 回到模型声明的默认表情 */
+  private resetExpressionToDefault(): void {
+    const idx = this.modelConfig?.defaultExpression ?? 0
+    const key = resolveEmotionKeyByIndex(this.modelConfig?.emotionMap ?? {}, idx)
+    this.setExpression(idx, key)
+  }
+
+  /** 在 emotionMap 里按候选名顺序找第一个存在的表情（模型之间表情名差别很大，见计划 §七） */
+  private findEmotion(names: string[]): { name: string; index: number } | null {
+    const map = this.modelConfig?.emotionMap ?? {}
+    for (const name of names) {
+      const index = map[name]
+      if (typeof index === 'number') return { name, index }
+    }
+    return null
   }
 
   /** 可观测：当前口型延迟 */

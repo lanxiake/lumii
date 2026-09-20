@@ -56,4 +56,19 @@ describe('pet-status-labels', () => {
     expect(line).toContain('表情: 开心')
     expect(line).toContain('动作: 随机扩展动作')
   })
+
+  it('闲置阶段要说出来：「它睡着了」和「它卡死了」在屏幕上长得一样', () => {
+    const base = {
+      statusSeq: 1,
+      phase: 'idle' as const,
+      expressionKey: 'calm',
+      motionKind: 'idle' as const,
+      idleMotionEnabled: true,
+    }
+    expect(formatAvatarStatusLine({ ...base, idleStage: 'asleep' })).toContain('睡着')
+    expect(formatAvatarStatusLine({ ...base, idleStage: 'drowsy' })).toContain('打盹中')
+    // 醒着是常态，不占字数
+    expect(formatAvatarStatusLine({ ...base, idleStage: 'awake' })).not.toContain('打盹')
+    expect(formatAvatarStatusLine({ ...base, idleStage: 'awake' })).not.toContain('睡着')
+  })
 })

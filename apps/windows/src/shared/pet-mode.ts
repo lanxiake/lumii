@@ -9,6 +9,7 @@
  * 用户可见产品名为「宠物模式」；技术命名空间保留 pet:* 以兼容现有实现。
  */
 
+import type { PetIdleStage } from '@mtbot/pet-core'
 import type { VirtualHumanSettingsDTO } from './virtual-human'
 
 export type { VirtualHumanSettingsDTO } from './virtual-human'
@@ -71,6 +72,14 @@ export const PET_IPC = {
   rendererReady: 'pet:renderer-ready',
   /** invoke：获取当前模型 ID */
   getCurrentModelId: 'pet:get-current-model-id',
+  /**
+   * invoke：获取当前闲置阶段。
+   *
+   * 渲染层挂载时要主动问一次：进宠物模式时主进程那条初始阶段是在页面加载完之前
+   * 发出的（`webContents.send` 直接丢掉），用户那一刻已经闲置很久的话，
+   * 宠物会一直醒着——因为主进程只在**阶段变化**时才推。
+   */
+  getIdleStage: 'pet:get-idle-stage',
   /** invoke：设置当前模型 ID */
   setCurrentModelId: 'pet:set-current-model-id',
   /** invoke：获取模型列表（含规范化 URL） */
@@ -108,6 +117,11 @@ export const PET_IPC = {
    * 约 30Hz，且**位置没变时不发**——用户不动鼠标时不该有任何流量。
    */
   evtCursor: 'pet:cursor',
+  /**
+   * event(main→renderer)：用户闲置阶段（打盹/睡着/醒着）。
+   * 1Hz 轮询系统闲置，但**阶段没变时不发**——一天也就几条。
+   */
+  evtIdle: 'pet:idle',
 } as const
 
 /** 切换模式的结果 */
@@ -156,6 +170,17 @@ export interface PetCursorEvent {
   readonly type: 'pet:cursor'
   x: number
   y: number
+}
+
+/**
+ * 主进程 → 渲染进程：用户闲置阶段（P2-c）。
+ *
+ * 只推**阶段**不推秒数：秒数每秒都在变，推它等于每秒一条 IPC。
+ * 换算在 pet-core 的 `idleStage` 纯函数里，主进程只在阶段变化时发。
+ */
+export interface PetIdleEvent {
+  readonly type: 'pet:idle'
+  stage: PetIdleStage
 }
 
 /** 主进程 → 渲染进程：模型热切换（窗口不变，仅 Live2D 重载，B-3） */
@@ -214,6 +239,8 @@ export interface PetElectronAPI {
   notifyRendererReady(targetMode: AppMode): Promise<void>
   /** 获取当前模型 ID */
   getCurrentModelId(): Promise<string>
+  /** 获取当前闲置阶段（挂载时问一次；没在轮询时返回 awake） */
+  getIdleStage(): Promise<PetIdleStage>
   /** 设置当前模型 ID */
   setCurrentModelId(modelId: string): Promise<void>
   /** 获取模型列表（主进程规范化后的配置，含可加载 URL） */
@@ -248,6 +275,8 @@ export interface PetElectronAPI {
   onVhSettingsChanged(callback: (event: PetVhSettingsChangedEvent) => void): () => void
   /** 订阅全局光标位置（注视用）。主进程只在宠物模式且设置开启时推送 */
   onCursor(callback: (event: PetCursorEvent) => void): () => void
+  /** 订阅用户闲置阶段（打盹/睡着）。主进程只在宠物模式且设置开启时推送 */
+  onIdle(callback: (event: PetIdleEvent) => void): () => void
 }
 
 /** 宠物模式默认模型 ID（MVP 阶段硬编码，Phase 1 接 registry 后替换为动态默认值） */

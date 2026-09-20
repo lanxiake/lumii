@@ -20,9 +20,11 @@ import { PetCanvas, type PetCanvasHandle, type PetCanvasDegradeReason, setTapMod
 import { PetControlDock } from './components/PetControlDock'
 import { PetOrchestrator, type PetAvatarStatus } from './orchestrator/PetOrchestrator'
 import { PetEmotionMapper } from './orchestrator/PetEmotionMapper'
+import type { PetIdleStage } from '@mtbot/pet-core'
 import { useVoiceCall } from '../hooks/business/useVoiceCall/useVoiceCall'
 import { useAgentRuntimeActions } from '../hooks/business/useAgentRuntime/useAgentRuntime'
 import type { PetModelConfig } from './config/pet-model-types'
+import type { PetRendererProvider } from './renderer/types'
 import { petMetrics } from './telemetry/pet-metrics'
 import { PetDebugOverlay } from './components/PetDebugOverlay'
 import { resolvePetSessionKey } from './utils/resolve-pet-session'
@@ -66,6 +68,8 @@ export const PetModeShell: React.FC = () => {
   const { currentMode, currentModelId, exitPetMode } = usePetMode()
   const canvasRef = useRef<PetCanvasHandle>(null)
   const orchestratorRef = useRef<PetOrchestrator | null>(null)
+  /** 编排器当前绑定的渲染器实例（跨后端换模型时会换实例，见 handleModelLoaded） */
+  const orchestratorRendererRef = useRef<PetRendererProvider | null>(null)
   const emotionMapperRef = useRef<PetEmotionMapper | null>(null)
   const modelConfigRef = useRef<PetModelConfig | null>(null)
   const sessionKeyRef = useRef<string>('')
@@ -78,6 +82,14 @@ export const PetModeShell: React.FC = () => {
   const enableVoiceReplyRef = useRef<boolean>(DEFAULT_VH_SETTINGS.enableVoiceReply)
   const enableIdleMotionRef = useRef<boolean>(DEFAULT_VH_SETTINGS.enableIdleMotion)
   const enableTapInteractionRef = useRef<boolean>(DEFAULT_VH_SETTINGS.enableTapInteraction)
+  /**
+   * 最近一次收到的闲置阶段。
+   *
+   * 编排器要等模型加载完才建，而主进程**只在阶段变化时**推事件：不在这里存一份，
+   * 「首推就是 asleep」（CLI/智能体在用户不在时拉起宠物模式）那次会丢，
+   * 宠物会一直醒着直到下一次阶段变化——而下次变化要等到用户回来，即永远不睡。
+   */
+  const idleStageRef = useRef<PetIdleStage>('awake')
   const [degrade, setDegrade] = useState<PetCanvasDegradeReason | null>(null)
   const [modelLoaded, setModelLoaded] = useState(false)
   const [muted, setMuted] = useState(false)
@@ -203,14 +215,32 @@ export const PetModeShell: React.FC = () => {
     const renderer = canvasRef.current?.getRenderer()
     if (!renderer) return
 
-    if (orchestratorRef.current) {
+    /**
+     * **渲染器换了实例就必须重建编排器。**
+     *
+     * 编排器把渲染器存在构造函数里（`private readonly renderer`）。同后端换模型时
+     * 实例不变（canvas 的 key 没变，初始化 effect 不重跑），复用即可；
+     * 但**跨后端**（sprite ↔ live2d）会销毁旧实例、建新的，此时留着旧编排器
+     * 等于让它此后所有 `setExpression` / `getMotionCount` 全打在已销毁的对象上——
+     * 症状是「画面在动，但表情与随机动作全没了」，且**一声不响**（死渲染器上的调用
+     * 大多静默 return）。
+     *
+     * 实测抓到：`demo_pixel_cat`（sprite）切到 `mao_pro`（live2d）后，
+     * 日志里只剩编排器那句 `[setExpression] orchestrator → renderer index=9 name=tired`，
+     * 渲染器那侧一行都没有，`playRandomIdleNow` 也再没出现过。
+     */
+    const sameRenderer = orchestratorRendererRef.current === renderer
+    if (orchestratorRef.current && sameRenderer) {
       orchestratorRef.current.setModelConfig(config)
     } else {
+      orchestratorRef.current?.dispose()
+      orchestratorRef.current = null
       const created = new PetOrchestrator(renderer)
       created.setModelConfig(config)
       created.start()
       orchestratorRef.current = created
-      log.info('PetOrchestrator 已启动')
+      orchestratorRendererRef.current = renderer
+      log.info(sameRenderer ? 'PetOrchestrator 已启动' : 'PetOrchestrator 已重建（渲染器换了实例）')
     }
 
     const orch = orchestratorRef.current
@@ -219,6 +249,8 @@ export const PetModeShell: React.FC = () => {
     // 每次模型加载都重绑状态监听与表情回调（热切换路径也需刷新 UI）
     orch.setStatusListener((status) => setAvatarStatus({ ...status }))
     orch.setEnableIdleMotion(enableIdleMotionRef.current)
+    // 补上订阅期间可能已经到达的闲置阶段（setIdleStage 幂等，同阶段重复调用是空操作）
+    orch.setIdleStage(idleStageRef.current)
 
     const emotionMap = config.emotionMap ?? {}
     // 表情与动作走同一朗读进度对齐（按 atChar 排队，读到位置再切/再做）
@@ -257,6 +289,7 @@ export const PetModeShell: React.FC = () => {
     return () => {
       orchestratorRef.current?.dispose()
       orchestratorRef.current = null
+      orchestratorRendererRef.current = null
     }
   }, [])
 
@@ -314,6 +347,35 @@ export const PetModeShell: React.FC = () => {
       }
     })
     return () => unsub?.()
+  }, [])
+
+  // 闲置感知（P2-c）：主进程推来「用户离开多久」的阶段 → 交给编排器
+  //
+  // 订阅点在这里而不是 PetCanvas：编排器归本组件持有（PetCanvas 只管渲染，
+  // 它拿不到编排器）。P2-b 的注视订阅在 PetCanvas 是因为那件事要渲染器的屏幕包围盒。
+  useEffect(() => {
+    if (!window.electronAPI?.pet?.onIdle) {
+      log.warn('[idle] preload 未暴露 onIdle —— 闲置感知链路在第二段就断了')
+      return
+    }
+    const apply = (stage: PetIdleStage, from: string): void => {
+      log.info(`[idle] ${from}：${stage}`)
+      // 存一份：编排器要等模型加载完才建，而主进程**只在阶段变化时**推——
+      // 首推恰好是 asleep（CLI 拉起宠物模式）时若丢掉，宠物就再也睡不着了。
+      idleStageRef.current = stage
+      orchestratorRef.current?.setIdleStage(stage)
+    }
+    // 挂载时补问一次：进宠物模式时主进程那条初始阶段是在本页面加载完**之前**发出的，
+    // `webContents.send` 会直接丢弃。那一刻用户已经闲置很久的话（宠物模式由 CLI/智能体
+    // 拉起，全程没有输入），只靠订阅就会永远停在醒着。
+    void window.electronAPI.pet
+      .getIdleStage?.()
+      .then((stage) => {
+        if (stage) apply(stage, '挂载时查询到闲置阶段')
+      })
+      .catch(() => {})
+    log.info('[idle] 已订阅闲置阶段事件，等待主进程推送')
+    return window.electronAPI.pet.onIdle((event) => apply(event.stage, '收到闲置阶段推送'))
   }, [])
 
   // 拉取可切换模型列表（控制坞下拉）

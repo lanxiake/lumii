@@ -13,6 +13,7 @@ import {
   type PetElectronAPI,
   type PetForceIgnoreChangedEvent,
   type PetHoverUpdate,
+  type PetIdleEvent,
   type PetModeChangedEvent,
   type PetModelChangedEvent,
   type PetModePrepareEvent,
@@ -58,6 +59,8 @@ export const petApi: PetElectronAPI = {
 
   getCurrentModelId: (): Promise<string> =>
     ipcRenderer.invoke(PET_IPC.getCurrentModelId),
+
+  getIdleStage: () => ipcRenderer.invoke(PET_IPC.getIdleStage),
 
   setCurrentModelId: (modelId: string): Promise<void> =>
     ipcRenderer.invoke(PET_IPC.setCurrentModelId, modelId),
@@ -108,4 +111,7 @@ export const petApi: PetElectronAPI = {
 
   onCursor: (callback: (event: PetCursorEvent) => void): (() => void) =>
     createPetEventListener<PetCursorEvent>(PET_IPC.evtCursor, callback),
+
+  onIdle: (callback: (event: PetIdleEvent) => void): (() => void) =>
+    createPetEventListener<PetIdleEvent>(PET_IPC.evtIdle, callback),
 }
