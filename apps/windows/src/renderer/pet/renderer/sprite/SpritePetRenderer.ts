@@ -25,6 +25,7 @@ import {
   adaptiveScale,
   BlinkScheduler,
   evaluateProcedural,
+  gazeOffset,
   findAnimation,
   hitTestPolygons,
   mouthLevelIndex,
@@ -37,6 +38,7 @@ import {
   type ResolvedAnimation,
   type SlotState,
   type SlotOverride,
+  type GazeOutput,
   type SpriteManifest,
   type SpriteRuntimeModel,
 } from '@mtbot/pet-core'
@@ -47,6 +49,7 @@ import type {
   PetRendererProvider,
 } from '../types'
 import type { PetModelConfig } from '../../config/pet-model-types'
+import { poseRotationRadians } from '../pose-units'
 
 const log = {
   info: (...args: unknown[]) => console.log('[SpritePetRenderer]', ...args),
@@ -74,6 +77,15 @@ const MOUTH_NAMES = ['mouth', 'mouths']
  * 演变成占满整屏。
  */
 export const SPRITE_MAX_HEIGHT_RATIO = 0.35
+
+/**
+ * 眼睛相对身体的注视增益。
+ *
+ * 眼睛挪一点点就足以表达方向（那是看向哪的主要线索），身体跟着挪同样多反而
+ * 会显得像在摔。1.5 倍：像素猫 48px 画布上眼睛最多平移约 3.4px，肉眼清楚可见，
+ * 又不至于让眼睛脱离脸的轮廓。
+ */
+const EYE_GAZE_GAIN = 1.5
 
 /** 正在播放的动画状态 */
 interface PlayingState {
@@ -473,20 +485,37 @@ export class SpritePetRenderer implements PetRendererProvider {
     sprite.visible = has
   }
 
-  /** 程序化原语：每 tick 按当前动画的 params 求值 */
+  /**
+   * 注视：光标相对位置的**归一化**值（除以宠物可视高度）。
+   *
+   * 只存不立刻应用——真正的作用点在 `applyProcedural` 里与程序化原语叠加。
+   * 注视是**朝向**（位置驱动），呼吸/浮动是**振荡**（时间驱动），两者性质不同，
+   * 不能混进同一套参数；这里是它们的交汇点。
+   */
+  private gazeX = 0
+  private gazeY = 0
+  /** 首条注视输入是否已记录（诊断用，只报一次） */
+  private gazeLogged = false
+
+  setGaze(dx: number, dy: number): void {
+    this.gazeX = dx
+    this.gazeY = dy
+    // 首次收到才报一行：注视链路一旦断了（主进程没推、订阅没生效、后端没实现），
+    // 表现是完全没反应而不是报错，光看代码查不出来。之后静默，不刷屏。
+    if (!this.gazeLogged) {
+      this.gazeLogged = true
+      const shown = `(${dx.toFixed(3)}, ${dy.toFixed(3)})`
+      log.info(`[setGaze] 收到首个注视输入 ${shown}，眼睛增益 ${EYE_GAZE_GAIN}`)
+    }
+  }
+
+  /** 程序化原语 + 注视：每 tick 求值一次 */
   private applyProcedural(): void {
     const root = this.root
     const p = this.playing
     if (!root) return
 
     const params = p?.anim.params
-    if (!params) {
-      root.position.set(this.posX, this.posY)
-      root.rotation = 0
-      root.scale.set(this.effectiveScale())
-      return
-    }
-
     // 用 pet-core 的 `evaluateProcedural` 合成，**不要在渲染器里手写一遍**。
     //
     // 手写过一次并踩了坑：四个原语的签名都是 `(量, tSec, periodSec?)`，量在前时间在后。
@@ -494,13 +523,51 @@ export class SpritePetRenderer implements PetRendererProvider {
     // 表现为宠物一边动一边持续变大；bob 则恰好因 sin(2π·整数)=0 而静默失效。
     // 现成的合成函数已经被单测钉住了签名，绕开它等于把防线拆掉。
     const t = performance.now() / 1000
-    const transform = evaluateProcedural(params, t, this.blinkScheduler ?? undefined)
+    const transform = params
+      ? evaluateProcedural(params, t, this.blinkScheduler ?? undefined)
+      : { offsetY: 0, rotation: 0, scale: 1, blinkClosed: false }
 
-    root.position.set(this.posX, this.posY + transform.offsetY)
-    root.rotation = transform.rotation
+    // 注视换算：以「宠物高度 = 1」为单位算，再乘回画布高度——大小不同的模型表现一致
+    const petHeight = this.runtime?.manifest.canvas.h ?? 0
+    const gaze = gazeOffset({ dx: this.gazeX, dy: this.gazeY, petHeight: 1 })
+
+    root.position.set(
+      this.posX + gaze.shiftX * petHeight,
+      this.posY + transform.offsetY + gaze.shiftY * petHeight,
+    )
+    // 两个分量都是**度**（procedural-motion 与 gazeOffset 的约定），而 PIXI 的
+    // `rotation` 是**弧度**——换算收在 `poseRotationRadians` 里，别在这里手写乘法。
+    //
+    // 这个换算曾经漏掉，长期没暴露：所有模型都没声明 sway/nod，`transform.rotation`
+    // 恒为 0。加入注视后才第一次有非零值进来，症状是**宠物朝光标的反方向歪**。
+    root.rotation = poseRotationRadians(transform.rotation, gaze.tiltDeg)
     root.scale.set(this.effectiveScale() * transform.scale)
 
+    this.applyEyeGaze(gaze, petHeight)
     this.applyBlink(transform.blinkClosed)
+  }
+
+  /**
+   * 眼睛单独偏移。
+   *
+   * **只让身体倾斜不等于「注视」**——眼睛才是"看向哪"的主要线索。整体倾斜 6° 时
+   * 眼睛只跟着挪几像素，观感是"身体歪了"而不是"它在看我"。
+   *
+   * 做法是把承载表情的那个 sprite 整体平移几像素（双眼一起动，正是"视线转向"）。
+   * 增益比身体大：眼睛挪一点点就足以表达方向，身体跟着挪同样多反而会显得在摔。
+   */
+  private applyEyeGaze(gaze: GazeOutput, petHeight: number): void {
+    const b = this.expressionBinding
+    if (!b) return
+    const sprite = this.layeredSprites[b.slot]?.[b.cat]
+    if (!sprite) return
+    const at = this.runtime?.manifest.slots?.[b.slot]?.at
+    const baseX = at?.[0] ?? 0
+    const baseY = at?.[1] ?? 0
+    sprite.position.set(
+      baseX + gaze.shiftX * petHeight * EYE_GAZE_GAIN,
+      baseY + gaze.shiftY * petHeight * EYE_GAZE_GAIN,
+    )
   }
 
   /**
@@ -753,6 +820,7 @@ export class SpritePetRenderer implements PetRendererProvider {
       this.app.destroy(false, { children: true, texture: true, baseTexture: true })
       this.app = null
     }
+    log.info('[destroy] 渲染器已销毁')
   }
 }
 

@@ -90,8 +90,22 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
     /** 模型配置：**必须先于渲染器拿到**，因为后端类型由它决定 */
     const [config, setConfig] = useState<PetModelConfig | null>(null)
     const [ready, setReady] = useState(false)
-    /** 渲染器（PIXI app）是否已初始化，模型加载 effect 据此等待 */
-    const [rendererReady, setRendererReady] = useState(false)
+    /**
+     * 渲染器实例 + 它服务的后端（state 里放一份，供 effect 依赖）。
+     *
+     * **不能只留 ref + 一个 `rendererReady` 布尔**：两者会不一致，实测切后端
+     * （live2d→sprite）时出现过 `rendererReady=true` 而 ref 仍为 null 的一帧，模型加载
+     * effect 于是提前 return——而它依赖的这两个值此后都不再变化，**永不再试**，
+     * 宠物永久空白（「切到精灵图是空白的」那个故障）。
+     *
+     * 带上 `backend` 是给下游 effect 判断"这个实例是不是当前配置该用的那个"：
+     * 切后端时 state 比 ref 慢一拍，那一帧里读到的还是**刚被销毁**的旧实例
+     * （症状：换后端时 `loadModel` 打在旧渲染器上，报「渲染器未初始化」并弹降级提示）。
+     */
+    const [renderer, setRenderer] = useState<{
+      instance: PetRendererProvider
+      backend: 'live2d' | 'sprite'
+    } | null>(null)
     /**
      * 后端类型。**配置未到位前是 null，不能默认成 'live2d'**：
      * 初始化 effect 只依赖它，若默认成 'live2d'，那么「首个模型就是 live2d」时
@@ -153,13 +167,19 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
     // 保留旧配置直到新配置到达；只有后端类型**真的变了**才该换 canvas。
     useEffect(() => {
       let cancelled = false
+      log.info(`[config] 开始取模型配置 modelId=${modelId ?? 'null'}`)
       void (async () => {
         const cfg = await getPetModelConfig(modelId ?? '')
-        if (cancelled) return
+        if (cancelled) {
+          log.info(`[config] 取到 ${cfg?.id ?? 'null'}，但已弃用（modelId 又变了）`)
+          return
+        }
         if (!cfg) {
+          log.warn(`[config] 未找到模型配置 modelId=${modelId ?? 'null'}`)
           onDegradeRef.current?.({ kind: 'model-load-failed', message: '未找到模型配置（注册表为空？）' })
           return
         }
+        log.info(`[config] 配置就位 ${cfg.id}（rendererType=${cfg.rendererType}）`)
         setConfig(cfg)
       })()
       return () => {
@@ -177,9 +197,11 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
     // 只走下面的"重载模型"分支。
     useEffect(() => {
       if (!rendererType) return
+      const backend = rendererType
       let disposed = false
       const canvas = canvasRef.current
       if (!canvas) return
+      log.info(`[setup] 开始初始化渲染器（${backend}）`)
 
       const setup = async () => {
         const webgl = checkWebGLSupport()
@@ -203,29 +225,31 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
           if (disposed) return
         }
 
-        const renderer =
+        const instance =
           rendererType === 'sprite' ? new SpritePetRenderer() : new Live2dPetRenderer()
-        await renderer.init({
+        await instance.init({
           canvas,
           width: window.innerWidth,
           height: window.innerHeight,
         })
         if (disposed) {
-          renderer.destroy()
+          log.warn(`[setup] 初始化完成时已被弃用，销毁丢弃（${backend}）`)
+          instance.destroy()
           return
         }
-        rendererRef.current = renderer
-        setRendererReady(true)
-        log.info(`[setup] 渲染器初始化完成（${rendererType}）`)
+        rendererRef.current = instance
+        setRenderer({ instance, backend })
+        log.info(`[setup] 渲染器初始化完成（${backend}）`)
       }
 
       void setup()
 
       return () => {
         disposed = true
+        log.info(`[setup] 清理渲染器（${backend}）`)
         rendererRef.current?.destroy()
         rendererRef.current = null
-        setRendererReady(false)
+        setRenderer(null)
         setReady(false)
       }
     }, [rendererType])
@@ -233,15 +257,23 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
     // 3) 模型加载 / 热切换：渲染器就绪后加载配置里的模型（**不碰 WebGL context**）。
     // loadModel 内部已含"卸载旧模型 + 加载新模型"，故切换/切回都安全。
     useEffect(() => {
-      if (!rendererReady || !config) return
-      const renderer = rendererRef.current
-      if (!renderer) return
+      // 两道守卫，缺一不可——切后端那一帧里 state 与 ref 是错位的：
+      //   · 后端不匹配：config 已换成 live2d，而 state 里还挂着旧的 sprite 实例
+      //   · 不是当前实例：cleanup 已把 ref 置空，state 要等下一次渲染才跟上
+      // 少任何一道，loadModel 就会打在**刚被销毁**的渲染器上，报「渲染器未初始化」并弹降级提示。
+      const backendMismatch = !!renderer && !!config && renderer.backend !== config.rendererType
+      const notCurrent = !!renderer && rendererRef.current !== renderer.instance
+      log.info(
+        `[loadModel] 模型加载 effect 触发：config=${config?.id ?? 'null'} renderer=${renderer?.backend ?? 'null'}` +
+          (notCurrent ? '（实例已弃用，跳过）' : backendMismatch ? '（后端不匹配，跳过）' : ''),
+      )
+      if (!renderer || !config || backendMismatch || notCurrent) return
       let cancelled = false
 
       const loadModel = async () => {
         try {
           const loadStart = performance.now()
-          await renderer.loadModel(config)
+          await renderer.instance.loadModel(config)
           petMetrics.recordModelLoad(performance.now() - loadStart)
           if (cancelled) return
           setTapModelConfig(config)
@@ -264,7 +296,7 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
       return () => {
         cancelled = true
       }
-    }, [rendererReady, config])
+    }, [renderer, config])
 
     // 视口尺寸变化
     useEffect(() => {
@@ -274,6 +306,45 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
       window.addEventListener('resize', onResize)
       return () => window.removeEventListener('resize', onResize)
     }, [])
+
+    // 注视：主进程推来全局光标位置 → 归一化 → 交给渲染器
+    //
+    // 归一化的除数取**模型在屏幕上的高度**（getModelScreenBounds），不是画布高度——
+    // 画布是全屏，用它当分母会让"离宠物多远算远"随窗口大小漂移。
+    // 归一化在这里做而不是各后端各做一遍：那样"大小不同的模型表现一致"这条性质
+    // 就得在每个后端里重复保证。
+    useEffect(() => {
+      const instance = renderer?.instance
+      log.info(`[gaze] 订阅 effect 触发：ready=${ready} renderer=${renderer?.backend ?? 'null'}`)
+      if (!ready || !instance?.setGaze) return
+      // 同 loadModel：只认"当前那个实例"。订到已销毁的实例上不会报错，
+      // 只会**永远不动**——正是最难查的那种失败。
+      if (rendererRef.current !== instance) {
+        log.info('[gaze] 实例已弃用，不订阅（等新实例到位会再来一次）')
+        return
+      }
+      if (!window.electronAPI?.pet?.onCursor) {
+        log.warn("[gaze] preload 未暴露 onCursor —— 注视链路在第二段就断了")
+        return
+      }
+      log.info("[gaze] 已订阅光标事件，等待主进程推送")
+      let first = true
+      const off = window.electronAPI.pet.onCursor((event) => {
+        if (first) {
+          first = false
+          log.info(`[gaze] 收到首条光标事件 (${event.x.toFixed(0)}, ${event.y.toFixed(0)})`)
+        }
+        const bounds = instance.getModelScreenBounds?.()
+        const height = bounds?.height ?? 0
+        if (height <= 0) return
+        const pos = instance.getPosition()
+        instance.setGaze?.((event.x - pos.x) / height, (event.y - pos.y) / height)
+      })
+      return () => {
+        log.info("[gaze] 已取消订阅光标事件")
+        off?.()
+      }
+    }, [ready, renderer])
 
     // 性能：失焦降帧（~15 FPS），聚焦恢复（60 FPS）
     useEffect(() => {

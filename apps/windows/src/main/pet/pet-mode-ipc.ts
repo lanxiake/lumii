@@ -12,11 +12,13 @@ import { ipcMain, globalShortcut } from 'electron'
 import {
   type AppMode,
   type PetClickRegion,
+  type PetCursorEvent,
   type PetHoverUpdate,
   type PetModeSwitchResult,
   PET_IPC,
 } from '../../shared/pet-mode'
 import { PetWindowManager, type PetWindowManagerDeps } from './pet-window-manager'
+import { startCursorTracking, stopCursorTracking } from './pet-cursor-tracker'
 import {
   getStoredModelId,
   getVirtualHumanSettings,
@@ -81,6 +83,15 @@ export async function switchPetMode(
 
   const from = petWindowManager.getMode()
   if (from === mode) {
+    // 已经在目标模式里，但**顺手换个模型**要放行：否则「宠物模式下切换模型」会静默
+    // 什么都不做（只有 durationMs: 0，零日志），CLI / 智能体调过来会以为成功了。
+    if (mode === 'pet' && modelId && modelId !== petWindowManager.getCurrentModelId()) {
+      const startedAt = Date.now()
+      petWindowManager.setCurrentModelId(modelId, true)
+      const durationMs = Date.now() - startedAt
+      log.info(`model:switch ${modelId} durationMs=${durationMs}（已在宠物模式，只换模型）`)
+      return { success: true, mode, durationMs }
+    }
     return { success: true, mode, durationMs: 0 }
   }
 
@@ -88,8 +99,11 @@ export async function switchPetMode(
   try {
     if (mode === 'pet') {
       await petWindowManager.enterPetMode(modelId)
+      startCursorTrackingIfNeeded()
     } else {
       await petWindowManager.exitPetMode()
+      // 退出就停：注视只在宠物模式里有意义，别让轮询在桌面模式下白跑
+      stopCursorTracking()
     }
     const durationMs = Date.now() - startedAt
     log.info(`mode:switch ${from}→${mode} durationMs=${durationMs}`)
@@ -100,6 +114,29 @@ export async function switchPetMode(
     log.error(`mode:switch ${from}→${mode} 失败: ${message}`)
     return { success: false, mode: from, error: message, durationMs }
   }
+}
+
+/**
+ * 启动光标轮询（注视）。
+ *
+ * `isEnabled` 每轮现读设置——开关改了不必重启轮询；关掉时定时器仍留着，
+ * 只是不发消息（用户随时可能开回来，而反复建销定时器没有收益）。
+ */
+function startCursorTrackingIfNeeded(): void {
+  startCursorTracking({
+    isEnabled: () => getVirtualHumanSettings().enableGazeTracking,
+    getWindowBounds: () => {
+      const win = petWindowManager?.getPetBrowserWindow()
+      if (!win || win.isDestroyed()) return null
+      return win.getBounds()
+    },
+    send: (x, y) => {
+      const win = petWindowManager?.getPetBrowserWindow()
+      if (!win || win.isDestroyed()) return
+      const evt: PetCursorEvent = { type: 'pet:cursor', x, y }
+      win.webContents.send(PET_IPC.evtCursor, evt)
+    },
+  })
 }
 
 /**

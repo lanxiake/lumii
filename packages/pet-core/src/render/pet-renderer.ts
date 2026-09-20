@@ -54,6 +54,17 @@ export interface PetCoreRenderer {
   /** 读取动作组内动作数量（用于随机播放，读不到返回 0） */
   getMotionCount(motionGroup: string): number;
 
+  /**
+   * 设置注视方向（可选）。
+   *
+   * 入参是**归一化**的光标相对位置：`dx/dy` 为光标相对宠物锚点的偏移除以宠物可视高度。
+   * 归一化交给调用方是刻意的——后端不必知道窗口尺寸，而"大小不同的模型表现一致"
+   * 这条性质由调用方一处保证，不必每个后端各写一遍。
+   *
+   * 不支持注视的后端可空实现（如 Live2D，它自带视线跟随机制）。
+   */
+  setGaze?(dx: number, dy: number): void;
+
   /** 设置嘴部张开度（0~1），驱动 ParamMouthOpenY。由口型驱动每帧调用 */
   setMouthOpen(value: number): void;
 

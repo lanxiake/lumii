@@ -9,6 +9,7 @@ import { ipcRenderer } from 'electron'
 import {
   type AppMode,
   type PetClickRegion,
+  type PetCursorEvent,
   type PetElectronAPI,
   type PetForceIgnoreChangedEvent,
   type PetHoverUpdate,
@@ -104,4 +105,7 @@ export const petApi: PetElectronAPI = {
 
   onVhSettingsChanged: (callback: (event: PetVhSettingsChangedEvent) => void): () => void =>
     createPetEventListener<PetVhSettingsChangedEvent>(PET_IPC.evtVhSettingsChanged, callback),
+
+  onCursor: (callback: (event: PetCursorEvent) => void): (() => void) =>
+    createPetEventListener<PetCursorEvent>(PET_IPC.evtCursor, callback),
 }

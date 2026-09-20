@@ -103,6 +103,11 @@ export const PET_IPC = {
   evtForceIgnoreChanged: 'pet:force-ignore:changed',
   /** event(main→renderer)：虚拟人设置变更（设置页修改后推送到宠物窗口即时生效） */
   evtVhSettingsChanged: 'pet:vh-settings:changed',
+  /**
+   * event(main→renderer)：全局光标在宠物窗口内的位置（注视用）。
+   * 约 30Hz，且**位置没变时不发**——用户不动鼠标时不该有任何流量。
+   */
+  evtCursor: 'pet:cursor',
 } as const
 
 /** 切换模式的结果 */
@@ -139,6 +144,18 @@ export interface PetVhSettingsChangedEvent {
   readonly type: 'pet:vh-settings:changed'
   /** 变更的设置项（只含变化的字段） */
   patch: Partial<VirtualHumanSettingsDTO>
+}
+
+/**
+ * 主进程 → 渲染进程：全局光标在**宠物窗口内**的位置（CSS 像素）。
+ *
+ * 为什么要主进程推：宠物窗口全屏透明且靠 setIgnoreMouseEvents 控制穿透，
+ * 光标在角色以外时窗口收不到 mousemove——而那正是宠物该看向你的多数时刻。
+ */
+export interface PetCursorEvent {
+  readonly type: 'pet:cursor'
+  x: number
+  y: number
 }
 
 /** 主进程 → 渲染进程：模型热切换（窗口不变，仅 Live2D 重载，B-3） */
@@ -229,6 +246,8 @@ export interface PetElectronAPI {
   onModelChanged(callback: (event: PetModelChangedEvent) => void): () => void
   /** 订阅虚拟人设置变更（设置页修改后主进程推送到宠物窗口即时生效） */
   onVhSettingsChanged(callback: (event: PetVhSettingsChangedEvent) => void): () => void
+  /** 订阅全局光标位置（注视用）。主进程只在宠物模式且设置开启时推送 */
+  onCursor(callback: (event: PetCursorEvent) => void): () => void
 }
 
 /** 宠物模式默认模型 ID（MVP 阶段硬编码，Phase 1 接 registry 后替换为动态默认值） */
