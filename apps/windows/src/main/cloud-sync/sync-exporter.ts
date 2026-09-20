@@ -534,7 +534,16 @@ export class SyncExporter {
         logger.info(`[exportUserFiles] outputs 未变更跳过 ${r.skippedUnchanged} 个`)
       }
       if (r.skippedLarge > 0) {
-        logger.info(`[exportUserFiles] outputs 跳过大文件 ${r.skippedLarge} 个（阈值 ${maxBytes} bytes）`)
+        // 用**一条带示例的汇总**代替逐条 WARN（后者 09-19 一天产生 71893 条，
+        // 撑爆 dev 实例的 stdout 管道后同步写会阻塞主线程 —— 见
+        // docs/fix/2026-09-20-主进程冻结调查与修复.md 第六节）。示例保留可诊断性。
+        const sample = r.skippedLargePaths
+          .slice(0, 3)
+          .map((p) => path.relative(srcOutputs, p).split(path.sep).join('/'))
+        logger.info(
+          `[exportUserFiles] outputs 跳过大文件 ${r.skippedLarge} 个（阈值 ${maxBytes} bytes）` +
+            (sample.length ? `；示例: ${sample.join(', ')}${r.skippedLarge > sample.length ? ' …' : ''}` : ''),
+        )
       }
       // 记下跳过的文件（转成仓库相对路径）：stageAllChanges 必须排除它们，
       // 否则「不在工作区但存在于 HEAD」会被判成删除 —— 分级传输下这是致命的

@@ -10,6 +10,7 @@ $ErrorActionPreference = 'Stop'
 $Root = Resolve-Path (Join-Path $PSScriptRoot '..')
 $PidFile = Join-Path $Root '.lumii-dev.pid'
 $LogFile = Join-Path $Root '.lumii-dev.log'
+$ErrFile = Join-Path $Root '.lumii-dev.err.log'
 $StopScript = Join-Path $PSScriptRoot 'stop-dev.ps1'
 $Tag = 'Lumii'
 
@@ -77,6 +78,7 @@ if ($Foreground) {
 }
 
 if (Test-Path $LogFile) { Remove-Item $LogFile -Force -ErrorAction SilentlyContinue }
+if (Test-Path $ErrFile) { Remove-Item $ErrFile -Force -ErrorAction SilentlyContinue }
 
 $inner = @"
 `$ErrorActionPreference = 'Continue'
@@ -91,22 +93,39 @@ try {
 `$env:LANG = 'zh_CN.UTF-8'
 Set-Location '$Root'
 `$Host.UI.RawUI.WindowTitle = 'Lumii Dev'
-'starting...' | Out-File -FilePath '$LogFile' -Encoding utf8
-pnpm --filter ./apps/windows dev *>&1 | ForEach-Object {
-  `$line = `$_.ToString()
-  Write-Host `$line
-  Add-Content -Path '$LogFile' -Value `$line -Encoding utf8
-}
+Write-Host ''
+Write-Host 'Lumii dev starting. Output is redirected to .lumii-dev.log (this window no longer streams logs).' -ForegroundColor Cyan
+Write-Host 'App logs live in ~/.lumii/logs/app/mtbot-*.log' -ForegroundColor DarkGray
+Write-Host ''
+# DO NOT pipe pnpm's output through PowerShell here (e.g. *>&1 | ForEach-Object {...}).
+# That turns the app's stdout into a pipe with a SLOW reader, and on Windows Node
+# writes to pipe stdout synchronously -- a burst of log lines then blocks the app's
+# main thread, and the freeze lasts exactly as long as the reader stalls
+# (measured: 8s ~ 606s). See docs/fix/2026-09-20-*.md section 6.
+# Let output flow to this process's stdout; the outer Start-Process does the
+# OS-level redirect to a file (a file has no reader, so it cannot stall).
+pnpm --filter ./apps/windows dev
 "@
+
+# Run the inner script from a FILE, not via -Command / -EncodedCommand:
+# multi-line scripts passed through those get re-parsed, and quotes/special chars
+# easily produce "string is missing the terminator" (hit this on 2026-09-20).
+#
+# NOTE: write it with an EXPLICIT BOM. PowerShell 5.1 reads a BOM-less .ps1 as ANSI,
+# which mangles any non-ASCII byte -- that is exactly why this file is ASCII-only.
+$InnerScript = Join-Path $Root '.lumii-dev-inner.ps1'
+[System.IO.File]::WriteAllText($InnerScript, $inner, (New-Object System.Text.UTF8Encoding $true))
 
 $proc = Start-Process -FilePath 'powershell.exe' `
   -ArgumentList @(
     '-NoProfile',
     '-ExecutionPolicy', 'Bypass',
-    '-Command', $inner
+    '-File', $InnerScript
   ) `
   -PassThru `
-  -WindowStyle Normal
+  -WindowStyle Normal `
+  -RedirectStandardOutput $LogFile `
+  -RedirectStandardError $ErrFile
 
 $proc.Id | Set-Content -Path $PidFile -Encoding ascii
 Write-Host "$Tag : started (PID=$($proc.Id))" -ForegroundColor Green
