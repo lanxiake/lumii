@@ -340,8 +340,11 @@ async function capture(kind, lagA, lagB) {
 
 // ── 一次会话：连上 → 注入 → 主循环（直到断开）──────────────────────────────
 async function session() {
-  const wsUrl = await findWsUrl()
+  // ⚠️ 必须在 findWsUrl() **之前**清标志：外层循环在每轮结束时会把它设回 true，
+  // 而 findWsUrl 首行就是 `if (closed) throw` —— 顺序反了会让重连第一次循环就失败、
+  // 无限打「第 N 次连接… / 会话已关闭」（2026-09-20 实测踩到）。
   closed = false
+  const wsUrl = await findWsUrl()
   pending = new Map()
   ws = new WebSocket(wsUrl)
 
