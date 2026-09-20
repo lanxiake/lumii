@@ -375,6 +375,25 @@ export function ModelConfigSection() {
                   }
                 />
               </div>
+              {/*
+                密文读不出来时，输入框必然是空的——不解释一句，用户会以为是自己没填过，
+                于是在这里重填一遍、保存、重启，问题照旧（而且旧密文已经被这次保存覆盖掉了）。
+                文案里的「原密文会保留」对应 main 侧 preserveUnreadableKey()，不是安慰话。
+                补 `!cfg.apiKey`：用户一开始打字就撤掉提示，否则「请重新填写」会一直挂在他已经填好的框下面。
+              */}
+              {cfg.apiKeyDecryptFailed && !cfg.apiKey && (
+                <div
+                  className={styles['field-msg']}
+                  role="alert"
+                  style={{
+                    backgroundColor: 'var(--color-error-bg)',
+                    color: 'var(--color-error)',
+                  }}
+                >
+                  已保存的凭据无法解密（密钥环可能已变更，或配置来自其他系统），因此这里显示为空。
+                  请重新填写——原密文会保留，不会因保存被覆盖。
+                </div>
+              )}
             </div>
 
             {supportsApiFormatChoice(cfg.type) && (
