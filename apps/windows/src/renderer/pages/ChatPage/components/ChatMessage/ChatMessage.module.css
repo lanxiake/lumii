@@ -8,7 +8,7 @@
   background: var(--color-accent);
   border-radius: 20px;
   min-width: 60px;
-  color: #fff;
+  color: var(--mt-fg-on-accent);
 }
 
 /* 波形：3 根竖条缩放动画 */
@@ -1558,7 +1558,7 @@
 .message-content-text::selection,
 .message-content-text ::selection {
   background-color: var(--mt-accent-500);
-  color: #fff;
+  color: var(--mt-fg-on-accent);
 }
 
 [data-theme='light'] .message-text::selection,
@@ -1576,7 +1576,17 @@
 [data-theme='dark'] .message-content-text ::selection {
   /* 深色主题：强调底 + 白字 */
   background-color: var(--mt-accent-500);
-  color: #fff;
+  color: var(--mt-fg-on-accent);
+}
+
+/* 护眼主题原先漏了分支，会落到基线的蓝底白字（暖色页面上很突兀） */
+[data-theme='eye-care'] .message-text::selection,
+[data-theme='eye-care'] .message-text ::selection,
+[data-theme='eye-care'] .message-content-text::selection,
+[data-theme='eye-care'] .message-content-text ::selection {
+  /* 护眼主题：亮琥珀底 + 深字 */
+  background-color: var(--mt-accent-300);
+  color: var(--mt-fg-1);
 }
 
 /* parts 时间线：thinking / text / tool 交错块间距 */

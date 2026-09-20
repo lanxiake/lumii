@@ -51,7 +51,7 @@
 .filterChipActive {
   background: var(--color-primary);
   border-color: var(--color-primary);
-  color: #fff;
+  color: var(--mt-fg-on-accent);
 }
 
 .empty {

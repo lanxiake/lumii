@@ -768,7 +768,7 @@
 
 .groupRoleBadge[data-role='executor'] {
   background: rgba(59, 130, 246, 0.12);
-  color: #93c5fd;
+  color: var(--mt-accent-300);
   border: 1px solid rgba(59, 130, 246, 0.2);
 }
 

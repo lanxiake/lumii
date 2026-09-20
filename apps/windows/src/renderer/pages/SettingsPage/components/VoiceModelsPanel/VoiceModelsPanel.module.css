@@ -89,8 +89,8 @@
 .stateDownloading,
 .stateExtracting {
   color: #0369a1;
-  background: color-mix(in srgb, #0ea5e9 16%, transparent);
-  border: 1px solid color-mix(in srgb, #0ea5e9 40%, transparent);
+  background: color-mix(in srgb, var(--mt-sky-500) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--mt-sky-500) 40%, transparent);
 }
 
 .statePaused {
@@ -112,8 +112,8 @@
 }
 
 .cardActive {
-  border-color: color-mix(in srgb, #0ea5e9 55%, var(--color-border));
-  box-shadow: 0 0 0 1px color-mix(in srgb, #0ea5e9 20%, transparent);
+  border-color: color-mix(in srgb, var(--mt-sky-500) 55%, var(--color-border));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--mt-sky-500) 20%, transparent);
 }
 
 .cardError {

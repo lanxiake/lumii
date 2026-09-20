@@ -251,3 +251,86 @@ describe('令牌定义点唯一性', () => {
     ).toEqual([])
   })
 })
+
+describe('语义色不写字面量', () => {
+  /**
+   * 以下色值有**精确**的语义令牌（dark 主题下值完全相同），写字面量会让它
+   * 在 light / eye-care 下不跟随主题。
+   *
+   * 只覆盖已验证过映射关系的色值——仓库里还有大量调色板色（#0ea5e9 / #8b5cf6
+   * / #fbbf24 等）**没有**对应语义令牌，不在本守卫范围。
+   * 加新条目时请先确认：该令牌在 dark 下的实值 == 这个字面量。
+   */
+  const SEMANTIC_HEX: ReadonlyArray<[RegExp, string]> = [
+    [/#ef4444\b/i, '--mt-error'],
+    [/#22c55e\b/i, '--mt-success'],
+    [/#f59e0b\b/i, '--mt-warning'],
+    [/#86efac\b/i, '--mt-success-light'],
+    [/#fde047\b/i, '--mt-warning-light'],
+    [/#b45309\b/i, '--mt-warning-dark'],
+    [/#3b82f6\b/i, '--mt-accent-500'],
+    [/#60a5fa\b/i, '--mt-accent-400'],
+    [/#93c5fd\b/i, '--mt-accent-300'],
+    [/#2563eb\b/i, '--mt-accent-600'],
+    [/#1d4ed8\b/i, '--mt-accent-700'],
+    [/#8b5cf6\b/i, '--mt-violet'],
+    [/#0ea5e9\b/i, '--mt-sky-500'],
+  ]
+
+  /** 豁免：这些文件里的字面量是刻意的（见 10 片文档 §五） */
+  const EXEMPT = [
+    /styles[\\/](design-system|tokens)\.css$/,
+    /[\\/]pet[\\/]/,
+    /ImageLightbox/,
+    /SplashOverlay/,
+    /AppearanceSection/,
+    /A2UIRenderer/,
+    /FilePreviewModal/,
+    /ScreenRecordCapture/,
+    /brand[\\/]/,
+    /wikiFileExtDisplay/,
+    /WindowEdgeGlow/,
+    /UsageChart/,
+    /PerformanceDiagnostics/,
+    /ContextUsageCard/,
+    // 哈希取色调色板：颜色是 agent 身份的一部分
+    /AgentsPage[\\/]views[\\/]types\.ts$/,
+    /\.test\.(ts|tsx)$/,
+  ]
+
+  it('有精确语义令牌的色值不在业务代码里写字面量', () => {
+    const rendererDir = path.resolve(STYLES_DIR, '..')
+    const files: string[] = []
+    const walk = (dir: string) => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        if (entry.name === 'node_modules' || entry.name === 'dist') continue
+        const full = path.join(dir, entry.name)
+        if (entry.isDirectory()) walk(full)
+        else if (/\.(css|tsx?)$/.test(entry.name)) files.push(full)
+      }
+    }
+    walk(rendererDir)
+
+    const offenders: string[] = []
+    for (const file of files) {
+      if (EXEMPT.some((re) => re.test(file))) continue
+      const relPath = path.relative(rendererDir, file).replace(/\\/g, '/')
+      const lines = fs.readFileSync(file, 'utf8').split('\n')
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i]!
+        // 跳过注释行，避免示例/说明被当成用法
+        const t = line.trim()
+        if (t.startsWith('/*') || t.startsWith('*') || t.startsWith('//')) continue
+        for (const [re, token] of SEMANTIC_HEX) {
+          const m = line.match(re)
+          if (m) offenders.push(`${relPath}:${i + 1}  ${m[0]} → 应改用 var(${token})`)
+        }
+      }
+    }
+
+    expect(
+      offenders,
+      '以下位置写了有精确语义令牌的字面色值，它们在 light / eye-care 下不会跟随主题。',
+    ).toEqual([])
+  })
+})

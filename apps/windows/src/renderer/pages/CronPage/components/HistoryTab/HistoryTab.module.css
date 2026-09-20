@@ -34,7 +34,7 @@
 
 .timeBtnActive {
   background: var(--color-primary-500);
-  color: #fff;
+  color: var(--mt-fg-on-accent);
   border-color: var(--color-primary-500);
 }
 

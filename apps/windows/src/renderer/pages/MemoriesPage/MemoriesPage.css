@@ -515,8 +515,8 @@
 }
 
 .plugin-status--installed {
-  background: rgba(34, 197, 94, 0.15);
-  color: #22c55e;
+  background: rgba(var(--mt-success-rgb), 0.15);
+  color: var(--mt-success);
 }
 
 .plugin-status--not-installed {
@@ -549,7 +549,7 @@
 .plugin-install-success {
   margin: 0;
   font-size: 13px;
-  color: #22c55e;
+  color: var(--mt-success);
 }
 
 .plugin-data-dir {

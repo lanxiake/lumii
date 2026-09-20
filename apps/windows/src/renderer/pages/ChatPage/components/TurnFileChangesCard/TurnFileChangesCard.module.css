@@ -103,7 +103,7 @@
   font-weight: 700;
   font-family: var(--mt-font-mono, ui-monospace, monospace);
   line-height: 1;
-  color: #fff;
+  color: var(--mt-fg-on-accent);
 }
 
 .statusBadge--added {
@@ -132,7 +132,7 @@
   font-weight: 700;
   font-family: var(--mt-font-mono, ui-monospace, monospace);
   line-height: 1;
-  color: #fff;
+  color: var(--mt-fg-on-accent);
   background: #6b7280;
 }
 

@@ -97,7 +97,7 @@
 }
 
 .statusDotOk {
-  background: #22c55e;
+  background: var(--mt-success);
 }
 
 .statusDotOff {
@@ -243,16 +243,16 @@
 
 .badgeOk {
   color: #15803d;
-  background: rgba(34, 197, 94, 0.14);
+  background: rgba(var(--mt-success-rgb), 0.14);
 }
 
 .badgeOff {
-  color: #b45309;
-  background: rgba(245, 158, 11, 0.14);
+  color: var(--mt-warning-dark);
+  background: rgba(var(--mt-warning-rgb), 0.14);
 }
 
 .badgeLink {
-  color: #1d4ed8;
+  color: var(--mt-accent-700);
   background: rgba(59, 130, 246, 0.12);
 }
 

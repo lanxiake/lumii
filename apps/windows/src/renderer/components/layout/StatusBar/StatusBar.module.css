@@ -51,7 +51,7 @@
   background: linear-gradient(
     105deg,
     #64748b 0%,
-    #0ea5e9 28%,
+    var(--mt-sky-500) 28%,
     #38bdf8 50%,
     #6366f1 72%,
     #64748b 100%

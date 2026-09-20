@@ -210,13 +210,13 @@
 }
 
 .pv-badge--high {
-  background: rgba(34, 197, 94, 0.15);
-  color: #22c55e;
+  background: rgba(var(--mt-success-rgb), 0.15);
+  color: var(--mt-success);
 }
 
 .pv-badge--mid {
-  background: rgba(245, 158, 11, 0.15);
-  color: #f59e0b;
+  background: rgba(var(--mt-warning-rgb), 0.15);
+  color: var(--mt-warning);
 }
 
 .pv-badge--low {

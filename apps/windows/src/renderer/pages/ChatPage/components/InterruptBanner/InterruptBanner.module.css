@@ -56,7 +56,7 @@
 .btnContinue {
   composes: btn;
   background: var(--color-warning-border);
-  color: #fff;
+  color: var(--mt-fg-on-accent);
 }
 
 .btnDismiss {

@@ -103,7 +103,7 @@
   padding: 0 5px;
   border-radius: 9px;
   background: var(--color-accent);
-  color: #fff;
+  color: var(--mt-fg-on-accent);
   font-size: 11px;
   font-weight: 600;
 }
@@ -117,7 +117,7 @@
   border: 1px solid var(--color-accent);
   border-radius: 6px;
   background: var(--color-accent);
-  color: #fff;
+  color: var(--mt-fg-on-accent);
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
@@ -175,9 +175,9 @@
   flex-shrink: 0;
 }
 
-.status-added { background: rgba(34, 197, 94, 0.15); color: #16a34a; }
+.status-added { background: rgba(var(--mt-success-rgb), 0.15); color: #16a34a; }
 .status-modified { background: rgba(250, 204, 21, 0.15); color: #ca8a04; }
-.status-deleted { background: rgba(239, 68, 68, 0.15); color: #dc2626; }
+.status-deleted { background: rgba(var(--mt-error-rgb), 0.15); color: #dc2626; }
 
 .vcs-file-path {
   flex: 1;
@@ -284,7 +284,7 @@
   padding: 8px 12px;
   border-radius: 8px;
   background: var(--color-bg-inverse);
-  color: #fff;
+  color: var(--mt-fg-on-accent);
   font-size: 12px;
   text-align: center;
   animation: vcs-toast-in 0.2s ease-out;
@@ -363,12 +363,12 @@
 }
 
 .diff-add {
-  background: rgba(34, 197, 94, 0.12);
+  background: rgba(var(--mt-success-rgb), 0.12);
   color: #16a34a;
 }
 
 .diff-del {
-  background: rgba(239, 68, 68, 0.1);
+  background: rgba(var(--mt-error-rgb), 0.1);
   color: #dc2626;
 }
 
@@ -545,7 +545,7 @@
   border: none;
   border-radius: 8px;
   background: var(--mt-accent-500);
-  color: #fff;
+  color: var(--mt-fg-on-accent);
   font-size: var(--mt-fs-xs);
   font-weight: 600;
   cursor: pointer;

@@ -461,7 +461,7 @@
   font-weight: 700;
   font-family: var(--mt-font-mono, ui-monospace, monospace);
   line-height: 1;
-  color: #fff;
+  color: var(--mt-fg-on-accent);
   background: #6b7280;
 }
 
@@ -525,7 +525,7 @@
 }
 
 .inlineTagUpload {
-  color: #2563eb;
+  color: var(--mt-accent-600);
 }
 
 .inlineShowMore {
@@ -640,5 +640,5 @@
 }
 
 .railRowTagUpload {
-  color: #2563eb;
+  color: var(--mt-accent-600);
 }

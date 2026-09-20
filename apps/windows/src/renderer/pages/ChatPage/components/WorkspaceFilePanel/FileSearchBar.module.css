@@ -114,11 +114,11 @@
 .filterChip--active {
   background: var(--color-primary);
   border-color: var(--color-primary);
-  color: #fff;
+  color: var(--mt-fg-on-accent);
 }
 
 .filterChip--active:hover {
-  color: #fff;
+  color: var(--mt-fg-on-accent);
 }
 
 /* 搜索结果列表 */

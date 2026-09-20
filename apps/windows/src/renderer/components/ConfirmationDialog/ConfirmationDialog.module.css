@@ -137,8 +137,8 @@
 }
 
 .btn--allow {
-  background: #22c55e;
-  color: #fff;
+  background: var(--mt-success);
+  color: var(--mt-fg-on-accent);
 }
 
 .btn--allow:hover:not(:disabled) {

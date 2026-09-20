@@ -170,8 +170,8 @@
 }
 
 .voice-runtime-status-busy {
-  border-color: color-mix(in srgb, #0ea5e9 45%, var(--color-border));
-  background: color-mix(in srgb, #0ea5e9 12%, transparent);
+  border-color: color-mix(in srgb, var(--mt-sky-500) 45%, var(--color-border));
+  background: color-mix(in srgb, var(--mt-sky-500) 12%, transparent);
 }
 
 .voice-runtime-status-error {
@@ -1013,8 +1013,8 @@
 }
 
 .cloud-log-state-syncing {
-  color: #0ea5e9;
-  background: color-mix(in srgb, #0ea5e9 12%, transparent);
+  color: var(--mt-sky-500);
+  background: color-mix(in srgb, var(--mt-sky-500) 12%, transparent);
 }
 
 .cloud-log-state-conflict {
