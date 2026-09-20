@@ -103,6 +103,24 @@ describe('PetOrchestrator', () => {
     orch.dispose()
   })
 
+  it('后端不自循环待机时（sprite），编排器必须主动启动待机组', () => {
+    // 与上一条是同一条分支的两个后端行为。Live2D 的 MotionManager 内部循环 groups.idle，
+    // 所以编排器什么都不做也对；sprite 后端只播 playMotion 启动的东西——
+    // 不启动就永远停在第一帧。实测表现是「宠物完全不会动」，根因就在这里。
+    const renderer = { ...createMockRenderer(), autoLoopsIdle: false }
+    const orch = new PetOrchestrator(renderer)
+    orch.setModelConfig(testConfig)
+    let last: { motionGroup?: string } = {}
+    orch.setStatusListener((s) => (last = s))
+    orch.start()
+
+    emitVoice('listening')
+    expect(last.motionGroup).toBe('Idle')
+    // 关键差异：这一次真的下发了 playMotion
+    expect(renderer.motions).toContain('Idle')
+    orch.dispose()
+  })
+
   it('被动打断（listening + interrupted）→ 回待机相位 且嘴型归零', () => {
     const renderer = createMockRenderer()
     const orch = new PetOrchestrator(renderer)

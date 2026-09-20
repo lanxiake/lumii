@@ -26,6 +26,22 @@ export interface PetMotionPlayedInfo {
  * 因此本接口刻意最小化，且完全 DOM 无关，可被 Windows 与 WebView 两端复用。
  */
 export interface PetCoreRenderer {
+  /**
+   * 后端是否**自己循环待机组**。
+   *
+   * - `true` / 省略：后端会原生续播待机（`pixi-live2d-display` 的 MotionManager
+   *   内部就循环 `groups.idle`）。编排器**不能**再手动 `playMotion(待机组)`——
+   *   会与库的 IDLE 预约冲突被拦截，且动作播完卡在末帧。
+   * - `false`：后端只播 `playMotion` 启动的东西，不会自己动
+   *   （sprite 后端就是这种）。编排器**必须**主动启动待机组，
+   *   否则模型永远停在第一帧——实测表现是「宠物完全不会动」。
+   *
+   * 这条差异原本是隐式假设（编排器注释里写着"交给库原生续播"），
+   * 在只有 Live2D 一种后端时成立；接入 sprite 后成了 bug 的来源。
+   * 显式声明比让编排器去猜可靠。
+   */
+  readonly autoLoopsIdle?: boolean;
+
   /** 设置表情（expressionIndex 来自 emotionMap），无表情后端可空实现 */
   setExpression(expressionIndex: number): void;
 

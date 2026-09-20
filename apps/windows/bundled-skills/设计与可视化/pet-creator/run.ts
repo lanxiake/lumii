@@ -113,6 +113,10 @@ function buildManifest(params, namesByBatch) {
 
   const idleFrames = baseNames.length > 0 ? framesFrom(baseNames) : framesFrom(firstBaseOf(slots))
 
+  // 原语振幅随画布高度走：写死 2px 对 56 高的像素模型够用，对 168 高的 2D 模型
+  // 就几乎看不见（2 × 0.65 缩放 ≈ 1.3px）。breathe 是倍率，与尺寸无关，不用调。
+  const bob = Math.max(1, Math.round(params.canvas.h * 0.02))
+
   const animations = [
     {
       group: 'Idle',
@@ -120,7 +124,9 @@ function buildManifest(params, namesByBatch) {
       kind: 'loop',
       fps: 4,
       frames: idleFrames,
-      params: { bob: params.pixelArt ? 1 : 2, breathe: 1.01 },
+      // blink 是「平均间隔 ms」。模型没有闭眼部件时渲染器会自动忽略，
+      // 所以这里可以无条件声明。
+      params: { bob, breathe: 1.01, blink: 3200 },
     },
     { group: 'Talk', index: 0, kind: 'loop', fps: 8, frames: idleFrames, params: { bob: 1 } },
     ...(Array.isArray(params.animations) ? params.animations : []),

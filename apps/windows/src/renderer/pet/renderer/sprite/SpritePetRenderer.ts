@@ -23,18 +23,16 @@
 import * as PIXI from 'pixi.js'
 import {
   adaptiveScale,
-  bobOffset,
-  breatheScale,
+  BlinkScheduler,
+  evaluateProcedural,
   findAnimation,
   hitTestPolygons,
   mouthLevelIndex,
-  nodAngle,
   parseAtlasIndex,
   randomAnimationIndex,
   applyOverrides,
   resolveSpriteRuntime,
   snapPixelScale,
-  swayAngle,
   validateSpriteManifest,
   type ResolvedAnimation,
   type SlotState,
@@ -92,6 +90,15 @@ interface PlayingState {
 type TextureMap = Map<string, PIXI.Texture>
 
 export class SpritePetRenderer implements PetRendererProvider {
+  /**
+   * 精灵图后端**不会自己循环待机组**——它只播 `playMotion` 启动的东西。
+   *
+   * 这是与 Live2D 后端的实质差异：`pixi-live2d-display` 的 MotionManager 内部循环
+   * `groups.idle`，所以编排器在无随机待机源时可以什么都不做；这里不行，必须由编排器
+   * 主动启动。实测踩过：单待机组的模型（只有 Idle + Talk）完全不动的根因就是这个。
+   */
+  readonly autoLoopsIdle = false
+
   private app: PIXI.Application | null = null
   /** 根容器：位置 = 锚点在画布上的位置，旋转/缩放都绕它发生（正是"脚底中心"的语义） */
   private root: PIXI.Container | null = null
@@ -125,6 +132,13 @@ export class SpritePetRenderer implements PetRendererProvider {
    */
   private expressionPart: string | null = null
   private mouthPart: string | null = null
+
+  /** 眨眼调度器：由当前动画的 params.blink 建立；未声明则为 null（不眨眼） */
+  private blinkScheduler: BlinkScheduler | null = null
+  /** 当前是否处于闭眼（只在变化时改图层） */
+  private blinkClosed = false
+  /** 「闭眼」部件名；由表情类别里名字匹配 shut/close/闭 的那一项解析而来 */
+  private blinkPart: string | null = null
 
   /** 锚点在画布上的逻辑位置（程序化浮动不改它，命中判定也不受浮动影响） */
   private posX = 0
@@ -225,6 +239,9 @@ export class SpritePetRenderer implements PetRendererProvider {
     this.expressionBinding = null
     this.expressionPart = null
     this.mouthPart = null
+    this.blinkScheduler = null
+    this.blinkClosed = false
+    this.blinkPart = null
     this.playing = null
     this.currentState = null
     this.loaded = false
@@ -352,8 +369,12 @@ export class SpritePetRenderer implements PetRendererProvider {
     if (expression) {
       const parts = manifest.slots?.[expression.slot]?.parts?.[expression.cat] ?? []
       this.expressionBinding = { slot: expression.slot, cat: expression.cat, parts }
+      // 眨眼部件按名字认（shut / close / 闭）。认不出就不眨眼——
+      // 随便挑一个部件当闭眼，效果是「眨眼时脸突然变了」，比不眨更糟。
+      this.blinkPart = parts.find((n) => /shut|close|closed|闭/i.test(n)) ?? null
     } else {
       this.expressionBinding = null
+      this.blinkPart = null
     }
 
     if (!this.mouthBinding) {
@@ -423,6 +444,10 @@ export class SpritePetRenderer implements PetRendererProvider {
     if (mouth && this.mouthPart) {
       overrides.push({ slot: mouth.slot, cat: mouth.cat, part: this.mouthPart })
     }
+    // 眨眼盖在表情之上：闭眼是瞬时状态，不该被「当前表情」顶掉
+    if (expr && this.blinkClosed && this.blinkPart) {
+      overrides.push({ slot: expr.slot, cat: expr.cat, part: this.blinkPart })
+    }
     const effective = applyOverrides(state, overrides)
     this.currentState = effective
 
@@ -462,16 +487,32 @@ export class SpritePetRenderer implements PetRendererProvider {
       return
     }
 
+    // 用 pet-core 的 `evaluateProcedural` 合成，**不要在渲染器里手写一遍**。
+    //
+    // 手写过一次并踩了坑：四个原语的签名都是 `(量, tSec, periodSec?)`，量在前时间在后。
+    // 传反不会报错，只会静默跑飞——把「已运行秒数」当倍率传进去，breathe 随 t 线性增长，
+    // 表现为宠物一边动一边持续变大；bob 则恰好因 sin(2π·整数)=0 而静默失效。
+    // 现成的合成函数已经被单测钉住了签名，绕开它等于把防线拆掉。
     const t = performance.now() / 1000
-    // pet-core 的纯函数求值；未声明的原语返回 0 / 1，叠加起来就是恒等
-    const bob = params.bob !== undefined ? bobOffset(t, params.bob) : 0
-    const sway = params.sway !== undefined ? swayAngle(t, params.sway) : 0
-    const nod = params.nod !== undefined ? nodAngle(t, params.nod) : 0
-    const breathe = params.breathe !== undefined ? breatheScale(t, params.breathe) : 1
+    const transform = evaluateProcedural(params, t, this.blinkScheduler ?? undefined)
 
-    root.position.set(this.posX, this.posY + bob)
-    root.rotation = sway + nod
-    root.scale.set(this.effectiveScale() * breathe)
+    root.position.set(this.posX, this.posY + transform.offsetY)
+    root.rotation = transform.rotation
+    root.scale.set(this.effectiveScale() * transform.scale)
+
+    this.applyBlink(transform.blinkClosed)
+  }
+
+  /**
+   * 眨眼：闭眼期间把表情层临时换成「闭眼」部件，睁眼时还原。
+   *
+   * 只在状态**变化**时改图层——`applyState` 会重建覆盖层，每帧无脑调用纯属浪费。
+   */
+  private applyBlink(closed: boolean): void {
+    if (closed === this.blinkClosed) return
+    this.blinkClosed = closed
+    if (!this.blinkPart) return
+    if (this.currentState) this.applyState(this.currentState)
   }
 
   private effectiveScale(): number {
@@ -568,6 +609,10 @@ export class SpritePetRenderer implements PetRendererProvider {
       return
     }
     this.playing = { anim, frame: 0, acc: 0, completed: false }
+    // 眨眼调度器跟动画走：不同动作可以有各自的眨眼节奏；没声明就不眨
+    const blinkMs = anim.params?.blink
+    this.blinkScheduler = blinkMs && blinkMs > 0 ? new BlinkScheduler(blinkMs) : null
+    this.blinkClosed = false
     if (anim.frames.length > 0) this.applyState(anim.frames[0])
     log.info(`[playMotion] group="${motionGroup}" index=${anim.index} 帧数=${anim.frames.length}`)
   }

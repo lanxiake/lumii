@@ -862,9 +862,16 @@ export class PetOrchestrator {
       this.playRandomIdleNow()
       this.scheduleNextIdleMotion()
     } else {
-      // 无装饰随机源：基础待机完全交给库原生续播（库已在循环 groups.idle），
-      // 此处只更新可观测状态，绝不手动 playMotion(idle)——否则与库 IDLE 预约冲突被拦截、
-      // 且动作播完会卡在末帧（库正是靠自动续播脱离末帧）。
+      // 无装饰随机源时的基础待机，**两种后端的行为不同**：
+      //
+      // - Live2D（autoLoopsIdle 省略）：待机完全交给库原生续播（库已在循环 groups.idle）。
+      //   此处绝不能手动 playMotion(idle)——会与库的 IDLE 预约冲突被拦截，
+      //   且动作播完会卡在末帧（库正是靠自动续播脱离末帧）。
+      // - sprite（autoLoopsIdle === false）：后端只播 playMotion 启动的东西，
+      //   不会自己动。不在这里启动，模型就永远停在第一帧——实测表现是「宠物完全不会动」。
+      if (this.renderer.autoLoopsIdle === false) {
+        this.renderer.playMotion(group)
+      }
       this.patchStatus({
         phase: 'idle',
         motionKind: this.inPostDialogueCooldown ? 'cooldown' : 'idle',

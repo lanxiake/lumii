@@ -340,3 +340,26 @@ describe("PROCEDURAL_DEFAULTS — 缺省值", () => {
     expect(r.ok).toBe(true);
   });
 });
+
+describe("evaluateProcedural — 不随运行时长漂移", () => {
+  it("t 取很大值时，各分量仍落在声明范围内（原语是振荡，不是增长）", () => {
+    // 这条守的是一类真实踩过的 bug：把 (量, tSec) 传反之后，breathe 会随 t 线性增长——
+    // 表现为宠物一边动一边持续变大。用现成的合成函数不会有这个问题，
+    // 但"输出必须是有界的"这条性质值得单独钉住。
+    const p = { bob: 3, breathe: 1.01, sway: 2, nod: 2 };
+    for (const t of [0, 1, 60, 3600, 86400]) {
+      const tr = evaluateProcedural(p, t);
+      expect(Math.abs(tr.offsetY), `t=${t} 的 bob`).toBeLessThanOrEqual(3.0001);
+      expect(tr.scale, `t=${t} 的 scale`).toBeGreaterThanOrEqual(0.9999);
+      expect(tr.scale, `t=${t} 的 scale`).toBeLessThanOrEqual(1.0101);
+      expect(Math.abs(tr.rotation), `t=${t} 的旋转`).toBeLessThanOrEqual(4.0001);
+    }
+  });
+
+  it("未声明的原语取恒等值（不因为缺省而乱动）", () => {
+    const tr = evaluateProcedural({}, 12.34);
+    expect(tr.offsetY).toBe(0);
+    expect(tr.scale).toBe(1);
+    expect(tr.rotation).toBe(0);
+  });
+});

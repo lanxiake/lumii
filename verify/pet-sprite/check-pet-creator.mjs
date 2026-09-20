@@ -9,7 +9,9 @@
  *
  * 前置：客户端必须在运行（工具链走控制口 /pet/asset）。
  *
- * 用法：node verify/pet-sprite/check-pet-creator.mjs
+ * 用法：
+ *   node verify/pet-sprite/check-pet-creator.mjs                     合成夹具（零成本）
+ *   node verify/pet-sprite/check-pet-creator.mjs --file <出图> --hires  真实 AI 出图
  */
 import fs from 'node:fs'
 import os from 'node:os'
@@ -57,30 +59,78 @@ async function makeSheet(file, positions) {
   return file
 }
 
-const body = await makeSheet(path.join(RAW_DIR, 'body.png'), [40, 36, 44, 40])
-const eyes = await makeSheet(path.join(RAW_DIR, 'eyes.png'), [50, 54, 46, 52])
-
-const params = {
-  action: 'build',
-  id: 'test_pet_creator',
-  name: '流水线测试宠物',
-  canvas: { w: 48, h: 56 },
-  anchor: [24, 54],
-  pixelArt: true,
-  scale: 2,
-  batches: [
-    { file: body, cols: 2, rows: 2, slot: 'base', names: ['body_00', 'body_01', 'body_02', 'body_03'] },
-    {
-      file: eyes,
-      cols: 2,
-      rows: 2,
-      slot: 'face',
-      category: 'eyes',
-      names: ['eye_open', 'eye_shut', 'eye_happy', 'eye_sad'],
-    },
-  ],
-  personaAddon: '你是流水线测试宠物。',
+/**
+ * 真实出图模式：`--file <路径> [--id <id>] [--name <名字>] [--hires]`
+ *
+ * 给一张真的 AI 出图（2×2 四格）走完整流水线。**这一步会用到已经花掉的生图费用**，
+ * 脚本本身不再调生图——生图只能经 Agent 的 image_generate，本脚本只处理它的产物。
+ */
+function parseRealFileArgs() {
+  const argv = process.argv.slice(2)
+  const get = (flag) => {
+    const i = argv.indexOf(flag)
+    return i >= 0 ? argv[i + 1] : undefined
+  }
+  const file = get('--file')
+  if (!file || !fs.existsSync(file)) {
+    console.error(`--file 指定的文件不存在：${file}`)
+    process.exit(2)
+  }
+  const hires = argv.includes('--hires')
+  const id = get('--id') ?? 'real_dog'
+  return {
+    action: 'build',
+    id,
+    name: get('--name') ?? id,
+    // 2D 高清：出图是 1024 级别的写实卡通，落到 48×56 的像素画布上会糊成一团
+    canvas: hires ? { w: 144, h: 168 } : { w: 48, h: 56 },
+    anchor: hires ? [72, 162] : [24, 54],
+    pixelArt: !hires,
+    scale: hires ? 0.65 : 2,
+    batches: [
+      {
+        file,
+        cols: 2,
+        rows: 2,
+        slot: 'base',
+        names: ['body_00', 'body_01', 'body_02', 'body_03'],
+      },
+    ],
+    personaAddon: '你是这只小狗，活泼亲人。',
+  }
 }
+
+const REAL_FILE = process.argv.includes('--file')
+const params = REAL_FILE
+  ? parseRealFileArgs()
+  : {
+      action: 'build',
+      id: 'test_pet_creator',
+      name: '流水线测试宠物',
+      canvas: { w: 48, h: 56 },
+      anchor: [24, 54],
+      pixelArt: true,
+      scale: 2,
+      batches: [
+        {
+          file: await makeSheet(path.join(RAW_DIR, 'body.png'), [40, 36, 44, 40]),
+          cols: 2,
+          rows: 2,
+          slot: 'base',
+          names: ['body_00', 'body_01', 'body_02', 'body_03'],
+        },
+        {
+          file: await makeSheet(path.join(RAW_DIR, 'eyes.png'), [50, 54, 46, 52]),
+          cols: 2,
+          rows: 2,
+          slot: 'face',
+          category: 'eyes',
+          names: ['eye_open', 'eye_shut', 'eye_happy', 'eye_sad'],
+        },
+      ],
+      personaAddon: '你是流水线测试宠物。',
+    }
+
 
 console.log('=== 跑 pet-creator run.ts ===')
 const r = spawnSync('node', [SKILL], {
@@ -97,4 +147,4 @@ if (!out) {
 }
 const result = JSON.parse(out.slice('__SKILL_RESULT__:'.length))
 console.log(JSON.stringify(result, null, 2))
-fs.rmSync(RAW_DIR, { recursive: true, force: true })
+if (!REAL_FILE) fs.rmSync(RAW_DIR, { recursive: true, force: true })

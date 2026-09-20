@@ -152,6 +152,15 @@ export interface NormalizeOptions {
   anchor: [number, number]
   /** 角色高度占画布高度的比例；默认 0.94（留一点顶边余量） */
   fit?: number
+  /**
+   * 测包围盒用的 alpha 阈值；默认 **128**（半透明以上才算）。
+   *
+   * 比对齐用的 16 高得多，是实测逼出来的：真实 AI 出图抠底后会在角色周围留下一圈
+   * 半透明残晕（alpha 十几到一百多），沿图像边缘尤其明显。用 16 去量，包围盒会一路
+   * 贴到图片边界——倍率按这个"假的最高"算出来偏小，角色比预期小一圈，
+   * 而且首尾帧容易在大画布上被裁。**角色的"边界"应该是肉眼可见的地方，不是 alpha=17 的雾。**
+   */
+  bboxThreshold?: number
 }
 
 export interface NormalizePlacement {
@@ -184,9 +193,10 @@ export function computeNormalize(
   options: NormalizeOptions,
 ): NormalizePlacement[] {
   const fit = options.fit ?? 0.94
+  const bboxThreshold = options.bboxThreshold ?? 128
   const targetH = options.canvas.h * fit
 
-  const boxes = frames.map((f) => alphaBBox(f.data, f.width, f.height))
+  const boxes = frames.map((f) => alphaBBox(f.data, f.width, f.height, bboxThreshold))
   const usable = boxes.filter((b): b is BBox => b !== null)
   const tallest = usable.length > 0 ? Math.max(...usable.map((b) => b.h)) : 0
   const scale = tallest > 0 ? targetH / tallest : 1
