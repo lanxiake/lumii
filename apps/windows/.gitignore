@@ -4,6 +4,13 @@ release/
 release-build-*/
 node_modules/.cache/
 config/.env.pack
+
+# 本机密钥：draw-config.json 由 config/draw-config.example.json 复制而来，
+# 内含 drawApiKey / imageUpstreamApiKey，打包时经 extraResources 打进安装包。
+# package-app.js 把「文件缺失」当打包失败条件，但它**不进仓库**——
+# 少了这一条，`git add -A` 会把明文密钥提交上去。
+config/draw-config.json
+
 # pet-lab 第三方 Live2D 示例仓库（体积大，仅本地预览参考）
 pet-lab/live2d-master/
 pet-lab/live2d-master.zip
