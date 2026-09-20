@@ -58,18 +58,25 @@ describe('formatWikiExtBadgeLabel', () => {
 })
 
 describe('wikiMediaTypeIconColor / wikiFileExtBadgeColor', () => {
+  // 色值走 --mt-file-* 令牌（定义在 design-system.css 三个主题块），
+  // 消费点是 DOM 内联 style，CSS 变量天然可用。改动前是字面 hex。
+  const isToken = (v: string) => expect(v).toMatch(/^var\(--mt-file-[\w-]+\)$/)
+
   it('按 mediaType 返回手绘笔记色', () => {
-    expect(wikiMediaTypeIconColor('document')).toMatch(/^#/)
-    expect(wikiMediaTypeIconColor('image')).toMatch(/^#/)
-    expect(wikiMediaTypeIconColor('audio')).toMatch(/^#/)
-    expect(wikiMediaTypeIconColor('video')).toMatch(/^#/)
+    for (const t of ['document', 'image', 'audio', 'video']) isToken(wikiMediaTypeIconColor(t))
     expect(wikiMediaTypeIconColor('document')).not.toBe(wikiMediaTypeIconColor('image'))
   })
 
   it('按后缀细分徽章色，同大类可区分', () => {
-    expect(wikiFileExtBadgeColor('md')).toMatch(/^#/)
-    expect(wikiFileExtBadgeColor('pdf')).toMatch(/^#/)
+    isToken(wikiFileExtBadgeColor('md'))
+    isToken(wikiFileExtBadgeColor('pdf'))
     expect(wikiFileExtBadgeColor('md')).not.toBe(wikiFileExtBadgeColor('pdf'))
     expect(wikiFileExtBadgeColor('png')).not.toBe(wikiFileExtBadgeColor('mp4'))
+  })
+
+  it('未知 mediaType / 后缀回退到同一个兜底色', () => {
+    const fallback = wikiFileExtBadgeColor('不存在的后缀')
+    isToken(fallback)
+    expect(wikiMediaTypeIconColor('unknown-media-type')).toBe(fallback)
   })
 })

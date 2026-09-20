@@ -37,11 +37,20 @@ export function getStoredView(): AgentView {
   return 'grid'
 }
 
+/**
+ * 按 agent 名哈希取一个稳定的展示色。
+ *
+ * 走 `--mt-chart-*` 令牌以跟随主题。**关键约束是稳定性**：同名 agent 必须
+ * 永远同色，否则用户对"哪个是哪个"的认知会崩。所以这里保持
+ * **数组长度与顺序完全不变**，只把元素从 hex 换成令牌字符串 ——
+ * 哈希取模的结果不变，同名仍取到同一**位置**的颜色；
+ * 该位置的颜色值随主题不同，这是期望行为。
+ */
 export function agentColor(agent: Agent): string {
   if (agent.identity?.theme) return agent.identity.theme
   const PALETTE = [
-    '#60a5fa', '#34d399', '#f472b6', '#fbbf24',
-    '#a78bfa', '#fb923c', '#2dd4bf', '#e879f9',
+    'var(--mt-chart-1)', 'var(--mt-chart-6)', 'var(--mt-chart-4)', 'var(--mt-chart-3)',
+    'var(--mt-chart-5)', 'var(--mt-chart-7)', 'var(--mt-chart-2)', 'var(--mt-chart-8)',
   ]
   let hash = 0
   for (let i = 0; i < agent.name.length; i++) {
