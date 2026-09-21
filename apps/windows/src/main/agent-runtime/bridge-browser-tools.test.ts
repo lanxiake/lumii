@@ -12,7 +12,7 @@
 import { describe, expect, it } from 'vitest'
 import { ToolRegistry, type ToolExecutionContext } from '@mtbot/agent-runtime'
 import type { BrowserRouteContext } from '@mtbot/browser-control'
-import { registerBrowserTools, browserErrorText } from './bridge-browser-tools'
+import { registerBrowserTools, browserErrorText, browserEvalPayload } from './bridge-browser-tools'
 import { parseJsonToolResultPayload } from './bridge-utils'
 import { buildWindowsBrowserConfig } from '../browser-service'
 
@@ -127,6 +127,51 @@ describe('registerBrowserTools', () => {
     const payload = parseJsonToolResultPayload(result)
     // 报错来自假 profile 的 tab 阶段，说明 /act 处理器已命中且未在 kind 校验处被拦
     expect(String(payload?.error)).toContain(ROUTE_REACHED)
+  })
+})
+
+/**
+ * browser_eval 的返回载荷（2026-09-21 修复）。
+ *
+ * 真实故障：某轮对话全程 0 次 `browser_navigate`，标签一直是启动时的 `about:blank`，
+ * 模型却拿 `player is not defined` 去当「作用域问题」排查。`/act` 的 evaluate 分支
+ * 本就回了 `url`，但 `pick` 只透出 `result`，模型无从知道自己不在目标页上。
+ */
+describe('browserEvalPayload —— 让模型看得见「我在哪个页面」', () => {
+  it('普通页面：透出 result，并带上 url / targetId', () => {
+    const payload = browserEvalPayload({
+      result: { hp: 7 },
+      url: 'file:///C:/ws/outputs/demo/demo2-canvas.html',
+      targetId: 'ABC123',
+    })
+    expect(payload.result).toEqual({ hp: 7 })
+    expect(payload.url).toBe('file:///C:/ws/outputs/demo/demo2-canvas.html')
+    expect(payload.targetId).toBe('ABC123')
+    // 非空白页不该多嘴
+    expect(payload.note).toBeUndefined()
+  })
+
+  it.each(['about:blank', 'about:blank/', 'chrome://newtab', 'chrome://newtab/'])(
+    '空白页 %s：额外给出「先导航」的可照做提示',
+    (url) => {
+      const payload = browserEvalPayload({ result: undefined, url })
+      expect(payload.url).toBe(url)
+      expect(String(payload.note)).toContain('browser_navigate')
+      expect(String(payload.note)).toContain('空白页')
+    },
+  )
+
+  it('旧服务端不回 url 时不报错、也不误报空白页', () => {
+    const payload = browserEvalPayload({ result: 42 })
+    expect(payload.result).toBe(42)
+    expect(payload.url).toBeUndefined()
+    expect(payload.note).toBeUndefined()
+  })
+
+  it('url 为空串（取不到页面）按「没有 url」处理，不触发空白页提示', () => {
+    const payload = browserEvalPayload({ result: 1, url: '' })
+    expect(payload.url).toBeUndefined()
+    expect(payload.note).toBeUndefined()
   })
 })
 

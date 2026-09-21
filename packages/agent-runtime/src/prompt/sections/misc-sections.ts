@@ -359,7 +359,7 @@ export function buildBrowserSection(toolNames: readonly string[], style: PromptS
     return [
       "",
       "## Browser Control",
-      'You control a live browser: `browser_snapshot` lists interactive elements with refs — click/type by `ref: "e12"`, and take a `browser_screenshot` after each action.\nDetails: `prompt_guide(section: "browser")`.',
+      'You control a live browser: `browser_navigate` first to open a URL — until then the tab is a blank page with nothing in it. Then `browser_snapshot` lists interactive elements with refs — click/type by `ref: "e12"`, and take a `browser_screenshot` after each action.\nDetails: `prompt_guide(section: "browser")`.',
       "",
     ]
   }

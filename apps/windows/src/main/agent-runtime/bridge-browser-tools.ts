@@ -75,6 +75,44 @@ export function browserErrorText(err: unknown): string {
   return raw
 }
 
+/**
+ * 空白页判据。浏览器以 `about:blank` 启动，会话没导航过就一直是它——
+ * 此时页面上不存在任何脚本变量，evaluate 报 `X is not defined` 的根因是
+ * 「没打开目标页」，不是「没读到变量」。光给错误原文，模型会把后者当前者去查
+ * （2026-09-21 实测：某轮对话全程 0 次 browser_navigate，模型据此误判为作用域问题）。
+ */
+function isBlankPageUrl(url: string): boolean {
+  return /^(about:blank|chrome:\/\/(newtab|new-tab-page))\/?$/i.test(url.trim())
+}
+
+/**
+ * 组装 `browser_eval` 的返回载荷。
+ *
+ * `/act` 的 evaluate 分支本就回了 `url` / `targetId`（`agent.act.ts:315-320`），
+ * 此前被 `pick` 丢掉、只把 `result` 递给模型——于是模型拿不到「我在哪个页面」这个
+ * 唯一凭据。`about:blank` 上的 `X is not defined` 与目标页上的同名报错，处置方式
+ * 完全不同，必须让模型自己能分辨。导出供测试直接断言（与 `browserErrorText` 同）。
+ */
+export function browserEvalPayload(body: unknown): {
+  result: unknown
+  url?: string
+  targetId?: string
+  note?: string
+} {
+  const b = body as { result?: unknown; url?: string; targetId?: string } | undefined
+  const url = typeof b?.url === 'string' ? b.url : undefined
+  return {
+    result: b?.result,
+    ...(url ? { url } : {}),
+    ...(b?.targetId ? { targetId: b.targetId } : {}),
+    ...(url && isBlankPageUrl(url)
+      ? {
+          note: '当前标签停在空白页，页面上没有任何脚本与变量——先用 browser_navigate 打开目标 URL 再求值。',
+        }
+      : {}),
+  }
+}
+
 export function registerBrowserTools(
   toolRegistry: ToolRegistry,
   ctx: ToolExecutionContext,
@@ -273,11 +311,7 @@ export function registerBrowserTools(
     parameters: Type.Object({ script: Type.String({ description: 'JavaScript code to evaluate' }) }),
     isReadOnly: false, needsPermission: true,
     // 服务端评估入口是 /act 的 evaluate 分支（没有独立的 /eval 路由）
-    execute: wrapExecute(
-      '/act',
-      (p) => ({ kind: 'evaluate', fn: p.script }),
-      (body) => (body as { result?: unknown } | undefined)?.result,
-    ),
+    execute: wrapExecute('/act', (p) => ({ kind: 'evaluate', fn: p.script }), browserEvalPayload),
   }, ctx))
 
   reg(createMtBotTool({
