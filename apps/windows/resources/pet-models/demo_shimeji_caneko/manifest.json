@@ -454,7 +454,7 @@
       "frames": [
         {
           "base": "demo_shimeji_caneko_jump_00",
-          "durationMs": 700
+          "durationMs": 300
         }
       ]
     },

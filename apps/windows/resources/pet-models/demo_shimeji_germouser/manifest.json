@@ -430,7 +430,7 @@
       "frames": [
         {
           "base": "demo_shimeji_germouser_jump_00",
-          "durationMs": 700
+          "durationMs": 300
         }
       ]
     },

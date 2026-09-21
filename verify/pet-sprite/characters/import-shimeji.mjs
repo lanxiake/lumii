@@ -149,14 +149,14 @@ const GROUPS = [
   { group: 'Picked', from: 'DRAG', kind: 'loop', fps: 9, clip: (id, i) => `${id}_drag_${p2(i)}` },
   // 跳跃：素材只有 **1 帧**（"跳起来"的瞬间姿势，底边比别的行高 28px）。
   // 所以用 `holdMs` 把它停久一点——一次蹦跳本来就是个瞬间，但"蹦"要看得见。
-  // 420ms 用户反馈"看不到"，改成 700ms：单帧动作全靠停留时长撑出存在感。
+  // 700ms → 300ms：单帧动作停太久反而像卡住，300ms 是"看得见又干脆"的量级。
   {
     group: 'Jump',
     from: 'JUMP',
     kind: 'once',
     next: 'Idle',
     fps: 9,
-    holdMs: 700,
+    holdMs: 300,
     clip: (id, i) => `${id}_jump_${p2(i)}`,
   },
   // 攀爬：爬到程序主窗口的边缘上（见 `pet-core` 的 `perch`）。两行各 8 帧，
