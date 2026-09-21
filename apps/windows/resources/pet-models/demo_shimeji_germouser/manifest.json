@@ -1,0 +1,441 @@
+{
+  "id": "demo_shimeji_germouser",
+  "rendererType": "sprite",
+  "canvas": {
+    "w": 59,
+    "h": 46
+  },
+  "anchor": [
+    30,
+    45
+  ],
+  "atlas": "atlas.png",
+  "atlasJson": "atlas.json",
+  "hitAreas": [
+    {
+      "id": "HitAreaBody",
+      "points": [
+        [
+          24,
+          18
+        ],
+        [
+          24,
+          21
+        ],
+        [
+          21,
+          22
+        ],
+        [
+          20,
+          23
+        ],
+        [
+          19,
+          24
+        ],
+        [
+          18,
+          25
+        ],
+        [
+          17,
+          26
+        ],
+        [
+          17,
+          27
+        ],
+        [
+          16,
+          28
+        ],
+        [
+          16,
+          29
+        ],
+        [
+          15,
+          30
+        ],
+        [
+          15,
+          32
+        ],
+        [
+          14,
+          33
+        ],
+        [
+          14,
+          34
+        ],
+        [
+          13,
+          35
+        ],
+        [
+          13,
+          36
+        ],
+        [
+          12,
+          37
+        ],
+        [
+          12,
+          38
+        ],
+        [
+          11,
+          39
+        ],
+        [
+          11,
+          41
+        ],
+        [
+          12,
+          42
+        ],
+        [
+          12,
+          42
+        ],
+        [
+          13,
+          43
+        ],
+        [
+          18,
+          44
+        ],
+        [
+          19,
+          45
+        ],
+        [
+          45,
+          45
+        ],
+        [
+          44,
+          44
+        ],
+        [
+          44,
+          40
+        ],
+        [
+          45,
+          39
+        ],
+        [
+          45,
+          37
+        ],
+        [
+          46,
+          36
+        ],
+        [
+          47,
+          35
+        ],
+        [
+          47,
+          34
+        ],
+        [
+          48,
+          33
+        ],
+        [
+          48,
+          30
+        ],
+        [
+          49,
+          29
+        ],
+        [
+          49,
+          26
+        ],
+        [
+          51,
+          25
+        ],
+        [
+          53,
+          24
+        ],
+        [
+          54,
+          23
+        ],
+        [
+          54,
+          22
+        ],
+        [
+          55,
+          21
+        ],
+        [
+          55,
+          18
+        ]
+      ]
+    },
+    {
+      "id": "HitAreaHead",
+      "points": [
+        [
+          29,
+          3
+        ],
+        [
+          29,
+          3
+        ],
+        [
+          28,
+          4
+        ],
+        [
+          28,
+          8
+        ],
+        [
+          29,
+          9
+        ],
+        [
+          29,
+          14
+        ],
+        [
+          26,
+          15
+        ],
+        [
+          26,
+          15
+        ],
+        [
+          25,
+          16
+        ],
+        [
+          25,
+          17
+        ],
+        [
+          24,
+          18
+        ],
+        [
+          24,
+          18
+        ],
+        [
+          55,
+          18
+        ],
+        [
+          55,
+          9
+        ],
+        [
+          56,
+          8
+        ],
+        [
+          56,
+          4
+        ],
+        [
+          55,
+          3
+        ],
+        [
+          55,
+          3
+        ]
+      ]
+    }
+  ],
+  "animations": [
+    {
+      "group": "Idle",
+      "index": 0,
+      "kind": "loop",
+      "fps": 9,
+      "frames": [
+        {
+          "base": "demo_shimeji_germouser_stand_00",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        }
+      ],
+      "params": {
+        "bob": 3,
+        "breathe": 1.02,
+        "sway": 1.5
+      }
+    },
+    {
+      "group": "Walk",
+      "index": 0,
+      "kind": "loop",
+      "fps": 9,
+      "frames": [
+        {
+          "base": "demo_shimeji_germouser_walk_00",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        },
+        {
+          "base": "demo_shimeji_germouser_walk_01",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        },
+        {
+          "base": "demo_shimeji_germouser_walk_02",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        },
+        {
+          "base": "demo_shimeji_germouser_walk_03",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        }
+      ]
+    },
+    {
+      "group": "Talk",
+      "index": 0,
+      "kind": "loop",
+      "fps": 9,
+      "frames": [
+        {
+          "base": "demo_shimeji_germouser_stand_00",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        }
+      ]
+    },
+    {
+      "group": "Wave",
+      "index": 0,
+      "kind": "once",
+      "next": "Idle",
+      "fps": 9,
+      "frames": [
+        {
+          "base": "demo_shimeji_germouser_stand_00",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        },
+        {
+          "base": "demo_shimeji_germouser_greet_00",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        },
+        {
+          "base": "demo_shimeji_germouser_greet_01",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        },
+        {
+          "base": "demo_shimeji_germouser_greet_02",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        },
+        {
+          "base": "demo_shimeji_germouser_greet_03",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        },
+        {
+          "base": "demo_shimeji_germouser_greet_04",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        },
+        {
+          "base": "demo_shimeji_germouser_greet_05",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        },
+        {
+          "base": "demo_shimeji_germouser_greet_06",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        },
+        {
+          "base": "demo_shimeji_germouser_greet_07",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        },
+        {
+          "base": "demo_shimeji_germouser_stand_00",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        }
+      ]
+    }
+  ],
+  "slots": {
+    "face": {
+      "kind": "layered",
+      "at": [
+        0,
+        0
+      ],
+      "parts": {
+        "face": [
+          "face_none",
+          "face_blush",
+          "face_sparkle",
+          "face_sweat",
+          "face_anger",
+          "face_heart"
+        ]
+      }
+    }
+  }
+}

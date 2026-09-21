@@ -1,0 +1,473 @@
+{
+  "id": "demo_shimeji_turkat",
+  "rendererType": "sprite",
+  "canvas": {
+    "w": 90,
+    "h": 59
+  },
+  "anchor": [
+    45,
+    58
+  ],
+  "atlas": "atlas.png",
+  "atlasJson": "atlas.json",
+  "hitAreas": [
+    {
+      "id": "HitAreaBody",
+      "points": [
+        [
+          19,
+          21
+        ],
+        [
+          19,
+          26
+        ],
+        [
+          20,
+          27
+        ],
+        [
+          20,
+          29
+        ],
+        [
+          21,
+          31
+        ],
+        [
+          21,
+          35
+        ],
+        [
+          20,
+          37
+        ],
+        [
+          20,
+          42
+        ],
+        [
+          19,
+          44
+        ],
+        [
+          19,
+          46
+        ],
+        [
+          20,
+          47
+        ],
+        [
+          21,
+          48
+        ],
+        [
+          22,
+          50
+        ],
+        [
+          22,
+          51
+        ],
+        [
+          23,
+          52
+        ],
+        [
+          23,
+          53
+        ],
+        [
+          24,
+          54
+        ],
+        [
+          25,
+          56
+        ],
+        [
+          26,
+          57
+        ],
+        [
+          26,
+          58
+        ],
+        [
+          59,
+          58
+        ],
+        [
+          59,
+          57
+        ],
+        [
+          58,
+          56
+        ],
+        [
+          59,
+          54
+        ],
+        [
+          59,
+          53
+        ],
+        [
+          61,
+          52
+        ],
+        [
+          62,
+          51
+        ],
+        [
+          62,
+          50
+        ],
+        [
+          64,
+          48
+        ],
+        [
+          64,
+          47
+        ],
+        [
+          65,
+          46
+        ],
+        [
+          65,
+          44
+        ],
+        [
+          70,
+          42
+        ],
+        [
+          70,
+          34
+        ],
+        [
+          71,
+          33
+        ],
+        [
+          71,
+          31
+        ],
+        [
+          72,
+          29
+        ],
+        [
+          72,
+          23
+        ],
+        [
+          73,
+          22
+        ],
+        [
+          73,
+          21
+        ]
+      ]
+    },
+    {
+      "id": "HitAreaHead",
+      "points": [
+        [
+          52,
+          2
+        ],
+        [
+          50,
+          3
+        ],
+        [
+          50,
+          3
+        ],
+        [
+          49,
+          4
+        ],
+        [
+          49,
+          4
+        ],
+        [
+          47,
+          5
+        ],
+        [
+          24,
+          6
+        ],
+        [
+          24,
+          6
+        ],
+        [
+          23,
+          7
+        ],
+        [
+          22,
+          8
+        ],
+        [
+          22,
+          8
+        ],
+        [
+          21,
+          9
+        ],
+        [
+          21,
+          13
+        ],
+        [
+          20,
+          14
+        ],
+        [
+          20,
+          20
+        ],
+        [
+          19,
+          21
+        ],
+        [
+          73,
+          21
+        ],
+        [
+          73,
+          12
+        ],
+        [
+          72,
+          11
+        ],
+        [
+          72,
+          8
+        ],
+        [
+          71,
+          7
+        ],
+        [
+          70,
+          6
+        ],
+        [
+          70,
+          6
+        ],
+        [
+          67,
+          5
+        ],
+        [
+          61,
+          4
+        ],
+        [
+          61,
+          4
+        ],
+        [
+          57,
+          3
+        ],
+        [
+          57,
+          3
+        ],
+        [
+          53,
+          2
+        ]
+      ]
+    }
+  ],
+  "animations": [
+    {
+      "group": "Idle",
+      "index": 0,
+      "kind": "loop",
+      "fps": 9,
+      "frames": [
+        {
+          "base": "demo_shimeji_turkat_stand_00",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        }
+      ],
+      "params": {
+        "bob": 4,
+        "breathe": 1.02,
+        "sway": 1.5
+      }
+    },
+    {
+      "group": "Walk",
+      "index": 0,
+      "kind": "loop",
+      "fps": 9,
+      "frames": [
+        {
+          "base": "demo_shimeji_turkat_walk_00",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        },
+        {
+          "base": "demo_shimeji_turkat_walk_01",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        },
+        {
+          "base": "demo_shimeji_turkat_walk_02",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        },
+        {
+          "base": "demo_shimeji_turkat_walk_03",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        }
+      ]
+    },
+    {
+      "group": "Talk",
+      "index": 0,
+      "kind": "loop",
+      "fps": 9,
+      "frames": [
+        {
+          "base": "demo_shimeji_turkat_stand_00",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        }
+      ]
+    },
+    {
+      "group": "Wave",
+      "index": 0,
+      "kind": "once",
+      "next": "Idle",
+      "fps": 9,
+      "frames": [
+        {
+          "base": "demo_shimeji_turkat_stand_00",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        },
+        {
+          "base": "demo_shimeji_turkat_greet_00",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        },
+        {
+          "base": "demo_shimeji_turkat_greet_01",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        },
+        {
+          "base": "demo_shimeji_turkat_greet_02",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        },
+        {
+          "base": "demo_shimeji_turkat_greet_03",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        },
+        {
+          "base": "demo_shimeji_turkat_greet_04",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        },
+        {
+          "base": "demo_shimeji_turkat_greet_05",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        },
+        {
+          "base": "demo_shimeji_turkat_greet_06",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        },
+        {
+          "base": "demo_shimeji_turkat_greet_07",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        },
+        {
+          "base": "demo_shimeji_turkat_stand_00",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        }
+      ]
+    }
+  ],
+  "slots": {
+    "face": {
+      "kind": "layered",
+      "at": [
+        0,
+        0
+      ],
+      "parts": {
+        "face": [
+          "face_none",
+          "face_blush",
+          "face_sparkle",
+          "face_sweat",
+          "face_anger",
+          "face_heart"
+        ]
+      }
+    }
+  }
+}

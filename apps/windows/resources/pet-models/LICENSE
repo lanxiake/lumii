@@ -11,8 +11,13 @@
 | Akyuu（akyuu） | 第三方模型（见 ReadMe.txt） | **仅限开发测试**；商用前须确认原作者授权 |
 | Live2D Cubism SDK | Live2D Open Software License | 遵守 SDK 许可 |
 | Cubism Core (`live2dcubismcore.min.js`) | Live2D Proprietary License | 遵守分发条款，放在 `../live2d/` |
+| Shimeji 精灵表（`demo_shimeji_*` 五只猫） | 第三方同人素材（作者 uncut-adventure 等） | **仅限开发测试**；同人作品，发布前必须替换或取得授权。逐张署名见 `SHIMEJI-CREDITS.md` |
 
 ⚠️ **发布检查清单强约束**：免费样本模型禁止随产品发布，必须替换或购买商用授权。
+
+⚠️ **`demo_shimeji_*` 是 2026-09-21 为验证精灵图流水线导入的**（`verify/pet-sprite/characters/import-shimeji.mjs`），
+它们**不是 AI 生成**，是真人画的同人素材——比 Live2D 那几只多一层版权风险（角色本身也是别人的）。
+**发布前同样必须替换。** 这张表就是给发布检查用的，新增素材时请一并登记。
 
 ## 目录结构
 

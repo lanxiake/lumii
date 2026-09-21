@@ -1,0 +1,163 @@
+{
+  "frames": {
+    "demo_shimeji_nekojapan_greet_00": {
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 58,
+        "h": 38
+      }
+    },
+    "demo_shimeji_nekojapan_greet_01": {
+      "frame": {
+        "x": 58,
+        "y": 0,
+        "w": 58,
+        "h": 38
+      }
+    },
+    "demo_shimeji_nekojapan_greet_02": {
+      "frame": {
+        "x": 116,
+        "y": 0,
+        "w": 58,
+        "h": 38
+      }
+    },
+    "demo_shimeji_nekojapan_greet_03": {
+      "frame": {
+        "x": 174,
+        "y": 0,
+        "w": 58,
+        "h": 38
+      }
+    },
+    "demo_shimeji_nekojapan_greet_04": {
+      "frame": {
+        "x": 232,
+        "y": 0,
+        "w": 58,
+        "h": 38
+      }
+    },
+    "demo_shimeji_nekojapan_greet_05": {
+      "frame": {
+        "x": 290,
+        "y": 0,
+        "w": 58,
+        "h": 38
+      }
+    },
+    "demo_shimeji_nekojapan_greet_06": {
+      "frame": {
+        "x": 348,
+        "y": 0,
+        "w": 58,
+        "h": 38
+      }
+    },
+    "demo_shimeji_nekojapan_greet_07": {
+      "frame": {
+        "x": 406,
+        "y": 0,
+        "w": 58,
+        "h": 38
+      }
+    },
+    "demo_shimeji_nekojapan_stand_00": {
+      "frame": {
+        "x": 0,
+        "y": 38,
+        "w": 58,
+        "h": 38
+      }
+    },
+    "demo_shimeji_nekojapan_walk_00": {
+      "frame": {
+        "x": 58,
+        "y": 38,
+        "w": 58,
+        "h": 38
+      }
+    },
+    "demo_shimeji_nekojapan_walk_01": {
+      "frame": {
+        "x": 116,
+        "y": 38,
+        "w": 58,
+        "h": 38
+      }
+    },
+    "demo_shimeji_nekojapan_walk_02": {
+      "frame": {
+        "x": 174,
+        "y": 38,
+        "w": 58,
+        "h": 38
+      }
+    },
+    "demo_shimeji_nekojapan_walk_03": {
+      "frame": {
+        "x": 232,
+        "y": 38,
+        "w": 58,
+        "h": 38
+      }
+    },
+    "face_anger": {
+      "frame": {
+        "x": 290,
+        "y": 38,
+        "w": 58,
+        "h": 38
+      }
+    },
+    "face_blush": {
+      "frame": {
+        "x": 348,
+        "y": 38,
+        "w": 58,
+        "h": 38
+      }
+    },
+    "face_heart": {
+      "frame": {
+        "x": 406,
+        "y": 38,
+        "w": 58,
+        "h": 38
+      }
+    },
+    "face_none": {
+      "frame": {
+        "x": 0,
+        "y": 76,
+        "w": 58,
+        "h": 38
+      }
+    },
+    "face_sparkle": {
+      "frame": {
+        "x": 58,
+        "y": 76,
+        "w": 58,
+        "h": 38
+      }
+    },
+    "face_sweat": {
+      "frame": {
+        "x": 116,
+        "y": 76,
+        "w": 58,
+        "h": 38
+      }
+    }
+  },
+  "meta": {
+    "image": "atlas.png",
+    "size": {
+      "w": 464,
+      "h": 114
+    }
+  }
+}
