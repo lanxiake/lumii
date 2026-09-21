@@ -101,6 +101,22 @@ export interface SpriteManifest {
   /** 口型档位（对应图集条目名），档数由模型自定 */
   mouthLevels?: string[]
   hitAreas?: SpriteHitArea[]
+  /**
+   * 攀附几何：CLIMB / CRAWL 两行素材留白占帧高的比例。
+   *
+   * **每只宠物的留白都不一样**——素材是作者逐帧画的。实测五只 Shimeji 猫的
+   * CLIMB 侧向留白 49~57px、CRAWL 纵向 31~43px（帧高 128）。几何侧用一个统一
+   * 比例的话最坏差 6px，乘上缩放就是屏幕上看得见的偏移（宠物压在窗口上、
+   * 或者离墙悬着）。所以由**切图工具量出来写进清单**，而不是在几何代码里猜。
+   *
+   * 省略时由 `pet-core` 的 `PERCH_DEFAULTS` 兜底——没有攀爬动作的模型用不上。
+   */
+  perchGaps?: {
+    /** 爬墙：内容侧边距锚点的比例（内容在锚点外侧多远） */
+    wall: number
+    /** 爬天花板：内容顶边距锚点的比例（锚点在内容下方多远） */
+    ceiling: number
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -142,7 +158,7 @@ const isFiniteNumber = (v: unknown): v is number =>
 /** 顶层与动画对象的已知字段，用于拒绝夹带 */
 const MANIFEST_KEYS = new Set([
   "id", "rendererType", "pixelArt", "canvas", "anchor", "atlas", "atlasJson",
-  "slots", "animations", "mouthLevels", "hitAreas",
+  "slots", "animations", "mouthLevels", "hitAreas", "perchGaps",
 ])
 const ANIMATION_KEYS = new Set([
   "group", "index", "kind", "source", "fps", "frames", "params", "next",
@@ -189,6 +205,25 @@ export function validateSpriteManifest(
   }
   if (input.pixelArt !== undefined && typeof input.pixelArt !== "boolean") {
     errors.push({ path: "pixelArt", message: "pixelArt 必须是布尔值" })
+  }
+
+  // ---- perchGaps（可选）----
+  // 比例必须落在 (0, 1]：它是「留白 ÷ 帧高」。0 表示内容贴着锚点，
+  // 大于 1 表示留白比整个画布还高——两种都说明切图那边算错了，
+  // 与其让它传到几何里去，不如在这里拦下。
+  if (input.perchGaps !== undefined) {
+    const pg = input.perchGaps
+    if (!isPlainObject(pg) || !isFiniteNumber(pg.wall) || !isFiniteNumber(pg.ceiling)) {
+      errors.push({
+        path: "perchGaps",
+        message: "perchGaps 必须是 { wall, ceiling } 两个有限数值",
+      })
+    } else if (pg.wall <= 0 || pg.wall > 1 || pg.ceiling <= 0 || pg.ceiling > 1) {
+      errors.push({
+        path: "perchGaps",
+        message: `perchGaps 的两项都应在 (0, 1] 内，收到 wall=${pg.wall} ceiling=${pg.ceiling}`,
+      })
+    }
   }
 
   // ---- canvas 与 anchor ----

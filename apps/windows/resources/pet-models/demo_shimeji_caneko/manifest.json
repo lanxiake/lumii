@@ -9,6 +9,10 @@
     56,
     127
   ],
+  "perchGaps": {
+    "wall": 0.4296875,
+    "ceiling": 0.3046875
+  },
   "atlas": "atlas.png",
   "atlasJson": "atlas.json",
   "hitAreas": [

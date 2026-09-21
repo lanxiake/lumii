@@ -73,8 +73,17 @@ export interface PetRendererProvider extends PetCoreRenderer {
    * 自主行走要据此把「画布宽度」换算成「脚能走到哪」——锚点在脚底中心，
    * 左右各留 `anchorX × scale` 才是可达区间，用半个模型宽度会算歪。
    * `modelHeight` 给攀爬用：与墙面留的缝隙要跟体型成比例。
+   *
+   * `perchGaps`（有攀爬动作的模型才有）：CLIMB/CRAWL 两行的**素材留白占帧高的比例**，
+   * 由切图工具量出来写进清单。**每只宠物都不一样**，几何侧据此覆盖兜底值——
+   * 用统一常量最坏差 6px，乘缩放就是屏幕上看得见的偏移。
    */
-  getLayout?(): { anchorX: number; scale: number; modelHeight: number } | null
+  getLayout?(): {
+    anchorX: number
+    scale: number
+    modelHeight: number
+    perchGaps?: { wall: number; ceiling: number }
+  } | null
 
   /** 获取模型身体外接矩形（窗口坐标，用于 setShape 点击区域） */
   getModelScreenBounds(): { x: number; y: number; width: number; height: number } | null

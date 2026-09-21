@@ -10,12 +10,21 @@
  * CRAWL 行是 **63 宽 × 40 高**（横扁）。也就是说这两行**本来就是画成爬墙/爬天花板的**，
  * 不需要任何旋转——渲染层只要把它们摆到对应位置就行。
  *
- * ## 锚点的语义在攀爬时会变
+ * ## 锚点的语义在攀爬时会变，而且**每一行变得不一样**
  *
- * 平地上锚点 = 脚底中心，`(x, y)` 就是"宠物站在哪"。
- * 爬墙时锚点仍指同一个点，但**竖长姿势的内容底边距锚点有一段空隙**（CLIMB 行的底边
- * 在格内 y≈108，而全表地线是 127）——那 19px 是素材自己留的，缩放后按比例放大。
- * 所以爬墙时宠物与墙面之间会有约 `19 × scale` 的缝，`PERCH_GAP_RATIO` 就是用来补它的。
+ * 平地上锚点 = 脚底中心，`(x, y)` 就是"宠物站在哪"，内容也正好贴到帧底。
+ * 攀爬的两行则各自留了大片空白，**两行的留白还不一样**——这是实测出来的
+ * （`sheet-rows.mjs` 量包围盒 + 逐帧反查内容位置），不是猜的：
+ *
+ *   | 行    | 内容在帧内的位置        | 距锚点（帧底中心） | 用途 |
+ *   | ----- | ----------------------- | ------------------ | ---- |
+ *   | CLIMB | 右边贴帧右缘，竖向 36×62 | 右侧 55px / 底 18px | 贴墙 |
+ *   | CRAWL | 切图时已垂直翻转，贴帧底 | 顶部 39px          | 倒挂 |
+ *
+ * **早先这里只有一个 `gapRatio = 0.15`**，是把"素材留白"当成了一个统一的量——
+ * 结果爬墙时宠物压在窗口上 36px、爬到顶转爬行时整个飘到窗口上沿以上
+ * （`ceilingY` 的符号也写反了：宠物在窗口**下方**倒挂，锚点该比上沿大）。
+ * 两个方向、两个量，一个比例表达不了。
  *
  * 约束（务必保持）：本包为纯 TS，禁止 import 任何运行时依赖。
  */
@@ -48,18 +57,29 @@ export interface PerchConfig {
   /** 爬升速度（像素/秒）。比走路慢：爬是费力的事，比走路还快会显得轻飘 */
   climbSpeed: number
   /**
-   * 爬行时身体与墙面之间留的空隙，**按模型高度的比例**给。
+   * 爬墙时**身体侧边与墙面的缝隙**，按模型高度（画布高 × 缩放）的比例给。
    *
-   * 实测 CLIMB 行的内容底边距全表地线 19/128 ≈ 0.148，取这个量级即可贴身。
-   * 用比例而不是像素：换一只体型不同的宠物不用重新调。
+   * 实测 `shimeji_*.png` 的 CLIMB 行：内容右边缘距锚点 55px，帧高 128 → 0.43。
+   * 五只猫是同一作者同一规格画的，共用这个值；`import-shimeji.mjs` 切图时会**断言**
+   * 这一点，素材换了会在导入期报错，而不是等到运行时才发现宠物压在窗口上。
    */
-  gapRatio: number
+  wallGapRatio: number
+  /**
+   * 爬天花板时**背与天花板的缝隙**，同样按模型高度比例。
+   *
+   * CRAWL 行在切图时已垂直翻转（见 `import-shimeji.mjs` 的 `flipY`），内容顶边
+   * 距锚点 39px / 128 → 0.30。
+   *
+   * 注意方向：宠物是**倒挂在窗口上沿之下**的，所以锚点比上沿**大**（见 `ceilingY`）。
+   */
+  ceilingGapRatio: number
 }
 
 export const PERCH_DEFAULTS: PerchConfig = {
   attachDistance: 24,
   climbSpeed: 45,
-  gapRatio: 0.15,
+  wallGapRatio: 0.43,
+  ceilingGapRatio: 0.3,
 }
 
 /**
@@ -92,15 +112,22 @@ export function tryAttach(
 
 /** 某一侧墙面在画布上的 x（宠物锚点该贴的位置） */
 export function wallX(rect: PerchRect, side: PerchSide, cfg: PerchConfig = PERCH_DEFAULTS, modelHeight = 0): number {
-  const gap = modelHeight * cfg.gapRatio
+  const gap = modelHeight * cfg.wallGapRatio
   // 左墙：宠物在墙的**外侧**（左边），所以锚点往左挪一个缝隙；
   // 右墙反之。这个方向搞反的话宠物会整个压在窗口内容上。
   return side === 'left' ? rect.x - gap : rect.x + rect.width + gap
 }
 
-/** 天花板（窗口上边缘）在画布上的 y —— 宠物贴在它上方 */
+/**
+ * 天花板（窗口上边缘）对应的锚点 y —— 宠物**倒挂在上沿之下**。
+ *
+ * 所以是**加**不是减：素材的 CRAWL 行在切图时已垂直翻转成"内容贴帧底"，
+ * 锚点即内容底边，自然落在上沿下方一个"内容高度"处。
+ * 早先写成 `rect.y - gap` 时，宠物会飘到窗口上沿**以上**（实测在 208，
+ * 而上沿是 250）。
+ */
 export function ceilingY(rect: PerchRect, cfg: PerchConfig = PERCH_DEFAULTS, modelHeight = 0): number {
-  return rect.y - modelHeight * cfg.gapRatio
+  return rect.y + modelHeight * cfg.ceilingGapRatio
 }
 
 export interface ClimbStep {
@@ -173,15 +200,19 @@ export function shouldLetGo(
   petY: number,
   cfg: PerchConfig = PERCH_DEFAULTS,
   minHeight = 120,
+  modelHeight = 0,
 ): boolean {
   if (!state) return false
   if (!rect || rect.height < minHeight) return true
 
-  if (state.kind === 'wall') {
-    // 墙面跑了：宠物贴着的那条边已经不在脚下
-    const target = wallX(rect, state.side, cfg)
-    return Math.abs(petX - target) > cfg.attachDistance * 4
-  }
-  // 天花板上：窗口整个移开了
-  return petY < rect.y - rect.height || petY > rect.y + cfg.attachDistance * 4
+  // 两条边共用一个判据：**宠物离它该在的那条线太远了**。
+  //
+  // `modelHeight` 必须与 `attachPerch` 传的一致：两边补偿不同的话，宠物刚吸附
+  // 就会被判成"已脱离"——差值恰好是一个缝隙，而阈值只有 96px。
+  const target =
+    state.kind === 'wall'
+      ? wallX(rect, state.side, cfg, modelHeight)
+      : ceilingY(rect, cfg, modelHeight)
+  const dist = state.kind === 'wall' ? Math.abs(petX - target) : Math.abs(petY - target)
+  return dist > cfg.attachDistance * 4
 }

@@ -85,8 +85,14 @@ describe('wallX / ceilingY — 缝隙方向', () => {
     expect(wallX(RECT, 'left', PERCH_DEFAULTS, 0)).toBe(RECT.x)
   })
 
-  it('天花板在窗口上边缘之上', () => {
-    expect(ceilingY(RECT, PERCH_DEFAULTS, 128)).toBeLessThan(RECT.y)
+  it('天花板锚点在窗口上沿**之下**——宠物是倒挂的', () => {
+    // 这里原本断言 `toBeLessThan(RECT.y)`，把"宠物贴在上沿之上"当成了正确行为。
+    // 素材的 CRAWL 行在切图时已垂直翻转成"内容贴帧底"，锚点即内容底边，
+    // 自然落在上沿**下方**；按旧假设摆的话宠物会飘到窗口外面去
+    // （实测抓到过 `松手（爬到尽头）@(1980, 208)`，而上沿是 250）。
+    const y = ceilingY(RECT, PERCH_DEFAULTS, 128)
+    expect(y).toBeGreaterThan(RECT.y)
+    expect(y - RECT.y).toBeCloseTo(128 * PERCH_DEFAULTS.ceilingGapRatio, 6)
   })
 })
 

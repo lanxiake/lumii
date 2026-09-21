@@ -719,15 +719,25 @@ export class SpritePetRenderer implements PetRendererProvider {
    * 不复用 `getHitTransform()`：那个方法的契约是**命中判定的诊断口径**
    * （pet-lab 拿它反算期望值），往上面挂行为层的需求会让两边互相牵制。
    */
-  getLayout(): { anchorX: number; scale: number; modelHeight: number } | null {
+  getLayout(): {
+    anchorX: number
+    scale: number
+    modelHeight: number
+    perchGaps?: { wall: number; ceiling: number }
+  } | null {
     if (!this.runtime) return null
     const scale = this.effectiveScale()
+    const gaps = this.runtime.manifest.perchGaps
     return {
       anchorX: this.runtime.manifest.anchor[0],
       scale,
       // 攀爬时用它算"身体与墙面留多宽缝隙"（见 pet-core 的 perch.gapRatio）：
       // 缝隙得跟体型成比例，换个大小的模型才不用重新调
       modelHeight: this.runtime.manifest.canvas.h * scale,
+      // **素材实测的留白比例**，由切图工具量出来写进清单——每只宠物都不一样
+      // （五只 Shimeji 猫的 CLIMB 侧向留白 49~57px），用一个统一常量最坏差 6px，
+      // 乘缩放就是屏幕上看得见的偏移。没有这个字段的模型由 PERCH_DEFAULTS 兜底。
+      ...(gaps ? { perchGaps: gaps } : {}),
     }
   }
 

@@ -150,7 +150,18 @@ const GROUPS = [
   // 攀爬：爬到程序主窗口的边缘上（见 `pet-core` 的 `perch`）。两行各 8 帧，
   // 是这套素材里帧数最多的动作——爬行本来就比走路需要更多中间帧才不显得跳。
   { group: 'Climb', from: 'CLIMB', kind: 'loop', fps: 9, clip: (id, i) => `${id}_climb_${p2(i)}` },
-  { group: 'Crawl', from: 'CRAWL', kind: 'loop', fps: 9, clip: (id, i) => `${id}_crawl_${p2(i)}` },
+  // `flipY`：CRAWL 行在素材里是**正着横躺**的猫（头在左上、腿在左下），而它的用途是
+  // **倒挂在天花板下**。参考项目 `SpriteAnimationView.calculateFlip` 的注释也是这么说的
+  // ——"垂直翻转：因为是倒挂着的，头朝下"（它代码里那句 `false` 是它自己的 bug）。
+  // 在切图期翻好，运行时就不必再管朝向，锚点语义也和别的行统一（内容贴帧底）。
+  {
+    group: 'Crawl',
+    from: 'CRAWL',
+    kind: 'loop',
+    fps: 9,
+    flipY: true,
+    clip: (id, i) => `${id}_crawl_${p2(i)}`,
+  },
 ]
 const p2 = (i) => String(i).padStart(2, '0')
 
@@ -249,6 +260,54 @@ console.log(
   `  并集包围盒 x${ux0}..${ux1} y${uy0}..${uy1}（地线 ${groundY}）→ 画布 ${cropW}×${cropH}，锚点 (${anchor})`,
 )
 
+// ---- 几何侧依赖的两个留白：**量出来，写进清单** ----
+//
+// `pet-core` 的 `PERCH_DEFAULTS` 只是兜底；**每只宠物的留白都不一样**——
+// 实测五只猫的 CLIMB 侧向留白 49~57px、CRAWL 纵向 31~43px。用一个统一比例，
+// 最坏情况差 6px，乘上缩放（2.2）就是屏幕上十几像素的偏移：
+// 宠物要么压在窗口上，要么离墙悬着。所以量出来写进清单，渲染器经 `getLayout()`
+// 报给驱动，驱动据此覆盖 PERCH_DEFAULTS。
+//
+// 这里同时留一道**范围哨兵**：数值跑出合理区间说明素材或裁切出了问题，
+// 应当当场炸掉，而不是等到运行时看见宠物飘在窗口外面。
+const perchGaps = (() => {
+  /** 某一行所有帧的并集包围盒，转到画布坐标；`flipY` 与 `emitRow` 的翻转保持一致 */
+  const groupBounds = (from, flipY) => {
+    const r = ROWS[from]
+    let x0 = 1e9
+    let x1 = -1
+    let y0 = 1e9
+    let y1 = -1
+    for (let c = 0; c < rowFrames[from]; c++) {
+      const s = cellStat(c, r)
+      if (s.n === 0) continue
+      const sy0 = flipY ? cropH - 1 - s.y1 : s.y0
+      const sy1 = flipY ? cropH - 1 - s.y0 : s.y1
+      x0 = Math.min(x0, s.x0 - left)
+      x1 = Math.max(x1, s.x1 - left)
+      y0 = Math.min(y0, sy0 - top)
+      y1 = Math.max(y1, sy1 - top)
+    }
+    return { x0, x1, y0, y1 }
+  }
+
+  const climb = groupBounds('CLIMB', false)
+  const crawl = groupBounds('CRAWL', true)
+  const wall = (climb.x1 - anchor[0]) / canvas.h
+  const ceiling = (anchor[1] - crawl.y0) / canvas.h
+  console.log(
+    `  攀附留白：CLIMB 侧向 ${climb.x1 - anchor[0]}px → ${wall.toFixed(3)}；` +
+      `CRAWL 纵向 ${anchor[1] - crawl.y0}px → ${ceiling.toFixed(3)}`,
+  )
+  if (!(wall > 0.2 && wall < 0.6) || !(ceiling > 0.15 && ceiling < 0.6)) {
+    throw new Error(
+      `攀附留白超出合理区间（wall=${wall.toFixed(3)} ceiling=${ceiling.toFixed(3)}）。` +
+        '素材换了或者裁切范围变了，先确认这两行画的是什么再继续。',
+    )
+  }
+  return { wall, ceiling }
+})()
+
 const work = path.join(os.homedir(), '.lumii', 'workspace', 'outputs', `shimeji-${id}`)
 fs.rmSync(work, { recursive: true, force: true })
 const parts = path.join(work, 'parts')
@@ -262,10 +321,11 @@ async function emitRow(g) {
   for (let c = 0; c < n; c++) {
     const name = g.clip(id, c)
     names.push(name)
-    await sharp(data, { raw: { width: W, height: H, channels: C } })
+    let img = sharp(data, { raw: { width: W, height: H, channels: C } })
       .extract({ left: c * CELL + left, top: r * CELL + top, width: cropW, height: cropH })
-      .png()
-      .toFile(path.join(parts, `${name}.png`))
+    // 绕帧中心垂直翻转（见 GROUPS 里 Crawl 的 flipY 注释）
+    if (g.flipY) img = img.flip()
+    await img.png().toFile(path.join(parts, `${name}.png`))
   }
   return names
 }
@@ -328,6 +388,9 @@ const manifest = {
   rendererType: 'sprite',
   canvas,
   anchor,
+  // 攀附几何：CLIMB/CRAWL 两行的素材留白占帧高的比例（见上面 perchGaps 的注释）。
+  // 渲染器经 `getLayout()` 报给驱动，驱动据此覆盖 PERCH_DEFAULTS 里的兜底值。
+  perchGaps,
   atlas: 'atlas.png',
   atlasJson: 'atlas.json',
   ...(ha.hitAreas.length > 0 ? { hitAreas: ha.hitAreas } : {}),

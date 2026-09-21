@@ -198,7 +198,8 @@ describe('PetWanderDriver — 攀附与掉落', () => {
       onActivity,
       config: AMBIENT_DEFAULTS,
       // 爬得飞快：这几条测的是"掉到哪"，不是"爬多久"
-      perchConfig: { attachDistance: 24, climbSpeed: 4500, gapRatio: 0.15 },
+      // 留白比例用 `PERCH_DEFAULTS` 的真值（它们是实测素材来的，测试里没有理由另编一套）
+      perchConfig: { attachDistance: 24, climbSpeed: 4500, wallGapRatio: 0.43, ceilingGapRatio: 0.3 },
       rand: () => 0.5,
     })
     driver.setPerchRect({ x: 500, y: 400, width: 800, height: 300 })

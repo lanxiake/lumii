@@ -86,7 +86,11 @@ export class PetWanderDriver {
   private readonly renderer: PetRendererProvider
   private readonly onActivity: (pose: PetPose) => void
   private readonly config: AmbientConfig
-  private readonly perchConfig: PerchConfig
+  /**
+   * 攀附参数。**不是 readonly**：素材实测的留白比例（`layout.perchGaps`）会覆盖
+   * 兜底值，见 `refreshLayout`。
+   */
+  private perchConfig: PerchConfig
   private readonly rand: () => number
 
   private rafId: number | null = null
@@ -179,7 +183,7 @@ export class PetWanderDriver {
   setPerchRect(rect: PerchRect | null): void {
     this.perchRect = rect
     if (!this.perch) return
-    if (shouldLetGo(this.perch, rect, this.x, this.y, this.perchConfig, this.minPerchHeight())) {
+    if (shouldLetGo(this.perch, rect, this.x, this.y, this.perchConfig, this.minPerchHeight(), this.modelHeight)) {
       this.releasePerch('目标不可用')
     }
   }
@@ -187,7 +191,18 @@ export class PetWanderDriver {
   /** 从渲染器读一次布局（缩放/锚点/模型高度）。攀爬的缝隙与判定高度都依赖它 */
   private refreshLayout(): void {
     const layout = this.renderer.getLayout?.()
-    if (layout && layout.scale > 0) this.modelHeight = layout.modelHeight
+    if (!layout || !(layout.scale > 0)) return
+    this.modelHeight = layout.modelHeight
+    // **素材实测的留白比例优先于兜底值**：每只宠物都不一样（实测五只 Shimeji 猫的
+    // CLIMB 侧向留白 49~57px），用统一常量最坏差 6px、乘缩放就是屏幕上看得见的偏移。
+    // 比例由切图工具量出来写进清单，这里只是把它接上。
+    if (layout.perchGaps) {
+      this.perchConfig = {
+        ...this.perchConfig,
+        wallGapRatio: layout.perchGaps.wall,
+        ceilingGapRatio: layout.perchGaps.ceiling,
+      }
+    }
   }
 
   start(): void {
@@ -367,7 +382,7 @@ export class PetWanderDriver {
   private revalidatePerch(): boolean {
     if (!this.perch) return false
     if (
-      !shouldLetGo(this.perch, this.perchRect, this.x, this.y, this.perchConfig, this.minPerchHeight())
+      !shouldLetGo(this.perch, this.perchRect, this.x, this.y, this.perchConfig, this.minPerchHeight(), this.modelHeight)
     ) {
       return true
     }
