@@ -409,6 +409,40 @@ async function run() {
 
   // ---- 写清单与信封 ----
   const manifest = buildManifest(params, namesByBatch, warnings)
+
+  // ---- 点击命中区 ----
+  //
+  // 从**归一化之后的待机首帧**推：那两个多边形是相对画布的像素坐标，
+  // 只有过完 normalize 的图才有这个坐标系，所以必须在 buildManifest 之后。
+  //
+  // 不推会怎样：渲染器的 `hitTestPolygons` 在 `hitAreas` 为空时恒返回 null，
+  // 而注册表里的 `tapMotions` 是按 `HitAreaHead` / `HitAreaBody` 索引的
+  // ——**两边对不上，点击一路静默走到 return**。实测日志里从没有过
+  // `[playMotion] group="Wave"`，唯一的非待机动作就这么一直播不出来。
+  // 待机首帧：命中区是**待机姿态**的轮廓。用其它动作会把区域撑开或收窄，
+  // 于是点同一个位置时灵时不灵。
+  // 按组名找而不是取 `animations[0]`——数组顺序是构建时定的，靠下标就是在赌它不变。
+  const idleBase = manifest.animations.find((a) => a.group === 'Idle')?.frames?.[0]?.base
+  if (idleBase) {
+    // **推不出来不能把整个构建带崩。** 本技能跑在 App 进程里，op 清单取自 App
+    // 打包进去的那份 pet-asset——若连的是一个还没有 `hitAreas` 的旧 App，
+    // `client()` 会抛「未知 op」。而 `hitAreas` 是**推荐级**字段（见宠物包规范设计
+    // §二.1），缺了点击不灵，但模型本身仍然可用。硬失败等于拿一个可选字段
+    // 去否决一次完整的构建。
+    try {
+      const ha = await client('hitAreas', { dir: normalized, base: idleBase })
+      if (ha.hitAreas.length > 0) manifest.hitAreas = ha.hitAreas
+      warnings.push(...ha.warnings.map((w) => `点击命中区：${w}`))
+    } catch (err) {
+      warnings.push(
+        `点击命中区没推出来（${err instanceof Error ? err.message : String(err)}）——` +
+          `点击这只宠物不会有动作。多半是连着的 App 还没带上 hitAreas 这个 op`,
+      )
+    }
+  } else {
+    warnings.push('模型没有待机帧，推不出点击命中区——点击会完全没有反应')
+  }
+
   fs.writeFileSync(path.join(pkgDir, 'manifest.json'), JSON.stringify(manifest, null, 2))
   fs.writeFileSync(
     path.join(pkgDir, 'pet.json'),

@@ -25,12 +25,13 @@
  */
 
 import { existsSync } from 'node:fs'
-import { resolve, sep } from 'node:path'
+import { join, resolve, sep } from 'node:path'
 import {
   buildSheetPlan,
   resolveUserPetDir,
   runAlign,
   runCutout,
+  runDeriveHitAreas,
   runDiffLayer,
   runInstall,
   runNormalize,
@@ -58,6 +59,7 @@ export type PetAssetOp =
   | 'sheetPlan'
   | 'sheetCheck'
   | 'diffLayer'
+  | 'hitAreas'
 
 const OPS: readonly PetAssetOp[] = [
   'validate',
@@ -70,6 +72,7 @@ const OPS: readonly PetAssetOp[] = [
   'sheetPlan',
   'sheetCheck',
   'diffLayer',
+  'hitAreas',
 ]
 
 export function isPetAssetOp(v: unknown): v is PetAssetOp {
@@ -329,6 +332,32 @@ export async function runPetAssetOp(call: PetAssetCall): Promise<PetAssetResult>
             dilate: num(a.dilate),
             searchRadius: num(a.searchRadius),
             minComponentArea: num(a.minComponentArea),
+          }),
+        }
+      }
+
+      /**
+       * 点击命中区推导：从**待机帧的 alpha 轮廓**推 `HitAreaHead` / `HitAreaBody`。
+       *
+       * 只读、不写盘——命中区是清单里的一个字段，由 pet-creator 技能连同清单一并落盘。
+       * 没有它时渲染器的 `hitTest` 恒返回 null，注册表里的 `tapMotions` 永远匹配不上，
+       * 点击一路静默 return（实测日志里从没有过 `[playMotion] group="Wave"`）。
+       */
+      case 'hitAreas': {
+        const dir = str(a.dir)
+        const base = str(a.base)
+        if (!dir || !base) return { ok: false, error: '缺少 dir / base' }
+        if (!existsSync(join(dir, `${base}.png`))) {
+          return { ok: false, error: `基准帧不存在：${join(dir, `${base}.png`)}` }
+        }
+        return {
+          ok: true,
+          result: await runDeriveHitAreas(resolve(dir), base, {
+            headRatio: num(a.headRatio),
+            rows: num(a.rows),
+            threshold: num(a.threshold),
+            headId: str(a.headId),
+            bodyId: str(a.bodyId),
           }),
         }
       }

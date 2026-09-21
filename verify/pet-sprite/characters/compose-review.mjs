@@ -93,6 +93,18 @@ const frame = (n2, first, dur) => ({
   ...(Number.isFinite(dur) ? { durationMs: dur } : {}),
 })
 const hasFace = specs.some((s) => s.startsWith('face:'))
+
+// 点击命中区：从**待机首帧的轮廓**推。与 `pet-creator/run.ts` 里那一步同一件事，
+// 只是这里直接调 op 而不是走技能。
+//
+// 不推的后果是静默的：渲染器的 `hitTestPolygons` 在 `hitAreas` 为空时恒返回 null，
+// 而注册表里的 `tapMotions` 按 `HitAreaHead` / `HitAreaBody` 索引——两边对不上，
+// 点击一路走到 return。实测日志里从头到尾没有过 `[playMotion] group="Wave"`。
+const ha = await op('hitAreas', { dir: normalized, base: `${prefix}_body_00` })
+if (!ha.ok) throw new Error(`hitAreas 失败：${ha.error}`)
+console.log(`  命中区 ${ha.result.hitAreas.map((a) => a.id + '(' + a.points.length + '顶点)').join(' ')}`)
+for (const w of ha.result.warnings) console.log(`  ⚠ ${w}`)
+
 const manifest = {
   id: DEMO_ID[charId],
   rendererType: 'sprite',
@@ -101,6 +113,7 @@ const manifest = {
   atlas: 'atlas.png',
   atlasJson: 'atlas.json',
   ...(hasFace ? { slots: { face: { kind: 'layered', at: [0, 0], parts: { eyes: ['eye_open', 'eye_shut', 'eye_happy', 'eye_sad'] } } } } : {}),
+  ...(ha.result.hitAreas.length > 0 ? { hitAreas: ha.result.hitAreas } : {}),
   animations: [
     { group: 'Idle', index: 0, kind: 'loop', fps: 4, frames: baseNames.map((n2, i) => frame(n2, i === 0, DUR.idle[i])), params: { bob: Math.max(1, Math.round(plan.canvas.h * 0.02)), breathe: 1.01, blink: 3200 } },
     { group: 'Talk', index: 0, kind: 'loop', fps: 8, frames: baseNames.map((n2, i) => frame(n2, i === 0)), params: { bob: 1 } },

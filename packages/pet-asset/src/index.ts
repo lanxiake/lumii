@@ -23,3 +23,5 @@ export * from './sheet-prompt.js'
 export * from './sheetcheck.js'
 // 差分取层（把「只改了眼睛」的表情批抠成图层）
 export * from './difflayer.js'
+// 点击命中区推导（从轮廓推 HitAreaHead / HitAreaBody，补清单里缺的 hitAreas）
+export * from './hit-areas.js'

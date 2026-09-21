@@ -20,6 +20,8 @@ import {
 import { buildAtlasIndex, planAtlasLayout, type PackLayoutOptions } from './pack.js'
 import { analyzeSheet, type SheetCheckReport, type SheetThresholds } from './sheetcheck.js'
 import { extractDiffLayer, MAX_DIFF_AREA_RATIO, MIN_DIFF_DENSITY } from './difflayer.js'
+import { alphaBBox, type BBox } from './cutout.js'
+import { deriveHitAreas, type DerivedHitArea, type HitAreaDeriveOptions } from './hit-areas.js'
 import { listFilesRecursive } from './io.js'
 import { parseAtlasIndex } from '@mtbot/pet-core'
 
@@ -422,4 +424,43 @@ export async function runDiffLayer(
     })
   }
   return { base: basePath, outDir, frames, warnings }
+}
+
+// ---------------------------------------------------------------------------
+// hitAreas
+// ---------------------------------------------------------------------------
+
+export interface HitAreasOutcome {
+  /** 基准帧路径（命中区的坐标系就是这张图的坐标系） */
+  base: string
+  hitAreas: DerivedHitArea[]
+  /** 角色轮廓包围盒；全透明时为 null（供诊断：命中区有没有盖住角色） */
+  bbox: BBox | null
+  warnings: string[]
+}
+
+/**
+ * 从**待机姿态**的一张帧推 `HitAreaHead` / `HitAreaBody`。
+ *
+ * 只读、不写盘：命中区是清单里的一个字段，由调用方（pet-creator 技能）连同清单一起落盘。
+ *
+ * 为什么用待机帧：其它动作会把轮廓撑开（举手）或收窄（下蹲），
+ * 据此推出的命中区会随动画呼吸而变，点同一个位置时灵时不灵。
+ */
+export async function runDeriveHitAreas(
+  dir: string,
+  baseName: string,
+  opts: HitAreaDeriveOptions = {},
+): Promise<HitAreasOutcome> {
+  const file = join(dir, `${baseName}.png`)
+  const { data, width, height } = await readRgba(file)
+  const hitAreas = deriveHitAreas(data, width, height, opts)
+  const warnings: string[] = []
+  if (hitAreas.length === 0) {
+    warnings.push(
+      `${baseName} 的 alpha 全透明，推不出命中区——点击会完全没有反应` +
+        `（渲染器的 hitTest 恒返回 null，注册表里的 tapMotions 永远匹配不上）`,
+    )
+  }
+  return { base: file, hitAreas, bbox: alphaBBox(data, width, height, opts.threshold ?? 128), warnings }
 }
