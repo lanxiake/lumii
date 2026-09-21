@@ -24,12 +24,31 @@ import {
 const log = createLogger('WikiEmbedder')
 
 /**
- * 从应用根 package.json 解析外部依赖。
- * 打包后主进程 chunk 位于 out/main/chunks，Node 默认无法从该目录 bare import node_modules。
+ * 应用根目录：从当前文件向上找到**最近的 package.json**。
+ *
+ * 不能写死相对层级。主进程产物可能被内联进 `out/main/index.js`，也可能被切到
+ * `out/main/chunks/*.js` —— 两者到应用根差一层。原先写的是
+ * `path.join(__dirname, '../../../package.json')`（按“在 chunks/ 里”假设），
+ * 一旦该模块被打进 `out/main/index.js`，这个路径会指到 **asar 之外**的
+ * `resources/package.json`，于是 bare import 一路找不到 `app.asar/node_modules`：
+ * **打包后 Wiki / 记忆嵌入静默退回 bigram-hash**（日志一条 warn，功能看着还“能用”）。
+ * 2026-09-21 实测复现，改成本函数后开发态（apps/windows）、打包态（app.asar）、
+ * 以及未来换打包布局都成立。
  */
+function findAppRoot(): string {
+  let dir = __dirname
+  for (let depth = 0; depth < 5; depth++) {
+    if (fs.existsSync(path.join(dir, 'package.json'))) return dir
+    const parent = path.dirname(dir)
+    if (parent === dir) break
+    dir = parent
+  }
+  return __dirname
+}
+
+/** 从应用根 package.json 解析外部依赖（打包后裸导入要从应用根起算） */
 function requireFromAppRoot<T = unknown>(specifier: string): T {
-  const appPackageJson = path.join(__dirname, '../../../package.json')
-  return createRequire(appPackageJson)(specifier) as T
+  return createRequire(path.join(findAppRoot(), 'package.json'))(specifier) as T
 }
 
 export { TRANSFORMERS_E5_MODEL_ID } from './wiki-embedding-model-path'
