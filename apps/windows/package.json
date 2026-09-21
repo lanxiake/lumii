@@ -45,7 +45,8 @@
     "package:linux": "node scripts/package-app.js --platform linux --target both",
     "package:linux:appimage": "node scripts/package-app.js --platform linux --target appimage",
     "package:linux:deb": "node scripts/package-app.js --platform linux --target deb",
-    "package:linux:dir": "node scripts/package-app.js --platform linux --target dir"
+    "package:linux:dir": "node scripts/package-app.js --platform linux --target dir",
+    "verify:win-package": "node scripts/verify-win-package.mjs"
   },
   "dependencies": {
     "@ffmpeg-installer/ffmpeg": "^1.1.0",
@@ -119,7 +120,7 @@
     "@xyflow/react": "^12.10.1",
     "clsx": "^2.1.1",
     "electron": "^36.7.3",
-    "electron-builder": "^26.0.0",
+    "electron-builder": "26.16.1",
     "electron-vite": "^4.0.1",
     "highlight.js": "^11.11.1",
     "jsdom": "^28.0.0",

@@ -47,6 +47,8 @@ const PLATFORM_PROFILES = {
     /** 解包目录名，用于定位 app.asar 等（electron-builder 约定） */
     unpackedDir: 'win-unpacked',
     artifactExts: ['.exe', '.zip', '.7z'],
+    /** target → 本次应产出的扩展名（见 artifactExtsForTarget） */
+    targetExts: { nsis: ['.exe'], portable: ['.exe'], zip: ['.zip'] },
     /** 打包前需要终止的进程（Windows 文件占用） */
     killProcesses: true,
   },
@@ -60,10 +62,54 @@ const PLATFORM_PROFILES = {
     builderFlag: '--linux',
     unpackedDir: 'linux-unpacked',
     artifactExts: ['.appimage', '.deb'],
+    targetExts: { appimage: ['.appimage'], deb: ['.deb'] },
     // Linux 可直接删除被占用的目录，不需要先杀进程
     killProcesses: false,
   },
 }
+
+/**
+ * target 名 → 本次应产出的扩展名。
+ *
+ * **不能从 target 名直接推**：`nsis` 与 `portable` 产出的都是 `.exe`，
+ * 名字与扩展名根本不对应。T2 引入 `--target` 过滤时正是按名字推的
+ * （`--target nsis` → 找 `.nsis`），于是 **Windows 侧永远报「未发现产物」**——
+ * 安装包其实好好地躺在 release/ 里。Linux 恰好名字与扩展名一致（appimage/deb），
+ * 所以这个缺陷只在 Windows 暴露，是 2026-09-21 跑「Windows 门槛 3」时才发现的。
+ *
+ * 新增 target 时必须在 profile.targetExts 里补映射；漏了会在这里报错，
+ * 而不是静默列不出产物。
+ */
+function artifactExtsForTarget(profile, target) {
+  // `both` 是 Linux 的伪 target，本来就要两者都列
+  if (target === 'both') {
+    return profile.artifactExts
+  }
+  // `dir` 只解包，不产生安装包
+  if (target === 'dir') {
+    return []
+  }
+  const exts = profile.targetExts[target]
+  if (!exts) {
+    throw new Error(
+      `${profile.label} 的 target「${target}」缺少扩展名映射（PLATFORM_PROFILES.*.targetExts）`,
+    )
+  }
+  return exts
+}
+
+/** 启动时自检：每个非 dir/both 的 target 都要有扩展名映射（否则产物回显会漏报） */
+function assertTargetExtsComplete() {
+  for (const [key, profile] of Object.entries(PLATFORM_PROFILES)) {
+    for (const target of profile.targets) {
+      if (target === 'dir' || target === 'both') continue
+      if (!profile.targetExts?.[target]) {
+        throw new Error(`PLATFORM_PROFILES.${key}.targetExts 缺少「${target}」的扩展名映射`)
+      }
+    }
+  }
+}
+assertTargetExtsComplete()
 
 /** 国内镜像加速 */
 const MIRRORS = {
@@ -626,13 +672,8 @@ function stepPackage(config) {
   if (fs.existsSync(outputPath)) {
     // 按本次 --target 过滤，而不是把该平台所有扩展名都列出来——
     // 否则 `--target deb` 会把上个 AppImage 也列上，看起来像两者都产出了。
-    // `both` 例外：它本来就要两者都列。
-    const wantExt =
-      config.target === 'both'
-        ? profile.artifactExts
-        : config.target === 'dir'
-          ? []
-          : [`.${config.target.replace(/^appimage$/, 'AppImage').toLowerCase()}`]
+    // `both` 例外：它本来就要两者都列。映射见 artifactExtsForTarget。
+    const wantExt = artifactExtsForTarget(profile, config.target)
     const files = fs.readdirSync(outputPath).filter((f) => {
       const ext = path.extname(f).toLowerCase()
       if (!profile.artifactExts.includes(ext)) return false
@@ -645,7 +686,7 @@ function stepPackage(config) {
       } else if (config.target === 'both') {
         warn(`未发现 any 产物（查找扩展名: ${profile.artifactExts.join(' / ')}）`)
       } else {
-        warn(`未发现 ${config.target} 产物（查找扩展名: ${profile.artifactExts.join(' / ')}）`)
+        warn(`未发现 ${config.target} 产物（查找扩展名: ${wantExt.join(' / ')}）`)
       }
     } else {
       for (const file of files) {

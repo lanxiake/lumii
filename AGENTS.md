@@ -20,6 +20,7 @@ pnpm dev           # 启动 Electron 开发环境（Windows / Linux；Linux 自�
 pnpm typecheck     # 全 workspace 类型检查
 pnpm build         # 构建应用
 pnpm dist:win      # 打包 Windows（NSIS / portable / zip）
+pnpm --filter ./apps/windows verify:win-package all   # 验收 Windows 产物（见「Windows 打包与产物验收」）
 pnpm dist:linux    # 打包 Linux（AppImage + deb，须在 Linux 上执行）
 pnpm --filter ./apps/windows test        # 单测：只覆盖 src/test/（快，改渲染层够用）
 pnpm --filter ./apps/windows test:all    # 全量：含 src/main/** 与 src/renderer/**，改主进程必跑
@@ -98,6 +99,22 @@ optional 包（`@img/sharp-*`、`sherpa-onnx-*`、`onnxruntime-node`）**必须�
 - 断言平台专属行为（Windows 路径、盘符、PowerShell 命令）时用「按平台取样例 / 按平台断言」，
   不要硬编码 `C:\...`——POSIX 上 `path.resolve` 会把盘符当相对路径，`path.delimiter` 也会串味。
   确实只在一端有意义的用例用 `it.skip`，**Windows 用例不要为了 Linux 变绿而删除**。
+
+## Windows 打包与产物验收
+
+```bash
+pnpm dist:win                                                    # 打包（NSIS）
+pnpm --filter ./apps/windows package:win -- --skip-draw-check    # 本机没配 config/draw-config.json 时
+pnpm --filter ./apps/windows verify:win-package all              # 验收：asar 体检 + 启动冒烟
+```
+
+**`pnpm package:win` 退出码 0、安装包也生成了，都不等于产物能用。** 2026-09-21 实测到一次：
+`app.asar` 里 439/504 个 `node_modules/**/package.json` 装的是**别的文件的字节**（electron-builder
+在 Windows + pnpm workspace 下的流式写 asar 缺陷，26.15.3 复现两次、26.16.1 干净），Electron 加载
+主脚本即失败，**只弹一个标题为 `Error` 的对话框**——没有窗口、不写日志、不建数据根，看起来像
+「什么都没发生」。因此：`electron-builder` **锁精确版本 `26.16.1`**（原为 `^26.0.0`，范围会随
+`pnpm install` 漂移），发版前跑 `verify:win-package`（`asar` 判每个 package.json 可解析、
+`launch` 判产物真能起来）。判据与过程见 `docs/plans/Linux客户端移植/` 的总结与计划 §9。
 
 ## 专题规范
 
