@@ -1,0 +1,131 @@
+{
+  "at": "2026-09-21T12:15:41.791Z",
+  "pass": true,
+  "results": [
+    {
+      "label": "无 console error / pageerror",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "模型数 8",
+      "pass": true,
+      "detail": "demo_anime_girl demo_cartoon_cat demo_mecha_gundam demo_shimeji_caneko demo_shimeji_germouser demo_shimeji_nekojapan demo_shimeji_skoreacat demo_shimeji_turkat"
+    },
+    {
+      "label": "所有图集与原始图加载完成",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "demo_anime_girl",
+      "pass": true,
+      "detail": "组 3/3 · 帧条 4/4 帧 · 当前 Idle"
+    },
+    {
+      "label": "demo_cartoon_cat",
+      "pass": true,
+      "detail": "组 3/3 · 帧条 4/4 帧 · 当前 Idle"
+    },
+    {
+      "label": "demo_mecha_gundam",
+      "pass": true,
+      "detail": "组 3/3 · 帧条 4/4 帧 · 当前 Idle"
+    },
+    {
+      "label": "demo_shimeji_caneko",
+      "pass": true,
+      "detail": "组 10/10 · 帧条 1/1 帧 · 当前 Idle"
+    },
+    {
+      "label": "demo_shimeji_germouser",
+      "pass": true,
+      "detail": "组 10/10 · 帧条 1/1 帧 · 当前 Idle"
+    },
+    {
+      "label": "demo_shimeji_nekojapan",
+      "pass": true,
+      "detail": "组 10/10 · 帧条 1/1 帧 · 当前 Idle"
+    },
+    {
+      "label": "demo_shimeji_skoreacat",
+      "pass": true,
+      "detail": "组 10/10 · 帧条 1/1 帧 · 当前 Idle"
+    },
+    {
+      "label": "demo_shimeji_turkat",
+      "pass": true,
+      "detail": "组 10/10 · 帧条 1/1 帧 · 当前 Idle"
+    },
+    {
+      "label": "真人素材：Walk 第 0 帧 vs 第 1 帧画面不同",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "真人素材：Walk 第 0 帧 vs 第 2 帧画面**相同**（素材里就是同一张图）",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "AI 直出：Wave 第 1 帧 vs 第 4 帧画面不同",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "AI 直出：Idle 第 0 帧 vs 第 2 帧画面不同",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "重复帧在帧条上标出来了",
+      "pass": true,
+      "detail": "2 帧各标 1 处（实得 2）"
+    },
+    {
+      "label": "帧条摘要报出真实画面数",
+      "pass": true,
+      "detail": "Walk · loop · 4 帧（3 个不同画面）· 444ms · ⚠ 1 对重复帧"
+    },
+    {
+      "label": "切模型 / 点原图页签，概况都同步跟上",
+      "pass": true,
+      "detail": "整表（9×9 格，用 35 格） · 1  →  表情批（4×1） · 1254×1254"
+    },
+    {
+      "label": "1× 播放 500ms 后帧号推进了",
+      "pass": true,
+      "detail": "停在第 1 帧"
+    },
+    {
+      "label": "速度倍率生效（同样 600ms 内的播放时钟推进量）",
+      "pass": true,
+      "detail": "0.1× → 62ms，4× → 2469ms，比值 39.8×"
+    },
+    {
+      "label": "demo_anime_girl 待机批 有画面",
+      "pass": true,
+      "detail": "394KB"
+    },
+    {
+      "label": "demo_anime_girl 挥手批 有画面",
+      "pass": true,
+      "detail": "334KB"
+    },
+    {
+      "label": "demo_cartoon_cat 表情批 有画面",
+      "pass": true,
+      "detail": "369KB"
+    },
+    {
+      "label": "孤儿格的橙色角标画在了画布上（且干净模型上没有）",
+      "pass": true,
+      "detail": "nekojapan 684 像素 / girl 1 像素"
+    },
+    {
+      "label": "辅助线开关改变画面",
+      "pass": true,
+      "detail": ""
+    }
+  ]
+}

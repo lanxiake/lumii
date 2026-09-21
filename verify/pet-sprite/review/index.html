@@ -1,0 +1,1017 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>精灵宠物预览</title>
+<!--
+  精灵宠物预览页 —— 手写，数据由 characters/make-preview.mjs 生成。
+
+  ## 它回答三个问题，从上到下
+
+    1. **原始出图长什么样**（左栏）——AI 出的那张网格图，格子画歪了、串格了、
+       背景没抠净，到这一步还看得见；进了图集就看不出来了。
+    2. **合成起来像不像**（右栏）——按清单里的 `durationMs` 逐帧推进，
+       跟运行时同一套变换（见 drawStage 的注释）。
+    3. **切出来的关键帧对不对**（底栏）——逐帧缩略图 + 内容包围盒相对锚点的偏移。
+       AI 直出最常见的毛病是"逐帧脚底不在同一条线上"，`Δ脚底` 那一列就是量它的。
+
+  ## 为什么用 canvas 而不是 CSS 精灵图
+
+  运行时用的是这个矩阵：`root.position + root.scale × (pivot.position + local)`。
+  这里用 canvas 的变换逐字复刻，锚点、缩放、旋转的轴心都对得上，才能拿来判
+  "站在线上没有""吸附位置对不对"这类几何问题。CSS 的 `background-position`
+  做得到前两件事，但一叠槽位图层、画辅助线就绕。
+
+  ## 不读像素
+
+  页面只 **画** 图，从不 `getImageData`——`file://` 下 canvas 会被跨源污染，
+  一读像素就抛 SecurityError，而这个页面要能双击直接开。
+  所以所有量化信息（包围盒、像素数、脚底偏差）都是生成脚本用 sharp 预算好的。
+
+  ## 键盘
+
+  空格 播放/暂停 · ←/→ 逐帧 · 点关键帧条跳帧 · 点原图上的格子跳到对应帧
+-->
+<style>
+  :root {
+    --bg: #141418;
+    --panel: #1c1c22;
+    --panel2: #232329;
+    --line: #2e2e38;
+    --fg: #d9d9e3;
+    --dim: #8a8a99;
+    --accent: #6cc7ff;
+    --hot: #ffc857;
+    --checkerA: #232329;
+    --checkerB: #1a1a20;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; height: 100%;
+    background: var(--bg); color: var(--fg);
+    font: 13px/1.5 "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+    overflow: hidden;
+  }
+  body { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; }
+
+  /* ---- 顶栏 ---- */
+  header {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    padding: 8px 14px; background: var(--panel); border-bottom: 1px solid var(--line);
+  }
+  header h1 { font-size: 14px; font-weight: 600; margin: 0 6px 0 0; letter-spacing: .04em; }
+  .spacer { flex: 1; }
+  select, button {
+    background: var(--panel2); color: var(--fg); border: 1px solid var(--line);
+    border-radius: 5px; padding: 4px 9px; font: inherit; cursor: pointer;
+  }
+  select:hover, button:hover { border-color: #45455a; }
+  button:active { transform: translateY(1px); }
+  button.on { background: #2b4a63; border-color: var(--accent); color: #dff2ff; }
+  .seg { display: flex; }
+  .seg button { border-radius: 0; border-left-width: 0; padding: 4px 8px; }
+  .seg button:first-child { border-radius: 5px 0 0 5px; border-left-width: 1px; }
+  .seg button:last-child { border-radius: 0 5px 5px 0; }
+  label.chk { display: flex; align-items: center; gap: 5px; color: var(--dim); cursor: pointer; user-select: none; }
+  label.chk input { accent-color: var(--accent); }
+  .meta { color: var(--dim); font-size: 12px; font-variant-numeric: tabular-nums; }
+
+  /* ---- 主体 ---- */
+  main { display: grid; grid-template-columns: minmax(300px, 40%) minmax(0, 1fr); min-height: 0; }
+  .pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+  .pane + .pane { border-left: 1px solid var(--line); }
+  .pane > h2, footer > .fhead > h2 {
+    margin: 0; padding: 7px 14px; font-size: 12px; font-weight: 600;
+    color: var(--dim); letter-spacing: .06em; background: var(--panel);
+    border-bottom: 1px solid var(--line);
+  }
+  .pane > h2 .note, footer .note { font-weight: 400; letter-spacing: 0; margin-left: 8px; }
+  .wrap { flex: 1; min-height: 0; position: relative; overflow: hidden; }
+  /* 棋盘格交给 CSS，canvas 保持全透明。每帧在 canvas 里画一千多个小方块
+     是白烧 CPU；而且 clearRect 之后透出来的底纹本来就是"这里是透明的"的意思。 */
+  .wrap {
+    background: repeating-conic-gradient(var(--checkerA) 0% 25%, var(--checkerB) 0% 50%) 0 0 / 20px 20px;
+  }
+  .wrap canvas { display: block; width: 100%; height: 100%; background: transparent; }
+  /* 原始出图的切换标签：一次只显示一张，缩放到占满左栏才看得清。
+     三张 1024×1024 竖排的话每张只有一百多像素，等于白看。 */
+  #srcTabs { display: flex; gap: 5px; padding: 6px 14px; flex-wrap: wrap;
+             border-bottom: 1px solid var(--line); background: var(--panel); }
+  #srcTabs:empty { display: none; }
+  #srcTabs button { padding: 3px 9px; font-size: 12px; }
+
+  /* ---- 底栏：关键帧条 ---- */
+  footer {
+    background: var(--panel); border-top: 1px solid var(--line);
+    max-height: 42vh; display: flex; flex-direction: column; min-height: 0;
+  }
+  .fhead { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding-right: 14px; }
+  .fhead h2 { border-bottom: none !important; }
+  #tabs { display: flex; gap: 5px; flex-wrap: wrap; padding: 6px 0; }
+  #tabs button { padding: 3px 9px; font-size: 12px; }
+  #frames {
+    display: flex; gap: 8px; padding: 10px 14px; overflow-x: auto; overflow-y: hidden;
+    min-height: 0; align-items: flex-start;
+  }
+  .fcell {
+    flex: 0 0 auto; border: 1px solid var(--line); border-radius: 6px;
+    background: var(--panel2); padding: 5px; cursor: pointer; text-align: center;
+    transition: border-color .12s, background .12s;
+  }
+  .fcell:hover { border-color: #4a4a5e; }
+  .fcell.cur { border-color: var(--hot); background: #2e2718; }
+  .fcell canvas { display: block; margin: 0 auto; }
+  .fcell .nm { font-size: 10px; color: var(--dim); margin-top: 4px; max-width: 104px;
+               overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .fcell .d { font-size: 10px; color: #6f6f80; font-variant-numeric: tabular-nums; }
+  .fcell .d.bad { color: #ff8a7a; }
+  /* 逐像素重复帧。同名引用（Idle Pin）不算，那是设计 */
+  .fcell .dup { font-size: 10px; color: #ffb020; margin-top: 2px; }
+  .empty { color: var(--dim); padding: 24px; font-size: 13px; line-height: 1.9; }
+  code { background: var(--panel2); padding: 1px 6px; border-radius: 4px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>精灵宠物预览</h1>
+  <select id="modelSel"></select>
+  <span class="meta" id="modelMeta"></span>
+  <div class="spacer"></div>
+  <button id="prevBtn" title="上一帧（←）">◀</button>
+  <button id="playBtn" title="播放 / 暂停（空格）">暂停</button>
+  <button id="nextBtn" title="下一帧（→）">▶</button>
+  <span class="meta">速度</span>
+  <div class="seg" id="speeds"></div>
+  <label class="chk"><input type="checkbox" id="guidesChk" checked /> 辅助线</label>
+  <label class="chk"><input type="checkbox" id="procChk" checked /> 程序化</label>
+</header>
+
+<main>
+  <section class="pane">
+    <h2>原始出图<span class="note" id="srcNote"></span></h2>
+    <div id="srcTabs"></div>
+    <div class="wrap"><canvas id="srcCv"></canvas></div>
+  </section>
+  <section class="pane">
+    <h2>合成播放<span class="note" id="stageNote"></span></h2>
+    <div class="wrap"><canvas id="stageCv"></canvas></div>
+  </section>
+</main>
+
+<footer>
+  <div class="fhead">
+    <h2>关键帧<span class="note" id="frameNote"></span></h2>
+    <div id="tabs"></div>
+  </div>
+  <div id="frames"></div>
+</footer>
+
+<script src="models.js"></script>
+<script>
+'use strict'
+
+if (!window.PET_REVIEW) {
+  document.body.innerHTML =
+    '<div class="empty">没有 <code>models.js</code>。<br><br>先在仓库根跑：<br>' +
+    '<code>node verify/pet-sprite/characters/make-preview.mjs</code></div>'
+  throw new Error('models.js 未加载')
+}
+const DATA = window.PET_REVIEW
+
+const $ = (id) => document.getElementById(id)
+const TAU = Math.PI * 2
+
+/** 速度档位。0.1× 是给"一帧一帧读姿势"用的，4× 是给"快速过一遍循环顺不顺"用的。 */
+const SPEEDS = [0.1, 0.25, 0.5, 1, 2, 4]
+
+/**
+ * 帧时长低于这个值就在帧条上标红。
+ *
+ * 100ms 是"一眼能认出是不同的姿势"的下限。运行时最快的一组是 9fps（111ms），
+ * 恰好在线上；标红不是"错了"，是"这一帧得慢放才看得见"。
+ */
+const BLINK_MS = 100
+
+/** 帧条缩略图的统一高度——各模型画布差三倍多，跟着画布走会有的只有指甲盖大 */
+const THUMB_H = 88
+
+const state = {
+  m: null,       // 当前模型
+  gi: 0,         // 当前动作组下标
+  si: 0,         // 当前原始图下标
+  i: 0,          // 当前帧下标
+  acc: 0,        // 帧内已过时间（毫秒，已乘速度）
+  clock: 0,      // 播放时钟（毫秒，已乘速度）——程序化原语用它
+  playing: true,
+  speed: 1,
+  guides: true,
+  proc: true,
+  hoverCell: -1, // 原图上鼠标悬停的格子
+}
+
+// ---------------------------------------------------------------------------
+// 图片
+// ---------------------------------------------------------------------------
+
+const pending = new Map() // src -> Promise<Image>
+const ready = new Map()   // src -> Image（已就绪）
+
+/**
+ * `withImg(src, fn)`：图就绪时用 Image 调 fn，没就绪就等它。
+ *
+ * 渲染循环不阻塞在图片上——每个绘制函数拿到没就绪的图就跳过，
+ * 到货后主循环下一帧自然就画出来了。`file://` 下相对路径的图能正常加载，
+ * 只是 canvas 会被标成跨源，所以全程只 drawImage、不 read。
+ */
+function withImg(src, fn) {
+  const im = ready.get(src)
+  if (im) { fn(im); return }
+  if (!pending.has(src)) {
+    pending.set(src, new Promise((res, rej) => {
+      const el = new Image()
+      el.onload = () => { ready.set(src, el); res(el) }
+      el.onerror = () => rej(new Error('图片加载失败：' + src))
+      el.src = src
+    }))
+  }
+  pending.get(src).then(fn).catch(() => {})
+}
+
+// ---------------------------------------------------------------------------
+// 程序化原语 —— 与 pet-core 的 `render/procedural-motion.ts` 同一组公式
+// ---------------------------------------------------------------------------
+
+/**
+ * 这里**重写了一遍** `evaluateProcedural`：页面要能双击直接开，不该有构建步骤。
+ * 为免漂移，四条公式与周期常量逐字照抄。签名一律 `(量, 秒, 周期)`，
+ * **量在前时间在后**——运行时代码里这条被踩过，传反不报错，只静默跑飞
+ * （breathe 随 t 线性增长，角色一边动一边变大）。
+ */
+const PERIOD = { bob: 3.0, breathe: 4.0, sway: 6.0, nod: 2.2 }
+
+/** 单次闭眼时长与间隔抖动，与 pet-core 同值 */
+const BLINK_DURATION_MS = 120
+const BLINK_JITTER = 0.4
+
+/**
+ * 眨眼时刻用**确定性哈希**生成，不用 `Math.random`——同参数永远得到同一串时刻，
+ * 录屏和截图才可复现（pet-core 那边的理由也是这个）。
+ */
+function hash01(i) {
+  let x = (i + 0x9e3779b9) >>> 0
+  x = Math.imul(x ^ (x >>> 16), 0x21f0aaad) >>> 0
+  x = Math.imul(x ^ (x >>> 15), 0x735a2d97) >>> 0
+  x = (x ^ (x >>> 15)) >>> 0
+  return x / 4294967296
+}
+
+/** 第 i 次眨眼与前一次的间隔；下限 `2×时长+1` 保证不会连着眨两次 */
+function blinkInterval(meanMs, i) {
+  return Math.max(meanMs * (1 + BLINK_JITTER * (2 * hash01(i) - 1)), 2 * BLINK_DURATION_MS + 1)
+}
+
+/**
+ * 某一时刻是否闭着眼。**按需向前找**，不预生成整条时间线——
+ * 播放时钟会随速度倍率跑得很快，预生成的话 4× 一会儿就跑到序列尽头了。
+ */
+function blinkClosedAt(tMs, meanMs) {
+  if (!meanMs || meanMs <= 0) return false
+  let t = 0
+  for (let i = 0; i < 10000; i++) {
+    t += blinkInterval(meanMs, i)
+    if (tMs < t) return false          // 还没到下一次
+    if (tMs < t + BLINK_DURATION_MS) return true
+  }
+  return false
+}
+
+function evalProcedural(p, tSec) {
+  const bob = p.bob ?? 0
+  const breathe = p.breathe ?? 1
+  const sway = p.sway ?? 0
+  const nod = p.nod ?? 0
+  return {
+    offsetY: bob === 0 ? 0 : bob * Math.sin(TAU * tSec / PERIOD.bob),
+    scale: breathe === 1 ? 1 : 1 + (breathe - 1) * ((1 - Math.cos(TAU * tSec / PERIOD.breathe)) / 2),
+    rotationDeg:
+      (sway === 0 ? 0 : sway * Math.sin(TAU * tSec / PERIOD.sway)) +
+      (nod === 0 ? 0 : nod * Math.sin(TAU * tSec / PERIOD.nod)),
+    blinkClosed: blinkClosedAt(tSec * 1000, p.blink ?? 0),
+  }
+}
+
+/**
+ * 闭眼时把眼睛类别换成"闭着的那一档"。
+ *
+ * 认名字不认位置：清单里没有"哪一档是闭眼"的字段，而 `eye_shut` / `eye_closed`
+ * 是这个流水线（也是 `pet.json` 的 `emotionMap`）一直在用的命名。名字对不上就原样返回，
+ * 结果只是"不眨眼"，不会画错部件。
+ */
+function closedEyeOf(part) {
+  return /shut|clos/i.test(part) ? part : null
+}
+
+/**
+ * 当前帧该显示哪些槽位部件。
+ *
+ * 槽位是**差分**语义：某帧声明了 `face.eyes` 就换掉，没声明就沿用上一帧——
+ * 所以要从组首一路累积到当前帧，不能只看当前帧。运行时的表情绑定也走这套。
+ */
+function slotPartsAt(gi, i) {
+  const frames = state.m.animations[gi].frames
+  const out = {}
+  for (let k = 0; k <= i; k++) {
+    for (const [slot, cats] of Object.entries(frames[k])) {
+      if (slot === 'base' || slot === 'durationMs') continue
+      if (cats && typeof cats === 'object') out[slot] = Object.assign({}, out[slot], cats)
+    }
+  }
+  return out
+}
+
+// ---------------------------------------------------------------------------
+// 画布底座
+// ---------------------------------------------------------------------------
+
+/**
+ * 取 2D 上下文并把背板调整到 devicePixelRatio 尺寸。
+ *
+ * `width` **只在尺寸真的变了才写**：给它赋值会清空整张画布并重新分配显存，
+ * 每帧写一次等于每帧重建一次背板。`setTransform` 则每帧都要重设（上一帧的变换还在）。
+ */
+function fit(cv) {
+  const dpr = window.devicePixelRatio || 1
+  const W = Math.max(1, Math.round(cv.clientWidth * dpr))
+  const H = Math.max(1, Math.round(cv.clientHeight * dpr))
+  if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H }
+  const ctx = cv.getContext('2d')
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+  return ctx
+}
+
+/** 棋盘格底交给页面 CSS（`.wrap` 的 repeating-conic-gradient），canvas 只负责画内容 */
+
+// ---------------------------------------------------------------------------
+// 左栏：原始出图
+// ---------------------------------------------------------------------------
+
+const srcCv = $('srcCv')
+let srcBox = null // 当前原图画在画布上的位置，供命中测试
+
+function renderSrcTabs() {
+  const tabs = $('srcTabs')
+  tabs.innerHTML = ''
+  state.m.sources.forEach((s, i) => {
+    const b = document.createElement('button')
+    b.textContent = s.label
+    if (i === state.si) b.className = 'on'
+    b.onclick = () => { state.si = i; state.hoverCell = -1; renderSrcTabs(); updateSrcNote() }
+    tabs.appendChild(b)
+  })
+}
+
+/**
+ * 内容占比低于这个值就算"空格"。
+ *
+ * 生成脚本量的：AI 直出的格子内容占 16%~46%，Shimeji 的 7%~15%，完全空白的格是 0。
+ * 取 2% 把三类分得很开，抗锯齿边缘那点残渣够不着。
+ */
+const EMPTY_FILL = 0.02
+
+/**
+ * 画当前那张原始出图，叠上网格与高亮。
+ *
+ * 四种框的含义：
+ *   · 黄框   = 这一格就是**当前播放的那一帧**
+ *   · 蓝框   = 这一格被**当前动作组**用到（所以切组时左栏会自动跟过去）
+ *   · 橙角标 + 淡橙底 = **画了东西却没被任何动作引用**。这是真问题：
+ *     图出了、格切了，但没进产品（实测 `demo_cartoon_cat` 的表情批 4 格全是这样）；
+ *     也可能是画师把一帧复制填满整行留下的填充格（`demo_shimeji_nekojapan` 有 12 格）。
+ *   · 深色压暗 = 本来就是空的
+ */
+function drawSource() {
+  const m = state.m
+  const ctx = fit(srcCv)
+  const W = srcCv.clientWidth
+  const H = srcCv.clientHeight
+  ctx.clearRect(0, 0, W, H)
+  srcBox = null
+
+  if (m.sources.length === 0) {
+    ctx.fillStyle = '#8a8a99'
+    ctx.font = '13px "Microsoft YaHei", sans-serif'
+    ctx.textAlign = 'center'
+    ctx.fillText(
+      m.family === 'shimeji' ? 'Shimeji 原表未接入（见 make-preview.mjs）' : '没有登记原始图',
+      W / 2, H / 2,
+    )
+    return
+  }
+
+  const s = m.sources[Math.min(state.si, m.sources.length - 1)]
+  const pad = 16
+  const k = Math.min((W - pad * 2) / s.size.w, (H - pad * 2) / s.size.h)
+  const dw = s.size.w * k
+  const dh = s.size.h * k
+  const dx = (W - dw) / 2
+  const dy = (H - dh) / 2
+
+  withImg(s.file, (im) => {
+    ctx.imageSmoothingEnabled = !m.pixelated
+    ctx.drawImage(im, dx, dy, dw, dh)
+  })
+
+  const cw = dw / s.cols
+  const ch = dh / s.rows
+  const curName = currentFrame() && currentFrame().base
+  const curGroup = currentGroup().group
+
+  ctx.lineWidth = 1
+  for (let i = 0; i < s.cells.length; i++) {
+    const c = s.cells[i]
+    const cx = dx + c.col * cw
+    const cy = dy + c.row * ch
+
+    if (c.name === null) {
+      if (c.fill > EMPTY_FILL) {
+        ctx.fillStyle = 'rgba(255,160,80,.16)'
+        ctx.fillRect(cx, cy, cw, ch)
+        // 右上角小三角，远看也能扫出"这几格有问题"
+        ctx.fillStyle = 'rgba(255,170,90,.9)'
+        ctx.beginPath()
+        ctx.moveTo(cx + cw - 1, cy + 1)
+        ctx.lineTo(cx + cw - 13, cy + 1)
+        ctx.lineTo(cx + cw - 1, cy + 13)
+        ctx.closePath()
+        ctx.fill()
+      } else {
+        ctx.fillStyle = 'rgba(0,0,0,.45)'
+        ctx.fillRect(cx, cy, cw, ch)
+      }
+    }
+    ctx.strokeStyle = 'rgba(255,255,255,.14)'
+    ctx.strokeRect(cx + .5, cy + .5, cw - 1, ch - 1)
+
+    const used = c.uses.indexOf(curGroup) >= 0
+    const isCur = c.name && c.name === curName
+    if (isCur) {
+      ctx.strokeStyle = '#ffc857'
+      ctx.lineWidth = 3
+      ctx.strokeRect(cx + 1.5, cy + 1.5, cw - 3, ch - 3)
+      ctx.lineWidth = 1
+    } else if (used) {
+      ctx.strokeStyle = 'rgba(108,199,255,.9)'
+      ctx.lineWidth = 2
+      ctx.strokeRect(cx + 1, cy + 1, cw - 2, ch - 2)
+      ctx.lineWidth = 1
+    } else if (i === state.hoverCell && c.name) {
+      ctx.strokeStyle = 'rgba(255,255,255,.5)'
+      ctx.strokeRect(cx + .5, cy + .5, cw - 1, ch - 1)
+    }
+  }
+
+  // 悬停格的名字（帧名是这个页面里唯一的"身份"，要能直接读到）
+  const hc = state.hoverCell >= 0 ? s.cells[state.hoverCell] : null
+  if (hc) {
+    const pct = (hc.fill * 100).toFixed(0)
+    const label = hc.name
+      ? `${hc.name}  ·  内容占 ${pct}%`
+      : hc.fill > EMPTY_FILL
+        ? `（没有帧引用这一格）内容占 ${pct}%`
+        : '（空格）'
+    ctx.font = '12px ui-monospace, Consolas, monospace'
+    const tw = ctx.measureText(label).width
+    const lx = Math.min(dx + hc.col * cw + 4, W - tw - 14)
+    const ly = Math.min(dy + hc.row * ch + 4, H - 26)
+    ctx.fillStyle = 'rgba(0,0,0,.85)'
+    ctx.fillRect(lx, ly, tw + 12, 22)
+    ctx.fillStyle = '#e8e8f0'
+    ctx.textAlign = 'left'
+    ctx.textBaseline = 'middle'
+    ctx.fillText(label, lx + 6, ly + 11)
+    ctx.textBaseline = 'alphabetic'
+  }
+
+  srcBox = { s, dx, dy, dw, dh, cw, ch }
+}
+
+/**
+ * 当前原始图的概况。**同步**更新——它是状态不是画面。
+ *
+ * 放进 rAF 里出过一次洋相：`check-preview.mjs` 同步读到的永远是**上一只模型**的
+ * 统计值，而"有画 4/4 格 · 被引用 4 格"配着刚切过来的那张表显示出来，看着完全正常。
+ */
+function updateSrcNote() {
+  const m = state.m
+  if (!m) return
+  if (m.sources.length === 0) {
+    $('srcNote').textContent = m.family === 'shimeji' ? '（Shimeji 原表未接入）' : '（没有登记原始图）'
+    return
+  }
+  const s = m.sources[Math.min(state.si, m.sources.length - 1)]
+  const drawn = s.cells.filter((c) => c.fill > EMPTY_FILL).length
+  const used = s.cells.filter((c) => c.name).length
+  const orphan = s.cells.filter((c) => !c.name && c.fill > EMPTY_FILL).length
+  $('srcNote').textContent =
+    `${s.label} · ${s.size.w}×${s.size.h}px · 有画 ${drawn}/${s.cells.length} 格 · 被引用 ${used} 格` +
+    (orphan > 0 ? ` · ⚠ ${orphan} 格画了没被引用` : '') +
+    (s.note ? ` · ${s.note}` : '')
+}
+
+function hitSource(ev) {
+  if (!srcBox) return -1
+  const r = srcCv.getBoundingClientRect()
+  const x = ev.clientX - r.left - srcBox.dx
+  const y = ev.clientY - r.top - srcBox.dy
+  if (x < 0 || y < 0 || x >= srcBox.dw || y >= srcBox.dh) return -1
+  const col = Math.floor(x / srcBox.cw)
+  const row = Math.floor(y / srcBox.ch)
+  return row * srcBox.s.cols + col
+}
+
+// ---------------------------------------------------------------------------
+// 右栏：合成播放
+// ---------------------------------------------------------------------------
+
+const stageCv = $('stageCv')
+
+/**
+ * 画当前帧。变换与 `SpritePetRenderer.applyProcedural` **逐行对应**：
+ *
+ *   root.position  ← 锚点在画布里的位置（+ bob 位移）
+ *   root.rotation  ← (sway + nod) 度 → 弧度
+ *   root.scale     ← 显示倍率 × 呼吸缩放
+ *   pivot.position ← (-anchorX, -anchorY)，把锚点挪到原点
+ *
+ * 顺序不能换：`translate → rotate → scale → translate` 意味着旋转与缩放的轴心
+ * 是**锚点**（脚底中心）——「锚点屏幕位置不随缩放漂移」这条性质就是这么来的。
+ * 画布上那条黄横线就是锚点高度，角色应当正踩在上面。
+ */
+function drawStage() {
+  const m = state.m
+  const ctx = fit(stageCv)
+  const W = stageCv.clientWidth
+  const H = stageCv.clientHeight
+  ctx.clearRect(0, 0, W, H)
+
+  const group = currentGroup()
+  const frame = currentFrame()
+  if (!frame || !frame.base) return
+  const fbox = m.frames[frame.base]
+  if (!fbox) return
+
+  // 显示倍率：把整个画布缩进可用区。**这不是**运行时倍率——各模型画布差三倍多
+  //（100×128 vs 384×448），照运行时大小画的话小的那只没法看。
+  // 运行时的真实尺寸写在顶栏的 `实机约 …` 里。
+  const pad = 34
+  const zoom = Math.min((W - pad * 2) / m.canvas.w, (H - pad * 2) / m.canvas.h)
+  const cw = m.canvas.w * zoom
+  const ch = m.canvas.h * zoom
+  const cx0 = (W - cw) / 2
+  const cy0 = (H - ch) / 2
+  const ax = cx0 + m.anchor[0] * zoom
+  const ay = cy0 + m.anchor[1] * zoom
+
+  if (state.guides) {
+    ctx.strokeStyle = 'rgba(255,255,255,.13)'
+    ctx.setLineDash([4, 4])
+    ctx.lineWidth = 1
+    ctx.strokeRect(cx0 + .5, cy0 + .5, cw - 1, ch - 1)
+    ctx.setLineDash([])
+
+    // 锚点线：角色应当踩在这条线上。悬空/陷地一眼可见
+    ctx.strokeStyle = 'rgba(255,200,87,.55)'
+    ctx.beginPath()
+    ctx.moveTo(cx0 - 16, ay + .5)
+    ctx.lineTo(cx0 + cw + 16, ay + .5)
+    ctx.stroke()
+
+    ctx.strokeStyle = 'rgba(108,199,255,.32)'
+    ctx.beginPath()
+    ctx.moveTo(ax + .5, cy0 - 16)
+    ctx.lineTo(ax + .5, cy0 + ch + 16)
+    ctx.stroke()
+
+    ctx.fillStyle = 'rgba(255,200,87,.95)'
+    ctx.beginPath()
+    ctx.arc(ax, ay, 3, 0, TAU)
+    ctx.fill()
+  }
+
+  const pr = state.proc && group.params ? evalProcedural(group.params, state.clock / 1000) : null
+  const s = zoom * (pr ? pr.scale : 1)
+  const rot = pr ? pr.rotationDeg * Math.PI / 180 : 0
+  const bobY = pr ? pr.offsetY * zoom : 0
+
+  // `im0` 是图集到货后由 selectModel 挂上的。没到货就只画辅助线，
+  // 主循环下一帧会再进来——渲染循环不阻塞在 IO 上。
+  if (im0) {
+    ctx.save()
+    ctx.imageSmoothingEnabled = !m.pixelated
+    ctx.translate(ax, ay + bobY)
+    ctx.rotate(rot)
+    ctx.scale(s, s)
+    ctx.translate(-m.anchor[0], -m.anchor[1])
+    ctx.drawImage(im0, fbox.x, fbox.y, fbox.w, fbox.h, 0, 0, fbox.w, fbox.h)
+
+    // 槽位图层。`at` 是部件左上角在画布里的坐标（本仓库的清单里恒为 [0,0]，
+    // 因为切图把每个部件都裁成了整画布大小），这里照清单摆，不假设它是 0。
+    // 眨眼的换档也在这里做：`blinkClosed` 时把该类别换成闭眼那一档。
+    const parts = slotPartsAt(state.gi, state.i)
+    for (const slot of Object.keys(parts)) {
+      const at = (m.slots[slot] && m.slots[slot].at) || [0, 0]
+      for (const cat of Object.keys(parts[slot])) {
+        let part = parts[slot][cat]
+        if (pr && pr.blinkClosed) {
+          const alt = (m.slots[slot].parts[cat] || []).find(closedEyeOf)
+          if (alt) part = alt
+        }
+        const pb = m.frames[part]
+        if (pb) ctx.drawImage(im0, pb.x, pb.y, pb.w, pb.h, at[0], at[1], pb.w, pb.h)
+      }
+    }
+    ctx.restore()
+  }
+
+  if (state.guides) {
+    const b = m.boxes[frame.base]
+    if (b) {
+      ctx.save()
+      ctx.imageSmoothingEnabled = false
+      ctx.translate(ax, ay + bobY)
+      ctx.rotate(rot)
+      ctx.scale(s, s)
+      ctx.translate(-m.anchor[0], -m.anchor[1])
+      ctx.strokeStyle = 'rgba(120,255,190,.8)'
+      ctx.lineWidth = 1 / s
+      ctx.strokeRect(b.x0, b.y0, b.w, b.h)
+      ctx.restore()
+    }
+  }
+}
+
+// `drawStage` 要用的图集 Image。用闭包变量接住，免得每帧去 Map 里翻。
+let im0 = null
+
+// ---------------------------------------------------------------------------
+// 底栏：关键帧条
+// ---------------------------------------------------------------------------
+
+const framesEl = $('frames')
+
+/**
+ * 组里有几个**不同的画面**：把"画的是同一张图"的帧并成一组再数（并查集）。
+ *
+ * 两种合并都要：**同名引用**（Idle Pin 把一次性动作的首末帧按名钉回待机首帧，
+ * 那是设计）与**不同名却逐像素相同**（`duplicates`，那是素材本身的问题）。
+ * 只数帧数会把"6 帧"说成 6 个姿势，而 Wave 的首末本来就是同一张待机图。
+ */
+function distinctPoses(frames, dups) {
+  const n = frames.length
+  const parent = Array.from({ length: n }, (_, i) => i)
+  const find = (x) => (parent[x] === x ? x : (parent[x] = find(parent[x])))
+  const union = (a, b) => { parent[find(a)] = find(b) }
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      if (frames[i].base && frames[i].base === frames[j].base) union(i, j)
+    }
+  }
+  for (const p of dups) union(p.i, p.j)
+  return new Set(parent.map((_, i) => find(i))).size
+}
+
+/** 动作组标签。组名就是清单里的 `group`，不改写、不翻译——对不上时好去 manifest 里搜 */
+function renderTabs() {
+  const tabs = $('tabs')
+  tabs.innerHTML = ''
+  state.m.animations.forEach((a, i) => {
+    const b = document.createElement('button')
+    b.textContent = a.group
+    if (i === state.gi) b.className = 'on'
+    b.title = `${a.kind}${a.next ? ' → ' + a.next : ''} · ${a.frames.length} 帧`
+    b.onclick = () => selectGroup(i)
+    tabs.appendChild(b)
+  })
+}
+
+function renderFrameStrip() {
+  const keepScroll = framesEl.scrollLeft
+  framesEl.innerHTML = ''
+  const m = state.m
+  const group = currentGroup()
+
+  const pnote = group.params
+    ? ' · 程序化 ' + Object.keys(group.params).map((k) => k + '=' + group.params[k]).join(' ')
+    : ''
+  // 逐像素重复帧：**不同名**的两帧画的是同一张图。同名引用（Idle Pin 钉的两端）
+  // 不算——那是设计。这就是"8 帧其实只有 3 个姿势"被摊开来看的地方。
+  const dups = m.duplicates[group.group] || []
+  const dnote = dups.length ? ` · ⚠ ${dups.length} 对重复帧` : ''
+  const distinct = distinctPoses(group.frames, dups)
+  $('frameNote').textContent =
+    `${group.group} · ${group.kind}${group.next ? ' → ' + group.next : ''} · ` +
+    `${group.frames.length} 帧（${distinct} 个不同画面）· ` +
+    `${group.frames.reduce((a, f) => a + f.durationMs, 0)}ms${pnote}${dnote}`
+
+  group.frames.forEach((f, i) => {
+    const cell = document.createElement('div')
+    cell.className = 'fcell' + (i === state.i ? ' cur' : '')
+
+    const box = f.base ? m.frames[f.base] : null
+    const cv = document.createElement('canvas')
+    cv.height = THUMB_H
+    cv.width = Math.max(24, box ? Math.round((box.w / box.h) * THUMB_H) : 60)
+    cv.style.width = cv.width + 'px'
+    cv.style.height = cv.height + 'px'
+    const ctx = cv.getContext('2d')
+    ctx.imageSmoothingEnabled = !m.pixelated
+    if (box) {
+      const k = Math.min(cv.width / box.w, cv.height / box.h)
+      const dw = box.w * k
+      const dh = box.h * k
+      withImg(m.atlas.file, (im) => {
+        // 缩略图跟着像素走：放大要用 nearest，否则 Shimeji 的方块会被插值糊掉
+        ctx.drawImage(im, box.x, box.y, box.w, box.h, (cv.width - dw) / 2, (cv.height - dh) / 2, dw, dh)
+      })
+    }
+    cell.appendChild(cv)
+
+    const nm = document.createElement('div')
+    nm.className = 'nm'
+    nm.textContent = f.base || '（空帧）'
+    nm.title = nm.textContent
+    cell.appendChild(nm)
+
+    // Δ脚底 = 内容底边相对锚点线的偏差。负=悬空、正=陷地。
+    // **同组各帧之间互相比才是重点**——单看一帧的绝对值没有意义（锚点本来就是算出来的）。
+    const b = f.base ? m.boxes[f.base] : null
+    const d = document.createElement('div')
+    if (b) {
+      const dy = b.y1 - m.anchor[1]
+      d.className = 'd' + (Math.abs(dy) > 1 ? ' bad' : '')
+      d.textContent = `${f.durationMs}ms  Δ脚底 ${dy > 0 ? '+' : ''}${dy}`
+      d.title =
+        `时长 ${f.durationMs}ms\n` +
+        `内容包围盒 (${b.x0},${b.y0})–(${b.x1},${b.y1})  ${b.w}×${b.h}\n` +
+        `不透明像素 ${b.n}\n底边相对锚点线 ${dy}px（负=悬空，正=陷地）`
+    } else {
+      d.className = 'd bad'
+      d.textContent = `${f.durationMs}ms  空帧`
+    }
+    if (f.durationMs < BLINK_MS) d.classList.add('bad')
+    cell.appendChild(d)
+
+    const dup = dups.find((p) => p.i === i || p.j === i)
+    if (dup) {
+      const other = dup.i === i ? dup.j : dup.i
+      const el = document.createElement('div')
+      el.className = 'dup'
+      el.textContent = `⧉ = 第 ${other} 帧`
+      el.title = `与「${group.frames[other].base}」逐像素完全相同——两个不同的帧名画的是同一张图`
+      cell.appendChild(el)
+    }
+
+    cell.onclick = () => {
+      state.i = i
+      state.acc = 0
+      state.playing = false
+      syncPlayBtn()
+      refreshStripSelection()
+    }
+    framesEl.appendChild(cell)
+  })
+  framesEl.scrollLeft = keepScroll
+}
+
+/** 只挪高亮，不重建整条——重建会把滚动位置和 hover 状态一起丢掉 */
+function refreshStripSelection() {
+  const cells = framesEl.children
+  for (let k = 0; k < cells.length; k++) cells[k].classList.toggle('cur', k === state.i)
+}
+
+// ---------------------------------------------------------------------------
+// 状态切换
+// ---------------------------------------------------------------------------
+
+const currentGroup = () => state.m.animations[state.gi]
+const currentFrame = () => currentGroup().frames[state.i]
+
+/** 选中能代表这个动作组的原始出图——"这段动作是拿哪张图切的"应当自动对上 */
+function autoSource(groupName) {
+  const i = state.m.sources.findIndex((s) => s.cells.some((c) => c.uses.indexOf(groupName) >= 0))
+  if (i >= 0) state.si = i
+}
+
+function selectGroup(gi) {
+  state.gi = gi
+  state.i = 0
+  state.acc = 0
+  state.clock = 0
+  state.hoverCell = -1
+  autoSource(currentGroup().group)
+  renderTabs()
+  renderSrcTabs()
+  renderFrameStrip()
+  updateSrcNote()
+}
+
+function selectModel(id) {
+  const m = DATA.models.find((x) => x.id === id)
+  state.m = m
+  state.gi = Math.max(0, m.animations.findIndex((a) => a.group === 'Idle'))
+  state.si = 0
+  state.i = 0
+  state.acc = 0
+  state.clock = 0
+  state.hoverCell = -1
+  autoSource(currentGroup().group)
+  im0 = null
+  withImg(m.atlas.file, (im) => { im0 = im })
+
+  const real = Math.round(m.canvas.w * m.scale) + '×' + Math.round(m.canvas.h * m.scale) + ' px'
+  $('modelMeta').textContent =
+    `${m.family === 'ai' ? 'AI 直出' : 'Shimeji 导入'} · 画布 ${m.canvas.w}×${m.canvas.h} · ` +
+    `锚点 (${m.anchor.join(',')}) · scale ${m.scale} → 实机约 ${real}` +
+    (m.perchGaps
+      ? ` · 攀附留白 wall ${m.perchGaps.wall.toFixed(2)} / ceiling ${m.perchGaps.ceiling.toFixed(2)}`
+      : '')
+  $('stageNote').textContent = `${m.name} · ${m.animations.length} 组 · ${Object.keys(m.frames).length} 帧`
+
+  renderTabs()
+  renderSrcTabs()
+  renderFrameStrip()
+  updateSrcNote()
+}
+
+function syncPlayBtn() {
+  $('playBtn').textContent = state.playing ? '暂停' : '播放'
+}
+
+// ---------------------------------------------------------------------------
+// 循环
+// ---------------------------------------------------------------------------
+
+/** 推进帧。`dt` 已乘过速度倍率。 */
+function advance(dt) {
+  const frames = currentGroup().frames
+  state.acc += dt
+  let guard = 0
+  while (state.acc >= frames[state.i].durationMs && guard++ < 500) {
+    state.acc -= frames[state.i].durationMs
+    state.i = (state.i + 1) % frames.length
+  }
+  if (guard >= 500) state.acc = 0 // 时长全是 0 的病态清单，别把主线程锁死
+}
+
+/**
+ * once 组也**循环播**，不按 `next` 切走。
+ *
+ * 因为清单里首末帧本来就引用待机首帧（Idle Pin），循环看到的接缝
+ * **就是**运行时接回待机时的那个接缝——反复看它正是这个页面要支持的事。
+ * 真按 next 切走就变成"播一次然后一直待机"，反而是跑题。
+ */
+function step(d) {
+  const frames = currentGroup().frames
+  state.i = (state.i + d + frames.length) % frames.length
+  state.acc = 0
+  state.playing = false
+  syncPlayBtn()
+  refreshStripSelection()
+}
+
+let lastT = 0
+let lastI = -1
+function tick(now) {
+  const dt = lastT ? Math.min(now - lastT, 200) : 0
+  lastT = now
+  if (state.playing) {
+    const scaled = dt * state.speed
+    state.clock += scaled
+    advance(scaled)
+  }
+  drawSource()
+  drawStage()
+  // 高亮只在帧真的换了才动 DOM——60fps 下每帧遍历一遍是白烧
+  if (state.i !== lastI) {
+    lastI = state.i
+    refreshStripSelection()
+  }
+  requestAnimationFrame(tick)
+}
+
+// ---------------------------------------------------------------------------
+// 接线
+// ---------------------------------------------------------------------------
+
+function boot() {
+  const sel = $('modelSel')
+  for (const m of DATA.models) {
+    const o = document.createElement('option')
+    o.value = m.id
+    o.textContent = `${m.name}（${m.id}）`
+    sel.appendChild(o)
+  }
+  sel.onchange = () => selectModel(sel.value)
+
+  const sp = $('speeds')
+  for (const v of SPEEDS) {
+    const b = document.createElement('button')
+    b.textContent = v + '×'
+    if (v === state.speed) b.className = 'on'
+    b.onclick = () => {
+      state.speed = v
+      for (const c of sp.children) c.className = c === b ? 'on' : ''
+    }
+    sp.appendChild(b)
+  }
+
+  $('playBtn').onclick = () => { state.playing = !state.playing; syncPlayBtn() }
+  $('prevBtn').onclick = () => step(-1)
+  $('nextBtn').onclick = () => step(1)
+  $('guidesChk').onchange = (e) => { state.guides = e.target.checked }
+  $('procChk').onchange = (e) => { state.proc = e.target.checked }
+
+  srcCv.addEventListener('mousemove', (ev) => {
+    const i = hitSource(ev)
+    state.hoverCell = i
+    const c = i >= 0 && srcBox ? srcBox.s.cells[i] : null
+    srcCv.style.cursor = c && c.name ? 'pointer' : 'default'
+  })
+  srcCv.addEventListener('mouseleave', () => { state.hoverCell = -1 })
+
+  /** 原图的一格 → 关键帧条上的那一帧。当前组里没有它就不动，别跳到别的动作去。 */
+  srcCv.addEventListener('click', (ev) => {
+    const i = hitSource(ev)
+    const name = i >= 0 && srcBox ? srcBox.s.cells[i].name : null
+    if (!name) return
+    const at = currentGroup().frames.findIndex((f) => f.base === name)
+    if (at < 0) return
+    state.i = at
+    state.acc = 0
+    state.playing = false
+    syncPlayBtn()
+    refreshStripSelection()
+  })
+
+  window.addEventListener('keydown', (e) => {
+    if (e.target.tagName === 'SELECT') return
+    if (e.code === 'Space') { e.preventDefault(); state.playing = !state.playing; syncPlayBtn() }
+    else if (e.code === 'ArrowLeft') step(-1)
+    else if (e.code === 'ArrowRight') step(1)
+  })
+
+  selectModel(DATA.models[0].id)
+  syncPlayBtn()
+  requestAnimationFrame(tick)
+}
+
+/**
+ * 测试用的状态出口。`check-preview.mjs` 靠它读"现在在第几帧、当前是哪个组"，
+ * 否则只能靠截图猜。与 `check-composite.html` 的 `window.__pet` 同一套做法。
+ * 页面本身不读它。
+ */
+window.__preview = {
+  get state() {
+    return {
+      model: state.m && state.m.id,
+      group: state.m && currentGroup().group,
+      gi: state.gi,
+      si: state.si,
+      i: state.i,
+      playing: state.playing,
+      speed: state.speed,
+      clock: Math.round(state.clock),
+      frames: state.m ? currentGroup().frames.length : 0,
+      frameNames: state.m ? currentGroup().frames.map((f) => f.base) : [],
+      sources: state.m ? state.m.sources.map((s) => s.label) : [],
+    }
+  },
+  selectModel,
+  selectGroup,
+  step,
+  /** 跳到组内某一帧并暂停 */
+  goto(i) {
+    const n = currentGroup().frames.length
+    state.i = ((i % n) + n) % n
+    state.acc = 0
+    state.playing = false
+    syncPlayBtn()
+    refreshStripSelection()
+  },
+  setSpeed(v) {
+    state.speed = v
+    const sp = $('speeds')
+    for (const c of sp.children) c.className = c.textContent === v + '×' ? 'on' : ''
+  },
+  pause() { state.playing = false; syncPlayBtn() },
+  play() { state.playing = true; syncPlayBtn() },
+  hasImg(src) { return ready.has(src) },
+  get loading() { return [...pending.keys()].filter((k) => !ready.has(k)) },
+}
+
+boot()
+</script>
+</body>
+</html>
