@@ -52,8 +52,9 @@ interface LabModel {
  * 所以这里静态列出——lab 是开发工具，写死路径比让生产注册表带上测试夹具更干净。
  */
 const MODELS: LabModel[] = [
-  { id: 'demo_pixel_cat', label: '像素猫（示范 · 混合）', path: 'demo_pixel_cat/manifest.json', group: '示范模型' },
-  { id: 'demo_hires_girl', label: '高清少女（示范 · 混合）', path: 'demo_hires_girl/manifest.json', group: '示范模型' },
+  { id: 'demo_anime_girl', label: '樱桃（二次元少女）', path: 'demo_anime_girl/manifest.json', group: '示范模型' },
+  { id: 'demo_cartoon_cat', label: '团子（卡通猫咪）', path: 'demo_cartoon_cat/manifest.json', group: '示范模型' },
+  { id: 'demo_mecha_gundam', label: '钢羽（3D 高达）', path: 'demo_mecha_gundam/manifest.json', group: '示范模型' },
   { id: 'demo_variant_a', label: '方案 A · 整体帧', path: '_variants/demo_variant_a/manifest.json', group: '三方案对比' },
   { id: 'demo_variant_b', label: '方案 B · 分层差分', path: '_variants/demo_variant_b/manifest.json', group: '三方案对比' },
   { id: 'demo_variant_c', label: '方案 C · 混合', path: '_variants/demo_variant_c/manifest.json', group: '三方案对比' },

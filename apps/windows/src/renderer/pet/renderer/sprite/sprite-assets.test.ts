@@ -61,8 +61,8 @@ describe('测试前置', () => {
 })
 
 describe('随包示范模型', () => {
-  it('至少有两份示范模型（像素 + 2D 高清）', () => {
-    expect(SHIPPED.length).toBeGreaterThanOrEqual(2)
+  it('至少有三份示范模型（三只 AI 生成的角色）', () => {
+    expect(SHIPPED.length).toBeGreaterThanOrEqual(3)
   })
 
   it.each(SHIPPED.map((p) => [p.dir, p] as const))('%s 清单通过校验', (_name, pkg) => {
@@ -189,38 +189,67 @@ function motionGroupsWithFrames(rt: ReturnType<typeof resolveSpriteRuntime>): st
 // ---------------------------------------------------------------------------
 
 describe('scene 槽（场景/道具层）', () => {
-  const manifestOf = (dir: string) => {
-    const v = SHIPPED.find((x) => x.dir === dir)!
-    const r = validateSpriteManifest(v.manifest)
-    if (!r.ok) throw new Error(`${dir} 清单不合法`)
+  /**
+   * 这一块测的是**运行时语义**（道具被帧驱动、未声明就沿用、越界道具被拒），
+   * 用一份就地构造的最小清单即可。
+   *
+   * 早先它挂在 `SHIPPED` 上——「随包那份示范模型恰好带道具层」被当成了被测性质。
+   * 示范模型换成 AI 生成的三只之后就不成立了（它们只有 face 层），
+   * 而语义本身没变。测什么就依赖什么，别赖在恰好路过的素材上。
+   */
+  const SCENE_MANIFEST = {
+    id: 'scene_fixture',
+    rendererType: 'sprite' as const,
+    canvas: { w: 48, h: 56 },
+    anchor: [24, 54] as [number, number],
+    atlas: 'atlas.png',
+    atlasJson: 'atlas.json',
+    slots: {
+      face: { kind: 'layered' as const, at: [0, 0] as [number, number], parts: { eyes: ['eye_open', 'eye_shut'] } },
+      scene: {
+        kind: 'layered' as const,
+        at: [0, 0] as [number, number],
+        parts: { prop: ['prop_none', 'prop_ball', 'prop_star'] },
+      },
+    },
+    animations: [
+      {
+        group: 'Idle',
+        index: 0,
+        kind: 'loop' as const,
+        fps: 4,
+        frames: [{ base: 'body_00', face: { eyes: 'eye_open' } }, { base: 'body_01' }],
+      },
+      {
+        group: 'PlayBall',
+        index: 0,
+        kind: 'once' as const,
+        next: 'Idle',
+        fps: 6,
+        frames: [
+          { base: 'body_00', scene: { prop: 'prop_ball' }, face: { eyes: 'eye_open' } },
+          { base: 'body_01', scene: { prop: 'prop_star' } },
+          { base: 'body_00', scene: { prop: 'prop_none' }, face: { eyes: 'eye_shut' } },
+        ],
+      },
+    ],
+  }
+
+  const manifestOf = () => {
+    const r = validateSpriteManifest(SCENE_MANIFEST)
+    if (!r.ok) throw new Error(`就地清单不合法：${r.errors.map((e) => e.message).join(' | ')}`)
     return r.manifest
   }
 
-  it.each(SHIPPED.map((p) => [p.dir, p] as const))('%s 声明了 scene 槽与道具部件', (_n, pkg) => {
-    const r = validateSpriteManifest(pkg.manifest)
-    if (!r.ok) throw new Error('清单不合法')
-    const scene = r.manifest.slots?.scene
+  it('声明了 scene 槽与道具部件', () => {
+    const scene = manifestOf().slots?.scene
     expect(scene?.kind).toBe('layered')
     expect(Object.keys(scene?.parts ?? {})).toContain('prop')
     expect(scene!.parts!.prop.length).toBeGreaterThanOrEqual(2)
   })
 
-  it.each(SHIPPED.map((p) => [p.dir, p] as const))(
-    '%s 的每个道具都能在图集里找到（含"不显示道具"的那个空帧）',
-    (_n, pkg) => {
-      const r = validateSpriteManifest(pkg.manifest, {
-        atlasFrames: Object.keys(
-          (readJson(join(RESOURCES, pkg.dir, 'atlas.json')) as { frames: Record<string, unknown> }).frames,
-        ),
-      })
-      if (!r.ok) throw new Error(`交叉校验失败：${r.errors.map((e) => e.message).join(' | ')}`)
-      expect(r.ok).toBe(true)
-    },
-  )
-
   it('道具能被帧驱动：解析后的帧快照里带着 scene 状态', () => {
-    const m = manifestOf('demo_pixel_cat')
-    const rt = resolveSpriteRuntime(m)
+    const rt = resolveSpriteRuntime(manifestOf())
     const play = rt.animationsByGroup.get('PlayBall')?.[0]
     expect(play).toBeDefined()
     // 三个帧各自的道具不同，最后一帧回到"不显示"
@@ -232,8 +261,7 @@ describe('scene 槽（场景/道具层）', () => {
   })
 
   it('未声明 scene 的帧沿用上一帧的道具（增量语义对 scene 同样成立）', () => {
-    const m = manifestOf('demo_pixel_cat')
-    const rt = resolveSpriteRuntime(m)
+    const rt = resolveSpriteRuntime(manifestOf())
     const idle = rt.animationsByGroup.get('Idle')?.[0]
     // Idle 的帧没声明 scene → 取默认（PROPS 的首个 = prop_none）
     expect(idle!.frames.every((f) => f.layered.scene?.prop === 'prop_none')).toBe(true)

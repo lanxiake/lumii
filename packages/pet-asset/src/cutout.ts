@@ -238,8 +238,19 @@ export function cutout(
   return { data: out, tuning: { ...tuning, tSolid: tS }, opaqueCount, semiCount }
 }
 
-/** alpha > 阈值的像素包围盒 */
-export function alphaBBox(buf: Buffer, w: number, h: number, thr = 16): BBox | null {
+/**
+ * alpha > 阈值的像素包围盒。
+ *
+ * 默认取 **128**（半透明以上才算），不是 16。这条是实测量出来的：
+ * 真实出图抠底后，背景里会散落极少数 alpha 十几到二十几的像素——**整张图里三五个**，
+ * 位置常在格子的四角（背景渐变最远处）。它们肉眼不可见，却足以把包围盒从
+ * 188 宽撑到 408 宽（实测 `girl-idle` 那批：四个角像素的 alpha 是 21/23/25）。
+ *
+ * 用 16 去量，包围盒量到的就不是角色，而是「离底色最远的那粒噪声」。
+ * `computeNormalize` 早就因此单独用了 128（见 `NormalizeOptions.bboxThreshold` 的来由），
+ * 这里把默认值对齐过去——**同一个问题不该在两个地方有两个答案**。
+ */
+export function alphaBBox(buf: Buffer, w: number, h: number, thr = 128): BBox | null {
   let minX = Infinity
   let minY = Infinity
   let maxX = -1

@@ -47,6 +47,25 @@ import {
 import { planGrid } from './slice.js'
 import { BG_MIN_SAFE_DISTANCE } from './sheet-prompt.js'
 
+/**
+ * 边界带里允许的非底色像素**比例**上限。
+ *
+ * 早先这里是 `bleed === 0`（一个像素都不许有），**实测把一张好图判死了**：
+ * 一张 1254×1254 的 2×2 出图，四格各只有 **9 个像素**落在边界带里，
+ * 与底色（`#01fbfd` 青）的最大通道差是 31–36，肉眼完全看不出来——
+ * 是出图的柔和渐变与压缩残差，不是角色越界。
+ *
+ * 绝对像素数在两种情形间没有分辨力：
+ *   - 真噪声：九个像素，散落在格子中线的上方一两行
+ *   - 真越界：一条肢体切到格线上，至少是「几十像素宽 × 3 行」= 数百像素
+ * 所以改判**比例**：0.5% 是实测噪声（7524 个带内像素里的 9 个 = 0.12%）的四倍余量，
+ * 又比任何真实越界低一个量级。
+ *
+ * **画了分隔线仍按硬失败处理**：那种情况由 `drewLine` 单独判，它要求某条最外沿
+ * 的覆盖率 ≥ 90%，远在 0.5% 之上，不会被这条放过去。
+ */
+export const MAX_BLEED_RATIO = 0.005
+
 export interface SheetThresholds {
   /** S2：包围盒中心相对格中心的偏移上限（占格短边比例） */
   centerOffset: number
@@ -58,6 +77,8 @@ export interface SheetThresholds {
   bgDistance: number
   /** S8：算作「角色色」的调色板条目最低占比 */
   paletteShareFloor: number
+  /** S1：边界带里允许的非底色像素比例上限（见 `MAX_BLEED_RATIO`） */
+  bleedRatio: number
 }
 
 export const SHEET_THRESHOLDS: SheetThresholds = {
@@ -66,6 +87,7 @@ export const SHEET_THRESHOLDS: SheetThresholds = {
   loopRatio: 1.8,
   bgDistance: BG_MIN_SAFE_DISTANCE,
   paletteShareFloor: 0.01,
+  bleedRatio: MAX_BLEED_RATIO,
 }
 
 /** 算调色板重合度时判「近似色」的容差 */
@@ -90,6 +112,8 @@ export interface SheetCellReport {
   bbox: BBox | null
   /** 边界带（3px）里的非底色像素数；> 0 说明这一格边界不干净 */
   bleed: number
+  /** `bleed` 占边界带像素的比例；S1 判的就是它（见 `MAX_BLEED_RATIO`） */
+  bleedRatio: number
   /** 四条最外沿的非底色覆盖率，用来区分「画了分隔线」与「角色越界」 */
   edges: CellEdges
   /** 是否有一条边整条都非底色 ⇒ 模型在格子边界画了线 */
@@ -201,13 +225,16 @@ function paletteHitRatio(a: SheetPaletteEntry[], b: SheetPaletteEntry[]): number
  *
  * 覆盖率用最外沿那一行/列算，而不是整条 3px 带——「画了条线」的特征正是
  * **最外沿整条都非底色**；用整条带算会被角色越界也抬到高覆盖率，区分不开。
+ *
+ * 同时返回边界带的**去重像素数**（`band`），供上层把 `total` 折算成比例——
+ * 绝对像素数没法跨画布尺寸比较，而 `total === 0` 这种二值判据又太脆（见 `MAX_BLEED_RATIO`）。
  */
 function edgeScan(
   rgba: Buffer,
   w: number,
   h: number,
   bg: RGB,
-): { total: number; edges: CellEdges } {
+): { total: number; band: number; edges: CellEdges } {
   const isChar = (x: number, y: number): boolean => {
     if (x < 0 || x >= w || y < 0 || y >= h) return false
     const i = (y * w + x) * 4
@@ -242,6 +269,8 @@ function edgeScan(
   }
   return {
     total,
+    // 四条 d 像素宽的边组成的环，角落别重复计
+    band: Math.max(1, w * h - Math.max(0, w - 2 * BLEED_BAND) * Math.max(0, h - 2 * BLEED_BAND)),
     edges: { top: top / w, bottom: bottom / w, left: left / h, right: right / h },
   }
 }
@@ -342,6 +371,7 @@ export function analyzeSheet(
       leakAt: res.tuning.leakAt ?? null,
       bbox,
       bleed: scan.total,
+      bleedRatio: scan.total / scan.band,
       edges: scan.edges,
       drewLine: Object.values(scan.edges).some((v) => v >= EDGE_LINE_COVERAGE),
       centerOffset,
@@ -380,10 +410,12 @@ export function analyzeSheet(
   }
 
   // ---- S1 边界干净 ----
-  const s1 = cellReports.every((c) => c.bleed === 0)
+  //
+  // 判**比例**不判「一个都没有」：见 MAX_BLEED_RATIO 的实测来由。
+  const s1 = cellReports.every((c) => c.bleedRatio <= th.bleedRatio)
   if (!s1) {
     const lined = cellReports.filter((c) => c.drewLine)
-    const spilled = cellReports.filter((c) => c.bleed > 0 && !c.drewLine)
+    const spilled = cellReports.filter((c) => c.bleedRatio > th.bleedRatio && !c.drewLine)
     if (lined.length > 0) {
       problems.push(
         `S1 模型在格子边界画了分隔线/边框（第 ${lined.map((c) => c.index + 1).join('、')} 格）` +
@@ -392,8 +424,9 @@ export function analyzeSheet(
     }
     if (spilled.length > 0) {
       problems.push(
-        `S1 有 ${spilled.length} 格的角色越出格线（第 ${spilled.map((c) => c.index + 1).join('、')} 格）` +
-          `——切出来会缺一块，重出这一批`,
+        `S1 有 ${spilled.length} 格的角色越出格线（第 ${spilled.map((c) => c.index + 1).join('、')} 格，` +
+          `最差 ${(Math.max(...spilled.map((c) => c.bleedRatio)) * 100).toFixed(2)}% 的边界带像素非底色，` +
+          `上限 ${(MAX_BLEED_RATIO * 100).toFixed(2)}%）——切出来会缺一块，重出这一批`,
       )
     }
   }

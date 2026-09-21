@@ -353,13 +353,19 @@ async function run() {
   // 表情批出的是「同机位全身、除眼睛外完全一致」的图集。与基准帧做差分，
   // 差异区域就是眼睛——**不需要知道眼睛在哪、不需要估位置**。
   // 必须在 normalize 之后做：差分要求两张图落在同一画布上。
-  // 判据：差异铺满大半张画布 ⇒ 两次出图机位没对齐，这一层会把身体盖掉。
+  // 判据：差异铺满大半张画布 ⇒ 两次出图机位/体型没对齐，这一层会把身体盖掉。
+  //
+  // **产物先写到 diffed/，判定通过再挪回 normalized/**：这一步是**原地覆盖**，
+  // 而失败时那批帧已经被图层替换掉了——于是「重出这一批」变成重出整个模型的
+  // 所有批次，调试时量到的也不再是「表情帧与基准帧差多少」而是「图层与基准帧差多少」。
+  // 实测被这个坑骗过两轮。
   for (const batch of params.batches) {
     if (!batch.diffBase) continue
+    const diffDir = path.join(workDir, `diffed-${params.batches.indexOf(batch)}`)
     const diff = await client('diffLayer', {
       base: path.join(normalized, `${batch.diffBase}.png`),
       dir: normalized,
-      outDir: normalized,
+      outDir: diffDir,
       names: batch.names,
     })
     warnings.push(...diff.warnings.map((w) => `批次 ${path.basename(batch.file)}：${w}`))
@@ -369,8 +375,12 @@ async function run() {
     if (bad.length > 0) {
       throw new Error(
         `批次 ${path.basename(batch.file)} 的差分取层没成立：${bad.map((f) => f.name).join('、')}` +
-          `——重出这一批，并确认生成时带上基准帧当参考图（否则机位对不上）`,
+          `——重出这一批，并确认生成时带上基准帧当参考图（否则机位对不上）。` +
+          `归一化后的原帧仍在 ${normalized}，${diffDir} 里是这次抠出来的层`,
       )
+    }
+    for (const name of batch.names) {
+      fs.copyFileSync(path.join(diffDir, `${name}.png`), path.join(normalized, `${name}.png`))
     }
   }
 

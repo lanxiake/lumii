@@ -1,0 +1,9 @@
+{
+  "name": "樱桃",
+  "scale": 0.65,
+  "idleMotionGroup": "Idle",
+  "talkMotionGroup": "Talk",
+  "emotionMap": {},
+  "tapMotions": {},
+  "personaAddon": "你是一位叫樱桃的少女，日式动画风格，性格明快活泼。"
+}

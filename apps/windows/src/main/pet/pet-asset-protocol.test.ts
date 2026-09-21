@@ -75,7 +75,7 @@ describe('petAssetUrlToDiskPath — 正常路径', () => {
   })
 
   it('与 buildPetAssetUrl 互逆', () => {
-    const abs = `${USER_PET_DIR}\\demo_pixel_cat\\atlas.png`
+    const abs = `${USER_PET_DIR}\\my_pet\\atlas.png`
     expect(petAssetUrlToDiskPath(buildPetAssetUrl(abs))).toBe(abs)
   })
 })

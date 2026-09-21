@@ -1,0 +1,117 @@
+{
+  "id": "demo_anime_girl",
+  "rendererType": "sprite",
+  "canvas": {
+    "w": 144,
+    "h": 168
+  },
+  "anchor": [
+    72,
+    162
+  ],
+  "atlas": "atlas.png",
+  "atlasJson": "atlas.json",
+  "slots": {
+    "face": {
+      "kind": "layered",
+      "at": [
+        0,
+        0
+      ],
+      "parts": {
+        "eyes": [
+          "eye_open",
+          "eye_shut",
+          "eye_happy",
+          "eye_sad"
+        ]
+      }
+    }
+  },
+  "animations": [
+    {
+      "group": "Idle",
+      "index": 0,
+      "kind": "loop",
+      "fps": 4,
+      "frames": [
+        {
+          "base": "girl_body_00",
+          "face": {
+            "eyes": "eye_open"
+          }
+        },
+        {
+          "base": "girl_body_01"
+        },
+        {
+          "base": "girl_body_02"
+        },
+        {
+          "base": "girl_body_03"
+        }
+      ],
+      "params": {
+        "bob": 3,
+        "breathe": 1.01,
+        "blink": 3200
+      }
+    },
+    {
+      "group": "Talk",
+      "index": 0,
+      "kind": "loop",
+      "fps": 8,
+      "frames": [
+        {
+          "base": "girl_body_00",
+          "face": {
+            "eyes": "eye_open"
+          }
+        },
+        {
+          "base": "girl_body_01"
+        },
+        {
+          "base": "girl_body_02"
+        },
+        {
+          "base": "girl_body_03"
+        }
+      ],
+      "params": {
+        "bob": 1
+      }
+    },
+    {
+      "group": "Wave",
+      "index": 0,
+      "kind": "once",
+      "next": "Idle",
+      "fps": 8,
+      "frames": [
+        {
+          "base": "girl_wave_00",
+          "face": {
+            "eyes": "eye_open"
+          }
+        },
+        {
+          "base": "girl_wave_01"
+        },
+        {
+          "base": "girl_wave_02"
+        },
+        {
+          "base": "girl_wave_03"
+        },
+        {
+          "base": "girl_wave_04"
+        },
+        {
+          "base": "girl_wave_05"
+        }
+      ]
+    }
+  ]
+}

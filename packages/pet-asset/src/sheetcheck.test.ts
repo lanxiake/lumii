@@ -10,6 +10,8 @@ import { analyzeSheet, SHEET_THRESHOLDS } from './sheetcheck.js'
 const BG: [number, number, number] = [10, 240, 245]
 const CHAR: [number, number, number] = [120, 90, 60]
 const OUTLINE: [number, number, number] = [40, 28, 18]
+/** 边界带里的近底色噪点：与 BG 的最大通道差 35，刚过 BLEED_TOL(30) */
+const NOISE: [number, number, number] = [15, 205, 210]
 
 interface Blob {
   /** 角色中心相对格心的偏移（像素） */
@@ -37,7 +39,7 @@ function makeSheet(
   rows: number,
   cellSize: number,
   blobs: Blob[],
-  opts: { divider?: boolean } = {},
+  opts: { divider?: boolean; noise?: number } = {},
 ): { data: Buffer; w: number; h: number } {
   const w = cols * cellSize
   const h = rows * cellSize
@@ -85,10 +87,22 @@ function makeSheet(
       for (let x = 0; x < w; x++) put(x, y, OUTLINE)
     }
   }
+
+  if (opts.noise) {
+    // 边界带里的零星近底色像素：与底色的最大通道差只有 35（刚过 BLEED_TOL=30），
+    // 模拟实测撞上的「出图柔和渐变 + 压缩残差」，不是角色越界。
+    for (let k = 0; k < opts.noise; k++) put(4 + k * 7, 1, NOISE)
+  }
   return { data, w, h }
 }
 
-const run = (cols: number, rows: number, cell: number, blobs: Blob[], opts?: { divider?: boolean }) => {
+const run = (
+  cols: number,
+  rows: number,
+  cell: number,
+  blobs: Blob[],
+  opts?: { divider?: boolean; noise?: number },
+) => {
   const s = makeSheet(cols, rows, cell, blobs, opts)
   return analyzeSheet(s.data, s.w, s.h, { cols, rows })
 }
@@ -133,6 +147,29 @@ describe('analyzeSheet / S1 边界干净', () => {
     const joined = r.problems.join('\n')
     expect(joined).toContain('分隔线')
     expect(joined).not.toContain('越出格线')
+  })
+
+  /**
+   * 这条也是实测逼出来的：早先 S1 是 `bleed === 0`（一个像素都不许有），
+   * 把一张**好图**判成了 unusable —— 1254×1254 的 2×2 出图，四格各只有 9 个像素
+   * 落在边界带里，与青色底的最大通道差 31–36，肉眼完全看不出来。
+   *
+   * 判据改成比例（`MAX_BLEED_RATIO`）之后要同时守住两头：
+   * 零星噪点放行、成片的越界照样拦。格 128 的边界带是 1500 个像素，0.5% = 7.5 个。
+   */
+  it('边界带里只有零星近底色噪点时**不**判越界', () => {
+    const r = run(2, 2, 128, [{}, {}, {}, {}], { noise: 6 })
+    expect(r.cells[0]!.bleed).toBe(6)
+    expect(r.cells[0]!.bleedRatio).toBeLessThan(0.005)
+    expect(r.s1).toBe(true)
+    expect(r.problems.some((p) => p.includes('越出格线'))).toBe(false)
+  })
+
+  it('边界带里的非底色像素成片时仍判越界', () => {
+    const r = run(2, 2, 128, [{}, {}, {}, {}], { noise: 40 })
+    expect(r.cells[0]!.bleedRatio).toBeGreaterThan(0.005)
+    expect(r.s1).toBe(false)
+    expect(r.problems.some((p) => p.includes('越出格线'))).toBe(true)
   })
 })
 

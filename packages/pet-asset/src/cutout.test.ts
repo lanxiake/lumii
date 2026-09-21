@@ -204,6 +204,34 @@ describe('alphaBBox', () => {
   it('全透明返回 null', () => {
     expect(alphaBBox(Buffer.alloc(16 * 16 * 4), 16, 16)).toBeNull()
   })
+
+  /**
+   * 回归防线：默认阈值必须是 128。
+   *
+   * 实测来由：`girl-idle` 那批出图（1254×1254 的 2×2）里，背景的**四个角**各有一粒
+   * alpha 21/23/25 的像素——肉眼不可见，是背景渐变与压缩残差。用 16 去量，
+   * 包围盒从 188 宽被撑到 **408** 宽（那几粒噪声落在格子最外沿），
+   * 而包围盒是 S1/S2 判据与整个归一化落位的输入。
+   *
+   * 这条用例直接构造那个形状：角色一块，角落里一粒 alpha≈0.1 的雾。
+   */
+  it('角落里的一粒半透明雾不参与包围盒（默认阈值 128，不是 16）', () => {
+    const w = 64
+    const h = 64
+    const rgba = makeImage(w, h, { x: 16, y: 20, w: 10, h: 8 })
+    const r = cutout(rgba, w, h, MAGENTA)
+    // 把右下角那粒像素写成「离底色只差一点」的雾：抠底会判它 alpha ≈ 0.1
+    const i = ((h - 1) * w + (w - 1)) * 4
+    const bg = estimateBackground(rgba, w, h)
+    r.data[i] = bg[0] - 26
+    r.data[i + 1] = bg[1] - 26
+    r.data[i + 2] = bg[2] - 26
+    r.data[i + 3] = 26
+
+    // 雾在包围盒外——16 会把 (63,63) 算进来，128 不会
+    expect(alphaBBox(r.data, w, h, 16)!.maxX).toBe(w - 1)
+    expect(alphaBBox(r.data, w, h)).toEqual({ minX: 16, minY: 20, maxX: 25, maxY: 27, w: 10, h: 8 })
+  })
 })
 
 describe('parseHexColor / formatHexColor', () => {

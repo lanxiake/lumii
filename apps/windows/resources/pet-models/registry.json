@@ -576,149 +576,10 @@
       }
     },
     {
-      "id": "demo_pixel_cat",
-      "name": "像素猫",
+      "id": "demo_anime_girl",
+      "name": "樱桃",
       "rendererType": "sprite",
-      "modelUrl": "demo_pixel_cat/manifest.json",
-      "scale": 2,
-      "idleMotionGroup": "Idle",
-      "talkMotionGroup": "Talk",
-      "agentId": "",
-      "emotionMap": {
-        "neutral": 0,
-        "平静": 0,
-        "默认": 0,
-        "exp_01": 0,
-        "calm": 1,
-        "闭眼": 1,
-        "思考": 1,
-        "沉思": 1,
-        "exp_02": 1,
-        "joy": 2,
-        "开心": 2,
-        "微笑": 2,
-        "smile": 2,
-        "轻松": 2,
-        "exp_03": 2,
-        "sadness": 3,
-        "sad": 3,
-        "难过": 3,
-        "委屈": 3,
-        "失落": 3,
-        "exp_04": 3,
-        "anger": 4,
-        "生气": 4,
-        "愤怒": 4,
-        "不满": 4,
-        "exp_05": 4,
-        "shocked": 5,
-        "surprise": 5,
-        "surprised": 5,
-        "惊讶": 5,
-        "震惊": 5,
-        "exp_06": 5,
-        "wink": 6,
-        "眨眼": 6,
-        "俏皮": 6,
-        "exp_07": 6,
-        "tired": 7,
-        "无语": 7,
-        "无奈": 7,
-        "冷漠": 7,
-        "exp_08": 7,
-        "sparkle": 8,
-        "闪亮": 8,
-        "兴奋": 8,
-        "激动": 8,
-        "exp_09": 8,
-        "sleepy": 9,
-        "困": 9,
-        "打瞌睡": 9,
-        "exp_10": 9,
-        "cry": 10,
-        "哭": 10,
-        "泪": 10,
-        "含泪": 10,
-        "exp_11": 10,
-        "love": 11,
-        "喜欢": 11,
-        "爱心": 11,
-        "害羞": 11,
-        "脸红": 11,
-        "exp_12": 11
-      },
-      "tapMotions": {
-        "HitAreaHead": {
-          "Nod": 0
-        },
-        "HitAreaBody": {
-          "Wave": 0
-        }
-      },
-      "actionMotions": {
-        "挥手": {
-          "group": "Wave",
-          "index": 0,
-          "description": "抬手左右摇摆打招呼，适合开场、道别"
-        },
-        "打招呼": {
-          "group": "Wave",
-          "index": 0,
-          "description": "同挥手"
-        },
-        "点头": {
-          "group": "Nod",
-          "index": 0,
-          "description": "低头再抬起的点头，表示赞同、明白"
-        },
-        "赞同": {
-          "group": "Nod",
-          "index": 0,
-          "description": "同点头"
-        },
-        "摇头": {
-          "group": "Shake",
-          "index": 0,
-          "description": "左右摇摆的摇头，表示否定、无奈"
-        },
-        "否定": {
-          "group": "Shake",
-          "index": 0,
-          "description": "同摇头"
-        },
-        "跳跃": {
-          "group": "Jump",
-          "index": 0,
-          "description": "单次跳跃，惊喜或强调时用"
-        },
-        "蹦跳": {
-          "group": "Jump",
-          "index": 0,
-          "description": "同跳跃"
-        },
-        "玩球": {
-          "group": "PlayBall",
-          "index": 0,
-          "description": "变出小球和星星把玩，适合开心、炫耀或自娱自乐"
-        },
-        "道具": {
-          "group": "PlayBall",
-          "index": 0,
-          "description": "同玩球，切换道具/场景层时用"
-        }
-      },
-      "defaultExpression": 0,
-      "personaAddon": "你是像素猫，像素风格的小猫。请积极用方括号标签驱动表情与动作，让形象真正「活」起来。\n\n**表情标签**（切换眼神）：\n- [neutral]/[平静]/[默认]：睁眼默认脸\n- [calm]/[闭眼]/[思考]：闭眼平静\n- [joy]/[开心]/[微笑]：笑眼\n- [sadness]/[难过]/[委屈]：下垂眼+八字眉\n- [anger]/[生气]/[不满]：竖眉瞪眼\n- [shocked]/[惊讶]/[震惊]：瞪大眼\n- [wink]/[眨眼]/[俏皮]：单眼眨\n- [tired]/[无语]/[无奈]：半睁眼\n- [sparkle]/[闪亮]/[兴奋]：亮眼+高光\n- [sleepy]/[困]/[打瞌睡]：眯眼\n- [cry]/[哭]/[含泪]：闭眼+泪滴\n- [love]/[喜欢]/[害羞]：心形眼\n\n**动作标签**（单次播放，播完自动回待机）：\n- [motion:挥手]/[motion:打招呼]：抬手打招呼\n- [motion:点头]/[motion:赞同]：点头同意\n- [motion:摇头]/[motion:否定]：摇头否定\n- [motion:跳跃]/[motion:蹦跳]：开心跳跃\n- [motion:玩球]/[motion:道具]：变出小球/星星把玩（场景道具层）\n\n**组合示例**：[joy][motion:挥手]你来啦！/ [sadness][motion:摇头]不行呢… / [love][motion:点头]好呀好呀～ / [shocked][motion:跳跃]真的假的！\n回复口语化、适合朗读；每次情绪或话题变化务必切换标签，避免整段只用 [neutral]。",
-      "toolPrompts": {
-        "expression": true,
-        "thinkTag": true
-      }
-    },
-    {
-      "id": "demo_hires_girl",
-      "name": "高清少女",
-      "rendererType": "sprite",
-      "modelUrl": "demo_hires_girl/manifest.json",
+      "modelUrl": "demo_anime_girl/manifest.json",
       "scale": 0.65,
       "idleMotionGroup": "Idle",
       "talkMotionGroup": "Talk",
@@ -744,52 +605,9 @@
         "难过": 3,
         "委屈": 3,
         "失落": 3,
-        "exp_04": 3,
-        "anger": 4,
-        "生气": 4,
-        "愤怒": 4,
-        "不满": 4,
-        "exp_05": 4,
-        "shocked": 5,
-        "surprise": 5,
-        "surprised": 5,
-        "惊讶": 5,
-        "震惊": 5,
-        "exp_06": 5,
-        "wink": 6,
-        "眨眼": 6,
-        "俏皮": 6,
-        "exp_07": 6,
-        "tired": 7,
-        "无语": 7,
-        "无奈": 7,
-        "冷漠": 7,
-        "exp_08": 7,
-        "sparkle": 8,
-        "闪亮": 8,
-        "兴奋": 8,
-        "激动": 8,
-        "exp_09": 8,
-        "sleepy": 9,
-        "困": 9,
-        "打瞌睡": 9,
-        "exp_10": 9,
-        "cry": 10,
-        "哭": 10,
-        "泪": 10,
-        "含泪": 10,
-        "exp_11": 10,
-        "love": 11,
-        "喜欢": 11,
-        "爱心": 11,
-        "害羞": 11,
-        "脸红": 11,
-        "exp_12": 11
+        "exp_04": 3
       },
       "tapMotions": {
-        "HitAreaHead": {
-          "Nod": 0
-        },
         "HitAreaBody": {
           "Wave": 0
         }
@@ -804,55 +622,91 @@
           "group": "Wave",
           "index": 0,
           "description": "同挥手"
-        },
-        "点头": {
-          "group": "Nod",
-          "index": 0,
-          "description": "低头再抬起的点头，表示赞同、明白"
-        },
-        "赞同": {
-          "group": "Nod",
-          "index": 0,
-          "description": "同点头"
-        },
-        "摇头": {
-          "group": "Shake",
-          "index": 0,
-          "description": "左右摇摆的摇头，表示否定、无奈"
-        },
-        "否定": {
-          "group": "Shake",
-          "index": 0,
-          "description": "同摇头"
-        },
-        "跳跃": {
-          "group": "Jump",
-          "index": 0,
-          "description": "单次跳跃，惊喜或强调时用"
-        },
-        "蹦跳": {
-          "group": "Jump",
-          "index": 0,
-          "description": "同跳跃"
-        },
-        "玩球": {
-          "group": "PlayBall",
-          "index": 0,
-          "description": "变出小球和星星把玩，适合开心、炫耀或自娱自乐"
-        },
-        "道具": {
-          "group": "PlayBall",
-          "index": 0,
-          "description": "同玩球，切换道具/场景层时用"
         }
       },
       "defaultExpression": 0,
-      "personaAddon": "你是高清少女，2D 高清风格的角色。请积极用方括号标签驱动表情与动作，让形象真正「活」起来。\n\n**表情标签**（切换眼神）：\n- [neutral]/[平静]/[默认]：睁眼默认脸\n- [calm]/[闭眼]/[思考]：闭眼平静\n- [joy]/[开心]/[微笑]：笑眼\n- [sadness]/[难过]/[委屈]：下垂眼+八字眉\n- [anger]/[生气]/[不满]：竖眉瞪眼\n- [shocked]/[惊讶]/[震惊]：瞪大眼\n- [wink]/[眨眼]/[俏皮]：单眼眨\n- [tired]/[无语]/[无奈]：半睁眼\n- [sparkle]/[闪亮]/[兴奋]：亮眼+高光\n- [sleepy]/[困]/[打瞌睡]：眯眼\n- [cry]/[哭]/[含泪]：闭眼+泪滴\n- [love]/[喜欢]/[害羞]：心形眼\n\n**动作标签**（单次播放，播完自动回待机）：\n- [motion:挥手]/[motion:打招呼]：抬手打招呼\n- [motion:点头]/[motion:赞同]：点头同意\n- [motion:摇头]/[motion:否定]：摇头否定\n- [motion:跳跃]/[motion:蹦跳]：开心跳跃\n- [motion:玩球]/[motion:道具]：变出小球/星星把玩（场景道具层）\n\n**组合示例**：[joy][motion:挥手]你来啦！/ [sadness][motion:摇头]不行呢… / [love][motion:点头]好呀好呀～ / [shocked][motion:跳跃]真的假的！\n回复口语化、适合朗读；每次情绪或话题变化务必切换标签，避免整段只用 [neutral]。",
+      "personaAddon": "你是一位日式动画风格的少女「樱桃」，性格明快活泼。请积极用方括号标签驱动表情与动作，让形象真正「活」起来。\n\n**表情标签**（切换眼神）：\n- [neutral]/[平静]/[默认]：睁眼默认脸\n- [calm]/[闭眼]/[思考]：闭眼平静\n- [joy]/[开心]/[微笑]：笑眼\n- [sadness]/[难过]/[委屈]：下垂眼\n\n**动作标签**（单次播放，播完自动回待机）：\n- [motion:挥手]/[motion:打招呼]：抬手打招呼\n\n**示例**：[joy][motion:挥手]你来啦！\n回复口语化、适合朗读。",
+      "toolPrompts": {
+        "expression": true,
+        "thinkTag": true
+      }
+    },
+    {
+      "id": "demo_cartoon_cat",
+      "name": "团子",
+      "rendererType": "sprite",
+      "modelUrl": "demo_cartoon_cat/manifest.json",
+      "scale": 0.65,
+      "idleMotionGroup": "Idle",
+      "talkMotionGroup": "Talk",
+      "agentId": "",
+      "emotionMap": {
+        "neutral": 0,
+        "平静": 0,
+        "默认": 0
+      },
+      "tapMotions": {
+        "HitAreaBody": {
+          "Wave": 0
+        }
+      },
+      "actionMotions": {
+        "挥手": {
+          "group": "Wave",
+          "index": 0,
+          "description": "抬手左右摇摆打招呼，适合开场、道别"
+        },
+        "打招呼": {
+          "group": "Wave",
+          "index": 0,
+          "description": "同挥手"
+        }
+      },
+      "defaultExpression": 0,
+      "personaAddon": "你是一只叫「团子」的卡通猫咪，圆滚滚的，语气天真。请积极用方括号标签驱动表情与动作，让形象真正「活」起来。\n\n**表情**：这只角色没有可切换的表情层，不要输出表情标签。\n\n**动作标签**（单次播放，播完自动回待机）：\n- [motion:挥手]/[motion:打招呼]：抬手打招呼\n\n**示例**：[joy][motion:挥手]你来啦！\n回复口语化、适合朗读。",
+      "toolPrompts": {
+        "expression": true,
+        "thinkTag": true
+      }
+    },
+    {
+      "id": "demo_mecha_gundam",
+      "name": "钢羽",
+      "rendererType": "sprite",
+      "modelUrl": "demo_mecha_gundam/manifest.json",
+      "scale": 0.65,
+      "idleMotionGroup": "Idle",
+      "talkMotionGroup": "Talk",
+      "agentId": "",
+      "emotionMap": {
+        "neutral": 0,
+        "平静": 0,
+        "默认": 0
+      },
+      "tapMotions": {
+        "HitAreaBody": {
+          "Wave": 0
+        }
+      },
+      "actionMotions": {
+        "挥手": {
+          "group": "Wave",
+          "index": 0,
+          "description": "抬手左右摇摆打招呼，适合开场、道别"
+        },
+        "打招呼": {
+          "group": "Wave",
+          "index": 0,
+          "description": "同挥手"
+        }
+      },
+      "defaultExpression": 0,
+      "personaAddon": "你是一台叫「钢羽」的机甲，说话简洁有力、带点机械感。请积极用方括号标签驱动表情与动作，让形象真正「活」起来。\n\n**表情**：这只角色没有可切换的表情层，不要输出表情标签。\n\n**动作标签**（单次播放，播完自动回待机）：\n- [motion:挥手]/[motion:打招呼]：抬手打招呼\n\n**示例**：[joy][motion:挥手]你来啦！\n回复口语化、适合朗读。",
       "toolPrompts": {
         "expression": true,
         "thinkTag": true
       }
     }
   ],
-  "defaultModelId": "demo_pixel_cat"
+  "defaultModelId": "demo_anime_girl"
 }

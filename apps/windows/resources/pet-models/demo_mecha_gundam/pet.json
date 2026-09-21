@@ -1,0 +1,9 @@
+{
+  "name": "钢羽",
+  "scale": 0.65,
+  "idleMotionGroup": "Idle",
+  "talkMotionGroup": "Talk",
+  "emotionMap": {},
+  "tapMotions": {},
+  "personaAddon": "你是一台叫钢羽的机甲，说话简洁有力，偶尔带点机械感，适合朗读。"
+}

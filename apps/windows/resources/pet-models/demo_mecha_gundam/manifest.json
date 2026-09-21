@@ -1,0 +1,91 @@
+{
+  "id": "demo_mecha_gundam",
+  "rendererType": "sprite",
+  "canvas": {
+    "w": 144,
+    "h": 168
+  },
+  "anchor": [
+    72,
+    162
+  ],
+  "atlas": "atlas.png",
+  "atlasJson": "atlas.json",
+  "animations": [
+    {
+      "group": "Idle",
+      "index": 0,
+      "kind": "loop",
+      "fps": 4,
+      "frames": [
+        {
+          "base": "mecha_body_00"
+        },
+        {
+          "base": "mecha_body_01"
+        },
+        {
+          "base": "mecha_body_02"
+        },
+        {
+          "base": "mecha_body_03"
+        }
+      ],
+      "params": {
+        "bob": 3,
+        "breathe": 1.01,
+        "blink": 3200
+      }
+    },
+    {
+      "group": "Talk",
+      "index": 0,
+      "kind": "loop",
+      "fps": 8,
+      "frames": [
+        {
+          "base": "mecha_body_00"
+        },
+        {
+          "base": "mecha_body_01"
+        },
+        {
+          "base": "mecha_body_02"
+        },
+        {
+          "base": "mecha_body_03"
+        }
+      ],
+      "params": {
+        "bob": 1
+      }
+    },
+    {
+      "group": "Wave",
+      "index": 0,
+      "kind": "once",
+      "next": "Idle",
+      "fps": 8,
+      "frames": [
+        {
+          "base": "mecha_wave_00"
+        },
+        {
+          "base": "mecha_wave_01"
+        },
+        {
+          "base": "mecha_wave_02"
+        },
+        {
+          "base": "mecha_wave_03"
+        },
+        {
+          "base": "mecha_wave_04"
+        },
+        {
+          "base": "mecha_wave_05"
+        }
+      ]
+    }
+  ]
+}
