@@ -603,6 +603,13 @@
       "fps": 8,
       "frames": [
         {
+          "base": "girl_body_00",
+          "face": {
+            "eyes": "eye_open"
+          },
+          "durationMs": 300
+        },
+        {
           "base": "girl_wave_00",
           "durationMs": 300
         },
@@ -616,6 +623,13 @@
         },
         {
           "base": "girl_wave_03",
+          "durationMs": 240
+        },
+        {
+          "base": "girl_body_00",
+          "face": {
+            "eyes": "eye_open"
+          },
           "durationMs": 240
         }
       ]

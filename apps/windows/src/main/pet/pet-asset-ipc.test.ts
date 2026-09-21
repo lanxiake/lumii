@@ -59,6 +59,7 @@ describe('isPetAssetOp', () => {
       'sheetCheck',
       'diffLayer',
       'hitAreas',
+      'idlePin',
     ]) {
       expect(isPetAssetOp(op)).toBe(true)
     }

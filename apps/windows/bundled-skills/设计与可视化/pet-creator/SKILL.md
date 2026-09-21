@@ -205,8 +205,9 @@ execute_skill({
       { file: "<workspace>/outputs/pet-raw/pet-sheet-1.png", cols: 2, rows: 2,
         slot: "base", names: ["body_00", "body_01", "body_02", "body_03"] },
       // 带 group 的 base 批次 = 独立动作组。不给 group 的话这些帧会被拼进 Idle 循环里播
+      // idlePin 见下方说明——「从哪来回哪去」的动作都该加
       { file: "<workspace>/outputs/pet-raw/pet-sheet-2.png", cols: 3, rows: 2,
-        slot: "base", group: "Wave", kind: "once", next: "Idle", fps: 6,
+        slot: "base", group: "Wave", kind: "once", next: "Idle", idlePin: true, fps: 6,
         names: ["wave_00", "wave_01", "wave_02", "wave_03", "wave_04", "wave_05"] },
       // 表情批：带 diffBase 时，流水线会拿它跟基准帧差分，只留下眼睛那一层。
       // 出图时**必须**把基准帧当参考图一起给 image_generate，否则机位对不上、差分不成立。
@@ -220,8 +221,17 @@ execute_skill({
 ```
 
 `params.animations` 是给「不挂在任何批次上的动作组」用的逃生口；
-出图批次对应的动作组直接写在批次上（`group` / `kind` / `next` / `fps`），
+出图批次对应的动作组直接写在批次上（`group` / `kind` / `next` / `idlePin` / `fps`），
 别用两处描述同一件事。
+
+**`idlePin: true`（一次性动作该加）**：把这一组的首末格**按名引用待机首帧**，
+于是「从待机进这个动作」和「播完接回 `next`」两头都是像素级相同，不会跳。
+
+**不要**指望「让模型把待机站姿也画进第一格」——生成模型重画同一个姿势必然有漂移，
+端点只是看起来差不多，接上去仍然会顿。真正的无缝只有「端点就是同一张图」这一条路。
+
+只给**从哪来回哪去**的动作加。「坐下」那种末态本来就不在待机的动作别加——
+钉住末格是错的。脚本里这一步推不出来只报 warning，不会让整次构建失败。
 
 脚本返回 `{ ok, id, installedDir, frames, animationGroups, warnings, ... }`；
 `ok: false` 时把 `error` 如实转述给用户，**不要**自己编一个成功的结果。

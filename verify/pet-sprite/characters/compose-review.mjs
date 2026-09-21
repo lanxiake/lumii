@@ -94,6 +94,29 @@ const frame = (n2, first, dur) => ({
 })
 const hasFace = specs.some((s) => s.startsWith('face:'))
 
+// Idle Pin：把挥手的两端锚到待机首帧。
+//
+// 实测过为什么必须钉：待机四帧的重心都在 x≈191、包围盒 106–111 宽；挥手四帧的
+// 包围盒是 128→169、重心右移 5–20px——**挥手首帧离待机很远**，
+// 从待机进挥手、以及挥手播完回待机，两头都会跳。
+//
+// 钉法是**按名引用待机首帧**，不是让模型把待机姿势重画一遍：重画必然有漂移，
+// 端点只是"看起来差不多"，接上去仍会顿一下。
+const waveFrames = Array.from({ length: 4 }, (_, i) =>
+  frame(`${prefix}_wave_${String(i).padStart(2, '0')}`, false, DUR.wave[i]),
+)
+const pin = await op('idlePin', {
+  frames: waveFrames,
+  idleFrame: frame(baseNames[0], true),
+  group: 'Wave',
+  next: 'Idle',
+})
+if (!pin.ok) throw new Error(`idlePin 失败：${pin.error}`)
+for (const w of pin.result.warnings) console.log(`  ⚠ Idle Pin：${w}`)
+/** 钉好的帧序列——**清单里用的是它，不是 `waveFrames`** */
+const pinnedWave = pin.result.frames
+console.log(`  Idle Pin：Wave ${waveFrames.length} → ${pinnedWave.length} 帧（两端锚到 ${baseNames[0]}）`)
+
 // 点击命中区：从**待机首帧的轮廓**推。与 `pet-creator/run.ts` 里那一步同一件事，
 // 只是这里直接调 op 而不是走技能。
 //
@@ -117,7 +140,9 @@ const manifest = {
   animations: [
     { group: 'Idle', index: 0, kind: 'loop', fps: 4, frames: baseNames.map((n2, i) => frame(n2, i === 0, DUR.idle[i])), params: { bob: Math.max(1, Math.round(plan.canvas.h * 0.02)), breathe: 1.01, blink: 3200 } },
     { group: 'Talk', index: 0, kind: 'loop', fps: 8, frames: baseNames.map((n2, i) => frame(n2, i === 0)), params: { bob: 1 } },
-    { group: 'Wave', index: 0, kind: 'once', next: 'Idle', fps: 8, frames: Array.from({ length: 4 }, (_, i) => frame(`${prefix}_wave_${String(i).padStart(2, '0')}`, false, DUR.wave[i])) },
+    // Idle Pin：首末格按名引用待机首帧（见 pet-core 的 `model/idle-pin.ts`）。
+    // 走 op 而不是在这里手写一遍——算法与判据只有一份。
+    { group: 'Wave', index: 0, kind: 'once', next: 'Idle', fps: 8, frames: pinnedWave },
   ],
 }
 fs.writeFileSync(path.join(pkgDir, 'manifest.json'), JSON.stringify(manifest, null, 2))

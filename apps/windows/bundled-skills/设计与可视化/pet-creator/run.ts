@@ -95,7 +95,7 @@ const SAFE_ID = /^[a-z0-9][a-z0-9_-]{0,63}$/
  * 只自动生成 `Idle` 与 `Talk`：没声明动作组时，凭空造出的「跳跃/挥手」只是把同一批帧
  * 换个顺序播，语义是假的。额外动作要显式声明（批次上给 `group`，或用 `params.animations`）。
  */
-function buildManifest(params, namesByBatch, warnings) {
+async function buildManifest(params, namesByBatch, warnings, client) {
   const slots = {}
   const baseNames = []
   const baseDurations = []
@@ -139,20 +139,46 @@ function buildManifest(params, namesByBatch, warnings) {
     )
   }
 
-  const declared = grouped.map(({ batch, names }) => {
+  const declared = []
+  for (const { batch, names } of grouped) {
     const kind = batch.kind === 'once' ? 'once' : 'loop'
     if (kind === 'once' && !batch.next) {
       throw new Error(`批次「${batch.group}」是 once，必须给 next（播完接回哪个组）`)
     }
-    return {
+    let frames = framesFrom(names, batch.durationsMs)
+    /*
+     * Idle Pin：一次性动作的首末格**引用待机首帧**，于是「从待机进场」与
+     * 「播完接回待机」都是像素级相同，两头都不跳。
+     *
+     * 必须是**按名引用**而不是让模型把待机姿态也画进第一格：生成模型重画同一个
+     * 姿势必然有漂移，端点只是"看起来差不多"，接上去仍会顿一下。
+     *
+     * **按批次开关**，不默认全开：这是给「从哪来回哪去」的动作用的。
+     * 「坐下」那种末态本来就不在待机的动作，钉住末格是错的。
+     */
+    if (kind === 'once' && batch.idlePin === true) {
+      const r = await client('idlePin', {
+        frames,
+        idleFrame: idleFrames[0],
+        group: batch.group,
+        next: batch.next,
+      })
+      if (r.ok) {
+        frames = r.frames
+        warnings.push(...r.warnings.map((w) => `Idle Pin：${w}`))
+      } else {
+        warnings.push(`Idle Pin 没做成（${r.error}）——「${batch.group}」播完接回待机会跳`)
+      }
+    }
+    declared.push({
       group: batch.group,
       index: 0,
       kind,
       ...(kind === 'once' ? { next: batch.next } : {}),
       fps: Number.isFinite(batch.fps) ? batch.fps : 6,
-      frames: framesFrom(names, batch.durationsMs),
-    }
-  })
+      frames,
+    })
+  }
 
   // 原语振幅随画布高度走：写死 2px 对 56 高的像素模型够用，对 168 高的 2D 模型
   // 就几乎看不见（2 × 0.65 缩放 ≈ 1.3px）。breathe 是倍率，与尺寸无关，不用调。
@@ -408,7 +434,7 @@ async function run() {
   if (!packResult.roundTripOk) throw new Error('图集往返自检失败（工具链产出的索引读不回来）')
 
   // ---- 写清单与信封 ----
-  const manifest = buildManifest(params, namesByBatch, warnings)
+  const manifest = await buildManifest(params, namesByBatch, warnings, client)
 
   // ---- 点击命中区 ----
   //

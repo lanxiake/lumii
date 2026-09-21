@@ -83,6 +83,9 @@ export function buildParams(id, { withFace = true } = {}) {
         group: 'Wave',
         kind: 'once',
         next: 'Idle',
+        // Idle Pin：首末格按名引用待机首帧，两头都不跳。
+        // 生成的四格因此**全部**用在动作经过上，不浪费格子。
+        idlePin: true,
         fps: 8,
         names: Array.from(
           { length: c.plan.batches[1].cols * c.plan.batches[1].rows },

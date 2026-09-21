@@ -186,6 +186,36 @@ describe('buildSheetPrompt', () => {
   })
 })
 
+/**
+ * 循环动作与一次性动作对**首末格**的要求正好相反，不能共用一句话。
+ * 早先只有循环那套说法，一次性动作也被要求「末格接回首格」——
+ * 那等于让挥手结束在挥手的中途。
+ */
+describe('buildSheetPrompt / loopMode', () => {
+  const base = { cols: 2, rows: 2, action: '挥手', character: '一位少女', background: '#1d5fa8' }
+
+  it('默认是 cycle：末格接回首格', () => {
+    const p = buildSheetPrompt(base)
+    expect(p).toContain('最末一格要能无缝接回最初一格')
+    expect(p).not.toContain('待机站姿')
+  })
+
+  it('idle_pin：要求首末格都贴近待机站姿，不再提「接回最初一格」', () => {
+    const p = buildSheetPrompt({ ...base, loopMode: 'idle_pin' })
+    expect(p).toContain('第一格与最后一格都要贴近角色平时的待机站姿')
+    expect(p).toContain('中间几格才是它的经过')
+    // 循环那半句必须消失——两句话对首末格的要求是相反的
+    expect(p).not.toContain('最末一格要能无缝接回最初一格')
+  })
+
+  it('其余约束两句都要有（不是把整段换掉）', () => {
+    const p = buildSheetPrompt({ ...base, loopMode: 'idle_pin' })
+    expect(p).toContain('关键姿态')
+    expect(p).toContain('一眼就能看出')
+    expect(p).toContain('全部格子必须能连成同一个动作')
+  })
+})
+
 describe('checkCharacterDirection', () => {
   it('干净的一段话不报', () => {
     expect(checkCharacterDirection('一只坐着的小猫，尾巴轻轻摆动，重心落在后腿')).toEqual([])

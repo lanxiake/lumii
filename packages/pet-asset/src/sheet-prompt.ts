@@ -140,6 +140,24 @@ export function cnNumber(n: number): string {
  */
 export type SheetKind = 'motion' | 'expression'
 
+/**
+ * 动作怎么收尾。
+ *
+ * - `cycle`（默认）：循环动作。要的是**末格接回首格**，首尾都在动作中途。
+ *   待机、走路属于这类。
+ * - `idle_pin`：一次性动作。要的是**首末格都贴近待机站姿**——从待机进场、
+ *   播完回待机，两头都不跳。出处是 `sprite_h3` 的 Idle Pin（见
+ *   `docs/design/客户端UI/2026-09-21-桌宠动作生成方案调研.md` §5.2）。
+ *
+ * 两者对首末格的要求**正好相反**，所以不能共用一句话。早先只有 `cycle` 的说法，
+ * 一次性动作也被要求"末格接回首格"——那等于让挥手结束在挥手的中途。
+ *
+ * 注意：真正的无缝由**装配**保证（首末格按名引用待机首帧，见 pet-core 的
+ * `model/idle-pin.ts`），这里只是让模型把中间几格画对——
+ * 端点要贴近待机，否则接上钉住的那一格仍会顿。
+ */
+export type SheetLoopMode = 'cycle' | 'idle_pin'
+
 export interface SheetPromptOptions {
   /** 默认 `motion` */
   kind?: SheetKind
@@ -156,6 +174,8 @@ export interface SheetPromptOptions {
   part?: string
   /** 按读序排列的各格取值（如 `['睁眼','闭眼','笑眼','难过']`）。仅 `kind: 'expression'` 用 */
   variants?: string[]
+  /** 动作怎么收尾（见 `SheetLoopMode`）。默认 `cycle` */
+  loopMode?: SheetLoopMode
   /** 角色与动作的文字描述（创作段），由 Agent 自己写 */
   character: string
   /** 底色，建议来自 `pickBackgroundColor()` */
@@ -206,7 +226,12 @@ export function buildSheetPrompt(o: SheetPromptOptions): string {
           'MOTION: 格子按阅读顺序（从左到右、从上到下）排列，代表**一段连续动作**的先后瞬间。',
           '每一格是这段动作的一个**关键姿态**。相邻格之间必须有**一眼就能看出**的姿态变化',
           '（肢体位置明显不同），否则连起来播像是没动。',
-          '但也不要跳到别的动作上去：全部格子必须能连成同一个动作，最末一格要能无缝接回最初一格。',
+          '但也不要跳到别的动作上去：全部格子必须能连成同一个动作，' +
+            (o.loopMode === 'idle_pin'
+              ? // 一次性动作：两头都要回到站姿，播完才接得上待机
+                '**第一格与最后一格都要贴近角色平时的待机站姿**——' +
+                '这段动作是从站姿出发、又回到站姿的，中间几格才是它的经过。'
+              : '最末一格要能无缝接回最初一格。'),
           // 这条抄自 hatch-pet 的 row_prompt：他们实测靠它压住「每帧重画一遍」
           '**在格子内部挪动姿势，不要逐格把角色重画得更大或更小**；',
           '同一行里角色的表观大小与脚底基线必须保持不变。',
@@ -262,6 +287,8 @@ export interface SheetBatchSpec {
   part?: string
   /** 按读序排列的各格取值（如 `['睁眼','闭眼']`）。`expression` 批用 */
   variants?: string[]
+  /** 动作怎么收尾（见 `SheetLoopMode`）。默认 `cycle` */
+  loopMode?: SheetLoopMode
   cols: number
   rows: number
 }
@@ -323,6 +350,7 @@ export function buildSheetPlan(input: SheetPlanInput): SheetPlan {
       motion: b.motion,
       part: b.part,
       variants: b.variants,
+      loopMode: b.loopMode,
       character: input.character,
       background: background.hex,
     })
@@ -340,6 +368,12 @@ export function buildSheetPlan(input: SheetPlanInput): SheetPlan {
         )
       }
     } else {
+      if (b.loopMode === 'idle_pin') {
+        warnings.push(
+          'expression 批次给了 loopMode: "idle_pin"——表情差分是并列的几种样子，没有"收尾"可言，' +
+            '这个字段会被忽略',
+        )
+      }
       if (!b.part) warnings.push('expression 批次没给 part（变化的部位名）——提示词会退化成「面部」')
       const want = b.cols * b.rows
       if (!b.variants || b.variants.length === 0) {

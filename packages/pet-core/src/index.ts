@@ -21,6 +21,8 @@ export const PET_CORE_VERSION = "0.1.0";
 // 阶段 B：零依赖资产
 export * from "./model/pet-model-types.js";
 export * from "./model/sprite-manifest.js";
+// 一次性动作的首末帧锚到待机（Idle Pin）：让「播完接回待机」不跳
+export * from "./model/idle-pin.js";
 export * from "./lipsync/mouth-waveform.js";
 export * from "./mapping/emotion-tag-parser.js";
 

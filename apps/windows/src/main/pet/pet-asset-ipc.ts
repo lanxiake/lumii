@@ -42,6 +42,7 @@ import {
   type SheetBatchSpec,
 } from '@mtbot/pet-asset'
 import { resolveActiveWorkspaceDir } from '../workspace-paths'
+import { checkIdlePin, pinIdleFrames, type SpriteFrameRef } from '@mtbot/pet-core'
 
 const log = {
   info: (...args: unknown[]) => console.log('[pet-asset-ipc]', ...args),
@@ -60,6 +61,7 @@ export type PetAssetOp =
   | 'sheetCheck'
   | 'diffLayer'
   | 'hitAreas'
+  | 'idlePin'
 
 const OPS: readonly PetAssetOp[] = [
   'validate',
@@ -73,6 +75,7 @@ const OPS: readonly PetAssetOp[] = [
   'sheetCheck',
   'diffLayer',
   'hitAreas',
+  'idlePin',
 ]
 
 export function isPetAssetOp(v: unknown): v is PetAssetOp {
@@ -259,8 +262,10 @@ export async function runPetAssetOp(call: PetAssetCall): Promise<PetAssetResult>
         const batches: SheetBatchSpec[] = rawBatches.map((b) => {
           const o = (b ?? {}) as Record<string, unknown>
           const kind = o.kind === 'expression' ? ('expression' as const) : undefined
+          const loopMode = o.loopMode === 'idle_pin' ? ('idle_pin' as const) : undefined
           return {
             kind,
+            loopMode,
             action: str(o.action) ?? '',
             motion: str(o.motion),
             part: str(o.part),
@@ -360,6 +365,40 @@ export async function runPetAssetOp(call: PetAssetCall): Promise<PetAssetResult>
             bodyId: str(a.bodyId),
           }),
         }
+      }
+
+      /**
+       * Idle Pin：把一次性动作的首末帧锚到待机首帧。
+       *
+       * 纯计算、不碰盘（同 `sheetPlan`）——放在这里只是因为技能脚本是子进程、
+       * 解析不到 workspace 包，只能借这条通道。算法与判据在
+       * `packages/pet-core/src/model/idle-pin.ts`，那边才是唯一来源。
+       */
+      case 'idlePin': {
+        const frames = Array.isArray(a.frames) ? (a.frames as SpriteFrameRef[]) : null
+        const idleFrame = a.idleFrame as SpriteFrameRef | undefined
+        if (!frames || frames.length === 0) return { ok: false, error: '缺少 frames（动作的帧序列）' }
+        if (!idleFrame || typeof idleFrame !== 'object' || Array.isArray(idleFrame)) {
+          return { ok: false, error: '缺少 idleFrame（待机首帧）' }
+        }
+        const pinned = pinIdleFrames(frames, idleFrame, {
+          headMs: num(a.headMs),
+          tailMs: num(a.tailMs),
+        })
+        // 自检：钉完立刻验一遍。构造正确时必然通过，所以这条真正的用处是
+        // **发现装配被改坏了**（比如哪天改成让模型重新画端点）。
+        const warnings: string[] = []
+        const chk = checkIdlePin(
+          {
+            kind: 'once',
+            group: str(a.group) ?? '（未命名）',
+            next: str(a.next),
+            frames: pinned,
+          },
+          idleFrame,
+        )
+        if (!chk.ok) warnings.push(chk.reason)
+        return { ok: true, result: { frames: pinned, warnings } }
       }
 
       default:
