@@ -98,13 +98,55 @@ const DECLARED = { STAND: 1, WALK: 4, SIT: 1, GREET: 8, JUMP: 1, FALL: 3, DRAG: 
  * `Idle` 用**单帧 STAND** 而不是某个循环行：单帧正好把「角色动不动」全部交给
  * 程序化原语（`bob`/`breathe`），这是 Lumii 的一条核心下注，值得单独验。
  * `WALK` 那 4 帧则提供一条**真·多帧循环**，用来验逐帧时长与循环衔接。
+ *
+ * `Sit` / `Fall` / `Picked` 是 2026-09-21 为**自主行为**（R9）补的：
+ * 桌宠要能自己坐下、掉落、被拎起来。组名不是随手取的——
+ * `Picked` 正是 `PetOrchestrator.playConventionalMotion('Picked')` 找的名字，
+ * 命名对上，`setPicked(true)` 那条既有链路不用改一行就能播。
+ *
+ * 三个「不」：
+ * - `Fall` **是 loop 不是 once**：`once` 的语义是"播完回 next"，可掉落的结束时间是
+ *   **物理事实**（什么时候落地），不是动画时长。这 3 帧只有 333ms，用 once 会出现
+ *   「还在空中就站起来了」。参考项目的 FALL 就是 `loop=false` + 播完即切走，
+ *   实测表现正是落地前姿势就没了。用 loop 让下落全程姿势正确，落地由物理层切走。
+ * - `Fall` **不 pin**：Idle Pin 的语义是"首末帧锚到待机让接回不跳"，
+ *   而掉落的末帧不是待机，锚了反而会闪一下。
+ * - `params` 只给**长时间维持**的姿态（Idle/Sit）。走路的 4 帧本身就是动画，
+ *   再叠浮动会变成"边抖边走"。
  */
 const GROUPS = [
-  { group: 'Idle', from: 'STAND', kind: 'loop', fps: 9, clip: (id) => `${id}_stand_00` },
+  {
+    group: 'Idle',
+    from: 'STAND',
+    kind: 'loop',
+    fps: 9,
+    clip: (id) => `${id}_stand_00`,
+    // 单帧待机靠程序化原语活起来——「AI 出静态部件 + 代码做动画」那条下注的落点
+    params: (h) => ({ bob: Math.max(1, Math.round(h * 0.06)), breathe: 1.02, sway: 1.5 }),
+  },
   { group: 'Walk', from: 'WALK', kind: 'loop', fps: 9, clip: (id, i) => `${id}_walk_${p2(i)}` },
+  {
+    group: 'Sit',
+    from: 'SIT',
+    kind: 'loop',
+    fps: 9,
+    clip: (id, i) => `${id}_sit_${p2(i)}`,
+    // 坐着要比站着更静：只有呼吸，没有晃动
+    params: () => ({ breathe: 1.015 }),
+  },
   { group: 'Talk', from: 'STAND', kind: 'loop', fps: 9, clip: (id) => `${id}_stand_00` },
   // 一次性动作的两端会由 idlePin 换成待机首帧（见下）
-  { group: 'Wave', from: 'GREET', kind: 'once', next: 'Idle', fps: 9, pin: true, clip: (id, i) => `${id}_greet_${p2(i)}` },
+  {
+    group: 'Wave',
+    from: 'GREET',
+    kind: 'once',
+    next: 'Idle',
+    fps: 9,
+    pin: true,
+    clip: (id, i) => `${id}_greet_${p2(i)}`,
+  },
+  { group: 'Fall', from: 'FALL', kind: 'loop', fps: 9, clip: (id, i) => `${id}_fall_${p2(i)}` },
+  { group: 'Picked', from: 'DRAG', kind: 'loop', fps: 9, clip: (id, i) => `${id}_drag_${p2(i)}` },
 ]
 const p2 = (i) => String(i).padStart(2, '0')
 
@@ -267,10 +309,8 @@ for (const g of GROUPS) {
     ...(g.next ? { next: g.next } : {}),
     fps: g.fps,
     frames,
-    // 单帧待机靠程序化原语活起来——这是设计里「运行时做动画」那条下注的落点
-    ...(g.group === 'Idle'
-      ? { params: { bob: Math.max(1, Math.round(cropH * 0.06)), breathe: 1.02, sway: 1.5 } }
-      : {}),
+    // 程序化参数由 GROUPS 各自声明（哪些组该"活起来"、活到什么程度见那边的注释）
+    ...(g.params ? { params: g.params(cropH) } : {}),
   })
 }
 
@@ -323,8 +363,9 @@ for (const f of ['manifest.json', 'atlas.png', 'atlas.json', 'pet.json']) {
 console.log(`  已写入 ${path.relative(REPO, dest)}`)
 
 if (!has('no-install')) {
+  // 同 make-patches：`op()` 已解包一层，install 的 result 自带 `ok`，别再读 `.result.ok`
   const inst = await op('install', { dir: pkgDir })
-  if (!inst.ok || !inst.result.ok) throw new Error(`安装失败：${inst.error ?? inst.result?.error}`)
+  if (!inst.ok) throw new Error(`安装失败：${inst.error ?? JSON.stringify(inst.validation?.errors)}`)
   console.log(`  已装到 ${describeRoots().userPetDir}`)
 }
 console.log(`\n✓ ${id}：${animations.reduce((a, g) => a + g.frames.length, 0)} 帧，${animations.length} 组`)

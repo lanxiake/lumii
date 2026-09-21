@@ -365,6 +365,24 @@
       ]
     },
     {
+      "group": "Sit",
+      "index": 0,
+      "kind": "loop",
+      "fps": 9,
+      "frames": [
+        {
+          "base": "demo_shimeji_skoreacat_sit_00",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        }
+      ],
+      "params": {
+        "breathe": 1.015
+      }
+    },
+    {
       "group": "Talk",
       "index": 0,
       "kind": "loop",
@@ -451,6 +469,50 @@
         },
         {
           "base": "demo_shimeji_skoreacat_stand_00",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        }
+      ]
+    },
+    {
+      "group": "Fall",
+      "index": 0,
+      "kind": "loop",
+      "fps": 9,
+      "frames": [
+        {
+          "base": "demo_shimeji_skoreacat_fall_00",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        },
+        {
+          "base": "demo_shimeji_skoreacat_fall_01",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        },
+        {
+          "base": "demo_shimeji_skoreacat_fall_02",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        }
+      ]
+    },
+    {
+      "group": "Picked",
+      "index": 0,
+      "kind": "loop",
+      "fps": 9,
+      "frames": [
+        {
+          "base": "demo_shimeji_skoreacat_drag_00",
           "durationMs": 111,
           "face": {
             "face": "face_none"

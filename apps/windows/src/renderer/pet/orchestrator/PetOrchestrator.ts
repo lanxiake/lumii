@@ -19,7 +19,7 @@
 
 import type { PetRendererProvider, PetMotionPlayedInfo } from '../renderer/types'
 import type { PetModelConfig } from '../config/pet-model-types'
-import type { PetIdleStage } from '@mtbot/pet-core'
+import type { PetIdleStage, AmbientActivity } from '@mtbot/pet-core'
 import { PET_MOTION_GROUP_UNNAMED } from '../config/pet-model-types'
 import { PetBus } from './pet-bus'
 import { bindPetEventAdapter } from './pet-event-adapter'
@@ -119,6 +119,15 @@ export class PetOrchestrator {
 
   /** 物理交互（抓取/投掷）进行中：暂停待机调度，见 setPicked */
   private interactionActive = false
+  /**
+   * 自主活动（R9）：驱动报上来的当前姿态。
+   *
+   * 与 `idleStage` 一样是**正交维度**，不进 `petStateMachine`：那边回答"宠物在跟用户
+   * 对话吗"，这边回答"宠物自己溜达到哪一步了"。两者可以同时发生（边走边听）。
+   */
+  private ambientActivity: AmbientActivity = 'stand'
+  /** 活动对应的动作组；null = 没有（用基础待机组） */
+  private ambientGroup: string | null = null
   /** 用户闲置阶段（P2-c）。**与环境有关，与对话生命周期正交**，故不进 petStateMachine */
   private idleStage: PetIdleStage = 'awake'
   /**
@@ -930,12 +939,15 @@ export class PetOrchestrator {
       // - sprite（autoLoopsIdle === false）：后端只播 playMotion 启动的东西，
       //   不会自己动。不在这里启动，模型就永远停在第一帧——实测表现是「宠物完全不会动」。
       if (this.renderer.autoLoopsIdle === false) {
-        this.renderer.playMotion(group)
+        // 自主活动优先：宠物在走/在坐时就播那一组，否则播基础待机。
+        // 这一句是「环境动作」与「待机」的**唯一汇合点**——驱动只管报状态，
+        // 由这里按既有优先级决定播什么。
+        this.renderer.playMotion(this.ambientGroup ?? group)
       }
       this.patchStatus({
         phase: 'idle',
         motionKind: this.inPostDialogueCooldown ? 'cooldown' : 'idle',
-        motionGroup: this.idleGroup,
+        motionGroup: this.ambientGroup ?? this.idleGroup,
       })
     }
   }
@@ -947,11 +959,18 @@ export class PetOrchestrator {
    * （idle/listening/thinking/speaking）正交——硬塞进状态机会让两个维度互相干扰。
    * 所以这里只用一个布尔标记，作用是：暂停待机调度 + 播约定组的动作。
    *
-   * @param picked true = 被抓起来了；false = 松手（接下来是自由落体，不播动作）
+   * @param picked true = 被抓起来了；false = 松手（接下来是自由落体）
    */
   setPicked(picked: boolean): void {
     this.interactionActive = picked
-    if (picked) this.playConventionalMotion('Picked')
+    if (picked) {
+      this.playConventionalMotion('Picked')
+      return
+    }
+    // 松手：物理上接下来是抛物线（由画布负责），表现上该是下落姿势。
+    // 用 `Fall` 而不是别的：它在这个模型里是**循环**组——掉多久是物理事实，
+    // 不是动画时长，一次性动作会在半空中就播完。
+    this.playConventionalMotion('Fall')
   }
 
   /**
@@ -959,7 +978,50 @@ export class PetOrchestrator {
    */
   notifyLanded(): void {
     this.interactionActive = false
-    this.playConventionalMotion('Land')
+    // 模型没声明 Landing 组时**必须显式回环境动作**：不接这一步的话，
+    // 宠物会停在 Fall 的最后一帧上——落地了还保持下落姿势（Shimeji 就没有 Landing 组）。
+    // 这不是"退化"，是"用现有的东西把状态机接回去"。
+    if (!this.playConventionalMotion('Land') && this.idling) {
+      this.playAmbientMotion()
+    }
+  }
+
+  /**
+   * 自主活动（R9）：空闲游走驱动报上来的「该走 / 该坐 / 该站」。
+   *
+   * 只把结果记成一个**环境动作组**，播不播由 `enterIdle` 决定——那里已经有整套优先级
+   * （对话中跳过、物理交互中跳过、闲置阶段降频）。驱动不直接调 `playMotion`，是为了
+   * 保持「渲染器的动作入口只有一个写者」：两个写者会互相打断，且谁都不知道对方在干嘛，
+   * 表现为动作播到一半被另一个来源切走。
+   *
+   * 模型没有对应动作组时**静默回落到基础待机**（Live2D 模型普遍没有 Walk/Sit）——
+   * 那不是错误，是正常的后端能力差异，不该报错也不该随便挑个动作顶上。
+   */
+  setAmbientActivity(activity: AmbientActivity): void {
+    if (this.ambientActivity === activity) return
+    this.ambientActivity = activity
+    this.ambientGroup = this.resolveAmbientGroup(activity)
+    log.info(
+      `[setAmbientActivity] ${activity} → 组 "${this.ambientGroup ?? '(基础待机)'}"`,
+    )
+    // 正在待机就立刻体现；对话/交互进行中不打扰，等下一次 enterIdle 自然生效
+    if (this.idling && !this.dialogueActive && !this.interactionActive) {
+      this.playAmbientMotion()
+    }
+  }
+
+  /** 活动 → 动作组名。`stand` 返回 null，表示"用基础待机组" */
+  private resolveAmbientGroup(activity: AmbientActivity): string | null {
+    const want = activity === 'walk' ? 'Walk' : activity === 'sit' ? 'Sit' : null
+    if (!want) return null
+    return this.renderer.getMotionCount(want) > 0 ? want : null
+  }
+
+  /** 播当前环境动作（没有环境动作就用基础待机组） */
+  private playAmbientMotion(): void {
+    const group = this.ambientGroup ?? this.resolveIdleMotionGroup()
+    if (this.renderer.getMotionCount(group) <= 0) return
+    this.renderer.playMotion(group)
   }
 
   /**

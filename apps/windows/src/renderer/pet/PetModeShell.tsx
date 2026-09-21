@@ -697,14 +697,20 @@ export const PetModeShell: React.FC = () => {
           modelId={currentModelId || undefined}
           onDegrade={handleDegrade}
           onModelLoaded={handleModelLoaded}
-          // 场景 A：抓起/落地时让编排器播约定动作（模型声明了 Picked / Land 才播）。
+          // 场景 A：抓起/抛出/落地时让编排器播约定动作（模型声明了 Picked / Fall / Land 才播）。
           // 抛物线本身在 PetCanvas 里跑，这里只做动作衔接。
           onInteraction={(e) => {
             const orch = orchestratorRef.current
             if (!orch) return
             if (e.type === 'picked') orch.setPicked(true)
+            else if (e.type === 'thrown') orch.setPicked(false)
             else orch.notifyLanded()
           }}
+          // 自主活动（R9）：画布只报「该走/该坐/该站」，播哪个组由编排器按既有优先级决定
+          onAmbientActivity={(activity) => orchestratorRef.current?.setAmbientActivity(activity)}
+          // 对话进行中（听/想/说/收尾）不让宠物自己溜达——它正在跟用户交互，不该走开。
+          // 复用 `enableIdleMotion` 开关：语义就是「待机时要不要自己动」，不必再加一个设置项。
+          ambientEnabled={idleMotionEnabled && (!avatarStatus || avatarStatus.phase === 'idle')}
         />
       )}
 

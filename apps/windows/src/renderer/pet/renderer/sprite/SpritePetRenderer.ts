@@ -80,6 +80,26 @@ const MOUTH_NAMES = ['mouth', 'mouths']
 export const SPRITE_MAX_HEIGHT_RATIO = 0.35
 
 /**
+ * 地面线距视口底边的距离（CSS 像素）。
+ *
+ * 取固定值而不是比例：宠物的**绝对**体量不该随窗口大小变，"离地多高"同理。
+ * 48 大致是任务栏高度之上一点——工作区已经排除了任务栏，留出一个身位即可。
+ */
+export const GROUND_MARGIN_PX = 48
+
+/**
+ * 首次摆放的水平位置（视口宽度的比例）。
+ *
+ * **不是 0.5**：屏幕底部中央被控制坞占着（它的定位是 `bottom:120; left:50%`，
+ * 宽 400，实测覆盖 x∈[1080,1480]），宠物站在正中会被整个挡住上半身。
+ * 0.25 落在控制坞左侧、留出足够身位。
+ *
+ * 走动时仍会经过中间——那时从面板后面穿过去是自然的（真实桌宠也会走到 UI 后面），
+ * 要避免的只是"一进宠物模式就看不见它"。
+ */
+export const GROUND_START_X_RATIO = 0.25
+
+/**
  * 眼睛相对身体的注视增益。
  *
  * 眼睛挪一点点就足以表达方向（那是看向哪的主要线索），身体跟着挪同样多反而
@@ -156,6 +176,13 @@ export class SpritePetRenderer implements PetRendererProvider {
   /** 锚点在画布上的逻辑位置（程序化浮动不改它，命中判定也不受浮动影响） */
   private posX = 0
   private posY = 0
+  /**
+   * 水平镜像。
+   *
+   * Shimeji 这类素材**只画一个朝向**（面朝右），向左走时靠整体翻转。
+   * 打包期烘一份镜像图集是另一条路，代价是图集翻倍——运行时翻转不需要。
+   */
+  private flipped = false
   /** 自适应得到的基准缩放（不含用户倍率） */
   private baseScale = 1
   private userScaleFactor = 1
@@ -228,7 +255,8 @@ export class SpritePetRenderer implements PetRendererProvider {
     this.loaded = true
     this.userScaleFactor = 1
     this.applyAdaptiveScale(manifest)
-    this.centerModel()
+    // 首次摆放：站到地面线上、水平居中
+    this.resetToGround(true)
 
     // 载入后先摆出默认姿态；编排器随后会 playMotion('Idle')
     this.applyState(runtime.defaultState)
@@ -533,7 +561,18 @@ export class SpritePetRenderer implements PetRendererProvider {
     // 这个换算曾经漏掉，长期没暴露：所有模型都没声明 sway/nod，`transform.rotation`
     // 恒为 0。加入注视后才第一次有非零值进来，症状是**宠物朝光标的反方向歪**。
     root.rotation = poseRotationRadians(transform.rotation, gaze.tiltDeg)
-    root.scale.set(this.effectiveScale() * transform.scale)
+
+    // 水平镜像作用在 root.scale.x 上（不是 pivot）。
+    //
+    // 锚点校正 `pivot.position.x = -anchor[0]` **不需要跟着改**：sprite 的世界坐标是
+    // `root.position + root.scale × (pivot.position + local)`，要让 local=anchorX 落到
+    // root 原点上，条件 `scale.x × (pivot.x + anchorX) = 0` 与 scale 的符号无关。
+    // 曾经的结论是"渲染层没有翻转能力、镜像只能落打包期且图集翻倍"——那是没找到这条。
+    //
+    // 旋转（sway/nod/注视倾斜）在 scale 外层，镜像后会视觉反向，这正是期望行为：
+    // 宠物朝左时摇摆方向也该跟着镜像。
+    const s = this.effectiveScale() * transform.scale
+    root.scale.set(s * (this.flipped ? -1 : 1), s)
 
     this.applyEyeGaze(gaze, petHeight)
     this.applyBlink(transform.blinkClosed)
@@ -599,10 +638,27 @@ export class SpritePetRenderer implements PetRendererProvider {
     )
   }
 
-  private centerModel(): void {
+  /**
+   * 摆到地面上。
+   *
+   * 与 Live2D 后端的 `centerModel`（画布正中）是**有意的差异**：那边是立绘，居中才对；
+   * 这边是桌宠，"站在地面"是它的前提——悬在屏幕正中的宠物既挡工作区，
+   * 又让「自己走动」这件事失去参照（走在哪条线上？）。参考项目同样把宠物放在屏幕下方。
+   *
+   * @param center 是否重置水平位置。**首次摆放才置中**；视口变化时不重置——
+   *   那会把正在走动的宠物一把拽回中间，而用户改窗口大小跟宠物位置毫无关系。
+   */
+  private resetToGround(center: boolean): void {
     if (!this.app) return
-    this.posX = this.app.renderer.width / 2
-    this.posY = this.app.renderer.height / 2
+    this.posY = this.app.renderer.height - GROUND_MARGIN_PX
+    if (center) {
+      // 偏左摆放而不是居中——底部中央被控制坞占着（见 GROUND_START_X_RATIO）
+      this.posX = this.app.renderer.width * GROUND_START_X_RATIO
+    } else {
+      // 视口变窄时 x 可能落到界外，夹回来；自治行为那边每帧也会夹，这里只是兜底
+      this.posX = Math.min(Math.max(this.posX, 0), this.app.renderer.width)
+    }
+    if (this.root) this.root.position.set(this.posX, this.posY)
   }
 
   adjustScaleByDelta(delta: number): void {
@@ -635,10 +691,44 @@ export class SpritePetRenderer implements PetRendererProvider {
     return { x: this.posX, y: this.posY }
   }
 
+  /**
+   * 设置水平镜像。
+   *
+   * 翻转不重建任何东西：图集、多边形、锚点全部沿用，只在 `root.scale.x` 上加符号
+   * （推导见 `applyProcedural`）。命中判定跟着走——`modelTransform()` 会带上 `flipX`，
+   * 由 pet-core 的 `toManifestPoint` 反算回清单坐标，**漏掉这一步会「点左肩中右肩」**。
+   *
+   * 幂等：同值重复调用直接返回（行为层每帧都可能来问一次）。
+   */
+  setFlip(flipX: boolean): void {
+    if (this.flipped === flipX) return
+    this.flipped = flipX
+    // 立刻套用，不等下一帧 ticker：转向与位移是同一 tick 里发生的，
+    // 差一帧会看到「先平移过去、再翻过来」
+    this.applyProcedural()
+    log.info(`[setFlip] 水平镜像=${flipX}`)
+  }
+
+  getFlip(): boolean {
+    return this.flipped
+  }
+
+  /**
+   * 布局查询：锚点与当前缩放。自主行走用它把画布边界换算成「脚能走到哪」。
+   *
+   * 不复用 `getHitTransform()`：那个方法的契约是**命中判定的诊断口径**
+   * （pet-lab 拿它反算期望值），往上面挂行为层的需求会让两边互相牵制。
+   */
+  getLayout(): { anchorX: number; scale: number } | null {
+    if (!this.runtime) return null
+    return { anchorX: this.runtime.manifest.anchor[0], scale: this.effectiveScale() }
+  }
+
   resize(width: number, height: number): void {
     if (!this.app) return
     this.app.renderer.resize(width, height)
-    this.centerModel()
+    // 只更新地面线，不重置水平位置（见 resetToGround 的 @param center）
+    this.resetToGround(false)
   }
 
   setFpsCap(fps: number): void {
@@ -736,6 +826,8 @@ export class SpritePetRenderer implements PetRendererProvider {
       scale: this.effectiveScale(),
       anchorX: manifest.anchor[0],
       anchorY: manifest.anchor[1],
+      // 镜像必须进命中变换，否则宠物朝左时点击判定左右颠倒
+      flipX: this.flipped,
     }
   }
 
@@ -752,6 +844,7 @@ export class SpritePetRenderer implements PetRendererProvider {
     scale: number
     anchorX: number
     anchorY: number
+    flipX: boolean
   } | null {
     if (!this.runtime) return null
     return this.modelTransform(this.runtime.manifest)

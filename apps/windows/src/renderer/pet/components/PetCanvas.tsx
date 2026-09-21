@@ -24,7 +24,8 @@ import { ensureCubismCore } from '../utils/cubism-core-loader'
 import { getPetModelConfig } from '../config/pet-model-registry'
 import type { PetModelConfig } from '../config/pet-model-types'
 import { PET_MOTION_GROUP_UNNAMED } from '../config/pet-model-types'
-import { estimateVelocity, isThrowable, stepThrow, type DragSample, type ThrowBody } from '@mtbot/pet-core'
+import { estimateVelocity, isThrowable, stepThrow, type DragSample, type ThrowBody, type AmbientActivity } from '@mtbot/pet-core'
+import { PetWanderDriver } from '../behavior/PetWanderDriver'
 import { petMetrics } from '../telemetry/pet-metrics'
 import type { PetHoverUpdate } from '../../../shared/pet-mode'
 import { spawnClickFireworks, disposeClickFireworks } from './click-fireworks'
@@ -34,6 +35,29 @@ const log = {
   warn: (...args: unknown[]) => console.warn('[PetCanvas]', ...args),
   error: (...args: unknown[]) => console.error('[PetCanvas]', ...args),
 }
+
+/**
+ * 点击回应期间让自主行为让位多久（毫秒）。
+ *
+ * 为什么是定时解除、而不是等"动作播完"信号：渲染器的 `setMotionPlayedListener`
+ * 是**单播**且已被编排器占用（它要用它更新可观测状态），画布这边加不上第二个监听者。
+ *
+ * 2.5 秒的来历：Shimeji 的 GREET 是 8 帧、钉完 idle 端点后 10 帧 ≈ 1.1 秒，
+ * 留一倍余量。多停的那点时间观感上是"它回应完了，愣一下再走"，不会显得卡住。
+ */
+const TAP_AMBIENT_HOLD_MS = 2500
+
+/**
+ * 指针交互的让位来源名。
+ *
+ * **一次指针交互只用一个名字**：`mousedown` 记下它，各条 `mouseup` 分支
+ * （点击 / 原地落下 / 抛掷落地）都解除它。用多个名字会泄漏——
+ * 记的人与解除的人对不上，宠物就永久卡在让位状态（实测踩过，见 driver 的 `holds` 注释）。
+ */
+const AMBIENT_HOLD_POINTER = 'pointer'
+
+/** 开关（`ambientEnabled`）的让位来源名，与指针交互分开记账 */
+const AMBIENT_HOLD_DISABLED = 'ambient-disabled'
 
 /** 降级状态：上层据此显示提示 */
 export type PetCanvasDegradeReason =
@@ -55,11 +79,28 @@ export interface PetCanvasProps {
    * 抛物线与落地是画布自己的事，动作衔接才是编排的事，两者解耦。
    */
   onInteraction?: (event: PetInteractionEvent) => void
+  /**
+   * 自主活动变化（空闲游走，仅 sprite 后端）。
+   *
+   * **只报「该走/该坐/该站」，不报动作组名**：播哪个组是编排器的事
+   * （它还要考虑对话优先级、闲置阶段、模型有没有那一组）。画布越权直接
+   * `playMotion` 会和编排器抢同一个入口。
+   */
+  onAmbientActivity?: (activity: AmbientActivity) => void
+  /**
+   * 自主行为总开关（仅 sprite 后端，默认开）。
+   *
+   * 关掉后宠物不再自己走动，但**进行中的让位不受影响**（拖拽/抛掷照常）——
+   * 它是"要不要自己动"，不是"要不要能动"。
+   */
+  ambientEnabled?: boolean
 }
 
 /** 物理交互事件 */
 export type PetInteractionEvent =
   | { type: 'picked' }
+  /** 松手且速度够快，接下来是抛物线飞行（`landed` 会在这之后到达） */
+  | { type: 'thrown' }
   | { type: 'landed'; x: number; y: number }
 
 /** 暴露给上层的句柄 */
@@ -84,7 +125,7 @@ function toCanvasLocal(e: MouseEvent, canvas: HTMLCanvasElement): { x: number; y
 }
 
 export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
-  ({ modelId, onDegrade, onModelLoaded, onInteraction }, ref) => {
+  ({ modelId, onDegrade, onModelLoaded, onInteraction, onAmbientActivity, ambientEnabled = true }, ref) => {
     const canvasRef = useRef<HTMLCanvasElement>(null)
     const rendererRef = useRef<PetRendererProvider | null>(null)
     /** 模型配置：**必须先于渲染器拿到**，因为后端类型由它决定 */
@@ -129,6 +170,9 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
      */
     const onInteractionRef = useRef(onInteraction)
     onInteractionRef.current = onInteraction
+    /** 同上：自主活动回调被驱动 effect 持有，不能进依赖数组 */
+    const onAmbientActivityRef = useRef(onAmbientActivity)
+    onAmbientActivityRef.current = onAmbientActivity
     /**
      * 拖拽状态。
      *
@@ -155,6 +199,10 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
     })
     /** 抛掷中的 rAF 句柄 */
     const throwRef = useRef<number | null>(null)
+    /** 空闲游走驱动（仅 sprite 后端）。位置权威见下文的 suspend/resume 互斥 */
+    const wanderRef = useRef<PetWanderDriver | null>(null)
+    /** 点击回应期间"让位"的定时器（见 TAP_AMBIENT_HOLD_MS） */
+    const tapHoldRef = useRef<number | null>(null)
 
     useImperativeHandle(ref, () => ({
       getRenderer: () => rendererRef.current,
@@ -346,6 +394,55 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
       }
     }, [ready, renderer])
 
+    // 空闲游走（R9）：仅 sprite 后端。
+    //
+    // 依赖里带 `config?.id`：换模型会重置地面线与缩放，而驱动内部持有旧的 x/y，
+    // 必须重建（不是"继续用"——那是另一个坐标系）。带 `renderer` 是因为 state
+    // 比 ref 慢一拍，切后端那一帧里读到的可能是刚被销毁的旧实例。
+    useEffect(() => {
+      if (!ready) return
+      const instance = renderer?.instance
+      if (!instance || renderer?.backend !== 'sprite') return
+      // 同注视：只认"当前那个实例"。订到已销毁的实例上不会报错，只会永远不动
+      if (rendererRef.current !== instance) return
+      if (!instance.setFlip || !instance.getLayout) {
+        log.warn('[wander] sprite 后端缺 setFlip/getLayout，自主行为不启动')
+        return
+      }
+
+      const driver = new PetWanderDriver({
+        renderer: instance,
+        onActivity: (activity) => onAmbientActivityRef.current?.(activity),
+      })
+      wanderRef.current = driver
+      driver.start()
+      log.info('[wander] 自主行为已启动')
+
+      return () => {
+        log.info('[wander] 自主行为已停止')
+        driver.stop()
+        wanderRef.current = null
+        // 驱动没了，挂着的延迟解除也要清——它会去碰一个已停的实例
+        if (tapHoldRef.current !== null) {
+          clearTimeout(tapHoldRef.current)
+          tapHoldRef.current = null
+        }
+      }
+    }, [ready, renderer, config?.id])
+
+    // 自主行为总开关。放在驱动创建 effect **之后**：两个 effect 依赖同一组值，
+    // React 按定义顺序执行，这样开关一定作用在刚建好的驱动上（而不是上一轮的）。
+    useEffect(() => {
+      const driver = wanderRef.current
+      if (!driver) return
+      // 只在"确实记过"时才解除，否则开机就会报一条 `resume 没有对应的让位记录`
+      if (ambientEnabled) {
+        if (driver.isHeldBy(AMBIENT_HOLD_DISABLED)) driver.resume(AMBIENT_HOLD_DISABLED)
+      } else {
+        driver.suspend(AMBIENT_HOLD_DISABLED)
+      }
+    }, [ambientEnabled, ready, renderer, config?.id])
+
     // 性能：失焦降帧（~15 FPS），聚焦恢复（60 FPS）
     useEffect(() => {
       if (!ready) return
@@ -394,6 +491,26 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
       }
 
       /**
+       * 点击回应：让自主行为停一会儿再继续。
+       *
+       * **只负责"延迟解除"，不自己再 suspend 一次**。一次指针交互从 `mousedown`
+       * 起就只该有一个让位来源（`AMBIENT_HOLD_POINTER`），各分支只决定"什么时候还"。
+       * 早先的写法是 mousedown 记 `drag`、点击分支再记一个 `tap` 并只解除自己，
+       * 于是 `drag` 那一次永远无人解除——每点一下泄漏一个，实测把计数顶到 12。
+       *
+       * 重复点击会**重置**计时而不是叠加：宠物正在回应时又点一下，应当从头再回应一次。
+       */
+      const holdAmbientForTap = () => {
+        const driver = wanderRef.current
+        if (!driver) return
+        if (tapHoldRef.current !== null) clearTimeout(tapHoldRef.current)
+        tapHoldRef.current = window.setTimeout(() => {
+          tapHoldRef.current = null
+          driver.resume(AMBIENT_HOLD_POINTER)
+        }, TAP_AMBIENT_HOLD_MS)
+      }
+
+      /**
        * 按初速度做抛物线。
        *
        * `dt` 上限 50ms：标签页切回来、断点续跑时两帧间隔可能是几秒，
@@ -413,6 +530,8 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
           renderer.setPosition(body.x, body.y)
           if (r.landed) {
             throwRef.current = null
+            // 落地：把位置权威还给自主行为（driving 会重新读一次当前位置）
+            wanderRef.current?.resume(AMBIENT_HOLD_POINTER)
             onInteractionRef.current?.({ type: 'landed', x: body.x, y: body.y })
             return
           }
@@ -429,6 +548,14 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
           reportModelHover(true)
           // 抓住正在飞的宠物：中断抛物线，不叠加
           cancelThrow()
+          // 位置权威交给鼠标：自主行为必须让位，否则它会和拖拽抢着写同一个位置
+          wanderRef.current?.suspend(AMBIENT_HOLD_POINTER)
+          // 新的指针周期开始：上一轮点击留下的延迟解除作废（否则它 2.5s 后会来
+          // 解除一个已经不属于它的让位，只留下一行无用的 warn）
+          if (tapHoldRef.current !== null) {
+            clearTimeout(tapHoldRef.current)
+            tapHoldRef.current = null
+          }
           const pos = renderer.getPosition()
           dragRef.current = {
             active: true,
@@ -445,12 +572,20 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
       const onMouseUp = (e: MouseEvent) => {
         const { x, y } = toCanvasLocal(e, canvas)
         const wasDrag = dragRef.current.active
-        const startX = renderer.getPosition().x + dragRef.current.offsetX
-        const startY = renderer.getPosition().y + dragRef.current.offsetY
-        // 位移超阈值视为拖拽，否则视为点击（用 x/y 双轴距离判断，比单看 X 更准）
-        const movedFar =
-          Math.abs(x - startX) > 5 || Math.abs(y - startY) > 5
         const { groundY, samples } = dragRef.current
+        // 位移超阈值视为拖拽，否则视为点击（x/y 双轴，比单看 X 更准）。
+        //
+        // **基准必须是 `samples[0]`（mousedown 那一刻的光标位置）**，不能是
+        // "宠物当前位置 + 拖拽偏移"：后者在拖拽过程中**恒等于光标的当前位置**
+        // （宠物一直跟着光标走），差值永远是 0，于是每一次拖拽都被判成点击——
+        // 「抛出」这条路径根本走不到。
+        //
+        // 实测证据：用 CDP 拖了 477px、以 4400px/s 甩出去，日志里连一行
+        // `[onMouseUp] 抛出` 都没有，直接进了点击分支（只有 playMotion Picked/Idle）。
+        const first = samples[0]
+        const movedFar = first
+          ? Math.abs(x - first.x) > 5 || Math.abs(y - first.y) > 5
+          : false
         dragRef.current.active = false
         dragRef.current.hit = false
         dragRef.current.samples = []
@@ -465,6 +600,9 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
             // 点击特效：在点击位置绽放一簇烟花（受鼠标点击开关控制）
             if (tapInteractionEnabled) spawnClickFireworks(e.clientX, e.clientY)
           }
+          // 点击回应期间**保持让位**，2.5 秒后自动交还。
+          // 不这么做的话，宠物会在播招手动画的同时继续走路——脚不动、人在飘。
+          holdAmbientForTap()
           onInteractionRef.current?.({ type: 'landed', x: renderer.getPosition().x, y: renderer.getPosition().y })
         } else if (wasDrag) {
           // 拖过：按释放速度决定"抛出去"还是"原地落下"
@@ -472,9 +610,14 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
           const pos = renderer.getPosition()
           if (isThrowable(v)) {
             log.info(`[onMouseUp] 抛出 v=(${v.vx.toFixed(0)}, ${v.vy.toFixed(0)}) px/s`)
+            // 先告知"在空中"，再起飞：编排器据此换成下落姿势。
+            // 顺序不能反——先飞再通知的话，头几帧还是地面姿势，看起来像"踩着空气飘出去"
+            onInteractionRef.current?.({ type: 'thrown' })
+            // 抛掷期间保持让位；位置权威交给抛物线，落地时（startThrow 内）才交还
             startThrow(pos, v, groundY)
           } else {
             log.info(`[onMouseUp] 速度不足（${Math.hypot(v.vx, v.vy).toFixed(0)} px/s），原地落下`)
+            wanderRef.current?.resume(AMBIENT_HOLD_POINTER)
             onInteractionRef.current?.({ type: 'landed', x: pos.x, y: pos.y })
           }
         }
@@ -508,6 +651,11 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
         canvas.removeEventListener('mouseleave', onMouseLeave)
         reportModelHover(false)
         disposeClickFireworks()
+        // 点击让位的定时器要清掉：不清的话组件已卸载，回调还会去碰已销毁的驱动
+        if (tapHoldRef.current !== null) {
+          clearTimeout(tapHoldRef.current)
+          tapHoldRef.current = null
+        }
       }
     }, [ready])
 

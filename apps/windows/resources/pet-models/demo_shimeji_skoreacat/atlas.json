@@ -1,8 +1,40 @@
 {
   "frames": {
-    "demo_shimeji_skoreacat_greet_00": {
+    "demo_shimeji_skoreacat_drag_00": {
       "frame": {
         "x": 0,
+        "y": 0,
+        "w": 98,
+        "h": 98
+      }
+    },
+    "demo_shimeji_skoreacat_fall_00": {
+      "frame": {
+        "x": 98,
+        "y": 0,
+        "w": 98,
+        "h": 98
+      }
+    },
+    "demo_shimeji_skoreacat_fall_01": {
+      "frame": {
+        "x": 196,
+        "y": 0,
+        "w": 98,
+        "h": 98
+      }
+    },
+    "demo_shimeji_skoreacat_fall_02": {
+      "frame": {
+        "x": 294,
+        "y": 0,
+        "w": 98,
+        "h": 98
+      }
+    },
+    "demo_shimeji_skoreacat_greet_00": {
+      "frame": {
+        "x": 392,
         "y": 0,
         "w": 98,
         "h": 98
@@ -10,7 +42,7 @@
     },
     "demo_shimeji_skoreacat_greet_01": {
       "frame": {
-        "x": 98,
+        "x": 490,
         "y": 0,
         "w": 98,
         "h": 98
@@ -18,7 +50,7 @@
     },
     "demo_shimeji_skoreacat_greet_02": {
       "frame": {
-        "x": 196,
+        "x": 588,
         "y": 0,
         "w": 98,
         "h": 98
@@ -26,7 +58,7 @@
     },
     "demo_shimeji_skoreacat_greet_03": {
       "frame": {
-        "x": 294,
+        "x": 686,
         "y": 0,
         "w": 98,
         "h": 98
@@ -34,45 +66,13 @@
     },
     "demo_shimeji_skoreacat_greet_04": {
       "frame": {
-        "x": 392,
-        "y": 0,
-        "w": 98,
-        "h": 98
-      }
-    },
-    "demo_shimeji_skoreacat_greet_05": {
-      "frame": {
-        "x": 490,
-        "y": 0,
-        "w": 98,
-        "h": 98
-      }
-    },
-    "demo_shimeji_skoreacat_greet_06": {
-      "frame": {
-        "x": 588,
-        "y": 0,
-        "w": 98,
-        "h": 98
-      }
-    },
-    "demo_shimeji_skoreacat_greet_07": {
-      "frame": {
-        "x": 686,
-        "y": 0,
-        "w": 98,
-        "h": 98
-      }
-    },
-    "demo_shimeji_skoreacat_stand_00": {
-      "frame": {
         "x": 0,
         "y": 98,
         "w": 98,
         "h": 98
       }
     },
-    "demo_shimeji_skoreacat_walk_00": {
+    "demo_shimeji_skoreacat_greet_05": {
       "frame": {
         "x": 98,
         "y": 98,
@@ -80,7 +80,7 @@
         "h": 98
       }
     },
-    "demo_shimeji_skoreacat_walk_01": {
+    "demo_shimeji_skoreacat_greet_06": {
       "frame": {
         "x": 196,
         "y": 98,
@@ -88,7 +88,7 @@
         "h": 98
       }
     },
-    "demo_shimeji_skoreacat_walk_02": {
+    "demo_shimeji_skoreacat_greet_07": {
       "frame": {
         "x": 294,
         "y": 98,
@@ -96,7 +96,7 @@
         "h": 98
       }
     },
-    "demo_shimeji_skoreacat_walk_03": {
+    "demo_shimeji_skoreacat_sit_00": {
       "frame": {
         "x": 392,
         "y": 98,
@@ -104,7 +104,7 @@
         "h": 98
       }
     },
-    "face_anger": {
+    "demo_shimeji_skoreacat_stand_00": {
       "frame": {
         "x": 490,
         "y": 98,
@@ -112,7 +112,7 @@
         "h": 98
       }
     },
-    "face_blush": {
+    "demo_shimeji_skoreacat_walk_00": {
       "frame": {
         "x": 588,
         "y": 98,
@@ -120,7 +120,7 @@
         "h": 98
       }
     },
-    "face_heart": {
+    "demo_shimeji_skoreacat_walk_01": {
       "frame": {
         "x": 686,
         "y": 98,
@@ -128,7 +128,7 @@
         "h": 98
       }
     },
-    "face_none": {
+    "demo_shimeji_skoreacat_walk_02": {
       "frame": {
         "x": 0,
         "y": 196,
@@ -136,7 +136,7 @@
         "h": 98
       }
     },
-    "face_sparkle": {
+    "demo_shimeji_skoreacat_walk_03": {
       "frame": {
         "x": 98,
         "y": 196,
@@ -144,9 +144,49 @@
         "h": 98
       }
     },
-    "face_sweat": {
+    "face_anger": {
       "frame": {
         "x": 196,
+        "y": 196,
+        "w": 98,
+        "h": 98
+      }
+    },
+    "face_blush": {
+      "frame": {
+        "x": 294,
+        "y": 196,
+        "w": 98,
+        "h": 98
+      }
+    },
+    "face_heart": {
+      "frame": {
+        "x": 392,
+        "y": 196,
+        "w": 98,
+        "h": 98
+      }
+    },
+    "face_none": {
+      "frame": {
+        "x": 490,
+        "y": 196,
+        "w": 98,
+        "h": 98
+      }
+    },
+    "face_sparkle": {
+      "frame": {
+        "x": 588,
+        "y": 196,
+        "w": 98,
+        "h": 98
+      }
+    },
+    "face_sweat": {
+      "frame": {
+        "x": 686,
         "y": 196,
         "w": 98,
         "h": 98

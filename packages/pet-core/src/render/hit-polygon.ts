@@ -67,10 +67,10 @@ function pointOnSegment(x: number, y: number, a: Point2, b: Point2): boolean {
 }
 
 /**
- * 模型姿态变换：把清单坐标映射到画布坐标所需的四个量。
+ * 模型姿态变换：把清单坐标映射到画布坐标所需的几个量。
  *
- * 画布上的位置 = `position + (manifestPoint − anchor) × scale`。
- * 反变换即 `manifestPoint = (canvasPoint − position) / scale + anchor`。
+ * 画布上的位置 = `position + (manifestPoint − anchor) × scale`，镜像时左右再取反。
+ * 反变换即 `manifestPoint = (canvasPoint − position) / scale × sign + anchor`。
  */
 export interface ModelTransform {
   /** 锚点在画布上的位置（CSS 像素） */
@@ -81,7 +81,18 @@ export interface ModelTransform {
   /** 清单里声明的锚点（清单像素） */
   anchorX: number;
   anchorY: number;
+  /**
+   * 是否水平镜像（精灵图素材通常只画一个朝向，向左走时整体翻转）。
+   *
+   * **必须参与命中变换**：漏掉它的话点击判定会左右颠倒——宠物朝左时点它的头，
+   * 命中的是清单坐标里头的镜像位置，表现为"点左肩中右肩"。
+   * 可选，省略即未镜像（不影响既有调用点）。
+   */
+  flipX?: boolean;
 }
+
+/** 镜像对应的水平符号：未镜像 +1，镜像 −1 */
+const signX = (t: Pick<ModelTransform, "flipX">): number => (t.flipX ? -1 : 1);
 
 /** 画布局部坐标 → 清单坐标 */
 export function toManifestPoint(
@@ -91,7 +102,7 @@ export function toManifestPoint(
 ): { x: number; y: number } {
   const s = t.scale === 0 ? 1 : t.scale;
   return {
-    x: (canvasX - t.positionX) / s + t.anchorX,
+    x: ((canvasX - t.positionX) / s) * signX(t) + t.anchorX,
     y: (canvasY - t.positionY) / s + t.anchorY,
   };
 }
@@ -103,7 +114,7 @@ export function toCanvasPoint(
   t: ModelTransform,
 ): { x: number; y: number } {
   return {
-    x: t.positionX + (manifestX - t.anchorX) * t.scale,
+    x: t.positionX + (manifestX - t.anchorX) * t.scale * signX(t),
     y: t.positionY + (manifestY - t.anchorY) * t.scale,
   };
 }

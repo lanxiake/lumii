@@ -174,3 +174,69 @@ describe("hitTestPolygons — 命中优先级", () => {
     expect(hitTestPolygons(manifest, "Idle", p.x, p.y, scaled)).toBe("Head");
   });
 });
+
+/**
+ * 镜像的命中变换。
+ *
+ * ⚠ **这里必须用非对称图形**（下面的 CONCAVE 是 L 形）：拿矩形或左右对称的剪影去测，
+ * 镜像前后命中结果一模一样，测试会**永远通过而什么都没验**。
+ * 这条不是理论顾虑——验证脚本 `check-mirror.mjs` 的负对照在剪影对称的角色上
+ * （樱桃 83.66%→83.57%、钢羽 95.84%→95.82%）就是纹丝不动，等于空转。
+ */
+describe("ModelTransform.flipX — 水平镜像", () => {
+  const manifest = { hitAreas: [{ id: "L", points: CONCAVE }] };
+  // 锚点取 L 形的凹角 (50,50)，这样镜像后左右两侧可分辨
+  const base: ModelTransform = {
+    positionX: 500,
+    positionY: 400,
+    scale: 1,
+    anchorX: 50,
+    anchorY: 50,
+  };
+  const mirrored: ModelTransform = { ...base, flipX: true };
+
+  it("未镜像：清单坐标映射到锚点右侧", () => {
+    expect(toCanvasPoint(75, 25, base)).toEqual({ x: 525, y: 375 });
+  });
+
+  it("镜像：同一个清单坐标映射到锚点左侧（左右互换）", () => {
+    expect(toCanvasPoint(75, 25, mirrored)).toEqual({ x: 475, y: 375 });
+  });
+
+  it("纵轴不受镜像影响", () => {
+    expect(toCanvasPoint(75, 25, mirrored).y).toBe(toCanvasPoint(75, 25, base).y);
+  });
+
+  it("命中判定跟着镜像走：点镜像后的位置命中，点原位置不命中", () => {
+    // 这一条就是「点左肩却中了右肩」那个故障的回归哨兵
+    expect(hitTestPolygons(manifest, "Idle", 475, 375, mirrored)).toBe("L");
+    expect(hitTestPolygons(manifest, "Idle", 525, 375, mirrored)).toBeNull();
+  });
+
+  it("漏掉 flipX 就会左右颠倒（负对照：证明上面的用例确实在验镜像）", () => {
+    // 同样的画布点，用未镜像的变换去判——结果必然相反。
+    // 若哪天 flipX 不再参与变换，上面那条与这条会同时失败。
+    expect(hitTestPolygons(manifest, "Idle", 475, 375, base)).toBeNull();
+    expect(hitTestPolygons(manifest, "Idle", 525, 375, base)).toBe("L");
+  });
+
+  it("flipX: false 与省略等价（可选字段不改变既有行为）", () => {
+    const explicit: ModelTransform = { ...base, flipX: false };
+    expect(toCanvasPoint(75, 25, explicit)).toEqual(toCanvasPoint(75, 25, base));
+    expect(toManifestPoint(525, 375, explicit)).toEqual(toManifestPoint(525, 375, base));
+  });
+
+  it("正反变换自反（含缩放）", () => {
+    const scaled: ModelTransform = { ...mirrored, scale: 2.5 };
+    const c = toCanvasPoint(75, 25, scaled);
+    const back = toManifestPoint(c.x, c.y, scaled);
+    expect(back.x).toBeCloseTo(75, 10);
+    expect(back.y).toBeCloseTo(25, 10);
+  });
+
+  it("镜像等价于「改用关于锚点对称的清单坐标」走未镜像变换", () => {
+    // 这条把镜像的语义钉死：多边形与图集都不动，动的只是坐标换算
+    const symmetricX = base.anchorX * 2 - 75; // 75 关于 anchorX=50 的对称点是 25
+    expect(toCanvasPoint(75, 25, mirrored)).toEqual(toCanvasPoint(symmetricX, 25, base));
+  });
+});

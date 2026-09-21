@@ -222,8 +222,11 @@ for (const f of ['manifest.json', 'atlas.png', 'atlas.json', 'pet.json']) {
 console.log(`  已写回 ${path.relative(REPO, dir)}`)
 
 if (install) {
+  // `op()` 已经解包过一层：拿到的是 install 命令的 result，形状 `{ok, validation, plan, install}`。
+  // **不要再读 `inst.result.ok`**——那是双重解包，会稳定抛 TypeError。
+  // 这个 bug 长期没暴露，是因为调用方一直带着 `--no-install`。
   const inst = await op('install', { dir: pkgDir })
-  if (!inst.ok || !inst.result.ok) throw new Error(`安装失败：${inst.error ?? inst.result?.error}`)
+  if (!inst.ok) throw new Error(`安装失败：${inst.error ?? JSON.stringify(inst.validation?.errors)}`)
   console.log('  已装到用户宠物目录')
 }
 console.log(`\n✓ ${manifest.id}：表情槽 ${PATCHES.length} 档，emotionMap ${Object.keys(pet.emotionMap).length} 个别名`)

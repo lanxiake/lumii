@@ -59,6 +59,22 @@ export interface PetRendererProvider extends PetCoreRenderer {
   /** 获取当前模型位置 */
   getPosition(): { x: number; y: number }
 
+  /**
+   * 水平镜像（可选，精灵后端的自主行走需要）。
+   *
+   * 素材通常只画一个朝向，向左走时要整体翻转。Live2D 后端不需要——它的模型自带
+   * 朝向，且翻转会破坏变形器。命中判定必须跟着镜像一起翻，否则点击会左右颠倒。
+   */
+  setFlip?(flipX: boolean): void
+
+  /**
+   * 布局查询：锚点在清单坐标里的 X 与当前缩放（可选）。
+   *
+   * 自主行走要据此把「画布宽度」换算成「脚能走到哪」——锚点在脚底中心，
+   * 左右各留 `anchorX × scale` 才是可达区间，用半个模型宽度会算歪。
+   */
+  getLayout?(): { anchorX: number; scale: number } | null
+
   /** 获取模型身体外接矩形（窗口坐标，用于 setShape 点击区域） */
   getModelScreenBounds(): { x: number; y: number; width: number; height: number } | null
 
