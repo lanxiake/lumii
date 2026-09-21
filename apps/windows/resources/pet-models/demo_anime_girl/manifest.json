@@ -2,32 +2,15 @@
   "id": "demo_anime_girl",
   "rendererType": "sprite",
   "canvas": {
-    "w": 144,
-    "h": 168
+    "w": 384,
+    "h": 448
   },
   "anchor": [
-    72,
-    162
+    192,
+    442
   ],
   "atlas": "atlas.png",
   "atlasJson": "atlas.json",
-  "slots": {
-    "face": {
-      "kind": "layered",
-      "at": [
-        0,
-        0
-      ],
-      "parts": {
-        "eyes": [
-          "eye_open",
-          "eye_shut",
-          "eye_happy",
-          "eye_sad"
-        ]
-      }
-    }
-  },
   "animations": [
     {
       "group": "Idle",
@@ -36,10 +19,7 @@
       "fps": 4,
       "frames": [
         {
-          "base": "girl_body_00",
-          "face": {
-            "eyes": "eye_open"
-          }
+          "base": "girl_body_00"
         },
         {
           "base": "girl_body_01"
@@ -52,7 +32,7 @@
         }
       ],
       "params": {
-        "bob": 3,
+        "bob": 9,
         "breathe": 1.01,
         "blink": 3200
       }
@@ -64,10 +44,7 @@
       "fps": 8,
       "frames": [
         {
-          "base": "girl_body_00",
-          "face": {
-            "eyes": "eye_open"
-          }
+          "base": "girl_body_00"
         },
         {
           "base": "girl_body_01"
@@ -91,10 +68,7 @@
       "fps": 8,
       "frames": [
         {
-          "base": "girl_wave_00",
-          "face": {
-            "eyes": "eye_open"
-          }
+          "base": "girl_wave_00"
         },
         {
           "base": "girl_wave_01"

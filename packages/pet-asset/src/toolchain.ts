@@ -266,7 +266,20 @@ export async function runNormalize(
     }
 
     const resized = await sharp(src.data, { raw: { width: src.width, height: src.height, channels: 4 } })
-      .resize(p.width, p.height, { fit: 'fill', kernel: 'nearest' })
+      /*
+       * 重采样核**按画风选**，不能一律用 `nearest`。
+       *
+       * `nearest` 是像素画的正解（整数倍降采样保住硬边），但对 2D 高清路线是灾难：
+       * 实测一张 627×627 的切片里角色有 597px 高，落到 144×168 的画布上只剩 158px——
+       * **3.8 倍降采样只取其中 1 个像素、丢掉其余 15 个**，描边和头发边缘立刻变成
+       * 锯齿与马赛克。用户反馈的「稍微放大一点就是马赛克」就是这条。
+       *
+       * `lanczos3` 是 sharp 的默认核，降采样时带抗锯齿；像素画那边仍走 `nearest`。
+       */
+      .resize(p.width, p.height, {
+        fit: 'fill',
+        kernel: opts.pixelArt ? 'nearest' : 'lanczos3',
+      })
       .raw()
       .toBuffer()
 

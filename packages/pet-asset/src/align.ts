@@ -150,6 +150,13 @@ export interface NormalizeOptions {
   canvas: { w: number; h: number }
   /** 锚点（通常是脚底中心），角色按它落位 */
   anchor: [number, number]
+  /**
+   * 像素画路线：重采样改用 `nearest`（整数倍降采样保住硬边）。
+   *
+   * 默认 false = `lanczos3`。**这条不是口味问题**：2D 高清路线是 3~4 倍降采样，
+   * 用 `nearest` 等于只取十六分之一、其余全丢，描边立刻全是锯齿。
+   */
+  pixelArt?: boolean
   /** 角色高度占画布高度的比例；默认 0.94（留一点顶边余量） */
   fit?: number
   /**

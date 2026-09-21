@@ -145,10 +145,23 @@ describe('buildSheetPrompt', () => {
     expect(prompt).not.toMatch(/等距|三\/四|isometric/i)
   })
 
-  it('MOTION 段要求首尾闭合与「相邻差异小且均匀」', () => {
-    expect(prompt).toContain('最末一格必须能无缝接回最初一格')
-    expect(prompt).toContain('相邻两格之间的差异应当小且均匀')
-    expect(prompt).toContain('不要**把几个互不相干的姿势拼在一起')
+  /**
+   * 这条是**实测改过的判据**，两版说的是相反的事。
+   *
+   * 早先写的是「相邻两格之间的差异应当小且均匀」——意图是防「四个互不相干的姿势」，
+   * 但它同时在教模型**把四格画成一样的**。实测代价：待机四格相邻差只有 242/404/319
+   * 个像素（角色总共 ~4350），四格几乎是同一张图，播起来像没动。
+   *
+   * 现在要的是「每格是一个**关键姿态**、相邻格有**一眼看得出**的变化」，
+   * 防跑题那句挪到「全部格子必须能连成同一个动作」上。
+   */
+  it('MOTION 段要求首尾闭合与「关键姿态、变化看得见」', () => {
+    expect(prompt).toContain('最末一格要能无缝接回最初一格')
+    expect(prompt).toContain('关键姿态')
+    expect(prompt).toContain('一眼就能看出')
+    expect(prompt).toContain('全部格子必须能连成同一个动作')
+    // 老那句必须消失：它是在教模型画四张一样的图
+    expect(prompt).not.toContain('相邻两格之间的差异应当小且均匀')
   })
 
   /**

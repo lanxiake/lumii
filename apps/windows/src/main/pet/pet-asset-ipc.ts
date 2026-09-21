@@ -216,6 +216,7 @@ export async function runPetAssetOp(call: PetAssetCall): Promise<PetAssetResult>
             canvas: { w, h },
             anchor: [num(anchor?.[0]) ?? Math.floor(w / 2), num(anchor?.[1]) ?? h - 2],
             fit: num(a.fit),
+            pixelArt: a.pixelArt === true,
           }),
         }
       }

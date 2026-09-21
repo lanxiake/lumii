@@ -1,6 +1,6 @@
 {
   "name": "樱桃",
-  "scale": 0.65,
+  "scale": 0.244,
   "idleMotionGroup": "Idle",
   "talkMotionGroup": "Talk",
   "emotionMap": {},

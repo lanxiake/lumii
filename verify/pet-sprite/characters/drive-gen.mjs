@@ -20,9 +20,15 @@
  * 落地后再拷到 `outputs/pet-raw/<角色>-<批>.png` 这个稳定路径上，
  * 后续步骤与参考图都只认它。
  *
+ * ## 顺序陷阱（实测踩过）
+ *
+ * 表情批是拿**待机图集当参考图**生成的。所以：**重掷待机之后，之前出的表情批就作废了**
+ * ——它的机位是照着旧待机压的，与新基准帧差分出来的是整只人（实测 26503px，
+ * 而身体本身才 28148px）。要么按「待机 → 表情」的顺序一次做完，要么重掷待机后连表情一起重出。
+ *
  * 用法：
  *   node drive-gen.mjs <characterId> [--idle|--wave]   # 动作批
- *   node drive-gen.mjs --expression                    # 三只的表情批（带参考图）
+ *   node drive-gen.mjs --expression [id ...]           # 表情批（带参考图）
  */
 
 import fs from 'node:fs'
@@ -200,6 +206,13 @@ export function motionPrompt(characterId, only = null) {
         '```\n' +
         batch.prompt +
         '\n```\n' +
+        // 非首批**也要挂参考图**。hatch-pet 把「没挂基准图的行」直接判为无效
+        // （`Treat any row generation without attached grounding images as invalid`），
+        // 而这里此前只有表情批挂——动作批裸奔，于是模型每一格都把角色重画一遍：
+        // 实测挥手相邻帧有 84~109% 的像素在变，比角色自身的面积还多。
+        (key !== 'idle' && readGenerated()[`${characterId}-idle`]
+          ? `- \`referenceImagePaths\`: \`["${readGenerated()[`${characterId}-idle`]}"]\`  ← 原样用这个字符串\n`
+          : '') +
         `- \`filename\`: \`${p}-${key}.png\`（**扁平文件名，不要带斜杠**）\n` +
         `- \`modelId\`: \`${MODEL}\`\n` +
         `- \`width\`: ${SIZE.width}，\`height\`: ${SIZE.height}\n`,

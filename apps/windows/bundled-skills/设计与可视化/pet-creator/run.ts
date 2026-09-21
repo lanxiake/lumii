@@ -340,6 +340,8 @@ async function run() {
     outDir: normalized,
     canvas: params.canvas,
     anchor: params.anchor,
+    // 像素画走 nearest、2D 高清走 lanczos——由清单里的 pixelArt 决定，见 NormalizeOptions
+    pixelArt: params.pixelArt === true,
   })
   if (normResult.clipped.length > 0) {
     warnings.push(
