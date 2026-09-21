@@ -160,14 +160,41 @@ ID 规则：`<域大写>-<子域>-<序号>`（`CHAT-CORE-01`、`MEM-03`、`CMP-0
 | 云同步 | cloudsync status | `cloud-sync/run-cloud-sync-suite` | 缺口（多设备同步难以单机模拟，见各报告限制） |
 | 工具进化 | tool-evolution* 命令面 | 缺口 | 缺口 |
 | 工具面治理（描述引用 / 审计契约） | 缺口（无专用命令面） | `tool-contract/run-tool-contract-e2e.mjs`（TC-01/04/05） | `tool-contract/run-tool-contract-e2e.mjs`（TC-02/03） |
-| 浏览器控制（`browser_*` × 10） | 缺口（控制口无浏览器命令，见下） | — | `browser/run-browser-suite.mjs`（BROWSER-*） |
+| 浏览器控制（`browser_*` × 10） | 缺口（无命令面，见 §10） | — | `browser/run-browser-suite.mjs`（BROWSER-*） |
 | 技能 / 设置 / 桌宠 | 缺口（无专用套件） | — | — |
 
-**浏览器控制的驱动限制（2026-09-21 建套件时确认）**：CLI 无浏览器命令，控制口白名单（`app-ui-control/command-allowlist.ts`）也未收录，`browser-control` 的 dispatcher 是进程内的（无 HTTP 服务器）。因此**驱动只能走真实 LLM 回合**；而判据**必须**用裸 CDP（`127.0.0.1:18791`）独立取证——用 `browser_eval` 自读页面等于拿被测对象验证被测对象。
-
-**通用陷阱（本套件实测新增）**：`lib/cli-harness.mjs` 的 `ui()` 用 `spawnSync`、`sleep()` 用 `Atomics.wait`，**两者都会阻塞事件循环**。套件进程内若跑 HTTP 服务器，会在模型调用工具的那一刻无法响应（Chrome 报 `page.goto: Timeout`）。服务器必须独立进程，套件内等待用异步 sleep。
-
 维护要求：新增功能域或套件时同步更新本矩阵；矩阵行「缺口」状态应逐步收敛。
+
+---
+
+## 10. 一类特殊被测对象：只能靠 LLM 驱动
+
+大多数套件用 CLI 直接驱动被测功能（`goto`/`click`/`memory search`……）。但有些能力**没有命令面**——浏览器控制即是一例：CLI 无浏览器命令，控制口白名单（`app-ui-control/command-allowlist.ts`）未收录，`browser-control` 的 dispatcher 是**进程内的**（`browser-service.ts`：嵌入主进程，无 HTTP 服务器）。
+
+这类对象只有一条驱动路径：**真实 LLM 回合**。此时最容易犯的错是**顺手也用同一个工具去取证**——「让模型 `browser_eval` 读一下页面」看似省事，实则是**拿被测对象验证被测对象**，工具链任何一环撒谎都测不出来。2026-09-21 那场幻觉事故正是如此：模型在推理文本里编了一个 `File written` 的返回，当时**没有任何独立通道能证伪它**。
+
+### 10.1 判据结构：执行层 + 效果层
+
+| 层 | 来源 | 回答什么 |
+|---|---|---|
+| **执行层** | DB `messages.content_json.parts[]` 里 `type==='tool'` 的 `{name,args,result,isError,status}` | 工具**被调用了没有、返回了什么** |
+| **效果层** | 独立观测通道（浏览器套件走**裸 CDP** 直读页面状态） | 副作用**真的发生了没有** |
+
+**两层都过才算 PASS。模型在正文里的自述一律不作为判据**——它可能抄上下文，也可能编造；两种都实测到了（编造的那次：正文给出「工具原样返回内容如下：`Page snapshot (1 nodes)`」，而该消息零 tool 块、日志零 `tool:start`）。
+
+### 10.2 组织方式：驱动批量化、判定细粒度
+
+一次 LLM 往返跑多步操作（真实用户就是这么用的，也省往返——本机模型端点被多会话共用，往返很贵），但**每个工具调用单独判定**，从 parts 里逐个提取。**用例边界 = 工具调用，而不是消息。**
+
+三条配套要求，都是踩出来的：
+
+- **每个步骤开新会话**：同一会话里再问一次，模型可能不调工具、直接从上下文抄上一轮的结果（2026-09-17 踩到）。
+- **错误路径用例不要共用 try 块**：一条断言抛错会把同组其它用例一起记成 FAIL（浏览器套件首跑，ERR 三条因第三条挂了而全挂）。
+- **环境相关的量如实记录、不设阈值断言**：例如截图耗时依窗口是否在前台而变，用例只需断言「成功」，把耗时分档写进证据。
+
+### 10.3 实例
+
+`browser/`：`run-browser-suite.mjs`（执行器）+ `lib/browser-observer.mjs`（裸 CDP 观测通道，Node 24 自带 WebSocket、零依赖）+ `fixtures/`（确定性探针页面，每次交互写进 `window.__probe` 供 CDP 读回）。
 
 ---
 

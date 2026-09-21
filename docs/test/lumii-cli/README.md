@@ -21,6 +21,7 @@ docs/test/lumii-cli/
 ├── prompt-style/          # 提示词风格实验（PS）：两档转储形态 + 真实任务双档对照
 ├── agent-deepdive/        # 体验深挖 · 地基篇（G1-G4）真实使用旅程 E2E
 ├── cloud-sync/            # 云同步专项（含 GitCode 真实同步用例）
+├── browser/               # 浏览器控制工具（BROWSER）：LLM 驱动 + 裸 CDP 独立观测
 └── materials/             # 真实文档样本（docx/mp4/PDF，gitignore 不提交）
 ```
 
@@ -129,6 +130,26 @@ docs/test/lumii-cli/
 
 > 与单测的分工：**CLI 守行为，单测守文本**。schema 描述与错误文案里的工具名引用没有 CLI 转储通道
 > （只有 `tools=N/M` 计数），由 `packages/agent-runtime/src/tools/__tests__/tool-name-references.test.ts` 覆盖。
+
+### 浏览器控制工具（browser/）— 真实 LLM 驱动 + 裸 CDP 独立取证
+
+| 文件 | 说明 |
+|---|---|
+| [browser-test-cases.md](./browser/browser-test-cases.md) | 19 条用例：10 个 `browser_*` 工具 + 稳定性 + 错误处理。§0 讲清为什么观测必须独立，§2 是逐条的双层预期与覆盖风险 |
+| [run-browser-suite.mjs](./browser/run-browser-suite.mjs) | 执行器（`--only NAV,CLICK` 选择性运行；自带探针页面服务器与 CDP 观测器） |
+| [browser-suite-report.md](./browser/browser-suite-report.md) | 最新报告（19/19 通过；含「首次截图 79–231 秒」等主要发现） |
+| [lib/browser-observer.mjs](./browser/lib/browser-observer.mjs) | 裸 CDP 观测通道（Node 24 自带 WebSocket，零依赖；只发只读 `Runtime.evaluate`） |
+| [lib/probe-server.mjs](./browser/lib/probe-server.mjs) + [fixtures/](./browser/fixtures/) | 确定性探针页面——每次交互都写进 `window.__probe`，供 CDP 读回比对 |
+
+> **与其它套件的根本区别**：浏览器工具**只能靠真实 LLM 回合驱动**（CLI 没有浏览器命令、
+> 控制口白名单未收录、`browser-control` 的 dispatcher 是进程内的），但判据**绝不能也走
+> 工具层**——用 `browser_eval` 自读页面等于拿被测对象验证被测对象，工具链任何一环撒谎都
+> 测不出来。所以观测走裸 CDP 直连 `127.0.0.1:18791`，要求「执行层（DB `messages.parts`
+> 的 `tool` 块）+ 效果层（CDP 直读页面状态）」双证据，模型在正文里的自述一律不作为判据。
+>
+> 探针服务器必须跑在**独立进程**：`lib/cli-harness.mjs` 的 `ui()` 用 `spawnSync`、
+> `sleep()` 用 `Atomics.wait`，**都会阻塞事件循环**——服务器在套件进程内会在模型调用工具的
+> 那一刻无法响应（表现为 Chrome 的 `page.goto: Timeout`）。详细坑见 [CLI-TEST-SPEC.md](./CLI-TEST-SPEC.md) 陷阱清单 13/14。
 
 ### 云同步专项（cloud-sync/）
 
