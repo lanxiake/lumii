@@ -304,10 +304,7 @@
       "frames": [
         {
           "base": "demo_shimeji_caneko_stand_00",
-          "durationMs": 111,
-          "face": {
-            "face": "face_none"
-          }
+          "durationMs": 111
         }
       ],
       "params": {
@@ -324,31 +321,19 @@
       "frames": [
         {
           "base": "demo_shimeji_caneko_walk_00",
-          "durationMs": 111,
-          "face": {
-            "face": "face_none"
-          }
+          "durationMs": 111
         },
         {
           "base": "demo_shimeji_caneko_walk_01",
-          "durationMs": 111,
-          "face": {
-            "face": "face_none"
-          }
+          "durationMs": 111
         },
         {
           "base": "demo_shimeji_caneko_walk_02",
-          "durationMs": 111,
-          "face": {
-            "face": "face_none"
-          }
+          "durationMs": 111
         },
         {
           "base": "demo_shimeji_caneko_walk_03",
-          "durationMs": 111,
-          "face": {
-            "face": "face_none"
-          }
+          "durationMs": 111
         }
       ]
     },
@@ -360,10 +345,7 @@
       "frames": [
         {
           "base": "demo_shimeji_caneko_sit_00",
-          "durationMs": 111,
-          "face": {
-            "face": "face_none"
-          }
+          "durationMs": 111
         }
       ],
       "params": {
@@ -378,10 +360,7 @@
       "frames": [
         {
           "base": "demo_shimeji_caneko_stand_00",
-          "durationMs": 111,
-          "face": {
-            "face": "face_none"
-          }
+          "durationMs": 111
         }
       ]
     },
@@ -394,73 +373,43 @@
       "frames": [
         {
           "base": "demo_shimeji_caneko_stand_00",
-          "durationMs": 111,
-          "face": {
-            "face": "face_none"
-          }
+          "durationMs": 111
         },
         {
           "base": "demo_shimeji_caneko_greet_00",
-          "durationMs": 111,
-          "face": {
-            "face": "face_none"
-          }
+          "durationMs": 111
         },
         {
           "base": "demo_shimeji_caneko_greet_01",
-          "durationMs": 111,
-          "face": {
-            "face": "face_none"
-          }
+          "durationMs": 111
         },
         {
           "base": "demo_shimeji_caneko_greet_02",
-          "durationMs": 111,
-          "face": {
-            "face": "face_none"
-          }
+          "durationMs": 111
         },
         {
           "base": "demo_shimeji_caneko_greet_03",
-          "durationMs": 111,
-          "face": {
-            "face": "face_none"
-          }
+          "durationMs": 111
         },
         {
           "base": "demo_shimeji_caneko_greet_04",
-          "durationMs": 111,
-          "face": {
-            "face": "face_none"
-          }
+          "durationMs": 111
         },
         {
           "base": "demo_shimeji_caneko_greet_05",
-          "durationMs": 111,
-          "face": {
-            "face": "face_none"
-          }
+          "durationMs": 111
         },
         {
           "base": "demo_shimeji_caneko_greet_06",
-          "durationMs": 111,
-          "face": {
-            "face": "face_none"
-          }
+          "durationMs": 111
         },
         {
           "base": "demo_shimeji_caneko_greet_07",
-          "durationMs": 111,
-          "face": {
-            "face": "face_none"
-          }
+          "durationMs": 111
         },
         {
           "base": "demo_shimeji_caneko_stand_00",
-          "durationMs": 111,
-          "face": {
-            "face": "face_none"
-          }
+          "durationMs": 111
         }
       ]
     },
@@ -472,24 +421,15 @@
       "frames": [
         {
           "base": "demo_shimeji_caneko_fall_00",
-          "durationMs": 111,
-          "face": {
-            "face": "face_none"
-          }
+          "durationMs": 111
         },
         {
           "base": "demo_shimeji_caneko_fall_01",
-          "durationMs": 111,
-          "face": {
-            "face": "face_none"
-          }
+          "durationMs": 111
         },
         {
           "base": "demo_shimeji_caneko_fall_02",
-          "durationMs": 111,
-          "face": {
-            "face": "face_none"
-          }
+          "durationMs": 111
         }
       ]
     },
@@ -501,10 +441,7 @@
       "frames": [
         {
           "base": "demo_shimeji_caneko_drag_00",
-          "durationMs": 111,
-          "face": {
-            "face": "face_none"
-          }
+          "durationMs": 111
         }
       ]
     },
@@ -517,10 +454,7 @@
       "frames": [
         {
           "base": "demo_shimeji_caneko_jump_00",
-          "durationMs": 420,
-          "face": {
-            "face": "face_none"
-          }
+          "durationMs": 420
         }
       ]
     },
@@ -532,59 +466,35 @@
       "frames": [
         {
           "base": "demo_shimeji_caneko_climb_00",
-          "durationMs": 111,
-          "face": {
-            "face": "face_none"
-          }
+          "durationMs": 111
         },
         {
           "base": "demo_shimeji_caneko_climb_01",
-          "durationMs": 111,
-          "face": {
-            "face": "face_none"
-          }
+          "durationMs": 111
         },
         {
           "base": "demo_shimeji_caneko_climb_02",
-          "durationMs": 111,
-          "face": {
-            "face": "face_none"
-          }
+          "durationMs": 111
         },
         {
           "base": "demo_shimeji_caneko_climb_03",
-          "durationMs": 111,
-          "face": {
-            "face": "face_none"
-          }
+          "durationMs": 111
         },
         {
           "base": "demo_shimeji_caneko_climb_04",
-          "durationMs": 111,
-          "face": {
-            "face": "face_none"
-          }
+          "durationMs": 111
         },
         {
           "base": "demo_shimeji_caneko_climb_05",
-          "durationMs": 111,
-          "face": {
-            "face": "face_none"
-          }
+          "durationMs": 111
         },
         {
           "base": "demo_shimeji_caneko_climb_06",
-          "durationMs": 111,
-          "face": {
-            "face": "face_none"
-          }
+          "durationMs": 111
         },
         {
           "base": "demo_shimeji_caneko_climb_07",
-          "durationMs": 111,
-          "face": {
-            "face": "face_none"
-          }
+          "durationMs": 111
         }
       ]
     },
@@ -596,80 +506,37 @@
       "frames": [
         {
           "base": "demo_shimeji_caneko_crawl_00",
-          "durationMs": 111,
-          "face": {
-            "face": "face_none"
-          }
+          "durationMs": 111
         },
         {
           "base": "demo_shimeji_caneko_crawl_01",
-          "durationMs": 111,
-          "face": {
-            "face": "face_none"
-          }
+          "durationMs": 111
         },
         {
           "base": "demo_shimeji_caneko_crawl_02",
-          "durationMs": 111,
-          "face": {
-            "face": "face_none"
-          }
+          "durationMs": 111
         },
         {
           "base": "demo_shimeji_caneko_crawl_03",
-          "durationMs": 111,
-          "face": {
-            "face": "face_none"
-          }
+          "durationMs": 111
         },
         {
           "base": "demo_shimeji_caneko_crawl_04",
-          "durationMs": 111,
-          "face": {
-            "face": "face_none"
-          }
+          "durationMs": 111
         },
         {
           "base": "demo_shimeji_caneko_crawl_05",
-          "durationMs": 111,
-          "face": {
-            "face": "face_none"
-          }
+          "durationMs": 111
         },
         {
           "base": "demo_shimeji_caneko_crawl_06",
-          "durationMs": 111,
-          "face": {
-            "face": "face_none"
-          }
+          "durationMs": 111
         },
         {
           "base": "demo_shimeji_caneko_crawl_07",
-          "durationMs": 111,
-          "face": {
-            "face": "face_none"
-          }
+          "durationMs": 111
         }
       ]
     }
-  ],
-  "slots": {
-    "face": {
-      "kind": "layered",
-      "at": [
-        0,
-        0
-      ],
-      "parts": {
-        "face": [
-          "face_none",
-          "face_blush",
-          "face_sparkle",
-          "face_sweat",
-          "face_anger",
-          "face_heart"
-        ]
-      }
-    }
-  }
+  ]
 }

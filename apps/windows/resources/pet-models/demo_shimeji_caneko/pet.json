@@ -3,41 +3,15 @@
   "scale": 2.2,
   "idleMotionGroup": "Idle",
   "talkMotionGroup": "Talk",
-  "emotionMap": {
-    "neutral": 0,
-    "平静": 0,
-    "默认": 0,
-    "joy": 2,
-    "开心": 2,
-    "高兴": 2,
-    "兴奋": 2,
-    "微笑": 2,
-    "smile": 2,
-    "shy": 1,
-    "害羞": 1,
-    "脸红": 1,
-    "不好意思": 1,
-    "blush": 1,
-    "fear": 3,
-    "担心": 3,
-    "紧张": 3,
-    "无奈": 3,
-    "尴尬": 3,
-    "worried": 3,
-    "anger": 4,
-    "生气": 4,
-    "不满": 4,
-    "愤怒": 4,
-    "love": 5,
-    "喜欢": 5,
-    "亲昵": 5,
-    "撒娇": 5
-  },
+  "emotionMap": {},
   "tapMotions": {
     "HitAreaBody": {
       "Jump": 0
     },
     "HitAreaHead": {
+      "Jump": 0
+    },
+    "body": {
       "Jump": 0
     }
   },

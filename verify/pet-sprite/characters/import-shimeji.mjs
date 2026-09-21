@@ -418,11 +418,15 @@ fs.writeFileSync(
       idleMotionGroup: 'Idle',
       talkMotionGroup: 'Talk',
       emotionMap: {},
-      // 点击（短按）蹦一下。两个命中区都给上——用户点脑袋和点身子期待的是同一件事，
-      // 而 `tapMotions` 是按命中区分别配的，不给就会各自走兜底（不同动作）。
+      // 点击（短按）蹦一下。**三个键都要配**：
+      // - 两个 HitArea* 是真正命中的多边形区域；
+      // - `body` 是**兜底键**——`hitTest` 落在多边形外时（多边形只覆盖角色的一部分，
+      //   实测点身子中下部就落空）调用方会退化成字符串 `'body'`，只配 HitArea* 的话
+      //   那一半点击会走兜底动作，表现为"点这儿有反应、点那儿没反应"。
       tapMotions: {
         HitAreaBody: { Jump: 0 },
         HitAreaHead: { Jump: 0 },
+        body: { Jump: 0 },
       },
       personaAddon: '你是一只安静的小猫。',
     },
