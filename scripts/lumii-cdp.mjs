@@ -10,7 +10,6 @@
  *   node scripts/lumii-cdp.mjs shot  <目标子串> <输出.png> [x,y,w,h]
  *   node scripts/lumii-cdp.mjs click <目标子串> <x> <y>
  *   node scripts/lumii-cdp.mjs drag  <目标子串> <x1> <y1> <x2> <y2> [步数] [每步ms]
- *   node scripts/lumii-cdp.mjs move  <目标子串> <x> <y> [宽] [高]
  *
  * ## 与 `apps/windows/resources/app-ui-cli/lumii-ui.mjs` 的分工
  *
@@ -183,21 +182,6 @@ async function main() {
       return
     }
 
-    case 'move': {
-      const [needle, ...nums] = args
-      const [x, y, w, h] = nums.map(Number)
-      const t = await pickTarget(needle)
-      const s = session(t.webSocketDebuggerUrl)
-      const { windowId } = await s.send('Browser.getWindowForTarget', { targetId: t.id })
-      const bounds = { left: x, top: y }
-      if (!Number.isNaN(w)) bounds.width = w
-      if (!Number.isNaN(h)) bounds.height = h
-      await s.send('Browser.setWindowBounds', { windowId, bounds })
-      s.close()
-      console.log(`窗口 ${windowId} → ${JSON.stringify(bounds)}`)
-      return
-    }
-
     default:
       console.error(
         '用法:\n' +
@@ -205,8 +189,7 @@ async function main() {
           '  lumii-cdp.mjs eval  <目标子串> <js 表达式>\n' +
           '  lumii-cdp.mjs shot  <目标子串> <输出.png> [x,y,w,h]\n' +
           '  lumii-cdp.mjs click <目标子串> <x> <y>\n' +
-          '  lumii-cdp.mjs drag  <目标子串> <x1> <y1> <x2> <y2> [步数] [每步ms]\n' +
-          '  lumii-cdp.mjs move  <目标子串> <x> <y> [宽] [高]',
+          '  lumii-cdp.mjs drag  <目标子串> <x1> <y1> <x2> <y2> [步数] [每步ms]',
       )
       process.exit(1)
   }
