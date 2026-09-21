@@ -163,3 +163,39 @@ describe("isThrowable — 够不够得上「抛出」", () => {
     expect(isThrowable({ vx: NaN, vy: NaN })).toBe(false)
   })
 })
+
+describe("stepThrow — 顶部边界（不能飞出屏幕）", () => {
+  const B = { minX: 0, maxX: 1000, groundY: 800, minY: 0 }
+
+  it("撞顶边带着**反向**速度弹回来，不是糊在天花板上", () => {
+    const r = stepThrow({ x: 500, y: 2, vx: 0, vy: -600 }, 1 / 60, B)
+    expect(r.body.y).toBe(0)
+    expect(r.body.vy).toBeGreaterThan(0)
+    expect(r.landed).toBe(false)
+    expect(r.bouncedY).toBe(true)
+  })
+
+  it("反弹按 restitution 折损能量", () => {
+    // 一帧（1/60s）内 vy 从 -600 变到 -600 + 2400/60 = -560，位移约 -9.3，够撞上 y=0。
+    // 反射后 |vy| = 560 × 0.55 ≈ 308。**别用更小的 dt**——位移不足时就撞不上，
+    // 测出来的是"还在飞"而不是"反弹"（这个用例第一版就栽在这）。
+    const r = stepThrow({ x: 500, y: 2, vx: 0, vy: -600 }, 1 / 60, B)
+    expect(r.body.vy).toBeGreaterThan(280)
+    expect(r.body.vy).toBeLessThan(340)
+  })
+
+  it("没给 minY 时不受限——老行为一字不变", () => {
+    const r = stepThrow({ x: 500, y: 5, vx: 0, vy: -600 }, 1 / 60, {
+      minX: 0,
+      maxX: 1000,
+      groundY: 800,
+    })
+    expect(r.body.y).toBeLessThan(0)
+    expect(r.bouncedY).toBe(false)
+  })
+
+  it("没撞顶边时 bouncedY 是 false（别把正常飞行报成碰撞）", () => {
+    const r = stepThrow({ x: 500, y: 300, vx: 0, vy: -100 }, 1 / 60, B)
+    expect(r.bouncedY).toBe(false)
+  })
+})

@@ -29,6 +29,14 @@ export interface ThrowBounds {
    * 用屏幕底部当地面会让它落到一个从没待过的地方，用户看到的就是「掉出屏幕了」。
    */
   groundY: number
+  /**
+   * 顶部边界（y 向下为正，所以这是**最小** y）。省略 = 不限制。
+   *
+   * 存在的理由是「**不能飞出屏幕**」：没有它的话，一次猛甩（实测 vy 到过 -4050）
+   * 会让宠物飞到屏幕上方 3400px 处、消失三四秒才落回来。
+   * 撞到它按 `restitution` **弹回来**，与左右边界同一套——用户要的正是"可以弹跳"。
+   */
+  minY?: number
 }
 
 export interface ThrowStepOptions {
@@ -44,6 +52,8 @@ export interface ThrowStepResult {
   landed: boolean
   /** 本步是否撞了左右边界 */
   bouncedX: boolean
+  /** 本步是否撞了顶部边界（撞了会带着反向速度继续飞） */
+  bouncedY: boolean
 }
 
 const DEFAULT_GRAVITY = 2400
@@ -78,7 +88,7 @@ export function stepThrow(
   const dt = finite(dtSec)
 
   // 步长为 0 或负数时原样返回（换帧、页面切回来时 dt 可能是 0 甚至负）
-  if (dt <= 0) return { body: { x, y, vx, vy }, landed: false, bouncedX: false }
+  if (dt <= 0) return { body: { x, y, vx, vy }, landed: false, bouncedX: false, bouncedY: false }
 
   vy += gravity * dt
   x += vx * dt
@@ -95,12 +105,21 @@ export function stepThrow(
     bouncedX = true
   }
 
-  if (y >= bounds.groundY) {
-    // 落地即停：不模拟二次弹跳。桌宠"啪"一下停住比蹦跶两下更像被放下
-    return { body: { x, y: bounds.groundY, vx: 0, vy: 0 }, landed: true, bouncedX }
+  // 顶边：撞了带着反向速度继续飞（用户要的"可以弹跳"）。**只夹位置与速度方向，
+  // 不像地面那样把速度清零**——清了就成了"糊在天花板上"
+  let bouncedY = false
+  if (bounds.minY !== undefined && y < bounds.minY) {
+    y = bounds.minY
+    vy = Math.abs(vy) * restitution
+    bouncedY = true
   }
 
-  return { body: { x, y, vx, vy }, landed: false, bouncedX }
+  if (y >= bounds.groundY) {
+    // 落地即停：不模拟二次弹跳。桌宠"啪"一下停住比蹦跶两下更像被放下
+    return { body: { x, y: bounds.groundY, vx: 0, vy: 0 }, landed: true, bouncedX, bouncedY }
+  }
+
+  return { body: { x, y, vx, vy }, landed: false, bouncedX, bouncedY }
 }
 
 function clamp01(v: number): number {

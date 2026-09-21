@@ -2,10 +2,13 @@ import { describe, it, expect } from 'vitest'
 import {
   PERCH_DEFAULTS,
   ceilingY,
+  clampToViewport,
+  screenWallX,
   shouldLetGo,
   stepClimb,
   stepCrawl,
   tryAttach,
+  tryAttachScreen,
   wallX,
   type PerchRect,
 } from './perch.js'
@@ -170,5 +173,54 @@ describe('shouldLetGo — 什么时候松手', () => {
 
   it('没有攀附时不松手（无事发生）', () => {
     expect(shouldLetGo(null, null, 0, 0)).toBe(false)
+  })
+})
+
+describe('屏幕边缘 — 宠物在视口**内侧**贴边', () => {
+  const VP = { width: 2560, height: 1400 }
+
+  it('走到左边缘就吸上去', () => {
+    expect(tryAttachScreen(10, GROUND, VP)).toBe('left')
+  })
+
+  it('走到右边缘就吸上去', () => {
+    expect(tryAttachScreen(VP.width - 10, GROUND, VP)).toBe('right')
+  })
+
+  it('在屏幕中间不吸', () => {
+    expect(tryAttachScreen(1280, GROUND, VP)).toBeNull()
+  })
+
+  it('锚点落在**内侧**——与窗口那条公式方向相反', () => {
+    // 窗口：宠物在窗口外侧，锚点往边外挪（∓）
+    // 屏幕：宠物在屏幕内侧，锚点往边里挪（±）—— 搞反了宠物会跑到屏幕外
+    const gap = 128 * PERCH_DEFAULTS.wallGapRatio
+    expect(screenWallX(VP, 'left', PERCH_DEFAULTS, 128)).toBeCloseTo(gap, 6)
+    expect(screenWallX(VP, 'right', PERCH_DEFAULTS, 128)).toBeCloseTo(VP.width - gap, 6)
+  })
+
+  it('视口太矮时没有天花板可爬', () => {
+    expect(tryAttachScreen(10, 100, { width: 2560, height: 50 })).toBeNull()
+  })
+
+  it('纵向在视口外时不判（拖拽途中的中间态）', () => {
+    expect(tryAttachScreen(10, -500, VP)).toBeNull()
+  })
+})
+
+describe('clampToViewport — 主窗口贴着屏幕边时把宠物夹回来', () => {
+  const VP = { width: 2560, height: 1400 }
+
+  it('贴左缘的窗口算出负锚点时夹到 0', () => {
+    // 窗口 x=0 时 wallX 给 -108，不夹的话宠物爬到看不见的地方去
+    expect(clampToViewport(-108, 500, VP).x).toBe(0)
+  })
+
+  it('右缘同理', () => {
+    expect(clampToViewport(9999, 500, VP).x).toBe(VP.width)
+  })
+
+  it('已经在视口内时原样返回', () => {
+    expect(clampToViewport(500, 300, VP)).toEqual({ x: 500, y: 300 })
   })
 })

@@ -216,3 +216,69 @@ export function shouldLetGo(
   const dist = state.kind === 'wall' ? Math.abs(petX - target) : Math.abs(petY - target)
   return dist > cfg.attachDistance * 4
 }
+
+// ---------------------------------------------------------------------------
+// 屏幕边缘
+// ---------------------------------------------------------------------------
+
+/**
+ * 屏幕边缘的攀附（宠物在视口**内侧**贴边）。
+ *
+ * 与主窗口的区别是**方向相反**：爬窗口时宠物在窗口**外面**，爬屏幕时它在屏幕**里面**。
+ * 所以不能共用 `wallX` —— 那条公式按"锚点在矩形外侧"写死了。
+ *
+ * 判定也简单得多：视口就是整个可视区域，宠物永远"在它的下方"（因为它在里面），
+ * 只需要比水平距离。顶边不参与吸附——宠物站在地面线上，够不着屏幕顶。
+ */
+export function tryAttachScreen(
+  petX: number,
+  petY: number,
+  viewport: { width: number; height: number },
+  cfg: PerchConfig = PERCH_DEFAULTS,
+  minHeight = 120,
+): PerchSide | null {
+  if (viewport.height < minHeight || viewport.width <= 0) return null
+  // 宠物不在视口纵向范围内时不判（拖到屏幕外的中间态）
+  if (petY < 0 || petY > viewport.height) return null
+
+  const leftDist = petX
+  const rightDist = viewport.width - petX
+  if (leftDist <= cfg.attachDistance && leftDist <= rightDist) return 'left'
+  if (rightDist <= cfg.attachDistance) return 'right'
+  return null
+}
+
+/**
+ * 屏幕左/右边缘对应的锚点 x。
+ *
+ * 宠物在**内侧**，所以是"离边一个缝隙"而不是"往边外挪一个缝隙"——
+ * 与 `wallX` 的加减方向正好相反。
+ */
+export function screenWallX(
+  viewport: { width: number },
+  side: PerchSide,
+  cfg: PerchConfig = PERCH_DEFAULTS,
+  modelHeight = 0,
+): number {
+  const gap = modelHeight * cfg.wallGapRatio
+  return side === 'left' ? gap : viewport.width - gap
+}
+
+/**
+ * 把锚点夹进视口内。
+ *
+ * 主窗口**贴着屏幕边**时（用户常这么摆），`wallX` 会算出屏幕外的坐标——
+ * 宠物于是爬到看不见的地方去。参考项目对这种情形是每帧 `coerceIn`，这里同义：
+ * 夹住位置，**不动状态**（它仍然认为自己贴着那面墙，只是贴不到了）。
+ */
+export function clampToViewport(
+  x: number,
+  y: number,
+  viewport: { width: number; height: number },
+  margin = 0,
+): { x: number; y: number } {
+  return {
+    x: Math.min(Math.max(x, margin), Math.max(margin, viewport.width - margin)),
+    y: Math.min(Math.max(y, margin), Math.max(margin, viewport.height - margin)),
+  }
+}

@@ -579,7 +579,9 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
        */
       const startThrow = (from: { x: number; y: number }, v: { vx: number; vy: number }, groundY: number) => {
         let body: ThrowBody = { x: from.x, y: from.y, vx: v.vx, vy: v.vy }
-        const bounds = { minX: 0, maxX: canvas.clientWidth, groundY }
+        // `minY` 把顶边也封上——不加的话一次猛甩（实测 vy 到过 -4050）会让宠物
+        // 飞到屏幕上方三千多像素处、消失三四秒。撞了按 restitution 弹回来。
+        const bounds = { minX: 0, maxX: canvas.clientWidth, groundY, minY: 0 }
         let last = performance.now()
 
         const step = () => {

@@ -30,12 +30,14 @@ import {
   ceilingY,
   initialPlan,
   planNextActivity,
+  screenWallX,
   shouldLetGo,
   stepClimb,
   stepCrawl,
   stepThrow,
   stepWalk,
   tryAttach,
+  tryAttachScreen,
   walkBoundsOf,
   wallX,
   type AmbientActivity,
@@ -129,6 +131,13 @@ export class PetWanderDriver {
   private groundY = 0
   /** 坠落中的物体；非 null 时位置权威归它（与攀爬、拖拽三者互斥） */
   private falling: ThrowBody | null = null
+  /**
+   * 当前贴的是**屏幕边缘**（true）还是**主窗口**（false）。
+   *
+   * 两者的墙线公式方向相反——爬窗口时宠物在窗口**外面**，爬屏幕时它在屏幕**里面**。
+   * 所以这一步必须记住，不能靠"现在的坐标离谁近"反推（宠物贴上去之后离两边都近）。
+   */
+  private perchOnScreen = false
 
   /**
    * 让位来源集合（**不是计数器**）。
@@ -182,10 +191,9 @@ export class PetWanderDriver {
    */
   setPerchRect(rect: PerchRect | null): void {
     this.perchRect = rect
-    if (!this.perch) return
-    if (shouldLetGo(this.perch, rect, this.x, this.y, this.perchConfig, this.minPerchHeight(), this.modelHeight)) {
-      this.releasePerch('目标不可用')
-    }
+    // 屏幕攀附不受主窗口影响——主窗口藏了、最小化了，宠物照样能爬屏幕边
+    if (!this.perch || this.perchOnScreen) return
+    if (this.shouldReleasePerch()) this.releasePerch('目标不可用')
   }
 
   /** 从渲染器读一次布局（缩放/锚点/模型高度）。攀爬的缝隙与判定高度都依赖它 */
@@ -365,8 +373,71 @@ export class PetWanderDriver {
    */
   private tryAttachNow(): void {
     if (this.perch || this.falling || this.holds.size > 0) return
-    const side = tryAttach(this.x, this.y, this.perchRect, this.perchConfig, this.minPerchHeight())
-    if (side) this.attachPerch(side)
+    const minH = this.minPerchHeight()
+    // **主窗口优先**：用户把宠物拎到窗口边上，那个意图比"它正好走到屏幕边"明确得多。
+    // 两者同时成立只发生在主窗口贴着屏幕边的时候，那时贴窗口看起来才对
+    // （贴屏幕的话宠物会跑到窗口的另一侧去）。
+    const onWindow = tryAttach(this.x, this.y, this.perchRect, this.perchConfig, minH)
+    if (onWindow) {
+      this.attachPerch(onWindow, false)
+      return
+    }
+    const onScreen = tryAttachScreen(this.x, this.y, this.viewport(), this.perchConfig, minH)
+    if (onScreen) this.attachPerch(onScreen, true)
+  }
+
+  /** 视口尺寸。宠物窗口是全屏透明窗口，所以视口 == 屏幕 */
+  private viewport(): { width: number; height: number } {
+    return { width: window.innerWidth, height: window.innerHeight }
+  }
+
+  /**
+   * 当前该贴的墙线 x。
+   *
+   * 两种目标的公式**方向相反**（爬窗口时宠物在窗口外侧，爬屏幕时在屏幕内侧），
+   * 分派在这里。**并且夹进视口**——主窗口贴着屏幕边时 `wallX` 会算出屏幕外的
+   * 坐标，宠物于是爬到看不见的地方去；参考项目对这种情形是每帧 `coerceIn`。
+   */
+  private perchWallX(side: PerchSide): number {
+    const raw = this.perchOnScreen
+      ? screenWallX(this.viewport(), side, this.perchConfig, this.modelHeight)
+      : this.perchRect
+        ? wallX(this.perchRect, side, this.perchConfig, this.modelHeight)
+        : this.x
+    return Math.min(Math.max(raw, 0), window.innerWidth)
+  }
+
+  /** 当前该贴的天花板线 y。屏幕时窗口上沿就是 y=0 */
+  private perchCeilingY(): number {
+    const rect = this.perchTargetRect()
+    if (!rect) return this.y
+    return ceilingY(rect, this.perchConfig, this.modelHeight)
+  }
+
+  /**
+   * 是否该松手。
+   *
+   * 屏幕那条路不走 `shouldLetGo`——它按"锚点在矩形外侧"算目标线，而爬屏幕时
+   * 宠物在**内侧**，两边会差出两个缝隙，刚吸附就会被判成"已脱离"。
+   */
+  private shouldReleasePerch(): boolean {
+    if (!this.perch) return false
+    if (this.perchOnScreen) {
+      const vp = this.viewport()
+      if (vp.height < this.minPerchHeight()) return true
+      const target = this.perch.kind === 'wall' ? this.perchWallX(this.perch.side) : this.perchCeilingY()
+      const at = this.perch.kind === 'wall' ? this.x : this.y
+      return Math.abs(at - target) > this.perchConfig.attachDistance * 4
+    }
+    return shouldLetGo(
+      this.perch,
+      this.perchRect,
+      this.x,
+      this.y,
+      this.perchConfig,
+      this.minPerchHeight(),
+      this.modelHeight,
+    )
   }
 
   /**
@@ -381,11 +452,7 @@ export class PetWanderDriver {
    */
   private revalidatePerch(): boolean {
     if (!this.perch) return false
-    if (
-      !shouldLetGo(this.perch, this.perchRect, this.x, this.y, this.perchConfig, this.minPerchHeight(), this.modelHeight)
-    ) {
-      return true
-    }
+    if (!this.shouldReleasePerch()) return true
     log.info(`[perch] 让位期间位置被改到 (${this.x.toFixed(0)}, ${this.y.toFixed(0)})，判定为已脱离`)
     this.perch = null
     this.startFall()
@@ -395,30 +462,34 @@ export class PetWanderDriver {
   /**
    * 攀爬时要不要翻转。
    *
-   * 素材面朝右，而爬墙时宠物是**面朝墙**的：爬左墙（宠物在墙左侧、朝右）不翻转，
-   * 爬右墙才翻转。天花板沿用的是"从哪面墙上来的"同一个朝向，一路保持一致。
+   * 素材面朝右，而爬墙时宠物**面朝墙**——墙在它哪一侧取决于是窗口还是屏幕：
+   *
+   * - 爬**窗口**时宠物在窗口**外侧**：爬左墙 → 墙在右边 → 面朝右 → 不翻
+   * - 爬**屏幕**时宠物在屏幕**内侧**：爬左墙 → 墙在左边 → 面朝左 → **要翻**
    */
   private flipForPerch(side: PerchSide): boolean {
-    return side === 'right'
+    return this.perchOnScreen ? side === 'left' : side === 'right'
   }
 
   /**
-   * 吸附到窗口边缘。
+   * 吸附到墙线上（主窗口边缘或屏幕边缘）。
    *
-   * 位置立刻贴到墙线上（对齐 `wallX`），不等下一步积分——差一帧会看到宠物
-   * "先飘到墙边、再开始爬"。
+   * 位置立刻贴到墙线上，不等下一步积分——差一帧会看到宠物"先飘到墙边、再开始爬"。
    */
-  private attachPerch(side: PerchSide): void {
-    const rect = this.perchRect
-    if (!rect) return
+  private attachPerch(side: PerchSide, onScreen: boolean): void {
+    if (!onScreen && !this.perchRect) return
     // 记住脚下的地面线。**必须在改 y 之前**——掉下来要回到这里
     this.groundY = this.y
+    this.perchOnScreen = onScreen
     this.perch = { kind: 'wall', side }
-    this.x = wallX(rect, side, this.perchConfig, this.modelHeight)
-    this.facing = side === 'left' ? 1 : -1
+    this.x = this.perchWallX(side)
+    const flip = this.flipForPerch(side)
+    this.facing = flip ? -1 : 1
     this.renderer.setPosition(this.x, this.y)
-    this.renderer.setFlip?.(this.flipForPerch(side))
-    log.info(`[perch] 吸附到${side === 'left' ? '左' : '右'}墙 x=${this.x.toFixed(0)}`)
+    this.renderer.setFlip?.(flip)
+    log.info(
+      `[perch] 吸附到${onScreen ? '屏幕' : '窗口'}${side === 'left' ? '左' : '右'}墙 x=${this.x.toFixed(0)}`,
+    )
     this.onActivity('climb')
   }
 
@@ -452,6 +523,9 @@ export class PetWanderDriver {
       minX: 0,
       maxX: window.innerWidth,
       groundY: this.groundY,
+      // **不能飞出屏幕**：没有它的话一次猛甩（实测 vy 到过 -4050）会让宠物
+      // 飞到屏幕上方 3400px 处、消失三四秒。撞顶边按 restitution 弹回来。
+      minY: 0,
     })
     this.falling = r.body
     this.x = r.body.x
@@ -471,18 +545,18 @@ export class PetWanderDriver {
    * **到顶不折返**：折返会让宠物永远赖在窗口上，而"爬到头掉下来"是更有生命感的收尾。
    */
   private stepPerch(dtSec: number): void {
-    const rect = this.perchRect
+    const rect = this.perchTargetRect()
     if (!this.perch || !rect) return
 
     if (this.perch.kind === 'wall') {
       const r = stepClimb(this.y, rect, dtSec, this.perchConfig, this.modelHeight)
       this.y = r.y
-      this.x = wallX(rect, this.perch.side, this.perchConfig, this.modelHeight)
+      this.x = this.perchWallX(this.perch.side)
       this.renderer.setPosition(this.x, this.y)
       if (r.reachedTop) {
         // 到顶：转成沿上边缘爬，从哪面墙上来的就往对面爬
         this.perch = { kind: 'ceiling', side: this.perch.side }
-        log.info(`[perch] 爬到顶，转为沿窗口上边缘爬行`)
+        log.info(`[perch] 爬到顶，转为沿${this.perchOnScreen ? '屏幕' : '窗口'}上边缘爬行`)
         this.onActivity('crawl')
       }
       return
@@ -490,9 +564,24 @@ export class PetWanderDriver {
 
     const r = stepCrawl(this.x, rect, this.perch.side, dtSec, this.perchConfig)
     this.x = r.x
-    this.y = ceilingY(rect, this.perchConfig, this.modelHeight)
+    this.y = this.perchCeilingY()
     this.renderer.setPosition(this.x, this.y)
     if (r.reachedEnd) this.releasePerch('爬到尽头')
+  }
+
+  /**
+   * 当前攀附目标的矩形。
+   *
+   * **屏幕就是用整个视口**——`stepClimb`/`stepCrawl` 要它算天花板与爬行终点，
+   * 而屏幕攀附本来没有"矩形"这个概念。视口的 `y=0` 正好是屏幕顶，
+   * 于是两者在几何上统一了。
+   */
+  private perchTargetRect(): PerchRect | null {
+    if (this.perchOnScreen) {
+      const vp = this.viewport()
+      return { x: 0, y: 0, width: vp.width, height: vp.height }
+    }
+    return this.perchRect
   }
 
   private tick = (now: number): void => {
