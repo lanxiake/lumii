@@ -80,7 +80,10 @@ function writeGenerated(map) {
   fs.writeFileSync(GENERATED, JSON.stringify(map, null, 2) + '\n', 'utf-8')
 }
 
-async function command(payload) {
+// 这几个是「驱动一轮出图」的公共件：建会话、发消息、找回产物。
+// `ref-test.mjs` 的实验也走这一套，所以导出——复制一份的话，
+// 改了口令或加了重试就只改到一边，另一边会静默地跑旧逻辑。
+export async function command(payload) {
   const res = await fetch(`${BASE}/command`, { method: 'POST', headers: H, body: JSON.stringify(payload) })
   const text = await res.text()
   let json = null
@@ -92,14 +95,14 @@ async function command(payload) {
   return { status: res.status, json, text }
 }
 
-async function createSession(title) {
+export async function createSession(title) {
   const r = await command({ type: 'conversation:create', title })
   const key = r.json?.sessionKey ?? r.json?.result?.sessionKey ?? r.json?.result?.id
   if (!key) throw new Error(`建会话失败：HTTP ${r.status} ${r.text.slice(0, 300)}`)
   return key
 }
 
-async function send(sessionKey, content) {
+export async function send(sessionKey, content) {
   const r = await command({ type: 'user:send', sessionKey, content, msgId: randomUUID() })
   if (r.status !== 200) throw new Error(`发送失败：HTTP ${r.status} ${r.text.slice(0, 300)}`)
   return r.json
@@ -112,7 +115,7 @@ async function send(sessionKey, content) {
  * `<token>_<日期>_<uuid>.png`——只按前缀找会立刻命中上一轮那张，
  * 于是脚本「成功」退出、根本没等新图（实测踩过：重跑的表情批被认成旧文件）。
  */
-function findProduced(token, since) {
+export function findProduced(token, since) {
   const root = path.join(WORKSPACE, 'outputs')
   if (!fs.existsSync(root)) return null
   const hits = []

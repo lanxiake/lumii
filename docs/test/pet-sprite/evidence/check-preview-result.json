@@ -1,5 +1,5 @@
 {
-  "at": "2026-09-21T12:15:41.791Z",
+  "at": "2026-09-21T12:25:30.041Z",
   "pass": true,
   "results": [
     {
@@ -35,27 +35,27 @@
     {
       "label": "demo_shimeji_caneko",
       "pass": true,
-      "detail": "组 10/10 · 帧条 1/1 帧 · 当前 Idle"
+      "detail": "组 9/9 · 帧条 8/8 帧 · 当前 Idle"
     },
     {
       "label": "demo_shimeji_germouser",
       "pass": true,
-      "detail": "组 10/10 · 帧条 1/1 帧 · 当前 Idle"
+      "detail": "组 9/9 · 帧条 8/8 帧 · 当前 Idle"
     },
     {
       "label": "demo_shimeji_nekojapan",
       "pass": true,
-      "detail": "组 10/10 · 帧条 1/1 帧 · 当前 Idle"
+      "detail": "组 9/9 · 帧条 8/8 帧 · 当前 Idle"
     },
     {
       "label": "demo_shimeji_skoreacat",
       "pass": true,
-      "detail": "组 10/10 · 帧条 1/1 帧 · 当前 Idle"
+      "detail": "组 9/9 · 帧条 8/8 帧 · 当前 Idle"
     },
     {
       "label": "demo_shimeji_turkat",
       "pass": true,
-      "detail": "组 10/10 · 帧条 1/1 帧 · 当前 Idle"
+      "detail": "组 9/9 · 帧条 8/8 帧 · 当前 Idle"
     },
     {
       "label": "真人素材：Walk 第 0 帧 vs 第 1 帧画面不同",
@@ -120,7 +120,7 @@
     {
       "label": "孤儿格的橙色角标画在了画布上（且干净模型上没有）",
       "pass": true,
-      "detail": "nekojapan 684 像素 / girl 1 像素"
+      "detail": "nekojapan 787 像素 / girl 1 像素"
     },
     {
       "label": "辅助线开关改变画面",
