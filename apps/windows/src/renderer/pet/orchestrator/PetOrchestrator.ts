@@ -1021,7 +1021,9 @@ export class PetOrchestrator {
             ? 'Climb'
             : pose === 'crawl'
               ? 'Crawl'
-              : null
+              : pose === 'fall'
+                ? 'Fall'
+                : null
     if (!want) return null
     // 模型没有这一组时静默回落到基础待机。**攀爬尤其常见**——Live2D 模型不可能有
     // Climb/Crawl，而驱动那边照样会把姿态报上来（它不知道后端有没有那个动作组）

@@ -8,7 +8,7 @@
  * 所以这里钉的不是"计数对不对"，而是**按 reason 记账**这个契约本身。
  */
 
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import { AMBIENT_DEFAULTS } from '@mtbot/pet-core'
 import { PetWanderDriver } from './PetWanderDriver'
 import type { PetRendererProvider } from '../renderer/types'
@@ -19,7 +19,9 @@ function fakeRenderer(): PetRendererProvider {
     getPosition: () => ({ x: 100, y: 200 }),
     setPosition: vi.fn(),
     setFlip: vi.fn(),
-    getLayout: () => ({ anchorX: 45, scale: 2 }),
+    // `modelHeight` 不能省：驱动拿它算攀爬的缝隙与最小窗口高度，
+    // 漏掉会得到 `Math.max(120, NaN)` = NaN，一路静默传播到位置里
+    getLayout: () => ({ anchorX: 45, scale: 2, modelHeight: 100 }),
   } as unknown as PetRendererProvider
 }
 
@@ -146,5 +148,135 @@ describe('PetWanderDriver — 朝向', () => {
   it('初始面朝右（素材默认朝向）', () => {
     const { driver } = makeDriver()
     expect(driver.getFacing()).toBe(1)
+  })
+})
+
+describe('PetWanderDriver — 攀附与掉落', () => {
+  /**
+   * 可控时钟。驱动靠自己起的 rAF 循环推进，测试里必须手动喂它。
+   *
+   * `MAX_FRAME_MS = 100` 会把单帧钳到 100ms，所以 `advance(n)` 就是"过 n 帧"。
+   * **必须在 `driver.start()` 之前装**——start 里就注册了第一帧。
+   */
+  function makeClock() {
+    let cb: ((t: number) => void) | null = null
+    let now = 0
+    vi.stubGlobal('requestAnimationFrame', (fn: (t: number) => void) => {
+      cb = fn
+      return 1
+    })
+    vi.stubGlobal('cancelAnimationFrame', () => {
+      cb = null
+    })
+    vi.spyOn(performance, 'now').mockImplementation(() => now)
+    return {
+      advance(steps: number, ms = 100) {
+        for (let i = 0; i < steps; i++) {
+          now += ms
+          cb?.(now)
+        }
+      },
+    }
+  }
+
+  /**
+   * "宠物站在窗口左边、窗口在它上方"的场景。
+   *
+   * 几何（jsdom 视口 1024×768，`clampPosition` 会把 y 夹到 760）：
+   * 宠物 (500, 700)，窗口 (500,400) 800×300 —— 底边正好贴着宠物的脚。
+   */
+  function makePerchScene() {
+    const renderer = fakeRenderer()
+    let pos = { x: 500, y: 700 }
+    renderer.getPosition = () => ({ ...pos })
+    renderer.setPosition = vi.fn((x: number, y: number) => {
+      pos = { x, y }
+    })
+    const onActivity = vi.fn<(a: string) => void>()
+    const driver = new PetWanderDriver({
+      renderer,
+      onActivity,
+      config: AMBIENT_DEFAULTS,
+      // 爬得飞快：这几条测的是"掉到哪"，不是"爬多久"
+      perchConfig: { attachDistance: 24, climbSpeed: 4500, gapRatio: 0.15 },
+      rand: () => 0.5,
+    })
+    driver.setPerchRect({ x: 500, y: 400, width: 800, height: 300 })
+    driver.start()
+    return {
+      driver,
+      onActivity,
+      getPos: () => pos,
+      setPos: (p: { x: number; y: number }) => {
+        pos = p
+      },
+    }
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  it('落地静止时靠近窗口边缘会吸附上去', () => {
+    const clock = makeClock()
+    const { driver } = makePerchScene()
+    expect(driver.getPerch()).toBeNull() // start 不判吸附，要等一次 resume
+
+    driver.suspend('pointer')
+    driver.resume('pointer')
+    expect(driver.getPerch()).toEqual({ kind: 'wall', side: 'left' })
+    clock.advance(1)
+  })
+
+  it('爬到窗口上沿后转为沿上沿爬行', () => {
+    const clock = makeClock()
+    const { driver } = makePerchScene()
+    driver.suspend('pointer')
+    driver.resume('pointer')
+
+    clock.advance(2)
+    expect(driver.getPerch()).toEqual({ kind: 'ceiling', side: 'left' })
+  })
+
+  it('松手后落回原来的地面线，而不是停在半空', () => {
+    const clock = makeClock()
+    const { driver, onActivity, getPos } = makePerchScene()
+    driver.suspend('pointer')
+    driver.resume('pointer')
+    clock.advance(2)
+    expect(driver.getPerch()?.kind).toBe('ceiling')
+
+    // 窗口没了 → 松手
+    driver.setPerchRect(null)
+    expect(onActivity).toHaveBeenLastCalledWith('fall')
+
+    clock.advance(30)
+    // 落地线必须是**吸附前站的那条**（700），不是松手时所在的天花板（385）。
+    // 少了这一步，宠物会悬在窗口上沿的空中，并在那条看不见的地面线上走来走去。
+    expect(getPos().y).toBe(700)
+    expect(driver.getPerch()).toBeNull()
+    expect(onActivity).toHaveBeenLastCalledWith('stand')
+  })
+
+  it('爬行途中被拖走，松手后掉落而不是弹回墙上', () => {
+    const clock = makeClock()
+    const { driver, onActivity, getPos, setPos } = makePerchScene()
+    driver.suspend('pointer')
+    driver.resume('pointer')
+    clock.advance(2)
+    expect(driver.getPerch()).not.toBeNull()
+
+    // 用户在宠物爬着的时候把它拎到远处
+    driver.suspend('pointer')
+    setPos({ x: 900, y: 700 })
+    driver.resume('pointer')
+
+    // 让位期间 tick 不跑，没人发现它已经离墙很远了；不重新核对的话，
+    // 恢复后的第一帧 stepPerch 会把它瞬移回墙线上
+    expect(onActivity).toHaveBeenLastCalledWith('fall')
+    clock.advance(30)
+    expect(driver.getPerch()).toBeNull()
+    expect(getPos().y).toBe(700)
   })
 })

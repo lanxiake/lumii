@@ -33,6 +33,7 @@ import {
   shouldLetGo,
   stepClimb,
   stepCrawl,
+  stepThrow,
   stepWalk,
   tryAttach,
   walkBoundsOf,
@@ -45,6 +46,7 @@ import {
   type PerchSide,
   type PerchState,
   type PetPose,
+  type ThrowBody,
 } from '@mtbot/pet-core'
 import type { PetRendererProvider } from '../renderer/types'
 
@@ -112,6 +114,17 @@ export class PetWanderDriver {
   private perchRect: PerchRect | null = null
   /** 模型在屏幕上的高度，用来算攀爬时与墙的缝隙 */
   private modelHeight = 0
+  /**
+   * 吸附前站的那条地面线。**掉下来要回到这里**，不是停在半空。
+   *
+   * 从窗口上沿松手时宠物在 `y ≈ 窗口上沿`，而它原来的地面线可能低一千多像素。
+   * 不落回去的话它会悬在窗口边上的空中，并在那条看不见的地面线上走来走去——
+   * 实测第一次跑通攀爬就是这个结果（`松手（爬到尽头）@(1980, 208)`，
+   * 而它原本站在 `y = 1352`）。
+   */
+  private groundY = 0
+  /** 坠落中的物体；非 null 时位置权威归它（与攀爬、拖拽三者互斥） */
+  private falling: ThrowBody | null = null
 
   /**
    * 让位来源集合（**不是计数器**）。
@@ -249,6 +262,27 @@ export class PetWanderDriver {
     this.refreshLayout()
     this.clampPosition()
     this.lastMs = performance.now()
+
+    // 先核对"还贴不贴在墙上"——用户可能正是在宠物爬着的时候把它拎走了。
+    // 这一段必须在 `resetToStand` 之前：还在墙上时回到站立，宠物会在墙上播待机动画。
+    if (this.perch) {
+      const perch = this.perch
+      if (this.revalidatePerch()) {
+        log.info(`[resume] 恢复（${reason}）仍在墙上 @(${this.x.toFixed(0)}, ${this.y.toFixed(0)})`)
+        // 攀爬姿态要**重新报一次**：让位期间它已经被 Picked 之类的动作组顶掉了
+        this.onActivity(perch.kind === 'wall' ? 'climb' : 'crawl')
+      }
+      // 判定脱离时已进入下落，落完自己会回站立。两条路都不走下面的"回站立"
+      return
+    }
+
+    // 半空中被抓住又放下：接着往下掉，别站在空气里
+    if (this.falling) {
+      log.info(`[resume] 恢复（${reason}）继续坠落 @(${this.x.toFixed(0)}, ${this.y.toFixed(0)})`)
+      this.onActivity('fall')
+      return
+    }
+
     this.resetToStand()
     log.info(`[resume] 恢复（${reason}）位置 (${this.x.toFixed(0)}, ${this.y.toFixed(0)})`)
     // 用户可能刚把宠物**放在**窗口边缘上——这是最自然的攀爬入口，不能等他走过去
@@ -301,10 +335,46 @@ export class PetWanderDriver {
    * （用户把宠物拎到窗口边上，本来就带着"放这儿"的意图），
    * 只在走路时检查的话，那个动作完全没反应（实测被用户这么试了好几轮）。
    */
+  /**
+   * 立刻检查一次该不该吸附。
+   *
+   * 两个调用点：走路途中（每步之后）、**拖拽松手时**。
+   * 后者是补上的——参考项目里"松手时若在边缘 50px 内就吸附"是最自然的攀爬入口
+   * （用户把宠物拎到窗口边上，本来就带着"放这儿"的意图），
+   * 只在走路时检查的话，那个动作完全没反应（实测被用户这么试了好几轮）。
+   *
+   * **判定失败时不打日志**：这个方法每次 `resume`、几乎每一步走路都会跑，
+   * 打了会淹没真正有用的信息。排查"为什么不吸"时临时在这里把 `perchRect`
+   * 与 `minPerchHeight()` 打出来即可——**静默失败是这条链路最难查的形态**，
+   * 上一轮整整一段排查就卡在"没日志所以看起来像没被调用"。
+   */
   private tryAttachNow(): void {
-    if (this.perch || this.holds.size > 0) return
+    if (this.perch || this.falling || this.holds.size > 0) return
     const side = tryAttach(this.x, this.y, this.perchRect, this.perchConfig, this.minPerchHeight())
     if (side) this.attachPerch(side)
+  }
+
+  /**
+   * 让位结束后重新核对攀附状态，返回"是否仍然贴在墙上"。
+   *
+   * **必须核对**：宠物在墙上时被用户拎走，`perch` 还留着，而让位期间 `tick` 不跑，
+   * 没人发现位置已经离墙很远了。不核对的话，恢复自主活动的第一帧 `stepPerch`
+   * 会把它**瞬移回墙上**——用户看到的是"拖走了又弹回去"。
+   *
+   * 判定脱离时不直接回站立，而是转入下落：宠物此刻悬在半空，
+   * 直接站着会像被钉在空中。
+   */
+  private revalidatePerch(): boolean {
+    if (!this.perch) return false
+    if (
+      !shouldLetGo(this.perch, this.perchRect, this.x, this.y, this.perchConfig, this.minPerchHeight())
+    ) {
+      return true
+    }
+    log.info(`[perch] 让位期间位置被改到 (${this.x.toFixed(0)}, ${this.y.toFixed(0)})，判定为已脱离`)
+    this.perch = null
+    this.startFall()
+    return false
   }
 
   /**
@@ -326,6 +396,8 @@ export class PetWanderDriver {
   private attachPerch(side: PerchSide): void {
     const rect = this.perchRect
     if (!rect) return
+    // 记住脚下的地面线。**必须在改 y 之前**——掉下来要回到这里
+    this.groundY = this.y
     this.perch = { kind: 'wall', side }
     this.x = wallX(rect, side, this.perchConfig, this.modelHeight)
     this.facing = side === 'left' ? 1 : -1
@@ -335,12 +407,46 @@ export class PetWanderDriver {
     this.onActivity('climb')
   }
 
-  /** 松手：从墙上/天花板上掉回地面，位置权威交还给常规活动 */
+  /** 松手：从墙上/天花板上掉回地面。 */
   private releasePerch(reason: string): void {
     if (!this.perch) return
     log.info(`[perch] 松手（${reason}）@(${this.x.toFixed(0)}, ${this.y.toFixed(0)})`)
     this.perch = null
-    this.resetToStand()
+    this.startFall()
+  }
+
+  /**
+   * 开始自由落体。初速为零——是自己松手掉下来的，不是被扔出去的。
+   *
+   * 位置权威从攀爬交给坠落积分，落回 `groundY` 之后才还给常规活动。
+   */
+  private startFall(): void {
+    this.falling = { x: this.x, y: this.y, vx: 0, vy: 0 }
+    this.onActivity('fall')
+  }
+
+  /**
+   * 坠落的一步。
+   *
+   * 复用 `stepThrow`：重力、左右边界反弹、落地即停都是同一套物理。自己掉下来与
+   * 被用户扔出去走的是同一个函数，**差别只在初速度**——没有理由为前者另写一套。
+   */
+  private stepFall(dtSec: number): void {
+    if (!this.falling) return
+    const r = stepThrow(this.falling, dtSec, {
+      minX: 0,
+      maxX: window.innerWidth,
+      groundY: this.groundY,
+    })
+    this.falling = r.body
+    this.x = r.body.x
+    this.y = r.body.y
+    this.renderer.setPosition(this.x, this.y)
+    if (r.landed) {
+      this.falling = null
+      log.info(`[fall] 落地 @(${this.x.toFixed(0)}, ${this.y.toFixed(0)})`)
+      this.resetToStand()
+    }
   }
 
   /**
@@ -348,10 +454,6 @@ export class PetWanderDriver {
    *
    * 两段：沿墙向上（`wall`）→ 到顶转沿上边缘横爬（`ceiling`）→ 爬到另一角掉落。
    * **到顶不折返**：折返会让宠物永远赖在窗口上，而"爬到头掉下来"是更有生命感的收尾。
-   *
-   * 掉落只改状态、不做自由落体——`y` 保持在天花板线上会悬空，所以这里把 `perch`
-   * 清掉后**顺手把 y 交还给常规活动**（下次走路时它仍在那条 y 上，视觉上就是
-   * "从窗口边缘掉到那儿站着"）。真正的抛物线留给用户的投掷，不在这里造。
    */
   private stepPerch(dtSec: number): void {
     const rect = this.perchRect
@@ -388,6 +490,9 @@ export class PetWanderDriver {
         // 攀爬期间**冻结活动计时**：回到地面时从 stand 重新起算，
         // 而不是把墙上耗掉的时间算进"这一轮待机还剩多久"
         this.stepPerch(dtMs / 1000)
+      } else if (this.falling) {
+        // 坠落同理：落地才 `resetToStand`，半空中不推进活动计时
+        this.stepFall(dtMs / 1000)
       } else {
         this.elapsedMs += dtMs
         this.stepPosition(dtMs / 1000)
