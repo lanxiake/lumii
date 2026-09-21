@@ -46,6 +46,10 @@ import {
 import { MemoryIntegration } from "../context/memory-integration.js";
 import { SelfHealController } from "../reliability/self-heal.js";
 import { StuckGuard } from "../reliability/stuck-guard.js";
+import {
+  TEXT_TOOL_INVOCATION_HINT,
+  isTextOnlyToolInvocation,
+} from "../reliability/text-tool-invocation.js";
 import { pruneThinkingForDeepSeek, type PruneThinkingPolicy } from "./message-pruner.js";
 
 /**
@@ -158,6 +162,14 @@ export interface AgentInstanceConfig {
 }
 
 /**
+ * 「工具调用只写进推理文本」的单次运行最多纠正几次。
+ *
+ * 取 1：实测模型一次就改；屡教不改时再注入只会空转烧 token，那种情况该由
+ * maxTurns / StuckGuard 兜底，而不是在这里重试。
+ */
+const TEXT_TOOL_INVOCATION_MAX_FIRES = 1;
+
+/**
  * Agent 实例
  *
  * 封装 pi-agent-core 的 Agent class，提供面向客户端 UI 的事件流。
@@ -213,6 +225,13 @@ export class AgentInstance {
   private readonly enableTurnTokenBudget: boolean;
   /** 循环/卡死检测守卫（工具指纹循环 + assistant 文本重复 + 冷却处理） */
   private readonly stuckGuard: StuckGuard;
+  /**
+   * 本回合已注入几次「工具调用写在文本里」的纠正提示。
+   *
+   * 每次 `agent_start` 归零。设上限是为了不让纠正在模型屡教不改时空转——
+   * 实测模型一次就改（见 `reliability/text-tool-invocation.ts` 的现场记录）。
+   */
+  private textToolInvocationFires = 0;
   /** 记忆门面（可选） */
   private readonly memoryManager: MemoryManager | undefined;
   /** 记忆系统集成（热记忆注入 + 候选提取接线） */
@@ -434,6 +453,7 @@ export class AgentInstance {
         }
         this.turnCount = 0;
         this.stuckGuard.reset();
+        this.textToolInvocationFires = 0;
         // 主题2 P0-2：每次 agent 运行重置预算跟踪器
         if (this.tokenBudget !== null) {
           this.budgetTracker = createBudgetTracker();
@@ -478,6 +498,23 @@ export class AgentInstance {
           this.abort();
         } else {
           this.stuckGuard.checkAndHandle();
+        }
+        // 工具调用被写进推理文本、没作为结构化 tool_calls 发出 → 什么都没发生。
+        // 与 stuckGuard 同层：都是「回合正常结束、但过程有问题」，靠 followUp 拉回。
+        if (
+          this.textToolInvocationFires < TEXT_TOOL_INVOCATION_MAX_FIRES &&
+          isTextOnlyToolInvocation(event.message as { content?: readonly { type?: string; text?: string }[] })
+        ) {
+          this.textToolInvocationFires++;
+          console.warn(
+            `[AgentInstance:${this.id}] 工具调用只出现在推理文本里（未结构化发出），注入纠正提示` +
+              ` (${this.textToolInvocationFires}/${TEXT_TOOL_INVOCATION_MAX_FIRES})`,
+          );
+          this.agent.followUp({
+            role: "user",
+            content: TEXT_TOOL_INVOCATION_HINT,
+            timestamp: Date.now(),
+          });
         }
         // 定期执行规则提取记忆
         // 停用：自动记忆提取方案待重新设计，暂不按对话轮次自动提取（记忆查询功能保留）
