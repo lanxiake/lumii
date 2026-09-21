@@ -160,7 +160,12 @@ ID 规则：`<域大写>-<子域>-<序号>`（`CHAT-CORE-01`、`MEM-03`、`CMP-0
 | 云同步 | cloudsync status | `cloud-sync/run-cloud-sync-suite` | 缺口（多设备同步难以单机模拟，见各报告限制） |
 | 工具进化 | tool-evolution* 命令面 | 缺口 | 缺口 |
 | 工具面治理（描述引用 / 审计契约） | 缺口（无专用命令面） | `tool-contract/run-tool-contract-e2e.mjs`（TC-01/04/05） | `tool-contract/run-tool-contract-e2e.mjs`（TC-02/03） |
+| 浏览器控制（`browser_*` × 10） | 缺口（控制口无浏览器命令，见下） | — | `browser/run-browser-suite.mjs`（BROWSER-*） |
 | 技能 / 设置 / 桌宠 | 缺口（无专用套件） | — | — |
+
+**浏览器控制的驱动限制（2026-09-21 建套件时确认）**：CLI 无浏览器命令，控制口白名单（`app-ui-control/command-allowlist.ts`）也未收录，`browser-control` 的 dispatcher 是进程内的（无 HTTP 服务器）。因此**驱动只能走真实 LLM 回合**；而判据**必须**用裸 CDP（`127.0.0.1:18791`）独立取证——用 `browser_eval` 自读页面等于拿被测对象验证被测对象。
+
+**通用陷阱（本套件实测新增）**：`lib/cli-harness.mjs` 的 `ui()` 用 `spawnSync`、`sleep()` 用 `Atomics.wait`，**两者都会阻塞事件循环**。套件进程内若跑 HTTP 服务器，会在模型调用工具的那一刻无法响应（Chrome 报 `page.goto: Timeout`）。服务器必须独立进程，套件内等待用异步 sleep。
 
 维护要求：新增功能域或套件时同步更新本矩阵；矩阵行「缺口」状态应逐步收敛。
 
@@ -180,3 +185,5 @@ ID 规则：`<域大写>-<子域>-<序号>`（`CHAT-CORE-01`、`MEM-03`、`CMP-0
 10. 日志路径陷阱：仓库根 `.lumii-dev.log` 内容停滞（历史遗留），实时日志在 `~/.lumii/logs/app/mtbot-<日期>.log`——用错文件会让注入类断言全部假阴性（首次 MEM-03 即此原因）。
 11. **改全局设置（`promptStyle` / 模型 / 开关）的套件，恢复动作必须挂在 `process.on('exit')` 上**——`runCase` 在连续 3 个 FAIL 时会提前终止套件，写在末尾的恢复代码会被 `process.exit(1)` 跳过，用户的设置就被测试悄悄改掉了。踩坑实例与修法见 [`tool-contract/tool-contract-test-cases.md`](./tool-contract/tool-contract-test-cases.md) 末节。
 12. **`dev:restart` 后立刻跑套件会全线 `connection_failed`**——应用还没起来，控制口不可达。这是环境问题不是产品缺陷，但会被读成产品缺陷。套件应在主流程开头做 `preflight()` 预检并直接 `exit(3)` 给出可读提示，不要让它变成 3 条 FAIL。
+13. **端口不要写死**：本仓库常有并行会话在同一工作区跑各自的验证脚本。2026-09-21 实测 18799 被 `verify/pet-sprite/characters/local-toolchain-server.mjs` 占用，浏览器套件重跑直接以「探针服务器未能就绪」终止。需要监听端口的套件应从起始口**向上探测空闲端口**。
+14. **套件进程内不要跑 HTTP 服务器**：`lib/cli-harness.mjs` 的 `ui()` 用 `spawnSync`、`sleep()` 用 `Atomics.wait`，**两者都会阻塞事件循环**。服务器跑在同一进程里，会在模型调用工具的那一刻无法响应（表现为 Chrome 的 `page.goto: Timeout`）。服务器放独立进程，套件内的轮询等待用异步 sleep。另：子进程服务器关闭时必须先 `server.closeAllConnections()`，否则 Chrome 的 keep-alive 连接会让它迟迟不退出、端口不释放。

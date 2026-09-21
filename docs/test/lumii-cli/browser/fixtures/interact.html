@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>Lumii Browser Probe — interact</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 0; padding: 24px; }
+  #spacer { height: 2400px; background: linear-gradient(#eef, #fee); }
+  .row { margin: 12px 0; }
+  button { padding: 8px 16px; font-size: 15px; }
+  input { padding: 8px; font-size: 15px; width: 320px; }
+  #late-slot { min-height: 24px; }
+  code { background: #f2f2f2; padding: 1px 5px; border-radius: 3px; }
+</style>
+</head>
+<body>
+<h1>Lumii Browser Probe</h1>
+
+<!--
+  确定性探针页：每个交互都把「真的发生了」写进 window.__probe 与可见 DOM。
+  这样无论用 CDP 直连读、还是用 browser_eval 读，都能对同一个事实做硬断言。
+  页面自身不含任何定时器副作用——除了 #btn-late 显式触发的那一个。
+-->
+
+<div class="row">
+  <button id="btn-click">点击我</button>
+  <span>已点击 <strong id="click-count">0</strong> 次</span>
+</div>
+
+<div class="row">
+  <input id="input-text" placeholder="在此输入" />
+  <span>回显：<strong id="input-echo"></strong></span>
+</div>
+
+<div class="row">
+  <button id="btn-late">3 秒后出现隐藏元素</button>
+  <div id="late-slot"></div>
+</div>
+
+<div class="row">
+  <p>页面底部标记：<code id="bottom-marker">BOTTOM</code></p>
+</div>
+
+<div id="spacer"></div>
+
+<script>
+  window.__probe = {
+    page: 'interact',
+    ready: true,
+    clicks: 0,
+    clickTargets: [],
+    inputEvents: [],
+    lateShown: false,
+    scrollEvents: 0,
+    keydowns: [],
+    startedAt: Date.now()
+  };
+
+  document.getElementById('btn-click').addEventListener('click', function () {
+    window.__probe.clicks += 1;
+    window.__probe.clickTargets.push('btn-click');
+    document.getElementById('click-count').textContent = String(window.__probe.clicks);
+  });
+
+  document.getElementById('input-text').addEventListener('input', function (e) {
+    window.__probe.inputEvents.push(e.target.value);
+    document.getElementById('input-echo').textContent = e.target.value;
+  });
+
+  document.getElementById('btn-late').addEventListener('click', function () {
+    setTimeout(function () {
+      var el = document.createElement('div');
+      el.id = 'late-el';
+      el.textContent = '迟到的元素已出现';
+      document.getElementById('late-slot').appendChild(el);
+      window.__probe.lateShown = true;
+    }, 3000);
+  });
+
+  window.addEventListener('scroll', function () {
+    window.__probe.scrollEvents += 1;
+  });
+
+  window.addEventListener('keydown', function (e) {
+    window.__probe.keydowns.push(e.key);
+  });
+</script>
+</body>
+</html>

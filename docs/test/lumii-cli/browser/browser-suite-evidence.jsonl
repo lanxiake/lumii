@@ -1,0 +1,19 @@
+{"ts":"2026-09-21T03:36:38.121Z","id":"BROWSER-NAV-01","status":"PASS","note":"冷启动+落地成功，title=\"Lumii Browser Probe — interact\"","sessionKey":"362c5a5fcdf54fc628a19e723f04611f"}
+{"ts":"2026-09-21T03:36:46.267Z","id":"BROWSER-NAV-02","status":"PASS","note":"换页生效，marker=SECOND，返回 ok=true","sessionKey":"53f16340628d3ad9837b3302b60e522a"}
+{"ts":"2026-09-21T03:40:22.142Z","id":"BROWSER-SNAP-01","status":"PASS","note":"refs=3，url 与 CDP 一致","sessionKey":"c2282d3b64e0a6380aa76de4f449b2d6"}
+{"ts":"2026-09-21T03:40:22.143Z","id":"BROWSER-SNAP-02","status":"PASS","note":"full 模式读到标题正文（487 字符）","sessionKey":"c2282d3b64e0a6380aa76de4f449b2d6"}
+{"ts":"2026-09-21T03:40:41.933Z","id":"BROWSER-CLICK-01","status":"PASS","note":"ref=e1 → __probe.clicks=1，DOM 同步","sessionKey":"d72bb57ec9be80e90073956894b50181"}
+{"ts":"2026-09-21T03:40:41.933Z","id":"BROWSER-CLICK-02","status":"PASS","note":"连点递增 → __probe.clicks=2（args={\"ref\":\"e1\"}）","sessionKey":"d72bb57ec9be80e90073956894b50181"}
+{"ts":"2026-09-21T03:40:54.600Z","id":"BROWSER-TYPE-01","status":"PASS","note":"输入事件与 DOM 值双向确认：\"lumii-probe-42\"","sessionKey":"dd48ed2413a16a95746811dcc7d1dd53"}
+{"ts":"2026-09-21T03:41:03.244Z","id":"BROWSER-SCROLL-01","status":"PASS","note":"scrollY 0 → 500","sessionKey":"ae708aa4fa7657485d17c5378c61a56c"}
+{"ts":"2026-09-21T03:41:21.656Z","id":"BROWSER-WAIT-01","status":"PASS","note":"selector 等待命中，元素已插入 DOM","sessionKey":"8acefe03366d1219b0d2c62b1c50b732"}
+{"ts":"2026-09-21T03:41:33.968Z","id":"BROWSER-EVAL-01","status":"PASS","note":"1+1=2；url 字段在；clicks 交叉一致（2）","sessionKey":"278af0ba45e6528720814025de7dcbe1"}
+{"ts":"2026-09-21T03:41:52.494Z","id":"BROWSER-EVAL-02","status":"PASS","note":"空白页求值带导航提示：「当前标签停在空白页，页面上没有任何脚本与变量——先用 browser_n…」","sessionKey":"031431ebc61529d1105fab251c7cdd3b"}
+{"ts":"2026-09-21T03:42:47.756Z","id":"BROWSER-HIST-01","status":"PASS","note":"history.back() 落到 interact.html","sessionKey":"af6508c875d2dceec97637bc7b5631d0"}
+{"ts":"2026-09-21T03:42:47.757Z","id":"BROWSER-HIST-02","status":"PASS","note":"history.forward() 回到 second.html","sessionKey":"af6508c875d2dceec97637bc7b5631d0"}
+{"ts":"2026-09-21T03:43:02.113Z","id":"BROWSER-SHOT-01","status":"PASS","note":"两次均产出有效图（9.7KB / 9.7KB）","sessionKey":"fc8c71a84bce0b80579be6d7b1d9b394"}
+{"ts":"2026-09-21T03:43:02.113Z","id":"BROWSER-PERF-01","status":"PASS","note":"回合耗时：首次 6.4s → 第二次 6.3s（含模型往返，比值 1.0x；首帧唤醒成本）","sessionKey":"fc8c71a84bce0b80579be6d7b1d9b394"}
+{"ts":"2026-09-21T03:43:11.965Z","id":"BROWSER-STAB-01","status":"PASS","note":"连续 3 次均成功，长度 74/74/74","sessionKey":"b69830ab6f31545f16b3033cc3968a2b"}
+{"ts":"2026-09-21T03:43:56.252Z","id":"BROWSER-ERR-01","status":"PASS","note":"可读报错：Error: Unknown ref \"e99999\". Run a new snapshot and use a ref from tha","sessionKey":"5e44ea23d452dd57fe08474060fba3c5"}
+{"ts":"2026-09-21T03:43:56.253Z","id":"BROWSER-ERR-02","status":"PASS","note":"可读报错且浏览器存活（CDP 直连确认）：Error: page.goto: net::ERR_UNSAFE_PORT at http://127.0.0.1:1","sessionKey":"5e44ea23d452dd57fe08474060fba3c5"}
+{"ts":"2026-09-21T03:43:56.253Z","id":"BROWSER-ERR-03","status":"PASS","note":"可读报错且求值能力未受损（2+2=4）：Error: page.evaluate: Error: Invalid evaluate function: Unex","sessionKey":"5e44ea23d452dd57fe08474060fba3c5"}
