@@ -160,7 +160,7 @@
         "h": 128
       }
     },
-    "demo_shimeji_turkat_greet_00": {
+    "demo_shimeji_turkat_jump_00": {
       "frame": {
         "x": 488,
         "y": 256,
@@ -168,7 +168,7 @@
         "h": 128
       }
     },
-    "demo_shimeji_turkat_greet_01": {
+    "demo_shimeji_turkat_rest_00": {
       "frame": {
         "x": 610,
         "y": 256,
@@ -176,7 +176,7 @@
         "h": 128
       }
     },
-    "demo_shimeji_turkat_greet_02": {
+    "demo_shimeji_turkat_rest_01": {
       "frame": {
         "x": 732,
         "y": 256,
@@ -184,7 +184,7 @@
         "h": 128
       }
     },
-    "demo_shimeji_turkat_greet_03": {
+    "demo_shimeji_turkat_rest_02": {
       "frame": {
         "x": 854,
         "y": 256,
@@ -192,7 +192,7 @@
         "h": 128
       }
     },
-    "demo_shimeji_turkat_greet_04": {
+    "demo_shimeji_turkat_rest_03": {
       "frame": {
         "x": 0,
         "y": 384,
@@ -200,7 +200,7 @@
         "h": 128
       }
     },
-    "demo_shimeji_turkat_greet_05": {
+    "demo_shimeji_turkat_rest_04": {
       "frame": {
         "x": 122,
         "y": 384,
@@ -208,7 +208,7 @@
         "h": 128
       }
     },
-    "demo_shimeji_turkat_greet_06": {
+    "demo_shimeji_turkat_rest_05": {
       "frame": {
         "x": 244,
         "y": 384,
@@ -216,7 +216,7 @@
         "h": 128
       }
     },
-    "demo_shimeji_turkat_greet_07": {
+    "demo_shimeji_turkat_rest_06": {
       "frame": {
         "x": 366,
         "y": 384,
@@ -224,7 +224,7 @@
         "h": 128
       }
     },
-    "demo_shimeji_turkat_jump_00": {
+    "demo_shimeji_turkat_rest_07": {
       "frame": {
         "x": 488,
         "y": 384,

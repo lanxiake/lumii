@@ -160,7 +160,7 @@
         "h": 128
       }
     },
-    "demo_shimeji_nekojapan_greet_00": {
+    "demo_shimeji_nekojapan_jump_00": {
       "frame": {
         "x": 400,
         "y": 256,
@@ -168,7 +168,7 @@
         "h": 128
       }
     },
-    "demo_shimeji_nekojapan_greet_01": {
+    "demo_shimeji_nekojapan_rest_00": {
       "frame": {
         "x": 500,
         "y": 256,
@@ -176,7 +176,7 @@
         "h": 128
       }
     },
-    "demo_shimeji_nekojapan_greet_02": {
+    "demo_shimeji_nekojapan_rest_01": {
       "frame": {
         "x": 600,
         "y": 256,
@@ -184,7 +184,7 @@
         "h": 128
       }
     },
-    "demo_shimeji_nekojapan_greet_03": {
+    "demo_shimeji_nekojapan_rest_02": {
       "frame": {
         "x": 700,
         "y": 256,
@@ -192,7 +192,7 @@
         "h": 128
       }
     },
-    "demo_shimeji_nekojapan_greet_04": {
+    "demo_shimeji_nekojapan_rest_03": {
       "frame": {
         "x": 0,
         "y": 384,
@@ -200,7 +200,7 @@
         "h": 128
       }
     },
-    "demo_shimeji_nekojapan_greet_05": {
+    "demo_shimeji_nekojapan_rest_04": {
       "frame": {
         "x": 100,
         "y": 384,
@@ -208,7 +208,7 @@
         "h": 128
       }
     },
-    "demo_shimeji_nekojapan_greet_06": {
+    "demo_shimeji_nekojapan_rest_05": {
       "frame": {
         "x": 200,
         "y": 384,
@@ -216,7 +216,7 @@
         "h": 128
       }
     },
-    "demo_shimeji_nekojapan_greet_07": {
+    "demo_shimeji_nekojapan_rest_06": {
       "frame": {
         "x": 300,
         "y": 384,
@@ -224,7 +224,7 @@
         "h": 128
       }
     },
-    "demo_shimeji_nekojapan_jump_00": {
+    "demo_shimeji_nekojapan_rest_07": {
       "frame": {
         "x": 400,
         "y": 384,

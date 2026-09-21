@@ -279,7 +279,35 @@
       "fps": 9,
       "frames": [
         {
-          "base": "demo_shimeji_germouser_stand_00",
+          "base": "demo_shimeji_germouser_rest_00",
+          "durationMs": 111
+        },
+        {
+          "base": "demo_shimeji_germouser_rest_01",
+          "durationMs": 111
+        },
+        {
+          "base": "demo_shimeji_germouser_rest_02",
+          "durationMs": 111
+        },
+        {
+          "base": "demo_shimeji_germouser_rest_03",
+          "durationMs": 111
+        },
+        {
+          "base": "demo_shimeji_germouser_rest_04",
+          "durationMs": 111
+        },
+        {
+          "base": "demo_shimeji_germouser_rest_05",
+          "durationMs": 111
+        },
+        {
+          "base": "demo_shimeji_germouser_rest_06",
+          "durationMs": 111
+        },
+        {
+          "base": "demo_shimeji_germouser_rest_07",
           "durationMs": 111
         }
       ],
@@ -334,55 +362,6 @@
       "kind": "loop",
       "fps": 9,
       "frames": [
-        {
-          "base": "demo_shimeji_germouser_stand_00",
-          "durationMs": 111
-        }
-      ]
-    },
-    {
-      "group": "Wave",
-      "index": 0,
-      "kind": "once",
-      "next": "Idle",
-      "fps": 9,
-      "frames": [
-        {
-          "base": "demo_shimeji_germouser_stand_00",
-          "durationMs": 111
-        },
-        {
-          "base": "demo_shimeji_germouser_greet_00",
-          "durationMs": 111
-        },
-        {
-          "base": "demo_shimeji_germouser_greet_01",
-          "durationMs": 111
-        },
-        {
-          "base": "demo_shimeji_germouser_greet_02",
-          "durationMs": 111
-        },
-        {
-          "base": "demo_shimeji_germouser_greet_03",
-          "durationMs": 111
-        },
-        {
-          "base": "demo_shimeji_germouser_greet_04",
-          "durationMs": 111
-        },
-        {
-          "base": "demo_shimeji_germouser_greet_05",
-          "durationMs": 111
-        },
-        {
-          "base": "demo_shimeji_germouser_greet_06",
-          "durationMs": 111
-        },
-        {
-          "base": "demo_shimeji_germouser_greet_07",
-          "durationMs": 111
-        },
         {
           "base": "demo_shimeji_germouser_stand_00",
           "durationMs": 111

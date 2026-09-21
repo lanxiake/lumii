@@ -14,20 +14,10 @@
  * 行的含义取自 `AI-desktop-pets` 的 `PetState` 枚举与 `SpriteConfig.DEFAULT_STATES`
  * （`spriteLine` 从 1 起）：
  *
- *   | row | 状态  | 帧数 | loop | fps |
- *   |-----|-------|------|------|-----|
- *   | 0   | STAND | 1    | ✓    | 9   |
- *   | 1   | WALK  | 4    | ✓    | 9   |
- *   | 2   | SIT   | 1    | ✓    | 9   |
- *   | 3   | GREET | 8    | ✗    | 9   |
- *   | 4   | JUMP  | 1    | ✓    | 9   |
- *   | 5   | FALL  | 3    | ✗    | 9   |
- *   | 6   | DRAG  | 1    | ✓    | 9   |
- *   | 7   | CRAWL | 8    | ✓    | 9   |
- *   | 8   | CLIMB | 8    | ✓    | 9   |
- *
- * `sheet-rows.mjs` 独立量出来的帧数**九行全部对上**（1/4/1/8/1/3/1/8/8），
- * 所以这份语义是验证过的，不是照抄的。
+ * **行的语义不在这里重复**——唯一来源是 `shimeji-sheet.mjs` 的 `ROWS` /
+ * `DECLARED` / `GROUPS`，那里也记着第 3 行的修正（参考项目把它叫 GREET，
+ * 其实画的是一段待机动画，现由 Idle 使用）。复制一份到这里只会多一个漂移点：
+ * 表换了排布时只有一边会改，而**画面上看不出错**（高亮的还是某个动作的格子）。
  *
  * ## 这条链路**跳过 normalize**，这是有意的
  *
@@ -247,16 +237,19 @@ console.log(`  图集 ${packed.size.w}×${packed.size.h}，${packed.entryCount} 
 // ---- 清单 ----
 const dur = (fps) => Math.round(1000 / fps)
 const standNames = namesByGroup.STAND
-const idleFrame = { base: standNames[0], durationMs: dur(9) }
+// Idle Pin 的锚（一次性动作的首末帧按名引用它）。
+// 基准必须是**当前 Idle 组播的那一帧**，所以随 Idle 走 REST（2026-09-21 起）。
+// `pin: true` 的组目前一个都没有（原先是虚构的 Wave 在用），机制留着待真动作素材。
+const idleFrame = { base: namesByGroup.REST[0], durationMs: dur(9) }
 
 const animations = []
 for (const g of GROUPS) {
   const names = namesByGroup[g.from]
   let frames = names.map((n, i) => ({ base: n, durationMs: g.holdMs ?? dur(g.fps) }))
   if (g.pin) {
-    // Idle Pin：一次性动作的首末格按名引用待机首帧。
-    // Shimeji 的 GREET 首帧**本来就是站姿**（它是一段从站姿出发又回到站姿的动作），
-    // 所以这里钉的是「同一张图」而不是「看起来差不多的两张」——正好是判据要的形态。
+    // Idle Pin：一次性动作的首末格按名引用待机首帧，让「播完接回待机」不跳。
+    // 用它的组要满足一个条件：**首帧本来就是待机姿势**（从待机出发、又回到待机），
+    // 这样钉的是「同一张图」而不是「看起来差不多的两张」。
     const pinned = await op('idlePin', {
       frames,
       idleFrame,

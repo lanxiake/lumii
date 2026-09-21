@@ -9,23 +9,37 @@
  * 原样复制一份到预览脚本里也能跑，但表换了排布之后只有一边会改——
  * 那时预览页会把帧指到错误的行上，**画面上看不出错**（高亮的还是某个动作的格子）。
  *
- * 行的含义取自 `AI-desktop-pets` 的 `PetState` 枚举与 `SpriteConfig.DEFAULT_STATES`
- * （`spriteLine` 从 1 起）：
+ * 行的含义**起初**取自 `AI-desktop-pets` 的 `PetState` 枚举与
+ * `SpriteConfig.DEFAULT_STATES`（`spriteLine` 从 1 起），**但第 3 行是错的**：
  *
- *   | row | 状态  | 帧数 | loop | fps |
- *   |-----|-------|------|------|-----|
- *   | 0   | STAND | 1    | ✓    | 9   |
- *   | 1   | WALK  | 4    | ✓    | 9   |
- *   | 2   | SIT   | 1    | ✓    | 9   |
- *   | 3   | GREET | 8    | ✗    | 9   |
- *   | 4   | JUMP  | 1    | ✓    | 9   |
- *   | 5   | FALL  | 3    | ✗    | 9   |
- *   | 6   | DRAG  | 1    | ✓    | 9   |
- *   | 7   | CRAWL | 8    | ✓    | 9   |
- *   | 8   | CLIMB | 8    | ✓    | 9   |
+ *   | row | 状态  | 帧数 | loop | fps | 来源 |
+ *   |-----|-------|------|------|-----|------|
+ *   | 0   | STAND | 1    | ✓    | 9   | 参考项目 |
+ *   | 1   | WALK  | 4    | ✓    | 9   | 参考项目 |
+ *   | 2   | SIT   | 1    | ✓    | 9   | 参考项目 |
+ *   | 3   | REST  | 8    | ✓    | 9   | **像素证据修正，见下** |
+ *   | 4   | JUMP  | 1    | ✓    | 9   | 参考项目 |
+ *   | 5   | FALL  | 3    | ✗    | 9   | 参考项目 |
+ *   | 6   | DRAG  | 1    | ✓    | 9   | 参考项目 |
+ *   | 7   | CRAWL | 8    | ✓    | 9   | 参考项目 |
+ *   | 8   | CLIMB | 8    | ✓    | 9   | 参考项目 |
  *
- * `sheet-rows.mjs` 独立量出来的帧数**九行全部对上**（1/4/1/8/1/3/1/8/8），
- * 所以这份语义是验证过的，不是照抄的。
+ * ## ⚠ 第 3 行修正（2026-09-21）
+ *
+ * 参考项目把它叫 `GREET`（招手），**是错的**——它画的是一段**待机动画**。
+ * 三条像素证据（`docs/temp/shimeji_caneko.png` 第 3 行，8 格逐帧量）：
+ *
+ *   1. 8 帧里只有 5 个姿势，且**成对重复**（帧 0/1、3/4、5/6 各自逐像素相同）——
+ *      慢速待机的典型特征；招手要做连贯动作，不会出现重复帧。
+ *   2. 帧 7 回到帧 0（平均 alpha 差 0.50，而帧内两两差异是 0.96–7.09）⇒ **是循环**，
+ *      而参考项目抄来的 `loop` 标的是 `✗`。
+ *   3. 内容**右缘恒定在 x=89、只向左扩**（左缘 43 → 18）。人物头朝右，招手该往
+ *      **右**伸；往左动的是背后（这套素材是猫，像尾巴）。
+ *
+ * **教训（别再犯）**：这个文件原本写着「`sheet-rows.mjs` 独立量出来的帧数九行全部
+ * 对上（1/4/1/8/1/3/1/8/8），所以这份语义是验证过的，不是照抄的」——**帧数对上不等于
+ * 语义对上**，任何 8 帧的动作都能对上 `DECLARED` 里的那个 8。那次"验证"只验了帧数，
+ * 语义整个是照抄的。行语义只能靠**看画面/量姿态**确认。
  */
 
 /** 表的来处。外部项目路径，不在本仓库里——找不到时调用方自行降级 */
@@ -36,12 +50,12 @@ export const SHEET_DIR =
 /** 格边长。这套素材是固定 128 的方格，表宽高都必须是它的整数倍 */
 export const CELL = 128
 
-/** `PetState` 的行语义（0 起，与 `spriteLine - 1` 对应） */
+/** 行语义（0 起，与 `spriteLine - 1` 对应）。出处与第 3 行的修正见文件头。 */
 export const ROWS = {
   STAND: 0,
   WALK: 1,
   SIT: 2,
-  GREET: 3,
+  REST: 3,
   JUMP: 4,
   FALL: 5,
   DRAG: 6,
@@ -62,7 +76,7 @@ export const DECLARED = {
   STAND: 1,
   WALK: 4,
   SIT: 1,
-  GREET: 8,
+  REST: 8,
   JUMP: 1,
   FALL: 3,
   DRAG: 1,
@@ -97,11 +111,13 @@ export const p2 = (i) => String(i).padStart(2, '0')
 export const GROUPS = [
   {
     group: 'Idle',
-    from: 'STAND',
+    from: 'REST',
     kind: 'loop',
     fps: 9,
-    clip: (id) => `${id}_stand_00`,
-    // 单帧待机靠程序化原语活起来——「AI 出静态部件 + 代码做动画」那条下注的落点
+    clip: (id, i) => `${id}_rest_${p2(i)}`,
+    // REST 行本身就是一段 8 帧待机动画（此前被当成 GREET，没人用得上）。
+    // 程序化参数**先原样保留**：素材动画与代码动画是叠加、调低还是关掉，
+    // 得看着实际画面定，别在没看到之前先猜一个数。
     params: (h) => ({ bob: Math.max(1, Math.round(h * 0.06)), breathe: 1.02, sway: 1.5 }),
   },
   { group: 'Walk', from: 'WALK', kind: 'loop', fps: 9, clip: (id, i) => `${id}_walk_${p2(i)}` },
@@ -115,16 +131,12 @@ export const GROUPS = [
     params: () => ({ breathe: 1.015 }),
   },
   { group: 'Talk', from: 'STAND', kind: 'loop', fps: 9, clip: (id) => `${id}_stand_00` },
-  // 一次性动作的两端会由 idlePin 换成待机首帧（见下）
-  {
-    group: 'Wave',
-    from: 'GREET',
-    kind: 'once',
-    next: 'Idle',
-    fps: 9,
-    pin: true,
-    clip: (id, i) => `${id}_greet_${p2(i)}`,
-  },
+  // 这里原本有个 `Wave` 组，from 指到 GREET（第 3 行）——**整个是虚构的**：
+  // 第 3 行画的是待机（见文件头的修正），素材里根本没有招手动作。
+  // 该组从落地起就没有调用者（实测日志里从没出现过 `[playMotion] group="Wave"`），
+  // 2026-09-21 删除；第 3 行改由 Idle 使用。
+  // 另：`pin: true`（Idle Pin 首末帧锚定）随之暂时无组使用，机制保留在
+  // import-shimeji.mjs 里，将来有真正的一次性动作（如招手素材到位）可直接开。
   { group: 'Fall', from: 'FALL', kind: 'loop', fps: 9, clip: (id, i) => `${id}_fall_${p2(i)}` },
   { group: 'Picked', from: 'DRAG', kind: 'loop', fps: 9, clip: (id, i) => `${id}_drag_${p2(i)}` },
   // 跳跃：素材只有 **1 帧**（"跳起来"的瞬间姿势，底边比别的行高 28px）。
