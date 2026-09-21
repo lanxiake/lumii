@@ -21,6 +21,15 @@
 /** 空闲活动。三者都是"可以长时间维持"的姿态，区别于一次性动作（招手/跳跃） */
 export type AmbientActivity = "stand" | "sit" | "walk"
 
+/**
+ * 宠物当前的运动姿态。
+ *
+ * 比 `AmbientActivity` 宽：攀爬（climb/crawl）**不进随机池**——它们由"附近有没有
+ * 可爬的窗口"触发（见 `perch`），不是抽签抽出来的。所以权重表的类型仍收窄在
+ * `AmbientActivity` 上，只有编排器接受更宽的 `PetPose`。
+ */
+export type PetPose = AmbientActivity | "climb" | "crawl"
+
 /** 时长区间（毫秒，闭区间） */
 export interface DurationRange {
   min: number

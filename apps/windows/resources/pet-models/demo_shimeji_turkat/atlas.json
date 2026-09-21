@@ -1,203 +1,331 @@
 {
   "frames": {
-    "demo_shimeji_turkat_drag_00": {
+    "demo_shimeji_turkat_climb_00": {
       "frame": {
         "x": 0,
         "y": 0,
-        "w": 97,
-        "h": 101
+        "w": 116,
+        "h": 128
+      }
+    },
+    "demo_shimeji_turkat_climb_01": {
+      "frame": {
+        "x": 116,
+        "y": 0,
+        "w": 116,
+        "h": 128
+      }
+    },
+    "demo_shimeji_turkat_climb_02": {
+      "frame": {
+        "x": 232,
+        "y": 0,
+        "w": 116,
+        "h": 128
+      }
+    },
+    "demo_shimeji_turkat_climb_03": {
+      "frame": {
+        "x": 348,
+        "y": 0,
+        "w": 116,
+        "h": 128
+      }
+    },
+    "demo_shimeji_turkat_climb_04": {
+      "frame": {
+        "x": 464,
+        "y": 0,
+        "w": 116,
+        "h": 128
+      }
+    },
+    "demo_shimeji_turkat_climb_05": {
+      "frame": {
+        "x": 580,
+        "y": 0,
+        "w": 116,
+        "h": 128
+      }
+    },
+    "demo_shimeji_turkat_climb_06": {
+      "frame": {
+        "x": 696,
+        "y": 0,
+        "w": 116,
+        "h": 128
+      }
+    },
+    "demo_shimeji_turkat_climb_07": {
+      "frame": {
+        "x": 812,
+        "y": 0,
+        "w": 116,
+        "h": 128
+      }
+    },
+    "demo_shimeji_turkat_crawl_00": {
+      "frame": {
+        "x": 0,
+        "y": 128,
+        "w": 116,
+        "h": 128
+      }
+    },
+    "demo_shimeji_turkat_crawl_01": {
+      "frame": {
+        "x": 116,
+        "y": 128,
+        "w": 116,
+        "h": 128
+      }
+    },
+    "demo_shimeji_turkat_crawl_02": {
+      "frame": {
+        "x": 232,
+        "y": 128,
+        "w": 116,
+        "h": 128
+      }
+    },
+    "demo_shimeji_turkat_crawl_03": {
+      "frame": {
+        "x": 348,
+        "y": 128,
+        "w": 116,
+        "h": 128
+      }
+    },
+    "demo_shimeji_turkat_crawl_04": {
+      "frame": {
+        "x": 464,
+        "y": 128,
+        "w": 116,
+        "h": 128
+      }
+    },
+    "demo_shimeji_turkat_crawl_05": {
+      "frame": {
+        "x": 580,
+        "y": 128,
+        "w": 116,
+        "h": 128
+      }
+    },
+    "demo_shimeji_turkat_crawl_06": {
+      "frame": {
+        "x": 696,
+        "y": 128,
+        "w": 116,
+        "h": 128
+      }
+    },
+    "demo_shimeji_turkat_crawl_07": {
+      "frame": {
+        "x": 812,
+        "y": 128,
+        "w": 116,
+        "h": 128
+      }
+    },
+    "demo_shimeji_turkat_drag_00": {
+      "frame": {
+        "x": 0,
+        "y": 256,
+        "w": 116,
+        "h": 128
       }
     },
     "demo_shimeji_turkat_fall_00": {
       "frame": {
-        "x": 97,
-        "y": 0,
-        "w": 97,
-        "h": 101
+        "x": 116,
+        "y": 256,
+        "w": 116,
+        "h": 128
       }
     },
     "demo_shimeji_turkat_fall_01": {
       "frame": {
-        "x": 194,
-        "y": 0,
-        "w": 97,
-        "h": 101
+        "x": 232,
+        "y": 256,
+        "w": 116,
+        "h": 128
       }
     },
     "demo_shimeji_turkat_fall_02": {
       "frame": {
-        "x": 291,
-        "y": 0,
-        "w": 97,
-        "h": 101
+        "x": 348,
+        "y": 256,
+        "w": 116,
+        "h": 128
       }
     },
     "demo_shimeji_turkat_greet_00": {
       "frame": {
-        "x": 388,
-        "y": 0,
-        "w": 97,
-        "h": 101
+        "x": 464,
+        "y": 256,
+        "w": 116,
+        "h": 128
       }
     },
     "demo_shimeji_turkat_greet_01": {
       "frame": {
-        "x": 485,
-        "y": 0,
-        "w": 97,
-        "h": 101
+        "x": 580,
+        "y": 256,
+        "w": 116,
+        "h": 128
       }
     },
     "demo_shimeji_turkat_greet_02": {
       "frame": {
-        "x": 582,
-        "y": 0,
-        "w": 97,
-        "h": 101
+        "x": 696,
+        "y": 256,
+        "w": 116,
+        "h": 128
       }
     },
     "demo_shimeji_turkat_greet_03": {
       "frame": {
-        "x": 679,
-        "y": 0,
-        "w": 97,
-        "h": 101
+        "x": 812,
+        "y": 256,
+        "w": 116,
+        "h": 128
       }
     },
     "demo_shimeji_turkat_greet_04": {
       "frame": {
         "x": 0,
-        "y": 101,
-        "w": 97,
-        "h": 101
+        "y": 384,
+        "w": 116,
+        "h": 128
       }
     },
     "demo_shimeji_turkat_greet_05": {
       "frame": {
-        "x": 97,
-        "y": 101,
-        "w": 97,
-        "h": 101
+        "x": 116,
+        "y": 384,
+        "w": 116,
+        "h": 128
       }
     },
     "demo_shimeji_turkat_greet_06": {
       "frame": {
-        "x": 194,
-        "y": 101,
-        "w": 97,
-        "h": 101
+        "x": 232,
+        "y": 384,
+        "w": 116,
+        "h": 128
       }
     },
     "demo_shimeji_turkat_greet_07": {
       "frame": {
-        "x": 291,
-        "y": 101,
-        "w": 97,
-        "h": 101
+        "x": 348,
+        "y": 384,
+        "w": 116,
+        "h": 128
       }
     },
     "demo_shimeji_turkat_sit_00": {
       "frame": {
-        "x": 388,
-        "y": 101,
-        "w": 97,
-        "h": 101
+        "x": 464,
+        "y": 384,
+        "w": 116,
+        "h": 128
       }
     },
     "demo_shimeji_turkat_stand_00": {
       "frame": {
-        "x": 485,
-        "y": 101,
-        "w": 97,
-        "h": 101
+        "x": 580,
+        "y": 384,
+        "w": 116,
+        "h": 128
       }
     },
     "demo_shimeji_turkat_walk_00": {
       "frame": {
-        "x": 582,
-        "y": 101,
-        "w": 97,
-        "h": 101
+        "x": 696,
+        "y": 384,
+        "w": 116,
+        "h": 128
       }
     },
     "demo_shimeji_turkat_walk_01": {
       "frame": {
-        "x": 679,
-        "y": 101,
-        "w": 97,
-        "h": 101
+        "x": 812,
+        "y": 384,
+        "w": 116,
+        "h": 128
       }
     },
     "demo_shimeji_turkat_walk_02": {
       "frame": {
         "x": 0,
-        "y": 202,
-        "w": 97,
-        "h": 101
+        "y": 512,
+        "w": 116,
+        "h": 128
       }
     },
     "demo_shimeji_turkat_walk_03": {
       "frame": {
-        "x": 97,
-        "y": 202,
-        "w": 97,
-        "h": 101
+        "x": 116,
+        "y": 512,
+        "w": 116,
+        "h": 128
       }
     },
     "face_anger": {
       "frame": {
-        "x": 194,
-        "y": 202,
-        "w": 97,
-        "h": 101
+        "x": 232,
+        "y": 512,
+        "w": 116,
+        "h": 128
       }
     },
     "face_blush": {
       "frame": {
-        "x": 291,
-        "y": 202,
-        "w": 97,
-        "h": 101
+        "x": 348,
+        "y": 512,
+        "w": 116,
+        "h": 128
       }
     },
     "face_heart": {
       "frame": {
-        "x": 388,
-        "y": 202,
-        "w": 97,
-        "h": 101
+        "x": 464,
+        "y": 512,
+        "w": 116,
+        "h": 128
       }
     },
     "face_none": {
       "frame": {
-        "x": 485,
-        "y": 202,
-        "w": 97,
-        "h": 101
+        "x": 580,
+        "y": 512,
+        "w": 116,
+        "h": 128
       }
     },
     "face_sparkle": {
       "frame": {
-        "x": 582,
-        "y": 202,
-        "w": 97,
-        "h": 101
+        "x": 696,
+        "y": 512,
+        "w": 116,
+        "h": 128
       }
     },
     "face_sweat": {
       "frame": {
-        "x": 679,
-        "y": 202,
-        "w": 97,
-        "h": 101
+        "x": 812,
+        "y": 512,
+        "w": 116,
+        "h": 128
       }
     }
   },
   "meta": {
     "image": "atlas.png",
     "size": {
-      "w": 776,
-      "h": 303
+      "w": 928,
+      "h": 640
     }
   }
 }

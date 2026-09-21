@@ -38,7 +38,7 @@ const log = {
 
 /** 依赖注入：本类不直接持有 mainWindow，避免与 index.ts 的单例耦合 */
 export interface PetWindowManagerDeps {
-  /** 获取主窗口（桌面模式窗口），用于进入宠物模式时隐藏、退出时还原显示 */
+  /** 获取主窗口（桌面模式窗口）。宠物模式**不隐藏它**，退出时只把焦点还回去 */
   getMainWindow: () => BrowserWindow | null
   /** preload 脚本绝对路径 */
   preloadPath: string
@@ -115,6 +115,17 @@ export class PetWindowManager {
   getPetBrowserWindow(): BrowserWindow | null {
     if (!this.petWindow || this.petWindow.isDestroyed()) return null
     return this.petWindow
+  }
+
+  /**
+   * 获取主窗口（攀附追踪要知道"有什么东西可爬"）。
+   *
+   * 转手自 deps 而不是自己持有：本类与 index.ts 的单例耦合一直是刻意避免的，
+   * 主窗口的生命周期归启动方管。
+   */
+  getMainWindow(): BrowserWindow | null {
+    const win = this.deps.getMainWindow()
+    return win && !win.isDestroyed() ? win : null
   }
 
   /**
@@ -324,8 +335,12 @@ export class PetWindowManager {
     win.showInactive()
     win.setOpacity(1)
 
-    // 宠物窗口已可见，再隐藏主窗口，避免中间帧露出空桌面
-    this.deps.getMainWindow()?.hide()
+    // **主窗口不隐藏**（2026-09-21 改）：宠物模式的定位从"接管整个桌面"变成
+    // "在桌面上陪着你"——主窗口留在原处，宠物可以在它上面爬（见 pet-core 的 perch）。
+    //
+    // 这么做是可行的：宠物窗口虽然全屏且置顶，但它是**透明**的，视觉上只多出宠物本身；
+    // 鼠标靠 `setIgnoreMouseEvents` 默认全窗穿透，主窗口照常可点。
+    // 反过来，隐藏主窗口会让"爬到程序窗口上"这件事根本没有对象可爬。
 
     this.currentMode = 'pet'
     // 广播当前完整 VH 设置，确保宠物窗口拿到最新的持久化配置（设置页在桌面模式修
@@ -346,6 +361,9 @@ export class PetWindowManager {
       return
     }
 
+    // 主窗口自进入起就没被隐藏过（见 enterPetMode），这里的 `show()` 是**幂等兜底**：
+    // 万一将来有别的路径把它藏了，退出宠物模式仍能回到桌面。
+    // 真正必要的是 `focus()`——用户点「退出」就是想回来操作主窗口。
     const main = this.deps.getMainWindow()
     if (main && !main.isDestroyed()) {
       main.show()

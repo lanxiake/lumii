@@ -2,12 +2,12 @@
   "id": "demo_shimeji_skoreacat",
   "rendererType": "sprite",
   "canvas": {
-    "w": 98,
-    "h": 98
+    "w": 103,
+    "h": 128
   },
   "anchor": [
-    49,
-    97
+    52,
+    127
   ],
   "atlas": "atlas.png",
   "atlasJson": "atlas.json",
@@ -17,183 +17,183 @@
       "points": [
         [
           31,
-          66
-        ],
-        [
-          31,
-          70
-        ],
-        [
-          32,
-          71
-        ],
-        [
-          28,
-          72
-        ],
-        [
-          25,
-          73
-        ],
-        [
-          24,
-          74
-        ],
-        [
-          22,
-          75
-        ],
-        [
-          21,
-          76
-        ],
-        [
-          21,
-          77
-        ],
-        [
-          20,
-          78
-        ],
-        [
-          20,
-          79
-        ],
-        [
-          19,
-          80
-        ],
-        [
-          19,
-          82
-        ],
-        [
-          18,
-          83
-        ],
-        [
-          17,
-          84
-        ],
-        [
-          17,
-          85
-        ],
-        [
-          16,
-          86
-        ],
-        [
-          16,
-          87
-        ],
-        [
-          15,
-          88
-        ],
-        [
-          15,
-          89
-        ],
-        [
-          14,
-          90
-        ],
-        [
-          14,
-          92
-        ],
-        [
-          15,
-          93
-        ],
-        [
-          16,
-          94
-        ],
-        [
-          20,
-          95
-        ],
-        [
-          21,
           96
         ],
         [
+          31,
+          100
+        ],
+        [
+          32,
+          101
+        ],
+        [
+          28,
+          102
+        ],
+        [
+          25,
+          103
+        ],
+        [
+          24,
+          104
+        ],
+        [
+          22,
+          105
+        ],
+        [
+          21,
+          106
+        ],
+        [
+          21,
+          107
+        ],
+        [
           20,
-          97
+          108
+        ],
+        [
+          20,
+          109
+        ],
+        [
+          19,
+          110
+        ],
+        [
+          19,
+          112
+        ],
+        [
+          18,
+          113
+        ],
+        [
+          17,
+          114
+        ],
+        [
+          17,
+          115
+        ],
+        [
+          16,
+          116
+        ],
+        [
+          16,
+          117
+        ],
+        [
+          15,
+          118
+        ],
+        [
+          15,
+          119
+        ],
+        [
+          14,
+          120
+        ],
+        [
+          14,
+          122
+        ],
+        [
+          15,
+          123
+        ],
+        [
+          16,
+          124
+        ],
+        [
+          20,
+          125
+        ],
+        [
+          21,
+          126
+        ],
+        [
+          20,
+          127
         ],
         [
           46,
-          97
+          127
         ],
         [
           46,
-          94
+          124
         ],
         [
           47,
-          93
+          123
         ],
         [
           47,
-          90
+          120
         ],
         [
           48,
-          89
+          119
         ],
         [
           49,
-          88
+          118
         ],
         [
           49,
-          87
+          117
         ],
         [
           50,
-          86
+          116
         ],
         [
           50,
-          81
+          111
         ],
         [
           51,
-          80
+          110
         ],
         [
           53,
-          79
+          109
         ],
         [
           55,
-          78
+          108
         ],
         [
           56,
-          77
+          107
         ],
         [
           56,
-          76
+          106
         ],
         [
           57,
-          75
+          105
         ],
         [
           57,
-          71
+          101
         ],
         [
           58,
-          70
+          100
         ],
         [
           58,
-          66
+          96
         ]
       ]
     },
@@ -202,107 +202,107 @@
       "points": [
         [
           54,
-          50
+          80
         ],
         [
           53,
-          51
+          81
         ],
         [
           53,
-          53
+          83
         ],
         [
           56,
-          54
+          84
         ],
         [
           56,
-          54
+          84
         ],
         [
           60,
-          55
+          85
         ],
         [
           60,
-          55
+          85
         ],
         [
           43,
-          56
+          86
         ],
         [
           43,
-          56
+          86
         ],
         [
           31,
-          57
+          87
         ],
         [
           31,
-          57
+          87
         ],
         [
           30,
-          58
+          88
         ],
         [
           30,
-          62
+          92
         ],
         [
           31,
-          63
+          93
         ],
         [
           31,
-          66
+          96
         ],
         [
           58,
-          66
+          96
         ],
         [
           58,
-          58
+          88
         ],
         [
           59,
-          57
+          87
         ],
         [
           59,
-          57
+          87
         ],
         [
           60,
-          56
+          86
         ],
         [
           60,
-          56
+          86
         ],
         [
           61,
-          55
+          85
         ],
         [
           61,
-          54
+          84
         ],
         [
           62,
-          53
+          83
         ],
         [
           62,
-          51
+          81
         ],
         [
           60,
-          50
+          80
         ]
       ]
     }
@@ -323,7 +323,7 @@
         }
       ],
       "params": {
-        "bob": 6,
+        "bob": 8,
         "breathe": 1.02,
         "sway": 1.5
       }
@@ -513,6 +513,134 @@
       "frames": [
         {
           "base": "demo_shimeji_skoreacat_drag_00",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        }
+      ]
+    },
+    {
+      "group": "Climb",
+      "index": 0,
+      "kind": "loop",
+      "fps": 9,
+      "frames": [
+        {
+          "base": "demo_shimeji_skoreacat_climb_00",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        },
+        {
+          "base": "demo_shimeji_skoreacat_climb_01",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        },
+        {
+          "base": "demo_shimeji_skoreacat_climb_02",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        },
+        {
+          "base": "demo_shimeji_skoreacat_climb_03",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        },
+        {
+          "base": "demo_shimeji_skoreacat_climb_04",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        },
+        {
+          "base": "demo_shimeji_skoreacat_climb_05",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        },
+        {
+          "base": "demo_shimeji_skoreacat_climb_06",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        },
+        {
+          "base": "demo_shimeji_skoreacat_climb_07",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        }
+      ]
+    },
+    {
+      "group": "Crawl",
+      "index": 0,
+      "kind": "loop",
+      "fps": 9,
+      "frames": [
+        {
+          "base": "demo_shimeji_skoreacat_crawl_00",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        },
+        {
+          "base": "demo_shimeji_skoreacat_crawl_01",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        },
+        {
+          "base": "demo_shimeji_skoreacat_crawl_02",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        },
+        {
+          "base": "demo_shimeji_skoreacat_crawl_03",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        },
+        {
+          "base": "demo_shimeji_skoreacat_crawl_04",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        },
+        {
+          "base": "demo_shimeji_skoreacat_crawl_05",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        },
+        {
+          "base": "demo_shimeji_skoreacat_crawl_06",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        },
+        {
+          "base": "demo_shimeji_skoreacat_crawl_07",
           "durationMs": 111,
           "face": {
             "face": "face_none"

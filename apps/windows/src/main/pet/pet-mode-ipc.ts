@@ -16,10 +16,12 @@ import {
   type PetHoverUpdate,
   type PetIdleEvent,
   type PetModeSwitchResult,
+  type PetPerchEvent,
   PET_IPC,
 } from '../../shared/pet-mode'
 import { PetWindowManager, type PetWindowManagerDeps } from './pet-window-manager'
 import { startCursorTracking, stopCursorTracking } from './pet-cursor-tracker'
+import { startPerchTracking, stopPerchTracking, getCurrentPerchRect } from './pet-perch-tracker'
 import { startIdleWatching, stopIdleWatching, getCurrentIdleStage } from './idle-watcher'
 import {
   getStoredModelId,
@@ -103,11 +105,13 @@ export async function switchPetMode(
       await petWindowManager.enterPetMode(modelId)
       startCursorTrackingIfNeeded()
       startIdleWatchingIfNeeded()
+      startPerchTrackingIfNeeded()
     } else {
       await petWindowManager.exitPetMode()
-      // 退出就停：注视与闲置感知只在宠物模式里有意义，别让轮询在桌面模式下白跑
+      // 退出就停：注视、闲置感知、攀附目标只在宠物模式里有意义，别让它们白跑
       stopCursorTracking()
       stopIdleWatching()
+      stopPerchTracking()
     }
     const durationMs = Date.now() - startedAt
     log.info(`mode:switch ${from}→${mode} durationMs=${durationMs}`)
@@ -139,6 +143,31 @@ function startCursorTrackingIfNeeded(): void {
       if (!win || win.isDestroyed()) return
       const evt: PetCursorEvent = { type: 'pet:cursor', x, y }
       win.webContents.send(PET_IPC.evtCursor, evt)
+    },
+  })
+}
+
+/**
+ * 启动攀附目标追踪（主窗口矩形）。
+ *
+ * 与光标/闲置两条链路不同，这条**没有开关**：它不是"感知用户"而是"知道有什么东西可爬"，
+ * 关掉它就只是让宠物少一种行为，没有隐私或打扰上的收益。模型没有 Climb/Crawl 组时，
+ * 渲染层自己会忽略这个矩形（见 `perch` 的能力探测）。
+ */
+function startPerchTrackingIfNeeded(): void {
+  startPerchTracking({
+    getMainWindow: () => petWindowManager?.getMainWindow() ?? null,
+    getPetWindowOrigin: () => {
+      const win = petWindowManager?.getPetBrowserWindow()
+      if (!win || win.isDestroyed()) return null
+      const b = win.getBounds()
+      return { x: b.x, y: b.y }
+    },
+    send: (rect) => {
+      const win = petWindowManager?.getPetBrowserWindow()
+      if (!win || win.isDestroyed()) return
+      const evt: PetPerchEvent = { type: 'pet:perch', rect }
+      win.webContents.send(PET_IPC.evtPerch, evt)
     },
   })
 }
@@ -231,6 +260,9 @@ export function registerPetModeIpc(deps: PetWindowManagerDeps): void {
 
   // 当前闲置阶段（渲染层挂载时补问一次，见 idle-watcher 的 getCurrentIdleStage）
   ipcMain.handle(PET_IPC.getIdleStage, () => getCurrentIdleStage() ?? 'awake')
+
+  // 当前可攀附矩形（渲染层挂载时补问一次，见 pet-perch-tracker 的 getCurrentPerchRect）
+  ipcMain.handle(PET_IPC.getPerchRect, () => getCurrentPerchRect())
 
   // 模型注册表
   ipcMain.handle(PET_IPC.listModels, async () => {
@@ -342,6 +374,7 @@ export function disposePetModeIpc(): void {
   // 将来若有别的调用方（如重载宠物子系统）复用它会指望这里收干净。
   stopCursorTracking()
   stopIdleWatching()
+  stopPerchTracking()
   petWindowManager?.dispose()
   petWindowManager = null
 }

@@ -1,203 +1,331 @@
 {
   "frames": {
-    "demo_shimeji_germouser_drag_00": {
+    "demo_shimeji_germouser_climb_00": {
       "frame": {
         "x": 0,
         "y": 0,
-        "w": 84,
-        "h": 87
+        "w": 105,
+        "h": 128
+      }
+    },
+    "demo_shimeji_germouser_climb_01": {
+      "frame": {
+        "x": 105,
+        "y": 0,
+        "w": 105,
+        "h": 128
+      }
+    },
+    "demo_shimeji_germouser_climb_02": {
+      "frame": {
+        "x": 210,
+        "y": 0,
+        "w": 105,
+        "h": 128
+      }
+    },
+    "demo_shimeji_germouser_climb_03": {
+      "frame": {
+        "x": 315,
+        "y": 0,
+        "w": 105,
+        "h": 128
+      }
+    },
+    "demo_shimeji_germouser_climb_04": {
+      "frame": {
+        "x": 420,
+        "y": 0,
+        "w": 105,
+        "h": 128
+      }
+    },
+    "demo_shimeji_germouser_climb_05": {
+      "frame": {
+        "x": 525,
+        "y": 0,
+        "w": 105,
+        "h": 128
+      }
+    },
+    "demo_shimeji_germouser_climb_06": {
+      "frame": {
+        "x": 630,
+        "y": 0,
+        "w": 105,
+        "h": 128
+      }
+    },
+    "demo_shimeji_germouser_climb_07": {
+      "frame": {
+        "x": 735,
+        "y": 0,
+        "w": 105,
+        "h": 128
+      }
+    },
+    "demo_shimeji_germouser_crawl_00": {
+      "frame": {
+        "x": 0,
+        "y": 128,
+        "w": 105,
+        "h": 128
+      }
+    },
+    "demo_shimeji_germouser_crawl_01": {
+      "frame": {
+        "x": 105,
+        "y": 128,
+        "w": 105,
+        "h": 128
+      }
+    },
+    "demo_shimeji_germouser_crawl_02": {
+      "frame": {
+        "x": 210,
+        "y": 128,
+        "w": 105,
+        "h": 128
+      }
+    },
+    "demo_shimeji_germouser_crawl_03": {
+      "frame": {
+        "x": 315,
+        "y": 128,
+        "w": 105,
+        "h": 128
+      }
+    },
+    "demo_shimeji_germouser_crawl_04": {
+      "frame": {
+        "x": 420,
+        "y": 128,
+        "w": 105,
+        "h": 128
+      }
+    },
+    "demo_shimeji_germouser_crawl_05": {
+      "frame": {
+        "x": 525,
+        "y": 128,
+        "w": 105,
+        "h": 128
+      }
+    },
+    "demo_shimeji_germouser_crawl_06": {
+      "frame": {
+        "x": 630,
+        "y": 128,
+        "w": 105,
+        "h": 128
+      }
+    },
+    "demo_shimeji_germouser_crawl_07": {
+      "frame": {
+        "x": 735,
+        "y": 128,
+        "w": 105,
+        "h": 128
+      }
+    },
+    "demo_shimeji_germouser_drag_00": {
+      "frame": {
+        "x": 0,
+        "y": 256,
+        "w": 105,
+        "h": 128
       }
     },
     "demo_shimeji_germouser_fall_00": {
       "frame": {
-        "x": 84,
-        "y": 0,
-        "w": 84,
-        "h": 87
+        "x": 105,
+        "y": 256,
+        "w": 105,
+        "h": 128
       }
     },
     "demo_shimeji_germouser_fall_01": {
       "frame": {
-        "x": 168,
-        "y": 0,
-        "w": 84,
-        "h": 87
+        "x": 210,
+        "y": 256,
+        "w": 105,
+        "h": 128
       }
     },
     "demo_shimeji_germouser_fall_02": {
       "frame": {
-        "x": 252,
-        "y": 0,
-        "w": 84,
-        "h": 87
+        "x": 315,
+        "y": 256,
+        "w": 105,
+        "h": 128
       }
     },
     "demo_shimeji_germouser_greet_00": {
       "frame": {
-        "x": 336,
-        "y": 0,
-        "w": 84,
-        "h": 87
+        "x": 420,
+        "y": 256,
+        "w": 105,
+        "h": 128
       }
     },
     "demo_shimeji_germouser_greet_01": {
       "frame": {
-        "x": 420,
-        "y": 0,
-        "w": 84,
-        "h": 87
+        "x": 525,
+        "y": 256,
+        "w": 105,
+        "h": 128
       }
     },
     "demo_shimeji_germouser_greet_02": {
       "frame": {
-        "x": 504,
-        "y": 0,
-        "w": 84,
-        "h": 87
+        "x": 630,
+        "y": 256,
+        "w": 105,
+        "h": 128
       }
     },
     "demo_shimeji_germouser_greet_03": {
       "frame": {
-        "x": 588,
-        "y": 0,
-        "w": 84,
-        "h": 87
+        "x": 735,
+        "y": 256,
+        "w": 105,
+        "h": 128
       }
     },
     "demo_shimeji_germouser_greet_04": {
       "frame": {
         "x": 0,
-        "y": 87,
-        "w": 84,
-        "h": 87
+        "y": 384,
+        "w": 105,
+        "h": 128
       }
     },
     "demo_shimeji_germouser_greet_05": {
       "frame": {
-        "x": 84,
-        "y": 87,
-        "w": 84,
-        "h": 87
+        "x": 105,
+        "y": 384,
+        "w": 105,
+        "h": 128
       }
     },
     "demo_shimeji_germouser_greet_06": {
       "frame": {
-        "x": 168,
-        "y": 87,
-        "w": 84,
-        "h": 87
+        "x": 210,
+        "y": 384,
+        "w": 105,
+        "h": 128
       }
     },
     "demo_shimeji_germouser_greet_07": {
       "frame": {
-        "x": 252,
-        "y": 87,
-        "w": 84,
-        "h": 87
+        "x": 315,
+        "y": 384,
+        "w": 105,
+        "h": 128
       }
     },
     "demo_shimeji_germouser_sit_00": {
       "frame": {
-        "x": 336,
-        "y": 87,
-        "w": 84,
-        "h": 87
+        "x": 420,
+        "y": 384,
+        "w": 105,
+        "h": 128
       }
     },
     "demo_shimeji_germouser_stand_00": {
       "frame": {
-        "x": 420,
-        "y": 87,
-        "w": 84,
-        "h": 87
+        "x": 525,
+        "y": 384,
+        "w": 105,
+        "h": 128
       }
     },
     "demo_shimeji_germouser_walk_00": {
       "frame": {
-        "x": 504,
-        "y": 87,
-        "w": 84,
-        "h": 87
+        "x": 630,
+        "y": 384,
+        "w": 105,
+        "h": 128
       }
     },
     "demo_shimeji_germouser_walk_01": {
       "frame": {
-        "x": 588,
-        "y": 87,
-        "w": 84,
-        "h": 87
+        "x": 735,
+        "y": 384,
+        "w": 105,
+        "h": 128
       }
     },
     "demo_shimeji_germouser_walk_02": {
       "frame": {
         "x": 0,
-        "y": 174,
-        "w": 84,
-        "h": 87
+        "y": 512,
+        "w": 105,
+        "h": 128
       }
     },
     "demo_shimeji_germouser_walk_03": {
       "frame": {
-        "x": 84,
-        "y": 174,
-        "w": 84,
-        "h": 87
+        "x": 105,
+        "y": 512,
+        "w": 105,
+        "h": 128
       }
     },
     "face_anger": {
       "frame": {
-        "x": 168,
-        "y": 174,
-        "w": 84,
-        "h": 87
+        "x": 210,
+        "y": 512,
+        "w": 105,
+        "h": 128
       }
     },
     "face_blush": {
       "frame": {
-        "x": 252,
-        "y": 174,
-        "w": 84,
-        "h": 87
+        "x": 315,
+        "y": 512,
+        "w": 105,
+        "h": 128
       }
     },
     "face_heart": {
       "frame": {
-        "x": 336,
-        "y": 174,
-        "w": 84,
-        "h": 87
+        "x": 420,
+        "y": 512,
+        "w": 105,
+        "h": 128
       }
     },
     "face_none": {
       "frame": {
-        "x": 420,
-        "y": 174,
-        "w": 84,
-        "h": 87
+        "x": 525,
+        "y": 512,
+        "w": 105,
+        "h": 128
       }
     },
     "face_sparkle": {
       "frame": {
-        "x": 504,
-        "y": 174,
-        "w": 84,
-        "h": 87
+        "x": 630,
+        "y": 512,
+        "w": 105,
+        "h": 128
       }
     },
     "face_sweat": {
       "frame": {
-        "x": 588,
-        "y": 174,
-        "w": 84,
-        "h": 87
+        "x": 735,
+        "y": 512,
+        "w": 105,
+        "h": 128
       }
     }
   },
   "meta": {
     "image": "atlas.png",
     "size": {
-      "w": 672,
-      "h": 261
+      "w": 840,
+      "h": 640
     }
   }
 }

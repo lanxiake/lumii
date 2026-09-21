@@ -147,6 +147,10 @@ const GROUPS = [
   },
   { group: 'Fall', from: 'FALL', kind: 'loop', fps: 9, clip: (id, i) => `${id}_fall_${p2(i)}` },
   { group: 'Picked', from: 'DRAG', kind: 'loop', fps: 9, clip: (id, i) => `${id}_drag_${p2(i)}` },
+  // 攀爬：爬到程序主窗口的边缘上（见 `pet-core` 的 `perch`）。两行各 8 帧，
+  // 是这套素材里帧数最多的动作——爬行本来就比走路需要更多中间帧才不显得跳。
+  { group: 'Climb', from: 'CLIMB', kind: 'loop', fps: 9, clip: (id, i) => `${id}_climb_${p2(i)}` },
+  { group: 'Crawl', from: 'CRAWL', kind: 'loop', fps: 9, clip: (id, i) => `${id}_crawl_${p2(i)}` },
 ]
 const p2 = (i) => String(i).padStart(2, '0')
 

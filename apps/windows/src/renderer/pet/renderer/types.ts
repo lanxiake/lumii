@@ -68,12 +68,13 @@ export interface PetRendererProvider extends PetCoreRenderer {
   setFlip?(flipX: boolean): void
 
   /**
-   * 布局查询：锚点在清单坐标里的 X 与当前缩放（可选）。
+   * 布局查询：锚点在清单坐标里的 X、当前缩放、模型屏幕高度（可选）。
    *
    * 自主行走要据此把「画布宽度」换算成「脚能走到哪」——锚点在脚底中心，
    * 左右各留 `anchorX × scale` 才是可达区间，用半个模型宽度会算歪。
+   * `modelHeight` 给攀爬用：与墙面留的缝隙要跟体型成比例。
    */
-  getLayout?(): { anchorX: number; scale: number } | null
+  getLayout?(): { anchorX: number; scale: number; modelHeight: number } | null
 
   /** 获取模型身体外接矩形（窗口坐标，用于 setShape 点击区域） */
   getModelScreenBounds(): { x: number; y: number; width: number; height: number } | null

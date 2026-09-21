@@ -19,7 +19,7 @@
 
 import type { PetRendererProvider, PetMotionPlayedInfo } from '../renderer/types'
 import type { PetModelConfig } from '../config/pet-model-types'
-import type { PetIdleStage, AmbientActivity } from '@mtbot/pet-core'
+import type { PetIdleStage, PetPose } from '@mtbot/pet-core'
 import { PET_MOTION_GROUP_UNNAMED } from '../config/pet-model-types'
 import { PetBus } from './pet-bus'
 import { bindPetEventAdapter } from './pet-event-adapter'
@@ -125,7 +125,7 @@ export class PetOrchestrator {
    * 与 `idleStage` 一样是**正交维度**，不进 `petStateMachine`：那边回答"宠物在跟用户
    * 对话吗"，这边回答"宠物自己溜达到哪一步了"。两者可以同时发生（边走边听）。
    */
-  private ambientActivity: AmbientActivity = 'stand'
+  private ambientActivity: PetPose = 'stand'
   /** 活动对应的动作组；null = 没有（用基础待机组） */
   private ambientGroup: string | null = null
   /** 用户闲置阶段（P2-c）。**与环境有关，与对话生命周期正交**，故不进 petStateMachine */
@@ -997,12 +997,12 @@ export class PetOrchestrator {
    * 模型没有对应动作组时**静默回落到基础待机**（Live2D 模型普遍没有 Walk/Sit）——
    * 那不是错误，是正常的后端能力差异，不该报错也不该随便挑个动作顶上。
    */
-  setAmbientActivity(activity: AmbientActivity): void {
-    if (this.ambientActivity === activity) return
-    this.ambientActivity = activity
-    this.ambientGroup = this.resolveAmbientGroup(activity)
+  setAmbientActivity(pose: PetPose): void {
+    if (this.ambientActivity === pose) return
+    this.ambientActivity = pose
+    this.ambientGroup = this.resolveAmbientGroup(pose)
     log.info(
-      `[setAmbientActivity] ${activity} → 组 "${this.ambientGroup ?? '(基础待机)'}"`,
+      `[setAmbientActivity] ${pose} → 组 "${this.ambientGroup ?? '(基础待机)'}"`,
     )
     // 正在待机就立刻体现；对话/交互进行中不打扰，等下一次 enterIdle 自然生效
     if (this.idling && !this.dialogueActive && !this.interactionActive) {
@@ -1010,10 +1010,21 @@ export class PetOrchestrator {
     }
   }
 
-  /** 活动 → 动作组名。`stand` 返回 null，表示"用基础待机组" */
-  private resolveAmbientGroup(activity: AmbientActivity): string | null {
-    const want = activity === 'walk' ? 'Walk' : activity === 'sit' ? 'Sit' : null
+  /** 姿态 → 动作组名。`stand` 返回 null，表示"用基础待机组" */
+  private resolveAmbientGroup(pose: PetPose): string | null {
+    const want =
+      pose === 'walk'
+        ? 'Walk'
+        : pose === 'sit'
+          ? 'Sit'
+          : pose === 'climb'
+            ? 'Climb'
+            : pose === 'crawl'
+              ? 'Crawl'
+              : null
     if (!want) return null
+    // 模型没有这一组时静默回落到基础待机。**攀爬尤其常见**——Live2D 模型不可能有
+    // Climb/Crawl，而驱动那边照样会把姿态报上来（它不知道后端有没有那个动作组）
     return this.renderer.getMotionCount(want) > 0 ? want : null
   }
 

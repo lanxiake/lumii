@@ -53,6 +53,8 @@ export * from "./interaction/idle-stage.js";
 // 决策与运动分离——前者可整表替换（后续接 Agent 真实状态驱动时换的是数据不是逻辑）。
 export * from "./behavior/ambient.js";
 export * from "./behavior/locomotion.js";
+// 攀附程序主窗口（R9 进阶）：吸附判定、沿墙爬升、天花板爬行、松手时机
+export * from "./behavior/perch.js";
 
 // 精灵后端运行时（P0-b）：帧增量归一、槽位状态、口型取档、缩放吸附、多边形命中。
 // 同样零依赖、可脱开 WebGL 单测；客户端只负责把解析结果画出来。

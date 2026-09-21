@@ -2,12 +2,12 @@
   "id": "demo_shimeji_nekojapan",
   "rendererType": "sprite",
   "canvas": {
-    "w": 68,
-    "h": 76
+    "w": 100,
+    "h": 128
   },
   "anchor": [
-    34,
-    75
+    50,
+    127
   ],
   "atlas": "atlas.png",
   "atlasJson": "atlas.json",
@@ -17,115 +17,115 @@
       "points": [
         [
           11,
-          52
+          104
         ],
         [
           11,
-          55
+          107
         ],
         [
           12,
-          56
+          108
         ],
         [
           12,
-          56
+          108
         ],
         [
           13,
-          57
+          109
         ],
         [
           15,
-          58
+          110
         ],
         [
           15,
-          70
+          122
         ],
         [
           16,
-          71
+          123
         ],
         [
           16,
-          73
+          125
         ],
         [
           17,
-          74
+          126
         ],
         [
           17,
-          75
+          127
         ],
         [
           41,
-          75
+          127
         ],
         [
           41,
-          71
+          123
         ],
         [
           42,
-          70
+          122
         ],
         [
           42,
-          69
+          121
         ],
         [
           43,
-          68
+          120
         ],
         [
           43,
-          68
+          120
         ],
         [
           44,
-          67
+          119
         ],
         [
           45,
-          66
+          118
         ],
         [
           45,
-          62
+          114
         ],
         [
           48,
-          61
+          113
         ],
         [
           50,
-          60
+          112
         ],
         [
           51,
-          59
+          111
         ],
         [
           51,
-          59
+          111
         ],
         [
           52,
-          58
+          110
         ],
         [
           52,
-          57
+          109
         ],
         [
           53,
-          56
+          108
         ],
         [
           53,
-          52
+          104
         ]
       ]
     },
@@ -134,83 +134,83 @@
       "points": [
         [
           40,
-          40
+          92
         ],
         [
           40,
-          40
+          92
         ],
         [
           28,
-          41
+          93
         ],
         [
           28,
-          46
+          98
         ],
         [
           29,
-          47
+          99
         ],
         [
           29,
-          47
+          99
         ],
         [
           28,
-          48
+          100
         ],
         [
           28,
-          48
+          100
         ],
         [
           29,
-          49
+          101
         ],
         [
           29,
-          49
+          101
         ],
         [
           14,
-          50
+          102
         ],
         [
           14,
-          50
+          102
         ],
         [
           12,
-          51
+          103
         ],
         [
           12,
-          51
+          103
         ],
         [
           11,
-          52
+          104
         ],
         [
           11,
-          52
+          104
         ],
         [
           53,
-          52
+          104
         ],
         [
           53,
-          41
+          93
         ],
         [
           43,
-          40
+          92
         ],
         [
           43,
-          40
+          92
         ]
       ]
     }
@@ -231,7 +231,7 @@
         }
       ],
       "params": {
-        "bob": 5,
+        "bob": 8,
         "breathe": 1.02,
         "sway": 1.5
       }
@@ -421,6 +421,134 @@
       "frames": [
         {
           "base": "demo_shimeji_nekojapan_drag_00",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        }
+      ]
+    },
+    {
+      "group": "Climb",
+      "index": 0,
+      "kind": "loop",
+      "fps": 9,
+      "frames": [
+        {
+          "base": "demo_shimeji_nekojapan_climb_00",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        },
+        {
+          "base": "demo_shimeji_nekojapan_climb_01",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        },
+        {
+          "base": "demo_shimeji_nekojapan_climb_02",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        },
+        {
+          "base": "demo_shimeji_nekojapan_climb_03",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        },
+        {
+          "base": "demo_shimeji_nekojapan_climb_04",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        },
+        {
+          "base": "demo_shimeji_nekojapan_climb_05",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        },
+        {
+          "base": "demo_shimeji_nekojapan_climb_06",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        },
+        {
+          "base": "demo_shimeji_nekojapan_climb_07",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        }
+      ]
+    },
+    {
+      "group": "Crawl",
+      "index": 0,
+      "kind": "loop",
+      "fps": 9,
+      "frames": [
+        {
+          "base": "demo_shimeji_nekojapan_crawl_00",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        },
+        {
+          "base": "demo_shimeji_nekojapan_crawl_01",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        },
+        {
+          "base": "demo_shimeji_nekojapan_crawl_02",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        },
+        {
+          "base": "demo_shimeji_nekojapan_crawl_03",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        },
+        {
+          "base": "demo_shimeji_nekojapan_crawl_04",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        },
+        {
+          "base": "demo_shimeji_nekojapan_crawl_05",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        },
+        {
+          "base": "demo_shimeji_nekojapan_crawl_06",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        },
+        {
+          "base": "demo_shimeji_nekojapan_crawl_07",
           "durationMs": 111,
           "face": {
             "face": "face_none"

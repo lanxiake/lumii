@@ -26,13 +26,25 @@
 
 import {
   AMBIENT_DEFAULTS,
+  PERCH_DEFAULTS,
+  ceilingY,
   initialPlan,
   planNextActivity,
+  shouldLetGo,
+  stepClimb,
+  stepCrawl,
   stepWalk,
+  tryAttach,
   walkBoundsOf,
+  wallX,
   type AmbientActivity,
   type AmbientConfig,
   type AmbientPlan,
+  type PerchConfig,
+  type PerchRect,
+  type PerchSide,
+  type PerchState,
+  type PetPose,
 } from '@mtbot/pet-core'
 import type { PetRendererProvider } from '../renderer/types'
 
@@ -52,18 +64,27 @@ const MAX_FRAME_MS = 100
 
 export interface PetWanderOptions {
   renderer: PetRendererProvider
-  /** 活动变化（含首次）。上层据此播动作组 */
-  onActivity: (activity: AmbientActivity) => void
+  /**
+   * 姿态变化（含首次）。上层据此播动作组。
+   *
+   * 报的是 `PetPose` 而不是 `AmbientActivity`：攀爬不进随机池（它由"附近有没有
+   * 可爬的窗口"触发），但**播动作组这件事是同一个入口**，分两条回调会让上层
+   * 多维护一份"当前该播什么"的状态。
+   */
+  onActivity: (pose: PetPose) => void
   /** 决策参数；省略用 `AMBIENT_DEFAULTS` */
   config?: AmbientConfig
+  /** 攀附参数；省略用 `PERCH_DEFAULTS` */
+  perchConfig?: PerchConfig
   /** 随机源，可注入以便测试确定性 */
   rand?: () => number
 }
 
 export class PetWanderDriver {
   private readonly renderer: PetRendererProvider
-  private readonly onActivity: (activity: AmbientActivity) => void
+  private readonly onActivity: (pose: PetPose) => void
   private readonly config: AmbientConfig
+  private readonly perchConfig: PerchConfig
   private readonly rand: () => number
 
   private rafId: number | null = null
@@ -79,6 +100,18 @@ export class PetWanderDriver {
   private y = 0
   /** 朝向：-1 左 / +1 右。素材面朝右，故 facing=-1 时才翻转 */
   private facing: -1 | 1 = 1
+
+  /**
+   * 攀附状态。非 null 时**位置权威归攀爬**，`activity` 被冻结（回来时从 stand 重新计时）。
+   *
+   * 与 `activity` 分开存而不是塞进 `AmbientActivity`：攀爬有它自己的运动学
+   * （沿墙/沿天花板），把"活动"这个枚举撑大只会让每个 switch 都多两个分支。
+   */
+  private perch: PerchState = null
+  /** 可攀附的目标矩形（主进程推来）；null = 当前没有可爬的东西 */
+  private perchRect: PerchRect | null = null
+  /** 模型在屏幕上的高度，用来算攀爬时与墙的缝隙 */
+  private modelHeight = 0
 
   /**
    * 让位来源集合（**不是计数器**）。
@@ -98,6 +131,7 @@ export class PetWanderDriver {
     this.renderer = opts.renderer
     this.onActivity = opts.onActivity
     this.config = opts.config ?? AMBIENT_DEFAULTS
+    this.perchConfig = opts.perchConfig ?? PERCH_DEFAULTS
     this.rand = opts.rand ?? Math.random
     // 首次一定是站着（见 ambient.initialPlan）：进宠物模式第一帧就走起来很突兀
     this.plan = initialPlan(this.rand, this.config)
@@ -113,9 +147,34 @@ export class PetWanderDriver {
     return this.activity
   }
 
+  /** 当前是否攀在窗口上；非 null 时 `getActivity()` 是被冻结的值 */
+  getPerch(): PerchState {
+    return this.perch
+  }
+
   /** 当前朝向（测试与诊断用） */
   getFacing(): -1 | 1 {
     return this.facing
+  }
+
+  /**
+   * 推送可攀附的目标矩形（主进程 → 渲染层 → 这里）。
+   *
+   * 除了记下来，还负责一件事：**目标没了就地松手**。窗口被隐藏、最小化、拖走时
+   * 都会走到这里，宠物必须掉下来——留在原地会显得它悬在空中。
+   */
+  setPerchRect(rect: PerchRect | null): void {
+    this.perchRect = rect
+    if (!this.perch) return
+    if (shouldLetGo(this.perch, rect, this.x, this.y, this.perchConfig, this.minPerchHeight())) {
+      this.releasePerch('目标不可用')
+    }
+  }
+
+  /** 从渲染器读一次布局（缩放/锚点/模型高度）。攀爬的缝隙与判定高度都依赖它 */
+  private refreshLayout(): void {
+    const layout = this.renderer.getLayout?.()
+    if (layout && layout.scale > 0) this.modelHeight = layout.modelHeight
   }
 
   start(): void {
@@ -126,7 +185,10 @@ export class PetWanderDriver {
     const pos = this.renderer.getPosition()
     this.x = pos.x
     this.y = pos.y
-    // y 从此不再由本驱动修改（见头部第 2 条）
+    this.refreshLayout()
+    // 拖拽没有边界检查，宠物可能停在屏幕外（实测 y=-21589）；不夹的话
+    // 这条"地面线"就在视口之外，宠物再也看不见
+    this.clampPosition()
     log.info(
       `[start] 起点 (${this.x.toFixed(0)}, ${this.y.toFixed(0)})，首个活动=${this.activity} 持续 ${Math.round(this.plan.durationMs)}ms`,
     )
@@ -184,9 +246,13 @@ export class PetWanderDriver {
     const pos = this.renderer.getPosition()
     this.x = pos.x
     this.y = pos.y
+    this.refreshLayout()
+    this.clampPosition()
     this.lastMs = performance.now()
     this.resetToStand()
     log.info(`[resume] 恢复（${reason}）位置 (${this.x.toFixed(0)}, ${this.y.toFixed(0)})`)
+    // 用户可能刚把宠物**放在**窗口边缘上——这是最自然的攀爬入口，不能等他走过去
+    this.tryAttachNow()
   }
 
   isSuspended(): boolean {
@@ -206,24 +272,136 @@ export class PetWanderDriver {
     this.onActivity(this.activity)
   }
 
+  /** 攀附的判定高度：模型屏幕高度的一半。太扁的窗口爬上去立刻到顶，没有意义 */
+  private minPerchHeight(): number {
+    return Math.max(120, this.modelHeight * 0.5)
+  }
+
+  /**
+   * 把位置夹回视口内。
+   *
+   * **踩过**：拖拽的 `setPosition` 没有任何边界检查，宠物可以被拖到屏幕外——
+   * 实测到了 `y = -21589`。而驱动把"读到的位置"当成宠物的**地面线**，
+   * 于是它从此在屏幕外两万像素的地方"站着"，再也看不见。
+   *
+   * 只夹不校正语义：夹完仍把结果当那条地面线，只是保证它在可见范围内。
+   */
+  private clampPosition(): void {
+    const w = window.innerWidth
+    const h = window.innerHeight
+    this.x = Math.min(Math.max(this.x, 0), w)
+    this.y = Math.min(Math.max(this.y, 16), h - 8)
+  }
+
+  /**
+   * 立刻检查一次该不该吸附。
+   *
+   * 两个调用点：走路途中（每步之后）、**拖拽松手时**。
+   * 后者是补上的——参考项目里"松手时若在边缘 50px 内就吸附"是最自然的攀爬入口
+   * （用户把宠物拎到窗口边上，本来就带着"放这儿"的意图），
+   * 只在走路时检查的话，那个动作完全没反应（实测被用户这么试了好几轮）。
+   */
+  private tryAttachNow(): void {
+    if (this.perch || this.holds.size > 0) return
+    const side = tryAttach(this.x, this.y, this.perchRect, this.perchConfig, this.minPerchHeight())
+    if (side) this.attachPerch(side)
+  }
+
+  /**
+   * 攀爬时要不要翻转。
+   *
+   * 素材面朝右，而爬墙时宠物是**面朝墙**的：爬左墙（宠物在墙左侧、朝右）不翻转，
+   * 爬右墙才翻转。天花板沿用的是"从哪面墙上来的"同一个朝向，一路保持一致。
+   */
+  private flipForPerch(side: PerchSide): boolean {
+    return side === 'right'
+  }
+
+  /**
+   * 吸附到窗口边缘。
+   *
+   * 位置立刻贴到墙线上（对齐 `wallX`），不等下一步积分——差一帧会看到宠物
+   * "先飘到墙边、再开始爬"。
+   */
+  private attachPerch(side: PerchSide): void {
+    const rect = this.perchRect
+    if (!rect) return
+    this.perch = { kind: 'wall', side }
+    this.x = wallX(rect, side, this.perchConfig, this.modelHeight)
+    this.facing = side === 'left' ? 1 : -1
+    this.renderer.setPosition(this.x, this.y)
+    this.renderer.setFlip?.(this.flipForPerch(side))
+    log.info(`[perch] 吸附到${side === 'left' ? '左' : '右'}墙 x=${this.x.toFixed(0)}`)
+    this.onActivity('climb')
+  }
+
+  /** 松手：从墙上/天花板上掉回地面，位置权威交还给常规活动 */
+  private releasePerch(reason: string): void {
+    if (!this.perch) return
+    log.info(`[perch] 松手（${reason}）@(${this.x.toFixed(0)}, ${this.y.toFixed(0)})`)
+    this.perch = null
+    this.resetToStand()
+  }
+
+  /**
+   * 攀爬的一步。
+   *
+   * 两段：沿墙向上（`wall`）→ 到顶转沿上边缘横爬（`ceiling`）→ 爬到另一角掉落。
+   * **到顶不折返**：折返会让宠物永远赖在窗口上，而"爬到头掉下来"是更有生命感的收尾。
+   *
+   * 掉落只改状态、不做自由落体——`y` 保持在天花板线上会悬空，所以这里把 `perch`
+   * 清掉后**顺手把 y 交还给常规活动**（下次走路时它仍在那条 y 上，视觉上就是
+   * "从窗口边缘掉到那儿站着"）。真正的抛物线留给用户的投掷，不在这里造。
+   */
+  private stepPerch(dtSec: number): void {
+    const rect = this.perchRect
+    if (!this.perch || !rect) return
+
+    if (this.perch.kind === 'wall') {
+      const r = stepClimb(this.y, rect, dtSec, this.perchConfig, this.modelHeight)
+      this.y = r.y
+      this.x = wallX(rect, this.perch.side, this.perchConfig, this.modelHeight)
+      this.renderer.setPosition(this.x, this.y)
+      if (r.reachedTop) {
+        // 到顶：转成沿上边缘爬，从哪面墙上来的就往对面爬
+        this.perch = { kind: 'ceiling', side: this.perch.side }
+        log.info(`[perch] 爬到顶，转为沿窗口上边缘爬行`)
+        this.onActivity('crawl')
+      }
+      return
+    }
+
+    const r = stepCrawl(this.x, rect, this.perch.side, dtSec, this.perchConfig)
+    this.x = r.x
+    this.y = ceilingY(rect, this.perchConfig, this.modelHeight)
+    this.renderer.setPosition(this.x, this.y)
+    if (r.reachedEnd) this.releasePerch('爬到尽头')
+  }
+
   private tick = (now: number): void => {
     if (!this.started) return
     const dtMs = Math.min(MAX_FRAME_MS, Math.max(0, now - this.lastMs))
     this.lastMs = now
 
     if (this.holds.size === 0) {
-      this.elapsedMs += dtMs
-      this.stepPosition(dtMs / 1000)
+      if (this.perch) {
+        // 攀爬期间**冻结活动计时**：回到地面时从 stand 重新起算，
+        // 而不是把墙上耗掉的时间算进"这一轮待机还剩多久"
+        this.stepPerch(dtMs / 1000)
+      } else {
+        this.elapsedMs += dtMs
+        this.stepPosition(dtMs / 1000)
 
-      if (this.elapsedMs >= this.plan.durationMs) {
-        const prev = this.activity
-        this.plan = planNextActivity(this.rand, this.config)
-        this.activity = this.plan.activity
-        this.elapsedMs = 0
-        log.info(
-          `[tick] ${prev} → ${this.activity}，持续 ${Math.round(this.plan.durationMs)}ms`,
-        )
-        this.onActivity(this.activity)
+        if (this.elapsedMs >= this.plan.durationMs) {
+          const prev = this.activity
+          this.plan = planNextActivity(this.rand, this.config)
+          this.activity = this.plan.activity
+          this.elapsedMs = 0
+          log.info(
+            `[tick] ${prev} → ${this.activity}，持续 ${Math.round(this.plan.durationMs)}ms`,
+          )
+          this.onActivity(this.activity)
+        }
       }
     }
 
@@ -240,6 +418,7 @@ export class PetWanderDriver {
       // **不 warn**——加载期与切后端时会短暂出现，刷日志没有信息量。
       return
     }
+    this.modelHeight = layout.modelHeight
 
     const bounds = walkBoundsOf(window.innerWidth, layout.anchorX, layout.scale)
     const r = stepWalk({ x: this.x, facing: this.facing }, dtSec, this.config.walkSpeed, bounds)
@@ -252,5 +431,10 @@ export class PetWanderDriver {
       log.info(`[stepPosition] 撞边界折返 → facing=${this.facing}`)
     }
     this.renderer.setPosition(this.x, this.y)
+
+    // 走到主窗口边缘就爬上去。放在**最后**：先按正常步进移动，再判断这一步是否
+    // 踏进了吸附区——反过来的话宠物会在判定区外就贴上去，看起来是隔空吸。
+    // （`tryAttachNow` 里还有"已攀附/正在让位就不重复判"的守卫）
+    this.tryAttachNow()
   }
 }

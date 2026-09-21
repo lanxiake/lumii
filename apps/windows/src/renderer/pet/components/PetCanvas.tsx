@@ -24,7 +24,7 @@ import { ensureCubismCore } from '../utils/cubism-core-loader'
 import { getPetModelConfig } from '../config/pet-model-registry'
 import type { PetModelConfig } from '../config/pet-model-types'
 import { PET_MOTION_GROUP_UNNAMED } from '../config/pet-model-types'
-import { estimateVelocity, isThrowable, stepThrow, type DragSample, type ThrowBody, type AmbientActivity } from '@mtbot/pet-core'
+import { estimateVelocity, isThrowable, stepThrow, type DragSample, type ThrowBody, type PetPose } from '@mtbot/pet-core'
 import { PetWanderDriver } from '../behavior/PetWanderDriver'
 import { petMetrics } from '../telemetry/pet-metrics'
 import type { PetHoverUpdate } from '../../../shared/pet-mode'
@@ -86,7 +86,7 @@ export interface PetCanvasProps {
    * （它还要考虑对话优先级、闲置阶段、模型有没有那一组）。画布越权直接
    * `playMotion` 会和编排器抢同一个入口。
    */
-  onAmbientActivity?: (activity: AmbientActivity) => void
+  onAmbientActivity?: (pose: PetPose) => void
   /**
    * 自主行为总开关（仅 sprite 后端，默认开）。
    *
@@ -429,6 +429,56 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
         }
       }
     }, [ready, renderer, config?.id])
+
+    // 攀附目标（程序主窗口的矩形）：主进程推来，转给驱动。
+    //
+    // 与注视订阅同一套守卫：只认当前实例、后端必须是 sprite——Live2D 那边
+    // 没有翻滚与布局查询，爬不了（`setPerchRect` 传过去也没人消费）。
+    useEffect(() => {
+      const instance = renderer?.instance
+      if (!ready || !instance || renderer?.backend !== 'sprite') return
+      if (rendererRef.current !== instance) return
+      if (!window.electronAPI?.pet?.onPerch) {
+        log.warn('[perch] preload 未暴露 onPerch —— 攀附链路在第二段就断了')
+        return
+      }
+      const off = window.electronAPI.pet.onPerch((event) => {
+        wanderRef.current?.setPerchRect(event.rect)
+      })
+      log.info('[perch] 已订阅主窗口矩形')
+
+      // 订阅之后**补问一次**。进入宠物模式的顺序是「窗口 show 出来 → 主进程立刻推一次
+      // 矩形」，而那一刻渲染层还没加载完，`webContents.send` 直接丢掉；此后主进程只在
+      // **矩形变化**时才推（窗口静止时零流量），于是只要用户不动主窗口，宠物就永远不知道
+      // 有东西可爬——这是必现的，不是偶发竞态。
+      //
+      // 顺序不能反：先问再订阅的话，两步之间主窗口动的那一次推送会丢。
+      let cancelled = false
+      void window.electronAPI.pet
+        .getPerchRect?.()
+        .then((rect) => {
+          // 期间可能已经换过实例或卸载了，别把过期位置喂给新的驱动
+          if (cancelled || rendererRef.current !== instance) return
+          log.info(
+            `[perch] 补问一次 → ${
+              rect
+                ? `${rect.width}×${rect.height}@(${Math.round(rect.x)},${Math.round(rect.y)})`
+                : '暂无目标'
+            }`,
+          )
+          wanderRef.current?.setPerchRect(rect)
+        })
+        .catch((err: unknown) => {
+          log.warn(`[perch] 补问失败：${err instanceof Error ? err.message : String(err)}`)
+        })
+
+      return () => {
+        cancelled = true
+        off?.()
+        // 订阅断了就当目标没了：宠物若正爬在上面，会因此松手掉下来
+        wanderRef.current?.setPerchRect(null)
+      }
+    }, [ready, renderer])
 
     // 自主行为总开关。放在驱动创建 effect **之后**：两个 effect 依赖同一组值，
     // React 按定义顺序执行，这样开关一定作用在刚建好的驱动上（而不是上一轮的）。

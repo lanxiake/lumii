@@ -2,12 +2,12 @@
   "id": "demo_shimeji_caneko",
   "rendererType": "sprite",
   "canvas": {
-    "w": 90,
-    "h": 90
+    "w": 112,
+    "h": 128
   },
   "anchor": [
-    45,
-    89
+    56,
+    127
   ],
   "atlas": "atlas.png",
   "atlasJson": "atlas.json",
@@ -17,159 +17,159 @@
       "points": [
         [
           36,
-          61
+          99
         ],
         [
           35,
-          62
+          100
         ],
         [
           35,
-          64
+          102
         ],
         [
           33,
-          65
+          103
         ],
         [
           32,
-          66
+          104
         ],
         [
           32,
-          66
+          104
         ],
         [
           31,
-          67
+          105
         ],
         [
           30,
-          68
+          106
         ],
         [
           29,
-          69
+          107
         ],
         [
           29,
-          70
+          108
         ],
         [
           28,
-          71
+          109
         ],
         [
           27,
-          72
+          110
         ],
         [
           27,
-          73
+          111
         ],
         [
           26,
-          74
+          112
         ],
         [
           25,
-          75
+          113
         ],
         [
           25,
-          76
+          114
         ],
         [
           24,
-          77
+          115
         ],
         [
           24,
-          88
+          126
         ],
         [
           25,
-          89
+          127
         ],
         [
           55,
-          89
+          127
         ],
         [
           55,
-          88
+          126
         ],
         [
           54,
-          87
+          125
         ],
         [
           54,
-          86
+          124
         ],
         [
           55,
-          85
+          123
         ],
         [
           55,
-          81
+          119
         ],
         [
           57,
-          80
+          118
         ],
         [
           57,
-          78
+          116
         ],
         [
           58,
-          77
+          115
         ],
         [
           58,
-          76
+          114
         ],
         [
           59,
-          75
+          113
         ],
         [
           59,
-          74
+          112
         ],
         [
           60,
-          73
+          111
         ],
         [
           60,
-          72
+          110
         ],
         [
           63,
-          71
+          109
         ],
         [
           64,
-          70
+          108
         ],
         [
           65,
-          69
+          107
         ],
         [
           65,
-          68
+          106
         ],
         [
           66,
-          67
+          105
         ],
         [
           66,
-          61
+          99
         ]
       ]
     },
@@ -178,115 +178,115 @@
       "points": [
         [
           64,
-          46
+          84
         ],
         [
           64,
-          46
+          84
         ],
         [
           60,
-          47
+          85
         ],
         [
           60,
-          47
+          85
         ],
         [
           58,
-          48
+          86
         ],
         [
           58,
-          48
+          86
         ],
         [
           42,
-          49
+          87
         ],
         [
           42,
-          49
+          87
         ],
         [
           40,
-          50
+          88
         ],
         [
           40,
-          57
+          95
         ],
         [
           37,
-          58
+          96
         ],
         [
           37,
-          58
+          96
         ],
         [
           36,
-          59
+          97
         ],
         [
           36,
-          61
+          99
         ],
         [
           66,
-          61
+          99
         ],
         [
           66,
-          61
+          99
         ],
         [
           71,
-          60
+          98
         ],
         [
           71,
-          59
+          97
         ],
         [
           72,
-          58
+          96
         ],
         [
           72,
-          53
+          91
         ],
         [
           71,
-          52
+          90
         ],
         [
           71,
-          49
+          87
         ],
         [
           70,
-          48
+          86
         ],
         [
           70,
-          48
+          86
         ],
         [
           69,
-          47
+          85
         ],
         [
           69,
-          47
+          85
         ],
         [
           64,
-          46
+          84
         ],
         [
           64,
-          46
+          84
         ]
       ]
     }
@@ -307,7 +307,7 @@
         }
       ],
       "params": {
-        "bob": 5,
+        "bob": 8,
         "breathe": 1.02,
         "sway": 1.5
       }
@@ -497,6 +497,134 @@
       "frames": [
         {
           "base": "demo_shimeji_caneko_drag_00",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        }
+      ]
+    },
+    {
+      "group": "Climb",
+      "index": 0,
+      "kind": "loop",
+      "fps": 9,
+      "frames": [
+        {
+          "base": "demo_shimeji_caneko_climb_00",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        },
+        {
+          "base": "demo_shimeji_caneko_climb_01",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        },
+        {
+          "base": "demo_shimeji_caneko_climb_02",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        },
+        {
+          "base": "demo_shimeji_caneko_climb_03",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        },
+        {
+          "base": "demo_shimeji_caneko_climb_04",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        },
+        {
+          "base": "demo_shimeji_caneko_climb_05",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        },
+        {
+          "base": "demo_shimeji_caneko_climb_06",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        },
+        {
+          "base": "demo_shimeji_caneko_climb_07",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        }
+      ]
+    },
+    {
+      "group": "Crawl",
+      "index": 0,
+      "kind": "loop",
+      "fps": 9,
+      "frames": [
+        {
+          "base": "demo_shimeji_caneko_crawl_00",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        },
+        {
+          "base": "demo_shimeji_caneko_crawl_01",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        },
+        {
+          "base": "demo_shimeji_caneko_crawl_02",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        },
+        {
+          "base": "demo_shimeji_caneko_crawl_03",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        },
+        {
+          "base": "demo_shimeji_caneko_crawl_04",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        },
+        {
+          "base": "demo_shimeji_caneko_crawl_05",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        },
+        {
+          "base": "demo_shimeji_caneko_crawl_06",
+          "durationMs": 111,
+          "face": {
+            "face": "face_none"
+          }
+        },
+        {
+          "base": "demo_shimeji_caneko_crawl_07",
           "durationMs": 111,
           "face": {
             "face": "face_none"

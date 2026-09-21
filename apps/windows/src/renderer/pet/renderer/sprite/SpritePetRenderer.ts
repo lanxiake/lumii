@@ -719,9 +719,16 @@ export class SpritePetRenderer implements PetRendererProvider {
    * 不复用 `getHitTransform()`：那个方法的契约是**命中判定的诊断口径**
    * （pet-lab 拿它反算期望值），往上面挂行为层的需求会让两边互相牵制。
    */
-  getLayout(): { anchorX: number; scale: number } | null {
+  getLayout(): { anchorX: number; scale: number; modelHeight: number } | null {
     if (!this.runtime) return null
-    return { anchorX: this.runtime.manifest.anchor[0], scale: this.effectiveScale() }
+    const scale = this.effectiveScale()
+    return {
+      anchorX: this.runtime.manifest.anchor[0],
+      scale,
+      // 攀爬时用它算"身体与墙面留多宽缝隙"（见 pet-core 的 perch.gapRatio）：
+      // 缝隙得跟体型成比例，换个大小的模型才不用重新调
+      modelHeight: this.runtime.manifest.canvas.h * scale,
+    }
   }
 
   resize(width: number, height: number): void {

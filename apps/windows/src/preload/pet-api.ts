@@ -19,6 +19,7 @@ import {
   type PetModePrepareEvent,
   type PetModeSwitchResult,
   type PetMotionActionDTO,
+  type PetPerchEvent,
   type PetVhSettingsChangedEvent,
   type VirtualHumanSettingsDTO,
   PET_IPC,
@@ -61,6 +62,8 @@ export const petApi: PetElectronAPI = {
     ipcRenderer.invoke(PET_IPC.getCurrentModelId),
 
   getIdleStage: () => ipcRenderer.invoke(PET_IPC.getIdleStage),
+
+  getPerchRect: () => ipcRenderer.invoke(PET_IPC.getPerchRect),
 
   setCurrentModelId: (modelId: string): Promise<void> =>
     ipcRenderer.invoke(PET_IPC.setCurrentModelId, modelId),
@@ -114,4 +117,7 @@ export const petApi: PetElectronAPI = {
 
   onIdle: (callback: (event: PetIdleEvent) => void): (() => void) =>
     createPetEventListener<PetIdleEvent>(PET_IPC.evtIdle, callback),
+
+  onPerch: (callback: (event: PetPerchEvent) => void): (() => void) =>
+    createPetEventListener<PetPerchEvent>(PET_IPC.evtPerch, callback),
 }

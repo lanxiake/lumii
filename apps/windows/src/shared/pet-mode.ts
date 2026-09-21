@@ -80,6 +80,15 @@ export const PET_IPC = {
    * 宠物会一直醒着——因为主进程只在**阶段变化**时才推。
    */
   getIdleStage: 'pet:get-idle-stage',
+  /**
+   * invoke：获取当前可攀附的矩形。
+   *
+   * 与 `getIdleStage` 同一族问题，而且这里**必现**：进宠物模式是「先把窗口 show 出来、
+   * 紧接着就推一次矩形」，而渲染层那一刻还没加载完，`webContents.send` 直接丢掉；
+   * 此后主进程只在**矩形变化**时才推（窗口静止时零流量），于是只要用户不动主窗口，
+   * 宠物就永远不知道有东西可爬。渲染层挂载时补问一次即可闭合。
+   */
+  getPerchRect: 'pet:get-perch-rect',
   /** invoke：设置当前模型 ID */
   setCurrentModelId: 'pet:set-current-model-id',
   /** invoke：获取模型列表（含规范化 URL） */
@@ -122,6 +131,14 @@ export const PET_IPC = {
    * 1Hz 轮询系统闲置，但**阶段没变时不发**——一天也就几条。
    */
   evtIdle: 'pet:idle',
+  /**
+   * event(main→renderer)：程序主窗口在宠物窗口坐标下的矩形（攀附用）。
+   *
+   * 用**窗口事件**驱动而不是轮询：用户拖动主窗口时宠物要跟手，
+   * 低频轮询会让它一跳一跳地追。`rect` 为 null 表示当前没有可攀附的目标
+   * （主窗口隐藏或最小化）——宠物在那块屏幕上没有东西可爬。
+   */
+  evtPerch: 'pet:perch',
 } as const
 
 /** 切换模式的结果 */
@@ -181,6 +198,19 @@ export interface PetCursorEvent {
 export interface PetIdleEvent {
   readonly type: 'pet:idle'
   stage: PetIdleStage
+}
+
+/**
+ * 主进程 → 渲染进程：程序主窗口的矩形（攀附目标）。
+ *
+ * 坐标是**宠物窗口局部坐标**（屏幕坐标已减去宠物窗口原点），与渲染层的 canvas 同一坐标系——
+ * 换算留在主进程做，否则"宠物窗口在哪"这个知识要同时存在于两处。
+ *
+ * `rect` 为 null = 当前没有可攀附的目标（主窗口隐藏或最小化）。
+ */
+export interface PetPerchEvent {
+  readonly type: 'pet:perch'
+  rect: { x: number; y: number; width: number; height: number } | null
 }
 
 /** 主进程 → 渲染进程：模型热切换（窗口不变，仅 Live2D 重载，B-3） */
@@ -277,6 +307,15 @@ export interface PetElectronAPI {
   onCursor(callback: (event: PetCursorEvent) => void): () => void
   /** 订阅用户闲置阶段（打盹/睡着）。主进程只在宠物模式且设置开启时推送 */
   onIdle(callback: (event: PetIdleEvent) => void): () => void
+  /** 订阅程序主窗口矩形（攀附用）。拖动主窗口时会连续推送——那是期望的，宠物要跟手 */
+  onPerch(callback: (event: PetPerchEvent) => void): () => void
+  /**
+   * 获取当前可攀附的矩形（挂载时问一次）。
+   *
+   * 必须**先订阅 `onPerch` 再问**：反过来的话，两步之间主窗口动了那次推送会丢。
+   * 没在宠物模式、或主窗口隐藏时返回 null。
+   */
+  getPerchRect(): Promise<PetPerchEvent['rect']>
 }
 
 /** 宠物模式默认模型 ID（MVP 阶段硬编码，Phase 1 接 registry 后替换为动态默认值） */
