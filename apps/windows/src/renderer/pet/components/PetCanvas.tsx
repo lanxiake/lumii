@@ -48,6 +48,18 @@ const log = {
 const TAP_AMBIENT_HOLD_MS = 2500
 
 /**
+ * 按住多久才算「抓住」。
+ *
+ * **点击与抓取原本是同一个手势**（`mousedown` 即进入拖拽态），于是"想点它一下"
+ * 必然先把它拖歪一点——短按和拖拽在体感上分不开。现在按住够久才算抓：
+ * 短按是点击（宠物蹦一下），按满 3 秒才跟手。
+ *
+ * 3 秒是有意偏长的：抓着宠物走是慢动作，用户不会介意为它多按一会儿；
+ * 而误触把它拎走的代价更大。
+ */
+const GRAB_HOLD_MS = 3000
+
+/**
  * 指针交互的让位来源名。
  *
  * **一次指针交互只用一个名字**：`mousedown` 记下它，各条 `mouseup` 分支
@@ -183,6 +195,9 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
      * （详见 pet-core 的 estimateVelocity）。
      */
     const dragRef = useRef<{
+      /** 指针按在宠物身上（还没到抓取时长也算） */
+      pressed: boolean
+      /** **已经抓住了**——过了 `GRAB_HOLD_MS` 才开始跟手拖动 */
       active: boolean
       offsetX: number
       offsetY: number
@@ -190,6 +205,7 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
       groundY: number
       samples: DragSample[]
     }>({
+      pressed: false,
       active: false,
       offsetX: 0,
       offsetY: 0,
@@ -203,6 +219,10 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
     const wanderRef = useRef<PetWanderDriver | null>(null)
     /** 点击回应期间"让位"的定时器（见 TAP_AMBIENT_HOLD_MS） */
     const tapHoldRef = useRef<number | null>(null)
+    /** "按住多久才算抓住"的定时器（见 GRAB_HOLD_MS） */
+    const grabTimerRef = useRef<number | null>(null)
+    /** 指针的最近位置。抓取定时器里没有事件对象，要用它重算拖拽偏移 */
+    const pointRef = useRef({ x: 0, y: 0 })
 
     useImperativeHandle(ref, () => ({
       getRenderer: () => rendererRef.current,
@@ -532,11 +552,16 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
 
       const onMouseMove = (e: MouseEvent) => {
         const { x, y } = toCanvasLocal(e, canvas)
-        if (dragRef.current.active) {
-          renderer.setPosition(x - dragRef.current.offsetX, y - dragRef.current.offsetY)
-          dragRef.current.samples.push({ x, y, t: performance.now() })
-          // 采样窗只需要最近一小段，长拖时不清会让数组无限增长
-          if (dragRef.current.samples.length > 200) dragRef.current.samples.shift()
+        pointRef.current = { x, y }
+        if (dragRef.current.pressed) {
+          // **只有抓住了才跟手**。没到 GRAB_HOLD_MS 之前指针怎么动宠物都不动——
+          // 那是"点击"的进行时，不该把宠物拖歪
+          if (dragRef.current.active) {
+            renderer.setPosition(x - dragRef.current.offsetX, y - dragRef.current.offsetY)
+            dragRef.current.samples.push({ x, y, t: performance.now() })
+            // 采样窗只需要最近一小段，长拖时不清会让数组无限增长
+            if (dragRef.current.samples.length > 200) dragRef.current.samples.shift()
+          }
           reportModelHover(true)
           return
         }
@@ -607,88 +632,114 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
         const { x, y } = toCanvasLocal(e, canvas)
         const hit = renderer.hitTest(x, y)
         const over = hit || renderer.isPointerOverModel(x, y)
-        if (over) {
-          reportModelHover(true)
-          // 抓住正在飞的宠物：中断抛物线，不叠加
-          cancelThrow()
-          // 位置权威交给鼠标：自主行为必须让位，否则它会和拖拽抢着写同一个位置
-          wanderRef.current?.suspend(AMBIENT_HOLD_POINTER)
-          // 新的指针周期开始：上一轮点击留下的延迟解除作废（否则它 2.5s 后会来
-          // 解除一个已经不属于它的让位，只留下一行无用的 warn）
-          if (tapHoldRef.current !== null) {
-            clearTimeout(tapHoldRef.current)
-            tapHoldRef.current = null
-          }
-          const pos = renderer.getPosition()
-          dragRef.current = {
-            active: true,
-            offsetX: x - pos.x,
-            offsetY: y - pos.y,
-            hit: !!hit,
-            groundY: pos.y,
-            samples: [{ x, y, t: performance.now() }],
-          }
-          onInteractionRef.current?.({ type: 'picked' })
+        if (!over) return
+        reportModelHover(true)
+        // 抓住正在飞的宠物：中断抛物线，不叠加
+        cancelThrow()
+        // 按住期间就让位：宠物要是自己走开了，用户就抓了个空。
+        // （短按那条路走完会由 holdAmbientForTap 接着让位，正好接上）
+        wanderRef.current?.suspend(AMBIENT_HOLD_POINTER)
+        // 新的指针周期开始：上一轮点击留下的延迟解除作废（否则它 2.5s 后会来
+        // 解除一个已经不属于它的让位，只留下一行无用的 warn）
+        if (tapHoldRef.current !== null) {
+          clearTimeout(tapHoldRef.current)
+          tapHoldRef.current = null
         }
+        const pos = renderer.getPosition()
+        dragRef.current = {
+          pressed: true,
+          // **还没抓住**：要按住 GRAB_HOLD_MS 才进拖拽态。在此之前指针移动
+          // 不会带动宠物——这正是"点击"与"抓取"分开的关键
+          active: false,
+          offsetX: x - pos.x,
+          offsetY: y - pos.y,
+          hit: !!hit,
+          groundY: pos.y,
+          samples: [],
+        }
+        grabTimerRef.current = window.setTimeout(() => {
+          grabTimerRef.current = null
+          if (!dragRef.current.pressed) return
+          dragRef.current.active = true
+          // 抓取期间指针可能已经移开了，按**当前**指针位置重算偏移，
+          // 否则抓住的一瞬间宠物会跳到指针下面
+          const p = pointRef.current
+          const now = renderer.getPosition()
+          dragRef.current.offsetX = p.x - now.x
+          dragRef.current.offsetY = p.y - now.y
+          dragRef.current.groundY = now.y
+          dragRef.current.samples = [{ x: p.x, y: p.y, t: performance.now() }]
+          log.info(`[onMouseDown] 按住 ${GRAB_HOLD_MS}ms 进入抓取`)
+          onInteractionRef.current?.({ type: 'picked' })
+        }, GRAB_HOLD_MS)
       }
 
       const onMouseUp = (e: MouseEvent) => {
         const { x, y } = toCanvasLocal(e, canvas)
-        const wasDrag = dragRef.current.active
+        // 定时器无论走哪条分支都要清掉，否则它会在下一次交互里冒出来
+        if (grabTimerRef.current !== null) {
+          clearTimeout(grabTimerRef.current)
+          grabTimerRef.current = null
+        }
+        const wasPressed = dragRef.current.pressed
+        const wasGrabbed = dragRef.current.active
         const { groundY, samples } = dragRef.current
-        // 位移超阈值视为拖拽，否则视为点击（x/y 双轴，比单看 X 更准）。
-        //
-        // **基准必须是 `samples[0]`（mousedown 那一刻的光标位置）**，不能是
-        // "宠物当前位置 + 拖拽偏移"：后者在拖拽过程中**恒等于光标的当前位置**
-        // （宠物一直跟着光标走），差值永远是 0，于是每一次拖拽都被判成点击——
-        // 「抛出」这条路径根本走不到。
-        //
-        // 实测证据：用 CDP 拖了 477px、以 4400px/s 甩出去，日志里连一行
-        // `[onMouseUp] 抛出` 都没有，直接进了点击分支（只有 playMotion Picked/Idle）。
-        const first = samples[0]
-        const movedFar = first
-          ? Math.abs(x - first.x) > 5 || Math.abs(y - first.y) > 5
-          : false
+        dragRef.current.pressed = false
         dragRef.current.active = false
         dragRef.current.hit = false
         dragRef.current.samples = []
-        // 点击（非拖拽）落在模型身上即触发互动：优先用命中的 hitArea，
-        // 无命名 hitArea 的模型（如 mao_pro Name 全空）回退到 body，
-        // 保证"点击宠物身上有反应"，不再因缺 hitArea 而静默。
-        if (wasDrag && !movedFar) {
+
+        if (!wasPressed) {
+          reportModelHover(renderer.isPointerOverModel(x, y))
+          return
+        }
+
+        // **没按满 GRAB_HOLD_MS 就是"点击"**，不管指针移了多远——宠物全程没跟手，
+        // 它还在原地。判据从"位移超没超阈值"换成了"按够时间没有"：
+        // 位移判据下，短按和拖拽在体感上分不开（想点一下必然先把它拖歪一点）。
+        if (!wasGrabbed) {
           const hit = renderer.hitTest(x, y)
           const over = hit || renderer.isPointerOverModel(x, y)
           if (over) {
+            // 点击（非拖拽）落在模型身上即触发互动：优先用命中的 hitArea，
+            // 无命名 hitArea 的模型（如 mao_pro Name 全空）回退到 body，
+            // 保证"点击宠物身上有反应"，不再因缺 hitArea 而静默。
             triggerTapMotion(renderer, hit ?? 'body')
             // 点击特效：在点击位置绽放一簇烟花（受鼠标点击开关控制）
             if (tapInteractionEnabled) spawnClickFireworks(e.clientX, e.clientY)
           }
           // 点击回应期间**保持让位**，2.5 秒后自动交还。
-          // 不这么做的话，宠物会在播招手动画的同时继续走路——脚不动、人在飘。
+          // 不这么做的话，宠物会在播跳跃动画的同时继续走路——脚不动、人在飘。
           holdAmbientForTap()
-          onInteractionRef.current?.({ type: 'landed', x: renderer.getPosition().x, y: renderer.getPosition().y })
-        } else if (wasDrag) {
-          // 拖过：按释放速度决定"抛出去"还是"原地落下"
-          const v = estimateVelocity(samples)
-          const pos = renderer.getPosition()
-          if (isThrowable(v)) {
-            log.info(`[onMouseUp] 抛出 v=(${v.vx.toFixed(0)}, ${v.vy.toFixed(0)}) px/s`)
-            // 先告知"在空中"，再起飞：编排器据此换成下落姿势。
-            // 顺序不能反——先飞再通知的话，头几帧还是地面姿势，看起来像"踩着空气飘出去"
-            onInteractionRef.current?.({ type: 'thrown' })
-            // 抛掷期间保持让位；位置权威交给抛物线，落地时（startThrow 内）才交还
-            startThrow(pos, v, groundY)
-          } else {
-            log.info(`[onMouseUp] 速度不足（${Math.hypot(v.vx, v.vy).toFixed(0)} px/s），原地落下`)
-            wanderRef.current?.resume(AMBIENT_HOLD_POINTER)
-            onInteractionRef.current?.({ type: 'landed', x: pos.x, y: pos.y })
-          }
+          onInteractionRef.current?.({
+            type: 'landed',
+            x: renderer.getPosition().x,
+            y: renderer.getPosition().y,
+          })
+          reportModelHover(renderer.isPointerOverModel(x, y))
+          return
+        }
+
+        // 抓住了：按释放速度决定"抛出去"还是"原地落下"
+        const v = estimateVelocity(samples)
+        const pos = renderer.getPosition()
+        if (isThrowable(v)) {
+          log.info(`[onMouseUp] 抛出 v=(${v.vx.toFixed(0)}, ${v.vy.toFixed(0)}) px/s`)
+          // 先告知"在空中"，再起飞：编排器据此换成下落姿势。
+          // 顺序不能反——先飞再通知的话，头几帧还是地面姿势，看起来像"踩着空气飘出去"
+          onInteractionRef.current?.({ type: 'thrown' })
+          // 抛掷期间保持让位；位置权威交给抛物线，落地时（startThrow 内）才交还
+          startThrow(pos, v, groundY)
+        } else {
+          log.info(`[onMouseUp] 速度不足（${Math.hypot(v.vx, v.vy).toFixed(0)} px/s），原地落下`)
+          wanderRef.current?.resume(AMBIENT_HOLD_POINTER)
+          onInteractionRef.current?.({ type: 'landed', x: pos.x, y: pos.y })
         }
         reportModelHover(renderer.isPointerOverModel(x, y))
       }
 
       const onMouseLeave = () => {
-        if (!dragRef.current.active) reportModelHover(false)
+        if (!dragRef.current.pressed) reportModelHover(false)
       }
 
       // 滚轮缩放：挂到 window（canvas 为 pointer-events:none，收不到 wheel）
@@ -718,6 +769,11 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
         if (tapHoldRef.current !== null) {
           clearTimeout(tapHoldRef.current)
           tapHoldRef.current = null
+        }
+        // 抓取定时器同理——它比点击那个更长命，更容易在卸载后才烧到
+        if (grabTimerRef.current !== null) {
+          clearTimeout(grabTimerRef.current)
+          grabTimerRef.current = null
         }
       }
     }, [ready])

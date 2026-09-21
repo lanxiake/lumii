@@ -224,9 +224,17 @@
         "h": 128
       }
     },
-    "demo_shimeji_caneko_sit_00": {
+    "demo_shimeji_caneko_jump_00": {
       "frame": {
         "x": 448,
+        "y": 384,
+        "w": 112,
+        "h": 128
+      }
+    },
+    "demo_shimeji_caneko_sit_00": {
+      "frame": {
+        "x": 560,
         "y": 384,
         "w": 112,
         "h": 128
@@ -234,7 +242,7 @@
     },
     "demo_shimeji_caneko_stand_00": {
       "frame": {
-        "x": 560,
+        "x": 672,
         "y": 384,
         "w": 112,
         "h": 128
@@ -242,7 +250,7 @@
     },
     "demo_shimeji_caneko_walk_00": {
       "frame": {
-        "x": 672,
+        "x": 784,
         "y": 384,
         "w": 112,
         "h": 128
@@ -250,21 +258,13 @@
     },
     "demo_shimeji_caneko_walk_01": {
       "frame": {
-        "x": 784,
-        "y": 384,
-        "w": 112,
-        "h": 128
-      }
-    },
-    "demo_shimeji_caneko_walk_02": {
-      "frame": {
         "x": 0,
         "y": 512,
         "w": 112,
         "h": 128
       }
     },
-    "demo_shimeji_caneko_walk_03": {
+    "demo_shimeji_caneko_walk_02": {
       "frame": {
         "x": 112,
         "y": 512,
@@ -272,7 +272,7 @@
         "h": 128
       }
     },
-    "face_anger": {
+    "demo_shimeji_caneko_walk_03": {
       "frame": {
         "x": 224,
         "y": 512,
@@ -280,7 +280,7 @@
         "h": 128
       }
     },
-    "face_blush": {
+    "face_anger": {
       "frame": {
         "x": 336,
         "y": 512,
@@ -288,7 +288,7 @@
         "h": 128
       }
     },
-    "face_heart": {
+    "face_blush": {
       "frame": {
         "x": 448,
         "y": 512,
@@ -296,7 +296,7 @@
         "h": 128
       }
     },
-    "face_none": {
+    "face_heart": {
       "frame": {
         "x": 560,
         "y": 512,
@@ -304,7 +304,7 @@
         "h": 128
       }
     },
-    "face_sparkle": {
+    "face_none": {
       "frame": {
         "x": 672,
         "y": 512,
@@ -312,10 +312,18 @@
         "h": 128
       }
     },
-    "face_sweat": {
+    "face_sparkle": {
       "frame": {
         "x": 784,
         "y": 512,
+        "w": 112,
+        "h": 128
+      }
+    },
+    "face_sweat": {
+      "frame": {
+        "x": 0,
+        "y": 640,
         "w": 112,
         "h": 128
       }
@@ -325,7 +333,7 @@
     "image": "atlas.png",
     "size": {
       "w": 896,
-      "h": 640
+      "h": 768
     }
   }
 }

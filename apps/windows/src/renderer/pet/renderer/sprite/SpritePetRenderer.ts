@@ -442,7 +442,12 @@ export class SpritePetRenderer implements PetRendererProvider {
     if (!p) return
     const frames = p.anim.frames
     if (frames.length <= 1) {
-      this.maybeCompleteOnce(p)
+      // 单帧动画也得**等够它自己的时长**再算完成。原先这里直接判完成，于是
+      // 单帧的 `once` 在一帧内就结束——像 Jump 这种"素材只有一帧、靠停留时间
+      // 做出节奏"的动作根本播不出来（切过去立刻就切回来了）。
+      const holdMs = p.anim.durationsMs?.[0] ?? (p.anim.fps > 0 ? 1000 / p.anim.fps : 0)
+      p.acc += deltaMS
+      if (p.acc >= holdMs) this.maybeCompleteOnce(p)
       return
     }
 

@@ -147,6 +147,18 @@ const GROUPS = [
   },
   { group: 'Fall', from: 'FALL', kind: 'loop', fps: 9, clip: (id, i) => `${id}_fall_${p2(i)}` },
   { group: 'Picked', from: 'DRAG', kind: 'loop', fps: 9, clip: (id, i) => `${id}_drag_${p2(i)}` },
+  // 跳跃：素材只有 **1 帧**（"跳起来"的瞬间姿势，底边比别的行高 28px）。
+  // 所以用 `holdMs` 把它停久一点——一次蹦跳本来就是个瞬间，但"蹦"要看得见，
+  // 420ms 是"能看清姿势又不拖沓"的量级。once + next 让编排器播完自动回待机。
+  {
+    group: 'Jump',
+    from: 'JUMP',
+    kind: 'once',
+    next: 'Idle',
+    fps: 9,
+    holdMs: 420,
+    clip: (id, i) => `${id}_jump_${p2(i)}`,
+  },
   // 攀爬：爬到程序主窗口的边缘上（见 `pet-core` 的 `perch`）。两行各 8 帧，
   // 是这套素材里帧数最多的动作——爬行本来就比走路需要更多中间帧才不显得跳。
   { group: 'Climb', from: 'CLIMB', kind: 'loop', fps: 9, clip: (id, i) => `${id}_climb_${p2(i)}` },
@@ -351,7 +363,7 @@ const idleFrame = { base: standNames[0], durationMs: dur(9) }
 const animations = []
 for (const g of GROUPS) {
   const names = namesByGroup[g.from]
-  let frames = names.map((n, i) => ({ base: n, durationMs: dur(g.fps) }))
+  let frames = names.map((n, i) => ({ base: n, durationMs: g.holdMs ?? dur(g.fps) }))
   if (g.pin) {
     // Idle Pin：一次性动作的首末格按名引用待机首帧。
     // Shimeji 的 GREET 首帧**本来就是站姿**（它是一段从站姿出发又回到站姿的动作），
@@ -406,7 +418,12 @@ fs.writeFileSync(
       idleMotionGroup: 'Idle',
       talkMotionGroup: 'Talk',
       emotionMap: {},
-      tapMotions: {},
+      // 点击（短按）蹦一下。两个命中区都给上——用户点脑袋和点身子期待的是同一件事，
+      // 而 `tapMotions` 是按命中区分别配的，不给就会各自走兜底（不同动作）。
+      tapMotions: {
+        HitAreaBody: { Jump: 0 },
+        HitAreaHead: { Jump: 0 },
+      },
       personaAddon: '你是一只安静的小猫。',
     },
     null,

@@ -509,6 +509,22 @@
       ]
     },
     {
+      "group": "Jump",
+      "index": 0,
+      "kind": "once",
+      "next": "Idle",
+      "fps": 9,
+      "frames": [
+        {
+          "base": "demo_shimeji_caneko_jump_00",
+          "durationMs": 420,
+          "face": {
+            "face": "face_none"
+          }
+        }
+      ]
+    },
+    {
       "group": "Climb",
       "index": 0,
       "kind": "loop",

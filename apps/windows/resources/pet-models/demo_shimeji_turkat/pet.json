@@ -33,6 +33,13 @@
     "亲昵": 5,
     "撒娇": 5
   },
-  "tapMotions": {},
+  "tapMotions": {
+    "HitAreaBody": {
+      "Jump": 0
+    },
+    "HitAreaHead": {
+      "Jump": 0
+    }
+  },
   "personaAddon": "你是一只安静的小猫。"
 }
