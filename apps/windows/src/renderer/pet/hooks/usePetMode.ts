@@ -44,6 +44,22 @@ export function usePetMode() {
     // 初始化：通知主进程宠物窗口渲染层已就绪
     void pet.notifyRendererReady('pet')
 
+    // **补问一次当前模型**。主进程只在**切换时**推 `model:changed`，而页面加载
+    // （HMR / reload / 冷启动）之后它不会再推——不补问的话 `currentModelId`
+    // 一直是空串，PetCanvas 会回退到**默认模型**：用户明明选了别的宠物，
+    // 看到的却是默认那只；而且默认模型没有 Climb/Crawl/Fall，
+    // 攀爬时会一路播成待机姿势（实测：爬到墙上站着不动地往上飘）。
+    //
+    // 与 `getIdleStage` / `getPerchRect` 是同一族问题，修法也一样。
+    void pet
+      .getCurrentModelId()
+      .then((id) => {
+        if (id) setCurrentModelId(id)
+      })
+      .catch(() => {
+        // 拿不到就用默认模型，不打断挂载
+      })
+
     return () => {
       unsubPrepare()
       unsubChanged()
