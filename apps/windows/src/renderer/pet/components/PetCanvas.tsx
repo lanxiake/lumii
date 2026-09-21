@@ -215,9 +215,20 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
     // 保留旧配置直到新配置到达；只有后端类型**真的变了**才该换 canvas。
     useEffect(() => {
       let cancelled = false
-      log.info(`[config] 开始取模型配置 modelId=${modelId ?? 'null'}`)
+      // 模型 ID 还没到位时**先不取配置**。挂载那一刻 `currentModelId` 是空串
+      // （要靠 usePetMode 的补问走一次 IPC 才拿到），此时取配置的话主进程会回退到
+      // **默认模型**——先加载出一只默认宠物，等补问结果到了再整个换掉，
+      // 用户看到的是"闪一下变了只宠物"。等依赖里的 modelId 变了，effect 自然会再跑。
+      //
+      // 兜底：补问失败时主进程那边仍有 `default-pet` 这个默认值，
+      // 用户也可以切一次模型把它顶回来，所以这里不会永久卡住。
+      if (!modelId) {
+        log.info('[config] 模型 ID 未就位，等补问结果')
+        return
+      }
+      log.info(`[config] 开始取模型配置 modelId=${modelId}`)
       void (async () => {
-        const cfg = await getPetModelConfig(modelId ?? '')
+        const cfg = await getPetModelConfig(modelId)
         if (cancelled) {
           log.info(`[config] 取到 ${cfg?.id ?? 'null'}，但已弃用（modelId 又变了）`)
           return
