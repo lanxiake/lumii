@@ -196,6 +196,19 @@ export const PetSettingsSection: React.FC = () => {
             <span className={styles['setting-hint']}>关闭后仅循环基础 Idle；对话结束后 10 秒才恢复随机动作</span>
           </div>
 
+          {/* Agent 活动感知（R5/R6） */}
+          <div className={styles['setting-item']}>
+            <Checkbox
+              checked={vhSettings.enableAgentActivity}
+              onChange={(checked) => void patchVh({ enableAgentActivity: checked })}
+            >
+              Agent 状态感知
+            </Checkbox>
+            <span className={styles['setting-hint']}>
+              Agent 在思考、跑工具、等你确认时，宠物的呼吸与姿态跟着变；关闭则只按自己的节奏待机
+            </span>
+          </div>
+
           {/* 鼠标点击控制 */}
           <div className={styles['setting-item']}>
             <Checkbox

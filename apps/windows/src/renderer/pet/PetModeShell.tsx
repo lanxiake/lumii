@@ -81,6 +81,8 @@ export const PetModeShell: React.FC = () => {
   /** 声音开关：开=文字回复出声(真音频口型)，关=静默(伪口型)。从 VH 设置同步。 */
   const enableVoiceReplyRef = useRef<boolean>(DEFAULT_VH_SETTINGS.enableVoiceReply)
   const enableIdleMotionRef = useRef<boolean>(DEFAULT_VH_SETTINGS.enableIdleMotion)
+  /** Agent 活动感知（R5/R6）：关掉后宠物不再随 Agent 的思考/工具/等待改姿态 */
+  const enableAgentActivityRef = useRef<boolean>(DEFAULT_VH_SETTINGS.enableAgentActivity)
   const enableTapInteractionRef = useRef<boolean>(DEFAULT_VH_SETTINGS.enableTapInteraction)
   /**
    * 最近一次收到的闲置阶段。
@@ -249,6 +251,7 @@ export const PetModeShell: React.FC = () => {
     // 每次模型加载都重绑状态监听与表情回调（热切换路径也需刷新 UI）
     orch.setStatusListener((status) => setAvatarStatus({ ...status }))
     orch.setEnableIdleMotion(enableIdleMotionRef.current)
+    orch.setEnableAgentActivity(enableAgentActivityRef.current)
     // 补上订阅期间可能已经到达的闲置阶段（setIdleStage 幂等，同阶段重复调用是空操作）
     orch.setIdleStage(idleStageRef.current)
 
@@ -319,6 +322,8 @@ export const PetModeShell: React.FC = () => {
       enableIdleMotionRef.current = s.enableIdleMotion ?? DEFAULT_VH_SETTINGS.enableIdleMotion
       setIdleMotionEnabled(enableIdleMotionRef.current)
       orchestratorRef.current?.setEnableIdleMotion(enableIdleMotionRef.current)
+      enableAgentActivityRef.current = s.enableAgentActivity ?? DEFAULT_VH_SETTINGS.enableAgentActivity
+      orchestratorRef.current?.setEnableAgentActivity(enableAgentActivityRef.current)
       enableTapInteractionRef.current = s.enableTapInteraction ?? DEFAULT_VH_SETTINGS.enableTapInteraction
       setTapInteractionEnabled(enableTapInteractionRef.current)
     }).catch(() => {})
@@ -340,6 +345,10 @@ export const PetModeShell: React.FC = () => {
         enableIdleMotionRef.current = patch.enableIdleMotion
         setIdleMotionEnabled(patch.enableIdleMotion)
         orchestratorRef.current?.setEnableIdleMotion(patch.enableIdleMotion)
+      }
+      if (patch.enableAgentActivity !== undefined) {
+        enableAgentActivityRef.current = patch.enableAgentActivity
+        orchestratorRef.current?.setEnableAgentActivity(patch.enableAgentActivity)
       }
       if (patch.enableTapInteraction !== undefined) {
         enableTapInteractionRef.current = patch.enableTapInteraction

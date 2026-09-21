@@ -31,6 +31,8 @@ export const VH_STORAGE_KEYS = {
   enableVoiceReply: 'mtbot:vh-enable-voice-reply',
   /** 待机时是否播放随机动作（关=仅基础 Idle，避免与对话动作冲突） */
   enableIdleMotion: 'mtbot:vh-enable-idle-motion',
+  /** Agent 活动感知（关=宠物不随 Agent 的思考/工具/等待改姿态） */
+  enableAgentActivity: 'mtbot:vh-enable-agent-activity',
   /** 鼠标点击控制（开=点击宠物身体触发互动动作） */
   enableTapInteraction: 'mtbot:vh-enable-tap-interaction',
   /** 强制鼠标穿透默认值（开=进入宠物模式即仅身体穿透） */
@@ -90,6 +92,14 @@ export interface VirtualHumanSettingsDTO {
   enableVoiceReply: boolean
   /** 待机随机动作（true=8~15s 轮播随机待机；false=仅循环基础 Idle，减少与对话冲突） */
   enableIdleMotion: boolean
+  /**
+   * Agent 活动感知（true=Agent 在思考 / 跑工具 / 等确认时，宠物的呼吸与姿态跟着变；
+   * false=宠物只按自己的节奏待机）。
+   *
+   * 这是 L1 表达层——呼吸/浮动/倾斜的**姿态调制**，零素材依赖，对所有模型生效
+   * （含没有分层脸的自制模型）。它是"让 Agent 的状态可见"的唯一手段里最不打扰的一层。
+   */
+  enableAgentActivity: boolean
   /** 鼠标点击控制（true=点击宠物身体区域触发互动动作；false=点击不触发） */
   enableTapInteraction: boolean
   /** 强制鼠标穿透默认值（true=进入宠物模式即仅身体穿透，控制坞仍可点） */
@@ -123,6 +133,7 @@ export const DEFAULT_VH_SETTINGS: VirtualHumanSettingsDTO = {
   enableThinkTagPrompt: false,
   enableVoiceReply: false,
   enableIdleMotion: true,
+  enableAgentActivity: true,
   enableTapInteraction: true,
   forceIgnoreMouse: false,
   enableGazeTracking: true,
