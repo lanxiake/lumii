@@ -1,0 +1,7 @@
+{
+  "name": "onnxruntime-web",
+  "version": "1.14.0",
+  "description": "占位包：真实 onnxruntime-web 不随桌面端分发，见 electron-builder.json 的 files 段",
+  "main": "index.js",
+  "private": true
+}

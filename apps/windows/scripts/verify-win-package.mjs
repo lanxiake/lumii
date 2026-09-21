@@ -164,6 +164,59 @@ function cmdAsar() {
   } else {
     grn(`package.json 全部可解析（${total} 个）`)
   }
+
+  ok = checkSizeBudget(header) && ok
+  return ok
+}
+
+/** asar 里允许出现的顶层目录（其余顶层项视为「不该进包」） */
+const ALLOWED_ROOTS = new Set([
+  'out',
+  'node_modules',
+  'package.json',
+  // config/ 只有 9 KB：draw-config.ts 解析顺序里 `__dirname/../../config/draw-config.json`
+  // 是 extraResources 那份的兜底，留着它换「extraResources 万一没打进去」时的可救性
+  'config',
+])
+
+/**
+ * 体积护栏：打印体积构成，并在「多了不该有的顶层目录」或「总量超阈值」时报错。
+ *
+ * 2026-09-21 实测过两类静默膨胀，都是「命令跑通、包变大」而没有任何报错：
+ * `.mtbot/tool-results`（dev 期 agent 工具结果，250 MB）与 `release-build-*`（上一轮产物，
+ * 一次 864 MB）。它们都不是代码变化带来的，靠肉眼看安装包大小发现太晚。
+ */
+function checkSizeBudget(header) {
+  const sums = new Map()
+  let total = 0
+  walkEntries(header, '', (p, entry) => {
+    if (entry.unpacked || entry.link || !entry.size) return
+    const parts = p.split('/').filter(Boolean)
+    const key = parts[0] === 'node_modules' && parts.length > 2
+      ? `node_modules/${parts[1].startsWith('@') ? `${parts[1]}/${parts[2]}` : parts[1]}`
+      : parts[0]
+    sums.set(key, (sums.get(key) || 0) + entry.size)
+    total += entry.size
+  })
+
+  const mb = (v) => (v / 1048576).toFixed(1)
+  console.log(`\n  数据区合计 ${mb(total)} MB，前 8 名:`)
+  const ranked = [...sums.entries()].sort((a, b) => b[1] - a[1])
+  for (const [k, v] of ranked.slice(0, 8)) console.log(`    ${mb(v).padStart(7)} MB  ${k}`)
+
+  let ok = true
+  const strays = [...sums.keys()].filter((k) => !k.startsWith('node_modules/') && !ALLOWED_ROOTS.has(k))
+  if (strays.length > 0) {
+    red(`asar 里出现了不该进包的顶层项: ${strays.join(', ')}`)
+    console.log('  这类目录（dev 产物 / 上一轮输出 / 源码）应加进 electron-builder.json 的平台段 files')
+    ok = false
+  }
+
+  const OVER_BUDGET_MB = 250
+  if (total > OVER_BUDGET_MB * 1048576) {
+    red(`数据区 ${mb(total)} MB 超过预算 ${OVER_BUDGET_MB} MB —— 先看上面的构成，确认不是又混进了产物目录`)
+    ok = false
+  }
   return ok
 }
 

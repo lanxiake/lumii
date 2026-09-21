@@ -53,7 +53,20 @@
     "!node_modules/lottie-web/**",
     "!node_modules/pixi.js/**",
     "!node_modules/@pixi/**",
-    "!node_modules/pixi-live2d-display/**"
+    "!node_modules/pixi-live2d-display/**",
+    "!node_modules/onnxruntime-web/**",
+    {
+      "from": "build-resources/onnxruntime-web-stub",
+      "to": "node_modules/onnxruntime-web",
+      "filter": [
+        "**/*"
+      ]
+    },
+    "!**/*.map",
+    "!node_modules/@xenova/transformers/dist/*.wasm",
+    "!node_modules/pdf-parse/dist/pdf-parse/web/**",
+    "!node_modules/@larksuiteoapi/node-sdk/es/**",
+    "!node_modules/@napi-rs/**"
   ],
   "electronLanguages": [
     "zh-CN",
@@ -167,7 +180,14 @@
       "!node_modules/@img/sharp-libvips-linux-x64/**/*",
       "!node_modules/sherpa-onnx-linux-x64/**/*",
       "!node_modules/onnxruntime-node/bin/napi-v3/linux/**/*",
-      "!node_modules/onnxruntime-node/bin/napi-v3/darwin/**/*"
+      "!node_modules/onnxruntime-node/bin/napi-v3/darwin/**/*",
+      "!.env*",
+      "!build.log",
+      "!*.config.ts",
+      "!tsconfig.json",
+      "!paths.ts",
+      "!agent-harness{,/**/*}",
+      "!scripts{,/**/*}"
     ],
     "asarUnpack": [
       "node_modules/@img/sharp-win32-x64/**/*",
@@ -239,7 +259,14 @@
       "!node_modules/sherpa-onnx-win-x64/**/*",
       "!node_modules/sherpa-onnx-win-ia32/**/*",
       "!node_modules/onnxruntime-node/bin/napi-v3/win32/**/*",
-      "!node_modules/onnxruntime-node/bin/napi-v3/darwin/**/*"
+      "!node_modules/onnxruntime-node/bin/napi-v3/darwin/**/*",
+      "!.env*",
+      "!build.log",
+      "!*.config.ts",
+      "!tsconfig.json",
+      "!paths.ts",
+      "!agent-harness{,/**/*}",
+      "!scripts{,/**/*}"
     ],
     "asarUnpack": [
       "node_modules/@img/sharp-linux-x64/**/*",
