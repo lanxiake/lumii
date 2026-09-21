@@ -1,5 +1,9 @@
 /**
  * 生图模型列表与 Agent 选型指南（与 Gateway image-generate-http 白名单对齐）
+ *
+ * 注意这份表**不是调用闸门**：`isKnownImageGenerationModel` 为假时 modelId 原样透传
+ * （见 bridge-tool-registrar-integration 的 image_generate），所以自定义/新增模型照样能用。
+ * 它真正的用途是**告诉 Agent 有哪些选择**——表里没有的模型，Agent 就不会想到去用。
  */
 
 export interface ImageGenerationModelOption {
@@ -33,6 +37,12 @@ export const IMAGE_GENERATION_MODEL_OPTIONS: readonly ImageGenerationModelOption
     whenToUse: "需要 2K/4K 高分辨率、印刷级清晰度、写实摄影级或用户明确要求「高清/超清/4K」",
   },
   {
+    id: "gpt-image-2.5",
+    name: "gpt-image-2.5",
+    description: "新一代，多格一致性更好",
+    whenToUse: "需要在一张图里画多个同一角色的不同格/多格排版，或对指令跟随要求高时",
+  },
+  {
     id: "nano-banana",
     name: "nano-banana",
     description: "Gemini Flash 封装，快速",
@@ -43,6 +53,12 @@ export const IMAGE_GENERATION_MODEL_OPTIONS: readonly ImageGenerationModelOption
     name: "nano-banana-2",
     description: "第二代，综合效果更好",
     whenToUse: "需要比 nano-banana 更好效果、且可能需要 2K/4K 的通用场景",
+  },
+  {
+    id: "nano-banana-2-lite",
+    name: "nano-banana-2-lite",
+    description: "第二代轻量档",
+    whenToUse: "要第二代的指令跟随但不需要高分辨率，且在意单张成本时",
   },
   {
     id: "nano-banana-pro",

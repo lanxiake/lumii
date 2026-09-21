@@ -253,6 +253,38 @@ export function ModelConfigSection() {
       </Checkbox>
     )
 
+    /** 候选模型集合：显式勾过就用勾的，否则退化为「当前这一个」 */
+    const allowedIds = cfg.allowedModelIds?.length
+      ? cfg.allowedModelIds
+      : (cfg.modelId ? [cfg.modelId] : [])
+    /**
+     * image 槽下拉的候选项 = 远端拉到的列表 ∪ 已配置的候选。
+     * 右半边不能省：中转站的模型列表常常拉不到（rightapi 就没有这个端点），
+     * 那时下拉里只剩手填的那几个，否则用户会以为「模型没法改」。
+     */
+    const imageModelOptions =
+      slot === 'image' ? [...new Set([...models.map((m) => m.id), ...allowedIds])] : []
+    /**
+     * 每个模型行右侧的附加配置。**生图模型没有这两个概念**，不渲染——
+     * 给 image 槽挂上「上下文长度(K)」和「思考」只会让人以为它们有用。
+     */
+    const modelExtras = (modelId: string) =>
+      slot === 'image' ? null : (
+        <>
+          <Input
+            type="number"
+            min={1}
+            step={1}
+            value={String(contextWindowK[modelId] ?? defaultContextWindowK(modelId))}
+            onChange={(e) => setContextWindowK(modelId, e.target.value)}
+            style={{ width: 90 }}
+            aria-label={`${modelId} 上下文长度（K）`}
+          />
+          <span className={styles['setting-desc']}>K</span>
+          {thinkingCheckbox(modelId)}
+        </>
+      )
+
     return (
       <Card key={slot}>
         <div className={styles['setting-item']}>
@@ -450,127 +482,95 @@ export function ModelConfigSection() {
                 <span className={styles['setting-desc']}>
                   {slot === 'image'
                     ? cfg.type === 'rightapi'
-                      ? '异步生图模型，如 nano-banana-fast / nano-banana-pro / gpt-image-2；支持参考图（图生图）'
-                      : '请填写或从列表选择，如 dall-e-3 / gpt-image-1'
+                      ? '可勾选多个生图模型（勾选的才会被采纳）；Agent 显式指定 modelId 时用它，否则用下拉选中的那个'
+                      : '可勾选多个，也可手动填写，如 dall-e-3 / gpt-image-1'
                     : slot === 'vision'
                       ? '可勾选多个模型；对话/识别时再选用其一'
                       : '可勾选多个模型；对话框中切换使用'}
                 </span>
               </div>
               <div className={styles['setting-control']} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {slot === 'image' ? (
-                  models.length > 0 ? (
-                    <Select
-                      value={cfg.modelId}
-                      options={[
-                        { value: '', label: '（请选择模型）' },
-                        ...models.map((m) => ({ value: m.id, label: m.name })),
-                        ...(cfg.modelId && !models.some((m) => m.id === cfg.modelId)
-                          ? [{ value: cfg.modelId, label: `${cfg.modelId}（当前）` }]
-                          : []),
-                      ]}
-                      onChange={(e) => patchSlot(slot, { modelId: e.target.value })}
-                    />
-                  ) : (
-                    <Input
-                      type="text"
-                      value={cfg.modelId}
-                      placeholder="请输入模型 ID"
-                      onChange={(e) => patchSlot(slot, { modelId: e.target.value })}
-                    />
-                  )
-                ) : (
-                  <>
-                    {models.length > 0 ? (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 220, overflow: 'auto' }}>
-                        {models.map((m) => {
-                          const allowed = cfg.allowedModelIds?.length
-                            ? cfg.allowedModelIds
-                            : (cfg.modelId ? [cfg.modelId] : [])
-                          const checked = allowed.includes(m.id)
-                          return (
-                            <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                              <Checkbox
-                                checked={checked}
-                                onChange={(next) => {
-                                const prev = cfg.allowedModelIds?.length
-                                  ? [...cfg.allowedModelIds]
-                                  : (cfg.modelId ? [cfg.modelId] : [])
-                                const nextIds = next
-                                  ? [...new Set([...prev, m.id])]
-                                  : prev.filter((id) => id !== m.id)
-                                const nextModelId =
-                                  nextIds.includes(cfg.modelId) ? cfg.modelId : (nextIds[0] ?? '')
-                                patchSlot(slot, { allowedModelIds: nextIds, modelId: nextModelId })
-                                setSlotModelIdsText((t) => ({ ...t, [slot]: undefined }))
-                              }}
-                            >
-                                {m.name || m.id}
-                              </Checkbox>
-                              <Input
-                                type="number"
-                                min={1}
-                                step={1}
-                                value={String(contextWindowK[m.id] ?? defaultContextWindowK(m.id))}
-                                onChange={(e) => setContextWindowK(m.id, e.target.value)}
-                                style={{ width: 90 }}
-                                aria-label={`${m.id} 上下文长度（K）`}
-                              />
-                              <span className={styles['setting-desc']}>K</span>
-                              {thinkingCheckbox(m.id)}
-                            </div>
-                          )
-                        })}
-                      </div>
-                    ) : null}
-                    <Input
-                      type="text"
-                      value={
-                        slotModelIdsText[slot] ?? (cfg.allowedModelIds ?? []).join(', ')
-                      }
-                      placeholder="模型 ID，多个用逗号分隔；可手动输入，勾选后自动填充"
-                      onChange={(e) => {
-                        setSlotModelIdsText((t) => ({ ...t, [slot]: e.target.value }))
-                      }}
-                      onBlur={() => commitSlotModelIdsText(slot)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault()
-                          commitSlotModelIdsText(slot)
-                        }
-                      }}
-                    />
-                    {models.length === 0 && (cfg.allowedModelIds ?? []).map((id) => (
-                      <div key={id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <span className={styles['setting-desc']}>{id}</span>
-                        <Input
-                          type="number"
-                          min={1}
-                          step={1}
-                          value={String(contextWindowK[id] ?? defaultContextWindowK(id))}
-                          onChange={(e) => setContextWindowK(id, e.target.value)}
-                          style={{ width: 90 }}
-                          aria-label={`${id} 上下文长度（K）`}
-                        />
-                        <span className={styles['setting-desc']}>K</span>
-                        {thinkingCheckbox(id)}
-                      </div>
-                    ))}
-                    {slotModelIdsText[slot] && slotModelIdsText[slot]!.split(',').map((id) => id.trim()).filter(Boolean).length === 1 && (() => {
-                      const id = slotModelIdsText[slot]!.split(',')[0]!.trim()
-                      return <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <span className={styles['setting-desc']}>上下文长度</span>
-                        <Input type="number" min={1} step={1} value={String(contextWindowK[id] ?? defaultContextWindowK(id))} onChange={(e) => setContextWindowK(id, e.target.value)} style={{ width: 90 }} />
-                        <span className={styles['setting-desc']}>K</span>
-                        {thinkingCheckbox(id)}
-                      </div>
-                    })()}
-                    {(cfg.allowedModelIds?.length ?? 0) > 0 && (
-                      <span className={styles['setting-desc']}>
-                        已选 {cfg.allowedModelIds!.length} 个；默认使用：{cfg.modelId || '（未设）'}
-                      </span>
-                    )}
-                  </>
+                {models.length > 0 ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 220, overflow: 'auto' }}>
+                    {models.map((m) => {
+                      const checked = allowedIds.includes(m.id)
+                      return (
+                        <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <Checkbox
+                            checked={checked}
+                            onChange={(next) => {
+                              const nextIds = next
+                                ? [...new Set([...allowedIds, m.id])]
+                                : allowedIds.filter((id) => id !== m.id)
+                              const nextModelId =
+                                nextIds.includes(cfg.modelId) ? cfg.modelId : (nextIds[0] ?? '')
+                              patchSlot(slot, { allowedModelIds: nextIds, modelId: nextModelId })
+                              setSlotModelIdsText((t) => ({ ...t, [slot]: undefined }))
+                            }}
+                          >
+                            {m.name || m.id}
+                          </Checkbox>
+                          {modelExtras(m.id)}
+                        </div>
+                      )
+                    })}
+                  </div>
+                ) : null}
+                {/*
+                  生图槽多一个「默认用哪个」的下拉：chat/vision 是在对话里切模型，
+                  而 image 槽只有一个 modelId 决定 image_generate 用谁（Agent 显式传 modelId 时才被覆盖）。
+                  选中一个不在候选集里的模型时**并入**候选集而不是顶掉它——
+                  用户点这一下的意图是「改默认」，不该顺手丢掉他配过的其它模型。
+                */}
+                {slot === 'image' && imageModelOptions.length > 0 && (
+                  <Select
+                    value={cfg.modelId}
+                    aria-label="默认生图模型"
+                    options={imageModelOptions.map((id) => ({ value: id, label: id }))}
+                    onChange={(e) =>
+                      patchSlot(slot, {
+                        modelId: e.target.value,
+                        allowedModelIds: [...new Set([...allowedIds, e.target.value])],
+                      })
+                    }
+                  />
+                )}
+                <Input
+                  type="text"
+                  value={
+                    slotModelIdsText[slot] ?? (cfg.allowedModelIds ?? []).join(', ')
+                  }
+                  placeholder="模型 ID，多个用逗号分隔；可手动输入，勾选后自动填充"
+                  onChange={(e) => {
+                    setSlotModelIdsText((t) => ({ ...t, [slot]: e.target.value }))
+                  }}
+                  onBlur={() => commitSlotModelIdsText(slot)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault()
+                      commitSlotModelIdsText(slot)
+                    }
+                  }}
+                />
+                {slot !== 'image' && models.length === 0 && allowedIds.map((id) => (
+                  <div key={id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span className={styles['setting-desc']}>{id}</span>
+                    {modelExtras(id)}
+                  </div>
+                ))}
+                {slot !== 'image' && slotModelIdsText[slot] && slotModelIdsText[slot]!.split(',').map((id) => id.trim()).filter(Boolean).length === 1 && (() => {
+                  const id = slotModelIdsText[slot]!.split(',')[0]!.trim()
+                  return <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span className={styles['setting-desc']}>上下文长度</span>
+                    <Input type="number" min={1} step={1} value={String(contextWindowK[id] ?? defaultContextWindowK(id))} onChange={(e) => setContextWindowK(id, e.target.value)} style={{ width: 90 }} />
+                    <span className={styles['setting-desc']}>K</span>
+                    {thinkingCheckbox(id)}
+                  </div>
+                })()}
+                {allowedIds.length > 0 && (
+                  <span className={styles['setting-desc']}>
+                    已选 {allowedIds.length} 个；{slot === 'image' ? 'Agent 未指定模型时用' : '默认使用'}：{cfg.modelId || '（未设）'}
+                  </span>
                 )}
               </div>
             </div>

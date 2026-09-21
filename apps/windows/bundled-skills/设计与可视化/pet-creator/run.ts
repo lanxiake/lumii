@@ -88,18 +88,24 @@ const SAFE_ID = /^[a-z0-9][a-z0-9_-]{0,63}$/
 /**
  * 由批次描述推出槽位结构与动画组。
  *
- * 只生成 `Idle` 与 `Talk` 两组：没让 Agent 显式给动作设计时，凭空造出的
- * 「跳跃/挥手」只是把同一批帧换个顺序播，语义是假的——那种东西进了控制坞
- * 只会变成噪音。要动作就让 Agent 多出一批姿态并显式声明。
+ * **`base` 批次可以带 `group`**：带了就生成对应的动作组，不带就当作待机帧。
+ * 早先的版本把**所有** base 批次的帧一律拼进 `Idle`——在「一个动作一批」的契约下
+ * （见 SKILL.md 第 3 步）那等于把挥手帧混进待机循环里播。
+ *
+ * 只自动生成 `Idle` 与 `Talk`：没声明动作组时，凭空造出的「跳跃/挥手」只是把同一批帧
+ * 换个顺序播，语义是假的。额外动作要显式声明（批次上给 `group`，或用 `params.animations`）。
  */
-function buildManifest(params, namesByBatch) {
+function buildManifest(params, namesByBatch, warnings) {
   const slots = {}
   const baseNames = []
+  /** 带 group 的 base 批次：先记下来，等 slots 齐了再建帧（首帧要显式声明面部部件） */
+  const grouped = []
 
   for (const batch of params.batches) {
     const names = namesByBatch.get(batch)
     if (batch.slot === 'base') {
-      baseNames.push(...names)
+      if (batch.group) grouped.push({ batch, names })
+      else baseNames.push(...names)
       continue
     }
     const slot = (slots[batch.slot] ??= { kind: 'layered', at: [0, 0], parts: {} })
@@ -112,6 +118,27 @@ function buildManifest(params, namesByBatch) {
     ns.map((n, i) => (i === 0 ? { base: n, ...firstFace(slots) } : { base: n }))
 
   const idleFrames = baseNames.length > 0 ? framesFrom(baseNames) : framesFrom(firstBaseOf(slots))
+  if (idleFrames.length === 0 && grouped.length > 0) {
+    throw new Error(
+      '没有待机批次：所有 base 批次都带了 group，Idle 没有帧可播。' +
+        '至少留一个**不带 group** 的 base 批次当待机（Idle 与 Talk 都播它）',
+    )
+  }
+
+  const declared = grouped.map(({ batch, names }) => {
+    const kind = batch.kind === 'once' ? 'once' : 'loop'
+    if (kind === 'once' && !batch.next) {
+      throw new Error(`批次「${batch.group}」是 once，必须给 next（播完接回哪个组）`)
+    }
+    return {
+      group: batch.group,
+      index: 0,
+      kind,
+      ...(kind === 'once' ? { next: batch.next } : {}),
+      fps: Number.isFinite(batch.fps) ? batch.fps : 6,
+      frames: framesFrom(names),
+    }
+  })
 
   // 原语振幅随画布高度走：写死 2px 对 56 高的像素模型够用，对 168 高的 2D 模型
   // 就几乎看不见（2 × 0.65 缩放 ≈ 1.3px）。breathe 是倍率，与尺寸无关，不用调。
@@ -129,8 +156,19 @@ function buildManifest(params, namesByBatch) {
       params: { bob, breathe: 1.01, blink: 3200 },
     },
     { group: 'Talk', index: 0, kind: 'loop', fps: 8, frames: idleFrames, params: { bob: 1 } },
+    ...declared,
     ...(Array.isArray(params.animations) ? params.animations : []),
   ]
+
+  // 多个 base 批次却不给 group ⇒ 它们的帧会被拼进同一个 Idle 循环。
+  // 这正是 real_dog 那批「待机里冒出抬爪低头」的成因，得让人看见。
+  const ungroupedBaseCount = params.batches.filter((b) => b.slot === 'base' && !b.group).length
+  if (ungroupedBaseCount > 1 && declared.length === 0) {
+    warnings.push(
+      `有 ${ungroupedBaseCount} 个 base 批次都没给 group，它们的帧会被拼进同一个 Idle 循环——` +
+        `每一段动作应当带 group（如 "Wave"）单独成组`,
+    )
+  }
 
   const manifest = {
     id: params.id,
@@ -167,12 +205,52 @@ function firstBaseOf(slots) {
 }
 
 // ---------------------------------------------------------------------------
+// action: "plan" —— 只渲染出图计划，不碰盘、不出图
+// ---------------------------------------------------------------------------
+
+/**
+ * 把「一个动作一批」的清单渲染成每批一条的完整提示词，并推好底色。
+ *
+ * 为什么这一步要存在：提示词必须是**代码**（`packages/pet-asset/src/sheet-prompt.ts`），
+ * 而本脚本是宿主起的子进程、解析不到 workspace 包，只能经控制口去取。
+ * 提示词写进代码而不是留在 SKILL.md 散文里，是因为它是这条线上唯一决定出图质量的东西，
+ * 而散文会与实现各自漂移、且没有任何东西能测它。
+ *
+ * **Agent 拿到 prompt 要原样交给 image_generate，别自己改写。** 技术段里那些约束
+ * （同一只角色、同机位、不越格、首尾闭合、不许出现数字）都是实测换来的。
+ */
+async function runPlan(params: Record<string, unknown>) {
+  const character = params.character
+  if (typeof character !== 'string' || !character.trim()) {
+    throw new Error('action="plan" 需要 character（角色与画风的描述）')
+  }
+  const raw = Array.isArray(params.batches) ? params.batches : []
+  if (raw.length === 0) {
+    throw new Error('action="plan" 需要 batches：每一段动作一个批次 { action, cols, rows }')
+  }
+
+  const plan = await makeClient(readControlConfig())('sheetPlan', {
+    character,
+    characterColors: params.characterColors ?? [],
+    background: params.background,
+    batches: raw.map((b: { action?: unknown; cols?: unknown; rows?: unknown }) => ({
+      action: b.action,
+      cols: b.cols ?? 2,
+      rows: b.rows ?? 2,
+    })),
+  })
+
+  return { ok: true, action: 'plan', ...(plan as Record<string, unknown>) }
+}
+
+// ---------------------------------------------------------------------------
 // 主流程
 // ---------------------------------------------------------------------------
 
 async function run() {
   const params = readParams()
   const action = params.action ?? 'build'
+  if (action === 'plan') return runPlan(params)
   if (action !== 'build') throw new Error(`未知 action：${action}`)
 
   if (!SAFE_ID.test(params.id ?? '')) {
@@ -202,11 +280,26 @@ async function run() {
   fs.rmSync(workDir, { recursive: true, force: true })
   fs.mkdirSync(staging, { recursive: true })
 
-  // ---- 每批：抠底 → 切格 → 按目标名拷进 staging ----
+  // ---- 每批：出图闸门 → 抠底 → 切格 → 按目标名拷进 staging ----
   const namesByBatch = new Map()
   for (const [i, batch] of params.batches.entries()) {
+    const file = path.resolve(batch.file)
+    const cols = batch.cols ?? 1
+    const rows = batch.rows ?? 1
+
+    // 出图闸门：判**画**，不判包。放在最前面是有意的——出一次图要一分钟和一次真金白银，
+    // 等到装进用户目录才发现坏图，返工代价不对等。判据见 packages/pet-asset/src/sheetcheck.ts。
+    const gate = await client('sheetCheck', { input: file, cols, rows })
+    if (gate.verdict === 'unusable') {
+      throw new Error(
+        `批次 ${path.basename(batch.file)} 没通过出图闸门：${gate.problems.join('；')}` +
+          `——**不要**放宽判据或手改清单去凑，重出这一批`,
+      )
+    }
+    warnings.push(...gate.problems.map((p) => `批次 ${path.basename(batch.file)}：${p}`))
+
     const cut = path.join(workDir, `cut-${i}.png`)
-    const cutResult = await client('cutout', { input: path.resolve(batch.file), output: cut })
+    const cutResult = await client('cutout', { input: file, output: cut })
     if (cutResult.residualRatio > 0.05) {
       warnings.push(
         `批次 ${path.basename(batch.file)} 残留背景 ${(cutResult.residualRatio * 100).toFixed(1)}%——` +
@@ -221,8 +314,8 @@ async function run() {
     const sliceResult = await client('slice', {
       input: cut,
       outDir: partsDir,
-      cols: batch.cols ?? 1,
-      rows: batch.rows ?? 1,
+      cols,
+      rows,
       prefix: `b${i}`,
     })
     if (sliceResult.cells.length !== batch.names.length) {
@@ -255,6 +348,30 @@ async function run() {
     )
   }
 
+  // ---- 差分取层（表情批）----
+  //
+  // 表情批出的是「同机位全身、除眼睛外完全一致」的图集。与基准帧做差分，
+  // 差异区域就是眼睛——**不需要知道眼睛在哪、不需要估位置**。
+  // 必须在 normalize 之后做：差分要求两张图落在同一画布上。
+  // 判据：差异铺满大半张画布 ⇒ 两次出图机位没对齐，这一层会把身体盖掉。
+  for (const batch of params.batches) {
+    if (!batch.diffBase) continue
+    const diff = await client('diffLayer', {
+      base: path.join(normalized, `${batch.diffBase}.png`),
+      dir: normalized,
+      outDir: normalized,
+      names: batch.names,
+    })
+    warnings.push(...diff.warnings.map((w) => `批次 ${path.basename(batch.file)}：${w}`))
+    const bad = diff.frames.filter((f) => !f.usable)
+    if (bad.length > 0) {
+      throw new Error(
+        `批次 ${path.basename(batch.file)} 的差分取层没成立：${bad.map((f) => f.name).join('、')}` +
+          `——重出这一批，并确认生成时带上基准帧当参考图（否则机位对不上）`,
+      )
+    }
+  }
+
   // ---- 打包 ----
   // **不要再加 align**：上一步的 normalize 已经把每帧摆正（按共同倍率缩放 + 底边落锚点），
   // 再对齐一次只会把它们整体平移、把画布撑大 1px（实测 48×56 变成 48×57），
@@ -263,7 +380,7 @@ async function run() {
   if (!packResult.roundTripOk) throw new Error('图集往返自检失败（工具链产出的索引读不回来）')
 
   // ---- 写清单与信封 ----
-  const manifest = buildManifest(params, namesByBatch)
+  const manifest = buildManifest(params, namesByBatch, warnings)
   fs.writeFileSync(path.join(pkgDir, 'manifest.json'), JSON.stringify(manifest, null, 2))
   fs.writeFileSync(
     path.join(pkgDir, 'pet.json'),

@@ -323,6 +323,27 @@ export function normalizeAllowedModelIds(
 }
 
 /**
+ * 让 modelId 与 allowlist 自洽。
+ *
+ * 维持的不变量是「modelId 必须落在 allowlist 内」，但**用并集维持，而不是把 modelId 打回 allowlist[0]**。
+ * 原来的「静默回退」会让一个明确的用户意图无声消失——生图模型改不动就是这么来的：
+ * 设置页当时只给了 image 槽改 `modelId` 的入口，视图里的 allowlist 还是旧值，
+ * 一保存就被改回旧模型，界面上看起来像「点了没反应」。
+ */
+export function reconcileModelIdWithAllowlist(
+  modelId: string,
+  allowedModelIds: string[],
+): { modelId: string; allowedModelIds: string[] } {
+  if (modelId && !allowedModelIds.includes(modelId)) {
+    return { modelId, allowedModelIds: [...allowedModelIds, modelId] }
+  }
+  if (!modelId && allowedModelIds.length > 0) {
+    return { modelId: allowedModelIds[0]!, allowedModelIds }
+  }
+  return { modelId, allowedModelIds }
+}
+
+/**
  * 规范化单槽视图（补默认值、修剪空白、对齐 allowedModelIds 与 modelId）
  */
 function normalizeSlotView(
@@ -344,16 +365,12 @@ function normalizeSlotView(
     raw && Array.isArray((raw as LocalProviderConfigView).allowedModelIds)
       ? (raw as LocalProviderConfigView).allowedModelIds
       : undefined
-  let allowedModelIds = normalizeAllowedModelIds(rawAllowed, modelId)
-  // modelId 必须落在 allowlist；否则取第一项
-  let nextModelId = modelId
-  if (allowedModelIds.length > 0 && nextModelId && !allowedModelIds.includes(nextModelId)) {
-    nextModelId = allowedModelIds[0]!
-  } else if (allowedModelIds.length > 0 && !nextModelId) {
-    nextModelId = allowedModelIds[0]!
-  } else if (nextModelId && allowedModelIds.length === 0) {
-    allowedModelIds = [nextModelId]
-  }
+  const reconciled = reconcileModelIdWithAllowlist(
+    modelId,
+    normalizeAllowedModelIds(rawAllowed, modelId),
+  )
+  const nextModelId = reconciled.modelId
+  const allowedModelIds = reconciled.allowedModelIds
   return {
     enabled: raw?.enabled === true,
     type,

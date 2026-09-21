@@ -18,6 +18,8 @@ import {
   type NormalizeOptions,
 } from './align.js'
 import { buildAtlasIndex, planAtlasLayout, type PackLayoutOptions } from './pack.js'
+import { analyzeSheet, type SheetCheckReport, type SheetThresholds } from './sheetcheck.js'
+import { extractDiffLayer, MAX_DIFF_AREA_RATIO } from './difflayer.js'
 import { listFilesRecursive } from './io.js'
 import { parseAtlasIndex } from '@mtbot/pet-core'
 
@@ -274,4 +276,109 @@ export async function runNormalize(
   }
 
   return { input: inputDir, outDir, canvas: opts.canvas, scale, count: placements.length, clipped }
+}
+
+// ---------------------------------------------------------------------------
+// sheetcheck
+// ---------------------------------------------------------------------------
+
+export interface SheetCheckOutcome extends SheetCheckReport {
+  input: string
+  /**
+   * 输入的实际尺寸与格式。
+   *
+   * **必须报出来**：出图模型未必听 `width`/`height` 参数——实测 `gpt-image-2` 与
+   * `gpt-image-2.5` 要 1024 却回 1254×1254（1254 不能被 4 整除，4×4 网格会切不匀），
+   * 而 `nano-banana-2-lite` 回的是 **JPEG**（有损底会破坏「平色底」这个抠底前提）。
+   */
+  source: { w: number; h: number; format?: string }
+}
+
+/**
+ * 判一份出图图集能不能用——出图之后、切图之前的闸门。
+ *
+ * 放在这里而不是 verify/ 下的理由见 `sheetcheck.ts` 头注释：`validate` 验的是**包**，不验画。
+ */
+export async function runSheetCheck(
+  inputPath: string,
+  opts: { cols: number; rows: number; thresholds?: Partial<SheetThresholds> },
+): Promise<SheetCheckOutcome> {
+  const meta = await sharp(inputPath, { failOn: 'none' }).metadata()
+  const { data, width, height } = await readRgba(inputPath)
+  return {
+    ...analyzeSheet(data, width, height, opts),
+    input: inputPath,
+    source: { w: width, h: height, format: meta.format },
+  }
+}
+
+// ---------------------------------------------------------------------------
+// difflayer
+// ---------------------------------------------------------------------------
+
+export interface DiffLayerOutcome {
+  base: string
+  outDir: string
+  frames: {
+    name: string
+    changed: number
+    changedRatio: number
+    bboxAreaRatio: number | null
+    density: number
+    usable: boolean
+  }[]
+  warnings: string[]
+}
+
+/**
+ * 把一批帧相对某个基准帧的变化抠成图层，写进 `outDir`（可与 `dir` 相同 = 原地替换）。
+ *
+ * 用途：表情批出的是「同机位全身、除眼睛外完全一致」的图集，
+ * 与基准帧做差分就得到只有眼睛的那一层——**不需要知道眼睛在哪**。
+ * 见 `difflayer.ts` 头注释。
+ */
+export async function runDiffLayer(
+  basePath: string,
+  dir: string,
+  outDir: string,
+  opts: { names?: string[]; threshold?: number; dilate?: number } = {},
+): Promise<DiffLayerOutcome> {
+  const base = await readRgba(basePath)
+  const names = opts.names ?? (await listFilesRecursive(dir)).filter((f) => IMAGE_EXT.test(f)).map((f) => basename(f, extname(f)))
+  const warnings: string[] = []
+  const frames: DiffLayerOutcome['frames'] = []
+
+  await fs.mkdir(outDir, { recursive: true })
+  for (const name of names) {
+    const src = join(dir, `${name}.png`)
+    const frame = await readRgba(src)
+    if (frame.width !== base.width || frame.height !== base.height) {
+      throw new Error(
+        `${name} 与基准帧尺寸不同（${frame.width}×${frame.height} vs ${base.width}×${base.height}）` +
+          `——两张图必须先过同一套 cutout/slice/normalize 落到同一画布再差分`,
+      )
+    }
+    const r = extractDiffLayer(frame.data, base.data, frame.width, frame.height, {
+      threshold: opts.threshold,
+      dilate: opts.dilate,
+    })
+    if (!r.usable) {
+      warnings.push(
+        r.bbox === null
+          ? `${name} 与基准帧没有任何差异——模型没画出表情变化`
+          : `${name} 的差异覆盖了 ${((r.bboxAreaRatio ?? 0) * 100).toFixed(0)}% 的画布（上限 ${MAX_DIFF_AREA_RATIO * 100}%）` +
+            `——多半是两次出图的机位没对齐，这一层会把身体盖掉`,
+      )
+    }
+    await writeRgbaPng(join(outDir, `${name}.png`), r.data, frame.width, frame.height)
+    frames.push({
+      name,
+      changed: r.changed,
+      changedRatio: r.changedRatio,
+      bboxAreaRatio: r.bboxAreaRatio,
+      density: r.density,
+      usable: r.usable,
+    })
+  }
+  return { base: basePath, outDir, frames, warnings }
 }

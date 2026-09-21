@@ -139,6 +139,8 @@ const PRICES: Readonly<Record<string, ModelPrice>> = {
   // ============ 生图模型（按次计费，人民币元 / 次）============
   // gpt-image-2: $0.04/次
   'gpt-image-2': perCall(0.04 * USD_TO_CNY),
+  // gpt-image-2.5: $0.06/次
+  'gpt-image-2.5': perCall(0.06 * USD_TO_CNY),
   // gpt-image-2-vip: $0.13/次
   'gpt-image-2-vip': perCall(0.13 * USD_TO_CNY),
   // nano-banana: $0.14/次

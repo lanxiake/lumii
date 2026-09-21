@@ -17,3 +17,9 @@ export * from './slice.js'
 export * from './align.js'
 export * from './pack.js'
 export * from './toolchain.js'
+// 生成契约（出图提示词 + 底色推导）
+export * from './sheet-prompt.js'
+// 出图质量闸门（切图之前判：是不是同一只角色、是不是一段动作、底色安不安全）
+export * from './sheetcheck.js'
+// 差分取层（把「只改了眼睛」的表情批抠成图层）
+export * from './difflayer.js'

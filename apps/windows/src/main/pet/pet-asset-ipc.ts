@@ -24,16 +24,21 @@
  * 校验在 `resolve()` 之后做前缀比对，不吃「`..` 绕过」那一套。
  */
 
+import { existsSync } from 'node:fs'
 import { resolve, sep } from 'node:path'
 import {
+  buildSheetPlan,
   resolveUserPetDir,
   runAlign,
   runCutout,
+  runDiffLayer,
   runInstall,
   runNormalize,
   runPack,
+  runSheetCheck,
   runSlice,
   runValidate,
+  type SheetBatchSpec,
 } from '@mtbot/pet-asset'
 import { resolveActiveWorkspaceDir } from '../workspace-paths'
 
@@ -50,6 +55,9 @@ export type PetAssetOp =
   | 'align'
   | 'normalize'
   | 'pack'
+  | 'sheetPlan'
+  | 'sheetCheck'
+  | 'diffLayer'
 
 const OPS: readonly PetAssetOp[] = [
   'validate',
@@ -59,6 +67,9 @@ const OPS: readonly PetAssetOp[] = [
   'align',
   'normalize',
   'pack',
+  'sheetPlan',
+  'sheetCheck',
+  'diffLayer',
 ]
 
 export function isPetAssetOp(v: unknown): v is PetAssetOp {
@@ -223,6 +234,92 @@ export async function runPetAssetOp(call: PetAssetCall): Promise<PetAssetResult>
             padding: num(a.padding),
             align: a.align === true ? {} : false,
             name: str(a.name),
+          }),
+        }
+      }
+
+      /**
+       * 出图计划：把「一个动作一批」的清单渲染成每批一条的完整提示词，并推好底色。
+       *
+       * 这是**纯计算、不碰盘**的一步，放在这里只是因为它得和别的 op 走同一条通道
+       * （技能脚本是子进程，解析不到 workspace 包）。提示词与底色推导的定义在
+       * `packages/pet-asset/src/sheet-prompt.ts`，那边才是唯一来源。
+       */
+      case 'sheetPlan': {
+        const character = str(a.character)
+        if (!character) return { ok: false, error: '缺少 character（角色与画风的描述）' }
+        const characterColors = Array.isArray(a.characterColors)
+          ? a.characterColors.filter((c): c is string => typeof c === 'string')
+          : []
+        const rawBatches = Array.isArray(a.batches) ? a.batches : []
+        const batches: SheetBatchSpec[] = rawBatches.map((b) => {
+          const o = (b ?? {}) as Record<string, unknown>
+          return {
+            action: str(o.action) ?? '',
+            motion: str(o.motion),
+            cols: num(o.cols) ?? 0,
+            rows: num(o.rows) ?? 0,
+          }
+        })
+        if (batches.some((b) => !b.action)) {
+          return { ok: false, error: '每个批次都要有 action（这段动作叫什么）' }
+        }
+        return {
+          ok: true,
+          result: buildSheetPlan({
+            character,
+            characterColors,
+            background: str(a.background),
+            batches,
+          }),
+        }
+      }
+
+      /**
+       * 出图闸门：切图之前判这一批能不能用（只读，不写盘）。
+       *
+       * 判据定义在 `packages/pet-asset/src/sheetcheck.ts`。放在流水线里的意义是
+       * 把「生图不可控」退化成「每批出图立刻判，不合格只重出这一批」——
+       * 出一次图要一分钟和一次真金白银，等到装进用户目录才发现坏图代价不对等。
+       */
+      case 'sheetCheck': {
+        const input = str(a.input)
+        if (!input) return { ok: false, error: '缺少 input（出图文件）' }
+        if (!existsSync(input)) return { ok: false, error: `出图文件不存在：${input}` }
+        return {
+          ok: true,
+          result: await runSheetCheck(resolve(input), {
+            cols: num(a.cols) ?? 2,
+            rows: num(a.rows) ?? 2,
+          }),
+        }
+      }
+
+      /**
+       * 差分取层：把「只改了眼睛」的表情批抠成图层（写盘）。
+       *
+       * 两张图**必须已经落在同一画布上**（都过完 cutout/slice/normalize）——
+       * 这里只做同尺寸 RGBA 相减。判据见 `packages/pet-asset/src/difflayer.ts`。
+       */
+      case 'diffLayer': {
+        const base = str(a.base)
+        const dir = str(a.dir)
+        const outDir = str(a.outDir)
+        if (!base || !dir || !outDir) return { ok: false, error: '缺少 base / dir / outDir' }
+        if (!existsSync(base)) return { ok: false, error: `基准帧不存在：${base}` }
+        if (!existsSync(dir)) return { ok: false, error: `帧目录不存在：${dir}` }
+        if (!isAllowedWritePath(outDir)) {
+          return { ok: false, error: `输出目录不在允许范围内：${outDir}` }
+        }
+        const names = Array.isArray(a.names)
+          ? a.names.filter((n): n is string => typeof n === 'string')
+          : undefined
+        return {
+          ok: true,
+          result: await runDiffLayer(resolve(base), resolve(dir), resolve(outDir), {
+            names,
+            threshold: num(a.threshold),
+            dilate: num(a.dilate),
           }),
         }
       }

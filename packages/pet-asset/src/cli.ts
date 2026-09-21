@@ -14,7 +14,7 @@ import { resolve } from 'node:path'
 import { resolveUserPetDir } from './paths.js'
 import { runCutout, runInstall, runValidate } from './commands.js'
 import { describeBackground } from './commands.js'
-import { runAlign, runNormalize, runPack, runSlice } from './toolchain.js'
+import { runAlign, runNormalize, runPack, runSheetCheck, runSlice } from './toolchain.js'
 
 const USAGE = `pet-asset —— 宠物素材工具链
 
@@ -25,6 +25,7 @@ const USAGE = `pet-asset —— 宠物素材工具链
   pet-asset align    <图片目录> [选项]                 报告地线对齐落位（只读）
   pet-asset normalize <图片目录> <输出目录> [选项]     归一化到目标画布（缩放 + 按锚点落位）
   pet-asset pack     <图片目录> <输出目录> [选项]      打包成图集
+  pet-asset sheetcheck <出图文件> [选项]               出图闸门（切图之前判质量）
   pet-asset validate <包目录>                          只读校验，报出全部问题
   pet-asset install  <包目录> [--target <目录>]        校验通过才搬运
 
@@ -51,6 +52,10 @@ pack 选项：
   --padding <n>    格子留白（默认 0）
   --align          打包前先按地线对齐（直出图集建议开）
   --name <s>       输出文件名（不含扩展名，默认 atlas）
+
+sheetcheck 选项：
+  --cols <n> --rows <n>   声明的网格行列数（默认 2×2）
+                          判据见 packages/pet-asset/src/sheetcheck.ts 头注释
 
 全局选项：
   --json           以 JSON 输出结果
@@ -303,6 +308,55 @@ async function main(): Promise<number> {
         console.log(`  往返自检（用运行时解析器读回）：${r.roundTripOk ? '通过' : '✗ 失败'}`)
       }
       return r.roundTripOk ? 0 : 1
+    }
+
+    case 'sheetcheck': {
+      const [input] = args.positional
+      if (!input) fail('sheetcheck 需要 <出图文件>')
+      const cols = numArg(args.flags.get('cols'), 'cols') ?? 2
+      const rows = numArg(args.flags.get('rows'), 'rows') ?? 2
+      const r = await runSheetCheck(resolve(input), { cols, rows })
+      if (json) {
+        console.log(JSON.stringify(r, null, 2))
+      } else {
+        console.log(`=== 出图闸门 ===`)
+        console.log(
+          `  ${input}  实际 ${r.source.w}×${r.source.h}（${r.source.format}）` +
+            ` → ${cols}×${rows} 格，每格 ${r.grid.cellW}×${r.grid.cellH}`,
+        )
+        if (!r.divisible) console.log('  ⚠ 尺寸不能被网格整除，各格大小不一')
+        console.log('')
+        for (const c of r.cells) {
+          const bb = c.bbox ? `${c.bbox.w}×${c.bbox.h}` : '（空）'
+          const edge = (v: number): string => (v >= 0.9 ? '线' : v > 0 ? `${(v * 100).toFixed(0)}%` : '净')
+          console.log(
+            `  第${c.index + 1}格  底色 ${c.background}  tSolid=${c.tSolid}` +
+              `${c.leakAt !== null ? `（泄漏点 ${c.leakAt}）` : ''}  角色 ${bb}` +
+              `  偏移 ${(c.centerOffset * 100).toFixed(0)}%  边[上${edge(c.edges.top)} 下${edge(c.edges.bottom)} 左${edge(c.edges.left)} 右${edge(c.edges.right)}]`,
+          )
+        }
+        console.log('')
+        const mark = (v: boolean): string => (v ? '✓' : '✗')
+        console.log(`  S1 边界干净     ${mark(r.s1)}`)
+        console.log(`  S2 格内对中     ${mark(r.s2)}`)
+        console.log(
+          `  S4 同一只角色   ${mark(r.s4)}   最低双向重合 ${(r.minPaletteOverlap * 100).toFixed(0)}%`,
+        )
+        console.log(
+          `  S6 连续性       ${mark(r.s6)}   相邻差中位数 ${r.baselineDiff.toFixed(1)}，首尾差 ${r.loopDiff.toFixed(1)}`,
+        )
+        console.log(`  S8 底色安全     ${mark(r.s8)}   到角色色最近 ${r.bgDistance.toFixed(0)}`)
+        console.log('')
+        console.log(
+          `  判定：${
+            { ok: '✓ 全部通过', suspect: '◐ 还能用，但有判据没过（见下）', unusable: '✗ 不可用，重出这一批' }[
+              r.verdict
+            ]
+          }`,
+        )
+        for (const p of r.problems) console.log(`  · ${p}`)
+      }
+      return r.verdict === 'unusable' ? 1 : 0
     }
 
     default:
