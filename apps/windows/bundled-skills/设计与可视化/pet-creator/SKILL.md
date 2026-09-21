@@ -89,8 +89,10 @@ description: 制作一只属于用户的桌面宠物（虚拟人精灵图模型�
 - **动作数不必多**：`Idle` + `Talk` + 两三个点击动作就是一套够用的。
 - **首尾要能接上**：末格回到首格附近，否则循环时会有一次跳变。
 
-**表情/口型批要给 `diffBase`**（见第 5 步）：它们出的是「同机位全身、**除眼睛外完全一致**」的图集，
-流水线会拿它跟基准帧做差分，把眼睛那一层抠出来。
+**表情/口型批要给 `kind: "expression"` + `part` + `variants`**（见第 5 步）。
+它们出的不是「一段动作」，而是**并列的几款差分**：每格同一姿势同一机位、只有某个部位不同。
+`buildSheetPlan` 会据此换成 FACES 段（并明写「身体姿势不要跟着变」）——
+动作批的模板会说「每格是上一格的下一时刻」，那对表情批是**反的**。
 
 **每一批都要重新完整描述角色**（种类、配色、风格、描边），不要只说"同上"——
 不同批次之间没有记忆，一致性靠你复述。
@@ -109,13 +111,16 @@ execute_skill({
     characterColors: ["#f3e2c7", "#4a3520", "#1a1a1a"],   // 角色身上出现过的颜色，含描边
     batches: [
       { action: "待机呼吸", motion: "胸口缓缓起伏 → 起伏到顶 → 缓缓落下 → 回到起始", cols: 2, rows: 2 },
-      { action: "挥手",     motion: "右前爪从身侧抬到耳侧 → 向左边摆 → 摆回右边 → 缓慢落回身侧", cols: 3, rows: 2 }
+      { action: "挥手",     motion: "右前爪从身侧抬到耳侧 → 向左边摆 → 摆回右边 → 缓慢落回身侧", cols: 3, rows: 2 },
+      // 表情批：kind 写 expression，给 part 与按读序排列的 variants
+      { kind: "expression", action: "眼神差分", part: "眼睛",
+        variants: ["睁眼", "闭眼", "笑眼", "难过"], cols: 2, rows: 2 }
     ]
   }
 })
 ```
 
-返回 `{ background, batches: [{ action, motion, cols, rows, filename, prompt, warnings }], warnings }`。
+返回 `{ background, batches: [{ kind, action, motion, part, variants, cols, rows, filename, prompt, warnings }], warnings }`。
 
 然后每个批次调一次 `image_generate`：
 
