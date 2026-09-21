@@ -50,6 +50,7 @@ export * from "./interaction/idle-stage.js";
 // 精灵后端运行时（P0-b）：帧增量归一、槽位状态、口型取档、缩放吸附、多边形命中。
 // 同样零依赖、可脱开 WebGL 单测；客户端只负责把解析结果画出来。
 export * from "./render/sprite-runtime.js";
+export * from "./render/sprite-playback.js";
 export * from "./render/hit-polygon.js";
 
 // 阶段 E：WebView 渲染适配（指令协议 + postMessage 实现）

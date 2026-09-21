@@ -29,6 +29,15 @@ import { validateProceduralParams } from "../render/procedural-motion.js";
 export interface SpriteFrameRef {
   /** base 槽的图集条目名 */
   base?: string
+  /**
+   * 这一帧停留多少毫秒。省略则用动画的 `fps` 均分。
+   *
+   * **逐帧时长不是锦上添花，是四到六帧能不能读成一段动作的关键。**
+   * 一段挥手要「抬手慢、摆到顶停一下、落手快」，均速播出来只是匀速抖动。
+   * 这条抄自 Codex 的 hatch-pet：它把 idle 写成 `280, 110, 110, 140, 140, 320 ms`
+   * ——首尾各停近三倍时长。
+   */
+  durationMs?: number
   /** 其它槽位 → 部件名（如 { face: { eyes: "eye_happy", mouth: "m1" } }） */
   [slot: string]: unknown
 }
@@ -139,7 +148,8 @@ const ANIMATION_KEYS = new Set([
   "group", "index", "kind", "source", "fps", "frames", "params", "next",
 ])
 const SLOT_KEYS = new Set(["kind", "at", "parts"])
-const FRAME_RESERVED = new Set(["base"])
+// 帧对象上「不是槽位引用」的键。少了这个，durationMs 会被当成一个未声明的槽位报错。
+const FRAME_RESERVED = new Set(["base", "durationMs"])
 
 /**
  * 校验精灵图清单。
@@ -318,6 +328,9 @@ export function validateSpriteManifest(
               return
             }
             const keys = Object.keys(fr)
+            if (fr.durationMs !== undefined && !(isFiniteNumber(fr.durationMs) && fr.durationMs > 0)) {
+              errors.push({ path: `${fp}.durationMs`, message: "durationMs 必须是正数（毫秒）" })
+            }
             if (keys.length === 0) {
               errors.push({ path: fp, message: "帧不能是空对象（至少声明一个槽位）" })
             }

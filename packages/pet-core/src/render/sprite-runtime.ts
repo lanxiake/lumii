@@ -40,6 +40,13 @@ export interface ResolvedAnimation {
   fps: number;
   /** 全量帧快照；仅 procedural 的动画为空数组 */
   frames: SlotState[];
+  /**
+   * 逐帧时长（毫秒），与 `frames` 按下标对齐；没有一帧声明过就是 `undefined`。
+   *
+   * 播放器优先用它，缺项时回落到 `1000 / fps`。**只有声明过的那几帧才带值**——
+   * 全 0 填充会让「这一帧没写时长」和「这一帧时长是 0」分不开。
+   */
+  durationsMs?: number[];
   /** 程序化原语参数（可与 frames 并存） */
   params?: ProceduralParams;
   /** kind="once" 播完回到哪个组 */
@@ -171,6 +178,16 @@ function resolveAnimationFrames(
   return out;
 }
 
+/**
+ * 抽出逐帧时长。**一帧都没声明就返回 `undefined`**，不返回一个全零数组——
+ * 播放器靠 `undefined` 判断「这条动画走均速」，全零数组会让每一帧的时长都是 0。
+ */
+function resolveFrameDurations(anim: SpriteAnimation): number[] | undefined {
+  const raw = anim.frames ?? [];
+  if (!raw.some((f) => typeof f.durationMs === "number" && f.durationMs > 0)) return undefined;
+  return raw.map((f) => (typeof f.durationMs === "number" && f.durationMs > 0 ? f.durationMs : 0));
+}
+
 /** 推断动画来源：显式声明优先，否则按有无 frames 判断 */
 function resolveSource(anim: SpriteAnimation): "frames" | "procedural" {
   if (anim.source) return anim.source;
@@ -227,6 +244,7 @@ export function resolveSpriteRuntime(manifest: SpriteManifest): SpriteRuntimeMod
       source: resolveSource(anim),
       fps: anim.fps && anim.fps > 0 ? anim.fps : 8,
       frames: resolveAnimationFrames(anim, defaultState, layered),
+      durationsMs: resolveFrameDurations(anim),
       params: anim.params,
       next: anim.next,
     } satisfies ResolvedAnimation,

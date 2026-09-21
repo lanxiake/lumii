@@ -23,6 +23,7 @@
 import * as PIXI from 'pixi.js'
 import {
   adaptiveScale,
+  advanceSpriteFrame,
   BlinkScheduler,
   evaluateProcedural,
   gazeOffset,
@@ -417,21 +418,12 @@ export class SpritePetRenderer implements PetRendererProvider {
       return
     }
 
-    const frameDuration = 1000 / Math.max(1, p.anim.fps)
-    p.acc += deltaMS
-    let advanced = false
-    while (p.acc >= frameDuration) {
-      p.acc -= frameDuration
-      if (p.anim.kind === 'loop') {
-        p.frame = (p.frame + 1) % frames.length
-      } else if (p.frame < frames.length - 1) {
-        p.frame += 1
-      } else {
-        break
-      }
-      advanced = true
-    }
-    if (advanced) this.applyState(frames[p.frame])
+    // 帧推进的算法（逐帧时长 / 均速回落 / once 停尾 / 防挂死上限）在 pet-core 里，
+    // 那边能脱开 WebGL 单测；这里只把结果套到图层上。
+    const stepped = advanceSpriteFrame(p.anim, { frame: p.frame, elapsedMs: p.acc }, deltaMS)
+    p.frame = stepped.frame
+    p.acc = stepped.elapsedMs
+    if (stepped.advanced) this.applyState(frames[p.frame])
     this.maybeCompleteOnce(p)
   }
 

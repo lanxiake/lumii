@@ -185,6 +185,41 @@ describe("validateSpriteManifest — 结构完整性", () => {
     expect(validateSpriteManifest(m).ok).toBe(true);
   });
 
+  /**
+   * `durationMs` 是帧对象上的**保留键**，不是槽位引用。
+   *
+   * 没加进 `FRAME_RESERVED` 的话，它会走进「槽位引用」那条校验，报
+   * 「槽位 durationMs 未在 slots 中声明」——一个写法完全正确的清单被拒。
+   */
+  describe("逐帧时长", () => {
+    it("帧上的 durationMs 不被当成槽位引用", () => {
+      const m = validManifest({
+        animations: [
+          {
+            group: "Idle",
+            kind: "loop",
+            fps: 8,
+            frames: [{ base: "i", durationMs: 280 }, { base: "i2", durationMs: 110 }],
+          },
+        ],
+      });
+      const r = validateSpriteManifest(m);
+      if (!r.ok) throw new Error(r.errors.map((e) => `${e.path}: ${e.message}`).join(" | "));
+      expect(r.ok).toBe(true);
+    });
+
+    it("durationMs 非正数时拒绝", () => {
+      for (const bad of [0, -100, Number.NaN]) {
+        const m = validManifest({
+          animations: [
+            { group: "Idle", kind: "loop", frames: [{ base: "i", durationMs: bad }] },
+          ],
+        });
+        expectRejected(m, "durationMs");
+      }
+    });
+  });
+
   it("拒绝空 id / 空 atlas / 空 atlasJson", () => {
     expectRejected(validManifest({ id: "" }), "id");
     expectRejected(validManifest({ atlas: "" }), "atlas");

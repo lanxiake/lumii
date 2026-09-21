@@ -11,6 +11,23 @@
   ],
   "atlas": "atlas.png",
   "atlasJson": "atlas.json",
+  "slots": {
+    "face": {
+      "kind": "layered",
+      "at": [
+        0,
+        0
+      ],
+      "parts": {
+        "eyes": [
+          "eye_open",
+          "eye_shut",
+          "eye_happy",
+          "eye_sad"
+        ]
+      }
+    }
+  },
   "animations": [
     {
       "group": "Idle",
@@ -19,16 +36,23 @@
       "fps": 4,
       "frames": [
         {
-          "base": "girl_body_00"
+          "base": "girl_body_00",
+          "face": {
+            "eyes": "eye_open"
+          },
+          "durationMs": 420
         },
         {
-          "base": "girl_body_01"
+          "base": "girl_body_01",
+          "durationMs": 200
         },
         {
-          "base": "girl_body_02"
+          "base": "girl_body_02",
+          "durationMs": 420
         },
         {
-          "base": "girl_body_03"
+          "base": "girl_body_03",
+          "durationMs": 200
         }
       ],
       "params": {
@@ -44,7 +68,10 @@
       "fps": 8,
       "frames": [
         {
-          "base": "girl_body_00"
+          "base": "girl_body_00",
+          "face": {
+            "eyes": "eye_open"
+          }
         },
         {
           "base": "girl_body_01"
@@ -68,22 +95,20 @@
       "fps": 8,
       "frames": [
         {
-          "base": "girl_wave_00"
+          "base": "girl_wave_00",
+          "durationMs": 300
         },
         {
-          "base": "girl_wave_01"
+          "base": "girl_wave_01",
+          "durationMs": 200
         },
         {
-          "base": "girl_wave_02"
+          "base": "girl_wave_02",
+          "durationMs": 460
         },
         {
-          "base": "girl_wave_03"
-        },
-        {
-          "base": "girl_wave_04"
-        },
-        {
-          "base": "girl_wave_05"
+          "base": "girl_wave_03",
+          "durationMs": 240
         }
       ]
     }

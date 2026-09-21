@@ -249,6 +249,54 @@ describe("resolveSpriteRuntime — 来源与参数", () => {
     expect(rt.animationsByGroup.get("Idle")![0]!.fps).toBe(8);
   });
 
+  /**
+   * 逐帧时长：四到六帧能不能读成一段动作，靠的就是首尾停得久、中间走得快。
+   * 均速播一段挥手只是匀速抖动。
+   */
+  describe("逐帧时长", () => {
+    it("帧上声明了 durationMs 就透传，按下标对齐", () => {
+      const rt = resolveSpriteRuntime(
+        base({
+          animations: [
+            {
+              group: "Idle",
+              kind: "loop",
+              fps: 8,
+              frames: [
+                { base: "a", durationMs: 280 },
+                { base: "b", durationMs: 110 },
+                { base: "c", durationMs: 320 },
+              ],
+            },
+          ],
+        }),
+      );
+      expect(rt.animationsByGroup.get("Idle")![0]!.durationsMs).toEqual([280, 110, 320]);
+    });
+
+    /**
+     * 「没声明」必须与「声明成 0」分得开：返回 `undefined` 让播放器走均速，
+     * 而不是给一个全零数组（那样每一帧都是 0 毫秒 = 瞬跳）。
+     */
+    it("一帧都没声明时是 undefined，不是全零数组", () => {
+      const rt = resolveSpriteRuntime(
+        base({ animations: [{ group: "Idle", kind: "loop", frames: [{ base: "a" }, { base: "b" }] }] }),
+      );
+      expect(rt.animationsByGroup.get("Idle")![0]!.durationsMs).toBeUndefined();
+    });
+
+    it("只声明了部分帧时，未声明的那几帧留 0（播放器回落到均速）", () => {
+      const rt = resolveSpriteRuntime(
+        base({
+          animations: [
+            { group: "Idle", kind: "loop", frames: [{ base: "a", durationMs: 300 }, { base: "b" }] },
+          ],
+        }),
+      );
+      expect(rt.animationsByGroup.get("Idle")![0]!.durationsMs).toEqual([300, 0]);
+    });
+  });
+
   it("透传 once 的 next", () => {
     const rt = resolveSpriteRuntime(
       base({

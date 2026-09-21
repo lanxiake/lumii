@@ -36,8 +36,12 @@ import os from 'node:os'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { pathToFileURL } from 'node:url'
+import { controlConfig } from '../lib/control.mjs'
 
-const cfg = JSON.parse(fs.readFileSync(path.join(os.homedir(), '.lumii/runtime/app-ui.json'), 'utf-8'))
+// 配置走 lib/control.mjs 那一份：它认 LUMII_CLIENT_DATA_DIR（本地源码版工具链靠这个接进来）。
+// 早先这里硬编码读 ~/.lumii/runtime/app-ui.json，后果是**任何 import 本模块的脚本都要求真实 App 在跑**
+// ——实测 compose-review.mjs 只是想借一个常量，却在 import 阶段就 ENOENT 崩掉。
+const cfg = controlConfig()
 const BASE = `http://127.0.0.1:${cfg.port}`
 const H = { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.token}` }
 
@@ -197,6 +201,15 @@ export function motionPrompt(characterId, only = null) {
       `${wanted.length > 1 ? '两张图各自调一次 image_generate，都在这一轮里做完。' : ''}\n`,
   )
   parts.push(`**模型统一用 \`modelId: "${MODEL}"\`，width/height 都传 ${SIZE.width}。**\n`)
+  // 参考图要**单独强调一句**。只写成下面那样的项目符号时，Agent 会照传 filename / modelId /
+  // width 却把它漏掉——实测查日志发现挥手的 image_generate 参数里根本没有 referenceImagePaths，
+  // 于是那一批跟没挂参考图一样（相邻帧 94~138% 的像素在变）。
+  if (wanted.some(([, k]) => k !== 'idle') && readGenerated()[`${characterId}-idle`]) {
+    parts.push(
+      `\n**这一轮必须把参考图一起传进去**（参数名 \`referenceImagePaths\`，取下面给出的那个字符串）——` +
+        `不传的话模型会把角色一格一格重画，动作接不上。别漏。\n`,
+    )
+  }
 
   for (const [i, key, label] of wanted) {
     const batch = c.plan.batches[i]

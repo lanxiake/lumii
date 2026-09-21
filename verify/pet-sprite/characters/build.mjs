@@ -36,11 +36,30 @@ export const DEMO_ID = {
 /** 表情批的档位名，按读序。索引即 `emotionMap` 里的数字。 */
 const FACE_NAMES = ['eye_open', 'eye_shut', 'eye_happy', 'eye_sad']
 
+/**
+ * 逐帧时长（毫秒）。**首尾停得久、中间走得快**——这是四帧能不能读成一段动作的关键，
+ * 均速播出来只是匀速抖动。取值参考 Codex hatch-pet 的 `280, 110, 110, 140, 140, 320`。
+ */
+const DURATIONS = {
+  // 呼吸：吸到底与呼到底各停一会儿，中间过渡快
+  idle: [420, 200, 420, 200],
+  // 挥手：抬手慢 → 摆到顶停一下 → 落手快
+  wave: [300, 200, 460, 240],
+}
+
 export function buildParams(id, { withFace = true } = {}) {
   const c = plans[id]
   const p = PREFIX[id]
   const raw = (s) => path.join(RAW_DIR, `${p}-${s}.png`)
   const base = (i) => `${p}_body_${String(i).padStart(2, '0')}`
+  /**
+   * 网格从 `plans.json` 读，**不要在这里写死**。
+   *
+   * 写死过一次：出图侧改成了 4×1 横条，这里还是 2×2，于是拿 2×2 去切一张 4×1 的图
+   * ——每格 627×627 而角色横跨整图，闸门报「4 格越界、最差 20%」，看着像出图坏了，
+   * 其实是切错了。网格是**计划的一部分**，只有一个来源。
+   */
+  const grid = (i) => ({ cols: c.plan.batches[i].cols, rows: c.plan.batches[i].rows })
   return {
     action: 'build',
     id: DEMO_ID[id],
@@ -51,28 +70,30 @@ export function buildParams(id, { withFace = true } = {}) {
     batches: [
       {
         file: raw('idle'),
-        cols: 2,
-        rows: 2,
+        ...grid(0),
+        durationsMs: DURATIONS.idle,
         slot: 'base',
-        names: [0, 1, 2, 3].map(base),
+        names: Array.from({ length: c.plan.batches[0].cols * c.plan.batches[0].rows }, (_, i) => base(i)),
       },
       {
         file: raw('wave'),
-        cols: 3,
-        rows: 2,
+        ...grid(1),
+        durationsMs: DURATIONS.wave,
         slot: 'base',
         group: 'Wave',
         kind: 'once',
         next: 'Idle',
         fps: 8,
-        names: [0, 1, 2, 3, 4, 5].map((i) => `${p}_wave_${String(i).padStart(2, '0')}`),
+        names: Array.from(
+          { length: c.plan.batches[1].cols * c.plan.batches[1].rows },
+          (_, i) => `${p}_wave_${String(i).padStart(2, '0')}`,
+        ),
       },
       ...(withFace
         ? [
             {
               file: raw('face'),
-              cols: 2,
-              rows: 2,
+              ...grid(2),
               slot: 'face',
               category: 'eyes',
               diffBase: base(0),

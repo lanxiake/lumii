@@ -98,6 +98,7 @@ const SAFE_ID = /^[a-z0-9][a-z0-9_-]{0,63}$/
 function buildManifest(params, namesByBatch, warnings) {
   const slots = {}
   const baseNames = []
+  const baseDurations = []
   /** 带 group 的 base 批次：先记下来，等 slots 齐了再建帧（首帧要显式声明面部部件） */
   const grouped = []
 
@@ -105,7 +106,10 @@ function buildManifest(params, namesByBatch, warnings) {
     const names = namesByBatch.get(batch)
     if (batch.slot === 'base') {
       if (batch.group) grouped.push({ batch, names })
-      else baseNames.push(...names)
+      else {
+        baseNames.push(...names)
+        baseDurations.push(...(Array.isArray(batch.durationsMs) ? batch.durationsMs : []))
+      }
       continue
     }
     const slot = (slots[batch.slot] ??= { kind: 'layered', at: [0, 0], parts: {} })
@@ -114,10 +118,20 @@ function buildManifest(params, namesByBatch, warnings) {
     slot.parts[cat] = names
   }
 
-  const framesFrom = (ns) =>
-    ns.map((n, i) => (i === 0 ? { base: n, ...firstFace(slots) } : { base: n }))
+  /**
+   * 造帧序列。`durations` 是这一批的逐帧时长（毫秒），可省略。
+   *
+   * **时长挂在帧上而不是动画上**：一帧停多久是这一帧自己的属性，
+   * 两者分开写以后很容易按错下标、错位也不报错。
+   */
+  const framesFrom = (ns, durations) =>
+    ns.map((n, i) => ({
+      ...(i === 0 ? { base: n, ...firstFace(slots) } : { base: n }),
+      ...(Number.isFinite(durations?.[i]) ? { durationMs: durations[i] } : {}),
+    }))
 
-  const idleFrames = baseNames.length > 0 ? framesFrom(baseNames) : framesFrom(firstBaseOf(slots))
+  const idleFrames =
+    baseNames.length > 0 ? framesFrom(baseNames, baseDurations) : framesFrom(firstBaseOf(slots))
   if (idleFrames.length === 0 && grouped.length > 0) {
     throw new Error(
       '没有待机批次：所有 base 批次都带了 group，Idle 没有帧可播。' +
@@ -136,7 +150,7 @@ function buildManifest(params, namesByBatch, warnings) {
       kind,
       ...(kind === 'once' ? { next: batch.next } : {}),
       fps: Number.isFinite(batch.fps) ? batch.fps : 6,
-      frames: framesFrom(names),
+      frames: framesFrom(names, batch.durationsMs),
     }
   })
 
