@@ -54,10 +54,10 @@ const TAP_AMBIENT_HOLD_MS = 2500
  * 必然先把它拖歪一点——短按和拖拽在体感上分不开。现在按住够久才算抓：
  * 短按是点击（宠物蹦一下），按满这个时长才跟手。
  *
- * 1.5 秒。初版定的 3 秒偏长——用户反馈"拖不动"，实际是按了一两秒就拖、
- * 而那在设计上就不该动。1.5 秒足够区分两个手势，又不会让人以为坏了。
+ * 1 秒。初版 3 秒、次版 1.5 秒都偏长——用户两次反馈"拖不动"，实际是按了一两秒就拖、
+ * 而那在设计上就不该动。1 秒足够区分点击与抓取，又不必让人掐着表按。
  */
-const GRAB_HOLD_MS = 1500
+const GRAB_HOLD_MS = 1000
 
 /**
  * 指针交互的让位来源名。
@@ -711,11 +711,17 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
           // 点击回应期间**保持让位**，2.5 秒后自动交还。
           // 不这么做的话，宠物会在播跳跃动画的同时继续走路——脚不动、人在飘。
           holdAmbientForTap()
-          onInteractionRef.current?.({
-            type: 'landed',
-            x: renderer.getPosition().x,
-            y: renderer.getPosition().y,
-          })
+          // **这里不上报 `landed`**（2026-09-21 实测修正）。
+          //
+          // 点击没有经历"被抓起 → 下落"，报 `landed` 会让编排器走 `notifyLanded()`；
+          // 而模型没有 `Land` 组时它会回落到 `playAmbientMotion()`——**当场把刚播的
+          // 点击动作换成 Idle**。实测症状：点一下只看到 Idle 循环，`Wave` 一帧都没出
+          //（`[playMotion] group="Idle"` 紧跟在下发点击的同一 tick）。
+          //
+          // 它原本是必要的：早先版本 `mousedown` 就上报 `picked`，所以 `mouseup` 必须
+          // 上报 `landed` 复位。现在抓取改成"按住 `GRAB_HOLD_MS` 才成立"，未抓取时
+          // `interactionActive` 本来就是 false，无状态可复位。
+          // `landed` 只剩两条真正需要的路径，都在下方 `wasGrabbed` 分支里。
           reportModelHover(renderer.isPointerOverModel(x, y))
           return
         }
@@ -813,6 +819,11 @@ export function setTapInteractionEnabled(enabled: boolean): void {
 function triggerTapMotion(renderer: PetRendererProvider, hitArea: string): void {
   if (!tapInteractionEnabled) return
   const tapMotions = cachedTapModelConfig?.tapMotions?.[hitArea]
+  // 这一行是**诊断用**的：点击"没反应"有两条完全不同的原因——事件没到（看 driver 的
+  // suspend 日志）和映射没命中（看这里）。少了它只能靠猜。
+  log.info(
+    `[triggerTapMotion] hitArea="${hitArea}" 命中映射=${tapMotions ? JSON.stringify(tapMotions) : '无'}`,
+  )
   if (tapMotions) {
     const [group, index] = Object.entries(tapMotions)[0] ?? []
     if (group) {
