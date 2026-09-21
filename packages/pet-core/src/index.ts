@@ -56,6 +56,12 @@ export * from "./behavior/locomotion.js";
 // 攀附程序主窗口（R9 进阶）：吸附判定、沿墙爬升、天花板爬行、松手时机
 export * from "./behavior/perch.js";
 
+// Agent 状态可见化（R5/R6）：Agent 活动状态机 + 姿态调制（L1 表达层）。
+// 与 R9 的 ambient 是**不同维度**——那个是「宠物自己溜达到哪一步」，这个是「Agent 在做什么」；
+// 故命名一律用 agentActivity，别与 AmbientActivity 混。
+export * from "./state/agent-activity.js";
+export * from "./render/agent-activity-modulation.js";
+
 // 精灵后端运行时（P0-b）：帧增量归一、槽位状态、口型取档、缩放吸附、多边形命中。
 // 同样零依赖、可脱开 WebGL 单测；客户端只负责把解析结果画出来。
 export * from "./render/sprite-runtime.js";

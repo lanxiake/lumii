@@ -29,6 +29,9 @@ import {
   gazeOffset,
   findAnimation,
   hitTestPolygons,
+  applyActivityModulation,
+  IDENTITY_MODULATION,
+  isIdentityModulation,
   mouthLevelIndex,
   parseAtlasIndex,
   randomAnimationIndex,
@@ -36,6 +39,7 @@ import {
   resolveSpriteRuntime,
   snapPixelScale,
   validateSpriteManifest,
+  type ActivityModulation,
   type ResolvedAnimation,
   type SlotState,
   type SlotOverride,
@@ -522,6 +526,37 @@ export class SpritePetRenderer implements PetRendererProvider {
   /** 首条注视输入是否已记录（诊断用，只报一次） */
   private gazeLogged = false
 
+  /**
+   * Agent 活动的姿态调制（L1 表达层）。**默认恒等**——没接线时本渲染器的行为与
+   * 这个字段存在之前逐像素一致（`applyActivityModulation` 在恒等元下原样返回入参）。
+   */
+  private agentModulation: ActivityModulation = IDENTITY_MODULATION
+
+  /**
+   * 接收**已平滑**的调制量，在下一次 `applyProcedural` 生效。
+   *
+   * 平滑在 pet-core 的 `activityModulation()` 里做（它是纯函数，给定 `now` 就有确定值），
+   * 渲染器不攒上一帧——攒了就变成"帧率决定观感"，且没法写断言。
+   */
+  setAgentActivityModulation(mod: ActivityModulation): void {
+    const wasIdentity = isIdentityModulation(this.agentModulation)
+    this.agentModulation = mod
+    const nowIdentity = isIdentityModulation(mod)
+
+    // 只在 **恒等 ⇄ 非恒等** 的跨越上报一行。这是「Agent 活动此刻是否正在影响姿态」
+    // 的边界，一个 turn 最多两次（起、止），不刷屏。
+    //
+    // 为什么不报"首个非恒等"（第一版）：那条日志是**一次性**的，同一个应用实例里
+    // 跑第二次验证就再也看不到，读日志的人会得到"链路断了"的**假阴性**。
+    // 同理也不要报数值——跨越这一刻的值是**平滑起点**，必然贴近恒等（1.0000 / 1.0000 / 0.000），
+    // 报出来只会让人误以为"调制没生效"。
+    if (wasIdentity !== nowIdentity) {
+      log.info(
+        `[setAgentActivityModulation] 姿态调制${nowIdentity ? '回到基线（activity 已 idle）' : '开始生效'}`,
+      )
+    }
+  }
+
   setGaze(dx: number, dy: number): void {
     this.gazeX = dx
     this.gazeY = dy
@@ -552,20 +587,27 @@ export class SpritePetRenderer implements PetRendererProvider {
       ? evaluateProcedural(params, t, this.blinkScheduler ?? undefined)
       : { offsetY: 0, rotation: 0, scale: 1, blinkClosed: false }
 
+    // Agent 活动调制（L1 表达层）：叠加交给 pet-core 的纯函数，**不要在这里手写
+    // 那三个乘法**——「呼吸倍率乘偏离量而不是总量」这条约定极易写错，且错了看不出来
+    //（宠物整体胀一圈，不报错、不 NaN、只是"有点怪"）。它现在由
+    // `applyActivityModulation` 的单测钉着，绕开它等于把防线拆掉。
+    // 恒等元下它原样返回入参，所以没接线时这里逐字段不变。
+    const posed = applyActivityModulation(transform, this.agentModulation)
+
     // 注视换算：以「宠物高度 = 1」为单位算，再乘回画布高度——大小不同的模型表现一致
     const petHeight = this.runtime?.manifest.canvas.h ?? 0
     const gaze = gazeOffset({ dx: this.gazeX, dy: this.gazeY, petHeight: 1 })
 
     root.position.set(
       this.posX + gaze.shiftX * petHeight,
-      this.posY + transform.offsetY + gaze.shiftY * petHeight,
+      this.posY + posed.offsetY + gaze.shiftY * petHeight,
     )
     // 两个分量都是**度**（procedural-motion 与 gazeOffset 的约定），而 PIXI 的
     // `rotation` 是**弧度**——换算收在 `poseRotationRadians` 里，别在这里手写乘法。
     //
     // 这个换算曾经漏掉，长期没暴露：所有模型都没声明 sway/nod，`transform.rotation`
     // 恒为 0。加入注视后才第一次有非零值进来，症状是**宠物朝光标的反方向歪**。
-    root.rotation = poseRotationRadians(transform.rotation, gaze.tiltDeg)
+    root.rotation = poseRotationRadians(posed.rotation, gaze.tiltDeg)
 
     // 水平镜像作用在 root.scale.x 上（不是 pivot）。
     //
@@ -576,7 +618,7 @@ export class SpritePetRenderer implements PetRendererProvider {
     //
     // 旋转（sway/nod/注视倾斜）在 scale 外层，镜像后会视觉反向，这正是期望行为：
     // 宠物朝左时摇摆方向也该跟着镜像。
-    const s = this.effectiveScale() * transform.scale
+    const s = this.effectiveScale() * posed.scale
     root.scale.set(s * (this.flipped ? -1 : 1), s)
 
     this.applyEyeGaze(gaze, petHeight)

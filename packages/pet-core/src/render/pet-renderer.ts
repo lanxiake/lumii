@@ -11,6 +11,8 @@
  * 设计：.qoder/design/pet-core-shared-package/pet-core-公共包设计.md §5
  */
 
+import type { ActivityModulation } from "./agent-activity-modulation.js";
+
 /** 动作实际播放反馈（用于控制坞展示真实动作名） */
 export interface PetMotionPlayedInfo {
   readonly group: string;
@@ -64,6 +66,25 @@ export interface PetCoreRenderer {
    * 不支持注视的后端可空实现（如 Live2D，它自带视线跟随机制）。
    */
   setGaze?(dx: number, dy: number): void;
+
+  /**
+   * 设置 Agent 活动的姿态调制（可选，L1 表达层）。
+   *
+   * 三个分量都是**相对基线的倍率/偏移**，不是绝对值——`{ breatheScale: 1, bobScale: 1,
+   * tiltDeg: 0 }` 即恒等（`agentActivity` 为 idle 时就是这个值，姿态与本设计上线前
+   * 逐像素一致）。具体怎么叠进 transform 由各后端自己决定。
+   *
+   * ⚠️ sprite 后端的坑：呼吸的 `scale` 以 **1 为中心**（`breatheScale()` 返回
+   * `1 + (max-1)·wave`），所以倍率要乘在**偏离量**上而不是总量上——
+   * `1 + (scale - 1) × breatheScale`。直接乘总量会把宠物整体放大 30%，
+   * 而不是把呼吸加重 30%。
+   *
+   * 入参是**已平滑**的值（`activityModulation()` 的输出）：平滑在 pet-core 里做，
+   * 后端只管画。每帧调用安全，同值重复调用无副作用。
+   *
+   * 不支持的后端可空实现（Live2D 的姿态由动作组与物理引擎驱动，硬叠会打架）。
+   */
+  setAgentActivityModulation?(mod: ActivityModulation): void;
 
   /** 设置嘴部张开度（0~1），驱动 ParamMouthOpenY。由口型驱动每帧调用 */
   setMouthOpen(value: number): void;

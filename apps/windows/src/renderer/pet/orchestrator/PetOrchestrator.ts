@@ -20,6 +20,16 @@
 import type { PetRendererProvider, PetMotionPlayedInfo } from '../renderer/types'
 import type { PetModelConfig } from '../config/pet-model-types'
 import type { PetIdleStage, PetPose } from '@mtbot/pet-core'
+import {
+  activityModulation,
+  IDENTITY_MODULATION,
+  initialAgentActivity,
+  reduceAgentActivity,
+  tickAgentActivity,
+  type ActivityModulation,
+  type AgentActivityEvent,
+  type AgentActivityState,
+} from '@mtbot/pet-core'
 import { PET_MOTION_GROUP_UNNAMED } from '../config/pet-model-types'
 import { PetBus } from './pet-bus'
 import { bindPetEventAdapter } from './pet-event-adapter'
@@ -46,6 +56,15 @@ const IDLE_MOTION_DROWSY_FACTOR = 3
 const POST_DIALOGUE_IDLE_DELAY_MS = 10_000
 /** 醒来反馈表情的停留时间（ms）：太短看不见，太长会盖住紧接着的对话表情 */
 const WAKE_FEEDBACK_MS = 1200
+
+/**
+ * agentActivity 状态的推进周期（ms）。
+ *
+ * 取 ~60fps 而不是低频轮询：调制是连续量，采样率低于显示刷新率就会出现阶梯
+ *（600ms 的平滑窗口里只有 6 个采样点时，每步跳 5% 的幅度，肉眼能看出「一格一格」）。
+ * 宠物窗口设了 `backgroundThrottling: false`，失焦时不会被降频到 1s。
+ */
+const AGENT_ACTIVITY_TICK_MS = 16
 
 /**
  * 打盹 / 睡着 / 醒来各自往 `emotionMap` 里找的表情名，**按序探测**，第一个命中的生效。
@@ -128,6 +147,20 @@ export class PetOrchestrator {
   private ambientActivity: PetPose = 'stand'
   /** 活动对应的动作组；null = 没有（用基础待机组） */
   private ambientGroup: string | null = null
+  /**
+   * Agent 活动（R5/R6）：回答「**Agent 在干活吗**」。
+   *
+   * 与 `ambientActivity`（宠物自己溜达到哪一步）、`idleStage`（用户在场吗）一样是
+   * **正交维度**，故不进 petStateMachine。状态与转移规则全在 pet-core 的纯函数里，
+   * 这里只负责持有 + 按帧推进。
+   */
+  private agentActivity: AgentActivityState = initialAgentActivity
+  /** 推进 agentActivity 的定时器（工具段迟滞与 blocked 回落都需要时间流逝，纯函数没有定时器） */
+  private agentActivityTimer: ReturnType<typeof setInterval> | null = null
+  /** 是否启用 Agent 活动感知（默认开；所有自主行为都必须能关，与 idleMotion 同规格） */
+  private enableAgentActivity = true
+  /** 上一次送出去的调制量：稳态时它与新值引用相等，可跳过 setter */
+  private lastAgentModulation: ActivityModulation = IDENTITY_MODULATION
   /** 用户闲置阶段（P2-c）。**与环境有关，与对话生命周期正交**，故不进 petStateMachine */
   private idleStage: PetIdleStage = 'awake'
   /**
@@ -256,6 +289,96 @@ export class PetOrchestrator {
       }
       this.scheduleNextIdleMotion()
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Agent 活动感知（R5/R6）：把 Agent 的真实活动翻译成宠物的姿态底色
+  // ---------------------------------------------------------------------------
+
+  /**
+   * 收一条 **Agent 语义事件**（真实事件名由 `PetModeShell` 用 `mapAgentEvent` 翻译好）。
+   *
+   * 只改状态、不算调制——调制由 {@link pumpAgentActivity} 每帧算，因为平滑吃的是
+   * 「事件之间的时间」，而事件之间恰恰什么都没发生。
+   */
+  pushAgentActivity(event: AgentActivityEvent): void {
+    if (!this.enableAgentActivity) return
+    const now = performance.now()
+    const next = reduceAgentActivity(this.agentActivity, event, now)
+    if (next === this.agentActivity) return
+    // 只在 **activity 档位**变化时报。`tool-end` 每次都返回新对象（toolCount 在涨），
+    // 但它不改档位——照实打会刷出一串 `working → working`，把真正的切换淹掉。
+    const changed = next.activity !== this.agentActivity.activity
+    this.agentActivity = next
+    if (!changed) return
+    log.info(
+      `[pushAgentActivity] ${next.previousActivity} → ${next.activity} ` +
+        `(event=${event.type} tools=${next.toolCount})`,
+    )
+  }
+
+  /** 当前 Agent 活动状态（只读，供调试与控制坞） */
+  getAgentActivity(): AgentActivityState {
+    return this.agentActivity
+  }
+
+  /**
+   * 开关 Agent 活动感知。
+   *
+   * 关闭时必须**立刻还原恒等调制**，否则最后那一档姿态会挂在宠物身上：状态机不再被
+   * 推进，也就不会有下一次 `setAgentActivityModulation` 去覆盖它——宠物会永远停在
+   * 「忙」的呼吸幅度上。这是「开关要真的生效」与「关掉就没残留」的分界。
+   */
+  setEnableAgentActivity(enabled: boolean): void {
+    if (this.enableAgentActivity === enabled) return
+    this.enableAgentActivity = enabled
+    log.info(`[setEnableAgentActivity] enabled=${enabled}`)
+    if (enabled) return
+    this.agentActivity = initialAgentActivity
+    this.publishAgentModulation(IDENTITY_MODULATION)
+  }
+
+  private startAgentActivityLoop(): void {
+    if (this.agentActivityTimer !== null) return
+    this.agentActivityTimer = setInterval(() => this.pumpAgentActivity(), AGENT_ACTIVITY_TICK_MS)
+  }
+
+  private stopAgentActivityLoop(): void {
+    if (this.agentActivityTimer === null) return
+    clearInterval(this.agentActivityTimer)
+    this.agentActivityTimer = null
+  }
+
+  /**
+   * 每帧推进：先让状态机吃掉经过的时间（工具段迟滞、blocked 回落），再算调制交给渲染器。
+   *
+   * 时钟必须是 `performance.now()`——渲染器 `applyProcedural` 里的程序化原语用的是它。
+   * 两边用不同时钟（比如这边 `Date.now()`）会让平滑按两条时间轴走，
+   * 观感是"有时一顿、有时飞快"。
+   */
+  private pumpAgentActivity(): void {
+    const now = performance.now()
+    const ticked = tickAgentActivity(this.agentActivity, now)
+    if (ticked !== this.agentActivity) {
+      log.info(`[pumpAgentActivity] ${this.agentActivity.activity} → ${ticked.activity}（时间驱动）`)
+      this.agentActivity = ticked
+    }
+
+    // 抓取/投掷期间完全不表达：用户手动交互优先于一切自动表达。
+    // 状态机照常推进（时间在流逝，松手后该是什么状态就是什么状态），只是不往外送。
+    this.publishAgentModulation(
+      this.interactionActive ? IDENTITY_MODULATION : activityModulation(this.agentActivity, now),
+    )
+  }
+
+  /**
+   * 送给渲染器。**稳态时跳过**——`activityModulation` 在插值期间每帧返回新对象，
+   * 但到达目标后返回的是表里的常量对象（引用相等），此时不必再走一次 setter。
+   */
+  private publishAgentModulation(mod: ActivityModulation): void {
+    if (mod === this.lastAgentModulation) return
+    this.lastAgentModulation = mod
+    this.renderer.setAgentActivityModulation?.(mod)
   }
 
   /** 标记 Agent 对话开始/结束；结束时进入 10s 冷却再恢复随机待机 */
@@ -601,6 +724,7 @@ export class PetOrchestrator {
       }
     })
     this.enterIdle()
+    this.startAgentActivityLoop()
     log.info('编排器已启动')
   }
 
@@ -1243,6 +1367,7 @@ export class PetOrchestrator {
   dispose(): void {
     this.exitIdle()
     this.clearPostDialogueCooldown()
+    this.stopAgentActivityLoop()
     this.unbindAdapter?.()
     this.unbindBus?.()
     this.unbindAdapter = null

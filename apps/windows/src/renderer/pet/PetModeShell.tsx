@@ -20,7 +20,7 @@ import { PetCanvas, type PetCanvasHandle, type PetCanvasDegradeReason, setTapMod
 import { PetControlDock } from './components/PetControlDock'
 import { PetOrchestrator, type PetAvatarStatus } from './orchestrator/PetOrchestrator'
 import { PetEmotionMapper } from './orchestrator/PetEmotionMapper'
-import type { PetIdleStage } from '@mtbot/pet-core'
+import { mapAgentEvent, type PetIdleStage } from '@mtbot/pet-core'
 import { useVoiceCall } from '../hooks/business/useVoiceCall/useVoiceCall'
 import { useAgentRuntimeActions } from '../hooks/business/useAgentRuntime/useAgentRuntime'
 import type { PetModelConfig } from './config/pet-model-types'
@@ -446,6 +446,15 @@ export const PetModeShell: React.FC = () => {
           }
           return
         }
+
+        // Agent 活动感知（R5/R6）：把真实事件名翻译成活动状态机的语义事件。
+        //
+        // 只认会改变状态的那几种——`agent:message:delta` / `agent:thinking:delta` 这类
+        // 高频流式事件 `mapAgentEvent` 返回 null，在这里直接对掉。它们本来就不改变
+        // activity（正文产出期间该是什么状态还是什么），而 delta 是逐 token 的，
+        // 接进来只是让状态机白跑几十万次。
+        const agentActivityEvent = mapAgentEvent(event.type ?? '')
+        if (agentActivityEvent) orchestratorRef.current?.pushAgentActivity(agentActivityEvent)
 
         if (event.type === 'autonomous:mood:emotion') {
           const emotion = event.emotion
