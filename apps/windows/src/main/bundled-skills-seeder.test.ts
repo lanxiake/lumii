@@ -19,6 +19,8 @@ import {
   resolveBundledSkillsSourceDir,
   pruneRetiredBundledSkills,
   RETIRED_BUNDLED_SKILLS,
+  hashDirectory,
+  SKILL_BASELINE_FILENAME,
 } from './bundled-skills-seeder'
 
 describe('BundledSkillsSeeder', () => {
@@ -115,6 +117,86 @@ describe('BundledSkillsSeeder', () => {
       // 用户修改的内容应保留
       const content = fs.readFileSync(path.join(existingSkillDir, 'SKILL.md'), 'utf-8')
       expect(content).toBe('# user modified weather')
+    })
+
+    /**
+     * 下面三条是同一件事的三面：**已存在的技能要不要更新**。
+     *
+     * 背景：原来是一律跳过，后果是修好的技能永远到不了老用户——`pet-creator` 的
+     * `run.ts` 是 App 自己的提示词点名要用的工具，一旧就让 Agent 每次多跑一次 `align`。
+     * 修法是记基线哈希：种子时把源目录哈希写进技能目录，下次靠它分辨「用户改过」与「只是旧」。
+     */
+    describe('已存在技能的更新判定', () => {
+      const skillDir = () => path.join(workspaceDir, 'skills', 'weather')
+      const srcDir = () => path.join(sourceBundledDir, 'weather')
+
+      it('没有基线（本次改动之前种下的老目录）→ 保留不覆盖', async () => {
+        fs.mkdirSync(skillDir(), { recursive: true })
+        fs.writeFileSync(path.join(skillDir(), 'SKILL.md'), '# 老版本，没有基线文件')
+
+        await seedBundledSkills(workspaceDir, mtbotDataDir)
+
+        // 分不清「用户改过」与「只是旧」，而覆盖不可逆——保守保留
+        expect(fs.readFileSync(path.join(skillDir(), 'SKILL.md'), 'utf-8')).toBe(
+          '# 老版本，没有基线文件',
+        )
+      })
+
+      it('有基线且目录内容与基线一致 → 更新到新版', async () => {
+        // 先种一遍，产生基线；再把源目录改掉，模拟发新版
+        await seedBundledSkills(workspaceDir, mtbotDataDir)
+        fs.writeFileSync(path.join(srcDir(), 'SKILL.md'), '# weather skill v2')
+        fs.writeFileSync(path.join(srcDir(), 'run.ts'), '// 新增的文件')
+
+        await seedBundledSkills(workspaceDir, mtbotDataDir)
+
+        expect(fs.readFileSync(path.join(skillDir(), 'SKILL.md'), 'utf-8')).toBe('# weather skill v2')
+        expect(fs.existsSync(path.join(skillDir(), 'run.ts'))).toBe(true)
+      })
+
+      it('有基线但用户改过 → 保留用户的版本', async () => {
+        await seedBundledSkills(workspaceDir, mtbotDataDir)
+        fs.writeFileSync(path.join(skillDir(), 'SKILL.md'), '# 我自己改的')
+        fs.writeFileSync(path.join(srcDir(), 'SKILL.md'), '# weather skill v2')
+
+        await seedBundledSkills(workspaceDir, mtbotDataDir)
+
+        expect(fs.readFileSync(path.join(skillDir(), 'SKILL.md'), 'utf-8')).toBe('# 我自己改的')
+      })
+
+      it('更新是「先删再拷」：新版删掉的文件不能留在目录里', async () => {
+        fs.writeFileSync(path.join(srcDir(), 'obsolete.ts'), '// 下一版会被删掉')
+        await seedBundledSkills(workspaceDir, mtbotDataDir)
+        expect(fs.existsSync(path.join(skillDir(), 'obsolete.ts'))).toBe(true)
+
+        fs.rmSync(path.join(srcDir(), 'obsolete.ts'))
+        await seedBundledSkills(workspaceDir, mtbotDataDir)
+
+        expect(fs.existsSync(path.join(skillDir(), 'obsolete.ts'))).toBe(false)
+      })
+    })
+
+    describe('hashDirectory', () => {
+      it('忽略基线文件本身（否则写进去的一刻哈希就变了）', () => {
+        const dir = path.join(tmpDir, 'hash-probe')
+        fs.mkdirSync(dir, { recursive: true })
+        fs.writeFileSync(path.join(dir, 'a.txt'), 'x')
+        const before = hashDirectory(dir)
+        fs.writeFileSync(path.join(dir, SKILL_BASELINE_FILENAME), 'whatever')
+        expect(hashDirectory(dir)).toBe(before)
+      })
+
+      it('对文件内容与新增文件敏感', () => {
+        const dir = path.join(tmpDir, 'hash-probe2')
+        fs.mkdirSync(dir, { recursive: true })
+        fs.writeFileSync(path.join(dir, 'a.txt'), 'x')
+        const base = hashDirectory(dir)
+        fs.writeFileSync(path.join(dir, 'a.txt'), 'y')
+        expect(hashDirectory(dir)).not.toBe(base)
+        fs.writeFileSync(path.join(dir, 'a.txt'), 'x')
+        fs.writeFileSync(path.join(dir, 'b.txt'), '')
+        expect(hashDirectory(dir)).not.toBe(base)
+      })
     })
 
     it('新增技能：目标目录无同名技能 → 复制', async () => {

@@ -185,8 +185,17 @@ export interface NormalizePlacement {
  * 一是角色在画布里的位置与锚点对不上（脚不沾地），二是画布尺寸与素材尺寸严重不符
  * （实测 128×128 的切片配上 48×56 的清单，桌面上会变成一大坨）。
  *
- * **所有帧共用一个缩放倍率**（按最高的那格算），不是逐帧各自撑满：
+ * **同一组帧共用一个缩放倍率**，不是逐帧各自撑满：
  * 逐帧撑满会把「蹲下」的帧放大到和「站直」一样高，角色看起来像在抽搐。
+ *
+ * **「组」= 帧尺寸相同的一组**，也就是同一批出图切出来的那些格。这条是实测逼出来的：
+ * `slice` 之后，一个物体在不同批次里占的像素数**取决于那一批的网格有多密**——
+ * 实测同一只猫，单格批（1254 一格）里占 1191px 高，2×2 批（627 一格）里只占 532px，
+ * 因为模型都是「把角色填满格子」，而格子小了一半。
+ * 早先拿**全体帧里最高的那个包围盒**算一个全局倍率，于是 2×2 那批的角色只有
+ * 单格批的 45% 大——切状态时宠物会突然缩小一半。
+ * 按尺寸分组之后：同批的格一样大（组内等比例，不抽搐），各组各自归一到目标高度
+ * （跨批次的网格差被吸收掉）。
  */
 export function computeNormalize(
   frames: readonly AlignFrame[],
@@ -197,12 +206,23 @@ export function computeNormalize(
   const targetH = options.canvas.h * fit
 
   const boxes = frames.map((f) => alphaBBox(f.data, f.width, f.height, bboxThreshold))
-  const usable = boxes.filter((b): b is BBox => b !== null)
-  const tallest = usable.length > 0 ? Math.max(...usable.map((b) => b.h)) : 0
-  const scale = tallest > 0 ? targetH / tallest : 1
+
+  // 按帧尺寸分组；组内取最高的包围盒算一个共同倍率
+  const tallestBySize = new Map<string, number>()
+  frames.forEach((f, i) => {
+    const b = boxes[i]
+    if (!b) return
+    const key = `${f.width}x${f.height}`
+    tallestBySize.set(key, Math.max(tallestBySize.get(key) ?? 0, b.h))
+  })
+  const scaleOf = (f: AlignFrame): number => {
+    const tallest = tallestBySize.get(`${f.width}x${f.height}`) ?? 0
+    return tallest > 0 ? targetH / tallest : 1
+  }
 
   return frames.map((f, i) => {
     const bbox = boxes[i]
+    const scale = scaleOf(f)
     const width = Math.max(1, Math.round(f.width * scale))
     const height = Math.max(1, Math.round(f.height * scale))
     if (!bbox) return { name: f.name, scale, x: 0, y: height, width, height, bbox: null }

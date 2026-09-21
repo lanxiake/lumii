@@ -171,4 +171,36 @@ describe('computeNormalize — 归一化到目标画布', () => {
   it('空输入不抛', () => {
     expect(computeNormalize([], { canvas: { w: 48, h: 56 }, anchor: [24, 54] })).toEqual([])
   })
+
+  /**
+   * 回归防线：**不同批次切出来的格子尺寸不同，角色不能在跨批次时缩小**。
+   *
+   * 实测来由：同一只猫，单格批（1254 一格）里占 1191px 高，2×2 批（627 一格）里只占
+   * 532px——模型都是「把角色填满格子」，格子小一半，角色就小一半。
+   * 早先拿全体帧里最高的那个包围盒算一个全局倍率，于是 2×2 那批的角色只有
+   * 单格批的 **45%** 大，切状态时宠物会突然缩小。
+   *
+   * 现在按帧尺寸分组、组内共享倍率：两组的角色都归一到目标高度。
+   */
+  it('不同帧尺寸的批次各自归一到同一目标高度（跨批次换网格不会缩水）', () => {
+    // 大格：200×200 的格子里角色占 180 高；小格：100×100 的格子里角色占 90 高
+    const big = rect('big', 200, 200, { x: 10, y: 10, w: 160, h: 180 })
+    const small = rect('small', 100, 100, { x: 5, y: 5, w: 80, h: 90 })
+    const r = computeNormalize([big, small], { canvas: { w: 48, h: 56 }, anchor: [24, 54] })
+
+    expect(r[0].bbox!.h * r[0].scale).toBeCloseTo(56 * 0.94, 5)
+    // 关键：小格里那个角色放大后**也是**目标高度，而不是它自己格子尺寸决定的 45%
+    expect(r[1].bbox!.h * r[1].scale).toBeCloseTo(56 * 0.94, 5)
+    expect(r[1].scale).toBeGreaterThan(r[0].scale)
+  })
+
+  it('同一组内仍共用一个倍率（蹲下的帧不会被单独撑满）', () => {
+    const standing = rect('s', 200, 200, { x: 10, y: 10, w: 100, h: 180 })
+    const crouching = rect('c', 200, 200, { x: 10, y: 110, w: 100, h: 80 })
+    const r = computeNormalize([standing, crouching], { canvas: { w: 48, h: 56 }, anchor: [24, 54] })
+
+    expect(r[0].scale).toBe(r[1].scale)
+    // 蹲下的那帧矮，且没有被拉到和目标一样高
+    expect(r[1].bbox!.h * r[1].scale).toBeLessThan(r[0].bbox!.h * r[0].scale)
+  })
 })

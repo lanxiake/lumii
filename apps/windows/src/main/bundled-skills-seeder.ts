@@ -5,20 +5,38 @@
  * 支持嵌套文件夹结构。
  *
  * 策略：
- * - 已存在的同名技能目录不覆盖（尊重用户修改）
+ * - **用户没改过的同名技能会被更新**（靠 `<技能目录>/.bundled-skill-hash` 里的基线判定）
+ * - 用户改过的保留不动（尊重用户修改）
  * - 源目录里新增的技能每次启动都会补上
  * - 已从 bundled-skills 下线的技能从 workspace 删掉
  * - 支持多层嵌套：分类目录/技能目录/SKILL.md
+ *
+ * ## 为什么不能只写「已存在就不覆盖」
+ *
+ * 那样写的后果是**修好的技能永远到不了老用户**：`pet-creator` 的 `run.ts` 是
+ * App 自己的提示词点名要用的工具，它一旧，Agent 每次执行都多跑一次 `align`
+ * （实测把 48×56 撑成 48×57）、没有 `blink`、`bob` 写死。而老用户的工作区里
+ * 那份是首次安装时种下的，之后**再也不会更新**。
+ *
+ * 于是记一份**基线哈希**：种子时把源目录的哈希写进技能目录里。下次启动时
+ * - 目录里的哈希 == 基线 ⇒ 用户没动过 ⇒ 用新版覆盖
+ * - 目录里的哈希 != 基线 ⇒ 用户改过 ⇒ 保留，只在日志里说一声
+ *
+ * **没有基线的老目录仍然跳过**：分不清「用户改过」与「只是旧」，
+ * 而覆盖用户的东西是不可逆的。这是这次改动有意留下的边界。
  */
 
 import * as fs from 'node:fs'
 import * as path from 'node:path'
+import { createHash } from 'node:crypto'
 import { app } from 'electron'
 import { createLogger } from './logger'
 
 const log = createLogger('BundledSkillsSeeder')
 
 export const SEED_VERSION_FILENAME = '.bundled-skills-seeded'
+/** 每个技能目录里的基线哈希文件名（记的是**上次种子时源目录**的哈希） */
+export const SKILL_BASELINE_FILENAME = '.bundled-skill-hash'
 const BUNDLED_SKILLS_DIR_NAME = 'bundled-skills'
 
 /**
@@ -144,7 +162,7 @@ export async function seedBundledSkills(
   console.log('[Seeder] step3: mkdirSync', targetSkillsDir)
   fs.mkdirSync(targetSkillsDir, { recursive: true })
 
-  const stats = { seeded: 0, skipped: 0, failed: 0, pruned: 0 }
+  const stats = { seeded: 0, skipped: 0, failed: 0, pruned: 0, refreshed: 0 }
 
   console.log('[Seeder] step4: pruneRetired start')
   pruneRetiredBundledSkills(targetSkillsDir, stats)
@@ -156,7 +174,7 @@ export async function seedBundledSkills(
     log.warn(`${stats.failed} 个技能种子失败，下次启动将重试`)
   } else {
     log.info(
-      `种子完成：新增 ${stats.seeded} 个，跳过 ${stats.skipped} 个（已存在），下线 ${stats.pruned} 个`,
+      `种子完成：新增 ${stats.seeded} 个，更新 ${stats.refreshed} 个，跳过 ${stats.skipped} 个（已存在且未改动的才会更新），下线 ${stats.pruned} 个`,
     )
     console.log('[Seeder] step7: writeSeededVersion')
     writeSeededVersion(mtbotDataDir, currentVersion)
@@ -211,7 +229,7 @@ async function seedDirectory(
   srcDir: string,
   destDir: string,
   relPath: string,
-  stats: { seeded: number; skipped: number; failed: number },
+  stats: { seeded: number; skipped: number; failed: number; refreshed: number },
 ): Promise<void> {
   let entries: fs.Dirent[]
   try {
@@ -231,26 +249,119 @@ async function seedDirectory(
     // 大小写不敏感查找 skill.md
     const hasSkillMd = hasSkillMdFile(srcSubDir)
     if (hasSkillMd) {
-      // 这是技能目录，直接复制
       if (fs.existsSync(destSubDir)) {
-        stats.skipped++
+        if (!refreshUnmodifiedSkill(srcSubDir, destSubDir, subRelPath)) {
+          stats.skipped++
+          continue
+        }
+        stats.refreshed++
         continue
       }
       try {
         fs.mkdirSync(destDir, { recursive: true })
         console.log('[Seeder] copyDir:', srcSubDir, '->', destSubDir)
         copyDirSync(srcSubDir, destSubDir)
+        writeBaseline(destSubDir, srcSubDir)
         console.log('[Seeder] copyDir done:', subRelPath)
         log.info(`已种子技能: ${subRelPath}`)
         stats.seeded++
       } catch (err) {
         log.error(`种子技能失败: ${subRelPath}`, err)
+        // 半途失败的目录如果不删掉，下次启动会因为「已存在」而永远跳过它
+        // （现在还会因为「没有基线」而跳过），那份技能就再也种不进来了
+        try {
+          fs.rmSync(destSubDir, { recursive: true, force: true })
+        } catch {
+          /* 清理失败就算了，至少日志里有记录 */
+        }
         stats.failed++
       }
     } else {
       // 这是分类目录，递归处理子目录
       await seedDirectory(srcSubDir, destSubDir, subRelPath, stats)
     }
+  }
+}
+
+/**
+ * 目录内容哈希：按**相对路径排序**后把「路径 + 内容」逐个喂进 sha256。
+ *
+ * 排序不可省——`readdirSync` 的顺序不保证稳定，不排序会让同一份内容算出两个哈希，
+ * 于是「没改过」被误判成「改过」，技能从此不再更新。这也是为什么不能只哈希内容。
+ */
+export function hashDirectory(dir: string): string {
+  const hash = createHash('sha256')
+  const walk = (current: string, rel: string): void => {
+    const entries = fs.readdirSync(current, { withFileTypes: true })
+    entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
+    for (const entry of entries) {
+      // 基线文件本身不算内容，否则写进去的一刻哈希就变了
+      if (entry.name === SKILL_BASELINE_FILENAME) continue
+      const abs = path.join(current, entry.name)
+      const relPath = rel ? `${rel}/${entry.name}` : entry.name
+      if (entry.isDirectory()) {
+        walk(abs, relPath)
+      } else {
+        hash.update(relPath)
+        hash.update('\0')
+        hash.update(fs.readFileSync(abs))
+        hash.update('\0')
+      }
+    }
+  }
+  walk(dir, '')
+  return hash.digest('hex')
+}
+
+function writeBaseline(destDir: string, srcDir: string): void {
+  try {
+    fs.writeFileSync(path.join(destDir, SKILL_BASELINE_FILENAME), hashDirectory(srcDir), 'utf-8')
+  } catch (err) {
+    // 写不上基线只是「下次会当成用户改过、不再更新」，不影响本次种子
+    log.warn(`写基线哈希失败: ${destDir}`, err)
+  }
+}
+
+/**
+ * 已存在的技能目录：没被用户改过就用新版覆盖，改过就保留。
+ *
+ * @returns 是否刷新了
+ */
+function refreshUnmodifiedSkill(srcDir: string, destDir: string, relPath: string): boolean {
+  const baselinePath = path.join(destDir, SKILL_BASELINE_FILENAME)
+  let baseline: string | null = null
+  try {
+    baseline = fs.readFileSync(baselinePath, 'utf-8').trim()
+  } catch {
+    // 没有基线：多是这次改动之前种下的老目录。分不清「改过」与「只是旧」，
+    // 按保守处理——保留，只记一行日志
+    log.info(`技能无基线哈希，按「用户可能改过」保留不更新: ${relPath}`)
+    return false
+  }
+
+  let current: string
+  try {
+    current = hashDirectory(destDir)
+  } catch (err) {
+    log.warn(`计算技能哈希失败，保留不更新: ${relPath}`, err)
+    return false
+  }
+
+  if (current !== baseline) {
+    log.info(`技能已被用户修改，保留不更新: ${relPath}`)
+    return false
+  }
+
+  try {
+    // 先删再拷：新版可能删掉了某些文件，直接覆盖会留下旧文件
+    fs.rmSync(destDir, { recursive: true, force: true })
+    copyDirSync(srcDir, destDir)
+    writeBaseline(destDir, srcDir)
+    log.info(`技能未改动，已更新到新版: ${relPath}`)
+    return true
+  } catch (err) {
+    log.error(`更新技能失败: ${relPath}`, err)
+    return false
   }
 }
 
