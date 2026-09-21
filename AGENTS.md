@@ -113,8 +113,14 @@ pnpm --filter ./apps/windows verify:win-package all              # 验收：asar
 在 Windows + pnpm workspace 下的流式写 asar 缺陷，26.15.3 复现两次、26.16.1 干净），Electron 加载
 主脚本即失败，**只弹一个标题为 `Error` 的对话框**——没有窗口、不写日志、不建数据根，看起来像
 「什么都没发生」。因此：`electron-builder` **锁精确版本 `26.16.1`**（原为 `^26.0.0`，范围会随
-`pnpm install` 漂移），发版前跑 `verify:win-package`（`asar` 判每个 package.json 可解析、
-`launch` 判产物真能起来）。判据与过程见 `docs/plans/Linux客户端移植/` 的总结与计划 §9。
+`pnpm install` 漂移），发版前跑 `verify:win-package`（`asar` 判每个 package.json 可解析 +
+**体积护栏**，`launch` 判产物真能起来）。判据与过程见 `docs/plans/Linux客户端移植/` 的总结与计划 §9。
+
+**包体既有护栏、也有反直觉的配置真相**：安装包 253.9 → 162.3 MiB 那一轮排掉了 8 类「运行时用不到」
+的东西（`.mtbot`、渲染层专用包、sourcemap、浏览器构建、占位 `onnxruntime-web`……），并实测记下三条
+——顶层 `files` 只管 node_modules（app 目录要写平台段）、`asarUnpack` 是独立白名单（`files` 的排除
+管不到）、输出目录只自动排除「当前那一个」。**动打包配置前先读**
+[`docs/design/工程基建/2026-09-21-打包体积治理.md`](docs/design/工程基建/2026-09-21-打包体积治理.md)。
 
 ## 专题规范
 
