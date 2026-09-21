@@ -183,14 +183,18 @@ const perchGaps = (() => {
   }
 
   const climb = groupBounds('CLIMB', false)
-  const crawl = groupBounds('CRAWL', true)
+  // CRAWL **不翻转**（见 GROUPS 里那段的修正说明）：素材本身就是脚底向上的倒挂姿态。
+  const crawl = groupBounds('CRAWL', false)
   const wall = (climb.x1 - anchor[0]) / canvas.h
   const ceiling = (anchor[1] - crawl.y0) / canvas.h
   console.log(
     `  攀附留白：CLIMB 侧向 ${climb.x1 - anchor[0]}px → ${wall.toFixed(3)}；` +
       `CRAWL 纵向 ${anchor[1] - crawl.y0}px → ${ceiling.toFixed(3)}`,
   )
-  if (!(wall > 0.2 && wall < 0.6) || !(ceiling > 0.15 && ceiling < 0.6)) {
+  // `ceiling` 的上界是 1 而不是 0.6：CRAWL 未翻转 ⇒ 内容贴帧顶 ⇒ 内容顶边到锚点
+  // 几乎就是整个画布高（实测 127/128 ≈ 0.992），照 0.6 卡会误报。
+  // 下界保留——它防的是"内容跑到帧中间"这种素材换了的信号。
+  if (!(wall > 0.2 && wall < 0.6) || !(ceiling > 0.15 && ceiling <= 1)) {
     throw new Error(
       `攀附留白超出合理区间（wall=${wall.toFixed(3)} ceiling=${ceiling.toFixed(3)}）。` +
         '素材换了或者裁切范围变了，先确认这两行画的是什么再继续。',

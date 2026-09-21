@@ -11,7 +11,7 @@
   ],
   "perchGaps": {
     "wall": 0.3828125,
-    "ceiling": 0.2421875
+    "ceiling": 0.9921875
   },
   "atlas": "atlas.png",
   "atlasJson": "atlas.json",
