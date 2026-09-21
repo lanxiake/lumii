@@ -363,7 +363,9 @@ async function run() {
       names: batch.names,
     })
     warnings.push(...diff.warnings.map((w) => `批次 ${path.basename(batch.file)}：${w}`))
-    const bad = diff.frames.filter((f) => !f.usable)
+    // 空图层是**合法**的：表情批的第一格往往就是中性表情，与基准帧一致、抠出来当然全透明，
+    // 渲染时「什么都不画」正好等于「保持身体原本的脸」。只有「抠出来了但铺得太开」才是失败。
+    const bad = diff.frames.filter((f) => f.changed > 0 && !f.usable)
     if (bad.length > 0) {
       throw new Error(
         `批次 ${path.basename(batch.file)} 的差分取层没成立：${bad.map((f) => f.name).join('、')}` +

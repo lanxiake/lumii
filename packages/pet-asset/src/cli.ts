@@ -14,7 +14,7 @@ import { resolve } from 'node:path'
 import { resolveUserPetDir } from './paths.js'
 import { runCutout, runInstall, runValidate } from './commands.js'
 import { describeBackground } from './commands.js'
-import { runAlign, runNormalize, runPack, runSheetCheck, runSlice } from './toolchain.js'
+import { runAlign, runDiffLayer, runNormalize, runPack, runSheetCheck, runSlice } from './toolchain.js'
 
 const USAGE = `pet-asset —— 宠物素材工具链
 
@@ -26,6 +26,7 @@ const USAGE = `pet-asset —— 宠物素材工具链
   pet-asset normalize <图片目录> <输出目录> [选项]     归一化到目标画布（缩放 + 按锚点落位）
   pet-asset pack     <图片目录> <输出目录> [选项]      打包成图集
   pet-asset sheetcheck <出图文件> [选项]               出图闸门（切图之前判质量）
+  pet-asset difflayer <基准帧.png> <帧目录> <输出目录> [选项]  差分取层（表情批 → 只留变化部位）
   pet-asset validate <包目录>                          只读校验，报出全部问题
   pet-asset install  <包目录> [--target <目录>]        校验通过才搬运
 
@@ -52,6 +53,13 @@ pack 选项：
   --padding <n>    格子留白（默认 0）
   --align          打包前先按地线对齐（直出图集建议开）
   --name <s>       输出文件名（不含扩展名，默认 atlas）
+
+difflayer 选项：
+  --names <a,b,c>  只处理这些帧（默认目录下全部）
+  --threshold <n>  判「变了」的通道差阈值（默认 32）
+  --dilate <n>     差异区域向外扩张的像素数（默认 2）
+  --search <n>     差分前搜索平移补偿的半径（默认 7，0=不搜）
+  --minArea <n>    连通域面积下限（默认按画布比例算，用来滤掉抗锯齿噪点）
 
 sheetcheck 选项：
   --cols <n> --rows <n>   声明的网格行列数（默认 2×2）
@@ -357,6 +365,35 @@ async function main(): Promise<number> {
         for (const p of r.problems) console.log(`  · ${p}`)
       }
       return r.verdict === 'unusable' ? 1 : 0
+    }
+
+    case 'difflayer': {
+      const [base, dir, outDir] = args.positional
+      if (!base || !dir || !outDir) fail('difflayer 需要 <基准帧.png> <帧目录> <输出目录>')
+      const namesArg = args.flags.get('names')
+      const r = await runDiffLayer(resolve(base), resolve(dir), resolve(outDir), {
+        names: typeof namesArg === 'string' ? namesArg.split(',').map((s) => s.trim()).filter(Boolean) : undefined,
+        threshold: numArg(args.flags.get('threshold'), 'threshold'),
+        dilate: numArg(args.flags.get('dilate'), 'dilate'),
+        searchRadius: numArg(args.flags.get('search'), 'search'),
+        minComponentArea: numArg(args.flags.get('minArea'), 'minArea'),
+      })
+      if (json) {
+        console.log(JSON.stringify(r, null, 2))
+      } else {
+        console.log('=== 差分取层 ===')
+        console.log(`  基准帧 ${base}  →  ${outDir}`)
+        for (const f of r.frames) {
+          console.log(
+            `  ${f.name.padEnd(12)} 变化 ${String(f.changed).padStart(6)} px（占画布 ${(f.changedRatio * 100).toFixed(1)}%）` +
+              `  包围盒 ${((f.bboxAreaRatio ?? 0) * 100).toFixed(0)}%  密度 ${f.density.toFixed(2)}  连通域 ${f.componentCount}/${f.componentCount + f.droppedComponents}（丢 ${f.droppedPixels}px）` +
+              `  平移补偿 (${f.offset.dx},${f.offset.dy})  平均差 ${f.meanDiffBefore.toFixed(1)}→${f.meanDiffAfter.toFixed(1)}` +
+              `  ${f.usable ? '✓' : '✗'}`,
+          )
+        }
+        for (const w of r.warnings) console.log(`  · ${w}`)
+      }
+      return r.frames.every((f) => f.usable) ? 0 : 1
     }
 
     default:

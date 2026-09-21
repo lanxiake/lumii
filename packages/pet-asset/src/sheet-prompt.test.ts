@@ -274,3 +274,66 @@ describe('buildSheetPlan', () => {
     ).toThrow(/网格不合法/)
   })
 })
+
+/**
+ * 表情批与动作批的格子语义**相反**：动作批要「每格是上一格的下一时刻」，
+ * 表情批要「每格除了那一个部位之外逐像素一致」。共用一套模板等于让模型去编时间顺序。
+ */
+describe('buildSheetPrompt / expression 批', () => {
+  const expr = buildSheetPrompt({
+    kind: 'expression',
+    cols: 2,
+    rows: 2,
+    action: '眼神差分',
+    part: '眼睛',
+    variants: ['睁眼', '闭眼', '笑眼', '难过'],
+    character: '一只奶油色的小狗',
+    background: '#1d5fa8',
+  })
+
+  it('用 FACES 段而不是 MOTION 段', () => {
+    expect(expr).toContain('FACES:')
+    expect(expr).not.toContain('MOTION:')
+    expect(expr).toContain('并列的几种表情')
+  })
+
+  it('明确要求「身体姿势不要跟着变」并点名变化的部位', () => {
+    expect(expr).toContain('身体姿势不要跟着变')
+    expect(expr).toContain('各格之间只有眼睛不同')
+  })
+
+  it('各格取值按读序写进去', () => {
+    expect(expr).toContain('按顺序依次是：睁眼、闭眼、笑眼、难过')
+  })
+
+  it('不给 variants 时不留空壳', () => {
+    const bare = buildSheetPrompt({
+      kind: 'expression', cols: 2, rows: 2, action: 'x',
+      character: 'c', background: '#000000',
+    })
+    expect(bare).not.toContain('按顺序依次是')
+    expect(bare).not.toContain('MOTION:')
+  })
+
+  it('缺 part / variants 数量对不上时报警', () => {
+    const missingPart = buildSheetPlan({
+      character: 'c', characterColors: ['#ff0000'],
+      batches: [{ kind: 'expression', action: '差分', variants: ['a', 'b', 'c', 'd'], cols: 2, rows: 2 }],
+    })
+    expect(missingPart.warnings.some((w) => w.includes('没给 part'))).toBe(true)
+
+    const wrongCount = buildSheetPlan({
+      character: 'c', characterColors: ['#ff0000'],
+      batches: [{ kind: 'expression', action: '差分', part: '眼睛', variants: ['a', 'b'], cols: 2, rows: 2 }],
+    })
+    expect(wrongCount.warnings.some((w) => w.includes('与网格 2×2（4 格）不符'))).toBe(true)
+  })
+
+  it('expression 批不会因为「没给 motion」被误报', () => {
+    const plan = buildSheetPlan({
+      character: 'c', characterColors: ['#ff0000'],
+      batches: [{ kind: 'expression', action: '差分', part: '眼睛', variants: ['a', 'b', 'c', 'd'], cols: 2, rows: 2 }],
+    })
+    expect(plan.warnings.some((w) => w.includes('没给 motion'))).toBe(false)
+  })
+})

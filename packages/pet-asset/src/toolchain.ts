@@ -19,7 +19,7 @@ import {
 } from './align.js'
 import { buildAtlasIndex, planAtlasLayout, type PackLayoutOptions } from './pack.js'
 import { analyzeSheet, type SheetCheckReport, type SheetThresholds } from './sheetcheck.js'
-import { extractDiffLayer, MAX_DIFF_AREA_RATIO } from './difflayer.js'
+import { extractDiffLayer, MAX_DIFF_AREA_RATIO, MIN_DIFF_DENSITY } from './difflayer.js'
 import { listFilesRecursive } from './io.js'
 import { parseAtlasIndex } from '@mtbot/pet-core'
 
@@ -322,9 +322,19 @@ export interface DiffLayerOutcome {
   frames: {
     name: string
     changed: number
+    /** 过滤前的变化像素数；与 `changed` 之差是抗锯齿噪点 */
+    rawChanged: number
+    droppedPixels: number
+    /** 保留/丢弃的连通域个数 */
+    componentCount: number
+    droppedComponents: number
     changedRatio: number
     bboxAreaRatio: number | null
     density: number
+    /** 补偿掉的平移（像素）——大于 2 就说明两次出图的机位差得有点多 */
+    offset: { dx: number; dy: number }
+    meanDiffBefore: number
+    meanDiffAfter: number
     usable: boolean
   }[]
   warnings: string[]
@@ -341,7 +351,13 @@ export async function runDiffLayer(
   basePath: string,
   dir: string,
   outDir: string,
-  opts: { names?: string[]; threshold?: number; dilate?: number } = {},
+  opts: {
+    names?: string[]
+    threshold?: number
+    dilate?: number
+    searchRadius?: number
+    minComponentArea?: number
+  } = {},
 ): Promise<DiffLayerOutcome> {
   const base = await readRgba(basePath)
   const names = opts.names ?? (await listFilesRecursive(dir)).filter((f) => IMAGE_EXT.test(f)).map((f) => basename(f, extname(f)))
@@ -361,22 +377,34 @@ export async function runDiffLayer(
     const r = extractDiffLayer(frame.data, base.data, frame.width, frame.height, {
       threshold: opts.threshold,
       dilate: opts.dilate,
+      searchRadius: opts.searchRadius,
+      minComponentArea: opts.minComponentArea,
     })
     if (!r.usable) {
       warnings.push(
         r.bbox === null
-          ? `${name} 与基准帧没有任何差异——模型没画出表情变化`
-          : `${name} 的差异覆盖了 ${((r.bboxAreaRatio ?? 0) * 100).toFixed(0)}% 的画布（上限 ${MAX_DIFF_AREA_RATIO * 100}%）` +
-            `——多半是两次出图的机位没对齐，这一层会把身体盖掉`,
+          ? `${name} 与基准帧没有差异——若这不是「中性表情/基准那一款」就是模型没画出变化` +
+            `（是中性款的话，全透明的图层正好等于「保持身体原本的脸」，属于正常结果）`
+          : `${name} 的差异铺开了：包围盒占画布 ${((r.bboxAreaRatio ?? 0) * 100).toFixed(0)}%（上限 ${MAX_DIFF_AREA_RATIO * 100}%）、` +
+            `紧致度只有 ${r.density.toFixed(2)}（下限 ${MIN_DIFF_DENSITY}），平移补偿 (${r.offset.dx},${r.offset.dy}) ` +
+            `平均差 ${r.meanDiffBefore.toFixed(1)} → ${r.meanDiffAfter.toFixed(1)}` +
+            `——差异是**散落的一圈**而不是几块，多半是两次出图的机位没对齐，这一层会把身体盖掉`,
       )
     }
     await writeRgbaPng(join(outDir, `${name}.png`), r.data, frame.width, frame.height)
     frames.push({
       name,
       changed: r.changed,
+      rawChanged: r.rawChanged,
+      droppedPixels: r.droppedPixels,
+      componentCount: r.componentCount,
+      droppedComponents: r.droppedComponents,
       changedRatio: r.changedRatio,
       bboxAreaRatio: r.bboxAreaRatio,
       density: r.density,
+      offset: r.offset,
+      meanDiffBefore: r.meanDiffBefore,
+      meanDiffAfter: r.meanDiffAfter,
       usable: r.usable,
     })
   }

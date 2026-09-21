@@ -254,9 +254,15 @@ export async function runPetAssetOp(call: PetAssetCall): Promise<PetAssetResult>
         const rawBatches = Array.isArray(a.batches) ? a.batches : []
         const batches: SheetBatchSpec[] = rawBatches.map((b) => {
           const o = (b ?? {}) as Record<string, unknown>
+          const kind = o.kind === 'expression' ? ('expression' as const) : undefined
           return {
+            kind,
             action: str(o.action) ?? '',
             motion: str(o.motion),
+            part: str(o.part),
+            variants: Array.isArray(o.variants)
+              ? o.variants.filter((v): v is string => typeof v === 'string')
+              : undefined,
             cols: num(o.cols) ?? 0,
             rows: num(o.rows) ?? 0,
           }
@@ -320,6 +326,8 @@ export async function runPetAssetOp(call: PetAssetCall): Promise<PetAssetResult>
             names,
             threshold: num(a.threshold),
             dilate: num(a.dilate),
+            searchRadius: num(a.searchRadius),
+            minComponentArea: num(a.minComponentArea),
           }),
         }
       }

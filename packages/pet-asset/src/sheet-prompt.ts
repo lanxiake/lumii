@@ -128,19 +128,34 @@ export function cnNumber(n: number): string {
   return ones === 0 ? head : `${head}${CN_DIGIT[ones]}`
 }
 
+/**
+ * 一批图的语义。
+ *
+ * - `motion`：**一段动作**的几个先后瞬间，读序即时间序（`Idle` / `Wave` 这类动作组）
+ * - `expression`：**几款表情差分**，每格是同一姿势同一机位、只有某个部位不同
+ *
+ * 两者不能共用一套说法：动作批要的是「每格是上一格的下一时刻」，
+ * 表情批要的恰恰相反——「每格除了那一个部位之外**逐像素一致**」。
+ * 早先把表情批也按动作批的模板发出去，那等于让模型去编时间顺序。
+ */
+export type SheetKind = 'motion' | 'expression'
+
 export interface SheetPromptOptions {
+  /** 默认 `motion` */
+  kind?: SheetKind
   cols: number
   rows: number
   /** 这一段动作叫什么（如「挥手」）。整张图只表现这一个动作 */
   action: string
   /**
    * 动作的**经过**：一格一格地描述这段动作怎么走（如「抬起 → 左摆 → 回摆 → 落下」）。
-   *
-   * 只给动作名（「挥手」）是不够的——模型会自由发挥成四个看着像挥手的姿势，
-   * 而格子的读序就是时间序，中间那几格一旦是别的动作，切出来的序列就断了。
-   * 给了经过，模型才有东西照着排。
+   * 仅 `kind: 'motion'` 用。
    */
   motion?: string
+  /** 变化的部位名（如「眼睛」「嘴」）。仅 `kind: 'expression'` 用 */
+  part?: string
+  /** 按读序排列的各格取值（如 `['睁眼','闭眼','笑眼','难过']`）。仅 `kind: 'expression'` 用 */
+  variants?: string[]
   /** 角色与动作的文字描述（创作段），由 Agent 自己写 */
   character: string
   /** 底色，建议来自 `pickBackgroundColor()` */
@@ -154,6 +169,7 @@ export interface SheetPromptOptions {
  * 而「不许在创作段提网格/数字」这条规则也才有意义——否则创作段会去抢技术段的活。
  */
 export function buildSheetPrompt(o: SheetPromptOptions): string {
+  const kind = o.kind ?? 'motion'
   const cols = cnNumber(o.cols)
   const rows = cnNumber(o.rows)
   const total = cnNumber(o.cols * o.rows)
@@ -165,9 +181,19 @@ export function buildSheetPrompt(o: SheetPromptOptions): string {
     'FORBIDDEN: 图中任何位置都不得出现文字、数字、字母、标点、编号、标签、水印、签名、',
     'UI 元素、网格线、边框、分隔线。整张图里只有角色本身。',
     '',
-    'CONSISTENCY: 所有格子必须是同一只角色。体型、配色、画风、细节程度完全一致。',
-    '角色在每格里的位置和大小完全相同——脚踩在同一条水平线上，身体中线对齐格子的竖直中线。',
-    '角色完整落在格内，任何部位都不得碰到或越过格子边界。',
+    ...(kind === 'motion'
+      ? [
+          'CONSISTENCY: 所有格子必须是同一只角色。体型、配色、画风、细节程度完全一致。',
+          '角色在每格里的位置和大小完全相同——脚踩在同一条水平线上，身体中线对齐格子的竖直中线。',
+          '角色完整落在格内，任何部位都不得碰到或越过格子边界。',
+        ]
+      : [
+          'CONSISTENCY: 所有格子必须是同一只角色、**同一个姿势、同一个取景、同一个大小**。',
+          `各格之间只有${o.part ?? '面部'}不同，其余每一处（四肢位置、身体轮廓、描边、配色）`,
+          '都必须逐像素一致——差别大到能看出是两张不同的画，这一批就废了。',
+          '角色在每格里的位置和大小完全相同——脚踩在同一条水平线上，身体中线对齐格子的竖直中线。',
+          '角色完整落在格内，任何部位都不得碰到或越过格子边界。',
+        ]),
     '',
     'CAMERA: 正视角，角色正面朝向观众，全身可见（头顶到脚底）。',
     '机位固定，不俯视、不仰视、不旋转。',
@@ -175,11 +201,22 @@ export function buildSheetPrompt(o: SheetPromptOptions): string {
     `BACKGROUND: 整张图的背景是纯色 ${o.background}，无渐变、无纹理、无图案、无阴影、无地面、无投影。`,
     '该颜色与角色所有颜色（特别是描边线）保持明显区别。',
     '',
-    `MOTION: 格子按阅读顺序（从左到右、从上到下）排列，代表**一段连续动作**的先后瞬间。`,
-    '每一格是上一格的下一时刻。最末一格必须能无缝接回最初一格，构成一个循环。',
-    '相邻两格之间的差异应当小且均匀——**不要**把几个互不相干的姿势拼在一起。',
-    `全部${total}格合起来只表现一个动作：${o.action}。`,
-    ...(o.motion ? [`这个动作的经过是：${o.motion}`, `把这段经过按时间均分到${total}格里，一格一个瞬间。`] : []),
+    ...(kind === 'motion'
+      ? [
+          'MOTION: 格子按阅读顺序（从左到右、从上到下）排列，代表**一段连续动作**的先后瞬间。',
+          '每一格是上一格的下一时刻。最末一格必须能无缝接回最初一格，构成一个循环。',
+          '相邻两格之间的差异应当小且均匀——**不要**把几个互不相干的姿势拼在一起。',
+          `全部${total}格合起来只表现一个动作：${o.action}。`,
+          ...(o.motion ? [`这个动作的经过是：${o.motion}`, `把这段经过按时间均分到${total}格里，一格一个瞬间。`] : []),
+        ]
+      : [
+          `FACES: 格子按阅读顺序（从左到右、从上到下）排列，每格是同一只角色的${o.part ?? '面部'}的一种样子。`,
+          '这不是动作的先后顺序，而是**并列的几种表情**——身体姿势不要跟着变。',
+          ...(o.variants && o.variants.length > 0
+            ? [`按顺序依次是：${o.variants.join('、')}。`]
+            : []),
+          `全部${total}格合起来是同一个角色的${total}种${o.part ?? '面部'}版本，供后续做表情切换用。`,
+        ]),
     '',
     'CHARACTER AND ANIMATION DIRECTION:',
     o.character,
@@ -211,10 +248,16 @@ export function checkCharacterDirection(text: string): string[] {
 }
 
 export interface SheetBatchSpec {
+  /** 默认 `motion`。表情/口型差分批要显式写 `expression` */
+  kind?: SheetKind
   /** 这段动作叫什么，会进提示词的 MOTION 段，也是文件名的一部分 */
   action: string
-  /** 这段动作的经过（见 `SheetPromptOptions.motion`）。强烈建议给 */
+  /** 这段动作的经过（见 `SheetPromptOptions.motion`）。`motion` 批强烈建议给 */
   motion?: string
+  /** 变化的部位名（如「眼睛」）。`expression` 批用 */
+  part?: string
+  /** 按读序排列的各格取值（如 `['睁眼','闭眼']`）。`expression` 批用 */
+  variants?: string[]
   cols: number
   rows: number
 }
@@ -269,24 +312,39 @@ export function buildSheetPlan(input: SheetPlanInput): SheetPlan {
       throw new Error(`批次「${b.action}」的网格不合法：${b.cols}×${b.rows}`)
     }
     const prompt = buildSheetPrompt({
+      kind: b.kind,
       cols: b.cols,
       rows: b.rows,
       action: b.action,
       motion: b.motion,
+      part: b.part,
+      variants: b.variants,
       character: input.character,
       background: background.hex,
     })
-    // 动作名、动作经过与创作段都过一遍——前两者会原样进提示词
+    // 动作名、经过、各格取值与创作段都会原样进提示词，都得过一遍
     const warnings = [
       ...checkCharacterDirection(b.action),
       ...(b.motion ? checkCharacterDirection(b.motion).map((w) => `动作经过：${w}`) : []),
       ...checkCharacterDirection(input.character),
     ]
-    if (!b.motion) {
-      warnings.push(
-        '这个批次没给 motion（动作经过）——只给动作名的话，模型容易把几格画成互不相干的姿势，' +
-          '而格子的读序就是时间序',
-      )
+    if ((b.kind ?? 'motion') === 'motion') {
+      if (!b.motion) {
+        warnings.push(
+          '这个批次没给 motion（动作经过）——只给动作名的话，模型容易把几格画成互不相干的姿势，' +
+            '而格子的读序就是时间序',
+        )
+      }
+    } else {
+      if (!b.part) warnings.push('expression 批次没给 part（变化的部位名）——提示词会退化成「面部」')
+      const want = b.cols * b.rows
+      if (!b.variants || b.variants.length === 0) {
+        warnings.push(`expression 批次没给 variants（各格取值）——模型只能自己编 ${want} 种`)
+      } else if (b.variants.length !== want) {
+        warnings.push(
+          `variants 有 ${b.variants.length} 项，与网格 ${b.cols}×${b.rows}（${want} 格）不符`,
+        )
+      }
     }
     allWarnings.push(...warnings.map((w) => `批次「${b.action}」：${w}`))
     return {
