@@ -147,6 +147,9 @@
     "verifyUpdateCodeSignature": false,
     "forceCodeSigning": false,
     "files": [
+      "!**/.mtbot/**",
+      "!.mtbot/**",
+      "!release{,/**/*}",
       "!node_modules/@img/sharp-linux-x64/**/*",
       "!node_modules/@img/sharp-libvips-linux-x64/**/*",
       "!node_modules/sherpa-onnx-linux-x64/**/*",
@@ -210,6 +213,9 @@
     "category": "Utility",
     "artifactName": "${productName}-${version}-${arch}.${ext}",
     "files": [
+      "!**/.mtbot/**",
+      "!.mtbot/**",
+      "!release{,/**/*}",
       "!node_modules/@img/sharp-win32-x64/**/*",
       "!node_modules/sherpa-onnx-win-x64/**/*",
       "!node_modules/sherpa-onnx-win-ia32/**/*",

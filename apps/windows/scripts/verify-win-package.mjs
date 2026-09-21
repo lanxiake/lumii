@@ -22,6 +22,11 @@
  *
  *   node apps/windows/scripts/verify-win-package.mjs all
  *   node apps/windows/scripts/verify-win-package.mjs asar
+ *   node apps/windows/scripts/verify-win-package.mjs all --release-dir release-build-1234
+ *
+ * `--release-dir` 用相对 `apps/windows` 的路径指定产物目录（默认 `release`）——
+ * `package-app.js` 在 release/ 被占用时会兜底输出到 `release-build-<时间戳>/`，
+ * 那时要验的就是那一份。
  *
  * ## 前置
  *
@@ -36,7 +41,20 @@ import { spawn, spawnSync } from 'node:child_process'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const WIN_ROOT = path.resolve(HERE, '..')
-const RELEASE = path.join(WIN_ROOT, 'release')
+
+/** 解析 `--release-dir`（相对 apps/windows）；默认 release */
+function resolveReleaseDir(argv) {
+  const i = argv.indexOf('--release-dir')
+  if (i === -1) return path.join(WIN_ROOT, 'release')
+  const value = argv[i + 1]
+  if (!value) {
+    console.error('--release-dir 需要跟一个路径')
+    process.exit(2)
+  }
+  return path.resolve(WIN_ROOT, value)
+}
+
+const RELEASE = resolveReleaseDir(process.argv.slice(2))
 const UNPACKED = path.join(RELEASE, 'win-unpacked')
 const ASAR = path.join(UNPACKED, 'resources', 'app.asar')
 const EXE = path.join(UNPACKED, 'Lumii.exe')
@@ -258,7 +276,9 @@ async function cmdLaunch() {
 // ---------------------------------------------------------------- main
 
 async function main() {
-  const cmd = process.argv[2] ?? 'all'
+  // 子命令 = 第一个既不是选项、也不是选项取值的参数
+  const args = process.argv.slice(2)
+  const cmd = args.find((a, i) => !a.startsWith('--') && args[i - 1] !== '--release-dir') ?? 'all'
   if (!['asar', 'launch', 'all'].includes(cmd)) {
     red(`未知子命令: ${cmd}（可选 asar | launch | all）`)
     process.exit(2)
