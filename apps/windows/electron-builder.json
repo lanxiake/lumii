@@ -66,7 +66,17 @@
     "!node_modules/@xenova/transformers/dist/*.wasm",
     "!node_modules/pdf-parse/dist/pdf-parse/web/**",
     "!node_modules/@larksuiteoapi/node-sdk/es/**",
-    "!node_modules/@napi-rs/**"
+    "!node_modules/@napi-rs/**",
+    "!node_modules/better-sqlite3/deps/**",
+    "!node_modules/better-sqlite3/src/**",
+    "!node_modules/@xenova/transformers/dist/*.map",
+    "!node_modules/@mtbot/**",
+    "!node_modules/openai/src/**",
+    "!node_modules/@mistralai/mistralai/src/**",
+    "!node_modules/zod/src/**",
+    "!node_modules/@anthropic-ai/sdk/src/**",
+    "!**/*.d.mts",
+    "!**/*.d.cts"
   ],
   "electronLanguages": [
     "zh-CN",
