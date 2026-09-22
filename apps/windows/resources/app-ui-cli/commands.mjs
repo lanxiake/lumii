@@ -11,6 +11,7 @@
  * - summary: 一句话说明
  * - layer: 'ui' | 'A' | 'B' | 'C'，仅用于文档标注，不参与分发
  * - route: { method, path } 控制口路由
+ * - local: true 表示纯本地命令（如 guide/setup），没有 route、应用没起也能跑到自己那一步
  * - options: help <command> 展示的参数说明
  * - build(args): 把 { positional, flags } 转成请求体；返回 null 表示参数不合法（exit 2）
  */
@@ -23,6 +24,142 @@ function num(value) {
 }
 
 export const COMMANDS = [
+  {
+    name: 'status',
+    group: '系统',
+    usage: 'status',
+    summary: '显示服务状态和配置建议',
+    layer: 'system',
+    route: { method: 'POST', path: '/status' },
+    options: [],
+    build() {
+      return {}
+    },
+  },
+  {
+    name: 'setup',
+    group: '系统',
+    usage: 'setup',
+    summary: '交互式配置向导（模型提供商 + 浏览器控制）',
+    layer: 'system',
+    local: true,
+    options: [{ flag: '(无参数)', desc: '按提示逐步配置；非交互场景改用 provider set' }],
+  },
+  {
+    name: 'guide',
+    group: '系统',
+    usage: 'guide [<场景>]',
+    summary: '场景化使用指南（chat/browser/skill/channel）',
+    layer: 'system',
+    local: true,
+    options: [{ flag: '<场景>', desc: 'chat 对话 | browser 浏览器 | skill 技能 | channel 渠道；省略时列出全部' }],
+  },
+  {
+    name: 'channel login',
+    group: '渠道',
+    usage: 'channel login <weixin|wecom|feishu|qbot>',
+    summary: '发起扫码登录，二维码打印在应用终端',
+    layer: 'B',
+    route: { method: 'POST', path: '/channel/login' },
+    options: [{ flag: '<渠道>', desc: 'weixin 微信 | wecom 企业微信 | feishu 飞书 | qbot QQ 机器人' }],
+    build(args) {
+      const channel = args.positional[0]
+      if (typeof channel !== 'string') return null
+      return { channel }
+    },
+  },
+  {
+    name: 'channel status',
+    group: '渠道',
+    usage: 'channel status [<渠道>]',
+    summary: '查看渠道登录状态',
+    layer: 'B',
+    route: { method: 'POST', path: '/channel/status' },
+    options: [{ flag: '<渠道>', desc: '省略时返回全部渠道' }],
+    build(args) {
+      const channel = args.positional[0]
+      return typeof channel === 'string' ? { channel } : {}
+    },
+  },
+  {
+    name: 'channel logout',
+    group: '渠道',
+    usage: 'channel logout <weixin|wecom|feishu|qbot>',
+    summary: '退出渠道登录（清除本地会话，下次需重新扫码）',
+    layer: 'B',
+    route: { method: 'POST', path: '/channel/logout' },
+    options: [{ flag: '<渠道>', desc: 'weixin | wecom | feishu | qbot' }],
+    build(args) {
+      const channel = args.positional[0]
+      if (typeof channel !== 'string') return null
+      return { channel }
+    },
+  },
+  {
+    name: 'provider show',
+    group: '模型与工具',
+    usage: 'provider show',
+    summary: '查看 AI 模型提供商配置（API Key 脱敏）',
+    layer: 'B',
+    route: { method: 'POST', path: '/provider/show' },
+    options: [],
+    build() {
+      return {}
+    },
+  },
+  {
+    name: 'provider set',
+    group: '模型与工具',
+    usage: 'provider set --type <t> --model <id> [--base-url <u>] [--api-key <k>|-] [--allowed-models <m1,m2>]',
+    summary: '配置文本对话模型（非交互；--api-key - 从 stdin 读）',
+    layer: 'B',
+    route: { method: 'POST', path: '/provider/save' },
+    options: [
+      { flag: '--type <t>', desc: 'openai | anthropic | gemini | deepseek | ollama | lmstudio | openrouter | groq | xai | zai | dashscope | moonshot | minimax | siliconflow | rightapi' },
+      { flag: '--model <id>', desc: '模型 ID，如 gpt-4o、claude-sonnet-4-5' },
+      { flag: '--base-url <u>', desc: '自定义端点（本地服务/代理用；省略时用该类型默认端点）' },
+      { flag: '--api-key <k>', desc: 'API Key；本地模型（ollama/lmstudio）可省略；`-` 表示从 stdin 读' },
+      { flag: '--allowed-models <m1,m2>', desc: '允许在对话中切换的模型候选（逗号分隔）；省略时同类型沿用旧候选、换类型则重置为 --model' },
+    ],
+    build(args, extra) {
+      const body = {}
+      if (typeof args.flags.type === 'string') body.type = args.flags.type
+      if (typeof args.flags.model === 'string') body.modelId = args.flags.model
+      if (typeof args.flags['base-url'] === 'string') body.baseUrl = args.flags['base-url']
+      if (typeof args.flags['allowed-models'] === 'string') {
+        body.allowedModelIds = args.flags['allowed-models']
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean)
+      }
+      if (args.flags['api-key'] === '-') body.apiKey = extra?.stdin ?? ''
+      else if (typeof args.flags['api-key'] === 'string') body.apiKey = args.flags['api-key']
+      return Object.keys(body).length > 0 ? body : null
+    },
+  },
+  {
+    name: 'provider test',
+    group: '模型与工具',
+    usage: 'provider test [--type <t> --model <id> [--base-url <u>] [--api-key <k>|-]]',
+    summary: '测试模型连通性；不带参数则测盘上已保存的配置',
+    layer: 'B',
+    route: { method: 'POST', path: '/provider/test' },
+    options: [
+      { flag: '--type <t>', desc: '同 provider set；省略则用已保存配置' },
+      { flag: '--model <id>', desc: '模型 ID' },
+      { flag: '--base-url <u>', desc: '自定义端点' },
+      { flag: '--api-key <k>', desc: 'API Key；`-` 表示从 stdin 读（测还没保存的草稿）' },
+    ],
+    build(args, extra) {
+      const body = {}
+      if (typeof args.flags.type === 'string') body.type = args.flags.type
+      if (typeof args.flags.model === 'string') body.modelId = args.flags.model
+      if (typeof args.flags['base-url'] === 'string') body.baseUrl = args.flags['base-url']
+      if (args.flags['api-key'] === '-') body.apiKey = extra?.stdin ?? ''
+      else if (typeof args.flags['api-key'] === 'string') body.apiKey = args.flags['api-key']
+      return body
+    },
+  },
   {
     name: 'screenshot',
     group: '看',
@@ -874,13 +1011,14 @@ export const COMMANDS = [
   {
     name: 'context messages',
     group: '上下文压缩',
-    usage: 'context messages --session <key> [--limit <n>]',
+    usage: 'context messages --session <key> [--limit <n>] [--text]',
     summary: '读取会话消息，用于校验压缩后摘要就位、原文未丢',
     layer: 'A',
     route: { method: 'POST', path: '/command' },
     options: [
       { flag: '--session <key>', desc: '会话 key' },
       { flag: '--limit <n>', desc: '返回条数上限' },
+      { flag: '--text', desc: '打印可读转录（正文在 contentJson 的 assistant_parts，默认输出原始 JSON）' },
     ],
     build(args) {
       const sessionKey = args.flags.session
@@ -920,7 +1058,7 @@ export const COMMANDS = [
   {
     name: 'send',
     group: '上下文压缩',
-    usage: 'send --session <key> [--text <t>|--data -] [--model <id>] [--wait]',
+    usage: 'send --session <key> [--text <t>|--data -] [--model <id>] [--wait [<秒>]]',
     summary: '向会话发送一条消息（仅纯文本，附件类字段被控制口拒绝）',
     layer: 'A',
     route: { method: 'POST', path: '/command' },
@@ -929,6 +1067,9 @@ export const COMMANDS = [
       { flag: '--text <t>', desc: '消息正文；长文本用 --data - 从 stdin 读' },
       { flag: '--data -', desc: '从 stdin 读取正文，便于灌入大段文本撑高 token' },
       { flag: '--model <id>', desc: '本次发送覆盖的模型 ID（可选）' },
+      { flag: '--wait [<秒>]', desc: '等到回复落库再返回并打印正文（默认 120 秒，脚本里常用）' },
+      { flag: '--wait-ms <毫秒>', desc: '自定义等待上限' },
+      { flag: '--json', desc: '配合 --wait：等待结果输出 JSON（含 messageId/elapsedMs）' },
     ],
     build(args, extra) {
       const sessionKey = args.flags.session

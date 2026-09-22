@@ -121,7 +121,8 @@ function collectCliIpcTypes(): string[] {
   ]
   const types = new Set<string>()
   for (const cmd of COMMANDS) {
-    if (cmd.route.path !== '/command' || cmd.name === 'command') continue
+    // 本地命令（guide / setup）没有 route：不经过控制口，自然也没有要过白名单的 IPC type
+    if (!cmd.route || cmd.route.path !== '/command' || cmd.name === 'command') continue
     for (const args of tries) {
       const body = cmd.build(args)
       if (body && typeof body.type === 'string') {

@@ -9,7 +9,7 @@ import fs from 'node:fs'
 import http from 'node:http'
 import path from 'node:path'
 import type { BrowserWindow } from 'electron'
-import { getAgentRuntimeBridge, handleCommand } from '../ipc/agent-runtime-ipc'
+import { getAgentRuntimeBridge, handleCommand, invalidateAgentInstancesForProviderChange } from '../ipc/agent-runtime-ipc'
 import { getCloudSyncManager } from '../cloud-sync/sync-accessor'
 import { resizeImageIfNeeded } from '../agent-runtime/image-resizer'
 import { resolveWindowsClientDataRoot } from '../client-data-root'
@@ -28,6 +28,18 @@ import {
   buildReadScript,
   expandPathValue,
 } from './settings-channel'
+import {
+  loadProviderConfig,
+  loadProviderSlotsConfig,
+  loadSlotConfig,
+  saveProviderConfig,
+  isCapabilitySlot,
+  PROVIDER_DEFAULT_BASE_URL,
+  type CapabilitySlot,
+  type LocalProviderConfigView,
+  type ProviderType,
+} from '../provider-config'
+import { testProviderConnection } from '../provider-probe'
 
 /** 浏览器控制相关端口（对照用，app-ui 控制口需避开） */
 export const DEFAULT_BROWSER_CONTROL_PORT = 18790
@@ -78,7 +90,26 @@ export interface AppUiControlServerDeps {
   dispatchCommand?: (command: unknown) => Promise<unknown>
   /** 测试注入：覆盖默认 pet:list-models 实现 */
   listPetModels?: () => Promise<unknown>
+  /**
+   * 渠道登录服务：无头模式没有渲染进程，扫码登录只能由 CLI 触发。
+   * 二维码经 index.ts 的 qrcode 事件监听打印到终端，本路由只负责发起与回报状态。
+   */
+  getChannelLoginServices?: () => ChannelLoginServiceMap
 }
+
+/** 四个渠道登录服务的公共结构（startLogin/logout/getStatus 签名一致） */
+export interface ChannelLoginServiceLike {
+  startLogin: () => Promise<unknown>
+  logout: () => Promise<unknown>
+  getStatus: () => string
+}
+
+/** 渠道名 → 登录服务（未初始化的渠道为 null） */
+export type ChannelLoginServiceMap = Record<ChannelName, ChannelLoginServiceLike | null>
+
+/** 支持的渠道 */
+export const CHANNEL_NAMES = ['weixin', 'wecom', 'feishu', 'qbot'] as const
+export type ChannelName = (typeof CHANNEL_NAMES)[number]
 
 let httpServer: http.Server | null = null
 let activeToken: string | null = null
@@ -329,6 +360,34 @@ async function handleRoute(
       await handleCloudSyncConfirmMassDeleteRoute(body, res)
       return
     }
+    case '/status': {
+      await handleStatusRoute(res)
+      return
+    }
+    case '/channel/login': {
+      await handleChannelLoginRoute(body, res)
+      return
+    }
+    case '/channel/status': {
+      await handleChannelStatusRoute(body, res)
+      return
+    }
+    case '/channel/logout': {
+      await handleChannelLogoutRoute(body, res)
+      return
+    }
+    case '/provider/show': {
+      await handleProviderShowRoute(res)
+      return
+    }
+    case '/provider/save': {
+      await handleProviderSaveRoute(body, res)
+      return
+    }
+    case '/provider/test': {
+      await handleProviderTestRoute(body, res)
+      return
+    }
     default:
       sendJson(res, 404, { ok: false, error: 'not_found' })
   }
@@ -526,6 +585,322 @@ async function handleCloudSyncResolveRoute(body: unknown, res: http.ServerRespon
   }
   const result = await m.resolveConflict(strategy, choices)
   sendJson(res, 200, { ok: true, ...result, state: m.getStatus().state })
+}
+
+/**
+ * 状态诊断：收集服务状态和配置建议
+ */
+async function handleStatusRoute(res: http.ServerResponse): Promise<void> {
+  const bridge = getAgentRuntimeBridge()
+  const skillRuntime = activeDeps?.getSkillRuntime?.()
+  const cloudSyncManager = getCloudSyncManager()
+
+  // 技能数量：读不到就报 null，不冒充 0
+  let skillCount: number | null = null
+  if (skillRuntime) {
+    try {
+      const skills = await skillRuntime.listLocalInstalled()
+      skillCount = Array.isArray(skills) ? skills.length : null
+    } catch {
+      skillCount = null
+    }
+  }
+
+  // 收集服务状态
+  const status = {
+    ok: true,
+    services: {
+      agentRuntime: bridge?.isInitialized ?? false,
+      skillSystem: skillRuntime != null,
+      skillCount,
+      cloudSync: cloudSyncManager != null,
+    },
+    configuration: {
+      hasProviders: false,
+      browserExecutable: process.env.LUMII_BROWSER_EXECUTABLE || null,
+      browserNoSandbox: process.env.LUMII_BROWSER_NO_SANDBOX === '1' || process.env.LUMII_BROWSER_NO_SANDBOX === 'true',
+    },
+    recommendations: [] as string[],
+  }
+
+  // 提供商是否就绪：与 provider-probe.ts 的判据保持一致
+  // （启用 + 有模型 ID + 非本地类型需有 API Key），否则会误报「已配置」
+  try {
+    const chat = loadProviderConfig()
+    const isLocalType = chat.type === 'ollama' || chat.type === 'lmstudio'
+    status.configuration.hasProviders =
+      chat.enabled && chat.modelId.trim().length > 0 && (isLocalType || chat.apiKey.trim().length > 0)
+  } catch {
+    // 读取失败时保持 hasProviders 为 false
+  }
+
+  // 生成配置建议
+  if (!status.configuration.hasProviders) {
+    status.recommendations.push('未配置 AI 模型提供商，运行: lumii-ui setup')
+  }
+  if (!status.configuration.browserExecutable) {
+    status.recommendations.push('未配置浏览器路径，设置环境变量: export LUMII_BROWSER_EXECUTABLE=/usr/bin/google-chrome')
+  }
+  if (status.configuration.browserExecutable && !status.configuration.browserNoSandbox) {
+    status.recommendations.push('浏览器控制建议启用 --no-sandbox 模式: export LUMII_BROWSER_NO_SANDBOX=1')
+  }
+
+  sendJson(res, 200, status)
+}
+
+/** 判断字符串是否为受支持的渠道名 */
+function isChannelName(value: unknown): value is ChannelName {
+  return typeof value === 'string' && (CHANNEL_NAMES as readonly string[]).includes(value)
+}
+
+/** 取某个渠道的登录服务；deps 未注入或渠道未初始化时返回 null */
+function resolveChannelService(name: ChannelName): ChannelLoginServiceLike | null {
+  const services = activeDeps?.getChannelLoginServices?.()
+  if (!services) return null
+  return services[name] ?? null
+}
+
+/**
+ * B 层：触发渠道扫码登录。
+ *
+ * 无头模式下没有渲染进程，二维码由 index.ts 的 qrcode 事件监听打印到终端；
+ * 本路由只负责发起登录并回报当前状态（不等扫码结果）。
+ */
+async function handleChannelLoginRoute(body: unknown, res: http.ServerResponse): Promise<void> {
+  const channel = (body as { channel?: unknown } | null)?.channel
+  if (!isChannelName(channel)) {
+    sendJson(res, 400, { ok: false, error: 'unknown_channel', channels: [...CHANNEL_NAMES] })
+    return
+  }
+  const svc = resolveChannelService(channel)
+  if (!svc) {
+    sendJson(res, 200, { ok: false, error: 'not_ready' })
+    return
+  }
+  try {
+    await svc.startLogin()
+    sendJson(res, 200, { ok: true, channel, status: svc.getStatus() })
+  } catch (err) {
+    sendJson(res, 200, {
+      ok: false,
+      error: 'start_login_failed',
+      message: err instanceof Error ? err.message : String(err),
+    })
+  }
+}
+
+/**
+ * B 层：查询渠道登录状态。body.channel 省略时返回全部渠道。
+ */
+async function handleChannelStatusRoute(body: unknown, res: http.ServerResponse): Promise<void> {
+  const requested = (body as { channel?: unknown } | null)?.channel
+  if (requested !== undefined && !isChannelName(requested)) {
+    sendJson(res, 400, { ok: false, error: 'unknown_channel', channels: [...CHANNEL_NAMES] })
+    return
+  }
+  const names: readonly ChannelName[] = requested ? [requested as ChannelName] : CHANNEL_NAMES
+  const channels: Record<string, { status: string } | null> = {}
+  for (const name of names) {
+    const svc = resolveChannelService(name)
+    channels[name] = svc ? { status: svc.getStatus() } : null
+  }
+  sendJson(res, 200, { ok: true, channels })
+}
+
+/**
+ * B 层：渠道登出（清本地会话，下次需重新扫码）。
+ */
+async function handleChannelLogoutRoute(body: unknown, res: http.ServerResponse): Promise<void> {
+  const channel = (body as { channel?: unknown } | null)?.channel
+  if (!isChannelName(channel)) {
+    sendJson(res, 400, { ok: false, error: 'unknown_channel', channels: [...CHANNEL_NAMES] })
+    return
+  }
+  const svc = resolveChannelService(channel)
+  if (!svc) {
+    sendJson(res, 200, { ok: false, error: 'not_ready' })
+    return
+  }
+  try {
+    await svc.logout()
+    sendJson(res, 200, { ok: true, channel, status: svc.getStatus() })
+  } catch (err) {
+    sendJson(res, 200, {
+      ok: false,
+      error: 'logout_failed',
+      message: err instanceof Error ? err.message : String(err),
+    })
+  }
+}
+
+/** 判断字符串是否为已知 provider 类型（以内置默认表为准） */
+function isProviderType(value: unknown): value is ProviderType {
+  return typeof value === 'string' && Object.prototype.hasOwnProperty.call(PROVIDER_DEFAULT_BASE_URL, value)
+}
+
+/**
+ * 对外暴露的 provider 配置视图：**不含 API Key 明文**。
+ * CLI 输出会进终端与日志，明文密钥一律不出本进程。
+ */
+function toPublicSlot(view: LocalProviderConfigView) {
+  return {
+    enabled: view.enabled,
+    type: view.type,
+    baseUrl: view.baseUrl,
+    modelId: view.modelId,
+    hasApiKey: view.apiKey.trim().length > 0,
+    apiKeyDecryptFailed: view.apiKeyDecryptFailed === true,
+    allowedModelIds: view.allowedModelIds ?? [],
+  }
+}
+
+/**
+ * B 层：读取 provider 配置（脱敏）。
+ */
+async function handleProviderShowRoute(res: http.ServerResponse): Promise<void> {
+  const slots = loadProviderSlotsConfig()
+  sendJson(res, 200, {
+    ok: true,
+    slots: {
+      chat: toPublicSlot(slots.chat),
+      vision: toPublicSlot(slots.vision),
+      image: toPublicSlot(slots.image),
+    },
+  })
+}
+
+/**
+ * B 层：写入 provider 配置（供 lumii-ui setup / provider set 使用）。
+ *
+ * 只暴露 chat 槽：无头模式的用户引导只需要「能对话」这一步；
+ * vision/image 槽仍走 GUI 设置页。apiKey 省略时保留盘上已有的那把，
+ * 避免「只想改模型」的操作把密钥抹掉。
+ *
+ * 副作用必须与 GUI 的 provider:setConfig（api-ipc.ts:137 一带）一致，
+ * 否则配置写进去了，运行中的实例仍拿着旧凭据。
+ */
+async function handleProviderSaveRoute(body: unknown, res: http.ServerResponse): Promise<void> {
+  const input = (body ?? {}) as {
+    slot?: unknown
+    type?: unknown
+    baseUrl?: unknown
+    modelId?: unknown
+    apiKey?: unknown
+    enabled?: unknown
+    allowedModelIds?: unknown
+  }
+  const slot: CapabilitySlot = input.slot === undefined ? 'chat' : (input.slot as CapabilitySlot)
+  if (!isCapabilitySlot(slot) || slot !== 'chat') {
+    sendJson(res, 400, { ok: false, error: 'unsupported_slot', supported: ['chat'] })
+    return
+  }
+  if (input.type !== undefined && !isProviderType(input.type)) {
+    sendJson(res, 400, { ok: false, error: 'unknown_provider_type' })
+    return
+  }
+
+  const current = loadSlotConfig('chat')
+  const nextType = (input.type as ProviderType | undefined) ?? current.type
+  const explicitBase = typeof input.baseUrl === 'string' ? input.baseUrl.trim() : undefined
+  // 换类型时把端点交回默认表：否则会留下上一个类型（如 ollama 的 localhost）的地址，
+  // 配置看起来写成功了，实际指向一个不相干的端点。
+  const typeChanged = nextType !== current.type
+  const next: LocalProviderConfigView = {
+    ...current,
+    type: nextType,
+    baseUrl: explicitBase ?? (typeChanged ? '' : current.baseUrl),
+    modelId: typeof input.modelId === 'string' ? input.modelId.trim() : current.modelId,
+    apiKey: typeof input.apiKey === 'string' ? input.apiKey : current.apiKey,
+    enabled: typeof input.enabled === 'boolean' ? input.enabled : true,
+  }
+  if (Array.isArray(input.allowedModelIds)) {
+    next.allowedModelIds = input.allowedModelIds.filter((id): id is string => typeof id === 'string')
+  } else if (typeChanged) {
+    // 换类型时旧候选属于旧服务商，留着会在模型选择里出现一批选不通的条目
+    next.allowedModelIds = []
+  }
+  // 同类型只改模型：沿用旧候选（落盘时会把新模型并入列表），
+  // 与 GUI 模型切换 saveChatModel 的语义一致，不至于一次 set 就把用户勾过的候选清空
+  if (!next.modelId) {
+    sendJson(res, 400, { ok: false, error: 'missing_model_id' })
+    return
+  }
+
+  try {
+    saveProviderConfig(next)
+  } catch (err) {
+    sendJson(res, 200, {
+      ok: false,
+      error: 'save_failed',
+      message: err instanceof Error ? err.message : String(err),
+    })
+    return
+  }
+
+  // 与 GUI 保存路径一致：清掉失效的会话首选模型，并销毁旧实例
+  const saved = loadSlotConfig('chat')
+  const availableChatModels = saved.enabled
+    ? [saved.modelId, ...(saved.allowedModelIds ?? [])]
+        .map((modelId) => modelId?.trim())
+        .filter((modelId): modelId is string => Boolean(modelId))
+    : []
+  try {
+    getAgentRuntimeBridge()?.clearInvalidSessionPreferredModels(availableChatModels)
+  } catch {
+    // bridge 未就绪时跳过，配置已落盘
+  }
+  try {
+    invalidateAgentInstancesForProviderChange()
+  } catch {
+    // 同上：实例销毁失败不影响落盘结果
+  }
+
+  sendJson(res, 200, { ok: true, slot: 'chat', config: toPublicSlot(saved) })
+}
+
+/**
+ * B 层：测试 provider 连通性。
+ *
+ * body 省略字段时取盘上已保存的值；带上 apiKey 可测「还没保存的草稿」，
+ * 这是配置向导的关键一步——先验证再落盘，避免写进一份连不通的配置。
+ */
+async function handleProviderTestRoute(body: unknown, res: http.ServerResponse): Promise<void> {
+  const input = (body ?? {}) as {
+    slot?: unknown
+    type?: unknown
+    baseUrl?: unknown
+    modelId?: unknown
+    apiKey?: unknown
+  }
+  const slot: CapabilitySlot = input.slot === undefined ? 'chat' : (input.slot as CapabilitySlot)
+  if (!isCapabilitySlot(slot)) {
+    sendJson(res, 400, { ok: false, error: 'unknown_slot' })
+    return
+  }
+  if (input.type !== undefined && !isProviderType(input.type)) {
+    sendJson(res, 400, { ok: false, error: 'unknown_provider_type' })
+    return
+  }
+
+  const current = loadSlotConfig(slot)
+  const draft: LocalProviderConfigView = {
+    ...current,
+    type: (input.type as ProviderType | undefined) ?? current.type,
+    baseUrl: typeof input.baseUrl === 'string' && input.baseUrl.trim() ? input.baseUrl.trim() : current.baseUrl,
+    modelId: typeof input.modelId === 'string' && input.modelId.trim() ? input.modelId.trim() : current.modelId,
+    apiKey: typeof input.apiKey === 'string' ? input.apiKey : current.apiKey,
+    enabled: true,
+  }
+
+  try {
+    const result = await testProviderConnection(slot, draft)
+    sendJson(res, 200, { ok: result.ok === true, result })
+  } catch (err) {
+    sendJson(res, 200, {
+      ok: false,
+      result: { ok: false, message: err instanceof Error ? err.message : String(err) },
+    })
+  }
 }
 
 /**
