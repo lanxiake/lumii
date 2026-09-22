@@ -353,23 +353,23 @@
       "group": "Walk",
       "index": 0,
       "kind": "loop",
-      "fps": 9,
+      "fps": 4,
       "frames": [
         {
           "base": "demo_shimeji_turkat_walk_00",
-          "durationMs": 111
+          "durationMs": 250
         },
         {
           "base": "demo_shimeji_turkat_walk_01",
-          "durationMs": 111
+          "durationMs": 250
         },
         {
           "base": "demo_shimeji_turkat_walk_02",
-          "durationMs": 111
+          "durationMs": 250
         },
         {
           "base": "demo_shimeji_turkat_walk_03",
-          "durationMs": 111
+          "durationMs": 250
         }
       ]
     },

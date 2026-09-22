@@ -128,7 +128,21 @@ export const GROUPS = [
     // 得看着实际画面定，别在没看到之前先猜一个数。
     params: (h) => ({ bob: Math.max(1, Math.round(h * 0.06)), breathe: 1.02, sway: 1.5 }),
   },
-  { group: 'Walk', from: 'WALK', kind: 'loop', fps: 9, clip: (id, i) => `${id}_walk_${p2(i)}` },
+  {
+    group: 'Walk',
+    from: 'WALK',
+    kind: 'loop',
+    // ⚠️ 4fps 而不是参考项目的 9fps（2026-09-21）。
+    //
+    // 它的行走是 4 帧 @9fps + 60px/s，而我们**这两个数原本一模一样**——差别在体型：
+    // 它的宠物 128px 直接显示，我们的 `scale` 是 2.2。同样的腿频配同样的速度，
+    // 在 2.2 倍的身体上就成了"原地小跑"：它每轮走 0.21 个身位，我们只走 0.094。
+    //
+    // 4fps（0.9 秒一轮）把"每轮走的距离 ÷ 体高"拉回参考项目的比例。
+    // 代价是 4 帧动画慢放到 1 秒一轮，可能显得顿——先这样跑，观感不对再调。
+    fps: 4,
+    clip: (id, i) => `${id}_walk_${p2(i)}`,
+  },
   {
     group: 'Sit',
     from: 'SIT',
