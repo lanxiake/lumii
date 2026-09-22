@@ -1,0 +1,218 @@
+#!/usr/bin/env node
+/**
+ * install-pet.mjs — 把 H3 出的精灵表装进客户端
+ *
+ * ## 为什么走 pet-creator 技能，不自己拼图集
+ *
+ * 客户端要的不只是 atlas.png：还有 atlas.json（帧表）、manifest.json（动作组、
+ * 锚点、命中区）、pet.json，以及**按地线对齐**、**待机首帧锚定**这些约定。
+ * 这些逻辑已经在 `apps/windows/bundled-skills/…/pet-creator/run.ts` 里，
+ * 而且它和主进程共用同一套工具链（经 `/pet/asset` 控制口，dev 与打包同一条路径）。
+ *
+ * ## 动作组按客户端既有规范（九个）
+ *
+ * 清单来自 `apps/windows/scripts/gen-demo-pets.mjs`：Idle / Talk / Jump /
+ * Wave / Nod / Shake / Picked / Land / PlayBall。
+ * 其中 **Idle 与 Talk 由技能自己加**（Talk 复用 base 批次的帧，fps 不同而已），
+ * 所以这里只传 8 个批次，出来的就是九组。
+ *
+ * ## 两个必须先处理的输入问题
+ *
+ * 1. **技能自带抠底**（`cutout` op），期待"带底色的图集"。我们的表是透明的，
+ *    直接喂等于让它抠一片黑——先按 staging 的底色铺回去。
+ * 2. **网格是 8×1 横排**，不是 4×2。端到端工作流的 ImageStitch 链拼出来是一条
+ *    横排（3072×448）。填错格线会让每格横跨两个角色，出图闸门报"S1 角色越出格线"。
+ *
+ * ## scale 自动换算
+ *
+ * `pet.json` 的 `scale` 是按**旧画布**调的，换画布必须按比例改，
+ * 否则宠物在桌面上会突然变成两倍大。
+ *
+ * ⚠ 换算基准是**画布高度**，不是宽度。宠物在屏幕上的观感大小 = `canvas.h × scale`
+ * （渲染器只拿高度算），所以换画布时该守的是高度。早先按宽度换算——旧画布
+ * 144×168 与新画布 384×448 的宽高比都是 0.857，两者恰好等价，所以一直没暴露；
+ * 一旦为了侧身素材把画布改宽，按宽度算会让宠物凭空缩小。
+ *
+ * 用法：
+ *   node install-pet.mjs --id demo_cartoon_cat --dir <表目录> [--canvas 384x448] [--bg 00ccff]
+ *
+ * `<表目录>` 下按约定放 `<角色>-<动作>-sheet/` 子目录（端到端工作流的落点）。
+ */
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { spawn } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
+import sharp from 'sharp'
+
+const HERE = path.dirname(fileURLToPath(import.meta.url))
+/**
+ * 仓库根：**向上找标记目录**，不写死层数。
+ *
+ * 这份脚本原本住在 `verify/pet-sprite/characters/`（往上三层到仓库根），
+ * 搬进技能目录后层数变了。写死 `../../..` 的后果是**静默装错位置**——
+ * 路径解析出一个不存在的目录，只有真正用到时才炸。所以改成找
+ * `apps/windows/bundled-skills` 这个标记。
+ */
+function findRepoRoot(start) {
+  let d = start
+  for (let i = 0; i < 10; i++) {
+    if (fs.existsSync(path.join(d, 'apps/windows/bundled-skills'))) return d
+    const up = path.dirname(d)
+    if (up === d) break
+    d = up
+  }
+  throw new Error(`从 ${start} 往上找不到仓库根（标记：apps/windows/bundled-skills）`)
+}
+const REPO = findRepoRoot(HERE)
+const RUN_TS = path.join(REPO, 'apps/windows/bundled-skills/设计与可视化/pet-creator/run.ts')
+const RESOURCES = path.join(REPO, 'apps/windows/resources/pet-models')
+
+/**
+ * 客户端既有的九个动作。`group: null` = 走 base 槽（技能据此生成 Idle/Talk）。
+ *
+ * ⚠ 这里有**两套九动作规范**，别混：
+ *   · 交互那套（`gen-demo-pets.mjs`）：Idle/Talk/Jump/Wave/Nod/Shake/Picked/Land/PlayBall
+ *   · 行为那套（Shimeji 参考素材）：Idle/Walk/Sit/Talk/Fall/Picked/Jump/Climb/Crawl
+ * 缺行为那套的组**不报错**——`PetOrchestrator.resolveAmbientGroup` 找不到组就静默
+ * 回落到基础待机，于是宠物一边平移一边播呼吸，看起来像在滑行。
+ * 团子两套都装，共 11 组（Idle/Talk 由技能补，Talk 复用 base 帧）。
+ */
+const ACTIONS = [
+  { key: 'idle', group: null, label: '待机呼吸', kind: 'loop', slot: 'base', nameKey: 'body' },
+  // ---- 交互 ----
+  { key: 'wave', group: 'Wave', label: '挥手', kind: 'once', next: 'Idle' },
+  { key: 'hop', group: 'Jump', label: '跳跃', kind: 'once', next: 'Idle' },
+  { key: 'nod', group: 'Nod', label: '点头', kind: 'once', next: 'Idle' },
+  { key: 'shake', group: 'Shake', label: '摇头', kind: 'once', next: 'Idle' },
+  { key: 'picked', group: 'Picked', label: '被拎起', kind: 'loop' },
+  { key: 'land', group: 'Land', label: '落地', kind: 'once', next: 'Idle' },
+  { key: 'playball', group: 'PlayBall', label: '玩球', kind: 'once', next: 'Idle' },
+  // ---- 行为（自主走动/攀爬那套）----
+  // 这四个必须是 loop：驱动会在同一个姿态上停几十秒（实测一次攀爬 30 秒），
+  // 播 `once` 的话动作放完就僵住。
+  { key: 'walk', group: 'Walk', label: '走路', kind: 'loop' },
+  { key: 'fall', group: 'Fall', label: '下落', kind: 'loop' },
+  { key: 'climb', group: 'Climb', label: '攀爬', kind: 'loop' },
+  { key: 'crawl', group: 'Crawl', label: '爬行', kind: 'loop' },
+]
+
+/**
+ * 点击命中区 → 动作组。
+ *
+ * 内置宠物（shimeji 那批）一律映射到 `Jump`，团子没有 `Jump`（跳跃会被出图闸门
+ * 以「头顶出格」拦下），所以改映射到**已经装进去的**组：摸头点头、摸身体挥手。
+ *
+ * 不给这张表的后果是**点击静默无效**，不是报错：渲染器的兜底链是
+ * `hitArea名 → Tap → tap → TapBody → idleMotionFallbackGroup`，团子一个都没有，
+ * 一路走到 `return`。日志只有一行 `[triggerTapMotion] 命中映射=无`。
+ * 三个键：`HitAreaHead`/`HitAreaBody` 是命中区推出来的 id，`body` 是旧版约定。
+ */
+const TAP_MOTIONS = {
+  HitAreaHead: 'Nod',
+  HitAreaBody: 'Wave',
+  body: 'Wave',
+}
+
+const argv = process.argv.slice(2)
+const opt = (n, d) => {
+  const i = argv.indexOf(`--${n}`)
+  return i === -1 ? d : argv[i + 1]
+}
+const id = opt('id')
+const sheetDir = opt('dir')
+const charKey = opt('char', 'tuanzi')
+if (!id || !sheetDir) {
+  console.error('用法：node install-pet.mjs --id <客户端目录名> --dir <表目录> [--char tuanzi] [--canvas 384x448]')
+  process.exit(1)
+}
+const [cw, ch] = opt('canvas', '384x448').split('x').map(Number)
+const COLS = Number(opt('cols', 8))
+const ROWS = Number(opt('rows', 1))
+const FRAMES = COLS * ROWS
+const FPS = Number(opt('fps', 8))
+
+const dir = path.join(RESOURCES, id)
+const pet = JSON.parse(fs.readFileSync(path.join(dir, 'pet.json'), 'utf-8'))
+const oldManifest = JSON.parse(fs.readFileSync(path.join(dir, 'manifest.json'), 'utf-8'))
+const scale = Number(opt('scale', 0)) || (pet.scale * oldManifest.canvas.h) / ch
+const prefix = id.replace(/^demo_/, '').split('_').pop()
+
+// 技能自带抠底，期待带底色的图集；我们的表是透明的，先铺回底色
+const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pet-install-'))
+const bgHex = '#' + opt('bg', '00ccff')
+const durations = Array.from({ length: FRAMES }, () => Math.round(1000 / FPS))
+
+const batches = []
+/** 真正装进去的组名，用来过滤点击映射——映射到一个不存在的组同样静默无效 */
+const installedGroups = new Set()
+for (const a of ACTIONS) {
+  const sub = path.join(sheetDir, `${charKey}-${a.key}-sheet`)
+  if (!fs.existsSync(sub)) {
+    // 缺一个动作不该让整包装不上——先装有的，缺的下次补齐
+    console.warn(`  ⚠ 跳过 ${a.group || 'Idle'}（找不到 ${sub}）`)
+    continue
+  }
+  const src = path.join(sub, fs.readdirSync(sub).filter((f) => f.endsWith('.png')).sort()[0])
+  const flat = path.join(workDir, `${id}-${a.key}-flat.png`)
+  await sharp(src).flatten({ background: bgHex }).png().toFile(flat)
+  const nameKey = a.nameKey || a.group.toLowerCase()
+  if (a.group) installedGroups.add(a.group)
+  batches.push({
+    file: flat,
+    cols: COLS,
+    rows: ROWS,
+    slot: a.slot || 'base',
+    action: a.label,
+    ...(a.group ? { group: a.group, kind: a.kind, ...(a.next ? { next: a.next } : {}), fps: FPS } : {}),
+    names: Array.from({ length: FRAMES }, (_, i) => `${prefix}_${nameKey}_${String(i).padStart(2, '0')}`),
+    durationsMs: durations,
+  })
+  console.log(`  ${a.group || 'Idle(base)'} ← ${path.basename(path.dirname(src))}/${path.basename(src)}`)
+}
+
+const tapMotions = Object.fromEntries(
+  Object.entries(TAP_MOTIONS)
+    .filter(([, g]) => installedGroups.has(g))
+    .map(([area, g]) => [area, { [g]: 0 }]),
+)
+if (Object.keys(tapMotions).length === 0) {
+  console.warn('  ⚠ 点击映射为空（Nod/Wave 都没装）——点击宠物不会有反应')
+}
+
+const params = {
+  action: 'build',
+  id,
+  name: pet.name,
+  canvas: { w: cw, h: ch },
+  anchor: [Math.round(cw / 2), ch - 6],
+  scale: Number(scale.toFixed(4)),
+  personaAddon: pet.personaAddon,
+  tapMotions,
+  batches,
+}
+console.log(`\n装 ${id}：画布 ${cw}×${ch}、scale ${pet.scale} → ${params.scale}（旧画布 ${oldManifest.canvas.w}×${oldManifest.canvas.h}）`)
+console.log(`${batches.length} 个批次 → 客户端九组（Idle/Talk 由技能补）\n`)
+
+const child = spawn(process.execPath, [RUN_TS], {
+  env: { ...process.env, SKILL_PARAMS: JSON.stringify(params) },
+  stdio: ['ignore', 'pipe', 'pipe'],
+})
+let out = ''
+child.stdout.on('data', (d) => (out += d))
+child.stderr.on('data', (d) => (out += d))
+child.on('close', (code) => {
+  const line = out.split('\n').find((l) => l.startsWith('__SKILL_RESULT__:'))
+  if (line) {
+    try {
+      const r = JSON.parse(line.slice('__SKILL_RESULT__:'.length))
+      console.log('技能返回:', JSON.stringify(r, null, 2).slice(0, 2000))
+    } catch {
+      console.log('结果解析失败:', line.slice(0, 800))
+    }
+  } else {
+    console.log(`技能没有返回结果标记（退出码 ${code}）。原始输出末段：`)
+    console.log(out.slice(-2000))
+  }
+  process.exit(code || 0)
+})

@@ -23,7 +23,7 @@
   "5": {
     "class_type": "LoadImage",
     "inputs": {
-      "image": "pixel-cat-staged.png"
+      "image": "<角色>-staged.png"
     }
   },
   "6": {
@@ -41,9 +41,9 @@
         "5",
         0
       ],
-      "prompt": "How the reference pictures align with the target video — Picture 1 (from Shot 1) aligns with the 0.00-second mark of the target video; Picture 2 (from Shot 1) aligns with the 2.33-second mark of the target video.\n\nintegrated_multimodal_description: [Shot 1] 2D-animated, flat-vector cartoon pet sprite; the character shown in <Picture 1> begins in the exact starting pose, at exactly the same size and framing as in <Picture 1>: the figure fills about seventy percent of the frame height, standing in the middle of the frame with clear empty space above the head and below the feet, centered horizontally on a flat cyan (#00FFFF) background. Preserve the exact visual identity without redesign: a chubby cartoon cat with a round head and a big round body. The fur is flat orange with a white muzzle, a white chest and white paws, drawn with thick rounded dark-brown outlines. It has two large round black eyes, a small pink nose, and pink inner ears; the tail is short and orange with a white tip. Flat vector look with solid fills, no shading and no gradients. The character keeps exactly the orientation shown in <Picture 1> for the whole shot: facing the camera, face fully visible; the character does not turn. The camera holds a static shot. The character performs one friendly wave with one front hand. The hand lifts smoothly up beside its head, completes one compact side-to-side wave, and comes back down to the exact starting pose by 2.10 seconds while both feet stay planted on the ground and the body stays in place. The head tilts slightly to one side during the wave and returns; the tail sways only a little and settles back to its initial shape and position. The feet stay planted at exactly the same spot for the whole shot; the character does not step, turn, or leave the ground. The shot ends as the character settles into exactly the pose, size, and composition of Picture 2 so the clip can loop. The background stays a single flat cyan (#00FFFF) colour edge to edge, with no floor, shadow, scenery, text, or props. The full body stays visible in one continuous shot with no cuts, transitions, zooms, or camera movement. The complete video is silent throughout, with no dialogue, vocalization, ambience, sound effects, or music.\n\noverall_soundscape: N/A\n\nnon_diegetic_music: N/A",
-      "width": 640,
-      "height": 640,
+      "prompt": "<这里放组装好的提示词>",
+      "width": 768,
+      "height": 672,
       "length": 56
     }
   },
@@ -131,7 +131,7 @@
       ],
       "start_index": 0,
       "end_index": -1,
-      "num_frames": 8,
+      "num_frames": 16,
       "randomness": 0,
       "min_distance": 1,
       "max_distance": 1024,
@@ -145,12 +145,12 @@
         "20",
         0
       ],
-      "invert": true,
+      "invert": false,
       "red": 0,
-      "green": 255,
+      "green": 204,
       "blue": 255,
       "threshold": 30,
-      "per_batch": 8
+      "per_batch": 16
     }
   },
   "22": {
@@ -170,8 +170,8 @@
         0
       ],
       "upscale_method": "lanczos",
-      "width": 128,
-      "height": 128,
+      "width": 512,
+      "height": 448,
       "crop": "disabled"
     }
   },
@@ -193,8 +193,8 @@
         0
       ],
       "upscale_method": "lanczos",
-      "width": 128,
-      "height": 128,
+      "width": 512,
+      "height": 448,
       "crop": "disabled"
     }
   },
@@ -296,6 +296,94 @@
         0
       ],
       "batch_index": 7,
+      "length": 1
+    }
+  },
+  "108": {
+    "class_type": "ImageFromBatch",
+    "inputs": {
+      "image": [
+        "26",
+        0
+      ],
+      "batch_index": 8,
+      "length": 1
+    }
+  },
+  "109": {
+    "class_type": "ImageFromBatch",
+    "inputs": {
+      "image": [
+        "26",
+        0
+      ],
+      "batch_index": 9,
+      "length": 1
+    }
+  },
+  "110": {
+    "class_type": "ImageFromBatch",
+    "inputs": {
+      "image": [
+        "26",
+        0
+      ],
+      "batch_index": 10,
+      "length": 1
+    }
+  },
+  "111": {
+    "class_type": "ImageFromBatch",
+    "inputs": {
+      "image": [
+        "26",
+        0
+      ],
+      "batch_index": 11,
+      "length": 1
+    }
+  },
+  "112": {
+    "class_type": "ImageFromBatch",
+    "inputs": {
+      "image": [
+        "26",
+        0
+      ],
+      "batch_index": 12,
+      "length": 1
+    }
+  },
+  "113": {
+    "class_type": "ImageFromBatch",
+    "inputs": {
+      "image": [
+        "26",
+        0
+      ],
+      "batch_index": 13,
+      "length": 1
+    }
+  },
+  "114": {
+    "class_type": "ImageFromBatch",
+    "inputs": {
+      "image": [
+        "26",
+        0
+      ],
+      "batch_index": 14,
+      "length": 1
+    }
+  },
+  "115": {
+    "class_type": "ImageFromBatch",
+    "inputs": {
+      "image": [
+        "26",
+        0
+      ],
+      "batch_index": 15,
       "length": 1
     }
   },
@@ -418,14 +506,150 @@
       "spacing_color": "white"
     }
   },
+  "207": {
+    "class_type": "ImageStitch",
+    "inputs": {
+      "image1": [
+        "206",
+        0
+      ],
+      "image2": [
+        "108",
+        0
+      ],
+      "direction": "right",
+      "match_image_size": true,
+      "spacing_width": 0,
+      "spacing_color": "white"
+    }
+  },
+  "208": {
+    "class_type": "ImageStitch",
+    "inputs": {
+      "image1": [
+        "207",
+        0
+      ],
+      "image2": [
+        "109",
+        0
+      ],
+      "direction": "right",
+      "match_image_size": true,
+      "spacing_width": 0,
+      "spacing_color": "white"
+    }
+  },
+  "209": {
+    "class_type": "ImageStitch",
+    "inputs": {
+      "image1": [
+        "208",
+        0
+      ],
+      "image2": [
+        "110",
+        0
+      ],
+      "direction": "right",
+      "match_image_size": true,
+      "spacing_width": 0,
+      "spacing_color": "white"
+    }
+  },
+  "210": {
+    "class_type": "ImageStitch",
+    "inputs": {
+      "image1": [
+        "209",
+        0
+      ],
+      "image2": [
+        "111",
+        0
+      ],
+      "direction": "right",
+      "match_image_size": true,
+      "spacing_width": 0,
+      "spacing_color": "white"
+    }
+  },
+  "211": {
+    "class_type": "ImageStitch",
+    "inputs": {
+      "image1": [
+        "210",
+        0
+      ],
+      "image2": [
+        "112",
+        0
+      ],
+      "direction": "right",
+      "match_image_size": true,
+      "spacing_width": 0,
+      "spacing_color": "white"
+    }
+  },
+  "212": {
+    "class_type": "ImageStitch",
+    "inputs": {
+      "image1": [
+        "211",
+        0
+      ],
+      "image2": [
+        "113",
+        0
+      ],
+      "direction": "right",
+      "match_image_size": true,
+      "spacing_width": 0,
+      "spacing_color": "white"
+    }
+  },
+  "213": {
+    "class_type": "ImageStitch",
+    "inputs": {
+      "image1": [
+        "212",
+        0
+      ],
+      "image2": [
+        "114",
+        0
+      ],
+      "direction": "right",
+      "match_image_size": true,
+      "spacing_width": 0,
+      "spacing_color": "white"
+    }
+  },
+  "214": {
+    "class_type": "ImageStitch",
+    "inputs": {
+      "image1": [
+        "213",
+        0
+      ],
+      "image2": [
+        "115",
+        0
+      ],
+      "direction": "right",
+      "match_image_size": true,
+      "spacing_width": 0,
+      "spacing_color": "white"
+    }
+  },
   "300": {
     "class_type": "SaveImage",
     "inputs": {
       "images": [
-        "206",
+        "214",
         0
       ],
-      "filename_prefix": "petmotion/pixel-cat-wave-sheet"
+      "filename_prefix": "petmotion/<角色>-pose-<姿势>"
     }
   }
 }
