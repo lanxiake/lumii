@@ -5,7 +5,6 @@ import type { Agent } from '../../services/agent-service'
 import type { ModelOption } from '../../services/model-config-service'
 import { fetchModelCatalog, fetchChatModelChoices, saveChatModel } from '../../services/model-config-service'
 import { notifyDesktop } from '../../services/app-service'
-import { setActiveSessionKey, switchPetMode } from '../../services/pet-service'
 import { ConfirmModal } from '../../components/ui/Modal/ConfirmModal'
 import { useToast } from '../../components/ui/Toast/useToast'
 import { useAgents } from '../../hooks/business/useAgents'
@@ -1506,21 +1505,6 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
       .catch(() => {})
   }, [runtimeCurrentSessionKey, refreshDevContext])
 
-  const handleEnterPetMode = useCallback(async () => {
-    if (runtimeCurrentSessionKey) {
-      await setActiveSessionKey(runtimeCurrentSessionKey)
-    }
-    // switchPetMode 在「main 侧没注册 handler」时会 reject（不是返回失败结果），
-    // 不接住就是未处理的 Promise 拒绝。按钮已按能力矩阵置灰，但入口不止一个
-    // （将来还有快捷键/托盘），所以这里兜底比信任调用点可靠。
-    const result = await switchPetMode('pet').catch(() => null)
-    if (!result) {
-      toast.error('打开宠物模式失败：主进程未响应')
-    } else if (!result.success) {
-      toast.error(`打开宠物模式失败：${result.error ?? '未知错误'}`)
-    }
-  }, [runtimeCurrentSessionKey, toast])
-
   /**
    * 从输入框发起语音通话。
    */
@@ -1790,7 +1774,6 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
             onToggleReadAloud={handleToggleReadAloud}
             onToggleWorkbench={toggleFilesWorkbench}
             onOpenWiki={openWikiLibrary}
-            onEnterPetMode={handleEnterPetMode}
           />
         </div>
 
