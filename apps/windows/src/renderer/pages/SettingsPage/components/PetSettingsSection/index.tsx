@@ -220,19 +220,6 @@ export const PetSettingsSection: React.FC = () => {
             <span className={styles['setting-hint']}>开启后在宠物模式点击宠物身体区域，触发对应的互动动作</span>
           </div>
 
-          {/* 注视跟随 */}
-          <div className={styles['setting-item']}>
-            <Checkbox
-              checked={vhSettings.enableGazeTracking}
-              onChange={(checked) => void patchVh({ enableGazeTracking: checked })}
-            >
-              注视跟随光标
-            </Checkbox>
-            <span className={styles['setting-hint']}>
-              开启后宠物会朝鼠标方向轻微倾斜。关闭则不跟随（只读取光标位置，不涉及任何按键内容）
-            </span>
-          </div>
-
           {/* 闲置感知 */}
           <div className={styles['setting-item']}>
             <Checkbox

@@ -122,11 +122,6 @@ export const PET_IPC = {
   /** event(main→renderer)：虚拟人设置变更（设置页修改后推送到宠物窗口即时生效） */
   evtVhSettingsChanged: 'pet:vh-settings:changed',
   /**
-   * event(main→renderer)：全局光标在宠物窗口内的位置（注视用）。
-   * 约 30Hz，且**位置没变时不发**——用户不动鼠标时不该有任何流量。
-   */
-  evtCursor: 'pet:cursor',
-  /**
    * event(main→renderer)：用户闲置阶段（打盹/睡着/醒着）。
    * 1Hz 轮询系统闲置，但**阶段没变时不发**——一天也就几条。
    */
@@ -175,18 +170,6 @@ export interface PetVhSettingsChangedEvent {
   readonly type: 'pet:vh-settings:changed'
   /** 变更的设置项（只含变化的字段） */
   patch: Partial<VirtualHumanSettingsDTO>
-}
-
-/**
- * 主进程 → 渲染进程：全局光标在**宠物窗口内**的位置（CSS 像素）。
- *
- * 为什么要主进程推：宠物窗口全屏透明且靠 setIgnoreMouseEvents 控制穿透，
- * 光标在角色以外时窗口收不到 mousemove——而那正是宠物该看向你的多数时刻。
- */
-export interface PetCursorEvent {
-  readonly type: 'pet:cursor'
-  x: number
-  y: number
 }
 
 /**
@@ -303,8 +286,6 @@ export interface PetElectronAPI {
   onModelChanged(callback: (event: PetModelChangedEvent) => void): () => void
   /** 订阅虚拟人设置变更（设置页修改后主进程推送到宠物窗口即时生效） */
   onVhSettingsChanged(callback: (event: PetVhSettingsChangedEvent) => void): () => void
-  /** 订阅全局光标位置（注视用）。主进程只在宠物模式且设置开启时推送 */
-  onCursor(callback: (event: PetCursorEvent) => void): () => void
   /** 订阅用户闲置阶段（打盹/睡着）。主进程只在宠物模式且设置开启时推送 */
   onIdle(callback: (event: PetIdleEvent) => void): () => void
   /** 订阅程序主窗口矩形（攀附用）。拖动主窗口时会连续推送——那是期望的，宠物要跟手 */

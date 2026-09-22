@@ -12,7 +12,6 @@ import { ipcMain, globalShortcut, powerMonitor } from 'electron'
 import {
   type AppMode,
   type PetClickRegion,
-  type PetCursorEvent,
   type PetHoverUpdate,
   type PetIdleEvent,
   type PetModeSwitchResult,
@@ -20,7 +19,6 @@ import {
   PET_IPC,
 } from '../../shared/pet-mode'
 import { PetWindowManager, type PetWindowManagerDeps } from './pet-window-manager'
-import { startCursorTracking, stopCursorTracking } from './pet-cursor-tracker'
 import { startPerchTracking, stopPerchTracking, getCurrentPerchRect } from './pet-perch-tracker'
 import { startIdleWatching, stopIdleWatching, getCurrentIdleStage } from './idle-watcher'
 import {
@@ -103,13 +101,11 @@ export async function switchPetMode(
   try {
     if (mode === 'pet') {
       await petWindowManager.enterPetMode(modelId)
-      startCursorTrackingIfNeeded()
       startIdleWatchingIfNeeded()
       startPerchTrackingIfNeeded()
     } else {
       await petWindowManager.exitPetMode()
-      // 退出就停：注视、闲置感知、攀附目标只在宠物模式里有意义，别让它们白跑
-      stopCursorTracking()
+      // 退出就停：闲置感知、攀附目标只在宠物模式里有意义，别让它们白跑
       stopIdleWatching()
       stopPerchTracking()
     }
@@ -122,29 +118,6 @@ export async function switchPetMode(
     log.error(`mode:switch ${from}→${mode} 失败: ${message}`)
     return { success: false, mode: from, error: message, durationMs }
   }
-}
-
-/**
- * 启动光标轮询（注视）。
- *
- * `isEnabled` 每轮现读设置——开关改了不必重启轮询；关掉时定时器仍留着，
- * 只是不发消息（用户随时可能开回来，而反复建销定时器没有收益）。
- */
-function startCursorTrackingIfNeeded(): void {
-  startCursorTracking({
-    isEnabled: () => getVirtualHumanSettings().enableGazeTracking,
-    getWindowBounds: () => {
-      const win = petWindowManager?.getPetBrowserWindow()
-      if (!win || win.isDestroyed()) return null
-      return win.getBounds()
-    },
-    send: (x, y) => {
-      const win = petWindowManager?.getPetBrowserWindow()
-      if (!win || win.isDestroyed()) return
-      const evt: PetCursorEvent = { type: 'pet:cursor', x, y }
-      win.webContents.send(PET_IPC.evtCursor, evt)
-    },
-  })
 }
 
 /**
@@ -370,9 +343,8 @@ export function disposePetModeIpc(): void {
   } catch {
     // 忽略
   }
-  // 两个轮询都停掉：进程退出时会一起没，但这里是文档化的清理入口，
+  // 轮询都停掉：进程退出时会一起没，但这里是文档化的清理入口，
   // 将来若有别的调用方（如重载宠物子系统）复用它会指望这里收干净。
-  stopCursorTracking()
   stopIdleWatching()
   stopPerchTracking()
   petWindowManager?.dispose()

@@ -45,8 +45,6 @@ export * from "./model/pet-package.js";
 
 // 抓取/投掷物理（场景 A）：抛物线积分、落地判定、释放速度估计。纯函数，可脱离 DOM 单测。
 export * from "./interaction/throw-physics.js";
-export * from "./interaction/gaze.js";
-// 闲置感知（P2-c）：用户离开多久 → 宠物打盹/睡着。系统闲置秒数的纯换算。
 export * from "./interaction/idle-stage.js";
 
 // 自主行为（R9）：空闲时的活动决策与地面行走运动学。

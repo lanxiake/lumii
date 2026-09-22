@@ -387,45 +387,6 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
       return () => window.removeEventListener('resize', onResize)
     }, [])
 
-    // 注视：主进程推来全局光标位置 → 归一化 → 交给渲染器
-    //
-    // 归一化的除数取**模型在屏幕上的高度**（getModelScreenBounds），不是画布高度——
-    // 画布是全屏，用它当分母会让"离宠物多远算远"随窗口大小漂移。
-    // 归一化在这里做而不是各后端各做一遍：那样"大小不同的模型表现一致"这条性质
-    // 就得在每个后端里重复保证。
-    useEffect(() => {
-      const instance = renderer?.instance
-      log.info(`[gaze] 订阅 effect 触发：ready=${ready} renderer=${renderer?.backend ?? 'null'}`)
-      if (!ready || !instance?.setGaze) return
-      // 同 loadModel：只认"当前那个实例"。订到已销毁的实例上不会报错，
-      // 只会**永远不动**——正是最难查的那种失败。
-      if (rendererRef.current !== instance) {
-        log.info('[gaze] 实例已弃用，不订阅（等新实例到位会再来一次）')
-        return
-      }
-      if (!window.electronAPI?.pet?.onCursor) {
-        log.warn("[gaze] preload 未暴露 onCursor —— 注视链路在第二段就断了")
-        return
-      }
-      log.info("[gaze] 已订阅光标事件，等待主进程推送")
-      let first = true
-      const off = window.electronAPI.pet.onCursor((event) => {
-        if (first) {
-          first = false
-          log.info(`[gaze] 收到首条光标事件 (${event.x.toFixed(0)}, ${event.y.toFixed(0)})`)
-        }
-        const bounds = instance.getModelScreenBounds?.()
-        const height = bounds?.height ?? 0
-        if (height <= 0) return
-        const pos = instance.getPosition()
-        instance.setGaze?.((event.x - pos.x) / height, (event.y - pos.y) / height)
-      })
-      return () => {
-        log.info("[gaze] 已取消订阅光标事件")
-        off?.()
-      }
-    }, [ready, renderer])
-
     // 空闲游走（R9）：仅 sprite 后端。
     //
     // 依赖里带 `config?.id`：换模型会重置地面线与缩放，而驱动内部持有旧的 x/y，

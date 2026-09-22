@@ -37,8 +37,6 @@ export const VH_STORAGE_KEYS = {
   enableTapInteraction: 'mtbot:vh-enable-tap-interaction',
   /** 强制鼠标穿透默认值（开=进入宠物模式即仅身体穿透） */
   forceIgnoreMouse: 'mtbot:vh-force-ignore-mouse',
-  /** 注视跟随光标（关=宠物不朝鼠标方向看） */
-  enableGazeTracking: 'mtbot:vh-enable-gaze-tracking',
   /** 闲置感知（关=用户离开多久都不打盹不睡） */
   enableIdleAwareness: 'mtbot:vh-enable-idle-awareness',
 } as const
@@ -105,12 +103,6 @@ export interface VirtualHumanSettingsDTO {
   /** 强制鼠标穿透默认值（true=进入宠物模式即仅身体穿透，控制坞仍可点） */
   forceIgnoreMouse: boolean
   /**
-   * 注视跟随光标（true=宠物朝鼠标方向轻微倾斜）。
-   *
-   * 默认开，但**必须能关**：被盯着看是可能让人不适的行为，有人就是不喜欢。
-   */
-  enableGazeTracking: boolean
-  /**
    * 闲置感知（true=用户离开一段时间后宠物打盹、再久则闭眼睡着；回来即醒）。
    *
    * 默认开，但**必须能关**：「它睡着了」可能被误读成程序卡死，
@@ -136,7 +128,6 @@ export const DEFAULT_VH_SETTINGS: VirtualHumanSettingsDTO = {
   enableAgentActivity: true,
   enableTapInteraction: true,
   forceIgnoreMouse: false,
-  enableGazeTracking: true,
   enableIdleAwareness: true,
   proactiveCareEnabled: false,
   proactiveCareMode: 'gentle',
