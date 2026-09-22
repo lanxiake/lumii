@@ -159,7 +159,12 @@ if (best) {
   // 拼条模式下挑中的是**一格**，得先裁出来 stage-frame 才吃得到
   let pickedPath = cols > 0 ? null : mid.file
   if (cols > 0) {
-    const out = opt('emit') || path.join(path.dirname(dir), `pick-${String(mid.i).padStart(2, '0')}.png`)
+    // ⚠ 默认落点**避开 `*-sheet/`**：那个目录是 `install-pet` 的输入，约定里
+    // 只该有 `f0000.png`。往里面丢 `pick-NN.png` 会让"装的是哪张表"取决于
+    // 文件名排序（实测踩到过一次：`tuanzi-walk-sheet/` 里多出一个 `pick-04.png`）。
+    const stripDir = path.dirname(dir)
+    const outBase = /-sheet$/.test(path.basename(stripDir)) ? path.join(stripDir, '..') : stripDir
+    const out = opt('emit') || path.join(outBase, `pick-${String(mid.i).padStart(2, '0')}.png`)
     await sharp(dir).extract(cells[mid.i].rect).png().toFile(out)
     pickedPath = out
     console.log(`已裁出 → ${out}`)

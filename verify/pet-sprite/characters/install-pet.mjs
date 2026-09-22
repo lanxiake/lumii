@@ -139,7 +139,18 @@ for (const a of ACTIONS) {
     console.warn(`  ⚠ 跳过 ${a.group || 'Idle'}（找不到 ${sub}）`)
     continue
   }
-  const src = path.join(sub, fs.readdirSync(sub).filter((f) => f.endsWith('.png')).sort()[0])
+  // ⚠ **明确取 `f0000.png`**，不要靠 `sort()[0]` 撞运气：这个目录同时也是
+  // `pose-pick --emit` 的默认落点，混进别的 png 时"排序第一个"是谁就看名字了
+  // （`f0000` 排在 `pick-*` 前面纯属巧合，改个前缀就会静默装错图）。
+  const pngs = fs.readdirSync(sub).filter((f) => f.endsWith('.png'))
+  if (!pngs.length) {
+    console.warn(`  ⚠ 跳过 ${a.group || 'Idle'}（${sub} 里没有 png）`)
+    continue
+  }
+  if (pngs.length > 1) {
+    console.warn(`  ⚠ ${path.basename(sub)} 里有 ${pngs.length} 个 png（${pngs.join(', ')}）——按约定只该有 f0000.png`)
+  }
+  const src = path.join(sub, pngs.includes('f0000.png') ? 'f0000.png' : pngs.sort()[0])
   const flat = path.join(workDir, `${id}-${a.key}-flat.png`)
   await sharp(src).flatten({ background: bgHex }).png().toFile(flat)
   const nameKey = a.nameKey || a.group.toLowerCase()
