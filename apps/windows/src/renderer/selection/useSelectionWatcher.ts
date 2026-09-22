@@ -1,0 +1,112 @@
+/**
+ * useSelectionWatcher.ts - 选区监听
+ *
+ * 把「什么时候该有快照、什么时候该收起」收在一处，浮条/菜单只管渲染。
+ *
+ * 事件统一挂 capture 阶段：会话项/菜单里的 stopPropagation 拦不住捕获监听，
+ * 挂在冒泡阶段会漏掉一部分 mouseup。
+ */
+
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { buildSnapshot, type SelectionSnapshot } from './snapshot'
+
+/** 快照由哪个入口承载 */
+export type SelectionSurface = 'bar' | 'menu'
+
+export interface SelectionView {
+  snapshot: SelectionSnapshot
+  surface: SelectionSurface
+  /** menu 的弹出坐标（指针位置）；bar 不用它，bar 锚在 snapshot.anchorRect */
+  point?: { x: number; y: number }
+}
+
+export interface UseSelectionWatcherOptions {
+  /**
+   * 命中此判定的事件一律忽略。浮条/菜单自身的点击走这里放行 ——
+   * capture 阶段的 document 监听先于它们自己的处理器执行，靠 stopPropagation 挡不住。
+   */
+  shouldIgnoreEvent?: (event: MouseEvent) => boolean
+}
+
+export interface UseSelectionWatcherResult {
+  view: SelectionView | null
+  close: () => void
+}
+
+export function useSelectionWatcher(
+  options: UseSelectionWatcherOptions = {},
+): UseSelectionWatcherResult {
+  const [view, setView] = useState<SelectionView | null>(null)
+
+  // 用 ref 持有：调用方每次渲染都可能给出新的闭包，不该因此重挂事件
+  const shouldIgnoreRef = useRef(options.shouldIgnoreEvent)
+  shouldIgnoreRef.current = options.shouldIgnoreEvent
+
+  const close = useCallback(() => setView(null), [])
+
+  useEffect(() => {
+    const isIgnored = (e: MouseEvent) => shouldIgnoreRef.current?.(e) ?? false
+
+    /**
+     * 任何一次按下都先收起浮条。
+     *
+     * 「拖拽起手即收起」不需要单独的位移阈值 —— 拖拽必然以 mousedown 起手，
+     * 这一条已经覆盖它。点浮条/菜单自身由 isIgnored 放行。
+     */
+    const handleMouseDown = (e: MouseEvent) => {
+      if (isIgnored(e)) return
+      setView(null)
+    }
+
+    const handleMouseUp = (e: MouseEvent) => {
+      // 右键交给 contextmenu 分支，这里只认左键，免得两者同时冒出来
+      if (e.button !== 0) return
+      if (isIgnored(e)) return
+      const snapshot = buildSnapshot(window.getSelection())
+      setView(snapshot ? { snapshot, surface: 'bar' } : null)
+    }
+
+    /**
+     * 右键：有选区就接管，弹自绘的划词菜单。
+     *
+     * 没选区时**不接管**也不 preventDefault —— 那种情况该由主进程的原生菜单负责
+     * （可编辑区的剪切/粘贴）。让位规则的权威实现在
+     * `src/main/window/context-menu-policy.ts`，两边口径要一致。
+     */
+    const handleContextMenu = (e: MouseEvent) => {
+      if (isIgnored(e)) return
+      const snapshot = buildSnapshot(window.getSelection())
+      if (!snapshot) return
+      e.preventDefault()
+      setView({ snapshot, surface: 'menu', point: { x: e.clientX, y: e.clientY } })
+    }
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setView(null)
+    }
+
+    /**
+     * 滚动/缩放会让快照里的坐标当场失效。窗口化列表里跟着重定位还会乱跳，
+     * 直接收起比让它飘着更符合直觉。
+     */
+    const handleViewportChange = () => setView(null)
+
+    document.addEventListener('mousedown', handleMouseDown, true)
+    document.addEventListener('mouseup', handleMouseUp, true)
+    document.addEventListener('contextmenu', handleContextMenu, true)
+    document.addEventListener('keydown', handleKeyDown, true)
+    window.addEventListener('scroll', handleViewportChange, true)
+    window.addEventListener('resize', handleViewportChange)
+
+    return () => {
+      document.removeEventListener('mousedown', handleMouseDown, true)
+      document.removeEventListener('mouseup', handleMouseUp, true)
+      document.removeEventListener('contextmenu', handleContextMenu, true)
+      document.removeEventListener('keydown', handleKeyDown, true)
+      window.removeEventListener('scroll', handleViewportChange, true)
+      window.removeEventListener('resize', handleViewportChange)
+    }
+  }, [])
+
+  return { view, close }
+}

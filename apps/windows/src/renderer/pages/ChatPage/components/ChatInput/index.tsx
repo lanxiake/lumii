@@ -15,6 +15,11 @@ import { ComposerPlusMenu } from './ComposerPlusMenu'
 import { useComposerDraft } from './useComposerDraft'
 import { openWikiLibrary } from '../../../../utils/open-wiki-library'
 import type { ViewType } from '../../../../components/Router'
+import {
+  buildQuoteMarkdown,
+  registerQuoteSink,
+  type QuoteInput,
+} from '../../../../selection/quote-bridge'
 
 interface ChatInputProps {
   value: string
@@ -238,6 +243,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
 
   const {
     innerValue,
+    innerValueRef,
     isComposingRef,
     setDraft,
     flushDraft,
@@ -288,6 +294,36 @@ const ChatInput: React.FC<ChatInputProps> = ({
       el.focus()
     })
   }, [innerValue, setDraft, flushDraft])
+
+  /**
+   * 划词引用的投递目标（SelectionLayer 通过 quote-bridge 调进来）。
+   *
+   * 引用块插在草稿**最前**，不与用户正在写的内容粘连；光标落到引用块之后，
+   * 用户可以接着追问。
+   */
+  const insertQuoteBlock = useCallback(
+    (input: QuoteInput): boolean => {
+      const quoted = buildQuoteMarkdown(input)
+      const current = innerValueRef.current
+      // 草稿非空时空一行分隔，否则只留一行给光标落脚
+      const prefix = current.trim().length > 0 ? `${quoted}\n\n` : `${quoted}\n`
+
+      setDraft(prefix + current)
+      flushDraft(prefix + current)
+
+      requestAnimationFrame(() => {
+        const el = textareaRef.current
+        if (!el) return
+        el.selectionStart = el.selectionEnd = prefix.length
+        el.focus()
+      })
+      return true
+    },
+    [setDraft, flushDraft],
+  )
+
+  // 挂载期间把投递目标登记给全局的划词层；卸载即注销（不在对话页时引用动作置灰）
+  useEffect(() => registerQuoteSink(insertQuoteBlock), [insertQuoteBlock])
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     const raw = e.dataTransfer.getData('application/x-mtbot-file')

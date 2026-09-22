@@ -1269,6 +1269,11 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
         message.error && styles['has-error'],
         noEnter && styles['message--no-enter'],
       )}
+      // 划词层靠这几个属性认出处（见 selection/snapshot.ts 的 readSource）。
+      // 只加属性，不动渲染逻辑；role 为 system 时会被读取方忽略。
+      data-lumii-source="chat-message"
+      data-lumii-message-id={message.id}
+      data-lumii-role={message.role}
     >
       {/* 内联文件预览：由工具卡片点击文件名触发，展示在消息顶部 */}
       {previewFileId && (

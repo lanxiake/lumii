@@ -1,0 +1,70 @@
+/* 划词浮条：与会话右键菜单同一套毛玻璃视觉 */
+.selection-toolbar {
+  position: fixed;
+  z-index: var(--z-popover);
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: var(--mt-space-1);
+  border: 1px solid var(--mt-glass-stroke);
+  border-radius: var(--mt-radius-lg);
+  background: var(--mt-glass-bg);
+  backdrop-filter: blur(18px) saturate(1.4);
+  box-shadow: var(--mt-shadow-lg);
+  /* 在浮条上拖拽不该把选区带过来 */
+  user-select: none;
+  animation: mt-selection-toolbar-enter var(--mt-dur-fast) var(--mt-ease-standard);
+}
+
+/*
+ * 进场只做透明度，不做 scale。
+ * 用 transform 的话 getBoundingClientRect 量到的尺寸会被 scale 带偏，
+ * 而浮条正是「先量后定位」，量偏了位置就跟着错。
+ */
+@keyframes mt-selection-toolbar-enter {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.selection-toolbar-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px var(--mt-space-2);
+  border: none;
+  border-radius: var(--mt-radius-md);
+  background: transparent;
+  color: var(--mt-fg-2);
+  font-size: var(--mt-fs-xs);
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background var(--mt-dur-normal) var(--mt-ease-standard),
+    color var(--mt-dur-normal) var(--mt-ease-standard);
+}
+
+.selection-toolbar-item:hover:not(:disabled) {
+  background: var(--mt-surface-2);
+  color: var(--mt-fg-1);
+}
+
+.selection-toolbar-item:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.selection-toolbar-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--mt-fg-3);
+  transition: color var(--mt-dur-normal) var(--mt-ease-standard);
+}
+
+.selection-toolbar-item:hover:not(:disabled) .selection-toolbar-icon {
+  color: var(--mt-accent-500);
+}

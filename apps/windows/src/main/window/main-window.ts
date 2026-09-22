@@ -5,6 +5,7 @@ import { setIpcMainWindow, getAgentRuntimeBridge } from '../agent-runtime'
 import type { ScreenRecordService } from '../screen-record'
 import { installPreviewZoomGuard } from './preview-zoom-guard'
 import { openExternalWithFallback } from './in-app-browser'
+import { shouldDeferToRenderer } from './context-menu-policy'
 
 export interface MainWindowLogger {
   info: (...args: unknown[]) => void
@@ -235,8 +236,25 @@ export function createMainWindow(
   /**
    * 原生右键菜单：对选中文本提供"复制"，输入框内额外提供剪切/粘贴/全选。
    * 覆盖文件预览、聊天记录、输入框等所有可选文本区域，复制走系统级最可靠。
+   *
+   * 非可编辑区有选区时**让位给渲染层**（划词菜单，见 selection/SelectionLayer）：
+   * 渲染层的 preventDefault 挡不住这里的 popup，只能由主进程主动不弹，
+   * 否则会出现「自绘菜单 + 原生菜单」叠两层。
    */
   window.webContents.on('context-menu', (_event, params) => {
+    // ⚠️ 临时诊断（划词功能定位 frame 用，定位完删除）
+    try {
+      const frameKind = params.frame ? (params.frame.parent ? 'sub' : 'main') : 'null'
+      logger.info(
+        `[context-menu:diag] editable=${params.isEditable} selLen=${params.selectionText.trim().length} ` +
+          `frame=${frameKind} frameURL=${params.frameURL || '(empty)'} mediaType=${params.mediaType}`,
+      )
+    } catch (err) {
+      logger.warn(`[context-menu:diag] 读取 params.frame 抛错: ${String(err)}`)
+    }
+
+    if (shouldDeferToRenderer(params)) return
+
     const hasSelection = params.selectionText.trim().length > 0
     const isEditable = params.isEditable
     if (!hasSelection && !isEditable) return
