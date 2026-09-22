@@ -146,7 +146,16 @@ function toCanvasLocal(e: MouseEvent, canvas: HTMLCanvasElement): { x: number; y
 
 export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
   ({ modelId, onDegrade, onModelLoaded, onInteraction, onAmbientActivity, onContextMenu, ambientEnabled = true }, ref) => {
-    const canvasRef = useRef<HTMLCanvasElement>(null)
+    /**
+     * 宿主容器。**React 只管这个 div，里面的 canvas 由 setup effect 自己创建/替换。**
+     *
+     * 为什么不让 React 直接渲染 canvas：那样每次重建都得靠 `key` 换元素，而 key 换不换得掉
+     * 取决于 reconciliation 的细节。实测靠不住——HMR 场景下元素没被换掉，`setState` 反被
+     * 拖进 "Maximum update depth exceeded" 的循环，日志刷到 364 万行。自己
+     * `replaceChildren` 是确定性的，不赌框架行为。
+     */
+    const canvasHostRef = useRef<HTMLDivElement>(null)
+    const canvasRef = useRef<HTMLCanvasElement | null>(null)
     const rendererRef = useRef<PetRendererProvider | null>(null)
     /** 模型配置：**必须先于渲染器拿到**，因为后端类型由它决定 */
     const [config, setConfig] = useState<PetModelConfig | null>(null)
@@ -278,20 +287,50 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
       }
     }, [modelId])
 
-    // 2) 按 rendererType 初始化对应后端。**依赖只有 rendererType**（见上方 ref 说明）。
+    // 2) 按 rendererType 初始化对应后端。
     //
-    // canvas 用 key={rendererType} 绑定：切换后端类型时 React 会换一个**新的 canvas 元素**。
-    // 这是刻意的——renderer.init() 创建的 PIXI Application 绑定在 canvas 的 WebGL context 上，
-    // 在同一个元素上销毁重建会拿到已丢失的 context（现有注释警告过的那个坑）。
-    // 换元素则旧 context 随旧元素整体消亡，不存在"在坏 context 上重建"。
-    // 同类型切换（live2d→live2d、sprite→sprite）时 key 不变、effect 不重跑，
-    // 只走下面的"重载模型"分支。
+    // 本 effect 每次都自建 canvas（见下面的长注释）。element 的 WebGL context 不可重建，
+    // 所以"重新 init"这件事只有换元素这一条路，没有第二条。
+    // 依赖只有 `rendererType`：同类型切换不重跑，只走下面"重载模型"的分支。
     useEffect(() => {
       if (!rendererType) return
       const backend = rendererType
       let disposed = false
-      const canvas = canvasRef.current
-      if (!canvas) return
+      const host = canvasHostRef.current
+      if (!host) return
+      // **每次重新 init 都造一个全新的 canvas 元素。**
+      //
+      // 一个 canvas 的 WebGL context **不可重建**——规范规定 `getContext()` 永远返回
+      // 同一个对象，即使它已经 lost。所以旧渲染器 destroy 之后，在同一个元素上
+      // `new PIXI.Application({ view })` 必然拿到坏 context：
+      //
+      //   实测（2026-09-22，改任何会被 React Refresh 强制重挂载的文件都必现）
+      //   [setup] 清理渲染器 → [setup] 开始初始化渲染器
+      //   → [init] WebGL context lost
+      //   → Uncaught: Invalid value of `0` passed to `checkMaxIfStatementsInShader
+      //
+      // 后果是宠物窗口白屏并**挡住整个桌面**，用户连退出程序都困难。
+      //
+      // 元素在这里造、不由 React 渲染，理由见 `canvasHostRef` 的注释。
+      const canvas = document.createElement('canvas')
+      canvas.style.cssText =
+        'position:fixed;inset:0;width:100vw;height:100vh;pointer-events:none;background:transparent;'
+      host.replaceChildren(canvas)
+      canvasRef.current = canvas
+      // 兜底：**真的**丢了 context（GPU 驱动重置、显存耗尽这类）时立刻退回桌面。
+      //
+      // 渲染器不会自己恢复——`SpritePetRenderer` 只 `preventDefault()` + 停渲染，
+      // 没有 `webglcontextrestored` 处理，也就是说它把"我要自己恢复"这句话说了却没做。
+      // 而宠物窗口是**全屏 + 置顶**的，留在宠物模式就是让用户对着一块白屏，
+      // 连退出程序都困难（用户实测反馈）。宠物可以没有，桌面不能被挡住。
+      canvas.addEventListener('webglcontextlost', () => {
+        // **只认当前那个元素。** 旧 canvas 在被重建时销毁，同样会派发 contextlost——
+        // 那是我们自己拆的，不是故障。不判的话每次 HMR 都会把用户踢回桌面
+        //（实测：`[setup] 渲染器初始化完成` 紧跟一条 `context lost —— 退回桌面模式`）。
+        if (canvasRef.current !== canvas) return
+        log.error('[setup] WebGL context lost —— 退回桌面模式，避免白屏挡住桌面')
+        void window.electronAPI?.pet?.switchMode('desktop')
+      })
       log.info(`[setup] 开始初始化渲染器（${backend}）`)
 
       const setup = async () => {
@@ -342,6 +381,10 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
         rendererRef.current = null
         setRenderer(null)
         setReady(false)
+        // canvas 是我们造的，也由我们拆；宿主 div 归 React。
+        // 不拆的话，旧元素上的监听器（含上面那个 contextlost 兜底）会一直挂着。
+        canvas.remove()
+        if (canvasRef.current === canvas) canvasRef.current = null
       }
     }, [rendererType])
 
@@ -784,16 +827,16 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
     }, [ready])
 
     return (
-      <canvas
-        // key 绑定后端类型：类型切换时换新元素（见上方初始化 effect 的说明）
-        key={rendererType ?? 'pending'}
-        ref={canvasRef}
+      // 宿主容器，样式与原来的 canvas 一致（canvas 填满它）。
+      // **canvas 不在这里渲染**——它由 setup effect 每次重建，理由见 `canvasHostRef`。
+      <div
+        ref={canvasHostRef}
         style={{
           position: 'fixed',
           inset: 0,
           width: '100vw',
           height: '100vh',
-          pointerEvents: 'none', // 穿透由主进程 setIgnoreMouseEvents 控制，canvas 自身不拦截
+          pointerEvents: 'none', // 穿透由主进程 setIgnoreMouseEvents 控制，容器自身不拦截
           background: 'transparent',
         }}
       />
