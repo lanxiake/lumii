@@ -132,6 +132,13 @@
       ]
     },
     {
+      "from": "resources/headless",
+      "to": "headless",
+      "filter": [
+        "**/*"
+      ]
+    },
+    {
       "from": "resources/user-guides",
       "to": "user-guides",
       "filter": [

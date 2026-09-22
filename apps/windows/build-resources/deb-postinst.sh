@@ -1,7 +1,7 @@
 #!/bin/bash
 # Lumii deb postinst —— 安装后配置。
 #
-# 以 root 身份执行。两件事：
+# 以 root 身份执行。三件事：
 #
 # 1. 修正 chrome-sandbox 权限（root:root + 4755）
 #
@@ -22,6 +22,21 @@ for SANDBOX in /opt/*/chrome-sandbox; do
   [ -f "$SANDBOX" ] || continue
   chown root:root "$SANDBOX" 2>/dev/null || true
   chmod 4755 "$SANDBOX" 2>/dev/null || true
+done
+
+# 2. 安装无头部署资产（CLI 启动器 + systemd 用户服务模板，默认不启用）
+#
+#    脚本随包分发在 <应用目录>/resources/headless/，这里只是按探测到的应用目录调用它。
+#    失败不让安装失败：无头资产是附加能力，装不上不该阻塞图形版安装。
+for CANDIDATE in /opt/*/lumii; do
+  [ -x "$CANDIDATE" ] || continue
+  APP_DIR="$(dirname "$CANDIDATE")"
+  ASSETS="$APP_DIR/resources/headless/install-headless-assets.sh"
+  if [ -x "$ASSETS" ]; then
+    "$ASSETS" "$APP_DIR" /usr/bin /usr/lib/systemd/user || echo "install-headless-assets 失败（不影响图形版安装）" >&2
+  else
+    echo "install-headless-assets: 包里没有 $ASSETS，跳过无头资产安装" >&2
+  fi
 done
 
 # 图标与桌面数据库更新；容器/最小系统中这两个命令可能不存在
