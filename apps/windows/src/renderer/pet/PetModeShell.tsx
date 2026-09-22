@@ -14,12 +14,14 @@
  * **下一轮重构请勿"顺手统一"到主题令牌**。
  */
 
-import React, { useCallback, useRef, useState, useEffect } from 'react'
+import React, { useCallback, useMemo, useRef, useState, useEffect } from 'react'
 import { usePetMode } from './hooks/usePetMode'
 import { PetCanvas, type PetCanvasHandle, type PetCanvasDegradeReason, setTapModelConfig, setTapInteractionEnabled } from './components/PetCanvas'
 import { PetControlDock } from './components/PetControlDock'
 import { PetSpeechBubble } from './components/PetSpeechBubble'
+import { PetStatusGlyph } from './components/PetStatusGlyph'
 import { PetContextMenu } from './components/PetContextMenu'
+import { spawnIdleSparkles } from './components/pet-particles'
 import { PetOrchestrator, type PetAvatarStatus } from './orchestrator/PetOrchestrator'
 import { PetEmotionMapper } from './orchestrator/PetEmotionMapper'
 import { mapAgentEvent, type PetIdleStage } from '@mtbot/pet-core'
@@ -40,6 +42,7 @@ import {
 import type { PetChatMessage } from './components/PetControlDock'
 import type { PetModelConfigDTO } from '../../shared/pet-mode'
 import { resolveEmotionKeyByIndex } from './utils/pet-status-labels'
+import { pickStatusGlyph } from './utils/pet-status-glyph'
 import { readPersistedSessionThinkingPrefs } from '../../shared/session-thinking-prefs'
 import { petSessionMatchesEvent } from './utils/pet-session-match'
 
@@ -134,6 +137,46 @@ export const PetModeShell: React.FC = () => {
     [],
   )
   const [avatarStatus, setAvatarStatus] = useState<PetAvatarStatus | null>(null)
+  /**
+   * 状态的最新值，供**定时器/回调**读取。
+   *
+   * 头顶符号与待机特效都要问「现在是什么状态」，但它们跑在定时器里，
+   * 不能进依赖数组（进了就每次状态变化都重建定时器，随机间隔被重置，
+   * 特效可能永远等不到）。所以镜像一份 ref。
+   */
+  const avatarStatusRef = useRef<PetAvatarStatus | null>(null)
+  avatarStatusRef.current = avatarStatus
+  /**
+   * 头顶符号：把"它现在在干什么"写成一个字。
+   *
+   * 这是用户 2026-09-22 那条要求（「待机不要左右和上下移动……需要添加特效」）的
+   * 另一半——位移去掉之后，可读信号得从别处补回来。取值规则见 `pickStatusGlyph`。
+   */
+  const glyph = useMemo(
+    () =>
+      pickStatusGlyph({
+        phase: avatarStatus?.phase ?? 'idle',
+        idleStage: avatarStatus?.idleStage,
+        agentActivity: avatarStatus?.agentActivity,
+      }),
+    [avatarStatus],
+  )
+  /** 符号的锚点：**符号变了才重取位置**，不每帧跟随（与气泡同一取舍，见上方注释） */
+  const [glyphAnchor, setGlyphAnchor] = useState<{
+    x: number
+    y: number
+    petHeight: number
+  } | null>(null)
+  useEffect(() => {
+    if (!glyph) {
+      setGlyphAnchor(null)
+      return
+    }
+    const renderer = canvasRef.current?.getRenderer()
+    const pos = renderer?.getPosition?.()
+    const layout = renderer?.getLayout?.()
+    setGlyphAnchor({ x: pos?.x ?? 0, y: pos?.y ?? 0, petHeight: layout?.modelHeight ?? 200 })
+  }, [glyph?.char, glyph?.tone])
   /** 可切换的 Live2D 模型列表（控制坞下拉展示） */
   const [models, setModels] = useState<PetModelConfigDTO[]>([])
   /** 聊天记录（用户+AI，内存态轻量展示；后台已由 user:send 落 DB）。 */
@@ -628,6 +671,49 @@ export const PetModeShell: React.FC = () => {
     return () => clearInterval(id)
   }, [modelLoaded])
 
+  /**
+   * 待机特效：偶尔在宠物身上冒几颗小星星/爱心（用户 2026-09-22 挑的「偶尔随机」）。
+   *
+   * 三条约束，都是有意的：
+   *   · **只在待机时冒**——它正在想事/回你话的时候冒星星，是跟内容抢注意力；
+   *     睡着时也不冒（那时该看见的是头顶的 Z）。
+   *   · **随机 8~20 秒**——固定节奏会变成节拍器，看两轮就腻。
+   *   · `setTimeout` 自排程而不是 `setInterval`：间隔每次都要重掷。
+   *
+   * 依赖只给 `modelLoaded`：状态从 ref 读。把状态放进依赖数组的话，每来一次
+   * status 补丁都会重建定时器，随机间隔被反复重置——特效可能永远等不到那一次。
+   */
+  useEffect(() => {
+    if (!modelLoaded) return
+    let timer: ReturnType<typeof setTimeout> | null = null
+    let stopped = false
+    const schedule = () => {
+      timer = setTimeout(
+        () => {
+          if (stopped) return
+          const status = avatarStatusRef.current
+          const asleep = idleStageRef.current !== 'awake'
+          if ((status?.phase ?? 'idle') === 'idle' && !asleep) {
+            const renderer = canvasRef.current?.getRenderer()
+            const pos = renderer?.getPosition?.()
+            const layout = renderer?.getLayout?.()
+            if (pos) {
+              // 落在上半身而不是贴着头顶：贴头顶冒像"头发着火"，低一点更像从身上飘起来
+              spawnIdleSparkles(pos.x, pos.y - (layout?.modelHeight ?? 200) * 0.82)
+            }
+          }
+          schedule()
+        },
+        8000 + Math.random() * 12000,
+      )
+    }
+    schedule()
+    return () => {
+      stopped = true
+      if (timer) clearTimeout(timer)
+    }
+  }, [modelLoaded])
+
   useEffect(() => {
     orchestratorRef.current?.setPlaybackAnalyser(voiceState.playbackAnalyserNode)
   }, [voiceState.playbackAnalyserNode])
@@ -780,6 +866,21 @@ export const PetModeShell: React.FC = () => {
           x={bubble.x}
           y={bubble.y}
           petHeight={bubble.petHeight}
+        />
+      )}
+      {/*
+        头顶符号与气泡**互斥**：两者锚在同一处，叠在一起一定糊。
+        气泡是"一句话"（有时限、要读），符号是"状态灯"（常驻、扫一眼），
+        同时需要时让气泡说话——它信息更多，且转瞬即逝。
+      */}
+      {!bubble && glyph && glyphAnchor && (
+        <PetStatusGlyph
+          char={glyph.char}
+          tone={glyph.tone}
+          label={glyph.label}
+          x={glyphAnchor.x}
+          y={glyphAnchor.y}
+          petHeight={glyphAnchor.petHeight}
         />
       )}
       {menuAt && (

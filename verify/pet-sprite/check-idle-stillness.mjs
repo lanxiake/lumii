@@ -136,6 +136,9 @@ const span = (key) => Math.max(...samples.map((s) => s[key])) - Math.min(...samp
 console.log(`\n采样 ${samples.length} 次（每 ${INTERVAL}ms 一次，覆盖 ${((samples.length * INTERVAL) / 1000).toFixed(1)} 秒）`)
 console.log(`  顶边跨度 ${span('top')}px   底边跨度 ${span('bottom')}px   高度跨度 ${span('h')}px   左缘跨度 ${span('left')}px`)
 console.log(`  轮廓尺寸样本：${samples[0].w}×${samples[0].h}`)
+// 逐帧序列要打出来：待机特效的粒子（随机 8~20 秒一次）会从头顶飘过，
+// 让顶边读数**短暂**跳高。只看极差会被这一两次离群值带跑，序列里一眼能分开。
+console.log(`  顶边序列：${samples.map((s) => s.top).join(' ')}`)
 
 const topSpan = span('top')
 const heightSpan = span('h')

@@ -29,6 +29,7 @@ import {
   reduceAgentActivity,
   tickAgentActivity,
   type ActivityModulation,
+  type AgentActivity,
   type AgentActivityEvent,
   type AgentActivityState,
 } from '@mtbot/pet-core'
@@ -116,6 +117,14 @@ export interface PetAvatarStatus {
   postDialogueCooldown?: boolean
   /** 用户闲置阶段（打盹/睡着）；控制坞据此显示「它睡着了」而不是让人以为卡死 */
   idleStage?: PetIdleStage
+  /**
+   * Agent 活动档位（思考/干活/等你确认/卡住）。
+   *
+   * 与 `phase` 是**两件事**：`phase` 是语音/对话阶段（听、想、说），
+   * 这个是 Agent 侧的活计。头顶符号要区分「在等你确认」和「卡住了」，
+   * 只有这里有；`pushAgentActivity` 里变化时补发一次 status 广播。
+   */
+  agentActivity?: AgentActivity
 }
 
 export class PetOrchestrator {
@@ -216,6 +225,9 @@ export class PetOrchestrator {
     motionKind: 'none',
     idleMotionEnabled: true,
     idleStage: 'awake',
+    // 初始档位也要在快照里：`setStatusListener` 是把这份快照直接推给新监听器的
+    // （见该方法的注释），少了这个字段，晚挂上来的界面就永远看不到档位
+    agentActivity: initialAgentActivity.activity,
   }
 
   constructor(private readonly renderer: PetRendererProvider) {
@@ -326,11 +338,21 @@ export class PetOrchestrator {
     // 但它不改档位——照实打会刷出一串 `working → working`，把真正的切换淹掉。
     const changed = next.activity !== this.agentActivity.activity
     this.agentActivity = next
-    if (!changed) return
+    if (!changed) {
+      // 档位没变也要把**快照**对齐：监听器晚挂上来时拿的是 `this.status` 的副本
+      // （`setStatusListener` 会立刻推一次）。快照里没有当前档位的话，
+      // 界面就停在"明明在 thinking，头顶什么都没有"——实测就是这么被坑的。
+      this.status = { ...this.status, agentActivity: next.activity }
+      return
+    }
     log.info(
       `[pushAgentActivity] ${next.previousActivity} → ${next.activity} ` +
         `(event=${event.type} tools=${next.toolCount})`,
     )
+    // 档位变了就补发一次 status：头顶符号（`pickStatusGlyph`）靠它区分
+    // 「在等你确认」与「卡住了」。**不发的话 React 那边看不到**——activity 只走
+    // 这条推送，状态对象里不带它，界面上就永远是上一次的样子。
+    this.patchStatus({ agentActivity: next.activity })
   }
 
   /** 当前 Agent 活动状态（只读，供调试与控制坞） */

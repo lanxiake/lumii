@@ -28,7 +28,7 @@ import { estimateVelocity, isThrowable, stepThrow, type DragSample, type ThrowBo
 import { PetWanderDriver } from '../behavior/PetWanderDriver'
 import { petMetrics } from '../telemetry/pet-metrics'
 import type { PetHoverUpdate } from '../../../shared/pet-mode'
-import { spawnClickFireworks, disposeClickFireworks } from './click-fireworks'
+import { spawnClickFireworks, disposePetParticles } from './pet-particles'
 
 const log = {
   info: (...args: unknown[]) => console.log('[PetCanvas]', ...args),
@@ -812,7 +812,7 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
         window.removeEventListener('wheel', onWheel)
         canvas.removeEventListener('mouseleave', onMouseLeave)
         reportModelHover(false)
-        disposeClickFireworks()
+        disposePetParticles()
         // 点击让位的定时器要清掉：不清的话组件已卸载，回调还会去碰已销毁的驱动
         if (tapHoldRef.current !== null) {
           clearTimeout(tapHoldRef.current)
