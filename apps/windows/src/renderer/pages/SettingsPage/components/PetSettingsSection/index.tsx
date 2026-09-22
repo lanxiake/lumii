@@ -1,5 +1,5 @@
 /**
- * 宠物模式设置区块：虚拟人模型选择、对话 Agent、表情/动作/语音等开关、主动联系与进入/退出按钮
+ * 宠物模式设置区块：虚拟人模型选择、对话 Agent、表情/动作/语音等开关、主动联系与打开/关闭按钮
  */
 import React, { useEffect, useState } from 'react'
 import { Card } from '../../../../components/ui/Card/Card'
@@ -62,7 +62,7 @@ export const PetSettingsSection: React.FC = () => {
   }, [ready, petModeBlocked])
 
   /**
-   * 订阅主进程宠物模式变更事件，同步"进入/退出"按钮文案（托盘/快捷键/控制坞等路径均会触发）
+   * 订阅主进程宠物模式变更事件，同步"打开/关闭"按钮文案（托盘/快捷键/控制坞等路径均会触发）
    */
   useEffect(() => {
     const handleModeChanged = (mode: unknown) => {
@@ -86,13 +86,13 @@ export const PetSettingsSection: React.FC = () => {
       <Card>
         <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
           <p style={{ color: 'var(--color-text-secondary)', fontSize: 13, lineHeight: 1.6, margin: 0 }}>
-            进入宠物模式后，桌面会出现一个可交互的 Live2D 虚拟人。你可以语音或文字与它对话，
-            它会用表情、口型和动作回应。主界面将隐藏到后台，随时可退出恢复。
+            打开宠物模式后，桌面会出现一个可交互的 Live2D 虚拟人。你可以语音或文字与它对话，
+            它会用表情、口型和动作回应。主界面保持原样，宠物与它并行存在，随时可以关闭。
           </p>
           <ul style={{ color: 'var(--color-text-secondary)', fontSize: 12, lineHeight: 1.8, margin: 0, paddingLeft: 18 }}>
-            <li>三种进入方式：本页按钮 / 托盘菜单 / 快捷键 <strong>Ctrl+Shift+P</strong></li>
+            <li>三种打开方式：本页按钮 / 托盘菜单 / 快捷键 <strong>Ctrl+Shift+P</strong></li>
             <li>虚拟人身体默认点击穿透，悬停到控制坞时恢复点击；<strong>Ctrl+Shift+I</strong> 切换强制穿透</li>
-            <li>对话跟随当前会话，退出后聊天记录连续</li>
+            <li>对话跟随当前会话，关闭后聊天记录连续</li>
           </ul>
 
           {/* 模型选择器 + 缩略图 */}
@@ -241,7 +241,7 @@ export const PetSettingsSection: React.FC = () => {
             >
               默认开启强制穿透
             </Checkbox>
-            <span className={styles['setting-hint']}>开启后进入宠物模式时鼠标仅穿透宠物身体（控制坞仍可点击）；已在宠物模式时立即生效。也可用 Ctrl+Shift+I 临时切换</span>
+            <span className={styles['setting-hint']}>开启后打开宠物模式时鼠标仅穿透宠物身体（控制坞仍可点击）；已在宠物模式时立即生效。也可用 Ctrl+Shift+I 临时切换</span>
           </div>
 
           {/* 主动联系 */}
@@ -299,7 +299,7 @@ export const PetSettingsSection: React.FC = () => {
                 }
               }}
             >
-              {isPetModeActive ? '退出宠物模式' : '进入宠物模式'}
+              {isPetModeActive ? '关闭宠物模式' : '打开宠物模式'}
             </Button>
             {/* D4：屏蔽必须给出原因，不能只是把按钮变灰 */}
             {petModeBlocked && (

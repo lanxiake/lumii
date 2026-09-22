@@ -26,7 +26,7 @@ export interface TrayManagerConfig {
   onQuit: () => void
   /** 打开设置窗口回调 */
   onOpenSettings: () => void
-  /** 切换宠物模式回调（进入/退出由 TrayManager 当前状态决定） */
+  /** 切换宠物模式回调（打开/关闭由 TrayManager 当前状态决定） */
   onTogglePetMode?: () => void
   /** 关闭强制穿透（仅宠物模式 + 穿透开启时可用） */
   onDisableForceIgnore?: () => void
@@ -181,14 +181,14 @@ export class TrayManager {
         ? petDisabledReason
           ? [
               {
-                label: `进入宠物模式（${petDisabledReason}）`,
+                label: `打开宠物模式（${petDisabledReason}）`,
                 enabled: false,
               },
               { type: 'separator' as const },
             ]
           : [
               {
-                label: this.petModeActive ? '退出宠物模式' : '进入宠物模式',
+                label: this.petModeActive ? '关闭宠物模式' : '打开宠物模式',
                 click: () => this.config.onTogglePetMode!(),
               },
               ...(this.petModeActive && this.forceIgnoreActive && this.config.onDisableForceIgnore

@@ -839,7 +839,7 @@ export const PetModeShell: React.FC = () => {
         onToggleMute={handleToggleMute}
         onToggleVoiceReply={handleToggleVoiceReply}
         onChangeModel={handleChangeModel}
-        onExit={handleExit}
+        onClose={() => setDockOpen(false)}
         onSendText={handleSendText}
         autoMuteMicWhileSpeaking={autoMuteMicWhileSpeaking}
         vadThreshold={vadThreshold}

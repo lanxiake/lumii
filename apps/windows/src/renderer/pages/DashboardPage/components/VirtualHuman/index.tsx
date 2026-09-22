@@ -1,7 +1,7 @@
 /**
  * VirtualHuman - 虚拟人展示框（原型 .pet.petprev）
  *
- * 只读展示当前虚拟人形象 + 模式状态，交互入口只有「进入/退出宠物模式」，
+ * 只读展示当前虚拟人形象 + 模式状态，交互入口只有「打开/关闭宠物模式」，
  * 模型与人格配置仍在设置页（避免概览页出现第二份配置面板）。
  */
 
@@ -99,7 +99,7 @@ export const VirtualHuman: React.FC = () => {
         disabled={busy || !model || petModeBlocked}
         title={petModeBlocked ? (blockMessage('petMode') ?? undefined) : undefined}
       >
-        {isPetMode ? '退出宠物模式' : '进入宠物模式'}
+        {isPetMode ? '关闭宠物模式' : '打开宠物模式'}
       </button>
       {/* D4：屏蔽必须给出原因，不能只是把按钮变灰 */}
       {petModeBlocked && <div className={styles.sub}>{blockMessage('petMode')}</div>}

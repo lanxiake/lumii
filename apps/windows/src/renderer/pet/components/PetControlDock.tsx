@@ -53,7 +53,14 @@ export interface PetControlDockProps {
   onToggleVoiceReply: () => void | Promise<void>
   /** 切换当前模型（热切换） */
   onChangeModel: (modelId: string) => void | Promise<void>
-  onExit: () => void | Promise<void>
+  /**
+   * 收起这个面板。
+   *
+   * **注意不是"退出宠物模式"**（2026-09-22 改）：宠物和主窗口现在是并行的，
+   * 面板只是面板，关掉它不该把宠物一起收走——那是右键菜单里"关闭宠物模式"的事。
+   * 这里原先接的是 `handleExit`，按一下整只宠物就没了，与"关个面板"的心理预期差太远。
+   */
+  onClose: () => void | Promise<void>
   /** 发送文字消息（虚拟人会语音/字幕回应） */
   onSendText: (text: string) => void | Promise<void>
   /** AI 朗读时自动闭麦 */
@@ -147,7 +154,7 @@ export const PetControlDock: React.FC<PetControlDockProps> = ({
   onToggleMute,
   onToggleVoiceReply,
   onChangeModel,
-  onExit,
+  onClose,
   onSendText,
   autoMuteMicWhileSpeaking,
   vadThreshold,
@@ -515,8 +522,8 @@ export const PetControlDock: React.FC<PetControlDockProps> = ({
               </option>
             ))}
           </select>
-          <DockTextButton onClick={() => void onExit()} title="退出宠物模式（Ctrl+Shift+P）">
-            退出
+          <DockTextButton onClick={() => void onClose()} title="收起控制面板">
+            收起
           </DockTextButton>
         </div>
       </div>

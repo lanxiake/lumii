@@ -1515,9 +1515,9 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
     // （将来还有快捷键/托盘），所以这里兜底比信任调用点可靠。
     const result = await switchPetMode('pet').catch(() => null)
     if (!result) {
-      toast.error('进入宠物模式失败：主进程未响应')
+      toast.error('打开宠物模式失败：主进程未响应')
     } else if (!result.success) {
-      toast.error(`进入宠物模式失败：${result.error ?? '未知错误'}`)
+      toast.error(`打开宠物模式失败：${result.error ?? '未知错误'}`)
     }
   }, [runtimeCurrentSessionKey, toast])
 

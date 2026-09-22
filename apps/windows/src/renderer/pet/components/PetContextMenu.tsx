@@ -316,7 +316,7 @@ export const PetContextMenu: React.FC<PetContextMenuProps> = ({
           <MenuItem label="更换宠物" hint={`${models.length} 个 ▸`} onClick={() => setView('models')} />
 
           <Separator />
-          <MenuItem label="退出宠物模式" hint="Ctrl+Shift+P" danger onClick={run(onExit)} />
+          <MenuItem label="关闭宠物模式" hint="Ctrl+Shift+P" danger onClick={run(onExit)} />
         </>
       )}
     </div>
