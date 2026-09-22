@@ -344,7 +344,6 @@
         }
       ],
       "params": {
-        "bob": 8,
         "breathe": 1.02,
         "sway": 1.5
       }

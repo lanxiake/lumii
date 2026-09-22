@@ -17,7 +17,7 @@
  * 存了就会出现"关掉菜单再打开，勾还在旧位置"。
  */
 
-import React, { useEffect, useRef } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import type { VoiceCallState } from '../../../shared/voice-events'
 import type { PetModelConfigDTO } from '../../../shared/pet-mode'
 
@@ -121,6 +121,11 @@ export const PetContextMenu: React.FC<PetContextMenuProps> = ({
 }) => {
   const ref = useRef<HTMLDivElement>(null)
   const inCall = voiceState !== 'idle'
+  /**
+   * 二级视图。模型多的时候把它们平铺在主菜单里会拖出一长条——
+   * 主菜单只留一行「更换宠物」，点进去才展开列表。
+   */
+  const [view, setView] = useState<'root' | 'models'>('root')
 
   // 点外部 / Esc / 滚轮 关闭。滚轮也关：菜单下面压着的是宠物，用户滚轮多半是想缩放它。
   useEffect(() => {
@@ -144,7 +149,7 @@ export const PetContextMenu: React.FC<PetContextMenuProps> = ({
 
   // 兜底夹回视口内：右键点在宠物下半身、或宠物贴着屏幕右下角时，
   // 菜单会有一半在屏幕外——而它没有滚动条，露不出来的项就是点不到。
-  const rows = 6 + models.length + 2 // 估算：固定项 + 模型项 + 两条分隔
+  const rows = view === 'models' ? models.length + 2 : 9
   const estH = rows * ITEM_H + 2 * SEP_H + 16
   const left = Math.min(x, window.innerWidth - MENU_MIN_WIDTH - 8)
   const top = Math.min(y, Math.max(8, window.innerHeight - estH - 8))
@@ -173,32 +178,45 @@ export const PetContextMenu: React.FC<PetContextMenuProps> = ({
         userSelect: 'none',
       }}
     >
-      {inCall ? (
-        <MenuItem label="结束语音对话" danger onClick={run(onStopVoice)} />
+      {view === 'models' ? (
+        <>
+          <MenuItem label="← 返回" onClick={() => setView('root')} />
+          <Separator />
+          {models.map((m) => (
+            <MenuItem
+              key={m.id}
+              label={m.name || m.id}
+              checked={m.id === currentModelId}
+              onClick={run(() => onChangeModel(m.id))}
+            />
+          ))}
+        </>
       ) : (
-        <MenuItem label="开始语音对话" onClick={run(onStartVoice)} />
+        <>
+          {inCall ? (
+            <MenuItem label="结束语音对话" danger onClick={run(onStopVoice)} />
+          ) : (
+            <MenuItem label="开始语音对话" onClick={run(onStartVoice)} />
+          )}
+          <MenuItem label="静音" checked={muted} onClick={run(onToggleMute)} />
+          <MenuItem
+            label="语音回复"
+            hint="朗读"
+            checked={voiceReplyEnabled}
+            onClick={run(onToggleVoiceReply)}
+          />
+
+          <Separator />
+          <MenuItem label={dockOpen ? '隐藏对话' : '打开对话'} onClick={run(onToggleDock)} />
+
+          <Separator />
+          {/* 模型列表收进二级：平铺在主菜单里会拖出一长条，把常用项挤到看不见 */}
+          <MenuItem label="更换宠物" hint={`${models.length} 个 ▸`} onClick={() => setView('models')} />
+
+          <Separator />
+          <MenuItem label="退出宠物模式" hint="Ctrl+Shift+P" danger onClick={run(onExit)} />
+        </>
       )}
-      <MenuItem label="静音" checked={muted} onClick={run(onToggleMute)} />
-      <MenuItem label="语音回复" hint="朗读回复" checked={voiceReplyEnabled} onClick={run(onToggleVoiceReply)} />
-
-      <Separator />
-      <MenuItem label={dockOpen ? '隐藏对话' : '打开对话'} onClick={run(onToggleDock)} />
-
-      <Separator />
-      {/* 模型直接平铺，不做二级菜单：二级菜单在自绘里要处理悬停延时、
-          边界翻转、键盘导航——而这里通常只有个位数个模型。 */}
-      <div style={{ padding: '2px 12px 4px', color: COLOR.dim, fontSize: 11 }}>切换模型</div>
-      {models.map((m) => (
-        <MenuItem
-          key={m.id}
-          label={m.name || m.id}
-          checked={m.id === currentModelId}
-          onClick={run(() => onChangeModel(m.id))}
-        />
-      ))}
-
-      <Separator />
-      <MenuItem label="退出宠物模式" hint="Ctrl+Shift+P" danger onClick={run(onExit)} />
     </div>
   )
 }
