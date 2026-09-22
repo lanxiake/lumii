@@ -37,7 +37,7 @@ function positional() {
     const a = rest[i]
     if (a.startsWith('--')) {
       // 只有"带值"的选项才吃掉下一个 token
-      const takesValue = ['--mode', '--cols', '--rows', '--tol', '--bg', '--out', '--out-dir', '--prefix', '--canvas', '--threshold', '--merge-dist']
+      const takesValue = ['--mode', '--cols', '--rows', '--tol', '--bg', '--out', '--out-dir', '--prefix', '--canvas', '--threshold', '--merge-dist', '--colors']
       if (takesValue.includes(a)) i++
       continue
     }
@@ -85,8 +85,12 @@ function usage() {
           --mode auto|grid            默认 auto
           --cols N --rows N           grid 模式用
           --canvas WxH                指定输出画布，默认按最大帧自适应
+          --colors N                  量化到 N 色（所有帧共用一套调色板）
           --prefix NAME               输出文件名前缀，默认 frame
           --tol N / --bg R,G,B        同 cutout
+  quantize <file>                    只做调色板量化（中位切分）
+          --colors N                  目标色数，默认 32
+          --out <path>                输出路径（不给就只报告）
 
 环境变量:
   PIXELORAMA_GODOT   Godot 可执行文件路径（默认找 ~/.lumii/tools/godot/）
@@ -252,6 +256,7 @@ switch (cmd) {
     const outDir = opt('out-dir')
     if (!outDir) emit({ ok: false, error: 'clean 需要 --out-dir' })
     const canvas = parseCanvas(opt('canvas'))
+    const colors = opt('colors')
     const r = await runTask([
       {
         op: 'clean',
@@ -261,6 +266,7 @@ switch (cmd) {
         ...sliceParams(),
         ...commonParams(),
         ...(canvas ? { canvas } : {}),
+        ...(colors ? { colors: Number(colors) } : {}),
       },
     ])
     emit(r, (res) => {
@@ -268,10 +274,35 @@ switch (cmd) {
       if (!d.ok) return process.stdout.write(`✗ ${d.error}\n`)
       process.stdout.write(`抠掉 ${d.removed_px} px (${d.removed_pct}%)  背景 rgb(${d.bg_rgb})\n`)
       process.stdout.write(`切出 ${d.count} 帧  →  ${d.canvas[0]}×${d.canvas[1]} 画布\n`)
+      if (d.palette?.length) {
+        process.stdout.write(`量化到 ${d.palette.length} 色（所有帧共用一套）\n`)
+      }
       for (const [i, f] of (d.frames ?? []).entries()) {
         const src = d.source_rects?.[i]
         process.stdout.write(`  ${path.basename(f.file)}   ${f.w}×${f.h}` + (src ? `   (源 ${src[2]}×${src[3]} @ ${src[0]},${src[1]})\n` : '\n'))
       }
+    })
+    break
+  }
+
+  case 'quantize': {
+    const file = needFile()
+    const out = opt('out')
+    const r = await runTask([
+      {
+        op: 'quantize',
+        file,
+        colors: Number(opt('colors', 32)),
+        out: out ? path.resolve(out).replace(/\\/g, '/') : '',
+      },
+    ])
+    emit(r, (res) => {
+      const d = res.results?.[0] ?? {}
+      if (!d.ok) return process.stdout.write(`✗ ${d.error}\n`)
+      process.stdout.write(`颜色 ${d.colors_before} → ${d.colors_after}（目标 ${d.colors_requested}）\n`)
+      process.stdout.write(`改动 ${d.changed_px} px\n`)
+      process.stdout.write(`调色板 ${d.palette.join(' ')}\n`)
+      if (d.out) process.stdout.write(`→ ${d.out}\n`)
     })
     break
   }

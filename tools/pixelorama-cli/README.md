@@ -60,7 +60,8 @@ pixelorama probe                              环境自检
 pixelorama analyze <file>                     尺寸 / 背景色 / 内容包围盒 / 颜色数
 pixelorama slice   <file> [--mode auto|grid]  切片，只报告不落盘
 pixelorama cutout  <file> [--out path]        抠背景
-pixelorama clean   <file> --out-dir <dir>     一步到位：抠底→切片→归一化→导出
+pixelorama quantize <file> [--colors N]       调色板量化（中位切分）
+pixelorama clean   <file> --out-dir <dir>     一步到位：抠底→切片→归一化→量化→导出
 ```
 
 加 `--json` 走机器可读输出。
@@ -68,7 +69,7 @@ pixelorama clean   <file> --out-dir <dir>     一步到位：抠底→切片→�
 ### `clean` —— 常用的就是它
 
 ```bash
-pixelorama clean sheet.png --out-dir ./frames --json
+pixelorama clean sheet.png --out-dir ./frames --colors 24 --json
 ```
 
 实测（一张 1024×1024 的 AI 出图，2×2 四格）：
@@ -76,6 +77,7 @@ pixelorama clean sheet.png --out-dir ./frames --json
 ```
 抠掉 791264 px (75.46%)  背景 rgb(7,247,252)
 切出 4 帧  →  446×388 画布
+量化到 24 色（所有帧共用一套）
   frame_00.png   446×388   (源 446×370 @ 34,84)
   frame_01.png   446×388   (源 428×380 @ 540,76)
   frame_02.png   446×388   (源 400×388 @ 48,582)
@@ -84,6 +86,37 @@ pixelorama clean sheet.png --out-dir ./frames --json
 
 源区域大小不一是**正常的**——AI 画的动作本来就有伸缩。
 归一化按最大宽高建统一画布，每帧水平居中、**底边对齐**（脚踩同一条线）。
+
+### `--colors` 是"变像素画"的那一步
+
+AI 出图是照片感的连续色调。同一张图实测：
+
+| | 颜色数 | 内容像素 | 包围盒 |
+| --- | --- | --- | --- |
+| 量化前 | 17517 | 62236 | 446×370 @ (0,18) |
+| 量化后（`--colors 24`） | 22 | 62095 | 446×370 @ (0,18) |
+
+包围盒**完全一致**——量化没有啃掉角色轮廓。
+（要 24 给 22 是正常的：中位切分出来的盒子会有空盒，取平均时也会撞色。）
+
+**所有帧共用一套调色板**。各帧各算一套的话，帧与帧之间颜色会跳，播起来闪。
+实现是 GDScript 中位切分（median cut）：
+
+- 先统计**唯一色直方图**再切分。AI 出的图看着几万色，唯一色就那么多，直方图远小于像素数。
+- **切「像素数最多」的盒子，不是「颜色数最多」的**。这一条是实测改过来的——
+  AI 出图有极重的长尾：实测一张图 51950 个唯一色，**出现最多的 10 个颜色只占 28% 的像素**，
+  其余 72% 是几万种各不相同的相近色（抗锯齿边缘的混合色，每个只出现几次）。
+  按颜色数切，这些噪点色会凭"种类多"抢走大半盒子。同样 16 色下实测：
+
+  | 切法 | 橘色阶 | 混进来的青色噪点 |
+  | --- | --- | --- |
+  | 按颜色数 | 3 个 | 3 个 |
+  | 按像素数 | **8 个** | 1 个（角色眼睛） |
+
+- 每盒取**按出现次数加权**的平均色。不加权的话，只出现 3 次的噪点色会和出现 3 万次的主色等权，把调色板带偏。
+- 映射阶段用缓存表压到"每个唯一色算一次最近邻"。
+
+`--colors 24` 的整轮实测约 6.7 秒（含 Godot 冷启动 3.7 秒）。
 
 ## 设计取舍（都是实测换来的）
 
@@ -154,9 +187,14 @@ dev/look.mjs            开发用：把图合成到白底再画 ASCII
 
 ## 已知限制
 
-- **不做调色板量化**。Pixelorama 的 `PalettizeDialog` 走 GPU shader，
-  而 headless 用的是 dummy 渲染后端，跑不了 shader。
-  真要量化得用 GDScript 重写最近邻颜色匹配。
+- **量化不是 Pixelorama 的实现**。它的 `PalettizeDialog` 走 GPU shader
+  （`Palettize.gdshaderinc` + `ShaderImageEffect`），而 headless 是 dummy 渲染后端，
+  shader 根本不跑。所以中位切分是自己用 GDScript 写的（见上）。
+- **只有 `RegionUnpacker` 一个类可复用**。其余算法类（`ImageExtended`、
+  `FloodFillObject`、`Project`…）都带 autoload 依赖，在 `--script` 模式下会
+  让整个执行器编译失败。见上面的取舍说明。
 - **一次只处理一张图**。多图批处理要靠调用方循环（或将来扩成任务数组）。
 - **`grid` 模式不做内容校验**。它按 `w/cols` 硬切，
   尺寸不能整除时直接报错而不是猜。
+- **不做缩放**。要 32×32 的像素帧得自己缩（缩的时候务必用最近邻，
+  双线性会把像素画的硬边糊掉）。

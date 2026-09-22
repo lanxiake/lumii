@@ -82,6 +82,8 @@ func _dispatch(op: String, cmd: Dictionary) -> Dictionary:
 			return _op_cutout(cmd)
 		"clean":
 			return _op_clean(cmd)
+		"quantize":
+			return _op_quantize(cmd)
 		"save_frames":
 			return _op_save_frames(cmd)
 		"save":
@@ -440,18 +442,33 @@ func _op_clean(cmd: Dictionary) -> Dictionary:
 			cw = maxi(cw, p.get_width())
 			chh = maxi(chh, p.get_height())
 
-	var written: Array = []
-	for i in pieces.size():
-		var piece: Image = pieces[i]
+	# 先把所有帧摆到统一画布上，**攒齐了再量化**——
+	# 调色板要所有帧共用一套，否则帧之间颜色跳变（见 `_build_palette`）。
+	var canvases: Array[Image] = []
+	for piece: Image in pieces:
 		var canvas := Image.create_empty(cw, chh, false, Image.FORMAT_RGBA8)
 		canvas.fill(Color(0, 0, 0, 0))
 		# 水平居中、底边对齐 —— 脚踩在同一条线上是精灵图的硬要求
 		var dx := (cw - piece.get_width()) / 2
 		var dy := chh - piece.get_height()
 		canvas.blit_rect(piece, Rect2i(0, 0, piece.get_width(), piece.get_height()), Vector2i(dx, dy))
+		canvases.append(canvas)
+
+	var quantize_n := int(cmd.get("colors", 0))
+	var palette_hex: Array = []
+	if quantize_n >= 2 and not canvases.is_empty():
+		var palette := _build_palette(canvases, quantize_n)
+		var cache := {}
+		for canvas: Image in canvases:
+			_apply_palette(canvas, palette, cache)
+		for p: Color in palette:
+			palette_hex.append(p.to_html(false))
+
+	var written: Array = []
+	for i in canvases.size():
 		var name := "%s_%02d.png" % [prefix, i]
 		var full := out_dir.path_join(name)
-		var err := _save_png(canvas, full)
+		var err := _save_png(canvases[i], full)
 		if err != "":
 			return {"ok": false, "error": err}
 		written.append({"file": full, "w": cw, "h": chh})
@@ -466,6 +483,7 @@ func _op_clean(cmd: Dictionary) -> Dictionary:
 		"removed_pct": snappedf(100.0 * float(removed) / float(img.get_width() * img.get_height()), 0.01),
 		"count": written.size(),
 		"canvas": [cw, chh],
+		"palette": palette_hex,
 		"frames": written,
 		"source_rects": rects.map(func(r: Rect2i) -> Array: return [r.position.x, r.position.y, r.size.x, r.size.y]),
 	}
@@ -505,6 +523,207 @@ func _compute_rects(img: Image, cmd: Dictionary) -> Array[Rect2i]:
 			return a.position.y < b.position.y
 	)
 	return out
+
+
+# ---------------------------------------------------------------- 调色板量化
+
+## 把颜色拆成 [r, g, b]。`Color.to_rgba32()` 里 R 在最高字节。
+func _unpack(c: int) -> Array:
+	return [(c >> 24) & 0xFF, (c >> 16) & 0xFF, (c >> 8) & 0xFF]
+
+
+## 中位切分（median cut）求调色板。
+##
+## 为什么不用 Pixelorama 自带的 `PalettizeDialog`：它走 GPU shader
+## （`Palettize.gdshaderinc` + `ShaderImageEffect`），而 headless 用的是
+## **dummy 渲染后端**，shader 根本不跑。所以这一块只能自己实现。
+##
+## 只用 GDScript 就够快的原因：先统计**唯一色直方图**再切分。
+## AI 出的图看着有几万色，但唯一色就那么多，直方图规模远小于像素数。
+## 真正贵的是后面的映射，那一步用缓存表压到"每个唯一色算一次"。
+##
+## 多张图一起传进来是为了出**一套共用调色板**——各帧各算一套的话，
+## 帧与帧之间颜色会跳，播起来闪。
+func _build_palette(images: Array, n: int) -> Array:
+	var hist := {}
+	for img: Image in images:
+		var w := img.get_width()
+		var h := img.get_height()
+		for y in h:
+			for x in w:
+				var c := img.get_pixel(x, y)
+				if c.a < 0.5:
+					continue
+				var key := c.to_rgba32()
+				hist[key] = int(hist.get(key, 0)) + 1
+	if hist.is_empty():
+		return []
+	var boxes: Array = [hist.keys()]
+	# 每个盒子已含的**像素总数**，与 boxes 平行。
+	# 切分时增量更新，避免每轮重新遍历盒内所有颜色（那是 O(n²)）。
+	var total_px := 0
+	for c: int in hist.keys():
+		total_px += int(hist[c])
+	var weights: Array = [total_px]
+	while boxes.size() < n:
+		# 切**像素数最多**的盒子，而不是颜色数最多的。
+		#
+		# 这一条是实测改过来的：AI 出图有极重的长尾——一张图 51950 个唯一色，
+		# 出现最多的 10 个颜色只占 28% 的像素，其余 72% 是几万种**各不相同的相近色**
+		# （抗锯齿边缘的混合色，每个都只出现几次）。
+		# 按"颜色数"切，这些噪点色会凭种类多抢走大半盒子，主色的色阶反而分不到；
+		# 实测那样切出来的调色板里混进了角色的边缘残留色。
+		var bi := 0
+		var best := -1
+		for i in weights.size():
+			if weights[i] > best:
+				best = weights[i]
+				bi = i
+		var box: Array = boxes[bi]
+		if box.size() < 2:
+			# 这个盒子已经切不动了。换个盒子试；全都不行就停。
+			var moved := false
+			for i in boxes.size():
+				if boxes[i].size() >= 2 and weights[i] > 0:
+					bi = i
+					box = boxes[i]
+					best = weights[i]
+					moved = true
+					break
+			if not moved:
+				break
+		# 沿跨度最大的通道切
+		var lo := [255, 255, 255]
+		var hi := [0, 0, 0]
+		for c: int in box:
+			var rgb := _unpack(c)
+			for k in 3:
+				lo[k] = mini(lo[k], rgb[k])
+				hi[k] = maxi(hi[k], rgb[k])
+		var ch := 0
+		if hi[1] - lo[1] > hi[ch] - lo[ch]:
+			ch = 1
+		if hi[2] - lo[2] > hi[ch] - lo[ch]:
+			ch = 2
+		var ch_fixed := ch
+		box.sort_custom(
+			func(a: int, b: int) -> bool: return _unpack(a)[ch_fixed] < _unpack(b)[ch_fixed]
+		)
+		var mid := box.size() / 2
+		var left: Array = box.slice(0, mid)
+		var right: Array = box.slice(mid)
+		var left_px := 0
+		for c: int in left:
+			left_px += int(hist[c])
+		boxes[bi] = left
+		weights[bi] = left_px
+		boxes.append(right)
+		weights.append(best - left_px)
+
+	# 每盒取**按出现次数加权**的平均色。不加权的话，
+	# 一个只出现 3 次的噪点色会和出现 3 万次的主色等权，把调色板带偏。
+	var palette: Array = []
+	for box: Array in boxes:
+		if box.is_empty():
+			continue
+		var r := 0.0
+		var g := 0.0
+		var b := 0.0
+		var total := 0.0
+		for c: int in box:
+			var wt := float(hist[c])
+			var rgb := _unpack(c)
+			r += float(rgb[0]) * wt
+			g += float(rgb[1]) * wt
+			b += float(rgb[2]) * wt
+			total += wt
+		if total <= 0.0:
+			continue
+		palette.append(Color8(int(r / total), int(g / total), int(b / total), 255))
+	return palette
+
+
+func _nearest_in(c: Color, palette: Array) -> Color:
+	var best: Color = palette[0]
+	var bd := 1e18
+	for p: Color in palette:
+		var dr := c.r - p.r
+		var dg := c.g - p.g
+		var db := c.b - p.b
+		var d := dr * dr + dg * dg + db * db
+		if d < bd:
+			bd = d
+			best = p
+	return best
+
+
+## 把一张图映射到调色板。`cache` 跨图共用，同色只算一次最近邻。
+## 返回被改动的像素数。
+##
+## 缓存里直接存 `Color`（不是打包后的 int）：Godot 4.7 **没有 `Color.from_rgba32`**
+## 这个反向方法，存 int 就得自己解包再拼回去。存 Color 省掉这一步。
+func _apply_palette(img: Image, palette: Array, cache: Dictionary) -> int:
+	if palette.is_empty():
+		return 0
+	var w := img.get_width()
+	var h := img.get_height()
+	var changed := 0
+	for y in h:
+		for x in w:
+			var c := img.get_pixel(x, y)
+			if c.a < 0.5:
+				continue
+			var key := c.to_rgba32()
+			var mapped: Variant = cache.get(key)
+			if mapped == null:
+				mapped = _nearest_in(c, palette)
+				cache[key] = mapped
+			var mc: Color = mapped
+			if mc.to_rgba32() != key:
+				changed += 1
+			img.set_pixel(x, y, mc)
+	return changed
+
+
+func _op_quantize(cmd: Dictionary) -> Dictionary:
+	var path: String = cmd.get("file", "")
+	var loaded := _load_image(path)
+	if loaded[0] == null:
+		return {"ok": false, "error": loaded[1]}
+	var img: Image = loaded[0]
+	var n := int(cmd.get("colors", 32))
+	if n < 2:
+		return {"ok": false, "error": "colors 至少要 2"}
+
+	var before := {}
+	for y in img.get_height():
+		for x in img.get_width():
+			var c := img.get_pixel(x, y)
+			if c.a >= 0.5:
+				before[c.to_rgba32()] = true
+
+	var palette := _build_palette([img], n)
+	var changed := _apply_palette(img, palette, {})
+
+	var out: String = cmd.get("out", "")
+	if out != "":
+		var err := _save_png(img, out)
+		if err != "":
+			return {"ok": false, "error": err}
+
+	var hexes: Array = []
+	for p: Color in palette:
+		hexes.append(p.to_html(false))
+	return {
+		"ok": true,
+		"file": path,
+		"out": out,
+		"colors_requested": n,
+		"colors_before": before.size(),
+		"colors_after": palette.size(),
+		"changed_px": changed,
+		"palette": hexes,
+	}
 
 
 ## 按矩形列表把图切成若干张独立 PNG。

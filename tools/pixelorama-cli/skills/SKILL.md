@@ -42,11 +42,18 @@ pixelorama analyze <file> --json              看清这张图的实际状况
 pixelorama clean   <file> --out-dir <dir> --json   一步到位（常用）
 ```
 
+要让成品变成**像素画**（而不是照片感），加 `--colors N`：
+
+```bash
+pixelorama clean <file> --out-dir <dir> --colors 24 --json
+```
+
 辅助：
 
 ```bash
-pixelorama slice  <file> --mode auto|grid --json   只报告切出哪些区域，不落盘
-pixelorama cutout <file> --out <path> --json       只抠底
+pixelorama slice    <file> --mode auto|grid --json   只报告切出哪些区域，不落盘
+pixelorama cutout   <file> --out <path> --json       只抠底
+pixelorama quantize <file> --colors 24 --out <path> --json   只量化
 ```
 
 ### 路径
@@ -80,13 +87,19 @@ pixelorama analyze sheet.png --json
 | 字段 | 怎么读 |
 | --- | --- |
 | `has_alpha` | `false` ⇒ 必须抠底，切片才可能对 |
-| `distinct_colors` | 几万 ⇒ 这是照片感的图，不是像素画（想变像素画得另做量化） |
+| `distinct_colors` | 几万 ⇒ 照片感的图。要像素画就加 `--colors N` |
 | `box` | 等于整图尺寸 ⇒ 内容撑满了，角色很可能**越界** |
 
 ### 第 3 步：clean
 
 ```bash
 pixelorama clean sheet.png --out-dir ./frames --json
+```
+
+要像素画效果就加 `--colors`（**建议 16–32**；不加以 AI 出图的原色，是连续色调）：
+
+```bash
+pixelorama clean sheet.png --out-dir ./frames --colors 24 --json
 ```
 
 返回里看这些：
@@ -96,6 +109,7 @@ pixelorama clean sheet.png --out-dir ./frames --json
 | `count` | 切出几帧 |
 | `removed_pct` | 抠掉多少（背景占比） |
 | `canvas` | 归一化后的统一画布 |
+| `palette` | 量化用的调色板（所有帧共用一套），没量化则为空 |
 | `source_rects` | 每帧在原图上的位置，**顺序即时间顺序** |
 | `frames[]` | 落盘的帧文件 |
 
@@ -119,6 +133,15 @@ AI 出的图经常"角色撑破格子"，四格连成一片。
 背景占比。2×2 四格通常 70–80%。
 - **> 95%**：容差太大，把角色也吃掉了 → 调小 `--tol`（默认 60）
 - **< 40%**：背景没抠干净，或这图本来就不是"角色占小部分"的构图
+
+### `--colors` 该给多少
+
+实测一张 AI 出图：量化前 **17517 色**，`--colors 24` 之后 **22 色**，
+而包围盒一模一样（446×370 @ (0,18)）——**量化不啃轮廓**。
+
+- **16–32** 是像素画的常见区间。给太少（< 8）会丢掉明暗层次，角色糊成一团。
+- 返回的 `colors_after` 比 `colors` 略少是**正常的**（中位切分的空盒 + 取平均时撞色），不是失败。
+- 调色板是**所有帧共用一套**的，所以帧与帧之间不会跳色。这是刻意设计，别改成逐帧量化。
 
 ### 抠底质量可以交叉验证
 
