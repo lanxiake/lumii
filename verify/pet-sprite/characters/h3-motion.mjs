@@ -215,6 +215,23 @@ const MOTION_CLASS = {
   turn:
     'The character may pivot on the spot and change which way it is facing during the shot, but it stays on the ' +
     'same spot on the ground, keeps the same size and the same distance from the camera, and never leaves the frame.',
+  /**
+   * 悬空原地专用——**下落这类"整个人离地"的循环动作**。
+   *
+   * 两边都不能用，各错一半：
+   * · **`static` 写着 "The feet stay planted … does not leave the ground"**，
+   *   配"被击飞/在空中"的提示词是自相矛盾，模型在"离地"和"脚钉在地上"之间摇摆。
+   *   （和 `turn` 当初被逼出来的理由一模一样。）
+   * · **`displacement` 写着 "The whole figure may rise, drop, or crouch within the
+   *   frame"**——实测模型**照做**：下落循环里角色一路**升出格线**，闸门报
+   *   「S1 第 3、4 格越出格线，边界带 7.46%」，**头顶的信息直接丢了**。
+   *
+   * 精灵图里**位移是引擎的事**，帧里只有一个悬空的姿势加小幅摆动。
+   */
+  suspended:
+    'The character hangs in the air at exactly the same spot in the frame for the whole shot: it does not rise, ' +
+    'drop, or drift sideways, it keeps the same size and the same distance from the camera, it never leaves the ' +
+    'frame, and the ground is never visible.',
 }
 
 const _CLOSED = 'The shot ends in exactly the same pose it started in so the clip can loop.'
@@ -355,12 +372,15 @@ const ACTIONS = {
     label: '下落',
     facing: 'side',
     pose: 'falling',
-    motionClass: 'displacement',
+    // ⚠ **不是 `displacement`**：那句写着"整个人可以在画面里升起/落下/蹲下"，
+    // 实测模型照做，角色一路升出格线、头顶被裁。精灵图里位移归引擎，帧里只留姿势。
+    motionClass: 'suspended',
     motion:
-      'The character is falling straight down through the air: its limbs are spread out and splayed, its ears and tail ' +
-      'are lifted upward by the airstream, and the whole body wobbles very slightly from side to side as it falls. ' +
-      'It keeps the same size and the same distance from the camera the whole time and never turns or spins, and ' +
-      'settles back into the exact same falling pose it started in by {deadline} seconds so the clip can loop.',
+      'The character is falling through the air: its limbs are spread and splayed, its ears and tail are lifted ' +
+      'upward by the airstream, and the whole body wobbles very slightly from side to side on the spot as it falls. ' +
+      'It holds that falling pose at the same height and the same spot in the frame the whole time, keeps the same ' +
+      'size and the same distance from the camera, never turns or spins, and settles back into the exact same ' +
+      'falling pose it started in by {deadline} seconds so the clip can loop.',
   },
   // climb / crawl / walk 是**侧身**（`facing: 'side'|'cling'`），首帧也不是站立立绘
   // 而是各自姿势图（`pose`）。原因见 `_FACING_SIDE` 的说明——Shimeji 参考素材
