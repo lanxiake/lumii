@@ -171,6 +171,13 @@ func _op_probe() -> Dictionary:
 	#
 	# 目前只有一个类通过了这条判据：
 	var classes := {"RegionUnpacker": RegionUnpacker.new(0, 0) != null}
+	# autoload 名单：Godot 把 `[autoload]` 段里的每一项存成 `autoload/<名字>` 属性，
+	# 所以 `get_setting("autoload")` 取不到东西（那是空段），得从属性表里筛前缀。
+	var autoloads: Array = []
+	for prop in ProjectSettings.get_property_list():
+		var prop_name: String = str(prop.get("name", ""))
+		if prop_name.begins_with("autoload/"):
+			autoloads.append(prop_name.trim_prefix("autoload/"))
 	return {
 		"ok": true,
 		"godot": Engine.get_version_info()["string"],
@@ -178,7 +185,7 @@ func _op_probe() -> Dictionary:
 		"pixelorama_name": ProjectSettings.get_setting("application/config/name", ""),
 		"display_server": DisplayServer.get_name(),
 		"classes": classes,
-		"autoloads": ProjectSettings.get_setting("autoload", {}).keys(),
+		"autoloads": autoloads,
 	}
 
 
