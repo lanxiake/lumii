@@ -1,0 +1,431 @@
+{
+  "1": {
+    "class_type": "UNETLoader",
+    "inputs": {
+      "unet_name": "minimax_h3_fl2va_pruned_int8_convrot.safetensors",
+      "weight_dtype": "default"
+    }
+  },
+  "3": {
+    "class_type": "CLIPLoader",
+    "inputs": {
+      "clip_name": "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+      "device": "default",
+      "type": "minimax"
+    }
+  },
+  "4": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "minimax_h3_video_vae_fp16.safetensors"
+    }
+  },
+  "5": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "pixel-cat-staged.png"
+    }
+  },
+  "6": {
+    "class_type": "MiniMaxH3ImageToVideo",
+    "inputs": {
+      "clip": [
+        "3",
+        0
+      ],
+      "vae": [
+        "4",
+        0
+      ],
+      "first_frame": [
+        "5",
+        0
+      ],
+      "prompt": "How the reference pictures align with the target video — Picture 1 (from Shot 1) aligns with the 0.00-second mark of the target video; Picture 2 (from Shot 1) aligns with the 2.33-second mark of the target video.\n\nintegrated_multimodal_description: [Shot 1] 2D-animated, flat-vector cartoon pet sprite; the character shown in <Picture 1> begins in the exact starting pose, at exactly the same size and framing as in <Picture 1>: the figure fills about seventy percent of the frame height, standing in the middle of the frame with clear empty space above the head and below the feet, centered horizontally on a flat cyan (#00FFFF) background. Preserve the exact visual identity without redesign: a chubby cartoon cat with a round head and a big round body. The fur is flat orange with a white muzzle, a white chest and white paws, drawn with thick rounded dark-brown outlines. It has two large round black eyes, a small pink nose, and pink inner ears; the tail is short and orange with a white tip. Flat vector look with solid fills, no shading and no gradients. The character keeps exactly the orientation shown in <Picture 1> for the whole shot: facing the camera, face fully visible; the character does not turn. The camera holds a static shot. The character performs one friendly wave with one front hand. The hand lifts smoothly up beside its head, completes one compact side-to-side wave, and comes back down to the exact starting pose by 2.10 seconds while both feet stay planted on the ground and the body stays in place. The head tilts slightly to one side during the wave and returns; the tail sways only a little and settles back to its initial shape and position. The feet stay planted at exactly the same spot for the whole shot; the character does not step, turn, or leave the ground. The shot ends as the character settles into exactly the pose, size, and composition of Picture 2 so the clip can loop. The background stays a single flat cyan (#00FFFF) colour edge to edge, with no floor, shadow, scenery, text, or props. The full body stays visible in one continuous shot with no cuts, transitions, zooms, or camera movement. The complete video is silent throughout, with no dialogue, vocalization, ambience, sound effects, or music.\n\noverall_soundscape: N/A\n\nnon_diegetic_music: N/A",
+      "width": 640,
+      "height": 640,
+      "length": 56
+    }
+  },
+  "7": {
+    "class_type": "KSamplerSelect",
+    "inputs": {
+      "sampler_name": "res_multistep"
+    }
+  },
+  "8": {
+    "class_type": "BasicScheduler",
+    "inputs": {
+      "model": [
+        "1",
+        0
+      ],
+      "scheduler": "simple",
+      "steps": 20,
+      "denoise": 1
+    }
+  },
+  "9": {
+    "class_type": "RandomNoise",
+    "inputs": {
+      "noise_seed": 0
+    }
+  },
+  "10": {
+    "class_type": "BasicGuider",
+    "inputs": {
+      "model": [
+        "1",
+        0
+      ],
+      "conditioning": [
+        "6",
+        0
+      ]
+    }
+  },
+  "11": {
+    "class_type": "SamplerCustomAdvanced",
+    "inputs": {
+      "noise": [
+        "9",
+        0
+      ],
+      "guider": [
+        "10",
+        0
+      ],
+      "sampler": [
+        "7",
+        0
+      ],
+      "sigmas": [
+        "8",
+        0
+      ],
+      "latent_image": [
+        "6",
+        1
+      ]
+    }
+  },
+  "12": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": [
+        "11",
+        0
+      ],
+      "vae": [
+        "4",
+        0
+      ]
+    }
+  },
+  "20": {
+    "class_type": "RandomImageFromBatch",
+    "inputs": {
+      "input": [
+        "12",
+        0
+      ],
+      "start_index": 0,
+      "end_index": -1,
+      "num_frames": 8,
+      "randomness": 0,
+      "min_distance": 1,
+      "max_distance": 1024,
+      "seed": 0
+    }
+  },
+  "21": {
+    "class_type": "ColorToMask",
+    "inputs": {
+      "images": [
+        "20",
+        0
+      ],
+      "invert": true,
+      "red": 0,
+      "green": 255,
+      "blue": 255,
+      "threshold": 30,
+      "per_batch": 8
+    }
+  },
+  "22": {
+    "class_type": "MaskToImage",
+    "inputs": {
+      "mask": [
+        "21",
+        0
+      ]
+    }
+  },
+  "23": {
+    "class_type": "ImageScale",
+    "inputs": {
+      "image": [
+        "22",
+        0
+      ],
+      "upscale_method": "lanczos",
+      "width": 128,
+      "height": 128,
+      "crop": "disabled"
+    }
+  },
+  "24": {
+    "class_type": "ImageToMask",
+    "inputs": {
+      "image": [
+        "23",
+        0
+      ],
+      "channel": "red"
+    }
+  },
+  "25": {
+    "class_type": "ImageScale",
+    "inputs": {
+      "image": [
+        "20",
+        0
+      ],
+      "upscale_method": "lanczos",
+      "width": 128,
+      "height": 128,
+      "crop": "disabled"
+    }
+  },
+  "26": {
+    "class_type": "JoinImageWithAlpha",
+    "inputs": {
+      "image": [
+        "25",
+        0
+      ],
+      "alpha": [
+        "24",
+        0
+      ]
+    }
+  },
+  "100": {
+    "class_type": "ImageFromBatch",
+    "inputs": {
+      "image": [
+        "26",
+        0
+      ],
+      "batch_index": 0,
+      "length": 1
+    }
+  },
+  "101": {
+    "class_type": "ImageFromBatch",
+    "inputs": {
+      "image": [
+        "26",
+        0
+      ],
+      "batch_index": 1,
+      "length": 1
+    }
+  },
+  "102": {
+    "class_type": "ImageFromBatch",
+    "inputs": {
+      "image": [
+        "26",
+        0
+      ],
+      "batch_index": 2,
+      "length": 1
+    }
+  },
+  "103": {
+    "class_type": "ImageFromBatch",
+    "inputs": {
+      "image": [
+        "26",
+        0
+      ],
+      "batch_index": 3,
+      "length": 1
+    }
+  },
+  "104": {
+    "class_type": "ImageFromBatch",
+    "inputs": {
+      "image": [
+        "26",
+        0
+      ],
+      "batch_index": 4,
+      "length": 1
+    }
+  },
+  "105": {
+    "class_type": "ImageFromBatch",
+    "inputs": {
+      "image": [
+        "26",
+        0
+      ],
+      "batch_index": 5,
+      "length": 1
+    }
+  },
+  "106": {
+    "class_type": "ImageFromBatch",
+    "inputs": {
+      "image": [
+        "26",
+        0
+      ],
+      "batch_index": 6,
+      "length": 1
+    }
+  },
+  "107": {
+    "class_type": "ImageFromBatch",
+    "inputs": {
+      "image": [
+        "26",
+        0
+      ],
+      "batch_index": 7,
+      "length": 1
+    }
+  },
+  "200": {
+    "class_type": "ImageStitch",
+    "inputs": {
+      "image1": [
+        "100",
+        0
+      ],
+      "image2": [
+        "101",
+        0
+      ],
+      "direction": "right",
+      "match_image_size": true,
+      "spacing_width": 0,
+      "spacing_color": "white"
+    }
+  },
+  "201": {
+    "class_type": "ImageStitch",
+    "inputs": {
+      "image1": [
+        "200",
+        0
+      ],
+      "image2": [
+        "102",
+        0
+      ],
+      "direction": "right",
+      "match_image_size": true,
+      "spacing_width": 0,
+      "spacing_color": "white"
+    }
+  },
+  "202": {
+    "class_type": "ImageStitch",
+    "inputs": {
+      "image1": [
+        "201",
+        0
+      ],
+      "image2": [
+        "103",
+        0
+      ],
+      "direction": "right",
+      "match_image_size": true,
+      "spacing_width": 0,
+      "spacing_color": "white"
+    }
+  },
+  "203": {
+    "class_type": "ImageStitch",
+    "inputs": {
+      "image1": [
+        "202",
+        0
+      ],
+      "image2": [
+        "104",
+        0
+      ],
+      "direction": "right",
+      "match_image_size": true,
+      "spacing_width": 0,
+      "spacing_color": "white"
+    }
+  },
+  "204": {
+    "class_type": "ImageStitch",
+    "inputs": {
+      "image1": [
+        "203",
+        0
+      ],
+      "image2": [
+        "105",
+        0
+      ],
+      "direction": "right",
+      "match_image_size": true,
+      "spacing_width": 0,
+      "spacing_color": "white"
+    }
+  },
+  "205": {
+    "class_type": "ImageStitch",
+    "inputs": {
+      "image1": [
+        "204",
+        0
+      ],
+      "image2": [
+        "106",
+        0
+      ],
+      "direction": "right",
+      "match_image_size": true,
+      "spacing_width": 0,
+      "spacing_color": "white"
+    }
+  },
+  "206": {
+    "class_type": "ImageStitch",
+    "inputs": {
+      "image1": [
+        "205",
+        0
+      ],
+      "image2": [
+        "107",
+        0
+      ],
+      "direction": "right",
+      "match_image_size": true,
+      "spacing_width": 0,
+      "spacing_color": "white"
+    }
+  },
+  "300": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "images": [
+        "206",
+        0
+      ],
+      "filename_prefix": "petmotion/pixel-cat-wave-sheet"
+    }
+  }
+}

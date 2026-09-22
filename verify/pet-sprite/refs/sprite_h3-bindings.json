@@ -1,0 +1,25 @@
+{
+  "workflow_kind": "minimax_h3_i2v",
+  "bindings": {
+    "first_frame": "114.inputs.image",
+    "prompt": "105:104.inputs.prompt",
+    "width": "105:104.inputs.width",
+    "height": "105:104.inputs.height",
+    "frames": "105:104.inputs.length",
+    "seed": "105:15.inputs.noise_seed",
+    "output_prefix": "92.inputs.filename_prefix",
+    "frames_output_prefix": "93.inputs.filename_prefix",
+    "sampler_name": "105:17.inputs.sampler_name",
+    "scheduler": "105:9.inputs.scheduler",
+    "steps": "105:9.inputs.steps",
+    "last_frame": "115.inputs.image"
+  },
+  "outputs": {
+    "node": "92",
+    "kind": "video",
+    "frames": {
+      "node": "93",
+      "kind": "image"
+    }
+  }
+}
