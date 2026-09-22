@@ -276,3 +276,69 @@ describe('agent:context:usage 的无变化短路', () => {
     expect(contextUsage()?.budget).toEqual(budget)
   })
 })
+
+/**
+ * 审批解除事件收起审批卡。
+ *
+ * 背景（2026-09-22 实测）：主进程此前只发 request、不发解除事件，自动放行时
+ * 渲染层兜底还会再发一次多余的 allow-once（日志里的 "already resolved" 噪音）。
+ * 现在主进程在全部审批出口统一广播 granted/denied，这里按 requestId 收起卡片。
+ */
+describe('agent:permission:granted / denied 收起审批卡', () => {
+  const REQUEST_ID = 'perm-req-1'
+
+  beforeEach(() => {
+    resetRuntimeStore()
+    resetAgentRuntimeEventHandlerForTests()
+  })
+
+  /** timeoutMs 用 0：跳过「超时自动清卡」的定时器，免得测试进程挂着待办定时器 */
+  function emitRequest(requestId = REQUEST_ID): void {
+    emitTurn([
+      {
+        type: 'agent:permission:request',
+        requestId,
+        runId: RUN_ID,
+        toolName: 'bash',
+        toolArgs: { command: 'node -e "1"' },
+        riskLevel: 'high',
+        description: '需要确认后执行',
+        timeoutMs: 0,
+        sessionKey: SESSION_KEY,
+        rootSessionKey: SESSION_KEY,
+      },
+    ])
+  }
+
+  function pendingRequestId(): string | null {
+    return (
+      runtimeStore.getState().sessions.get(SESSION_KEY)?.pendingPermission?.requestId ?? null
+    )
+  }
+
+  it('request 之后收到 granted → 卡片收起（自动放行不再留一张卡）', () => {
+    emitRequest()
+    expect(pendingRequestId()).toBe(REQUEST_ID)
+
+    emitTurn([
+      { type: 'agent:permission:granted', requestId: REQUEST_ID, toolName: 'bash', rootSessionKey: SESSION_KEY },
+    ])
+    expect(pendingRequestId()).toBeNull()
+  })
+
+  it('denied 同样收起（用户拒绝也不该留着卡）', () => {
+    emitRequest()
+    emitTurn([
+      { type: 'agent:permission:denied', requestId: REQUEST_ID, toolName: 'bash', rootSessionKey: SESSION_KEY },
+    ])
+    expect(pendingRequestId()).toBeNull()
+  })
+
+  it('requestId 不匹配的解除事件不动本会话的卡', () => {
+    emitRequest()
+    emitTurn([
+      { type: 'agent:permission:granted', requestId: 'other-req', toolName: 'bash', rootSessionKey: SESSION_KEY },
+    ])
+    expect(pendingRequestId()).toBe(REQUEST_ID)
+  })
+})

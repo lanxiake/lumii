@@ -48,6 +48,7 @@ import type { StreamFn } from '@mariozechner/pi-agent-core'
 
 import { createRunContext } from './event-converter'
 import { riskLevelForTool, createLargeToolResultHook } from './permission-tool-wrap'
+import { forwardPermissionResolved } from './bridge-permission-ipc-forward'
 import { createSkillHitRateHook } from './hooks/skill-hit-rate-hook'
 import { createToolUsageHook } from './hooks/tool-usage-hook'
 import {
@@ -433,10 +434,29 @@ export class BridgeInstanceFactory {
           instanceId: input.instanceId,
           rootSessionKey: input.rootSessionKey,
         }
+        /**
+         * 审批**一有结果**就广播解除事件 —— 消费方（宠物多会话记账、pet-core 的
+         * L1 状态机）靠它把 waiting 清掉；没有它，waiting 只能等 turn:end 兜底，
+         * 自动放行时会变成「别的会话在等你确认」的误报。
+         *
+         * 放在这里而不是 PermissionController 里：这里是**全部出口的汇合点**
+         * ——自动放行 / 用户响应 / 超时 / 停止时批量拒绝 / 原生对话框都由此返回，
+         * 一处覆盖，也不需要再维护 requestId→sessionKey 的映射表。
+         */
+        const settle = (decision: 'allow-once' | 'allow-always' | 'deny') => {
+          forwardPermissionResolved(this.deps.ipcChannel, {
+            requestId: input.requestId,
+            toolName: input.toolName,
+            instanceId: input.instanceId,
+            rootSessionKey: input.rootSessionKey,
+            decision,
+          })
+          return decision
+        }
         // 自动审批：主进程直接放行，不依赖 ChatPage 挂载
         if (this.deps.isAutoApproveEnabled()) {
           this.deps.ipcChannel.forwardIpcEvent(permissionEvent)
-          return 'allow-once'
+          return settle('allow-once')
         }
         // 先尝试渠道文字审批；门控决定是否再推桌面弹窗
         const sessionKey =
@@ -463,10 +483,10 @@ export class BridgeInstanceFactory {
             parent: this.deps.config.getWindow(),
             toolName: input.toolName,
             description: input.description,
-          })
+          }).then(settle)
         }
         // channel-only / desktop-ipc：等待用户在 IM 或审批卡中回复
-        return this.deps.permissionController.waitForPermission(input.requestId, timeoutMs)
+        return this.deps.permissionController.waitForPermission(input.requestId, timeoutMs).then(settle)
       },
     }
 

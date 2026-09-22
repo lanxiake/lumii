@@ -60,6 +60,12 @@ const WAITING_EVENTS = new Set([
   'agent:permission:prompt',
   'agent:ask-user:request',
 ])
+/**
+ * 解除类事件的**发送者**在 `bridge-instance-factory` 的 `requestPermission` 出口
+ * （2026-09-22 补上——此前全仓零产出，waiting 只能等 `turn:end` 兜底，自动放行时
+ * 表现为「另一个会话在等你确认」的**误报**；实测与复跑见
+ * `verify/pet-sprite/check-foreign-attention.mjs`）。
+ */
 const WAITING_RESOLVED_EVENTS = new Set([
   'agent:permission:granted',
   'agent:permission:denied',

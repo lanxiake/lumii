@@ -235,6 +235,26 @@ export interface AgentPermissionRequestEvent {
   readonly timeoutMs: number
 }
 
+/**
+ * 审批有结果后广播（用户响应 / 超时 / 自动放行 / 停止时的批量拒绝）。
+ *
+ * **为什么需要**：消费方靠它把 `waiting` 解除 —— 宠物多会话记账
+ * （`renderer/pet/utils/session-activity.ts` 的 WAITING_RESOLVED_EVENTS）与
+ * pet-core 的 L1 活动状态机都按这族事件设计。但此前只有 `request` 有发送者，
+ * 解除类事件全仓零产出，waiting 只能靠 `tool:start`（pet-core 的防御分支）
+ * 或等到 `turn:end` 兜底。症状：自动放行时后台会话每次调受审工具都会让宠物
+ * 头顶挂一会儿「另一个会话在等你确认」——**误报**（实测见
+ * `verify/pet-sprite/check-foreign-attention.mjs`）。
+ *
+ * ⚠️ 超时当前走 `denied`（`PermissionController` 超时即按 deny 处理），
+ * 所以 `timeout` 暂时没有发送者；要区分时先让 controller 把超时标记传出来。
+ */
+export interface AgentPermissionResolvedEvent {
+  readonly type: 'agent:permission:granted' | 'agent:permission:denied' | 'agent:permission:timeout'
+  readonly requestId: string
+  readonly toolName?: string
+}
+
 // ============================================================
 // ask_user_question — Agent 向用户结构化提问事件
 // ============================================================
@@ -572,6 +592,7 @@ export type AgentRuntimeEvent =
   | (AgentAbortEvent & AgentEventInstanceMeta)
   | (AgentLlmDiagnosticEvent & AgentEventInstanceMeta)
   | (AgentPermissionRequestEvent & AgentEventInstanceMeta)
+  | (AgentPermissionResolvedEvent & AgentEventInstanceMeta)
   | AgentAskUserRequestEvent
   | AgentAskUserCancelledEvent
   | ConversationCreatedEvent

@@ -1406,6 +1406,24 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
       break
     }
 
+    /**
+     * 审批被解决（用户响应 / 超时 / 放行）→ 收起审批卡。
+     *
+     * 自动放行时主进程把 request 与 granted 连着发，这里按 requestId 清掉，
+     * 免得 ChatPage 的兜底自动审批再发一次多余的 `allow-once`（日志里
+     * "already resolved or timed out" 的噪音就是这么来的）。
+     */
+    case 'agent:permission:granted':
+    case 'agent:permission:denied':
+    case 'agent:permission:timeout': {
+      const reqId = event.requestId
+      updateSessionState(sessionKey, (prev) => {
+        if (prev.pendingPermission?.requestId !== reqId) return prev
+        return { ...prev, pendingPermission: null }
+      })
+      break
+    }
+
     case 'agent:ask-user:request': {
       const receivedAt = Date.now()
       updateSessionState(sessionKey, (prev) => ({
