@@ -423,6 +423,26 @@ const ACTIONS = {
       '{deadline} seconds so the clip can loop. The tail sways a little with the rhythm and returns to its initial ' +
       'position.',
   },
+  /**
+   * 坐下（**正面**）。
+   *
+   * 视角判据不是猜的：参考素材 `demo_shimeji_*` 的五套模型里 `Sit` 都是**正面**
+   * 坐着的猫（`kind: loop`、**1 帧**）。这也和"只有走动/攀爬/爬行做侧身"的选择
+   * 一致——坐下不是位移，没必要侧身。
+   *
+   * `static` 在这里是**对的**（不像下落）：那句 "the feet stay planted … does not
+   * leave the ground" 对一只坐着的猫完全成立。
+   */
+  sit: {
+    label: '坐下',
+    pose: 'sitting',
+    motionClass: 'static',
+    motion:
+      'The character stays sitting on its haunches facing the camera: it breathes steadily, its head bobs very ' +
+      'slightly, its ears twitch once or twice and its tail tip flicks. It does not stand up, lie down, or move ' +
+      'from the spot, and settles back into the exact same sitting pose it started in by {deadline} seconds so the ' +
+      'clip can loop.',
+  },
 }
 
 /** 姿势图用的朝向句：允许在片子里换姿势，换完就稳住 */
@@ -507,6 +527,27 @@ const POSES = {
       'The character is knocked off its feet and falls: it drops away from the ground in one quick motion, its limbs ' +
       'spread out and splay, its ears and tail lift upward, and it wobbles slightly as it falls. It keeps the same ' +
       'size and the same distance from the camera the whole time, and it does not land or touch the ground.',
+  },
+  /**
+   * 正面坐姿。
+   *
+   * ⚠ `from: ''` = **从正面立绘出发**，不走转身那一段：坐下是**姿态变化**，
+   * 不是换视角。和 `side` 一样从 `tuanzi.png` 出发，但朝向句用 `front`
+   * （保持面向镜头）而不是 `turn-side`。
+   *
+   * `displacement` 在这里是对的：句子里的 "may rise, drop, or crouch within the
+   * frame" 正好覆盖"压低身子坐下来"。循环动作那边则相反——那里必须用
+   * `static`，绝不能让画面内的位移发生（见 ACTIONS.sit）。
+   */
+  sitting: {
+    label: '正面坐姿',
+    from: '',
+    facing: 'front',
+    motionClass: 'displacement',
+    motion:
+      'The character sits down: it lowers its hindquarters to the ground and settles back onto its haunches, its ' +
+      'front legs straight and upright, its tail curled around beside it, its head up and still facing the camera. ' +
+      'It holds that sitting pose for the rest of the shot, only breathing, and it does not stand back up or lie down.',
   },
 }
 

@@ -77,6 +77,10 @@ const ACTIONS = [
   { key: 'fall', group: 'Fall', label: '下落', kind: 'loop' },
   { key: 'climb', group: 'Climb', label: '攀爬', kind: 'loop' },
   { key: 'crawl', group: 'Crawl', label: '爬行', kind: 'loop' },
+  // 参考素材（demo_shimeji_*）里 Sit 是**正面**坐姿、`kind: loop`、**1 帧**。
+  // 我们出的是 8 帧的呼吸循环（同一套管线，首帧是自己的坐姿），比单帧静止好看，
+  // 而且**不用**为它开特例（单帧要改 install 的 cols，还会换掉格尺寸→换组）。
+  { key: 'sit', group: 'Sit', label: '坐下', kind: 'loop' },
 ]
 
 /**

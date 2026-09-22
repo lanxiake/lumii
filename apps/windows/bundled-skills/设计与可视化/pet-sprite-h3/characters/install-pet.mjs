@@ -95,6 +95,7 @@ const ACTIONS = [
   { key: 'fall', group: 'Fall', label: '下落', kind: 'loop' },
   { key: 'climb', group: 'Climb', label: '攀爬', kind: 'loop' },
   { key: 'crawl', group: 'Crawl', label: '爬行', kind: 'loop' },
+  { key: 'sit', group: 'Sit', label: '坐下', kind: 'loop' },
 ]
 
 /**
