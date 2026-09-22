@@ -24,6 +24,13 @@
  * 超宽会被**横向裁掉**，而 `pet-creator/run.ts` 只记一条 `clipped` 警告、不报错。
  * 判据只能是**量已经出好的表**。
  *
+ * ## 两侧余量要分开算（重心对齐）
+ *
+ * 客户端默认按**重心**对齐：落位是 `x = anchor[0] − cx × scale`，而 anchor 在画布
+ * 水平中央。所以左边要装下 `(cx − minX) × scale`、右边要装下 `(maxX − cx) × scale`
+ * ——角色质量偏在一侧时（侧身带尾巴）两者差得不小，**只看包围盒宽度会低估**。
+ * 本工具因此算的是重心口径，并把包围盒口径一起打出来做对照。
+ *
  * ## 阈值必须跟客户端一致
  *
  * `computeNormalize` 的 `bboxThreshold` 默认 **128**，所以这里也用 128。
@@ -36,7 +43,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import sharp from 'sharp'
-import { alphaBBox } from '../lib/cutout.mjs'
+import { alphaBBox, alphaCentroidX } from '../lib/cutout.mjs'
 
 /** 与客户端 `computeNormalize` 的 bboxThreshold 保持一致（见头注释） */
 const BBOX_THRESHOLD = 128
@@ -73,7 +80,10 @@ async function measureSheet(file) {
       data.copy(cell, y * cw * 4, (y * W + c * cw) * 4, (y * W + c * cw + cw) * 4)
     }
     const b = alphaBBox(cell, cw, ch, BBOX_THRESHOLD)
-    if (b) cells.push({ index: c, w: b.w, h: b.h })
+    if (!b) continue
+    const cx = alphaCentroidX(cell, cw, ch, BBOX_THRESHOLD)
+    if (cx === null) continue
+    cells.push({ index: c, w: b.w, h: b.h, minX: b.minX, maxX: b.maxX, cx })
   }
   return { file, cellW: cw, cellH: ch, cells }
 }
@@ -103,24 +113,37 @@ for (const d of dirs) {
 
 console.log(`画布高 ${canvasH} → 归一化后角色高 ${targetH.toFixed(1)}px（fit ${FIT}）\n`)
 
+/**
+ * 一组需要多宽。
+ *
+ * ⚠ **不能只看包围盒宽度。** 客户端默认按**重心**对齐（`horizontalAlign: 'centroid'`），
+ * 落位是 `x = anchor[0] − cx × scale`，而 anchor 在画布水平中央——所以两侧余量
+ * 是**分开算**的：左边要装下 `(cx − minX) × scale`，右边要装下 `(maxX − cx) × scale`。
+ * 角色质量偏在一侧时（侧身带尾巴），这两个数差得不少，按包围盒宽度算会低估。
+ */
+function needOf(cells, scale) {
+  const centroid = 2 * Math.max(...cells.map((c) => Math.max(c.cx - c.minX, c.maxX - c.cx) * scale))
+  const bbox = Math.max(...cells.map((c) => c.w)) * scale
+  return { centroid, bbox, need: centroid }
+}
+
 let needed = 0
 for (const [key, g] of groups) {
   const all = g.sheets.flatMap((s) => s.cells)
   const tallest = Math.max(...all.map((c) => c.h))
-  const widest = Math.max(...all.map((c) => c.w))
   const scale = targetH / tallest
-  const need = widest * scale
+  const { centroid, bbox, need } = needOf(all, scale)
   needed = Math.max(needed, need)
 
   console.log(`组 ${key} —— ${g.sheets.length} 个动作 / ${all.length} 格，共用一个倍率`)
   console.log(`  组内最高包围盒 ${tallest} → 倍率 ${scale.toFixed(3)}`)
-  console.log(`  最宽包围盒 ${widest} → 归一化后 ${need.toFixed(0)}px 宽`)
+  console.log(`  按重心对齐要 ${centroid.toFixed(0)}px 宽；只看包围盒要 ${bbox.toFixed(0)}px（取前者）`)
   for (const s of g.sheets) {
     const t = Math.max(...s.cells.map((c) => c.h))
-    const w = Math.max(...s.cells.map((c) => c.w))
+    const n = needOf(s.cells, scale)
     console.log(
-      `    ${s.action.padEnd(10)} 高 ${String(t).padStart(4)}  宽 ${String(w).padStart(4)}` +
-        `  → 归一化后 ${(t * scale).toFixed(0)}×${(w * scale).toFixed(0)}`,
+      `    ${s.action.padEnd(10)} 高 ${String(t).padStart(4)}  宽 ${String(Math.max(...s.cells.map((c) => c.w))).padStart(4)}` +
+        `  → 归一化后 ${(t * scale).toFixed(0)} 高 × 需 ${n.need.toFixed(0)} 宽`,
     )
   }
   console.log('')
@@ -129,24 +152,26 @@ for (const [key, g] of groups) {
 const recommend = Math.ceil(needed / 16) * 16
 console.log(`==> 画布宽至少要 ${needed.toFixed(0)}px，取 ${recommend}px（16 的倍数）`)
 console.log(`    即 --canvas ${recommend}x${canvasH}`)
+console.log(`    （anchor 在画布中央，所以宽度是"两侧各要 ${(needed / 2).toFixed(0)}px"）`)
 
 // ---- 可选：查一个具体画布装不装得下 ----
 const canvasArg = opt('canvas')
 if (canvasArg) {
   const [cw, ch] = canvasArg.split('x').map(Number)
-  console.log(`\n检查画布 ${cw}×${ch}：`)
+  console.log(`\n检查画布 ${cw}×${ch}（两侧各 ${cw / 2}px）：`)
   let bad = 0
   for (const [key, g] of groups) {
     const all = g.sheets.flatMap((s) => s.cells)
     const tallest = Math.max(...all.map((c) => c.h))
     const scale = (ch * FIT) / tallest
     for (const s of g.sheets) {
-      const w = Math.max(...s.cells.map((c) => c.w))
-      const placed = w * scale
-      const over = placed - cw
+      const n = needOf(s.cells, scale)
+      const over = n.need / 2 - cw / 2
       if (over > 0) {
         bad++
-        console.log(`  ✗ ${s.action}: 归一化后 ${placed.toFixed(0)}px 宽 > 画布 ${cw}px（横向裁掉 ${over.toFixed(0)}px）`)
+        console.log(
+          `  ✗ ${s.action}: 归一化后单侧要 ${(n.need / 2).toFixed(0)}px > 画布单侧 ${cw / 2}px（横向裁掉 ${over.toFixed(0)}px）`,
+        )
       }
     }
   }

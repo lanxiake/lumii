@@ -191,6 +191,35 @@ export function alphaBBox(buf, w, h, thr = 16) {
 }
 
 /**
+ * alpha > 阈值的像素在 x 方向的**质量重心**（逐像素等权）。
+ *
+ * ⚠ **必须与 `packages/pet-asset/src/cutout.ts` 的 `alphaCentroidX` 完全一致**——
+ * 客户端的归一化默认按重心对齐（`horizontalAlign: 'centroid'`），这里量出来的数
+ * 要能预测它会怎么摆，口径差一点结论就偏。
+ *
+ * 默认阈值取 **128**（不是 `alphaBBox` 那个 16）：对齐口径用的是 128，
+ * 16 会把描边外的半透明残晕也算成角色。两个默认值不同是**故意的**，
+ * 别"统一"掉——抠底（`cutout`）与对齐是两件事。
+ *
+ * 为什么要它：包围盒是**极值**统计，重心是**质量**统计。角色身上只要有一个
+ * 位置固定的极值点（耳朵尖、尾巴梢、拖地的影子），包围盒就被它钉住不动，
+ * 而身体在里面左右摇——实测团子待机 8 帧包围盒中心极差 1.0px、重心极差 9.2px。
+ */
+export function alphaCentroidX(buf, w, h, thr = 128) {
+  let sum = 0
+  let n = 0
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      if (buf[(y * w + x) * 4 + 3] > thr) {
+        sum += x
+        n++
+      }
+    }
+  }
+  return n === 0 ? null : sum / n
+}
+
+/**
  * 估算图像背景色：取四角邻域的众数（AI 出图的底色通常覆盖大部分边缘）。
  */
 export function estimateBackground(rgba, w, h, sample = 24) {
