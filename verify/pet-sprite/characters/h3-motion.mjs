@@ -385,14 +385,15 @@ const ACTIONS = {
   crawl: {
     label: '爬行',
     facing: 'side',
-    pose: 'side',
+    pose: 'creep',
     motionClass: 'locomotion',
     motion:
-      'The character creeps forward on all fours in place, seen from the side: the two front paws and the two hind ' +
-      'legs alternate in a low four-legged stepping cycle, the body stays low and level and the head stays at the ' +
-      'same height, while the figure stays at the same spot in the frame and stays in the same profile. ' +
-      'It completes a whole number of steps and settles back into the exact starting pose by {deadline} seconds so ' +
-      'the clip can loop. The tail sways a little with the rhythm and returns to its initial position.',
+      'The character creeps forward in place along a flat surface, seen from the side: the two front paws and the ' +
+      'two hind legs alternate in a low four-legged stepping cycle, the body stays low and flat and close to the ' +
+      'surface and the head stays at the same height, while the figure stays at the same spot in the frame and stays ' +
+      'in the same profile. It completes a whole number of steps and settles back into the exact starting pose by ' +
+      '{deadline} seconds so the clip can loop. The tail sways a little with the rhythm and returns to its initial ' +
+      'position.',
   },
 }
 
@@ -445,6 +446,23 @@ const POSES = {
       'rises onto its hind legs, its body goes upright and vertical, and all four paws grip that surface, with the ' +
       'front paws reaching high and the hind paws low. It holds that clinging stance for the rest of the shot, only ' +
       'shifting its grip slightly, and it does not slide down, let go, or turn.',
+  },
+  /**
+   * 爬行用的低伏姿势。
+   *
+   * **不能拿站立那张当爬行的首帧**：抽帧是沿整段均匀取的、**含第 0 帧**，
+   * 而首帧就是输入图——循环每转一圈都会在格 0 闪一下站姿。
+   * 攀爬（cling）和下落（falling）各自的首帧本来就是那个姿势，只有爬行不是。
+   */
+  creep: {
+    label: '侧身低伏',
+    from: 'side',
+    facing: 'pose',
+    motionClass: 'displacement',
+    motion:
+      'The character lowers itself onto its belly: it folds its legs underneath its body and sinks down until it is ' +
+      'lying low and flat in full profile, its head up and level and its body close to the ground. It holds that low ' +
+      'creeping stance for the rest of the shot, only shifting slightly, and it does not stand back up or roll over.',
   },
   /**
    * ⚠ 键名**不能与 `ACTIONS` 重名**：`buildPrompt` 是 `ACTIONS[key] ?? POSES[key]`，
@@ -711,6 +729,12 @@ export function buildSheetGraph({
   key = [0, 255, 255],
   threshold = 30,
   prefix = 'petmotion/sheet',
+  /**
+   * 尾帧自由（I2VA）。**姿势图那一轮必须开**——它的目的就是让末帧和首帧**不一样**
+   * （角色要转过去 / 换姿势），接上 `last_frame` 会被钉回首帧，整轮作废。
+   * 循环动作保持 false（FL2VA），见节点 6 的说明。
+   */
+  freeEnd = false,
 }) {
   const ref = (id, out = 0) => [String(id), out]
   const cellW = Math.max(16, Math.round((cellH * width) / height))
@@ -722,7 +746,26 @@ export function buildSheetGraph({
     5: { class_type: 'LoadImage', inputs: { image } },
     6: {
       class_type: 'MiniMaxH3ImageToVideo',
-      inputs: { clip: ref(3), vae: ref(4), first_frame: ref(5), prompt, width, height, length: frames },
+      // FL2VA：**同一张图**同时当首帧和尾帧，循环闭合由条件强制。
+      //
+      // ⚠ 这一行原本是**漏掉的**（只有 first_frame）。而 buildPrompt 默认走
+      // `loopAnchor: 'first-last'`，写的是「Picture 2 对齐 N 秒」「末帧回到
+      // Picture 2 的姿势、大小与构图」——**Picture 2 根本不存在**，等于提示词
+      // 单方面承诺了一件图里没接线的事。`buildGraph` 一直是对的，只有这里漏了。
+      //
+      // 补上之后提示词才和实际条件一致。实测代价：模型必须回到起点，
+      // 动作幅度可能比 I2VA 小一点——换来的是闭合从"请求"变成"约束"。
+      inputs: {
+        clip: ref(3),
+        vae: ref(4),
+        first_frame: ref(5),
+        // 姿势图那一轮不接：目的就是让末帧和首帧不一样（见 freeEnd 的说明）
+        ...(freeEnd ? {} : { last_frame: ref(5) }),
+        prompt,
+        width,
+        height,
+        length: frames,
+      },
     },
     7: { class_type: 'KSamplerSelect', inputs: { sampler_name: 'res_multistep' } },
     8: { class_type: 'BasicScheduler', inputs: { model: ref(1), scheduler: 'simple', steps, denoise: 1 } },
@@ -1060,6 +1103,60 @@ if (isMain) {
     const outDir = path.join(MOTION_DIR, token)
     const saved = await pullFrames(entry, outDir, { onProgress: () => {} })
     console.log(`✓ 精灵表 → ${saved.join(', ')}`)
+  } else if (cmd === 'pose') {
+    // 姿势图也走**同一套组合图**（生成 → 抠底 → 抽帧 → 拼条 → 存一张）。
+    //
+    // 原来这里走的是 `gen`（纯出帧，节点 1~13），把 56 张全拉回本地再挑。
+    // 那样只有一个好处：候选帧多。代价是把 56 张 PNG 拖过 cpolar 隧道，
+    // 而且和正式动作走的不是同一条链路。改成组合图之后：
+    //   · 过一次隧道只拉 **1 张**（拼条），传输量降两个数量级
+    //   · 抠底在 ComfyUI 里做（和正式动作同一套 ColorToMask 参数）
+    //   · 抽帧交给 `RandomImageFromBatch(randomness=0)`，沿整段均匀取 picks 张
+    // 代价是候选从 56 降到 picks（默认 16）——实测稳定段本身就有 30+ 帧，
+    // 16 张采样能落进去 4~5 张，够挑。真不够就加大 --picks 重跑。
+    const charId = flag('char')
+    const prof = charId ? CHARACTERS[charId] : null
+    if (!prof) throw new Error(`用法：node h3-motion.mjs pose --char <角色> --action <姿势>（姿势：${Object.keys(POSES).join(', ')}）`)
+    const action = flag('action')
+    const P = POSES[action]
+    if (!P) throw new Error(`未知姿势 ${action}，可选：${Object.keys(POSES).join(' / ')}`)
+    // `from` 空 = 从正面立绘出发（转身那一轮）；否则从已经侧身的那张出发（换姿势）
+    const fromStem = P.from ? `${charId}-${P.from}` : charId
+    const src = path.join(MOTION_DIR, 'staged', `${fromStem}.png`)
+    if (!fs.existsSync(src)) throw new Error(`首帧不在：${src}`)
+    const canvas = stagedCanvas(fromStem)
+    const frames = Number(flag('frames', DEFAULT_FRAMES))
+    const picks = Number(flag('picks', 16))
+    const token = flag('token', `${charId}-pose-${action}`)
+    const { graph, cell } = buildSheetGraph({
+      image: await uploadImage(src, `${fromStem}.png`),
+      // 尾帧自由那一轮不能写"末帧回到 Picture 2"——那张图根本没接进去
+      prompt: buildPrompt(
+        action,
+        { identity: prof.identity, style: prof.style, background: prof.background },
+        { seconds: frames / 24, loopAnchor: 'first' },
+      ),
+      width: canvas.w,
+      height: canvas.h,
+      frames,
+      steps: Number(flag('steps', 20)),
+      seed: Number(flag('seed', 0)),
+      picks,
+      cellH: Number(flag('cell', 448)),
+      key: hexToRgb(prof.background),
+      threshold: Number(flag('threshold', 30)),
+      prefix: `petmotion/${token}`,
+      // 姿势图必须尾帧自由，否则角色转过去会被末帧钉回正面
+      freeEnd: true,
+    })
+    console.log(`提交 ${token}（${canvas.w}×${canvas.h} / ${frames} 帧 / 均匀抽 ${picks} 帧 → ${cell.w}×${cell.h} 拼条）`)
+    const id = await submit(graph)
+    console.log(`prompt_id = ${id}，等它跑完…`)
+    const entry = await waitDone(id, { onTick: (t) => t % 120 < 12 && console.log(`  …${t}s`) })
+    const outDir = path.join(MOTION_DIR, token)
+    const saved = await pullFrames(entry, outDir, { onProgress: () => {} })
+    console.log(`✓ 拼条 ${picks} 格 → ${saved.join(', ')}`)
+    console.log(`挑帧：node pose-pick.mjs ${outDir} --cols ${picks} --pick ${P.pick ?? 'desc'}`)
   } else if (cmd === 'batch') {
     // 一次把整批动作排进 ComfyUI 队列，再统一收。
     // 好处是**不让队列空转**：单任务 gen 是"提交—等待—拉帧"的串行流程，

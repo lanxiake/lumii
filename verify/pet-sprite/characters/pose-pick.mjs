@@ -36,8 +36,10 @@ import { alphaBBox, cutout, estimateBackground } from '../lib/cutout.mjs'
 
 const SOLID_TOLERANCE = 48
 
-async function measure(file) {
-  const { data, info } = await sharp(file).ensureAlpha().raw().toBuffer({ resolveWithObject: true })
+async function measure(file, rect = null) {
+  let pipe = sharp(file)
+  if (rect) pipe = pipe.extract(rect)
+  const { data, info } = await pipe.ensureAlpha().raw().toBuffer({ resolveWithObject: true })
   const w = info.width
   const h = info.height
   const B = estimateBackground(data, w, h)
@@ -85,19 +87,41 @@ const win = Number(opt('window', 8))
  * 判据不能反过来用——同一套指标，目标方向不同。
  */
 const pickDir = opt('pick', 'desc')
+/**
+ * `--cols N`：输入是**一张拼条**而不是帧目录（`pose` 命令的产出）。
+ *
+ * 拼条是 `pose` 命令直接把「抽帧 + 拼条」做进 ComfyUI 图里出来的，过一次隧道
+ * 只拉一张图；按格切开逐格量即可。格宽 = 图宽 / N。
+ */
+const cols = Number(opt('cols', 0))
 
-const files = fs
-  .readdirSync(dir)
-  .filter((f) => /\.png$/i.test(f))
-  .sort()
-  .map((f) => path.join(dir, f))
-const rows = []
-for (const [i, f] of files.entries()) {
-  const m = await measure(f)
-  rows.push({ i, file: path.basename(f), ...(m ?? {}) })
+/** 待测量的单元：帧目录下每张图，或拼条里的每一格 */
+const cells = []
+if (cols > 0) {
+  const meta = await sharp(dir).metadata()
+  const cw = Math.floor(meta.width / cols)
+  for (let c = 0; c < cols; c++) {
+    cells.push({ file: path.basename(dir), rect: { left: c * cw, top: 0, width: cw, height: meta.height } })
+  }
+} else {
+  const names = fs
+    .readdirSync(dir)
+    .filter((f) => /\.png$/i.test(f))
+    .sort()
+  for (const f of names) cells.push({ file: path.join(dir, f), rect: null })
 }
 
-console.log(`帧数 ${rows.length}（宽高比 >1 = 转过来了；团子正面基准 0.78）\n`)
+const rows = []
+for (const [i, c] of cells.entries()) {
+  const m = await measure(c.rect ? dir : c.file, c.rect)
+  rows.push({ i, file: c.file, ...(m ?? {}) })
+}
+
+console.log(
+  cols > 0
+    ? `拼条 ${cols} 格（宽高比 >1 = 转过来了；团子正面基准 0.78）\n`
+    : `帧数 ${rows.length}（宽高比 >1 = 转过来了；团子正面基准 0.78）\n`,
+)
 console.log('  下标  宽x高       宽高比  不对称  中心x   底边y')
 for (const r of rows) {
   if (r.w === undefined) {
@@ -130,7 +154,16 @@ if (best) {
     `\n最稳的一段：下标 ${best.start}~${best.start + win - 1}` +
       `（宽高比中位 ${best.med.toFixed(3)}、波动 ${best.spread.toFixed(3)}）`,
   )
-  console.log(`推荐取中间帧：${mid.file}（下标 ${mid.i}，宽高比 ${mid.aspect.toFixed(3)}）`)
+  console.log(`推荐取中间帧：${mid.file}${cols > 0 ? ` 第 ${mid.i} 格` : ''}（下标 ${mid.i}，宽高比 ${mid.aspect.toFixed(3)}）`)
+
+  // 拼条模式下挑中的是**一格**，得先裁出来 stage-frame 才吃得到
+  let pickedPath = cols > 0 ? null : mid.file
+  if (cols > 0) {
+    const out = opt('emit') || path.join(path.dirname(dir), `pick-${String(mid.i).padStart(2, '0')}.png`)
+    await sharp(dir).extract(cells[mid.i].rect).png().toFile(out)
+    pickedPath = out
+    console.log(`已裁出 → ${out}`)
+  }
 
   // ---- 画布该开多大 ----
   //
@@ -138,22 +171,26 @@ if (best) {
   // 宽度是跟着高度走的——宽高比一旦超过 `canvas.w / (canvas.h × 0.94)`，
   // 侧身素材会被**横向裁掉**，而 run.ts 只记一条 clipped 警告、不报错。
   //
-  // 客户端格子原先是 384×448（宽高比 0.857，够正面角色用）。侧身角色宽>高，
-  // 装不下就得把画布改宽。**`canvas.h` 不动**：宠物在屏幕上的大小 = `canvas.h × scale`。
+  // **`canvas.h` 不动**：宠物在屏幕上的大小 = `canvas.h × scale`。
+  //
+  // ⚠ 这里**故意不给**一个可以照抄的画布值。画布是整个模型**一个值**，
+  // 而这个工具一次只看得到**一个**姿势的拼条——按它算出来的数会被下一个更宽的
+  // 姿势推翻，而推翻的代价是重跑全部动作（改画布牵动归一化）。早先这里打印过
+  // 一个具体值（还写死了某个角色的数字），等于让调用方去踩这个坑。
   const H = 448
   const needW = Math.ceil((H * 0.94 * mid.aspect) / 16) * 16
-  const baseW = 384
-  const canvasW = Math.max(baseW, needW)
   const staged = path.join(dir, '..', 'staged')
   console.log(
-    `\n画布：${canvasW}×${H}` +
-      (canvasW > baseW
-        ? `  ← 正面用的 ${baseW} 装不下（${mid.aspect.toFixed(2)} × ${H} × 0.94 = ${Math.ceil(H * 0.94 * mid.aspect)}px 宽）`
-        : `  ← 正面格子够用，清单不用改`),
+    `\n这一格（宽高比 ${mid.aspect.toFixed(2)}）至少要 ${needW}px 宽 —— 这是**下界，不是答案**`,
   )
   console.log(
-    `\n下一步：\n` +
-      `  node stage-frame.mjs "${path.join(dir, mid.file)}" "${path.join(staged, '<角色>-<姿势>.png')}" \\\n` +
-      `    --canvas ${canvasW}x${H} --meta "${path.join(staged, '<角色>-<姿势>.json')}"`,
+    `⚠ 画布按**所有姿势里最宽的那个**定：宽度 ≥ ${H} × 0.94 × max(各姿势宽高比)。\n` +
+      `   把每个姿势的拼条都过一遍本工具，取最大的那个宽高比再定；\n` +
+      `   宁可一次开宽一点——改画布要重出全部动作。`,
+  )
+  console.log(
+    `\n下一步（把 <宽> 换成**按最宽姿势**定下来的值）：\n` +
+      `  node stage-frame.mjs "${pickedPath}" "${path.join(staged, '<角色>-<姿势>.png')}" --keep-scale \\\n` +
+      `    --canvas <宽>x${H} --meta "${path.join(staged, '<角色>-<姿势>.json')}"`,
   )
 }
