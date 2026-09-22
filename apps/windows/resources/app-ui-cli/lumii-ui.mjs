@@ -173,8 +173,16 @@ function formatStatus(data) {
   }
 
   if (!config2.hasProviders) {
-    lines.push('   ❌ AI 模型提供商: 未配置')
-    lines.push('      → 运行: lumii-ui setup')
+    // 「解密失败」和「没配过」要分开说：前者用户重填一遍就好，
+    // 但若只说「未配置」，他会以为自己从没填过（明明填过），于是反复重启、反复怀疑。
+    if (config2.apiKeyDecryptFailed) {
+      lines.push('   ❌ AI 模型提供商: API Key 解密失败（密钥环变更，或配置是从别的系统/平台搬来的）')
+      lines.push('      → 重填一次即可覆盖: lumii-ui setup')
+      lines.push('      → 只想改密钥: lumii-ui provider set --type <类型> --model <模型> --api-key -')
+    } else {
+      lines.push('   ❌ AI 模型提供商: 未配置')
+      lines.push('      → 运行: lumii-ui setup')
+    }
     lines.push('')
   } else {
     lines.push('   ✅ AI 模型提供商: 已配置')
@@ -199,7 +207,14 @@ function formatStatus(data) {
   //   Agent 仍可从 raw 里读到原始建议）
   const nextSteps = []
   if (!config2.hasProviders) {
-    nextSteps.push({ text: '配置 AI 模型提供商（必需）', cmd: 'lumii-ui setup' })
+    nextSteps.push(
+      config2.apiKeyDecryptFailed
+        ? {
+            text: '重新填写 API Key（已保存的那份解不开）',
+            cmd: 'lumii-ui setup',
+          }
+        : { text: '配置 AI 模型提供商（必需）', cmd: 'lumii-ui setup' },
+    )
   }
   nextSteps.push({ text: '创建第一个会话', cmd: 'lumii-ui conversation create' })
   nextSteps.push({ text: '查看场景化使用指南', cmd: 'lumii-ui guide' })
@@ -578,7 +593,10 @@ Agent 会自动调用 browser_navigate 等工具完成任务。
   lumii-ui channel login weixin      # weixin | wecom | feishu | qbot
 
 ⚠️  二维码打印在【运行应用的终端】里，不在本命令的输出里。
-    无头模式没有界面，请到启动 Lumii 的那个终端扫码。
+    无头模式没有界面，请到启动 Lumii 的那个终端扫码；
+    若应用是 systemd / 后台常驻的，二维码在日志里，用 -o cat 看（否则行前缀会打散二维码）：
+
+      journalctl --user -u lumii-headless -o cat -f
 
 ──────────────────────────────────────────
 步骤 2：确认登录状态
@@ -977,7 +995,11 @@ function formatChannelResponse(name, data) {
     return [
       `✅ 已发起 ${label} 扫码登录（当前状态: ${channelStatusLabel(data.status)}）`,
       '',
-      '二维码打印在【运行应用的终端】里 —— 请到启动 Lumii 的那个终端扫码。',
+      '二维码打印在【运行应用的终端】里 —— 不在本命令的输出里。',
+      '  · 直接在前台跑的应用：就是那个终端窗口',
+      '  · systemd / 后台常驻：二维码进了日志，用这条看（-o cat 很关键，',
+      '    默认格式的行前缀会把二维码打散成不成形的一团）：',
+      '      journalctl --user -u lumii-headless -o cat -f',
       `扫码后确认: lumii-ui channel status ${data.channel}`,
     ].join('\n')
   }
@@ -1190,6 +1212,18 @@ async function main() {
       console.log(formatMessagesText(data))
     } else {
       console.log(JSON.stringify(data))
+      // provider show：JSON 之外补一句人话。走 stderr，脚本解析 stdout 的 JSON 不受影响。
+      if (command.name === 'provider show' && data?.ok === true) {
+        const failed = Object.entries(data.slots || {})
+          .filter(([, slot]) => slot?.apiKeyDecryptFailed === true)
+          .map(([name]) => name)
+        if (failed.length > 0) {
+          console.error(
+            `⚠️  ${failed.join('、')} 槽的 API Key 解密失败（密钥环变更，或配置来自其它系统/平台）——` +
+              '重填: lumii-ui setup 或 lumii-ui provider set --type <类型> --model <模型> --api-key -',
+          )
+        }
+      }
     }
 
     // send --wait：发出去之后等这一轮回复落库，再把正文打出来

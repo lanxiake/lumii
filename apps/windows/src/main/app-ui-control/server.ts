@@ -617,6 +617,9 @@ async function handleStatusRoute(res: http.ServerResponse): Promise<void> {
     },
     configuration: {
       hasProviders: false,
+      // 「有密文但解不开」与「没填过」是两回事：前者重填才有用，后者要先去填。
+      // 无头部署最常见的就是这种（在桌面会话里填的 Key，密钥环没解锁时读不出来）。
+      apiKeyDecryptFailed: false,
       browserExecutable: process.env.LUMII_BROWSER_EXECUTABLE || null,
       browserNoSandbox: process.env.LUMII_BROWSER_NO_SANDBOX === '1' || process.env.LUMII_BROWSER_NO_SANDBOX === 'true',
     },
@@ -630,13 +633,20 @@ async function handleStatusRoute(res: http.ServerResponse): Promise<void> {
     const isLocalType = chat.type === 'ollama' || chat.type === 'lmstudio'
     status.configuration.hasProviders =
       chat.enabled && chat.modelId.trim().length > 0 && (isLocalType || chat.apiKey.trim().length > 0)
+    status.configuration.apiKeyDecryptFailed = chat.apiKeyDecryptFailed === true
   } catch {
     // 读取失败时保持 hasProviders 为 false
   }
 
   // 生成配置建议
   if (!status.configuration.hasProviders) {
-    status.recommendations.push('未配置 AI 模型提供商，运行: lumii-ui setup')
+    // 解密失败时只说「未配置」会把用户引向「重填一遍」的弯路（其实得先看密钥环），
+    // 所以这一条替掉泛泛的「未配置」，而不是并列出现。
+    status.recommendations.push(
+      status.configuration.apiKeyDecryptFailed
+        ? 'API Key 已保存但解密失败（密钥环变更，或配置来自其它系统/平台），请重填: lumii-ui provider set --type <类型> --model <模型> --api-key -'
+        : '未配置 AI 模型提供商，运行: lumii-ui setup',
+    )
   }
   if (!status.configuration.browserExecutable) {
     status.recommendations.push('未配置浏览器路径，设置环境变量: export LUMII_BROWSER_EXECUTABLE=/usr/bin/google-chrome')
