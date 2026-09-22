@@ -713,7 +713,17 @@ export const PetModeShell: React.FC = () => {
     })
   }, [voiceActions])
 
-  /** 切换声音开关：持久化到 VH 设置，开启时预建 micless TTS 管线 */
+  /**
+   * 切换声音开关：只改设置并持久化。
+   *
+   * **不在这里预建 micless 管线**。曾经这么做（理由是"先初始化好，第一次出声不用等"），
+   * 代价是一个**设置开关**会把整个应用切进通话态：主进程 VoiceStateMachine 从
+   * initializing 直接进 thinking，`voice:call:state` 广播到所有窗口，主窗口的语音面板
+   * 跟着亮起来。用户的原话是「点击开启语音朗读，客户端却打开了麦克风，进入了语音对话
+   * 模式」——设置就是设置，不该开麦，也不该进通话。
+   * TTS 管线改由真要说话的两条路径按需拉起：发文字前（handleSendText），
+   * 以及一轮对话开始时（`agent:turn:start`，覆盖主动联系这类用户没发消息的场景）。
+   */
   const handleToggleVoiceReply = useCallback(async () => {
     const next = !enableVoiceReplyRef.current
     enableVoiceReplyRef.current = next
@@ -723,13 +733,11 @@ export const PetModeShell: React.FC = () => {
     } catch (err) {
       log.warn(`保存声音开关失败: ${(err as Error).message}`)
     }
-    if (next) {
-      await ensureMiclessVoicePipeline()
-    } else if (voiceState.state !== 'idle') {
+    if (!next && voiceState.state !== 'idle') {
       // 关闭声音时若仅有 micless 管线在跑，挂断以停止后续 TTS
       await voiceActions.stopCall().catch(() => {})
     }
-  }, [ensureMiclessVoicePipeline, voiceActions, voiceState.state])
+  }, [voiceActions, voiceState.state])
 
   /** 切换当前虚拟人模型（热切换 + 持久化，主进程广播 pet:model:changed） */
   const handleChangeModel = useCallback(async (modelId: string) => {

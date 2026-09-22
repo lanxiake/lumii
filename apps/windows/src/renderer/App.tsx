@@ -17,6 +17,7 @@ import {
   ScreenRecordRoot,
   ScreenRecordTitleControl,
 } from './components/ScreenRecord'
+import { PetModeTitleControl } from './components/PetModeTitleControl'
 import type { GotoInput } from '@main/app-ui-control/types'
 import { SplashOverlay } from './components/SplashOverlay/SplashOverlay'
 import { useTheme, type AppliedTheme } from './contexts/ThemeContext/ThemeContext'
@@ -239,7 +240,13 @@ const AuthenticatedApp: React.FC<AuthenticatedAppProps> = ({ onShellReady }) => 
         settingsHubOpen={hubOpen}
         isConnected={isConnected}
         themeToggle={themeToggleBtn}
-        extraActions={<ScreenRecordTitleControl />}
+        extraActions={
+          <>
+            <ScreenRecordTitleControl />
+            {/* 宠物模式开关：与录屏并排，状态常驻可见（原先只在设置页/托盘/快捷键里） */}
+            <PetModeTitleControl />
+          </>
+        }
         defaultSidebarCollapsed={false}
         version={appVersion ? `v${appVersion}` : undefined}
       >

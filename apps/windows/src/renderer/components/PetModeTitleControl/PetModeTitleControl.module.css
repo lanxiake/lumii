@@ -1,0 +1,65 @@
+/*
+ * PetModeTitleControl — 标题栏宠物模式开关
+ *
+ * **度量刻意与录屏按钮对齐**（ScreenRecord.module.css 的 .titleBtn：高 22、最小宽 26、
+ * 圆角 8、左间距 4、同样的 hover/active 手感）。两个按钮在标题栏里紧挨着，差一个像素
+ * 就会看出来。改这里之前先看一眼那边；真要动，两边一起动。
+ *
+ * 颜色一律走令牌，不写死色值——三个主题（light / dark / eye-care）都要能看。
+ */
+.petBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-width: 26px;
+  height: 22px;
+  margin-left: var(--mt-space-1, 4px);
+  padding: 0 5px;
+  border: 1px solid transparent;
+  border-radius: var(--mt-radius-lg, 8px);
+  background: transparent;
+  color: var(--mt-fg-3);
+  cursor: pointer;
+  flex-shrink: 0;
+  /* 标题栏被拖拽区覆盖，按钮必须显式退出拖拽，否则按下去是在拖窗口 */
+  -webkit-app-region: no-drag;
+  transition:
+    transform var(--mt-dur-fast, 120ms) var(--mt-ease-spring, ease),
+    background var(--mt-dur-normal, 220ms) var(--mt-ease-standard, ease),
+    color var(--mt-dur-normal, 220ms) var(--mt-ease-standard, ease),
+    border-color var(--mt-dur-normal, 220ms) var(--mt-ease-standard, ease);
+}
+
+.petBtn:hover:not(:disabled) {
+  border-color: var(--mt-border);
+  background: var(--mt-surface-2, var(--mt-bg-tertiary));
+  color: var(--mt-fg-1);
+}
+
+.petBtn:active:not(:disabled) {
+  transform: scale(0.94);
+}
+
+.petBtn:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+/*
+ * 开着的样子：底色 + 边框 + 图标都染成成功色。
+ * 只把图标染绿是不够的——图标本身很小，在标题栏这种密度下，
+ * 是否带底色才是「一眼看出开着」的关键。
+ */
+.petBtnOn,
+.petBtnOn:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--mt-success) 38%, transparent);
+  background: color-mix(in srgb, var(--mt-success) 12%, transparent);
+  color: var(--mt-success-dark);
+}
+
+/* 深色底上 --mt-success-dark 太闷，换浅色档 */
+[data-theme='dark'] .petBtnOn,
+[data-theme='dark'] .petBtnOn:hover:not(:disabled) {
+  color: var(--mt-success-light);
+}

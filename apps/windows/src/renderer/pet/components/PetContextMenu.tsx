@@ -12,9 +12,17 @@
  *
  * ## 两份状态要小心
  *
- * 菜单是**瞬时**的（点外部/Esc/选中任一项就关），而它操作的开关是**持久**的
+ * 菜单是**瞬时**的（点外部 / Esc / 滚轮就关），而它操作的开关是**持久**的
  * （静音、声音回复、对话面板）。所以勾选态从 props 读、不要在菜单里存副本——
  * 存了就会出现"关掉菜单再打开，勾还在旧位置"。
+ *
+ * ## 什么样的项才收起菜单
+ *
+ * 只有**要跳去别处看结果**的项才关：打开/隐藏对话（面板在菜单底下压着，不关看不见）、
+ * 关闭宠物模式（整个宠物都要走了）。其余全是开关与列表——静音、朗读、通话、换宠物——
+ * 菜单留在原地。理由：这些项的效果就画在菜单自己身上（勾选胶囊、顶部状态摘要），
+ * 关掉等于把回执也一起关了，用户只能重新右键一次才知道自己刚才点没点上，
+ * 「点了没反应」与「点错了」也就分不出来。
  */
 
 import React, { useEffect, useRef, useState } from 'react'
@@ -247,7 +255,11 @@ export const PetContextMenu: React.FC<PetContextMenuProps> = ({
   const left = Math.min(x, window.innerWidth - MENU_MIN_WIDTH - 8)
   const top = Math.min(y, Math.max(8, window.innerHeight - estH - 8))
 
-  const run = (fn: () => void) => () => {
+  /**
+   * 收起菜单再执行——只给**要跳去别处**的项用（打开对话、关闭宠物模式）。
+   * 开关类项直接传回调，菜单留着让用户看见勾选态变了（见文件头）。
+   */
+  const runAndClose = (fn: () => void) => () => {
     onClose()
     fn()
   }
@@ -280,7 +292,8 @@ export const PetContextMenu: React.FC<PetContextMenuProps> = ({
               key={m.id}
               label={m.name || m.id}
               checked={m.id === currentModelId}
-              onClick={run(() => onChangeModel(m.id))}
+              // 换模型不关菜单：留在列表里，勾选胶囊会跟着挪，可以连着比几个
+              onClick={() => onChangeModel(m.id)}
             />
           ))}
         </>
@@ -296,27 +309,37 @@ export const PetContextMenu: React.FC<PetContextMenuProps> = ({
             ]}
           />
           {inCall ? (
-            <MenuItem label="结束语音对话" danger onClick={run(onStopVoice)} />
+            <MenuItem label="结束语音对话" hint="麦克风" danger onClick={onStopVoice} />
           ) : (
-            <MenuItem label="开始语音对话" onClick={run(onStartVoice)} />
+            <MenuItem label="开始语音对话" hint="麦克风" onClick={onStartVoice} />
           )}
-          <MenuItem label="静音" checked={muted} onClick={run(onToggleMute)} />
+          <MenuItem label="静音" checked={muted} onClick={onToggleMute} />
+          {/*
+            这一项叫「文字回复朗读」而不是「语音回复」：它跟上面那项只差一个字
+            （语音**对话** / 文字回复**朗读**），后果却天差地别——一个是打开麦克风
+            开始通话，一个只是让文字回复出声。用户报的「点击开启语音朗读，客户端
+            却打开了麦克风」就是这两行看串了。名字直接用设置页那一项的原文，
+            同一件事在两个地方叫同一个名字；上面那项再补一个 dim 的「麦克风」hint，
+            把"点它会开麦"写在脸上。
+          */}
           <MenuItem
-            label="语音回复"
-            hint="朗读"
+            label="文字回复朗读"
             checked={voiceReplyEnabled}
-            onClick={run(onToggleVoiceReply)}
+            onClick={onToggleVoiceReply}
           />
 
           <Separator />
-          <MenuItem label={dockOpen ? '隐藏对话' : '打开对话'} onClick={run(onToggleDock)} />
+          <MenuItem
+            label={dockOpen ? '隐藏对话' : '打开对话'}
+            onClick={runAndClose(onToggleDock)}
+          />
 
           <Separator />
           {/* 模型列表收进二级：平铺在主菜单里会拖出一长条，把常用项挤到看不见 */}
           <MenuItem label="更换宠物" hint={`${models.length} 个 ▸`} onClick={() => setView('models')} />
 
           <Separator />
-          <MenuItem label="关闭宠物模式" hint="Ctrl+Shift+P" danger onClick={run(onExit)} />
+          <MenuItem label="关闭宠物模式" hint="Ctrl+Shift+P" danger onClick={runAndClose(onExit)} />
         </>
       )}
     </div>
