@@ -24,7 +24,8 @@
  * { "op": "pose",   "char": "tuanzi", "action": "side" }
  * { "op": "stage",  "src": "<帧.png>", "out": "<staged/角色.png>", "canvas": "576x672", "ratio": 0.70 }
  * { "op": "pick",   "dir": "<拼条.png>", "cols": 16, "pick": "desc" }
- * { "op": "install","id": "demo_cartoon_cat", "dir": "<动作表根目录>", "canvas": "448x448" }
+ * { "op": "sheetcanvas", "dir": "<动作表根目录>", "char": "tuanzi", "canvas": "448x448" }
+ * { "op": "install","id": "demo_cartoon_cat", "dir": "<动作表根目录>", "canvas": "<量出来的宽>x448" }
  * { "op": "list" }   // 查 ComfyUI 队列
  * ```
  */
@@ -140,6 +141,13 @@ async function main() {
     case 'list':
       args.push('list')
       break
+    case 'sheetcanvas':
+      args.push('--dir', str(p.dir, 'dir'))
+      optFlag(args, 'char', p.char)
+      optFlag(args, 'canvas', p.canvas)
+      optFlag(args, 'canvas-h', p.canvasH)
+      optFlag(args, 'cols', p.cols)
+      break
     case 'pick':
       // 位置参数（拼条路径）与四个可选参数在 switch 之后统一拼——`pose-pick.mjs`
       // 的用法是 `<拼条.png> [--cols N]`，路径在前，和别的子命令不一样。
@@ -150,7 +158,7 @@ async function main() {
       throw new Error(`未知 op "${op}"，见本文件头部的协议说明`)
   }
 
-  // stage / pick 分别属于不同脚本
+  // stage / pick / sheetcanvas 分别属于不同脚本
   const script =
     op === 'stage'
       ? 'stage-frame.mjs'
@@ -158,7 +166,9 @@ async function main() {
         ? 'install-pet.mjs'
         : op === 'pick'
           ? 'pose-pick.mjs'
-          : 'h3-motion.mjs'
+          : op === 'sheetcanvas'
+            ? 'sheet-canvas.mjs'
+            : 'h3-motion.mjs'
   if (op === 'pick') {
     args.unshift(str(p.dir, 'dir'))
     optFlag(args, 'cols', p.cols)

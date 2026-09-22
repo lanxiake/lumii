@@ -91,27 +91,35 @@ when_to_use: 用户说"给桌宠加个动作 / 补上走路和爬墙 / 换个宠
 侧身四足是**宽>高**（实测走路 1.19、下落 1.33、低伏爬行 1.75），正面角色是**高>宽**（0.74）。
 超过就会**横向裁掉**，而 `pet-creator/run.ts` 只记一条 `clipped` 警告、**不报错**。
 
-⚠ **别用「感觉够宽」定这个数**——`canvas.h = 448` 时归一化后角色高固定 `448 × 0.94 = 421`px，
-所以每个姿势要的宽度就是 `421 × 该姿势宽高比`，直接量出来：
+⚠ **这个数不能靠推——量。** 归一化倍率的分母是**「组内最高包围盒」**，不是这一帧自己的高：
 
-| 姿势 | 宽高比 | 需要画布宽 ≥ | 448 宽装得下吗 |
-| --- | --- | --- | --- |
-| 正面（已装图集实测） | 0.74 | 313px | ✅ |
-| 侧身走动 | 1.19 | 503px | ❌ 两侧各裁 ~27px |
-| 侧身下落 | 1.33 | 560px | ❌ |
-| 低伏爬行 | 1.75 | 736px | ❌ |
-
-**所以团子的画布是 `768×448`，不是 `448×448`**——宽度是整个模型一个值，
-得按**最宽的那个姿势**（低伏爬行）定。宽度多开是免费的（观感大小只由高度决定），
-开窄了是把爪子裁掉且没人告诉你。
-
-宽度从哪来：拿每个姿势的拼条过一遍
-
-```bash
-node <技能>/characters/pose-pick.mjs <姿势拼条.png> --cols 16 --pick desc
+```
+归一化后宽度 = 该帧包围盒宽 × (canvas.h × 0.94 / 组内最高包围盒)
 ```
 
-它逐格量包围盒宽高比。**取所有姿势里最大的那个**再乘 421 定画布。
+而「组」= **帧尺寸相同的一组**（同一批出图切出来的格一样大 → 同一组）。由此：
+
+- 矮姿势**不会**被补到和别人一样高——它跟着组里最高的那个走。这是刻意的：
+  逐帧各自撑满会把蹲下的帧放大到和站直一样高，切动作看起来像在抽搐。
+- **往组里加一个更高的动作，整组会变小、所需宽度反而变窄。** 所以拿单个姿势的
+  宽高比乘 421 是**错的**（偏大，而且随批次变动）——这条我先写错过一次。
+- 正面表与侧身表出图宽度不同（576 vs 768），切出来的格尺寸不同 → 天然分两组，
+  各自归一。
+
+用 `sheet-canvas.mjs` 量**所有已出的表**：
+
+```bash
+node <技能>/characters/sheet-canvas.mjs --dir <动作表根目录> --char <角色> --canvas 448x448
+```
+
+它按格尺寸分组、算出每组倍率与所需宽度；给了 `--canvas` 时还会逐个动作报
+「会被裁掉多少 px」（超了就退出码 1）。⚠ **等动作表出齐再量最后一次**——
+少一个最高的动作，算出来的数会偏宽。
+
+⚠ 动作表目录名是 `<角色>-<动作>-sheet`，**不含视角**：换视角重出会**覆盖**同一个
+目录。于是重出失败时旧素材会留在原地冒充新素材被装进去。**出图前先把旧目录挪走**
+（改名成不以 `-sheet` 结尾），别让它在测量和安装里混过去——这条是实测踩到的
+（正面版的 `fall` 表就差点被当成侧身版装进去）。
 
 ⚠ **`canvas.h` 不能动**——宠物在屏幕上的观感大小 = `canvas.h × scale`。
 换算 scale 时按**高度**换算（`scale × 旧画布高 / 新画布高`），按宽度算会在改比例时让宠物凭空缩小。
@@ -139,13 +147,17 @@ node <技能>/characters/pose-pick.mjs <拼条.png> --cols 16 --pick desc   # as
 node <技能>/characters/stage-frame.mjs <挑中的帧.png> <staged/角色-姿势.png> \
   --canvas 768x672 --keep-scale --baseline 0.93 --meta <staged/角色-姿势.json>
 
+# 1a-2) 全部动作出齐后量画布该开多宽（归一化按「组内最高包围盒」算，推不出来）
+node <技能>/characters/sheet-canvas.mjs --dir <动作表根目录> --char <角色> --canvas 448x448
+
 # 1b) 动作表（生成+抠底+8 帧抽帧+拼条，一次出图）
 node <技能>/characters/h3-motion.mjs sheet --char <角色> --action <动作>
 node <技能>/characters/h3-motion.mjs batch --jobs "<角色>:walk,<角色>:climb" --sheet
 
 # 2) 装进客户端（12 组：8 正面 + Walk/Climb/Crawl/Fall）
-#    ⚠ 画布宽按最宽姿势定（见第五节）：有侧身四足动作就**不是** 448 宽
-node <技能>/characters/install-pet.mjs --id <客户端目录名> --dir <动作表根目录> --canvas 768x448 --bg 00ccff
+#    ⚠ 画布宽**必须先用 sheet-canvas.mjs 量**（见第五节）：有侧身动作时 ≠ 384
+node <技能>/characters/install-pet.mjs --id <客户端目录名> --dir <动作表根目录> \
+  --canvas <量出来的宽>x448 --bg 00ccff
 ```
 
 经 `run.ts`（它自己定位仓库根，参数走 `SKILL_PARAMS`）：
@@ -154,7 +166,8 @@ node <技能>/characters/install-pet.mjs --id <客户端目录名> --dir <动作
 SKILL_PARAMS='{"op":"batch","jobs":"tuanzi:walk,tuanzi:climb,tuanzi:crawl,tuanzi:fall"}' node <技能>/run.ts
 SKILL_PARAMS='{"op":"pose","char":"tuanzi","action":"side"}' node <技能>/run.ts
 SKILL_PARAMS='{"op":"pick","dir":"<拼条.png>","cols":16,"pick":"desc"}' node <技能>/run.ts
-SKILL_PARAMS='{"op":"install","id":"demo_cartoon_cat","dir":"<动作表根目录>","canvas":"768x448"}' node <技能>/run.ts
+SKILL_PARAMS='{"op":"sheetcanvas","dir":"<动作表根目录>","char":"tuanzi","canvas":"448x448"}' node <技能>/run.ts
+SKILL_PARAMS='{"op":"install","id":"demo_cartoon_cat","dir":"<动作表根目录>","canvas":"<量出来的宽>x448"}' node <技能>/run.ts
 ```
 
 结果以 `__SKILL_RESULT__:{json}` 打到 stdout。
