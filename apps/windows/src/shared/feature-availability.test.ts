@@ -13,6 +13,7 @@ import {
   getFeatureBlockMessage,
   FEATURE_BLOCK_MESSAGES,
   type FeatureId,
+  type FeatureProbeInput,
 } from './feature-availability'
 
 const ALL_FEATURES: FeatureId[] = [
@@ -114,10 +115,15 @@ describe('resolveFeatureAvailability — Wayland', () => {
 })
 
 describe('resolveFeatureAvailability — 无头形态（第二期预留）', () => {
-  it('headless 下宠物模式屏蔽', () => {
+  it('headless 下宠物模式屏蔽（理由单列，与平台无关）', () => {
     const headless = resolveFeatureAvailability({ platform: 'linux', headless: true })
 
     expect(headless.petMode.available).toBe(false)
+    expect(headless.petMode.reason).toBe('headless')
+    // 桌宠在无头下没有窗口可挂，跟是不是 Linux 无关
+    expect(resolveFeatureAvailability({ platform: 'win32', headless: true }).petMode.reason).toBe(
+      'headless',
+    )
   })
 
   it('headless 下录屏屏蔽（没有图形会话可录）', () => {
@@ -173,13 +179,28 @@ describe('矩阵完整性', () => {
 
 describe('getFeatureBlockMessage', () => {
   it('受屏蔽的功能都有对应文案', () => {
-    const linux = resolveFeatureAvailability({ platform: 'linux' })
+    // 把每种探测输入都过一遍：只测「无头以外的 Linux」会漏掉 headless 专属理由的文案
+    // （screenRecord 的 'headless' 就是这么被漏掉的）。
+    const inputs: FeatureProbeInput[] = [
+      { platform: 'linux' },
+      { platform: 'linux', waylandSession: true },
+      { platform: 'linux', headless: true },
+      { platform: 'linux', headless: true, waylandSession: true },
+      { platform: 'win32' },
+      { platform: 'darwin' },
+      { platform: 'win32', headless: true },
+    ]
 
-    for (const id of ALL_FEATURES) {
-      const entry = linux[id]!
-      if (entry.available) continue
-      const msg = getFeatureBlockMessage(id, entry.reason!)
-      expect(msg, id).not.toBe('当前环境不支持该功能。')
+    for (const input of inputs) {
+      const result = resolveFeatureAvailability(input)
+      for (const id of ALL_FEATURES) {
+        const entry = result[id]!
+        if (entry.available) continue
+        const msg = getFeatureBlockMessage(id, entry.reason!)
+        expect(msg, `${input.platform}/${input.headless ? 'headless' : 'gui'}/${id}`).not.toBe(
+          '当前环境不支持该功能。',
+        )
+      }
     }
   })
 

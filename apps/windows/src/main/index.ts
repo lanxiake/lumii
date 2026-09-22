@@ -217,6 +217,7 @@ import {
   reconcileProjectsWithDisk,
 } from './coding-dev-projects.js'
 import { resolveClientStateDir, resolvePluginRuntimeDir, resolvePerfLogsDir } from './paths'
+import { hasHeadlessFlag } from './platform/feature-probe'
 import { PerformanceMonitor } from './perf/performance-monitor'
 import { createMeasuredHandler } from './perf/performance-ipc'
 import { setupPerformanceIpcHandlers } from './ipc/performance-ipc'
@@ -1219,7 +1220,7 @@ async function initialize(): Promise<void> {
   // 检查是否在测试模式（用于 E2E 测试）
   const isTestMode = process.argv.includes('--test-mode')
   // 检查是否在无头模式（不创建窗口/托盘/桌宠/录屏）
-  const isHeadless = process.argv.includes('--headless')
+  const isHeadless = hasHeadlessFlag()
   if (isHeadless) {
     log.info('无头模式已启用，将跳过 UI 层初始化')
   }

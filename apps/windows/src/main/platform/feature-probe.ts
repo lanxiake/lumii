@@ -36,11 +36,30 @@ export function isWaylandSession(): boolean {
   return Boolean(process.env.WAYLAND_DISPLAY)
 }
 
-/** 是否无图形会话（第二期的无头形态；第一期恒为 false） */
-function isHeadlessSession(): boolean {
-  // 终端里显式设了 CI 或没有 DISPLAY/WAYLAND_DISPLAY 的 Linux，视为无图形会话。
-  // **只在 Linux 上判断**：Windows/macOS 不存在这个维度。
+/**
+ * 启动参数是否显式要求无头模式（`--headless`）。
+ *
+ * `--headless` 的唯一定义处：`index.ts` 用它跳过 UI 层初始化（窗口/托盘/桌宠/录屏），
+ * `isHeadlessSession()` 用它让能力矩阵与实际情况保持一致。两处各写一遍字符串会漂移。
+ */
+export function hasHeadlessFlag(): boolean {
+  return process.argv.includes('--headless')
+}
+
+/**
+ * 是否无图形会话（第二期的无头形态）。
+ *
+ * 判据有两层，任一成立即为真：
+ * - **显式 `--headless` 启动**：此时即使机器上有 DISPLAY，UI 层也没有初始化，
+ *   录屏/桌宠确实不可用。矩阵若还报「可用」，用户点进去只会静默失败（违反 D4）。
+ * - **没有 DISPLAY/WAYLAND_DISPLAY**（tty、CI、systemd 里直接拉起）：
+ *   没有任何可渲染的图形界面，按无头算。
+ *
+ * **只在 Linux 上判断**：Windows/macOS 不存在这个维度。
+ */
+export function isHeadlessSession(): boolean {
   if (process.platform !== 'linux') return false
+  if (hasHeadlessFlag()) return true
   return !process.env.DISPLAY && !process.env.WAYLAND_DISPLAY
 }
 

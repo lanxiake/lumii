@@ -46,7 +46,7 @@ export interface FeatureAvailability {
 /** 探测输入（由 main 侧收集，见 platform/feature-probe.ts） */
 export interface FeatureProbeInput {
   platform: NodeJS.Platform
-  /** 无图形会话（第二期的无头形态；第一期恒为 false） */
+  /** 无图形会话（第二期无头形态：`--headless` 启动，或 Linux 上没有 DISPLAY） */
   headless?: boolean
   /** Wayland 会话（录屏/系统音频受影响） */
   waylandSession?: boolean
@@ -63,9 +63,11 @@ export interface FeatureProbeInput {
 export const FEATURE_BLOCK_MESSAGES: Record<FeatureId, Partial<Record<BlockReason, string>>> = {
   petMode: {
     'platform-unsupported': 'Linux 版暂不支持宠物模式，后续将以精灵图形态回归。',
+    'headless': '无头模式没有图形界面，宠物模式不可用；需要它请以桌面模式启动。',
   },
   screenRecord: {
     'wayland-session': 'Wayland 会话下录屏需要额外授权，当前版本暂不支持。',
+    'headless': '无头模式没有屏幕可录；需要录屏请以桌面模式启动。',
   },
   systemAudioCapture: {
     'platform-unsupported': '系统音频采集当前版本暂不支持，可使用麦克风录制。',
@@ -103,8 +105,8 @@ function isLinux(platform: NodeJS.Platform): boolean {
  *
  * | 功能 | 判定 |
  * |------|------|
- * | `petMode` | D13：Linux 屏蔽，后续以**精灵图**形态重写（不是移植现有实现） |
- * | `screenRecord` | D14 **修订**（2026-09-20）：X11 实测可用 → 改为**按会话类型**判定，仅 Wayland 屏蔽 |
+ * | `petMode` | D13：Linux 屏蔽，后续以**精灵图**形态重写（不是移植现有实现）；**无头形态下也屏蔽**（没有窗口可挂，理由单列） |
+ * | `screenRecord` | D14 **修订**（2026-09-20）：X11 实测可用 → 改为**按会话类型**判定，仅 Wayland 屏蔽；**无头形态下屏蔽**（没有屏幕可录） |
  * | `systemAudioCapture` | **全平台**屏蔽（Windows 侧也没实现） |
  * | `pythonSkills` | Linux 上看**运行时是否存在**——装了 Python 3 就能用 |
  * | `codingCliAutoInstall` | Linux 屏蔽**自动安装**，手动指引保留 |
@@ -118,7 +120,8 @@ export function resolveFeatureAvailability(
 
   return {
     // D13：宠物模式在 Linux 上屏蔽。将来以精灵图重写后，这里改为「探测精灵图资源」。
-    petMode: linux || headless ? blocked('platform-unsupported') : WIN_ONLY,
+    // 无头形态下没有窗口可挂，理由单列（与平台无关，所以先判 headless）。
+    petMode: headless ? blocked('headless') : linux ? blocked('platform-unsupported') : WIN_ONLY,
 
     // D14 修订（2026-09-20）：X11 下实测跑通（捕获 + 音频 + 成片 + 中文烧字幕），
     // 由「Linux 全屏蔽」改为「**按会话类型**判定」——只有 Wayland 仍屏蔽

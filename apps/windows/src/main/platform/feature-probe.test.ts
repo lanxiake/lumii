@@ -18,16 +18,24 @@ vi.mock('../python-env', () => ({
   detectSystemPython: () => detectSystemPythonSpy(),
 }))
 
-import { isWaylandSession, collectFeatureProbeInput, getFeatureAvailability } from './feature-probe'
+import {
+  isWaylandSession,
+  isHeadlessSession,
+  hasHeadlessFlag,
+  collectFeatureProbeInput,
+  getFeatureAvailability,
+} from './feature-probe'
 
 const SESSION_VARS = ['XDG_SESSION_TYPE', 'WAYLAND_DISPLAY', 'DISPLAY'] as const
 const saved: Record<string, string | undefined> = {}
+const savedArgv = [...process.argv]
 
 beforeEach(() => {
   for (const key of SESSION_VARS) {
     saved[key] = process.env[key]
     delete process.env[key]
   }
+  process.argv = [...savedArgv]
   detectSystemPythonSpy.mockReset()
   detectSystemPythonSpy.mockReturnValue(null)
 })
@@ -37,6 +45,7 @@ afterEach(() => {
     if (saved[key] === undefined) delete process.env[key]
     else process.env[key] = saved[key]
   }
+  process.argv = [...savedArgv]
 })
 
 describe('isWaylandSession', () => {
@@ -76,6 +85,61 @@ describe('isWaylandSession', () => {
     process.env.DISPLAY = ':0'
 
     expect(isWaylandSession()).toBe(true)
+  })
+})
+
+describe('isHeadlessSession / hasHeadlessFlag', () => {
+  const linuxOnly = process.platform === 'linux'
+
+  it('没有 DISPLAY/WAYLAND_DISPLAY 时按无头算（tty / CI / systemd 拉起）', () => {
+    if (!linuxOnly) return
+
+    expect(isHeadlessSession()).toBe(true)
+  })
+
+  it('有 DISPLAY 且没带 --headless → 不是无头', () => {
+    if (!linuxOnly) return
+    process.env.DISPLAY = ':0'
+
+    expect(isHeadlessSession()).toBe(false)
+  })
+
+  it('显式 --headless 启动时，即使有 DISPLAY 也算无头', () => {
+    // 关键一条：`--headless` 会让 index.ts 跳过录屏/桌宠的初始化，
+    // 矩阵若还按「有 DISPLAY 就可用」报，用户点进去只会静默失败（违反 D4）。
+    if (!linuxOnly) return
+    process.env.DISPLAY = ':0'
+    process.argv = [...savedArgv, '--headless']
+
+    expect(isHeadlessSession()).toBe(true)
+  })
+
+  it('非 Linux 平台恒为 false（Windows/macOS 没有这个维度）', () => {
+    process.env.DISPLAY = ':0'
+    process.argv = [...savedArgv, '--headless']
+
+    if (!linuxOnly) expect(isHeadlessSession()).toBe(false)
+    else expect(isHeadlessSession()).toBe(true)
+  })
+
+  it('能力矩阵跟着 --headless 联动（录屏与桌宠都报不可用）', () => {
+    if (!linuxOnly) return
+    process.env.DISPLAY = ':0'
+    process.argv = [...savedArgv, '--headless']
+
+    const features = getFeatureAvailability()
+
+    expect(features.screenRecord.available).toBe(false)
+    expect(features.screenRecord.reason).toBe('headless')
+    expect(features.petMode.reason).toBe('headless')
+    // 与之无关的功能不受影响
+    expect(features.systemAudioCapture.reason).toBe('platform-unsupported')
+  })
+
+  it('只认完整的 --headless 参数（--headless-worker 不算）', () => {
+    process.argv = [...savedArgv, '--headless-worker']
+
+    expect(hasHeadlessFlag()).toBe(false)
   })
 })
 
