@@ -78,6 +78,9 @@ export const petApi: PetElectronAPI = {
   getActiveSessionKey: (): Promise<string> =>
     ipcRenderer.invoke(PET_IPC.getActiveSessionKey),
 
+  focusSession: (sessionKey: string): Promise<void> =>
+    ipcRenderer.invoke(PET_IPC.focusSession, sessionKey),
+
   getCubismCoreUrl: (): Promise<string> =>
     ipcRenderer.invoke(PET_IPC.getCubismCoreUrl),
 

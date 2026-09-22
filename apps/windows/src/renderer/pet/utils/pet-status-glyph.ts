@@ -34,6 +34,14 @@ export interface PetGlyph {
   tone: PetGlyphTone
   /** 中文说明，供 title / aria-label */
   label: string
+  /**
+   * 这条状态**来自哪个会话**。
+   *
+   * `'other'` = 别的会话在等你出手（抢占来的），不是宠物当前演的那个。
+   * 必须让用户看得出来——否则他会对着当前会话找"它在等什么确认"，
+   * 而那个确认根本在另一个会话里（用户 2026-09-22 定的：头顶符号标来源）。
+   */
+  source?: 'other'
 }
 
 export interface PetGlyphInput {
@@ -43,6 +51,14 @@ export interface PetGlyphInput {
   idleStage?: string
   /** `AgentActivity`：idle / thinking / working / waiting / blocked */
   agentActivity?: string
+  /**
+   * **别的会话**在等你出手时的状态（`waiting` / `error`）。
+   *
+   * 由 `session-activity` 的 `foreignAttention` 汇总而来——多会话并发时，
+   * "别人卡住了/别人在等你"必须能跨会话抢到宠物头顶（用户 2026-09-22 定的规则）。
+   * 主体自己的等待不从这里来（走 `agentActivity`），两者优先级见下。
+   */
+  foreignAttention?: 'waiting' | 'error'
 }
 
 /**
@@ -51,15 +67,30 @@ export interface PetGlyphInput {
  * 入参一律用 `string`（不是联合类型）——调用方的状态来自多个模块的运行时值，
  * 这里只做字符串比较，**不 import 那些类型**，免得为了一个只读判断把
  * 渲染层与编排层的类型耦在一起。
+ *
+ * 优先级按「用户此刻该不该被打断」排，不按"重要"排：
+ *
+ *   主体自己在等确认/卡住  >  **别的会话**在等确认/出错  >  主体在想事/干活
+ *   > 语音通话中在想  >  睡着  >  打盹
+ *
+ * 主体排最前：你正看着的那个会话才是最即时的上下文。别的会话排第二而不是最后，
+ * 是因为"有人在等你出手"这件事**不管发生在哪个会话都需要你**——
+ * 而宠物是屏幕上唯一"你一定会看见"的位置（用户 2026-09-22 挑的方案）。
  */
 export function pickStatusGlyph(input: PetGlyphInput): PetGlyph | null {
-  const { phase, idleStage, agentActivity } = input
+  const { phase, idleStage, agentActivity, foreignAttention } = input
 
   if (agentActivity === 'waiting') {
     return { char: '?', tone: 'alert', label: 'Agent 在等你确认' }
   }
   if (agentActivity === 'blocked') {
     return { char: '!', tone: 'alert', label: 'Agent 卡住了' }
+  }
+  if (foreignAttention === 'waiting') {
+    return { char: '?', tone: 'alert', label: '另一个会话在等你确认', source: 'other' }
+  }
+  if (foreignAttention === 'error') {
+    return { char: '!', tone: 'alert', label: '另一个会话出错了', source: 'other' }
   }
   // Agent 侧的思考/干活同样算「正在忙」。**照 voice 的 phase 判是不够的**：
   // 文字对话那一轮根本不走语音状态机（`voiceState` 一直是 idle），

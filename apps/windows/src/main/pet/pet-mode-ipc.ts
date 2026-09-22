@@ -254,6 +254,22 @@ export function registerPetModeIpc(deps: PetWindowManagerDeps): void {
   })
   ipcMain.handle(PET_IPC.getActiveSessionKey, () => petWindowManager?.getActiveSessionKey() ?? '')
 
+  /**
+   * 宠物窗口请主窗口切到某个会话（控制坞的多会话清单点一条）。
+   *
+   * 会话状态在主窗口的 agent-runtime 里，宠物窗自己切不了，所以这里只做两件事：
+   * 把主窗带到前台 + 把 `app-ui:goto`（带 sessionKey）发过去。
+   * **不在这里直接改会话**——主进程没有会话状态，硬改就是两份真相。
+   */
+  ipcMain.handle(PET_IPC.focusSession, (_evt, sessionKey: string) => {
+    const win = petWindowManager?.getMainWindow()
+    if (!win || win.isDestroyed() || !sessionKey) return
+    if (win.isMinimized()) win.restore()
+    win.show()
+    win.focus()
+    win.webContents.send('app-ui:goto', { view: 'chat', sessionKey })
+  })
+
   ipcMain.handle(PET_IPC.getCubismCoreUrl, async () => {
     const { resolveCubismCoreUrl } = await import('./pet-model-resolver')
     return resolveCubismCoreUrl()

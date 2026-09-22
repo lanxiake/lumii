@@ -43,6 +43,15 @@ import type { PetChatMessage } from './components/PetControlDock'
 import type { PetModelConfigDTO } from '../../shared/pet-mode'
 import { resolveEmotionKeyByIndex } from './utils/pet-status-labels'
 import { pickStatusGlyph } from './utils/pet-status-glyph'
+import {
+  EMPTY_SESSION_ACTIVITY,
+  foreignAttention,
+  isSessionActivityEvent,
+  otherSessions,
+  reduceSessionActivity,
+  sweepStale,
+  type SessionActivityState,
+} from './utils/session-activity'
 import { readPersistedSessionThinkingPrefs } from '../../shared/session-thinking-prefs'
 import { petSessionMatchesEvent } from './utils/pet-session-match'
 
@@ -147,6 +156,33 @@ export const PetModeShell: React.FC = () => {
   const avatarStatusRef = useRef<PetAvatarStatus | null>(null)
   avatarStatusRef.current = avatarStatus
   /**
+   * 多会话运行态（谁在跑、谁在等你出手）。
+   *
+   * **只有这一个宠物**，而同时可能有多个 Agent/会话在跑（聊天会话、cron 自省、
+   * 子 Agent……）。定下来的规矩（用户 2026-09-22 挑的）：
+   * 主体演当前会话；**"需要你出手"的事跨会话抢占头顶符号**；其余只在控制坞里可见。
+   * 计数与判据都在 `session-activity` 里，这里只负责喂数据与展示。
+   */
+  const [sessionRuns, setSessionRuns] = useState<SessionActivityState>(EMPTY_SESSION_ACTIVITY)
+  /** 别处等你出手（waiting/error），用来抢头顶符号 */
+  const attention = useMemo(
+    () => foreignAttention(sessionRuns, sessionKeyRef.current),
+    [sessionRuns],
+  )
+  /** 其余在跑的会话（控制坞展示；不参与任何动画） */
+  const otherRuns = useMemo(() => otherSessions(sessionRuns, sessionKeyRef.current), [sessionRuns])
+  /**
+   * 隔一会儿扫一遍：`turn:end` 是事件，丢了（窗口重载、渲染进程忙）就永远留在表里，
+   * 控制坞会一直说"另有 1 个会话在跑"，而它其实早就结束了。
+   */
+  useEffect(() => {
+    const id = setInterval(
+      () => setSessionRuns((prev) => sweepStale(prev, performance.now())),
+      60_000,
+    )
+    return () => clearInterval(id)
+  }, [])
+  /**
    * 头顶符号：把"它现在在干什么"写成一个字。
    *
    * 这是用户 2026-09-22 那条要求（「待机不要左右和上下移动……需要添加特效」）的
@@ -158,8 +194,15 @@ export const PetModeShell: React.FC = () => {
         phase: avatarStatus?.phase ?? 'idle',
         idleStage: avatarStatus?.idleStage,
         agentActivity: avatarStatus?.agentActivity,
+        // 只把"最急的那个"传下去：同一个符号位放不下第二个状态，
+        // 而 waiting 比 error 更可操作（卡住多半是没人理它的后果）
+        foreignAttention: attention[0]
+          ? attention[0].state === 'error'
+            ? 'error'
+            : 'waiting'
+          : undefined,
       }),
-    [avatarStatus],
+    [avatarStatus, attention],
   )
   /** 符号的锚点：**符号变了才重取位置**，不每帧跟随（与气泡同一取舍，见上方注释） */
   const [glyphAnchor, setGlyphAnchor] = useState<{
@@ -536,6 +579,23 @@ export const PetModeShell: React.FC = () => {
           content?: readonly { type: string; text?: string }[]
         }
         const evtSessionKey = event.rootSessionKey ?? event.sessionKey
+        /**
+         * 多会话运行态记账：**在按会话过滤之前**折一次，别人的事件也要收。
+         *
+         * 这里只回答"谁在跑、谁在等你出手"，**不参与姿态/表情**——
+         * 后台 cron agent 常年有活，让它参与的话宠物会永远在抖。
+         * 先过 `isSessionActivityEvent` 挡一道：delta 是逐 token 的，白跑几百次不划算。
+         */
+        if (isSessionActivityEvent(event.type ?? '')) {
+          const now = performance.now()
+          setSessionRuns((prev) =>
+            reduceSessionActivity(
+              prev,
+              { type: event.type, sessionKey: event.sessionKey, rootSessionKey: event.rootSessionKey },
+              now,
+            ),
+          )
+        }
         // 镜像事件到达时采纳主窗口会话（宠物窗未起呼前 sessionKeyRef 可能为空）
         if (evtSessionKey && !sessionKeyRef.current) {
           sessionKeyRef.current = evtSessionKey
@@ -878,6 +938,7 @@ export const PetModeShell: React.FC = () => {
           char={glyph.char}
           tone={glyph.tone}
           label={glyph.label}
+          source={glyph.source}
           x={glyphAnchor.x}
           y={glyphAnchor.y}
           petHeight={glyphAnchor.petHeight}
@@ -939,6 +1000,12 @@ export const PetModeShell: React.FC = () => {
         voiceReplyEnabled={voiceReplyEnabled}
         idleMotionEnabled={idleMotionEnabled}
         avatarStatus={avatarStatus}
+        otherRuns={otherRuns}
+        // 点一条会话 → 主进程把主窗带到前台并把 app-ui:goto（带 sessionKey）发过去；
+        // 真正的会话切换在主窗的 agent-runtime 里做（会话状态不在主进程）
+        onFocusSession={(sessionKey) => {
+          void window.electronAPI?.pet?.focusSession?.(sessionKey)?.catch?.(() => {})
+        }}
         modelLoaded={modelLoaded}
         voiceError={voiceError}
         models={models}

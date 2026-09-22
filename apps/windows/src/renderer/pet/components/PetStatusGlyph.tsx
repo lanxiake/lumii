@@ -27,6 +27,13 @@ export interface PetStatusGlyphProps {
   readonly tone: PetGlyphTone
   /** 中文说明，进 title / aria-label（符号对读屏器没有语义） */
   readonly label: string
+  /**
+   * 这条状态来自别的会话（多会话抢占时）。
+   *
+   * 表现是徽章右上角再叠一小块——**"还有一个"的视觉隐喻**（像一摞卡片）。
+   * 不用文字：徽章只有 22px，塞不下"另"，而缩写（"别"）没人看得懂。
+   */
+  readonly source?: 'other'
   /** 锚点的画布坐标（CSS 像素，脚底中心） */
   readonly x: number
   readonly y: number
@@ -46,7 +53,15 @@ const TONE_COLOR: Record<PetGlyphTone, { fg: string; border: string }> = {
   sleep: { fg: 'rgba(190, 214, 255, 0.92)', border: 'rgba(150, 185, 255, 0.30)' },
 }
 
-export const PetStatusGlyph: React.FC<PetStatusGlyphProps> = ({ char, tone, label, x, y, petHeight }) => {
+export const PetStatusGlyph: React.FC<PetStatusGlyphProps> = ({
+  char,
+  tone,
+  label,
+  source,
+  x,
+  y,
+  petHeight,
+}) => {
   const ref = useRef<HTMLDivElement>(null)
   // 淡入：挂载时为 0，下一帧置 1。直接给 1 会"闪一下就有"，在一只安静的宠物头顶很扎眼
   const [shown, setShown] = useState(false)
@@ -108,6 +123,22 @@ export const PetStatusGlyph: React.FC<PetStatusGlyphProps> = ({ char, tone, labe
       }}
     >
       {char}
+      {/* 来源角标：一小块叠在右上角，"还有一个"的意思（见 source 的注释） */}
+      {source === 'other' && (
+        <span
+          aria-hidden="true"
+          style={{
+            position: 'absolute',
+            top: -3,
+            right: -3,
+            width: 9,
+            height: 9,
+            borderRadius: 3,
+            background: 'rgba(24, 26, 32, 0.92)',
+            border: `1px solid ${color.border}`,
+          }}
+        />
+      )}
     </div>
   )
 }

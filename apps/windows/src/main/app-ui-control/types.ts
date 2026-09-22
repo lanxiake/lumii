@@ -121,6 +121,13 @@ export type AppUiSettingsCategory =
 export interface GotoInput {
   view: AppUiViewType
   category?: AppUiSettingsCategory
+  /**
+   * 顺带切到这个会话（并停在对话页）。
+   *
+   * 目前唯一的使用者是宠物窗口的控制坞——多会话清单点一条就跳过去
+   * （见 `PET_IPC.focusSession`）。不带这个字段时行为与从前完全一致。
+   */
+  sessionKey?: string
 }
 
 /** app_act click 入参 */

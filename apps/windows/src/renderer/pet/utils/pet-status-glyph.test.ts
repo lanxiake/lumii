@@ -64,6 +64,39 @@ describe('pickStatusGlyph', () => {
     ).toBe('…')
   })
 
+  describe('别的会话在等你出手（多会话抢占）', () => {
+    it('别的会话等确认 → 问号，且标出来源', () => {
+      const g = pickStatusGlyph({ ...base, foreignAttention: 'waiting' })
+      expect(g?.char).toBe('?')
+      expect(g?.source).toBe('other')
+      expect(g?.label).toContain('另一个会话')
+    })
+
+    it('别的会话出错 → 叹号，同样标来源', () => {
+      expect(pickStatusGlyph({ ...base, foreignAttention: 'error' })).toMatchObject({
+        char: '!',
+        tone: 'alert',
+        source: 'other',
+      })
+    })
+
+    it('主体自己在等确认时压过别人的（你正看着的那个会话才是最即时的上下文）', () => {
+      const g = pickStatusGlyph({ ...base, agentActivity: 'waiting', foreignAttention: 'error' })
+      expect(g?.source).toBeUndefined()
+      expect(g?.label).toBe('Agent 在等你确认')
+    })
+
+    it('别人的等待压过主体的思考——"有人在等你"比"它在忙"更该打断你', () => {
+      const g = pickStatusGlyph({ ...base, agentActivity: 'thinking', foreignAttention: 'waiting' })
+      expect(g?.char).toBe('?')
+      expect(g?.source).toBe('other')
+    })
+
+    it('没有别人的事时，来源标记不出现（常态下别给自己加戏）', () => {
+      expect(pickStatusGlyph({ ...base, agentActivity: 'thinking' })?.source).toBeUndefined()
+    })
+  })
+
   it('每个符号都带中文说明（符号本身对读屏器没有语义）', () => {
     const all = [
       pickStatusGlyph({ ...base, agentActivity: 'waiting' }),

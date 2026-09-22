@@ -19,6 +19,7 @@ import {
 } from './icons'
 import type { PetAvatarStatus } from '../orchestrator/PetOrchestrator'
 import { formatAvatarStatusLine } from '../utils/pet-status-labels'
+import { shortSessionLabel, type SessionRun } from '../utils/session-activity'
 
 /** 聊天记录单条消息（内存态轻量展示） */
 export interface PetChatMessage {
@@ -40,6 +41,15 @@ export interface PetControlDockProps {
   idleMotionEnabled: boolean
   /** 当前虚拟人表情/动作状态（编排器推送） */
   avatarStatus?: PetAvatarStatus | null
+  /**
+   * 除当前会话之外**还在跑**的会话（多会话并发时用）。
+   *
+   * 只做展示与跳转，**不参与任何动画**——后台 cron agent 常年有活，
+   * 让它影响姿态/呼吸的话宠物会永远在抖（见 `utils/session-activity.ts`）。
+   */
+  otherRuns?: readonly SessionRun[]
+  /** 点某条会话：请主窗口切过去（主进程转发 `app-ui:goto`） */
+  onFocusSession?: (sessionKey: string) => void
   modelLoaded: boolean
   voiceError?: string | null
   /** 可切换的 Live2D 模型列表（控制坞下拉展示） */
@@ -145,6 +155,8 @@ export const PetControlDock: React.FC<PetControlDockProps> = ({
   voiceReplyEnabled,
   idleMotionEnabled,
   avatarStatus,
+  otherRuns,
+  onFocusSession,
   modelLoaded,
   voiceError,
   models,
@@ -348,6 +360,51 @@ export const PetControlDock: React.FC<PetControlDockProps> = ({
             >
               {formatAvatarStatusLine(avatarStatus, { idleMotionEnabled })}
             </div>
+            {/*
+              多会话清单：**"别人还在跑"这件事只在这里说**。
+              头顶符号留给"需要你出手"（抢占），这里是"还有谁在动"。
+            */}
+            {otherRuns && otherRuns.length > 0 && (
+              <div style={{ marginTop: 6, marginLeft: 23, fontSize: 11, lineHeight: 1.5 }}>
+                <div style={{ color: `${light(0.45)}` }}>另有 {otherRuns.length} 个会话在跑</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
+                  {otherRuns.slice(0, 6).map((r) => (
+                    <button
+                      key={r.sessionKey}
+                      type="button"
+                      title={`切到 ${r.sessionKey}`}
+                      onClick={() => onFocusSession?.(r.sessionKey)}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 4,
+                        maxWidth: 150,
+                        padding: '2px 7px',
+                        borderRadius: 999,
+                        border: `1px solid ${
+                          r.state === 'running' ? light(0.12) : 'rgba(255, 190, 90, 0.38)'
+                        }`,
+                        background: 'transparent',
+                        color:
+                          r.state === 'running'
+                            ? `${light(0.55)}`
+                            : 'rgba(255, 205, 120, 0.95)',
+                        fontSize: 11,
+                        cursor: 'pointer',
+                        overflow: 'hidden',
+                        whiteSpace: 'nowrap',
+                        textOverflow: 'ellipsis',
+                      }}
+                    >
+                      <span aria-hidden="true">
+                        {r.state === 'waiting' ? '?' : r.state === 'error' ? '!' : '·'}
+                      </span>
+                      {shortSessionLabel(r.sessionKey)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
           <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
             {/* 语音参数设置：展开/收起阈值与闭麦面板 */}

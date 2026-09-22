@@ -99,6 +99,15 @@ export const PET_IPC = {
   setActiveSessionKey: 'pet:set-active-session-key',
   /** invoke：宠物窗口获取当前会话 key */
   getActiveSessionKey: 'pet:get-active-session-key',
+  /**
+   * invoke：宠物窗口请主窗口**切到某个会话**（并把它带到前台）。
+   *
+   * 用在多会话清单上：控制坞里列出"另有 N 个会话在跑"，点一条就跳过去。
+   * 宠物窗自己切不了会话（会话状态在主窗口的 agent-runtime 里），
+   * 所以这条是"宠物窗 → 主进程 → 主窗口"的转发，主进程只负责把窗口带到前台 +
+   * 把 `app-ui:goto`（带 sessionKey）发给主窗。
+   */
+  focusSession: 'pet:focus-session',
   /** invoke：获取 Cubism Core 脚本可加载 URL */
   getCubismCoreUrl: 'pet:get-cubism-core-url',
   /** invoke：获取虚拟人设置 */
@@ -264,6 +273,12 @@ export interface PetElectronAPI {
   setActiveSessionKey(sessionKey: string): Promise<void>
   /** 宠物窗口获取当前会话 key（空则回退默认） */
   getActiveSessionKey(): Promise<string>
+  /**
+   * 请主窗口切到指定会话（并把主窗口带到前台）。
+   *
+   * 用在控制坞的多会话清单上。接口不可用（屏蔽平台）时静默——调用点是个可选入口。
+   */
+  focusSession(sessionKey: string): Promise<void>
   /** 获取 Cubism Core 脚本 URL（dev 为 /live2d/...，打包为 file://） */
   getCubismCoreUrl(): Promise<string>
   /** 获取虚拟人设置 */

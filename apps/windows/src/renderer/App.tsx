@@ -25,6 +25,7 @@ import { useToast } from './components/ui/Toast/useToast'
 import { getProviderConfig, isChatProviderReady } from './services/model-config-service'
 import { getAppVersion } from './services/app-service'
 import { PetSessionSync } from './components/PetSessionSync'
+import { useAgentRuntimeActions } from './hooks/business/useAgentRuntime/useAgentRuntime'
 import { subscribeMainEvent } from './services/event-bus-service'
 import {
   removeEarlySplashIfPresent,
@@ -51,6 +52,8 @@ const AuthenticatedApp: React.FC<AuthenticatedAppProps> = ({ onShellReady }) => 
   const { appliedTheme, toggleTheme } = useTheme()
   const { openHub, openHubForView, closeHub, isOpen: hubOpen, state: hubState } = useSettingsHub()
   const { showToast } = useToast()
+  /** 会话切换（宠物控制坞的多会话清单点一条时用；见 handleAppUiGoto） */
+  const runtimeActions = useAgentRuntimeActions()
   /** 本地 chat 模型是否已启用并可调用（独立版用此驱动标题栏绿点） */
   const [modelReady, setModelReady] = useState(false)
   /** 应用版本（权威源：主进程 app.getVersion()，即 apps/windows/package.json 的 version） */
@@ -140,7 +143,21 @@ const AuthenticatedApp: React.FC<AuthenticatedAppProps> = ({ onShellReady }) => 
     // electronAPI.on 是通用事件总线，回调签名固定为 (...args: unknown[]) => void，
     // 不针对具体 channel 收窄；此处按 app-ui:goto 的约定形状断言首个参数
     const handleAppUiGoto = (...args: unknown[]) => {
-      const { view, category } = args[0] as GotoInput
+      const { view, category, sessionKey } = args[0] as GotoInput
+      /**
+       * 带 `sessionKey` 的跳转：先切会话、再停在对话页。
+       *
+       * 宠物控制坞的多会话清单点一条就走这条（`PET_IPC.focusSession` →
+       * 主进程带窗口到前台 → 这条事件）。会话状态在 agent-runtime 里，
+       * 所以这一步必须在渲染层做，主进程只转发。
+       */
+      if (sessionKey) {
+        void runtimeActions.switchSession(sessionKey).catch((err: unknown) => {
+          console.warn('[app-ui:goto] 切换会话失败:', err)
+        })
+        handleViewChange('chat')
+        return
+      }
       if (isHubView(view)) {
         if (view === 'settings' && category) {
           openHub('settings', category)
@@ -152,7 +169,7 @@ const AuthenticatedApp: React.FC<AuthenticatedAppProps> = ({ onShellReady }) => 
       handleViewChange(view)
     }
     return subscribeMainEvent('app-ui:goto', handleAppUiGoto)
-  }, [handleViewChange, openHub, openHubForView])
+  }, [handleViewChange, openHub, openHubForView, runtimeActions])
 
   /**
    * 挂载 window.__LUMII_APP_UI_STATE__ 供主进程 executeJavaScript 回读
