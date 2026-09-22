@@ -149,10 +149,21 @@ for (const [key, g] of groups) {
   console.log('')
 }
 
-const recommend = Math.ceil(needed / 16) * 16
-console.log(`==> 画布宽至少要 ${needed.toFixed(0)}px，取 ${recommend}px（16 的倍数）`)
-console.log(`    即 --canvas ${recommend}x${canvasH}`)
-console.log(`    （anchor 在画布中央，所以宽度是"两侧各要 ${(needed / 2).toFixed(0)}px"）`)
+/**
+ * 推荐宽度 = 够用的最小 16 倍数，**再留一格 16px 的余量**。
+ *
+ * ⚠ 只取"最小的 16 倍数"实测不够：算出的需求是 524、取 528，看着有 4px 余量，
+ * 但装完之后爬行的包围盒**距左边只剩 1px**——客户端落位要 `Math.round`，
+ * 加上量的是拼条格、装的是铺底后的格，差个一两像素很正常。
+ * **"没被裁"和"离被裁只差 1px"不是一回事**，前者随时会变成后者。
+ * 所以多给一格（两侧各 16px）：宽度是免费的，贴边不是。
+ */
+const recommend = Math.ceil((needed + 32) / 16) * 16
+const perSide = (recommend - needed) / 2
+console.log(`==> 画布宽至少要 ${needed.toFixed(0)}px`)
+console.log(`    推荐 ${recommend}px（16 的倍数，且两侧各留 ≥16px 余量）`)
+console.log(`    即 --canvas ${recommend}x${canvasH}  —— 实际两侧余量各 ${perSide.toFixed(0)}px`)
+console.log(`    （anchor 在画布中央；余量低于 16px 时，落位的舍入与铺底差异就可能吃掉它）`)
 
 // ---- 可选：查一个具体画布装不装得下 ----
 const canvasArg = opt('canvas')
@@ -160,21 +171,31 @@ if (canvasArg) {
   const [cw, ch] = canvasArg.split('x').map(Number)
   console.log(`\n检查画布 ${cw}×${ch}（两侧各 ${cw / 2}px）：`)
   let bad = 0
+  let tight = 0
   for (const [key, g] of groups) {
     const all = g.sheets.flatMap((s) => s.cells)
     const tallest = Math.max(...all.map((c) => c.h))
     const scale = (ch * FIT) / tallest
     for (const s of g.sheets) {
       const n = needOf(s.cells, scale)
-      const over = n.need / 2 - cw / 2
-      if (over > 0) {
+      const margin = (cw - n.need) / 2
+      if (margin < 0) {
         bad++
         console.log(
-          `  ✗ ${s.action}: 归一化后单侧要 ${(n.need / 2).toFixed(0)}px > 画布单侧 ${cw / 2}px（横向裁掉 ${over.toFixed(0)}px）`,
+          `  ✗ ${s.action}: 归一化后单侧要 ${(n.need / 2).toFixed(0)}px > 画布单侧 ${cw / 2}px（横向裁掉 ${(-margin).toFixed(0)}px）`,
         )
+      } else if (margin < 16) {
+        tight++
+        console.log(`  ⚠ ${s.action}: 只差 ${margin.toFixed(0)}px 就贴边——没被裁，但舍入一晃就裁了`)
       }
     }
   }
-  console.log(bad ? `  ${bad} 个动作会被裁——按上面的建议开宽一点` : '  ✓ 都装得下')
-  if (bad) process.exitCode = 1
+  if (bad) {
+    console.log(`  ${bad} 个动作会被裁——按上面的建议开宽一点`)
+    process.exitCode = 1
+  } else if (tight) {
+    console.log(`  ${tight} 个动作余量不足 16px——装得下，但建议按推荐值再开宽一档`)
+  } else {
+    console.log('  ✓ 都装得下，且余量充足')
+  }
 }
