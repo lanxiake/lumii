@@ -1,7 +1,8 @@
 /* 划词浮条：与会话右键菜单同一套毛玻璃视觉 */
 .selection-toolbar {
   position: fixed;
-  z-index: var(--z-popover);
+  /* 见 tokens.css 的 --z-selection：选区可能在文件预览弹窗等浮层之上 */
+  z-index: var(--z-selection);
   display: flex;
   align-items: center;
   gap: 2px;

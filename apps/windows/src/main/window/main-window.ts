@@ -242,17 +242,6 @@ export function createMainWindow(
    * 否则会出现「自绘菜单 + 原生菜单」叠两层。
    */
   window.webContents.on('context-menu', (_event, params) => {
-    // ⚠️ 临时诊断（划词功能定位 frame 用，定位完删除）
-    try {
-      const frameKind = params.frame ? (params.frame.parent ? 'sub' : 'main') : 'null'
-      logger.info(
-        `[context-menu:diag] editable=${params.isEditable} selLen=${params.selectionText.trim().length} ` +
-          `frame=${frameKind} frameURL=${params.frameURL || '(empty)'} mediaType=${params.mediaType}`,
-      )
-    } catch (err) {
-      logger.warn(`[context-menu:diag] 读取 params.frame 抛错: ${String(err)}`)
-    }
-
     if (shouldDeferToRenderer(params)) return
 
     const hasSelection = params.selectionText.trim().length > 0

@@ -20,8 +20,11 @@ export interface ContextMenuParamsLike {
  *
  * ⚠️ **为什么主进程必须自己判断，而不是等渲染层示意**：Electron 的 `context-menu`
  * 事件与 DOM `contextmenu` 是两条链路，渲染层的 `preventDefault()` **是否**能阻止
- * 主进程 popup 并没有把握（Chromium 里 preventDefault 会抑制默认菜单，而 Electron
- * 的 `context-menu` 事件在渲染层 preventDefault 之后还发不发，未见权威结论）。
+ * 主进程 popup 并没有把握。
+ *
+ * 实测（2026-09-22，Electron 36，本机）：**挡得住**。渲染层接管的右键（聊天区、概览、
+ * 文件预览三处）主进程全程零事件；而输入框不让位、不 preventDefault，每次都有事件。
+ * 但这只是本机实测，不是 Electron 的文档承诺，别把它当契约。
  *
  * 所以这里不去赌：主进程侧主动让位。两种语义下结果都正确 ——
  * 若 preventDefault 确实挡得住，这里是冗余但无害；若挡不住，这里就是唯一防线。

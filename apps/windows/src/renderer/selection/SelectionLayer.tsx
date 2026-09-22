@@ -17,6 +17,20 @@ import type { SelectionActionApi } from './actions/types'
 import { insertQuote } from './quote-bridge'
 import { writeClipboardText } from '../services/clipboard-service'
 
+/**
+ * 不经过鼠标的跳转（见 useSelectionWatcher 的 closeOnEvents）。
+ *
+ * 鼠标点侧栏 / 点导航已经有 mousedown 兜着，不用列。这里只管程序化派发的那几条：
+ * Agent 收到消息后主动切会话、新建会话、以及从设置页等处跳页。
+ * 这些跳转不发生 mousedown，而旧选区所在的 DOM 已经卸载 —— 不收起的话，
+ * 快照里的 rect 会指着一片新内容，浮条就飘在无关的地方。
+ */
+const CLOSE_ON_EVENTS = [
+  'mtbot:navigate-request',
+  'mtbot:session-switch-request',
+  'mtbot:session-create-request',
+] as const
+
 export const SelectionLayer: React.FC = () => {
   /**
    * 当前挂载的那个入口的根节点。浮条与菜单互斥，所以一个 ref 够用。
@@ -32,7 +46,7 @@ export const SelectionLayer: React.FC = () => {
     return el !== null && e.target instanceof Node && el.contains(e.target)
   }, [])
 
-  const { view, close } = useSelectionWatcher({ shouldIgnoreEvent })
+  const { view, close } = useSelectionWatcher({ shouldIgnoreEvent, closeOnEvents: CLOSE_ON_EVENTS })
 
   const api = useMemo<SelectionActionApi>(
     () => ({ close, copy: writeClipboardText, appendQuote: insertQuote }),

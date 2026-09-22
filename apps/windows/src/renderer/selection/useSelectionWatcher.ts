@@ -26,6 +26,16 @@ export interface UseSelectionWatcherOptions {
    * capture 阶段的 document 监听先于它们自己的处理器执行，靠 stopPropagation 挡不住。
    */
   shouldIgnoreEvent?: (event: MouseEvent) => boolean
+  /**
+   * 收到这些 window 事件就收起。
+   *
+   * 鼠标切页 / 切会话不用列在这里 —— 任何 mousedown 都会收起，已经覆盖了。
+   * 要列的是**不经过鼠标**的跳转：例如 Agent 收到消息后主动切会话。
+   * 那时旧选区所在的 DOM 已卸载，而快照里的 rect 还在，浮条会飘在新页面上。
+   *
+   * 事件名由调用方给：本模块不知道应用的事件词汇表。
+   */
+  closeOnEvents?: readonly string[]
 }
 
 export interface UseSelectionWatcherResult {
@@ -107,6 +117,21 @@ export function useSelectionWatcher(
       window.removeEventListener('resize', handleViewportChange)
     }
   }, [])
+
+  /**
+   * 程序化跳转时收起（见 closeOnEvents 的说明）。
+   * 依赖按**内容**算：调用方每次渲染传个新数组也不该重挂监听。
+   */
+  const closeOnKey = (options.closeOnEvents ?? []).join('\u0000')
+
+  useEffect(() => {
+    if (closeOnKey.length === 0) return
+    const names = closeOnKey.split('\u0000')
+    for (const name of names) window.addEventListener(name, close)
+    return () => {
+      for (const name of names) window.removeEventListener(name, close)
+    }
+  }, [closeOnKey, close])
 
   return { view, close }
 }

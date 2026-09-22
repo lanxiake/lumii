@@ -18,9 +18,14 @@ interface ContextMenuProps {
   items: ContextMenuItem[]
   position: { x: number; y: number }
   onClose: () => void
+  /**
+   * 覆盖默认层级（CSS 里的 1000）。会话列表/文件树不用传；
+   * 划词菜单要传 —— 选区可能在文件预览弹窗（12041）之上，默认档会被盖住。
+   */
+  zIndex?: string | number
 }
 
-const ContextMenu: React.FC<ContextMenuProps> = ({ items, position, onClose }) => {
+const ContextMenu: React.FC<ContextMenuProps> = ({ items, position, onClose, zIndex }) => {
   const menuRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -51,6 +56,7 @@ const ContextMenu: React.FC<ContextMenuProps> = ({ items, position, onClose }) =
       style={{
         left: adjustedPosition.x,
         top: adjustedPosition.y,
+        zIndex,
       }}
     >
       {items.map((item) => (

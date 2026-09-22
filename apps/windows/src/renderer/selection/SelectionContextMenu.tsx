@@ -50,7 +50,13 @@ export const SelectionContextMenu: React.FC<SelectionContextMenuProps> = ({
     // 包一层只为拿到可判定的根节点（ContextMenu 的 ref 是它自己内部的）：
     // 没有它，点在菜单上的 mousedown 会先把整个菜单收掉，click 根本落不到菜单项上
     <div ref={rootRef}>
-      <ContextMenu items={items} position={position} onClose={api.close} />
+      <ContextMenu
+        items={items}
+        position={position}
+        onClose={api.close}
+        // 见 tokens.css 的 --z-selection：选区可能在文件预览弹窗等浮层之上
+        zIndex="var(--z-selection)"
+      />
     </div>,
     document.body,
   )
