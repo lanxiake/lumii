@@ -60,6 +60,7 @@ export * from "./behavior/perch.js";
 // 与 R9 的 ambient 是**不同维度**——那个是「宠物自己溜达到哪一步」，这个是「Agent 在做什么」；
 // 故命名一律用 agentActivity，别与 AmbientActivity 混。
 export * from "./state/agent-activity.js";
+export * from "./state/agent-activity-announce.js";
 export * from "./render/agent-activity-modulation.js";
 
 // 精灵后端运行时（P0-b）：帧增量归一、槽位状态、口型取档、缩放吸附、多边形命中。

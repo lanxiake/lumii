@@ -22,8 +22,10 @@ import type { PetModelConfig } from '../config/pet-model-types'
 import type { PetIdleStage, PetPose } from '@mtbot/pet-core'
 import {
   activityModulation,
+  announceDurationMs,
   IDENTITY_MODULATION,
   initialAgentActivity,
+  pickAgentAnnouncement,
   reduceAgentActivity,
   tickAgentActivity,
   type ActivityModulation,
@@ -161,6 +163,17 @@ export class PetOrchestrator {
   private enableAgentActivity = true
   /** 上一次送出去的调制量：稳态时它与新值引用相等，可跳过 setter */
   private lastAgentModulation: ActivityModulation = IDENTITY_MODULATION
+  /**
+   * 气泡（L4）的节流表：key → 上次冒出的时刻。
+   *
+   * 与 `agentActivity` 分开持有：气泡的**生**由 activity 决定，**灭**由它自己的 TTL
+   * 决定（`waiting` 常常只存在 0ms，跟着状态生死就会一闪而过甚至看不见）。
+   */
+  private announceHistory = new Map<string, number>()
+  /** 本轮已经冒过的气泡 key（`turn-start` 时清空） */
+  private announcedThisTurn = new Set<string>()
+  private announceListener: ((payload: { text: string; durationMs: number } | null) => void) | null =
+    null
   /** 用户闲置阶段（P2-c）。**与环境有关，与对话生命周期正交**，故不进 petStateMachine */
   private idleStage: PetIdleStage = 'awake'
   /**
@@ -303,6 +316,9 @@ export class PetOrchestrator {
    */
   pushAgentActivity(event: AgentActivityEvent): void {
     if (!this.enableAgentActivity) return
+    // 新的一轮：本轮的「已冒过」作废。放这里而不是 reducer 里——那是纯函数，
+    // 不该持有跨调用的记忆。
+    if (event.type === 'turn-start') this.announcedThisTurn.clear()
     const now = performance.now()
     const next = reduceAgentActivity(this.agentActivity, event, now)
     if (next === this.agentActivity) return
@@ -336,6 +352,37 @@ export class PetOrchestrator {
     if (enabled) return
     this.agentActivity = initialAgentActivity
     this.publishAgentModulation(IDENTITY_MODULATION)
+    // 已经冒出去的气泡也要撤掉——关掉开关却留着一句「需要你确认一下」在屏幕上，
+    // 比不关还糟
+    this.announceListener?.(null)
+  }
+
+  /** 订阅气泡（L4）。传 null 解绑；回调收到 null 表示「撤下当前气泡」 */
+  setAnnounceListener(
+    listener: ((payload: { text: string; durationMs: number } | null) => void) | null,
+  ): void {
+    this.announceListener = listener
+  }
+
+  /**
+   * 挑一条气泡冒出去。**每帧调**——两条判据（忙满 60s、工具数超阈值）里有一条
+   * 本身就依赖时间流逝，不在事件时刻判就永远等不到它。
+   *
+   * 抓取/投掷期间不冒：用户手上正抓着它，这时候弹话是打扰（与 L1 同一条规矩）。
+   */
+  private maybeAnnounce(now: number): void {
+    if (!this.announceListener || this.interactionActive) return
+    const picked = pickAgentAnnouncement(
+      this.agentActivity,
+      now,
+      this.announceHistory,
+      this.announcedThisTurn,
+    )
+    if (!picked) return
+    this.announceHistory.set(picked.key, now)
+    this.announcedThisTurn.add(picked.key)
+    log.info(`[maybeAnnounce] 冒气泡 key=${picked.key} text="${picked.text}"`)
+    this.announceListener({ text: picked.text, durationMs: announceDurationMs(picked.text) })
   }
 
   private startAgentActivityLoop(): void {
@@ -369,6 +416,8 @@ export class PetOrchestrator {
     this.publishAgentModulation(
       this.interactionActive ? IDENTITY_MODULATION : activityModulation(this.agentActivity, now),
     )
+
+    this.maybeAnnounce(now)
   }
 
   /**
@@ -1373,6 +1422,7 @@ export class PetOrchestrator {
     this.unbindAdapter = null
     this.unbindBus = null
     this.statusListener = null
+    this.announceListener = null
     this.renderer.setMotionPlayedListener?.(null)
     this.lipSync.dispose()
     this.fakeLipSync.dispose()

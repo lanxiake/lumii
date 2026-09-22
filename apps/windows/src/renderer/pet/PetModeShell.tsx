@@ -18,6 +18,7 @@ import React, { useCallback, useRef, useState, useEffect } from 'react'
 import { usePetMode } from './hooks/usePetMode'
 import { PetCanvas, type PetCanvasHandle, type PetCanvasDegradeReason, setTapModelConfig, setTapInteractionEnabled } from './components/PetCanvas'
 import { PetControlDock } from './components/PetControlDock'
+import { PetSpeechBubble } from './components/PetSpeechBubble'
 import { PetOrchestrator, type PetAvatarStatus } from './orchestrator/PetOrchestrator'
 import { PetEmotionMapper } from './orchestrator/PetEmotionMapper'
 import { mapAgentEvent, type PetIdleStage } from '@mtbot/pet-core'
@@ -97,6 +98,27 @@ export const PetModeShell: React.FC = () => {
   const [muted, setMuted] = useState(false)
   const [voiceReplyEnabled, setVoiceReplyEnabled] = useState(DEFAULT_VH_SETTINGS.enableVoiceReply)
   const [idleMotionEnabled, setIdleMotionEnabled] = useState(DEFAULT_VH_SETTINGS.enableIdleMotion)
+  /**
+   * L4 气泡（R5/R6）：一句话 + 冒出来那一刻的锚点。
+   *
+   * **位置一次性取，不做每帧跟随**：跟一遍就得每帧 setState，那会让整个
+   * PetModeShell 重渲染（连带 PetCanvas）。而气泡只活几秒、宠物走得也不快，
+   * 跟着走带来的观感提升抵不上这个开销。宠物真走远了，下一次冒泡自然在对的位置。
+   */
+  const [bubble, setBubble] = useState<{
+    text: string
+    x: number
+    y: number
+    petHeight: number
+  } | null>(null)
+  /** 气泡的撤下定时器（新气泡来了要清掉旧的，否则旧 TTL 会把新气泡误撤） */
+  const bubbleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(
+    () => () => {
+      if (bubbleTimerRef.current) clearTimeout(bubbleTimerRef.current)
+    },
+    [],
+  )
   const [avatarStatus, setAvatarStatus] = useState<PetAvatarStatus | null>(null)
   /** 可切换的 Live2D 模型列表（控制坞下拉展示） */
   const [models, setModels] = useState<PetModelConfigDTO[]>([])
@@ -252,6 +274,27 @@ export const PetModeShell: React.FC = () => {
     orch.setStatusListener((status) => setAvatarStatus({ ...status }))
     orch.setEnableIdleMotion(enableIdleMotionRef.current)
     orch.setEnableAgentActivity(enableAgentActivityRef.current)
+    // L4 气泡（R5/R6）：冒出来之后按自己的 TTL 撤，**不跟着 activity 生死**——
+    // 实测 waiting 常常只存在 0ms，跟着状态走那句「需要你确认一下」会一闪而过。
+    orch.setAnnounceListener((payload) => {
+      if (bubbleTimerRef.current) clearTimeout(bubbleTimerRef.current)
+      bubbleTimerRef.current = null
+      if (!payload) {
+        setBubble(null)
+        return
+      }
+      const renderer = canvasRef.current?.getRenderer()
+      const pos = renderer?.getPosition?.()
+      const layout = renderer?.getLayout?.()
+      setBubble({
+        text: payload.text,
+        x: pos?.x ?? 0,
+        y: pos?.y ?? 0,
+        // modelHeight 拿不到时给个保守值，最坏是气泡位置略偏，不会崩
+        petHeight: layout?.modelHeight ?? 200,
+      })
+      bubbleTimerRef.current = setTimeout(() => setBubble(null), payload.durationMs)
+    })
     // 补上订阅期间可能已经到达的闲置阶段（setIdleStage 幂等，同阶段重复调用是空操作）
     orch.setIdleStage(idleStageRef.current)
 
@@ -709,6 +752,14 @@ export const PetModeShell: React.FC = () => {
         overflow: 'hidden',
       }}
     >
+      {bubble && (
+        <PetSpeechBubble
+          text={bubble.text}
+          x={bubble.x}
+          y={bubble.y}
+          petHeight={bubble.petHeight}
+        />
+      )}
       {!degrade && (
         <PetCanvas
           ref={canvasRef}
