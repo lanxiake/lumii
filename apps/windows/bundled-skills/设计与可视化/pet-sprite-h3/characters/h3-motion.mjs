@@ -218,20 +218,29 @@ const MOTION_CLASS = {
   /**
    * 悬空原地专用——**下落这类"整个人离地"的循环动作**。
    *
-   * 两边都不能用，各错一半：
+   * 前三类都不能用，各错一半：
    * · **`static` 写着 "The feet stay planted … does not leave the ground"**，
    *   配"被击飞/在空中"的提示词是自相矛盾，模型在"离地"和"脚钉在地上"之间摇摆。
    *   （和 `turn` 当初被逼出来的理由一模一样。）
    * · **`displacement` 写着 "The whole figure may rise, drop, or crouch within the
-   *   frame"**——实测模型**照做**：下落循环里角色一路**升出格线**，闸门报
+   *   frame"**——实测模型**照做**：下落循环里角色一路升出格线，闸门报
    *   「S1 第 3、4 格越出格线，边界带 7.46%」，**头顶的信息直接丢了**。
+   * · `locomotion` 的效果对（三个侧身循环都稳稳待在原地），但它的措辞是
+   *   "the legs and arms cycle"（在跑），配"下落"是换了副骨头。
    *
-   * 精灵图里**位移是引擎的事**，帧里只有一个悬空的姿势加小幅摆动。
+   * ⚠ 下面这句的"不许动"部分是**逐字抄 `locomotion` 的**，不是自己另写一句更强的
+   * 否定——实测差别很大：第一版 `suspended` 写的是 "it does not rise, drop, or drift
+   * sideways"（更直白的否定），换上新句子重出，角色**照旧**升出格线；而 `locomotion`
+   * 那句措辞在三个侧身循环上**实测都稳住了**。所以用被验证过的那句，
+   * 只把"腿在蹬"换成"四肢扑腾"。
+   *
+   * 精灵图里**位移是引擎的事**，帧里只有悬空的姿势加小幅摆动。
    */
   suspended:
-    'The character hangs in the air at exactly the same spot in the frame for the whole shot: it does not rise, ' +
-    'drop, or drift sideways, it keeps the same size and the same distance from the camera, it never leaves the ' +
-    'frame, and the ground is never visible.',
+    'The figure stays at the same spot in the frame, the head stays at the same height, and the figure keeps the ' +
+    'same size — never closer to or further from the camera, never rising or dropping, never drifting sideways, ' +
+    'and it never leaves the frame. The limbs, ears and tail flail and wobble in the air, but the body itself does ' +
+    'not change position.',
 }
 
 const _CLOSED = 'The shot ends in exactly the same pose it started in so the clip can loop.'
@@ -376,11 +385,10 @@ const ACTIONS = {
     // 实测模型照做，角色一路升出格线、头顶被裁。精灵图里位移归引擎，帧里只留姿势。
     motionClass: 'suspended',
     motion:
-      'The character is falling through the air: its limbs are spread and splayed, its ears and tail are lifted ' +
-      'upward by the airstream, and the whole body wobbles very slightly from side to side on the spot as it falls. ' +
-      'It holds that falling pose at the same height and the same spot in the frame the whole time, keeps the same ' +
-      'size and the same distance from the camera, never turns or spins, and settles back into the exact same ' +
-      'falling pose it started in by {deadline} seconds so the clip can loop.',
+      'The character is suspended in mid-air in a falling pose: its limbs are spread and splayed, its ears and tail ' +
+      'are lifted upward as if by an airstream, and its body tilts very slightly from side to side without moving ' +
+      'from the spot. It holds that pose at exactly the same height for the whole shot, never turns or spins, and ' +
+      'settles back into the exact same pose it started in by {deadline} seconds so the clip can loop.',
   },
   // climb / crawl / walk 是**侧身**（`facing: 'side'|'cling'`），首帧也不是站立立绘
   // 而是各自姿势图（`pose`）。原因见 `_FACING_SIDE` 的说明——Shimeji 参考素材
