@@ -875,26 +875,76 @@ export function outputFiles(entry) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
+/** 从 history 条目里挖出死因。只报"失败了"没有用——得知道是出错还是被打断。 */
+function describeFailure(entry) {
+  const msgs = entry?.status?.messages ?? []
+  const err = msgs.find((m) => m[0] === 'execution_error')
+  if (err) {
+    const d = err[1] ?? {}
+    return `执行出错：${d.exception_type ?? ''} ${d.exception_message ?? ''}（节点 ${d.node_id} ${d.node_type ?? ''}）`
+  }
+  const itr = msgs.find((m) => m[0] === 'execution_interrupted')
+  if (itr) {
+    const d = itr[1] ?? {}
+    return `被中断（跑到节点 ${d.node_id} ${d.node_type ?? ''} 时）——通常是别的客户端调了 /interrupt 或清了队列`
+  }
+  return `任务失败，但 history 里没给出原因（status=${entry?.status?.status_str}）`
+}
+
+/** 这个 prompt 还在 ComfyUI 的队列里吗（运行中或排队中） */
+async function inQueue(promptId) {
+  const q = await (await api('/queue')).json()
+  return [...(q.queue_running || []), ...(q.queue_pending || [])].some((x) => x[1] === promptId)
+}
+
 /**
  * 等任务跑完。
  *
  * 判据是 `/history` 里 `status.completed`，不是"文件出现了"——SaveImage 边跑边写，
  * 先落盘的那几十张看起来"已经有产物了"，其实后面还在生成（记忆「别量还在写的产物」）。
+ *
+ * ⚠ **判「没完成」不等于判「还在跑」**。这个函数原本只认 `completed`，于是两种
+ * 永远等不到的情况会一路干等到 45 分钟超时，而真正的死因一次都没被读出来：
+ *   · **失败的任务 `completed` 永远是 false**——实测三个任务被别的客户端
+ *     `/interrupt` 打断（其中一个只跑了 101 秒），批处理空转了 20 分钟。
+ *   · **任务从 history 和队列里同时消失**——ComfyUI 重启会清空两者。
+ * 所以「没完成」要再分三种：还在跑 / 已经死了 / 不知道去哪了。
  */
 export async function waitDone(promptId, { timeoutMs = 45 * 60 * 1000, onTick } = {}) {
   const t0 = Date.now()
   let consecutiveErrors = 0
+  let consecutiveMissing = 0
   for (;;) {
+    // 只有**查询本身**失败才吞掉重试；下面的判定必须在 try 外面，
+    // 否则自己抛的 "任务失败了" 会被 catch 当成"查不到状态"又咽回去。
+    let e = null
+    let queryFailed = null
     try {
-      const e = await history(promptId)
-      consecutiveErrors = 0
-      if (e?.status?.completed) return e
+      e = await history(promptId)
     } catch (err) {
+      queryFailed = err
+    }
+
+    if (queryFailed) {
       // 查不到 ≠ 没在跑。任务在 ComfyUI 那边照常执行，这边只是问不到；
       // 连续失败很多次才认定是真出问题了。
       consecutiveErrors++
-      if (consecutiveErrors > 25) throw new Error(`连续 ${consecutiveErrors} 次查不到状态：${err.message}`)
+      if (consecutiveErrors > 25) throw new Error(`连续 ${consecutiveErrors} 次查不到状态：${queryFailed.message}`)
+    } else {
+      consecutiveErrors = 0
+      if (e?.status?.completed) return e
+      if (e?.status?.status_str === 'error') throw new Error(describeFailure(e))
+      if (e) {
+        consecutiveMissing = 0
+      } else if (++consecutiveMissing % 5 === 0) {
+        // 每 60 秒才问一次队列：正常跑着的任务在 history 里也是查不到的
+        // （history 只在结束时才写），别每个 tick 都去戳。
+        // 队列查询自己失败时按"还在"处理——宁可多等，不可误杀。
+        const still = await inQueue(promptId).catch(() => true)
+        if (!still) throw new Error(`任务从 history 与队列里都消失了（${promptId}）——ComfyUI 可能重启过`)
+      }
     }
+
     if (Date.now() - t0 > timeoutMs) throw new Error(`等待超时（${(timeoutMs / 60000) | 0} 分钟）`)
     onTick?.(((Date.now() - t0) / 1000) | 0)
     await sleep(12000)
