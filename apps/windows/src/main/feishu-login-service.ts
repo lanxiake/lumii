@@ -168,7 +168,8 @@ export class FeishuLoginService extends EventEmitter {
       await initAppRegistration('feishu')
       const begin = await beginAppRegistration('feishu')
       const dataUrl = await QRCode.toDataURL(begin.qrUrl, { width: 256, margin: 1 })
-      this.emit('qrcode', dataUrl)
+      // 无头模式需要原始 URL 才能在终端重新生成二维码
+      this.emit('qrcode', dataUrl, begin.qrUrl)
       void this.runPollLoop({
         deviceCode: begin.deviceCode,
         intervalSec: begin.interval,

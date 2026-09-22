@@ -168,7 +168,10 @@ export class QbotLoginService extends EventEmitter {
       {
         onQrDisplayed: (url) => {
           void QRCode.toDataURL(url, { width: 256, margin: 1 })
-            .then((dataUrl) => this.emit('qrcode', dataUrl))
+            .then((dataUrl) => {
+              // 无头模式需要原始 URL 才能在终端重新生成二维码
+              this.emit('qrcode', dataUrl, url)
+            })
             .catch((err) => {
               log.warn('二维码渲染失败:', err instanceof Error ? err.message : String(err))
             })

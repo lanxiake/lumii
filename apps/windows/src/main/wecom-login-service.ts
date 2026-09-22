@@ -134,7 +134,8 @@ export class WecomLoginService extends EventEmitter {
       const { scode, auth_url } = await this.generateQrcode()
       this.currentScode = scode
       const dataUrl = await QRCode.toDataURL(auth_url, { width: 256, margin: 1 })
-      this.emit('qrcode', dataUrl)
+      // 无头模式需要原始 URL 才能在终端重新生成二维码
+      this.emit('qrcode', dataUrl, auth_url)
       this.pollDeadline = Date.now() + QR_TIMEOUT_MS
       this.pollTimer = setInterval(() => {
         void this.pollOnce()

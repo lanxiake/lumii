@@ -205,7 +205,12 @@ export class WeixinLoginService extends EventEmitter {
       }
 
       console.info('[WeixinLogin] Qrcode ready for UI, src length=', qrcodeImgSrc?.length)
-      this.emit('qrcode', qrcodeImgSrc)
+      // 无头模式需要原始 URL 才能在终端重新生成二维码
+      // qrcode_img_content 若是 URL 就用它，否则退回到 qrcode key
+      const rawUrl = (qrcode_img_content && (qrcode_img_content.startsWith('http://') || qrcode_img_content.startsWith('https://')))
+        ? qrcode_img_content
+        : qrcode
+      this.emit('qrcode', qrcodeImgSrc, rawUrl)
       this.setStatus('scanned')
 
       this.startCheckLoginLoop(qrcode)

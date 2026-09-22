@@ -51,7 +51,9 @@ process.emitWarning = ((warning: string | Error, ...rest: unknown[]) => {
 
 import { execSync, spawn, execFile as _execFile } from 'child_process'
 import { promisify as _promisify } from 'util'
+import path from 'path'
 import { app, BrowserWindow, ipcMain, dialog, shell, clipboard, screen } from 'electron'
+import qrcode from 'qrcode'
 import { showDesktopTaskNotification as showDesktopNotify } from './desktop-notify'
 import {
   registerLocalMediaSchemePrivileged,
@@ -1138,7 +1140,75 @@ function setupApiIpcHandlers(): void {
   log.info('设置 API Server IPC 处理器 (已通过 registerAllIpcHandlers 注册)')
 }
 
+/**
+ * 无头模式下打印二维码到终端
+ * @param content 二维码要编码的原始内容——必须是登录 URL 本身，
+ *   不能传渲染进程用的 data URL（那是「二维码图片」，扫出来是 base64 而非登录链接）
+ * @param serviceName 服务名（微信/企微/飞书/QQ）
+ */
+async function printQrCodeToTerminal(content: string, serviceName: string): Promise<void> {
+  try {
+    const qr = await qrcode.toString(content, { type: 'terminal', small: true })
+    console.log(`\n=== ${serviceName} 登录二维码 ===\n`)
+    console.log(qr)
+    console.log('\n请用手机扫码登录\n')
+  } catch (err) {
+    log.error(`[${serviceName}] 打印二维码到终端失败:`, err instanceof Error ? err.message : String(err))
+  }
+}
 
+/**
+ * 无头模式下打印欢迎信息和快速开始指南
+ */
+function printHeadlessWelcome(): void {
+  const { version } = require('../../package.json')
+  const dataDir = resolveClientStateDir()
+
+  console.log('\n' + '='.repeat(70))
+  console.log('  灵栖 Lumii — 无头模式 (Headless Mode)')
+  console.log('  版本:', version)
+  console.log('='.repeat(70))
+  console.log('\n✅ 服务已启动，控制口就绪')
+  console.log('\n📂 数据目录:', dataDir)
+  console.log('📋 日志目录:', path.join(dataDir, 'logs'))
+  console.log('🔧 配置目录:', path.join(dataDir, 'config'))
+  console.log('\n' + '─'.repeat(70))
+  console.log('快速开始指南')
+  console.log('─'.repeat(70))
+  console.log('\n1️⃣  查看服务状态与配置建议')
+  console.log('   lumii-ui status')
+  console.log('\n2️⃣  配置 AI 模型提供商（必需）')
+  console.log('   lumii-ui setup           # 交互式配置向导')
+  console.log('\n3️⃣  创建对话会话')
+  console.log('   lumii-ui conversation create --title "我的第一个会话"')
+  console.log('\n4️⃣  发送消息（--wait 会等到回复并打印正文）')
+  console.log('   lumii-ui send --session <会话ID> --text "你好，介绍一下你自己" --wait')
+  console.log('\n5️⃣  查看消息历史')
+  console.log('   lumii-ui context messages --session <会话ID> --limit 10 --text')
+  console.log('\n' + '─'.repeat(70))
+  console.log('高级功能')
+  console.log('─'.repeat(70))
+  console.log('\n🔌 渠道接入（微信/企微/飞书/QQ）')
+  console.log('   # 扫码登录后，Agent 可通过渠道接收/回复消息')
+  console.log('   # 二维码会自动打印到终端\n')
+  console.log('🌐 浏览器控制（需要 Chrome 系浏览器）')
+  console.log('   export LUMII_BROWSER_EXECUTABLE=/usr/bin/google-chrome')
+  console.log('   export LUMII_BROWSER_NO_SANDBOX=1')
+  console.log('   # 重启应用后，Agent 可使用 browser_navigate 等工具\n')
+  console.log('🛠️  技能管理')
+  console.log('   lumii-ui skill list      # 列出已安装技能')
+  console.log('   lumii-ui skill enable    # 启用技能')
+  console.log('\n' + '─'.repeat(70))
+  console.log('帮助信息')
+  console.log('─'.repeat(70))
+  console.log('\n💡 查看所有命令')
+  console.log('   lumii-ui help')
+  console.log('\n💡 查看特定命令帮助')
+  console.log('   lumii-ui help <命令名>')
+  console.log('\n💡 查看场景化使用指南')
+  console.log('   lumii-ui guide           # 按使用场景分类的帮助')
+  console.log('\n' + '='.repeat(70) + '\n')
+}
 
 /**
  * 应用初始化
@@ -1148,6 +1218,11 @@ async function initialize(): Promise<void> {
 
   // 检查是否在测试模式（用于 E2E 测试）
   const isTestMode = process.argv.includes('--test-mode')
+  // 检查是否在无头模式（不创建窗口/托盘/桌宠/录屏）
+  const isHeadless = process.argv.includes('--headless')
+  if (isHeadless) {
+    log.info('无头模式已启用，将跳过 UI 层初始化')
+  }
 
   // 单实例锁定（测试模式下跳过）
   if (!isTestMode) {
@@ -1158,9 +1233,9 @@ async function initialize(): Promise<void> {
       return
     }
 
-    // 第二个实例尝试启动时，聚焦到现有窗口
+    // 第二个实例尝试启动时，聚焦到现有窗口（无头模式下跳过）
     app.on('second-instance', () => {
-      if (mainWindow) {
+      if (!isHeadless && mainWindow) {
         if (mainWindow.isMinimized()) {mainWindow.restore()}
         mainWindow.show()
         mainWindow.focus()
@@ -1267,17 +1342,30 @@ async function initialize(): Promise<void> {
 
   // 初始化各模块（开机启动时隐藏窗口，只显示托盘图标）
   // 等待开机画面完整播放后再显示主窗口
-  const windowStartTime = performance.now()
-  await createWindow(isTestMode, isStartupLaunch)
-  performanceMonitor?.recordStartupPhase('window', performance.now() - windowStartTime)
+  // 无头模式下跳过窗口创建
+  if (!isHeadless) {
+    const windowStartTime = performance.now()
+    await createWindow(isTestMode, isStartupLaunch)
+    performanceMonitor?.recordStartupPhase('window', performance.now() - windowStartTime)
+  } else {
+    log.info('无头模式：跳过窗口创建')
+  }
 
   // App UI 本机控制口（lumii-ui CLI）
+  // 无头模式下 getWindow 返回 null，readSettingsJson 返回 null（无渲染进程）
   try {
     await startAppUiControlServer({
       getWindow: (target) => (target === 'main' ? mainWindow : null),
       resizeImageIfNeeded,
       getSkillRuntime: () => skillRuntime,
       getSkillWatcher: () => skillWatcher,
+      // 渠道登录服务可能晚于控制口初始化，这里用 getter 延迟取值
+      getChannelLoginServices: () => ({
+        weixin: weixinLoginService,
+        wecom: wecomLoginService,
+        feishu: feishuLoginService,
+        qbot: qbotLoginService,
+      }),
       readSettingsJson: async () => {
         if (!mainWindow || mainWindow.isDestroyed()) return null
         try {
@@ -1289,42 +1377,63 @@ async function initialize(): Promise<void> {
         }
       },
     })
+
+    // 无头模式下打印快速开始指南
+    if (isHeadless) {
+      printHeadlessWelcome()
+    }
   } catch (err) {
     log.warn('App UI 本机控制口启动失败:', err instanceof Error ? err.message : err)
   }
 
   // 注册宠物模式 IPC（独立透明窗口，与 mainWindow 解耦）
-  registerPetModeIpc({
-    getMainWindow: () => mainWindow,
-    preloadPath: join(__dirname, '../preload/index.js'),
-    rendererUrl: process.env.ELECTRON_RENDERER_URL,
-    indexHtmlPath: join(__dirname, '../renderer/index.html'),
-    onForceIgnoreChanged: (forceIgnore) => {
-      trayManager?.updateForceIgnore(forceIgnore)
-    },
-    onModeChanged: (mode) => {
-      // 所有切换路径（托盘/快捷键/控制坞/设置页）统一在此同步托盘文案与设置页状态
-      trayManager?.updatePetMode(mode === 'pet')
-      trayManager?.updateForceIgnore(isPetForceIgnore())
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('pet-mode-changed', mode)
-      }
-    },
-  })
+  // 无头模式下跳过桌宠
+  if (!isHeadless) {
+    registerPetModeIpc({
+      getMainWindow: () => mainWindow,
+      preloadPath: join(__dirname, '../preload/index.js'),
+      rendererUrl: process.env.ELECTRON_RENDERER_URL,
+      indexHtmlPath: join(__dirname, '../renderer/index.html'),
+      onForceIgnoreChanged: (forceIgnore) => {
+        trayManager?.updateForceIgnore(forceIgnore)
+      },
+      onModeChanged: (mode) => {
+        // 所有切换路径（托盘/快捷键/控制坞/设置页）统一在此同步托盘文案与设置页状态
+        trayManager?.updatePetMode(mode === 'pet')
+        trayManager?.updateForceIgnore(isPetForceIgnore())
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('pet-mode-changed', mode)
+        }
+      },
+    })
+  } else {
+    log.info('无头模式：跳过宠物模式 IPC 注册')
+  }
 
   // 文件预览独立窗口（可拖出主窗口外）
-  registerFilePreviewWindowIpc({
-    getMainWindow: () => mainWindow,
-    preloadPath: join(__dirname, '../preload/index.js'),
-    rendererUrl: process.env.ELECTRON_RENDERER_URL,
-    indexHtmlPath: join(__dirname, '../renderer/index.html'),
-  })
+  // 无头模式下跳过文件预览窗口
+  if (!isHeadless) {
+    registerFilePreviewWindowIpc({
+      getMainWindow: () => mainWindow,
+      preloadPath: join(__dirname, '../preload/index.js'),
+      rendererUrl: process.env.ELECTRON_RENDERER_URL,
+      indexHtmlPath: join(__dirname, '../renderer/index.html'),
+    })
+  } else {
+    log.info('无头模式：跳过文件预览窗口 IPC 注册')
+  }
 
-  initTray()
-  initSystemService()
-  const screenRecordStartTime = performance.now()
-  initScreenRecordService()
-  performanceMonitor?.recordStartupPhase('screen-record', performance.now() - screenRecordStartTime)
+  // 无头模式下跳过托盘和录屏初始化
+  if (!isHeadless) {
+    initTray()
+    initSystemService()
+    const screenRecordStartTime = performance.now()
+    initScreenRecordService()
+    performanceMonitor?.recordStartupPhase('screen-record', performance.now() - screenRecordStartTime)
+  } else {
+    log.info('无头模式：跳过托盘和录屏初始化')
+    initSystemService()  // 系统服务保留（非 UI 层）
+  }
 
   // 云同步管理器须在 setupIpcHandlers 前创建，使 registerCloudSyncIpcHandlers 能订阅 status 事件
   cloudSyncManager = new CloudSyncManager()
@@ -1507,8 +1616,12 @@ async function initialize(): Promise<void> {
       weixinLoginService!.on('statusChange', (status: string, session?: unknown) => {
         mainWindow?.webContents.send('weixin:statusChange', status, session)
       })
-      weixinLoginService!.on('qrcode', (dataUrl: string) => {
-        mainWindow?.webContents.send('weixin:qrcode', dataUrl)
+      weixinLoginService!.on('qrcode', (dataUrl: string, rawUrl?: string) => {
+        if (isHeadless && rawUrl) {
+          void printQrCodeToTerminal(rawUrl, '微信')
+        } else {
+          mainWindow?.webContents.send('weixin:qrcode', dataUrl)
+        }
       })
       weixinLoginService!.on('error', (message: string) => {
         mainWindow?.webContents.send('weixin:error', message)
@@ -1525,8 +1638,12 @@ async function initialize(): Promise<void> {
         wecomLoginService.on('statusChange', (status: string, session?: unknown) => {
           mainWindow?.webContents.send('wecom:statusChange', status, session)
         })
-        wecomLoginService.on('qrcode', (dataUrl: string) => {
-          mainWindow?.webContents.send('wecom:qrcode', dataUrl)
+        wecomLoginService.on('qrcode', (dataUrl: string, rawUrl?: string) => {
+          if (isHeadless && rawUrl) {
+            void printQrCodeToTerminal(rawUrl, '企业微信')
+          } else {
+            mainWindow?.webContents.send('wecom:qrcode', dataUrl)
+          }
         })
         wecomLoginService.on('error', (message: string) => {
           mainWindow?.webContents.send('wecom:error', message)
@@ -1555,8 +1672,12 @@ async function initialize(): Promise<void> {
         feishuLoginService.on('statusChange', (status: string, session?: unknown) => {
           mainWindow?.webContents.send('feishu:statusChange', status, session)
         })
-        feishuLoginService.on('qrcode', (dataUrl: string) => {
-          mainWindow?.webContents.send('feishu:qrcode', dataUrl)
+        feishuLoginService.on('qrcode', (dataUrl: string, rawUrl?: string) => {
+          if (isHeadless && rawUrl) {
+            void printQrCodeToTerminal(rawUrl, '飞书')
+          } else {
+            mainWindow?.webContents.send('feishu:qrcode', dataUrl)
+          }
         })
         feishuLoginService.on('error', (message: string) => {
           mainWindow?.webContents.send('feishu:error', message)
@@ -1585,8 +1706,12 @@ async function initialize(): Promise<void> {
         qbotLoginService.on('statusChange', (status: string, session?: unknown) => {
           mainWindow?.webContents.send('qbot:statusChange', status, session)
         })
-        qbotLoginService.on('qrcode', (dataUrl: string) => {
-          mainWindow?.webContents.send('qbot:qrcode', dataUrl)
+        qbotLoginService.on('qrcode', (dataUrl: string, rawUrl?: string) => {
+          if (isHeadless && rawUrl) {
+            void printQrCodeToTerminal(rawUrl, 'QQ 机器人')
+          } else {
+            mainWindow?.webContents.send('qbot:qrcode', dataUrl)
+          }
         })
         qbotLoginService.on('error', (message: string) => {
           mainWindow?.webContents.send('qbot:error', message)
