@@ -81,6 +81,9 @@ export const petApi: PetElectronAPI = {
   focusSession: (sessionKey: string): Promise<void> =>
     ipcRenderer.invoke(PET_IPC.focusSession, sessionKey),
 
+  getMouseIgnoreState: (): Promise<{ clickable: boolean; components: string[] }> =>
+    ipcRenderer.invoke(PET_IPC.getMouseIgnoreState),
+
   getCubismCoreUrl: (): Promise<string> =>
     ipcRenderer.invoke(PET_IPC.getCubismCoreUrl),
 

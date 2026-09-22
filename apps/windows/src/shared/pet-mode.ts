@@ -108,6 +108,15 @@ export const PET_IPC = {
    * 把 `app-ui:goto`（带 sessionKey）发给主窗。
    */
   focusSession: 'pet:focus-session',
+  /**
+   * invoke：读**当前实际生效的穿透状态**。
+   *
+   * 存在的理由：「桌面点不动了」那个缺陷的表现是"窗口一直不可穿透"，而
+   * `setIgnoreMouseEvents` **没有 getter**——要么读日志（`[mouse] 窗口 可点/穿透`，
+   * 但日志经管道落盘有块缓冲，可能压几十秒），要么靠推理。有了这条，
+   * 验证脚本能直接问出事实（`check-pet-passthrough.mjs` 就用它）。
+   */
+  getMouseIgnoreState: 'pet:get-mouse-ignore-state',
   /** invoke：获取 Cubism Core 脚本可加载 URL */
   getCubismCoreUrl: 'pet:get-cubism-core-url',
   /** invoke：获取虚拟人设置 */
@@ -279,6 +288,13 @@ export interface PetElectronAPI {
    * 用在控制坞的多会话清单上。接口不可用（屏蔽平台）时静默——调用点是个可选入口。
    */
   focusSession(sessionKey: string): Promise<void>
+  /**
+   * 读当前实际生效的穿透状态（诊断/验证用，见 {@link PET_IPC.getMouseIgnoreState}）。
+   *
+   * `clickable` = 窗口此刻在**吃掉整个屏幕的点击**；`components` 是把它顶起来的
+   * hover 来源（`pet-dock` / `live2d-model` / …），空数组表示没有来源、本该穿透。
+   */
+  getMouseIgnoreState(): Promise<{ clickable: boolean; components: string[] }>
   /** 获取 Cubism Core 脚本 URL（dev 为 /live2d/...，打包为 file://） */
   getCubismCoreUrl(): Promise<string>
   /** 获取虚拟人设置 */

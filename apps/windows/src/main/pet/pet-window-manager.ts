@@ -62,6 +62,13 @@ export class PetWindowManager {
   private forceIgnore = false
   /** 各可交互组件 hover 状态（聚合决定穿透，pet-dock 与 live2d-model 互不覆盖） */
   private readonly hoveringComponents = new Set<string>()
+  /**
+   * 上一次实际应用的穿透状态。
+   *
+   * **只为少打日志**（见 `applyMouseIgnoreState` 尾部）：那个"桌面点不动了"的缺陷
+   * 全靠在状态翻转时留下的这一行来定位，而没有它的话每次 hover 上报都会刷一行。
+   */
+  private lastClickable: boolean | null = null
   private currentModelId: string = PET_DEFAULT_MODEL_ID
   /** 渲染就绪握手的 resolve 句柄（waitForRendererReady 期间有效） */
   private rendererReadyResolve: (() => void) | null = null
@@ -444,10 +451,42 @@ export class PetWindowManager {
     // 次保险：即便 hover 到模型/控制坞，若光标落在任务栏/托盘带（保留区），
     // 强制穿透，避免宠物窗口拦截托盘/音量点击（多显示器并集矩形残余覆盖）。
     // 控制坞真实位于工作区内，不会落入保留区，故不受影响。
-    if ((uiHover || bodyHover) && !this.isCursorInReservedArea()) {
+    const clickable = (uiHover || bodyHover) && !this.isCursorInReservedArea()
+    if (clickable) {
       win.setIgnoreMouseEvents(false)
     } else {
       win.setIgnoreMouseEvents(true, { forward: true })
+    }
+
+    /**
+     * **只在状态翻转时打一行**。
+     *
+     * 这一行是排查"桌面点不动了"的唯一线索：那个缺陷的表现是「窗口一直不可穿透」，
+     * 而原因在渲染层的一次上报（谁报的 true、有没有报 false）。没有这行日志时，
+     * 只能靠推理——用户 2026-09-22 报的「全屏被覆盖」就是这么查了半天。
+     * 平时它一行都不打（翻转本来就少）。
+     */
+    if (clickable !== this.lastClickable) {
+      this.lastClickable = clickable
+      log.info(
+        `[mouse] 窗口 ${clickable ? '可点（吃掉整个屏幕的点击）' : '穿透（点击落到后面的程序）'}` +
+          ` 来自 ${clickable ? [...this.hoveringComponents].join('+') || '(forceIgnore?)' : '无 hover'}` +
+          `${this.forceIgnore ? ' forceIgnore=on' : ''}`,
+      )
+    }
+  }
+
+  /**
+   * 读当前实际生效的穿透状态（诊断/验证用）。
+   *
+   * `clickable` = 此刻窗口在**吃掉整个屏幕的点击**（`setIgnoreMouseEvents(false)`）；
+   * 它只能来自"有组件上报 hover"且光标不在任务栏带。`components` 是那些来源——
+   * 空数组而 `clickable` 为真，就说明状态没跟上（那只可能是规则本身的 bug）。
+   */
+  getMouseIgnoreState(): { clickable: boolean; components: string[] } {
+    return {
+      clickable: this.lastClickable === true,
+      components: [...this.hoveringComponents],
     }
   }
 

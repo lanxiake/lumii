@@ -270,6 +270,11 @@ export function registerPetModeIpc(deps: PetWindowManagerDeps): void {
     win.webContents.send('app-ui:goto', { view: 'chat', sessionKey })
   })
 
+  // 读当前实际生效的穿透状态（诊断/验证用，见 PET_IPC.getMouseIgnoreState 的注释）
+  ipcMain.handle(PET_IPC.getMouseIgnoreState, () =>
+    petWindowManager?.getMouseIgnoreState() ?? { clickable: false, components: [] },
+  )
+
   ipcMain.handle(PET_IPC.getCubismCoreUrl, async () => {
     const { resolveCubismCoreUrl } = await import('./pet-model-resolver')
     return resolveCubismCoreUrl()

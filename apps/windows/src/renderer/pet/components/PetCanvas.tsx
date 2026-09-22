@@ -566,9 +566,54 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
       const canvas = canvasRef.current
       if (!renderer || !canvas) return
 
+      /**
+       * 放弃这次拖拽：清干净状态并把"让位"还给自主行为。
+       *
+       * **不触发点击、也不抛出去**——那两件事都需要"在哪松的手"，而丢 mouseup 的
+       * 情况下我们没有这个信息（指针多半已经不在窗口里）。含糊地收尾好过猜一个动作。
+       *
+       * 这个函数存在的理由是一个**会把桌面点死**的缺陷（用户 2026-09-22 报的
+       * 「打开宠物模式，全屏都被覆盖了，无法点击到非宠物后方的程序」）：
+       * `pressed` 只在 `mouseup` 里复位，而在**窗口外松手**（拖到任务栏、另一块屏）
+       * 时渲染进程收不到那一下；此后每次 mousemove 都会走进下面那条 `pressed` 分支
+       * **无条件上报 hover=true**，主进程于是把整个全屏窗口设成可点——
+       * 于是桌面上什么都点不动了，只有重启应用能救。
+       */
+      const abandonDrag = (reason: string) => {
+        if (!dragRef.current.pressed) return
+        log.warn(`[abandonDrag] ${reason}`)
+        if (grabTimerRef.current !== null) {
+          clearTimeout(grabTimerRef.current)
+          grabTimerRef.current = null
+        }
+        const wasGrabbed = dragRef.current.active
+        dragRef.current.pressed = false
+        dragRef.current.active = false
+        dragRef.current.hit = false
+        dragRef.current.samples = []
+        // 让位还给自主行为：不还的话宠物会永远停在原地不动（那次 suspend 没人解除）
+        wanderRef.current?.resume(AMBIENT_HOLD_POINTER)
+        // 被抓起来过就要告诉编排器"落地了"，否则它会一直停在"被拎着"的姿势
+        if (wasGrabbed) {
+          const p = renderer.getPosition()
+          onInteractionRef.current?.({ type: 'landed', x: p.x, y: p.y })
+        }
+        reportModelHover(false)
+      }
+
       const onMouseMove = (e: MouseEvent) => {
         const { x, y } = toCanvasLocal(e, canvas)
         pointRef.current = { x, y }
+        /**
+         * `buttons === 0` 是 OS 给的「左键已经松开」的权威信号。
+         *
+         * 它与 `pressed` 不一致，只可能是 mouseup 丢了（见 `abandonDrag`）。
+         * 必须在下面那条分支**之前**判——否则这一帧又会上报一次 hover=true，
+         * 窗口再被点开一次。
+         */
+        if (dragRef.current.pressed && e.buttons === 0) {
+          abandonDrag('左键已松开但没收到 mouseup（多半是在窗口外松的手）')
+        }
         if (dragRef.current.pressed) {
           // **只有抓住了才跟手**。没到 GRAB_HOLD_MS 之前指针怎么动宠物都不动——
           // 那是"点击"的进行时，不该把宠物拖歪
@@ -771,8 +816,17 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
         reportModelHover(renderer.isPointerOverModel(x, y))
       }
 
-      const onMouseLeave = () => {
-        if (!dragRef.current.pressed) reportModelHover(false)
+      /**
+       * 指针离开**窗口** ⇒ 这次交互结束了。
+       *
+       * 挂在 `document` 上而不是 canvas 上：canvas 是 `pointer-events:none`，
+       * **根本收不到 mouseleave**——原先那条挂在 canvas 上的监听从来没生效过，
+       * 是个留在那儿的坑。而指针到了窗口外就不再产生 mousemove，`buttons` 那招
+       * 也救不了，所以这条是唯一信号。
+       */
+      const onWindowLeave = () => {
+        abandonDrag('指针离开窗口')
+        reportModelHover(false)
       }
 
       // 滚轮缩放：挂到 window（canvas 为 pointer-events:none，收不到 wheel）
@@ -803,14 +857,15 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
       window.addEventListener('mouseup', onMouseUp)
       window.addEventListener('contextmenu', onContextMenu)
       window.addEventListener('wheel', onWheel, { passive: false })
-      canvas.addEventListener('mouseleave', onMouseLeave)
+      // 挂在 document 上：canvas 是 pointer-events:none，收不到 mouseleave（见 onWindowLeave）
+      document.addEventListener('mouseleave', onWindowLeave)
       return () => {
         window.removeEventListener('mousemove', onMouseMove)
         window.removeEventListener('mousedown', onMouseDown)
         window.removeEventListener('mouseup', onMouseUp)
         window.removeEventListener('contextmenu', onContextMenu)
         window.removeEventListener('wheel', onWheel)
-        canvas.removeEventListener('mouseleave', onMouseLeave)
+        document.removeEventListener('mouseleave', onWindowLeave)
         reportModelHover(false)
         disposePetParticles()
         // 点击让位的定时器要清掉：不清的话组件已卸载，回调还会去碰已销毁的驱动
