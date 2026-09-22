@@ -393,8 +393,15 @@ export class PetWindowManager {
   /**
    * hover 穿透控制：按组件聚合。
    * - pet-dock / degrade-notice：悬停时恢复点击（控制坞始终可操作）
+   * - pet-context-menu：**打开期间**恢复点击（见下）
    * - live2d-model：非强制穿透时悬停恢复点击（宠物身体可拖/可点）
    * - 其余区域保持穿透（forward mousemove 仍可用于 hitTest）
+   *
+   * `pet-context-menu` 报的不是"指针压在菜单上"而是"菜单开着"——菜单一挂载就报 true、
+   * 卸载时报 false。**必须这样**：菜单弹出的位置离宠物身体有距离，指针一离开模型
+   * `bodyHover` 就归 false，窗口随即恢复全窗穿透，菜单上的点击会被转发到下层窗口，
+   * 表现为「菜单看得见、点不动」——`setIgnoreMouseEvents(true, {forward:true})` 转发
+   * 的是 mousemove，不含 mousedown/click。
    */
   reportHover(update: PetHoverUpdate): void {
     if (this.currentMode !== 'pet') return
@@ -429,7 +436,9 @@ export class PetWindowManager {
     if (!win || win.isDestroyed() || this.currentMode !== 'pet') return
 
     const uiHover =
-      this.hoveringComponents.has('pet-dock') || this.hoveringComponents.has('degrade-notice')
+      this.hoveringComponents.has('pet-dock') ||
+      this.hoveringComponents.has('degrade-notice') ||
+      this.hoveringComponents.has('pet-context-menu')
     const bodyHover = this.hoveringComponents.has('live2d-model') && !this.forceIgnore
 
     // 次保险：即便 hover 到模型/控制坞，若光标落在任务栏/托盘带（保留区），

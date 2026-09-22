@@ -10,9 +10,9 @@
  *    抛物线积分（抛出后）、本驱动（落地静止）。三者靠 `suspend()`/`resume()` 互斥，
  *    不是"各自算各自的"——那样两个写者会互相覆盖，表现为宠物一边走一边被拽回去。
  *
- * 2. **不碰垂直方向**。地面线就是宠物**当前所在的 y**，只有拖拽与抛物线能改它。
- *    这与 `throw-physics` 的 `ThrowBounds.groundY` 是同一条语义：桌宠站在它的"桌面"上，
- *    用屏幕底部当地面会让它落到一个从没待过的地方。
+ * 2. **垂直方向只受重力支配**。地面线固定在**工作区底边**（任务栏上沿），拖拽与抛物线
+ *    可以把宠物带到别的高度，但**落下来一定回到那条线**——既不会停在半空，也不会
+ *    把"自己走过的地方"变成地面。（早先的语义是后者，成因见 `groundY()` 的注释。）
  *
  * 3. **动作播放权不在这里**。驱动只把「现在该走/该坐/该站」报上去
  *    （`onActivity`），由编排器决定播哪个组、要不要让位给对话。渲染器那边
@@ -121,14 +121,25 @@ export class PetWanderDriver {
   /** 模型在屏幕上的高度，用来算攀爬时与墙的缝隙 */
   private modelHeight = 0
   /**
-   * 吸附前站的那条地面线。**掉下来要回到这里**，不是停在半空。
+   * 地面线 = **工作区底边**。宠物窗口覆盖的是 `workArea`（已排除任务栏），
+   * 所以视口底边就是任务栏上沿（见 `SpritePetRenderer` 的 `GROUND_MARGIN_PX`）。
    *
-   * 从窗口上沿松手时宠物在 `y ≈ 窗口上沿`，而它原来的地面线可能低一千多像素。
-   * 不落回去的话它会悬在窗口边上的空中，并在那条看不见的地面线上走来走去——
-   * 实测第一次跑通攀爬就是这个结果（`松手（爬到尽头）@(1980, 208)`，
-   * 而它原本站在 `y = 1352`）。
+   * ⚠️ 这里曾经是一个**跟着宠物漂移**的字段：`attachPerch` 每次吸附都把当刻的 `y`
+   * 记下来当成新的地面。名义是"掉下来要回到吸附前站的地方"，可**吸附前的 `y` 本身
+   * 已经被上一次抛掷/掉落改过了**，于是地面线一级一级往上抬。实测（2026-09-22
+   * 同一次会话的日志）：
+   *
+   *   `[fall] 落地 @(580, 1284)` → `@(2560, 1174)` → `@(0, 972)`
+   *   `[PetWander] [resume] 恢复（pointer）位置 (1823, 1132)`   ← 扔到半空后就停那儿了
+   *
+   * 症状正是用户报的「悬空运动」：宠物在一条看不见的、越抬越高的地面线上走来走去。
+   *
+   * 用 getter 而不是字段是**刻意的**——地面线是物理常量，不是状态；没有字段就没有
+   * "某处忘了更新它"这个失败模式。
    */
-  private groundY = 0
+  private groundY(): number {
+    return this.viewport().height
+  }
   /** 坠落中的物体；非 null 时位置权威归它（与攀爬、拖拽三者互斥） */
   private falling: ThrowBody | null = null
   /**
@@ -217,10 +228,12 @@ export class PetWanderDriver {
     if (this.started) return
     this.started = true
 
-    // 位置从渲染器读一次作为起点——宠物可能已经被拖到别处，不该被拽回原点
+    // 水平位置从渲染器读一次作为起点——宠物可能已经被拖到别处，不该被拽回原点
     const pos = this.renderer.getPosition()
     this.x = pos.x
-    this.y = pos.y
+    // 竖直方向**不**沿用渲染器里的值：地面线是常量，而渲染器可能还留着上一次的半空
+    // 坐标（宠物窗口是复用的，切模式回来并不重建它）。照抄就会在空气里开始走。
+    this.y = this.groundY()
     this.refreshLayout()
     // 拖拽没有边界检查，宠物可能停在屏幕外（实测 y=-21589）；不夹的话
     // 这条"地面线"就在视口之外，宠物再也看不见
@@ -306,6 +319,18 @@ export class PetWanderDriver {
       return
     }
 
+    // 拖拽结束时宠物悬在地面线上方（没到抛掷阈值就松手，或用户就是把它举高了放下）：
+    // **接着往下掉**。这是"悬空运动"最直接的那条路径——`[onMouseUp] 速度不足` 原先
+    // 直接 `resume()`，宠物就停在被举到的高度上不再下来（实测日志：此后一直
+    // `[resume] 恢复（pointer）位置 (511, 972)`，而地面线在 1400）。
+    if (this.y < this.groundY() - 1) {
+      log.info(
+        `[resume] 恢复（${reason}）悬在地面线上方 @(${this.x.toFixed(0)}, ${this.y.toFixed(0)})，转为坠落`,
+      )
+      this.startFall()
+      return
+    }
+
     this.resetToStand()
     log.info(`[resume] 恢复（${reason}）位置 (${this.x.toFixed(0)}, ${this.y.toFixed(0)})`)
     // 用户可能刚把宠物**放在**窗口边缘上——这是最自然的攀爬入口，不能等他走过去
@@ -338,16 +363,18 @@ export class PetWanderDriver {
    * 把位置夹回视口内。
    *
    * **踩过**：拖拽的 `setPosition` 没有任何边界检查，宠物可以被拖到屏幕外——
-   * 实测到了 `y = -21589`。而驱动把"读到的位置"当成宠物的**地面线**，
+   * 实测到了 `y = -21589`。而驱动把"读到的位置"当成宠物的地面线，
    * 于是它从此在屏幕外两万像素的地方"站着"，再也看不见。
    *
-   * 只夹不校正语义：夹完仍把结果当那条地面线，只是保证它在可见范围内。
+   * 下界 16 是"别爬到屏幕顶之上"，上界就是**地面线本身**（`h`）。
+   * 上界曾经是 `h - 8`，那个 8 与地面线（`h`）差了一截：宠物被夹到 `h - 8` 之后，
+   * `resume` 里"悬在地面线上方"的判定就成了**恒真**，每次恢复都白掉一次。
    */
   private clampPosition(): void {
     const w = window.innerWidth
     const h = window.innerHeight
     this.x = Math.min(Math.max(this.x, 0), w)
-    this.y = Math.min(Math.max(this.y, 16), h - 8)
+    this.y = Math.min(Math.max(this.y, 16), h)
   }
 
   /**
@@ -472,21 +499,42 @@ export class PetWanderDriver {
   }
 
   /**
+   * 沿上边缘爬行时的翻转。**与墙上的规则不同，不能沿用 `flipForPerch` 的结果。**
+   *
+   * 墙上判的是"墙在宠物哪一侧"；上边缘判的是**爬行方向**——`stepCrawl` 让从左墙上来的
+   * 往右爬、从右墙上来的往左爬（`perch.ts` 里 `dir = side === 'left' ? 1 : -1`），
+   * 而素材只画面朝右，于是**只有从右墙上来的那一种要翻**。两种攀附目标（屏幕 / 主窗口）
+   * 在这一条上规则相同，所以不分 `perchOnScreen`。
+   *
+   * ⚠️ 这里原先**什么都不做**，`setFlip` 一直停在吸附墙时的值，两种来路都是反的。
+   * 用户实测报的就是"从右往左爬的时候头尾方向反了"（2026-09-22）：
+   * `[perch] 吸附到屏幕右墙 x=2448` → `爬到顶` → 往左爬，而屏幕模式下
+   * `flipForPerch('right')` 是 `false`（不翻）——头朝右，与前进方向相反。
+   */
+  private flipForCeiling(side: PerchSide): boolean {
+    return side === 'right'
+  }
+
+  /** 设定朝向并同步给渲染器。`facing` 与 `flip` 是同一件事的两半，永远一起改 */
+  private applyFacing(flip: boolean): void {
+    this.facing = flip ? -1 : 1
+    this.renderer.setFlip?.(flip)
+  }
+
+  /**
    * 吸附到墙线上（主窗口边缘或屏幕边缘）。
    *
    * 位置立刻贴到墙线上，不等下一步积分——差一帧会看到宠物"先飘到墙边、再开始爬"。
    */
   private attachPerch(side: PerchSide, onScreen: boolean): void {
     if (!onScreen && !this.perchRect) return
-    // 记住脚下的地面线。**必须在改 y 之前**——掉下来要回到这里
-    this.groundY = this.y
+    // 墙上的 y 是**临时的**：松手后由 `stepFall` 送回固定的地面线（见 `groundY()`）。
+    // 这里曾经把当刻的 y 记成"地面线"，那正是宠物越爬越高的根源。
     this.perchOnScreen = onScreen
     this.perch = { kind: 'wall', side }
     this.x = this.perchWallX(side)
-    const flip = this.flipForPerch(side)
-    this.facing = flip ? -1 : 1
+    this.applyFacing(this.flipForPerch(side))
     this.renderer.setPosition(this.x, this.y)
-    this.renderer.setFlip?.(flip)
     log.info(
       `[perch] 吸附到${onScreen ? '屏幕' : '窗口'}${side === 'left' ? '左' : '右'}墙 x=${this.x.toFixed(0)}`,
     )
@@ -522,7 +570,7 @@ export class PetWanderDriver {
     const r = stepThrow(this.falling, dtSec, {
       minX: 0,
       maxX: window.innerWidth,
-      groundY: this.groundY,
+      groundY: this.groundY(),
       // **不能飞出屏幕**：没有它的话一次猛甩（实测 vy 到过 -4050）会让宠物
       // 飞到屏幕上方 3400px 处、消失三四秒。撞顶边按 restitution 弹回来。
       minY: 0,
@@ -556,6 +604,8 @@ export class PetWanderDriver {
       if (r.reachedTop) {
         // 到顶：转成沿上边缘爬，从哪面墙上来的就往对面爬
         this.perch = { kind: 'ceiling', side: this.perch.side }
+        // 朝向必须**跟着重新算**：墙上判的是"墙在哪一侧"，上边缘判的是爬行方向
+        this.applyFacing(this.flipForCeiling(this.perch.side))
         log.info(`[perch] 爬到顶，转为沿${this.perchOnScreen ? '屏幕' : '窗口'}上边缘爬行`)
         this.onActivity('crawl')
       }

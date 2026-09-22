@@ -46,6 +46,8 @@ const MENU_MIN_WIDTH = 196
 /** 单项高度，用于估算整体高度、避免菜单超出屏幕下沿 */
 const ITEM_H = 30
 const SEP_H = 7
+/** 顶部状态摘要那一行的高度，只用于估高 */
+const STATUS_H = 30
 
 const COLOR = {
   bg: 'rgba(26, 28, 34, 0.97)',
@@ -54,6 +56,10 @@ const COLOR = {
   dim: 'rgba(238, 240, 245, 0.45)',
   hover: 'rgba(255, 255, 255, 0.10)',
   danger: 'rgba(248, 113, 113, 0.95)',
+  /** 状态"开"：绿。开关胶囊与小圆点共用，含义统一为「该功能正在生效」 */
+  on: 'rgba(74, 222, 128, 0.95)',
+  /** 状态"关"：灰 */
+  off: 'rgba(238, 240, 245, 0.28)',
 } as const
 
 const MenuItem: React.FC<{
@@ -92,13 +98,79 @@ const MenuItem: React.FC<{
   >
     <span style={{ flex: 1 }}>{label}</span>
     {hint && <span style={{ color: COLOR.dim, fontSize: 11 }}>{hint}</span>}
-    {/* 勾选态用文字而不是图标：宠物窗口里没有图标字体，画 SVG 不值当 */}
-    {checked && <span style={{ color: COLOR.text, fontSize: 12 }}>✓</span>}
+    {/*
+      开关态画成一个**两端都有形态**的胶囊，而不是"开时一个 ✓、关时什么都没有"。
+      用户的原话是「点击各种状态后需要有个可以标识其运行状态的设计」——单个 ✓ 读不出
+      「现在是关着的」还是「这一项没有状态」。绿=生效、灰=未生效，一眼可辨。
+      `checked` 为 undefined 的项（纯动作，如"打开对话"）不画。
+    */}
+    {checked !== undefined && (
+      <span
+        style={{
+          flexShrink: 0,
+          width: 26,
+          height: 14,
+          borderRadius: 7,
+          background: checked ? COLOR.on : 'transparent',
+          border: `1px solid ${checked ? COLOR.on : COLOR.off}`,
+          position: 'relative',
+        }}
+      >
+        <span
+          style={{
+            position: 'absolute',
+            top: 1,
+            left: checked ? 13 : 1,
+            width: 10,
+            height: 10,
+            borderRadius: 5,
+            background: checked ? '#12141a' : COLOR.off,
+          }}
+        />
+      </span>
+    )}
   </button>
 )
 
 const Separator: React.FC = () => (
   <div style={{ height: 1, margin: `${(SEP_H - 1) / 2}px 8px`, background: COLOR.border }} />
+)
+
+/**
+ * 菜单顶部的状态摘要——「当前宠物功能处于什么状态」的正面回答。
+ *
+ * 为什么不能只靠下面那些开关：菜单一关就什么都不剩，用户下次打开前仍然不知道
+ * 宠物现在是静音还是有声。开关回答的是"这一项怎么改"，摘要回答的是"现在是什么"。
+ *
+ * 圆点与开关胶囊共用同一套颜色语义——**绿 = 这一项开着，灰 = 关着**，与下方各开关
+ * 一一对应，不引入第二套词汇。所以标签也用开关名（`静音`）而不是状态描述（`已静音`）：
+ * 「静音」配绿点＝静音开着，配灰点＝没静音，读起来没有歧义。
+ */
+const StatusRow: React.FC<{ items: readonly { label: string; on: boolean }[] }> = ({ items }) => (
+  <div
+    style={{
+      display: 'flex',
+      flexWrap: 'wrap',
+      gap: '6px 10px',
+      padding: '2px 12px 8px',
+      marginBottom: SEP_H / 2,
+      borderBottom: `1px solid ${COLOR.border}`,
+    }}
+  >
+    {items.map((it) => (
+      <span key={it.label} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+        <span
+          style={{
+            width: 6,
+            height: 6,
+            borderRadius: 3,
+            background: it.on ? COLOR.on : COLOR.off,
+          }}
+        />
+        <span style={{ fontSize: 11, color: it.on ? COLOR.text : COLOR.dim }}>{it.label}</span>
+      </span>
+    ))}
+  </div>
 )
 
 export const PetContextMenu: React.FC<PetContextMenuProps> = ({
@@ -127,6 +199,26 @@ export const PetContextMenu: React.FC<PetContextMenuProps> = ({
    */
   const [view, setView] = useState<'root' | 'models'>('root')
 
+  /**
+   * 菜单存在期间**让窗口保持可点**。
+   *
+   * 宠物窗口默认整窗穿透，主进程按"有没有 UI 组件在交互"聚合切换
+   * （见 `PetWindowManager.applyMouseIgnoreState`）。菜单原先不在那份白名单里，
+   * 于是指针从宠物身上移到菜单的一瞬间 `bodyHover` 就归 false、窗口恢复穿透，
+   * 菜单**看得见但点不动**——`setIgnoreMouseEvents(true, { forward: true })`
+   * 转发的是 mousemove，不含 mousedown/click。用户报的「点开对话没展开」
+   * 「更换宠物没展开」都是这一条。
+   *
+   * 上报的是"菜单开着"而不是"指针压在菜单上"：后者在菜单项之间的缝隙里会闪断。
+   * cleanup 里**必须**报 false——菜单是瞬时的，漏这一次窗口就再也不穿透了
+   * （连带着整个桌面都点不动）。
+   */
+  useEffect(() => {
+    const api = window.electronAPI?.pet
+    api?.reportHover({ componentId: 'pet-context-menu', isHovering: true })
+    return () => api?.reportHover({ componentId: 'pet-context-menu', isHovering: false })
+  }, [])
+
   // 点外部 / Esc / 滚轮 关闭。滚轮也关：菜单下面压着的是宠物，用户滚轮多半是想缩放它。
   useEffect(() => {
     const onDown = (e: MouseEvent) => {
@@ -150,7 +242,8 @@ export const PetContextMenu: React.FC<PetContextMenuProps> = ({
   // 兜底夹回视口内：右键点在宠物下半身、或宠物贴着屏幕右下角时，
   // 菜单会有一半在屏幕外——而它没有滚动条，露不出来的项就是点不到。
   const rows = view === 'models' ? models.length + 2 : 9
-  const estH = rows * ITEM_H + 2 * SEP_H + 16
+  // 状态摘要只出现在根视图，二级视图不算它那一行
+  const estH = rows * ITEM_H + 2 * SEP_H + 16 + (view === 'root' ? STATUS_H : 0)
   const left = Math.min(x, window.innerWidth - MENU_MIN_WIDTH - 8)
   const top = Math.min(y, Math.max(8, window.innerHeight - estH - 8))
 
@@ -193,6 +286,15 @@ export const PetContextMenu: React.FC<PetContextMenuProps> = ({
         </>
       ) : (
         <>
+          {/* 状态摘要：菜单一关就什么都不剩，这里是"现在是什么状态"的唯一出口 */}
+          <StatusRow
+            items={[
+              { label: inCall ? '通话中' : '未通话', on: inCall },
+              { label: '静音', on: muted },
+              { label: '朗读', on: voiceReplyEnabled },
+              { label: '对话面板', on: dockOpen },
+            ]}
+          />
           {inCall ? (
             <MenuItem label="结束语音对话" danger onClick={run(onStopVoice)} />
           ) : (

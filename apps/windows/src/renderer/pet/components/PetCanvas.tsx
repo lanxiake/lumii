@@ -55,10 +55,10 @@ const TAP_AMBIENT_HOLD_MS = 2500
  * 短按是点击（宠物蹦一下），按满这个时长才跟手。
  *
  * 500ms。**这个值是照手感定的，不是照"多久才够区分"**：3 秒 → 1.5 秒 → 1 秒 →
- * 500ms 一路调下来，越长越像坏了——用户按一两秒就拖、发现没反应，以为是故障。
- * 500ms 已经足够把短按和按住分开（人手点一下约 100~200ms）。
+ * 300ms 一路调下来，越长越像坏了——用户按一两秒就拖、发现没反应，以为是故障。
+ * 300ms 已经足够把短按和按住分开（人手点一下约 100~200ms）。
  */
-const GRAB_HOLD_MS = 500
+const GRAB_HOLD_MS = 300
 
 /**
  * 指针交互的让位来源名。
@@ -199,8 +199,11 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
     /**
      * 拖拽状态。
      *
-     * `groundY` 是**拖拽开始时宠物所在的高度**——它就是这只宠物的"桌面"。
-     * 用屏幕底部当地面会让宠物落到一个从没待过的地方，用户视角里就是「掉出屏幕了」。
+     * 这里**不记地面线**。它曾经是"拖拽开始时宠物所在的高度"，理由是"用屏幕底部当
+     * 地面会让宠物落到一个从没待过的地方"。但那个前提本身是错的——地面线就该是
+     * 屏幕（工作区）底边，宠物被举起来之后本来就该落回去。记当时的 y 会让每一次
+     * 拖拽都把落点抬高一截，最终形成一条看不见的、越抬越高的地面线（详见
+     * `PetWanderDriver.groundY()`）。落点现在固定取 `canvas.clientHeight`。
      *
      * `samples` 供释放时估速度；只看最后两个点会被鼠标事件间隔的不均匀坑到
      * （详见 pet-core 的 estimateVelocity）。
@@ -213,7 +216,6 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
       offsetX: number
       offsetY: number
       hit: boolean
-      groundY: number
       samples: DragSample[]
     }>({
       pressed: false,
@@ -221,7 +223,6 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
       offsetX: 0,
       offsetY: 0,
       hit: false,
-      groundY: 0,
       samples: [],
     })
     /** 抛掷中的 rAF 句柄 */
@@ -574,11 +575,14 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
        * `dt` 上限 50ms：标签页切回来、断点续跑时两帧间隔可能是几秒，
        * 不夹住的话宠物会一步跨到屏幕外。
        */
-      const startThrow = (from: { x: number; y: number }, v: { vx: number; vy: number }, groundY: number) => {
+      const startThrow = (from: { x: number; y: number }, v: { vx: number; vy: number }) => {
         let body: ThrowBody = { x: from.x, y: from.y, vx: v.vx, vy: v.vy }
         // `minY` 把顶边也封上——不加的话一次猛甩（实测 vy 到过 -4050）会让宠物
         // 飞到屏幕上方三千多像素处、消失三四秒。撞了按 restitution 弹回来。
-        const bounds = { minX: 0, maxX: canvas.clientWidth, groundY, minY: 0 }
+        //
+        // 落点是**工作区底边**（宠物窗口已排除任务栏，所以它就是任务栏上沿），是常量。
+        // 不取"拖拽开始时的高度"的理由见 `dragRef` 的注释。
+        const bounds = { minX: 0, maxX: canvas.clientWidth, groundY: canvas.clientHeight, minY: 0 }
         let last = performance.now()
 
         const step = () => {
@@ -629,7 +633,6 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
           offsetX: x - pos.x,
           offsetY: y - pos.y,
           hit: !!hit,
-          groundY: pos.y,
           samples: [],
         }
         grabTimerRef.current = window.setTimeout(() => {
@@ -642,7 +645,6 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
           const now = renderer.getPosition()
           dragRef.current.offsetX = p.x - now.x
           dragRef.current.offsetY = p.y - now.y
-          dragRef.current.groundY = now.y
           dragRef.current.samples = [{ x: p.x, y: p.y, t: performance.now() }]
           log.info(`[onMouseDown] 按住 ${GRAB_HOLD_MS}ms 进入抓取`)
           onInteractionRef.current?.({ type: 'picked' })
@@ -659,7 +661,7 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
         }
         const wasPressed = dragRef.current.pressed
         const wasGrabbed = dragRef.current.active
-        const { groundY, samples } = dragRef.current
+        const { samples } = dragRef.current
         dragRef.current.pressed = false
         dragRef.current.active = false
         dragRef.current.hit = false
@@ -711,11 +713,17 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
           // 顺序不能反——先飞再通知的话，头几帧还是地面姿势，看起来像"踩着空气飘出去"
           onInteractionRef.current?.({ type: 'thrown' })
           // 抛掷期间保持让位；位置权威交给抛物线，落地时（startThrow 内）才交还
-          startThrow(pos, v, groundY)
+          startThrow(pos, v)
         } else {
-          log.info(`[onMouseUp] 速度不足（${Math.hypot(v.vx, v.vy).toFixed(0)} px/s），原地落下`)
-          wanderRef.current?.resume(AMBIENT_HOLD_POINTER)
-          onInteractionRef.current?.({ type: 'landed', x: pos.x, y: pos.y })
+          // 速度不够"抛"，但**该落还是要落**。这里原先直接 `resume()`，宠物就停在
+          // 用户把它举到的那个高度上——日志里"原地落下"四个字名不副实：实测拖到
+          // 半空松手后它一直在 y=972 的空气里走动，再没下来过。
+          //
+          // 走 `startThrow` 初速为零：落点、让位解除（落地时 `resume`）、`landed` 上报
+          // 全都复用同一条已有路径，不必在这里再写一遍。
+          log.info(`[onMouseUp] 速度不足（${Math.hypot(v.vx, v.vy).toFixed(0)} px/s），自由落下`)
+          onInteractionRef.current?.({ type: 'thrown' })
+          startThrow(pos, { vx: 0, vy: 0 })
         }
         reportModelHover(renderer.isPointerOverModel(x, y))
       }

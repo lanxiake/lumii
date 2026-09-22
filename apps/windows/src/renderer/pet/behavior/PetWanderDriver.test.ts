@@ -16,7 +16,10 @@ import type { PetRendererProvider } from '../renderer/types'
 /** 只实现驱动真正用到的那几个方法；其余用断言挡住"其实不该被调用" */
 function fakeRenderer(): PetRendererProvider {
   return {
-    getPosition: () => ({ x: 100, y: 200 }),
+    // 默认位置在**地面线**上（视口底边，见 `PetWanderDriver.groundY()`）。
+    // 随手写个 `y: 200` 会让 `resume` 走"悬在半空 → 转为坠落"那条分支——
+    // 那是另一条用例的事，这里不想被它干扰。
+    getPosition: () => ({ x: 100, y: window.innerHeight }),
     setPosition: vi.fn(),
     setFlip: vi.fn(),
     // `modelHeight` 不能省：驱动拿它算攀爬的缝隙与最小窗口高度，
@@ -182,12 +185,13 @@ describe('PetWanderDriver — 攀附与掉落', () => {
   /**
    * "宠物站在窗口左边、窗口在它上方"的场景。
    *
-   * 几何（jsdom 视口 1024×768，`clampPosition` 会把 y 夹到 760）：
-   * 宠物 (500, 700)，窗口 (500,400) 800×300 —— 底边正好贴着宠物的脚。
+   * 几何（jsdom 视口 1024×768）：
+   * 宠物 (500, 768) —— **y 就是视口底边**，这正是地面线的定义（见 `groundY()`），
+   * 不再是"随手挑一个站得住的高度"；窗口 (500, 400) 800×368，底边正好贴着宠物的脚。
    */
   function makePerchScene() {
     const renderer = fakeRenderer()
-    let pos = { x: 500, y: 700 }
+    let pos = { x: 500, y: 768 }
     renderer.getPosition = () => ({ ...pos })
     renderer.setPosition = vi.fn((x: number, y: number) => {
       pos = { x, y }
@@ -202,7 +206,7 @@ describe('PetWanderDriver — 攀附与掉落', () => {
       perchConfig: { attachDistance: 24, climbSpeed: 4500, wallGapRatio: 0.43, ceilingGapRatio: 0.3 },
       rand: () => 0.5,
     })
-    driver.setPerchRect({ x: 500, y: 400, width: 800, height: 300 })
+    driver.setPerchRect({ x: 500, y: 400, width: 800, height: 368 })
     driver.start()
     return {
       driver,
@@ -240,7 +244,7 @@ describe('PetWanderDriver — 攀附与掉落', () => {
     expect(driver.getPerch()).toEqual({ kind: 'ceiling', side: 'left' })
   })
 
-  it('松手后落回原来的地面线，而不是停在半空', () => {
+  it('松手后落回地面线（视口底边），而不是停在半空', () => {
     const clock = makeClock()
     const { driver, onActivity, getPos } = makePerchScene()
     driver.suspend('pointer')
@@ -253,9 +257,9 @@ describe('PetWanderDriver — 攀附与掉落', () => {
     expect(onActivity).toHaveBeenLastCalledWith('fall')
 
     clock.advance(30)
-    // 落地线必须是**吸附前站的那条**（700），不是松手时所在的天花板（385）。
+    // 落地线必须是**视口底边**（768），不是松手时所在的天花板（430）。
     // 少了这一步，宠物会悬在窗口上沿的空中，并在那条看不见的地面线上走来走去。
-    expect(getPos().y).toBe(700)
+    expect(getPos().y).toBe(768)
     expect(driver.getPerch()).toBeNull()
     expect(onActivity).toHaveBeenLastCalledWith('stand')
   })
@@ -268,9 +272,10 @@ describe('PetWanderDriver — 攀附与掉落', () => {
     clock.advance(2)
     expect(driver.getPerch()).not.toBeNull()
 
-    // 用户在宠物爬着的时候把它拎到远处
+    // 用户在宠物爬着的时候把它拎到远处（水平移走，高度不变——
+    // 掉高度会命中"悬空即坠落"那条分支，这里要测的是墙上核对）
     driver.suspend('pointer')
-    setPos({ x: 900, y: 700 })
+    setPos({ x: 900, y: 768 })
     driver.resume('pointer')
 
     // 让位期间 tick 不跑，没人发现它已经离墙很远了；不重新核对的话，
@@ -278,6 +283,21 @@ describe('PetWanderDriver — 攀附与掉落', () => {
     expect(onActivity).toHaveBeenLastCalledWith('fall')
     clock.advance(30)
     expect(driver.getPerch()).toBeNull()
-    expect(getPos().y).toBe(700)
+    expect(getPos().y).toBe(768)
+  })
+
+  it('拖到半空松手：接着往下掉，不在空气里走', () => {
+    // 实测事故（2026-09-22）：`[onMouseUp] 速度不足（32 px/s），原地落下` 之后宠物
+    // 就停在被举到的高度上，此后一直在那条看不见的地面线上走动，再也不下来。
+    const clock = makeClock()
+    const { driver, getPos, setPos } = makePerchScene()
+
+    // 不先吸附——要走的正是"既不在墙上、也不在下落"那条分支
+    driver.suspend('pointer')
+    setPos({ x: 500, y: 300 }) // 拖拽直接写渲染器，绕过驱动的边界检查
+    driver.resume('pointer')
+
+    clock.advance(30)
+    expect(getPos().y).toBe(768)
   })
 })
