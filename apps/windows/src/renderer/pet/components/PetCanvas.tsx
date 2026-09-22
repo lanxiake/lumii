@@ -101,6 +101,13 @@ export interface PetCanvasProps {
    */
   onAmbientActivity?: (pose: PetPose) => void
   /**
+   * 右键宠物（屏幕坐标，CSS 像素）。
+   *
+   * **点在空白处不触发**——宠物窗口是全屏的，不判就等于整个桌面右键都弹宠物菜单。
+   * 右键也不参与抓取：`onMouseDown/Up` 只认左键。
+   */
+  onContextMenu?: (x: number, y: number) => void
+  /**
    * 自主行为总开关（仅 sprite 后端，默认开）。
    *
    * 关掉后宠物不再自己走动，但**进行中的让位不受影响**（拖拽/抛掷照常）——
@@ -138,7 +145,7 @@ function toCanvasLocal(e: MouseEvent, canvas: HTMLCanvasElement): { x: number; y
 }
 
 export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
-  ({ modelId, onDegrade, onModelLoaded, onInteraction, onAmbientActivity, ambientEnabled = true }, ref) => {
+  ({ modelId, onDegrade, onModelLoaded, onInteraction, onAmbientActivity, onContextMenu, ambientEnabled = true }, ref) => {
     const canvasRef = useRef<HTMLCanvasElement>(null)
     const rendererRef = useRef<PetRendererProvider | null>(null)
     /** 模型配置：**必须先于渲染器拿到**，因为后端类型由它决定 */
@@ -186,6 +193,9 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
     /** 同上：自主活动回调被驱动 effect 持有，不能进依赖数组 */
     const onAmbientActivityRef = useRef(onAmbientActivity)
     onAmbientActivityRef.current = onAmbientActivity
+
+    const onContextMenuRef = useRef(onContextMenu)
+    onContextMenuRef.current = onContextMenu
     /**
      * 拖拽状态。
      *
@@ -591,6 +601,9 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
       }
 
       const onMouseDown = (e: MouseEvent) => {
+        // 只认左键。右键归 `onContextMenu`，不参与抓取/点击——不判的话右键会
+        // 顺手把宠物拎起来，菜单弹出来的同时宠物已经在半空。
+        if (e.button !== 0) return
         const { x, y } = toCanvasLocal(e, canvas)
         const hit = renderer.hitTest(x, y)
         const over = hit || renderer.isPointerOverModel(x, y)
@@ -637,6 +650,7 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
       }
 
       const onMouseUp = (e: MouseEvent) => {
+        if (e.button !== 0) return
         const { x, y } = toCanvasLocal(e, canvas)
         // 定时器无论走哪条分支都要清掉，否则它会在下一次交互里冒出来
         if (grabTimerRef.current !== null) {
@@ -720,15 +734,30 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
         }
       }
 
+      /**
+       * 右键 → 弹选项菜单。
+       *
+       * 判 `isPointerOverModel` 是必须的：宠物窗口是**全屏**的，不判就等于
+       * 整个桌面右键都弹宠物菜单。
+       */
+      const onContextMenu = (e: MouseEvent) => {
+        const { x, y } = toCanvasLocal(e, canvas)
+        if (!renderer.isPointerOverModel(x, y)) return
+        e.preventDefault()
+        onContextMenuRef.current?.(e.clientX, e.clientY)
+      }
+
       window.addEventListener('mousemove', onMouseMove)
       window.addEventListener('mousedown', onMouseDown)
       window.addEventListener('mouseup', onMouseUp)
+      window.addEventListener('contextmenu', onContextMenu)
       window.addEventListener('wheel', onWheel, { passive: false })
       canvas.addEventListener('mouseleave', onMouseLeave)
       return () => {
         window.removeEventListener('mousemove', onMouseMove)
         window.removeEventListener('mousedown', onMouseDown)
         window.removeEventListener('mouseup', onMouseUp)
+        window.removeEventListener('contextmenu', onContextMenu)
         window.removeEventListener('wheel', onWheel)
         canvas.removeEventListener('mouseleave', onMouseLeave)
         reportModelHover(false)

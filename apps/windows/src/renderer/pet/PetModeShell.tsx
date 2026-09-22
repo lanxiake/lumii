@@ -19,6 +19,7 @@ import { usePetMode } from './hooks/usePetMode'
 import { PetCanvas, type PetCanvasHandle, type PetCanvasDegradeReason, setTapModelConfig, setTapInteractionEnabled } from './components/PetCanvas'
 import { PetControlDock } from './components/PetControlDock'
 import { PetSpeechBubble } from './components/PetSpeechBubble'
+import { PetContextMenu } from './components/PetContextMenu'
 import { PetOrchestrator, type PetAvatarStatus } from './orchestrator/PetOrchestrator'
 import { PetEmotionMapper } from './orchestrator/PetEmotionMapper'
 import { mapAgentEvent, type PetIdleStage } from '@mtbot/pet-core'
@@ -113,6 +114,19 @@ export const PetModeShell: React.FC = () => {
   } | null>(null)
   /** 气泡的撤下定时器（新气泡来了要清掉旧的，否则旧 TTL 会把新气泡误撤） */
   const bubbleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  /**
+   * 右键菜单的位置。null = 不显示。
+   *
+   * 菜单是**瞬时**的：点外部、Esc、滚轮、选中任一项都会关掉它。
+   */
+  const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null)
+  /**
+   * 对话面板（控制坞）是否展开。**默认关**。
+   *
+   * 宠物模式下的屏幕该是干净的——一只宠物在桌面上，如此而已。所有选项收在右键菜单里，
+   * 要聊天再从菜单打开。这一条是产品取向，不是省事：常驻面板会把"桌宠"变成"小窗口应用"。
+   */
+  const [dockOpen, setDockOpen] = useState(false)
   useEffect(
     () => () => {
       if (bubbleTimerRef.current) clearTimeout(bubbleTimerRef.current)
@@ -760,6 +774,26 @@ export const PetModeShell: React.FC = () => {
           petHeight={bubble.petHeight}
         />
       )}
+      {menuAt && (
+        <PetContextMenu
+          x={menuAt.x}
+          y={menuAt.y}
+          voiceState={voiceState.state}
+          muted={muted}
+          voiceReplyEnabled={voiceReplyEnabled}
+          models={models}
+          currentModelId={currentModelId}
+          dockOpen={dockOpen}
+          onStartVoice={handleStartVoice}
+          onStopVoice={handleStopVoice}
+          onToggleMute={handleToggleMute}
+          onToggleVoiceReply={handleToggleVoiceReply}
+          onChangeModel={handleChangeModel}
+          onToggleDock={() => setDockOpen((v) => !v)}
+          onExit={handleExit}
+          onClose={() => setMenuAt(null)}
+        />
+      )}
       {!degrade && (
         <PetCanvas
           ref={canvasRef}
@@ -777,6 +811,7 @@ export const PetModeShell: React.FC = () => {
           }}
           // 自主活动（R9）：画布只报「该走/该坐/该站」，播哪个组由编排器按既有优先级决定
           onAmbientActivity={(activity) => orchestratorRef.current?.setAmbientActivity(activity)}
+          onContextMenu={(x, y) => setMenuAt({ x, y })}
           // 对话进行中（听/想/说/收尾）不让宠物自己溜达——它正在跟用户交互，不该走开。
           // 复用 `enableIdleMotion` 开关：语义就是「待机时要不要自己动」，不必再加一个设置项。
           ambientEnabled={idleMotionEnabled && (!avatarStatus || avatarStatus.phase === 'idle')}
@@ -785,7 +820,8 @@ export const PetModeShell: React.FC = () => {
 
       {degrade && <DegradeNotice reason={degrade} onExit={handleExit} />}
 
-      <PetControlDock
+      {dockOpen && (
+        <PetControlDock
         voiceState={voiceState.state}
         partialTranscript={voiceState.partialTranscript}
         messages={messages}
@@ -809,7 +845,8 @@ export const PetModeShell: React.FC = () => {
         vadThreshold={vadThreshold}
         energyGateMultiplier={energyGateMultiplier}
         onChangeVoiceSetting={handleChangeVoiceSetting}
-      />
+        />
+      )}
 
       <PetDebugOverlay />
     </div>
