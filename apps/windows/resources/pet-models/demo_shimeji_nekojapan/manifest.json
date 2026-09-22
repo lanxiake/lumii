@@ -224,44 +224,15 @@
       "group": "Idle",
       "index": 0,
       "kind": "loop",
-      "fps": 3,
+      "fps": 9,
       "frames": [
         {
-          "base": "demo_shimeji_nekojapan_rest_00",
-          "durationMs": 333
-        },
-        {
-          "base": "demo_shimeji_nekojapan_rest_01",
-          "durationMs": 333
-        },
-        {
-          "base": "demo_shimeji_nekojapan_rest_02",
-          "durationMs": 333
-        },
-        {
-          "base": "demo_shimeji_nekojapan_rest_03",
-          "durationMs": 333
-        },
-        {
-          "base": "demo_shimeji_nekojapan_rest_04",
-          "durationMs": 333
-        },
-        {
-          "base": "demo_shimeji_nekojapan_rest_05",
-          "durationMs": 333
-        },
-        {
-          "base": "demo_shimeji_nekojapan_rest_06",
-          "durationMs": 333
-        },
-        {
-          "base": "demo_shimeji_nekojapan_rest_07",
-          "durationMs": 333
+          "base": "demo_shimeji_nekojapan_stand_00",
+          "durationMs": 111
         }
       ],
       "params": {
-        "breathe": 1.02,
-        "sway": 1.5
+        "breathe": 1.02
       }
     },
     {

@@ -564,7 +564,6 @@
         }
       ],
       "params": {
-        "bob": 9,
         "breathe": 1.01,
         "blink": 3200
       }
