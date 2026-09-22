@@ -26,7 +26,7 @@
  * 一眼就能看出来（记忆「宠物渲染转精灵图」记过这个坑）。
  *
  * 用法：
- *   node stage-frame.mjs <源图> <输出.png> [--canvas WxH] [--ratio 0.70] [--baseline 0.856] [--bg 00ffff] [--keep-scale]
+ *   node stage-frame.mjs <源图> <输出.png> [--canvas WxH] [--ratio 0.70] [--baseline 0.856] [--bg 00ffff] [--keep-scale] [--src-h 448]
  */
 import fs from 'node:fs'
 import path from 'node:path'
@@ -131,7 +131,7 @@ const argv = process.argv.slice(2)
 const src = argv[0]
 const dst = argv[1]
 if (!src || !dst) {
-  console.error('用法：node stage-frame.mjs <源图> <输出.png> [--canvas WxH] [--ratio 0.70] [--baseline 0.856] [--bg 00ffff] [--keep-scale]')
+  console.error('用法：node stage-frame.mjs <源图> <输出.png> [--canvas WxH] [--ratio 0.70] [--baseline 0.856] [--bg 00ffff] [--keep-scale] [--src-h 448]')
   process.exit(1)
 }
 const opt = (n, d) => {
@@ -145,17 +145,33 @@ const RATIO = Number(opt('ratio', 0.7))
 const BASELINE = Number(opt('baseline', 0.856))
 const BGC = opt('bg', '00ffff')
 /**
- * `--keep-scale`：**不缩放**，只重新铺底 + 重新落位（`targetH = 图形原本高度`）。
+ * `--keep-scale`：**不按 `--ratio` 重摆**，保持图形在**源画布里的比例**，
+ * 只重新铺底 + 重新落位。
  *
- * 姿势图专用。四个侧身循环（walk/climb/crawl/fall）都从同一张侧身首帧生成，
+ * 姿势图专用。几个侧身循环（walk/climb/crawl/fall）都从同一张侧身首帧生成，
  * **本来共用一个尺度**——H3 会把首帧的体型一路保持下去。如果每张姿势图都按
  * `--ratio 0.70` 重摆，等于把各自的高度强拉成一样：下落姿势本来就矮
  * （实测 388 vs 站立 472），强拉会让猫凭空放大 21%，切动作时肉眼可见地跳一下。
  *
- * 保持原尺寸之后，四张的相对大小由生成时决定，再交给客户端的 normalize
- * （按帧尺寸分组、组内共用一个倍率）如实缩放。
+ * ⚠ **"保持比例"是相对源画布，不是保持像素**（2026-09-22 修）。
+ * 原先写的是 `targetH = box.h`（原样像素），这对**整幅帧**（源画布 768×672 →
+ * 目标画布 768×672）恰好等价，但它对**拼条里裁出来的那一格**是错的：
+ * 拼条的格是生成画布按 `cellH/canvasH` 缩过的（768×672 → 512×448），
+ * 拿格的像素高度当画布像素高度，角色会**再缩 0.667 倍**。
+ * 实测爬行就是这样：格空间里 229px（站立 313px 的 73%），
+ * 摆完只剩 153px（49%）——**猫看着小一圈，头都比走路那格小**。
+ * 所以改成按比例：`targetH = box.h / srcH × ch`，`--src-h` 说明源画布的参考高度。
+ * 不传时默认等于目标画布高，与旧行为逐像素一致。
  */
 const KEEP_SCALE = argv.includes('--keep-scale')
+
+/**
+ * `--src-h <n>`：**源图的参考画布高度**（`--keep-scale` 下用来换算比例）。
+ *
+ * 整幅帧就传画布高（或不传）；拼条里裁出来的格传**格高**。
+ * 不传 = 目标画布高，即旧的"保持像素"语义。
+ */
+const SRC_H = Number(opt('src-h', 0)) || null
 
 /**
  * 摆一张图。返回 staging 元数据（后续 frame-0 snap 要拿它当参考）。
@@ -164,7 +180,7 @@ const KEEP_SCALE = argv.includes('--keep-scale')
  * 但实测总会有出入——用第 0 帧的角色高度除以这个值，就是这一整段的
  * 全局缩放系数（**整段共用一个变换**，逐帧对齐会让画面抖）。
  */
-export async function stageFrame(srcPath, dstPath, { canvas = CANVAS, ratio = RATIO, baseline = BASELINE, bg = BGC, keepScale = KEEP_SCALE } = {}) {
+export async function stageFrame(srcPath, dstPath, { canvas = CANVAS, ratio = RATIO, baseline = BASELINE, bg = BGC, keepScale = KEEP_SCALE, srcH = SRC_H } = {}) {
   const bgRGB = [0, 2, 4].map((i) => parseInt(bg.slice(i, i + 2), 16))
   const { data, info } = await sharp(srcPath).ensureAlpha().raw().toBuffer({ resolveWithObject: true })
 
@@ -192,7 +208,9 @@ export async function stageFrame(srcPath, dstPath, { canvas = CANVAS, ratio = RA
   // 就被它拦下，而按 ratio 0.70 摆出来只有 625px 宽，768 的画布绰绰有余。
   // 真正的判据是**摆完之后的实际尺寸**，由下面 `targetW > cw` 那道负责。
   // 保留这一句只为了把"这个画布形状根本装不下这个体型"提早说清楚。
-  const targetH = keepScale ? box.h : Math.round(ratio * ch)
+  // 比例口径：源画布高 → 目标画布高。不传 `--src-h` 时退化成"保持像素"（旧行为）
+  const refH = srcH ?? ch
+  const targetH = keepScale ? Math.round((box.h / refH) * ch) : Math.round(ratio * ch)
   const scale = targetH / box.h
   const targetW = Math.round(box.w * scale)
   if (targetW > cw || targetH > ch) {
