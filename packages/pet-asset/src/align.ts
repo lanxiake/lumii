@@ -13,7 +13,7 @@
  * P-1 验证点 A3 用同一套做法实测对齐误差 0px。
  */
 
-import { alphaBBox, type BBox } from './cutout.js'
+import { alphaBBox, alphaCentroidX, type BBox } from './cutout.js'
 
 /** 一帧的原始像素 */
 export interface AlignFrame {
@@ -168,6 +168,21 @@ export interface NormalizeOptions {
    * 而且首尾帧容易在大画布上被裁。**角色的"边界"应该是肉眼可见的地方，不是 alpha=17 的雾。**
    */
   bboxThreshold?: number
+  /**
+   * 水平方向按什么对齐到 `anchor[0]`：`'centroid'`（默认，质量重心）| `'bbox-center'`（旧口径）。
+   *
+   * **默认从 `bbox-center` 改成 `centroid`，是 2026-09-22 实测推着改的。**
+   * 包围盒是**极值**统计，重心是**质量**统计。角色身上只要有一个位置固定的极值点
+   * （耳朵尖、尾巴梢、拖地的影子），包围盒就被钉住不动，而**身体在里面左右摇**——
+   * 实测团子待机 8 帧：包围盒中心帧间极差 1.0px，重心极差 9.2px，头/中/脚三条带
+   * 同向同幅。症状就是用户报的「待机时宠物看起来还是在左右摆动」，而清单里
+   * 连一个 sway 都没有。改成按重心对齐后，重心极差 9.2 → 0.8 素材px。
+   *
+   * 与**垂直**方向必须用包围盒底边（地线）**不矛盾**，理由见本文件头注释：
+   * 竖直方向的稳定参照是"脚踩在哪"，而角色的水平稳定参照是"身体质量在哪"。
+   * 两者的共同点是都**不用包围盒中心**。
+   */
+  horizontalAlign?: 'centroid' | 'bbox-center'
 }
 
 export interface NormalizePlacement {
@@ -210,9 +225,15 @@ export function computeNormalize(
 ): NormalizePlacement[] {
   const fit = options.fit ?? 0.94
   const bboxThreshold = options.bboxThreshold ?? 128
+  const horizontalAlign = options.horizontalAlign ?? 'centroid'
   const targetH = options.canvas.h * fit
 
   const boxes = frames.map((f) => alphaBBox(f.data, f.width, f.height, bboxThreshold))
+  // 重心只在对齐口径需要时才算：逐帧扫一遍整图不便宜，`bbox-center` 那一路用不到它
+  const centroids =
+    horizontalAlign === 'centroid'
+      ? frames.map((f) => alphaCentroidX(f.data, f.width, f.height, bboxThreshold))
+      : []
 
   // 按帧尺寸分组；组内取最高的包围盒算一个共同倍率
   const tallestBySize = new Map<string, number>()
@@ -234,13 +255,20 @@ export function computeNormalize(
     const height = Math.max(1, Math.round(f.height * scale))
     if (!bbox) return { name: f.name, scale, x: 0, y: height, width, height, bbox: null }
 
-    // 包围盒缩放后的位置：底边落在 anchor.y，水平中心落在 anchor.x
+    // 包围盒缩放后的位置：底边落在 anchor.y；水平按 `horizontalAlign` 落位
     const bboxMinY = options.anchor[1] - bbox.h * scale
-    const bboxMinX = options.anchor[0] - (bbox.w * scale) / 2
+    const cx = centroids[i]
+    // 重心口径：让**源图上的重心**（缩放后为 cx*scale）落在 anchor.x 上，
+    // 即 p.x + cx*scale = anchor.x。不能用包围盒那套公式代——两者差着一个
+    // 「重心相对包围盒中心的偏移」，而那正是要消掉的东西。
+    const bboxMinX =
+      horizontalAlign === 'centroid' && cx !== null
+        ? options.anchor[0] - cx * scale
+        : options.anchor[0] - (bbox.w * scale) / 2 - bbox.minX * scale
     return {
       name: f.name,
       scale,
-      x: Math.round(bboxMinX - bbox.minX * scale),
+      x: Math.round(bboxMinX),
       y: Math.round(bboxMinY - bbox.minY * scale),
       width,
       height,

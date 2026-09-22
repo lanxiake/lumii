@@ -281,6 +281,10 @@ async function main(): Promise<number> {
         canvas: { w, h },
         anchor: [ax ?? Math.floor(w / 2), ay ?? h - 2],
         fit: numArg(args.flags.get('fit'), 'fit'),
+        // 水平对齐口径，默认 centroid（来由见 NormalizeOptions.horizontalAlign）。
+        // 留一个显式开关只是给旧口径留条退路——**默认值才是正解**，不是口味问题。
+        horizontalAlign:
+          args.flags.get('horizontalAlign') === 'bbox-center' ? 'bbox-center' : undefined,
       })
       if (json) {
         console.log(JSON.stringify(r, null, 2))

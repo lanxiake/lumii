@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { computeAlignPlacements, computeNormalize, type AlignFrame } from './align.js'
+import { alphaBBox, alphaCentroidX } from './cutout.js'
 
 /** 造一帧：在 w×h 的不透明底（全透明）上画一个方块 */
 function frame(name: string, w: number, h: number, block?: { x: number; y: number; w: number; h: number }): AlignFrame {
@@ -145,12 +146,73 @@ describe('computeNormalize — 归一化到目标画布', () => {
     expect(Math.abs(bottom - 54)).toBeLessThanOrEqual(1)
   })
 
-  it('包围盒水平中心落在锚点 x 上', () => {
+  it('质量重心落在锚点 x 上（默认口径）', () => {
     const f = rect('a', 200, 200, { x: 20, y: 30, w: 100, h: 90 })
     const r = computeNormalize([f], { canvas: { w: 48, h: 56 }, anchor: [24, 54] })
     const p = r[0]
+    // 实心方块的重心恰好等于包围盒中心，两种口径在对称图形上一致
     const center = p.x + ((p.bbox!.minX + p.bbox!.maxX) / 2) * p.scale
     expect(Math.abs(center - 24)).toBeLessThanOrEqual(1)
+  })
+
+  it('bbox-center 仍是可选口径（旧行为保留）', () => {
+    const f = rect('a', 200, 200, { x: 20, y: 30, w: 100, h: 90 })
+    const r = computeNormalize([f], {
+      canvas: { w: 48, h: 56 },
+      anchor: [24, 54],
+      horizontalAlign: 'bbox-center',
+    })
+    const p = r[0]
+    const center = p.x + ((p.bbox!.minX + p.bbox!.maxX) / 2) * p.scale
+    expect(Math.abs(center - 24)).toBeLessThanOrEqual(1)
+  })
+
+  /**
+   * 回归防线：**包围盒不动、身体在框里左右摇**的帧，必须按重心对齐。
+   *
+   * 实测来由（2026-09-22，见 `NormalizeOptions.horizontalAlign`）：团子的待机 8 帧
+   * 包围盒中心帧间极差 **1.0px**、而重心极差 **9.2px**——角色身上有个位置固定的
+   * 极值点把包围盒钉住了。旧口径（bbox-center）**完全看不出这个问题**：
+   * 它是"对的"，测出来就是 1px。用户在屏幕上看到的却是宠物在左右摆动。
+   *
+   * 这里把那个形状造出来：`fixed` 是实心块，`lean` 把中间掏空只留最左一列，
+   * 两者的包围盒**逐像素相同**，而重心差 8.6px。
+   */
+  const leanPair = (): [AlignFrame, AlignFrame] => {
+    const fixed = frame('fixed', 200, 200, { x: 20, y: 30, w: 40, h: 90 })
+    const lean = frame('lean', 200, 200, { x: 20, y: 30, w: 40, h: 90 })
+    // 掏掉 x∈[21,40)：最左那一列留着，于是包围盒仍是 [20,59]，质量整体偏到右半
+    for (let y = 30; y < 120; y++) {
+      for (let x = 21; x < 40; x++) lean.data[(y * 200 + x) * 4 + 3] = 0
+    }
+    return [fixed, lean]
+  }
+  const cx = (f: AlignFrame) => alphaCentroidX(f.data, f.width, f.height, 128)!
+
+  it('（回归）同包围盒、质量偏一侧的两帧，按重心对齐后重心落在同一处', () => {
+    const [fixed, lean] = leanPair()
+    // 前提：这两帧的包围盒真的一样，否则测的不是这件事
+    expect(alphaBBox(fixed.data, 200, 200, 128)).toEqual(alphaBBox(lean.data, 200, 200, 128))
+    expect(Math.abs(cx(fixed) - cx(lean))).toBeGreaterThan(5)
+
+    const r = computeNormalize([fixed, lean], { canvas: { w: 48, h: 56 }, anchor: [24, 54] })
+    for (const [i, f] of [fixed, lean].entries()) {
+      const onCanvas = r[i].x + cx(f) * r[i].scale
+      expect(Math.abs(onCanvas - 24)).toBeLessThanOrEqual(1)
+    }
+  })
+
+  it('（回归）旧口径 bbox-center 会让这两帧的身体错开一个重心差', () => {
+    const [fixed, lean] = leanPair()
+    const r = computeNormalize([fixed, lean], {
+      canvas: { w: 48, h: 56 },
+      anchor: [24, 54],
+      horizontalAlign: 'bbox-center',
+    })
+    const a = r[0].x + cx(fixed) * r[0].scale
+    const b = r[1].x + cx(lean) * r[1].scale
+    // 包围盒对齐了，身体没有——这正是"宠物在左右摆动"的成因
+    expect(Math.abs(a - b)).toBeGreaterThan(4)
   })
 
   it('最高的那格缩放后正好占满 fit 比例的高度', () => {
