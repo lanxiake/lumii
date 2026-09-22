@@ -80,6 +80,20 @@ export interface PetWanderOptions {
   config?: AmbientConfig
   /** 攀附参数；省略用 `PERCH_DEFAULTS` */
   perchConfig?: PerchConfig
+  /**
+   * 是否让宠物爬**主程序窗口**的边缘。默认 **false**（只爬屏幕边）。
+   *
+   * 关掉不只是优先级问题，先说清楚它开着会发生什么（2026-09-22 实测）：宠物爬上去
+   * → 沿窗口上沿爬到另一角 → 松手 → 落在窗口那个角上（落点固定在 `rect.x` 与
+   * `rect.x + rect.width`，实测 580 / 1980）→ **一起步就又在吸附区里** → 再爬。
+   * 它被锁死在窗口附近，永远走不到屏幕边缘——"在屏幕边缘运行"根本没机会发生。
+   * 实测日志里连续四轮都是这个循环。
+   *
+   * 用户对这一步的原话是「先就在屏幕上移动吧，主程序窗口后面再说」。所以订阅链路
+   * （`onPerch` / `getPerchRect`）保持不动，只是矩形不喂给驱动；窗口攀附真要做时，
+   * 把这个开关打开即可。
+   */
+  windowPerchEnabled?: boolean
   /** 随机源，可注入以便测试确定性 */
   rand?: () => number
 }
@@ -93,6 +107,8 @@ export class PetWanderDriver {
    * 兜底值，见 `refreshLayout`。
    */
   private perchConfig: PerchConfig
+  /** 是否爬主程序窗口的边缘；见 `PetWanderOptions.windowPerchEnabled` */
+  private readonly windowPerchEnabled: boolean
   private readonly rand: () => number
 
   private rafId: number | null = null
@@ -169,6 +185,7 @@ export class PetWanderDriver {
     this.onActivity = opts.onActivity
     this.config = opts.config ?? AMBIENT_DEFAULTS
     this.perchConfig = opts.perchConfig ?? PERCH_DEFAULTS
+    this.windowPerchEnabled = opts.windowPerchEnabled ?? false
     this.rand = opts.rand ?? Math.random
     // 首次一定是站着（见 ambient.initialPlan）：进宠物模式第一帧就走起来很突兀
     this.plan = initialPlan(this.rand, this.config)
@@ -201,7 +218,10 @@ export class PetWanderDriver {
    * 都会走到这里，宠物必须掉下来——留在原地会显得它悬在空中。
    */
   setPerchRect(rect: PerchRect | null): void {
-    this.perchRect = rect
+    // 关掉窗口攀附时**不记**矩形：`tryAttach` 拿不到目标，自然就不吸窗口了。
+    // 比在 `tryAttachNow` 里再加一个 if 好——那里已经有"主窗口优先"的分支，
+    // 条件一多，"为什么没吸"就更难查。见 `windowPerchEnabled` 的说明。
+    this.perchRect = this.windowPerchEnabled ? rect : null
     // 屏幕攀附不受主窗口影响——主窗口藏了、最小化了，宠物照样能爬屏幕边
     if (!this.perch || this.perchOnScreen) return
     if (this.shouldReleasePerch()) this.releasePerch('目标不可用')
@@ -409,7 +429,14 @@ export class PetWanderDriver {
       this.attachPerch(onWindow, false)
       return
     }
-    const onScreen = tryAttachScreen(this.x, this.y, this.viewport(), this.perchConfig, minH)
+    const onScreen = tryAttachScreen(
+      this.x,
+      this.y,
+      this.viewport(),
+      this.perchConfig,
+      minH,
+      this.modelHeight,
+    )
     if (onScreen) this.attachPerch(onScreen, true)
   }
 

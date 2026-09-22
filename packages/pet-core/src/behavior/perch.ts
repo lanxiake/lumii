@@ -238,6 +238,24 @@ export function shouldLetGo(
  *
  * 判定也简单得多：视口就是整个可视区域，宠物永远"在它的下方"（因为它在里面），
  * 只需要比水平距离。顶边不参与吸附——宠物站在地面线上，够不着屏幕顶。
+ *
+ * ## 两条判据取近的那条，缺一不可
+ *
+ * · **离屏幕边**：捕捉"用户把宠物拖到边上放下"。这是最自然的攀爬入口，
+ *   用户拎到屏幕边，本来就带着"放这儿"的意图。
+ * · **离墙线**：捕捉"宠物**自己**走到边上"。见下。
+ *
+ * ⚠️ 只有第一条时，宠物**永远吸不上屏幕墙**（2026-09-22 实测）：走路的可达边界是
+ * `walkBoundsOf` 的 `anchorX × scale`（那只猫是 114px，因为它要保证**内容**不出屏），
+ * 而吸附要求 `petX ≤ attachDistance`（离屏幕边 24px 内）——两个区间**没有交集**。
+ * 于是自主走动够不到判定区，只有拖拽与"从天花板掉下来"（掉落不受走路边界约束）
+ * 才吸得上。用户的原话是「可以在屏幕边缘运行」，而它自己走不过去。
+ *
+ * 取"离墙线"那条之后：可达下限 114 与墙线（`modelHeight × wallGapRatio` ≈ 95）
+ * 只差 19，落在 24 的判定区内，走动即可触发。吸附时的位移也只有那 19px，
+ * 比原来"从 24 瞬移到 95"（71px）还更平滑。
+ *
+ * `modelHeight` 省略（0）时墙线退化为屏幕边缘本身，两条判据重合，与旧行为一致。
  */
 export function tryAttachScreen(
   petX: number,
@@ -245,13 +263,17 @@ export function tryAttachScreen(
   viewport: { width: number; height: number },
   cfg: PerchConfig = PERCH_DEFAULTS,
   minHeight = 120,
+  modelHeight = 0,
 ): PerchSide | null {
   if (viewport.height < minHeight || viewport.width <= 0) return null
   // 宠物不在视口纵向范围内时不判（拖到屏幕外的中间态）
   if (petY < 0 || petY > viewport.height) return null
 
-  const leftDist = petX
-  const rightDist = viewport.width - petX
+  const leftDist = Math.min(petX, Math.abs(petX - screenWallX(viewport, 'left', cfg, modelHeight)))
+  const rightDist = Math.min(
+    viewport.width - petX,
+    Math.abs(petX - screenWallX(viewport, 'right', cfg, modelHeight)),
+  )
   if (leftDist <= cfg.attachDistance && leftDist <= rightDist) return 'left'
   if (rightDist <= cfg.attachDistance) return 'right'
   return null

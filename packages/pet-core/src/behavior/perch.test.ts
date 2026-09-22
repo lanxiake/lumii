@@ -191,6 +191,38 @@ describe('屏幕边缘 — 宠物在视口**内侧**贴边', () => {
     expect(tryAttachScreen(1280, GROUND, VP)).toBeNull()
   })
 
+  it('**不必**贴到屏幕边：走到墙线附近就吸（自主走动够不到边缘）', () => {
+    // 实测事故（2026-09-22）：走路的可达下限是 `walkBoundsOf` 的 `anchorX × scale`
+    // （那只猫 114px——它要保证**内容**不出屏），而判定原先要 `petX ≤ 24`。
+    // 两个区间**没有交集**，于是宠物自己永远走不到吸附区，只有拖拽与"从天花板掉下来"
+    // （掉落不受走路边界约束）才吸得上。用户的原话是「可以在屏幕边缘运行」。
+    const modelHeight = 281.6 // 128 画布 × 2.2 缩放
+    const line = screenWallX(VP, 'left', PERCH_DEFAULTS, modelHeight) // ≈ 121
+    expect(tryAttachScreen(line + 19, GROUND, VP, PERCH_DEFAULTS, 120, modelHeight)).toBe('left')
+    // 再远一点就不该吸——判据仍然有界，不是"只要靠左就吸"
+    expect(tryAttachScreen(line + 40, GROUND, VP, PERCH_DEFAULTS, 120, modelHeight)).toBeNull()
+  })
+
+  it('拖到屏幕边上照样吸——离墙线那条**没有**取代离边缘那条', () => {
+    const modelHeight = 281.6
+    // x=10 离墙线 111px，远超 attachDistance；全靠"离屏幕边"这条
+    expect(tryAttachScreen(10, GROUND, VP, PERCH_DEFAULTS, 120, modelHeight)).toBe('left')
+    expect(tryAttachScreen(VP.width - 10, GROUND, VP, PERCH_DEFAULTS, 120, modelHeight)).toBe(
+      'right',
+    )
+  })
+
+  it('右侧同理：走到可达上限就吸', () => {
+    const modelHeight = 281.6
+    const line = screenWallX(VP, 'right', PERCH_DEFAULTS, modelHeight) // ≈ 2439
+    expect(tryAttachScreen(line - 19, GROUND, VP, PERCH_DEFAULTS, 120, modelHeight)).toBe('right')
+  })
+
+  it('省略 modelHeight 时墙线退化为屏幕边缘本身（与旧行为一致）', () => {
+    expect(tryAttachScreen(10, GROUND, VP)).toBe('left')
+    expect(tryAttachScreen(100, GROUND, VP)).toBeNull()
+  })
+
   it('锚点落在**内侧**——与窗口那条公式方向相反', () => {
     // 窗口：宠物在窗口外侧，锚点往边外挪（∓）
     // 屏幕：宠物在屏幕内侧，锚点往边里挪（±）—— 搞反了宠物会跑到屏幕外

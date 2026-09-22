@@ -204,6 +204,9 @@ describe('PetWanderDriver — 攀附与掉落', () => {
       // 爬得飞快：这几条测的是"掉到哪"，不是"爬多久"
       // 留白比例用 `PERCH_DEFAULTS` 的真值（它们是实测素材来的，测试里没有理由另编一套）
       perchConfig: { attachDistance: 24, climbSpeed: 4500, wallGapRatio: 0.43, ceilingGapRatio: 0.3 },
+      // 这一组测的全是**主窗口**攀附的几何与掉落，而窗口攀附默认是关的
+      //（见 `PetWanderOptions.windowPerchEnabled`），这里显式打开
+      windowPerchEnabled: true,
       rand: () => 0.5,
     })
     driver.setPerchRect({ x: 500, y: 400, width: 800, height: 368 })
@@ -299,5 +302,31 @@ describe('PetWanderDriver — 攀附与掉落', () => {
 
     clock.advance(30)
     expect(getPos().y).toBe(768)
+  })
+
+  it('默认**不**吸主窗口——开着会把宠物锁死在窗口附近，走不到屏幕边', () => {
+    // 2026-09-22 实测：开着窗口攀附时落点固定在窗口两个角（580 / 1980），
+    // 一起步就又在吸附区里，于是「爬窗口 → 掉到角上 → 再爬」无限循环，
+    // 「在屏幕边缘运行」根本没机会发生。用户的原话是「先就在屏幕上移动吧」。
+    const renderer = fakeRenderer()
+    let pos = { x: 500, y: 768 }
+    renderer.getPosition = () => ({ ...pos })
+    renderer.setPosition = vi.fn((x: number, y: number) => {
+      pos = { x, y }
+    })
+    const driver = new PetWanderDriver({
+      renderer,
+      onActivity: vi.fn(),
+      config: AMBIENT_DEFAULTS,
+      rand: fixedRand,
+      // 刻意**不**传 windowPerchEnabled
+    })
+    driver.setPerchRect({ x: 500, y: 400, width: 800, height: 368 })
+    driver.start()
+    driver.suspend('pointer')
+    driver.resume('pointer')
+
+    // 同一套几何在 makePerchScene（显式开了开关）里会吸成 { kind: 'wall', side: 'left' }
+    expect(driver.getPerch()).toBeNull()
   })
 })
