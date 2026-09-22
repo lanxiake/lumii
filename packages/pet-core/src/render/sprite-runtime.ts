@@ -62,6 +62,55 @@ export interface SpriteRuntimeModel {
    * 作者用显式 `index` 跳过某些序号时，对应位置为 `undefined`（空位，取到返回 null）。
    */
   animationsByGroup: Map<string, (ResolvedAnimation | undefined)[]>;
+  /**
+   * 「待机不许浮动」规则**丢掉**了哪些声明（如 `["Idle:bob=9"]`）。
+   *
+   * 空数组 = 这个模型本来就干净。**非空就要让调用方看得见**（渲染器在加载时打一行
+   * warn）——规则安静地改数据、作者还以为自己写的 bob 生效了，那是最难查的一类问题。
+   */
+  idleDriftStripped: string[];
+}
+
+// ---------------------------------------------------------------------------
+// 待机不许浮动（产品规则，2026-09-22）
+// ---------------------------------------------------------------------------
+
+/** 哪些组算"待机"。按组名匹配（含大小写变体），见下方注释 */
+const IDLE_GROUP_RE = /idle/i;
+
+/**
+ * 「待机不需要左右和上下移动」——用户的规则，**在这里一次性执行，而不是逐个模型改数据**。
+ *
+ * 为什么是规则而不是数据：`bob`（上下浮动）与 `sway`（左右轻摆）是**整只宠物的位移**，
+ * 而待机该是"站在原地"的。逐个模型删参数的问题不是麻烦，是**会漏**——
+ * 换个模型、重跑一次导入、宠物创作工具再导出一版，浮动就回来了，
+ * 而症状（宠物在飘）与数据（某一行 params）之间隔着一整条链路。
+ *
+ * 实测过一次量级：`bob: 9` 不是 9px，而是**屏幕上 18px 的上下摆动**
+ *（偏移量在渲染器的 stage 坐标里施加，不乘 scale），确实到"看着头晕"的量级。
+ *
+ * **判据是组名**：约定待机组的名字里带 `idle`（每个模型的 `idleMotionGroup` 默认就是
+ * `Idle`）。想做一个"会飘"的动作当然可以，但那就**不该叫 idle**——名字对不上这条规则，
+ * 也就对不上"待机"这个语义。
+ *
+ * 保留 `breathe`（缩放呼吸，锚点在脚底，头顶动 ~2px）与眨眼：它们不移动宠物。
+ */
+export function stripIdleDrift(
+  group: string,
+  params: ProceduralParams | undefined,
+): { params: ProceduralParams | undefined; stripped: string[] } {
+  if (!params || !IDLE_GROUP_RE.test(group)) return { params, stripped: [] };
+  const stripped: string[] = [];
+  const next: ProceduralParams = { ...params };
+  if (next.bob !== undefined && next.bob !== 0) {
+    stripped.push(`${group}:bob=${next.bob}`);
+    delete next.bob;
+  }
+  if (next.sway !== undefined && next.sway !== 0) {
+    stripped.push(`${group}:sway=${next.sway}`);
+    delete next.sway;
+  }
+  return stripped.length > 0 ? { params: next, stripped } : { params, stripped: [] };
 }
 
 // ---------------------------------------------------------------------------
@@ -235,25 +284,34 @@ export function resolveSpriteRuntime(manifest: SpriteManifest): SpriteRuntimeMod
   const layered = layeredSlotDefs(manifest.slots);
   const defaultState = deriveDefaultState(manifest, layered);
 
-  const entries = manifest.animations.map((anim) => ({
-    declaredIndex: typeof anim.index === "number" ? anim.index : undefined,
-    anim: {
-      group: anim.group,
-      index: 0,
-      kind: anim.kind,
-      source: resolveSource(anim),
-      fps: anim.fps && anim.fps > 0 ? anim.fps : 8,
-      frames: resolveAnimationFrames(anim, defaultState, layered),
-      durationsMs: resolveFrameDurations(anim),
-      params: anim.params,
-      next: anim.next,
-    } satisfies ResolvedAnimation,
-  }));
+  /** 「待机不许浮动」规则丢掉的东西，逐条记下来给调用方（见 stripIdleDrift） */
+  const idleDriftStripped: string[] = [];
+
+  const entries = manifest.animations.map((anim) => {
+    const still = stripIdleDrift(anim.group, anim.params);
+    idleDriftStripped.push(...still.stripped);
+    return {
+      declaredIndex: typeof anim.index === "number" ? anim.index : undefined,
+      anim: {
+        group: anim.group,
+        index: 0,
+        kind: anim.kind,
+        source: resolveSource(anim),
+        fps: anim.fps && anim.fps > 0 ? anim.fps : 8,
+        frames: resolveAnimationFrames(anim, defaultState, layered),
+        durationsMs: resolveFrameDurations(anim),
+        // 规则在这里生效：**只在解析层做一次**，渲染器拿到的 params 已经是干净的
+        params: still.params,
+        next: anim.next,
+      } satisfies ResolvedAnimation,
+    };
+  });
 
   return {
     manifest,
     defaultState,
     animationsByGroup: buildGroupIndex(entries),
+    idleDriftStripped,
   };
 }
 

@@ -260,6 +260,15 @@ export class SpritePetRenderer implements PetRendererProvider {
     // 载入后先摆出默认姿态；编排器随后会 playMotion('Idle')
     this.applyState(runtime.defaultState)
     log.info(`[loadModel] 模型加载完成 ${config.id}（${textures.size} 张纹理）`)
+    // 「待机不许浮动」规则改过这个模型的声明就**必须出声**：安静地改数据、作者还以为
+    // 自己写的 bob 生效了，是最难查的一类问题（症状是"宠物在飘"，而原因在很久以前
+    // 某一行 params 上）。判据与规则本体同在 pet-core 的 `stripIdleDrift`。
+    if (runtime.idleDriftStripped.length > 0) {
+      log.warn(
+        `[loadModel] 「待机不许浮动」规则丢掉了 ${runtime.idleDriftStripped.join('、')}` +
+          `（待机是站着不动的：见 pet-core 的 stripIdleDrift）`,
+      )
+    }
   }
 
   private unloadModel(): void {

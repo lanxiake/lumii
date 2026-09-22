@@ -224,7 +224,7 @@ describe("resolveSpriteRuntime — 来源与参数", () => {
     const rt = resolveSpriteRuntime(
       base({
         animations: [
-          { group: "Idle", kind: "loop", frames: [{ base: "a" }], params: { bob: 3 } },
+          { group: "Idle", kind: "loop", frames: [{ base: "a" }], params: { breathe: 1.02 } },
           { group: "Breathe", kind: "loop", params: { breathe: 1.02 } },
         ],
       }),
@@ -234,12 +234,14 @@ describe("resolveSpriteRuntime — 来源与参数", () => {
   });
 
   it("frames 与 params 并存（帧序列 + 程序化叠加）", () => {
+    // 用 breathe 而不是 bob 当例子：Idle 的 bob 会被「待机不许浮动」规则丢掉
+    //（见文件末尾那组用例），拿它当例子会读成"规则没生效"
     const rt = resolveSpriteRuntime(
-      base({ animations: [{ group: "Idle", kind: "loop", frames: [{ base: "a" }], params: { bob: 3 } }] }),
+      base({ animations: [{ group: "Idle", kind: "loop", frames: [{ base: "a" }], params: { breathe: 1.02 } }] }),
     );
     const anim = rt.animationsByGroup.get("Idle")![0]!;
     expect(anim.frames).toHaveLength(1);
-    expect(anim.params).toEqual({ bob: 3 });
+    expect(anim.params).toEqual({ breathe: 1.02 });
   });
 
   it("fps 缺省为 8", () => {
@@ -442,3 +444,66 @@ describe("adaptiveScale — 视口占比上限可调（sprite 桌宠比 Live2D �
     expect(adaptiveScale(100, 1000, 10, true, 0.35)).toBe(4)
   });
 });
+
+describe("待机不许浮动 —— 规则在解析层生效", () => {
+  /** 造一个带程序化参数的清单：Idle 声明 bob/sway，另有一组声明 bob（不该被动） */
+  const withParams = (idle: Record<string, number>) =>
+    resolveSpriteRuntime(
+      base({
+        animations: [
+          { group: "Idle", kind: "loop", fps: 8, frames: [{ base: "idle_00" }], params: idle } as never,
+          {
+            group: "Float",
+            kind: "loop",
+            fps: 8,
+            frames: [{ base: "idle_00" }],
+            params: { bob: 9 },
+          } as never,
+        ],
+      }),
+    )
+
+  it("Idle 的 bob / sway 被丢掉，breathe 与 blink 保留", () => {
+    const model = withParams({ bob: 9, sway: 1.5, breathe: 1.02, blink: 3200 })
+    const idle = findAnimation(model, "Idle", 0)
+    expect(idle?.params).toEqual({ breathe: 1.02, blink: 3200 })
+    expect(model.idleDriftStripped).toEqual(["Idle:bob=9", "Idle:sway=1.5"])
+  })
+
+  it("组名大小写不影响判据（idle / Idle 都算待机）", () => {
+    const model = resolveSpriteRuntime(
+      base({
+        animations: [
+          { group: "idle_a", kind: "loop", fps: 8, frames: [{ base: "idle_00" }], params: { bob: 3 } } as never,
+        ],
+      }),
+    )
+    expect(findAnimation(model, "idle_a", 0)?.params?.bob).toBeUndefined()
+    expect(model.idleDriftStripped).toEqual(["idle_a:bob=3"])
+  })
+
+  it("不叫 idle 的组不动它——想飘就得用别的名字，那也就不叫待机了", () => {
+    const model = withParams({ breathe: 1.01 })
+    expect(findAnimation(model, "Float", 0)?.params).toEqual({ bob: 9 })
+    expect(model.idleDriftStripped).toEqual([])
+  })
+
+  it("本来就干净的模型：记录为空，参数原样（引用也不换）", () => {
+    const model = withParams({ breathe: 1.01 })
+    const idle = findAnimation(model, "Idle", 0)
+    expect(idle?.params).toEqual({ breathe: 1.01 })
+    expect(model.idleDriftStripped).toEqual([])
+  })
+
+  it("bob: 0 与 sway: 0 不算“越界”，不做无谓的记录", () => {
+    const model = withParams({ bob: 0, sway: 0, breathe: 1.01 })
+    expect(model.idleDriftStripped).toEqual([])
+    expect(findAnimation(model, "Idle", 0)?.params).toEqual({ bob: 0, sway: 0, breathe: 1.01 })
+  })
+
+  it("Idle 没有 params 时不报错、也不记录", () => {
+    const model = resolveSpriteRuntime(base())
+    expect(model.idleDriftStripped).toEqual([])
+    expect(findAnimation(model, "Idle", 0)?.params).toBeUndefined()
+  })
+})
