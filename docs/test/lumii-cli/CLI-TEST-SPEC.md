@@ -1,6 +1,7 @@
 # Lumii CLI 测试规范
 
-> 版本：2026-09-12（v1.0）
+> 版本：2026-09-12（v1.0）；2026-09-23 修订：`send --wait` 已实现（§2.2 通道 0、陷阱 1）、
+> 补无头实例隔离（陷阱 15）。
 > 适用：`docs/test/lumii-cli/` 下全部套件与用例文档。
 > 定位：本规范定义「如何用 `lumii-ui` CLI 驱动**真实运行的 Lumii 客户端**做功能验证」，其中 **L3 真实聊天模拟是最接近用户真实操作的测试**——通过真实会话、真实 LLM、真实落库来验证功能与用户体验一致。
 
@@ -35,16 +36,28 @@ const sk = c.sessionKey ?? c.id          // 返回 { sessionKey, conversationId 
 const s = okJson(ui(['send', '--session', sk, '--text', text]))   // 返回 { runId }
 ```
 
-**`send --wait` 不存在**（仅 usage 字符串噪声，实现未处理该参数）——禁止使用，会被静默忽略。
+#### 通道 0：`send --wait`（2026-09-22 起可用）
+
+`--wait [<秒>]`（默认 120s，或用 `--wait-ms <毫秒>`）会**自己轮询到本轮回复落库**再退出，
+并把助手正文打印到 stdout：`--json` 时输出 `{ok, messageId, text, toolNames, llmError, elapsedMs}`。
+退出码：回复正常 0；**本轮模型调用失败**（`contentJson.llmError`）或**一个字都没有且没调工具**
+（多半是回合被中止）非 0；等待超时非 0。
+
+> 版本注意：2026-09-22 之前 `--wait` 只存在于 usage 字符串里、`build()` 从未处理，
+> 传了会被静默忽略——当时的规范因此写着「禁止使用」。现在它是等待回合的**首选**方式。
+
+**什么时候仍然自己轮询**：需要在等待期间观察中间状态（工具调用逐条出现、截图、
+`runId` 之外的过程证据）时，用下面的通道 1；只看「这轮说了什么」用 `--wait` 即可。
 
 回合完成判定两条通道，二选一或组合：
 
-1. **轮询 CLI 消息**（推荐，纯 CLI）：
+1. **轮询 CLI 消息**（纯 CLI）：
    ```js
    // context messages 返回 { items: [{id, role, content, contentJson, toolCalls[], ...}] }
    pollUntil(() => lastAssistantStable(sk, { minId: baselineMsgId }), timeoutMs, 2500)
    ```
    完成信号：出现新的 `role === 'assistant'` 消息，且该消息内容在两次轮询间稳定（防止流式中截断）。assistant 正文与工具调用在 `contentJson.parts[]`。
+   看正文别只看 `content[].text`（只覆盖旧格式）：用 `context messages --text` 渲染转录，或自己解析 `contentJson.parts[].text`。
 2. **轮询 DB 落库**（管道型断言更稳）：等目标表计数/行状态变化，如 `messages` 表新行、`autonomous_satisfaction_scores` 新评分、`runtime_state` 键更新。
 
 超时默认 120–180 秒（`CHAT_TURN_TIMEOUT_MS` 可覆盖）；复杂工具调用回合放宽到 240 秒。超时即 FAIL，证据中记录已等待轮数与最后消息状态。
@@ -200,7 +213,8 @@ ID 规则：`<域大写>-<子域>-<序号>`（`CHAT-CORE-01`、`MEM-03`、`CMP-0
 
 ## 附：常见陷阱清单（沉淀自实际执行）
 
-1. `send --wait` 不存在——等待回合必须显式轮询。
+1. `send --wait` **自 2026-09-22 起真的可用**（此前 usage 里写了、`build()` 从没处理，传了被静默忽略）；
+   等待回合优先用它。需要等待期间的过程证据（工具调用逐条出现等）才显式轮询。
 2. 控制口失败也返回退出码 0 ——必须同时校验 `json.ok !== false`（`okJson` 三重校验）。
 3. `help --json` 返回 `{commands:[...]}` 对象，不是数组。
 4. `goto` 成功字段是 `ok` 而非 `success`；`cron list` 列表字段是 `jobs`；`screenshot` 返回 `refs`/`previewPath`（无 `jpeg`/`elements`）。
@@ -214,3 +228,4 @@ ID 规则：`<域大写>-<子域>-<序号>`（`CHAT-CORE-01`、`MEM-03`、`CMP-0
 12. **`dev:restart` 后立刻跑套件会全线 `connection_failed`**——应用还没起来，控制口不可达。这是环境问题不是产品缺陷，但会被读成产品缺陷。套件应在主流程开头做 `preflight()` 预检并直接 `exit(3)` 给出可读提示，不要让它变成 3 条 FAIL。
 13. **端口不要写死**：本仓库常有并行会话在同一工作区跑各自的验证脚本。2026-09-21 实测 18799 被 `verify/pet-sprite/characters/local-toolchain-server.mjs` 占用，浏览器套件重跑直接以「探针服务器未能就绪」终止。需要监听端口的套件应从起始口**向上探测空闲端口**。
 14. **套件进程内不要跑 HTTP 服务器**：`lib/cli-harness.mjs` 的 `ui()` 用 `spawnSync`、`sleep()` 用 `Atomics.wait`，**两者都会阻塞事件循环**。服务器跑在同一进程里，会在模型调用工具的那一刻无法响应（表现为 Chrome 的 `page.goto: Timeout`）。服务器放独立进程，套件内的轮询等待用异步 sleep。另：子进程服务器关闭时必须先 `server.closeAllConnections()`，否则 Chrome 的 keep-alive 连接会让它迟迟不退出、端口不释放。
+15. **无头实例要被隔离**（2026-09-23 实测）：`LUMII_CLIENT_DATA_DIR=<临时目录>` **与** `--user-data-dir=<另一个临时目录>` 两个都要给——单实例锁按 Electron 的 user-data-dir 生效，只隔数据目录仍会被「已有实例在运行」踢掉。打包安装后 CLI 在 `/usr/bin/lumii-ui`，源码树里用 `node resources/app-ui-cli/lumii-ui.mjs`（细节见《2026-09-23-无头模式部署指南》）。
