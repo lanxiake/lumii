@@ -272,7 +272,9 @@ export default defineConfig({
       outDir: 'out/preload',
       rollupOptions: {
         input: {
-          index: resolve(__dirname, 'src/preload/index.ts')
+          index: resolve(__dirname, 'src/preload/index.ts'),
+          // HTML 预览的 <webview> 用它取词（宿主收不到 guest 文档的事件）
+          'webview-selection': resolve(__dirname, 'src/preload/webview-selection.ts')
         }
       }
     }

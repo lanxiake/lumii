@@ -56,6 +56,7 @@ import {
   registerSettingsIpcHandlers
 } from './settings-ipc'
 import { registerUserGuidesIpcHandlers } from './user-guides-ipc'
+import { registerSelectionIpcHandlers } from './selection-ipc'
 import { registerAutonomousIpcHandlers } from './autonomous-ipc'
 import { setAutonomousIpcDeps } from './autonomous-ipc'
 import { setCloudSyncIpcDeps, registerCloudSyncIpcHandlers } from '../cloud-sync/sync-ipc'
@@ -168,6 +169,7 @@ export function registerAllIpcHandlers(deps: IpcHandlersDeps): void {
   registerApiIpcHandlers()
   registerSettingsIpcHandlers()
   registerUserGuidesIpcHandlers()
+  registerSelectionIpcHandlers({ getAgentRuntimeBridge: deps.getAgentRuntimeBridge })
   registerAutonomousIpcHandlers()
   registerCloudSyncIpcHandlers()
   registerAppQuitHandler(deps.isQuittingGetter, deps.setIsQuitting)

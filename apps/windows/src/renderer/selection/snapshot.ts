@@ -63,7 +63,8 @@ export interface NodeLike {
 
 export interface RangeLike {
   readonly startContainer: NodeLike | ElementLike
-  getBoundingClientRect(): SnapshotRect
+  /** jsdom 的 Range 没有这个方法，所以是可选的 */
+  getBoundingClientRect?(): SnapshotRect
   getClientRects?(): ArrayLike<SnapshotRect>
 }
 
@@ -84,6 +85,8 @@ const KNOWN_SOURCE_KINDS: readonly SelectionSourceKind[] = [
   'skill-doc',
   'memory',
 ]
+
+const ZERO_RECT: SnapshotRect = { top: 0, left: 0, width: 0, height: 0 }
 
 /**
  * 可编辑区一律不弹浮条：输入框里的复制/粘贴交给原生右键菜单更可靠，
@@ -171,7 +174,9 @@ export function buildSnapshot(
   const startEl = asElement(range.startContainer)
   if (isInEditableArea(startEl)) return null
 
-  const rect = toRect(range.getBoundingClientRect())
+  // 环境不一定给了 Range.getBoundingClientRect（jsdom 就没有）：退到末行矩形，
+  // 再退到零矩形 —— 有 text/source 的快照仍可用，气泡顶多锚在视口左上角
+  const rect = toRect(range.getBoundingClientRect?.() ?? ZERO_RECT)
 
   return {
     text,

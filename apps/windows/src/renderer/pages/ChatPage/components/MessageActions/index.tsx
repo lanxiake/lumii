@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react'
 import clsx from 'clsx'
 import { toPng } from 'html-to-image'
 import { ConfirmModal } from '../../../../components/ui/Modal/ConfirmModal'
+import { useTtsPreview } from '../../../../hooks/business/useTtsPreview'
 import styles from './MessageActions.module.css'
 
 interface MessageActionsProps {
@@ -41,50 +42,14 @@ const MessageActions: React.FC<MessageActionsProps> = ({
 }) => {
   const [editValue, setEditValue] = useState(content)
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
-  const [isSpeaking, setIsSpeaking] = useState(false)
   const [feedback, setFeedback] = useState<'like' | 'dislike' | null>(null)
   const [copyingImage, setCopyingImage] = useState(false)
 
-  // 用于播放 TTS preview:chunk 的 AudioContext
-  const audioCtxRef = useRef<AudioContext | null>(null)
-  // 调度时间戳，确保 chunk 按顺序紧密衔接
-  const nextPlayTimeRef = useRef<number>(0)
-  /** 为 true 时处理预览音频块；停止朗读或播完后置 false，避免订阅依赖 isSpeaking 反复挂载 */
-  const acceptTtsChunksRef = useRef(false)
   /**
-   * 本次挂载是否**由本组件**发起过朗读。
-   *
-   * `voice:tts:stop-preview` 不带 messageId，是全局停；而卸载清理过去是无条件发的，
-   * 于是「任意一行卸载」都会掐断用户正在听的朗读。窗口化渲染让这件事变成日常路径 ——
-   * 滚动时窗口带外的行会被卸载，用户一边听一边滚动就会被打断。所以只在本次挂载确实
-   * 起过朗读时才停自己的那一次。
+   * 朗读：chunk 排队播放、只停自己那一次、卸载不误伤别人的朗读 —— 全在 hook 里，
+   * 与划词气泡共用同一份实现（见 useTtsPreview 文件头）。
    */
-  const startedPreviewRef = useRef(false)
-  /** 根据 AudioContext 队列剩余时长，在真正播放结束后收起「朗读中」状态 */
-  const playbackEndTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  /**
-   * 清除「播放结束」定时器（用户主动停止或重新开始朗读时调用）
-   */
-  const clearPlaybackEndTimer = () => {
-    if (playbackEndTimerRef.current != null) {
-      clearTimeout(playbackEndTimerRef.current)
-      playbackEndTimerRef.current = null
-    }
-  }
-
-  /**
-   * 在收到最后一个合成块后预约 UI 结束：等解码缓冲播放完毕再熄灭朗读状态（不误用 isFinal）
-   */
-  const schedulePlaybackUiEnd = (ctx: AudioContext) => {
-    clearPlaybackEndTimer()
-    const ms = Math.max(0, (nextPlayTimeRef.current - ctx.currentTime) * 1000) + 120
-    playbackEndTimerRef.current = setTimeout(() => {
-      playbackEndTimerRef.current = null
-      acceptTtsChunksRef.current = false
-      setIsSpeaking(false)
-    }, ms)
-  }
+  const { isSpeaking, speak, stop: stopSpeaking } = useTtsPreview()
 
   const handleCopy = () => onCopy(content)
 
@@ -117,136 +82,19 @@ const MessageActions: React.FC<MessageActionsProps> = ({
   }
   const handleCancel = () => { setEditValue(content); onEditCancel() }
 
+  /**
+   * 朗读开关。chunk 播放、只停自己那一次、卸载不误伤 —— 都在 useTtsPreview 里。
+   *
+   * 消息朗读要用 8000 的上限：设置页试听的 100 字上限会把后半段静默截断，
+   * 而且因为分片看起来像「缓存命中」，很难被发现。
+   */
   const handleSpeak = async () => {
-    const electronAPI = (window as any).electronAPI
-    if (!electronAPI?.voice?.sendCommand) return
-
     if (isSpeaking) {
-      acceptTtsChunksRef.current = false
-      startedPreviewRef.current = false
-      clearPlaybackEndTimer()
-      await electronAPI.voice.sendCommand({ type: 'voice:tts:stop-preview' }).catch(() => {})
-      audioCtxRef.current?.close()
-      audioCtxRef.current = null
-      nextPlayTimeRef.current = 0
-      setIsSpeaking(false)
+      await stopSpeaking()
       return
     }
-
-    await electronAPI.voice.sendCommand({ type: 'voice:tts:stop-preview' }).catch(() => {})
-    clearPlaybackEndTimer()
-    acceptTtsChunksRef.current = true
-    startedPreviewRef.current = true
-
-    // 初始化 AudioContext
-    if (!audioCtxRef.current || audioCtxRef.current.state === 'closed') {
-      audioCtxRef.current = new AudioContext({ sampleRate: 22050 })
-    }
-    if (audioCtxRef.current.state === 'suspended') {
-      await audioCtxRef.current.resume()
-    }
-    nextPlayTimeRef.current = audioCtxRef.current.currentTime
-
-    setIsSpeaking(true)
-    try {
-      const result = await electronAPI.voice.sendCommand({
-        type: 'voice:tts:preview',
-        text: content,
-        // 消息朗读：不要用设置页的 100 字上限，否则后半段会被静默截断并被误当成「缓存命中」
-        maxChars: 8000,
-      })
-      if (result?.error === 'models_not_ready') {
-        acceptTtsChunksRef.current = false
-        clearPlaybackEndTimer()
-        setIsSpeaking(false)
-        window.dispatchEvent(new CustomEvent('voice:models:need-download'))
-      }
-    } catch {
-      acceptTtsChunksRef.current = false
-      clearPlaybackEndTimer()
-      setIsSpeaking(false)
-    }
+    await speak(content, { maxChars: 8000 })
   }
-
-  // 订阅 voice:tts:preview:chunk（单次订阅；是否处理由 acceptTtsChunksRef 控制）
-  useEffect(() => {
-    const electronAPI = (window as any).electronAPI
-    if (!electronAPI?.voice?.onEvent) return
-
-    const unsubscribe = electronAPI.voice.onEvent((event: any) => {
-      if (event.type !== 'voice:tts:preview:chunk') return
-      if (!acceptTtsChunksRef.current) return
-
-      const ctx = audioCtxRef.current
-      if (!ctx) return
-
-      if (event.sampleRate === -1) {
-        // Edge TTS：mp3 编码字节，需先解码
-        void (async () => {
-          try {
-            const buffer = new Uint8Array(event.samples).buffer
-            const decoded = await ctx.decodeAudioData(buffer)
-            const source = ctx.createBufferSource()
-            source.buffer = decoded
-            source.connect(ctx.destination)
-            const startAt = Math.max(nextPlayTimeRef.current, ctx.currentTime)
-            source.start(startAt)
-            nextPlayTimeRef.current = startAt + decoded.duration
-            if (event.isFinal) schedulePlaybackUiEnd(ctx)
-          } catch {
-            acceptTtsChunksRef.current = false
-            clearPlaybackEndTimer()
-            setIsSpeaking(false)
-          }
-        })()
-      } else {
-        // 本地 VITS：PCM Float32 直接播放
-        try {
-          const rawSamples: Float32Array = event.samples instanceof Float32Array
-            ? event.samples
-            : new Float32Array(event.samples)
-          // copyToChannel 在部分 TS 目标下要求 ArrayBuffer 型 Float32Array，复制一份以统一类型
-          const samples = new Float32Array(rawSamples)
-          const sampleRate: number = event.sampleRate > 0 ? event.sampleRate : 22050
-
-          if (ctx.state === 'running' && samples.length > 0) {
-            const buffer = ctx.createBuffer(1, samples.length, sampleRate)
-            buffer.copyToChannel(samples, 0)
-            const source = ctx.createBufferSource()
-            source.buffer = buffer
-            source.connect(ctx.destination)
-
-            const startAt = Math.max(nextPlayTimeRef.current, ctx.currentTime)
-            source.start(startAt)
-            nextPlayTimeRef.current = startAt + buffer.duration
-          }
-
-          if (event.isFinal) schedulePlaybackUiEnd(ctx)
-        } catch {
-          acceptTtsChunksRef.current = false
-          clearPlaybackEndTimer()
-          setIsSpeaking(false)
-        }
-      }
-    })
-
-    return unsubscribe
-  }, [])
-
-  // 组件卸载时停止朗读
-  useEffect(() => {
-    return () => {
-      acceptTtsChunksRef.current = false
-      clearPlaybackEndTimer()
-      // 只停「本组件发起的那一次」（理由见 startedPreviewRef）：无条件发会让任意一行
-      // 卸载都掐断别人的朗读，而窗口化让「滚动导致卸载」成了日常路径
-      if (startedPreviewRef.current) {
-        const electronAPI = (window as any).electronAPI
-        electronAPI?.voice?.sendCommand({ type: 'voice:tts:stop-preview' }).catch(() => {})
-      }
-      audioCtxRef.current?.close()
-    }
-  }, [])
 
   if (isEditing) {
     return (

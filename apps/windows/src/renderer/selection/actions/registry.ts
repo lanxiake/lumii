@@ -6,10 +6,11 @@
  */
 
 import { localActions } from './local-actions'
+import { singleActions } from './single-actions'
 import type { SelectionAction, SelectionSurface } from './types'
 
-/** P1 的 singleActions、P3 的 agentActions 按同样的方式并进来 */
-const ALL_ACTIONS: readonly SelectionAction[] = [...localActions]
+/** P3 的 agentActions 按同样的方式并进来 */
+const ALL_ACTIONS: readonly SelectionAction[] = [...localActions, ...singleActions]
 
 export function getActionsFor(surface: SelectionSurface): SelectionAction[] {
   const list = ALL_ACTIONS.filter((a) => a.surface === 'both' || a.surface === surface)
