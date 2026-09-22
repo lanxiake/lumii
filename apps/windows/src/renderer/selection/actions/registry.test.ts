@@ -14,18 +14,28 @@ afterEach(() => {
 })
 
 describe('getActionsFor', () => {
-  it('浮条返回 bar/both 的动作，按 barOrder 排序', () => {
-    const ids = getActionsFor('bar').map((a) => a.id)
+  const BAR_IDS = ['quote', 'translate', 'explain', 'copy']
+  const MENU_IDS = ['quote', 'copy', 'translate', 'explain', 'summarize', 'polish']
 
-    expect(ids).toEqual(['quote', 'copy'])
+  it('浮条只放四项，按 barOrder 排序（引用首位、复制末位）', () => {
+    expect(getActionsFor('bar').map((a) => a.id)).toEqual(BAR_IDS)
   })
 
   it('浮条里「引用」必须排第一', () => {
     expect(getActionsFor('bar')[0]!.id).toBe('quote')
   })
 
-  it('菜单同样是这两个本地动作', () => {
-    expect(getActionsFor('menu').map((a) => a.id)).toEqual(['quote', 'copy'])
+  it('菜单是全量：浮条装不下的总结/润色只在这里', () => {
+    const ids = getActionsFor('menu').map((a) => a.id)
+    expect(ids).toEqual(MENU_IDS)
+    expect(ids).toContain('summarize')
+    expect(ids).toContain('polish')
+  })
+
+  it('L2 动作按 single 档位声明（渲染层据此分区）', () => {
+    for (const id of ['translate', 'explain', 'summarize', 'polish']) {
+      expect(getActionsFor('menu').find((a) => a.id === id)?.tier).toBe('single')
+    }
   })
 
   it('每次调用返回新数组，调用方排序/过滤不会污染注册表', () => {
@@ -34,7 +44,7 @@ describe('getActionsFor', () => {
 
     expect(first).not.toBe(second)
     first.reverse()
-    expect(getActionsFor('bar').map((a) => a.id)).toEqual(['quote', 'copy'])
+    expect(getActionsFor('bar').map((a) => a.id)).toEqual(BAR_IDS)
   })
 })
 

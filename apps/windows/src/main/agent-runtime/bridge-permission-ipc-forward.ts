@@ -21,6 +21,34 @@ type LoosePermissionPayload = {
 }
 
 /**
+ * 审批**有结果**后广播解除事件（用户响应 / 超时 / 自动放行 / 停止时批量拒绝）。
+ *
+ * 与上面那族不同：那些转发的是**内核**事件，这个由宿主在
+ * `bridge-instance-factory` 的 `requestPermission` 出口主动发出——那条路径是
+ * 全部审批出口的汇合点（自动放行 / 渠道回复 / 审批卡 / 原生对话框 / 超时）。
+ * 消费方（宠物多会话记账、pet-core 的 L1 状态机）靠它解除 waiting，
+ * 详见 `AgentPermissionResolvedEvent` 的注释。
+ */
+export function forwardPermissionResolved(
+  ipc: BridgeRendererIpcChannel,
+  input: {
+    readonly requestId: string
+    readonly toolName: string
+    readonly instanceId?: string
+    readonly rootSessionKey?: string
+    readonly decision: 'allow-once' | 'allow-always' | 'deny'
+  },
+): void {
+  ipc.forwardIpcEvent({
+    type: input.decision === 'deny' ? 'agent:permission:denied' : 'agent:permission:granted',
+    requestId: input.requestId,
+    toolName: input.toolName,
+    instanceId: input.instanceId,
+    rootSessionKey: input.rootSessionKey,
+  })
+}
+
+/**
  * 将权限相关事件按类型转发为 IPC 新格式事件
  */
 export function forwardPermissionRuntimeToIpc(

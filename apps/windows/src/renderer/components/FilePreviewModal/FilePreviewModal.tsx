@@ -31,6 +31,7 @@ import { PdfJsPreview } from './PdfJsPreview'
 import { ExcelPreview } from './ExcelPreview'
 import styles from './FilePreviewModal.module.css'
 import { buildZoomedSrcDoc, clampZoom, ZOOM_MAX, ZOOM_MIN, ZOOM_STEP } from './zoom-utils'
+import { IFRAME_SELECTION_SCRIPT } from '../../selection/webview-bridge'
 
 /** PPTX 预览按需加载，避免启动时拉 pptx-preview/lodash 导致白屏 */
 const PptxPreview = React.lazy(() =>
@@ -54,6 +55,25 @@ interface WebviewZoomApi {
   setZoomFactor?: (factor: number) => void
   addEventListener?: (type: string, listener: () => void) => void
   removeEventListener?: (type: string, listener: () => void) => void
+}
+
+/**
+ * HTML 预览专用 preload（把划词选区送回宿主）。
+ *
+ * 用 window.location 解析相对路径、而不是 import.meta.url：两者的基准都是
+ * `apps/windows/out/` —— 产物是 `out/renderer/index.html` + `out/preload/*.js`；
+ * dev 下渲染层由 vite 托管，但 preload 仍构建到 `out/preload/`，而 dev server
+ * 的根就是 `out/renderer`，两层 `..` 一样落回 `out/`。
+ *
+ * `new URL` 在 jsdom 里没有 document 可依，故有兜底。
+ */
+function resolveWebviewSelectionPreload(): string | undefined {
+  try {
+    const base = new URL('../', window.location.href)
+    return new URL('preload/webview-selection.js', base).href
+  } catch {
+    return undefined
+  }
 }
 
 const HtmlActiveSandboxFrame: React.FC<{ content: string; fileName: string; zoom: number }> = ({ content, fileName, zoom }) => {
@@ -89,6 +109,9 @@ const HtmlActiveSandboxFrame: React.FC<{ content: string; fileName: string; zoom
       ref={(el) => { webviewRef.current = el as unknown as WebviewZoomApi | null }}
       src={blobUrl}
       title={fileName}
+      // 取词：webview 是独立文档，宿主收不到它的鼠标事件，靠这个 preload 送回来
+      // （见 src/preload/webview-selection.ts 与 renderer/selection/webview-bridge.ts）
+      preload={resolveWebviewSelectionPreload()}
       className={styles.sandboxFrame}
     />
   )
@@ -97,12 +120,16 @@ const HtmlActiveSandboxFrame: React.FC<{ content: string; fileName: string; zoom
 /**
  * CSS / SVG 静态内容预览：无脚本需求，直接用 srcDoc 渲染，不授予任何脚本权限。
  * 缩放通过向 srcDoc 注入 <style>body{zoom:...}</style> 实现（zoom 不穿透 iframe 边界）。
+ *
+ * 例外：会额外注入一段**取词**脚本（见 IFRAME_SELECTION_SCRIPT）—— 划词要在预览里
+ * 也能用，而 iframe 的文档宿主同样收不到。`sandbox=""` 只限制导航与同源，
+ * 内联脚本仍可执行（本组件本来就靠注入 style 实现缩放）。
  */
 const HtmlStaticSandboxFrame: React.FC<{ content: string; fileName: string; zoom: number }> = ({ content, fileName, zoom }) => (
   <iframe
     className={styles.sandboxFrame}
     sandbox=""
-    srcDoc={buildZoomedSrcDoc(content, zoom)}
+    srcDoc={IFRAME_SELECTION_SCRIPT + buildZoomedSrcDoc(content, zoom)}
     title={fileName}
   />
 )

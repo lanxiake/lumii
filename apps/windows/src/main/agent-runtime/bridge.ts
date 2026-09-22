@@ -680,6 +680,20 @@ export class AgentRuntimeBridge {
   }
 
   /**
+   * 划词单轮调用（渲染层 L2 动作）要用的 stream + model。
+   *
+   * 与 callLLM 共用同一套四级降级（见 compactor.resolveCallStream），但**不走
+   * callLLM** —— 那条路会把完整 prompt 与输出写进日志文件，划词走它等于把用户
+   * 选中的正文落盘。
+   */
+  resolveSelectionChatStream():
+    | { streamFn: StreamFn; model: import('@mariozechner/pi-ai').Model<any> }
+    | undefined {
+    const resolved = this.compactor.resolveCallStream()
+    return resolved ? { streamFn: resolved.innerStream, model: resolved.model } : undefined
+  }
+
+  /**
    * 无 Agent 实例时为 callLLM 构造独立 direct stream + chat 模型。
    * 读取最新 chat 槽配置；未启用或缺少 modelId 时返回 undefined（由 callLLM 抛明确错误）。
    */

@@ -41,6 +41,14 @@ export interface UseSelectionWatcherOptions {
 export interface UseSelectionWatcherResult {
   view: SelectionView | null
   close: () => void
+  /**
+   * 外部来源直接投一个选区进来（`null` 即收起）。
+   *
+   * 目前只有一条来源：HTML 预览的 `<webview>` —— 它的文档不在宿主里，
+   * 宿主收不到鼠标事件，只能由 guest 的 preload 把选区送过来
+   * （见 webview-bridge.ts）。宿主自己划的选区不走这里。
+   */
+  showView: (view: SelectionView | null) => void
 }
 
 export function useSelectionWatcher(
@@ -133,5 +141,5 @@ export function useSelectionWatcher(
     }
   }, [closeOnKey, close])
 
-  return { view, close }
+  return { view, close, showView: setView }
 }

@@ -181,7 +181,10 @@ export function reduceAgentActivity(
 
     case "tool-start": {
       // 工具跑起来了 ⇒ 不管之前在等什么，都已经不 waiting 了。
-      // 这是防御性的：`permission:granted` 等事件只发一次，丢了就永远卡在 waiting。
+      // 这是防御性的：`permission:granted` 等解除事件是「发一次」的，丢了就永远卡在 waiting。
+      // （2026-09-22 补：这类事件的发送者此前**根本不存在**——宿主侧实测见
+      // `verify/pet-sprite/check-foreign-attention.mjs`；现在由
+      // `bridge-instance-factory` 的 requestPermission 出口广播，本分支继续兜底。）
       const base = prev.activity === "waiting" ? withActivity(prev, prev.resumeTo, t) : prev;
       const next = withActivity(base, "working", t);
       // lastToolEndAt 必须清空——否则 tick 会拿「上一个工具结束的时刻」误判本段已结束。

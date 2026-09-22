@@ -44,10 +44,12 @@ import {
   agentRuntimeApi,
   screenRecordApi,
   userGuidesApi,
+  selectionApi,
   autonomousApi,
   cloudSyncApi,
 } from './api'
 import type { BundledUserGuideContent, BundledUserGuideIndex } from '../shared/user-guides-types'
+import type { SelectionLlmRequest, SelectionLlmResult } from '../shared/selection-llm-types'
 import { createEventListenerRegistry } from './event-listener-registry'
 
 // 日志输出
@@ -358,6 +360,11 @@ export interface ElectronAPI {
   userGuides: {
     list: () => Promise<readonly BundledUserGuideIndex[]>
     read: (guideId: string) => Promise<BundledUserGuideContent>
+  }
+  /** 划词单轮 LLM（翻译/解释/总结/润色），不进对话历史 */
+  selection: {
+    run: (request: SelectionLlmRequest) => Promise<SelectionLlmResult>
+    abort: (requestId: string) => Promise<boolean>
   }
   app: {
     getVersion: () => Promise<string>
@@ -1367,6 +1374,8 @@ const electronAPI: ElectronAPI = {
   splash: splashApi,
 
   userGuides: userGuidesApi,
+
+  selection: selectionApi,
 
   // 应用操作 API
   app: appApi,

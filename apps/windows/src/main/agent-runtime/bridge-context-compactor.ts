@@ -139,6 +139,26 @@ export class BridgeContextCompactor {
   }
 
   /**
+   * 解析单轮调用要用的 (stream, model)，但不发起调用。
+   *
+   * 与 callLLM 共用同一套四级降级。单独开放这个方法，是因为划词动作要走同一份
+   * 解析、却**不能**走 callLLM —— callLLM 会把完整 prompt 与输出写进日志文件
+   * （见其方法内的日志说明），划词要复用它就等于把用户选中的正文落盘。
+   *
+   * 与 callLLM 的差别：不传 instanceId（划词不属于任何 Agent 实例）。
+   */
+  resolveCallStream(): { innerStream: InnerStreamRef; model: ModelRef } | undefined {
+    const main = this.deps.getMainInnerStream()
+    const mainModel = this.deps.getMainModel()
+    if (main && mainModel) return { innerStream: main, model: mainModel }
+
+    const any = this.deps.getAnyInstanceStream?.()
+    if (any) return any
+
+    return this.deps.getFallbackStream?.()
+  }
+
+  /**
    * 同步裁剪指定会话上下文（无 LLM 摘要，至少保留 1 条）。
    * 短对话也会按一半历史压缩，不再因「不足 12 条」直接跳过。
    *

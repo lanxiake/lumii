@@ -1,0 +1,164 @@
+/* 划词结果气泡：与浮条同一套毛玻璃视觉 */
+.selection-bubble {
+  position: fixed;
+  /* 同浮条：选区可能在文件预览弹窗等浮层之上 */
+  z-index: var(--z-selection);
+  display: flex;
+  flex-direction: column;
+  gap: var(--mt-space-1);
+  width: max-content;
+  max-width: 420px;
+  min-width: 240px;
+  padding: var(--mt-space-2);
+  border: 1px solid var(--mt-glass-stroke);
+  border-radius: var(--mt-radius-lg);
+  background: var(--mt-glass-bg);
+  backdrop-filter: blur(18px) saturate(1.4);
+  box-shadow: var(--mt-shadow-lg);
+  /* 气泡里要能选中结果文字（与浮条不同：浮条是纯按钮，气泡有正文） */
+  user-select: text;
+  animation: mt-selection-bubble-enter var(--mt-dur-fast) var(--mt-ease-standard);
+}
+
+/* 同浮条：只做透明度不做 scale —— 定位是「先量后定位」，transform 会把量到的尺寸带偏 */
+@keyframes mt-selection-bubble-enter {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.selection-bubble__head {
+  display: flex;
+  align-items: center;
+  gap: var(--mt-space-2);
+  /* 头部可拖动：光标提示 + 拖的时候别把标题选起来 */
+  cursor: move;
+  user-select: none;
+  touch-action: none;
+}
+
+.selection-bubble__title {
+  flex: none;
+  color: var(--mt-fg-1);
+  font-size: var(--mt-fs-xs);
+  font-weight: 600;
+}
+
+.selection-bubble__source {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--mt-fg-3);
+  font-size: var(--mt-fs-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.selection-bubble__icon-button {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  border: none;
+  border-radius: var(--mt-radius-sm);
+  background: transparent;
+  color: var(--mt-fg-3);
+  cursor: pointer;
+}
+
+.selection-bubble__icon-button:hover {
+  background: var(--mt-surface-2);
+  color: var(--mt-fg-1);
+}
+
+.selection-bubble__body {
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.selection-bubble__result {
+  margin: 0;
+  color: var(--mt-fg-1);
+  font-size: var(--mt-fs-sm);
+  line-height: 1.6;
+  /* 换行与连续空白按原文保留：译文里的换行是有意义的 */
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.selection-bubble__error {
+  margin: 0;
+  color: var(--mt-error);
+  font-size: var(--mt-fs-xs);
+  line-height: 1.5;
+}
+
+.selection-bubble__pending {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--mt-fg-3);
+  font-size: var(--mt-fs-xs);
+}
+
+.selection-bubble__pending > span:last-child {
+  margin-left: 2px;
+}
+
+.selection-bubble__dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: mt-selection-bubble-dot 1.2s var(--mt-ease-standard) infinite;
+}
+
+.selection-bubble__dot:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.selection-bubble__dot:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes mt-selection-bubble-dot {
+  0%,
+  60%,
+  100% {
+    opacity: 0.25;
+  }
+  30% {
+    opacity: 1;
+  }
+}
+
+.selection-bubble__foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--mt-space-1);
+}
+
+.selection-bubble__action {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px var(--mt-space-2);
+  border: none;
+  border-radius: var(--mt-radius-md);
+  background: transparent;
+  color: var(--mt-fg-2);
+  font-size: var(--mt-fs-xs);
+  cursor: pointer;
+  transition:
+    background var(--mt-dur-normal) var(--mt-ease-standard),
+    color var(--mt-dur-normal) var(--mt-ease-standard);
+}
+
+.selection-bubble__action:hover {
+  background: var(--mt-surface-2);
+  color: var(--mt-fg-1);
+}
