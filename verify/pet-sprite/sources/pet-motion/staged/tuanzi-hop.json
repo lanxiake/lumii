@@ -1,0 +1,32 @@
+{
+  "source": "cat-idle.png",
+  "canvas": {
+    "w": 576,
+    "h": 672
+  },
+  "aspect": 0.783,
+  "figureHeightRatio": 0.7,
+  "baselineRatio": 0.95,
+  "background": "#00ccff",
+  "estimatedBackground": "rgb(1,206,253)",
+  "solidTolerance": 48,
+  "backgroundMaxDistance": 15.1,
+  "backgroundShare": 61.5,
+  "sourceBBox": {
+    "minX": 756,
+    "minY": 55,
+    "maxX": 1167,
+    "maxY": 580,
+    "w": 412,
+    "h": 526,
+    "components": 6,
+    "merged": 1
+  },
+  "figureHeightPx": 470,
+  "figureWidthPx": 368,
+  "placement": {
+    "left": 104,
+    "top": 168,
+    "baselineRow": 637
+  }
+}

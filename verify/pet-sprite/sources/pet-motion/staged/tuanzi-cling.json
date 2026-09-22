@@ -1,0 +1,33 @@
+{
+  "source": "f0052.png",
+  "canvas": {
+    "w": 768,
+    "h": 672
+  },
+  "aspect": 0.672,
+  "figureHeightRatio": 0.89,
+  "baselineRatio": 0.93,
+  "keepScale": true,
+  "background": "#00ccff",
+  "estimatedBackground": "rgb(1,199,249)",
+  "solidTolerance": 48,
+  "backgroundMaxDistance": 10.9,
+  "backgroundShare": 74.9,
+  "sourceBBox": {
+    "minX": 246,
+    "minY": 42,
+    "maxX": 647,
+    "maxY": 639,
+    "w": 402,
+    "h": 598,
+    "components": 4,
+    "merged": 3
+  },
+  "figureHeightPx": 598,
+  "figureWidthPx": 402,
+  "placement": {
+    "left": 183,
+    "top": 27,
+    "baselineRow": 624
+  }
+}
