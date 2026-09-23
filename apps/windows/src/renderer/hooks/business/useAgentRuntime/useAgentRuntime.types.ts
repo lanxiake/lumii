@@ -17,6 +17,8 @@ export interface DbMessage {
   isVoice?: boolean
   /** 用户中途插话（Agent 运行途中注入的引导消息） */
   isSteer?: boolean
+  /** 插话尚未被模型看到（已入队，还没被注入下一轮请求）——气泡显示「等待注入」 */
+  steerPending?: boolean
   audioWavBase64?: string
   contentJson?: string
   toolCalls?: readonly {

@@ -90,6 +90,14 @@ export interface InstanceState {
   unsubscribe?: () => void
   /** 本轮流式助手消息行 ID（agent:start 插入，agent:end 收尾） */
   streamingAssistantMsgId?: string
+  /**
+   * 当前 assistant 分段的**开始时刻**（ISO 串）。
+   *
+   * 为什么单独记：流式持久化每次写入都把该行 timestamp 推到当下，所以行上的值早已不是
+   * 段起点。插话处封口需要段起点才能保证排序正确（旧段排在插话之前）——详见
+   * ConversationRepo.updateMessageContent 的 timestampOverride。
+   */
+  streamingSegmentStartedAt?: string
   /** 最近一轮 message:end 的 token 用量（写入最终行） */
   lastAssistantUsage?: {
     inputTokens: number

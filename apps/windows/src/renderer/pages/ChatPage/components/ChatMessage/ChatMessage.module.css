@@ -477,6 +477,47 @@
   width: fit-content;
 }
 
+/**
+ * 待注入态：插话已发出、但模型还没看到它。
+ *
+ * 这段窗口可以很长——插话要等当前工具批收尾后才在下一轮 provider 请求被注入，
+ * 实测 bash 跑 30s，spawn_agent 可达数分钟。期间用虚线与弱化色表达「尚未生效」，
+ * 与已注入的实线强调态区分开，免得用户以为说了没反应。
+ */
+.steer-badge--pending {
+  background-color: transparent;
+  border-style: dashed;
+  border-color: var(--color-text-tertiary);
+  color: var(--color-text-secondary);
+}
+
+/* 呼吸点：表示还在推进，而不是卡住了 */
+.steer-badge--pending::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: currentColor;
+  animation: steer-pending-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes steer-pending-pulse {
+  0%,
+  100% {
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .steer-badge--pending::before {
+    animation: none;
+    opacity: 0.6;
+  }
+}
+
 /* 中断不是失败：中性灰，与 SubAgentRun 的 .status--interrupted 同一语义。
  *
  * 原来用 warning 黄 —— `--color-warning-light`(#fde047 亮黄) 压在 `--color-warning-15`

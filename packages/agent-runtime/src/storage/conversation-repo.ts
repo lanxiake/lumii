@@ -873,16 +873,29 @@ export class ConversationRepo {
     readonly conversationId: string;
     readonly contentJson: MessageContentJson;
     readonly isStreaming: boolean;
+    /**
+     * 显式指定该行写入后的 timestamp（ISO 串）。缺省 = 现在。
+     *
+     * 给**封口**用（插话处把 assistant 消息收口、另起一段）：那时若用"现在"，这一段会排到
+     * 插话**之后**，阅读顺序颠倒（实测：旧段 12:52:58、插话 12:52:56）。
+     * 注意不能只"保留原值"——流式持久化每次都会把 timestamp 推到当下，原值早已不是段起点。
+     * 所以调用方要带上**该段开始的时刻**，由本参数写回。
+     *
+     * 默认（现在）是既有语义：assistant 行的 timestamp 记的是**完成时刻**，其它路径依赖它。
+     */
+    readonly timestampOverride?: string;
   }): number {
     const contentStr = JSON.stringify(params.contentJson);
     const now = new Date().toISOString();
+    const rowTimestamp = params.timestampOverride ?? now;
     const changes = withTransaction(this.db, () => {
       const result = this.db
         .prepare(
           `UPDATE messages SET content_json = ?, is_streaming = ?, timestamp = ?
          WHERE id = ? AND conversation_id = ?`,
         )
-        .run(contentStr, params.isStreaming ? 1 : 0, now, params.messageId, params.conversationId);
+        .run(contentStr, params.isStreaming ? 1 : 0, rowTimestamp, params.messageId, params.conversationId);
+      // last_msg_at 始终推进到当下：它表达的是"会话最近有动静"，与某一行的时间戳语义不同
       this.db
         .prepare("UPDATE conversations SET last_msg_at = ? WHERE id = ?")
         .run(now, params.conversationId);

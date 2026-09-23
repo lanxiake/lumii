@@ -59,6 +59,8 @@ export interface ChatMessage {
    * 气泡据此加「插话」标记，与常规提问区分开。
    */
   isSteer?: boolean
+  /** 插话尚未被模型看到（已入队，还没被注入下一轮请求）——气泡显示「等待注入」 */
+  steerPending?: boolean
   /** 原始录音 WAV base64（仅语音消息，用于气泡点击回放） */
   audioWavBase64?: string
   /** 助手消息结构化时间线（thinking / text / tool 交错） */

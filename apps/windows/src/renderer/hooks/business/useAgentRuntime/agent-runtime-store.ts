@@ -54,6 +54,14 @@ export interface RuntimeMessage {
    * 气泡据此加标记：它插进的是正在跑的回合，不是新起一轮对话。
    */
   readonly isSteer?: boolean
+  /**
+   * 插话尚未被模型看到（已入队、但还没被注入下一轮请求）。
+   *
+   * 长工具运行期间这段窗口可以很长（实测 bash 30s，spawn_agent 可达数分钟），
+   * 期间用户只看到气泡出现、无从判断生效没有。气泡据此显示「等待注入」，
+   * 收到 `steer:delivered` 后转为普通插话。
+   */
+  readonly steerPending?: boolean
   /** 原始录音 WAV base64，用于气泡点击回放 */
   readonly audioWavBase64?: string
   readonly toolCalls: readonly RuntimeToolCall[]

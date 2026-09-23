@@ -117,6 +117,7 @@ function mapRuntimeMessageToChatMessage(msg: RuntimeMessage) {
     acpBackendLabel: msg.acpBackendLabel,
     isVoice: msg.isVoice,
     isSteer: msg.isSteer,
+    steerPending: msg.steerPending,
     audioWavBase64: msg.audioWavBase64,
   }
 }

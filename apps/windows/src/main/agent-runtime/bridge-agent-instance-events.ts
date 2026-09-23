@@ -173,6 +173,11 @@ function finalizeStreamingAssistantMessage(params: {
   aborted?: boolean
   logTag: string
   interrupted?: boolean
+  /**
+   * 显式指定该行写入后的 timestamp（ISO 串）。只有「插话处封口」用得上：
+   * 那时要用**该段开始的时刻**，否则这一段会排到插话之后（见 ConversationRepo 的说明）。
+   */
+  timestampOverride?: string
 }): boolean {
   const { conversationRepo, messageId, conversationId, parts, usage, sourceAgent, logTag } = params
   const finalizedParts = finalizeAssistantParts(parts, { interrupted: params.interrupted !== false })
@@ -192,6 +197,7 @@ function finalizeStreamingAssistantMessage(params: {
       conversationId,
       contentJson,
       isStreaming: false,
+      ...(params.timestampOverride ? { timestampOverride: params.timestampOverride } : {}),
     })
     log.info(
       `[event] ${logTag} 已保留中断消息 messageId=${messageId}, parts=${contentJson.parts.length}`,
@@ -489,6 +495,7 @@ export function createAgentInstanceRuntimeEventHandler(
       }
       if (state) {
         state.streamingAssistantMsgId = undefined
+        state.streamingSegmentStartedAt = undefined
         state.pendingParts = []
         state.toolCallArgs = new Map()
         state.lastAssistantUsage = undefined
@@ -540,7 +547,10 @@ export function createAgentInstanceRuntimeEventHandler(
               },
               isStreaming: true,
             })
-            if (state) state.streamingAssistantMsgId = row.id
+            if (state) {
+              state.streamingAssistantMsgId = row.id
+              state.streamingSegmentStartedAt = new Date().toISOString()
+            }
             ctx.currentMessageId = row.id
             log.info(`[event] agent:start 创建流式占位行: msgId=${row.id}, conversationId=${convId}, is_streaming=${row.is_streaming}`)
           } catch (err) {
@@ -572,6 +582,107 @@ export function createAgentInstanceRuntimeEventHandler(
     }
 
     forwardPermissionRuntimeToIpc(ipcChannel, instanceId, event)
+
+    // 插话注入 → 对话流在此分段：把当前 assistant 段收口，另起一条承接插话之后的 parts。
+    //
+    // 为什么必须分段：本模块原本「一个 run 一条 assistant 行」（占位在 agent:start 建、
+    // 之后所有 parts 都追加到它）。而 pi 内部**每次 provider 请求各产出一条 assistant 消息**，
+    // 插话后必然是新一次请求 —— 合在一起会让「插话前的执行记录」与「插话后的」挤进同一个
+    // 「执行过程」折叠块（2026-09-23 用户实测提出）。
+    //
+    // 为什么时机由 AgentInstance 的 prepareRequest 给定、而不是在 steer() 入队时：
+    // 入队那一刻可能还有工具在跑（实测 bash 启动于插话前 20:13:24、返回于插话后 20:13:54），
+    // 那时切分会把同一个工具拆成两半 —— tool:start 进旧段、tool:end 找不到 part 而新建一个。
+    // prepareRequest 触发时 loop 刚把插话推入 context、新段 parts 还没开始，是干净的边界。
+    if (event.type === 'steer:delivered') {
+      const steerState = instanceStates.get(instanceId)
+      const steerConvId = instanceToConversation.get(instanceId)
+      if (steerState && steerConvId && conversationRepo) {
+        const prevMsgId = steerState.streamingAssistantMsgId
+        const prevParts = [...steerState.pendingParts]
+        // 1) 旧段收口。无内容（只有空占位）时不落库，直接删掉——否则会多出一条空气泡
+        if (prevMsgId && prevMsgId !== '__PLACEHOLDER_FAILED__') {
+          const kept = finalizeStreamingAssistantMessage({
+            conversationRepo,
+            messageId: prevMsgId,
+            conversationId: steerConvId,
+            parts: prevParts,
+            usage: steerState.lastAssistantUsage,
+            sourceAgent: sourceAgentInfo,
+            ...(steerState.lastLlmError ? { llmError: steerState.lastLlmError } : {}),
+            ...(steerState.lastAborted ? { aborted: true } : {}),
+            logTag: 'steer:delivered',
+            // 用**该段开始的时刻**写回，而不是"现在"：收口时刻晚于插话的 timestamp，
+            // ChatContainer 按时间排序会把「插话前的执行记录」排到插话之后，阅读顺序颠倒。
+            // 也不能只"保留原值"——流式持久化每次写入都把它推到当下，原值早已不是段起点。
+            ...(steerState.streamingSegmentStartedAt
+              ? { timestampOverride: steerState.streamingSegmentStartedAt }
+              : {}),
+          })
+          if (!kept) {
+            try {
+              conversationRepo.deleteMessage(prevMsgId, steerConvId)
+              log.info(`[event] steer:delivered 删除空占位行 msgId=${prevMsgId}`)
+            } catch (err) {
+              log.warn(
+                `[event] steer:delivered 删除空占位行失败: ${err instanceof Error ? err.message : String(err)}`,
+              )
+            }
+          }
+        }
+        // 2) 另起一条承接插话之后的 parts
+        try {
+          const row = conversationRepo.saveMessage({
+            conversationId: steerConvId,
+            role: 'assistant',
+            contentJson: {
+              type: 'assistant_parts',
+              parts: [],
+              ...(sourceAgentInfo ? { sourceAgent: sourceAgentInfo } : {}),
+            },
+            isStreaming: true,
+          })
+          steerState.streamingAssistantMsgId = row.id
+          steerState.streamingSegmentStartedAt = new Date().toISOString()
+          steerState.pendingParts = []
+          steerState.lastAssistantUsage = undefined
+          // 3) converter 后续所有事件改用新 id（message:start / delta / message:end 都读它），
+          //    文本偏移同时归零——新气泡的正文从头开始，不接上一段的长度
+          ctx.currentMessageId = row.id
+          ctx.accumulatedLength = 0
+          ctx.completedTurnsLength = 0
+          ctx.thinkTagState = 'idle'
+          ctx.thinkTagBuf = ''
+          // 4) 显式通知渲染层换气泡。不走出下面的通用 converter：那条路径见到
+          //    currentMessageId 已存在会按「同一气泡续轮」处理（completedTurnsLength = len + 2），
+          //    给新气泡带上多余偏移。
+          ipcChannel.forwardIpcEvent({
+            type: 'agent:message:start',
+            runId: ctx.runId,
+            sessionKey: ctx.sessionKey,
+            messageId: row.id,
+            model: ctx.resolvedModelId ?? 'unknown',
+            timestamp: Date.now(),
+            instanceId: ctx.instanceId,
+            rootSessionKey: ctx.rootSessionKey,
+          } as unknown as RendererIpcEvent)
+          log.info(
+            `[event] steer:delivered 已分段：旧段 msgId=${prevMsgId ?? '(无)'} → 新段 msgId=${row.id}, conversationId=${steerConvId}`,
+          )
+        } catch (err) {
+          log.error(`[event] steer:delivered 另起占位行失败:`, err)
+        }
+      }
+      // 无论分段成功与否都要发：渲染层据此把「等待注入」的插话气泡转成普通插话。
+      // 分段失败不该连状态提示一起吞掉。
+      ipcChannel.forwardIpcEvent({
+        type: 'steer:delivered',
+        runId: ctx.runId,
+        sessionKey: ctx.sessionKey,
+        instanceId: ctx.instanceId,
+        rootSessionKey: ctx.rootSessionKey,
+      } as unknown as RendererIpcEvent)
+    }
 
     if (event.type === 'tool:start') {
       setCurrentToolExecutorInstanceId(instanceId)
@@ -842,6 +953,7 @@ export function createAgentInstanceRuntimeEventHandler(
       // （防御迟到的旧 error 事件在新回合 agent:start 之后到达、误删新占位）
       if (state && state.streamingAssistantMsgId === msgId) {
         state.streamingAssistantMsgId = undefined
+        state.streamingSegmentStartedAt = undefined
         state.lastAssistantUsage = undefined
       }
 
@@ -971,6 +1083,7 @@ export function createAgentInstanceRuntimeEventHandler(
         ) {
           state.pendingParts = []
           state.streamingAssistantMsgId = undefined
+        state.streamingSegmentStartedAt = undefined
           state.lastAssistantUsage = undefined
         }
 

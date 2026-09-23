@@ -1299,8 +1299,19 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
       <div className={styles['message-avatar']}>{roleLabel}</div>
       <div className={styles['message-content-wrapper']}>
         {message.role === 'user' && message.isSteer && (
-          <div className={styles['steer-badge']} title="Agent 正在执行时插入的引导消息，不是新起的一轮对话">
-            插话
+          <div
+            className={
+              message.steerPending
+                ? `${styles['steer-badge']} ${styles['steer-badge--pending']}`
+                : styles['steer-badge']
+            }
+            title={
+              message.steerPending
+                ? '已发出，等 Agent 跑完当前工具批后注入——模型还没看到这条'
+                : 'Agent 正在执行时插入的引导消息，不是新起的一轮对话'
+            }
+          >
+            {message.steerPending ? '插话 · 等待注入' : '插话'}
           </div>
         )}
         {content}

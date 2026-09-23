@@ -44,6 +44,8 @@ interface MessageItem {
   isVoice?: boolean
   /** 用户中途插话（Agent 运行途中注入的引导消息） */
   isSteer?: boolean
+  /** 插话尚未被模型看到——气泡显示「等待注入」 */
+  steerPending?: boolean
   /** 原始录音 WAV base64，用于气泡点击回放 */
   audioWavBase64?: string
   /** 助手消息结构化时间线 */
@@ -180,6 +182,7 @@ const ChatMessageRow: React.FC<ChatMessageRowProps> = ({
     acpBackendLabel: item.acpBackendLabel,
     isVoice: item.isVoice,
     isSteer: item.isSteer,
+    steerPending: item.steerPending,
     parts: item.parts,
     fileChanges: item.fileChanges,
   }), [item])
@@ -409,6 +412,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
       acpBackendLabel: (msg as { acpBackendLabel?: string }).acpBackendLabel,
       isVoice: (msg as { isVoice?: boolean }).isVoice,
       isSteer: (msg as { isSteer?: boolean }).isSteer,
+      steerPending: (msg as { steerPending?: boolean }).steerPending,
       audioWavBase64: (msg as { audioWavBase64?: string }).audioWavBase64,
       parts: (msg as { parts?: readonly AssistantPart[] }).parts,
       fileChanges: (msg as { fileChanges?: readonly FileChangeEntry[] }).fileChanges,

@@ -21,6 +21,17 @@ export type AgentInstanceState = "idle" | "running" | "paused" | "error" | "abor
 export type AgentRuntimeEvent =
   | { type: "agent:start"; instanceId: string }
   | { type: "agent:end"; instanceId: string; loopInterrupted?: true; error?: string }
+  /**
+   * 插话已被注入对话：工具批已收尾、下一轮 provider 请求即将开始。
+   *
+   * 这是对话流里**天然的分段点**——此前的 parts 属于插话前那一轮，此后的属于插话后。
+   * 消费方（宿主）据此把 assistant 消息在此封口、另起一条，让「插话前的执行记录」与
+   * 「插话后的」各自成块，而不是挤进同一个「执行过程」折叠块。
+   *
+   * 为什么不在 `steer()` 入队时发：入队时可能还有工具在跑（实测 bash 启动于插话前、
+   * 返回于插话后），那时切分会把同一个工具拆成两半。
+   */
+  | { type: "steer:delivered"; instanceId: string }
   | {
       type: "agent:error";
       instanceId: string;

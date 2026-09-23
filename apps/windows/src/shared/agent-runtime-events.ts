@@ -194,6 +194,19 @@ export interface AgentIdleEvent {
   readonly sessionKey: string
 }
 
+/**
+ * 插话已被注入对话（工具批已收尾、下一轮 provider 请求即将开始）。
+ *
+ * 渲染层据此把该会话里「等待注入」的插话气泡转成普通插话。
+ * 为什么不需要带具体消息 id：`steeringMode: 'all'` 下同一次投递会把排队中的插话**一起**注入，
+ * 所以「收到本事件 → 该会话所有待注入插话都已生效」是成立的。
+ */
+export interface AgentSteerDeliveredEvent {
+  readonly type: 'steer:delivered'
+  readonly runId: string
+  readonly sessionKey: string
+}
+
 export interface AgentErrorEvent {
   readonly type: 'agent:error'
   readonly runId: string
@@ -602,6 +615,7 @@ export type AgentRuntimeEvent =
   | (AgentTurnEndEvent & AgentEventInstanceMeta)
   | (AgentTurnFileChangesEvent & AgentEventInstanceMeta)
   | (AgentIdleEvent & AgentEventInstanceMeta)
+  | (AgentSteerDeliveredEvent & AgentEventInstanceMeta)
   | (AgentErrorEvent & AgentEventInstanceMeta)
   | (AgentAbortEvent & AgentEventInstanceMeta)
   | (AgentLlmDiagnosticEvent & AgentEventInstanceMeta)

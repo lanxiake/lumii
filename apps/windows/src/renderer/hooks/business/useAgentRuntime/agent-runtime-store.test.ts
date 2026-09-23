@@ -500,7 +500,9 @@ describe('handleRuntimeEvent assistant parts', () => {
       type: 'agent:message:start',
       runId: 'run-1',
       sessionKey: 'session-1',
-      messageId: 'message-2',
+      // 同一段内的续轮**复用同一个 messageId**（主进程 converter 的 ctx.currentMessageId
+      // 一段内不变）。id 变化是「插话处封口、另起一段」的标志，见下一条用例。
+      messageId: 'message-1',
       model: 'test-model',
       timestamp: 120,
     })
@@ -508,7 +510,7 @@ describe('handleRuntimeEvent assistant parts', () => {
       type: 'agent:message:delta',
       runId: 'run-1',
       sessionKey: 'session-1',
-      messageId: 'message-2',
+      messageId: 'message-1',
       delta: '第二段',
       totalLength: 3,
     })
@@ -524,6 +526,94 @@ describe('handleRuntimeEvent assistant parts', () => {
       expect.objectContaining({ text: '第一段', status: 'done' }),
       expect.objectContaining({ text: '\n\n第二段', status: 'done' }),
     ])
+  })
+
+  it('同 run 换 messageId（插话处封口）→ 另起气泡，上一段标记为非流式', () => {
+    // 主进程在 steer:delivered（插话被注入）处封口当前 assistant 消息、另起一条承接其后的
+    // parts，并让 converter 改用新 id。渲染层必须据此换气泡 —— 否则库里两条、界面还是一条，
+    // 插话前后的执行记录仍旧挤在一个「执行过程」里（2026-09-23 用户实测提出的正是这个）。
+    startAssistantMessage()
+    handleRuntimeEvent({
+      type: 'agent:message:delta',
+      runId: 'run-1',
+      sessionKey: 'session-1',
+      messageId: 'message-1',
+      delta: '插话前的输出',
+      totalLength: 6,
+    })
+    handleRuntimeEvent({
+      type: 'agent:message:start',
+      runId: 'run-1',
+      sessionKey: 'session-1',
+      messageId: 'message-2',
+      model: 'test-model',
+      timestamp: 130,
+    })
+    handleRuntimeEvent({
+      type: 'agent:message:delta',
+      runId: 'run-1',
+      sessionKey: 'session-1',
+      messageId: 'message-2',
+      delta: '插话后的输出',
+      totalLength: 6,
+    })
+
+    const assistants = (
+      runtimeStore.getState().sessions.get('session-1')?.messages ?? []
+    ).filter((m) => m.role === 'assistant')
+    expect(assistants.map((m) => m.id)).toEqual(['message-1', 'message-2'])
+    // 上一段已封口（不再显活），新段仍在流式
+    expect(assistants[0]?.isStreaming).toBe(false)
+    expect(assistants[1]?.isStreaming).toBe(true)
+
+    // delta 是批处理的，靠 idle 冲一次再断言正文
+    handleRuntimeEvent({ type: 'agent:idle', runId: 'run-1', sessionKey: 'session-1' })
+    const after = (
+      runtimeStore.getState().sessions.get('session-1')?.messages ?? []
+    ).filter((m) => m.role === 'assistant')
+    // 两段正文各自独立，不该带 '\n\n' 拼接（那是同一段内续轮的规则）
+    const secondTexts = after[1]?.parts.filter((p) => p.type === 'text').map((p) => p.text)
+    expect(secondTexts).toEqual(['插话后的输出'])
+    const firstTexts = after[0]?.parts.filter((p) => p.type === 'text').map((p) => p.text)
+    expect(firstTexts).toEqual(['插话前的输出'])
+  })
+
+  it('steer:delivered → 该会话「等待注入」的插话翻成普通插话', () => {
+    // 长工具运行期间用户无从判断插话生效没有，气泡显示「等待注入」；
+    // 主进程在插话真正进 context 的那一刻发这个事件，渲染层据此复位。
+    runtimeStore.setState((prev) => {
+      const sessions = new Map(prev.sessions)
+      sessions.set('session-1', {
+        ...getDefaultPerSessionState(),
+        messages: [
+          {
+            id: 'steer-1',
+            role: 'user' as const,
+            content: [{ type: 'text' as const, text: '停' }],
+            parts: [],
+            timestamp: 1,
+            isStreaming: false,
+            isSteer: true,
+            steerPending: true,
+            toolCalls: [],
+          },
+        ],
+      })
+      return { ...prev, sessions }
+    })
+
+    handleRuntimeEvent({
+      type: 'steer:delivered',
+      runId: 'run-1',
+      sessionKey: 'session-1',
+      instanceId: 'inst-1',
+      rootSessionKey: 'session-1',
+    } as never)
+
+    const msg = runtimeStore.getState().sessions.get('session-1')?.messages[0]
+    expect(msg?.steerPending).toBe(false)
+    // 仍是插话（只是不再"等待注入"）
+    expect(msg?.isSteer).toBe(true)
   })
 
   it('子 Agent 插队后，同 messageId 的续轮 message:start 不得再追加重复气泡', () => {

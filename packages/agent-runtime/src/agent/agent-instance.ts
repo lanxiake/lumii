@@ -364,7 +364,15 @@ export class AgentInstance {
       // 触发时待注入消息已进对话，插话已生效，计数清零（见 pendingSteerCount 注释）。
       // 不用 async：清零是同步的，包成 async 会让返回值推导出 `Promise<void | …>`
       // 这个联合，跟 PrepareRequest 的签名对不上。
+      //
+      // 这里同时是**对话流的分段点**：loop 在 prepareRequest 之前把 pendingMessages 推入
+      // context，所以此刻「插话之前的 parts 已全部落定」且「插话之后的 parts 还没开始」。
+      // 宿主据此把 assistant 消息封口另起一条。晚一步（入队时发）会把启动于插话前、
+      // 返回于插话后的工具拆成两半；早一步则拿不到这个时机。
       prepareRequest: (context, signal) => {
+        if (this.pendingSteerCount > 0) {
+          this.emit({ type: "steer:delivered", instanceId: this.id });
+        }
         this.pendingSteerCount = 0;
         return callerPrepareRequest?.(context, signal);
       },

@@ -140,7 +140,10 @@ let deltaFlushScheduled = false
 function pendingDeltaTargetKey(target: PendingDeltaTarget): string {
   switch (target.kind) {
     case 'main_text':
-      return `main_text::${target.sessionKey}`
+      // messageId 必须进 key。合并批次时只保留最后一个 messageId，若 key 里不含它，
+      // 跨段（插话处封口换了 id）的上一段残留 delta 会被粘到**新气泡**上——实测
+      // 「插话前的输出」出现在第二个气泡里。同一段内 id 恒定，不影响原来的合并效率。
+      return `main_text::${target.sessionKey}::${target.messageId ?? '__none__'}`
     case 'sub_agent_text':
       return `sub_text::${target.sessionKey}::${target.instanceId}`
     case 'thinking':
@@ -155,9 +158,6 @@ function enqueuePendingDelta(target: PendingDeltaTarget, delta: string): void {
   const last = pendingDeltaQueue[pendingDeltaQueue.length - 1]
   if (last && pendingDeltaTargetKey(last.target) === pendingDeltaTargetKey(target)) {
     last.text += delta
-    if (target.kind === 'main_text' && target.messageId) {
-      last.target = { ...last.target, messageId: target.messageId } as PendingDeltaTarget
-    }
     return
   }
   pendingDeltaQueue.push({ target, text: delta })
@@ -559,6 +559,11 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
 
   switch (event.type) {
     case 'agent:message:start': {
+      // 先冲掉缓冲里的文本 delta。下面的「换段」分支会把上一段标记为非流式，
+      // 而 applyMainTextDeltaBatch 对非流式消息直接丢弃——若不清空缓冲，
+      // 上一段最后那批还没冲的 token 会**永久丢失**（实测：第一段正文整个不见）。
+      // 正常情况下 rAF 早已冲过，这里是防跨段时序的兜底。
+      flushPendingDeltas()
       // 记录 LLM 调用首包时间（路由映射已在 agent:turn:start 时建立，此处仅记录计时）
       setLlmStartTime(sessionKey, event.runId, Date.now())
       if (isSubAgentStreamEvent(event) && event.instanceId) {
@@ -624,58 +629,52 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
         break
       }
       updateSessionState(sessionKey, (prev) => {
-        // 同一 turn 内多次 LLM 调用复用同一条主 Agent 消息气泡（通过 turnId 识别）
-        // 优先级：
-        // 1) 同一 turn 已有主 Agent 消息 → 复用
-        // 2) 已有同 messageId 的主 Agent 消息 → 复用（防 duplicate key / 双「执行过程」）
-        // 3) 向后找最近一条 streaming 主 Agent 消息 → 复用（子消息插队时末条兜底会失效）
-        // 4) 创建新消息
+        /**
+         * 气泡归属只看 **messageId**，不再按 turnId 复用。
+         *
+         * - 同 messageId → 同一段内的续轮，复用同一气泡，正文以 '\n\n' 相接
+         *   （主进程在同一段内始终用同一个 `ctx.currentMessageId`，所以续轮的 id 不变）。
+         * - 同 turn 但**不同 messageId** → 主进程在 `steer:delivered`（插话被注入）处封了口、
+         *   另起了一条消息。这里必须另建气泡，并把上一段标记为非流式。
+         *
+         * 历史坑：原先只按 `turnId === runId` 复用，会把插话前后的两段又并回一个气泡，
+         * 分段在 UI 上完全不体现（库里两条、界面一条）。同时那条路径还会把复用气泡的 id
+         * 改写成新的 messageId，导致后续按 id 查找全部错位。
+         */
         const turnId = event.runId
 
-        // 优先查找同一 turn 的主 Agent 消息（向后查找最近一条）
+        // 1) 同 messageId（且是主 Agent 的）→ 复用
         let reuseIdx = -1
         for (let i = prev.messages.length - 1; i >= 0; i--) {
           const m = prev.messages[i]!
-          if (m.role === 'assistant' && !m.sourceAgent && m.turnId === turnId) {
+          if (m.role === 'assistant' && !m.sourceAgent && m.id === event.messageId) {
             reuseIdx = i
             break
           }
         }
 
-        // 同 messageId 已存在：绝不能再 push，否则 ChatContainer 出现 duplicate key `m:<id>`
-        if (reuseIdx < 0) {
-          for (let i = prev.messages.length - 1; i >= 0; i--) {
-            const m = prev.messages[i]!
-            if (m.role === 'assistant' && !m.sourceAgent && m.id === event.messageId) {
-              reuseIdx = i
-              break
-            }
-          }
-        }
-
-        // 向后找最近一条仍在流式的主 Agent 消息（不要求它是列表末条）
-        if (reuseIdx < 0) {
-          for (let i = prev.messages.length - 1; i >= 0; i--) {
-            const m = prev.messages[i]!
-            if (m.role === 'assistant' && m.isStreaming && !m.sourceAgent) {
-              reuseIdx = i
-              break
-            }
-          }
-        }
+        // 2) 不复用时：把仍在流式的主 Agent 气泡封口——它属于插话之前的段。
+        //    同一条消息在后面才决定要不要 push，所以这里只改 isStreaming。
+        const baseMessages =
+          reuseIdx >= 0
+            ? prev.messages
+            : prev.messages.map((m) =>
+                m.role === 'assistant' && !m.sourceAgent && m.isStreaming
+                  ? { ...m, isStreaming: false }
+                  : m,
+              )
 
         if (reuseIdx >= 0) {
-          const existingText = prev.messages[reuseIdx]?.content[0]?.text ?? ''
+          const existingText = baseMessages[reuseIdx]?.content[0]?.text ?? ''
           const separator = existingText ? '\n\n' : ''
           const nextText = existingText + separator
-          const msgs = [...prev.messages]
+          const msgs = [...baseMessages]
           const existingMessage = msgs[reuseIdx]!
           const acpBackend = extractAcpBackend(event.model)
           // 续轮：本轮的正文从分隔符之后开始
           markTurnTextStart(sessionKey, event.messageId, nextText.length)
           msgs[reuseIdx] = {
             ...existingMessage,
-            id: event.messageId,
             isStreaming: true,
             turnId,
             content: [{ type: 'text' as const, text: nextText }],
@@ -698,7 +697,7 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
         }
 
         const acpBackend = extractAcpBackend(event.model)
-        // 新建消息：整条都是本轮
+        // 新建消息：整条都是本轮（baseMessages 里上一段已被标记为非流式）
         markTurnTextStart(sessionKey, event.messageId, 0)
         return {
           ...prev,
@@ -707,7 +706,7 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
           error: null,
           currentLlmModelId: event.model,
           messages: trimMessages([
-            ...prev.messages,
+            ...baseMessages,
             {
               id: event.messageId,
               role: 'assistant' as const,
@@ -1294,6 +1293,22 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
       break
     }
 
+    case 'steer:delivered': {
+      // 同 message:start：先把上一段尚未冲刷的文本落定，再改状态
+      flushPendingDeltas()
+      // 插话已被注入对话（模型马上就会看到）→ 该会话所有「等待注入」气泡转成普通插话。
+      //
+      // 为什么整会话翻转、不按具体消息 id：`steeringMode: 'all'` 下同一次投递会把排队中的
+      // 插话**一起**注入，所以「收到本事件 → 该会话没有还挂着待注入的了」成立。
+      // 由主进程在 AgentInstance 的 prepareRequest 处发出（即插话真正进 context 的那一刻），
+      // 同时它也在那里把 assistant 消息分段。
+      updateSessionState(sessionKey, (prev) => ({
+        ...prev,
+        messages: prev.messages.map((m) => (m.steerPending ? { ...m, steerPending: false } : m)),
+      }))
+      break
+    }
+
     case 'agent:idle': {
       flushPendingDeltas()
       // 子 Agent 空闲不重置主 Agent 全局状态
@@ -1301,7 +1316,11 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
       // idle 是 turn:end 之后的收尾事件，此时映射已由 turn:end 清理，无需重复清理
       updateSessionState(sessionKey, (prev) => ({
         ...prev,
-        messages: finalizeStreamingAssistantMessages(prev.messages, true),
+        // 回合结束仍未收到 steer:delivered 的插话（例如它到达时本轮已在收尾）不该一直转圈，
+        // 一并复位成普通插话——它要么被下一轮 pickup，要么就此留在历史里
+        messages: finalizeStreamingAssistantMessages(prev.messages, true).map((m) =>
+          m.steerPending ? { ...m, steerPending: false } : m,
+        ),
         activeRunId: null,
         isStreaming: false,
         isThinking: false,
@@ -1482,7 +1501,7 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
           timestamp: event.message.timestamp,
           isStreaming: false,
           ...(event.message.isVoice ? { isVoice: true } : {}),
-          ...(event.message.isSteer ? { isSteer: true } : {}),
+          ...(event.message.isSteer ? { isSteer: true, steerPending: true } : {}),
           ...(event.message.audioWavBase64 ? { audioWavBase64: event.message.audioWavBase64 } : {}),
           toolCalls: (event.message.toolCalls ?? []).map((tc) => ({
             ...tc,
@@ -1491,26 +1510,16 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
           })),
         }
         /**
-         * 中途插话是「插进」正在跑的那一轮，不是新起一条：
-         * - **位置**放到当前流式回复之前 —— 那条回复是对它的回应，排在它后面会让人
-         *   以为「插话之后 Agent 没有回应」（2026-09-23 实测：UI 排成 [任务][回复][插话]，
-         *   而 DB 里是 [任务][插话][回复]）；
-         * - **时间戳**同时对齐该回复的 —— ChatContainer 按时间排序，只挪位置的话
-         *   排序又会把它送回最后，两件事必须一起做。
+         * 插话按普通消息追加即可 —— 位置不再需要手工挪。
          *
-         * 找不到流式回复（插话到达时这轮还没产出占位）就按普通消息追加。
+         * 主进程收到 `steer:delivered`（插话真被注入对话的那一刻）会把当前 assistant 消息
+         * 封口、另起一条承接其后的内容，所以按时间序天然就是
+         * `[段1][插话][段2]`，读起来即为「插话前的执行记录 → 插话 → 插话后的执行记录」。
+         *
+         * 历史包袱：此前是「把当前流式回复整条挪到插话之后」，因为那时一个 run 只有一条
+         * assistant 消息、插话排在其后会被读成「插话之后没有回应」。但那会让插话排到
+         * **插话前就发生的工作**前面，且前后记录混在一个折叠块里（2026-09-23 实测提出）。
          */
-        if (event.message.isSteer) {
-          const anchorIdx = prev.messages.findIndex(
-            (m) => m.role === 'assistant' && m.isStreaming && !m.sourceAgent,
-          )
-          if (anchorIdx >= 0) {
-            const anchor = prev.messages[anchorIdx]!
-            const msgs = [...prev.messages]
-            msgs.splice(anchorIdx, 0, { ...incoming, timestamp: anchor.timestamp })
-            return { ...prev, messages: trimMessages(msgs) }
-          }
-        }
         return {
           ...prev,
           messages: trimMessages([...prev.messages, incoming]),
