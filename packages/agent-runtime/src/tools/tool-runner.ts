@@ -2,7 +2,7 @@
  * ToolRunner — 工具统一执行入口，串联 before/after/onError hooks
  */
 
-import type { AgentToolUpdateCallback } from "@mariozechner/pi-agent-core";
+import type { AgentToolUpdateCallback } from "@earendil-works/pi-agent-core";
 import type { MtBotTool, ToolExecutionContext } from "../types/tool.js";
 import type {
   HookAgentToolResult,

@@ -11,7 +11,7 @@
  * - nodeStreamCallbacks：节点流式回调，跨生命周期使用
  */
 
-import type { StreamFn } from '@mariozechner/pi-agent-core'
+import type { StreamFn } from '@earendil-works/pi-agent-core'
 import type {
   AgentTool,
   AssistantPart,
@@ -114,7 +114,7 @@ export interface InstanceState {
   /** 实例对应的 innerStream 与 model，供 compactContextAsync 按 instanceId 查找 */
   stream?: {
     innerStream: StreamFn
-    model: import('@mariozechner/pi-ai').Model<any>
+    model: import('@earendil-works/pi-ai/compat').Model<any>
   }
   /** 实例级运行时指标（生命周期 UI + 统计） */
   metrics: InstanceRuntimeMetrics

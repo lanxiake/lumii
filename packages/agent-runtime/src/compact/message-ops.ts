@@ -9,7 +9,7 @@
  * 这些函数仅做内容变换，不涉及序列结构/配对，故独立于 api-invariants。
  */
 
-import type { AgentMessage } from "@mariozechner/pi-agent-core";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
 
 /**
  * 压缩前剥离图片和文档内容（参考 Claude Code stripImagesFromMessages）

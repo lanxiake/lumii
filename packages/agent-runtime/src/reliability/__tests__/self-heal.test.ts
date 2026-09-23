@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { SelfHealController, type SelfHealDeps } from "../self-heal.js";
-import type { AgentMessage } from "@mariozechner/pi-agent-core";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
 
 function errorMsg(text: string): AgentMessage {
   return { role: "assistant", stopReason: "error", errorMessage: text } as unknown as AgentMessage;

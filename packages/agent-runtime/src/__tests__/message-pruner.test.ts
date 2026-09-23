@@ -9,7 +9,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import type { AgentMessage } from "@mariozechner/pi-agent-core";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { pruneThinkingForDeepSeek, sliceTurns } from "../agent/message-pruner.js";
 
 function user(text: string): AgentMessage {

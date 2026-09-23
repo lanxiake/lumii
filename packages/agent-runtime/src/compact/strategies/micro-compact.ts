@@ -11,8 +11,8 @@
  * - 按"工具结果计数"保留最近 keepRecentToolResults 个（非 user turn 粒度）
  */
 
-import type { AgentMessage } from "@mariozechner/pi-agent-core";
-import { readMessageRole } from "../api-invariants.js";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import { readMessageContent, readMessageRole } from "../api-invariants.js";
 import { COMPACTABLE_TOOLS, DEFAULT_KEEP_RECENT_TOOL_RESULTS } from "../types.js";
 import { createHash } from "node:crypto";
 import { estimateTokenCount } from "../token-estimate.js";
@@ -164,19 +164,8 @@ export function dedupIdenticalToolResults(
     if (role !== "toolResult") {
       continue;
     }
-    // 提取 content 文本（兼容新类型系统：content 是数组）
-    const content =
-      typeof msg.content === "string"
-        ? msg.content
-        : Array.isArray(msg.content)
-          ? msg.content
-              .map((b) => {
-                if (typeof b === "string") return b;
-                if (typeof b === "object" && b && "text" in b) return String(b.text ?? "");
-                return "";
-              })
-              .join("")
-          : "";
+    // 提取 content 文本（新版 AgentMessage 是联合类型，交给 readMessageContent 归一）
+    const content = readMessageContent(msg);
     if (content.length < dedupMinChars) continue;
     if (content.startsWith("[工具结果") || content.startsWith("[Duplicate")) continue;
     const hash = createHash("md5").update(content, "utf8").digest("hex").slice(0, 12);
@@ -193,19 +182,8 @@ export function dedupIdenticalToolResults(
       result.push(msg);
       continue;
     }
-    // 提取 content 文本（兼容新类型系统：content 是数组）
-    const content =
-      typeof msg.content === "string"
-        ? msg.content
-        : Array.isArray(msg.content)
-          ? msg.content
-              .map((b) => {
-                if (typeof b === "string") return b;
-                if (typeof b === "object" && b && "text" in b) return String(b.text ?? "");
-                return "";
-              })
-              .join("")
-          : "";
+    // 提取 content 文本（新版 AgentMessage 是联合类型，交给 readMessageContent 归一）
+    const content = readMessageContent(msg);
     if (content.length < dedupMinChars) {
       result.push(msg);
       continue;
@@ -441,7 +419,9 @@ export function proactivePrune(
     return "";
   };
   const dedupedCount = result.filter(
-    (m, i) => m.content !== messages[i].content && extractText(m.content).includes("已去重"),
+    (m, i) =>
+      readMessageContent(m) !== readMessageContent(messages[i]) &&
+      extractText(readMessageContent(m)).includes("已去重"),
   ).length;
 
   // Pass 2: Summarize（仅作用于 prune_boundary 之前，复用现有 microcompactToolResults）
@@ -450,7 +430,7 @@ export function proactivePrune(
     useSummary: true,
   });
   const summarizedCount = result.filter((m) =>
-    extractText(m.content).startsWith("[工具结果已归档"),
+    extractText(readMessageContent(m)).startsWith("[工具结果已归档"),
   ).length;
 
   // Pass 3: Truncate Arguments（仅作用于 prune_boundary 之前）
@@ -458,7 +438,8 @@ export function proactivePrune(
   result = truncateHeavyToolCallArguments(result, protectLastN);
   // 统计变化数（通过比较 content 序列化）
   const truncatedArgsCount = result.filter(
-    (m, i) => JSON.stringify(m.content) !== JSON.stringify(beforeTruncate[i].content),
+    (m, i) =>
+      JSON.stringify(readMessageContent(m)) !== JSON.stringify(readMessageContent(beforeTruncate[i])),
   ).length;
 
   // Gate 5: 三阶段 0 改动 → 跳过

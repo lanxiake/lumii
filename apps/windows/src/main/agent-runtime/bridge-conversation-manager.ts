@@ -17,7 +17,7 @@ import {
   estimateTokenCount,
   type LocalStorageStats,
 } from '@mtbot/agent-runtime'
-import type { AgentMessage } from '@mariozechner/pi-agent-core'
+import type { AgentMessage } from '@earendil-works/pi-agent-core'
 import { channelOwnershipFromKey, isChannelOwnership } from '../channel/channel-identity'
 import type { BridgeSessionModelCatalog } from './bridge-session-model-catalog'
 import { agentRuntimeLog as log } from './bridge-utils'

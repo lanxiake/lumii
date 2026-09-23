@@ -9,7 +9,7 @@ import type {
   AgentTool,
   AgentToolResult,
   AgentToolUpdateCallback,
-} from "@mariozechner/pi-agent-core";
+} from "@earendil-works/pi-agent-core";
 import type { TSchema, Static } from "@sinclair/typebox";
 import type { SkillInfo } from "../prompt/system-prompt-builder.js";
 

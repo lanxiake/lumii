@@ -7,7 +7,7 @@
 
 import { Type, type Static } from "@sinclair/typebox";
 import type { MtBotToolConfig } from "../tool-adapter.js";
-import type { AgentToolResult } from "@mariozechner/pi-agent-core";
+import type { AgentToolResult } from "@earendil-works/pi-agent-core";
 
 const notImplemented = (): AgentToolResult<unknown> => ({
   content: [{ type: "text", text: JSON.stringify({ status: "not_implemented" }) }],

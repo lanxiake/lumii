@@ -9,7 +9,7 @@
  * 具体附件重建（工作区文件快照 / 活跃 plan 回填）留后续主题实现。
  */
 
-import type { AgentMessage } from "@mariozechner/pi-agent-core";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
 
 /**
  * 再压缩诊断追踪器

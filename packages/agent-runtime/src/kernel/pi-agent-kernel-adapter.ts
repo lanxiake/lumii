@@ -5,9 +5,9 @@
  * 业务层（AgentInstance 及上层）只看到 AgentKernel 接口，不直接依赖 pi-agent-core。
  */
 
-import { type Agent } from "@mariozechner/pi-agent-core";
-import type { AgentEvent } from "@mariozechner/pi-agent-core";
-import type { AssistantMessage } from "@mariozechner/pi-ai";
+import { type Agent } from "@earendil-works/pi-agent-core";
+import type { AgentEvent } from "@earendil-works/pi-agent-core";
+import type { AssistantMessage } from "@earendil-works/pi-ai/compat";
 import type {
   AgentTurnRequest,
   AgentTurnEvent,

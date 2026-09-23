@@ -7,7 +7,7 @@
  * 平移自原 context-compactor.ts partitionMessages。
  */
 
-import type { AgentMessage } from "@mariozechner/pi-agent-core";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { alignSplitIndexForToolBoundary, readMessageRole } from "./api-invariants.js";
 
 export interface MessagePartition {

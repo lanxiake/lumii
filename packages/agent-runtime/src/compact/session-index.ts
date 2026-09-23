@@ -9,7 +9,7 @@
  * 设计依据: .qoder/design/agent-context-compact/03-压缩后文件与技能索引重建设计.md
  */
 
-import type { AgentMessage } from "@mariozechner/pi-agent-core";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import {
   EXECUTE_SKILL_TOOL_NAME,
   FILE_COPY_TOOL_NAME,

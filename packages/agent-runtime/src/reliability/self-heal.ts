@@ -7,7 +7,7 @@
  * AgentInstance 协作，避免直接耦合 pi-agent-core。
  */
 
-import type { AgentMessage } from "@mariozechner/pi-agent-core";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { classifyLlmError, repairMessageSequence } from "./message-repair.js";
 import { pruneThinkingForDeepSeek } from "../agent/message-pruner.js";
 

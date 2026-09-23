@@ -7,7 +7,7 @@
  *
  * 用假定时器压缩时间轴 —— 真等 120s 没有意义。
  */
-import type { AgentMessage } from "@mariozechner/pi-agent-core";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { runSummaryStage } from "../strategies/summary-compact.js";

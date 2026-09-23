@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { Type } from "@sinclair/typebox";
-import type { Model } from "@mariozechner/pi-ai";
+import type { Model } from "@earendil-works/pi-ai/compat";
 import type { MtBotTool, ToolExecutionContext } from "../../types/tool.js";
 import type { AgentDefinition } from "../../types/agent-definition.js";
 import { AgentRegistry } from "../../agent/agent-registry.js";

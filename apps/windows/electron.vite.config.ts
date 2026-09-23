@@ -186,7 +186,7 @@ export default defineConfig({
         // pnpm 的符号链接让 Node 拿到的真实路径在 node_modules 之外，type stripping 确实执行了，
         // 但 pet-core 内部按 TS NodeNext 规范用 `./x.js` 指代 `./x.ts`，Node 不做这个改写，
         // 于是 ERR_MODULE_NOT_FOUND。打进 bundle 由 Rollup 解析才是这条路。
-        // —— 注意：上面这一条只适用于 TS 源码包。@mariozechner/pi-ai / pi-agent-core / typebox
+        // —— 注意：上面这一条只适用于 TS 源码包。@earendil-works/pi-ai / pi-agent-core / typebox
         // 是已编译的纯 JS 包（dist/），外部化后 Electron 可正常从 node_modules（pnpm 符号链接）加载，
         // 并由 pnpm 正确传递它们的 provider SDK（@anthropic-ai/sdk、@google/genai、@aws-sdk/*）依赖。
         // 若把 pi-ai 排除（即打进 bundle），Rollup 会递归解析 pi-ai 顶层 re-export 的所有 provider，

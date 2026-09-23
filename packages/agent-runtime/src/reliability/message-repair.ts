@@ -4,8 +4,8 @@
  * 从 agent-instance.ts 提取的纯函数，无副作用。
  */
 
-import type { AgentMessage } from "@mariozechner/pi-agent-core";
-import type { Message } from "@mariozechner/pi-ai";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import type { Message } from "@earendil-works/pi-ai/compat";
 
 // ==================== defaultConvertToLlm ====================
 

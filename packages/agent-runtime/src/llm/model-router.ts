@@ -6,7 +6,7 @@
  * fallback 交给 LiteLLM；客户端不再维护 tier→模型 的硬编码映射。
  */
 
-import type { Model } from "@mariozechner/pi-ai";
+import type { Model } from "@earendil-works/pi-ai/compat";
 
 const FALLBACK_PURPOSE = "chat";
 

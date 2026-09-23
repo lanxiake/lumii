@@ -5,7 +5,7 @@
  * compactContextAsync：手动压缩无论消息多少都应发出 LLM 摘要请求并真正压缩。
  */
 import { describe, expect, it, vi } from 'vitest'
-import type { AgentMessage } from '@mariozechner/pi-agent-core'
+import type { AgentMessage } from '@earendil-works/pi-agent-core'
 import { BridgeContextCompactor } from './bridge-context-compactor'
 
 /** 构造最小 deps，默认全部 stream getter 返回空 */

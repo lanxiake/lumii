@@ -5,8 +5,10 @@
  * 参考 apps/windows/src/main/agent-runtime/bridge-context-compactor.ts::callLLM 的实现。
  */
 
-import type { StreamFn } from "@mariozechner/pi-agent-core"
-import type { Model, Context } from "@mariozechner/pi-ai"
+import type { StreamFn } from "@earendil-works/pi-agent-core"
+import type { Model, Context } from "@earendil-works/pi-ai/compat"
+// 新版 streamFn 收品牌类型 TranscriptContext，旧式 Context 经官方转换器过一道
+import { normalizeContext } from "@earendil-works/pi-ai/compat"
 import type { ModelRouter } from "@mtbot/agent-runtime"
 import { createLogger } from "../../logger"
 
@@ -43,7 +45,7 @@ export class RouterLlmCallerImpl implements RouterLlmCaller {
       const context: Context = {
         messages: [{ role: "user", content: prompt, timestamp: Date.now() }],
       }
-      const stream = await this.deps.streamFn(model, context, {
+      const stream = await this.deps.streamFn(model, normalizeContext(context), {
         temperature: 0.1,
         maxTokens: 800,
         signal: controller.signal,

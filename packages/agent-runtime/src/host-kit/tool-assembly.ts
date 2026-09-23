@@ -13,7 +13,7 @@
  * 计划依据: .qoder/plan/2026-06-26-plan-A-host-kit.md §A3
  */
 
-import type { AgentTool } from "@mariozechner/pi-agent-core";
+import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { MtBotTool, ToolExecutionContext } from "../types/tool.js";
 import type { AgentDefinition } from "../types/agent-definition.js";
 import type { AgentRuntimeFeatureFlags } from "../config/feature-flags.js";

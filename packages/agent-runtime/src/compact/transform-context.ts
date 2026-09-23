@@ -15,7 +15,7 @@
  * 设计依据: .qoder/design/agent-context-compact/01-上下文压缩模块独立化与精细化设计.md
  */
 
-import type { AgentMessage } from "@mariozechner/pi-agent-core";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { stripLeadingOrphanToolResults, validateAndRepairMessageSequence } from "./api-invariants.js";
 import { partitionMessages } from "./partition.js";
 import { checkCompactionNeeded, computeMaxEstimatedHistoryTokens, CircuitBreaker } from "./policy.js";

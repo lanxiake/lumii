@@ -5,7 +5,7 @@
  * 断路器（CircuitBreaker）状态机化在阶段 B1 进行，本阶段触发逻辑仍由 transform-context 闭包持有。
  */
 
-import type { AgentMessage } from "@mariozechner/pi-agent-core";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { estimateTokenCount } from "./token-estimate.js";
 import type { CompactConfig, TokenEstimation } from "./types.js";
 

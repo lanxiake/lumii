@@ -27,7 +27,7 @@ import {
   DEFAULT_COMPACTION_TRIGGER_RATIO,
   diffTurnSnapshots,
 } from '@mtbot/agent-runtime'
-import type { AgentMessage } from '@mariozechner/pi-agent-core'
+import type { AgentMessage } from '@earendil-works/pi-agent-core'
 import type { ContextUsageBreakdownEntry } from '../../shared/agent-runtime-events'
 import { computeContextBudget } from '../../shared/context-budget'
 import type { AgentRuntimeBridgeConfig } from './bridge'

@@ -21,7 +21,7 @@ import {
   speechGenerateToolConfig,
   imageGenerateToolConfig,
 } from '@mtbot/agent-runtime'
-import type { AgentToolResult } from '@mariozechner/pi-agent-core'
+import type { AgentToolResult } from '@earendil-works/pi-agent-core'
 import { agentRuntimeLog as log, jsonToolResult, removeMarkdownSection } from './bridge-utils'
 import type { BridgeToolRegistrarDeps } from './bridge-tool-registrar-types'
 import { resolveOriginChannel } from './bridge-tool-registrar-client-cmd'

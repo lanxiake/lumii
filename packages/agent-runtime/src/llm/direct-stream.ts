@@ -11,9 +11,9 @@
  * 计划依据: .qoder/plan/2026-06-26-plan-B-agent-host.md §B4
  */
 
-import { streamSimple } from "@mariozechner/pi-ai";
-import type { Model } from "@mariozechner/pi-ai";
-import type { StreamFn } from "@mariozechner/pi-agent-core";
+import { streamSimple } from "@earendil-works/pi-ai/compat";
+import type { Model } from "@earendil-works/pi-ai/compat";
+import type { StreamFn } from "@earendil-works/pi-agent-core";
 import { captureLLMCall } from "./prompt-capture";
 
 /**
@@ -147,7 +147,9 @@ export function createDirectStreamFn(opts: CreateDirectStreamFnOptions): StreamF
             `[direct-stream] 🔍 Request payload - model: ${p.model}, prompt_cache_key: ${p.prompt_cache_key}, messages: ${(p.input as unknown[])?.length} items`,
           );
         }
-        callerOnPayload?.(payload);
+        // 新版签名是 (payload, model)：多出的 model 供回调判断来源，
+        // 返回值可替换 payload（本仓的回调不返回，行为不变）
+        callerOnPayload?.(payload, effectiveModel);
       },
     };
 

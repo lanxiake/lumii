@@ -10,8 +10,10 @@
  * 划词场景不适用）。
  */
 
-import type { Model, Context } from '@mariozechner/pi-ai'
-import type { StreamFn } from '@mariozechner/pi-agent-core'
+import type { Model, Context } from '@earendil-works/pi-ai/compat'
+// 新版 streamFn 收品牌类型 TranscriptContext，旧式 Context 经官方转换器过一道
+import { normalizeContext } from '@earendil-works/pi-ai/compat'
+import type { StreamFn } from '@earendil-works/pi-agent-core'
 import { createLogger } from '../logger'
 import { buildSelectionPrompt } from './selection-prompts'
 import type { SelectionLlmRequest, SelectionLlmResult } from '../../shared/selection-llm-types'
@@ -97,7 +99,7 @@ export class SelectionLlmService {
         purpose: 'selection',
       } as unknown as Parameters<StreamFn>[2]
 
-      const stream = await resolved.streamFn(resolved.model, context, options)
+      const stream = await resolved.streamFn(resolved.model, normalizeContext(context), options)
 
       let output = ''
       for await (const event of stream) {

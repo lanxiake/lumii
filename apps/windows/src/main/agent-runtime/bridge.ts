@@ -84,7 +84,7 @@ import {
   drawerPointerId,
 } from '@mtbot/agent-runtime'
 import type { ArchivePalaceMeta } from '@mtbot/agent-runtime'
-import type { AgentMessage, StreamFn } from '@mariozechner/pi-agent-core'
+import type { AgentMessage, StreamFn } from '@earendil-works/pi-agent-core'
 import { buildContextUsageBreakdown, calibrateCharsPerToken, countPromptChars, aggregateMcpTokensByServer } from './context-usage-breakdown.js'
 import type { ContextBudgetSnapshot, ContextUsageBreakdownEntry } from '../../shared/agent-runtime-events'
 import { buildBudgetSnapshot, computeContextBudget, shouldCompactByBudget } from '../../shared/context-budget'
@@ -402,7 +402,7 @@ export class AgentRuntimeBridge {
 
   /** 主 Agent 实例的 innerStream / model（仅 def.id === 'main' 时设置） */
   private readonly mainInnerStreamRef: { value: ReturnType<typeof createDirectStreamFn> | null } = { value: null }
-  private readonly mainModelRef: { value: import('@mariozechner/pi-ai').Model<any> | null } = { value: null }
+  private readonly mainModelRef: { value: import('@earendil-works/pi-ai/compat').Model<any> | null } = { value: null }
   /**
    * callLLM 兜底用的独立 direct stream（懒创建）。
    * 不依赖任何 Agent 实例，供 cron / companion workflow 在无人会话时调用 LLM。
@@ -687,7 +687,7 @@ export class AgentRuntimeBridge {
    * 选中的正文落盘。
    */
   resolveSelectionChatStream():
-    | { streamFn: StreamFn; model: import('@mariozechner/pi-ai').Model<any> }
+    | { streamFn: StreamFn; model: import('@earendil-works/pi-ai/compat').Model<any> }
     | undefined {
     const resolved = this.compactor.resolveCallStream()
     return resolved ? { streamFn: resolved.innerStream, model: resolved.model } : undefined
@@ -698,7 +698,7 @@ export class AgentRuntimeBridge {
    * 读取最新 chat 槽配置；未启用或缺少 modelId 时返回 undefined（由 callLLM 抛明确错误）。
    */
   private getCallLlmFallbackStream():
-    | { innerStream: ReturnType<typeof createDirectStreamFn>; model: import('@mariozechner/pi-ai').Model<any> }
+    | { innerStream: ReturnType<typeof createDirectStreamFn>; model: import('@earendil-works/pi-ai/compat').Model<any> }
     | undefined {
     const cfg = this.config.getProviderConfig?.()
     if (!cfg?.enabled) {
