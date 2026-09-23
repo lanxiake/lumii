@@ -10,8 +10,8 @@
  * 单向依赖：host-kit 只依赖 agent-runtime 内部 + pi-*，不反向依赖 apps/*。
  */
 
-import type { Model } from "@mariozechner/pi-ai";
-import type { StreamFn } from "@mariozechner/pi-agent-core";
+import type { Model } from "@earendil-works/pi-ai/compat";
+import type { StreamFn } from "@earendil-works/pi-agent-core";
 import type { AgentRuntimeEvent } from "../types/events.js";
 import type { AgentRuntimeFeatureFlags } from "../config/index.js";
 import type { AgentDefinition } from "../types/agent-definition.js";

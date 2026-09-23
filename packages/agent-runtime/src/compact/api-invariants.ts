@@ -11,7 +11,8 @@
  * 平移自原 context-compactor.ts。
  */
 
-import type { AgentMessage } from "@mariozechner/pi-agent-core";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import { contentText } from "@earendil-works/pi-ai/utils/text";
 
 const logger = {
   info: (msg: string) => console.log(`[compact/api-invariants] ${msg}`),
@@ -26,6 +27,26 @@ export function readMessageRole(msg: AgentMessage | undefined): string | undefin
   }
   const r = (msg as { role?: unknown }).role;
   return typeof r === "string" ? r : undefined;
+}
+
+/**
+ * 读取 Agent 消息的 content 文本（各种形态归一成字符串）。
+ *
+ * 新版 `AgentMessage` 是联合类型 `Message | CustomAgentMessages[...]`，其中
+ * `bashExecution` 这类成员**没有 content 字段**。使用官方 `contentText` 处理，
+ * 它会过滤出 `type: "text"` 块并 join。
+ */
+export function readMessageContent(msg: AgentMessage | undefined): string {
+  if (!msg || typeof msg !== "object") {
+    return "";
+  }
+  const c = (msg as { content?: unknown }).content;
+  if (!c) {
+    return "";
+  }
+  // contentText 接受 string | Content[]，运行时会做类型守卫
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return contentText(c as any);
 }
 
 /**

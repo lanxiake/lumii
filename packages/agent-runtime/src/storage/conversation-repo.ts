@@ -4,7 +4,7 @@
  * 适配 node:sqlite DatabaseSync API（同步调用）。
  */
 
-import type { AgentMessage } from "@mariozechner/pi-agent-core";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { DatabaseAdapter } from "./local-database.js";
 import { withTransaction } from "./local-database.js";
 import { providerPromptTokens } from "../compact/token-estimate.js";

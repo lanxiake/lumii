@@ -13,7 +13,7 @@
  * 与展示/存储解耦：UI/DB 始终保留完整 thinking 供审计，仅在 convert 前对发往 LLM 的副本裁剪。
  */
 
-import type { AgentMessage } from "@mariozechner/pi-agent-core";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
 
 /**
  * thinking 裁剪策略

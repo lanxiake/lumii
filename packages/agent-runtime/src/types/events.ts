@@ -5,8 +5,8 @@
  * 用于 IPC 传输到渲染进程更新 UI。
  */
 
-import type { AgentEvent } from "@mariozechner/pi-agent-core";
-import type { AssistantMessage } from "@mariozechner/pi-ai";
+import type { AgentEvent } from "@earendil-works/pi-agent-core";
+import type { AssistantMessage } from "@earendil-works/pi-ai/compat";
 
 import { normalizeLlmError, type LlmErrorDetail } from "../llm/llm-error.js";
 

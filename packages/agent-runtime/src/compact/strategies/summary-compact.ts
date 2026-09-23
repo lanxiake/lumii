@@ -8,7 +8,7 @@
  * 降级链：LLM 摘要 → PTL 重试 ×N → 占位摘要（由 transform-context 兜底）。
  */
 
-import type { AgentMessage } from "@mariozechner/pi-agent-core";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { groupMessagesByApiRound } from "../api-invariants.js";
 import { stripImagesFromMessages } from "../message-ops.js";
 import {

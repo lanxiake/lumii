@@ -24,7 +24,10 @@ import {
   applyConversationCompactToUsage,
   patchBreakdownAfterConversationCompact,
 } from './context-usage-breakdown'
-import type { AgentMessage, StreamFn } from '@mariozechner/pi-agent-core'
+import type { AgentMessage, StreamFn } from '@earendil-works/pi-agent-core'
+// 新版 provider 契约用品牌类型 TranscriptContext（prompt/tools 由 transcript 的 system
+// 消息承载），旧式 Context 需经官方 normalizeContext 转换后再交给 streamFn。
+import { normalizeContext } from '@earendil-works/pi-ai/compat'
 import type { BridgeRendererIpcChannel } from './bridge-renderer-ipc'
 import { agentRuntimeLog as log } from './bridge-utils'
 import {
@@ -32,7 +35,7 @@ import {
   resolveCompactSummaryTimestamp,
 } from './compact-persist'
 
-type ModelRef = import('@mariozechner/pi-ai').Model<any>
+type ModelRef = import('@earendil-works/pi-ai/compat').Model<any>
 type InnerStreamRef = StreamFn
 
 export interface BridgeContextCompactorDeps {
@@ -115,7 +118,7 @@ export class BridgeContextCompactor {
         'callLLM: 没有可用的 Agent 实例 stream，请确保至少有一个 Agent 实例已初始化',
       )
     }
-    const context: import('@mariozechner/pi-ai').Context = {
+    const context: import('@earendil-works/pi-ai/compat').Context = {
       messages: [{ role: 'user', content: prompt, timestamp: Date.now() }],
     }
     // 单次后台 LLM 调用（分类/摘要/整理）也落一份输入输出到日志文件，供 LLM 服务器侧对照排错。
@@ -125,7 +128,7 @@ export class BridgeContextCompactor {
       `[callLLM] purpose=${purpose} model=${model.id} promptLen=${prompt.length} prompt=${JSON.stringify(prompt)}`,
     )
     const startedAt = Date.now()
-    const streamResult = await innerStream(model, context, { purpose } as Parameters<InnerStreamRef>[2])
+    const streamResult = await innerStream(model, normalizeContext(context), { purpose } as Parameters<InnerStreamRef>[2])
     let text = ''
     for await (const event of streamResult) {
       if (event.type === 'text_delta') {
@@ -540,7 +543,7 @@ export class BridgeContextCompactor {
  */
 export function createLlmSummaryGenerator(
   innerStream: StreamFn,
-  model: import('@mariozechner/pi-ai').Model<any>,
+  model: import('@earendil-works/pi-ai/compat').Model<any>,
 ): SummaryGeneratorFn {
   return async (
     messages: AgentMessage[],
@@ -549,20 +552,20 @@ export function createLlmSummaryGenerator(
     options?: { onProgress?: () => void },
   ): Promise<string | null> => {
     // 将 AgentMessage[] 转换为 LLM 兼容的 Message[]（只保留 user/assistant/toolResult）
-    const llmMessages: import('@mariozechner/pi-ai').Message[] = messages.flatMap((m) => {
+    const llmMessages: import('@earendil-works/pi-ai/compat').Message[] = messages.flatMap((m) => {
       if (typeof m !== 'object' || m === null || !('role' in m)) return []
       const role = (m as { role: string }).role
       if (role !== 'user' && role !== 'assistant' && role !== 'toolResult') return []
-      return [m as import('@mariozechner/pi-ai').Message]
+      return [m as import('@earendil-works/pi-ai/compat').Message]
     })
 
     // 附加摘要指令作为最后一条 user 消息
-    const messagesWithPrompt: import('@mariozechner/pi-ai').Message[] = [
+    const messagesWithPrompt: import('@earendil-works/pi-ai/compat').Message[] = [
       ...llmMessages,
       { role: 'user', content: summaryPrompt, timestamp: Date.now() },
     ]
 
-    const context: import('@mariozechner/pi-ai').Context = {
+    const context: import('@earendil-works/pi-ai/compat').Context = {
       messages: messagesWithPrompt,
     }
 
@@ -571,7 +574,7 @@ export function createLlmSummaryGenerator(
     // - 思考会吃满输出预算导致正文为空，且摘要不需要推理链
     // 服务端仍可能无视此请求默认思考（z.ai 系默认开启），故循环内同时收集
     // thinking_delta 兜底，保证摘要永不因思考模式而丢失上下文。
-    const streamResult = await innerStream(model, context, {
+    const streamResult = await innerStream(model, normalizeContext(context), {
       purpose: 'session_summary',
       reasoning: undefined,
     } as Parameters<typeof innerStream>[2])

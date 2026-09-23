@@ -5,7 +5,7 @@
  * 字段与原实现完全一致，确保 agent-instance 接线零改动（仅改 import 路径）。
  */
 
-import type { AgentMessage } from "@mariozechner/pi-agent-core";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { PostCompactRebuild } from "./post-compact.js";
 
 // ==================== 默认常量 ====================

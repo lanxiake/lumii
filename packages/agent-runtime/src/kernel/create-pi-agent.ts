@@ -6,7 +6,7 @@
  * `AgentOptions` 类型与本工厂函数。
  */
 
-import { Agent, type AgentOptions } from "@mariozechner/pi-agent-core";
+import { Agent, type AgentOptions } from "@earendil-works/pi-agent-core";
 
 export type { AgentOptions };
 

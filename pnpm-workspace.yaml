@@ -5,12 +5,13 @@ packages:
 overrides:
   "@sinclair/typebox": "0.34.47"
   tar: "7.5.7"
-  "@mariozechner/pi-ai": "0.50.7"
+  "@earendil-works/pi-ai": "0.87.1"
   # @xenova/transformers 依赖 sharp ^0.32，与 apps/windows 的 0.34 统一，避免嵌套旧版 native 安装失败
   sharp: "0.34.5"
 
-patchedDependencies:
-  "@mariozechner/pi-ai@0.50.7": "patches/@mariozechner__pi-ai@0.50.7.patch"
+# 补丁（patchedDependencies）随升级 spike 一并摘下：
+# 旧补丁 patches/@mariozechner__pi-ai@0.50.7.patch 修的三处（未识别 finish_reason 报错、
+# 错误信息透传、SSE 帧边界重缓冲）需要逐条核对新版是否已含，详见升级评估。
 
 onlyBuiltDependencies:
   - better-sqlite3

@@ -10,7 +10,7 @@
  */
 
 import { describe, it, expect, vi } from "vitest";
-import type { Model, Context } from "@mariozechner/pi-ai";
+import type { Model, Context } from "@earendil-works/pi-ai/compat";
 import { createDirectStreamFn } from "../llm/direct-stream.js";
 
 function fakeModel(overrides: Partial<Model<"openai-completions">> & { api?: string } = {}): Model<"openai-completions"> {

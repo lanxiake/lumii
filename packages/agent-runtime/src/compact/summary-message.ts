@@ -9,7 +9,7 @@
  * 本阶段（A2）保持原有行为，resumeMode / recentMessagesPreserved 增强在阶段 B3 进行。
  */
 
-import type { AgentMessage } from "@mariozechner/pi-agent-core";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { readMessageRole } from "./api-invariants.js";
 import type { LlmSummaryMessageOptions } from "./types.js";
 

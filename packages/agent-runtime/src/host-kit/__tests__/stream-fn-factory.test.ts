@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import type { Model } from "@mariozechner/pi-ai";
+import type { Model } from "@earendil-works/pi-ai/compat";
 import { createStreamFnFactory, createDirectStreamFnFactory } from "../stream-fn-factory.js";
 import type { ResolvedModel, StreamFnContext } from "../types.js";
 

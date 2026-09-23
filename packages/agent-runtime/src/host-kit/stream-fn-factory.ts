@@ -4,7 +4,7 @@
  * 设计依据: .qoder/design/client-agent-runtime/2026-06-26-agent-standalone-v2-design.md §2.2 / §4b
  */
 
-import type { StreamFn } from "@mariozechner/pi-agent-core";
+import type { StreamFn } from "@earendil-works/pi-agent-core";
 import {
   createDirectStreamFn,
   type DirectStreamCredentials,

@@ -11,7 +11,7 @@
  * 本阶段（A3）保持逐条丢弃实现；API 轮次分组丢弃重写在阶段 B1 进行。
  */
 
-import type { AgentMessage } from "@mariozechner/pi-agent-core";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import {
   groupMessagesByApiRound,
   stripAllOrphanToolResults,

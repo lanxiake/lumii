@@ -44,7 +44,7 @@ import {
   type McpServerHint,
   type ContextFile,
 } from '@mtbot/agent-runtime'
-import type { StreamFn } from '@mariozechner/pi-agent-core'
+import type { StreamFn } from '@earendil-works/pi-agent-core'
 
 import { createRunContext } from './event-converter'
 import { riskLevelForTool, createLargeToolResultHook } from './permission-tool-wrap'
@@ -87,7 +87,7 @@ import { selectPromptVariantForSession } from './autonomous-wiring'
 /** LLM 摘要生成器构造函数签名（由 bridge.ts 注入，避免循环依赖） */
 export type CreateSummaryGeneratorFn = (
   innerStream: StreamFn,
-  model: import('@mariozechner/pi-ai').Model<any>,
+  model: import('@earendil-works/pi-ai/compat').Model<any>,
 ) => any
 
 /** 引用盒子（mutable reference）— 允许多处共享同一个可变插槽 */
@@ -111,7 +111,7 @@ export interface BridgeInstanceFactoryDeps {
   /** 可变引用：主 Agent 的 innerStream（compactContextAsync 使用） */
   mainInnerStreamRef: MutableRef<StreamFn | null>
   /** 可变引用：主 Agent 的 model（compactContextAsync 使用） */
-  mainModelRef: MutableRef<import('@mariozechner/pi-ai').Model<any> | null>
+  mainModelRef: MutableRef<import('@earendil-works/pi-ai/compat').Model<any> | null>
   /** 可变引用：最近活跃 conversationId */
   lastActiveConvIdRef: MutableRef<string | null>
   messageBus: MessageBus
@@ -153,7 +153,7 @@ export interface BridgeInstanceFactoryDeps {
   /** LLM 摘要生成器工厂（来自 bridge-context-compactor 的 createLlmSummaryGenerator） */
   createSummaryGenerator: (
     innerStream: StreamFn,
-    model: import('@mariozechner/pi-ai').Model<any>,
+    model: import('@earendil-works/pi-ai/compat').Model<any>,
   ) => any
   /**
    * 会话上下文用量（优先提供商 inputTokens，回退消息估算）。
@@ -905,10 +905,10 @@ export class BridgeInstanceFactory {
    *
    * 内部使用 image-resizer 做格式嗅探 + 尺寸/大小压缩，确保传给 LLM 的每张图≤5MB。
    */
-  async buildImageContents(imagePaths?: readonly string[]): Promise<import('@mariozechner/pi-ai').ImageContent[]> {
+  async buildImageContents(imagePaths?: readonly string[]): Promise<import('@earendil-works/pi-ai/compat').ImageContent[]> {
     if (!imagePaths || imagePaths.length === 0) return []
     const cwd = this.deps.config.getCwd()
-    const blocks: import('@mariozechner/pi-ai').ImageContent[] = []
+    const blocks: import('@earendil-works/pi-ai/compat').ImageContent[] = []
     let totalFinalBytes = 0
     for (const p of imagePaths) {
       try {

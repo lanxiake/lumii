@@ -12,6 +12,8 @@ import {
   ModelRouter,
   resolveAgentFilePath,
 } from '@mtbot/agent-runtime'
+// 新版 streamFn 收品牌类型 TranscriptContext，旧式 Context 经官方转换器过一道
+import { normalizeContext } from '@earendil-works/pi-ai/compat'
 import { resizeImageIfNeeded } from './image-resizer'
 import { generateImageViaRightCodesDraw } from './right-codes-draw-client'
 import { generateImageViaRightApi, DEFAULT_RIGHTAPI_BASE_URL } from './rightapi-image-client'
@@ -92,7 +94,7 @@ export class BridgeImageServices {
          `\n\n请严格按以下 JSON 返回，不要包含额外说明：\n` +
          `{"description":"<图片描述>","ocrText":"<图中文字，无则空串>"}`
 
-    const context: import('@mariozechner/pi-ai').Context = {
+    const context: import('@earendil-works/pi-ai/compat').Context = {
       messages: [
         {
           role: 'user',
@@ -105,7 +107,7 @@ export class BridgeImageServices {
       ],
     }
 
-    const streamResult = await stream(model, context, {})
+    const streamResult = await stream(model, normalizeContext(context), {})
     let text = ''
     for await (const ev of streamResult) {
       if (ev.type === 'text_delta') {

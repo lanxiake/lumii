@@ -8,11 +8,11 @@
  * - 管理生命周期（prompt, abort, destroy）
  */
 
-import type { Agent, AgentOptions } from "@mariozechner/pi-agent-core";
+import type { Agent, AgentOptions } from "@earendil-works/pi-agent-core";
 import { createPiAgent } from "../kernel/create-pi-agent.js";
-import type { AgentMessage } from "@mariozechner/pi-agent-core";
-import type { StreamFn } from "@mariozechner/pi-agent-core";
-import type { Message, Model, ImageContent } from "@mariozechner/pi-ai";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import type { StreamFn } from "@earendil-works/pi-agent-core";
+import type { Message, Model, ImageContent } from "@earendil-works/pi-ai/compat";
 import type { AgentTool } from "../types/tool.js";
 import type { AgentDefinition } from "../types/agent-definition.js";
 import { type AgentRuntimeEvent, type AgentInstanceState, mapAgentEvent } from "../types/events.js";
@@ -354,7 +354,7 @@ export class AgentInstance {
       getAgent: () => ({
         messages: this.agent.state.messages,
         systemPrompt: this.agent.state.systemPrompt ?? "",
-        setSystemPrompt: (prompt: string) => this.agent.setSystemPrompt(prompt),
+        setSystemPrompt: (prompt: string) => this.setSystemPrompt(prompt),
       }),
       getTurnCount: () => this.turnCount,
       getInjectWorkMemory: () => this.injectWorkMemory,
@@ -368,8 +368,13 @@ export class AgentInstance {
       maxRetries: 2,
       cooldownMs: 1000,
       getMessages: () => this.agent.state.messages,
-      replaceMessages: (messages) => this.agent.replaceMessages(messages),
-      appendMessage: (message) => this.agent.appendMessage(message),
+      // 新版 Agent 去掉了 replaceMessages/appendMessage 方法，改用 state.messages 的 accessor
+      replaceMessages: (messages) => {
+        this.agent.state.messages = messages.slice();
+      },
+      appendMessage: (message) => {
+        this.agent.state.messages = [...this.agent.state.messages, message];
+      },
       continueAgent: () => this.agent.continue(),
       isDestroyed: () => this._state === "destroyed",
       isEndingPause: () => this.endingPause,
@@ -683,12 +688,31 @@ export class AgentInstance {
 
   /** 更新工具列表 */
   setTools(tools: AgentTool[]): void {
-    this.agent.setTools(tools);
+    // 新版：state.tools 是 accessor setter（内部会复制数组）
+    this.agent.state.tools = tools;
   }
 
   /** 更新系统提示词 */
   setSystemPrompt(prompt: string): void {
-    this.agent.setSystemPrompt(prompt);
+    // 新版：systemPrompt 是从 messages 派生的 readonly getter，
+    // 变更提示词必须操作 SystemMessage（messages[0]）
+    const messages = [...this.agent.state.messages];
+    if (messages[0]?.role === 'system') {
+      // 替换现有系统消息的 content（全量语义，与旧版 setSystemPrompt 一致）
+      messages[0] = {
+        ...messages[0],
+        content: prompt,
+        timestamp: messages[0].timestamp,
+      };
+    } else {
+      // 若首条不是 system（罕见），则 unshift 一条
+      messages.unshift({
+        role: 'system',
+        content: prompt,
+        timestamp: Date.now(),
+      });
+    }
+    this.agent.state.messages = messages;
   }
 
   /** 读取当前系统提示词（含记忆注入等动态部分，用于上下文用量估算） */
@@ -708,7 +732,7 @@ export class AgentInstance {
 
   /** 清空消息历史 */
   clearMessages(): void {
-    this.agent.clearMessages();
+    this.agent.state.messages = [];
     this.accumulatedText = "";
   }
 
@@ -751,7 +775,7 @@ export class AgentInstance {
    * 设计文档 §6.5
    */
   replaceMessages(messages: AgentMessage[]): void {
-    this.agent.replaceMessages(messages);
+    this.agent.state.messages = messages.slice();
     this.accumulatedText = "";
   }
 
@@ -804,7 +828,7 @@ export class AgentInstance {
    * 设计文档 §4.3
    */
   appendMessage(message: AgentMessage): void {
-    this.agent.appendMessage(message);
+    this.agent.state.messages = [...this.agent.state.messages, message];
   }
 
   /** 清空所有消息队列（steering + followUp） */

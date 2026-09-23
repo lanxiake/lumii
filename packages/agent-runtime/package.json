@@ -17,8 +17,8 @@
     "rebuild:sqlite": "pnpm rebuild better-sqlite3"
   },
   "dependencies": {
-    "@mariozechner/pi-agent-core": "^0.50.7",
-    "@mariozechner/pi-ai": "^0.50.7",
+    "@earendil-works/pi-agent-core": "^0.87.1",
+    "@earendil-works/pi-ai": "^0.87.1",
     "@sinclair/typebox": "^0.34.33",
     "axios": "^1.20.0",
     "cheerio": "^1.2.0"

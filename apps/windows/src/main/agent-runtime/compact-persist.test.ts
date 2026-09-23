@@ -25,7 +25,9 @@ describe('buildPersistedCompactSummary', () => {
 
     expect(msgs).toHaveLength(1)
     expect(msgs[0]?.role).toBe('assistant')
-    const blocks = msgs[0]?.content as Array<{ type: string; text?: string }>
+    // 新版 AgentMessage 是联合类型，这里按用例意图断言成文本块数组
+    const blocks =
+      (msgs[0] as { content?: Array<{ type: string; text?: string }> } | undefined)?.content ?? []
     expect(blocks.some((b) => b.text?.includes('关键决策：改用分段渲染'))).toBe(true)
     expect(blocks.some((b) => b.text?.startsWith('[对话摘要]'))).toBe(true)
   })

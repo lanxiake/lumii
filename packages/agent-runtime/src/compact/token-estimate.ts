@@ -11,7 +11,7 @@
  * 覆盖块类型：text / thinking / image / tool_use / tool_result / toolCall 等。
  */
 
-import type { AgentMessage } from "@mariozechner/pi-agent-core";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
 
 /**
  * CJK 及常见东亚字符的**码点范围**判断。

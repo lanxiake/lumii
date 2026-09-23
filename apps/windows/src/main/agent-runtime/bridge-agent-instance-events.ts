@@ -17,6 +17,7 @@ import {
   diffTurnSnapshots,
   finalizeAssistantParts,
   providerPromptTokens,
+  readMessageContent,
   resolveWikiAutoIngestItemType,
   shouldSkipWikiIngestPath,
 } from '@mtbot/agent-runtime'
@@ -996,7 +997,7 @@ export function createAgentInstanceRuntimeEventHandler(
             const mapped = [
               ...convMessages.map(m => ({
                 role: m.role as 'user' | 'assistant',
-                content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
+                content: readMessageContent(m),
               })),
               ...toolMsgs,
             ]

@@ -17,7 +17,7 @@
  */
 
 import { randomUUID } from "node:crypto";
-import type { StreamFn } from "@mariozechner/pi-agent-core";
+import type { StreamFn } from "@earendil-works/pi-agent-core";
 import type { AgentRegistry } from "../agent/agent-registry.js";
 import type { AgentInstance } from "../agent/agent-instance.js";
 import type { SummaryGeneratorFn } from "../compact/index.js";

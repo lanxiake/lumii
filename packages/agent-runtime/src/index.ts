@@ -935,3 +935,7 @@ export type {
   PlannerLandingResult,
   PlannerLandingOptions,
 } from "./autonomous/index.js";
+
+// 消息字段读取辅助：新版 AgentMessage 是联合类型（含 bashExecution 这类没有 content
+// 的成员），直接取 .content 编译不过；apps 层也要用同一套归一逻辑。
+export { readMessageContent, readMessageRole } from "./compact/api-invariants.js";

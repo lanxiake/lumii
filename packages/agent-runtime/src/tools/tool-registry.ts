@@ -5,7 +5,7 @@
  * 提供到 pi-agent-core AgentTool[] 的转换，用于注入 Agent。
  */
 
-import type { AgentTool } from "@mariozechner/pi-agent-core";
+import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { MtBotTool, ToolCategory, ToolExecutionContext } from "../types/tool.js";
 import type { HookAgentToolResult, ToolRunLifecycle } from "./tool-hooks.js";
 import { ToolRunner } from "./tool-runner.js";

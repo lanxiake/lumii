@@ -26,7 +26,7 @@ export const IMAGE_DRAW_API_DOCS = "https://docs.right.codes/docs/rc_extension/d
 
 import { Type, type Static } from "@sinclair/typebox";
 import type { MtBotToolConfig } from "../tool-adapter.js";
-import type { AgentToolResult } from "@mariozechner/pi-agent-core";
+import type { AgentToolResult } from "@earendil-works/pi-agent-core";
 import { buildImageModelSelectionGuideForAgent } from "./image-models.js";
 
 const IMAGE_MODEL_SELECTION_GUIDE = buildImageModelSelectionGuideForAgent();
