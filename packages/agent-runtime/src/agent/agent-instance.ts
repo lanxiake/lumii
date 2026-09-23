@@ -170,6 +170,14 @@ export interface AgentInstanceConfig {
 const TEXT_TOOL_INVOCATION_MAX_FIRES = 1;
 
 /**
+ * 因用户插话而跳过的工具，回给模型的结果文本。
+ *
+ * 措辞对齐旧版 pi 的 "Skipped due to queued user message."：要让模型明白这是
+ * **主动跳过**而不是工具自己失败，否则它会去重试一个本该放弃的调用。
+ */
+const STEER_SKIP_REMAINING_TOOLS_REASON = "用户插话，跳过本批剩余工具";
+
+/**
  * Agent 实例
  *
  * 封装 pi-agent-core 的 Agent class，提供面向客户端 UI 的事件流。
@@ -232,6 +240,18 @@ export class AgentInstance {
    * 实测模型一次就改（见 `reliability/text-tool-invocation.ts` 的现场记录）。
    */
   private textToolInvocationFires = 0;
+  /**
+   * 尚未注入对话的用户插话条数（只数 `steer()`，不含 followUp）。
+   *
+   * 用途：`beforeToolCall` 里判断「要不要跳过本批剩余工具」。为什么不用框架的
+   * `agent.peekQueuedMessages()`——它在 steering 队列为空时会**回退到 followUp 队列**，
+   * 而本仓的 token-budget nudge 正走 followUp，用它会把「推动继续干活」误判成插话、
+   * 平白拦掉工具。
+   *
+   * 由 `prepareRequest` 归零：该钩子触发时待注入消息已进对话（官方注释原话
+   * "Pending messages have already been appended"），此刻插话已生效，计数该清。
+   */
+  private pendingSteerCount = 0;
   /** 记忆门面（可选） */
   private readonly memoryManager: MemoryManager | undefined;
   /** 记忆系统集成（热记忆注入 + 候选提取接线） */
@@ -291,6 +311,27 @@ export class AgentInstance {
     this.memoryExtractEvery = config.definition.memory?.extractEvery ?? 3;
     this.lifecycleHooks = config.lifecycleHooks;
 
+    // 插话即时生效：把旧版（0.50.x）「工具跑到一半也能被插话打断」的语义找回来。
+    //
+    // 旧版 executeToolCalls 是**严格顺序**执行，且每跑完一个工具就轮询一次 steering，
+    // 一旦有插话就给同批剩余工具发 "Skipped due to queued user message." 并跳出
+    // （0.50.9 dist/agent-loop.js:262-275）。新版（0.87.1）两处都变了：
+    //   1) steering 轮询挪到整批工具之后（dist/agent-loop.js:186）
+    //   2) 批内默认**并发**执行（toolExecution 默认 "parallel"）
+    // 于是「第一个 sleep 之后插话 → 第二个 sleep 不该再跑」在升级后会失效。
+    //
+    // 修法用官方 beforeToolCall 钩子。两个前提缺一不可：
+    //   - `toolExecution: "sequential"`：并行路径会在执行前把**所有**工具都 prepare
+    //     一遍（dist/agent-loop.js:410-440），钩子跑的时候插话还没到，一个都拦不住。
+    //     顺序执行同时也是旧版的行为，不构成回退。
+    //   - 用自己的 pendingSteerCount 而不是 `agent.peekQueuedMessages()`：后者在
+    //     steering 为空时会回退到 followUp 队列，会把本仓的 nudge 误判成插话。
+    //
+    // 宿主仍可通过 `agentOptions.toolExecution = "parallel"` 覆盖，但那会让拦截**静默失效**
+    // （并行路径下钩子拦不住任何工具）——要改先想清楚这一点。
+    const { beforeToolCall: callerBeforeToolCall, prepareRequest: callerPrepareRequest, ...agentOptionsRest } =
+      config.agentOptions ?? {};
+
     this.agent = createPiAgent({
       initialState: {
         systemPrompt: config.definition.systemPrompt ?? "You are MtBot, a helpful AI assistant.",
@@ -306,6 +347,20 @@ export class AgentInstance {
       steeringMode: "all",
       // 设计文档 §4.2: followUp 模式默认 "one-at-a-time"，逐个任务处理
       followUpMode: "one-at-a-time",
+      toolExecution: "sequential",
+      beforeToolCall: async (context, signal) => {
+        if (this.pendingSteerCount > 0) {
+          return { block: true, reason: STEER_SKIP_REMAINING_TOOLS_REASON };
+        }
+        return callerBeforeToolCall?.(context, signal);
+      },
+      // 触发时待注入消息已进对话，插话已生效，计数清零（见 pendingSteerCount 注释）。
+      // 不用 async：清零是同步的，包成 async 会让返回值推导出 `Promise<void | …>`
+      // 这个联合，跟 PrepareRequest 的签名对不上。
+      prepareRequest: (context, signal) => {
+        this.pendingSteerCount = 0;
+        return callerPrepareRequest?.(context, signal);
+      },
       transformContext: createTransformContext({
         contextWindow: config.contextWindow ?? 1_000_000,
         triggerRatio: DEFAULT_COMPACTION_TRIGGER_RATIO,
@@ -339,7 +394,9 @@ export class AgentInstance {
           buildAttachments: async () => buildActivityIndexAttachment(self.sessionIndex.snapshot()),
         },
       }),
-      ...config.agentOptions,
+      // beforeToolCall / prepareRequest 已在上面解构掉并做了包装，不在这里展开——
+      // 否则宿主的 agentOptions 会把插话拦截钩子整个覆盖掉（且计数不再归零）。
+      ...agentOptionsRest,
     });
 
     this.kernel = config.kernel ?? new PiAgentKernelAdapter(this.agent);
@@ -393,6 +450,9 @@ export class AgentInstance {
       duplicateContentThreshold: 2,
       getMessages: () => this.agent.state.messages,
       getTurnCount: () => this.turnCount,
+      // 刻意绕过 this.steer()：这里不递增 pendingSteerCount，即**不**因为踩到重复
+      // 检测就去跳过正在跑的工具。StuckGuard 是 turn_end 触发的自动纠正（那时工具
+      // 早跑完了），跳过工具既非它的目的、也没有可跳的时机。
       steer: (content) => this.agent.steer({ role: "user", content, timestamp: Date.now() }),
       followUp: (content) =>
         this.agent.followUp({ role: "user", content, timestamp: Date.now() }),
@@ -751,6 +811,9 @@ export class AgentInstance {
         ? { role: "user", content: message, timestamp: Date.now() }
         : message;
     this.agent.steer(msg);
+    // 计数供 beforeToolCall 判断是否跳过本批剩余工具（见 pendingSteerCount 注释）。
+    // 只在这里加：followUp 走另一个方法，不能被算成插话。
+    this.pendingSteerCount += 1;
   }
 
   /**

@@ -20,11 +20,22 @@ import type { Message } from "@earendil-works/pi-ai/compat";
  *   3. 有 toolResult 但无对应 assistant toolCall 的孤立 toolResult
  */
 export function defaultConvertToLlm(messages: AgentMessage[]): Message[] {
-  // 第一遍：保留 user/assistant/toolResult
+  // 第一遍：保留 system/user/assistant/toolResult
+  //
+  // system **必须留下**。旧版 pi（0.50.x）把系统提示词放在独立的 Context.systemPrompt
+  // 字段、工具走 Context.tools，这里只搬运消息数组，滤掉 system 无副作用；新版
+  // （0.87.1）把**系统提示词与工具声明都挂进 transcript 的 SystemMessage**
+  // （pi-ai types.d.ts 的 SystemMessage 注释 + transcript.ts 的 getCurrentTools），
+  // 滤掉它等于把提示词和整套工具一起删掉。
+  //
+  // 2026-09-23 升级后实测现场：inputTokens 从全天均值 6 万+（升级前）掉到 **82**，
+  // 模型回「当前环境没有文件系统读取工具」，工具一个都发不出来。
   const filtered = messages.filter((m): m is Message => {
     if (typeof m !== "object" || m === null || !("role" in m)) return false;
     const role = (m as { role: string }).role;
-    return role === "user" || role === "assistant" || role === "toolResult";
+    return (
+      role === "system" || role === "user" || role === "assistant" || role === "toolResult"
+    );
   });
 
   // ToolCall block（assistant content 里）的字段是 id，不是 toolCallId
