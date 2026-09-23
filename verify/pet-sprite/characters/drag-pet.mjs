@@ -93,7 +93,17 @@ if (!best) throw new Error('没找到宠物')
 
 const cx = Math.round((best.x0 + best.x1) / 2)
 const cy = Math.round((best.y0 + best.y1) / 2)
-console.log(`宠物 x[${best.x0},${best.x1}] y[${best.y0},${best.y1}] → 抓 (${cx},${cy}) 拖到 (${target.x},${target.y})`)
+// **抓在哪一侧很重要**：拖动是"跟着光标走"，抓得离锚点越远、能推的余量越小
+// （见 PetCanvas 的 `clampDrag`）。验"贴边吸附"时要两侧都试。
+const grabArg = process.argv.indexOf('--grab')
+const [gdx, gdy] = grabArg > 0 ? process.argv[grabArg + 1].split(',').map(Number) : [0, 0]
+const gx = Math.max(1, Math.min(2558, cx + (gdx || 0)))
+const gy = Math.max(1, Math.min(1399, cy + (gdy || 0)))
+console.log(
+  `宠物 x[${best.x0},${best.x1}] y[${best.y0},${best.y1}] → 抓 (${gx},${gy})` +
+    (gdx || gdy ? `（相对中心 ${gdx},${gdy}）` : '') +
+    ` 拖到 (${target.x},${target.y})`,
+)
 
 // 派发拖拽。**自己发，不走 lumii-cdp 的 drag**：那个是"按下就连续走"，
 // 而 `PetCanvas` 要按住 `GRAB_HOLD_MS`(100ms) 才跟手——先停 220ms 再动，
@@ -139,8 +149,8 @@ await send2('Runtime.evaluate', {
 })
 await send2('Runtime.evaluate', { expression: 'window.__stray.on = true' })
 
-await send2('Input.dispatchMouseEvent', { type: 'mouseMoved', x: cx, y: cy, buttons: 0 })
-await send2('Input.dispatchMouseEvent', { type: 'mousePressed', x: cx, y: cy, button: 'left', buttons: 1, clickCount: 1 })
+await send2('Input.dispatchMouseEvent', { type: 'mouseMoved', x: gx, y: gy, buttons: 0 })
+await send2('Input.dispatchMouseEvent', { type: 'mousePressed', x: gx, y: gy, button: 'left', buttons: 1, clickCount: 1 })
 await sleep(220) // 过 GRAB_HOLD_MS
 // ⚠ **速度要落在「丢」与「抛」之间**：`isThrowable` 的线是 320px/s
 // （见 pet-core 的 throw-physics），快了变成「抛出去」（宠物被甩到地上，测不到
@@ -150,15 +160,15 @@ await sleep(220) // 过 GRAB_HOLD_MS
 const speedArg = process.argv.indexOf('--speed')
 const SPEED = speedArg > 0 ? Number(process.argv[speedArg + 1]) : 260
 const STEP_MS = 60
-const dist = Math.hypot(target.x - cx, target.y - cy)
+const dist = Math.hypot(target.x - gx, target.y - gy)
 const STEPS = Math.max(6, Math.round(dist / SPEED / (STEP_MS / 1000)))
 console.log(`  距离 ${Math.round(dist)}px → ${STEPS} 步 × ${STEP_MS}ms ≈ ${(STEPS * STEP_MS / 1000).toFixed(1)}s（${SPEED}px/s）`)
 for (let i = 1; i <= STEPS; i++) {
   const k = i / STEPS
   await send2('Input.dispatchMouseEvent', {
     type: 'mouseMoved',
-    x: Math.round(cx + (target.x - cx) * k),
-    y: Math.round(cy + (target.y - cy) * k),
+    x: Math.round(gx + (target.x - gx) * k),
+    y: Math.round(gy + (target.y - gy) * k),
     button: 'left',
     buttons: 1,
   })

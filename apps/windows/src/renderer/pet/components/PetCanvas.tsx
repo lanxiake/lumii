@@ -645,7 +645,7 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
           // 那是"点击"的进行时，不该把宠物拖歪
           if (dragRef.current.active) {
             const want = { x: x - dragRef.current.offsetX, y: y - dragRef.current.offsetY }
-            const at = clampDrag(want)
+            const at = clampDrag(want, { x, y })
             renderer.setPosition(at.x, at.y)
             dragRef.current.samples.push({ x, y, t: performance.now() })
             // 采样窗只需要最近一小段，长拖时不清会让数组无限增长
@@ -678,7 +678,7 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
        * 拿不到内容包围盒时（Live2D、图集还没解码好）**不夹**：宁可让它像以前一样
        * 能被拖出去，也不要在不知道边距的情况下按画布瞎夹。
        */
-      const clampDrag = (want: { x: number; y: number }) => {
+      const clampDrag = (want: { x: number; y: number }, pointer: { x: number; y: number }) => {
         const ext = renderer.getContentExtents?.()
         if (!ext) {
           // **必须说出来**：夹取与"贴边吸附"都靠它，拿不到就双双失效，而画面上
@@ -692,11 +692,30 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
           }
           return want
         }
-        const b = dragBoundsOf(ext, { width: canvas.clientWidth, height: canvas.clientHeight })
-        return {
-          x: Math.min(Math.max(want.x, b.minX), b.maxX),
-          y: Math.min(Math.max(want.y, b.minY), b.maxY),
-        }
+        const vp = { width: canvas.clientWidth, height: canvas.clientHeight }
+        const b = dragBoundsOf(ext, vp)
+        let x = Math.min(Math.max(want.x, b.minX), b.maxX)
+        let y = Math.min(Math.max(want.y, b.minY), b.maxY)
+
+        /**
+         * **光标顶到屏幕边 ⇒ 意图就是"推到底"，不再受抓取偏移限制。**
+         *
+         * 拖动是直接操作：`want = 光标 − 抓取偏移`，所以**抓得离锚点越远，能推的余量越小**。
+         * 光标最低只能到 0，于是"抓在宠物左半边往左墙推"最多推到 `|偏移|`，
+         * 而贴边要求锚点落到 `内容左缘`——`|偏移|` 比它大就永远差一截，
+         * 松手判定不成立、宠物掉下去。用户报的正是这个：「鼠标在宠物中心的右边贴不住，
+         * 不管抓宠物哪边的位置、靠近边缘都要能吸」。
+         *
+         * 判据用"光标离屏幕边 24px 以内"而不是"越界"：`attachDistance` 就是这个语义
+         * （走到墙线 24px 内就吸），拖动这边保持一致。落在边上的位移很小——
+         * `want` 本来就已经被推得很近了。
+         */
+        const EDGE_PUSH_PX = 24
+        if (pointer.x <= EDGE_PUSH_PX) x = b.minX
+        else if (pointer.x >= vp.width - EDGE_PUSH_PX) x = b.maxX
+        if (pointer.y <= EDGE_PUSH_PX) y = b.minY
+        else if (pointer.y >= vp.height - EDGE_PUSH_PX) y = b.maxY
+        return { x, y }
       }
 
       /**
