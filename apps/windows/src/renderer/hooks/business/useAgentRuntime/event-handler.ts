@@ -1481,27 +1481,46 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
         if (prev.messages.some((m) => m.id === event.message.id)) {
           return prev
         }
+        const incoming: RuntimeMessage = {
+          id: event.message.id,
+          role: event.message.role,
+          content: event.message.content,
+          parts: [],
+          timestamp: event.message.timestamp,
+          isStreaming: false,
+          ...(event.message.isVoice ? { isVoice: true } : {}),
+          ...(event.message.isSteer ? { isSteer: true } : {}),
+          ...(event.message.audioWavBase64 ? { audioWavBase64: event.message.audioWavBase64 } : {}),
+          toolCalls: (event.message.toolCalls ?? []).map((tc) => ({
+            ...tc,
+            status: (tc.isError ? 'error' : 'completed') as 'error' | 'completed',
+            isError: tc.isError ?? false,
+          })),
+        }
+        /**
+         * 中途插话是「插进」正在跑的那一轮，不是新起一条：
+         * - **位置**放到当前流式回复之前 —— 那条回复是对它的回应，排在它后面会让人
+         *   以为「插话之后 Agent 没有回应」（2026-09-23 实测：UI 排成 [任务][回复][插话]，
+         *   而 DB 里是 [任务][插话][回复]）；
+         * - **时间戳**同时对齐该回复的 —— ChatContainer 按时间排序，只挪位置的话
+         *   排序又会把它送回最后，两件事必须一起做。
+         *
+         * 找不到流式回复（插话到达时这轮还没产出占位）就按普通消息追加。
+         */
+        if (event.message.isSteer) {
+          const anchorIdx = prev.messages.findIndex(
+            (m) => m.role === 'assistant' && m.isStreaming && !m.sourceAgent,
+          )
+          if (anchorIdx >= 0) {
+            const anchor = prev.messages[anchorIdx]!
+            const msgs = [...prev.messages]
+            msgs.splice(anchorIdx, 0, { ...incoming, timestamp: anchor.timestamp })
+            return { ...prev, messages: trimMessages(msgs) }
+          }
+        }
         return {
           ...prev,
-          messages: trimMessages([
-            ...prev.messages,
-            {
-              id: event.message.id,
-              role: event.message.role,
-              content: event.message.content,
-              parts: [],
-              timestamp: event.message.timestamp,
-              isStreaming: false,
-              ...(event.message.isVoice ? { isVoice: true } : {}),
-              ...(event.message.isSteer ? { isSteer: true } : {}),
-              ...(event.message.audioWavBase64 ? { audioWavBase64: event.message.audioWavBase64 } : {}),
-              toolCalls: (event.message.toolCalls ?? []).map((tc) => ({
-                ...tc,
-                status: (tc.isError ? 'error' : 'completed') as 'error' | 'completed',
-                isError: tc.isError ?? false,
-              })),
-            },
-          ]),
+          messages: trimMessages([...prev.messages, incoming]),
         }
       })
       break
