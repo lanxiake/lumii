@@ -9,10 +9,11 @@
 
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Copy, Quote, Volume2, VolumeX, X } from 'lucide-react'
+import { Check, Copy, Quote, Volume2, VolumeX, X } from 'lucide-react'
 import { placeFloating, type FloatingPosition } from './floating-position'
 import { hasQuoteSink, insertQuote } from './quote-bridge'
 import { SINGLE_ACTION_LABELS } from './single-action-labels'
+import { SelectionResultMarkdown } from './SelectionResultMarkdown'
 import { useSelectionBubble, closeBubble } from './bubble-store'
 import { useTtsPreview } from '../hooks/business/useTtsPreview'
 import { writeClipboardText } from '../services/clipboard-service'
@@ -20,6 +21,9 @@ import styles from './SelectionBubble.module.css'
 
 /** 朗读上限与消息朗读一致（设置页试听的 100 字上限会把长结果静默截断） */
 const SPEAK_MAX_CHARS = 8000
+
+/** 「已复制」标记停留时长：够看见，又不至于让按钮一直变着样 */
+const COPIED_HINT_MS = 1600
 
 interface SelectionBubbleProps {
   rootRef: React.RefObject<HTMLDivElement>
@@ -39,6 +43,30 @@ export const SelectionBubble: React.FC<SelectionBubbleProps> = ({ rootRef }) => 
   const dragRef = useRef<{ startX: number; startY: number; baseX: number; baseY: number } | null>(null)
   const showQuote = hasQuoteSink()
   const { isSpeaking, busy: ttsBusy, speak, stop: stopSpeaking } = useTtsPreview()
+  /** 「已复制」是**瞬时**反馈：不写进 store，也不跨气泡留存 */
+  const [copied, setCopied] = useState(false)
+  const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // 换气泡（新 requestId）就把上一条的「已复制」收掉 —— 组件本身常驻，不清就会串台
+  const requestId = state?.requestId
+  useEffect(() => {
+    setCopied(false)
+    if (copiedTimerRef.current) {
+      clearTimeout(copiedTimerRef.current)
+      copiedTimerRef.current = null
+    }
+  }, [requestId])
+
+  useEffect(() => () => {
+    if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current)
+  }, [])
+
+  const handleCopy = async () => {
+    await writeClipboardText(state?.result ?? '')
+    setCopied(true)
+    if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current)
+    copiedTimerRef.current = setTimeout(() => setCopied(false), COPIED_HINT_MS)
+  }
 
   // 先量后定位（与浮条同一套）。依赖 state?.anchorRect：换选区时重算
   useLayoutEffect(() => {
@@ -60,9 +88,13 @@ export const SelectionBubble: React.FC<SelectionBubbleProps> = ({ rootRef }) => 
    *
    * 用 pointer capture 而不是往 document 上挂 mousemove —— 指针移到窗口外再松开时，
    * 捕获能保证 pointerup 仍然回到这里，不会留下「粘在指针上」的浮层。
+   *
+   * **但按钮上不能捕获**：指针捕获会把后续的 `click` 派发到捕获元素（头部）而不是按钮，
+   * 于是「关闭」按下去毫无反应（实测报告过）。所以按到按钮上就整个让开。
    */
   const handleDragStart = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0 || !position) return
+    if (e.target instanceof Element && e.target.closest('button')) return
     e.currentTarget.setPointerCapture(e.pointerId)
     dragRef.current = {
       startX: e.clientX,
@@ -113,8 +145,14 @@ export const SelectionBubble: React.FC<SelectionBubbleProps> = ({ rootRef }) => 
         left: (position?.left ?? 0) + dragOffset.x,
         visibility: position ? 'visible' : 'hidden',
       }}
-      // 保住选区：气泡里的复制/引用不该把用户刚选的那段弄没
-      onMouseDown={(e) => e.preventDefault()}
+      /**
+       * 只在按钮上吃掉默认行为（免得按下时把外层选区弄没）。
+       * **正文里要能拖选** —— 长结果是要读、要摘的，全给 preventDefault 就选不中了。
+       * 气泡的复制/引用用的都是 `state.result`，不依赖实时选区，所以放手没有副作用。
+       */
+      onMouseDown={(e) => {
+        if (e.target instanceof Element && e.target.closest('button')) e.preventDefault()
+      }}
     >
       <div
         className={styles['selection-bubble__head']}
@@ -146,9 +184,7 @@ export const SelectionBubble: React.FC<SelectionBubbleProps> = ({ rootRef }) => 
             <span>处理中…</span>
           </div>
         )}
-        {state.status === 'done' && (
-          <p className={styles['selection-bubble__result']}>{state.result}</p>
-        )}
+        {state.status === 'done' && <SelectionResultMarkdown text={state.result ?? ''} />}
         {state.status === 'error' && (
           <p className={styles['selection-bubble__error']}>{state.error ?? '处理失败'}</p>
         )}
@@ -171,11 +207,12 @@ export const SelectionBubble: React.FC<SelectionBubbleProps> = ({ rootRef }) => 
           </button>
           <button
             type="button"
-            className={styles['selection-bubble__action']}
-            onClick={() => void writeClipboardText(state.result ?? '')}
+            className={`${styles['selection-bubble__action']} ${copied ? styles['selection-bubble__action--copied'] : ''}`}
+            onClick={() => void handleCopy()}
+            title={copied ? '已复制到剪贴板' : '复制'}
           >
-            <Copy size={13} />
-            <span>复制</span>
+            {copied ? <Check size={13} /> : <Copy size={13} />}
+            <span>{copied ? '已复制' : '复制'}</span>
           </button>
           {showQuote && (
             <button

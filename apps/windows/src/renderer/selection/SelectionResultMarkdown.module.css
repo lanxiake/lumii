@@ -1,0 +1,229 @@
+/**
+ * 划词结果的 Markdown 排版 —— **手绘笔记**语汇。
+ *
+ * 三条设计意图，改样式时别丢：
+ *
+ * 1. **颜色一律跟着主题色走。** 全部由 `rgba(var(--mt-accent-rgb), α)` 调出来，
+ *    不写死任何一种色相：dark/light 下是品牌蓝，护眼主题下是琥珀金 —— 三个主题各自
+ *    成立，而不是"蓝色的 App 里贴了一张黄便签"。层次不靠换色相，靠**同一色相的浓淡 +
+ *    形状**：荧光笔最实（.30），笔痕类（下划线/波浪/分隔线）中等（.32–.62），
+ *    便签底最淡（.09）。
+ * 2. **重点要跳出来。** `**加粗**` 不是加粗，是**荧光笔划过去**：主题色半透明底 +
+ *    不规则圆角（`box-decoration-break: clone` 保证跨行时每行各自一道笔痕，
+ *    而不是整段一个色块）。斜体走波浪线，与荧光笔分工不同：一个是"这是重点"，
+ *    一个是"这是补充"。
+ * 3. **手画感靠形状不靠字体。** 中文字体动辄几 MB，为一个气泡换手写体不划算；所以
+ *    手绘感来自**不规则的圆角**（`255px 15px 225px 15px / …` 那类配方）、极小的倾斜
+ *    （0.25–0.6deg）、两头不匀的渐变笔触。倾斜角度都压在 1deg 以内 —— 再多就像没对齐了。
+ *
+ * 代码块与表格的分隔线保留中性的 `--mt-fg-*`：它们是"结构"不是"笔记"，
+ * 上了主题色反而会跟荧光笔抢视线。
+ */
+
+.sr-root {
+  font-size: var(--mt-fs-sm);
+  line-height: 1.75;
+  color: var(--mt-fg-1);
+  overflow-wrap: anywhere;
+}
+
+/* 首尾不留多余外边距：气泡的内边距已经给了呼吸空间 */
+.sr-root > :first-child {
+  margin-top: 0;
+}
+
+.sr-root > :last-child {
+  margin-bottom: 0;
+}
+
+/* ── 标题：一道手画的下划笔痕 ── */
+.sr-heading {
+  position: relative;
+  margin: 1em 0 0.45em;
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--mt-fg-1);
+}
+
+.sr-heading--1 {
+  font-size: 1.2em;
+}
+
+.sr-heading--2 {
+  font-size: 1.1em;
+}
+
+.sr-heading--3,
+.sr-heading--4,
+.sr-heading--5,
+.sr-heading--6 {
+  font-size: 1.02em;
+}
+
+.sr-heading::after {
+  content: '';
+  display: block;
+  height: 3px;
+  margin-top: 2px;
+  border-radius: 3px 6px 4px 7px;
+  /* 两头不匀：起笔实、收笔淡，像一笔划过去的 */
+  background: linear-gradient(
+    90deg,
+    rgba(var(--mt-accent-rgb), 0.62) 0%,
+    rgba(var(--mt-accent-rgb), 0.34) 70%,
+    transparent 100%
+  );
+  transform: rotate(-0.4deg);
+  transform-origin: left center;
+}
+
+/* ── 正文 ── */
+.sr-p {
+  margin: 0.55em 0;
+}
+
+/* ── 荧光笔：`**重点**` ── */
+.sr-mark {
+  font-weight: 600;
+  padding: 0 0.18em;
+  /* 不规则圆角 → 手画的笔痕，而不是一个规规矩矩的色块 */
+  border-radius: 0.35em 0.6em 0.4em 0.7em;
+  background: rgba(var(--mt-accent-rgb), 0.3);
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+/* ── 波浪线：`*补充*` ── */
+.sr-em {
+  font-style: normal;
+  text-decoration: underline wavy rgba(var(--mt-accent-rgb), 0.62);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+/* ── 列表 ── */
+.sr-list {
+  margin: 0.45em 0;
+}
+
+.sr-li {
+  margin: 0.22em 0;
+}
+
+.sr-list--ul {
+  padding-left: 0.15em;
+  list-style: none;
+}
+
+.sr-list--ul > .sr-li {
+  position: relative;
+  padding-left: 1.05em;
+}
+
+/* 手画的小方块当圆点，比默认的实心圆更有笔记感 */
+.sr-list--ul > .sr-li::before {
+  content: '';
+  position: absolute;
+  left: 0.18em;
+  top: 0.72em;
+  width: 5px;
+  height: 5px;
+  border-radius: 2px 4px 3px 5px;
+  background: rgba(var(--mt-accent-rgb), 0.7);
+}
+
+.sr-list--ol {
+  padding-left: 1.35em;
+}
+
+.sr-list--ol > .sr-li::marker {
+  color: rgba(var(--mt-accent-rgb), 0.85);
+  font-weight: 600;
+}
+
+/* ── 引用块：一张手画框的便签 ── */
+.sr-quote {
+  margin: 0.6em 0;
+  padding: 0.5em 0.7em;
+  border: 1.5px solid rgba(var(--mt-accent-rgb), 0.4);
+  border-radius: 14px 6px 16px 8px / 8px 16px 6px 14px;
+  background: rgba(var(--mt-accent-rgb), 0.09);
+}
+
+.sr-quote > :first-child {
+  margin-top: 0;
+}
+
+.sr-quote > :last-child {
+  margin-bottom: 0;
+}
+
+/* ── 分隔线：一道断续的笔痕 ── */
+.sr-hr {
+  height: 2px;
+  margin: 0.9em 0;
+  border: none;
+  border-radius: 2px;
+  background: repeating-linear-gradient(
+    90deg,
+    rgba(var(--mt-accent-rgb), 0.32) 0 8px,
+    transparent 8px 13px
+  );
+  transform: rotate(-0.25deg);
+}
+
+/* ── 代码（中性色：这是结构不是笔记） ── */
+.sr-code {
+  font-family: var(--mt-font-mono);
+  font-size: 0.92em;
+  padding: 0.1em 0.32em;
+  border-radius: 4px 7px 5px 8px;
+  background: color-mix(in srgb, var(--mt-fg-1) 8%, transparent);
+}
+
+.sr-pre {
+  margin: 0.6em 0;
+  padding: 0.6em 0.7em;
+  overflow-x: auto;
+  border-radius: 10px 6px 12px 7px;
+  background: color-mix(in srgb, var(--mt-fg-1) 6%, transparent);
+}
+
+/* 块级代码的内层 code 不再重复上底色与内边距 */
+.sr-pre .sr-code {
+  padding: 0;
+  background: none;
+  font-size: 0.9em;
+  line-height: 1.65;
+}
+
+/* ── 链接 ── */
+.sr-link {
+  color: var(--mt-accent-500);
+  text-decoration: underline wavy rgba(var(--mt-accent-rgb), 0.55);
+  text-underline-offset: 3px;
+}
+
+/* ── 表格 ── */
+.sr-table-wrap {
+  margin: 0.6em 0;
+  overflow-x: auto;
+}
+
+.sr-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.95em;
+}
+
+.sr-table th,
+.sr-table td {
+  padding: 0.3em 0.5em;
+  text-align: left;
+  border-bottom: 1px solid color-mix(in srgb, var(--mt-fg-1) 12%, transparent);
+}
+
+.sr-table th {
+  font-weight: 600;
+  color: var(--mt-fg-2);
+}

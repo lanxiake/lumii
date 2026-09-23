@@ -36,4 +36,29 @@ describe('buildSelectionPrompt', () => {
     const prompts = ACTIONS.map((a) => buildSelectionPrompt(a, 'x'))
     expect(new Set(prompts).size).toBe(ACTIONS.length)
   })
+
+  /**
+   * 气泡按 Markdown 渲染（`SelectionResultMarkdown`），所以「会不会长」的那两挡必须在
+   * 提示词里就要求结构：解释要标题/分段、总结要列表。同时都得留退路，
+   * 免得一个词的译文也长出小标题。
+   */
+  it('解释与总结要求 Markdown 结构（渲染层能读，模型得先产出）', () => {
+    const explain = buildSelectionPrompt('explain', 'x')
+    expect(explain).toContain('Markdown')
+    expect(explain).toContain('小标题')
+    expect(explain).toContain('**加粗**')
+
+    const summarize = buildSelectionPrompt('summarize', 'x')
+    expect(summarize).toContain('无序列表')
+    expect(summarize).toContain('**加粗**')
+  })
+
+  it('要求结构的同时留了退路：短文本别硬套标题', () => {
+    expect(buildSelectionPrompt('explain', 'x')).toContain('不要加标题')
+  })
+
+  it('翻译与润色要求保持原文结构，而不是自己加排版', () => {
+    expect(buildSelectionPrompt('translate', 'x')).toContain('保持同样的结构')
+    expect(buildSelectionPrompt('polish', 'x')).toContain('保留原文的段落与分行结构')
+  })
 })

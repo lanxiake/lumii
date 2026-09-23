@@ -6,12 +6,15 @@
  */
 import React from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { SelectionBubbleState } from './bubble-store'
+import type { QuoteInput } from './quote-bridge'
 
 let bubbleState: SelectionBubbleState | null = null
 const closeBubble = vi.fn()
-const insertQuote = vi.fn(() => true)
+// 入参按真实签名写：`vi.fn(() => true)` 是零参签名，mock 里再 `(...args) => insertQuote(...args)`
+// 会因「把 unknown[] 摊进零参函数」而类型不过（tsc 是仓库唯一的静态门禁）
+const insertQuote = vi.fn((_input: QuoteInput): boolean => true)
 const writeClipboardText = vi.fn()
 
 vi.mock('./bubble-store', () => ({
@@ -20,7 +23,7 @@ vi.mock('./bubble-store', () => ({
 }))
 vi.mock('./quote-bridge', () => ({
   hasQuoteSink: () => true,
-  insertQuote: (...args: unknown[]) => insertQuote(...args),
+  insertQuote: (input: QuoteInput) => insertQuote(input),
 }))
 vi.mock('../services/clipboard-service', () => ({
   writeClipboardText: (...args: unknown[]) => writeClipboardText(...args),
@@ -41,7 +44,11 @@ function renderBubble() {
     ({ width: 240, height: 120, top: 0, left: 0, right: 240, bottom: 120, x: 0, y: 0 }) as DOMRect
   document.body.appendChild(root)
   const ref = { current: root } as React.RefObject<HTMLDivElement>
-  return render(<SelectionBubble rootRef={ref} />)
+  const utils = render(<SelectionBubble rootRef={ref} />)
+  return Object.assign(utils, {
+    ref,
+    rerenderWithRef: () => utils.rerender(<SelectionBubble rootRef={ref} />),
+  })
 }
 
 function state(overrides: Partial<SelectionBubbleState>): SelectionBubbleState {
@@ -109,12 +116,83 @@ describe('SelectionBubble', () => {
     expect(closeBubble).toHaveBeenCalled()
   })
 
+  /**
+   * 关闭按钮点不动的真因：头部 `pointerdown` 会 `setPointerCapture`，而**指针捕获会把
+   * 后续的 click 派发到捕获元素（头部）而不是按钮**，onClick 于是永远不触发。
+   * jsdom 不实现捕获重定向，所以上面那条「点关闭」用例在真机坏掉时照样绿 ——
+   * 这里直接把机制本身钉住：按在按钮上不许捕获。
+   */
+  it('头部按下才捕获指针；按在关闭按钮上不捕获（否则 click 会被头部抢走）', () => {
+    bubbleState = state({ status: 'done', result: 'x' })
+    renderBubble()
+
+    const capture = vi.fn()
+    const proto = Element.prototype as unknown as Record<string, unknown>
+    const originalCapture = proto.setPointerCapture
+    const originalRelease = proto.releasePointerCapture
+    proto.setPointerCapture = capture
+    proto.releasePointerCapture = vi.fn()
+
+    try {
+      const head = document.querySelector('.selection-bubble__head') as HTMLElement
+      const closeButton = screen.getByLabelText('关闭')
+
+      fireEvent.pointerDown(closeButton, { button: 0, pointerId: 1 })
+      expect(capture).not.toHaveBeenCalled()
+
+      fireEvent.pointerDown(head, { button: 0, pointerId: 1 })
+      expect(capture).toHaveBeenCalledTimes(1)
+    } finally {
+      proto.setPointerCapture = originalCapture
+      proto.releasePointerCapture = originalRelease
+    }
+  })
+
   it('点复制把结果写进剪贴板', () => {
     bubbleState = state({ status: 'done', result: '结果文本' })
     renderBubble()
 
     screen.getByText('复制').click()
     expect(writeClipboardText).toHaveBeenCalledWith('结果文本')
+  })
+
+  it('复制后给出「已复制」反馈，过一会儿自己收掉', async () => {
+    vi.useFakeTimers()
+    try {
+      bubbleState = state({ status: 'done', result: '结果文本' })
+      renderBubble()
+
+      fireEvent.click(screen.getByText('复制'))
+      // handleCopy 是 async：等它把 setCopied 落到界面上
+      await act(async () => {
+        await Promise.resolve()
+      })
+      expect(screen.getByText('已复制')).toBeInTheDocument()
+      expect(screen.queryByText('复制')).toBeNull()
+
+      act(() => {
+        vi.advanceTimersByTime(2000)
+      })
+      expect(screen.queryByText('已复制')).toBeNull()
+      expect(screen.getByText('复制')).toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('换一条结果（新 requestId）时「已复制」不跟着串台', async () => {
+    bubbleState = state({ status: 'done', result: '旧结果' })
+    const { rerenderWithRef } = renderBubble()
+
+    fireEvent.click(screen.getByText('复制'))
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(screen.getByText('已复制')).toBeInTheDocument()
+
+    bubbleState = state({ requestId: 'r2', status: 'done', result: '新结果' })
+    rerenderWithRef()
+    expect(screen.queryByText('已复制')).toBeNull()
   })
 
   it('点引用把结果投给引用桥并收起气泡', () => {
