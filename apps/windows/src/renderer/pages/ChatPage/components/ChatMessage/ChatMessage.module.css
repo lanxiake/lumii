@@ -477,16 +477,26 @@
   width: fit-content;
 }
 
+/* 中断不是失败：中性灰，与 SubAgentRun 的 .status--interrupted 同一语义。
+ *
+ * 原来用 warning 黄 —— `--color-warning-light`(#fde047 亮黄) 压在 `--color-warning-15`
+ * (淡黄底) 上，**同色相只剩明度差**，用户实测「太黄了，看不清楚」。而且"黄 = 警告"会让
+ * 一次**用户主动**的中断读起来像出了错（ToolCallCard 那边也写着"中断不是失败"）。
+ *
+ * 字色用 **fg-2 而不是 fg-3**：实测（check-aborted-badge-color.mjs）fg-3 在深色主题下
+ * 5.91:1 尚可，但浅色只剩 3.87、护眼 3.75 —— 都低于 AA 正文要求的 4.5:1。徽标是
+ * `font-size-xs` 的小字，恰恰是最需要对比度的那一档，所以取"次要文字"的 fg-2。
+ * 徽标底是半透明的，对比度按**合成后**的有效背景算（脚本里逐层合成到不透明祖先）。 */
 .message-aborted-badge {
   display: inline-flex;
   align-items: center;
   gap: var(--spacing-1);
   padding: var(--spacing-1) var(--spacing-2);
-  background-color: var(--color-warning-15);
-  border: 1px solid var(--color-warning);
+  background-color: color-mix(in srgb, var(--color-text-tertiary) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-text-tertiary) 40%, transparent);
   border-radius: var(--radius-md);
   font-size: var(--font-size-xs);
-  color: var(--color-warning-light);
+  color: var(--mt-fg-2);
   margin-top: var(--spacing-2);
 }
 
