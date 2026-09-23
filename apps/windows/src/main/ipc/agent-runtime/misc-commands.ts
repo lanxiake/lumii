@@ -128,16 +128,38 @@ export async function handleMessageEditAndResend(
   // 重发是比单纯编辑更强的否定信号；删改都不留历史，只能在此刻记录
   recordFeedbackSignal(convId, 'resend')
   try {
+    // 0. 目标消息必须真在本会话里。
+    //
+    // 缺这道校验的后果不是"编辑没生效"，而是**幽灵消息**：下面的 updateMessageContent
+    // 命中 0 行会静默通过，而末尾的 sendPrompt 是无条件的——新文本于是进了模型上下文
+    // 与 Agent 内存历史，却从未落库。UI 看不到它、重载会话即丢，排查时会看到"模型引用
+    // 了一条不存在的用户消息"（2026-09-23 实测现场）。
+    //
+    // 触发场景不止陈旧 id：任何跨会话误用、或消息在本调用之前被删/被压缩掉，都会命中。
+    if (!bridge.conversationRepo.messageExists(messageId, convId)) {
+      log.warn(
+        `[message:edit-and-resend] 目标消息不存在，已取消重发（不触碰会话，也不触发模型）: messageId=${messageId} convId=${convId}`,
+      )
+      return { success: false, error: '目标消息不存在（可能已被删除），已取消重发' }
+    }
     // 1. 删除该消息之后的所有消息
     const removed = bridge.conversationRepo.deleteMessagesAfter(messageId, convId)
     log.info(`[message:edit-and-resend] deleted ${removed} messages after ${messageId}`)
     // 2. 更新消息内容
-    bridge.conversationRepo.updateMessageContent({
+    const updated = bridge.conversationRepo.updateMessageContent({
       messageId,
       conversationId: convId,
       contentJson: { type: 'text', text: newContent },
       isStreaming: false,
     })
+    // 复查受影响行数：上面那次存在性检查到这里之间，消息仍可能被删（竞态）。
+    // 再漏一次就还是会造幽灵消息，所以这里不省。
+    if (updated === 0) {
+      log.warn(
+        `[message:edit-and-resend] 更新未命中任何行，已取消重发: messageId=${messageId} convId=${convId}`,
+      )
+      return { success: false, error: '目标消息在当前会话中已不存在，已取消重发' }
+    }
     // 3. 重新触发 Agent 回复（复用 compact 路径的 getInstanceForSession）
     const instanceId = await deps!.getInstanceForSession(bridge, convId)
     if (instanceId) {

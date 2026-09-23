@@ -311,9 +311,9 @@ export class AgentInstance {
     this.memoryExtractEvery = config.definition.memory?.extractEvery ?? 3;
     this.lifecycleHooks = config.lifecycleHooks;
 
-    // 插话即时生效：把旧版（0.50.x）「工具跑到一半也能被插话打断」的语义找回来。
+    // 插话即时生效：不要在用户插话后继续启动新工具。
     //
-    // 旧版 executeToolCalls 是**严格顺序**执行，且每跑完一个工具就轮询一次 steering，
+    // 旧版（0.50.x）executeToolCalls 是**严格顺序**执行，且每跑完一个工具就轮询一次 steering，
     // 一旦有插话就给同批剩余工具发 "Skipped due to queued user message." 并跳出
     // （0.50.9 dist/agent-loop.js:262-275）。新版（0.87.1）两处都变了：
     //   1) steering 轮询挪到整批工具之后（dist/agent-loop.js:186）
@@ -326,6 +326,13 @@ export class AgentInstance {
     //     顺序执行同时也是旧版的行为，不构成回退。
     //   - 用自己的 pendingSteerCount 而不是 `agent.peekQueuedMessages()`：后者在
     //     steering 为空时会回退到 followUp 队列，会把本仓的 nudge 误判成插话。
+    //
+    // ⚠️ 与旧版**不完全等价**，差别在插话到达的时机（2026-09-23 实测确认，且是刻意保留的）：
+    //   - 插话落在**某个工具执行期间** → 该工具跑完、同批剩余被拦。**与旧版一致**。
+    //   - 插话落在**模型流式输出期间**（工具批尚未开始）→ **整批拦下**。旧版此时仍会跑完
+    //     第一个工具（它的轮询在工具之后），本实现更严格。
+    // 选严格这条是因为「立刻结束」要真的立刻：批内第一个工具若是 spawn_agent 这类要跑几分钟的，
+    // 旧版会白等它。代价是轻量插话（"顺便也看下 X"）会作废整批计划、多一次模型往返。
     //
     // 宿主仍可通过 `agentOptions.toolExecution = "parallel"` 覆盖，但那会让拦截**静默失效**
     // （并行路径下钩子拦不住任何工具）——要改先想清楚这一点。

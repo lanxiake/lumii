@@ -852,16 +852,32 @@ export class ConversationRepo {
   /**
    * 更新已存在消息（流式 delta / message:end / agent:end 收尾）。
    */
+  /**
+   * 该会话下是否存在这条消息。
+   *
+   * 存在的意义：`updateMessageContent` 的 UPDATE 命中 0 行时**静默通过**，
+   * 调用方无从分辨「改成功了」与「这条消息根本不在」。而 `message:edit-and-resend`
+   * 在两者之后**无条件**把新文本送进模型上下文——于是造出「模型看得到、库里没有」的
+   * 幽灵消息（2026-09-23 实测：渲染层持有已被删除会话的陈旧条目，点编辑重发即复现）。
+   * 改消息内容前先问一句，是这类调用方该做的第一件事。
+   */
+  messageExists(messageId: string, conversationId: string): boolean {
+    const row = this.db
+      .prepare<{ id: string }>("SELECT id FROM messages WHERE id = ? AND conversation_id = ?")
+      .get(messageId, conversationId);
+    return !!row;
+  }
+
   updateMessageContent(params: {
     readonly messageId: string;
     readonly conversationId: string;
     readonly contentJson: MessageContentJson;
     readonly isStreaming: boolean;
-  }): void {
+  }): number {
     const contentStr = JSON.stringify(params.contentJson);
     const now = new Date().toISOString();
-    withTransaction(this.db, () => {
-      this.db
+    const changes = withTransaction(this.db, () => {
+      const result = this.db
         .prepare(
           `UPDATE messages SET content_json = ?, is_streaming = ?, timestamp = ?
          WHERE id = ? AND conversation_id = ?`,
@@ -870,9 +886,12 @@ export class ConversationRepo {
       this.db
         .prepare("UPDATE conversations SET last_msg_at = ? WHERE id = ?")
         .run(now, params.conversationId);
+      return (result as { changes: number }).changes ?? 0;
     });
     this.conversationCache.delete(params.conversationId);
     this.messageCache.deleteWhere((k) => k.startsWith(`${params.conversationId}|`));
+    // 返回受影响行数：0 表示目标消息不在，调用方必须据此判断，别再无条件往下走
+    return changes;
   }
 
   /**

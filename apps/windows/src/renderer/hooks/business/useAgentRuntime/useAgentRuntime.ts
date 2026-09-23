@@ -485,9 +485,12 @@ export function useAgentRuntimeActions() {
     // 必须在 sendCommand 之前执行——主进程 message:edit-and-resend 会 await bridge.prompt(...)，
     // 即命令要等整轮新回复生成完才 resolve；若把清理放在 await 之后，流式新回复会先填入气泡，
     // 随后的 slice 又把刚生成的新回复一并删掉（问题3 误删根因）。
+    // 同时记下改前那条消息，供主进程拒绝时回滚（否则 UI 会显示一条库里并不存在的编辑）。
+    let rollback: RuntimeMessage | undefined
     updateSessionState(sessionKey, (prev) => {
       const idx = prev.messages.findIndex((m) => m.id === messageId)
       if (idx === -1) return prev
+      rollback = prev.messages[idx]
       const kept = prev.messages.slice(0, idx + 1).map((m) =>
         m.id === messageId
           ? { ...m, content: [{ type: 'text' as const, text: newContent }] }
@@ -496,7 +499,29 @@ export function useAgentRuntimeActions() {
       return { ...prev, messages: kept }
     })
 
-    await api.sendCommand({ type: 'message:edit-and-resend', sessionKey, messageId, newContent })
+    const result = (await api.sendCommand({
+      type: 'message:edit-and-resend',
+      sessionKey,
+      messageId,
+      newContent,
+    })) as { success?: boolean; error?: string } | undefined
+
+    // 主进程有存在性校验（防「文本进了模型上下文却从未落库」的幽灵消息），
+    // 它会拒绝陈旧 id / 竞态下的目标；这里必须让用户看见，否则点重发像什么都没发生。
+    if (result && result.success === false) {
+      if (rollback) {
+        const restore = rollback
+        updateSessionState(sessionKey, (prev) => ({
+          ...prev,
+          messages: prev.messages.map((m) => (m.id === restore.id ? restore : m)),
+        }))
+      }
+      window.dispatchEvent(
+        new CustomEvent('mtbot:agent-error', {
+          detail: { message: result.error ?? '重发失败' },
+        }),
+      )
+    }
   }, [])
 
   /**
