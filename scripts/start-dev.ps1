@@ -1,11 +1,15 @@
 # start-dev.ps1 - Start Lumii local dev (electron-vite)
-# Usage: .\scripts\start-dev.ps1 [-Force] [-Foreground] [-Inspect <port>]
-#   -Inspect 5860  -> passes --inspect=5860 --sourcemap to the main process
+# Usage: .\scripts\start-dev.ps1 [-Force] [-Foreground] [-Inspect <port>] [-RemoteDebug <port>]
+#   -Inspect 5860      -> passes --inspect=5860 --sourcemap to the main process
+#   -RemoteDebug 9222  -> passes --remoteDebuggingPort=9222, which is what
+#                         scripts/lumii-cdp.mjs needs to drive the running app
+#                         (pixel-level pet checks; the ui CLI has no DOM ref for the pet).
 # Encoding: ASCII-only comments to avoid PS 5.1 parse issues without BOM
 param(
   [switch]$Force,
   [switch]$Foreground,
-  [string]$Inspect = ''
+  [string]$Inspect = '',
+  [string]$RemoteDebug = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -18,7 +22,10 @@ $Tag = 'Lumii'
 
 # Args appended to `pnpm --filter ./apps/windows dev`.
 # NOTE the `--` separator: without it pnpm may swallow --inspect itself.
-$DevArgs = if ($Inspect) { "-- --inspect=$Inspect --sourcemap" } else { "" }
+$ExtraArgs = @()
+if ($Inspect) { $ExtraArgs += "--inspect=$Inspect"; $ExtraArgs += '--sourcemap' }
+if ($RemoteDebug) { $ExtraArgs += "--remoteDebuggingPort=$RemoteDebug" }
+$DevArgs = if ($ExtraArgs.Count -gt 0) { '-- ' + ($ExtraArgs -join ' ') } else { '' }
 
 # Switch console to UTF-8 to reduce Chinese mojibake
 function Set-Utf8Console {

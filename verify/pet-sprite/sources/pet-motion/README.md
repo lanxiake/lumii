@@ -31,7 +31,11 @@ node verify/pet-sprite/characters/install-pet.mjs --id demo_cartoon_cat \
   --dir verify/pet-sprite/sources/pet-motion --canvas 560x448 --bg 00ccff
 ```
 
-⚠ `--canvas` **别照抄**，它是量出来的：
+⚠ **`crawl/` 里那张表是"正"的（脚朝下），装的时候才翻成倒挂**——`install-pet.mjs` 的
+`ACTIONS.crawl` 标了 `invertY`。别把它当成"素材装错了"去手工换图：
+这一行只在天花板上播，倒挂是它的正确形态（详见 SKILL.md 硬规则 8）。
+
+⚠ **`--canvas` 别照抄 560**，它是量出来的：
 
 ```bash
 node verify/pet-sprite/characters/sheet-canvas.mjs \

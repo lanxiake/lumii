@@ -47,7 +47,7 @@ when_to_use: 用户说"给桌宠加个动作 / 补上走路和爬墙 / 换个宠
 末帧会被**强制拉回正面**，循环里出现"转过去→被拉回来"的鬼畜。姿势图那一轮**不接尾帧**，
 角色才能真正转过去；循环闭合交给下一轮。
 
-## 四、七条硬规则（每条都是实测换来的，别推翻）
+## 四、九条硬规则（每条都是实测换来的，别推翻）
 
 1. **循环闭合靠 FL2VA，不是靠提示词求。** 把**同一张图**同时接给 `first_frame` 和 `last_frame`。
    只在提示词里写"请回到起始姿势"模型可以不理（实测末尾手臂一直举着）。
@@ -79,6 +79,26 @@ when_to_use: 用户说"给桌宠加个动作 / 补上走路和爬墙 / 换个宠
    - **S1 角色越出格线**——头顶出框是**信息已经丢了**，后期缩放救不回来 → 抬 baseline 重出。
    - **S8 底色离角色色太近**（安全线 150）——抠底容差会逼近这个距离、穿过描边漏进角色内部。
      让模型画的道具**颜色写死**（实测写 "bright red ball" 后色距从 99 回到 252）。
+
+8. **`Crawl` 那一行必须倒挂，而且是"谁装谁翻"**（2026-09-23）。它只在天花板上播
+   （`PetWanderDriver` 里 `onActivity('crawl')` 只有"沿上边缘爬行"一处），所以素材得是
+   **脚朝上、头朝下**。Shimeji 那套的作者就是那么画的，**而 H3 出的这一行是正的**
+   （`POSES.creep` 写的是"趴在地上"，模型照做）。不在 `install-pet.mjs` 的 `ACTIONS` 里
+   标 `invertY: true` 会怎样：**宠物头朝上吊在天花板上**——用户的原话是
+   「反了，应该底部朝上，头部朝下」。⚠ 反过来也不行：给本来就倒挂的素材再翻一次，
+   同样头朝上（`import-shimeji.mjs` 里记着一次）。**朝向只能由生产侧声明**——
+   归一化把内容底边对齐到锚点，装完之后翻与不翻的包围盒**一模一样**，量不出来。
+
+9. **装完必须写 `perchGaps`，不写就是静默用 Shimeji 的数**（2026-09-23）。
+   `pet-core` 的攀附几何只有两个数：锚点到**墙面**、到**天花板**的距离 ÷ 画布高。
+   兜底值 `0.43 / 0.99` 是 Shimeji 那套素材量出来的，成立前提是"CLIMB 内容贴着格的
+   墙侧边、CRAWL 内容贴着格的顶边"——**H3 出的素材按重心对齐、内容在格中央**，
+   同一组比例套上去：实测团子**离墙 47px、离天花板 108px**，看着不是"贴着墙爬"
+   而是"悬在那儿被电梯带上去"（用户原话「就像坐电梯一样」）。
+   `install-pet.mjs` 装完会调 `lib/perch-gaps.mjs` 从**装好的图集**量出来补进清单
+   （量装好的而不是源表：倍率是 `canvas.h × 0.94 / 组内最高包围盒`，源表上算等于把
+   `computeNormalize` 抄一遍）。团子实测 `{ wall: 0.2478, ceiling: 0.5625 }`。
+
 
 ## 五、画布尺寸怎么定
 
@@ -156,9 +176,46 @@ node <技能>/characters/h3-motion.mjs batch --jobs "<角色>:walk,<角色>:clim
 
 # 2) 装进客户端（12 组：8 正面 + Walk/Climb/Crawl/Fall）
 #    ⚠ 画布宽**必须先用 sheet-canvas.mjs 量**（见第五节）：有侧身动作时 ≠ 384
+#    装完会自动量好 perchGaps 补进清单（硬规则 9）；Crawl 行按 ACTIONS 的 invertY 翻转
 node <技能>/characters/install-pet.mjs --id <客户端目录名> --dir <动作表根目录> \
   --canvas <量出来的宽>x448 --bg 00ccff
 ```
+
+### 出了图但"看着不对"时怎么取证
+
+**本机 `Read` 读不了图**（png/jpg 一律 `[Unsupported Image]`），所以"头朝哪、
+脚够不够得到墙"这类判断必须落到字符或数字上。四件套：
+
+```bash
+# 看单张图（抠底过的帧走包围盒 + --alpha；浅色角色压在浅色底上加 --auto）
+node <技能>/characters/pixel-ascii.mjs <图.png> 72 --alpha
+# 从装好的图集里抠出某一格（先看 atlas.json 里的条目名，如 cat_crawl_00）
+node <技能>/characters/atlas-cell.mjs <宠物包目录> <输出目录> cat_crawl_00
+# 按客户端真实的摆位公式，把贴墙/贴天花板合成出来看
+node <技能>/characters/mock-perch.mjs <宠物包目录> /tmp/mock.png --view -16,0,340,300 --zoom 3
+node <技能>/characters/pixel-ascii.mjs /tmp/mock.png 100 --auto
+# 抓运行中的宠物窗口（**唯一能看见真机的一路**）
+node scripts/lumii-cdp.mjs shot '?mode=pet' /tmp/pet.png     # 需 start-dev.ps1 -RemoteDebug 9222
+node <技能>/characters/shot-probe.mjs /tmp/pet.png           # 找出宠物在哪
+node <技能>/characters/pixel-ascii.mjs /tmp/pet.png 64 --crop x,y,w,h --auto
+```
+
+测**交互**（拖动夹取、贴边吸附、抛掷）要合成一次拖拽——它自己拍帧找宠物再派发：
+
+```bash
+node <技能>/characters/drag-pet.mjs 0 1400     # 拖到屏幕左缘；判据看日志
+```
+
+⚠ `drag-pet.mjs` 头部记着两个必踩的坑：速度要落在 `isThrowable`（320px/s）之下，
+以及**真鼠标的移动会打断合成拖拽**（它带 `buttons: 0`，而画布把它当"左键已松开"）。
+
+
+⚠ 宠物窗口是**全透明**的，截出来整幅 alpha=0（看着全黑）。往页面里注入
+`#root>div{background:#f2f2f7 !important}` **能生效**，但注入 `html,body{...}` 不行
+（`getComputedStyle` 仍是 `rgba(0,0,0,0)`）；CDP 的
+`Emulation.setDefaultBackgroundColorOverride` 实测**不生效**。细节见
+`shot-probe.mjs` 顶部。
+
 
 经 `run.ts`（它自己定位仓库根，参数走 `SKILL_PARAMS`）：
 

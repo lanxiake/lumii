@@ -36,6 +36,8 @@
  */
 
 const PORT = Number(process.env.CDP_PORT ?? 9222)
+/** 截图时注入的背景样式元素 id。`shot` 拍完会按它撤掉——留着会变成白屏 */
+const STYLE_ID = 'cdp-shot-bg'
 const [, , cmd, ...args] = process.argv
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
@@ -123,9 +125,41 @@ async function main() {
         params.clip = { x, y, width, height, scale: 1 }
       }
       const s = session(t.webSocketDebuggerUrl)
-      const r = await s.send('Page.captureScreenshot', params)
-      s.close()
-      const buf = Buffer.from(r.data, 'base64')
+      // 宠物窗口是**全透明**的（`transparent: true`，页面里每一层都写着
+      // `background: transparent`），直接抓整幅 alpha=0，存下来是一张"什么都没有"
+      // 的 PNG，在 sharp 里读到的 RGB 全是 0，看起来像全黑。
+      //
+      // 垫底色只有**往页面里注入 CSS** 这一条路走通：
+      //   · `Emulation.setDefaultBackgroundColorOverride` 实测**不生效**（命令返回
+      //     成功、像素仍是全透明），别再试第二次；
+      //   · 注入 `html,body{...}` 也不行，`getComputedStyle` 仍是 `rgba(0,0,0,0)`；
+      //   · 能生效的是打在 `#root>div` 上的 `!important`（内联的 `background:
+      //     transparent` 会被它盖掉）。
+      //
+      // ⚠ **拍完必须撤掉**：宠物窗口是全屏置顶的，留着这段样式整块屏幕都是浅色的
+      // ——用户看到的就是"白屏了"（2026-09-23 真踩了一次）。所以下面用 try/finally。
+      const bg = process.env.CDP_SHOT_BG ?? '#f2f2f7'
+      const inject = `(() => { const s = document.createElement('style'); s.id = ${JSON.stringify(STYLE_ID)}; s.textContent = ${JSON.stringify(`html,body,#root,#root>div,#root>div>div{background:${bg} !important}`)}; document.head.appendChild(s); return true })()`
+      const remove = `(() => { const s = document.getElementById(${JSON.stringify(STYLE_ID)}); if (s) s.remove(); return !!s })()`
+      // 只在需要时垫：`CDP_SHOT_NO_BG=1` 保持原样（抓不透明页面时用）
+      const pad = process.env.CDP_SHOT_NO_BG !== '1'
+      if (pad) await s.send('Runtime.evaluate', { expression: inject, returnByValue: true })
+      let data
+      try {
+        const r = await s.send('Page.captureScreenshot', params)
+        data = r.data
+      } finally {
+        if (pad) {
+          try {
+            await s.send('Runtime.evaluate', { expression: remove, returnByValue: true })
+          } catch {
+            // 撤不掉也不能把出错信息盖掉——但要说出来，否则下一次就是白屏
+            console.error('⚠ 截图用的背景样式没撤掉，宠物窗口可能整块变浅色')
+          }
+        }
+        s.close()
+      }
+      const buf = Buffer.from(data, 'base64')
       const fs = await import('node:fs')
       fs.writeFileSync(outPath, buf)
       console.log(`${outPath}  ${(buf.length / 1024).toFixed(1)} KB`)

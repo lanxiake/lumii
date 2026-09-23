@@ -37,6 +37,11 @@
  *   node install-pet.mjs --id demo_cartoon_cat --dir <表目录> [--canvas 384x448] [--bg 00ccff]
  *
  * `<表目录>` 下按约定放 `<角色>-<动作>-sheet/` 子目录（端到端工作流的落点）。
+ *
+ * ## 装完还要补一次 `perchGaps`
+ *
+ * 技能不认识这个字段，而它对"爬墙/爬天花板贴不贴得上"是决定性的——不写就静默用
+ * `PERCH_DEFAULTS`（Shimeji 素材的实测值）。见 `lib/perch-gaps.mjs` 与文件末尾那一段。
  */
 import fs from 'node:fs'
 import os from 'node:os'
@@ -44,6 +49,7 @@ import path from 'node:path'
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import sharp from 'sharp'
+import { measurePerchGaps } from '../lib/perch-gaps.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const REPO = path.resolve(HERE, '../../..')
@@ -76,7 +82,20 @@ const ACTIONS = [
   { key: 'walk', group: 'Walk', label: '走路', kind: 'loop' },
   { key: 'fall', group: 'Fall', label: '下落', kind: 'loop' },
   { key: 'climb', group: 'Climb', label: '攀爬', kind: 'loop' },
-  { key: 'crawl', group: 'Crawl', label: '爬行', kind: 'loop' },
+  /**
+   * ⚠ `invertY` —— 这一行**必须**垂直翻转，别人不许抄。
+   *
+   * `Crawl` 只在天花板上播（`PetWanderDriver` 里 `onActivity('crawl')` 只有
+   * 「沿上边缘爬行」那一处），所以那一行素材得是**倒挂**的：脚朝上贴着天花板、
+   * 头朝下。Shimeji 那套的作者就是那么画的（`import-shimeji.mjs` 的 CRAWL 行
+   * 不翻转，因为它本来就是脚底向上的），而 H3 出的这一行是**正的**
+   * （`POSES.creep` 写的是"趴在地上"，模型照做）。
+   *
+   * 不翻会怎样：宠物**头朝上吊在天花板上**，与用户报的"反了，应该底部朝上、
+   * 头部朝下"完全一致。翻早了也不行——`import-shimeji.mjs` 里记着一次：
+   * 给本来就是倒挂的素材再翻一次，同样头朝上。
+   */
+  { key: 'crawl', group: 'Crawl', label: '爬行', kind: 'loop', invertY: true },
   // 参考素材（demo_shimeji_*）里 Sit 是**正面**坐姿、`kind: loop`、**1 帧**。
   // 我们出的是 8 帧的呼吸循环（同一套管线，首帧是自己的坐姿），比单帧静止好看，
   // 而且**不用**为它开特例（单帧要改 install 的 cols，还会换掉格尺寸→换组）。
@@ -152,7 +171,11 @@ for (const a of ACTIONS) {
   }
   const src = path.join(sub, pngs.includes('f0000.png') ? 'f0000.png' : pngs.sort()[0])
   const flat = path.join(workDir, `${id}-${a.key}-flat.png`)
-  await sharp(src).flatten({ background: bgHex }).png().toFile(flat)
+  // 翻转要在**切格之前**做：表是 8×1 横排，`flip()` 把整幅上下镜像，
+  // 等价于每一格各自就地翻转（列不变，格不会串位）。
+  // 与 `flatten` 的先后无关——一个是几何操作、一个只改 alpha。
+  const prepped = a.invertY ? sharp(src).flip() : sharp(src)
+  await prepped.flatten({ background: bgHex }).png().toFile(flat)
   const nameKey = a.nameKey || a.group.toLowerCase()
   if (a.group) installedGroups.add(a.group)
   batches.push({
@@ -165,7 +188,10 @@ for (const a of ACTIONS) {
     names: Array.from({ length: FRAMES }, (_, i) => `${prefix}_${nameKey}_${String(i).padStart(2, '0')}`),
     durationsMs: durations,
   })
-  console.log(`  ${a.group || 'Idle(base)'} ← ${path.basename(path.dirname(src))}/${path.basename(src)}`)
+  console.log(
+    `  ${a.group || 'Idle(base)'} ← ${path.basename(path.dirname(src))}/${path.basename(src)}` +
+      (a.invertY ? '（已垂直翻转 → 倒挂）' : ''),
+  )
 }
 
 const tapMotions = Object.fromEntries(
@@ -198,18 +224,53 @@ const child = spawn(process.execPath, [RUN_TS], {
 let out = ''
 child.stdout.on('data', (d) => (out += d))
 child.stderr.on('data', (d) => (out += d))
-child.on('close', (code) => {
+child.on('close', async (code) => {
   const line = out.split('\n').find((l) => l.startsWith('__SKILL_RESULT__:'))
-  if (line) {
-    try {
-      const r = JSON.parse(line.slice('__SKILL_RESULT__:'.length))
-      console.log('技能返回:', JSON.stringify(r, null, 2).slice(0, 2000))
-    } catch {
-      console.log('结果解析失败:', line.slice(0, 800))
-    }
-  } else {
+  if (!line) {
     console.log(`技能没有返回结果标记（退出码 ${code}）。原始输出末段：`)
     console.log(out.slice(-2000))
+    process.exit(code || 1)
+  }
+  let result = null
+  try {
+    result = JSON.parse(line.slice('__SKILL_RESULT__:'.length))
+  } catch {
+    console.log('结果解析失败:', line.slice(0, 800))
+    process.exit(code || 1)
+  }
+  console.log('技能返回:', JSON.stringify(result, null, 2).slice(0, 2000))
+
+  // ---- 补写 perchGaps（技能不认识这个字段）----
+  //
+  // 见 `lib/perch-gaps.mjs` 的长注释：不写的话 `pet-core` 会**静默**用
+  // `PERCH_DEFAULTS`——那是 Shimeji 那套素材的实测值，套在 H3 这套上宠物
+  // 离墙 47px、离天花板 108px，看着像被电梯带着走而不是在爬。
+  //
+  // 为什么放在这一步而不是传给技能：`perchGaps` 是「锚点到接触面的距离 ÷ 画布高」，
+  // 而画布坐标空间**只有归一化之后才有**（倍率取决于组内最高包围盒）。要在这里算
+  // 就得把 `computeNormalize` 抄一遍——抄错不报错，只表现为宠物贴不到墙。
+  // **量装好的图集**是唯一不会说谎的做法。
+  //
+  // `packageDir` 与 `installedDir` 都要写：技能先产出包、校验、再 install 到用户目录，
+  // 两处各有一份 manifest.json，只补一份会让"重装一次"把改动抹掉。
+  for (const dir of [result.packageDir, result.installedDir]) {
+    if (!dir || !fs.existsSync(path.join(dir, 'manifest.json'))) continue
+    try {
+      const gaps = await measurePerchGaps(dir)
+      if (!gaps) {
+        console.log(`  · ${dir} 没有 Climb/Crawl 两组，不写 perchGaps`)
+        continue
+      }
+      const p = path.join(dir, 'manifest.json')
+      const m = JSON.parse(fs.readFileSync(p, 'utf-8'))
+      m.perchGaps = { wall: gaps.wall, ceiling: gaps.ceiling }
+      fs.writeFileSync(p, JSON.stringify(m, null, 2))
+      console.log(`  · ${dir} → perchGaps { wall: ${gaps.wall}, ceiling: ${gaps.ceiling} }`)
+      for (const w of gaps.warnings) console.log(`    ⚠ ${w}`)
+    } catch (err) {
+      // 攀附几何只影响爬墙/爬天花板这两件事，缺了是退化不是致命——但必须**说出来**
+      console.error(`  ⚠ ${dir} 的 perchGaps 没量出来：${err instanceof Error ? err.message : String(err)}`)
+    }
   }
   process.exit(code || 0)
 })
