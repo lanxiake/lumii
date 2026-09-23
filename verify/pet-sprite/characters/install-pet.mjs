@@ -50,6 +50,8 @@ import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import sharp from 'sharp'
 import { measurePerchGaps } from '../lib/perch-gaps.mjs'
+import { makeThumbnail } from '../lib/pet-thumbnail.mjs'
+import { op } from '../lib/control.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const REPO = path.resolve(HERE, '../../..')
@@ -240,7 +242,7 @@ child.on('close', async (code) => {
   }
   console.log('技能返回:', JSON.stringify(result, null, 2).slice(0, 2000))
 
-  // ---- 补写 perchGaps（技能不认识这个字段）----
+  // ---- 补写 perchGaps 与缩略图（技能不认识这两样）----
   //
   // 见 `lib/perch-gaps.mjs` 的长注释：不写的话 `pet-core` 会**静默**用
   // `PERCH_DEFAULTS`——那是 Shimeji 那套素材的实测值，套在 H3 这套上宠物
@@ -250,27 +252,54 @@ child.on('close', async (code) => {
   // 而画布坐标空间**只有归一化之后才有**（倍率取决于组内最高包围盒）。要在这里算
   // 就得把 `computeNormalize` 抄一遍——抄错不报错，只表现为宠物贴不到墙。
   // **量装好的图集**是唯一不会说谎的做法。
-  //
-  // `packageDir` 与 `installedDir` 都要写：技能先产出包、校验、再 install 到用户目录，
-  // 两处各有一份 manifest.json，只补一份会让"重装一次"把改动抹掉。
-  for (const dir of [result.packageDir, result.installedDir]) {
-    if (!dir || !fs.existsSync(path.join(dir, 'manifest.json'))) continue
-    try {
-      const gaps = await measurePerchGaps(dir)
-      if (!gaps) {
-        console.log(`  · ${dir} 没有 Climb/Crawl 两组，不写 perchGaps`)
-        continue
-      }
-      const p = path.join(dir, 'manifest.json')
+  const pkgDir = result.packageDir
+  if (!pkgDir || !fs.existsSync(path.join(pkgDir, 'manifest.json'))) {
+    console.error('  ⚠ 技能没回 packageDir，perchGaps 与缩略图都没补')
+    process.exit(code || 0)
+  }
+  try {
+    const gaps = await measurePerchGaps(pkgDir)
+    if (!gaps) {
+      console.log(`  · ${pkgDir} 没有 Climb/Crawl 两组，不写 perchGaps`)
+    } else {
+      const p = path.join(pkgDir, 'manifest.json')
       const m = JSON.parse(fs.readFileSync(p, 'utf-8'))
       m.perchGaps = { wall: gaps.wall, ceiling: gaps.ceiling }
       fs.writeFileSync(p, JSON.stringify(m, null, 2))
-      console.log(`  · ${dir} → perchGaps { wall: ${gaps.wall}, ceiling: ${gaps.ceiling} }`)
+      console.log(`  · perchGaps { wall: ${gaps.wall}, ceiling: ${gaps.ceiling} }`)
       for (const w of gaps.warnings) console.log(`    ⚠ ${w}`)
-    } catch (err) {
-      // 攀附几何只影响爬墙/爬天花板这两件事，缺了是退化不是致命——但必须**说出来**
-      console.error(`  ⚠ ${dir} 的 perchGaps 没量出来：${err instanceof Error ? err.message : String(err)}`)
     }
+  } catch (err) {
+    // 攀附几何只影响爬墙/爬天花板这两件事，缺了是退化不是致命——但必须**说出来**
+    console.error(`  ⚠ perchGaps 没量出来：${err instanceof Error ? err.message : String(err)}`)
+  }
+
+  // 缩略图：概览页右下角那块「虚拟人」卡片靠注册表的 `thumbnailUrl` 显示形象，
+  // **精灵图模型一个都没有**（内置注册表里三只 Live2D 有 `runtime/icon.png`，
+  // 三只 sprite 全空），于是卡片一直只画一个占位图标——用户报的"没显示当前被选中的
+  // 宠物形象"就是它。这里从**装好的图集**上裁一张出来，两处都不会说谎。
+  try {
+    const thumb = await makeThumbnail(pkgDir, id)
+    const petJson = path.join(pkgDir, 'pet.json')
+    const env = JSON.parse(fs.readFileSync(petJson, 'utf-8'))
+    // ⚠ 路径必须**带上模型目录名**：解析侧是按「用户宠物目录」拼的
+    // （见 pet-model-resolver 的 toUserUrl），写成裸文件名会去找
+    // `~/.lumii/pet-models/thumbnail.png`。内置注册表那三条也是这个写法。
+    env.thumbnailUrl = `${id}/${thumb.file}`
+    fs.writeFileSync(petJson, JSON.stringify(env, null, 2))
+    console.log(`  · 缩略图 ${thumb.file}（${thumb.w}×${thumb.h}，取 ${thumb.from} 首帧）`)
+  } catch (err) {
+    console.error(`  ⚠ 缩略图没做出来：${err instanceof Error ? err.message : String(err)}`)
+  }
+
+  // **再装一次**：上面对 `packageDir` 的两处改动（清单的 perchGaps、信封的
+  // thumbnailUrl）都要进用户目录**和注册表**。注册表条目由 `install` 从信封归一化出来，
+  // 自己去改 registry.json 属于第三个写者，下次重装就被冲掉——重装一遍是最短的诚实路径。
+  try {
+    const again = await op('install', { dir: pkgDir })
+    console.log(again?.ok ? '  · 已按补写后的包重装（清单 + 注册表）' : `  ⚠ 重装失败：${again?.error ?? '未知'}`)
+  } catch (err) {
+    console.error(`  ⚠ 重装失败：${err instanceof Error ? err.message : String(err)}`)
   }
   process.exit(code || 0)
 })

@@ -20,6 +20,14 @@ import { useFeatureAvailability } from '../../../../hooks/business/useFeatureAva
 import clsx from 'clsx'
 import styles from './VirtualHuman.module.css'
 
+/**
+ * 后端类型的中文名。
+ *
+ * 原先这里**写死** `Live2D`，而 `demo_cartoon_cat` 这类自制宠物是精灵图——
+ * 卡片上写着"Live2D"、底下却是只猫，用户一眼就会觉得不对。
+ */
+const rendererLabel = (type?: string): string => (type === 'sprite' ? '精灵图' : 'Live2D')
+
 export const VirtualHuman: React.FC = () => {
   const { isAvailable, blockMessage, ready } = useFeatureAvailability()
   const petModeBlocked = !isAvailable('petMode')
@@ -88,7 +96,9 @@ export const VirtualHuman: React.FC = () => {
       <div className={styles.meta}>
         <span className={styles.name}>{model?.name ?? '未配置形象'}</span>
         <span className={styles.sub}>
-          {model ? `Live2D · 共 ${models.length} 个形象` : '在设置页添加虚拟人形象'}
+          {model
+            ? `${rendererLabel(model.rendererType)} · 共 ${models.length} 个形象`
+            : '在设置页添加虚拟人形象'}
         </span>
       </div>
 
