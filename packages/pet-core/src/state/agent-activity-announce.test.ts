@@ -129,16 +129,23 @@ describe("idle / thinking —— 不冒", () => {
 });
 
 describe("announceDurationMs", () => {
-  it("四字短语与长句都落在 [2600, 6000] 内", () => {
+  it("四字短语与长句都落在 [4000, 10000] 内", () => {
     for (const t of ["还在忙…", "需要你确认一下", "出错了", "一".repeat(80)]) {
       const d = announceDurationMs(t);
-      expect(d).toBeGreaterThanOrEqual(2600);
-      expect(d).toBeLessThanOrEqual(6000);
+      expect(d).toBeGreaterThanOrEqual(4000);
+      expect(d).toBeLessThanOrEqual(10000);
     }
+  });
+
+  it("用户拍板的那三个点：4 字 4s、7 字 5.5s、16 字封顶 10s", () => {
+    expect(announceDurationMs("还在忙…")).toBe(4000);
+    expect(announceDurationMs("需要你确认一下")).toBe(5500);
+    expect(announceDurationMs("执行命令：node -e 1+1")).toBe(10000);
   });
 
   it("越长停越久（单调不减）", () => {
     expect(announceDurationMs("还在忙…")).toBeLessThanOrEqual(announceDurationMs("需要你确认一下"));
+    expect(announceDurationMs("需要你确认一下")).toBeLessThanOrEqual(announceDurationMs("一".repeat(20)));
   });
 
   it("按字符数算，不按 UTF-16 码元（emoji / 生僻字别被算成两个）", () => {

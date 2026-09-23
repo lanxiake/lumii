@@ -113,10 +113,16 @@ export function pickAgentAnnouncement(
 /**
  * 气泡该停多久。
  *
- * 按**文本长度**给，不是固定值：四字短语停 3 秒够，长句得给够读完的时间。
- * 中文按 ~4 字/秒的阅读速度 + 1 秒的注意起跳。
+ * 按**文本长度**给，不是固定值：四字短语停几秒够，长句得给够读完的时间。
+ *
+ * 2026-09-23 用户实测反馈后整体加长（区间 2.6~6s → **4~10s**），并改成
+ * "4 字 → 4s、每多 1 字 +0.5s、16 字封顶 10s"的线性式。两个原因：
+ *
+ * 1. 气泡现在会**停住宠物**（见 `PetWanderDriver.suspend('bubble')`），用户在它
+ *    挂着的时候多半真的会去读 —— 而它是**余光扫到**的东西，读速比专心读慢得多。
+ * 2. 通知类文案普遍偏长（带命令、带路径），旧的 4 字/秒在 6 秒封顶下根本读不完。
  */
 export function announceDurationMs(text: string): number {
   const chars = [...text].length;
-  return Math.min(6000, Math.max(2600, 1000 + Math.round((chars / 4) * 1000)));
+  return Math.min(10_000, Math.max(4_000, 4_000 + (chars - 4) * 500));
 }
