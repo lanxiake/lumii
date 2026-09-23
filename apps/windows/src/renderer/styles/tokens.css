@@ -393,49 +393,52 @@
    （三元组拆不开）。守卫测试会校验"被引用的三元组都在 :root 有定义"。
    ============================================================ */
 :root {
-  --mt-surface-rgb: 26, 34, 44;     /* #1a222c secondary bg */
-  --mt-accent-rgb:  107, 143, 173;  /* #6b8fad 雾蓝 */
-  --mt-fg-rgb:      241, 239, 233;  /* #f1efe9 微暖近白 */
-  --mt-success-rgb: 52, 211, 153;   /* #34d399 */
-  --mt-warning-rgb: 240, 180, 41;   /* #f0b429 */
-  --mt-error-rgb:   240, 113, 103;  /* #f07167 */
+  --mt-surface-rgb: 30, 41, 59;     /* #1e293b secondary bg */
+  --mt-accent-rgb:  59, 130, 246;   /* #3b82f6 蓝色品牌色 */
+  --mt-fg-rgb:      248, 250, 252;  /* #f8fafc 亮色文字 */
+  --mt-success-rgb: 34, 197, 94;    /* #22c55e 成功绿 */
+  --mt-warning-rgb: 245, 158, 11;   /* #f59e0b 警告黄 */
+  --mt-error-rgb:   239, 68, 68;    /* #ef4444 错误红 */
 }
 
 /* 深色主题 RGB 变体 */
 [data-theme="dark"] {
-  --mt-surface-rgb: 26, 34, 44;     /* #1a222c */
-  --mt-accent-rgb:  107, 143, 173;  /* #6b8fad */
-  --mt-fg-rgb:      241, 239, 233;  /* #f1efe9 */
-  --mt-success-rgb: 52, 211, 153;   /* #34d399 */
-  --mt-warning-rgb: 240, 180, 41;   /* #f0b429 */
-  --mt-error-rgb:   240, 113, 103;  /* #f07167 */
-  --gradient-auth-start: #12181f;
-  --gradient-auth-end: #2a3d4f;
-  --mt-grad-auth: linear-gradient(135deg, #12181f 0%, #1a2733 42%, #2a3d4f 100%);
+  --mt-surface-rgb: 30, 41, 59;   /* #1e293b secondary bg */
+  --mt-accent-rgb:  59, 130, 246; /* #3b82f6 */
+  --mt-fg-rgb:      248, 250, 252; /* #f8fafc */
+  --mt-success-rgb: 34, 197, 94;  /* #22c55e */
+  --mt-warning-rgb: 245, 158, 11; /* #f59e0b */
+  --mt-error-rgb:   239, 68, 68;  /* #ef4444 */
+  /* 登录页背景：与深色画布、品牌主色协调，替代固定紫蓝渐变 */
+  --gradient-auth-start: #0b1220;
+  --gradient-auth-end: #1e1b4b;
+  --mt-grad-auth: linear-gradient(135deg, #0b1220 0%, #172554 42%, #1e1b4b 100%);
 }
 
 /* 浅色主题 RGB 变体 */
 [data-theme="light"] {
-  --mt-surface-rgb: 251, 250, 247;  /* #fbfaf7 */
-  --mt-accent-rgb: 63, 103, 138;    /* #3f678a */
-  --mt-fg-rgb: 28, 25, 23;          /* #1c1917 */
-  --mt-success-rgb: 21, 128, 61;    /* #15803d */
-  --mt-warning-rgb: 180, 83, 9;     /* #b45309 */
-  --mt-error-rgb:   185, 28, 28;    /* #b91c1c */
-  --gradient-auth-start: #f4f2ee;
-  --gradient-auth-end: #ebe7e0;
-  --mt-grad-auth: linear-gradient(168deg, #f4f2ee 0%, #ebe7e0 55%, #f0ebe4 100%);
+  --mt-surface-rgb: 255, 255, 255; /* #ffffff elevated bg */
+  --mt-accent-rgb: 42, 118, 246;   /* #2a76f6 与浅色品牌主色一致 */
+  --mt-fg-rgb: 15, 23, 42;        /* #0f172a 冷调文字 */
+  --mt-success-rgb: 34, 197, 94;  /* #22c55e */
+  --mt-warning-rgb: 245, 158, 11; /* #f59e0b */
+  --mt-error-rgb:   239, 68, 68;  /* #ef4444 */
+  /* 冷调浅色画布渐变（与 --mt-bg-primary 同系） */
+  --gradient-auth-start: #f3f5f9;
+  --gradient-auth-end: #e8eef6;
+  --mt-grad-auth: linear-gradient(168deg, #f3f5f9 0%, #e8eef6 55%, #eef2f8 100%);
 }
 
 /* 护眼主题 RGB 变体 */
 [data-theme="eye-care"] {
-  --mt-surface-rgb: 250, 247, 240;  /* #faf7f0 */
-  --mt-accent-rgb: 79, 115, 140;    /* #4f738c 同源雾蓝 */
-  --mt-fg-rgb: 42, 36, 28;          /* #2a241c */
-  --mt-success-rgb: 79, 122, 58;    /* #4f7a3a */
-  --mt-warning-rgb: 181, 117, 29;   /* #b5751d */
-  --mt-error-rgb:   181, 71, 59;    /* #b5473b */
-  --gradient-auth-start: #f3eee4;
-  --gradient-auth-end: #e8e0d2;
-  --mt-grad-auth: linear-gradient(168deg, #f3eee4 0%, #e8e0d2 55%, #f0ebe2 100%);
+  --mt-surface-rgb: 255, 253, 247; /* #fffdf7 elevated bg */
+  --mt-accent-rgb: 184, 134, 59;   /* #b8863b 琥珀金 */
+  --mt-fg-rgb: 47, 42, 34;        /* #2f2a22 暖调文字 */
+  --mt-success-rgb: 34, 197, 94;  /* #22c55e —— 语义色三主题共用，与 design-system.css 一致 */
+  --mt-warning-rgb: 245, 158, 11; /* #f59e0b */
+  --mt-error-rgb:   239, 68, 68;  /* #ef4444 */
+  /* 暖调画布渐变（与 --mt-bg-primary 同系） */
+  --gradient-auth-start: #f5f1e8;
+  --gradient-auth-end: #ece5d6;
+  --mt-grad-auth: linear-gradient(168deg, #f5f1e8 0%, #ece5d6 55%, #f2ece0 100%);
 }

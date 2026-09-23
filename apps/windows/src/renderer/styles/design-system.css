@@ -12,23 +12,23 @@
 
 /* ---- 1. 全局固定变量 (不随主题变化) ---- */
 :root {
-  /* Brand — Mist Blue 雾蓝高级感（≈215° 低饱和；主题块覆写明度） */
-  --mt-accent-50:  #eef3f8;
-  --mt-accent-100: #d9e4ef;
-  --mt-accent-200: #b8cce0;
-  --mt-accent-300: #9bb4cc;
-  --mt-accent-400: #7a9bb8;
-  --mt-accent-500: #6b8fad;   /* 品牌主色（深色默认） */
-  --mt-accent-600: #557896;   /* hover/pressed */
-  --mt-accent-700: #44607a;
-  --mt-accent-800: #364d63;
-  --mt-accent-900: #2a3d4f;
-  --mt-accent-950: #1a2733;
+  /* Brand — Sky → Blue (匹配应用图标渐变) */
+  --mt-accent-50:  #eff6ff;
+  --mt-accent-100: #dbeafe;
+  --mt-accent-200: #bfdbfe;
+  --mt-accent-300: #93c5fd;
+  --mt-accent-400: #60a5fa;
+  --mt-accent-500: #3b82f6;   /* 品牌主色 */
+  --mt-accent-600: #2563eb;   /* hover/pressed */
+  --mt-accent-700: #1d4ed8;
+  --mt-accent-800: #1e40af;
+  --mt-accent-900: #1e3a8a;
+  --mt-accent-950: #172554;
 
-  /* Sky lift — Logo 顶部青蓝（略降饱和，贴合雾蓝） */
-  --mt-sky-300: #8ec5e8;
-  --mt-sky-400: #5baad6;
-  --mt-sky-500: #3d8fbd;
+  /* Sky lift — Logo 顶部青色 */
+  --mt-sky-300: #7dd3fc;
+  --mt-sky-400: #38bdf8;
+  --mt-sky-500: #0ea5e9;
 
   /* 中性色 — Slate 全阶 */
   --mt-slate-50:  #f8fafc;
@@ -43,34 +43,35 @@
   --mt-slate-900: #0f172a;
   --mt-slate-950: #020617;
 
-  /* 语义色 — 状态指示（深色默认；各主题块可覆写） */
-  --mt-success:       #34d399;
-  --mt-success-dark:  #059669;
+  /* 语义色 — 状态指示 (两套主题通用) */
+  --mt-success:       #22c55e;
+  --mt-success-dark:  #15803d;
   --mt-success-light: #86efac;
-  --mt-warning:       #f0b429;
+  --mt-warning:       #f59e0b;
   --mt-warning-dark:  #b45309;
   --mt-warning-light: #fde047;
-  --mt-error:         #f07167;
+  --mt-error:         #ef4444;
   --mt-error-dark:    #b91c1c;
   --mt-error-light:   #fca5a5;
-  --mt-info:          #6b8fad;
-  --mt-info-dark:     #44607a;
-  --mt-info-light:    #b8cce0;
+  --mt-info:          #3b82f6;
+  --mt-info-dark:     #1d4ed8;
+  --mt-info-light:    #93c5fd;
 
-  /* 指标卡分色：雾蓝家族高级灰，不承载语义 */
-  --mt-tone-a: #6b8fad;
-  --mt-tone-b: #5baad6;
-  --mt-tone-c: #8a9bb8;
-  --mt-tone-d: #c19b86;
 
-  /* 渐变集合 — 雾蓝品牌 */
-  --mt-grad-auth:        linear-gradient(135deg, #12181f 0%, #1a2733 42%, #2a3d4f 100%);
-  --mt-grad-quota:       linear-gradient(90deg, #6b8fad 0%, #5baad6 100%);
-  --mt-grad-brand:       linear-gradient(180deg, #9bb4cc 0%, #6b8fad 35%, #44607a 100%);
-  --mt-grad-brand-diag:  linear-gradient(135deg, #9bb4cc 0%, #6b8fad 40%, #44607a 100%);
-  --mt-grad-aurora:      radial-gradient(at 20% 10%, rgba(107,143,173,0.30) 0%, transparent 50%),
-                         radial-gradient(at 80% 0%, rgba(85,120,150,0.26) 0%, transparent 50%),
-                         radial-gradient(at 60% 90%, rgba(91,170,214,0.16) 0%, transparent 50%);
+  /* 指标卡分色（原型 --tone-a..d）：只用于区分四张卡，不承载语义 */
+  --mt-tone-a: #38bdf8;
+  --mt-tone-b: #2dd4bf;
+  --mt-tone-c: #60a5fa;
+  --mt-tone-d: #fb923c;
+
+  /* 渐变集合 */
+  --mt-grad-auth:        linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  --mt-grad-quota:       linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%);
+  --mt-grad-brand:       linear-gradient(180deg, #7dd3fc 0%, #38bdf8 35%, #2563eb 100%);
+  --mt-grad-brand-diag:  linear-gradient(135deg, #7dd3fc 0%, #38bdf8 40%, #2563eb 100%);
+  --mt-grad-aurora:      radial-gradient(at 20% 10%, rgba(56,189,248,0.35) 0%, transparent 50%),
+                         radial-gradient(at 80% 0%, rgba(37,99,235,0.30) 0%, transparent 50%),
+                         radial-gradient(at 60% 90%, rgba(14,165,233,0.22) 0%, transparent 50%);
 
   /* 字体族
    * 'Inter Variable' 由 @fontsource-variable/inter 自托管加载(见 global.css)，
@@ -160,193 +161,198 @@
   --mt-titlebar-h:        36px;
 }
 
-/* ---- 2. 深色主题 (产品原生，默认) — Mist Blue 冷石板 ---- */
+/* ---- 2. 深色主题 (产品原生，默认) ---- */
 :root,
 [data-theme="dark"] {
-  /* 品牌强调色阶 — 雾蓝提亮、低饱和 */
-  --mt-accent-300: #9bb4cc;
-  --mt-accent-400: #7a9bb8;
-  --mt-accent-500: #6b8fad;   /* 品牌主色 */
-  --mt-accent-600: #557896;   /* hover/pressed */
-  --mt-accent-700: #44607a;
+  /* 品牌强调色阶 — 深色用全局基准蓝；显式列出以保持三个主题块变量集一致 */
+  --mt-accent-300: #93c5fd;
+  --mt-accent-400: #60a5fa;
+  --mt-accent-500: #3b82f6;   /* 品牌主色 */
+  --mt-accent-600: #2563eb;   /* hover/pressed */
+  --mt-accent-700: #1d4ed8;
 
-  /* 表面层级 — 冷石板 */
-  --mt-bg-primary:   #12181f;
-  --mt-bg-secondary: #1a222c;
-  --mt-bg-tertiary:  #2a3441;
-  --mt-bg-elevated:  #1a222c;
+  /* 表面层级 */
+  --mt-bg-primary:   #0f172a;   /* slate-900 — 应用画布 */
+  --mt-bg-secondary: #1e293b;   /* slate-800 — 侧边栏、卡片 */
+  --mt-bg-tertiary:  #334155;   /* slate-700 — 输入填充、hover */
+  --mt-bg-elevated:  #1e293b;
   --mt-surface-1:    var(--mt-bg-elevated);
-  --mt-bg-overlay:   rgba(0, 0, 0, 0.14);
-  --mt-bg-modal-overlay: rgba(0, 0, 0, 0.60);
+  --mt-bg-overlay:   rgba(0, 0, 0, 0.14);  /* 内嵌区块背景（工具区、输入框等） */
+  --mt-bg-modal-overlay: rgba(0, 0, 0, 0.60); /* 全屏Modal遮罩 */
 
-  /* 毛玻璃 */
-  --mt-glass-bg:     rgba(26, 34, 44, 0.55);
+  /* 毛玻璃 (macOS 26 motif) */
+  --mt-glass-bg:     rgba(30, 41, 59, 0.55);
   --mt-glass-stroke: rgba(255, 255, 255, 0.08);
   --mt-glass-blur:   24px;
 
-  /* 内嵌表面层级 */
-  --mt-surface-2: #161e27;
-  --mt-surface-3: #2a3441;
+  /* 内嵌表面层级 — 卡片内的次级/三级填充 */
+  --mt-surface-2: #162033;
+  --mt-surface-3: #1c2a40;
 
   /* 语音 / 思考态语义色 */
   --mt-violet: #8b5cf6;
 
-  /* 卡片斜向高光 + 页面底噪光斑 — 雾蓝 */
-  --mt-shine: linear-gradient(145deg, rgba(107, 143, 173, 0.10), transparent 48%);
+  /* 卡片斜向高光 + 页面底噪光斑 */
+  --mt-shine: linear-gradient(145deg, rgba(56, 189, 248, 0.08), transparent 48%);
   --mt-mesh:
-    radial-gradient(ellipse 72% 48% at 10% -8%, rgba(107, 143, 173, 0.16), transparent),
-    radial-gradient(ellipse 48% 38% at 90% 6%, rgba(85, 120, 150, 0.12), transparent),
-    radial-gradient(ellipse 55% 32% at 48% 110%, rgba(91, 170, 214, 0.07), transparent);
+    radial-gradient(ellipse 72% 48% at 10% -8%, rgba(56, 189, 248, 0.16), transparent),
+    radial-gradient(ellipse 48% 38% at 90% 6%, rgba(37, 99, 235, 0.14), transparent),
+    radial-gradient(ellipse 55% 32% at 48% 110%, rgba(45, 212, 191, 0.07), transparent);
 
   /* 代码块 / 展开体底色 */
   --mt-code-bg: rgba(0, 0, 0, 0.28);
 
-  /* Diff 行背景 */
+  /* Diff 行背景 — 语义色混透明 */
   --mt-diff-add-bg: color-mix(in srgb, var(--mt-success) 18%, transparent);
   --mt-diff-del-bg: color-mix(in srgb, var(--mt-error) 16%, transparent);
 
-  /* 指标卡分色 */
-  --mt-tone-a: #6b8fad;
-  --mt-tone-b: #5baad6;
-  --mt-tone-c: #8a9bb8;
-  --mt-tone-d: #c19b86;
+  /* 指标卡分色：深色下用亮色，保证在暗底上有对比 */
+  --mt-tone-a: #38bdf8;
+  --mt-tone-b: #2dd4bf;
+  --mt-tone-c: #60a5fa;
+  --mt-tone-d: #fb923c;
 
-  /* 图表分类色板 — 雾蓝为第一系列 */
-  --mt-chart-1: #6b8fad;
-  --mt-chart-2: #5baad6;
-  --mt-chart-3: #f0b429;
+  /* 图表分类色板 — 8 色，供折线/饼图等需要"多系列可区分"的场景。
+     与语义色不同：这里每色**没有**固定语义，只为让相邻系列能分辨，
+     所以必须逐主题给值（明度要贴合各自底色），不能三主题共用一套。
+     选色约束（scripts/.chart-palette-plan.mjs 核算）：
+       两两 ΔE ≥ 20（低于此值肉眼易混）、与画布对比度 ≥ 2.3。 */
+  --mt-chart-1: #60a5fa;
+  --mt-chart-2: #2dd4bf;
+  --mt-chart-3: #fbbf24;
   --mt-chart-4: #f472b6;
   --mt-chart-5: #a78bfa;
-  --mt-chart-6: #34d399;
-  --mt-chart-7: #c19b86;
-  --mt-chart-8: #9bb4cc;
+  --mt-chart-6: #4ade80;
+  --mt-chart-7: #fb923c;
+  --mt-chart-8: #38bdf8;
 
-  /* 指标色 — 高级灰同族 */
-  --mt-metric-1: #81a3bb;
-  --mt-metric-2: #a78db9;
-  --mt-metric-3: #c19b86;
-  --mt-metric-4: #83af95;
-
-  /* 语义色 — 与全局固定区同值（首帧兜底一致） */
-  --mt-success:       #34d399;
-  --mt-success-dark:  #059669;
+  /* 语义色 — 显式声明（值同全局固定区）。
+     深色块选择器是 `:root, [data-theme="dark"]`：`:root` 承担"无 data-theme 时的
+     首帧兜底"，所以这里必须和全局固定区取同值，改了会让首帧与深色主题不一致。 */
+  --mt-success:       #22c55e;
+  --mt-success-dark:  #15803d;
   --mt-success-light: #86efac;
-  --mt-warning:       #f0b429;
+  --mt-warning:       #f59e0b;
   --mt-warning-dark:  #b45309;
   --mt-warning-light: #fde047;
-  --mt-error:         #f07167;
+  --mt-error:         #ef4444;
   --mt-error-dark:    #b91c1c;
   --mt-error-light:   #fca5a5;
 
-  /* 文件类型手账色板 — dark 亮化版 */
-  --mt-file-other:    #8b7355;
-  --mt-file-doc:      #837853;
-  --mt-file-ink:      #6b7f6a;
-  --mt-file-txt:      #7e7771;
-  --mt-file-pdf:      #ad6152;
-  --mt-file-office:   #657799;
-  --mt-file-sheet:    #6d7d5d;
-  --mt-file-slide:    #9a6b5a;
-  --mt-file-code:     #657889;
-  --mt-file-image:    #c0785a;
-  --mt-file-image-2:  #b87a4a;
-  --mt-file-image-3:  #a86b6b;
-  --mt-file-audio:    #5b8a7a;
-  --mt-file-audio-2:  #4f7f72;
-  --mt-file-video:    #827292;
-  --mt-file-video-2:  #817293;
+  /* 文件类型手账色板 — 「纸面手账」调性：色相固定、低饱和（10~60%）。
+     dark 块放**亮化版**：色相与相对关系完全不变，只提明度，目标是与
+     卡片底 #1e293b 的对比度 ≥ 3.2（原值有 7 个在 2.55~3.00 临界）。
+     light / eye-care 用同一组浅色值（见下方两块）——实测它们在各自底色上
+     对比度全部 ≥ 3.46、与底色 ΔE ≥ 49，本来就没问题。
+     刻意**不**跟随主题变暖：手账色与米黄底正是靠冷暖差才立得住。 */
+  --mt-file-other:    #8b7355;  /* 原 #8B7355 赭石（大类和未知后缀的兜底） */
+  --mt-file-doc:      #837853;  /* 原 #7A6F4D 文档·markdown */
+  --mt-file-ink:      #6b7f6a;  /* 原 #6B7F6A 文档·纯文本（墨绿；dark 下原值已达标 3.39） */
+  --mt-file-txt:      #7e7771;  /* 原 #6B6560 兜底石墨灰 */
+  --mt-file-pdf:      #ad6152;  /* 原 #A65D4F PDF */
+  --mt-file-office:   #657799;  /* 原 #5B6B8A Office 文档 */
+  --mt-file-sheet:    #6d7d5d;  /* 原 #6A7A5B 表格 */
+  --mt-file-slide:    #9a6b5a;  /* 原 #9A6B5A 演示文稿 */
+  --mt-file-code:     #657889;  /* 原 #5A6B7A 代码 / 结构化数据 */
+  --mt-file-image:    #c0785a;  /* 原 #C0785A 图片·主 */
+  --mt-file-image-2:  #b87a4a;  /* 原 #B87A4A 图片·次 */
+  --mt-file-image-3:  #a86b6b;  /* 原 #A86B6B 图片·矢量 */
+  --mt-file-audio:    #5b8a7a;  /* 原 #5B8A7A 音频·主 */
+  --mt-file-audio-2:  #4f7f72;  /* 原 #4F7F72 音频·次 */
+  --mt-file-video:    #827292;  /* 原 #7A6B8A 视频·主 */
+  --mt-file-video-2:  #817293;  /* 原 #6F6280 视频·次 */
 
-  /* 前景文字 — 微暖近白，减少冷刺 */
-  --mt-fg-1: #f1efe9;
-  --mt-fg-2: #c4c0b6;
-  --mt-fg-3: #8a8580;
-  --mt-fg-4: #6b6762;
-  --mt-fg-inverse: #12181f;
-  --mt-fg-on-accent: #ffffff;
+  /* 前景文字 */
+  --mt-fg-1: #f8fafc;   /* 主文字 */
+  --mt-fg-2: #cbd5e1;   /* 次要文字 */
+  --mt-fg-3: #94a3b8;   /* 三级/说明文字 */
+  --mt-fg-4: #64748b;   /* 禁用/提示 */
+  --mt-fg-inverse: #0f172a;
+  --mt-fg-on-accent: #ffffff;  /* 强调色填充块上的文字（按钮、徽标） */
 
   /* 边框 */
-  --mt-border:          #2a3441;
-  --mt-border-light:    #3a4554;
-  --mt-border-dark:     #1a222c;
+  --mt-border:          #334155;
+  --mt-border-light:    #475569;
+  --mt-border-dark:     #1e293b;
   --mt-border-hairline: rgba(255, 255, 255, 0.06);
 
-  /* 阴影 */
+  /* 阴影 (深色系) */
   --mt-shadow-xs:  0 1px 2px rgba(0, 0, 0, 0.25);
   --mt-shadow-sm:  0 2px 4px rgba(0, 0, 0, 0.20), 0 1px 1px rgba(0, 0, 0, 0.10);
   --mt-shadow-md:  0 6px 14px rgba(0, 0, 0, 0.28), 0 2px 4px rgba(0, 0, 0, 0.18);
   --mt-shadow-lg:  0 18px 32px rgba(0, 0, 0, 0.35), 0 4px 8px rgba(0, 0, 0, 0.20);
   --mt-shadow-xl:  0 30px 60px rgba(0, 0, 0, 0.45);
-  --mt-shadow-glow: 0 0 0 1px rgba(107, 143, 173, 0.35), 0 10px 40px rgba(85, 120, 150, 0.28);
+  --mt-shadow-glow: 0 0 0 1px rgba(56, 189, 248, 0.35), 0 10px 40px rgba(37, 99, 235, 0.35);
   --mt-shadow-inner: inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
-/* ---- 3. 浅色主题 — Mist Blue 微暖石 + 雾蓝强调 ---- */
+/* ---- 3. 浅色主题 (对齐 demos/ui-tech-refresh 的冷调浅色) ---- */
 [data-theme="light"] {
-  /* 品牌强调色阶 — 同相压深，浅底更「实」 */
-  --mt-accent-300: #7a9bb8;
-  --mt-accent-400: #5a81a0;
-  --mt-accent-500: #3f678a;   /* 品牌主色 */
-  --mt-accent-600: #345672;   /* hover/pressed */
-  --mt-accent-700: #2a455c;
+  /* 品牌强调色阶 — 比深色基准蓝更饱和、略压亮度，显色更"实" */
+  --mt-accent-300: #8ab8fc;
+  --mt-accent-400: #5292f8;
+  --mt-accent-500: #2a76f6;   /* 品牌主色 */
+  --mt-accent-600: #1f5fd9;   /* hover/pressed */
+  --mt-accent-700: #1a4fc0;
 
-  /* 表面层级 — 微暖石（去冷蓝灰，适合长读） */
-  --mt-bg-primary:   #f4f2ee;
-  --mt-bg-secondary: #fbfaf7;
-  --mt-bg-tertiary:  #ebe7e0;
-  --mt-bg-elevated:  #fbfaf7;
+  /* 表面层级 — 冷调蓝灰（原型 --bg/--surface 系列） */
+  --mt-bg-primary:   #f3f5f9;   /* 主画布 */
+  --mt-bg-secondary: #ffffff;   /* 侧边栏、卡片背景 */
+  --mt-bg-tertiary:  #e8eef6;   /* 输入填充、hover 态 */
+  --mt-bg-elevated:  #ffffff;   /* 卡片/代码块浮层 */
   --mt-surface-1:    var(--mt-bg-elevated);
-  --mt-bg-overlay:   rgba(28, 25, 23, 0.05);
-  --mt-bg-modal-overlay: rgba(28, 25, 23, 0.40);
+  --mt-bg-overlay:   rgba(15, 23, 42, 0.05);  /* 内嵌区块背景 */
+  --mt-bg-modal-overlay: rgba(15, 23, 42, 0.40); /* 全屏Modal遮罩 */
 
-  /* 毛玻璃 */
-  --mt-glass-bg:     rgba(251, 250, 247, 0.84);
-  --mt-glass-stroke: rgba(28, 25, 23, 0.08);
+  /* 毛玻璃 (浅色冷白版) */
+  --mt-glass-bg:     rgba(255, 255, 255, 0.82);
+  --mt-glass-stroke: rgba(15, 23, 42, 0.08);
   --mt-glass-blur:   24px;
 
-  /* 内嵌表面层级 */
-  --mt-surface-2: #f7f5f1;
-  --mt-surface-3: #ebe7e0;
+  /* 内嵌表面层级 — 冷调蓝灰 */
+  --mt-surface-2: #f7f9fc;
+  --mt-surface-3: #e8eef6;
 
-  /* 语音 / 思考态语义色 */
+  /* 语音 / 思考态语义色 — 浅色下加深保证对比 */
   --mt-violet: #7c3aed;
 
-  /* 底噪 — 雾蓝克制 */
-  --mt-shine: linear-gradient(145deg, rgba(63, 103, 138, 0.07), transparent 48%);
+  /* 卡片斜向高光 + 页面底噪光斑 — 冷调（原型 --shine/--mesh） */
+  --mt-shine: linear-gradient(145deg, rgba(14, 165, 233, 0.07), transparent 48%);
   --mt-mesh:
-    radial-gradient(ellipse 72% 48% at 10% -8%, rgba(63, 103, 138, 0.10), transparent),
-    radial-gradient(ellipse 48% 38% at 90% 6%, rgba(52, 86, 114, 0.08), transparent),
-    radial-gradient(ellipse 55% 32% at 48% 110%, rgba(61, 143, 189, 0.06), transparent);
+    radial-gradient(ellipse 72% 48% at 10% -8%, rgba(14, 165, 233, 0.12), transparent),
+    radial-gradient(ellipse 48% 38% at 90% 6%, rgba(37, 99, 235, 0.10), transparent),
+    radial-gradient(ellipse 55% 32% at 48% 110%, rgba(13, 148, 136, 0.07), transparent);
 
   /* 代码块 / 展开体底色 */
-  --mt-code-bg: rgba(28, 25, 23, 0.04);
+  --mt-code-bg: rgba(15, 23, 42, 0.04);
 
-  /* Diff 行背景 */
+  /* Diff 行背景 — 浅色略降透明度 */
   --mt-diff-add-bg: color-mix(in srgb, var(--mt-success) 14%, transparent);
   --mt-diff-del-bg: color-mix(in srgb, var(--mt-error) 12%, transparent);
 
-  /* 指标卡分色 */
-  --mt-tone-a: #3f678a;
+  /* 指标卡分色：浅色下压深提饱和，保证在浅底上仍有对比 */
+  --mt-tone-a: #0284c7;
   --mt-tone-b: #0d9488;
-  --mt-tone-c: #557896;
-  --mt-tone-d: #a87557;
+  --mt-tone-c: #2563eb;
+  --mt-tone-d: #ea580c;
 
-  /* 图表分类色板 */
-  --mt-chart-1: #3f678a;
+  /* 图表分类色板 — 浅底上需压深（ΔE 最低 22.7，对比度 ≥2.3） */
+  --mt-chart-1: #2a76f6;
   --mt-chart-2: #0d9488;
   --mt-chart-3: #b45309;
   --mt-chart-4: #db2777;
   --mt-chart-5: #7c3aed;
   --mt-chart-6: #166534;
-  --mt-chart-7: #a87557;
-  --mt-chart-8: #5baad6;
+  --mt-chart-7: #ea580c;
+  --mt-chart-8: #60a5fa;
 
-  /* 指标色 */
-  --mt-metric-1: #537893;
-  --mt-metric-2: #7f5f95;
-  --mt-metric-3: #a87557;
-  --mt-metric-4: #6b8f71;
-
-  /* 语义色 — 浅底压深 */
+  /* 语义色 — 浅底上压深同色相提对比。
+     此前 light 块完全没覆盖语义色，导致 `--mt-success`(#22c55e) 在浅底上
+     对比度只有 2.09（不达正文标准）。这里把三个 base 换到各自 `-dark` 级
+     （深一个档的同色相），对比度提到 4.6 以上；`-dark` 级本身再压深一档，
+     避免"底座和深色变体同值"导致层级丢失。
+     `-light` 三级是**深色主题专用**（默认分支用 -dark，dark 块切到 -light），
+     浅色主题下用不到，但仍需声明以满足三主题块变量集一致的守卫。 */
   --mt-success:       #15803d;
   --mt-success-dark:  #166534;
   --mt-success-light: #86efac;
@@ -357,10 +363,11 @@
   --mt-error-dark:    #991b1b;
   --mt-error-light:   #fca5a5;
 
-  /* 文件类型手账色板 */
+  /* 文件类型手账色板 — 浅色原值（与 eye-care 相同；dark 块有亮化版）。
+     与白色/暖白卡片底的对比度实测 3.46~5.74、ΔE ≥ 49，无需按主题调整。 */
   --mt-file-other:    #8B7355;
   --mt-file-doc:      #7A6F4D;
-  --mt-file-ink:      #6B7F6A;
+  --mt-file-ink:      #6B7F6A;  /* 原 #6B7F6A 文档·纯文本（墨绿） */
   --mt-file-txt:      #6B6560;
   --mt-file-pdf:      #A65D4F;
   --mt-file-office:   #5B6B8A;
@@ -375,97 +382,97 @@
   --mt-file-video:    #7A6B8A;
   --mt-file-video-2:  #6F6280;
 
-  /* 前景文字 — 暖石灰 */
-  --mt-fg-1: #1c1917;
-  --mt-fg-2: #57534e;
-  --mt-fg-3: #78716c;
-  --mt-fg-4: #a8a29e;
-  --mt-fg-inverse: #f4f2ee;
-  --mt-fg-on-accent: #ffffff;
+  /* 前景文字 — 冷调 Slate（原型 --fg1..--fg4） */
+  --mt-fg-1: #0f172a;   /* 主文本 */
+  --mt-fg-2: #334155;   /* 次要文本 */
+  --mt-fg-3: #64748b;   /* 三级/说明/图标 */
+  --mt-fg-4: #94a3b8;   /* 占位符/禁用 */
+  --mt-fg-inverse: #f3f5f9;  /* 深色背景上的文字 */
+  --mt-fg-on-accent: #ffffff;  /* 强调色填充块上的文字（按钮、徽标） */
 
-  /* 边框 */
-  --mt-border:          rgba(28, 25, 23, 0.10);
-  --mt-border-light:    rgba(28, 25, 23, 0.06);
-  --mt-border-dark:     rgba(28, 25, 23, 0.16);
-  --mt-border-hairline: rgba(28, 25, 23, 0.05);
+  /* 边框 — 冷调半透明（原型 --border/--hairline） */
+  --mt-border:          rgba(15, 23, 42, 0.08);   /* 标准分割线 */
+  --mt-border-light:    rgba(15, 23, 42, 0.05);   /* 柔和分割线 */
+  --mt-border-dark:     rgba(15, 23, 42, 0.14);   /* 强调边框 */
+  --mt-border-hairline: rgba(15, 23, 42, 0.045);
 
-  /* 阴影 */
-  --mt-shadow-xs:  0 1px 2px rgba(28, 25, 23, 0.05);
-  --mt-shadow-sm:  0 2px 4px rgba(28, 25, 23, 0.06), 0 1px 1px rgba(28, 25, 23, 0.04);
-  --mt-shadow-md:  0 6px 14px rgba(28, 25, 23, 0.07), 0 2px 4px rgba(28, 25, 23, 0.05);
-  --mt-shadow-lg:  0 10px 28px rgba(28, 25, 23, 0.08), 0 4px 8px rgba(28, 25, 23, 0.05);
-  --mt-shadow-xl:  0 30px 60px rgba(28, 25, 23, 0.12);
-  --mt-shadow-glow: 0 0 0 1px rgba(63, 103, 138, 0.22), 0 10px 40px rgba(63, 103, 138, 0.12);
-  --mt-shadow-inner: inset 0 1px 0 rgba(255, 255, 255, 0.60);
+  /* 阴影 — 冷调 Slate（原型 --shadow: 0 10px 28px rgba(15,23,42,.07)） */
+  --mt-shadow-xs:  0 1px 2px rgba(15, 23, 42, 0.05);
+  --mt-shadow-sm:  0 2px 4px rgba(15, 23, 42, 0.06), 0 1px 1px rgba(15, 23, 42, 0.04);
+  --mt-shadow-md:  0 6px 14px rgba(15, 23, 42, 0.07), 0 2px 4px rgba(15, 23, 42, 0.05);
+  --mt-shadow-lg:  0 10px 28px rgba(15, 23, 42, 0.07), 0 4px 8px rgba(15, 23, 42, 0.05);
+  --mt-shadow-xl:  0 30px 60px rgba(15, 23, 42, 0.12);
+  --mt-shadow-glow: 0 0 0 1px rgba(14, 165, 233, 0.22), 0 10px 40px rgba(37, 99, 235, 0.15);
+  --mt-shadow-inner: inset 0 1px 0 rgba(255, 255, 255, 0.60);  /* 浅色内高光 */
 }
 
-/* ---- 3b. 护眼主题 — 米黄纸 + 同源雾蓝（略暖化，不再用琥珀） ---- */
+/* ---- 3b. 护眼主题 (暖色浅色：米黄画布 + 琥珀强调，降低蓝光) ----
+   与浅色块覆盖完全同一组变量（守卫测试校验）；顺序也保持一致。 */
 [data-theme="eye-care"] {
-  /* 品牌强调色阶 — 同相雾蓝，略暖降饱和 */
-  --mt-accent-300: #8aa3b5;
-  --mt-accent-400: #6b879c;
-  --mt-accent-500: #4f738c;   /* 品牌主色 */
-  --mt-accent-600: #425f74;   /* hover/pressed */
-  --mt-accent-700: #364d5e;
+  /* 品牌强调色阶 — 琥珀金 */
+  --mt-accent-300: #e2bd7c;
+  --mt-accent-400: #d19d4a;
+  --mt-accent-500: #b8863b;   /* 品牌主色 */
+  --mt-accent-600: #9c6f2c;   /* hover/pressed */
+  --mt-accent-700: #7f5820;
 
-  /* 表面层级 — 米黄纸 */
-  --mt-bg-primary:   #f3eee4;
-  --mt-bg-secondary: #faf7f0;
-  --mt-bg-tertiary:  #e8e0d2;
-  --mt-bg-elevated:  #faf7f0;
+  /* 表面层级 — 暖调米黄 */
+  --mt-bg-primary:   #f5f1e8;   /* 主画布 */
+  --mt-bg-secondary: #fffdf7;   /* 侧边栏、卡片背景 */
+  --mt-bg-tertiary:  #ece5d6;   /* 输入填充、hover 态 */
+  --mt-bg-elevated:  #fffdf7;   /* 卡片/代码块浮层 */
   --mt-surface-1:    var(--mt-bg-elevated);
-  --mt-bg-overlay:   rgba(42, 36, 28, 0.06);
-  --mt-bg-modal-overlay: rgba(42, 36, 28, 0.42);
+  --mt-bg-overlay:   rgba(93, 78, 55, 0.06);   /* 内嵌区块背景 */
+  --mt-bg-modal-overlay: rgba(60, 48, 32, 0.42); /* 全屏Modal遮罩 */
 
-  /* 毛玻璃 */
-  --mt-glass-bg:     rgba(250, 247, 240, 0.84);
-  --mt-glass-stroke: rgba(42, 36, 28, 0.10);
+  /* 毛玻璃 (暖白版) */
+  --mt-glass-bg:     rgba(255, 253, 247, 0.84);
+  --mt-glass-stroke: rgba(93, 78, 55, 0.10);
   --mt-glass-blur:   24px;
 
-  /* 内嵌表面层级 */
-  --mt-surface-2: #f6f1e8;
-  --mt-surface-3: #e8e0d2;
+  /* 内嵌表面层级 — 暖调 */
+  --mt-surface-2: #faf6ec;
+  --mt-surface-3: #ece5d6;
 
-  /* 语音 / 思考态 — 暖褐紫过渡，避免琥珀强调 */
-  --mt-violet: #7a5a6e;
+  /* 语音 / 思考态语义色 — 暖褐 */
+  --mt-violet: #8a5a2b;
 
-  /* 底噪 — 雾蓝 + 微暖 */
-  --mt-shine: linear-gradient(145deg, rgba(79, 115, 140, 0.08), transparent 48%);
+  /* 卡片斜向高光 + 页面底噪光斑 — 琥珀 / 暖橙 / 青苔 */
+  --mt-shine: linear-gradient(145deg, rgba(184, 134, 59, 0.08), transparent 48%);
   --mt-mesh:
-    radial-gradient(ellipse 72% 48% at 10% -8%, rgba(79, 115, 140, 0.11), transparent),
-    radial-gradient(ellipse 48% 38% at 90% 6%, rgba(66, 95, 116, 0.08), transparent),
-    radial-gradient(ellipse 55% 32% at 48% 110%, rgba(122, 139, 79, 0.06), transparent);
+    radial-gradient(ellipse 72% 48% at 10% -8%, rgba(184, 134, 59, 0.13), transparent),
+    radial-gradient(ellipse 48% 38% at 90% 6%, rgba(160, 106, 44, 0.10), transparent),
+    radial-gradient(ellipse 55% 32% at 48% 110%, rgba(122, 139, 79, 0.08), transparent);
 
   /* 代码块 / 展开体底色 */
-  --mt-code-bg: rgba(42, 36, 28, 0.06);
+  --mt-code-bg: rgba(93, 78, 55, 0.06);
 
-  /* Diff 行背景 */
+  /* Diff 行背景 — 暖色语义混透明 */
   --mt-diff-add-bg: color-mix(in srgb, var(--mt-success) 16%, transparent);
   --mt-diff-del-bg: color-mix(in srgb, var(--mt-error) 14%, transparent);
 
-  /* 指标卡分色 */
-  --mt-tone-a: #4f738c;
+  /* 指标卡分色：暖调压深，保证在米黄底上有对比 */
+  --mt-tone-a: #b8863b;
   --mt-tone-b: #4f7a3a;
-  --mt-tone-c: #5a7a92;
+  --mt-tone-c: #9c6f2c;
   --mt-tone-d: #b5473b;
 
-  /* 图表分类色板 */
-  --mt-chart-1: #4f738c;
+  /* 图表分类色板 — 暖调为主，靠明度与冷暖拉开（ΔE 最低 21.0，对比度 ≥2.9） */
+  --mt-chart-1: #b8863b;
   --mt-chart-2: #4f7a3a;
   --mt-chart-3: #9c3a30;
   --mt-chart-4: #7a4fa3;
   --mt-chart-5: #2f6f8f;
-  --mt-chart-6: #6b879c;
+  --mt-chart-6: #7f5820;
   --mt-chart-7: #a34a6b;
   --mt-chart-8: #1f6b6b;
 
-  /* 指标色 */
-  --mt-metric-1: #4f7288;
-  --mt-metric-2: #7a6187;
-  --mt-metric-3: #a3714f;
-  --mt-metric-4: #6b8f71;
-
-  /* 语义色 — 暖调改写 */
+  /* 语义色 — 暖调改写。
+     原先三主题共用一套冷调绿/黄/红（全局固定区），护眼主题下与暖底不协调。
+     对比度经核算全部不劣化（scripts/.eyecare-warm-plan.mjs）：
+     error-dark 7.83→8.25、warning 1.91→3.37、error 3.34→4.74。
+     -light 三级保持原值——它们是**深色主题专用**（默认分支用 -dark，dark 块切到 -light），
+     在浅底上低对比属预期，改动会破坏深色主题。 */
   --mt-success:       #4f7a3a;
   --mt-success-dark:  #3d6b32;
   --mt-success-light: #86efac;
@@ -476,10 +483,11 @@
   --mt-error-dark:    #9c3a30;
   --mt-error-light:   #fca5a5;
 
-  /* 文件类型手账色板 */
+  /* 文件类型手账色板 — 与 light 同值（米黄底上对比度实测 ≥ 3.4、ΔE ≥ 49）。
+     刻意不暖化：手账色与米黄底正是靠冷暖差才立得住，变暖会糊在一起。 */
   --mt-file-other:    #8B7355;
   --mt-file-doc:      #7A6F4D;
-  --mt-file-ink:      #6B7F6A;
+  --mt-file-ink:      #6B7F6A;  /* 原 #6B7F6A 文档·纯文本（墨绿） */
   --mt-file-txt:      #6B6560;
   --mt-file-pdf:      #A65D4F;
   --mt-file-office:   #5B6B8A;
@@ -495,27 +503,27 @@
   --mt-file-video-2:  #6F6280;
 
   /* 前景文字 — 暖褐灰 */
-  --mt-fg-1: #2a241c;
-  --mt-fg-2: #5c5346;
-  --mt-fg-3: #7a7164;
-  --mt-fg-4: #a39a8c;
-  --mt-fg-inverse: #f3eee4;
-  --mt-fg-on-accent: #ffffff;
+  --mt-fg-1: #2f2a22;   /* 主文本 */
+  --mt-fg-2: #5c5346;   /* 次要文本 */
+  --mt-fg-3: #7a715f;   /* 三级/说明/图标 */
+  --mt-fg-4: #a2977f;   /* 占位符/禁用 */
+  --mt-fg-inverse: #f5f1e8;  /* 深色背景上的文字 */
+  --mt-fg-on-accent: #fffdf7;  /* 强调色填充块上的文字（按钮、徽标） */
 
-  /* 边框 */
-  --mt-border:          rgba(42, 36, 28, 0.12);
-  --mt-border-light:    rgba(42, 36, 28, 0.08);
-  --mt-border-dark:     rgba(42, 36, 28, 0.18);
-  --mt-border-hairline: rgba(42, 36, 28, 0.06);
+  /* 边框 — 暖调半透明 */
+  --mt-border:          rgba(93, 78, 55, 0.14);
+  --mt-border-light:    rgba(93, 78, 55, 0.10);
+  --mt-border-dark:     rgba(93, 78, 55, 0.22);
+  --mt-border-hairline: rgba(93, 78, 55, 0.08);
 
-  /* 阴影 */
-  --mt-shadow-xs:  0 1px 2px rgba(42, 36, 28, 0.06);
-  --mt-shadow-sm:  0 2px 4px rgba(42, 36, 28, 0.08), 0 1px 1px rgba(42, 36, 28, 0.05);
-  --mt-shadow-md:  0 6px 14px rgba(42, 36, 28, 0.10), 0 2px 4px rgba(42, 36, 28, 0.06);
-  --mt-shadow-lg:  0 10px 28px rgba(42, 36, 28, 0.10), 0 4px 8px rgba(42, 36, 28, 0.06);
-  --mt-shadow-xl:  0 30px 60px rgba(42, 36, 28, 0.14);
-  --mt-shadow-glow: 0 0 0 1px rgba(79, 115, 140, 0.22), 0 10px 40px rgba(79, 115, 140, 0.12);
-  --mt-shadow-inner: inset 0 1px 0 rgba(255, 255, 255, 0.65);
+  /* 阴影 — 暖灰褐 */
+  --mt-shadow-xs:  0 1px 2px rgba(87, 71, 45, 0.06);
+  --mt-shadow-sm:  0 2px 4px rgba(87, 71, 45, 0.08), 0 1px 1px rgba(87, 71, 45, 0.05);
+  --mt-shadow-md:  0 6px 14px rgba(87, 71, 45, 0.10), 0 2px 4px rgba(87, 71, 45, 0.06);
+  --mt-shadow-lg:  0 10px 28px rgba(87, 71, 45, 0.10), 0 4px 8px rgba(87, 71, 45, 0.06);
+  --mt-shadow-xl:  0 30px 60px rgba(87, 71, 45, 0.16);
+  --mt-shadow-glow: 0 0 0 1px rgba(184, 134, 59, 0.24), 0 10px 40px rgba(160, 106, 44, 0.16);
+  --mt-shadow-inner: inset 0 1px 0 rgba(255, 255, 255, 0.65);  /* 暖色内高光 */
 }
 
 /* ---- 4. 排版语义类 (可直接在 JSX 中使用 className) ---- */

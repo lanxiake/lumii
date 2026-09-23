@@ -263,20 +263,11 @@ describe('语义色不写字面量', () => {
    */
   const SEMANTIC_HEX: ReadonlyArray<[RegExp, string]> = [
     [/#ef4444\b/i, '--mt-error'],
-    [/#f07167\b/i, '--mt-error'],
     [/#22c55e\b/i, '--mt-success'],
-    [/#34d399\b/i, '--mt-success'],
     [/#f59e0b\b/i, '--mt-warning'],
-    [/#f0b429\b/i, '--mt-warning'],
     [/#86efac\b/i, '--mt-success-light'],
     [/#fde047\b/i, '--mt-warning-light'],
     [/#b45309\b/i, '--mt-warning-dark'],
-    // 雾蓝主色（当前 dark 实值）+ 旧高饱和蓝（防残留字面量）
-    [/#6b8fad\b/i, '--mt-accent-500'],
-    [/#7a9bb8\b/i, '--mt-accent-400'],
-    [/#9bb4cc\b/i, '--mt-accent-300'],
-    [/#557896\b/i, '--mt-accent-600'],
-    [/#44607a\b/i, '--mt-accent-700'],
     [/#3b82f6\b/i, '--mt-accent-500'],
     [/#60a5fa\b/i, '--mt-accent-400'],
     [/#93c5fd\b/i, '--mt-accent-300'],
