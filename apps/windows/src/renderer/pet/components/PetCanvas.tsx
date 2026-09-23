@@ -24,7 +24,7 @@ import { ensureCubismCore } from '../utils/cubism-core-loader'
 import { getPetModelConfig } from '../config/pet-model-registry'
 import type { PetModelConfig } from '../config/pet-model-types'
 import { PET_MOTION_GROUP_UNNAMED } from '../config/pet-model-types'
-import { estimateVelocity, isThrowable, stepThrow, type DragSample, type ThrowBody, type PetPose } from '@mtbot/pet-core'
+import { estimateVelocity, isThrowable, stepThrow, dragBoundsOf, type DragSample, type ThrowBody, type PetPose } from '@mtbot/pet-core'
 import { PetWanderDriver } from '../behavior/PetWanderDriver'
 import { petMetrics } from '../telemetry/pet-metrics'
 import type { PetHoverUpdate } from '../../../shared/pet-mode'
@@ -59,6 +59,19 @@ const TAP_AMBIENT_HOLD_MS = 2500
  * 100ms 已经足够把短按和按住分开（人手点一下约 100~200ms）。
  */
 const GRAB_HOLD_MS = 100
+
+/**
+ * 抛掷时的能量保留比例（撞左右边与屏幕上沿都走它）。
+ *
+ * `pet-core` 的默认是 0.55，这里按用户要求**加 50% 弹性**（"丢宠物还是保留，
+ * 可以增加 50% 的弹性"）。只在**抛掷**这一条路上覆盖，不动默认值——
+ * 自己从墙上松手掉下来（`PetWanderDriver.stepFall`）走的是同一个 `stepThrow`，
+ * 那种"啪一下落地"不该突然变弹。
+ *
+ * ⚠ 不写 `0.55 * 1.5` 而是写死数值：默认值在 pet-core 里，改它的时候这里**不会**
+ * 跟着变，写算式会让人以为会。两者的关系在注释里说清楚就够了。
+ */
+const THROW_RESTITUTION = 0.825
 
 /**
  * 指针交互的让位来源名。
@@ -244,6 +257,13 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
     const grabTimerRef = useRef<number | null>(null)
     /** 指针的最近位置。抓取定时器里没有事件对象，要用它重算拖拽偏移 */
     const pointRef = useRef({ x: 0, y: 0 })
+    /**
+     * "这次拖动已经抱怨过拿不到内容包围盒"。
+     *
+     * 每次**新的拖动**（mousedown）重置一次，于是每次拖动最多一条日志——
+     * 不然指针每动一像素就是一条。
+     */
+    const warnedNoExtentsRef = useRef(false)
 
     useImperativeHandle(ref, () => ({
       getRenderer: () => rendererRef.current,
@@ -610,6 +630,12 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
          * 它与 `pressed` 不一致，只可能是 mouseup 丢了（见 `abandonDrag`）。
          * 必须在下面那条分支**之前**判——否则这一帧又会上报一次 hover=true，
          * 窗口再被点开一次。
+         *
+         * ⚠ 它会被**别的指针设备的杂散移动**误触发：hover 到模型时主进程会把穿透
+         * 关掉，于是其它来源的 `buttons: 0` 也送得进来（实测自动化测试时真鼠标的
+         * 移动持续打断合成拖拽）。没改成"延后一帧再判"是因为那样挡不住**连续的**
+         * 杂散事件；也没改成按坐标过滤是因为全屏窗口根本收不到 `mouseleave`，
+         * 这条判定是"松手在屏幕外"的唯一信号。**真机上只有一个指针设备，不会误触**。
          */
         if (dragRef.current.pressed && e.buttons === 0) {
           abandonDrag('左键已松开但没收到 mouseup（多半是在窗口外松的手）')
@@ -618,7 +644,9 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
           // **只有抓住了才跟手**。没到 GRAB_HOLD_MS 之前指针怎么动宠物都不动——
           // 那是"点击"的进行时，不该把宠物拖歪
           if (dragRef.current.active) {
-            renderer.setPosition(x - dragRef.current.offsetX, y - dragRef.current.offsetY)
+            const want = { x: x - dragRef.current.offsetX, y: y - dragRef.current.offsetY }
+            const at = clampDrag(want)
+            renderer.setPosition(at.x, at.y)
             dragRef.current.samples.push({ x, y, t: performance.now() })
             // 采样窗只需要最近一小段，长拖时不清会让数组无限增长
             if (dragRef.current.samples.length > 200) dragRef.current.samples.shift()
@@ -634,6 +662,40 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
         if (throwRef.current !== null) {
           cancelAnimationFrame(throwRef.current)
           throwRef.current = null
+        }
+      }
+
+      /**
+       * 拖动时的位置夹取：**内容不许出视口**。
+       *
+       * 早先拖拽的 `setPosition` 没有任何边界检查，宠物能被拖到屏幕外找不回来
+       * （实测 `y = -21589`）。判据用**内容**而不是画布，见 `getContentExtents`——
+       * 画布两侧的留白会让宠物停在离边 20 多像素的地方。
+       *
+       * 夹住之后"内容贴边"就等价于"锚点到达夹取区间的端点"，松手时驱动据此吸附
+       * （`flushEdges`）。所以这里只管夹，不判断该不该吸。
+       *
+       * 拿不到内容包围盒时（Live2D、图集还没解码好）**不夹**：宁可让它像以前一样
+       * 能被拖出去，也不要在不知道边距的情况下按画布瞎夹。
+       */
+      const clampDrag = (want: { x: number; y: number }) => {
+        const ext = renderer.getContentExtents?.()
+        if (!ext) {
+          // **必须说出来**：夹取与"贴边吸附"都靠它，拿不到就双双失效，而画面上
+          // 只是"拖到边上没反应"——与"没实现"长得一模一样。每次拖动只说一次。
+          if (!warnedNoExtentsRef.current) {
+            warnedNoExtentsRef.current = true
+            log.warn(
+              '[clampDrag] 拿不到内容包围盒 → 拖动不夹取、贴边也不吸附（退回旧行为）。' +
+                `后端=${renderer.constructor?.name ?? '?'} 模型=${config?.id ?? '?'}`,
+            )
+          }
+          return want
+        }
+        const b = dragBoundsOf(ext, { width: canvas.clientWidth, height: canvas.clientHeight })
+        return {
+          x: Math.min(Math.max(want.x, b.minX), b.maxX),
+          y: Math.min(Math.max(want.y, b.minY), b.maxY),
         }
       }
 
@@ -677,7 +739,7 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
           const now = performance.now()
           const dt = Math.min(0.05, (now - last) / 1000)
           last = now
-          const r = stepThrow(body, dt, bounds)
+          const r = stepThrow(body, dt, bounds, { restitution: THROW_RESTITUTION })
           body = r.body
           renderer.setPosition(body.x, body.y)
           if (r.landed) {
@@ -734,6 +796,7 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
           dragRef.current.offsetX = p.x - now.x
           dragRef.current.offsetY = p.y - now.y
           dragRef.current.samples = [{ x: p.x, y: p.y, t: performance.now() }]
+          warnedNoExtentsRef.current = false
           log.info(`[onMouseDown] 按住 ${GRAB_HOLD_MS}ms 进入抓取`)
           onInteractionRef.current?.({ type: 'picked' })
         }, GRAB_HOLD_MS)
@@ -803,6 +866,22 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
           // 抛掷期间保持让位；位置权威交给抛物线，落地时（startThrow 内）才交还
           startThrow(pos, v)
         } else {
+          // **先问"该不该吸住"，吸不住才自由落体。**
+          //
+          // 这一步原先没有：拖到屏幕边上/顶上松手时，宠物会被 `startThrow` 先摔到
+          // 地面，等 `resume` 再判吸附时它已经在地上了——位置早就不贴边，于是
+          // "拖到边缘吸附"整条路**从来没生效过**（用户实测报的就是这个）。
+          //
+          // ⚠ 顺序：`landed` 必须在 `resume` **之前**报。`attachPerch` 会在 `resume`
+          // 里报动作组（`climb`/`crawl`），而编排器在 `interactionActive` 为真时
+          // **静默不播**——先吸后报的话宠物会爬着墙播待机，正是用户说的"像坐电梯"。
+          if (wanderRef.current?.canAttachHere()) {
+            log.info(`[onMouseUp] 贴住了屏幕边，吸附而非落下 @(${pos.x.toFixed(0)}, ${pos.y.toFixed(0)})`)
+            onInteractionRef.current?.({ type: 'landed', x: pos.x, y: pos.y })
+            wanderRef.current.resume(AMBIENT_HOLD_POINTER)
+            reportModelHover(renderer.isPointerOverModel(x, y))
+            return
+          }
           // 速度不够"抛"，但**该落还是要落**。这里原先直接 `resume()`，宠物就停在
           // 用户把它举到的那个高度上——日志里"原地落下"四个字名不副实：实测拖到
           // 半空松手后它一直在 y=972 的空气里走动，再没下来过。

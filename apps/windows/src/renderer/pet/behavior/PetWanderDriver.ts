@@ -28,6 +28,7 @@ import {
   AMBIENT_DEFAULTS,
   PERCH_DEFAULTS,
   ceilingY,
+  flushEdges,
   initialPlan,
   planNextActivity,
   screenWallX,
@@ -346,6 +347,14 @@ export class PetWanderDriver {
       return
     }
 
+    // **先看该不该吸附，再考虑坠落。**
+    //
+    // 顺序是实测逼出来的：用户把宠物拖到屏幕边上/顶上松手时，宠物正在
+    // `y < groundY` 的半空——落在下面的坠落分支里就**直接掉下去了**，
+    // 而"拖到边缘要吸住"正是这一步要的。判据是"内容贴住了某条边"
+    // （画布那边已经把位置夹在视口里了），悬在半空的不贴，自然走到坠落。
+    if (this.tryAttachNow()) return
+
     // 拖拽结束时宠物悬在地面线上方（没到抛掷阈值就松手，或用户就是把它举高了放下）：
     // **接着往下掉**。这是"悬空运动"最直接的那条路径——`[onMouseUp] 速度不足` 原先
     // 直接 `resume()`，宠物就停在被举到的高度上不再下来（实测日志：此后一直
@@ -360,8 +369,6 @@ export class PetWanderDriver {
 
     this.resetToStand()
     log.info(`[resume] 恢复（${reason}）位置 (${this.x.toFixed(0)}, ${this.y.toFixed(0)})`)
-    // 用户可能刚把宠物**放在**窗口边缘上——这是最自然的攀爬入口，不能等他走过去
-    this.tryAttachNow()
   }
 
   isSuspended(): boolean {
@@ -393,15 +400,20 @@ export class PetWanderDriver {
    * 实测到了 `y = -21589`。而驱动把"读到的位置"当成宠物的地面线，
    * 于是它从此在屏幕外两万像素的地方"站着"，再也看不见。
    *
-   * 下界 16 是"别爬到屏幕顶之上"，上界就是**地面线本身**（`h`）。
+   * 下界 0、上界就是**地面线本身**（`h`）。
    * 上界曾经是 `h - 8`，那个 8 与地面线（`h`）差了一截：宠物被夹到 `h - 8` 之后，
    * `resume` 里"悬在地面线上方"的判定就成了**恒真**，每次恢复都白掉一次。
+   *
+   * ⚠ 下界曾经是 **16**（"别爬到屏幕顶之上"）。改成 0 是因为拖动那条线现在自己会夹：
+   * 判据是**内容不出视口**（`dragBoundsOf`），比一个写死的 16 准。而 16 会**吃掉
+   * 贴顶吸附**——矮姿势的内容上伸量可能不到 16px，锚点被抬到 16 就不再"贴着上沿"了，
+   * `flushEdges` 判定失败，拖到顶端反而不吸。
    */
   private clampPosition(): void {
     const w = window.innerWidth
     const h = window.innerHeight
     this.x = Math.min(Math.max(this.x, 0), w)
-    this.y = Math.min(Math.max(this.y, 16), h)
+    this.y = Math.min(Math.max(this.y, 0), h)
   }
 
   /**
@@ -424,27 +436,100 @@ export class PetWanderDriver {
    * 打了会淹没真正有用的信息。排查"为什么不吸"时临时在这里把 `perchRect`
    * 与 `minPerchHeight()` 打出来即可——**静默失败是这条链路最难查的形态**，
    * 上一轮整整一段排查就卡在"没日志所以看起来像没被调用"。
+   *
+   * @returns 是否吸上了（`resume` 据此决定"停在这儿"还是"接着坠落"）
    */
-  private tryAttachNow(): void {
-    if (this.perch || this.falling || this.holds.size > 0) return
+  private tryAttachNow(): boolean {
+    if (this.perch || this.falling || this.holds.size > 0) return false
+    const plan = this.planAttach()
+    if (!plan) return false
+    this.attachPerch(plan.kind, plan.side, plan.onScreen)
+    return true
+  }
+
+  /**
+   * 从**当前**位置能不能吸住——只判不做。
+   *
+   * 调用方（画布）拿它决定"松手后是吸上去还是自由落体"。**必须能先问再做**：
+   * 拖到屏幕边/顶松手时，`startThrow(pos, {0,0})` 会先把宠物摔到地面，等
+   * `resume` 再判吸附时它已经在地上了——位置早就不贴边。
+   *
+   * 与 `tryAttachNow` 共用 `planAttach`，两边不会走偏；差别只有一条：
+   * 这里**不看 `holds`**——问的时候指针那次让位还没解除。
+   */
+  canAttachHere(): boolean {
+    // **不看 `this.perch`**：拖动期间它还是"被拎起来之前"那次攀附的残留（`suspend`
+    // 不清它），而宠物此刻在哪由渲染器说了算。拿残留判会得出"从天花板把它拎起来
+    // 再放回天花板，它却掉到地上"这种结果。
+    if (this.falling) return false
+    // **位置以渲染器为准，不能用自己的 `x/y`。** 拖动期间画布是直接写
+    // `renderer.setPosition()` 的（驱动被让位挂着，不参与），驱动这边的坐标还停在
+    // "被拎起来之前"——拿它判会得出"在原来的地方能不能吸"，与用户手上那一拖无关。
+    const pos = this.renderer.getPosition()
+    return this.planAttach(pos.x, pos.y) !== null
+  }
+
+  /** 该吸到哪——纯读，不改任何状态。位置由调用方给（默认用驱动记的那份） */
+  private planAttach(
+    x = this.x,
+    y = this.y,
+  ): { kind: 'wall' | 'ceiling'; side: PerchSide; onScreen: boolean } | null {
     const minH = this.minPerchHeight()
     // **主窗口优先**：用户把宠物拎到窗口边上，那个意图比"它正好走到屏幕边"明确得多。
     // 两者同时成立只发生在主窗口贴着屏幕边的时候，那时贴窗口看起来才对
     // （贴屏幕的话宠物会跑到窗口的另一侧去）。
-    const onWindow = tryAttach(this.x, this.y, this.perchRect, this.perchConfig, minH)
-    if (onWindow) {
-      this.attachPerch(onWindow, false)
-      return
-    }
-    const onScreen = tryAttachScreen(
-      this.x,
-      this.y,
-      this.viewport(),
-      this.perchConfig,
-      minH,
-      this.modelHeight,
-    )
-    if (onScreen) this.attachPerch(onScreen, true)
+    const onWindow = tryAttach(x, y, this.perchRect, this.perchConfig, minH)
+    if (onWindow) return { kind: 'wall', side: onWindow, onScreen: false }
+
+    // **内容贴住了哪条边**——拖动松手走这条。
+    //
+    // 它比下面按距离判的那条更准：距离判据量的是**锚点**，而锚点在脚底中心、周围还有
+    // 一圈素材留白，同一个"看着贴上了"在不同姿势下差几十像素（实测锚点到边界
+    // 27~68px 都出现过）。用内容就没有这个口径问题。
+    //
+    // 走路**不会**误触发：走路时内容离屏幕边还有一截（`walkBoundsOf` 比内容宽）。
+    const flush = this.flushAgainstEdges(x, y)
+    if (flush) return flush
+
+    // 走到屏幕边上自己爬上去（`tryAttachScreen` 里那两条判据的来历见它的注释）
+    const onScreen = tryAttachScreen(x, y, this.viewport(), this.perchConfig, minH, this.modelHeight)
+    if (onScreen) return { kind: 'wall', side: onScreen, onScreen: true }
+    return null
+  }
+
+  /** 内容正贴着屏幕的哪条边 → 该吸到哪；没贴或量不出内容包围盒时 null */
+  private flushAgainstEdges(
+    x: number,
+    y: number,
+  ): { kind: 'wall' | 'ceiling'; side: PerchSide; onScreen: boolean } | null {
+    const ext = this.renderer.getContentExtents?.()
+    if (!ext) return null
+    const vp = this.viewport()
+    if (vp.height < this.minPerchHeight()) return null
+    // ⚠ **容差用 `attachDistance`，不能是 1px**（2026-09-23 实测）。
+    //
+    // 拖动是直接操作：光标最低只能到屏幕顶（y=0），而宠物相对光标有个抓取偏移
+    // （`want.y = pointerY + 抓取点距离`）。**光标推不动的地方，宠物也到不了**——
+    // 实测从墙上把猫往上拖到 (200, 0)，锚点只到 y=44，而内容上伸量是 40，
+    // 差 4px 就判不成"贴住"，松手掉了下来。1px 的判据等于要求"把宠物恰好推到
+    // 边缘"，人手做不到。
+    const f = flushEdges(x, y, ext, vp, this.perchConfig.attachDistance)
+    // 上沿最优先：拖到顶时水平方向往往也贴着一侧，用户要的是"挂上去"
+    if (f.top) return { kind: 'ceiling', side: this.crawlSide(), onScreen: true }
+    if (f.left) return { kind: 'wall', side: 'left', onScreen: true }
+    if (f.right) return { kind: 'wall', side: 'right', onScreen: true }
+    return null
+  }
+
+  /**
+   * 上顶之后往哪边爬。
+   *
+   * 取自**当前朝向**：`stepCrawl` 里 `side: 'left'` 是向右爬，而素材面朝右，所以朝右
+   * 时从左边上顶、朝左时从右边上顶——与 `flipForCeiling` 的规则一致，
+   * 于是吸附瞬间**不会翻面**。
+   */
+  private crawlSide(): PerchSide {
+    return this.facing >= 0 ? 'left' : 'right'
   }
 
   /** 视口尺寸。宠物窗口是全屏透明窗口，所以视口 == 屏幕 */
@@ -560,19 +645,27 @@ export class PetWanderDriver {
    *
    * 位置立刻贴到墙线上，不等下一步积分——差一帧会看到宠物"先飘到墙边、再开始爬"。
    */
-  private attachPerch(side: PerchSide, onScreen: boolean): void {
+  private attachPerch(kind: 'wall' | 'ceiling', side: PerchSide, onScreen: boolean): void {
     if (!onScreen && !this.perchRect) return
     // 墙上的 y 是**临时的**：松手后由 `stepFall` 送回固定的地面线（见 `groundY()`）。
     // 这里曾经把当刻的 y 记成"地面线"，那正是宠物越爬越高的根源。
     this.perchOnScreen = onScreen
-    this.perch = { kind: 'wall', side }
-    this.x = this.perchWallX(side)
-    this.applyFacing(this.flipForPerch(side))
+    this.perch = kind === 'wall' ? { kind: 'wall', side } : { kind: 'ceiling', side }
+    if (kind === 'wall') {
+      this.x = this.perchWallX(side)
+      // 墙上判的是"墙在宠物哪一侧"
+      this.applyFacing(this.flipForPerch(side))
+    } else {
+      // 从**拖动**直接吸到上沿（没经过爬墙）。位置贴到天花板线上，朝向按爬行方向算
+      this.y = this.perchCeilingY()
+      this.applyFacing(this.flipForCeiling(side))
+    }
     this.renderer.setPosition(this.x, this.y)
     log.info(
-      `[perch] 吸附到${onScreen ? '屏幕' : '窗口'}${side === 'left' ? '左' : '右'}墙 x=${this.x.toFixed(0)}`,
+      `[perch] 吸附到${onScreen ? '屏幕' : '窗口'}` +
+        (kind === 'wall' ? `${side === 'left' ? '左' : '右'}墙 x=${this.x.toFixed(0)}` : `上沿 y=${this.y.toFixed(0)}`),
     )
-    this.onActivity('climb')
+    this.onActivity(kind === 'wall' ? 'climb' : 'crawl')
   }
 
   /** 松手：从墙上/天花板上掉回地面。 */

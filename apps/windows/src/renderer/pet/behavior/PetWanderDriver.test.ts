@@ -304,6 +304,104 @@ describe('PetWanderDriver — 攀附与掉落', () => {
     expect(getPos().y).toBe(768)
   })
 
+  it('内容贴上沿时松手：吸到天花板，不往下掉', () => {
+    // 用户 2026-09-23 的要求：「鼠标拖动宠物到屏幕边缘和顶部时，宠物需要吸附在对应的边缘上」。
+    // 画布那边已经把内容夹在视口里了，所以"拖到顶"在这里就是 y = 内容的上伸量。
+    //
+    // ⚠ 这个用例真正钉的是**顺序**：吸附判定必须排在"悬在地面线上方 → 坠落"**之前**，
+    // 否则拖到顶上松手会直接掉下去——那条分支原先排在前面。
+    const clock = makeClock()
+    const renderer = fakeRenderer()
+    let pos = { x: 500, y: 768 }
+    renderer.getPosition = () => ({ ...pos })
+    renderer.setPosition = vi.fn((x: number, y: number) => {
+      pos = { x, y }
+    })
+    // 内容相对锚点往上伸 300px、左右各 50（jsdom 视口 1024×768）
+    renderer.getContentExtents = () => ({ left: 50, right: 50, top: 300, bottom: 0 })
+    const onActivity = vi.fn<(a: string) => void>()
+    const driver = new PetWanderDriver({
+      renderer,
+      onActivity,
+      config: AMBIENT_DEFAULTS,
+      // ceilingY = 0 + modelHeight(100) × 0.3 = 30
+      perchConfig: { attachDistance: 24, climbSpeed: 4500, wallGapRatio: 0.43, ceilingGapRatio: 0.3 },
+      rand: () => 0.5,
+    })
+    driver.start()
+    onActivity.mockClear()
+
+    driver.suspend('pointer')
+    pos = { x: 500, y: 300 } // 拖到顶：内容上缘正好落在 y=0
+    driver.resume('pointer')
+
+    expect(onActivity).toHaveBeenCalledWith('crawl')
+    expect(pos.y).toBeCloseTo(30, 6)
+    // 没掉下去——爬行会让 x 变，y 应当一直贴在天花板上。
+    // **只推一帧**：这里的 climbSpeed 是 4500（测试专用），两帧就爬到尽头松手了
+    clock.advance(1)
+    expect(pos.y).toBeCloseTo(30, 6)
+    expect(pos.x).toBeGreaterThan(500) // 从左墙上顶 → 向右爬
+  })
+
+  it('canAttachHere 只判不做：画布靠它决定"吸住还是自由落体"', () => {
+    // 这条是 2026-09-23 那次"拖到边缘没反应"的回归哨兵。原因不是判定错，是**顺序错**：
+    // 松手走的是 `startThrow(pos, {0,0})`，宠物先被摔到地面，等 `resume` 再判吸附时
+    // 位置早就不贴边了。所以画布必须先问一句再决定。
+    const renderer = fakeRenderer()
+    let pos = { x: 50, y: 768 }
+    renderer.getPosition = () => ({ ...pos })
+    renderer.setPosition = vi.fn((x: number, y: number) => {
+      pos = { x, y }
+    })
+    // 内容左缘离锚点 50px：锚点在 50 时正好贴着屏幕左边（视口宽 1024）
+    renderer.getContentExtents = () => ({ left: 50, right: 50, top: 300, bottom: 0 })
+    const driver = new PetWanderDriver({
+      renderer,
+      onActivity: vi.fn(),
+      config: AMBIENT_DEFAULTS,
+      rand: () => 0.5,
+    })
+    driver.start()
+
+    expect(driver.canAttachHere()).toBe(true) // 贴左边
+    pos = { x: 500, y: 400 } // 悬在半空、离哪条边都远
+    expect(driver.canAttachHere()).toBe(false)
+    pos = { x: 500, y: 300 } // 贴顶
+    expect(driver.canAttachHere()).toBe(true)
+    // **只判不做**：问完之后还没有真的吸上去
+    expect(driver.getPerch()).toBeNull()
+  })
+
+  it('拖到半空但没贴边：照旧往下掉（吸附不能把坠落吃掉）', () => {
+    const clock = makeClock()
+    const renderer = fakeRenderer()
+    let pos = { x: 500, y: 768 }
+    renderer.getPosition = () => ({ ...pos })
+    renderer.setPosition = vi.fn((x: number, y: number) => {
+      pos = { x, y }
+    })
+    renderer.getContentExtents = () => ({ left: 50, right: 50, top: 300, bottom: 0 })
+    const onActivity = vi.fn<(a: string) => void>()
+    const driver = new PetWanderDriver({
+      renderer,
+      onActivity,
+      config: AMBIENT_DEFAULTS,
+      perchConfig: { attachDistance: 24, climbSpeed: 4500, wallGapRatio: 0.43, ceilingGapRatio: 0.3 },
+      rand: () => 0.5,
+    })
+    driver.start()
+    onActivity.mockClear()
+
+    driver.suspend('pointer')
+    pos = { x: 500, y: 400 } // 离上沿还差 100px，不贴
+    driver.resume('pointer')
+
+    expect(onActivity).toHaveBeenCalledWith('fall')
+    clock.advance(30)
+    expect(pos.y).toBe(768)
+  })
+
   it('默认**不**吸主窗口——开着会把宠物锁死在窗口附近，走不到屏幕边', () => {
     // 2026-09-22 实测：开着窗口攀附时落点固定在窗口两个角（580 / 1980），
     // 一起步就又在吸附区里，于是「爬窗口 → 掉到角上 → 再爬」无限循环，

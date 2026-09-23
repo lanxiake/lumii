@@ -313,3 +313,85 @@ export function clampToViewport(
     y: Math.min(Math.max(y, margin), Math.max(margin, viewport.height - margin)),
   }
 }
+
+// ---------------------------------------------------------------------------
+// 拖动时的内容夹取（2026-09-23）
+// ---------------------------------------------------------------------------
+
+/**
+ * 一帧**内容**（不透明像素）在清单坐标里的包围盒。
+ *
+ * 与 `canvas` 的区别是这里不带留白：宠物窗口是整块 `canvas` 贴上去的，而 H3 出的素材
+ * 内容只占画布中间一块（团子横向两侧各留 ~20%）。**算"贴边"必须用内容，不能用画布**——
+ * 用画布的话猫会停在离屏幕边 22px 的地方，看着像没拖到位。
+ */
+export interface ContentBox {
+  minX: number
+  minY: number
+  maxX: number
+  maxY: number
+}
+
+/**
+ * 内容相对**锚点**在屏幕上往四边各伸出多少（像素，都是正数）。
+ *
+ * 锚点在脚底中心，所以正常情况下 `bottom ≈ 0`、`top` 约等于一个身高。
+ *
+ * ⚠ **水平方向要按 `flipX` 镜像**：素材只画一个朝向，翻转后左右伸出量互换。
+ * 漏掉这一步的症状是"朝左拖时能贴到边、朝右拖时停在一半"。
+ */
+export function contentExtents(
+  box: ContentBox,
+  anchor: readonly [number, number],
+  scale: number,
+  flipX = false,
+): { left: number; right: number; top: number; bottom: number } {
+  const leftward = (anchor[0] - box.minX) * scale
+  const rightward = (box.maxX - anchor[0]) * scale
+  return {
+    left: flipX ? rightward : leftward,
+    right: flipX ? leftward : rightward,
+    top: (anchor[1] - box.minY) * scale,
+    bottom: (box.maxY - anchor[1]) * scale,
+  }
+}
+
+/** 锚点的可达区间：内容四边都不出视口 */
+export function dragBoundsOf(
+  extents: { left: number; right: number; top: number; bottom: number },
+  viewport: { width: number; height: number },
+): { minX: number; maxX: number; minY: number; maxY: number } {
+  // 内容比视口还大时（极端缩放）退回"钉在正中"，不要给出反向区间——
+  // 与 `walkBoundsOf` 同一条约定，反向区间会让夹取变成"啪"一下跳到边上
+  const minX = extents.left
+  const maxX = viewport.width - extents.right
+  const minY = extents.top
+  const maxY = viewport.height - extents.bottom
+  return {
+    minX: minX <= maxX ? minX : (minX + maxX) / 2,
+    maxX: minX <= maxX ? maxX : (minX + maxX) / 2,
+    minY: minY <= maxY ? minY : (minY + maxY) / 2,
+    maxY: minY <= maxY ? maxY : (minY + maxY) / 2,
+  }
+}
+
+/**
+ * 内容此刻**贴着哪几条屏幕边**（`tol` 像素以内算贴上）。
+ *
+ * 拖动松手时用它决定吸到哪条边：贴着左/右墙 → 爬墙，贴着上沿 → 爬天花板。
+ * 用"贴着"而不是"锚点在判定距离内"，是因为拖动已经把内容夹在视口里了——
+ * 锚点离边界的距离随素材留白而变（实测 27~68px），拿它当判据既不准又要调参。
+ */
+export function flushEdges(
+  x: number,
+  y: number,
+  extents: { left: number; right: number; top: number; bottom: number },
+  viewport: { width: number; height: number },
+  tol = 1,
+): { left: boolean; right: boolean; top: boolean } {
+  return {
+    left: x - extents.left <= tol,
+    right: x + extents.right >= viewport.width - tol,
+    top: y - extents.top <= tol,
+  }
+}

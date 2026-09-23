@@ -85,6 +85,17 @@ export interface PetRendererProvider extends PetCoreRenderer {
     perchGaps?: { wall: number; ceiling: number }
   } | null
 
+  /**
+   * 当前动作的**内容**相对锚点往四边伸出多少（屏幕像素，已含镜像与缩放）。
+   *
+   * 拖动时用它把宠物夹在视口里、并判断它贴住了哪条边——**不能用画布**：
+   * 整个 `canvas` 是有留白的，H3 出的素材内容只占中间一块，拿画布当边界
+   * 宠物会停在离屏幕边 20 多像素的地方，看着像没拖到位。
+   *
+   * 取的是当前正在播的那一组（拖动时是 `Picked`），姿势换了数也换。
+   */
+  getContentExtents?(): { left: number; right: number; top: number; bottom: number } | null
+
   /** 获取模型身体外接矩形（窗口坐标，用于 setShape 点击区域） */
   getModelScreenBounds(): { x: number; y: number; width: number; height: number } | null
 

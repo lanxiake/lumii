@@ -35,10 +35,12 @@ import {
   parseAtlasIndex,
   randomAnimationIndex,
   applyOverrides,
+  contentExtents,
   resolveSpriteRuntime,
   snapPixelScale,
   validateSpriteManifest,
   type ActivityModulation,
+  type ContentBox,
   type ResolvedAnimation,
   type SlotState,
   type SlotOverride,
@@ -140,6 +142,8 @@ export class SpritePetRenderer implements PetRendererProvider {
   private runtime: SpriteRuntimeModel | null = null
   private config: PetModelConfig | null = null
   private textures: TextureMap = new Map()
+  /** 动作组 → 内容并集包围盒（见 `getContentExtents`）。**换模型必须清** */
+  private contentBoxCache = new Map<string, ContentBox | null>()
   private baseTexture: PIXI.BaseTexture | null = null
 
   /** base 槽的 sprite（整体帧方案下这是唯一的可见层） */
@@ -293,6 +297,7 @@ export class SpritePetRenderer implements PetRendererProvider {
     this.blinkPart = null
     this.playing = null
     this.currentState = null
+    this.contentBoxCache.clear()
     this.loaded = false
   }
 
@@ -703,6 +708,98 @@ export class SpritePetRenderer implements PetRendererProvider {
     // 差一帧会看到「先平移过去、再翻过来」
     this.applyProcedural()
     log.info(`[setFlip] 水平镜像=${flipX}`)
+  }
+
+  /**
+   * 内容相对锚点往四边伸出多少（屏幕像素，含镜像与缩放）。
+   *
+   * 拖动时用它把宠物夹在视口内、判断它贴住了哪条边——见 pet-core 的
+   * `contentExtents` / `dragBoundsOf` / `flushEdges`。
+   *
+   * **必须用内容而不是画布**：整个 `canvas` 贴上去是有留白的，团子横向两侧各留
+   * ~20%（560 画布 / 内容 444），拿画布当边界宠物会停在离屏幕边 22px 的地方。
+   *
+   * 取的是**当前正在播的那一组**的并集包围盒——拖动时是 `Picked`，姿势与站立不同宽。
+   * 结果按组缓存：一组 8 帧，每帧一次 `drawImage` + `getImageData`，只在第一次要的时候算。
+   */
+  getContentExtents(): { left: number; right: number; top: number; bottom: number } | null {
+    const runtime = this.runtime
+    const playing = this.playing
+    if (!runtime || !playing) return null
+    const box = this.contentBoxOf(playing.anim)
+    if (!box) return null
+    return contentExtents(box, runtime.manifest.anchor, this.effectiveScale(), this.flipped)
+  }
+
+  /** 某一组动作的内容并集包围盒（清单坐标）；算不出来返回 null */
+  private contentBoxOf(anim: ResolvedAnimation): ContentBox | null {
+    const key = `${anim.group}#${anim.index}`
+    const hit = this.contentBoxCache.get(key)
+    if (hit !== undefined) return hit
+    const box = this.measureContentBox(anim)
+    this.contentBoxCache.set(key, box)
+    return box
+  }
+
+  /** 从**已解码的图集**里量内容包围盒。图集是 PIXI 加载的那一张，不额外下载 */
+  private measureContentBox(anim: ResolvedAnimation): ContentBox | null {
+    const src = (this.baseTexture?.resource as { source?: unknown } | undefined)?.source
+    // 画不进 2D 画布就量不出来（理论上只有 ImageBitmap / HTMLImageElement / canvas
+    // 三种；`drawImage` 抛错在下面兜着，这里只挡掉"压根没有资源"的情况）
+    if (!src) return null
+    let minX = Infinity
+    let minY = Infinity
+    let maxX = -Infinity
+    let maxY = -Infinity
+    const seen = new Set<string>()
+    let scratch: HTMLCanvasElement | null = null
+    let ctx: CanvasRenderingContext2D | null = null
+    for (const frame of anim.frames) {
+      if (seen.has(frame.base)) continue
+      seen.add(frame.base)
+      const tex = this.textures.get(frame.base)
+      if (!tex || tex === PIXI.Texture.EMPTY) continue
+      const r = tex.frame
+      if (!scratch) {
+        scratch = document.createElement('canvas')
+        ctx = scratch.getContext('2d', { willReadFrequently: true })
+      }
+      if (!ctx) return null
+      if (scratch.width !== r.width || scratch.height !== r.height) {
+        scratch.width = r.width
+        scratch.height = r.height
+      }
+      ctx.clearRect(0, 0, r.width, r.height)
+      try {
+        ctx.drawImage(
+          src as CanvasImageSource,
+          r.x,
+          r.y,
+          r.width,
+          r.height,
+          0,
+          0,
+          r.width,
+          r.height,
+        )
+      } catch {
+        // 跨源/未解码：量不了就放弃，调用方退回按画布算
+        return null
+      }
+      const px = ctx.getImageData(0, 0, r.width, r.height).data
+      for (let y = 0; y < r.height; y++) {
+        for (let x = 0; x < r.width; x++) {
+          // 阈值与引擎/工具链一致（见 pet-asset 的 bboxThreshold；16 会把抗锯齿边缘算进去）
+          if (px[(y * r.width + x) * 4 + 3] <= 128) continue
+          if (x < minX) minX = x
+          if (x > maxX) maxX = x
+          if (y < minY) minY = y
+          if (y > maxY) maxY = y
+        }
+      }
+    }
+    if (minX > maxX || minY > maxY) return null
+    return { minX, minY, maxX, maxY }
   }
 
   getFlip(): boolean {

@@ -3,6 +3,9 @@ import {
   PERCH_DEFAULTS,
   ceilingY,
   clampToViewport,
+  contentExtents,
+  dragBoundsOf,
+  flushEdges,
   screenWallX,
   shouldLetGo,
   stepClimb,
@@ -254,5 +257,66 @@ describe('clampToViewport — 主窗口贴着屏幕边时把宠物夹回来', ()
 
   it('已经在视口内时原样返回', () => {
     expect(clampToViewport(500, 300, VP)).toEqual({ x: 500, y: 300 })
+  })
+})
+
+describe('拖动时的内容夹取（2026-09-23）', () => {
+  // 团子实测的一组数：画布 560×448、锚点 (280,442)、scale 0.2437、
+  // Crawl 组内容并集 x[17,461] y[189,442]。**画布与内容差了 20 多像素**，
+  // 这正是"用错口径宠物就停在离边 22px 处"的来源。
+  const BOX = { minX: 17, minY: 189, maxX: 461, maxY: 442 }
+  const ANCHOR = [280, 442] as const
+  const S = 0.2437
+
+  it('contentExtents 从内容算，不是从画布算', () => {
+    const e = contentExtents(BOX, ANCHOR, S)
+    expect(e.left).toBeCloseTo((280 - 17) * S, 6) // 64.1
+    expect(e.right).toBeCloseTo((461 - 280) * S, 6) // 44.1
+    expect(e.top).toBeCloseTo((442 - 189) * S, 6) // 61.7
+    expect(e.bottom).toBeCloseTo(0, 6) // 锚点就在内容底边（脚底中心）
+    // 画布口径会给出 280×S = 68.2 的两侧留白，比内容宽 4~24px
+    expect(e.left).toBeLessThan(280 * S)
+  })
+
+  it('翻转时左右伸出量互换', () => {
+    const a = contentExtents(BOX, ANCHOR, S, false)
+    const b = contentExtents(BOX, ANCHOR, S, true)
+    expect(b.left).toBeCloseTo(a.right, 6)
+    expect(b.right).toBeCloseTo(a.left, 6)
+    expect(b.top).toBeCloseTo(a.top, 6) // 上下不受水平镜像影响
+  })
+
+  it('dragBoundsOf 让内容四边都不出视口', () => {
+    const VP = { width: 2560, height: 1400 }
+    const e = contentExtents(BOX, ANCHOR, S)
+    const b = dragBoundsOf(e, VP)
+    // 锚点落到下界时，内容左缘正好在 0
+    expect(b.minX - e.left).toBeCloseTo(0, 6)
+    expect(b.maxX + e.right).toBeCloseTo(VP.width, 6)
+    expect(b.minY - e.top).toBeCloseTo(0, 6)
+    expect(b.maxY + e.bottom).toBeCloseTo(VP.height, 6)
+  })
+
+  it('内容比视口还大时钉在正中，不给反向区间', () => {
+    const huge = { left: 900, right: 900, top: 4000, bottom: 0 }
+    const b = dragBoundsOf(huge, { width: 1000, height: 3200 })
+    expect(b.minX).toBe(b.maxX)
+    expect(b.minY).toBe(b.maxY)
+  })
+
+  it('flushEdges 只认夹到端点的那几条边', () => {
+    const VP = { width: 2560, height: 1400 }
+    const e = contentExtents(BOX, ANCHOR, S)
+    const b = dragBoundsOf(e, VP)
+    // 停在夹取区间的左上角 = 内容贴着左边与上沿
+    expect(flushEdges(b.minX, b.minY, e, VP)).toEqual({ left: true, right: false, top: true })
+    // 回到中间：一条都不贴
+    expect(flushEdges(VP.width / 2, VP.height / 2, e, VP)).toEqual({
+      left: false,
+      right: false,
+      top: false,
+    })
+    // 右下角
+    expect(flushEdges(b.maxX, b.maxY, e, VP)).toEqual({ left: false, right: true, top: false })
   })
 })
