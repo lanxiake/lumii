@@ -13,10 +13,14 @@
  * 光看"左缘跨度"分不出这三者，而它们的修法完全不同（对齐素材 / 删掉 breathe / 什么都不做）。
  * 所以本脚本同时报左缘、右缘、宽度、不透明重心，并打出时序。
  *
- * ## 采样窗口要盖住整圈动画
+ * ## 采样窗口要盖住整圈动画，且要够长到能筛掉粒子
  *
- * 待机是 8 帧 @4fps = **2 秒一圈**。采样间隔 120ms × 60 次 = 7.2 秒，盖住 3 圈多。
+ * 待机是 8 帧 × 125ms = **1 秒一圈**（清单里还写着 `fps: 4`，但逐帧时长才是引擎用的那个，
+ * 8×125ms=1s ≠ 4fps 的 2s——**别照 fps 字段推算**）。
+ * 采样间隔 120ms × 60 次 = 7.2 秒，盖住 7 圈多。
  * 间隔太大（250ms）会与 125ms 的帧长**拍频**，可能每次都在同一相位上，把动的东西量成静止。
+ *
+ * 采样次数还要够多：下面的"无粒子"过滤会丢掉一部分样本，跑 60 次大概能剩 45+。
  *
  * 用法（客户端带调试端口启动：pnpm dev:debug，且已进入宠物模式）
  *   node measure-idle-sway.mjs [采样次数] [间隔ms]
@@ -136,39 +140,56 @@ if (samples.length < 4) {
   process.exit(1)
 }
 
-const span = (k) => Math.max(...samples.map((s) => s[k])) - Math.min(...samples.map((s) => s[k]))
-const L = span('left'), R = span('right'), W = span('w'), H = span('h'), T = span('top'), CX = span('cx')
-const nz = (v) => v.toFixed(1)
+/**
+ * **只保留"没有粒子"的样本**。
+ *
+ * 待机的星星/爱心粒子（随机 8~20 秒一次）从头顶升起，它们**也是不透明像素**：
+ * 既把高度/顶边读数顶高，也把**重心**往粒子那一侧拉。实测污染量级：
+ * 高度跨度会从 ~2px 跳到 58px，重心跨度多出约 1px——而"重心跨度"恰恰是本脚本
+ * 唯一想量的东西，被粒子垫高会让"改好了"看起来像"没改好"。
+ *
+ * 判据取**高度中位数 + 3px**：粒子一定让轮廓变高（它飘在头顶之上），
+ * 而角色自身的帧间高度差在本例里只有 2px（356~365 素材px × 0.2437 ≈ 2px）。
+ */
+const heights = samples.map((s) => s.h).sort((a, b) => a - b)
+const medianH = heights[Math.floor(heights.length / 2)]
+const clean = samples.filter((s) => s.h <= medianH + 3)
+const dropped = samples.length - clean.length
+console.log(
+  `\n采样 ${samples.length} 次，其中 ${clean.length} 次无粒子（高度中位 ${medianH}px；` +
+    `丢掉 ${dropped} 次被待机粒子污染的）`,
+)
+{
+  const span = (k) => Math.max(...clean.map((s) => s[k])) - Math.min(...clean.map((s) => s[k]))
+  const nz = (v) => v.toFixed(1)
+  const L = span('left'), R = span('right'), W = span('w'), H = span('h'), CX = span('cx')
+  console.log(`【只看无粒子样本】轮廓 ${clean[0].w}×${clean[0].h}`)
+  console.log(`  左缘跨度 ${L}px   右缘跨度 ${R}px   宽度跨度 ${W}px   高度跨度 ${H}px`)
+  console.log(`  重心跨度 ${nz(CX)}px`)
+  const ls = clean.map((s) => s.left)
+  const rs = clean.map((s) => s.right)
+  console.log(`  左缘序列: ${ls.join(' ')}`)
+  console.log(`  右缘序列: ${rs.join(' ')}`)
 
-console.log(`\n采样 ${samples.length} 次 / 每 ${INTERVAL}ms（覆盖 ${((samples.length * INTERVAL) / 1000).toFixed(1)}s，待机一圈 2s）`)
-console.log(`  轮廓 ${samples[0].w}×${samples[0].h}`)
-console.log(`  左缘跨度 ${L}px   右缘跨度 ${R}px   宽度跨度 ${W}px   高度跨度 ${H}px   顶边跨度 ${T}px`)
-console.log(`  重心跨度 ${nz(CX)}px`)
+  // 平移 vs 张缩：左右缘的相关系数。同向 ⇒ +1（整体平移），反向 ⇒ −1（对称张缩）
+  const mean = (a) => a.reduce((x, y) => x + y, 0) / a.length
+  const ml = mean(ls), mr = mean(rs)
+  let cov = 0, vl = 0, vr = 0
+  for (let i = 0; i < ls.length; i++) {
+    const dl = ls[i] - ml, dr = rs[i] - mr
+    cov += dl * dr
+    vl += dl * dl
+    vr += dr * dr
+  }
+  const corr = vl > 0 && vr > 0 ? cov / Math.sqrt(vl * vr) : 0
+  console.log(`  左右缘相关系数 ${corr.toFixed(2)}（+1=整体平移，−1=对称张缩，0=无关）`)
 
-// 平移 vs 张缩：看左右缘的**相关系数**。同向 ⇒ +1（整体平移），反向 ⇒ −1（对称张缩）
-const ls = samples.map((s) => s.left)
-const rs = samples.map((s) => s.right)
-const mean = (a) => a.reduce((x, y) => x + y, 0) / a.length
-const ml = mean(ls), mr = mean(rs)
-let cov = 0, vl = 0, vr = 0
-for (let i = 0; i < ls.length; i++) {
-  const dl = ls[i] - ml, dr = rs[i] - mr
-  cov += dl * dr
-  vl += dl * dl
-  vr += dr * dr
+  const verdict = []
+  if (CX <= 0.5) verdict.push('重心不游移')
+  if (corr < -0.5 && W > 4) verdict.push(`对称张缩 ${W}px（呼吸/素材帧挤压，不是平移）`)
+  if (corr > 0.5 && Math.abs(L - R) <= 2 && L > 4) verdict.push(`⚠️ 整体平移 ${L}px`)
+  console.log(`\n判定：${verdict.join('；') || '——'}`)
 }
-const corr = vl > 0 && vr > 0 ? cov / Math.sqrt(vl * vr) : 0
-console.log(`  左右缘相关系数 ${corr.toFixed(2)}（+1=整体平移，−1=对称张缩，0=无关）`)
-
-console.log(`\n  左缘序列: ${ls.join(' ')}`)
-console.log(`  右缘序列: ${rs.join(' ')}`)
-
-const verdict = []
-if (L <= 3 && R <= 3 && CX <= 3) verdict.push('横向稳定')
-if (corr < -0.5 && W > 4) verdict.push(`对称张缩 ${W}px（呼吸/素材帧挤压）`)
-if (corr > 0.5 && Math.abs(L - R) <= 2 && L > 4) verdict.push(`整体平移 ${L}px`)
-if (W <= 4 && CX > 3) verdict.push(`部件摆动（重心游移 ${nz(CX)}px，轮廓没变）`)
-console.log(`\n判定：${verdict.join('；') || '——'}`)
 
 pc2.close?.()
 if (pc2 !== pc) pc.close()
