@@ -1,0 +1,83 @@
+/**
+ * 富文本输入框（contenteditable）与内联引用 chip。
+ *
+ * 盒模型度量（内边距 / 字号 / 行高 / 高度上下限）不在这里，而在 ChatInput.module.css 的
+ * `.chat-textarea` 上 —— 那是从 textarea 时代沿用下来的那一套，主题与选区配色也都挂在那儿。
+ * 这里只管两件 textarea 时代没有的事：**换行语义**与**chip**。
+ */
+
+.rich-composer {
+  /* 占位符用绝对定位铺在内容之下，所以这里要当定位基准 */
+  position: relative;
+  /* 换行由内容里的 <br> 表达，但 chip 与文本之间的空白也要原样保留 */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  outline: none;
+  cursor: text;
+}
+
+/**
+ * 内联引用 chip。
+ *
+ * 它是**真正参与排版的行内元素**（不像 textarea 上叠高亮那种方案要迁就对齐），
+ * 所以内边距、圆角、边框都可以照常给。
+ */
+.composer-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 2px;
+  max-width: 22em;
+  margin: 0 1px;
+  padding: 0 4px;
+  border-radius: var(--mt-radius-sm);
+  background: var(--color-accent-soft);
+  box-shadow: inset 0 0 0 1px var(--color-accent-15);
+  color: var(--mt-accent-500);
+  font-size: 0.94em;
+  line-height: inherit;
+  vertical-align: baseline;
+  cursor: default;
+  user-select: none;
+}
+
+.composer-chip:hover {
+  background: var(--color-accent-15);
+  box-shadow: inset 0 0 0 1px var(--mt-accent-500);
+}
+
+/* 引用块左侧加一道竖线：一眼分出「这是引用」而不是「这是个文件」 */
+.composer-chip--quote {
+  border-left: 2px solid var(--mt-accent-500);
+  border-top-left-radius: 2px;
+  border-bottom-left-radius: 2px;
+}
+
+.composer-chip-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-chip-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border: none;
+  border-radius: var(--mt-radius-full);
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.55;
+  transition: opacity var(--mt-dur-fast, 120ms) ease, background-color var(--mt-dur-fast, 120ms) ease;
+}
+
+.composer-chip-remove:hover {
+  opacity: 1;
+  background: color-mix(in srgb, var(--mt-accent-500) 28%, transparent);
+}

@@ -16,10 +16,10 @@ import { useComposerDraft } from './useComposerDraft'
 import { openWikiLibrary } from '../../../../utils/open-wiki-library'
 import type { ViewType } from '../../../../components/Router'
 import {
-  buildQuoteMarkdown,
   registerQuoteSink,
   type QuoteInput,
 } from '../../../../selection/quote-bridge'
+import { RichComposer, type RichComposerHandle } from './RichComposer'
 
 interface ChatInputProps {
   value: string
@@ -191,7 +191,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
   onLocateFile,
   showTips = false,
 }) => {
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const composerRef = useRef<RichComposerHandle>(null)
   const attachmentInputRef = useRef<HTMLInputElement>(null)
   const steerInputRef = useRef<HTMLInputElement>(null)
   const modelPanelRef = useRef<HTMLDivElement>(null)
@@ -243,7 +243,6 @@ const ChatInput: React.FC<ChatInputProps> = ({
 
   const {
     innerValue,
-    innerValueRef,
     isComposingRef,
     setDraft,
     flushDraft,
@@ -274,56 +273,27 @@ const ChatInput: React.FC<ChatInputProps> = ({
     setSlashSuggestions((prev) => (prev.length === 0 ? prev : []))
   }, [])
 
-  // 在光标处插入 @引用文本
-  const insertAtCursor = useCallback((text: string) => {
-    const el = textareaRef.current
-    if (!el) {
-      const next = innerValue + text
-      setDraft(next)
-      flushDraft(next)
-      return
-    }
-    const start = el.selectionStart ?? innerValue.length
-    const end = el.selectionEnd ?? innerValue.length
-    const next = innerValue.slice(0, start) + text + innerValue.slice(end)
-    setDraft(next)
-    flushDraft(next)
-    requestAnimationFrame(() => {
-      const pos = start + text.length
-      el.selectionStart = el.selectionEnd = pos
-      el.focus()
-    })
-  }, [innerValue, setDraft, flushDraft])
-
   /**
    * 划词引用的投递目标（SelectionLayer 通过 quote-bridge 调进来）。
    *
-   * 引用块插在草稿**最前**，不与用户正在写的内容粘连；光标落到引用块之后，
-   * 用户可以接着追问。
+   * 引用以**原子 chip** 插在**光标处**（不再插到草稿最前），chip 序列化出来仍是
+   * markdown 引用块 —— 发出去的那段文本与 textarea 时代逐字一致。
+   * 输入框没挂上就返回 false，动作据此置灰（与没有 sink 时同一套判定）。
    */
-  const insertQuoteBlock = useCallback(
-    (input: QuoteInput): boolean => {
-      const quoted = buildQuoteMarkdown(input)
-      const current = innerValueRef.current
-      // 草稿非空时空一行分隔，否则只留一行给光标落脚
-      const prefix = current.trim().length > 0 ? `${quoted}\n\n` : `${quoted}\n`
-
-      setDraft(prefix + current)
-      flushDraft(prefix + current)
-
-      requestAnimationFrame(() => {
-        const el = textareaRef.current
-        if (!el) return
-        el.selectionStart = el.selectionEnd = prefix.length
-        el.focus()
-      })
-      return true
-    },
-    [setDraft, flushDraft],
-  )
+  const insertQuoteBlock = useCallback((input: QuoteInput): boolean => {
+    const composer = composerRef.current
+    if (!composer) return false
+    composer.insertQuote(input)
+    return true
+  }, [])
 
   // 挂载期间把投递目标登记给全局的划词层；卸载即注销（不在对话页时引用动作置灰）
   useEffect(() => registerQuoteSink(insertQuoteBlock), [insertQuoteBlock])
+
+  /** 点了内联 chip 的 ×：连同会话状态里的文件引用一起摘掉 */
+  const handleFileChipRemove = useCallback((ref: FileReference) => {
+    onFileReferenceRemove?.(ref.absolutePath)
+  }, [onFileReferenceRemove])
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     const raw = e.dataTransfer.getData('application/x-mtbot-file')
@@ -332,14 +302,13 @@ const ChatInput: React.FC<ChatInputProps> = ({
     setIsDragOver(false)
     try {
       const ref = JSON.parse(raw) as FileReference
-      // 在文本中插入 @相对路径（保证带空格分隔，便于 Agent 解析）
-      const needsSpace = innerValue.length > 0 && !/\s$/.test(innerValue)
-      insertAtCursor(`${needsSpace ? ' ' : ''}@${ref.relativePath} `)
+      // 在光标处插一个 @引用 chip：序列化出来是 `@相对路径 `，带空格分隔便于 Agent 解析
+      composerRef.current?.insertFileReference(ref)
       onFileReferenceAdd?.(ref)
     } catch (err) {
       console.error('[ChatInput] 解析拖入文件失败:', err)
     }
-  }, [innerValue, insertAtCursor, onFileReferenceAdd])
+  }, [onFileReferenceAdd])
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     if (e.dataTransfer.types.includes('application/x-mtbot-file')) {
@@ -364,10 +333,11 @@ const ChatInput: React.FC<ChatInputProps> = ({
 
   /**
    * 输入变化：只更新本地草稿；IME 组合期间跳过斜杠匹配。
-   * 高度自适应交给 CSS field-sizing: content，不再在 JS 里读写 layout。
+   *
+   * 文本由 RichComposer 序列化好后送进来 —— 对下游而言与 textarea 的
+   * `e.target.value` 没有区别，高度自适应则由 div 自己长（不再需要 field-sizing）。
    */
-  const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const newValue = e.target.value
+  const handleChange = (newValue: string) => {
     handleDraftChange(newValue)
     if (isComposingRef.current) return
     applySlashSuggestions(newValue)
@@ -376,17 +346,16 @@ const ChatInput: React.FC<ChatInputProps> = ({
   /**
    * 组合结束：一次性 flush 最终文案，并补算斜杠补全。
    */
-  const handleCompositionEnd = (e: React.CompositionEvent<HTMLTextAreaElement>) => {
-    const newValue = (e.target as HTMLTextAreaElement).value
+  const handleCompositionEnd = (newValue: string) => {
     commitComposition(newValue)
     applySlashSuggestions(newValue)
   }
 
   // 剪贴板粘贴处理：提取文件/图片并上传
-  const handlePaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+  const handlePaste = useCallback((e: React.ClipboardEvent<HTMLDivElement>) => {
     const { clipboardData } = e
     if (!clipboardData || !clipboardData.files || clipboardData.files.length === 0) {
-      return // 无文件，继续默认粘贴（文本）
+      return // 无文件，交给 RichComposer 按纯文本粘贴
     }
     // 有文件：阻止默认行为（避免粘贴 [object File] 等无效文本），调用上传处理器
     e.preventDefault()
@@ -396,7 +365,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
     }
   }, [onFileUpload, onImageUpload])
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     // IME 组合期间（中文选词等）的回车/方向键属输入法操作，不触发补全导航或发送
     if (isComposingRef.current || e.nativeEvent.isComposing || e.key === 'Process') {
       return
@@ -432,7 +401,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
             const fill = `${selected.name} `
             setDraft(fill)
             flushDraft(fill)
-            textareaRef.current?.focus()
+            composerRef.current?.focus()
           }
           return
         }
@@ -734,7 +703,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
                         } else {
                           setDraft(`${cmd.name} `)
                           flushDraft(`${cmd.name} `)
-                          textareaRef.current?.focus()
+                          composerRef.current?.focus()
                         }
                       }}
                     >
@@ -888,9 +857,9 @@ const ChatInput: React.FC<ChatInputProps> = ({
             })}
           </div>
         )}
-        {/* 文本域 */}
-        <textarea
-          ref={textareaRef}
+        {/* 输入域（contenteditable：引用与文件引用要在框内以 chip 呈现并可直接点掉） */}
+        <RichComposer
+          ref={composerRef}
           value={innerValue}
           onChange={handleChange}
           onKeyDown={handleKeyDown}
@@ -900,11 +869,9 @@ const ChatInput: React.FC<ChatInputProps> = ({
           onPaste={handlePaste}
           disabled={isDisabled}
           placeholder={effectivePlaceholder}
-          rows={1}
-          spellCheck={false}
-          autoCorrect="off"
-          autoCapitalize="off"
           className={styles['chat-textarea']}
+          fileReferences={fileReferences}
+          onFileChipRemove={handleFileChipRemove}
         />
 
         {/* 底部工具栏 */}
@@ -1148,7 +1115,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
                             setDraft(fill)
                             flushDraft(fill)
                             setHelpPanelOpen(false)
-                            textareaRef.current?.focus()
+                            composerRef.current?.focus()
                           }}
                         >
                           {cmd.name}
@@ -1190,7 +1157,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
                             setDraft(cmd)
                             flushDraft(cmd)
                             setHelpPanelOpen(false)
-                            textareaRef.current?.focus()
+                            composerRef.current?.focus()
                           }}
                         >
                           {cmd}

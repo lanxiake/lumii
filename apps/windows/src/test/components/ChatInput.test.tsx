@@ -53,6 +53,25 @@ describe('Phase 3: 消息功能 - ChatInput组件', () => {
     vi.clearAllMocks()
   })
 
+  /**
+   * 输入框是 contenteditable（RichComposer），没有 `.value`，也没有 placeholder 属性 ——
+   * 占位符落在 `data-placeholder` 上。所以这里不再用 getByPlaceholderText。
+   */
+  function getComposer(container: HTMLElement): HTMLElement {
+    return container.querySelector('.chat-textarea') as HTMLElement
+  }
+
+  /** 「打字」在 contenteditable 上等价于：把文本写进 DOM + 派发一次 input */
+  function typeInto(composer: HTMLElement, text: string): void {
+    const nodes: Node[] = []
+    text.split('\n').forEach((line, index) => {
+      if (index > 0) nodes.push(document.createElement('br'))
+      if (line.length > 0) nodes.push(document.createTextNode(line))
+    })
+    composer.replaceChildren(...nodes)
+    fireEvent.input(composer)
+  }
+
   describe('TC-3.2 自动高度输入框功能', () => {
     it('TC-3.2.1: 组件正常渲染', () => {
       const { container } = render(<ChatInput {...mockProps} />)
@@ -61,41 +80,38 @@ describe('Phase 3: 消息功能 - ChatInput组件', () => {
     })
 
     it('TC-3.2.2: 输入文本立即显示在输入框，失焦后才通知父组件', () => {
-      render(<ChatInput {...mockProps} />)
+      const { container } = render(<ChatInput {...mockProps} />)
 
-      const textarea = screen.getByPlaceholderText('输入消息...') as HTMLTextAreaElement
-      fireEvent.change(textarea, { target: { value: 'Test message' } })
+      const composer = getComposer(container)
+      typeInto(composer, 'Test message')
 
-      expect(textarea.value).toBe('Test message')
+      expect(composer.textContent).toBe('Test message')
       expect(mockProps.onChange).not.toHaveBeenCalled()
 
-      fireEvent.blur(textarea)
+      fireEvent.blur(composer)
       expect(mockProps.onChange).toHaveBeenCalledWith('Test message')
     })
 
     it('TC-3.2.3: 按Enter键发送消息（非Shift+Enter）', () => {
-      render(<ChatInput {...mockProps} value="Test message" />)
+      const { container } = render(<ChatInput {...mockProps} value="Test message" />)
 
-      const textarea = screen.getByPlaceholderText('输入消息...') as HTMLTextAreaElement
-      fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false })
+      fireEvent.keyDown(getComposer(container), { key: 'Enter', shiftKey: false })
 
       expect(mockProps.onSend).toHaveBeenCalled()
     })
 
     it('TC-3.2.4: 按Shift+Enter不发送消息（插入换行）', () => {
-      render(<ChatInput {...mockProps} value="Test message" />)
+      const { container } = render(<ChatInput {...mockProps} value="Test message" />)
 
-      const textarea = screen.getByPlaceholderText('输入消息...') as HTMLTextAreaElement
-      fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: true })
+      fireEvent.keyDown(getComposer(container), { key: 'Enter', shiftKey: true })
 
       expect(mockProps.onSend).not.toHaveBeenCalled()
     })
 
     it('TC-3.2.5: 空白内容按Enter不发送', () => {
-      render(<ChatInput {...mockProps} value="   " />)
+      const { container } = render(<ChatInput {...mockProps} value="   " />)
 
-      const textarea = screen.getByPlaceholderText('输入消息...') as HTMLTextAreaElement
-      fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false })
+      fireEvent.keyDown(getComposer(container), { key: 'Enter', shiftKey: false })
 
       expect(mockProps.onSend).not.toHaveBeenCalled()
     })
@@ -111,10 +127,10 @@ describe('Phase 3: 消息功能 - ChatInput组件', () => {
     })
 
     it('TC-3.2.7: 连接断开时输入框禁用', () => {
-      render(<ChatInput {...mockProps} isConnected={false} />)
+      const { container } = render(<ChatInput {...mockProps} isConnected={false} />)
 
-      const textarea = screen.getByRole('textbox') as HTMLTextAreaElement
-      expect(textarea).toBeDisabled()
+      // contenteditable 没有 disabled 属性，禁用靠 contenteditable=false 表达
+      expect(getComposer(container)).toHaveAttribute('contenteditable', 'false')
     })
 
     // 图标从 emoji 换成了内联 SVG，textContent 已取不到字形，改判按钮语义
@@ -146,9 +162,12 @@ describe('Phase 3: 消息功能 - ChatInput组件', () => {
 
     // 生成中提示改由 placeholder 承载（见 index.tsx 的 effectivePlaceholder）
     it('TC-3.2.12: 流式生成时显示生成中提示', () => {
-      render(<ChatInput {...mockProps} isStreaming={true} />)
+      const { container } = render(<ChatInput {...mockProps} isStreaming={true} />)
 
-      expect(screen.getByPlaceholderText(/AI 回复中/)).toBeInTheDocument()
+      expect(getComposer(container)).toHaveAttribute(
+        'data-placeholder',
+        expect.stringMatching(/AI 回复中/),
+      )
     })
 
     // 快捷键提示挪到输入卡下方 composer-hint，只在有输入时出现，按键各自是 <kbd>
@@ -168,37 +187,38 @@ describe('Phase 3: 消息功能 - ChatInput组件', () => {
 
   describe('输入性能：本地草稿与 IME', () => {
     it('IME 组合期间不把中间拼音同步给父组件', () => {
-      render(<ChatInput {...mockProps} />)
+      const { container } = render(<ChatInput {...mockProps} />)
 
-      const textarea = screen.getByPlaceholderText('输入消息...') as HTMLTextAreaElement
-      fireEvent.compositionStart(textarea)
-      fireEvent.change(textarea, { target: { value: 'ni' } })
-      fireEvent.change(textarea, { target: { value: 'nihao' } })
+      const composer = getComposer(container)
+      fireEvent.compositionStart(composer)
+      typeInto(composer, 'ni')
+      typeInto(composer, 'nihao')
 
-      expect(textarea.value).toBe('nihao')
+      expect(composer.textContent).toBe('nihao')
       expect(mockProps.onChange).not.toHaveBeenCalled()
     })
 
     it('IME 组合结束后把最终文案一次性同步给父组件', () => {
-      render(<ChatInput {...mockProps} />)
+      const { container } = render(<ChatInput {...mockProps} />)
 
-      const textarea = screen.getByPlaceholderText('输入消息...') as HTMLTextAreaElement
-      fireEvent.compositionStart(textarea)
-      fireEvent.change(textarea, { target: { value: 'nihao' } })
-      fireEvent.compositionEnd(textarea, { target: { value: '你好' } })
+      const composer = getComposer(container)
+      fireEvent.compositionStart(composer)
+      typeInto(composer, 'nihao')
+      typeInto(composer, '你好')
+      fireEvent.compositionEnd(composer)
 
-      expect(textarea.value).toBe('你好')
+      expect(composer.textContent).toBe('你好')
       expect(mockProps.onChange).toHaveBeenCalledTimes(1)
       expect(mockProps.onChange).toHaveBeenCalledWith('你好')
     })
 
     it('未失焦直接回车时用本地草稿发送', () => {
       const onSendWithValue = vi.fn()
-      render(<ChatInput {...mockProps} onSendWithValue={onSendWithValue} />)
+      const { container } = render(<ChatInput {...mockProps} onSendWithValue={onSendWithValue} />)
 
-      const textarea = screen.getByPlaceholderText('输入消息...') as HTMLTextAreaElement
-      fireEvent.change(textarea, { target: { value: 'hello' } })
-      fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false })
+      const composer = getComposer(container)
+      typeInto(composer, 'hello')
+      fireEvent.keyDown(composer, { key: 'Enter', shiftKey: false })
 
       expect(onSendWithValue).toHaveBeenCalledWith('hello')
       expect(mockProps.onSend).not.toHaveBeenCalled()
@@ -206,7 +226,7 @@ describe('Phase 3: 消息功能 - ChatInput组件', () => {
 
     it('切换会话时把未同步的旧草稿写回对应 session', () => {
       const onPersistDraft = vi.fn()
-      const { rerender } = render(
+      const { container, rerender } = render(
         <ChatInput
           {...mockProps}
           sessionKey="session-a"
@@ -215,8 +235,7 @@ describe('Phase 3: 消息功能 - ChatInput组件', () => {
         />,
       )
 
-      const textarea = screen.getByPlaceholderText('输入消息...') as HTMLTextAreaElement
-      fireEvent.change(textarea, { target: { value: 'draft-a' } })
+      typeInto(getComposer(container), 'draft-a')
 
       rerender(
         <ChatInput
@@ -231,10 +250,9 @@ describe('Phase 3: 消息功能 - ChatInput组件', () => {
     })
 
     it('关闭浏览器拼写检查以免中英混输卡顿', () => {
-      render(<ChatInput {...mockProps} />)
+      const { container } = render(<ChatInput {...mockProps} />)
 
-      const textarea = screen.getByPlaceholderText('输入消息...') as HTMLTextAreaElement
-      expect(textarea).toHaveAttribute('spellcheck', 'false')
+      expect(getComposer(container)).toHaveAttribute('spellcheck', 'false')
     })
   })
 })
