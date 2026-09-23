@@ -226,6 +226,17 @@
   --mt-chart-7: #fb923c;
   --mt-chart-8: #38bdf8;
 
+  /* 指标色 — 概览页并排仪表（CPU / 内存 / 磁盘 / 技能·MCP）。
+     贴合当前品牌蓝系：雾蓝 / 青空 / 靛雾 / 青苔，压彩度避免和 chart 抢戏。
+       metric-1 → CPU
+       metric-2 → 内存
+       metric-3 → 磁盘
+       metric-4 → 技能 / MCP */
+  --mt-metric-1: #7aa0c8;
+  --mt-metric-2: #6bb8d4;
+  --mt-metric-3: #8b9ad4;
+  --mt-metric-4: #6bb8a8;
+
   /* 语义色 — 显式声明（值同全局固定区）。
      深色块选择器是 `:root, [data-theme="dark"]`：`:root` 承担"无 data-theme 时的
      首帧兜底"，所以这里必须和全局固定区取同值，改了会让首帧与深色主题不一致。 */
@@ -345,6 +356,12 @@
   --mt-chart-6: #166534;
   --mt-chart-7: #ea580c;
   --mt-chart-8: #60a5fa;
+
+  /* 指标色 — 浅底压深，同色相贴合品牌蓝 */
+  --mt-metric-1: #4a6f96;
+  --mt-metric-2: #3d7f9a;
+  --mt-metric-3: #5a6a9e;
+  --mt-metric-4: #3f8578;
 
   /* 语义色 — 浅底上压深同色相提对比。
      此前 light 块完全没覆盖语义色，导致 `--mt-success`(#22c55e) 在浅底上
@@ -466,6 +483,12 @@
   --mt-chart-6: #7f5820;
   --mt-chart-7: #a34a6b;
   --mt-chart-8: #1f6b6b;
+
+  /* 指标色 — 米黄底上略偏暖的蓝青同族，避免与琥珀语义抢戏 */
+  --mt-metric-1: #5a7a92;
+  --mt-metric-2: #4f7a88;
+  --mt-metric-3: #6a7090;
+  --mt-metric-4: #4f8578;
 
   /* 语义色 — 暖调改写。
      原先三主题共用一套冷调绿/黄/红（全局固定区），护眼主题下与暖底不协调。

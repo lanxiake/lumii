@@ -42,7 +42,7 @@
     105deg,
     var(--mt-fg-1) 0%,
     color-mix(in srgb, var(--mt-accent-500) 55%, var(--mt-fg-1)) 55%,
-    color-mix(in srgb, var(--mt-tone-a) 45%, var(--mt-fg-1)) 100%
+    color-mix(in srgb, var(--mt-accent-400) 70%, var(--mt-fg-1)) 100%
   );
   background-clip: text;
   -webkit-background-clip: text;
@@ -109,14 +109,27 @@
   margin-bottom: 12px;
   padding: 14px 16px 36px;
   overflow: visible;
-  border: 1px solid color-mix(in srgb, var(--mt-accent-500) 22%, var(--mt-border));
+  border: 1px solid color-mix(in srgb, var(--mt-accent-500) 32%, var(--mt-border));
+  /* 特效：同色系极光底（左上主光 + 左下副光）+ 斜向提亮，全部同一色相。
+     原先是 accent/tone-a/tone-b 三色平铺 —— 三色铺满等于没有主色，
+     收成单色后才能靠浓淡做出光的方向感 */
   background:
+    radial-gradient(
+      ellipse 58% 76% at 8% 112%,
+      color-mix(in srgb, var(--mt-accent-500) 16%, transparent),
+      transparent 70%
+    ),
     linear-gradient(
       115deg,
-      color-mix(in srgb, var(--mt-accent-500) 12%, var(--mt-bg-elevated)) 0%,
-      color-mix(in srgb, var(--mt-tone-a) 9%, var(--mt-surface-2)) 48%,
-      color-mix(in srgb, var(--mt-tone-b) 5%, var(--mt-bg-elevated)) 100%
+      color-mix(in srgb, var(--mt-accent-500) 15%, var(--mt-bg-elevated)) 0%,
+      color-mix(in srgb, var(--mt-accent-500) 4%, var(--mt-bg-elevated)) 46%,
+      var(--mt-bg-elevated) 100%
     );
+  /* 特效：顶部内高光 + 贴边同色细晕 + 外投影，给卡片一点厚度 */
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, #fff 10%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--mt-accent-500) 12%, transparent),
+    0 8px 26px color-mix(in srgb, var(--mt-accent-500) 16%, transparent);
   animation: mt-dash-runtime-in 0.55s var(--mt-ease-standard) 0.06s both;
 }
 
@@ -136,12 +149,15 @@
   position: absolute;
   inset: 0 auto 0 0;
   width: 3px;
+  /* 单色 + 发光。原来 accent→tone-a→tone-b 三色渐变，一条 3px 的竖条上塞三个
+     色相，彩度被摊薄成灰；改一色并给它自己的光，才像一根通电的灯条 */
   background: linear-gradient(
     180deg,
-    var(--mt-accent-500),
-    color-mix(in srgb, var(--mt-tone-a) 70%, transparent),
-    color-mix(in srgb, var(--mt-tone-b) 80%, transparent)
+    color-mix(in srgb, var(--mt-accent-400) 88%, #fff),
+    var(--mt-accent-500) 45%,
+    color-mix(in srgb, var(--mt-accent-500) 32%, transparent)
   );
+  box-shadow: 0 0 10px color-mix(in srgb, var(--mt-accent-500) 42%, transparent);
   border-radius: 0 2px 2px 0;
   opacity: 1;
   animation: mt-rt-bar-shimmer 3.2s ease-in-out infinite;
@@ -169,8 +185,8 @@
   border-radius: 50%;
   background: radial-gradient(
     circle,
-    color-mix(in srgb, var(--mt-accent-500) 22%, transparent),
-    color-mix(in srgb, var(--mt-tone-a) 10%, transparent) 45%,
+    color-mix(in srgb, var(--mt-accent-500) 26%, transparent),
+    color-mix(in srgb, var(--mt-accent-400) 12%, transparent) 45%,
     transparent 70%
   );
   pointer-events: none;
@@ -231,13 +247,16 @@
   flex: 1;
   min-width: 3px;
   border-radius: 2px 2px 0 0;
+  /* 特效：柱顶压一点白做高光（灯管的亮端），色仍是一色；光晕分两层衰减 */
   background: linear-gradient(
     180deg,
-    color-mix(in srgb, var(--mt-accent-500) 85%, #fff) 0%,
-    var(--mt-accent-500) 35%,
-    color-mix(in srgb, var(--mt-tone-a) 80%, transparent) 100%
+    color-mix(in srgb, var(--mt-accent-400) 80%, #fff) 0%,
+    var(--mt-accent-500) 42%,
+    color-mix(in srgb, var(--mt-accent-500) 78%, transparent) 100%
   );
-  box-shadow: 0 0 10px color-mix(in srgb, var(--mt-accent-500) 45%, transparent);
+  box-shadow:
+    0 0 4px color-mix(in srgb, var(--mt-accent-500) 55%, transparent),
+    0 0 12px color-mix(in srgb, var(--mt-accent-500) 26%, transparent);
   transform-origin: bottom;
   cursor: default;
   animation: mt-dash-spark 1.8s var(--mt-ease-standard) infinite;
@@ -249,7 +268,9 @@
 .spark i:hover {
   z-index: 6;
   filter: brightness(1.3);
-  box-shadow: 0 0 14px color-mix(in srgb, var(--mt-accent-500) 65%, transparent);
+  box-shadow:
+    0 0 6px color-mix(in srgb, var(--mt-accent-500) 70%, transparent),
+    0 0 18px color-mix(in srgb, var(--mt-accent-500) 40%, transparent);
   animation-play-state: paused;
 }
 
@@ -347,15 +368,17 @@
   animation-delay: 0.55s;
 }
 
+/* 呼吸的下限从 0.45 提到 0.72：原来有一半时间柱子是半透明的，
+   整片微图看着发虚。上限仍是 1，动效还在，只是不再"忽明忽暗" */
 @keyframes mt-dash-spark {
   0%,
   100% {
-    opacity: 0.45;
-    filter: brightness(0.9);
+    opacity: 0.72;
+    filter: brightness(0.95);
   }
   50% {
     opacity: 1;
-    filter: brightness(1.15);
+    filter: brightness(1.12);
   }
 }
 
@@ -375,27 +398,36 @@
   gap: 9px;
   min-width: 118px;
   padding: 7px 11px 7px 8px;
-  border: 1px solid color-mix(in srgb, var(--mt-tone, var(--mt-accent-500)) 32%, var(--mt-border));
+  /* 色收到"线"上给足彩度：边框当量 32%→62%，卡底反而保持中性，
+     让实心图标块成为饱和度的来源 */
+  border: 1px solid color-mix(in srgb, var(--mt-tone, var(--mt-accent-500)) 62%, var(--mt-border));
   border-radius: 12px;
   background:
     linear-gradient(
       145deg,
-      color-mix(in srgb, var(--mt-tone, var(--mt-accent-500)) 20%, var(--mt-bg-elevated)),
-      color-mix(in srgb, var(--mt-tone, var(--mt-accent-500)) 6%, var(--mt-surface-2))
+      color-mix(in srgb, var(--mt-tone, var(--mt-accent-500)) 9%, var(--mt-bg-elevated)),
+      var(--mt-surface-2)
     );
   color: var(--mt-fg-2);
   cursor: pointer;
   text-align: left;
-  box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 8%, transparent);
+  /* 特效：顶部内高光 + 贴边同色细晕，卡面才有一点玻璃的厚度 */
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, #fff 12%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--mt-tone, var(--mt-accent-500)) 14%, transparent),
+    0 2px 10px color-mix(in srgb, var(--mt-tone, var(--mt-accent-500)) 18%, transparent);
   transition: border-color var(--mt-dur-fast) var(--mt-ease-standard),
     transform var(--mt-dur-fast) var(--mt-ease-spring),
     box-shadow var(--mt-dur-normal) var(--mt-ease-standard);
 }
 
 .rt-stat:hover {
-  border-color: color-mix(in srgb, var(--mt-tone, var(--mt-accent-500)) 58%, var(--mt-border));
+  border-color: color-mix(in srgb, var(--mt-tone, var(--mt-accent-500)) 88%, var(--mt-border));
   transform: translateY(-3px) scale(1.02);
-  box-shadow: 0 10px 22px color-mix(in srgb, var(--mt-tone, var(--mt-accent-500)) 24%, transparent);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, #fff 18%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--mt-tone, var(--mt-accent-500)) 40%, transparent),
+    0 10px 24px color-mix(in srgb, var(--mt-tone, var(--mt-accent-500)) 40%, transparent);
 }
 
 .rt-stat-icon {
@@ -404,8 +436,21 @@
   width: 30px;
   height: 30px;
   border-radius: 9px;
-  background: color-mix(in srgb, var(--mt-tone, var(--mt-accent-500)) 24%, transparent);
-  color: var(--mt-tone, var(--mt-accent-500));
+  /* 特效：同色阶内做浅→中→深（混白打亮 / 混黑压深各一档），中心是纯色。
+     图标用 --mt-fg-inverse 而不是 --mt-fg-on-accent：指标色是中间调
+     （「高级灰」压了彩度也压了明度跨度），深色主题下它是浅色 → 要深图标，
+     浅色主题下它是深色 → 要浅图标，正好是 fg-inverse 的语义。
+     三个主题实测 3.2~7.5，都过。 */
+  background: linear-gradient(
+    150deg,
+    color-mix(in srgb, var(--mt-tone, var(--mt-metric-4)) 62%, #fff) 0%,
+    var(--mt-tone, var(--mt-metric-4)) 52%,
+    color-mix(in srgb, var(--mt-tone, var(--mt-metric-4)) 82%, #000) 100%
+  );
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, #fff 34%, transparent),
+    0 2px 8px color-mix(in srgb, var(--mt-tone, var(--mt-metric-4)) 40%, transparent);
+  color: var(--mt-fg-inverse);
   flex-shrink: 0;
   transition: transform var(--mt-dur-fast) var(--mt-ease-spring);
 }
@@ -422,8 +467,11 @@
 }
 
 .rt-stat-label {
-  color: var(--mt-fg-4);
+  /* 同 Gauge 的 .label：原来是最淡的 --mt-fg-4，与卡片标题 --mt-fg-1 之间
+     没有任何过渡，两级跳造成"一个很亮一个很虚"的违和 */
+  color: var(--mt-fg-3);
   font-size: var(--font-size-xs);
+  font-weight: var(--mt-fw-medium);
   letter-spacing: 0.02em;
 }
 
@@ -466,12 +514,11 @@
   transform: translateY(-4px) scale(1.08);
 }
 
-/* 分色：只区分元素，不承载语义 */
-.t-a {
-  --mt-tone: var(--mt-tone-a);
-}
-.t-b {
-  --mt-tone: var(--mt-tone-b);
+/* 配色分工（按角色）：
+     技能 / MCP 是导航入口，共用 metric-4（青苔，贴合品牌青蓝）；
+     CPU / 内存 / 磁盘 并列分色：雾蓝 / 青空 / 靛雾 —— 同属当前主题冷色族。 */
+.t-metric {
+  --mt-tone: var(--mt-metric-4);
 }
 
 /* ── 底部双栏：略压缩，把垂直空间让给资讯区 ── */

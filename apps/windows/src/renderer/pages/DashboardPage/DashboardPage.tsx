@@ -91,7 +91,7 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ onViewChange }) => {
         <div className={styles['rt-stats']}>
           <button
             type="button"
-            className={clsx(styles['rt-stat'], styles['t-b'])}
+            className={clsx(styles['rt-stat'], styles['t-metric'])}
             onClick={() => onViewChange?.('skills')}
             title="进入技能管理"
           >
@@ -108,7 +108,7 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ onViewChange }) => {
           </button>
           <button
             type="button"
-            className={clsx(styles['rt-stat'], styles['t-a'])}
+            className={clsx(styles['rt-stat'], styles['t-metric'])}
             onClick={() => onViewChange?.('mcp')}
             title="进入 MCP 管理"
           >
@@ -129,13 +129,13 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ onViewChange }) => {
           <Gauge
             value={gauges.cpuPercent}
             label="CPU"
-            tone="var(--mt-tone-a)"
+            tone="var(--mt-metric-1)"
             title={gauges.cpuModel ? `${gauges.cpuModel}（${gauges.cpuCores ?? '?'} 核）` : undefined}
           />
           <Gauge
             value={gauges.memoryPercent}
             label="内存"
-            tone="var(--mt-tone-b)"
+            tone="var(--mt-metric-2)"
             title={
               gauges.usedMemory && gauges.totalMemory
                 ? `${formatGb(gauges.usedMemory)} / ${formatGb(gauges.totalMemory)}`
@@ -145,7 +145,7 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ onViewChange }) => {
           <Gauge
             value={gauges.diskPercent}
             label="磁盘"
-            tone="var(--mt-tone-d)"
+            tone="var(--mt-metric-3)"
             title={
               gauges.diskUsed != null && gauges.diskTotal != null
                 ? `全部磁盘 ${formatGb(gauges.diskUsed)} / ${formatGb(gauges.diskTotal)}`

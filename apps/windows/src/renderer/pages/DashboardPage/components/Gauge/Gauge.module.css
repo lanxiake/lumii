@@ -17,13 +17,19 @@
   width: 50px;
   height: 50px;
   border-radius: 50%;
+  /* 底轨带本色：混 24% —— 再淡就跟灰色没区别了（混色 = 掉彩度） */
   background: conic-gradient(
     var(--mt-tone, var(--mt-accent-500)) calc(var(--mt-p) * 1%),
-    var(--mt-surface-3) 0
+    color-mix(in srgb, var(--mt-tone, var(--mt-accent-500)) 24%, var(--mt-surface-3)) 0
   );
+  /* 特效：三层光晕 —— 贴边实线 / 近距饱和 / 远距扩散，透明度依次递减。
+     单层均匀模糊是"发脏"的根源；分层才有发光体的层次。
+     整体透明度较上一版压低一档（70/50/24 → 58/40/18）：三层叠加时，
+     每层都拉满会糊成一块厚边 */
   box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--mt-tone, var(--mt-accent-500)) 24%, transparent),
-    0 0 18px color-mix(in srgb, var(--mt-tone, var(--mt-accent-500)) 32%, transparent);
+    0 0 0 1px color-mix(in srgb, var(--mt-tone, var(--mt-accent-500)) 58%, transparent),
+    0 0 10px color-mix(in srgb, var(--mt-tone, var(--mt-accent-500)) 40%, transparent),
+    0 0 22px color-mix(in srgb, var(--mt-tone, var(--mt-accent-500)) 18%, transparent);
   font-family: var(--mt-font-mono);
   font-size: var(--font-size-xs);
   font-weight: var(--mt-fw-semibold);
@@ -44,20 +50,26 @@
   }
 }
 
-/* 挖出中心，形成环 */
+/* 挖出中心，形成环。inset 即环宽：5px 太细，整颗环的分量不够，加厚到 6px */
 .gauge::after {
   content: '';
   position: absolute;
-  inset: 5px;
+  inset: 6px;
   border-radius: 50%;
   background: var(--mt-bg-elevated);
-  box-shadow: inset 0 0 10px color-mix(in srgb, var(--mt-tone, var(--mt-accent-500)) 8%, transparent);
+  /* 特效：孔口压一道同色内阴影（上深下浅），环因此像"嵌"在面板上而不是贴上
+     去的；再补一条顶部内高光，让孔沿有一线反光 */
+  box-shadow:
+    inset 0 2px 4px color-mix(in srgb, var(--mt-tone, var(--mt-accent-500)) 32%, transparent),
+    inset 0 -1px 2px color-mix(in srgb, var(--mt-tone, var(--mt-accent-500)) 12%, transparent),
+    inset 0 -1px 0 color-mix(in srgb, #fff 26%, transparent);
 }
 
 .text {
   position: relative;
   z-index: 1;
   color: var(--mt-fg-1);
+  font-variant-numeric: tabular-nums;
 }
 
 .label {
@@ -67,7 +79,11 @@
   left: 0;
   font-size: var(--font-size-xs);
   font-style: normal;
-  color: var(--mt-fg-4);
+  /* 原来是 --mt-fg-4（令牌注释写着「禁用/提示」，全表最淡一档）：
+     深色卡底上只有 3.07:1，12px 小字连 4.5:1 的正文线都够不着，
+     整排 CPU/内存/磁盘 看着发虚。--mt-fg-3 是 5.71:1 */
+  color: var(--mt-fg-3);
+  font-weight: var(--mt-fw-medium);
   text-align: center;
   letter-spacing: var(--mt-tracking-wide);
 }
