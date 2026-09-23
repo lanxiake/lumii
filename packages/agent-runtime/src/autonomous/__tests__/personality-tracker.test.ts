@@ -7,11 +7,28 @@ import {
   applyEMA,
   PersonalityTracker,
   recordPersonalityEvent,
+  rollInnateTraits,
   EVENT_PERSONALITY_IMPACT,
 } from '../personality-tracker';
 import type { PersonalityState, PersonalityEvent } from '../types';
 import type { DatabaseClient } from '../meta-cognition-engine';
+import type { DatabaseAdapter } from '../../storage/local-database.js';
+import { createMigratedTestDb } from '../../__tests__/helpers/sqlite-test-db.js';
 import { EMA_ALPHA } from '../config';
+
+/** DatabaseAdapter（同步）→ DatabaseClient（async），与主进程 `toAsyncClient` 同构 */
+function asyncClient(db: DatabaseAdapter): DatabaseClient {
+  return {
+    async execute(sql: string, params: unknown[] = []) {
+      return db.prepare(sql).run(...params);
+    },
+    async query<T>(sql: string, params: unknown[] = []): Promise<T[]> {
+      return db.prepare(sql).all(...params) as T[];
+    },
+  };
+}
+
+const TRACKER_CONFIG = { emaAlpha: EMA_ALPHA, eventWeights: {}, trackingEnabled: true };
 
 describe('EMA 更新算法', () => {
   it('应正确应用 EMA 公式', () => {
@@ -146,11 +163,6 @@ describe('PersonalityTracker', () => {
 
     const state = await tracker.getCurrentState('agent1');
 
-    expect(state.openness).toBe(0.5);
-    expect(state.conscientiousness).toBe(0.5);
-    expect(state.extraversion).toBe(0.5);
-    expect(state.agreeableness).toBe(0.5);
-    expect(state.neuroticism).toBe(0.5);
     expect(state.updateCount).toBe(0);
   });
 
@@ -263,6 +275,126 @@ describe('PersonalityTracker', () => {
     expect(events).toHaveLength(1);
     expect(events[0].eventType).toBe('goal-generated');
     expect(events[0].personalityDelta.openness).toBe(0.02);
+  });
+});
+
+describe('rollInnateTraits — 出生抽签', () => {
+  it('五维全部落在 [0.15, 0.85]，且不会正好都是 0.5', () => {
+    for (let i = 0; i < 200; i += 1) {
+      const traits = rollInnateTraits();
+      for (const value of Object.values(traits)) {
+        expect(value).toBeGreaterThanOrEqual(0.15);
+        expect(value).toBeLessThanOrEqual(0.85);
+      }
+    }
+    expect(Object.values(rollInnateTraits()).every((v) => v === 0.5)).toBe(false);
+  });
+
+  it('注入 rng 时结果确定', () => {
+    const a = rollInnateTraits(() => 0.5);
+    const b = rollInnateTraits(() => 0.5);
+    expect(a).toEqual(b);
+    // u=v=0.5 → gauss = sqrt(-2*ln0.5)*cos(π) = -1.1774 → 0.5 - 0.1766
+    expect(a.openness).toBeCloseTo(0.3234, 3);
+  });
+
+  it('rng 取到 0 也不产生 NaN/Infinity（log(0) 由 EPSILON 兜住）', () => {
+    for (const value of Object.values(rollInnateTraits(() => 0))) {
+      expect(Number.isFinite(value)).toBe(true);
+    }
+  });
+});
+
+describe('出生落库与出生快照', () => {
+  const trackerFor = (db: DatabaseAdapter) =>
+    new PersonalityTracker(TRACKER_CONFIG, asyncClient(db));
+
+  const birthRow = (db: DatabaseAdapter, agentId: string) =>
+    db
+      .prepare<{ value: string }>(`SELECT value FROM runtime_state WHERE key = ?`)
+      .get(`personality:birth:${agentId}`);
+
+  it('抽一次落库：同一 agent 重进拿到同一组值', async () => {
+    const db = createMigratedTestDb();
+    const tracker = trackerFor(db);
+
+    const first = await tracker.getCurrentState('pet:cat');
+    const again = await tracker.getCurrentState('pet:cat');
+
+    expect(again).toEqual(first);
+    expect(first.openness).toBeGreaterThanOrEqual(0.15);
+    expect(first.openness).toBeLessThanOrEqual(0.85);
+    db.close();
+  });
+
+  it('不同 agent 抽到不同的签', async () => {
+    const db = createMigratedTestDb();
+    const tracker = trackerFor(db);
+
+    const seen = new Set<string>();
+    for (let i = 0; i < 8; i += 1) {
+      const s = await tracker.getCurrentState(`pet:${i}`);
+      seen.add(
+        [s.openness, s.conscientiousness, s.extraversion, s.agreeableness, s.neuroticism]
+          .map((v) => v.toFixed(6))
+          .join(','),
+      );
+    }
+
+    expect(seen.size).toBe(8);
+    db.close();
+  });
+
+  it('出生快照写进 runtime_state，与落库人格一致；空库算新装', async () => {
+    const db = createMigratedTestDb();
+    const tracker = trackerFor(db);
+
+    const state = await tracker.getCurrentState('pet:cat');
+
+    const row = birthRow(db, 'pet:cat');
+    expect(row).toBeDefined();
+    const snapshot = JSON.parse(row!.value);
+    expect(snapshot.traits).toEqual({
+      openness: state.openness,
+      conscientiousness: state.conscientiousness,
+      extraversion: state.extraversion,
+      agreeableness: state.agreeableness,
+      neuroticism: state.neuroticism,
+    });
+    expect(Number.isNaN(Date.parse(snapshot.at))).toBe(false);
+    expect(snapshot.migrated).toBeUndefined(); // 空库 = 新装，没在撒谎
+    db.close();
+  });
+
+  it('存量装（已有历史消息）标 migrated: true', async () => {
+    const db = createMigratedTestDb();
+    const now = new Date().toISOString();
+    db.prepare(
+      `INSERT INTO conversations (id, user_id, type, created_at) VALUES (?, ?, ?, ?)`,
+    ).run('c1', 'u1', 'direct', now);
+    db.prepare(
+      `INSERT INTO messages (id, conversation_id, agent_id, role, content_json, timestamp)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    ).run('m1', 'c1', 'assistant', 'user', '{}', now);
+
+    await trackerFor(db).getCurrentState('pet:cat');
+
+    expect(JSON.parse(birthRow(db, 'pet:cat')!.value).migrated).toBe(true);
+    db.close();
+  });
+
+  it('快照已存在时不被重写', async () => {
+    const db = createMigratedTestDb();
+    const tracker = trackerFor(db);
+
+    await tracker.getCurrentState('pet:cat');
+    const firstAt = JSON.parse(birthRow(db, 'pet:cat')!.value).at;
+
+    db.prepare(`DELETE FROM personality_state WHERE agent_id = ?`).run('pet:cat');
+    await tracker.getCurrentState('pet:cat');
+
+    expect(JSON.parse(birthRow(db, 'pet:cat')!.value).at).toBe(firstAt);
+    db.close();
   });
 });
 

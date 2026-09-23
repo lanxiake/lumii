@@ -54,6 +54,18 @@ export interface PetModelConfigDTO {
   shadowedBuiltin?: boolean
 }
 
+/**
+ * 宠物人格 DTO。
+ *
+ * 宠物是**独立 Agent**（`pet:<模型ID>`，一个模型 = 一只），人格与情绪都不碰 `assistant`。
+ * 只给气质标签不给五维数值——用户看到的是「好奇心重，但有点怕生」，不是 0.63。
+ */
+export interface PetPersonalityDTO {
+  /** 内部 agentId，诊断用 */
+  agentId: string
+  label: string
+}
+
 /** pet IPC 通道名常量（主进程与 preload 共用，避免散落字符串） */
 export const PET_IPC = {
   /** invoke：切换模式 */
@@ -139,6 +151,8 @@ export const PET_IPC = {
   activateVirtualHumanContext: 'pet:activate-virtual-human-context',
   /** invoke：获取指定模型可触发动作映射（tag → 动作组/index），渲染层据此播放 [motion:tag] */
   getModelMotionActions: 'pet:get-model-motion-actions',
+  /** invoke：读宠物人格标签（首次读即出生抽签，此后不再重掷） */
+  getPetPersonality: 'pet:get-personality',
   /** event(main→renderer)：请准备切换（opacity 已置 0） */
   evtPrepare: 'pet:mode:prepare',
   /** event(main→renderer)：模式已变更 */
@@ -342,6 +356,8 @@ export interface PetElectronAPI {
   activateVirtualHumanContext(sessionKey: string): Promise<void>
   /** 获取指定模型可触发动作映射（tag → 动作组/index），渲染层据此播放 [motion:tag] */
   getModelMotionActions(modelId: string): Promise<PetMotionActionDTO[]>
+  /** 读宠物人格标签（首次读即出生抽签）；bridge 未就绪时为 null */
+  getPetPersonality(configId: string): Promise<PetPersonalityDTO | null>
   /** 订阅模式变更事件，返回取消订阅函数 */
   onModeChanged(callback: (event: PetModeChangedEvent) => void): () => void
   /** 订阅准备切换事件，返回取消订阅函数 */

@@ -78,3 +78,8 @@ export * from "./render/webview-renderer.js";
 
 // 表情/动作策略（状态 → 表情语义 → expression 索引）
 export * from "./expression/state-expression-policy.js";
+
+// 宠物人格（宠物智能化 第一期）：身份口径 + 气质标签。
+// 宠物是独立 Agent（设计 §3.7），人格与情绪按 pet:<configId> 分键，不碰 assistant 那一行。
+export * from "./personality/pet-identity.js";
+export * from "./personality/trait-label.js";
