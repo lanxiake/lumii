@@ -6,7 +6,7 @@
  * 否则浮条会整体漂移（预览不在左上角时尤其明显）。
  */
 import { describe, expect, it } from 'vitest'
-import { IFRAME_SELECTION_SCRIPT, toHostPoint, toSelectionSnapshot } from './webview-bridge'
+import { buildIframeSelectionInjection, toHostPoint, toSelectionSnapshot } from './webview-bridge'
 
 const FRAME = { left: 300, top: 120 }
 const GUEST_RECT = { top: 40, left: 25, width: 200, height: 18 }
@@ -75,12 +75,24 @@ describe('toHostPoint', () => {
   })
 })
 
-describe('IFRAME_SELECTION_SCRIPT', () => {
+describe('buildIframeSelectionInjection', () => {
+  const NONCE = 'abc123'
+  const injection = buildIframeSelectionInjection(NONCE)
+
   it('自带标记与两种 surface，且不得包含裸的 </script> 造成 srcDoc 截断', () => {
-    expect(IFRAME_SELECTION_SCRIPT).toContain('lumii-selection')
-    expect(IFRAME_SELECTION_SCRIPT).toContain("surface: 'bar'")
-    expect(IFRAME_SELECTION_SCRIPT).toContain("surface: 'menu'")
+    expect(injection).toContain('lumii-selection')
+    expect(injection).toContain("surface: 'bar'")
+    expect(injection).toContain("surface: 'menu'")
     // 脚本自身只能有一个收尾标签
-    expect(IFRAME_SELECTION_SCRIPT.match(/<\/script>/g)).toHaveLength(1)
+    expect(injection.match(/<\/script>/g)).toHaveLength(1)
+  })
+
+  it('CSP 排在脚本之前，且只授权本次 nonce', () => {
+    // meta 形式的 CSP 只对出现在它之后的内容生效，顺序错了等于没写
+    expect(injection.indexOf('Content-Security-Policy')).toBeLessThan(
+      injection.indexOf('<script'),
+    )
+    expect(injection).toContain(`script-src 'nonce-${NONCE}'`)
+    expect(injection).toContain(`<script nonce="${NONCE}">`)
   })
 })

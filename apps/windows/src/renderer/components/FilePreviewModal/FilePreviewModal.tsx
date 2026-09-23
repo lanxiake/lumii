@@ -31,7 +31,7 @@ import { PdfJsPreview } from './PdfJsPreview'
 import { ExcelPreview } from './ExcelPreview'
 import styles from './FilePreviewModal.module.css'
 import { buildZoomedSrcDoc, clampZoom, ZOOM_MAX, ZOOM_MIN, ZOOM_STEP } from './zoom-utils'
-import { IFRAME_SELECTION_SCRIPT } from '../../selection/webview-bridge'
+import { buildIframeSelectionInjection } from '../../selection/webview-bridge'
 
 /** PPTX 预览按需加载，避免启动时拉 pptx-preview/lodash 导致白屏 */
 const PptxPreview = React.lazy(() =>
@@ -60,20 +60,13 @@ interface WebviewZoomApi {
 /**
  * HTML 预览专用 preload（把划词选区送回宿主）。
  *
- * 用 window.location 解析相对路径、而不是 import.meta.url：两者的基准都是
- * `apps/windows/out/` —— 产物是 `out/renderer/index.html` + `out/preload/*.js`；
- * dev 下渲染层由 vite 托管，但 preload 仍构建到 `out/preload/`，而 dev server
- * 的根就是 `out/renderer`，两层 `..` 一样落回 `out/`。
- *
- * `new URL` 在 jsdom 里没有 document 可依，故有兜底。
+ * 路径由**宿主 preload** 算好给（`window.electronAPI.webviewSelectionPreload`）：
+ * Electron 要求 `<webview preload>` 的协议必须是 `file:`，而渲染层在 dev 下跑在
+ * http://127.0.0.1:5174，从 location 拼路径只会拼出一个 http URL —— webview 会
+ * **静默不加载**（连 preload-error 都不发）。细节见 preload/index.ts 的说明。
  */
 function resolveWebviewSelectionPreload(): string | undefined {
-  try {
-    const base = new URL('../', window.location.href)
-    return new URL('preload/webview-selection.js', base).href
-  } catch {
-    return undefined
-  }
+  return window.electronAPI?.webviewSelectionPreload
 }
 
 const HtmlActiveSandboxFrame: React.FC<{ content: string; fileName: string; zoom: number }> = ({ content, fileName, zoom }) => {
@@ -118,21 +111,31 @@ const HtmlActiveSandboxFrame: React.FC<{ content: string; fileName: string; zoom
 }
 
 /**
- * CSS / SVG 静态内容预览：无脚本需求，直接用 srcDoc 渲染，不授予任何脚本权限。
+ * CSS / SVG 静态内容预览：直接用 srcDoc 渲染，不授予同源权限。
  * 缩放通过向 srcDoc 注入 <style>body{zoom:...}</style> 实现（zoom 不穿透 iframe 边界）。
  *
- * 例外：会额外注入一段**取词**脚本（见 IFRAME_SELECTION_SCRIPT）—— 划词要在预览里
- * 也能用，而 iframe 的文档宿主同样收不到。`sandbox=""` 只限制导航与同源，
- * 内联脚本仍可执行（本组件本来就靠注入 style 实现缩放）。
+ * 取词脚本必须靠 `allow-scripts` 才跑得起来 —— `sandbox=""` 下**任何**脚本都不执行，
+ * 注入进去形同废纸（实测见 `verify/selection/probe-webview-preload.cjs` 的 E/F 用例）。
+ * 放开脚本的代价用 CSP 补回来：只授权带本次 nonce 的那段脚本，
+ * 预览内容自带的 `<script>`（SVG 可以有）照旧被挡。
+ * 仍不给 `allow-same-origin` —— 文档留在不透明源里，碰不到宿主。
  */
-const HtmlStaticSandboxFrame: React.FC<{ content: string; fileName: string; zoom: number }> = ({ content, fileName, zoom }) => (
-  <iframe
-    className={styles.sandboxFrame}
-    sandbox=""
-    srcDoc={IFRAME_SELECTION_SCRIPT + buildZoomedSrcDoc(content, zoom)}
-    title={fileName}
-  />
-)
+const HtmlStaticSandboxFrame: React.FC<{ content: string; fileName: string; zoom: number }> = ({ content, fileName, zoom }) => {
+  // nonce 每次挂载生成一次：它只用于这一份 srcDoc，没必要跨渲染保持稳定
+  const nonce = useMemo(() => crypto.randomUUID().replace(/-/g, ''), [])
+  const srcDoc = useMemo(
+    () => buildIframeSelectionInjection(nonce) + buildZoomedSrcDoc(content, zoom),
+    [content, zoom, nonce],
+  )
+  return (
+    <iframe
+      className={styles.sandboxFrame}
+      sandbox="allow-scripts"
+      srcDoc={srcDoc}
+      title={fileName}
+    />
+  )
+}
 
 // ── 预览路由（单一分支） ──
 type PreviewRoute =

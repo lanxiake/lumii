@@ -98,33 +98,26 @@ export const SelectionLayer: React.FC = () => {
    * 那个文档不在宿主里，上面那些 document 监听一概收不到它的事件 —— 由 guest 的
    * preload 把选区送过来（`src/preload/webview-selection.ts`），这里翻译坐标后
    * 走与宿主选区同一条路（见 webview-bridge.ts）。
+   *
+   * 两处 Electron 的脾气，都实测过（`verify/selection/probe-webview-preload.cjs`）：
+   *
+   * 1. **必须挂捕获阶段**：webview 的事件是 `new Event(name)` 派发的，`bubbles`
+   *    默认 false，挂冒泡阶段一条也收不到。
+   * 2. **归属只认 `e.target`**：事件就派发在 `<webview>` 元素上，target 即发信的那个。
+   *    曾经拿 `e.frameId` 去比 `getWebContentsId()` —— 那是 `[processId, frameId]`，
+   *    与 webContents id 不是同一套编号，比下来**恒不相等**，消息被静默丢光。
    */
   useEffect(() => {
     const onIpcMessage = (e: Event) => {
-      const event = e as Event & {
-        channel?: string
-        args?: unknown[]
-        frameId?: [number, number]
-      }
+      const event = e as Event & { channel?: string; args?: unknown[] }
       if (event.channel !== WEBVIEW_SELECTION_CHANNEL) return
 
       const payload = (event.args?.[0] ?? null) as WebviewSelectionEvent | null
       if (!payload || typeof payload !== 'object') return
 
-      // 按 frameId（[processId, frameId]）认出是哪个 webview 发来的 ——
       // 页面上可能不止一个 webview（Wiki 抽屉也有），认错了坐标就整体漂移
-      const webviews = [...document.querySelectorAll('webview')] as Array<
-        Element & { getWebContentsId?: () => number }
-      >
-      const frame = webviews.find((el) => {
-        if (typeof el.getWebContentsId !== 'function' || !event.frameId) return false
-        try {
-          return el.getWebContentsId() === event.frameId[1]
-        } catch {
-          return false
-        }
-      })
-      if (!frame) return
+      const frame = e.target
+      if (!(frame instanceof Element) || frame.tagName !== 'WEBVIEW') return
 
       if (payload.type === 'close') {
         showView(null)
@@ -143,8 +136,8 @@ export const SelectionLayer: React.FC = () => {
       })
     }
 
-    document.addEventListener('ipc-message', onIpcMessage)
-    return () => document.removeEventListener('ipc-message', onIpcMessage)
+    document.addEventListener('ipc-message', onIpcMessage, true)
+    return () => document.removeEventListener('ipc-message', onIpcMessage, true)
   }, [showView])
 
   /**

@@ -76,6 +76,67 @@ function menuItem(label: string): HTMLElement | null {
   )
 }
 
+describe('HTML 预览（webview / iframe）里的划词', () => {
+  const PAYLOAD = {
+    type: 'show',
+    surface: 'bar',
+    text: '预览里选中的文字',
+    rect: { top: 10, left: 20, width: 100, height: 16 },
+    anchorRect: { top: 10, left: 20, width: 100, height: 16 },
+  }
+
+  /**
+   * 复刻 Electron 的派发方式：`new Event(name)` —— **不冒泡**，直接打在 webview 元素上
+   * （与 `electron/lib/renderer/web-view/web-view-impl.ts` 的 dispatchEvent 一致）。
+   * 用「冒泡的 CustomEvent」测会假通过：真实环境里那条路收不到。
+   */
+  function emitWebviewSelection(target: EventTarget, payload: unknown): void {
+    const event = new Event('ipc-message') as Event & { channel?: string; args?: unknown[] }
+    event.channel = 'lumii:webview-selection'
+    event.args = [payload]
+    act(() => {
+      target.dispatchEvent(event)
+    })
+  }
+
+  it('收到 webview 的不冒泡 ipc-message（挂在冒泡阶段会一条都收不到）', () => {
+    render(<SelectionLayer />)
+    const webview = document.createElement('webview')
+    document.body.appendChild(webview)
+
+    emitWebviewSelection(webview, PAYLOAD)
+
+    expect(document.querySelector('[data-selection-toolbar]')).not.toBeNull()
+  })
+
+  it('归属按 e.target 认：非 webview 元素发的消息一律忽略', () => {
+    render(<SelectionLayer />)
+    const impostor = document.createElement('div')
+    document.body.appendChild(impostor)
+
+    emitWebviewSelection(impostor, PAYLOAD)
+
+    expect(document.querySelector('[data-selection-toolbar]')).toBeNull()
+  })
+
+  it('iframe 的 postMessage 也走同一条路', () => {
+    render(<SelectionLayer />)
+    const frame = document.createElement('iframe')
+    document.body.appendChild(frame)
+
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: { ...PAYLOAD, marker: 'lumii-selection' },
+          source: frame.contentWindow,
+        }),
+      )
+    })
+
+    expect(document.querySelector('[data-selection-toolbar]')).not.toBeNull()
+  })
+})
+
 describe('SelectionLayer 渲染契约', () => {
   it('挂载不抛错（守住「定义前使用」这类只在渲染时炸的问题）', () => {
     expect(() => render(<SelectionLayer />)).not.toThrow()

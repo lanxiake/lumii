@@ -6,6 +6,8 @@
  */
 
 import { contextBridge, ipcRenderer } from 'electron'
+import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { petApi } from './pet-api'
 import type { PetElectronAPI } from '../shared/pet-mode'
 import type { ChannelFeatureSettings } from '../shared/channel-features'
@@ -366,6 +368,11 @@ export interface ElectronAPI {
     run: (request: SelectionLlmRequest) => Promise<SelectionLlmResult>
     abort: (requestId: string) => Promise<boolean>
   }
+  /**
+   * HTML 预览 `<webview>` 取词用的 preload 绝对 file: URL。
+   * 渲染层直接拿去当 `preload` 属性，**不要**自己从 location 拼（原因见主文件里的说明）。
+   */
+  webviewSelectionPreload: string
   app: {
     getVersion: () => Promise<string>
     quit: () => void
@@ -1306,6 +1313,20 @@ function createEventListener(channel: string, callback: (...args: unknown[]) => 
 const eventListenerRegistry = createEventListenerRegistry(ipcRenderer)
 
 /**
+ * HTML 预览 `<webview>` 取词 preload 的**绝对 file: URL**。
+ *
+ * 为什么由 preload 算而不是渲染层拼：Electron 对 `<webview preload>` 有硬约束 ——
+ * URL 协议必须是 `file:`（webview-tag 文档原文，因为它由 Node 的 require 加载）。
+ * 渲染层拿不到磁盘路径，只能从 `location.href` 猜，而 dev 下渲染层跑在
+ * `http://127.0.0.1:5174`，`..` 越不过站点根，拼出来是 http URL ——
+ * webview 会**静默地不加载它**（连 preload-error 都不发），HTML 预览里划词于是毫无反应。
+ * 实测见 `verify/selection/probe-webview-preload.cjs`（B 用例）。
+ *
+ * 打包后 __dirname 落在 app.asar 内，`file:` 对 asar 同样成立。
+ */
+const webviewSelectionPreload = pathToFileURL(join(__dirname, 'webview-selection.js')).href
+
+/**
  * 暴露给渲染进程的 API
  */
 const electronAPI: ElectronAPI = {
@@ -1376,6 +1397,8 @@ const electronAPI: ElectronAPI = {
   userGuides: userGuidesApi,
 
   selection: selectionApi,
+
+  webviewSelectionPreload,
 
   // 应用操作 API
   app: appApi,

@@ -101,15 +101,22 @@ export function toHostPoint(
 export const IFRAME_SELECTION_MARKER = 'lumii-selection'
 
 /**
- * 注入 iframe（`srcDoc`，`sandbox=""`）里的取词脚本。
+ * 注入 iframe（`srcDoc`）里的取词脚本。
  *
  * 与 webview 的 preload 是同一套逻辑的两种载体：webview 有 preload 通道，
  * iframe 只能 `srcDoc` 注入 + `postMessage`。**两边必须同步改** ——
  * 所以报文形状与 preload 保持一致（type/surface/text/rect/anchorRect/point）。
  *
  * 写成字符串是因为它要进 srcDoc，不能是模块。
+ *
+ * `nonce` 是必需的，不是可选的加固：iframe 的 `sandbox` 必须放开 `allow-scripts`
+ * 内联脚本才会执行（`sandbox=""` 下**任何**脚本都不跑，实测见
+ * `verify/selection/probe-webview-preload.cjs` 的 E/F 用例）。放开之后，
+ * 预览内容里自带的 `<script>`（SVG 可以有）也会跟着跑，所以配一条
+ * `script-src 'nonce-…'` 的 CSP 把授权收到只认这段脚本。nonce 由调用方每次生成。
  */
-export const IFRAME_SELECTION_SCRIPT = `<script>(function(){
+export function buildIframeSelectionScript(nonce: string): string {
+  return `<script nonce="${nonce}">(function(){
   var M = ${JSON.stringify(IFRAME_SELECTION_MARKER)};
   function rectOf(r){ return { top: r.top, left: r.left, width: r.width, height: r.height }; }
   function editable(node){
@@ -150,3 +157,14 @@ export const IFRAME_SELECTION_SCRIPT = `<script>(function(){
   document.addEventListener('mousedown', function(){ send({ type: 'close' }); }, true);
   document.addEventListener('keydown', function(e){ if (e.key === 'Escape') send({ type: 'close' }); });
 })()</script>`
+}
+
+/**
+ * 静态预览 srcDoc 的开头注入物：CSP + 取词脚本。
+ *
+ * CSP 必须排在脚本**之前**（meta 形式的 CSP 只对出现在它之后的内容生效）。
+ */
+export function buildIframeSelectionInjection(nonce: string): string {
+  const csp = `<meta http-equiv="Content-Security-Policy" content="script-src 'nonce-${nonce}'">`
+  return csp + buildIframeSelectionScript(nonce)
+}
