@@ -304,7 +304,8 @@ describe('agent:permission:granted / denied 收起审批卡', () => {
         riskLevel: 'high',
         description: '需要确认后执行',
         timeoutMs: 0,
-        sessionKey: SESSION_KEY,
+        // 这里**没有** sessionKey：审批事件带的是 rootSessionKey（见 AgentEventInstanceMeta），
+        // 主进程 bridge-instance-factory 发出来的也就这两样
         rootSessionKey: SESSION_KEY,
       },
     ])
