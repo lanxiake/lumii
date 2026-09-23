@@ -137,7 +137,7 @@ function snapshotState() {
     const keys = [
       'autonomous.settings',
       'autonomous.concerns',
-      'autonomous.mood',
+      'autonomous.mood:assistant',
       'autonomous.last_diary_date',
       'autonomous.outreach.last_sent_at',
       'autonomous.enabled',
@@ -349,7 +349,7 @@ function seedEvolutionConversation() {
 // ── mood / concerns ──
 
 function readMood() {
-  const row = getState('autonomous.mood')
+  const row = getState('autonomous.mood:assistant')
   if (!row) return { energy: 0.6, valence: 0, arousal: 0.5, updatedAt: Date.now() }
   try {
     return JSON.parse(row.value)
@@ -360,7 +360,7 @@ function readMood() {
 
 /** 播种高精力 mood，使目标执行不因昼夜节律（夜间低能量）被跳过，保证 D1/G1 时间无关 */
 function seedMood(mood = { energy: 1, valence: 0, arousal: 0.5 }) {
-  setState('autonomous.mood', JSON.stringify({ ...mood, updatedAt: Date.now() }))
+  setState('autonomous.mood:assistant', JSON.stringify({ ...mood, updatedAt: Date.now() }))
 }
 
 function readConcerns() {

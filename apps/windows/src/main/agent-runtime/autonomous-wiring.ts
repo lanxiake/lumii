@@ -90,7 +90,7 @@ function readOpenness(db: DatabaseAdapter, agentId: string): number {
  * sync DatabaseAdapter → async DatabaseClient。
  * better-sqlite3 本身同步，包一层 Promise 只为满足引擎接口，无真实异步开销。
  */
-function toAsyncClient(db: DatabaseAdapter) {
+export function toAsyncClient(db: DatabaseAdapter) {
   return {
     async execute(sql: string, params: unknown[] = []) {
       return db.prepare(sql).run(...params)
@@ -413,7 +413,7 @@ export function createAutonomousRuntime(
     async selectPromptVariant(conversationId: string) {
       const variant = await promptEvolution.selectPrompt(
         BASELINE_PROMPT_ID,
-        computeExplorationRate(readMood(db), readOpenness(db, 'assistant')),
+        computeExplorationRate(readMood(db, 'assistant'), readOpenness(db, 'assistant')),
       )
       writeVariantId(db, conversationId, variant.id)
       return { variantId: variant.id, variantText: variant.variantText }
@@ -535,7 +535,7 @@ function mergeSuggestedConcerns(db: DatabaseAdapter,
   if (!suggested || suggested.length === 0) return
   try {
     const existing = readConcerns(db)
-    const mood = readMood(db)
+    const mood = readMood(db, 'assistant')
     const now = Date.now()
     const seen = new Set(existing.map((c) => c.description))
     const fresh: Concern[] = suggested

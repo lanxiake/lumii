@@ -209,7 +209,7 @@ function main() {
   snap = h.snapshotRuntimeState([
     'autonomous.enabled',
     'autonomous.settings',
-    'autonomous.mood',
+    'autonomous.mood:assistant',
     'autonomous.concerns',
     'autonomous.last_diary_date',
     'autonomous.last_plan_at',

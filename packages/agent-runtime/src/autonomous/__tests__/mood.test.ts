@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { createMigratedTestDb } from '../../__tests__/helpers/sqlite-test-db.js';
 import {
   decayMood,
   circadianEnergy,
@@ -6,6 +7,8 @@ import {
   moodToDecisionParams,
   computeExplorationRate,
   moodToPetEmotion,
+  readMood,
+  writeMood,
   type Mood,
 } from '../mood';
 
@@ -117,5 +120,57 @@ describe('moodToPetEmotion', () => {
   });
   it('平静默认 → neutral', () => {
     expect(moodToPetEmotion({ energy: 0.5, valence: 0, arousal: 0.4, updatedAt: 0 })).toBe('neutral');
+  });
+});
+
+describe('mood 分键与老库迁移', () => {
+  const LEGACY_KEY = 'autonomous.mood';
+  const ASSISTANT_KEY = 'autonomous.mood:assistant';
+
+  function seedLegacy(db: ReturnType<typeof createMigratedTestDb>, mood: Mood): void {
+    db.prepare(`INSERT INTO runtime_state (key, value, updated_at) VALUES (?, ?, ?)`).run(
+      LEGACY_KEY,
+      JSON.stringify(mood),
+      new Date().toISOString(),
+    );
+  }
+
+  it('不同 agent 的 mood 互不覆盖', () => {
+    const db = createMigratedTestDb();
+    writeMood(db, 'assistant', { energy: 0.9, valence: 0.5, arousal: 0.1, updatedAt: 1 });
+    writeMood(db, 'pet:cat', { energy: 0.2, valence: -0.5, arousal: 0.7, updatedAt: 2 });
+    expect(readMood(db, 'assistant')).toMatchObject({ energy: 0.9, valence: 0.5 });
+    expect(readMood(db, 'pet:cat')).toMatchObject({ energy: 0.2, valence: -0.5 });
+    db.close();
+  });
+
+  it('老库全局单键迁到 :assistant，原值一字不差，旧键删除', () => {
+    const db = createMigratedTestDb();
+    const legacy: Mood = { energy: 0.42, valence: -0.33, arousal: 0.61, updatedAt: 123456 };
+    seedLegacy(db, legacy);
+
+    expect(readMood(db, 'assistant')).toEqual(legacy);
+
+    const oldRow = db.prepare(`SELECT value FROM runtime_state WHERE key = ?`).get(LEGACY_KEY);
+    const newRow = db.prepare<{ value: string }>(`SELECT value FROM runtime_state WHERE key = ?`).get(ASSISTANT_KEY);
+    expect(oldRow).toBeUndefined();
+    expect(JSON.parse(newRow!.value)).toEqual(legacy);
+    db.close();
+  });
+
+  it('迁移只发生在 assistant：读宠物不会吞掉老键', () => {
+    const db = createMigratedTestDb();
+    seedLegacy(db, { energy: 0.42, valence: -0.33, arousal: 0.61, updatedAt: 123456 });
+
+    expect(readMood(db, 'pet:cat')).toMatchObject({ energy: 0.6, valence: 0, arousal: 0.5 }); // 基线
+    expect(db.prepare(`SELECT value FROM runtime_state WHERE key = ?`).get(LEGACY_KEY)).toBeDefined();
+    db.close();
+  });
+
+  it('空库读 assistant 返回基线，不建键', () => {
+    const db = createMigratedTestDb();
+    expect(readMood(db, 'assistant')).toMatchObject({ energy: 0.6, valence: 0, arousal: 0.5 });
+    expect(db.prepare(`SELECT value FROM runtime_state WHERE key = ?`).get(ASSISTANT_KEY)).toBeUndefined();
+    db.close();
   });
 });
