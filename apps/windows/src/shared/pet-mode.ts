@@ -108,6 +108,16 @@ export const PET_IPC = {
    * 把 `app-ui:goto`（带 sessionKey）发给主窗。
    */
   focusSession: 'pet:focus-session',
+  /** event(main→renderer)：主窗口焦点变化（见 {@link PET_IPC.evtMainWindowFocus}）。invoke 可补问一次 */
+  getMainWindowFocus: 'pet:get-main-window-focus',
+  /**
+   * invoke：宠物窗口请主窗口**聚焦到某条待办**（通知气泡 / 控制坞条目上的按钮）。
+   *
+   * 与 `focusSession` 的区别只有一个：多带一个 `requestId`，主窗会把**那张审批卡**
+   * 滚进视野并高亮。之所以要分开而不是给 `focusSession` 加个可选参数：
+   * `focusSession` 的使用者是多会话清单（它只知道会话），而这条是"有人把我叫过来办事"。
+   */
+  focusNotice: 'pet:focus-notice',
   /**
    * invoke：读**当前实际生效的穿透状态**。
    *
@@ -152,6 +162,17 @@ export const PET_IPC = {
    * （主窗口隐藏或最小化）——宠物在那块屏幕上没有东西可爬。
    */
   evtPerch: 'pet:perch',
+  /**
+   * event(main→renderer)：程序**主窗口**是否聚焦。
+   *
+   * 宠物窗口问不到这件事——它自己是常驻置顶的透明窗，`document.hasFocus()` 回答的是
+   * **它自己**的焦点，与"用户有没有在看会话"无关。所以由主进程听主窗的 focus/blur 转过来。
+   *
+   * 用途是通知（R6）的两条判据：`turn:end` 的「用户发起后走开了」升级为 `report`、
+   * `file-changes` 的「主窗失焦且用户没参与」才补一句。拿不到时（未广播）两条都不触发，
+   * **保守方向是少打扰**。
+   */
+  evtMainWindowFocus: 'pet:main-window-focus',
 } as const
 
 /** 切换模式的结果 */
@@ -212,6 +233,12 @@ export interface PetIdleEvent {
 export interface PetPerchEvent {
   readonly type: 'pet:perch'
   rect: { x: number; y: number; width: number; height: number } | null
+}
+
+/** 主进程 → 渲染进程：程序主窗口是否聚焦（见 {@link PET_IPC.evtMainWindowFocus}） */
+export interface PetMainWindowFocusEvent {
+  readonly type: 'pet:main-window-focus'
+  focused: boolean
 }
 
 /** 主进程 → 渲染进程：模型热切换（窗口不变，仅 Live2D 重载，B-3） */
@@ -289,6 +316,14 @@ export interface PetElectronAPI {
    */
   focusSession(sessionKey: string): Promise<void>
   /**
+   * 请主窗**聚焦到某条待办**：带窗口到前台 + 切会话 +（有 `requestId` 时）把那张审批卡
+   * 滚进视野并高亮。
+   *
+   * 用在通知气泡和控制坞待办条目的按钮上。`requestId` 缺省时退化成 `focusSession`
+   * ——`report` 档的通知（任务做完了）没有卡可聚焦，只需要跳到会话。
+   */
+  focusNotice(payload: { sessionKey: string; requestId?: string }): Promise<void>
+  /**
    * 读当前实际生效的穿透状态（诊断/验证用，见 {@link PET_IPC.getMouseIgnoreState}）。
    *
    * `clickable` = 窗口此刻在**吃掉整个屏幕的点击**；`components` 是把它顶起来的
@@ -321,6 +356,16 @@ export interface PetElectronAPI {
   onIdle(callback: (event: PetIdleEvent) => void): () => void
   /** 订阅程序主窗口矩形（攀附用）。拖动主窗口时会连续推送——那是期望的，宠物要跟手 */
   onPerch(callback: (event: PetPerchEvent) => void): () => void
+  /**
+   * 订阅**主窗口是否聚焦**（通知判据用，见 {@link PET_IPC.evtMainWindowFocus}）。
+   *
+   * ⚠️ 与 `onIdle` / `onPerch` 同一个坑：主进程只在**变化时**推，渲染层挂载时已经
+   * 处于某个状态的话那次推送是丢的。所以它带一个 `getMainWindowFocus()` 补问一次——
+   * 不补的话，进宠物模式前主窗就失焦的场景会一直按"聚焦"算。
+   */
+  onMainWindowFocus(callback: (event: PetMainWindowFocusEvent) => void): () => void
+  /** 问一次主窗口当前是否聚焦（挂载时补问，理由见上） */
+  getMainWindowFocus(): Promise<boolean>
   /**
    * 获取当前可攀附的矩形（挂载时问一次）。
    *

@@ -21,7 +21,7 @@ import type { ViewType } from '../../components/Router'
 import { SIDEBAR_SESSION_SLOT_ID, SIDEBAR_TOGGLE_EVENT } from '../../components/layout/Sidebar'
 import { executeSlashCommand, BACKEND_INFO } from './commands/slash-command-executor'
 import { loadSlashCommandsFromIpc } from './commands/slash-commands'
-import { updateSessionState } from '../../hooks/business/useAgentRuntime/agent-runtime-store'
+import { updateSessionState, setFocusPermissionRequestId } from '../../hooks/business/useAgentRuntime/agent-runtime-store'
 import clsx from 'clsx'
 import {
   readPersistedSessionThinkingPrefs,
@@ -116,6 +116,7 @@ function mapRuntimeMessageToChatMessage(msg: RuntimeMessage) {
     sourceAgent: msg.sourceAgent,
     acpBackendLabel: msg.acpBackendLabel,
     isVoice: msg.isVoice,
+    isSteer: msg.isSteer,
     audioWavBase64: msg.audioWavBase64,
   }
 }
@@ -160,6 +161,27 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
   const runtimeMessages = useAgentRuntimeState((s) => s.messages)
   const runtimeCurrentSessionKey = useAgentRuntimeGlobalState((s) => s.currentSessionKey)
   const { sessionKey: permissionSessionKey, pending: runtimePendingPermission } = useAnyPendingPermission()
+  /**
+   * 「宠物把我送到这张卡前面」（深链）：
+   * 宠物窗点「去审批」→ 主进程带主窗到前台 + `app-ui:goto`（带 sessionKey 与
+   * `focusPermissionRequestId`）→ App.tsx 写进 store → 这里命中就高亮那张卡。
+   */
+  const focusPermissionRequestId = useAgentRuntimeGlobalState((s) => s.focusPermissionRequestId)
+  const highlightPendingPermission =
+    Boolean(focusPermissionRequestId) && runtimePendingPermission?.requestId === focusPermissionRequestId
+  /**
+   * 这个意图是**一次性**的，而且要允许"送不到"：切会话是异步的，卡片可能还没渲染出来
+   * （甚至已经被用户在别处处置了）。所以：命中后留 2.5s（够高亮跑完），没命中留 30s 兜底。
+   * 超时就**安静放弃，不报错**——那只是慢了一步（设计 §5.3）。
+   */
+  useEffect(() => {
+    if (!focusPermissionRequestId) return
+    const t = setTimeout(
+      () => setFocusPermissionRequestId(null),
+      highlightPendingPermission ? 2500 : 30_000,
+    )
+    return () => clearTimeout(t)
+  }, [focusPermissionRequestId, highlightPendingPermission])
   const { pending: runtimePendingAskUser } = useAnyPendingAskUser()
   const runtimeContextUsage = useAgentRuntimeState((s) => s.contextUsage)
   const runtimeIsAutoCompacting = useAgentRuntimeState((s) => s.isAutoCompacting)
@@ -167,8 +189,6 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
   const runtimeCompactionEvents = useAgentRuntimeState((s) => s.compactionEvents)
   const runtimeHistoryPaging = useAgentRuntimeState((s) => s.historyPaging)
   const runtimeLastTaskCompletion = useAgentRuntimeState((s) => s.lastTaskCompletion)
-  // 本轮 Agent 正常结束时间戳（供 ChatInput 自动发送等待队列）
-  const runtimeLastTurnEndAt = useAgentRuntimeState((s) => s.lastTurnEndAt)
 
   /**
    * 侧栏运行态：已进过内存的会话以 store.isStreaming 为准（避免 DB hasRunning 滞后导致动效不消）；
@@ -868,8 +888,10 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
     const sessionTitle = localRuntimeSession?.title?.trim() || '当前对话'
     const summary = runtimeLastTaskCompletion.summary?.trim()
     const body = summary || (sessionTitle.length > 120 ? `${sessionTitle.slice(0, 117)}…` : sessionTitle)
-    notifyDesktop('MtBot · 任务已完成', body)
-  }, [runtimeLastTaskCompletion, localRuntimeSession?.title])
+    // `convId` 必须带（D1）：不带的话用户点了通知只会把主窗拉到前台，**不会切到那个会话**——
+    // 而"点通知回到出事的地方"正是这条通知的全部价值。
+    notifyDesktop('MtBot · 任务已完成', body, runtimeCurrentSessionKey ?? undefined)
+  }, [runtimeLastTaskCompletion, localRuntimeSession?.title, runtimeCurrentSessionKey])
 
   // 本地 Runtime 自动审批：检测到待审批权限请求且 autoApprove 开启时自动放行
   useEffect(() => {
@@ -1780,6 +1802,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
         <ChatBottomOverlay
           permission={runtimePendingPermission && !autoApprove ? runtimePendingPermission : undefined}
           permissionSessionKey={permissionSessionKey}
+          highlightPermission={highlightPendingPermission}
           currentSessionKey={runtimeCurrentSessionKey}
           onAllowOnce={() => runtimeActions.respondPermission('allow-once')}
           onAllowAlways={() => runtimeActions.respondPermission('allow-always')}
@@ -1806,7 +1829,6 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
             onAbort={handleAbort}
             disabled={isSending}
             isStreaming={runtimeIsStreaming}
-            turnEndAt={runtimeLastTurnEndAt}
             isConnected={true}
             agents={selectableAgents}
             selectedAgent={activeAgent}

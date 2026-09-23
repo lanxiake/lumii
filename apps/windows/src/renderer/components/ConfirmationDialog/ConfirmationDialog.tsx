@@ -4,7 +4,7 @@
  * 对齐原型审批卡：左侧警示条、倒计时、允许 / 拒绝 / 总是允许。
  */
 
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import styles from './ConfirmationDialog.module.css'
 
 export interface ConfirmationDialogProps {
@@ -18,6 +18,15 @@ export interface ConfirmationDialogProps {
   readonly timeoutMs: number
   /** 权限来自非当前 UI 会话时的提示（如微信后台频道） */
   readonly sessionHint?: string
+  /**
+   * 一次性高亮：滚进视野 + 2s 描边。
+   *
+   * 由宠物窗口的「去审批」送上来的（`app-ui:goto` 带 `focusPermissionRequestId`）——
+   * 把用户从桌面宠物**送到这张卡前面**的最后一步。它是**边沿触发**的
+   * （`false → true` 只跑一次动画），所以组件内部不必自己熄掉；
+   * 但那个"意图"要由调用方清（见 `MultiSessionRuntimeState.focusPermissionRequestId`）。
+   */
+  readonly highlight?: boolean
   /** 仅本次允许 */
   readonly onAllowOnce: () => void | Promise<void>
   /** 总是允许（同类 24h 免询问） */
@@ -66,12 +75,14 @@ export const ConfirmationDialog: React.FC<ConfirmationDialogProps> = ({
   toolName,
   timeoutMs,
   sessionHint,
+  highlight = false,
   onAllowOnce,
   onAllowAlways,
   onDeny,
 }) => {
   const [busy, setBusy] = useState(false)
   const [leftSec, setLeftSec] = useState(() => Math.max(1, Math.ceil(timeoutMs / 1000)))
+  const cardRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (!open) {
@@ -85,6 +96,15 @@ export const ConfirmationDialog: React.FC<ConfirmationDialogProps> = ({
     }, 1000)
     return () => clearInterval(t)
   }, [open, timeoutMs])
+
+  /**
+   * 滚进视野。用 `block: 'nearest'` 而不是 `'center'`：卡片本来就在屏幕底部
+   * （`ChatBottomOverlay`），居中滚动会把整页往上推移一大截，看起来像"页面跳了"。
+   */
+  useEffect(() => {
+    if (!open || !highlight) return
+    cardRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  }, [open, highlight])
 
   if (!open) return null
 
@@ -100,7 +120,14 @@ export const ConfirmationDialog: React.FC<ConfirmationDialogProps> = ({
   }
 
   return (
-    <div className={styles.card} role="alertdialog" aria-label={title}>
+    <div
+      ref={cardRef}
+      className={highlight ? `${styles.card} ${styles.highlight}` : styles.card}
+      // 验证脚本的锚点（`verify/pet-sprite/check-notice-focus.mjs`）——别删
+      data-highlight={highlight ? 'true' : undefined}
+      role="alertdialog"
+      aria-label={title}
+    >
       <div className={styles.head}>
         <span className={styles.glyph} aria-hidden>⚠</span>
         <span className={styles.title}>{title}</span>

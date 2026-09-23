@@ -400,6 +400,7 @@ export class PetWindowManager {
   /**
    * hover 穿透控制：按组件聚合。
    * - pet-dock / degrade-notice：悬停时恢复点击（控制坞始终可操作）
+   * - pet-bubble：悬停时恢复点击（气泡上的「去审批」按钮；只读的那种气泡不上报）
    * - pet-context-menu：**打开期间**恢复点击（见下）
    * - live2d-model：非强制穿透时悬停恢复点击（宠物身体可拖/可点）
    * - 其余区域保持穿透（forward mousemove 仍可用于 hitTest）
@@ -409,6 +410,11 @@ export class PetWindowManager {
    * `bodyHover` 就归 false，窗口随即恢复全窗穿透，菜单上的点击会被转发到下层窗口，
    * 表现为「菜单看得见、点不动」——`setIgnoreMouseEvents(true, {forward:true})` 转发
    * 的是 mousemove，不含 mousedown/click。
+   *
+   * ⚠️ `pet-bubble` **刻意不走"挂着就报"那条路**：`setIgnoreMouseEvents(false)` 是
+   * **整窗**开关（不是按区域裁剪），而气泡一挂就是好几秒——那几秒里用户点桌面任何地方
+   * 都会被吃掉。所以它按"指针真的压上来"上报，代价是点得特别快时可能落在窗口切回可点
+   * 之前那一瞬（控制坞同样如此）。
    */
   reportHover(update: PetHoverUpdate): void {
     if (this.currentMode !== 'pet') return
@@ -445,6 +451,7 @@ export class PetWindowManager {
     const uiHover =
       this.hoveringComponents.has('pet-dock') ||
       this.hoveringComponents.has('degrade-notice') ||
+      this.hoveringComponents.has('pet-bubble') ||
       this.hoveringComponents.has('pet-context-menu')
     const bodyHover = this.hoveringComponents.has('live2d-model') && !this.forceIgnore
 

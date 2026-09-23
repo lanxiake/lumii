@@ -209,6 +209,20 @@ export const PetSettingsSection: React.FC = () => {
             </span>
           </div>
 
+          {/* Agent 通知（R6「叫得动」） */}
+          <div className={styles['setting-item']}>
+            <Checkbox
+              checked={vhSettings.enableAgentNotice}
+              onChange={(checked) => void patchVh({ enableAgentNotice: checked })}
+            >
+              Agent 通知
+            </Checkbox>
+            <span className={styles['setting-hint']}>
+              任务完成、等你审批、向你提问时，宠物会冒一句话并在控制坞列出待办，需要你出手的还会发系统通知；
+              关闭则完全不打扰
+            </span>
+          </div>
+
           {/* 鼠标点击控制 */}
           <div className={styles['setting-item']}>
             <Checkbox

@@ -17,6 +17,7 @@ import {
   type PetModelChangedEvent,
   type PetModePrepareEvent,
   type PetModeSwitchResult,
+  type PetMainWindowFocusEvent,
   type PetMotionActionDTO,
   type PetPerchEvent,
   type PetVhSettingsChangedEvent,
@@ -81,6 +82,9 @@ export const petApi: PetElectronAPI = {
   focusSession: (sessionKey: string): Promise<void> =>
     ipcRenderer.invoke(PET_IPC.focusSession, sessionKey),
 
+  focusNotice: (payload: { sessionKey: string; requestId?: string }): Promise<void> =>
+    ipcRenderer.invoke(PET_IPC.focusNotice, payload),
+
   getMouseIgnoreState: (): Promise<{ clickable: boolean; components: string[] }> =>
     ipcRenderer.invoke(PET_IPC.getMouseIgnoreState),
 
@@ -122,4 +126,9 @@ export const petApi: PetElectronAPI = {
 
   onPerch: (callback: (event: PetPerchEvent) => void): (() => void) =>
     createPetEventListener<PetPerchEvent>(PET_IPC.evtPerch, callback),
+
+  onMainWindowFocus: (callback: (event: PetMainWindowFocusEvent) => void): (() => void) =>
+    createPetEventListener<PetMainWindowFocusEvent>(PET_IPC.evtMainWindowFocus, callback),
+
+  getMainWindowFocus: (): Promise<boolean> => ipcRenderer.invoke(PET_IPC.getMainWindowFocus),
 }

@@ -22,6 +22,7 @@ import {
 } from '@mtbot/agent-runtime/browser'
 import { notifyDesktop } from '../../../services/app-service'
 import { resolveBackfilledAgentLabel } from './sub-agent-label'
+import { flushQueuedMessages } from './queued-flush'
 
 /** 仅在开发环境输出详细日志，避免生产环境噪音 */
 const debugLog = process.env.NODE_ENV === 'development'
@@ -1142,23 +1143,34 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
         return { ...prev, messages: msgs, currentTool: null }
       })
       // 检测 task_complete 工具调用，设置任务完成状态
+      //
+      // ⚠️ 必须验 `status === 'completed'`：这个工具有一道**验证门**——第一次调用若没检测到
+      // 验证步骤（没跑 test/build/lint），会返回一段**提示**让你再调一次，而那次 `isError`
+      // 是 **false**。只看"工具名 + 没报错"会把它当成完成：任务还没做完桌面通知就响了
+      // （`lastTaskCompletion` 一旦置位就会触发那条通知），而紧接着**真完成**那次
+      // 会因为没有新的时间戳而被去重掉——用户看到的是"假完成"，真完成反而静默。
+      // （2026-09-23 跑 `verify/pet-sprite/check-notice-e2e.mjs` 抓到的，宠物侧同源。）
       if (event.toolName === 'task_complete' && !event.isError) {
         let summary = ''
+        let completed = false
         try {
           const result = event.result as Record<string, unknown> | undefined
           const content = result?.content as Array<{ type: string; text?: string }> | undefined
           const textContent = content?.find((c) => c.type === 'text')?.text
           if (textContent) {
-            const parsed = JSON.parse(textContent) as { summary?: string }
+            const parsed = JSON.parse(textContent) as { status?: string; summary?: string }
+            completed = parsed.status === 'completed'
             summary = parsed.summary ?? ''
           }
         } catch {
           // ignore parse errors
         }
-        updateSessionState(sessionKey, (prev) => ({
-          ...prev,
-          lastTaskCompletion: { summary, timestamp: Date.now() },
-        }))
+        if (completed) {
+          updateSessionState(sessionKey, (prev) => ({
+            ...prev,
+            lastTaskCompletion: { summary, timestamp: Date.now() },
+          }))
+        }
       }
       break
     }
@@ -1253,6 +1265,10 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
           llmRouteDetail: prev.llmRouteStatus === 'error' ? prev.llmRouteDetail : null,
         }
       })
+      // 本轮正常结束 → 把该会话的等待队列发出去。放在事件层而非输入框组件里：
+      // 用户切走会话后队列仍要在它自己的回合结束时发出（「后台照常自动发送」），
+      // 组件挂载与否不该影响这件事。中止/错误路径不更新 lastTurnEndAt，也就不触发发送。
+      flushQueuedMessages(sessionKey)
       break
     }
 
@@ -1477,6 +1493,7 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
               timestamp: event.message.timestamp,
               isStreaming: false,
               ...(event.message.isVoice ? { isVoice: true } : {}),
+              ...(event.message.isSteer ? { isSteer: true } : {}),
               ...(event.message.audioWavBase64 ? { audioWavBase64: event.message.audioWavBase64 } : {}),
               toolCalls: (event.message.toolCalls ?? []).map((tc) => ({
                 ...tc,

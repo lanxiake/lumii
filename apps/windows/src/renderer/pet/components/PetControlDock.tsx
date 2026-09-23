@@ -20,6 +20,8 @@ import {
 import type { PetAvatarStatus } from '../orchestrator/PetOrchestrator'
 import { formatAvatarStatusLine } from '../utils/pet-status-labels'
 import { shortSessionLabel, type SessionRun } from '../utils/session-activity'
+import { noticeActionLabel } from '../utils/pet-notice-adapter'
+import type { PetNotice } from '@mtbot/pet-core'
 
 /** 聊天记录单条消息（内存态轻量展示） */
 export interface PetChatMessage {
@@ -50,6 +52,17 @@ export interface PetControlDockProps {
   otherRuns?: readonly SessionRun[]
   /** 点某条会话：请主窗口切过去（主进程转发 `app-ui:goto`） */
   onFocusSession?: (sessionKey: string) => void
+  /**
+   * 待办通知（R6「叫得动」）：**等你出手**的事。
+   *
+   * 与 `otherRuns` 分工不同：那边是"还有谁在动"（纯展示），这边是"这件事不做，它就永远不动"
+   * ——`action` 档的审批 5 分钟超时即 deny。所以它是控制坞里唯一**常驻**的一块。
+   *
+   * 传进来的是 `pendingNotices()` 的结果：未销账、`action` 在前、`ambient` 不列。
+   */
+  pendingNotices?: readonly PetNotice[]
+  /** 点某条待办：把人送到那张卡前面（S2 只做"主窗前台 + 切会话"，高亮那张卡是 S3） */
+  onFocusNotice?: (notice: PetNotice) => void
   modelLoaded: boolean
   voiceError?: string | null
   /** 可切换的 Live2D 模型列表（控制坞下拉展示） */
@@ -157,6 +170,8 @@ export const PetControlDock: React.FC<PetControlDockProps> = ({
   avatarStatus,
   otherRuns,
   onFocusSession,
+  pendingNotices,
+  onFocusNotice,
   modelLoaded,
   voiceError,
   models,
@@ -400,6 +415,66 @@ export const PetControlDock: React.FC<PetControlDockProps> = ({
                         {r.state === 'waiting' ? '?' : r.state === 'error' ? '!' : '·'}
                       </span>
                       {shortSessionLabel(r.sessionKey)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {/*
+              待办区（R6「叫得动」）：**唯一常驻的一块**。
+              `report` 档（任务做完了）30 秒就自清，`action` 档（卡住了）一直挂着，
+              直到用户处置或审批超时——所以这里不需要自己判时限，列表内容就是答案。
+            */}
+            {pendingNotices && pendingNotices.length > 0 && (
+              <div style={{ marginTop: 6, marginLeft: 23, fontSize: 11, lineHeight: 1.5 }}>
+                <div style={{ color: 'rgba(255, 205, 120, 0.9)' }}>
+                  {(() => {
+                    const waiting = pendingNotices.filter((n) => n.level === 'action').length
+                    return waiting > 0 ? `${waiting} 件事等你` : '刚刚发生'
+                  })()}
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 4 }}>
+                  {pendingNotices.slice(0, 4).map((n) => (
+                    <button
+                      key={n.id}
+                      type="button"
+                      title={n.text}
+                      onClick={() => onFocusNotice?.(n)}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        width: '100%',
+                        padding: '3px 8px',
+                        borderRadius: 8,
+                        border: `1px solid ${
+                          n.level === 'action' ? 'rgba(255, 190, 90, 0.38)' : light(0.12)
+                        }`,
+                        background: 'transparent',
+                        color:
+                          n.level === 'action'
+                            ? 'rgba(255, 205, 120, 0.95)'
+                            : `${light(0.6)}`,
+                        fontSize: 11,
+                        textAlign: 'left',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <span aria-hidden="true">{n.level === 'action' ? '?' : '·'}</span>
+                      <span
+                        style={{
+                          flex: 1,
+                          minWidth: 0,
+                          overflow: 'hidden',
+                          whiteSpace: 'nowrap',
+                          textOverflow: 'ellipsis',
+                        }}
+                      >
+                        {n.text}
+                      </span>
+                      <span style={{ flexShrink: 0, opacity: 0.75 }}>
+                        {noticeActionLabel(n)}
+                      </span>
                     </button>
                   ))}
                 </div>

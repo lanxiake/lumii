@@ -33,6 +33,8 @@ export const VH_STORAGE_KEYS = {
   enableIdleMotion: 'mtbot:vh-enable-idle-motion',
   /** Agent 活动感知（关=宠物不随 Agent 的思考/工具/等待改姿态） */
   enableAgentActivity: 'mtbot:vh-enable-agent-activity',
+  /** Agent 通知（关=不冒气泡、不进待办区） */
+  enableAgentNotice: 'mtbot:vh-enable-agent-notice',
   /** 鼠标点击控制（开=点击宠物身体触发互动动作） */
   enableTapInteraction: 'mtbot:vh-enable-tap-interaction',
   /** 强制鼠标穿透默认值（开=进入宠物模式即仅身体穿透） */
@@ -98,6 +100,15 @@ export interface VirtualHumanSettingsDTO {
    * （含没有分层脸的自制模型）。它是"让 Agent 的状态可见"的唯一手段里最不打扰的一层。
    */
   enableAgentActivity: boolean
+  /**
+   * Agent 通知（true=任务完成/等你审批/向你提问时，宠物冒气泡并进控制坞待办区；
+   * false=完全不感知）。
+   *
+   * 与 `enableAgentActivity` 是**两个开关**：那个是"Agent 在忙"的连续底色（不看没代价），
+   * 这个是"要不要你现在看一眼"的待办（错过有代价——审批 5 分钟超时即失败）。
+   * 有人就是不想要任何打扰，所以**必须能单独关**。
+   */
+  enableAgentNotice: boolean
   /** 鼠标点击控制（true=点击宠物身体区域触发互动动作；false=点击不触发） */
   enableTapInteraction: boolean
   /** 强制鼠标穿透默认值（true=进入宠物模式即仅身体穿透，控制坞仍可点） */
@@ -126,6 +137,7 @@ export const DEFAULT_VH_SETTINGS: VirtualHumanSettingsDTO = {
   enableVoiceReply: false,
   enableIdleMotion: true,
   enableAgentActivity: true,
+  enableAgentNotice: true,
   enableTapInteraction: true,
   forceIgnoreMouse: false,
   enableIdleAwareness: true,

@@ -4,13 +4,21 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import {
+  enqueueQueuedMessage,
   findAnyPendingPermission,
   findAnyPendingAskUser,
   getDefaultPerSessionState,
   getPendingPermissionSnapshot,
   getPendingAskUserSnapshot,
+  makeQueuedMessage,
+  markSteerSent,
+  removeQueuedMessageById,
   resetRuntimeStore,
+  resetSteer,
   runtimeStore,
+  setFocusPermissionRequestId,
+  setSteerDraft,
+  takeQueuedMessages,
   type PendingAskUser,
   type PendingPermission,
 } from './agent-runtime-store'
@@ -665,5 +673,118 @@ describe('handleRuntimeEvent 异步子 Agent 完成通知', () => {
       '结果已汇入会话，点击查看',
       'conv-parent',
     )
+  })
+})
+
+/**
+ * 「宠物把我送到那张卡前面」（深链）的那一次性意图。
+ *
+ * 它不属于任何会话，所以留在 store 顶层；设置者是 App.tsx（收到 `app-ui:goto` 的
+ * `focusPermissionRequestId`），消费者是 ChatPage。
+ */
+describe('setFocusPermissionRequestId', () => {
+  beforeEach(() => {
+    resetRuntimeStore()
+  })
+
+  it('设置与清空', () => {
+    expect(runtimeStore.getState().focusPermissionRequestId).toBeNull()
+    setFocusPermissionRequestId('req-1')
+    expect(runtimeStore.getState().focusPermissionRequestId).toBe('req-1')
+    setFocusPermissionRequestId(null)
+    expect(runtimeStore.getState().focusPermissionRequestId).toBeNull()
+  })
+
+  it('设成同一个值时不产生新快照（引用不变，避免无谓重渲染）', () => {
+    setFocusPermissionRequestId('req-1')
+    const before = runtimeStore.getState()
+    setFocusPermissionRequestId('req-1')
+    expect(runtimeStore.getState()).toBe(before)
+  })
+
+  it('resetRuntimeStore 会清掉它（宠物窗口重载/测试之间不留残留）', () => {
+    setFocusPermissionRequestId('req-1')
+    resetRuntimeStore()
+    expect(runtimeStore.getState().focusPermissionRequestId).toBeNull()
+  })
+})
+
+/**
+ * 队列与插话草稿过去是 ChatInput 的组件局部 state，切会话时跟着输入框跑：
+ * 在 A 排队的消息会显示在 B 的输入框里，B 的回合一结束还会被发到 B 去。
+ */
+describe('会话级等待队列', () => {
+  beforeEach(() => {
+    resetRuntimeStore()
+  })
+
+  it('按会话隔离：A 会话入队不影响 B 会话', () => {
+    enqueueQueuedMessage('s-A', makeQueuedMessage('给 A 的话'))
+    enqueueQueuedMessage('s-A', makeQueuedMessage('再来一条'))
+    enqueueQueuedMessage('s-B', makeQueuedMessage('给 B 的话'))
+
+    const sessions = runtimeStore.getState().sessions
+    expect(sessions.get('s-A')?.queuedMessages.map((m) => m.text)).toEqual(['给 A 的话', '再来一条'])
+    expect(sessions.get('s-B')?.queuedMessages.map((m) => m.text)).toEqual(['给 B 的话'])
+  })
+
+  it('takeQueuedMessages 原子取出并清空：自动发送与手动发送谁先到谁发，不会重复', () => {
+    enqueueQueuedMessage('s-A', makeQueuedMessage('x'))
+
+    expect(takeQueuedMessages('s-A').map((m) => m.text)).toEqual(['x'])
+    expect(runtimeStore.getState().sessions.get('s-A')?.queuedMessages).toHaveLength(0)
+    expect(takeQueuedMessages('s-A')).toHaveLength(0)
+  })
+
+  it('空队列取出返回稳定空数组（避免无谓重渲染）', () => {
+    expect(takeQueuedMessages('s-none')).toHaveLength(0)
+    expect(takeQueuedMessages('s-none')).toBe(takeQueuedMessages('s-none'))
+  })
+
+  it('可按 id 移除单条（队列项从字符串升级为带 id 的条目）', () => {
+    const first = makeQueuedMessage('第一条')
+    enqueueQueuedMessage('s-A', first)
+    enqueueQueuedMessage('s-A', makeQueuedMessage('第二条'))
+
+    removeQueuedMessageById('s-A', first.id)
+
+    expect(runtimeStore.getState().sessions.get('s-A')?.queuedMessages.map((m) => m.text)).toEqual([
+      '第二条',
+    ])
+  })
+
+  it('入队时快照模型 id：自动发送时漏传会把会话模型偏好清空', () => {
+    enqueueQueuedMessage('s-A', makeQueuedMessage('hi', 'deepseek-chat'))
+    expect(takeQueuedMessages('s-A')[0]?.modelId).toBe('deepseek-chat')
+  })
+})
+
+describe('会话级插话状态', () => {
+  beforeEach(() => {
+    resetRuntimeStore()
+  })
+
+  it('草稿按会话隔离，切会话不串', () => {
+    setSteerDraft('s-A', 'A 的插话草稿')
+    setSteerDraft('s-B', 'B 的插话草稿')
+
+    const sessions = runtimeStore.getState().sessions
+    expect(sessions.get('s-A')?.steer.draft).toBe('A 的插话草稿')
+    expect(sessions.get('s-B')?.steer.draft).toBe('B 的插话草稿')
+  })
+
+  it('markSteerSent 置「补充中」，resetSteer 复位但默认保留草稿', () => {
+    setSteerDraft('s-A', '草稿')
+    markSteerSent('s-A')
+    expect(runtimeStore.getState().sessions.get('s-A')?.steer.sent).toBe(true)
+
+    resetSteer('s-A')
+    const steer = runtimeStore.getState().sessions.get('s-A')?.steer
+    expect(steer?.sent).toBe(false)
+    // 多轮工具之间存在短暂的 !isStreaming 间隙，一律清草稿会误删用户正在输入的内容
+    expect(steer?.draft).toBe('草稿')
+
+    resetSteer('s-A', { clearDraft: true })
+    expect(runtimeStore.getState().sessions.get('s-A')?.steer.draft).toBe('')
   })
 })

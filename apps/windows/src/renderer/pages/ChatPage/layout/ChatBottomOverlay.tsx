@@ -13,6 +13,13 @@ export interface ChatBottomOverlayProps {
     timeoutMs?: number
   }
   permissionSessionKey?: string | null
+  /**
+   * 这张卡是不是"宠物把我送过来的"。
+   *
+   * 由 `MultiSessionRuntimeState.focusPermissionRequestId` 与当前卡的 `requestId`
+   * 匹配得出；只做一次性高亮，不改变卡的任何行为。
+   */
+  highlightPermission?: boolean
   currentSessionKey: string | null
   onAllowOnce: () => void
   onAllowAlways: () => void
@@ -27,6 +34,7 @@ export interface ChatBottomOverlayProps {
 export const ChatBottomOverlay: React.FC<ChatBottomOverlayProps> = ({
   permission,
   permissionSessionKey,
+  highlightPermission,
   currentSessionKey,
   onAllowOnce,
   onAllowAlways,
@@ -46,6 +54,7 @@ export const ChatBottomOverlay: React.FC<ChatBottomOverlayProps> = ({
           toolName={permission.toolName}
           timeoutMs={permission.timeoutMs ?? 0}
           sessionHint={permissionSessionKey && permissionSessionKey !== currentSessionKey ? `来自后台会话：${permissionSessionKey}` : undefined}
+          highlight={highlightPermission}
           onAllowOnce={onAllowOnce}
           onAllowAlways={onAllowAlways}
           onDeny={onDeny}

@@ -128,6 +128,17 @@ export interface GotoInput {
    * （见 `PET_IPC.focusSession`）。不带这个字段时行为与从前完全一致。
    */
   sessionKey?: string
+  /**
+   * 顺带把**这张审批卡**滚进视野并高亮（一次性）。
+   *
+   * 目前唯一的使用者是宠物窗口的「去审批」按钮（见 `PET_IPC.focusNotice`）：
+   * 宠物能说的只有"去这个会话"，但用户要的终点是**那张卡**——中间隔着切会话、
+   * 加载历史、卡片渲染三步，靠人自己找就是"送到了门口没送进门"。
+   *
+   * 卡已经不在了（用户刚在主窗处置过）时**安静降级为只切会话**，不报错。
+   * 兑现与过期都在 ChatPage 那边（见 `MultiSessionRuntimeState.focusPermissionRequestId`）。
+   */
+  focusPermissionRequestId?: string
 }
 
 /** app_act click 入参 */

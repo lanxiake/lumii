@@ -24,6 +24,31 @@
   background: var(--mt-warning);
 }
 
+/**
+ * 一次性高亮（宠物窗口的「去审批」把人送到这张卡前面时用）：**跑完即停，不是常驻态**。
+ *
+ * 与入场动画**并列**而不是覆盖——同一条 `animation` 属性写两次只会剩后一条，
+ * 那会让"送到面前"的卡片丢掉它本该有的入场。
+ */
+.highlight {
+  animation:
+    mt-approval-in var(--mt-dur-normal, 0.2s) var(--mt-ease-spring, ease),
+    mt-approval-glow 2s ease-out;
+}
+
+@keyframes mt-approval-glow {
+  0% {
+    box-shadow:
+      0 0 0 0 color-mix(in srgb, var(--mt-warning) 70%, transparent),
+      var(--mt-shadow-sm, 0 1px 4px rgba(0, 0, 0, 0.06));
+  }
+  100% {
+    box-shadow:
+      0 0 0 14px transparent,
+      var(--mt-shadow-sm, 0 1px 4px rgba(0, 0, 0, 0.06));
+  }
+}
+
 @keyframes mt-approval-in {
   from {
     opacity: 0;

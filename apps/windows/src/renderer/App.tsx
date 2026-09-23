@@ -19,6 +19,7 @@ import {
 } from './components/ScreenRecord'
 import { PetModeTitleControl } from './components/PetModeTitleControl'
 import type { GotoInput } from '@main/app-ui-control/types'
+import { setFocusPermissionRequestId } from './hooks/business/useAgentRuntime/agent-runtime-store'
 import { SplashOverlay } from './components/SplashOverlay/SplashOverlay'
 import { useTheme, type AppliedTheme } from './contexts/ThemeContext/ThemeContext'
 import { useToast } from './components/ui/Toast/useToast'
@@ -143,7 +144,7 @@ const AuthenticatedApp: React.FC<AuthenticatedAppProps> = ({ onShellReady }) => 
     // electronAPI.on 是通用事件总线，回调签名固定为 (...args: unknown[]) => void，
     // 不针对具体 channel 收窄；此处按 app-ui:goto 的约定形状断言首个参数
     const handleAppUiGoto = (...args: unknown[]) => {
-      const { view, category, sessionKey } = args[0] as GotoInput
+      const { view, category, sessionKey, focusPermissionRequestId } = args[0] as GotoInput
       /**
        * 带 `sessionKey` 的跳转：先切会话、再停在对话页。
        *
@@ -156,6 +157,12 @@ const AuthenticatedApp: React.FC<AuthenticatedAppProps> = ({ onShellReady }) => 
           console.warn('[app-ui:goto] 切换会话失败:', err)
         })
         handleViewChange('chat')
+        /**
+         * 「送到那张卡前面」（宠物窗点「去审批」时带上来）：只把意图写进 store，
+         * 由 ChatPage 在卡片真的出现时兑现。**这里不检查卡在不在**——那一刻
+         * 会话可能还没切完、卡片还没渲染，检查必然为假；兑现与过期都在 ChatPage 那边。
+         */
+        if (focusPermissionRequestId) setFocusPermissionRequestId(focusPermissionRequestId)
         return
       }
       if (isHubView(view)) {

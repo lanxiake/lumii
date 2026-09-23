@@ -21,10 +21,10 @@ import { PetControlDock } from './components/PetControlDock'
 import { PetSpeechBubble } from './components/PetSpeechBubble'
 import { PetStatusGlyph } from './components/PetStatusGlyph'
 import { PetContextMenu } from './components/PetContextMenu'
-import { spawnIdleSparkles } from './components/pet-particles'
+import { spawnClickFireworks, spawnIdleSparkles } from './components/pet-particles'
 import { PetOrchestrator, type PetAvatarStatus } from './orchestrator/PetOrchestrator'
 import { PetEmotionMapper } from './orchestrator/PetEmotionMapper'
-import { mapAgentEvent, type PetIdleStage } from '@mtbot/pet-core'
+import { mapAgentEvent, pendingNotices, type PetIdleStage, type PetNotice } from '@mtbot/pet-core'
 import { useVoiceCall } from '../hooks/business/useVoiceCall/useVoiceCall'
 import { useAgentRuntimeActions } from '../hooks/business/useAgentRuntime/useAgentRuntime'
 import type { PetModelConfig } from './config/pet-model-types'
@@ -53,7 +53,17 @@ import {
   type SessionActivityState,
 } from './utils/session-activity'
 import { readPersistedSessionThinkingPrefs } from '../../shared/session-thinking-prefs'
+import { notifyDesktop } from '../services/app-service'
 import { petSessionMatchesEvent } from './utils/pet-session-match'
+import {
+  INITIAL_TURN_FACTS,
+  advanceTurnFacts,
+  isNoticeEvent,
+  noticeActionLabel,
+  toNoticeEvent,
+  type NoticeTurnFacts,
+  type RawAgentEvent,
+} from './utils/pet-notice-adapter'
 
 const log = {
   info: (...args: unknown[]) => console.log('[PetModeShell]', ...args),
@@ -97,6 +107,8 @@ export const PetModeShell: React.FC = () => {
   const enableIdleMotionRef = useRef<boolean>(DEFAULT_VH_SETTINGS.enableIdleMotion)
   /** Agent 活动感知（R5/R6）：关掉后宠物不再随 Agent 的思考/工具/等待改姿态 */
   const enableAgentActivityRef = useRef<boolean>(DEFAULT_VH_SETTINGS.enableAgentActivity)
+  /** Agent 通知（R6「叫得动」）：关掉后不冒通知气泡、控制坞也不列待办 */
+  const enableAgentNoticeRef = useRef<boolean>(DEFAULT_VH_SETTINGS.enableAgentNotice)
   const enableTapInteractionRef = useRef<boolean>(DEFAULT_VH_SETTINGS.enableTapInteraction)
   /**
    * 最近一次收到的闲置阶段。
@@ -106,6 +118,12 @@ export const PetModeShell: React.FC = () => {
    * 宠物会一直醒着直到下一次阶段变化——而下次变化要等到用户回来，即永远不睡。
    */
   const idleStageRef = useRef<PetIdleStage>('awake')
+  /**
+   * 主窗当前是否聚焦。**与 `idleStageRef` 同一个理由**：焦点订阅在挂载时就跑了，
+   * 而编排器要等模型加载完才建——不在这里存一份，订阅到的那次（以及补问的那次）
+   * 会喂给 `null`，编排器建好后一直以为主窗是聚焦的，"用户走开了"这条判据就永不成立。
+   */
+  const mainWindowFocusedRef = useRef<boolean | undefined>(undefined)
   const [degrade, setDegrade] = useState<PetCanvasDegradeReason | null>(null)
   const [modelLoaded, setModelLoaded] = useState(false)
   const [muted, setMuted] = useState(false)
@@ -123,6 +141,13 @@ export const PetModeShell: React.FC = () => {
     x: number
     y: number
     petHeight: number
+    /**
+     * 有值 = 这条气泡来自**通知**（任务完成/等你审批/提问），带一个可点的按钮。
+     *
+     * 它同时决定气泡**可不可点**：只读的状态句（还在忙…）不该拦鼠标，而通知气泡
+     * 不点就等于没送到——「看得见、点不动」正是设计里要消灭的那个状态。
+     */
+    notice?: PetNotice
   } | null>(null)
   /** 气泡的撤下定时器（新气泡来了要清掉旧的，否则旧 TTL 会把新气泡误撤） */
   const bubbleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -164,6 +189,56 @@ export const PetModeShell: React.FC = () => {
    * 计数与判据都在 `session-activity` 里，这里只负责喂数据与展示。
    */
   const [sessionRuns, setSessionRuns] = useState<SessionActivityState>(EMPTY_SESSION_ACTIVITY)
+  /**
+   * 待办通知（R6「叫得动」）。与 `sessionRuns` 是两件事：那边是"**谁**在跑"（纯展示），
+   * 这边是"**哪件事**不做就永远不动"（要处置）。同样**跨会话**——不按主体过滤。
+   */
+  const [notices, setNotices] = useState<readonly PetNotice[]>([])
+  /** 本轮的两个"事实"（`hasTaskComplete` / `userInitiated`）：事件里没有，得宿主自己数 */
+  const noticeTurnFactsRef = useRef<NoticeTurnFacts>(INITIAL_TURN_FACTS)
+  /**
+   * 已经**处置过**的 notice id（发过系统通知 / 放过完成粒子）。
+   *
+   * `noticeListener` 推的是全量列表、而且每次变化（含 TTL 清理）都会推，
+   * 所以"这条要不要动手"靠差集判——没有这道闸，一次审批能弹三遍
+   * （重放、tick、重绑各一次）。
+   */
+  const alertedNoticeIdsRef = useRef<Set<string>>(new Set())
+  /** 控制坞的待办清单：未销账、`action` 在前、`ambient` 不列（排序规则在 pet-core 里） */
+  const pendingNoticeList = useMemo(() => pendingNotices(notices), [notices])
+  /**
+   * 气泡与头顶符号每帧的锚点（**跟着宠物走**）。
+   *
+   * 空依赖 → 引用稳定 → 两个组件内部的 rAF effect 不会反复重建（那会让跟随一顿一顿的）。
+   * 位置读的是渲染器的实时坐标，所以宠物走动/被拖走时都跟得上。
+   */
+  const getPetAnchor = useCallback(() => {
+    const renderer = canvasRef.current?.getRenderer()
+    const pos = renderer?.getPosition?.()
+    if (!pos) return null
+    const layout = renderer?.getLayout?.()
+    return { x: pos.x, y: pos.y, petHeight: layout?.modelHeight ?? 200 }
+  }, [])
+
+  /**
+   * 把用户送到那张卡前面。
+   *
+   * 三步里前两步（主窗前台 + 切会话）在 S2 就有了，第三步——**把那张审批卡滚进视野并高亮**
+   * ——是 S3 的深链：走 `pet:focus-notice`，把 `requestId` 一并交给主窗。
+   * 卡已经不在（用户在主窗刚处置过）时主窗会安静降级为"只切会话"，不是错误。
+   *
+   * 点完必须撤气泡：不撤的话用户会以为没反应，而通知本体还在控制坞里挂着（销账只认事件）。
+   */
+  const handleFocusNotice = useCallback((notice: PetNotice) => {
+    if (bubbleTimerRef.current) clearTimeout(bubbleTimerRef.current)
+    bubbleTimerRef.current = null
+    setBubble(null)
+    const requestId =
+      notice.deepLink?.to === 'permission' || notice.deepLink?.to === 'ask-user'
+        ? notice.deepLink.requestId
+        : undefined
+    void window.electronAPI?.pet?.focusNotice?.({ sessionKey: notice.sessionKey, requestId })?.catch?.(() => {})
+  }, [])
   /** 别处等你出手（waiting/error），用来抢头顶符号 */
   const attention = useMemo(
     () => foreignAttention(sessionRuns, sessionKeyRef.current),
@@ -374,6 +449,7 @@ export const PetModeShell: React.FC = () => {
     orch.setStatusListener((status) => setAvatarStatus({ ...status }))
     orch.setEnableIdleMotion(enableIdleMotionRef.current)
     orch.setEnableAgentActivity(enableAgentActivityRef.current)
+    orch.setEnableAgentNotice(enableAgentNoticeRef.current)
     // L4 气泡（R5/R6）：冒出来之后按自己的 TTL 撤，**不跟着 activity 生死**——
     // 实测 waiting 常常只存在 0ms，跟着状态走那句「需要你确认一下」会一闪而过。
     orch.setAnnounceListener((payload) => {
@@ -392,11 +468,56 @@ export const PetModeShell: React.FC = () => {
         y: pos?.y ?? 0,
         // modelHeight 拿不到时给个保守值，最坏是气泡位置略偏，不会崩
         petHeight: layout?.modelHeight ?? 200,
+        notice: payload.notice,
       })
       bubbleTimerRef.current = setTimeout(() => setBubble(null), payload.durationMs)
     })
+    /**
+     * 待办清单（控制坞那一块）+ **系统通知**。
+     *
+     * 系统通知只给 `action` 档（设计 §5.1）：`report` 的语义是"顺便告诉你一声"，
+     * 给它最强的通道等于把"任务完成"变成需要处理的待办——那正是 D4 骚扰的定义。
+     *
+     * 发通知的时机是**通知产生**，不是"气泡冒出来"：免打扰时段气泡不冒（§6.3），
+     * 但那条审批照样得叫你——它 5 分钟不响应就失败了。
+     */
+    orch.setNoticeListener((notices) => {
+      setNotices(notices)
+      const handled = alertedNoticeIdsRef.current
+      for (const n of notices) {
+        if (n.resolvedAt !== undefined) continue
+        if (n.level === 'ambient') continue
+        if (handled.has(n.id)) continue
+        handled.add(n.id)
+        if (handled.size > 200) {
+          const oldest = handled.values().next().value
+          if (oldest !== undefined) handled.delete(oldest)
+        }
+        if (n.level === 'action') {
+          log.info(`[notice] 系统通知 id=${n.id} text="${n.text}"`)
+          // `convId` 必须带：不带的话用户点了通知只会把主窗拉到前台，**不会切到那个会话**
+          // （这正是 D1 那条既有缺陷的形态——通知"点了不跳转"）。
+          notifyDesktop('Lumii · 需要你确认', n.text, n.sessionKey)
+        } else {
+          // `report` 档"完成时放一次"粒子（设计 §5.1 的通道表）。
+          // `action` 档**刻意不放**——设计原文："庆祝归庆祝，催办不用喜庆特效"。
+          // 位置取**上半身**而不是贴头顶：与待机星星同一个先例（贴头顶像"头发着火"）。
+          const renderer = canvasRef.current?.getRenderer()
+          const pos = renderer?.getPosition?.()
+          const layout = renderer?.getLayout?.()
+          if (pos) {
+            log.info(`[notice] 完成粒子 id=${n.id} text="${n.text}"`)
+            spawnClickFireworks(pos.x, pos.y - (layout?.modelHeight ?? 200) * 0.82)
+          }
+        }
+      }
+    })
     // 补上订阅期间可能已经到达的闲置阶段（setIdleStage 幂等，同阶段重复调用是空操作）
     orch.setIdleStage(idleStageRef.current)
+    // 同理补主窗焦点：订阅早于编排器创建，不补的话它会一直按"聚焦"算
+    if (mainWindowFocusedRef.current !== undefined) {
+      orch.setMainWindowFocused(mainWindowFocusedRef.current)
+    }
 
     const emotionMap = config.emotionMap ?? {}
     // 表情与动作走同一朗读进度对齐（按 atChar 排队，读到位置再切/再做）
@@ -467,6 +588,8 @@ export const PetModeShell: React.FC = () => {
       orchestratorRef.current?.setEnableIdleMotion(enableIdleMotionRef.current)
       enableAgentActivityRef.current = s.enableAgentActivity ?? DEFAULT_VH_SETTINGS.enableAgentActivity
       orchestratorRef.current?.setEnableAgentActivity(enableAgentActivityRef.current)
+      enableAgentNoticeRef.current = s.enableAgentNotice ?? DEFAULT_VH_SETTINGS.enableAgentNotice
+      orchestratorRef.current?.setEnableAgentNotice(enableAgentNoticeRef.current)
       enableTapInteractionRef.current = s.enableTapInteraction ?? DEFAULT_VH_SETTINGS.enableTapInteraction
       setTapInteractionEnabled(enableTapInteractionRef.current)
     }).catch(() => {})
@@ -492,6 +615,10 @@ export const PetModeShell: React.FC = () => {
       if (patch.enableAgentActivity !== undefined) {
         enableAgentActivityRef.current = patch.enableAgentActivity
         orchestratorRef.current?.setEnableAgentActivity(patch.enableAgentActivity)
+      }
+      if (patch.enableAgentNotice !== undefined) {
+        enableAgentNoticeRef.current = patch.enableAgentNotice
+        orchestratorRef.current?.setEnableAgentNotice(patch.enableAgentNotice)
       }
       if (patch.enableTapInteraction !== undefined) {
         enableTapInteractionRef.current = patch.enableTapInteraction
@@ -528,6 +655,46 @@ export const PetModeShell: React.FC = () => {
       .catch(() => {})
     log.info('[idle] 已订阅闲置阶段事件，等待主进程推送')
     return window.electronAPI.pet.onIdle((event) => apply(event.stage, '收到闲置阶段推送'))
+  }, [])
+
+  /**
+   * 主窗焦点 → 通知（R6）的 `report` 判据。
+   *
+   * 用于两条规则：`turn:end` 的「用户发起后走开了」、`file-changes` 的「主窗失焦且
+   * 用户没参与」。宠物窗自己问不到——它常驻置顶，`document.hasFocus()` 回答的是**它自己**。
+   *
+   * ⚠️ 与 `onIdle` **同一个丢首推的坑**（挂载时那次推送已经发过了），所以要补问一次；
+   * 但顺序与 `onPerch` 那条相反也没关系——焦点是**幂等**的当前态，不像矩形那样"两次推送
+   * 之间丢的那次会让位置永久失真"。唯一要处理的是**竞态**：补问的 Promise 可能比
+   * 订阅收到的事件晚 resolve，那样旧值会盖掉新值 → 用一个标志让事件优先。
+   */
+  useEffect(() => {
+    const api = window.electronAPI?.pet
+    if (!api?.onMainWindowFocus) {
+      log.warn('[focus] preload 未暴露 onMainWindowFocus —— report 档退回"只看时长"')
+      return
+    }
+    let alive = true
+    let gotEvent = false
+    const apply = (focused: boolean): void => {
+      mainWindowFocusedRef.current = focused
+      orchestratorRef.current?.setMainWindowFocused(focused)
+    }
+    const unsub = api.onMainWindowFocus((event) => {
+      gotEvent = true
+      apply(Boolean(event?.focused))
+    })
+    void api
+      .getMainWindowFocus?.()
+      .then((focused) => {
+        if (!alive || gotEvent) return
+        apply(Boolean(focused))
+      })
+      .catch(() => {})
+    return () => {
+      alive = false
+      unsub?.()
+    }
   }, [])
 
   // 拉取可切换模型列表（控制坞下拉）
@@ -570,10 +737,7 @@ export const PetModeShell: React.FC = () => {
 
     return api.onEvent((raw: unknown) => {
       try {
-        const event = (raw ?? {}) as {
-          type?: string
-          sessionKey?: string
-          rootSessionKey?: string
+        const event = (raw ?? {}) as RawAgentEvent & {
           delta?: string
           emotion?: string
           content?: readonly { type: string; text?: string }[]
@@ -600,6 +764,16 @@ export const PetModeShell: React.FC = () => {
         if (evtSessionKey && !sessionKeyRef.current) {
           sessionKeyRef.current = evtSessionKey
           log.info(`[onEvent] 采纳会话 sessionKey=${evtSessionKey}`)
+        }
+        // 通知折账（R6）：**同样在按会话过滤之前**——别人的会话卡住了，也占着同一个
+        // Agent 进程与同一份配额，必须叫（设计 §七「推翻 D3」）。
+        //
+        // 顺序要紧：先把本轮事实推进一步（`turn:start` 复位、`task_complete` 置位），
+        // 再转成通知事件。反过来的话，`turn:end` 会看到上一轮留下的 `sawTaskComplete`。
+        noticeTurnFactsRef.current = advanceTurnFacts(noticeTurnFactsRef.current, event)
+        if (isNoticeEvent(event.type ?? '')) {
+          const noticeEvent = toNoticeEvent(event, noticeTurnFactsRef.current)
+          if (noticeEvent) orchestratorRef.current?.pushNoticeEvent(noticeEvent)
         }
         const sk = sessionKeyRef.current
         if (sk && evtSessionKey && !petSessionMatchesEvent(sk, event)) {
@@ -926,6 +1100,16 @@ export const PetModeShell: React.FC = () => {
           x={bubble.x}
           y={bubble.y}
           petHeight={bubble.petHeight}
+          getAnchor={getPetAnchor}
+          // 只有通知气泡带按钮：状态句（还在忙…）是只读的，给它一个按钮反而让人以为要点什么
+          action={
+            bubble.notice
+              ? {
+                  label: noticeActionLabel(bubble.notice),
+                  onClick: () => handleFocusNotice(bubble.notice!),
+                }
+              : undefined
+          }
         />
       )}
       {/*
@@ -942,6 +1126,7 @@ export const PetModeShell: React.FC = () => {
           x={glyphAnchor.x}
           y={glyphAnchor.y}
           petHeight={glyphAnchor.petHeight}
+          getAnchor={getPetAnchor}
         />
       )}
       {menuAt && (
@@ -1001,6 +1186,8 @@ export const PetModeShell: React.FC = () => {
         idleMotionEnabled={idleMotionEnabled}
         avatarStatus={avatarStatus}
         otherRuns={otherRuns}
+        pendingNotices={pendingNoticeList}
+        onFocusNotice={handleFocusNotice}
         // 点一条会话 → 主进程把主窗带到前台并把 app-ui:goto（带 sessionKey）发过去；
         // 真正的会话切换在主窗的 agent-runtime 里做（会话状态不在主进程）
         onFocusSession={(sessionKey) => {

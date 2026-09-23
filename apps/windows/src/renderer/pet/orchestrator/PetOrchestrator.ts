@@ -25,13 +25,20 @@ import {
   announceDurationMs,
   IDENTITY_MODULATION,
   initialAgentActivity,
+  isQuietHour,
   pickAgentAnnouncement,
+  pickNoticeForBubble,
   reduceAgentActivity,
+  reduceNotices,
   tickAgentActivity,
+  tickNotices,
   type ActivityModulation,
   type AgentActivity,
   type AgentActivityEvent,
   type AgentActivityState,
+  type NoticeEvent,
+  type NoticeReportStamp,
+  type PetNotice,
 } from '@mtbot/pet-core'
 import { PET_MOTION_GROUP_UNNAMED } from '../config/pet-model-types'
 import { PetBus } from './pet-bus'
@@ -127,6 +134,33 @@ export interface PetAvatarStatus {
   agentActivity?: AgentActivity
 }
 
+/**
+ * 一条要冒的气泡。
+ *
+ * `notice` 有值 = 这条来自**通知**（R6）：气泡可点、带一个按钮，点击后由宿主把人送到
+ * 那张卡前面。没有它 = 来自 `agentActivity` 的"状态句"（还在忙…/出错了），只读。
+ */
+export interface PetAnnouncePayload {
+  readonly text: string
+  readonly durationMs: number
+  readonly notice?: PetNotice
+}
+
+/**
+ * `action` 档气泡的最短停留时间。
+ *
+ * 比状态句长：这条**可点**，用户得先看清"要我确认什么"再做决定，按字数给的
+ * 2.6~6s 对"读一句 + 做决定 + 移动鼠标"偏紧。撤下之后还有头顶符号和控制坞接着，
+ * 所以撤掉不是"事情没了"。
+ */
+const NOTICE_ACTION_BUBBLE_MS = 8000
+
+/** 已冒过的通知 id 最多记这么多（FIFO 淘汰）——跨天长期运行时防止集合无限长 */
+const ANNOUNCED_NOTICE_IDS_MAX = 500
+
+/** `report` 限流账本的保留时长：只服务"最近一分钟"，留更久的没用（见 `rememberAnnounced`） */
+const NOTICE_LEDGER_KEEP_MS = 5 * 60 * 1000
+
 export class PetOrchestrator {
   private bus = new PetBus()
   private lipSync: PetLipSync
@@ -181,8 +215,39 @@ export class PetOrchestrator {
   private announceHistory = new Map<string, number>()
   /** 本轮已经冒过的气泡 key（`turn-start` 时清空） */
   private announcedThisTurn = new Set<string>()
-  private announceListener: ((payload: { text: string; durationMs: number } | null) => void) | null =
-    null
+  private announceListener: ((payload: PetAnnouncePayload | null) => void) | null = null
+  /**
+   * 通知（R6「叫得动」）：有生命周期的待办——任务完成、审批、提问。
+   *
+   * 与 `agentActivity` **正交**：那个是"Agent 在忙什么"的连续底色，这个是"要不要你现在看一眼"。
+   * 状态与转移全在 pet-core 的 `notice.ts` 里，这里只负责持有、按帧推进、挑一条冒气泡。
+   */
+  private notices: readonly PetNotice[] = []
+  /**
+   * 哪些通知已经**冒过气泡**。
+   *
+   * 与"销账"是两件事：销账只认事件（`permission:granted` 之类），这里只防"同一条冒两遍"。
+   * 宠物窗口 `Page.reload` 会重新挂载订阅、主窗重连也会补发，没有这道闸一次审批能叫三遍。
+   */
+  private announcedNoticeIds = new Set<string>()
+  /** `report` 档气泡的限流账本（每会话 1/分钟、全局 3/分钟），见 `notice.ts` 的 budget */
+  private recentReportStamps: NoticeReportStamp[] = []
+  private noticeListener: ((notices: readonly PetNotice[]) => void) | null = null
+  /**
+   * 当前气泡是哪条通知冒的（null = 气泡来自状态句，或没有气泡）。
+   *
+   * 用来在**销账时立刻撤气泡**：用户在主窗点了「允许」，宠物那边那句
+   * 「执行 Shell 命令：…」还挂 8 秒才自然到期，看起来就像没生效
+   * （设计 §10.2 的判据是"1s 内消失"）。
+   */
+  private currentNoticeId: string | null = null
+  /** 是否启用通知（默认开；所有自主行为都必须能关，与 idleMotion / agentActivity 同规格） */
+  private enableAgentNotice = true
+  /**
+   * 主窗口是否聚焦。`undefined` = **还不知道**（别默认成 true：那会让"用户走开了"的判据在
+   * 拿不到广播时永远成立，反而多叫人）。由 shell 从主进程广播喂进来。
+   */
+  private mainWindowFocused: boolean | undefined = undefined
   /** 用户闲置阶段（P2-c）。**与环境有关，与对话生命周期正交**，故不进 petStateMachine */
   private idleStage: PetIdleStage = 'awake'
   /**
@@ -380,10 +445,84 @@ export class PetOrchestrator {
   }
 
   /** 订阅气泡（L4）。传 null 解绑；回调收到 null 表示「撤下当前气泡」 */
-  setAnnounceListener(
-    listener: ((payload: { text: string; durationMs: number } | null) => void) | null,
-  ): void {
+  setAnnounceListener(listener: ((payload: PetAnnouncePayload | null) => void) | null): void {
     this.announceListener = listener
+  }
+
+  /** 订阅通知列表（控制坞的待办区）。回调在**每次列表变化**时收到全量（含未变的条目） */
+  setNoticeListener(listener: ((notices: readonly PetNotice[]) => void) | null): void {
+    this.noticeListener = listener
+    listener?.(this.notices)
+  }
+
+  /** 当前全部通知（未销账与已销账都在，后者供"已超时被拒"这类展示） */
+  getNotices(): readonly PetNotice[] {
+    return this.notices
+  }
+
+  /**
+   * 一条 Agent 事件 → 折进通知列表。
+   *
+   * **宿主不筛会话**：别人的会话卡住了也占着同一个 Agent 进程与同一份配额，
+   * 这正是设计 §七「推翻 D3」那一条（现行为"别的会话只进符号"用在 activity 上是对的，
+   * 用在 action 上是错的）。
+   */
+  pushNoticeEvent(event: NoticeEvent): void {
+    if (!this.enableAgentNotice) return
+    const now = performance.now()
+    const next = reduceNotices(this.notices, event, {
+      now,
+      windowFocused: this.mainWindowFocused,
+    })
+    if (next === this.notices) return
+    this.notices = next
+    this.noticeListener?.(this.notices)
+    this.retractBubbleIfResolved()
+  }
+
+  /**
+   * 气泡对应的那条通知已经销账/消失了 → 立刻撤气泡。
+   *
+   * 三种到这儿的情况：用户在**主窗**处置了那张卡（销账只认事件，不认处置来自哪个窗口）、
+   * 审批超时被拒、条目被 TTL 清掉。
+   */
+  private retractBubbleIfResolved(): void {
+    if (this.currentNoticeId === null) return
+    const current = this.notices.find((n) => n.id === this.currentNoticeId)
+    if (current && current.resolvedAt === undefined) return
+    this.currentNoticeId = null
+    this.announceListener?.(null)
+  }
+
+  /**
+   * 主窗口焦点变化（由 shell 从主进程广播喂进来）。
+   *
+   * 两条规则靠它：`turn:end` 的「用户发起后走开了」、`file-changes` 的「主窗失焦」。
+   * 拿不到广播时保持 `undefined`，两条都不触发——**保守方向是少打扰**。
+   */
+  setMainWindowFocused(focused: boolean): void {
+    if (this.mainWindowFocused === focused) return
+    this.mainWindowFocused = focused
+    // 只在翻转时打一行：这是"通知的 report 判据为什么不生效"唯一的现场线索
+    // （`file-changes` 与「用户发起后走开」两条都看它），而翻转本来就少
+    log.info(`[setMainWindowFocused] focused=${focused}`)
+  }
+
+  /**
+   * 开关通知。
+   *
+   * 关闭时**立刻清空并撤气泡**：关掉开关却留着一条「执行 Shell 命令：…」在屏幕上，
+   * 比不关还糟（与 `setEnableAgentActivity` 同一条规矩）。
+   */
+  setEnableAgentNotice(enabled: boolean): void {
+    if (this.enableAgentNotice === enabled) return
+    this.enableAgentNotice = enabled
+    log.info(`[setEnableAgentNotice] enabled=${enabled}`)
+    if (enabled) return
+    this.notices = []
+    this.currentNoticeId = null
+    this.noticeListener?.(this.notices)
+    this.announceListener?.(null)
   }
 
   /**
@@ -391,9 +530,16 @@ export class PetOrchestrator {
    * 本身就依赖时间流逝，不在事件时刻判就永远等不到它。
    *
    * 抓取/投掷期间不冒：用户手上正抓着它，这时候弹话是打扰（与 L1 同一条规矩）。
+   *
+   * **通知优先、状态句补位**：通知是"有事要你看一眼"（事件驱动，错过有代价），
+   * 状态句是"你忙太久了"（时间驱动，错过没代价）。两者的判据不重叠，所以不是二选一，
+   * 而是谁先有话说谁先说——完全交给通知会丢掉"还在忙…"这类时间判据。
    */
   private maybeAnnounce(now: number): void {
     if (!this.announceListener || this.interactionActive) return
+
+    if (this.enableAgentNotice && this.tryAnnounceNotice(now)) return
+
     const picked = pickAgentAnnouncement(
       this.agentActivity,
       now,
@@ -403,8 +549,56 @@ export class PetOrchestrator {
     if (!picked) return
     this.announceHistory.set(picked.key, now)
     this.announcedThisTurn.add(picked.key)
+    // 状态句接管气泡了：它没有对应的通知，销账时不该把这条撤掉
+    this.currentNoticeId = null
     log.info(`[maybeAnnounce] 冒气泡 key=${picked.key} text="${picked.text}"`)
     this.announceListener({ text: picked.text, durationMs: announceDurationMs(picked.text) })
+  }
+
+  /** 有该冒的通知就冒一条并返回 true；没有返回 false（把气泡让给状态句） */
+  private tryAnnounceNotice(now: number): boolean {
+    const notice = pickNoticeForBubble(this.notices, now, {
+      announcedIds: this.announcedNoticeIds,
+      // 与状态句**共用**一份"同文案"节流：两条路都往同一个气泡里写，
+      // 各记各的账会冒出两句意思相近的话。
+      lastShownTextAt: this.announceHistory,
+      recentReports: this.recentReportStamps,
+      // `action` 立刻插队、`report` 推迟——用户在跟它说话时，"干完了"可以等等
+      talkingWithUser: this.dialogueActive,
+      // 免打扰时段（22:00–08:00）：`report` 吞掉、`action` 降级为不冒气泡
+      // （头顶符号 + 控制坞 + 系统通知照旧）。看的是**墙上时钟**——
+      // 本类其余部分用 `performance.now()`，两者不能混；每 16ms 算一次微不足道。
+      quietHours: isQuietHour(new Date().getHours()),
+    })
+    if (!notice) return false
+
+    this.rememberAnnounced(notice, now)
+    const durationMs =
+      notice.level === 'action'
+        ? Math.max(announceDurationMs(notice.text), NOTICE_ACTION_BUBBLE_MS)
+        : announceDurationMs(notice.text)
+    log.info(
+      `[maybeAnnounce] 通知气泡 id=${notice.id} level=${notice.level} text="${notice.text}"`,
+    )
+    this.currentNoticeId = notice.id
+    this.announceListener?.({ text: notice.text, durationMs, notice })
+    return true
+  }
+
+  /** 记一笔"这条已经冒过"，并把两个账本剪到有界 */
+  private rememberAnnounced(notice: PetNotice, now: number): void {
+    this.announcedNoticeIds.add(notice.id)
+    if (this.announcedNoticeIds.size > ANNOUNCED_NOTICE_IDS_MAX) {
+      const oldest = this.announcedNoticeIds.values().next().value
+      if (oldest !== undefined) this.announcedNoticeIds.delete(oldest)
+    }
+    this.announceHistory.set(notice.text, now)
+    if (notice.level === 'report') {
+      this.recentReportStamps.push({ sessionKey: notice.sessionKey, at: now })
+      // 账本只服务"最近一分钟"的限流，留着更早的只会让它无限涨
+      const cutoff = now - NOTICE_LEDGER_KEEP_MS
+      this.recentReportStamps = this.recentReportStamps.filter((r) => r.at >= cutoff)
+    }
   }
 
   private startAgentActivityLoop(): void {
@@ -431,6 +625,17 @@ export class PetOrchestrator {
     if (ticked !== this.agentActivity) {
       log.info(`[pumpAgentActivity] ${this.agentActivity.activity} → ${ticked.activity}（时间驱动）`)
       this.agentActivity = ticked
+    }
+
+    // 通知的时间驱动收尾：`report` 30s 自清、`action` 到点标「已超时被拒」。
+    // 挂在同一个 16ms 循环上——不另开定时器（这个循环本来就一直在跑）。
+    if (this.enableAgentNotice) {
+      const tickedNotices = tickNotices(this.notices, now)
+      if (tickedNotices !== this.notices) {
+        this.notices = tickedNotices
+        this.noticeListener?.(this.notices)
+        this.retractBubbleIfResolved()
+      }
     }
 
     // 抓取/投掷期间完全不表达：用户手动交互优先于一切自动表达。

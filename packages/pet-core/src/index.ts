@@ -61,6 +61,11 @@ export * from "./state/agent-activity.js";
 export * from "./state/agent-activity-announce.js";
 export * from "./render/agent-activity-modulation.js";
 
+// Agent 通知与审批闭环（R6 的「叫得动」）：有生命周期的待办——任务完成、审批、提问。
+// 与 agentActivity **正交**（那个是连续底色，这个是"要不要现在看一眼"），
+// 别把 task_complete 塞进 waiting 档：语义与时序都对不上，见 notice.ts 文件头。
+export * from "./state/notice.js";
+
 // 精灵后端运行时（P0-b）：帧增量归一、槽位状态、口型取档、缩放吸附、多边形命中。
 // 同样零依赖、可脱开 WebGL 单测；客户端只负责把解析结果画出来。
 export * from "./render/sprite-runtime.js";

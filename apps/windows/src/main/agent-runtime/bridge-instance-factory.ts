@@ -455,7 +455,11 @@ export class BridgeInstanceFactory {
         }
         // 自动审批：主进程直接放行，不依赖 ChatPage 挂载
         if (this.deps.isAutoApproveEnabled()) {
-          this.deps.ipcChannel.forwardIpcEvent(permissionEvent)
+          // 事件照发（审计与"刚自动放行了什么"要看），**但必须标记**：
+          // 消费方（宠物通知 R6）看到 `permission:request` 就会产生一条"等你确认"的待办，
+          // 而这条请求 3 毫秒后就被放行了 —— 气泡还没来得及被挑出来就销了账，
+          // 但系统通知已经弹出去收不回。用户开着自动审批时，每次调受审工具都白弹一条。
+          this.deps.ipcChannel.forwardIpcEvent({ ...permissionEvent, autoApproved: true })
           return settle('allow-once')
         }
         // 先尝试渠道文字审批；门控决定是否再推桌面弹窗

@@ -233,6 +233,15 @@ export interface AgentPermissionRequestEvent {
   readonly riskLevel: 'low' | 'medium' | 'high'
   readonly description: string
   readonly timeoutMs: number
+  /**
+   * 这条请求**已经被自动审批放行了**（主进程侧 `isAutoApproveEnabled`）。
+   *
+   * 事件照发（审计与"刚自动放行了什么"要看），但**消费方不该拿它去叫人**：
+   * 实测自动放行路径上 `request → granted` 只隔 **3 毫秒**，宠物通知（R6）
+   * 刚产生就销了账——气泡压根没机会冒出来，**而系统通知已经弹出去收不回了**。
+   * 用户开着自动审批时，那等于每次调受审工具都白弹一条「需要你确认」。
+   */
+  readonly autoApproved?: boolean
 }
 
 /**
@@ -334,6 +343,11 @@ export interface ConversationMessageNewEvent {
     readonly timestamp: number
     /** 是否为语音识别消息（影响气泡图标样式） */
     readonly isVoice?: boolean
+    /**
+     * 是否为「中途插话」（Agent 运行途中注入的用户消息）。
+     * 气泡据此加标记——插话是插进正在跑的回合里，不是新起一轮对话。
+     */
+    readonly isSteer?: boolean
     /** 原始录音 WAV base64，用于气泡点击回放 */
     readonly audioWavBase64?: string
     readonly toolCalls?: readonly {

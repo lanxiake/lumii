@@ -8,7 +8,7 @@
  *   [pet] mode:switch desktop→pet durationMs=xxx 日志（验收项）。
  */
 
-import { ipcMain, globalShortcut, powerMonitor } from 'electron'
+import { ipcMain, globalShortcut, powerMonitor, type BrowserWindow } from 'electron'
 import {
   type AppMode,
   type PetClickRegion,
@@ -178,6 +178,50 @@ function startIdleWatchingIfNeeded(): void {
  * 还要先清理这些。**入口层屏蔽 + 命令层兜底**（switchPetMode 会报
  * 「PetWindowManager 未初始化」）两层都保留。
  */
+/**
+ * 已经挂了 focus/blur 的主窗。用 WeakSet 去重：本函数只在注册时调一次，
+ * 但主窗重建时会拿到新对象——那时应该重新挂。
+ */
+const focusBoundWindows = new WeakSet<BrowserWindow>()
+
+/**
+ * 把主窗的焦点变化转给宠物窗口（`PET_IPC.evtMainWindowFocus`）。
+ *
+ * **为什么宠物窗自己问不到**：它常驻置顶、覆盖整个工作区，`document.hasFocus()`
+ * 回答的是**它自己**的焦点，与"用户有没有在看那个会话"完全是两回事。
+ *
+ * 用在通知（R6）的两条判据上：`turn:end` 的「用户发起后走开了」升级为 `report`、
+ * `file-changes` 的「主窗失焦且用户没参与」才补一句。
+ *
+ * 挂在注册时（而不是主窗创建处）：`createMainWindow` 在 `registerPetModeIpc` 之前跑，
+ * 这里一定拿得到主窗。没拿到就安静跳过——通知会退化成"少叫两次"，不会出错。
+ */
+function startMainWindowFocusBroadcast(): void {
+  const mainWin = petWindowManager?.getMainWindow()
+  if (!mainWin || mainWin.isDestroyed()) {
+    log.warn('[mainWindowFocus] 拿不到主窗口，焦点广播未启用（通知的 report 档会少两条判据）')
+    return
+  }
+  if (focusBoundWindows.has(mainWin)) return
+  focusBoundWindows.add(mainWin)
+
+  const send = (focused: boolean): void => {
+    const petWin = petWindowManager?.getPetBrowserWindow()
+    if (!petWin || petWin.isDestroyed()) return
+    try {
+      petWin.webContents.send(PET_IPC.evtMainWindowFocus, {
+        type: 'pet:main-window-focus',
+        focused,
+      })
+    } catch {
+      /* 窗口正在销毁：丢掉这一帧，下次状态变化还会推 */
+    }
+  }
+  mainWin.on('focus', () => send(true))
+  mainWin.on('blur', () => send(false))
+  log.info('[mainWindowFocus] 已开始把主窗焦点变化转给宠物窗口')
+}
+
 export function registerPetModeIpc(deps: PetWindowManagerDeps): void {
   if (process.platform === 'linux') {
     log.info('Linux 平台不注册宠物模式（D13：后续以精灵图形态重写）')
@@ -189,6 +233,7 @@ export function registerPetModeIpc(deps: PetWindowManagerDeps): void {
     return
   }
   petWindowManager = new PetWindowManager(deps)
+  startMainWindowFocusBroadcast()
   // 从 store 恢复持久化的模型 ID（重启后保留选择）
   const storedModelId = getStoredModelId()
   if (storedModelId) petWindowManager.setCurrentModelId(storedModelId)
@@ -270,10 +315,46 @@ export function registerPetModeIpc(deps: PetWindowManagerDeps): void {
     win.webContents.send('app-ui:goto', { view: 'chat', sessionKey })
   })
 
+  /**
+   * 宠物窗口请主窗**聚焦到某条待办**（通知气泡 / 控制坞条目上的按钮）。
+   *
+   * 与 `focusSession` 同样只做转发：**主进程不持有通知状态**（会话与待办的真相都在
+   * 渲染层），它只多带一个 `requestId`，让主窗把那张审批卡滚进视野并高亮。
+   * 卡不在了（用户刚在主窗处置过）由渲染层安静降级为"只切会话"。
+   */
+  ipcMain.handle(
+    PET_IPC.focusNotice,
+    (_evt, payload: { sessionKey?: string; requestId?: string } | undefined) => {
+      const win = petWindowManager?.getMainWindow()
+      const sessionKey = payload?.sessionKey
+      if (!win || win.isDestroyed() || !sessionKey) return
+      if (win.isMinimized()) win.restore()
+      win.show()
+      win.focus()
+      win.webContents.send('app-ui:goto', {
+        view: 'chat',
+        sessionKey,
+        ...(payload?.requestId ? { focusPermissionRequestId: payload.requestId } : {}),
+      })
+    },
+  )
+
   // 读当前实际生效的穿透状态（诊断/验证用，见 PET_IPC.getMouseIgnoreState 的注释）
   ipcMain.handle(PET_IPC.getMouseIgnoreState, () =>
     petWindowManager?.getMouseIgnoreState() ?? { clickable: false, components: [] },
   )
+
+  /**
+   * 补问一次主窗焦点（挂载时用）。
+   *
+   * 与 `getIdleStage` / `getPerchRect` / `getCurrentModelId` 同一族问题：
+   * 主进程只在**变化时**推，而宠物窗口挂载的那一刻主窗可能早就失焦了——那次推送是丢的。
+   * 不补问的话，"用户走开了"这个判据会一直按"在看"算。
+   */
+  ipcMain.handle(PET_IPC.getMainWindowFocus, () => {
+    const win = petWindowManager?.getMainWindow()
+    return Boolean(win && !win.isDestroyed() && win.isFocused())
+  })
 
   ipcMain.handle(PET_IPC.getCubismCoreUrl, async () => {
     const { resolveCubismCoreUrl } = await import('./pet-model-resolver')

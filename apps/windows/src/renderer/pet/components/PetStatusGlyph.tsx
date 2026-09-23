@@ -31,7 +31,7 @@ export interface PetStatusGlyphProps {
    * 这条状态来自别的会话（多会话抢占时）。
    *
    * 表现是徽章右上角再叠一小块——**"还有一个"的视觉隐喻**（像一摞卡片）。
-   * 不用文字：徽章只有 22px，塞不下"另"，而缩写（"别"）没人看得懂。
+   * 不用文字：徽章太小，塞不下"另"，而缩写（"别"）没人看得懂。
    */
   readonly source?: 'other'
   /** 锚点的画布坐标（CSS 像素，脚底中心） */
@@ -39,10 +39,22 @@ export interface PetStatusGlyphProps {
   readonly y: number
   /** 宠物可视高度（画布像素 × 缩放） */
   readonly petHeight: number
+  /**
+   * 每帧取一次锚点。给了它就**跟着宠物走**。
+   *
+   * 与 `PetSpeechBubble.getAnchor` 同一套理由：每帧 setState 会让整个 `PetModeShell`
+   * 重渲染，而这个位置只有这一个节点用——直接写 `style.left/top` 划算得多。
+   * （首版和气泡一样是"出现那一刻取一次"，用户实测反馈「不会跟着宠物移动」。）
+   */
+  readonly getAnchor?: () => { x: number; y: number; petHeight: number } | null
 }
 
 /** 徽章边长 */
-const SIZE = 22
+/**
+ * 徽章直径。22 → 32：用户实测反馈「标识这些太小了，不够醒目」——
+ * 它要在一屏桌面上被**余光扫到**，22px 在 1080p 下基本等于"看不见"。
+ */
+const SIZE = 32
 /** 离头顶的空隙（气泡在同样位置用 12，这里再抬一点，免得换气时"跳一下"） */
 const GAP = 14
 
@@ -61,6 +73,7 @@ export const PetStatusGlyph: React.FC<PetStatusGlyphProps> = ({
   x,
   y,
   petHeight,
+  getAnchor,
 }) => {
   const ref = useRef<HTMLDivElement>(null)
   // 淡入：挂载时为 0，下一帧置 1。直接给 1 会"闪一下就有"，在一只安静的宠物头顶很扎眼
@@ -69,6 +82,24 @@ export const PetStatusGlyph: React.FC<PetStatusGlyphProps> = ({
     const id = requestAnimationFrame(() => setShown(true))
     return () => cancelAnimationFrame(id)
   }, [])
+
+  /** 跟着宠物走：每帧重算位置、直接写 DOM（理由见 `getAnchor` 的注释） */
+  useEffect(() => {
+    if (!getAnchor) return
+    let raf = 0
+    const tick = (): void => {
+      const anchor = getAnchor()
+      const el = ref.current
+      if (anchor && el) {
+        // 水平**居中**在锚点上（原来是 `left: x`，徽章小的时候偏得不明显，32px 就看得出来）
+        el.style.left = `${anchor.x - SIZE / 2}px`
+        el.style.top = `${anchor.y - anchor.petHeight - GAP - SIZE}px`
+      }
+      raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [getAnchor])
 
   /**
    * 极轻的"呼吸"：只改透明度，**不改位置**。
@@ -98,7 +129,7 @@ export const PetStatusGlyph: React.FC<PetStatusGlyphProps> = ({
       role="img"
       style={{
         position: 'absolute',
-        left: x,
+        left: x - SIZE / 2,
         // 抬到头顶上方：锚点在脚底，宠物高 petHeight
         top: y - petHeight - GAP - SIZE,
         width: SIZE,
@@ -111,7 +142,7 @@ export const PetStatusGlyph: React.FC<PetStatusGlyphProps> = ({
         border: `1px solid ${color.border}`,
         color: color.fg,
         // 字号比徽章小一圈：'…' 与 'Z' 在视觉重量上差很多，统一字号会让省略号显得挤
-        fontSize: 13,
+        fontSize: 19,
         lineHeight: 1,
         fontWeight: 600,
         pointerEvents: 'none',
@@ -131,8 +162,8 @@ export const PetStatusGlyph: React.FC<PetStatusGlyphProps> = ({
             position: 'absolute',
             top: -3,
             right: -3,
-            width: 9,
-            height: 9,
+            width: 12,
+            height: 12,
             borderRadius: 3,
             background: 'rgba(24, 26, 32, 0.92)',
             border: `1px solid ${color.border}`,

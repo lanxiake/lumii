@@ -16,6 +16,7 @@ import type { DatabaseAdapter } from '@mtbot/agent-runtime'
 import { consolidateUserMemory, needsPersonalMemoryConsolidation } from '@mtbot/agent-runtime'
 import { getVirtualHumanSettings, setVirtualHumanSettings } from '../pet/pet-mode-store'
 import { DEFAULT_VH_SETTINGS } from '../../shared/virtual-human'
+import { isQuietHour } from '@mtbot/pet-core'
 
 const log = {
   info: (...args: unknown[]) => console.log('[LocalCompanion]', ...args),
@@ -62,10 +63,11 @@ const KV_KEY_MIGRATED = 'local_companion_migrated_v1'
 
 // ── 隐藏默认值（不在 UI 暴露，见 09 号设计文档 §3）──
 
-/** 免打扰开始时间 "HH:mm" */
-const QUIET_HOURS_START = '22:00'
-/** 免打扰结束时间 "HH:mm" */
-const QUIET_HOURS_END = '08:00'
+/**
+ * 免打扰窗口（22:00–08:00）**已挪到 `@mtbot/pet-core` 的 `notice.ts`**：
+ * 宠物通知（R6）要用同一个窗口——那边是"没人理我，我想说句话"，这边是"有事必须让你知道"，
+ * 两件事、两个计数器，但"夜里别吵"这个判断只该有一处。
+ */
 /** 每日最多触达次数 */
 const MAX_DAILY_COUNT = 3
 /** gentle 模式仅在工作日触达（0=周日 … 6=周六） */
@@ -209,9 +211,7 @@ async function handleTick(
   if (!manual) {
     // 3. 免打扰时段（隐藏默认值，不暴露 UI）
     const hour = now.getHours()
-    const quietStartHour = parseHour(QUIET_HOURS_START)
-    const quietEndHour = parseHour(QUIET_HOURS_END)
-    if (isInQuietHours(hour, quietStartHour, quietEndHour)) {
+    if (isQuietHour(hour)) {
       log.info(`[handleTick] 免打扰时段 hour=${hour}, skip`)
       return 'skipped: quiet hours'
     }
@@ -326,22 +326,9 @@ async function handleMemoryConsolidation(
 }
 
 // ── 辅助函数：时段 ──
-
-/** 解析 "HH:mm" 格式的时间字符串，返回小时数（整数） */
-function parseHour(timeStr: string): number {
-  const parts = timeStr.split(':')
-  const h = parseInt(parts[0] ?? '0', 10)
-  return isNaN(h) ? 0 : Math.max(0, Math.min(23, h))
-}
-
-function isInQuietHours(hour: number, start: number, end: number): boolean {
-  if (start > end) {
-    // 跨午夜：例 start=22, end=8 → 22:00 到 08:00 之间（含22点后到次日8点前）
-    return hour >= start || hour < end
-  }
-  // 日间段：例 start=8, end=22 → 08:00 到 22:00 之间
-  return hour >= start && hour < end
-}
+//
+// 免打扰窗口的判断与常量都在 `@mtbot/pet-core`（与宠物通知共用同一个窗口），
+// 这里不再自备 `parseHour` / `isInQuietHours`——两份实现迟早会漂。
 
 // ── 辅助函数：消息生成 ──
 
