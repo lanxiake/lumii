@@ -85,6 +85,15 @@ const AMBIENT_HOLD_POINTER = 'pointer'
 /** 开关（`ambientEnabled`）的让位来源名，与指针交互分开记账 */
 const AMBIENT_HOLD_DISABLED = 'ambient-disabled'
 
+/**
+ * 文字气泡的让位来源名。
+ *
+ * 气泡是一句话、要读，宠物一边走一边拖着它，用户根本读不了（2026-09-23 用户
+ * 实测要求「文字气泡需要停止宠物当前动作」）。**头顶符号不占这个名字** —— 那是个
+ * 状态灯，扫一眼就够，为它把宠物钉住是打扰。
+ */
+const AMBIENT_HOLD_BUBBLE = 'bubble'
+
 /** 降级状态：上层据此显示提示 */
 export type PetCanvasDegradeReason =
   | { kind: 'webgl'; message: string }
@@ -127,6 +136,15 @@ export interface PetCanvasProps {
    * 它是"要不要自己动"，不是"要不要能动"。
    */
   ambientEnabled?: boolean
+  /**
+   * 文字气泡挂着时**原地定格**（仅 sprite 后端，默认不）。
+   *
+   * 与 `ambientEnabled` 是两回事：那个是"要不要自己动"的用户开关（关掉后宠物
+   * 永远不动），这个是"这一刻先别动"的临时让位（气泡撤下就还回去）。
+   *
+   * 让位用 `keepPose`：宠物在墙上/天花板上时不能重置成站立，否则它会站着贴墙。
+   */
+  bubbleHold?: boolean
 }
 
 /** 物理交互事件 */
@@ -158,7 +176,7 @@ function toCanvasLocal(e: MouseEvent, canvas: HTMLCanvasElement): { x: number; y
 }
 
 export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
-  ({ modelId, onDegrade, onModelLoaded, onInteraction, onAmbientActivity, onContextMenu, ambientEnabled = true }, ref) => {
+  ({ modelId, onDegrade, onModelLoaded, onInteraction, onAmbientActivity, onContextMenu, ambientEnabled = true, bubbleHold = false }, ref) => {
     /**
      * 宿主容器。**React 只管这个 div，里面的 canvas 由 setup effect 自己创建/替换。**
      *
@@ -559,6 +577,24 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
         driver.suspend(AMBIENT_HOLD_DISABLED)
       }
     }, [ambientEnabled, ready, renderer, config?.id])
+
+    /**
+     * 气泡让位：挂着就定格，撤下就还给自主行为。
+     *
+     * 与上面那个同构（同一组依赖，保证作用在当前的驱动上）。`suspend` 自己幂等，
+     * 所以"挂着"这条不需要先问 `isHeldBy`；解除那条要问——不然开机/换模型时会
+     * 白报一条 `resume 没有对应的让位记录`（driver 里那条 warn 是给"计数泄漏"留的，
+     * 不该被正常路径刷屏）。
+     */
+    useEffect(() => {
+      const driver = wanderRef.current
+      if (!driver) return
+      if (bubbleHold) {
+        driver.suspend(AMBIENT_HOLD_BUBBLE, { keepPose: true })
+      } else if (driver.isHeldBy(AMBIENT_HOLD_BUBBLE)) {
+        driver.resume(AMBIENT_HOLD_BUBBLE)
+      }
+    }, [bubbleHold, ready, renderer, config?.id])
 
     // 性能：失焦降帧（~15 FPS），聚焦恢复（60 FPS）
     useEffect(() => {

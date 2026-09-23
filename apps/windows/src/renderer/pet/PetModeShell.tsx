@@ -7,11 +7,14 @@
  *       + PetControlDock（统一控制坞，参考 OLV InputSubtitle）。
  * 语音链路在本窗口自跑（D4）：useVoiceCall 的麦克风采集 + TTS 播放都在宠物窗口。
  *
- * **本窗口不接主题**：`main.tsx` 直接渲染本组件，**不挂 `AppProviders`**
- * （含 `ThemeProvider`），因此这里没有 `data-theme`，`--mt-*` 令牌只会取
- * `:root` 的兜底值。这是刻意的——宠物是浮在桌面上的独立层，用户用深色主题
- * 工作时，桌面宠物不该突然变成米黄色。所以本目录下的色值都是自带常量，
- * **下一轮重构请勿"顺手统一"到主题令牌**。
+ * **本窗口的主题跟随是"定向"的**：`main.tsx` 直接渲染本组件，**不挂 `AppProviders`**
+ * （含 `ThemeProvider`），所以没有现成的 `data-theme`。2026-09-23 依用户实测反馈
+ * （「气泡的颜色和文字颜色跟随主题变化」）加了一条**只读**跟随，见 `utils/pet-theme.ts`：
+ * 读共享的 localStorage + 订阅 `storage` 事件，结果写到 `<html>` 上。
+ *
+ * ⚠️ **目前只有气泡在用**。坞、粒子、头顶符号仍用各自的自带常量 —— 宠物是浮在桌面上的
+ * 独立层，**整层**跟着主窗变米黄色是当年明确否掉的（`07-主题色系/12-canvas与宠物色层收敛.md`
+ * §3.2）。别把这条跟随当成"整个宠物层统一到令牌"的开工信号。
  */
 
 import React, { useCallback, useMemo, useRef, useState, useEffect } from 'react'
@@ -55,6 +58,7 @@ import {
 import { readPersistedSessionThinkingPrefs } from '../../shared/session-thinking-prefs'
 import { notifyDesktop } from '../services/app-service'
 import { petSessionMatchesEvent } from './utils/pet-session-match'
+import { applyPetTheme, readPetTheme, subscribePetTheme } from './utils/pet-theme'
 import {
   INITIAL_TURN_FACTS,
   advanceTurnFacts,
@@ -102,6 +106,19 @@ export const PetModeShell: React.FC = () => {
   useEffect(() => {
     currentModeRef.current = currentMode
   }, [currentMode])
+
+  /**
+   * 主题跟随（**只读**，见 `utils/pet-theme.ts`）。
+   *
+   * 挂在最靠前的位置：气泡的底与字用 `--mt-*` 令牌，而令牌要 `<html>` 上有
+   * `data-theme` 才是主窗那一套值（否则取 `:root` 的深色兜底）—— 晚一拍就会先冒一个
+   * 深色气泡再闪成浅色。订阅只能走 `storage` 事件：主窗切主题时只写它自己的
+   * localStorage，跨窗没有别的通道（主进程不知道主题）。
+   */
+  useEffect(() => {
+    applyPetTheme(readPetTheme())
+    return subscribePetTheme(applyPetTheme)
+  }, [])
   /** 声音开关：开=文字回复出声(真音频口型)，关=静默(伪口型)。从 VH 设置同步。 */
   const enableVoiceReplyRef = useRef<boolean>(DEFAULT_VH_SETTINGS.enableVoiceReply)
   const enableIdleMotionRef = useRef<boolean>(DEFAULT_VH_SETTINGS.enableIdleMotion)
@@ -211,13 +228,24 @@ export const PetModeShell: React.FC = () => {
    *
    * 空依赖 → 引用稳定 → 两个组件内部的 rAF effect 不会反复重建（那会让跟随一顿一顿的）。
    * 位置读的是渲染器的实时坐标，所以宠物走动/被拖走时都跟得上。
+   *
+   * `contentTop` 是**内容实测**的上伸量（`getContentExtents` 按动作组缓存，每帧只是查表）。
+   * 有它才能把气泡贴到真正的头顶：站着 / 趴着 / 倒挂三种姿势的身高差得远，用
+   * `petHeight` 近似会让气泡在矮姿势时浮在半空、高姿势时嵌进脑袋。Live2D 后端没实现
+   * 这个接口，那时退回身高。
    */
   const getPetAnchor = useCallback(() => {
     const renderer = canvasRef.current?.getRenderer()
     const pos = renderer?.getPosition?.()
     if (!pos) return null
     const layout = renderer?.getLayout?.()
-    return { x: pos.x, y: pos.y, petHeight: layout?.modelHeight ?? 200 }
+    const contentTop = renderer?.getContentExtents?.()?.top
+    return {
+      x: pos.x,
+      y: pos.y,
+      petHeight: layout?.modelHeight ?? 200,
+      ...(contentTop !== undefined ? { contentTop } : {}),
+    }
   }, [])
 
   /**
@@ -1170,6 +1198,10 @@ export const PetModeShell: React.FC = () => {
           // 对话进行中（听/想/说/收尾）不让宠物自己溜达——它正在跟用户交互，不该走开。
           // 复用 `enableIdleMotion` 开关：语义就是「待机时要不要自己动」，不必再加一个设置项。
           ambientEnabled={idleMotionEnabled && (!avatarStatus || avatarStatus.phase === 'idle')}
+          // 气泡挂着时原地定格（用户 2026-09-23：「文字气泡需要停止宠物当前动作」）。
+          // 与上一行是两回事：那个是"要不要自己动"，这个是"这一刻先别动"。
+          // 头顶符号**不**走这条——状态灯扫一眼就够，为它把宠物钉住是打扰。
+          bubbleHold={bubble !== null}
         />
       )}
 

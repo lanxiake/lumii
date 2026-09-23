@@ -20,6 +20,11 @@
  *      改法是"有 description 就用它"。这条断言就是那次修正的回归哨兵。
  *   4. 3s 后仍在（`action` 档气泡 8s TTL，不像状态句那样一闪而过）
  *   5. 响应 allow-once 后 **1s 内消失**（销账撤气泡，设计 §10.2）
+ *   5b. **气泡落在视口内**（2026-09-23 加）：用户实测「宠物在屏幕两边和屏幕顶部的时候……
+ *      思考和会话气泡还是显示在顶部，我看不到」。翻转与夹紧在
+ *      `pet/utils/pet-overlay-position.ts`，这条只验"它没跑到屏幕外"。
+ *      （造"宠物贴顶"的现场需要抢在驱动覆盖位置之前 setPosition，不值当——
+ *      `placement` 值记录下来供人看，见实施计划 §13.3。）
  *   6. **`action` 档发出系统通知**，且 `convId` 是**那个会话**（S4）——
  *      不带 convId 的话用户点了只会把主窗拉到前台、不会切到会话，那正是 D1 的形态
  *   7. **主窗焦点广播已启用 / 可补问**（S4）：主进程日志里那行启动记录 + invoke 问得到
@@ -186,11 +191,27 @@ async function waitForTarget(pred, timeoutMs = 20000) {
  * 控制坞的待办条目上也有同样文案的按钮（「去审批」），按按钮文字找会两条通道混在一起。
  */
 const BUBBLES_JS = `(() => {
-  return [...document.querySelectorAll('[data-pet-bubble]')].map((el) => ({
-    kind: el.getAttribute('data-pet-bubble'),
-    text: (el.textContent || '').trim(),
-    button: (el.querySelector('button')?.textContent || '').trim(),
-  }))
+  const vw = window.innerWidth, vh = window.innerHeight
+  return [...document.querySelectorAll('[data-pet-bubble]')].map((el) => {
+    const r = el.getBoundingClientRect()
+    return {
+      kind: el.getAttribute('data-pet-bubble'),
+      text: (el.textContent || '').trim(),
+      button: (el.querySelector('button')?.textContent || '').trim(),
+      // 2026-09-23 起气泡会贴边翻转（宠物在屏幕两侧/顶部时翻到下方、水平夹进视口）。
+      // 判据 5b 靠这两个字段：placement 是翻转与否，inViewport 是"夹住了没有"。
+      placement: el.getAttribute('data-pet-bubble-placement'),
+      inViewport:
+        r.left >= -0.5 && r.top >= -0.5 && r.right <= vw + 0.5 && r.bottom <= vh + 0.5,
+      rect: {
+        left: Math.round(r.left),
+        top: Math.round(r.top),
+        w: Math.round(r.width),
+        h: Math.round(r.height),
+      },
+      viewport: { w: vw, h: vh },
+    }
+  })
 })()`
 
 async function readBubbles(c) {
@@ -365,6 +386,21 @@ try {
     seen
       ? `text="${seen.text}"`
       : undefined,
+  )
+  /**
+   * 5b. **气泡落在视口内**（2026-09-23 加）。
+   *
+   * 用户实测报的：「宠物在屏幕两边和屏幕顶部的时候……思考和会话气泡还是显示在顶部，
+   * 我看不到」。修法是 `pet/utils/pet-overlay-position.ts` 的翻转 + 夹紧。
+   *
+   * ⚠️ 这条判据**只覆盖"气泡没跑到屏幕外"**，不构造"宠物贴顶"的现场 ——
+   * 要造那个现场得先把宠物 setPosition 到 y≈0，而驱动每帧会覆盖它的位置。
+   * 所以 `placement` 值只是**记录**下来供人看，不断言它必须是 `below`。
+   */
+  record(
+    '气泡落在视口内（贴边翻转/夹紧生效）',
+    Boolean(seen?.inViewport),
+    seen ? `rect=${JSON.stringify(seen.rect)} viewport=${JSON.stringify(seen.viewport)} placement=${seen.placement}` : '气泡都没出现',
   )
 
   if (seen) {

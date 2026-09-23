@@ -12,6 +12,13 @@
  * 两者会同时需要吗？会（想事的同时冒一句话）——所以**气泡在场时符号让位**
  *（调用方不渲染即可），同一个位置叠两个东西一定糊。
  *
+ * ## 它**不**停住宠物（与气泡的又一处分工）
+ *
+ * 用户 2026-09-23：「状态展示不需要停止宠物当前动作，文字气泡需要停止」。
+ * 判据是"要不要读"：符号扫一眼就够，为它把宠物钉住是打扰；气泡是一句话，
+ * 被拖着平移就读不了。所以这里**不**碰 `PetWanderDriver.suspend` ——
+ * 别看到气泡那边加了就跟进。
+ *
  * ## 为什么用 DOM 而不是画进 PIXI
  *
  * 与气泡同理，且这里的价值全在"位置稳定"：符号跟着宠物走，但不该每帧重排。
@@ -20,6 +27,7 @@
  */
 import React, { useEffect, useRef, useState } from 'react'
 import type { PetGlyphTone } from '../utils/pet-status-glyph'
+import { placePetOverlay, OVERLAY_GAP } from '../utils/pet-overlay-position'
 
 export interface PetStatusGlyphProps {
   /** 显示的字符（单字符，见 pickStatusGlyph） */
@@ -46,7 +54,13 @@ export interface PetStatusGlyphProps {
    * 重渲染，而这个位置只有这一个节点用——直接写 `style.left/top` 划算得多。
    * （首版和气泡一样是"出现那一刻取一次"，用户实测反馈「不会跟着宠物移动」。）
    */
-  readonly getAnchor?: () => { x: number; y: number; petHeight: number } | null
+  readonly getAnchor?: () => {
+    x: number
+    y: number
+    petHeight: number
+    /** 内容实测上伸量，姿势换了身高差很多时比 `petHeight` 准 */
+    contentTop?: number
+  } | null
 }
 
 /** 徽章边长 */
@@ -55,8 +69,6 @@ export interface PetStatusGlyphProps {
  * 它要在一屏桌面上被**余光扫到**，22px 在 1080p 下基本等于"看不见"。
  */
 const SIZE = 32
-/** 离头顶的空隙（气泡在同样位置用 12，这里再抬一点，免得换气时"跳一下"） */
-const GAP = 14
 
 /** 三种语义色。低饱和——待机特效不该抢注意力，抢眼的是点击烟花那一类 */
 const TONE_COLOR: Record<PetGlyphTone, { fg: string; border: string }> = {
@@ -91,9 +103,14 @@ export const PetStatusGlyph: React.FC<PetStatusGlyphProps> = ({
       const anchor = getAnchor()
       const el = ref.current
       if (anchor && el) {
-        // 水平**居中**在锚点上（原来是 `left: x`，徽章小的时候偏得不明显，32px 就看得出来）
-        el.style.left = `${anchor.x - SIZE / 2}px`
-        el.style.top = `${anchor.y - anchor.petHeight - GAP - SIZE}px`
+        // 走与气泡同一套定位：贴顶时翻到脚下、贴边时夹进视口。
+        // 不做镜像——徽章是圆的、角标在右上角，翻过来只是把"还有一个"的角标换个角落。
+        const p = placePetOverlay(anchor, { width: SIZE, height: SIZE }, {
+          width: window.innerWidth,
+          height: window.innerHeight,
+        })
+        el.style.left = `${p.left}px`
+        el.style.top = `${p.top}px`
       }
       raf = requestAnimationFrame(tick)
     }
@@ -130,8 +147,8 @@ export const PetStatusGlyph: React.FC<PetStatusGlyphProps> = ({
       style={{
         position: 'absolute',
         left: x - SIZE / 2,
-        // 抬到头顶上方：锚点在脚底，宠物高 petHeight
-        top: y - petHeight - GAP - SIZE,
+        // 首帧的近似位置（抬到头顶上方）；下一帧就被 rAF 覆盖成精确值
+        top: y - petHeight - OVERLAY_GAP - SIZE,
         width: SIZE,
         height: SIZE,
         borderRadius: SIZE / 2,

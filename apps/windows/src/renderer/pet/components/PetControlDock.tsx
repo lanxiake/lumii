@@ -124,9 +124,12 @@ const selectableText: React.CSSProperties = {
 // 色层
 //
 // 宠物模式跑在**独立窗口**里：main.tsx 直接渲染 PetModeShell，**不挂
-// AppProviders**（含 ThemeProvider），因此这个窗口没有 data-theme，
-// 也不该跟随主窗主题——用户用深色主题工作时，桌面宠物不该突然变成米黄色。
-// 所以这里**刻意不使用** `--mt-*` 主题令牌，色值都是本层自己的常量。
+// AppProviders**（含 ThemeProvider）。
+//
+// ⚠️ 2026-09-23 起 PetModeShell 会给本窗口的 `<html>` 设 `data-theme`
+// （见 `utils/pet-theme.ts`，服务气泡），所以这里**取得到**主题令牌了 ——
+// 但坞**依然刻意不用**：那是"整层跟着主窗变米黄色"，当年明确否掉的
+// （`07-主题色系/12-canvas与宠物色层收敛.md` §3.2）。色值都是本层自己的常量。
 //
 // 色相集中在这里：改「坞的亮度」只需改 LIGHT / DARK。
 // 透明度逐处保留——它们是设计刻度（描边 0.08~0.18、分隔线 0.08~0.12、

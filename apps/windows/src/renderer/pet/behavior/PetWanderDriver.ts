@@ -284,15 +284,20 @@ export class PetWanderDriver {
   }
 
   /**
-   * 让位：拖拽 / 抛掷 / 对话进行中。
+   * 让位：拖拽 / 抛掷 / 对话进行中 / **文字气泡挂着**。
    *
    * 同一个 reason 重复调用是**无害的**（已在让位中就什么都不做），
    * 所以调用方不需要小心翼翼地和 `resume` 配对。
    *
-   * **会重置成"站着"重新计时**：被拎起来的宠物放下后不该接着走没走完的那一段，
+   * **默认会重置成"站着"重新计时**：被拎起来的宠物放下后不该接着走没走完的那一段，
    * 那会让"松手就往前冲"看起来像惯性。
+   *
+   * `keepPose` 关掉那次重置 —— 2026-09-23 为气泡加的。**攀爬中必须用它**：
+   * 宠物在墙上/天花板上时 `resetToStand` 会让它播站立动作却仍贴着墙面，看着像贴了
+   * 一张立牌。气泡要的是"原地定格"，不是"站好"。
+   * `resume` 一侧不用动：它已经有 `perch` 分支，会重新报一次攀爬姿态。
    */
-  suspend(reason: string): void {
+  suspend(reason: string, options?: { keepPose?: boolean }): void {
     if (this.holds.has(reason)) {
       log.info(`[suspend] "${reason}" 已在让位中，忽略重复调用`)
       return
@@ -300,8 +305,12 @@ export class PetWanderDriver {
     const first = this.holds.size === 0
     this.holds.add(reason)
     if (first) {
-      this.resetToStand()
-      log.info(`[suspend] 让位开始（${reason}）`)
+      if (options?.keepPose) {
+        log.info(`[suspend] 让位开始（${reason}），保持当前姿态`)
+      } else {
+        this.resetToStand()
+        log.info(`[suspend] 让位开始（${reason}）`)
+      }
     } else {
       log.info(`[suspend] 追加让位（${reason}），当前 ${this.holds.size} 个`)
     }

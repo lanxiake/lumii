@@ -95,6 +95,45 @@ describe('PetWanderDriver — 让位按 reason 记账', () => {
   })
 })
 
+/**
+ * `keepPose`：气泡让位要"原地定格"，不能重置成站立。
+ *
+ * 场景是用户 2026-09-23 报的那条：「宠物在屏幕两边和屏幕顶部的时候」——那正是
+ * `perch`（攀爬）状态。默认的 `resetToStand()` 会让它播站立动作却仍贴着墙面，
+ * 看着像贴了一张立牌。
+ */
+describe('PetWanderDriver — keepPose（气泡让位）', () => {
+  it('默认让位会重置成站立 —— 拖拽靠这条：松手不该接着走没走完的那段', () => {
+    const { driver, onActivity } = makeDriver()
+    onActivity.mockClear()
+    driver.suspend('pointer')
+    expect(onActivity).toHaveBeenCalledWith('stand')
+  })
+
+  it('keepPose 不重置姿态（不报任何活动变化）', () => {
+    const { driver, onActivity } = makeDriver()
+    onActivity.mockClear()
+    driver.suspend('bubble', { keepPose: true })
+    expect(onActivity).not.toHaveBeenCalled()
+    expect(driver.isHeldBy('bubble')).toBe(true)
+  })
+
+  it('keepPose 只对"第一个让位方"有意义：追加让位本来就不重置', () => {
+    const { driver, onActivity } = makeDriver()
+    driver.suspend('pointer')
+    onActivity.mockClear()
+    driver.suspend('bubble', { keepPose: true })
+    expect(onActivity).not.toHaveBeenCalled()
+  })
+
+  it('keepPose 的让位照样能解除', () => {
+    const { driver } = makeDriver()
+    driver.suspend('bubble', { keepPose: true })
+    driver.resume('bubble')
+    expect(driver.isSuspended()).toBe(false)
+  })
+})
+
 describe('PetWanderDriver — 让位与恢复时回到站立', () => {
   it('首次让位会重置成 stand 并广播一次活动', () => {
     const { driver, onActivity } = makeDriver()
