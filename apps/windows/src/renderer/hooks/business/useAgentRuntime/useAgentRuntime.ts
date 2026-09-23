@@ -139,8 +139,8 @@ export function useAgentRuntimeActions() {
         throw new Error('No active session. Create a session first.')
       }
 
-      // 与「等待队列自动发送」共用同一实现：msgId / 乐观写入 / 落库去重必须一致，
-      // 否则同一条消息会被写入两次（各自一份实现时最容易在这里漂移）。
+      // 乐观写入与 msgId 生成统一在 sendUserMessage 里：主进程按同一 id 落库并回广播，
+      // 两边对不齐就会出现重复气泡。
       return sendUserMessage(sessionKey, content, {
         agentId: options?.agentId,
         modelId: options?.modelId,

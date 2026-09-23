@@ -4,12 +4,8 @@ import styles from './ChatInput.module.css'
 import type { Agent } from '../../../../services/agent-service'
 import type { ContextUsage } from '../../../../hooks/business/useAgentRuntime/agent-runtime-store'
 import {
-  enqueueQueuedMessage,
-  makeQueuedMessage,
-  removeQueuedMessageById,
   resetSteer,
   setSteerDraft,
-  takeQueuedMessages,
 } from '../../../../hooks/business/useAgentRuntime/agent-runtime-store'
 import { useAgentRuntimeState } from '../../../../hooks/business/useAgentRuntime/useAgentRuntime'
 import { searchCommands, CATEGORY_LABELS } from '../../commands/slash-commands'
@@ -208,13 +204,10 @@ const ChatInput: React.FC<ChatInputProps> = ({
   const slashPanelRef = useRef<HTMLDivElement>(null)
   const [steerExpanded, setSteerExpanded] = useState(false)
   /**
-   * 等待队列与插话草稿都存在**会话状态**里，不用组件局部 state。
-   *
-   * 它们属于会话而不属于输入框：切走会话后队列要留在原会话（并在它的回合结束时
-   * 自动发出），草稿也不能跟着跑到另一个会话的输入框里。插话输入条的展开与否
-   * 是纯视图态，留在本地即可（切会话时收起）。
+   * 插话草稿存在**会话状态**里，不用组件局部 state：它属于会话而不属于输入框，
+   * 切走会话不能把草稿带到另一个会话的输入框里。插话输入条的展开与否是纯视图态，
+   * 留在本地即可（切会话时收起）。
    */
-  const queuedMessages = useAgentRuntimeState((s) => s.queuedMessages)
   const steerState = useAgentRuntimeState((s) => s.steer)
   const steerValue = steerState.draft
   const steerSent = steerState.sent
@@ -435,58 +428,24 @@ const ChatInput: React.FC<ChatInputProps> = ({
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       if (disabled) return
-      // AI 正在回复时：回车不直接发送
+      // AI 正在回复时：回车 = 插话，直接注入当前回合
       if (isStreaming) {
         const text = innerValue.trim()
         if (text) {
-          // 有内容 → 追加到等待队列，清空输入框，可继续输入下一条
-          if (sessionKey) {
-            // 记下入队时的模型：自动发送那条路拿不到组件的 selectedModelId，
-            // 漏传会让主进程把会话模型偏好当成「要清空」处理
-            enqueueQueuedMessage(sessionKey, makeQueuedMessage(text, selectedModelId))
-          }
+          // 回合进行中发的消息一律当插话：在当前工具跑完的边界注入，
+          // 不必等整轮结束（2026-09-23 统一——不再有「排队等回合结束」那条路径，
+          // 两条路的选择成本高于收益，用户实测反馈「还是得等全部工具跑完」）。
+          if (sessionKey) onSteer?.(sessionKey, text)
           setDraft('')
           flushDraft('')
-        } else if (queuedMessages.length > 0) {
-          // 输入框为空且队列非空 → 打断当前回复，合并发送队列
-          flushQueuedMessages()
         }
         return
       }
-      // 非流式状态：空输入框 + 队列非空 → 直接发送队列（修复队列被孤立无法发出）
-      if (!innerValue.trim()) {
-        if (queuedMessages.length > 0) void flushQueuedMessages()
-        return
-      }
+      // 空白内容不发送：Enter 只提交有内容的输入
+      // （上面那条队列分支删除时曾把这道守卫一并删掉，被 TC-3.2.5 抓了个正着）
+      if (!innerValue.trim()) return
       handleSend()
     }
-  }
-
-  /**
-   * 手动发送队列（「立即发送」按钮 / 清空输入框后回车 / 停止按钮）。
-   *
-   * 回合结束时的**自动**发送不在这里——它挂在事件层的 `agent:turn:end`
-   * （useAgentRuntime/queued-flush.ts），这样用户切走的会话也能按时发出队列。
-   * 两处都经由 `takeQueuedMessages` 原子取出，谁先到谁发，不会重复。
-   */
-  const flushQueuedMessages = async () => {
-    if (!sessionKey) return
-    const items = takeQueuedMessages(sessionKey)
-    if (items.length === 0) return
-    const merged = items.map((item) => item.text).join('\n')
-    // streaming 时先等打断完成再发送，避免新消息被旧回复的收尾覆盖；
-    // 非 streaming 时无需打断（也避免误弹"已中断回复"提示）
-    if (isStreaming) {
-      // 真的 await：旧实现写成 Promise.resolve(onAbort?.()) 并不等待断完成
-      await onAbort?.()
-    }
-    onSendWithValue?.(merged)
-  }
-
-  // 从等待队列移除指定消息
-  const removeQueuedMessage = (id: string) => {
-    if (!sessionKey) return
-    removeQueuedMessageById(sessionKey, id)
   }
 
   /**
@@ -503,15 +462,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
 
   const handleButtonClick = () => {
     if (isStreaming) {
-      // 流式回复中点击停止：若队列有数据，打断的同时把队列发给 Agent；否则仅打断
-      if (queuedMessages.length > 0) {
-        void flushQueuedMessages()
-      } else {
-        onAbort?.()
-      }
-    } else if (queuedMessages.length > 0) {
-      // 非流式但队列有数据：直接发送队列
-      void flushQueuedMessages()
+      onAbort?.()
     } else if (innerValue.trim()) {
       handleSend()
     }
@@ -648,9 +599,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
   const effectivePlaceholder = !isConnected
     ? '请先连接服务器'
     : isStreaming
-      ? (queuedMessages.length > 0
-          ? '回车继续入队，清空后回车打断并发送…'
-          : 'AI 回复中，回车将消息加入等待队列…')
+      ? 'AI 回复中，回车会作为插话注入当前回合…'
       : rotatingTip
         ? rotatingTip
         : (placeholder || '咱们今天干点啥！')
@@ -774,42 +723,6 @@ const ChatInput: React.FC<ChatInputProps> = ({
             >
               ×
             </button>
-          </div>
-        </div>
-      )}
-
-      {/* AI 回复中的等待队列：有内容回车入队，输入框清空后回车打断并合并发送 */}
-      {queuedMessages.length > 0 && (
-        <div className={styles['queue-area']}>
-          <div className={styles['queue-header']}>
-            <span className={styles['queue-title']}>等待队列 ({queuedMessages.length})</span>
-            <span className={styles['queue-hint']}>
-              {isStreaming ? '清空输入框后按回车 → 打断当前回复并发送' : '按回车或点击发送 → 立即发送队列'}
-            </span>
-            <button
-              type="button"
-              onClick={flushQueuedMessages}
-              className={styles['steer-send-btn']}
-              title={isStreaming ? '立即打断当前回复并发送队列' : '立即发送队列'}
-            >
-              立即发送
-            </button>
-          </div>
-          <div className={styles['queue-list']}>
-            {queuedMessages.map((msg) => (
-              <div key={msg.id} className={styles['queue-item']}>
-                <span className={styles['queue-item-text']} title={msg.text}>{msg.text}</span>
-                <button
-                  type="button"
-                  onClick={() => removeQueuedMessage(msg.id)}
-                  className={styles['queue-item-remove']}
-                  aria-label="移除该消息"
-                  title="移除"
-                >
-                  ×
-                </button>
-              </div>
-            ))}
           </div>
         </div>
       )}
@@ -1226,13 +1139,9 @@ const ChatInput: React.FC<ChatInputProps> = ({
             <button
               type="button"
               onClick={handleButtonClick}
-              disabled={isStreaming ? false : (isDisabled || (!innerValue.trim() && queuedMessages.length === 0))}
+              disabled={isStreaming ? false : (isDisabled || !innerValue.trim())}
               className={clsx(styles['send-btn'], isStreaming && styles['stop-btn'])}
-              title={
-                isStreaming
-                  ? (queuedMessages.length > 0 ? '停止并发送队列' : '停止生成')
-                  : (queuedMessages.length > 0 ? '发送队列' : '发送消息')
-              }
+              title={isStreaming ? '停止生成' : '发送消息'}
             >
               {isStreaming ? (
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">

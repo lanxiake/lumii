@@ -244,27 +244,6 @@ export interface HistoryPaging {
   readonly cursor: { readonly timestamp: string; readonly id: string } | null
 }
 
-/**
- * 运行中排队的消息条目（会话级）。
- *
- * 存在会话状态里而不是 ChatInput 的局部 state：队列属于会话，不属于输入框——
- * 切走会话后它仍会在这个会话的回合结束时被自动发送（见 event-handler 的
- * `agent:turn:end` 分支），而不是跟着人跑到另一个会话去。
- */
-export interface QueuedMessage {
-  readonly id: string
-  readonly text: string
-  readonly createdAt: number
-  /**
-   * 入队时该会话的模型选择，发送时随 `user:send` 回传。
-   *
-   * 不能省：`handleUserSend` 会把 `modelId` 写进会话偏好，而 `undefined`
-   * 会被 `setSessionPreferredModel` 当成「清空偏好」（bridge-session-model-catalog.ts:261），
-   * 自动发送时漏传就会把用户选的模型悄悄抹掉。
-   */
-  readonly modelId?: string
-}
-
 /** 中途插话输入条的会话级状态（草稿与「已发送待生效」提示） */
 export interface SteerState {
   readonly draft: string
@@ -298,17 +277,6 @@ export interface PerSessionState {
   readonly compactionEvents: readonly RuntimeCompactionEvent[]
   /** Agent 调用 task_complete 工具时设置，包含完成摘要和时间戳 */
   readonly lastTaskCompletion: { summary: string; timestamp: number } | null
-  /**
-   * 本轮 Agent 回复「正常结束」的时间戳（仅 agent:turn:end 主 Agent 正常完成时更新）。
-   * 中止（agent:abort）/错误（agent:error）路径**不**更新此值，
-   * 供 UI 监听其边沿变化以触发「等待队列自动发送」，避免工具调用间隙误触发。
-   */
-  readonly lastTurnEndAt: number | null
-  /**
-   * 运行中排队待发的消息（会话级）。回合正常结束时由 event-handler 自动发送，
-   * 与用户当前正在看哪个会话无关。
-   */
-  readonly queuedMessages: readonly QueuedMessage[]
   /** 中途插话输入条状态（会话级） */
   readonly steer: SteerState
 }
@@ -364,7 +332,6 @@ const EMPTY_MESSAGES: readonly RuntimeMessage[] = []
 const EMPTY_ACTIVE_AGENTS: readonly ActiveAgent[] = []
 const EMPTY_FILE_EVENTS: readonly RuntimeFileEvent[] = []
 const EMPTY_COMPACTION_EVENTS: readonly RuntimeCompactionEvent[] = []
-const EMPTY_QUEUED_MESSAGES: readonly QueuedMessage[] = []
 /** 共享空插话态，保证无插话时快照引用稳定 */
 const EMPTY_STEER_STATE: SteerState = { draft: '', sent: false }
 
@@ -400,8 +367,6 @@ const DEFAULT_PER_SESSION_STATE: PerSessionState = {
   fileEvents: EMPTY_FILE_EVENTS,
   compactionEvents: EMPTY_COMPACTION_EVENTS,
   lastTaskCompletion: null,
-  lastTurnEndAt: null,
-  queuedMessages: EMPTY_QUEUED_MESSAGES,
   steer: EMPTY_STEER_STATE,
 }
 
@@ -483,51 +448,8 @@ export function updateSessionState(
 }
 
 // ============================================================
-// 会话级队列与插话状态操作
+// 会话级插话状态操作
 // ============================================================
-
-let queuedMessageSeq = 0
-
-/** 构造队列条目（id 在渲染层生成，便于入队后按条移除） */
-export function makeQueuedMessage(text: string, modelId?: string): QueuedMessage {
-  queuedMessageSeq += 1
-  return {
-    id: `queued-${Date.now()}-${queuedMessageSeq}`,
-    text,
-    createdAt: Date.now(),
-    ...(modelId ? { modelId } : {}),
-  }
-}
-
-/** 追加一条待发消息到指定会话的队列 */
-export function enqueueQueuedMessage(sessionKey: string, item: QueuedMessage): void {
-  updateSessionState(sessionKey, (prev) => ({
-    ...prev,
-    queuedMessages: [...prev.queuedMessages, item],
-  }))
-}
-
-/** 从队列移除单条 */
-export function removeQueuedMessageById(sessionKey: string, id: string): void {
-  updateSessionState(sessionKey, (prev) => {
-    const next = prev.queuedMessages.filter((m) => m.id !== id)
-    return next.length === prev.queuedMessages.length ? prev : { ...prev, queuedMessages: next }
-  })
-}
-
-/**
- * 原子取出并清空队列（回合结束后自动发送用）。
- *
- * 取出与清空必须在同一次状态更新里完成：分两步做的话，「已取出、尚未发出」
- * 的窗口内用户新入队的消息会被这次发送吞掉，或因队列非空被下一个触发点重复发送。
- */
-export function takeQueuedMessages(sessionKey: string): readonly QueuedMessage[] {
-  const items =
-    runtimeStore.getState().sessions.get(sessionKey)?.queuedMessages ?? EMPTY_QUEUED_MESSAGES
-  if (items.length === 0) return EMPTY_QUEUED_MESSAGES
-  updateSessionState(sessionKey, (prev) => ({ ...prev, queuedMessages: EMPTY_QUEUED_MESSAGES }))
-  return items
-}
 
 /** 更新插话草稿（按会话存储，切会话不串） */
 export function setSteerDraft(sessionKey: string, draft: string): void {

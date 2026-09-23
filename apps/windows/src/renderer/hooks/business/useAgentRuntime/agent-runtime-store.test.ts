@@ -4,21 +4,17 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import {
-  enqueueQueuedMessage,
   findAnyPendingPermission,
   findAnyPendingAskUser,
   getDefaultPerSessionState,
   getPendingPermissionSnapshot,
   getPendingAskUserSnapshot,
-  makeQueuedMessage,
   markSteerSent,
-  removeQueuedMessageById,
   resetRuntimeStore,
   resetSteer,
   runtimeStore,
   setFocusPermissionRequestId,
   setSteerDraft,
-  takeQueuedMessages,
   type PendingAskUser,
   type PendingPermission,
 } from './agent-runtime-store'
@@ -706,56 +702,6 @@ describe('setFocusPermissionRequestId', () => {
     setFocusPermissionRequestId('req-1')
     resetRuntimeStore()
     expect(runtimeStore.getState().focusPermissionRequestId).toBeNull()
-  })
-})
-
-/**
- * 队列与插话草稿过去是 ChatInput 的组件局部 state，切会话时跟着输入框跑：
- * 在 A 排队的消息会显示在 B 的输入框里，B 的回合一结束还会被发到 B 去。
- */
-describe('会话级等待队列', () => {
-  beforeEach(() => {
-    resetRuntimeStore()
-  })
-
-  it('按会话隔离：A 会话入队不影响 B 会话', () => {
-    enqueueQueuedMessage('s-A', makeQueuedMessage('给 A 的话'))
-    enqueueQueuedMessage('s-A', makeQueuedMessage('再来一条'))
-    enqueueQueuedMessage('s-B', makeQueuedMessage('给 B 的话'))
-
-    const sessions = runtimeStore.getState().sessions
-    expect(sessions.get('s-A')?.queuedMessages.map((m) => m.text)).toEqual(['给 A 的话', '再来一条'])
-    expect(sessions.get('s-B')?.queuedMessages.map((m) => m.text)).toEqual(['给 B 的话'])
-  })
-
-  it('takeQueuedMessages 原子取出并清空：自动发送与手动发送谁先到谁发，不会重复', () => {
-    enqueueQueuedMessage('s-A', makeQueuedMessage('x'))
-
-    expect(takeQueuedMessages('s-A').map((m) => m.text)).toEqual(['x'])
-    expect(runtimeStore.getState().sessions.get('s-A')?.queuedMessages).toHaveLength(0)
-    expect(takeQueuedMessages('s-A')).toHaveLength(0)
-  })
-
-  it('空队列取出返回稳定空数组（避免无谓重渲染）', () => {
-    expect(takeQueuedMessages('s-none')).toHaveLength(0)
-    expect(takeQueuedMessages('s-none')).toBe(takeQueuedMessages('s-none'))
-  })
-
-  it('可按 id 移除单条（队列项从字符串升级为带 id 的条目）', () => {
-    const first = makeQueuedMessage('第一条')
-    enqueueQueuedMessage('s-A', first)
-    enqueueQueuedMessage('s-A', makeQueuedMessage('第二条'))
-
-    removeQueuedMessageById('s-A', first.id)
-
-    expect(runtimeStore.getState().sessions.get('s-A')?.queuedMessages.map((m) => m.text)).toEqual([
-      '第二条',
-    ])
-  })
-
-  it('入队时快照模型 id：自动发送时漏传会把会话模型偏好清空', () => {
-    enqueueQueuedMessage('s-A', makeQueuedMessage('hi', 'deepseek-chat'))
-    expect(takeQueuedMessages('s-A')[0]?.modelId).toBe('deepseek-chat')
   })
 })
 
