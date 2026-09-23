@@ -19,9 +19,11 @@ import {
   findAnyPendingAskUser,
   getPendingPermissionSnapshot,
   getPendingAskUserSnapshot,
+  markSteerSent,
   type PendingPermissionSnapshot,
   type PendingAskUserSnapshot,
 } from './agent-runtime-store'
+import { sendUserMessage } from './send-user-message'
 import type { SessionContextUsageResult } from '../../../../shared/agent-runtime-commands'
 import { isCommandError } from '../../../../shared/agent-runtime-commands'
 import { debugLog, ensureIpcEventListener, sleep, LIST_NOT_READY_RETRY_MS, LIST_NOT_READY_MAX_ATTEMPTS } from './bridge-init'
@@ -132,65 +134,42 @@ export function useAgentRuntimeActions() {
         imageAttachmentPaths?: readonly string[]
       },
     ) => {
-      const api = window.electronAPI?.agentRuntime
-      if (!api?.sendCommand) {
-        throw new Error('Agent Runtime new protocol not available')
-      }
-
       const sessionKey = options?.sessionKey ?? runtimeStore.getState().currentSessionKey
       if (!sessionKey) {
         throw new Error('No active session. Create a session first.')
       }
 
-      // 生成稳定消息 ID，确保落库后 ID 与本地一致，切换会话不重复
-      const msgId = typeof crypto !== 'undefined' && crypto.randomUUID
-        ? crypto.randomUUID()
-        : `user-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-
-      // 先将用户消息追加到对应会话的 Store
-      updateSessionState(sessionKey, (prev) => ({
-        ...prev,
-        messages: [
-          ...prev.messages,
-          {
-            id: msgId,
-            role: 'user' as const,
-            content: [{ type: 'text' as const, text: content }],
-            parts: [],
-            timestamp: Date.now(),
-            isStreaming: false,
-            toolCalls: [],
-          },
-        ],
-      }))
-
-      const result = await api.sendCommand({
-        type: 'user:send',
-        sessionKey,
-        content,
+      // 与「等待队列自动发送」共用同一实现：msgId / 乐观写入 / 落库去重必须一致，
+      // 否则同一条消息会被写入两次（各自一份实现时最容易在这里漂移）。
+      return sendUserMessage(sessionKey, content, {
         agentId: options?.agentId,
         modelId: options?.modelId,
-        msgId,
         imageAttachmentPaths: options?.imageAttachmentPaths,
-      }) as { runId: string }
-
-      return result.runId
+      })
     },
     [],
   )
 
-  const steer = useCallback(async (steerText: string) => {
+  /**
+   * 中途插话：把引导文本注入指定会话**正在跑的那个 run**。
+   *
+   * 会话必须由调用方显式给出——旧实现读 `currentSessionKey`，用户在 A 会话
+   * 写好插话、切到 B 再点发送，就会插到 B 的运行中回合上。
+   *
+   * @returns 是否已发出（该会话当前没有运行中的回合时为 false）
+   */
+  const steer = useCallback(async (sessionKey: string, steerText: string): Promise<boolean> => {
     const api = window.electronAPI?.agentRuntime
-    if (!api?.sendCommand) return
-    const globalState = runtimeStore.getState()
-    const sessionKey = globalState.currentSessionKey
-    if (!sessionKey) return
-    const sessionState = globalState.sessions.get(sessionKey)
-    const activeRunId = sessionState?.activeRunId ?? null
-    if (!activeRunId) return
-    // 确保 isStreaming 保持 true，防止 steer 条因短暂 false 而收起
-    updateSessionState(sessionKey, (prev) => ({ ...prev, isStreaming: true }))
-    await api.sendCommand({ type: 'user:steer', runId: activeRunId, steerText })
+    if (!api?.sendCommand) return false
+    const activeRunId = runtimeStore.getState().sessions.get(sessionKey)?.activeRunId ?? null
+    if (!activeRunId) {
+      console.warn('[steer] 该会话没有运行中的回合，插话未发出:', sessionKey)
+      return false
+    }
+    await api.sendCommand({ type: 'user:steer', runId: activeRunId, sessionKey, steerText })
+    // 「补充中」标记存在会话状态里：切走再切回，提示不丢也不串
+    markSteerSent(sessionKey)
+    return true
   }, [])
 
   const abort = useCallback(async () => {

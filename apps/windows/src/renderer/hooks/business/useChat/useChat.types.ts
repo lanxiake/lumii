@@ -54,6 +54,11 @@ export interface ChatMessage {
   acpBackendLabel?: string
   /** 是否为语音识别消息（用户通过语音通话输入） */
   isVoice?: boolean
+  /**
+   * 用户中途插话：Agent 运行途中注入的引导消息。
+   * 气泡据此加「插话」标记，与常规提问区分开。
+   */
+  isSteer?: boolean
   /** 原始录音 WAV base64（仅语音消息，用于气泡点击回放） */
   audioWavBase64?: string
   /** 助手消息结构化时间线（thinking / text / tool 交错） */

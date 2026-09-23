@@ -3,6 +3,15 @@ import clsx from 'clsx'
 import styles from './ChatInput.module.css'
 import type { Agent } from '../../../../services/agent-service'
 import type { ContextUsage } from '../../../../hooks/business/useAgentRuntime/agent-runtime-store'
+import {
+  enqueueQueuedMessage,
+  makeQueuedMessage,
+  removeQueuedMessageById,
+  resetSteer,
+  setSteerDraft,
+  takeQueuedMessages,
+} from '../../../../hooks/business/useAgentRuntime/agent-runtime-store'
+import { useAgentRuntimeState } from '../../../../hooks/business/useAgentRuntime/useAgentRuntime'
 import { searchCommands, CATEGORY_LABELS } from '../../commands/slash-commands'
 import type { SlashCommand } from '../../commands/slash-commands'
 import { getSelectedAcpBackendId, BACKEND_INFO, MAIN_BACKEND_ID } from '../../commands/slash-command-executor'
@@ -32,12 +41,6 @@ interface ChatInputProps {
   onAbort?: () => void | Promise<void>
   disabled?: boolean
   isStreaming?: boolean
-  /**
-   * 本轮 Agent 回复「正常结束」的时间戳（来自 runtime store lastTurnEndAt）。
-   * 该值发生变化（边沿触发）且等待队列非空时，自动发送队列。
-   * 中止/错误不更新此值，避免误发。
-   */
-  turnEndAt?: number | null
   isConnected?: boolean
   placeholder?: string
   /** Agent 列表（用于 /命令 面板） */
@@ -78,8 +81,15 @@ interface ChatInputProps {
   onRemoveAttachment?: (filePath: string) => void
   /** 主导航跳转（管理技能 / MCP / Agent） */
   onViewChange?: (view: ViewType) => void
-  /** 中途插话回调（AI 正在回复时可用） */
-  onSteer?: (steerText: string) => void
+  /**
+   * 中途插话回调（AI 正在回复时可用）。
+   *
+   * 必须显式带上会话 key：旧签名只传文本，由 hook 去读「当前会话」，
+   * 用户在 A 会话写好插话、切到 B 再点发送时，就会插到 B 正在跑的回合上。
+   *
+   * @returns 是否已发出（该会话当前没有运行中的回合时为 false）
+   */
+  onSteer?: (sessionKey: string, steerText: string) => void | Promise<boolean>
   /** 上下文使用量（来自 agent:context:usage 事件） */
   contextUsage?: ContextUsage | null
   /** 自动压缩进行中（显示"压缩中..."动画） */
@@ -156,7 +166,6 @@ const ChatInput: React.FC<ChatInputProps> = ({
   onAbort,
   disabled,
   isStreaming,
-  turnEndAt,
   isConnected,
   placeholder,
   agents = [],
@@ -198,11 +207,17 @@ const ChatInput: React.FC<ChatInputProps> = ({
   const helpPanelRef = useRef<HTMLDivElement>(null)
   const slashPanelRef = useRef<HTMLDivElement>(null)
   const [steerExpanded, setSteerExpanded] = useState(false)
-  const [steerValue, setSteerValue] = useState('')
-  // steer 发送后切换为「正在补充...」提示
-  const [steerSent, setSteerSent] = useState(false)
-  // AI 回复中的等待队列：有内容时回车入队，输入框为空时回车则打断当前回复并合并发送队列
-  const [queuedMessages, setQueuedMessages] = useState<string[]>([])
+  /**
+   * 等待队列与插话草稿都存在**会话状态**里，不用组件局部 state。
+   *
+   * 它们属于会话而不属于输入框：切走会话后队列要留在原会话（并在它的回合结束时
+   * 自动发出），草稿也不能跟着跑到另一个会话的输入框里。插话输入条的展开与否
+   * 是纯视图态，留在本地即可（切会话时收起）。
+   */
+  const queuedMessages = useAgentRuntimeState((s) => s.queuedMessages)
+  const steerState = useAgentRuntimeState((s) => s.steer)
+  const steerValue = steerState.draft
+  const steerSent = steerState.sent
   // 模型切换面板状态
   const [modelPanelOpen, setModelPanelOpen] = useState(false)
   // 帮助面板状态
@@ -325,11 +340,16 @@ const ChatInput: React.FC<ChatInputProps> = ({
 
   // streaming 结束时只收起插话面板，不清空草稿（避免多轮 tool 间隙短暂 !isStreaming 误删用户正在输入的内容）
   useEffect(() => {
-    if (!isStreaming) {
-      setSteerExpanded(false)
-      setSteerSent(false)
-    }
-  }, [isStreaming])
+    if (isStreaming || !sessionKey) return
+    setSteerExpanded(false)
+    // 「补充中」标记按会话保存在 store 里，回合收尾时在这里复位
+    resetSteer(sessionKey)
+  }, [isStreaming, sessionKey])
+
+  // 切换会话时收起插话输入条（草稿按会话存在 store 里，切回来还在）
+  useEffect(() => {
+    setSteerExpanded(false)
+  }, [sessionKey])
 
   /**
    * 输入变化：只更新本地草稿；IME 组合期间跳过斜杠匹配。
@@ -420,7 +440,11 @@ const ChatInput: React.FC<ChatInputProps> = ({
         const text = innerValue.trim()
         if (text) {
           // 有内容 → 追加到等待队列，清空输入框，可继续输入下一条
-          setQueuedMessages((prev) => [...prev, text])
+          if (sessionKey) {
+            // 记下入队时的模型：自动发送那条路拿不到组件的 selectedModelId，
+            // 漏传会让主进程把会话模型偏好当成「要清空」处理
+            enqueueQueuedMessage(sessionKey, makeQueuedMessage(text, selectedModelId))
+          }
           setDraft('')
           flushDraft('')
         } else if (queuedMessages.length > 0) {
@@ -438,37 +462,31 @@ const ChatInput: React.FC<ChatInputProps> = ({
     }
   }
 
-  // 把队列中的消息合并为一条发送；若正在流式回复则先打断再发送
+  /**
+   * 手动发送队列（「立即发送」按钮 / 清空输入框后回车 / 停止按钮）。
+   *
+   * 回合结束时的**自动**发送不在这里——它挂在事件层的 `agent:turn:end`
+   * （useAgentRuntime/queued-flush.ts），这样用户切走的会话也能按时发出队列。
+   * 两处都经由 `takeQueuedMessages` 原子取出，谁先到谁发，不会重复。
+   */
   const flushQueuedMessages = async () => {
-    if (queuedMessages.length === 0) return
-    const merged = queuedMessages.join('\n')
-    setQueuedMessages([])
+    if (!sessionKey) return
+    const items = takeQueuedMessages(sessionKey)
+    if (items.length === 0) return
+    const merged = items.map((item) => item.text).join('\n')
     // streaming 时先等打断完成再发送，避免新消息被旧回复的收尾覆盖；
     // 非 streaming 时无需打断（也避免误弹"已中断回复"提示）
     if (isStreaming) {
-      await Promise.resolve(onAbort?.())
+      // 真的 await：旧实现写成 Promise.resolve(onAbort?.()) 并不等待断完成
+      await onAbort?.()
     }
     onSendWithValue?.(merged)
   }
 
-  // 用 ref 持有最新 flush，供 turnEndAt 边沿 effect 调用，避免闭包陈旧 & 频繁重订阅
-  const flushQueuedMessagesRef = useRef(flushQueuedMessages)
-  flushQueuedMessagesRef.current = flushQueuedMessages
-
-  // Agent 本轮「正常结束」时（turnEndAt 边沿变化），若等待队列非空则自动发送。
-  // 仅依赖 turnEndAt：中止/错误不更新该值，工具调用间隙也不触发（turn:end 才更新）。
-  const handledTurnEndAtRef = useRef<number | null>(turnEndAt ?? null)
-  useEffect(() => {
-    if (turnEndAt == null) return
-    if (turnEndAt === handledTurnEndAtRef.current) return
-    handledTurnEndAtRef.current = turnEndAt
-    // 此时已是非 streaming 状态，flush 内部不会触发打断
-    void flushQueuedMessagesRef.current()
-  }, [turnEndAt])
-
   // 从等待队列移除指定消息
-  const removeQueuedMessage = (index: number) => {
-    setQueuedMessages((prev) => prev.filter((_, i) => i !== index))
+  const removeQueuedMessage = (id: string) => {
+    if (!sessionKey) return
+    removeQueuedMessageById(sessionKey, id)
   }
 
   /**
@@ -555,12 +573,14 @@ const ChatInput: React.FC<ChatInputProps> = ({
   }, [onViewChange])
 
   const handleSteerSend = useCallback(() => {
-    if (!steerValue.trim() || !onSteer) return
-    onSteer(steerValue.trim())
-    setSteerValue('')
+    const text = steerValue.trim()
+    if (!text || !onSteer || !sessionKey) return
+    // 带上会话 key：切走会话后即使这个组件还在渲染旧内容，插话也只会落到它自己的会话
+    onSteer(sessionKey, text)
+    setSteerDraft(sessionKey, '')
     setSteerExpanded(false)
-    setSteerSent(true)
-  }, [steerValue, onSteer])
+    // 「补充中」标记不在本地置位——由 steer() 在命令真正发出后写进会话状态
+  }, [steerValue, onSteer, sessionKey])
 
   const handleSteerKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
@@ -568,7 +588,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
       handleSteerSend()
     } else if (e.key === 'Escape') {
       setSteerExpanded(false)
-      setSteerValue('')
+      if (sessionKey) setSteerDraft(sessionKey, '')
     }
   }
 
@@ -733,7 +753,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
               ref={steerInputRef}
               type="text"
               value={steerValue}
-              onChange={(e) => setSteerValue(e.target.value)}
+              onChange={(e) => { if (sessionKey) setSteerDraft(sessionKey, e.target.value) }}
               onKeyDown={handleSteerKeyDown}
               placeholder="输入引导内容，AI 将立即调整方向..."
               className={styles['steer-input']}
@@ -748,7 +768,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
             </button>
             <button
               type="button"
-              onClick={() => { setSteerExpanded(false); setSteerValue('') }}
+              onClick={() => { setSteerExpanded(false); if (sessionKey) setSteerDraft(sessionKey, '') }}
               className={styles['steer-cancel-btn']}
               title="取消"
             >
@@ -776,12 +796,12 @@ const ChatInput: React.FC<ChatInputProps> = ({
             </button>
           </div>
           <div className={styles['queue-list']}>
-            {queuedMessages.map((msg, index) => (
-              <div key={index} className={styles['queue-item']}>
-                <span className={styles['queue-item-text']} title={msg}>{msg}</span>
+            {queuedMessages.map((msg) => (
+              <div key={msg.id} className={styles['queue-item']}>
+                <span className={styles['queue-item-text']} title={msg.text}>{msg.text}</span>
                 <button
                   type="button"
-                  onClick={() => removeQueuedMessage(index)}
+                  onClick={() => removeQueuedMessage(msg.id)}
                   className={styles['queue-item-remove']}
                   aria-label="移除该消息"
                   title="移除"

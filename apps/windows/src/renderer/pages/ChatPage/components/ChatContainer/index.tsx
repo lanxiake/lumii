@@ -42,6 +42,8 @@ interface MessageItem {
   acpBackendLabel?: string
   /** 是否为语音识别消息 */
   isVoice?: boolean
+  /** 用户中途插话（Agent 运行途中注入的引导消息） */
+  isSteer?: boolean
   /** 原始录音 WAV base64，用于气泡点击回放 */
   audioWavBase64?: string
   /** 助手消息结构化时间线 */
@@ -177,6 +179,7 @@ const ChatMessageRow: React.FC<ChatMessageRowProps> = ({
     sourceAgent: item.sourceAgent,
     acpBackendLabel: item.acpBackendLabel,
     isVoice: item.isVoice,
+    isSteer: item.isSteer,
     parts: item.parts,
     fileChanges: item.fileChanges,
   }), [item])
@@ -405,6 +408,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
       sourceAgent: (msg as { sourceAgent?: MessageItem['sourceAgent'] }).sourceAgent,
       acpBackendLabel: (msg as { acpBackendLabel?: string }).acpBackendLabel,
       isVoice: (msg as { isVoice?: boolean }).isVoice,
+      isSteer: (msg as { isSteer?: boolean }).isSteer,
       audioWavBase64: (msg as { audioWavBase64?: string }).audioWavBase64,
       parts: (msg as { parts?: readonly AssistantPart[] }).parts,
       fileChanges: (msg as { fileChanges?: readonly FileChangeEntry[] }).fileChanges,

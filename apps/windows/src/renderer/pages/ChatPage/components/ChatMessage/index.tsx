@@ -1298,6 +1298,11 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
       )}
       <div className={styles['message-avatar']}>{roleLabel}</div>
       <div className={styles['message-content-wrapper']}>
+        {message.role === 'user' && message.isSteer && (
+          <div className={styles['steer-badge']} title="Agent 正在执行时插入的引导消息，不是新起的一轮对话">
+            插话
+          </div>
+        )}
         {content}
         {message.role === 'assistant' && renderTokenUsage()}
         {message.role === 'assistant' && renderMemoryHint()}

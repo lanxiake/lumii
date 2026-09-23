@@ -470,11 +470,14 @@ export function handleConversationMessages(
     let sourceAgent: { instanceId: string; label: string } | undefined
     let isVoice: boolean | undefined
     let audioWavBase64: string | undefined
+    let isSteer: boolean | undefined
     try {
       const parsed =
         typeof msg.content_json === 'string' ? JSON.parse(msg.content_json) : msg.content_json
       if (parsed && typeof parsed === 'object') {
         if ((parsed as { isVoice?: unknown }).isVoice === true) isVoice = true
+        // 中途插话：落库时打了标记，重开会话/翻历史要靠它把「插话」徽标还原出来
+        if ((parsed as { isSteer?: unknown }).isSteer === true) isSteer = true
         const aw = (parsed as { audioWavBase64?: unknown }).audioWavBase64
         if (typeof aw === 'string' && aw.length > 0) audioWavBase64 = aw
       }
@@ -546,6 +549,7 @@ export function handleConversationMessages(
       ...(toolCalls && toolCalls.length > 0 ? { toolCalls } : {}),
       ...(sourceAgent ? { sourceAgent } : {}),
       ...(isVoice ? { isVoice: true } : {}),
+      ...(isSteer ? { isSteer: true } : {}),
       ...(audioWavBase64 ? { audioWavBase64 } : {}),
     }
   })

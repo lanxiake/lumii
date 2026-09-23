@@ -271,13 +271,64 @@ export function handleUserSteer(
   bridge: AgentRuntimeBridge,
   command: Extract<AgentRuntimeCommand, { type: 'user:steer' }>,
 ): void {
-  log.info(`[user:steer] steerText="${command.steerText.slice(0, 50)}"`)
-  const instances = bridge.getInstances()
-  const running = instances.find((i) => i.state === 'running')
-  if (running) {
-    bridge.steer(running.id, command.steerText)
+  log.info(
+    `[user:steer] runId=${command.runId} sessionKey=${command.sessionKey ?? '(none)'} steerText="${command.steerText.slice(0, 50)}"`,
+  )
+
+  // 定位目标实例：runId 优先（渲染层发的就是它），sessionKey 兜底（run 映射可能已轮转）。
+  // 旧实现取「第一个 state === 'running' 的实例」——多会话并发时插话会落到别的会话上。
+  const targetId =
+    deps!.runIdToInstance.get(command.runId) ??
+    (command.sessionKey ? deps!.sessionToInstance.get(command.sessionKey) : undefined)
+  const target = targetId ? bridge.getInstances().find((i) => i.id === targetId) : undefined
+
+  if (!target) {
+    log.warn(
+      `[user:steer] 未找到目标实例，插话未注入 runId=${command.runId} sessionKey=${command.sessionKey ?? '(none)'}`,
+    )
+  } else if (target.state !== 'running') {
+    // 回合已结束：没有可注入的循环。如实记日志，不静默丢弃也不改投别的实例
+    log.info(
+      `[user:steer] 目标实例不在运行中（state=${target.state}），跳过注入 instanceId=${target.id}`,
+    )
   } else {
-    log.info(`[user:steer] no running instance found`)
+    bridge.steer(target.id, command.steerText)
+  }
+
+  // 无论是否注入成功都落库：用户确实说了这句话，记下来比丢掉更接近事实，
+  // 会话恢复时它也应当出现在历史里（此前插话只活在 Agent 内存，刷新即失）。
+  persistSteerMessage(bridge, command)
+}
+
+/**
+ * 把插话作为一条用户消息落库并广播（带 `isSteer` 标记，UI 显示为「插话」气泡）。
+ */
+function persistSteerMessage(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'user:steer' }>,
+): void {
+  const sessionKey = command.sessionKey
+  if (!sessionKey) return
+  try {
+    const saved = bridge.conversationRepo.saveMessage({
+      id: `steer-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      conversationId: sessionKey,
+      role: 'user',
+      contentJson: { type: 'text', text: command.steerText, isSteer: true },
+    })
+    bridge.forwardIpcEvent({
+      type: 'conversation:message:new',
+      sessionKey,
+      message: {
+        id: saved.id,
+        role: 'user',
+        content: [{ type: 'text', text: command.steerText }],
+        timestamp: Date.now(),
+        isSteer: true,
+      },
+    })
+  } catch (err) {
+    log.error('[user:steer] 插话落库失败:', err)
   }
 }
 

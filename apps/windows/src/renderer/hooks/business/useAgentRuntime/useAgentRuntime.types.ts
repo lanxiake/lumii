@@ -15,6 +15,8 @@ export interface DbMessage {
   /** 已被上下文压缩移出 LLM 请求，仍保留在历史中 */
   contextExcluded?: boolean
   isVoice?: boolean
+  /** 用户中途插话（Agent 运行途中注入的引导消息） */
+  isSteer?: boolean
   audioWavBase64?: string
   contentJson?: string
   toolCalls?: readonly {

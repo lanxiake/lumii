@@ -67,6 +67,11 @@ export interface UserSendCommand {
 export interface UserSteerCommand {
   readonly type: 'user:steer'
   readonly runId: string
+  /**
+   * 会话键。定位目标实例时与 `runId` 互为兜底：
+   * 多会话并发时若只按 runId 查表，映射缺失就会退化成「随便挑一个运行中的实例」。
+   */
+  readonly sessionKey?: string
   /** 在 Agent 执行过程中注入的引导文本 */
   readonly steerText: string
 }

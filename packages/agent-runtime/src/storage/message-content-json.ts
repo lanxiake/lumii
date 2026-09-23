@@ -37,6 +37,11 @@ export interface TextMessageContent {
   /** 用户语音消息：标识 + 原始录音 WAV base64（仅本地 UI 回放，不送 LLM） */
   readonly isVoice?: boolean;
   readonly audioWavBase64?: string;
+  /**
+   * 用户中途插话：Agent 运行途中注入的引导消息。
+   * 落库是为了让它在历史里留痕（UI 加「插话」徽标），此前只活在 Agent 内存里，刷新即失。
+   */
+  readonly isSteer?: boolean;
 }
 
 /** tool_result 消息（工具执行结果） */
