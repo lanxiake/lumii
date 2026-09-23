@@ -348,6 +348,17 @@ export function handleConversationDelete(
     log.warn('[conversation:delete] failed to soft-delete files:', err)
   }
 
+  // 工作记忆分段同样要跟着会话走。
+  // messages 有 ON DELETE CASCADE，memory_segments 建表早于该约束、加不上外键，
+  // 只能显式清 —— 不清就是孤儿行，且会一直留在库里（SummarizationQueue 扫到后会因
+  // 回读不到原文而标 summarised，不算出错，但查会话数与统计时会露馅）。
+  // 放在 deleteConversation 之前：删不掉会话时不该先把段删了。
+  try {
+    bridge.segmentRepo.deleteByConversation(sessionKey)
+  } catch (err) {
+    log.warn('[conversation:delete] 清理记忆分段失败:', err)
+  }
+
   // sessionKey === conversationId，直接从数据库删除对话
   // 不捕获异常 —— 让错误向上传播至 handleCommand / IPC handler，
   // 使渲染层能感知删除失败，避免假性成功导致重启后数据复现。

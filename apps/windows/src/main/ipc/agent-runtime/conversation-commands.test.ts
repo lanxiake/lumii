@@ -74,11 +74,13 @@ describe('conversation:delete 自主进化会话守卫', () => {
       untrackInstanceRuns: vi.fn(),
     } as never)
     const deleteConversation = vi.fn()
+    const deleteByConversation = vi.fn()
     const bridge = {
       destroy: vi.fn(),
       clearSessionPreferredModel: vi.fn(),
       fileRepo: { listByConversation: vi.fn(() => []), softDelete: vi.fn() },
       conversationRepo: { deleteConversation },
+      segmentRepo: { deleteByConversation },
     }
 
     expect(() =>
@@ -88,6 +90,35 @@ describe('conversation:delete 自主进化会话守卫', () => {
       } as never),
     ).not.toThrow()
     expect(deleteConversation).toHaveBeenCalledWith('conversation-1')
+    // 记忆分段跟着会话一起清（memory_segments 没有外键级联，不显式删就是孤儿行）
+    expect(deleteByConversation).toHaveBeenCalledWith('conversation-1')
+  })
+
+  it('清理记忆分段失败不阻断会话删除（分段是附属数据，会话才是主体）', () => {
+    setConversationDependencies({
+      sessionToInstance: new Map(),
+      untrackInstanceRuns: vi.fn(),
+    } as never)
+    const deleteConversation = vi.fn()
+    const bridge = {
+      destroy: vi.fn(),
+      clearSessionPreferredModel: vi.fn(),
+      fileRepo: { listByConversation: vi.fn(() => []), softDelete: vi.fn() },
+      conversationRepo: { deleteConversation },
+      segmentRepo: {
+        deleteByConversation: vi.fn(() => {
+          throw new Error('段表忙')
+        }),
+      },
+    }
+
+    expect(() =>
+      handleConversationDelete(bridge as never, {
+        type: 'conversation:delete',
+        sessionKey: 'conversation-2',
+      } as never),
+    ).not.toThrow()
+    expect(deleteConversation).toHaveBeenCalledWith('conversation-2')
   })
 })
 

@@ -578,6 +578,38 @@ describe('handleRuntimeEvent assistant parts', () => {
     expect(firstTexts).toEqual(['插话前的输出'])
   })
 
+  it('分段时主进程手发 + pi 真实事件各来一条同 id 的 message:start → 仍只有一个气泡', () => {
+    // 生产流程：主进程在 steer:delivered 里手发一条 agent:message:start（换新 id），
+    // 紧接着 pi 对新一次 provider 请求也会发 message_start，经 converter 转发成第二条同 id 事件。
+    // 两条都必须落在同一个气泡上 —— 否则插话后每段都会多冒一个空壳。
+    startAssistantMessage()
+    const steerStart = {
+      type: 'agent:message:start',
+      runId: 'run-1',
+      sessionKey: 'session-1',
+      messageId: 'message-2',
+      model: 'test-model',
+      timestamp: 130,
+    } as const
+    handleRuntimeEvent(steerStart)
+    handleRuntimeEvent({ ...steerStart, timestamp: 131 })
+    handleRuntimeEvent({
+      type: 'agent:message:delta',
+      runId: 'run-1',
+      sessionKey: 'session-1',
+      messageId: 'message-2',
+      delta: '插话后的输出',
+      totalLength: 6,
+    })
+    handleRuntimeEvent({ type: 'agent:idle', runId: 'run-1', sessionKey: 'session-1' })
+
+    const assistants = (
+      runtimeStore.getState().sessions.get('session-1')?.messages ?? []
+    ).filter((m) => m.role === 'assistant')
+    expect(assistants.map((m) => m.id)).toEqual(['message-1', 'message-2'])
+    expect(assistants[1]?.parts.filter((p) => p.type === 'text').map((p) => p.text)).toEqual(['插话后的输出'])
+  })
+
   it('steer:delivered → 该会话「等待注入」的插话翻成普通插话', () => {
     // 长工具运行期间用户无从判断插话生效没有，气泡显示「等待注入」；
     // 主进程在插话真正进 context 的那一刻发这个事件，渲染层据此复位。

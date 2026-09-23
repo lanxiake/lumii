@@ -165,10 +165,11 @@ function buildHandler(conversationRepo: Record<string, unknown>) {
   });
   state.streamingAssistantMsgId = "message-1";
   instanceStates.set("instance", state);
+  const forwardIpcEvent = vi.fn((_event: unknown) => undefined);
   const handler = createAgentInstanceRuntimeEventHandler({
     instanceId: "instance",
     ctx,
-    ipcChannel: { forwardIpcEvent: vi.fn(), forwardToRenderer: vi.fn() } as never,
+    ipcChannel: { forwardIpcEvent, forwardToRenderer: vi.fn() } as never,
     conversationRepo: conversationRepo as never,
     fileRepo: null,
     fileMemoryHandler: {} as never,
@@ -195,7 +196,7 @@ function buildHandler(conversationRepo: Record<string, unknown>) {
     setCurrentToolExecutorInstanceId: vi.fn(),
     getCwd: () => os.tmpdir(),
   });
-  return { handler, state };
+  return { handler, state, ctx, forwardIpcEvent };
 }
 
 describe("NO_REPLY 哨兵轮的落库处理", () => {
@@ -834,5 +835,219 @@ describe("上下文占用推送（逐往返刷新 + 触发线）", () => {
 
     expect(setSessionProviderInputTokens).not.toHaveBeenCalled();
     expect(usageEvents()).toHaveLength(0);
+  });
+});
+
+/**
+ * 插话分段：`steer:delivered` 到达时对话流在这里断开。
+ *
+ * 背景见 docs/plans/客户端UI/2026-09-23-插话会话流分段与待注入状态实施计划.md。
+ * 判据全部落在「哪一行被写、写成什么」，不看 UI —— 分段的唯一真相是库里几条 assistant 行。
+ */
+describe("插话分段（steer:delivered）", () => {
+  /** 落库调用的形状（只声明断言用得到的字段，避免把实现细节抄一遍） */
+  interface UpdateMessageParams {
+    messageId: string;
+    conversationId: string;
+    isStreaming: boolean;
+    contentJson?: unknown;
+    timestampOverride?: string;
+  }
+  interface SaveMessageParams {
+    conversationId: string;
+    contentJson?: { parts: readonly unknown[] };
+    isStreaming?: boolean;
+  }
+
+  /** 落库类依赖的装配：saveMessage 按序返回新占位行 id */
+  function buildSegmentHandler(newIds: string[]) {
+    let cursor = 0;
+    const saveMessage = vi.fn((_p: SaveMessageParams) => ({ id: newIds[cursor++] }));
+    const updateMessageContent = vi.fn((_p: UpdateMessageParams) => 1);
+    const deleteMessage = vi.fn((_id: string, _convId: string) => undefined);
+    const built = buildHandler({
+      updateMessageContent,
+      saveMessage,
+      deleteMessage,
+      getConversation: vi.fn(() => ({ id: "conversation-1" })),
+      finalizeStreamingMessagesForConversation: vi.fn(() => ({ finalized: 0, deleted: 0 })),
+    });
+    return { ...built, updateMessageContent, saveMessage, deleteMessage };
+  }
+
+  const part = (text: string): AssistantPart => ({
+    type: "text",
+    id: `t-${text}`,
+    text,
+    status: "streaming",
+  });
+
+  it("旧段有内容 → 封口（is_streaming=0，写回段起点时间），另起新占位并归零文本偏移", async () => {
+    const { handler, state, ctx, forwardIpcEvent, updateMessageContent, saveMessage, deleteMessage } =
+      buildSegmentHandler(["message-2"]);
+    state.pendingParts = [part("插话之前的输出")];
+    state.streamingSegmentStartedAt = "2026-09-23T12:52:50.000Z";
+    ctx.currentMessageId = "message-1";
+    ctx.accumulatedLength = 42;
+    ctx.completedTurnsLength = 9;
+
+    await handler({ type: "steer:delivered", instanceId: "instance" } as never);
+
+    expect(deleteMessage).not.toHaveBeenCalled();
+    expect(updateMessageContent).toHaveBeenCalledTimes(1);
+    expect(updateMessageContent.mock.calls[0]![0]).toMatchObject({
+      messageId: "message-1",
+      conversationId: "conversation-1",
+      isStreaming: false,
+      // 段起点而非"现在"：否则 ChatContainer 按时间排序会把插话排到它之前的工作前面
+      timestampOverride: "2026-09-23T12:52:50.000Z",
+    });
+    expect(JSON.stringify(updateMessageContent.mock.calls[0]![0])).toContain("插话之前的输出");
+
+    expect(saveMessage).toHaveBeenCalledTimes(1);
+    expect(saveMessage.mock.calls[0]![0]).toMatchObject({
+      conversationId: "conversation-1",
+      isStreaming: true,
+    });
+    expect(state.streamingAssistantMsgId).toBe("message-2");
+    expect(state.streamingSegmentStartedAt).not.toBe("2026-09-23T12:52:50.000Z");
+    expect(state.pendingParts).toEqual([]);
+    // converter 指针换新段，且偏移归零 —— 否则新气泡的 textPositionAtStart 带上一段的长度
+    expect(ctx.currentMessageId).toBe("message-2");
+    expect(ctx.accumulatedLength).toBe(0);
+    expect(ctx.completedTurnsLength).toBe(0);
+
+    // 渲染层换气泡的通知必须先于状态翻转（气泡得先存在，才能把「等待注入」翻掉）
+    const forwarded = forwardIpcEvent.mock.calls.map((c) => c[0] as Record<string, unknown>);
+    expect(forwarded.map((e) => e.type)).toEqual(["agent:message:start", "steer:delivered"]);
+    expect(forwarded[0]).toMatchObject({
+      type: "agent:message:start",
+      messageId: "message-2",
+      sessionKey: "session",
+      instanceId: "instance",
+    });
+  });
+
+  it("旧段是空占位（无 part）→ 删行而不是落一条空气泡", async () => {
+    const { handler, state, updateMessageContent, deleteMessage } = buildSegmentHandler(["message-2"]);
+    state.pendingParts = [];
+
+    await handler({ type: "steer:delivered", instanceId: "instance" } as never);
+
+    expect(updateMessageContent).not.toHaveBeenCalled();
+    expect(deleteMessage).toHaveBeenCalledWith("message-1", "conversation-1");
+    // 段还是要开：插话之后的输出得有地方落
+    expect(state.streamingAssistantMsgId).toBe("message-2");
+  });
+
+  it("一次 run 连发两条插话 → 三段各自封口，段起点时间互不串用", async () => {
+    const { handler, state, ctx, updateMessageContent, saveMessage } = buildSegmentHandler([
+      "message-2",
+      "message-3",
+    ]);
+    state.pendingParts = [part("第一段的输出")];
+    state.streamingSegmentStartedAt = "2026-09-23T10:00:00.000Z";
+    await handler({ type: "steer:delivered", instanceId: "instance" } as never);
+
+    state.pendingParts = [part("第二段的输出")];
+    state.streamingSegmentStartedAt = "2026-09-23T10:00:10.000Z";
+    await handler({ type: "steer:delivered", instanceId: "instance" } as never);
+
+    expect(updateMessageContent.mock.calls.map((c) => c[0].messageId)).toEqual([
+      "message-1",
+      "message-2",
+    ]);
+    expect(
+      updateMessageContent.mock.calls.map((c) => c[0].timestampOverride),
+    ).toEqual(["2026-09-23T10:00:00.000Z", "2026-09-23T10:00:10.000Z"]);
+    // 两条插话各自新开一段，没有把上一段的 id 复用回去
+    expect(saveMessage.mock.calls.map((c) => c[0].contentJson?.parts)).toEqual([
+      [],
+      [],
+    ]);
+    expect(state.streamingAssistantMsgId).toBe("message-3");
+    expect(ctx.currentMessageId).toBe("message-3");
+  });
+
+  it("分段后 agent:end 只收尾最后一段，不回头改已封口的旧段", async () => {
+    const { handler, state, updateMessageContent } = buildSegmentHandler(["message-2"]);
+    state.pendingParts = [part("插话之前的输出")];
+    state.streamingSegmentStartedAt = "2026-09-23T10:00:00.000Z";
+    await handler({ type: "steer:delivered", instanceId: "instance" } as never);
+
+    state.pendingParts = [part("插话之后的输出")];
+    await handler({ type: "agent:end" } as never);
+
+    const calls = updateMessageContent.mock.calls.map((c) => c[0]);
+    expect(calls.map((c) => c.messageId)).toEqual(["message-1", "message-2"]);
+    expect(calls[0]!.isStreaming).toBe(false);
+    expect(calls[1]!.isStreaming).toBe(false);
+    expect(state.streamingAssistantMsgId).toBeUndefined();
+    expect(state.streamingSegmentStartedAt).toBeUndefined();
+  });
+
+  it("插话后模型沉默（NO_REPLY）→ 只删新段的空占位，旧段保留", async () => {
+    const { handler, state, updateMessageContent, deleteMessage } = buildSegmentHandler(["message-2"]);
+    state.pendingParts = [part("插话之前的输出")];
+    state.streamingSegmentStartedAt = "2026-09-23T10:00:00.000Z";
+    await handler({ type: "steer:delivered", instanceId: "instance" } as never);
+
+    state.pendingParts = [{ type: "text", id: "t1", text: "NO_REPLY", status: "done" }];
+    await handler({ type: "agent:end" } as never);
+
+    expect(deleteMessage).toHaveBeenCalledWith("message-2", "conversation-1");
+    expect(deleteMessage).not.toHaveBeenCalledWith("message-1", "conversation-1");
+    // 旧段的封口仍然只有那一次
+    expect(updateMessageContent).toHaveBeenCalledTimes(1);
+  });
+
+  it("插话后请求失败（agent:error）→ 只删新段的空占位，旧段保留", async () => {
+    const { handler, state, updateMessageContent, deleteMessage } = buildSegmentHandler(["message-2"]);
+    state.pendingParts = [part("插话之前的输出")];
+    state.streamingSegmentStartedAt = "2026-09-23T10:00:00.000Z";
+    await handler({ type: "steer:delivered", instanceId: "instance" } as never);
+
+    await handler({ type: "agent:error" } as never);
+
+    expect(deleteMessage).toHaveBeenCalledWith("message-2", "conversation-1");
+    expect(updateMessageContent).toHaveBeenCalledTimes(1);
+    expect(state.streamingAssistantMsgId).toBeUndefined();
+  });
+
+  it("分段后自愈重试：agent:start 只处理最后一段的占位，已封口的旧段不再被碰", async () => {
+    const { handler, state, ctx, updateMessageContent, deleteMessage } = buildSegmentHandler([
+      "message-2",
+      "message-3",
+    ]);
+    state.pendingParts = [part("第一段的输出")];
+    state.streamingSegmentStartedAt = "2026-09-23T10:00:00.000Z";
+    await handler({ type: "steer:delivered", instanceId: "instance" } as never);
+
+    // 新段产出后请求失败 → pi 自愈重试，同一个 run 内重新 agent:start
+    state.pendingParts = [part("第二段失败的输出")];
+    await handler({ type: "agent:start" } as never);
+
+    // 旧段（message-1）只在分段时封口过一次，重试不回头重写它
+    expect(updateMessageContent.mock.calls.map((c) => c[0].messageId)).toEqual([
+      "message-1",
+      "message-2",
+    ]);
+    expect(deleteMessage).not.toHaveBeenCalled();
+    expect(state.streamingAssistantMsgId).toBe("message-3");
+    expect(ctx.currentMessageId).toBe("message-3");
+  });
+
+  it("插话后新段没有任何产出就收尾 → 不留空气泡（用户插话后立刻停止）", async () => {
+    const { handler, state, updateMessageContent, deleteMessage } = buildSegmentHandler(["message-2"]);
+    state.pendingParts = [part("插话之前的输出")];
+    state.streamingSegmentStartedAt = "2026-09-23T10:00:00.000Z";
+    await handler({ type: "steer:delivered", instanceId: "instance" } as never);
+
+    // 新段还没产出任何东西，回合就结束了（中止 / 空转）
+    state.pendingParts = [];
+    await handler({ type: "agent:end" } as never);
+
+    expect(deleteMessage).toHaveBeenCalledWith("message-2", "conversation-1");
+    expect(updateMessageContent).toHaveBeenCalledTimes(1);
   });
 });

@@ -1023,6 +1023,22 @@ export function createAgentInstanceRuntimeEventHandler(
           }
         }
         persistSuccess = true
+      } else if (contentJson.parts.length === 0) {
+        // 空段（一个 part 都没有）不落库，删占位。
+        //
+        // 何时出现：插话处刚切出新段、模型还没产出任何东西就收尾（用户插话后立刻停止）；
+        // 也可能是一轮完全空转。落一条 parts:[] 的行会在会话里留一个**永久空气泡** ——
+        // 它是 is_streaming=0，下一轮 agent:start 的孤儿清扫（只扫 is_streaming=1）不管它。
+        // 与 agent:error / finalizeStreamingAssistantMessage 的「空的不落库」保持同一口径。
+        if (msgId && convId && conversationRepo && msgId !== '__PLACEHOLDER_FAILED__') {
+          try {
+            conversationRepo.deleteMessage(msgId, convId)
+            log.info(`[event] agent:end 空段：已删除占位行 msgId=${msgId}, conversationId=${convId}`)
+          } catch (err) {
+            log.warn(`[event] agent:end 删除空段占位行失败:`, err)
+          }
+        }
+        persistSuccess = true
       } else if (convId && msgId && conversationRepo) {
         try {
           if (msgId === '__PLACEHOLDER_FAILED__') {

@@ -270,6 +270,15 @@ export class AgentRuntimeBridge {
   private _wikiLibraryMigrate: WikiLibraryMigrate | null = null
   private _wikiCleanupScanner: WikiCleanupScanner | null = null
   private _conversationRepo: ConversationRepo | null = null
+  /**
+   * 段落（工作记忆）仓库。
+   *
+   * 单独持有是为了会话删除时能级联清理：`messages` 有 `ON DELETE CASCADE`，而
+   * `memory_segments` 建表早于该约束、加不上外键，只能由删除路径显式清
+   * （2026-09-23 查出：SegmentRepo.deleteByConversation 写好了却无人调用，
+   * 库里攒了约百行指向已删会话的孤儿段）。
+   */
+  private _segmentRepo: SegmentRepo | null = null
   private _taskRepo: TaskRepo | null = null
   private _auditRepo: AuditRepo | null = null
   /** bash 命令采集仓库（工具进化 M1：模式挖掘数据源） */
@@ -531,6 +540,7 @@ export class AgentRuntimeBridge {
   /** 段落总结记忆服务（灰度，可能为 null/关闭） */
   get segmentMemory(): SegmentMemoryService | null { return this._segmentMemoryService }
   get conversationRepo(): ConversationRepo { return this.requireInitialized(this._conversationRepo, 'conversationRepo') }
+  get segmentRepo(): SegmentRepo { return this.requireInitialized(this._segmentRepo, 'segmentRepo') }
   get taskRepo(): TaskRepo { return this.requireInitialized(this._taskRepo, 'taskRepo') }
   get auditRepo(): AuditRepo { return this.requireInitialized(this._auditRepo, 'auditRepo') }
   get runtimeStateRepo(): RuntimeStateRepo { return this.requireInitialized(this._runtimeStateRepo, 'runtimeStateRepo') }
@@ -815,6 +825,7 @@ export class AgentRuntimeBridge {
 
     this._conversationRepo = new ConversationRepo(db)
     const segmentRepo = new SegmentRepo(db)
+    this._segmentRepo = segmentRepo
     this._memoryManager = new MemoryManager(this._memoryRepo, {
       onPersonalMemoryExtracted: (candidates) => {
         void this.fileMemoryHandler.appendToUserMemory(candidates).catch((err: unknown) => {
