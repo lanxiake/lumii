@@ -12,6 +12,7 @@
  */
 
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import type { Message } from "@earendil-works/pi-ai/compat";
 import { contentText } from "@earendil-works/pi-ai/utils/text";
 
 const logger = {
@@ -47,6 +48,21 @@ export function readMessageContent(msg: AgentMessage | undefined): string {
   // contentText 接受 string | Content[]，运行时会做类型守卫
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return contentText(c as any);
+}
+
+/**
+ * 把 `AgentMessage` 收窄成 LLM 侧的 `Message`，供需要**读写 content** 的地方使用；
+ * 非 LLM 消息（`bashExecution` / `compactionSummary` 等自定义成员没有 content）返回 undefined。
+ *
+ * ⚠️ 别用官方 `convertToLlm` 代替它：那是**数组级转换**，会把自定义消息物化成文本
+ * （甚至过滤掉），改变消息形状 —— 用于「送模型」的最后一跳，不是类型收窄。
+ */
+export function asLlmMessage(msg: AgentMessage | undefined): Message | undefined {
+  if (!msg || typeof msg !== "object") return undefined;
+  const role = (msg as { role?: unknown }).role;
+  return role === "system" || role === "user" || role === "assistant" || role === "toolResult"
+    ? (msg as Message)
+    : undefined;
 }
 
 /**

@@ -12,7 +12,8 @@
  */
 
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import { readMessageContent, readMessageRole } from "../api-invariants.js";
+import type { JsonObject } from "@earendil-works/pi-ai/compat";
+import { asLlmMessage, readMessageContent, readMessageRole } from "../api-invariants.js";
 import { COMPACTABLE_TOOLS, DEFAULT_KEEP_RECENT_TOOL_RESULTS } from "../types.js";
 import { createHash } from "node:crypto";
 import { estimateTokenCount } from "../token-estimate.js";
@@ -100,43 +101,34 @@ export function microcompactToolResults(
   const makeReplacement = (toolName: string, original: string): string =>
     useSummary ? buildDeterministicToolSummary(toolName, original) : MICROCOMPACT_PLACEHOLDER;
 
-  // 3. 清理：仅替换命中索引的 toolResult content（string 或 array text block）
+  // 3. 清理：仅替换命中索引的 toolResult content
+  //
+  // content 在 pi 0.87 恒为块数组（ToolResultMessage.content），字符串形态只有旧版遗留/测试
+  // 构造才有；真命中时按块数组写回（与 dedupIdenticalToolResults 一致），不再为它保留分支。
   return messages.map((msg, idx) => {
     if (!toClear.has(idx)) return msg;
+    const llm = asLlmMessage(msg);
+    if (!llm || llm.role !== "toolResult") return msg;
 
-    const toolName =
-      typeof (msg as { toolName?: unknown }).toolName === "string"
-        ? (msg as { toolName: string }).toolName
-        : "unknown";
-
-    const content = (msg as { content?: unknown }).content;
-    if (typeof content === "string") {
-      if (content.length <= 200) return msg;
-      if (content === MICROCOMPACT_PLACEHOLDER || content.startsWith("[工具结果已归档")) return msg;
-      return { ...(msg as object), content: makeReplacement(toolName, content) } as AgentMessage;
-    }
-    if (!Array.isArray(content)) return msg;
+    const toolName = typeof llm.toolName === "string" ? llm.toolName : "unknown";
+    const raw: unknown = llm.content;
+    const blocks = typeof raw === "string" ? [{ type: "text" as const, text: raw }] : [...llm.content];
 
     let changed = false;
-    const newContent = (content as unknown[]).map((block) => {
-      if (typeof block !== "object" || block === null) return block;
-      const b = block as Record<string, unknown>;
-      if (
-        b.type === "text" &&
-        typeof b.text === "string" &&
-        b.text.length > 200 &&
-        // 幂等：已是占位符/微摘要的文本不再二次包裹
-        b.text !== MICROCOMPACT_PLACEHOLDER &&
-        !b.text.startsWith("[工具结果已归档")
-      ) {
-        changed = true;
-        return { ...b, text: makeReplacement(toolName, b.text) };
+    const newContent = blocks.map((block) => {
+      // typeof 守卫留着：块可能来自历史/DB 回填，类型说得到不代表运行时一定有
+      if (block.type !== "text" || typeof block.text !== "string" || block.text.length <= 200) {
+        return block;
       }
-      return block;
+      // 幂等：已是占位符/微摘要的文本不再二次包裹
+      if (block.text === MICROCOMPACT_PLACEHOLDER || block.text.startsWith("[工具结果已归档")) {
+        return block;
+      }
+      changed = true;
+      return { ...block, text: makeReplacement(toolName, block.text) };
     });
     if (!changed) return msg;
-    // TypeScript 类型系统过于严格，使用 any 绕过（运行时类型正确）
-    return { ...msg, content: newContent as any } as AgentMessage;
+    return { ...llm, content: newContent };
   });
 }
 
@@ -251,78 +243,45 @@ export function truncateHeavyToolCallArguments(
   }
 
   return messages.map((msg, i) => {
-    const role = readMessageRole(msg);
-    if (role !== "assistant" || i >= pruneBoundary) {
+    const llm = asLlmMessage(msg);
+    if (!llm || llm.role !== "assistant" || i >= pruneBoundary) {
       return msg;
     }
 
-    // 兼容新旧类型系统：
-    // 新版：toolCall 在 content 数组中（类型为 ToolCall 的 block）
-    // 旧版：toolCalls 独立字段
-    const legacyToolCalls = (msg as any).toolCalls as
-      | Array<{ id: string; function: { name: string; arguments: string } }>
-      | undefined;
-
-    if (legacyToolCalls && legacyToolCalls.length > 0) {
-      // 旧类型系统路径
-      let changed = false;
-      const newToolCalls = legacyToolCalls.map((tc) => {
-        if (!tc.function?.arguments) return tc;
-        try {
-          const parsed = JSON.parse(tc.function.arguments);
-          const truncated = truncateValue(parsed);
-          const newArgs = JSON.stringify(truncated);
-          if (newArgs !== tc.function.arguments) {
-            changed = true;
-            return { ...tc, function: { ...tc.function, arguments: newArgs } };
-          }
-          return tc;
-        } catch {
-          return tc;
-        }
-      });
-      if (!changed) return msg;
-      // 旧类型系统的 toolCalls 不在新 AgentMessage 结构中，与本文件其他
-      // 跨类型系统访问保持一致，经 unknown 中转
-      return { ...msg, toolCalls: newToolCalls } as unknown as AgentMessage;
-    }
-
-    // 新类型系统：toolCall 在 content 数组中（类型为 ToolCall 的 block）
-    const content = (msg as unknown as { content?: Array<{ type?: string; [key: string]: unknown }> })
-      .content;
+    // 新版类型系统：toolCall 在 content 数组中（类型为 ToolCall 的 block）。
+    // 旧版那个顶层 toolCalls 字段已无处产生（全仓只有本文件读过它），分支删除。
+    const content = llm.content;
     if (!Array.isArray(content)) return msg;
 
     let changed = false;
     const newContent = content.map((block) => {
-      if (typeof block !== "object" || !block || block.type !== "toolCall") {
-        return block;
-      }
-      const tc = block as {
-        type: "toolCall";
-        id?: string;
-        name?: string;
-        arguments?: string;
-        [key: string]: unknown;
-      };
-      if (!tc.arguments) return block;
-
-      try {
-        const parsed = JSON.parse(tc.arguments);
-        const truncated = truncateValue(parsed);
-        const newArgs = JSON.stringify(truncated);
-        if (newArgs !== tc.arguments) {
-          changed = true;
-          return { ...tc, arguments: newArgs };
+      if (block.type !== "toolCall") return block;
+      // arguments 在 pi 里是**已解析好的对象**（ToolCall.arguments: JsonObject），不是 JSON 串：
+      // 早先按 `JSON.parse(tc.arguments)` 写，实际每次都在 catch 里原样返回 —— 这一趟截断
+      // 从 2026-08-18 起就没生效过（2026-09-23 清理类型断言时查出）。字符串形态一并支持，
+      // 供历史消息/测试构造使用。
+      const raw: unknown = block.arguments;
+      let parsed: unknown;
+      if (typeof raw === "string") {
+        try {
+          parsed = JSON.parse(raw);
+        } catch {
+          return block; // 解析失败，不动
         }
+      } else if (raw && typeof raw === "object") {
+        parsed = raw;
+      } else {
         return block;
-      } catch {
-        return block; // 解析失败，不动
       }
+
+      const truncated = truncateValue(parsed);
+      if (JSON.stringify(truncated) === JSON.stringify(parsed)) return block;
+      changed = true;
+      return { ...block, arguments: truncated as JsonObject };
     });
 
     if (!changed) return msg;
-    // TypeScript 类型系统过于严格，使用 any 绕过（运行时类型正确）
-    return { ...msg, content: newContent as any } as AgentMessage;
+    return { ...llm, content: newContent };
   });
 }
 
@@ -436,11 +395,9 @@ export function proactivePrune(
   // Pass 3: Truncate Arguments（仅作用于 prune_boundary 之前）
   const beforeTruncate = result;
   result = truncateHeavyToolCallArguments(result, protectLastN);
-  // 统计变化数（通过比较 content 序列化）
-  const truncatedArgsCount = result.filter(
-    (m, i) =>
-      JSON.stringify(readMessageContent(m)) !== JSON.stringify(readMessageContent(beforeTruncate[i])),
-  ).length;
+  // 按**引用**数变化：readMessageContent 只取 text 块，而本趟改的是 toolCall 的
+  // arguments —— 拿它比较时永远相等，统计一直是 0（连"这一趟有没有干活"都看不出来）
+  const truncatedArgsCount = result.filter((m, i) => m !== beforeTruncate[i]).length;
 
   // Gate 5: 三阶段 0 改动 → 跳过
   if (dedupedCount === 0 && summarizedCount === 0 && truncatedArgsCount === 0) {

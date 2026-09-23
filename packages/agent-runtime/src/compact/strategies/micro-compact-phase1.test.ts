@@ -53,81 +53,65 @@ describe("dedupIdenticalToolResults - Phase 1", () => {
 });
 
 describe("truncateHeavyToolCallArguments - Phase 1", () => {
-  it("assistant tool_call arguments >1500 字符截断，结果仍是合法 JSON", () => {
+  /** 真实的 pi assistant 消息：toolCall 在 content 数组里，arguments 是**已解析的对象** */
+  function assistantWithArgs(
+    id: string,
+    name: string,
+    args: Record<string, unknown>,
+  ): AgentMessage {
+    return {
+      role: "assistant",
+      content: [{ type: "toolCall", id, name, arguments: args }],
+    } as unknown as AgentMessage;
+  }
+
+  /** 取出第 i 条消息里第一个 toolCall 的 arguments */
+  function argsOf(msg: AgentMessage | undefined): Record<string, unknown> {
+    const content = (msg as { content?: Array<{ type: string; arguments?: unknown }> }).content ?? [];
+    const call = content.find((b) => b.type === "toolCall");
+    return (call?.arguments ?? {}) as Record<string, unknown>;
+  }
+
+  it("arguments 里的超长字符串被截断（对象形态 = 真实形态），结构性字段不动", () => {
+    const messages: AgentMessage[] = [
+      assistantWithArgs("call1", "write_file", { path: "test.txt", content: "x".repeat(10_000) }),
+      assistantWithArgs("call2", "bash", { command: "ls" }),
+    ];
+
+    const result = truncateHeavyToolCallArguments(messages, 0, 1500); // protectTailCount=0
+
+    const args1 = argsOf(result[0]);
+    expect(String(args1.content).length).toBeLessThanOrEqual(1500);
+    expect(String(args1.content)).toMatch(/\.{3}/); // 带省略标记
+    expect(args1.path).toBe("test.txt"); // 短字段不截断
+    // 短调用原对象返回（引用不变，Proactive Prune 靠它统计改动数）
+    expect(result[1]).toBe(messages[1]);
+  });
+
+  it("arguments 是 JSON 字符串的历史形态也支持", () => {
     const messages: AgentMessage[] = [
       {
-        id: "1",
-        role: "user",
-        content: "dummy",
-        createdAt: 100,
-      },
-      {
-        id: "2",
         role: "assistant",
-        content: "",
-        toolCalls: [
-          {
-            id: "call1",
-            function: {
-              name: "write_file",
-              arguments: JSON.stringify({
-                path: "test.txt",
-                content: "x".repeat(10_000), // 10K 字符
-              }),
-            },
-          },
+        content: [
+          { type: "toolCall", id: "call1", name: "write_file", arguments: JSON.stringify({ content: "y".repeat(9_000) }) },
         ],
-        createdAt: 200,
-      },
-      {
-        id: "3",
-        role: "assistant",
-        content: "",
-        toolCalls: [
-          {
-            id: "call2",
-            function: {
-              name: "bash",
-              arguments: JSON.stringify({ command: "ls" }),
-            },
-          },
-        ],
-        createdAt: 300,
-      },
+      } as unknown as AgentMessage,
     ];
-    const result = truncateHeavyToolCallArguments(messages, 0, 1500); // protectTailCount=0
-    // 预期：id=2 的 content 字段被截断 ≤ 1500，但仍是合法 JSON
-    const args2 = JSON.parse(result[1].toolCalls![0].function.arguments);
-    expect(args2.content.length).toBeLessThanOrEqual(1500);
-    expect(args2.content).toMatch(/\.{3}/); // 包含 ...
-    expect(args2.path).toBe("test.txt"); // path 字段不截断
-    // id=3 的 bash command 很短，不动
-    const args3 = JSON.parse(result[2].toolCalls![0].function.arguments);
-    expect(args3.command).toBe("ls");
+
+    const result = truncateHeavyToolCallArguments(messages, 0, 1500);
+
+    expect(JSON.stringify(argsOf(result[0]))).toMatch(/\.{3}/);
   });
 
   it("protectTailCount=20：最后 20 条不截断", () => {
-    const messages: AgentMessage[] = Array.from({ length: 25 }, (_, i) => ({
-      id: String(i),
-      role: "assistant" as const,
-      content: "",
-      toolCalls: [
-        {
-          id: `call${i}`,
-          function: {
-            name: "write_file",
-            arguments: JSON.stringify({ content: "x".repeat(5000) }),
-          },
-        },
-      ],
-      createdAt: i * 100,
-    }));
+    const messages: AgentMessage[] = Array.from({ length: 25 }, (_, i) =>
+      assistantWithArgs(`call${i}`, "write_file", { content: "x".repeat(5000) }),
+    );
+
     const result = truncateHeavyToolCallArguments(messages, 20, 1500);
-    // 预期：前 5 条（index 0-4）被截断，后 20 条（index 5-24）不动
-    const args0 = JSON.parse(result[0].toolCalls![0].function.arguments);
-    expect(args0.content.length).toBeLessThanOrEqual(1500);
-    const args24 = JSON.parse(result[24].toolCalls![0].function.arguments);
-    expect(args24.content.length).toBe(5000); // tail 不动
+
+    expect(String(argsOf(result[0]).content)).toMatch(/\.{3}/); // 前 5 条被截断
+    expect(argsOf(result[24]).content).toHaveLength(5000); // tail 不动
   });
 });
 

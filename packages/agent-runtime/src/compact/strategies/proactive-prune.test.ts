@@ -6,26 +6,22 @@ describe("proactivePrune - Phase 1: 总包装 + 7 道 Gate", () => {
   const createToolResult = (content: string, toolName = "bash"): AgentMessage => ({
     id: Math.random().toString(),
     role: "toolResult",
+    toolCallId: "call1",
     toolName,
-    content,
-    createdAt: Date.now(),
-  });
+    content: [{ type: "text", text: content }],
+  } as unknown as AgentMessage);
 
+  /**
+   * 真实形态：toolCall 在 content 数组里，arguments 是**已解析的对象**
+   * （不是 JSON 串 —— 早先按字符串写，导致 Truncate 这一趟常年空跑）。
+   */
   const createAssistantWithToolCall = (argsContent: string): AgentMessage => ({
     id: Math.random().toString(),
     role: "assistant",
-    content: "",
-    toolCalls: [
-      {
-        id: "call1",
-        function: {
-          name: "write_file",
-          arguments: JSON.stringify({ content: argsContent }),
-        },
-      },
+    content: [
+      { type: "toolCall", id: "call1", name: "write_file", arguments: { content: argsContent } },
     ],
-    createdAt: Date.now(),
-  });
+  } as unknown as AgentMessage);
 
   it("三阶段实际提交：Dedup + Summarize + Truncate → reclaim > 4096", () => {
     // 构造：3 条相同 bash（各 3000 字符，去重回收 6000 字符 ≈ 1500 tokens）
@@ -39,7 +35,6 @@ describe("proactivePrune - Phase 1: 总包装 + 7 道 Gate", () => {
       createAssistantWithToolCall("y".repeat(50_000)),
       ...Array.from({ length: 20 }, () => createToolResult("recent")), // tail 保护
     ];
-    // before ≈ 2876 tokens（estimateTokenCount 不计旧类型 toolCalls 的 arguments）
     const result = proactivePrune(messages, {
       contextWindow: 4_000,
       proactivePruneRatio: 0.5, // trigger = 2000 < before(2876)
@@ -51,6 +46,8 @@ describe("proactivePrune - Phase 1: 总包装 + 7 道 Gate", () => {
     expect(result.reclaimedTokens).toBeGreaterThan(500);
     expect(result.nextRearmTokens).toBeGreaterThan(0);
     expect(result.passStats.dedupedCount).toBe(2); // 3 条相同，2 条去重
+    // Truncate 这一趟真的动了那条 write_file（此前常年为 0，见 micro-compact.ts 的说明）
+    expect(result.passStats.truncatedArgsCount).toBe(1);
   });
 
   it("Reclaim Gate 拒绝：回收 < 4096 → 返回原 input 引用", () => {
