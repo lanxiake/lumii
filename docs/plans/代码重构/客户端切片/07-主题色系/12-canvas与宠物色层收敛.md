@@ -57,6 +57,12 @@ getComputedStyle(document.documentElement).getPropertyValue('--mt-accent-500').t
 
 **判断：不该跟主题。** 宠物是**独立的透明浮层窗口**，显示在用户桌面上，不跟随主窗主题是**刻意的设计**——用户用深色主题工作时，桌面宠物不该突然变成米黄色。这个判断需要写进代码注释，否则下一轮重构还会有人想"顺手统一"。
 
+> ⚠️ **2026-09-23 定向修订**：**气泡**已跟随主窗主题（`pet/utils/pet-theme.ts`：只读共享
+> localStorage + 订阅 `storage` 事件，写到 `<html>` 的 `data-theme`）。判据是"它是不是在
+> 替主窗说话"——气泡里装的是主窗那边 Agent 的待办，跟主窗同色才不割裂。
+> **坞 / 粒子 / 头顶符号仍然不跟**，本节其余结论全部继续成立。
+> 实施记录见 [Agent 通知与审批闭环实施计划 §13.2](../../../客户端UI/2026-09-23-Agent通知与审批闭环实施计划.md)。
+
 **但要收口**：30 处 `rgba(255,255,255,α)` / `rgba(0,0,0,α)` 散在文件里，改一个"坞的暗度"要改 30 处。**建议做法**：
 
 在 `PetModeShell` 根节点注入一组局部变量：
@@ -111,6 +117,8 @@ getComputedStyle(document.documentElement).getPropertyValue('--mt-accent-500').t
 ## 六、明确不做
 
 - **不给宠物窗设 `data-theme`**——理由见 3.2，是刻意设计。
+  > ⚠️ **2026-09-23 定向修订**：已给宠物窗的 `<html>` 设 `data-theme`，但**只服务气泡**
+  > （见上条批注）。"不给**整个宠物层**设"这条判断本身仍然成立。
 - **不改 `click-fireworks` 调色板**——见 3.2 豁免理由。
 - **不改 `ScreenRecordCapture` 的采样底色**——见 3.4。
 - **不改 `PetDebugOverlay` 的终端绿**。
