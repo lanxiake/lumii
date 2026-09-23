@@ -66,7 +66,7 @@ Lumii 是一个运行在 Windows 桌面的全栈 AI 助手：对话、Agent 执�
 
 ```
 packages/agent-runtime/           (通用、纯 TS，与 Electron 解耦)
-├── kernel/        @mariozechner/pi-agent-core 驱动封装
+├── kernel/        @earendil-works/pi-agent-core 驱动封装
 ├── llm/           direct-stream 直连模型 + 路由 + 错误自愈
 ├── agent/         实例生命周期 · 注册 · 定义存储 · 卡死检测
 ├── tools/         30+ 内置工具 + MCP 代理 + Hook 机制
@@ -165,7 +165,7 @@ lumii/
 │   └── reference/                   #   外部技术参考
 │
 ├── demos/ui-tech-refresh/           # UI 视觉原型 demo
-├── patches/                         # pnpm.overrides 补丁（当前 @mariozechner/pi-ai）
+├── patches/                         # 历史补丁留存（升级 0.87.1 后已摘除挂载）
 ├── scripts/                         # 根目录开发脚本（dev start/stop/restart）
 ├── CLAUDE.md                        # AI 协作指南
 ├── LICENSE                          # MIT
@@ -188,7 +188,7 @@ lumii/
 
 | 领域 | 选型 | 备注 |
 |------|------|------|
-| **Agent 内核** | `@mariozechner/pi-agent-core` 0.50.7 | pnpm override 锁版 + 本地补丁 |
+| **Agent 内核** | `@earendil-works/pi-agent-core` 0.87.1 | pnpm override 锁版（升级后不再需要本地补丁） |
 | **存储** | `node:sqlite` 原生 + `better-sqlite3` 12.8 回退 | 自动备份（每日 3:00，保留 10 份）+ 损坏自愈 |
 | **桌宠渲染** | `pixi.js` 6.5.10 + `pixi-live2d-display` 0.4.0 | **版本锁死**，升级必测 Cubism 4 兼容性 |
 | **浏览器自动化** | `playwright-core` 1.58.1 | app 与 browser-control 包必须同版本 |
