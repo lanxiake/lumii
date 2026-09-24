@@ -84,8 +84,12 @@ export interface PetControlDockProps {
    *
    * 坞**不做任何受理判断**（单飞锁 / 日闸门 / 能力边界都要读库，主进程才有）。
    * 它只把文本递上去；受理结论以气泡 + 宠物流条目的形式回来。
+   *
+   * **返回 false = 没受理**，坞据此**保留输入框里的原文**（见下面 onClick）。
+   * 返回 `void`（比如没接线）按"受理了"处理——那是旧行为，不该因为一个返回值
+   * 就把用户的字留在框里出不去。
    */
-  onPetTaskRun?: (text: string) => void | Promise<void>
+  onPetTaskRun?: (text: string) => void | boolean | Promise<void | boolean>
   /** 「转给主助手」：把它看到的东西交给真正的任务 Agent（用户主动触发，唯一通道） */
   onPetTaskHandoff?: (item: { description: string; text: string }) => void | Promise<void>
   /**
@@ -739,6 +743,13 @@ export const PetControlDock: React.FC<PetControlDockProps> = ({
             这个是**派它出门办事**（去读文件/搜索，然后回来报结果）。
             `petTaskBusy` 期间置灰——不是防连点（主进程还有单飞锁），
             而是让"点上了"这件事在按钮上看得见。
+
+            ⚠ **清空输入框要等主进程回话**（2026-09-24 修）。原来是"先清空再递上去"，
+            而被拒那条路只冒个气泡——用户敲的字就没了，想改一改都得重打。
+            现在被拒时**原文留在框里**，他能直接改。
+            ⚠ 这里**只**看 `petTaskBusy`（这一次点击），**不许**把"库里有活"也算进
+            `disabled`：派发侧有几条 `skipped:` 不发 `pet:goal:result`，那一下
+            `petTask.running` 会一直是真的，置灰就把按钮永久锁死了。
           */}
           <button
             type="button"
@@ -747,8 +758,10 @@ export const PetControlDock: React.FC<PetControlDockProps> = ({
             onClick={() => {
               const text = inputText.trim()
               if (!text || petTaskBusy) return
-              setInputText('')
-              void onPetTaskRun?.(text)
+              void Promise.resolve(onPetTaskRun?.(text)).then((accepted) => {
+                // 只有被拒（明确的 false）才保留原文；没接线 / 老返回 void 按受理处理
+                if (accepted !== false) setInputText('')
+              })
             }}
             style={{
               flexShrink: 0,

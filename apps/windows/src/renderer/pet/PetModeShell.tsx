@@ -415,11 +415,34 @@ export const PetModeShell: React.FC = () => {
    * ——"点了没反应"是最糟的反馈，而"点了说不行"至少是诚实的。
    *
    * 受理判断全在主进程（单飞锁 / 日闸门 / 能力边界都要读库），渲染层只递话。
+   *
+   * ---------------------------------------------------------------------------
+   * 这里**不许**再判一次"是不是已经在跑"（2026-09-24 修）
+   * ---------------------------------------------------------------------------
+   * 原本这里有一道 `if (petTaskRunning) return`，理由看着很正当：库里已经有活在手头，
+   * 何必白跑一趟 IPC。真机上它造成的是一个**静默丢话**：
+   *
+   *   ① 坞先 `setInputText('')` 才把话递上来（它只知道自己这一次点击在不在途），
+   *   ② 守卫在这里 `return`，**不冒气泡、不打日志**，
+   *   ③ 于是用户敲的那句话凭空消失，屏幕上什么都没发生。
+   *
+   * 而主进程**本来就**必须再判一次——那道判断紧贴在 INSERT 之前，为的是堵"读库 →
+   * 插入"之间的异步窗口（见 `pet-task-service.ts` 里那段 ⚠）。所以渲染层这道守卫
+   * 既不省事、也不更准，只是把一句**已经备好的话**（「我先把手头这件看完，等我说完。」）
+   * 挡在了用户看不到的地方。删掉它，剩下的那条路本来就会给出正确且更准确的回答。
+   *
+   * ⚠ 顺带一条同源的经验：**别把按钮也按 `petTaskRunning` 置灰**。派发侧有几条
+   * `skipped:`（用户回合在跑 / 总开关关着）是**不发 `pet:goal:result`** 的，
+   * 那一下 `petTask.running` 会一直是真的 —— 置灰就等于把这个按钮永久锁死。
+   * 不可点比可点但被拒更糟：前者连"为什么"都问不出来。
+   *
+   * @returns 主进程受理了没有。调用方据此决定**要不要清空输入框**——
+   *   被拒时留着原文，用户还能改一改再试（丢了才是最气的）。
    */
   const handlePetTaskRun = useCallback(
-    async (text: string) => {
+    async (text: string): Promise<boolean> => {
       const trimmed = text.trim()
-      if (!trimmed || petTaskRunning) return
+      if (!trimmed) return false
       setPetTaskBusy(true)
       showLocalBubble(PET_TASK_RUNNING_TEXT)
       try {
@@ -427,18 +450,20 @@ export const PetModeShell: React.FC = () => {
         if (res && res.ok === false) {
           log.info(`[handlePetTaskRun] 被拒: ${res.reason}`)
           showLocalBubble(res.reason)
-        } else {
-          log.info(`[handlePetTaskRun] 受理 text="${trimmed.slice(0, 40)}"`)
+          return false
         }
+        log.info(`[handlePetTaskRun] 受理 text="${trimmed.slice(0, 40)}"`)
+        return true
       } catch (err) {
         log.warn(`[handlePetTaskRun] 失败: ${err instanceof Error ? err.message : err}`)
         showLocalBubble('我这边出了点岔子，等一下再试？')
+        return false
       } finally {
         setPetTaskBusy(false)
         void refreshPetTask()
       }
     },
-    [petTaskRunning, showLocalBubble, refreshPetTask],
+    [showLocalBubble, refreshPetTask],
   )
 
   /** 「转给主助手」：把这条回执交给主窗（主进程转发，真正的发送在主窗里做） */
