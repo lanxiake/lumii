@@ -18,7 +18,6 @@ import { describe, it, expect } from 'vitest'
 import * as os from 'node:os'
 import {
   SecurityUtils,
-  validatePid,
   sanitizeFileName,
   sanitizeCommandArg,
   escapeRegExp,
@@ -98,29 +97,6 @@ describe('SecurityUtils.isCommandAllowed — 白名单按平台', () => {
 
     expect(custom.isCommandAllowed('my-tool')).toBe(true)
     expect(custom.isCommandAllowed(isWin ? 'powershell' : 'bash')).toBe(false)
-  })
-})
-
-describe('SecurityUtils.validatePid', () => {
-  it('接受正整数', () => {
-    expect(validatePid(1)).toBe(1)
-    expect(validatePid(4194304)).toBe(4194304)
-  })
-
-  it('拒绝非整数、零、负数', () => {
-    expect(() => validatePid(0)).toThrow()
-    expect(() => validatePid(-1)).toThrow()
-    expect(() => validatePid(1.5)).toThrow()
-  })
-
-  it('拒绝非数字类型', () => {
-    expect(() => validatePid('123')).toThrow()
-    expect(() => validatePid(null)).toThrow()
-    expect(() => validatePid(undefined)).toThrow()
-  })
-
-  it('拒绝超出上限的 PID', () => {
-    expect(() => validatePid(4194305)).toThrow()
   })
 })
 

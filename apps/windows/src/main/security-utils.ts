@@ -311,22 +311,6 @@ export class SecurityUtils {
   }
 
   /**
-   * 验证 PID 是否有效
-   */
-  validatePid(pid: unknown): number {
-    if (typeof pid !== 'number' || !Number.isInteger(pid) || pid <= 0) {
-      throw new SecurityError('无效的进程 ID', 'INVALID_PID')
-    }
-
-    // PID 通常不会超过这个值
-    if (pid > 4194304) {
-      throw new SecurityError('进程 ID 超出有效范围', 'PID_OUT_OF_RANGE')
-    }
-
-    return pid
-  }
-
-  /**
    * 验证 URL 是否安全
    */
   validateUrl(url: string, options: { allowedProtocols?: string[] } = {}): string {
@@ -501,9 +485,6 @@ export const sanitizeFileName = (fileName: string) =>
 
 export const sanitizeCommandArg = (arg: string) =>
   securityUtils.sanitizeCommandArg(arg)
-
-export const validatePid = (pid: unknown) =>
-  securityUtils.validatePid(pid)
 
 export const validateUrl = (url: string, options?: Parameters<SecurityUtils['validateUrl']>[1]) =>
   securityUtils.validateUrl(url, options)

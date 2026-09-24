@@ -9,7 +9,7 @@
  * - 批量文件操作使用并行处理
  */
 
-import { exec, spawn, ChildProcess } from 'child_process'
+import { exec } from 'child_process'
 import { promises as fs } from 'fs'
 import { join, dirname, basename, extname } from 'path'
 import { promisify } from 'util'
@@ -17,17 +17,11 @@ import * as os from 'os'
 import {
   securityUtils,
   SecurityError,
-  validatePid,
   createSafeRegExp,
   createSearchRegExp,
-  sanitizeCommandArg,
 } from './security-utils'
 import { VCS_SKIP_DIRS } from './workspace-vcs/vcs-ignore'
-import { killPidTree } from './platform/process-kill'
-import {
-  getDiskInfo as platformGetDiskInfo,
-  getProcessList as platformGetProcessList,
-} from './platform/system-info'
+import { getDiskInfo as platformGetDiskInfo } from './platform/system-info'
 
 const execAsync = promisify(exec)
 
@@ -112,18 +106,6 @@ export interface FileInfo {
 }
 
 /**
- * 进程信息接口
- */
-export interface ProcessInfo {
-  pid: number
-  name: string
-  cpu: number
-  memory: number
-  memoryBytes: number
-  status: string
-}
-
-/**
  * 系统信息接口
  */
 export interface SystemInfo {
@@ -158,9 +140,8 @@ export interface DiskInfo {
  * 系统服务类
  */
 export class SystemService {
-  // 缓存实例：磁盘信息 30 秒，进程列表 5 秒
+  // 缓存实例：磁盘信息 30 秒，系统信息 10 秒
   private diskCache = new SimpleCache<DiskInfo[]>(30000)
-  private processCache = new SimpleCache<ProcessInfo[]>(5000)
   private systemInfoCache = new SimpleCache<SystemInfo>(10000)
   /** CPU 差分基准：上一次采样的累计 times 之和。首次调用无基准，返回 undefined */
   private cpuSample?: { idle: number; total: number }
@@ -709,80 +690,6 @@ export class SystemService {
       log.error(`获取磁盘信息失败`, error)
       return []
     }
-  }
-
-  /**
-   * 获取进程列表
-   * 使用缓存减少调用
-   *
-   * 平台差异已收敛到 `platform/system-info.ts`：Windows 走 Get-Process，POSIX 走 ps。
-   */
-  async getProcessList(): Promise<ProcessInfo[]> {
-    // 检查缓存
-    const cached = this.processCache.get('processes')
-    if (cached) {
-      log.debug('使用缓存的进程列表')
-      return cached
-    }
-
-    log.info(`获取进程列表`)
-
-    try {
-      const result = await platformGetProcessList()
-
-      // 缓存结果
-      this.processCache.set('processes', result)
-
-      log.info(`找到 ${result.length} 个进程`)
-      return result
-    } catch (error) {
-      log.error(`获取进程列表失败`, error)
-      return []
-    }
-  }
-
-  /**
-   * 结束进程
-   */
-  async killProcess(pid: number): Promise<void> {
-    log.info(`结束进程: ${pid}`)
-
-    // 安全验证 PID
-    const safePid = validatePid(pid)
-
-    try {
-      // 收敛到 platform/process-kill：原先只有 `taskkill /PID x /F`（无 /T，只杀单进程），
-      // 现在 Windows 走 /T 连子树一起收，POSIX 走进程组信号——见该模块的注释。
-      killPidTree(safePid)
-      log.info(`进程已结束: ${safePid}`)
-    } catch (error) {
-      log.error(`结束进程失败: ${safePid}`, error)
-      throw error
-    }
-  }
-
-  /**
-   * 启动程序
-   */
-  launchApplication(appPath: string, args: string[] = []): ChildProcess {
-    log.info(`启动程序: ${appPath}`, args)
-
-    // 验证应用路径
-    const safeAppPath = this.validatePath(appPath)
-
-    // 消毒参数
-    const safeArgs = args.map((arg) => sanitizeCommandArg(arg))
-
-    const child = spawn(safeAppPath, safeArgs, {
-      detached: true,
-      stdio: 'ignore',
-      windowsHide: true,
-    })
-
-    child.unref()
-    log.info(`程序已启动, PID: ${child.pid}`)
-
-    return child
   }
 
   /**

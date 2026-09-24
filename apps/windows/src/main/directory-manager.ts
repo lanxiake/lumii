@@ -37,8 +37,6 @@ export interface DirectoryStructure {
   workspaceFiles: string
   /** 工作区系统隐藏目录 */
   workspaceSystem: string
-  /** 工作区系统线程目录 */
-  workspaceSystemThreads: string
   /** 配置目录 */
   config: string
   /** 缓存目录 */
@@ -80,7 +78,6 @@ export class DirectoryManager {
       workspaceOutputs: join(root, 'workspace', 'outputs'),
       workspaceFiles: join(root, 'workspace', 'files'),
       workspaceSystem: join(root, 'workspace', '.system'),
-      workspaceSystemThreads: join(root, 'workspace', '.system', 'threads'),
       config: join(root, 'config'),
       cache: join(root, 'cache'),
       logs: join(root, 'logs'),
@@ -121,7 +118,6 @@ export class DirectoryManager {
       this.dirs.workspaceOutputs,
       this.dirs.workspaceFiles,
       this.dirs.workspaceSystem,
-      this.dirs.workspaceSystemThreads,
       this.dirs.config,
       this.dirs.cache,
       this.dirs.logs,
@@ -161,141 +157,6 @@ export class DirectoryManager {
       throw new Error('目录管理器未初始化')
     }
     return this.dirs[name]
-  }
-
-  /**
-   * 解析线程目录（thread 根、workspace、uploads、outputs）。
-   */
-  resolveThreadDirectories(threadId: string): {
-    root: string
-    workspace: string
-    uploads: string
-    outputs: string
-  } {
-    if (!this.dirs) {
-      throw new Error('目录管理器未初始化')
-    }
-    const normalizedThreadId = threadId.trim().replace(/:/g, '_')
-    if (!normalizedThreadId) {
-      throw new Error('threadId 不能为空')
-    }
-    const root = join(this.dirs.workspaceSystemThreads, normalizedThreadId)
-    return {
-      root,
-      workspace: join(root, 'workspace'),
-      uploads: join(this.dirs.workspaceUploads, '未归类', normalizedThreadId),
-      outputs: join(this.dirs.workspaceOutputs, '未归类', normalizedThreadId),
-    }
-  }
-
-  /**
-   * 确保线程目录结构存在（workspace / uploads / outputs）。
-   */
-  async ensureThreadDirectories(threadId: string): Promise<{
-    root: string
-    workspace: string
-    uploads: string
-    outputs: string
-  }> {
-    const dirs = this.resolveThreadDirectories(threadId)
-    // 只创建 thread workspace 目录；uploads/outputs 子目录延迟到实际有文件时再创建，
-    // 避免在用户可见的"我上传的"和"AI生成的"目录下产生大量空文件夹。
-    await fs.mkdir(dirs.workspace, { recursive: true })
-    return dirs
-  }
-
-  /**
-   * 解析任务目录，若不存在则自动创建（并返回规范化路径）。
-   */
-  async resolveTaskDirectory(taskName: string, type: 'uploads' | 'outputs'): Promise<string> {
-    if (!this.dirs) {
-      throw new Error('目录管理器未初始化')
-    }
-    const safeName = this.sanitizeFolderName(taskName)
-    const base = type === 'uploads' ? this.dirs.workspaceUploads : this.dirs.workspaceOutputs
-    const target = join(base, safeName || '未命名任务')
-    await fs.mkdir(target, { recursive: true })
-    return target
-  }
-
-  /**
-   * 将“未归类/{threadId}”目录重命名为任务名目录（上传与产出同步处理）。
-   */
-  async renameTaskDirectory(oldName: string, newName: string): Promise<void> {
-    if (!this.dirs) {
-      throw new Error('目录管理器未初始化')
-    }
-    const sourceName = oldName.trim()
-    if (!sourceName) {
-      return
-    }
-    const targetName = this.sanitizeFolderName(newName)
-    if (!targetName) {
-      return
-    }
-
-    const oldUploadPath = join(this.dirs.workspaceUploads, '未归类', sourceName)
-    const oldOutputPath = join(this.dirs.workspaceOutputs, '未归类', sourceName)
-    const newUploadPath = await this.getUniquePath(join(this.dirs.workspaceUploads, targetName))
-    const newOutputPath = await this.getUniquePath(join(this.dirs.workspaceOutputs, targetName))
-
-    await this.tryRename(oldUploadPath, newUploadPath)
-    await this.tryRename(oldOutputPath, newOutputPath)
-  }
-
-  /**
-   * 尝试重命名目录，源不存在时静默忽略（避免 TOCTOU）。
-   */
-  private async tryRename(oldPath: string, newPath: string): Promise<void> {
-    try {
-      await fs.rename(oldPath, newPath)
-    } catch (err: unknown) {
-      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-        return
-      }
-      throw err
-    }
-  }
-
-  /**
-   * 过滤非法文件夹字符并限制目录名长度。
-   */
-  private sanitizeFolderName(name: string): string {
-    return name
-      .replace(/[<>:"/\\|?*]/g, '')           // 半角非法字符
-      .replace(/[：""''、？！＊＜＞＼／｜]/g, '') // 全角非法字符
-      .replace(/\.{2,}/g, '.')                 // 连续点号合并为单点
-      .replace(/\s+/g, ' ')
-      .trim()
-      .slice(0, 50)
-  }
-
-  /**
-   * 检查路径是否存在。
-   */
-  private async pathExists(path: string): Promise<boolean> {
-    try {
-      await fs.access(path)
-      return true
-    } catch {
-      return false
-    }
-  }
-
-  /**
-   * 获取唯一目录路径，避免重名覆盖。
-   */
-  private async getUniquePath(basePath: string): Promise<string> {
-    if (!(await this.pathExists(basePath))) {
-      return basePath
-    }
-    let counter = 1
-    let nextPath = `${basePath} (${counter})`
-    while (await this.pathExists(nextPath)) {
-      counter += 1
-      nextPath = `${basePath} (${counter})`
-    }
-    return nextPath
   }
 
   /**
