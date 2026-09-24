@@ -51,7 +51,7 @@ import {
   type PetGoalSignal,
 } from '@mtbot/agent-runtime'
 import { agentRuntimeLog as log } from './bridge-utils'
-import { seedCompanionCronJob } from './companion-cron-seed'
+import { seedCompanionCronJob, setCompanionCronJobEnabled } from './companion-cron-seed'
 
 const PET_DISPATCH_CRON_ID = 'pet-dispatch'
 const PET_DISPATCH_NAME = '桌宠派发'
@@ -308,26 +308,12 @@ export function ensurePetDispatchCronJobSeeded(db: DatabaseAdapter): void {
 /**
  * 「允许宠物主动做事」总开关 → job 的 enabled（五期 T5.9）。
  *
- * 与 `syncCompanionTickJobEnabled` 同一手法，但**两处都要判**：
- * 这里管"调度器还要不要跑"（省掉每 5 分钟一次的唤醒），
- * `runPetDispatch` 里那道管"此刻用户的意愿"（用户手点任务页也能暂停它）。
- * 只留一道都不够：
- * - 只留 enabled：用户手点暂停后，设置页那个开关就成了摆设（反过来也一样）；
- * - 只留代码判据：这个 job 会永远在任务页显示"运行中"，而它其实什么都不做。
+ * 实现已提到 `companion-cron-seed.ts` 的 {@link setCompanionCronJobEnabled}：
+ * 七期 T7.4 之后宠物有**两条** job 跟同一个开关（派发与反思），
+ * 而两者的同步逻辑一字不差——抄一份的下场是"加第三条时只改了一处"。
  *
- * ⚠ **启动时也同步一次**（见 bridge 的 `initialize`）。不同步的话有个真实的坑：
- * 设置在关的状态下，用户手动在任务页把 job 打开 → 派发被代码判据挡下，
- * 而"允许宠物主动做事"看着是开的——两个开关互相打架，谁也说不清哪个算数。
- * 代价是任务页那个暂停不再是持久的（与自主进化那几个 job 同一条约定）。
+ * ⚠ **启动时也同步一次**（见 bridge 的 `initialize`）。
  */
 export function syncPetDispatchJobEnabled(db: DatabaseAdapter, enabled: boolean): void {
-  try {
-    db.prepare(`UPDATE local_cron_jobs SET enabled = ? WHERE id = ?`).run(
-      enabled ? 1 : 0,
-      PET_DISPATCH_CRON_ID,
-    )
-    log.info(`[syncPetDispatchJobEnabled] enabled=${enabled}`)
-  } catch (err) {
-    log.error('[syncPetDispatchJobEnabled] 失败:', err)
-  }
+  setCompanionCronJobEnabled(db, PET_DISPATCH_CRON_ID, enabled)
 }

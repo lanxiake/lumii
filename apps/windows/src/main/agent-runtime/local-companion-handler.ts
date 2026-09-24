@@ -96,6 +96,7 @@ const COMPANION_INSTRUCTIONS = new Set([
   '__evolution_tick__',
   '__pet_dispatch__',
   '__pet_sensing__',
+  '__pet_evolve__',
 ])
 
 export function isLocalCompanionInstruction(message: string): boolean {
@@ -136,6 +137,14 @@ export interface LocalCompanionDeps {
   runPetDispatch?: () => Promise<string>
   /** 宠物感知一轮（cron 触发，见 pet-sensing-tick.ts） */
   runPetSensing?: (options?: LocalCompanionRunOptions) => string
+  /**
+   * 宠物反思 + 排期 + 日记（cron 触发，见 pet-evolve.ts）。
+   *
+   * 收 `options` 而不是无参：任务页的「立即执行」要绕过**日界守卫**
+   * （一天只能反思一次，手动点一下不该什么都不发生），
+   * 但冷启动与让路那两道闸门不绕。
+   */
+  runPetEvolve?: (options?: LocalCompanionRunOptions) => Promise<string>
 }
 
 /** Companion 指令执行选项 */
@@ -188,6 +197,12 @@ export async function handleLocalCompanionInstruction(
       if (!deps.runPetSensing) return 'pet sensing unavailable'
       // 感知走 `manual` 只是为了让「立即执行」能在主窗口自测（宠物模式门闩是软门闩）
       return deps.runPetSensing({ manual: options.manual === true })
+    }
+    case '__pet_evolve__': {
+      if (!deps.runPetEvolve) return 'pet evolve unavailable'
+      // 反思走 `manual` 绕的是**日界守卫**（一天一次）——手动点一下不该什么都不发生；
+      // 冷启动与"让路于用户回合"那两道不绕（见 pet-evolve.ts 的 `manual` 注释）
+      return deps.runPetEvolve({ manual: options.manual === true })
     }
     default:
       return `unknown companion instruction: ${instruction}`

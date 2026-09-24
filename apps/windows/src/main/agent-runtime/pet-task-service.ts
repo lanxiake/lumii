@@ -37,6 +37,7 @@ import {
   MAX_PET_GOALS_PER_DAY,
   MAX_PET_TOKENS_PER_DAY,
   TOKEN_COST,
+  appendPetExperience,
   buildPetTaskMetadata,
   canSpendTokens,
   classifyPetRequest,
@@ -45,10 +46,9 @@ import {
   petTaskQuotaReason,
   readTodayTokenUsage,
 } from '@mtbot/agent-runtime'
-import { petAgentId } from '@mtbot/pet-core'
 import { getAgentRuntimeBridge } from '../ipc/agent-runtime-ipc'
-import { isPetMode } from '../pet/pet-mode-ipc'
-import { getStoredModelId, getVirtualHumanSettings } from '../pet/pet-mode-store'
+import { currentPetAgentId } from '../pet/pet-subject'
+import { getVirtualHumanSettings } from '../pet/pet-mode-store'
 import type { PetTaskCreateResult, PetTaskStateDTO } from '../../shared/pet-mode'
 import { agentRuntimeLog as log } from './bridge-utils'
 import {
@@ -57,13 +57,6 @@ import {
   readPetTaskState,
   writePetTaskReadCursor,
 } from './pet-task-store'
-
-/** bridge 没起 / 不在宠物模式 → 现在没有"这只宠物" */
-function currentPetAgentId(): string | null {
-  if (!isPetMode()) return null
-  const configId = getStoredModelId()
-  return configId ? petAgentId(configId) : null
-}
 
 /** 现在没有可用的宠物会话时的统一说法 */
 const NOT_READY_REASON = '我还没准备好，等一下再试？'
@@ -172,6 +165,15 @@ export async function createPetTask(text: string): Promise<PetTaskCreateResult> 
     )
     log.info(`[createPetTask] 受理 agent=${agentId} id=${id} dimension=${decision.dimension ?? '(判不出)'}`)
 
+    /**
+     * 经历流水（第七期 T7.1）：**又派了一件活 = 信任**。
+     *
+     * 记在受理之后、派发之前——这一刻起"用户交代了一件事"就已经是事实，
+     * 后面成没成是另一条账（那是目标自己的结果）。也不 await 任何东西：
+     * 受理路径要求 <200ms 出响应，一次 runtime_state 写不该拖慢它。
+     */
+    appendPetExperience(db, agentId, 'task-created')
+
     // 立刻踢一脚派发：cron 节拍是 5 分钟，用户刚点完等 5 分钟才动是不像话的。
     // **不 await**：那一轮可能跑一分钟，不该让 IPC 挂那么久（前端要的是 <200ms 的响应）。
     void bridge.dispatchPetGoalsNow().catch((err: unknown) => {
@@ -226,6 +228,14 @@ export function markPetTaskRead(): void {
   if (!bridge || !agentId) return
   try {
     writePetTaskReadCursor(bridge.db, agentId, new Date().toISOString())
+    /**
+     * 经历流水（第七期 T7.1）：**它说的话被看见了**。
+     *
+     * 与游标分开记：游标是"列表读到哪里"的状态（会被下一次打开覆盖），
+     * 而流水是"这件事发生过"的痕迹（不可变、会剪枝）。同一个用户动作，
+     * 一个是状态、一个是历史，混在一起早晚有一边失真。
+     */
+    appendPetExperience(bridge.db, agentId, 'task-read')
     log.info(`[markPetTaskRead] agent=${agentId}`)
   } catch (err) {
     log.warn(`[markPetTaskRead] 失败: ${err instanceof Error ? err.message : err}`)

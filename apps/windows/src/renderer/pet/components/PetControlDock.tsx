@@ -7,7 +7,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import type { VoiceCallState } from '../../../shared/voice-events'
-import type { PetModelConfigDTO, PetTaskItemDTO, PetTaskStateDTO } from '../../../shared/pet-mode'
+import type { PetModelConfigDTO, PetExperienceDTO, PetTaskItemDTO, PetTaskStateDTO } from '../../../shared/pet-mode'
 import {
   MicIcon,
   VolumeOnIcon,
@@ -21,6 +21,8 @@ import type { PetAvatarStatus } from '../orchestrator/PetOrchestrator'
 import { formatAvatarStatusLine } from '../utils/pet-status-labels'
 import { shortSessionLabel, type SessionRun } from '../utils/session-activity'
 import { noticeActionLabel } from '../utils/pet-notice-adapter'
+import { light, dark, selectableText } from './pet-dock-theme'
+import { PetExperiencePanel } from './PetExperiencePanel'
 import type { PetNotice } from '@mtbot/pet-core'
 
 /** 聊天记录单条消息（内存态轻量展示） */
@@ -79,6 +81,13 @@ export interface PetControlDockProps {
    * 而待办区在状态栏——三块各占各的位置。
    */
   petTask?: PetTaskStateDTO | null
+  /**
+   * 「经历」Tab 的内容（七期 T7.6）：出生 / 性格变化 / 做过的事 / 日记。
+   *
+   * `null` / 缺省 = 读不到（bridge 没起、不在宠物模式），面板如实说"还读不到"。
+   * 由 `PetModeShell` 从 `pet:experience:summary` 取来注入——坞保持**纯 props**。
+   */
+  experience?: PetExperienceDTO | null
   /**
    * 点「让它去做」。
    *
@@ -149,38 +158,14 @@ const STATE_LABEL: Record<string, string> = {
 /** 聊天记录最多展示条数（轻量，更早的不在坞内呈现，后台已落 DB） */
 const MAX_VISIBLE_MESSAGES = 6
 
-/** 可选中复制的文本区域样式 */
-const selectableText: React.CSSProperties = {
-  userSelect: 'text',
-  WebkitUserSelect: 'text',
-  cursor: 'text',
-}
-
 // ─────────────────────────────────────────────────────────────
 // 色层
 //
-// 宠物模式跑在**独立窗口**里：main.tsx 直接渲染 PetModeShell，**不挂
-// AppProviders**（含 ThemeProvider）。
-//
-// ⚠️ 2026-09-23 起 PetModeShell 会给本窗口的 `<html>` 设 `data-theme`
-// （见 `utils/pet-theme.ts`，服务气泡），所以这里**取得到**主题令牌了 ——
-// 但坞**依然刻意不用**：那是"整层跟着主窗变米黄色"，当年明确否掉的
-// （`07-主题色系/12-canvas与宠物色层收敛.md` §3.2）。色值都是本层自己的常量。
-//
-// 色相集中在这里：改「坞的亮度」只需改 LIGHT / DARK。
-// 透明度逐处保留——它们是设计刻度（描边 0.08~0.18、分隔线 0.08~0.12、
-// 文字 0.35~0.82），语义各不相同，合并会丢失层级。
+// LIGHT / DARK / light() / dark() / selectableText 已抽到 `pet-dock-theme.ts`
+// ——七期 T7.6 的「经历」面板是坞的第二个 Tab，切一下 Tab 整个面板的明暗
+// 不该跳一格，所以两者必须共用同一套刻度（抄一份常量过去正是老路）。
+// 设计上"坞刻意不跟主窗主题"那条不变，理由随常量一起搬到了那个文件。
 // ─────────────────────────────────────────────────────────────
-
-/** 浮层上的"亮色"（描边、分隔线、叠加底、次要文字） */
-const LIGHT: [number, number, number] = [255, 255, 255]
-/** 浮层上的"暗色"（坞底、内嵌区底、投影） */
-const DARK: [number, number, number] = [0, 0, 0]
-
-/** 按指定透明度取"亮色"。用法：`border: 1px solid ${light(0.12)}` */
-const light = (alpha: number): string => `rgba(${LIGHT.join(', ')}, ${alpha})`
-/** 按指定透明度取"暗色" */
-const dark = (alpha: number): string => `rgba(${DARK.join(', ')}, ${alpha})`
 
 /** 强调色底上的前景白——固定在有色底上，不参与"层亮度"调节 */
 const FG_ON_ACCENT = '#fff'
@@ -228,6 +213,7 @@ export const PetControlDock: React.FC<PetControlDockProps> = ({
   onPetTaskRun,
   onPetTaskHandoff,
   petTaskBusy,
+  experience,
   modelLoaded,
   voiceError,
   models,
@@ -251,6 +237,14 @@ export const PetControlDock: React.FC<PetControlDockProps> = ({
   const [showVoiceSettings, setShowVoiceSettings] = useState(false)
   /** 展开的那条回执 id。一次只展开一条——坞只有 400px 宽，两条展开就把它撑成一张长表 */
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null)
+  /**
+   * 当前 Tab（七期 T7.6）。
+   *
+   * 默认「对话」：坞的主职仍是"跟他说话"，「经历」是偶尔翻一次的**证据页**
+   * （设计 §8.4）。做成状态而不是两个面板并列，是因为两者的高度差很多
+   * （对话要输入框与状态栏，经历只要一段可滚动的列表），并排会有一个永远空着。
+   */
+  const [tab, setTab] = useState<'chat' | 'experience'>('chat')
   const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null)
 
   const handleSend = useCallback(() => {
@@ -370,6 +364,58 @@ export const PetControlDock: React.FC<PetControlDockProps> = ({
           <span style={{ fontSize: 10 }}>拖拽移动</span>
         </div>
 
+        {/*
+          Tab 条（七期 T7.6）。**只有两个**：对话是它的日常，经历是偶尔翻一次的
+          证据页（设计 §8.4）。刻意不做成图标——坞顶那一条已经够挤，
+          而"经历"这个词本身就是用户会去找的。
+        */}
+        <div
+          style={{
+            display: 'flex',
+            gap: 4,
+            padding: '6px 10px 0',
+            borderBottom: `1px solid ${light(0.08)}`,
+          }}
+        >
+          {(
+            [
+              ['chat', '对话'],
+              ['experience', '经历'],
+            ] as const
+          ).map(([key, label]) => {
+            const active = tab === key
+            return (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setTab(key)}
+                style={{
+                  flex: 1,
+                  padding: '5px 0',
+                  border: 'none',
+                  borderBottom: `2px solid ${active ? `${light(0.55)}` : 'transparent'}`,
+                  background: 'transparent',
+                  color: active ? `${light(0.85)}` : `${light(0.42)}`,
+                  fontSize: 12,
+                  font: 'inherit',
+                  cursor: 'pointer',
+                  userSelect: 'none',
+                }}
+              >
+                {label}
+                {/* 宠物流有未读时在「对话」上点一下——它就在那个 Tab 里（五期 T5.8） */}
+                {key === 'chat' && petTask && petTask.unread > 0 && (
+                  <span style={{ marginLeft: 4, color: PET_FLOW_COLOR }}>·</span>
+                )}
+              </button>
+            )
+          })}
+        </div>
+
+        {tab === 'experience' ? (
+          <PetExperiencePanel experience={experience ?? null} />
+        ) : (
+          <>
         {(voiceError || error) && !inCall && (
           <div
             style={{
@@ -783,6 +829,8 @@ export const PetControlDock: React.FC<PetControlDockProps> = ({
             <SendIcon />
           </DockIconButton>
         </div>
+          </>
+        )}
 
         {/* 系统操作：模型切换 / 退出 */}
         <div style={{ display: 'flex', gap: 8, padding: '10px 14px', alignItems: 'center' }}>

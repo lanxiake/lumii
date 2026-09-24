@@ -18,6 +18,8 @@ import {
   type PetMainWindowFocusEvent,
   type PetMotionActionDTO,
   type PetPerchEvent,
+  type PetExperienceDTO,
+  type PetExperienceKind,
   type PetPersonalityDTO,
   type PetTaskCreateResult,
   type PetTaskStateDTO,
@@ -121,6 +123,15 @@ export const petApi: PetElectronAPI = {
 
   handoffPetTaskToMain: (payload: { description: string; text: string }): Promise<void> =>
     ipcRenderer.invoke(PET_IPC.petHandoffToMain, payload),
+
+  // ── 用户对它的反应 / 经历页（七期 T7.1 / T7.6）─────────────────────
+  // 上报走 send（痕迹，不等回话）；读经历页走 invoke（挂载时问一次）
+  reportPetExperience: (kind: PetExperienceKind): void => {
+    ipcRenderer.send(PET_IPC.petExperienceReport, kind)
+  },
+
+  getPetExperience: (): Promise<PetExperienceDTO | null> =>
+    ipcRenderer.invoke(PET_IPC.petExperienceSummary),
 
   onModelChanged: (callback: (event: PetModelChangedEvent) => void): () => void =>
     createPetEventListener<PetModelChangedEvent>(PET_IPC.evtModelChanged, callback),

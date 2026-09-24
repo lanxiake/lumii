@@ -458,6 +458,32 @@ export function registerPetModeIpc(deps: PetWindowManagerDeps): void {
   })
 
   /**
+   * 用户对它的反应（第七期 T7.1）。**send 不是 invoke**——这是一条痕迹，
+   * 用户那一下点击不该等主进程回话（与 `reportHover` 同一条约定）。
+   *
+   * 取值校验在 service 层（`reportPetExperience` 收 `unknown` 并对着
+   * `PET_EXPERIENCE_KINDS` 判）——那里能直接拿到运行时的名单，
+   * 而这条 handler 走惰性 import，多引一个常量就多拽一份依赖起来。
+   */
+  ipcMain.on(PET_IPC.petExperienceReport, (_evt, kind: unknown) => {
+    void import('../agent-runtime/pet-experience-service')
+      .then(({ reportPetExperience }) => reportPetExperience(kind))
+      .catch((err: unknown) => {
+        log.warn(`petExperienceReport 失败: ${err instanceof Error ? err.message : String(err)}`)
+      })
+  })
+
+  ipcMain.handle(PET_IPC.petExperienceSummary, async () => {
+    try {
+      const { getPetExperience } = await import('../agent-runtime/pet-experience-service')
+      return await getPetExperience()
+    } catch (err) {
+      log.warn(`petExperienceSummary 失败: ${err instanceof Error ? err.message : String(err)}`)
+      return null
+    }
+  })
+
+  /**
    * 「转给主助手」（五期 T5.8）。
    *
    * 主进程只做两件事：把那段话**拼成句**、发给主窗。**真正送出去的是主窗**——

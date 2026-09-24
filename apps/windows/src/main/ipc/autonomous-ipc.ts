@@ -15,9 +15,7 @@ import { notifyAutonomousGoalApproved } from '../agent-runtime/autonomous-wiring
 import { readSettings, writeSettings } from '@mtbot/agent-runtime'
 import type { AutonomousSettings } from '@mtbot/agent-runtime'
 import { readMood, readConcerns, EVOLUTION_CONVERSATION_ID } from '@mtbot/agent-runtime'
-import { petAgentId } from '@mtbot/pet-core'
-import { isPetMode } from '../pet/pet-mode-ipc'
-import { getStoredModelId } from '../pet/pet-mode-store'
+import { currentPetAgentId } from '../pet/pet-subject'
 
 const ENABLED_KEY = 'autonomous.enabled'
 
@@ -35,11 +33,9 @@ const ENABLED_KEY = 'autonomous.enabled'
  */
 const NO_SUBJECT_AGENT_ID = '__none__'
 function subjectAgentId(): string {
-  try {
-    return isPetMode() ? petAgentId(getStoredModelId()) : NO_SUBJECT_AGENT_ID
-  } catch {
-    return NO_SUBJECT_AGENT_ID
-  }
+  // 判据本身在 `pet-subject.ts`（同一个"现在这只宠物是谁"在仓库里出现过四份，
+  // 2026-09-24 收口成一处）：这里只多一层"拿不到 → 哨兵"的转换
+  return currentPetAgentId() ?? NO_SUBJECT_AGENT_ID
 }
 
 /** app 配置访问（由 ipc-handlers-registry 注入；未注入时相关 handler 降级为空） */

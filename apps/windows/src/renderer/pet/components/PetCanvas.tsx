@@ -177,6 +177,16 @@ export interface PetCanvasProps {
    */
   onRefusal?: () => void
   /**
+   * 被点了一下（短按、没拖走）。
+   *
+   * 与 `onRefusal` 是**互斥的两条路**：拒绝了互动就播「躲开」，否则播点击动作。
+   * 加它只为第七期 T7.1 的经历流水——在此之前"用户点它一下"这件事
+   * **画布外完全看不见**（`triggerTapMotion` 是画布内部的事）。
+   * 而它恰恰是最常见的一种互动：漏了它，流水里就只剩"派活"与"长按摸头"，
+   * 宠物会以为这个人只会使唤它。
+   */
+  onTapped?: () => void
+  /**
    * 摸头（长按）阶段（第二期 T2.4）。
    *
    * 报**阶段**而不是文案：说什么话是 UI 的事，画布只负责"按住不动"这个手势的识别。
@@ -271,7 +281,7 @@ function toCanvasLocal(e: MouseEvent, canvas: HTMLCanvasElement): { x: number; y
 }
 
 export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
-  ({ modelId, onDegrade, onModelLoaded, onInteraction, onAmbientActivity, petTuning, onRefusal, onPetting, onContextMenu, ambientEnabled = true, bubbleHold = false }, ref) => {
+  ({ modelId, onDegrade, onModelLoaded, onInteraction, onAmbientActivity, petTuning, onRefusal, onTapped, onPetting, onContextMenu, ambientEnabled = true, bubbleHold = false }, ref) => {
     /**
      * 宿主容器。**React 只管这个 div，里面的 canvas 由 setup effect 自己创建/替换。**
      *
@@ -341,6 +351,9 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
     /** 同上：拒绝回调也只在 mouseup 处理器里读，不能闭包捕获 */
     const onRefusalRef = useRef(onRefusal)
     onRefusalRef.current = onRefusal
+    /** 同上：被 `[ready]` 依赖的鼠标 effect 持有，不能进依赖数组 */
+    const onTappedRef = useRef(onTapped)
+    onTappedRef.current = onTapped
     const onPettingRef = useRef(onPetting)
     onPettingRef.current = onPetting
 
@@ -1140,6 +1153,13 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
               // 点击特效：在点击位置绽放一簇烟花（受鼠标点击开关控制）
               if (tapInteractionEnabled) spawnClickFireworks(e.clientX, e.clientY)
             }
+            /**
+             * 上报"被点了一下"（七期 T7.1 的经历流水），**在两条分支之外**。
+             *
+             * 被躲开（`refused`）也是一次真实的互动——"他伸手，我躲了"同样发生在这个人
+             * 和它之间。强弱由流水侧判读（那边看得到全局），不在这一层替它下结论。
+             */
+            onTappedRef.current?.()
           }
           // 点击回应期间**保持让位**，2.5 秒后自动交还。
           // 不这么做的话，宠物会在播跳跃动画的同时继续走路——脚不动、人在飘。

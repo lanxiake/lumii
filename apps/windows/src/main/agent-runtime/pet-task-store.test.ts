@@ -242,8 +242,24 @@ describe.skipIf(!hasFts5Db)('宠物任务落库层', () => {
       expect(JSON.parse(row!.metadata)).toEqual({
         source: 'pet-task',
         dimension: 'code_generation',
+        // origin 也要保住（七期 T7.4）：收尾时手上只有目标行，
+        // 把它冲成默认的 user 会让一只自己找事做的宠物在经历页里
+        // 变成"全是你让我做的"
+        origin: 'user',
         result: { ok: false, text: '没能做成：今日目标已用满（5/5）', at: '2026-09-24T10:00:00.000Z' },
       })
+    })
+
+    it('★ origin=self（它自己排的事）在收尾后仍是 self', () => {
+      insertGoal(db, {
+        id: 'self-1',
+        metadata: JSON.stringify({ source: 'pet-task', dimension: null, origin: 'self' }),
+      })
+      persistPetTaskReceipt(db, 'self-1', true, '看过了', '2026-09-24T10:00:00.000Z')
+      const row = db
+        .prepare<{ metadata: string }>(`SELECT metadata FROM autonomous_goals WHERE id = ?`)
+        .get('self-1')
+      expect((JSON.parse(row!.metadata) as { origin?: string }).origin).toBe('self')
     })
 
     it('**不碰**别人的 metadata（套上 source 会让那些行从此被当成宠物回执）', () => {

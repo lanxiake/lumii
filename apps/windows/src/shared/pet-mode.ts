@@ -10,7 +10,18 @@
  */
 
 import type { PetIdleStage } from '@mtbot/pet-core'
+/**
+ * 经历流水的信号种类。
+ *
+ * **从引擎包转出，不在 shared 里重抄一份**：那条流水由 `agent-runtime`
+ * 的 `pet-experience.ts` 定义与写入，抄一份到这里就会有两个真相
+ * ——加一种信号时改了一处漏了另一处，两处都不报错（这个坑本仓库踩过：
+ * `CronJobManagedBy` 的联合类型当时抄了三份）。
+ */
+import type { PetExperienceKind } from '@mtbot/agent-runtime'
 import type { VirtualHumanSettingsDTO } from './virtual-human'
+
+export type { PetExperienceKind }
 
 export type { VirtualHumanSettingsDTO } from './virtual-human'
 
@@ -60,24 +71,49 @@ export interface PetModelConfigDTO {
  * 宠物是**独立 Agent**（`pet:<模型ID>`，一个模型 = 一只），人格与情绪都不碰 `assistant`。
  * 只给气质标签不给五维数值——用户看到的是「好奇心重，但有点怕生」，不是 0.63。
  */
+/**
+ * Big Five 五维原始值。
+ *
+ * **是给渲染层算气质标签与程序化参数的，不是给用户看的**——§3.6 的禁令
+ * 「不把数值展示给用户」仍然成立，任何 UI 只渲染 `traitLabel()` 的结果。
+ * 它出现在 DTO 上是因为渲染层与设置页共用同一个 IPC（多开一条只为传五维的通道不值得）。
+ */
+export interface PetTraitValues {
+  openness: number
+  conscientiousness: number
+  extraversion: number
+  agreeableness: number
+  neuroticism: number
+}
+
 export interface PetPersonalityDTO {
   /** 内部 agentId，诊断用 */
   agentId: string
   label: string
-  /**
-   * 五维原始值（第二期起）。
-   *
-   * **是给渲染层算程序化参数的，不是给用户看的**——§3.6 的禁令「不把数值展示给用户」
-   * 仍然成立，设置页只渲染 `label`。它出现在这条 DTO 上是因为渲染层与设置页共用同一个
-   * IPC（多开一条只为传五维的通道不值得），**别把它读进任何 UI 组件**。
-   */
-  traits: {
-    openness: number
-    conscientiousness: number
-    extraversion: number
-    agreeableness: number
-    neuroticism: number
-  }
+  /** 见 {@link PetTraitValues}：算标签用的，别读进任何 UI 组件 */
+  traits: PetTraitValues
+}
+
+/**
+ * 「经历」Tab 的全部内容（第七期 T7.6）。
+ *
+ * 设计 §8.4 说它是**整个设计的"证据页"**：用户在这里看到"它真的变了"，
+ * 而不是只有一个模糊的感觉。设计 §11.4 逐条核实过——这四项的数据
+ * **全部已经躺在库里**（出生快照 / `personality_state` / `autonomous_goals` /
+ * `autonomous_diaries`），本期只是把它们读出来。
+ *
+ * ⚠ `null` 是有意义的：`birth` 为 null 表示这只宠物还没出生（读不到 bridge），
+ * 渲染层要如实说"还不知道"，不要拿 0.5 编一个中性气质出来（§4.1.6 的同一条纪律）。
+ */
+export interface PetExperienceDTO {
+  /** 出生：抽签时刻 + 那一签本身 */
+  birth: { at: string; migrated: boolean; traits: PetTraitValues } | null
+  /** 现在：气质形状变了没有，靠它与 `birth.traits` 对比 */
+  current: { traits: PetTraitValues; lastUpdated: string; updateCount: number } | null
+  /** 做过的事（新的在前；含用户交代的与自己排的） */
+  works: Array<{ id: string; description: string; ok: boolean; at: string; text: string }>
+  /** 日记（新的在前） */
+  diaries: Array<{ date: string; content: string }>
 }
 
 /**
@@ -269,6 +305,28 @@ export const PET_IPC = {
    */
   petHandoffToMain: 'pet:handoff-to-main',
   /**
+   * send：渲染层上报**用户对它的反应**（第七期 T7.1）。
+   *
+   * 闭环（设计 §12.2）里唯一没有现成数据的一环：宠物说了一句话、做了一件事，
+   * 原本没有任何地方记录用户是否理会。而"一个没人理的宠物与一个被互动的宠物
+   * 该长成两种样子"正是"会变"的原料。
+   *
+   * 形态是 **send 不是 invoke**：这是一条痕迹，用户那一下点击不该等主进程回话
+   * （与 `reportHover` 同一条约定）。写失败也不影响用户的操作。
+   *
+   * ⚠ 只有**渲染层才知道**的三件事走这里（气泡被点 / 气泡没人理 / 摸它）；
+   * 另外三件（派活、读回执、控制坞回话）在主进程里就能看见，不绕这一圈——
+   * 两条路都在 `pet-experience-service.ts` 汇到同一份流水。
+   */
+  petExperienceReport: 'pet:experience:report',
+  /**
+   * invoke：读「经历」Tab 的内容（第七期 T7.6）。
+   *
+   * 与 `petTaskState` 同样是"挂载时问一次"的形态而不是常驻事件流：
+   * 这一页是**证据页**，用户想看的是累积的事实，不是此刻的推送。
+   */
+  petExperienceSummary: 'pet:experience:summary',
+  /**
    * event(main→renderer，发给**主窗**)：有人把宠物的发现交过来了。
    *
    * 载荷是**已经成句、可以直接当用户消息发出去**的文本（主进程拼的，
@@ -440,6 +498,15 @@ export interface PetElectronAPI {
   markPetTaskRead(): Promise<void>
   /** 「转给主助手」：把这条回执交给主窗，由主窗真正发出去 */
   handoffPetTaskToMain(payload: { description: string; text: string }): Promise<void>
+  /**
+   * 上报一条「用户对它的反应」（第七期 T7.1）。
+   *
+   * 只有渲染层才知道的三件事走它（气泡被点 / 气泡没人理 / 摸它）；
+   * 派活、读回执、控制坞回话在主进程里就看得见，不必绕这一圈。
+   */
+  reportPetExperience(kind: PetExperienceKind): void
+  /** 读「经历」Tab 的内容（第七期 T7.6）；bridge 未就绪时为 null */
+  getPetExperience(): Promise<PetExperienceDTO | null>
   /** 订阅模式变更事件，返回取消订阅函数 */
   onModeChanged(callback: (event: PetModeChangedEvent) => void): () => void
   /** 订阅准备切换事件，返回取消订阅函数 */

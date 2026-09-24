@@ -43,7 +43,13 @@ import {
   type VirtualHumanSettingsDTO,
 } from '../../shared/virtual-human'
 import type { PetChatMessage } from './components/PetControlDock'
-import type { PetModelConfigDTO, PetPersonalityDTO, PetTaskStateDTO } from '../../shared/pet-mode'
+import type {
+  PetExperienceDTO,
+  PetExperienceKind,
+  PetModelConfigDTO,
+  PetPersonalityDTO,
+  PetTaskStateDTO,
+} from '../../shared/pet-mode'
 import { usePrefersReducedMotion } from './utils/use-prefers-reduced-motion'
 import { resolveEmotionKeyByIndex } from './utils/pet-status-labels'
 import { pickStatusGlyph } from './utils/pet-status-glyph'
@@ -310,6 +316,27 @@ export const PetModeShell: React.FC = () => {
   }, [])
 
   /**
+   * 上报一条「用户对它的反应」（第七期 T7.1）。
+   *
+   * 只有渲染层才知道的四件事走它：气泡被点、气泡没人理、摸它/点它/拎它、控制坞回话。
+   * 另两件（派活、看回执）主进程在受理函数里就看得见，不绕 IPC。
+   *
+   * 经 ref 转一手而不是直接引用：调用它的几处（气泡 TTL 的 setTimeout、画布那三个
+   * 回调）要么在依赖为 `[]` 的 effect 里、要么被 ref 化——直接引用会把它们锁在
+   * 首次渲染那一份闭包上（与下面 `petTaskRunRef` 同一个理由）。它本身无依赖，
+   * 一份实现整个生命周期都够用。
+   */
+  const reportExperience = useCallback((kind: PetExperienceKind) => {
+    try {
+      window.electronAPI?.pet?.reportPetExperience?.(kind)
+    } catch {
+      /* 一条痕迹而已：上报失败绝不该影响用户那一下操作 */
+    }
+  }, [])
+  const reportExperienceRef = useRef(reportExperience)
+  reportExperienceRef.current = reportExperience
+
+  /**
    * 把用户送到那张卡前面。
    *
    * 三步里前两步（主窗前台 + 切会话）在 S2 就有了，第三步——**把那张审批卡滚进视野并高亮**
@@ -322,6 +349,13 @@ export const PetModeShell: React.FC = () => {
     if (bubbleTimerRef.current) clearTimeout(bubbleTimerRef.current)
     bubbleTimerRef.current = null
     setBubble(null)
+    /**
+     * 七期 T7.1：**用户真的动身了**（设计 §12.3 里最强的那条信号）。
+     *
+     * 气泡上的按钮与控制坞里的待办条目都走这个回调——两处都是"他按我说的去做了"，
+     * 不必区分来源；流水只记"这件事发生过"。
+     */
+    reportExperienceRef.current('bubble-click')
     /**
      * 五期 T5.1②：这条感知带着"要不要我去看看"（`notice.proposal`）。
      *
@@ -389,6 +423,13 @@ export const PetModeShell: React.FC = () => {
    */
   const [petTask, setPetTask] = useState<PetTaskStateDTO | null>(null)
   /**
+   * 「经历」Tab 的内容（七期 T7.6）：出生 / 性格变化 / 做过的事 / 日记。
+   *
+   * `null` = 读不到 → 面板如实说"还读不到"（**不编一个中性气质出来**）。
+   * 与 `petTask` 同样是"挂载/开坞时读下来的快照"，真相在库里。
+   */
+  const [petExperience, setPetExperience] = useState<PetExperienceDTO | null>(null)
+  /**
    * 正在受理（点了按钮、还没拿到主进程的回答）。
    *
    * 与 `petTask.running` 分开：那个是**库里的**事实（目标已落库、等着跑），
@@ -404,6 +445,22 @@ export const PetModeShell: React.FC = () => {
       if (state !== undefined) setPetTask(state ?? null)
     } catch {
       // 读不到就保持原样：这一区是次要信息，不该为一个读失败弹错误
+    }
+  }, [])
+
+  /**
+   * 读一次「经历」（七期 T7.6）。
+   *
+   * 与 `refreshPetTask` 同一形态、同一时机（坞打开时）。
+   * 为什么不必轮询：这一页的内容**一天才变一两次**（反思、日记各一次，
+   * 目标是用户自己派的）——为它挂一个定时器是纯浪费。
+   */
+  const refreshPetExperience = useCallback(async () => {
+    try {
+      const data = await window.electronAPI?.pet?.getPetExperience?.()
+      if (data !== undefined) setPetExperience(data ?? null)
+    } catch {
+      // 读不到就保持原样（面板自己会说"还读不到"）
     }
   }, [])
 
@@ -492,7 +549,8 @@ export const PetModeShell: React.FC = () => {
     void refreshPetTask().then(() => {
       void window.electronAPI?.pet?.markPetTaskRead?.()?.catch?.(() => {})
     })
-  }, [dockOpen, refreshPetTask])
+    void refreshPetExperience()
+  }, [dockOpen, refreshPetTask, refreshPetExperience])
   /** 别处等你出手（waiting/error），用来抢头顶符号 */
   const attention = useMemo(
     () => foreignAttention(sessionRuns, sessionKeyRef.current),
@@ -751,7 +809,20 @@ export const PetModeShell: React.FC = () => {
         petHeight: layout?.modelHeight ?? 200,
         notice: payload.notice,
       })
-      bubbleTimerRef.current = setTimeout(() => setBubble(null), payload.durationMs)
+      bubbleTimerRef.current = setTimeout(() => {
+        setBubble(null)
+        /**
+         * 七期 T7.1：**气泡自己挂到期了，没人点** —— 沉默也是一种信号。
+         *
+         * 只在**这一处**记：另外两条 `setBubble(null)` 的路径一条是"通知被销账"
+         * （主进程说这条不用管了，与用户理不理无关），一条是本地应答气泡
+         * （"我去看看"——那是他刚按完按钮的回应，本来就不需要他再理）。
+         *
+         * 用户点了按钮走的是 `handleFocusNotice`，那条会先 clearTimeout，
+         * 所以不会既记 click 又记 ignored。
+         */
+        reportExperienceRef.current('bubble-ignored')
+      }, payload.durationMs)
     })
     /**
      * 待办清单（控制坞那一块）+ **系统通知**。
@@ -1382,6 +1453,13 @@ export const PetModeShell: React.FC = () => {
       // 口型不在此处启动：等 agent:turn:start 事件触发，避免 AI 尚未回复时伪口型先动
       log.info(`文字发送 sessionKey=${sessionKey} agentId=${agentId ?? '(默认)'} voice=${useVoice}`)
       await agentActions.sendMessage(text, { sessionKey, agentId })
+      /**
+       * 七期 T7.1：**用户在跟它说话**（设计 §12.3 的"控制坞里回话"）。
+       *
+       * 记在 `sendMessage` **之后**：发送抛错时那不是一次"他回了我"，
+       * 而流水里多一条假的正面信号会让反思算错这个人对它的态度。
+       */
+      reportExperienceRef.current('chat-reply')
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       log.warn(`文字发送失败: ${msg}`)
@@ -1524,10 +1602,15 @@ export const PetModeShell: React.FC = () => {
           onInteraction={(e) => {
             const orch = orchestratorRef.current
             if (!orch) return
-            if (e.type === 'picked') orch.setPicked(true)
-            else if (e.type === 'thrown') orch.setPicked(false)
+            if (e.type === 'picked') {
+              orch.setPicked(true)
+              // 七期 T7.1：被拎起来了（设计 §12.3 的"拖拽"，中等强度的亲近）
+              reportExperienceRef.current('petted')
+            } else if (e.type === 'thrown') orch.setPicked(false)
             else orch.notifyLanded()
           }}
+          /** 被点了一下（短按、没被拒绝）——见 PetCanvas 上 `onTapped` 的注释 */
+          onTapped={() => reportExperienceRef.current('petted')}
           // 自主活动（R9）：画布只报「该走/该坐/该站」，播哪个组由编排器按既有优先级决定
           onAmbientActivity={(activity) => orchestratorRef.current?.setAmbientActivity(activity)}
           /**
@@ -1554,6 +1637,8 @@ export const PetModeShell: React.FC = () => {
             const orch = orchestratorRef.current
             if (phase === 'start') {
               orch?.startPurrMotion()
+              // 七期 T7.1：摸头（设计 §12.3 的"摸它"）
+              reportExperienceRef.current('petted')
               return
             }
             if (phase === 'end') {
@@ -1598,6 +1683,7 @@ export const PetModeShell: React.FC = () => {
         onPetTaskRun={handlePetTaskRun}
         onPetTaskHandoff={handlePetTaskHandoff}
         petTaskBusy={petTaskBusy}
+        experience={petExperience}
         // 点一条会话 → 主进程把主窗带到前台并把 app-ui:goto（带 sessionKey）发过去；
         // 真正的会话切换在主窗的 agent-runtime 里做（会话状态不在主进程）
         onFocusSession={(sessionKey) => {

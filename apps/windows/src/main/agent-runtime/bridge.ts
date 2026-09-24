@@ -175,6 +175,8 @@ import {
 import { handleEvolutionTick } from './evolution-tick'
 import { ensurePetDispatchCronJobSeeded, runPetDispatch, syncPetDispatchJobEnabled } from './pet-dispatch'
 import { ensurePetSensingCronJobSeeded, runPetSensing } from './pet-sensing-tick'
+import { ensurePetEvolveCronJobSeeded, runPetEvolve, syncPetEvolveJobEnabled } from './pet-evolve'
+import { recordPetPersonalityEvent } from './pet-personality'
 import { persistPetTaskReceipt, readPetTaskDimension, recordPetTaskOutcome } from './pet-task-store'
 import { syncAutonomousManagedCronJobs } from './autonomous-cron-linkage'
 import { runPlanner, shouldFallbackPlan } from './planner-wiring'
@@ -1658,6 +1660,23 @@ export class AgentRuntimeBridge {
        * （详见 `mood.ts` 里 `pet_task_done` 的注释）。
        */
       this.recordMoodEvent(ok ? 'pet_task_done' : 'pet_task_failed', agentId)
+      /**
+       * 七期 T7.3 的「每次真实成败」：**没做成 → 一次 `error-handled`**。
+       *
+       * 为什么成功那条不发事件：Big Five 上"办成一件事"该往哪挪说不清
+       * （更外向？更开放？），而"办砸过一次"有明确方向——更谨慎、更神经质。
+       * 塑造这只宠物的应当是**这个人和它的关系**，不是它的绩效；
+       * 被回应 / 被冷落那两条由反思汇总后发（`pet-evolve.ts`）。
+       *
+       * 走到这里就一定真跑过（实例建起来了、有输出或报错），
+       * 所以不必再判 `instanceId`——那个判断留给下面 catch 那条路。
+       */
+      if (!ok) {
+        void recordPetPersonalityEvent('error-handled', agentId, {
+          goalId: goal.id,
+          source: 'pet-task',
+        })
+      }
       // T5.4 的"真实笨拙"要**真数据**：把这一次的成败记进它自己的能力维度，
       // 下一次受理才判得出"这个我不太拿手"（详见 pet-task-store.ts）
       await recordPetTaskOutcome(
@@ -1702,6 +1721,14 @@ export class AgentRuntimeBridge {
        */
       if (instanceId) {
         this.recordMoodEvent('pet_task_failed', agentId)
+        // 七期 T7.3：真跑过（实例建起来了）但炸了 —— 与上面 `!ok` 那条同一个事件，
+        // 只是路径不同（抛错 vs 有输出但报错）。**`instanceId` 这一判不能省**：
+        // `createInstance` 就抛错时这一轮一次模型往返都没有，那是我的故障不是它的失败
+        void recordPetPersonalityEvent('error-handled', agentId, {
+          goalId: goal.id,
+          source: 'pet-task',
+          thrown: true,
+        })
         await recordPetTaskOutcome(
           this.localDb.db,
           agentId,
@@ -2076,84 +2103,7 @@ export class AgentRuntimeBridge {
                   await this.runPlannerNow(agentId)
                   return summary
                 },
-                writeDiary: async (agentId) => {
-                  // 谁能写日记：助手与宠物（`hasInnerLife`）。心跳已经对非白名单不产 diaryDue，
-                  // 这里再兜一层防御，避免误写；两处判据同源，不会再各自漂移
-                  if (!hasInnerLife(agentId)) return 'diary-skipped'
-                  const repo = this._autonomousRepo
-                  if (!repo) return 'diary-unavailable'
-                  const goals = repo.listGoals(agentId)
-                  const reflections = repo.reflections(agentId, 5)
-                  const recentDiaries = listRecentDiaries(this.localDb.db, agentId, 5)
-                  // 今日真实事件（目标完成 / 有信息量的定时任务结果）→ 日记落到具体事，防空洞开场
-                  const todayStartMs = new Date().setHours(0, 0, 0, 0)
-                  const todayEvents: string[] = []
-                  try {
-                    const doneToday = this.localDb.db
-                      .prepare<{ description: string }>(
-                        `SELECT description FROM autonomous_goals
-                         WHERE agent_id = ? AND status = 'completed' AND completed_at >= ?
-                         ORDER BY completed_at DESC LIMIT 5`,
-                      )
-                      .all(agentId, new Date(todayStartMs).toISOString())
-                    for (const g of doneToday) {
-                      todayEvents.push(`完成目标：${g.description}`)
-                    }
-                  } catch {
-                    /* 事件素材缺失不阻断日记 */
-                  }
-                  try {
-                    const runs = this.localDb.db
-                      .prepare<{ job_id: string; summary: string | null }>(
-                        `SELECT job_id, summary FROM local_cron_runs
-                         WHERE started_at >= ? AND summary IS NOT NULL
-                         ORDER BY started_at DESC LIMIT 12`,
-                      )
-                      .all(todayStartMs)
-                    for (const r of runs) {
-                      const s = String(r.summary ?? '')
-                      if (!s || /^(idle|skipped)/.test(s)) continue
-                      todayEvents.push(`定时任务（${r.job_id}）：${s.slice(0, 80)}`)
-                      if (todayEvents.length >= 6) break
-                    }
-                  } catch {
-                    /* 事件素材缺失不阻断日记 */
-                  }
-                  const context = buildDiaryContext({
-                    goals: goals.map((g) => ({ description: g.description, status: g.status })),
-                    reflections: reflections.map((r) => ({ primaryIssue: r.primary_issue })),
-                    concerns: readConcerns(this.localDb.db, agentId),
-                    mood: readMood(this.localDb.db, agentId),
-                    recentDiaries,
-                    todayEvents,
-                  })
-                  // recentDiaries 已含在 context 中，不再单独拼接（防双份注入强化套话开场）
-                  const prompt = `${DIARY_PROMPT}\n\n今日素材：${JSON.stringify(context)}`
-                  const diary = await this.callLLM(prompt, undefined, 'diary')
-                  // 会话按 agent 取：助手 `evolution:main`、宠物 `evolution:pet:<模型ID>`。
-                  // 用 `ensurePetConversation` 而不是裸的 `ensureConversationExists`——
-                  // 宠物会话还要顺带修参与者归属（见那个方法的注释）
-                  const diaryConvId = this.evolutionConversationIdFor(agentId)
-                  this.ensurePetConversation(agentId, diaryConvId)
-                  const askRow = this._conversationRepo?.saveMessage({
-                    conversationId: diaryConvId,
-                    agentId,
-                    role: 'user',
-                    contentJson: { type: 'text', text: '写今天的日记' },
-                  })
-                  const diaryRow = this._conversationRepo?.saveMessage({
-                    conversationId: diaryConvId,
-                    agentId,
-                    role: 'assistant',
-                    contentJson: { type: 'text', text: diary },
-                  })
-                  if (askRow) this.pushSavedMessage(diaryConvId, askRow.id, 'user', '写今天的日记')
-                  if (diaryRow) this.pushSavedMessage(diaryConvId, diaryRow.id, 'assistant', diary)
-                  // 双写：会话（给用户看）+ 表（给 LLM 做连续性上下文），两者都按 agent 分
-                  saveDiary(this.localDb.db, agentId, todayDateKey(), diary)
-                  markDiaryWritten(this.localDb.db, agentId)
-                  return diary.slice(0, 60)
-                },
+                writeDiary: (agentId) => this.writeDiaryFor(agentId),
                 plan: async (agentId) => {
                   // 谁能排自己的期：助手与宠物（`hasInnerLife`）——系统 Agent 不排
                   if (!hasInnerLife(agentId)) return null
@@ -2172,6 +2122,42 @@ export class AgentRuntimeBridge {
                 getPetAgentId: () => (isPetMode() ? petAgentId(getStoredModelId()) : null),
                 recordMood: (agentId, event) => this.recordMoodEvent(event, agentId),
                 pushSensingEvent: (event) => this.ipcChannel.forwardIpcEvent(event),
+                manual: options?.manual,
+              }),
+            /**
+             * 宠物的自主闭环（七期 T7.2/T7.4/T7.5）：反思 → 排期 → 日记。
+             *
+             * 与派发**共用的只有三道判据**（总开关、当前宠物、让路于用户回合），
+             * 其余的出口各自注入：日记走 `writeDiaryFor`（与助手那份同一个实现）、
+             * 人格事件走 `recordPetPersonalityEvent`（它内部装 tracker）。
+             */
+            runPetEvolve: (options) =>
+              runPetEvolve({
+                getDb: () => this.localDb.db,
+                isShuttingDown: () => !this.localDb.isOpen,
+                hasActiveUserTurn: () => this.hasActiveUserTurn(),
+                getPetAgentId: () => (isPetMode() ? petAgentId(getStoredModelId()) : null),
+                // 反思、排期、日记三件都跟这个开关（理由见 PetEvolveDeps.isPetTaskEnabled）
+                isPetTaskEnabled: () => getVirtualHumanSettings().enablePetTask,
+                callLLM: (prompt) => this.callLLM(prompt, undefined, 'reflection'),
+                writeDiary: (agentId) => this.writeDiaryFor(agentId),
+                recordPersonality: (eventType, agentId, context) =>
+                  recordPetPersonalityEvent(eventType, agentId, context),
+                /**
+                 * 「我对你的了解」写进**宠物自己的记忆**（`agent_id = pet:<模型ID>`）。
+                 *
+                 * 这个归属正是 `pet-definition.ts` 那个 ⚠ 说的那件事：id 必须是
+                 * `pet:<模型ID>` 本身，否则记忆写进去就**搜不到**（不报错，只是丢了）。
+                 * `category: 'project'` 与 cron 那条路一致（概览页「近期关注」的默认分段）。
+                 */
+                rememberUnderstanding: (agentId, text) => {
+                  this._memoryManager?.addMemory({
+                    agentId,
+                    userId: 'local-user',
+                    category: 'project',
+                    content: `[我对主人的了解] ${text}`,
+                  })
+                },
                 manual: options?.manual,
               }),
           },
@@ -2195,9 +2181,18 @@ export class AgentRuntimeBridge {
     // 宠物感知循环（四期）：同样是独立的一条——它**不能**挂在派发上，
     // 派发在用户回合进行中让路，而感知恰恰要在用户干活时看着（见 pet-sensing-tick.ts 文件头）
     ensurePetSensingCronJobSeeded(this.localDb.db)
+    // 宠物反思 + 排期 + 日记（七期）：第三条，同样是独立的一条——
+    // 门闩与派发**相同**（让路于用户回合）、节拍与两条都不同（1 小时一拍），
+    // 那正是"该新开一条"的判据（见 pet-evolve.ts 文件头）
+    ensurePetEvolveCronJobSeeded(this.localDb.db)
+    // 宠物侧**两条** job 都跟「允许宠物主动做事」（五期 T5.9 / 七期 T7.4）。
+    // **启动时也同步一次**，否则会出现"设置里关着、任务页里开着"——两个开关互相打架
+    // （详见 setCompanionCronJobEnabled 的注释）
+    syncPetEvolveJobEnabled(this.localDb.db, getVirtualHumanSettings().enablePetTask)
     this.purgeCronFocusNoiseMemoriesOnce()
     // 设置页改两个开关时要同步 job 的 enabled 并重载本地 cron 调度：
-    // companion-tick 跟「主动联系」，pet-dispatch 跟「允许宠物主动做事」（五期 T5.9）
+    // companion-tick 跟「主动联系」；宠物侧**两条**（派发 + 反思）都跟
+    // 「允许宠物主动做事」（五期 T5.9 / 七期 T7.4）
     this.unsubscribeVhSettings?.()
     this.unsubscribeVhSettings = onVirtualHumanSettingsChanged((_settings, patch) => {
       let touched = false
@@ -2207,6 +2202,7 @@ export class AgentRuntimeBridge {
       }
       if (patch.enablePetTask !== undefined) {
         syncPetDispatchJobEnabled(this.localDb.db, patch.enablePetTask)
+        syncPetEvolveJobEnabled(this.localDb.db, patch.enablePetTask)
         touched = true
       }
       if (touched) this.cronScheduler?.reloadLocalCronScheduler()
@@ -2228,6 +2224,92 @@ export class AgentRuntimeBridge {
         void this.runPlannerNow(plannerSubject)
       }, 60_000)
     }
+  }
+
+  /**
+   * 写一篇日记：宠物会话 + `autonomous_diaries` 表**双写**，两处都按 agent 分。
+   *
+   * 2026-09-24（第七期 T7.5）从心跳的闭包里提成方法：**宠物的日记不再由心跳写**，
+   * 而是由 `pet-evolve` 那条链在晚上触发（与反思、排期同一条 cron）。
+   * 提出来是为了让两条链**调的是同一份实现**——抄一份给宠物，改一处漏一处，
+   * 症状是宠物的日记与助手的日记慢慢变成两种东西（而它们本该只差主体）。
+   */
+  private async writeDiaryFor(agentId: string): Promise<string> {
+    // 谁能写日记：助手与宠物（`hasInnerLife`）。两处判据同源，不会再各自漂移
+    if (!hasInnerLife(agentId)) return 'diary-skipped'
+    const repo = this._autonomousRepo
+    if (!repo) return 'diary-unavailable'
+    const goals = repo.listGoals(agentId)
+    const reflections = repo.reflections(agentId, 5)
+    const recentDiaries = listRecentDiaries(this.localDb.db, agentId, 5)
+    // 今日真实事件（目标完成 / 有信息量的定时任务结果）→ 日记落到具体事，防空洞开场
+    const todayStartMs = new Date().setHours(0, 0, 0, 0)
+    const todayEvents: string[] = []
+    try {
+      const doneToday = this.localDb.db
+        .prepare<{ description: string }>(
+          `SELECT description FROM autonomous_goals
+           WHERE agent_id = ? AND status = 'completed' AND completed_at >= ?
+           ORDER BY completed_at DESC LIMIT 5`,
+        )
+        .all(agentId, new Date(todayStartMs).toISOString())
+      for (const g of doneToday) {
+        todayEvents.push(`完成目标：${g.description}`)
+      }
+    } catch {
+      /* 事件素材缺失不阻断日记 */
+    }
+    try {
+      const runs = this.localDb.db
+        .prepare<{ job_id: string; summary: string | null }>(
+          `SELECT job_id, summary FROM local_cron_runs
+           WHERE started_at >= ? AND summary IS NOT NULL
+           ORDER BY started_at DESC LIMIT 12`,
+        )
+        .all(todayStartMs)
+      for (const r of runs) {
+        const s = String(r.summary ?? '')
+        if (!s || /^(idle|skipped)/.test(s)) continue
+        todayEvents.push(`定时任务（${r.job_id}）：${s.slice(0, 80)}`)
+        if (todayEvents.length >= 6) break
+      }
+    } catch {
+      /* 事件素材缺失不阻断日记 */
+    }
+    const context = buildDiaryContext({
+      goals: goals.map((g) => ({ description: g.description, status: g.status })),
+      reflections: reflections.map((r) => ({ primaryIssue: r.primary_issue })),
+      concerns: readConcerns(this.localDb.db, agentId),
+      mood: readMood(this.localDb.db, agentId),
+      recentDiaries,
+      todayEvents,
+    })
+    // recentDiaries 已含在 context 中，不再单独拼接（防双份注入强化套话开场）
+    const prompt = `${DIARY_PROMPT}\n\n今日素材：${JSON.stringify(context)}`
+    const diary = await this.callLLM(prompt, undefined, 'diary')
+    // 会话按 agent 取：助手 `evolution:main`、宠物 `evolution:pet:<模型ID>`。
+    // 用 `ensurePetConversation` 而不是裸的 `ensureConversationExists`——
+    // 宠物会话还要顺带修参与者归属（见那个方法的注释）
+    const diaryConvId = this.evolutionConversationIdFor(agentId)
+    this.ensurePetConversation(agentId, diaryConvId)
+    const askRow = this._conversationRepo?.saveMessage({
+      conversationId: diaryConvId,
+      agentId,
+      role: 'user',
+      contentJson: { type: 'text', text: '写今天的日记' },
+    })
+    const diaryRow = this._conversationRepo?.saveMessage({
+      conversationId: diaryConvId,
+      agentId,
+      role: 'assistant',
+      contentJson: { type: 'text', text: diary },
+    })
+    if (askRow) this.pushSavedMessage(diaryConvId, askRow.id, 'user', '写今天的日记')
+    if (diaryRow) this.pushSavedMessage(diaryConvId, diaryRow.id, 'assistant', diary)
+    // 双写：会话（给用户看）+ 表（给 LLM 做连续性上下文），两者都按 agent 分
+    saveDiary(this.localDb.db, agentId, todayDateKey(), diary)
+    markDiaryWritten(this.localDb.db, agentId)
+    return diary.slice(0, 60)
   }
 
   /**

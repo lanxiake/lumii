@@ -85,3 +85,37 @@ export function seedCompanionCronJob(db: DatabaseAdapter, spec: CompanionCronJob
     log.error(`[seedCompanionCronJob] 失败 id=${spec.id}:`, err)
   }
 }
+
+/**
+ * 按一个设置值同步某条 companion job 的 `enabled`。
+ *
+ * ---------------------------------------------------------------------------
+ * 为什么**两处都要判**（入口判据 + 这里的 enabled）
+ * ---------------------------------------------------------------------------
+ * 这里管的是"调度器还要不要每 N 分钟唤醒一次"（省电），
+ * 调用方入口那道管的是"此刻用户的意愿"（用户手点任务页也能暂停它）。
+ * 只留一道都不够：
+ * - 只留 enabled：用户手点暂停后，设置页那个开关就成了摆设（反过来也一样）；
+ * - 只留代码判据：这条 job 会永远在任务页显示"运行中"，而它其实什么都不做。
+ *
+ * ⚠ **启动时也要同步一次**。不同步的话有个真实的坑：设置在关的状态下，
+ * 用户手动在任务页把 job 打开 → 被代码判据挡下，而设置里那个开关看着是开的
+ * ——两个开关互相打架，谁也说不清哪个算数。代价是任务页那个暂停不再是持久的
+ * （与自主进化那几个 job 同一条约定）。
+ *
+ * 2026-09-24（七期 T7.4）从 `pet-dispatch` 提上来：宠物现在有**两条** job 跟同一个
+ * 开关（派发与反思），而它们的同步逻辑一字不差。抄一份的下场是"加第三条时
+ * 只改了一处"，症状是那条 job 永远不跟设置走。
+ */
+export function setCompanionCronJobEnabled(
+  db: DatabaseAdapter,
+  id: string,
+  enabled: boolean,
+): void {
+  try {
+    db.prepare(`UPDATE local_cron_jobs SET enabled = ? WHERE id = ?`).run(enabled ? 1 : 0, id)
+    log.info(`[setCompanionCronJobEnabled] id=${id} enabled=${enabled}`)
+  } catch (err) {
+    log.error(`[setCompanionCronJobEnabled] 失败 id=${id}:`, err)
+  }
+}
