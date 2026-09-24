@@ -6,8 +6,7 @@
  *
  * 默认全部开启：装完即用，用户不必逐条打开才发现能干什么。不想要的自己关掉或删掉。
  *
- * 幂等策略沿用 news-store 的 ensureNewsCronJobSeeded：
- * 每条任务一个 runtime_state 哨兵键，用户删掉后不会被下次启动重新种回来。
+ * 幂等策略：每条任务一个 runtime_state 哨兵键，用户删掉后不会被下次启动重新种回来。
  */
 
 import type { DatabaseAdapter } from '@mtbot/agent-runtime'

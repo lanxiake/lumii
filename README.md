@@ -365,7 +365,7 @@ lumii/
 - 虚拟人状态区（当前情绪、今日互动次数）
 - Token / 费用用量图（`UsageChart` + recharts）
 - 最近关注项目（`RecentFocus`）
-- 新闻订阅流（`NewsFeed` + `news-store`）
+- 新闻订阅流（`NewsFeed` + `dashboard-feed`）
 - 仪表概览：CPU、内存、SQLite 大小、今日会话数
 
 ### 5.15 插件中心（PluginCenterPage）

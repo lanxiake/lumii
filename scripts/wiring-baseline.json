@@ -8,10 +8,7 @@
     "bingSearchToolConfig",
     "wikiCaptureToolConfig"
   ],
-  "unreachable": [
-    "apps/windows/src/main/agent-runtime/pet-dispatch.ts",
-    "apps/windows/src/main/news-store.ts"
-  ],
+  "unreachable": [],
   "unconsumedMethods": [
     "agentRuntime.clearAllCachedAgentDefinitions",
     "agentRuntime.clearCachedAgentsOlderThan",
