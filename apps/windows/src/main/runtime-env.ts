@@ -18,7 +18,6 @@ import {
   detectSystemPython,
   ensureBundledPython,
   getBundledPythonExe,
-  getBundledSitePackages,
 } from './python-env'
 import { resolveLumiiUiScriptPath } from './app-ui-control/cli-paths'
 import { refreshCommonCliPathsInProcessEnv } from './cli-user-path'

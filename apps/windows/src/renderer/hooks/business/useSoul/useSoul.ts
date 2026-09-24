@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { useState, useCallback } from 'react'
 import { getSoulContent, updateSoulContent } from '../../../services/soul-service'
 
 const DRAFT_KEY = 'mtbot_soul_draft'

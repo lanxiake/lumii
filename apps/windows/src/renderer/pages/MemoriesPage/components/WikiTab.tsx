@@ -25,7 +25,7 @@ import {
 } from '../../../hooks/business/useWikiPage'
 import { CleanupView } from './CleanupView'
 import { WikiLeftNav, type WikiNav } from './WikiLeftNav'
-import { navSectionLabel, WIKI_SUBTOPIC_FILTER_ALL, WIKI_SUBTOPIC_FILTER_UNFILED, type WikiSubtopicFilter } from './wikiTopicDisplay'
+import { WIKI_SUBTOPIC_FILTER_ALL, WIKI_SUBTOPIC_FILTER_UNFILED, type WikiSubtopicFilter } from './wikiTopicDisplay'
 import { WikiTopBar } from './WikiTopBar'
 import { WikiFileList } from './WikiFileList'
 import { WikiTopicPicker } from './WikiTopicPicker'

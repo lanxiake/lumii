@@ -33,7 +33,7 @@ import type {
   ContextUsageBreakdownEntry,
 } from '../../shared/agent-runtime-events'
 import type { InstanceStateStore } from './bridge-instance-state'
-import { agentRuntimeLog as log, parseJsonToolResultPayload } from './bridge-utils'
+import { agentRuntimeLog as log } from './bridge-utils'
 import { recordUsage } from '../usage-store'
 import { markRunStart, markFirstToken, clearRun } from '../provider-latency'
 import { captureWorkspaceTurnSnapshot } from '../workspace-vcs/workspace-turn-snapshot'

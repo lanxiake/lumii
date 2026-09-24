@@ -6,7 +6,6 @@
  * 不经 useSettings 的存储层，避免两套持久化互相覆盖。
  */
 
-import React from 'react'
 import { useTheme, type Theme } from '../../../../contexts/ThemeContext/ThemeContext'
 import settingsStyles from '../../SettingsPage.module.css'
 import styles from './AppearanceSection.module.css'

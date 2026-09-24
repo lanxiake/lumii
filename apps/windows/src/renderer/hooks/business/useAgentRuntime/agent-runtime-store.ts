@@ -11,7 +11,6 @@
  */
 
 import type {
-  AgentRuntimeEvent,
   ContentBlock,
   ContextBudgetSnapshot,
   ContextUsageBreakdownEntry,

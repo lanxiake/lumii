@@ -3,9 +3,7 @@
  */
 import {
   purgeInvalidWikiFiles,
-  listInvalidWikiFiles,
   type WikiRepo,
-  type WikiSource,
 } from '@mtbot/agent-runtime'
 import { removeWikiSourcesVaultArtifacts } from './wiki-vault-host'
 

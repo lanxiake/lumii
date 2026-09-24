@@ -17,7 +17,6 @@ import * as os from 'os'
 import {
   securityUtils,
   SecurityError,
-  createSafeRegExp,
   createSearchRegExp,
 } from './security-utils'
 import { VCS_SKIP_DIRS } from './workspace-vcs/vcs-ignore'

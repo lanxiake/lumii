@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react'
-import { Zap, Rocket, Network, LayoutGrid, List, Check, X, Sparkles } from 'lucide-react'
+import { Zap, Network, LayoutGrid, List, Check, X, Sparkles } from 'lucide-react'
 import clsx from 'clsx'
 import { useAgents } from '../../hooks/business/useAgents/useAgents'
 import { updateAgent, deleteAgent } from '../../services/agent-service'

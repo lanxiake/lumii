@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useState } from 'react';
+import { createContext } from 'react';
 
 type ToastType = 'success' | 'error' | 'warning' | 'info';
 

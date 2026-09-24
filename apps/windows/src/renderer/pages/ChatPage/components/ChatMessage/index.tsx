@@ -9,7 +9,7 @@ import rehypeHighlight from 'rehype-highlight'
 import 'katex/dist/katex.min.css'
 /** 浅色对话气泡上与正文对比协调；避免 one-dark 黑底与主题文字色冲突导致「深底深字」 */
 import 'highlight.js/styles/github.css'
-import { Lightbulb, Inbox, AlertTriangle, Ban, Timer, Zap, AlertCircle } from 'lucide-react'
+import { Lightbulb, Inbox, AlertTriangle, Ban, Timer, Zap } from 'lucide-react'
 import { MessageActions } from '../MessageActions'
 import { ToolFilePreviewProvider, ToolFilePreviewContext } from '../ToolCallCard'
 import toolCardStyles from '../ToolCallCard/ToolCallCard.module.css'

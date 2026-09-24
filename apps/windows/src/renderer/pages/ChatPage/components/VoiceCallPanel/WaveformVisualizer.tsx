@@ -2,7 +2,7 @@
  * 实时波形可视化组件
  * 使用 Web Audio AnalyserNode 绘制麦克风/TTS 实时波形
  */
-import React, { useRef, useEffect } from 'react'
+import { useRef, useEffect } from 'react'
 import type { VoiceCallState } from '../../../../../shared/voice-events.js'
 import { useThemeAttr } from '../../../../hooks/common/useDataThemeColorMode/useDataThemeColorMode'
 import styles from './VoiceCallPanel.module.css'

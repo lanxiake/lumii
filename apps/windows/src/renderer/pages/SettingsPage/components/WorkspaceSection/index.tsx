@@ -1,4 +1,3 @@
-import React from 'react'
 import { Badge } from '../../../../components/ui/Badge/Badge'
 import { Button } from '../../../../components/ui/Button/Button'
 import { Input } from '../../../../components/ui/Input/Input'

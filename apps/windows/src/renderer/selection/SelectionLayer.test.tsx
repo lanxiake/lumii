@@ -9,9 +9,8 @@
  * 所以这里**不 mock 任何自己的模块**：真 store、真组件、真事件链。
  * 只在 `window.electronAPI` 这一层拦出站 IPC —— 那是唯一的外部边界。
  */
-import React from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, render, waitFor } from '@testing-library/react'
 import { SelectionLayer } from './SelectionLayer'
 import { closeBubble, getBubbleState } from './bubble-store'
 

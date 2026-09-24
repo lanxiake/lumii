@@ -5,7 +5,7 @@
  * 用于防止路径遍历、命令注入、XSS 等安全漏洞
  */
 
-import { normalize, resolve, isAbsolute, join } from 'path'
+import { normalize, resolve, isAbsolute } from 'path'
 import { getSecurityPolicy, isUnderAllowedBase, CREDENTIAL_FORBIDDEN } from './platform/security-policy'
 
 /**
@@ -366,24 +366,8 @@ export class SecurityUtils {
   }
 
   /**
-   * 创建安全的正则表达式
-   * 防止 ReDoS 攻击
-   */
-  createSafeRegExp(pattern: string, flags = 'i'): RegExp {
-    // 转义用户输入
-    const escaped = this.escapeRegExp(pattern)
-
-    // 限制模式长度
-    if (escaped.length > 100) {
-      throw new SecurityError('正则表达式模式过长', 'PATTERN_TOO_LONG')
-    }
-
-    return new RegExp(escaped, flags)
-  }
-
-  /**
    * 编译"调用方已构造好的正则模式"。
-   * 与 createSafeRegExp 不同：本方法不对模式做整体转义，
+   * 与"整体转义后再编译"的做法不同：本方法不对模式做整体转义，
    * 适用于前端已生成的搜索正则（如 `\.md$`、`.*` 通配符）。
    * 仍通过长度上限抑制 ReDoS；编译失败时退化为字面量子串匹配。
    */
@@ -491,9 +475,6 @@ export const validateUrl = (url: string, options?: Parameters<SecurityUtils['val
 
 export const escapeRegExp = (str: string) =>
   securityUtils.escapeRegExp(str)
-
-export const createSafeRegExp = (pattern: string, flags?: string) =>
-  securityUtils.createSafeRegExp(pattern, flags)
 
 export const createSearchRegExp = (pattern: string, flags?: string) =>
   securityUtils.createSearchRegExp(pattern, flags)

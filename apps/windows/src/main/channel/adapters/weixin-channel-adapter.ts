@@ -39,7 +39,6 @@ import {
 } from '../channel-error-helper'
 import {
   extractMediaAttachmentLines,
-  isPureMediaMessage,
 } from '../../weixin-message-utils.js'
 import {
   pendingAttachments,

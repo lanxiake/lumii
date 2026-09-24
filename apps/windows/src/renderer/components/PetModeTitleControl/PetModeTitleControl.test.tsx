@@ -7,7 +7,6 @@
  *      控制坞都能开关宠物模式，不订阅的话按钮会一直显示"打开"，成了骗人的指示器
  *   3. 屏蔽平台上置灰并给出原因（D4：不能只是把按钮变灰）
  */
-import React from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import '@testing-library/jest-dom'

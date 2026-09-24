@@ -1,5 +1,5 @@
 import { useContext, useMemo } from 'react';
-import { ToastContext, ToastContextType, type ToastItem } from './ToastContext';
+import { ToastContext, type ToastItem } from './ToastContext';
 
 export interface UseToastReturn {
   showToast: (toast: Omit<ToastItem, 'id'>) => string;

@@ -3,7 +3,6 @@
  * 计划：docs/plans/Wiki知识库/导航与图谱/2026-08-27-Wiki用途目录二期实施计划.md Task 6
  */
 
-import React from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import '@testing-library/jest-dom'

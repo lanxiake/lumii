@@ -8,7 +8,6 @@
  */
 
 import type {
-  ContentBlock,
   ContextBudgetSnapshot,
   ContextUsageBreakdownEntry,
   ConversationMessageNewEvent,

@@ -2,8 +2,7 @@
  * 文件和系统操作相关 IPC handlers
  */
 import { ipcMain, app, shell } from 'electron'
-import { extname } from 'path'
-import { promises as fs, existsSync } from 'fs'
+import { existsSync } from 'fs'
 import type { SystemService } from '../system-service'
 import { validateUrl } from '../security-utils'
 import { fileLogger } from '../file-logger'

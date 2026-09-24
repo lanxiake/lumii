@@ -12,7 +12,7 @@ import { EventEmitter } from 'events'
 import type { SystemService } from './system-service'
 import { SkillSandbox, createDefaultSandbox } from './skill-sandbox'
 import { LocalSkillStore, type SkillManifest, type SkillIndexEntry } from './skill-store'
-import { TypeScriptRunner, RESULT_PREFIX } from './ts-runner'
+import { TypeScriptRunner } from './ts-runner'
 import { PythonRunner } from './python-runner'
 import { ShellRunner } from './shell-runner'
 import { SkillExecutionLogger } from './skill-execution-logger'
@@ -21,10 +21,8 @@ import { SkillImporter } from './skill-importer'
 import { createLogger } from './logger'
 import {
   BUILTIN_SKILLS,
-  type SkillRunMode,
   type SkillExecuteRequest,
   type SkillExecuteResult,
-  type SkillExecuteError,
   type SkillErrorCode,
   type SkillDefinition,
   type SkillExecutionContext,

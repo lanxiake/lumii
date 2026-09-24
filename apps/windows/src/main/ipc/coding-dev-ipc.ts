@@ -1,6 +1,5 @@
 import { spawn } from 'child_process'
 import { ipcMain } from 'electron'
-import { promises as fs } from 'fs'
 import { join } from 'path'
 import type { ConfigManager } from '../config-manager'
 import { directoryManager } from '../directory-manager'

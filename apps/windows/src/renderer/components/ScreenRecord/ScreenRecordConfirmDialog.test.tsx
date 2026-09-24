@@ -5,7 +5,6 @@
  * 「AI 请求录制」——用户会以为自己被偷录。判据是 `payload.initiator`：
  * 缺省按用户（IPC 路径即用户操作），AI 工具显式传 'agent'。
  */
-import React from 'react'
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import '@testing-library/jest-dom'

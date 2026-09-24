@@ -6,7 +6,7 @@
  * 同步主进程缓存，下一轮对话生效；跨渠道接续写主进程 JSON，下次渠道消息即时生效。
  */
 
-import React, { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { ChevronLeft, ChevronRight } from '../../../../components/ui/Icon'
 import { Badge } from '../../../../components/ui/Badge/Badge'
 import { Switch } from '../../../../components/ui/Switch/Switch'

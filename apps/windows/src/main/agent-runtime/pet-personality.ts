@@ -9,8 +9,6 @@ import {
   PersonalityTracker,
   EMA_ALPHA,
   applyPersonalityEvent,
-  readBirthSnapshot,
-  type BirthSnapshot,
 } from '@mtbot/agent-runtime'
 import { petAgentId, traitLabel, type TraitValues } from '@mtbot/pet-core'
 import type { PetPersonalityDTO, PetTraitValues } from '../../shared/pet-mode'

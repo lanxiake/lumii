@@ -49,10 +49,10 @@ process.emitWarning = ((warning: string | Error, ...rest: unknown[]) => {
   ;(originalEmitWarning as (...args: unknown[]) => void)(warning, ...rest)
 }) as typeof process.emitWarning
 
-import { execSync, spawn, execFile as _execFile } from 'child_process'
+import { execSync, execFile as _execFile } from 'child_process'
 import { promisify as _promisify } from 'util'
 import path from 'path'
-import { app, BrowserWindow, ipcMain, dialog, shell, clipboard, screen } from 'electron'
+import { app, BrowserWindow, dialog } from 'electron'
 import qrcode from 'qrcode'
 import { showDesktopTaskNotification as showDesktopNotify } from './desktop-notify'
 import {
@@ -64,37 +64,19 @@ import {
   registerPetAssetSchemePrivileged,
   registerPetAssetProtocolHandler,
 } from './pet/pet-asset-protocol'
-import { join, extname, basename, dirname } from 'path'
-import { promises as fs, existsSync, readdirSync } from 'fs'
+import { join } from 'path'
+import { promises as fs, existsSync } from 'fs'
 import { TrayManager } from './tray-manager'
 import { initializeTray } from './tray/tray-bootstrap'
 import { createMainWindow } from './window/main-window'
 import { SystemService } from './system-service'
-import { queryUsage, type UsageQuery } from './usage-store'
 import { flushToolUsage } from './tool-usage-store'
-import { NEWS_PIPELINE_TASK_TEXT, NEWS_PIPELINE_SYSTEM_PROMPT } from './seed-cron-jobs'
-import {
-  readActiveDashboardFeedSnapshot,
-  setActiveDashboardFeedId,
-} from './dashboard-feed-store'
-import { getLatency } from './provider-latency'
 import { normalizePromptStyle, type PromptStyleValue } from '../shared/prompt-style'
 import { UpdaterService, setupUpdaterIpcHandlers } from './updater-service'
 import { ClientSkillRuntime } from './skill-runtime'
-import { wrapSingleFile } from './skill-wrapper'
 import {
   loadProviderConfig,
-  loadProviderSlotsConfig,
-  saveProviderConfig,
-  saveProviderSlotsConfig,
-  loadSlotConfig,
-  applyImageSlotToDrawEnv,
-  isCapabilitySlot,
-  type LocalProviderConfigView,
-  type ProviderSlotsConfigView,
-  type CapabilitySlot,
 } from './provider-config'
-import { listProviderModels, testProviderConnection } from './provider-probe'
 import {
   listAgentDefinitions,
   getAgentRecord,
@@ -103,11 +85,6 @@ import {
   updateAgentRecord,
   deleteAgentRecord,
 } from './agents-repo'
-import {
-  validateUrl,
-  securityUtils,
-  SecurityError,
-} from './security-utils'
 import { fileLogger } from './file-logger'
 import { SkillWatcher } from './skill-watcher'
 import { seedBundledSkills } from './bundled-skills-seeder'
@@ -129,9 +106,7 @@ import {
   createChannelPeerStore,
   createWeixinReplyContextStore,
   type ChannelHub,
-  type ChannelPeerStore,
 } from './channel/channel-hub-bootstrap'
-import { handleChannelList, handleChannelSend } from './channel/channel-service-ipc'
 import { resolveWindowsClientDataRoot } from './client-data-root'
 import { transcribeVoiceFile } from './channel/media-pipeline'
 import {
@@ -162,10 +137,7 @@ import {
   setAgentRuntimeBridgeForIpc,
   setWeixinBindingManagerForIpc,
   setAudioTranscribeCallback,
-  setIpcMainWindow,
   getAcpBackendManager,
-  getSessionKeyForInstance,
-  invalidateAgentInstancesForProviderChange,
 } from './agent-runtime'
 import { submitVoiceTranscript } from './ipc/agent-runtime-ipc.js'
 import {
@@ -188,45 +160,20 @@ import { VoiceCallService } from './voice/voice-service.js'
 import { registerVoiceIpc } from './voice/voice-ipc.js'
 import { loadVoiceEngineConfig } from './voice/voice-config-store.js'
 import { setChannelAsrReadyChecker } from './channel/channel-voice-asr-hint.js'
-import { getWorkspaceVcs, resetWorkspaceVcs } from './workspace-vcs/vcs-snapshot'
-import { getProjectGitStatus } from './project-git/project-git-status'
 import { findBuiltInAgent, mapApiRecordToAgentDefinition, reconcilePersonalMemory } from '@mtbot/agent-runtime'
 import {
   applyCodingDevAcpEnvToProcess,
-  buildCodingDevEnvInfo,
   defaultWorkspaceFallback,
   resolveCodingDevAcpWorkspacePath,
 } from './coding-dev-env.js'
-import {
-  detectLocalAcpTool,
-  isPrimaryLocalAcpToolId,
-  listLocalAcpToolsMetadata,
-  needsWindowsShell,
-} from './coding-dev-cli-detect.js'
-import {
-  installLocalAcpTool,
-  previewUninstallLocalAcpTool,
-  uninstallLocalAcpTool,
-} from './coding-dev-cli-install.js'
-import {
-  createProject,
-  openExistingProject,
-  removeProject,
-  reconcileProjectsWithDisk,
-} from './coding-dev-projects.js'
-import { resolveClientStateDir, resolvePluginRuntimeDir, resolvePerfLogsDir } from './paths'
+import { resolveClientStateDir, resolvePerfLogsDir } from './paths'
 import { hasHeadlessFlag } from './platform/feature-probe'
 import { PerformanceMonitor } from './perf/performance-monitor'
-import { createMeasuredHandler } from './perf/performance-ipc'
 import { setupPerformanceIpcHandlers } from './ipc/performance-ipc'
 import { registerSkillnetStoreHandlers } from './skillnet-store'
-import { SkillEvolutionEngine } from './skill-evolution/index'
 import {
   registerPetModeIpc,
-  switchPetMode,
-  isPetMode,
   isPetForceIgnore,
-  disablePetForceIgnore,
   disposePetModeIpc,
 } from './pet/pet-mode-ipc'
 import { registerFilePreviewWindowIpc } from './file-preview/preview-window-ipc'

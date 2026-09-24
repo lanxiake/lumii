@@ -15,7 +15,7 @@
  * win32 的 taskkill 参数契约由 shell-runner / ts-runner 两处的同构实现覆盖——
  * 四处实现逐字相同，T3.1 会合并成一份。
  */
-import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'

@@ -4,7 +4,6 @@
  * 文件名是 .tsx 而非 .ts：动作自带图标节点（lucide）。
  */
 
-import React from 'react'
 import { Copy, Quote } from 'lucide-react'
 import { hasQuoteSink } from '../quote-bridge'
 import type { SelectionAction } from './types'

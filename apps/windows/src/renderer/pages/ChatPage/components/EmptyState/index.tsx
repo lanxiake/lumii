@@ -1,11 +1,11 @@
 import React, { useMemo } from 'react'
 import {
   Mail, ClipboardList, BarChart2, Calendar, FileText, Target,
-  FileSignature, Briefcase, PenLine, MessageSquare, Video, Newspaper,
-  Mic, BookOpen, ShoppingBag, Search, GraduationCap, Languages,
+  Briefcase, PenLine, MessageSquare, Video, Newspaper,
+  Mic, BookOpen, Search, GraduationCap, Languages,
   Lightbulb, Bug, Zap, Terminal, Layers, TestTube, RefreshCw, Globe,
-  UtensilsCrossed, Plane, PiggyBank, Dumbbell, Gift, Home, Smartphone,
-  Heart, FilePenLine as FileUser, Handshake, TrendingUp, Presentation, Bot, Clock,
+  UtensilsCrossed, Plane, PiggyBank, Dumbbell, Gift, Smartphone,
+  FilePenLine as FileUser, Handshake, TrendingUp, Presentation, Bot, Clock,
   FolderOpen, Users,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'

@@ -61,6 +61,10 @@ const DEPRECATE_PATTERNS = [
   /stop using this/i,
 ]
 
+/**
+ * @lintignore knip 盲区：类只被内联类型导入引用（bridge.ts 的 import('../skill-evolution/index').SkillEvolutionEngine），
+ * knip 看不见这种形态。另注：整个子系统当前是"停用但保留"（main/index.ts 的构造点被注释），删留属产品决策，见 K7 文档。
+ */
 export class SkillEvolutionEngine extends EventEmitter {
   /** instanceId → 当前进化状态 */
   private readonly instanceStates = new Map<string, InstanceEvolutionState>()

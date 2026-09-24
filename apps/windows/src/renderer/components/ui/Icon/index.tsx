@@ -38,7 +38,7 @@ export {
 export { Circle } from 'lucide-react'
 
 // Agent 相关
-export { Cpu, Wrench, Search } from 'lucide-react'
+export { Cpu, Wrench } from 'lucide-react'
 
 // 布局图标
 export { LayoutDashboard, Smartphone } from 'lucide-react'

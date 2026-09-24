@@ -13,7 +13,6 @@
  *   3. **矩阵未就绪时不发**——`isAvailable` 未就绪一律返回 true，
  *      只判 blocked 的写法首次渲染就会漏出去，等于没加（第一次修得不彻底就是这么来的）
  */
-import React from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, waitFor } from '@testing-library/react'
 

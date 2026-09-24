@@ -11,7 +11,6 @@ import type {
   A2UIImage,
   A2UIButton,
   A2UIList,
-  A2UIDivider,
 } from './types'
 import { ChartComponent } from './Chart'
 import { MathVisualizerComponent } from './MathVisualizer'

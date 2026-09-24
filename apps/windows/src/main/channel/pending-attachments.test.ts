@@ -2,7 +2,7 @@
  * pendingAttachments 单测：挂起 / 取出 / 首批判定。
  */
 import { describe, expect, it, beforeEach } from 'vitest'
-import { pendingAttachments, makePendingKey, type PendingAttachment } from './pending-attachments'
+import { pendingAttachments, makePendingKey } from './pending-attachments'
 
 describe('pendingAttachments', () => {
   beforeEach(() => {

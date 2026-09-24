@@ -2,7 +2,6 @@
  * 语音通话面板
  * 通话期间替换 ChatInput，显示通话状态和实时字幕
  */
-import React from 'react'
 import type { VoiceCallState } from '../../../../../shared/voice-events.js'
 import { WaveformVisualizer } from './WaveformVisualizer.js'
 import styles from './VoiceCallPanel.module.css'

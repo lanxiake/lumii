@@ -18,7 +18,6 @@ import {
   Wrench,
   Info,
   Zap,
-  Search,
   FlaskConical,
   Monitor,
   Cloud,

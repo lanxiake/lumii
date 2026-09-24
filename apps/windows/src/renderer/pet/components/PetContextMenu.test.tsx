@@ -10,7 +10,6 @@
  * 另有一条锁文案：这一项必须叫「文字回复朗读」。它上面那项叫「开始语音对话」，
  * 两者只差一个字，正是用户把"开麦通话"看成"朗读开关"的原因，取名不能再含糊。
  */
-import React from 'react'
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import '@testing-library/jest-dom'

@@ -8,7 +8,6 @@
  * 便携版（PORTABLE_EXECUTABLE_DIR）写入 EXE 同级 logs/ 目录
  */
 
-import { app } from 'electron'
 import { join } from 'path'
 
 import { resolveClientStateDir } from './paths'

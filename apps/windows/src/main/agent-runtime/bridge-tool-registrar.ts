@@ -9,7 +9,6 @@
  * 不持有 bridge 实例引用，便于独立演进。
  */
 
-import { Type } from '@sinclair/typebox'
 import {
   createMtBotTool,
   type MtBotToolConfig,

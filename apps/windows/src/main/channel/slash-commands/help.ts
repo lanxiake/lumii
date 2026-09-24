@@ -1,4 +1,4 @@
-import type { CommandHandler, CommandContext, IChannelAdapter } from '../types'
+import type { CommandHandler, CommandContext } from '../types'
 import type { SlashCommandRegistry } from '../slash-command-registry'
 
 /**

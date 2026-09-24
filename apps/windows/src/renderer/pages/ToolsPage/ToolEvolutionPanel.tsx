@@ -5,7 +5,7 @@
  * 挖掘策略：每 6 小时条件检查近一周高频模式（count>100、Top5），单次 LLM 草拟。
  */
 
-import React, { useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { FlaskConical } from 'lucide-react'
 import { Card } from '../../components/ui/Card/Card'
 import { Checkbox } from '../../components/ui/Checkbox/Checkbox'

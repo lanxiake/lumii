@@ -15,7 +15,7 @@
  * 通过 ref 暴露 renderer 给上层（PetLipSync/PetOrchestrator 在 Phase 2 使用）。
  */
 
-import React, { useEffect, useRef, useImperativeHandle, forwardRef, useState } from 'react'
+import { useEffect, useRef, useImperativeHandle, forwardRef, useState } from 'react'
 import { Live2dPetRenderer, CubismCoreMissingError } from '../renderer/live2d/Live2dPetRenderer'
 import { SpritePetRenderer } from '../renderer/sprite/SpritePetRenderer'
 import type { PetRendererProvider } from '../renderer/types'

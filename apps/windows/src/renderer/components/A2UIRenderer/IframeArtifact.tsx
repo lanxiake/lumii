@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import styles from './IframeArtifact.module.css'
 
 // iframe 内容 CSP 已禁用（主进程禁用 CSP，iframe 也无需限制）

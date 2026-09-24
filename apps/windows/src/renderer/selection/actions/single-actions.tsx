@@ -5,7 +5,6 @@
  * 通道只传 action，提示词在主进程（selection-prompts.ts）。
  */
 
-import React from 'react'
 import { Languages, Lightbulb, ListChecks, Sparkles } from 'lucide-react'
 import { runSingleAction } from '../bubble-store'
 import type { SelectionAction } from './types'

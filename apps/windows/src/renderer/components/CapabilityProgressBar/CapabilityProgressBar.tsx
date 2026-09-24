@@ -4,7 +4,6 @@
  * 展示单个能力维度的进度，包括水平、置信度、测试次数与趋势。
  */
 
-import React from 'react'
 import { Tooltip } from '../ui/Tooltip/Tooltip'
 import {
   TIP_CAPABILITY_FIELD,

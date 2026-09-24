@@ -8,7 +8,7 @@
  */
 
 import type { EvolvedToolInfo, PendingToolInfo } from '@shared/agent-runtime-commands'
-import React, { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { FlaskConical, Trash2, Check, X, Inbox, Hammer, TrendingUp, Clock, Activity } from 'lucide-react'
 import { Card } from '../../../../components/ui/Card/Card'
 import { Button } from '../../../../components/ui/Button/Button'

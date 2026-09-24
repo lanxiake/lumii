@@ -5,7 +5,6 @@
 
 import path from 'node:path'
 import fs from 'node:fs/promises'
-import { randomUUID } from 'node:crypto'
 import { resolveLegacySkillsDir } from '../paths'
 import type { SkillMeta, EvolutionRecord, SkillDraft } from './types'
 

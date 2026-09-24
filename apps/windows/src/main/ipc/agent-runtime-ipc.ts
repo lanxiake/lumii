@@ -8,25 +8,17 @@
  */
 
 import path from 'node:path'
-import fs from 'node:fs'
 import os from 'node:os'
-import { ipcMain, shell, dialog, type BrowserWindow } from 'electron'
-import { Cron } from 'croner'
-import { BUILT_IN_AGENTS, type AgentDefinition } from '@mtbot/agent-runtime'
+import { ipcMain, type BrowserWindow } from 'electron'
 import type { AgentRuntimeCommand } from '../../shared/agent-runtime-commands'
 import type { AgentRuntimeEvent } from '../../shared/agent-runtime-events'
 import { voiceEventBus } from '../voice/voice-event-bus.js'
 import { getPetWindowManager } from '../pet/pet-mode-ipc.js'
-import { deriveConversationTitleFromUserText } from '../../shared/conversation-title'
 import type { AgentRuntimeBridge } from '../agent-runtime/bridge'
-import { parseThinkTagsFromRaw } from '../agent-runtime/event-converter'
 import { resolveRecordingsDir, resolveScreenshotTempDir } from '../workspace-paths'
 import { isAllowedPreviewPath as checkAllowedPreviewPath } from '../preview-path-acl'
-import { buildLocalMediaUrl } from '../local-media-protocol'
-import { getToolUsage } from '../tool-usage-store'
 import { AcpBackendManager } from '../channel/acp-backend-manager'
 import { IpcChannelAdapter } from '../channel/adapters/ipc-channel-adapter'
-import { StatefulContextStrategy } from '../channel/context-strategy/stateful-strategy'
 import type { WeixinSessionBindingManager } from '../channel/weixin-session-binding'
 import { handleImageRecognize, handleImageGenerate, handleImageProcess } from './agent-runtime/image-commands'
 import { handleMessageDelete, handleMessageEdit } from './agent-runtime/message-commands'
@@ -242,9 +234,6 @@ import {
   handleImageProcess as handleMiscImageProcess,
   setMiscDependencies,
 } from './agent-runtime/misc-commands'
-import type { CodingDevBackendId } from '../coding-dev-backends-stub/contracts.js'
-import { DEFAULT_CODING_DEV_BACKEND_ID } from '../coding-dev-backends-stub/contracts.js'
-import { extractDocumentText } from '../vendor/document-parser.js'
 import { getAcpRunController } from '../coding-dev-acp-run.js'
 
 const log = {
@@ -502,6 +491,9 @@ export function setWeixinBindingManagerForIpc(mgr: WeixinSessionBindingManager |
 
 /**
  * 根据 instanceId 反查 sessionKey（供 SkillEvolutionEngine inject_message 使用）
+ *
+ * @lintignore 消费方在 main/index.ts 的注释块里（技能自进化引擎"停用但保留"，见该处说明）；
+ *             删它会破坏"取消注释即可恢复"的既有路径，删留随子系统决策，不在死代码批次里处理
  */
 export function getSessionKeyForInstance(instanceId: string): string | undefined {
   for (const [sessionKey, iid] of sessionToInstance.entries()) {

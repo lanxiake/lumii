@@ -1,4 +1,4 @@
-import React, { forwardRef, useState } from 'react';
+import { forwardRef, useState } from 'react';
 import clsx from 'clsx';
 import styles from './Switch.module.css';
 

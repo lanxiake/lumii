@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import type { MissingSkill } from './types'
 import styles from './SkillMissingBadge.module.css'
 

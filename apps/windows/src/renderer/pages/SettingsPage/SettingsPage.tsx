@@ -17,11 +17,9 @@ import {
   Palette,
 } from '../../components/ui/Icon'
 import { FileText } from 'lucide-react'
-import { Card } from '../../components/ui/Card/Card'
 import { Button } from '../../components/ui/Button/Button'
 import { Input } from '../../components/ui/Input/Input'
 import { Checkbox } from '../../components/ui/Checkbox/Checkbox'
-import { Select } from '../../components/ui/Select/Select'
 import { Badge } from '../../components/ui/Badge/Badge'
 import { UpdaterView } from '../../components/business/UpdaterView'
 import { useSettings, useCategorySettings, DEFAULT_SETTINGS, readStoredSettings } from '../../hooks/business/useSettings'
@@ -39,10 +37,8 @@ import { getAppVersion, getOpenAtLogin, setOpenAtLogin as applyOpenAtLogin, open
 import { PetSettingsSection } from './components/PetSettingsSection'
 import { ModelConfigSection } from './components/ModelConfigSection'
 import { VoiceSettingsSection } from './components/VoiceSettingsSection'
-import { AccountSection } from './components/AccountSection'
 import { WorkspaceSection } from './components/WorkspaceSection'
 import { CloudSyncSection } from './components/CloudSyncSection'
-import { NotificationSection } from './components/NotificationSection'
 import { ExperimentalSection } from './components/ExperimentalSection'
 import { AppearanceSection } from './components/AppearanceSection'
 import type {

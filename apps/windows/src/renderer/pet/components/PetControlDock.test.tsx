@@ -9,7 +9,6 @@
  * 探针在透明全屏窗上点不中它的概率很高（实测）。标签本身是纯展示，
  * 用组件测试钉住比在真机上碰运气可靠。
  */
-import React from 'react'
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import '@testing-library/jest-dom'

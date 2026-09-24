@@ -5,9 +5,7 @@
  * 语义与调用点原逻辑一致：page/refresh 失败抛错（由调用方提示）；meta 失败返回 null（不阻塞列表）。
  */
 import type {
-  DashboardFeedCursor,
   DashboardFeedMeta,
-  DashboardFeedPage,
   DashboardFeedBatchPage,
   DashboardFeedBatchCursor,
 } from '@main/dashboard-feed-store'

@@ -10,7 +10,7 @@
 
 import type { AgentRuntimeEvent, AgentRuntimeEventType } from '../../../../shared/agent-runtime-events'
 import { patchBreakdownAfterConversationCompact } from '../../../../shared/context-usage-compact'
-import type { RuntimeToolCall, RuntimeMessage, StreamMetrics, ContextUsage, PerSessionState, RuntimeFileEvent, RuntimeCompactionEvent } from './agent-runtime-store'
+import type { RuntimeToolCall, RuntimeMessage, StreamMetrics, PerSessionState, RuntimeFileEvent, RuntimeCompactionEvent } from './agent-runtime-store'
 import { runtimeStore, updateSessionState, getDefaultPerSessionState } from './agent-runtime-store'
 import {
   applyAssistantPartEvent,

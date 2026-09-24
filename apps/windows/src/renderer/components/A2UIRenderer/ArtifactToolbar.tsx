@@ -1,4 +1,3 @@
-import React from 'react'
 import styles from './ArtifactToolbar.module.css'
 
 export interface ArtifactToolbarProps {

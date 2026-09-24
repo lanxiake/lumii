@@ -1,4 +1,3 @@
-import React from 'react'
 import { Search, Globe, FileText, FilePen, Terminal, CheckSquare, GitBranch, Clock } from 'lucide-react'
 import type { CapabilityOption } from './AgentsPage.types'
 

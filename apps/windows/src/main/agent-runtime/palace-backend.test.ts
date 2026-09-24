@@ -8,7 +8,7 @@
  * 1. 默认走自建，且**真的**把段原文写进 `palace_drawers`、能检索回来
  * 2. 数据库未打开时降级为「不可用」而不是抛异常——宫殿坏了不该让整轮对话失败
  */
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { withBuiltinPalace } from './palace-backend'
 import type { AgentRuntimeBridgeConfig } from './bridge-types'
 import type { LocalDatabase } from '@mtbot/agent-runtime'

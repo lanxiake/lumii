@@ -9,7 +9,6 @@ import {
   isPetMoodEvent,
   noticeActionLabel,
   toNoticeEvent,
-  type RawAgentEvent,
 } from './pet-notice-adapter'
 
 /** task_complete 真完成的工具结果（形状与线上一致） */

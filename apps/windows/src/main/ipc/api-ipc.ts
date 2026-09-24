@@ -1,7 +1,7 @@
 /**
  * API 相关 IPC handlers (本地配置、用量、资讯、Agent 管理等)
  */
-import { ipcMain, app } from 'electron'
+import { ipcMain } from 'electron'
 import {
   readSoulFile,
   readUserMemoryFile,
@@ -9,7 +9,6 @@ import {
   writeUserMemoryFile,
 } from '../ipc/plugin-ipc'
 import {
-  loadProviderConfig,
   loadProviderSlotsConfig,
   saveProviderConfig,
   saveProviderSlotsConfig,

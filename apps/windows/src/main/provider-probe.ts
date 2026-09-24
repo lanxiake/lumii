@@ -6,7 +6,6 @@ import {
   type CapabilitySlot,
   type LocalProviderConfigView,
   type ProviderType,
-  PROVIDER_DEFAULT_BASE_URL,
   ensureProviderBaseUrl,
   missingApiKeyMessage,
 } from './provider-config.js'
