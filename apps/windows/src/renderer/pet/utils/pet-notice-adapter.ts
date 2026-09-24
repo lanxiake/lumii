@@ -28,8 +28,13 @@ import { TASK_COMPLETE_TOOL_NAME, type NoticeEvent, type PetNotice } from '@mtbo
  * 待办条目 / 气泡按钮上的文案：按**处置入口**给。
  *
  * 不给"确定/取消"这类没有信息量的词——用户要一眼看出点下去会发生什么（切到会话 ≠ 批准）。
+ *
+ * 感知类（`pet-sensing`）单独给一句：它**没有可处置的东西**（设计 §4.1.5 第 3 条：
+ * 感知类只走气泡），但那条条目带的是"你刚才在用的会话"，所以点下去的动作是
+ * "回到刚才"而不是默认的"去看看"——后者对着「要不要歇会儿」读起来像在问"去看什么"。
  */
 export function noticeActionLabel(notice: PetNotice): string {
+  if (notice.kind === 'pet-sensing') return '回到刚才'
   switch (notice.deepLink?.to) {
     case 'permission':
       return '去审批'
@@ -70,18 +75,22 @@ export interface RawAgentEvent {
   /** `agent:permission:request` 已被自动审批放行（消费方据此不叫人，见事件类型的注释） */
   readonly autoApproved?: boolean
   /**
-   * `pet:goal:result`（三期 T3.5）：宠物报回的原话 + 成没成。
+   * `pet:goal:result`（三期 T3.5）与 `pet:sensing`（四期）共用的两个字段：
+   * 宠物说的话 + 成没成（只有目标回执有 `ok`）。
    *
-   * 这一条**不是** Agent 事件——它是宠物自己那条目标管道的回执（主进程 `pet-dispatch`
-   * 跑完推的）。走同一张表是因为"气泡 + 控制坞一行 + 30 秒自清"正是 `report` 档的语义，
-   * 另起一套只会多出一份限流与免打扰判定。
+   * 这两条**不是** Agent 事件——它们是宠物自己那条管道的产物（主进程 `pet-dispatch` /
+   * `pet-sensing-tick` 推的）。走同一张表是因为"气泡 + 控制坞一行 + 30 秒自清"
+   * 正是 `report` 档的语义，另起一套只会多出一份限流与免打扰判定。
    *
-   * ⚠ 字段名必须与 `shared/agent-runtime-events.ts` 的 `PetGoalResultEvent` **逐字一致**。
-   * 名字对不上不会报错：`text` 读成 `undefined` → pet-core 用兜底文案，
-   * 表现是气泡冒出来了、说的是"我去看过了"而不是宠物报的内容——
+   * ⚠ 字段名必须与 `shared/agent-runtime-events.ts` 的 `PetGoalResultEvent` /
+   * `PetSensingEvent` **逐字一致**。名字对不上不会报错：`text` 读成 `undefined`
+   * → pet-core 用兜底文案或干脆不产生，表现是气泡冒出来了、说的却是别的话——
    * **2026-09-24 真机第一跑就是这么错的**（适配器写 `petText`、线上发 `text`）。
-   * 现在由 `pet-notice-adapter.test.ts` 里那条按 `PetGoalResultEvent` 类型构造的用例钉住：
+   * 现在由 `pet-notice-adapter.test.ts` 里那两条**按线上类型构造**的用例钉住：
    * 两边漂移时 **tsc 会红**，不是等到用户看见一句含糊话。
+   *
+   * 事件上还带着 `petAgentId`（回执）与 `kind`（感知），这里**刻意不读**：
+   * 气泡归属靠 `sessionKey`，而 `kind` 目前没有消费者。要用时再加，别提前搬进来。
    */
   readonly text?: string
   readonly ok?: boolean
@@ -126,6 +135,8 @@ const NOTICE_EVENT_TYPES: ReadonlySet<string> = new Set([
   'agent:turn:file-changes',
   // 宠物自己的目标回执（三期 T3.5）：走 report 档，与上面几张表同一套限流与免打扰
   'pet:goal:result',
+  // 宠物感知到的一句话（四期 T4.2/T4.3）：同上，走 report 档
+  'pet:sensing',
   // 销账
   'agent:permission:granted',
   'agent:permission:denied',
@@ -140,6 +151,24 @@ const NOTICE_EVENT_TYPES: ReadonlySet<string> = new Set([
 /** 这条事件会不会影响通知列表？（热路径上先挡一道，别看它逐 token 地跑） */
 export function isNoticeEvent(type: string): boolean {
   return NOTICE_EVENT_TYPES.has(type)
+}
+
+/**
+ * `autonomous:mood:emotion` 是不是**这只宠物自己的**（四期 T4.4）。
+ *
+ * 这条 IPC 以前不带归属，而唯一的生产者是 `assistant` 那条线（`recordMoodEvent` 的默认
+ * agentId），于是宠物窗把**助手的心情**当成了自己的脸。宠物是独立 Agent（设计 §3.7），
+ * 所以渲染层必须按 `agentId` 认领。
+ *
+ * ⚠ **认不出主人时返回 false**（`petAgentId` 还没拿到、事件没带 agentId）：宁可这一拍不采纳，
+ * 也不要猜——猜错的形态是**宠物为助手的情绪雀跃或沮丧**，不报错、日志里也看不出，
+ * 只能靠用户觉得别扭。
+ *
+ * 单独抽出来是因为它是**纯判断**：留在组件的 effect 里就只能靠真机复验，
+ * 而这里能用几条用例把四种组合钉死。
+ */
+export function isPetMoodEvent(event: { agentId?: string }, petAgentId: string | null): boolean {
+  return petAgentId !== null && event.agentId === petAgentId
 }
 
 /**
@@ -192,10 +221,11 @@ export function toNoticeEvent(raw: RawAgentEvent, facts: NoticeTurnFacts): Notic
     const done = extractTaskCompletion(raw.result)
     if (!done.completed) return null
     summary = done.summary
-  } else if (type === 'pet:goal:result') {
-    // 宠物报的原话**就是**气泡文案：pet-core 不改写它（失败时只加一句前缀）。
-    // 空串按"没话说"处理，让 pet-core 用兜底文案——**不在这里返回 null**：
-    // 用户交代的事，回执宁可含糊也不能吞（设计 §4.2.2 F10）。
+  } else if (type === 'pet:goal:result' || type === 'pet:sensing') {
+    // 宠物报的原话**就是**气泡文案：pet-core 不改写它（回执失败时只加一句前缀）。
+    // 空串按"没话说"处理：目标回执交给 pet-core 用兜底文案（用户交代的事，
+    // 回执宁可含糊也不能吞），感知类那边会直接不产生（说了没听见就算了）——
+    // 这条差别在 `notice.ts` 的两个 case 里。
     summary = raw.text?.trim() || undefined
   }
 

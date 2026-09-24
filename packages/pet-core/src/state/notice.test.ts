@@ -7,6 +7,7 @@ import {
   PET_GOAL_FALLBACK_TEXT,
   REPORT_PER_SESSION_MS,
   REPORT_TTL_MS,
+  SENSING_TTL_MS,
   RESOLVED_KEEP_MS,
   TASK_COMPLETE_FALLBACK_TEXT,
   TURN_LONG_MS,
@@ -219,6 +220,7 @@ describe("§四 映射表 —— 逐行", () => {
       ev({ type: "agent:error", errorCode: "e", isRetryable: false }),
       ev({ type: "agent:turn:file-changes", fileCount: 1 }),
       ev({ type: "pet:goal:result", summary: "看过了", ok: true }),
+      ev({ type: "pet:sensing", summary: "要不要歇会儿" }),
     ];
     for (const e of rows) {
       const n = noticeFromEvent(e, ctx(1000, false));
@@ -259,6 +261,41 @@ describe("§四 映射表 —— 逐行", () => {
   it("ok 缺省按成功算：旧发送方不带这个字段，不因此被报成失败", () => {
     const n = noticeFromEvent(ev({ type: "pet:goal:result", summary: "看过了" }), ctx(1000));
     expect(n?.text).toBe("看过了");
+  });
+
+  it("宠物感知到的一句话 → report，文案就是那句原话", () => {
+    const n = noticeFromEvent(ev({ type: "pet:sensing", summary: "要不要歇会儿" }), ctx(1000));
+    expect(n?.kind).toBe("pet-sensing");
+    expect(n?.level).toBe("report");
+    expect(n?.text).toBe("要不要歇会儿");
+    // 与目标回执分开的幂等前缀
+    expect(n?.id.startsWith(`sensing:${S}:`)).toBe(true);
+  });
+
+  it("**TTL 比 report 长**：它要排过一次会话闸门才轮得到冒泡（真机踩过这个坑）", () => {
+    const n = noticeFromEvent(ev({ type: "pet:sensing", summary: "要不要歇会儿" }), ctx(1000));
+    expect(n?.ttlMs).toBe(SENSING_TTL_MS);
+    // 30 秒的 TTL 撑不过 60 秒的会话闸门——那条通知会"既没冒泡、配额又花掉"
+    expect(SENSING_TTL_MS).toBeGreaterThanOrEqual(REPORT_PER_SESSION_MS);
+  });
+
+  it("**没有内容就整条不产生**——与目标回执正好相反", () => {
+    // 感知类属于"说了没听见就算了"那一类（设计 §4.2.2）；用户交代过的事才必须能回来看到，
+    // 所以 pet:goal:result 空文案时用兜底句，这里直接丢
+    expect(noticeFromEvent(ev({ type: "pet:sensing" }), ctx(1000))).toBeNull();
+    expect(noticeFromEvent(ev({ type: "pet:sensing", summary: "   " }), ctx(1000))).toBeNull();
+  });
+
+  it("同上：没有会话键 → null（感知的话也得有落点，否则点了不知道跳哪）", () => {
+    expect(
+      noticeFromEvent({ type: "pet:sensing", summary: "要不要歇会儿" }, ctx(1000)),
+    ).toBeNull();
+  });
+
+  it("同类两条不同的话不会互相顶掉（幂等键带文案哈希）", () => {
+    const a = noticeFromEvent(ev({ type: "pet:sensing", summary: "要不要歇会儿" }), ctx(1000));
+    const b = noticeFromEvent(ev({ type: "pet:sensing", summary: "起来走两步？" }), ctx(1000));
+    expect(a?.id).not.toBe(b?.id);
   });
 });
 

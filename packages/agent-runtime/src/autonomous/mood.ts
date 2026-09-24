@@ -52,6 +52,16 @@ const MOOD_IMPACT: Record<string, { energy?: number; valence?: number; arousal?:
   user_initiates: { arousal: +0.25, energy: +0.1 },
   novel_concept_found: { arousal: +0.4 }, // 发现新东西：唤起兴趣
   goal_completed: { valence: +0.25, arousal: -0.15 },
+  /**
+   * 感知到用户干得不顺（第四期 T4.4，设计 §4.1.3 第三条）。
+   *
+   * **不是"我失败了"**：所以刻意不复用 `task_failed`。共用一条的话，
+   * 宠物自己的失败与"为你难过"会挤在同一个计数器上，T5.5 要把它们分开时就分不开了。
+   *
+   * 影响按设计 §7.3 是**双向**的：valence ↓（低落）**同时** arousal ↑（在意）。
+   * 纯降 valence 会得到一个抑郁的、不再尝试的宠物——"牵挂"的来源正是这个 arousal。
+   */
+  user_struggling: { valence: -0.25, arousal: +0.15 },
 };
 
 function clamp(v: number, lo: number, hi: number): number {

@@ -1,10 +1,11 @@
 import { describe, it, expect } from 'vitest'
-import type { PetGoalResultEvent } from '../../../shared/agent-runtime-events'
+import type { PetGoalResultEvent, PetSensingEvent } from '../../../shared/agent-runtime-events'
 import {
   INITIAL_TURN_FACTS,
   advanceTurnFacts,
   extractTaskCompletion,
   isNoticeEvent,
+  isPetMoodEvent,
   toNoticeEvent,
   type RawAgentEvent,
 } from './pet-notice-adapter'
@@ -46,6 +47,8 @@ describe('isNoticeEvent —— 热路径上的那道闸', () => {
       'agent:ask-user:cancelled',
       // 宠物自己的目标回执（三期 T3.5）：走 report 档，与 Agent 事件同一张表
       'pet:goal:result',
+      // 宠物感知到的一句话（四期 T4.2/T4.3）：同上
+      'pet:sensing',
     ]) {
       expect(isNoticeEvent(type), type).toBe(true)
     }
@@ -276,5 +279,60 @@ describe('toNoticeEvent —— 宠物目标回执（三期 T3.5）', () => {
   it('别的类型不会被带上 ok（这个字段只有宠物那条事件用）', () => {
     const n = toNoticeEvent({ type: 'agent:turn:end', sessionKey: 's', durationMs: 1 }, INITIAL_TURN_FACTS)
     expect(n?.ok).toBeUndefined()
+  })
+})
+
+describe('isPetMoodEvent —— 情绪归属（四期 T4.4）', () => {
+  const PET = 'pet:demo_cartoon_cat'
+
+  it('宠物自己的 → 采纳', () => {
+    expect(isPetMoodEvent({ agentId: PET }, PET)).toBe(true)
+  })
+
+  it('**助手的 → 不采纳**（这条以前是坏的：宠物窗把助手的心情当成了自己的脸）', () => {
+    expect(isPetMoodEvent({ agentId: 'assistant' }, PET)).toBe(false)
+  })
+
+  it('别的宠物 → 不采纳（换模型之后旧事件可能还在路上）', () => {
+    expect(isPetMoodEvent({ agentId: 'pet:mao_pro' }, PET)).toBe(false)
+  })
+
+  it('**认不出主人时不猜**：没带 agentId、或自己的身份还没拿到，都返回 false', () => {
+    // 猜错的形态是宠物为助手的情绪雀跃——不报错、日志里也看不出
+    expect(isPetMoodEvent({}, PET)).toBe(false)
+    expect(isPetMoodEvent({ agentId: PET }, null)).toBe(false)
+    expect(isPetMoodEvent({ agentId: undefined }, null)).toBe(false)
+  })
+})
+
+describe('toNoticeEvent —— 宠物感知（四期 T4.2/T4.3）', () => {
+  // ⚠ 与上面那条同一条纪律：**按线上的类型构造**（`PetSensingEvent`），
+  // 不是照抄适配器的字段名。两边漂移时这里会编译不过。
+  const sensingEvent = (over: Partial<PetSensingEvent> = {}): PetSensingEvent => ({
+    type: 'pet:sensing',
+    // 注意：这条是**用户正在用的那条会话**，不是宠物自己的（宠物目标那条反过来）
+    sessionKey: 'conv-user-1',
+    text: '要不要歇会儿',
+    kind: 'interrupted',
+    ...over,
+  })
+
+  it('原话进 summary，会话键是你在用的那条', () => {
+    const n = toNoticeEvent(sensingEvent(), INITIAL_TURN_FACTS)
+    expect(n?.type).toBe('pet:sensing')
+    expect(n?.sessionKey).toBe('conv-user-1')
+    expect(n?.summary).toBe('要不要歇会儿')
+  })
+
+  it('**不带 ok**：感知类没有成败可言，别把回执那套语义捎过来', () => {
+    const n = toNoticeEvent(sensingEvent(), INITIAL_TURN_FACTS)
+    expect(n?.ok).toBeUndefined()
+  })
+
+  it('`kind` 与空文案都照原样交给 pet-core——**空的不在这里返回 null**', () => {
+    // 丢不丢由 pet-core 决定（感知类没有内容就整条不产生），宿主只管搬运
+    const empty = toNoticeEvent(sensingEvent({ text: '   ' }), INITIAL_TURN_FACTS)
+    expect(empty).not.toBeNull()
+    expect(empty?.summary).toBeUndefined()
   })
 })

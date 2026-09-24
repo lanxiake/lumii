@@ -597,9 +597,19 @@ export interface SkillDeprecationSuggestedEvent {
  * `mood` 是 2026-09-23 补的三维载荷：宠物要按心情调呼吸幅度/活动频率，
  * 光有 4 值表情键不够。**字段可选**，只读 `emotion` 的老消费者（PetOrchestrator /
  * PetModeShell）不受影响；三维也**不直接展示给用户**（设计 11 §11 禁令），只喂给程序化动画。
+ *
+ * ⚠ **`agentId` 是第四期 T4.4 补的，必填**：在这之前这条事件不带归属，于是宠物窗把
+ * **助手的**心情当成了自己的脸——`recordMoodEvent` 的默认 agentId 就是 `assistant`，
+ * 而它当时是全仓唯一的生产者。宠物是独立 Agent（设计 §3.7），情绪必须分得开。
+ *
+ * 必填而不是可选：可选会让"忘了带 agentId"退化成"渲染层猜"，而猜错的形态是
+ * **宠物为助手的情绪雀跃或沮丧**——不报错、日志里也看不出，只能靠用户觉得别扭。
+ * 唯一的生产者是 `bridge.recordMoodEvent`，漏传会当场编译不过。
  */
 export interface AutonomousMoodEmotionEvent {
   readonly type: 'autonomous:mood:emotion'
+  /** 这份心情是谁的：`assistant` 或 `pet:<模型ID>`。渲染层按它决定要不要采纳 */
+  readonly agentId: string
   readonly emotion: 'joy' | 'sadness' | 'surprise' | 'neutral'
   readonly mood?: {
     readonly energy: number // 0..1
@@ -629,6 +639,30 @@ export interface PetGoalResultEvent {
   readonly petAgentId: string
   readonly ok: boolean
   readonly text: string
+}
+
+/**
+ * 宠物感知到你怎么样了（`pet:sensing`，四期 T4.2 / T4.3）。
+ *
+ * 「要不要歇会儿」「你在弄『X』，两个多小时了」这类话走这一条。与 `PetGoalResultEvent`
+ * 的两处不同，都是刻意的：
+ *
+ * - **`sessionKey` 是「你」在用的会话**，不是宠物自己的会话——它是看着你干活说的，
+ *   点气泡应该跳回你刚才那条对话。宠物目标那条反过来（那是它自己的活）。
+ * - **没有 `ok`**：感知类的话没有成败可言。设计 §4.1.5 第 3 条要求它**只走气泡**，
+ *   所以它也不该带任何"要不要处置"的语义。
+ *
+ * `text` 同样是**已经可以直接展示的文案**（成句是宿主的事，见 `pet-sensing.ts` 的文案段）。
+ * 宠物对沉淀的读取是**只读**的（设计 §4.1.4 权限边界）：本事件不携带任何记忆原文，
+ * 只带成句后的那一句话。
+ */
+export interface PetSensingEvent {
+  readonly type: 'pet:sensing'
+  /** 用户当前在用的会话（气泡落点） */
+  readonly sessionKey: string
+  readonly text: string
+  /** 哪条预判规则说的（`interrupted` / `tired`）——控制坞与日志据此分辨 */
+  readonly kind: string
 }
 
 // ============================================================
@@ -680,6 +714,7 @@ export type AgentRuntimeEvent =
   | SkillDeprecationSuggestedEvent
   | AutonomousMoodEmotionEvent
   | PetGoalResultEvent
+  | PetSensingEvent
 
 /** 所有事件类型字面量 */
 export type AgentRuntimeEventType = AgentRuntimeEvent['type']

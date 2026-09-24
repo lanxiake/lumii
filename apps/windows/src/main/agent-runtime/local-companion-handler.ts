@@ -95,6 +95,7 @@ const COMPANION_INSTRUCTIONS = new Set([
   '__wiki_purge_invalid_files__',
   '__evolution_tick__',
   '__pet_dispatch__',
+  '__pet_sensing__',
 ])
 
 export function isLocalCompanionInstruction(message: string): boolean {
@@ -133,6 +134,8 @@ export interface LocalCompanionDeps {
   runEvolutionTick?: () => Promise<string>
   /** 宠物侧派发一轮（cron 触发，见 pet-dispatch.ts） */
   runPetDispatch?: () => Promise<string>
+  /** 宠物感知一轮（cron 触发，见 pet-sensing-tick.ts） */
+  runPetSensing?: (options?: LocalCompanionRunOptions) => string
 }
 
 /** Companion 指令执行选项 */
@@ -180,6 +183,11 @@ export async function handleLocalCompanionInstruction(
     case '__pet_dispatch__': {
       if (!deps.runPetDispatch) return 'pet dispatch unavailable'
       return deps.runPetDispatch()
+    }
+    case '__pet_sensing__': {
+      if (!deps.runPetSensing) return 'pet sensing unavailable'
+      // 感知走 `manual` 只是为了让「立即执行」能在主窗口自测（宠物模式门闩是软门闩）
+      return deps.runPetSensing({ manual: options.manual === true })
     }
     default:
       return `unknown companion instruction: ${instruction}`

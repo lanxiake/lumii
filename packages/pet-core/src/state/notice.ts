@@ -56,6 +56,10 @@ export type NoticeLevel = "ambient" | "report" | "action";
  * `pet-goal`（2026-09-24 三期 T3.5）是**宠物自己**跑完用户交代的一件事：它没有对应的
  * Agent 会话回合，所以不能借用 `task-complete`——那个种类的语义是"某个会话的一轮干完了"，
  * 报出去会让用户去找一个并不存在的会话。
+ *
+ * `pet-sensing`（2026-09-24 四期 T4.2/T4.3）是宠物**看着你**说出的一句话
+ *（「要不要歇会儿」「你在弄『X』，两个多小时了」）。它既不是别人的会话也不是自己的活，
+ * 所以同样不能借用现成的种类。
  */
 export type NoticeKind =
   | "task-complete"
@@ -65,7 +69,8 @@ export type NoticeKind =
   | "subagent-failed"
   | "turn-error"
   | "file-changes"
-  | "pet-goal";
+  | "pet-goal"
+  | "pet-sensing";
 
 /** 处置入口。`action` 档必填——没有它的通知是"看得见、点不动"的假通知。 */
 export type NoticeDeepLink =
@@ -187,6 +192,24 @@ export const REPORT_PER_SESSION_MS = 60_000;
 
 /** `report` 限流：全局 3 条/分钟（设计 §6.2）。 */
 export const REPORT_GLOBAL_PER_MIN = 3;
+
+/**
+ * `pet-sensing` 的展示时长。**比 `report` 长**，理由是一次真机验证抓到的连锁：
+ *
+ * `report` 档要过"每会话 1 条/分钟"那道闸（{@link REPORT_PER_SESSION_MS}），
+ * 而感知的会话键是**用户正在用的那条会话**——它刚刚冒出过一条"任务做完了"是常事
+ * （实测间隔 13.5 秒）。这时感知那条会**排队等窗口放开**；
+ * 可 30 秒的 TTL 比 60 秒的闸门短，它**等不到就走了**：既没冒气泡，当天配额又被花掉了。
+ *
+ * 2026-09-24 真机第一跑就是这个形态——日志里 `[runPetSensing] 说了一句` 有、气泡没有，
+ * 而"要不要歇会儿"当天再也不会出现（同类当天限 1 次）。取
+ * `REPORT_TTL_MS + REPORT_PER_SESSION_MS`：正好够它排过一次会话闸门
+ * （全局 3 条/分钟那道更宽，顺带也过得去）。
+ *
+ * 代价是控制坞那行多挂一分钟。对"该歇会儿了"这种话，多留一会儿本来也更好
+ * （第五期 T5.8 会把宠物流单独分区，那时再看要不要动）。
+ */
+export const SENSING_TTL_MS = REPORT_TTL_MS + REPORT_PER_SESSION_MS;
 
 /** 权限气泡里 `description` 的截断长度——气泡只有两百来像素宽，中文一行约 12 字。 */
 export const PERMISSION_DESC_MAX = 20;
@@ -336,6 +359,7 @@ function sessionOf(event: NoticeEvent): string | null {
  * | `error` | 可重试 `ambient` / 否则 `report` | `err:会话:错误码` | 「出错了」 |
  * | `turn:file-changes`（主窗失焦且用户没参与） | `report` | `files:会话:轮次` | 「改了 N 个文件」 |
  * | `pet:goal:result`（宠物跑完用户交代的事） | `report` | `petgoal:会话:文案哈希` | 宠物报的原话 |
+ * | `pet:sensing`（宠物看着你说的一句话） | `report` | `sensing:会话:文案哈希` | 宿主成句的那句 |
  * | `tool:end` 出错 / `abort(user_cancel)` | `ambient` | — | — |
  *
  * 过程事件（`message:delta` / `thinking:delta` / `tool:start` / `tool:progress` /
@@ -557,6 +581,36 @@ export function noticeFromEvent(event: NoticeEvent, ctx: NoticeContext): PetNoti
         text,
         deepLink: { to: "session" },
         ttlMs: REPORT_TTL_MS,
+      };
+    }
+
+    case "pet:sensing": {
+      /**
+       * 宠物看着你干活说的那句话（四期 T4.2/T4.3）。
+       *
+       * 档位 `report` 而不是 `action`，理由与 `pet-goal` 同：**不需要用户出手**。
+       * 设计 §4.1.5 第 3 条要求它**只走气泡**（不做系统级通知）——`report` 正好只到
+       * 气泡 + 控制坞，30 秒自清，不碰系统通知那条路。
+       *
+       * 文案直接用宿主成句后的 `summary`：那句话是宠物说的，pet-core 不改写它。
+       * 判不出内容（空串）就**不产生**——感知类的话丢了就算了（设计 §4.2.2 的"说了没听见
+       * 就算了"那一类），与 `pet:goal:result` 宁可含糊也不能吞**正好相反**：
+       * 那是用户交代过的事，必须能回来看到。
+       */
+      const body = event.summary?.trim();
+      if (!body) return null;
+      return {
+        id: `sensing:${sessionKey}:${hashText(body)}`,
+        kind: "pet-sensing",
+        level: "report",
+        sessionKey,
+        createdAt: now,
+        text: body,
+        // 跳回你刚才在干的那条会话——感知类的话没有可处置的东西，
+        // 但"回到刚才"这个动作本身是合理的（点完就把主窗带回那条会话）
+        deepLink: { to: "session" },
+        // ⚠ 比 `report` 的 30 秒长：它要排过一次会话闸门才轮得到冒泡，见 `SENSING_TTL_MS`
+        ttlMs: SENSING_TTL_MS,
       };
     }
 

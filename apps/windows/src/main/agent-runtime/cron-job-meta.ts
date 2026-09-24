@@ -2,7 +2,7 @@
  * 定时任务来源分类与受管方判定（唯一判定处）。
  *
  * 来源：
- * - system：代码播种的系统任务（seed-*、news-pipeline、wiki-purge-*、companion-*、autonomous-tick、pet-dispatch）
+ * - system：代码播种的系统任务（seed-*、news-pipeline、wiki-purge-*、companion-*、autonomous-tick、pet-dispatch、pet-sensing）
  * - agent：Agent 自建（agent-self:* 规划器落地 / local-cron-* cron_create 工具）
  * - user：用户在定时任务页手工创建
  *
@@ -13,6 +13,8 @@
  * - companion-memory-* 与 wiki-purge-broken-refs 不受任何开关覆盖，同用户自管
  * - pet-dispatch：**不跟随自主进化开关**（宠物是独立 Agent，设计 §3.7），用户自管；
  *   第五期 T5.9 有「是否允许宠物主动做事」的开关后再改由它接管
+ * - pet-sensing：同上，**而且刻意不跟随「主动联系」开关**——那个开关默认是关的，
+ *   跟了就等于整个第四期默认不可见。冒不冒泡由渲染层的 `enableAgentNotice` 再判一道
  */
 
 import { SELF_CRON_ID_PREFIX } from '@mtbot/agent-runtime'
@@ -21,7 +23,7 @@ export type CronJobSource = 'system' | 'agent' | 'user'
 export type CronJobManagedBy = 'autonomous' | 'companion'
 
 /** 与其它来源前缀不重叠的系统种子精确 id */
-const SYSTEM_EXACT_IDS = new Set(['news-pipeline', 'autonomous-tick', 'pet-dispatch'])
+const SYSTEM_EXACT_IDS = new Set(['news-pipeline', 'autonomous-tick', 'pet-dispatch', 'pet-sensing'])
 const SYSTEM_PREFIXES = ['seed-', 'wiki-purge-', 'companion-']
 const AGENT_PREFIXES = [SELF_CRON_ID_PREFIX, 'local-cron-']
 
@@ -49,6 +51,7 @@ export function isReseededCronJob(id: string): boolean {
     id.startsWith('companion-') ||
     id === 'autonomous-tick' ||
     id === 'pet-dispatch' ||
+    id === 'pet-sensing' ||
     id === 'wiki-purge-broken-refs'
   )
 }

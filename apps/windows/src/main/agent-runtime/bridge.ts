@@ -144,7 +144,8 @@ import {
 } from './local-companion-handler'
 import { ensureSeedCronJobsSeeded } from '../seed-cron-jobs'
 import { isPetMode, onVirtualHumanSettingsChanged } from '../pet/pet-mode-ipc'
-import { getVirtualHumanSettings } from '../pet/pet-mode-store'
+import { getStoredModelId, getVirtualHumanSettings } from '../pet/pet-mode-store'
+import { petAgentId } from '@mtbot/pet-core'
 import { BridgeSessionModelCatalog } from './bridge-session-model-catalog'
 import { BridgeSessionThinkingPrefs } from './bridge-session-thinking-prefs'
 import { loadStoredThinkingPrefs, saveStoredThinkingPrefs } from './session-thinking-store'
@@ -172,6 +173,7 @@ import {
 } from './autonomous-wiring'
 import { handleEvolutionTick } from './evolution-tick'
 import { ensurePetDispatchCronJobSeeded, runPetDispatch } from './pet-dispatch'
+import { ensurePetSensingCronJobSeeded, runPetSensing } from './pet-sensing-tick'
 import { syncAutonomousManagedCronJobs } from './autonomous-cron-linkage'
 import { runPlanner, shouldFallbackPlan } from './planner-wiring'
 import { OUTREACH_SYSTEM_NOTIFY_TITLE } from '../desktop-notify'
@@ -1866,6 +1868,16 @@ export class AgentRuntimeBridge {
                 findActivePetAgent: () => this.findActivePetAgent(),
                 executePetGoal: (goal) => this.executePetGoal(goal),
               }),
+            runPetSensing: (options) =>
+              runPetSensing({
+                getDb: () => this.localDb.db,
+                isShuttingDown: () => !this.localDb.isOpen,
+                // 不在宠物模式就没有宠物窗：读 mood 的键会落到一只没被选中的模型上
+                getPetAgentId: () => (isPetMode() ? petAgentId(getStoredModelId()) : null),
+                recordMood: (agentId, event) => this.recordMoodEvent(event, agentId),
+                pushSensingEvent: (event) => this.ipcChannel.forwardIpcEvent(event),
+                manual: options?.manual,
+              }),
           },
           options,
         )
@@ -1880,6 +1892,9 @@ export class AgentRuntimeBridge {
     ensureSeedCronJobsSeeded(this.localDb.db)
     // 宠物派发循环：独立于自主进化总开关（宠物是独立 Agent，设计 §3.7），首启置开、之后用户自管
     ensurePetDispatchCronJobSeeded(this.localDb.db)
+    // 宠物感知循环（四期）：同样是独立的一条——它**不能**挂在派发上，
+    // 派发在用户回合进行中让路，而感知恰恰要在用户干活时看着（见 pet-sensing-tick.ts 文件头）
+    ensurePetSensingCronJobSeeded(this.localDb.db)
     this.purgeCronFocusNoiseMemoriesOnce()
     // 设置页修改主动联系开关时，同步 tick job 的 enabled 状态并重载本地 cron 调度
     this.unsubscribeVhSettings?.()
@@ -2799,7 +2814,13 @@ export class AgentRuntimeBridge {
     })
   }
 
-  /** 记录一次情绪事件：衰减后叠加冲击并落库（best-effort，失败只记日志） */
+  /**
+   * 记录一次情绪事件：衰减后叠加冲击并落库（best-effort，失败只记日志）。
+   *
+   * ⚠ **`agentId` 要跟着事件一起发出去**（第四期 T4.4）：在这之前这条 IPC 不带归属，
+   * 而唯一的生产者就是 `assistant` 这条线，于是宠物窗把**助手的心情**当成了自己的脸——
+   * 宠物是独立 Agent（设计 §3.7），这份心情是谁的必须说清楚，不然渲染层只能猜。
+   */
   private recordMoodEvent(event: string, agentId = 'assistant'): void {
     try {
       const now = Date.now()
@@ -2810,6 +2831,7 @@ export class AgentRuntimeBridge {
       const emotion = moodToPetEmotion(next)
       this.ipcChannel.forwardIpcEvent({
         type: 'autonomous:mood:emotion',
+        agentId,
         emotion,
         mood: { energy: next.energy, valence: next.valence, arousal: next.arousal },
       })

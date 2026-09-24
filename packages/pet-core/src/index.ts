@@ -58,6 +58,8 @@ export * from "./behavior/ambient.js";
 export * from "./behavior/locomotion.js";
 // 攀附程序主窗口（R9 进阶）：吸附判定、沿墙爬升、天花板爬行、松手时机
 export * from "./behavior/perch.js";
+// 情绪跨越阈值 → 播「雀跃 / 蔫」（四期 T4.4）：按跨越播，不按事件播
+export * from "./behavior/mood-shift.js";
 
 // Agent 状态可见化（R5/R6）：Agent 活动状态机 + 姿态调制（L1 表达层）。
 // 与 R9 的 ambient 是**不同维度**——那个是「宠物自己溜达到哪一步」，这个是「Agent 在做什么」；

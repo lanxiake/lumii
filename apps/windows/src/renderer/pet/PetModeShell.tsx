@@ -64,6 +64,7 @@ import {
   INITIAL_TURN_FACTS,
   advanceTurnFacts,
   isNoticeEvent,
+  isPetMoodEvent,
   noticeActionLabel,
   toNoticeEvent,
   type NoticeTurnFacts,
@@ -179,6 +180,21 @@ export const PetModeShell: React.FC = () => {
    * `petTuning` props（自主行为权重）。两处都从这个 state 走，不各自再读一次 IPC。
    */
   const [petTraits, setPetTraits] = useState<PetPersonalityDTO['traits'] | null>(null)
+  /**
+   * 宠物自己的情绪（四期 T4.4）。`null` = 还没有来源（刚开窗 / 主进程没推过）。
+   *
+   * **两个消费者，同一个来源**（与 `petTraits` 同一手法）：编排器那份走 `setMood`
+   *（程序化参数 + 雀跃/蔫的跨越判定），画布那份走 `petTuning` props（活动权重）。
+   */
+  const [petMood, setPetMood] = useState<{ energy: number; valence: number } | null>(null)
+  /**
+   * 这只宠物的 agentId（`pet:<模型ID>`），由 `getPetPersonality` 给。
+   *
+   * 存 ref 不存 state：它只在事件回调里被比对（判断 mood 事件是不是自己的），
+   * 进 state 会让每次绑定性格都重挂一遍 `onEvent` 订阅。**没拿到就是 `null`**，
+   * 那时所有 mood 事件都会被判成"不是我的"——这是刻意的：猜错主人比暂时不采纳更糟。
+   */
+  const petAgentIdRef = useRef<string | null>(null)
   const [modelLoaded, setModelLoaded] = useState(false)
   const [muted, setMuted] = useState(false)
   const [voiceReplyEnabled, setVoiceReplyEnabled] = useState(DEFAULT_VH_SETTINGS.enableVoiceReply)
@@ -634,6 +650,7 @@ export const PetModeShell: React.FC = () => {
     void window.electronAPI?.pet?.getPetPersonality?.(config.id)
       .then((p) => {
         const t = p?.traits ?? null
+        petAgentIdRef.current = p?.agentId ?? null
         orch.setTraits(t)
         setPetTraits(t)
         log.info(
@@ -842,6 +859,11 @@ export const PetModeShell: React.FC = () => {
         const event = (raw ?? {}) as RawAgentEvent & {
           delta?: string
           emotion?: string
+          /**
+           * `autonomous:mood:emotion` 的**归属**（四期 T4.4）。必填——不带它就无法分辨
+           * 这份心情是助手的还是这只宠物的，而"猜错"的形态是宠物为助手的情绪雀跃。
+           */
+          agentId?: string
           /** `autonomous:mood:emotion` 的可选三维载荷（第二期起用于调呼吸/活动频率） */
           mood?: { energy: number; valence: number; arousal: number }
           content?: readonly { type: string; text?: string }[]
@@ -903,22 +925,41 @@ export const PetModeShell: React.FC = () => {
         const agentActivityEvent = mapAgentEvent(event.type ?? '')
         if (agentActivityEvent) orchestratorRef.current?.pushAgentActivity(agentActivityEvent)
 
+        /**
+         * 情绪事件（四期 T4.4）：**只认宠物自己的那一份**。
+         *
+         * 这条 IPC 以前不带归属，而唯一的生产者是 `assistant` 那条线（`recordMoodEvent`
+         * 的默认 agentId），于是宠物窗把**助手的心情**当成了自己的脸——
+         * 宠物是独立 Agent（设计 §3.7），这个耦合正是要拆掉的东西。
+         *
+         * 助手的那些现在只记一行日志：不记的话，以后"我在会话里干得挺好，
+         * 宠物怎么没反应"会被当成 bug 查半天。
+         */
         if (event.type === 'autonomous:mood:emotion') {
-          const emotion = event.emotion
-          // mood 三维（可选载荷）先只记录：第二期才用它调呼吸/活动频率
-          if (event.mood) {
-            log.info(
-              `[onEvent] mood 三维 energy=${event.mood.energy.toFixed(2)} valence=${event.mood.valence.toFixed(2)} arousal=${event.mood.arousal.toFixed(2)}`,
-            )
-          }
-          if (emotion && orchestratorRef.current) {
-            const emotionMap = modelConfigRef.current?.emotionMap ?? {}
-            const idx = emotionMap[emotion]
-            if (idx !== undefined) {
-              orchestratorRef.current.setExpression(idx, emotion)
-              log.info(`[onEvent] mood 表情 ${emotion} (idx=${idx})`)
-            } else {
-              log.warn(`[onEvent] mood 表情 "${emotion}" 不在当前模型 emotionMap: ${Object.keys(emotionMap).join(',')}`)
+          const owner = event.agentId
+          if (!isPetMoodEvent(event, petAgentIdRef.current)) {
+            // 刻意**不 return**：这条分支只是"不采纳"，后面还有别的按类型分派的处理，
+            // 提前返回会在下一个人往后面加代码时静默吃掉它
+            log.info(`[onEvent] mood 事件属于 ${owner ?? '(匿名)'}，不是这只宠物，忽略`)
+          } else {
+            if (event.mood) {
+              // 三维喂两处：编排器（程序化参数 + 跨越判定的雀跃/蔫）与画布（活动权重）
+              const mood = { energy: event.mood.energy, valence: event.mood.valence }
+              orchestratorRef.current?.setMood(mood)
+              setPetMood(mood)
+            }
+            const emotion = event.emotion
+            if (emotion && orchestratorRef.current) {
+              const emotionMap = modelConfigRef.current?.emotionMap ?? {}
+              const idx = emotionMap[emotion]
+              if (idx !== undefined) {
+                orchestratorRef.current.setExpression(idx, emotion)
+                log.info(`[onEvent] mood 表情 ${emotion} (idx=${idx})`)
+              } else {
+                log.warn(
+                  `[onEvent] mood 表情 "${emotion}" 不在当前模型 emotionMap: ${Object.keys(emotionMap).join(',')}`,
+                )
+              }
             }
           }
         }
@@ -1277,12 +1318,14 @@ export const PetModeShell: React.FC = () => {
           // 自主活动（R9）：画布只报「该走/该坐/该站」，播哪个组由编排器按既有优先级决定
           onAmbientActivity={(activity) => orchestratorRef.current?.setAmbientActivity(activity)}
           /**
-           * 性格 → 活动权重与时长（第二期 T2.2）。
+           * 性格与情绪 → 活动权重与时长（第二期 T2.2 / 四期 T4.4）。
            *
-           * `mood` 恒为 `null`：宠物**自己的**情绪还没有来源（它随第四期的感知线一起上线）。
-           * 把助手的心情传进来会在 §3.7 刚拆开的两条通道上又接回去——那正是要避免的耦合。
+           * `mood` 现在有真来源了：宠物**自己的** mood（四期感知线写进它自己的键，
+           * 经 `autonomous:mood:emotion` 带 `agentId` 回来）。此前恒为 `null`——
+           * 那时把助手的传进来会在 §3.7 刚拆开的两条通道上又接回去，正是要避免的耦合。
+           * 情绪为 `null` 时驱动按基线算，与接线前逐值一致。
            */
-          petTuning={{ traits: petTraits, mood: null }}
+          petTuning={{ traits: petTraits, mood: petMood }}
           /** 拒绝了这次互动（T2.3）：播「躲开」，不播点击回应 */
           onRefusal={() => orchestratorRef.current?.playRefusalMotion()}
           /**

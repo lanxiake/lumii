@@ -25,6 +25,7 @@ import {
   announceDurationMs,
   amplifyExpressiveDeviation,
   countDistinctExpressions,
+  detectMoodShift,
   IDENTITY_MODULATION,
   IDENTITY_PROCEDURAL_SCALES,
   initialAgentActivity,
@@ -95,6 +96,12 @@ const ONE_SHOT_AMBIENT_HOLD_MS = 2600
  *（2.0s）长一个量级，看到的才是"它看了我一眼"。
  */
 const LOOK_COOLDOWN_MS = 20_000
+
+/**
+ * 「雀跃 / 蔫」的去抖窗口（ms）。**每个方向各算一份**。
+ * 见 `setMood`：跨越本身罕见，这是防它在阈值线附近来回穿的兜底。
+ */
+const MOOD_SHIFT_DEBOUNCE_MS = 60_000
 
 /**
  * agentActivity 状态的推进周期（ms）。
@@ -204,8 +211,25 @@ export class PetOrchestrator {
    * 用户看到的是"换了个模型它脾气就变了"，而真相是 IPC 没回来。
    */
   private traits: TraitProceduralInput | null = null
-  /** 宠物自己的精力（0..1）；`null` = 按基线。第二期恒为 null，第四期接真实 mood */
-  private moodEnergy: number | null = null
+  /**
+   * 宠物**自己的**情绪；`null` = 还没有来源 → 一律按基线。
+   *
+   * 第二期恒为 `null`（那时一个生产者都没有），四期 T4.4 起由 `setMood` 填。
+   * 两个消费者：`energy` 喂 `pumpProceduralScales`（性格 × 情绪那条链），
+   * `valence` 只用于**跨越**判定（见 `setMood`）。
+   */
+  private mood: { energy: number; valence: number } | null = null
+  /**
+   * 上一次播「雀跃 / 蔫」的时刻，**每个方向各记一份**。
+   *
+   * 跨越本身就是罕见事件，去抖是防它抖在阈值线附近来回穿——`applyMoodImpact` 每次
+   * 只挪 0.2~0.5，正常不会连续跨，但"刚夸完就挨了一下"是可能的。
+   * 取 60 秒：比一次 `Cheer`（1.6s）/`Droop`（2.0s）长一个量级，又短于任何一次真实的心情回转。
+   */
+  private lastMoodShiftAt: Record<'cheer' | 'droop', number> = {
+    cheer: Number.NEGATIVE_INFINITY,
+    droop: Number.NEGATIVE_INFINITY,
+  }
   /** 当前是否处于 speaking 态（避免重复触发动作） */
   private speaking = false
   /** 待机随机动作定时器 */
@@ -411,15 +435,49 @@ export class PetOrchestrator {
   }
 
   /**
-   * 绑定宠物**自己的**情绪能量（0..1）；`null` = 按基线算。
+   * 绑定宠物**自己的**情绪（四期 T4.4）；`null` = 还没有来源 → 按基线算。
    *
-   * ⚠ 第二期还没有宠物的 mood 来源（它随第四期的感知线一起上线），所以现在恒为 `null`，
-   * 本层纯粹由性格驱动——正是验收 U1「两只宠物静止时就能看出区别」要的东西。
-   * 第四期接上之后，同一个函数会自动开始吃真实精力，不必改这里。
+   * ## 为什么不是"收到事件就播一下"
+   *
+   * `applyMoodImpact` 每次都会改 valence，而触发它的事件一轮会话里来好几次。
+   * 逐事件播 `Cheer`/`Droop` 的表现是宠物在**抽搐**（两个 1.6~2.0 秒的动作被
+   * 几十毫秒一次的更新反复打断）。所以这里只在**跨过阈值线**的那一次播，
+   * 判定用 `detectMoodShift`（纯函数，在 pet-core），去抖按方向各 60 秒。
+   *
+   * ## 第一次读到不算"跨越"
+   *
+   * `prev === null` 时 `detectMoodShift` 一律返回 `null`：**第一次**读到一个低落值
+   * 不是"变蔫了"，那是它的初始状态。上线第一帧就演一遍沮丧是凭空多出来的戏。
+   *
+   * ## 每次更新都打一行日志
+   *
+   * 计划里写着这两个阈值"要去量，别拍脑袋定"——那行日志就是量的依据：
+   * 连着几天看 `valence` 的实际分布与每次低分会话的落差，再回来定 ±0.2 该不该动。
+   * 它同时覆盖"跨越了但被去抖吃掉"的情形，所以不存在"只记播出去的"那种偏差。
    */
-  setMoodEnergy(energy: number | null): void {
-    if (this.moodEnergy === energy) return
-    this.moodEnergy = energy
+  setMood(mood: { energy: number; valence: number } | null): void {
+    const prev = this.mood
+    if (prev?.energy === mood?.energy && prev?.valence === mood?.valence) return
+    this.mood = mood
+    log.info(
+      `[setMood] energy=${mood ? mood.energy.toFixed(2) : '(基线)'} ` +
+        `valence=${mood ? mood.valence.toFixed(2) : '(基线)'} ` +
+        `prev=${prev ? prev.valence.toFixed(2) : '(无)'}`,
+    )
+
+    const shift = detectMoodShift(prev, mood ?? { valence: 0 })
+    if (shift) {
+      const now = performance.now()
+      if (now - this.lastMoodShiftAt[shift] >= MOOD_SHIFT_DEBOUNCE_MS) {
+        // 播出去了才记时间——被去抖挡下的那次不该把窗口又推后一轮
+        if (this.playOneShotMotion(shift === 'cheer' ? 'Cheer' : 'Droop')) {
+          this.lastMoodShiftAt[shift] = now
+        }
+      } else {
+        log.info(`[setMood] 「${shift}」在去抖窗口内，这次不播`)
+      }
+    }
+
     this.pumpProceduralScales()
   }
 
@@ -436,7 +494,7 @@ export class PetOrchestrator {
     }
     let scales = traitsToProceduralScales(
       this.traits,
-      this.moodEnergy === null ? null : { energy: this.moodEnergy },
+      this.mood === null ? null : { energy: this.mood.energy },
     )
     if (needsExpressivenessCompensation(this.modelConfig?.emotionMap)) {
       scales = amplifyExpressiveDeviation(scales)
