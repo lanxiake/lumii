@@ -91,6 +91,12 @@ export interface IpcResult<T> {
 
 ### Step 7：端到端手工验证并打勾
 
+> **先跑自动门禁**：`pnpm check:wiring`。本文开头引用的「三方缺一处即视为开发未完成」已由接线守卫按 AST
+> 自动检查——它报六类断线（main 有 handler 但 preload 不引用 / preload 引用了但 main 没实现 / main 推事件
+> 无人监听 / 工具导出没进 `ALL_BUILT_IN_TOOL_CONFIGS` / 从入口走不到的文件 / preload 暴露了但 renderer
+> 从不调用）。只做了两方时它会直接报出来。已接入 `pnpm verify` 与 CI，走棘轮基线（只拦新增）。
+> 详见[接线守卫与无消费者 IPC 清单](../../plans/代码重构/大文件与死代码/2026-09-24-接线守卫与无消费者IPC清单.md)。
+
 在测试手测清单上逐项打勾（至少 6 项）：
 - [ ] 调成功：UI 拿到 `data`，loading 消失
 - [ ] 调失败：UI 看到 ErrorBanner，toast 正确文案
