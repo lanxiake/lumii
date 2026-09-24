@@ -79,3 +79,8 @@ docs/test/**/.cap-session*
 # （判断逻辑已固化在 scripts/merge-judgments.mjs，池子本身可随时用
 #  scripts/pool-candidates-for-judging.mjs 重建，见评测方法论文档 §4.3）
 docs/test/memory-eval/v7-pool.json
+
+# 本机临时产物（agent 备份、pet 精灵图在制目录、test:all 日志转储等）
+# 约定前缀 `.tmp-`，目录与文件都忽略，避免 git add -A 误带进仓库
+.tmp-*/
+.tmp-*
