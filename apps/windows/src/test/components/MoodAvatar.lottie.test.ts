@@ -8,9 +8,33 @@
  * 导致团子只剩一个蓝圆。这里用数据断言 + 真实渲染 DOM 顺序双重锁死。
  */
 
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import lottie from 'lottie-web'
 import { moodLottieData } from '../../renderer/pages/AutonomousPage/MoodAvatar.lottie'
+
+/**
+ * 收拾 lottie-web 的模块级轮询定时器。
+ *
+ * lottie 在**模块加载时**就 `setInterval(checkReady, 100)`，而 `checkReady` 只在看到
+ * `document.readyState === 'complete'` 时才 clearInterval 停掉自己。jsdom 下 readyState 停在
+ * 'loading'（从没触发过 window load），于是那个 interval 会一直跑到**测试环境拆除之后**——
+ * 回调里读 `document` 就抛 `ReferenceError: document is not defined`。
+ *
+ * 报不报取决于 100ms 周期与拆除时机的相对位置，所以它表现为**间歇性**失败：vitest 把它计入
+ * `Errors`（不算某个用例失败），但会让整个 run 退出码为 1。
+ *
+ * 两条都要做：把 readyState 报成 complete（这正是 lottie 在等的条件），并在 afterAll 里跨过
+ * 一个周期确保它真的自清了——只做前者仍可能赶上「环境拆除早于首次触发」。
+ */
+beforeAll(() => {
+  Object.defineProperty(document, 'readyState', { configurable: true, get: () => 'complete' })
+})
+
+afterAll(async () => {
+  await new Promise((resolve) => setTimeout(resolve, 150))
+  // 撤掉实例上的遮蔽，露出 Document.prototype 原本的 getter
+  delete (document as unknown as { readyState?: string }).readyState
+})
 
 const TEAL_BODY = 'rgb(132,211,232)'
 const DARK_FEATURE = 'rgb(33,40,51)'
