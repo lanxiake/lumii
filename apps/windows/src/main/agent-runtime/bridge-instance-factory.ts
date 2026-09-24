@@ -134,7 +134,7 @@ export interface BridgeInstanceFactoryDeps {
   /** bash 命令采集仓库（工具进化 M1） */
   getBashCommandRepo: () => BashCommandRepo | null
   /** 工具进化引擎（M2：调用次数触发） */
-  getToolEvolutionEngine: () => import('./bash-tool-evolution/index').ToolEvolutionEngine | null
+  getToolEvolutionEngine: () => import('./bash-tool-evolution/tool-evolution-engine').ToolEvolutionEngine | null
   getConversationRepo: () => ConversationRepo | null
   /**
    * 该会话禁用的 MCP server 名（设置页是全局总开关，这里是会话覆盖）。

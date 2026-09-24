@@ -72,7 +72,7 @@ export interface BridgePromptDispatcherDeps {
   config: AgentRuntimeBridgeConfig
   getSkillEvolutionEngine: () => import('../skill-evolution/index').SkillEvolutionEngine | undefined
   /** 工具进化审批回复消费（可选，未装配时跳过） */
-  getToolEvolutionEngine?: () => import('./bash-tool-evolution/index').ToolEvolutionEngine | null
+  getToolEvolutionEngine?: () => import('./bash-tool-evolution/tool-evolution-engine').ToolEvolutionEngine | null
   getConversationRepo: () => ConversationRepo | null
   /**
    * 会话整窗用量与分类明细（用于把自动压缩阈值扣掉固定开销后再算）。

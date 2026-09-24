@@ -641,13 +641,13 @@ export class AgentRuntimeBridge {
   }
 
   /** bash 命令工具进化引擎（index.ts 装配） */
-  private _toolEvolutionEngine: import('./bash-tool-evolution/index').ToolEvolutionEngine | null = null
+  private _toolEvolutionEngine: import('./bash-tool-evolution/tool-evolution-engine').ToolEvolutionEngine | null = null
 
-  setToolEvolutionEngine(engine: import('./bash-tool-evolution/index').ToolEvolutionEngine): void {
+  setToolEvolutionEngine(engine: import('./bash-tool-evolution/tool-evolution-engine').ToolEvolutionEngine): void {
     this._toolEvolutionEngine = engine
   }
 
-  getToolEvolutionEngine(): import('./bash-tool-evolution/index').ToolEvolutionEngine | null {
+  getToolEvolutionEngine(): import('./bash-tool-evolution/tool-evolution-engine').ToolEvolutionEngine | null {
     return this._toolEvolutionEngine
   }
 

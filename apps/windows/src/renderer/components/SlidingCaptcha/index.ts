@@ -1,1 +1,0 @@
-export { SlidingCaptcha } from './SlidingCaptcha'

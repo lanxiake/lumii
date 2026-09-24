@@ -672,7 +672,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
 
         {/* 会话元信息：轻量居中卡片，随消息流滚动，不固定遮挡输入区。
             文件变更改由每条助手气泡底部的 TurnFileChangesCard 呈现本轮净变更，
-            对话流不再用 fileEvents 驱动 SessionFileList（上传/产出语义留给 rail/composer）。 */}
+            对话流不用 fileEvents 驱动文件列表（上传/产出语义留给 composer）。 */}
         {todoCalls.length > 0 && (
           <div className={styles['session-meta-inline']}>
             <TodoPanel

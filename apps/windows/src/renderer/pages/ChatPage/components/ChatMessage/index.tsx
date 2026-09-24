@@ -1319,8 +1319,8 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
         {message.role === 'assistant' && renderMemoryHint()}
         {/*
           注意：消息气泡底部不再重复渲染 fileAttachments。
-          Agent 生成/上传的文件由对话流内的 SessionFileList 轻量卡片展示，
-          避免「消息气泡底部附件列表 + 会话文件列表」双重冗余。
+          Agent 生成/上传的文件由助手气泡底部的 TurnFileChangesCard 展示，
+          避免「消息气泡底部附件列表 + 回合变更卡片」双重冗余。
           fileAttachments prop 仍保留，供工具卡片按 fileName 匹配 fileId 做内联预览。
         */}
 

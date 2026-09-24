@@ -40,6 +40,14 @@ jobs:
       # 类型检查只需要声明文件，不需要可运行的二进制。
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - run: pnpm typecheck
+      # 2026-09-24 新增：接线守卫（node scripts/check-wiring.mjs）。
+      # 抓的是 tsc 与单测都看不见的「写了一半没接上」：main 注册了 handler 但 preload
+      # 从不 invoke、preload 引用了但 main 没实现（调用必然 reject）、工具导出没进
+      # ALL_BUILT_IN_TOOL_CONFIGS、以及从入口走不到的文件。
+      # 走棘轮：存量断线记在 scripts/wiring-baseline.json，只拦截新增。
+      # 放在这个 job 而非独立 job，是因为它需要 typescript 包（AST 解析），
+      # 这里已经装好了，单开 job 要再付一次 install。
+      - run: pnpm check:wiring
 
   # 2026-09-18 新增：此前 CI 一个测试都没跑，packages/agent-runtime 的
   # 212 个文件 / 2153 个用例（含工具面守卫）全靠人记得在本地跑。
