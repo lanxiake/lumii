@@ -8,10 +8,13 @@
  */
 import { describe, expect, it } from 'vitest'
 import {
+  PET_ABSENT_CAPABILITIES,
   PET_AGENT_NAME,
   PET_MAX_TURNS,
+  PET_PROMPT,
   PET_TOOL_ALLOWLIST,
   buildPetDefinition,
+  isPetDeniedTool,
 } from '../pet-definition.js'
 import { BUILTIN_AGENT_DEFINITIONS, findBuiltInAgent } from '../../agent/builtin/definitions.js'
 import { getAutonomousToolsForAgent } from '../goal-executor.js'
@@ -81,6 +84,54 @@ describe('工具面 — 只读是硬边界', () => {
   it('白名单不是空的，也不是通配符', () => {
     expect(PET_TOOL_ALLOWLIST.length).toBeGreaterThan(0)
     expect(PET_TOOL_ALLOWLIST).not.toContain('*')
+  })
+})
+
+/**
+ * 五期 T5.3：提示词里点名了"你没有这几类能力"，那几句话必须与白名单一致。
+ *
+ * 守的是**提示词撒谎**这种失败：白名单哪天被顺手放宽，提示词却还写着"你不能写文件"，
+ * 于是模型照着新工具干活、用户照着提示词理解它——**两边都以为对方是对的**。
+ * 这类不一致只有用户会发现（表现为"它说它不会，转头就干了"）。
+ */
+describe('缺席能力表与提示词、白名单三方一致', () => {
+  it('白名单里没有任何一条落在"缺席能力"里', () => {
+    const leaked = PET_TOOL_ALLOWLIST.filter((t) => isPetDeniedTool(t))
+    expect(
+      leaked,
+      `宠物白名单出现了提示词明说"没有"的工具: ${leaked.join(', ')}——` +
+        `要么撤掉它，要么连同 PET_PROMPT 与 PET_ABSENT_CAPABILITIES 一起改`,
+    ).toEqual([])
+  })
+
+  it('对照组：这张表真的拦得住东西（否则上一条是空转）', () => {
+    // 没有这三行，"表是空的"也能让上一条通过——那种假阳性比不测更糟
+    expect(isPetDeniedTool('file_write')).toBe(true)
+    expect(isPetDeniedTool('bash')).toBe(true)
+    expect(isPetDeniedTool('browser_navigate')).toBe(true)
+    expect(isPetDeniedTool('mcp__github__create_issue')).toBe(true)
+    expect(isPetDeniedTool('cron_create')).toBe(true)
+  })
+
+  it('前缀匹配不越界：app_ 不该连 apply_patch 一起吃掉', () => {
+    expect(isPetDeniedTool('apply_patch')).toBe(false)
+    expect(isPetDeniedTool('apple_notes')).toBe(false)
+    // 对照：真的 app_ 工具仍然拦得住
+    expect(isPetDeniedTool('app_launch')).toBe(true)
+  })
+
+  it('提示词为**每一类**都写了话 —— 数据加了、话说漏了就会红', () => {
+    // 逐类按**全名**找（提示词里是用粗体逐条列的）。改名就要连提示词一起改，这是有意的：
+    // 那一句话是给模型看的，改了名而话没跟上，就等于这一类没说
+    const missing = Object.keys(PET_ABSENT_CAPABILITIES).filter(
+      (label) => !PET_PROMPT.includes(label),
+    )
+    expect(missing, `提示词里没提这几类缺席能力: ${missing.join(', ')}`).toEqual([])
+  })
+
+  it('提示词确实在讲"你没有"，不是只有一句含糊的"你有边界"', () => {
+    // 这一条钉的是**那段话的存在**：模型看不到"缺什么"，只看到"有什么"
+    expect(PET_PROMPT).toContain('你没有这些东西')
   })
 })
 

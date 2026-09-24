@@ -7,7 +7,7 @@
 import { describe, expect, it } from 'vitest';
 import type { DatabaseAdapter } from '../../storage/local-database.js';
 import { createMigratedTestDb } from '../../__tests__/helpers/sqlite-test-db.js';
-import { isPetAgentId, isPetGoalDue, listDuePetGoals, countPetGoalsToday } from '../pet-goals';
+import { isPetAgentId, isPetGoalDue, listDuePetGoals, countPetRunsToday } from '../pet-goals';
 
 const NOW = new Date('2026-09-24T12:00:00.000Z');
 
@@ -19,14 +19,15 @@ function insertGoal(
     status?: string;
     scheduledFor?: string | null;
     createdAt?: string;
+    completedAt?: string | null;
     description?: string;
   },
 ): void {
   db.prepare(
     `INSERT INTO autonomous_goals
      (id, agent_id, type, description, trigger_reason, status, priority, metadata,
-      planned_by, scheduled_for, created_at)
-     VALUES (?, ?, 'learning', ?, 'user-assigned', ?, 0.5, '{}', 'pet', ?, ?)`,
+      planned_by, scheduled_for, created_at, completed_at)
+     VALUES (?, ?, 'learning', ?, 'user-assigned', ?, 0.5, '{}', 'pet', ?, ?, ?)`,
   ).run(
     opts.id,
     opts.agentId,
@@ -34,6 +35,7 @@ function insertGoal(
     opts.status ?? 'executing',
     opts.scheduledFor ?? null,
     opts.createdAt ?? '2026-09-24T10:00:00.000Z',
+    opts.completedAt ?? null,
   );
 }
 
@@ -140,29 +142,62 @@ function localIso(base: Date, dayOffset: number, hour: number): string {
   return new Date(base.getFullYear(), base.getMonth(), base.getDate() + dayOffset, hour, 0, 0).toISOString();
 }
 
-describe('countPetGoalsToday', () => {
-  it('只数这只宠物自己的，且不分状态', () => {
+describe('countPetRunsToday', () => {
+  it('只数这只宠物自己的，且不分成败', () => {
     const db = createMigratedTestDb();
     const at = localIso(NOW, 0, 10);
-    // 三只宠物各一条 + 助手一条
-    insertGoal(db, { id: 'p1', agentId: 'pet:mao_pro', createdAt: at });
-    insertGoal(db, { id: 'p1b', agentId: 'pet:mao_pro', createdAt: at, status: 'completed' });
-    insertGoal(db, { id: 'p1c', agentId: 'pet:mao_pro', createdAt: at, status: 'failed' });
-    insertGoal(db, { id: 'p2', agentId: 'pet:demo_cartoon_cat', createdAt: at });
-    insertGoal(db, { id: 'a1', agentId: 'assistant', createdAt: at });
+    // 三只宠物各一条 + 助手一条（都已在今天收尾）
+    insertGoal(db, { id: 'p1', agentId: 'pet:mao_pro', createdAt: at, completedAt: at, status: 'completed' });
+    insertGoal(db, { id: 'p1b', agentId: 'pet:mao_pro', createdAt: at, completedAt: at, status: 'failed' });
+    insertGoal(db, { id: 'p1c', agentId: 'pet:mao_pro', createdAt: at, completedAt: at, status: 'completed' });
+    insertGoal(db, { id: 'p2', agentId: 'pet:demo_cartoon_cat', createdAt: at, completedAt: at });
+    insertGoal(db, { id: 'a1', agentId: 'assistant', createdAt: at, completedAt: at });
 
-    // 跑完的也算"今天被使唤过一次"——这条与 getTodayGoalCount 刻意不同
-    expect(countPetGoalsToday(db, 'pet:mao_pro', NOW)).toBe(3);
-    expect(countPetGoalsToday(db, 'pet:demo_cartoon_cat', NOW)).toBe(1);
-    expect(countPetGoalsToday(db, 'pet:ug_official', NOW)).toBe(0);
+    // 跑砸了也算"今天被使唤过一次"——这条与 getTodayGoalCount 刻意不同
+    expect(countPetRunsToday(db, 'pet:mao_pro', NOW)).toBe(3);
+    expect(countPetRunsToday(db, 'pet:demo_cartoon_cat', NOW)).toBe(1);
+    expect(countPetRunsToday(db, 'pet:ug_official', NOW)).toBe(0);
   });
 
-  it('昨天的不算，日界按本地零点', () => {
+  /**
+   * ⚠ 这条是 2026-09-24 修正的核心：判据从 `created_at` 换成 `completed_at`。
+   *
+   * 原来数"今天建了几条"，于是**批量入队**时第一轮派发就判超额：6 条排队 → 计数 6 →
+   * 每条都被拒 → 当天 6 条目标一条 completed 都没有（真机日志里的
+   * `refused: 今日目标已用满（6/5）`）。排队**不算**被使唤过。
+   */
+  it('只排队、还没跑的**不算**（判据是 completed_at，不是 created_at）', () => {
     const db = createMigratedTestDb();
-    insertGoal(db, { id: 'y', agentId: 'pet:mao_pro', createdAt: localIso(NOW, -1, 23) });
-    insertGoal(db, { id: 't0', agentId: 'pet:mao_pro', createdAt: localIso(NOW, 0, 0) });
+    const at = localIso(NOW, 0, 10);
+    for (let i = 0; i < 6; i += 1) {
+      insertGoal(db, { id: `queued-${i}`, agentId: 'pet:mao_pro', createdAt: at });
+    }
+    expect(countPetRunsToday(db, 'pet:mao_pro', NOW)).toBe(0);
 
-    expect(countPetGoalsToday(db, 'pet:mao_pro', NOW)).toBe(1);
+    // 跑掉一条之后才计入
+    insertGoal(db, { id: 'ran', agentId: 'pet:mao_pro', createdAt: at, completedAt: at, status: 'completed' });
+    expect(countPetRunsToday(db, 'pet:mao_pro', NOW)).toBe(1);
+  });
+
+  it('昨天收尾的不算，日界按本地零点', () => {
+    const db = createMigratedTestDb();
+    insertGoal(db, {
+      id: 'y',
+      agentId: 'pet:mao_pro',
+      createdAt: localIso(NOW, -1, 23),
+      completedAt: localIso(NOW, -1, 23),
+      status: 'completed',
+    });
+    insertGoal(db, {
+      id: 't0',
+      agentId: 'pet:mao_pro',
+      createdAt: localIso(NOW, -1, 23),
+      completedAt: localIso(NOW, 0, 0),
+      status: 'completed',
+    });
+
+    // 跨零点那条：昨天派、今天收尾 → 记在今天（与 token 记账同口径）
+    expect(countPetRunsToday(db, 'pet:mao_pro', NOW)).toBe(1);
   });
 
   it('读库失败按 0 算（这是限制，读不到就放开比锁死安全）', () => {
@@ -171,6 +206,6 @@ describe('countPetGoalsToday', () => {
         throw new Error('no such table');
       },
     } as unknown as DatabaseAdapter;
-    expect(countPetGoalsToday(broken, 'pet:mao_pro', NOW)).toBe(0);
+    expect(countPetRunsToday(broken, 'pet:mao_pro', NOW)).toBe(0);
   });
 });

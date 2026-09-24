@@ -62,6 +62,37 @@ const MOOD_IMPACT: Record<string, { energy?: number; valence?: number; arousal?:
    * 纯降 valence 会得到一个抑郁的、不再尝试的宠物——"牵挂"的来源正是这个 arousal。
    */
   user_struggling: { valence: -0.25, arousal: +0.15 },
+
+  /**
+   * 宠物替用户办成了一件事（五期 T5.5，设计 §7.3）。
+   *
+   * **为什么不复用 `goal_completed`**（架构上完全可行——分键后两条线各写各的键）：
+   * 那一条的方向是 `arousal -0.15`，即**镇静下来**。对"自主进化完成了一件自己的事"
+   * 这是对的（一件事收尾了，落地）；对宠物**恰好相反**——它替你去跑了一趟、
+   * 回来告诉你结果，那一下是**兴奋**（arousal ↑），是"我做到了"。
+   *
+   * 这条差别有个具体的后果，不是措辞问题：第四期把 `Cheer` 接在
+   * `valence` 跨过 +0.2 上（`mood-shift.ts`）。共用 `goal_completed` 的话
+   * valence 只涨 0.25、arousal 反而被压下去，**雀跃几乎永远不够阈值**——
+   * 于是"宠物会因为帮上忙而高兴"这件事在真机上看不见。
+   *
+   * 正性事件第四期就缺（`user_struggling` 是唯一的宠物专属事件，而且是向下的），
+   * 这是补上的那一条。
+   */
+  pet_task_done: { valence: +0.35, arousal: +0.15 },
+
+  /**
+   * 宠物去看了，但没看成（五期 T5.5）。
+   *
+   * 与 `task_failed`（valence -0.35 / arousal +0.2）差在三处，都是刻意的：
+   * 1. **轻一点**（-0.3）：宠物办砸的多半是"没读到文件""搜索没结果"，
+   *    不是任务侧那种"一个目标做废了"；同样的剂量会把它压成不敢再试。
+   * 2. **耗一点精力**（energy -0.1）：它真的跑了一趟、花了 token。
+   * 3. **arousal 仍然是 +**（设计 §7.3 的双向影响）：失败让它低落，
+   *    也让它**在意**——"失败会沮丧但会再试"的机制基础就是这个 arousal。
+   *    纯降 valence 会得到一个不再尝试的宠物。
+   */
+  pet_task_failed: { valence: -0.3, arousal: +0.15, energy: -0.1 },
 };
 
 function clamp(v: number, lo: number, hi: number): number {

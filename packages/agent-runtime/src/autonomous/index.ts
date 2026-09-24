@@ -29,6 +29,7 @@ export * from './planner-landing'
 export * from './pet-definition'
 export * from './pet-goals'
 export * from './pet-sensing'
+export * from './pet-task'
 
 // P1 - 高级功能
 export * from './capability-tracker'

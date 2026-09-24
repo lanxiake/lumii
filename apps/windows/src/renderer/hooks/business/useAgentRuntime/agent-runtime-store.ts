@@ -313,6 +313,20 @@ export interface MultiSessionRuntimeState {
    * 卡已经不在了（用户刚在主窗处置过）就**安静降级为只切会话**，不是错误——只是慢了一步。
    */
   readonly focusPermissionRequestId: string | null
+  /**
+   * **一次性意图**：把这段话当成你说的话，发给主助手。
+   *
+   * 唯一的设置者是宠物窗口的「转给主助手」按钮（五期 T5.8）——宠物窗自己发不出消息
+   * （会话状态与 agent-runtime 都在主窗），所以它把**主进程拼好的成句文本**交上来，
+   * 由 ChatPage 走**它自己那条**发送路径送出去。
+   *
+   * 与 `focusPermissionRequestId` 完全同一套手法（同一个来源、同样的"消费即清"），
+   * 差别只在载荷：那条送的是"看哪里"，这条送的是"说什么"。
+   *
+   * ⚠ 文本到这一层**已经是可以直接发的用户消息**（主进程的 `buildPetHandoffText` 拼的），
+   * 消费方不要再包一层前缀，否则用户会在会话里看见两段自我介绍。
+   */
+  readonly pendingPetHandoff: string | null
 }
 
 /**
@@ -395,6 +409,7 @@ function getDefaultRuntimeState(): MultiSessionRuntimeState {
     isReady: false,
     sessionListRevision: 0,
     focusPermissionRequestId: null,
+    pendingPetHandoff: null,
   }
 }
 
@@ -409,6 +424,18 @@ export function setFocusPermissionRequestId(requestId: string | null): void {
     prev.focusPermissionRequestId === requestId
       ? prev
       : { ...prev, focusPermissionRequestId: requestId },
+  )
+}
+
+/**
+ * 设置/清空「把这段话发给主助手」（宠物窗口的「转给主助手」送上来的）。
+ *
+ * 与 `setFocusPermissionRequestId` 同一条纪律：**不属于任何会话**的跨会话一次性意图，
+ * 所以留在顶层；用完即清（ChatPage 发出去之后立刻清，见那边的 effect）。
+ */
+export function setPendingPetHandoff(text: string | null): void {
+  runtimeStore.setState((prev) =>
+    prev.pendingPetHandoff === text ? prev : { ...prev, pendingPetHandoff: text },
   )
 }
 

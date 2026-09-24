@@ -19,6 +19,8 @@ import {
   type PetMotionActionDTO,
   type PetPerchEvent,
   type PetPersonalityDTO,
+  type PetTaskCreateResult,
+  type PetTaskStateDTO,
   type PetVhSettingsChangedEvent,
   type VirtualHumanSettingsDTO,
   PET_IPC,
@@ -106,6 +108,19 @@ export const petApi: PetElectronAPI = {
 
   getPetPersonality: (configId: string): Promise<PetPersonalityDTO | null> =>
     ipcRenderer.invoke(PET_IPC.getPetPersonality, configId),
+
+  // ── 「让它去做」那条线（五期 T5.7/T5.8）─────────────────────────────
+  // 受理判断全在主进程（见 PET_IPC.petTaskCreate 的注释），这里只是转发。
+  petTaskCreate: (text: string): Promise<PetTaskCreateResult> =>
+    ipcRenderer.invoke(PET_IPC.petTaskCreate, text),
+
+  getPetTaskState: (): Promise<PetTaskStateDTO | null> =>
+    ipcRenderer.invoke(PET_IPC.petTaskState),
+
+  markPetTaskRead: (): Promise<void> => ipcRenderer.invoke(PET_IPC.petTaskMarkRead),
+
+  handoffPetTaskToMain: (payload: { description: string; text: string }): Promise<void> =>
+    ipcRenderer.invoke(PET_IPC.petHandoffToMain, payload),
 
   onModelChanged: (callback: (event: PetModelChangedEvent) => void): () => void =>
     createPetEventListener<PetModelChangedEvent>(PET_IPC.evtModelChanged, callback),

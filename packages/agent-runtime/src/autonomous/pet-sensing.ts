@@ -137,6 +137,18 @@ export interface PetSensingFinding {
   readonly text: string;
   /** 归到哪个会话：用用户当前在用的那条，点气泡时跳回去 */
   readonly sessionKey: string;
+  /**
+   * 这句话可以**派它去做**的一件具体事（五期 T5.1 的意图来源②，设计 §4.2.1）。
+   *
+   * 有它就说明这条气泡上的按钮不是"跳回会话"，而是"让我去看看"——
+   * 用户点一下，它真的出门跑一趟（走 `pet-task-service` 那条受理 → 派发 → 回执）。
+   *
+   * ⚠ **只有在说得出一件具体的事时才有**（见 {@link proposalFor}）。
+   * 说不出就不给这个出口：一个"要不要我去看看"而没有"看什么"的按钮，
+   * 点下去宠物只能瞎翻，回来报一句不痛不痒的话——那比不给按钮更糟
+   * （用户按了、等了、得到一句废话，下次就不按了）。
+   */
+  readonly proposal?: { readonly description: string };
 }
 
 /** 一次感知读到的全部信号 */
@@ -554,7 +566,13 @@ function decideSpeak(signals: PetSensingSignals): PetSensingFinding | null {
     signals.spokenToday[kind] < MAX_PET_SENSING_PER_KIND_PER_DAY;
 
   if (signals.interruptions >= INTERRUPTION_THRESHOLD && allowed('interrupted')) {
-    return { kind: 'interrupted', text: INTERRUPTED_TEXT, sessionKey };
+    const proposal = proposalFor(signals.workTopic);
+    return {
+      kind: 'interrupted',
+      text: INTERRUPTED_TEXT,
+      sessionKey,
+      ...(proposal ? { proposal } : {}),
+    };
   }
 
   const threshold =
@@ -570,8 +588,25 @@ function decideSpeak(signals: PetSensingSignals): PetSensingFinding | null {
 }
 
 /**
- * 没说话的原因（进日志）。
+ * 规则①那句话可以附带的那件事（五期 T5.1②）。
  *
+ * **它手上只有"看"的工具**（`PET_TOOL_ALLOWLIST`：搜索 / 读文件 / 翻资料库 / 查记忆），
+ * 所以这件事必须落在那几样里。取"翻资料和记忆"而不是"看看你的代码哪里有 bug"：
+ * 后者听起来更像人话，但它只能靠 grep 猜，回来的多半是废话——
+ * 而前者是它**真的能做完**的一件事（`memory_search` + `wiki_search` 是它的本行）。
+ *
+ * ⚠ **说不出主题就不给建议**（返回 null）。`workTopic` 是从沉淀里读的
+ * （`readWorkTopic`），读不到时（没建项目记忆、或那条链上没有）与其说
+ * "要不要我去看看"，不如只说"要不要歇会儿"——设计 §4.1.5 的克制那一条。
+ */
+function proposalFor(workTopic: string | null): { description: string } | null {
+  const topic = workTopic?.trim();
+  if (!topic) return null;
+  return { description: `查一下「${topic}」相关的资料和我记过的东西` };
+}
+
+/**
+ * 没说话的原因（进日志）。
  * 这一段是**调阈值唯一的证据来源**：阈值的量法就是"连着几天看这些话"，
  * 所以它必须把当场那几个数报出来，而不是只说一句"没说"。
  */

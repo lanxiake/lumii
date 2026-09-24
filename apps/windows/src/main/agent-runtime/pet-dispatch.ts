@@ -37,7 +37,8 @@ import {
   MAX_PET_GOALS_PER_DAY,
   MAX_PET_TOKENS_PER_DAY,
   TOKEN_COST,
-  countPetGoalsToday,
+  canSpendTokens,
+  countPetRunsToday,
   finalizeGoal,
   listDuePetGoals,
   readTodayTokenUsage,
@@ -45,6 +46,7 @@ import {
   type PetGoalSignal,
 } from '@mtbot/agent-runtime'
 import { agentRuntimeLog as log } from './bridge-utils'
+import { seedCompanionCronJob } from './companion-cron-seed'
 
 const PET_DISPATCH_CRON_ID = 'pet-dispatch'
 const PET_DISPATCH_NAME = '桌宠派发'
@@ -58,6 +60,21 @@ export const PET_DISPATCH_INSTRUCTION = '__pet_dispatch__'
  * 第五期"点一下就有反应"走的是**直接调用**，不靠这个节拍，所以它不需要更密。
  */
 const PET_DISPATCH_INTERVAL_MS = 5 * 60_000
+
+/**
+ * 进程内的"这一拍还在飞"标记（2026-09-24 复审补的第二道锁）。
+ *
+ * `findActivePetAgent` 那把单飞锁**挡不住同时进来的两拍**：它在第一个 await **之前**
+ * 求值，而实例要等 `createInstance` 里的若干 await 之后才注册进注册表——那个窗口里
+ * 第二拍看到的仍是"没有宠物实例"，于是同一个目标被跑两遍（两次模型往返、两次记账、
+ * 两条回执），而且 `finalizeGoal` 是无条件 UPDATE，后跑完的那次还能把 `completed`
+ * 覆写成 `failed`。
+ *
+ * 两个调用点（cron 心跳 5 分钟一拍、受理成功后立刻踢的那一脚）走的是同一个函数，
+ * 所以锁摆在这里就把两条入口都盖住了。**跳过是安全的**：受理侧已经保证"有活在跑时不收新活"，
+ * 能撞上的只有"同一件事被两拍同时看见"。
+ */
+let dispatchInFlight = false
 
 /** 派发循环依赖的副作用（由 bridge 装配时注入） */
 export interface PetDispatchDeps {
@@ -77,8 +94,22 @@ export interface PetDispatchDeps {
   findActivePetAgent: () => string | null
   /** 执行一个宠物目标，返回结果摘要（成功/失败由它自己落库） */
   executePetGoal: (goal: PetGoalSignal) => Promise<string>
+  /**
+   * 把一个**没跑起来**的目标的结局告诉用户：写进宠物会话 + 推气泡事件（+ 落终态由本模块做）。
+   *
+   * **必须注入**：回执只写在 `executePetGoal` 成功路径上的话，另两条路用户侧零感知
+   * （三期的缺口）。实现不该抛——抛了会把一轮派发炸掉，而回执只是播报。
+   */
+  reportGoalResult: (goal: PetGoalSignal, ok: boolean, text: string) => void
   /** 当前时间（可注入，供测试固定排期） */
   now?: () => Date
+  /**
+   * 「允许宠物主动做事」总开关（五期 T5.9）。缺省视为开。
+   *
+   * **判在入口而不是判在 enabled 上**：那个 job 的 enabled 是用户能在任务页自己按的，
+   * 两处都判才是稳的（理由见 {@link syncPetDispatchJobEnabled}）。
+   */
+  isPetTaskEnabled?: () => boolean
 }
 
 /**
@@ -91,11 +122,36 @@ export interface PetDispatchDeps {
  * 宠物不是流水线，用户看到的是"它去做了一件事"，排队的事留给下一拍。
  */
 export async function runPetDispatch(deps: PetDispatchDeps): Promise<string> {
+  // 第二条锁：见 `dispatchInFlight` 的注释。判在最前面——退出清场那条也算"已经进不来了"
+  if (dispatchInFlight) {
+    log.warn('[runPetDispatch] 上一拍还没收尾，跳过本次')
+    return 'skipped: already dispatching'
+  }
+  dispatchInFlight = true
+  try {
+    return await runPetDispatchInner(deps)
+  } finally {
+    dispatchInFlight = false
+  }
+}
+
+async function runPetDispatchInner(deps: PetDispatchDeps): Promise<string> {
   if (deps.isShuttingDown?.()) {
     log.warn('[runPetDispatch] 退出清场中，跳过本次派发')
     return 'skipped: shutting down'
   }
   try {
+    /**
+     * 「允许宠物主动做事」总开关（五期 T5.9），判在最前面。
+     *
+     * 与 `enabled` 那道**都要有**（见 {@link syncPetDispatchJobEnabled}）：
+     * 这里判的是"此刻用户的意愿"，那道判的是"调度器要不要跑"。
+     * 关掉之后留在 `executing` 里的目标**不动**——不是丢弃，是等总开关再打开
+     * （"已经在路上的那件会跑完"指的是正在跑的那一次，不是排队里的）。
+     */
+    if (deps.isPetTaskEnabled && !deps.isPetTaskEnabled()) {
+      return 'skipped: pet task disabled'
+    }
     if (deps.hasActiveUserTurn?.()) return 'skipped: user turn in progress'
 
     const goals = listDuePetGoals(deps.getDb(), deps.now?.() ?? new Date())
@@ -111,17 +167,38 @@ export async function runPetDispatch(deps: PetDispatchDeps): Promise<string> {
     // 顺序：先数次数再数预算，因为次数便宜、且"今天点够了"比"预算烧完了"对用户更好解释。
     const refusal = checkPetGates(deps.getDb(), goal.agentId, now)
     if (refusal) {
-      // 拒了就要有个结果，不能让它烂在 executing 里每 5 分钟被捞一次
-      finalizeGoal(deps.getDb(), goal.id, { success: false, output: refusal })
+      // 拒了就要有个结果：落终态（不能让它烂在 executing 里每 5 分钟被捞一次）
+      // **而且要有回执**——被拒的恰恰是"用户自己交代的事"，只写一条 WARN 的话
+      // 用户唯一知情途径是去定时任务页翻 `local_cron_runs.summary`。
       log.warn(`[runPetDispatch] 拒绝 agent=${goal.agentId} goalId=${goal.id}：${refusal}`)
+      finishWithoutRun(deps, goal, refusal)
       return `refused: ${refusal}`
     }
 
     log.info(
       `[runPetDispatch] 派发宠物目标 agent=${goal.agentId} goalId=${goal.id} 待办剩余=${goals.length - 1}`,
     )
-    const result = await deps.executePetGoal(goal)
-    recordTokensIfLive(deps, now, goal.agentId)
+    let result: string
+    try {
+      result = await deps.executePetGoal(goal)
+    } catch (err) {
+      /**
+       * 执行抛错这条路**必须自己收尾**（2026-09-24 修）。
+       *
+       * 原来只记日志 + 返回 error 串：目标永远停在 `executing`（`scheduled_for` 已到期），
+       * 5 分钟后被 `listDuePetGoals` 再捞起来 —— 无限重跑、无退避。而且**两道闸门都拦不住**：
+       * 次数门数的是"跑过几条"（重试不增加），预算门读的记账恒为 0（抛错那条路没记账）。
+       * 一笔挂住就是一个死循环。
+       *
+       * 记账也要照做：这一轮**真跑过**（模型往返发生过），钱是花了的。
+       */
+      const msg = err instanceof Error ? err.message : String(err)
+      log.error(`[runPetDispatch] agent=${goal.agentId} goalId=${goal.id} 执行失败:`, msg)
+      recordTokensIfLive(deps, goal.agentId)
+      finishWithoutRun(deps, goal, msg)
+      return `error: ${msg}`
+    }
+    recordTokensIfLive(deps, goal.agentId)
     log.info(`[runPetDispatch] agent=${goal.agentId} goalId=${goal.id} result=${result}`)
     return `pet-goal: ${result}`
   } catch (err) {
@@ -131,19 +208,49 @@ export async function runPetDispatch(deps: PetDispatchDeps): Promise<string> {
 }
 
 /**
+ * 收尾一个**没能跑起来**的目标：落终态 + 发回执。
+ *
+ * 「没能跑起来」= 被硬闸门拒 / 执行抛错。**跑起来了**那条由 bridge 的 `executePetGoal`
+ * 自己收尾——只有它知道成没成。
+ *
+ * 两步各自兜异常：这是派发循环的最后一道防线，它自己再抛就没人接了；
+ * 而 `finalizeGoal` 落不下去（库已关）时，回执更得发出去——那是用户唯一的知情途径。
+ * 两步与调用顺序一致：先落库（终态是硬要求），再播报（丢了只是少一句话）。
+ */
+function finishWithoutRun(deps: PetDispatchDeps, goal: PetGoalSignal, reason: string): void {
+  try {
+    finalizeGoal(deps.getDb(), goal.id, { success: false, output: reason })
+  } catch (err) {
+    log.error(
+      `[runPetDispatch] 终态落库失败 goalId=${goal.id}:`,
+      err instanceof Error ? err.message : err,
+    )
+  }
+  try {
+    deps.reportGoalResult(goal, false, reason)
+  } catch (err) {
+    log.error(
+      `[runPetDispatch] 回执发送失败 goalId=${goal.id}:`,
+      err instanceof Error ? err.message : err,
+    )
+  }
+}
+
+/**
  * 两道硬闸门的判定。超额返回可读的拒绝理由，未超额返回 null。
  *
  * **两道谁先到算谁**（`config.ts` 的注释：5 × `TOKEN_COST.executeGoal` 与 40k 同量级）。
- * 预算那道按 `TOKEN_COST.executeGoal` 预估——与自主进化的记账口径一致：
- * 预算是"上限保护"不是精确计费。
+ * 预算那道用 `canSpendTokens` 判——与自主进化那条路**同一个函数**，
+ * 不在这里重写一遍比较（两份实现迟早漂移，而这是安全闸门）。
  */
 function checkPetGates(db: DatabaseAdapter, agentId: string, now: Date): string | null {
-  const usedToday = countPetGoalsToday(db, agentId, now)
-  if (usedToday > MAX_PET_GOALS_PER_DAY) {
-    return `今日目标已用满（${usedToday}/${MAX_PET_GOALS_PER_DAY}）`
+  const runsToday = countPetRunsToday(db, agentId, now)
+  if (runsToday >= MAX_PET_GOALS_PER_DAY) {
+    return `今日目标已用满（${runsToday}/${MAX_PET_GOALS_PER_DAY}）`
   }
-  const tokensUsed = readTodayTokenUsage(db, agentId, now)
-  if (tokensUsed + TOKEN_COST.executeGoal > MAX_PET_TOKENS_PER_DAY) {
+  if (!canSpendTokens(db, agentId, now, TOKEN_COST.executeGoal, MAX_PET_TOKENS_PER_DAY)) {
+    // 拒绝才多读一次拿可读数字：正常路径上不为日志多查一次库
+    const tokensUsed = readTodayTokenUsage(db, agentId, now)
     return `今日预算不足（已用 ${tokensUsed}，本次需 ${TOKEN_COST.executeGoal}，上限 ${MAX_PET_TOKENS_PER_DAY}）`
   }
   return null
@@ -153,11 +260,15 @@ function checkPetGates(db: DatabaseAdapter, agentId: string, now: Date): string 
  * token 记账守卫：动作跑完时进程可能已在关库（与 `evolution-tick.ts` 的
  * `recordUsageIfLive` 同一条约定——记账只是预算簿记，停机中丢一条无妨，
  * 但硬写会把一次已完成的心跳炸成 "Database not initialized" 失败）。
+ *
+ * **时间在这里现取**，不用派发开始时那个：一轮可能跨过本地零点（模型往返几分钟是常事），
+ * 用旧时间会把这一笔记到**前一天**，于是今天的预算凭空多出一次、昨天多算一次
+ * （跨零点那一拍的闸门判定也跟着错）。口径取"记账发生在哪一天"。
  */
-function recordTokensIfLive(deps: PetDispatchDeps, now: Date, agentId: string): void {
+function recordTokensIfLive(deps: PetDispatchDeps, agentId: string): void {
   if (deps.isShuttingDown?.()) return
   try {
-    recordTokenUsage(deps.getDb(), agentId, now, TOKEN_COST.executeGoal)
+    recordTokenUsage(deps.getDb(), agentId, deps.now?.() ?? new Date(), TOKEN_COST.executeGoal)
   } catch (err) {
     log.warn(`[runPetDispatch] token 记账失败 agent=${agentId}:`, err instanceof Error ? err.message : err)
   }
@@ -166,38 +277,52 @@ function recordTokensIfLive(deps: PetDispatchDeps, now: Date, agentId: string): 
 /**
  * 播种宠物派发 cron job（幂等）。
  *
- * 与 `ensureEvolutionCronJobSeeded` 的两处差别，都是刻意的：
- * 1. **enabled 不跟随任何开关**——首启置 1，之后**不覆盖**（用户可在任务页暂停）。
- *    自主进化心跳每次启动都把 enabled 强拉回开关值，那是它被总开关接管的表现；
- *    宠物还没有那个开关（T5.9 才有），提前替用户决定"关掉"是错的。
- * 2. **形态仍然自愈**（interval / agent_id=NULL / every / 无生效窗口）：
- *    这个 job 若被改成 agent 驱动，cron 会把 `__pet_dispatch__` 当真实 prompt 喂给某个 Agent，
- *    与 `__evolution_tick__` 同一个坑。
+ * 与 `ensureEvolutionCronJobSeeded` 的差别只有一处，是刻意的：
+ * **播种时 enabled 不跟随任何开关**——首启置 1，之后**不覆盖**（用户可在任务页暂停）。
+ * 自主进化心跳每次启动都把 enabled 强拉回开关值，那是它被总开关接管的表现。
+ *
+ * ⚠ 五期 T5.9 有了「允许宠物主动做事」开关之后，enabled 由
+ * {@link syncPetDispatchJobEnabled} 单独同步（**启动时一次 + 设置变更时一次**），
+ * 不走这条播种路径——播种只负责"job 存在且形态正确"，开关归开关。
+ *
+ * 形态（interval / agent_id=NULL / every / 无生效窗口）与它**共用** `seedCompanionCronJob`：
+ * 那份 SQL 原本是逐行复制的，而复制出来的东西不会一起改——形态一旦漂移，
+ * 这条 job 会被 cron 当成真实 prompt 喂给某个 Agent，与 `__evolution_tick__` 同一个坑。
  */
 export function ensurePetDispatchCronJobSeeded(db: DatabaseAdapter): void {
+  seedCompanionCronJob(db, {
+    id: PET_DISPATCH_CRON_ID,
+    name: PET_DISPATCH_NAME,
+    instruction: PET_DISPATCH_INSTRUCTION,
+    intervalMs: PET_DISPATCH_INTERVAL_MS,
+    enabledOnCreate: 1,
+    // 不传 enabledOnReseed → 保留库里的值（用户的暂停）
+  })
+}
+
+/**
+ * 「允许宠物主动做事」总开关 → job 的 enabled（五期 T5.9）。
+ *
+ * 与 `syncCompanionTickJobEnabled` 同一手法，但**两处都要判**：
+ * 这里管"调度器还要不要跑"（省掉每 5 分钟一次的唤醒），
+ * `runPetDispatch` 里那道管"此刻用户的意愿"（用户手点任务页也能暂停它）。
+ * 只留一道都不够：
+ * - 只留 enabled：用户手点暂停后，设置页那个开关就成了摆设（反过来也一样）；
+ * - 只留代码判据：这个 job 会永远在任务页显示"运行中"，而它其实什么都不做。
+ *
+ * ⚠ **启动时也同步一次**（见 bridge 的 `initialize`）。不同步的话有个真实的坑：
+ * 设置在关的状态下，用户手动在任务页把 job 打开 → 派发被代码判据挡下，
+ * 而"允许宠物主动做事"看着是开的——两个开关互相打架，谁也说不清哪个算数。
+ * 代价是任务页那个暂停不再是持久的（与自主进化那几个 job 同一条约定）。
+ */
+export function syncPetDispatchJobEnabled(db: DatabaseAdapter, enabled: boolean): void {
   try {
-    const existing = db
-      .prepare<{ id: string }>(`SELECT id FROM local_cron_jobs WHERE id = ?`)
-      .get(PET_DISPATCH_CRON_ID)
-
-    if (existing) {
-      db.prepare(
-        `UPDATE local_cron_jobs SET interval_ms = ?, agent_id = NULL,
-         schedule_type = 'every', schedule_expr = '',
-         active_hour_start = NULL, active_hour_end = NULL, notify_targets = NULL
-         WHERE id = ?`,
-      ).run(PET_DISPATCH_INTERVAL_MS, PET_DISPATCH_CRON_ID)
-      return
-    }
-
-    const now = Date.now()
-    db.prepare(
-      `INSERT INTO local_cron_jobs
-       (id, name, task_text, agent_id, schedule_type, schedule_expr, next_run_at, interval_ms, enabled, created_at)
-       VALUES (?, ?, ?, NULL, 'every', '', ?, ?, 1, ?)`,
-    ).run(PET_DISPATCH_CRON_ID, PET_DISPATCH_NAME, PET_DISPATCH_INSTRUCTION, now, PET_DISPATCH_INTERVAL_MS, now)
-    log.info(`[ensurePetDispatchCronJobSeeded] 新建 job id=${PET_DISPATCH_CRON_ID} intervalMs=${PET_DISPATCH_INTERVAL_MS}`)
+    db.prepare(`UPDATE local_cron_jobs SET enabled = ? WHERE id = ?`).run(
+      enabled ? 1 : 0,
+      PET_DISPATCH_CRON_ID,
+    )
+    log.info(`[syncPetDispatchJobEnabled] enabled=${enabled}`)
   } catch (err) {
-    log.error('[ensurePetDispatchCronJobSeeded] 失败:', err)
+    log.error('[syncPetDispatchJobEnabled] 失败:', err)
   }
 }

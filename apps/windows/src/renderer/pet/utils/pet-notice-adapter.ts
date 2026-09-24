@@ -34,6 +34,9 @@ import { TASK_COMPLETE_TOOL_NAME, type NoticeEvent, type PetNotice } from '@mtbo
  * "回到刚才"而不是默认的"去看看"——后者对着「要不要歇会儿」读起来像在问"去看什么"。
  */
 export function noticeActionLabel(notice: PetNotice): string {
+  // 带建议的感知（五期 T5.1②）：按钮是"派它去做"，不是"跳回去"。
+  // 判据在 proposal 上，不在 kind 上——同一条 kind 可能没有建议（见 proposalFor）
+  if (notice.proposal) return '让我去看看'
   if (notice.kind === 'pet-sensing') return '回到刚才'
   switch (notice.deepLink?.to) {
     case 'permission':
@@ -94,6 +97,10 @@ export interface RawAgentEvent {
    */
   readonly text?: string
   readonly ok?: boolean
+  /** `pet:goal:result` 的目标 id（气泡幂等键，见 `PetGoalResultEvent.goalId`） */
+  readonly goalId?: string
+  /** `pet:sensing` 附带的可派事项（五期 T5.1②，见 `PetSensingEvent.proposal`） */
+  readonly proposal?: { readonly description: string }
 }
 
 /**
@@ -250,6 +257,8 @@ export function toNoticeEvent(raw: RawAgentEvent, facts: NoticeTurnFacts): Notic
     fileCount: raw.fileChanges?.length,
     hasTaskComplete: facts.sawTaskComplete,
     userInitiated: facts.userInitiated,
+    goalId: raw.goalId,
+    ...(raw.proposal?.description ? { proposal: { description: raw.proposal.description } } : {}),
     ...(type === 'pet:goal:result' ? { ok: raw.ok !== false } : {}),
   }
 }

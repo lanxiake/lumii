@@ -41,6 +41,8 @@ export const VH_STORAGE_KEYS = {
   forceIgnoreMouse: 'mtbot:vh-force-ignore-mouse',
   /** 闲置感知（关=用户离开多久都不打盹不睡） */
   enableIdleAwareness: 'mtbot:vh-enable-idle-awareness',
+  /** 是否允许宠物主动做事（关=「让它去做」被拒，派发循环也停下） */
+  enablePetTask: 'mtbot:vh-enable-pet-task',
 } as const
 
 /** 动作/神态标签（替代 OLV 的 <think>，避免与推理块冲突，ADR-12） */
@@ -120,6 +122,17 @@ export interface VirtualHumanSettingsDTO {
    * 也有人就是不想要宠物自作主张。
    */
   enableIdleAwareness: boolean
+  /**
+   * 是否允许宠物**主动做事**（五期 T5.9）。
+   *
+   * 管的是"派它去看一眼"这条线：关掉之后，「让它去做」会被受理侧直接拒掉，
+   * 派发循环也不再跑。**已经跑出去的那一件会跑完**——它已经花掉预算在路上了，
+   * 半路掐断只会留下一句没头没尾的回执。
+   *
+   * 默认开：这是宠物最"有用"的一件事（设计 §4.2 说它是成本最低、感知最强的一条）。
+   * 但必须能关——它花的是真金白银的 token，而且会真的去读用户的文件。
+   */
+  enablePetTask: boolean
   /** 开启主动联系（仅宠物模式下触达） */
   proactiveCareEnabled: boolean
   /** 联系频率：温和 / 热情 */
@@ -141,6 +154,7 @@ export const DEFAULT_VH_SETTINGS: VirtualHumanSettingsDTO = {
   enableTapInteraction: true,
   forceIgnoreMouse: false,
   enableIdleAwareness: true,
+  enablePetTask: true,
   proactiveCareEnabled: false,
   proactiveCareMode: 'gentle',
   proactiveCareNickname: '',

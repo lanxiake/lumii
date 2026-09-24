@@ -418,6 +418,71 @@ export function registerPetModeIpc(deps: PetWindowManagerDeps): void {
     }
   })
 
+  /**
+   * 「让它去做」这三条（五期 T5.1/T5.7/T5.8）与人格那条同一手法：**惰性 import**
+   * agent-runtime。理由也一样——pet 这一层不该在启动期就把整个运行时拽起来，
+   * 而且 bridge 未就绪时它们返回 `null` / 一句"还没准备好"，渲染层照常显示，
+   * 不必为一个可能永远用不上的功能付启动成本。
+   *
+   * ⚠ 受理判断（单飞锁 / 日闸门 / 能力边界）**全在主进程做**，渲染层只负责把
+   * 用户那句话递进来、把 `reason` 说出来。判断只能有一份——两份迟早漂移，
+   * 而漂移的后果是"按钮说可以、派发侧说不行"。
+   */
+  ipcMain.handle(PET_IPC.petTaskCreate, async (_evt, text: string) => {
+    try {
+      const { createPetTask } = await import('../agent-runtime/pet-task-service')
+      return await createPetTask(typeof text === 'string' ? text : '')
+    } catch (err) {
+      log.warn(`petTaskCreate 失败: ${err instanceof Error ? err.message : String(err)}`)
+      return { ok: false, reason: '我这边出了点岔子，等一下再试？' }
+    }
+  })
+
+  ipcMain.handle(PET_IPC.petTaskState, async () => {
+    try {
+      const { getPetTaskState } = await import('../agent-runtime/pet-task-service')
+      return getPetTaskState()
+    } catch (err) {
+      log.warn(`petTaskState 失败: ${err instanceof Error ? err.message : String(err)}`)
+      return null
+    }
+  })
+
+  ipcMain.handle(PET_IPC.petTaskMarkRead, async () => {
+    try {
+      const { markPetTaskRead } = await import('../agent-runtime/pet-task-service')
+      markPetTaskRead()
+    } catch (err) {
+      log.warn(`petTaskMarkRead 失败: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  })
+
+  /**
+   * 「转给主助手」（五期 T5.8）。
+   *
+   * 主进程只做两件事：把那段话**拼成句**、发给主窗。**真正送出去的是主窗**——
+   * 会话状态与 agent-runtime 都在渲染层那一侧，主进程没有会话，
+   * 硬发就是两份真相（与 `focusSession` 同一条纪律）。
+   *
+   * 与 `focusSession` / `focusNotice` 的差别只有载荷：那两条送的是"去哪"，
+   * 这条送的是"说什么"。三者都带主窗到前台，因为用户按的是一个"请你处理"的按钮。
+   */
+  ipcMain.handle(
+    PET_IPC.petHandoffToMain,
+    async (_evt, payload: { description?: string; text?: string } | undefined) => {
+      const win = petWindowManager?.getMainWindow()
+      const text = payload?.text?.trim()
+      if (!win || win.isDestroyed() || !text) return
+      if (win.isMinimized()) win.restore()
+      win.show()
+      win.focus()
+      const { buildPetHandoffText } = await import('../agent-runtime/pet-task-service')
+      const composed = buildPetHandoffText({ description: payload?.description?.trim() || '一件事', text })
+      log.info(`[petHandoffToMain] 交给主助手: ${composed.slice(0, 60)}`)
+      win.webContents.send(PET_IPC.evtMainHandoff, composed)
+    },
+  )
+
   // 全局快捷键：Ctrl+Shift+P 切换宠物/桌面模式
   try {
     const okPet = globalShortcut.register(SHORTCUT_TOGGLE_PET_MODE, () => {

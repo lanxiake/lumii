@@ -316,6 +316,21 @@ export const PetSettingsSection: React.FC = () => {
             </span>
           </div>
 
+          {/* 让它去做（五期 T5.9）：宠物**真的会花 token 去读你的文件**，所以必须能关 */}
+          <div className={styles['setting-item']}>
+            <Checkbox
+              checked={vhSettings.enablePetTask}
+              onChange={(checked) => void patchVh({ enablePetTask: checked })}
+            >
+              允许宠物主动做事
+            </Checkbox>
+            <span className={styles['setting-hint']}>
+              开启后控制坞里会有「让它去做」：把一件事交给它，它自己去搜索、读文件，回来报结果
+              （只会看，不会改你的东西）。它会真的花掉模型的调用额度，所以想关随时能关；
+              已经在路上的那一件会跑完
+            </span>
+          </div>
+
           {/* 强制穿透默认值 */}
           <div className={styles['setting-item']}>
             <Checkbox

@@ -21,7 +21,7 @@ import type { ViewType } from '../../components/Router'
 import { SIDEBAR_SESSION_SLOT_ID, SIDEBAR_TOGGLE_EVENT } from '../../components/layout/Sidebar'
 import { executeSlashCommand, BACKEND_INFO } from './commands/slash-command-executor'
 import { loadSlashCommandsFromIpc } from './commands/slash-commands'
-import { updateSessionState, setFocusPermissionRequestId } from '../../hooks/business/useAgentRuntime/agent-runtime-store'
+import { updateSessionState, setFocusPermissionRequestId, setPendingPetHandoff } from '../../hooks/business/useAgentRuntime/agent-runtime-store'
 import clsx from 'clsx'
 import {
   readPersistedSessionThinkingPrefs,
@@ -168,6 +168,8 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
    * `focusPermissionRequestId`）→ App.tsx 写进 store → 这里命中就高亮那张卡。
    */
   const focusPermissionRequestId = useAgentRuntimeGlobalState((s) => s.focusPermissionRequestId)
+  /** 「转给主助手」送上来的那段话（宠物窗 → 主进程 → App.tsx，见下方 consumption effect） */
+  const pendingPetHandoff = useAgentRuntimeGlobalState((s) => s.pendingPetHandoff)
   const highlightPendingPermission =
     Boolean(focusPermissionRequestId) && runtimePendingPermission?.requestId === focusPermissionRequestId
   /**
@@ -1232,6 +1234,27 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
   const handleToggleAutoApprove = useCallback(() => {
     setAutoApprove((v) => !v)
   }, [])
+
+  /**
+   * 「转给主助手」（五期 T5.8）：把宠物送上来的那段话当成**你说的话**发出去。
+   *
+   * 意图由宠物窗 → 主进程 → `app-ui:pet-handoff` → App.tsx 写进 store 到这里消费，
+   * 与 `focusPermissionRequestId` 完全同一套手法（那条送的是"看哪里"，这条送的是"说什么"）。
+   *
+   * ⚠ **主助手正忙时不丢，等它闲下来**：`isSending` 在依赖里，翻回 false 时这条 effect
+   * 会再跑一次。`handleSend` 自己有 `if (isSending) return` 的早退，不处理的话
+   * 用户按了按钮什么都没发生——而"我按了、它也去办了"是这个功能的全部意义。
+   *
+   * 消费即清（先清再发，避免发送失败时无限重试把同一句话灌进会话）。
+   */
+  useEffect(() => {
+    if (!pendingPetHandoff) return
+    if (isSending) return
+    const text = pendingPetHandoff
+    setPendingPetHandoff(null)
+    logger.info(`[pet-handoff] 转给主助手，长度=${text.length}`)
+    void handleSend(text)
+  }, [pendingPetHandoff, isSending, handleSend])
 
   const formatTime = useCallback((date: Date): string => {
     const now = new Date()

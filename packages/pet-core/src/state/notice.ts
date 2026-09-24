@@ -104,6 +104,16 @@ export interface PetNotice {
    * 档位管"要不要占用你的注意力"，色调管"这是好事还是坏事"，两件事。
    */
   readonly tone?: "positive" | "negative";
+  /**
+   * 这句话可以**派它去做**的一件具体事（五期 T5.1②）。
+   *
+   * 只有感知类（`pet-sensing`）会带它。有它时那个按钮的含义变了：
+   * 不是"回到那个会话"，而是"让我去看看"——点一下真的派出一个宠物目标
+   * （见宿主侧的 `noticeActionLabel` 与 `handleFocusNotice`）。
+   *
+   * 缺省（`undefined`）= 没有可派的事，按钮维持原来的语义。
+   */
+  readonly proposal?: { readonly description: string };
   /** `action` 档必填：处置它的深链 */
   readonly deepLink?: NoticeDeepLink;
   /** `report`/`ambient` 的展示时长：到点自清（`action` 没有这个——它要一直挂着） */
@@ -176,6 +186,13 @@ export interface NoticeEvent {
    * 哈希文案会让"第二次失败"被当成重放而永远冒不出来。
    */
   readonly goalId?: string;
+  /**
+   * 这条话可以派它去做的一件具体事（`pet:sensing.proposal`，五期 T5.1②）。
+   *
+   * 缺省 = 没建议。**不是所有感知类都有**：说得出一件具体的事才给这个出口
+   * （理由见宿主侧 `pet-sensing.ts` 的 `proposalFor`）。
+   */
+  readonly proposal?: { readonly description: string };
 }
 
 /** 产生通知时的环境。`now` 与 `tickNotices` / `pickNoticeForBubble` 用同一个时钟。 */
@@ -639,7 +656,18 @@ export function noticeFromEvent(event: NoticeEvent, ctx: NoticeContext): PetNoti
         createdAt: now,
         text,
         deepLink: { to: "session" },
-        ttlMs: REPORT_TTL_MS,
+        /**
+         * ⚠ **比 `report` 的 30 秒长**，与 `pet:sensing` 同一条理由（见 `SENSING_TTL_MS`）：
+         * 它也要排过一次"每会话 1 条/分钟"的闸门才轮得到冒泡。
+         *
+         * 回执是**一件接一件**来的：用户一次点两件事、或一件办砸了又补一件，两次结局
+         * 相隔几秒是常态（宠物跑一轮 3–10 秒）。第二条被闸门挡住要等到 60 秒，
+         * 而 30 秒的 TTL 在 38 秒就把它清掉了 —— 用户只听见第一件的回音，
+         * **第二件从此消失**（设计 §7.1/F6：用户交代的事必须件件有回音）。
+         *
+         * 上面 `turn:end` 那道闸只挡了宠物会话上的额度消耗，挡不住"同一分钟内两条回执"。
+         */
+        ttlMs: REPORT_TTL_MS + REPORT_PER_SESSION_MS,
       };
     }
 
@@ -668,6 +696,10 @@ export function noticeFromEvent(event: NoticeEvent, ctx: NoticeContext): PetNoti
         // 跳回你刚才在干的那条会话——感知类的话没有可处置的东西，
         // 但"回到刚才"这个动作本身是合理的（点完就把主窗带回那条会话）
         deepLink: { to: "session" },
+        // 有建议时那个按钮改成"让我去看看"（宿主侧的 noticeActionLabel 读它）
+        ...(event.proposal?.description?.trim()
+          ? { proposal: { description: event.proposal.description.trim() } }
+          : {}),
         // ⚠ 比 `report` 的 30 秒长：它要排过一次会话闸门才轮得到冒泡，见 `SENSING_TTL_MS`
         ttlMs: SENSING_TTL_MS,
       };

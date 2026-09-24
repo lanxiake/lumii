@@ -352,6 +352,47 @@ describe('decidePetSensing —— 说话', () => {
     expect(decidePetSensing(makeSignals({ interruptions: 2 })).speak).toBeNull();
   });
 
+  /**
+   * 五期 T5.1②：规则①那句话可以带一件"可以派它去做"的事。
+   *
+   * 有建议时气泡上那个按钮的含义就变了（"让我去看看"而不是"回到刚才"），
+   * 所以它什么时候**有**、什么时候**没有**，是这条链路上最容易做错的一处。
+   */
+  describe('建议（T5.1 的意图来源②）', () => {
+    it('读到工作主题时带上建议，且主题**逐字**进描述', () => {
+      const d = decidePetSensing(makeSignals({ interruptions: 3, workTopic: '像素流水线' }));
+      expect(d.speak?.kind).toBe('interrupted');
+      expect(d.speak?.proposal?.description).toContain('像素流水线');
+    });
+
+    it('读不到主题就不给建议 —— 宁可没有按钮，也不给一个"看什么"都不知道的按钮', () => {
+      const d = decidePetSensing(makeSignals({ interruptions: 3, workTopic: null }));
+      expect(d.speak?.kind).toBe('interrupted');
+      expect(d.speak?.proposal).toBeUndefined();
+    });
+
+    it('主题只有空白也不算数', () => {
+      const d = decidePetSensing(makeSignals({ interruptions: 3, workTopic: '   ' }));
+      expect(d.speak?.proposal).toBeUndefined();
+    });
+
+    it('"该歇会儿了"那条**不带**建议 —— 建议休息和派它去干活是两件事', () => {
+      const d = decidePetSensing(
+        makeSignals({ continuousWorkMs: CONTINUOUS_WORK_MS, workTopic: '像素流水线' }),
+      );
+      expect(d.speak?.kind).toBe('tired');
+      expect(d.speak?.proposal).toBeUndefined();
+    });
+
+    it('建议落在它**真的做得到**的事上（查资料/记忆，不是"改代码"）', () => {
+      const d = decidePetSensing(makeSignals({ interruptions: 3, workTopic: '像素流水线' }));
+      const description = d.speak?.proposal?.description ?? '';
+      // 它的白名单只有只读检索（PET_TOOL_ALLOWLIST），描述必须落在那个能力圈里
+      expect(description).toMatch(/查|资料|记忆/);
+      expect(description).not.toMatch(/改|写|删|跑|执行/);
+    });
+  });
+
   it('连续工作满 2 小时 → 提醒休息', () => {
     const d = decidePetSensing(makeSignals({ continuousWorkMs: CONTINUOUS_WORK_MS }));
     expect(d.speak?.kind).toBe('tired');

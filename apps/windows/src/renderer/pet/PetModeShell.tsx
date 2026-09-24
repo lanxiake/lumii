@@ -27,7 +27,7 @@ import { PetContextMenu } from './components/PetContextMenu'
 import { spawnClickFireworks, spawnIdleSparkles } from './components/pet-particles'
 import { PetOrchestrator, type PetAvatarStatus } from './orchestrator/PetOrchestrator'
 import { PetEmotionMapper } from './orchestrator/PetEmotionMapper'
-import { announceDurationMs, mapAgentEvent, pendingNotices, traitLabel, type PetIdleStage, type PetNotice } from '@mtbot/pet-core'
+import { announceDurationMs, isPetSessionKey, mapAgentEvent, pendingNotices, traitLabel, type PetIdleStage, type PetNotice } from '@mtbot/pet-core'
 import { useVoiceCall } from '../hooks/business/useVoiceCall/useVoiceCall'
 import { useAgentRuntimeActions } from '../hooks/business/useAgentRuntime/useAgentRuntime'
 import type { PetModelConfig } from './config/pet-model-types'
@@ -43,7 +43,7 @@ import {
   type VirtualHumanSettingsDTO,
 } from '../../shared/virtual-human'
 import type { PetChatMessage } from './components/PetControlDock'
-import type { PetModelConfigDTO, PetPersonalityDTO } from '../../shared/pet-mode'
+import type { PetModelConfigDTO, PetPersonalityDTO, PetTaskStateDTO } from '../../shared/pet-mode'
 import { usePrefersReducedMotion } from './utils/use-prefers-reduced-motion'
 import { resolveEmotionKeyByIndex } from './utils/pet-status-labels'
 import { pickStatusGlyph } from './utils/pet-status-glyph'
@@ -93,6 +93,14 @@ async function resolveVoiceAgentId(modelAgentId?: string): Promise<string | unde
   }
   return resolveAgentId({ settings, modelAgentId })
 }
+
+/**
+ * 「让它去做」点下去立刻冒的那句话（五期 T5.7）。
+ *
+ * 短——它只是"我收到了"，不是结果。设计 §10.3.3 第 2 步要的就是这个：
+ * 用户按下去得马上看见有反应，而不是盯着一个没动静的桌面等一分钟。
+ */
+const PET_TASK_RUNNING_TEXT = '我去看看'
 
 export const PetModeShell: React.FC = () => {
   const { currentMode, currentModelId, exitPetMode } = usePetMode()
@@ -314,12 +322,152 @@ export const PetModeShell: React.FC = () => {
     if (bubbleTimerRef.current) clearTimeout(bubbleTimerRef.current)
     bubbleTimerRef.current = null
     setBubble(null)
+    /**
+     * 五期 T5.1②：这条感知带着"要不要我去看看"（`notice.proposal`）。
+     *
+     * 有建议时按钮的含义变了——不是"回到那个会话"，而是**真的派它去做**。
+     * 所以走派活那条路，不走 `focusNotice`（那是把主窗带到会话门口的）。
+     *
+     * 经 ref 转一手而不是直接调 `handlePetTaskRun`：那个声明在本回调**之后**
+     * （它要用到 `showLocalBubble`），而这个回调的依赖是 `[]`——
+     * 直接引用会把它锁在**首次渲染**那一份闭包上，`petTaskRunning` 永远是 false，
+     * 于是本地那道防连点就失灵了（主进程还有单飞锁兜着，但那要多绕一圈才拒）。
+     */
+    if (notice.proposal?.description) {
+      petTaskRunRef.current(notice.proposal.description)
+      return
+    }
     const requestId =
       notice.deepLink?.to === 'permission' || notice.deepLink?.to === 'ask-user'
         ? notice.deepLink.requestId
         : undefined
     void window.electronAPI?.pet?.focusNotice?.({ sessionKey: notice.sessionKey, requestId })?.catch?.(() => {})
   }, [])
+  /**
+   * 冒一条**本地**气泡（不来自通知系统）。
+   *
+   * 「让它去做」的即时反馈走它（五期 T5.7）：点下去的"我去看看"、被受理侧拒掉时的
+   * 那句理由。与通知气泡走同一套定位与计时，但**不经过 pet-core 的限流**
+   * ——那是"别主动打扰用户"的闸门，而这里是用户**刚按了按钮**，属于应答不是打扰。
+   *
+   * 取值方式和通知那条一模一样（同一个 `canvasRef.getRenderer()`）；
+   * 因此它和通知气泡共用 `bubbleTimerRef`：新气泡会顶掉旧的，这正是想要的
+   * （拒绝理由要能盖掉那句"我去看看"，而不是两条一起挂）。
+   */
+  const showLocalBubble = useCallback((text: string, durationMs?: number) => {
+    if (bubbleTimerRef.current) clearTimeout(bubbleTimerRef.current)
+    const renderer = canvasRef.current?.getRenderer()
+    const pos = renderer?.getPosition?.()
+    const layout = renderer?.getLayout?.()
+    setBubble({
+      text,
+      x: pos?.x ?? 0,
+      y: pos?.y ?? 0,
+      petHeight: layout?.modelHeight ?? 200,
+    })
+    bubbleTimerRef.current = setTimeout(() => setBubble(null), durationMs ?? announceDurationMs(text))
+  }, [])
+
+  // ── 「让它去做」那条线（五期 T5.1/T5.7/T5.8）────────────────────────────
+  /**
+   * 派活入口的**转发 ref**。
+   *
+   * `handleFocusNotice`（声明在上面）要能触发派活，而 `handlePetTaskRun` 声明在下面
+   * ——直接引用会让那个 `[]` 依赖的回调锁在首次渲染的闭包上（理由见那边的注释）。
+   * 用 ref 转一手：ref 的读取永远是最新的。
+   */
+  const petTaskRunRef = useRef<(text: string) => void>(() => {})
+  /**
+   * 控制坞宠物流那一区的内容（进行中的 + 结果回执 + 未读）。
+   *
+   * `null` = 读不到（bridge 没起、不在宠物模式）→ 那一区整块不渲染。
+   * **不在渲染层自己攒一份**：真相在库里（回执要能跨重启、跨关坞活下来，
+   * 见设计 §4.2.2），这里只是一份读下来的快照。
+   *
+   * ⚠ 声明必须早于下面那个 `glyph` 的 `useMemo`——`useMemo` 的回调在**本次渲染中
+   * 立刻执行**，先用它再声明会撞 TDZ（不是"稍后才读"，是当场 ReferenceError）。
+   */
+  const [petTask, setPetTask] = useState<PetTaskStateDTO | null>(null)
+  /**
+   * 正在受理（点了按钮、还没拿到主进程的回答）。
+   *
+   * 与 `petTask.running` 分开：那个是**库里的**事实（目标已落库、等着跑），
+   * 这个是**这一次点击**的在途状态。两者都算"它现在有事在手上"。
+   */
+  const [petTaskBusy, setPetTaskBusy] = useState(false)
+  const petTaskRunning = petTaskBusy || petTask?.running != null
+
+  const refreshPetTask = useCallback(async () => {
+    try {
+      const state = await window.electronAPI?.pet?.getPetTaskState?.()
+      // `undefined` = 这个 API 不存在（旧 preload / 屏蔽平台），保持原样别把界面清空
+      if (state !== undefined) setPetTask(state ?? null)
+    } catch {
+      // 读不到就保持原样：这一区是次要信息，不该为一个读失败弹错误
+    }
+  }, [])
+
+  /**
+   * 点「让它去做」。
+   *
+   * ⚠ **反馈先于 IPC**（设计 §10.3.3 要求 < 200ms）：一次 IPC 往返 + 一次读库没人能
+   * 保证在那个预算内。所以先冒"我去看看"、再问主进程；被拒时**换掉**这条气泡
+   * ——"点了没反应"是最糟的反馈，而"点了说不行"至少是诚实的。
+   *
+   * 受理判断全在主进程（单飞锁 / 日闸门 / 能力边界都要读库），渲染层只递话。
+   */
+  const handlePetTaskRun = useCallback(
+    async (text: string) => {
+      const trimmed = text.trim()
+      if (!trimmed || petTaskRunning) return
+      setPetTaskBusy(true)
+      showLocalBubble(PET_TASK_RUNNING_TEXT)
+      try {
+        const res = await window.electronAPI?.pet?.petTaskCreate?.(trimmed)
+        if (res && res.ok === false) {
+          log.info(`[handlePetTaskRun] 被拒: ${res.reason}`)
+          showLocalBubble(res.reason)
+        } else {
+          log.info(`[handlePetTaskRun] 受理 text="${trimmed.slice(0, 40)}"`)
+        }
+      } catch (err) {
+        log.warn(`[handlePetTaskRun] 失败: ${err instanceof Error ? err.message : err}`)
+        showLocalBubble('我这边出了点岔子，等一下再试？')
+      } finally {
+        setPetTaskBusy(false)
+        void refreshPetTask()
+      }
+    },
+    [petTaskRunning, showLocalBubble, refreshPetTask],
+  )
+
+  /** 「转给主助手」：把这条回执交给主窗（主进程转发，真正的发送在主窗里做） */
+  const handlePetTaskHandoff = useCallback((item: { description: string; text: string }) => {
+    log.info(`[handlePetTaskHandoff] ${item.description.slice(0, 40)}`)
+    void window.electronAPI?.pet?.handoffPetTaskToMain?.(item)?.catch?.(() => {})
+  }, [])
+
+  // 把最新的派活入口交给上面那个 ref（`handleFocusNotice` 用它，见那边的注释）
+  useEffect(() => {
+    petTaskRunRef.current = (text) => void handlePetTaskRun(text)
+  }, [handlePetTaskRun])
+
+  /**
+   * 坞打开时读一次宠物流，读完把它标为已读（五期 T5.8）。
+   *
+   * **"看过"的判据是"坞开着"**：这一区就在坞的第一屏（它排在最上面），
+   * 坞一打开它就在用户眼前。要求用户再点一下"已读"是把责任推给他，
+   * 而设计要的只是"回来能看见"——看见了就算看见。
+   *
+   * 顺序是刻意的：**先读再标**。反过来的话这一次渲染拿到的就是"全都已读"，
+   * 用户永远看不见"哪几条是新的"——未读高亮的意义正好在这。
+   */
+  useEffect(() => {
+    if (!dockOpen) return
+    void refreshPetTask().then(() => {
+      void window.electronAPI?.pet?.markPetTaskRead?.()?.catch?.(() => {})
+    })
+  }, [dockOpen, refreshPetTask])
   /** 别处等你出手（waiting/error），用来抢头顶符号 */
   const attention = useMemo(
     () => foreignAttention(sessionRuns, sessionKeyRef.current),
@@ -344,22 +492,34 @@ export const PetModeShell: React.FC = () => {
    * 这是用户 2026-09-22 那条要求（「待机不要左右和上下移动……需要添加特效」）的
    * 另一半——位移去掉之后，可读信号得从别处补回来。取值规则见 `pickStatusGlyph`。
    */
-  const glyph = useMemo(
-    () =>
-      pickStatusGlyph({
-        phase: avatarStatus?.phase ?? 'idle',
-        idleStage: avatarStatus?.idleStage,
-        agentActivity: avatarStatus?.agentActivity,
-        // 只把"最急的那个"传下去：同一个符号位放不下第二个状态，
-        // 而 waiting 比 error 更可操作（卡住多半是没人理它的后果）
-        foreignAttention: attention[0]
-          ? attention[0].state === 'error'
-            ? 'error'
-            : 'waiting'
-          : undefined,
-      }),
-    [avatarStatus, attention],
-  )
+  const glyph = useMemo(() => {
+    const base = pickStatusGlyph({
+      phase: avatarStatus?.phase ?? 'idle',
+      idleStage: avatarStatus?.idleStage,
+      agentActivity: avatarStatus?.agentActivity,
+      // 只把"最急的那个"传下去：同一个符号位放不下第二个状态，
+      // 而 waiting 比 error 更可操作（卡住多半是没人理它的后果）
+      foreignAttention: attention[0]
+        ? attention[0].state === 'error'
+          ? 'error'
+          : 'waiting'
+        : undefined,
+    })
+    /**
+     * 「让它去做」进行中 → 换成"正在干活"（五期 T5.7，设计 §10.3.3 第 2 步）。
+     *
+     * 借 `'…'` + `info` 那个符号，不新造一个：用户已经认识它（Agent 跑工具时头顶就是它），
+     * 而多一个只有宠物任务才会出现的符号，收益抵不上多教一个符号的成本。
+     *
+     * ⚠ **alert 档不让位**：`pickStatusGlyph` 的排序原则是"用户此刻该不该被打断"，
+     * `?`（有审批等你）与 `!`（卡住了）都比"宠物在替你跑腿"急——它们不处理，
+     * 事情就停在那里；而这件跑腿的事本来就会自己跑完。
+     */
+    if (petTaskRunning && base?.tone !== 'alert') {
+      return { char: '…', tone: 'info' as const, label: '正在替你看这件事' }
+    }
+    return base
+  }, [avatarStatus, attention, petTaskRunning])
   /** 符号的锚点：**符号变了才重取位置**，不每帧跟随（与气泡同一取舍，见上方注释） */
   const [glyphAnchor, setGlyphAnchor] = useState<{
     x: number
@@ -598,10 +758,16 @@ export const PetModeShell: React.FC = () => {
           // `report` 档"完成时放一次"粒子（设计 §5.1 的通道表）。
           // `action` 档**刻意不放**——设计原文："庆祝归庆祝，催办不用喜庆特效"。
           // 位置取**上半身**而不是贴头顶：与待机星星同一个先例（贴头顶像"头发着火"）。
+          //
+          // `tone === 'negative'` 也不放：宠物**把事情办砸了**同样是 `report` 档
+          // （失败回执也不需要用户出手），文案分了失败、视觉通道却照样庆祝——
+          // 那是"宠物做砸了，眼前却在放烟花"。色调标记由 pet-core 给（见 PetNotice.tone）。
           const renderer = canvasRef.current?.getRenderer()
           const pos = renderer?.getPosition?.()
           const layout = renderer?.getLayout?.()
-          if (pos) {
+          if (n.tone === 'negative') {
+            log.info(`[notice] 失败回执不放粒子 id=${n.id} text="${n.text}"`)
+          } else if (pos) {
             log.info(`[notice] 完成粒子 id=${n.id} text="${n.text}"`)
             spawnClickFireworks(pos.x, pos.y - (layout?.modelHeight ?? 200) * 0.82)
           }
@@ -870,6 +1036,14 @@ export const PetModeShell: React.FC = () => {
         }
         const evtSessionKey = event.rootSessionKey ?? event.sessionKey
         /**
+         * 宠物流有新回执 → 重取一次（五期 T5.8）。
+         *
+         * **事件只当"该刷新了"的信号，内容一律从库里读**：气泡那条事件是瞬时的、
+         * 且不含未读状态，而控制坞那一列要的是持久真相。多一次几条 SELECT，
+         * 比在渲染层再攒一份、再想办法和库对齐划算。
+         */
+        if (event.type === 'pet:goal:result') void refreshPetTask()
+        /**
          * 多会话运行态记账：**在按会话过滤之前**折一次，别人的事件也要收。
          *
          * 这里只回答"谁在跑、谁在等你出手"，**不参与姿态/表情**——
@@ -886,10 +1060,24 @@ export const PetModeShell: React.FC = () => {
             ),
           )
         }
-        // 镜像事件到达时采纳主窗口会话（宠物窗未起呼前 sessionKeyRef 可能为空）
+        /**
+         * 镜像事件到达时采纳主窗口会话（宠物窗未起呼前 sessionKeyRef 可能为空）。
+         *
+         * ⚠ **不许采纳宠物自己那条会话**。采纳是"猜用户在看哪条会话"，而
+         * `evolution:pet:<模型ID>` 是宠物干活的地方，它现在也会往这条 IPC 上发事件
+         * （T3.5 的回执、四期的感知）。一旦被采纳成本地键，此后用户**真实**会话的事件
+         * 全部被下面的 `petSessionMatchesEvent` 丢掉——宠物窗哑掉，而且 `handleSendText`
+         * 会把用户的话写进宠物自己的会话里（两边都不报错，只表现为"说了没反应"）。
+         * 触发时机是有的：用户右键挂断（`handleStopVoice` 清空 sessionKeyRef）时
+         * 宠物目标正在流式，下一条事件就是它自己的。
+         */
         if (evtSessionKey && !sessionKeyRef.current) {
-          sessionKeyRef.current = evtSessionKey
-          log.info(`[onEvent] 采纳会话 sessionKey=${evtSessionKey}`)
+          if (isPetSessionKey(evtSessionKey)) {
+            log.info(`[onEvent] 不采纳宠物自己的会话 sessionKey=${evtSessionKey}`)
+          } else {
+            sessionKeyRef.current = evtSessionKey
+            log.info(`[onEvent] 采纳会话 sessionKey=${evtSessionKey}`)
+          }
         }
         // 通知折账（R6）：**同样在按会话过滤之前**——别人的会话卡住了，也占着同一个
         // Agent 进程与同一份配额，必须叫（设计 §七「推翻 D3」）。
@@ -1381,6 +1569,10 @@ export const PetModeShell: React.FC = () => {
         otherRuns={otherRuns}
         pendingNotices={pendingNoticeList}
         onFocusNotice={handleFocusNotice}
+        petTask={petTask}
+        onPetTaskRun={handlePetTaskRun}
+        onPetTaskHandoff={handlePetTaskHandoff}
+        petTaskBusy={petTaskBusy}
         // 点一条会话 → 主进程把主窗带到前台并把 app-ui:goto（带 sessionKey）发过去；
         // 真正的会话切换在主窗的 agent-runtime 里做（会话状态不在主进程）
         onFocusSession={(sessionKey) => {

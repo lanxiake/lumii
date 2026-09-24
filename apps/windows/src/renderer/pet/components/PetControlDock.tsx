@@ -7,7 +7,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import type { VoiceCallState } from '../../../shared/voice-events'
-import type { PetModelConfigDTO } from '../../../shared/pet-mode'
+import type { PetModelConfigDTO, PetTaskItemDTO, PetTaskStateDTO } from '../../../shared/pet-mode'
 import {
   MicIcon,
   VolumeOnIcon,
@@ -70,6 +70,31 @@ export interface PetControlDockProps {
   pendingNotices?: readonly PetNotice[]
   /** 点某条待办：把人送到那张卡前面（S2 只做"主窗前台 + 切会话"，高亮那张卡是 S3） */
   onFocusNotice?: (notice: PetNotice) => void
+  /**
+   * 控制坞「宠物流」那一区（五期 T5.6/T5.8）：进行中的条目 + 结果回执 + 未读。
+   *
+   * `null` / 缺省 = 整块不渲染（bridge 没起、不在宠物模式）。**与 `pendingNotices`
+   * 不是一回事**：那边是"现在要不要你出手"（有 TTL、会销账），这边是"它替你看过什么"
+   * （持久、带未读）。设计 §10.3.2 那张图里，"宠物"与"对话"是消息区的两条流，
+   * 而待办区在状态栏——三块各占各的位置。
+   */
+  petTask?: PetTaskStateDTO | null
+  /**
+   * 点「让它去做」。
+   *
+   * 坞**不做任何受理判断**（单飞锁 / 日闸门 / 能力边界都要读库，主进程才有）。
+   * 它只把文本递上去；受理结论以气泡 + 宠物流条目的形式回来。
+   */
+  onPetTaskRun?: (text: string) => void | Promise<void>
+  /** 「转给主助手」：把它看到的东西交给真正的任务 Agent（用户主动触发，唯一通道） */
+  onPetTaskHandoff?: (item: { description: string; text: string }) => void | Promise<void>
+  /**
+   * 正在受理中（点了按钮、还没拿到回答）。
+   *
+   * 用来**立刻**把按钮与输入框置灰——设计 §10.3.3 要求点下去 < 200ms 有响应，
+   * 而"按钮还能再点"会让用户以为没点上，于是连点三次。
+   */
+  petTaskBusy?: boolean
   modelLoaded: boolean
   voiceError?: string | null
   /** 可切换的 Live2D 模型列表（控制坞下拉展示） */
@@ -156,6 +181,18 @@ const dark = (alpha: number): string => `rgba(${DARK.join(', ')}, ${alpha})`
 /** 强调色底上的前景白——固定在有色底上，不参与"层亮度"调节 */
 const FG_ON_ACCENT = '#fff'
 
+/**
+ * 宠物流的色调（设计 §10.3.2：「宠物自己的流（气泡式，**蓝色调**）」）。
+ *
+ * 与对话流的 `#a5f3fc`（青）刻意不同色：两条流同屏，靠的是**颜色**分区，
+ * 而不是一条分割线——用户扫一眼就知道哪句是它自己冒出来的、哪句是在跟他对话。
+ * 蓝色也比青色冷一点，与"它去办事"这个语义配。
+ */
+const PET_FLOW_COLOR = '#93c5fd'
+
+/** 回执失败时的色调。与待办区那个 `rgba(255,205,120,…)` 同色系（"这不是好消息"只用一套色） */
+const PET_FLOW_FAIL_COLOR = 'rgba(255, 205, 120, 0.95)'
+
 const glass: React.CSSProperties = {
   background: dark(0.72),
   backdropFilter: 'blur(10px)',
@@ -183,6 +220,10 @@ export const PetControlDock: React.FC<PetControlDockProps> = ({
   onFocusSession,
   pendingNotices,
   onFocusNotice,
+  petTask,
+  onPetTaskRun,
+  onPetTaskHandoff,
+  petTaskBusy,
   modelLoaded,
   voiceError,
   models,
@@ -204,6 +245,8 @@ export const PetControlDock: React.FC<PetControlDockProps> = ({
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null)
   const [inputText, setInputText] = useState('')
   const [showVoiceSettings, setShowVoiceSettings] = useState(false)
+  /** 展开的那条回执 id。一次只展开一条——坞只有 400px 宽，两条展开就把它撑成一张长表 */
+  const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null)
   const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null)
 
   const handleSend = useCallback(() => {
@@ -265,6 +308,16 @@ export const PetControlDock: React.FC<PetControlDockProps> = ({
 
   const visibleMessages = messages.slice(-MAX_VISIBLE_MESSAGES)
   const showMessageArea = visibleMessages.length > 0 || !!partialTranscript || inCall
+  /**
+   * 宠物流那一区显不显示。
+   *
+   * **进行中的条目也算内容**（`running` 非空就显示）——设计 §10.3.3 第 3 步要的就是
+   * "用户点完立刻看到一条在转的条目"，那时还没有任何回执。
+   */
+  const petFlow = petTask
+  const hasPetFlow = !!petFlow && (petFlow.running !== null || petFlow.items.length > 0)
+  /** 有两条流才加"对话"小标题：只有一条流时加标题是凭空的仪式感 */
+  const showFlowLabels = hasPetFlow && showMessageArea
 
   const positionStyle: React.CSSProperties = pos
     ? { position: 'absolute', left: pos.x, top: pos.y, transform: 'none' }
@@ -327,38 +380,79 @@ export const PetControlDock: React.FC<PetControlDockProps> = ({
           </div>
         )}
 
-        {/* 聊天记录区（用户+AI，输入框上方轻量展示） */}
-        {showMessageArea && (
+        {/* 聊天记录区：**两条流同屏分区**（五期 T5.6，设计 §10.3.2） */}
+        {(showMessageArea || hasPetFlow) && (
           <div
             ref={messagesRef}
             style={{
               padding: '12px 16px',
-              maxHeight: 180,
+              maxHeight: 220,
               overflowY: 'auto',
               borderBottom: `1px solid ${light(0.08)}`,
               ...selectableText,
             }}
           >
-            {visibleMessages.map((m) => (
-              <ChatBubble key={m.id} role={m.role} text={m.text} />
-            ))}
-            {partialTranscript && (
-              <div
-                style={{
-                  fontSize: 13,
-                  color: `${light(0.5)}`,
-                  fontStyle: 'italic',
-                  marginTop: 4,
-                  ...selectableText,
-                }}
-              >
-                {partialTranscript}
+            {/*
+              ── 宠物流（上半区，蓝色调）──
+              设计 §10.3.2 的一句话解释了它为什么**不是**第二个 Tab：
+              「宠物主动说话的价值在于它自己冒出来」——藏进 Tab 就等于没有。
+              所以分区但同屏，让它在余光里被看到。
+            */}
+            {hasPetFlow && petFlow && (
+              <div style={{ marginBottom: showMessageArea ? 10 : 0 }}>
+                <FlowLabel
+                  text="宠物"
+                  tone={PET_FLOW_COLOR}
+                  badge={petFlow.unread > 0 ? `${petFlow.unread} 条没看` : undefined}
+                />
+                {petFlow.running && (
+                  <div style={{ display: 'flex', gap: 6, alignItems: 'baseline', marginBottom: 6, fontSize: 13 }}>
+                    <span aria-hidden="true" style={{ color: PET_FLOW_COLOR, animation: 'none' }}>
+                      ●
+                    </span>
+                    <span style={{ color: `${light(0.62)}` }}>
+                      正在看：{shortText(petFlow.running.description, 18)}
+                    </span>
+                  </div>
+                )}
+                {petFlow.items.map((item) => (
+                  <PetTaskRow
+                    key={item.id}
+                    item={item}
+                    expanded={expandedTaskId === item.id}
+                    onToggle={() => setExpandedTaskId((prev) => (prev === item.id ? null : item.id))}
+                    {...(onPetTaskHandoff ? { onHandoff: onPetTaskHandoff } : {})}
+                  />
+                ))}
               </div>
             )}
-            {visibleMessages.length === 0 && !partialTranscript && inCall && voiceState === 'listening' && (
-              <div style={{ fontSize: 12, color: `${light(0.35)}`, textAlign: 'center' }}>
-                对着麦克风说话开始对话
-              </div>
+
+            {/* ── 对话流（下半区，现有那块，原样）── */}
+            {showMessageArea && (
+              <>
+                {showFlowLabels && <FlowLabel text="对话" tone={`${light(0.45)}`} />}
+                {visibleMessages.map((m) => (
+                  <ChatBubble key={m.id} role={m.role} text={m.text} />
+                ))}
+                {partialTranscript && (
+                  <div
+                    style={{
+                      fontSize: 13,
+                      color: `${light(0.5)}`,
+                      fontStyle: 'italic',
+                      marginTop: 4,
+                      ...selectableText,
+                    }}
+                  >
+                    {partialTranscript}
+                  </div>
+                )}
+                {visibleMessages.length === 0 && !partialTranscript && inCall && voiceState === 'listening' && (
+                  <div style={{ fontSize: 12, color: `${light(0.35)}`, textAlign: 'center' }}>
+                    对着麦克风说话开始对话
+                  </div>
+                )}
+              </>
             )}
           </div>
         )}
@@ -629,6 +723,7 @@ export const PetControlDock: React.FC<PetControlDockProps> = ({
             }}
             style={{
               flex: 1,
+              minWidth: 0,
               padding: '8px 12px',
               borderRadius: 10,
               border: `1px solid ${light(0.18)}`,
@@ -638,6 +733,39 @@ export const PetControlDock: React.FC<PetControlDockProps> = ({
               outline: 'none',
             }}
           />
+          {/*
+            「让它去做」（五期 T5.7，设计 §10.3.3）。
+            与旁边的「发送」是**两件事**：发送是把这句话说给虚拟人听（一轮对话），
+            这个是**派它出门办事**（去读文件/搜索，然后回来报结果）。
+            `petTaskBusy` 期间置灰——不是防连点（主进程还有单飞锁），
+            而是让"点上了"这件事在按钮上看得见。
+          */}
+          <button
+            type="button"
+            title="让它替你去看看这件事，回来报结果"
+            disabled={!inputText.trim() || !!petTaskBusy}
+            onClick={() => {
+              const text = inputText.trim()
+              if (!text || petTaskBusy) return
+              setInputText('')
+              void onPetTaskRun?.(text)
+            }}
+            style={{
+              flexShrink: 0,
+              padding: '8px 10px',
+              borderRadius: 10,
+              border: 'none',
+              background:
+                inputText.trim() && !petTaskBusy ? 'rgba(34,211,238,0.80)' : `${light(0.12)}`,
+              color: inputText.trim() && !petTaskBusy ? '#062b33' : `${light(0.45)}`,
+              fontSize: 12,
+              fontWeight: 600,
+              cursor: inputText.trim() && !petTaskBusy ? 'pointer' : 'default',
+              transition: 'background 0.15s',
+            }}
+          >
+            {petTaskBusy ? '在看…' : '让它去做'}
+          </button>
           <DockIconButton title="发送" onClick={handleSend} accent="#6366f1" active={!!inputText.trim()}>
             <SendIcon />
           </DockIconButton>
@@ -676,6 +804,155 @@ export const PetControlDock: React.FC<PetControlDockProps> = ({
           </DockTextButton>
         </div>
       </div>
+    </div>
+  )
+}
+
+/**
+ * 一条流的小标题（"宠物" / "对话"）。
+ *
+ * `badge` 给未读数用（"2 条没看"）——设计 §4.2.2 的硬要求：用户交代了事，回来必须
+ * 有办法**一眼看出有几条没看**，而不是逐条读一遍才知道哪条是新的。
+ */
+const FlowLabel: React.FC<{ text: string; tone: string; badge?: string }> = ({ text, tone, badge }) => (
+  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
+    <span style={{ fontSize: 11, fontWeight: 600, color: tone, letterSpacing: 0.5 }}>{text}</span>
+    {badge && (
+      <span
+        style={{
+          fontSize: 10,
+          padding: '1px 6px',
+          borderRadius: 999,
+          background: 'rgba(34,211,238,0.16)',
+          border: `1px solid rgba(125,211,252,0.45)`,
+          color: PET_FLOW_COLOR,
+        }}
+      >
+        {badge}
+      </span>
+    )}
+  </div>
+)
+
+/** 按**码点**截断并补省略号（emoji 不被切成半个，与 pet-core 同一口径） */
+function shortText(text: string, max: number): string {
+  const chars = [...text]
+  return chars.length <= max ? text : `${chars.slice(0, max).join('')}…`
+}
+
+/** 回执时刻的相对说法。**不显示绝对时间**：坞里那句话只需要"多久以前" */
+function relativeTime(iso: string, now = Date.now()): string {
+  const at = Date.parse(iso)
+  if (!Number.isFinite(at)) return ''
+  const mins = Math.floor((now - at) / 60_000)
+  if (mins < 1) return '刚刚'
+  if (mins < 60) return `${mins} 分钟前`
+  const hours = Math.floor(mins / 60)
+  if (hours < 24) return `${hours} 小时前`
+  return `${Math.floor(hours / 24)} 天前`
+}
+
+/**
+ * 宠物流里的一条回执（五期 T5.8）。
+ *
+ * 三件事是设计点过名的，缺一不可：
+ * 1. **未读高亮**（§4.2.2）：气泡是瞬时的，用户去倒杯水就错过了——这条要一直亮到看过；
+ * 2. **可展开完整结果**（§10.3.3）：坞里那行是摘要（`PET_PROMPT` 要求三行内），
+ *    但用户有时要的是全部；
+ * 3. **一键「转给主助手」**（§4.2.2）：宠物与任务 Agent 之间**唯一**的通道，
+ *    且只能由用户按——所以它只在展开后出现，不是一个随手会点到的按钮。
+ *
+ * ⚠ 失败的措辞与配色**一并**换：文案分开而颜色照旧（"好消息绿、坏消息也绿"）
+ * 会让用户扫一眼以为是成了——那正是 §7.1 说的"把没办成说得像办成了"。
+ */
+const PetTaskRow: React.FC<{
+  item: PetTaskItemDTO
+  expanded: boolean
+  onToggle: () => void
+  onHandoff?: (item: { description: string; text: string }) => void | Promise<void>
+}> = ({ item, expanded, onToggle, onHandoff }) => {
+  const fg = item.ok ? PET_FLOW_COLOR : PET_FLOW_FAIL_COLOR
+  return (
+    <div style={{ marginBottom: 6 }}>
+      {/* 行头：整块可点（展开/收起）。**不是 `<button>`**——里面还要放"转给主助手"那个
+          按钮，按钮套按钮是非法 HTML，浏览器会把内层挤出去 */}
+      <div
+        role="button"
+        tabIndex={0}
+        title={expanded ? '收起' : '展开完整结果'}
+        onClick={onToggle}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            onToggle()
+          }
+        }}
+        style={{
+          cursor: 'pointer',
+          borderRadius: 8,
+          padding: '4px 8px',
+          // 未读：描边 + 淡底。**不用更亮的字色**——字色在这个坞里已经是语义（成功/失败）
+          border: `1px solid ${item.unread ? 'rgba(125,211,252,0.55)' : 'transparent'}`,
+          background: item.unread ? 'rgba(34,211,238,0.10)' : 'transparent',
+          fontSize: 13,
+          lineHeight: 1.5,
+          color: fg,
+        }}
+      >
+        <span aria-hidden="true" style={{ marginRight: 5, color: fg }}>
+          {item.ok ? '·' : '!'}
+        </span>
+        <span
+          style={
+            expanded
+              ? { whiteSpace: 'pre-wrap', wordBreak: 'break-word' }
+              : {
+                  display: '-webkit-box',
+                  WebkitLineClamp: 2,
+                  WebkitBoxOrient: 'vertical',
+                  overflow: 'hidden',
+                }
+          }
+        >
+          {item.text}
+        </span>
+        <div style={{ marginTop: 2, fontSize: 10, color: `${light(0.4)}` }}>
+          {relativeTime(item.at)}
+          {item.unread && <span style={{ marginLeft: 6, color: PET_FLOW_COLOR }}>未读</span>}
+        </div>
+      </div>
+      {expanded && (
+        <div
+          style={{
+            marginTop: 4,
+            paddingLeft: 8,
+            borderLeft: `2px solid ${light(0.12)}`,
+          }}
+        >
+          {/* 用户当时问的那句话：回执单独看常常不知道在回答什么 */}
+          <div style={{ fontSize: 11, color: `${light(0.5)}`, marginBottom: 6, ...selectableText }}>
+            你问的：{item.description}
+          </div>
+          {onHandoff && (
+            <button
+              type="button"
+              title="把它看到的交给主助手接着处理（会切到主窗并发出这条消息）"
+              onClick={() => void onHandoff({ description: item.description, text: item.text })}
+              style={{
+                padding: '4px 10px',
+                borderRadius: 8,
+                border: `1px solid rgba(125,211,252,0.45)`,
+                background: 'transparent',
+                color: PET_FLOW_COLOR,
+                fontSize: 11,
+                cursor: 'pointer',
+              }}
+            >
+              转给主助手
+            </button>
+          )}
+        </div>
+      )}
     </div>
   )
 }

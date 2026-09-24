@@ -80,6 +80,50 @@ export interface PetPersonalityDTO {
   }
 }
 
+/**
+ * 控制坞「宠物流」里的一条（五期 T5.8）。
+ *
+ * 与**气泡**分工不同，两者都要有：气泡负责"当下被看见"，这一条负责"回来能看见"
+ * （设计 §4.2.2）。所以它没有 TTL，未读状态一直挂着直到用户真的看过。
+ */
+export interface PetTaskItemDTO {
+  /** 目标 id（`autonomous_goals.id`），展开与转交都用它定位 */
+  id: string
+  /** 用户当时说的那句话（原样） */
+  description: string
+  /** 成没成。**失败必须看得出来**——把没办成说得像办成了是撒谎（设计 §7.1） */
+  ok: boolean
+  /** 宠物报回来的原话（**不改写**，那是它说的） */
+  text: string
+  /** 回执时刻（ISO） */
+  at: string
+  /** 未读：控制坞据此高亮，直到用户看过这个列表 */
+  unread: boolean
+}
+
+/** 控制坞宠物流那一区的全部内容 */
+export interface PetTaskStateDTO {
+  /**
+   * 正在看的那件事；没有则 `null`。
+   *
+   * 有它才有"进行中条目（带转圈）"（设计 §10.3.3 第 3 步）——
+   * 用户点完按钮的下一眼必须看到"它去了"，而不是等结果时才第一次有反应。
+   */
+  running: { id: string; description: string; startedAt: string } | null
+  /** 结果回执，新的在前 */
+  items: PetTaskItemDTO[]
+  /** 未读条数（`items` 里未读的个数，单独给是因为坞里要显示数字） */
+  unread: number
+}
+
+/**
+ * 「让它去做」的受理结论。
+ *
+ * `reason` 直接进气泡与控制坞——**它是成句的中文**（"今天已经使唤我 5 次了…"），
+ * 不是一个错误码。渲染层不许再包一层前缀，否则会得到"失败：今天已经使唤我…"。
+ */
+export type PetTaskCreateResult = { ok: true; id: string } | { ok: false; reason: string }
+
 /** pet IPC 通道名常量（主进程与 preload 共用，避免散落字符串） */
 export const PET_IPC = {
   /** invoke：切换模式 */
@@ -195,6 +239,43 @@ export const PET_IPC = {
    * **保守方向是少打扰**。
    */
   evtMainWindowFocus: 'pet:main-window-focus',
+  /**
+   * invoke：**「让它去做」** —— 用户输入框旁那个按钮（五期 T5.7）。
+   *
+   * 受理判断在主进程（`pet-task-service.ts`），**不在渲染层**：单飞锁、日闸门、
+   * 能力边界三样都要读库，而渲染层读不到库；更重要的是**判断只能有一份**
+   * （两份迟早漂移，漂移的后果是"按钮说可以、派发侧说不行"）。
+   *
+   * 返回 `{ok:false, reason}` 时 `reason` 是**要给用户看的话**，直接冒气泡——
+   * 受理侧拒人时给的是成句的中文，不是一个错误码。
+   */
+  petTaskCreate: 'pet:task:create',
+  /**
+   * invoke：读控制坞**宠物流**那一区（进行中的条目 + 结果回执 + 未读数）。
+   *
+   * 为什么不走事件推送：这一区的内容**持久**（设计 §4.2.2 的"回来能看见"），
+   * 而事件是瞬时的。挂载时问一次 + 收到 `pet:goal:result` 之后再问一次，
+   * 比维护一条常驻事件流简单，也不会漏（真相在库里）。
+   */
+  petTaskState: 'pet:task:state',
+  /** invoke：把宠物流标记为已读（游标推到"现在"） */
+  petTaskMarkRead: 'pet:task:mark-read',
+  /**
+   * invoke：**「转给主助手」** —— 把宠物看到的东西交给真正的任务 Agent（五期 T5.8）。
+   *
+   * 设计 §10.3.3 说这是宠物与任务 Agent 之间**唯一**的通道，且必须**用户主动触发**。
+   * 主进程只做转发：把那段话发进主窗，由主窗用它既有的发送路径真正送出去
+   * （会话状态在主窗的 agent-runtime 里，主进程没有——硬发就是两份真相）。
+   */
+  petHandoffToMain: 'pet:handoff-to-main',
+  /**
+   * event(main→renderer，发给**主窗**)：有人把宠物的发现交过来了。
+   *
+   * 载荷是**已经成句、可以直接当用户消息发出去**的文本（主进程拼的，
+   * 见 `buildPetHandoffText`）。主窗收到后写进 store、由 ChatPage 走它自己的
+   * `handleSend`——与 `app-ui:goto` 带 `focusPermissionRequestId` 完全同一套手法。
+   */
+  evtMainHandoff: 'app-ui:pet-handoff',
 } as const
 
 /** 切换模式的结果 */
@@ -345,6 +426,20 @@ export interface PetElectronAPI {
   getModelMotionActions(modelId: string): Promise<PetMotionActionDTO[]>
   /** 读宠物人格标签（首次读即出生抽签）；bridge 未就绪时为 null */
   getPetPersonality(configId: string): Promise<PetPersonalityDTO | null>
+  /**
+   * 「让它去做」：把用户那句话交给宠物去办。
+   *
+   * 受理判断在主进程（见 {@link PET_IPC.petTaskCreate}）。返回 `{ok:false}` 时
+   * 调用方**要把 `reason` 说出来**（气泡 + 宠物流），不能静默——用户点了按钮却毫无反应，
+   * 是最糟的一种反馈。
+   */
+  petTaskCreate(text: string): Promise<PetTaskCreateResult>
+  /** 读控制坞宠物流（进行中的条目 + 结果回执 + 未读数）；bridge 未就绪时为 null */
+  getPetTaskState(): Promise<PetTaskStateDTO | null>
+  /** 把宠物流标记为已读 */
+  markPetTaskRead(): Promise<void>
+  /** 「转给主助手」：把这条回执交给主窗，由主窗真正发出去 */
+  handoffPetTaskToMain(payload: { description: string; text: string }): Promise<void>
   /** 订阅模式变更事件，返回取消订阅函数 */
   onModeChanged(callback: (event: PetModeChangedEvent) => void): () => void
   /** 订阅准备切换事件，返回取消订阅函数 */

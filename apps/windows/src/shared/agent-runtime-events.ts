@@ -637,6 +637,14 @@ export interface PetGoalResultEvent {
   readonly sessionKey: string
   /** 归属宠物（`pet:<模型ID>`），供 UI 区分是哪一只 */
   readonly petAgentId: string
+  /**
+   * 这条回执是哪一个目标产生的（`autonomous_goals.id`）。
+   *
+   * 气泡的幂等键靠它，**不能靠文案**：失败文案在没有正文时是个常量
+   * （「这次没做成」），拿文案哈希当键会让第二次失败被当成重放挡掉——
+   * 宠物连栽两次，用户只听见第一次（2026-09-24 复查发现）。
+   */
+  readonly goalId: string
   readonly ok: boolean
   readonly text: string
 }
@@ -663,6 +671,17 @@ export interface PetSensingEvent {
   readonly text: string
   /** 哪条预判规则说的（`interrupted` / `tired`）——控制坞与日志据此分辨 */
   readonly kind: string
+  /**
+   * 这句话附带的一件可派的事（五期 T5.1②，设计 §4.2.1 的意图来源②）。
+   *
+   * 有它时气泡上那个按钮的含义就变了：不是"回到那个会话"（`noticeActionLabel` 的默认），
+   * 而是**"让我去看看"**——点一下真的派出一个宠物目标。
+   *
+   * 只在说得出一件具体的事时才有（规则① + 读到了工作主题，见 `pet-sensing.ts`
+   * 的 `proposalFor`）。说不出就不给这个出口：一个没有"看什么"的按钮，
+   * 按下去只能瞎翻，回来报一句废话——用户按了一次就不会再按第二次。
+   */
+  readonly proposal?: { readonly description: string }
 }
 
 // ============================================================

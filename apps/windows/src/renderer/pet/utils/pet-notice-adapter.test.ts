@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { noticeFromEvent } from '@mtbot/pet-core'
 import type { PetGoalResultEvent, PetSensingEvent } from '../../../shared/agent-runtime-events'
 import {
   INITIAL_TURN_FACTS,
@@ -6,6 +7,7 @@ import {
   extractTaskCompletion,
   isNoticeEvent,
   isPetMoodEvent,
+  noticeActionLabel,
   toNoticeEvent,
   type RawAgentEvent,
 } from './pet-notice-adapter'
@@ -245,6 +247,9 @@ describe('toNoticeEvent —— 宠物目标回执（三期 T3.5）', () => {
     sessionKey: 'evolution:pet:demo_cartoon_cat',
     // 事件上带它，但适配器**不读**：气泡归属靠 sessionKey（已经把宠物编进去了）
     petAgentId: 'pet:demo_cartoon_cat',
+    // 气泡幂等键靠它（见 `PetGoalResultEvent.goalId`）：漏传的形态是"宠物连栽两次，
+    // 用户只在第一次听见动静"——第二次被当成重放挡掉，不报错
+    goalId: 'goal-1',
     ok: true,
     text: '工作目录根下有这些：a、b、c',
     ...over,
@@ -256,6 +261,10 @@ describe('toNoticeEvent —— 宠物目标回执（三期 T3.5）', () => {
     expect(n?.sessionKey).toBe('evolution:pet:demo_cartoon_cat')
     expect(n?.summary).toBe('工作目录根下有这些：a、b、c')
     expect(n?.ok).toBe(true)
+  })
+
+  it('goalId 原样透传（丢了的话第二次失败会被当成重放挡掉）', () => {
+    expect(toNoticeEvent(petEvent({ goalId: 'goal-42' }), INITIAL_TURN_FACTS)?.goalId).toBe('goal-42')
   })
 
   it('失败时 ok=false（文案的前缀由 pet-core 加，宿主不改写宠物的话）', () => {
@@ -334,5 +343,72 @@ describe('toNoticeEvent —— 宠物感知（四期 T4.2/T4.3）', () => {
     const empty = toNoticeEvent(sensingEvent({ text: '   ' }), INITIAL_TURN_FACTS)
     expect(empty).not.toBeNull()
     expect(empty?.summary).toBeUndefined()
+  })
+})
+
+/**
+ * 五期 T5.1②：感知带上来的"可以派它去做"的一件事。
+ *
+ * 这条链路上最容易错的是**按钮文案**：同一个 `pet:sensing` kind，有建议时是
+ * "让我去看看"（真的派活），没有时是"回到刚才"（跳会话）。文案与行为必须同源，
+ * 否则用户会按下一个说"去看看"、实际只把主窗切了个会话的按钮。
+ */
+describe('宠物感知的建议（五期 T5.1②）', () => {
+  const withProposal = (description: string): PetSensingEvent => ({
+    type: 'pet:sensing',
+    sessionKey: 'conv-user-1',
+    text: '要不要歇会儿',
+    kind: 'interrupted',
+    proposal: { description },
+  })
+
+  /**
+   * 没有建议的那条。
+   *
+   * 走一个**有类型的变量**而不是把字面量直接塞进 `toNoticeEvent`：
+   * 后者的形参是 `RawAgentEvent`（它刻意不认识 `kind`，见那个接口的注释），
+   * 字面量会撞多余属性检查——而这条用例要问的正是"线上那条事件长这样，结果如何"。
+   */
+  const withoutProposal = (): PetSensingEvent => ({
+    type: 'pet:sensing',
+    sessionKey: 'conv-user-1',
+    text: '要不要歇会儿',
+    kind: 'interrupted',
+  })
+
+  it('建议原样搬过去（pet-core 与主进程都不该改写它）', () => {
+    const n = toNoticeEvent(withProposal('查一下「像素流水线」相关的资料'), INITIAL_TURN_FACTS)
+    expect(n?.proposal).toEqual({ description: '查一下「像素流水线」相关的资料' })
+  })
+
+  it('没有建议时字段是 undefined，不是空对象', () => {
+    const n = toNoticeEvent(withoutProposal(), INITIAL_TURN_FACTS)
+    expect(n?.proposal).toBeUndefined()
+  })
+
+  it('有建议 → 按钮是"让我去看看"', () => {
+    // 造一条真通知（经 pet-core），再问它的按钮文案——两端的约定在这里合上
+    const notice = noticeFromEvent(
+      toNoticeEvent(withProposal('查一下「像素流水线」相关的资料'), INITIAL_TURN_FACTS)!,
+      { now: 1_000_000 },
+    )
+    expect(notice).not.toBeNull()
+    expect(noticeActionLabel(notice!)).toBe('让我去看看')
+  })
+
+  it('没有建议 → 按钮还是"回到刚才"（对照组：别把这个默认值改掉）', () => {
+    const notice = noticeFromEvent(
+      toNoticeEvent(withoutProposal(), INITIAL_TURN_FACTS)!,
+      { now: 1_000_000 },
+    )
+    expect(noticeActionLabel(notice!)).toBe('回到刚才')
+  })
+
+  it('建议是空白串时不产生 proposal（按钮保持"回到刚才"）', () => {
+    const notice = noticeFromEvent(
+      toNoticeEvent(withProposal('   '), INITIAL_TURN_FACTS)!,
+      { now: 1_000_000 },
+    )
+    expect(notice?.proposal).toBeUndefined()
   })
 })

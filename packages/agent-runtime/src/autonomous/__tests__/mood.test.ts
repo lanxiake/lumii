@@ -60,6 +60,67 @@ describe('applyMoodImpact', () => {
   });
 });
 
+/**
+ * 宠物专属事件（五期 T5.5）。
+ *
+ * 这些用例守的不是数值本身，是**"宠物的成功/失败与任务侧不是一回事"**这条判断——
+ * 如果哪天有人图省事把 `pet_task_done` 删掉、让它去共用 `goal_completed`，
+ * 下面第一条就会红。
+ */
+describe('宠物专属情绪事件（T5.5）', () => {
+  const NEUTRAL: Mood = { energy: 0.6, valence: 0, arousal: 0.5, updatedAt: 0 };
+
+  it('办成一件事是**兴奋**的：valence ↑ 且 arousal ↑', () => {
+    const after = applyMoodImpact(NEUTRAL, 'pet_task_done');
+    expect(after.valence).toBeGreaterThan(0);
+    expect(after.arousal).toBeGreaterThan(NEUTRAL.arousal);
+  });
+
+  it('⚠ 与 goal_completed 的方向不同：后者是**镇静**（arousal ↓）', () => {
+    const taskSide = applyMoodImpact(NEUTRAL, 'goal_completed');
+    const petSide = applyMoodImpact(NEUTRAL, 'pet_task_done');
+    // 两条线各写各的键（分键后不互相覆盖），但方向必须是相反的：
+    // 共用会让"宠物替你把事办成了"变成一件让它平静下来的事
+    expect(taskSide.arousal).toBeLessThan(NEUTRAL.arousal);
+    expect(petSide.arousal).toBeGreaterThan(NEUTRAL.arousal);
+  });
+
+  it('帮上忙那一下足够跨过雀跃线（第四期的 Cheer 靠这条才有真触发）', () => {
+    // MOOD_CHEER_THRESHOLD = 0.2（pet-core 的 mood-shift.ts）。这里钉的是
+    // "从基线出发，一次 pet_task_done 就能越线"——数值变了这条会红，
+    // 那正是要有人来看一眼的时候（否则 Cheer 会静默地再也不播）
+    const after = applyMoodImpact(NEUTRAL, 'pet_task_done');
+    expect(after.valence).toBeGreaterThan(0.2);
+  });
+
+  it('没看成：valence ↓ 但 arousal ↑（设计 §7.3 的双向影响）', () => {
+    const after = applyMoodImpact(NEUTRAL, 'pet_task_failed');
+    expect(after.valence).toBeLessThan(0);
+    expect(after.arousal).toBeGreaterThan(NEUTRAL.arousal);
+  });
+
+  it('没看成比任务失败**轻**（宠物办砸的多半是"没读到"）', () => {
+    const pet = applyMoodImpact(NEUTRAL, 'pet_task_failed');
+    const task = applyMoodImpact(NEUTRAL, 'task_failed');
+    expect(pet.valence).toBeGreaterThan(task.valence);
+  });
+
+  it('没看成要**耗一点精力**（它真的跑了一趟）', () => {
+    const after = applyMoodImpact(NEUTRAL, 'pet_task_failed');
+    expect(after.energy).toBeLessThan(NEUTRAL.energy);
+  });
+
+  it('办成了不耗精力（只有失败那条扣）', () => {
+    const after = applyMoodImpact(NEUTRAL, 'pet_task_done');
+    expect(after.energy).toBe(NEUTRAL.energy);
+  });
+
+  it('两个事件名都真的在表里（拼错会静默变成空操作）', () => {
+    expect(applyMoodImpact(NEUTRAL, 'pet_task_done')).not.toEqual(NEUTRAL);
+    expect(applyMoodImpact(NEUTRAL, 'pet_task_failed')).not.toEqual(NEUTRAL);
+  });
+});
+
 describe('moodToDecisionParams', () => {
   it('低 energy → 不做重活', () => {
     const params = moodToDecisionParams({ energy: 0.2, valence: 0, arousal: 0.5, updatedAt: 0 });

@@ -19,7 +19,7 @@ import {
 } from './components/ScreenRecord'
 import { PetModeTitleControl } from './components/PetModeTitleControl'
 import type { GotoInput } from '@main/app-ui-control/types'
-import { setFocusPermissionRequestId } from './hooks/business/useAgentRuntime/agent-runtime-store'
+import { setFocusPermissionRequestId, setPendingPetHandoff } from './hooks/business/useAgentRuntime/agent-runtime-store'
 import { SplashOverlay } from './components/SplashOverlay/SplashOverlay'
 import { useTheme, type AppliedTheme } from './contexts/ThemeContext/ThemeContext'
 import { useToast } from './components/ui/Toast/useToast'
@@ -28,6 +28,7 @@ import { getAppVersion } from './services/app-service'
 import { PetSessionSync } from './components/PetSessionSync'
 import { useAgentRuntimeActions } from './hooks/business/useAgentRuntime/useAgentRuntime'
 import { subscribeMainEvent } from './services/event-bus-service'
+import { PET_IPC } from '../shared/pet-mode'
 import {
   removeEarlySplashIfPresent,
   shouldSkipSplash,
@@ -177,6 +178,31 @@ const AuthenticatedApp: React.FC<AuthenticatedAppProps> = ({ onShellReady }) => 
     }
     return subscribeMainEvent('app-ui:goto', handleAppUiGoto)
   }, [handleViewChange, openHub, openHubForView, runtimeActions])
+
+  /**
+   * 宠物窗点「转给主助手」（五期 T5.8，设计 §4.2.2 的"唯一通道"）。
+   *
+   * 与上面 `app-ui:goto` 同一条路（主进程只转发、真正的动作在渲染层），
+   * 但载荷是**一段已经成句、可以直接发出去的用户消息**——宠物窗自己发不出消息
+   * （会话状态与 agent-runtime 都在主窗），所以它把话交上来，由 ChatPage 用它
+   * 自己那条发送路径送出去。
+   *
+   * 这里只做两件事：切到对话页、把意图写进 store。**不在这里发送**——
+   * 发送要 `handleSend`（在 ChatPage 里），而且得等会话切完。
+   *
+   * 用 `PET_IPC.evtMainHandoff` 而不是像上面两条那样写字符串字面量：这条事件的
+   * **两端都在这个仓库里新写**，用常量能保证主进程与渲染层不会各写一个名字
+   * （名字对不上不会报错，只是永远收不到——本仓库在通知适配器上栽过一次）。
+   */
+  useEffect(() => {
+    const handlePetHandoff = (...args: unknown[]) => {
+      const text = typeof args[0] === 'string' ? args[0] : ''
+      if (!text.trim()) return
+      setPendingPetHandoff(text)
+      handleViewChange('chat')
+    }
+    return subscribeMainEvent(PET_IPC.evtMainHandoff, handlePetHandoff)
+  }, [handleViewChange])
 
   /**
    * 挂载 window.__LUMII_APP_UI_STATE__ 供主进程 executeJavaScript 回读

@@ -57,6 +57,12 @@ export interface PetSensingPush {
   readonly sessionKey: string
   readonly text: string
   readonly kind: string
+  /**
+   * 这句话附带的一件可派的事（五期 T5.1②）。有它，气泡上那个按钮就是
+   * "让我去看看"而不是"回到刚才"——按下去宠物真的出门跑一趟。
+   * `pet-core` 的 `noticeFromEvent` 把它原样带到 `PetNotice` 上。
+   */
+  readonly proposal?: { readonly description: string }
 }
 
 /** 感知循环依赖的副作用（由 bridge 装配时注入） */
@@ -110,10 +116,19 @@ export function runPetSensing(deps: PetSensingDeps): string {
     }
 
     if (decision.speak) {
-      const { kind, text, sessionKey } = decision.speak
-      deps.pushSensingEvent({ type: 'pet:sensing', sessionKey, text, kind })
+      const { kind, text, sessionKey, proposal } = decision.speak
+      deps.pushSensingEvent({
+        type: 'pet:sensing',
+        sessionKey,
+        text,
+        kind,
+        ...(proposal ? { proposal } : {}),
+      })
       recordSpoken(deps.getDb(), kind, now)
-      log.info(`[runPetSensing] 说了一句 kind=${kind} session=${sessionKey} text="${text}"`)
+      log.info(
+        `[runPetSensing] 说了一句 kind=${kind} session=${sessionKey} text="${text}"` +
+          (proposal ? ` proposal="${proposal.description}"` : ''),
+      )
       return `spoke: ${kind}`
     }
 

@@ -801,6 +801,8 @@ export {
   PromptEvolutionEngine,
   PersonalityTracker,
   CapabilityTracker,
+  // 能力维度枚举（五期 T5.3 起宿主侧要拿它当参数类型，不再只是 agent-runtime 内部词汇）
+  CapabilityDimension,
   ReflectionEngine,
   createExtendedDbClient,
   recordPersonalityEvent,
@@ -857,9 +859,26 @@ export {
   // 宠物目标读取：派发循环（apps/windows 的 pet-dispatch.ts）复用这一层「读库判断」，
   // 行动由它自己的 pipeline 做——设计 §4.1.2 末段划的那条线
   listDuePetGoals,
-  countPetGoalsToday,
+  countPetRunsToday,
   isPetAgentId,
   PET_AGENT_ID_PREFIX,
+  // 宠物受理（五期 T5.1/T5.3）：用户点「让它去做」之后、目标落库之前的那个判断。
+  // 纯的（零 IO），所以宿主侧只拿它做决策，落库与记账在各自主进程模块里
+  petTaskQuotaReason,
+  PET_TASK_MAX_CHARS,
+  PET_TASK_MIN_SAMPLES,
+  PET_TASK_WEAK_LEVEL,
+  PET_TASK_ASSUMED_DIFFICULTY,
+  PET_TASK_TOO_LONG_REASON,
+  PET_TASK_WEAK_REASON,
+  PET_TASK_DUPLICATE_REASON,
+  PET_TASK_RESULT_MAX_CHARS,
+  classifyPetRequest,
+  decidePetTask,
+  readPetTaskMetadata,
+  buildPetTaskMetadata,
+  withPetTaskResult,
+  petTaskReadCursorKey,
   // 宠物感知（四期）：读判断与决策是纯的，副作用（写 mood / 推气泡 / 记配额）在
   // apps/windows 的 pet-sensing-tick.ts。配额那三个读写也一并导出——键格式只在
   // pet-sensing.ts 定义一次，宿主不自己拼字符串
@@ -943,6 +962,9 @@ export type {
   PetSensingDecision,
   PetSensingKind,
   WorkChain,
+  PetTaskBoundary,
+  PetTaskDecision,
+  PetTaskMetadata,
   GoalExecutionResult,
   Mood,
   DecisionParams,

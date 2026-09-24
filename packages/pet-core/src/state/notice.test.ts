@@ -240,7 +240,8 @@ describe("§四 映射表 —— 逐行", () => {
     expect(n?.text).toBe("工作目录根下有这些：a、b、c");
     // 与 task-complete 分开的幂等前缀：两种通知不该互相顶掉
     expect(n?.id.startsWith(`petgoal:${S}:`)).toBe(true);
-    expect(n?.ttlMs).toBe(REPORT_TTL_MS);
+    // TTL 比 report 长：它也要排"每会话 1 条/分钟"那道闸（见下面那条回归用例）
+    expect(n?.ttlMs).toBe(REPORT_TTL_MS + REPORT_PER_SESSION_MS);
   });
 
   it("宠物没做成 → 前缀把「没成」摆在最前面（不许含糊过去）", () => {
@@ -342,6 +343,48 @@ describe("§四 映射表 —— 逐行", () => {
       const budget = { recentReports: [] as NoticeReportStamp[] };
       const bubble = pickNoticeForBubble(list, 1002, budget);
       expect(bubble?.kind).toBe("pet-goal");
+    });
+
+    /**
+     * 同一分钟内**两条回执**（2026-09-24 复审补的回归用例）。
+     *
+     * 场景很平常：用户一次点两件事，或一件办砸了又补一件——宠物跑一轮 3–10 秒，
+     * 两次结局相隔几秒。第一条冒掉之后占住本会话这一分钟的额度，第二条要等到 60 秒。
+     * 30 秒的 TTL 在 38 秒就把它清掉了 → **用户只听见第一件的回音，第二件从此消失**。
+     *
+     * 判据与 `pet:sensing` 那条同源（它踩过一模一样的坑，见 `SENSING_TTL_MS`）：
+     * TTL 必须**撑得过那道 60 秒的闸门**。
+     */
+    it("同一会话一分钟内两条回执：第二条等到闸门放开时还活着", () => {
+      const list = run([
+        [ev({ type: "pet:goal:result", sessionKey: PET_S, ok: true, summary: "第一件", goalId: "g-1" }), 1000],
+        [ev({ type: "pet:goal:result", sessionKey: PET_S, ok: true, summary: "第二件", goalId: "g-2" }), 9000],
+      ]);
+      // 宿主在真冒出气泡后记账。第一条冒掉了 → 这一刻起本会话进入 60 秒冷却
+      // （两份账都要记：`announcedIds` 管幂等，`recentReports` 管限流）
+      const firstId = list.find((n) => n.id.endsWith(":g-1"))!.id;
+      const budget = {
+        recentReports: [{ sessionKey: PET_S, at: 1001 }] as NoticeReportStamp[],
+        announcedIds: new Set([firstId]),
+      };
+
+      /**
+       * ⚠ 自清发生在 `tickNotices` 里，**不在** `pickNoticeForBubble` 里
+       * （后者只看销账、档位与限流）——所以"还活着吗"必须问 tick，不能只看挑得到挑不到。
+       * 第一版就是只调了 pick，于是把 TTL 改回 30 秒它照样绿：假通过。
+       */
+      const at = (t: number) => tickNotices(list, t).some((n) => n.id.endsWith(":g-2"));
+
+      // 8 秒后第二条到达：被"每会话 1 条/分钟"挡住，此刻冒不出来（这是设计，不是 bug）
+      expect(pickNoticeForBubble(list, 9001, budget)).toBeNull();
+      // 它撑过了**旧的** 30 秒 TTL——这就是那条回归的界线：旧值下它 39 秒就自清了
+      expect(at(9000 + REPORT_TTL_MS + 1)).toBe(true);
+
+      // 闸门放开（第一条之后 60 秒）：第二条**必须**还在，而且轮得到它
+      const gate = 1001 + REPORT_PER_SESSION_MS;
+      const alive = tickNotices(list, gate);
+      expect(alive.some((n) => n.id.endsWith(":g-2"))).toBe(true);
+      expect(pickNoticeForBubble(alive, gate, budget)?.id).toContain("g-2");
     });
   });
 
