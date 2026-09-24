@@ -26,25 +26,41 @@
 
         // 同上：这些是独立程序/构建钩子，不是被 import 的模块
         "scripts/**/*.{js,cjs,mjs,ts}",
-        "build-resources/**/*.js"
+        "build-resources/**/*.js",
+
+        // UI 自动化 CLI：被 scripts/ 与文档以 `node .../lumii-ui.mjs` 方式 spawn，
+        // 永远不以 import 形式出现（lumii-ui.mjs 自己 import ./commands.mjs，
+        // 所以列这两个程序即可覆盖 commands.mjs 与 commands.d.mts）
+        "resources/app-ui-cli/lumii-ui.mjs",
+        "resources/app-ui-cli/lumii-sync.mjs"
       ],
       "ignore": [
         // 内置技能：运行时被复制到用户目录由 agent 执行，从不被 import。
         // 它们不是本仓库的模块图成员，扫它们只会产生噪音。
         "bundled-skills/**",
         // 第三方 Live2D 运行库，随包分发，由 html/运行时加载
-        "resources/live2d/**"
+        "resources/live2d/**",
+
+        // —— 以下三条是「有真实消费者但静态看不见」的假阳，逐条给理由 ——
+        // 1) 构建必需的 Node 内置模块 stub：由 electron.vite.config.ts 的 resolve.alias
+        //    替换 `import 'util'` / `'qrcode-terminal'` 的落点，源码里永远不会出现
+        //    指向它们的说明符。scripts/check-wiring.mjs 的 REACHABILITY_EXEMPT 同款豁免。
+        "src/renderer/stubs/util.ts",
+        "src/main/stubs/qrcode-terminal.ts",
+        // 2) commands.mjs 的类型声明：command-allowlist.test.ts 通过 TS 的
+        //    `foo.mjs` ↔ `foo.d.mts` 自动配对拿到类型，没有显式 import 语句。
+        //    knip 不建模这个配对，故报为 unused file。
+        "resources/app-ui-cli/commands.d.mts"
+      ]
+    },
+
+    "packages/agent-runtime": {
+      "ignore": [
+        // Electron 的 preload 路径以字符串形式传给 spawn 的子进程，不是 import。
+        "src/tools/mcp/windows-hide-spawn-preload.cjs"
       ]
     }
   },
-
-  "ignore": [
-    // 文档里的代码样例 + 手工验证脚本：同 scripts/ 的理由，但不是本仓库的构建产物
-    "docs/**",
-    "verify/**",
-    // 未跟踪的临时目录（pet 精灵图在制工作），不该进报告
-    ".tmp-petgen/**"
-  ],
 
   "rules": {
     // 77 条全是「barrel 里 export + 组件文件 default export」这种同义重复，
