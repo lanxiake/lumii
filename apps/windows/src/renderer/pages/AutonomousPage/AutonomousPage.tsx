@@ -820,7 +820,7 @@ export function AutonomousPage({ embedded = false }: { embedded?: boolean } = {}
 
                 <div className={styles.settingRow}>
                   <label className={styles.settingLabel} htmlFor="maxTokens">
-                    每日 Token 上限
+                    每个 Agent 每日 Token 上限
                   </label>
                   <input
                     id="maxTokens"
@@ -835,7 +835,10 @@ export function AutonomousPage({ embedded = false }: { embedded?: boolean } = {}
                       if (Number.isFinite(n)) patchSettings({ maxTokensPerDay: n })
                     }}
                   />
-                  <span className={styles.settingHint}>默认 100000</span>
+                  {/* 文案必须说清"每个"：分账之后没有任何跨 agent 汇总，
+                      写成「每日 Token 上限」会让用户按 100k 估全机用量，而机器按 N×100k 烧
+                      （2026-09-24 T3.2 分键的连带后果，见 token-budget.ts 文件头） */}
+                  <span className={styles.settingHint}>默认 100000，每个 Agent 各一份</span>
                 </div>
 
                 <div className={styles.settingRow}>

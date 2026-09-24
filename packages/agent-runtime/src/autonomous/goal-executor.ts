@@ -9,6 +9,7 @@
 import { GoalType } from './types';
 import type { DatabaseAdapter } from '../storage/local-database.js';
 import { PET_TOOL_ALLOWLIST } from './pet-definition.js';
+import { isPetAgentId } from './pet-goals.js';
 
 /** 目标执行结果 */
 export interface GoalExecutionResult {
@@ -142,7 +143,11 @@ export function getAutonomousToolsForAgent(agentId: string, goalType: string): s
   // 它会拿到 getGoalToolAllowlist —— 那份含 file_write / cron_create / message，比宠物的
   // 白名单**宽得多**，而且是静默放宽。硬规则做成函数内部短路，不靠调用方自觉
   // （与 refusal.ts 的 `kind === 'task' → 0` 同一手法）。
-  if (agentId.startsWith('pet:')) return [...PET_TOOL_ALLOWLIST];
+  //
+  // 前缀判据走 `isPetAgentId`（`pet-goals.ts`，与 pet-core 的 `petAgentId()` 同口径），
+  // **不写字面量 `'pet:'`**：那是同一个事实的第二份拷贝，改前缀时两处不会一起动，
+  // 而失败形态正是这条防线最不能出的那种——静默放宽。
+  if (isPetAgentId(agentId)) return [...PET_TOOL_ALLOWLIST];
   return getGoalToolAllowlist(goalType);
 }
 

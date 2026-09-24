@@ -43,6 +43,7 @@
 
 import { sanitizeTimestamp } from "./agent-activity.js";
 import { ANNOUNCE_THROTTLE_MS } from "./agent-activity-announce.js";
+import { isPetSessionKey } from "../personality/pet-identity.js";
 
 /** 紧迫度三档。语义见文件头。 */
 export type NoticeLevel = "ambient" | "report" | "action";
@@ -91,6 +92,18 @@ export interface PetNotice {
   readonly createdAt: number;
   /** 气泡文案 */
   readonly text: string;
+  /**
+   * 这条的**情绪色调**。缺省（`undefined`）= 中性，按"好消息"处理。
+   *
+   * 只有一个消费者：气泡冒出来时的庆祝粒子。`report` 档"完成时放一次粒子"是设计 §5.1
+   * 的通道表，但**做砸了的回执也走 `report` 档**（它同样"不需要用户出手"，见
+   * `pet:goal:result` 的注释）——不给个体标记的话，宠物把事情办砸了却在眼前放烟花。
+   *
+   * ⚠ 刻意**不复用 `level`**：`action` 的语义是"非你不可"，失败回执不需要用户出手，
+   * 抬到 `action` 会额外触发系统通知、且永远挂着不退（`action` 不设 TTL）。
+   * 档位管"要不要占用你的注意力"，色调管"这是好事还是坏事"，两件事。
+   */
+  readonly tone?: "positive" | "negative";
   /** `action` 档必填：处置它的深链 */
   readonly deepLink?: NoticeDeepLink;
   /** `report`/`ambient` 的展示时长：到点自清（`action` 没有这个——它要一直挂着） */
@@ -156,6 +169,13 @@ export interface NoticeEvent {
    * 不能靠字段缺失来推断：把成功说成失败，比把失败说成成功危害小，但两者都是撒谎。
    */
   readonly ok?: boolean;
+  /**
+   * 这条回执是哪**一个**目标产生的（`pet:goal:result.goalId`）。
+   *
+   * 判据只能是它，不能是文案——见 `pet:goal:result` 的幂等键注释：失败文案是个常量，
+   * 哈希文案会让"第二次失败"被当成重放而永远冒不出来。
+   */
+  readonly goalId?: string;
 }
 
 /** 产生通知时的环境。`now` 与 `tickNotices` / `pickNoticeForBubble` 用同一个时钟。 */
@@ -257,6 +277,13 @@ export const TASK_COMPLETE_FALLBACK_TEXT = "任务做完了";
  * 回执丢了比回执含糊严重得多，见设计 §4.2.2 F10）。
  *
  * 失败与成功**分开**：把失败说成"我去看过了"是撒谎，而一句"这次没做成"至少是诚实的。
+ *
+ * ⚠ 三条常量各有各的**可达条件**，不是三种写法说同一件事（2026-09-24 复查时它们
+ * 在实际链路上都到不了，因为宿主只在"有正文"时才报成功、只在"没正文"时才报失败）：
+ * - {@link PET_GOAL_FAILED_PREFIX}：失败**且有话说**（宿主带上失败原因）；
+ * - {@link PET_GOAL_FAILED_FALLBACK}：失败且没话说；
+ * - {@link PET_GOAL_FALLBACK_TEXT}：成功但没话说——宿主的不变量是"成功 ⇒ 有正文"，
+ *   所以这条是**防御性分支**（pet-core 不能依赖宿主的不变量，事件里 `text` 是可选的）。
  */
 export const PET_GOAL_FALLBACK_TEXT = "我去看过了";
 export const PET_GOAL_FAILED_FALLBACK = "这次没做成";
@@ -358,7 +385,7 @@ function sessionOf(event: NoticeEvent): string | null {
  * | `subagent:completed` 且 failed/stale | `report` | `sub:会话:名字` | 「{名字} 没跑成」 |
  * | `error` | 可重试 `ambient` / 否则 `report` | `err:会话:错误码` | 「出错了」 |
  * | `turn:file-changes`（主窗失焦且用户没参与） | `report` | `files:会话:轮次` | 「改了 N 个文件」 |
- * | `pet:goal:result`（宠物跑完用户交代的事） | `report` | `petgoal:会话:文案哈希` | 宠物报的原话 |
+ * | `pet:goal:result`（宠物跑完用户交代的事） | `report` | `petgoal:会话:目标 id` | 宠物报的原话 |
  * | `pet:sensing`（宠物看着你说的一句话） | `report` | `sensing:会话:文案哈希` | 宿主成句的那句 |
  * | `tool:end` 出错 / `abort(user_cancel)` | `ambient` | — | — |
  *
@@ -369,6 +396,25 @@ export function noticeFromEvent(event: NoticeEvent, ctx: NoticeContext): PetNoti
   const now = sanitizeTimestamp(ctx.now, 0);
   const sessionKey = sessionOf(event);
   if (!sessionKey) return null;
+
+  /**
+   * **宠物自己那条会话上，只有回执值得播报。**
+   *
+   * 那条会话（`evolution:pet:<模型ID>`）是宠物干活的地方，用户在别处。它的
+   * `agent:turn:end` 照样会发——而一次宠物目标动辄跑过 90 秒，于是 `turn:end`
+   * 每跑一个目标就产出一条「这一轮跑完了」。问题不只是多一句话：
+   *
+   * 它**先于**回执到达（回执是 `waitForInstanceIdle` 之后才推的），而 `report` 档
+   * 有"每会话 1 条/分钟"的额度（{@link REPORT_PER_SESSION_MS}）——额度被它吃掉，
+   * 回执要等 60 秒才轮得到冒泡，可回执的 TTL 只有 30 秒（{@link REPORT_TTL_MS}）。
+   * 净效果：**用户交代的事，回执永远冒不出来**（2026-09-24 复查发现）。
+   *
+   * 挡在这里而不是在宿主里：宿主判不出"这条会话属于宠物"之外的任何信息，
+   * 而这条规则是纯粹的播报语义（与 `pet-sensing` 的会话正好相反——那条说的是**你**的会话）。
+   *
+   * ⚠ `agent:permission:*` 的销账不经过本函数，不受影响。
+   */
+  if (event.type !== "pet:goal:result" && isPetSessionKey(sessionKey)) return null;
 
   switch (event.type) {
     case "agent:tool:end": {
@@ -573,9 +619,22 @@ export function noticeFromEvent(event: NoticeEvent, ctx: NoticeContext): PetNoti
           ? PET_GOAL_FAILED_FALLBACK
           : PET_GOAL_FALLBACK_TEXT;
       return {
-        id: `petgoal:${sessionKey}:${hashText(text)}`,
+        /**
+         * 幂等键取 **goalId**，不是文案哈希。
+         *
+         * 原判据是 `hashText(text)`，而失败文案（没有正文时）是个常量
+         * （{@link PET_GOAL_FAILED_FALLBACK}）——第二次失败算出来的 id 与第一次**逐字相同**，
+         * 于是被 `reduceNotices` 的"同 id 已存在就不产生"永久挡住：宠物连栽两次，
+         * 用户只在第一次听见动静（相距不到 30 秒时连第一次都进不来）。
+         * 用户交代的事必须件件有回音，所以键要落在**这一件事**上。
+         *
+         * 缺 `goalId` 时退回文案哈希：那样至少与旧行为一致，不会把重放防成两条。
+         */
+        id: `petgoal:${sessionKey}:${event.goalId?.trim() || hashText(text)}`,
         kind: "pet-goal",
         level: "report",
+        // 办砸了要说得出是坏事——气泡冒出来时的庆祝粒子据此让位（见 `tone` 的注释）
+        tone: failed ? "negative" : "positive",
         sessionKey,
         createdAt: now,
         text,

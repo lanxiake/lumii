@@ -9,3 +9,16 @@
 export function petAgentId(configId: string): string {
   return `pet:${configId}`;
 }
+
+/**
+ * 这个会话键是不是**某只宠物自己的会话**（`evolution:pet:<模型ID>`，不区分是哪一只）。
+ *
+ * 由主进程的 `evolutionConversationIdFor(agentId)` 生成（assistant 是 `evolution:main`，
+ * 其余是 `evolution:<agentId>`）。
+ *
+ * 用途只有一个：`notice.ts` 要认出"这是宠物干活的那条会话"，好在它上面只播报回执
+ * （见 `noticeFromEvent` 的会话守卫）。**不解析出是哪只宠物**——那要读配置，pet-core 不持有。
+ */
+export function isPetSessionKey(sessionKey: string): boolean {
+  return sessionKey.startsWith('evolution:pet:');
+}

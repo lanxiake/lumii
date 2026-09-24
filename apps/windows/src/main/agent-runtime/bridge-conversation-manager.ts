@@ -65,11 +65,21 @@ export class BridgeConversationManager {
    * @param channelType 会话归属渠道（10-S2 起落库为 `conversations.channel_type`）。
    *   渠道 adapter 传自己的 `channelType`；未传时按 id 前缀推断（存量调用点与系统会话的安全网）。
    *   注意二者语义不同：**归属 = 会话从哪来**，与「此刻谁在说话」无关（见 channel-identity.ts）。
+   * @param agentParticipantId 会话属于哪个 Agent 的**定义 id**。缺省 `'main'`（主助手实例）。
+   *
+   *   ⚠ 宠物会话必须显式传自己的 `pet:<模型ID>`。参与者这一列是**归属的唯一凭据**：
+   *   宫殿归档按它解析归属（`palace-backend.ts` 的 `resolveConversationAgentId`），
+   *   而 `'main'` 在 `INSTANCE_TO_DEFINITION` 里被映射成 `assistant` ——
+   *   无条件写 `'main'` 的后果是宠物跑出来的内容**全部记在助手名下**：
+   *   宠物侧 `memory_search` 搜不到自己的经历，助手侧检索反而多出宠物说的话。
+   *   （两套 id 的坑：实例 id `main` vs 定义 id `assistant`，见
+   *   `agent-runtime/bridge-types` 与仓库记忆「agent 身份有两套 id」。）
    */
   ensureConversationExists(
     conversationId: string,
     title?: string,
     channelType?: string,
+    agentParticipantId = 'main',
   ): boolean {
     const repo = this.deps.getConversationRepo()
     if (!repo) {
@@ -96,8 +106,8 @@ export class BridgeConversationManager {
       db.prepare(
         `INSERT OR IGNORE INTO conversation_participants (conversation_id, participant_type, participant_id, joined_at)
          VALUES (?, ?, ?, ?)`
-      ).run(conversationId, 'agent', 'main', now)
-      log.info(`[ensureConversationExists] 新建对话记录: conversationId=${conversationId}`)
+      ).run(conversationId, 'agent', agentParticipantId, now)
+      log.info(`[ensureConversationExists] 新建对话记录: conversationId=${conversationId} agent=${agentParticipantId}`)
       return true
     } catch (err) {
       log.error(`[ensureConversationExists] 创建对话失败: ${err instanceof Error ? err.message : String(err)}`)

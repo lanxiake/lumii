@@ -263,6 +263,88 @@ describe("§四 映射表 —— 逐行", () => {
     expect(n?.text).toBe("看过了");
   });
 
+  /**
+   * 幂等键必须落在**目标**上，不能落在文案上。
+   *
+   * 失败文案在没有正文时是个常量，拿文案哈希当键的后果是：第二次失败算出来的 id 与第一次
+   * 逐字相同 → 被 `reduceNotices` 的"同 id 已存在就不产生"永久挡住 →
+   * 宠物连栽两次，用户只在第一次听见动静。
+   */
+  it("两次失败是两条通知（键落在 goalId，不落在文案上）", () => {
+    const list = run([
+      [ev({ type: "pet:goal:result", ok: false, goalId: "g-1" }), 1000],
+      [ev({ type: "pet:goal:result", ok: false, goalId: "g-2" }), 2000],
+    ]);
+    const receipts = list.filter((n) => n.kind === "pet-goal");
+    expect(receipts).toHaveLength(2);
+    // 两条文案一模一样（都是那句兜底），但不该因此被当成同一条
+    expect(receipts[0].text).toBe(receipts[1].text);
+    expect(receipts[0].id).not.toBe(receipts[1].id);
+  });
+
+  it("同一个目标重放（IPC 重发 / 窗口重挂）仍然只产生一条", () => {
+    const list = run([
+      [ev({ type: "pet:goal:result", ok: true, goalId: "g-1", summary: "看过了" }), 1000],
+      [ev({ type: "pet:goal:result", ok: true, goalId: "g-1", summary: "看过了" }), 1500],
+    ]);
+    expect(list.filter((n) => n.kind === "pet-goal")).toHaveLength(1);
+  });
+
+  it("成没成带色调：失败 negative、成功 positive（失败不该放庆祝粒子）", () => {
+    expect(
+      noticeFromEvent(ev({ type: "pet:goal:result", ok: true, summary: "看过了" }), ctx(1000))?.tone,
+    ).toBe("positive");
+    expect(
+      noticeFromEvent(ev({ type: "pet:goal:result", ok: false, summary: "读不到" }), ctx(1000))?.tone,
+    ).toBe("negative");
+  });
+
+  /**
+   * 宠物自己那条会话（`evolution:pet:<模型ID>`）上，**只有回执值得播报**。
+   *
+   * 它的 `agent:turn:end` 照样会发，而一次宠物目标动辄跑过 90 秒 → 每跑一个目标就多一条
+   * 「这一轮跑完了」。要害不是多一句话：它**先于**回执到达，而 `report` 档有"每会话 1 条/分钟"
+   * 的额度——额度被它吃掉，TTL 只有 30 秒的回执就永远冒不出来。
+   */
+  describe("宠物自己的会话只播报回执", () => {
+    const PET_S = "evolution:pet:demo_cartoon_cat";
+
+    it("turn:end 跑满 90 秒也不产生通知", () => {
+      const n = noticeFromEvent(
+        ev({ type: "agent:turn:end", sessionKey: PET_S, durationMs: TURN_LONG_MS + 1000 }),
+        ctx(1000),
+      );
+      expect(n).toBeNull();
+    });
+
+    it("同一会话上确实会产生通知的对照：用户会话照常播报", () => {
+      const n = noticeFromEvent(
+        ev({ type: "agent:turn:end", sessionKey: "conv-user", durationMs: TURN_LONG_MS + 1000 }),
+        ctx(1000),
+      );
+      expect(n?.kind).toBe("long-turn");
+    });
+
+    it("回执本身**不受**这条守卫影响（它就是那条会话存在的意义）", () => {
+      const n = noticeFromEvent(
+        ev({ type: "pet:goal:result", sessionKey: PET_S, ok: true, summary: "看过了", goalId: "g-1" }),
+        ctx(1000),
+      );
+      expect(n?.kind).toBe("pet-goal");
+      expect(n?.text).toBe("看过了");
+    });
+
+    it("回执不再被同会话的 turn:end 挤掉额度（回归：回执永远冒不出来）", () => {
+      const list = run([
+        [ev({ type: "agent:turn:end", sessionKey: PET_S, durationMs: TURN_LONG_MS + 1 }), 1000],
+        [ev({ type: "pet:goal:result", sessionKey: PET_S, ok: true, summary: "看过了", goalId: "g-1" }), 1001],
+      ]);
+      const budget = { recentReports: [] as NoticeReportStamp[] };
+      const bubble = pickNoticeForBubble(list, 1002, budget);
+      expect(bubble?.kind).toBe("pet-goal");
+    });
+  });
+
   it("宠物感知到的一句话 → report，文案就是那句原话", () => {
     const n = noticeFromEvent(ev({ type: "pet:sensing", summary: "要不要歇会儿" }), ctx(1000));
     expect(n?.kind).toBe("pet-sensing");

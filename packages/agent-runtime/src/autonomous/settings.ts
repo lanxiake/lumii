@@ -17,7 +17,7 @@ export interface AutonomousSettings {
   maxOutreachPerDay: number;        // 默认 20，范围 0-50
   minOutreachIntervalMinutes: number; // 默认 60
   outreachChannels: string[];       // 默认 ['system']
-  maxTokensPerDay: number;          // 默认 100000
+  maxTokensPerDay: number;          // 默认 100000。**每个 agent 一份**，不是全机合计（见 token-budget.ts 文件头）
   maxGoalsPerDay: number;           // 默认 7，范围 1-20
   approvalMode: 'always' | 'risky-only' | 'never';
   /** 反思建议目标采纳阈值（0~1）：suggestedGoals 的 priority 达到该值才落成真实目标 */

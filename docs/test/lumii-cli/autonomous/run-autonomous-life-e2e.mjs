@@ -72,18 +72,32 @@ const assistantOutreachKey = (d = new Date()) => `autonomous.outreach:assistant:
 const ASSISTANT_LAST_OUTREACH_KEY = 'autonomous.outreach:assistant:last_sent_at'
 
 /**
+ * 分键前的三个**全局单键**。
+ *
+ * ⚠ 它们必须进 `snapshotState()`：`clearLegacyBudgetKeys()` 会**真删**它们，
+ * 而删掉的如果是这台机器上**还没被迁移过**的真实预算状态，`restoreState` 就还不回来了
+ * ——那违反 `CLI-TEST-SPEC.md` §6「不删除任何用户业务数据 / 写前快照」。
+ * （2026-09-24 复查发现：快照里只有分键后的新键，三个老键一个都没拍。）
+ */
+function legacyBudgetKeys(d = new Date()) {
+  return [
+    `autonomous.tokens.${localDateKey(d)}`,
+    `autonomous.outreach.${localDateKey(d)}`,
+    'autonomous.outreach.last_sent_at',
+  ]
+}
+
+/**
  * 清掉分键前的老键。
  *
  * 必要：客户端读不到自己的键时会把老键**搬过来**，所以只删新键是不够的——
  * 库里若还留着老键，下一次读取会把它当成「今天的用量」搬回新键，用例随即假失败
  * （而且失败在断言上，看起来像功能坏了）。迁移是过渡期行为，用例做的是分键后的世界。
+ *
+ * 删之前的值由 {@link snapshotState} 拍下、收尾由 `restoreState` 写回。
  */
 function clearLegacyBudgetKeys() {
-  for (const k of [
-    `autonomous.tokens.${localDateKey()}`,
-    `autonomous.outreach.${localDateKey()}`,
-    'autonomous.outreach.last_sent_at',
-  ]) {
+  for (const k of legacyBudgetKeys()) {
     delState(k)
   }
 }
@@ -172,6 +186,9 @@ function snapshotState() {
       'autonomous.enabled',
       assistantOutreachKey(),
       assistantTokenKey(),
+      // 分键前的老键：`clearLegacyBudgetKeys` 会真删它们，所以必须先拍下来
+      // （见 legacyBudgetKeys 的注释）
+      ...legacyBudgetKeys(),
     ]
     const snap = {}
     for (const k of keys) {

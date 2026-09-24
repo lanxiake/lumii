@@ -183,7 +183,7 @@ const NON_USER_SESSION_FILTER = `conversation_id NOT LIKE 'cron:%'
  * 规则①的信号：窗口内的打断流水条数。
  *
  * 只数**用户会话**（`feedback-log:*` 是按会话存的，宠物/自主会话被排除）。
- * 读不到就返回 0 —— 与 `countPetGoalsToday` 同一条取舍：这是"限制"，
+ * 读不到就返回 0 —— 与 `countPetRunsToday` 同一条取舍：这是"限制"，
  * 读不到时放开比锁死安全（锁死会让规则①永远不触发，而且没人看得出来）。
  */
 export function countRecentInterruptions(db: DatabaseAdapter, now: Date): number {

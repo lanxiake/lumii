@@ -21,6 +21,7 @@ import {
   type ApprovedGoalSignal,
 } from '@mtbot/agent-runtime'
 import { agentRuntimeLog as log } from './bridge-utils'
+import { seedCompanionCronJob } from './companion-cron-seed'
 
 const EVOLUTION_TICK_CRON_ID = 'autonomous-tick'
 const EVOLUTION_TICK_NAME = '自主进化心跳'
@@ -214,44 +215,13 @@ function recordUsageIfLive(
  * interval_ms 读 readSettings().tickIntervalMinutes（设置页改动后重播一次即生效）。
  */
 export function ensureEvolutionCronJobSeeded(db: DatabaseAdapter, isEnabled: boolean): void {
-  try {
-    const intervalMs = readSettings(db).tickIntervalMinutes * 60_000
-    const enabledValue = isEnabled ? 1 : 0
-    const existing = db
-      .prepare<{ id: string }>(`SELECT id FROM local_cron_jobs WHERE id = ?`)
-      .get(EVOLUTION_TICK_CRON_ID)
-
-    if (existing) {
-      // 自愈：__evolution_tick__ 是魔法指令，只能由 companion 拦截（agent_id 必须为 NULL）。
-      // 若被改成 agent 驱动（agent_id 非空），cron 会把它当真实 prompt 驱动 assistant，导致 tick 失效。
-      // 这里每次启动强制复位为 companion 指令形态；enabled 则严格跟随开关。
-      db.prepare(
-        `UPDATE local_cron_jobs SET enabled = ?, interval_ms = ?, agent_id = NULL,
-         schedule_type = 'every', schedule_expr = '',
-         active_hour_start = NULL, active_hour_end = NULL, notify_targets = NULL
-         WHERE id = ?`,
-      ).run(enabledValue, intervalMs, EVOLUTION_TICK_CRON_ID)
-      return
-    }
-
-    const now = Date.now()
-    db.prepare(
-      `INSERT INTO local_cron_jobs
-       (id, name, task_text, agent_id, schedule_type, schedule_expr, next_run_at, interval_ms, enabled, created_at)
-       VALUES (?, ?, ?, NULL, 'every', '', ?, ?, ?, ?)`,
-    ).run(
-      EVOLUTION_TICK_CRON_ID,
-      EVOLUTION_TICK_NAME,
-      EVOLUTION_TICK_INSTRUCTION,
-      now,
-      intervalMs,
-      enabledValue,
-      now,
-    )
-    log.info(
-      `[ensureEvolutionCronJobSeeded] 新建 job id=${EVOLUTION_TICK_CRON_ID} intervalMs=${intervalMs} enabled=${enabledValue}`,
-    )
-  } catch (err) {
-    log.error('[ensureEvolutionCronJobSeeded] 失败:', err)
-  }
+  seedCompanionCronJob(db, {
+    id: EVOLUTION_TICK_CRON_ID,
+    name: EVOLUTION_TICK_NAME,
+    instruction: EVOLUTION_TICK_INSTRUCTION,
+    intervalMs: readSettings(db).tickIntervalMinutes * 60_000,
+    enabledOnCreate: isEnabled ? 1 : 0,
+    // 自主进化心跳被总开关接管：每次启动都把 enabled 强拉回开关值
+    enabledOnReseed: isEnabled ? 1 : 0,
+  })
 }
