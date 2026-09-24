@@ -61,6 +61,30 @@ describe('user:steer 目标实例定位', () => {
     expect(steer).toHaveBeenCalledWith('inst-B', '继续')
   })
 
+  // 控制面（CLI / 控制口）拿不到 runId（conversation list 不返回它），
+  // 只能只给 sessionKey —— 这条路必须走得通，否则扩了白名单也等于没扩。
+  it('完全没有 runId（控制面形态）：按 sessionKey 投递', () => {
+    const { bridge, steer } = makeBridge([
+      { id: 'inst-A', state: 'running' },
+      { id: 'inst-B', state: 'running' },
+    ])
+    setDeps(new Map([['run-1', 'inst-A']]), new Map([['s-B', 'inst-B']]))
+
+    handleUserSteer(bridge, { type: 'user:steer', sessionKey: 's-B', steerText: '接着做' })
+
+    expect(steer).toHaveBeenCalledTimes(1)
+    expect(steer).toHaveBeenCalledWith('inst-B', '接着做')
+  })
+
+  it('完全没有 runId 且 sessionKey 也定位不到：不注入，也不乱投', () => {
+    const { bridge, steer } = makeBridge([{ id: 'inst-A', state: 'running' }])
+    setDeps(new Map(), new Map())
+
+    handleUserSteer(bridge, { type: 'user:steer', steerText: '喂' })
+
+    expect(steer).not.toHaveBeenCalled()
+  })
+
   it('目标实例不在运行中：不注入，也绝不改投另一个 running 实例', () => {
     const { bridge, steer } = makeBridge([
       { id: 'inst-A', state: 'running' },

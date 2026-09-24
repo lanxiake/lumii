@@ -741,7 +741,9 @@ export async function handleCommand(
 
       case 'user:steer':
         handleUserSteer(bridge, command)
-        return undefined
+        // 控制口 /command 需可 JSON 序列化的 body；undefined → sendJson 抛错（CLI command_failed）。
+        // 渲染层不关心返回值，故与 user:abort 同样返回 { ok: true }，两条路都能走。
+        return { ok: true }
 
       case 'user:abort':
         handleUserAbort(bridge, command)

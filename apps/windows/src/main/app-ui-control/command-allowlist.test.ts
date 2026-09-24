@@ -77,6 +77,12 @@ describe('COMMAND_ALLOWLIST', () => {
       expect(isCommandExposed(t)).toBe(true)
     }
   })
+
+  // 插话注入（2026-09-24 扩）：自动化面此前只有 user:send，而它在实例运行时是
+  // 「等 ≤2.5s 空闲后当新一轮发」，做不出插话 —— 长任务只能干等。
+  it('放行插话注入 user:steer（与 user:send 同档内容注入，同组已有 user:abort）', () => {
+    expect(isCommandExposed('user:steer')).toBe(true)
+  })
 })
 
 describe('findDeniedField', () => {
@@ -98,6 +104,27 @@ describe('findDeniedField', () => {
     ).toBe('attachments')
     expect(
       findDeniedField({ type: 'user:send', sessionKey: 's', content: 'hi', agentId: 'a' }),
+    ).toBe('agentId')
+  })
+
+  it('user:steer 声明字段放行、文件类字段被拒（与 user:send 同一道闸）', () => {
+    // 渲染层形态：带 runId
+    expect(findDeniedField({ type: 'user:steer', runId: 'r', sessionKey: 's', steerText: '停一下' })).toBe(null)
+    // 控制面形态：拿不到 runId，只靠 sessionKey 兜底 —— 也必须放行
+    expect(findDeniedField({ type: 'user:steer', sessionKey: 's', steerText: '停一下' })).toBe(null)
+    expect(
+      findDeniedField({
+        type: 'user:steer',
+        sessionKey: 's',
+        steerText: 'x',
+        imageAttachmentPaths: ['C:/secrets/id_rsa'],
+      }),
+    ).toBe('imageAttachmentPaths')
+    expect(
+      findDeniedField({ type: 'user:steer', sessionKey: 's', steerText: 'x', attachments: ['x'] }),
+    ).toBe('attachments')
+    expect(
+      findDeniedField({ type: 'user:steer', sessionKey: 's', steerText: 'x', agentId: 'a' }),
     ).toBe('agentId')
   })
 

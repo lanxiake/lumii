@@ -23,6 +23,17 @@ export const COMMAND_ALLOWLIST: ReadonlySet<string> = new Set([
   // 会话读写：create/send 仅用于自动化测试构造对话，字段被 COMMAND_FIELD_DENYLIST 收窄
   'conversation:list', 'conversation:messages', 'conversation:context-usage',
   'conversation:create', 'user:send', 'user:abort',
+  // 插话注入（2026-09-24 扩白名单）：把一段引导文本注进**正在跑**的回合。
+  //
+  // 为什么是这一档：内容注入的性质与 user:send 完全相同（都是把一段人写的文本
+  // 放进模型上下文），且同组已有 user:abort（它能直接掐掉一个运行中的回合）。
+  // 这条既不碰权限管线、不触文件系统、也不新增可读资源。
+  //
+  // 为什么必须补：自动化面此前只有 user:send，而它在实例运行时的行为是
+  // 「等 ≤2.5s 空闲，然后当新一轮发」（bridge-prompt-dispatcher.ts:257），
+  // **做不出插话**。长任务一轮动辄十几分钟，外部只能干等它跑完 —— 或者落回
+  // 那条「把整条 assistant 消息挪到插话之后」的老路（见插话分段实施计划）。
+  'user:steer',
   // 转交确认（F2）：handoffId 引用内存中的主助手提案（不可构造任意任务内容），
   // 执行 = 新建/复用开发会话并发起一次 run，与 user:send 同级。供自动化测试与控制面使用。
   'handoff:confirm',
@@ -98,10 +109,19 @@ export function isCommandExposed(type: unknown): type is string {
  * user:send 的 attachments / imageAttachmentPaths 接受绝对路径，主进程会读取文件
  * 转 base64 投喂模型——放开等于把被拒的 files:* 读能力从侧门放进来。
  * 故 user:send 只允许 sessionKey + content + msgId，其余一律拒。
+ *
+ * user:steer 的声明字段只有 runId / sessionKey / steerText，处理函数也确实只读这三个。
+ * 这里仍把**同一组文件类字段**一并拒掉：类型是宽联合，将来若有人给这条命令加字段，
+ * 不至于顺着侧门把 files:* 的读能力放进来 —— 与 user:send 是同一条理由，
+ * 且当前拒掉它们零副作用（本来就没读）。
  */
 const COMMAND_FIELD_DENYLIST: ReadonlyMap<string, ReadonlySet<string>> = new Map([
   [
     'user:send',
+    new Set(['attachments', 'imageAttachmentPaths', 'audioWavBase64', 'agentId']),
+  ],
+  [
+    'user:steer',
     new Set(['attachments', 'imageAttachmentPaths', 'audioWavBase64', 'agentId']),
   ],
 ])

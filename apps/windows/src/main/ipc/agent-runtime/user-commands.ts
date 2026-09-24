@@ -272,14 +272,15 @@ export function handleUserSteer(
   command: Extract<AgentRuntimeCommand, { type: 'user:steer' }>,
 ): void {
   log.info(
-    `[user:steer] runId=${command.runId} sessionKey=${command.sessionKey ?? '(none)'} steerText="${command.steerText.slice(0, 50)}"`,
+    `[user:steer] runId=${command.runId ?? '(none)'} sessionKey=${command.sessionKey ?? '(none)'} steerText="${command.steerText.slice(0, 50)}"`,
   )
 
-  // 定位目标实例：runId 优先（渲染层发的就是它），sessionKey 兜底（run 映射可能已轮转）。
+  // 定位目标实例：runId 优先（渲染层发的就是它），sessionKey 兜底（run 映射可能已轮转，
+  // 或调用方来自控制面、本来就拿不到 runId）。
   // 旧实现取「第一个 state === 'running' 的实例」——多会话并发时插话会落到别的会话上。
+  const byRun = command.runId ? deps!.runIdToInstance.get(command.runId) : undefined
   const targetId =
-    deps!.runIdToInstance.get(command.runId) ??
-    (command.sessionKey ? deps!.sessionToInstance.get(command.sessionKey) : undefined)
+    byRun ?? (command.sessionKey ? deps!.sessionToInstance.get(command.sessionKey) : undefined)
   const target = targetId ? bridge.getInstances().find((i) => i.id === targetId) : undefined
 
   if (!target) {

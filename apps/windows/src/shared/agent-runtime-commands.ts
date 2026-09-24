@@ -66,7 +66,14 @@ interface UserSendCommand {
 
 interface UserSteerCommand {
   readonly type: 'user:steer'
-  readonly runId: string
+  /**
+   * 发起该回合时登记的 runId。渲染层一定有，所以从前端发就是必带。
+   *
+   * 控制面（CLI / 控制口）**拿不到它** —— `conversation list` 不返回 runId，
+   * 于是那边只能靠下面的 `sessionKey` 兜底。故此处标为可选：处理函数本来就是
+   * `runId 优先、sessionKey 兜底`，把类型对齐到真实逻辑，省得调用方去编一个假 runId。
+   */
+  readonly runId?: string
   /**
    * 会话键。定位目标实例时与 `runId` 互为兜底：
    * 多会话并发时若只按 runId 查表，映射缺失就会退化成「随便挑一个运行中的实例」。
