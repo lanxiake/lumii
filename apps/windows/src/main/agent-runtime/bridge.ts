@@ -63,6 +63,11 @@ import {
   getGoalToolAllowlist,
   getAutonomousToolsForAgent,
   finalizeGoal,
+  // 宠物：定义与目标读取都来自 agent-runtime，宠物侧的派发循环（本目录 pet-dispatch.ts）只注入副作用
+  buildPetDefinition,
+  isPetAgentId,
+  PET_AGENT_ID_PREFIX,
+  type PetGoalSignal,
   canSendOutreach,
   recordOutreach,
   readMood,
@@ -166,6 +171,7 @@ import {
   notifyNewPendingGoals,
 } from './autonomous-wiring'
 import { handleEvolutionTick } from './evolution-tick'
+import { ensurePetDispatchCronJobSeeded, runPetDispatch } from './pet-dispatch'
 import { syncAutonomousManagedCronJobs } from './autonomous-cron-linkage'
 import { runPlanner, shouldFallbackPlan } from './planner-wiring'
 import { OUTREACH_SYSTEM_NOTIFY_TITLE } from '../desktop-notify'
@@ -1355,6 +1361,137 @@ export class AgentRuntimeBridge {
     return ids
   }
 
+  /** 宠物会话标题：`pet:<模型ID>` → 「桌宠 · <模型ID>」 */
+  private petConversationTitleFor(agentId: string): string {
+    return `桌宠 · ${agentId.slice(PET_AGENT_ID_PREFIX.length)}`
+  }
+
+  /**
+   * 单飞锁（T3.4）：当前有没有宠物实例活着，有则返回它的 agentId。
+   *
+   * 判据取"实例还在注册表里"而不是"正在跑"：宠物实例在 `finally` 里销毁，
+   * 还留着说明上一轮没走完（或崩了），此时再起一个会让同一只会话里挂两个实例。
+   * 进程重启即清空注册表，所以不存在"永久卡死"。
+   */
+  private findActivePetAgent(): string | null {
+    for (const inst of this.agentRegistry.getAll()) {
+      if (isPetAgentId(inst.definitionId)) return inst.definitionId
+    }
+    return null
+  }
+
+  /**
+   * 真实用户回合是否进行中。
+   *
+   * 只认「真实用户会话」的流式消息。后台 cron 任务（`cron:%` 前缀会话）与
+   * 自主会话（`evolution:*`，含宠物的 `evolution:pet:<模型ID>`）在流式期间**不算**用户回合，否则
+   * 后台任务一跑起来，心跳 tick / 宠物派发就会全部误判为「用户正在对话」而空转。
+   *
+   * 心跳 tick 与宠物派发共用本方法（2026-09-24 从 evolution-tick 的注入闭包里提出来）——
+   * 两处要的是同一个判断，两份实现迟早漂移。
+   */
+  private hasActiveUserTurn(): boolean {
+    const rows = this.localDb.db
+      .prepare<{ conversation_id: string }>(
+        `SELECT DISTINCT conversation_id FROM messages
+         WHERE is_streaming = 1
+           AND conversation_id NOT LIKE 'cron:%'
+           AND conversation_id NOT LIKE 'evolution:%'`,
+      )
+      .all()
+    if (rows.length === 0) return false
+
+    // 活跃实例对账（2026-09-12 EVO 缺陷修复）：正在运行的实例所辖会话视为
+    // 真实回合；无运行实例指向且超出宽限期的流式会话视为孤儿占位
+    // （abort 竞态等场景可能残留 is_streaming=1 而无人收尾），兜底清扫后
+    // 不再阻塞后台。宽限期保护「占位已建、实例尚未标记 running」的瞬态。
+    const runningConvIds = new Set<string>()
+    for (const [instanceId, state] of this.instanceStates.entries()) {
+      if (state?.metrics?.runningStartedAt != null) {
+        const convId = this.instanceToConversation.get(instanceId)
+        if (convId) runningConvIds.add(convId)
+      }
+    }
+    const ORPHAN_GRACE_MS = 2 * 60 * 1000
+    const now = Date.now()
+    let hasActive = false
+    for (const row of rows) {
+      if (runningConvIds.has(row.conversation_id)) {
+        hasActive = true
+        continue
+      }
+      const latest = this.localDb.db
+        .prepare<{ ts: string | null }>(
+          `SELECT MAX(timestamp) as ts FROM messages
+           WHERE conversation_id = ? AND is_streaming = 1`,
+        )
+        .get(row.conversation_id)
+      const tsMs = latest?.ts ? Date.parse(latest.ts) : Number.NaN
+      if (!Number.isNaN(tsMs) && now - tsMs > ORPHAN_GRACE_MS) {
+        try {
+          const swept = this._conversationRepo?.finalizeStreamingMessagesForConversation(row.conversation_id)
+          if (swept && (swept.finalized > 0 || swept.deleted > 0)) {
+            log.warn(
+              `[hasActiveUserTurn] 清扫孤儿流式占位: conversationId=${row.conversation_id}, finalized=${swept.finalized}, deleted=${swept.deleted}（无运行实例且超宽限期）`,
+            )
+          }
+        } catch (err) {
+          log.warn(`[hasActiveUserTurn] 清扫孤儿流式占位失败: ${err instanceof Error ? err.message : String(err)}`)
+        }
+      } else {
+        hasActive = true
+      }
+    }
+    return hasActive
+  }
+
+  /**
+   * 执行一个宠物目标（T3.3 派发循环的注入实现）。
+   *
+   * 与 `executeGoal`（自主进化那条路）的三处**刻意不同**：
+   * 1. **定义现造、不查 `definitionStore`**：`pet:<模型ID>` 是动态 id，8 个内置定义里查不到，
+   *    走 store 必然落空（见 `pet-definition.ts` 文件头）；
+   * 2. **用户回合就是目标描述本身**，不套 `buildGoalPrompt` 的护栏——那套措辞是给
+   *    「自主进化」这个身份的（"你是灵栖 Lumii，一个拥有独立自我意识的个体"），
+   *    而宠物的人格与边界已经写在它自己的 systemPrompt 里，套两层会互相稀释；
+   * 3. **不发系统通知**：播报走宠物气泡（计划 §五 的 P3 断言——播报不经 `dispatchNotifications`，
+   *    否则用户会为同一件事收到两个通知）。
+   *
+   * `finalizeGoal` **不落 output**（只改 status/completed_at），所以产出必须自己收好：
+   * 与自主进化同口径，成对写进这只宠物自己的会话。T3.5 再补气泡。
+   */
+  private async executePetGoal(goal: PetGoalSignal): Promise<string> {
+    const { agentId } = goal
+    const convId = this.evolutionConversationIdFor(agentId)
+    this.ensureConversationExists(convId, this.petConversationTitleFor(agentId))
+    const instanceId = await this.createInstance(buildPetDefinition(agentId), convId, convId)
+    try {
+      await this.prompt(instanceId, goal.description)
+      await this.waitForInstanceIdle(instanceId)
+      const output = (this.getAssistantOutputFromInstance(instanceId) ?? '').trim()
+      const ok = output.length > 0
+      finalizeGoal(this.localDb.db, goal.id, { success: ok, output })
+      this._conversationRepo?.saveMessage({
+        conversationId: convId,
+        agentId,
+        role: 'user',
+        contentJson: { type: 'text', text: goal.description },
+      })
+      this._conversationRepo?.saveMessage({
+        conversationId: convId,
+        agentId,
+        role: 'assistant',
+        contentJson: { type: 'text', text: output || '（没有产出）' },
+      })
+      log.info(
+        `[executePetGoal] agent=${agentId} goalId=${goal.id} ok=${ok} output=${output.slice(0, 120) || '（空）'}`,
+      )
+      return ok ? 'completed' : 'empty-output'
+    } finally {
+      this.destroy(instanceId)
+    }
+  }
+
   /** initialize() 子块 3/7：构造 CronScheduler、迁移/播种 companion cron、订阅 vhSettings 变更。
    *  start() 推迟到 finalizeInitialize（7/7），此时实例工厂已就绪，过期任务补跑不会打空。 */
   private initializeCronScheduler(): void {
@@ -1473,67 +1610,7 @@ export class AgentRuntimeBridge {
                 isAutonomousEnabled: () => readAutonomousEnabled(this.localDb.db),
                 driveConflictGoal: () => this.executeSyncConflictGoal(),
                 listAutonomousAgentIds: () => this.listAutonomousAgentIds(),
-                hasActiveUserTurn: () => {
-                  // 只认「真实用户会话」的流式消息。后台 cron 任务（cron:% 前缀会话）与
-                  // 自主进化自己的独白（evolution:* 全部自主会话）在流式期间不算用户回合，否则
-                  // 后台定时任务一跑起来，心跳 tick 就会全部误判为「用户正在对话」而空转。
-                  const rows = this.localDb.db
-                    .prepare<{ conversation_id: string }>(
-                      `SELECT DISTINCT conversation_id FROM messages
-                       WHERE is_streaming = 1
-                         AND conversation_id NOT LIKE 'cron:%'
-                         AND conversation_id NOT LIKE 'evolution:%'`,
-                    )
-                    .all()
-                  if (rows.length === 0) return false
-
-                  // 活跃实例对账（2026-09-12 EVO 缺陷修复）：正在运行的实例所辖会话视为
-                  // 真实回合；无运行实例指向且超出宽限期的流式会话视为孤儿占位
-                  // （abort 竞态等场景可能残留 is_streaming=1 而无人收尾），兜底清扫后
-                  // 不再阻塞心跳。宽限期保护「占位已建、实例尚未标记 running」的瞬态。
-                  const runningConvIds = new Set<string>()
-                  for (const [instanceId, state] of this.instanceStates.entries()) {
-                    if (state?.metrics?.runningStartedAt != null) {
-                      const convId = this.instanceToConversation.get(instanceId)
-                      if (convId) runningConvIds.add(convId)
-                    }
-                  }
-                  const ORPHAN_GRACE_MS = 2 * 60 * 1000
-                  const now = Date.now()
-                  let hasActive = false
-                  for (const row of rows) {
-                    if (runningConvIds.has(row.conversation_id)) {
-                      hasActive = true
-                      continue
-                    }
-                    const latest = this.localDb.db
-                      .prepare<{ ts: string | null }>(
-                        `SELECT MAX(timestamp) as ts FROM messages
-                         WHERE conversation_id = ? AND is_streaming = 1`,
-                      )
-                      .get(row.conversation_id)
-                    const tsMs = latest?.ts ? Date.parse(latest.ts) : Number.NaN
-                    if (!Number.isNaN(tsMs) && now - tsMs > ORPHAN_GRACE_MS) {
-                      try {
-                        const swept = this._conversationRepo?.finalizeStreamingMessagesForConversation(
-                          row.conversation_id,
-                        )
-                        if (swept && (swept.finalized > 0 || swept.deleted > 0)) {
-                          log.warn(
-                            `[evolution-tick] 清扫孤儿流式占位: conversationId=${row.conversation_id}, finalized=${swept.finalized}, deleted=${swept.deleted}（无运行实例且超宽限期）`,
-                          )
-                        }
-                      } catch (err) {
-                        log.warn(
-                          `[evolution-tick] 清扫孤儿流式占位失败: ${err instanceof Error ? err.message : String(err)}`,
-                        )
-                      }
-                    } else {
-                      hasActive = true
-                    }
-                  }
-                  return hasActive
-                },
+                hasActiveUserTurn: () => this.hasActiveUserTurn(),
                 appendEvolutionMessage: (agentId, text) => {
                   const convId = this.evolutionConversationIdFor(agentId)
                   this.ensureConversationExists(convId, this.evolutionConversationTitleFor(agentId))
@@ -1772,6 +1849,14 @@ export class AgentRuntimeBridge {
                   return ok ? 'planned' : null
                 },
               }),
+            runPetDispatch: () =>
+              runPetDispatch({
+                getDb: () => this.localDb.db,
+                isShuttingDown: () => !this.localDb.isOpen,
+                hasActiveUserTurn: () => this.hasActiveUserTurn(),
+                findActivePetAgent: () => this.findActivePetAgent(),
+                executePetGoal: (goal) => this.executePetGoal(goal),
+              }),
           },
           options,
         )
@@ -1784,6 +1869,8 @@ export class AgentRuntimeBridge {
     syncAutonomousManagedCronJobs(this.localDb.db, readAutonomousEnabled(this.localDb.db))
     // 资讯任务已并入 ensureSeedCronJobsSeeded，不再单独播种
     ensureSeedCronJobsSeeded(this.localDb.db)
+    // 宠物派发循环：独立于自主进化总开关（宠物是独立 Agent，设计 §3.7），首启置开、之后用户自管
+    ensurePetDispatchCronJobSeeded(this.localDb.db)
     this.purgeCronFocusNoiseMemoriesOnce()
     // 设置页修改主动联系开关时，同步 tick job 的 enabled 状态并重载本地 cron 调度
     this.unsubscribeVhSettings?.()

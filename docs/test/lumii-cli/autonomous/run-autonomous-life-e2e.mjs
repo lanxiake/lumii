@@ -59,6 +59,35 @@ function localDateKey(d = new Date()) {
   return `${y}-${m}-${day}`
 }
 
+/**
+ * 预算键（2026-09-24 T3.2 起按 agent 分键）。
+ *
+ * 分键前是三个**全局单键**：`autonomous.tokens.<日期>`、`autonomous.outreach.<日期>`、
+ * `autonomous.outreach.last_sent_at`。现在客户端读时把老键搬给 assistant 并删除，
+ * 所以种预算必须写分键后的键——写老键只在「客户端今天还没读过这个键」时才生效，
+ * 而心跳每 10 分钟就会读一次，等于不可靠。
+ */
+const assistantTokenKey = (d = new Date()) => `autonomous.tokens:assistant:${localDateKey(d)}`
+const assistantOutreachKey = (d = new Date()) => `autonomous.outreach:assistant:${localDateKey(d)}`
+const ASSISTANT_LAST_OUTREACH_KEY = 'autonomous.outreach:assistant:last_sent_at'
+
+/**
+ * 清掉分键前的老键。
+ *
+ * 必要：客户端读不到自己的键时会把老键**搬过来**，所以只删新键是不够的——
+ * 库里若还留着老键，下一次读取会把它当成「今天的用量」搬回新键，用例随即假失败
+ * （而且失败在断言上，看起来像功能坏了）。迁移是过渡期行为，用例做的是分键后的世界。
+ */
+function clearLegacyBudgetKeys() {
+  for (const k of [
+    `autonomous.tokens.${localDateKey()}`,
+    `autonomous.outreach.${localDateKey()}`,
+    'autonomous.outreach.last_sent_at',
+  ]) {
+    delState(k)
+  }
+}
+
 /** 调用 lumii-ui（默认重试 rate_limited）；timeoutMs 用于 LLM 长任务 */
 function ui(args, { retries = 6, timeoutMs = 30000 } = {}) {
   let last = { code: 1, out: '', json: null }
@@ -139,10 +168,10 @@ function snapshotState() {
       'autonomous.concerns',
       'autonomous.mood:assistant',
       'autonomous.last_diary_date',
-      'autonomous.outreach.last_sent_at',
+      ASSISTANT_LAST_OUTREACH_KEY,
       'autonomous.enabled',
-      `autonomous.outreach.${localDateKey()}`,
-      `autonomous.tokens.${localDateKey()}`,
+      assistantOutreachKey(),
+      assistantTokenKey(),
     ]
     const snap = {}
     for (const k of keys) {
@@ -505,8 +534,9 @@ function run() {
     okJson(ui(['autonomous', 'settings', 'set', '--data', '{"maxOutreachPerDay":20}']), '恢复预算')
 
     runTest('E1', 'proactive 目标 → 发送 + 计数 + 完成', () => {
-      delState(`autonomous.outreach.${localDateKey()}`)
-      delState('autonomous.outreach.last_sent_at')
+      clearLegacyBudgetKeys()
+      delState(assistantOutreachKey())
+      delState(ASSISTANT_LAST_OUTREACH_KEY)
       const gid = seedGoal({ type: 'proactive-message', description: `${PROBE_PREFIX} 提醒用户休息` })
       const r = cronTick()
       assert(r.code === 0, `cron run 退出码 ${r.code}`)
@@ -514,36 +544,36 @@ function run() {
       assert(/outreach/.test(run?.summary ?? ''), `应 outreach，实际 "${run?.summary}"`)
       const goal = goalRow(gid)
       assert(goal.status === 'completed', `proactive 目标应 completed，实际 ${goal.status}`)
-      const used = Number(getState(`autonomous.outreach.${localDateKey()}`)?.value ?? 0)
+      const used = Number(getState(assistantOutreachKey())?.value ?? 0)
       assert(used === 1, `outreach 计数应 1，实际 ${used}`)
-      assert(getState('autonomous.outreach.last_sent_at')?.value, 'last_sent_at 应写入')
+      assert(getState(ASSISTANT_LAST_OUTREACH_KEY)?.value, 'last_sent_at 应写入')
       return `outreach sent，目标 completed，计数=1`
     })
 
     runTest('E2', '最小间隔未到 → 不再发', () => {
-      setState('autonomous.outreach.last_sent_at', String(Date.now()))
+      setState(ASSISTANT_LAST_OUTREACH_KEY, String(Date.now()))
       const gid = seedGoal({ type: 'proactive-message', description: `${PROBE_PREFIX} 再次提醒` })
-      const before = Number(getState(`autonomous.outreach.${localDateKey()}`)?.value ?? 0)
+      const before = Number(getState(assistantOutreachKey())?.value ?? 0)
       cronTick()
       const run = lastRunSummary()
       assert(!/outreach/.test(run?.summary ?? ''), `间隔未到不应 outreach，实际 "${run?.summary}"`)
       const goal = goalRow(gid)
       assert(goal.status === 'executing', `间隔未到目标应保持 executing，实际 ${goal.status}`)
-      const after = Number(getState(`autonomous.outreach.${localDateKey()}`)?.value ?? 0)
+      const after = Number(getState(assistantOutreachKey())?.value ?? 0)
       assert(after === before, `计数不应变化: ${before} -> ${after}`)
       return `summary="${run?.summary}"，目标仍 executing`
     })
 
     runTest('E3', '预算用尽 → 主动消息停发', () => {
-      setState(`autonomous.outreach.${localDateKey()}`, '20')
-      delState('autonomous.outreach.last_sent_at')
+      setState(assistantOutreachKey(), '20')
+      delState(ASSISTANT_LAST_OUTREACH_KEY)
       const gid = seedGoal({ type: 'proactive-message', description: `${PROBE_PREFIX} 超预算提醒` })
       cronTick()
       const run = lastRunSummary()
       assert(!/outreach/.test(run?.summary ?? ''), `预算用尽不应 outreach，实际 "${run?.summary}"`)
       const goal = goalRow(gid)
       assert(goal.status === 'executing', `预算用尽目标应保持 executing，实际 ${goal.status}`)
-      const used = Number(getState(`autonomous.outreach.${localDateKey()}`)?.value ?? 0)
+      const used = Number(getState(assistantOutreachKey())?.value ?? 0)
       assert(used === 20, `计数不应超过预算: ${used}`)
       return `summary="${run?.summary}"，计数封顶 20`
     })
@@ -621,7 +651,7 @@ function run() {
       })
 
       runTest('J2', '目标执行后 token 累计', () => {
-        const used = Number(getState(`autonomous.tokens.${localDateKey()}`)?.value ?? 0)
+        const used = Number(getState(assistantTokenKey())?.value ?? 0)
         assert(used >= 8000, `executeGoal 预估 8000 token，实际累计 ${used}`)
         return `今日已消耗 ${used} token（≥8000）`
       })
@@ -673,7 +703,7 @@ function run() {
     })
 
     runTest('H3', '牵挂只进上下文，不产生通知', () => {
-      const used = Number(getState(`autonomous.outreach.${localDateKey()}`)?.value ?? 0)
+      const used = Number(getState(assistantOutreachKey())?.value ?? 0)
       // H1/H2 全程未走 outreach 计数（快照时已记录，此处校验未因牵挂新增）
       return `outreach 计数仍为 ${used}（牵挂不触达系统通知）`
     })

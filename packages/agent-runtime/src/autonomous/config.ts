@@ -80,6 +80,28 @@ export const EMA_ALPHA = 0.05;
 export const MAX_GOALS_PER_DAY = 7;
 
 /**
+ * 宠物每日目标上限（硬闸门，**与任务 Agent 各记各的账**）
+ * 来源：设计 2026-09-23 §4.2.3「每日硬闸门」。
+ *
+ * 宠物目标由用户明确发起（第五期「让它去做」），所以这个数字是**防跑飞的后备闸门**、
+ * 不是限流——第一道防线是单飞锁（同一时刻只跑一个）。取 5 是因为它由人的注意力天然封顶，
+ * 一天点到 5 次已经远超实际；真到被拒的地步，说明有别的东西在替用户点。
+ *
+ * ⚠ 与 `MAX_GOALS_PER_DAY` 不是一回事：后者是助手**自己生成**目标的配额，
+ * 由 `getTodayGoalCount(agentId)` 按 agent 统计；宠物这条由派发侧直接判。
+ */
+export const MAX_PET_GOALS_PER_DAY = 5;
+
+/**
+ * 宠物每日 token 上限（硬闸门）
+ *
+ * 与上面同量级（5 × `TOKEN_COST.executeGoal` = 5 × 8000），两个闸门谁先到算谁。
+ * **刻意不写成 `5 * TOKEN_COST.executeGoal`**：那样调大单次成本会静默把日上限一起推高，
+ * 而这两件事应当分别决策。改了其中一个，回头看一眼另一个。
+ */
+export const MAX_PET_TOKENS_PER_DAY = 40_000;
+
+/**
  * Elo Rating K 值
  * 来源：设计文档 2-元认知引擎算法.md
  * P1 实现：用于能力边界检测

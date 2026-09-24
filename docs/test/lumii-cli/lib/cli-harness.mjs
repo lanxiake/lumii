@@ -636,6 +636,32 @@ export function localDateKey(d = new Date()) {
   return `${y}-${m}-${day}`
 }
 
+/**
+ * 预算键（token / 主动消息），2026-09-24 T3.2 起按 agent 分键。
+ *
+ * 分键前是全局单键 `autonomous.tokens.<日期>` / `autonomous.outreach.<日期>` /
+ * `autonomous.outreach.last_sent_at`；客户端读不到自己的键时会把老键搬给 assistant 并删除。
+ * 所以**播种预算必须用这里的函数**（写老键只在「客户端今天还没读到过」时才生效，
+ * 而心跳每 10 分钟读一次，等于不可靠）；反过来，老键若还留在库里，
+ * 会覆盖掉刚种下的新键缺席状态——种之前先 `deleteRuntimeState` 老键。
+ */
+export function tokenBudgetKey(agentId = 'assistant', d = new Date()) {
+  return `autonomous.tokens:${agentId}:${localDateKey(d)}`
+}
+
+export function outreachBudgetKey(agentId = 'assistant', d = new Date()) {
+  return `autonomous.outreach:${agentId}:${localDateKey(d)}`
+}
+
+export function lastOutreachAtKey(agentId = 'assistant') {
+  return `autonomous.outreach:${agentId}:last_sent_at`
+}
+
+/** 分键前的三个老键（迁移用；用例里只在清理现场时需要） */
+export function legacyBudgetKeys(d = new Date()) {
+  return [`autonomous.tokens.${localDateKey(d)}`, `autonomous.outreach.${localDateKey(d)}`, 'autonomous.outreach.last_sent_at']
+}
+
 /** 读 mood（JSON 解析；缺失返回 null）。mood 自 2026-09-23 起按 agent 分键 */
 export function readMood() {
   const v = readRuntimeState('autonomous.mood:assistant')

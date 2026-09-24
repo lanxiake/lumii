@@ -196,7 +196,7 @@
 - **回读**：目标 status 仍 executing
 
 #### J2. 目标执行后 token 累计
-- **步骤**：恢复正常 `maxTokensPerDay` → 执行一次目标（复用 D1）→ 读 `runtime_state` 键 `autonomous.tokens.{今天}`
+- **步骤**：恢复正常 `maxTokensPerDay` → 执行一次目标（复用 D1）→ 读 `runtime_state` 键 `autonomous.tokens:assistant:{今天}`
 - **预期**：值 ≥ `TOKEN_COST.executeGoal`（8000）
 
 ---
@@ -235,6 +235,11 @@
 ## 5. 测试数据清理
 
 脚本对以下 `runtime_state` 键做**快照/恢复**，不污染用户真实状态：
-`autonomous.settings`、`autonomous.concerns`、`autonomous.mood`、`autonomous.outreach.*`、`autonomous.tokens.*`、`autonomous.last_diary_date`、`autonomous.outreach.last_sent_at`
+`autonomous.settings`、`autonomous.concerns`、`autonomous.mood`、`autonomous.outreach:*`、`autonomous.tokens:*`、`autonomous.last_diary_date`
+
+⚠ 预算两键自 2026-09-24（T3.2）起**按 agent 分键**（`autonomous.tokens:assistant:<日期>`、
+`autonomous.outreach:assistant:<日期>` / `:last_sent_at`）；分键前的 `autonomous.outreach.*` /
+`autonomous.tokens.*` 是全局单键，客户端读时搬给 assistant 并删除（`agent-scoped-state.ts`）。
+用例里取键请走 `cli-harness.mjs` 的 `tokenBudgetKey` / `outreachBudgetKey` / `lastOutreachAtKey`。
 
 探针目标（description 前缀 `[life-e2e]`）跑完删除；`evolution:main` 中由本套产生的日记/独白消息保留，供用户在客户端侧边栏核查。

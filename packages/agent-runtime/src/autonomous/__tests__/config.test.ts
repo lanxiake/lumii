@@ -9,6 +9,8 @@ import {
   EPSILON,
   EMA_ALPHA,
   MAX_GOALS_PER_DAY,
+  MAX_PET_GOALS_PER_DAY,
+  MAX_PET_TOKENS_PER_DAY,
   MAX_VARIANTS_PER_PROMPT,
   MIN_TRIALS_BEFORE_EXPLOIT,
   UCB_CONFIDENCE,
@@ -75,6 +77,19 @@ describe('自主进化 Agent 配置', () => {
     it('MAX_GOALS_PER_DAY 应为正整数', () => {
       expect(MAX_GOALS_PER_DAY).toBeGreaterThan(0);
       expect(Number.isInteger(MAX_GOALS_PER_DAY)).toBe(true);
+    });
+
+    it('宠物侧两个闸门应为正整数', () => {
+      expect(MAX_PET_GOALS_PER_DAY).toBeGreaterThan(0);
+      expect(Number.isInteger(MAX_PET_GOALS_PER_DAY)).toBe(true);
+      expect(MAX_PET_TOKENS_PER_DAY).toBeGreaterThan(0);
+      expect(Number.isInteger(MAX_PET_TOKENS_PER_DAY)).toBe(true);
+    });
+
+    it('宠物的闸门独立于助手的配额（不是同一个数改名）', () => {
+      // 两边一旦被写成同一个常量，分账就白做了：宠物点到第 5 次会把助手的自主进化一起停掉。
+      // 只钉"值必须不同"——将来谁调谁都可以，但不能是同一份预算。
+      expect(MAX_PET_GOALS_PER_DAY).not.toBe(MAX_GOALS_PER_DAY);
     });
 
     it('MAX_VARIANTS_PER_PROMPT 应为正整数', () => {

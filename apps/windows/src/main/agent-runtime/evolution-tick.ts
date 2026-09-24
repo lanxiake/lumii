@@ -200,7 +200,7 @@ function recordUsageIfLive(
     log.warn(`[handleEvolutionTick] 退出清场中，跳过 token 记账 agent=${agentId}`)
     return
   }
-  recordTokenUsage(deps.getDb(), now, tokens)
+  recordTokenUsage(deps.getDb(), agentId, now, tokens)
 }
 
 /**

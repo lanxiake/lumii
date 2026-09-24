@@ -116,8 +116,8 @@ function computePlannerBudget(
       (g) => g.status === 'pending' || g.status === 'approved' || g.status === 'executing',
     ).length;
   return {
-    tokensRemaining: settings.maxTokensPerDay - readTodayTokenUsage(db, now),
-    outreachRemaining: settings.maxOutreachPerDay - getOutreachUsedToday(db, now),
+    tokensRemaining: settings.maxTokensPerDay - readTodayTokenUsage(db, 'assistant', now),
+    outreachRemaining: settings.maxOutreachPerDay - getOutreachUsedToday(db, 'assistant', now),
     goalsRemaining: Math.max(0, settings.maxGoalsPerDay - openCount),
     cronSlotsRemaining: Math.max(0, MAX_SELF_CRON_JOBS - countAgentSelfCronJobs()),
   };

@@ -205,7 +205,6 @@ function main() {
   ev.record('PREFLIGHT', 'INFO', '预检通过')
 
   // 快照 + 环境保护（禁用全部后台 cron，手动 cron run 不受影响）
-  const today = h.localDateKey()
   snap = h.snapshotRuntimeState([
     'autonomous.enabled',
     'autonomous.settings',
@@ -213,9 +212,10 @@ function main() {
     'autonomous.concerns',
     'autonomous.last_diary_date',
     'autonomous.last_plan_at',
-    'autonomous.outreach.last_sent_at',
-    `autonomous.tokens.${today}`,
-    `autonomous.outreach.${today}`,
+    // 预算两键自 2026-09-24（T3.2）起按 agent 分键（见 cli-harness 的 tokenBudgetKey）
+    h.lastOutreachAtKey(),
+    h.tokenBudgetKey(),
+    h.outreachBudgetKey(),
   ])
   cronDisabled = h.disableBackgroundCronJobs()
   ev.record('SNAPSHOT', 'INFO', `runtime_state 快照 ${Object.keys(snap).length} 键；后台 cron 禁用 ${cronDisabled.length} 个`)
@@ -615,7 +615,7 @@ function runExperimentC() {
   }, { fails })
 
   h.runCase(ev, 'EVO-C4', () => {
-    const used = Number(h.readRuntimeState(`autonomous.tokens.${h.localDateKey()}`) ?? 0)
+    const used = Number(h.readRuntimeState(h.tokenBudgetKey()) ?? 0)
     h.assert(used > 0, `今日 token 计数应 >0（tick 执行目标/日记后），实际 ${used}`)
     return `今日 token 累计 ${used}（预算计费真实生效）`
   }, { fails })
