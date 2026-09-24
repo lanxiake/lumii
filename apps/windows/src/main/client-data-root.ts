@@ -37,15 +37,8 @@ let _cachedRoot: string | undefined
 
 /**
  * 测试用：重置数据根缓存（修改 LUMII_CLIENT_DATA_DIR 后调用）。
- *
- * 两个名字都保留——历史上分别属于两份实现，调用方可能用任意一个。
  */
 export function _resetWindowsClientDataRootCacheForTest(): void {
-  _cachedRoot = undefined
-}
-
-/** 测试用：与上一个等价的别名（合并前 `paths.ts` 侧的叫法） */
-export function _resetClientStateDirCacheForTest(): void {
   _cachedRoot = undefined
 }
 

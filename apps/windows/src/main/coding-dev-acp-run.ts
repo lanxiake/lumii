@@ -657,8 +657,3 @@ export function getAcpRunController(): AcpRunController {
   }
   return _globalController
 }
-
-export function resetAcpRunControllerForTests(): void {
-  _globalController?.dispose()
-  _globalController = null
-}

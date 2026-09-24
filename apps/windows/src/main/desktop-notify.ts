@@ -126,10 +126,3 @@ export function showDesktopTaskNotification(
     deps?.flashUnfocusedWindow?.(mainWindow)
   }
 }
-
-/**
- * 测试/关闭用：清空模块内活动通知引用。
- */
-export function resetDesktopNotifyForTests(): void {
-  dismissActiveNotification()
-}

@@ -103,8 +103,5 @@ export interface IChannelOutboundProvider {
   sendMedia?(params: ChannelSendMediaParams): Promise<ChannelSendResult>
 }
 
-export const CHANNEL_LIST_TOOL = 'channel_list'
-export const CHANNEL_SEND_TOOL = 'channel_send'
-
 /** 微信 token 超过此时长 → list 标 TOKEN_STALE（仍允许 send 尝试一次） */
 export const TOKEN_STALE_MS = 24 * 60 * 60 * 1000

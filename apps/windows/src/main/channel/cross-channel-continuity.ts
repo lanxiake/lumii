@@ -317,11 +317,6 @@ export function getCrossChannelContinuity(deps: ContinuityDeps): CrossChannelCon
   return instance
 }
 
-/** 测试用：重置单例 */
-export function __resetCrossChannelContinuity(): void {
-  instance = null
-}
-
 // ── adapter 侧接线 ────────────────────────────────────────────────────────────
 
 /**

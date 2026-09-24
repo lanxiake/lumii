@@ -716,9 +716,3 @@ export class ClientSkillRuntime extends EventEmitter {
     })
   }
 }
-
-// 导出事件名称常量
-export const SKILL_EXECUTE_EVENT = 'skill.execute.request'
-export const SKILL_RESULT_METHOD = 'assistant.skill.result'
-export const SKILL_INSTALL_EVENT = 'skill.install.request'
-export const SKILL_INSTALL_RESULT_METHOD = 'assistant.skill.installResult'

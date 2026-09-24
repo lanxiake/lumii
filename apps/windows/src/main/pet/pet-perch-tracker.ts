@@ -155,8 +155,3 @@ export function getCurrentPerchRect(): PerchRect | null {
 export function isPerchTracking(): boolean {
   return dispose !== null
 }
-
-/** 供测试：重置模块状态 */
-export function _resetPerchTrackerForTest(): void {
-  stopPerchTracking()
-}

@@ -17,11 +17,6 @@ const isWindows = process.platform === "win32";
 
 let cachedBashPath: string | null | undefined;
 
-/** 测试用：重置探测缓存 */
-export function _resetBashPathCache(): void {
-  cachedBashPath = undefined;
-}
-
 function resolveBashPath(): string | null {
   if (cachedBashPath !== undefined) {
     return cachedBashPath;

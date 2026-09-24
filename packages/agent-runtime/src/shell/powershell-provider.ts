@@ -13,11 +13,6 @@ const isWindows = process.platform === "win32";
 
 let cachedPwshPath: string | null | undefined;
 
-/** 测试用：重置探测缓存 */
-export function _resetPwshPathCache(): void {
-  cachedPwshPath = undefined;
-}
-
 function resolvePwshPath(): string | null {
   if (cachedPwshPath !== undefined) {
     return cachedPwshPath;

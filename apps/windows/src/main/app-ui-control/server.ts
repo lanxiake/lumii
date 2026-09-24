@@ -112,8 +112,6 @@ export const CHANNEL_NAMES = ['weixin', 'wecom', 'feishu', 'qbot'] as const
 export type ChannelName = (typeof CHANNEL_NAMES)[number]
 
 let httpServer: http.Server | null = null
-let activeToken: string | null = null
-let activeController: AppUiController | null = null
 /** 当前启动时传入的 deps，供 /command /settings/* /ipc/* 路由读取 */
 let activeDeps: AppUiControlServerDeps | null = null
 /** 控制口默认速率限制：60 秒内 100 次请求，CLI 无 turn 概念，与 per-turn 配额独立 */
@@ -1069,9 +1067,6 @@ export async function startAppUiControlServer(
       resizeImageIfNeeded: deps.resizeImageIfNeeded ?? resizeImageIfNeeded,
     })
 
-  activeController = controller
-  activeToken = token
-
   const config: AppUiRuntimeConfig = {
     port,
     token,
@@ -1101,8 +1096,6 @@ export async function stopAppUiControlServer(): Promise<void> {
 
   const server = httpServer
   httpServer = null
-  activeToken = null
-  activeController = null
   activeDeps = null
   activeRateLimiter = null
 
@@ -1112,14 +1105,4 @@ export async function stopAppUiControlServer(): Promise<void> {
 
   removeRuntimeConfig()
   log.info('本机控制口已停止')
-}
-
-/** 测试用：读取当前 token */
-export function _getActiveTokenForTest(): string | null {
-  return activeToken
-}
-
-/** 测试用：读取当前 controller */
-export function _getActiveControllerForTest(): AppUiController | null {
-  return activeController
 }
