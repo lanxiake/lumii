@@ -208,6 +208,13 @@ export default defineConfig({
           '@tencent-connect/qqbot-connector',
           // silk-wasm（SILK 音频解码）必须外部化：WASM 二进制文件无法被 Rollup 内联打包
           'silk-wasm',
+          // 2026-09-24：这四个随「声明缺失」一并补进 package.json，同时在此显式排除，
+          // 保持内联（行为不变）。若从本列表移除，externalizeDepsPlugin 会把它们外部化，
+          // 届时需要 electron-builder 正确打包它们的传递依赖——正是 177 行要避免的事。
+          '@earendil-works/pi-agent-core',
+          '@earendil-works/pi-ai',
+          '@sinclair/typebox',
+          'tar',
         ]
       }),
     ],
@@ -227,13 +234,21 @@ export default defineConfig({
         // node:sqlite 保持 external，运行时由 Electron 36（Node.js 22.19）内置提供
         // better-sqlite3 保持 external 作为备选，但 Electron 环境优先使用 node:sqlite
         //
-        // pi-ai / pi-agent-core 已通过 externalizeDepsPlugin（默认规则）外部化，
-        // 但它们的传递依赖（@anthropic-ai/sdk、@google/genai、@aws-sdk/*、@mistralai/*）
-        // 不在 apps/windows/package.json 顶层 dependencies 中，externalizeDepsPlugin 无法
-        // 识别它们，因此 Rollup 仍会尝试打包并解析 import。本客户端只使用 OpenAI 兼容端点，
-        // 不直接调用这些 provider SDK，故用正则全部 external，构建期跳过解析，
-        // 运行时若某路径真的被触发，会由 pnpm 符号链接正确解析（pi-ai/package.json
-        // 已声明这些 SDK 为 dependencies，pnpm 已在 store 中建立完整依赖树）。
+        // pi-ai / pi-agent-core / typebox / tar 走「声明 + 内联」：
+        // 它们已在 apps/windows/package.json 顶层声明（2026-09-24 补——此前未声明，
+        // 只靠 .npmrc 的 shamefully-hoist 才能在构建期解析到），但被下面 exclude 排除，
+        // 所以仍由 Rollup 内联进 bundle。这与 177 行的既定策略一致：
+        // 只外部化 electron，其余内联，避免 pnpm 传递依赖无法被 electron-builder 打包。
+        //
+        // ⚠️ 本段注释此前写「已通过 externalizeDepsPlugin（默认规则）外部化」，是错的：
+        // 实测 out/main/index.js 里搜不到 earendil 说明符（外部化的模块会以字符串出现，
+        // 同文件的 @anthropic-ai 有 2 处），即它们一直是被内联的。2026-09-24 更正。
+        //
+        // pi-ai 顶层 re-export 了全部 provider SDK（@anthropic-ai/sdk、@google/genai、
+        // @aws-sdk/*、@mistralai/*），内联时 Rollup 会尝试解析它们。本客户端只使用
+        // OpenAI 兼容端点，不直接调用这些 provider SDK，故用正则全部 external，
+        // 构建期跳过解析；运行时若某路径真的被触发，会由 pnpm 符号链接正确解析
+        // （pi-ai/package.json 已声明这些 SDK 为 dependencies，pnpm 已在 store 中建好依赖树）。
         external: [
           'bufferutil', 'utf-8-validate', 'iconv-lite', 'better-sqlite3', 'node:sqlite', 'isolated-vm',
           /^@anthropic-ai\/.*$/,

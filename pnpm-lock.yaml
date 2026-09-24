@@ -12,10 +12,29 @@ overrides:
 
 importers:
 
-  .: {}
+  .:
+    devDependencies:
+      '@xenova/transformers':
+        specifier: ^2.17.2
+        version: 2.17.2
+      isomorphic-git:
+        specifier: ^1.38.5
+        version: 1.40.0
+      sharp:
+        specifier: 0.34.5
+        version: 0.34.5
+      sherpa-onnx-node:
+        specifier: ^1.11.3
+        version: 1.13.4
 
   apps/windows:
     dependencies:
+      '@earendil-works/pi-agent-core':
+        specifier: ^0.87.1
+        version: 0.87.1(bufferutil@4.1.0)(utf-8-validate@6.0.6)(ws@8.21.1(bufferutil@4.1.0)(utf-8-validate@6.0.6))(zod@3.25.76)
+      '@earendil-works/pi-ai':
+        specifier: 0.87.1
+        version: 0.87.1(bufferutil@4.1.0)(utf-8-validate@6.0.6)(ws@8.21.1(bufferutil@4.1.0)(utf-8-validate@6.0.6))(zod@3.25.76)
       '@ffmpeg-installer/ffmpeg':
         specifier: ^1.1.0
         version: 1.1.0
@@ -34,6 +53,9 @@ importers:
       '@mtbot/pet-core':
         specifier: workspace:*
         version: link:../../packages/pet-core
+      '@sinclair/typebox':
+        specifier: 0.34.47
+        version: 0.34.47
       '@tencent-connect/qqbot-connector':
         specifier: 1.2.0
         version: 1.2.0
@@ -124,6 +146,9 @@ importers:
       silk-wasm:
         specifier: ^3.7.1
         version: 3.7.1
+      tar:
+        specifier: 7.5.7
+        version: 7.5.7
       undici:
         specifier: ^7.29.0
         version: 7.29.0
@@ -322,6 +347,9 @@ importers:
       playwright-core:
         specifier: 1.58.1
         version: 1.58.1
+      ws:
+        specifier: ^8.16.0
+        version: 8.21.1(bufferutil@4.1.0)(utf-8-validate@6.0.6)
     devDependencies:
       typescript:
         specifier: ^5.7.0
