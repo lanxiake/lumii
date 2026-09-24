@@ -192,7 +192,6 @@ export function registerSkillnetStoreHandlers(deps: SkillnetStoreDeps): void {
   // SkillNet 无「推荐/热门/最近/统计/分类」概念：返回空，商店为纯搜索驱动
   ipcMain.handle('api:getStoreFeatured', async () => ({ success: true, data: [] }))
   ipcMain.handle('api:getStorePopular', async () => ({ success: true, data: [] }))
-  ipcMain.handle('api:getStoreRecent', async () => ({ success: true, data: [] }))
   ipcMain.handle('api:getStoreStats', async () => ({ success: true }))
   ipcMain.handle('api:getStoreCategories', async () => ({ success: true, data: [] }))
   ipcMain.handle('api:refreshStore', async () => ({ success: true }))

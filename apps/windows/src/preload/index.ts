@@ -558,8 +558,6 @@ export interface ElectronAPI {
     getStoreFeatured: (limit?: number) => Promise<unknown>
     /** 获取热门技�?*/
     getStorePopular: (limit?: number) => Promise<unknown>
-    /** 获取最新技�?*/
-    getStoreRecent: (limit?: number) => Promise<unknown>
     /** 获取商店统计 */
     getStoreStats: () => Promise<unknown>
     /** 获取商店分类列表 */
@@ -591,8 +589,6 @@ export interface ElectronAPI {
     /** 更新 AI 灵魂内容（本地文件） */
     updateSoulContent: (content: string) => Promise<unknown>
     // --- Agent 管理接口 ---
-    /** 获取模型 catalog（全部模�?+ 元数据，来源 LiteLLM�?*/
-    getConfigModels: () => Promise<unknown>
     /** 获取 Agent 列表 */
     getAgents: () => Promise<unknown>
     /** 获取 Agent 详情 */
@@ -603,8 +599,6 @@ export interface ElectronAPI {
     updateAgent: (agentId: string, data: Record<string, unknown>) => Promise<unknown>
     /** 删除 Agent */
     deleteAgent: (agentId: string) => Promise<unknown>
-    /** 获取用户技能列�?*/
-    getUserSkills: () => Promise<unknown>
     // --- 搜索工具配置 ---
     /** 获取搜索工具配置 */
     getSearchConfig: () => Promise<{ success: boolean; data?: { langSearchApiKey?: string; searxngBaseUrl?: string }; error?: string }>

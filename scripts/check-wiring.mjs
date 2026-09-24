@@ -462,19 +462,128 @@ function collectNamespaceMap() {
   return out
 }
 
+/** 节点是否指向 `electronAPI` 本体（含 window. 前缀、括号/断言/可选链包裹） */
+function isElectronApiRef(n) {
+  if (ts.isIdentifier(n)) return n.text === 'electronAPI'
+  if (ts.isPropertyAccessExpression(n)) return n.name.text === 'electronAPI'
+  if (
+    ts.isParenthesizedExpression(n) ||
+    ts.isAsExpression(n) ||
+    ts.isNonNullExpression(n) ||
+    ts.isTypeAssertionExpression(n) ||
+    ts.isSatisfiesExpression(n)
+  ) {
+    return isElectronApiRef(n.expression)
+  }
+  return false
+}
+
+/**
+ * renderer 侧对 electronAPI 的使用，走 AST 而非正则。
+ *
+ * 为什么不能正则：`electronAPI\n  .api\n  .getAgents` 能匹配，但
+ * `(window.electronAPI as ElectronAPI).api.getAgents`、判空包裹、属性转存
+ * （`const api = window.electronAPI.api` 之后 `api.getAgents()`）都会漏——
+ * 而漏检在这里的方向是**误报**（把活的判成死的，让人去删活代码）。
+ */
+let _rendererUsage = null
+function collectRendererUsage() {
+  if (_rendererUsage) return _rendererUsage
+  const chained = new Map() // 'api.getAgents' -> 调用点文件
+  const bare = new Set() // 任意 `.name` 属性访问到的名字（保守豁免用）
+  for (const f of walk(join(SRC, 'renderer'))) {
+    const sf = getModule(f).sf
+    if (!sf) continue
+    const visit = (node) => {
+      if (ts.isPropertyAccessExpression(node)) {
+        bare.add(node.name.text)
+        const inner = node.expression
+        if (ts.isPropertyAccessExpression(inner) && isElectronApiRef(inner.expression)) {
+          const key = `${inner.name.text}.${node.name.text}`
+          if (!chained.has(key)) chained.set(key, f)
+        }
+      }
+      ts.forEachChild(node, visit)
+    }
+    visit(sf)
+  }
+  _rendererUsage = { chained, bare }
+  return _rendererUsage
+}
+
 /** renderer 里实际调用到的 `electronAPI.<ns>.<method>`：调用点 -> 文件 */
 function collectRendererCalls() {
-  const calls = new Map()
-  for (const f of walk(join(SRC, 'renderer'))) {
-    const src = readFileSync(f, 'utf8')
-    const re = /electronAPI\s*\??\.\s*(\w+)\s*\??\.\s*(\w+)/g
-    let m
-    while ((m = re.exec(src))) {
-      const key = `${m[1]}.${m[2]}`
-      if (!calls.has(key)) calls.set(key, f)
+  return collectRendererUsage().chained
+}
+
+/** 对象字面量的属性名（跳过 spread / 计算方法名——那两种取不到静态键） */
+function keysOfObjectLiteral(objLit) {
+  const out = new Set()
+  for (const p of objLit.properties) {
+    if (!ts.isPropertyAssignment(p) || !p.name) continue
+    const n = p.name
+    if (ts.isIdentifier(n) || ts.isStringLiteral(n) || ts.isNumericLiteral(n)) out.add(n.text)
+  }
+  return out
+}
+
+/**
+ * preload 暴露给 renderer 的 `ns.method` 全集。
+ *
+ * electronAPI 的属性值有两种形态：内联对象字面量（`palace: {...}`）和指向别处
+ * 定义的标识符（`api: apiServerHttpApi`）。后者要去 preload 目录里找同名
+ * `const X = {...}`——**只认名字唯一的那种**；重名、或值是 `{...spread}` 拼的、
+ * 或压根解析不出来，整个 ns 就跳过。宁可漏报也不误报。
+ */
+function collectExposedSurface() {
+  const idx = join(SRC, 'preload/index.ts')
+  const sf = getModule(idx).sf
+  const out = new Map() // 'api.getAgents' -> 声明处
+  if (!sf) return out
+
+  const varKeys = new Map()
+  const dup = new Set()
+  for (const f of walk(join(SRC, 'preload'))) {
+    const m = getModule(f)
+    if (!m.sf) continue
+    for (const stmt of m.sf.statements) {
+      if (!ts.isVariableStatement(stmt)) continue
+      for (const d of stmt.declarationList.declarations) {
+        if (!ts.isIdentifier(d.name)) continue
+        const init = unwrap(d.initializer)
+        if (!init || !ts.isObjectLiteralExpression(init)) continue
+        if (varKeys.has(d.name.text)) dup.add(d.name.text)
+        varKeys.set(d.name.text, keysOfObjectLiteral(init))
+      }
     }
   }
-  return calls
+
+  const visit = (node) => {
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.name.text === 'electronAPI'
+    ) {
+      const init = unwrap(node.initializer)
+      if (init && ts.isObjectLiteralExpression(init)) {
+        for (const p of init.properties) {
+          if (!ts.isPropertyAssignment(p) || !p.name) continue
+          const n = p.name
+          const ns = ts.isIdentifier(n) || ts.isStringLiteral(n) ? n.text : n.getText(sf)
+          const val = unwrap(p.initializer)
+          if (!val) continue
+          let keys = null
+          if (ts.isObjectLiteralExpression(val)) keys = keysOfObjectLiteral(val)
+          else if (ts.isIdentifier(val) && !dup.has(val.text)) keys = varKeys.get(val.text) ?? null
+          if (!keys) continue
+          for (const k of keys) out.set(`${ns}.${k}`, idx)
+        }
+      }
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(sf)
+  return out
 }
 
 /**
@@ -637,6 +746,18 @@ const orphanSends = [...sMap.keys()].filter((c) => !lMap.has(c) && !rendererLite
 
 const unregisteredTools = [...report.tools.exported.keys()].filter((n) => !report.tools.registered.has(n)).sort()
 
+// ---- ⑥ preload 暴露面 vs renderer 消费
+//
+// ② 的镜像：② 查「preload 引用了但 main 没实现」，这里查「main 和 preload 都齐了、
+// 但 renderer 从不调用」——整条链是通的却永远不跑，tsc 和单测都看不见。
+// 判定刻意保守（见 collectRendererUsage 的说明）：代价是通用名会被漏掉，
+// 换的是不误报——把活的判成死的会让人直接去删活代码。
+const exposed = collectExposedSurface()
+const usage = collectRendererUsage()
+const unconsumedMethods = [...exposed.keys()]
+  .filter((k) => !usage.chained.has(k) && !usage.bare.has(k.slice(k.indexOf('.') + 1)))
+  .sort()
+
 // ---- 基线（棘轮）
 //
 // 仓库有 100+ 处存量断线，一次性清完不现实；但"修完没有门禁"正是上一轮重构失败的根因。
@@ -671,12 +792,14 @@ if (UPDATE) {
     orphanSends,
     unregisteredTools,
     unreachable: unreachable.map(rel).sort(),
+    unconsumedMethods,
   }
   writeFileSync(BASELINE_PATH, JSON.stringify(out, null, 2) + '\n', 'utf8')
   console.log(`已写入基线 ${rel(BASELINE_PATH)}：`)
   console.log(
     `  孤儿 handler ${orphanHandlers.length}｜悬空引用 ${danglingRefs.length}｜` +
-      `无人监听 ${orphanSends.length}｜未注册工具 ${unregisteredTools.length}｜不可达文件 ${unreachable.length}`,
+      `无人监听 ${orphanSends.length}｜未注册工具 ${unregisteredTools.length}｜` +
+      `不可达文件 ${unreachable.length}｜无消费者 ${unconsumedMethods.length}`,
   )
   process.exit(0)
 }
@@ -777,6 +900,23 @@ const graded = gradeDangling(danglingRefs, reach.reachable)
   }
 }
 
+// ⑥
+{
+  const { fresh, known } = splitNew(unconsumedMethods, 'unconsumedMethods')
+  section(
+    `⑥ preload 暴露了，但 renderer 从不调用（链路通却没消费者）— 新增 ${fresh.length} / 已知 ${known.length}`,
+  )
+  for (const k of fresh) console.log(`  ${RED('·')} electronAPI.${k}`)
+  if (expandKnown) for (const k of known) console.log(`  ${DIM('·')} ${DIM(`electronAPI.${k}`)}`)
+  else if (known.length) console.log(`  ${DIM(`基线内已知 ${known.length} 处（--verbose 展开）`)}`)
+  if (fresh.length || expandKnown) {
+    console.log(
+      `  ${YEL('注：')}方法名只要在 renderer 里以任何 \`.name\` 出现过就豁免（转存/别名追不到属主），` +
+        `报的是连名字都没出现过的那些，通用名会漏。`,
+    )
+  }
+}
+
 if (VERBOSE && reach.unresolvedSpecs.size) {
   // 按扩展名归类：.css / .json / 图片等资源导入解析不到是正常的（它们不是 TS 模块）。
   // **没有扩展名的**才可疑——那多半是别名没覆盖到，会让 ⑤ 漏报。
@@ -786,7 +926,7 @@ if (VERBOSE && reach.unresolvedSpecs.size) {
     const k = m ? m[1] : '(无扩展名·可疑)'
     byExt.set(k, (byExt.get(k) ?? 0) + 1)
   }
-  section(`⑥ 未能解析的相对说明符（影响 ⑤ 的覆盖面）— ${reach.unresolvedSpecs.size} 种`)
+  section(`⑦ 未能解析的相对说明符（影响 ⑤ 的覆盖面）— ${reach.unresolvedSpecs.size} 种`)
   for (const [ext, n] of [...byExt].sort((a, b) => b[1] - a[1])) {
     console.log(`  ${ext === '(无扩展名·可疑)' ? YEL(ext) : DIM(ext)}  ${n}`)
   }
@@ -795,7 +935,7 @@ if (VERBOSE && reach.unresolvedSpecs.size) {
 }
 
 if (VERBOSE && unresolved.length) {
-  section(`⑦ 无法静态解析的调用点（不计入上面任何判定）— ${unresolved.length}`)
+  section(`⑧ 无法静态解析的调用点（不计入上面任何判定）— ${unresolved.length}`)
   for (const u of unresolved.slice(0, 60)) console.log(`  ? ${u.at}\n      ${u.raw}  (${u.why})`)
   if (unresolved.length > 60) console.log(`  ... 另有 ${unresolved.length - 60} 处`)
 }
@@ -806,7 +946,8 @@ const freshCount =
   splitNew(danglingRefs, 'danglingRefs').fresh.length +
   splitNew(orphanSends, 'orphanSends').fresh.length +
   splitNew(unregisteredTools, 'unregisteredTools').fresh.length +
-  splitNew(unreachable.map(rel), 'unreachable').fresh.length
+  splitNew(unreachable.map(rel), 'unreachable').fresh.length +
+  splitNew(unconsumedMethods, 'unconsumedMethods').fresh.length
 
 console.log(
   `\n${

@@ -24,8 +24,6 @@ export const apiServerHttpApi = {
     ipcRenderer.invoke('api:getStoreFeatured', limit),
   getStorePopular: (limit?: number) =>
     ipcRenderer.invoke('api:getStorePopular', limit),
-  getStoreRecent: (limit?: number) =>
-    ipcRenderer.invoke('api:getStoreRecent', limit),
   getStoreStats: () => ipcRenderer.invoke('api:getStoreStats'),
   getStoreCategories: () => ipcRenderer.invoke('api:getStoreCategories'),
   getStoreSkillDetail: (skillId: string) =>
@@ -52,7 +50,6 @@ export const apiServerHttpApi = {
   updateSoulContent: (content: string) => ipcRenderer.invoke('api:updateSoulContent', content),
 
   // --- Agent 管理接口 ---
-  getConfigModels: () => ipcRenderer.invoke('api:getConfigModels'),
   getAgents: () => ipcRenderer.invoke('api:getAgents'),
   getAgent: (agentId: string) => ipcRenderer.invoke('api:getAgent', agentId),
   forkAgent: (systemAgentId: string, data: { name?: string; description?: string }) =>
@@ -60,7 +57,6 @@ export const apiServerHttpApi = {
   updateAgent: (agentId: string, data: Record<string, unknown>) =>
     ipcRenderer.invoke('api:updateAgent', agentId, data),
   deleteAgent: (agentId: string) => ipcRenderer.invoke('api:deleteAgent', agentId),
-  getUserSkills: () => ipcRenderer.invoke('api:getUserSkills'),
 
   // --- 搜索工具配置 ---
   getSearchConfig: () => ipcRenderer.invoke('api:getSearchConfig'),

@@ -337,17 +337,6 @@ export function registerApiIpcHandlers(): void {
   })
 
   /**
-   * 获取用户有效模型提供商列表（聊天模型选择器）
-   * 独立版：直接用本地模型映射，返回扁平结构（与 LiteLLM catalog 一致）
-   */
-  ipcMain.handle('api:getConfigModels', async () => {
-    const agentRuntimeBridge = deps!.getAgentRuntimeBridge()
-    const mapping = agentRuntimeBridge?.getModelMapping() ?? {}
-    const modelIds = [...new Set(Object.values(mapping))]
-    return { success: true, data: modelIds.map((id) => ({ id, label: id })) }
-  })
-
-  /**
    * 获取 Agent 详情
    */
   ipcMain.handle('api:getAgent', async (_event, agentId: string) => {
@@ -388,13 +377,6 @@ export function registerApiIpcHandlers(): void {
     } catch (err) {
       return { success: false, error: err instanceof Error ? err.message : String(err) }
     }
-  })
-
-  /**
-   * 获取用户技能列表（独立版无后端，返回空）
-   */
-  ipcMain.handle('api:getUserSkills', async () => {
-    return { success: true, data: [] }
   })
 
   // === 搜索工具配置 ===

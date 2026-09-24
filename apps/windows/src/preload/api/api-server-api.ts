@@ -4,12 +4,6 @@
 import { ipcRenderer } from 'electron'
 
 export const apiServerApi = {
-  // AI 灵魂 / 个人记忆
-  getSoulContent: () => ipcRenderer.invoke('api:getSoulContent'),
-  updateSoulContent: (content: string) => ipcRenderer.invoke('api:updateSoulContent', content),
-  getUserMemory: () => ipcRenderer.invoke('api:getUserMemory'),
-  updateUserMemory: (content: string) => ipcRenderer.invoke('api:updateUserMemory', content),
-
   // Provider 配置
   getProviderConfig: () => ipcRenderer.invoke('provider:getConfig'),
   setProviderConfig: (cfg: unknown) => ipcRenderer.invoke('provider:setConfig', cfg),
@@ -37,20 +31,4 @@ export const apiServerApi = {
   // 维护体检报告（概览页「资产体检」卡片）
   getMaintenanceReportOverview: (limit?: number) =>
     ipcRenderer.invoke('maintenance-report:overview', limit),
-
-  // Agent 管理
-  getAgents: () => ipcRenderer.invoke('api:getAgents'),
-  getConfigModels: () => ipcRenderer.invoke('api:getConfigModels'),
-  getAgent: (agentId: string) => ipcRenderer.invoke('api:getAgent', agentId),
-  forkAgent: (systemAgentId: string, data: { name?: string; description?: string }) =>
-    ipcRenderer.invoke('api:forkAgent', systemAgentId, data),
-  updateAgent: (agentId: string, data: Record<string, unknown>) =>
-    ipcRenderer.invoke('api:updateAgent', agentId, data),
-  deleteAgent: (agentId: string) => ipcRenderer.invoke('api:deleteAgent', agentId),
-  getUserSkills: () => ipcRenderer.invoke('api:getUserSkills'),
-
-  // 搜索配置
-  getSearchConfig: () => ipcRenderer.invoke('api:getSearchConfig'),
-  setSearchConfig: (config: { langSearchApiKey?: string; searxngBaseUrl?: string }) =>
-    ipcRenderer.invoke('api:setSearchConfig', config),
 }
