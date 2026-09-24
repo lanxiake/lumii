@@ -88,12 +88,8 @@ export const PET_IPC = {
   getMode: 'pet:get-mode',
   /** send：渲染层报告 hover 状态（遗留，降级提示等） */
   reportHover: 'pet:report-hover',
-  /** send：渲染层上报可点击区域矩形（setShape 区域穿透，高频单向） */
-  updateClickRegion: 'pet:update-click-region',
   /** invoke：切换强制鼠标穿透 */
   toggleForceIgnoreMouse: 'pet:toggle-force-ignore-mouse',
-  /** invoke：获取当前是否强制穿透 */
-  getForceIgnoreMouse: 'pet:get-force-ignore-mouse',
   /** invoke：渲染层就绪通知（握手第 6 步） */
   rendererReady: 'pet:renderer-ready',
   /** invoke：获取当前模型 ID */
@@ -173,8 +169,6 @@ export const PET_IPC = {
   evtChanged: 'pet:mode:changed',
   /** event(main→renderer)：模型热切换（不重建窗口，仅 Live2D 重载，B-3） */
   evtModelChanged: 'pet:model:changed',
-  /** event(main→renderer)：强制穿透状态变更（快捷键切换时同步 UI） */
-  evtForceIgnoreChanged: 'pet:force-ignore:changed',
   /** event(main→renderer)：虚拟人设置变更（设置页修改后推送到宠物窗口即时生效） */
   evtVhSettingsChanged: 'pet:vh-settings:changed',
   /**
@@ -224,12 +218,6 @@ export interface PetModeChangedEvent {
   mode: AppMode
   modelId: string
   timestamp: number
-}
-
-/** 主进程 → 渲染进程：强制穿透状态变更 */
-export interface PetForceIgnoreChangedEvent {
-  readonly type: 'pet:force-ignore:changed'
-  forceIgnore: boolean
 }
 
 /** 主进程 → 渲染进程：虚拟人设置变更（设置页修改后即时推送宠物窗口） */
@@ -283,17 +271,6 @@ export interface PetMotionActionDTO {
   index?: number
 }
 
-/** 渲染进程 → 主进程：可点击区域矩形（窗口坐标，用于 setShape） */
-export interface PetClickRegion {
-  componentId: 'live2d-model' | 'pet-dock' | 'degrade-notice'
-  x: number
-  y: number
-  width: number
-  height: number
-  /** false 时主进程移除此组件区域 */
-  visible: boolean
-}
-
 /** 渲染进程 → 主进程：hover 状态报告（遗留） */
 export interface PetHoverUpdate {
   /** 命中的组件标识（如 'live2d-model' / 'control-panel'） */
@@ -315,12 +292,8 @@ export interface PetElectronAPI {
   getMode(): Promise<AppMode>
   /** 报告组件 hover 状态（遗留） */
   reportHover(update: PetHoverUpdate): void
-  /** 上报可点击区域矩形（仅宠物身体 + 控制坞参与穿透计算） */
-  updateClickRegion(region: PetClickRegion): void
   /** 切换强制鼠标穿透，返回切换后的强制穿透状态 */
   toggleForceIgnoreMouse(): Promise<boolean>
-  /** 获取当前是否强制穿透 */
-  getForceIgnoreMouse(): Promise<boolean>
   /** 渲染层就绪通知（握手用，targetMode 为正在切入的模式） */
   notifyRendererReady(targetMode: AppMode): Promise<void>
   /** 获取当前模型 ID */
@@ -376,8 +349,6 @@ export interface PetElectronAPI {
   onModeChanged(callback: (event: PetModeChangedEvent) => void): () => void
   /** 订阅准备切换事件，返回取消订阅函数 */
   onModePrepare(callback: (event: PetModePrepareEvent) => void): () => void
-  /** 订阅强制穿透状态变更，返回取消订阅函数 */
-  onForceIgnoreChanged(callback: (event: PetForceIgnoreChangedEvent) => void): () => void
   /** 订阅模型热切换事件（控制面板/设置页触发，PetCanvas 据此重载模型） */
   onModelChanged(callback: (event: PetModelChangedEvent) => void): () => void
   /** 订阅虚拟人设置变更（设置页修改后主进程推送到宠物窗口即时生效） */

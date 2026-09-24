@@ -16,8 +16,6 @@
 import { BrowserWindow, screen } from 'electron'
 import {
   type AppMode,
-  type PetClickRegion,
-  type PetForceIgnoreChangedEvent,
   type PetHoverUpdate,
   type PetModeChangedEvent,
   type PetModelChangedEvent,
@@ -427,11 +425,6 @@ export class PetWindowManager {
     this.applyMouseIgnoreState()
   }
 
-  /** 遗留 API：setShape 会裁剪绘制，不再使用 */
-  updateClickRegion(_region: PetClickRegion): void {
-    // no-op
-  }
-
   /** 清除 setShape，恢复全窗口绘制（setShape 会裁剪像素导致模型不可见） */
   private clearWindowShape(win?: BrowserWindow): void {
     const target = win ?? this.petWindow
@@ -504,7 +497,6 @@ export class PetWindowManager {
   setForceIgnoreMouse(forceIgnore: boolean, persist = true): boolean {
     this.forceIgnore = forceIgnore
     this.applyMouseIgnoreState()
-    this.broadcastForceIgnoreChanged()
     this.deps.onForceIgnoreChanged?.(forceIgnore)
     if (persist) setVirtualHumanSettings({ forceIgnoreMouse: forceIgnore })
     log.info(`[setForceIgnoreMouse] 强制穿透=${forceIgnore} persist=${persist}`)
@@ -521,21 +513,9 @@ export class PetWindowManager {
     if (!this.forceIgnore) return false
     this.forceIgnore = false
     this.applyMouseIgnoreState()
-    this.broadcastForceIgnoreChanged()
     this.deps.onForceIgnoreChanged?.(false)
     log.info('[disableForceIgnoreMouse] 已关闭强制穿透')
     return false
-  }
-
-  /** 向宠物窗口广播强制穿透状态（快捷键切换时同步控制面板 UI） */
-  private broadcastForceIgnoreChanged(): void {
-    const win = this.petWindow
-    if (!win || win.isDestroyed()) return
-    const evt: PetForceIgnoreChangedEvent = {
-      type: 'pet:force-ignore:changed',
-      forceIgnore: this.forceIgnore,
-    }
-    win.webContents.send(PET_IPC.evtForceIgnoreChanged, evt)
   }
 
   /** 向宠物窗口广播虚拟人设置变更（设置页修改后即时生效，无需重启宠物模式） */

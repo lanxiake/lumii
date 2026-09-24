@@ -43,7 +43,7 @@ if (argv.includes('--help') || argv.includes('-h')) {
 判定项：
   ① main 注册了 handler 但 preload 从不引用  ② preload 引用了但 main 没实现
   ③ main 推送事件但无人监听                  ④ 工具导出但没注册进工具数组
-  ⑤ 从入口走不到的文件（死代码候选）
+  ⑤ 从入口走不到的文件（死代码候选）          ⑥ preload 暴露了但 renderer 从不调用
 
 判据说明与踩过的坑见文件头注释。`)
   process.exit(0)
@@ -62,14 +62,14 @@ const isRendererSide = (p) => {
 
 // ---------------------------------------------------------------- 文件遍历
 
-function walk(dir, acc = []) {
+function walk(dir, acc = [], exts = /\.tsx?$/) {
   if (!existsSync(dir)) return acc
   for (const e of readdirSync(dir, { withFileTypes: true })) {
     if (SKIP_DIRS.has(e.name)) continue
     const p = join(dir, e.name)
-    if (e.isDirectory()) walk(p, acc)
+    if (e.isDirectory()) walk(p, acc, exts)
     else if (
-      /\.tsx?$/.test(e.name) &&
+      exts.test(e.name) &&
       !/\.test\.tsx?$/.test(e.name) &&
       !/\.d\.ts$/.test(e.name) // 类型声明不是 import 目标，收进来只会误报
     ) {
@@ -77,6 +77,21 @@ function walk(dir, acc = []) {
     }
   }
   return acc
+}
+
+/**
+ * E2E / 验证脚本的落点（全在 apps/windows 之外）。
+ *
+ * 为什么 ⑥ 要扫它们：`verify/pet-sprite/*.mjs` 用 CDP 在 renderer 上下文里
+ * `evaluate('window.electronAPI.pet.getMouseIgnoreState()')`——调用藏在**字符串字面量**里，
+ * 既不在 renderer 源码中、AST 也扫不到，⑥ 会把这类「有消费者的诊断接口」误判成死代码。
+ * 误判在这个方向上很危险：会让人去删活代码。
+ */
+function walkE2EScripts() {
+  return [
+    ...walk(join(ROOT, 'verify'), [], /\.[cm]?js$/),
+    ...walk(join(ROOT, 'docs/test'), [], /\.[cm]?js$/),
+  ]
 }
 
 // ---------------------------------------------------------------- 模块索引
@@ -507,6 +522,26 @@ function collectRendererUsage() {
     }
     visit(sf)
   }
+  // E2E / 验证脚本里的 CDP evaluate 字符串（见 walkE2EScripts 的说明）。
+  // 只认字符串字面量内部——注释和 .md 里的提及不会被误当成消费者。
+  const STR_RE = /electronAPI\s*\??\.\s*([A-Za-z_$][\w$]*)\s*\??\.\s*([A-Za-z_$][\w$]*)/g
+  for (const f of walkE2EScripts()) {
+    const sf = getModule(f).sf
+    if (!sf) continue
+    const visit = (node) => {
+      if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
+        STR_RE.lastIndex = 0
+        let m
+        while ((m = STR_RE.exec(node.text))) {
+          const key = `${m[1]}.${m[2]}`
+          if (!chained.has(key)) chained.set(key, f)
+        }
+      }
+      ts.forEachChild(node, visit)
+    }
+    visit(sf)
+  }
+
   _rendererUsage = { chained, bare }
   return _rendererUsage
 }

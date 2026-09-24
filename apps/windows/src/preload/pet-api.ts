@@ -8,9 +8,7 @@
 import { ipcRenderer } from 'electron'
 import {
   type AppMode,
-  type PetClickRegion,
   type PetElectronAPI,
-  type PetForceIgnoreChangedEvent,
   type PetHoverUpdate,
   type PetIdleEvent,
   type PetModeChangedEvent,
@@ -46,15 +44,8 @@ export const petApi: PetElectronAPI = {
     ipcRenderer.send(PET_IPC.reportHover, update)
   },
 
-  updateClickRegion: (region: PetClickRegion): void => {
-    ipcRenderer.send(PET_IPC.updateClickRegion, region)
-  },
-
   toggleForceIgnoreMouse: (): Promise<boolean> =>
     ipcRenderer.invoke(PET_IPC.toggleForceIgnoreMouse),
-
-  getForceIgnoreMouse: (): Promise<boolean> =>
-    ipcRenderer.invoke(PET_IPC.getForceIgnoreMouse),
 
   notifyRendererReady: (targetMode: AppMode): Promise<void> =>
     ipcRenderer.invoke(PET_IPC.rendererReady, targetMode),
@@ -97,9 +88,6 @@ export const petApi: PetElectronAPI = {
 
   onModePrepare: (callback: (event: PetModePrepareEvent) => void): () => void =>
     createPetEventListener<PetModePrepareEvent>(PET_IPC.evtPrepare, callback),
-
-  onForceIgnoreChanged: (callback: (event: PetForceIgnoreChangedEvent) => void): () => void =>
-    createPetEventListener<PetForceIgnoreChangedEvent>(PET_IPC.evtForceIgnoreChanged, callback),
 
   getVirtualHumanSettings: (): Promise<VirtualHumanSettingsDTO> =>
     ipcRenderer.invoke(PET_IPC.getVirtualHumanSettings),

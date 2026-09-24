@@ -11,7 +11,6 @@
 import { ipcMain, globalShortcut, powerMonitor, type BrowserWindow } from 'electron'
 import {
   type AppMode,
-  type PetClickRegion,
   type PetHoverUpdate,
   type PetIdleEvent,
   type PetModeSwitchResult,
@@ -257,17 +256,9 @@ export function registerPetModeIpc(deps: PetWindowManagerDeps): void {
     petWindowManager?.reportHover(update)
   })
 
-  // 可点击区域矩形（setShape 区域穿透）
-  ipcMain.on(PET_IPC.updateClickRegion, (_evt, region: PetClickRegion) => {
-    petWindowManager?.updateClickRegion(region)
-  })
-
-  // 强制穿透切换 / 查询
+  // 强制穿透切换
   ipcMain.handle(PET_IPC.toggleForceIgnoreMouse, () => {
     return petWindowManager?.toggleForceIgnoreMouse() ?? false
-  })
-  ipcMain.handle(PET_IPC.getForceIgnoreMouse, () => {
-    return petWindowManager?.isForceIgnore() ?? false
   })
 
   // 模型 ID 读写（同步持久化到 store，重启后保留）
