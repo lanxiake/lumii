@@ -1708,7 +1708,7 @@ export class AgentRuntimeBridge {
                   const convId = this.evolutionConversationIdFor(agentId)
                   const now = new Date()
                   const settings = readSettings(this.localDb.db)
-                  if (!canSendOutreach(this.localDb.db, now, settings.maxOutreachPerDay)) {
+                  if (!canSendOutreach(this.localDb.db, agentId, now, settings.maxOutreachPerDay)) {
                     finalizeGoal(this.localDb.db, goal.id, { success: false, output: '预算用尽' })
                     return 'budget-exhausted'
                   }
@@ -1736,7 +1736,7 @@ export class AgentRuntimeBridge {
                       log.warn(`[sendOutreach] 渠道 ${channel} 推送失败:`, err instanceof Error ? err.message : err)
                     }
                   }
-                  recordOutreach(this.localDb.db, now)
+                  recordOutreach(this.localDb.db, agentId, now)
                   finalizeGoal(this.localDb.db, goal.id, { success: true, output: goal.description })
                   if (agentId === 'assistant') this.recordMoodEvent('user_initiates')
                   if (this._memoryManager) {
