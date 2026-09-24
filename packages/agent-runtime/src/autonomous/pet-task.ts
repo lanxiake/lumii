@@ -230,6 +230,14 @@ export function decidePetTask(text: string, boundary: PetTaskBoundary | null): P
 export interface PetTaskMetadata {
   readonly source: 'pet-task';
   readonly dimension: CapabilityDimension | null;
+  /**
+   * 这件事是谁的主意（第七期 T7.4）：用户交代的，还是它自己排期找的。
+   *
+   * **缺省 `'user'`**：这个字段是后加的，存量行里没有它——而那些行全是用户
+   * 交代的（那时宠物还不会自己找事做）。所以"没有这个字段"就等于 `'user'`，
+   * 不需要回填迁移。
+   */
+  readonly origin?: 'user' | 'self';
   readonly result?: {
     readonly ok: boolean;
     readonly text: string;
@@ -258,6 +266,7 @@ export function readPetTaskMetadata(raw: string | null | undefined): PetTaskMeta
     return {
       source: 'pet-task',
       dimension: dimension && dimension in DIMENSION_KEYWORDS ? dimension : null,
+      origin: parsed.origin === 'self' ? 'self' : 'user',
       ...(result && typeof result.text === 'string' && typeof result.at === 'string'
         ? { result: { ok: result.ok === true, text: result.text, at: result.at } }
         : {}),
@@ -267,9 +276,19 @@ export function readPetTaskMetadata(raw: string | null | undefined): PetTaskMeta
   }
 }
 
-/** 构造落库用的 `metadata` 字符串（受理时调一次） */
-export function buildPetTaskMetadata(dimension: CapabilityDimension | null): string {
-  const payload: PetTaskMetadata = { source: 'pet-task', dimension };
+/**
+ * 构造落库用的 `metadata` 字符串（受理时调一次）。
+ *
+ * @param origin 这件事是谁的主意（第七期 T7.4）。`'user'` = 用户交代的，
+ *   `'self'` = 它自己排期找的。缺省 `'user'`——存量行全是那个语义。
+ *   经历页据此把"你让我做的"与"我自己想做的"分开说，而**两者走同一条执行链**
+ *   （同一个单飞锁、同一个日闸门、同一个回执路径）：自己找事做不等于另开一条管道。
+ */
+export function buildPetTaskMetadata(
+  dimension: CapabilityDimension | null,
+  origin: 'user' | 'self' = 'user',
+): string {
+  const payload: PetTaskMetadata = { source: 'pet-task', dimension, origin };
   return JSON.stringify(payload);
 }
 
@@ -278,6 +297,9 @@ export function buildPetTaskMetadata(dimension: CapabilityDimension | null): str
  *
  * **保留原有字段**（尤其 `dimension`）：收尾时手上只有目标行，没有受理时的上下文，
  * 覆盖掉就等于把那次分类丢了。JSON 坏了也照写——回执比维度重要。
+ *
+ * `origin` 同一条理由：收尾时手上只有目标行，**别把它冲成默认的 `user`**
+ * ——那会让一只自己找事做的宠物在经历页里变成"全是你让我做的"。
  */
 export function withPetTaskResult(
   raw: string | null | undefined,
@@ -289,6 +311,7 @@ export function withPetTaskResult(
   const payload: PetTaskMetadata = {
     source: 'pet-task',
     dimension: existing?.dimension ?? null,
+    origin: existing?.origin ?? 'user',
     result: { ok, text: truncate(text, PET_TASK_RESULT_MAX_CHARS), at },
   };
   return JSON.stringify(payload);

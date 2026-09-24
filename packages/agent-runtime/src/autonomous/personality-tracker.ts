@@ -10,6 +10,7 @@
 
 import type { PersonalityState, PersonalityEvent, PersonalityConfig } from './types';
 import type { DatabaseClient } from './meta-cognition-engine';
+import type { DatabaseAdapter } from '../storage/local-database.js';
 
 /** 出生抽签：截断正态 σ=0.15，clip [0.15, 0.85] */
 const INNATE_TRAIT_SIGMA = 0.15;
@@ -422,4 +423,58 @@ export async function recordPersonalityEvent(eventType: string, agentId: string,
   await db.execute(sql, [event.id, event.agentId, event.eventType, JSON.stringify(event.personalityDelta), JSON.stringify(event.triggerContext || {}), event.createdAt]);
 
   return event;
+}
+
+/**
+ * 记一次人格事件**并立刻应用**它的影响（第七期 T7.3）。
+ *
+ * 协调器里那两处（`autonomous-coordinator.ts`）是分两步写的：先
+ * `recordPersonalityEvent(...)` 落事件表，再 `tracker.updatePersonality(...)` 跑 EMA。
+ * 两步之间的那个缺口很危险，因为**它们各自都不报错**：
+ *
+ * | 只做了 | 现象 |
+ * |---|---|
+ * | 只落事件表 | `personality_events` 有行、`personality_state.update_count` 仍是 0 |
+ * | 只跑 EMA | 性格变了，但没人知道因为什么（事件表是审计） |
+ *
+ * 而"它到底变了没有"这个问题，两边会给出**相反的答案**——这正是宠物侧
+ * 2026-09-24 真机上的实况（`update_count = 0` 而设计以为演化在跑）。
+ * 合成一个函数，调用方就没有"只做一半"这个选项。
+ *
+ * 不吞异常：调用方要能自己决定失败怎么办（宠物侧一律只记日志，
+ * 演进失败不该影响一次已经跑完的任务）。
+ */
+export async function applyPersonalityEvent(
+  eventType: string,
+  agentId: string,
+  context: Record<string, any>,
+  db: DatabaseClient,
+  tracker: PersonalityTracker,
+): Promise<PersonalityState> {
+  const event = await recordPersonalityEvent(eventType, agentId, context, db);
+  return tracker.updatePersonality(agentId, event);
+}
+
+/**
+ * 读出生快照（`personality:birth:{agentId}`）。
+ *
+ * 单独一个 **sync + `DatabaseAdapter`** 的读口：写它的是 tracker 内部（async 客户端），
+ * 而读它的那两处（设置页的气质标签、经历页的"出生时什么样"）手上只有同步的
+ * `DatabaseAdapter`。为一次主键读去装一整个 `PersonalityTracker` 是绕远路。
+ *
+ * 读不到 / 坏数据一律 `null` —— 调用方据此说"还不知道"，**不要拿 0.5 编一个中性气质**
+ * （§3.6：用户看到的是气质标签，编出来的标签比没有更糟）。
+ */
+export function readBirthSnapshot(db: DatabaseAdapter, agentId: string): BirthSnapshot | null {
+  try {
+    const row = db
+      .prepare<{ value: string }>(`SELECT value FROM runtime_state WHERE key = ?`)
+      .get(`${BIRTH_SNAPSHOT_KEY_PREFIX}${agentId}`);
+    if (!row?.value) return null;
+    const parsed = JSON.parse(row.value) as BirthSnapshot;
+    if (!parsed?.traits || typeof parsed.at !== 'string') return null;
+    return parsed;
+  } catch {
+    return null;
+  }
 }

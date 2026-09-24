@@ -154,9 +154,41 @@ describe('petTaskQuotaReason —— 早退时的说法与派发侧同义', () =>
 })
 
 describe('PetTaskMetadata —— 落库载荷', () => {
-  it('受理时写下的只有 source 与 dimension', () => {
+  it('受理时写下的只有 source / dimension / origin 三个字段', () => {
     const raw = buildPetTaskMetadata(CapabilityDimension.WEB_SEARCH)
-    expect(JSON.parse(raw)).toEqual({ source: 'pet-task', dimension: 'web_search' })
+    expect(JSON.parse(raw)).toEqual({
+      source: 'pet-task',
+      dimension: 'web_search',
+      origin: 'user',
+    })
+  })
+
+  /**
+   * ★ origin 的两条语义（七期 T7.4）。
+   *
+   * 它是后加的字段，**缺省必须是 `'user'`**：存量行里没有它，而那些行全是
+   * 用户交代的（那时宠物还不会自己找事做）。缺省写反了不需要迁移就能错——
+   * 一只自己找事做的宠物会在经历页里变成"全是你让我做的"。
+   */
+  it('★ origin 缺省 user（存量行没有这个字段，语义就是它）', () => {
+    expect(readPetTaskMetadata(JSON.stringify({ source: 'pet-task', dimension: null }))?.origin).toBe(
+      'user',
+    )
+    expect(readPetTaskMetadata(buildPetTaskMetadata(null))?.origin).toBe('user')
+  })
+
+  it('★ origin=self 是它自己排的事，且**收尾时不被冲回 user**', () => {
+    const created = buildPetTaskMetadata(null, 'self')
+    expect(readPetTaskMetadata(created)?.origin).toBe('self')
+    const finished = withPetTaskResult(created, true, '看过了', '2026-09-24T10:00:00.000Z')
+    expect(readPetTaskMetadata(finished)?.origin).toBe('self')
+  })
+
+  it('origin 是乱值时按 user 处理（不认的值不进那一列）', () => {
+    expect(
+      readPetTaskMetadata(JSON.stringify({ source: 'pet-task', dimension: null, origin: 'robot' }))
+        ?.origin,
+    ).toBe('user')
   })
 
   it('判不出维度时照写（null 是有意义的值，不是缺字段）', () => {
