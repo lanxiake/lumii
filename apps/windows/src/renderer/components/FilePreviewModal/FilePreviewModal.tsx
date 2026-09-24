@@ -29,6 +29,7 @@ import { writeClipboardFiles } from '../../services/clipboard-service'
 import { useDataThemeColorMode } from '../../hooks/common/useDataThemeColorMode'
 import { PdfJsPreview } from './PdfJsPreview'
 import { ExcelPreview } from './ExcelPreview'
+import { createMermaidMarkdownComponents } from './mermaid-markdown-components'
 import styles from './FilePreviewModal.module.css'
 import { buildZoomedSrcDoc, clampZoom, ZOOM_MAX, ZOOM_MIN, ZOOM_STEP } from './zoom-utils'
 import { buildIframeSelectionInjection } from '../../selection/webview-bridge'
@@ -577,6 +578,18 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
     [result?.content],
   )
 
+  /** Markdown 预览组件覆盖：相对图、外链、mermaid 流程图（仅非编辑预览态） */
+  const markdownComponents = useMemo(
+    () => ({
+      ...createMermaidMarkdownComponents(mdColorMode),
+      img: ({ src, alt }: { src?: string; alt?: string }) => (
+        <MarkdownImage src={src} alt={alt} mdFilePath={filePath ?? mdBasePath} version={imageVersion} />
+      ),
+      a: MarkdownExternalLink,
+    }),
+    [mdColorMode, filePath, mdBasePath, imageVersion],
+  )
+
   /** 当前内容是否支持缩放（内容已加载且非 Markdown 编辑态） */
   const zoomSupported = useMemo(
     () => !!route && !loading && !error && !isEditingMarkdown && ZOOMABLE_ROUTES.has(route),
@@ -1100,12 +1113,7 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
                   <MDEditor.Markdown
                     source={previewMarkdown}
                     style={{ background: 'transparent', color: 'inherit' }}
-                    components={{
-                      img: ({ src, alt }) => (
-                        <MarkdownImage src={src} alt={alt} mdFilePath={filePath ?? mdBasePath} version={imageVersion} />
-                      ),
-                      a: MarkdownExternalLink,
-                    }}
+                    components={markdownComponents}
                   />
                 </div>
               )}

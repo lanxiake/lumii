@@ -1,0 +1,44 @@
+/**
+ * Mermaid 图在文件预览 Markdown 中的样式。
+ */
+
+.wrap {
+  margin: 1em 0;
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+.wrap :global(svg) {
+  max-width: 100%;
+  height: auto;
+  display: block;
+  margin: 0 auto;
+}
+
+.loading {
+  display: block;
+  padding: 12px 0;
+  color: var(--mt-fg-3, var(--fg-muted, #888));
+  font-size: 13px;
+}
+
+.error {
+  margin-bottom: 8px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--mt-danger, #c44) 12%, transparent);
+  color: var(--mt-danger, #c44);
+  font-size: 13px;
+}
+
+.fallback {
+  margin: 0;
+  padding: 12px 14px;
+  overflow-x: auto;
+  border-radius: 6px;
+  background: var(--mt-code-bg, var(--bg-code, #f5f5f5));
+  font-family: var(--mt-font-mono, Consolas, Monaco, monospace);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre;
+}
