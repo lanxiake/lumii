@@ -189,7 +189,6 @@ type VoiceErrorCode =
 
 // ─── 引擎配置 ────────────────────────────────────────────────────────────────
 
-/** @lintignore 被 voice-commands.ts 以 `import('./voice-events.js').VoiceAsrConfig` 内联引用（计划文档 §4.9） */
 export type VoiceAsrConfig = {
   /** ASR 提供者：local-paraformer = 本地 sherpa-onnx，openai-whisper = 云端 */
   provider: 'local-paraformer' | 'openai-whisper'
@@ -310,7 +309,6 @@ const EDGE_TTS_VOICES = [
   { id: 'zh-CN-shaanxi-XiaoniNeural', name: '晓妮', gender: '女', style: '陕西方言' },
 ] as const
 
-/** @lintignore 被 voice-commands.ts 以 `import('./voice-events.js').VoiceVadConfig` 内联引用（计划文档 §4.9） */
 export type VoiceVadConfig = {
   /** 语音概率阈值（0.0 ~ 1.0），即"语音识别阈值"：silero 判定为说话的敏感度 */
   threshold: number

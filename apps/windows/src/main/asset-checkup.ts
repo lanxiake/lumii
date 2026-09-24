@@ -75,11 +75,7 @@ export interface AssetCheckupDeps {
   readonly getPalaceStats?: () => PalaceStatsLike | null
 }
 
-/**
- * 与 @mtbot/agent-runtime 的 PalaceArchiveStats 同构（避免主机侧深引 runtime 类型）
- *
- * @lintignore 被 bridge-tool-registrar-types.ts 以 `import('../asset-checkup').PalaceStatsLike` 内联引用（计划文档 §4.9）
- */
+/** 与 @mtbot/agent-runtime 的 PalaceArchiveStats 同构（避免主机侧深引 runtime 类型） */
 export interface PalaceStatsLike {
   readonly attempted: number
   readonly archived: number
@@ -88,12 +84,7 @@ export interface PalaceStatsLike {
   readonly lastError: { readonly at: string; readonly message: string } | null
 }
 
-/**
- * 与 @mtbot/agent-runtime 的 SummarizationStats 同构（避免主机侧深引 runtime 类型）
- *
- * @lintignore 被 bridge-tool-registrar-types.ts 以 `import('../asset-checkup').SegmentStatsLike`
- * 内联类型导入引用，knip 不追踪这种形态（见计划文档 §4.9，删了会编译失败）
- */
+/** 与 @mtbot/agent-runtime 的 SummarizationStats 同构（避免主机侧深引 runtime 类型） */
 export interface SegmentStatsLike {
   readonly summarised: number
   readonly emptyCandidates: number
