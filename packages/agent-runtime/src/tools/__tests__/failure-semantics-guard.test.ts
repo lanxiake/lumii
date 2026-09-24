@@ -211,7 +211,6 @@ const FAILURE_SEMANTICS: Record<string, FileFailureSemantics> = {
     sites: 0,
   },
   "wiki-tools.ts": {
-    // wiki_capture 已从 ALL_BUILT_IN_TOOL_CONFIGS 下线（保留导出兼容），故不在 tools 里
     tools: ["wiki_overview", "wiki_search", "wiki_read"],
     how: "失败全部走 throw",
     sites: 0,

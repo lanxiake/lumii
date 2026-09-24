@@ -29,13 +29,23 @@ const TOOL_BUDGET: Record<string, number> = {
   // 提示词却一直写着"MUST be invoked via execute_skill tool"）
   assistant: 55,
   'system-keeper': 31,
-  'info-curator': 14,
+  'info-curator': 13,
   chronicler: 10,
   'code-dev': 18,
 }
 
-/** 2026-09-16 收敛掉的名字；它们不该再出现在任何白名单里 */
-const RETIRED_TOOLS = ['skill_list', 'app_scroll_to_bottom']
+/**
+ * 已下线的工具名；它们不该再出现在任何 Agent 白名单里。
+ *
+ * 白名单里残留一个已下线的名字是**静默**的——`filterToolsByDefinition` 是从已注册工具里
+ * 筛（`whiteset.has(t.name)`），不存在的名字直接被丢掉，运行时毫无痕迹。但 `toolCount()`
+ * 数的是 `def.tools.length`，于是把假的算进预算，预算表跟着失真。所以在这里钉住。
+ */
+const RETIRED_TOOLS = [
+  'skill_list', // 2026-09-16 收敛
+  'app_scroll_to_bottom', // 2026-09-16 收敛
+  'bing_search', // 已并入 web_search 作为默认第一 provider，不再独立注册
+]
 
 function toolCount(agentId: string): number {
   const def = BUILTIN_AGENT_DEFINITIONS.find((a) => a.id === agentId)

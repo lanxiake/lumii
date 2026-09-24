@@ -53,18 +53,18 @@ function loadNameConstants() {
 /**
  * 读 `ALL_BUILT_IN_TOOL_CONFIGS` 的成员（`xxxToolConfig,`）。
  *
- * **必须以注册表为准，不能"定义了就算"**：`bing-search-tool.ts` 定义了 config 却没进数组，
- * `wiki-tools.ts` 的 `wikiCaptureToolConfig` 是明确下线的（数组旁有注释）。
- * 第一版按"文件里有 name 字段就算"扫出 57 个，比实际多 2 个——
- * 方向恰好是危险的：把**未注册**的当存在，评测集里写这些名字会被放行。
+ * **必须以注册表为准，不能"定义了就算"**：当时 `bing-search-tool.ts` 定义了 config 却没进数组、
+ * `wiki-tools.ts` 的 `wikiCaptureToolConfig` 是明确下线的，第一版按"文件里有 name 字段就算"
+ * 扫出 57 个，比实际多 2 个——方向恰好是危险的：把**未注册**的当存在，评测集里写这些名字会被
+ * 放行。（那两个 config 已于 2026-09-24 删除，判据不变。）
  */
 function loadRegisteredConfigVars() {
   const p = path.join(BUILT_IN_DIR, "index.ts");
   if (!fs.existsSync(p)) return null;
   const src = fs.readFileSync(p, "utf8");
-  // ⚠️ 锚点必须带 `export const ` —— 裸找 `ALL_BUILT_IN_TOOL_CONFIGS` 会先命中
-  // 注释里的那处（"@deprecated 已从 ALL_BUILT_IN_TOOL_CONFIGS 下线"），
-  // 于是把已下线的 wikiCaptureToolConfig 当成了注册成员（实测多算 1 个）。
+  // ⚠️ 锚点仍带 `export const `：裸找 `ALL_BUILT_IN_TOOL_CONFIGS` 会先命中注释里的提及
+  // （当时是 wiki-tools.ts re-export 上方那句「@deprecated 已从 ALL_BUILT_IN_TOOL_CONFIGS
+  // 下线」，实测多算 1 个）。那句注释已随工具删除，锚点留着作防御。
   const start = src.indexOf("export const ALL_BUILT_IN_TOOL_CONFIGS");
   if (start < 0) return null;
   const end = src.indexOf("];", start);

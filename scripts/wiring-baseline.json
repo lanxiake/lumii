@@ -4,10 +4,7 @@
   "orphanHandlers": [],
   "danglingRefs": [],
   "orphanSends": [],
-  "unregisteredTools": [
-    "bingSearchToolConfig",
-    "wikiCaptureToolConfig"
-  ],
+  "unregisteredTools": [],
   "unreachable": [],
   "unconsumedMethods": [
     "updater.checkForUpdates",

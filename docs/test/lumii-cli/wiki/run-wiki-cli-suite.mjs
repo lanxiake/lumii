@@ -890,7 +890,7 @@ function runAgent() {
     const { code, json, out } = ui(['tools', 'list'])
     assert(code === 0, out.slice(0, 80))
     const text = JSON.stringify(json ?? out)
-    const needed = ['wiki_overview', 'wiki_search', 'wiki_read', 'wiki_capture']
+    const needed = ['wiki_overview', 'wiki_search', 'wiki_read']
     const missing = needed.filter((n) => !text.includes(n))
     assert(missing.length === 0, `缺工具 ${missing.join(',')}`)
     record('P0-M01', 'PASS', 'wiki_* tools present')

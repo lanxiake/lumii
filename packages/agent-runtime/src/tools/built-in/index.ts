@@ -39,8 +39,6 @@ export {
   wikiOverviewToolConfig,
   wikiSearchToolConfig,
   wikiReadToolConfig,
-  /** @deprecated 已从 ALL_BUILT_IN_TOOL_CONFIGS 下线，仅保留导出兼容外部引用 */
-  wikiCaptureToolConfig,
 } from "./wiki-tools.js";
 export {
   channelListToolConfig,

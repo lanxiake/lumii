@@ -1,12 +1,15 @@
 import { describe, it, expect, vi } from "vitest";
 import axios from "axios";
-import { bingSearchToolConfig } from "./bing-search-tool.js";
+import { fetchBingSearchHtml, parseBingSearchHtml } from "./bing-search-tool.js";
 
 vi.mock("axios");
 
+/**
+ * 本模块不注册为独立工具（`bing_search` 已并入 `web_search` 作为默认第一 provider），
+ * 所以测的是 web_search 实际调用的那两个函数，而不是工具包装层。
+ */
 describe("bing-search-tool", () => {
-  it("解析搜索结果", async () => {
-    const mockHtml = `
+  const mockHtml = `
       <div class="b_algo">
         <h2><a href="https://example.com/1">测试标题1</a></h2>
         <div class="b_caption"><p>测试摘要1</p></div>
@@ -17,36 +20,39 @@ describe("bing-search-tool", () => {
       </div>
     `;
 
-    vi.mocked(axios.get).mockResolvedValueOnce({ data: mockHtml });
+  it("解析搜索结果", () => {
+    const results = parseBingSearchHtml(mockHtml, 10);
 
-    const result = await bingSearchToolConfig.execute(
-      "test-call-id",
-      { query: "测试查询", count: 10, offset: 0 },
-      {} as any,
-    );
-
-    expect(result.isError).toBeUndefined();
-    expect(result.details).toMatchObject({
-      query: "测试查询",
-      totalResults: 2,
-    });
-    expect(result.details.results).toHaveLength(2);
-    expect(result.details.results[0]).toMatchObject({
+    expect(results).toHaveLength(2);
+    expect(results[0]).toMatchObject({
       title: "测试标题1",
       url: "https://example.com/1",
       snippet: "测试摘要1",
     });
+    expect(results[1]).toMatchObject({
+      title: "测试标题2",
+      url: "https://example.com/2",
+    });
   });
 
-  it("处理网络错误", async () => {
+  it("count 截断结果数", () => {
+    const html = Array.from(
+      { length: 5 },
+      (_, i) =>
+        `<div class="b_algo"><h2><a href="https://example.com/${i}">标题${i}</a></h2>` +
+        `<div class="b_caption"><p>摘要${i}</p></div></div>`,
+    ).join("");
+
+    expect(parseBingSearchHtml(html, 2)).toHaveLength(2);
+  });
+
+  it("无 .b_algo 时返回空数组（不抛，交由调用方判零结果）", () => {
+    expect(parseBingSearchHtml("<html><body>nothing</body></html>", 10)).toEqual([]);
+  });
+
+  it("抓取失败向上抛，不吞异常", async () => {
     vi.mocked(axios.get).mockRejectedValueOnce(new Error("网络超时"));
 
-    await expect(
-      bingSearchToolConfig.execute(
-        "test-call-id",
-        { query: "测试查询", count: 10, offset: 0 },
-        {} as any,
-      ),
-    ).rejects.toThrow("网络超时");
+    await expect(fetchBingSearchHtml("测试查询", 0)).rejects.toThrow("网络超时");
   });
 });

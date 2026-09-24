@@ -356,7 +356,6 @@ const INFO_CURATOR_DEF: AgentDefinition = {
   tools: [
     WEB_SEARCH_TOOL_NAME,
     WEB_FETCH_TOOL_NAME,
-    "bing_search",
     "dashboard_feed_write",
     // 回读卡片是策展的去重前提：卡片累积多轮产出，写之前先知道上面已有什么
     "dashboard_feed_read",
