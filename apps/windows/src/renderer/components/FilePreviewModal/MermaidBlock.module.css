@@ -18,7 +18,7 @@
 .loading {
   display: block;
   padding: 12px 0;
-  color: var(--mt-fg-3, var(--fg-muted, #888));
+  color: var(--mt-fg-3);
   font-size: 13px;
 }
 
@@ -26,8 +26,8 @@
   margin-bottom: 8px;
   padding: 8px 12px;
   border-radius: 6px;
-  background: color-mix(in srgb, var(--mt-danger, #c44) 12%, transparent);
-  color: var(--mt-danger, #c44);
+  background: color-mix(in srgb, var(--mt-error) 12%, transparent);
+  color: var(--mt-error);
   font-size: 13px;
 }
 
@@ -36,7 +36,7 @@
   padding: 12px 14px;
   overflow-x: auto;
   border-radius: 6px;
-  background: var(--mt-code-bg, var(--bg-code, #f5f5f5));
+  background: var(--mt-code-bg, var(--bg-code));
   font-family: var(--mt-font-mono, Consolas, Monaco, monospace);
   font-size: 12px;
   line-height: 1.5;
