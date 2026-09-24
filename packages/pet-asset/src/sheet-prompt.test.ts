@@ -235,6 +235,24 @@ describe('checkCharacterDirection', () => {
   it('中文数字不算越界', () => {
     expect(checkCharacterDirection('第一格抬右手，第二格放下')).toEqual([])
   })
+
+  // 规范要求创作段写「颜色名 + hex」（宠物开发规范 §八 硬规则③），而 hex 必然含
+  // 阿拉伯数字。不放行的话，每一份合规的角色描述都会稳定收到一条没法照办的警告
+  //（「改成中文数字或去掉」——hex 改不成中文数字），真越界时反而被淹没。
+  it('色值里的数字不算越界', () => {
+    const text = '银白色长发，藕荷色 #DCC9EE 的齐腰长裙，轮廓用紫檀色 #866BB2 的粗描边'
+    expect(checkCharacterDirection(text)).toEqual([])
+  })
+
+  it('色值放行之后，真越界仍然抓得到', () => {
+    const w = checkCharacterDirection('藕荷色 #DCC9EE 的裙子，第1格抬右手')
+    expect(w.some((x) => x.includes('阿拉伯数字'))).toBe(true)
+  })
+
+  it('短号 #1 这类编号不会被当成色值放过去', () => {
+    const w = checkCharacterDirection('角色 #1 抬右手')
+    expect(w.some((x) => x.includes('阿拉伯数字'))).toBe(true)
+  })
 })
 
 describe('buildSheetPlan', () => {

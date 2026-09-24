@@ -256,6 +256,14 @@ const ARABIC_DIGIT = /[0-9]/
 const TECHNICAL_WORDS = ['网格', '像素', '帧', '格子', '图片生成', '分辨率', '画布']
 
 /**
+ * 色值（`#RGB` / `#RRGGBB` / `#RRGGBBAA`）。
+ *
+ * 它里面的数字**不是**「格子编号」那种数字：创作段本来就该写「颜色名 + hex」
+ * （宠物开发规范 §八 硬规则③），而 hex 必然含阿拉伯数字。
+ */
+const HEX_COLOR = /#[0-9a-fA-F]{3,8}\b/g
+
+/**
  * 检查创作段有没有越界。
  *
  * 这两条规则以前只写在 SKILL.md 里「请 Agent 遵守」，而 Agent 是 LLM——
@@ -266,7 +274,12 @@ const TECHNICAL_WORDS = ['网格', '像素', '帧', '格子', '图片生成', '�
  */
 export function checkCharacterDirection(text: string): string[] {
   const warnings: string[] = []
-  if (ARABIC_DIGIT.test(text)) {
+  // **先把色值剔掉再判数字。** 不剔的话，任何按规范写了 hex 的角色描述都会稳定收到
+  // 一条「改成中文数字或去掉」——而 hex 根本没法改成中文数字；这条永远误报的警告
+  // 还会把真写了「第1格」时的提醒淹没掉。
+  // （sheet-prompt.test 里早有「除色值外不出现阿拉伯数字」的用例，说明色值例外
+  // 本就是设计意图，只是这条字符检查没跟上。）
+  if (ARABIC_DIGIT.test(text.replace(HEX_COLOR, ''))) {
     warnings.push('创作段里出现了阿拉伯数字——模型容易把它画成格子编号，改成中文数字或去掉')
   }
   const hit = TECHNICAL_WORDS.filter((w) => text.includes(w))
