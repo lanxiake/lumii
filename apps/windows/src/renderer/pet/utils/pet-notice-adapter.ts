@@ -69,6 +69,22 @@ export interface RawAgentEvent {
   readonly fileChanges?: readonly unknown[]
   /** `agent:permission:request` 已被自动审批放行（消费方据此不叫人，见事件类型的注释） */
   readonly autoApproved?: boolean
+  /**
+   * `pet:goal:result`（三期 T3.5）：宠物报回的原话 + 成没成。
+   *
+   * 这一条**不是** Agent 事件——它是宠物自己那条目标管道的回执（主进程 `pet-dispatch`
+   * 跑完推的）。走同一张表是因为"气泡 + 控制坞一行 + 30 秒自清"正是 `report` 档的语义，
+   * 另起一套只会多出一份限流与免打扰判定。
+   *
+   * ⚠ 字段名必须与 `shared/agent-runtime-events.ts` 的 `PetGoalResultEvent` **逐字一致**。
+   * 名字对不上不会报错：`text` 读成 `undefined` → pet-core 用兜底文案，
+   * 表现是气泡冒出来了、说的是"我去看过了"而不是宠物报的内容——
+   * **2026-09-24 真机第一跑就是这么错的**（适配器写 `petText`、线上发 `text`）。
+   * 现在由 `pet-notice-adapter.test.ts` 里那条按 `PetGoalResultEvent` 类型构造的用例钉住：
+   * 两边漂移时 **tsc 会红**，不是等到用户看见一句含糊话。
+   */
+  readonly text?: string
+  readonly ok?: boolean
 }
 
 /**
@@ -108,6 +124,8 @@ const NOTICE_EVENT_TYPES: ReadonlySet<string> = new Set([
   'agent:error',
   'agent:abort',
   'agent:turn:file-changes',
+  // 宠物自己的目标回执（三期 T3.5）：走 report 档，与上面几张表同一套限流与免打扰
+  'pet:goal:result',
   // 销账
   'agent:permission:granted',
   'agent:permission:denied',
@@ -174,6 +192,11 @@ export function toNoticeEvent(raw: RawAgentEvent, facts: NoticeTurnFacts): Notic
     const done = extractTaskCompletion(raw.result)
     if (!done.completed) return null
     summary = done.summary
+  } else if (type === 'pet:goal:result') {
+    // 宠物报的原话**就是**气泡文案：pet-core 不改写它（失败时只加一句前缀）。
+    // 空串按"没话说"处理，让 pet-core 用兜底文案——**不在这里返回 null**：
+    // 用户交代的事，回执宁可含糊也不能吞（设计 §4.2.2 F10）。
+    summary = raw.text?.trim() || undefined
   }
 
   return {
@@ -197,6 +220,7 @@ export function toNoticeEvent(raw: RawAgentEvent, facts: NoticeTurnFacts): Notic
     fileCount: raw.fileChanges?.length,
     hasTaskComplete: facts.sawTaskComplete,
     userInitiated: facts.userInitiated,
+    ...(type === 'pet:goal:result' ? { ok: raw.ok !== false } : {}),
   }
 }
 

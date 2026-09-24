@@ -52,6 +52,10 @@ export type NoticeLevel = "ambient" | "report" | "action";
  *
  * 刻意**不含**「自主进化目标审批」——那套走 `outreach-budget` 的预算、不与本表共用计数器
  * （设计 §四 表末行），属另一条线。
+ *
+ * `pet-goal`（2026-09-24 三期 T3.5）是**宠物自己**跑完用户交代的一件事：它没有对应的
+ * Agent 会话回合，所以不能借用 `task-complete`——那个种类的语义是"某个会话的一轮干完了"，
+ * 报出去会让用户去找一个并不存在的会话。
  */
 export type NoticeKind =
   | "task-complete"
@@ -60,7 +64,8 @@ export type NoticeKind =
   | "ask-user"
   | "subagent-failed"
   | "turn-error"
-  | "file-changes";
+  | "file-changes"
+  | "pet-goal";
 
 /** 处置入口。`action` 档必填——没有它的通知是"看得见、点不动"的假通知。 */
 export type NoticeDeepLink =
@@ -139,6 +144,13 @@ export interface NoticeEvent {
   readonly reason?: string;
   /** `agent:turn:file-changes`：改动文件数（宿主从 `fileChanges.length` 取） */
   readonly fileCount?: number;
+  /**
+   * 宠物目标成没成（`pet:goal:result.ok`）。**只有宠物那条事件会带它。**
+   *
+   * 缺省（`undefined`）按"成"处理——旧事件没有这个字段，而"没成"必须由发送方**明确说**，
+   * 不能靠字段缺失来推断：把成功说成失败，比把失败说成成功危害小，但两者都是撒谎。
+   */
+  readonly ok?: boolean;
 }
 
 /** 产生通知时的环境。`now` 与 `tickNotices` / `pickNoticeForBubble` 用同一个时钟。 */
@@ -213,6 +225,20 @@ export const NOTICE_TEXTS = {
 
 /** `task_complete` 结果里没有 `summary` 时的兜底文案（有会话可跳，只是没摘要）。 */
 export const TASK_COMPLETE_FALLBACK_TEXT = "任务做完了";
+
+/**
+ * 宠物目标回执没有文案时的两条兜底。
+ *
+ * 正常情况下宿主总会成句（宠物报的话本身就是内容），这两条是防"事件到了但 `text` 是空串"
+ * ——**宁可说一句含糊的真话，也不要因为文案缺失而把回执整条吞掉**（用户交代的事，
+ * 回执丢了比回执含糊严重得多，见设计 §4.2.2 F10）。
+ *
+ * 失败与成功**分开**：把失败说成"我去看过了"是撒谎，而一句"这次没做成"至少是诚实的。
+ */
+export const PET_GOAL_FALLBACK_TEXT = "我去看过了";
+export const PET_GOAL_FAILED_FALLBACK = "这次没做成";
+/** 失败但有话说时的前缀（`ok === false`）——把"没成"这个事实摆在最前面 */
+export const PET_GOAL_FAILED_PREFIX = "没能做成：";
 
 export const TASK_COMPLETE_TOOL_NAME = "task_complete";
 
@@ -309,6 +335,7 @@ function sessionOf(event: NoticeEvent): string | null {
  * | `subagent:completed` 且 failed/stale | `report` | `sub:会话:名字` | 「{名字} 没跑成」 |
  * | `error` | 可重试 `ambient` / 否则 `report` | `err:会话:错误码` | 「出错了」 |
  * | `turn:file-changes`（主窗失焦且用户没参与） | `report` | `files:会话:轮次` | 「改了 N 个文件」 |
+ * | `pet:goal:result`（宠物跑完用户交代的事） | `report` | `petgoal:会话:文案哈希` | 宠物报的原话 |
  * | `tool:end` 出错 / `abort(user_cancel)` | `ambient` | — | — |
  *
  * 过程事件（`message:delta` / `thinking:delta` / `tool:start` / `tool:progress` /
@@ -495,6 +522,39 @@ export function noticeFromEvent(event: NoticeEvent, ctx: NoticeContext): PetNoti
         sessionKey,
         createdAt: now,
         text: `改了 ${count} 个文件`,
+        deepLink: { to: "session" },
+        ttlMs: REPORT_TTL_MS,
+      };
+    }
+
+    case "pet:goal:result": {
+      /**
+       * 宠物替用户做完了一件事（三期 T3.5）。
+       *
+       * 档位取 `report` 而不是 `action`：**它不需要用户出手**——事情已经做完了，
+       * 用户只是"顺便看一眼"。给它 `action` 就等于把"完成"变成一件待办，
+       * 那正是设计 §十.1 里 D4 骚扰的定义（与 `task-complete` 取 `report` 同一条理由）。
+       *
+       * 文案直接用宿主成句后的 `summary`：宠物报的是"我看到了什么"，
+       * 那句话本身就是内容，pet-core 不该改写它——**只负责在失败时加一句前缀**，
+       * 因为"没做成"这件事必须让用户一眼看出来（设计 §7.1/F6：失败了要如实说）。
+       */
+      const body = event.summary?.trim();
+      const failed = event.ok === false;
+      const text = body
+        ? failed
+          ? `${PET_GOAL_FAILED_PREFIX}${body}`
+          : body
+        : failed
+          ? PET_GOAL_FAILED_FALLBACK
+          : PET_GOAL_FALLBACK_TEXT;
+      return {
+        id: `petgoal:${sessionKey}:${hashText(text)}`,
+        kind: "pet-goal",
+        level: "report",
+        sessionKey,
+        createdAt: now,
+        text,
         deepLink: { to: "session" },
         ttlMs: REPORT_TTL_MS,
       };

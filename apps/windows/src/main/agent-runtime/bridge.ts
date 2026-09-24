@@ -1486,6 +1486,15 @@ export class AgentRuntimeBridge {
       log.info(
         `[executePetGoal] agent=${agentId} goalId=${goal.id} ok=${ok} output=${output.slice(0, 120) || '（空）'}`,
       )
+      // 播报：**只推这一条事件**，宠物窗把它折成 report 档通知（气泡 + 控制坞一行）。
+      // 不走 `showCronNotification` —— P3 断言：同一件事既冒气泡又弹系统通知就是重复打扰。
+      this.ipcChannel.forwardIpcEvent({
+        type: 'pet:goal:result',
+        sessionKey: convId,
+        petAgentId: agentId,
+        ok,
+        text: output,
+      })
       return ok ? 'completed' : 'empty-output'
     } finally {
       this.destroy(instanceId)

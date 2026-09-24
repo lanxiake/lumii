@@ -3,6 +3,8 @@ import {
   NOTICE_CAPACITY,
   NOTICE_TEXTS,
   PERMISSION_DESC_MAX,
+  PET_GOAL_FAILED_FALLBACK,
+  PET_GOAL_FALLBACK_TEXT,
   REPORT_PER_SESSION_MS,
   REPORT_TTL_MS,
   RESOLVED_KEEP_MS,
@@ -216,6 +218,7 @@ describe("§四 映射表 —— 逐行", () => {
       ev({ type: "agent:subagent:completed", subagentName: "n", subagentStatus: "stale" }),
       ev({ type: "agent:error", errorCode: "e", isRetryable: false }),
       ev({ type: "agent:turn:file-changes", fileCount: 1 }),
+      ev({ type: "pet:goal:result", summary: "看过了", ok: true }),
     ];
     for (const e of rows) {
       const n = noticeFromEvent(e, ctx(1000, false));
@@ -223,6 +226,39 @@ describe("§四 映射表 —— 逐行", () => {
       expect(n!.id.length, e.type).toBeGreaterThan(0);
       expect(n!.text.length, e.type).toBeGreaterThan(0);
     }
+  });
+
+  it("宠物目标回执 → report，文案就是宠物报的原话", () => {
+    const n = noticeFromEvent(
+      ev({ type: "pet:goal:result", summary: "工作目录根下有这些：a、b、c", ok: true }),
+      ctx(1000),
+    );
+    expect(n?.kind).toBe("pet-goal");
+    expect(n?.level).toBe("report");
+    expect(n?.text).toBe("工作目录根下有这些：a、b、c");
+    // 与 task-complete 分开的幂等前缀：两种通知不该互相顶掉
+    expect(n?.id.startsWith(`petgoal:${S}:`)).toBe(true);
+    expect(n?.ttlMs).toBe(REPORT_TTL_MS);
+  });
+
+  it("宠物没做成 → 前缀把「没成」摆在最前面（不许含糊过去）", () => {
+    const withBody = noticeFromEvent(
+      ev({ type: "pet:goal:result", summary: "那个目录读不到", ok: false }),
+      ctx(1000),
+    );
+    expect(withBody?.text).toBe("没能做成：那个目录读不到");
+    // 连话都没说
+    const silent = noticeFromEvent(ev({ type: "pet:goal:result", ok: false }), ctx(1000));
+    expect(silent?.text).toBe(PET_GOAL_FAILED_FALLBACK);
+    // 成功但没话说的兜底是**另一句**——失败说成"我去看过了"就是撒谎
+    const okSilent = noticeFromEvent(ev({ type: "pet:goal:result", ok: true }), ctx(1000));
+    expect(okSilent?.text).toBe(PET_GOAL_FALLBACK_TEXT);
+    expect(okSilent?.text).not.toBe(PET_GOAL_FAILED_FALLBACK);
+  });
+
+  it("ok 缺省按成功算：旧发送方不带这个字段，不因此被报成失败", () => {
+    const n = noticeFromEvent(ev({ type: "pet:goal:result", summary: "看过了" }), ctx(1000));
+    expect(n?.text).toBe("看过了");
   });
 });
 

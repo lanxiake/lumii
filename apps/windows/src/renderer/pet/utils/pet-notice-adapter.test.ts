@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import type { PetGoalResultEvent } from '../../../shared/agent-runtime-events'
 import {
   INITIAL_TURN_FACTS,
   advanceTurnFacts,
@@ -43,6 +44,8 @@ describe('isNoticeEvent —— 热路径上的那道闸', () => {
       'agent:permission:prompt:timeout',
       'agent:permission:prompt:cancelled',
       'agent:ask-user:cancelled',
+      // 宠物自己的目标回执（三期 T3.5）：走 report 档，与 Agent 事件同一张表
+      'pet:goal:result',
     ]) {
       expect(isNoticeEvent(type), type).toBe(true)
     }
@@ -227,5 +230,51 @@ describe('advanceTurnFacts', () => {
   it('无关事件原样返回（引用相等，调用方据此跳过写回）', () => {
     const facts = { sawTaskComplete: false, userInitiated: false }
     expect(advanceTurnFacts(facts, { type: 'agent:message:delta' })).toBe(facts)
+  })
+})
+
+describe('toNoticeEvent —— 宠物目标回执（三期 T3.5）', () => {
+  // ⚠ 夹具**按线上的类型构造**（`PetGoalResultEvent`，来自 shared/agent-runtime-events），
+  // 不是照抄适配器的字段名：两边漂移时这条会**编译不过**，而不是安静地读成 undefined。
+  // 2026-09-24 真机第一跑就是这么错的——气泡冒出来了，说的却是兜底文案「我去看过了」。
+  const petEvent = (over: Partial<PetGoalResultEvent> = {}): PetGoalResultEvent => ({
+    type: 'pet:goal:result',
+    sessionKey: 'evolution:pet:demo_cartoon_cat',
+    // 事件上带它，但适配器**不读**：气泡归属靠 sessionKey（已经把宠物编进去了）
+    petAgentId: 'pet:demo_cartoon_cat',
+    ok: true,
+    text: '工作目录根下有这些：a、b、c',
+    ...over,
+  })
+
+  it('原话进 summary、成败进 ok，会话键是宠物自己的会话', () => {
+    const n = toNoticeEvent(petEvent(), INITIAL_TURN_FACTS)
+    expect(n?.type).toBe('pet:goal:result')
+    expect(n?.sessionKey).toBe('evolution:pet:demo_cartoon_cat')
+    expect(n?.summary).toBe('工作目录根下有这些：a、b、c')
+    expect(n?.ok).toBe(true)
+  })
+
+  it('失败时 ok=false（文案的前缀由 pet-core 加，宿主不改写宠物的话）', () => {
+    const n = toNoticeEvent(petEvent({ ok: false, text: '那个目录读不到' }), INITIAL_TURN_FACTS)
+    expect(n?.ok).toBe(false)
+    expect(n?.summary).toBe('那个目录读不到')
+  })
+
+  it('空文案**不返回 null**：回执宁可含糊也不能吞', () => {
+    // 与 task_complete 的验证门那次刻意不同——那次是其实没完成，别冒
+    const n = toNoticeEvent(petEvent({ ok: false, text: '   ' }), INITIAL_TURN_FACTS)
+    expect(n).not.toBeNull()
+    expect(n?.summary).toBeUndefined() // 交给 pet-core 的兜底文案
+  })
+
+  it('不带 ok 字段时**不臆断失败**', () => {
+    const n = toNoticeEvent(petEvent({ ok: undefined as unknown as boolean }), INITIAL_TURN_FACTS)
+    expect(n?.ok).toBe(true)
+  })
+
+  it('别的类型不会被带上 ok（这个字段只有宠物那条事件用）', () => {
+    const n = toNoticeEvent({ type: 'agent:turn:end', sessionKey: 's', durationMs: 1 }, INITIAL_TURN_FACTS)
+    expect(n?.ok).toBeUndefined()
   })
 })

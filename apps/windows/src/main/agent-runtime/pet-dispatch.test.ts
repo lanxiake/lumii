@@ -275,3 +275,74 @@ describe.skipIf(!hasFts5Db)('宠物硬闸门（T3.2 的常量，判定在派发�
     expect(read(petTokenKey('assistant'))).toBeUndefined()
   })
 })
+
+/**
+ * P3 断言（计划 §五「★ 断言：播报不经过 dispatchNotifications」）。
+ *
+ * `executePetGoal` 住在 bridge 里，整个类要跑起来才能单测（代价远超这条断言的价值），
+ * 所以这里改成**读源码**：把那个方法的函数体抠出来，断言它一次都没提通知。
+ *
+ * 为什么值得单独立一条：`executeGoal`（自主进化那条路）**是发系统通知的**——
+ * 照抄它就会让同一件事既冒宠物气泡又弹系统通知。这个错误不报错、单元测试也照过，
+ * 只有用户会觉得"怎么说了两遍"。
+ */
+describe('P5/P3 守卫：宠物的播报通道只有气泡', () => {
+  /** 抠出 `private async executePetGoal(...) { ... }` 的方法体（按大括号配平） */
+  function extractMethodBody(source: string, signature: string): string | null {
+    const start = source.indexOf(signature)
+    if (start < 0) return null
+    const open = source.indexOf('{', start)
+    if (open < 0) return null
+    let depth = 0
+    for (let i = open; i < source.length; i += 1) {
+      const ch = source[i]
+      if (ch === '{') depth += 1
+      else if (ch === '}') {
+        depth -= 1
+        if (depth === 0) return source.slice(open, i + 1)
+      }
+    }
+    return null
+  }
+
+  /**
+   * 剥掉注释再断言。
+   *
+   * ⚠️ 第一版没剥，结果被**我自己写在方法里的注释**绊倒了——那句注释正好在解释
+   * "不走 `showCronNotification`"。判定必须只看**代码**：注释里提一句不代表调用了，
+   * 而一个会被注释绊倒的守卫，最后一定会被人用改注释的方式绕过。
+   */
+  function stripComments(code: string): string {
+    return code.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
+  }
+
+  it('executePetGoal 不碰 showCronNotification / dispatchNotifications', async () => {
+    const { readFileSync } = await import('node:fs')
+    const { fileURLToPath } = await import('node:url')
+    const path = await import('node:path')
+    const bridgePath = path.join(path.dirname(fileURLToPath(import.meta.url)), 'bridge.ts')
+    const body = extractMethodBody(readFileSync(bridgePath, 'utf8'), 'private async executePetGoal')
+
+    // 抠取失败必须让测试红——否则这条守卫会变成永不失败的摆设
+    expect(body, '没能从 bridge.ts 抠出 executePetGoal（方法被改名/挪走了？）').toBeTruthy()
+    expect(body!.length, 'executePetGoal 的方法体短得可疑，抠取可能搞错了').toBeGreaterThan(300)
+
+    const code = stripComments(body!)
+    // 剥注释不能把代码也剥没了（正则写坏时这条会红）
+    expect(code).toContain('finalizeGoal')
+
+    expect(code).not.toContain('showCronNotification')
+    expect(code).not.toContain('dispatchNotifications')
+  })
+
+  it('对照组：executeGoal（自主进化那条路）确实发系统通知——所以上面那条不是空断言', async () => {
+    const { readFileSync } = await import('node:fs')
+    const { fileURLToPath } = await import('node:url')
+    const path = await import('node:path')
+    const bridgePath = path.join(path.dirname(fileURLToPath(import.meta.url)), 'bridge.ts')
+    const source = readFileSync(bridgePath, 'utf8')
+    const body = extractMethodBody(source, 'executeGoal: async (goal, agentId, selfCheckBias) =>')
+    expect(body, '没能抠出 executeGoal').toBeTruthy()
+    expect(body).toContain('showCronNotification')
+  })
+})

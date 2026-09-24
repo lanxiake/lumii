@@ -608,10 +608,32 @@ export interface AutonomousMoodEmotionEvent {
   }
 }
 
+/**
+ * 宠物做完了一件事（`pet:goal:result`，三期 T3.5）。
+ *
+ * 用户交代给宠物的目标跑完之后由主进程推这一条，宠物窗把它折成一条 `report` 档通知：
+ * **气泡说出来 + 控制坞留一行**，30 秒自清。这是宠物唯一的播报通道。
+ *
+ * ⚠ **它刻意不进系统通知**（计划 §五 的 P3 断言）：宠物报的是一句"我看到了什么"，
+ * 和桌面弹窗不是一回事；同一件事既冒气泡又弹系统通知就是重复打扰。
+ * 主进程侧因此**不许**调 `showCronNotification` —— 有一条守卫测试盯着这件事。
+ *
+ * `text` 是**已经可以直接展示的文案**（成句是宿主的事）：成功时是宠物报的结果，
+ * 失败时是原因。pet-core 只负责把它放进气泡，不理解内容。
+ */
+export interface PetGoalResultEvent {
+  readonly type: 'pet:goal:result'
+  /** 宠物自己的会话（`evolution:pet:<模型ID>`）：气泡归属与限流都按它算 */
+  readonly sessionKey: string
+  /** 归属宠物（`pet:<模型ID>`），供 UI 区分是哪一只 */
+  readonly petAgentId: string
+  readonly ok: boolean
+  readonly text: string
+}
+
 // ============================================================
 // 联合类型
 // ============================================================
-
 /** 所有 Agent Runtime 事件的联合类型 */
 export type AgentRuntimeEvent =
   | (AgentMessageStartEvent & AgentEventInstanceMeta)
@@ -657,6 +679,7 @@ export type AgentRuntimeEvent =
   | SkillImprovementReadyEvent
   | SkillDeprecationSuggestedEvent
   | AutonomousMoodEmotionEvent
+  | PetGoalResultEvent
 
 /** 所有事件类型字面量 */
 export type AgentRuntimeEventType = AgentRuntimeEvent['type']
