@@ -60,8 +60,8 @@ docs/test/lumii-cli/
 |---|---|
 | [wiki-p0-test-cases.md](./wiki/wiki-p0-test-cases.md) | P0：收件箱闭环、金标检索、页面、索引、GAP |
 | [wiki-p1-test-cases.md](./wiki/wiki-p1-test-cases.md) | P1：双链、修订回滚、清理导出、GAP |
-| [wiki-p2-test-cases.md](./wiki/wiki-p2-test-cases.md) | P2：综述 accept/reject、图谱、hybrid、状态 GAP（旧命令） |
-| [wiki-p3-test-cases.md](./wiki/wiki-p3-test-cases.md) | 记忆重构三期：知识图谱新模型、按资料抽实体、实体反查 |
+| [wiki-p2-test-cases.md](./wiki/wiki-p2-test-cases.md) | P2：综述 accept/reject、hybrid、状态 GAP（旧命令；图谱用例已移除） |
+| [wiki-p3-test-cases.md](./wiki/wiki-p3-test-cases.md) | 记忆重构三期：知识图谱新模型、按资料抽实体、实体反查（⚠️ 整份已失效，见文件头） |
 | [wiki-p1-implementation-test-cases.md](./wiki/wiki-p1-implementation-test-cases.md) | 记忆重构一期：用途两级目录、口诀分类器、切断聊天摄入 |
 | [wiki-p2-implementation-test-cases.md](./wiki/wiki-p2-implementation-test-cases.md) | 记忆重构二期：主题树编辑、重新编目、综述改产资料 |
 | [run-wiki-cli-suite.mjs](./wiki/run-wiki-cli-suite.mjs) | Wiki 全子命令 + `command` GAP 执行器 |

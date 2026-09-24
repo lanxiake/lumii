@@ -6,6 +6,9 @@
 - CLI：`node apps/windows/resources/app-ui-cli/lumii-ui.mjs`
 - 探针前缀：`wiki-cli-p3-*`
 
+> ⚠️ **整份已失效（2026-09-24）**：本文件所有用例都走 `wiki:graph:data` / `wiki:ero:*`，而这些 IPC 命令与 `wiki graph` CLI 命令已随知识图谱功能一并删除——见 `docs/plans/代码重构/大文件与死代码/2026-09-24-接线守卫与无消费者IPC清单.md` §3 第十批。保留本文件仅作历史记录，**不要再照着它跑用例**。
+> 注意：下层 `WikiEroRepo` / `WikiEroExtractor` **仍在**（由同伴指令 `__wiki_ero_extract__` 驱动，非 UI 路径），但已无 IPC 入口。
+
 > 本文件覆盖「记忆重构三期」：新图模型（`category`/`subtopic`/`source`/`entity` 节点，`belongs_to`/`sibling`/`relation`/`mentioned_in`/`wikilink` 边）、按资料抽取实体（`wiki:ero:extract` 的 `target=sources` 路径）、实体反查资料（`wiki:ero:entity-sources`）。与旧 `wiki-p2-test-cases.md` 里的 `wiki graph`/`wiki ero bootstrap` CLI 子命令是同一批底层命令的**扩展参数**，但新参数（`subtopic`/`radius`/`layers`/`category` for extract/`sourceIds`）在现有 CLI 子命令里不存在，必须走 `command` 总线。
 
 ## 0. 约定

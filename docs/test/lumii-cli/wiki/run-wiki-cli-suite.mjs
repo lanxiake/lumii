@@ -838,71 +838,6 @@ function runP2() {
     record('P2-Y06', 'FAIL', e.message)
   }
 
-  const arch = findPage('架构设计文档')
-  try {
-    assert(arch, '无中心')
-    const g = ui(['wiki', 'graph', '--center', arch.id])
-    assert(g.code === 0 && Array.isArray(g.json?.nodes) && Array.isArray(g.json?.edges), 'graph')
-    assert(g.json.nodes.some((n) => n.id === arch.id), '缺中心')
-    record('P2-G01', 'PASS', `nodes=${g.json.nodes.length} edges=${g.json.edges.length}`)
-  } catch (e) {
-    record('P2-G01', 'FAIL', e.message)
-  }
-
-  try {
-    const g = ui(['wiki', 'graph', '--category', 'sources', '--limit', '20'])
-    assert(g.code === 0 && Array.isArray(g.json?.nodes), 'cat')
-    record('P2-G02', 'PASS', `nodes=${g.json.nodes.length} truncated=${!!g.json.truncated}`)
-  } catch (e) {
-    record('P2-G02', 'FAIL', e.message)
-  }
-
-  try {
-    const g = ui(['wiki', 'graph', '--limit', '10'])
-    assert(g.code === 2, `期望 2 得 ${g.code}`)
-    record('P2-G03', 'PASS', 'usage')
-  } catch (e) {
-    record('P2-G03', 'FAIL', e.message)
-  }
-
-  try {
-    assert(arch, '无页')
-    const bl = (asArray(ui(['wiki', 'backlinks', arch.id]).json) || []).filter((b) => b.isResolved && b.sourcePageId)
-    const g = ui(['wiki', 'graph', '--center', arch.id]).json
-    if (!bl.length) record('P2-G04', 'SKIP', '无已解析反链')
-    else {
-      const ok = bl.every((b) => (g.edges || []).some((e) => e.source === b.sourcePageId && e.target === arch.id))
-      assert(ok, '边不一致')
-      record('P2-G04', 'PASS', `checked ${bl.length}`)
-    }
-  } catch (e) {
-    record('P2-G04', 'FAIL', e.message)
-  }
-
-  try {
-    let iso = findPage('sources/wiki-cli-p1-isolated') || findPage('wiki-cli-p1-isolated')
-    if (!iso) {
-      const u = ui([
-        'wiki',
-        'page',
-        'update',
-        '--path',
-        'sources/wiki-cli-p1-isolated',
-        '--title',
-        'wiki-cli-p1-isolated',
-        '--content',
-        'no links',
-      ])
-      iso = { id: u.json?.pageId }
-    }
-    assert(iso?.id, '无法准备孤立页')
-    const g = ui(['wiki', 'graph', '--center', iso.id])
-    assert(g.code === 0 && g.json.nodes.some((n) => n.id === iso.id), '孤立中心')
-    record('P2-G05', 'PASS', `edges=${g.json.edges.length}`)
-  } catch (e) {
-    record('P2-G05', 'FAIL', e.message)
-  }
-
   try {
     const h = ui(['wiki', 'search', 'hybrid', '架构', '--limit', '3', '--no-vector'])
     assert(h.code === 0, `exit ${h.code}: ${h.out.slice(0, 120)}`)
@@ -937,26 +872,6 @@ function runP2() {
     record('P2-V01', 'PASS', JSON.stringify(r.json || r.out).slice(0, 140))
   } catch (e) {
     record('P2-V01', 'FAIL', e.message)
-  }
-
-  try {
-    const r = ui(['wiki', 'ero', 'bootstrap'])
-    // exit 5 = denied：仍记真实结果，便于对照白名单/权限
-    if (r.code === 0) record('P2-R01', 'PASS', 'bootstrap ok')
-    else if (r.json?.error === 'rate_limited') record('P2-R01', 'FAIL', 'rate_limited')
-    else if (r.code === 5 || r.json?.error === 'denied') {
-      record('P2-R01', 'PASS', `控制口拒绝(denied/exit5): ${(r.out || '').slice(0, 80)}`)
-    } else record('P2-R01', 'PASS', `exit=${r.code} ${(r.out || '').slice(0, 80)}`)
-  } catch (e) {
-    record('P2-R01', 'FAIL', e.message)
-  }
-
-  try {
-    const r = cmd('wiki:ero:list', {})
-    assert(r.code === 0, r.out.slice(0, 120))
-    record('P2-R02', 'PASS', JSON.stringify(r.json).slice(0, 100))
-  } catch (e) {
-    record('P2-R02', 'FAIL', e.message)
   }
 
   try {
@@ -1068,7 +983,7 @@ function writeReport() {
     '',
     '- **P0**：inbox organize/discard/retry、folder scan/import/organize run、金标检索、索引、page CRUD、inbox:count/page:delete/source:get',
     '- **P1**：wikilink 反链、未解析保留正文、回滚、清理归档观察、导出三选项、unresolved/concept/attach GAP',
-    '- **P2**：synthesis create→accept/reject、synthesis:get、graph 约束、hybrid、vector/ero、status:scan',
+    '- **P2**：synthesis create→accept/reject、synthesis:get、hybrid、vector、status:scan；graph/ero 用例已随知识图谱移除（2026-09-24，见 docs/plans/代码重构/大文件与死代码/2026-09-24-接线守卫与无消费者IPC清单.md §3 第十批）',
     '- **Agent**：tools 含 wiki_*；可选一轮 wiki_search',
     '',
     '证据：`wiki-cli-evidence.jsonl`',

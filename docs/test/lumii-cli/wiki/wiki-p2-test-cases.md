@@ -1,6 +1,7 @@
 # Wiki P2 CLI 测试用例（补强版）
 
-> ⚠️ **过时标注（2026-09-12）**：部分用例基于已下线的命令——`wiki synthesis *`、`wiki ero bootstrap` 无 CLI；graph / search hybrid / vector rebuild / cleanup scan 仍现行有效。当前执行器与报告：`run-wiki-cli-suite.mjs` / `wiki-cli-test-report.md`。
+> ⚠️ **过时标注（2026-09-12）**：部分用例基于已下线的命令——`wiki synthesis *`、`wiki ero bootstrap` 无 CLI；search hybrid / vector rebuild / cleanup scan 仍现行有效。当前执行器与报告：`run-wiki-cli-suite.mjs` / `wiki-cli-test-report.md`。
+> ⚠️ **图谱用例已移除（2026-09-24）**：`## G 图谱`（P2-G01～G05）与 P2-R01/R02 随知识图谱功能下线一并删除——`wiki graph` CLI 命令、`wiki:graph:data` 与 `wiki:ero:*` IPC 命令均已不存在。依据见 `docs/plans/代码重构/大文件与死代码/2026-09-24-接线守卫与无消费者IPC清单.md` §3 第十批。
 
 - 日期：2026-08-27
 - 计划：`docs/plans/Wiki知识库/基础与设置/2026-08-26-Wiki知识库P2实施计划.md`
@@ -10,10 +11,8 @@
 | 子命令 | 用例 |
 |---|---|
 | `wiki synthesis create/list/get/accept/reject` | P2-Y* |
-| `wiki graph` | P2-G* |
 | `wiki search hybrid` | P2-H* |
 | `wiki vector rebuild` | P2-V01 |
-| `wiki ero bootstrap` | P2-R01 |
 
 ---
 
@@ -43,26 +42,7 @@
 
 ---
 
-## G 图谱
-
-### P2-G01 `--center` 子图
-- nodes 含中心；edges 数组；truncated 布尔
-
-### P2-G02 `--category` + limit
-- nodes≤limit（或含 entity 时允许略超，记录实际）
-
-### P2-G03 缺 center/category
-- 仅 `--limit` → exit 2
-
-### P2-G04 与 backlinks 一致
-- 已解析反链 ⊆ graph edges
-
-### P2-G05 孤立中心
-- 无链探针页 center → nodes≥1 edges 可为 0
-
----
-
-## H Hybrid / 向量 / ERO
+## H Hybrid / 向量
 
 ### P2-H01 `--no-vector`
 - hits 非空；mode=fts 或 degradeReason 明示
@@ -75,12 +55,6 @@
 
 ### P2-V01 vector rebuild
 - 成功或可理解降级 notice（如缺 transformers）
-
-### P2-R01 ero bootstrap
-- exit 0 或明确空
-
-### P2-R02 ero list / extract（GAP）
-- `command wiki:ero:list`；extract 可选 SKIP
 
 ---
 
