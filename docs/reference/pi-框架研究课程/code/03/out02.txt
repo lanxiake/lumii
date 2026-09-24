@@ -1,0 +1,51 @@
+=== 校验失败 / 未知工具 / 执行抛错：三种 isError，模型逐轮修正 ===
+  [  4ms] agent_start                               
+  [  5ms] turn_start                                
+  [faux] 第 1 次请求，模型可见 0 条 toolResult：
+  [  6ms] message_start                             assistant(toolUse)
+  [  6ms] message_end                               assistant(toolUse)
+  [  6ms] tool_execution_start                      write_file#t1
+  [  7ms] tool_execution_end                        write_file#t1 isError=true
+  [  7ms] message_start                             toolResult write_file isError=true
+  [  7ms] message_end                               toolResult write_file isError=true
+  [  8ms] turn_end                                  
+  [  8ms] turn_start                                
+  [faux] 第 2 次请求，模型可见 1 条 toolResult：
+    - write_file isError=true → "Validation failed for tool "write_file":"
+  [  8ms] message_start                             assistant(toolUse)
+  [  8ms] message_end                               assistant(toolUse)
+  [  8ms] tool_execution_start                      write_file#t2
+  [  8ms] tool_execution_end                        write_file#t2 isError=false
+  [  8ms] message_start                             toolResult write_file isError=false
+  [  8ms] message_end                               toolResult write_file isError=false
+  [  8ms] tool_execution_start                      write_file#t3
+  [  9ms] tool_execution_end                        write_file#t3 isError=true
+  [  9ms] message_start                             toolResult write_file isError=true
+  [  9ms] message_end                               toolResult write_file isError=true
+  [  9ms] turn_end                                  
+  [  9ms] turn_start                                
+  [faux] 第 3 次请求，模型可见 3 条 toolResult：
+    - write_file isError=true → "Validation failed for tool "write_file":"
+    - write_file isError=false → "wrote 8 bytes"
+    - write_file isError=true → "EACCES: permission denied, open '/protected'"
+  [  9ms] message_start                             assistant(toolUse)
+  [  9ms] message_end                               assistant(toolUse)
+  [  9ms] tool_execution_start                      delete_file#t4
+  [  9ms] tool_execution_end                        delete_file#t4 isError=true
+  [  9ms] message_start                             toolResult delete_file isError=true
+  [  9ms] message_end                               toolResult delete_file isError=true
+  [  9ms] turn_end                                  
+  [  9ms] turn_start                                
+  [faux] 第 4 次请求，模型可见 4 条 toolResult：
+    - write_file isError=true → "Validation failed for tool "write_file":"
+    - write_file isError=false → "wrote 8 bytes"
+    - write_file isError=true → "EACCES: permission denied, open '/protected'"
+    - delete_file isError=true → "Tool delete_file not found"
+  [  9ms] message_start                             assistant(stop)
+  [  9ms] message_end                               assistant(stop)
+  [  9ms] turn_end                                  
+  [  9ms] agent_end                                 
+
+=== 落盘结果 ===
+  fakeFs: { 'notes.txt': 'hello pi' }
+  transcript roles: system → user → assistant → toolResult(err) → assistant → toolResult → toolResult(err) → assistant → toolResult(err) → assistant

@@ -1,0 +1,45 @@
+=== steering + follow-up：队列在三个 drain 点被消费（one-at-a-time） ===
+  [loop] agent_start
+  [drain] 启动时 polling steering → 0 条
+  [loop] turn_start
+  [loop] message_start/end user: "统计项目文件数"
+  [loop] assistant(toolUse): "开始统计文件 [toolCall bash]"
+  [loop] tool_execution_start bash#b1
+      steer() 入队 "改用 *.ts 统计"（steering 队列=1）
+      steer() 入队 "结果按数量排序"（steering 队列=2）
+      followUp() 入队 "最后给我一段总结"（follow-up 队列=1）
+  [loop] tool_execution_end bash#b1
+  [loop] turn_end toolResults=1
+  [drain] turn_end 后 polling steering(one-at-a-time) → 注入 1 条 "改用 *.ts 统计"，队列剩 1
+  [loop] turn_start
+  [loop] message_start/end user: "改用 *.ts 统计"
+  [loop] assistant(stop): "收到，改按后缀统计"
+  [loop] turn_end toolResults=0
+  [drain] turn_end 后 polling steering(one-at-a-time) → 注入 1 条 "结果按数量排序"，队列剩 0
+  [loop] turn_start
+  [loop] message_start/end user: "结果按数量排序"
+  [loop] assistant(stop): "顺手把结果排序"
+  [loop] turn_end toolResults=0
+  [drain] turn_end 后 polling steering(one-at-a-time) → 注入 0 条，队列剩 0
+  [drain] 自然停止点 polling follow-up(one-at-a-time) → 注入 1 条 "最后给我一段总结"
+  [loop] turn_start
+  [loop] message_start/end user: "最后给我一段总结"
+  [loop] assistant(stop): "最终总结：共 42 个文件，已排序输出。"
+  [loop] turn_end toolResults=0
+  [drain] turn_end 后 polling steering(one-at-a-time) → 注入 0 条，队列剩 0
+  [drain] 自然停止点 polling follow-up(one-at-a-time) → 注入 0 条
+  [loop] agent_end
+
+=== transcript（模型看到的完整序列） ===
+  user       "统计项目文件数"
+  assistant  "开始统计文件 [toolCall bash]"
+  toolResult "42 files"
+  user       "改用 *.ts 统计"
+  assistant  "收到，改按后缀统计"
+  user       "结果按数量排序"
+  assistant  "顺手把结果排序"
+  user       "最后给我一段总结"
+  assistant  "最终总结：共 42 个文件，已排序输出。"
+
+说明：两条 steering 因 one-at-a-time 被拆到两个 turn_end 后注入；
+follow-up 直到没有工具、也没有 steering 时才消费——若改成 steeringMode:'all'，两条会同一轮注入。

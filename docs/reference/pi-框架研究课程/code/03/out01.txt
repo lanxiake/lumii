@@ -1,0 +1,65 @@
+=== 场景 A：文本 + 并行双工具（注意 tool_execution_end 与 toolResult 消息的顺序差异） ===
+  A [   0ms] agent_start                                 
+  A [   1ms] turn_start                                  
+  A [   1ms] message_start                               user
+  A [   1ms] message_end                                 user
+  A [   2ms] message_start                               assistant(stop)
+  A [   2ms] message_update                              
+  A [  13ms] message_update                              
+  A [  29ms] message_update                              
+  A [  29ms] message_update                              
+  A [  29ms] message_update                              
+  A [  29ms] message_end                                 assistant(toolUse)
+  A [  34ms] tool_execution_start                        bash#tc_bash
+  A [  34ms] tool_execution_start                        read#tc_read
+  A [  34ms] tool_execution_update                       bash#tc_bash
+  A [  71ms] tool_execution_update                       read#tc_read
+  A [ 111ms] tool_execution_end                          read#tc_read isError=false
+  A [ 112ms] tool_execution_update                       bash#tc_bash
+  A [ 112ms] tool_execution_end                          bash#tc_bash isError=false
+  A [ 112ms] message_start                               toolResult bash#tc_bash isError=false
+  A [ 113ms] message_end                                 toolResult bash#tc_bash isError=false
+  A [ 113ms] message_start                               toolResult read#tc_read isError=false
+  A [ 113ms] message_end                                 toolResult read#tc_read isError=false
+  A [ 113ms] turn_end                                    toolResults=2
+  A [ 113ms] turn_start                                  
+  A [ 113ms] message_start                               assistant(stop)
+  A [ 113ms] message_update                              
+  A [ 141ms] message_update                              
+  A [ 178ms] message_update                              
+  A [ 193ms] message_update                              
+  A [ 216ms] message_update                              
+  A [ 242ms] message_update                              
+  A [ 251ms] message_update                              
+  A [ 275ms] message_update                              
+  A [ 301ms] message_update                              
+  A [ 301ms] message_end                                 assistant(stop)
+  A [ 301ms] turn_end                                    toolResults=0
+  A [ 301ms] agent_end                                   transcript=5 new msgs
+
+=== 场景 B：bash 执行中 abort（工具 reject + 下一轮 provider 直接 aborted） ===
+  B [   0ms] agent_start                                 
+  B [   0ms] turn_start                                  
+  B [   1ms] message_start                               user
+  B [   1ms] message_end                                 user
+  B [   1ms] message_start                               assistant(stop)
+  B [   1ms] message_update                              
+  B [   6ms] message_update                              
+  B [  40ms] message_update                              
+  B [  40ms] message_update                              
+  B [  40ms] message_end                                 assistant(toolUse)
+  B [  40ms] tool_execution_start                        bash#tc_long
+  B [  40ms] tool_execution_update                       bash#tc_long
+  >>> 用户按下 abort()
+  B [ 189ms] tool_execution_end                          bash#tc_long isError=true
+  B [ 190ms] message_start                               toolResult bash#tc_long isError=true
+  B [ 190ms] message_end                                 toolResult bash#tc_long isError=true
+  B [ 191ms] turn_end                                    toolResults=1
+  B [ 191ms] turn_start                                  
+  B [ 191ms] message_start                               assistant(aborted)
+  B [ 191ms] message_update                              
+  B [ 191ms] message_end                                 assistant(aborted)
+  B [ 191ms] turn_end                                    toolResults=0
+  B [ 191ms] agent_end                                   transcript=4 new msgs
+  结束：最后一条 assistant stopReason=aborted errorMessage="Request was aborted"
+  transcript 保留的部分文本: [开始跑长命令]

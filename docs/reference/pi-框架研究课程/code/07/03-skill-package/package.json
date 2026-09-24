@@ -1,0 +1,9 @@
+{
+  "name": "pi-package-wordsmith",
+  "version": "0.1.0",
+  "description": "示例 pi 包：一个文字统计技能（演示 packages.md 的分发单元形状）",
+  "keywords": ["pi-package"],
+  "pi": {
+    "skills": ["./skills"]
+  }
+}
