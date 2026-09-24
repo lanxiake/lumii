@@ -273,8 +273,19 @@ async function runPlan(params: Record<string, unknown>) {
     character,
     characterColors: params.characterColors ?? [],
     background: params.background,
-    batches: raw.map((b: { action?: unknown; cols?: unknown; rows?: unknown }) => ({
+    // **批次规格要整体透传。** 早先这里只挑了 action/cols/rows，把 `motion` 与
+    // `kind`/`part`/`variants` 全丢在了这一层：SKILL.md 那两条硬要求
+    //（「只给动作名模型会画成四个看着像挥手的姿势」「表情批要给 kind=expression，
+    // 否则模板说的是每格为上一格的下一时刻——对表情批是反的」）根本到不了渲染器。
+    // 更糟的是 warning 由下游发出，于是它会去责怪调用方「没给 motion」，
+    // 而调用方其实给了。undefined 经 JSON 序列化会被丢掉，不传时行为不变。
+    batches: raw.map((b: Record<string, unknown>) => ({
+      kind: b.kind,
       action: b.action,
+      motion: b.motion,
+      part: b.part,
+      variants: b.variants,
+      loopMode: b.loopMode,
       cols: b.cols ?? 2,
       rows: b.rows ?? 2,
     })),
