@@ -245,8 +245,7 @@ function main() {
 |------|--------|----------|------------|
 | P0 收件箱闭环 | P0 | inbox organize/discard/retry、路径逃逸防护、收件箱计数一致性 | 25+ |
 | P1 双链与修订 | P1 | wikilink 反链、未解析保留、修订回滚、清理导出、归档检索观察 | 20+ |
-| P2 综述与图谱 | P2 | synthesis create→accept/reject、知识图谱 CRUD、hybrid 搜索 | 15+ |
-| P3 知识图谱新模型 | P3 | 按资料抽取实体、实体反查资料、新图谱模型 | 5+ |
+| P2 综述与检索 | P2 | synthesis create→accept/reject、hybrid 搜索 | 10+ |
 | 真实材料套件 | 真实场景 | 小学教材 PDF + 技术 DOCX + 教学 MP4 的摄入→归档→检索→打开 | 8+ |
 
 ### 6.2 Agent 能力测试（A-H 八大套件）
