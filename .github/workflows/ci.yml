@@ -40,6 +40,19 @@ jobs:
       # 类型检查只需要声明文件，不需要可运行的二进制。
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - run: pnpm typecheck
+      # 2026-09-24 新增：knip（模块图可达性 + 依赖卫生），与下面的接线守卫互补 ——
+      # 守卫走 TS AST 抓「写了一半没接上」，knip 走模块图抓「写了但没人用」，
+      # 且覆盖守卫扫不到的 packages/ 与依赖声明。
+      # 走棘轮：预算 --max-issues 2，存量只有并行会话在改的 pet-lab/sprite-lab.ts
+      # 与 isolated-vm（待决策）。exports/types 两类已升 error。
+      # 同样放这个 job：它需要 node_modules 才能解析依赖。
+      #
+      # 为什么走 `pnpm dlx` 而不装成 devDependency：本仓任何 pnpm add 都会重算依赖图，
+      # 把 pi-ai 的 zod peer 从 3.25.76 抬到 4.6.5，而本仓没有任何 package.json 声明
+      # zod（它只是 pi-ai 的 peer），防不住。详见 knip.jsonc 顶部与计划文档 §4.2。
+      # 实测开销：store 命中时含 dlx 重建共 7.1s（`downloaded 0`）；
+      # 只有 CI 首次要下 ~21MB，之后由 setup-node 的 cache: pnpm 覆盖。
+      - run: pnpm check:knip
       # 2026-09-24 新增：接线守卫（node scripts/check-wiring.mjs）。
       # 抓的是 tsc 与单测都看不见的「写了一半没接上」：main 注册了 handler 但 preload
       # 从不 invoke、preload 引用了但 main 没实现（调用必然 reject）、工具导出没进
