@@ -84,12 +84,3 @@ export interface CreateCronJobParams {
   notifyTargets?: string
 }
 
-/** 运行统计 */
-interface CronRunStats {
-  totalRuns: number
-  okRuns: number
-  errorRuns: number
-  totalTokens: number
-  totalDurationMs: number
-}
-

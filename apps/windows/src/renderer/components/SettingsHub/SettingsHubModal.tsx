@@ -35,6 +35,7 @@ import { PluginCenterPage } from '../../pages/PluginCenterPage/PluginCenterPage'
 import { getAutonomousStatus } from '../../services/autonomous-service'
 import type { ViewType } from '../Router'
 import { useSettingsHub } from './SettingsHubContext'
+import { VIRTUAL_HUMAN_PRODUCT_NAME } from '../../../shared/virtual-human'
 import { SettingsCategoryNav } from './SettingsCategoryNav'
 import {
   SETTINGS_HUB_TABS,
@@ -55,7 +56,7 @@ const SETTINGS_CATEGORIES: SettingsCategoryItem[] = [
   { id: 'voice', label: '语音设置', icon: <Mic size={ICON_SIZE} /> },
   { id: 'channels', label: '渠道设置', icon: <Radio size={ICON_SIZE} /> },
   { id: 'codingDev', label: 'ACP 设置', icon: <Wrench size={ICON_SIZE} /> },
-  { id: 'pet', label: '宠物模式', icon: <Smartphone size={ICON_SIZE} /> },
+  { id: 'pet', label: VIRTUAL_HUMAN_PRODUCT_NAME, icon: <Smartphone size={ICON_SIZE} /> },
   { id: 'usage', label: '用量与花费', icon: <Zap size={ICON_SIZE} /> },
   { id: 'privacy', label: '隐私与数据', icon: <Shield size={ICON_SIZE} /> },
   { id: 'cloudSync', label: '云同步', icon: <Cloud size={ICON_SIZE} /> },

@@ -32,6 +32,7 @@ import { ChannelsSection } from './components/ChannelsSection'
 import { UsagePanel } from './components/UsagePanel'
 import { LumiiLogo } from '../../components/brand/LumiiLogo'
 import { openExternalUrl } from '../../utils/markdown-external-link'
+import { VIRTUAL_HUMAN_PRODUCT_NAME } from '../../../shared/virtual-human'
 import { getAutonomousStatus } from '../../services/autonomous-service'
 import { getWorkspaceDir, ensureWorkspaceDir, notifyWorkspaceChanged } from '../../services/workspace-service'
 import { getAppVersion, getOpenAtLogin, setOpenAtLogin as applyOpenAtLogin, openLogFile } from '../../services/app-service'
@@ -69,7 +70,7 @@ const CATEGORIES: Array<{ id: MergedSettingsCategory; label: string; icon: React
   { id: 'voice', label: '语音设置', icon: <Mic size={SETTINGS_ICON_SIZE} /> },
   { id: 'channels', label: '渠道设置', icon: <Radio size={SETTINGS_ICON_SIZE} /> },
   { id: 'codingDev', label: 'ACP 设置', icon: <Wrench size={SETTINGS_ICON_SIZE} /> },
-  { id: 'pet', label: '宠物模式', icon: <Smartphone size={SETTINGS_ICON_SIZE} /> },
+  { id: 'pet', label: VIRTUAL_HUMAN_PRODUCT_NAME, icon: <Smartphone size={SETTINGS_ICON_SIZE} /> },
   { id: 'usage', label: '用量与花费', icon: <Zap size={SETTINGS_ICON_SIZE} /> },
   { id: 'privacy', label: '隐私与数据', icon: <Shield size={SETTINGS_ICON_SIZE} /> },
   { id: 'cloudSync', label: '云同步', icon: <Cloud size={SETTINGS_ICON_SIZE} /> },

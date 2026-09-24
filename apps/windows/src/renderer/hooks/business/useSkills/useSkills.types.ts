@@ -41,24 +41,3 @@ export interface SkillStats {
   enabled: number
   disabled: number
 }
-
-/** 技能执行结果 */
-interface SkillExecutionResult {
-  success: boolean
-  data?: unknown
-  error?: string
-  message?: string
-}
-
-/** API 响应类型 */
-interface GetInstalledSkillsResponse {
-  success: boolean
-  data?: InstalledSkillInfo[]
-  error?: string
-}
-
-interface ToggleSkillResponse {
-  success: boolean
-  data?: { isEnabled: boolean }
-  error?: string
-}

@@ -12,6 +12,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import type { VoiceTtsPreviewChunkEvent } from '../../../shared/voice-events'
 
 /** AudioContext 采样率与本地 VITS 对齐 */
 const SAMPLE_RATE = 22050
@@ -19,17 +20,9 @@ const SAMPLE_RATE = 22050
 /** 播放队列排空后熄灭「朗读中」的余量 */
 const PLAYBACK_TAIL_MS = 120
 
-interface TtsChunkEvent {
-  type: string
-  samples: Float32Array | ArrayLike<number>
-  /** -1 表示 MP3 字节（Edge TTS），>0 表示 PCM 的采样率 */
-  sampleRate: number
-  isFinal?: boolean
-}
-
-function readEvent(event: unknown): TtsChunkEvent | null {
+function readEvent(event: unknown): VoiceTtsPreviewChunkEvent | null {
   if (!event || typeof event !== 'object') return null
-  const e = event as TtsChunkEvent
+  const e = event as VoiceTtsPreviewChunkEvent
   return e.type === 'voice:tts:preview:chunk' ? e : null
 }
 

@@ -7,6 +7,7 @@ import { type VoiceCallService } from './voice-service.js'
 import { type VoiceModelManager, PYTORCH_CUDA_RUNTIME_ID } from './model-manager.js'
 import { AsrTestSession } from './asr-test-session.js'
 import type { VoiceCommand } from '../../shared/voice-commands.js'
+import { isQwen3CloneVariant } from '../../shared/voice-events.js'
 import { saveVoiceEngineConfig } from './voice-config-store.js'
 import {
   prepareQwen3TtsRuntime,
@@ -288,10 +289,9 @@ export function registerVoiceIpc(
                 qwen3CloneEnabled: targetCloneEnabled,
                 qwen3ProfileId: targetProfileId,
                 qwen3Variant: override.qwen3Variant ?? cfg.qwen3Variant,
-                qwen3CloneVariant:
-                  override.qwen3Variant === '0.6b-base' || override.qwen3Variant === '1.7b-base'
-                    ? override.qwen3Variant
-                    : cfg.qwen3CloneVariant,
+                qwen3CloneVariant: isQwen3CloneVariant(override.qwen3Variant)
+                  ? override.qwen3Variant
+                  : cfg.qwen3CloneVariant,
               })
             : voiceService.resolveActiveQwen3Variant()
           if (!modelManager.isTtsReady(targetProvider, targetVariant)) {

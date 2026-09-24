@@ -97,55 +97,6 @@ export function buildBundledPipInstallArgs(
   ]
 }
 
-/** 内置 Python 子进程环境：钉 PYTHONHOME，避免混用用户站点包 */
-function bundledPythonProcEnv(): NodeJS.ProcessEnv {
-  return {
-    ...process.env,
-    PYTHONHOME: getPythonRuntimeDir(),
-    PYTHONNOUSERSITE: '1',
-  }
-}
-
-/**
- * 探测 onnxruntime 能否真实 import（目录存在不等于 DLL 能加载）。
- */
-async function canImportOnnxRuntime(pythonExe: string): Promise<boolean> {
-  try {
-    await execFileAsync(pythonExe, ['-c', 'import onnxruntime; print(onnxruntime.__version__)'], {
-      timeout: 20000,
-      windowsHide: true,
-      cwd: getPythonRuntimeDir(),
-      env: bundledPythonProcEnv(),
-    })
-    return true
-  } catch {
-    return false
-  }
-}
-
-/**
- * 若 onnxruntime 无法 import（Win10 + 1.21+ 常见），则安装 {@link BUNDLED_ONNXRUNTIME_SPEC}。
- *
- * @returns 是否执行了降级安装
- */
-async function repairOnnxRuntimeIfNeeded(): Promise<boolean> {
-  const pythonExe = getBundledPythonExe()
-  if (!existsSync(pythonExe)) return false
-  // 原先还判 `hasPackage('chromadb')`——那是 MemPalace 拉来的包，已于 2026-09-18 随插件移除
-  if (!hasPackage('onnxruntime')) return false
-  if (await canImportOnnxRuntime(pythonExe)) return false
-
-  log.warn(`onnxruntime 无法加载，正在安装 ${BUNDLED_ONNXRUNTIME_SPEC}...`)
-  await execFileAsync(pythonExe, buildBundledPipInstallArgs([BUNDLED_ONNXRUNTIME_SPEC]), {
-    timeout: 180000,
-    windowsHide: true,
-    cwd: getPythonRuntimeDir(),
-    env: bundledPythonProcEnv(),
-  })
-  log.info('onnxruntime 已降级到可加载版本')
-  return true
-}
-
 /** 系统 Python 探测结果缓存（undefined = 未探测） */
 let cachedSystemPython: string | null | undefined
 

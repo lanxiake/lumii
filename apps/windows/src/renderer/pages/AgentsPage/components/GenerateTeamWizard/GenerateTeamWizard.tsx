@@ -10,7 +10,7 @@ import clsx from 'clsx'
 import { Step1Requirement } from './Step1Requirement'
 import { Step2Planning } from './Step2Planning'
 import { Step3Review } from './Step3Review'
-import type { GeneratedAgent, CapabilityOption, McpServerOption } from './types'
+import type { GeneratedAgent, CapabilityOption, McpServerOption, WizardStep } from './types'
 import { listEnabledMcpServers } from '../../../../services/mcp-service'
 import styles from './GenerateTeamWizard.module.css'
 
@@ -23,7 +23,7 @@ interface WizardProps {
 }
 
 interface WizardDraft {
-  step: 1 | 2 | 3
+  step: WizardStep
   requirement: string
   generatedAgents: GeneratedAgent[]
 }
@@ -68,13 +68,13 @@ export const GenerateTeamWizard: React.FC<WizardProps> = ({
   const draft = loadDraft(userId)
 
   // Step2 streaming 尚未完成不可恢复，有已生成的 agents 则直接到 Step3，否则回到 Step1
-  const initialStep: 1 | 2 | 3 = draft
+  const initialStep: WizardStep = draft
     ? draft.generatedAgents.length > 0
       ? 3
       : 1
     : 1
 
-  const [step, setStep] = useState<1 | 2 | 3>(initialStep)
+  const [step, setStep] = useState<WizardStep>(initialStep)
   const [requirement, setRequirement] = useState(draft?.requirement ?? '')
   const [generatedAgents, setGeneratedAgents] = useState<GeneratedAgent[]>(
     draft?.generatedAgents ?? [],

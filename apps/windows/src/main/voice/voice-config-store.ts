@@ -6,7 +6,7 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { resolveSharedConfigDir } from '../paths.js'
 import type { VoiceEngineConfig } from '../../shared/voice-events.js'
-import { DEFAULT_VOICE_ENGINE_CONFIG } from '../../shared/voice-events.js'
+import { DEFAULT_VOICE_ENGINE_CONFIG, isQwen3CloneVariant } from '../../shared/voice-events.js'
 
 const log = {
   info: (...args: unknown[]) => console.log('[VoiceConfigStore]', ...args),
@@ -24,12 +24,9 @@ function mergeWithDefaults(saved: Partial<VoiceEngineConfig>): VoiceEngineConfig
     qwen3Variant?: string
   }
   // 旧版：qwen3Variant 为 *-base 即表示克隆出声 → 拆到独立开关
-  if (
-    ttsSaved.qwen3CloneEnabled === undefined &&
-    (ttsSaved.qwen3Variant === '0.6b-base' || ttsSaved.qwen3Variant === '1.7b-base')
-  ) {
+  if (ttsSaved.qwen3CloneEnabled === undefined && isQwen3CloneVariant(ttsSaved.qwen3Variant)) {
     ttsSaved.qwen3CloneEnabled = true
-    ttsSaved.qwen3CloneVariant = ttsSaved.qwen3Variant as '0.6b-base' | '1.7b-base'
+    ttsSaved.qwen3CloneVariant = ttsSaved.qwen3Variant
     ttsSaved.qwen3Variant = '0.6b-custom'
   }
 

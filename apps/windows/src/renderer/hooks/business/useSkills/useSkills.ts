@@ -168,6 +168,3 @@ export function useSkills() {
     uninstallSkill,
   }
 }
-
-/** useSkills 返回值类型，供 index 与其它模块导出 */
-type UseSkillsReturn = ReturnType<typeof useSkills>

@@ -184,22 +184,6 @@ const STRATEGY_REGISTRY: ImageProcessingStrategy[] = [
   bgRemoveStrategy,
 ]
 
-/** 注册自定义策略（后续扩展） */
-function registerImageProcessingStrategy(strategy: ImageProcessingStrategy): void {
-  const existing = STRATEGY_REGISTRY.findIndex((s) => s.name === strategy.name)
-  if (existing >= 0) {
-    logger.warn(`[register] 覆盖已存在策略: ${strategy.name}`)
-    STRATEGY_REGISTRY.splice(existing, 1, strategy)
-  } else {
-    STRATEGY_REGISTRY.push(strategy)
-  }
-}
-
-/** 列出所有注册的策略 */
-function listImageProcessingStrategies(): readonly ImageProcessingStrategy[] {
-  return STRATEGY_REGISTRY
-}
-
 /** 获取默认启用的策略（一般是 recognize） */
 export function getDefaultStrategies(): readonly ImageProcessingStrategy[] {
   return STRATEGY_REGISTRY.filter((s) => s.defaultEnabled)

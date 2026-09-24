@@ -14,6 +14,7 @@ import { VoiceCallStateMachine } from './voice-state-machine.js'
 import { type VoiceModelManager } from './model-manager.js'
 import { voiceEventBus } from './voice-event-bus.js'
 import type { VoiceEngineConfig, VoiceRuntimePhase } from '../../shared/voice-events.js'
+import { isQwen3CloneVariant } from '../../shared/voice-events.js'
 import type { TtsChunk } from './tts-engine.js'
 import { VoiceProfileStore } from './voice-profile-store.js'
 import {
@@ -192,7 +193,7 @@ export class VoiceCallService {
     const cloneOn = tts.qwen3CloneEnabled === true && Boolean(tts.qwen3ProfileId)
     if (cloneOn) return tts.qwen3CloneVariant ?? '0.6b-base'
     const v = tts.qwen3Variant ?? '0.6b-custom'
-    return v === '0.6b-base' || v === '1.7b-base' ? '0.6b-custom' : v
+    return isQwen3CloneVariant(v) ? '0.6b-custom' : v
   }
 
   /**
@@ -287,8 +288,7 @@ export class VoiceCallService {
     if (override.language) next.language = override.language
     // qwen3Variant 按克隆开关分派到对应字段
     if (override.qwen3Variant) {
-      const isCloneVariant =
-        override.qwen3Variant === '0.6b-base' || override.qwen3Variant === '1.7b-base'
+      const isCloneVariant = isQwen3CloneVariant(override.qwen3Variant)
       if (next.qwen3CloneEnabled === true && isCloneVariant) {
         next.qwen3CloneVariant = override.qwen3Variant as '0.6b-base' | '1.7b-base'
       } else if (!isCloneVariant) {
@@ -307,7 +307,7 @@ export class VoiceCallService {
       return tts.qwen3CloneVariant ?? '0.6b-base'
     }
     const v = tts.qwen3Variant ?? '0.6b-custom'
-    if (v === '0.6b-base' || v === '1.7b-base') return '0.6b-custom'
+    if (isQwen3CloneVariant(v)) return '0.6b-custom'
     return v
   }
 

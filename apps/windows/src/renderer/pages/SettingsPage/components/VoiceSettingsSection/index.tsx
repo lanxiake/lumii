@@ -8,6 +8,11 @@ import { VoiceModelsPanel } from '../VoiceModelsPanel'
 import { VoiceProfilesPanel } from '../VoiceProfilesPanel'
 import { AsrLiveTestPanel } from '../AsrLiveTestPanel'
 import { useFeatureAvailability } from '../../../../hooks/business/useFeatureAvailability'
+import {
+  EDGE_TTS_VOICES,
+  QWEN3_CUSTOM_SPEAKERS,
+  QWEN3_TTS_LANGUAGES,
+} from '../../../../../shared/voice-events'
 import styles from '../../SettingsPage.module.css'
 
 export function VoiceSettingsSection() {
@@ -597,16 +602,10 @@ export function VoiceSettingsSection() {
                   <label className={styles['setting-label']} data-app-ui-label>Edge 音色</label>
                   <Select
                     value={voiceConfig.tts.voice ?? 'zh-CN-XiaoxiaoNeural'}
-                    options={[
-                      { label: '晓晓 - 女声·温暖亲切', value: 'zh-CN-XiaoxiaoNeural' },
-                      { label: '晓伊 - 女声·活泼可爱', value: 'zh-CN-XiaoyiNeural' },
-                      { label: '云健 - 男声·沉稳大气', value: 'zh-CN-YunjianNeural' },
-                      { label: '云希 - 男声·阳光少年', value: 'zh-CN-YunxiNeural' },
-                      { label: '云夏 - 男声·少年音', value: 'zh-CN-YunxiaNeural' },
-                      { label: '云扬 - 男声·新闻播报', value: 'zh-CN-YunyangNeural' },
-                      { label: '晓北 - 女声·东北方言', value: 'zh-CN-liaoning-XiaobeiNeural' },
-                      { label: '晓妮 - 女声·陕西方言', value: 'zh-CN-shaanxi-XiaoniNeural' },
-                    ]}
+                    options={EDGE_TTS_VOICES.map((v) => ({
+                      label: `${v.name} - ${v.gender}声·${v.style}`,
+                      value: v.id,
+                    }))}
                     onChange={(e) => saveVoiceConfig({ tts: { voice: e.target.value } })}
                   />
                 </div>
@@ -617,19 +616,7 @@ export function VoiceSettingsSection() {
                     <label className={styles['setting-label']} data-app-ui-label>合成语言</label>
                     <Select
                       value={voiceConfig.tts.language ?? 'Auto'}
-                      options={[
-                        { label: '自动检测', value: 'Auto' },
-                        { label: '中文', value: 'Chinese' },
-                        { label: 'English', value: 'English' },
-                        { label: '日本語', value: 'Japanese' },
-                        { label: '한국어', value: 'Korean' },
-                        { label: 'Deutsch', value: 'German' },
-                        { label: 'Français', value: 'French' },
-                        { label: 'Русский', value: 'Russian' },
-                        { label: 'Português', value: 'Portuguese' },
-                        { label: 'Español', value: 'Spanish' },
-                        { label: 'Italiano', value: 'Italian' },
-                      ]}
+                      options={QWEN3_TTS_LANGUAGES.map((l) => ({ label: l.name, value: l.id }))}
                       onChange={(e) => saveVoiceConfig({ tts: { language: e.target.value } })}
                     />
                   </div>
@@ -637,17 +624,7 @@ export function VoiceSettingsSection() {
                   <div className={styles['setting-item']} style={{ flexDirection: 'column', alignItems: 'stretch' }}>
                     <label className={styles['setting-label']} data-app-ui-label>音色（选中即生效）</label>
                     <div className={styles['voice-speaker-list']}>
-                      {[
-                        { id: 'Vivian', desc: '女 · 明亮 · 中文' },
-                        { id: 'Serena', desc: '女 · 温暖 · 中文' },
-                        { id: 'Uncle_Fu', desc: '男 · 沉稳 · 中文', name: 'Uncle Fu' },
-                        { id: 'Dylan', desc: '男 · 北京话' },
-                        { id: 'Eric', desc: '男 · 四川话' },
-                        { id: 'Ryan', desc: '男 · English' },
-                        { id: 'Aiden', desc: '男 · English' },
-                        { id: 'Ono_Anna', desc: '女 · 日本語', name: 'Ono Anna' },
-                        { id: 'Sohee', desc: '女 · 한국어' },
-                      ].map((sp) => {
+                      {QWEN3_CUSTOM_SPEAKERS.map((sp) => {
                         const active = !cloneEnabled && (voiceConfig.tts.qwen3Speaker ?? 'Vivian') === sp.id
                         return (
                           <label
@@ -662,9 +639,9 @@ export function VoiceSettingsSection() {
                               onChange={() => selectBuiltinSpeaker(sp.id)}
                             />
                             <span>
-                              内置 · {sp.name ?? sp.id}
+                              内置 · {sp.name}
                               <span className={styles['settings-note']} style={{ marginLeft: 6 }}>
-                                {sp.desc}
+                                {sp.gender} · {sp.style} · {sp.native}
                               </span>
                             </span>
                           </label>

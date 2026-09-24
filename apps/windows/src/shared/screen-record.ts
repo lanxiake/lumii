@@ -58,11 +58,6 @@ export type ScreenRecordErrorCode =
   /** 用户拒绝截图/录屏确认 */
   | 'denied'
 
-/** list_sources 工具参数 */
-interface ScreenRecordListSourcesParams {
-  includeThumbnail?: boolean
-}
-
 /** list_sources 返回 */
 export type ScreenRecordListSourcesResult =
   | { ok: true; sources: ScreenRecordSource[] }
@@ -310,9 +305,6 @@ export const MEDIA_RECORDER_TIMESLICE_MS = 3000
 
 /** 单 chunk 超此字节数（2 MB）时在 IPC 发送前拆分，避免阻塞主进程 */
 export const MAX_CHUNK_BYTES_PER_IPC = 2 * 1024 * 1024
-
-/** 确认超时触发的 session 内部定时 tick 精度 */
-const CONFIRM_TIMEOUT_TICK_MS = 1000
 
 /* ---------------- IPC 命令 & 事件类型（三处同步用） ---------------- */
 

@@ -128,7 +128,7 @@ type VoiceRuntimeStatusEvent = {
 }
 
 /** TTS 预览音频块（主进程 → 渲染，流式推送） */
-type VoiceTtsPreviewChunkEvent = {
+export type VoiceTtsPreviewChunkEvent = {
   readonly type: 'voice:tts:preview:chunk'
   /** PCM Float32 采样（sampleRate=-1 时为 Edge MP3 字节） */
   samples: Float32Array | number[]
@@ -204,17 +204,13 @@ export type Qwen3TtsVariant =
   | '1.7b-base'
 
 /**
- * 是否为声音克隆（Base）变体
+ * 是否为声音克隆（Base）变体。
+ *
+ * 全仓唯一判据：main 侧的配置迁移（voice-config-store）、IPC 覆盖（voice-ipc）
+ * 与合成选型（voice-service）都调这里，别再写 `v === '0.6b-base' || v === '1.7b-base'`。
  */
-function isQwen3CloneVariant(variant?: string): boolean {
+export function isQwen3CloneVariant(variant?: string): variant is '0.6b-base' | '1.7b-base' {
   return variant === '0.6b-base' || variant === '1.7b-base'
-}
-
-/**
- * 是否为内置音色（CustomVoice）变体
- */
-function isQwen3CustomVariant(variant?: string): boolean {
-  return variant === '0.6b-custom' || variant === '1.7b-custom' || !variant
 }
 
 export type VoiceTtsConfig = {
@@ -254,7 +250,7 @@ export type VoiceTtsConfig = {
 }
 
 /** Qwen3 CustomVoice 内置音色（含方言） */
-const QWEN3_CUSTOM_SPEAKERS = [
+export const QWEN3_CUSTOM_SPEAKERS = [
   { id: 'Vivian', name: 'Vivian', gender: '女', style: '明亮略带锋芒', native: '中文' },
   { id: 'Serena', name: 'Serena', gender: '女', style: '温暖柔和', native: '中文' },
   { id: 'Uncle_Fu', name: 'Uncle Fu', gender: '男', style: '沉稳低沉', native: '中文' },
@@ -267,7 +263,7 @@ const QWEN3_CUSTOM_SPEAKERS = [
 ] as const
 
 /** Qwen3 官方语言列表（与模型能力对齐，供设置页选用） */
-const QWEN3_TTS_LANGUAGES = [
+export const QWEN3_TTS_LANGUAGES = [
   { id: 'Auto', name: '自动检测' },
   { id: 'Chinese', name: '中文' },
   { id: 'English', name: 'English' },
@@ -298,7 +294,7 @@ export type VoiceCloneProfile = {
 }
 
 /** Edge TTS 可用中文音色 */
-const EDGE_TTS_VOICES = [
+export const EDGE_TTS_VOICES = [
   { id: 'zh-CN-XiaoxiaoNeural', name: '晓晓', gender: '女', style: '温暖亲切' },
   { id: 'zh-CN-XiaoyiNeural', name: '晓伊', gender: '女', style: '活泼可爱' },
   { id: 'zh-CN-YunjianNeural', name: '云健', gender: '男', style: '沉稳大气' },

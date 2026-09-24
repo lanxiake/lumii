@@ -123,6 +123,3 @@ export interface PetRendererProvider extends PetCoreRenderer {
   /** 销毁渲染器，释放 WebGL/GPU 资源 */
   destroy(): void
 }
-
-/** 点击区域 → 动作回调（PetCanvas 注册，命中 hitArea 时触发） */
-type TapHandler = (hitArea: string) => void

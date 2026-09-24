@@ -10,7 +10,7 @@
  */
 
 /** 用户可见产品名（技术命名空间仍为 pet:*，见 ADR-09） */
-const VIRTUAL_HUMAN_PRODUCT_NAME = '宠物模式'
+export const VIRTUAL_HUMAN_PRODUCT_NAME = '宠物模式'
 
 /**
  * 虚拟人设置的 localStorage 键名（新增 mtbot:vh-*，读时兼容旧 mtbot:pet-*）。
@@ -44,9 +44,6 @@ export const VH_STORAGE_KEYS = {
   /** 是否允许宠物主动做事（关=「让它去做」被拒，派发循环也停下） */
   enablePetTask: 'mtbot:vh-enable-pet-task',
 } as const
-
-/** 动作/神态标签（替代 OLV 的 <think>，避免与推理块冲突，ADR-12） */
-const VH_ACTION_TAG = 'vh_action'
 
 /**
  * 虚拟人可触发的一个 Live2D 动作（注入提示词 + 渲染层据 tag 真实播放）。
@@ -197,7 +194,7 @@ const EMOTION_TAG_REGEX = /\[([a-zA-Z0-9_一-龥]+)\]/g
 /** 动作标签正则：匹配 [motion:tag]，tag 允许字母/数字/下划线/中文 */
 const MOTION_TAG_REGEX = /\[motion:([a-zA-Z0-9_一-龥]+)\]/g
 
-/** 动作标签正则：匹配 <vh_action>...</vh_action>（含跨行） */
+/** 动作标签正则：匹配 <vh_action>...</vh_action>（含跨行；标签名替代 OLV 的 <think>，见 ADR-12） */
 const VH_ACTION_REGEX = /<vh_action>[\s\S]*?<\/vh_action>/g
 /** 未闭合的动作标签开头（流式中途，剥离残留） */
 const VH_ACTION_OPEN_REGEX = /<vh_action>[\s\S]*$/
