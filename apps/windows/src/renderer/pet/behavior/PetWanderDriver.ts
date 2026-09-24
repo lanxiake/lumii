@@ -236,13 +236,22 @@ export class PetWanderDriver {
    *
    * **已经抽好的这一轮计划不重掷**：`plan.durationMs` 是用旧时长定的，
    * 中途改它会表现成"刚坐下就被拎起来重抽"。新参数从**下一次**活动切换起生效。
+   *
+   * @param expressiveness 表达增益（默认 1 = 不增益）。无表情层模型传
+   *   `NO_EXPRESSION_LAYER_GAIN`：它只有举止这一条表达通道，把性格给的偏移放大。
+   *   数值由调用方决定，本模块不认识"表情层"这件事。
    */
-  setTuning(mood: AmbientTuningInput | null, traits: AmbientTuningInput | null): void {
-    const next = adjustAmbientConfig(this.baseConfig, mood, traits)
+  setTuning(
+    mood: AmbientTuningInput | null,
+    traits: AmbientTuningInput | null,
+    expressiveness: number = 1,
+  ): void {
+    const next = adjustAmbientConfig(this.baseConfig, mood, traits, expressiveness)
     if (next === this.config) return
     this.config = next
     log.info(
-      `[setTuning] 权重 stand=${next.weights.stand.toFixed(2)} walk=${next.weights.walk.toFixed(2)} ` +
+      `[setTuning]${expressiveness !== 1 ? `（表达增益 ×${expressiveness}）` : ''} ` +
+        `权重 stand=${next.weights.stand.toFixed(2)} walk=${next.weights.walk.toFixed(2)} ` +
         `sit=${next.weights.sit.toFixed(2)}；` +
         `时长 stand=${next.durations.stand.min}~${next.durations.stand.max}ms ` +
         `walk=${next.durations.walk.min}~${next.durations.walk.max}ms`,

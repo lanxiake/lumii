@@ -164,6 +164,15 @@ export const WEIGHT_MAX = 5.0;
 export const DURATION_SCALE_MIN = 0.6;
 export const DURATION_SCALE_MAX = 1.6;
 
+/**
+ * 表达增益的**恒等值**。
+ *
+ * 取个名字是为了让调用处的默认值读得懂：`expressiveness: number = 1` 看不出这个 1
+ * 是"不增益"还是"某种基准"。恒等时全部函数**原样返回入参**（引用相等），
+ * 这是"接线前后逐字节一致"的判据。
+ */
+export const AMBIENT_GAIN_IDENTITY = 1;
+
 /** 情绪与性格里、本模块要用的那几个分量。全部可省——省了按中性/基线算。 */
 export interface AmbientTuningInput {
   /** 精力 0..1（`mood.energy`）；高 → 更愿意走动 */
@@ -220,9 +229,10 @@ export function adjustWeightsByMood(
   base: Record<AmbientActivity, number>,
   mood?: AmbientTuningInput | null,
   traits?: AmbientTuningInput | null,
+  expressiveness: number = AMBIENT_GAIN_IDENTITY,
 ): Record<AmbientActivity, number> {
   const merged: AmbientTuningInput = { ...traits, ...mood };
-  if (isNeutralTuning(merged)) return base;
+  if (isNeutralTuning(merged) && expressiveness === 1) return base;
 
   const extraversion = norm01(merged.extraversion, NEUTRAL_TRAIT);
   const energy = norm01(merged.energy, NEUTRAL_ENERGY);
@@ -235,10 +245,13 @@ export function adjustWeightsByMood(
   // 坐下：外向的反向 + 心情差的加成。低 valence 最多让"坐着"翻倍，不是无限大
   const sitFactor = lerp(1.4, 0.7, extraversion) * lerp(1.0, 2.0, Math.max(0, -valence));
 
+  // 偏离基准的部分再乘一次表达增益（无表情层模型，见 NO_EXPRESSION_LAYER_AMBIENT_GAIN）。
+  // **放大的是偏差不是总量**：整体平移只会把每种性格都调活泼一点，那不是"表现力更强"。
+  const amp = (raw: number, baseValue: number) => baseValue + (raw - baseValue) * expressiveness;
   return {
-    stand: clampWeight(base.stand),
-    walk: clampWeight(base.walk * walkFactor),
-    sit: clampWeight(base.sit * sitFactor),
+    stand: clampWeight(amp(base.stand, base.stand)),
+    walk: clampWeight(amp(base.walk * walkFactor, base.walk)),
+    sit: clampWeight(amp(base.sit * sitFactor, base.sit)),
   };
 }
 
@@ -251,17 +264,23 @@ export function adjustWeightsByMood(
 export function adjustDurationsByTraits(
   base: Record<AmbientActivity, DurationRange>,
   traits?: AmbientTuningInput | null,
+  expressiveness: number = AMBIENT_GAIN_IDENTITY,
 ): Record<AmbientActivity, DurationRange> {
-  if (!traits || isNeutralTuning(traits)) return base;
-  const openness = norm01(traits.openness, NEUTRAL_TRAIT);
-  const extraversion = norm01(traits.extraversion, NEUTRAL_TRAIT);
+  if ((!traits || isNeutralTuning(traits)) && expressiveness === 1) return base;
+  // 表达增益 > 1 时即使没给 traits 也要走一遍：那时 `scale` 是 1（中性），
+  // 放大的偏离量为 0，结果与基准一致——用 `?.` 而不是提前 return，是为了让
+  // "有没有 traits" 与 "增不增益" 这两件事在代码里是分开的
+  const openness = norm01(traits?.openness, NEUTRAL_TRAIT);
+  const extraversion = norm01(traits?.extraversion, NEUTRAL_TRAIT);
   // 两个维度各贡献一半：只用 openness 会让内向的好奇宠物也变得"闲不住"
   const liveliness = (openness + extraversion) / 2;
   const scale = lerp(DURATION_SCALE_MIN, DURATION_SCALE_MAX, 1 - liveliness);
 
+  // 与权重同一条：先算出性格给的倍率，再把**偏离 1 的部分**乘上表达增益
+  const effective = 1 + (scale - 1) * expressiveness;
   const scaled = (r: DurationRange): DurationRange => ({
-    min: Math.round(r.min * scale),
-    max: Math.round(r.max * scale),
+    min: Math.max(1, Math.round(r.min * effective)),
+    max: Math.max(1, Math.round(r.max * effective)),
   });
   return {
     stand: scaled(base.stand),
@@ -280,10 +299,18 @@ export function adjustAmbientConfig(
   base: AmbientConfig,
   mood?: AmbientTuningInput | null,
   traits?: AmbientTuningInput | null,
+  expressiveness: number = AMBIENT_GAIN_IDENTITY,
 ): AmbientConfig {
-  const weights = adjustWeightsByMood(base.weights, mood, traits);
-  const durations = adjustDurationsByTraits(base.durations, traits);
-  if (weights === base.weights && durations === base.durations) return base;
+  const gain = Number.isFinite(expressiveness) && expressiveness > 0 ? expressiveness : 1;
+  if (gain === 1) {
+    // 快路径必须在增益为 1 时走原样：这是"未接线/接线前后逐字节一致"的判据
+    const w = adjustWeightsByMood(base.weights, mood, traits);
+    const d = adjustDurationsByTraits(base.durations, traits);
+    if (w === base.weights && d === base.durations) return base;
+    return { ...base, weights: w, durations: d };
+  }
+  const weights = adjustWeightsByMood(base.weights, mood, traits, gain);
+  const durations = adjustDurationsByTraits(base.durations, traits, gain);
   return { ...base, weights, durations };
 }
 

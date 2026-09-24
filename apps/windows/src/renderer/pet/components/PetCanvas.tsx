@@ -24,7 +24,7 @@ import { ensureCubismCore } from '../utils/cubism-core-loader'
 import { getPetModelConfig } from '../config/pet-model-registry'
 import type { PetModelConfig } from '../config/pet-model-types'
 import { PET_MOTION_GROUP_UNNAMED } from '../config/pet-model-types'
-import { estimateVelocity, isThrowable, stepThrow, dragBoundsOf, shouldRefuse, type AmbientTuningInput, type DragSample, type ThrowBody, type PetPose, type TraitValues } from '@mtbot/pet-core'
+import { estimateVelocity, isThrowable, stepThrow, dragBoundsOf, needsExpressivenessCompensation, NO_EXPRESSION_LAYER_GAIN, shouldRefuse, type AmbientTuningInput, type DragSample, type ThrowBody, type PetPose, type TraitValues } from '@mtbot/pet-core'
 import { PetWanderDriver } from '../behavior/PetWanderDriver'
 import { petMetrics } from '../telemetry/pet-metrics'
 import type { PetHoverUpdate } from '../../../shared/pet-mode'
@@ -690,8 +690,16 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
      * 声明在上面那个之后，所以同一帧里 `wanderRef.current` 已经就位。
      */
     useEffect(() => {
-      wanderRef.current?.setTuning(petTuning?.mood ?? null, petTuning?.traits ?? null)
-    }, [petTuning, ready, renderer])
+      /**
+       * 表达增益（U7 2026-09-24 转投）：无表情层模型只有举止这一条表达通道了，
+       * 把性格给的偏移放大。判据与编排器那边**同一个纯函数**——两处各写一遍的话，
+       * "眨眼补偿了但走动没补偿"会看起来像 bug 而不像漏改。
+       */
+      const gain = needsExpressivenessCompensation(config?.emotionMap)
+        ? NO_EXPRESSION_LAYER_GAIN
+        : 1
+      wanderRef.current?.setTuning(petTuning?.mood ?? null, petTuning?.traits ?? null, gain)
+    }, [petTuning, ready, renderer, config])
 
     // 攀附目标（程序主窗口的矩形）：主进程推来，转给驱动。
     //

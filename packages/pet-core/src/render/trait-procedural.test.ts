@@ -3,15 +3,16 @@ import {
   BASELINE_ENERGY,
   BASE_BLINK_JITTER,
   IDENTITY_PROCEDURAL_SCALES,
-  NO_EXPRESSION_LAYER_SCALES,
   SCALE_MAX,
   SCALE_MIN,
+  amplifyExpressiveDeviation,
   composeScales,
   isIdentityScales,
   scaleProceduralParams,
   traitsToProceduralScales,
   type ProceduralScales,
 } from "./trait-procedural.js";
+import { NO_EXPRESSION_LAYER_GAIN } from "../model/expression-capability.js";
 import type { ProceduralParams } from "./procedural-motion.js";
 
 /** 五维取同一组值，只覆盖关心的那一维 */
@@ -101,9 +102,12 @@ describe("traitsToProceduralScales — 性格 → 倍率", () => {
 
 describe("scaleProceduralParams — 叠到清单声明的参数上", () => {
   const base: ProceduralParams = { bob: 9, breathe: 1.01, blink: 3200 };
+  /** 一个非恒等的倍率组：只为验证「不凭空造字段」「不改入参」这类与补偿无关的性质。
+   *  **不碰 blink**——下面「不凭空填字段」那条用 `{blink:1000}` 当入参，blink 倍率必须留 1。 */
+  const NON_IDENTITY = { ...IDENTITY_PROCEDURAL_SCALES, bob: 1.5, sway: 1.2 }
 
   it("没声明原语的组保持没声明 —— 不凭空造动作", () => {
-    expect(scaleProceduralParams(undefined, NO_EXPRESSION_LAYER_SCALES)).toBeUndefined();
+    expect(scaleProceduralParams(undefined, NON_IDENTITY)).toBeUndefined();
   });
 
   it("恒等倍率原样返回入参（引用相等）", () => {
@@ -128,13 +132,13 @@ describe("scaleProceduralParams — 叠到清单声明的参数上", () => {
   });
 
   it("清单没声明的字段不会被凭空填上", () => {
-    const out = scaleProceduralParams({ blink: 1000 }, NO_EXPRESSION_LAYER_SCALES)!;
+    const out = scaleProceduralParams({ blink: 1000 }, NON_IDENTITY)!;
     expect(out).toEqual({ blink: 1000 });
   });
 
   it("不修改入参对象", () => {
     const copy = { ...base };
-    scaleProceduralParams(base, NO_EXPRESSION_LAYER_SCALES);
+    scaleProceduralParams(base, NON_IDENTITY);
     expect(base).toEqual(copy);
   });
 });
@@ -160,12 +164,59 @@ describe("composeScales — 性格 × 无表情层补偿", () => {
   });
 });
 
-describe("无表情层补偿表", () => {
-  it("幅度类全部上调，眨眼间隔不动（没有表情层与眨眼快慢无关）", () => {
-    expect(NO_EXPRESSION_LAYER_SCALES.bob).toBeGreaterThan(1);
-    expect(NO_EXPRESSION_LAYER_SCALES.breathe).toBeGreaterThan(1);
-    expect(NO_EXPRESSION_LAYER_SCALES.sway).toBeGreaterThan(1);
-    expect(NO_EXPRESSION_LAYER_SCALES.nod).toBeGreaterThan(1);
-    expect(NO_EXPRESSION_LAYER_SCALES.blink).toBe(1);
-  });
+describe("amplifyExpressiveDeviation — 无表情层模型的表达补偿", () => {
+  const neutral = traitsToProceduralScales(traits({}))
+
+  it("恒等 / gain=1 原样返回（引用相等，供快路径判定）", () => {
+    expect(amplifyExpressiveDeviation(IDENTITY_PROCEDURAL_SCALES, 1)).toBe(IDENTITY_PROCEDURAL_SCALES)
+    const s = traitsToProceduralScales(traits({ neuroticism: 0.8 }))
+    expect(amplifyExpressiveDeviation(s, 1)).toBe(s)
+    expect(amplifyExpressiveDeviation(s, Number.NaN)).toBe(s)
+  })
+
+  it("只放大偏离量，不做整体平移 —— 平移改的是性格不是表现力", () => {
+    const nervous = traitsToProceduralScales(traits({ neuroticism: 0.85 }))
+    const boosted = amplifyExpressiveDeviation(nervous, NO_EXPRESSION_LAYER_GAIN)
+    const expected = 1 + (nervous.blink - 1) * NO_EXPRESSION_LAYER_GAIN
+    expect(boosted.blink).toBeCloseTo(expected, 10)
+    // 神经质的眨眼比基准快（<1），放大后应当**更快**，而不是被推过 1
+    expect(nervous.blink).toBeLessThan(1)
+    expect(boosted.blink).toBeLessThan(nervous.blink)
+  })
+
+  it("反向也放大：低神经质（眨眼更慢）在补偿后更慢", () => {
+    const calm = traitsToProceduralScales(traits({ neuroticism: 0.15 }))
+    const boosted = amplifyExpressiveDeviation(calm, NO_EXPRESSION_LAYER_GAIN)
+    expect(calm.blink).toBeGreaterThan(1)
+    expect(boosted.blink).toBeGreaterThan(calm.blink)
+  })
+
+  it("抖动增量同倍放大（「快而乱」里的「乱」也在补偿范围内）", () => {
+    const nervous = traitsToProceduralScales(traits({ neuroticism: 0.85 }))
+    const boosted = amplifyExpressiveDeviation(nervous, NO_EXPRESSION_LAYER_GAIN)
+    expect(boosted.blinkJitterBonus).toBeCloseTo(nervous.blinkJitterBonus * NO_EXPRESSION_LAYER_GAIN, 10)
+    // 不能越过 1：越过时 `mean×(1−jitter)` 为负，眨眼序列会错乱
+    expect(BASE_BLINK_JITTER + boosted.blinkJitterBonus).toBeLessThan(1)
+  })
+
+  it("★ 幅度类原样透传 —— 转投后不再在它们上面做补偿", () => {
+    const nervous = traitsToProceduralScales(traits({ extraversion: 0.8, openness: 0.8, neuroticism: 0.8 }))
+    const boosted = amplifyExpressiveDeviation(nervous, NO_EXPRESSION_LAYER_GAIN)
+    for (const k of ["bob", "breathe", "sway", "nod"] as const) {
+      // 引用相等不可能（对象是新的），但**数值必须一字不差**
+      expect(boosted[k]).toBe(nervous[k])
+    }
+  })
+
+  it("中性性格放大后仍是中性（偏离为 0，乘什么都还是 0）", () => {
+    const boosted = amplifyExpressiveDeviation(neutral, NO_EXPRESSION_LAYER_GAIN)
+    expect(boosted.blink).toBe(1)
+    expect(boosted.blinkJitterBonus).toBe(0)
+  })
+
+  it("增益被夹取，不会把 blink 推出 [SCALE_MIN, SCALE_MAX]", () => {
+    const extreme = amplifyExpressiveDeviation(traitsToProceduralScales(traits({ neuroticism: 0 })), 100)
+    expect(extreme.blink).toBeGreaterThanOrEqual(SCALE_MIN)
+    expect(extreme.blink).toBeLessThanOrEqual(SCALE_MAX)
+  })
 });

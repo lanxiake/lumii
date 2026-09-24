@@ -35,6 +35,7 @@
  */
 
 import type { TraitValues } from "../personality/trait-label.js";
+import { NO_EXPRESSION_LAYER_GAIN } from "../model/expression-capability.js";
 import type { ProceduralParams } from "./procedural-motion.js";
 
 /** 性格只需要五维里的这几维；结构兼容 `TraitValues`，避免反向依赖 */
@@ -224,16 +225,24 @@ export function composeScales(a: ProceduralScales, b: ProceduralScales): Procedu
 }
 
 /**
- * 无表情层模型的幅度补偿倍率（设计 §8.5「表情层的诚实降级」）。
+ * 把性格驱动的**表达性偏离**放大 `gain` 倍（无表情层模型的补偿）。
  *
- * 那些模型只有一张脸，情绪**只能**靠幅度表达；不补的话"我心情这么差它一点反应都没有"，
- * 用户会以为宠物坏了。起手 ×1.5，实测手感再调。
+ * 只碰 `blink` 与 `blinkJitterBonus`：幅度类（`bob`/`breathe`/`sway`/`nod`）**原样透传**。
+ * 不是漏了——它们在待机上要么被摘、要么小到看不见，继续放大只会让日志好看、
+ * 用户依旧看不到（这正是上一版的问题）。完整的来龙去脉见
+ * `model/expression-capability.ts` 的 `NO_EXPRESSION_LAYER_GAIN`。
+ *
+ * 放大的是偏离量：`1 + (blink − 1) × gain`。所以"神经质高 → 眨眼更快"这条会**更极端**，
+ * 而不是整体平移——平移只是把节奏统一改了，那是性格不是表现力。
  */
-export const NO_EXPRESSION_LAYER_SCALES: ProceduralScales = Object.freeze({
-  bob: 1.5,
-  breathe: 1.5,
-  sway: 1.5,
-  nod: 1.5,
-  blink: 1,
-  blinkJitterBonus: 0,
-});
+export function amplifyExpressiveDeviation(
+  scales: ProceduralScales,
+  gain: number = NO_EXPRESSION_LAYER_GAIN,
+): ProceduralScales {
+  if (!Number.isFinite(gain) || gain === 1) return scales;
+  return {
+    ...scales,
+    blink: clampScale(1 + (scales.blink - 1) * gain),
+    blinkJitterBonus: scales.blinkJitterBonus * gain,
+  };
+}

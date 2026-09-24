@@ -23,14 +23,14 @@ import type { PetIdleStage, PetPose } from '@mtbot/pet-core'
 import {
   activityModulation,
   announceDurationMs,
-  composeScales,
+  amplifyExpressiveDeviation,
   countDistinctExpressions,
   IDENTITY_MODULATION,
   IDENTITY_PROCEDURAL_SCALES,
   initialAgentActivity,
   isQuietHour,
-  needsAmplitudeCompensation,
-  NO_EXPRESSION_LAYER_SCALES,
+  needsExpressivenessCompensation,
+  NO_EXPRESSION_LAYER_GAIN,
   pickAgentAnnouncement,
   pickNoticeForBubble,
   reduceAgentActivity,
@@ -438,12 +438,12 @@ export class PetOrchestrator {
       this.traits,
       this.moodEnergy === null ? null : { energy: this.moodEnergy },
     )
-    if (needsAmplitudeCompensation(this.modelConfig?.emotionMap)) {
-      scales = composeScales(scales, NO_EXPRESSION_LAYER_SCALES)
+    if (needsExpressivenessCompensation(this.modelConfig?.emotionMap)) {
+      scales = amplifyExpressiveDeviation(scales)
       log.info(
         `[pumpProceduralScales] 模型无表情层（emotionMap 解析出 ${countDistinctExpressions(
           this.modelConfig?.emotionMap,
-        )} 个索引），幅度补偿 ×${NO_EXPRESSION_LAYER_SCALES.bob}`,
+        )} 个索引），表达补偿转投眨眼节奏 ×${NO_EXPRESSION_LAYER_GAIN}`,
       )
     }
     this.renderer.setProceduralScales?.(scales)
