@@ -1,0 +1,10 @@
+{"ts":"2026-09-24T08:50:19.134Z","id":"P1","status":"PASS","note":"cron job 形态正确（魔法指令 / agent_id=NULL / every / enabled）: intervalMs=300000 lastStatus=ok"}
+{"ts":"2026-09-24T08:50:21.722Z","id":"P2","status":"PASS","note":"派发执行 → 目标落到终态（不再烂在 executing 里）: status=completed，整轮派发 2581ms（含真实模型往返）"}
+{"ts":"2026-09-24T08:50:21.724Z","id":"P2b","status":"PASS","note":"run summary 是 pet-goal 而非 skipped/busy: summary=\"pet-goal: completed\""}
+{"ts":"2026-09-24T08:50:21.727Z","id":"P3","status":"PASS","note":"token 记在宠物自己的键上，助手账没被碰: autonomous.tokens:pet:demo_cartoon_cat:2026-09-24 = 0 → 8000；助手账保持 (无)"}
+{"ts":"2026-09-24T08:50:21.728Z","id":"P4","status":"PASS","note":"宠物会话的 agent 参与者是宠物自己（不是 main/assistant）: participants=[\"pet:demo_cartoon_cat\"]"}
+{"ts":"2026-09-24T08:50:21.730Z","id":"P5","status":"PASS","note":"回执成对落库（user 目标 + assistant 产出）: 产出前 60 字：「工作区根目录下有 11 个文件夹：.mtbot-vcs、.system、.tool-results、files、node」"}
+{"ts":"2026-09-24T08:50:21.735Z","id":"P6","status":"PASS","note":"回执到达宠物窗并冒了泡（渲染层日志）: [notice] 完成粒子 id=petgoal:evolution:pet:demo_cartoon_cat:pet-e2e-mufakd4v-cgivme text=\"工作区根目录下有 11 个文件夹：.mtbot-vcs、.system、.tool-results、files、node_mod"}
+{"ts":"2026-09-24T08:50:24.642Z","id":"P7","status":"PASS","note":"第二拍不是 skipped: busy（实例在 finally 里被销毁了）: 第二条 status=completed summary=\"pet-goal: completed\""}
+{"ts":"2026-09-24T08:50:27.567Z","id":"P8","status":"PASS","note":"存量会话的归属会被校正（预置 main → 跑一拍 → 变回宠物自己）: 预置前 [\"pet:demo_cartoon_cat\"] → 强迫成 [\"main\"] → 跑一拍 → [\"pet:demo_cartoon_cat\"]"}
+{"ts":"2026-09-24T08:50:31.846Z","id":"P9","status":"PASS","note":"全新会话的第一轮会整轮落库（不是只剩两条回执）: 新会话 evolution:pet:mao_pro：消息 3 条（真产出 1）；跳过占位 0 次、兜底 0 次、收尾在 [2026-09-24 16:50:31.404"}
