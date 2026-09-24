@@ -1106,8 +1106,6 @@ function setupIpcHandlers(): void {
     reapplyCodingDevAcpEnv: reapplyCodingDevAcpEnvFromConfig,
     setMemoryInjectionSettings: setMemoryInjectionSettingsCache,
     setPromptStyleSettings: setPromptStyleSettingsCache,
-    isQuittingGetter: () => isQuitting,
-    setIsQuitting: (value: boolean) => { isQuitting = value },
     restartCloudSyncScheduler: (cfg) => { syncScheduler?.start(cfg) },
     log,
   })

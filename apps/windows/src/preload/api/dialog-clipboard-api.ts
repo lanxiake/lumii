@@ -14,7 +14,6 @@ export const dialogApi = {
 }
 
 export const clipboardApi = {
-  readText: () => ipcRenderer.invoke('clipboard:readText'),
   writeText: (text: string) => ipcRenderer.invoke('clipboard:writeText', text),
   writeFiles: (filePaths: string[]) => ipcRenderer.invoke('clipboard:writeFiles', filePaths),
 }

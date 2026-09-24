@@ -83,15 +83,6 @@ export function registerCloudSyncIpcHandlers(): void {
   })
 
   ipcMain.handle(
-    'cloudSync:resolveConflict',
-    async (_e, strategy: 'keep-local' | 'keep-remote' | 'per-file', choices?: { path: string; side: 'local' | 'remote' }[]) => {
-      const m = getCloudSyncManager()
-      if (!m) return { success: false, error: '云同步未初始化' }
-      return m.resolveConflict(strategy, choices)
-    },
-  )
-
-  ipcMain.handle(
     'cloudSync:readFileAt',
     async (_e, oid: 'local' | 'remote' | 'base', filepath: string) => {
       const m = getCloudSyncManager()

@@ -129,25 +129,6 @@ ipcMain.handle('autonomous:getStatus', async () => {
   }
 })
 
-ipcMain.handle('autonomous:getPendingGoals', async () => {
-  try {
-    const bridge = requireBridge()
-    return bridge.autonomousRepo.listGoals(DEFAULT_AGENT_ID, 'pending').map((g) => ({
-      id: g.id,
-      type: g.type,
-      description: g.description,
-      triggerReason: g.trigger_reason,
-      status: g.status,
-      priority: g.priority,
-      createdAt: g.created_at,
-      approvedAt: g.approved_at,
-    }))
-  } catch (error) {
-    console.error('[autonomous:getPendingGoals]', error)
-    return []
-  }
-})
-
 /** 最近目标（全状态，时间倒序，最多 limit 条），附生成时回填的关联反思 ID */
 ipcMain.handle('autonomous:getGoals', async (_event, limit = 20) => {
   try {

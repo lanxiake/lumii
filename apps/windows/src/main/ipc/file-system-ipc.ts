@@ -42,78 +42,6 @@ export function registerFileSystemIpcHandlers(): void {
     return deps!.getSystemService()?.readFile(filePath)
   })
 
-  // 读取文件为 Base64 (用于图片附件)
-  ipcMain.handle('file:readAsBase64', async (_event, filePath: string) => {
-    if (typeof filePath !== 'string') {
-      throw new Error('路径必须是字符串')
-    }
-
-    deps!.log.info(`[File] 读取文件为 Base64: ${filePath}`)
-
-    // 获取文件扩展名和 MIME 类型
-    const ext = extname(filePath).toLowerCase()
-    const mimeTypes: Record<string, string> = {
-      '.jpg': 'image/jpeg',
-      '.jpeg': 'image/jpeg',
-      '.png': 'image/png',
-      '.gif': 'image/gif',
-      '.webp': 'image/webp',
-      '.bmp': 'image/bmp',
-      '.svg': 'image/svg+xml',
-      '.pdf': 'application/pdf',
-      '.doc': 'application/msword',
-      '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      '.txt': 'text/plain',
-      '.md': 'text/markdown',
-      '.csv': 'text/csv',
-      '.json': 'application/json',
-      '.xml': 'text/xml',
-      '.html': 'text/html',
-      '.htm': 'text/html',
-      '.log': 'text/plain',
-      '.ts': 'text/plain',
-      '.tsx': 'text/plain',
-      '.js': 'text/plain',
-      '.jsx': 'text/plain',
-      '.py': 'text/plain',
-      '.yaml': 'text/plain',
-      '.yml': 'text/plain',
-      '.toml': 'text/plain',
-      '.ini': 'text/plain',
-      '.cfg': 'text/plain',
-      '.sh': 'text/plain',
-      '.bat': 'text/plain',
-      '.css': 'text/plain',
-      '.sql': 'text/plain',
-      '.rs': 'text/plain',
-      '.go': 'text/plain',
-      '.java': 'text/plain',
-      '.c': 'text/plain',
-      '.cpp': 'text/plain',
-      '.h': 'text/plain',
-    }
-    const mimeType = mimeTypes[ext] || 'application/octet-stream'
-
-    // 验证文件大小 (限制 10MB)
-    const stats = await fs.stat(filePath)
-    if (stats.size > 10 * 1024 * 1024) {
-      throw new Error('文件大小超出限制 (最大 10MB)')
-    }
-
-    // 读取文件内容
-    const buffer = await fs.readFile(filePath)
-    const content = buffer.toString('base64')
-
-    deps!.log.info(`[File] 文件读取成功: ${filePath}, 大小: ${stats.size} 字节`)
-
-    return {
-      content,
-      mimeType,
-      size: stats.size,
-      fileName: filePath.split(/[/\\]/).pop() || 'file',
-    }
-  })
-
   ipcMain.handle('file:write', async (_event, filePath: string, content: string) => {
     if (typeof filePath !== 'string') {
       throw new Error('路径必须是字符串')
@@ -235,12 +163,5 @@ export function registerFileSystemIpcHandlers(): void {
       return { success: true, path: logDir }
     }
     return { success: false, error: '日志目录不存在' }
-  })
-}
-
-export function registerAppQuitHandler(isQuittingGetter: () => boolean, setIsQuitting: (value: boolean) => void): void {
-  ipcMain.on('app:quit', () => {
-    setIsQuitting(true)
-    app.quit()
   })
 }

@@ -5,9 +5,6 @@ import { ipcRenderer } from 'electron'
 import type { CloudSyncConfigView, SyncState, SyncStatus } from '../../main/cloud-sync/types'
 import type { SyncLogEntry } from '../../main/cloud-sync/sync-log'
 
-export type ResolveStrategy = 'keep-local' | 'keep-remote' | 'per-file'
-export type ResolveChoice = { path: string; side: 'local' | 'remote' }
-
 export const cloudSyncApi = {
   getConfig: (): Promise<{ success: boolean; data?: CloudSyncConfigView; error?: string }> =>
     ipcRenderer.invoke('cloudSync:getConfig'),
@@ -21,11 +18,6 @@ export const cloudSyncApi = {
     ipcRenderer.invoke('cloudSync:getLogs'),
   syncNow: (): Promise<{ success: boolean; state: SyncState }> =>
     ipcRenderer.invoke('cloudSync:syncNow'),
-  resolveConflict: (
-    strategy: ResolveStrategy,
-    choices?: ResolveChoice[],
-  ): Promise<{ success: boolean; error?: string }> =>
-    ipcRenderer.invoke('cloudSync:resolveConflict', strategy, choices),
   readFileAt: (
     oid: 'local' | 'remote' | 'base',
     filepath: string,

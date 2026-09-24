@@ -37,7 +37,6 @@ import {
 import {
   setFileSystemIpcDeps,
   registerFileSystemIpcHandlers,
-  registerAppQuitHandler
 } from './file-system-ipc'
 import {
   setDialogClipboardIpcDeps,
@@ -83,8 +82,6 @@ export interface IpcHandlersDeps {
     injectWorkMemory?: boolean
   }) => void
   setPromptStyleSettings: (settings: { style?: PromptStyleValue }) => void
-  isQuittingGetter: () => boolean
-  setIsQuitting: (value: boolean) => void
   restartCloudSyncScheduler?: (cfg: CloudSyncConfig) => void
   log: {
     debug: (...args: unknown[]) => void
@@ -172,5 +169,4 @@ export function registerAllIpcHandlers(deps: IpcHandlersDeps): void {
   registerSelectionIpcHandlers({ getAgentRuntimeBridge: deps.getAgentRuntimeBridge })
   registerAutonomousIpcHandlers()
   registerCloudSyncIpcHandlers()
-  registerAppQuitHandler(deps.isQuittingGetter, deps.setIsQuitting)
 }

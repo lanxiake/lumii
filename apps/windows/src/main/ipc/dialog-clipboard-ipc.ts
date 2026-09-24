@@ -41,10 +41,6 @@ export function registerDialogClipboardIpcHandlers(): void {
   })
 
   // === 剪贴板 ===
-  ipcMain.handle('clipboard:readText', () => {
-    return clipboard.readText()
-  })
-
   ipcMain.handle('clipboard:writeText', (_event, text: string) => {
     if (typeof text !== 'string') {
       throw new Error('文本必须是字符串')

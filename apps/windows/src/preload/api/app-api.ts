@@ -5,7 +5,6 @@ import { ipcRenderer, webUtils } from 'electron'
 
 export const appApi = {
   getVersion: () => ipcRenderer.invoke('app:getVersion'),
-  quit: () => ipcRenderer.send('app:quit'),
   openExternal: (url: string) => ipcRenderer.invoke('app:openExternal', url),
   showItemInFolder: (filePath: string) => ipcRenderer.invoke('app:showItemInFolder', filePath),
   openLogFile: () => ipcRenderer.invoke('app:openLogFile'),
@@ -22,8 +21,6 @@ export const appApi = {
   previewUninstallCodingDevTool: (toolId: string) =>
     ipcRenderer.invoke('app:previewUninstallCodingDevTool', toolId),
   loginCodingDevTool: (toolId: string) => ipcRenderer.invoke('app:loginCodingDevTool', toolId),
-  setCodingDevAcpWorkspace: (dirPath: string | undefined) =>
-    ipcRenderer.invoke('app:setCodingDevAcpWorkspace', dirPath),
   listCodingDevProjects: () => ipcRenderer.invoke('app:listCodingDevProjects'),
   getCodingDevAgentBindings: () => ipcRenderer.invoke('app:getCodingDevAgentBindings'),
   setCodingDevAgentBindings: (bindings: unknown) =>

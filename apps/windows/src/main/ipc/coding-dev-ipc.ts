@@ -126,30 +126,6 @@ export function registerCodingDevIpcHandlers(options: CodingDevIpcOptions): void
     })
   })
 
-  ipcMain.handle('app:setCodingDevAcpWorkspace', async (_event, dirPath: string | undefined) => {
-    if (!getConfigManager()) {
-      throw new Error('ConfigManager 未初始化')
-    }
-    const trimmed = typeof dirPath === 'string' ? dirPath.trim() : ''
-    if (trimmed) {
-      try {
-        const stat = await fs.stat(trimmed)
-        if (!stat.isDirectory()) {
-          throw new Error('指定路径不是目录')
-        }
-      } catch (err) {
-        if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-          throw new Error('目录不存在', { cause: err })
-        }
-        throw err
-      }
-    }
-    await getConfigManager()!.updateAppConfig({
-      codingDevAcpWorkspace: trimmed || undefined,
-    })
-    reapplyCodingDevAcpEnv()
-  })
-
   // === ACP 项目管理 ===
   ipcMain.handle('app:listCodingDevProjects', async () => {
     if (!getConfigManager() || !directoryManager) throw new Error('未初始化')

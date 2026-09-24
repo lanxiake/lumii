@@ -126,35 +126,6 @@ export function registerWorkspaceIpcHandlers(): void {
     return dirPath
   })
 
-  /**
-   * 会话重命名后，将"未归类/threadId"自动归档到任务目录。
-   */
-  ipcMain.handle('workspace:sessionRenamed', async (_event, threadId: string, newTitle: string) => {
-    if (typeof threadId !== 'string' || threadId.trim().length === 0) {
-      throw new Error('threadId 必须是非空字符串')
-    }
-    if (typeof newTitle !== 'string' || newTitle.trim().length === 0) {
-      throw new Error('newTitle 必须是非空字符串')
-    }
-    await deps!.getDirectoryManager().renameTaskDirectory(threadId.trim(), newTitle.trim())
-    return true
-  })
 
-  /**
-   * 确保 thread 目录存在，供父/子 Agent 共享 workspace。
-   */
-  ipcMain.handle('workspace:ensureThreadDir', async (_event, threadId: string) => {
-    if (typeof threadId !== 'string' || threadId.trim().length === 0) {
-      throw new Error('threadId 必须是非空字符串')
-    }
-    const dirs = await deps!.getDirectoryManager().ensureThreadDirectories(threadId)
-    securityUtils.addAllowedBasePath(dirs.root)
-    return {
-      root: dirs.root.replace(/\\/g, '/'),
-      workspace: dirs.workspace.replace(/\\/g, '/'),
-      uploads: dirs.uploads.replace(/\\/g, '/'),
-      outputs: dirs.outputs.replace(/\\/g, '/'),
-    }
-  })
 }
 

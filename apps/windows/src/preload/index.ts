@@ -236,12 +236,6 @@ export interface ElectronAPI {
   file: {
     list: (dirPath: string) => Promise<unknown[]>
     read: (filePath: string) => Promise<string>
-    readAsBase64: (filePath: string) => Promise<{
-      content: string
-      mimeType: string
-      size: number
-      fileName: string
-    }>
     write: (filePath: string, content: string) => Promise<void>
     move: (sourcePath: string, destPath: string) => Promise<void>
     copy: (sourcePath: string, destPath: string) => Promise<void>
@@ -365,7 +359,6 @@ export interface ElectronAPI {
   webviewSelectionPreload: string
   app: {
     getVersion: () => Promise<string>
-    quit: () => void
     openExternal: (url: string) => Promise<void>
     showItemInFolder: (filePath: string) => Promise<void>
     /** 在资源管理器中打开当前应用日志文件 */
@@ -474,8 +467,6 @@ export interface ElectronAPI {
     }>
     /** 触发 CLI 登录（如 cursor agent login 打开浏览�?OAuth�?*/
     loginCodingDevTool: (toolId: string) => Promise<{ success: boolean; message: string }>
-    /** 设置 ACP 专用工作目录；传 undefined 或空则与主工作区一�?*/
-    setCodingDevAcpWorkspace: (dirPath: string | undefined) => Promise<void>
     /** 列出 ACP 项目及当前活动项�?*/
     listCodingDevProjects: () => Promise<{ projects: CodingDevProject[]; activeProject?: string }>
     /** 读取开发类 Agent 的本机绑定（Agent → CLI + 工作目录） */
@@ -509,7 +500,6 @@ export interface ElectronAPI {
 
   // 剪贴�?
   clipboard: {
-    readText: () => Promise<string>
     writeText: (text: string) => Promise<void>
     /** 将文件对象写入剪贴板，可在资源管理器/聊天框直接粘贴出文件 */
     writeFiles: (filePaths: string[]) => Promise<void>
@@ -689,15 +679,6 @@ export interface ElectronAPI {
     notifyChanged: (newDirPath?: string) => Promise<void>
     /** 确保工作空间目录及基本子结构存在 */
     ensureDir: (dirPath: string) => Promise<string>
-    /** 确保 thread 目录结构存在（workspace/uploads/outputs�?*/
-    ensureThreadDir: (threadId: string) => Promise<{
-      root: string
-      workspace: string
-      uploads: string
-      outputs: string
-    }>
-    /** 会话重命名后触发目录归档 */
-    sessionRenamed: (threadId: string, newTitle: string) => Promise<boolean>
   }
 
   // 本地技能管�?
