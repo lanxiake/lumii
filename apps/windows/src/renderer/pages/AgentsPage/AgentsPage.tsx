@@ -4,561 +4,459 @@
  * 支持查看系统 Agent、创建/编辑/删除用户 Agent
  * 包含技能和工具配置（对非技术用户友好的白话描述）
  */
-
-import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react'
-import { Zap, Rocket, Network, LayoutGrid, List, Check, X, Sparkles } from 'lucide-react'
-import clsx from 'clsx'
-import { useAgents } from '../../hooks/business/useAgents/useAgents'
-import { updateAgent, deleteAgent } from '../../services/agent-service'
-import { listInstalledSkills, searchStoreSkills, installStoreSkill } from '../../services/skills-service'
-import { listEnabledMcpServers, type McpServerOption } from '../../services/mcp-service'
-import { MapView } from './views/MapView'
-import { GridView } from './views/GridView'
-import { FeedView } from './views/FeedView'
-import { DetailPanel } from './views/DetailPanel'
-import { getStoredView, VIEW_STORAGE_KEY, type AgentView, type Agent as ViewAgent } from './views/types'
-import { GenerateTeamWizard } from './components/GenerateTeamWizard/GenerateTeamWizard'
-import { OptimizeTeamWizard } from './components/OptimizeTeamWizard/OptimizeTeamWizard'
-import { AgentBasicFields } from './components/AgentFormModal/AgentBasicFields'
-import { AgentRoutingFields } from './components/AgentFormModal/AgentRoutingFields'
-import { AgentCategoryField } from './components/AgentFormModal/AgentCategoryField'
-import { AgentSkillsField } from './components/AgentFormModal/AgentSkillsField'
-import { AgentCapabilitiesField } from './components/AgentFormModal/AgentCapabilitiesField'
-import {
-  CAPABILITY_OPTIONS,
-  capabilitiesToSkillBlacklist,
-  skillBlacklistToCapabilityIds,
-  defaultCapabilities,
-} from './AgentsPage.const'
-import type { AgentFormData, UserSkill, AgentsPageProps } from './AgentsPage.types'
-import styles from './AgentsPage.module.css'
-
+import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
+import { Zap, Network, LayoutGrid, List, Check, X, Sparkles } from 'lucide-react';
+import clsx from 'clsx';
+import { useAgents } from '../../hooks/business/useAgents/useAgents';
+import { updateAgent, deleteAgent } from '../../services/agent-service';
+import { listInstalledSkills, searchStoreSkills, installStoreSkill } from '../../services/skills-service';
+import { listEnabledMcpServers, type McpServerOption } from '../../services/mcp-service';
+import { MapView } from './views/MapView';
+import { GridView } from './views/GridView';
+import { FeedView } from './views/FeedView';
+import { DetailPanel } from './views/DetailPanel';
+import { getStoredView, VIEW_STORAGE_KEY, type AgentView, type Agent as ViewAgent } from './views/types';
+import { GenerateTeamWizard } from './components/GenerateTeamWizard/GenerateTeamWizard';
+import { OptimizeTeamWizard } from './components/OptimizeTeamWizard/OptimizeTeamWizard';
+import { AgentBasicFields } from './components/AgentFormModal/AgentBasicFields';
+import { AgentRoutingFields } from './components/AgentFormModal/AgentRoutingFields';
+import { AgentCategoryField } from './components/AgentFormModal/AgentCategoryField';
+import { AgentSkillsField } from './components/AgentFormModal/AgentSkillsField';
+import { AgentCapabilitiesField } from './components/AgentFormModal/AgentCapabilitiesField';
+import { CAPABILITY_OPTIONS, capabilitiesToSkillBlacklist, skillBlacklistToCapabilityIds, defaultCapabilities, } from './AgentsPage.const';
+import type { AgentFormData, UserSkill, AgentsPageProps } from './AgentsPage.types';
+import styles from './AgentsPage.module.css';
 // ── 主页面 ───────────────────────────────────────────────────────────────
-
 /**
  * 新建表单的空白初值（打开新建 Modal / 重置表单时复用）。
  * MCP 默认全选——与「可用能力」一样默认全开，否则空数组会被反推成「全部禁用」。
  */
 function emptyCreateForm(mcpServers: McpServerOption[] = []): AgentFormData {
-  return {
-    name: '',
-    description: '',
-    systemPrompt: '',
-    enabledCapabilities: defaultCapabilities(),
-    selectedSkills: [],
-    whenToUse: '',
-    triggerExamples: '',
-    bundledSkills: [],
-    mcpServers: mcpServers.map((s) => s.name),
-    category: '',
-  }
+    return {
+        name: '',
+        description: '',
+        systemPrompt: '',
+        enabledCapabilities: defaultCapabilities(),
+        selectedSkills: [],
+        whenToUse: '',
+        triggerExamples: '',
+        bundledSkills: [],
+        mcpServers: mcpServers.map((s) => s.name),
+        category: '',
+    };
 }
-
 /** 未勾选的 MCP 服务 → 其工具全名列表（进该 Agent 的工具黑名单） */
 function disabledMcpTools(selected: string[], servers: McpServerOption[]): string[] {
-  const chosen = new Set(selected)
-  return servers.filter((s) => !chosen.has(s.name)).flatMap((s) => s.tools)
+    const chosen = new Set(selected);
+    return servers.filter((s) => !chosen.has(s.name)).flatMap((s) => s.tools);
 }
-
 /** 从工具黑名单反推勾选状态：一个 server 的工具全被禁 = 当时没勾它 */
 function selectedMcpServers(blacklist: string[] | undefined, servers: McpServerOption[]): string[] {
-  const black = new Set(blacklist ?? [])
-  return servers
-    .filter((s) => !(s.tools.length > 0 && s.tools.every((t) => black.has(t))))
-    .map((s) => s.name)
+    const black = new Set(blacklist ?? []);
+    return servers
+        .filter((s) => !(s.tools.length > 0 && s.tools.every((t) => black.has(t))))
+        .map((s) => s.name);
 }
-
 const AgentsPage: React.FC<AgentsPageProps> = ({ onViewChange, embedded = false }) => {
-  const {
-    agents,
-    systemAgents,
-    userAgents,
-    isLoading,
-    error,
-    refreshAgents,
-    forkSystemAgent,
-    definitionSync,
-    syncUserAgentDefinitions,
-  } = useAgents()
-
-  const [currentView, setCurrentView] = useState<AgentView>(getStoredView)
-  const [searchQuery, setSearchQuery] = useState('')
-  const [editingAgent, setEditingAgent] = useState<{ id: string; data: AgentFormData } | null>(null)
-  const [showCreateModal, setShowCreateModal] = useState(false)
-  const [createSourceId, setCreateSourceId] = useState<string | null>(null)
-  const [createForm, setCreateForm] = useState<AgentFormData>(emptyCreateForm)
-  const [showGenerateWizard, setShowGenerateWizard] = useState(false)
-  const [showOptimizeWizard, setShowOptimizeWizard] = useState(false)
-  // 技能同步：per-agent 缺失技能映射（agentId → 缺失技能列表）
-  const [agentMissingSkills, setAgentMissingSkills] = useState<Record<string, Array<{ id: string; name: string; inStore: boolean }>>>({ })
-  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
-  const [isSubmitting, setIsSubmitting] = useState(false)
-  const [resultMessage, setResultMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
-  const [userSkills, setUserSkills] = useState<UserSkill[]>([])
-  /** 已启用的 MCP 服务：表单勾选用，未勾选的 server 工具进该 Agent 黑名单 */
-  const [mcpServers, setMcpServers] = useState<McpServerOption[]>([])
-  /** 详情面板当前展示的 Agent（null = 关闭） */
-  const [detailAgent, setDetailAgent] = useState<ViewAgent | null>(null)
-  // 用 ref 持有最新的 userAgents，避免技能差异检测依赖 userAgents 引用频繁重跑
-  const userAgentsRef = useRef(userAgents)
-
-  const showResult = useCallback((type: 'success' | 'error', text: string) => {
-    setResultMessage({ type, text })
-    setTimeout(() => setResultMessage(null), 3000)
-  }, [])
-
-  // 视图切换记忆
-  useEffect(() => {
-    localStorage.setItem(VIEW_STORAGE_KEY, currentView)
-  }, [currentView])
-
-  // 加载本地已安装技能列表（与"我的技能"页面数据源一致）
-  useEffect(() => {
-    const fetchSkills = async () => {
-      try {
-        const localSkills = await listInstalledSkills()
-        const skills: UserSkill[] = localSkills
-          .filter((s) => s.enabled !== false)
-          .map((s) => ({
-            id: s.id,
-            name: s.name || s.id,
-            description: s.description,
-          }))
-        setUserSkills(skills)
-      } catch {
-        // 技能列表加载失败不影响页面主功能
-      }
-    }
-    fetchSkills()
-  }, [])
-
-  // 已启用的 MCP 服务（供「MCP 服务」勾选区；拿不到就不渲染勾选项）
-  useEffect(() => {
-    let cancelled = false
-    void listEnabledMcpServers().then((list) => {
-      if (!cancelled) setMcpServers(list)
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  // 技能差异检测：稳定的 skillFilter key，避免 userAgents 引用变化导致无限循环
-  const skillFilterKey = useMemo(
-    () => userAgents.flatMap((a) => (a as any).skillFilter ?? []).sort().join(','),
-    [userAgents],
-  )
-  useEffect(() => {
-    if (!skillFilterKey) {
-      setAgentMissingSkills({})
-      return
-    }
-    const detect = async () => {
-      try {
-        const localSkills = await listInstalledSkills()
-        const installedNames = new Set(
-          localSkills.filter((s) => s.enabled !== false).map((s) => (s.name || s.id).toLowerCase()),
-        )
-
-        // 收集所有 agent 需要但本地缺失的唯一技能名（去重后统一查商店）
-        const allMissingNames = new Set<string>()
-        for (const agent of userAgentsRef.current) {
-          for (const skillName of (agent as any).skillFilter ?? []) {
-            if (!installedNames.has(skillName.toLowerCase())) {
-              allMissingNames.add(skillName)
+    const { agents, systemAgents, userAgents, isLoading, error, refreshAgents, forkSystemAgent, definitionSync, syncUserAgentDefinitions, } = useAgents();
+    const [currentView, setCurrentView] = useState<AgentView>(getStoredView);
+    const [searchQuery, setSearchQuery] = useState('');
+    const [editingAgent, setEditingAgent] = useState<{
+        id: string;
+        data: AgentFormData;
+    } | null>(null);
+    const [showCreateModal, setShowCreateModal] = useState(false);
+    const [createSourceId, setCreateSourceId] = useState<string | null>(null);
+    const [createForm, setCreateForm] = useState<AgentFormData>(emptyCreateForm);
+    const [showGenerateWizard, setShowGenerateWizard] = useState(false);
+    const [showOptimizeWizard, setShowOptimizeWizard] = useState(false);
+    // 技能同步：per-agent 缺失技能映射（agentId → 缺失技能列表）
+    const [agentMissingSkills, setAgentMissingSkills] = useState<Record<string, Array<{
+        id: string;
+        name: string;
+        inStore: boolean;
+    }>>>({});
+    const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [resultMessage, setResultMessage] = useState<{
+        type: 'success' | 'error';
+        text: string;
+    } | null>(null);
+    const [userSkills, setUserSkills] = useState<UserSkill[]>([]);
+    /** 已启用的 MCP 服务：表单勾选用，未勾选的 server 工具进该 Agent 黑名单 */
+    const [mcpServers, setMcpServers] = useState<McpServerOption[]>([]);
+    /** 详情面板当前展示的 Agent（null = 关闭） */
+    const [detailAgent, setDetailAgent] = useState<ViewAgent | null>(null);
+    // 用 ref 持有最新的 userAgents，避免技能差异检测依赖 userAgents 引用频繁重跑
+    const userAgentsRef = useRef(userAgents);
+    const showResult = useCallback((type: 'success' | 'error', text: string) => {
+        setResultMessage({ type, text });
+        setTimeout(() => setResultMessage(null), 3000);
+    }, []);
+    // 视图切换记忆
+    useEffect(() => {
+        localStorage.setItem(VIEW_STORAGE_KEY, currentView);
+    }, [currentView]);
+    // 加载本地已安装技能列表（与"我的技能"页面数据源一致）
+    useEffect(() => {
+        const fetchSkills = async () => {
+            try {
+                const localSkills = await listInstalledSkills();
+                const skills: UserSkill[] = localSkills
+                    .filter((s) => s.enabled !== false)
+                    .map((s) => ({
+                    id: s.id,
+                    name: s.name || s.id,
+                    description: s.description,
+                }));
+                setUserSkills(skills);
             }
-          }
-        }
-        if (allMissingNames.size === 0) {
-          setAgentMissingSkills({})
-          return
-        }
-
-        // 批量查商店（去重，每个名字只查一次）
-        const skillLookup = new Map<string, { id: string; name: string; inStore: boolean }>()
-        for (const skillName of allMissingNames) {
-          const items = await searchStoreSkills(skillName, 1)
-          skillLookup.set(
-            skillName.toLowerCase(),
-            items.length > 0
-              ? { id: items[0].id, name: items[0].name ?? skillName, inStore: true }
-              : { id: skillName, name: skillName, inStore: false },
-          )
-        }
-
-        // 构建 per-agent 缺失映射
-        const newMap: Record<string, Array<{ id: string; name: string; inStore: boolean }>> = {}
-        for (const agent of userAgentsRef.current) {
-          const agentMissing: Array<{ id: string; name: string; inStore: boolean }> = []
-          for (const skillName of (agent as any).skillFilter ?? []) {
-            if (!installedNames.has(skillName.toLowerCase())) {
-              const info = skillLookup.get(skillName.toLowerCase())
-              agentMissing.push(info ?? { id: skillName, name: skillName, inStore: false })
+            catch {
+                // 技能列表加载失败不影响页面主功能
             }
-          }
-          if (agentMissing.length > 0) {
-            newMap[agent.id] = agentMissing
-          }
+        };
+        fetchSkills();
+    }, []);
+    // 已启用的 MCP 服务（供「MCP 服务」勾选区；拿不到就不渲染勾选项）
+    useEffect(() => {
+        let cancelled = false;
+        void listEnabledMcpServers().then((list) => {
+            if (!cancelled)
+                setMcpServers(list);
+        });
+        return () => {
+            cancelled = true;
+        };
+    }, []);
+    // 技能差异检测：稳定的 skillFilter key，避免 userAgents 引用变化导致无限循环
+    const skillFilterKey = useMemo(() => userAgents.flatMap((a) => (a as any).skillFilter ?? []).sort().join(','), [userAgents]);
+    useEffect(() => {
+        if (!skillFilterKey) {
+            setAgentMissingSkills({});
+            return;
         }
-        setAgentMissingSkills(newMap)
-      } catch {
-        // 查询失败不影响主功能
-      }
-    }
-    void detect()
-  }, [skillFilterKey])
-
-  // 安装缺失技能：成功后从映射中移除该技能
-  const handleInstallSkill = useCallback(
-    async (agentId: string, skillId: string, skillName: string): Promise<boolean> => {
-      try {
-        const installed = await installStoreSkill(skillId)
-        if (!installed) return false
-        setAgentMissingSkills((prev) => {
-          const agentList = prev[agentId]
-          if (!agentList) return prev
-          const newList = agentList.filter((s) => s.id !== skillId && s.name !== skillName)
-          if (newList.length === 0) {
-            const { [agentId]: _, ...rest } = prev
-            return rest
-          }
-          return { ...prev, [agentId]: newList }
-        })
-        // 刷新本地技能列表
-        const localSkills = await listInstalledSkills()
-        setUserSkills(
-          localSkills
-            .filter((s) => s.enabled !== false)
-            .map((s) => ({ id: s.id, name: s.name || s.id, description: s.description })),
-        )
-        return true
-      } catch {
-        return false
-      }
-    },
-    [],
-  )
-
-  // 跳转到技能商店并自动填充搜索词
-  const handleNavigateToStore = useCallback(
-    (skillName: string) => {
-      window.dispatchEvent(
-        new CustomEvent('mtbot:open-skill-store', { detail: { query: skillName } }),
-      )
-      onViewChange?.('skills')
-    },
-    [onViewChange],
-  )
-
-  // 发起对话：dispatch 自定义事件通知始终挂载的 ChatPage，再跳转视图
-  const handleStartChat = useCallback(
-    (agentId: string) => {
-      window.dispatchEvent(new CustomEvent('mtbot:start-chat-agent', { detail: agentId }))
-      onViewChange?.('chat')
-    },
-    [onViewChange],
-  )
-
-  const filteredUserAgents = userAgents.filter(
-    (a) =>
-      !searchQuery ||
-      a.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      a.description?.toLowerCase().includes(searchQuery.toLowerCase()),
-  )
-  const filteredSystemAgents = systemAgents.filter(
-    (a) =>
-      !searchQuery ||
-      a.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      a.description?.toLowerCase().includes(searchQuery.toLowerCase()),
-  )
-
-  const handleCreate = useCallback(
-    async (sourceId: string | null) => {
-      if (!sourceId) return
-      setIsSubmitting(true)
-      try {
-        const result = await forkSystemAgent(
-          sourceId,
-          createForm.name || undefined,
-          createForm.description || undefined,
-          createForm.systemPrompt || undefined,
-        )
-        if (result) {
-          const blacklist = [
-            ...capabilitiesToSkillBlacklist(createForm.enabledCapabilities),
-            ...disabledMcpTools(createForm.mcpServers, mcpServers),
-          ]
-          const splitLines = (s: string): string[] =>
-            s.split('\n').map((l) => l.trim()).filter(Boolean)
-          const triggerExamplesList = splitLines(createForm.triggerExamples)
-          await updateAgent(result.id, {
-            systemPrompt: createForm.systemPrompt || null,
-            skillBlacklist: blacklist.length > 0 ? blacklist : null,
-            skillFilter: createForm.selectedSkills,
-            whenToUse: createForm.whenToUse || null,
-            triggerExamples: triggerExamplesList.length > 0 ? triggerExamplesList : null,
-            bundledSkills: createForm.bundledSkills.length > 0 ? createForm.bundledSkills : null,
-            category: createForm.category || null,
-          })
-          await syncUserAgentDefinitions()
-          showResult('success', `Agent「${result.name}」已创建`)
-          setShowCreateModal(false)
-          setCreateForm(emptyCreateForm())
-          await refreshAgents()
-          window.dispatchEvent(new CustomEvent('mtbot:agents-changed'))
+        const detect = async () => {
+            try {
+                const localSkills = await listInstalledSkills();
+                const installedNames = new Set(localSkills.filter((s) => s.enabled !== false).map((s) => (s.name || s.id).toLowerCase()));
+                // 收集所有 agent 需要但本地缺失的唯一技能名（去重后统一查商店）
+                const allMissingNames = new Set<string>();
+                for (const agent of userAgentsRef.current) {
+                    for (const skillName of (agent as any).skillFilter ?? []) {
+                        if (!installedNames.has(skillName.toLowerCase())) {
+                            allMissingNames.add(skillName);
+                        }
+                    }
+                }
+                if (allMissingNames.size === 0) {
+                    setAgentMissingSkills({});
+                    return;
+                }
+                // 批量查商店（去重，每个名字只查一次）
+                const skillLookup = new Map<string, {
+                    id: string;
+                    name: string;
+                    inStore: boolean;
+                }>();
+                for (const skillName of allMissingNames) {
+                    const items = await searchStoreSkills(skillName, 1);
+                    skillLookup.set(skillName.toLowerCase(), items.length > 0
+                        ? { id: items[0].id, name: items[0].name ?? skillName, inStore: true }
+                        : { id: skillName, name: skillName, inStore: false });
+                }
+                // 构建 per-agent 缺失映射
+                const newMap: Record<string, Array<{
+                    id: string;
+                    name: string;
+                    inStore: boolean;
+                }>> = {};
+                for (const agent of userAgentsRef.current) {
+                    const agentMissing: Array<{
+                        id: string;
+                        name: string;
+                        inStore: boolean;
+                    }> = [];
+                    for (const skillName of (agent as any).skillFilter ?? []) {
+                        if (!installedNames.has(skillName.toLowerCase())) {
+                            const info = skillLookup.get(skillName.toLowerCase());
+                            agentMissing.push(info ?? { id: skillName, name: skillName, inStore: false });
+                        }
+                    }
+                    if (agentMissing.length > 0) {
+                        newMap[agent.id] = agentMissing;
+                    }
+                }
+                setAgentMissingSkills(newMap);
+            }
+            catch {
+                // 查询失败不影响主功能
+            }
+        };
+        void detect();
+    }, [skillFilterKey]);
+    // 安装缺失技能：成功后从映射中移除该技能
+    const handleInstallSkill = useCallback(async (agentId: string, skillId: string, skillName: string): Promise<boolean> => {
+        try {
+            const installed = await installStoreSkill(skillId);
+            if (!installed)
+                return false;
+            setAgentMissingSkills((prev) => {
+                const agentList = prev[agentId];
+                if (!agentList)
+                    return prev;
+                const newList = agentList.filter((s) => s.id !== skillId && s.name !== skillName);
+                if (newList.length === 0) {
+                    const { [agentId]: _, ...rest } = prev;
+                    return rest;
+                }
+                return { ...prev, [agentId]: newList };
+            });
+            // 刷新本地技能列表
+            const localSkills = await listInstalledSkills();
+            setUserSkills(localSkills
+                .filter((s) => s.enabled !== false)
+                .map((s) => ({ id: s.id, name: s.name || s.id, description: s.description })));
+            return true;
         }
-      } catch {
-        showResult('error', '创建失败，请重试')
-      } finally {
-        setIsSubmitting(false)
-      }
-    },
-    [createForm, forkSystemAgent, mcpServers, refreshAgents, showResult, syncUserAgentDefinitions],
-  )
-
-  const handleCreateBlank = useCallback(async () => {
-    const first = systemAgents[0]
-    if (!first) {
-      showResult('error', '暂无可用的系统 Agent 模板')
-      return
-    }
-    setCreateSourceId(first.id)
-    setCreateForm(emptyCreateForm(mcpServers))
-    setShowCreateModal(true)
-  }, [systemAgents, mcpServers, showResult])
-
-  const handleForkSystem = useCallback((agentId: string, agentName: string, agentDescription?: string, agentSystemPrompt?: string) => {
-    setCreateSourceId(agentId)
-    setCreateForm({
-      ...emptyCreateForm(mcpServers),
-      name: `${agentName}（副本）`,
-      description: agentDescription || '',
-      systemPrompt: agentSystemPrompt || '',
-    })
-    setShowCreateModal(true)
-  }, [mcpServers])
-
-  const handleOpenEdit = useCallback((agent: any) => {
-    setEditingAgent({
-      id: agent.id,
-      data: {
-        name: agent.name,
-        description: agent.description || '',
-        systemPrompt: agent.systemPrompt || '',
-        enabledCapabilities: skillBlacklistToCapabilityIds(agent.skillBlacklist),
-        selectedSkills: agent.skillFilter || [],
-        whenToUse: agent.whenToUse || '',
-        triggerExamples: Array.isArray(agent.triggerExamples) ? agent.triggerExamples.join('\n') : '',
-        bundledSkills: Array.isArray(agent.bundledSkills) ? agent.bundledSkills : [],
-        mcpServers: selectedMcpServers(agent.skillBlacklist, mcpServers),
-        category: agent.category || '',
-      },
-    })
-  }, [mcpServers])
-
-  const handleSave = useCallback(async () => {
-    if (!editingAgent) return
-    setIsSubmitting(true)
-    try {
-      const blacklist = [
-        ...capabilitiesToSkillBlacklist(editingAgent.data.enabledCapabilities),
-        ...disabledMcpTools(editingAgent.data.mcpServers, mcpServers),
-      ]
-      const splitLines = (s: string): string[] =>
-        s.split('\n').map((l) => l.trim()).filter(Boolean)
-      const triggerExamplesList = splitLines(editingAgent.data.triggerExamples)
-      await updateAgent(editingAgent.id, {
-        name: editingAgent.data.name,
-        description: editingAgent.data.description || null,
-        systemPrompt: editingAgent.data.systemPrompt || null,
-        skillBlacklist: blacklist.length > 0 ? blacklist : null,
-        skillFilter: editingAgent.data.selectedSkills,
-        whenToUse: editingAgent.data.whenToUse || null,
-        triggerExamples: triggerExamplesList.length > 0 ? triggerExamplesList : null,
-        bundledSkills: editingAgent.data.bundledSkills.length > 0 ? editingAgent.data.bundledSkills : null,
-        category: editingAgent.data.category || null,
-      })
-      await syncUserAgentDefinitions()
-      showResult('success', '保存成功')
-      setEditingAgent(null)
-      await refreshAgents()
-      window.dispatchEvent(new CustomEvent('mtbot:agents-changed'))
-    } catch {
-      showResult('error', '保存失败，请重试')
-    } finally {
-      setIsSubmitting(false)
-    }
-  }, [editingAgent, mcpServers, refreshAgents, showResult, syncUserAgentDefinitions])
-
-  const handleDelete = useCallback(async () => {
-    if (!confirmDeleteId) return
-    setIsSubmitting(true)
-    try {
-      await deleteAgent(confirmDeleteId)
-      showResult('success', 'Agent 已删除')
-      setConfirmDeleteId(null)
-      await refreshAgents()
-      window.dispatchEvent(new CustomEvent('mtbot:agents-changed'))
-    } catch {
-      showResult('error', '删除失败，请重试')
-    } finally {
-      setIsSubmitting(false)
-    }
-  }, [confirmDeleteId, refreshAgents, showResult])
-
-  const handleCreateCapabilityChange = useCallback((id: string, enabled: boolean) => {
-    setCreateForm((prev) => {
-      const next = new Set(prev.enabledCapabilities)
-      if (enabled) next.add(id)
-      else next.delete(id)
-      return { ...prev, enabledCapabilities: next }
-    })
-  }, [])
-
-  // 同步最新的 userAgents 到 ref（供技能差异检测读取）
-  useEffect(() => {
-    userAgentsRef.current = userAgents
-  }, [userAgents])
-
-  const handleEditCapabilityChange = useCallback((id: string, enabled: boolean) => {
-    setEditingAgent((prev) => {
-      if (!prev) return prev
-      const next = new Set(prev.data.enabledCapabilities)
-      if (enabled) next.add(id)
-      else next.delete(id)
-      return { ...prev, data: { ...prev.data, enabledCapabilities: next } }
-    })
-  }, [])
-
-  // suppress unused warning — agents is used by parent components via useAgents hook
-  void agents
-
-  // 将 Agent 数据转换为 ViewProps 兼容类型
-  const viewUserAgents = userAgents as unknown as ViewAgent[]
-  const viewSystemAgents = systemAgents as unknown as ViewAgent[]
-
-  const handleViewEdit = useCallback(
-    (agent: ViewAgent) => handleOpenEdit(agent as any),
-    [handleOpenEdit],
-  )
-  const handleViewDelete = useCallback(
-    (agentId: string) => setConfirmDeleteId(agentId),
-    [],
-  )
-  const handleViewFork = useCallback(
-    (agent: ViewAgent) =>
-      handleForkSystem(agent.id, agent.name, agent.description, agent.systemPrompt),
-    [handleForkSystem],
-  )
-
-  // 详情面板：三视图共用同一实例，避免各视图各挂一份
-  const handleOpenDetail = useCallback((agent: ViewAgent) => {
-    setDetailAgent(agent)
-  }, [])
-
-  return (
-    <div className={clsx(styles['agents-page'], embedded && styles['agents-page--embedded'])}>
+        catch {
+            return false;
+        }
+    }, []);
+    // 跳转到技能商店并自动填充搜索词
+    const handleNavigateToStore = useCallback((skillName: string) => {
+        window.dispatchEvent(new CustomEvent('mtbot:open-skill-store', { detail: { query: skillName } }));
+        onViewChange?.('skills');
+    }, [onViewChange]);
+    // 发起对话：dispatch 自定义事件通知始终挂载的 ChatPage，再跳转视图
+    const handleStartChat = useCallback((agentId: string) => {
+        window.dispatchEvent(new CustomEvent('mtbot:start-chat-agent', { detail: agentId }));
+        onViewChange?.('chat');
+    }, [onViewChange]);
+    const filteredUserAgents = userAgents.filter((a) => !searchQuery ||
+        a.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        a.description?.toLowerCase().includes(searchQuery.toLowerCase()));
+    const filteredSystemAgents = systemAgents.filter((a) => !searchQuery ||
+        a.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        a.description?.toLowerCase().includes(searchQuery.toLowerCase()));
+    const handleCreate = useCallback(async (sourceId: string | null) => {
+        if (!sourceId)
+            return;
+        setIsSubmitting(true);
+        try {
+            const result = await forkSystemAgent(sourceId, createForm.name || undefined, createForm.description || undefined, createForm.systemPrompt || undefined);
+            if (result) {
+                const blacklist = [
+                    ...capabilitiesToSkillBlacklist(createForm.enabledCapabilities),
+                    ...disabledMcpTools(createForm.mcpServers, mcpServers),
+                ];
+                const splitLines = (s: string): string[] => s.split('\n').map((l) => l.trim()).filter(Boolean);
+                const triggerExamplesList = splitLines(createForm.triggerExamples);
+                await updateAgent(result.id, {
+                    systemPrompt: createForm.systemPrompt || null,
+                    skillBlacklist: blacklist.length > 0 ? blacklist : null,
+                    skillFilter: createForm.selectedSkills,
+                    whenToUse: createForm.whenToUse || null,
+                    triggerExamples: triggerExamplesList.length > 0 ? triggerExamplesList : null,
+                    bundledSkills: createForm.bundledSkills.length > 0 ? createForm.bundledSkills : null,
+                    category: createForm.category || null,
+                });
+                await syncUserAgentDefinitions();
+                showResult('success', `Agent「${result.name}」已创建`);
+                setShowCreateModal(false);
+                setCreateForm(emptyCreateForm());
+                await refreshAgents();
+                window.dispatchEvent(new CustomEvent('mtbot:agents-changed'));
+            }
+        }
+        catch {
+            showResult('error', '创建失败，请重试');
+        }
+        finally {
+            setIsSubmitting(false);
+        }
+    }, [createForm, forkSystemAgent, mcpServers, refreshAgents, showResult, syncUserAgentDefinitions]);
+    const handleCreateBlank = useCallback(async () => {
+        const first = systemAgents[0];
+        if (!first) {
+            showResult('error', '暂无可用的系统 Agent 模板');
+            return;
+        }
+        setCreateSourceId(first.id);
+        setCreateForm(emptyCreateForm(mcpServers));
+        setShowCreateModal(true);
+    }, [systemAgents, mcpServers, showResult]);
+    const handleForkSystem = useCallback((agentId: string, agentName: string, agentDescription?: string, agentSystemPrompt?: string) => {
+        setCreateSourceId(agentId);
+        setCreateForm({
+            ...emptyCreateForm(mcpServers),
+            name: `${agentName}（副本）`,
+            description: agentDescription || '',
+            systemPrompt: agentSystemPrompt || '',
+        });
+        setShowCreateModal(true);
+    }, [mcpServers]);
+    const handleOpenEdit = useCallback((agent: any) => {
+        setEditingAgent({
+            id: agent.id,
+            data: {
+                name: agent.name,
+                description: agent.description || '',
+                systemPrompt: agent.systemPrompt || '',
+                enabledCapabilities: skillBlacklistToCapabilityIds(agent.skillBlacklist),
+                selectedSkills: agent.skillFilter || [],
+                whenToUse: agent.whenToUse || '',
+                triggerExamples: Array.isArray(agent.triggerExamples) ? agent.triggerExamples.join('\n') : '',
+                bundledSkills: Array.isArray(agent.bundledSkills) ? agent.bundledSkills : [],
+                mcpServers: selectedMcpServers(agent.skillBlacklist, mcpServers),
+                category: agent.category || '',
+            },
+        });
+    }, [mcpServers]);
+    const handleSave = useCallback(async () => {
+        if (!editingAgent)
+            return;
+        setIsSubmitting(true);
+        try {
+            const blacklist = [
+                ...capabilitiesToSkillBlacklist(editingAgent.data.enabledCapabilities),
+                ...disabledMcpTools(editingAgent.data.mcpServers, mcpServers),
+            ];
+            const splitLines = (s: string): string[] => s.split('\n').map((l) => l.trim()).filter(Boolean);
+            const triggerExamplesList = splitLines(editingAgent.data.triggerExamples);
+            await updateAgent(editingAgent.id, {
+                name: editingAgent.data.name,
+                description: editingAgent.data.description || null,
+                systemPrompt: editingAgent.data.systemPrompt || null,
+                skillBlacklist: blacklist.length > 0 ? blacklist : null,
+                skillFilter: editingAgent.data.selectedSkills,
+                whenToUse: editingAgent.data.whenToUse || null,
+                triggerExamples: triggerExamplesList.length > 0 ? triggerExamplesList : null,
+                bundledSkills: editingAgent.data.bundledSkills.length > 0 ? editingAgent.data.bundledSkills : null,
+                category: editingAgent.data.category || null,
+            });
+            await syncUserAgentDefinitions();
+            showResult('success', '保存成功');
+            setEditingAgent(null);
+            await refreshAgents();
+            window.dispatchEvent(new CustomEvent('mtbot:agents-changed'));
+        }
+        catch {
+            showResult('error', '保存失败，请重试');
+        }
+        finally {
+            setIsSubmitting(false);
+        }
+    }, [editingAgent, mcpServers, refreshAgents, showResult, syncUserAgentDefinitions]);
+    const handleDelete = useCallback(async () => {
+        if (!confirmDeleteId)
+            return;
+        setIsSubmitting(true);
+        try {
+            await deleteAgent(confirmDeleteId);
+            showResult('success', 'Agent 已删除');
+            setConfirmDeleteId(null);
+            await refreshAgents();
+            window.dispatchEvent(new CustomEvent('mtbot:agents-changed'));
+        }
+        catch {
+            showResult('error', '删除失败，请重试');
+        }
+        finally {
+            setIsSubmitting(false);
+        }
+    }, [confirmDeleteId, refreshAgents, showResult]);
+    const handleCreateCapabilityChange = useCallback((id: string, enabled: boolean) => {
+        setCreateForm((prev) => {
+            const next = new Set(prev.enabledCapabilities);
+            if (enabled)
+                next.add(id);
+            else
+                next.delete(id);
+            return { ...prev, enabledCapabilities: next };
+        });
+    }, []);
+    // 同步最新的 userAgents 到 ref（供技能差异检测读取）
+    useEffect(() => {
+        userAgentsRef.current = userAgents;
+    }, [userAgents]);
+    const handleEditCapabilityChange = useCallback((id: string, enabled: boolean) => {
+        setEditingAgent((prev) => {
+            if (!prev)
+                return prev;
+            const next = new Set(prev.data.enabledCapabilities);
+            if (enabled)
+                next.add(id);
+            else
+                next.delete(id);
+            return { ...prev, data: { ...prev.data, enabledCapabilities: next } };
+        });
+    }, []);
+    // suppress unused warning — agents is used by parent components via useAgents hook
+    void agents;
+    // 将 Agent 数据转换为 ViewProps 兼容类型
+    const viewUserAgents = userAgents as unknown as ViewAgent[];
+    const viewSystemAgents = systemAgents as unknown as ViewAgent[];
+    const handleViewEdit = useCallback((agent: ViewAgent) => handleOpenEdit(agent as any), [handleOpenEdit]);
+    const handleViewDelete = useCallback((agentId: string) => setConfirmDeleteId(agentId), []);
+    const handleViewFork = useCallback((agent: ViewAgent) => handleForkSystem(agent.id, agent.name, agent.description, agent.systemPrompt), [handleForkSystem]);
+    // 详情面板：三视图共用同一实例，避免各视图各挂一份
+    const handleOpenDetail = useCallback((agent: ViewAgent) => {
+        setDetailAgent(agent);
+    }, []);
+    return (<div className={clsx(styles['agents-page'], embedded && styles['agents-page--embedded'])}>
       {/* Header */}
       <div className={styles['agents-header']}>
         <div className={styles['agents-title-section']}>
-          {!embedded && (
-            <>
+          {!embedded && (<>
               <h1 className={styles['agents-title']}>AI 团队</h1>
               <p className={styles['agents-subtitle']}>
                 可视化管理你的 AI 助手团队，协调者将自动调用它们完成复杂任务
               </p>
-            </>
-          )}
+            </>)}
         </div>
         <div className={styles['agents-action-buttons']}>
-          <button
-            className={styles['agents-generate-btn']}
-            onClick={() => setShowGenerateWizard(true)}
-          >
-            <Sparkles size={14} /> AI 生成团队
+          <button className={styles['agents-generate-btn']} onClick={() => setShowGenerateWizard(true)}>
+            <Sparkles size={14}/> AI 生成团队
           </button>
-          {userAgents.length > 0 && (
-            <button
-              className={styles['agents-optimize-btn']}
-              onClick={() => setShowOptimizeWizard(true)}
-            >
-              <Zap size={14} /> 优化团队
-            </button>
-          )}
+          {userAgents.length > 0 && (<button className={styles['agents-optimize-btn']} onClick={() => setShowOptimizeWizard(true)}>
+              <Zap size={14}/> 优化团队
+            </button>)}
           <button className={styles['agents-create-btn']} onClick={handleCreateBlank}>
             + 新建 Agent
           </button>
         </div>
       </div>
 
-      {resultMessage && (
-        <div className={clsx(styles['result-banner'], styles[`result-banner--${resultMessage.type}`])}>
-          {resultMessage.type === 'success' ? <Check size={14} /> : <X size={14} />} {resultMessage.text}
-        </div>
-      )}
+      {resultMessage && (<div className={clsx(styles['result-banner'], styles[`result-banner--${resultMessage.type}`])}>
+          {resultMessage.type === 'success' ? <Check size={14}/> : <X size={14}/>} {resultMessage.text}
+        </div>)}
 
 
       {/* Toolbar: 视图切换 + 搜索 */}
       <div className={styles['agents-toolbar']}>
         <div className={styles['view-switcher']}>
-          <button
-            className={clsx(styles['view-btn'], currentView === 'map' && styles['view-btn--active'])}
-            onClick={() => setCurrentView('map')}
-            title="组织架构图"
-          >
-            <Network size={14} /> Map
+          <button className={clsx(styles['view-btn'], currentView === 'map' && styles['view-btn--active'])} onClick={() => setCurrentView('map')} title="组织架构图">
+            <Network size={14}/> Map
           </button>
-          <button
-            className={clsx(styles['view-btn'], currentView === 'grid' && styles['view-btn--active'])}
-            onClick={() => setCurrentView('grid')}
-            title="卡片网格"
-          >
-            <LayoutGrid size={14} /> Grid
+          <button className={clsx(styles['view-btn'], currentView === 'grid' && styles['view-btn--active'])} onClick={() => setCurrentView('grid')} title="卡片网格">
+            <LayoutGrid size={14}/> Grid
           </button>
-          <button
-            className={clsx(styles['view-btn'], currentView === 'feed' && styles['view-btn--active'])}
-            onClick={() => setCurrentView('feed')}
-            title="紧凑列表"
-          >
-            <List size={14} /> Feed
+          <button className={clsx(styles['view-btn'], currentView === 'feed' && styles['view-btn--active'])} onClick={() => setCurrentView('feed')} title="紧凑列表">
+            <List size={14}/> Feed
           </button>
         </div>
         <div className={styles['agents-search']}>
-          <input
-            type="text"
-            placeholder="搜索 Agent..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className={styles['agents-search-input']}
-          />
-          <div
-            className={styles['agents-sync-status']}
-            title={
-              definitionSync.lastError
-                ? definitionSync.lastError
-                : definitionSync.lastSyncAt
-                  ? `上次同步：${definitionSync.lastSyncAt.toLocaleString()}`
-                  : '尚未完成本地定义同步'
+          <input type="text" placeholder="搜索 Agent..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className={styles['agents-search-input']}/>
+          <div className={styles['agents-sync-status']} title={definitionSync.lastError
+            ? definitionSync.lastError
+            : definitionSync.lastSyncAt
+                ? `上次同步：${definitionSync.lastSyncAt.toLocaleString()}`
+                : '尚未完成本地定义同步'}>
+            <span className={clsx(styles['agents-sync-dot'], definitionSync.kind === 'synced' && styles['agents-sync-dot--synced'], definitionSync.kind === 'stale' && styles['agents-sync-dot--stale'], definitionSync.kind === 'syncing' && styles['agents-sync-dot--syncing'], definitionSync.kind === 'error' && styles['agents-sync-dot--error'], definitionSync.kind === 'idle' && styles['agents-sync-dot--idle'])} onClick={definitionSync.kind === 'error'
+            ? () => {
+                void syncUserAgentDefinitions();
             }
-          >
-            <span
-              className={clsx(
-                styles['agents-sync-dot'],
-                definitionSync.kind === 'synced' && styles['agents-sync-dot--synced'],
-                definitionSync.kind === 'stale' && styles['agents-sync-dot--stale'],
-                definitionSync.kind === 'syncing' && styles['agents-sync-dot--syncing'],
-                definitionSync.kind === 'error' && styles['agents-sync-dot--error'],
-                definitionSync.kind === 'idle' && styles['agents-sync-dot--idle'],
-              )}
-              onClick={
-                definitionSync.kind === 'error'
-                  ? () => {
-                      void syncUserAgentDefinitions()
-                    }
-                  : undefined
-              }
-              role={definitionSync.kind === 'error' ? 'button' : undefined}
-            />
+            : undefined} role={definitionSync.kind === 'error' ? 'button' : undefined}/>
             <span className={styles['agents-sync-label']}>
               {definitionSync.kind === 'syncing' && '同步中…'}
               {definitionSync.kind === 'error' && '同步失败（点击重试）'}
@@ -573,220 +471,82 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ onViewChange, embedded = false 
       {/* Content */}
       <div className={styles['agents-content-wrap']}>
         <div className={clsx(styles['agents-content'], currentView === 'map' && styles['agents-content--map'])}>
-        {isLoading ? (
-          <div className={styles['agents-loading']}>加载中...</div>
-        ) : error ? (
-          <div className={styles['agents-error']}>{error}</div>
-        ) : currentView === 'map' ? (
-          <MapView
-            userAgents={viewUserAgents}
-            systemAgents={viewSystemAgents}
-            searchQuery={searchQuery}
-            onEdit={handleViewEdit}
-            onDelete={handleViewDelete}
-            onFork={handleViewFork}
-            onStartChat={handleStartChat}
-            onOpenDetail={handleOpenDetail}
-            missingSkillsMap={agentMissingSkills}
-            onInstallSkill={handleInstallSkill}
-            onNavigateToStore={handleNavigateToStore}
-          />
-        ) : currentView === 'grid' ? (
-          <GridView
-            userAgents={viewUserAgents}
-            systemAgents={viewSystemAgents}
-            searchQuery={searchQuery}
-            onEdit={handleViewEdit}
-            onDelete={handleViewDelete}
-            onFork={handleViewFork}
-            onStartChat={handleStartChat}
-            onOpenDetail={handleOpenDetail}
-            missingSkillsMap={agentMissingSkills}
-            onInstallSkill={handleInstallSkill}
-            onNavigateToStore={handleNavigateToStore}
-          />
-        ) : (
-          <FeedView
-            userAgents={viewUserAgents}
-            systemAgents={viewSystemAgents}
-            searchQuery={searchQuery}
-            onEdit={handleViewEdit}
-            onDelete={handleViewDelete}
-            onFork={handleViewFork}
-            onStartChat={handleStartChat}
-            onOpenDetail={handleOpenDetail}
-            missingSkillsMap={agentMissingSkills}
-            onInstallSkill={handleInstallSkill}
-            onNavigateToStore={handleNavigateToStore}
-          />
-        )}
+        {isLoading ? (<div className={styles['agents-loading']}>加载中...</div>) : error ? (<div className={styles['agents-error']}>{error}</div>) : currentView === 'map' ? (<MapView userAgents={viewUserAgents} systemAgents={viewSystemAgents} searchQuery={searchQuery} onEdit={handleViewEdit} onDelete={handleViewDelete} onFork={handleViewFork} onStartChat={handleStartChat} onOpenDetail={handleOpenDetail} missingSkillsMap={agentMissingSkills} onInstallSkill={handleInstallSkill} onNavigateToStore={handleNavigateToStore}/>) : currentView === 'grid' ? (<GridView userAgents={viewUserAgents} systemAgents={viewSystemAgents} searchQuery={searchQuery} onEdit={handleViewEdit} onDelete={handleViewDelete} onFork={handleViewFork} onStartChat={handleStartChat} onOpenDetail={handleOpenDetail} missingSkillsMap={agentMissingSkills} onInstallSkill={handleInstallSkill} onNavigateToStore={handleNavigateToStore}/>) : (<FeedView userAgents={viewUserAgents} systemAgents={viewSystemAgents} searchQuery={searchQuery} onEdit={handleViewEdit} onDelete={handleViewDelete} onFork={handleViewFork} onStartChat={handleStartChat} onOpenDetail={handleOpenDetail} missingSkillsMap={agentMissingSkills} onInstallSkill={handleInstallSkill} onNavigateToStore={handleNavigateToStore}/>)}
         </div>
 
-        {detailAgent && (
-          <DetailPanel
-            agent={detailAgent}
-            isSystem={!detailAgent.userId}
-            onClose={() => setDetailAgent(null)}
-            onStartChat={handleStartChat}
-            onEdit={handleViewEdit}
-            onDelete={handleViewDelete}
-            onFork={handleViewFork}
-          />
-        )}
+        {detailAgent && (<DetailPanel agent={detailAgent} isSystem={!detailAgent.userId} onClose={() => setDetailAgent(null)} onStartChat={handleStartChat} onEdit={handleViewEdit} onDelete={handleViewDelete} onFork={handleViewFork}/>)}
       </div>
 
       {/* 编辑 Modal */}
-      {editingAgent && (
-        <div className={styles['modal-overlay']} onClick={() => setEditingAgent(null)}>
+      {editingAgent && (<div className={styles['modal-overlay']} onClick={() => setEditingAgent(null)}>
           <div className={styles['modal']} onClick={(e) => e.stopPropagation()}>
             <div className={styles['modal-header']}>
               <h2 className={styles['modal-title']}>编辑 Agent</h2>
               <button className={styles['modal-close']} onClick={() => setEditingAgent(null)}>✕</button>
             </div>
             <div className={styles['modal-body']}>
-              <AgentBasicFields
-                value={editingAgent.data}
-                onChange={(patch) => setEditingAgent((prev) => prev ? { ...prev, data: { ...prev.data, ...patch } } : null)}
-                mode="edit"
-              />
-              <AgentRoutingFields
-                value={editingAgent.data}
-                onChange={(patch) => setEditingAgent((prev) => prev ? { ...prev, data: { ...prev.data, ...patch } } : null)}
-                mode="edit"
-                userSkills={userSkills}
-                mcpServers={mcpServers}
-              />
-              <AgentCategoryField
-                value={editingAgent.data}
-                onChange={(patch) => setEditingAgent((prev) => prev ? { ...prev, data: { ...prev.data, ...patch } } : null)}
-              />
-              <AgentSkillsField
-                value={editingAgent.data}
-                onChange={(patch) => setEditingAgent((prev) => prev ? { ...prev, data: { ...prev.data, ...patch } } : null)}
-                userSkills={userSkills}
-                mode="edit"
-                onNavigateToStoreAndClose={(skillName) => {
-                  setEditingAgent(null)
-                  window.dispatchEvent(
-                    new CustomEvent('mtbot:open-skill-store', {
-                      detail: { query: skillName },
-                    }),
-                  )
-                  onViewChange?.('skills')
-                }}
-              />
-              <AgentCapabilitiesField
-                enabledCapabilities={editingAgent.data.enabledCapabilities}
-                onToggle={handleEditCapabilityChange}
-                mode="edit"
-              />
+              <AgentBasicFields value={editingAgent.data} onChange={(patch) => setEditingAgent((prev) => prev ? { ...prev, data: { ...prev.data, ...patch } } : null)} mode="edit"/>
+              <AgentRoutingFields value={editingAgent.data} onChange={(patch) => setEditingAgent((prev) => prev ? { ...prev, data: { ...prev.data, ...patch } } : null)} mode="edit" userSkills={userSkills} mcpServers={mcpServers}/>
+              <AgentCategoryField value={editingAgent.data} onChange={(patch) => setEditingAgent((prev) => prev ? { ...prev, data: { ...prev.data, ...patch } } : null)}/>
+              <AgentSkillsField value={editingAgent.data} onChange={(patch) => setEditingAgent((prev) => prev ? { ...prev, data: { ...prev.data, ...patch } } : null)} userSkills={userSkills} mode="edit" onNavigateToStoreAndClose={(skillName) => {
+                setEditingAgent(null);
+                window.dispatchEvent(new CustomEvent('mtbot:open-skill-store', {
+                    detail: { query: skillName },
+                }));
+                onViewChange?.('skills');
+            }}/>
+              <AgentCapabilitiesField enabledCapabilities={editingAgent.data.enabledCapabilities} onToggle={handleEditCapabilityChange} mode="edit"/>
             </div>
             <div className={styles['modal-footer']}>
-              <button
-                className={clsx(styles['modal-btn'], styles['modal-btn--primary'])}
-                onClick={handleSave}
-                disabled={isSubmitting || !editingAgent.data.name.trim()}
-              >
+              <button className={clsx(styles['modal-btn'], styles['modal-btn--primary'])} onClick={handleSave} disabled={isSubmitting || !editingAgent.data.name.trim()}>
                 {isSubmitting ? '保存中...' : '保存'}
               </button>
-              <button
-                className={clsx(styles['modal-btn'], styles['modal-btn--ghost'])}
-                onClick={() => setEditingAgent(null)}
-                disabled={isSubmitting}
-              >
+              <button className={clsx(styles['modal-btn'], styles['modal-btn--ghost'])} onClick={() => setEditingAgent(null)} disabled={isSubmitting}>
                 取消
               </button>
             </div>
           </div>
-        </div>
-      )}
+        </div>)}
 
       {/* 新建 Modal */}
-      {showCreateModal && (
-        <div className={styles['modal-overlay']} onClick={() => setShowCreateModal(false)}>
+      {showCreateModal && (<div className={styles['modal-overlay']} onClick={() => setShowCreateModal(false)}>
           <div className={styles['modal']} onClick={(e) => e.stopPropagation()}>
             <div className={styles['modal-header']}>
               <h2 className={styles['modal-title']}>新建 Agent</h2>
               <button className={styles['modal-close']} onClick={() => setShowCreateModal(false)}>✕</button>
             </div>
             <div className={styles['modal-body']}>
-              <AgentBasicFields
-                value={createForm}
-                onChange={(patch) => setCreateForm((prev) => ({ ...prev, ...patch }))}
-                mode="create"
-              />
-              <AgentRoutingFields
-                value={createForm}
-                onChange={(patch) => setCreateForm((prev) => ({ ...prev, ...patch }))}
-                mode="create"
-                userSkills={userSkills}
-                mcpServers={mcpServers}
-              />
-              <AgentCategoryField
-                value={createForm}
-                onChange={(patch) => setCreateForm((prev) => ({ ...prev, ...patch }))}
-              />
-              <AgentSkillsField
-                value={createForm}
-                onChange={(patch) => setCreateForm((prev) => ({ ...prev, ...patch }))}
-                userSkills={userSkills}
-                mode="create"
-              />
-              <AgentCapabilitiesField
-                enabledCapabilities={createForm.enabledCapabilities}
-                onToggle={handleCreateCapabilityChange}
-                mode="create"
-              />
+              <AgentBasicFields value={createForm} onChange={(patch) => setCreateForm((prev) => ({ ...prev, ...patch }))} mode="create"/>
+              <AgentRoutingFields value={createForm} onChange={(patch) => setCreateForm((prev) => ({ ...prev, ...patch }))} mode="create" userSkills={userSkills} mcpServers={mcpServers}/>
+              <AgentCategoryField value={createForm} onChange={(patch) => setCreateForm((prev) => ({ ...prev, ...patch }))}/>
+              <AgentSkillsField value={createForm} onChange={(patch) => setCreateForm((prev) => ({ ...prev, ...patch }))} userSkills={userSkills} mode="create"/>
+              <AgentCapabilitiesField enabledCapabilities={createForm.enabledCapabilities} onToggle={handleCreateCapabilityChange} mode="create"/>
             </div>
             <div className={styles['modal-footer']}>
-              <button
-                className={clsx(styles['modal-btn'], styles['modal-btn--primary'])}
-                onClick={() => handleCreate(createSourceId)}
-                disabled={isSubmitting || !createForm.name.trim() || !createForm.description.trim() || !createForm.systemPrompt.trim()}
-              >
+              <button className={clsx(styles['modal-btn'], styles['modal-btn--primary'])} onClick={() => handleCreate(createSourceId)} disabled={isSubmitting || !createForm.name.trim() || !createForm.description.trim() || !createForm.systemPrompt.trim()}>
                 {isSubmitting ? '创建中...' : '创建 Agent'}
               </button>
-              <button
-                className={clsx(styles['modal-btn'], styles['modal-btn--ghost'])}
-                onClick={() => setShowCreateModal(false)}
-                disabled={isSubmitting}
-              >
+              <button className={clsx(styles['modal-btn'], styles['modal-btn--ghost'])} onClick={() => setShowCreateModal(false)} disabled={isSubmitting}>
                 取消
               </button>
             </div>
           </div>
-        </div>
-      )}
+        </div>)}
 
       {/* AI 生成团队向导 */}
-      {showGenerateWizard && (
-        <GenerateTeamWizard
-          systemAgents={systemAgents}
-          capabilityOptions={CAPABILITY_OPTIONS}
-          userSkills={userSkills}
-          onClose={() => setShowGenerateWizard(false)}
-          onComplete={() => { void refreshAgents(); window.dispatchEvent(new CustomEvent('mtbot:agents-changed')) }}
-        />
-      )}
+      {showGenerateWizard && (<GenerateTeamWizard systemAgents={systemAgents} capabilityOptions={CAPABILITY_OPTIONS} userSkills={userSkills} onClose={() => setShowGenerateWizard(false)} onComplete={() => { void refreshAgents(); window.dispatchEvent(new CustomEvent('mtbot:agents-changed')); }}/>)}
 
       {/* 优化团队向导 */}
-      {showOptimizeWizard && (
-        <OptimizeTeamWizard
-          userAgents={userAgents.map((a) => ({
-            id: a.id,
-            name: a.name,
-            emoji: (a as any).emoji,
-            description: a.description,
-            systemPrompt: (a as any).systemPrompt,
-          }))}
-          onClose={() => setShowOptimizeWizard(false)}
-          onComplete={() => { setShowOptimizeWizard(false); void refreshAgents() }}
-        />
-      )}
+      {showOptimizeWizard && (<OptimizeTeamWizard userAgents={userAgents.map((a) => ({
+                id: a.id,
+                name: a.name,
+                emoji: (a as any).emoji,
+                description: a.description,
+                systemPrompt: (a as any).systemPrompt,
+            }))} onClose={() => setShowOptimizeWizard(false)} onComplete={() => { setShowOptimizeWizard(false); void refreshAgents(); }}/>)}
 
       {/* 删除确认 */}
-      {confirmDeleteId && (
-        <div className={styles['modal-overlay']} onClick={() => setConfirmDeleteId(null)}>
+      {confirmDeleteId && (<div className={styles['modal-overlay']} onClick={() => setConfirmDeleteId(null)}>
           <div className={clsx(styles['modal'], styles['modal--sm'])} onClick={(e) => e.stopPropagation()}>
             <div className={styles['modal-header']}>
               <h2 className={styles['modal-title']}>删除 Agent</h2>
@@ -797,26 +557,15 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ onViewChange, embedded = false 
               </p>
             </div>
             <div className={styles['modal-footer']}>
-              <button
-                className={clsx(styles['modal-btn'], styles['modal-btn--danger'])}
-                onClick={handleDelete}
-                disabled={isSubmitting}
-              >
+              <button className={clsx(styles['modal-btn'], styles['modal-btn--danger'])} onClick={handleDelete} disabled={isSubmitting}>
                 {isSubmitting ? '删除中...' : '确认删除'}
               </button>
-              <button
-                className={clsx(styles['modal-btn'], styles['modal-btn--ghost'])}
-                onClick={() => setConfirmDeleteId(null)}
-                disabled={isSubmitting}
-              >
+              <button className={clsx(styles['modal-btn'], styles['modal-btn--ghost'])} onClick={() => setConfirmDeleteId(null)} disabled={isSubmitting}>
                 取消
               </button>
             </div>
           </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
-export { AgentsPage }
+        </div>)}
+    </div>);
+};
+export { AgentsPage };

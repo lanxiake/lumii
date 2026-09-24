@@ -4,40 +4,29 @@
  * 这里只做「读一次、算个气质标签」：首次读到即出生抽签（`PersonalityTracker` 惰性初始化），
  * 抽签结果落 `personality_state`，出生快照落 `runtime_state['personality:birth:{agentId}']`。
  */
-
-import {
-  PersonalityTracker,
-  EMA_ALPHA,
-  applyPersonalityEvent,
-  readBirthSnapshot,
-  type BirthSnapshot,
-} from '@mtbot/agent-runtime'
-import { petAgentId, traitLabel, type TraitValues } from '@mtbot/pet-core'
-import type { PetPersonalityDTO, PetTraitValues } from '../../shared/pet-mode'
-import { getAgentRuntimeBridge } from '../ipc/agent-runtime-ipc'
-import { toAsyncClient } from './autonomous-wiring'
-import { agentRuntimeLog as log } from './bridge-utils'
-
+import { PersonalityTracker, EMA_ALPHA, applyPersonalityEvent, readBirthSnapshot, type BirthSnapshot, } from '@mtbot/agent-runtime';
+import { petAgentId, traitLabel, type TraitValues } from '@mtbot/pet-core';
+import type { PetPersonalityDTO, PetTraitValues } from '../../shared/pet-mode';
+import { getAgentRuntimeBridge } from '../ipc/agent-runtime-ipc';
+import { toAsyncClient } from './autonomous-wiring';
+import { agentRuntimeLog as log } from './bridge-utils';
 /**
  * 读某只宠物的人格标签（首次读 = 出生）。
  *
  * bridge 未就绪返回 null，渲染层按「暂时读不到」处理——不要在设置页凭空编一个脾气出来。
  */
 export async function getPetPersonalityLabel(configId: string): Promise<PetPersonalityDTO | null> {
-  if (!configId) return null
-  const bridge = getAgentRuntimeBridge()
-  if (!bridge) return null
-
-  const agentId = petAgentId(configId)
-  const tracker = new PersonalityTracker(
-    { emaAlpha: EMA_ALPHA, eventWeights: {}, trackingEnabled: true },
-    toAsyncClient(bridge.db),
-  )
-  const state = await tracker.getCurrentState(agentId)
-  const traits: TraitValues = toTraitValues(state)
-  return { agentId, label: traitLabel(traits), traits }
+    if (!configId)
+        return null;
+    const bridge = getAgentRuntimeBridge();
+    if (!bridge)
+        return null;
+    const agentId = petAgentId(configId);
+    const tracker = new PersonalityTracker({ emaAlpha: EMA_ALPHA, eventWeights: {}, trackingEnabled: true }, toAsyncClient(bridge.db));
+    const state = await tracker.getCurrentState(agentId);
+    const traits: TraitValues = toTraitValues(state);
+    return { agentId, label: traitLabel(traits), traits };
 }
-
 /**
  * 把一次**真实发生的事**记进宠物的人格（第七期 T7.3）。
  *
@@ -69,41 +58,32 @@ export async function getPetPersonalityLabel(configId: string): Promise<PetPerso
  *
  * 不抛错：演进是旁路，失败只记日志——一次已经跑完的任务不该因为记账而变失败。
  */
-export async function recordPetPersonalityEvent(
-  eventType: 'error-handled' | 'user-feedback-positive' | 'user-feedback-negative',
-  agentId: string,
-  context: Record<string, unknown>,
-): Promise<void> {
-  const bridge = getAgentRuntimeBridge()
-  if (!bridge) return
-  try {
-    const tracker = new PersonalityTracker(
-      { emaAlpha: EMA_ALPHA, eventWeights: {}, trackingEnabled: true },
-      toAsyncClient(bridge.db),
-    )
-    await applyPersonalityEvent(eventType, agentId, context, toAsyncClient(bridge.db), tracker)
-    log.info(`[recordPetPersonalityEvent] agent=${agentId} event=${eventType}`)
-  } catch (err) {
-    log.warn(
-      `[recordPetPersonalityEvent] 失败 agent=${agentId} event=${eventType}:`,
-      err instanceof Error ? err.message : err,
-    )
-  }
+export async function recordPetPersonalityEvent(eventType: 'error-handled' | 'user-feedback-positive' | 'user-feedback-negative', agentId: string, context: Record<string, unknown>): Promise<void> {
+    const bridge = getAgentRuntimeBridge();
+    if (!bridge)
+        return;
+    try {
+        const tracker = new PersonalityTracker({ emaAlpha: EMA_ALPHA, eventWeights: {}, trackingEnabled: true }, toAsyncClient(bridge.db));
+        await applyPersonalityEvent(eventType, agentId, context, toAsyncClient(bridge.db), tracker);
+        log.info(`[recordPetPersonalityEvent] agent=${agentId} event=${eventType}`);
+    }
+    catch (err) {
+        log.warn(`[recordPetPersonalityEvent] 失败 agent=${agentId} event=${eventType}:`, err instanceof Error ? err.message : err);
+    }
 }
-
 /** 五维的形状转换（`personality_state` 行 → DTO），两处共用一份，避免字段漏抄 */
 export function toTraitValues(state: {
-  openness: number
-  conscientiousness: number
-  extraversion: number
-  agreeableness: number
-  neuroticism: number
+    openness: number;
+    conscientiousness: number;
+    extraversion: number;
+    agreeableness: number;
+    neuroticism: number;
 }): PetTraitValues {
-  return {
-    openness: state.openness,
-    conscientiousness: state.conscientiousness,
-    extraversion: state.extraversion,
-    agreeableness: state.agreeableness,
-    neuroticism: state.neuroticism,
-  }
+    return {
+        openness: state.openness,
+        conscientiousness: state.conscientiousness,
+        extraversion: state.extraversion,
+        agreeableness: state.agreeableness,
+        neuroticism: state.neuroticism,
+    };
 }

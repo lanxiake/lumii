@@ -3,32 +3,19 @@
  *
  * 不经 Gateway，仅连接本机已安装的 CLI（print / exec 非交互模式）。
  */
-
-import { spawn } from 'node:child_process'
-import path from 'node:path'
-import {
-  detectLocalAcpTool,
-  isPrimaryLocalAcpToolId,
-  needsWindowsShell,
-  PRIMARY_LOCAL_ACP_TOOLS,
-  type PrimaryLocalAcpToolId,
-} from './coding-dev-cli-detect.js'
-import type {
-  CodingDevLightweightBackendOutput,
-  CodingDevLightweightBackendProgress,
-} from './coding-dev-backends-stub/contracts.js'
-import { AcpToolStreamParser } from './coding-dev-jsonl-parsers.js'
-
+import { spawn } from 'node:child_process';
+import { detectLocalAcpTool, isPrimaryLocalAcpToolId, needsWindowsShell, PRIMARY_LOCAL_ACP_TOOLS, type PrimaryLocalAcpToolId, } from './coding-dev-cli-detect.js';
+import type { CodingDevLightweightBackendOutput, CodingDevLightweightBackendProgress, } from './coding-dev-backends-stub/contracts.js';
+import { AcpToolStreamParser } from './coding-dev-jsonl-parsers.js';
 export type LocalAcpRunParams = {
-  backendId: string
-  text: string
-  cwd: string
-  /** 上一轮的 CLI 会话 id（多轮续接）：有值时按后端拼接 resume 参数 */
-  cliSessionId?: string
-  emitProgress?: (progress: CodingDevLightweightBackendProgress) => Promise<void> | void
-  abortSignal?: AbortSignal
-}
-
+    backendId: string;
+    text: string;
+    cwd: string;
+    /** 上一轮的 CLI 会话 id（多轮续接）：有值时按后端拼接 resume 参数 */
+    cliSessionId?: string;
+    emitProgress?: (progress: CodingDevLightweightBackendProgress) => Promise<void> | void;
+    abortSignal?: AbortSignal;
+};
 /**
  * 把单个参数包成 cmd.exe 能还原的引号形式。
  *
@@ -37,9 +24,8 @@ export type LocalAcpRunParams = {
  * 解析到 .exe 的走非 shell 分支不受影响。要彻底解决得按 CLI 逐个改走 stdin。
  */
 export function quoteForCmd(arg: string): string {
-  return `"${arg.replace(/"/g, '""')}"`
+    return `"${arg.replace(/"/g, '""')}"`;
 }
-
 /**
  * 为各工具构造本机非交互命令行。
  *
@@ -47,199 +33,187 @@ export function quoteForCmd(arg: string): string {
  * opencode: --session），使同一条 Lumii 会话的多轮消息共享 CLI 上下文。
  * 各后端 resume 参数形态按官方 --help 编写；codex/opencode/cursor 的实际行为待 P0 实测校准。
  */
-export function buildLocalCliArgs(
-  toolId: PrimaryLocalAcpToolId,
-  resolvedCommand: string,
-  prompt: string,
-  cliSessionId?: string,
-): { command: string; args: string[]; shell?: boolean; stdinPrompt?: boolean } {
-  switch (toolId) {
-    case 'claude': {
-      // 权限策略：不显式传 --permission-mode —— 尊重用户自己的 Claude Code 配置
-      // （实测本机 ~/.claude/settings.json defaultMode=bypassPermissions，可写文件/跑命令，2026-09-13）。
-      // 显式 acceptEdits 反而会拒掉 Bash 类工具（挡住"跑测试"）；后续按 binding.permissionMode 提供覆盖。
-      //
-      // prompt 改走 stdin（2026-09-15 修）：本机 claude 是 npm 的 .cmd shim（needsWindowsShell=true），
-      // 经 cmd shell 拼串时含换行的多行 prompt 会截断命令行，把排在它后面的 --output-format 一起吃掉：
-      // 表现为 Claude Code 退回默认文本输出 → JSONL 解析器整行丢弃 → 会话里只剩「（Claude Code 无输出）」，
-      // 执行过程与产出全丢。stdin 实测可用（`printf "..." | claude -p --output-format text`），
-      // 且彻底绕开 argv 放不下换行符的限制。
-      const args = ['-p', '--output-format', 'stream-json', '--verbose']
-      if (cliSessionId) args.push('--resume', cliSessionId)
-      return { command: resolvedCommand, args, stdinPrompt: true }
+export function buildLocalCliArgs(toolId: PrimaryLocalAcpToolId, resolvedCommand: string, prompt: string, cliSessionId?: string): {
+    command: string;
+    args: string[];
+    shell?: boolean;
+    stdinPrompt?: boolean;
+} {
+    switch (toolId) {
+        case 'claude': {
+            // 权限策略：不显式传 --permission-mode —— 尊重用户自己的 Claude Code 配置
+            // （实测本机 ~/.claude/settings.json defaultMode=bypassPermissions，可写文件/跑命令，2026-09-13）。
+            // 显式 acceptEdits 反而会拒掉 Bash 类工具（挡住"跑测试"）；后续按 binding.permissionMode 提供覆盖。
+            //
+            // prompt 改走 stdin（2026-09-15 修）：本机 claude 是 npm 的 .cmd shim（needsWindowsShell=true），
+            // 经 cmd shell 拼串时含换行的多行 prompt 会截断命令行，把排在它后面的 --output-format 一起吃掉：
+            // 表现为 Claude Code 退回默认文本输出 → JSONL 解析器整行丢弃 → 会话里只剩「（Claude Code 无输出）」，
+            // 执行过程与产出全丢。stdin 实测可用（`printf "..." | claude -p --output-format text`），
+            // 且彻底绕开 argv 放不下换行符的限制。
+            const args = ['-p', '--output-format', 'stream-json', '--verbose'];
+            if (cliSessionId)
+                args.push('--resume', cliSessionId);
+            return { command: resolvedCommand, args, stdinPrompt: true };
+        }
+        case 'codex': {
+            // 沙箱参数（实测 2026-09-13，Windows）：-s workspace-write 仍无法写文件（沙箱在 Windows 不可用），
+            // 且失败时模型会回复"完成"（静默假成功）——Windows 必须 bypass；非 Windows 保留 workspace-write。
+            const sandboxArgs = process.platform === 'win32'
+                ? ['--dangerously-bypass-approvals-and-sandbox']
+                : ['-s', 'workspace-write'];
+            const args = cliSessionId
+                ? ['exec', 'resume', cliSessionId, '--skip-git-repo-check', ...sandboxArgs, '--json', prompt]
+                : ['exec', '--skip-git-repo-check', ...sandboxArgs, '--json', prompt];
+            return { command: resolvedCommand, args };
+        }
+        case 'cursor': {
+            // prompt 放最后：cursor-agent 是 .cmd shim，多行 prompt 会截断命令行，
+            // 排在其后的 --output-format 会一起丢失（与 claude 同因，见上方注释）。
+            // 未登录未实测，保守按「参数在前」排列；后续可同样改走 stdin。
+            const args = ['--output-format', 'stream-json', '--trust'];
+            if (cliSessionId)
+                args.push('--resume', cliSessionId);
+            args.push('-p', prompt);
+            return { command: resolvedCommand, args };
+        }
+        case 'opencode': {
+            const args = ['run'];
+            if (cliSessionId)
+                args.push('--session', cliSessionId);
+            args.push('--format', 'json', prompt);
+            return { command: resolvedCommand, args };
+        }
     }
-    case 'codex': {
-      // 沙箱参数（实测 2026-09-13，Windows）：-s workspace-write 仍无法写文件（沙箱在 Windows 不可用），
-      // 且失败时模型会回复"完成"（静默假成功）——Windows 必须 bypass；非 Windows 保留 workspace-write。
-      const sandboxArgs =
-        process.platform === 'win32'
-          ? ['--dangerously-bypass-approvals-and-sandbox']
-          : ['-s', 'workspace-write']
-      const args = cliSessionId
-        ? ['exec', 'resume', cliSessionId, '--skip-git-repo-check', ...sandboxArgs, '--json', prompt]
-        : ['exec', '--skip-git-repo-check', ...sandboxArgs, '--json', prompt]
-      return { command: resolvedCommand, args }
-    }
-    case 'cursor': {
-      // prompt 放最后：cursor-agent 是 .cmd shim，多行 prompt 会截断命令行，
-      // 排在其后的 --output-format 会一起丢失（与 claude 同因，见上方注释）。
-      // 未登录未实测，保守按「参数在前」排列；后续可同样改走 stdin。
-      const args = ['--output-format', 'stream-json', '--trust']
-      if (cliSessionId) args.push('--resume', cliSessionId)
-      args.push('-p', prompt)
-      return { command: resolvedCommand, args }
-    }
-    case 'opencode': {
-      const args = ['run']
-      if (cliSessionId) args.push('--session', cliSessionId)
-      args.push('--format', 'json', prompt)
-      return { command: resolvedCommand, args }
-    }
-  }
 }
-
 /**
  * 在本机 cwd 下运行对应 CLI，流式转发 stdout 为进度，返回最终文本
  */
-export async function runLocalAcpCli(
-  params: LocalAcpRunParams,
-): Promise<CodingDevLightweightBackendOutput> {
-  const id = params.backendId.trim().toLowerCase()
-  if (!isPrimaryLocalAcpToolId(id)) {
-    throw new Error(
-      `未知的本机工具「${id}」。可用命令：${PRIMARY_LOCAL_ACP_TOOLS.map((t) => `/${t}`).join('、')}，或 /lumii 切回主代理。`,
-    )
-  }
-
-  const status = await detectLocalAcpTool(id)
-  if (!status.installed || !status.resolvedPath) {
-    const winHint =
-      id === 'cursor' && process.platform === 'win32'
-        ? ` Windows 可在 PowerShell 执行：irm 'https://cursor.com/install?win32=true' | iex（安装的是 agent，不是编辑器里的 cursor）。`
-        : ''
-    throw new Error(
-      `未检测到 ${status.label}。请先安装：${status.installUrl}${winHint}`,
-    )
-  }
-
-  const cmdName = status.resolvedCommand ?? status.commands[0]
-  const { command, args, stdinPrompt } = buildLocalCliArgs(
-    id,
-    status.resolvedPath,
-    params.text,
-    params.cliSessionId,
-  )
-
-  await params.emitProgress?.({
-    kind: 'status',
-    text: `正在本机启动 ${status.label}（${cmdName}）…`,
-  })
-
-  return new Promise((resolve, reject) => {
-    // Windows 上 .cmd/.bat 必须经 shell，否则 spawn 报 ENOENT
-    const useShell = needsWindowsShell(command)
-    // shell:true 时 Node 直接把 args 空格拼进命令行，不做引号化：
-    // 带空格的 prompt 会被 cmd 切成多个 argv（CLI 只收到第一个词），
-    // 而 & | > 等元字符会被 cmd 当命令分隔符执行 —— 既是功能 bug 也是注入面。
-    // 自己引号化后整行交给 shell（args 置空），由 cmd 还原成单个参数。
-    const spawnCmd = useShell ? [command, ...args].map(quoteForCmd).join(' ') : command
-    const spawnArgs = useShell ? [] : args
-    // ponytail: stdin:'ignore' 防挂住 — codex/cursor 之类即使传了位置参数 prompt
-    // 也会检测 stdin 可读性，有就阻塞等更多输入。关掉 stdin 让 CLI 知道这是单发。
-    // 例外：走 stdin 传 prompt 的后端（claude）必须开 pipe，见下方写入。
-    const child = spawn(spawnCmd, spawnArgs, {
-      cwd: params.cwd,
-      windowsHide: true,
-      env: { ...process.env },
-      shell: useShell,
-      stdio: [stdinPrompt ? 'pipe' : 'ignore', 'pipe', 'pipe'],
-    })
-    // 一次写入并关闭：让 CLI 知道输入结束，不会等待更多内容而挂住
-    if (stdinPrompt) child.stdin?.end(params.text)
-
-    let stdout = ''
-    let stderr = ''
-    let settled = false
-    const parser = new AcpToolStreamParser(id)
-    let stdoutBuffer = ''
-    let finalResult: string | null = null
-    /**
-     * 解析出的助手文本。有解析器的后端 stdout 是 JSONL，不能直接回给用户，
-     * 缺 final_result 时用这些文本兜底而非原始流。
-     */
-    const messageTexts: string[] = []
-
-    const onAbort = () => {
-      try {
-        child.kill()
-      } catch { /* ignore */ }
-      if (!settled) {
-        settled = true
-        reject(new Error('任务已中止'))
-      }
+export async function runLocalAcpCli(params: LocalAcpRunParams): Promise<CodingDevLightweightBackendOutput> {
+    const id = params.backendId.trim().toLowerCase();
+    if (!isPrimaryLocalAcpToolId(id)) {
+        throw new Error(`未知的本机工具「${id}」。可用命令：${PRIMARY_LOCAL_ACP_TOOLS.map((t) => `/${t}`).join('、')}，或 /lumii 切回主代理。`);
     }
-    params.abortSignal?.addEventListener('abort', onAbort, { once: true })
-
-    child.stdout?.on('data', (buf: Buffer) => {
-      const chunk = buf.toString('utf8')
-      stdout += chunk
-      stdoutBuffer += chunk
-      // 逐行解析（JSONL 是行分隔 JSON）
-      const lines = stdoutBuffer.split('\n')
-      stdoutBuffer = lines.pop() ?? ''
-      for (const line of lines) {
-        const progress = parser.parseLine(line)
-        if (progress?.kind === 'final_result') {
-          finalResult = progress.text
-        } else if (progress) {
-          if (progress.kind === 'message' && progress.text) messageTexts.push(progress.text)
-          void params.emitProgress?.(progress)
-        }
-      }
-    })
-    child.stderr?.on('data', (buf: Buffer) => {
-      const chunk = buf.toString('utf8')
-      stderr += chunk
-      void params.emitProgress?.({ kind: 'status', text: chunk.slice(0, 400) })
-    })
-
-    child.on('error', (err) => {
-      params.abortSignal?.removeEventListener('abort', onAbort)
-      if (settled) return
-      settled = true
-      reject(err)
-    })
-
-    child.on('close', (code) => {
-      params.abortSignal?.removeEventListener('abort', onAbort)
-      if (settled) return
-      settled = true
-      // 处理末尾未闭合行（如果有）
-      if (stdoutBuffer.trim()) {
-        const progress = parser.parseLine(stdoutBuffer)
-        if (progress?.kind === 'final_result') {
-          finalResult = progress.text
-        } else if (progress) {
-          if (progress.kind === 'message' && progress.text) messageTexts.push(progress.text)
-          void params.emitProgress?.(progress)
-        }
-      }
-      // 有解析器的后端 stdout 是 JSONL，绝不能直接回给用户：
-      // final_result → 解析出的助手文本 → stderr。无解析器的后端才用原始 stdout。
-      const parsedText = finalResult ?? (messageTexts.length > 0 ? messageTexts.join('\n') : '')
-      const text = parser.hasParser
-        ? parsedText || stderr.trim()
-        : parsedText || stdout.trim() || stderr.trim()
-      if (code !== 0 && !text) {
-        reject(new Error(`${status.label} 退出码 ${code}${stderr ? `：${stderr.slice(0, 300)}` : ''}`))
-        return
-      }
-      if (code !== 0 && text) {
-        // 部分 CLI 非 0 仍有有用输出
-        resolve({ text: `${text}\n\n（进程退出码 ${code}）`, cliSessionId: parser.getCliSessionId() ?? undefined })
-        return
-      }
-      resolve({ text: text || `（${status.label} 无输出）`, cliSessionId: parser.getCliSessionId() ?? undefined })
-    })
-  })
+    const status = await detectLocalAcpTool(id);
+    if (!status.installed || !status.resolvedPath) {
+        const winHint = id === 'cursor' && process.platform === 'win32'
+            ? ` Windows 可在 PowerShell 执行：irm 'https://cursor.com/install?win32=true' | iex（安装的是 agent，不是编辑器里的 cursor）。`
+            : '';
+        throw new Error(`未检测到 ${status.label}。请先安装：${status.installUrl}${winHint}`);
+    }
+    const cmdName = status.resolvedCommand ?? status.commands[0];
+    const { command, args, stdinPrompt } = buildLocalCliArgs(id, status.resolvedPath, params.text, params.cliSessionId);
+    await params.emitProgress?.({
+        kind: 'status',
+        text: `正在本机启动 ${status.label}（${cmdName}）…`,
+    });
+    return new Promise((resolve, reject) => {
+        // Windows 上 .cmd/.bat 必须经 shell，否则 spawn 报 ENOENT
+        const useShell = needsWindowsShell(command);
+        // shell:true 时 Node 直接把 args 空格拼进命令行，不做引号化：
+        // 带空格的 prompt 会被 cmd 切成多个 argv（CLI 只收到第一个词），
+        // 而 & | > 等元字符会被 cmd 当命令分隔符执行 —— 既是功能 bug 也是注入面。
+        // 自己引号化后整行交给 shell（args 置空），由 cmd 还原成单个参数。
+        const spawnCmd = useShell ? [command, ...args].map(quoteForCmd).join(' ') : command;
+        const spawnArgs = useShell ? [] : args;
+        // ponytail: stdin:'ignore' 防挂住 — codex/cursor 之类即使传了位置参数 prompt
+        // 也会检测 stdin 可读性，有就阻塞等更多输入。关掉 stdin 让 CLI 知道这是单发。
+        // 例外：走 stdin 传 prompt 的后端（claude）必须开 pipe，见下方写入。
+        const child = spawn(spawnCmd, spawnArgs, {
+            cwd: params.cwd,
+            windowsHide: true,
+            env: { ...process.env },
+            shell: useShell,
+            stdio: [stdinPrompt ? 'pipe' : 'ignore', 'pipe', 'pipe'],
+        });
+        // 一次写入并关闭：让 CLI 知道输入结束，不会等待更多内容而挂住
+        if (stdinPrompt)
+            child.stdin?.end(params.text);
+        let stdout = '';
+        let stderr = '';
+        let settled = false;
+        const parser = new AcpToolStreamParser(id);
+        let stdoutBuffer = '';
+        let finalResult: string | null = null;
+        /**
+         * 解析出的助手文本。有解析器的后端 stdout 是 JSONL，不能直接回给用户，
+         * 缺 final_result 时用这些文本兜底而非原始流。
+         */
+        const messageTexts: string[] = [];
+        const onAbort = () => {
+            try {
+                child.kill();
+            }
+            catch { /* ignore */ }
+            if (!settled) {
+                settled = true;
+                reject(new Error('任务已中止'));
+            }
+        };
+        params.abortSignal?.addEventListener('abort', onAbort, { once: true });
+        child.stdout?.on('data', (buf: Buffer) => {
+            const chunk = buf.toString('utf8');
+            stdout += chunk;
+            stdoutBuffer += chunk;
+            // 逐行解析（JSONL 是行分隔 JSON）
+            const lines = stdoutBuffer.split('\n');
+            stdoutBuffer = lines.pop() ?? '';
+            for (const line of lines) {
+                const progress = parser.parseLine(line);
+                if (progress?.kind === 'final_result') {
+                    finalResult = progress.text;
+                }
+                else if (progress) {
+                    if (progress.kind === 'message' && progress.text)
+                        messageTexts.push(progress.text);
+                    void params.emitProgress?.(progress);
+                }
+            }
+        });
+        child.stderr?.on('data', (buf: Buffer) => {
+            const chunk = buf.toString('utf8');
+            stderr += chunk;
+            void params.emitProgress?.({ kind: 'status', text: chunk.slice(0, 400) });
+        });
+        child.on('error', (err) => {
+            params.abortSignal?.removeEventListener('abort', onAbort);
+            if (settled)
+                return;
+            settled = true;
+            reject(err);
+        });
+        child.on('close', (code) => {
+            params.abortSignal?.removeEventListener('abort', onAbort);
+            if (settled)
+                return;
+            settled = true;
+            // 处理末尾未闭合行（如果有）
+            if (stdoutBuffer.trim()) {
+                const progress = parser.parseLine(stdoutBuffer);
+                if (progress?.kind === 'final_result') {
+                    finalResult = progress.text;
+                }
+                else if (progress) {
+                    if (progress.kind === 'message' && progress.text)
+                        messageTexts.push(progress.text);
+                    void params.emitProgress?.(progress);
+                }
+            }
+            // 有解析器的后端 stdout 是 JSONL，绝不能直接回给用户：
+            // final_result → 解析出的助手文本 → stderr。无解析器的后端才用原始 stdout。
+            const parsedText = finalResult ?? (messageTexts.length > 0 ? messageTexts.join('\n') : '');
+            const text = parser.hasParser
+                ? parsedText || stderr.trim()
+                : parsedText || stdout.trim() || stderr.trim();
+            if (code !== 0 && !text) {
+                reject(new Error(`${status.label} 退出码 ${code}${stderr ? `：${stderr.slice(0, 300)}` : ''}`));
+                return;
+            }
+            if (code !== 0 && text) {
+                // 部分 CLI 非 0 仍有有用输出
+                resolve({ text: `${text}\n\n（进程退出码 ${code}）`, cliSessionId: parser.getCliSessionId() ?? undefined });
+                return;
+            }
+            resolve({ text: text || `（${status.label} 无输出）`, cliSessionId: parser.getCliSessionId() ?? undefined });
+        });
+    });
 }

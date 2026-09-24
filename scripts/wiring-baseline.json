@@ -5,7 +5,19 @@
   "danglingRefs": [],
   "orphanSends": [],
   "unregisteredTools": [],
-  "unreachable": [],
+  "unreachable": [
+    "apps/windows/src/main/skill-evolution/conversation-observer.ts",
+    "apps/windows/src/main/skill-evolution/feedback-manager.ts",
+    "apps/windows/src/main/skill-evolution/index.ts",
+    "apps/windows/src/main/skill-evolution/skill-drafter.ts",
+    "apps/windows/src/main/skill-evolution/skill-evolver.ts",
+    "apps/windows/src/main/skill-evolution/skill-quality-gate.ts",
+    "apps/windows/src/main/skill-evolution/skill-writer.ts",
+    "apps/windows/src/main/skill-evolution/types.ts",
+    "apps/windows/src/main/skill-evolution/user-dialog.ts",
+    "apps/windows/src/renderer/pages/SettingsPage/components/AccountSection/index.tsx",
+    "apps/windows/src/renderer/pages/SettingsPage/components/NotificationSection/index.tsx"
+  ],
   "unconsumedMethods": [
     "updater.checkForUpdates",
     "updater.downloadUpdate",

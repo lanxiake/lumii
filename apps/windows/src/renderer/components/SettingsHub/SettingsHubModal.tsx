@@ -3,229 +3,144 @@
  *
  * 顶部横栏切换模块；「设置」Tab 内左侧分类 + 右侧面板。
  */
-
-import React, { useEffect, useMemo, useState } from 'react'
-import clsx from 'clsx'
-import { Modal } from '../ui/Modal/Modal'
-import {
-  User,
-  FolderOpen,
-  Radio,
-  Shield,
-  Smartphone,
-  Cpu,
-  Mic,
-  Wrench,
-  Info,
-  Zap,
-  Search,
-  FlaskConical,
-  Monitor,
-  Cloud,
-} from '../ui/Icon'
-import { McpServersPanel } from '../McpServersPanel'
-import { SettingsPage } from '../../pages/SettingsPage/SettingsPage'
-import { AgentsPage } from '../../pages/AgentsPage/AgentsPage'
-import { SkillsPage } from '../../pages/SkillsPage/SkillsPage'
-import { ToolsPage } from '../../pages/ToolsPage/ToolsPage'
-import { CronPage } from '../../pages/CronPage/CronPage'
-import { MemoriesPage } from '../../pages/MemoriesPage/MemoriesPage'
-import { WikiTab } from '../../pages/MemoriesPage/components/WikiTab'
-import { PluginCenterPage } from '../../pages/PluginCenterPage/PluginCenterPage'
-import { getAutonomousStatus } from '../../services/autonomous-service'
-import type { ViewType } from '../Router'
-import { useSettingsHub } from './SettingsHubContext'
-import { VIRTUAL_HUMAN_PRODUCT_NAME } from '../../../shared/virtual-human'
-import { SettingsCategoryNav } from './SettingsCategoryNav'
-import {
-  SETTINGS_HUB_TABS,
-  type SettingsCategoryItem,
-  type SettingsHubTab,
-} from './types'
-import styles from './SettingsHubModal.module.css'
-
-const ICON_SIZE = 16
-
+import React, { useEffect, useMemo, useState } from 'react';
+import clsx from 'clsx';
+import { Modal } from '../ui/Modal/Modal';
+import { User, FolderOpen, Radio, Shield, Smartphone, Cpu, Mic, Wrench, Info, Zap, Search, FlaskConical, Monitor, Cloud, } from '../ui/Icon';
+import { McpServersPanel } from '../McpServersPanel';
+import { SettingsPage } from '../../pages/SettingsPage/SettingsPage';
+import { AgentsPage } from '../../pages/AgentsPage/AgentsPage';
+import { SkillsPage } from '../../pages/SkillsPage/SkillsPage';
+import { ToolsPage } from '../../pages/ToolsPage/ToolsPage';
+import { CronPage } from '../../pages/CronPage/CronPage';
+import { MemoriesPage } from '../../pages/MemoriesPage/MemoriesPage';
+import { WikiTab } from '../../pages/MemoriesPage/components/WikiTab';
+import { PluginCenterPage } from '../../pages/PluginCenterPage/PluginCenterPage';
+import { getAutonomousStatus } from '../../services/autonomous-service';
+import type { ViewType } from '../Router';
+import { useSettingsHub } from './SettingsHubContext';
+import { VIRTUAL_HUMAN_PRODUCT_NAME } from '../../../shared/virtual-human';
+import { SettingsCategoryNav } from './SettingsCategoryNav';
+import { SETTINGS_HUB_TABS, type SettingsCategoryItem, type SettingsHubTab, } from './types';
+import styles from './SettingsHubModal.module.css';
+const ICON_SIZE = 16;
 /**
  * Hub 设置区左侧分类（合并后）
  */
 const SETTINGS_CATEGORIES: SettingsCategoryItem[] = [
-  { id: 'general', label: '通用', icon: <User size={ICON_SIZE} /> },
-  { id: 'workspace', label: '工作空间', icon: <FolderOpen size={ICON_SIZE} /> },
-  { id: 'modelConfig', label: '模型配置', icon: <Cpu size={ICON_SIZE} /> },
-  { id: 'voice', label: '语音设置', icon: <Mic size={ICON_SIZE} /> },
-  { id: 'channels', label: '渠道设置', icon: <Radio size={ICON_SIZE} /> },
-  { id: 'codingDev', label: 'ACP 设置', icon: <Wrench size={ICON_SIZE} /> },
-  { id: 'pet', label: VIRTUAL_HUMAN_PRODUCT_NAME, icon: <Smartphone size={ICON_SIZE} /> },
-  { id: 'usage', label: '用量与花费', icon: <Zap size={ICON_SIZE} /> },
-  { id: 'privacy', label: '隐私与数据', icon: <Shield size={ICON_SIZE} /> },
-  { id: 'cloudSync', label: '云同步', icon: <Cloud size={ICON_SIZE} /> },
-  { id: 'screenRecord', label: '录屏', icon: <Monitor size={ICON_SIZE} /> },
-  { id: 'experimental', label: '实验功能', icon: <FlaskConical size={ICON_SIZE} /> },
-  { id: 'aboutAndUpdate', label: '关于与更新', icon: <Info size={ICON_SIZE} /> },
-]
-
+    { id: 'general', label: '通用', icon: <User size={ICON_SIZE}/> },
+    { id: 'workspace', label: '工作空间', icon: <FolderOpen size={ICON_SIZE}/> },
+    { id: 'modelConfig', label: '模型配置', icon: <Cpu size={ICON_SIZE}/> },
+    { id: 'voice', label: '语音设置', icon: <Mic size={ICON_SIZE}/> },
+    { id: 'channels', label: '渠道设置', icon: <Radio size={ICON_SIZE}/> },
+    { id: 'codingDev', label: 'ACP 设置', icon: <Wrench size={ICON_SIZE}/> },
+    { id: 'pet', label: VIRTUAL_HUMAN_PRODUCT_NAME, icon: <Smartphone size={ICON_SIZE}/> },
+    { id: 'usage', label: '用量与花费', icon: <Zap size={ICON_SIZE}/> },
+    { id: 'privacy', label: '隐私与数据', icon: <Shield size={ICON_SIZE}/> },
+    { id: 'cloudSync', label: '云同步', icon: <Cloud size={ICON_SIZE}/> },
+    { id: 'screenRecord', label: '录屏', icon: <Monitor size={ICON_SIZE}/> },
+    { id: 'experimental', label: '实验功能', icon: <FlaskConical size={ICON_SIZE}/> },
+    { id: 'aboutAndUpdate', label: '关于与更新', icon: <Info size={ICON_SIZE}/> },
+];
 /**
  * 设置浮层 Hub 弹窗
  */
 export const SettingsHubModal: React.FC<{
-  onViewChange?: (view: ViewType) => void
+    onViewChange?: (view: ViewType) => void;
 }> = ({ onViewChange }) => {
-  const { state, isOpen, closeHub, setTab, setCategory, openHub } = useSettingsHub()
-
-  /** 待审批目标数：为「实验功能」导航项显示红点提醒（Hub 打开时拉取，30s 刷新） */
-  const [pendingAutonomousGoals, setPendingAutonomousGoals] = useState(0)
-  useEffect(() => {
-    if (!isOpen) return
-    let cancelled = false
-    const load = async () => {
-      try {
-        const status = await getAutonomousStatus()
-        if (!cancelled && typeof status?.pendingGoalsCount === 'number') {
-          setPendingAutonomousGoals(status.pendingGoalsCount)
-        }
-      } catch {
-        /* 控制面不可用时静默（红点非关键路径） */
-      }
-    }
-    void load()
-    const timer = window.setInterval(() => void load(), 30_000)
-    return () => {
-      cancelled = true
-      window.clearInterval(timer)
-    }
-  }, [isOpen])
-
-  const settingsCategories = useMemo(
-    () =>
-      SETTINGS_CATEGORIES.map((item) =>
-        item.id === 'experimental' && pendingAutonomousGoals > 0
-          ? { ...item, badgeDot: true }
-          : item,
-      ),
-    [pendingAutonomousGoals],
-  )
-
-  const header = useMemo(
-    () => (
-      <div className={styles.hubHeader}>
+    const { state, isOpen, closeHub, setTab, setCategory, openHub } = useSettingsHub();
+    /** 待审批目标数：为「实验功能」导航项显示红点提醒（Hub 打开时拉取，30s 刷新） */
+    const [pendingAutonomousGoals, setPendingAutonomousGoals] = useState(0);
+    useEffect(() => {
+        if (!isOpen)
+            return;
+        let cancelled = false;
+        const load = async () => {
+            try {
+                const status = await getAutonomousStatus();
+                if (!cancelled && typeof status?.pendingGoalsCount === 'number') {
+                    setPendingAutonomousGoals(status.pendingGoalsCount);
+                }
+            }
+            catch {
+                /* 控制面不可用时静默（红点非关键路径） */
+            }
+        };
+        void load();
+        const timer = window.setInterval(() => void load(), 30000);
+        return () => {
+            cancelled = true;
+            window.clearInterval(timer);
+        };
+    }, [isOpen]);
+    const settingsCategories = useMemo(() => SETTINGS_CATEGORIES.map((item) => item.id === 'experimental' && pendingAutonomousGoals > 0
+        ? { ...item, badgeDot: true }
+        : item), [pendingAutonomousGoals]);
+    const header = useMemo(() => (<div className={styles.hubHeader}>
         <h2 className={styles.hubTitle}>设置中心</h2>
         <div className={styles.hubTabs} role="tablist" aria-label="功能模块">
-          {SETTINGS_HUB_TABS.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              role="tab"
-              aria-selected={state.tab === item.id}
-              className={clsx(styles.hubTab, state.tab === item.id && styles.hubTabActive)}
-              onClick={() => setTab(item.id)}
-              data-app-ui="hub-tab"
-            >
+          {SETTINGS_HUB_TABS.map((item) => (<button key={item.id} type="button" role="tab" aria-selected={state.tab === item.id} className={clsx(styles.hubTab, state.tab === item.id && styles.hubTabActive)} onClick={() => setTab(item.id)} data-app-ui="hub-tab">
               {item.label}
-            </button>
-          ))}
+            </button>))}
         </div>
-      </div>
-    ),
-    [state.tab, setTab],
-  )
-
-  /**
-   * 功能页内跳转：Hub Tab 互切，或交给外层切主壳视图
-   */
-  const handleEmbeddedViewChange = (view: ViewType) => {
-    if (view === 'chat' || view === 'dashboard') {
-      onViewChange?.(view)
-      return
-    }
-    openHub(view as SettingsHubTab)
-  }
-
-  const renderTabContent = () => {
-    switch (state.tab) {
-      case 'settings':
-        return (
-          <div className={styles.settingsPane}>
-            <SettingsCategoryNav
-              categories={settingsCategories}
-              activeCategory={state.category}
-              onChange={setCategory}
-            />
+      </div>), [state.tab, setTab]);
+    /**
+     * 功能页内跳转：Hub Tab 互切，或交给外层切主壳视图
+     */
+    const handleEmbeddedViewChange = (view: ViewType) => {
+        if (view === 'chat' || view === 'dashboard') {
+            onViewChange?.(view);
+            return;
+        }
+        openHub(view as SettingsHubTab);
+    };
+    const renderTabContent = () => {
+        switch (state.tab) {
+            case 'settings':
+                return (<div className={styles.settingsPane}>
+            <SettingsCategoryNav categories={settingsCategories} activeCategory={state.category} onChange={setCategory}/>
             <div className={styles.settingsContent}>
-              <SettingsPage
-                embedded
-                activeCategory={state.category}
-              />
+              <SettingsPage embedded activeCategory={state.category}/>
             </div>
-          </div>
-        )
-      case 'agents':
-        return (
-          <div className={styles.embedPane}>
-            <AgentsPage embedded onViewChange={handleEmbeddedViewChange} />
-          </div>
-        )
-      case 'skills':
-        return (
-          <div className={styles.embedPane}>
-            <SkillsPage embedded hideMcpTab />
-          </div>
-        )
-      case 'tools':
-        return (
-          <div className={styles.embedPane}>
-            <ToolsPage embedded />
-          </div>
-        )
-      case 'mcp':
-        // Server 配置与其工具合成一份可展开列表，不再拆成两块
-        return (
-          <div className={styles.mcpPane}>
+          </div>);
+            case 'agents':
+                return (<div className={styles.embedPane}>
+            <AgentsPage embedded onViewChange={handleEmbeddedViewChange}/>
+          </div>);
+            case 'skills':
+                return (<div className={styles.embedPane}>
+            <SkillsPage embedded hideMcpTab/>
+          </div>);
+            case 'tools':
+                return (<div className={styles.embedPane}>
+            <ToolsPage embedded/>
+          </div>);
+            case 'mcp':
+                // Server 配置与其工具合成一份可展开列表，不再拆成两块
+                return (<div className={styles.mcpPane}>
             <McpServersPanel />
-          </div>
-        )
-      case 'cron':
-        return (
-          <div className={styles.embedPane}>
-            <CronPage embedded />
-          </div>
-        )
-      case 'memories':
-        return (
-          <div className={styles.embedPane}>
-            <MemoriesPage
-              embedded
-              onViewChange={handleEmbeddedViewChange}
-            />
-          </div>
-        )
-      case 'wiki':
-        return (
-          <div className={styles.embedPane}>
+          </div>);
+            case 'cron':
+                return (<div className={styles.embedPane}>
+            <CronPage embedded/>
+          </div>);
+            case 'memories':
+                return (<div className={styles.embedPane}>
+            <MemoriesPage embedded onViewChange={handleEmbeddedViewChange}/>
+          </div>);
+            case 'wiki':
+                return (<div className={styles.embedPane}>
             <WikiTab />
-          </div>
-        )
-      case 'plugins':
-        return (
-          <div className={styles.embedPane}>
-            <PluginCenterPage embedded />
-          </div>
-        )
-      default:
-        return null
-    }
-  }
-
-  return (
-    <Modal
-      open={isOpen}
-      size="hub"
-      header={header}
-      onClose={closeHub}
-      maskClosable
-      bodyClassName={styles.hubBody}
-    >
+          </div>);
+            case 'plugins':
+                return (<div className={styles.embedPane}>
+            <PluginCenterPage embedded/>
+          </div>);
+            default:
+                return null;
+        }
+    };
+    return (<Modal open={isOpen} size="hub" header={header} onClose={closeHub} maskClosable bodyClassName={styles.hubBody}>
       {renderTabContent()}
-    </Modal>
-  )
-}
+    </Modal>);
+};

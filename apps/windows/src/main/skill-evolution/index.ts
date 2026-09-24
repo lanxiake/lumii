@@ -61,6 +61,7 @@ const DEPRECATE_PATTERNS = [
   /stop using this/i,
 ]
 
+/** @lintignore knip 看不见内联类型导入 import('../skill-evolution/index').SkillEvolutionEngine */
 export class SkillEvolutionEngine extends EventEmitter {
   /** instanceId → 当前进化状态 */
   private readonly instanceStates = new Map<string, InstanceEvolutionState>()

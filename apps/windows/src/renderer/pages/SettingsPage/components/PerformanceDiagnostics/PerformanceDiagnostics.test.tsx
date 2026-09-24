@@ -1,236 +1,208 @@
-import React from 'react'
-import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
-import { ToastProvider } from '../../../../components/ui/Toast/ToastContainer'
-import { PerformanceDiagnostics } from './PerformanceDiagnostics'
-
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { ToastProvider } from '../../../../components/ui/Toast/ToastContainer';
+import { PerformanceDiagnostics } from './PerformanceDiagnostics';
 // jsdom 没有实现 ResizeObserver，recharts 的 ResponsiveContainer 依赖它测量容器尺寸
 class ResizeObserverStub {
-  observe(): void {}
-  unobserve(): void {}
-  disconnect(): void {}
+    observe(): void { }
+    unobserve(): void { }
+    disconnect(): void { }
 }
-;(globalThis as unknown as { ResizeObserver: typeof ResizeObserverStub }).ResizeObserver = ResizeObserverStub
-
+;
+(globalThis as unknown as {
+    ResizeObserver: typeof ResizeObserverStub;
+}).ResizeObserver = ResizeObserverStub;
 function buildReport(overrides: Partial<Record<string, unknown>> = {}) {
-  return {
-    generatedAt: Date.now(),
-    startupStats: { totalDuration: 1000, phases: { preload: 100, window: 500 }, completed: true },
-    ipcStats: {
-      totalCalls: 42,
-      slowCalls: 3,
-      errors: 1,
-      channelBreakdown: {
-        'agent-runtime:command': {
-          channel: 'agent-runtime:command',
-          totalCalls: 20,
-          successCalls: 19,
-          errorCalls: 1,
-          totalDuration: 1000,
-          minDuration: 50,
-          maxDuration: 250,
-          averageDuration: 50,
+    return {
+        generatedAt: Date.now(),
+        startupStats: { totalDuration: 1000, phases: { preload: 100, window: 500 }, completed: true },
+        ipcStats: {
+            totalCalls: 42,
+            slowCalls: 3,
+            errors: 1,
+            channelBreakdown: {
+                'agent-runtime:command': {
+                    channel: 'agent-runtime:command',
+                    totalCalls: 20,
+                    successCalls: 19,
+                    errorCalls: 1,
+                    totalDuration: 1000,
+                    minDuration: 50,
+                    maxDuration: 250,
+                    averageDuration: 50,
+                },
+            },
+            averageLatency: 85,
         },
-      },
-      averageLatency: 85,
-    },
-    memoryStats: {
-      current: {
-        mainProcess: { heapUsed: 100 * 1024 * 1024, heapTotal: 150 * 1024 * 1024, external: 10, arrayBuffers: 4, rss: 300 * 1024 * 1024 },
-        childProcesses: [],
-      },
-      peak: {
-        mainProcess: { heapUsed: 150 * 1024 * 1024, heapTotal: 200 * 1024 * 1024, external: 20, arrayBuffers: 6, rss: 400 * 1024 * 1024 },
-        childProcesses: [],
-      },
-    },
-    health: 'good',
-    ...overrides,
-  }
-}
-
-function buildHistory(overrides: Partial<Record<string, unknown>> = {}) {
-  return {
-    ipcAggregates: [],
-    memorySnapshots: [],
-    ...overrides,
-  }
-}
-
-/** 本面板不消费 native 读数，只需形状合法 */
-function nativeZeros() {
-  return {
-    rss: 0,
-    heapTotal: 0,
-    heapUsed: 0,
-    external: 0,
-    arrayBuffers: 0,
-    v8UsedHeap: 0,
-    v8TotalPhysical: 0,
-    v8Malloced: 0,
-    v8PeakMalloced: 0,
-    blinkAllocated: 0,
-    blinkTotal: 0,
-    resImages: 0,
-    resImagesLive: 0,
-    resScripts: 0,
-    resCss: 0,
-    resFonts: 0,
-    resOther: 0,
-    selfPrivate: 0,
-    selfWorkingSet: 0,
-  }
-}
-
-function renderWithToast() {
-  return render(
-    <ToastProvider>
-      <PerformanceDiagnostics />
-    </ToastProvider>,
-  )
-}
-
-describe('PerformanceDiagnostics', () => {
-  beforeEach(() => {
-    window.electronAPI = {
-      ...window.electronAPI,
-      performance: {
-        getReport: vi.fn(async () => buildReport()),
-        capture: vi.fn(async () => ({ success: true })),
-        openLogFolder: vi.fn(async () => ({ success: true })),
-        getHistory: vi.fn(async () => buildHistory()),
-        recordRendererMemory: vi.fn(async () => ({ success: true })),
-        readRendererNativeMemory: vi.fn(async () => nativeZeros()),
-      },
-    } as typeof window.electronAPI
-  })
-
-  it('should render performance diagnostics panel with the health status', async () => {
-    renderWithToast()
-
-    await waitFor(() => {
-      expect(screen.getByText('良好')).toBeInTheDocument()
-    })
-  })
-
-  it('should load and display performance report metrics', async () => {
-    renderWithToast()
-
-    await waitFor(() => {
-      expect(screen.getByText('42')).toBeInTheDocument() // 总调用数（计数保持整数）
-      expect(screen.getByText('85.0ms')).toBeInTheDocument() // 平均延迟
-      expect(screen.getByText('1000.0ms')).toBeInTheDocument() // 启动耗时
-    })
-  })
-
-  it('should render durations and memory sizes with one decimal place', async () => {
-    renderWithToast()
-
-    await waitFor(() => {
-      expect(screen.getByText('100.0MB')).toBeInTheDocument() // 当前堆内存
-      expect(screen.getByText('150.0MB')).toBeInTheDocument() // 峰值堆内存
-      expect(screen.getByText('300.0MB')).toBeInTheDocument() // 当前 RSS
-      expect(screen.getByText('100.0ms')).toBeInTheDocument() // 启动阶段 preload
-      expect(screen.getByText('500.0ms')).toBeInTheDocument() // 启动阶段 window
-      expect(screen.getByText('20 次 · 平均 50.0ms')).toBeInTheDocument() // IPC 通道
-    })
-  })
-
-  it('should show an error state when getReport rejects', async () => {
-    window.electronAPI = {
-      ...window.electronAPI,
-      performance: {
-        getReport: vi.fn(async () => {
-          throw new Error('IPC unavailable')
-        }),
-        capture: vi.fn(),
-        openLogFolder: vi.fn(),
-        getHistory: vi.fn(async () => buildHistory()),
-        recordRendererMemory: vi.fn(async () => ({ success: true })),
-        readRendererNativeMemory: vi.fn(async () => nativeZeros()),
-      },
-    } as typeof window.electronAPI
-
-    renderWithToast()
-
-    await waitFor(() => {
-      expect(screen.getByText('IPC unavailable')).toBeInTheDocument()
-    })
-  })
-
-  it('should show empty placeholders when history has no data points', async () => {
-    renderWithToast()
-
-    await waitFor(() => {
-      expect(screen.getAllByText('暂无历史数据')).toHaveLength(2)
-    })
-  })
-
-  it('should render memory and ipc trend charts when history has data', async () => {
-    window.electronAPI = {
-      ...window.electronAPI,
-      performance: {
-        getReport: vi.fn(async () => buildReport()),
-        capture: vi.fn(async () => ({ success: true })),
-        openLogFolder: vi.fn(async () => ({ success: true })),
-        recordRendererMemory: vi.fn(async () => ({ success: true })),
-        readRendererNativeMemory: vi.fn(async () => nativeZeros()),
-        getHistory: vi.fn(async () =>
-          buildHistory({
-            memorySnapshots: [
-              {
-                timestamp: Date.now(),
-                kind: 'memory.snapshot',
+        memoryStats: {
+            current: {
                 mainProcess: { heapUsed: 100 * 1024 * 1024, heapTotal: 150 * 1024 * 1024, external: 10, arrayBuffers: 4, rss: 300 * 1024 * 1024 },
                 childProcesses: [],
-              },
-            ],
-            ipcAggregates: [
-              {
-                timestamp: Date.now(),
-                kind: 'ipc.aggregate',
-                windowStart: Date.now() - 60000,
-                windowEnd: Date.now(),
-                channel: 'agent-runtime:command',
-                totalCalls: 10,
-                totalDuration: 500,
-                errors: 0,
-                minDuration: 10,
-                maxDuration: 100,
-              },
-            ],
-          }),
-        ),
-      },
-    } as typeof window.electronAPI
-
-    renderWithToast()
-
-    await waitFor(() => {
-      expect(screen.queryByText('暂无历史数据')).not.toBeInTheDocument()
-    })
-  })
-
-  it('should allow manual capture and reload the report afterwards', async () => {
-    renderWithToast()
-
-    const captureBtn = await screen.findByText('手动捕获')
-    fireEvent.click(captureBtn)
-
-    await waitFor(() => {
-      expect(window.electronAPI.performance.capture).toHaveBeenCalledTimes(1)
-      expect(window.electronAPI.performance.getReport).toHaveBeenCalledTimes(2) // 初次加载 + 捕获后刷新
-    })
-  })
-
-  it('should open the log folder', async () => {
-    renderWithToast()
-
-    const openBtn = await screen.findByText('打开日志')
-    fireEvent.click(openBtn)
-
-    await waitFor(() => {
-      expect(window.electronAPI.performance.openLogFolder).toHaveBeenCalledTimes(1)
-    })
-  })
-})
+            },
+            peak: {
+                mainProcess: { heapUsed: 150 * 1024 * 1024, heapTotal: 200 * 1024 * 1024, external: 20, arrayBuffers: 6, rss: 400 * 1024 * 1024 },
+                childProcesses: [],
+            },
+        },
+        health: 'good',
+        ...overrides,
+    };
+}
+function buildHistory(overrides: Partial<Record<string, unknown>> = {}) {
+    return {
+        ipcAggregates: [],
+        memorySnapshots: [],
+        ...overrides,
+    };
+}
+/** 本面板不消费 native 读数，只需形状合法 */
+function nativeZeros() {
+    return {
+        rss: 0,
+        heapTotal: 0,
+        heapUsed: 0,
+        external: 0,
+        arrayBuffers: 0,
+        v8UsedHeap: 0,
+        v8TotalPhysical: 0,
+        v8Malloced: 0,
+        v8PeakMalloced: 0,
+        blinkAllocated: 0,
+        blinkTotal: 0,
+        resImages: 0,
+        resImagesLive: 0,
+        resScripts: 0,
+        resCss: 0,
+        resFonts: 0,
+        resOther: 0,
+        selfPrivate: 0,
+        selfWorkingSet: 0,
+    };
+}
+function renderWithToast() {
+    return render(<ToastProvider>
+      <PerformanceDiagnostics />
+    </ToastProvider>);
+}
+describe('PerformanceDiagnostics', () => {
+    beforeEach(() => {
+        window.electronAPI = {
+            ...window.electronAPI,
+            performance: {
+                getReport: vi.fn(async () => buildReport()),
+                capture: vi.fn(async () => ({ success: true })),
+                openLogFolder: vi.fn(async () => ({ success: true })),
+                getHistory: vi.fn(async () => buildHistory()),
+                recordRendererMemory: vi.fn(async () => ({ success: true })),
+                readRendererNativeMemory: vi.fn(async () => nativeZeros()),
+            },
+        } as typeof window.electronAPI;
+    });
+    it('should render performance diagnostics panel with the health status', async () => {
+        renderWithToast();
+        await waitFor(() => {
+            expect(screen.getByText('良好')).toBeInTheDocument();
+        });
+    });
+    it('should load and display performance report metrics', async () => {
+        renderWithToast();
+        await waitFor(() => {
+            expect(screen.getByText('42')).toBeInTheDocument(); // 总调用数（计数保持整数）
+            expect(screen.getByText('85.0ms')).toBeInTheDocument(); // 平均延迟
+            expect(screen.getByText('1000.0ms')).toBeInTheDocument(); // 启动耗时
+        });
+    });
+    it('should render durations and memory sizes with one decimal place', async () => {
+        renderWithToast();
+        await waitFor(() => {
+            expect(screen.getByText('100.0MB')).toBeInTheDocument(); // 当前堆内存
+            expect(screen.getByText('150.0MB')).toBeInTheDocument(); // 峰值堆内存
+            expect(screen.getByText('300.0MB')).toBeInTheDocument(); // 当前 RSS
+            expect(screen.getByText('100.0ms')).toBeInTheDocument(); // 启动阶段 preload
+            expect(screen.getByText('500.0ms')).toBeInTheDocument(); // 启动阶段 window
+            expect(screen.getByText('20 次 · 平均 50.0ms')).toBeInTheDocument(); // IPC 通道
+        });
+    });
+    it('should show an error state when getReport rejects', async () => {
+        window.electronAPI = {
+            ...window.electronAPI,
+            performance: {
+                getReport: vi.fn(async () => {
+                    throw new Error('IPC unavailable');
+                }),
+                capture: vi.fn(),
+                openLogFolder: vi.fn(),
+                getHistory: vi.fn(async () => buildHistory()),
+                recordRendererMemory: vi.fn(async () => ({ success: true })),
+                readRendererNativeMemory: vi.fn(async () => nativeZeros()),
+            },
+        } as typeof window.electronAPI;
+        renderWithToast();
+        await waitFor(() => {
+            expect(screen.getByText('IPC unavailable')).toBeInTheDocument();
+        });
+    });
+    it('should show empty placeholders when history has no data points', async () => {
+        renderWithToast();
+        await waitFor(() => {
+            expect(screen.getAllByText('暂无历史数据')).toHaveLength(2);
+        });
+    });
+    it('should render memory and ipc trend charts when history has data', async () => {
+        window.electronAPI = {
+            ...window.electronAPI,
+            performance: {
+                getReport: vi.fn(async () => buildReport()),
+                capture: vi.fn(async () => ({ success: true })),
+                openLogFolder: vi.fn(async () => ({ success: true })),
+                recordRendererMemory: vi.fn(async () => ({ success: true })),
+                readRendererNativeMemory: vi.fn(async () => nativeZeros()),
+                getHistory: vi.fn(async () => buildHistory({
+                    memorySnapshots: [
+                        {
+                            timestamp: Date.now(),
+                            kind: 'memory.snapshot',
+                            mainProcess: { heapUsed: 100 * 1024 * 1024, heapTotal: 150 * 1024 * 1024, external: 10, arrayBuffers: 4, rss: 300 * 1024 * 1024 },
+                            childProcesses: [],
+                        },
+                    ],
+                    ipcAggregates: [
+                        {
+                            timestamp: Date.now(),
+                            kind: 'ipc.aggregate',
+                            windowStart: Date.now() - 60000,
+                            windowEnd: Date.now(),
+                            channel: 'agent-runtime:command',
+                            totalCalls: 10,
+                            totalDuration: 500,
+                            errors: 0,
+                            minDuration: 10,
+                            maxDuration: 100,
+                        },
+                    ],
+                })),
+            },
+        } as typeof window.electronAPI;
+        renderWithToast();
+        await waitFor(() => {
+            expect(screen.queryByText('暂无历史数据')).not.toBeInTheDocument();
+        });
+    });
+    it('should allow manual capture and reload the report afterwards', async () => {
+        renderWithToast();
+        const captureBtn = await screen.findByText('手动捕获');
+        fireEvent.click(captureBtn);
+        await waitFor(() => {
+            expect(window.electronAPI.performance.capture).toHaveBeenCalledTimes(1);
+            expect(window.electronAPI.performance.getReport).toHaveBeenCalledTimes(2); // 初次加载 + 捕获后刷新
+        });
+    });
+    it('should open the log folder', async () => {
+        renderWithToast();
+        const openBtn = await screen.findByText('打开日志');
+        fireEvent.click(openBtn);
+        await waitFor(() => {
+            expect(window.electronAPI.performance.openLogFolder).toHaveBeenCalledTimes(1);
+        });
+    });
+});

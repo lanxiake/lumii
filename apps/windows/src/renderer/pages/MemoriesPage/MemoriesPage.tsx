@@ -6,249 +6,188 @@
  * - AI记忆：AI 从对话中自动提取的动态信息
  * - 记忆宫殿：对话原文归档（本地 SQLite + 全文检索，见 PalaceViewer）
  */
-
-import React, { useState, useCallback, useEffect, useRef } from 'react'
-import MDEditor from '@uiw/react-md-editor'
-import { Brain, Check, RotateCcw } from 'lucide-react'
-import { Button } from '../../components/ui/Button/Button'
-import { Loading } from '../../components/ui/Loading/Loading'
-import { ErrorBanner } from '../../components/ui/ErrorBanner/ErrorBanner'
-import { PageHeader } from '../../components/ui/PageHeader/PageHeader'
-import { Tooltip } from '../../components/ui/Tooltip/Tooltip'
-import { MemoryViewer } from '../SettingsPage/components/MemoryViewer/MemoryViewer'
-import { usePluginsContext } from '../../contexts/PluginsContext/PluginsContext'
-import type { ViewType } from '../../components/Router'
-import { useSoul } from '../../hooks/business/useSoul/useSoul'
-import { useUserMemory } from '../../hooks/business/useUserMemory'
-import {
-  useSettings,
-  SETTINGS_STORAGE_KEY,
-  SETTINGS_UPDATE_EVENT,
-} from '../../hooks/business/useSettings'
-import { Checkbox } from '../../components/ui/Checkbox/Checkbox'
-import { updateMemoryInjection } from '../../services/settings-service'
-import { SOUL_TEMPLATES } from './soul-templates'
-import { DEFAULT_SOUL_CONTENT } from '../../../../../../packages/agent-runtime/src/prompt/default-soul'
-import { PalaceViewer } from './PalaceViewer'
-import './MemoriesPage.css'
-
+import React, { useState, useCallback, useEffect, useRef } from 'react';
+import MDEditor from '@uiw/react-md-editor';
+import { Brain, Check, RotateCcw } from 'lucide-react';
+import { Button } from '../../components/ui/Button/Button';
+import { Loading } from '../../components/ui/Loading/Loading';
+import { ErrorBanner } from '../../components/ui/ErrorBanner/ErrorBanner';
+import { PageHeader } from '../../components/ui/PageHeader/PageHeader';
+import { Tooltip } from '../../components/ui/Tooltip/Tooltip';
+import { MemoryViewer } from '../SettingsPage/components/MemoryViewer/MemoryViewer';
+import type { ViewType } from '../../components/Router';
+import { useSoul } from '../../hooks/business/useSoul/useSoul';
+import { useUserMemory } from '../../hooks/business/useUserMemory';
+import { useSettings, SETTINGS_STORAGE_KEY, SETTINGS_UPDATE_EVENT, } from '../../hooks/business/useSettings';
+import { Checkbox } from '../../components/ui/Checkbox/Checkbox';
+import { updateMemoryInjection } from '../../services/settings-service';
+import { SOUL_TEMPLATES } from './soul-templates';
+import { DEFAULT_SOUL_CONTENT } from '../../../../../../packages/agent-runtime/src/prompt/default-soul';
+import { PalaceViewer } from './PalaceViewer';
+import './MemoriesPage.css';
 /** 记忆页内部子 Tab（资料库已提升为 Hub 顶栏独立模块） */
-type MemoryTab = 'soul' | 'ai' | 'user-memory' | 'plugin'
-
+type MemoryTab = 'soul' | 'ai' | 'user-memory' | 'plugin';
 interface MemoriesPageProps {
-  onViewChange?: (view: ViewType) => void
-  /** Hub 嵌入时隐藏 PageHeader 标题区 */
-  embedded?: boolean
+    onViewChange?: (view: ViewType) => void;
+    /** Hub 嵌入时隐藏 PageHeader 标题区 */
+    embedded?: boolean;
 }
-
-export const MemoriesPage: React.FC<MemoriesPageProps> = ({
-  onViewChange,
-  embedded = false,
-}) => {
-  const [activeTab, setActiveTab] = useState<MemoryTab>('soul')
-  const [isEditMode, setIsEditMode] = useState(false)
-  const [content, setContent] = useState('')
-  const [showDraftRestore, setShowDraftRestore] = useState(false)
-  const autoSaveIntervalRef = useRef<NodeJS.Timeout | null>(null)
-  /** 与 MDEditor 同步的最新正文，保存时优先使用，避免受控状态滞后 */
-  const contentRef = useRef('')
-
-  /**
-   * 将磁盘上的 SOUL 转为编辑器展示内容：空文件时展示默认模板（与运行时一致）。
-   */
-  const resolveSoulDisplayContent = useCallback((raw: string) => {
-    return raw.trim() ? raw : DEFAULT_SOUL_CONTENT
-  }, [])
-
-  const {
-    soul,
-    isLoading,
-    isSaving,
-    error,
-    fetchSoul,
-    updateSoul,
-    clearError,
-    saveDraft,
-    clearDraft,
-    hasDraft,
-    getDraft,
-  } = useSoul()
-
-  // 记忆宫殿（自研 SQLite）自带状态，与插件中心的安装态无关——
-  // 数据就在应用自己的库里，没有"装没装"这一步。
-
-  const {
-    memory: userMemoryData,
-    isLoading: userMemoryLoading,
-    isSaving: userMemorySaving,
-    error: userMemoryError,
-    fetchMemory: fetchUserMemory,
-    updateMemory: updateUserMemory,
-  } = useUserMemory()
-
-  const { settings, updateMemory } = useSettings()
-
-  const handleMemoryInjectionChange = useCallback(
-    (key: 'injectPersonalMemory' | 'injectWorkMemory', checked: boolean) => {
-      const nextSettings = {
-        ...settings,
-        memory: {
-          ...settings.memory,
-          injectPersonalMemory: settings.memory?.injectPersonalMemory !== false,
-          injectWorkMemory: settings.memory?.injectWorkMemory !== false,
-          [key]: checked,
-        },
-      }
-      updateMemory({ [key]: checked })
-      try {
-        localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(nextSettings))
-        window.dispatchEvent(new CustomEvent(SETTINGS_UPDATE_EVENT, { detail: nextSettings }))
-        void updateMemoryInjection({
-          injectPersonalMemory: nextSettings.memory.injectPersonalMemory,
-          injectWorkMemory: nextSettings.memory.injectWorkMemory,
-        })
-      } catch {
-        // 忽略本地存储写入失败
-      }
-    },
-    [settings, updateMemory],
-  )
-
-  const [userMemoryClearOnce, setUserMemoryClearOnce] = useState(false)
-  const [userMemoryEditing, setUserMemoryEditing] = useState(false)
-  const [userMemoryDraft, setUserMemoryDraft] = useState('')
-
-  useEffect(() => {
-    if (activeTab === 'user-memory') {
-      void fetchUserMemory()
-    }
-  }, [activeTab, fetchUserMemory])
-
-  const handleClearUserMemory = useCallback(async () => {
-    if (!userMemoryClearOnce) {
-      setUserMemoryClearOnce(true)
-      return
-    }
-    setUserMemoryClearOnce(false)
-    await updateUserMemory('')
-  }, [userMemoryClearOnce, updateUserMemory])
-
-  useEffect(() => {
-    fetchSoul()
-  }, [fetchSoul])
-
-  useEffect(() => {
-    if (soul !== null) {
-      const displayContent = resolveSoulDisplayContent(soul.content)
-      setContent(displayContent)
-      contentRef.current = displayContent
-
-      if (hasDraft()) {
-        const draft = getDraft()
-        if (draft) {
-          const draftTime = new Date(draft.savedAt).getTime()
-          const serverTime = new Date(soul.updatedAt).getTime()
-          if (draftTime > serverTime && draft.content !== displayContent) {
-            setShowDraftRestore(true)
-          }
+export const MemoriesPage: React.FC<MemoriesPageProps> = ({ onViewChange, embedded = false, }) => {
+    const [activeTab, setActiveTab] = useState<MemoryTab>('soul');
+    const [isEditMode, setIsEditMode] = useState(false);
+    const [content, setContent] = useState('');
+    const [showDraftRestore, setShowDraftRestore] = useState(false);
+    const autoSaveIntervalRef = useRef<NodeJS.Timeout | null>(null);
+    /** 与 MDEditor 同步的最新正文，保存时优先使用，避免受控状态滞后 */
+    const contentRef = useRef('');
+    /**
+     * 将磁盘上的 SOUL 转为编辑器展示内容：空文件时展示默认模板（与运行时一致）。
+     */
+    const resolveSoulDisplayContent = useCallback((raw: string) => {
+        return raw.trim() ? raw : DEFAULT_SOUL_CONTENT;
+    }, []);
+    const { soul, isLoading, isSaving, error, fetchSoul, updateSoul, clearError, saveDraft, clearDraft, hasDraft, getDraft, } = useSoul();
+    // 记忆宫殿（自研 SQLite）自带状态，与插件中心的安装态无关——
+    // 数据就在应用自己的库里，没有"装没装"这一步。
+    const { memory: userMemoryData, isLoading: userMemoryLoading, isSaving: userMemorySaving, error: userMemoryError, fetchMemory: fetchUserMemory, updateMemory: updateUserMemory, } = useUserMemory();
+    const { settings, updateMemory } = useSettings();
+    const handleMemoryInjectionChange = useCallback((key: 'injectPersonalMemory' | 'injectWorkMemory', checked: boolean) => {
+        const nextSettings = {
+            ...settings,
+            memory: {
+                ...settings.memory,
+                injectPersonalMemory: settings.memory?.injectPersonalMemory !== false,
+                injectWorkMemory: settings.memory?.injectWorkMemory !== false,
+                [key]: checked,
+            },
+        };
+        updateMemory({ [key]: checked });
+        try {
+            localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(nextSettings));
+            window.dispatchEvent(new CustomEvent(SETTINGS_UPDATE_EVENT, { detail: nextSettings }));
+            void updateMemoryInjection({
+                injectPersonalMemory: nextSettings.memory.injectPersonalMemory,
+                injectWorkMemory: nextSettings.memory.injectWorkMemory,
+            });
         }
-      }
-    }
-  }, [soul, hasDraft, getDraft, resolveSoulDisplayContent])
-
-  useEffect(() => {
-    if (isEditMode && content) {
-      saveDraft(content)
-      autoSaveIntervalRef.current = setInterval(() => {
-        saveDraft(contentRef.current)
-      }, 30000)
-    }
-    return () => {
-      if (autoSaveIntervalRef.current) clearInterval(autoSaveIntervalRef.current)
-    }
-  }, [isEditMode, content, saveDraft])
-
-  const handleToggleEdit = useCallback(() => {
-    if (isEditMode && soul !== null) {
-      const displayContent = resolveSoulDisplayContent(soul.content)
-      setContent(displayContent)
-      contentRef.current = displayContent
-    }
-    if (isEditMode) setShowDraftRestore(false)
-    setIsEditMode(!isEditMode)
-  }, [isEditMode, soul, resolveSoulDisplayContent])
-
-  const handleSave = useCallback(async () => {
-    if (isSaving) return
-    const nextContent = contentRef.current
-    const success = await updateSoul(nextContent)
-    if (success) {
-      setContent(nextContent)
-      setIsEditMode(false)
-      setShowDraftRestore(false)
-    }
-  }, [isSaving, updateSoul])
-
-  const handleContentChange = useCallback((val: string | undefined) => {
-    const next = val ?? ''
-    contentRef.current = next
-    setContent(next)
-  }, [])
-
-  const handleRestoreDraft = useCallback(() => {
-    const draft = getDraft()
-    if (draft) {
-      setContent(draft.content)
-      contentRef.current = draft.content
-    }
-    setShowDraftRestore(false)
-  }, [getDraft])
-
-  const handleDiscardDraft = useCallback(() => {
-    clearDraft()
-    setShowDraftRestore(false)
-  }, [clearDraft])
-
-  const handleApplyTemplate = useCallback((templateContent: string) => {
-    setContent(templateContent)
-    contentRef.current = templateContent
-    setIsEditMode(true)
-  }, [])
-
-  const handleResetSoul = useCallback(() => {
-    setContent(DEFAULT_SOUL_CONTENT)
-    contentRef.current = DEFAULT_SOUL_CONTENT
-    setIsEditMode(true)
-  }, [])
-
-  const startUserMemoryEdit = useCallback(() => {
-    setUserMemoryDraft(userMemoryData?.content ?? '')
-    setUserMemoryEditing(true)
-  }, [userMemoryData])
-
-  const cancelUserMemoryEdit = useCallback(() => {
-    setUserMemoryEditing(false)
-    setUserMemoryDraft('')
-  }, [])
-
-  const handleSaveUserMemory = useCallback(async () => {
-    const ok = await updateUserMemory(userMemoryDraft)
-    if (ok) {
-      setUserMemoryEditing(false)
-      setUserMemoryDraft('')
-    }
-  }, [userMemoryDraft, updateUserMemory])
-
-  const activeTemplateId = SOUL_TEMPLATES.find(t => t.content.trim() === content.trim())?.id
-
-  return (
-    <div className={`page-container memories-page${embedded ? ' memories-page--embedded' : ''}`}>
-      {!embedded ? (
-      <PageHeader
-        title="记忆管理"
-        subtitle={activeTab === 'soul' ? '定义 AI 助手的性格、风格与行为方式' : '管理 AI 助手的长期记忆，让 AI 更了解您'}
-      />
-      ) : null}
+        catch {
+            // 忽略本地存储写入失败
+        }
+    }, [settings, updateMemory]);
+    const [userMemoryClearOnce, setUserMemoryClearOnce] = useState(false);
+    const [userMemoryEditing, setUserMemoryEditing] = useState(false);
+    const [userMemoryDraft, setUserMemoryDraft] = useState('');
+    useEffect(() => {
+        if (activeTab === 'user-memory') {
+            void fetchUserMemory();
+        }
+    }, [activeTab, fetchUserMemory]);
+    const handleClearUserMemory = useCallback(async () => {
+        if (!userMemoryClearOnce) {
+            setUserMemoryClearOnce(true);
+            return;
+        }
+        setUserMemoryClearOnce(false);
+        await updateUserMemory('');
+    }, [userMemoryClearOnce, updateUserMemory]);
+    useEffect(() => {
+        fetchSoul();
+    }, [fetchSoul]);
+    useEffect(() => {
+        if (soul !== null) {
+            const displayContent = resolveSoulDisplayContent(soul.content);
+            setContent(displayContent);
+            contentRef.current = displayContent;
+            if (hasDraft()) {
+                const draft = getDraft();
+                if (draft) {
+                    const draftTime = new Date(draft.savedAt).getTime();
+                    const serverTime = new Date(soul.updatedAt).getTime();
+                    if (draftTime > serverTime && draft.content !== displayContent) {
+                        setShowDraftRestore(true);
+                    }
+                }
+            }
+        }
+    }, [soul, hasDraft, getDraft, resolveSoulDisplayContent]);
+    useEffect(() => {
+        if (isEditMode && content) {
+            saveDraft(content);
+            autoSaveIntervalRef.current = setInterval(() => {
+                saveDraft(contentRef.current);
+            }, 30000);
+        }
+        return () => {
+            if (autoSaveIntervalRef.current)
+                clearInterval(autoSaveIntervalRef.current);
+        };
+    }, [isEditMode, content, saveDraft]);
+    const handleToggleEdit = useCallback(() => {
+        if (isEditMode && soul !== null) {
+            const displayContent = resolveSoulDisplayContent(soul.content);
+            setContent(displayContent);
+            contentRef.current = displayContent;
+        }
+        if (isEditMode)
+            setShowDraftRestore(false);
+        setIsEditMode(!isEditMode);
+    }, [isEditMode, soul, resolveSoulDisplayContent]);
+    const handleSave = useCallback(async () => {
+        if (isSaving)
+            return;
+        const nextContent = contentRef.current;
+        const success = await updateSoul(nextContent);
+        if (success) {
+            setContent(nextContent);
+            setIsEditMode(false);
+            setShowDraftRestore(false);
+        }
+    }, [isSaving, updateSoul]);
+    const handleContentChange = useCallback((val: string | undefined) => {
+        const next = val ?? '';
+        contentRef.current = next;
+        setContent(next);
+    }, []);
+    const handleRestoreDraft = useCallback(() => {
+        const draft = getDraft();
+        if (draft) {
+            setContent(draft.content);
+            contentRef.current = draft.content;
+        }
+        setShowDraftRestore(false);
+    }, [getDraft]);
+    const handleDiscardDraft = useCallback(() => {
+        clearDraft();
+        setShowDraftRestore(false);
+    }, [clearDraft]);
+    const handleApplyTemplate = useCallback((templateContent: string) => {
+        setContent(templateContent);
+        contentRef.current = templateContent;
+        setIsEditMode(true);
+    }, []);
+    const handleResetSoul = useCallback(() => {
+        setContent(DEFAULT_SOUL_CONTENT);
+        contentRef.current = DEFAULT_SOUL_CONTENT;
+        setIsEditMode(true);
+    }, []);
+    const startUserMemoryEdit = useCallback(() => {
+        setUserMemoryDraft(userMemoryData?.content ?? '');
+        setUserMemoryEditing(true);
+    }, [userMemoryData]);
+    const cancelUserMemoryEdit = useCallback(() => {
+        setUserMemoryEditing(false);
+        setUserMemoryDraft('');
+    }, []);
+    const handleSaveUserMemory = useCallback(async () => {
+        const ok = await updateUserMemory(userMemoryDraft);
+        if (ok) {
+            setUserMemoryEditing(false);
+            setUserMemoryDraft('');
+        }
+    }, [userMemoryDraft, updateUserMemory]);
+    const activeTemplateId = SOUL_TEMPLATES.find(t => t.content.trim() === content.trim())?.id;
+    return (<div className={`page-container memories-page${embedded ? ' memories-page--embedded' : ''}`}>
+      {!embedded ? (<PageHeader title="记忆管理" subtitle={activeTab === 'soul' ? '定义 AI 助手的性格、风格与行为方式' : '管理 AI 助手的长期记忆，让 AI 更了解您'}/>) : null}
 
       {/* Tab 导航 + 记忆注入开关 */}
       <div className="memories-tabs">
@@ -277,21 +216,13 @@ export const MemoriesPage: React.FC<MemoriesPageProps> = ({
         <div className="memories-tabs-actions">
           <Tooltip content="你是谁、你的偏好 — 跨会话稳定，全局生效。关闭后 AI 不会自动看到相应记忆，但仍可通过工具按需搜索读取。" placement="bottom">
             <label className="memory-injection-option" htmlFor="memory-inject-personal">
-              <Checkbox
-                id="memory-inject-personal"
-                checked={settings.memory?.injectPersonalMemory !== false}
-                onChange={(checked) => void handleMemoryInjectionChange('injectPersonalMemory', checked)}
-              />
+              <Checkbox id="memory-inject-personal" checked={settings.memory?.injectPersonalMemory !== false} onChange={(checked) => void handleMemoryInjectionChange('injectPersonalMemory', checked)}/>
               <span>注入个人记忆</span>
             </label>
           </Tooltip>
           <Tooltip content="当前在做什么、用什么资源 — 按 Agent 隔离，会随任务结束归档。关闭后 AI 不会自动看到相应记忆，但仍可通过工具按需搜索读取。" placement="bottom">
             <label className="memory-injection-option" htmlFor="memory-inject-work">
-              <Checkbox
-                id="memory-inject-work"
-                checked={settings.memory?.injectWorkMemory !== false}
-                onChange={(checked) => void handleMemoryInjectionChange('injectWorkMemory', checked)}
-              />
+              <Checkbox id="memory-inject-work" checked={settings.memory?.injectWorkMemory !== false} onChange={(checked) => void handleMemoryInjectionChange('injectWorkMemory', checked)}/>
               <span>注入工作记忆</span>
             </label>
           </Tooltip>
@@ -299,37 +230,26 @@ export const MemoriesPage: React.FC<MemoriesPageProps> = ({
       </div>
 
       {/* AI 灵魂 Tab */}
-      {activeTab === 'soul' && (
-        <>
+      {activeTab === 'soul' && (<>
           {/* 模板选择条 */}
           <div className="soul-templates">
             {SOUL_TEMPLATES.map(tpl => {
-              const Icon = tpl.icon
-              return (
-                <button
-                  key={tpl.id}
-                  type="button"
-                  className={`soul-template-card ${activeTemplateId === tpl.id ? 'soul-template-card--active' : ''}`}
-                  onClick={() => handleApplyTemplate(tpl.content)}
-                  title={tpl.desc}
-                >
-                  <span className="soul-template-icon"><Icon size={20} /></span>
+                const Icon = tpl.icon;
+                return (<button key={tpl.id} type="button" className={`soul-template-card ${activeTemplateId === tpl.id ? 'soul-template-card--active' : ''}`} onClick={() => handleApplyTemplate(tpl.content)} title={tpl.desc}>
+                  <span className="soul-template-icon"><Icon size={20}/></span>
                   <span className="soul-template-name">{tpl.name}</span>
                   <span className="soul-template-desc">{tpl.desc}</span>
-                </button>
-              )
+                </button>);
             })}
 
             {/* 灵魂编辑操作：紧贴最后一张模板卡右侧。放在模板条内而非 tab 行上方，
                 切换 tab 时 tab 行上方不再有条件渲染元素，窗口不会抖动。 */}
             <div className="soul-actions">
-              {isEditMode && (
-                <Button variant="primary" size="sm" onClick={handleSave} disabled={isSaving}>
+              {isEditMode && (<Button variant="primary" size="sm" onClick={handleSave} disabled={isSaving}>
                   {isSaving ? '保存中...' : '保存'}
-                </Button>
-              )}
+                </Button>)}
               <Button variant="ghost" size="sm" onClick={handleResetSoul} title="重置为默认模板">
-                <RotateCcw size={14} style={{ marginRight: 4 }} />
+                <RotateCcw size={14} style={{ marginRight: 4 }}/>
                 重置
               </Button>
               <Button variant={isEditMode ? 'secondary' : 'ghost'} size="sm" onClick={handleToggleEdit}>
@@ -338,76 +258,43 @@ export const MemoriesPage: React.FC<MemoriesPageProps> = ({
             </div>
           </div>
 
-          {error && (
-            <ErrorBanner message={error.message} onRetry={() => { clearError(); fetchSoul() }} />
-          )}
+          {error && (<ErrorBanner message={error.message} onRetry={() => { clearError(); fetchSoul(); }}/>)}
 
-          {isLoading && !soul ? (
-            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', flex: 1 }}>
-              <Loading text="加载 AI 灵魂中..." />
-            </div>
-          ) : (
-            <>
-              {showDraftRestore && (
-                <div className="draft-restore-banner">
+          {isLoading && !soul ? (<div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', flex: 1 }}>
+              <Loading text="加载 AI 灵魂中..."/>
+            </div>) : (<>
+              {showDraftRestore && (<div className="draft-restore-banner">
                   <div className="draft-message"><span>发现有未保存的草稿，是否恢复？</span></div>
                   <div className="draft-actions">
                     <Button variant="ghost" size="sm" onClick={handleRestoreDraft}>恢复</Button>
                     <Button variant="ghost" size="sm" onClick={handleDiscardDraft}>丢弃</Button>
                   </div>
-                </div>
-              )}
+                </div>)}
 
               <div className="memories-editor-container">
                 <div className="editor-wrapper">
-                  <MDEditor
-                    value={content}
-                    onChange={handleContentChange}
-                    preview={isEditMode ? 'live' : 'preview'}
-                    height="100%"
-                    visibleDragbar={false}
-                    hideToolbar={!isEditMode}
-                    enableScroll={true}
-                  />
+                  <MDEditor value={content} onChange={handleContentChange} preview={isEditMode ? 'live' : 'preview'} height="100%" visibleDragbar={false} hideToolbar={!isEditMode} enableScroll={true}/>
                 </div>
               </div>
 
               <div className="memories-footer">
                 <div className="last-update">
-                  {soul?.updatedAt && (
-                    <span>最后更新: {new Date(soul.updatedAt).toLocaleString('zh-CN')}</span>
-                  )}
+                  {soul?.updatedAt && (<span>最后更新: {new Date(soul.updatedAt).toLocaleString('zh-CN')}</span>)}
                 </div>
               </div>
-            </>
-          )}
-        </>
-      )}
+            </>)}
+        </>)}
 
       {/* 工作记忆 Tab */}
-      {activeTab === 'ai' && (
-        <div className="memories-ai-panel">
+      {activeTab === 'ai' && (<div className="memories-ai-panel">
           <MemoryViewer />
-        </div>
-      )}
+        </div>)}
 
       {/* 个人记忆 Tab */}
-      {activeTab === 'user-memory' && (
-        <div className="memories-ai-panel">
-          {userMemoryError && (
-            <ErrorBanner message={userMemoryError.message} onRetry={fetchUserMemory} />
-          )}
-          {userMemoryLoading ? (
-            <Loading text="加载个人记忆..." />
-          ) : userMemoryEditing ? (
-            <>
-              <MDEditor
-                value={userMemoryDraft}
-                onChange={(val: string | undefined) => setUserMemoryDraft(val ?? '')}
-                preview="edit"
-                height={360}
-                visibleDragbar={false}
-              />
+      {activeTab === 'user-memory' && (<div className="memories-ai-panel">
+          {userMemoryError && (<ErrorBanner message={userMemoryError.message} onRetry={fetchUserMemory}/>)}
+          {userMemoryLoading ? (<Loading text="加载个人记忆..."/>) : userMemoryEditing ? (<>
+              <MDEditor value={userMemoryDraft} onChange={(val: string | undefined) => setUserMemoryDraft(val ?? '')} preview="edit" height={360} visibleDragbar={false}/>
               <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
                 <Button variant="primary" onClick={() => void handleSaveUserMemory()} disabled={userMemorySaving}>
                   {userMemorySaving ? '保存中...' : '保存'}
@@ -416,49 +303,32 @@ export const MemoriesPage: React.FC<MemoriesPageProps> = ({
                   取消
                 </Button>
               </div>
-            </>
-          ) : (
-            <>
-              {userMemoryData?.content ? (
-                <pre className="user-memory-preview">{userMemoryData.content}</pre>
-              ) : (
-                <p className="memories-ai-intro" style={{ color: 'var(--color-text-tertiary)' }}>
+            </>) : (<>
+              {userMemoryData?.content ? (<pre className="user-memory-preview">{userMemoryData.content}</pre>) : (<p className="memories-ai-intro" style={{ color: 'var(--color-text-tertiary)' }}>
                   暂无个人记忆。AI 会在对话中自动提取并保存关于你的信息。
-                </p>
-              )}
+                </p>)}
               <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
                 <Button variant="secondary" onClick={startUserMemoryEdit}>
                   编辑
                 </Button>
-                <Button
-                  variant={userMemoryClearOnce ? 'danger' : 'secondary'}
-                  onClick={() => void handleClearUserMemory()}
-                  disabled={userMemorySaving || !userMemoryData?.content}
-                >
+                <Button variant={userMemoryClearOnce ? 'danger' : 'secondary'} onClick={() => void handleClearUserMemory()} disabled={userMemorySaving || !userMemoryData?.content}>
                   {userMemorySaving ? '清空中...' : userMemoryClearOnce ? '确认清空个人记忆' : '清空个人记忆'}
                 </Button>
-                {userMemoryClearOnce && (
-                  <Button variant="secondary" onClick={() => setUserMemoryClearOnce(false)}>
+                {userMemoryClearOnce && (<Button variant="secondary" onClick={() => setUserMemoryClearOnce(false)}>
                     取消
-                  </Button>
-                )}
+                  </Button>)}
               </div>
-              {userMemoryData?.updatedAt && (
-                <p style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginTop: 8 }}>
+              {userMemoryData?.updatedAt && (<p style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginTop: 8 }}>
                   最后更新: {new Date(userMemoryData.updatedAt).toLocaleString('zh-CN')}
-                </p>
-              )}
-            </>
-          )}
-        </div>
-      )}
+                </p>)}
+            </>)}
+        </div>)}
 
       {/* 记忆宫殿 Tab */}
-      {activeTab === 'plugin' && (
-        <div className="memories-plugin-panel">
+      {activeTab === 'plugin' && (<div className="memories-plugin-panel">
           <div className="plugin-card">
             <div className="plugin-card-header">
-              <div className="plugin-card-icon"><Brain size={28} /></div>
+              <div className="plugin-card-icon"><Brain size={28}/></div>
               <div className="plugin-card-info">
                 <h3 className="plugin-card-name">记忆宫殿</h3>
                 <p className="plugin-card-desc">
@@ -468,7 +338,7 @@ export const MemoriesPage: React.FC<MemoriesPageProps> = ({
               {/* 自研实现没有安装态——数据就在应用自己的库里，随启动即有 */}
               <div className="plugin-card-status">
                 <span className="plugin-status plugin-status--installed">
-                  <Check size={14} style={{ verticalAlign: 'middle', marginRight: 2 }} />内置
+                  <Check size={14} style={{ verticalAlign: 'middle', marginRight: 2 }}/>内置
                 </span>
               </div>
             </div>
@@ -480,8 +350,6 @@ export const MemoriesPage: React.FC<MemoriesPageProps> = ({
           </div>
 
           <PalaceViewer />
-        </div>
-      )}
-    </div>
-  )
-}
+        </div>)}
+    </div>);
+};

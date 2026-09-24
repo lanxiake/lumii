@@ -6,14 +6,7 @@
  *
  * 设计依据: .qoder/design/client-agent-runtime/08-前端渲染与IPC通讯.md §2.2
  */
-
-import type {
-  ContentBlock,
-  ContextBudgetSnapshot,
-  ContextUsageBreakdownEntry,
-  ConversationMessageNewEvent,
-} from './agent-runtime-events'
-
+import type { ContentBlock, ContextBudgetSnapshot, ContextUsageBreakdownEntry, ConversationMessageNewEvent, } from './agent-runtime-events';
 /**
  * 会话上下文用量（`conversation:context-usage` 及同类命令的返回形状）。
  *
@@ -21,100 +14,91 @@ import type {
  * 只回前三个字段。
  */
 export interface SessionContextUsageResult {
-  readonly usedTokens: number
-  readonly contextWindow: number
-  readonly triggerThreshold: number
-  readonly breakdown?: readonly ContextUsageBreakdownEntry[]
-  readonly budget?: ContextBudgetSnapshot
+    readonly usedTokens: number;
+    readonly contextWindow: number;
+    readonly triggerThreshold: number;
+    readonly breakdown?: readonly ContextUsageBreakdownEntry[];
+    readonly budget?: ContextBudgetSnapshot;
 }
-
 // ============================================================
 // 用户交互命令
 // ============================================================
-
 interface UserSendCommand {
-  readonly type: 'user:send'
-  readonly sessionKey: string
-  readonly content: string
-  readonly attachments?: readonly string[]
-  /** 指定 Agent ID，不传则使用默认 Agent */
-  readonly agentId?: string
-  /**
-   * 单次发送覆盖的网关模型 ID（如 deepseek-chat 或 provider/modelId）
-   * 由 Bridge 解析为 Model 并传入 LLM 流，无需重建 Agent 实例
-   */
-  readonly modelId?: string
-  /**
-   * 客户端生成的消息 ID（UUID），主进程使用此 ID 落库，
-   * 确保切换会话后 ID 一致，避免因 ID 不匹配导致消息重复显示。
-   */
-  readonly msgId?: string
-  /** 语音通话 ASR 用户消息：与 content 一并持久化，供气泡回放 */
-  readonly isVoice?: boolean
-  readonly audioWavBase64?: string
-  /**
-   * 图片附件的绝对路径列表（已通过 files:import 落盘到 workspace）。
-   *
-   * 主进程接收到后会读取文件 → base64 → 构造 pi-ai 的 ImageContent 块，
-   * 作为多模态 UserMessage 的 content 数组一部分传入 LLM。
-   *
-   * 仅当 selectedModel.input 包含 'image' 时由前端填充；
-   * 否则前端走"先识别再注入文本"路径，不传该字段。
-   */
-  readonly imageAttachmentPaths?: readonly string[]
+    readonly type: 'user:send';
+    readonly sessionKey: string;
+    readonly content: string;
+    readonly attachments?: readonly string[];
+    /** 指定 Agent ID，不传则使用默认 Agent */
+    readonly agentId?: string;
+    /**
+     * 单次发送覆盖的网关模型 ID（如 deepseek-chat 或 provider/modelId）
+     * 由 Bridge 解析为 Model 并传入 LLM 流，无需重建 Agent 实例
+     */
+    readonly modelId?: string;
+    /**
+     * 客户端生成的消息 ID（UUID），主进程使用此 ID 落库，
+     * 确保切换会话后 ID 一致，避免因 ID 不匹配导致消息重复显示。
+     */
+    readonly msgId?: string;
+    /** 语音通话 ASR 用户消息：与 content 一并持久化，供气泡回放 */
+    readonly isVoice?: boolean;
+    readonly audioWavBase64?: string;
+    /**
+     * 图片附件的绝对路径列表（已通过 files:import 落盘到 workspace）。
+     *
+     * 主进程接收到后会读取文件 → base64 → 构造 pi-ai 的 ImageContent 块，
+     * 作为多模态 UserMessage 的 content 数组一部分传入 LLM。
+     *
+     * 仅当 selectedModel.input 包含 'image' 时由前端填充；
+     * 否则前端走"先识别再注入文本"路径，不传该字段。
+     */
+    readonly imageAttachmentPaths?: readonly string[];
 }
-
 interface UserSteerCommand {
-  readonly type: 'user:steer'
-  /**
-   * 发起该回合时登记的 runId。渲染层一定有，所以从前端发就是必带。
-   *
-   * 控制面（CLI / 控制口）**拿不到它** —— `conversation list` 不返回 runId，
-   * 于是那边只能靠下面的 `sessionKey` 兜底。故此处标为可选：处理函数本来就是
-   * `runId 优先、sessionKey 兜底`，把类型对齐到真实逻辑，省得调用方去编一个假 runId。
-   */
-  readonly runId?: string
-  /**
-   * 会话键。定位目标实例时与 `runId` 互为兜底：
-   * 多会话并发时若只按 runId 查表，映射缺失就会退化成「随便挑一个运行中的实例」。
-   */
-  readonly sessionKey?: string
-  /** 在 Agent 执行过程中注入的引导文本 */
-  readonly steerText: string
+    readonly type: 'user:steer';
+    /**
+     * 发起该回合时登记的 runId。渲染层一定有，所以从前端发就是必带。
+     *
+     * 控制面（CLI / 控制口）**拿不到它** —— `conversation list` 不返回 runId，
+     * 于是那边只能靠下面的 `sessionKey` 兜底。故此处标为可选：处理函数本来就是
+     * `runId 优先、sessionKey 兜底`，把类型对齐到真实逻辑，省得调用方去编一个假 runId。
+     */
+    readonly runId?: string;
+    /**
+     * 会话键。定位目标实例时与 `runId` 互为兜底：
+     * 多会话并发时若只按 runId 查表，映射缺失就会退化成「随便挑一个运行中的实例」。
+     */
+    readonly sessionKey?: string;
+    /** 在 Agent 执行过程中注入的引导文本 */
+    readonly steerText: string;
 }
-
 interface UserAbortCommand {
-  readonly type: 'user:abort'
-  /** 可选 runId（有值时优先按 run 精确中止） */
-  readonly runId?: string
-  /** 可选会话键，用于主进程在 runId 映射缺失时精确定位实例 */
-  readonly sessionKey?: string
+    readonly type: 'user:abort';
+    /** 可选 runId（有值时优先按 run 精确中止） */
+    readonly runId?: string;
+    /** 可选会话键，用于主进程在 runId 映射缺失时精确定位实例 */
+    readonly sessionKey?: string;
 }
-
 /**
  * 转交确认（F2 队长制）：用户在转交卡片上点击「交给灵栖开发」后发出。
  * 取出 propose_dev_handoff 登记的提案并执行（新建/复用开发会话 → 发起 run）。
  */
 interface HandoffConfirmCommand {
-  readonly type: 'handoff:confirm'
-  /** propose_dev_handoff 返回的提案 ID */
-  readonly handoffId: string
+    readonly type: 'handoff:confirm';
+    /** propose_dev_handoff 返回的提案 ID */
+    readonly handoffId: string;
 }
-
 // ============================================================
 // 权限响应命令
 // ============================================================
-
 interface UserPermissionRespondCommand {
-  readonly type: 'user:permission:respond'
-  readonly requestId: string
-  readonly decision: 'allow-once' | 'allow-always' | 'deny'
+    readonly type: 'user:permission:respond';
+    readonly requestId: string;
+    readonly decision: 'allow-once' | 'allow-always' | 'deny';
 }
-
 // ============================================================
 // ask_user_question 回答命令
 // ============================================================
-
 /**
  * 渲染进程在用户提交 ask_user_question Modal 后调用。
  *
@@ -123,13 +107,15 @@ interface UserPermissionRespondCommand {
  * - `declined`: 用户按"拒绝回答"
  */
 interface UserAskUserRespondCommand {
-  readonly type: 'user:ask-user:respond'
-  readonly requestId: string
-  readonly answers: Record<string, string>
-  readonly annotations?: Record<string, { preview?: string; notes?: string }>
-  readonly declined?: boolean
+    readonly type: 'user:ask-user:respond';
+    readonly requestId: string;
+    readonly answers: Record<string, string>;
+    readonly annotations?: Record<string, {
+        preview?: string;
+        notes?: string;
+    }>;
+    readonly declined?: boolean;
 }
-
 /**
  * 同步「自动审批」开关到主进程。
  *
@@ -138,833 +124,761 @@ interface UserAskUserRespondCommand {
  * 开着时审批会被立刻自动放行，推过去纯属噪音。
  */
 interface UserAutoApproveSetCommand {
-  readonly type: 'user:auto-approve:set'
-  readonly enabled: boolean
+    readonly type: 'user:auto-approve:set';
+    readonly enabled: boolean;
 }
-
 // ============================================================
 // 会话管理命令
 // ============================================================
-
 interface ConversationCreateCommand {
-  readonly type: 'conversation:create'
-  readonly title?: string
-  readonly agentId?: string
-  /**
-   * 与聊天页模型下拉 id 一致（如 anthropic/claude-opus-4-6），用于从已同步目录解析 contextWindow
-   */
-  readonly selectedModelId?: string
+    readonly type: 'conversation:create';
+    readonly title?: string;
+    readonly agentId?: string;
+    /**
+     * 与聊天页模型下拉 id 一致（如 anthropic/claude-opus-4-6），用于从已同步目录解析 contextWindow
+     */
+    readonly selectedModelId?: string;
 }
-
 /** 将 GET /api/config/models 拉平后的条目同步到主进程（用于上下文压缩与用量条） */
 interface RuntimeModelCatalogSetCommand {
-  readonly type: 'runtime:modelCatalog:set'
-  readonly entries: readonly {
-    readonly id: string
-    readonly contextWindow?: number
-    readonly maxTokens?: number
-  }[]
+    readonly type: 'runtime:modelCatalog:set';
+    readonly entries: readonly {
+        readonly id: string;
+        readonly contextWindow?: number;
+        readonly maxTokens?: number;
+    }[];
 }
-
 /** 仅更新会话级模型偏好与压缩参数（如下拉切换、未发送时） */
 interface SessionPreferredModelSetCommand {
-  readonly type: 'session:preferredModel:set'
-  readonly sessionKey: string
-  readonly modelId?: string
+    readonly type: 'session:preferredModel:set';
+    readonly sessionKey: string;
+    readonly modelId?: string;
 }
-
 /** 切换会话时预热模型上下文；不会修改会话级模型覆盖。 */
 interface SessionPreferredModelPrimeCommand {
-  readonly type: 'session:preferredModel:prime'
-  readonly sessionKey: string
-  readonly modelId?: string
+    readonly type: 'session:preferredModel:prime';
+    readonly sessionKey: string;
+    readonly modelId?: string;
 }
-
 /** 更新会话级思考模式与推理强度 */
 interface SessionThinkingPrefsSetCommand {
-  readonly type: 'session:thinkingPrefs:set'
-  readonly sessionKey: string
-  readonly thinkingEnabled?: boolean
-  readonly reasoningEffort?: 'high' | 'max'
+    readonly type: 'session:thinkingPrefs:set';
+    readonly sessionKey: string;
+    readonly thinkingEnabled?: boolean;
+    readonly reasoningEffort?: 'high' | 'max';
 }
-
 /**
  * 更新全局默认思考偏好（对话页开关）：渠道会话 / 心跳 / cron 等没有会话级
  * 偏好的实例跟随它，并落盘供重启后继承。
  */
 interface SessionThinkingPrefsSetGlobalCommand {
-  readonly type: 'session:thinkingPrefs:setGlobal'
-  readonly thinkingEnabled?: boolean
-  readonly reasoningEffort?: 'high' | 'max'
+    readonly type: 'session:thinkingPrefs:setGlobal';
+    readonly thinkingEnabled?: boolean;
+    readonly reasoningEffort?: 'high' | 'max';
 }
-
 interface ConversationCloseCommand {
-  readonly type: 'conversation:close'
-  readonly sessionKey: string
+    readonly type: 'conversation:close';
+    readonly sessionKey: string;
 }
-
 interface ConversationListCommand {
-  readonly type: 'conversation:list'
+    readonly type: 'conversation:list';
 }
-
 /** UI 历史懒加载游标：指向已加载的最早一条消息，请求严格早于它的记录 */
 interface ConversationMessagesCursor {
-  /** ISO 时间串（与 DB 中的 messages.timestamp 一致） */
-  readonly timestamp: string
-  readonly id: string
+    /** ISO 时间串（与 DB 中的 messages.timestamp 一致） */
+    readonly timestamp: string;
+    readonly id: string;
 }
-
 /**
  * 分页读取会话历史（含已被上下文压缩标记的消息，用户仍需回看）。
  * 不传 before 时返回最新一页。
  */
 interface ConversationMessagesCommand {
-  readonly type: 'conversation:messages'
-  readonly sessionKey: string
-  readonly limit?: number
-  readonly before?: ConversationMessagesCursor
+    readonly type: 'conversation:messages';
+    readonly sessionKey: string;
+    readonly limit?: number;
+    readonly before?: ConversationMessagesCursor;
 }
-
 /**
  * 查询指定会话的实时上下文使用量（用于会话切换后立即展示真实窗口占用）
  */
 interface ConversationContextUsageCommand {
-  readonly type: 'conversation:context-usage'
-  readonly sessionKey: string
+    readonly type: 'conversation:context-usage';
+    readonly sessionKey: string;
 }
-
 interface ConversationDeleteCommand {
-  readonly type: 'conversation:delete'
-  readonly sessionKey: string
+    readonly type: 'conversation:delete';
+    readonly sessionKey: string;
 }
-
 interface ConversationRenameCommand {
-  readonly type: 'conversation:rename'
-  readonly sessionKey: string
-  readonly newTitle: string
+    readonly type: 'conversation:rename';
+    readonly sessionKey: string;
+    readonly newTitle: string;
 }
-
 interface ConversationPinToggleCommand {
-  readonly type: 'conversation:pin-toggle'
-  readonly sessionKey: string
+    readonly type: 'conversation:pin-toggle';
+    readonly sessionKey: string;
 }
-
 /** 忽略中断标记 */
 interface ConversationDismissInterruptCommand {
-  readonly type: 'conversation:dismiss-interrupt'
-  readonly sessionKey: string
+    readonly type: 'conversation:dismiss-interrupt';
+    readonly sessionKey: string;
 }
-
 /** 继续被中断的对话（发送 continuation prompt） */
 interface ConversationContinueInterruptedCommand {
-  readonly type: 'conversation:continue-interrupted'
-  readonly sessionKey: string
+    readonly type: 'conversation:continue-interrupted';
+    readonly sessionKey: string;
 }
-
 /** 切换 Agent = 转移当前会话：保留历史，下条消息起由目标 Agent 处理 */
 interface ConversationTransferAgentCommand {
-  readonly type: 'conversation:transfer-agent'
-  readonly sessionKey: string
-  /** 目标 Agent id；省略表示系统默认 */
-  readonly agentId?: string
+    readonly type: 'conversation:transfer-agent';
+    readonly sessionKey: string;
+    /** 目标 Agent id；省略表示系统默认 */
+    readonly agentId?: string;
 }
-
 interface CronCreateCommand {
-  readonly type: 'cron:create'
-  readonly name: string
-  readonly taskText: string
-  readonly scheduleType: 'at' | 'every' | 'cron'
-  readonly scheduleExpr: string
-  readonly agentId?: string
-  /** 生效星期 "0,1,..,6"（0=周日）；省略表示每天 */
-  readonly activeDays?: string
-  /** 生效时段 [start, end) 的起止小时；省略表示全天 */
-  readonly activeHourStart?: number
-  readonly activeHourEnd?: number
-  /** 逗号分隔的推送目标：system/news/focus/feishu */
-  readonly notifyTargets?: string
+    readonly type: 'cron:create';
+    readonly name: string;
+    readonly taskText: string;
+    readonly scheduleType: 'at' | 'every' | 'cron';
+    readonly scheduleExpr: string;
+    readonly agentId?: string;
+    /** 生效星期 "0,1,..,6"（0=周日）；省略表示每天 */
+    readonly activeDays?: string;
+    /** 生效时段 [start, end) 的起止小时；省略表示全天 */
+    readonly activeHourStart?: number;
+    readonly activeHourEnd?: number;
+    /** 逗号分隔的推送目标：system/news/focus/feishu */
+    readonly notifyTargets?: string;
 }
-
 interface CronListCommand {
-  readonly type: 'cron:list'
-  readonly includeDisabled?: boolean
+    readonly type: 'cron:list';
+    readonly includeDisabled?: boolean;
 }
-
 interface CronDeleteCommand {
-  readonly type: 'cron:delete'
-  readonly id: string
+    readonly type: 'cron:delete';
+    readonly id: string;
 }
-
 interface CronUpdateCommand {
-  readonly type: 'cron:update'
-  readonly id: string
-  readonly patch: {
-    readonly enabled?: boolean
-    readonly name?: string
-    readonly taskText?: string
-    readonly agentId?: string | null
-    readonly scheduleType?: 'at' | 'every' | 'cron'
-    readonly scheduleExpr?: string
-    readonly activeDays?: string
-    readonly activeHourStart?: number | null
-    readonly activeHourEnd?: number | null
-    readonly notifyTargets?: string
-  }
+    readonly type: 'cron:update';
+    readonly id: string;
+    readonly patch: {
+        readonly enabled?: boolean;
+        readonly name?: string;
+        readonly taskText?: string;
+        readonly agentId?: string | null;
+        readonly scheduleType?: 'at' | 'every' | 'cron';
+        readonly scheduleExpr?: string;
+        readonly activeDays?: string;
+        readonly activeHourStart?: number | null;
+        readonly activeHourEnd?: number | null;
+        readonly notifyTargets?: string;
+    };
 }
-
 interface CronRunCommand {
-  readonly type: 'cron:run'
-  readonly id: string
+    readonly type: 'cron:run';
+    readonly id: string;
 }
-
 interface CronRunsCommand {
-  readonly type: 'cron:runs'
-  readonly id: string
-  readonly limit?: number
+    readonly type: 'cron:runs';
+    readonly id: string;
+    readonly limit?: number;
 }
-
 // ============================================================
 // Agent 定义查询
 // ============================================================
-
 interface AgentDefinitionsListCommand {
-  readonly type: 'agent:definitions:list'
+    readonly type: 'agent:definitions:list';
 }
-
 interface AgentMemoriesListCommand {
-  readonly type: 'agent:memories:list'
-  /** 对话 ID（与 sessionKey 相同）；不传则仅用 agentId */
-  readonly sessionKey?: string
-  /** 直接指定 Agent 定义 ID；不传时从 session 解析，再无则 assistant */
-  readonly agentId?: string
+    readonly type: 'agent:memories:list';
+    /** 对话 ID（与 sessionKey 相同）；不传则仅用 agentId */
+    readonly sessionKey?: string;
+    /** 直接指定 Agent 定义 ID；不传时从 session 解析，再无则 assistant */
+    readonly agentId?: string;
 }
-
 interface AgentMemoriesDeleteCommand {
-  readonly type: 'agent:memories:delete'
-  readonly memoryId: string
+    readonly type: 'agent:memories:delete';
+    readonly memoryId: string;
 }
-
 interface AgentMemoriesUpdateCommand {
-  readonly type: 'agent:memories:update'
-  readonly memoryId: string
-  readonly content: string
+    readonly type: 'agent:memories:update';
+    readonly memoryId: string;
+    readonly content: string;
 }
-
 interface AgentMemoriesClearCommand {
-  readonly type: 'agent:memories:clear'
-  readonly sessionKey?: string
-  readonly agentId?: string
+    readonly type: 'agent:memories:clear';
+    readonly sessionKey?: string;
+    readonly agentId?: string;
 }
-
 interface AgentMemoriesExportCommand {
-  readonly type: 'agent:memories:export'
-  readonly sessionKey?: string
-  readonly agentId?: string
+    readonly type: 'agent:memories:export';
+    readonly sessionKey?: string;
+    readonly agentId?: string;
 }
-
 /** 记忆来源下转（诉求 A）：一条工作记忆 → 来源段 + 段原文区间 + 宫殿片段 */
 interface AgentMemoriesProvenanceCommand {
-  readonly type: 'agent:memories:provenance'
-  readonly memoryId: string
+    readonly type: 'agent:memories:provenance';
+    readonly memoryId: string;
 }
-
 /** 搜索记忆（FTS5 + BM25） */
 interface AgentMemoriesSearchCommand {
-  readonly type: 'agent:memories:search'
-  readonly sessionKey?: string
-  readonly agentId?: string
-  readonly keyword: string
-  readonly limit?: number
+    readonly type: 'agent:memories:search';
+    readonly sessionKey?: string;
+    readonly agentId?: string;
+    readonly keyword: string;
+    readonly limit?: number;
 }
-
 /** 归档冷记忆（> 30 天未用且非 personal 类） */
 interface AgentMemoriesArchiveColdCommand {
-  readonly type: 'agent:memories:archiveCold'
-  readonly sessionKey?: string
-  readonly agentId?: string
+    readonly type: 'agent:memories:archiveCold';
+    readonly sessionKey?: string;
+    readonly agentId?: string;
 }
-
 /** 恢复归档记忆 */
 interface AgentMemoriesUnarchiveCommand {
-  readonly type: 'agent:memories:unarchive'
-  readonly memoryId: string
+    readonly type: 'agent:memories:unarchive';
+    readonly memoryId: string;
 }
-
 /** 重建 FTS5 索引 */
 interface AgentMemoriesRebuildIndexCommand {
-  readonly type: 'agent:memories:rebuildIndex'
+    readonly type: 'agent:memories:rebuildIndex';
 }
-
 /** 温度分布统计 */
 interface AgentMemoriesStatsCommand {
-  readonly type: 'agent:memories:stats'
-  readonly sessionKey?: string
-  readonly agentId?: string
+    readonly type: 'agent:memories:stats';
+    readonly sessionKey?: string;
+    readonly agentId?: string;
 }
-
 // ============================================================
 // Wiki 知识库命令（P0）
 // ============================================================
-
 interface WikiInboxListCommand {
-  readonly type: 'wiki:inbox:list'
-  readonly sessionKey?: string
-  readonly agentId?: string
-  readonly status?: 'pending' | 'organized' | 'discarded'
+    readonly type: 'wiki:inbox:list';
+    readonly sessionKey?: string;
+    readonly agentId?: string;
+    readonly status?: 'pending' | 'organized' | 'discarded';
 }
-
 interface WikiInboxCountCommand {
-  readonly type: 'wiki:inbox:count'
-  readonly sessionKey?: string
-  readonly agentId?: string
-  readonly status?: 'pending' | 'organized' | 'discarded'
+    readonly type: 'wiki:inbox:count';
+    readonly sessionKey?: string;
+    readonly agentId?: string;
+    readonly status?: 'pending' | 'organized' | 'discarded';
 }
-
 interface WikiInboxRetryCommand {
-  readonly type: 'wiki:inbox:retry'
-  readonly inboxId: string
+    readonly type: 'wiki:inbox:retry';
+    readonly inboxId: string;
 }
-
 interface WikiInboxDiscardCommand {
-  readonly type: 'wiki:inbox:discard'
-  readonly inboxId: string
+    readonly type: 'wiki:inbox:discard';
+    readonly inboxId: string;
 }
-
 /** 手动指定用途分类立即归档：绕开 AI 分类，直接把一条收件箱条目写入资料层 */
 interface WikiInboxOrganizeCommand {
-  readonly type: 'wiki:inbox:organize'
-  readonly sessionKey?: string
-  readonly agentId?: string
-  readonly inboxId: string
-  readonly category: string
-  readonly subtopic: string
-  /** @deprecated 已废弃，使用 userPath 替代 */
-  readonly project?: string
-  readonly userPath?: string[]
-  readonly tags?: string[]
-  readonly description?: string
-  readonly title?: string
+    readonly type: 'wiki:inbox:organize';
+    readonly sessionKey?: string;
+    readonly agentId?: string;
+    readonly inboxId: string;
+    readonly category: string;
+    readonly subtopic: string;
+    /** @deprecated 已废弃，使用 userPath 替代 */
+    readonly project?: string;
+    readonly userPath?: string[];
+    readonly tags?: string[];
+    readonly description?: string;
+    readonly title?: string;
 }
-
 /** 预览目录内可导入 Wiki 的文件（不写库） */
 interface WikiFolderScanCommand {
-  readonly type: 'wiki:folder:scan'
-  readonly dir: string
-  readonly recursive?: boolean
-  readonly itemType?: 'upload' | 'output' | 'auto'
-  readonly sessionKey?: string
-  readonly agentId?: string
+    readonly type: 'wiki:folder:scan';
+    readonly dir: string;
+    readonly recursive?: boolean;
+    readonly itemType?: 'upload' | 'output' | 'auto';
+    readonly sessionKey?: string;
+    readonly agentId?: string;
 }
-
 /** 批量将目录文件摄入 Wiki 收件箱 */
 interface WikiFolderImportCommand {
-  readonly type: 'wiki:folder:import'
-  readonly dir: string
-  readonly recursive?: boolean
-  readonly itemType?: 'upload' | 'output' | 'auto'
-  readonly dryRun?: boolean
-  /** 导入后跑库级迁移 plan→review；设为 false 时仅 intake 到收件箱 */
-  readonly autoClassify?: boolean
-  readonly classifyBatchSize?: number
-  readonly sessionKey?: string
-  readonly agentId?: string
+    readonly type: 'wiki:folder:import';
+    readonly dir: string;
+    readonly recursive?: boolean;
+    readonly itemType?: 'upload' | 'output' | 'auto';
+    readonly dryRun?: boolean;
+    /** 导入后跑库级迁移 plan→review；设为 false 时仅 intake 到收件箱 */
+    readonly autoClassify?: boolean;
+    readonly classifyBatchSize?: number;
+    readonly sessionKey?: string;
+    readonly agentId?: string;
 }
-
 /** 显式触发一批 intake/organize */
 interface WikiOrganizeRunCommand {
-  readonly type: 'wiki:organize:run'
-  readonly mode?: 'intake' | 'organize' | 'organize-all'
-  readonly itemType?: 'upload' | 'output' | 'search' | 'chat'
-  readonly batchSize?: number
-  /** 用户勾选的收件箱队列 id，有值时走 AI 分类且不受自动分类开关限制 */
-  readonly inboxIds?: readonly string[]
-  /** 用户勾选的未分类资料 id */
-  readonly sourceIds?: readonly string[]
-  readonly sessionKey?: string
-  readonly agentId?: string
+    readonly type: 'wiki:organize:run';
+    readonly mode?: 'intake' | 'organize' | 'organize-all';
+    readonly itemType?: 'upload' | 'output' | 'search' | 'chat';
+    readonly batchSize?: number;
+    /** 用户勾选的收件箱队列 id，有值时走 AI 分类且不受自动分类开关限制 */
+    readonly inboxIds?: readonly string[];
+    /** 用户勾选的未分类资料 id */
+    readonly sourceIds?: readonly string[];
+    readonly sessionKey?: string;
+    readonly agentId?: string;
 }
-
 interface AutonomousStatusCommand {
-  readonly type: 'autonomous:status'
-  readonly sessionKey?: string
-  readonly agentId?: string
+    readonly type: 'autonomous:status';
+    readonly sessionKey?: string;
+    readonly agentId?: string;
 }
-
 interface AutonomousGoalsListCommand {
-  readonly type: 'autonomous:goals:list'
-  readonly sessionKey?: string
-  readonly agentId?: string
-  /** pending | approved | rejected | executing | completed | failed */
-  readonly status?: string
+    readonly type: 'autonomous:goals:list';
+    readonly sessionKey?: string;
+    readonly agentId?: string;
+    /** pending | approved | rejected | executing | completed | failed */
+    readonly status?: string;
 }
-
 interface AutonomousGoalsApproveCommand {
-  readonly type: 'autonomous:goals:approve'
-  readonly goalId: string
-  readonly note?: string
+    readonly type: 'autonomous:goals:approve';
+    readonly goalId: string;
+    readonly note?: string;
 }
-
 interface AutonomousGoalsRejectCommand {
-  readonly type: 'autonomous:goals:reject'
-  readonly goalId: string
-  readonly reason?: string
+    readonly type: 'autonomous:goals:reject';
+    readonly goalId: string;
+    readonly reason?: string;
 }
-
 interface AutonomousCapabilitiesCommand {
-  readonly type: 'autonomous:capabilities'
-  readonly sessionKey?: string
-  readonly agentId?: string
+    readonly type: 'autonomous:capabilities';
+    readonly sessionKey?: string;
+    readonly agentId?: string;
 }
-
 interface AutonomousReflectionsCommand {
-  readonly type: 'autonomous:reflections'
-  readonly sessionKey?: string
-  readonly agentId?: string
-  readonly limit?: number
+    readonly type: 'autonomous:reflections';
+    readonly sessionKey?: string;
+    readonly agentId?: string;
+    readonly limit?: number;
 }
-
 interface AutonomousSatisfactionHistoryCommand {
-  readonly type: 'autonomous:satisfaction:history'
-  readonly sessionKey?: string
-  readonly agentId?: string
-  /** 7d（默认）| 30d | all */
-  readonly window?: string
+    readonly type: 'autonomous:satisfaction:history';
+    readonly sessionKey?: string;
+    readonly agentId?: string;
+    /** 7d（默认）| 30d | all */
+    readonly window?: string;
 }
-
 interface AutonomousPromptVariantsCommand {
-  readonly type: 'autonomous:prompt:variants'
-  /** 按 baseline_prompt_id 过滤 */
-  readonly fragmentKey?: string
+    readonly type: 'autonomous:prompt:variants';
+    /** 按 baseline_prompt_id 过滤 */
+    readonly fragmentKey?: string;
 }
-
 interface AutonomousEnableCommand {
-  readonly type: 'autonomous:enable'
+    readonly type: 'autonomous:enable';
 }
-
 interface AutonomousDisableCommand {
-  readonly type: 'autonomous:disable'
+    readonly type: 'autonomous:disable';
 }
-
 interface AutonomousReflectCommand {
-  readonly type: 'autonomous:reflect'
-  readonly sessionKey?: string
-  readonly agentId?: string
+    readonly type: 'autonomous:reflect';
+    readonly sessionKey?: string;
+    readonly agentId?: string;
 }
-
 interface AutonomousSettingsGetCommand {
-  readonly type: 'autonomous:settings:get'
+    readonly type: 'autonomous:settings:get';
 }
-
 interface AutonomousSettingsUpdateCommand {
-  readonly type: 'autonomous:settings:update'
-  readonly settings: Record<string, unknown>
+    readonly type: 'autonomous:settings:update';
+    readonly settings: Record<string, unknown>;
 }
-
 interface WikiSearchCommand {
-  readonly type: 'wiki:search'
-  readonly sessionKey?: string
-  readonly agentId?: string
-  readonly keyword: string
-  readonly limit?: number
-  /** 显式关闭向量，只走全文检索（用于测试与降级排查） */
-  readonly enableVector?: boolean
+    readonly type: 'wiki:search';
+    readonly sessionKey?: string;
+    readonly agentId?: string;
+    readonly keyword: string;
+    readonly limit?: number;
+    /** 显式关闭向量，只走全文检索（用于测试与降级排查） */
+    readonly enableVector?: boolean;
 }
-
 interface WikiSourceGetCommand {
-  readonly type: 'wiki:source:get'
-  readonly sourceId: string
+    readonly type: 'wiki:source:get';
+    readonly sourceId: string;
 }
-
 interface WikiRunsListCommand {
-  readonly type: 'wiki:runs:list'
-  readonly sessionKey?: string
-  readonly agentId?: string
-  readonly limit?: number
+    readonly type: 'wiki:runs:list';
+    readonly sessionKey?: string;
+    readonly agentId?: string;
+    readonly limit?: number;
 }
-
 interface WikiIndexRebuildCommand {
-  readonly type: 'wiki:index:rebuild'
+    readonly type: 'wiki:index:rebuild';
 }
-
 // ============================================================
 // Wiki 用途主题树 / 资料层命令（记忆重构一期）
 // ============================================================
-
 interface WikiTopicTreeGetCommand {
-  readonly type: 'wiki:topic:tree:get'
-  readonly agentId: string
-  readonly userId?: string
+    readonly type: 'wiki:topic:tree:get';
+    readonly agentId: string;
+    readonly userId?: string;
 }
-
 interface WikiTopicTreeSetCommand {
-  readonly type: 'wiki:topic:tree:set'
-  readonly agentId: string
-  readonly userId?: string
-  readonly tree: {
-    readonly version: 1 | 2
-    readonly categories: ReadonlyArray<{ readonly name: string; readonly subtopics: readonly string[] }>
-  }
+    readonly type: 'wiki:topic:tree:set';
+    readonly agentId: string;
+    readonly userId?: string;
+    readonly tree: {
+        readonly version: 1 | 2;
+        readonly categories: ReadonlyArray<{
+            readonly name: string;
+            readonly subtopics: readonly string[];
+        }>;
+    };
 }
-
 interface WikiTopicTreeMigrateCommand {
-  readonly type: 'wiki:topic:tree:migrate'
-  readonly agentId: string
-  readonly userId?: string
+    readonly type: 'wiki:topic:tree:migrate';
+    readonly agentId: string;
+    readonly userId?: string;
 }
-
 /** 删除节点时的文件去向；删除有文件的节点必须带 disposition */
-type WikiFileDispositionDto =
-  | { readonly type: 'parking' }
-  | { readonly type: 'move'; readonly category: string; readonly subtopic: string }
-
+type WikiFileDispositionDto = {
+    readonly type: 'parking';
+} | {
+    readonly type: 'move';
+    readonly category: string;
+    readonly subtopic: string;
+};
 /** 主题树九种变更操作；只由用户 UI 触发，AI 不可调用 */
-type WikiTopicMutationDto =
-  | { readonly op: 'addCategory'; readonly name: string; readonly index?: number }
-  | { readonly op: 'renameCategory'; readonly from: string; readonly to: string }
-  | { readonly op: 'deleteCategory'; readonly name: string; readonly disposition?: WikiFileDispositionDto }
-  | { readonly op: 'reorderCategories'; readonly names: readonly string[] }
-  | { readonly op: 'addSubtopic'; readonly category: string; readonly name: string; readonly index?: number }
-  | { readonly op: 'renameSubtopic'; readonly category: string; readonly from: string; readonly to: string }
-  | { readonly op: 'deleteSubtopic'; readonly category: string; readonly name: string; readonly disposition?: WikiFileDispositionDto }
-  | { readonly op: 'moveSubtopic'; readonly fromCategory: string; readonly name: string; readonly toCategory: string; readonly index?: number }
-  | { readonly op: 'mergeSubtopic'; readonly fromCategory: string; readonly fromName: string; readonly toCategory: string; readonly toName: string }
-
+type WikiTopicMutationDto = {
+    readonly op: 'addCategory';
+    readonly name: string;
+    readonly index?: number;
+} | {
+    readonly op: 'renameCategory';
+    readonly from: string;
+    readonly to: string;
+} | {
+    readonly op: 'deleteCategory';
+    readonly name: string;
+    readonly disposition?: WikiFileDispositionDto;
+} | {
+    readonly op: 'reorderCategories';
+    readonly names: readonly string[];
+} | {
+    readonly op: 'addSubtopic';
+    readonly category: string;
+    readonly name: string;
+    readonly index?: number;
+} | {
+    readonly op: 'renameSubtopic';
+    readonly category: string;
+    readonly from: string;
+    readonly to: string;
+} | {
+    readonly op: 'deleteSubtopic';
+    readonly category: string;
+    readonly name: string;
+    readonly disposition?: WikiFileDispositionDto;
+} | {
+    readonly op: 'moveSubtopic';
+    readonly fromCategory: string;
+    readonly name: string;
+    readonly toCategory: string;
+    readonly index?: number;
+} | {
+    readonly op: 'mergeSubtopic';
+    readonly fromCategory: string;
+    readonly fromName: string;
+    readonly toCategory: string;
+    readonly toName: string;
+};
 interface WikiTopicMutateCommand {
-  readonly type: 'wiki:topic:mutate'
-  readonly agentId: string
-  readonly userId?: string
-  readonly mutation: WikiTopicMutationDto
+    readonly type: 'wiki:topic:mutate';
+    readonly agentId: string;
+    readonly userId?: string;
+    readonly mutation: WikiTopicMutationDto;
 }
-
 interface WikiSourceCreateNoteCommand {
-  readonly type: 'wiki:source:create-note'
-  readonly agentId: string
-  readonly userId?: string
-  readonly category: string
-  readonly subtopic: string
-  readonly title?: string
+    readonly type: 'wiki:source:create-note';
+    readonly agentId: string;
+    readonly userId?: string;
+    readonly category: string;
+    readonly subtopic: string;
+    readonly title?: string;
 }
-
 interface WikiSourceRenameCommand {
-  readonly type: 'wiki:source:rename'
-  readonly agentId: string
-  readonly userId?: string
-  readonly sourceId: string
-  readonly title: string
+    readonly type: 'wiki:source:rename';
+    readonly agentId: string;
+    readonly userId?: string;
+    readonly sourceId: string;
+    readonly title: string;
 }
-
 // ---- 重新编目（二期）----
-
 interface WikiReclassifyRunCommand {
-  readonly type: 'wiki:reclassify:run'
-  readonly agentId: string
-  readonly userId?: string
-  readonly scope: 'source' | 'subtopic' | 'all'
-  readonly sourceId?: string
-  readonly category?: string
-  readonly subtopic?: string
-  /** 已有待审阅批次时是否丢弃旧批次继续 */
-  readonly force?: boolean
-  /** 同时对低信息标题产出改名提案（P6，默认关闭） */
-  readonly enableRename?: boolean
+    readonly type: 'wiki:reclassify:run';
+    readonly agentId: string;
+    readonly userId?: string;
+    readonly scope: 'source' | 'subtopic' | 'all';
+    readonly sourceId?: string;
+    readonly category?: string;
+    readonly subtopic?: string;
+    /** 已有待审阅批次时是否丢弃旧批次继续 */
+    readonly force?: boolean;
+    /** 同时对低信息标题产出改名提案（P6，默认关闭） */
+    readonly enableRename?: boolean;
 }
-
 interface WikiReclassifyEstimateCommand {
-  readonly type: 'wiki:reclassify:estimate'
-  readonly agentId: string
-  readonly userId?: string
-  readonly scope: 'source' | 'subtopic' | 'all'
-  readonly sourceId?: string
-  readonly category?: string
-  readonly subtopic?: string
+    readonly type: 'wiki:reclassify:estimate';
+    readonly agentId: string;
+    readonly userId?: string;
+    readonly scope: 'source' | 'subtopic' | 'all';
+    readonly sourceId?: string;
+    readonly category?: string;
+    readonly subtopic?: string;
 }
-
 interface WikiReclassifyGetCommand {
-  readonly type: 'wiki:reclassify:get'
-  readonly agentId: string
-  readonly userId?: string
+    readonly type: 'wiki:reclassify:get';
+    readonly agentId: string;
+    readonly userId?: string;
 }
-
 interface WikiReclassifyApplyCommand {
-  readonly type: 'wiki:reclassify:apply'
-  readonly agentId: string
-  readonly userId?: string
-  readonly candidateIds: readonly string[]
+    readonly type: 'wiki:reclassify:apply';
+    readonly agentId: string;
+    readonly userId?: string;
+    readonly candidateIds: readonly string[];
 }
-
 interface WikiReclassifyIgnoreCommand {
-  readonly type: 'wiki:reclassify:ignore'
-  readonly agentId: string
-  readonly userId?: string
-  readonly candidateId: string
+    readonly type: 'wiki:reclassify:ignore';
+    readonly agentId: string;
+    readonly userId?: string;
+    readonly candidateId: string;
 }
-
 interface WikiReclassifyDiscardCommand {
-  readonly type: 'wiki:reclassify:discard'
-  readonly agentId: string
-  readonly userId?: string
+    readonly type: 'wiki:reclassify:discard';
+    readonly agentId: string;
+    readonly userId?: string;
 }
-
 interface WikiReclassifyCancelCommand {
-  readonly type: 'wiki:reclassify:cancel'
-  readonly agentId: string
-  readonly userId?: string
+    readonly type: 'wiki:reclassify:cancel';
+    readonly agentId: string;
+    readonly userId?: string;
 }
-
 // ---- 库级迁移（文件夹导入 plan→review）----
-
 /** migrate run IPC DTO（与 summarizeMigrateRun 对齐） */
 interface WikiMigrateRunDto {
-  readonly runId: string
-  readonly phase: string
-  readonly importRoot: string
-  readonly inboxIds: readonly string[]
-  readonly mappings: readonly {
-    readonly folderRel: string
-    readonly category: string | null
-    readonly subtopic: string | null
-    readonly confidence: number
-    readonly reason: string
-    readonly proposedSubtopic?: string
-    readonly approvedProposedSubtopic?: boolean
-    readonly ignored?: boolean
-    readonly status: 'ok' | 'conflict' | 'needContent'
-    readonly inboxIds: readonly string[]
-  }[]
-  readonly appliedSourceIds: readonly string[]
-  readonly appliedInboxIds: readonly string[]
-  readonly cancelRequested: boolean
-  readonly progress: {
-    readonly runId: string
-    readonly phase: string
-    readonly phaseLabel: string
-    readonly done: number
-    readonly total: number
-    readonly currentItem: string | null
-    readonly message?: string
-    readonly appliedCount?: number
-    readonly cancelRequested?: boolean
-  }
-  readonly error: string | null
-  readonly createdAt: string
-  readonly finishedAt: string | null
+    readonly runId: string;
+    readonly phase: string;
+    readonly importRoot: string;
+    readonly inboxIds: readonly string[];
+    readonly mappings: readonly {
+        readonly folderRel: string;
+        readonly category: string | null;
+        readonly subtopic: string | null;
+        readonly confidence: number;
+        readonly reason: string;
+        readonly proposedSubtopic?: string;
+        readonly approvedProposedSubtopic?: boolean;
+        readonly ignored?: boolean;
+        readonly status: 'ok' | 'conflict' | 'needContent';
+        readonly inboxIds: readonly string[];
+    }[];
+    readonly appliedSourceIds: readonly string[];
+    readonly appliedInboxIds: readonly string[];
+    readonly cancelRequested: boolean;
+    readonly progress: {
+        readonly runId: string;
+        readonly phase: string;
+        readonly phaseLabel: string;
+        readonly done: number;
+        readonly total: number;
+        readonly currentItem: string | null;
+        readonly message?: string;
+        readonly appliedCount?: number;
+        readonly cancelRequested?: boolean;
+    };
+    readonly error: string | null;
+    readonly createdAt: string;
+    readonly finishedAt: string | null;
 }
-
 interface WikiMigrateGetCommand {
-  readonly type: 'wiki:migrate:get'
-  readonly agentId?: string
-  readonly userId?: string
-  readonly sessionKey?: string
+    readonly type: 'wiki:migrate:get';
+    readonly agentId?: string;
+    readonly userId?: string;
+    readonly sessionKey?: string;
 }
-
 interface WikiMigrateApplyCommand {
-  readonly type: 'wiki:migrate:apply'
-  readonly agentId?: string
-  readonly userId?: string
-  readonly sessionKey?: string
+    readonly type: 'wiki:migrate:apply';
+    readonly agentId?: string;
+    readonly userId?: string;
+    readonly sessionKey?: string;
 }
-
 interface WikiMigrateCancelCommand {
-  readonly type: 'wiki:migrate:cancel'
-  readonly agentId?: string
-  readonly userId?: string
-  readonly sessionKey?: string
+    readonly type: 'wiki:migrate:cancel';
+    readonly agentId?: string;
+    readonly userId?: string;
+    readonly sessionKey?: string;
 }
-
 interface WikiMigrateDiscardCommand {
-  readonly type: 'wiki:migrate:discard'
-  readonly agentId?: string
-  readonly userId?: string
-  readonly sessionKey?: string
+    readonly type: 'wiki:migrate:discard';
+    readonly agentId?: string;
+    readonly userId?: string;
+    readonly sessionKey?: string;
 }
-
 interface WikiMigrateUndoCommand {
-  readonly type: 'wiki:migrate:undo'
-  readonly agentId?: string
-  readonly userId?: string
-  readonly sessionKey?: string
+    readonly type: 'wiki:migrate:undo';
+    readonly agentId?: string;
+    readonly userId?: string;
+    readonly sessionKey?: string;
 }
-
 interface WikiMigrateReplanCommand {
-  readonly type: 'wiki:migrate:replan'
-  readonly agentId?: string
-  readonly userId?: string
-  readonly sessionKey?: string
+    readonly type: 'wiki:migrate:replan';
+    readonly agentId?: string;
+    readonly userId?: string;
+    readonly sessionKey?: string;
 }
-
 interface WikiMigrateUpdateMappingCommand {
-  readonly type: 'wiki:migrate:update-mapping'
-  readonly agentId?: string
-  readonly userId?: string
-  readonly sessionKey?: string
-  readonly folderRel: string
-  readonly patch: {
-    readonly category?: string | null
-    readonly subtopic?: string | null
-    readonly approvedProposedSubtopic?: boolean
-    readonly ignored?: boolean
-  }
+    readonly type: 'wiki:migrate:update-mapping';
+    readonly agentId?: string;
+    readonly userId?: string;
+    readonly sessionKey?: string;
+    readonly folderRel: string;
+    readonly patch: {
+        readonly category?: string | null;
+        readonly subtopic?: string | null;
+        readonly approvedProposedSubtopic?: boolean;
+        readonly ignored?: boolean;
+    };
 }
-
 interface WikiSourceListCommand {
-  readonly type: 'wiki:source:list'
-  readonly sessionKey?: string
-  readonly agentId?: string
-  readonly userId?: string
-  readonly category?: string
-  readonly subtopic?: string
-  /** 与 category 同用：只要该大类下「未细分」（小类为空）的资料 */
-  readonly subtopicUnfiled?: boolean
-  readonly parking?: boolean
-  readonly unfiled?: boolean
-  readonly archived?: boolean
-  readonly mediaType?: string
+    readonly type: 'wiki:source:list';
+    readonly sessionKey?: string;
+    readonly agentId?: string;
+    readonly userId?: string;
+    readonly category?: string;
+    readonly subtopic?: string;
+    /** 与 category 同用：只要该大类下「未细分」（小类为空）的资料 */
+    readonly subtopicUnfiled?: boolean;
+    readonly parking?: boolean;
+    readonly unfiled?: boolean;
+    readonly archived?: boolean;
+    readonly mediaType?: string;
 }
-
 /** 左栏角标 / 小类芯片用的轻量计数（不拉正文、不拉列表） */
 interface WikiSourceCountsCommand {
-  readonly type: 'wiki:source:counts'
-  readonly sessionKey?: string
-  readonly agentId?: string
-  readonly userId?: string
+    readonly type: 'wiki:source:counts';
+    readonly sessionKey?: string;
+    readonly agentId?: string;
+    readonly userId?: string;
 }
-
 interface WikiSourceUpdateTopicCommand {
-  readonly type: 'wiki:source:update-topic'
-  readonly agentId: string
-  readonly sourceId: string
-  readonly category: string
-  readonly subtopic: string | null
-  /** @deprecated 已废弃，使用 userPath 替代 */
-  readonly project?: string | null
-  readonly userPath?: string[] | null
-  readonly tags?: string[] | null
-  readonly description?: string | null
+    readonly type: 'wiki:source:update-topic';
+    readonly agentId: string;
+    readonly sourceId: string;
+    readonly category: string;
+    readonly subtopic: string | null;
+    /** @deprecated 已废弃，使用 userPath 替代 */
+    readonly project?: string | null;
+    readonly userPath?: string[] | null;
+    readonly tags?: string[] | null;
+    readonly description?: string | null;
 }
-
 interface WikiSourceMoveToParkingCommand {
-  readonly type: 'wiki:source:move-to-parking'
-  readonly agentId: string
-  readonly sourceId: string
+    readonly type: 'wiki:source:move-to-parking';
+    readonly agentId: string;
+    readonly sourceId: string;
 }
-
 interface WikiSourceOpenCommand {
-  readonly type: 'wiki:source:open'
-  readonly agentId: string
-  readonly sourceId: string
+    readonly type: 'wiki:source:open';
+    readonly agentId: string;
+    readonly sourceId: string;
 }
-
 // ============================================================
 // Wiki 知识库命令（P1）
 // ============================================================
-
 interface WikiCleanupScanCommand {
-  readonly type: 'wiki:cleanup:scan'
-  readonly sessionKey?: string
-  readonly agentId?: string
-  /** 长期未用判定天数阈值，默认 90 */
-  readonly staleDays?: number
+    readonly type: 'wiki:cleanup:scan';
+    readonly sessionKey?: string;
+    readonly agentId?: string;
+    /** 长期未用判定天数阈值，默认 90 */
+    readonly staleDays?: number;
 }
-
 interface WikiSourceArchiveCommand {
-  readonly type: 'wiki:source:archive'
-  readonly sessionKey?: string
-  readonly agentId?: string
-  readonly sourceIds: readonly string[]
+    readonly type: 'wiki:source:archive';
+    readonly sessionKey?: string;
+    readonly agentId?: string;
+    readonly sourceIds: readonly string[];
 }
-
 interface WikiSourceRestoreCommand {
-  readonly type: 'wiki:source:restore'
-  readonly sessionKey?: string
-  readonly agentId?: string
-  readonly sourceIds: readonly string[]
+    readonly type: 'wiki:source:restore';
+    readonly sessionKey?: string;
+    readonly agentId?: string;
+    readonly sourceIds: readonly string[];
 }
-
 interface WikiSourceDeleteCommand {
-  readonly type: 'wiki:source:delete'
-  readonly sessionKey?: string
-  readonly agentId?: string
-  readonly sourceIds: readonly string[]
+    readonly type: 'wiki:source:delete';
+    readonly sessionKey?: string;
+    readonly agentId?: string;
+    readonly sourceIds: readonly string[];
 }
-
 interface WikiAutoClassifyGetCommand {
-  readonly type: 'wiki:auto-classify:get'
-  readonly sessionKey?: string
-  readonly agentId?: string
+    readonly type: 'wiki:auto-classify:get';
+    readonly sessionKey?: string;
+    readonly agentId?: string;
 }
-
 interface WikiAutoClassifySetCommand {
-  readonly type: 'wiki:auto-classify:set'
-  readonly sessionKey?: string
-  readonly agentId?: string
-  readonly enabled: boolean
+    readonly type: 'wiki:auto-classify:set';
+    readonly sessionKey?: string;
+    readonly agentId?: string;
+    readonly enabled: boolean;
 }
-
 interface WikiSourceClearTopicCommand {
-  readonly type: 'wiki:source:clear-topic'
-  readonly sessionKey?: string
-  readonly agentId?: string
-  readonly sourceId: string
+    readonly type: 'wiki:source:clear-topic';
+    readonly sessionKey?: string;
+    readonly agentId?: string;
+    readonly sourceId: string;
 }
-
 interface WikiLinkAddCommand {
-  readonly type: 'wiki:link:add'
-  readonly sessionKey?: string
-  readonly agentId?: string
-  readonly url: string
-  readonly title?: string
+    readonly type: 'wiki:link:add';
+    readonly sessionKey?: string;
+    readonly agentId?: string;
+    readonly url: string;
+    readonly title?: string;
 }
-
 interface WikiLinkSaveCommand {
-  readonly type: 'wiki:link:save'
-  readonly sessionKey?: string
-  readonly agentId?: string
-  readonly sourceId: string
+    readonly type: 'wiki:link:save';
+    readonly sessionKey?: string;
+    readonly agentId?: string;
+    readonly sourceId: string;
 }
-
 interface WikiVaultEnsureLayoutCommand {
-  readonly type: 'wiki:vault:ensure-layout'
-  readonly sessionKey?: string
-  readonly agentId?: string
-  readonly backfill?: boolean
+    readonly type: 'wiki:vault:ensure-layout';
+    readonly sessionKey?: string;
+    readonly agentId?: string;
+    readonly backfill?: boolean;
 }
-
 interface WikiExportCommand {
-  readonly type: 'wiki:export'
-  readonly sessionKey?: string
-  readonly agentId?: string
-  readonly targetDir: string
+    readonly type: 'wiki:export';
+    readonly sessionKey?: string;
+    readonly agentId?: string;
+    readonly targetDir: string;
 }
-
 interface WikiVectorRebuildCommand {
-  readonly type: 'wiki:vector:rebuild'
-  readonly sessionKey?: string
-  readonly agentId?: string
+    readonly type: 'wiki:vector:rebuild';
+    readonly sessionKey?: string;
+    readonly agentId?: string;
 }
-
 /** 供 P5 编目/P7 重命名索取摘要；allowLlm=true 时长正文可能触发一次 LLM 调用 */
 interface WikiSourceSummaryCommand {
-  readonly type: 'wiki:source:summary'
-  readonly sessionKey?: string
-  readonly agentId?: string
-  readonly sourceId: string
-  readonly allowLlm?: boolean
+    readonly type: 'wiki:source:summary';
+    readonly sessionKey?: string;
+    readonly agentId?: string;
+    readonly sourceId: string;
+    readonly allowLlm?: boolean;
 }
-
 // ============================================================
 // 工具管理命令
 // ============================================================
-
 interface ToolsListCommand {
-  readonly type: 'tools:list'
+    readonly type: 'tools:list';
 }
-
 interface ToolsToggleCommand {
-  readonly type: 'tools:toggle'
-  readonly toolName: string
-  readonly enabled: boolean
+    readonly type: 'tools:toggle';
+    readonly toolName: string;
+    readonly enabled: boolean;
 }
-
 /**
  * 逐 Agent 的工具用量。
  *
@@ -973,16 +887,15 @@ interface ToolsToggleCommand {
  * 是白花成本；这个视图只有工具页用。
  */
 interface ToolsUsageByAgentCommand {
-  readonly type: 'tools:usage-by-agent'
-  /**
-   * 只统计最近 N 天（含今天）；省略或 0 表示累计。
-   *
-   * 两种口径来自不同的表，**不互相兜底**：累计表里混着 V44 之前无法归因的存量，
-   * 拿它当「最近 N 天」用，就会重演 B1 那个坑（把历史存量当成当前状态）。
-   */
-  readonly days?: number
+    readonly type: 'tools:usage-by-agent';
+    /**
+     * 只统计最近 N 天（含今天）；省略或 0 表示累计。
+     *
+     * 两种口径来自不同的表，**不互相兜底**：累计表里混着 V44 之前无法归因的存量，
+     * 拿它当「最近 N 天」用，就会重演 B1 那个坑（把历史存量当成当前状态）。
+     */
+    readonly days?: number;
 }
-
 /**
  * 检视资讯偏好：每条规则会命中哪些已推条目 + 冲突裁决顺序。
  *
@@ -991,371 +904,314 @@ interface ToolsUsageByAgentCommand {
  * 分两个命令会让两边口径漂开，那正好毁掉预览的意义。
  */
 interface NewsPreferencePreviewCommand {
-  readonly type: 'news-preference:preview'
+    readonly type: 'news-preference:preview';
 }
-
 /** 导出工具累计使用记录（JSON），供离线分析 */
 interface ToolsUsageExportCommand {
-  readonly type: 'tools:usage:export'
+    readonly type: 'tools:usage:export';
 }
-
 interface McpStatusCommand {
-  readonly type: 'mcp:status'
+    readonly type: 'mcp:status';
 }
-
 /** MCP Server 配置（与主进程 McpServerEntry 一致） */
 export interface McpServerConfigInput {
-  readonly name: string
-  readonly command: string
-  readonly args?: readonly string[]
-  readonly env?: Record<string, string>
-  readonly cwd?: string
-  readonly enabled?: boolean
+    readonly name: string;
+    readonly command: string;
+    readonly args?: readonly string[];
+    readonly env?: Record<string, string>;
+    readonly cwd?: string;
+    readonly enabled?: boolean;
 }
-
 interface McpUpsertCommand {
-  readonly type: 'mcp:upsert'
-  readonly entry: McpServerConfigInput
-  /** 编辑已有条目时传入原名称，用于支持改名 */
-  readonly originalName?: string
+    readonly type: 'mcp:upsert';
+    readonly entry: McpServerConfigInput;
+    /** 编辑已有条目时传入原名称，用于支持改名 */
+    readonly originalName?: string;
 }
-
 interface McpImportCommand {
-  readonly type: 'mcp:import'
-  readonly entries: readonly McpServerConfigInput[]
+    readonly type: 'mcp:import';
+    readonly entries: readonly McpServerConfigInput[];
 }
-
 interface McpRemoveCommand {
-  readonly type: 'mcp:remove'
-  readonly name: string
+    readonly type: 'mcp:remove';
+    readonly name: string;
 }
-
 interface McpSetEnabledCommand {
-  readonly type: 'mcp:setEnabled'
-  readonly name: string
-  readonly enabled: boolean
+    readonly type: 'mcp:setEnabled';
+    readonly name: string;
+    readonly enabled: boolean;
 }
-
 /**
  * 会话级启停 MCP server（设置页的 mcp:setEnabled 是全局总开关）。
  * 全局关闭的 server 无法在会话里单独开启。
  */
 interface McpSetSessionEnabledCommand {
-  readonly type: 'mcp:setSessionEnabled'
-  readonly sessionKey: string
-  readonly name: string
-  readonly enabled: boolean
+    readonly type: 'mcp:setSessionEnabled';
+    readonly sessionKey: string;
+    readonly name: string;
+    readonly enabled: boolean;
 }
-
 /** 读取会话级 MCP 禁用集 */
 interface McpSessionDisabledCommand {
-  readonly type: 'mcp:sessionDisabled'
-  readonly sessionKey: string
+    readonly type: 'mcp:sessionDisabled';
+    readonly sessionKey: string;
 }
-
 /**
  * 会话级启停技能（技能中心的启用/禁用是全局总开关）。
  * 全局未启用的技能无法在会话里单独开启。
  */
 interface SkillSetSessionEnabledCommand {
-  readonly type: 'skill:setSessionEnabled'
-  readonly sessionKey: string
-  readonly skillId: string
-  readonly enabled: boolean
+    readonly type: 'skill:setSessionEnabled';
+    readonly sessionKey: string;
+    readonly skillId: string;
+    readonly enabled: boolean;
 }
-
 /** 读取会话级技能禁用集 */
 interface SkillSessionDisabledCommand {
-  readonly type: 'skill:sessionDisabled'
-  readonly sessionKey: string
+    readonly type: 'skill:sessionDisabled';
+    readonly sessionKey: string;
 }
-
 interface McpReconnectCommand {
-  readonly type: 'mcp:reconnect'
-  readonly name: string
+    readonly type: 'mcp:reconnect';
+    readonly name: string;
 }
-
 /** 读取 mcp-servers.json 原文 */
 interface McpReadConfigFileCommand {
-  readonly type: 'mcp:readConfigFile'
+    readonly type: 'mcp:readConfigFile';
 }
-
 /** 写入 mcp-servers.json 原文并重载全部连接 */
 interface McpWriteConfigFileCommand {
-  readonly type: 'mcp:writeConfigFile'
-  readonly content: string
+    readonly type: 'mcp:writeConfigFile';
+    readonly content: string;
 }
-
 /** mcp:status 返回的单条运行时状态 */
 export interface McpServerStatusResult extends McpServerConfigInput {
-  readonly connected: boolean
-  readonly connecting: boolean
-  readonly tools: readonly string[]
-  readonly lastError?: string
-  /** 该 server 工具定义的估算 token（与上下文用量条同一口径） */
-  readonly estimatedTokens?: number
+    readonly connected: boolean;
+    readonly connecting: boolean;
+    readonly tools: readonly string[];
+    readonly lastError?: string;
+    /** 该 server 工具定义的估算 token（与上下文用量条同一口径） */
+    readonly estimatedTokens?: number;
 }
-
 /** mcp:status 的完整返回（含配置文件级错误） */
 export interface McpStatusPayload {
-  readonly servers: readonly McpServerStatusResult[]
-  readonly configError?: string
+    readonly servers: readonly McpServerStatusResult[];
+    readonly configError?: string;
 }
-
 // ============================================================
 // 主进程桥接（原独立 IPC，统一经 sendCommand）
 // ============================================================
-
 interface RuntimePingCommand {
-  readonly type: 'runtime:ping'
+    readonly type: 'runtime:ping';
 }
-
 interface RuntimeFeatureFlagsGetCommand {
-  readonly type: 'runtime:featureFlags:get'
+    readonly type: 'runtime:featureFlags:get';
 }
-
 interface RuntimeEnabledCommand {
-  readonly type: 'runtime:enabled'
+    readonly type: 'runtime:enabled';
 }
-
 interface AgentDefinitionSyncStatusCommand {
-  readonly type: 'agentDefinition:syncStatus'
+    readonly type: 'agentDefinition:syncStatus';
 }
-
 interface AgentDefinitionSyncUserAgentsCommand {
-  readonly type: 'agentDefinition:syncUserAgents'
+    readonly type: 'agentDefinition:syncUserAgents';
 }
-
 interface AgentInstancePromptCommand {
-  readonly type: 'agentInstance:prompt'
-  readonly instanceId: string
-  readonly message: string
+    readonly type: 'agentInstance:prompt';
+    readonly instanceId: string;
+    readonly message: string;
 }
-
 interface AgentInstanceAbortCommand {
-  readonly type: 'agentInstance:abort'
-  readonly instanceId: string
+    readonly type: 'agentInstance:abort';
+    readonly instanceId: string;
 }
-
 interface AgentInstanceDestroyCommand {
-  readonly type: 'agentInstance:destroy'
-  readonly instanceId: string
+    readonly type: 'agentInstance:destroy';
+    readonly instanceId: string;
 }
-
 interface AgentInstanceListCommand {
-  readonly type: 'agentInstance:list'
+    readonly type: 'agentInstance:list';
 }
-
 interface StorageStatsCommand {
-  readonly type: 'storage:stats'
+    readonly type: 'storage:stats';
 }
-
 interface StorageExportJsonlCommand {
-  readonly type: 'storage:exportJsonl'
+    readonly type: 'storage:exportJsonl';
 }
-
 interface StorageClearMalformedCommand {
-  readonly type: 'storage:clearMalformed'
+    readonly type: 'storage:clearMalformed';
 }
-
 /** 列出本地 SQLite 自动备份 */
 interface StorageListBackupsCommand {
-  readonly type: 'storage:listBackups'
+    readonly type: 'storage:listBackups';
 }
-
 /** 立即创建本地 SQLite 备份 */
 interface StorageCreateBackupCommand {
-  readonly type: 'storage:createBackup'
+    readonly type: 'storage:createBackup';
 }
-
 /** 从指定备份文件恢复聊天记录 */
 interface StorageRestoreBackupCommand {
-  readonly type: 'storage:restoreBackup'
-  readonly backupFileName: string
+    readonly type: 'storage:restoreBackup';
+    readonly backupFileName: string;
 }
-
 /** 从最新备份恢复聊天记录 */
 interface StorageRestoreLatestBackupCommand {
-  readonly type: 'storage:restoreLatestBackup'
+    readonly type: 'storage:restoreLatestBackup';
 }
-
 /** 删除指定备份文件 */
 interface StorageDeleteBackupCommand {
-  readonly type: 'storage:deleteBackup'
-  readonly backupFileName: string
+    readonly type: 'storage:deleteBackup';
+    readonly backupFileName: string;
 }
-
 /** 拉取最近工具审计记录（含权限决策摘要） */
 interface StorageAuditRecentCommand {
-  readonly type: 'storage:auditRecent'
-  readonly limit?: number
+    readonly type: 'storage:auditRecent';
+    readonly limit?: number;
 }
-
 // ============================================================
 // 消息管理命令
 // ============================================================
-
 interface MessageDeleteCommand {
-  readonly type: 'message:delete'
-  readonly messageId: string
-  readonly sessionKey: string
+    readonly type: 'message:delete';
+    readonly messageId: string;
+    readonly sessionKey: string;
 }
-
 interface MessageEditCommand {
-  readonly type: 'message:edit'
-  readonly messageId: string
-  readonly sessionKey: string
-  readonly newContent: string
+    readonly type: 'message:edit';
+    readonly messageId: string;
+    readonly sessionKey: string;
+    readonly newContent: string;
 }
-
 // ============================================================
 // 编辑分支命令
 // ============================================================
-
 /**
  * 基于当前历史创建新对话分支。
  * 复制 sourceSessionKey 中 uptoMessageId（含）之前的历史到新会话，并追加编辑后的 user 消息。
  * 返回 { sessionKey: string } — 新会话的 key。
  */
 interface ConversationForkCommand {
-  readonly type: 'conversation:fork'
-  readonly sourceSessionKey: string
-  /** 复制至（含）此消息 ID，该消息的后续历史不复制 */
-  readonly uptoMessageId: string
-  /** 编辑后的用户消息内容 */
-  readonly newContent: string
+    readonly type: 'conversation:fork';
+    readonly sourceSessionKey: string;
+    /** 复制至（含）此消息 ID，该消息的后续历史不复制 */
+    readonly uptoMessageId: string;
+    /** 编辑后的用户消息内容 */
+    readonly newContent: string;
 }
-
 /**
  * 编辑用户消息并重新触发回答（删除该消息之后的所有消息，然后重发）。
  * 等价于：deleteMessagesAfter(messageId) + updateMessageContent + resend。
  */
 interface MessageEditAndResendCommand {
-  readonly type: 'message:edit-and-resend'
-  readonly sessionKey: string
-  readonly messageId: string
-  readonly newContent: string
+    readonly type: 'message:edit-and-resend';
+    readonly sessionKey: string;
+    readonly messageId: string;
+    readonly newContent: string;
 }
-
 // ============================================================
 // 命令注册表查询
 // ============================================================
-
 /** 查询客户端可用的基础斜杠命令列表 */
 interface CommandsListCommand {
-  readonly type: 'commands:list'
+    readonly type: 'commands:list';
 }
-
 /** 按会话列出 TaskRepo 中的任务（重启后恢复 TodoPanel） */
 interface TasksListCommand {
-  readonly type: 'tasks:list'
-  /** 会话 key / conversationId */
-  readonly conversationId: string
+    readonly type: 'tasks:list';
+    /** 会话 key / conversationId */
+    readonly conversationId: string;
 }
-
 /** 命令列表条目（通用跨渠道格式） */
 export interface CommandListEntry {
-  readonly key: string
-  readonly name: string
-  readonly aliases: readonly string[]
-  readonly description: string
-  readonly usage?: string
-  readonly category: string
-  readonly acceptsArgs: boolean
+    readonly key: string;
+    readonly name: string;
+    readonly aliases: readonly string[];
+    readonly description: string;
+    readonly usage?: string;
+    readonly category: string;
+    readonly acceptsArgs: boolean;
 }
-
 // ============================================================
 // 上下文压缩命令
 // ============================================================
-
 interface UserCompactContextCommand {
-  readonly type: 'user:compact-context'
-  readonly sessionKey: string
-  /** 保留最近 N 轮对话，默认 6 */
-  readonly keepRecentTurns?: number
+    readonly type: 'user:compact-context';
+    readonly sessionKey: string;
+    /** 保留最近 N 轮对话，默认 6 */
+    readonly keepRecentTurns?: number;
 }
-
 /** 用户手动停止正在进行的上下文压缩 */
 interface UserAbortCompactContextCommand {
-  readonly type: 'user:abort-compact-context'
-  readonly sessionKey: string
+    readonly type: 'user:abort-compact-context';
+    readonly sessionKey: string;
 }
-
 // ============================================================
 // 文件管理命令
 // ============================================================
-
 /** 分页查询文件列表 */
 interface FilesListCommand {
-  readonly type: 'files:list'
-  readonly userId: string
-  readonly agentId?: string
-  readonly conversationId?: string
-  readonly channel?: string
-  readonly category?: 'upload' | 'output'
-  readonly limit?: number
-  readonly offset?: number
+    readonly type: 'files:list';
+    readonly userId: string;
+    readonly agentId?: string;
+    readonly conversationId?: string;
+    readonly channel?: string;
+    readonly category?: 'upload' | 'output';
+    readonly limit?: number;
+    readonly offset?: number;
 }
-
 /** 按关键词 + 过滤条件搜索文件 */
 interface FilesSearchCommand {
-  readonly type: 'files:search'
-  readonly userId: string
-  readonly query: string
-  readonly filters?: {
-    readonly agentId?: string
-    readonly conversationId?: string
-    readonly channel?: string
-    readonly dateFrom?: string
-    readonly dateTo?: string
-  }
+    readonly type: 'files:search';
+    readonly userId: string;
+    readonly query: string;
+    readonly filters?: {
+        readonly agentId?: string;
+        readonly conversationId?: string;
+        readonly channel?: string;
+        readonly dateFrom?: string;
+        readonly dateTo?: string;
+    };
 }
-
 /** 批量软删除文件 */
 interface FilesDeleteCommand {
-  readonly type: 'files:delete'
-  readonly fileIds: readonly string[]
-  readonly userId: string
+    readonly type: 'files:delete';
+    readonly fileIds: readonly string[];
+    readonly userId: string;
 }
-
 /** 用系统默认应用打开文件 */
 interface FilesOpenCommand {
-  readonly type: 'files:open'
-  readonly fileId: string
-  readonly userId: string
+    readonly type: 'files:open';
+    readonly fileId: string;
+    readonly userId: string;
 }
-
 /** 另存为指定路径 */
 interface FilesSaveAsCommand {
-  readonly type: 'files:save-as'
-  readonly fileId: string
-  readonly userId: string
-  readonly savePath: string
+    readonly type: 'files:save-as';
+    readonly fileId: string;
+    readonly userId: string;
+    readonly savePath: string;
 }
-
 /** 读取文件内容用于预览（带 10MB 安全上限） */
 interface FilesReadPreviewContentCommand {
-  readonly type: 'files:read-preview-content'
-  readonly fileId: string
-  readonly userId: string
+    readonly type: 'files:read-preview-content';
+    readonly fileId: string;
+    readonly userId: string;
 }
-
 /** 将外部文件导入到 workspace uploads 目录并注册到 FileRepo */
 interface FilesImportCommand {
-  readonly type: 'files:import'
-  readonly userId: string
-  /** 源文件绝对路径（来自 Electron File.path）；与 fileBuffer 二选一 */
-  readonly sourcePath?: string
-  /** 原始文件名 */
-  readonly fileName: string
-  /** MIME 类型 */
-  readonly mimeType: string
-  /** 文件内容 base64（当 sourcePath 不可用时使用，如拖拽上传） */
-  readonly fileBuffer?: string
-  /** 关联的会话 key（可选） */
-  readonly conversationId?: string
+    readonly type: 'files:import';
+    readonly userId: string;
+    /** 源文件绝对路径（来自 Electron File.path）；与 fileBuffer 二选一 */
+    readonly sourcePath?: string;
+    /** 原始文件名 */
+    readonly fileName: string;
+    /** MIME 类型 */
+    readonly mimeType: string;
+    /** 文件内容 base64（当 sourcePath 不可用时使用，如拖拽上传） */
+    readonly fileBuffer?: string;
+    /** 关联的会话 key（可选） */
+    readonly conversationId?: string;
 }
-
 /** 按绝对/相对路径读取文件内容用于预览（工具卡片场景）
  *
  * 与 files:read-preview-content 的区别：不依赖 FileRepo 注册；
@@ -1363,58 +1219,51 @@ interface FilesImportCommand {
  * 用于读取/写入类工具卡片上的"点击文件名预览"。
  */
 interface FilesReadPreviewByPathCommand {
-  readonly type: 'files:read-preview-by-path'
-  readonly filePath: string
-  readonly userId: string
-  /** 可选：只预览指定行号范围（1-based，含） */
-  readonly startLine?: number
-  readonly endLine?: number
+    readonly type: 'files:read-preview-by-path';
+    readonly filePath: string;
+    readonly userId: string;
+    /** 可选：只预览指定行号范围（1-based，含） */
+    readonly startLine?: number;
+    readonly endLine?: number;
 }
-
 interface CodingDevSetBackendCommand {
-  readonly type: 'codingDev:setBackend'
-  /** 目标后端 ID（如 'claude'、'codex'、'opencode'） */
-  readonly backendId: string
-  /** 作用域：'peer'（per-peer）或 'user-global' */
-  readonly scope: 'peer' | 'user-global'
-  /** 账号 ID（微信 channelUserId 或 Windows 用户 ID） */
-  readonly accountId: string
-  /** 会话 sessionKey（scope='peer' 时必填） */
-  readonly peerId?: string
-  /**
-   * 桌面开发会话级覆盖：有值时写 dev-context（优先于 user-global 与 Agent 绑定），
-   * 供会话内 /claude、/lumii 切换使用。
-   */
-  readonly sessionKey?: string
+    readonly type: 'codingDev:setBackend';
+    /** 目标后端 ID（如 'claude'、'codex'、'opencode'） */
+    readonly backendId: string;
+    /** 作用域：'peer'（per-peer）或 'user-global' */
+    readonly scope: 'peer' | 'user-global';
+    /** 账号 ID（微信 channelUserId 或 Windows 用户 ID） */
+    readonly accountId: string;
+    /** 会话 sessionKey（scope='peer' 时必填） */
+    readonly peerId?: string;
+    /**
+     * 桌面开发会话级覆盖：有值时写 dev-context（优先于 user-global 与 Agent 绑定），
+     * 供会话内 /claude、/lumii 切换使用。
+     */
+    readonly sessionKey?: string;
 }
-
 interface CodingDevSetProjectCommand {
-  readonly type: 'codingDev:setProject'
-  /** 桌面会话 id（sessionKey === conversationId）；渠道请用 /project 命令走 peer 级 */
-  readonly sessionKey: string
-  /** 项目名；null 表示清除会话级项目（回落 Agent 绑定 / 全局活动项目） */
-  readonly projectName: string | null
+    readonly type: 'codingDev:setProject';
+    /** 桌面会话 id（sessionKey === conversationId）；渠道请用 /project 命令走 peer 级 */
+    readonly sessionKey: string;
+    /** 项目名；null 表示清除会话级项目（回落 Agent 绑定 / 全局活动项目） */
+    readonly projectName: string | null;
 }
-
 interface CodingDevGetDevContextCommand {
-  readonly type: 'codingDev:getDevContext'
-  readonly sessionKey: string
+    readonly type: 'codingDev:getDevContext';
+    readonly sessionKey: string;
 }
-
 interface CodingDevGetBackendCommand {
-  readonly type: 'codingDev:getBackend'
-  readonly accountId: string
-  readonly peerId?: string
+    readonly type: 'codingDev:getBackend';
+    readonly accountId: string;
+    readonly peerId?: string;
 }
-
 interface CodingDevListBackendsCommand {
-  readonly type: 'codingDev:listBackends'
+    readonly type: 'codingDev:listBackends';
 }
-
 // ============================================================
 // 图片处理（识别 / 美化 / 裁剪等；按策略扩展）
 // ============================================================
-
 /**
  * 图片识别：调用多模态模型（优先国内小模型，如 Qwen-VL / GLM-4V / Doubao-Vision）
  * 对图片内容进行理解，返回描述文本 + 可选 OCR 文本。
@@ -1423,29 +1272,27 @@ interface CodingDevListBackendsCommand {
  * 当 Agent 使用纯文本模型时，前端可先识别，再把识别结果注入消息文本。
  */
 interface ImageRecognizeCommand {
-  readonly type: 'image:recognize'
-  /** workspace 内绝对路径或相对 cwd 路径 */
-  readonly imagePath: string
-  /** 可选：指定识别用的模型 id；省略则按 config 默认（优先国内） */
-  readonly modelId?: string
-  /** 可选：自定义识别提示词（默认：简要描述图片内容并提取其中可见的文字） */
-  readonly prompt?: string
-  /** 可选：是否附带 OCR（默认 true） */
-  readonly includeOcr?: boolean
+    readonly type: 'image:recognize';
+    /** workspace 内绝对路径或相对 cwd 路径 */
+    readonly imagePath: string;
+    /** 可选：指定识别用的模型 id；省略则按 config 默认（优先国内） */
+    readonly modelId?: string;
+    /** 可选：自定义识别提示词（默认：简要描述图片内容并提取其中可见的文字） */
+    readonly prompt?: string;
+    /** 可选：是否附带 OCR（默认 true） */
+    readonly includeOcr?: boolean;
 }
-
 /**
  * 图片生成：通过 AI 模型根据文字描述生成图片。
  * 支持模型：gpt-image-2 / gpt-image-2-vip / nano-banana 系列
  */
 interface ImageGenerateCommand {
-  readonly type: 'image:generate'
-  readonly prompt: string
-  readonly modelId?: string
-  readonly width?: number
-  readonly height?: number
+    readonly type: 'image:generate';
+    readonly prompt: string;
+    readonly modelId?: string;
+    readonly width?: number;
+    readonly height?: number;
 }
-
 /**
  * 图片处理（美化 / 风格化 / 抠图 / 水印 / 压缩等）。
  *
@@ -1453,912 +1300,782 @@ interface ImageGenerateCommand {
  * 前端只需传递 operation + options，后端根据 operation 路由到具体策略。
  */
 interface ImageProcessCommand {
-  readonly type: 'image:process'
-  /** 输入图片路径（workspace 内） */
-  readonly imagePath: string
-  /** 处理操作名称（由具体策略注册，如 'beautify' / 'upscale' / 'bg-remove'） */
-  readonly operation: string
-  /** 策略特定参数 */
-  readonly options?: Record<string, unknown>
+    readonly type: 'image:process';
+    /** 输入图片路径（workspace 内） */
+    readonly imagePath: string;
+    /** 处理操作名称（由具体策略注册，如 'beautify' / 'upscale' / 'bg-remove'） */
+    readonly operation: string;
+    /** 策略特定参数 */
+    readonly options?: Record<string, unknown>;
 }
-
 // ============================================================
 // 技能自进化命令
 // ============================================================
-
 /** 确认技能草稿（写入磁盘并激活） */
 interface SkillConfirmDraftCommand {
-  readonly type: 'skill:confirm_draft'
-  readonly draft: {
-    readonly id: string
-    readonly skillMd: string
-    readonly humanSummary: {
-      readonly title: string
-      readonly scenario: string
-      readonly steps: readonly string[]
-    }
-    readonly qualityScore: number
-    readonly createdAt: string
-  }
+    readonly type: 'skill:confirm_draft';
+    readonly draft: {
+        readonly id: string;
+        readonly skillMd: string;
+        readonly humanSummary: {
+            readonly title: string;
+            readonly scenario: string;
+            readonly steps: readonly string[];
+        };
+        readonly qualityScore: number;
+        readonly createdAt: string;
+    };
 }
-
 /** 拒绝技能草稿（删除 pending 记录） */
 interface SkillRejectDraftCommand {
-  readonly type: 'skill:reject_draft'
-  readonly draftId: string
+    readonly type: 'skill:reject_draft';
+    readonly draftId: string;
 }
-
 /** 废弃技能 */
 interface SkillDeprecateCommand {
-  readonly type: 'skill:deprecate'
-  readonly skillName: string
+    readonly type: 'skill:deprecate';
+    readonly skillName: string;
 }
-
 // ============================================================
 // bash 命令工具进化命令（设置页管理 UI）
 // ============================================================
-
 /** 进化工具条目（列表展示） */
 export interface EvolvedToolInfo {
-  readonly name: string
-  readonly description: string
-  /** 命令模板（参数位 {{name}}） */
-  readonly commandTemplate: string
-  readonly isReadOnly: boolean
-  /** 是否已注册且启用（用户禁用集合为空位） */
-  readonly enabled: boolean
-  /** 样本数（审计参考） */
-  readonly sampleCount: number
-  readonly approvedAt: string
+    readonly name: string;
+    readonly description: string;
+    /** 命令模板（参数位 {{name}}） */
+    readonly commandTemplate: string;
+    readonly isReadOnly: boolean;
+    /** 是否已注册且启用（用户禁用集合为空位） */
+    readonly enabled: boolean;
+    /** 样本数（审计参考） */
+    readonly sampleCount: number;
+    readonly approvedAt: string;
 }
-
 /** 待审批候选条目 */
 export interface PendingToolInfo {
-  readonly name: string
-  readonly description: string
-  readonly pattern: string
-  readonly commandTemplate: string
-  readonly createdAt: string
-  /** 审批卡片展示用（2026-09-24 从 EvolvedToolsSection 的本地副本并回，此前契约落后于消费者） */
-  readonly whenToUse?: string
-  readonly whenNotToUse?: string
-  readonly samples?: readonly string[]
-  readonly similarApproved?: readonly string[]
-  readonly lowValueReason?: string | null
+    readonly name: string;
+    readonly description: string;
+    readonly pattern: string;
+    readonly commandTemplate: string;
+    readonly createdAt: string;
+    /** 审批卡片展示用（2026-09-24 从 EvolvedToolsSection 的本地副本并回，此前契约落后于消费者） */
+    readonly whenToUse?: string;
+    readonly whenNotToUse?: string;
+    readonly samples?: readonly string[];
+    readonly similarApproved?: readonly string[];
+    readonly lowValueReason?: string | null;
 }
-
 /** 拉取进化工具列表 + 待审批候选 */
 interface ToolEvolutionListCommand {
-  readonly type: 'tool-evolution:list'
+    readonly type: 'tool-evolution:list';
 }
-
 /** 确认待审批候选（注册生效） */
 interface ToolEvolutionConfirmCommand {
-  readonly type: 'tool-evolution:confirm'
-  readonly toolName: string
+    readonly type: 'tool-evolution:confirm';
+    readonly toolName: string;
 }
-
 /** 拒绝待审批候选 */
 interface ToolEvolutionRejectCommand {
-  readonly type: 'tool-evolution:reject'
-  readonly toolName: string
+    readonly type: 'tool-evolution:reject';
+    readonly toolName: string;
 }
-
 /** 启用/禁用已批准工具 */
 interface ToolEvolutionSetEnabledCommand {
-  readonly type: 'tool-evolution:set-enabled'
-  readonly toolName: string
-  readonly enabled: boolean
+    readonly type: 'tool-evolution:set-enabled';
+    readonly toolName: string;
+    readonly enabled: boolean;
 }
-
 /** 删除已批准工具（不可恢复） */
 interface ToolEvolutionRemoveCommand {
-  readonly type: 'tool-evolution:remove'
-  readonly toolName: string
+    readonly type: 'tool-evolution:remove';
+    readonly toolName: string;
 }
-
 /** CLI 模拟 bash 命令数据（工具进化测试用；agentId 固定 cli-simulator 可整批清理） */
 interface ToolEvolutionSimulateCommand {
-  readonly type: 'tool-evolution:simulate'
-  /** 要写入 bash_command_log 的命令列表（逐条 log） */
-  readonly commands: readonly string[]
-  /** 写入前先清空此前的模拟数据 */
-  readonly cleanup?: boolean
+    readonly type: 'tool-evolution:simulate';
+    /** 要写入 bash_command_log 的命令列表（逐条 log） */
+    readonly commands: readonly string[];
+    /** 写入前先清空此前的模拟数据 */
+    readonly cleanup?: boolean;
 }
-
 /** 手动触发一次挖掘周期（不等每日定时器） */
 interface ToolEvolutionMineCommand {
-  readonly type: 'tool-evolution:mine'
+    readonly type: 'tool-evolution:mine';
 }
-
 /** 获取工具进化功能总开关状态 */
 interface ToolEvolutionGetEnabledCommand {
-  readonly type: 'tool-evolution:get-enabled'
+    readonly type: 'tool-evolution:get-enabled';
 }
-
 /** 设置工具进化功能总开关（启用/禁用整个功能） */
 interface ToolEvolutionSetFeatureEnabledCommand {
-  readonly type: 'tool-evolution:set-feature-enabled'
-  readonly enabled: boolean
+    readonly type: 'tool-evolution:set-feature-enabled';
+    readonly enabled: boolean;
 }
-
 /** 设置过去 24h 调用次数触发分析的频率阈值 */
 interface ToolEvolutionSetTriggerThresholdCommand {
-  readonly type: 'tool-evolution:set-trigger-threshold'
-  readonly threshold: number
+    readonly type: 'tool-evolution:set-trigger-threshold';
+    readonly threshold: number;
 }
-
 /** 获取工具进化统计数据（用于设置页展示） */
 interface ToolEvolutionStatsCommand {
-  readonly type: 'tool-evolution:stats'
+    readonly type: 'tool-evolution:stats';
 }
-
 // ============================================================
 // 联合类型
 // ============================================================
-
 /** 所有 Agent Runtime 命令的联合类型 */
-export type AgentRuntimeCommand =
-  | UserSendCommand
-  | UserSteerCommand
-  | UserAbortCommand
-  | HandoffConfirmCommand
-  | UserPermissionRespondCommand
-  | UserAskUserRespondCommand
-  | UserAutoApproveSetCommand
-  | RuntimeModelCatalogSetCommand
-  | SessionPreferredModelSetCommand
-  | SessionPreferredModelPrimeCommand
-  | SessionThinkingPrefsSetCommand
-  | SessionThinkingPrefsSetGlobalCommand
-  | ConversationCreateCommand
-  | ConversationCloseCommand
-  | ConversationListCommand
-  | ConversationMessagesCommand
-  | ConversationContextUsageCommand
-  | ConversationDeleteCommand
-  | ConversationRenameCommand
-  | ConversationPinToggleCommand
-  | ConversationDismissInterruptCommand
-  | ConversationContinueInterruptedCommand
-  | ConversationTransferAgentCommand
-  | CronCreateCommand
-  | CronListCommand
-  | CronDeleteCommand
-  | CronUpdateCommand
-  | CronRunCommand
-  | CronRunsCommand
-  | AgentDefinitionsListCommand
-  | AgentMemoriesListCommand
-  | AgentMemoriesDeleteCommand
-  | AgentMemoriesUpdateCommand
-  | AgentMemoriesClearCommand
-  | AgentMemoriesExportCommand
-  | AgentMemoriesProvenanceCommand
-  | AgentMemoriesSearchCommand
-  | AgentMemoriesArchiveColdCommand
-  | AgentMemoriesUnarchiveCommand
-  | AgentMemoriesRebuildIndexCommand
-  | AgentMemoriesStatsCommand
-  | WikiInboxListCommand
-  | WikiInboxCountCommand
-  | WikiInboxRetryCommand
-  | WikiInboxDiscardCommand
-  | WikiInboxOrganizeCommand
-  | WikiFolderScanCommand
-  | WikiFolderImportCommand
-  | WikiOrganizeRunCommand
-  | WikiSearchCommand
-  | AutonomousStatusCommand
-  | AutonomousGoalsListCommand
-  | AutonomousGoalsApproveCommand
-  | AutonomousGoalsRejectCommand
-  | AutonomousCapabilitiesCommand
-  | AutonomousReflectionsCommand
-  | AutonomousSatisfactionHistoryCommand
-  | AutonomousPromptVariantsCommand
-  | AutonomousEnableCommand
-  | AutonomousDisableCommand
-  | AutonomousReflectCommand
-  | AutonomousSettingsGetCommand
-  | AutonomousSettingsUpdateCommand
-  | WikiSourceGetCommand
-  | WikiRunsListCommand
-  | WikiIndexRebuildCommand
-  | WikiTopicTreeGetCommand
-  | WikiTopicTreeSetCommand
-  | WikiTopicTreeMigrateCommand
-  | WikiTopicMutateCommand
-  | WikiReclassifyRunCommand
-  | WikiReclassifyEstimateCommand
-  | WikiReclassifyGetCommand
-  | WikiReclassifyApplyCommand
-  | WikiReclassifyIgnoreCommand
-  | WikiReclassifyDiscardCommand
-  | WikiReclassifyCancelCommand
-  | WikiMigrateGetCommand
-  | WikiMigrateApplyCommand
-  | WikiMigrateCancelCommand
-  | WikiMigrateDiscardCommand
-  | WikiMigrateUndoCommand
-  | WikiMigrateReplanCommand
-  | WikiMigrateUpdateMappingCommand
-  | WikiSourceCreateNoteCommand
-  | WikiSourceRenameCommand
-  | WikiSourceListCommand
-  | WikiSourceCountsCommand
-  | WikiSourceUpdateTopicCommand
-  | WikiSourceMoveToParkingCommand
-  | WikiSourceOpenCommand
-  | WikiCleanupScanCommand
-  | WikiSourceArchiveCommand
-  | WikiSourceRestoreCommand
-  | WikiSourceDeleteCommand
-  | WikiAutoClassifyGetCommand
-  | WikiAutoClassifySetCommand
-  | WikiSourceClearTopicCommand
-  | WikiLinkAddCommand
-  | WikiLinkSaveCommand
-  | WikiVaultEnsureLayoutCommand
-  | WikiExportCommand
-  | WikiVectorRebuildCommand
-  | WikiSourceSummaryCommand
-  | ToolsListCommand
-  | ToolsToggleCommand
-  | ToolsUsageByAgentCommand
-  | ToolsUsageExportCommand
-  | NewsPreferencePreviewCommand
-  | McpStatusCommand
-  | McpUpsertCommand
-  | McpImportCommand
-  | McpRemoveCommand
-  | McpSetEnabledCommand
-  | McpSetSessionEnabledCommand
-  | McpSessionDisabledCommand
-  | SkillSetSessionEnabledCommand
-  | SkillSessionDisabledCommand
-  | McpReconnectCommand
-  | McpReadConfigFileCommand
-  | McpWriteConfigFileCommand
-  | RuntimePingCommand
-  | RuntimeFeatureFlagsGetCommand
-  | RuntimeEnabledCommand
-  | AgentDefinitionSyncStatusCommand
-  | AgentDefinitionSyncUserAgentsCommand
-  | AgentInstancePromptCommand
-  | AgentInstanceAbortCommand
-  | AgentInstanceDestroyCommand
-  | AgentInstanceListCommand
-  | StorageStatsCommand
-  | StorageExportJsonlCommand
-  | StorageClearMalformedCommand
-  | StorageListBackupsCommand
-  | StorageCreateBackupCommand
-  | StorageRestoreBackupCommand
-  | StorageRestoreLatestBackupCommand
-  | StorageDeleteBackupCommand
-  | StorageAuditRecentCommand
-  | MessageDeleteCommand
-  | MessageEditCommand
-  | ConversationForkCommand
-  | MessageEditAndResendCommand
-  | UserCompactContextCommand
-  | UserAbortCompactContextCommand
-  | FilesListCommand
-  | FilesSearchCommand
-  | FilesDeleteCommand
-  | FilesOpenCommand
-  | FilesSaveAsCommand
-  | FilesReadPreviewContentCommand
-  | FilesReadPreviewByPathCommand
-  | FilesImportCommand
-  | CommandsListCommand
-  | TasksListCommand
-  | CodingDevSetBackendCommand
-  | CodingDevGetBackendCommand
-  | CodingDevListBackendsCommand
-  | CodingDevSetProjectCommand
-  | CodingDevGetDevContextCommand
-  | ImageRecognizeCommand
-  | ImageGenerateCommand
-  | ImageProcessCommand
-  | SkillConfirmDraftCommand
-  | SkillRejectDraftCommand
-  | SkillDeprecateCommand
-  | ToolEvolutionListCommand
-  | ToolEvolutionConfirmCommand
-  | ToolEvolutionRejectCommand
-  | ToolEvolutionSetEnabledCommand
-  | ToolEvolutionRemoveCommand
-  | ToolEvolutionSimulateCommand
-  | ToolEvolutionMineCommand
-  | ToolEvolutionGetEnabledCommand
-  | ToolEvolutionSetFeatureEnabledCommand
-  | ToolEvolutionSetTriggerThresholdCommand
-  | ToolEvolutionStatsCommand
-
+export type AgentRuntimeCommand = UserSendCommand | UserSteerCommand | UserAbortCommand | HandoffConfirmCommand | UserPermissionRespondCommand | UserAskUserRespondCommand | UserAutoApproveSetCommand | RuntimeModelCatalogSetCommand | SessionPreferredModelSetCommand | SessionPreferredModelPrimeCommand | SessionThinkingPrefsSetCommand | SessionThinkingPrefsSetGlobalCommand | ConversationCreateCommand | ConversationCloseCommand | ConversationListCommand | ConversationMessagesCommand | ConversationContextUsageCommand | ConversationDeleteCommand | ConversationRenameCommand | ConversationPinToggleCommand | ConversationDismissInterruptCommand | ConversationContinueInterruptedCommand | ConversationTransferAgentCommand | CronCreateCommand | CronListCommand | CronDeleteCommand | CronUpdateCommand | CronRunCommand | CronRunsCommand | AgentDefinitionsListCommand | AgentMemoriesListCommand | AgentMemoriesDeleteCommand | AgentMemoriesUpdateCommand | AgentMemoriesClearCommand | AgentMemoriesExportCommand | AgentMemoriesProvenanceCommand | AgentMemoriesSearchCommand | AgentMemoriesArchiveColdCommand | AgentMemoriesUnarchiveCommand | AgentMemoriesRebuildIndexCommand | AgentMemoriesStatsCommand | WikiInboxListCommand | WikiInboxCountCommand | WikiInboxRetryCommand | WikiInboxDiscardCommand | WikiInboxOrganizeCommand | WikiFolderScanCommand | WikiFolderImportCommand | WikiOrganizeRunCommand | WikiSearchCommand | AutonomousStatusCommand | AutonomousGoalsListCommand | AutonomousGoalsApproveCommand | AutonomousGoalsRejectCommand | AutonomousCapabilitiesCommand | AutonomousReflectionsCommand | AutonomousSatisfactionHistoryCommand | AutonomousPromptVariantsCommand | AutonomousEnableCommand | AutonomousDisableCommand | AutonomousReflectCommand | AutonomousSettingsGetCommand | AutonomousSettingsUpdateCommand | WikiSourceGetCommand | WikiRunsListCommand | WikiIndexRebuildCommand | WikiTopicTreeGetCommand | WikiTopicTreeSetCommand | WikiTopicTreeMigrateCommand | WikiTopicMutateCommand | WikiReclassifyRunCommand | WikiReclassifyEstimateCommand | WikiReclassifyGetCommand | WikiReclassifyApplyCommand | WikiReclassifyIgnoreCommand | WikiReclassifyDiscardCommand | WikiReclassifyCancelCommand | WikiMigrateGetCommand | WikiMigrateApplyCommand | WikiMigrateCancelCommand | WikiMigrateDiscardCommand | WikiMigrateUndoCommand | WikiMigrateReplanCommand | WikiMigrateUpdateMappingCommand | WikiSourceCreateNoteCommand | WikiSourceRenameCommand | WikiSourceListCommand | WikiSourceCountsCommand | WikiSourceUpdateTopicCommand | WikiSourceMoveToParkingCommand | WikiSourceOpenCommand | WikiCleanupScanCommand | WikiSourceArchiveCommand | WikiSourceRestoreCommand | WikiSourceDeleteCommand | WikiAutoClassifyGetCommand | WikiAutoClassifySetCommand | WikiSourceClearTopicCommand | WikiLinkAddCommand | WikiLinkSaveCommand | WikiVaultEnsureLayoutCommand | WikiExportCommand | WikiVectorRebuildCommand | WikiSourceSummaryCommand | ToolsListCommand | ToolsToggleCommand | ToolsUsageByAgentCommand | ToolsUsageExportCommand | NewsPreferencePreviewCommand | McpStatusCommand | McpUpsertCommand | McpImportCommand | McpRemoveCommand | McpSetEnabledCommand | McpSetSessionEnabledCommand | McpSessionDisabledCommand | SkillSetSessionEnabledCommand | SkillSessionDisabledCommand | McpReconnectCommand | McpReadConfigFileCommand | McpWriteConfigFileCommand | RuntimePingCommand | RuntimeFeatureFlagsGetCommand | RuntimeEnabledCommand | AgentDefinitionSyncStatusCommand | AgentDefinitionSyncUserAgentsCommand | AgentInstancePromptCommand | AgentInstanceAbortCommand | AgentInstanceDestroyCommand | AgentInstanceListCommand | StorageStatsCommand | StorageExportJsonlCommand | StorageClearMalformedCommand | StorageListBackupsCommand | StorageCreateBackupCommand | StorageRestoreBackupCommand | StorageRestoreLatestBackupCommand | StorageDeleteBackupCommand | StorageAuditRecentCommand | MessageDeleteCommand | MessageEditCommand | ConversationForkCommand | MessageEditAndResendCommand | UserCompactContextCommand | UserAbortCompactContextCommand | FilesListCommand | FilesSearchCommand | FilesDeleteCommand | FilesOpenCommand | FilesSaveAsCommand | FilesReadPreviewContentCommand | FilesReadPreviewByPathCommand | FilesImportCommand | CommandsListCommand | TasksListCommand | CodingDevSetBackendCommand | CodingDevGetBackendCommand | CodingDevListBackendsCommand | CodingDevSetProjectCommand | CodingDevGetDevContextCommand | ImageRecognizeCommand | ImageGenerateCommand | ImageProcessCommand | SkillConfirmDraftCommand | SkillRejectDraftCommand | SkillDeprecateCommand | ToolEvolutionListCommand | ToolEvolutionConfirmCommand | ToolEvolutionRejectCommand | ToolEvolutionSetEnabledCommand | ToolEvolutionRemoveCommand | ToolEvolutionSimulateCommand | ToolEvolutionMineCommand | ToolEvolutionGetEnabledCommand | ToolEvolutionSetFeatureEnabledCommand | ToolEvolutionSetTriggerThresholdCommand | ToolEvolutionStatsCommand;
 // ============================================================
 // 命令返回类型映射
 // ============================================================
-
 /** 命令返回类型的条件类型映射，确保类型安全 */
-type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
-  T extends 'user:send' ? { runId: string }
-  : T extends 'user:steer' ? void
-  : T extends 'user:abort' ? { ok: true }
-  : T extends 'user:permission:respond' ? void
-  : T extends 'user:ask-user:respond' ? void
-  : T extends 'runtime:modelCatalog:set' ? { ok: boolean }
-  : T extends 'session:preferredModel:set' ? SessionContextUsageResult
-  : T extends 'session:preferredModel:prime' ? SessionContextUsageResult
-  : T extends 'session:thinkingPrefs:set' ? {
-      thinkingEnabled: boolean
-      reasoningEffort: 'high' | 'max'
-    }
-  : T extends 'session:thinkingPrefs:setGlobal' ? {
-      thinkingEnabled: boolean
-      reasoningEffort: 'high' | 'max'
-    }
-  : T extends 'conversation:create' ? { sessionKey: string }
-  : T extends 'conversation:close' ? void
-  : T extends 'conversation:list' ? readonly {
-      sessionKey: string
-      title: string
-      updatedAt: string
-      agentId?: string
-      lastMessagePreview?: string
-      hasRunning?: boolean
-      isPinned?: boolean
-      wasInterrupted?: boolean
-      channel?: string
-    }[]
-  : T extends 'conversation:messages' ? {
-      /** 按时间升序的一页消息 */
-      items: readonly ConversationMessageNewEvent['message'][]
-      /** 是否还有更早的历史可继续上滑加载 */
-      hasMore: boolean
-      /** 本页最早一条消息的游标，回传给 before 即可取更早的一页 */
-      nextCursor?: ConversationMessagesCursor
-    }
-  : T extends 'conversation:context-usage' ? SessionContextUsageResult
-  : T extends 'conversation:delete' ? void
-  : T extends 'conversation:rename' ? { success: boolean }
-  : T extends 'conversation:pin-toggle' ? { isPinned: boolean }
-  : T extends 'conversation:dismiss-interrupt' ? { ok: boolean }
-  : T extends 'conversation:continue-interrupted' ? { ok: boolean; error?: string }
-  : T extends 'conversation:transfer-agent' ? { ok: boolean }
-  : T extends 'cron:create' ? {
-      status: 'ok' | 'error'
-      job?: {
-        id: string
-        name: string
-        scheduleType: 'at' | 'every' | 'cron'
-        scheduleExpr: string
-        nextRunAt?: number
-        intervalMs?: number
-        enabled: boolean
-      }
-      message?: string
-    }
-  : T extends 'cron:list' ? {
-      status: 'ok'
-      jobs: readonly {
-        id: string
-        name: string
-        taskText: string
-        agentId?: string
-        scheduleType: 'at' | 'every' | 'cron'
-        scheduleExpr: string
-        nextRunAt: number
-        intervalMs?: number
-        enabled: boolean
-        createdAt: number
-        lastRunAt?: number
-        lastStatus?: 'ok' | 'error' | 'running'
-        activeDays?: string
-        activeHourStart?: number
-        activeHourEnd?: number
-        notifyTargets?: string
+type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> = T extends 'user:send' ? {
+    runId: string;
+} : T extends 'user:steer' ? void : T extends 'user:abort' ? {
+    ok: true;
+} : T extends 'user:permission:respond' ? void : T extends 'user:ask-user:respond' ? void : T extends 'runtime:modelCatalog:set' ? {
+    ok: boolean;
+} : T extends 'session:preferredModel:set' ? SessionContextUsageResult : T extends 'session:preferredModel:prime' ? SessionContextUsageResult : T extends 'session:thinkingPrefs:set' ? {
+    thinkingEnabled: boolean;
+    reasoningEffort: 'high' | 'max';
+} : T extends 'session:thinkingPrefs:setGlobal' ? {
+    thinkingEnabled: boolean;
+    reasoningEffort: 'high' | 'max';
+} : T extends 'conversation:create' ? {
+    sessionKey: string;
+} : T extends 'conversation:close' ? void : T extends 'conversation:list' ? readonly {
+    sessionKey: string;
+    title: string;
+    updatedAt: string;
+    agentId?: string;
+    lastMessagePreview?: string;
+    hasRunning?: boolean;
+    isPinned?: boolean;
+    wasInterrupted?: boolean;
+    channel?: string;
+}[] : T extends 'conversation:messages' ? {
+    /** 按时间升序的一页消息 */
+    items: readonly ConversationMessageNewEvent['message'][];
+    /** 是否还有更早的历史可继续上滑加载 */
+    hasMore: boolean;
+    /** 本页最早一条消息的游标，回传给 before 即可取更早的一页 */
+    nextCursor?: ConversationMessagesCursor;
+} : T extends 'conversation:context-usage' ? SessionContextUsageResult : T extends 'conversation:delete' ? void : T extends 'conversation:rename' ? {
+    success: boolean;
+} : T extends 'conversation:pin-toggle' ? {
+    isPinned: boolean;
+} : T extends 'conversation:dismiss-interrupt' ? {
+    ok: boolean;
+} : T extends 'conversation:continue-interrupted' ? {
+    ok: boolean;
+    error?: string;
+} : T extends 'conversation:transfer-agent' ? {
+    ok: boolean;
+} : T extends 'cron:create' ? {
+    status: 'ok' | 'error';
+    job?: {
+        id: string;
+        name: string;
+        scheduleType: 'at' | 'every' | 'cron';
+        scheduleExpr: string;
+        nextRunAt?: number;
+        intervalMs?: number;
+        enabled: boolean;
+    };
+    message?: string;
+} : T extends 'cron:list' ? {
+    status: 'ok';
+    jobs: readonly {
+        id: string;
+        name: string;
+        taskText: string;
+        agentId?: string;
+        scheduleType: 'at' | 'every' | 'cron';
+        scheduleExpr: string;
+        nextRunAt: number;
+        intervalMs?: number;
+        enabled: boolean;
+        createdAt: number;
+        lastRunAt?: number;
+        lastStatus?: 'ok' | 'error' | 'running';
+        activeDays?: string;
+        activeHourStart?: number;
+        activeHourEnd?: number;
+        notifyTargets?: string;
         /** 来源：系统播种 / Agent 自建 / 用户创建 */
-        source: 'system' | 'agent' | 'user'
+        source: 'system' | 'agent' | 'user';
         /** 启停被开关接管的标记；null 表示用户自管 */
-        managedBy: 'autonomous' | 'companion' | 'pet' | null
+        managedBy: 'autonomous' | 'companion' | 'pet' | null;
         /** 删除后下次启动会重建（存在性播种）；UI 应隐藏删除入口 */
-        reseeded: boolean
-      }[]
-      total: number
-    }
-  : T extends 'cron:delete' ? { status: 'ok' | 'not_found' | 'error'; id: string; message?: string }
-  : T extends 'cron:update' ? { status: 'ok' | 'not_found' | 'error'; id: string; message?: string }
-  : T extends 'cron:run' ? { status: 'ok' | 'not_found' | 'error'; id: string; message?: string }
-  : T extends 'cron:runs' ? {
-      status: 'ok'
-      entries: readonly {
-        id: string
-        status: 'ok' | 'error'
-        startedAt: number
-        finishedAt: number
-        durationMs: number
-        summary?: string
-        error?: string
-      }[]
-    }
-  : T extends 'agent:definitions:list' ? readonly {
-      id: string
-      name: string
-      description: string
-      model?: string
-    }[]
-  : T extends 'agent:memories:list' ? readonly {
-      id: string
-      category: string
-      content: string
-      importance: number
-      createdAt: number
-      sourceSegmentId: string | null
-      palaceDrawerId: string | null
-      /** 归属 Agent 定义 ID（不传 sessionKey/agentId 时列表跨 Agent，据此区分来源） */
-      agentId: string
-    }[]
-  : T extends 'agent:memories:delete' ? { success: boolean }
-  : T extends 'agent:memories:update' ? { success: boolean }
-  : T extends 'agent:memories:clear' ? { deletedCount: number }
-  : T extends 'agent:memories:export' ? { json: string }
-  : T extends 'agent:memories:provenance' ? {
-      memoryId: string
-      sourceSegmentId: string | null
-      sourceMessageId: string | null
-      palaceDrawerId: string | null
-      originalText: string | null
-      segment: {
-        id: string
-        conversationId: string
-        startMessageId: string
-        endMessageId: string | null
-        createdAt: string
-        turnCount: number
-        charCount: number
-      } | null
-    } | null
-  : T extends 'agent:memories:search' ? readonly {
-      id: string
-      category: string
-      content: string
-      importance: number
-      createdAt: number
-    }[]
-  : T extends 'agent:memories:archiveCold' ? { archivedCount: number }
-  : T extends 'agent:memories:unarchive' ? { success: boolean }
-  : T extends 'agent:memories:rebuildIndex' ? { rebuiltCount: number }
-  : T extends 'agent:memories:stats' ? {
-      hot: number
-      warm: number
-      cold: number
-      total: number
-    }
-  : T extends 'wiki:inbox:list' ? readonly {
-      id: string
-      itemType: string
-      title: string
-      sourcePath: string | null
-      sourceUrl: string | null
-      contentPreview: string | null
-      mediaType: string
-      status: string
-      attemptCount: number
-      lastError: string | null
-      lastOutcome: string | null
-      createdAt: number
-    }[]
-  : T extends 'wiki:inbox:count' ? { total: number; pending: number; unfiled: number }
-  : T extends 'wiki:inbox:retry' ? { success: boolean }
-  : T extends 'wiki:inbox:discard' ? { success: boolean }
-  : T extends 'wiki:inbox:organize' ? { sourceId: string; category: string; subtopic: string; project: string | null; userPath?: string[] | null; tags?: string[] | null; description?: string | null }
-  : T extends 'wiki:folder:scan' ? {
-      dir: string
-      candidates: readonly {
-        path: string
-        title: string
-        size: number
-        itemType: string
-        skipReason: string | null
-        alreadyInWiki: boolean
-      }[]
-      summary: { total: number; importable: number; skipped: number; alreadyInWiki: number }
-    }
-  : T extends 'wiki:folder:import' ? {
-      dir: string
-      dryRun: boolean
-      imported: number
-      skipped: number
-      inboxIds: readonly string[]
-      autoClassify?: boolean
-      organizeRun?: { runId: string; status: string; summary: string | null } | null
-      migrateRun?: WikiMigrateRunDto | null
-    }
-  : T extends 'wiki:organize:run' ? { runId: string | null; status: string; summary: string | null }
-  : T extends 'wiki:search' ? {
-      hits: readonly {
-        sourceId: string
-        title: string
-        category: string | null
-        subtopic: string | null
-        project?: string | null
-        userPath?: string[] | null
-        tags?: string[] | null
-        snippet: string
-        mediaType: string
-        sourcePath: string | null
-        updatedAt: number
-      }[]
-      mode: 'fts' | 'vector' | 'hybrid'
-      degradeReason: string | null
-    }
-  : T extends 'wiki:source:get' ? {
-      id: string
-      title: string
-      sourcePath: string | null
-      sourceUrl: string | null
-      mediaType: string
-      mimeType: string | null
-      extractedText: string | null
-      originContext: string | null
-      topicCategory: string | null
-      topicSubtopic: string | null
-      userPath?: string[] | null
-      tags?: string[] | null
-      description?: string | null
-      createdAt: number
-    } | null
-  : T extends 'wiki:runs:list' ? readonly {
-      id: string
-      inboxIds: readonly string[]
-      status: string
-      resultSummary: string | null
-      error: string | null
-      resultDetail: {
+        reseeded: boolean;
+    }[];
+    total: number;
+} : T extends 'cron:delete' ? {
+    status: 'ok' | 'not_found' | 'error';
+    id: string;
+    message?: string;
+} : T extends 'cron:update' ? {
+    status: 'ok' | 'not_found' | 'error';
+    id: string;
+    message?: string;
+} : T extends 'cron:run' ? {
+    status: 'ok' | 'not_found' | 'error';
+    id: string;
+    message?: string;
+} : T extends 'cron:runs' ? {
+    status: 'ok';
+    entries: readonly {
+        id: string;
+        status: 'ok' | 'error';
+        startedAt: number;
+        finishedAt: number;
+        durationMs: number;
+        summary?: string;
+        error?: string;
+    }[];
+} : T extends 'agent:definitions:list' ? readonly {
+    id: string;
+    name: string;
+    description: string;
+    model?: string;
+}[] : T extends 'agent:memories:list' ? readonly {
+    id: string;
+    category: string;
+    content: string;
+    importance: number;
+    createdAt: number;
+    sourceSegmentId: string | null;
+    palaceDrawerId: string | null;
+    /** 归属 Agent 定义 ID（不传 sessionKey/agentId 时列表跨 Agent，据此区分来源） */
+    agentId: string;
+}[] : T extends 'agent:memories:delete' ? {
+    success: boolean;
+} : T extends 'agent:memories:update' ? {
+    success: boolean;
+} : T extends 'agent:memories:clear' ? {
+    deletedCount: number;
+} : T extends 'agent:memories:export' ? {
+    json: string;
+} : T extends 'agent:memories:provenance' ? {
+    memoryId: string;
+    sourceSegmentId: string | null;
+    sourceMessageId: string | null;
+    palaceDrawerId: string | null;
+    originalText: string | null;
+    segment: {
+        id: string;
+        conversationId: string;
+        startMessageId: string;
+        endMessageId: string | null;
+        createdAt: string;
+        turnCount: number;
+        charCount: number;
+    } | null;
+} | null : T extends 'agent:memories:search' ? readonly {
+    id: string;
+    category: string;
+    content: string;
+    importance: number;
+    createdAt: number;
+}[] : T extends 'agent:memories:archiveCold' ? {
+    archivedCount: number;
+} : T extends 'agent:memories:unarchive' ? {
+    success: boolean;
+} : T extends 'agent:memories:rebuildIndex' ? {
+    rebuiltCount: number;
+} : T extends 'agent:memories:stats' ? {
+    hot: number;
+    warm: number;
+    cold: number;
+    total: number;
+} : T extends 'wiki:inbox:list' ? readonly {
+    id: string;
+    itemType: string;
+    title: string;
+    sourcePath: string | null;
+    sourceUrl: string | null;
+    contentPreview: string | null;
+    mediaType: string;
+    status: string;
+    attemptCount: number;
+    lastError: string | null;
+    lastOutcome: string | null;
+    createdAt: number;
+}[] : T extends 'wiki:inbox:count' ? {
+    total: number;
+    pending: number;
+    unfiled: number;
+} : T extends 'wiki:inbox:retry' ? {
+    success: boolean;
+} : T extends 'wiki:inbox:discard' ? {
+    success: boolean;
+} : T extends 'wiki:inbox:organize' ? {
+    sourceId: string;
+    category: string;
+    subtopic: string;
+    project: string | null;
+    userPath?: string[] | null;
+    tags?: string[] | null;
+    description?: string | null;
+} : T extends 'wiki:folder:scan' ? {
+    dir: string;
+    candidates: readonly {
+        path: string;
+        title: string;
+        size: number;
+        itemType: string;
+        skipReason: string | null;
+        alreadyInWiki: boolean;
+    }[];
+    summary: {
+        total: number;
+        importable: number;
+        skipped: number;
+        alreadyInWiki: number;
+    };
+} : T extends 'wiki:folder:import' ? {
+    dir: string;
+    dryRun: boolean;
+    imported: number;
+    skipped: number;
+    inboxIds: readonly string[];
+    autoClassify?: boolean;
+    organizeRun?: {
+        runId: string;
+        status: string;
+        summary: string | null;
+    } | null;
+    migrateRun?: WikiMigrateRunDto | null;
+} : T extends 'wiki:organize:run' ? {
+    runId: string | null;
+    status: string;
+    summary: string | null;
+} : T extends 'wiki:search' ? {
+    hits: readonly {
+        sourceId: string;
+        title: string;
+        category: string | null;
+        subtopic: string | null;
+        project?: string | null;
+        userPath?: string[] | null;
+        tags?: string[] | null;
+        snippet: string;
+        mediaType: string;
+        sourcePath: string | null;
+        updatedAt: number;
+    }[];
+    mode: 'fts' | 'vector' | 'hybrid';
+    degradeReason: string | null;
+} : T extends 'wiki:source:get' ? {
+    id: string;
+    title: string;
+    sourcePath: string | null;
+    sourceUrl: string | null;
+    mediaType: string;
+    mimeType: string | null;
+    extractedText: string | null;
+    originContext: string | null;
+    topicCategory: string | null;
+    topicSubtopic: string | null;
+    userPath?: string[] | null;
+    tags?: string[] | null;
+    description?: string | null;
+    createdAt: number;
+} | null : T extends 'wiki:runs:list' ? readonly {
+    id: string;
+    inboxIds: readonly string[];
+    status: string;
+    resultSummary: string | null;
+    error: string | null;
+    resultDetail: {
         items: readonly {
-          inboxId: string
-          title: string
-          path: string
-          mediaType: string
-          outcome: string
-          reason?: string
-          extract: string
-        }[]
-      } | null
-      createdAt: number
-      finishedAt: number | null
-    }[]
-  : T extends 'wiki:index:rebuild' ? { rebuiltCount: number }
-  : T extends 'wiki:topic:tree:get' ? {
-      tree: { version: 1; categories: readonly { name: string; subtopics: readonly string[] }[] }
-    }
-  : T extends 'wiki:topic:tree:set' ? { success: true }
-  : T extends 'wiki:topic:tree:migrate' ? {
-      alreadyMigrated?: boolean
-      categoryRules: readonly { from: string; to: string | null; count: number }[]
-      inboxCount: number
-      legacySubtopicTop: readonly { subtopic: string; count: number }[]
-      userCategories: readonly string[]
-      elapsedMs: number
-      reportPath?: string
-    }
-  : T extends 'wiki:topic:mutate' ? {
-      tree: { version: 1; categories: readonly { name: string; subtopics: readonly string[] }[] }
-      movedCount: number
-    }
-  : T extends 'wiki:reclassify:run' ? { runId: string }
-  : T extends 'wiki:reclassify:estimate' ? {
-      fileCount: number
-      structureCalls: number
-      estimatedContentCalls: number
-      inboxCount: number
-      note: string
-    }
-  : T extends 'wiki:reclassify:get' ? {
-      run: {
-        runId: string
-        status: 'running' | 'review' | 'applying' | 'failed' | 'discarded'
-        total: number
-        processed: number
-        droppedInvalid: number
-        unchanged: number
-        error: string | null
+            inboxId: string;
+            title: string;
+            path: string;
+            mediaType: string;
+            outcome: string;
+            reason?: string;
+            extract: string;
+        }[];
+    } | null;
+    createdAt: number;
+    finishedAt: number | null;
+}[] : T extends 'wiki:index:rebuild' ? {
+    rebuiltCount: number;
+} : T extends 'wiki:topic:tree:get' ? {
+    tree: {
+        version: 1;
+        categories: readonly {
+            name: string;
+            subtopics: readonly string[];
+        }[];
+    };
+} : T extends 'wiki:topic:tree:set' ? {
+    success: true;
+} : T extends 'wiki:topic:tree:migrate' ? {
+    alreadyMigrated?: boolean;
+    categoryRules: readonly {
+        from: string;
+        to: string | null;
+        count: number;
+    }[];
+    inboxCount: number;
+    legacySubtopicTop: readonly {
+        subtopic: string;
+        count: number;
+    }[];
+    userCategories: readonly string[];
+    elapsedMs: number;
+    reportPath?: string;
+} : T extends 'wiki:topic:mutate' ? {
+    tree: {
+        version: 1;
+        categories: readonly {
+            name: string;
+            subtopics: readonly string[];
+        }[];
+    };
+    movedCount: number;
+} : T extends 'wiki:reclassify:run' ? {
+    runId: string;
+} : T extends 'wiki:reclassify:estimate' ? {
+    fileCount: number;
+    structureCalls: number;
+    estimatedContentCalls: number;
+    inboxCount: number;
+    note: string;
+} : T extends 'wiki:reclassify:get' ? {
+    run: {
+        runId: string;
+        status: 'running' | 'review' | 'applying' | 'failed' | 'discarded';
+        total: number;
+        processed: number;
+        droppedInvalid: number;
+        unchanged: number;
+        error: string | null;
         candidates: readonly {
-          id: string
-          sourceId: string
-          title: string
-          fromCategory: string | null
-          fromSubtopic: string | null
-          toCategory: string
-          toSubtopic: string | null
-          reason: string
-          decidedBy: 'structure' | 'content'
-          userPath?: string[] | null
-          tags?: string[] | null
-          description?: string | null
-          renameTitle?: string
-          applyError?: string
-        }[]
-      } | null
-    }
-  : T extends 'wiki:source:create-note' ? { sourceId: string; sourcePath: string; title: string }
-  : T extends 'wiki:source:rename' ? { id: string; title: string }
-  : T extends 'wiki:reclassify:apply' ? { applied: number; failed: number }
-  : T extends 'wiki:reclassify:ignore' ? { success: true }
-  : T extends 'wiki:reclassify:discard' ? { success: true }
-  : T extends 'wiki:reclassify:cancel' ? { run: unknown | null }
-  : T extends 'wiki:migrate:get' ? { run: WikiMigrateRunDto | null }
-  : T extends 'wiki:migrate:apply' ? { run: WikiMigrateRunDto }
-  : T extends 'wiki:migrate:cancel' ? { run: WikiMigrateRunDto | null }
-  : T extends 'wiki:migrate:discard' ? { success: true }
-  : T extends 'wiki:migrate:undo' ? { run: WikiMigrateRunDto }
-  : T extends 'wiki:migrate:replan' ? { run: WikiMigrateRunDto }
-  : T extends 'wiki:migrate:update-mapping' ? { run: WikiMigrateRunDto }
-  : T extends 'wiki:source:list' ? {
-      sources: readonly {
-        id: string
-        title: string
-        sourcePath: string | null
-        mediaType: string
-        topicCategory: string | null
-        topicSubtopic: string | null
-        userPath?: string[] | null
-        tags?: string[] | null
-        description?: string | null
-        updatedAt: number
-        useCount: number
-      }[]
-    }
-  : T extends 'wiki:source:counts' ? {
-      sectionCounts: Record<string, number>
-      topicCounts: Record<string, number>
-      parking: number
-      unfiled: number
-      filed: number
-      archived: number
-    }
-  : T extends 'wiki:source:update-topic' ? {
-      id: string
-      topicCategory: string | null
-      topicSubtopic: string | null
-      topicProject: string | null
-      userPath?: string[] | null
-      tags?: string[] | null
-      description?: string | null
-    }
-  : T extends 'wiki:source:move-to-parking' ? {
-      id: string
-      topicCategory: string | null
-      topicSubtopic: string | null
-    }
-  : T extends 'wiki:source:open' ? { success: true }
-  : T extends 'wiki:cleanup:scan' ? readonly {
-      sourceId: string
-      title: string
-      reason: 'stale' | 'broken_source' | 'duplicate_content'
-      duplicateOfSourceId?: string
-      topicCategory?: string | null
-      topicSubtopic?: string | null
-      suggestedAction?: 'parking' | 'delete'
-    }[]
-  : T extends 'wiki:source:archive' ? { archived: number }
-  : T extends 'wiki:source:restore' ? { restored: number }
-  : T extends 'wiki:source:delete' ? { deleted: number }
-  : T extends 'wiki:auto-classify:get' ? { enabled: boolean }
-  : T extends 'wiki:auto-classify:set' ? void
-  : T extends 'wiki:source:clear-topic' ? void
-  : T extends 'wiki:link:add' ? { sourceId: string; title: string }
-  : T extends 'wiki:link:save' ? { sourceId: string; savedPath: string; title: string }
-  : T extends 'wiki:vault:ensure-layout' ? { vaultRoot: string; synced: number; createdDirs?: readonly string[] }
-  : T extends 'wiki:export' ? {
-      exported: number
-      failed: readonly { path: string; error: string }[]
-    }
-  : T extends 'wiki:vector:rebuild' ? { rebuiltCount: number; summarized: number; backend?: string; notice?: string | null }
-  : T extends 'wiki:source:summary' ? { summary: string | null; level: 'heuristic' | 'extractive' | 'llm' | null }
-  : T extends 'tools:list' ? readonly {
-      name: string
-      label: string
-      description: string
-      category: string
-      isReadOnly: boolean
-      needsPermission: boolean
-      enabled: boolean
-      /** 累计调用次数，从未调用过为 0 */
-      usageCount: number
-      /** 最后一次调用时刻（epoch ms），从未调用过时缺省 */
-      lastUsedAt?: number
-    }[]
-  : T extends 'tools:toggle' ? { success: boolean }
-  : T extends 'tools:usage-by-agent' ? readonly {
-      /** Agent 定义 id；V44 之前的存量归在 'unknown' */
-      id: string
-      /** 显示名（内建取定义名，未知回落 id） */
-      name: string
-      totalCalls: number
-      /** 该 Agent 用过的工具，按调用次数降序 */
-      tools: readonly {
-        name: string
-        count: number
-        errorCount: number
-        lastUsedAt: number
-      }[]
-    }[]
-  : T extends 'tools:usage:export' ? { json: string }
-  : T extends 'news-preference:preview' ? {
-      /** 参与匹配的已推条目总数——「命中 0 篇」要靠它区分「规则没用」和「没数据」 */
-      itemCount: number
-      /** 裁决顺序的可读版本（界面直接显示，不再自己措辞） */
-      prioritySummary: string
-      /** 可做子串匹配的规则及其命中 */
-      rules: readonly {
-        field: string
-        value: string
-        count: number
-        hits: readonly { title: string; source: string; timestamp: number }[]
-      }[]
-      /** 不可预览的字段（推送时段是时间窗，没法拿关键词匹）——如实列出，不装作命中 0 */
-      nonMatchable: readonly { field: string; values: readonly string[] }[]
-    }
-  : T extends 'mcp:status' ? McpStatusPayload
-  : T extends 'mcp:readConfigFile' ? { path: string; content: string }
-  : T extends 'mcp:writeConfigFile' ? { success: boolean; error?: string }
-  : T extends 'mcp:upsert' | 'mcp:import' | 'mcp:remove' | 'mcp:setEnabled' | 'mcp:reconnect'
-    ? { success: boolean; error?: string }
-  : T extends 'mcp:setSessionEnabled' | 'mcp:sessionDisabled'
-    ? { disabledServers: readonly string[] }
-  : T extends 'skill:setSessionEnabled' | 'skill:sessionDisabled'
-    ? { disabledSkills: readonly string[] }
-  : T extends 'storage:auditRecent' ? readonly {
-      id: number
-      agent_id: string
-      tool_name: string
-      result_summary: string | null
-      is_error: number
-      duration_ms: number | null
-      timestamp: string
-    }[]
-  : T extends 'user:compact-context' ? {
-      success: boolean
-      previousMessageCount: number
-      newMessageCount: number
-      messagesRemoved: number
-    }
-  : T extends 'files:list' ? {
-      files: readonly {
-        id: string
-        userId: string
-        agentId: string | null
-        conversationId: string | null
-        messageId: string | null
-        channel: string
-        sourceType: string
-        fileName: string
-        fileSize: number | null
-        mimeType: string | null
-        localPath: string
-        category: 'upload' | 'output'
-        metadata: Record<string, unknown> | null
-        createdAt: string
-        updatedAt: string
-        deletedAt: string | null
-      }[]
-      total: number
-    }
-  : T extends 'files:search' ? readonly {
-      id: string
-      fileName: string
-      localPath: string
-      fileSize: number | null
-      mimeType: string | null
-      createdAt: string
-      channel: string
-      agentId: string | null
-      conversationId: string | null
-    }[]
-  : T extends 'files:delete' ? { deletedCount: number }
-  : T extends 'files:open' ? { success: boolean }
-  : T extends 'files:save-as' ? { success: boolean }
-  : T extends 'files:read-preview-content' ? {
-      truncated: boolean
-      content: string | null
-      size: number
-      mimeType: string | null
-      /** 默认按 utf-8 文本；PDF/Office/图片等二进制为 base64 */
-      encoding?: 'utf-8' | 'base64'
-      fileUrl?: string
-    }
-  : T extends 'files:read-preview-by-path' ? {
-      truncated: boolean
-      content: string | null
-      size: number
-      mimeType: string | null
-      /** 规范化后的文件名（basename） */
-      fileName: string
-      /** 是否按行号范围截取了内容 */
-      ranged: boolean
-      /** 实际返回的起始行号（1-based） */
-      startLine?: number
-      /** 实际返回的结束行号（1-based，含） */
-      endLine?: number
-      /** 与 files:read-preview-content 一致；二进制为 base64 */
-      encoding?: 'utf-8' | 'base64'
-      /**
-       * 大音视频按 path 预览：lumii-local 协议 URL（不读满 base64）。
-       * 有 fileUrl 时 content 可为 null。
-       */
-      fileUrl?: string
-    }
-  : T extends 'commands:list' ? readonly CommandListEntry[]
-  : T extends 'tasks:list' ? {
-      tasks: readonly {
-        id: string
-        subject: string
-        description: string | null
-        status: string
-        owner: string | null
-      }[]
-    }
-  : T extends 'files:import' ? {
-      fileId: string
-      /** workspace 内的相对路径 */
-      localPath: string
-      /** workspace 内的绝对路径 */
-      absPath: string
-      fileName: string
-      mimeType: string
-      fileSize: number
-      /** 伴生文本文件的 workspace 相对路径；null 表示该格式无需/无法解析 */
-      parsedTextPath: string | null
-    }
-  : T extends 'image:recognize' ? {
-      /** 图片内容的自然语言描述 */
-      description: string
-      /** 提取的 OCR 文字（无则为空串） */
-      ocrText: string
-      /** 实际使用的模型 id */
-      modelId: string
-      /** 模型提供方（openai / qwen / zhipu / doubao / ...） */
-      provider: string
-    }
-  : T extends 'image:process' ? {
-      /** 处理后生成的文件路径（workspace 相对路径） */
-      outputPath: string
-      /** 操作名称回显 */
-      operation: string
-      /** 具体策略返回的附加信息 */
-      meta?: Record<string, unknown>
-    }
-  : T extends 'image:generate' ? {
-      /** workspace 相对路径，如 outputs/20260517/generated_a1b2.png */
-      filePath: string
-      width: number
-      height: number
-      /** 实际使用的模型 id */
-      model: string
-      /** 模型优化后的完整 prompt，迭代修改时传入下一次 prompt */
-      revisedPrompt: string
-    }
-  : never
-
+            id: string;
+            sourceId: string;
+            title: string;
+            fromCategory: string | null;
+            fromSubtopic: string | null;
+            toCategory: string;
+            toSubtopic: string | null;
+            reason: string;
+            decidedBy: 'structure' | 'content';
+            userPath?: string[] | null;
+            tags?: string[] | null;
+            description?: string | null;
+            renameTitle?: string;
+            applyError?: string;
+        }[];
+    } | null;
+} : T extends 'wiki:source:create-note' ? {
+    sourceId: string;
+    sourcePath: string;
+    title: string;
+} : T extends 'wiki:source:rename' ? {
+    id: string;
+    title: string;
+} : T extends 'wiki:reclassify:apply' ? {
+    applied: number;
+    failed: number;
+} : T extends 'wiki:reclassify:ignore' ? {
+    success: true;
+} : T extends 'wiki:reclassify:discard' ? {
+    success: true;
+} : T extends 'wiki:reclassify:cancel' ? {
+    run: unknown | null;
+} : T extends 'wiki:migrate:get' ? {
+    run: WikiMigrateRunDto | null;
+} : T extends 'wiki:migrate:apply' ? {
+    run: WikiMigrateRunDto;
+} : T extends 'wiki:migrate:cancel' ? {
+    run: WikiMigrateRunDto | null;
+} : T extends 'wiki:migrate:discard' ? {
+    success: true;
+} : T extends 'wiki:migrate:undo' ? {
+    run: WikiMigrateRunDto;
+} : T extends 'wiki:migrate:replan' ? {
+    run: WikiMigrateRunDto;
+} : T extends 'wiki:migrate:update-mapping' ? {
+    run: WikiMigrateRunDto;
+} : T extends 'wiki:source:list' ? {
+    sources: readonly {
+        id: string;
+        title: string;
+        sourcePath: string | null;
+        mediaType: string;
+        topicCategory: string | null;
+        topicSubtopic: string | null;
+        userPath?: string[] | null;
+        tags?: string[] | null;
+        description?: string | null;
+        updatedAt: number;
+        useCount: number;
+    }[];
+} : T extends 'wiki:source:counts' ? {
+    sectionCounts: Record<string, number>;
+    topicCounts: Record<string, number>;
+    parking: number;
+    unfiled: number;
+    filed: number;
+    archived: number;
+} : T extends 'wiki:source:update-topic' ? {
+    id: string;
+    topicCategory: string | null;
+    topicSubtopic: string | null;
+    topicProject: string | null;
+    userPath?: string[] | null;
+    tags?: string[] | null;
+    description?: string | null;
+} : T extends 'wiki:source:move-to-parking' ? {
+    id: string;
+    topicCategory: string | null;
+    topicSubtopic: string | null;
+} : T extends 'wiki:source:open' ? {
+    success: true;
+} : T extends 'wiki:cleanup:scan' ? readonly {
+    sourceId: string;
+    title: string;
+    reason: 'stale' | 'broken_source' | 'duplicate_content';
+    duplicateOfSourceId?: string;
+    topicCategory?: string | null;
+    topicSubtopic?: string | null;
+    suggestedAction?: 'parking' | 'delete';
+}[] : T extends 'wiki:source:archive' ? {
+    archived: number;
+} : T extends 'wiki:source:restore' ? {
+    restored: number;
+} : T extends 'wiki:source:delete' ? {
+    deleted: number;
+} : T extends 'wiki:auto-classify:get' ? {
+    enabled: boolean;
+} : T extends 'wiki:auto-classify:set' ? void : T extends 'wiki:source:clear-topic' ? void : T extends 'wiki:link:add' ? {
+    sourceId: string;
+    title: string;
+} : T extends 'wiki:link:save' ? {
+    sourceId: string;
+    savedPath: string;
+    title: string;
+} : T extends 'wiki:vault:ensure-layout' ? {
+    vaultRoot: string;
+    synced: number;
+    createdDirs?: readonly string[];
+} : T extends 'wiki:export' ? {
+    exported: number;
+    failed: readonly {
+        path: string;
+        error: string;
+    }[];
+} : T extends 'wiki:vector:rebuild' ? {
+    rebuiltCount: number;
+    summarized: number;
+    backend?: string;
+    notice?: string | null;
+} : T extends 'wiki:source:summary' ? {
+    summary: string | null;
+    level: 'heuristic' | 'extractive' | 'llm' | null;
+} : T extends 'tools:list' ? readonly {
+    name: string;
+    label: string;
+    description: string;
+    category: string;
+    isReadOnly: boolean;
+    needsPermission: boolean;
+    enabled: boolean;
+    /** 累计调用次数，从未调用过为 0 */
+    usageCount: number;
+    /** 最后一次调用时刻（epoch ms），从未调用过时缺省 */
+    lastUsedAt?: number;
+}[] : T extends 'tools:toggle' ? {
+    success: boolean;
+} : T extends 'tools:usage-by-agent' ? readonly {
+    /** Agent 定义 id；V44 之前的存量归在 'unknown' */
+    id: string;
+    /** 显示名（内建取定义名，未知回落 id） */
+    name: string;
+    totalCalls: number;
+    /** 该 Agent 用过的工具，按调用次数降序 */
+    tools: readonly {
+        name: string;
+        count: number;
+        errorCount: number;
+        lastUsedAt: number;
+    }[];
+}[] : T extends 'tools:usage:export' ? {
+    json: string;
+} : T extends 'news-preference:preview' ? {
+    /** 参与匹配的已推条目总数——「命中 0 篇」要靠它区分「规则没用」和「没数据」 */
+    itemCount: number;
+    /** 裁决顺序的可读版本（界面直接显示，不再自己措辞） */
+    prioritySummary: string;
+    /** 可做子串匹配的规则及其命中 */
+    rules: readonly {
+        field: string;
+        value: string;
+        count: number;
+        hits: readonly {
+            title: string;
+            source: string;
+            timestamp: number;
+        }[];
+    }[];
+    /** 不可预览的字段（推送时段是时间窗，没法拿关键词匹）——如实列出，不装作命中 0 */
+    nonMatchable: readonly {
+        field: string;
+        values: readonly string[];
+    }[];
+} : T extends 'mcp:status' ? McpStatusPayload : T extends 'mcp:readConfigFile' ? {
+    path: string;
+    content: string;
+} : T extends 'mcp:writeConfigFile' ? {
+    success: boolean;
+    error?: string;
+} : T extends 'mcp:upsert' | 'mcp:import' | 'mcp:remove' | 'mcp:setEnabled' | 'mcp:reconnect' ? {
+    success: boolean;
+    error?: string;
+} : T extends 'mcp:setSessionEnabled' | 'mcp:sessionDisabled' ? {
+    disabledServers: readonly string[];
+} : T extends 'skill:setSessionEnabled' | 'skill:sessionDisabled' ? {
+    disabledSkills: readonly string[];
+} : T extends 'storage:auditRecent' ? readonly {
+    id: number;
+    agent_id: string;
+    tool_name: string;
+    result_summary: string | null;
+    is_error: number;
+    duration_ms: number | null;
+    timestamp: string;
+}[] : T extends 'user:compact-context' ? {
+    success: boolean;
+    previousMessageCount: number;
+    newMessageCount: number;
+    messagesRemoved: number;
+} : T extends 'files:list' ? {
+    files: readonly {
+        id: string;
+        userId: string;
+        agentId: string | null;
+        conversationId: string | null;
+        messageId: string | null;
+        channel: string;
+        sourceType: string;
+        fileName: string;
+        fileSize: number | null;
+        mimeType: string | null;
+        localPath: string;
+        category: 'upload' | 'output';
+        metadata: Record<string, unknown> | null;
+        createdAt: string;
+        updatedAt: string;
+        deletedAt: string | null;
+    }[];
+    total: number;
+} : T extends 'files:search' ? readonly {
+    id: string;
+    fileName: string;
+    localPath: string;
+    fileSize: number | null;
+    mimeType: string | null;
+    createdAt: string;
+    channel: string;
+    agentId: string | null;
+    conversationId: string | null;
+}[] : T extends 'files:delete' ? {
+    deletedCount: number;
+} : T extends 'files:open' ? {
+    success: boolean;
+} : T extends 'files:save-as' ? {
+    success: boolean;
+} : T extends 'files:read-preview-content' ? {
+    truncated: boolean;
+    content: string | null;
+    size: number;
+    mimeType: string | null;
+    /** 默认按 utf-8 文本；PDF/Office/图片等二进制为 base64 */
+    encoding?: 'utf-8' | 'base64';
+    fileUrl?: string;
+} : T extends 'files:read-preview-by-path' ? {
+    truncated: boolean;
+    content: string | null;
+    size: number;
+    mimeType: string | null;
+    /** 规范化后的文件名（basename） */
+    fileName: string;
+    /** 是否按行号范围截取了内容 */
+    ranged: boolean;
+    /** 实际返回的起始行号（1-based） */
+    startLine?: number;
+    /** 实际返回的结束行号（1-based，含） */
+    endLine?: number;
+    /** 与 files:read-preview-content 一致；二进制为 base64 */
+    encoding?: 'utf-8' | 'base64';
+    /**
+     * 大音视频按 path 预览：lumii-local 协议 URL（不读满 base64）。
+     * 有 fileUrl 时 content 可为 null。
+     */
+    fileUrl?: string;
+} : T extends 'commands:list' ? readonly CommandListEntry[] : T extends 'tasks:list' ? {
+    tasks: readonly {
+        id: string;
+        subject: string;
+        description: string | null;
+        status: string;
+        owner: string | null;
+    }[];
+} : T extends 'files:import' ? {
+    fileId: string;
+    /** workspace 内的相对路径 */
+    localPath: string;
+    /** workspace 内的绝对路径 */
+    absPath: string;
+    fileName: string;
+    mimeType: string;
+    fileSize: number;
+    /** 伴生文本文件的 workspace 相对路径；null 表示该格式无需/无法解析 */
+    parsedTextPath: string | null;
+} : T extends 'image:recognize' ? {
+    /** 图片内容的自然语言描述 */
+    description: string;
+    /** 提取的 OCR 文字（无则为空串） */
+    ocrText: string;
+    /** 实际使用的模型 id */
+    modelId: string;
+    /** 模型提供方（openai / qwen / zhipu / doubao / ...） */
+    provider: string;
+} : T extends 'image:process' ? {
+    /** 处理后生成的文件路径（workspace 相对路径） */
+    outputPath: string;
+    /** 操作名称回显 */
+    operation: string;
+    /** 具体策略返回的附加信息 */
+    meta?: Record<string, unknown>;
+} : T extends 'image:generate' ? {
+    /** workspace 相对路径，如 outputs/20260517/generated_a1b2.png */
+    filePath: string;
+    width: number;
+    height: number;
+    /** 实际使用的模型 id */
+    model: string;
+    /** 模型优化后的完整 prompt，迭代修改时传入下一次 prompt */
+    revisedPrompt: string;
+} : never;
 // ============================================================
 // 统一命令错误响应
 // ============================================================
-
 /** IPC 命令统一错误响应（bridge 未就绪或命令执行失败时） */
 export interface AgentRuntimeCommandError {
-  readonly ok: false
-  readonly error: string
+    readonly ok: false;
+    readonly error: string;
 }
-
 /** 检查命令响应是否为错误（ok === false） */
 export function isCommandError(result: unknown): result is AgentRuntimeCommandError {
-  return (
-    typeof result === 'object' &&
-    result !== null &&
-    'ok' in result &&
-    (result as { ok: unknown }).ok === false
-  )
+    return (typeof result === 'object' &&
+        result !== null &&
+        'ok' in result &&
+        (result as {
+            ok: unknown;
+        }).ok === false);
 }

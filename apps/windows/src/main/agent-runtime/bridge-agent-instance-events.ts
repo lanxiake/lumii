@@ -2,156 +2,121 @@
  * 单个 Agent 实例的运行时事件管道：日志、SQLite 持久化、权限 IPC、旧/新格式转发。
  * 从 AgentRuntimeBridge.createInstance 拆出以降低主类体积并保持职责单一。
  */
-
-import type {
-  AgentRuntimeEvent,
-  AssistantPart,
-  AssistantPartsContent,
-  ConversationRepo,
-  FileChangeEntry,
-  FileRepo,
-} from '@mtbot/agent-runtime'
-import {
-  applyAssistantPartEvent,
-  describeLlmError,
-  diffTurnSnapshots,
-  finalizeAssistantParts,
-  providerPromptTokens,
-  readMessageContent,
-  resolveWikiAutoIngestItemType,
-  shouldSkipWikiIngestPath,
-} from '@mtbot/agent-runtime'
-import { convertOldEventToIpcEvents, parseThinkTagsFromRaw, type RunContext } from './event-converter'
-import { resetAppUiToolTurnQuotas } from './bridge-app-ui-tools'
-import { forwardPermissionRuntimeToIpc } from './bridge-permission-ipc-forward'
-import type { BridgeRendererIpcChannel } from './bridge-renderer-ipc'
-import type { FileMemoryHandler } from './file-memory-handler'
-import type { WikiIngestHook } from '@mtbot/agent-runtime'
-import type {
-  AgentRuntimeEvent as RendererIpcEvent,
-  ContextBudgetSnapshot,
-  ContextUsageBreakdownEntry,
-} from '../../shared/agent-runtime-events'
-import type { InstanceStateStore } from './bridge-instance-state'
-import { agentRuntimeLog as log, parseJsonToolResultPayload } from './bridge-utils'
-import { recordUsage } from '../usage-store'
-import { markRunStart, markFirstToken, clearRun } from '../provider-latency'
-import { captureWorkspaceTurnSnapshot } from '../workspace-vcs/workspace-turn-snapshot'
-import { recordTurnTouchedPath, filterOwnFileChanges } from './turn-touched-paths'
-import { applyConversationCompactToUsage } from '../../shared/context-usage-compact'
-
+import type { AgentRuntimeEvent, AssistantPart, AssistantPartsContent, ConversationRepo, FileChangeEntry, FileRepo, } from '@mtbot/agent-runtime';
+import { applyAssistantPartEvent, describeLlmError, diffTurnSnapshots, finalizeAssistantParts, providerPromptTokens, readMessageContent, resolveWikiAutoIngestItemType, shouldSkipWikiIngestPath, } from '@mtbot/agent-runtime';
+import { convertOldEventToIpcEvents, parseThinkTagsFromRaw, type RunContext } from './event-converter';
+import { resetAppUiToolTurnQuotas } from './bridge-app-ui-tools';
+import { forwardPermissionRuntimeToIpc } from './bridge-permission-ipc-forward';
+import type { BridgeRendererIpcChannel } from './bridge-renderer-ipc';
+import type { FileMemoryHandler } from './file-memory-handler';
+import type { WikiIngestHook } from '@mtbot/agent-runtime';
+import type { AgentRuntimeEvent as RendererIpcEvent, ContextBudgetSnapshot, ContextUsageBreakdownEntry, } from '../../shared/agent-runtime-events';
+import type { InstanceStateStore } from './bridge-instance-state';
+import { agentRuntimeLog as log } from './bridge-utils';
+import { recordUsage } from '../usage-store';
+import { markRunStart, markFirstToken, clearRun } from '../provider-latency';
+import { captureWorkspaceTurnSnapshot } from '../workspace-vcs/workspace-turn-snapshot';
+import { recordTurnTouchedPath, filterOwnFileChanges } from './turn-touched-paths';
+import { applyConversationCompactToUsage } from '../../shared/context-usage-compact';
 /** 单实例运行时累计指标（主进程内部，与 DetailPanel「运行状态」对应） */
 export interface InstanceRuntimeMetrics {
-  definitionId: string
-  runningStartedAt: number | null
-  completedTurns: number
-  inputTokens: number
-  outputTokens: number
+    definitionId: string;
+    runningStartedAt: number | null;
+    completedTurns: number;
+    inputTokens: number;
+    outputTokens: number;
 }
-
-type AssistantPartsMetadata = Pick<
-  AssistantPartsContent,
-  'usage' | 'sourceAgent' | 'fileChanges' | 'llmError' | 'aborted'
->
-
+type AssistantPartsMetadata = Pick<AssistantPartsContent, 'usage' | 'sourceAgent' | 'fileChanges' | 'llmError' | 'aborted'>;
 /**
  * 事件里的 llmError 落盘前归一化：provider 只给自由文本时会缺 code/retryable。
  * message 为空则不落（否则历史回放会出现一个「失败但没说原因」的红色态）。
  */
 function toPersistedLlmError(err: {
-  code?: string
-  message?: string
-  retryable?: boolean
-}): { code: string; message: string; retryable: boolean } | undefined {
-  const message = err.message?.trim()
-  if (!message) return undefined
-  return { code: err.code ?? 'llm_error', message, retryable: err.retryable ?? false }
+    code?: string;
+    message?: string;
+    retryable?: boolean;
+}): {
+    code: string;
+    message: string;
+    retryable: boolean;
+} | undefined {
+    const message = err.message?.trim();
+    if (!message)
+        return undefined;
+    return { code: err.code ?? 'llm_error', message, retryable: err.retryable ?? false };
 }
-
 /**
  * NO_REPLY 哨兵：整轮回复就是这个值 = 本轮没有面向用户的话要说。
  * 渠道适配器（微信/飞书/QQ）已按此跳过投递；本地会话此前只在渲染层实时移除占位，
  * 落库侧没有对应处理 —— 重开会话就会看到一个「NO_REPLY」气泡。
  */
 export function isNoReplySentinel(text: string | undefined): boolean {
-  return typeof text === 'string' && text.trim().toUpperCase() === 'NO_REPLY'
+    return typeof text === 'string' && text.trim().toUpperCase() === 'NO_REPLY';
 }
-
 /**
  * 将 parts 收尾为数据库内容，并兼容仅通过原始 <think> 标签提供思考内容的模型。
  */
-export function createAssistantPartsContent(
-  parts: readonly AssistantPart[],
-  metadata: AssistantPartsMetadata = {},
-): AssistantPartsContent {
-  let finalizedParts = finalizeAssistantParts(parts)
-  const hasThinkingPart = finalizedParts.some((part) => part.type === 'thinking')
-  const fallbackThinkingTexts: string[] = []
-  const normalizedParts: AssistantPart[] = []
-
-  for (const part of finalizedParts) {
-    if (part.type !== 'text') {
-      normalizedParts.push(part)
-      continue
+export function createAssistantPartsContent(parts: readonly AssistantPart[], metadata: AssistantPartsMetadata = {}): AssistantPartsContent {
+    let finalizedParts = finalizeAssistantParts(parts);
+    const hasThinkingPart = finalizedParts.some((part) => part.type === 'thinking');
+    const fallbackThinkingTexts: string[] = [];
+    const normalizedParts: AssistantPart[] = [];
+    for (const part of finalizedParts) {
+        if (part.type !== 'text') {
+            normalizedParts.push(part);
+            continue;
+        }
+        const { thinkingText, finalText } = parseThinkTagsFromRaw(part.text);
+        if (!thinkingText) {
+            normalizedParts.push(part);
+            continue;
+        }
+        fallbackThinkingTexts.push(thinkingText);
+        if (finalText)
+            normalizedParts.push({ ...part, text: finalText, status: 'done' });
     }
-    const { thinkingText, finalText } = parseThinkTagsFromRaw(part.text)
-    if (!thinkingText) {
-      normalizedParts.push(part)
-      continue
+    finalizedParts = normalizedParts;
+    if (!hasThinkingPart && fallbackThinkingTexts.length > 0) {
+        const fallbackThinking = finalizeAssistantParts(applyAssistantPartEvent([], {
+            kind: 'thinking_delta',
+            delta: fallbackThinkingTexts.join('\n\n'),
+        }))[0];
+        if (fallbackThinking) {
+            finalizedParts.unshift(fallbackThinking);
+        }
     }
-    fallbackThinkingTexts.push(thinkingText)
-    if (finalText) normalizedParts.push({ ...part, text: finalText, status: 'done' })
-  }
-  finalizedParts = normalizedParts
-
-  if (!hasThinkingPart && fallbackThinkingTexts.length > 0) {
-    const fallbackThinking = finalizeAssistantParts(
-      applyAssistantPartEvent([], {
-        kind: 'thinking_delta',
-        delta: fallbackThinkingTexts.join('\n\n'),
-      }),
-    )[0]
-    if (fallbackThinking) {
-      finalizedParts.unshift(fallbackThinking)
-    }
-  }
-
-  return {
-    type: 'assistant_parts',
-    parts: finalizedParts,
-    ...(metadata.usage ? { usage: metadata.usage } : {}),
-    ...(metadata.sourceAgent ? { sourceAgent: metadata.sourceAgent } : {}),
-    ...(metadata.fileChanges ? { fileChanges: metadata.fileChanges } : {}),
-    ...(metadata.llmError ? { llmError: metadata.llmError } : {}),
-    ...(metadata.aborted ? { aborted: true } : {}),
-  }
+    return {
+        type: 'assistant_parts',
+        parts: finalizedParts,
+        ...(metadata.usage ? { usage: metadata.usage } : {}),
+        ...(metadata.sourceAgent ? { sourceAgent: metadata.sourceAgent } : {}),
+        ...(metadata.fileChanges ? { fileChanges: metadata.fileChanges } : {}),
+        ...(metadata.llmError ? { llmError: metadata.llmError } : {}),
+        ...(metadata.aborted ? { aborted: true } : {}),
+    };
 }
-
 /**
  * 提取 parts 中的最终正文，供记忆与技能进化回调复用。
  */
 function assistantTextFromParts(parts: readonly AssistantPart[]): string {
-  return parts
-    .filter((part): part is Extract<AssistantPart, { type: 'text' }> => part.type === 'text')
-    .map((part) => part.text)
-    .join('')
+    return parts
+        .filter((part): part is Extract<AssistantPart, {
+        type: 'text';
+    }> => part.type === 'text')
+        .map((part) => part.text)
+        .join('');
 }
-
 /**
  * 构造流式写入内容，保持 pendingParts 中的实时状态不被提前收尾。
  */
-function createStreamingAssistantPartsContent(
-  parts: readonly AssistantPart[],
-  metadata: AssistantPartsMetadata = {},
-): AssistantPartsContent {
-  return {
-    type: 'assistant_parts',
-    parts: [...parts],
-    ...(metadata.usage ? { usage: metadata.usage } : {}),
-    ...(metadata.sourceAgent ? { sourceAgent: metadata.sourceAgent } : {}),
-  }
+function createStreamingAssistantPartsContent(parts: readonly AssistantPart[], metadata: AssistantPartsMetadata = {}): AssistantPartsContent {
+    return {
+        type: 'assistant_parts',
+        parts: [...parts],
+        ...(metadata.usage ? { usage: metadata.usage } : {}),
+        ...(metadata.sourceAgent ? { sourceAgent: metadata.sourceAgent } : {}),
+    };
 }
-
 /**
  * 将流式中的 assistant 消息落库为已完成状态，保留已有文本与工具调用记录。
  * 用于 agent:error / 自愈重试等场景，避免删除导致「继续」时历史丢失。
@@ -161,120 +126,130 @@ function createStreamingAssistantPartsContent(
  * （见 docs/plans/专项Agent/08-委托可见性.md §5）。
  */
 function finalizeStreamingAssistantMessage(params: {
-  conversationRepo: ConversationRepo
-  messageId: string
-  conversationId: string
-  parts: readonly AssistantPart[]
-  usage?: { inputTokens: number; outputTokens: number; cacheRead?: number; cacheWrite?: number }
-  sourceAgent?: { instanceId: string; label: string }
-  /** 本轮 LLM 错误（缺省不写）：历史回放靠它显示失败态与原因 */
-  llmError?: { code: string; message: string; retryable: boolean }
-  /** 本轮以中止收场（缺省不写）：历史回放靠它显示中断态而不是「已完成」 */
-  aborted?: boolean
-  logTag: string
-  interrupted?: boolean
-  /**
-   * 显式指定该行写入后的 timestamp（ISO 串）。只有「插话处封口」用得上：
-   * 那时要用**该段开始的时刻**，否则这一段会排到插话之后（见 ConversationRepo 的说明）。
-   */
-  timestampOverride?: string
+    conversationRepo: ConversationRepo;
+    messageId: string;
+    conversationId: string;
+    parts: readonly AssistantPart[];
+    usage?: {
+        inputTokens: number;
+        outputTokens: number;
+        cacheRead?: number;
+        cacheWrite?: number;
+    };
+    sourceAgent?: {
+        instanceId: string;
+        label: string;
+    };
+    /** 本轮 LLM 错误（缺省不写）：历史回放靠它显示失败态与原因 */
+    llmError?: {
+        code: string;
+        message: string;
+        retryable: boolean;
+    };
+    /** 本轮以中止收场（缺省不写）：历史回放靠它显示中断态而不是「已完成」 */
+    aborted?: boolean;
+    logTag: string;
+    interrupted?: boolean;
+    /**
+     * 显式指定该行写入后的 timestamp（ISO 串）。只有「插话处封口」用得上：
+     * 那时要用**该段开始的时刻**，否则这一段会排到插话之后（见 ConversationRepo 的说明）。
+     */
+    timestampOverride?: string;
 }): boolean {
-  const { conversationRepo, messageId, conversationId, parts, usage, sourceAgent, logTag } = params
-  const finalizedParts = finalizeAssistantParts(parts, { interrupted: params.interrupted !== false })
-  const contentJson = createAssistantPartsContent(finalizedParts, {
-    usage,
-    sourceAgent,
-    ...(params.llmError ? { llmError: params.llmError } : {}),
-    ...(params.aborted ? { aborted: true } : {}),
-  })
-  const hasContent = contentJson.parts.some(
-    (part) => part.type === 'tool' || part.text.trim().length > 0,
-  )
-  if (!hasContent) return false
-  try {
-    conversationRepo.updateMessageContent({
-      messageId,
-      conversationId,
-      contentJson,
-      isStreaming: false,
-      ...(params.timestampOverride ? { timestampOverride: params.timestampOverride } : {}),
-    })
-    log.info(
-      `[event] ${logTag} 已保留中断消息 messageId=${messageId}, parts=${contentJson.parts.length}`,
-    )
-    return true
-  } catch (err) {
-    log.error(`[event] ${logTag} 保留中断消息失败:`, err)
-    return false
-  }
+    const { conversationRepo, messageId, conversationId, parts, usage, sourceAgent, logTag } = params;
+    const finalizedParts = finalizeAssistantParts(parts, { interrupted: params.interrupted !== false });
+    const contentJson = createAssistantPartsContent(finalizedParts, {
+        usage,
+        sourceAgent,
+        ...(params.llmError ? { llmError: params.llmError } : {}),
+        ...(params.aborted ? { aborted: true } : {}),
+    });
+    const hasContent = contentJson.parts.some((part) => part.type === 'tool' || part.text.trim().length > 0);
+    if (!hasContent)
+        return false;
+    try {
+        conversationRepo.updateMessageContent({
+            messageId,
+            conversationId,
+            contentJson,
+            isStreaming: false,
+            ...(params.timestampOverride ? { timestampOverride: params.timestampOverride } : {}),
+        });
+        log.info(`[event] ${logTag} 已保留中断消息 messageId=${messageId}, parts=${contentJson.parts.length}`);
+        return true;
+    }
+    catch (err) {
+        log.error(`[event] ${logTag} 保留中断消息失败:`, err);
+        return false;
+    }
 }
-
 /**
  * createAgentInstanceRuntimeEventHandler 所需的依赖（均为 bridge 上的引用，零拷贝传递）
  */
 export interface BridgeAgentInstanceEventDeps {
-  instanceId: string
-  ctx: RunContext
-  ipcChannel: BridgeRendererIpcChannel
-  conversationRepo: ConversationRepo | null
-  fileRepo: FileRepo | null
-  fileMemoryHandler: FileMemoryHandler
-  getWikiIngestHook: () => WikiIngestHook | null
-  /**
-   * 解析 Wiki 摄入归属的 agentId（Agent 定义 id，如 'assistant'）。
-   *
-   * 必须与 bridge-wiki-tools.ts 的 resolveAgentId 和 wiki-commands.ts 的
-   * resolveAgentIdForWiki 同口径：此前这里错传 ctx.sessionKey（会话 id），
-   * 导致产物/上传/搜索摄入落在别的 agent_id 命名空间，UI 与 CLI 默认视图都查不到。
-   */
-  resolveWikiAgentId: () => string
-  /** Per-instance 聚合状态存储（替代分散 Map） */
-  instanceStates: InstanceStateStore
-  instanceToConversation: Map<string, string>
-  toolCallInstanceMap: Map<string, string>
-  toolStartTimeMap: Map<string, number>
-  nodeStreamCallbacks: Map<string, (event: AgentRuntimeEvent) => void>
-  getCompactionForRootSession: (rootSessionKey: string) => {
-    contextWindow: number
-    outputReserveTokens: number
-    summaryReserveTokens: number
-  }
-  /**
-   * 会话上下文用量（优先提供商 inputTokens）。
-   * `withBreakdown: false` 走轻量路径：不算分类明细与触发线快照，供逐往返刷新占用条用。
-   */
-  getSessionContextUsage: (
-    sessionKey: string,
-    opts?: { withBreakdown?: boolean },
-  ) => {
-    usedTokens: number
-    contextWindow: number
-    triggerThreshold: number
-    breakdown?: readonly ContextUsageBreakdownEntry[]
-    budget?: ContextBudgetSnapshot
-  }
-  /** 记录提供商返回的 inputTokens，供上下文用量条使用 */
-  setSessionProviderInputTokens: (sessionKey: string, inputTokens: number) => void
-  /** 用真实回执标定该模型的字符/token 比，供上下文明细直算固定部分 */
-  calibrateSessionCharsPerToken: (sessionKey: string, modelId: string, promptTokens: number) => void
-  /** 压缩后清除提供商 token 缓存 */
-  clearSessionProviderInputTokens: (sessionKey: string) => void
-  /** 与 bridge.currentToolExecutorInstanceId 同步（tool:start / tool:end） */
-  setCurrentToolExecutorInstanceId: (id: string | undefined) => void
-  /** Agent 显示名称（用于子 Agent 消息持久化 sourceAgent.label） */
-  agentName?: string
-  /** 是否为子 Agent（子 Agent 消息需持久化 sourceAgent 信息） */
-  isSubAgent?: boolean
-  /** 对话结束后回调（客户端侧记忆记录，fire-and-forget） */
-  onConversationEnd?: (convId: string, assistantText: string) => void
-  /** 获取当前工作区目录，用于回合结束快照。 */
-  getCwd: () => string
-  /** 每条 assistant 消息持久化完成后回调（用于自动快照等工作） */
-  onAssistantMessagePersisted?: (params: { conversationId: string; runId: string }) => void
-  /** 技能进化：轮次结束后回调（fire-and-forget） */
-  onTurnComplete?: (instanceId: string, messages: import('../skill-evolution/types').ConversationMessage[]) => void
+    instanceId: string;
+    ctx: RunContext;
+    ipcChannel: BridgeRendererIpcChannel;
+    conversationRepo: ConversationRepo | null;
+    fileRepo: FileRepo | null;
+    fileMemoryHandler: FileMemoryHandler;
+    getWikiIngestHook: () => WikiIngestHook | null;
+    /**
+     * 解析 Wiki 摄入归属的 agentId（Agent 定义 id，如 'assistant'）。
+     *
+     * 必须与 bridge-wiki-tools.ts 的 resolveAgentId 和 wiki-commands.ts 的
+     * resolveAgentIdForWiki 同口径：此前这里错传 ctx.sessionKey（会话 id），
+     * 导致产物/上传/搜索摄入落在别的 agent_id 命名空间，UI 与 CLI 默认视图都查不到。
+     */
+    resolveWikiAgentId: () => string;
+    /** Per-instance 聚合状态存储（替代分散 Map） */
+    instanceStates: InstanceStateStore;
+    instanceToConversation: Map<string, string>;
+    toolCallInstanceMap: Map<string, string>;
+    toolStartTimeMap: Map<string, number>;
+    nodeStreamCallbacks: Map<string, (event: AgentRuntimeEvent) => void>;
+    getCompactionForRootSession: (rootSessionKey: string) => {
+        contextWindow: number;
+        outputReserveTokens: number;
+        summaryReserveTokens: number;
+    };
+    /**
+     * 会话上下文用量（优先提供商 inputTokens）。
+     * `withBreakdown: false` 走轻量路径：不算分类明细与触发线快照，供逐往返刷新占用条用。
+     */
+    getSessionContextUsage: (sessionKey: string, opts?: {
+        withBreakdown?: boolean;
+    }) => {
+        usedTokens: number;
+        contextWindow: number;
+        triggerThreshold: number;
+        breakdown?: readonly ContextUsageBreakdownEntry[];
+        budget?: ContextBudgetSnapshot;
+    };
+    /** 记录提供商返回的 inputTokens，供上下文用量条使用 */
+    setSessionProviderInputTokens: (sessionKey: string, inputTokens: number) => void;
+    /** 用真实回执标定该模型的字符/token 比，供上下文明细直算固定部分 */
+    calibrateSessionCharsPerToken: (sessionKey: string, modelId: string, promptTokens: number) => void;
+    /** 压缩后清除提供商 token 缓存 */
+    clearSessionProviderInputTokens: (sessionKey: string) => void;
+    /** 与 bridge.currentToolExecutorInstanceId 同步（tool:start / tool:end） */
+    setCurrentToolExecutorInstanceId: (id: string | undefined) => void;
+    /** Agent 显示名称（用于子 Agent 消息持久化 sourceAgent.label） */
+    agentName?: string;
+    /** 是否为子 Agent（子 Agent 消息需持久化 sourceAgent 信息） */
+    isSubAgent?: boolean;
+    /** 对话结束后回调（客户端侧记忆记录，fire-and-forget） */
+    onConversationEnd?: (convId: string, assistantText: string) => void;
+    /** 获取当前工作区目录，用于回合结束快照。 */
+    getCwd: () => string;
+    /** 每条 assistant 消息持久化完成后回调（用于自动快照等工作） */
+    onAssistantMessagePersisted?: (params: {
+        conversationId: string;
+        runId: string;
+    }) => void;
+    /** 技能进化：轮次结束后回调（fire-and-forget） */
+    onTurnComplete?: (instanceId: string, messages: import('../skill-evolution/types').ConversationMessage[]) => void;
 }
-
 /**
  * 逐往返刷新占用条时的最小推送间隔。
  *
@@ -282,976 +257,905 @@ export interface BridgeAgentInstanceEventDeps {
  * `agent:end` 那次是无条件强推，所以最终值不会丢。500ms 远小于真实往返间隔
  * （数秒起），正常情况下不会触发，只在同一秒内连续往返时兜底。
  */
-const CONTEXT_USAGE_MIN_PUSH_INTERVAL_MS = 500
-
+const CONTEXT_USAGE_MIN_PUSH_INTERVAL_MS = 500;
 /** 会话上下文用量快照（`getSessionContextUsage` 的返回形状）。 */
-type SessionContextUsage = ReturnType<BridgeAgentInstanceEventDeps['getSessionContextUsage']>
-
+type SessionContextUsage = ReturnType<BridgeAgentInstanceEventDeps['getSessionContextUsage']>;
 /**
  * 构造 Agent 实例的 subscribe 回调：处理一轮内的持久化、IPC 与 Gateway 节点流回调。
  */
-export function createAgentInstanceRuntimeEventHandler(
-  deps: BridgeAgentInstanceEventDeps,
-): (event: AgentRuntimeEvent) => void {
-  const {
-    instanceId,
-    ctx,
-    ipcChannel,
-    conversationRepo,
-    fileRepo,
-    fileMemoryHandler,
-    getWikiIngestHook,
-    resolveWikiAgentId,
-    instanceStates,
-    instanceToConversation,
-    toolCallInstanceMap,
-    toolStartTimeMap,
-    nodeStreamCallbacks,
-    getCompactionForRootSession,
-    getSessionContextUsage,
-    setSessionProviderInputTokens,
-    calibrateSessionCharsPerToken,
-    setCurrentToolExecutorInstanceId,
-    agentName,
-    isSubAgent,
-    onConversationEnd,
-    getCwd,
-    onTurnComplete,
-    onAssistantMessagePersisted,
-  } = deps
-  const sourceAgentInfo = isSubAgent && agentName ? { instanceId, label: agentName } : undefined
-  const streamingPersistIntervalMs = 100
-  let streamingPersistTimer: ReturnType<typeof setTimeout> | undefined
-  let lastStreamingPersistAt = 0
-
-  /**
-   * 立即将当前 pendingParts 同步到流式占位行。
-   */
-  function writeCurrentStreamingParts(logTag: string): void {
-    const state = instanceStates.get(instanceId)
-    const messageId = state?.streamingAssistantMsgId
-    const conversationId = instanceToConversation.get(instanceId)
-    if (
-      !state ||
-      !messageId ||
-      messageId === '__PLACEHOLDER_FAILED__' ||
-      !conversationId ||
-      !conversationRepo
-    ) {
-      return
+export function createAgentInstanceRuntimeEventHandler(deps: BridgeAgentInstanceEventDeps): (event: AgentRuntimeEvent) => void {
+    const { instanceId, ctx, ipcChannel, conversationRepo, fileRepo, fileMemoryHandler, getWikiIngestHook, resolveWikiAgentId, instanceStates, instanceToConversation, toolCallInstanceMap, toolStartTimeMap, nodeStreamCallbacks, getCompactionForRootSession, getSessionContextUsage, setSessionProviderInputTokens, calibrateSessionCharsPerToken, setCurrentToolExecutorInstanceId, agentName, isSubAgent, onConversationEnd, getCwd, onTurnComplete, onAssistantMessagePersisted, } = deps;
+    const sourceAgentInfo = isSubAgent && agentName ? { instanceId, label: agentName } : undefined;
+    const streamingPersistIntervalMs = 100;
+    let streamingPersistTimer: ReturnType<typeof setTimeout> | undefined;
+    let lastStreamingPersistAt = 0;
+    /**
+     * 立即将当前 pendingParts 同步到流式占位行。
+     */
+    function writeCurrentStreamingParts(logTag: string): void {
+        const state = instanceStates.get(instanceId);
+        const messageId = state?.streamingAssistantMsgId;
+        const conversationId = instanceToConversation.get(instanceId);
+        if (!state ||
+            !messageId ||
+            messageId === '__PLACEHOLDER_FAILED__' ||
+            !conversationId ||
+            !conversationRepo) {
+            return;
+        }
+        try {
+            lastStreamingPersistAt = Date.now();
+            conversationRepo.updateMessageContent({
+                messageId,
+                conversationId,
+                contentJson: createStreamingAssistantPartsContent(state.pendingParts, {
+                    usage: state.lastAssistantUsage,
+                    sourceAgent: sourceAgentInfo,
+                }),
+                isStreaming: true,
+            });
+        }
+        catch (err) {
+            log.error(`[event] ${logTag} 持久化失败:`, err);
+        }
     }
-
-    try {
-      lastStreamingPersistAt = Date.now()
-      conversationRepo.updateMessageContent({
-        messageId,
-        conversationId,
-        contentJson: createStreamingAssistantPartsContent(state.pendingParts, {
-          usage: state.lastAssistantUsage,
-          sourceAgent: sourceAgentInfo,
-        }),
-        isStreaming: true,
-      })
-    } catch (err) {
-      log.error(`[event] ${logTag} 持久化失败:`, err)
+    /**
+     * 合并高频 token 写入；工具边界可强制立即落库。
+     */
+    function persistCurrentStreamingParts(logTag: string, force = false): void {
+        if (force) {
+            cancelPendingStreamingPersist();
+            writeCurrentStreamingParts(logTag);
+            return;
+        }
+        const delay = streamingPersistIntervalMs - (Date.now() - lastStreamingPersistAt);
+        if (delay <= 0 && !streamingPersistTimer) {
+            writeCurrentStreamingParts(logTag);
+            return;
+        }
+        if (streamingPersistTimer)
+            return;
+        streamingPersistTimer = setTimeout(() => {
+            streamingPersistTimer = undefined;
+            writeCurrentStreamingParts(logTag);
+        }, Math.max(0, delay));
     }
-  }
-
-  /**
-   * 合并高频 token 写入；工具边界可强制立即落库。
-   */
-  function persistCurrentStreamingParts(logTag: string, force = false): void {
-    if (force) {
-      cancelPendingStreamingPersist()
-      writeCurrentStreamingParts(logTag)
-      return
+    /**
+     * 取消尚未执行的流式写，避免覆盖 message:end / agent:end 的终态。
+     */
+    function cancelPendingStreamingPersist(): void {
+        if (!streamingPersistTimer)
+            return;
+        clearTimeout(streamingPersistTimer);
+        streamingPersistTimer = undefined;
     }
-
-    const delay = streamingPersistIntervalMs - (Date.now() - lastStreamingPersistAt)
-    if (delay <= 0 && !streamingPersistTimer) {
-      writeCurrentStreamingParts(logTag)
-      return
+    let lastContextUsagePushAt = 0;
+    /**
+     * 推送会话上下文占用。
+     *
+     * 每次 LLM 往返都会走一次（与上行/下行 token 同节奏），所以默认走轻量路径——
+     * 不算分类明细与触发线（明细要遍历全部消息估算，正是主进程冻结排查记下的那条
+     * 栈）。`force` 供 `agent:end` 与压缩后使用：既算明细也绕过节流。
+     *
+     * @returns 实际推送的用量；被节流跳过时返回 undefined（调用方据此决定是否打日志）
+     */
+    function pushContextUsage(rootSessionKey: string, force = false): SessionContextUsage | undefined {
+        const now = Date.now();
+        if (!force && now - lastContextUsagePushAt < CONTEXT_USAGE_MIN_PUSH_INTERVAL_MS) {
+            return undefined;
+        }
+        lastContextUsagePushAt = now;
+        const usage = getSessionContextUsage(rootSessionKey, { withBreakdown: force });
+        ipcChannel.forwardIpcEvent({
+            type: 'agent:context:usage',
+            sessionKey: rootSessionKey,
+            usedTokens: usage.usedTokens,
+            contextWindow: usage.contextWindow,
+            triggerThreshold: usage.triggerThreshold,
+            ...(usage.breakdown ? { breakdown: usage.breakdown } : {}),
+            ...(usage.budget ? { budget: usage.budget } : {}),
+        } as unknown as RendererIpcEvent);
+        return usage;
     }
-    if (streamingPersistTimer) return
-
-    streamingPersistTimer = setTimeout(() => {
-      streamingPersistTimer = undefined
-      writeCurrentStreamingParts(logTag)
-    }, Math.max(0, delay))
-  }
-
-  /**
-   * 取消尚未执行的流式写，避免覆盖 message:end / agent:end 的终态。
-   */
-  function cancelPendingStreamingPersist(): void {
-    if (!streamingPersistTimer) return
-    clearTimeout(streamingPersistTimer)
-    streamingPersistTimer = undefined
-  }
-
-  let lastContextUsagePushAt = 0
-
-  /**
-   * 推送会话上下文占用。
-   *
-   * 每次 LLM 往返都会走一次（与上行/下行 token 同节奏），所以默认走轻量路径——
-   * 不算分类明细与触发线（明细要遍历全部消息估算，正是主进程冻结排查记下的那条
-   * 栈）。`force` 供 `agent:end` 与压缩后使用：既算明细也绕过节流。
-   *
-   * @returns 实际推送的用量；被节流跳过时返回 undefined（调用方据此决定是否打日志）
-   */
-  function pushContextUsage(
-    rootSessionKey: string,
-    force = false,
-  ): SessionContextUsage | undefined {
-    const now = Date.now()
-    if (!force && now - lastContextUsagePushAt < CONTEXT_USAGE_MIN_PUSH_INTERVAL_MS) {
-      return undefined
-    }
-    lastContextUsagePushAt = now
-
-    const usage = getSessionContextUsage(rootSessionKey, { withBreakdown: force })
-    ipcChannel.forwardIpcEvent({
-      type: 'agent:context:usage',
-      sessionKey: rootSessionKey,
-      usedTokens: usage.usedTokens,
-      contextWindow: usage.contextWindow,
-      triggerThreshold: usage.triggerThreshold,
-      ...(usage.breakdown ? { breakdown: usage.breakdown } : {}),
-      ...(usage.budget ? { budget: usage.budget } : {}),
-    } as unknown as RendererIpcEvent)
-    return usage
-  }
-
-  /**
-   * 执行单个运行时事件；仅 agent:end 的工作区结束快照会异步让出。
-   */
-  // 高频流式事件（逐 chunk 触发），不逐条落日志，避免刷屏
-  const SILENT_EVENT_TYPES = new Set(['message:delta', 'message:thinking', 'tool:update'])
-
-  async function handleRuntimeEvent(event: AgentRuntimeEvent): Promise<void> {
-    if (event.type === 'message:delta') {
-      // 首个 delta 即首字节，配对 agent:start 得到 TTFB；后续 delta 无副作用
-      markFirstToken(instanceId, ctx.resolvedModelId ?? 'unknown')
-    } else if (event.type === 'message:end') {
-      const llmErr = (event as {
-        llmError?: { httpStatus?: number; code?: string; message?: string; retryable?: boolean }
-      }).llmError
-      if (llmErr) {
-        log.error(
-          `[event] message:end (LLM ERROR) httpStatus=${llmErr.httpStatus ?? 'N/A'} code=${llmErr.code ?? 'N/A'} message="${llmErr.message ?? 'N/A'}" retryable=${llmErr.retryable ?? 'N/A'}, usage=${JSON.stringify(event.usage)}`,
-        )
-      } else {
-        log.info(
-          `[event] message:end fullText="${event.fullText?.slice(0, 80)}", usage=${JSON.stringify(event.usage)}`,
-        )
-      }
-    } else if (event.type === 'agent:error') {
-      log.error(
-        `[event] agent:error error="${event.error}" errorCode="${(event as { errorCode?: string }).errorCode ?? 'N/A'}"`,
-      )
-    } else if (!SILENT_EVENT_TYPES.has(event.type)) {
-      log.info(`[event] type=${event.type}`)
-    }
-
-    if (event.type === 'agent:start') {
-      cancelPendingStreamingPersist()
-      markRunStart(instanceId)
-      const state = instanceStates.get(instanceId)
-      if (state) {
-        state.lastActivityAt = Date.now()
-      }
-      // 自愈重试时，删除上一轮的空占位行；有内容的行应 finalize 保留，供「继续」恢复历史
-      const prevMsgId = state?.streamingAssistantMsgId
-      const prevParts = state?.pendingParts ?? []
-      const prevHasContent = prevParts.some(
-        (part) => part.type === 'tool' || part.text.trim().length > 0,
-      )
-      if (prevMsgId && prevMsgId !== '__PLACEHOLDER_FAILED__' && conversationRepo) {
-        const convId = instanceToConversation.get(instanceId)
-        if (convId) {
-          try {
-            if (prevHasContent) {
-              finalizeStreamingAssistantMessage({
-                conversationRepo,
-                messageId: prevMsgId,
-                conversationId: convId,
-                parts: prevParts,
-                usage: state?.lastAssistantUsage,
+    /**
+     * 执行单个运行时事件；仅 agent:end 的工作区结束快照会异步让出。
+     */
+    // 高频流式事件（逐 chunk 触发），不逐条落日志，避免刷屏
+    const SILENT_EVENT_TYPES = new Set(['message:delta', 'message:thinking', 'tool:update']);
+    async function handleRuntimeEvent(event: AgentRuntimeEvent): Promise<void> {
+        if (event.type === 'message:delta') {
+            // 首个 delta 即首字节，配对 agent:start 得到 TTFB；后续 delta 无副作用
+            markFirstToken(instanceId, ctx.resolvedModelId ?? 'unknown');
+        }
+        else if (event.type === 'message:end') {
+            const llmErr = (event as {
+                llmError?: {
+                    httpStatus?: number;
+                    code?: string;
+                    message?: string;
+                    retryable?: boolean;
+                };
+            }).llmError;
+            if (llmErr) {
+                log.error(`[event] message:end (LLM ERROR) httpStatus=${llmErr.httpStatus ?? 'N/A'} code=${llmErr.code ?? 'N/A'} message="${llmErr.message ?? 'N/A'}" retryable=${llmErr.retryable ?? 'N/A'}, usage=${JSON.stringify(event.usage)}`);
+            }
+            else {
+                log.info(`[event] message:end fullText="${event.fullText?.slice(0, 80)}", usage=${JSON.stringify(event.usage)}`);
+            }
+        }
+        else if (event.type === 'agent:error') {
+            log.error(`[event] agent:error error="${event.error}" errorCode="${(event as {
+                errorCode?: string;
+            }).errorCode ?? 'N/A'}"`);
+        }
+        else if (!SILENT_EVENT_TYPES.has(event.type)) {
+            log.info(`[event] type=${event.type}`);
+        }
+        if (event.type === 'agent:start') {
+            cancelPendingStreamingPersist();
+            markRunStart(instanceId);
+            const state = instanceStates.get(instanceId);
+            if (state) {
+                state.lastActivityAt = Date.now();
+            }
+            // 自愈重试时，删除上一轮的空占位行；有内容的行应 finalize 保留，供「继续」恢复历史
+            const prevMsgId = state?.streamingAssistantMsgId;
+            const prevParts = state?.pendingParts ?? [];
+            const prevHasContent = prevParts.some((part) => part.type === 'tool' || part.text.trim().length > 0);
+            if (prevMsgId && prevMsgId !== '__PLACEHOLDER_FAILED__' && conversationRepo) {
+                const convId = instanceToConversation.get(instanceId);
+                if (convId) {
+                    try {
+                        if (prevHasContent) {
+                            finalizeStreamingAssistantMessage({
+                                conversationRepo,
+                                messageId: prevMsgId,
+                                conversationId: convId,
+                                parts: prevParts,
+                                usage: state?.lastAssistantUsage,
+                                sourceAgent: sourceAgentInfo,
+                                // 上一轮（多为自愈重试前的失败轮）的错误随行保留：这一行就是那次失败尝试
+                                ...(state?.lastLlmError ? { llmError: state.lastLlmError } : {}),
+                                ...(state?.lastAborted ? { aborted: true } : {}),
+                                logTag: 'agent:start',
+                            });
+                        }
+                        else {
+                            conversationRepo.deleteMessage(prevMsgId, convId);
+                            log.info(`[event] agent:start 删除上轮空占位行 messageId=${prevMsgId}`);
+                        }
+                    }
+                    catch (err) {
+                        log.warn(`[event] agent:start 处理上轮占位行异常: ${err instanceof Error ? err.message : String(err)}`);
+                    }
+                }
+            }
+            if (state) {
+                state.streamingAssistantMsgId = undefined;
+                state.streamingSegmentStartedAt = undefined;
+                state.pendingParts = [];
+                state.toolCallArgs = new Map();
+                state.lastAssistantUsage = undefined;
+                state.lastLlmError = undefined;
+                state.lastAborted = undefined;
+            }
+            // 自愈重试时重置文本累积偏移，避免 message:start 误判为"续轮"导致前端文本重复
+            ctx.accumulatedLength = 0;
+            ctx.completedTurnsLength = 0;
+            ctx.currentMessageId = '';
+            ctx.thinkTagState = 'idle';
+            ctx.thinkTagBuf = '';
+            const convId = instanceToConversation.get(instanceId);
+            if (convId && conversationRepo) {
+                const convExists = conversationRepo.getConversation(convId);
+                if (!convExists) {
+                    log.info(`[event] agent:start 跳过占位行：对话已不存在 conversationId=${convId}`);
+                }
+                else {
+                    // 兜底自愈：清扫该会话中无主实例的孤儿流式占位（如 abort 竞态遗留），
+                    // keepMessageIds 保护其他实例（同会话并发子 Agent）的活跃占位
+                    try {
+                        const keepMessageIds = new Set<string>();
+                        for (const [otherId, otherState] of instanceStates.entries()) {
+                            if (otherId === instanceId)
+                                continue;
+                            const otherMsgId = otherState?.streamingAssistantMsgId;
+                            if (otherMsgId)
+                                keepMessageIds.add(otherMsgId);
+                        }
+                        const swept = conversationRepo.finalizeStreamingMessagesForConversation(convId, {
+                            keepMessageIds,
+                        });
+                        if (swept.finalized > 0 || swept.deleted > 0) {
+                            log.info(`[event] agent:start 清扫会话孤儿流式占位: conversationId=${convId}, finalized=${swept.finalized}, deleted=${swept.deleted}`);
+                        }
+                    }
+                    catch (err) {
+                        log.warn(`[event] agent:start 清扫孤儿流式占位异常: ${err instanceof Error ? err.message : String(err)}`);
+                    }
+                    try {
+                        const row = conversationRepo.saveMessage({
+                            conversationId: convId,
+                            role: 'assistant',
+                            contentJson: {
+                                type: 'assistant_parts',
+                                parts: [],
+                                ...(sourceAgentInfo ? { sourceAgent: sourceAgentInfo } : {}),
+                            },
+                            isStreaming: true,
+                        });
+                        if (state) {
+                            state.streamingAssistantMsgId = row.id;
+                            state.streamingSegmentStartedAt = new Date().toISOString();
+                        }
+                        ctx.currentMessageId = row.id;
+                        log.info(`[event] agent:start 创建流式占位行: msgId=${row.id}, conversationId=${convId}, is_streaming=${row.is_streaming}`);
+                    }
+                    catch (err) {
+                        log.error(`[event] 流式助手占位行失败:`, err);
+                        if (state)
+                            state.streamingAssistantMsgId = '__PLACEHOLDER_FAILED__';
+                    }
+                }
+            }
+        }
+        {
+            const m = instanceStates.get(instanceId)?.metrics;
+            if (m) {
+                if (event.type === 'agent:state-change') {
+                    if (event.state === 'running') {
+                        m.runningStartedAt = Date.now();
+                    }
+                    else {
+                        m.runningStartedAt = null;
+                    }
+                }
+                if (event.type === 'agent:end') {
+                    m.completedTurns++;
+                }
+                if (event.type === 'message:end' && event.usage) {
+                    m.inputTokens += event.usage.inputTokens ?? 0;
+                    m.outputTokens += event.usage.outputTokens ?? 0;
+                }
+            }
+        }
+        forwardPermissionRuntimeToIpc(ipcChannel, instanceId, event);
+        // 插话注入 → 对话流在此分段：把当前 assistant 段收口，另起一条承接插话之后的 parts。
+        //
+        // 为什么必须分段：本模块原本「一个 run 一条 assistant 行」（占位在 agent:start 建、
+        // 之后所有 parts 都追加到它）。而 pi 内部**每次 provider 请求各产出一条 assistant 消息**，
+        // 插话后必然是新一次请求 —— 合在一起会让「插话前的执行记录」与「插话后的」挤进同一个
+        // 「执行过程」折叠块（2026-09-23 用户实测提出）。
+        //
+        // 为什么时机由 AgentInstance 的 prepareRequest 给定、而不是在 steer() 入队时：
+        // 入队那一刻可能还有工具在跑（实测 bash 启动于插话前 20:13:24、返回于插话后 20:13:54），
+        // 那时切分会把同一个工具拆成两半 —— tool:start 进旧段、tool:end 找不到 part 而新建一个。
+        // prepareRequest 触发时 loop 刚把插话推入 context、新段 parts 还没开始，是干净的边界。
+        if (event.type === 'steer:delivered') {
+            const steerState = instanceStates.get(instanceId);
+            const steerConvId = instanceToConversation.get(instanceId);
+            if (steerState && steerConvId && conversationRepo) {
+                const prevMsgId = steerState.streamingAssistantMsgId;
+                const prevParts = [...steerState.pendingParts];
+                // 1) 旧段收口。无内容（只有空占位）时不落库，直接删掉——否则会多出一条空气泡
+                if (prevMsgId && prevMsgId !== '__PLACEHOLDER_FAILED__') {
+                    const kept = finalizeStreamingAssistantMessage({
+                        conversationRepo,
+                        messageId: prevMsgId,
+                        conversationId: steerConvId,
+                        parts: prevParts,
+                        usage: steerState.lastAssistantUsage,
+                        sourceAgent: sourceAgentInfo,
+                        ...(steerState.lastLlmError ? { llmError: steerState.lastLlmError } : {}),
+                        ...(steerState.lastAborted ? { aborted: true } : {}),
+                        logTag: 'steer:delivered',
+                        // 用**该段开始的时刻**写回，而不是"现在"：收口时刻晚于插话的 timestamp，
+                        // ChatContainer 按时间排序会把「插话前的执行记录」排到插话之后，阅读顺序颠倒。
+                        // 也不能只"保留原值"——流式持久化每次写入都把它推到当下，原值早已不是段起点。
+                        ...(steerState.streamingSegmentStartedAt
+                            ? { timestampOverride: steerState.streamingSegmentStartedAt }
+                            : {}),
+                    });
+                    if (!kept) {
+                        try {
+                            conversationRepo.deleteMessage(prevMsgId, steerConvId);
+                            log.info(`[event] steer:delivered 删除空占位行 msgId=${prevMsgId}`);
+                        }
+                        catch (err) {
+                            log.warn(`[event] steer:delivered 删除空占位行失败: ${err instanceof Error ? err.message : String(err)}`);
+                        }
+                    }
+                }
+                // 2) 另起一条承接插话之后的 parts
+                try {
+                    const row = conversationRepo.saveMessage({
+                        conversationId: steerConvId,
+                        role: 'assistant',
+                        contentJson: {
+                            type: 'assistant_parts',
+                            parts: [],
+                            ...(sourceAgentInfo ? { sourceAgent: sourceAgentInfo } : {}),
+                        },
+                        isStreaming: true,
+                    });
+                    steerState.streamingAssistantMsgId = row.id;
+                    steerState.streamingSegmentStartedAt = new Date().toISOString();
+                    steerState.pendingParts = [];
+                    steerState.lastAssistantUsage = undefined;
+                    // 3) converter 后续所有事件改用新 id（message:start / delta / message:end 都读它），
+                    //    文本偏移同时归零——新气泡的正文从头开始，不接上一段的长度
+                    ctx.currentMessageId = row.id;
+                    ctx.accumulatedLength = 0;
+                    ctx.completedTurnsLength = 0;
+                    ctx.thinkTagState = 'idle';
+                    ctx.thinkTagBuf = '';
+                    // 4) 显式通知渲染层换气泡。不走出下面的通用 converter：那条路径见到
+                    //    currentMessageId 已存在会按「同一气泡续轮」处理（completedTurnsLength = len + 2），
+                    //    给新气泡带上多余偏移。
+                    ipcChannel.forwardIpcEvent({
+                        type: 'agent:message:start',
+                        runId: ctx.runId,
+                        sessionKey: ctx.sessionKey,
+                        messageId: row.id,
+                        model: ctx.resolvedModelId ?? 'unknown',
+                        timestamp: Date.now(),
+                        instanceId: ctx.instanceId,
+                        rootSessionKey: ctx.rootSessionKey,
+                    } as unknown as RendererIpcEvent);
+                    log.info(`[event] steer:delivered 已分段：旧段 msgId=${prevMsgId ?? '(无)'} → 新段 msgId=${row.id}, conversationId=${steerConvId}`);
+                }
+                catch (err) {
+                    log.error(`[event] steer:delivered 另起占位行失败:`, err);
+                }
+            }
+            // 无论分段成功与否都要发：渲染层据此把「等待注入」的插话气泡转成普通插话。
+            // 分段失败不该连状态提示一起吞掉。
+            ipcChannel.forwardIpcEvent({
+                type: 'steer:delivered',
+                runId: ctx.runId,
+                sessionKey: ctx.sessionKey,
+                instanceId: ctx.instanceId,
+                rootSessionKey: ctx.rootSessionKey,
+            } as unknown as RendererIpcEvent);
+        }
+        if (event.type === 'tool:start') {
+            setCurrentToolExecutorInstanceId(instanceId);
+            toolCallInstanceMap.set(event.toolCallId, instanceId);
+            const state = instanceStates.get(instanceId);
+            if (state) {
+                state.lastActivityAt = Date.now();
+                const args = (event.args ?? {}) as Record<string, unknown>;
+                state.toolCallArgs.set(event.toolCallId, args);
+                state.pendingParts = applyAssistantPartEvent(state.pendingParts, {
+                    kind: 'tool_start',
+                    id: event.toolCallId,
+                    name: event.toolName,
+                    args,
+                    ...(sourceAgentInfo ? { meta: { sourceAgent: sourceAgentInfo } } : {}),
+                });
+            }
+            toolStartTimeMap.set(`${instanceId}:${event.toolCallId}`, Date.now());
+            persistCurrentStreamingParts('tool:start', true);
+            if (state && !state.memoryGuideInjected &&
+                (event.toolName === 'memory_search' ||
+                    event.toolName === 'memory_read' ||
+                    event.toolName === 'profile_memory' ||
+                    event.toolName === 'memory_manage')) {
+                state.memoryGuideInjected = true;
+                log.info(`[event] 记忆工具首次调用，标记注入完整记忆指南 instanceId=${instanceId} tool=${event.toolName}`);
+            }
+        }
+        if (event.type === 'tool:end') {
+            setCurrentToolExecutorInstanceId(undefined);
+            toolCallInstanceMap.delete(event.toolCallId);
+            const state = instanceStates.get(instanceId);
+            const argMap = state?.toolCallArgs;
+            const args = argMap?.get(event.toolCallId) ?? {};
+            argMap?.delete(event.toolCallId);
+            const toolStartMs = toolStartTimeMap.get(`${instanceId}:${event.toolCallId}`);
+            toolStartTimeMap.delete(`${instanceId}:${event.toolCallId}`);
+            if (state) {
+                state.pendingParts = applyAssistantPartEvent(state.pendingParts, {
+                    kind: 'tool_end',
+                    id: event.toolCallId,
+                    name: event.toolName,
+                    result: event.result,
+                    isError: event.isError,
+                });
+            }
+            persistCurrentStreamingParts('tool:end', true);
+            // 兼容新旧两套工具名：
+            // - file_write（覆盖写）、file_edit（按字符串替换写回）使用 params.filePath
+            // - writeLocalFile 为旧命名保留兼容
+            const isWriteTool = event.toolName === 'file_write' ||
+                event.toolName === 'file_edit' ||
+                event.toolName === 'file_mkdir' ||
+                event.toolName === 'file_move' ||
+                event.toolName === 'file_copy' ||
+                event.toolName === 'writeLocalFile';
+            if (isWriteTool && !event.isError) {
+                recordTurnTouchedPath(instanceId, args, getCwd());
+            }
+            const writtenPath = typeof args['filePath'] === 'string'
+                ? args['filePath']
+                : typeof args['destination'] === 'string'
+                    ? args['destination']
+                    : null;
+            const isContentWriteTool = event.toolName === 'file_write' ||
+                event.toolName === 'file_edit' ||
+                event.toolName === 'file_move' ||
+                event.toolName === 'file_copy' ||
+                event.toolName === 'writeLocalFile';
+            if (isContentWriteTool && !event.isError && fileRepo) {
+                void fileMemoryHandler
+                    .handleFileWritten(instanceId, writtenPath ? { ...args, filePath: writtenPath } : args)
+                    .catch((err: unknown) => {
+                    log.error(`[file:created] 注册文件元数据失败 instanceId=${instanceId}:`, err);
+                });
+            }
+            // Wiki 摄入（P0）：只收 uploads/ 与 outputs/ 下的文件，skills/ 等其余目录不自动入库，
+            // 避免脏数据灌进收件箱；钩子内部已吞异常，此处不额外 try-catch
+            if (isContentWriteTool && !event.isError) {
+                if (writtenPath) {
+                    const itemType = resolveWikiAutoIngestItemType(writtenPath);
+                    const title = writtenPath.split(/[/\\]/).pop() ?? writtenPath;
+                    if (itemType && !shouldSkipWikiIngestPath(writtenPath, title)) {
+                        const hook = getWikiIngestHook();
+                        hook?.[itemType === 'upload' ? 'ingestUpload' : 'ingestOutput'](resolveWikiAgentId(), 'local-user', writtenPath, title);
+                    }
+                }
+            }
+            // bash/exec 工具：脚本写出的文件（Python/shell）不走 file_write，扫描 outputs/ 补齐注册
+            if (event.toolName === 'bash' && !event.isError && fileRepo) {
+                void fileMemoryHandler.scanAndRegisterOutputs(instanceId, toolStartMs).catch((err: unknown) => {
+                    log.error(`[file:created] 扫描 outputs 注册失败 instanceId=${instanceId}:`, err);
+                });
+            }
+        }
+        if (event.type === 'message:delta') {
+            const state = instanceStates.get(instanceId);
+            if (state && event.delta) {
+                state.pendingParts = applyAssistantPartEvent(state.pendingParts, { kind: 'thinking_end' });
+                state.pendingParts = applyAssistantPartEvent(state.pendingParts, {
+                    kind: 'text_delta',
+                    delta: event.delta,
+                });
+                persistCurrentStreamingParts('message:delta');
+            }
+        }
+        if (event.type === 'message:thinking') {
+            const state = instanceStates.get(instanceId);
+            if (state && event.delta) {
+                state.pendingParts = applyAssistantPartEvent(state.pendingParts, {
+                    kind: 'thinking_delta',
+                    delta: event.delta,
+                });
+                persistCurrentStreamingParts('message:thinking');
+            }
+        }
+        if (event.type === 'message:end') {
+            cancelPendingStreamingPersist();
+            const state = instanceStates.get(instanceId);
+            if (event.usage && state) {
+                state.lastAssistantUsage = event.usage;
+            }
+            if (state) {
+                state.pendingParts = applyAssistantPartEvent(state.pendingParts, { kind: 'thinking_end' });
+                // 记下本轮 LLM 结局：本轮干净收场就清空，失败则留到 agent:end / agent:error 收尾时落盘
+                state.lastLlmError = toPersistedLlmError(event.llmError ?? {});
+                // 中止同理接力：最终行由 agent:end 重写，历史回放靠它区分「被中止」与「已完成」
+                state.lastAborted = event.stopReason === 'aborted' ? true : undefined;
+                // LLM 失败（如 401 无效令牌）时本轮没有任何正文，若不写入错误文本，
+                // agent:end 会把空占位行删掉，用户刷新后只看到「什么都没发生」
+                if (event.llmError && !assistantTextFromParts(state.pendingParts).trim()) {
+                    state.pendingParts = applyAssistantPartEvent(state.pendingParts, {
+                        kind: 'text_delta',
+                        delta: describeLlmError(event.llmError),
+                    });
+                }
+                state.pendingParts = createAssistantPartsContent(state.pendingParts).parts;
+            }
+            if (event.usage && ctx.sessionKey === ctx.rootSessionKey) {
+                const promptTokens = providerPromptTokens(event.usage);
+                if (promptTokens > 0) {
+                    setSessionProviderInputTokens(ctx.rootSessionKey, promptTokens);
+                    if (ctx.resolvedModelId) {
+                        calibrateSessionCharsPerToken(ctx.rootSessionKey, ctx.resolvedModelId, promptTokens);
+                    }
+                    // 每次 LLM 往返就把占用条推进一格：只在 agent:end 推的话，带工具循环的
+                    // 一轮可能跑十几分钟，期间占用条显示的一直是上一轮的残留值。
+                    // 放在标定之后——明细的固定部分直算依赖刚更新的 charsPerToken。
+                    pushContextUsage(ctx.rootSessionKey);
+                }
+            }
+            // 落盘用量：只在服务商真给了 usage 时记，估算值不入库（否则花费统计会失真）
+            // cacheRead / cacheWrite 也一并落盘，用于计费重算（Claude、GPT 新系列 cache 独立定价）
+            if (event.usage && ctx.resolvedModelId) {
+                void recordUsage({
+                    model: ctx.resolvedModelId,
+                    promptTokens: event.usage.inputTokens ?? 0,
+                    completionTokens: event.usage.outputTokens ?? 0,
+                    cacheReadTokens: event.usage.cacheRead,
+                    cacheWriteTokens: event.usage.cacheWrite,
+                    sessionKey: ctx.rootSessionKey,
+                });
+            }
+            const msgId = state?.streamingAssistantMsgId;
+            const convId = instanceToConversation.get(instanceId);
+            const contentJson = createAssistantPartsContent(state?.pendingParts ?? [], {
+                usage: event.usage,
                 sourceAgent: sourceAgentInfo,
-                // 上一轮（多为自愈重试前的失败轮）的错误随行保留：这一行就是那次失败尝试
                 ...(state?.lastLlmError ? { llmError: state.lastLlmError } : {}),
                 ...(state?.lastAborted ? { aborted: true } : {}),
-                logTag: 'agent:start',
-              })
-            } else {
-              conversationRepo.deleteMessage(prevMsgId, convId)
-              log.info(`[event] agent:start 删除上轮空占位行 messageId=${prevMsgId}`)
+            });
+            if (msgId && convId && conversationRepo) {
+                try {
+                    if (msgId === '__PLACEHOLDER_FAILED__') {
+                        const row = conversationRepo.saveMessage({
+                            conversationId: convId,
+                            role: 'assistant',
+                            contentJson,
+                            isStreaming: true,
+                        });
+                        if (state)
+                            state.streamingAssistantMsgId = row.id;
+                        log.info(`[event] message:end 占位降级 saveMessage 成功, newMsgId=${row.id}`);
+                    }
+                    else {
+                        conversationRepo.updateMessageContent({
+                            messageId: msgId,
+                            conversationId: convId,
+                            contentJson,
+                            isStreaming: true,
+                        });
+                        log.info(`[event] message:end 更新流式消息内容: msgId=${msgId}, conversationId=${convId}, is_streaming=1, contentLength=${JSON.stringify(contentJson).length}`);
+                    }
+                }
+                catch (err) {
+                    log.error(`[event] message:end 持久化失败，尝试 saveMessage 降级:`, err);
+                    try {
+                        const row = conversationRepo.saveMessage({
+                            conversationId: convId,
+                            role: 'assistant',
+                            contentJson,
+                            isStreaming: true,
+                        });
+                        if (state)
+                            state.streamingAssistantMsgId = row.id;
+                        log.info(`[event] message:end saveMessage 降级成功, newMsgId=${row.id}`);
+                    }
+                    catch (err2) {
+                        log.error(`[event] message:end 降级也失败，消息可能丢失:`, err2);
+                        log.error(`[event] message:end 丢失消息上下文: msgId=${msgId}, convId=${convId}, contentLength=${JSON.stringify(contentJson).length}`);
+                    }
+                }
+                // 持久化完成 → 触发快照等后处理（fire-and-forget）
+                if (onAssistantMessagePersisted && ctx) {
+                    try {
+                        onAssistantMessagePersisted({ conversationId: convId, runId: ctx.runId });
+                    }
+                    catch {
+                        /* 静默吞掉，不阻断事件循环 */
+                    }
+                }
             }
-          } catch (err) {
-            log.warn(`[event] agent:start 处理上轮占位行异常: ${err instanceof Error ? err.message : String(err)}`)
-          }
         }
-      }
-      if (state) {
-        state.streamingAssistantMsgId = undefined
-        state.streamingSegmentStartedAt = undefined
-        state.pendingParts = []
-        state.toolCallArgs = new Map()
-        state.lastAssistantUsage = undefined
-        state.lastLlmError = undefined
-        state.lastAborted = undefined
-      }
-      // 自愈重试时重置文本累积偏移，避免 message:start 误判为"续轮"导致前端文本重复
-      ctx.accumulatedLength = 0
-      ctx.completedTurnsLength = 0
-      ctx.currentMessageId = ''
-      ctx.thinkTagState = 'idle'
-      ctx.thinkTagBuf = ''
-      const convId = instanceToConversation.get(instanceId)
-      if (convId && conversationRepo) {
-        const convExists = conversationRepo.getConversation(convId)
-        if (!convExists) {
-          log.info(`[event] agent:start 跳过占位行：对话已不存在 conversationId=${convId}`)
-        } else {
-          // 兜底自愈：清扫该会话中无主实例的孤儿流式占位（如 abort 竞态遗留），
-          // keepMessageIds 保护其他实例（同会话并发子 Agent）的活跃占位
-          try {
-            const keepMessageIds = new Set<string>()
-            for (const [otherId, otherState] of instanceStates.entries()) {
-              if (otherId === instanceId) continue
-              const otherMsgId = otherState?.streamingAssistantMsgId
-              if (otherMsgId) keepMessageIds.add(otherMsgId)
+        if (event.type === 'agent:error') {
+            cancelPendingStreamingPersist();
+            // 请求失败不该留下未配对的起点污染下一轮延迟
+            clearRun(instanceId);
+            const state = instanceStates.get(instanceId);
+            const msgId = state?.streamingAssistantMsgId;
+            const convId = instanceToConversation.get(instanceId);
+            if (msgId && convId && conversationRepo) {
+                const preserved = finalizeStreamingAssistantMessage({
+                    conversationRepo,
+                    messageId: msgId,
+                    conversationId: convId,
+                    parts: state?.pendingParts ?? [],
+                    usage: state?.lastAssistantUsage,
+                    sourceAgent: sourceAgentInfo,
+                    // 本轮 LLM 错误接力落盘：这条收尾会用 pendingParts 重写同一行，
+                    // 不把 message:end 记下的错误带过去，「为什么失败」就没了
+                    ...(state?.lastLlmError ? { llmError: state.lastLlmError } : {}),
+                    logTag: 'agent:error',
+                });
+                if (!preserved) {
+                    try {
+                        conversationRepo.deleteMessage(msgId, convId);
+                        log.info(`[event] agent:error 已删除空占位行 messageId=${msgId}`);
+                    }
+                    catch (err) {
+                        log.error(`[event] agent:error 删除流式行失败:`, err);
+                    }
+                }
+                else if (state) {
+                    state.pendingParts = [];
+                }
             }
-            const swept = conversationRepo.finalizeStreamingMessagesForConversation(convId, {
-              keepMessageIds,
-            })
-            if (swept.finalized > 0 || swept.deleted > 0) {
-              log.info(
-                `[event] agent:start 清扫会话孤儿流式占位: conversationId=${convId}, finalized=${swept.finalized}, deleted=${swept.deleted}`,
-              )
+            // 身份守卫：仅当指针仍指向本 handler 处理的消息时才清空
+            // （防御迟到的旧 error 事件在新回合 agent:start 之后到达、误删新占位）
+            if (state && state.streamingAssistantMsgId === msgId) {
+                state.streamingAssistantMsgId = undefined;
+                state.streamingSegmentStartedAt = undefined;
+                state.lastAssistantUsage = undefined;
             }
-          } catch (err) {
-            log.warn(
-              `[event] agent:start 清扫孤儿流式占位异常: ${err instanceof Error ? err.message : String(err)}`,
-            )
-          }
-          try {
-            const row = conversationRepo.saveMessage({
-              conversationId: convId,
-              role: 'assistant',
-              contentJson: {
-                type: 'assistant_parts',
-                parts: [],
-                ...(sourceAgentInfo ? { sourceAgent: sourceAgentInfo } : {}),
-              },
-              isStreaming: true,
-            })
-            if (state) {
-              state.streamingAssistantMsgId = row.id
-              state.streamingSegmentStartedAt = new Date().toISOString()
-            }
-            ctx.currentMessageId = row.id
-            log.info(`[event] agent:start 创建流式占位行: msgId=${row.id}, conversationId=${convId}, is_streaming=${row.is_streaming}`)
-          } catch (err) {
-            log.error(`[event] 流式助手占位行失败:`, err)
-            if (state) state.streamingAssistantMsgId = '__PLACEHOLDER_FAILED__'
-          }
-        }
-      }
-    }
-
-    {
-      const m = instanceStates.get(instanceId)?.metrics
-      if (m) {
-        if (event.type === 'agent:state-change') {
-          if (event.state === 'running') {
-            m.runningStartedAt = Date.now()
-          } else {
-            m.runningStartedAt = null
-          }
         }
         if (event.type === 'agent:end') {
-          m.completedTurns++
-        }
-        if (event.type === 'message:end' && event.usage) {
-          m.inputTokens += event.usage.inputTokens ?? 0
-          m.outputTokens += event.usage.outputTokens ?? 0
-        }
-      }
-    }
-
-    forwardPermissionRuntimeToIpc(ipcChannel, instanceId, event)
-
-    // 插话注入 → 对话流在此分段：把当前 assistant 段收口，另起一条承接插话之后的 parts。
-    //
-    // 为什么必须分段：本模块原本「一个 run 一条 assistant 行」（占位在 agent:start 建、
-    // 之后所有 parts 都追加到它）。而 pi 内部**每次 provider 请求各产出一条 assistant 消息**，
-    // 插话后必然是新一次请求 —— 合在一起会让「插话前的执行记录」与「插话后的」挤进同一个
-    // 「执行过程」折叠块（2026-09-23 用户实测提出）。
-    //
-    // 为什么时机由 AgentInstance 的 prepareRequest 给定、而不是在 steer() 入队时：
-    // 入队那一刻可能还有工具在跑（实测 bash 启动于插话前 20:13:24、返回于插话后 20:13:54），
-    // 那时切分会把同一个工具拆成两半 —— tool:start 进旧段、tool:end 找不到 part 而新建一个。
-    // prepareRequest 触发时 loop 刚把插话推入 context、新段 parts 还没开始，是干净的边界。
-    if (event.type === 'steer:delivered') {
-      const steerState = instanceStates.get(instanceId)
-      const steerConvId = instanceToConversation.get(instanceId)
-      if (steerState && steerConvId && conversationRepo) {
-        const prevMsgId = steerState.streamingAssistantMsgId
-        const prevParts = [...steerState.pendingParts]
-        // 1) 旧段收口。无内容（只有空占位）时不落库，直接删掉——否则会多出一条空气泡
-        if (prevMsgId && prevMsgId !== '__PLACEHOLDER_FAILED__') {
-          const kept = finalizeStreamingAssistantMessage({
-            conversationRepo,
-            messageId: prevMsgId,
-            conversationId: steerConvId,
-            parts: prevParts,
-            usage: steerState.lastAssistantUsage,
-            sourceAgent: sourceAgentInfo,
-            ...(steerState.lastLlmError ? { llmError: steerState.lastLlmError } : {}),
-            ...(steerState.lastAborted ? { aborted: true } : {}),
-            logTag: 'steer:delivered',
-            // 用**该段开始的时刻**写回，而不是"现在"：收口时刻晚于插话的 timestamp，
-            // ChatContainer 按时间排序会把「插话前的执行记录」排到插话之后，阅读顺序颠倒。
-            // 也不能只"保留原值"——流式持久化每次写入都把它推到当下，原值早已不是段起点。
-            ...(steerState.streamingSegmentStartedAt
-              ? { timestampOverride: steerState.streamingSegmentStartedAt }
-              : {}),
-          })
-          if (!kept) {
-            try {
-              conversationRepo.deleteMessage(prevMsgId, steerConvId)
-              log.info(`[event] steer:delivered 删除空占位行 msgId=${prevMsgId}`)
-            } catch (err) {
-              log.warn(
-                `[event] steer:delivered 删除空占位行失败: ${err instanceof Error ? err.message : String(err)}`,
-              )
+            cancelPendingStreamingPersist();
+            // 一轮没产出任何 delta（纯工具轮 / 中断）时清掉起点，否则会被下一轮误配成超长延迟
+            clearRun(instanceId);
+            const state = instanceStates.get(instanceId);
+            const convId = instanceToConversation.get(instanceId);
+            const msgId = state?.streamingAssistantMsgId;
+            let persistedMessageId = msgId;
+            const usage = state?.lastAssistantUsage;
+            // await 让出期间，abort 后立即重发的新回合可能在 agent:start 里改写 state
+            // （清空 pendingParts / 换新占位指针）；先取 parts 快照，避免把新回合的空状态写进旧消息
+            const partsSnapshot = [...(state?.pendingParts ?? [])];
+            let fileChanges: FileChangeEntry[] | undefined;
+            const turnSnapshotStart = state?.turnSnapshotStart;
+            if (state)
+                state.turnSnapshotStart = undefined;
+            if (turnSnapshotStart) {
+                try {
+                    const turnSnapshotEnd = await captureWorkspaceTurnSnapshot(getCwd());
+                    // 各会话共用同一 workspace，diff 会含并发会话的写入，按归属过滤
+                    fileChanges = filterOwnFileChanges(instanceId, diffTurnSnapshots(turnSnapshotStart, turnSnapshotEnd));
+                }
+                catch (err) {
+                    log.warn(`[turn-snapshot] end failed: ${err instanceof Error ? err.message : String(err)}`);
+                }
             }
-          }
+            const contentJson = createAssistantPartsContent(partsSnapshot, {
+                usage,
+                sourceAgent: sourceAgentInfo,
+                fileChanges,
+                ...(state?.lastLlmError ? { llmError: state.lastLlmError } : {}),
+                ...(state?.lastAborted ? { aborted: true } : {}),
+            });
+            const text = assistantTextFromParts(contentJson.parts);
+            const toolParts = contentJson.parts.filter((part): part is Extract<AssistantPart, {
+                type: 'tool';
+            }> => part.type === 'tool');
+            const thinkingLength = contentJson.parts
+                .filter((part) => part.type === 'thinking')
+                .reduce((length, part) => length + part.text.length, 0);
+            // NO_REPLY 协议：带工具的轮次保留工具轨迹、只去掉哨兵文本；
+            // 整轮就是哨兵时视为「无可展示内容」，不落库（见下方 persist 分支）。
+            const partsForPersist = contentJson.parts.filter((part) => !(part.type === 'text' && isNoReplySentinel(part.text)));
+            const hasVisiblePart = partsForPersist.some((part) => part.type === 'text' || part.type === 'tool');
+            const contentJsonForPersist = partsForPersist.length === contentJson.parts.length
+                ? contentJson
+                : { ...contentJson, parts: partsForPersist };
+            let persistSuccess = false;
+            if (isNoReplySentinel(text) && !hasVisiblePart) {
+                if (msgId && convId && conversationRepo && msgId !== '__PLACEHOLDER_FAILED__') {
+                    try {
+                        conversationRepo.deleteMessage(msgId, convId);
+                        log.info(`[event] agent:end 纯 NO_REPLY 轮：已删除占位行 msgId=${msgId}, conversationId=${convId}`);
+                    }
+                    catch (err) {
+                        log.warn(`[event] agent:end 删除 NO_REPLY 占位行失败:`, err);
+                    }
+                }
+                persistSuccess = true;
+            }
+            else if (contentJson.parts.length === 0) {
+                // 空段（一个 part 都没有）不落库，删占位。
+                //
+                // 何时出现：插话处刚切出新段、模型还没产出任何东西就收尾（用户插话后立刻停止）；
+                // 也可能是一轮完全空转。落一条 parts:[] 的行会在会话里留一个**永久空气泡** ——
+                // 它是 is_streaming=0，下一轮 agent:start 的孤儿清扫（只扫 is_streaming=1）不管它。
+                // 与 agent:error / finalizeStreamingAssistantMessage 的「空的不落库」保持同一口径。
+                if (msgId && convId && conversationRepo && msgId !== '__PLACEHOLDER_FAILED__') {
+                    try {
+                        conversationRepo.deleteMessage(msgId, convId);
+                        log.info(`[event] agent:end 空段：已删除占位行 msgId=${msgId}, conversationId=${convId}`);
+                    }
+                    catch (err) {
+                        log.warn(`[event] agent:end 删除空段占位行失败:`, err);
+                    }
+                }
+                persistSuccess = true;
+            }
+            else if (convId && msgId && conversationRepo) {
+                try {
+                    if (msgId === '__PLACEHOLDER_FAILED__') {
+                        const row = conversationRepo.saveMessage({
+                            conversationId: convId,
+                            role: 'assistant',
+                            contentJson: contentJsonForPersist,
+                            isStreaming: false,
+                        });
+                        if (state)
+                            state.streamingAssistantMsgId = row.id;
+                        persistedMessageId = row.id;
+                    }
+                    else {
+                        conversationRepo.updateMessageContent({
+                            messageId: msgId,
+                            conversationId: convId,
+                            contentJson: contentJsonForPersist,
+                            isStreaming: false,
+                        });
+                        log.info(`[event] agent:end 最终确认消息: msgId=${msgId}, conversationId=${convId}, is_streaming=0, contentLength=${JSON.stringify(contentJsonForPersist).length}`);
+                    }
+                    log.info(`[event] 持久化 AI 回复（收尾） conversationId=${convId}, len=${text.length}, tools=${toolParts.length}, thinkingLen=${thinkingLength}`);
+                    persistSuccess = true;
+                }
+                catch (err) {
+                    log.error(`[event] 持久化 AI 回复失败，保留内存数据以备恢复:`, err);
+                }
+            }
+            else if (convId && (text.trim() || toolParts.length > 0)) {
+                const convExists = conversationRepo?.getConversation(convId);
+                if (!convExists) {
+                    log.info(`[event] agent:end 跳过持久化：对话已不存在 conversationId=${convId}`);
+                }
+                else {
+                    try {
+                        const row = conversationRepo?.saveMessage({
+                            conversationId: convId,
+                            role: 'assistant',
+                            contentJson: contentJsonForPersist,
+                        });
+                        persistedMessageId = row?.id;
+                        log.info(`[event] 持久化 AI 回复（无流式占位） conversationId=${convId}, msgId=${row?.id}, is_streaming=0, len=${text.length}, tools=${toolParts.length}, thinkingLen=${thinkingLength}`);
+                        persistSuccess = true;
+                    }
+                    catch (err) {
+                        log.error(`[event] 持久化 AI 回复失败:`, err);
+                    }
+                }
+            }
+            if (persistSuccess || !convId) {
+                // 在清空之前保存本轮工具调用记录，供技能进化使用
+                const toolsBeforeClear = toolParts.filter((part) => part.status !== 'running');
+                // 身份守卫：仅当 state 指针仍属于本 handler 时才清空（persistedMessageId 覆盖
+                // 占位降级重建路径；msgId 覆盖无占位路径）。await 窗口内若新回合已建新占位
+                // （abort 后立即重发），此处不得误清新指针
+                if (state &&
+                    (state.streamingAssistantMsgId === persistedMessageId ||
+                        state.streamingAssistantMsgId === msgId)) {
+                    state.pendingParts = [];
+                    state.streamingAssistantMsgId = undefined;
+                    state.streamingSegmentStartedAt = undefined;
+                    state.lastAssistantUsage = undefined;
+                }
+                // 客户端侧记忆记录（fire-and-forget，不阻塞事件处理）
+                if (persistSuccess && convId && text.trim() && onConversationEnd && !isSubAgent) {
+                    try {
+                        onConversationEnd(convId, text);
+                    }
+                    catch (err) {
+                        log.warn(`[event] onConversationEnd 回调异常: ${err instanceof Error ? err.message : String(err)}`);
+                    }
+                }
+                // 技能进化：轮次结束后分析对话（fire-and-forget，不阻塞）
+                if (onTurnComplete && !isSubAgent && convId) {
+                    const convMessages = conversationRepo?.loadMessagesAsPiFormat(convId, { limit: 50 });
+                    if (convMessages && convMessages.length > 0) {
+                        // 补充本轮工具调用记录（loadMessagesAsPiFormat 只含 user/assistant）
+                        const toolMsgs = toolsBeforeClear.map(t => ({
+                            role: 'tool' as const,
+                            content: typeof t.result === 'string' ? t.result : JSON.stringify(t.result),
+                            toolName: t.name,
+                        }));
+                        log.info(`[SkillEvolution] 传入 observer: user/assistant=${convMessages.length}, toolMsgs=${toolMsgs.length}, uniqueTools=${[...new Set(toolMsgs.map(t => t.toolName))].join(',')}`);
+                        const mapped = [
+                            ...convMessages.map(m => ({
+                                role: m.role as 'user' | 'assistant',
+                                content: readMessageContent(m),
+                            })),
+                            ...toolMsgs,
+                        ];
+                        void Promise.resolve(onTurnComplete(instanceId, mapped)).catch((err: unknown) => {
+                            log.warn(`[event] onTurnComplete 回调异常: ${err instanceof Error ? err.message : String(err)}`);
+                        });
+                    }
+                }
+            }
+            else {
+                log.warn(`[event] agent:end 持久化未成功，保留内存数据 instanceId=${instanceId}`);
+            }
+            if (persistSuccess && fileChanges && persistedMessageId) {
+                ipcChannel.forwardIpcEvent({
+                    type: 'agent:turn:file-changes',
+                    runId: ctx.runId,
+                    sessionKey: ctx.sessionKey,
+                    messageId: persistedMessageId,
+                    fileChanges,
+                    instanceId: ctx.instanceId,
+                    rootSessionKey: ctx.rootSessionKey,
+                });
+            }
         }
-        // 2) 另起一条承接插话之后的 parts
-        try {
-          const row = conversationRepo.saveMessage({
-            conversationId: steerConvId,
-            role: 'assistant',
-            contentJson: {
-              type: 'assistant_parts',
-              parts: [],
-              ...(sourceAgentInfo ? { sourceAgent: sourceAgentInfo } : {}),
-            },
-            isStreaming: true,
-          })
-          steerState.streamingAssistantMsgId = row.id
-          steerState.streamingSegmentStartedAt = new Date().toISOString()
-          steerState.pendingParts = []
-          steerState.lastAssistantUsage = undefined
-          // 3) converter 后续所有事件改用新 id（message:start / delta / message:end 都读它），
-          //    文本偏移同时归零——新气泡的正文从头开始，不接上一段的长度
-          ctx.currentMessageId = row.id
-          ctx.accumulatedLength = 0
-          ctx.completedTurnsLength = 0
-          ctx.thinkTagState = 'idle'
-          ctx.thinkTagBuf = ''
-          // 4) 显式通知渲染层换气泡。不走出下面的通用 converter：那条路径见到
-          //    currentMessageId 已存在会按「同一气泡续轮」处理（completedTurnsLength = len + 2），
-          //    给新气泡带上多余偏移。
-          ipcChannel.forwardIpcEvent({
-            type: 'agent:message:start',
-            runId: ctx.runId,
-            sessionKey: ctx.sessionKey,
-            messageId: row.id,
-            model: ctx.resolvedModelId ?? 'unknown',
-            timestamp: Date.now(),
-            instanceId: ctx.instanceId,
-            rootSessionKey: ctx.rootSessionKey,
-          } as unknown as RendererIpcEvent)
-          log.info(
-            `[event] steer:delivered 已分段：旧段 msgId=${prevMsgId ?? '(无)'} → 新段 msgId=${row.id}, conversationId=${steerConvId}`,
-          )
-        } catch (err) {
-          log.error(`[event] steer:delivered 另起占位行失败:`, err)
+        // 自动压缩只扣对话历史：用压缩前整窗占用减对话差值，并写入种子，避免 MCP 定义被等比缩放
+        let compactionOverlay: {
+            previousTokenCount: number;
+            newTokenCount: number;
+            conversationTokensBefore: number;
+            conversationTokensAfter: number;
+            contextWindow: number;
+            triggerThreshold: number;
+        } | null = null;
+        if (event.type === 'context:compaction' && ctx.sessionKey === ctx.rootSessionKey) {
+            const usageBefore = getSessionContextUsage(ctx.rootSessionKey);
+            const previousTokenCount = usageBefore.usedTokens > 0 ? usageBefore.usedTokens : event.tokensBefore;
+            const newTokenCount = applyConversationCompactToUsage(previousTokenCount, event.tokensBefore, event.tokensAfter);
+            setSessionProviderInputTokens(ctx.rootSessionKey, newTokenCount);
+            compactionOverlay = {
+                previousTokenCount,
+                newTokenCount,
+                conversationTokensBefore: event.tokensBefore,
+                conversationTokensAfter: event.tokensAfter,
+                contextWindow: usageBefore.contextWindow,
+                triggerThreshold: usageBefore.triggerThreshold,
+            };
         }
-      }
-      // 无论分段成功与否都要发：渲染层据此把「等待注入」的插话气泡转成普通插话。
-      // 分段失败不该连状态提示一起吞掉。
-      ipcChannel.forwardIpcEvent({
-        type: 'steer:delivered',
-        runId: ctx.runId,
-        sessionKey: ctx.sessionKey,
-        instanceId: ctx.instanceId,
-        rootSessionKey: ctx.rootSessionKey,
-      } as unknown as RendererIpcEvent)
+        // 旧格式事件不再转发渲染进程：渲染侧只有新格式的 case（agent:message:* / agent:turn:* 等），
+        // agent:start / message:delta / tool:* 等旧类型没有任何消费者，白占一次 IPC 序列化。
+        // 唯一同名的 agent:error 两版字段还不同（旧 instanceId/error vs 新 runId/errorCode），
+        // 旧版落到渲染侧那个 case 会把 error 写成 undefined: undefined。
+        // 下面的 convertOldEventToIpcEvents 才是渲染侧真正的事件来源。
+        const nodeStreamCb = nodeStreamCallbacks.get(instanceId);
+        if (nodeStreamCb) {
+            try {
+                nodeStreamCb(event);
+            }
+            catch (err) {
+                log.error(`[nodeStream] 回调异常: instanceId=${instanceId} error=${err instanceof Error ? err.message : String(err)}`);
+            }
+        }
+        const ipcEvents = convertOldEventToIpcEvents(event, ctx);
+        for (const ipcEvent of ipcEvents) {
+            if (ipcEvent.type === 'agent:turn:end') {
+                resetAppUiToolTurnQuotas();
+            }
+            if (ipcEvent.type === 'agent:context:compacted' && compactionOverlay) {
+                // 占用条更新始终推送：micro / hard-trim 也会释放 tokens，占用必须实时反映
+                ipcChannel.forwardIpcEvent({
+                    type: 'agent:context:usage',
+                    sessionKey: ctx.rootSessionKey,
+                    usedTokens: compactionOverlay.newTokenCount,
+                    contextWindow: compactionOverlay.contextWindow,
+                    triggerThreshold: compactionOverlay.triggerThreshold,
+                } as unknown as RendererIpcEvent);
+                // 对话流「上下文压缩」卡片只在 LLM 摘要压缩时展示；micro / hard-trim 是
+                // 确定性静默清理，一次请求的工具循环里可能触发十多次，展示卡片会刷屏。
+                if (ipcEvent.strategy === 'summary') {
+                    ipcChannel.forwardIpcEvent({
+                        ...ipcEvent,
+                        runId: ctx.runId,
+                        previousTokenCount: compactionOverlay.previousTokenCount,
+                        newTokenCount: compactionOverlay.newTokenCount,
+                        conversationTokensBefore: compactionOverlay.conversationTokensBefore,
+                        conversationTokensAfter: compactionOverlay.conversationTokensAfter,
+                    });
+                }
+            }
+            else {
+                ipcChannel.forwardIpcEvent(ipcEvent);
+            }
+        }
+        if (event.type === 'agent:end' && ctx.sessionKey === ctx.rootSessionKey) {
+            // 无条件强推：补齐分类明细与触发线快照，并保证最终值一定落到 UI
+            const usage = pushContextUsage(ctx.rootSessionKey, true);
+            if (usage) {
+                const breakdownText = usage.breakdown?.length
+                    ? ` breakdown=${usage.breakdown.map((e) => `${e.category}:${e.tokens}`).join(',')}`
+                    : '';
+                log.info(`[event] 推送 contextUsage: used=${usage.usedTokens}/${usage.contextWindow} (${usage.contextWindow > 0 ? ((usage.usedTokens / usage.contextWindow) * 100).toFixed(1) : '0'}%)${breakdownText}`);
+            }
+        }
     }
-
-    if (event.type === 'tool:start') {
-      setCurrentToolExecutorInstanceId(instanceId)
-      toolCallInstanceMap.set(event.toolCallId, instanceId)
-      const state = instanceStates.get(instanceId)
-      if (state) {
-        state.lastActivityAt = Date.now()
-        const args = (event.args ?? {}) as Record<string, unknown>
-        state.toolCallArgs.set(event.toolCallId, args)
-        state.pendingParts = applyAssistantPartEvent(state.pendingParts, {
-          kind: 'tool_start',
-          id: event.toolCallId,
-          name: event.toolName,
-          args,
-          ...(sourceAgentInfo ? { meta: { sourceAgent: sourceAgentInfo } } : {}),
-        })
-      }
-      toolStartTimeMap.set(`${instanceId}:${event.toolCallId}`, Date.now())
-      persistCurrentStreamingParts('tool:start', true)
-
-      if (
-        state && !state.memoryGuideInjected &&
-        (event.toolName === 'memory_search' ||
-          event.toolName === 'memory_read' ||
-          event.toolName === 'profile_memory' ||
-          event.toolName === 'memory_manage')
-      ) {
-        state.memoryGuideInjected = true
-        log.info(`[event] 记忆工具首次调用，标记注入完整记忆指南 instanceId=${instanceId} tool=${event.toolName}`)
-      }
-    }
-    if (event.type === 'tool:end') {
-      setCurrentToolExecutorInstanceId(undefined)
-      toolCallInstanceMap.delete(event.toolCallId)
-      const state = instanceStates.get(instanceId)
-      const argMap = state?.toolCallArgs
-      const args = argMap?.get(event.toolCallId) ?? {}
-      argMap?.delete(event.toolCallId)
-      const toolStartMs = toolStartTimeMap.get(`${instanceId}:${event.toolCallId}`)
-      toolStartTimeMap.delete(`${instanceId}:${event.toolCallId}`)
-      if (state) {
-        state.pendingParts = applyAssistantPartEvent(state.pendingParts, {
-          kind: 'tool_end',
-          id: event.toolCallId,
-          name: event.toolName,
-          result: event.result,
-          isError: event.isError,
-        })
-      }
-      persistCurrentStreamingParts('tool:end', true)
-
-      // 兼容新旧两套工具名：
-      // - file_write（覆盖写）、file_edit（按字符串替换写回）使用 params.filePath
-      // - writeLocalFile 为旧命名保留兼容
-      const isWriteTool =
-        event.toolName === 'file_write' ||
-        event.toolName === 'file_edit' ||
-        event.toolName === 'file_mkdir' ||
-        event.toolName === 'file_move' ||
-        event.toolName === 'file_copy' ||
-        event.toolName === 'writeLocalFile'
-      if (isWriteTool && !event.isError) {
-        recordTurnTouchedPath(instanceId, args, getCwd())
-      }
-      const writtenPath =
-        typeof args['filePath'] === 'string'
-          ? args['filePath']
-          : typeof args['destination'] === 'string'
-            ? args['destination']
-            : null
-      const isContentWriteTool =
-        event.toolName === 'file_write' ||
-        event.toolName === 'file_edit' ||
-        event.toolName === 'file_move' ||
-        event.toolName === 'file_copy' ||
-        event.toolName === 'writeLocalFile'
-      if (isContentWriteTool && !event.isError && fileRepo) {
-        void fileMemoryHandler
-          .handleFileWritten(instanceId, writtenPath ? { ...args, filePath: writtenPath } : args)
-          .catch((err: unknown) => {
-            log.error(`[file:created] 注册文件元数据失败 instanceId=${instanceId}:`, err)
-          })
-      }
-      // Wiki 摄入（P0）：只收 uploads/ 与 outputs/ 下的文件，skills/ 等其余目录不自动入库，
-      // 避免脏数据灌进收件箱；钩子内部已吞异常，此处不额外 try-catch
-      if (isContentWriteTool && !event.isError) {
-        if (writtenPath) {
-          const itemType = resolveWikiAutoIngestItemType(writtenPath)
-          const title = writtenPath.split(/[/\\]/).pop() ?? writtenPath
-          if (itemType && !shouldSkipWikiIngestPath(writtenPath, title)) {
-            const hook = getWikiIngestHook()
-            hook?.[itemType === 'upload' ? 'ingestUpload' : 'ingestOutput'](
-              resolveWikiAgentId(),
-              'local-user',
-              writtenPath,
-              title,
-            )
-          }
-        }
-      }
-
-      // bash/exec 工具：脚本写出的文件（Python/shell）不走 file_write，扫描 outputs/ 补齐注册
-      if (event.toolName === 'bash' && !event.isError && fileRepo) {
-        void fileMemoryHandler.scanAndRegisterOutputs(instanceId, toolStartMs).catch((err: unknown) => {
-          log.error(`[file:created] 扫描 outputs 注册失败 instanceId=${instanceId}:`, err)
-        })
-      }
-
-    }
-    if (event.type === 'message:delta') {
-      const state = instanceStates.get(instanceId)
-      if (state && event.delta) {
-        state.pendingParts = applyAssistantPartEvent(state.pendingParts, { kind: 'thinking_end' })
-        state.pendingParts = applyAssistantPartEvent(state.pendingParts, {
-          kind: 'text_delta',
-          delta: event.delta,
-        })
-        persistCurrentStreamingParts('message:delta')
-      }
-    }
-
-    if (event.type === 'message:thinking') {
-      const state = instanceStates.get(instanceId)
-      if (state && event.delta) {
-        state.pendingParts = applyAssistantPartEvent(state.pendingParts, {
-          kind: 'thinking_delta',
-          delta: event.delta,
-        })
-        persistCurrentStreamingParts('message:thinking')
-      }
-    }
-
-    if (event.type === 'message:end') {
-      cancelPendingStreamingPersist()
-      const state = instanceStates.get(instanceId)
-      if (event.usage && state) {
-        state.lastAssistantUsage = event.usage
-      }
-      if (state) {
-        state.pendingParts = applyAssistantPartEvent(state.pendingParts, { kind: 'thinking_end' })
-        // 记下本轮 LLM 结局：本轮干净收场就清空，失败则留到 agent:end / agent:error 收尾时落盘
-        state.lastLlmError = toPersistedLlmError(event.llmError ?? {})
-        // 中止同理接力：最终行由 agent:end 重写，历史回放靠它区分「被中止」与「已完成」
-        state.lastAborted = event.stopReason === 'aborted' ? true : undefined
-        // LLM 失败（如 401 无效令牌）时本轮没有任何正文，若不写入错误文本，
-        // agent:end 会把空占位行删掉，用户刷新后只看到「什么都没发生」
-        if (event.llmError && !assistantTextFromParts(state.pendingParts).trim()) {
-          state.pendingParts = applyAssistantPartEvent(state.pendingParts, {
-            kind: 'text_delta',
-            delta: describeLlmError(event.llmError),
-          })
-        }
-        state.pendingParts = createAssistantPartsContent(state.pendingParts).parts
-      }
-      if (event.usage && ctx.sessionKey === ctx.rootSessionKey) {
-        const promptTokens = providerPromptTokens(event.usage)
-        if (promptTokens > 0) {
-          setSessionProviderInputTokens(ctx.rootSessionKey, promptTokens)
-          if (ctx.resolvedModelId) {
-            calibrateSessionCharsPerToken(ctx.rootSessionKey, ctx.resolvedModelId, promptTokens)
-          }
-          // 每次 LLM 往返就把占用条推进一格：只在 agent:end 推的话，带工具循环的
-          // 一轮可能跑十几分钟，期间占用条显示的一直是上一轮的残留值。
-          // 放在标定之后——明细的固定部分直算依赖刚更新的 charsPerToken。
-          pushContextUsage(ctx.rootSessionKey)
-        }
-      }
-      // 落盘用量：只在服务商真给了 usage 时记，估算值不入库（否则花费统计会失真）
-      // cacheRead / cacheWrite 也一并落盘，用于计费重算（Claude、GPT 新系列 cache 独立定价）
-      if (event.usage && ctx.resolvedModelId) {
-        void recordUsage({
-          model: ctx.resolvedModelId,
-          promptTokens: event.usage.inputTokens ?? 0,
-          completionTokens: event.usage.outputTokens ?? 0,
-          cacheReadTokens: event.usage.cacheRead,
-          cacheWriteTokens: event.usage.cacheWrite,
-          sessionKey: ctx.rootSessionKey,
-        })
-      }
-      const msgId = state?.streamingAssistantMsgId
-      const convId = instanceToConversation.get(instanceId)
-      const contentJson = createAssistantPartsContent(state?.pendingParts ?? [], {
-        usage: event.usage,
-        sourceAgent: sourceAgentInfo,
-        ...(state?.lastLlmError ? { llmError: state.lastLlmError } : {}),
-        ...(state?.lastAborted ? { aborted: true } : {}),
-      })
-      if (msgId && convId && conversationRepo) {
-        try {
-          if (msgId === '__PLACEHOLDER_FAILED__') {
-            const row = conversationRepo.saveMessage({
-              conversationId: convId,
-              role: 'assistant',
-              contentJson,
-              isStreaming: true,
-            })
-            if (state) state.streamingAssistantMsgId = row.id
-            log.info(`[event] message:end 占位降级 saveMessage 成功, newMsgId=${row.id}`)
-          } else {
-            conversationRepo.updateMessageContent({
-              messageId: msgId,
-              conversationId: convId,
-              contentJson,
-              isStreaming: true,
-            })
-            log.info(`[event] message:end 更新流式消息内容: msgId=${msgId}, conversationId=${convId}, is_streaming=1, contentLength=${JSON.stringify(contentJson).length}`)
-          }
-        } catch (err) {
-          log.error(`[event] message:end 持久化失败，尝试 saveMessage 降级:`, err)
-          try {
-            const row = conversationRepo.saveMessage({
-              conversationId: convId,
-              role: 'assistant',
-              contentJson,
-              isStreaming: true,
-            })
-            if (state) state.streamingAssistantMsgId = row.id
-            log.info(`[event] message:end saveMessage 降级成功, newMsgId=${row.id}`)
-          } catch (err2) {
-            log.error(`[event] message:end 降级也失败，消息可能丢失:`, err2)
-            log.error(`[event] message:end 丢失消息上下文: msgId=${msgId}, convId=${convId}, contentLength=${JSON.stringify(contentJson).length}`)
-          }
-        }
-        // 持久化完成 → 触发快照等后处理（fire-and-forget）
-        if (onAssistantMessagePersisted && ctx) {
-          try {
-            onAssistantMessagePersisted({ conversationId: convId, runId: ctx.runId })
-          } catch {
-            /* 静默吞掉，不阻断事件循环 */
-          }
-        }
-      }
-    }
-
-    if (event.type === 'agent:error') {
-      cancelPendingStreamingPersist()
-      // 请求失败不该留下未配对的起点污染下一轮延迟
-      clearRun(instanceId)
-      const state = instanceStates.get(instanceId)
-      const msgId = state?.streamingAssistantMsgId
-      const convId = instanceToConversation.get(instanceId)
-
-      if (msgId && convId && conversationRepo) {
-        const preserved = finalizeStreamingAssistantMessage({
-          conversationRepo,
-          messageId: msgId,
-          conversationId: convId,
-          parts: state?.pendingParts ?? [],
-          usage: state?.lastAssistantUsage,
-          sourceAgent: sourceAgentInfo,
-          // 本轮 LLM 错误接力落盘：这条收尾会用 pendingParts 重写同一行，
-          // 不把 message:end 记下的错误带过去，「为什么失败」就没了
-          ...(state?.lastLlmError ? { llmError: state.lastLlmError } : {}),
-          logTag: 'agent:error',
-        })
-        if (!preserved) {
-          try {
-            conversationRepo.deleteMessage(msgId, convId)
-            log.info(`[event] agent:error 已删除空占位行 messageId=${msgId}`)
-          } catch (err) {
-            log.error(`[event] agent:error 删除流式行失败:`, err)
-          }
-        } else if (state) {
-          state.pendingParts = []
-        }
-      }
-      // 身份守卫：仅当指针仍指向本 handler 处理的消息时才清空
-      // （防御迟到的旧 error 事件在新回合 agent:start 之后到达、误删新占位）
-      if (state && state.streamingAssistantMsgId === msgId) {
-        state.streamingAssistantMsgId = undefined
-        state.streamingSegmentStartedAt = undefined
-        state.lastAssistantUsage = undefined
-      }
-
-    }
-
-    if (event.type === 'agent:end') {
-      cancelPendingStreamingPersist()
-      // 一轮没产出任何 delta（纯工具轮 / 中断）时清掉起点，否则会被下一轮误配成超长延迟
-      clearRun(instanceId)
-      const state = instanceStates.get(instanceId)
-      const convId = instanceToConversation.get(instanceId)
-      const msgId = state?.streamingAssistantMsgId
-      let persistedMessageId = msgId
-      const usage = state?.lastAssistantUsage
-      // await 让出期间，abort 后立即重发的新回合可能在 agent:start 里改写 state
-      // （清空 pendingParts / 换新占位指针）；先取 parts 快照，避免把新回合的空状态写进旧消息
-      const partsSnapshot = [...(state?.pendingParts ?? [])]
-      let fileChanges: FileChangeEntry[] | undefined
-      const turnSnapshotStart = state?.turnSnapshotStart
-      if (state) state.turnSnapshotStart = undefined
-      if (turnSnapshotStart) {
-        try {
-          const turnSnapshotEnd = await captureWorkspaceTurnSnapshot(getCwd())
-          // 各会话共用同一 workspace，diff 会含并发会话的写入，按归属过滤
-          fileChanges = filterOwnFileChanges(
-            instanceId,
-            diffTurnSnapshots(turnSnapshotStart, turnSnapshotEnd),
-          )
-        } catch (err) {
-          log.warn(`[turn-snapshot] end failed: ${err instanceof Error ? err.message : String(err)}`)
-        }
-      }
-      const contentJson = createAssistantPartsContent(partsSnapshot, {
-        usage,
-        sourceAgent: sourceAgentInfo,
-        fileChanges,
-        ...(state?.lastLlmError ? { llmError: state.lastLlmError } : {}),
-        ...(state?.lastAborted ? { aborted: true } : {}),
-      })
-      const text = assistantTextFromParts(contentJson.parts)
-      const toolParts = contentJson.parts.filter(
-        (part): part is Extract<AssistantPart, { type: 'tool' }> => part.type === 'tool',
-      )
-      const thinkingLength = contentJson.parts
-        .filter((part) => part.type === 'thinking')
-        .reduce((length, part) => length + part.text.length, 0)
-
-      // NO_REPLY 协议：带工具的轮次保留工具轨迹、只去掉哨兵文本；
-      // 整轮就是哨兵时视为「无可展示内容」，不落库（见下方 persist 分支）。
-      const partsForPersist = contentJson.parts.filter(
-        (part) => !(part.type === 'text' && isNoReplySentinel(part.text)),
-      )
-      const hasVisiblePart = partsForPersist.some((part) => part.type === 'text' || part.type === 'tool')
-      const contentJsonForPersist =
-        partsForPersist.length === contentJson.parts.length
-          ? contentJson
-          : { ...contentJson, parts: partsForPersist }
-
-      let persistSuccess = false
-      if (isNoReplySentinel(text) && !hasVisiblePart) {
-        if (msgId && convId && conversationRepo && msgId !== '__PLACEHOLDER_FAILED__') {
-          try {
-            conversationRepo.deleteMessage(msgId, convId)
-            log.info(`[event] agent:end 纯 NO_REPLY 轮：已删除占位行 msgId=${msgId}, conversationId=${convId}`)
-          } catch (err) {
-            log.warn(`[event] agent:end 删除 NO_REPLY 占位行失败:`, err)
-          }
-        }
-        persistSuccess = true
-      } else if (contentJson.parts.length === 0) {
-        // 空段（一个 part 都没有）不落库，删占位。
-        //
-        // 何时出现：插话处刚切出新段、模型还没产出任何东西就收尾（用户插话后立刻停止）；
-        // 也可能是一轮完全空转。落一条 parts:[] 的行会在会话里留一个**永久空气泡** ——
-        // 它是 is_streaming=0，下一轮 agent:start 的孤儿清扫（只扫 is_streaming=1）不管它。
-        // 与 agent:error / finalizeStreamingAssistantMessage 的「空的不落库」保持同一口径。
-        if (msgId && convId && conversationRepo && msgId !== '__PLACEHOLDER_FAILED__') {
-          try {
-            conversationRepo.deleteMessage(msgId, convId)
-            log.info(`[event] agent:end 空段：已删除占位行 msgId=${msgId}, conversationId=${convId}`)
-          } catch (err) {
-            log.warn(`[event] agent:end 删除空段占位行失败:`, err)
-          }
-        }
-        persistSuccess = true
-      } else if (convId && msgId && conversationRepo) {
-        try {
-          if (msgId === '__PLACEHOLDER_FAILED__') {
-            const row = conversationRepo.saveMessage({
-              conversationId: convId,
-              role: 'assistant',
-              contentJson: contentJsonForPersist,
-              isStreaming: false,
-            })
-            if (state) state.streamingAssistantMsgId = row.id
-            persistedMessageId = row.id
-          } else {
-            conversationRepo.updateMessageContent({
-              messageId: msgId,
-              conversationId: convId,
-              contentJson: contentJsonForPersist,
-              isStreaming: false,
-            })
-            log.info(`[event] agent:end 最终确认消息: msgId=${msgId}, conversationId=${convId}, is_streaming=0, contentLength=${JSON.stringify(contentJsonForPersist).length}`)
-          }
-          log.info(`[event] 持久化 AI 回复（收尾） conversationId=${convId}, len=${text.length}, tools=${toolParts.length}, thinkingLen=${thinkingLength}`)
-          persistSuccess = true
-        } catch (err) {
-          log.error(`[event] 持久化 AI 回复失败，保留内存数据以备恢复:`, err)
-        }
-      } else if (convId && (text.trim() || toolParts.length > 0)) {
-        const convExists = conversationRepo?.getConversation(convId)
-        if (!convExists) {
-          log.info(`[event] agent:end 跳过持久化：对话已不存在 conversationId=${convId}`)
-        } else {
-          try {
-            const row = conversationRepo?.saveMessage({
-              conversationId: convId,
-              role: 'assistant',
-              contentJson: contentJsonForPersist,
-            })
-            persistedMessageId = row?.id
-            log.info(
-              `[event] 持久化 AI 回复（无流式占位） conversationId=${convId}, msgId=${row?.id}, is_streaming=0, len=${text.length}, tools=${toolParts.length}, thinkingLen=${thinkingLength}`,
-            )
-            persistSuccess = true
-          } catch (err) {
-            log.error(`[event] 持久化 AI 回复失败:`, err)
-          }
-        }
-      }
-
-      if (persistSuccess || !convId) {
-        // 在清空之前保存本轮工具调用记录，供技能进化使用
-        const toolsBeforeClear = toolParts.filter((part) => part.status !== 'running')
-        // 身份守卫：仅当 state 指针仍属于本 handler 时才清空（persistedMessageId 覆盖
-        // 占位降级重建路径；msgId 覆盖无占位路径）。await 窗口内若新回合已建新占位
-        // （abort 后立即重发），此处不得误清新指针
-        if (
-          state &&
-          (state.streamingAssistantMsgId === persistedMessageId ||
-            state.streamingAssistantMsgId === msgId)
-        ) {
-          state.pendingParts = []
-          state.streamingAssistantMsgId = undefined
-        state.streamingSegmentStartedAt = undefined
-          state.lastAssistantUsage = undefined
-        }
-
-        // 客户端侧记忆记录（fire-and-forget，不阻塞事件处理）
-        if (persistSuccess && convId && text.trim() && onConversationEnd && !isSubAgent) {
-          try {
-            onConversationEnd(convId, text)
-          } catch (err) {
-            log.warn(`[event] onConversationEnd 回调异常: ${err instanceof Error ? err.message : String(err)}`)
-          }
-        }
-
-        // 技能进化：轮次结束后分析对话（fire-and-forget，不阻塞）
-        if (onTurnComplete && !isSubAgent && convId) {
-          const convMessages = conversationRepo?.loadMessagesAsPiFormat(convId, { limit: 50 })
-          if (convMessages && convMessages.length > 0) {
-            // 补充本轮工具调用记录（loadMessagesAsPiFormat 只含 user/assistant）
-            const toolMsgs = toolsBeforeClear.map(t => ({
-              role: 'tool' as const,
-              content: typeof t.result === 'string' ? t.result : JSON.stringify(t.result),
-              toolName: t.name,
-            }))
-            log.info(`[SkillEvolution] 传入 observer: user/assistant=${convMessages.length}, toolMsgs=${toolMsgs.length}, uniqueTools=${[...new Set(toolMsgs.map(t => t.toolName))].join(',')}`)
-            const mapped = [
-              ...convMessages.map(m => ({
-                role: m.role as 'user' | 'assistant',
-                content: readMessageContent(m),
-              })),
-              ...toolMsgs,
-            ]
-            void Promise.resolve(onTurnComplete(instanceId, mapped)).catch((err: unknown) => {
-              log.warn(`[event] onTurnComplete 回调异常: ${err instanceof Error ? err.message : String(err)}`)
-            })
-          }
-        }
-      } else {
-        log.warn(`[event] agent:end 持久化未成功，保留内存数据 instanceId=${instanceId}`)
-      }
-
-      if (persistSuccess && fileChanges && persistedMessageId) {
-        ipcChannel.forwardIpcEvent({
-          type: 'agent:turn:file-changes',
-          runId: ctx.runId,
-          sessionKey: ctx.sessionKey,
-          messageId: persistedMessageId,
-          fileChanges,
-          instanceId: ctx.instanceId,
-          rootSessionKey: ctx.rootSessionKey,
-        })
-      }
-
-    }
-
-    // 自动压缩只扣对话历史：用压缩前整窗占用减对话差值，并写入种子，避免 MCP 定义被等比缩放
-    let compactionOverlay: {
-      previousTokenCount: number
-      newTokenCount: number
-      conversationTokensBefore: number
-      conversationTokensAfter: number
-      contextWindow: number
-      triggerThreshold: number
-    } | null = null
-    if (event.type === 'context:compaction' && ctx.sessionKey === ctx.rootSessionKey) {
-      const usageBefore = getSessionContextUsage(ctx.rootSessionKey)
-      const previousTokenCount =
-        usageBefore.usedTokens > 0 ? usageBefore.usedTokens : event.tokensBefore
-      const newTokenCount = applyConversationCompactToUsage(
-        previousTokenCount,
-        event.tokensBefore,
-        event.tokensAfter,
-      )
-      setSessionProviderInputTokens(ctx.rootSessionKey, newTokenCount)
-      compactionOverlay = {
-        previousTokenCount,
-        newTokenCount,
-        conversationTokensBefore: event.tokensBefore,
-        conversationTokensAfter: event.tokensAfter,
-        contextWindow: usageBefore.contextWindow,
-        triggerThreshold: usageBefore.triggerThreshold,
-      }
-    }
-
-    // 旧格式事件不再转发渲染进程：渲染侧只有新格式的 case（agent:message:* / agent:turn:* 等），
-    // agent:start / message:delta / tool:* 等旧类型没有任何消费者，白占一次 IPC 序列化。
-    // 唯一同名的 agent:error 两版字段还不同（旧 instanceId/error vs 新 runId/errorCode），
-    // 旧版落到渲染侧那个 case 会把 error 写成 undefined: undefined。
-    // 下面的 convertOldEventToIpcEvents 才是渲染侧真正的事件来源。
-
-    const nodeStreamCb = nodeStreamCallbacks.get(instanceId)
-    if (nodeStreamCb) {
-      try {
-        nodeStreamCb(event)
-      } catch (err) {
-        log.error(
-          `[nodeStream] 回调异常: instanceId=${instanceId} error=${err instanceof Error ? err.message : String(err)}`,
-        )
-      }
-    }
-
-    const ipcEvents = convertOldEventToIpcEvents(event, ctx)
-    for (const ipcEvent of ipcEvents) {
-      if (ipcEvent.type === 'agent:turn:end') {
-        resetAppUiToolTurnQuotas()
-      }
-      if (ipcEvent.type === 'agent:context:compacted' && compactionOverlay) {
-        // 占用条更新始终推送：micro / hard-trim 也会释放 tokens，占用必须实时反映
-        ipcChannel.forwardIpcEvent({
-          type: 'agent:context:usage',
-          sessionKey: ctx.rootSessionKey,
-          usedTokens: compactionOverlay.newTokenCount,
-          contextWindow: compactionOverlay.contextWindow,
-          triggerThreshold: compactionOverlay.triggerThreshold,
-        } as unknown as RendererIpcEvent)
-        // 对话流「上下文压缩」卡片只在 LLM 摘要压缩时展示；micro / hard-trim 是
-        // 确定性静默清理，一次请求的工具循环里可能触发十多次，展示卡片会刷屏。
-        if (ipcEvent.strategy === 'summary') {
-          ipcChannel.forwardIpcEvent({
-            ...ipcEvent,
-            runId: ctx.runId,
-            previousTokenCount: compactionOverlay.previousTokenCount,
-            newTokenCount: compactionOverlay.newTokenCount,
-            conversationTokensBefore: compactionOverlay.conversationTokensBefore,
-            conversationTokensAfter: compactionOverlay.conversationTokensAfter,
-          })
-        }
-      } else {
-        ipcChannel.forwardIpcEvent(ipcEvent)
-      }
-    }
-
-    if (event.type === 'agent:end' && ctx.sessionKey === ctx.rootSessionKey) {
-      // 无条件强推：补齐分类明细与触发线快照，并保证最终值一定落到 UI
-      const usage = pushContextUsage(ctx.rootSessionKey, true)
-      if (usage) {
-        const breakdownText = usage.breakdown?.length
-          ? ` breakdown=${usage.breakdown.map((e) => `${e.category}:${e.tokens}`).join(',')}`
-          : ''
-        log.info(
-          `[event] 推送 contextUsage: used=${usage.usedTokens}/${usage.contextWindow} (${usage.contextWindow > 0 ? ((usage.usedTokens / usage.contextWindow) * 100).toFixed(1) : '0'}%)${breakdownText}`,
-        )
-      }
-    }
-  }
-
-  /**
-   * 保持 EventSink 的同步 void 契约，并显式兜住内部异步处理失败。
-   */
-  return (event: AgentRuntimeEvent): void => {
-    void handleRuntimeEvent(event).catch((err: unknown) => {
-      log.error(
-        `[event] 异步事件处理失败 type=${event.type}: ${err instanceof Error ? err.message : String(err)}`,
-      )
-    })
-  }
+    /**
+     * 保持 EventSink 的同步 void 契约，并显式兜住内部异步处理失败。
+     */
+    return (event: AgentRuntimeEvent): void => {
+        void handleRuntimeEvent(event).catch((err: unknown) => {
+            log.error(`[event] 异步事件处理失败 type=${event.type}: ${err instanceof Error ? err.message : String(err)}`);
+        });
+    };
 }

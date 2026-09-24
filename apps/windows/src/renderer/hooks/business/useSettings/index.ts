@@ -8,7 +8,6 @@ export { useCategorySettings } from './useCategorySettings'
 export type { UseCategorySettingsReturn } from './useCategorySettings'
 export type {
   AppSettings,
-  NotificationConfig,
   WorkspaceConfig,
   ScreenRecordConfig,
 } from './useSettings.types'

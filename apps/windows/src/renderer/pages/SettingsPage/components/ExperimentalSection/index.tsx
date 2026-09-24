@@ -5,81 +5,54 @@
  * 工具进化已移至「工具」菜单。提示词风格切换写 localStorage 并经 IPC
  * 同步主进程缓存，下一轮对话生效；跨渠道接续写主进程 JSON，下次渠道消息即时生效。
  */
-
-import React, { useCallback, useEffect, useState } from 'react'
-import { ChevronLeft, ChevronRight } from '../../../../components/ui/Icon'
-import { Badge } from '../../../../components/ui/Badge/Badge'
-import { Switch } from '../../../../components/ui/Switch/Switch'
-import { AutonomousPage } from '../../../AutonomousPage/AutonomousPage'
-import {
-  useSettings,
-  SETTINGS_STORAGE_KEY,
-  SETTINGS_UPDATE_EVENT,
-} from '../../../../hooks/business/useSettings'
-import { updatePromptStyle } from '../../../../services/settings-service'
-import { normalizePromptStyle, type PromptStyleValue } from '../../../../../shared/prompt-style'
-import { getAutonomousStatus } from '../../../../services/autonomous-service'
-import { useChannelFeatures } from './useChannelFeatures'
-import settingsStyles from '../../SettingsPage.module.css'
-import styles from './ExperimentalSection.module.css'
-
-type ExperimentalView = 'list' | 'promptStyle' | 'autonomous' | 'channelContinuity'
-
+import { useCallback, useEffect, useState } from 'react';
+import { ChevronLeft, ChevronRight } from '../../../../components/ui/Icon';
+import { Badge } from '../../../../components/ui/Badge/Badge';
+import { Switch } from '../../../../components/ui/Switch/Switch';
+import { AutonomousPage } from '../../../AutonomousPage/AutonomousPage';
+import { useSettings, SETTINGS_STORAGE_KEY, SETTINGS_UPDATE_EVENT, } from '../../../../hooks/business/useSettings';
+import { updatePromptStyle } from '../../../../services/settings-service';
+import { normalizePromptStyle, type PromptStyleValue } from '../../../../../shared/prompt-style';
+import { getAutonomousStatus } from '../../../../services/autonomous-service';
+import { useChannelFeatures } from './useChannelFeatures';
+import settingsStyles from '../../SettingsPage.module.css';
+import styles from './ExperimentalSection.module.css';
+type ExperimentalView = 'list' | 'promptStyle' | 'autonomous' | 'channelContinuity';
 /** 提示词风格详情：详细/简要/极简三态切换与说明（无段清单表） */
-function PromptStyleDetail({ onBack }: { onBack: () => void }) {
-  const { settings } = useSettings()
-  const currentStyle = normalizePromptStyle(settings.promptStyle?.style)
-
-  const handleStyleChange = useCallback(
-    (style: PromptStyleValue) => {
-      if (style === currentStyle) return
-      const nextSettings = {
-        ...settings,
-        promptStyle: { ...settings.promptStyle, style },
-      }
-      try {
-        localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(nextSettings))
-        window.dispatchEvent(new CustomEvent(SETTINGS_UPDATE_EVENT, { detail: nextSettings }))
-        void updatePromptStyle({ style })
-      } catch {
-        // 忽略本地存储写入失败
-      }
-    },
-    [settings, currentStyle],
-  )
-
-  return (
-    <div className={styles.detail}>
-      <DetailHeader title="提示词风格（实验）" onBack={onBack} />
+function PromptStyleDetail({ onBack }: {
+    onBack: () => void;
+}) {
+    const { settings } = useSettings();
+    const currentStyle = normalizePromptStyle(settings.promptStyle?.style);
+    const handleStyleChange = useCallback((style: PromptStyleValue) => {
+        if (style === currentStyle)
+            return;
+        const nextSettings = {
+            ...settings,
+            promptStyle: { ...settings.promptStyle, style },
+        };
+        try {
+            localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(nextSettings));
+            window.dispatchEvent(new CustomEvent(SETTINGS_UPDATE_EVENT, { detail: nextSettings }));
+            void updatePromptStyle({ style });
+        }
+        catch {
+            // 忽略本地存储写入失败
+        }
+    }, [settings, currentStyle]);
+    return (<div className={styles.detail}>
+      <DetailHeader title="提示词风格（实验）" onBack={onBack}/>
       <div className={`${settingsStyles['settings-section']} ${styles.detailBody}`}>
         <div className={settingsStyles['setting-row']}>
           <span className={settingsStyles['setting-label']}>全局风格</span>
           <div className={styles['style-switch']} role="radiogroup" aria-label="系统提示词风格">
-            <button
-              type="button"
-              role="radio"
-              aria-checked={currentStyle === 'detailed'}
-              className={currentStyle === 'detailed' ? styles['style-switch-active'] : undefined}
-              onClick={() => handleStyleChange('detailed')}
-            >
+            <button type="button" role="radio" aria-checked={currentStyle === 'detailed'} className={currentStyle === 'detailed' ? styles['style-switch-active'] : undefined} onClick={() => handleStyleChange('detailed')}>
               详细
             </button>
-            <button
-              type="button"
-              role="radio"
-              aria-checked={currentStyle === 'terse'}
-              className={currentStyle === 'terse' ? styles['style-switch-active'] : undefined}
-              onClick={() => handleStyleChange('terse')}
-            >
+            <button type="button" role="radio" aria-checked={currentStyle === 'terse'} className={currentStyle === 'terse' ? styles['style-switch-active'] : undefined} onClick={() => handleStyleChange('terse')}>
               简要
             </button>
-            <button
-              type="button"
-              role="radio"
-              aria-checked={currentStyle === 'minimal'}
-              className={currentStyle === 'minimal' ? styles['style-switch-active'] : undefined}
-              onClick={() => handleStyleChange('minimal')}
-            >
+            <button type="button" role="radio" aria-checked={currentStyle === 'minimal'} className={currentStyle === 'minimal' ? styles['style-switch-active'] : undefined} onClick={() => handleStyleChange('minimal')}>
               极简
             </button>
           </div>
@@ -90,39 +63,26 @@ function PromptStyleDetail({ onBack }: { onBack: () => void }) {
           MCP 章节等残余描述一并收敛，面向强模型进一步降开销。切换后下一轮对话生效。
         </p>
       </div>
-    </div>
-  )
+    </div>);
 }
-
 /**
  * 跨渠道会话接续详情：一个开关 + 行为说明。
  *
  * 开关值在主进程（`channel-features.json`），渠道 adapter 每条消息现读，
  * 所以切换后**下一轮渠道消息即生效，无需重启**。
  */
-function ChannelContinuityDetail({
-  onBack,
-  enabled,
-  saving,
-  onToggle,
-}: {
-  onBack: () => void
-  enabled: boolean
-  saving: boolean
-  onToggle: (value: boolean) => void
+function ChannelContinuityDetail({ onBack, enabled, saving, onToggle, }: {
+    onBack: () => void;
+    enabled: boolean;
+    saving: boolean;
+    onToggle: (value: boolean) => void;
 }) {
-  return (
-    <div className={styles.detail}>
-      <DetailHeader title="跨渠道会话接续" onBack={onBack} />
+    return (<div className={styles.detail}>
+      <DetailHeader title="跨渠道会话接续" onBack={onBack}/>
       <div className={`${settingsStyles['settings-section']} ${styles.detailBody}`}>
         <div className={settingsStyles['setting-row']}>
           <span className={settingsStyles['setting-label']}>启用接续询问</span>
-          <Switch
-            id="channel-cross-continuity"
-            checked={enabled}
-            disabled={saving}
-            onChange={onToggle}
-          />
+          <Switch id="channel-cross-continuity" checked={enabled} disabled={saving} onChange={onToggle}/>
         </div>
         <p className={settingsStyles['setting-hint']}>
           在渠道（微信 / QQ / 飞书 / 企微）里发消息时，若你近期在客户端或其它渠道有进行中的对话，
@@ -131,124 +91,97 @@ function ChannelContinuityDetail({
           关闭后渠道消息一律留在本渠道自己的会话里。切换后下一轮渠道消息即生效，无需重启。
         </p>
       </div>
-    </div>
-  )
+    </div>);
 }
-
 /** 详情子页顶栏：返回 + 标题 */
-function DetailHeader({ title, onBack }: { title: string; onBack: () => void }) {  return (
-    <div className={styles.detailHeader}>
+function DetailHeader({ title, onBack }: {
+    title: string;
+    onBack: () => void;
+}) {
+    return (<div className={styles.detailHeader}>
       <button type="button" className={styles.backBtn} onClick={onBack} aria-label="返回实验功能列表">
-        <ChevronLeft size={18} aria-hidden />
+        <ChevronLeft size={18} aria-hidden/>
         <span>返回</span>
       </button>
       <h3 className={styles.detailTitle}>{title}</h3>
-    </div>
-  )
+    </div>);
 }
-
 /** 实验功能列表行 */
-function FeatureRow({
-  title,
-  summary,
-  badge,
-  onClick,
-}: {
-  title: string
-  summary: string
-  badge?: boolean
-  onClick: () => void
+function FeatureRow({ title, summary, badge, onClick, }: {
+    title: string;
+    summary: string;
+    badge?: boolean;
+    onClick: () => void;
 }) {
-  return (
-    <button type="button" className={styles.featureRow} onClick={onClick}>
+    return (<button type="button" className={styles.featureRow} onClick={onClick}>
       <div className={styles.featureMain}>
         <span className={styles.featureTitle}>
           {title}
-          {badge ? <Badge dot className={styles.featureBadge} /> : null}
+          {badge ? <Badge dot className={styles.featureBadge}/> : null}
         </span>
         <span className={styles.featureSummary}>{summary}</span>
       </div>
-      <ChevronRight size={18} className={styles.featureChevron} aria-hidden />
-    </button>
-  )
+      <ChevronRight size={18} className={styles.featureChevron} aria-hidden/>
+    </button>);
 }
-
 /**
  * 实验功能设置：默认列表；点选进入提示词风格或自主进化详情子页。
  */
 export function ExperimentalSection() {
-  const { settings } = useSettings()
-  const [view, setView] = useState<ExperimentalView>('list')
-  const [autonomousEnabled, setAutonomousEnabled] = useState<boolean | null>(null)
-  const [pendingGoals, setPendingGoals] = useState(0)
-  const { features, loading: featuresLoading, saving: featuresSaving, setFeature } =
-    useChannelFeatures()
-
-  const currentStyle = normalizePromptStyle(settings.promptStyle?.style)
-  const styleSummary =
-    currentStyle === 'terse' ? '当前：简要' : currentStyle === 'minimal' ? '当前：极简' : '当前：详细'
-  const autonomousSummary =
-    autonomousEnabled === null
-      ? '加载中…'
-      : autonomousEnabled
-        ? '状态：已启用'
-        : '状态：已禁用'
-  const continuitySummary = featuresLoading
-    ? '加载中…'
-    : features.crossChannelContinuityEnabled
-      ? '状态：已启用'
-      : '状态：已关闭'
-
-  useEffect(() => {
-    let cancelled = false
-    void (async () => {
-      try {
-        const status = await getAutonomousStatus()
-        if (cancelled) return
-        setAutonomousEnabled(Boolean(status?.enabled))
-        setPendingGoals(typeof status?.pendingGoalsCount === 'number' ? status.pendingGoalsCount : 0)
-      } catch {
-        if (!cancelled) {
-          setAutonomousEnabled(false)
-          setPendingGoals(0)
-        }
-      }
-    })()
-    return () => {
-      cancelled = true
+    const { settings } = useSettings();
+    const [view, setView] = useState<ExperimentalView>('list');
+    const [autonomousEnabled, setAutonomousEnabled] = useState<boolean | null>(null);
+    const [pendingGoals, setPendingGoals] = useState(0);
+    const { features, loading: featuresLoading, saving: featuresSaving, setFeature } = useChannelFeatures();
+    const currentStyle = normalizePromptStyle(settings.promptStyle?.style);
+    const styleSummary = currentStyle === 'terse' ? '当前：简要' : currentStyle === 'minimal' ? '当前：极简' : '当前：详细';
+    const autonomousSummary = autonomousEnabled === null
+        ? '加载中…'
+        : autonomousEnabled
+            ? '状态：已启用'
+            : '状态：已禁用';
+    const continuitySummary = featuresLoading
+        ? '加载中…'
+        : features.crossChannelContinuityEnabled
+            ? '状态：已启用'
+            : '状态：已关闭';
+    useEffect(() => {
+        let cancelled = false;
+        void (async () => {
+            try {
+                const status = await getAutonomousStatus();
+                if (cancelled)
+                    return;
+                setAutonomousEnabled(Boolean(status?.enabled));
+                setPendingGoals(typeof status?.pendingGoalsCount === 'number' ? status.pendingGoalsCount : 0);
+            }
+            catch {
+                if (!cancelled) {
+                    setAutonomousEnabled(false);
+                    setPendingGoals(0);
+                }
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [view]);
+    const goList = useCallback(() => setView('list'), []);
+    if (view === 'promptStyle') {
+        return <PromptStyleDetail onBack={goList}/>;
     }
-  }, [view])
-
-  const goList = useCallback(() => setView('list'), [])
-
-  if (view === 'promptStyle') {
-    return <PromptStyleDetail onBack={goList} />
-  }
-
-  if (view === 'channelContinuity') {
-    return (
-      <ChannelContinuityDetail
-        onBack={goList}
-        enabled={features.crossChannelContinuityEnabled}
-        saving={featuresSaving}
-        onToggle={(v) => void setFeature('crossChannelContinuityEnabled', v)}
-      />
-    )
-  }
-
-  if (view === 'autonomous') {
-    return (
-      <div className={styles.detail}>
-        <DetailHeader title="自主进化" onBack={goList} />
+    if (view === 'channelContinuity') {
+        return (<ChannelContinuityDetail onBack={goList} enabled={features.crossChannelContinuityEnabled} saving={featuresSaving} onToggle={(v) => void setFeature('crossChannelContinuityEnabled', v)}/>);
+    }
+    if (view === 'autonomous') {
+        return (<div className={styles.detail}>
+        <DetailHeader title="自主进化" onBack={goList}/>
         <div className={`${settingsStyles['autonomous-embed']} ${styles.detailBody}`}>
-          <AutonomousPage embedded />
+          <AutonomousPage embedded/>
         </div>
-      </div>
-    )
-  }
-
-  return (
-    <div className={styles.wrap}>
+      </div>);
+    }
+    return (<div className={styles.wrap}>
       <div className={styles.listHeader}>
         <h3 className={styles.listTitle}>实验功能</h3>
         <p className={styles.listHint}>
@@ -256,23 +189,9 @@ export function ExperimentalSection() {
         </p>
       </div>
       <div className={styles.featureList}>
-        <FeatureRow
-          title="提示词风格（实验）"
-          summary={styleSummary}
-          onClick={() => setView('promptStyle')}
-        />
-        <FeatureRow
-          title="跨渠道会话接续"
-          summary={continuitySummary}
-          onClick={() => setView('channelContinuity')}
-        />
-        <FeatureRow
-          title="自主进化"
-          summary={autonomousSummary}
-          badge={pendingGoals > 0}
-          onClick={() => setView('autonomous')}
-        />
+        <FeatureRow title="提示词风格（实验）" summary={styleSummary} onClick={() => setView('promptStyle')}/>
+        <FeatureRow title="跨渠道会话接续" summary={continuitySummary} onClick={() => setView('channelContinuity')}/>
+        <FeatureRow title="自主进化" summary={autonomousSummary} badge={pendingGoals > 0} onClick={() => setView('autonomous')}/>
       </div>
-    </div>
-  )
+    </div>);
 }

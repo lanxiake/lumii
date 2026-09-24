@@ -9,55 +9,44 @@
  * 生成 shim 并**追加**到 PATH 末尾 —— 追加而非前置，保证用户机器上真实的
  * node/python 始终优先，我们只填空缺。
  */
-
-import { existsSync, promises as fs } from 'node:fs'
-import { delimiter, join } from 'node:path'
-import { execSync } from 'node:child_process'
-import {
-  PYPI_MIRROR,
-  detectSystemPython,
-  ensureBundledPython,
-  getBundledPythonExe,
-  getBundledSitePackages,
-} from './python-env'
-import { resolveLumiiUiScriptPath } from './app-ui-control/cli-paths'
-import { refreshCommonCliPathsInProcessEnv } from './cli-user-path'
-import { resolvePluginRuntimeDir } from './paths'
-
+import { existsSync, promises as fs } from 'node:fs';
+import { delimiter, join } from 'node:path';
+import { execSync } from 'node:child_process';
+import { PYPI_MIRROR, detectSystemPython, ensureBundledPython, getBundledPythonExe, getBundledSitePackages, } from './python-env';
+import { resolveLumiiUiScriptPath } from './app-ui-control/cli-paths';
+import { refreshCommonCliPathsInProcessEnv } from './cli-user-path';
+import { resolvePluginRuntimeDir } from './paths';
 const log = {
-  info: (...a: unknown[]) => console.log('[RuntimeEnv]', ...a),
-  warn: (...a: unknown[]) => console.warn('[RuntimeEnv]', ...a),
-}
-
+    info: (...a: unknown[]) => console.log('[RuntimeEnv]', ...a),
+    warn: (...a: unknown[]) => console.warn('[RuntimeEnv]', ...a),
+};
 /** shim 存放目录 */
 export function getShimDir(): string {
-  return resolvePluginRuntimeDir('bin')
+    return resolvePluginRuntimeDir('bin');
 }
-
 /** 系统 node 探测缓存 */
-let cachedSystemNode: string | null | undefined
-
+let cachedSystemNode: string | null | undefined;
 /**
  * 测试用：重置或预置系统 node 探测结果。
  *
  * @param primed 传 null 表示"已探测且系统无 node"，不传表示回到未探测状态
  */
 export function _resetSystemNodeCache(primed?: string | null): void {
-  cachedSystemNode = primed === undefined ? undefined : primed
+    cachedSystemNode = primed === undefined ? undefined : primed;
 }
-
 /** 系统上是否有可用的 node */
 function detectSystemNode(): string | null {
-  if (cachedSystemNode !== undefined) return cachedSystemNode
-  try {
-    execSync('node --version', { encoding: 'utf-8', timeout: 5000, windowsHide: true })
-    cachedSystemNode = 'node'
-  } catch {
-    cachedSystemNode = null
-  }
-  return cachedSystemNode
+    if (cachedSystemNode !== undefined)
+        return cachedSystemNode;
+    try {
+        execSync('node --version', { encoding: 'utf-8', timeout: 5000, windowsHide: true });
+        cachedSystemNode = 'node';
+    }
+    catch {
+        cachedSystemNode = null;
+    }
+    return cachedSystemNode;
 }
-
 /**
  * 解析用于跑 JS 的 node 可执行文件。
  *
@@ -67,47 +56,44 @@ function detectSystemNode(): string | null {
  *
  * @returns command 与需要附加的环境变量
  */
-export function resolveNodeExec(): { command: string; env: Record<string, string> } {
-  const system = detectSystemNode()
-  if (system) return { command: system, env: {} }
-  return resolveElectronNodeExec()
+export function resolveNodeExec(): {
+    command: string;
+    env: Record<string, string>;
+} {
+    const system = detectSystemNode();
+    if (system)
+        return { command: system, env: {} };
+    return resolveElectronNodeExec();
 }
-
 /**
  * 解析 Lumii 客户端内置 Node（Electron execPath + ELECTRON_RUN_AS_NODE）。
  *
  * lumii-ui 等客户端自有 CLI 始终走此路径，避免与系统 Node 版本/路径不一致。
  */
-export function resolveElectronNodeExec(): { command: string; env: Record<string, string> } {
-  return { command: process.execPath, env: { ELECTRON_RUN_AS_NODE: '1' } }
+export function resolveElectronNodeExec(): {
+    command: string;
+    env: Record<string, string>;
+} {
+    return { command: process.execPath, env: { ELECTRON_RUN_AS_NODE: '1' } };
 }
-
 /** Windows 路径转 Git Bash 可用的正斜杠形式 */
 function toPosixish(p: string): string {
-  return p.replace(/\\/g, '/')
+    return p.replace(/\\/g, '/');
 }
-
 /**
  * 生成一对 shim（无扩展名的 sh 脚本给 Git Bash，.cmd 给 cmd.exe）。
  *
  * sh 脚本里先判存在再 exec，运行时没装好时给出可读错误而不是 "command not found"。
  */
-async function writeShimPair(
-  dir: string,
-  name: string,
-  target: string,
-  prefixArgs: readonly string[],
-  extraEnv: Record<string, string>,
-): Promise<void> {
-  const quotedArgs = prefixArgs.map((a) => `"${a}"`).join(' ')
-  const envLinesSh = Object.entries(extraEnv)
-    .map(([k, v]) => `export ${k}="${v}"`)
-    .join('\n')
-  const envLinesCmd = Object.entries(extraEnv)
-    .map(([k, v]) => `set "${k}=${v}"`)
-    .join('\r\n')
-
-  const sh = `#!/bin/sh
+async function writeShimPair(dir: string, name: string, target: string, prefixArgs: readonly string[], extraEnv: Record<string, string>): Promise<void> {
+    const quotedArgs = prefixArgs.map((a) => `"${a}"`).join(' ');
+    const envLinesSh = Object.entries(extraEnv)
+        .map(([k, v]) => `export ${k}="${v}"`)
+        .join('\n');
+    const envLinesCmd = Object.entries(extraEnv)
+        .map(([k, v]) => `set "${k}=${v}"`)
+        .join('\r\n');
+    const sh = `#!/bin/sh
 # 由灵栖 Lumii 自动生成，请勿手改
 TARGET="${toPosixish(target)}"
 if [ -f "$TARGET" ] || [ -x "$TARGET" ]; then
@@ -120,18 +106,15 @@ else
 fi
 ${envLinesSh}
 exec "$TARGET" ${quotedArgs} "$@"
-`
-
-  const cmd = `@echo off\r
+`;
+    const cmd = `@echo off\r
 rem 由灵栖 Lumii 自动生成，请勿手改\r
 ${envLinesCmd}\r
 "${target}" ${quotedArgs} %*\r
-`
-
-  await fs.writeFile(join(dir, name), sh, { encoding: 'utf-8', mode: 0o755 })
-  await fs.writeFile(join(dir, `${name}.cmd`), cmd, 'utf-8')
+`;
+    await fs.writeFile(join(dir, name), sh, { encoding: 'utf-8', mode: 0o755 });
+    await fs.writeFile(join(dir, `${name}.cmd`), cmd, 'utf-8');
 }
-
 /**
  * 按需写入 node / python shim。
  *
@@ -139,31 +122,27 @@ ${envLinesCmd}\r
  * 每次启动重写一遍（内容含绝对路径，客户端换安装位置后需刷新）。
  */
 async function writeShims(): Promise<void> {
-  const dir = getShimDir()
-  await fs.mkdir(dir, { recursive: true })
-
-  if (!detectSystemNode()) {
-    // Electron execPath 当纯 Node 用，需 ELECTRON_RUN_AS_NODE=1
-    const electronNode = resolveElectronNodeExec()
-    await writeShimPair(dir, 'node', electronNode.command, [], electronNode.env)
-    log.info('已写入 node shim（系统未装 Node，使用 Electron 内置）')
-  }
-
-  if (!detectSystemPython()) {
-    const exe = getBundledPythonExe()
-    for (const name of ['python', 'python3']) {
-      await writeShimPair(dir, name, exe, [], {})
+    const dir = getShimDir();
+    await fs.mkdir(dir, { recursive: true });
+    if (!detectSystemNode()) {
+        // Electron execPath 当纯 Node 用，需 ELECTRON_RUN_AS_NODE=1
+        const electronNode = resolveElectronNodeExec();
+        await writeShimPair(dir, 'node', electronNode.command, [], electronNode.env);
+        log.info('已写入 node shim（系统未装 Node，使用 Electron 内置）');
     }
-    log.info('已写入 python/python3 shim（系统未装 Python，使用内置运行时）')
-  }
-
-  // lumii-ui CLI：始终用客户端内置 Node，与 Electron 版本一致
-  const electronNode = resolveElectronNodeExec()
-  const scriptPath = resolveLumiiUiScriptPath()
-  await writeShimPair(dir, 'lumii-ui', electronNode.command, [scriptPath], electronNode.env)
-  log.info('已写入 lumii-ui shim（Electron 内置 Node）')
+    if (!detectSystemPython()) {
+        const exe = getBundledPythonExe();
+        for (const name of ['python', 'python3']) {
+            await writeShimPair(dir, name, exe, [], {});
+        }
+        log.info('已写入 python/python3 shim（系统未装 Python，使用内置运行时）');
+    }
+    // lumii-ui CLI：始终用客户端内置 Node，与 Electron 版本一致
+    const electronNode = resolveElectronNodeExec();
+    const scriptPath = resolveLumiiUiScriptPath();
+    await writeShimPair(dir, 'lumii-ui', electronNode.command, [scriptPath], electronNode.env);
+    log.info('已写入 lumii-ui shim（Electron 内置 Node）');
 }
-
 /**
  * 在 env 中把 shim 目录追加到 PATH 末尾。
  *
@@ -174,41 +153,35 @@ async function writeShims(): Promise<void> {
  *
  * 同时注入搜索工具配置（从 ConfigManager 读取）。
  */
-export function buildScriptEnv(
-  extra?: Record<string, string>,
-  searchConfig?: { langSearchApiKey?: string; searxngBaseUrl?: string },
-): Record<string, string> {
-  const env: Record<string, string> = { ...process.env, ...(extra ?? {}) } as Record<string, string>
-
-  const pathKey = Object.keys(env).find((k) => k.toUpperCase() === 'PATH') ?? 'PATH'
-  const current = env[pathKey] ?? ''
-  const shimDir = getShimDir()
-  if (!current.split(delimiter).includes(shimDir)) {
-    env[pathKey] = current ? `${current}${delimiter}${shimDir}` : shimDir
-  }
-
-  // 注入搜索工具配置
-  if (searchConfig?.langSearchApiKey) {
-    env.LANGSEARCH_API_KEY = searchConfig.langSearchApiKey
-  }
-  if (searchConfig?.searxngBaseUrl) {
-    env.SEARXNG_BASE_URL = searchConfig.searxngBaseUrl
-  }
-
-  // 内置 Python 走镜像装包，否则国内 pip install 基本等于卡死。
-  // 仅在用户没有自己的 Python 时注入，不干扰用户既有 pip 配置。
-  if (!detectSystemPython() && !env.PIP_INDEX_URL) {
-    env.PIP_INDEX_URL = PYPI_MIRROR
-  }
-
-  // CLI-Hub 默认关闭匿名统计；用户或调用方已显式设置时不覆盖。
-  if (env.CLI_HUB_NO_ANALYTICS === undefined) {
-    env.CLI_HUB_NO_ANALYTICS = '1'
-  }
-
-  return env
+export function buildScriptEnv(extra?: Record<string, string>, searchConfig?: {
+    langSearchApiKey?: string;
+    searxngBaseUrl?: string;
+}): Record<string, string> {
+    const env: Record<string, string> = { ...process.env, ...(extra ?? {}) } as Record<string, string>;
+    const pathKey = Object.keys(env).find((k) => k.toUpperCase() === 'PATH') ?? 'PATH';
+    const current = env[pathKey] ?? '';
+    const shimDir = getShimDir();
+    if (!current.split(delimiter).includes(shimDir)) {
+        env[pathKey] = current ? `${current}${delimiter}${shimDir}` : shimDir;
+    }
+    // 注入搜索工具配置
+    if (searchConfig?.langSearchApiKey) {
+        env.LANGSEARCH_API_KEY = searchConfig.langSearchApiKey;
+    }
+    if (searchConfig?.searxngBaseUrl) {
+        env.SEARXNG_BASE_URL = searchConfig.searxngBaseUrl;
+    }
+    // 内置 Python 走镜像装包，否则国内 pip install 基本等于卡死。
+    // 仅在用户没有自己的 Python 时注入，不干扰用户既有 pip 配置。
+    if (!detectSystemPython() && !env.PIP_INDEX_URL) {
+        env.PIP_INDEX_URL = PYPI_MIRROR;
+    }
+    // CLI-Hub 默认关闭匿名统计；用户或调用方已显式设置时不覆盖。
+    if (env.CLI_HUB_NO_ANALYTICS === undefined) {
+        env.CLI_HUB_NO_ANALYTICS = '1';
+    }
+    return env;
 }
-
 /**
  * 启动时初始化脚本运行环境。
  *
@@ -216,19 +189,20 @@ export function buildScriptEnv(
  * 设 LUMII_SKIP_PYTHON_BOOTSTRAP=1 可跳过自动下载（离线环境 / 不想占带宽）。
  */
 export async function initScriptRuntimes(): Promise<void> {
-  // GUI 进程 PATH 不含用户安装的 uvx 等 CLI，先并入 ~/.local/bin
-  refreshCommonCliPathsInProcessEnv()
-  try {
-    await writeShims()
-  } catch (err) {
-    log.warn('写入 shim 失败:', err instanceof Error ? err.message : err)
-  }
-
-  if (detectSystemPython() || process.env.LUMII_SKIP_PYTHON_BOOTSTRAP === '1') return
-  if (existsSync(getBundledPythonExe())) return
-
-  log.info('系统未检测到 Python，后台下载内置运行时...')
-  void ensureBundledPython((msg) => log.info(msg)).catch((err) => {
-    log.warn('内置 Python 后台安装失败，将在实际用到时重试:', err instanceof Error ? err.message : err)
-  })
+    // GUI 进程 PATH 不含用户安装的 uvx 等 CLI，先并入 ~/.local/bin
+    refreshCommonCliPathsInProcessEnv();
+    try {
+        await writeShims();
+    }
+    catch (err) {
+        log.warn('写入 shim 失败:', err instanceof Error ? err.message : err);
+    }
+    if (detectSystemPython() || process.env.LUMII_SKIP_PYTHON_BOOTSTRAP === '1')
+        return;
+    if (existsSync(getBundledPythonExe()))
+        return;
+    log.info('系统未检测到 Python，后台下载内置运行时...');
+    void ensureBundledPython((msg) => log.info(msg)).catch((err) => {
+        log.warn('内置 Python 后台安装失败，将在实际用到时重试:', err instanceof Error ? err.message : err);
+    });
 }

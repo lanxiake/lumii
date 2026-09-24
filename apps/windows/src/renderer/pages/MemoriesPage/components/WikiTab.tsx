@@ -4,1504 +4,1271 @@
  * 左栏承载用途目录树与固定入口，顶栏统一承载搜索、当前目录上下文与任务进度，
  * 主内容区按用途目录展示原始文件。历史摘要页面已随 P3 删除。
  */
-
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { Button } from '../../../components/ui/Button/Button'
-import { Loading } from '../../../components/ui/Loading/Loading'
-import { Tooltip } from '../../../components/ui/Tooltip/Tooltip'
-import { useToast } from '../../../components/ui/Toast/useToast'
-import { ConfirmModal, Modal } from '../../../components/ui/Modal'
-import {
-  useWikiPage,
-  type WikiInboxItem,
-  type WikiSourceListItem,
-  type WikiTopicMutation,
-  type WikiTopicTree,
-  type WikiReclassifyRunItem,
-  type WikiReclassifyScopeDto,
-  type WikiReclassifyEstimateItem,
-  type WikiMigrateProgressItem,
-  type WikiMigrateRunItem,
-} from '../../../hooks/business/useWikiPage'
-import { CleanupView } from './CleanupView'
-import { WikiLeftNav, type WikiNav } from './WikiLeftNav'
-import { navSectionLabel, WIKI_SUBTOPIC_FILTER_ALL, WIKI_SUBTOPIC_FILTER_UNFILED, type WikiSubtopicFilter } from './wikiTopicDisplay'
-import { WikiTopBar } from './WikiTopBar'
-import { WikiFileList } from './WikiFileList'
-import { WikiTopicPicker } from './WikiTopicPicker'
-import { WikiTopicTreeEditor } from './WikiTopicTreeEditor'
-import { WikiReclassifyView } from './WikiReclassifyView'
-import { WikiMigrateReviewView } from './WikiMigrateReviewView'
-import { WikiInboxPanel, inboxItemToPreviewSnapshot } from './WikiInboxPanel'
-import { WikiSubtopicPanel } from './WikiSubtopicPanel'
-import { isUrlSourceItem } from './wikiSourcePreview'
-import { WikiHelpDrawer } from './WikiHelpDrawer'
-import { consumeWikiInitNav, OPEN_WIKI_LIBRARY_EVENT } from '../../../utils/open-wiki-library'
-import { pickDirectory } from '../../../services/dialog-service'
-import { WIKI_INBOX_INTRO, WIKI_FOLDER_IMPORT_TOOLTIP } from './wikiTooltips'
-import { WikiMoreMenu } from './WikiMoreMenu'
-import { WikiSourceDetailDrawer, type WikiSourcePreviewSnapshot } from './WikiSourceDetailDrawer'
-import { WIKI_MODAL_LAYER } from './wikiModalLayer'
-import { buildWikiBreadcrumbs } from './wikiBreadcrumbs'
-import { buildWikiRemoveConfirmContent } from './wikiRemoveConfirm'
-import { WikiTaskCenter } from './WikiTaskCenter'
-import { useWikiTaskCenter, type WikiLocalTask, type WikiMigratePhase } from './useWikiTaskCenter'
-import styles from './WikiTab.module.css'
-import shared from './wiki-shared.module.css'
-
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Button } from '../../../components/ui/Button/Button';
+import { Loading } from '../../../components/ui/Loading/Loading';
+import { Tooltip } from '../../../components/ui/Tooltip/Tooltip';
+import { useToast } from '../../../components/ui/Toast/useToast';
+import { ConfirmModal, Modal } from '../../../components/ui/Modal';
+import { useWikiPage, type WikiInboxItem, type WikiSourceListItem, type WikiTopicMutation, type WikiTopicTree, type WikiReclassifyRunItem, type WikiReclassifyScopeDto, type WikiReclassifyEstimateItem, type WikiMigrateProgressItem, type WikiMigrateRunItem, } from '../../../hooks/business/useWikiPage';
+import { CleanupView } from './CleanupView';
+import { WikiLeftNav, type WikiNav } from './WikiLeftNav';
+import { WIKI_SUBTOPIC_FILTER_ALL, WIKI_SUBTOPIC_FILTER_UNFILED, type WikiSubtopicFilter } from './wikiTopicDisplay';
+import { WikiTopBar } from './WikiTopBar';
+import { WikiFileList } from './WikiFileList';
+import { WikiTopicPicker } from './WikiTopicPicker';
+import { WikiTopicTreeEditor } from './WikiTopicTreeEditor';
+import { WikiReclassifyView } from './WikiReclassifyView';
+import { WikiMigrateReviewView } from './WikiMigrateReviewView';
+import { WikiInboxPanel, inboxItemToPreviewSnapshot } from './WikiInboxPanel';
+import { WikiSubtopicPanel } from './WikiSubtopicPanel';
+import { isUrlSourceItem } from './wikiSourcePreview';
+import { WikiHelpDrawer } from './WikiHelpDrawer';
+import { consumeWikiInitNav, OPEN_WIKI_LIBRARY_EVENT } from '../../../utils/open-wiki-library';
+import { pickDirectory } from '../../../services/dialog-service';
+import { WIKI_INBOX_INTRO, WIKI_FOLDER_IMPORT_TOOLTIP } from './wikiTooltips';
+import { WikiMoreMenu } from './WikiMoreMenu';
+import { WikiSourceDetailDrawer, type WikiSourcePreviewSnapshot } from './WikiSourceDetailDrawer';
+import { WIKI_MODAL_LAYER } from './wikiModalLayer';
+import { buildWikiBreadcrumbs } from './wikiBreadcrumbs';
+import { buildWikiRemoveConfirmContent } from './wikiRemoveConfirm';
+import { WikiTaskCenter } from './WikiTaskCenter';
+import { useWikiTaskCenter, type WikiLocalTask, type WikiMigratePhase } from './useWikiTaskCenter';
+import styles from './WikiTab.module.css';
+import shared from './wiki-shared.module.css';
 /** 归档选择器的目标：inbox 队列条目，或已进资料层但待补分/需要移动的文件 */
-type PickerTarget =
-  | { mode: 'inbox'; item: WikiInboxItem }
-  | { mode: 'source'; item: WikiSourceListItem }
-
-const FIXED_NAV_CONTEXT: Record<string, { title: string; subtitle: string }> = {
-  inbox: { title: '收件箱', subtitle: '还没分类的新资料，可批量归档或稍后处理' },
-  archived: { title: '已归档', subtitle: '已移出活跃目录、可随时恢复的资料' },
-  parking: { title: '临时存放', subtitle: '你主动搁置、暂不进入正式目录的文件' },
-  cleanup: { title: '清理', subtitle: '扫描并处理需要维护的资料' },
-  reclassify: { title: '重新编目', subtitle: 'AI 自动调整已入库资料的目录' },
-  migrate: { title: '整理入库', subtitle: 'AI 规划并直接归档文件夹导入的资料' },
-}
-
+type PickerTarget = {
+    mode: 'inbox';
+    item: WikiInboxItem;
+} | {
+    mode: 'source';
+    item: WikiSourceListItem;
+};
+const FIXED_NAV_CONTEXT: Record<string, {
+    title: string;
+    subtitle: string;
+}> = {
+    inbox: { title: '收件箱', subtitle: '还没分类的新资料，可批量归档或稍后处理' },
+    archived: { title: '已归档', subtitle: '已移出活跃目录、可随时恢复的资料' },
+    parking: { title: '临时存放', subtitle: '你主动搁置、暂不进入正式目录的文件' },
+    cleanup: { title: '清理', subtitle: '扫描并处理需要维护的资料' },
+    reclassify: { title: '重新编目', subtitle: 'AI 自动调整已入库资料的目录' },
+    migrate: { title: '整理入库', subtitle: 'AI 规划并直接归档文件夹导入的资料' },
+};
 /** migrate 进行中阶段（可取消） */
-const MIGRATE_BUSY_PHASES = new Set(['inventorying', 'planning', 'applying'])
-
+const MIGRATE_BUSY_PHASES = new Set(['inventorying', 'planning', 'applying']);
 /**
  * 判断 migrate 是否仍处于可取消的进行中阶段。
  */
 function isMigrateBusyPhase(phase: string): boolean {
-  return MIGRATE_BUSY_PHASES.has(phase)
+    return MIGRATE_BUSY_PHASES.has(phase);
 }
-
 /**
  * 将 migrate progress 格式化为任务中心 detail 文案。
  */
 function formatMigrateDetail(progress: WikiMigrateProgressItem): string {
-  const label = progress.phaseLabel || progress.phase
-  if (progress.currentItem) return `${label} · ${progress.currentItem}`
-  return label
+    const label = progress.phaseLabel || progress.phase;
+    if (progress.currentItem)
+        return `${label} · ${progress.currentItem}`;
+    return label;
 }
-
 /**
  * 将 migrate progress 转为任务中心局部更新字段。
  */
-function migrateProgressToTaskPatch(
-  progress: WikiMigrateProgressItem,
-  onCancel: () => Promise<unknown>,
-): Partial<WikiLocalTask> {
-  const busy = isMigrateBusyPhase(progress.phase)
-  return {
-    progress: { done: progress.done, total: progress.total },
-    currentItem: progress.currentItem ?? undefined,
-    migratePhase: progress.phase as WikiMigratePhase,
-    detail: formatMigrateDetail(progress),
-    cancelRequested: progress.cancelRequested,
-    appliedCount: progress.appliedCount,
-    onCancel: busy ? onCancel : undefined,
-  }
+function migrateProgressToTaskPatch(progress: WikiMigrateProgressItem, onCancel: () => Promise<unknown>): Partial<WikiLocalTask> {
+    const busy = isMigrateBusyPhase(progress.phase);
+    return {
+        progress: { done: progress.done, total: progress.total },
+        currentItem: progress.currentItem ?? undefined,
+        migratePhase: progress.phase as WikiMigratePhase,
+        detail: formatMigrateDetail(progress),
+        cancelRequested: progress.cancelRequested,
+        appliedCount: progress.appliedCount,
+        onCancel: busy ? onCancel : undefined,
+    };
 }
-
 /**
  * 渲染 Wiki 工作区并协调用途目录、文件列表与归档选择器。
  */
 export const WikiTab: React.FC = () => {
-  const toast = useToast()
-  const {
-    listInbox,
-    countInbox,
-    retryInbox,
-    discardInbox,
-    organizeInbox,
-    scanFolder,
-    importFolder,
-    runOrganize,
-    listRuns,
-    rebuildIndex,
-    cleanupScan,
-    archiveSources,
-    restoreSources,
-    deleteSources,
-    loadTopicTree,
-    mutateTopic,
-    createNote,
-    runReclassify,
-    estimateReclassify,
-    getReclassifyRun,
-    applyReclassify,
-    ignoreReclassify,
-    discardReclassify,
-    cancelReclassify,
-    listSources,
-    loadSourceCounts,
-    updateSourceTopic,
-    moveToParking,
-    openSource,
-    getSource,
-    searchSources,
-    ensureVaultLayout,
-    loadAutoClassifySetting,
-    setAutoClassifyEnabled,
-    getMigrateRun,
-    cancelMigrate,
-    subscribeMigrateProgress,
-    applyMigrate,
-    discardMigrate,
-    undoMigrate,
-    replanMigrate,
-    updateMigrateMapping,
-    loading,
-    withLoading,
-  } = useWikiPage()
-  const taskCenter = useWikiTaskCenter()
-  const migrateTaskRef = useRef<{ taskId: string; runId: string } | null>(null)
-  const taskCenterRef = useRef(taskCenter)
-  taskCenterRef.current = taskCenter
-  const handleMigrateCancelRef = useRef<() => Promise<void>>(async () => undefined)
-
-  const [nav, setNav] = useState<WikiNav>({ kind: 'inbox' })
-  const [sectionSubtopicFilter, setSectionSubtopicFilter] = useState<WikiSubtopicFilter>(WIKI_SUBTOPIC_FILTER_ALL)
-  const [sectionProjectFilter, setSectionProjectFilter] = useState<string | null>(null)
-  const [topicTree, setTopicTree] = useState<WikiTopicTree | null>(null)
-  const [sources, setSources] = useState<readonly WikiSourceListItem[]>([])
-  const [sectionCounts, setSectionCounts] = useState<Record<string, number>>({})
-  const [topicCounts, setTopicCounts] = useState<Record<string, number>>({})
-  const [unfiledSources, setUnfiledSources] = useState<readonly WikiSourceListItem[]>([])
-  const [unfiledCount, setUnfiledCount] = useState(0)
-  const [filedSourceCount, setFiledSourceCount] = useState(0)
-  const [archivedSources, setArchivedSources] = useState<readonly WikiSourceListItem[]>([])
-  const [archivedCount, setArchivedCount] = useState(0)
-  const [inboxItems, setInboxItems] = useState<readonly WikiInboxItem[]>([])
-  const [inboxPending, setInboxPending] = useState(0)
-  /** 已确认的搜索条件（点击路径/标签或回车加入），渲染为芯片 */
-  const [searchTerms, setSearchTerms] = useState<readonly string[]>([])
-  const [searchDraft, setSearchDraft] = useState('')
-  const [searchResults, setSearchResults] = useState<readonly WikiSourceListItem[] | null>(null)
-  const [searchDegradeReason, setSearchDegradeReason] = useState<string | null>(null)
-  const [removeConfirm, setRemoveConfirm] = useState<{
-    inboxIds: readonly string[]
-    sourceIds: readonly string[]
-  } | null>(null)
-  const [openError, setOpenError] = useState<string | null>(null)
-  const [picker, setPicker] = useState<PickerTarget | null>(null)
-  const [isTaskCenterOpen, setIsTaskCenterOpen] = useState(false)
-  const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false)
-  const [folderImportBusy, setFolderImportBusy] = useState(false)
-  const [aiClassifyBusy, setAiClassifyBusy] = useState(false)
-  const [autoClassifyEnabled, setAutoClassifyEnabledState] = useState(false)
-  const [isTreeEditorOpen, setIsTreeEditorOpen] = useState(false)
-  const [reclassifyRun, setReclassifyRun] = useState<WikiReclassifyRunItem | null>(null)
-  const [migrateRun, setMigrateRun] = useState<WikiMigrateRunItem | null>(null)
-  const [migrateApplying, setMigrateApplying] = useState(false)
-  const [migrateUndoPrompt, setMigrateUndoPrompt] = useState<{ appliedCount: number } | null>(null)
-  const [reclassifyConfirm, setReclassifyConfirm] = useState<{
-    count: number
-    estimate: WikiReclassifyEstimateItem | null
-  } | null>(null)
-  const [reclassifyEnableRename, setReclassifyEnableRename] = useState(false)
-  const [suggestion, setSuggestion] = useState<{
-    category: string
-    subtopic: string | null
-    reason: string
-  } | null>(null)
-  const [suggestionState, setSuggestionState] = useState<'idle' | 'loading' | 'failed'>('idle')
-  const [highlightSourceId, setHighlightSourceId] = useState<string | null>(null)
-  const [selectedSourceIds, setSelectedSourceIds] = useState<ReadonlySet<string>>(new Set())
-  const [isBatchPickerOpen, setBatchPickerOpen] = useState(false)
-  const [isInboxBatchPickerOpen, setInboxBatchPickerOpen] = useState(false)
-  const [isHelpOpen, setHelpOpen] = useState(false)
-  const [selectedInboxIds, setSelectedInboxIds] = useState<ReadonlySet<string>>(new Set())
-  const [selectedUnfiledIds, setSelectedUnfiledIds] = useState<ReadonlySet<string>>(new Set())
-  const [sourcePreview, setSourcePreview] = useState<{
-    sourceId: string | null
-    snapshot: WikiSourcePreviewSnapshot | null
-  } | null>(null)
-  const moreButtonRef = useRef<HTMLButtonElement>(null)
-  const subtopicBarRef = useRef<HTMLDivElement | null>(null)
-  const selectedInboxIdsRef = useRef(selectedInboxIds)
-  const selectedUnfiledIdsRef = useRef(selectedUnfiledIds)
-  const selectedSourceIdsRef = useRef(selectedSourceIds)
-
-  selectedInboxIdsRef.current = selectedInboxIds
-  selectedUnfiledIdsRef.current = selectedUnfiledIds
-  selectedSourceIdsRef.current = selectedSourceIds
-
-  const refreshCounts = useCallback(async () => {
-    const counts = await loadSourceCounts()
-    if (!counts) return
-    setSectionCounts(counts.sectionCounts)
-    setTopicCounts(counts.topicCounts)
-    setFiledSourceCount(counts.filed)
-    setArchivedCount(counts.archived)
-    setUnfiledCount(counts.unfiled)
-  }, [loadSourceCounts])
-
-  /**
-   * 按当前导航拉取可见列表，避免一次把全库 800+ 行塞进 React。
-   * 计数与列表串行拉取，整体包在一次加载态里，避免中途 loading 闪断。
-   */
-  const refreshSources = useCallback(async () => {
-    await withLoading(async () => {
-      await refreshCounts()
-      if (nav.kind === 'section' || nav.kind === 'category') {
-        setSources(await listSources({ category: nav.name }))
-        return
-      }
-      if (nav.kind === 'subtopic') {
-        setSources(
-          await listSources({
-            category: nav.category,
-            ...(nav.subtopic === null
-              ? { subtopicUnfiled: true }
-              : { subtopic: nav.subtopic }),
-          }),
-        )
-        return
-      }
-      if (nav.kind === 'parking') {
-        setSources(await listSources({ parking: true }))
-        return
-      }
-      if (nav.kind === 'inbox') {
-        setUnfiledSources(await listSources({ unfiled: true }))
-        setSources([])
-        return
-      }
-      setSources([])
-    })
-  }, [listSources, nav, refreshCounts, withLoading])
-
-  /** 按需拉取已归档资料，供归档分区与左栏角标使用。 */
-  const refreshArchivedSources = useCallback(async () => {
-    const items = await listSources({ archived: true })
-    setArchivedSources(items)
-    setArchivedCount(items.length)
-    return items
-  }, [listSources])
-
-  const refreshInbox = useCallback(async () => {
-    await withLoading(async () => {
-      const [all, count] = await Promise.all([listInbox('pending'), countInbox('pending')])
-      setInboxItems(all)
-      setInboxPending(count)
-    })
-  }, [listInbox, countInbox, withLoading])
-
-  /**
-   * 拉取当前 migrate run 并同步本地状态。
-   */
-  const refreshMigrateRun = useCallback(async (): Promise<WikiMigrateRunItem | null> => {
-    const run = await getMigrateRun()
-    setMigrateRun(run)
-    return run
-  }, [getMigrateRun])
-
-  useEffect(() => {
-    void loadTopicTree().then(setTopicTree)
-    void refreshInbox()
-    void ensureVaultLayout()
-    void loadAutoClassifySetting().then(setAutoClassifyEnabledState)
-  }, [loadTopicTree, refreshInbox, ensureVaultLayout, loadAutoClassifySetting])
-
-  /** 导航变化时按需刷新可见列表与角标计数 */
-  useEffect(() => {
-    void refreshSources()
-  }, [refreshSources])
-
-  /** 切换 Wiki「AI 自动分类」开关并持久化。 */
-  const handleAutoClassifyChange = useCallback(
-    async (enabled: boolean) => {
-      const prev = autoClassifyEnabled
-      setAutoClassifyEnabledState(enabled)
-      const ok = await setAutoClassifyEnabled(enabled)
-      if (!ok) {
-        setAutoClassifyEnabledState(prev)
-        toast.error('保存设置失败，请稍后重试')
-        return
-      }
-      toast.success(
-        enabled
-          ? '已开启 AI 自动分类，正在整理收件箱中的文件'
-          : '已关闭 AI 自动分类，新资料将留在收件箱',
-      )
-      if (enabled) {
-        window.setTimeout(() => {
-          void Promise.all([refreshInbox(), refreshSources()])
-        }, 2500)
-        window.setTimeout(() => {
-          void Promise.all([refreshInbox(), refreshSources()])
-        }, 12000)
-      }
-    },
-    [autoClassifyEnabled, setAutoClassifyEnabled, toast, refreshInbox, refreshSources],
-  )
-
-  /** 外部入口要求打开待整理：首次挂载或 Hub 已打开资料库时再次触发 */
-  useEffect(() => {
-    const applyWikiInitNav = (): void => {
-      if (consumeWikiInitNav() === 'inbox') {
-        // 相同导航保持原引用，避免无谓地重跑一次列表拉取
-        setNav((prev) => (prev.kind === 'inbox' ? prev : { kind: 'inbox' }))
-      }
-    }
-    applyWikiInitNav()
-    const onOpenWiki = (): void => {
-      applyWikiInitNav()
-    }
-    window.addEventListener(OPEN_WIKI_LIBRARY_EVENT, onOpenWiki)
-    return () => window.removeEventListener(OPEN_WIKI_LIBRARY_EVENT, onOpenWiki)
-  }, [])
-
-  /** 进入归档分区时按需拉取列表并同步左栏角标。 */
-  useEffect(() => {
-    if (nav.kind === 'archived') {
-      void refreshArchivedSources()
-    }
-  }, [nav.kind, refreshArchivedSources])
-
-  useEffect(() => {
-    /** 将已有归档运行合并进任务中心历史。 */
-    const loadRunHistory = async (): Promise<void> => {
-      taskCenter.mergeRuns(await listRuns())
-    }
-
-    void loadRunHistory()
-  }, [listRuns, taskCenter.mergeRuns])
-
-  /**
-   * 请求停止当前 migrate 任务并同步任务中心状态。
-   */
-  const handleMigrateCancel = useCallback(async (): Promise<void> => {
-    const run = await cancelMigrate()
-    const tracked = migrateTaskRef.current
-    if (!tracked) return
-    if (run?.progress) {
-      taskCenterRef.current.updateTask(
-        tracked.taskId,
-        migrateProgressToTaskPatch(run.progress, () => handleMigrateCancelRef.current()),
-      )
-    }
-  }, [cancelMigrate])
-  handleMigrateCancelRef.current = handleMigrateCancel
-
-  /**
-   * 根据 migrate 终态更新任务中心。
-   */
-  const finalizeMigrateTask = useCallback(
-    (taskId: string, progress: WikiMigrateProgressItem, error?: string | null): void => {
-      migrateTaskRef.current = null
-      const tc = taskCenterRef.current
-      const applied = progress.appliedCount ?? 0
-      if (progress.phase === 'failed') {
-        tc.failTask(taskId, error ?? progress.message ?? '整理入库失败')
-        return
-      }
-      if (progress.phase === 'cancelled') {
-        tc.completeTask(taskId, {
-          detail: applied > 0 ? `已取消 · 已整理 ${applied} 项` : '已取消',
-          migratePhase: progress.phase as WikiMigratePhase,
-          appliedCount: applied,
-        })
-        if (applied > 0) setMigrateUndoPrompt({ appliedCount: applied })
-        return
-      }
-      if (progress.phase === 'review') {
-        // 兼容旧进度：不再打开确认页，停留收件箱并提示仍有映射
-        tc.completeTask(taskId, {
-          detail: progress.total > 0 ? `${progress.total} 条映射已规划` : '映射已规划',
-          migratePhase: 'review',
-        })
-        void refreshMigrateRun()
-        void refreshInbox()
-        void refreshSources()
-        return
-      }
-      if (progress.phase === 'succeeded' || progress.phase === 'partial') {
-        tc.completeTask(taskId, {
-          detail: progress.message ?? progress.phaseLabel,
-          migratePhase: progress.phase as WikiMigratePhase,
-          appliedCount: applied,
-        })
-        void refreshInbox()
-        void refreshSources()
-        if (applied > 0) setMigrateUndoPrompt({ appliedCount: applied })
-        return
-      }
-      tc.completeTask(taskId, { detail: progress.phaseLabel })
-    },
-    [refreshMigrateRun, refreshInbox, refreshSources],
-  )
-
-  /**
-   * 注册或刷新 migrate 任务到任务中心。
-   */
-  const registerMigrateTask = useCallback(
-    (run: WikiMigrateRunItem): string => {
-      const onCancel = () => handleMigrateCancelRef.current()
-      const patch = migrateProgressToTaskPatch(run.progress, onCancel)
-      const tracked = migrateTaskRef.current
-      const tc = taskCenterRef.current
-      if (tracked && tracked.runId === run.runId) {
-        tc.updateTask(tracked.taskId, patch)
-        return tracked.taskId
-      }
-      const taskId = tc.startTask({
-        kind: 'migrate',
-        title: '整理入库',
-        ...patch,
-      })
-      migrateTaskRef.current = { taskId, runId: run.runId }
-      if (!isMigrateBusyPhase(run.phase)) {
-        finalizeMigrateTask(taskId, run.progress, run.error)
-      }
-      return taskId
-    },
-    [finalizeMigrateTask],
-  )
-
-  /** 订阅 migrate 进度推送并同步任务中心 */
-  useEffect(() => {
-    const unsubscribe = subscribeMigrateProgress((progress) => {
-      const tracked = migrateTaskRef.current
-      if (!tracked || tracked.runId !== progress.runId) return
-      const onCancel = () => handleMigrateCancelRef.current()
-      if (isMigrateBusyPhase(progress.phase)) {
-        taskCenterRef.current.updateTask(
-          tracked.taskId,
-          migrateProgressToTaskPatch(progress, onCancel),
-        )
-        return
-      }
-      finalizeMigrateTask(tracked.taskId, progress)
-    })
-    return unsubscribe
-  }, [finalizeMigrateTask, subscribeMigrateProgress])
-
-  /** 进页时恢复进行中的 migrate 任务 */
-  useEffect(() => {
-    void getMigrateRun().then((run) => {
-      if (!run) return
-      setMigrateRun(run)
-      if (isMigrateBusyPhase(run.phase)) {
-        registerMigrateTask(run)
-      }
-    })
-  }, [getMigrateRun, registerMigrateTask])
-
-  // 角标来自 wiki:source:counts；可见列表按导航按需拉取（见 refreshSources）
-  const parkingSources = nav.kind === 'parking' ? sources : []
-
-  // 收件箱角标 = 队列 pending + 未分类
-  const pendingCount = inboxPending + (unfiledSources.length > 0 ? unfiledSources.length : unfiledCount)
-
-  const categorySectionName = useMemo(() => {
-    if (nav.kind === 'section' || nav.kind === 'category') return nav.name
-    if (nav.kind === 'subtopic') return nav.category
-    return null
-  }, [nav])
-
-  // 大类视图固定筛选区：测量小分类条高度，供文件列表 header 的 sticky top 定位在其下方
-  useLayoutEffect(() => {
-    const el = subtopicBarRef.current
-    if (!el) {
-      document.documentElement.style.removeProperty('--wiki-subtopic-bar-height')
-      return
-    }
-    const root = document.documentElement
-    const update = () => {
-      root.style.setProperty('--wiki-subtopic-bar-height', `${el.offsetHeight}px`)
-    }
-    update()
-    if (typeof ResizeObserver === 'undefined') return
-    const observer = new ResizeObserver(update)
-    observer.observe(el)
-    return () => observer.disconnect()
-  }, [categorySectionName])
-
-  const effectiveSubtopicFilter = useMemo((): WikiSubtopicFilter => {
-    if (!categorySectionName) return WIKI_SUBTOPIC_FILTER_ALL
-    if (nav.kind === 'subtopic') {
-      return nav.subtopic === null ? WIKI_SUBTOPIC_FILTER_UNFILED : nav.subtopic
-    }
-    return sectionSubtopicFilter
-  }, [categorySectionName, nav, sectionSubtopicFilter])
-
-  const visibleSources = useMemo(() => {
-    if (categorySectionName) {
-      // section/category 已按大类服务端过滤；小类芯片仍可在前端收窄
-      let filtered = sources
-
-      if (nav.kind === 'subtopic') {
-        // 小类详情页不再筛选
-      } else if (effectiveSubtopicFilter === WIKI_SUBTOPIC_FILTER_ALL) {
-        // 全部小类
-      } else if (effectiveSubtopicFilter === WIKI_SUBTOPIC_FILTER_UNFILED) {
-        filtered = filtered.filter((item) => !item.topicSubtopic)
-      } else {
-        filtered = filtered.filter((item) => item.topicSubtopic === effectiveSubtopicFilter)
-      }
-
-      // 项目筛选（三级分类）
-      if (sectionProjectFilter) {
-        filtered = filtered.filter((item) => item.topicProject === sectionProjectFilter)
-      }
-
-      return filtered
-    }
-    if (nav.kind === 'parking') {
-      return parkingSources
-    }
-    if (nav.kind === 'archived') {
-      return archivedSources
-    }
-    return []
-  }, [
-    categorySectionName,
-    effectiveSubtopicFilter,
-    sectionProjectFilter,
-    nav.kind,
-    sources,
-    parkingSources,
-    archivedSources,
-  ])
-
-  /**
-   * 打开任务中心并清除失败任务的未读提示。
-   */
-  const handleOpenTaskCenter = useCallback(() => {
-    taskCenter.markFailuresSeen()
-    setIsTaskCenterOpen(true)
-    void listRuns()
-      .then(taskCenter.mergeRuns)
-      .catch(() => undefined)
-  }, [listRuns, taskCenter.markFailuresSeen, taskCenter.mergeRuns])
-
-  /**
-   * 重试任务记录中保留的原操作或归档 inbox 项。
-   */
-  const handleRetryTask = useCallback(
-    async (task: WikiLocalTask): Promise<void> => {
-      try {
-        if (task.retry) {
-          await task.retry()
-          taskCenter.dismissTask(task.id)
-          return
+    const toast = useToast();
+    const { listInbox, countInbox, retryInbox, discardInbox, organizeInbox, scanFolder, importFolder, runOrganize, listRuns, rebuildIndex, cleanupScan, archiveSources, restoreSources, deleteSources, loadTopicTree, mutateTopic, createNote, runReclassify, estimateReclassify, getReclassifyRun, applyReclassify, ignoreReclassify, discardReclassify, cancelReclassify, listSources, loadSourceCounts, updateSourceTopic, moveToParking, openSource, getSource, searchSources, ensureVaultLayout, loadAutoClassifySetting, setAutoClassifyEnabled, getMigrateRun, cancelMigrate, subscribeMigrateProgress, applyMigrate, discardMigrate, undoMigrate, replanMigrate, updateMigrateMapping, loading, withLoading, } = useWikiPage();
+    const taskCenter = useWikiTaskCenter();
+    const migrateTaskRef = useRef<{
+        taskId: string;
+        runId: string;
+    } | null>(null);
+    const taskCenterRef = useRef(taskCenter);
+    taskCenterRef.current = taskCenter;
+    const handleMigrateCancelRef = useRef<() => Promise<void>>(async () => undefined);
+    const [nav, setNav] = useState<WikiNav>({ kind: 'inbox' });
+    const [sectionSubtopicFilter, setSectionSubtopicFilter] = useState<WikiSubtopicFilter>(WIKI_SUBTOPIC_FILTER_ALL);
+    const [sectionProjectFilter, setSectionProjectFilter] = useState<string | null>(null);
+    const [topicTree, setTopicTree] = useState<WikiTopicTree | null>(null);
+    const [sources, setSources] = useState<readonly WikiSourceListItem[]>([]);
+    const [sectionCounts, setSectionCounts] = useState<Record<string, number>>({});
+    const [topicCounts, setTopicCounts] = useState<Record<string, number>>({});
+    const [unfiledSources, setUnfiledSources] = useState<readonly WikiSourceListItem[]>([]);
+    const [unfiledCount, setUnfiledCount] = useState(0);
+    const [filedSourceCount, setFiledSourceCount] = useState(0);
+    const [archivedSources, setArchivedSources] = useState<readonly WikiSourceListItem[]>([]);
+    const [archivedCount, setArchivedCount] = useState(0);
+    const [inboxItems, setInboxItems] = useState<readonly WikiInboxItem[]>([]);
+    const [inboxPending, setInboxPending] = useState(0);
+    /** 已确认的搜索条件（点击路径/标签或回车加入），渲染为芯片 */
+    const [searchTerms, setSearchTerms] = useState<readonly string[]>([]);
+    const [searchDraft, setSearchDraft] = useState('');
+    const [searchResults, setSearchResults] = useState<readonly WikiSourceListItem[] | null>(null);
+    const [searchDegradeReason, setSearchDegradeReason] = useState<string | null>(null);
+    const [removeConfirm, setRemoveConfirm] = useState<{
+        inboxIds: readonly string[];
+        sourceIds: readonly string[];
+    } | null>(null);
+    const [openError, setOpenError] = useState<string | null>(null);
+    const [picker, setPicker] = useState<PickerTarget | null>(null);
+    const [isTaskCenterOpen, setIsTaskCenterOpen] = useState(false);
+    const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
+    const [folderImportBusy, setFolderImportBusy] = useState(false);
+    const [aiClassifyBusy, setAiClassifyBusy] = useState(false);
+    const [autoClassifyEnabled, setAutoClassifyEnabledState] = useState(false);
+    const [isTreeEditorOpen, setIsTreeEditorOpen] = useState(false);
+    const [reclassifyRun, setReclassifyRun] = useState<WikiReclassifyRunItem | null>(null);
+    const [migrateRun, setMigrateRun] = useState<WikiMigrateRunItem | null>(null);
+    const [migrateApplying, setMigrateApplying] = useState(false);
+    const [migrateUndoPrompt, setMigrateUndoPrompt] = useState<{
+        appliedCount: number;
+    } | null>(null);
+    const [reclassifyConfirm, setReclassifyConfirm] = useState<{
+        count: number;
+        estimate: WikiReclassifyEstimateItem | null;
+    } | null>(null);
+    const [reclassifyEnableRename, setReclassifyEnableRename] = useState(false);
+    const [suggestion, setSuggestion] = useState<{
+        category: string;
+        subtopic: string | null;
+        reason: string;
+    } | null>(null);
+    const [suggestionState, setSuggestionState] = useState<'idle' | 'loading' | 'failed'>('idle');
+    const [highlightSourceId, setHighlightSourceId] = useState<string | null>(null);
+    const [selectedSourceIds, setSelectedSourceIds] = useState<ReadonlySet<string>>(new Set());
+    const [isBatchPickerOpen, setBatchPickerOpen] = useState(false);
+    const [isInboxBatchPickerOpen, setInboxBatchPickerOpen] = useState(false);
+    const [isHelpOpen, setHelpOpen] = useState(false);
+    const [selectedInboxIds, setSelectedInboxIds] = useState<ReadonlySet<string>>(new Set());
+    const [selectedUnfiledIds, setSelectedUnfiledIds] = useState<ReadonlySet<string>>(new Set());
+    const [sourcePreview, setSourcePreview] = useState<{
+        sourceId: string | null;
+        snapshot: WikiSourcePreviewSnapshot | null;
+    } | null>(null);
+    const moreButtonRef = useRef<HTMLButtonElement>(null);
+    const subtopicBarRef = useRef<HTMLDivElement | null>(null);
+    const selectedInboxIdsRef = useRef(selectedInboxIds);
+    const selectedUnfiledIdsRef = useRef(selectedUnfiledIds);
+    const selectedSourceIdsRef = useRef(selectedSourceIds);
+    selectedInboxIdsRef.current = selectedInboxIds;
+    selectedUnfiledIdsRef.current = selectedUnfiledIds;
+    selectedSourceIdsRef.current = selectedSourceIds;
+    const refreshCounts = useCallback(async () => {
+        const counts = await loadSourceCounts();
+        if (!counts)
+            return;
+        setSectionCounts(counts.sectionCounts);
+        setTopicCounts(counts.topicCounts);
+        setFiledSourceCount(counts.filed);
+        setArchivedCount(counts.archived);
+        setUnfiledCount(counts.unfiled);
+    }, [loadSourceCounts]);
+    /**
+     * 按当前导航拉取可见列表，避免一次把全库 800+ 行塞进 React。
+     * 计数与列表串行拉取，整体包在一次加载态里，避免中途 loading 闪断。
+     */
+    const refreshSources = useCallback(async () => {
+        await withLoading(async () => {
+            await refreshCounts();
+            if (nav.kind === 'section' || nav.kind === 'category') {
+                setSources(await listSources({ category: nav.name }));
+                return;
+            }
+            if (nav.kind === 'subtopic') {
+                setSources(await listSources({
+                    category: nav.category,
+                    ...(nav.subtopic === null
+                        ? { subtopicUnfiled: true }
+                        : { subtopic: nav.subtopic }),
+                }));
+                return;
+            }
+            if (nav.kind === 'parking') {
+                setSources(await listSources({ parking: true }));
+                return;
+            }
+            if (nav.kind === 'inbox') {
+                setUnfiledSources(await listSources({ unfiled: true }));
+                setSources([]);
+                return;
+            }
+            setSources([]);
+        });
+    }, [listSources, nav, refreshCounts, withLoading]);
+    /** 按需拉取已归档资料，供归档分区与左栏角标使用。 */
+    const refreshArchivedSources = useCallback(async () => {
+        const items = await listSources({ archived: true });
+        setArchivedSources(items);
+        setArchivedCount(items.length);
+        return items;
+    }, [listSources]);
+    const refreshInbox = useCallback(async () => {
+        await withLoading(async () => {
+            const [all, count] = await Promise.all([listInbox('pending'), countInbox('pending')]);
+            setInboxItems(all);
+            setInboxPending(count);
+        });
+    }, [listInbox, countInbox, withLoading]);
+    /**
+     * 拉取当前 migrate run 并同步本地状态。
+     */
+    const refreshMigrateRun = useCallback(async (): Promise<WikiMigrateRunItem | null> => {
+        const run = await getMigrateRun();
+        setMigrateRun(run);
+        return run;
+    }, [getMigrateRun]);
+    useEffect(() => {
+        void loadTopicTree().then(setTopicTree);
+        void refreshInbox();
+        void ensureVaultLayout();
+        void loadAutoClassifySetting().then(setAutoClassifyEnabledState);
+    }, [loadTopicTree, refreshInbox, ensureVaultLayout, loadAutoClassifySetting]);
+    /** 导航变化时按需刷新可见列表与角标计数 */
+    useEffect(() => {
+        void refreshSources();
+    }, [refreshSources]);
+    /** 切换 Wiki「AI 自动分类」开关并持久化。 */
+    const handleAutoClassifyChange = useCallback(async (enabled: boolean) => {
+        const prev = autoClassifyEnabled;
+        setAutoClassifyEnabledState(enabled);
+        const ok = await setAutoClassifyEnabled(enabled);
+        if (!ok) {
+            setAutoClassifyEnabledState(prev);
+            toast.error('保存设置失败，请稍后重试');
+            return;
         }
-        if (task.kind !== 'archive' || !task.inboxIds?.length) return
-        await taskCenter.wrapAsync('archive', task.title, async () => {
-          const results = await Promise.all(task.inboxIds?.map(retryInbox) ?? [])
-          if (results.some((result) => !result)) throw new Error('部分归档任务重试失败')
-          await refreshInbox()
-        })
-        taskCenter.dismissTask(task.id)
-      } catch {
-        // wrapAsync 已将失败原因写入新的任务记录，避免事件处理产生未捕获拒绝。
-      }
-    },
-    [refreshInbox, retryInbox, taskCenter.dismissTask, taskCenter.wrapAsync],
-  )
-
-  const trackedCleanupScan = useCallback(
-    (staleDays?: number) => taskCenter.wrapAsync('cleanup', '扫描清理项', () => cleanupScan(staleDays)),
-    [cleanupScan, taskCenter.wrapAsync],
-  )
-
-  const trackedArchiveSources = useCallback(
-    (sourceIds: readonly string[]) => taskCenter.wrapAsync('cleanup', '归档资料', () => archiveSources(sourceIds)),
-    [archiveSources, taskCenter.wrapAsync],
-  )
-
-  const trackedRestoreSources = useCallback(
-    (sourceIds: readonly string[]) => taskCenter.wrapAsync('cleanup', '恢复资料', () => restoreSources(sourceIds)),
-    [restoreSources, taskCenter.wrapAsync],
-  )
-
-  const trackedDeleteSources = useCallback(
-    (sourceIds: readonly string[]) => taskCenter.wrapAsync('cleanup', '删除资料', () => deleteSources(sourceIds)),
-    [deleteSources, taskCenter.wrapAsync],
-  )
-
-  const handleSelectNav = useCallback((next: WikiNav) => {
-    if (next.kind === 'section' || next.kind === 'category') {
-      setSectionSubtopicFilter(WIKI_SUBTOPIC_FILTER_ALL)
-    } else if (next.kind === 'subtopic') {
-      setSectionSubtopicFilter(next.subtopic === null ? WIKI_SUBTOPIC_FILTER_UNFILED : next.subtopic)
-    }
-    setNav(next)
-    setIsMoreMenuOpen(false)
-    setSearchResults(null)
-    setOpenError(null)
-    // 换目录必须清选中：否则批量动作会作用到上一个目录里已看不见的文件
-    setSelectedSourceIds(new Set())
-    setSelectedInboxIds(new Set())
-    setSelectedUnfiledIds(new Set())
-    setHighlightSourceId(null)
-  }, [])
-
-  /**
-   * 在大类视图内切换小类筛选；图谱等入口若落在 subtopic 导航，会归一到 section。
-   */
-  const handleSubtopicFilter = useCallback(
-    (filter: WikiSubtopicFilter) => {
-      setSectionSubtopicFilter(filter)
-      setSectionProjectFilter(null) // 切换小类时重置项目筛选
-      if (categorySectionName && nav.kind === 'subtopic') {
-        setNav({ kind: 'section', name: categorySectionName })
-      }
-      setSelectedSourceIds(new Set())
-      setHighlightSourceId(null)
-    },
-    [categorySectionName, nav.kind],
-  )
-
-  const handleProjectFilter = useCallback((project: string | null) => {
-    setSectionProjectFilter(project)
-    setSelectedSourceIds(new Set())
-    setHighlightSourceId(null)
-  }, [])
-
-  const toggleSelectSource = useCallback((id: string) => {
-    setSelectedSourceIds((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }, [])
-
-  /** 全选/取消全选当前视图可见的文件 */
-  const toggleSelectAllSources = useCallback(() => {
-    setSelectedSourceIds((prev) => {
-      const allVisibleSelected =
-        visibleSources.length > 0 && visibleSources.every((item) => prev.has(item.id))
-      return allVisibleSelected
-        ? new Set()
-        : new Set(visibleSources.map((item) => item.id))
-    })
-  }, [visibleSources])
-
-  /**
-   * 打开资料详情预览（已归档资料走 source:get，待整理条目用快照）。
-   */
-  const handlePreviewSourceItem = useCallback((item: WikiSourceListItem) => {
-    const isUrl = isUrlSourceItem(item.sourcePath)
-    setSourcePreview({
-      sourceId: item.id,
-      snapshot: {
-        title: item.title,
-        summary: null,
-        sourceUrl: isUrl ? item.sourcePath : null,
-        sourcePath: isUrl ? null : item.sourcePath,
-        mediaType: item.mediaType,
-      },
-    })
-  }, [])
-
-  /**
-   * 单条资料移入已归档冷存储（「移到…」选已归档分区）。
-   */
-  const handleArchivePickerTarget = useCallback(async () => {
-    const target = picker
-    setPicker(null)
-    setSuggestion(null)
-    setSuggestionState('idle')
-    if (!target || target.mode !== 'source') return
-    await trackedArchiveSources([target.item.id])
-    await Promise.all([refreshSources(), refreshArchivedSources()])
-  }, [picker, trackedArchiveSources, refreshSources, refreshArchivedSources])
-
-  const handleConfirmPicker = useCallback(
-    async (category: string, subtopic: string | null, project: string | null) => {
-      const target = picker
-      setPicker(null)
-      setSuggestion(null)
-      setSuggestionState('idle')
-      if (!target) return
-      if (target.mode === 'inbox') {
-        await organizeInbox(target.item.id, category, subtopic, project)
-        await refreshInbox()
-      } else {
-        await updateSourceTopic(target.item.id, category, subtopic, project)
-      }
-      await refreshSources()
-    },
-    [picker, organizeInbox, updateSourceTopic, refreshInbox, refreshSources],
-  )
-
-  const handlePark = useCallback(
-    async (item: WikiSourceListItem) => {
-      await moveToParking(item.id)
-      await refreshSources()
-      toast.info('已移至左栏「临时存放」')
-    },
-    [moveToParking, refreshSources, toast],
-  )
-
-  /** 从归档分区恢复资料到活跃目录。 */
-  const handleRestoreArchived = useCallback(
-    async (item: WikiSourceListItem) => {
-      await trackedRestoreSources([item.id])
-      await Promise.all([refreshSources(), refreshArchivedSources()])
-    },
-    [trackedRestoreSources, refreshSources, refreshArchivedSources],
-  )
-
-
-
-
-  /** 批量移动：逐条走确定性写入路径 */
-  const handleMoveSelected = useCallback(
-    async (category: string, subtopic: string | null, project: string | null) => {
-      for (const id of selectedSourceIds) {
-        await updateSourceTopic(id, category, subtopic, project)
-      }
-      setSelectedSourceIds(new Set())
-      await refreshSources()
-    },
-    [selectedSourceIds, updateSourceTopic, refreshSources],
-  )
-
-  /** 批量移入已归档冷存储 */
-  const handleArchiveSelected = useCallback(async () => {
-    const ids = [...selectedSourceIdsRef.current]
-    if (ids.length === 0) return
-    await trackedArchiveSources(ids)
-    setSelectedSourceIds(new Set())
-    setBatchPickerOpen(false)
-    await Promise.all([refreshSources(), refreshArchivedSources()])
-  }, [trackedArchiveSources, refreshSources, refreshArchivedSources])
-
-  const handleParkSelected = useCallback(async () => {
-    const ids = [...selectedSourceIds]
-    if (ids.length === 0) return
-    for (const id of ids) {
-      await moveToParking(id)
-    }
-    setSelectedSourceIds(new Set())
-    await refreshSources()
-    toast.info(`已将 ${ids.length} 项移至左栏「临时存放」`)
-  }, [selectedSourceIds, moveToParking, refreshSources, toast])
-
-  /** 逐条移到临时存放，返回成功条数（清理视图的批量动作用） */
-  const handleParkMany = useCallback(
-    async (sourceIds: readonly string[]): Promise<number> => {
-      let moved = 0
-      for (const id of sourceIds) {
-        if (await moveToParking(id)) moved += 1
-      }
-      await refreshSources()
-      if (moved > 0) {
-        toast.info(`已将 ${moved} 项移至左栏「临时存放」`)
-      }
-      return moved
-    },
-    [moveToParking, refreshSources, toast],
-  )
-
-  /**
-   * 启动重新编目：后台跑完后自动落库，停留当前视图并刷新列表。
-   */
-  const handleRunReclassify = useCallback(
-    async (scope: WikiReclassifyScopeDto, opts?: { force?: boolean; enableRename?: boolean }) => {
-      const taskId = taskCenter.startTask({ kind: 'reclassify', title: '重新编目' })
-      const started = await runReclassify(scope, opts)
-      if (!started.ok) {
-        taskCenter.failTask(taskId, started.error)
-        setReclassifyRun(await getReclassifyRun())
-        return
-      }
-      // 把停止回调挂到任务中心，运行中的任务才显示「停止」按钮
-      taskCenter.updateTask(taskId, {
-        onCancel: async () => {
-          await cancelReclassify()
-        },
-      })
-      for (;;) {
-        const run = await getReclassifyRun()
-        setReclassifyRun(run)
-        if (!run || run.status !== 'running') {
-          if (run?.status === 'failed') {
-            taskCenter.failTask(taskId, run.error ?? '重新编目失败')
-          } else if (run?.cancelRequested) {
-            taskCenter.completeTask(taskId, { detail: '已停止' })
-          } else {
-            const pending = run?.candidates.filter((c) => c.applyError).length ?? 0
-            taskCenter.completeTask(taskId, {
-              detail: run
-                ? pending > 0
-                  ? `完成 · 仍有 ${pending} 条未应用`
-                  : '已自动调整目录'
-                : '已自动调整目录',
-            })
-            await refreshSources()
-          }
-          return
+        toast.success(enabled
+            ? '已开启 AI 自动分类，正在整理收件箱中的文件'
+            : '已关闭 AI 自动分类，新资料将留在收件箱');
+        if (enabled) {
+            window.setTimeout(() => {
+                void Promise.all([refreshInbox(), refreshSources()]);
+            }, 2500);
+            window.setTimeout(() => {
+                void Promise.all([refreshInbox(), refreshSources()]);
+            }, 12000);
         }
-        const total = run.total ?? 0
-        const processed = run.processed ?? 0
+    }, [autoClassifyEnabled, setAutoClassifyEnabled, toast, refreshInbox, refreshSources]);
+    /** 外部入口要求打开待整理：首次挂载或 Hub 已打开资料库时再次触发 */
+    useEffect(() => {
+        const applyWikiInitNav = (): void => {
+            if (consumeWikiInitNav() === 'inbox') {
+                // 相同导航保持原引用，避免无谓地重跑一次列表拉取
+                setNav((prev) => (prev.kind === 'inbox' ? prev : { kind: 'inbox' }));
+            }
+        };
+        applyWikiInitNav();
+        const onOpenWiki = (): void => {
+            applyWikiInitNav();
+        };
+        window.addEventListener(OPEN_WIKI_LIBRARY_EVENT, onOpenWiki);
+        return () => window.removeEventListener(OPEN_WIKI_LIBRARY_EVENT, onOpenWiki);
+    }, []);
+    /** 进入归档分区时按需拉取列表并同步左栏角标。 */
+    useEffect(() => {
+        if (nav.kind === 'archived') {
+            void refreshArchivedSources();
+        }
+    }, [nav.kind, refreshArchivedSources]);
+    useEffect(() => {
+        /** 将已有归档运行合并进任务中心历史。 */
+        const loadRunHistory = async (): Promise<void> => {
+            taskCenter.mergeRuns(await listRuns());
+        };
+        void loadRunHistory();
+    }, [listRuns, taskCenter.mergeRuns]);
+    /**
+     * 请求停止当前 migrate 任务并同步任务中心状态。
+     */
+    const handleMigrateCancel = useCallback(async (): Promise<void> => {
+        const run = await cancelMigrate();
+        const tracked = migrateTaskRef.current;
+        if (!tracked)
+            return;
+        if (run?.progress) {
+            taskCenterRef.current.updateTask(tracked.taskId, migrateProgressToTaskPatch(run.progress, () => handleMigrateCancelRef.current()));
+        }
+    }, [cancelMigrate]);
+    handleMigrateCancelRef.current = handleMigrateCancel;
+    /**
+     * 根据 migrate 终态更新任务中心。
+     */
+    const finalizeMigrateTask = useCallback((taskId: string, progress: WikiMigrateProgressItem, error?: string | null): void => {
+        migrateTaskRef.current = null;
+        const tc = taskCenterRef.current;
+        const applied = progress.appliedCount ?? 0;
+        if (progress.phase === 'failed') {
+            tc.failTask(taskId, error ?? progress.message ?? '整理入库失败');
+            return;
+        }
+        if (progress.phase === 'cancelled') {
+            tc.completeTask(taskId, {
+                detail: applied > 0 ? `已取消 · 已整理 ${applied} 项` : '已取消',
+                migratePhase: progress.phase as WikiMigratePhase,
+                appliedCount: applied,
+            });
+            if (applied > 0)
+                setMigrateUndoPrompt({ appliedCount: applied });
+            return;
+        }
+        if (progress.phase === 'review') {
+            // 兼容旧进度：不再打开确认页，停留收件箱并提示仍有映射
+            tc.completeTask(taskId, {
+                detail: progress.total > 0 ? `${progress.total} 条映射已规划` : '映射已规划',
+                migratePhase: 'review',
+            });
+            void refreshMigrateRun();
+            void refreshInbox();
+            void refreshSources();
+            return;
+        }
+        if (progress.phase === 'succeeded' || progress.phase === 'partial') {
+            tc.completeTask(taskId, {
+                detail: progress.message ?? progress.phaseLabel,
+                migratePhase: progress.phase as WikiMigratePhase,
+                appliedCount: applied,
+            });
+            void refreshInbox();
+            void refreshSources();
+            if (applied > 0)
+                setMigrateUndoPrompt({ appliedCount: applied });
+            return;
+        }
+        tc.completeTask(taskId, { detail: progress.phaseLabel });
+    }, [refreshMigrateRun, refreshInbox, refreshSources]);
+    /**
+     * 注册或刷新 migrate 任务到任务中心。
+     */
+    const registerMigrateTask = useCallback((run: WikiMigrateRunItem): string => {
+        const onCancel = () => handleMigrateCancelRef.current();
+        const patch = migrateProgressToTaskPatch(run.progress, onCancel);
+        const tracked = migrateTaskRef.current;
+        const tc = taskCenterRef.current;
+        if (tracked && tracked.runId === run.runId) {
+            tc.updateTask(tracked.taskId, patch);
+            return tracked.taskId;
+        }
+        const taskId = tc.startTask({
+            kind: 'migrate',
+            title: '整理入库',
+            ...patch,
+        });
+        migrateTaskRef.current = { taskId, runId: run.runId };
+        if (!isMigrateBusyPhase(run.phase)) {
+            finalizeMigrateTask(taskId, run.progress, run.error);
+        }
+        return taskId;
+    }, [finalizeMigrateTask]);
+    /** 订阅 migrate 进度推送并同步任务中心 */
+    useEffect(() => {
+        const unsubscribe = subscribeMigrateProgress((progress) => {
+            const tracked = migrateTaskRef.current;
+            if (!tracked || tracked.runId !== progress.runId)
+                return;
+            const onCancel = () => handleMigrateCancelRef.current();
+            if (isMigrateBusyPhase(progress.phase)) {
+                taskCenterRef.current.updateTask(tracked.taskId, migrateProgressToTaskPatch(progress, onCancel));
+                return;
+            }
+            finalizeMigrateTask(tracked.taskId, progress);
+        });
+        return unsubscribe;
+    }, [finalizeMigrateTask, subscribeMigrateProgress]);
+    /** 进页时恢复进行中的 migrate 任务 */
+    useEffect(() => {
+        void getMigrateRun().then((run) => {
+            if (!run)
+                return;
+            setMigrateRun(run);
+            if (isMigrateBusyPhase(run.phase)) {
+                registerMigrateTask(run);
+            }
+        });
+    }, [getMigrateRun, registerMigrateTask]);
+    // 角标来自 wiki:source:counts；可见列表按导航按需拉取（见 refreshSources）
+    const parkingSources = nav.kind === 'parking' ? sources : [];
+    // 收件箱角标 = 队列 pending + 未分类
+    const pendingCount = inboxPending + (unfiledSources.length > 0 ? unfiledSources.length : unfiledCount);
+    const categorySectionName = useMemo(() => {
+        if (nav.kind === 'section' || nav.kind === 'category')
+            return nav.name;
+        if (nav.kind === 'subtopic')
+            return nav.category;
+        return null;
+    }, [nav]);
+    // 大类视图固定筛选区：测量小分类条高度，供文件列表 header 的 sticky top 定位在其下方
+    useLayoutEffect(() => {
+        const el = subtopicBarRef.current;
+        if (!el) {
+            document.documentElement.style.removeProperty('--wiki-subtopic-bar-height');
+            return;
+        }
+        const root = document.documentElement;
+        const update = () => {
+            root.style.setProperty('--wiki-subtopic-bar-height', `${el.offsetHeight}px`);
+        };
+        update();
+        if (typeof ResizeObserver === 'undefined')
+            return;
+        const observer = new ResizeObserver(update);
+        observer.observe(el);
+        return () => observer.disconnect();
+    }, [categorySectionName]);
+    const effectiveSubtopicFilter = useMemo((): WikiSubtopicFilter => {
+        if (!categorySectionName)
+            return WIKI_SUBTOPIC_FILTER_ALL;
+        if (nav.kind === 'subtopic') {
+            return nav.subtopic === null ? WIKI_SUBTOPIC_FILTER_UNFILED : nav.subtopic;
+        }
+        return sectionSubtopicFilter;
+    }, [categorySectionName, nav, sectionSubtopicFilter]);
+    const visibleSources = useMemo(() => {
+        if (categorySectionName) {
+            // section/category 已按大类服务端过滤；小类芯片仍可在前端收窄
+            let filtered = sources;
+            if (nav.kind === 'subtopic') {
+                // 小类详情页不再筛选
+            }
+            else if (effectiveSubtopicFilter === WIKI_SUBTOPIC_FILTER_ALL) {
+                // 全部小类
+            }
+            else if (effectiveSubtopicFilter === WIKI_SUBTOPIC_FILTER_UNFILED) {
+                filtered = filtered.filter((item) => !item.topicSubtopic);
+            }
+            else {
+                filtered = filtered.filter((item) => item.topicSubtopic === effectiveSubtopicFilter);
+            }
+            // 项目筛选（三级分类）
+            if (sectionProjectFilter) {
+                filtered = filtered.filter((item) => item.topicProject === sectionProjectFilter);
+            }
+            return filtered;
+        }
+        if (nav.kind === 'parking') {
+            return parkingSources;
+        }
+        if (nav.kind === 'archived') {
+            return archivedSources;
+        }
+        return [];
+    }, [
+        categorySectionName,
+        effectiveSubtopicFilter,
+        sectionProjectFilter,
+        nav.kind,
+        sources,
+        parkingSources,
+        archivedSources,
+    ]);
+    /**
+     * 打开任务中心并清除失败任务的未读提示。
+     */
+    const handleOpenTaskCenter = useCallback(() => {
+        taskCenter.markFailuresSeen();
+        setIsTaskCenterOpen(true);
+        void listRuns()
+            .then(taskCenter.mergeRuns)
+            .catch(() => undefined);
+    }, [listRuns, taskCenter.markFailuresSeen, taskCenter.mergeRuns]);
+    /**
+     * 重试任务记录中保留的原操作或归档 inbox 项。
+     */
+    const handleRetryTask = useCallback(async (task: WikiLocalTask): Promise<void> => {
+        try {
+            if (task.retry) {
+                await task.retry();
+                taskCenter.dismissTask(task.id);
+                return;
+            }
+            if (task.kind !== 'archive' || !task.inboxIds?.length)
+                return;
+            await taskCenter.wrapAsync('archive', task.title, async () => {
+                const results = await Promise.all(task.inboxIds?.map(retryInbox) ?? []);
+                if (results.some((result) => !result))
+                    throw new Error('部分归档任务重试失败');
+                await refreshInbox();
+            });
+            taskCenter.dismissTask(task.id);
+        }
+        catch {
+            // wrapAsync 已将失败原因写入新的任务记录，避免事件处理产生未捕获拒绝。
+        }
+    }, [refreshInbox, retryInbox, taskCenter.dismissTask, taskCenter.wrapAsync]);
+    const trackedCleanupScan = useCallback((staleDays?: number) => taskCenter.wrapAsync('cleanup', '扫描清理项', () => cleanupScan(staleDays)), [cleanupScan, taskCenter.wrapAsync]);
+    const trackedArchiveSources = useCallback((sourceIds: readonly string[]) => taskCenter.wrapAsync('cleanup', '归档资料', () => archiveSources(sourceIds)), [archiveSources, taskCenter.wrapAsync]);
+    const trackedRestoreSources = useCallback((sourceIds: readonly string[]) => taskCenter.wrapAsync('cleanup', '恢复资料', () => restoreSources(sourceIds)), [restoreSources, taskCenter.wrapAsync]);
+    const trackedDeleteSources = useCallback((sourceIds: readonly string[]) => taskCenter.wrapAsync('cleanup', '删除资料', () => deleteSources(sourceIds)), [deleteSources, taskCenter.wrapAsync]);
+    const handleSelectNav = useCallback((next: WikiNav) => {
+        if (next.kind === 'section' || next.kind === 'category') {
+            setSectionSubtopicFilter(WIKI_SUBTOPIC_FILTER_ALL);
+        }
+        else if (next.kind === 'subtopic') {
+            setSectionSubtopicFilter(next.subtopic === null ? WIKI_SUBTOPIC_FILTER_UNFILED : next.subtopic);
+        }
+        setNav(next);
+        setIsMoreMenuOpen(false);
+        setSearchResults(null);
+        setOpenError(null);
+        // 换目录必须清选中：否则批量动作会作用到上一个目录里已看不见的文件
+        setSelectedSourceIds(new Set());
+        setSelectedInboxIds(new Set());
+        setSelectedUnfiledIds(new Set());
+        setHighlightSourceId(null);
+    }, []);
+    /**
+     * 在大类视图内切换小类筛选；图谱等入口若落在 subtopic 导航，会归一到 section。
+     */
+    const handleSubtopicFilter = useCallback((filter: WikiSubtopicFilter) => {
+        setSectionSubtopicFilter(filter);
+        setSectionProjectFilter(null); // 切换小类时重置项目筛选
+        if (categorySectionName && nav.kind === 'subtopic') {
+            setNav({ kind: 'section', name: categorySectionName });
+        }
+        setSelectedSourceIds(new Set());
+        setHighlightSourceId(null);
+    }, [categorySectionName, nav.kind]);
+    const handleProjectFilter = useCallback((project: string | null) => {
+        setSectionProjectFilter(project);
+        setSelectedSourceIds(new Set());
+        setHighlightSourceId(null);
+    }, []);
+    const toggleSelectSource = useCallback((id: string) => {
+        setSelectedSourceIds((prev) => {
+            const next = new Set(prev);
+            if (next.has(id))
+                next.delete(id);
+            else
+                next.add(id);
+            return next;
+        });
+    }, []);
+    /** 全选/取消全选当前视图可见的文件 */
+    const toggleSelectAllSources = useCallback(() => {
+        setSelectedSourceIds((prev) => {
+            const allVisibleSelected = visibleSources.length > 0 && visibleSources.every((item) => prev.has(item.id));
+            return allVisibleSelected
+                ? new Set()
+                : new Set(visibleSources.map((item) => item.id));
+        });
+    }, [visibleSources]);
+    /**
+     * 打开资料详情预览（已归档资料走 source:get，待整理条目用快照）。
+     */
+    const handlePreviewSourceItem = useCallback((item: WikiSourceListItem) => {
+        const isUrl = isUrlSourceItem(item.sourcePath);
+        setSourcePreview({
+            sourceId: item.id,
+            snapshot: {
+                title: item.title,
+                summary: null,
+                sourceUrl: isUrl ? item.sourcePath : null,
+                sourcePath: isUrl ? null : item.sourcePath,
+                mediaType: item.mediaType,
+            },
+        });
+    }, []);
+    /**
+     * 单条资料移入已归档冷存储（「移到…」选已归档分区）。
+     */
+    const handleArchivePickerTarget = useCallback(async () => {
+        const target = picker;
+        setPicker(null);
+        setSuggestion(null);
+        setSuggestionState('idle');
+        if (!target || target.mode !== 'source')
+            return;
+        await trackedArchiveSources([target.item.id]);
+        await Promise.all([refreshSources(), refreshArchivedSources()]);
+    }, [picker, trackedArchiveSources, refreshSources, refreshArchivedSources]);
+    const handleConfirmPicker = useCallback(async (category: string, subtopic: string | null, project: string | null) => {
+        const target = picker;
+        setPicker(null);
+        setSuggestion(null);
+        setSuggestionState('idle');
+        if (!target)
+            return;
+        if (target.mode === 'inbox') {
+            await organizeInbox(target.item.id, category, subtopic, project);
+            await refreshInbox();
+        }
+        else {
+            await updateSourceTopic(target.item.id, category, subtopic, project);
+        }
+        await refreshSources();
+    }, [picker, organizeInbox, updateSourceTopic, refreshInbox, refreshSources]);
+    const handlePark = useCallback(async (item: WikiSourceListItem) => {
+        await moveToParking(item.id);
+        await refreshSources();
+        toast.info('已移至左栏「临时存放」');
+    }, [moveToParking, refreshSources, toast]);
+    /** 从归档分区恢复资料到活跃目录。 */
+    const handleRestoreArchived = useCallback(async (item: WikiSourceListItem) => {
+        await trackedRestoreSources([item.id]);
+        await Promise.all([refreshSources(), refreshArchivedSources()]);
+    }, [trackedRestoreSources, refreshSources, refreshArchivedSources]);
+    /** 批量移动：逐条走确定性写入路径 */
+    const handleMoveSelected = useCallback(async (category: string, subtopic: string | null, project: string | null) => {
+        for (const id of selectedSourceIds) {
+            await updateSourceTopic(id, category, subtopic, project);
+        }
+        setSelectedSourceIds(new Set());
+        await refreshSources();
+    }, [selectedSourceIds, updateSourceTopic, refreshSources]);
+    /** 批量移入已归档冷存储 */
+    const handleArchiveSelected = useCallback(async () => {
+        const ids = [...selectedSourceIdsRef.current];
+        if (ids.length === 0)
+            return;
+        await trackedArchiveSources(ids);
+        setSelectedSourceIds(new Set());
+        setBatchPickerOpen(false);
+        await Promise.all([refreshSources(), refreshArchivedSources()]);
+    }, [trackedArchiveSources, refreshSources, refreshArchivedSources]);
+    const handleParkSelected = useCallback(async () => {
+        const ids = [...selectedSourceIds];
+        if (ids.length === 0)
+            return;
+        for (const id of ids) {
+            await moveToParking(id);
+        }
+        setSelectedSourceIds(new Set());
+        await refreshSources();
+        toast.info(`已将 ${ids.length} 项移至左栏「临时存放」`);
+    }, [selectedSourceIds, moveToParking, refreshSources, toast]);
+    /** 逐条移到临时存放，返回成功条数（清理视图的批量动作用） */
+    const handleParkMany = useCallback(async (sourceIds: readonly string[]): Promise<number> => {
+        let moved = 0;
+        for (const id of sourceIds) {
+            if (await moveToParking(id))
+                moved += 1;
+        }
+        await refreshSources();
+        if (moved > 0) {
+            toast.info(`已将 ${moved} 项移至左栏「临时存放」`);
+        }
+        return moved;
+    }, [moveToParking, refreshSources, toast]);
+    /**
+     * 启动重新编目：后台跑完后自动落库，停留当前视图并刷新列表。
+     */
+    const handleRunReclassify = useCallback(async (scope: WikiReclassifyScopeDto, opts?: {
+        force?: boolean;
+        enableRename?: boolean;
+    }) => {
+        const taskId = taskCenter.startTask({ kind: 'reclassify', title: '重新编目' });
+        const started = await runReclassify(scope, opts);
+        if (!started.ok) {
+            taskCenter.failTask(taskId, started.error);
+            setReclassifyRun(await getReclassifyRun());
+            return;
+        }
+        // 把停止回调挂到任务中心，运行中的任务才显示「停止」按钮
         taskCenter.updateTask(taskId, {
-          progress: total > 0 ? { done: Math.min(processed, total), total } : undefined,
-          detail: total > 0 ? `正在分析文件目录 ${processed}/${total}` : '正在分析文件目录',
-        })
-        await new Promise((resolve) => window.setTimeout(resolve, 400))
-      }
-    },
-    [runReclassify, getReclassifyRun, cancelReclassify, refreshSources, taskCenter],
-  )
-
-  const handleApplyReclassify = useCallback(
-    async (candidateIds: readonly string[]) => {
-      await applyReclassify(candidateIds)
-      setReclassifyRun(await getReclassifyRun())
-      await refreshSources()
-    },
-    [applyReclassify, getReclassifyRun, refreshSources],
-  )
-
-  const handleIgnoreReclassify = useCallback(
-    async (candidateId: string) => {
-      await ignoreReclassify(candidateId)
-      setReclassifyRun(await getReclassifyRun())
-    },
-    [ignoreReclassify, getReclassifyRun],
-  )
-
-  /**
-   * 在当前小类下新建笔记，成功后刷新列表并高亮新行。
-   * 大类聚合视图不给这个入口——必须先选定小类，避免误放。
-   */
-  const handleCreateNote = useCallback(
-    async (category: string, subtopic: string | null) => {
-      const created = await createNote(category, subtopic)
-      if (!created) {
-        setOpenError('新建笔记失败')
-        return
-      }
-      await refreshSources()
-      setHighlightSourceId(created.sourceId)
-    },
-    [createNote, refreshSources],
-  )
-
-  /**
-   * 选择器里的「让 AI 建议」：跑一次 scope=source 的编目，取第一条候选当建议。
-   * run 启动后立刻返回 running，必须等到 review/failed 再读候选。
-   * 拿到就 discard——单文件建议用完即弃，不能长期占住「同时只允许一个批次」的槽位。
-   */
-  const handleRequestSuggestion = useCallback(
-    async (sourceId: string) => {
-      setSuggestionState('loading')
-      setSuggestion(null)
-      const started = await runReclassify({ kind: 'source', sourceId }, { force: true })
-      if (!started.ok) {
-        setSuggestionState('failed')
-        return
-      }
-      let run = await getReclassifyRun()
-      while (run?.status === 'running') {
-        await new Promise((resolve) => window.setTimeout(resolve, 400))
-        run = await getReclassifyRun()
-      }
-      const first = run?.status === 'failed' ? undefined : run?.candidates[0]
-      await discardReclassify()
-      if (!first) {
-        setSuggestionState('failed')
-        return
-      }
-      setSuggestion({ category: first.toCategory, subtopic: first.toSubtopic, reason: first.reason })
-      setSuggestionState('idle')
-    },
-    [runReclassify, getReclassifyRun, discardReclassify],
-  )
-
-  const handleDiscardReclassify = useCallback(async () => {
-    await discardReclassify()
-    setReclassifyRun(null)
-    setNav({ kind: 'inbox' })
-  }, [discardReclassify])
-
-  /**
-   * 更新单条文件夹映射并刷新 run。
-   */
-  const handleUpdateMigrateMapping = useCallback(
-    async (folderRel: string, patch: Parameters<typeof updateMigrateMapping>[1]) => {
-      const run = await updateMigrateMapping(folderRel, patch)
-      if (run) setMigrateRun(run)
-    },
-    [updateMigrateMapping],
-  )
-
-  /**
-   * 确认执行 migrate apply，订阅 applying 进度直至终态。
-   */
-  const handleApplyMigrate = useCallback(async () => {
-    setMigrateApplying(true)
-    const taskId = taskCenter.startTask({ kind: 'migrate', title: '整理入库' })
-    try {
-      const started = await applyMigrate()
-      if (!started) {
-        taskCenter.failTask(taskId, '确认整理失败')
-        return
-      }
-      setMigrateRun(started)
-      if (started.phase === 'applying') {
-        migrateTaskRef.current = { taskId, runId: started.runId }
-      }
-      for (;;) {
-        const run = await getMigrateRun()
-        if (!run) break
-        setMigrateRun(run)
-        if (run.phase !== 'applying') {
-          if (run.progress) finalizeMigrateTask(taskId, run.progress, run.error)
-          break
+            onCancel: async () => {
+                await cancelReclassify();
+            },
+        });
+        for (;;) {
+            const run = await getReclassifyRun();
+            setReclassifyRun(run);
+            if (!run || run.status !== 'running') {
+                if (run?.status === 'failed') {
+                    taskCenter.failTask(taskId, run.error ?? '重新编目失败');
+                }
+                else if (run?.cancelRequested) {
+                    taskCenter.completeTask(taskId, { detail: '已停止' });
+                }
+                else {
+                    const pending = run?.candidates.filter((c) => c.applyError).length ?? 0;
+                    taskCenter.completeTask(taskId, {
+                        detail: run
+                            ? pending > 0
+                                ? `完成 · 仍有 ${pending} 条未应用`
+                                : '已自动调整目录'
+                            : '已自动调整目录',
+                    });
+                    await refreshSources();
+                }
+                return;
+            }
+            const total = run.total ?? 0;
+            const processed = run.processed ?? 0;
+            taskCenter.updateTask(taskId, {
+                progress: total > 0 ? { done: Math.min(processed, total), total } : undefined,
+                detail: total > 0 ? `正在分析文件目录 ${processed}/${total}` : '正在分析文件目录',
+            });
+            await new Promise((resolve) => window.setTimeout(resolve, 400));
         }
-        await new Promise((resolve) => window.setTimeout(resolve, 400))
-      }
-      await Promise.all([refreshInbox(), refreshSources()])
-    } finally {
-      setMigrateApplying(false)
-    }
-  }, [applyMigrate, getMigrateRun, finalizeMigrateTask, refreshInbox, refreshSources, taskCenter])
-
-  /**
-   * 丢弃 migrate 映射方案并返回收件箱。
-   */
-  const handleDiscardMigrate = useCallback(async () => {
-    await discardMigrate()
-    setMigrateRun(null)
-    setNav({ kind: 'inbox' })
-  }, [discardMigrate])
-
-  /**
-   * 重跑盘点 + 映射并直接入库。
-   */
-  const handleReplanMigrate = useCallback(async () => {
-    const taskId = taskCenter.startTask({ kind: 'migrate', title: '重新规划映射' })
-    const run = await replanMigrate()
-    if (!run) {
-      taskCenter.failTask(taskId, '重新规划失败')
-      return
-    }
-    setMigrateRun(run)
-    if (isMigrateBusyPhase(run.phase)) {
-      migrateTaskRef.current = { taskId, runId: run.runId }
-      return
-    }
-    finalizeMigrateTask(taskId, run.progress, run.error)
-    setNav({ kind: 'inbox' })
-  }, [replanMigrate, taskCenter, finalizeMigrateTask])
-
-  /**
-   * 撤销本次已整理项并退回收件箱。
-   */
-  const handleUndoMigrate = useCallback(async () => {
-    const run = await undoMigrate()
-    setMigrateUndoPrompt(null)
-    if (run) setMigrateRun(run)
-    await Promise.all([refreshInbox(), refreshSources()])
-    toast.info('已撤销本次整理，文件已退回收件箱')
-  }, [undoMigrate, refreshInbox, refreshSources, toast])
-
-  /**
-   * 撤销后重新规划并直接入库。
-   */
-  const handleUndoAndReplanMigrate = useCallback(async () => {
-    setMigrateUndoPrompt(null)
-    await undoMigrate()
-    await Promise.all([refreshInbox(), refreshSources()])
-    await handleReplanMigrate()
-  }, [undoMigrate, refreshInbox, refreshSources, handleReplanMigrate])
-
-  /**
-   * 从任务中心回到收件箱查看整理结果（不再打开确认页）。
-   */
-  const handleOpenMigrateReview = useCallback(() => {
-    setIsTaskCenterOpen(false)
-    void refreshMigrateRun()
-    setNav({ kind: 'inbox' })
-    void Promise.all([refreshInbox(), refreshSources()])
-  }, [refreshMigrateRun, refreshInbox, refreshSources])
-
-  /**
-   * 应用一次主题树变更，成功后刷新树与文件列表。
-   * 若当前所在目录被这次变更删掉/改名，导航回待整理，避免停在空节点上。
-   */
-  const handleMutateTopic = useCallback(
-    async (mutation: WikiTopicMutation) => {
-      const result = await mutateTopic(mutation)
-      if (!result.ok) return result
-      setTopicTree(result.tree)
-      await refreshSources()
-      setNav((prev) => {
-        if (prev.kind === 'section' || prev.kind === 'category') {
-          const name = prev.kind === 'section' ? prev.name : prev.name
-          return result.tree.categories.some((c) => c.name === name) ? prev : { kind: 'inbox' }
+    }, [runReclassify, getReclassifyRun, cancelReclassify, refreshSources, taskCenter]);
+    const handleApplyReclassify = useCallback(async (candidateIds: readonly string[]) => {
+        await applyReclassify(candidateIds);
+        setReclassifyRun(await getReclassifyRun());
+        await refreshSources();
+    }, [applyReclassify, getReclassifyRun, refreshSources]);
+    const handleIgnoreReclassify = useCallback(async (candidateId: string) => {
+        await ignoreReclassify(candidateId);
+        setReclassifyRun(await getReclassifyRun());
+    }, [ignoreReclassify, getReclassifyRun]);
+    /**
+     * 在当前小类下新建笔记，成功后刷新列表并高亮新行。
+     * 大类聚合视图不给这个入口——必须先选定小类，避免误放。
+     */
+    const handleCreateNote = useCallback(async (category: string, subtopic: string | null) => {
+        const created = await createNote(category, subtopic);
+        if (!created) {
+            setOpenError('新建笔记失败');
+            return;
         }
-        if (prev.kind === 'subtopic') {
-          const cat = result.tree.categories.find((c) => c.name === prev.category)
-          // subtopic 为 null 是「未细分」分组，只要大类还在就有效
-          if (prev.subtopic === null) return cat ? prev : { kind: 'inbox' }
-          return cat?.subtopics.includes(prev.subtopic) ? prev : { kind: 'inbox' }
+        await refreshSources();
+        setHighlightSourceId(created.sourceId);
+    }, [createNote, refreshSources]);
+    /**
+     * 选择器里的「让 AI 建议」：跑一次 scope=source 的编目，取第一条候选当建议。
+     * run 启动后立刻返回 running，必须等到 review/failed 再读候选。
+     * 拿到就 discard——单文件建议用完即弃，不能长期占住「同时只允许一个批次」的槽位。
+     */
+    const handleRequestSuggestion = useCallback(async (sourceId: string) => {
+        setSuggestionState('loading');
+        setSuggestion(null);
+        const started = await runReclassify({ kind: 'source', sourceId }, { force: true });
+        if (!started.ok) {
+            setSuggestionState('failed');
+            return;
         }
-        return prev
-      })
-      return result
-    },
-    [mutateTopic, refreshSources],
-  )
-
-  const handleRetry = useCallback(
-    async (inboxId: string) => {
-      await retryInbox(inboxId)
-      void refreshInbox()
-    },
-    [retryInbox, refreshInbox],
-  )
-
-  const handleDiscard = useCallback(
-    async (inboxId: string) => {
-      await discardInbox(inboxId)
-      void refreshInbox()
-    },
-    [discardInbox, refreshInbox],
-  )
-
-  /** 打开删除确认：已入库资料走永久删除，队列条目走丢弃 */
-  const requestRemove = useCallback(
-    (opts: { inboxIds?: readonly string[]; sourceIds?: readonly string[] }) => {
-      const inboxIds = opts.inboxIds ?? []
-      const sourceIds = opts.sourceIds ?? []
-      if (inboxIds.length === 0 && sourceIds.length === 0) return
-      setRemoveConfirm({ inboxIds, sourceIds })
-    },
-    [],
-  )
-
-  /** 确认删除/丢弃所选资料 */
-  const handleConfirmRemove = useCallback(async () => {
-    if (!removeConfirm) return
-    const { inboxIds, sourceIds } = removeConfirm
-    setRemoveConfirm(null)
-
-    let discarded = 0
-    for (const id of inboxIds) {
-      if (await discardInbox(id)) discarded += 1
-    }
-
-    let deleted = 0
-    if (sourceIds.length > 0) {
-      deleted = await trackedDeleteSources(sourceIds)
-    }
-
-    setSelectedInboxIds(new Set())
-    setSelectedUnfiledIds(new Set())
-    setSelectedSourceIds(new Set())
-    await Promise.all([refreshInbox(), refreshSources(), refreshArchivedSources()])
-
-    const parts: string[] = []
-    if (discarded > 0) parts.push(`已移除 ${discarded} 条队列条目`)
-    if (deleted > 0) parts.push(`已删除 ${deleted} 条资料`)
-    if (parts.length > 0) toast.success(parts.join('，'))
-  }, [
-    removeConfirm,
-    discardInbox,
-    trackedDeleteSources,
-    refreshInbox,
-    refreshSources,
-    refreshArchivedSources,
-    toast,
-  ])
-
-  /**
-   * 选择文件夹并批量导入 Wiki 收件箱（scan 预览 → 确认 → import → intake）。
-   */
-  const handleImportFromFolder = useCallback(async () => {
-    const dir = await pickDirectory({ title: '选择要导入 Wiki 的文件夹' })
-    if (!dir) return
-
-    setFolderImportBusy(true)
-    try {
-      const preview = await scanFolder(dir, true)
-      if (!preview) {
-        toast.error('扫描文件夹失败，请检查路径是否在允许范围内')
-        return
-      }
-      const { importable, skipped, alreadyInWiki } = preview.summary
-      if (importable === 0) {
-        if (alreadyInWiki > 0) {
-          const names = preview.candidates.filter((c) => c.alreadyInWiki).map((c) => c.title)
-          const head = names.slice(0, 3).join('、')
-          const label = names.length > 3 ? `${head} 等 ${names.length} 个文件` : head
-          toast.info(
-            `${label} 已在 Wiki 中。请到收件箱、分类目录、临时存放或已归档查找，也可用顶栏搜索文件名。若资料已被删除仍提示重复，请再试一次导入。`,
-          )
-        } else {
-          toast.info(
-            skipped > 0
-              ? `该目录没有可导入的文件（已跳过 ${skipped} 个，例如不支持的格式或 wiki 库自身）`
-              : '该目录没有可导入的文件',
-          )
+        let run = await getReclassifyRun();
+        while (run?.status === 'running') {
+            await new Promise((resolve) => window.setTimeout(resolve, 400));
+            run = await getReclassifyRun();
         }
-        return
-      }
-      const ok = window.confirm(
-        `在「${dir}」中找到 ${importable} 个可导入文件` +
-          (skipped > 0 ? `（跳过 ${skipped} 个）` : '') +
-          (alreadyInWiki > 0 ? `，${alreadyInWiki} 个已在 Wiki` : '') +
-          (autoClassifyEnabled
-            ? '。导入后将由 AI 自动分类归档（依据目录结构、已有分类与文件内容）。是否继续？'
-            : '。将导入到「收件箱」，不自动分类（可在左栏「更多」开启 AI 自动分类）。是否继续？'),
-      )
-      if (!ok) return
-
-      const imported = await importFolder(dir, {
-        recursive: true,
-        autoClassify: autoClassifyEnabled,
-      })
-      if (!imported || imported.imported === 0) {
-        toast.error('导入失败，请稍后重试')
-        return
-      }
-      setNav({ kind: 'inbox' })
-      await Promise.all([refreshInbox(), refreshSources()])
-      if (autoClassifyEnabled && imported.migrateRun) {
-        registerMigrateTask(imported.migrateRun)
-        setMigrateRun(imported.migrateRun)
-        const applied = imported.migrateRun.progress.appliedCount ?? 0
-        if (imported.migrateRun.phase === 'succeeded' || imported.migrateRun.phase === 'partial') {
-          toast.success(
-            applied > 0
-              ? `已导入 ${imported.imported} 个文件 · 已整理入库 ${applied} 项`
-              : `已导入 ${imported.imported} 个文件 · 整理完成`,
-          )
-        } else if (isMigrateBusyPhase(imported.migrateRun.phase)) {
-          toast.success(`已导入 ${imported.imported} 个文件 · 正在整理入库`)
-        } else {
-          toast.success(`已导入 ${imported.imported} 个文件 · 正在整理入库`)
+        const first = run?.status === 'failed' ? undefined : run?.candidates[0];
+        await discardReclassify();
+        if (!first) {
+            setSuggestionState('failed');
+            return;
         }
-      } else {
-        const orgSummary = imported.organizeRun?.summary
-        if (autoClassifyEnabled && orgSummary && /\d+\s*项已归档/.test(orgSummary)) {
-          toast.success(
-            `已导入 ${imported.imported} 个文件 · ${orgSummary}。请在左侧「工作 / 学习 / 生活 / 收藏」查看。`,
-          )
-        } else if (orgSummary) {
-          toast.success(`已导入 ${imported.imported} 个文件 · ${orgSummary}`)
-        } else {
-          toast.success(`已导入 ${imported.imported} 个文件到收件箱`)
+        setSuggestion({ category: first.toCategory, subtopic: first.toSubtopic, reason: first.reason });
+        setSuggestionState('idle');
+    }, [runReclassify, getReclassifyRun, discardReclassify]);
+    const handleDiscardReclassify = useCallback(async () => {
+        await discardReclassify();
+        setReclassifyRun(null);
+        setNav({ kind: 'inbox' });
+    }, [discardReclassify]);
+    /**
+     * 更新单条文件夹映射并刷新 run。
+     */
+    const handleUpdateMigrateMapping = useCallback(async (folderRel: string, patch: Parameters<typeof updateMigrateMapping>[1]) => {
+        const run = await updateMigrateMapping(folderRel, patch);
+        if (run)
+            setMigrateRun(run);
+    }, [updateMigrateMapping]);
+    /**
+     * 确认执行 migrate apply，订阅 applying 进度直至终态。
+     */
+    const handleApplyMigrate = useCallback(async () => {
+        setMigrateApplying(true);
+        const taskId = taskCenter.startTask({ kind: 'migrate', title: '整理入库' });
+        try {
+            const started = await applyMigrate();
+            if (!started) {
+                taskCenter.failTask(taskId, '确认整理失败');
+                return;
+            }
+            setMigrateRun(started);
+            if (started.phase === 'applying') {
+                migrateTaskRef.current = { taskId, runId: started.runId };
+            }
+            for (;;) {
+                const run = await getMigrateRun();
+                if (!run)
+                    break;
+                setMigrateRun(run);
+                if (run.phase !== 'applying') {
+                    if (run.progress)
+                        finalizeMigrateTask(taskId, run.progress, run.error);
+                    break;
+                }
+                await new Promise((resolve) => window.setTimeout(resolve, 400));
+            }
+            await Promise.all([refreshInbox(), refreshSources()]);
         }
-      }
-    } finally {
-      setFolderImportBusy(false)
-    }
-  }, [scanFolder, importFolder, refreshInbox, refreshSources, toast, autoClassifyEnabled, registerMigrateTask])
-
-  /** 切换待整理队列条目选中状态 */
-  const toggleSelectInbox = useCallback((inboxId: string) => {
-    setSelectedInboxIds((prev) => {
-      const next = new Set(prev)
-      if (next.has(inboxId)) next.delete(inboxId)
-      else next.add(inboxId)
-      return next
-    })
-  }, [])
-
-  /** 切换待补分资料选中状态 */
-  const toggleSelectUnfiled = useCallback((sourceId: string) => {
-    setSelectedUnfiledIds((prev) => {
-      const next = new Set(prev)
-      if (next.has(sourceId)) next.delete(sourceId)
-      else next.add(sourceId)
-      return next
-    })
-  }, [])
-
-  /** 全选/取消全选待整理视图全部条目 */
-  const toggleSelectAllInbox = useCallback(() => {
-    const total = inboxItems.length + unfiledSources.length
-    const selected = selectedInboxIds.size + selectedUnfiledIds.size
-    if (selected === total && total > 0) {
-      setSelectedInboxIds(new Set())
-      setSelectedUnfiledIds(new Set())
-      return
-    }
-    setSelectedInboxIds(new Set(inboxItems.map((item) => item.id)))
-    setSelectedUnfiledIds(new Set(unfiledSources.map((item) => item.id)))
-  }, [inboxItems, unfiledSources, selectedInboxIds.size, selectedUnfiledIds.size])
-
-  /**
-   * 批量归档：队列条目走 organizeInbox，待补分走 updateSourceTopic。
-   */
-  const handleBatchOrganizeInbox = useCallback(
-    async (category: string, subtopic: string | null, project: string | null) => {
-      const inboxIds = [...selectedInboxIdsRef.current]
-      const unfiledIds = [...selectedUnfiledIdsRef.current]
-      for (const id of inboxIds) {
-        await organizeInbox(id, category, subtopic, project)
-      }
-      for (const id of unfiledIds) {
-        await updateSourceTopic(id, category, subtopic, project)
-      }
-      setSelectedInboxIds(new Set())
-      setSelectedUnfiledIds(new Set())
-      await Promise.all([refreshInbox(), refreshSources()])
-    },
-    [organizeInbox, updateSourceTopic, refreshInbox, refreshSources],
-  )
-
-  /**
-   * 对勾选（或全部）收件箱条目做 AI 分类归档。
-   */
-  const handleAiClassifyInbox = useCallback(async () => {
-    const hasSelection = selectedInboxIdsRef.current.size + selectedUnfiledIdsRef.current.size > 0
-    const inboxIds = hasSelection
-      ? [...selectedInboxIdsRef.current]
-      : inboxItems.map((item) => item.id)
-    const sourceIds = hasSelection
-      ? [...selectedUnfiledIdsRef.current]
-      : unfiledSources.map((item) => item.id)
-    if (inboxIds.length === 0 && sourceIds.length === 0) {
-      toast.info('收件箱没有可分类的文件')
-      return
-    }
-    setAiClassifyBusy(true)
-    try {
-      const result = await taskCenter.wrapAsync('archive', 'AI 分类收件箱', () =>
-        runOrganize({ inboxIds, sourceIds }),
-      )
-      setSelectedInboxIds(new Set())
-      setSelectedUnfiledIds(new Set())
-      await Promise.all([refreshInbox(), refreshSources()])
-      if (result?.summary) toast.success(result.summary)
-      else toast.info('没有可分类的条目')
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'AI 分类失败')
-    } finally {
-      setAiClassifyBusy(false)
-    }
-  }, [inboxItems, unfiledSources, runOrganize, refreshInbox, refreshSources, toast, taskCenter])
-
-  /** 批量重试所选可重试的 inbox 条目 */
-  const handleBatchRetryInbox = useCallback(async () => {
-    const selected = selectedInboxIdsRef.current
-    for (const item of inboxItems) {
-      if (!selected.has(item.id)) continue
-      if (item.status === 'pending' || item.status === 'failed') {
-        await retryInbox(item.id)
-      }
-    }
-    setSelectedInboxIds(new Set())
-    void refreshInbox()
-  }, [inboxItems, retryInbox, refreshInbox])
-
-  /** 批量删除待整理所选：队列丢弃 + 已入库资料永久删除 */
-  const handleBatchDeleteInbox = useCallback(() => {
-    requestRemove({
-      inboxIds: [...selectedInboxIdsRef.current],
-      sourceIds: [...selectedUnfiledIdsRef.current],
-    })
-  }, [requestRemove])
-
-  /** 删除单条已入库资料（含待补分与已分类） */
-  const handleDeleteSource = useCallback(
-    (item: WikiSourceListItem) => {
-      requestRemove({ sourceIds: [item.id] })
-    },
-    [requestRemove],
-  )
-
-  /** 批量删除小类视图等多选资料 */
-  const handleDeleteSelectedSources = useCallback(() => {
-    requestRemove({ sourceIds: [...selectedSourceIdsRef.current] })
-  }, [requestRemove])
-
-  /** 一键重试全部可重试的 inbox 条目 */
-  const handleRetryAllInbox = useCallback(async () => {
-    for (const item of inboxItems) {
-      if (item.status === 'pending' || item.status === 'failed') {
-        await retryInbox(item.id)
-      }
-    }
-    void refreshInbox()
-  }, [inboxItems, retryInbox, refreshInbox])
-
-  /**
-   * 用指定关键词执行一次资料层检索（不依赖 state，供芯片集合与点击词条时用）。
-   */
-  const handleSearchWithKeyword = useCallback(
-    async (keyword: string) => {
-      if (!keyword.trim()) {
-        setSearchResults(null)
-        setSearchDegradeReason(null)
-        return
-      }
-      const result = await searchSources(keyword)
-      setSearchResults(
-        result.hits.map((hit) => ({
-          id: hit.sourceId,
-          title: hit.title,
-          sourcePath: hit.sourcePath,
-          mediaType: hit.mediaType,
-          topicCategory: hit.category,
-          topicSubtopic: hit.subtopic,
-          topicProject: null,
-          userPath: hit.userPath ?? null,
-          tags: hit.tags ?? null,
-          description: null,
-          textLength: 0,
-          updatedAt: hit.updatedAt,
-          useCount: 0,
-        })),
-      )
-      setSearchDegradeReason(result.degradeReason)
-    },
-    [searchSources],
-  )
-
-  /** 按当前条件集合执行检索；无条件时回到普通列表 */
-  const runSearch = useCallback(
-    async (terms: readonly string[]) => {
-      if (terms.length === 0) {
-        setSearchResults(null)
-        setSearchDegradeReason(null)
-        return
-      }
-      await handleSearchWithKeyword(terms.join(' '))
-    },
-    [handleSearchWithKeyword],
-  )
-
-  /**
-   * 提交搜索：把输入框草稿并入条件集合并检索。
-   */
-  const handleSearch = useCallback(async () => {
-    const t = searchDraft.trim()
-    const next = t ? [...searchTerms, t] : [...searchTerms]
-    setSearchTerms(next)
-    setSearchDraft('')
-    await runSearch(next)
-  }, [searchDraft, searchTerms, runSearch])
-
-  /** 删除单个条件并重新检索 */
-  const handleRemoveSearchTerm = useCallback(
-    (term: string) => {
-      const next = searchTerms.filter((x) => x !== term)
-      setSearchTerms(next)
-      void runSearch(next)
-    },
-    [searchTerms, runSearch],
-  )
-
-  const handleClearSearch = useCallback(() => {
-    setSearchTerms([])
-    setSearchDraft('')
-    setSearchResults(null)
-    setSearchDegradeReason(null)
-  }, [])
-
-  /**
-   * 点击路径/标签：作为独立条件加入芯片集合并检索（多条件叠加）。
-   */
-  const handleAddSearchTerm = useCallback(
-    (term: string) => {
-      const t = term.trim()
-      if (!t) return
-      if (searchTerms.includes(t)) return
-      const next = [...searchTerms, t]
-      setSearchTerms(next)
-      void runSearch(next)
-    },
-    [searchTerms, runSearch],
-  )
-
-  /**
-   * 在任务中心追踪索引重建，主内容保持当前页面不变。
-   */
-  const handleRebuildIndex = useCallback(() => {
-    void taskCenter.wrapAsync('rebuild', '重建索引', rebuildIndex).catch(() => undefined)
-  }, [rebuildIndex, taskCenter.wrapAsync])
-
-  /** 按 sourceId 打开资料详情。 */
-  const handlePreviewSourceId = useCallback((sourceId: string) => {
-    setSourcePreview({ sourceId, snapshot: null })
-  }, [])
-
-  /** 预览待整理队列条目（含网页资讯摘要与链接） */
-  const handlePreviewInboxItem = useCallback((item: WikiInboxItem) => {
-    setSourcePreview({ sourceId: null, snapshot: inboxItemToPreviewSnapshot(item) })
-  }, [])
-
-  const navBreadcrumbs = searchResults === null ? buildWikiBreadcrumbs(nav, effectiveSubtopicFilter) : null
-  const isCategoryBrowse = categorySectionName !== null
-  const currentContext = searchResults !== null
-    ? { title: '搜索结果', subtitle: `共找到 ${searchResults.length} 个文件`, breadcrumbs: null as null, breadcrumbSuffix: undefined }
-    : navBreadcrumbs
-      ? {
-          title: navBreadcrumbs[navBreadcrumbs.length - 1]?.label ?? 'Wiki',
-          subtitle: isCategoryBrowse ? `${visibleSources.length} 个文件` : '选择小类查看资料',
-          breadcrumbs: navBreadcrumbs,
-          breadcrumbSuffix: isCategoryBrowse ? `(${visibleSources.length})` : undefined,
+        finally {
+            setMigrateApplying(false);
         }
-      : { title: FIXED_NAV_CONTEXT[nav.kind]?.title ?? 'Wiki', subtitle: FIXED_NAV_CONTEXT[nav.kind]?.subtitle ?? '', breadcrumbs: null as null, breadcrumbSuffix: undefined }
+    }, [applyMigrate, getMigrateRun, finalizeMigrateTask, refreshInbox, refreshSources, taskCenter]);
+    /**
+     * 丢弃 migrate 映射方案并返回收件箱。
+     */
+    const handleDiscardMigrate = useCallback(async () => {
+        await discardMigrate();
+        setMigrateRun(null);
+        setNav({ kind: 'inbox' });
+    }, [discardMigrate]);
+    /**
+     * 重跑盘点 + 映射并直接入库。
+     */
+    const handleReplanMigrate = useCallback(async () => {
+        const taskId = taskCenter.startTask({ kind: 'migrate', title: '重新规划映射' });
+        const run = await replanMigrate();
+        if (!run) {
+            taskCenter.failTask(taskId, '重新规划失败');
+            return;
+        }
+        setMigrateRun(run);
+        if (isMigrateBusyPhase(run.phase)) {
+            migrateTaskRef.current = { taskId, runId: run.runId };
+            return;
+        }
+        finalizeMigrateTask(taskId, run.progress, run.error);
+        setNav({ kind: 'inbox' });
+    }, [replanMigrate, taskCenter, finalizeMigrateTask]);
+    /**
+     * 撤销本次已整理项并退回收件箱。
+     */
+    const handleUndoMigrate = useCallback(async () => {
+        const run = await undoMigrate();
+        setMigrateUndoPrompt(null);
+        if (run)
+            setMigrateRun(run);
+        await Promise.all([refreshInbox(), refreshSources()]);
+        toast.info('已撤销本次整理，文件已退回收件箱');
+    }, [undoMigrate, refreshInbox, refreshSources, toast]);
+    /**
+     * 撤销后重新规划并直接入库。
+     */
+    const handleUndoAndReplanMigrate = useCallback(async () => {
+        setMigrateUndoPrompt(null);
+        await undoMigrate();
+        await Promise.all([refreshInbox(), refreshSources()]);
+        await handleReplanMigrate();
+    }, [undoMigrate, refreshInbox, refreshSources, handleReplanMigrate]);
+    /**
+     * 从任务中心回到收件箱查看整理结果（不再打开确认页）。
+     */
+    const handleOpenMigrateReview = useCallback(() => {
+        setIsTaskCenterOpen(false);
+        void refreshMigrateRun();
+        setNav({ kind: 'inbox' });
+        void Promise.all([refreshInbox(), refreshSources()]);
+    }, [refreshMigrateRun, refreshInbox, refreshSources]);
+    /**
+     * 应用一次主题树变更，成功后刷新树与文件列表。
+     * 若当前所在目录被这次变更删掉/改名，导航回待整理，避免停在空节点上。
+     */
+    const handleMutateTopic = useCallback(async (mutation: WikiTopicMutation) => {
+        const result = await mutateTopic(mutation);
+        if (!result.ok)
+            return result;
+        setTopicTree(result.tree);
+        await refreshSources();
+        setNav((prev) => {
+            if (prev.kind === 'section' || prev.kind === 'category') {
+                const name = prev.kind === 'section' ? prev.name : prev.name;
+                return result.tree.categories.some((c) => c.name === name) ? prev : { kind: 'inbox' };
+            }
+            if (prev.kind === 'subtopic') {
+                const cat = result.tree.categories.find((c) => c.name === prev.category);
+                // subtopic 为 null 是「未细分」分组，只要大类还在就有效
+                if (prev.subtopic === null)
+                    return cat ? prev : { kind: 'inbox' };
+                return cat?.subtopics.includes(prev.subtopic) ? prev : { kind: 'inbox' };
+            }
+            return prev;
+        });
+        return result;
+    }, [mutateTopic, refreshSources]);
+    const handleRetry = useCallback(async (inboxId: string) => {
+        await retryInbox(inboxId);
+        void refreshInbox();
+    }, [retryInbox, refreshInbox]);
+    const handleDiscard = useCallback(async (inboxId: string) => {
+        await discardInbox(inboxId);
+        void refreshInbox();
+    }, [discardInbox, refreshInbox]);
+    /** 打开删除确认：已入库资料走永久删除，队列条目走丢弃 */
+    const requestRemove = useCallback((opts: {
+        inboxIds?: readonly string[];
+        sourceIds?: readonly string[];
+    }) => {
+        const inboxIds = opts.inboxIds ?? [];
+        const sourceIds = opts.sourceIds ?? [];
+        if (inboxIds.length === 0 && sourceIds.length === 0)
+            return;
+        setRemoveConfirm({ inboxIds, sourceIds });
+    }, []);
+    /** 确认删除/丢弃所选资料 */
+    const handleConfirmRemove = useCallback(async () => {
+        if (!removeConfirm)
+            return;
+        const { inboxIds, sourceIds } = removeConfirm;
+        setRemoveConfirm(null);
+        let discarded = 0;
+        for (const id of inboxIds) {
+            if (await discardInbox(id))
+                discarded += 1;
+        }
+        let deleted = 0;
+        if (sourceIds.length > 0) {
+            deleted = await trackedDeleteSources(sourceIds);
+        }
+        setSelectedInboxIds(new Set());
+        setSelectedUnfiledIds(new Set());
+        setSelectedSourceIds(new Set());
+        await Promise.all([refreshInbox(), refreshSources(), refreshArchivedSources()]);
+        const parts: string[] = [];
+        if (discarded > 0)
+            parts.push(`已移除 ${discarded} 条队列条目`);
+        if (deleted > 0)
+            parts.push(`已删除 ${deleted} 条资料`);
+        if (parts.length > 0)
+            toast.success(parts.join('，'));
+    }, [
+        removeConfirm,
+        discardInbox,
+        trackedDeleteSources,
+        refreshInbox,
+        refreshSources,
+        refreshArchivedSources,
+        toast,
+    ]);
+    /**
+     * 选择文件夹并批量导入 Wiki 收件箱（scan 预览 → 确认 → import → intake）。
+     */
+    const handleImportFromFolder = useCallback(async () => {
+        const dir = await pickDirectory({ title: '选择要导入 Wiki 的文件夹' });
+        if (!dir)
+            return;
+        setFolderImportBusy(true);
+        try {
+            const preview = await scanFolder(dir, true);
+            if (!preview) {
+                toast.error('扫描文件夹失败，请检查路径是否在允许范围内');
+                return;
+            }
+            const { importable, skipped, alreadyInWiki } = preview.summary;
+            if (importable === 0) {
+                if (alreadyInWiki > 0) {
+                    const names = preview.candidates.filter((c) => c.alreadyInWiki).map((c) => c.title);
+                    const head = names.slice(0, 3).join('、');
+                    const label = names.length > 3 ? `${head} 等 ${names.length} 个文件` : head;
+                    toast.info(`${label} 已在 Wiki 中。请到收件箱、分类目录、临时存放或已归档查找，也可用顶栏搜索文件名。若资料已被删除仍提示重复，请再试一次导入。`);
+                }
+                else {
+                    toast.info(skipped > 0
+                        ? `该目录没有可导入的文件（已跳过 ${skipped} 个，例如不支持的格式或 wiki 库自身）`
+                        : '该目录没有可导入的文件');
+                }
+                return;
+            }
+            const ok = window.confirm(`在「${dir}」中找到 ${importable} 个可导入文件` +
+                (skipped > 0 ? `（跳过 ${skipped} 个）` : '') +
+                (alreadyInWiki > 0 ? `，${alreadyInWiki} 个已在 Wiki` : '') +
+                (autoClassifyEnabled
+                    ? '。导入后将由 AI 自动分类归档（依据目录结构、已有分类与文件内容）。是否继续？'
+                    : '。将导入到「收件箱」，不自动分类（可在左栏「更多」开启 AI 自动分类）。是否继续？'));
+            if (!ok)
+                return;
+            const imported = await importFolder(dir, {
+                recursive: true,
+                autoClassify: autoClassifyEnabled,
+            });
+            if (!imported || imported.imported === 0) {
+                toast.error('导入失败，请稍后重试');
+                return;
+            }
+            setNav({ kind: 'inbox' });
+            await Promise.all([refreshInbox(), refreshSources()]);
+            if (autoClassifyEnabled && imported.migrateRun) {
+                registerMigrateTask(imported.migrateRun);
+                setMigrateRun(imported.migrateRun);
+                const applied = imported.migrateRun.progress.appliedCount ?? 0;
+                if (imported.migrateRun.phase === 'succeeded' || imported.migrateRun.phase === 'partial') {
+                    toast.success(applied > 0
+                        ? `已导入 ${imported.imported} 个文件 · 已整理入库 ${applied} 项`
+                        : `已导入 ${imported.imported} 个文件 · 整理完成`);
+                }
+                else if (isMigrateBusyPhase(imported.migrateRun.phase)) {
+                    toast.success(`已导入 ${imported.imported} 个文件 · 正在整理入库`);
+                }
+                else {
+                    toast.success(`已导入 ${imported.imported} 个文件 · 正在整理入库`);
+                }
+            }
+            else {
+                const orgSummary = imported.organizeRun?.summary;
+                if (autoClassifyEnabled && orgSummary && /\d+\s*项已归档/.test(orgSummary)) {
+                    toast.success(`已导入 ${imported.imported} 个文件 · ${orgSummary}。请在左侧「工作 / 学习 / 生活 / 收藏」查看。`);
+                }
+                else if (orgSummary) {
+                    toast.success(`已导入 ${imported.imported} 个文件 · ${orgSummary}`);
+                }
+                else {
+                    toast.success(`已导入 ${imported.imported} 个文件到收件箱`);
+                }
+            }
+        }
+        finally {
+            setFolderImportBusy(false);
+        }
+    }, [scanFolder, importFolder, refreshInbox, refreshSources, toast, autoClassifyEnabled, registerMigrateTask]);
+    /** 切换待整理队列条目选中状态 */
+    const toggleSelectInbox = useCallback((inboxId: string) => {
+        setSelectedInboxIds((prev) => {
+            const next = new Set(prev);
+            if (next.has(inboxId))
+                next.delete(inboxId);
+            else
+                next.add(inboxId);
+            return next;
+        });
+    }, []);
+    /** 切换待补分资料选中状态 */
+    const toggleSelectUnfiled = useCallback((sourceId: string) => {
+        setSelectedUnfiledIds((prev) => {
+            const next = new Set(prev);
+            if (next.has(sourceId))
+                next.delete(sourceId);
+            else
+                next.add(sourceId);
+            return next;
+        });
+    }, []);
+    /** 全选/取消全选待整理视图全部条目 */
+    const toggleSelectAllInbox = useCallback(() => {
+        const total = inboxItems.length + unfiledSources.length;
+        const selected = selectedInboxIds.size + selectedUnfiledIds.size;
+        if (selected === total && total > 0) {
+            setSelectedInboxIds(new Set());
+            setSelectedUnfiledIds(new Set());
+            return;
+        }
+        setSelectedInboxIds(new Set(inboxItems.map((item) => item.id)));
+        setSelectedUnfiledIds(new Set(unfiledSources.map((item) => item.id)));
+    }, [inboxItems, unfiledSources, selectedInboxIds.size, selectedUnfiledIds.size]);
+    /**
+     * 批量归档：队列条目走 organizeInbox，待补分走 updateSourceTopic。
+     */
+    const handleBatchOrganizeInbox = useCallback(async (category: string, subtopic: string | null, project: string | null) => {
+        const inboxIds = [...selectedInboxIdsRef.current];
+        const unfiledIds = [...selectedUnfiledIdsRef.current];
+        for (const id of inboxIds) {
+            await organizeInbox(id, category, subtopic, project);
+        }
+        for (const id of unfiledIds) {
+            await updateSourceTopic(id, category, subtopic, project);
+        }
+        setSelectedInboxIds(new Set());
+        setSelectedUnfiledIds(new Set());
+        await Promise.all([refreshInbox(), refreshSources()]);
+    }, [organizeInbox, updateSourceTopic, refreshInbox, refreshSources]);
+    /**
+     * 对勾选（或全部）收件箱条目做 AI 分类归档。
+     */
+    const handleAiClassifyInbox = useCallback(async () => {
+        const hasSelection = selectedInboxIdsRef.current.size + selectedUnfiledIdsRef.current.size > 0;
+        const inboxIds = hasSelection
+            ? [...selectedInboxIdsRef.current]
+            : inboxItems.map((item) => item.id);
+        const sourceIds = hasSelection
+            ? [...selectedUnfiledIdsRef.current]
+            : unfiledSources.map((item) => item.id);
+        if (inboxIds.length === 0 && sourceIds.length === 0) {
+            toast.info('收件箱没有可分类的文件');
+            return;
+        }
+        setAiClassifyBusy(true);
+        try {
+            const result = await taskCenter.wrapAsync('archive', 'AI 分类收件箱', () => runOrganize({ inboxIds, sourceIds }));
+            setSelectedInboxIds(new Set());
+            setSelectedUnfiledIds(new Set());
+            await Promise.all([refreshInbox(), refreshSources()]);
+            if (result?.summary)
+                toast.success(result.summary);
+            else
+                toast.info('没有可分类的条目');
+        }
+        catch (err) {
+            toast.error(err instanceof Error ? err.message : 'AI 分类失败');
+        }
+        finally {
+            setAiClassifyBusy(false);
+        }
+    }, [inboxItems, unfiledSources, runOrganize, refreshInbox, refreshSources, toast, taskCenter]);
+    /** 批量重试所选可重试的 inbox 条目 */
+    const handleBatchRetryInbox = useCallback(async () => {
+        const selected = selectedInboxIdsRef.current;
+        for (const item of inboxItems) {
+            if (!selected.has(item.id))
+                continue;
+            if (item.status === 'pending' || item.status === 'failed') {
+                await retryInbox(item.id);
+            }
+        }
+        setSelectedInboxIds(new Set());
+        void refreshInbox();
+    }, [inboxItems, retryInbox, refreshInbox]);
+    /** 批量删除待整理所选：队列丢弃 + 已入库资料永久删除 */
+    const handleBatchDeleteInbox = useCallback(() => {
+        requestRemove({
+            inboxIds: [...selectedInboxIdsRef.current],
+            sourceIds: [...selectedUnfiledIdsRef.current],
+        });
+    }, [requestRemove]);
+    /** 删除单条已入库资料（含待补分与已分类） */
+    const handleDeleteSource = useCallback((item: WikiSourceListItem) => {
+        requestRemove({ sourceIds: [item.id] });
+    }, [requestRemove]);
+    /** 批量删除小类视图等多选资料 */
+    const handleDeleteSelectedSources = useCallback(() => {
+        requestRemove({ sourceIds: [...selectedSourceIdsRef.current] });
+    }, [requestRemove]);
+    /** 一键重试全部可重试的 inbox 条目 */
+    const handleRetryAllInbox = useCallback(async () => {
+        for (const item of inboxItems) {
+            if (item.status === 'pending' || item.status === 'failed') {
+                await retryInbox(item.id);
+            }
+        }
+        void refreshInbox();
+    }, [inboxItems, retryInbox, refreshInbox]);
+    /**
+     * 用指定关键词执行一次资料层检索（不依赖 state，供芯片集合与点击词条时用）。
+     */
+    const handleSearchWithKeyword = useCallback(async (keyword: string) => {
+        if (!keyword.trim()) {
+            setSearchResults(null);
+            setSearchDegradeReason(null);
+            return;
+        }
+        const result = await searchSources(keyword);
+        setSearchResults(result.hits.map((hit) => ({
+            id: hit.sourceId,
+            title: hit.title,
+            sourcePath: hit.sourcePath,
+            mediaType: hit.mediaType,
+            topicCategory: hit.category,
+            topicSubtopic: hit.subtopic,
+            topicProject: null,
+            userPath: hit.userPath ?? null,
+            tags: hit.tags ?? null,
+            description: null,
+            textLength: 0,
+            updatedAt: hit.updatedAt,
+            useCount: 0,
+        })));
+        setSearchDegradeReason(result.degradeReason);
+    }, [searchSources]);
+    /** 按当前条件集合执行检索；无条件时回到普通列表 */
+    const runSearch = useCallback(async (terms: readonly string[]) => {
+        if (terms.length === 0) {
+            setSearchResults(null);
+            setSearchDegradeReason(null);
+            return;
+        }
+        await handleSearchWithKeyword(terms.join(' '));
+    }, [handleSearchWithKeyword]);
+    /**
+     * 提交搜索：把输入框草稿并入条件集合并检索。
+     */
+    const handleSearch = useCallback(async () => {
+        const t = searchDraft.trim();
+        const next = t ? [...searchTerms, t] : [...searchTerms];
+        setSearchTerms(next);
+        setSearchDraft('');
+        await runSearch(next);
+    }, [searchDraft, searchTerms, runSearch]);
+    /** 删除单个条件并重新检索 */
+    const handleRemoveSearchTerm = useCallback((term: string) => {
+        const next = searchTerms.filter((x) => x !== term);
+        setSearchTerms(next);
+        void runSearch(next);
+    }, [searchTerms, runSearch]);
+    const handleClearSearch = useCallback(() => {
+        setSearchTerms([]);
+        setSearchDraft('');
+        setSearchResults(null);
+        setSearchDegradeReason(null);
+    }, []);
+    /**
+     * 点击路径/标签：作为独立条件加入芯片集合并检索（多条件叠加）。
+     */
+    const handleAddSearchTerm = useCallback((term: string) => {
+        const t = term.trim();
+        if (!t)
+            return;
+        if (searchTerms.includes(t))
+            return;
+        const next = [...searchTerms, t];
+        setSearchTerms(next);
+        void runSearch(next);
+    }, [searchTerms, runSearch]);
+    /**
+     * 在任务中心追踪索引重建，主内容保持当前页面不变。
+     */
+    const handleRebuildIndex = useCallback(() => {
+        void taskCenter.wrapAsync('rebuild', '重建索引', rebuildIndex).catch(() => undefined);
+    }, [rebuildIndex, taskCenter.wrapAsync]);
+    /** 按 sourceId 打开资料详情。 */
+    const handlePreviewSourceId = useCallback((sourceId: string) => {
+        setSourcePreview({ sourceId, snapshot: null });
+    }, []);
+    /** 预览待整理队列条目（含网页资讯摘要与链接） */
+    const handlePreviewInboxItem = useCallback((item: WikiInboxItem) => {
+        setSourcePreview({ sourceId: null, snapshot: inboxItemToPreviewSnapshot(item) });
+    }, []);
+    const navBreadcrumbs = searchResults === null ? buildWikiBreadcrumbs(nav, effectiveSubtopicFilter) : null;
+    const isCategoryBrowse = categorySectionName !== null;
+    const currentContext = searchResults !== null
+        ? { title: '搜索结果', subtitle: `共找到 ${searchResults.length} 个文件`, breadcrumbs: null as null, breadcrumbSuffix: undefined }
+        : navBreadcrumbs
+            ? {
+                title: navBreadcrumbs[navBreadcrumbs.length - 1]?.label ?? 'Wiki',
+                subtitle: isCategoryBrowse ? `${visibleSources.length} 个文件` : '选择小类查看资料',
+                breadcrumbs: navBreadcrumbs,
+                breadcrumbSuffix: isCategoryBrowse ? `(${visibleSources.length})` : undefined,
+            }
+            : { title: FIXED_NAV_CONTEXT[nav.kind]?.title ?? 'Wiki', subtitle: FIXED_NAV_CONTEXT[nav.kind]?.subtitle ?? '', breadcrumbs: null as null, breadcrumbSuffix: undefined };
+    return (<div className={styles['wiki-tab']}>
+      <WikiLeftNav active={isMoreMenuOpen ? { kind: 'more' } : nav} inboxCount={pendingCount} categories={topicTree?.categories.map((c) => c.name) ?? []} sectionCounts={sectionCounts} archivedCount={archivedCount} parkingCount={parkingSources.length} moreButtonRef={moreButtonRef} onSelect={handleSelectNav} onOpenMore={() => setIsMoreMenuOpen((open) => !open)}/>
+      <WikiMoreMenu open={isMoreMenuOpen} anchorRef={moreButtonRef} onClose={() => setIsMoreMenuOpen(false)} autoClassifyEnabled={autoClassifyEnabled} onAutoClassifyChange={(enabled) => void handleAutoClassifyChange(enabled)} onCleanup={() => handleSelectNav({ kind: 'cleanup' })} onRebuild={handleRebuildIndex} onEditTopicTree={() => setIsTreeEditorOpen(true)} onReclassifyAll={() => {
+            setReclassifyConfirm({ count: filedSourceCount, estimate: null });
+            void estimateReclassify({ kind: 'all' }).then((estimate) => {
+                setReclassifyConfirm((prev) => (prev ? { ...prev, estimate } : prev));
+            });
+        }}/>
 
-  return (
-    <div className={styles['wiki-tab']}>
-      <WikiLeftNav
-        active={isMoreMenuOpen ? { kind: 'more' } : nav}
-        inboxCount={pendingCount}
-        categories={topicTree?.categories.map((c) => c.name) ?? []}
-        sectionCounts={sectionCounts}
-        archivedCount={archivedCount}
-        parkingCount={parkingSources.length}
-        moreButtonRef={moreButtonRef}
-        onSelect={handleSelectNav}
-        onOpenMore={() => setIsMoreMenuOpen((open) => !open)}
-      />
-      <WikiMoreMenu
-        open={isMoreMenuOpen}
-        anchorRef={moreButtonRef}
-        onClose={() => setIsMoreMenuOpen(false)}
-        autoClassifyEnabled={autoClassifyEnabled}
-        onAutoClassifyChange={(enabled) => void handleAutoClassifyChange(enabled)}
-        onCleanup={() => handleSelectNav({ kind: 'cleanup' })}
-        onRebuild={handleRebuildIndex}
-        onEditTopicTree={() => setIsTreeEditorOpen(true)}
-        onReclassifyAll={() => {
-          setReclassifyConfirm({ count: filedSourceCount, estimate: null })
-          void estimateReclassify({ kind: 'all' }).then((estimate) => {
-            setReclassifyConfirm((prev) => (prev ? { ...prev, estimate } : prev))
-          })
-        }}
-      />
-
-      <Modal
-        open={reclassifyConfirm !== null}
-        layer={WIKI_MODAL_LAYER}
-        title="全库重新编目"
-        onClose={() => setReclassifyConfirm(null)}
-        footer={
-          <>
+      <Modal open={reclassifyConfirm !== null} layer={WIKI_MODAL_LAYER} title="全库重新编目" onClose={() => setReclassifyConfirm(null)} footer={<>
             <Button variant="ghost" size="sm" onClick={() => setReclassifyConfirm(null)}>
               取消
             </Button>
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={() => {
-                const fileCount = reclassifyConfirm?.estimate?.fileCount
+            <Button variant="primary" size="sm" onClick={() => {
+                const fileCount = reclassifyConfirm?.estimate?.fileCount;
                 if (fileCount === 0) {
-                  setReclassifyConfirm(null)
-                  setNav({ kind: 'inbox' })
-                  return
+                    setReclassifyConfirm(null);
+                    setNav({ kind: 'inbox' });
+                    return;
                 }
-                setReclassifyConfirm(null)
-                void handleRunReclassify({ kind: 'all' }, { force: true, enableRename: reclassifyEnableRename })
-              }}
-            >
+                setReclassifyConfirm(null);
+                void handleRunReclassify({ kind: 'all' }, { force: true, enableRename: reclassifyEnableRename });
+            }}>
               {reclassifyConfirm?.estimate?.fileCount === 0 ? '去收件箱分类' : '开始编目'}
             </Button>
-          </>
-        }
-      >
+          </>}>
         <p>
           {reclassifyConfirm?.estimate
             ? reclassifyConfirm.estimate.note
@@ -1509,131 +1276,44 @@ export const WikiTab: React.FC = () => {
         </p>
         <p className={shared['wiki-reclassify-hint']}>AI 会直接调整目录；有问题可删除后重新导入或再编目。</p>
         <label className={styles['wiki-reclassify-rename-toggle']}>
-          <input
-            type="checkbox"
-            checked={reclassifyEnableRename}
-            onChange={(e) => setReclassifyEnableRename(e.target.checked)}
-          />
+          <input type="checkbox" checked={reclassifyEnableRename} onChange={(e) => setReclassifyEnableRename(e.target.checked)}/>
           同时建议修改低信息文件名（可单独取消）
         </label>
       </Modal>
 
-      <WikiTopicTreeEditor
-        open={isTreeEditorOpen}
-        tree={topicTree}
-        topicCounts={topicCounts}
-        onMutate={handleMutateTopic}
-        onClose={() => setIsTreeEditorOpen(false)}
-      />
+      <WikiTopicTreeEditor open={isTreeEditorOpen} tree={topicTree} topicCounts={topicCounts} onMutate={handleMutateTopic} onClose={() => setIsTreeEditorOpen(false)}/>
 
       <div className={styles['wiki-tab-right']}>
-        <WikiTopBar
-          title={currentContext.title}
-          subtitle={currentContext.subtitle}
-          breadcrumbs={currentContext.breadcrumbs}
-          breadcrumbSuffix={currentContext.breadcrumbSuffix}
-          onBreadcrumbNavigate={handleSelectNav}
-          terms={searchTerms}
-          draft={searchDraft}
-          onDraftChange={setSearchDraft}
-          onSubmit={() => void handleSearch()}
-          onRemoveTerm={handleRemoveSearchTerm}
-          onClearSearch={handleClearSearch}
-          pillText={taskCenter.pillText}
-          pillTone={taskCenter.pillTone}
-          onOpenTasks={handleOpenTaskCenter}
-          onOpenHelp={() => setHelpOpen(true)}
-        />
+        <WikiTopBar title={currentContext.title} subtitle={currentContext.subtitle} breadcrumbs={currentContext.breadcrumbs} breadcrumbSuffix={currentContext.breadcrumbSuffix} onBreadcrumbNavigate={handleSelectNav} terms={searchTerms} draft={searchDraft} onDraftChange={setSearchDraft} onSubmit={() => void handleSearch()} onRemoveTerm={handleRemoveSearchTerm} onClearSearch={handleClearSearch} pillText={taskCenter.pillText} pillTone={taskCenter.pillTone} onOpenTasks={handleOpenTaskCenter} onOpenHelp={() => setHelpOpen(true)}/>
 
         <main className={styles['wiki-tab-content']}>
-          {loading && !isCategoryBrowse && (
-            <div className={styles['wiki-loading']}>
-              <Loading text="加载中..." />
-            </div>
-          )}
-          {openError && (
-            <p className={styles['wiki-open-error']} role="alert">
+          {loading && !isCategoryBrowse && (<div className={styles['wiki-loading']}>
+              <Loading text="加载中..."/>
+            </div>)}
+          {openError && (<p className={styles['wiki-open-error']} role="alert">
               {openError}
-            </p>
-          )}
-        {searchResults !== null ? (
-          <div className="wiki-search-results">
+            </p>)}
+        {searchResults !== null ? (<div className="wiki-search-results">
             <h3>搜索结果（{searchResults.length}）</h3>
-            {searchDegradeReason && (
-              <p className={styles['wiki-search-degrade']} role="status">
+            {searchDegradeReason && (<p className={styles['wiki-search-degrade']} role="status">
                 {searchDegradeReason}
-              </p>
-            )}
-            <WikiFileList
-              items={searchResults}
-              emptyHint="未找到相关文件"
-              showTopic
-              showMediaChips={false}
-              onPreview={handlePreviewSourceItem}
-              onMove={(item) => setPicker({ mode: 'source', item })}
-              onPark={(item) => void handlePark(item)}
-              onDelete={handleDeleteSource}
-              onSearchTerm={handleAddSearchTerm}
-            />
-          </div>
-        ) : nav.kind === 'inbox' ? (
-          <div className="wiki-inbox-view">
+              </p>)}
+            <WikiFileList items={searchResults} emptyHint="未找到相关文件" showTopic showMediaChips={false} onPreview={handlePreviewSourceItem} onMove={(item) => setPicker({ mode: 'source', item })} onPark={(item) => void handlePark(item)} onDelete={handleDeleteSource} onSearchTerm={handleAddSearchTerm}/>
+          </div>) : nav.kind === 'inbox' ? (<div className="wiki-inbox-view">
             <div className={styles['wiki-inbox-view-header']}>
               <h3>收件箱（{pendingCount}）</h3>
               <Tooltip content={WIKI_FOLDER_IMPORT_TOOLTIP}>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  disabled={folderImportBusy || loading}
-                  onClick={() => void handleImportFromFolder()}
-                >
+                <Button variant="secondary" size="sm" disabled={folderImportBusy || loading} onClick={() => void handleImportFromFolder()}>
                   {folderImportBusy ? '导入中…' : '从文件夹导入'}
                 </Button>
               </Tooltip>
             </div>
             <p className={styles['wiki-inbox-intro']}>{WIKI_INBOX_INTRO}</p>
-            {inboxItems.length < inboxPending && (
-              <p className={shared['wiki-empty-hint']}>仅显示最近 {inboxItems.length} 条</p>
-            )}
-            <WikiInboxPanel
-              items={inboxItems}
-              unfiled={unfiledSources}
-              selectedInboxIds={selectedInboxIds}
-              selectedUnfiledIds={selectedUnfiledIds}
-              onToggleInboxSelect={toggleSelectInbox}
-              onToggleUnfiledSelect={toggleSelectUnfiled}
-              onToggleSelectAll={toggleSelectAllInbox}
-              onRetry={(inboxId) => void handleRetry(inboxId)}
-              onDiscard={(inboxId) => void handleDiscard(inboxId)}
-              onOrganize={(item) => setPicker({ mode: 'inbox', item })}
-              onFileUnfiled={(item) => setPicker({ mode: 'source', item })}
-              onPreviewInbox={handlePreviewInboxItem}
-              onPreviewSource={handlePreviewSourceItem}
-              onBatchOrganize={() => setInboxBatchPickerOpen(true)}
-              onAiClassify={() => void handleAiClassifyInbox()}
-              aiClassifyBusy={aiClassifyBusy}
-              onBatchRetry={() => void handleBatchRetryInbox()}
-              onBatchDelete={handleBatchDeleteInbox}
-              onDeleteUnfiled={(sourceId) => requestRemove({ sourceIds: [sourceId] })}
-              onRetryAll={() => void handleRetryAllInbox()}
-            />
-          </div>
-        ) : nav.kind === 'archived' ? (
-          <div className="wiki-archived-view">
+            {inboxItems.length < inboxPending && (<p className={shared['wiki-empty-hint']}>仅显示最近 {inboxItems.length} 条</p>)}
+            <WikiInboxPanel items={inboxItems} unfiled={unfiledSources} selectedInboxIds={selectedInboxIds} selectedUnfiledIds={selectedUnfiledIds} onToggleInboxSelect={toggleSelectInbox} onToggleUnfiledSelect={toggleSelectUnfiled} onToggleSelectAll={toggleSelectAllInbox} onRetry={(inboxId) => void handleRetry(inboxId)} onDiscard={(inboxId) => void handleDiscard(inboxId)} onOrganize={(item) => setPicker({ mode: 'inbox', item })} onFileUnfiled={(item) => setPicker({ mode: 'source', item })} onPreviewInbox={handlePreviewInboxItem} onPreviewSource={handlePreviewSourceItem} onBatchOrganize={() => setInboxBatchPickerOpen(true)} onAiClassify={() => void handleAiClassifyInbox()} aiClassifyBusy={aiClassifyBusy} onBatchRetry={() => void handleBatchRetryInbox()} onBatchDelete={handleBatchDeleteInbox} onDeleteUnfiled={(sourceId) => requestRemove({ sourceIds: [sourceId] })} onRetryAll={() => void handleRetryAllInbox()}/>
+          </div>) : nav.kind === 'archived' ? (<div className="wiki-archived-view">
             <h3>已归档（{archivedSources.length}）</h3>
-            <WikiFileList
-              items={archivedSources}
-              emptyHint="还没有已归档的资料。"
-              showTopic
-              moveLabel="恢复"
-              showParkAction={false}
-              selectable
-              selectedIds={selectedSourceIds}
-              onToggleSelect={toggleSelectSource}
-              onToggleSelectAll={toggleSelectAllSources}
-              headerActions={
-                selectedSourceIds.size > 0 ? (
-                  <>
+            <WikiFileList items={archivedSources} emptyHint="还没有已归档的资料。" showTopic moveLabel="恢复" showParkAction={false} selectable selectedIds={selectedSourceIds} onToggleSelect={toggleSelectSource} onToggleSelectAll={toggleSelectAllSources} headerActions={selectedSourceIds.size > 0 ? (<>
                     <span className={styles['wiki-file-list-batch-count']}>
                       已选 {selectedSourceIds.size} 项
                     </span>
@@ -1642,31 +1322,10 @@ export const WikiTab: React.FC = () => {
                         批量删除
                       </Button>
                     </Tooltip>
-                  </>
-                ) : null
-              }
-              onPreview={handlePreviewSourceItem}
-              onMove={(item) => void handleRestoreArchived(item)}
-              onDelete={handleDeleteSource}
-              onSearchTerm={handleAddSearchTerm}
-            />
-          </div>
-        ) : nav.kind === 'parking' ? (
-          <div className="wiki-parking-view">
+                  </>) : null} onPreview={handlePreviewSourceItem} onMove={(item) => void handleRestoreArchived(item)} onDelete={handleDeleteSource} onSearchTerm={handleAddSearchTerm}/>
+          </div>) : nav.kind === 'parking' ? (<div className="wiki-parking-view">
             <h3>临时存放（{parkingSources.length}）</h3>
-            <WikiFileList
-              items={parkingSources}
-              emptyHint="临时存放里还没有文件。"
-              moveLabel="移出"
-              showParkAction={false}
-              showMediaChips={false}
-              selectable
-              selectedIds={selectedSourceIds}
-              onToggleSelect={toggleSelectSource}
-              onToggleSelectAll={toggleSelectAllSources}
-              headerActions={
-                selectedSourceIds.size > 0 ? (
-                  <>
+            <WikiFileList items={parkingSources} emptyHint="临时存放里还没有文件。" moveLabel="移出" showParkAction={false} showMediaChips={false} selectable selectedIds={selectedSourceIds} onToggleSelect={toggleSelectSource} onToggleSelectAll={toggleSelectAllSources} headerActions={selectedSourceIds.size > 0 ? (<>
                     <span className={styles['wiki-file-list-batch-count']}>
                       已选 {selectedSourceIds.size} 项
                     </span>
@@ -1675,71 +1334,14 @@ export const WikiTab: React.FC = () => {
                         批量删除
                       </Button>
                     </Tooltip>
-                  </>
-                ) : null
-              }
-              onPreview={handlePreviewSourceItem}
-              onMove={(item) => setPicker({ mode: 'source', item })}
-              onDelete={handleDeleteSource}
-              onSearchTerm={handleAddSearchTerm}
-            />
-          </div>
-        ) : nav.kind === 'cleanup' ? (
-          <CleanupView
-            cleanupScan={trackedCleanupScan}
-            archiveSources={trackedArchiveSources}
-            restoreSources={trackedRestoreSources}
-            deleteSources={trackedDeleteSources}
-            moveToParking={handleParkMany}
-          />
-        ) : nav.kind === 'reclassify' ? (
-          <WikiReclassifyView
-            run={reclassifyRun}
-            inboxHint={pendingCount > 0 ? `收件箱还有 ${pendingCount} 条未分类，不会出现在本页；请回收件箱用「让 AI 分类」。` : null}
-            onApply={(ids) => void handleApplyReclassify(ids)}
-            onIgnore={(id) => void handleIgnoreReclassify(id)}
-            onDiscard={() => void handleDiscardReclassify()}
-          />
-        ) : nav.kind === 'migrate' ? (
-          <WikiMigrateReviewView
-            run={migrateRun}
-            topicTree={topicTree}
-            applying={migrateApplying}
-            onUpdateMapping={(folderRel, patch) => void handleUpdateMigrateMapping(folderRel, patch)}
-            onApply={() => void handleApplyMigrate()}
-            onDiscard={() => void handleDiscardMigrate()}
-            onReplan={() => void handleReplanMigrate()}
-          />
-        ) : isCategoryBrowse && categorySectionName ? (
-          <div className={shared['wiki-category-view']}>
+                  </>) : null} onPreview={handlePreviewSourceItem} onMove={(item) => setPicker({ mode: 'source', item })} onDelete={handleDeleteSource} onSearchTerm={handleAddSearchTerm}/>
+          </div>) : nav.kind === 'cleanup' ? (<CleanupView cleanupScan={trackedCleanupScan} archiveSources={trackedArchiveSources} restoreSources={trackedRestoreSources} deleteSources={trackedDeleteSources} moveToParking={handleParkMany}/>) : nav.kind === 'reclassify' ? (<WikiReclassifyView run={reclassifyRun} inboxHint={pendingCount > 0 ? `收件箱还有 ${pendingCount} 条未分类，不会出现在本页；请回收件箱用「让 AI 分类」。` : null} onApply={(ids) => void handleApplyReclassify(ids)} onIgnore={(id) => void handleIgnoreReclassify(id)} onDiscard={() => void handleDiscardReclassify()}/>) : nav.kind === 'migrate' ? (<WikiMigrateReviewView run={migrateRun} topicTree={topicTree} applying={migrateApplying} onUpdateMapping={(folderRel, patch) => void handleUpdateMigrateMapping(folderRel, patch)} onApply={() => void handleApplyMigrate()} onDiscard={() => void handleDiscardMigrate()} onReplan={() => void handleReplanMigrate()}/>) : isCategoryBrowse && categorySectionName ? (<div className={shared['wiki-category-view']}>
             <div ref={subtopicBarRef} className={styles['wiki-subtopic-bar']}>
-              <WikiSubtopicPanel
-                section={categorySectionName}
-                topicTree={topicTree}
-                topicCounts={topicCounts}
-                sectionFileCount={sectionCounts[categorySectionName] ?? 0}
-                activeFilter={effectiveSubtopicFilter}
-                onSelectFilter={handleSubtopicFilter}
-                activeProject={sectionProjectFilter}
-                onSelectProject={handleProjectFilter}
-              />
+              <WikiSubtopicPanel section={categorySectionName} topicTree={topicTree} topicCounts={topicCounts} sectionFileCount={sectionCounts[categorySectionName] ?? 0} activeFilter={effectiveSubtopicFilter} onSelectFilter={handleSubtopicFilter} activeProject={sectionProjectFilter} onSelectProject={handleProjectFilter}/>
             </div>
-            <WikiFileList
-              items={visibleSources}
-              emptyHint={
-                effectiveSubtopicFilter === WIKI_SUBTOPIC_FILTER_ALL
-                  ? '这个大类下还没有文件'
-                  : '这个小类下还没有文件'
-              }
-              showSubtopicPrefix={effectiveSubtopicFilter === WIKI_SUBTOPIC_FILTER_ALL}
-              highlightId={highlightSourceId}
-              selectable
-              selectedIds={selectedSourceIds}
-              onToggleSelect={toggleSelectSource}
-              onToggleSelectAll={toggleSelectAllSources}
-              headerActions={
-                selectedSourceIds.size > 0 ? (
-                  <>
+            <WikiFileList items={visibleSources} emptyHint={effectiveSubtopicFilter === WIKI_SUBTOPIC_FILTER_ALL
+                ? '这个大类下还没有文件'
+                : '这个小类下还没有文件'} showSubtopicPrefix={effectiveSubtopicFilter === WIKI_SUBTOPIC_FILTER_ALL} highlightId={highlightSourceId} selectable selectedIds={selectedSourceIds} onToggleSelect={toggleSelectSource} onToggleSelectAll={toggleSelectAllSources} headerActions={selectedSourceIds.size > 0 ? (<>
                     <span className={styles['wiki-file-list-batch-count']}>
                       已选 {selectedSourceIds.size} 项
                     </span>
@@ -1748,10 +1350,7 @@ export const WikiTab: React.FC = () => {
                         移动到…
                       </Button>
                     </Tooltip>
-                    <Tooltip
-                      content="移到「临时存放」区，暂不归类，之后可从左栏「临时存放」再移出"
-                      placement="bottom"
-                    >
+                    <Tooltip content="移到「临时存放」区，暂不归类，之后可从左栏「临时存放」再移出" placement="bottom">
                       <Button variant="ghost" size="sm" onClick={() => void handleParkSelected()}>
                         存到临时存放
                       </Button>
@@ -1761,134 +1360,51 @@ export const WikiTab: React.FC = () => {
                         删除
                       </Button>
                     </Tooltip>
-                  </>
-                ) : (
-                  <>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() =>
-                        void handleCreateNote(
-                          categorySectionName,
-                          effectiveSubtopicFilter === WIKI_SUBTOPIC_FILTER_ALL ||
-                            effectiveSubtopicFilter === WIKI_SUBTOPIC_FILTER_UNFILED
-                            ? null
-                            : effectiveSubtopicFilter,
-                        )
-                      }
-                    >
+                  </>) : (<>
+                    <Button variant="ghost" size="sm" onClick={() => void handleCreateNote(categorySectionName, effectiveSubtopicFilter === WIKI_SUBTOPIC_FILTER_ALL ||
+                    effectiveSubtopicFilter === WIKI_SUBTOPIC_FILTER_UNFILED
+                    ? null
+                    : effectiveSubtopicFilter)}>
                       新建笔记
                     </Button>
-                    {effectiveSubtopicFilter !== WIKI_SUBTOPIC_FILTER_ALL && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() =>
-                          void handleRunReclassify(
-                            {
-                              kind: 'subtopic',
-                              category: categorySectionName,
-                              subtopic:
-                                effectiveSubtopicFilter === WIKI_SUBTOPIC_FILTER_UNFILED
-                                  ? null
-                                  : effectiveSubtopicFilter,
-                            },
-                            { force: true },
-                          )
-                        }
-                      >
+                    {effectiveSubtopicFilter !== WIKI_SUBTOPIC_FILTER_ALL && (<Button variant="ghost" size="sm" onClick={() => void handleRunReclassify({
+                        kind: 'subtopic',
+                        category: categorySectionName,
+                        subtopic: effectiveSubtopicFilter === WIKI_SUBTOPIC_FILTER_UNFILED
+                            ? null
+                            : effectiveSubtopicFilter,
+                    }, { force: true })}>
                         重新编目本小类
-                      </Button>
-                    )}
-                  </>
-                )
-              }
-              onPreview={handlePreviewSourceItem}
-              onMove={(item) => setPicker({ mode: 'source', item })}
-              onPark={(item) => void handlePark(item)}
-              onDelete={handleDeleteSource}
-              onSearchTerm={handleAddSearchTerm}
-            />
-          </div>
-        ) : null}
+                      </Button>)}
+                  </>)} onPreview={handlePreviewSourceItem} onMove={(item) => setPicker({ mode: 'source', item })} onPark={(item) => void handlePark(item)} onDelete={handleDeleteSource} onSearchTerm={handleAddSearchTerm}/>
+          </div>) : null}
         </main>
       </div>
 
-      <WikiSourceDetailDrawer
-        open={sourcePreview !== null}
-        sourceId={sourcePreview?.sourceId ?? null}
-        snapshot={sourcePreview?.snapshot ?? null}
-        getSource={getSource}
-        onClose={() => setSourcePreview(null)}
-      />
-      <WikiTaskCenter
-        open={isTaskCenterOpen}
-        tasks={taskCenter.tasks}
-        onClose={() => setIsTaskCenterOpen(false)}
-        onRetry={(task) => void handleRetryTask(task)}
-        onDismiss={taskCenter.dismissTask}
-        onOpenMigrateReview={handleOpenMigrateReview}
-      />
+      <WikiSourceDetailDrawer open={sourcePreview !== null} sourceId={sourcePreview?.sourceId ?? null} snapshot={sourcePreview?.snapshot ?? null} getSource={getSource} onClose={() => setSourcePreview(null)}/>
+      <WikiTaskCenter open={isTaskCenterOpen} tasks={taskCenter.tasks} onClose={() => setIsTaskCenterOpen(false)} onRetry={(task) => void handleRetryTask(task)} onDismiss={taskCenter.dismissTask} onOpenMigrateReview={handleOpenMigrateReview}/>
 
-      <WikiTopicPicker
-        open={isInboxBatchPickerOpen}
-        tree={topicTree}
-        title="批量归档到…"
-        includeArchived={false}
-        itemTitle={`已选 ${selectedInboxIds.size + selectedUnfiledIds.size} 项`}
-        onCancel={() => setInboxBatchPickerOpen(false)}
-        onConfirm={(category, subtopic, project) => {
-          setInboxBatchPickerOpen(false)
-          void handleBatchOrganizeInbox(category, subtopic, project)
-        }}
-      />
+      <WikiTopicPicker open={isInboxBatchPickerOpen} tree={topicTree} title="批量归档到…" includeArchived={false} itemTitle={`已选 ${selectedInboxIds.size + selectedUnfiledIds.size} 项`} onCancel={() => setInboxBatchPickerOpen(false)} onConfirm={(category, subtopic, project) => {
+            setInboxBatchPickerOpen(false);
+            void handleBatchOrganizeInbox(category, subtopic, project);
+        }}/>
 
-      <WikiTopicPicker
-        open={isBatchPickerOpen}
-        tree={topicTree}
-        title="批量移动到…"
-        itemTitle={`已选 ${selectedSourceIds.size} 个文件`}
-        onCancel={() => setBatchPickerOpen(false)}
-        onConfirm={(category, subtopic, project) => {
-          setBatchPickerOpen(false)
-          void handleMoveSelected(category, subtopic, project)
-        }}
-        onConfirmArchive={() => void handleArchiveSelected()}
-      />
+      <WikiTopicPicker open={isBatchPickerOpen} tree={topicTree} title="批量移动到…" itemTitle={`已选 ${selectedSourceIds.size} 个文件`} onCancel={() => setBatchPickerOpen(false)} onConfirm={(category, subtopic, project) => {
+            setBatchPickerOpen(false);
+            void handleMoveSelected(category, subtopic, project);
+        }} onConfirmArchive={() => void handleArchiveSelected()}/>
 
-      <WikiTopicPicker
-        open={picker !== null}
-        tree={topicTree}
-        itemTitle={picker?.item.title}
-        onCancel={() => {
-          setPicker(null)
-          setSuggestion(null)
-          setSuggestionState('idle')
-        }}
-        onConfirm={(category, subtopic, project) => void handleConfirmPicker(category, subtopic, project)}
-        onConfirmArchive={picker?.mode === 'source' ? () => void handleArchivePickerTarget() : undefined}
-        includeArchived={picker?.mode !== 'inbox'}
-        // 只有已进资料层的文件能让 AI 建议：inbox 条目还没 source id
-        onRequestSuggestion={
-          picker?.mode === 'source' ? () => void handleRequestSuggestion(picker.item.id) : undefined
-        }
-        suggestion={suggestion}
-        suggestionState={suggestionState}
-        onAdoptSuggestion={
-          suggestion
+      <WikiTopicPicker open={picker !== null} tree={topicTree} itemTitle={picker?.item.title} onCancel={() => {
+            setPicker(null);
+            setSuggestion(null);
+            setSuggestionState('idle');
+        }} onConfirm={(category, subtopic, project) => void handleConfirmPicker(category, subtopic, project)} onConfirmArchive={picker?.mode === 'source' ? () => void handleArchivePickerTarget() : undefined} includeArchived={picker?.mode !== 'inbox'} 
+    // 只有已进资料层的文件能让 AI 建议：inbox 条目还没 source id
+    onRequestSuggestion={picker?.mode === 'source' ? () => void handleRequestSuggestion(picker.item.id) : undefined} suggestion={suggestion} suggestionState={suggestionState} onAdoptSuggestion={suggestion
             ? () => void handleConfirmPicker(suggestion.category, suggestion.subtopic, null)
-            : undefined
-        }
-      />
+            : undefined}/>
 
-      <Modal
-        open={migrateUndoPrompt !== null}
-        layer={WIKI_MODAL_LAYER}
-        title="整理已部分完成"
-        onClose={() => setMigrateUndoPrompt(null)}
-        footer={
-          migrateUndoPrompt ? (
-            <>
+      <Modal open={migrateUndoPrompt !== null} layer={WIKI_MODAL_LAYER} title="整理已部分完成" onClose={() => setMigrateUndoPrompt(null)} footer={migrateUndoPrompt ? (<>
               <Button variant="ghost" size="sm" onClick={() => setMigrateUndoPrompt(null)}>
                 保留已整理
               </Button>
@@ -1898,33 +1414,16 @@ export const WikiTab: React.FC = () => {
               <Button variant="primary" size="sm" onClick={() => void handleUndoMigrate()}>
                 撤销本次整理
               </Button>
-            </>
-          ) : null
-        }
-      >
-        {migrateUndoPrompt && (
-          <p>
+            </>) : null}>
+        {migrateUndoPrompt && (<p>
             已整理 {migrateUndoPrompt.appliedCount} 项。撤销将把已归档文件退回收件箱；重新规划会撤销后生成新映射方案。
-          </p>
-        )}
+          </p>)}
       </Modal>
 
-      <ConfirmModal
-        open={removeConfirm !== null}
-        layer={WIKI_MODAL_LAYER}
-        title="删除资料"
-        content={
-          removeConfirm
+      <ConfirmModal open={removeConfirm !== null} layer={WIKI_MODAL_LAYER} title="删除资料" content={removeConfirm
             ? buildWikiRemoveConfirmContent(removeConfirm.inboxIds.length, removeConfirm.sourceIds.length)
-            : ''
-        }
-        confirmText="删除"
-        confirmVariant="danger"
-        onConfirm={() => void handleConfirmRemove()}
-        onCancel={() => setRemoveConfirm(null)}
-      />
+            : ''} confirmText="删除" confirmVariant="danger" onConfirm={() => void handleConfirmRemove()} onCancel={() => setRemoveConfirm(null)}/>
 
-      <WikiHelpDrawer open={isHelpOpen} onClose={() => setHelpOpen(false)} />
-    </div>
-  )
-}
+      <WikiHelpDrawer open={isHelpOpen} onClose={() => setHelpOpen(false)}/>
+    </div>);
+};
