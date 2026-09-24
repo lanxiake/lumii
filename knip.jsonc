@@ -3,9 +3,28 @@
  *
  * 目标：先把「报告可信」这件事做出来，不追求数字好看。
  * 每一条都注明理由，凡是「为了让数字变小」而加的都可以质疑。
+ *
+ * ## K4：棘轮已接入 `pnpm verify`
+ *
+ * 两道闸：
+ *   1. 分级（见文件末尾 rules）—— 可机械处置的类别设 error，混装两种含义的设 warn。
+ *      判定依据是「这一类报出来的东西，能不能直接照着删」，见计划文档 §2.3。
+ *   2. 预算 —— `--max-issues N` 写在 package.json 的 check:knip 脚本里（N 只许调小）。
+ *      预算 = 接入当天的 error 类真实存量（9 条）。超过即非零退出。
+ *      数字变大意味着新增了死代码，那就该去修，而不是抬预算。
+ *      要看完整报告不拦人：`pnpm check:knip:report`。
  */
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
+
+  // OS 自带命令，不是 npm 包：代码里以字符串形式交给 shell/spawn，
+  // 静态分析看不见「谁提供它」。
+  "ignoreBinaries": [
+    "chcp", // Windows 控制台代码页切换（main/index.ts、shell-runner.ts）
+    "nvidia-smi", // 随 NVIDIA 驱动安装，查 GPU（voice/qwen3-tts-client.ts）
+    "tasklist", // Windows 进程列表（scripts/capture-main-freeze.mjs）
+    "where", // Windows 版 which（shell/bash-provider.ts、main/ports-inspect.ts）
+  ],
 
   "workspaces": {
     ".": {
@@ -51,6 +70,20 @@
         //    `foo.mjs` ↔ `foo.d.mts` 自动配对拿到类型，没有显式 import 语句。
         //    knip 不建模这个配对，故报为 unused file。
         "resources/app-ui-cli/commands.d.mts"
+      ],
+      "ignoreDependencies": [
+        // 在 CSS 里 @import 自托管字体（renderer/styles/global.css:14），
+        // knip 不解析 CSS 的 @import，源码里也不会有 TS import 语句。
+        "@fontsource-variable/inter",
+
+        // —— 以下四条：electron.vite.config.ts 显式列进 rollupOptions.external，
+        //    源码里只有运行时解析，静态分析看不见 ——
+        // playwright-core：不打包进 bundle，运行时 require（该文件 194 行注释）
+        "playwright-core",
+        // better-sqlite3 + 其类型：作为 node:sqlite 的备选保留（该文件 235 行注释），
+        // Electron 环境优先走 node:sqlite，所以源码里没有 import 语句
+        "better-sqlite3",
+        "@types/better-sqlite3"
       ]
     },
 
@@ -58,13 +91,50 @@
       "ignore": [
         // Electron 的 preload 路径以字符串形式传给 spawn 的子进程，不是 import。
         "src/tools/mcp/windows-hide-spawn-preload.cjs"
+      ],
+      "ignoreDependencies": [
+        // 同 apps/windows：electron.vite.config.ts 的 external 备选依赖，
+        // 本包只在类型层面引用，运行时由宿主 Electron 提供
+        "better-sqlite3",
+        "@types/better-sqlite3"
       ]
+    },
+
+    "packages/pet-core": {
+      "ignoreDependencies": [
+        // vitest 的 peer dependency：本包只用 `"test": "vitest run"` 调它的 CLI，
+        // 没有 TS 侧的 import。pet-asset 同理。
+        "vite"
+      ]
+    },
+
+    "packages/pet-asset": {
+      "ignoreDependencies": ["vite"]
     }
   },
 
   "rules": {
     // 77 条全是「barrel 里 export + 组件文件 default export」这种同义重复，
     // 是本仓库的既有约定，不是问题。等接入稳定后再单独评估。
-    "duplicates": "off"
+    "duplicates": "off",
+
+    // —— 以下两类设 warn：它们不拦门禁，只打印 ——
+    //
+    // 判据是「能不能照着报告直接删」。这两类**不能**：
+    // knip 的 unused exports / types 把两种含义混在一起：
+    //   A 类 = 全仓无人 import，且文件内也只有声明 → 可删
+    //   B 类 = 仅文件内使用（导出了但自己也在用）→ **删了会编译失败**
+    // 已经踩过一次：parseCronExpr 属 B 类（被 getNextCronRun 调用），
+    // 按报告删掉后 tsc 报 TS2304 才拦下。详见计划文档 §2.3 / §4.3。
+    //
+    // 所以这两类在 K5（按引用形态分类后批量处置）做完之前不设 error，
+    // 否则 `pnpm verify` 必红，而"红"给出的信息是假的 —— 它会把 1453 条候选
+    // 全渲染成问题，而其中真死只有 6.5%。
+    //
+    // 代价（实测，见计划文档 §4.5）：**已有文件里新写的没人用的导出，今天没有任何
+    // 门禁拦得住**——knip 把它归到这一类，check:wiring 的 7 类判定里没有它，
+    // tsc 也不管未使用的导出。补上它要先做完 K5。
+    "exports": "warn",
+    "types": "warn"
   }
 }
