@@ -120,6 +120,33 @@ const ACTIONS = [
   // 我们出的是 8 帧的呼吸循环（同一套管线，首帧是自己的坐姿），比单帧静止好看，
   // 而且**不用**为它开特例（单帧要改 install 的 cols，还会换掉格尺寸→换组）。
   { key: 'sit', group: 'Sit', label: '坐下', kind: 'loop' },
+
+  // ---- 2026-09-24：设计 §8.6.2 的「需新素材」三条 + 互动/情绪反应的可见形态 ----
+  //
+  // 来源逐条：
+  //   · Yawn / Stretch / Scratch —— 设计 §8.6.2 唯一标了「需新素材」的三条
+  //   · Dodge  —— §4.4「会拒绝」的表现列（躲开 / 扭过脸 / 不动，取了「躲开」）
+  //   · Purr   —— §8.3.1「长按摸头」+ 计划 T2.4（文档称「零素材」，那是指复用 Live2D 的
+  //               `calm` 表情；精灵图**没有表情层**（团子 `emotionMap` 是空的），只能靠动作组）
+  //   · Cheer / Droop —— §7.3 目标完成 / 失败的可见形态
+  //   · Look   —— §8.3.1「鼠标靠近 → 转头看鼠标」（第三期）
+  //
+  // ⚠ **`cols: 16`**：这八条出图时抽的是 16 帧（`h3-motion.mjs` 的 `DEFAULT_PICKS`），
+  // 而既有 13 条是 8 帧。格数**必须逐条对**——要么切出来的格子横跨两个角色
+  // （出图闸门会报 S1），要么 `names` 数量与网格不符（`pet-creator` 直接抛错）。
+  //
+  // ⚠ **`fps` 不等于"越快越好"**：回放时长 = 帧数 ÷ fps。源片是 4.46 秒，
+  // 16 帧 @8fps 播 2.0 秒（快放 2.23×，与既有动作同一手感）；躲开是**闪避**，
+  // 2 秒太拖，给它 14fps（1.14 秒）；呼噜是**持续状态**的慢循环，6fps（2.67 秒）。
+  { key: 'yawn', group: 'Yawn', label: '打哈欠', kind: 'once', next: 'Idle', cols: 16 },
+  { key: 'stretch', group: 'Stretch', label: '伸懒腰', kind: 'once', next: 'Idle', cols: 16 },
+  { key: 'scratch', group: 'Scratch', label: '挠头', kind: 'once', next: 'Idle', cols: 16 },
+  { key: 'dodge', group: 'Dodge', label: '躲开', kind: 'once', next: 'Idle', cols: 16, fps: 14 },
+  { key: 'cheer', group: 'Cheer', label: '雀跃', kind: 'once', next: 'Idle', cols: 16, fps: 10 },
+  { key: 'droop', group: 'Droop', label: '蔫', kind: 'once', next: 'Idle', cols: 16 },
+  { key: 'look', group: 'Look', label: '张望', kind: 'once', next: 'Idle', cols: 16 },
+  // 呼噜是 loop：长按期间要一直播，播完不能僵住（与 Walk/Climb/Crawl/Fall 同一条规矩）
+  { key: 'purr', group: 'Purr', label: '呼噜', kind: 'loop', cols: 16, fps: 6 },
 ]
 
 /**
@@ -152,10 +179,25 @@ if (!id || !sheetDir) {
   process.exit(1)
 }
 const [cw, ch] = opt('canvas', '384x448').split('x').map(Number)
+/**
+ * 默认网格与回放帧率。**逐条动作可以用 `cols` / `fps` 覆盖**（见 `ACTIONS` 里的说明）：
+ * 2026-09-24 起新出的八条是 16 帧，既有 13 条是 8 帧，两套网格在同一批里并存。
+ */
 const COLS = Number(opt('cols', 8))
 const ROWS = Number(opt('rows', 1))
-const FRAMES = COLS * ROWS
 const FPS = Number(opt('fps', 8))
+
+/**
+ * 图集单边上限（像素）。
+ *
+ * 图集是**一张**贴图，`maxCols` 固定为 8 时高度 = ⌈帧数/8⌉ × 格高（这里是 448），
+ * 帧数一多就成了一条细长的竖条：104 帧已是 4480×5824，再加 8 条 16 帧（128 帧）
+ * 会到 **12992px**——越过不少 GPU 的 8192 上限，**一超整张图集建不出纹理、宠物直接不显示**。
+ *
+ * 8192 是 DX10 时代的保底值（DX11+ 保证 16384），按保底的来。
+ * 列数由这里算出来交给打包器（`pet-creator` 的 `maxCols`），图集于是始终接近方形。
+ */
+const ATLAS_MAX_DIM = 8192
 
 const dir = path.join(RESOURCES, id)
 const pet = JSON.parse(fs.readFileSync(path.join(dir, 'pet.json'), 'utf-8'))
@@ -166,11 +208,12 @@ const prefix = id.replace(/^demo_/, '').split('_').pop()
 // 技能自带抠底，期待带底色的图集；我们的表是透明的，先铺回底色
 const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pet-install-'))
 const bgHex = '#' + opt('bg', '00ccff')
-const durations = Array.from({ length: FRAMES }, () => Math.round(1000 / FPS))
 
 const batches = []
 /** 真正装进去的组名，用来过滤点击映射——映射到一个不存在的组同样静默无效 */
 const installedGroups = new Set()
+/** 装进去的总帧数，用来算图集列数（见 ATLAS_MAX_DIM） */
+let totalFrames = 0
 for (const a of ACTIONS) {
   const sub = path.join(sheetDir, `${charKey}-${a.key}-sheet`)
   if (!fs.existsSync(sub)) {
@@ -198,18 +241,29 @@ for (const a of ACTIONS) {
   await prepped.flatten({ background: bgHex }).png().toFile(flat)
   const nameKey = a.nameKey || a.group.toLowerCase()
   if (a.group) installedGroups.add(a.group)
+
+  // 逐条动作的网格与帧率（见 ACTIONS 的说明）：格数必须与出图时的抽帧数一致
+  const cols = a.cols ?? COLS
+  const rows = a.rows ?? ROWS
+  const frames = cols * rows
+  const fps = a.fps ?? FPS
+  totalFrames += frames
+
   batches.push({
     file: flat,
-    cols: COLS,
-    rows: ROWS,
+    cols,
+    rows,
     slot: a.slot || 'base',
     action: a.label,
-    ...(a.group ? { group: a.group, kind: a.kind, ...(a.next ? { next: a.next } : {}), fps: FPS } : {}),
-    names: Array.from({ length: FRAMES }, (_, i) => `${prefix}_${nameKey}_${String(i).padStart(2, '0')}`),
-    durationsMs: durations,
+    ...(a.group
+      ? { group: a.group, kind: a.kind, ...(a.next ? { next: a.next } : {}), fps }
+      : {}),
+    names: Array.from({ length: frames }, (_, i) => `${prefix}_${nameKey}_${String(i).padStart(2, '0')}`),
+    durationsMs: Array.from({ length: frames }, () => Math.round(1000 / fps)),
   })
   console.log(
-    `  ${a.group || 'Idle(base)'} ← ${path.basename(path.dirname(src))}/${path.basename(src)}` +
+    `  ${(a.group || 'Idle(base)').padEnd(12)} ← ${path.basename(path.dirname(src))}/${path.basename(src)}` +
+      `  ${cols}格 @${fps}fps（${(cols / fps).toFixed(2)}s）` +
       (a.invertY ? '（已垂直翻转 → 倒挂）' : ''),
   )
 }
@@ -223,6 +277,24 @@ if (Object.keys(tapMotions).length === 0) {
   console.warn('  ⚠ 点击映射为空（Nod/Wave 都没装）——点击宠物不会有反应')
 }
 
+/**
+ * 图集列数：让**宽和高都留在 `ATLAS_MAX_DIM` 以内**，同时尽量保持方形。
+ *
+ * 固定 8 列时高度 = ⌈帧数/8⌉ × 格高，帧数一多就是一条竖条，早晚越过贴图上限；
+ * 列数随帧数长，两个方向才一起受控。取 `max` 里的 `COLS` 是**不让列数比原来少**——
+ * 减列只会让高度更长，与目的相反。
+ */
+const maxColsByWidth = Math.floor(ATLAS_MAX_DIM / cw)
+const rowsPerAtlas = Math.floor(ATLAS_MAX_DIM / ch)
+const packCols = Math.min(maxColsByWidth, Math.max(COLS, Math.ceil(totalFrames / rowsPerAtlas)))
+if (packCols * rowsPerAtlas < totalFrames) {
+  console.warn(
+    `  ⚠ ${totalFrames} 帧塞不进 ${packCols}×${rowsPerAtlas}（上限 ${packCols * rowsPerAtlas}）：` +
+      `图集会越过单边 ${ATLAS_MAX_DIM}px。要么少几条动作、要么缩小画布（⚠ 缩小画布 = 宠物变小，` +
+      `必须同步改 scale）。`,
+  )
+}
+
 const params = {
   action: 'build',
   id,
@@ -232,10 +304,14 @@ const params = {
   scale: Number(scale.toFixed(4)),
   personaAddon: pet.personaAddon,
   tapMotions,
+  maxCols: packCols,
   batches,
 }
 console.log(`\n装 ${id}：画布 ${cw}×${ch}、scale ${pet.scale} → ${params.scale}（旧画布 ${oldManifest.canvas.w}×${oldManifest.canvas.h}）`)
-console.log(`${batches.length} 个批次 → 客户端九组（Idle/Talk 由技能补）\n`)
+console.log(`${batches.length} 个批次 / ${totalFrames} 帧 → 客户端动作组（Idle/Talk 由技能补）`)
+console.log(
+  `图集按 ${packCols} 列摆 → 预计 ${packCols * cw}×${Math.ceil(totalFrames / packCols) * ch}（单边上限 ${ATLAS_MAX_DIM}）\n`,
+)
 
 const child = spawn(process.execPath, [RUN_TS], {
   env: { ...process.env, SKILL_PARAMS: JSON.stringify(params) },

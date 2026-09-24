@@ -62,19 +62,45 @@ if (!root) {
 }
 const charFilter = opt('char', '')
 const canvasH = Number(opt('canvas-h', 448))
+/** 兜底列数。**优先读每张表自己的 `f0000.json`**，见 `colsOf`。 */
 const cols = Number(opt('cols', 8))
 const targetH = canvasH * FIT
 
+/**
+ * 这张表是几列。
+ *
+ * ⚠ **不能一律用默认的 8**：格宽 = 表宽 ÷ 列数，而**任何约数在几何上都自洽**——
+ * 对一张 16 列的表按 8 列切，每"格"横跨两个角色，量出来的包围盒是两隻猫合起来的，
+ * 于是**量不出"装不下"**（错的方向是偏乐观），装完才发现被裁。
+ * 2026-09-24 抽帧数从 8 提到 16 之后，同一个角色下 8 列与 16 列的表并存，
+ * 默认值彻底不成立了。
+ *
+ * 列数由**产出拼条的那一步**写进 `f0000.json`（`h3-motion.mjs` 的 `writeSheetGrid`）
+ * ——它才知道自己抽了几帧。没有那份说明时退回 `--cols`（老素材、手工拼的表）。
+ */
+function colsOf(sub) {
+  const side = path.join(sub, 'f0000.json')
+  if (fs.existsSync(side)) {
+    try {
+      const n = Number(JSON.parse(fs.readFileSync(side, 'utf-8')).cols)
+      if (Number.isInteger(n) && n > 0) return n
+    } catch {
+      /* 说明文件坏了就退回默认，下面会把它标出来 */
+    }
+  }
+  return cols
+}
+
 /** 量一张表：返回每格的包围盒 */
-async function measureSheet(file) {
+async function measureSheet(file, n) {
   const meta = await sharp(file).metadata()
-  const cw = Math.floor(meta.width / cols)
+  const cw = Math.floor(meta.width / n)
   const ch = meta.height
   // 整张读一次再自己切格，别每格调一次 sharp（几十次解码没必要）
   const { data } = await sharp(file).ensureAlpha().raw().toBuffer({ resolveWithObject: true })
   const W = meta.width
   const cells = []
-  for (let c = 0; c < cols; c++) {
+  for (let c = 0; c < n; c++) {
     const cell = Buffer.alloc(cw * ch * 4)
     for (let y = 0; y < ch; y++) {
       data.copy(cell, y * cw * 4, (y * W + c * cw) * 4, (y * W + c * cw + cw) * 4)
@@ -104,7 +130,7 @@ for (const d of dirs) {
   const sub = path.join(root, d)
   const png = fs.readdirSync(sub).filter((f) => /\.png$/i.test(f)).sort()[0]
   if (!png) continue
-  const m = await measureSheet(path.join(sub, png))
+  const m = await measureSheet(path.join(sub, png), colsOf(sub))
   if (!m.cells.length) continue
   const key = `${m.cellW}x${m.cellH}`
   if (!groups.has(key)) groups.set(key, { cellW: m.cellW, cellH: m.cellH, sheets: [] })

@@ -430,7 +430,13 @@ async function run() {
   // **不要再加 align**：上一步的 normalize 已经把每帧摆正（按共同倍率缩放 + 底边落锚点），
   // 再对齐一次只会把它们整体平移、把画布撑大 1px（实测 48×56 变成 48×57），
   // 与清单声明的 canvas 就对不上了。
-  const packResult = await client('pack', { dir: normalized, outDir: pkgDir })
+  //
+  // `maxCols` 由调用方按**总帧数**给（不给就还是 8 列的老行为）。它存在的理由是
+  // **贴图边长上限**：图集是**一张**贴图，8 列固定时高度 = ⌈帧数/8⌉ × 格高，
+  // 帧数一多就变成一条细长的竖条——104 帧已经是 4480×5824，再加 128 帧是 12992px，
+  // 越过不少 GPU 的 8192 上限（一超，整张图集建不出纹理，宠物直接不显示）。
+  // 让列数随帧数长，图集就始终是接近方形的。
+  const packResult = await client('pack', { dir: normalized, outDir: pkgDir, maxCols: params.maxCols })
   if (!packResult.roundTripOk) throw new Error('图集往返自检失败（工具链产出的索引读不回来）')
 
   // ---- 写清单与信封 ----

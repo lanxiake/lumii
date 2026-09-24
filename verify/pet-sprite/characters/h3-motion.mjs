@@ -174,6 +174,21 @@ const _FACING_DOWN =
   'facing the camera, face fully visible; the character does not turn.'
 
 /**
+ * 「身体朝镜头、**只有头**可以转」——**只给"张望 / 看过来"这一条用**。
+ *
+ * `_FACING_DOWN` 的结尾是「the character does not turn」，而"转头看"这个动作
+ * 本身就是在转：直接拿那句配"看"的提示词是**自相矛盾**，模型会在"转头"和"不许转"
+ * 之间摇摆——和 `turn` 当初被逼出来的理由一模一样，不新开一句就得不出干净的姿势。
+ *
+ * ⚠ 只放开**头**，明确锁住**身体**。这不是"允许转身"的松口子：身体一转，
+ * 「素材默认朝右」那条硬约定就破了（`PetWanderDriver.applyFacing` 的翻转逻辑据此写死）。
+ */
+const _FACING_DOWN_HEAD =
+  'The character keeps exactly the orientation shown in <Picture 1> for the whole shot: ' +
+  'its body, shoulders, arms and feet stay facing the camera and never turn or rotate. ' +
+  'Only its head and ears may turn to the left and to the right; the body never follows the head.'
+
+/**
  * 朝向句必须**逐个动作**挑，不能一套通用。
  *
  * 原文只有"面朝镜头、脸完全可见、不许转身"那一句。走动/攀爬/爬行用的是侧身素材
@@ -443,6 +458,170 @@ const ACTIONS = {
       'from the spot, and settles back into the exact same sitting pose it started in by {deadline} seconds so the ' +
       'clip can loop.',
   },
+
+  // ---- 2026-09-24：设计 §8.6.2 的「需新素材」三条 + 互动/情绪反应的可见形态 ----
+  //
+  // 这八条**全部正面**：它们都是原地表达（打哈欠、伸懒腰、挠头、躲开、呼噜、雀跃、蔫、张望），
+  // 不是位移，没有侧身的理由——和 `sit` 同理（只有走动/攀爬/爬行/下落做侧身）。
+  //
+  // 触发条件见 `2026-09-23-宠物智能化实施计划.md` 第二期：打哈欠 ← `idleStage === 'drowsy'`、
+  // 伸懒腰 ← 从 asleep 醒来、挠头 ← `AgentActivity === 'blocked'`、
+  // 躲开 ← 低 agreeableness + 低 valence 的互动请求、呼噜 ← 长按摸头、
+  // 雀跃/蔫 ← §7.3 的目标完成/失败、张望 ← 鼠标靠近。
+  //
+  // ⚠ **一律 `static`（只有雀跃例外）**，理由与 `fall` 当初被从 `displacement` 改走同源：
+  // `displacement` 那句写着"整个人可以在画面里升起/落下/蹲下"，模型**真的会照做**，
+  // 于是角色顶出格线、S1 判死。精灵图里位移归引擎，帧里只留姿势。
+  // 唯一要跳起来的是 `cheer`，它走的是**已经验证过的**那条路——见 `ACTIONS.cheer.stage`。
+
+  /**
+   * 打哈欠（设计 §8.6.2）。触发：`idleStage === 'drowsy'`。
+   *
+   * 眼睛要**同时眯上**：只张嘴不眯眼的哈欠在 8 帧里有 4 帧看不出在干嘛，
+   * 而"眼一闭、嘴一张、头一仰"三件事叠起来，任何一帧都认得出。
+   */
+  yawn: {
+    label: '打哈欠',
+    motionClass: 'static',
+    motion:
+      'The character yawns once, slowly and sleepily. Its mouth opens wide into one long yawn while both eyes squeeze ' +
+      'shut, its head tips back and up a little, its chest swells with a deep intake of breath and its ears fall back ' +
+      'slightly; then the mouth closes, the eyes open again and it settles back into the exact starting pose by ' +
+      '{deadline} seconds. Its body, arms and feet stay completely still and it does not step or leave the ground.',
+  },
+
+  /**
+   * 伸懒腰（设计 §8.6.2 / §8.6.3「醒来先 stretch 再进入 stand」）。
+   *
+   * 刻意**不写"整个身子趴下去"**：那是姿态变化，`static` 锁的是"脚不许离开原地"，
+   * 身子大幅下压跟它不冲突，但整只猫蹲下去会让包围盒高度骤变——归一化按组内最高算，
+   * 矮帧不会被补高（这是刻意的），于是循环里看起来像缩了一下。
+   * 所以做成"前爪前伸 + 背拱起 + 头低下"，四只脚都留在原地。
+   */
+  stretch: {
+    label: '伸懒腰',
+    motionClass: 'static',
+    motion:
+      'The character stretches lazily after waking up. It slides both front paws forward along the ground, dips its ' +
+      'chest and head down low between its shoulders and arches its back, stretching its body out long; it holds the ' +
+      'stretch for a moment, then pulls its front paws back in and rises, settling into the exact starting pose by ' +
+      '{deadline} seconds. All four feet stay planted on the same spot, it never leaves the ground, and its ears and ' +
+      'tail only move a little.',
+  },
+
+  /**
+   * 挠头（设计 §8.6.2）。触发：`AgentActivity === 'blocked'` 或心情差。
+   *
+   * ⚠ 举起的爪子**不能高过头顶**：首帧头顶的余量就是 staging 留的那些，
+   * 爪子越过头顶 = S1 越出格线，而**头顶出了框是信息已经丢了**，后期救不回来。
+   * 所以写死"贴着头的侧面、不高于头顶"。
+   */
+  scratch: {
+    label: '挠头',
+    motionClass: 'static',
+    motion:
+      'The character raises one front paw up to the side of its own head and scratches there twice with two short ' +
+      'quick strokes, tilting its head slightly toward the paw and squinting one eye; then it lowers the paw and ' +
+      'settles back into the exact starting pose by {deadline} seconds. The paw stays pressed against the side of ' +
+      'its head and never rises above the top of its head. Its body, hind legs and feet stay completely still and it ' +
+      'does not step or leave the ground.',
+  },
+
+  /**
+   * 躲开（设计 §4.4「会拒绝」的可见形态）。
+   *
+   * 刻意**不做"扭过脸"**：那需要一个允许转身的朝向句，而转身会碰到
+   * 「素材默认朝右」那条硬约定（见 `_FACING_DOWN_HEAD` 的说明）。文档给的三个表现
+   * 是「躲开、扭过脸、不动」——**取第一个就够了**，而且它是三者里最好认的。
+   *
+   * 缩一下、耳朵压平、眼睛闭上、头低下去：这一组在**静止的画面上**就能读出"不想理你"，
+   * 不依赖前后帧的对比。做成 `once`（而不是长循环），拒绝完就自然回到待机。
+   */
+  dodge: {
+    label: '躲开',
+    motionClass: 'static',
+    motion:
+      'The character flinches away from the viewer. It ducks down and leans its whole body away to one side, pulls ' +
+      'its head back and down between its shoulders, flattens both ears back against its head, squeezes both eyes ' +
+      'shut, and then carefully straightens up and settles back into the exact starting pose by {deadline} seconds. ' +
+      'Its feet stay planted on the same spot the whole time, it keeps the same size, and it never turns away or ' +
+      'leaves the ground.',
+  },
+
+  /**
+   * 呼噜 / 被摸头（设计 §8.3.1 长按摸头，计划 T2.4）。
+   *
+   * **loop**，而且首帧是**闭着眼的姿势图**（`pose: 'purring'`）——理由写在 `POSES.purring` 上：
+   * FL2VA 把首帧钉在循环的首尾两端，拿睁眼的立绘当首帧的话，每一圈都会睁一次眼。
+   */
+  purr: {
+    label: '呼噜',
+    pose: 'purring',
+    motionClass: 'static',
+    motion:
+      'The character stays settled with its eyes closed, enjoying being petted. It breathes slowly and deeply, its ' +
+      'head pressing up very slightly as if leaning into an invisible hand, its tail tip swaying slowly from side to ' +
+      'side and its whiskers twitching once. It keeps its eyes closed the whole time and settles back into the exact ' +
+      'same pose it started in by {deadline} seconds so the clip can loop.',
+  },
+
+  /**
+   * 雀跃（设计 §7.3「目标完成 → valence ↑、arousal ↑」）。
+   *
+   * **唯一一条走 `displacement` 的**（其余七条都是 `static`），因为它要真的跳一下。
+   * 走的是 `hop` 已经验证过的那条路：`hop` 用 `stage.baseline 0.95` 把角色在画面里
+   * 下移、给头顶留出 168px，才敢让 `displacement` 放开"可以在画面里升起"。
+   * `stage.from: 'hop'` 直接复用那张压低版首帧——**同一张图，不重出一份**。
+   *
+   * "barely a tenth of the frame height" 是抄 `hop` 的原话：措辞更狠会让模型跳得更高，
+   * 而 168px 的余量只够这么多。
+   */
+  cheer: {
+    label: '雀跃',
+    stage: { from: 'hop' },
+    motionClass: 'displacement',
+    motion:
+      'The character celebrates: it gathers itself, hops straight up once with both front paws raised high and ' +
+      'waving, ears perked and tail wagging fast, lands back on the same ground line, bounces once more only ' +
+      'slightly, then settles into the exact starting pose by {deadline} seconds. The top of its head rises by ' +
+      'barely a tenth of the frame height and a wide empty margin stays above its head the whole time, so the head ' +
+      'never comes near the top edge of the frame. The body keeps the same size and proportions throughout.',
+  },
+
+  /**
+   * 蔫（设计 §7.3「目标失败 → valence ↓」、§4.1.3 共情）。
+   *
+   * 做成 `once` 的一次"泄气"，不是待机状态的常驻变化——文档 §3.4 明确要求
+   * **情绪要真的改变举止**（那是 `ambient` / `procedural` 参数的事，第二期做），
+   * 这里只补**看得见的那一下**：从挺着到塌下去。
+   */
+  droop: {
+    label: '蔫',
+    motionClass: 'static',
+    motion:
+      'The character deflates. Its head and both ears droop down, its whole body sags a little lower, its shoulders ' +
+      'slump and its tail drops to the ground; it lets out one slow heavy sigh, its chest sinking as it breathes out, ' +
+      'then it slowly picks itself back up and settles into the exact starting pose by {deadline} seconds. Its feet ' +
+      'stay planted on the same spot, it never lies down or leaves the ground, and its eyes stay open but half-lidded.',
+  },
+
+  /**
+   * 张望（设计 §8.3.1「鼠标靠近 → 转头看鼠标」，第三期）。
+   *
+   * 用 `front-head` 朝向句——**这一条存在的全部理由**就是它允许"头转、身体不转"，
+   * 见 `_FACING_DOWN_HEAD` 的说明。prose 里再显式说一遍"只有头在动"，
+   * 两处一起堵住"整个身子跟着转过去"这条最省事的逃逸路径。
+   */
+  look: {
+    label: '张望',
+    facing: 'front-head',
+    motionClass: 'static',
+    motion:
+      'The character looks around. Only its head turns: it turns its head and ears to one side to look, holds there ' +
+      'for a moment, then turns to the other side to look, and finally turns back to face the camera, settling into ' +
+      'the exact starting pose by {deadline} seconds. Its body, shoulders and feet stay completely still the whole ' +
+      'time and its body never turns with its head.',
+  },
 }
 
 /** 姿势图用的朝向句：允许在片子里换姿势，换完就稳住 */
@@ -549,6 +728,29 @@ const POSES = {
       'front legs straight and upright, its tail curled around beside it, its head up and still facing the camera. ' +
       'It holds that sitting pose for the rest of the shot, only breathing, and it does not stand back up or lie down.',
   },
+  /**
+   * 被摸头的姿势（**正面、眼睛闭着**）。2026-09-24 加，给 `ACTIONS.purr` 当首帧。
+   *
+   * 为什么非得单独出一张：`purr` 是**循环**，而 FL2VA 把同一张图钉死在首尾两端，
+   * 所以循环每一圈都会回到首帧的姿势。首帧要是那张睁眼的站立立绘，循环就成了
+   * "闭眼 → 睁眼 → 闭眼"——那是眨眼，不是"被摸得舒服得一直眯着眼"。
+   * 长按摸头是**持续状态**（文档 U3 要求"有持续回应，松开恢复"），整段都得闭着眼。
+   *
+   * `from: ''` = 从正面立绘出发（不换视角，只换姿态），朝向句用 `front`。
+   * `displacement` 和 `sitting` 同理：那句 "may rise, drop, or crouch within the frame"
+   * 正好覆盖"身子压低伏下来"。
+   */
+  purring: {
+    label: '正面闭眼伏下',
+    from: '',
+    facing: 'front',
+    motionClass: 'displacement',
+    motion:
+      'The character settles down contentedly, as if a hand were resting on the top of its head: it lowers its head ' +
+      'and its whole body a little, closes both eyes into happy curved slits, tips its ears back slightly and curls ' +
+      'its tail around beside it. It holds that relaxed pose for the rest of the shot, only breathing, and it does ' +
+      'not stand back up, open its eyes, or move from the spot.',
+  },
 }
 
 // 姿势图与循环动作重名 = 静默遮蔽（见 POSES 的说明）。宁可起不来，也不要悄悄跑错提示词。
@@ -559,6 +761,7 @@ for (const k of Object.keys(POSES)) {
 /** 朝向句查表。键写在 `ACTIONS[x].facing` / `POSES[x].facing` 上 */
 const FACING = {
   front: _FACING_DOWN,
+  'front-head': _FACING_DOWN_HEAD,
   side: _FACING_SIDE,
   cling: _FACING_CLING,
   pose: _FACING_POSE,
@@ -619,18 +822,23 @@ export const CHARACTERS = {
 /**
  * 时长。H3 的时长网格是 **17k+5**（24fps），合法值只有 22/39/56/73/90/107…
  *
- * 官方模板与 sprite_h3 都请求 4.0 秒（→ 107 帧）。这里降到 **56 帧（2.33 秒）**：
- * 精灵图动作本来就短（最终只留 8 帧循环），107 帧里抽 8 帧间隔 15 帧，
- * 大部分帧根本用不上——而每多一帧都要过一遍生成、抠底、对齐。
- * 56 帧抽 8 帧间隔 7 帧，采样密度反而更贴动作。
+ * **107（4.46 秒）= 官方模板与 sprite_h3 用的那一档**，2026-09-24 从 56 抬回这里。
+ * 当初压到 56 的理由是"抽 8 帧用不上 107 帧、每帧都要过生成与抠底"，那是**按 8 帧
+ * 输出**算的账；输出帧一抬到 16，那笔账就不成立了——而且 107 更靠近 H3 的训练区间
+ * （~124-362），同样的动作摊在更长的片子里，帧间位移更小、抽出来的姿势更细。
  *
- * ⚠ **代价**：H3 的训练区间是 ~124-362 帧，107 已经在区间之下，56 更低。
- * 每次换帧数都要盯两件事：动作有没有做到一半就断（提示词里的时间点要跟着改），
+ * ⚠ **抬源片长必须同时抬抽帧数**，否则是"把动画放快"而不是"更细腻"：
+ *   56 帧取 8  → 8 帧 @8fps 播 1.0s，源 2.33s ⇒ 快放 2.33×（既有动作都是这个手感）
+ *   107 帧取 16 → 16 帧 @8fps 播 2.0s，源 4.46s ⇒ 快放 2.23×（同手感，帧数翻倍）
+ * 只抬源片长不抬抽帧数（107 取 8）会变成 1.0s 播 4.46s 的动作，快放 4.5×，像抽搐。
+ *
+ * ⚠ **代价**：H3 的训练区间是 ~124-362 帧，107 已在区间之下，56 更低。
+ * 换帧数要盯两件事：动作有没有做到一半就断（`MOTION_DEADLINE` 跟着算，见 buildPrompt），
  * 以及首末帧还能不能闭合。崩了就回退到 73。
  */
-const DEFAULT_FRAMES = 56
-/** 动作 prose 里写的完成时刻。得留在片子长度之内（56 帧 ≈ 2.33 秒）。 */
-const MOTION_DEADLINE = '2.10'
+const DEFAULT_FRAMES = 107
+/** 抽帧数（输出帧数）。**必须与 DEFAULT_FRAMES 成对改**，见上面的换算。 */
+const DEFAULT_PICKS = 16
 
 /**
  * 组装完整提示词（H3 官方三段式）。
@@ -653,13 +861,26 @@ export function buildPrompt(action, scene = {}, { loopAnchor = 'first-last', sec
   // 后来调 ratio 时这句话没跟着改，提示词就跟画面矛盾了。
   const heightWord = `${Math.round(figureRatio * 100)} percent`
 
+  /**
+   * 动作 prose 里的完成时刻 —— **从片长算，不写死**。
+   *
+   * 早先这里是个常量 `'2.10'`（配 56 帧 = 2.33 秒的片子）。源片长一改，
+   * "2.10 秒完成"就成了一句跟画面无关的话：片长抬到 4.46 秒而 deadline 不动，
+   * 模型会在前半段就把动作做完，剩下两秒无事可做——而**提示词里没有任何地方
+   * 提示这个矛盾**，只有在抽出来的帧上才看得出来（中段开始重复）。
+   *
+   * 取 90% 是留一口气给"稳住并回到起始姿势"那一句（FL2VA 要求末帧等于首帧，
+   * 动作卡在最后一帧才收尾会跟闭合条件打架）。
+   */
+  const deadline = (seconds * 0.9).toFixed(2)
+
   const body = [
     `[Shot 1] 2D-animated, ${style}; the character shown in <Picture 1> begins in the exact starting pose, ` +
       `at exactly the same size and framing as in <Picture 1>: the figure fills about ${heightWord} of the ` +
       `frame height, ${position}, centered horizontally on a flat ${bg} background.`,
     `Preserve the exact visual identity without redesign: ${identity}`,
     FACING[A.facing || 'front'],
-    `The camera holds a static shot. ${A.motion.replace('{deadline}', MOTION_DEADLINE)}`,
+    `The camera holds a static shot. ${A.motion.replaceAll('{deadline}', deadline)}`,
     MOTION_CLASS[A.motionClass],
     loopAnchor === 'first-last' ? _CLOSED_LAST : loopAnchor === 'first' ? _CLOSED_FREE : _CLOSED,
     `The background stays a single flat ${bg} colour edge to edge, with no floor, shadow, scenery, text, or props. ` +
@@ -978,9 +1199,19 @@ async function inQueue(promptId) {
  *     `/interrupt` 打断（其中一个只跑了 101 秒），批处理空转了 20 分钟。
  *   · **任务从 history 和队列里同时消失**——ComfyUI 重启会清空两者。
  * 所以「没完成」要再分三种：还在跑 / 已经死了 / 不知道去哪了。
+ *
+ * ⚠ **超时必须从"轮到它跑"算，不能从"提交"算**（2026-09-24 修，实测踩到）。
+ * 它原本是 `Date.now() - t0`，`t0` 是提交时刻——于是**排队时间被算进了执行预算**：
+ * 一次批量里排第 8 位的任务，前面 7 个各跑十几分钟，它**还没轮到就已经超时**
+ * （实测 purr 那条：干等 44 分钟全是排队，报「等待超时（45 分钟）」，而它随后
+ * 照常跑完了）。两个时钟必须分开：
+ *   · **排队**只受 `queueTimeoutMs` 约束（默认 4 小时，防"永远不轮到"）
+ *   · **执行**才受 `timeoutMs` 约束（真正要防的是跑着跑着挂住）
  */
-export async function waitDone(promptId, { timeoutMs = 45 * 60 * 1000, onTick } = {}) {
+export async function waitDone(promptId, { timeoutMs = 45 * 60 * 1000, queueTimeoutMs = 4 * 60 * 60 * 1000, onTick } = {}) {
   const t0 = Date.now()
+  /** 第一次观察到它出现在 `queue_running` 的时刻。null = 还在排队（或还没观察到） */
+  let runStartedAt = null
   let consecutiveErrors = 0
   let consecutiveMissing = 0
   for (;;) {
@@ -1014,10 +1245,33 @@ export async function waitDone(promptId, { timeoutMs = 45 * 60 * 1000, onTick } 
       }
     }
 
-    if (Date.now() - t0 > timeoutMs) throw new Error(`等待超时（${(timeoutMs / 60000) | 0} 分钟）`)
+    // 还没轮到它：只盯"排了多久"。只在排队阶段问队列，跑起来之后不再多打请求。
+    if (runStartedAt === null) {
+      const running = await isRunning(promptId).catch(() => false)
+      if (running) {
+        runStartedAt = Date.now()
+        const queuedFor = Math.round((runStartedAt - t0) / 1000)
+        if (queuedFor >= 12) console.log(`  （排队 ${queuedFor}s 后轮到它跑）`)
+      } else if (Date.now() - t0 > queueTimeoutMs) {
+        throw new Error(
+          `排队超时（${(queueTimeoutMs / 60000) | 0} 分钟仍未轮到）——队列是不是被别的客户端堵住了？`,
+        )
+      }
+    }
+
+    const ranFor = Date.now() - (runStartedAt ?? Date.now())
+    if (runStartedAt !== null && ranFor > timeoutMs) {
+      throw new Error(`执行超时（跑了 ${(timeoutMs / 60000) | 0} 分钟还没完）`)
+    }
     onTick?.(((Date.now() - t0) / 1000) | 0)
     await sleep(12000)
   }
+}
+
+/** 这个 prompt 是不是**正在跑**（在 `queue_running` 里，不是 pending） */
+async function isRunning(promptId) {
+  const q = await (await api('/queue')).json()
+  return (q.queue_running || []).some((x) => x[1] === promptId)
 }
 
 /** 把帧逐张拉回本地。过隧道，~0.5s 一张，124 张大约一分钟。 */
@@ -1039,6 +1293,25 @@ export async function pullFrames(entry, outDir, { onProgress } = {}) {
     onProgress?.(i + 1, files.length)
   }
   return written
+}
+
+/**
+ * 在拼条目录里写一份**网格说明**（`f0000.json`）。
+ *
+ * 为什么需要：下游要在**已经落盘的拼条**上复原"一格是多少像素"，而这件事
+ * **从图本身推不出来**——任何约数都几何自洽。以前只有一个 8 列的规矩，于是
+ * `sheet-canvas.mjs` 把 8 写成了默认值；2026-09-24 起抽帧数从 8 提到 16，
+ * 同一个角色下 8 列与 16 列的表**并存**，那个默认值就不成立了：
+ * 对 16 列的表按 8 列切，每"格"横跨两个角色，量出来的画布宽度是错的
+ * （而错的方向是**量不出"装不下"**，只会装完发现被裁）。
+ *
+ * 写在这里而不是让下游猜：拼条是**本脚本产的**，格数只有它知道。
+ */
+export function writeSheetGrid(outDir, cols, rows = 1) {
+  fs.writeFileSync(
+    path.join(outDir, 'f0000.json'),
+    JSON.stringify({ cols, rows, generator: 'h3-motion' }, null, 2) + '\n',
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -1083,8 +1356,19 @@ function stagedCanvas(stem) {
 function resolveStage(charId, action, prof) {
   const A = ACTIONS[action]
   if (!A) throw new Error(`未知动作 ${action}，可选：${Object.keys(ACTIONS).join(' / ')}`)
-  // 首帧的选择顺序：显式姿势图 > 自己的 stage 覆盖 > 共用的站立立绘
-  const stem = A.pose ? `${charId}-${A.pose}` : A.stage && (A.stage.ratio || A.stage.baseline) ? `${charId}-${action}` : charId
+  // 首帧的选择顺序：显式姿势图 > 借用别的动作的机位 > 自己的 stage 覆盖 > 共用的站立立绘
+  //
+  // `stage.from` 是"**同一张图，不重出一份**"：`cheer` 要跳，所以需要 `hop` 那张
+  // 把角色压低（baseline 0.95）的首帧；两张图的姿势完全一样，重出一份只会多一个
+  // 会各自漂移的副本。用名字显式声明依赖，比复制文件强——复制出来的那份没人知道
+  // 它跟 hop 是同一个机位，改了 hop 的 baseline 也不会跟着变。
+  const stem = A.pose
+    ? `${charId}-${A.pose}`
+    : A.stage?.from
+      ? `${charId}-${A.stage.from}`
+      : A.stage && (A.stage.ratio || A.stage.baseline)
+        ? `${charId}-${action}`
+        : charId
   const src = path.join(MOTION_DIR, 'staged', `${stem}.png`)
   const metaPath = path.join(MOTION_DIR, 'staged', `${stem}.json`)
   if (!fs.existsSync(src) || !fs.existsSync(metaPath)) {
@@ -1093,6 +1377,12 @@ function resolveStage(charId, action, prof) {
         `缺少 staged/${stem}.png —— 「${A.label}」要的是**${A.pose === 'cling' ? '侧身贴墙' : '侧身'}**首帧，` +
           `而管线的立绘是正面的。先出一张姿势图：用 gen 加 --free-end（I2VA，末帧自由）让它转过去，` +
           `取中间某一帧跑 stage-frame.mjs 摆正。`,
+      )
+    }
+    if (A.stage?.from) {
+      throw new Error(
+        `缺少 staged/${stem}.png —— 「${A.label}」借用的是 \`${A.stage.from}\` 的机位（stage.from），` +
+          `先把那个动作的首帧摆出来。`,
       )
     }
     const hint = A.stage?.baseline
@@ -1187,7 +1477,7 @@ if (isMain) {
     const meta = st.meta
     const [w, h] = flag('size') ? flag('size').split('x').map(Number) : [meta.canvas.w, meta.canvas.h]
     const frames = Number(flag('frames', DEFAULT_FRAMES))
-    const picks = Number(flag('picks', 8))
+    const picks = Number(flag('picks', DEFAULT_PICKS))
     const cellH = Number(flag('cell', 448))
     const token = flag('token', `${charId}-${action}-sheet`)
 
@@ -1221,6 +1511,7 @@ if (isMain) {
     console.log('产出:', files.map((f) => f.filename).join(', '))
     const outDir = path.join(MOTION_DIR, token)
     const saved = await pullFrames(entry, outDir, { onProgress: () => {} })
+    writeSheetGrid(outDir, picks)
     console.log(`✓ 精灵表 → ${saved.join(', ')}`)
   } else if (cmd === 'pose') {
     // 姿势图也走**同一套组合图**（生成 → 抠底 → 抽帧 → 拼条 → 存一张）。
@@ -1274,6 +1565,7 @@ if (isMain) {
     const entry = await waitDone(id, { onTick: (t) => t % 120 < 12 && console.log(`  …${t}s`) })
     const outDir = path.join(MOTION_DIR, token)
     const saved = await pullFrames(entry, outDir, { onProgress: () => {} })
+    writeSheetGrid(outDir, picks)
     console.log(`✓ 拼条 ${picks} 格 → ${saved.join(', ')}`)
     console.log(`挑帧：node pose-pick.mjs ${outDir} --cols ${picks} --pick ${P.pick ?? 'desc'}`)
   } else if (cmd === 'batch') {
@@ -1333,7 +1625,7 @@ if (isMain) {
             frames,
             steps,
             seed: Number(flag('seed', 0)),
-            picks: Number(flag('picks', 8)),
+            picks: Number(flag('picks', DEFAULT_PICKS)),
             cellH: Number(flag('cell', 448)),
             key: hexToRgb(st.bg),
             threshold: Number(flag('threshold', 30)),
@@ -1369,6 +1661,9 @@ if (isMain) {
             if (i % 30 === 0 || i === n) console.log(`  ${s.token} 拉帧 ${i}/${n}`)
           },
         })
+        // 只有拼表模式才写网格：非拼表模式落的是**原始帧序列**，一帧一个文件，
+        // 没有"一格是多少像素"这回事
+        if (sheetMode) writeSheetGrid(path.join(MOTION_DIR, s.token), Number(flag('picks', DEFAULT_PICKS)))
         console.log(`✓ ${s.token} ${framesOut.length} 帧`)
         results.push({ ...s, ok: true, count: framesOut.length })
       } catch (err) {
