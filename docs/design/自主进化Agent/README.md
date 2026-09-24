@@ -4,6 +4,28 @@ Lumii 自主进化 Agent 的设计正本。实施计划见 [`../../plans/自主�
 
 **状态**：P0 / P1 已完成并交付；P2 代码已落地待接线；P3 设计阶段。
 
+> ⚠️ **2026-09-24：本目录的核心前提已变，读之前先看这一段。**
+>
+> 设计定稿时（2026-09-05）的第一条决策是「**Agent 数量：1 个（默认 Agent），无多 Agent 协作**」
+> （[`10-心跳与外部交互设计.md`](10-心跳与外部交互设计.md) §二）。**那个前提已经不成立**：
+> 这套引擎现在有四个使用者——助手（`assistant`）、系统 Agent（`chronicler` / `info-curator` /
+> `system-keeper`）、**宠物（`pet:<模型ID>`）**、以及老桌宠（`companion`）。
+>
+> 分层现状：**表与引擎已经按 `agent_id` 分片**（`autonomous_goals` / `personality_state` /
+> `capability_dimensions` / `autonomous_satisfaction_scores` / `autonomous_diaries` 与
+> `autonomous.mood:{agentId}` / `autonomous.tokens:{agentId}:{日期}` 等键）；
+> **驱动它的那条链与看它的那个界面仍是单主体的**（心跳、反思、规划器、审批、通知、
+> `AutonomousPage` 全部只服务 assistant）。宠物能跑起来，是在链与界面这两层"另起了一套"
+> （`pet-dispatch` / `pet-sensing` / `pet-notice-adapter` / 控制坞）。
+>
+> - 现状梳理、问题清单与划界规则（含 `autonomous.concerns` 这类仍是全局单键的遗留）：
+>   [`../客户端UI/2026-09-23-宠物作为化身的智能化设计.md`](../客户端UI/2026-09-23-宠物作为化身的智能化设计.md) §十一
+> - 改造任务：`docs/plans/客户端UI/2026-09-23-宠物智能化实施计划.md` §八（第六期）
+>
+> 另：P2 的四个协同模块（`coordinated-scheduler` / `conflict-detector` / `pareto-frontier` /
+> `shapley-attribution`）与 `skill-evolution.ts` 至今**生产零调用**（只有测试引用，
+> 2026-09-24 复核）——"待接线"这个状态已持续两周，判断其去留时以此为据。
+
 ## 核心设计（编号 1–11 即阅读顺序）
 
 | 文档 | 主题 |
