@@ -631,7 +631,11 @@ export class CloudSyncManager extends EventEmitter {
       } catch (err) {
         // 「远端确实没有该分支」（NotFoundError → 首次同步）与「拉取失败」（网络/认证/超时）
         // 必须区分：后者若当作空远端，会错误地走到「首次推送」路径掩盖真实故障
-        if (!isNotFoundError(err)) throw err
+        if (!isNotFoundError(err)) {
+          // 半截 fetch 常留下悬空 refs/remotes（对象未落盘），先清掉再抛
+          await this.purgeDanglingRemoteRef(p, remoteRef)
+          throw err
+        }
       }
       remoteOid = await git.resolveRef({ ...p, ref: remoteRef }).catch(() => null)
 
@@ -1557,6 +1561,45 @@ export class CloudSyncManager extends EventEmitter {
   }
 
   /**
+   * 半截 fetch 失败后清理悬空的远端跟踪引用。
+   *
+   * isomorphic-git 可能在对象落盘前就写好 `refs/remotes/origin/<branch>`；
+   * 留下的悬空 tip 会污染下一轮 have 协商，并让 `git fsck` 报 invalid sha1 pointer。
+   * 若 tip 对象读不到，删掉松散引用，让 packed-refs 里仍可用的旧 tip 重新生效。
+   */
+  private async purgeDanglingRemoteRef(p: GitParams, remoteRef: string): Promise<void> {
+    let oid: string
+    try {
+      oid = await git.resolveRef({ ...p, ref: remoteRef })
+    } catch {
+      return
+    }
+    try {
+      await git.readObject({ ...p, oid })
+      return
+    } catch {
+      // tip 对象不存在 → 悬空
+    }
+    const looseRef = path.join(p.gitdir, remoteRef)
+    const looseHead = path.join(p.gitdir, 'refs', 'remotes', 'origin', 'HEAD')
+    try {
+      if (fs.existsSync(looseRef)) {
+        fs.rmSync(looseRef, { force: true })
+        logger.warn(
+          `[purgeDanglingRemoteRef] 已删除悬空引用 ${remoteRef} → ${oid.slice(0, 8)}`,
+        )
+      }
+      if (fs.existsSync(looseHead)) {
+        fs.rmSync(looseHead, { force: true })
+      }
+    } catch (err) {
+      logger.warn(
+        `[purgeDanglingRemoteRef] 清理失败: ${err instanceof Error ? err.message : String(err)}`,
+      )
+    }
+  }
+
+  /**
    * 将 HEAD 挂回本地分支，不重写整个工作树。
    * 全量 `git.checkout({ force: true })` 在对象库膨胀（多 GB pack）时会卡数十分钟，
    * 导致 resolve_sync_conflict 工具无响应；冲突文件已在落决循环中按需 checkout。
@@ -1785,6 +1828,7 @@ export class CloudSyncManager extends EventEmitter {
       )
       newRemoteOid = await git.resolveRef({ ...p, ref: remoteRef }).catch(() => null)
     } catch (err) {
+      await this.purgeDanglingRemoteRef(p, remoteRef)
       logger.warn(
         `[refreshConflict] 重新 fetch 失败，保持原冲突快照: ${err instanceof Error ? err.message : String(err)}`,
       )
