@@ -4,7 +4,7 @@ import {
   RICH_MIN_INDICES,
   countDistinctExpressions,
   expressionCapability,
-  needsAmplitudeCompensation,
+  needsExpressivenessCompensation,
 } from "./expression-capability.js";
 
 /**
@@ -61,10 +61,10 @@ describe("expressionCapability — 按真实注册表分档", () => {
   });
 });
 
-describe("needsAmplitudeCompensation", () => {
+describe("needsExpressivenessCompensation", () => {
   it("只有 none 档需要补偿；基本档靠自身表情层", () => {
-    expect(needsAmplitudeCompensation({})).toBe(true);
-    expect(needsAmplitudeCompensation({ neutral: 0 })).toBe(true);
-    expect(needsAmplitudeCompensation({ a: 0, b: 1 })).toBe(false);
+    expect(needsExpressivenessCompensation({})).toBe(true);
+    expect(needsExpressivenessCompensation({ neutral: 0 })).toBe(true);
+    expect(needsExpressivenessCompensation({ a: 0, b: 1 })).toBe(false);
   });
 });
