@@ -861,6 +861,11 @@ export {
   // 宠物定义：唯一入口就是这个构造函数。白名单 / 提示词 / 显示名都从返回的定义上读，
   // 不再单独导出成平行的常量面——一个入口比四个更难接错。
   buildPetDefinition,
+  // 宠物目标读取：派发循环（apps/windows 的 pet-dispatch.ts）复用这一层「读库判断」，
+  // 行动由它自己的 pipeline 做——设计 §4.1.2 末段划的那条线
+  listDuePetGoals,
+  isPetAgentId,
+  PET_AGENT_ID_PREFIX,
   canSendOutreach,
   recordOutreach,
   getOutreachUsedToday,
@@ -927,6 +932,7 @@ export type {
   TickSignals,
   TickAction,
   ApprovedGoalSignal,
+  PetGoalSignal,
   GoalExecutionResult,
   Mood,
   DecisionParams,

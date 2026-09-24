@@ -2,7 +2,7 @@
  * 定时任务来源分类与受管方判定（唯一判定处）。
  *
  * 来源：
- * - system：代码播种的系统任务（seed-*、news-pipeline、wiki-purge-*、companion-*、autonomous-tick）
+ * - system：代码播种的系统任务（seed-*、news-pipeline、wiki-purge-*、companion-*、autonomous-tick、pet-dispatch）
  * - agent：Agent 自建（agent-self:* 规划器落地 / local-cron-* cron_create 工具）
  * - user：用户在定时任务页手工创建
  *
@@ -11,6 +11,8 @@
  * - companion-tick：跟随「主动联系」开关（vhSettings.proactiveCareEnabled）
  * - autonomous-tick 与 agent-self:*：跟随「自主进化」总开关（runtime_state: autonomous.enabled）
  * - companion-memory-* 与 wiki-purge-broken-refs 不受任何开关覆盖，同用户自管
+ * - pet-dispatch：**不跟随自主进化开关**（宠物是独立 Agent，设计 §3.7），用户自管；
+ *   第五期 T5.9 有「是否允许宠物主动做事」的开关后再改由它接管
  */
 
 import { SELF_CRON_ID_PREFIX } from '@mtbot/agent-runtime'
@@ -19,7 +21,7 @@ export type CronJobSource = 'system' | 'agent' | 'user'
 export type CronJobManagedBy = 'autonomous' | 'companion'
 
 /** 与其它来源前缀不重叠的系统种子精确 id */
-const SYSTEM_EXACT_IDS = new Set(['news-pipeline', 'autonomous-tick'])
+const SYSTEM_EXACT_IDS = new Set(['news-pipeline', 'autonomous-tick', 'pet-dispatch'])
 const SYSTEM_PREFIXES = ['seed-', 'wiki-purge-', 'companion-']
 const AGENT_PREFIXES = [SELF_CRON_ID_PREFIX, 'local-cron-']
 
@@ -43,5 +45,10 @@ export function getCronJobManagedBy(id: string): CronJobManagedBy | null {
  * 而 wiki-purge-invalid-files 走 seed 哨兵播种——两者前缀相同但重建行为不同。
  */
 export function isReseededCronJob(id: string): boolean {
-  return id.startsWith('companion-') || id === 'autonomous-tick' || id === 'wiki-purge-broken-refs'
+  return (
+    id.startsWith('companion-') ||
+    id === 'autonomous-tick' ||
+    id === 'pet-dispatch' ||
+    id === 'wiki-purge-broken-refs'
+  )
 }
