@@ -203,42 +203,6 @@ export async function handleAgentDefinitionSyncUserAgents(
   }
 }
 
-export function handleAgentDefinitionCacheList(bridge: AgentRuntimeBridge): unknown {
-  return bridge.listCachedAgentDefinitions()
-}
-
-export function handleAgentDefinitionCacheRemove(
-  bridge: AgentRuntimeBridge,
-  command: Extract<AgentRuntimeCommand, { type: 'agentDefinition:cacheRemove' }>,
-): unknown {
-  return bridge.removeCachedAgentDefinition(command.agentId)
-}
-
-export function handleAgentDefinitionCacheClearOlder(
-  bridge: AgentRuntimeBridge,
-  command: Extract<AgentRuntimeCommand, { type: 'agentDefinition:cacheClearOlder' }>,
-): unknown {
-  return bridge.clearCachedAgentsOlderThan(command.cutoffIso)
-}
-
-export function handleAgentDefinitionCacheClearAll(bridge: AgentRuntimeBridge): { ok: boolean } {
-  bridge.clearAllCachedAgentDefinitions()
-  return { ok: true }
-}
-
-export async function handleAgentDefinitionCacheRefresh(
-  bridge: AgentRuntimeBridge,
-  command: Extract<AgentRuntimeCommand, { type: 'agentDefinition:cacheRefresh' }>,
-): Promise<{ ok: boolean; error?: string }> {
-  try {
-    await bridge.refreshCachedAgentDefinition(command.agentId)
-    return { ok: true }
-  } catch (err) {
-    log.error('agentDefinition:cacheRefresh failed:', err)
-    return { ok: false, error: err instanceof Error ? err.message : String(err) }
-  }
-}
-
 export async function handleAgentInstancePrompt(
   bridge: AgentRuntimeBridge,
   command: Extract<AgentRuntimeCommand, { type: 'agentInstance:prompt' }>,
@@ -270,13 +234,6 @@ export function handleAgentInstanceDestroy(
 
 export function handleAgentInstanceList(bridge: AgentRuntimeBridge): unknown {
   return bridge.getInstances()
-}
-
-export function handleAgentInstanceLifecycleSnapshot(
-  bridge: AgentRuntimeBridge,
-  command: Extract<AgentRuntimeCommand, { type: 'agentInstance:lifecycleSnapshot' }>,
-): unknown {
-  return bridge.getLifecycleSnapshot(String(command.definitionId ?? ''))
 }
 
 // ============================================================

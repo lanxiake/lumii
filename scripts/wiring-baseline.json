@@ -10,13 +10,6 @@
   ],
   "unreachable": [],
   "unconsumedMethods": [
-    "agentRuntime.clearAllCachedAgentDefinitions",
-    "agentRuntime.clearCachedAgentsOlderThan",
-    "agentRuntime.getLifecycleSnapshot",
-    "agentRuntime.listCachedAgentDefinitions",
-    "agentRuntime.refreshCachedAgentDefinition",
-    "agentRuntime.removeCachedAgentDefinition",
-    "agentRuntime.setFeatureFlags",
     "updater.checkForUpdates",
     "updater.downloadUpdate",
     "updater.installUpdate",

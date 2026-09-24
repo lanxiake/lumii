@@ -1147,11 +1147,6 @@ export interface RuntimeFeatureFlagsGetCommand {
   readonly type: 'runtime:featureFlags:get'
 }
 
-export interface RuntimeFeatureFlagsSetCommand {
-  readonly type: 'runtime:featureFlags:set'
-  readonly flags: Record<string, boolean>
-}
-
 export interface RuntimeEnabledCommand {
   readonly type: 'runtime:enabled'
 }
@@ -1162,29 +1157,6 @@ export interface AgentDefinitionSyncStatusCommand {
 
 export interface AgentDefinitionSyncUserAgentsCommand {
   readonly type: 'agentDefinition:syncUserAgents'
-}
-
-export interface AgentDefinitionCacheListCommand {
-  readonly type: 'agentDefinition:cacheList'
-}
-
-export interface AgentDefinitionCacheRemoveCommand {
-  readonly type: 'agentDefinition:cacheRemove'
-  readonly agentId: string
-}
-
-export interface AgentDefinitionCacheClearOlderCommand {
-  readonly type: 'agentDefinition:cacheClearOlder'
-  readonly cutoffIso: string
-}
-
-export interface AgentDefinitionCacheClearAllCommand {
-  readonly type: 'agentDefinition:cacheClearAll'
-}
-
-export interface AgentDefinitionCacheRefreshCommand {
-  readonly type: 'agentDefinition:cacheRefresh'
-  readonly agentId: string
 }
 
 export interface AgentInstancePromptCommand {
@@ -1205,11 +1177,6 @@ export interface AgentInstanceDestroyCommand {
 
 export interface AgentInstanceListCommand {
   readonly type: 'agentInstance:list'
-}
-
-export interface AgentInstanceLifecycleSnapshotCommand {
-  readonly type: 'agentInstance:lifecycleSnapshot'
-  readonly definitionId: string
 }
 
 export interface StorageStatsCommand {
@@ -1786,20 +1753,13 @@ export type AgentRuntimeCommand =
   | McpWriteConfigFileCommand
   | RuntimePingCommand
   | RuntimeFeatureFlagsGetCommand
-  | RuntimeFeatureFlagsSetCommand
   | RuntimeEnabledCommand
   | AgentDefinitionSyncStatusCommand
   | AgentDefinitionSyncUserAgentsCommand
-  | AgentDefinitionCacheListCommand
-  | AgentDefinitionCacheRemoveCommand
-  | AgentDefinitionCacheClearOlderCommand
-  | AgentDefinitionCacheClearAllCommand
-  | AgentDefinitionCacheRefreshCommand
   | AgentInstancePromptCommand
   | AgentInstanceAbortCommand
   | AgentInstanceDestroyCommand
   | AgentInstanceListCommand
-  | AgentInstanceLifecycleSnapshotCommand
   | StorageStatsCommand
   | StorageExportJsonlCommand
   | StorageClearMalformedCommand

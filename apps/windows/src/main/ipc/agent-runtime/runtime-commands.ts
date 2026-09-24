@@ -15,14 +15,6 @@ export function handleRuntimeFeatureFlagsGet(bridge: AgentRuntimeBridge): unknow
   return bridge.getFeatureFlags()
 }
 
-export function handleRuntimeFeatureFlagsSet(
-  bridge: AgentRuntimeBridge,
-  command: Extract<AgentRuntimeCommand, { type: 'runtime:featureFlags:set' }>,
-): unknown {
-  bridge.setFeatureFlags(command.flags)
-  return bridge.getFeatureFlags()
-}
-
 export function handleRuntimeEnabled(bridge: AgentRuntimeBridge): boolean {
   return bridge.isEnabled
 }

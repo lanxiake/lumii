@@ -16,28 +16,15 @@ function createEventListener(channel: string, callback: (...args: unknown[]) => 
 const send = (command: unknown) => ipcRenderer.invoke('agent-runtime:command', command)
 
 export const agentRuntimeApi = {
-  setFeatureFlags: (flags: Record<string, boolean>) =>
-    send({ type: 'runtime:featureFlags:set', flags }),
   isEnabled: () => send({ type: 'runtime:enabled' }),
   getDefinitionSyncStatus: () => send({ type: 'agentDefinition:syncStatus' }),
   syncUserAgentDefinitions: () => send({ type: 'agentDefinition:syncUserAgents' }),
-  listCachedAgentDefinitions: () => send({ type: 'agentDefinition:cacheList' }),
-  removeCachedAgentDefinition: (agentId: string) =>
-    send({ type: 'agentDefinition:cacheRemove', agentId }),
-  clearCachedAgentsOlderThan: (cutoffIso: string) =>
-    send({ type: 'agentDefinition:cacheClearOlder', cutoffIso }),
-  clearAllCachedAgentDefinitions: () =>
-    send({ type: 'agentDefinition:cacheClearAll' }),
-  refreshCachedAgentDefinition: (agentId: string) =>
-    send({ type: 'agentDefinition:cacheRefresh', agentId }),
   prompt: (instanceId: string, message: string) =>
     send({ type: 'agentInstance:prompt', instanceId, message }),
   abort: (instanceId: string) =>
     send({ type: 'agentInstance:abort', instanceId }),
   destroy: (instanceId: string) =>
     send({ type: 'agentInstance:destroy', instanceId }),
-  getLifecycleSnapshot: (definitionId: string) =>
-    send({ type: 'agentInstance:lifecycleSnapshot', definitionId }),
   onEvent: (callback: (event: unknown) => void) => {
     const listenerCountBefore = ipcRenderer.listenerCount('agent-runtime:event')
     console.log('[Preload] onEvent 注册 agent-runtime:event, 注册前监听器数量:', listenerCountBefore, new Error('stack').stack?.split('\n').slice(1, 4).join(' | '))

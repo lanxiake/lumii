@@ -6,7 +6,7 @@
  * - 活动快照推送（pushActivitySnapshot）
  * - 最近活跃会话维护（setLastActiveConversation）
  * - 渲染进程通知（notifyIncomingMessage / notifyNavigateToSession / triggerCronNotification）
- * - Agent 定义缓存维护（syncUserAgentDefinitions / listCachedAgentDefinitions / removeCachedAgentDefinition / refreshCachedAgentDefinition）
+ * - Agent 定义缓存维护（syncUserAgentDefinitions）
  */
 
 import {
@@ -27,7 +27,6 @@ import type { PermissionController } from './permission-controller'
 import type { AskUserQuestionController } from './ask-user-question-controller'
 import type { CronScheduler } from './cron-scheduler'
 import { agentRuntimeLog as log, CHILD_AGENT_DISALLOWED_TOOLS, findAgentInstanceByRecipient } from './bridge-utils'
-import type { AgentLifecycleSnapshot } from './bridge-types'
 import { deliverSubagentCompletion } from './subagent-delivery'
 import { clearTurnTouchedPaths } from './turn-touched-paths'
 
@@ -439,55 +438,6 @@ export class BridgeLifecycle {
     log.info(`[subagent] cleared deferred drain listener parent=${parentId}`)
   }
 
-  /** 按 Agent 定义 ID 聚合运行时快照 */
-  getLifecycleSnapshot(definitionId: string): AgentLifecycleSnapshot {
-    const instances = this.deps.agentRegistry.getByDefinitionId(definitionId)
-    let totalTurns = 0
-    let totalInputTokens = 0
-    let totalOutputTokens = 0
-    let runningCount = 0
-    let runningSinceMin: number | null = null
-
-    for (const inst of instances) {
-      const m = this.deps.instanceStates.get(inst.id)?.metrics
-      if (m) {
-        totalTurns += m.completedTurns
-        totalInputTokens += m.inputTokens
-        totalOutputTokens += m.outputTokens
-      }
-      if (inst.state === 'running') {
-        runningCount++
-        const started = m?.runningStartedAt ?? null
-        if (started != null && (runningSinceMin == null || started < runningSinceMin)) {
-          runningSinceMin = started
-        }
-      }
-    }
-
-    let subAgentsRunning = 0
-    for (const inst of this.deps.agentRegistry.getAll()) {
-      if (inst.state !== 'running') continue
-      const parentId = this.deps.agentRegistry.getParentId(inst.id)
-      if (!parentId) continue
-      const parent = this.deps.agentRegistry.get(parentId)
-      if (parent?.definitionId === definitionId) {
-        subAgentsRunning++
-      }
-    }
-
-    return {
-      definitionId,
-      instanceCount: instances.length,
-      runningCount,
-      anyRunning: runningCount > 0,
-      runningSinceMs: runningSinceMin,
-      totalTurns,
-      totalInputTokens,
-      totalOutputTokens,
-      subAgentsRunning,
-    }
-  }
-
   /** 推送当前对话下的活动 Agent 列表（主 + 子） */
   pushActivitySnapshot(rootSessionKey: string): void {
     const orch = this.orchestrator
@@ -596,17 +546,5 @@ export class BridgeLifecycle {
       throw new Error('AgentRuntimeBridge not initialized')
     }
     return store.syncUserAgents()
-  }
-
-  listCachedAgentDefinitions(): ReturnType<AgentDefinitionStore['listCachedRows']> {
-    return this.deps.getDefinitionStore()?.listCachedRows() ?? []
-  }
-
-  removeCachedAgentDefinition(agentId: string): boolean {
-    return this.deps.getDefinitionStore()?.removeCached(agentId) ?? false
-  }
-
-  async refreshCachedAgentDefinition(agentId: string): Promise<void> {
-    await this.deps.getDefinitionStore()?.refreshOne(agentId)
   }
 }

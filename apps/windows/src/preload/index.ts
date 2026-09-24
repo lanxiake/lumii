@@ -754,8 +754,6 @@ export interface ElectronAPI {
 
   // 客户�?Agent Runtime
   agentRuntime: {
-    /** 设置 Feature Flags */
-    setFeatureFlags: (flags: Record<string, boolean>) => Promise<unknown>
     /** 是否启用 */
     isEnabled: () => Promise<boolean>
     /** DefinitionStore 同步状�?*/
@@ -766,38 +764,12 @@ export interface ElectronAPI {
       lastResult: { synced: number; failed: number } | null
     }>
     syncUserAgentDefinitions: () => Promise<{ ok: boolean; synced?: number; failed?: number; error?: string }>
-    listCachedAgentDefinitions: () => Promise<
-      Array<{
-        agentId: string
-        version: number
-        syncedAt: string
-        name: string
-        sourceType: string
-        definitionBytes: number
-      }>
-    >
-    removeCachedAgentDefinition: (agentId: string) => Promise<boolean>
-    clearCachedAgentsOlderThan: (cutoffIso: string) => Promise<number>
-    clearAllCachedAgentDefinitions: () => Promise<{ ok: boolean }>
-    refreshCachedAgentDefinition: (agentId: string) => Promise<{ ok: boolean; error?: string }>
     /** 发送消�?*/
     prompt: (instanceId: string, message: string) => Promise<{ ok: boolean; error?: string }>
     /** 中止 Agent */
     abort: (instanceId: string) => Promise<{ ok: boolean }>
     /** 销毁实�?*/
     destroy: (instanceId: string) => Promise<{ ok: boolean }>
-    /** 按定�?ID 聚合运行时快照（DetailPanel 运行状态） */
-    getLifecycleSnapshot: (definitionId: string) => Promise<{
-      definitionId: string
-      instanceCount: number
-      runningCount: number
-      anyRunning: boolean
-      runningSinceMs: number | null
-      totalTurns: number
-      totalInputTokens: number
-      totalOutputTokens: number
-      subAgentsRunning: number
-    }>
     /** 监听 Agent Runtime 事件 */
     onEvent: (callback: (event: unknown) => void) => () => void
     /** [P3] 发送命令到主进�?Agent Runtime（新协议�?*/

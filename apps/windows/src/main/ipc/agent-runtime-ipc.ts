@@ -69,7 +69,6 @@ import {
 import {
   handleRuntimePing,
   handleRuntimeFeatureFlagsGet,
-  handleRuntimeFeatureFlagsSet,
   handleRuntimeEnabled,
   handleRuntimeModelCatalogSet,
 } from './agent-runtime/runtime-commands'
@@ -114,16 +113,10 @@ import {
   handleAgentMemoriesStats,
   handleAgentDefinitionSyncStatus,
   handleAgentDefinitionSyncUserAgents,
-  handleAgentDefinitionCacheList,
-  handleAgentDefinitionCacheRemove,
-  handleAgentDefinitionCacheClearOlder,
-  handleAgentDefinitionCacheClearAll,
-  handleAgentDefinitionCacheRefresh,
   handleAgentInstancePrompt,
   handleAgentInstanceAbort,
   handleAgentInstanceDestroy,
   handleAgentInstanceList,
-  handleAgentInstanceLifecycleSnapshot,
 } from './agent-runtime/agent-commands'
 import {
   handleWikiInboxList,
@@ -611,7 +604,6 @@ export function installAgentRuntimeCommandIpc(performanceMonitor?: PerformanceMo
     }
     // 高频/轮询命令降级为静默，避免日志刷屏
     const QUIET_COMMANDS = new Set([
-      'agentInstance:lifecycleSnapshot',
       'runtime:modelCatalog:set',
       'conversation:list',
       'agentDefinition:syncStatus',
@@ -1081,9 +1073,6 @@ export async function handleCommand(
       case 'runtime:featureFlags:get':
         return handleRuntimeFeatureFlagsGet(bridge)
 
-      case 'runtime:featureFlags:set':
-        return handleRuntimeFeatureFlagsSet(bridge, command)
-
       case 'runtime:enabled':
         return handleRuntimeEnabled(bridge)
 
@@ -1092,21 +1081,6 @@ export async function handleCommand(
 
       case 'agentDefinition:syncUserAgents':
         return handleAgentDefinitionSyncUserAgents(bridge)
-
-      case 'agentDefinition:cacheList':
-        return handleAgentDefinitionCacheList(bridge)
-
-      case 'agentDefinition:cacheRemove':
-        return handleAgentDefinitionCacheRemove(bridge, command)
-
-      case 'agentDefinition:cacheClearOlder':
-        return handleAgentDefinitionCacheClearOlder(bridge, command)
-
-      case 'agentDefinition:cacheClearAll':
-        return handleAgentDefinitionCacheClearAll(bridge)
-
-      case 'agentDefinition:cacheRefresh':
-        return handleAgentDefinitionCacheRefresh(bridge, command)
 
       case 'agentInstance:prompt':
         return handleAgentInstancePrompt(bridge, command)
@@ -1119,9 +1093,6 @@ export async function handleCommand(
 
       case 'agentInstance:list':
         return handleAgentInstanceList(bridge)
-
-      case 'agentInstance:lifecycleSnapshot':
-        return handleAgentInstanceLifecycleSnapshot(bridge, command)
 
       case 'storage:stats':
         return handleStorageStats(bridge)

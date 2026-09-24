@@ -181,7 +181,7 @@ import { BridgePromptDispatcher } from './bridge-prompt-dispatcher'
 import { RouterService } from './router/router-service'
 import { RouterLlmCallerImpl } from './router/llm-caller'
 import { RouterHitRateTracker } from './router/router-hit-rate-tracker'
-import type { AgentRuntimeBridgeConfig, AgentLifecycleSnapshot } from './bridge-types'
+import type { AgentRuntimeBridgeConfig } from './bridge-types'
 import { withBuiltinPalace } from './palace-backend'
 import { setupPalaceVector, backfillPalaceVectors } from './palace-vector-runtime'
 import { waitForSherpa } from '../onnx-runtime-gate'
@@ -217,7 +217,7 @@ function withTimeout<T>(p: Promise<T>, ms: number, message: string): Promise<T> 
 /** 云同步冲突处理单轮执行超时：实例被用户中止（cascade abort）时 prompt/waitForIdle 可能不 settle，需兜底释放互斥 */
 const SYNC_CONFLICT_EXEC_TIMEOUT_MS = 10 * 60 * 1000
 
-export type { AgentRuntimeBridgeConfig, AgentLifecycleSnapshot }
+export type { AgentRuntimeBridgeConfig }
 
 export class AgentRuntimeBridge {
   private readonly agentRegistry = new AgentRegistry()
@@ -2211,10 +2211,6 @@ export class AgentRuntimeBridge {
   }
 
   // ── Feature Flags & Model ──
-  setFeatureFlags(flags: Partial<AgentRuntimeFeatureFlags>): void {
-    this.featureFlags = createFeatureFlags(flags)
-    log.info('Feature flags updated:', this.featureFlags)
-  }
   getFeatureFlags(): AgentRuntimeFeatureFlags { return this.featureFlags }
   getModelMapping(): Readonly<Record<string, string>> { return {} /* purpose 模式：客户端不再持有 tier→model 映射，由服务端 CapabilityResolver 解析 */ }
 
@@ -2532,11 +2528,6 @@ export class AgentRuntimeBridge {
   }
 
   async syncUserAgentDefinitions(): Promise<{ synced: number; failed: number }> { return this.lifecycle.syncUserAgentDefinitions() }
-  listCachedAgentDefinitions(): ReturnType<AgentDefinitionStore['listCachedRows']> { return this.lifecycle.listCachedAgentDefinitions() }
-  removeCachedAgentDefinition(agentId: string): boolean { return this.lifecycle.removeCachedAgentDefinition(agentId) }
-  clearCachedAgentsOlderThan(cutoffIso: string): number { return this.definitionStore?.removeOlderThan(cutoffIso) ?? 0 }
-  clearAllCachedAgentDefinitions(): void { this.definitionStore?.clearAllCached() }
-  async refreshCachedAgentDefinition(agentId: string): Promise<void> { await this.lifecycle.refreshCachedAgentDefinition(agentId) }
 
   async createInstance(agentDef?: AgentDefinition, sessionKey?: string, conversationId?: string, options?: { parentInstanceId?: string }): Promise<string> {
     return this.instanceFactory.createInstance(agentDef, sessionKey, conversationId, options)
@@ -2842,7 +2833,6 @@ export class AgentRuntimeBridge {
   clearInterruptMarker(conversationId: string): void { this.runtimeStateRepo.delete(`interrupted:${conversationId}`) }
 
   /** 按 Agent 定义 ID 聚合运行时快照 */
-  getLifecycleSnapshot(definitionId: string): AgentLifecycleSnapshot { return this.lifecycle.getLifecycleSnapshot(definitionId) }
 
   listTools(): Array<{ name: string; label: string; description: string; category: string; isReadOnly: boolean; needsPermission: boolean; enabled: boolean }> {
     return this.toolRegistry.getToolStatus()

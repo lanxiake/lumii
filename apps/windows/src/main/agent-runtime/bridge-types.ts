@@ -195,22 +195,3 @@ export interface PalaceSearchHit {
   char_count?: number
   truncated?: boolean
 }
-
-/** 按 Agent 定义 ID 聚合的运行时快照（DetailPanel「运行状态」） */
-export interface AgentLifecycleSnapshot {
-  readonly definitionId: string
-  /** 该定义当前活跃实例数 */
-  readonly instanceCount: number
-  /** 处于 running 状态的实例数 */
-  readonly runningCount: number
-  /** 是否有任一实例在运行 */
-  readonly anyRunning: boolean
-  /** 最早进入 running 的时间戳（ms），用于展示已运行时长 */
-  readonly runningSinceMs: number | null
-  /** 累计完成的 agent 轮次（agent:end） */
-  readonly totalTurns: number
-  readonly totalInputTokens: number
-  readonly totalOutputTokens: number
-  /** 由该定义实例 spawn 出的、当前仍在运行的子实例数 */
-  readonly subAgentsRunning: number
-}

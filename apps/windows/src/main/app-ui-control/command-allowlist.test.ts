@@ -19,7 +19,6 @@ describe('COMMAND_ALLOWLIST', () => {
       'storage:exportJsonl',
       'agentInstance:prompt',
       'image:generate',
-      'runtime:featureFlags:set',
     ]) {
       expect(isCommandExposed(t)).toBe(false)
     }
