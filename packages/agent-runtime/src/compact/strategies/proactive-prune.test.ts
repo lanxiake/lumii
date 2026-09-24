@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { proactivePrune } from "./micro-compact.js";
-import type { AgentMessage } from "../../types.js";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
 
 describe("proactivePrune - Phase 1: 总包装 + 7 道 Gate", () => {
   const createToolResult = (content: string, toolName = "bash"): AgentMessage => ({

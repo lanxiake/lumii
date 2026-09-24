@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { dedupIdenticalToolResults, truncateHeavyToolCallArguments } from "./micro-compact.js";
-import type { AgentMessage } from "../../types.js";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
 
 describe("dedupIdenticalToolResults - Phase 1", () => {
   it("3 条相同 file_read，保留最新一条，其余去重", () => {

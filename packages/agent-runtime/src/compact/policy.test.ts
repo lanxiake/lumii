@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { checkCompactionNeeded } from "./policy.js";
 import type { CompactConfig } from "./types.js";
-import type { AgentMessage } from "../types.js";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
 
 describe("checkCompactionNeeded - Phase 1: thresholdTokensCap + 小窗口地板", () => {
   const createTestMessage = (content: string): AgentMessage => ({

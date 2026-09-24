@@ -4,7 +4,7 @@
 import { describe, expect, it } from "vitest";
 import { createTestSqliteAdapter, createMigratedTestDb } from "../__tests__/helpers/sqlite-test-db.js";
 import { MIGRATIONS, SCHEMA_VERSION } from "./schema.js";
-import type { DatabaseAdapter } from "./types.js";
+import type { DatabaseAdapter } from "./local-database.js";
 
 /** 建一个迁移到 V29（即将执行 V30 之前）的内存库 */
 function createPreV30TestDb(): DatabaseAdapter {
