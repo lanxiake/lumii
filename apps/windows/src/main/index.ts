@@ -106,7 +106,6 @@ import {
 } from './agents-repo'
 import {
   validateUrl,
-  validatePid,
   securityUtils,
   SecurityError,
 } from './security-utils'

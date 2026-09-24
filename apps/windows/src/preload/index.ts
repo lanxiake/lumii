@@ -256,10 +256,6 @@ export interface ElectronAPI {
   system: {
     getInfo: () => Promise<unknown>
     getDiskInfo: () => Promise<unknown[]>
-    getProcessList: () => Promise<unknown[]>
-    killProcess: (pid: number) => Promise<void>
-    launchApp: (appPath: string, args?: string[]) => Promise<void>
-    executeCommand: (command: string) => Promise<{ stdout: string; stderr: string }>
     getUserPaths: () => Promise<{
       home: string
       desktop: string

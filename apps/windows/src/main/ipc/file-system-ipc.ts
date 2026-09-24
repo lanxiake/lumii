@@ -5,7 +5,7 @@ import { ipcMain, app, shell } from 'electron'
 import { extname } from 'path'
 import { promises as fs, existsSync } from 'fs'
 import type { SystemService } from '../system-service'
-import { validatePid, validateUrl } from '../security-utils'
+import { validateUrl } from '../security-utils'
 import { fileLogger } from '../file-logger'
 import { openExternalWithFallback } from '../window/in-app-browser'
 
@@ -197,40 +197,6 @@ export function registerFileSystemIpcHandlers(): void {
 
   ipcMain.handle('system:getDiskInfo', async () => {
     return deps!.getSystemService()?.getDiskInfo()
-  })
-
-  ipcMain.handle('system:getProcessList', async () => {
-    return deps!.getSystemService()?.getProcessList()
-  })
-
-  ipcMain.handle('system:killProcess', async (_event, pid: number) => {
-    // PID 验证在 SystemService 中实现
-    const safePid = validatePid(pid)
-    return deps!.getSystemService()?.killProcess(safePid)
-  })
-
-  ipcMain.handle('system:launchApp', async (_event, appPath: string, args?: string[]) => {
-    if (typeof appPath !== 'string') {
-      throw new Error('应用路径必须是字符串')
-    }
-    if (args !== undefined && !Array.isArray(args)) {
-      throw new Error('参数必须是数组')
-    }
-    // 验证参数数组
-    if (args && args.some((arg) => typeof arg !== 'string')) {
-      throw new Error('所有参数必须是字符串')
-    }
-    deps!.getSystemService()?.launchApplication(appPath, args)
-  })
-
-  ipcMain.handle('system:executeCommand', async (_event, command: string) => {
-    if (typeof command !== 'string') {
-      throw new Error('命令必须是字符串')
-    }
-    if (command.length > 1000) {
-      throw new Error('命令过长')
-    }
-    return deps!.getSystemService()?.executeCommand(command)
   })
 
   ipcMain.handle('system:getUserPaths', () => {
