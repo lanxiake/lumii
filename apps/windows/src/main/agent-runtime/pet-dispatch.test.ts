@@ -197,3 +197,81 @@ describe.skipIf(!hasFts5Db)('ensurePetDispatchCronJobSeeded', () => {
     expect(job?.enabled).toBe(0) // 用户的暂停被尊重——这一点与 autonomous-tick 刻意不同
   })
 })
+
+describe.skipIf(!hasFts5Db)('宠物硬闸门（T3.2 的常量，判定在派发侧）', () => {
+  let db: DatabaseAdapter
+  const NOW = new Date('2026-09-24T12:00:00.000Z')
+
+  beforeEach(() => {
+    db = createMigratedDb()
+  })
+
+  /** 本地当天某钟点 → ISO（日界是本地零点，不能写死 UTC 串） */
+  const todayIso = (hour: number) =>
+    new Date(NOW.getFullYear(), NOW.getMonth(), NOW.getDate(), hour, 0, 0).toISOString()
+
+  const petTokenKey = (agentId: string) => {
+    const d = new Date(NOW.getFullYear(), NOW.getMonth(), NOW.getDate())
+    const day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    return `autonomous.tokens:${agentId}:${day}`
+  }
+
+  it('今日目标用满 → 拒绝，且目标要落到一个结果上（不能烂在 executing 里）', async () => {
+    // 上限 5：造 6 条今天的
+    for (let i = 0; i < 6; i += 1) {
+      insertGoal(db, { id: `g-${i}`, createdAt: todayIso(10) })
+    }
+    const { deps, executePetGoal } = makeDeps(db, { now: () => NOW })
+
+    expect(await runPetDispatch(deps)).toBe('refused: 今日目标已用满（6/5）')
+    expect(executePetGoal).not.toHaveBeenCalled()
+    // 被拒的那条要有终态——否则每 5 分钟被捞一次，永远拒绝、永远在队列里。
+    // 不指定是哪一条：6 条同一时刻创建，谁排第一是未定义的
+    const byStatus = db
+      .prepare<{ status: string; count: number }>(
+        `SELECT status, COUNT(*) as count FROM autonomous_goals GROUP BY status`,
+      )
+      .all()
+    expect(byStatus).toEqual(
+      expect.arrayContaining([
+        { status: 'failed', count: 1 },
+        { status: 'executing', count: 5 },
+      ]),
+    )
+  })
+
+  it('今日预算不足 → 拒绝', async () => {
+    insertGoal(db, { id: 'g-1', createdAt: todayIso(10) })
+    db.prepare(
+      `INSERT INTO runtime_state (key, value, updated_at) VALUES (?, '40000', ?)`,
+    ).run(petTokenKey('pet:demo_cartoon_cat'), new Date().toISOString())
+
+    const { deps, executePetGoal } = makeDeps(db, { now: () => NOW })
+    const result = await runPetDispatch(deps)
+
+    expect(result).toContain('refused: 今日预算不足')
+    expect(executePetGoal).not.toHaveBeenCalled()
+  })
+
+  it('助手的账不会影响宠物：助手今天用满了，宠物照跑', async () => {
+    insertGoal(db, { id: 'g-1', createdAt: todayIso(10) })
+    db.prepare(`INSERT INTO runtime_state (key, value, updated_at) VALUES (?, '40000', ?)`).run(
+      petTokenKey('assistant'),
+      new Date().toISOString(),
+    )
+
+    const { deps } = makeDeps(db, { now: () => NOW })
+    expect(await runPetDispatch(deps)).toBe('pet-goal: completed')
+  })
+
+  it('跑完记在**宠物**账上，不是助手账上', async () => {
+    insertGoal(db, { id: 'g-1', createdAt: todayIso(10) })
+    const { deps } = makeDeps(db, { now: () => NOW })
+    await runPetDispatch(deps)
+
+    const read = (key: string) =>
+      db.prepare<{ value: string }>(`SELECT value FROM runtime_state WHERE key = ?`).get(key)?.value
+    expect(read(petTokenKey('pet:demo_cartoon_cat'))).toBe('8000')
+    expect(read(petTokenKey('assistant'))).toBeUndefined()
+  })
+})

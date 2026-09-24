@@ -7,7 +7,7 @@
 import { describe, expect, it } from 'vitest';
 import type { DatabaseAdapter } from '../../storage/local-database.js';
 import { createMigratedTestDb } from '../../__tests__/helpers/sqlite-test-db.js';
-import { isPetAgentId, isPetGoalDue, listDuePetGoals } from '../pet-goals';
+import { isPetAgentId, isPetGoalDue, listDuePetGoals, countPetGoalsToday } from '../pet-goals';
 
 const NOW = new Date('2026-09-24T12:00:00.000Z');
 
@@ -131,5 +131,46 @@ describe('listDuePetGoals', () => {
       },
     } as unknown as DatabaseAdapter;
     expect(listDuePetGoals(broken, NOW)).toEqual([]);
+  });
+});
+
+/** 本地某天的某个钟点 → ISO。**不能用固定的 UTC 串**：日界取本地零点，
+ *  写死 UTC 时在东八区以西会掉到前一天，测试变成看机器时区脸色。 */
+function localIso(base: Date, dayOffset: number, hour: number): string {
+  return new Date(base.getFullYear(), base.getMonth(), base.getDate() + dayOffset, hour, 0, 0).toISOString();
+}
+
+describe('countPetGoalsToday', () => {
+  it('只数这只宠物自己的，且不分状态', () => {
+    const db = createMigratedTestDb();
+    const at = localIso(NOW, 0, 10);
+    // 三只宠物各一条 + 助手一条
+    insertGoal(db, { id: 'p1', agentId: 'pet:mao_pro', createdAt: at });
+    insertGoal(db, { id: 'p1b', agentId: 'pet:mao_pro', createdAt: at, status: 'completed' });
+    insertGoal(db, { id: 'p1c', agentId: 'pet:mao_pro', createdAt: at, status: 'failed' });
+    insertGoal(db, { id: 'p2', agentId: 'pet:demo_cartoon_cat', createdAt: at });
+    insertGoal(db, { id: 'a1', agentId: 'assistant', createdAt: at });
+
+    // 跑完的也算"今天被使唤过一次"——这条与 getTodayGoalCount 刻意不同
+    expect(countPetGoalsToday(db, 'pet:mao_pro', NOW)).toBe(3);
+    expect(countPetGoalsToday(db, 'pet:demo_cartoon_cat', NOW)).toBe(1);
+    expect(countPetGoalsToday(db, 'pet:ug_official', NOW)).toBe(0);
+  });
+
+  it('昨天的不算，日界按本地零点', () => {
+    const db = createMigratedTestDb();
+    insertGoal(db, { id: 'y', agentId: 'pet:mao_pro', createdAt: localIso(NOW, -1, 23) });
+    insertGoal(db, { id: 't0', agentId: 'pet:mao_pro', createdAt: localIso(NOW, 0, 0) });
+
+    expect(countPetGoalsToday(db, 'pet:mao_pro', NOW)).toBe(1);
+  });
+
+  it('读库失败按 0 算（这是限制，读不到就放开比锁死安全）', () => {
+    const broken = {
+      prepare() {
+        throw new Error('no such table');
+      },
+    } as unknown as DatabaseAdapter;
+    expect(countPetGoalsToday(broken, 'pet:mao_pro', NOW)).toBe(0);
   });
 });

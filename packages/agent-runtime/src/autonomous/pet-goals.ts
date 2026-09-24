@@ -89,3 +89,30 @@ export function listDuePetGoals(db: DatabaseAdapter, now: Date = new Date()): Pe
     return [];
   }
 }
+
+/**
+ * 今日该宠物名下**新建**的目标数（含已完成/失败，不分状态）。
+ *
+ * 与 `IntrinsicGoalGenerator.getTodayGoalCount` 的两处差别，都是刻意的：
+ * 1. **不分状态**：那个数的是"还开着的目标"，因为助手的配额防的是"同时堆太多没做完的"；
+ *    宠物的日上限防的是"今天被使唤了几次"——跑完的也算一次。
+ * 2. **日界取本地零点**（`new Date(y, m, d)`）而不是 SQLite 的 `date('now')`（那是 UTC）：
+ *    与 token / outreach 的日键同口径（`token-budget.ts` 的 `dayKey` 也是本地日），
+ *    三个闸门若在午夜前后各按各的时区翻转，会出现「配额重置了但预算没重置」的错位。
+ */
+export function countPetGoalsToday(db: DatabaseAdapter, agentId: string, now: Date = new Date()): number {
+  try {
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+    const row = db
+      .prepare<{ count: number }>(
+        `SELECT COUNT(*) as count FROM autonomous_goals
+          WHERE agent_id = ? AND created_at >= ?`,
+      )
+      .get(agentId, todayStart);
+    return row?.count ?? 0;
+  } catch {
+    // 读不到按 0 算：这是**限制**，读不到就放开比读不到就锁死安全——
+    // 锁死会让宠物在那一天彻底不动，而多跑一次只是多花一次预算，另一道闸门还兜着
+    return 0;
+  }
+}

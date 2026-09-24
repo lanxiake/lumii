@@ -33,7 +33,17 @@
  */
 
 import type { DatabaseAdapter } from '@mtbot/agent-runtime'
-import { listDuePetGoals, type PetGoalSignal } from '@mtbot/agent-runtime'
+import {
+  MAX_PET_GOALS_PER_DAY,
+  MAX_PET_TOKENS_PER_DAY,
+  TOKEN_COST,
+  countPetGoalsToday,
+  finalizeGoal,
+  listDuePetGoals,
+  readTodayTokenUsage,
+  recordTokenUsage,
+  type PetGoalSignal,
+} from '@mtbot/agent-runtime'
 import { agentRuntimeLog as log } from './bridge-utils'
 
 const PET_DISPATCH_CRON_ID = 'pet-dispatch'
@@ -95,15 +105,61 @@ export async function runPetDispatch(deps: PetDispatchDeps): Promise<string> {
     if (busy) return `skipped: busy (${busy})`
 
     const goal = goals[0]
+    const now = deps.now?.() ?? new Date()
+
+    // 两道**硬闸门**（T3.2 的常量，判定落在这里——见 config.ts 的注释）。
+    // 顺序：先数次数再数预算，因为次数便宜、且"今天点够了"比"预算烧完了"对用户更好解释。
+    const refusal = checkPetGates(deps.getDb(), goal.agentId, now)
+    if (refusal) {
+      // 拒了就要有个结果，不能让它烂在 executing 里每 5 分钟被捞一次
+      finalizeGoal(deps.getDb(), goal.id, { success: false, output: refusal })
+      log.warn(`[runPetDispatch] 拒绝 agent=${goal.agentId} goalId=${goal.id}：${refusal}`)
+      return `refused: ${refusal}`
+    }
+
     log.info(
       `[runPetDispatch] 派发宠物目标 agent=${goal.agentId} goalId=${goal.id} 待办剩余=${goals.length - 1}`,
     )
     const result = await deps.executePetGoal(goal)
+    recordTokensIfLive(deps, now, goal.agentId)
     log.info(`[runPetDispatch] agent=${goal.agentId} goalId=${goal.id} result=${result}`)
     return `pet-goal: ${result}`
   } catch (err) {
     log.error('[runPetDispatch] 失败:', err)
     return `error: ${err instanceof Error ? err.message : String(err)}`
+  }
+}
+
+/**
+ * 两道硬闸门的判定。超额返回可读的拒绝理由，未超额返回 null。
+ *
+ * **两道谁先到算谁**（`config.ts` 的注释：5 × `TOKEN_COST.executeGoal` 与 40k 同量级）。
+ * 预算那道按 `TOKEN_COST.executeGoal` 预估——与自主进化的记账口径一致：
+ * 预算是"上限保护"不是精确计费。
+ */
+function checkPetGates(db: DatabaseAdapter, agentId: string, now: Date): string | null {
+  const usedToday = countPetGoalsToday(db, agentId, now)
+  if (usedToday > MAX_PET_GOALS_PER_DAY) {
+    return `今日目标已用满（${usedToday}/${MAX_PET_GOALS_PER_DAY}）`
+  }
+  const tokensUsed = readTodayTokenUsage(db, agentId, now)
+  if (tokensUsed + TOKEN_COST.executeGoal > MAX_PET_TOKENS_PER_DAY) {
+    return `今日预算不足（已用 ${tokensUsed}，本次需 ${TOKEN_COST.executeGoal}，上限 ${MAX_PET_TOKENS_PER_DAY}）`
+  }
+  return null
+}
+
+/**
+ * token 记账守卫：动作跑完时进程可能已在关库（与 `evolution-tick.ts` 的
+ * `recordUsageIfLive` 同一条约定——记账只是预算簿记，停机中丢一条无妨，
+ * 但硬写会把一次已完成的心跳炸成 "Database not initialized" 失败）。
+ */
+function recordTokensIfLive(deps: PetDispatchDeps, now: Date, agentId: string): void {
+  if (deps.isShuttingDown?.()) return
+  try {
+    recordTokenUsage(deps.getDb(), agentId, now, TOKEN_COST.executeGoal)
+  } catch (err) {
+    log.warn(`[runPetDispatch] token 记账失败 agent=${agentId}:`, err instanceof Error ? err.message : err)
   }
 }
 

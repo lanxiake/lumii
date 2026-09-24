@@ -864,6 +864,7 @@ export {
   // 宠物目标读取：派发循环（apps/windows 的 pet-dispatch.ts）复用这一层「读库判断」，
   // 行动由它自己的 pipeline 做——设计 §4.1.2 末段划的那条线
   listDuePetGoals,
+  countPetGoalsToday,
   isPetAgentId,
   PET_AGENT_ID_PREFIX,
   canSendOutreach,
