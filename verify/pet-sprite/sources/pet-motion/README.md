@@ -4,6 +4,12 @@
 所以入库（对比 `verify/pet-sprite/review/assets/` 那条排除：那些确实一条命令能重建，这些不能——
 每张表是一次 5 分钟的模型生成，而且挑帧是人工判断）。
 
+> **工具在技能里，不在 `verify/`。** 2026-09-24 清理时删掉了 `verify/pet-sprite/characters/`
+> 下与技能逐字节重复的副本（唯一分歧 `install-pet.mjs` 是技能版更新），
+> 所以本文所有命令里的 `<技能>` =
+> `apps/windows/bundled-skills/设计与可视化/pet-sprite-h3/`。**技能那份是唯一正本**，
+> 改脚本改那里。
+
 ## 目录约定
 
 `install-pet.mjs` 按 `<角色>-<动作>-sheet/` 找表，所以**目录名不能改**。
@@ -27,7 +33,7 @@ staged/                     各动作的首帧（生成时的「机位标定」�
 
 ```bash
 # 装进客户端（客户端**必须在运行**——这一步经 /pet/asset 控制口走技能链）
-node verify/pet-sprite/characters/install-pet.mjs --id demo_cartoon_cat \
+node <技能>/characters/install-pet.mjs --id demo_cartoon_cat \
   --dir verify/pet-sprite/sources/pet-motion --canvas 560x448 --bg 00ccff
 ```
 
@@ -38,7 +44,7 @@ node verify/pet-sprite/characters/install-pet.mjs --id demo_cartoon_cat \
 ⚠ **`--canvas` 别照抄 560**，它是量出来的：
 
 ```bash
-node verify/pet-sprite/characters/sheet-canvas.mjs \
+node <技能>/characters/sheet-canvas.mjs \
   --dir verify/pet-sprite/sources/pet-motion --char tuanzi --canvas 560x448
 ```
 

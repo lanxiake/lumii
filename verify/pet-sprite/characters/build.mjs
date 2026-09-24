@@ -26,11 +26,16 @@ const RESOURCES = path.join(REPO, 'apps/windows/resources/pet-models')
 
 const plans = JSON.parse(fs.readFileSync(new URL('./plans.json', import.meta.url), 'utf-8'))
 
-/** 每只角色在注册表里的目录名（= id，安装守卫会核对目录名与 id 一致） */
+/**
+ * 每只角色在注册表里的目录名（= id，安装守卫会核对目录名与 id 一致）。
+ *
+ * ⚠ 2026-09-24：樱桃 `anime_girl` 与钢羽 `mecha_gundam` 已随宠物实验线收口移除，
+ * 这里同步摘掉。要再出一只新示范模型，**在这里加一行**（并同步 `plans.json` /
+ * `drive-gen.mjs` 的 `PREFIX` / `registry.mjs` 的 `touch` 与 `ORDER`——
+ * 四处是一套，漏一处的表现是构建成功但注册表里没有它）。
+ */
 export const DEMO_ID = {
-  anime_girl: 'demo_anime_girl',
   cartoon_cat: 'demo_cartoon_cat',
-  mecha_gundam: 'demo_mecha_gundam',
 }
 
 /** 表情批的档位名，按读序。索引即 `emotionMap` 里的数字。 */

@@ -96,10 +96,10 @@ export function entryFor(id) {
   const dir = DEMO_ID[id]
   const groups = manifest.animations.map((a) => a.group)
   const hasFace = Object.keys(manifest.slots ?? {}).includes('face')
+  // ⚠ 与 `build.mjs` 的 DEMO_ID / `drive-gen.mjs` 的 PREFIX / plans.json 是**一套四处**，
+  //    加减角色要一起改。2026-09-24 摘掉了樱桃（anime_girl）与钢羽（mecha_gundam）。
   const touch = {
-    anime_girl: ['一位日式动画风格的少女「樱桃」', '性格明快活泼', ''],
     cartoon_cat: ['一只叫「团子」的卡通猫咪', '圆滚滚的，语气天真', ''],
-    mecha_gundam: ['一台叫「钢羽」的机甲', '说话简洁有力、带点机械感', ''],
   }[id]
   const actionMotions = {}
   for (const [k, v] of Object.entries(ACTION_MOTIONS)) {
@@ -126,7 +126,7 @@ export function entryFor(id) {
   }
 }
 
-const ORDER = ['demo_anime_girl', 'demo_cartoon_cat', 'demo_mecha_gundam']
+const ORDER = ['demo_cartoon_cat']
 
 if (process.argv[1] && import.meta.url.endsWith(path.basename(process.argv[1]))) {
   const raw = JSON.parse(fs.readFileSync(REGISTRY, 'utf-8'))

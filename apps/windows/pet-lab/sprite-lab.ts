@@ -41,8 +41,8 @@ function log(msg: string): void {
 interface LabModel {
   id: string
   label: string
-  /** 相对 /pet-models 的路径 */
-  path: string
+  /** 由 lab 的 vite 中间件映射的 URL（`/pet-models/` = 随包资源，`/pet-fixtures/` = 测试夹具） */
+  url: string
   /** 对比用分组标签 */
   group: string
 }
@@ -50,14 +50,16 @@ interface LabModel {
 /**
  * 三方案变体不在 registry.json 里（客户端按注册表读，不该看到它们），
  * 所以这里静态列出——lab 是开发工具，写死路径比让生产注册表带上测试夹具更干净。
+ *
+ * ⚠ 变体素材 2026-09-24 已从 `resources/pet-models/_variants/` 搬到
+ * `src/renderer/pet/renderer/sprite/fixtures/variants/`（它们是 `sprite-assets.test.ts`
+ * 的夹具，从来不是随包资源）。lab 经 `/pet-fixtures/` 读那份，**别改回去**。
  */
 const MODELS: LabModel[] = [
-  { id: 'demo_anime_girl', label: '樱桃（二次元少女）', path: 'demo_anime_girl/manifest.json', group: '示范模型' },
-  { id: 'demo_cartoon_cat', label: '团子（卡通猫咪）', path: 'demo_cartoon_cat/manifest.json', group: '示范模型' },
-  { id: 'demo_mecha_gundam', label: '钢羽（3D 高达）', path: 'demo_mecha_gundam/manifest.json', group: '示范模型' },
-  { id: 'demo_variant_a', label: '方案 A · 整体帧', path: '_variants/demo_variant_a/manifest.json', group: '三方案对比' },
-  { id: 'demo_variant_b', label: '方案 B · 分层差分', path: '_variants/demo_variant_b/manifest.json', group: '三方案对比' },
-  { id: 'demo_variant_c', label: '方案 C · 混合', path: '_variants/demo_variant_c/manifest.json', group: '三方案对比' },
+  { id: 'demo_cartoon_cat', label: '团子（卡通猫咪）', url: '/pet-models/demo_cartoon_cat/manifest.json', group: '示范模型' },
+  { id: 'demo_variant_a', label: '方案 A · 整体帧', url: '/pet-fixtures/variants/demo_variant_a/manifest.json', group: '三方案对比' },
+  { id: 'demo_variant_b', label: '方案 B · 分层差分', url: '/pet-fixtures/variants/demo_variant_b/manifest.json', group: '三方案对比' },
+  { id: 'demo_variant_c', label: '方案 C · 混合', url: '/pet-fixtures/variants/demo_variant_c/manifest.json', group: '三方案对比' },
 ]
 
 const renderer = new SpritePetRenderer()
@@ -76,16 +78,12 @@ let probeStats: {
   checkedAt: string
 } | null = null
 
-function modelUrl(m: LabModel): string {
-  return `/pet-models/${m.path}`
-}
-
 function configFor(m: LabModel): PetModelConfig {
   return {
     id: m.id,
     name: m.label,
     rendererType: 'sprite',
-    modelUrl: modelUrl(m),
+    modelUrl: m.url,
     scale: 1,
     idleMotionGroup: 'Idle',
     talkMotionGroup: 'Talk',
@@ -131,12 +129,12 @@ async function selectModel(id: string): Promise<void> {
   await renderer.loadModel(configFor(m))
   loadMs = performance.now() - t0
   current = m
-  manifest = (await (await fetch(modelUrl(m))).json()) as SpriteManifest
+  manifest = (await (await fetch(m.url)).json()) as SpriteManifest
 
   // 图集体积：对比表要用
   atlasBytes = 0
   try {
-    const atlasUrl = new URL(manifest.atlas, new URL(modelUrl(m), location.href).href).href
+    const atlasUrl = new URL(manifest.atlas, new URL(m.url, location.href).href).href
     const head = await fetch(atlasUrl)
     atlasBytes = Number(head.headers.get('content-length') ?? 0)
   } catch {
@@ -149,7 +147,7 @@ async function selectModel(id: string): Promise<void> {
   renderer.setMouthOpen(0)
   probeStats = null
   buildChips()
-  textureCount = Object.keys(manifest.atlas ? (await (await fetch(new URL(manifest.atlasJson, new URL(modelUrl(m), location.href).href).href)).json() as { frames: Record<string, unknown> }).frames : {}).length
+  textureCount = Object.keys(manifest.atlas ? (await (await fetch(new URL(manifest.atlasJson, new URL(m.url, location.href).href).href)).json() as { frames: Record<string, unknown> }).frames : {}).length
   log(`加载 ${m.label}（${loadMs.toFixed(0)}ms，图集 ${(atlasBytes / 1024).toFixed(1)}KB，条目 ${textureCount}）`)
 }
 

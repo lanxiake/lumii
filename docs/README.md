@@ -63,6 +63,7 @@
 | 了解记忆系统 | [`design/记忆系统/`](design/记忆系统/) + [`plans/记忆系统/`](plans/记忆系统/) |
 | 了解 Wiki 知识库 | [`design/Wiki知识库/`](design/Wiki知识库/) + [`plans/Wiki知识库/`](plans/Wiki知识库/) |
 | 了解自主进化 Agent | [`design/自主进化Agent/`](design/自主进化Agent/) + [`plans/自主进化Agent/`](plans/自主进化Agent/) |
+| 做一只宠物 / 改宠物动作 | [`standards/pet-development-standards.md`](standards/pet-development-standards.md)（两条生成线、动作组与命名契约、事件/特效格式）+ [`design/客户端UI/`](design/客户端UI/) 的宠物系列 |
 | 了解数据同步 | [`plans/数据同步功能/README.md`](plans/数据同步功能/README.md)（三代方案脉络） |
 | 了解技术债治理 | [`plans/代码重构/README.md`](plans/代码重构/README.md)（总报告 + 大文件/死代码 + 客户端切片） |
 | 跑真实环境测试 | [`test/README.md`](test/README.md) + [`test/lumii-cli/CLI-TEST-SPEC.md`](test/lumii-cli/CLI-TEST-SPEC.md) |

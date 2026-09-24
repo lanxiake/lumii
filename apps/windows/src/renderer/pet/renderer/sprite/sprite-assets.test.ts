@@ -26,6 +26,16 @@ const RESOURCES = join(
   '../../../../../resources/pet-models',
 )
 
+/**
+ * 三方案变体的夹具（P0-b 对比用，**不是随包资源**）。
+ *
+ * 2026-09-24 从 `resources/pet-models/_variants/` 搬到这里：它们从来不在 `registry.json` 里，
+ * 客户端也读不到，唯一消费者就是这个文件——放在「随安装包发布的 resources」下是错位。
+ * 搬家的同时保留了覆盖：本文件是唯一拿**真实生成的清单**（而非就地手搓的最小清单）
+ * 去过 `validateSpriteManifest` / `resolveSpriteRuntime` 的地方。
+ */
+const VARIANTS_DIR = join(dirname(fileURLToPath(import.meta.url)), 'fixtures/variants')
+
 const readJson = (p: string): unknown => JSON.parse(readFileSync(p, 'utf-8'))
 
 interface PackageCheck {
@@ -46,7 +56,7 @@ function discoverPackages(root: string): PackageCheck[] {
 }
 
 const SHIPPED = discoverPackages(RESOURCES)
-const VARIANTS = discoverPackages(join(RESOURCES, '_variants'))
+const VARIANTS = discoverPackages(VARIANTS_DIR)
 
 // 路径写错时上面的发现函数会返回空数组，于是一堆用例「通过」但什么都没测。
 // 这条先兜住：目录必须在，且必须真的扫到东西。
@@ -56,13 +66,21 @@ describe('测试前置', () => {
       throw new Error(`资源目录不存在：${RESOURCES}（路径层级写错了？）`)
     }
     expect(SHIPPED.length).toBeGreaterThan(0)
+  })
+
+  it('三方案变体夹具存在且扫到了包', () => {
+    if (!existsSync(VARIANTS_DIR)) {
+      throw new Error(`变体夹具不存在：${VARIANTS_DIR}（路径层级写错了？）`)
+    }
     expect(VARIANTS.length).toBeGreaterThan(0)
   })
 })
 
 describe('随包示范模型', () => {
-  it('至少有三份示范模型（三只 AI 生成的角色）', () => {
-    expect(SHIPPED.length).toBeGreaterThanOrEqual(3)
+  // 数量**故意不写死**：2026-09-24 清掉樱桃/钢羽之后只剩团子一只。
+  // 写 `>= 3` 会在每次增删示范模型时误报，而这条断言真正要守的是"目录没空"。
+  it('至少有一份示范模型', () => {
+    expect(SHIPPED.length).toBeGreaterThanOrEqual(1)
   })
 
   it.each(SHIPPED.map((p) => [p.dir, p] as const))('%s 清单通过校验', (_name, pkg) => {

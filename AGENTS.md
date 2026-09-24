@@ -124,7 +124,7 @@ pnpm --filter ./apps/windows verify:win-package all              # 验收：asar
 
 ## 专题规范
 
-按任务阅读 [`docs/standards/README.md`](docs/standards/README.md) 中对应的结构、代码风格、组件/UI、页面模板、功能开发或架构文档。不要复制专题内容到本文件；新增规范先更新索引，再补充专题文档。
+按任务阅读 [`docs/standards/README.md`](docs/standards/README.md) 中对应的结构、代码风格、组件/UI、页面模板、功能开发、宠物开发或架构文档。不要复制专题内容到本文件；新增规范先更新索引，再补充专题文档。
 
 ## 安全与配置
 

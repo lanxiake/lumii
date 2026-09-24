@@ -14,6 +14,19 @@ import type { Plugin } from 'vite'
 
 const WINDOWS_ROOT = resolve(__dirname, '..')
 const RESOURCES = resolve(WINDOWS_ROOT, 'resources')
+/**
+ * 三方案变体夹具：**测试夹具，不是随包资源**（2026-09-24 从
+ * `resources/pet-models/_variants/` 搬到 `sprite-assets.test.ts` 旁边）。
+ * lab 里仍然要看它们，所以单开一条前缀映射——别把它塞回 resources。
+ */
+const FIXTURES = resolve(WINDOWS_ROOT, 'src/renderer/pet/renderer/sprite/fixtures')
+
+/** URL 前缀 → 磁盘根。顺序即匹配顺序。 */
+const MOUNTS: ReadonlyArray<readonly [string, string]> = [
+  ['/live2d/', RESOURCES],
+  ['/pet-models/', RESOURCES],
+  ['/pet-fixtures/', FIXTURES],
+]
 
 function petResourcesPlugin(): Plugin {
   return {
@@ -21,12 +34,14 @@ function petResourcesPlugin(): Plugin {
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
         const url = req.url ? decodeURIComponent(req.url.split('?')[0]) : ''
-        if (!url.startsWith('/live2d/') && !url.startsWith('/pet-models/')) {
+        const mount = MOUNTS.find(([prefix]) => url.startsWith(prefix))
+        if (!mount) {
           return next()
         }
-        const safeRel = normalize(url).replace(/^(\.\.[/\\])+/, '')
-        const filePath = join(RESOURCES, safeRel)
-        if (!filePath.startsWith(RESOURCES)) {
+        const [prefix, root] = mount
+        const safeRel = normalize(url.slice(prefix.length)).replace(/^(\.\.[/\\])+/, '')
+        const filePath = join(root, safeRel)
+        if (!filePath.startsWith(root)) {
           res.statusCode = 403
           return res.end('Forbidden')
         }

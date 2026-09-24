@@ -11,13 +11,22 @@
 | Akyuu（akyuu） | 第三方模型（见 ReadMe.txt） | **仅限开发测试**；商用前须确认原作者授权 |
 | Live2D Cubism SDK | Live2D Open Software License | 遵守 SDK 许可 |
 | Cubism Core (`live2dcubismcore.min.js`) | Live2D Proprietary License | 遵守分发条款，放在 `../live2d/` |
-| Shimeji 精灵表（`demo_shimeji_*` 五只猫） | 第三方同人素材（作者 uncut-adventure 等） | **仅限开发测试**；同人作品，发布前必须替换或取得授权。逐张署名见 `SHIMEJI-CREDITS.md` |
 
 ⚠️ **发布检查清单强约束**：免费样本模型禁止随产品发布，必须替换或购买商用授权。
 
-⚠️ **`demo_shimeji_*` 是 2026-09-21 为验证精灵图流水线导入的**（`verify/pet-sprite/characters/import-shimeji.mjs`），
-它们**不是 AI 生成**，是真人画的同人素材——比 Live2D 那几只多一层版权风险（角色本身也是别人的）。
-**发布前同样必须替换。** 这张表就是给发布检查用的，新增素材时请一并登记。
+⚠️ **已清理（2026-09-24）**：`demo_shimeji_*` 五只 Shimeji 精灵表曾于 2026-09-21
+为验证流水线导入。它们是**第三方同人素材**（作者 uncut-adventure 等，逐张署名原在
+`SHIMEJI-CREDITS.md`），角色本身也属于他人，版权风险高于 Live2D 样本模型。
+随宠物实验线收口，**素材、署名文件与本表对应行已一并删除**，产出试验表的
+`verify/shimeji/` 同时移除。
+
+**保留下来的**是「导入一张外部精灵表」这条能力本身，与素材无关：
+`verify/pet-sprite/characters/import-shimeji.mjs`（导入）与同目录的 `shimeji-sheet.mjs`
+（行语义表）。技能 `pet-sprite-h3` 的硬规则 8/9 引用了它们记下的教训，
+所以别因为素材没了就连工具一起删。
+
+需要那些参考素材时，按 `SHIMEJI-CREDITS.md` 的历史内容（git 历史可查）
+重新取得授权后再导入。
 
 ## 目录结构
 

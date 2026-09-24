@@ -52,11 +52,15 @@ const GENERATED = new URL('./generated.json', import.meta.url)
 
 const plans = JSON.parse(fs.readFileSync(new URL('./plans.json', import.meta.url), 'utf-8'))
 
-/** 每只角色出图文件名前缀（避免三只互相覆盖） */
+/**
+ * 每只角色出图文件名前缀（避免互相覆盖）。
+ *
+ * ⚠ 2026-09-24：另两只示范角色（樱桃 `anime_girl` / 钢羽 `mecha_gundam`）随宠物实验线
+ * 收口从 `resources/pet-models/` 移除，这里同步摘掉——留着的话 `PREFIX[id]` 会算出
+ * `undefined-xxx.png` 这种文件名，而**出图照样成功**，只是落在一个没人认识的名字上。
+ */
 export const PREFIX = {
-  anime_girl: 'girl',
   cartoon_cat: 'cat',
-  mecha_gundam: 'mecha',
 }
 
 /**
@@ -303,7 +307,7 @@ if (isMain) {
       key: `${id}-face`,
     })), { since })
   } else {
-    const id = argv.find((a) => !a.startsWith('--')) ?? 'anime_girl'
+    const id = argv.find((a) => !a.startsWith('--')) ?? 'cartoon_cat'
     if (!plans[id]) throw new Error(`未知角色 ${id}，可选：${Object.keys(plans).join(', ')}`)
     const only = argv.includes('--idle') ? 'idle' : argv.includes('--wave') ? 'wave' : null
     const wanted = only ? MOTION_LABELS.filter(([, k]) => k === only) : MOTION_LABELS
