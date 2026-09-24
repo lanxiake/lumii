@@ -44,14 +44,6 @@ export function resolveSharedConfigDir(): string {
 }
 
 /**
- * 获取应用级缓存目录（根级别）
- * @returns %USERPROFILE%/.lumii/cache/ 的完整路径
- */
-export function resolveSharedCacheDir(): string {
-  return path.join(resolveClientStateDir(), 'cache')
-}
-
-/**
  * 获取应用级日志目录（根级别）
  * @returns %USERPROFILE%/.lumii/logs/ 的完整路径
  */
@@ -65,14 +57,6 @@ export function resolveSharedLogsDir(): string {
  */
 export function resolvePerfLogsDir(): string {
   return path.join(resolveSharedLogsDir(), 'perf')
-}
-
-/**
- * 获取应用级临时目录（根级别）
- * @returns %USERPROFILE%/.lumii/temp/ 的完整路径
- */
-export function resolveSharedTempDir(): string {
-  return path.join(resolveClientStateDir(), 'temp')
 }
 
 /**
@@ -103,13 +87,4 @@ export function resolveLegacyWorkspaceDir(): string {
  */
 export function resolveLegacySkillsDir(): string {
   return path.join(resolveLegacyWorkspaceDir(), 'skills')
-}
-
-/**
- * 获取 legacy RFS 根目录（远程文件系统操作所使用的）
- * 用于兼容旧版本的 RFS 路径解析
- * @returns %USERPROFILE%/.lumii/ 的完整路径（客户端数据根目录）
- */
-export function resolveRfsRootDir(): string {
-  return resolveClientStateDir()
 }

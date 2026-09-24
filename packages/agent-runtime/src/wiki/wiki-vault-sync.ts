@@ -227,11 +227,3 @@ export function removeSourceVaultArtifacts(deps: WikiVaultSyncDeps, source: Wiki
   deps.fs.unlink(absPath);
   return true;
 }
-
-/**
- * 根据 storage_mode 与 origin_url 推断 ref 类型展示用后缀。
- */
-export function refExtForSource(source: { readonly origin_url: string | null; readonly storage_mode: WikiStorageMode }): string {
-  if (source.origin_url) return URL_REF_EXT;
-  return ".lumii-ref";
-}

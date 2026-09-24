@@ -58,14 +58,3 @@ export async function isWikiEmbeddingModelReady(modelsRoot?: string): Promise<bo
   )
   return checks.every(Boolean)
 }
-
-/** @deprecated 使用 isWikiEmbeddingModelReady */
-export const isBundledWikiEmbeddingModelReady = isWikiEmbeddingModelReady
-
-/** @deprecated 使用 resolveWikiEmbeddingCacheDir */
-export function resolveWikiEmbeddingModelsDir(): string {
-  return resolveWikiEmbeddingCacheDir()
-}
-
-/** @deprecated 使用 resolveWikiEmbeddingModelDir */
-export const resolveBundledWikiEmbeddingModelDir = resolveWikiEmbeddingModelDir

@@ -23,14 +23,6 @@ export const ERO_EXTRACT_MAX_PAGES_CAP = 100;
 export const ERO_EXTRACT_MAX_CHARS_CAP = 20000;
 
 /**
- * 将抽取页数钳制到 [0, ERO_EXTRACT_MAX_PAGES_CAP]。
- */
-export function clampEroExtractMaxPages(value: number | undefined): number {
-  const n = value ?? DEFAULT_ERO_EXTRACT_MAX_PAGES;
-  return Math.min(ERO_EXTRACT_MAX_PAGES_CAP, Math.max(0, n));
-}
-
-/**
  * 将每页字符上限钳制到 [0, ERO_EXTRACT_MAX_CHARS_CAP]。
  */
 export function clampEroExtractMaxChars(value: number | undefined): number {
