@@ -1,0 +1,54 @@
+/**
+ * knip 配置（首次接入，2026-09-24）
+ *
+ * 目标：先把「报告可信」这件事做出来，不追求数字好看。
+ * 每一条都注明理由，凡是「为了让数字变小」而加的都可以质疑。
+ */
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+
+  "workspaces": {
+    ".": {
+      // 仓库根的一次性脚本/实验脚本：都是手工 node 跑的独立程序，
+      // 不是被 import 的模块。列为 entry 表示「承认它们是顶层程序」，
+      // 这样它们的 import 仍会被检查，但不会被报成 unused files。
+      "entry": ["scripts/**/*.{mjs,cjs,js}", ".github/workflows/*.yml"],
+      "project": ["scripts/**/*.{mjs,cjs,js}"]
+    },
+
+    "apps/windows": {
+      "entry": [
+        // electron-vite 插件的 html <script src> 解析在 6.38.0 下丢目录部分，
+        // 导致 renderer 主链整体不可达（main.tsx 被判 unused）。这里显式补上。
+        // 若将来 knip 修好，这两条可以删掉——届时会变成 duplicate entry，不报错。
+        "src/renderer/main.tsx",
+        "src/renderer/early-splash.ts",
+
+        // 同上：这些是独立程序/构建钩子，不是被 import 的模块
+        "scripts/**/*.{js,cjs,mjs,ts}",
+        "build-resources/**/*.js"
+      ],
+      "ignore": [
+        // 内置技能：运行时被复制到用户目录由 agent 执行，从不被 import。
+        // 它们不是本仓库的模块图成员，扫它们只会产生噪音。
+        "bundled-skills/**",
+        // 第三方 Live2D 运行库，随包分发，由 html/运行时加载
+        "resources/live2d/**"
+      ]
+    }
+  },
+
+  "ignore": [
+    // 文档里的代码样例 + 手工验证脚本：同 scripts/ 的理由，但不是本仓库的构建产物
+    "docs/**",
+    "verify/**",
+    // 未跟踪的临时目录（pet 精灵图在制工作），不该进报告
+    ".tmp-petgen/**"
+  ],
+
+  "rules": {
+    // 77 条全是「barrel 里 export + 组件文件 default export」这种同义重复，
+    // 是本仓库的既有约定，不是问题。等接入稳定后再单独评估。
+    "duplicates": "off"
+  }
+}
