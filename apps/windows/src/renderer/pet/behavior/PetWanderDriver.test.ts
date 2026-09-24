@@ -165,7 +165,7 @@ describe('PetWanderDriver — 让位与恢复时回到站立', () => {
     expect(onActivity).toHaveBeenCalledWith('stand')
   })
 
-  it('恢复时从渲染器重新读位置（期间可能被拖拽改过）', () => {
+  it('两侧都从渲染器读位置：suspend 报起点，resume 重新读（期间可能被拖拽改过）', () => {
     const renderer = fakeRenderer()
     const getPosition = vi.fn(() => ({ x: 777, y: 333 }))
     renderer.getPosition = getPosition
@@ -177,8 +177,13 @@ describe('PetWanderDriver — 让位与恢复时回到站立', () => {
       rand: fixedRand,
     })
     driver.suspend('pointer')
-    expect(getPosition).not.toHaveBeenCalled() // 让位本身不关心位置
+    // 2026-09-24 起 **suspend 也读一次位置**（原断言是 `not.toHaveBeenCalled()`）：
+    // 两侧都报位置，一次让位就自带判据——`suspend` 与 `resume` 两个位置逐位相同
+    // = 让位期间宠物没被别的东西推走。这是"走路中触发一次性动作会不会滑"那条实测
+    // 唯一能拿到的观测面（宠物窗在这个状态下截不了图）。
+    expect(getPosition).toHaveBeenCalled()
 
+    getPosition.mockClear()
     driver.resume('pointer')
     // 不重新读的话，驱动会拿被拖拽之前的老坐标继续走，表现为"松手后宠物跳回原处"
     expect(getPosition).toHaveBeenCalled()

@@ -335,6 +335,12 @@ export class PetWanderDriver {
    * 宠物在墙上/天花板上时 `resetToStand` 会让它播站立动作却仍贴着墙面，看着像贴了
    * 一张立牌。气泡要的是"原地定格"，不是"站好"。
    * `resume` 一侧不用动：它已经有 `perch` 分支，会重新报一次攀爬姿态。
+   *
+   * **两侧都报位置**（2026-09-24 补）：`resume` 一直报 `位置 (x, y)`，而 `suspend` 不报，
+   * 于是"让位期间宠物有没有被别的东西推走"这件事**只能靠猜**。补上之后一次让位就是
+   * 一个天然的判据——`suspend` 与 `resume` 两个位置**逐位相同 = 期间没动过**
+   * （`tick` 在 `holds.size > 0` 时整段不推进，这是它的日志面）。
+   * 注意这里读的是 `renderer` 的位置，与 `resume` 同源，才可比。
    */
   suspend(reason: string, options?: { keepPose?: boolean }): void {
     if (this.holds.has(reason)) {
@@ -344,11 +350,13 @@ export class PetWanderDriver {
     const first = this.holds.size === 0
     this.holds.add(reason)
     if (first) {
+      const pos = this.renderer.getPosition()
+      const at = `位置 (${pos.x.toFixed(0)}, ${pos.y.toFixed(0)})`
       if (options?.keepPose) {
-        log.info(`[suspend] 让位开始（${reason}），保持当前姿态`)
+        log.info(`[suspend] 让位开始（${reason}），保持当前姿态，${at}`)
       } else {
         this.resetToStand()
-        log.info(`[suspend] 让位开始（${reason}）`)
+        log.info(`[suspend] 让位开始（${reason}），${at}`)
       }
     } else {
       log.info(`[suspend] 追加让位（${reason}），当前 ${this.holds.size} 个`)
