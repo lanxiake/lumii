@@ -64,8 +64,6 @@ interface SkillsContextType extends SkillsState {
   enableSkill: (skillId: string) => Promise<{ success: boolean; error?: string }>
   /** 禁用技能 */
   disableSkill: (skillId: string) => Promise<{ success: boolean; error?: string }>
-  /** 更新技能配置 */
-  updateSkillConfig: (skillId: string, config: Record<string, unknown>) => Promise<{ success: boolean; error?: string }>
   /** 清除错误 */
   clearError: () => void
 }
@@ -373,52 +371,6 @@ export const SkillsProvider: React.FC<SkillsProviderProps> = ({ children, autoLo
   }, [])
 
   /**
-   * 更新技能配置
-   */
-  const updateSkillConfig = useCallback(async (
-    skillId: string,
-    config: Record<string, unknown>
-  ): Promise<{ success: boolean; error?: string }> => {
-    console.log('[SkillsContext] 更新技能配置:', skillId)
-
-    try {
-      if (!window.electronAPI?.skills) {
-        throw new Error('skills API 不可用')
-      }
-
-      const response = await window.electronAPI.skills.updateSkillConfig(skillId, config) as {
-        success: boolean
-        error?: string
-      }
-
-      if (response.success) {
-        setState(prev => {
-          const newSkills = prev.skills.map(s =>
-            s.id === skillId ? { ...s, config: { ...s.config, ...config } } : s
-          )
-          saveCachedSkills(newSkills)
-
-          return {
-            ...prev,
-            skills: newSkills,
-            enabledSkills: newSkills.filter(s => s.enabled),
-            disabledSkills: newSkills.filter(s => !s.enabled),
-          }
-        })
-
-        console.log('[SkillsContext] 技能配置已更新:', skillId)
-        return { success: true }
-      } else {
-        throw new Error(response.error || '更新技能配置失败')
-      }
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : '更新技能配置失败'
-      console.error('[SkillsContext] 更新配置失败:', errorMessage)
-      return { success: false, error: errorMessage }
-    }
-  }, [])
-
-  /**
    * 清除错误
    */
   const clearError = useCallback(() => {
@@ -440,7 +392,6 @@ export const SkillsProvider: React.FC<SkillsProviderProps> = ({ children, autoLo
     uninstallSkill,
     enableSkill,
     disableSkill,
-    updateSkillConfig,
     clearError,
   }
 

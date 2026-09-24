@@ -283,12 +283,6 @@ export interface ElectronAPI {
   news: {
     /** 读最新一批资讯；从未抓过�?data �?null */
     latest: () => Promise<{ success: boolean; data?: NewsSnapshot | null; error?: string }>
-    /** 立即跑一次抓�?综述流水线，返回新快�?*/
-    refresh: () => Promise<{
-      success: boolean
-      data?: { summary: string; snapshot: NewsSnapshot | null }
-      error?: string
-    }>
   }
 
   /** Dashboard 当前激活的通用 feed；默认是资讯，也可由工作流替换�?*/
@@ -549,114 +543,6 @@ export interface ElectronAPI {
 
   // API Server HTTP 调用
   api: {
-    /** 用户登录 */
-    login: (params: { identifier: string; password: string; captchaToken?: string }) => Promise<unknown>
-    /** 用户注册 */
-    register: (params: {
-      username?: string
-      phone?: string
-      email?: string
-      password: string
-      displayName?: string
-      captchaToken?: string
-    }) => Promise<unknown>
-    /** 刷新访问令牌 */
-    refreshToken: (refreshToken?: string) => Promise<unknown>
-    /** 用户登出 */
-    logout: (refreshToken?: string) => Promise<void>
-    /** 发送验证码 */
-    sendCode: (params: { phone?: string; email?: string; type?: string }) => Promise<unknown>
-    /** 发起设备配对请求 */
-    requestPairing: (params: {
-      deviceId: string
-      publicKey: string
-      displayName?: string
-      platform?: string
-      role?: string
-      silent?: boolean
-    }) => Promise<unknown>
-    /** 查询配对请求状�?*/
-    checkPairingStatus: (requestId: string) => Promise<unknown>
-    /** 生成配对码（用于设备配对�?*/
-    generatePairingCode: () => Promise<unknown>
-    /** 获取当前用户信息 */
-    getCurrentUser: () => Promise<unknown>
-    /** 获取用户设备列表 */
-    getUserDevices: () => Promise<unknown>
-    /** 删除设备 */
-    deleteDevice: (deviceId: string) => Promise<unknown>
-    /** 更新设备信息 */
-    updateDevice: (deviceId: string, updates: { alias?: string; isPrimary?: boolean }) => Promise<unknown>
-    /** 更新用户信息 */
-    updateUser: (params: { displayName?: string; avatar?: string }) => Promise<unknown>
-    /** 修改密码 */
-    changePassword: (params: { currentPassword: string; newPassword: string }) => Promise<unknown>
-    /** 设置 API Server URL */
-    setBaseUrl: (url: string) => Promise<void>
-    /** 获取 API Server URL */
-    getBaseUrl: () => Promise<string>
-    /** 设置访问令牌（登录成功后同步到主进程�?*/
-    setAccessToken: (token: string | null) => Promise<void>
-    /** 检查认证状�?*/
-    checkAuth: () => Promise<unknown>
-    /** 请求密码重置 */
-    requestPasswordReset: (email: string) => Promise<unknown>
-
-    // --- 聊天接口 ---
-    /** 获取会话列表 */
-    getConversations: () => Promise<unknown>
-    /** 创建新会�?*/
-    createConversation: (params: { title?: string }) => Promise<unknown>
-    /** 获取会话详情 */
-    getConversationDetail: (conversationId: string) => Promise<unknown>
-    /** 删除会话 */
-    deleteConversation: (conversationId: string) => Promise<unknown>
-    /** 获取消息列表 */
-    getMessages: (conversationId: string, params?: { limit?: number; offset?: number }) => Promise<unknown>
-    /** 发送消�?*/
-    sendMessage: (params: { conversationId: string; content: string; attachments?: string[] }) => Promise<unknown>
-    /** 流式发送消�?*/
-    sendMessageStream: (params: { conversationId: string; content: string }, callbacks: unknown) => Promise<unknown>
-    /** 重试消息 */
-    retryMessage: (messageId: string) => Promise<unknown>
-    /** 停止生成 */
-    stopGenerating: (conversationId: string) => Promise<unknown>
-    /** 清空会话 */
-    clearConversation: (conversationId: string) => Promise<unknown>
-    /** 获取建议回复 */
-    getSuggestedReplies: (conversationId: string) => Promise<unknown>
-    /** 评价消息 */
-    rateMessage: (messageId: string, params: { rating: 'like' | 'dislike'; feedback?: string }) => Promise<unknown>
-
-    // --- 验证码与安全接口 ---
-    /** 获取滑动验证�?*/
-    getCaptchaChallenge: () => Promise<unknown>
-    /** 验证滑动验证�?*/
-    verifyCaptcha: (captchaId: string, sliderX: number) => Promise<unknown>
-    /** 获取 RSA 公钥 */
-    getPublicKey: () => Promise<unknown>
-
-    // --- 记忆接口（API Server /api/memories�?---
-    getMemories: (options?: {
-      type?: string
-      category?: string
-      activeOnly?: boolean
-      limit?: number
-      offset?: number
-    }) => Promise<unknown>
-    createMemory: (data: {
-      type: string
-      content: string
-      category?: string
-      summary?: string
-      importance?: number
-    }) => Promise<unknown>
-    updateMemory: (
-      id: string,
-      data: { content?: string; summary?: string; category?: string; importance?: number },
-    ) => Promise<unknown>
-    deleteMemory: (id: string) => Promise<unknown>
-
     // --- 技能商店接�?---
     /** 获取商店技能列�?*/
     getStoreSkills: (filters?: {
@@ -682,16 +568,6 @@ export interface ElectronAPI {
     getStoreSkillDetail: (skillId: string) => Promise<unknown>
     /** 安装商店技能（下载并解压到本地�?*/
     installStoreSkill: (skillId: string) => Promise<unknown>
-    /** 提交技能到商店 */
-    submitSkillToStore: (data: {
-      name: string
-      description?: string
-      readme?: string
-      version?: string
-      categoryId?: string
-      tags?: string[]
-      config?: Record<string, unknown>
-    }) => Promise<unknown>
     /** 创建用户自建技�?*/
     createUserSkill: (data: {
       name: string
@@ -704,105 +580,17 @@ export interface ElectronAPI {
     }) => Promise<unknown>
     /** 刷新商店缓存 */
     refreshStore: () => Promise<unknown>
-
-    // --- 审计日志接口 ---
-    /** 查询审计日志 */
-    queryAuditLogs: (filters?: {
-      startTime?: string
-      endTime?: string
-      eventTypes?: string[]
-      severities?: string[]
-      results?: string[]
-      sourceTypes?: string[]
-      search?: string
-      sessionId?: string
-      offset?: number
-      limit?: number
-      sortOrder?: string
-    }) => Promise<unknown>
-    /** 获取最近审计日�?*/
-    getRecentAuditLogs: (limit?: number) => Promise<unknown>
-    /** 获取审计日志统计 */
-    getAuditStats: () => Promise<unknown>
-    /** 获取审计配置 */
-    getAuditConfig: () => Promise<unknown>
-    /** 更新审计配置 */
-    updateAuditConfig: (config: Record<string, unknown>) => Promise<unknown>
-    /** 导出审计日志 */
-    exportAuditLogs: (params: {
-      format: string
-      filters?: Record<string, unknown>
-    }) => Promise<unknown>
-    /** 清除审计日志 */
-    clearAuditLogs: (beforeDate?: string) => Promise<unknown>
-
     // --- 用户记忆接口（新�?--
     /** 获取用户记忆 */
     getUserMemory: () => Promise<unknown>
     /** 更新用户记忆 */
     updateUserMemory: (content: string) => Promise<unknown>
-
     // --- AI 灵魂接口 ---
     /** 获取 AI 灵魂内容（本地文件） */
     getSoulContent: () => Promise<unknown>
     /** 更新 AI 灵魂内容（本地文件） */
     updateSoulContent: (content: string) => Promise<unknown>
-
-    // --- 文件管理接口 ---
-    /** 获取文件列表 */
-    getFileList: (path?: string) => Promise<unknown>
-    /** 上传文件 */
-    uploadFile: (file: unknown) => Promise<unknown>
-    /** 下载文件 */
-    downloadFile: (fileId: string) => Promise<unknown>
-    /** 删除文件 */
-    deleteFile: (fileId: string) => Promise<unknown>
-    /** 获取文件详情 */
-    getFileDetail: (fileId: string) => Promise<unknown>
-    /** 搜索文件 */
-    searchFiles: (query: string) => Promise<unknown>
-    /** 创建文件�?*/
-    createFolder: (name: string, parentId?: string) => Promise<unknown>
-    /** 移动文件 */
-    moveFile: (fileId: string, targetId: string) => Promise<unknown>
-    /** 复制文件 */
-    copyFile: (fileId: string, targetId: string) => Promise<unknown>
-
-    // --- 技能管理接口（API Server�?---
-    /** 获取技能列�?*/
-    getSkillList: (params?: unknown) => Promise<unknown>
-    /** 获取技能详�?*/
-    getSkill: (skillId: string) => Promise<unknown>
-    /** 创建技�?*/
-    createSkill: (data: unknown) => Promise<unknown>
-    /** 更新技�?*/
-    updateSkill: (skillId: string, data: unknown) => Promise<unknown>
-    /** 删除技�?*/
-    deleteSkill: (skillId: string) => Promise<unknown>
-    /** 执行技�?*/
-    executeSkill: (skillId: string, params: unknown) => Promise<unknown>
-    /** 获取技能执行历�?*/
-    getSkillExecutionHistory: (skillId: string) => Promise<unknown>
-    /** 获取技能统�?*/
-    getSkillStats: (skillId: string) => Promise<unknown>
-    /** 导出技�?*/
-    exportSkill: (skillId: string) => Promise<unknown>
-
-    // --- 系统管理接口 ---
-    /** 获取系统信息 */
-    getSystemInfo: () => Promise<unknown>
-    /** 获取磁盘使用情况 */
-    getDiskUsage: () => Promise<unknown>
-    /** 重启应用 */
-    restartApp: () => Promise<unknown>
-    /** 检查更�?*/
-    checkForUpdates: () => Promise<unknown>
-    /** 获取环境变量 */
-    getEnvVars: () => Promise<unknown>
-    /** 获取应用日志 */
-    getAppLogs: (params?: unknown) => Promise<unknown>
-    /** 清空应用日志 */
-    clearAppLogs: () => Promise<unknown>
+    // --- Agent 管理接口 ---
     /** 获取模型 catalog（全部模�?+ 元数据，来源 LiteLLM�?*/
     getConfigModels: () => Promise<unknown>
     /** 获取 Agent 列表 */
@@ -817,7 +605,6 @@ export interface ElectronAPI {
     deleteAgent: (agentId: string) => Promise<unknown>
     /** 获取用户技能列�?*/
     getUserSkills: () => Promise<unknown>
-
     // --- 搜索工具配置 ---
     /** 获取搜索工具配置 */
     getSearchConfig: () => Promise<{ success: boolean; data?: { langSearchApiKey?: string; searxngBaseUrl?: string }; error?: string }>
@@ -968,8 +755,6 @@ export interface ElectronAPI {
     enableSkill: (skillId: string) => Promise<boolean>
     /** 禁用技能（别名，兼容旧代码�?*/
     disableSkill: (skillId: string) => Promise<boolean>
-    /** 更新技能配�?*/
-    updateSkillConfig: (skillId: string, config: unknown) => Promise<unknown>
     /** 获取技能详�?*/
     getSkillDetail: (skillId: string) => Promise<{
       manifest: unknown
@@ -1001,22 +786,6 @@ export interface ElectronAPI {
     }) => Promise<void>
     /** 同步系统提示词风格（实验：detailed/terse/minimal）到主进程缓存 */
     updatePromptStyle: (config: { style: PromptStyleValue }) => Promise<void>
-  }
-
-  // 认证 Token 安全存储（主进程 DPAPI 加密�?
-  auth: {
-    /** 保存 refreshToken 到主进程加密存储 */
-    saveRefreshToken: (token: string) => Promise<void>
-    /** 从主进程获取 refreshToken */
-    getRefreshToken: () => Promise<string | null>
-    /** 清除主进程中�?refreshToken */
-    clearRefreshToken: () => Promise<void>
-    /** 通过主进程刷�?accessToken */
-    refreshAccessToken: () => Promise<{ accessToken: string; refreshToken?: string }>
-    /** 主进程自动刷�?token 成功后通知渲染进程同步内存状�?*/
-    onTokenRefreshed: (callback: (accessToken: string) => void) => () => void
-    /** 主进程检测到 token 失效且刷新失败时通知渲染进程 */
-    onTokenExpired: (callback: () => void) => () => void
   }
 
   // 客户�?Agent Runtime
@@ -1352,7 +1121,6 @@ const electronAPI: ElectronAPI = {
 
   news: {
     latest: () => apiServerApi.getLatestNews(),
-    refresh: () => ipcRenderer.invoke('news:refresh'),
   },
 
   dashboardFeed: {
@@ -1448,24 +1216,6 @@ const electronAPI: ElectronAPI = {
     uninstallSkill: skillsApi.uninstallLocal,
     enableSkill: (skillId: string) => skillsApi.setEnabled(skillId, true),
     disableSkill: (skillId: string) => skillsApi.setEnabled(skillId, false),
-    updateSkillConfig: (skillId: string, config: unknown) =>
-      ipcRenderer.invoke('skills:updateConfig', skillId, config),
-  },
-
-  // 认证 Token 安全存储 API
-  auth: {
-    saveRefreshToken: (token: string) =>
-      ipcRenderer.invoke('auth:saveRefreshToken', token),
-    getRefreshToken: () =>
-      ipcRenderer.invoke('auth:getRefreshToken'),
-    clearRefreshToken: () =>
-      ipcRenderer.invoke('auth:clearRefreshToken'),
-    refreshAccessToken: () =>
-      ipcRenderer.invoke('auth:refreshAccessToken'),
-    onTokenRefreshed: (callback: (accessToken: string) => void) =>
-      createEventListener('auth:token-refreshed', callback as (...args: unknown[]) => void),
-    onTokenExpired: (callback: () => void) =>
-      createEventListener('auth:token-expired', callback as (...args: unknown[]) => void),
   },
 
   // 客户�?Agent Runtime API（全部经 agent-runtime:command，与 M08 Preload 审计一致）
