@@ -167,9 +167,6 @@ import {
   handleWikiSourceRestore,
   handleWikiSourceDelete,
   handleWikiExport,
-  handleWikiGraphData,
-  handleWikiEroExtract,
-  handleWikiEroEntitySources,
   handleWikiVectorRebuild,
   handleWikiSourceSummary,
 } from './agent-runtime/wiki-commands'
@@ -1016,15 +1013,6 @@ export async function handleCommand(
 
       case 'wiki:export':
         return handleWikiExport(bridge, command)
-
-      case 'wiki:graph:data':
-        return handleWikiGraphData(bridge, command)
-
-      case 'wiki:ero:extract':
-        return handleWikiEroExtract(bridge, command)
-
-      case 'wiki:ero:entity-sources':
-        return handleWikiEroEntitySources(bridge, command)
 
       case 'wiki:source:summary':
         return handleWikiSourceSummary(bridge, command)
