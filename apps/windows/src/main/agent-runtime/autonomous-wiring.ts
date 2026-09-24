@@ -132,13 +132,22 @@ export function setAutonomousNotifier(
  *
  * 三条目标生成路径（回合结束低满意 / 反思建议 / planner）落库后调用；
  * 只提醒增量（批准/拒绝后数量回落不触发），首次调用仅建立基线。
+ *
+ * ⚠ **2026-09-24 起统计的是全部主体**（原先写死 `agent_id = 'assistant'`）：
+ * 助手摘出心跳后不再产目标，而系统 Agent（`chronicler` / `info-curator` /
+ * `system-keeper`）的目标**同样走审批** —— 只数助手等于那三家永远不提醒。
+ * 宠物不在其中：它的目标直接落 `executing`（`pet-task-service`），不经过审批。
+ *
+ * 跳转目标仍是 `evolution:main`（哪怕新增的其实是系统 Agent 的目标）——
+ * 这是既有的妥协；要精确到"跳到那个主体的会话"得按 agent 分别记基线，
+ * 不值得为一条通知做。
  */
 export function notifyNewPendingGoals(): void {
   if (!runtimeDb) return
   try {
     const row = runtimeDb
       .prepare<{ count: number }>(
-        `SELECT COUNT(*) as count FROM autonomous_goals WHERE agent_id = 'assistant' AND status = 'pending'`,
+        `SELECT COUNT(*) as count FROM autonomous_goals WHERE status = 'pending'`,
       )
       .get()
     const count = row?.count ?? 0
@@ -403,8 +412,8 @@ export function createAutonomousRuntime(
         throw new Error('反思引擎未装配（缺少 LLM 客户端），无法触发反思')
       }
       const output = await reflectionEngine.reflect(agentId, triggerReason)
-      // 反思顺带识别牵挂（零额外 LLM 调用），合并写入 runtime_state
-      mergeSuggestedConcerns(db, output.suggestedConcerns)
+      // 反思顺带识别牵挂（零额外 LLM 调用），合并进**这个 agent 自己**的牵挂里
+      mergeSuggestedConcerns(db, agentId, output.suggestedConcerns)
       // 反思建议目标 → 达到阈值的落成真实目标（供概览最近目标展示，可删）
       landSuggestedGoals(db, output, agentId)
       return output
@@ -530,12 +539,15 @@ export function readAutonomousEnabled(db: DatabaseAdapter): boolean {
  * 按 description 去重，避免日频反思反复累积同一件牵挂。
  */
 function mergeSuggestedConcerns(db: DatabaseAdapter,
+  agentId: string,
   suggested: Array<{ description: string; origin: string }>,
 ): void {
   if (!suggested || suggested.length === 0) return
   try {
-    const existing = readConcerns(db)
-    const mood = readMood(db, 'assistant')
+    const existing = readConcerns(db, agentId)
+    // 牵挂的"在意程度"取**它自己**当时的唤醒度 —— 此前写死 assistant，
+    // 于是任何 agent 反思出的牵挂都带着助手的心情权重
+    const mood = readMood(db, agentId)
     const now = Date.now()
     const seen = new Set(existing.map((c) => c.description))
     const fresh: Concern[] = suggested
@@ -549,7 +561,7 @@ function mergeSuggestedConcerns(db: DatabaseAdapter,
         nextRaiseAfter: now + 24 * 3_600_000,
         status: 'open',
       }))
-    if (fresh.length > 0) writeConcerns(db, [...existing, ...fresh])
+    if (fresh.length > 0) writeConcerns(db, agentId, [...existing, ...fresh])
   } catch (err) {
     log.warn('[autonomous] 写入牵挂失败:', err instanceof Error ? err.message : err)
   }

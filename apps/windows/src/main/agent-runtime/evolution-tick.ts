@@ -103,8 +103,17 @@ export async function handleEvolutionTick(deps: EvolutionTickDeps): Promise<stri
     if (deps.hasActiveUserTurn()) return 'skipped: user turn in progress'
 
     const now = deps.now?.() ?? new Date()
-    const requested = deps.listAutonomousAgentIds?.() ?? []
-    const agentIds = requested.length > 0 ? requested : [...DEFAULT_AUTONOMOUS_AGENT_IDS]
+    // 主体列表：**没提供 deps** 时回落默认（测试与旧装配路径）；
+    // **提供了但为空**就是"没有主体要跑"，不再回落。
+    //
+    // ⚠ 2026-09-24 主体迁移时这里改过一次：原先写的是
+    // `requested.length > 0 ? requested : DEFAULT`——空数组会被换成 `['assistant']`，
+    // 于是"把 assistant 从列表里摘掉"**等于没摘**（它从后门又回来了，而且不报错）。
+    // 空列表现在是一个明确的返回值，日志里能看见。
+    const agentIds = deps.listAutonomousAgentIds
+      ? deps.listAutonomousAgentIds()
+      : [...DEFAULT_AUTONOMOUS_AGENT_IDS]
+    if (agentIds.length === 0) return 'idle: no autonomous agents'
 
     // 单 Agent（默认路径）保持旧的返回格式（既有 E2E 与 cron runs summary 断言依赖）
     if (agentIds.length === 1) {

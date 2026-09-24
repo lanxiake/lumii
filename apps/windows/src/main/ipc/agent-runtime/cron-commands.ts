@@ -134,7 +134,7 @@ export function handleCronCreate(
 export function handleCronList(
   bridge: AgentRuntimeBridge,
   includeDisabled: boolean,
-): { status: 'ok'; jobs: Array<{ id: string; name: string; taskText: string; agentId?: string; scheduleType: 'at' | 'every' | 'cron'; scheduleExpr: string; nextRunAt: number; intervalMs?: number; enabled: boolean; createdAt: number; lastRunAt?: number; lastStatus?: 'ok' | 'error' | 'running'; activeDays?: string; activeHourStart?: number; activeHourEnd?: number; notifyTargets?: string; source: 'system' | 'agent' | 'user'; managedBy: 'autonomous' | 'companion' | null; reseeded: boolean }>; total: number } {
+): { status: 'ok'; jobs: Array<{ id: string; name: string; taskText: string; agentId?: string; scheduleType: 'at' | 'every' | 'cron'; scheduleExpr: string; nextRunAt: number; intervalMs?: number; enabled: boolean; createdAt: number; lastRunAt?: number; lastStatus?: 'ok' | 'error' | 'running'; activeDays?: string; activeHourStart?: number; activeHourEnd?: number; notifyTargets?: string; source: 'system' | 'agent' | 'user'; managedBy: 'autonomous' | 'companion' | 'pet' | null; reseeded: boolean }>; total: number } {
   const rows = bridge.listLocalCronJobRecords(includeDisabled)
   return {
     status: 'ok',

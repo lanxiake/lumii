@@ -8,6 +8,10 @@ import {
   listRecentDiaries,
   todayDateKey,
 } from '../diary';
+import { createMigratedTestDb } from '../../__tests__/helpers/sqlite-test-db.js';
+
+/** 日记防重用例的默认主体 */
+const AGENT = 'assistant';
 
 describe('DIARY_PROMPT', () => {
   it('含防指标/表演情绪的关键约束', () => {
@@ -75,19 +79,43 @@ describe('buildDiaryContext', () => {
 });
 
 describe('日记防重', () => {
-  it('同日第二次不生成', () => {
+  it('同日第二次不生成（按 agent 分账）', () => {
+    const db = createMigratedTestDb();
     const now = new Date(2026, 8, 6, 23, 0, 0);
-    const store: Record<string, string> = {};
-    const db = {
-      prepare: () => ({
-        get: (key: string) => (key in store ? { value: store[key] } : undefined),
-        run: (key: string, value: string) => { store[key] = value; },
-      }),
-    } as never;
 
-    expect(hasWrittenDiaryToday(db, now)).toBe(false);
-    markDiaryWritten(db, now);
-    expect(hasWrittenDiaryToday(db, now)).toBe(true);
+    expect(hasWrittenDiaryToday(db, AGENT, now)).toBe(false);
+    markDiaryWritten(db, AGENT, now);
+    expect(hasWrittenDiaryToday(db, AGENT, now)).toBe(true);
+  });
+
+  /**
+   * ★ 2026-09-24：防重键**按 agent 分**。
+   *
+   * 此前它是全局单键 `autonomous.last_diary_date` —— 语义是"一天只能有一个人写日记"：
+   * 助手写了，宠物那天就**静默地**写不了（反之亦然），而两边都不会报错。
+   *
+   * ⚠ 这个文件此前用**手搓的 mock db**（`{prepare: () => ({get, run})}`）测这条，
+   * 改签名后 mock 照样"通过"——它把 `Date` 当成了 agentId 去拼键。
+   * 现在改用真实迁移库（与 `pet-sensing.test.ts` / `mood.test.ts` 同一套助手），
+   * 顺带说明为什么：**这个包的 tsconfig 排除了 `*.test.ts`**，类型错了没人拦。
+   */
+  it('★ 两个主体各记各的（助手写过不影响宠物）', () => {
+    const db = createMigratedTestDb();
+    const now = new Date(2026, 8, 6, 23, 0, 0);
+    const pet = 'pet:demo_cartoon_cat';
+
+    markDiaryWritten(db, AGENT, now);
+    expect(hasWrittenDiaryToday(db, AGENT, now)).toBe(true);
+    expect(hasWrittenDiaryToday(db, pet, now)).toBe(false);
+
+    markDiaryWritten(db, pet, now);
+    expect(hasWrittenDiaryToday(db, pet, now)).toBe(true);
+  });
+
+  it('跨天归零', () => {
+    const db = createMigratedTestDb();
+    markDiaryWritten(db, AGENT, new Date(2026, 8, 6, 23, 0, 0));
+    expect(hasWrittenDiaryToday(db, AGENT, new Date(2026, 8, 7, 9, 0, 0))).toBe(false);
   });
 });
 

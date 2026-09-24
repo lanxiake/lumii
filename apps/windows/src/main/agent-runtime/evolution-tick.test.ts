@@ -142,6 +142,30 @@ describe('handleEvolutionTick', () => {
     expect(result).toBe('assistant=idle: liveness-ok; chronicler=idle: liveness-ok')
   })
 
+  /**
+   * ★ 2026-09-24 主体迁移：**空列表就是"没有主体要跑"**，不回落去跑助手。
+   *
+   * 这条守的是一个真发生过的坑：`evolution-tick.ts` 原先写的是
+   * `requested.length > 0 ? requested : DEFAULT_AUTONOMOUS_AGENT_IDS` ——
+   * 于是"把 assistant 从主体列表里摘掉"**等于没摘**：它从后门回来，且全程不报错。
+   * 判据取的是"副作用一个都没发生"，不只是返回值。
+   */
+  it('★ 主体列表为空 → 什么都不跑（不回落助手）', async () => {
+    const writeDiary = vi.fn(async () => '今天')
+    const executeGoal = vi.fn(async () => 'completed')
+    const reflect = vi.fn(async () => 'ok')
+    const deps = makeDeps({
+      listAutonomousAgentIds: () => [],
+      writeDiary,
+      executeGoal,
+      reflect,
+    })
+    expect(await handleEvolutionTick(deps)).toBe('idle: no autonomous agents')
+    expect(writeDiary).not.toHaveBeenCalled()
+    expect(executeGoal).not.toHaveBeenCalled()
+    expect(reflect).not.toHaveBeenCalled()
+  })
+
   it('多 Agent：单个 Agent 失败不影响其余', async () => {
     const executeGoal = vi.fn(async (_goal, agentId: string) => {
       if (agentId === 'assistant') throw new Error('boom')

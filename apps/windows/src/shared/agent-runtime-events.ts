@@ -666,6 +666,15 @@ export interface PetGoalResultEvent {
  */
 export interface PetSensingEvent {
   readonly type: 'pet:sensing'
+  /**
+   * **说这句话的宠物**（`pet:<模型ID>`）。
+   *
+   * 2026-09-24 补：这个事件原先只有用户的 `sessionKey`（气泡落点），没有归属。
+   * 单宠物时看不出来，但"换模型 = 换宠物"是既有口径（`petAgentId(configId)`）——
+   * 多宠物同屏时，没有这个字段就无法分辨这句话是谁说的。
+   * 与 `PetGoalResultEvent.petAgentId` 同名同义。
+   */
+  readonly petAgentId: string
   /** 用户当前在用的会话（气泡落点） */
   readonly sessionKey: string
   readonly text: string

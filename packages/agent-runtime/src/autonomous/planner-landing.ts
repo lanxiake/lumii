@@ -212,7 +212,10 @@ export function landPlannerPlan(
       id,
       name: cj.task.slice(0, 40),
       task_text: cj.task,
-      agent_id: 'assistant',
+      // 归属用**传入的 agentId**（2026-09-24 修正）：这一行原先写死 `'assistant'`，
+      // 而这个函数早就收到了 `agentId` 形参 —— 是漏传，不是设计。宠物排的自建任务
+      // 会因此挂在助手名下（`driveAgent` 按 `job.agent_id` 找实例，跑起来就是助手在跑）。
+      agent_id: agentId,
       schedule_type: cj.scheduleType,
       schedule_expr: cj.scheduleExpr,
       next_run_at: resolved.nextRunAt,

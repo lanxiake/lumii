@@ -1849,7 +1849,7 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
         /** 来源：系统播种 / Agent 自建 / 用户创建 */
         source: 'system' | 'agent' | 'user'
         /** 启停被开关接管的标记；null 表示用户自管 */
-        managedBy: 'autonomous' | 'companion' | null
+        managedBy: 'autonomous' | 'companion' | 'pet' | null
         /** 删除后下次启动会重建（存在性播种）；UI 应隐藏删除入口 */
         reseeded: boolean
       }[]

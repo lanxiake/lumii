@@ -177,10 +177,13 @@ export class ReflectionEngine {
   ): Promise<
     Array<{
       timestamp: string;
-      taskSummary: string;
+      /** 工具摘要（`file_read×3`）；V53 之前的行是 `null` = 没有记录 */
+      taskSummary: string | null;
       satisfaction: number;
-      toolCount: number;
-      errorCount: number;
+      /** 工具数；V53 之前的行是 `null` */
+      toolCount: number | null;
+      /** 错误数；V53 之前的行是 `null` */
+      errorCount: number | null;
     }>
   > {
     try {
@@ -195,13 +198,19 @@ export class ReflectionEngine {
         }
       );
 
-      // 提取摘要信息（不包含用户消息原文）
+      // 提取摘要信息（不包含用户消息原文 —— 那是这条链一开始的设计）
+      //
+      // ⚠ V53（2026-09-24）之前这三列**不存在**，这里恒兜底成 `'未知任务' / 0 / 0`。
+      // 那个兜底不是中性的：`'未知任务'` 读起来像"有个任务但我不知道"，LLM 于是把它
+      // 当成一个待解释的现象去追 —— 40 条 `agent-self:*` 自建任务与
+      // `autonomous.concerns` 里那条「未知任务且工具使用为 0」都是这么来的。
+      // 现在：**没有记录就说没有记录**（`null`），下游显示成「（无记录）」。
       return sessions.map((s) => ({
         timestamp: s.created_at,
-        taskSummary: s.task_summary || '未知任务',
+        taskSummary: s.task_summary ?? null,
         satisfaction: s.overall_score,
-        toolCount: s.tool_call_count || 0,
-        errorCount: s.error_count || 0,
+        toolCount: s.tool_call_count ?? null,
+        errorCount: s.error_count ?? null,
       }));
     } catch (error) {
       logger.error('Failed to get recent sessions', {

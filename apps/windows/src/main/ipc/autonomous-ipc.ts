@@ -15,9 +15,32 @@ import { notifyAutonomousGoalApproved } from '../agent-runtime/autonomous-wiring
 import { readSettings, writeSettings } from '@mtbot/agent-runtime'
 import type { AutonomousSettings } from '@mtbot/agent-runtime'
 import { readMood, readConcerns, EVOLUTION_CONVERSATION_ID } from '@mtbot/agent-runtime'
+import { petAgentId } from '@mtbot/pet-core'
+import { isPetMode } from '../pet/pet-mode-ipc'
+import { getStoredModelId } from '../pet/pet-mode-store'
 
 const ENABLED_KEY = 'autonomous.enabled'
-const DEFAULT_AGENT_ID = 'assistant'
+
+/**
+ * 面板的主体：**当前宠物**（2026-09-24 主体迁移，设计 §12.5）。
+ *
+ * 不在宠物模式（或还没选模型）时返回这个**哨兵** —— 它不会匹配任何一行数据，
+ * 于是面板上那些按 `agent_id` 的查询自然返回空，不必在十个 handler 里各写一遍空态分支。
+ *
+ * **刻意不回落到助手**：助手那条线已经不再跑自主进化（实施计划第六期 T6.4），
+ * 把它的历史当成"当前状态"显示只会让人以为它还在动。历史一条都没删，仍在库里。
+ *
+ * ⚠ 唯一需要单独处理的是 `autonomous:getMood`：`readMood` 对"没有记录"返回的是
+ * **默认心情**而不是空，所以那里显式判了一次。
+ */
+const NO_SUBJECT_AGENT_ID = '__none__'
+function subjectAgentId(): string {
+  try {
+    return isPetMode() ? petAgentId(getStoredModelId()) : NO_SUBJECT_AGENT_ID
+  } catch {
+    return NO_SUBJECT_AGENT_ID
+  }
+}
 
 /** app 配置访问（由 ipc-handlers-registry 注入；未注入时相关 handler 降级为空） */
 let _getConfigManager: (() => ConfigManager | null) | null = null
@@ -101,12 +124,13 @@ ipcMain.handle('autonomous:getStatus', async () => {
   try {
     const bridge = requireBridge()
     const enabled = readEnabled(bridge)
-    const latest = bridge.autonomousRepo.latestSatisfaction(DEFAULT_AGENT_ID)
-    const pendingGoalsCount = bridge.autonomousRepo.countGoalsByStatus(DEFAULT_AGENT_ID, 'pending')
+    const agentId = subjectAgentId()
+    const latest = bridge.autonomousRepo.latestSatisfaction(agentId)
+    const pendingGoalsCount = bridge.autonomousRepo.countGoalsByStatus(agentId, 'pending')
 
     if (!latest) return { ...emptyStatus(enabled), pendingGoalsCount }
 
-    const recent = bridge.autonomousRepo.satisfactionHistory(DEFAULT_AGENT_ID, windowStart('7d'))
+    const recent = bridge.autonomousRepo.satisfactionHistory(agentId, windowStart('7d'))
     return {
       enabled,
       satisfaction: {
@@ -133,7 +157,7 @@ ipcMain.handle('autonomous:getStatus', async () => {
 ipcMain.handle('autonomous:getGoals', async (_event, limit = 20) => {
   try {
     const bridge = requireBridge()
-    const goals = bridge.autonomousRepo.listGoals(DEFAULT_AGENT_ID).slice(0, limit)
+    const goals = bridge.autonomousRepo.listGoals(subjectAgentId()).slice(0, limit)
     return goals.map((g) => ({
       id: g.id,
       type: g.type,
@@ -156,7 +180,7 @@ ipcMain.handle('autonomous:getPlannedGoals', async (_event, limit = 50) => {
   try {
     const bridge = requireBridge()
     const goals = bridge.autonomousRepo
-      .listGoals(DEFAULT_AGENT_ID)
+      .listGoals(subjectAgentId())
       .filter((g) => g.planned_by === 'planner')
       .slice(0, limit)
     return goals.map((g) => ({
@@ -186,10 +210,12 @@ ipcMain.handle('autonomous:deleteGoal', async (_event, goalId: string) => {
   return { success: true, goalId }
 })
 
-/** 手动触发 Agent 重新规划（供「规划任务」tab 重置按钮） */
+/** 手动触发某个主体重新规划（供「规划任务」tab 重置按钮） */
 ipcMain.handle('autonomous:replan', async () => {
   const bridge = requireBridge()
-  const ok = await bridge.triggerReplan()
+  const agentId = subjectAgentId()
+  if (agentId === NO_SUBJECT_AGENT_ID) return { success: false }
+  const ok = await bridge.triggerReplan(agentId)
   return { success: ok }
 })
 
@@ -212,7 +238,7 @@ ipcMain.handle('autonomous:getCapabilities', async () => {
   try {
     const bridge = requireBridge()
     const result: Record<string, unknown> = {}
-    for (const row of bridge.autonomousRepo.capabilities(DEFAULT_AGENT_ID)) {
+    for (const row of bridge.autonomousRepo.capabilities(subjectAgentId())) {
       result[row.dimension] = {
         level: row.level,
         confidence: row.confidence,
@@ -230,7 +256,7 @@ ipcMain.handle('autonomous:getCapabilities', async () => {
 ipcMain.handle('autonomous:getCapabilityTests', async (_event, dimension?: string, limit = 100) => {
   try {
     const bridge = requireBridge()
-    return bridge.autonomousRepo.capabilityTests(DEFAULT_AGENT_ID, dimension, limit).map((t) => ({
+    return bridge.autonomousRepo.capabilityTests(subjectAgentId(), dimension, limit).map((t) => ({
       id: t.id,
       dimension: t.dimension,
       taskSummary: t.task_summary,
@@ -249,7 +275,7 @@ ipcMain.handle('autonomous:getCapabilityTests', async (_event, dimension?: strin
 ipcMain.handle('autonomous:getReflections', async (_event, limit = 10) => {
   try {
     const bridge = requireBridge()
-    return bridge.autonomousRepo.reflections(DEFAULT_AGENT_ID, limit).map((r) => ({
+    return bridge.autonomousRepo.reflections(subjectAgentId(), limit).map((r) => ({
       id: r.id,
       triggerReason: r.trigger_reason,
       createdAt: r.created_at,
@@ -270,7 +296,7 @@ ipcMain.handle('autonomous:getReflections', async (_event, limit = 10) => {
 ipcMain.handle('autonomous:getSatisfactionHistory', async (_event, window = '7d') => {
   try {
     const bridge = requireBridge()
-    const rows = bridge.autonomousRepo.satisfactionHistory(DEFAULT_AGENT_ID, windowStart(window))
+    const rows = bridge.autonomousRepo.satisfactionHistory(subjectAgentId(), windowStart(window))
     return {
       dataPoints: rows.map((r) => ({
         timestamp: r.created_at,
@@ -331,24 +357,35 @@ ipcMain.handle('autonomous:settings:update', async (_event, settings: Partial<Au
 
 ipcMain.handle('autonomous:getMood', async () => {
   const bridge = requireBridge()
-  return readMood(bridge.db, 'assistant')
+  const agentId = subjectAgentId()
+  // `readMood` 对"没有记录"返回的是**默认心情**而不是空 —— 不在宠物模式时要说的是
+  // "没有"，不是"它心情 0.6"。这是全部 handler 里唯一需要显式判哨兵的地方。
+  if (agentId === NO_SUBJECT_AGENT_ID) return null
+  return readMood(bridge.db, agentId)
 })
 
 ipcMain.handle('autonomous:getConcerns', async () => {
   const bridge = requireBridge()
-  return readConcerns(bridge.db)
+  return readConcerns(bridge.db, subjectAgentId())
 })
 
 ipcMain.handle(
   'autonomous:getDiary',
   async (_event, limit = 20, before?: { timestamp: number; id: string }) => {
     const bridge = requireBridge()
-    const page = bridge.conversationRepo.loadMessagesPage(EVOLUTION_CONVERSATION_ID, {
-      limit,
-      before: before
-        ? { timestamp: new Date(before.timestamp).toISOString(), id: before.id }
-        : undefined,
-    })
+    const agentId = subjectAgentId()
+    if (agentId === NO_SUBJECT_AGENT_ID) return { items: [], hasMore: false, nextBefore: null }
+    // 日记在**它自己的**会话里：助手 `evolution:main`、宠物 `evolution:pet:<模型ID>`。
+    // 会话 id 由 bridge 给出，不在这里拼前缀（那条"谁是 assistant"的规则只有一个定义处）
+    const page = bridge.conversationRepo.loadMessagesPage(
+      bridge.evolutionConversationIdFor(agentId),
+      {
+        limit,
+        before: before
+          ? { timestamp: new Date(before.timestamp).toISOString(), id: before.id }
+          : undefined,
+      },
+    )
     const items = page.items
       .filter((m) => m.role === 'assistant')
       .map((m) => ({
@@ -380,7 +417,7 @@ ipcMain.handle('autonomous:setAgents', async (_event, agentIds: unknown) => {
     ...new Set(
       raw
         .map((v) => String(v ?? '').trim())
-        .filter((v) => v && v !== DEFAULT_AGENT_ID),
+        .filter((v) => v && v !== 'assistant'),
     ),
   ]
   await _getConfigManager?.()?.updateAppConfig({

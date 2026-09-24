@@ -543,17 +543,43 @@ describe('tiredText', () => {
 describe('pet.sensing 的状态键', () => {
   it('当天计数按本地日界，跨天自动归零', () => {
     const db = createMigratedTestDb();
-    recordSpoken(db, 'tired', NOW);
-    expect(readSpokenToday(db, NOW).tired).toBe(1);
+    recordSpoken(db, PET, 'tired', NOW);
+    expect(readSpokenToday(db, PET, NOW).tired).toBe(1);
     const tomorrow = new Date(NOW.getTime() + 24 * 60 * MIN);
-    expect(readSpokenToday(db, tomorrow)).toEqual({ interrupted: 0, tired: 0 });
+    expect(readSpokenToday(db, PET, tomorrow)).toEqual({ interrupted: 0, tired: 0 });
   });
 
   it('已处理评分 id 能读回', () => {
     const db = createMigratedTestDb();
-    expect(readHandledScoreId(db)).toBeNull();
-    writeHandledScoreId(db, 's1');
-    expect(readHandledScoreId(db)).toBe('s1');
+    expect(readHandledScoreId(db, PET)).toBeNull();
+    writeHandledScoreId(db, PET, 's1');
+    expect(readHandledScoreId(db, PET)).toBe('s1');
+  });
+
+  /**
+   * ★ 2026-09-24 新增：两个键都必须**按宠物分账**。
+   *
+   * 「换模型 = 换宠物」（`petAgentId(configId)`）是既有口径——mood / 性格 / 出生快照 /
+   * token 账全都分了，只有 `pet.sensing` 这两个键漏了。后果不是"多算一点"：
+   * 切一次模型，新宠物当天的配额已被旧宠物吃掉（`MAX_PET_SENSING_PER_DAY = 2`），
+   * 而 `handled-score` 记着旧宠物消费过的评分 id，新宠物**永远不会**因那条低分而低落。
+   * 单宠物时完全看不出来，切模型即复现。
+   */
+  it('★ 两只宠物各记各的账（换模型不串）', () => {
+    const db = createMigratedTestDb();
+    const other = 'pet:mao_pro';
+
+    recordSpoken(db, PET, 'tired', NOW);
+    recordSpoken(db, PET, 'tired', NOW);
+    recordSpoken(db, other, 'interrupted', NOW);
+
+    expect(readSpokenToday(db, PET, NOW)).toEqual({ interrupted: 0, tired: 2 });
+    expect(readSpokenToday(db, other, NOW)).toEqual({ interrupted: 1, tired: 0 });
+
+    // 评分游标同理：一只消费过的不影响另一只
+    writeHandledScoreId(db, PET, 's1');
+    expect(readHandledScoreId(db, PET)).toBe('s1');
+    expect(readHandledScoreId(db, other)).toBeNull();
   });
 });
 

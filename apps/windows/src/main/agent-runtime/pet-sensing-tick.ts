@@ -54,6 +54,8 @@ const PET_SENSING_INTERVAL_MS = 3 * 60_000
 /** 推给宠物窗的一条感知事件（形状与 `shared/agent-runtime-events.ts` 的 `PetSensingEvent` 一致） */
 export interface PetSensingPush {
   readonly type: 'pet:sensing'
+  /** 说这句话的宠物（`pet:<模型ID>`）——与 `PetGoalResultEvent.petAgentId` 同名同义 */
+  readonly petAgentId: string
   readonly sessionKey: string
   readonly text: string
   readonly kind: string
@@ -108,7 +110,7 @@ export function runPetSensing(deps: PetSensingDeps): string {
 
     if (decision.moodEvent) {
       deps.recordMood(agentId, decision.moodEvent.event)
-      writeHandledScoreId(deps.getDb(), decision.moodEvent.scoreId)
+      writeHandledScoreId(deps.getDb(), agentId, decision.moodEvent.scoreId)
       log.info(
         `[runPetSensing] 宠物情绪 agent=${agentId} event=${decision.moodEvent.event} ` +
           `scoreId=${decision.moodEvent.scoreId}`,
@@ -119,12 +121,13 @@ export function runPetSensing(deps: PetSensingDeps): string {
       const { kind, text, sessionKey, proposal } = decision.speak
       deps.pushSensingEvent({
         type: 'pet:sensing',
+        petAgentId: agentId,
         sessionKey,
         text,
         kind,
         ...(proposal ? { proposal } : {}),
       })
-      recordSpoken(deps.getDb(), kind, now)
+      recordSpoken(deps.getDb(), agentId, kind, now)
       log.info(
         `[runPetSensing] 说了一句 kind=${kind} session=${sessionKey} text="${text}"` +
           (proposal ? ` proposal="${proposal.description}"` : ''),

@@ -82,6 +82,7 @@ import {
   writeConcerns,
   markConcernRaised,
   markDiaryWritten,
+  hasInnerLife,
   listRecentDiaries,
   saveDiary,
   todayDateKey,
@@ -340,10 +341,15 @@ export class AgentRuntimeBridge {
     instanceStates: this.instanceStates,
     consumeConcernToRaise: (conversationId) => {
       if (!this.localDb || isEvolutionConversationId(conversationId)) return null
-      const concerns = readConcerns(this.localDb.db)
+      // 2026-09-24 牵挂按 agent 分键后，这里读**助手**的：能走到这一行的会话都在上面那道
+      // 守卫之外（非 `evolution:` 前缀），而那些会话里会「提起牵挂」的主体就是助手；
+      // 宠物的出口是气泡、不走这条注入（它的会话是 `evolution:pet:*`，已被守卫挡掉）。
+      // 精确到"这个会话的参与者是谁"要再挂一条解析链（composer 只拿得到 sessionKey），
+      // 而牵挂目前的生产者只有反思（只服务 assistant 与系统 Agent），不值这一步。
+      const concerns = readConcerns(this.localDb.db, 'assistant')
       const concern = pickConcernToRaise(concerns, Date.now())
       if (!concern) return null
-      writeConcerns(this.localDb.db, markConcernRaised(concerns, concern.id, Date.now()))
+      writeConcerns(this.localDb.db, 'assistant', markConcernRaised(concerns, concern.id, Date.now()))
       return concern.description
     },
     // 工作记忆注入（构建期填充占位符）：按实例 definitionId 注入对应 Agent 的 agent_memories
@@ -1148,15 +1154,24 @@ export class AgentRuntimeBridge {
     this.toolRegistrar.registerAll()
   }
 
-  /** 跑一次主动规划（反思后 / 心跳兜底触发）。返回是否真的产出了计划。 */
-  private async runPlannerNow(): Promise<boolean> {
+  /**
+   * 跑一次主动规划（反思后 / 心跳兜底触发）。返回是否真的产出了计划。
+   *
+   * `agentId` **必须显式传**（2026-09-24 主体迁移）：规划是"某个主体的计划"——
+   * 此前这条链路从提示词到落库全程写死 `'assistant'`，宠物接进来时根本无从下手
+   * （见实施计划第六期 T6.4）。
+   */
+  private async runPlannerNow(agentId: string): Promise<boolean> {
     try {
-      const plan = await runPlanner({
-        db: this.localDb.db,
-        callLLM: (prompt) => this.callLLM(prompt, undefined, 'planning'),
-        scheduleCron: (job) => this.cronScheduler?.scheduleJob(job),
-        countAgentSelfCronJobs: () => this.countAgentSelfCronJobs(),
-      })
+      const plan = await runPlanner(
+        {
+          db: this.localDb.db,
+          callLLM: (prompt) => this.callLLM(prompt, undefined, 'planning'),
+          scheduleCron: (job) => this.cronScheduler?.scheduleJob(job),
+          countAgentSelfCronJobs: () => this.countAgentSelfCronJobs(),
+        },
+        agentId,
+      )
       // planner 目标可能已落库为 pending；做待审批增量提醒
       if (plan !== null) {
         notifyNewPendingGoals()
@@ -1170,9 +1185,9 @@ export class AgentRuntimeBridge {
     }
   }
 
-  /** 供「规划任务」tab 手动触发 Agent 重新规划（无 dd 兜底条件约束，直接跑）。 */
-  async triggerReplan(): Promise<boolean> {
-    return this.runPlannerNow()
+  /** 供「规划任务」tab 手动触发**某个主体**重新规划（无兜底条件约束，直接跑）。 */
+  async triggerReplan(agentId: string): Promise<boolean> {
+    return this.runPlannerNow(agentId)
   }
 
   /** 云同步冲突目标执行的 in-flight 守卫（进程内互斥，防重复驱动） */
@@ -1355,8 +1370,14 @@ export class AgentRuntimeBridge {
     }
   }
 
-  /** 该 Agent 的自主会话 ID（assistant 保持 evolution:main，兼容存量数据） */
-  private evolutionConversationIdFor(agentId: string): string {
+  /**
+   * 该 Agent 的自主会话 ID（assistant 保持 `evolution:main`，兼容存量数据；
+   * 宠物是 `evolution:pet:<模型ID>`）。
+   *
+   * **public** 是给渲染层那条读日记的链用的（`autonomous:getDiary` 要按主体取会话）——
+   * 让 IPC 层自己拼这个前缀，等于把"谁是 assistant"这条规则抄成两份。
+   */
+  evolutionConversationIdFor(agentId: string): string {
     return agentId === 'assistant' ? EVOLUTION_CONVERSATION_ID : `evolution:${agentId}`
   }
 
@@ -1365,9 +1386,24 @@ export class AgentRuntimeBridge {
     return agentId === 'assistant' ? '自主进化 · 内心独白' : `自主 · ${agentId}`
   }
 
-  /** 参与心跳遍历的自主 Agent：assistant 恒参与，其余来自 app.json autonomousAgents */
+  /**
+   * 参与心跳遍历的自主 Agent。
+   *
+   * **2026-09-24 主体迁移：`assistant` 已摘掉**（用户拍板"助手那份不再跑"）。
+   * 剩下的只有 `app.json` 的 `autonomousAgents` —— `chronicler` / `info-curator` /
+   * `system-keeper` 这三个系统 Agent（"专项 Agent"那条线的，各有十几条目标在跑）。
+   *
+   * 宠物**不走这里**：它有自己的链（`pet-dispatch` / `pet-sensing` / `pet-evolve`）。
+   * `pet-dispatch.ts` 文件头那张"为什么不塞进来"的表**依然成立**，本次变的只是
+   * "助手也不再走这里"。
+   *
+   * ⚠ **空数组是合法状态**（用户没配 `autonomousAgents`）：心跳什么都不做，
+   * 返回 `idle: no autonomous agents` —— **不回落去跑助手**。
+   * 这条靠 `evolution-tick.ts` 里"提供了 deps 就用它的返回值（哪怕是空）"保证；
+   * 该处原先写的是 `length > 0 ? … : DEFAULT`，摘掉 assistant 会被它从后门放回来。
+   */
   private listAutonomousAgentIds(): string[] {
-    const ids = ['assistant']
+    const ids: string[] = []
     for (const raw of this.config.getAutonomousAgents?.() ?? []) {
       const id = raw?.trim()
       if (id && !ids.includes(id)) ids.push(id)
@@ -2036,19 +2072,19 @@ export class AgentRuntimeBridge {
                   })
                   if (askRow) this.pushSavedMessage(convId, askRow.id, 'user', '回顾一下最近的自己')
                   if (replyRow) this.pushSavedMessage(convId, replyRow.id, 'assistant', summary)
-                  // 反思之后立即主动规划一次（v1 规划器仍只服务 assistant）
-                  if (agentId === 'assistant') await this.runPlannerNow()
+                  // 反思之后立即主动规划一次（**为刚反思的那个主体**排计划）
+                  await this.runPlannerNow(agentId)
                   return summary
                 },
                 writeDiary: async (agentId) => {
-                  // 日记属生命感系统（assistant 人格专属）：collectTickSignals 已对非 assistant 不产 diaryDue，
-                  // 这里再兜一层防御，避免误写
-                  if (agentId !== 'assistant') return 'diary-skipped'
+                  // 谁能写日记：助手与宠物（`hasInnerLife`）。心跳已经对非白名单不产 diaryDue，
+                  // 这里再兜一层防御，避免误写；两处判据同源，不会再各自漂移
+                  if (!hasInnerLife(agentId)) return 'diary-skipped'
                   const repo = this._autonomousRepo
                   if (!repo) return 'diary-unavailable'
-                  const goals = repo.listGoals('assistant')
-                  const reflections = repo.reflections('assistant', 5)
-                  const recentDiaries = listRecentDiaries(this.localDb.db, 'assistant', 5)
+                  const goals = repo.listGoals(agentId)
+                  const reflections = repo.reflections(agentId, 5)
+                  const recentDiaries = listRecentDiaries(this.localDb.db, agentId, 5)
                   // 今日真实事件（目标完成 / 有信息量的定时任务结果）→ 日记落到具体事，防空洞开场
                   const todayStartMs = new Date().setHours(0, 0, 0, 0)
                   const todayEvents: string[] = []
@@ -2056,10 +2092,10 @@ export class AgentRuntimeBridge {
                     const doneToday = this.localDb.db
                       .prepare<{ description: string }>(
                         `SELECT description FROM autonomous_goals
-                         WHERE agent_id = 'assistant' AND status = 'completed' AND completed_at >= ?
+                         WHERE agent_id = ? AND status = 'completed' AND completed_at >= ?
                          ORDER BY completed_at DESC LIMIT 5`,
                       )
-                      .all(new Date(todayStartMs).toISOString())
+                      .all(agentId, new Date(todayStartMs).toISOString())
                     for (const g of doneToday) {
                       todayEvents.push(`完成目标：${g.description}`)
                     }
@@ -2086,39 +2122,44 @@ export class AgentRuntimeBridge {
                   const context = buildDiaryContext({
                     goals: goals.map((g) => ({ description: g.description, status: g.status })),
                     reflections: reflections.map((r) => ({ primaryIssue: r.primary_issue })),
-                    concerns: readConcerns(this.localDb.db),
-                    mood: readMood(this.localDb.db, 'assistant'),
+                    concerns: readConcerns(this.localDb.db, agentId),
+                    mood: readMood(this.localDb.db, agentId),
                     recentDiaries,
                     todayEvents,
                   })
                   // recentDiaries 已含在 context 中，不再单独拼接（防双份注入强化套话开场）
                   const prompt = `${DIARY_PROMPT}\n\n今日素材：${JSON.stringify(context)}`
                   const diary = await this.callLLM(prompt, undefined, 'diary')
-                  this.ensureConversationExists(EVOLUTION_CONVERSATION_ID, '自主进化 · 内心独白')
+                  // 会话按 agent 取：助手 `evolution:main`、宠物 `evolution:pet:<模型ID>`。
+                  // 用 `ensurePetConversation` 而不是裸的 `ensureConversationExists`——
+                  // 宠物会话还要顺带修参与者归属（见那个方法的注释）
+                  const diaryConvId = this.evolutionConversationIdFor(agentId)
+                  this.ensurePetConversation(agentId, diaryConvId)
                   const askRow = this._conversationRepo?.saveMessage({
-                    conversationId: EVOLUTION_CONVERSATION_ID,
-                    agentId: 'assistant',
+                    conversationId: diaryConvId,
+                    agentId,
                     role: 'user',
                     contentJson: { type: 'text', text: '写今天的日记' },
                   })
                   const diaryRow = this._conversationRepo?.saveMessage({
-                    conversationId: EVOLUTION_CONVERSATION_ID,
-                    agentId: 'assistant',
+                    conversationId: diaryConvId,
+                    agentId,
                     role: 'assistant',
                     contentJson: { type: 'text', text: diary },
                   })
-                  if (askRow) this.pushSavedMessage(EVOLUTION_CONVERSATION_ID, askRow.id, 'user', '写今天的日记')
-                  if (diaryRow) this.pushSavedMessage(EVOLUTION_CONVERSATION_ID, diaryRow.id, 'assistant', diary)
-                  saveDiary(this.localDb.db, 'assistant', todayDateKey(), diary)
-                  markDiaryWritten(this.localDb.db)
+                  if (askRow) this.pushSavedMessage(diaryConvId, askRow.id, 'user', '写今天的日记')
+                  if (diaryRow) this.pushSavedMessage(diaryConvId, diaryRow.id, 'assistant', diary)
+                  // 双写：会话（给用户看）+ 表（给 LLM 做连续性上下文），两者都按 agent 分
+                  saveDiary(this.localDb.db, agentId, todayDateKey(), diary)
+                  markDiaryWritten(this.localDb.db, agentId)
                   return diary.slice(0, 60)
                 },
                 plan: async (agentId) => {
-                  // v1：规划器只服务 assistant（landing 写 agent_id='assistant'）
-                  if (agentId !== 'assistant') return null
+                  // 谁能排自己的期：助手与宠物（`hasInnerLife`）——系统 Agent 不排
+                  if (!hasInnerLife(agentId)) return null
                   // 心跳兜底：静默时段 + 距上次规划满 24h 才拉起规划，否则返回 null 表示不规划
-                  if (!shouldFallbackPlan(this.localDb.db, new Date())) return null
-                  const ok = await this.runPlannerNow()
+                  if (!shouldFallbackPlan(this.localDb.db, agentId, new Date())) return null
+                  const ok = await this.runPlannerNow(agentId)
                   return ok ? 'planned' : null
                 },
               }),
@@ -2173,11 +2214,18 @@ export class AgentRuntimeBridge {
     // 调度器 start() 不在这里调用：过期 every 任务会立即补跑并驱动 Agent，
     // 需等 instanceFactory / promptDispatcher 就绪（见 finalizeInitialize）
 
-    // 启动即检查主动规划：启用自主进化且今天还没规划过 → 异步补一次未来 24h 的规划。
+    // 启动即检查主动规划：**当前宠物**今天还没规划过 → 异步补一次未来 24h 的规划。
+    // 主体是宠物（2026-09-24 主体迁移）：助手不再跑自主进化，见实施计划第六期 T6.4。
+    // 不在宠物模式就什么都不做——心跳的 `plan` 动作下次照样会兜底。
     // 不阻塞启动流程；runPlannerNow 内部已 try-catch，失败只记日志。
-    if (readAutonomousEnabled(this.localDb.db) && shouldFallbackPlan(this.localDb.db, new Date())) {
+    const plannerSubject = isPetMode() ? petAgentId(getStoredModelId()) : null
+    if (
+      plannerSubject &&
+      readAutonomousEnabled(this.localDb.db) &&
+      shouldFallbackPlan(this.localDb.db, plannerSubject, new Date())
+    ) {
       setTimeout(() => {
-        void this.runPlannerNow()
+        void this.runPlannerNow(plannerSubject)
       }, 60_000)
     }
   }

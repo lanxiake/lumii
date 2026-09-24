@@ -328,7 +328,12 @@ describe('ReflectionEngine', () => {
       // 验证 prompt 包含会话信息
       const llmCall = mockLlmClient.complete.mock.calls[0][0];
       expect(llmCall.prompt).toContain('实现二分查找');
-      expect(llmCall.prompt).toContain('未知任务'); // 处理空 task_summary
+      // V53（2026-09-24）起：没有记录就显示「（无记录）」。
+      // 旧行为是兜底成 `'未知任务'`——那个值读起来像"有个任务但我不知道"，
+      // LLM 把它当成待解释的现象追了一周（40 条 agent-self:* 任务的来源）。
+      // 反向断言同样重要：这个字面量**必须**从提示词里消失。
+      expect(llmCall.prompt).toContain('（无记录）');
+      expect(llmCall.prompt).not.toContain('未知任务');
     });
   });
 });

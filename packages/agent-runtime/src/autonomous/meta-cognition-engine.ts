@@ -58,6 +58,12 @@ export function computeSatisfactionScore(metrics: SessionMetrics, weights: Satis
     timestamp: new Date().toISOString(),
     sessionId: metrics.sessionId,
     agentId: metrics.agentId,
+    // V53（2026-09-24）：这三个指标本来就在 `metrics` 里，此前没落库 ——
+    // 反思引擎读那三列时恒拿到 `undefined`，静默兜底成「未知任务 / 0 / 0」，
+    // 于是产出了一大批追着自己幻象跑的自我改进目标。现在原样带上。
+    taskSummary: metrics.taskDescription,
+    toolCallCount: metrics.toolCallCount,
+    errorCount: metrics.errorCount,
   };
 }
 
@@ -127,10 +133,13 @@ export class MetaCognitionEngine {
       const sql = `
         INSERT INTO autonomous_satisfaction_scores (
           id, session_id, agent_id, task_completion, user_feedback,
-          efficiency, knowledge_growth, overall_score, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          efficiency, knowledge_growth, overall_score, created_at,
+          task_summary, tool_call_count, error_count
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `;
-      await this.db.execute(sql, [id, score.sessionId, score.agentId, score.taskCompletion, score.userFeedback, score.efficiency, score.knowledgeGrowth, score.overall, score.timestamp]);
+      await this.db.execute(sql, [id, score.sessionId, score.agentId, score.taskCompletion, score.userFeedback, score.efficiency, score.knowledgeGrowth, score.overall, score.timestamp,
+        // 三列可空：老行的这三列没有来源，新行取不到真值时也写 NULL 而不是编一个 0
+        score.taskSummary ?? null, score.toolCallCount ?? null, score.errorCount ?? null]);
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error));
       // 数据库失败仅记录日志，不影响评分返回

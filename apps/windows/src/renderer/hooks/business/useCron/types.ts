@@ -15,7 +15,7 @@ export type CronRunStatus = 'ok' | 'error' | 'running'
 export type CronJobSource = 'system' | 'agent' | 'user'
 
 /** 启停被哪个开关接管；null 表示用户自管 */
-export type CronJobManagedBy = 'autonomous' | 'companion'
+export type CronJobManagedBy = 'autonomous' | 'companion' | 'pet'
 
 /** 定时任务 */
 export interface CronJob {

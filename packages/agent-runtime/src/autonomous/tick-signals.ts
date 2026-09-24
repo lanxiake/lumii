@@ -10,7 +10,7 @@ import { AutonomousRepo } from '../storage/autonomous-repo.js';
 import type { DatabaseAdapter } from '../storage/local-database.js';
 import { getOutreachUsedToday, getLastOutreachAt } from './outreach-budget.js';
 import { REFLECTION_MIN_INTERVAL_HOURS, STUCK_GOAL_THRESHOLD_MS } from './config.js';
-import { hasWrittenDiaryToday } from './diary.js';
+import { hasWrittenDiaryToday, hasInnerLife } from './diary.js';
 import { readSettings } from './settings.js';
 import { TOKEN_COST, readTodayTokenUsage } from './token-budget.js';
 import { readMood, moodToDecisionParams, circadianEnergy } from './mood.js';
@@ -136,10 +136,16 @@ function isInQuietHours(hour: number, start: number, end: number): boolean {
 }
 
 /** 静默时段内且今天尚未写日记才触发。日记属生命感系统（assistant 人格专属），其他自主 Agent 不参与。 */
+/**
+ * 静默时段内且今天尚未写日记才触发。
+ *
+ * 白名单是「助手 + 宠物」（`hasInnerLife`，2026-09-24 起）——**系统 Agent 不参与**。
+ * 判据与写入方 `bridge.writeDiary` 同源，两处不会再各自漂移。
+ */
 function computeDiaryDue(db: DatabaseAdapter, agentId: string, now: Date, quietHours: [number, number]): boolean {
-  if (agentId !== 'assistant') return false;
+  if (!hasInnerLife(agentId)) return false;
   const inQuietHours = isInQuietHours(now.getHours(), quietHours[0], quietHours[1]);
-  return inQuietHours && !hasWrittenDiaryToday(db, now);
+  return inQuietHours && !hasWrittenDiaryToday(db, agentId, now);
 }
 
 /** 静默时段内且距上次反思满 24h 才触发反思 */

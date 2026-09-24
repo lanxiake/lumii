@@ -112,10 +112,10 @@ export function buildReflectionPrompt(
   },
   recentSessions: Array<{
     timestamp: string;
-    taskSummary: string;
+    taskSummary: string | null;
     satisfaction: number;
-    toolCount: number;
-    errorCount: number;
+    toolCount: number | null;
+    errorCount: number | null;
   }>
 ): string {
   // 格式化满意度历史
@@ -148,12 +148,17 @@ export function buildReflectionPrompt(
       : '无明显能力缺口';
 
   // 格式化会话摘要（脱敏）
+  //
+  // 「摘要」而不是「任务」：这一列的真实内容是**工具序列**（`file_read×3, grep×1`，
+  // 见 V53 的迁移注释）——用户原话刻意不进这条链，所以从来就没有"任务描述"可放。
+  // 老行（V53 之前）三列皆无，显示「（无记录）」而**不编**一个像真值的兜底：
+  // 曾经的 `'未知任务'` 被 LLM 当成待解释的现象追了一周（40 条 `agent-self:*` 任务）。
   const sessionsText =
     recentSessions.length > 0
       ? recentSessions
           .map(
             (s) =>
-              `[${s.timestamp}] 任务: ${s.taskSummary}, 满意度: ${s.satisfaction.toFixed(2)}, 工具使用: ${s.toolCount}, 错误: ${s.errorCount}`
+              `[${s.timestamp}] 摘要: ${s.taskSummary ?? '（无记录）'}, 满意度: ${s.satisfaction.toFixed(2)}, 工具使用: ${s.toolCount ?? '（无记录）'}, 错误: ${s.errorCount ?? '（无记录）'}`
           )
           .join('\n')
       : '无最近会话记录';

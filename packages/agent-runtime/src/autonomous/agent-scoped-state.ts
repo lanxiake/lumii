@@ -43,7 +43,16 @@ export function readAgentScopedState(
     const legacy = repo.get(legacyKey);
     if (legacy === undefined) return undefined;
     repo.set(ownKey, legacy);
-    repo.delete(legacyKey);
+    // 删除**单独包一层**（2026-09-24）：`RuntimeStateRepo.delete` 会读 `run()` 的
+    // `.changes`，而任何不返回该字段的 db 替身都会在这里抛。原先它和外层共用同一个
+    // catch，于是"清理老键失败"会让**这次读取整个变成 undefined** —— 调用方看到的
+    // 是"这个主体没有额度/没有情绪"，而不是"搬迁没搬干净"。
+    // 删不掉的实际代价只是下次再搬一次（幂等），两件事不该共用一个失败域。
+    try {
+      repo.delete(legacyKey);
+    } catch {
+      /* 老键清不掉就下次再清，值已经返回了 */
+    }
     return legacy;
   } catch {
     return undefined;

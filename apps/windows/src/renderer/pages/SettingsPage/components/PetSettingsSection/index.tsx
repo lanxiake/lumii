@@ -327,7 +327,9 @@ export const PetSettingsSection: React.FC = () => {
             <span className={styles['setting-hint']}>
               开启后控制坞里会有「让它去做」：把一件事交给它，它自己去搜索、读文件，回来报结果
               （只会看，不会改你的东西）。它会真的花掉模型的调用额度，所以想关随时能关；
-              已经在路上的那一件会跑完
+              已经在路上的那一件会跑完。
+              <br />
+              ※ 注意：宠物的行为由本页这几个开关控制；设置里的「自主进化」总开关管的是助手那边，不影响它
             </span>
           </div>
 
@@ -350,7 +352,10 @@ export const PetSettingsSection: React.FC = () => {
             >
               开启主动联系
             </Checkbox>
-            <span className={styles['setting-hint']}>仅在宠物模式下生效；需保持客户端运行</span>
+            <span className={styles['setting-hint']}>
+              仅在宠物模式下生效；需保持客户端运行。管的是它主动找你搭话（问候、关心那类），
+              与上面的「让它去做」互不影响——那个管的是它替你去办事
+            </span>
           </div>
 
           {vhSettings.proactiveCareEnabled && (

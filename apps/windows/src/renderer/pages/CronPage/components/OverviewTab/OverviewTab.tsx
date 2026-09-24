@@ -22,6 +22,7 @@ interface OverviewTabProps {
 const MANAGED_HINT: Record<CronJobManagedBy, string> = {
   autonomous: '由「自主进化」总开关控制，请在设置页切换',
   companion: '由「主动联系」开关控制，请在设置页切换',
+  pet: '由「允许宠物主动做事」开关控制，请在设置页切换',
 }
 
 const GROUP_HINT: Partial<Record<CronJob['source'], string>> = {

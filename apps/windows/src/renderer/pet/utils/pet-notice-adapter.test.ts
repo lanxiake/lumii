@@ -17,6 +17,9 @@ const taskResult = (summary: string) => ({
   content: [{ type: 'text', text: JSON.stringify({ status: 'completed', summary }) }],
 })
 
+/** 本文件统一的宠物身份。2026-09-24 起 `pet:sensing` 也带 `petAgentId`（与回执同口径） */
+const PET = 'pet:demo_cartoon_cat'
+
 /** 验证门那次：**不是**完成，但 `isError` 是 false（线上实测抓到的形态） */
 const verificationGateResult = () => ({
   content: [
@@ -292,8 +295,6 @@ describe('toNoticeEvent —— 宠物目标回执（三期 T3.5）', () => {
 })
 
 describe('isPetMoodEvent —— 情绪归属（四期 T4.4）', () => {
-  const PET = 'pet:demo_cartoon_cat'
-
   it('宠物自己的 → 采纳', () => {
     expect(isPetMoodEvent({ agentId: PET }, PET)).toBe(true)
   })
@@ -319,6 +320,7 @@ describe('toNoticeEvent —— 宠物感知（四期 T4.2/T4.3）', () => {
   // 不是照抄适配器的字段名。两边漂移时这里会编译不过。
   const sensingEvent = (over: Partial<PetSensingEvent> = {}): PetSensingEvent => ({
     type: 'pet:sensing',
+    petAgentId: PET,
     // 注意：这条是**用户正在用的那条会话**，不是宠物自己的（宠物目标那条反过来）
     sessionKey: 'conv-user-1',
     text: '要不要歇会儿',
@@ -356,6 +358,7 @@ describe('toNoticeEvent —— 宠物感知（四期 T4.2/T4.3）', () => {
 describe('宠物感知的建议（五期 T5.1②）', () => {
   const withProposal = (description: string): PetSensingEvent => ({
     type: 'pet:sensing',
+    petAgentId: PET,
     sessionKey: 'conv-user-1',
     text: '要不要歇会儿',
     kind: 'interrupted',
@@ -371,6 +374,7 @@ describe('宠物感知的建议（五期 T5.1②）', () => {
    */
   const withoutProposal = (): PetSensingEvent => ({
     type: 'pet:sensing',
+    petAgentId: PET,
     sessionKey: 'conv-user-1',
     text: '要不要歇会儿',
     kind: 'interrupted',

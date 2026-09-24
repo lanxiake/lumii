@@ -363,7 +363,13 @@ export function AutonomousPage({ embedded = false }: { embedded?: boolean } = {}
     <div className={`${styles.page} ${embedded ? styles.pageEmbedded : ''}`}>
       {/* 页头：标题 + 启用开关同行 */}
       <div className={styles.header}>
-        <h1 className={styles.title}>自主进化</h1>
+        <h1 className={styles.title}>
+          自主进化
+          {/* 2026-09-24 主体迁移：这块面板的数据源从助手换成**当前宠物**。
+              不在宠物模式时全为空 —— 主进程侧 `autonomous-ipc.ts` 的 subjectAgentId()
+              返回哨兵，各查询自然查不到东西（刻意不回落助手，见那段注释）。 */}
+          <span className={styles.subject}>· 当前宠物</span>
+        </h1>
         <div className={styles.headerActions}>
           <Tooltip content={TIP_ENABLED} placement="bottom">
             <span className={styles.toggleLabel}>{autonomousEnabled ? '已启用' : '已禁用'}</span>

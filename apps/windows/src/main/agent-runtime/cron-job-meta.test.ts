@@ -42,6 +42,19 @@ describe('getCronJobManagedBy', () => {
     expect(getCronJobManagedBy('companion-memory-fast')).toBeNull()
   })
 
+  /**
+   * 2026-09-24 补：宠物派发**已经**由「允许宠物主动做事」接管
+   * （`syncPetDispatchJobEnabled`，五期 T5.9 交付），而这个判定此前没跟上——
+   * 任务页把它显示成"用户自管"，与设置页的开关打架。
+   *
+   * `pet-sensing` 则是**故意**不在这里：它谁也不跟（跟了「主动联系」就等于
+   * 第四期默认不可见，因为那个开关默认关着），所以它仍是用户自管。
+   */
+  it('宠物派发跟随「允许宠物主动做事」；感知谁都不跟', () => {
+    expect(getCronJobManagedBy('pet-dispatch')).toBe('pet')
+    expect(getCronJobManagedBy('pet-sensing')).toBeNull()
+  })
+
   it('其余任务用户自管', () => {
     expect(getCronJobManagedBy('seed-focus-check')).toBeNull()
     expect(getCronJobManagedBy('user-uuid')).toBeNull()

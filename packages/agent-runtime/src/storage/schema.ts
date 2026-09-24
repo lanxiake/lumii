@@ -1806,4 +1806,35 @@ UPDATE tool_audit_log SET source = 'llm' WHERE tool_name LIKE 'llm:%';
 CREATE INDEX IF NOT EXISTS idx_tool_audit_source ON tool_audit_log (source, timestamp);
 `,
   ],
+  // V53: 满意度评分补三列 —— 反思引擎一直在读它们，而它们从不存在
+  //
+  // 病象（2026-09-24 查实）：`reflection-engine.getRecentSessionSummaries` 读
+  // `task_summary` / `tool_call_count` / `error_count` 三列，而这张表（V28 建表）
+  // 从没加过它们。JS 取不到就是 `undefined`，于是**静默**兜底成
+  // `'未知任务' / 0 / 0` 再喂进反思提示词 —— LLM 只能得出「任务未知、工具使用 0」
+  // 的结论，进而生成「固化澄清协议」「强制执行四段式输出」这类自我改进目标。
+  //
+  // 真实后果（真机库）：`runtime_state['autonomous.concerns']` 的第一条就是
+  // 「最近多轮任务仍被记录为未知任务且工具使用为 0，我还没有弄清」，而 40 条
+  // `agent-self:*` 自建任务里绝大多数在追这个现象 —— 这套系统对**自身代码造成的
+  // 幻象**做了大量自我改进。
+  //
+  // 为什么是补列而不是改读取方：
+  // - 工具数与错误数**本来就算出来了**（`collectMetricsFromSession` 有 `toolCallCount`
+  //   / `errorCount`），只是 `saveScore` 的 INSERT 只写 8 列，把它们丢了；
+  // - `task_summary` 没有现成的"任务描述"可写（`buildSessionSnapshot` 刻意把消息正文
+  //   抹成空串，不把用户原话喂给自主进化），故**写工具摘要**（`file_read×3, grep×1`）：
+  //   零隐私风险，且足以回答"这个会话干了什么"。列名不改（改名要重建表，不值），
+  //   语义在 `SatisfactionScore.taskSummary` 的类型注释里写明。
+  //
+  // 三列都**可空**，且不回填历史行：老行没有来源，回填只能是编 ——
+  // 与 V45 的「不假装能归因」、V52 的「历史行保持 unknown」同一原则。
+  [
+    53,
+    `
+ALTER TABLE autonomous_satisfaction_scores ADD COLUMN task_summary TEXT;
+ALTER TABLE autonomous_satisfaction_scores ADD COLUMN tool_call_count INTEGER;
+ALTER TABLE autonomous_satisfaction_scores ADD COLUMN error_count INTEGER;
+`,
+  ],
 ] as const;

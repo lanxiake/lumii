@@ -26,6 +26,22 @@ export interface SatisfactionScore {
   sessionId: string;
   /** Agent ID */
   agentId: string;
+  /**
+   * 会话摘要（落库列名 `task_summary`）。
+   *
+   * ⚠ **它不是任务描述**，是**工具摘要**（`file_read×3, grep×1`）——用户原话刻意
+   * 不进这条链（`buildSessionSnapshot` 把消息正文抹成空串），能反映"这个会话干了什么"
+   * 的机器可读信号只剩工具序列。
+   *
+   * V53（2026-09-24）之前这一列**不存在**，反思读到的恒是兜底值 `'未知任务'`，
+   * 并据此产出了大量"任务不明确 / 工具使用 0"的自我改进目标。老行的这一列是 NULL，
+   * 读取方要按"没有记录"处理，**不要再编一个看起来像真值的兜底**。
+   */
+  taskSummary?: string;
+  /** 工具调用次数（V53 起落库；此前读取方恒拿到兜底 0） */
+  toolCallCount?: number;
+  /** 工具错误次数（同上） */
+  errorCount?: number;
 }
 
 /**

@@ -22,7 +22,16 @@ export interface SessionMetrics {
   userInteractionCount: number;
   /** 知识查询次数 */
   knowledgeQueriesCount: number;
-  /** 任务描述摘要 */
+  /**
+   * 会话摘要（`file_read×3, grep×1`）——由工具调用聚合，落到 `task_summary` 列。
+   *
+   * ⚠ **它不是任务描述**：真实的任务描述在这条链上取不到——`buildSessionSnapshot`
+   * 刻意把消息正文抹成空串（不把用户原话喂给自主进化）。工具序列是唯一既能反映
+   * "这个会话干了什么"、又不带用户内容的机器可读信号。
+   *
+   * 没有工具调用时为 `undefined`（不是空串）：让"没有"与"有但是空"可分，
+   * 免得下游再编一个看起来像真值的兜底。
+   */
   taskDescription?: string;
   /**
    * 用户反馈分值覆盖（V1.0）。
@@ -151,6 +160,32 @@ const KNOWLEDGE_QUERY_TOOLS = new Set([
 /**
  * 从 Agent 会话收集指标
  */
+/**
+ * 由工具调用聚合出一行摘要：`file_read×3, grep×1`。
+ *
+ * **确定性输出**：按次数降序、同次数按名字升序——同一批工具调用每次得到同一个字符串，
+ * 否则测试断言与日志对照都会飘。上限 200 字符（这是给人读的一行，不是数据）。
+ *
+ * 没有工具调用时返回 `undefined`：见 `SessionMetrics.taskDescription` 的注释。
+ */
+export function summarizeToolCalls(
+  toolCalls: Array<{ toolName?: string }> | undefined,
+): string | undefined {
+  if (!toolCalls || toolCalls.length === 0) return undefined
+  const counts = new Map<string, number>()
+  for (const tc of toolCalls) {
+    const name = tc.toolName?.trim()
+    if (!name) continue
+    counts.set(name, (counts.get(name) ?? 0) + 1)
+  }
+  if (counts.size === 0) return undefined
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .map(([name, n]) => (n > 1 ? `${name}×${n}` : name))
+    .join(', ')
+    .slice(0, 200)
+}
+
 export function collectMetricsFromSession(session: AgentSession): SessionMetrics {
   const messageCount = session.messages?.length || 0;
   const toolCallCount = session.toolCalls?.length || 0;
@@ -174,7 +209,7 @@ export function collectMetricsFromSession(session: AgentSession): SessionMetrics
     errorCount,
     userInteractionCount,
     knowledgeQueriesCount,
-    taskDescription: session.messages?.[0]?.content?.substring(0, 100),
+    taskDescription: summarizeToolCalls(session.toolCalls),
     // 外层在会话快照上挂真实反馈分值时透传给 extractUserFeedback
     userFeedbackOverride:
       typeof session.userFeedbackOverride === 'number' ? session.userFeedbackOverride : undefined,

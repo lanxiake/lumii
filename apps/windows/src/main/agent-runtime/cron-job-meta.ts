@@ -11,16 +11,21 @@
  * - companion-tick：跟随「主动联系」开关（vhSettings.proactiveCareEnabled）
  * - autonomous-tick 与 agent-self:*：跟随「自主进化」总开关（runtime_state: autonomous.enabled）
  * - companion-memory-* 与 wiki-purge-broken-refs 不受任何开关覆盖，同用户自管
- * - pet-dispatch：**不跟随自主进化开关**（宠物是独立 Agent，设计 §3.7），用户自管；
- *   第五期 T5.9 有「是否允许宠物主动做事」的开关后再改由它接管
- * - pet-sensing：同上，**而且刻意不跟随「主动联系」开关**——那个开关默认是关的，
+ * - pet-dispatch：跟随「允许宠物主动做事」（`vhSettings.enablePetTask`，五期 T5.9 起生效）——
+ *   **不跟随自主进化开关**（宠物是独立 Agent，设计 §3.7）
+ * - pet-sensing：**谁也不跟**，用户自管。**刻意不跟随「主动联系」开关**——那个开关默认是关的，
  *   跟了就等于整个第四期默认不可见。冒不冒泡由渲染层的 `enableAgentNotice` 再判一道
  */
 
 import { SELF_CRON_ID_PREFIX } from '@mtbot/agent-runtime'
 
 export type CronJobSource = 'system' | 'agent' | 'user'
-export type CronJobManagedBy = 'autonomous' | 'companion'
+/**
+ * ⚠ 这个联合类型在**三处**各写了一份（分层各自声明，没有共享包）：
+ * 这里 / `shared/agent-runtime-commands.ts` 的 `cron:list` 契约 / `renderer/hooks/business/useCron/types.ts`。
+ * 加取值时三处一起加 —— 漏一处是编译不过（不是静默），但仍要记得。
+ */
+export type CronJobManagedBy = 'autonomous' | 'companion' | 'pet'
 
 /** 与其它来源前缀不重叠的系统种子精确 id */
 const SYSTEM_EXACT_IDS = new Set(['news-pipeline', 'autonomous-tick', 'pet-dispatch', 'pet-sensing'])
@@ -37,6 +42,11 @@ export function classifyCronJobSource(id: string): CronJobSource {
 export function getCronJobManagedBy(id: string): CronJobManagedBy | null {
   if (id === 'autonomous-tick' || id.startsWith(SELF_CRON_ID_PREFIX)) return 'autonomous'
   if (id === 'companion-tick') return 'companion'
+  // 2026-09-24 补：宠物派发**已经**由「允许宠物主动做事」接管
+  // （`syncPetDispatchJobEnabled`，五期 T5.9），而这个判定没跟上——
+  // 任务页此前把它显示成"用户自管"，与实际不符（文件头那句注释也已经过期）。
+  if (id === 'pet-dispatch') return 'pet'
+  // pet-sensing **刻意不列**：它谁也不跟（见文件头），用户可在任务页自管。
   return null
 }
 

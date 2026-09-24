@@ -8,6 +8,8 @@
 import { randomUUID } from 'node:crypto'
 import { readConcerns, type Concern } from './concerns.js';
 import { type Mood } from './mood.js';
+import { readAgentScopedState } from './agent-scoped-state.js';
+import { isPetAgentId } from './pet-goals.js';
 import type { DatabaseAdapter } from '../storage/local-database.js';
 
 /** 日记提示词模板 —— 关键约束不可删（防写成指标报告/表演情绪/割裂周报） */
@@ -62,7 +64,20 @@ export function buildDiaryContext(data: DiarySourceData): DiaryContext {
   };
 }
 
-const LAST_DIARY_KEY = 'autonomous.last_diary_date';
+/**
+ * 日记防重键（**按 agent 分**）。
+ *
+ * 2026-09-24 起带 agentId。在此之前它是全局单键 `autonomous.last_diary_date`——
+ * 也就是"一天只能有一个人写日记"：宠物一旦要写，就会把助手的防重吃掉（反之亦然），
+ * 症状是**某一边静默地不写**。老键按「属于 assistant」处理，
+ * 走 `readAgentScopedState` 那套读时搬运（与 mood / token 分键同一手法）。
+ */
+const LAST_DIARY_KEY_PREFIX = 'autonomous.last_diary_date:';
+const LEGACY_LAST_DIARY_KEY = 'autonomous.last_diary_date';
+
+function lastDiaryKey(agentId: string): string {
+  return `${LAST_DIARY_KEY_PREFIX}${agentId}`;
+}
 
 function dateKey(now: Date): string {
   const y = now.getFullYear();
@@ -71,30 +86,45 @@ function dateKey(now: Date): string {
   return `${y}-${m}-${d}`;
 }
 
-/** 今天日期键（YYYY-MM-DD），供 saveDiary 与 markDiaryWritten 对齐 */
+/** 日期键（YYYY-MM-DD），供 saveDiary 与 markDiaryWritten 对齐 */
 export function todayDateKey(now = new Date()): string {
   return dateKey(now);
 }
 
-/** 今天是否已写过日记（防重） */
-export function hasWrittenDiaryToday(db: DatabaseAdapter, now = new Date()): boolean {
-  try {
-    const row = db
-      .prepare<{ value: string }>(`SELECT value FROM runtime_state WHERE key = ?`)
-      .get(LAST_DIARY_KEY);
-    return row?.value === dateKey(now);
-  } catch {
-    return false;
-  }
+/**
+ * 谁有"内心生活"——**写日记、做反思、排自己的计划**，这三件事的准入是同一个集合。
+ *
+ * - `assistant`：生命感系统的原始主体（自主进化 11 号文档 §9）
+ * - `pet:<模型ID>`：宠物（2026-09-24 起）—— 它有自己的会话、自己的人格、自己的账
+ * - 系统 Agent（`chronicler` / `info-curator` / `system-keeper`）：**没有**。
+ *   它们是干活的（写简报、抓资讯、清工作区），给它们排"自己想做什么"的期没有意义，
+ *   一天多三篇没人看的独白也只是成本
+ *
+ * ⚠ **凡"这件事该不该给某个主体做"的判定都走它**，别各写各的 `!== 'assistant'`——
+ * 先前 `computeDiaryDue` 与 `writeDiary` 各写一份，改一处漏一处就会变成
+ * "守卫说能写、写入方说不能"，而且两边都静默。
+ */
+export function hasInnerLife(agentId: string): boolean {
+  return agentId === 'assistant' || isPetAgentId(agentId);
 }
 
-/** 标记今天已写日记 */
-export function markDiaryWritten(db: DatabaseAdapter, now = new Date()): void {
+/** 今天是否已写过日记（防重，按 agent） */
+export function hasWrittenDiaryToday(
+  db: DatabaseAdapter,
+  agentId: string,
+  now = new Date(),
+): boolean {
+  const raw = readAgentScopedState(db, agentId, lastDiaryKey(agentId), LEGACY_LAST_DIARY_KEY);
+  return raw === dateKey(now);
+}
+
+/** 标记今天已写日记（按 agent） */
+export function markDiaryWritten(db: DatabaseAdapter, agentId: string, now = new Date()): void {
   db.prepare(
     `INSERT INTO runtime_state (key, value, updated_at)
      VALUES (?, ?, ?)
      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
-  ).run(LAST_DIARY_KEY, dateKey(now), new Date().toISOString());
+  ).run(lastDiaryKey(agentId), dateKey(now), new Date().toISOString());
 }
 
 /** 落一篇日记到 autonomous_diaries 表（权威留存，供检索与连续性读取） */

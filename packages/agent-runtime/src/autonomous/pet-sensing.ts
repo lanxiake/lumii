@@ -115,17 +115,32 @@ const HOUR_WORDS = ['零', '一', '两', '三', '四', '五', '六', '七', '八
 
 const STATE_PREFIX = 'pet.sensing.';
 
-/** 当天说过的次数（按种类），日界取**本地零点**——与 token / 目标配额同口径 */
-export function petSensingSpokenKey(now: Date): string {
+/**
+ * 当天说过的次数（按种类），日界取**本地零点**——与 token / 目标配额同口径。
+ *
+ * ⚠ **键必须带 agentId**（2026-09-24 补）：mood / 性格 / 出生快照 / token 账
+ * 全都按 `pet:<模型ID>` 分了，只有这两个键漏了。而"换模型 = 换宠物"是既有口径
+ * （`petAgentId(configId)`），于是**切一次模型，新宠物当天的配额就被旧宠物吃掉了**。
+ *
+ * 键形与 `pet.task.readAt:<agentId>` / `autonomous.mood:<agentId>` 同一约定。
+ * 老键（`pet.sensing.spoken:<日>`，无 agentId）**不做读时迁移**：真机上它从来是空的
+ * （感知上线后没有任何一拍说过话），没有存量可分。
+ */
+export function petSensingSpokenKey(agentId: string, now: Date): string {
   const day = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(
     now.getDate(),
   ).padStart(2, '0')}`;
-  return `${STATE_PREFIX}spoken:${day}`;
+  return `${STATE_PREFIX}spoken:${agentId}:${day}`;
 }
 
-/** 已经据此改过 mood 的那条评分 id——同一条评分只能让宠物低落一次 */
-export function petSensingHandledScoreKey(): string {
-  return `${STATE_PREFIX}handled-score`;
+/**
+ * 已经据此改过 mood 的那条评分 id——同一条评分只能让宠物低落一次。
+ *
+ * ⚠ 同 {@link petSensingSpokenKey}：**必须带 agentId**。不带的话，一只宠物消费了
+ * 那条低分，另一只（切模型后的新宠物）就永远不会因它而低落——静默、且只在换宠物时出现。
+ */
+export function petSensingHandledScoreKey(agentId: string): string {
+  return `${STATE_PREFIX}handled-score:${agentId}`;
 }
 
 // ── 信号 ──
@@ -436,13 +451,17 @@ export function countScoredUserSessions(db: DatabaseAdapter): number {
 
 // ── 宠物侧的状态读写 ──
 
-/** 今天已说过的次数 */
-export function readSpokenToday(db: DatabaseAdapter, now: Date): Record<PetSensingKind, number> {
+/** 今天已说过的次数（按这只宠物） */
+export function readSpokenToday(
+  db: DatabaseAdapter,
+  agentId: string,
+  now: Date,
+): Record<PetSensingKind, number> {
   const empty = { interrupted: 0, tired: 0 };
   try {
     const row = db
       .prepare<{ value: string }>(`SELECT value FROM runtime_state WHERE key = ?`)
-      .get(petSensingSpokenKey(now));
+      .get(petSensingSpokenKey(agentId, now));
     if (!row?.value) return empty;
     const parsed = JSON.parse(row.value) as Partial<Record<PetSensingKind, number>>;
     return {
@@ -454,35 +473,40 @@ export function readSpokenToday(db: DatabaseAdapter, now: Date): Record<PetSensi
   }
 }
 
-/** 记一次"说过了"。写失败只影响当天配额，不该打断感知。 */
-export function recordSpoken(db: DatabaseAdapter, kind: PetSensingKind, now: Date): void {
-  const next = readSpokenToday(db, now);
+/** 记一次"说过了"（记在这只宠物自己账上）。写失败只影响当天配额，不该打断感知。 */
+export function recordSpoken(
+  db: DatabaseAdapter,
+  agentId: string,
+  kind: PetSensingKind,
+  now: Date,
+): void {
+  const next = readSpokenToday(db, agentId, now);
   next[kind] += 1;
   db.prepare(
     `INSERT INTO runtime_state (key, value, updated_at)
      VALUES (?, ?, ?)
      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
-  ).run(petSensingSpokenKey(now), JSON.stringify(next), new Date().toISOString());
+  ).run(petSensingSpokenKey(agentId, now), JSON.stringify(next), new Date().toISOString());
 }
 
-/** 已经据此改过 mood 的那条评分 id */
-export function readHandledScoreId(db: DatabaseAdapter): string | null {
+/** 已经据此改过 mood 的那条评分 id（按这只宠物） */
+export function readHandledScoreId(db: DatabaseAdapter, agentId: string): string | null {
   try {
     const row = db
       .prepare<{ value: string }>(`SELECT value FROM runtime_state WHERE key = ?`)
-      .get(petSensingHandledScoreKey());
+      .get(petSensingHandledScoreKey(agentId));
     return row?.value ?? null;
   } catch {
     return null;
   }
 }
 
-export function writeHandledScoreId(db: DatabaseAdapter, scoreId: string): void {
+export function writeHandledScoreId(db: DatabaseAdapter, agentId: string, scoreId: string): void {
   db.prepare(
     `INSERT INTO runtime_state (key, value, updated_at)
      VALUES (?, ?, ?)
      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
-  ).run(petSensingHandledScoreKey(), scoreId, new Date().toISOString());
+  ).run(petSensingHandledScoreKey(agentId), scoreId, new Date().toISOString());
 }
 
 // ── 收集 + 决策 ──
@@ -507,8 +531,8 @@ export function collectPetSensingSignals(
     lastSatisfaction: readLatestSatisfaction(db),
     scoredSessions: countScoredUserSessions(db),
     petMood: readMood(db, petAgentId, now.getTime()),
-    spokenToday: readSpokenToday(db, now),
-    handledScoreId: readHandledScoreId(db),
+    spokenToday: readSpokenToday(db, petAgentId, now),
+    handledScoreId: readHandledScoreId(db, petAgentId),
   };
 }
 

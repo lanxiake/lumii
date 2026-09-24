@@ -6,6 +6,7 @@
  * （其 type 列 CHECK 约束不允许 follow-up 之外的自定义类型）。
  */
 
+import { readAgentScopedState } from './agent-scoped-state.js';
 import type { DatabaseAdapter } from '../storage/local-database.js';
 
 /** 一条牵挂 */
@@ -19,7 +20,24 @@ export interface Concern {
   status: 'open' | 'resolved' | 'dropped';
 }
 
-const CONCERNS_KEY = 'autonomous.concerns';
+/**
+ * 牵挂键（**按 agent 分**）。
+ *
+ * 2026-09-24 起带 agentId。在此之前它是全局单键 `autonomous.concerns`——所有主体
+ * 共用一份牵挂。而牵挂是**内心**（"我心里在意、还没结论的事"），不是账本：
+ * 不分键的话，宠物会把助手「最近多轮任务仍被记录为未知任务」那类议题
+ * 当成自己的心事去惦记，反之亦然。假牵挂比没有牵挂更伤"它真的在意"这件事。
+ *
+ * 老键按「属于 assistant」处理，走 `readAgentScopedState` 的读时搬运
+ * （与 mood / token / 日记防重键同一手法）。
+ */
+const CONCERNS_KEY_PREFIX = 'autonomous.concerns:';
+const LEGACY_CONCERNS_KEY = 'autonomous.concerns';
+
+function concernsKey(agentId: string): string {
+  return `${CONCERNS_KEY_PREFIX}${agentId}`;
+}
+
 /** 同一件事最多提 2 次，第 2 次无回应 → dropped */
 const MAX_RAISES = 2;
 
@@ -35,26 +53,24 @@ export function pickConcernToRaise(concerns: Concern[], now: number): Concern | 
   return [...eligible].sort((a, b) => b.arousalWeight - a.arousalWeight)[0] ?? null;
 }
 
-/** 读全部牵挂 */
-export function readConcerns(db: DatabaseAdapter): Concern[] {
+/** 读某个 agent 的全部牵挂 */
+export function readConcerns(db: DatabaseAdapter, agentId: string): Concern[] {
   try {
-    const row = db
-      .prepare<{ value: string }>(`SELECT value FROM runtime_state WHERE key = ?`)
-      .get(CONCERNS_KEY);
-    if (!row) return [];
-    return JSON.parse(row.value) as Concern[];
+    const raw = readAgentScopedState(db, agentId, concernsKey(agentId), LEGACY_CONCERNS_KEY);
+    if (raw === undefined) return [];
+    return JSON.parse(raw) as Concern[];
   } catch {
     return [];
   }
 }
 
-/** 写全部牵挂 */
-export function writeConcerns(db: DatabaseAdapter, concerns: Concern[]): void {
+/** 写某个 agent 的全部牵挂 */
+export function writeConcerns(db: DatabaseAdapter, agentId: string, concerns: Concern[]): void {
   db.prepare(
     `INSERT INTO runtime_state (key, value, updated_at)
      VALUES (?, ?, ?)
      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
-  ).run(CONCERNS_KEY, JSON.stringify(concerns), new Date().toISOString());
+  ).run(concernsKey(agentId), JSON.stringify(concerns), new Date().toISOString());
 }
 
 /** 记一次提起：raisedCount+1，第 2 次后 dropped；间隔递增（24h → 72h） */
