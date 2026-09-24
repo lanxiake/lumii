@@ -17,7 +17,6 @@ export const apiServerApi = {
   getLatency: () => ipcRenderer.invoke('usage:latency'),
 
   // 资讯和 Feed
-  getLatestNews: () => ipcRenderer.invoke('news:latest'),
   getLatestDashboardFeed: () => ipcRenderer.invoke('dashboard-feed:latest'),
   getDashboardFeedMeta: (feedId: string) => ipcRenderer.invoke('dashboard-feed:meta', feedId),
   getDashboardFeedPage: (feedId: string, opts?: { limit?: number; before?: { timestamp: number; id: string } | null }) =>

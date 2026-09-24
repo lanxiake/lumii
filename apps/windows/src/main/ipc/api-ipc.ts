@@ -26,7 +26,6 @@ import { getFeatureAvailability } from '../platform/feature-probe'
 import { FEATURE_BLOCK_MESSAGES } from '../../shared/feature-availability'
 import { queryUsage, type UsageQuery } from '../usage-store'
 import { getLatency } from '../provider-latency'
-import { readNewsSnapshot } from '../news-store'
 import { NEWS_PIPELINE_TASK_TEXT, NEWS_PIPELINE_SYSTEM_PROMPT } from '../seed-cron-jobs'
 import {
   newsFeedAgentId,
@@ -163,16 +162,6 @@ export function registerApiIpcHandlers(): void {
 
   // === 服务商首字节延迟（Task 4.4）===
   ipcMain.handle('usage:latency', () => ({ success: true, data: getLatency() }))
-
-  // === 概览页资讯（数据由「资讯抓取与综述」定时任务写入 ~/.lumii/news/latest.json）===
-  ipcMain.handle('news:latest', async () => {
-    try {
-      return { success: true, data: await readNewsSnapshot() }
-    } catch (error) {
-      console.error('[IPC] news:latest 失败:', error)
-      return { success: false, error: error instanceof Error ? error.message : String(error) }
-    }
-  })
 
   // === Dashboard 通用 feed（资讯只是默认 feed，后续工作流可替换其内容）===
   ipcMain.handle('dashboard-feed:latest', async () => {

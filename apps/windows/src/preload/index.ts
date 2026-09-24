@@ -16,7 +16,6 @@ import type { FeatureAvailability, FeatureId } from '../shared/feature-availabil
 import type { FEATURE_BLOCK_MESSAGES } from '../shared/feature-availability'
 // 仅类型引用，编译期擦除，不会把主进程代码打进 preload
 import type { UsageSummary } from '../main/usage-store'
-import type { NewsSnapshot } from '../main/news-store'
 import type { DashboardFeedSnapshot, DashboardFeedPage, DashboardFeedMeta, DashboardFeedBatchPage } from '../main/dashboard-feed-store'
 import type { MaintenanceReport, FindingDiff } from '../main/maintenance-report-store'
 import type { LatencyView } from '../main/provider-latency'
@@ -267,12 +266,6 @@ export interface ElectronAPI {
     }) => Promise<{ success: boolean; data?: UsageSummary; error?: string }>
     /** 到当前模�?provider 的首字节延迟（最�?N 次中位数�?*/
     latency: () => Promise<{ success: boolean; data?: LatencyView }>
-  }
-
-  /** 概览页资讯（由「资讯抓取与综述」定时任务写�?~/.lumii/news/latest.json�?*/
-  news: {
-    /** 读最新一批资讯；从未抓过�?data �?null */
-    latest: () => Promise<{ success: boolean; data?: NewsSnapshot | null; error?: string }>
   }
 
   /** Dashboard 当前激活的通用 feed；默认是资讯，也可由工作流替换�?*/
@@ -1088,10 +1081,6 @@ const electronAPI: ElectronAPI = {
     query: (query: { from: number; to: number; groupBy: 'hour' | 'day' }) =>
       apiServerApi.queryUsage(query),
     latency: () => apiServerApi.getLatency(),
-  },
-
-  news: {
-    latest: () => apiServerApi.getLatestNews(),
   },
 
   dashboardFeed: {

@@ -72,7 +72,6 @@ import { createMainWindow } from './window/main-window'
 import { SystemService } from './system-service'
 import { queryUsage, type UsageQuery } from './usage-store'
 import { flushToolUsage } from './tool-usage-store'
-import { readNewsSnapshot } from './news-store'
 import { NEWS_PIPELINE_TASK_TEXT, NEWS_PIPELINE_SYSTEM_PROMPT } from './seed-cron-jobs'
 import {
   readActiveDashboardFeedSnapshot,
