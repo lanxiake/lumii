@@ -81,21 +81,3 @@ export const GearIcon: React.FC<IconProps> = ({ size = 16, className }) => (
     <path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M12.6 3.4l-1.4 1.4M4.8 11.2l-1.4 1.4" />
   </svg>
 )
-
-/** 随机待机动作开启（小人 + 运动弧线） */
-export const MotionOnIcon: React.FC<IconProps> = ({ size = 16, className }) => (
-  <svg {...base(size)} className={className} aria-hidden>
-    <circle cx="8" cy="3.5" r="1.5" fill="currentColor" stroke="none" />
-    <path d="M8 5v3.5M6 7.5h4M7 11l-2 3M9 11l2 3" />
-    <path d="M2 5.5c1.5-1 3-1 4.5 0M9.5 5.5c1.5-1 3-1 4.5 0" />
-  </svg>
-)
-
-/** 随机待机动作关闭（小人静止） */
-export const MotionOffIcon: React.FC<IconProps> = ({ size = 16, className }) => (
-  <svg {...base(size)} className={className} aria-hidden>
-    <circle cx="8" cy="3.5" r="1.5" fill="currentColor" stroke="none" />
-    <path d="M8 5v3.5M6 7.5h4M7.5 11v3M8.5 11v3" />
-    <path d="M3 13.5h10" />
-  </svg>
-)

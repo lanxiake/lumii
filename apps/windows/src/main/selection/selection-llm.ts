@@ -45,9 +45,6 @@ export interface SelectionLlmServiceDeps {
   resolveChatStream: () => SelectionChatStream | undefined
 }
 
-/** 取消一个在飞的请求。不在飞（已完成/已取消）时返回 false */
-export type SelectionAbort = (requestId: string) => boolean
-
 export class SelectionLlmService {
   private readonly active = new Map<string, AbortController>()
 

@@ -19,17 +19,3 @@ export interface UpdateUserMemoryResponse {
   /** 更新时间 */
   updatedAt: string
 }
-
-/**
- * 用户记忆服务响应包装
- */
-export interface UserMemoryServiceResponse<T> {
-  /** 是否成功 */
-  success: boolean
-  /** 响应数据 */
-  data?: T
-  /** 错误信息 */
-  error?: string
-  /** 错误码 */
-  code?: string
-}

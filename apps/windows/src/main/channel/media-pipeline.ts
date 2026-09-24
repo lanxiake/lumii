@@ -16,11 +16,6 @@ const log = {
   warn: (...args: unknown[]) => console.warn('[MediaPipeline]', ...args),
 }
 
-/** 拼 `[media attached: <path> (<filename>)]` 行（path 为相对 workspace 的路径） */
-export function mediaAttachedLine(localPath: string, fileName?: string): string {
-  return `[media attached: ${localPath}${fileName ? ` (${fileName})` : ''}]`
-}
-
 /** 拼 `[语音转录: <text>]` 行 */
 export function transcriptLine(text: string): string {
   return `[语音转录: ${text}]`

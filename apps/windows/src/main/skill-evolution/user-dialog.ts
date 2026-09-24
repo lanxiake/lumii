@@ -51,11 +51,6 @@ export function buildSkillRejectedAck(): string {
   return `好的，不保存了。`
 }
 
-/** 优化技能：保存成功通知 */
-export function buildSkillUpdatedNotice(title: string): string {
-  return `✅ 技能「${title}」已更新，下次会按新的方式来。`
-}
-
 /** 废弃技能：完成通知 */
 export function buildSkillDeprecatedNotice(title: string): string {
   return `✅ 技能「${title}」已废弃，以后不会再用这个步骤了。`

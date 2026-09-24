@@ -1215,16 +1215,5 @@ interface ToolCardListProps {
   items: AgentWorkflowItem[]
 }
 
-export const ToolCardList: React.FC<ToolCardListProps> = ({ items }) => {
-  if (items.length === 0) return null
-  return (
-    <div className={styles.list}>
-      {items.map((item) => (
-        <ToolCallCard key={item.id} item={item} />
-      ))}
-    </div>
-  )
-}
-
 export default ToolCallCard
 export { ToolCallCard }

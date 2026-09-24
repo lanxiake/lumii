@@ -4,27 +4,6 @@
 
 import type { QuickTemplate, CapabilityOption, GeneratedAgent, GroupRole, McpServerOption } from './types'
 
-/** 将 agents 按 groupId 分组，保持原始顺序（泛型，兼容 GeneratedAgent 和 GeneratedAgentForm） */
-export function groupAgents<T extends { groupId?: string; groupName?: string }>(
-  agents: T[],
-): Array<{ groupId: string; groupName: string; agents: T[] }> {
-  const map = new Map<string, { groupName: string; agents: T[] }>()
-  for (const agent of agents) {
-    const gid = agent.groupId || 'default'
-    if (!map.has(gid)) {
-      map.set(gid, { groupName: agent.groupName || '默认分组', agents: [] })
-    }
-    map.get(gid)!.agents.push(agent)
-  }
-  return Array.from(map.entries()).map(([groupId, v]) => ({ groupId, ...v }))
-}
-
-export const GROUP_ROLE_LABELS: Record<GroupRole, string> = {
-  coordinator: '协调者',
-  executor: '执行者',
-  reviewer: '审查者',
-}
-
 /** 将分组信息编码到 description 末尾（存储用） */
 export function encodeGroupToDescription(description: string, groupId: string, groupName: string, groupRole: GroupRole): string {
   return `${description}\n[group:${groupId}|${groupName}|${groupRole}]`
@@ -45,33 +24,6 @@ export function decodeGroupFromDescription(description: string): {
     groupName: match[2],
     groupRole: match[3] as GroupRole,
   }
-}
-
-/**
- * 需要额外配置才能使用的技能（skill name 关键词 → 配置说明）
- * key 为小写关键词，匹配技能 name/id 中包含该词的技能
- */
-export const SKILLS_REQUIRING_CONFIG: Record<string, string> = {
-  github: '需要在技能设置中配置 GitHub Personal Access Token',
-  gitlab: '需要在技能设置中配置 GitLab Access Token',
-  jira: '需要在技能设置中配置 Jira API Token 和项目地址',
-  notion: '需要在技能设置中配置 Notion Integration Token',
-  slack: '需要在技能设置中配置 Slack Bot Token',
-  email: '需要在技能设置中配置邮件服务器 SMTP 信息',
-  database: '需要在技能设置中配置数据库连接字符串',
-  aws: '需要在技能设置中配置 AWS Access Key 和 Secret',
-  figma: '需要在技能设置中配置 Figma Personal Access Token',
-  linear: '需要在技能设置中配置 Linear API Key',
-  confluence: '需要在技能设置中配置 Confluence API Token 和空间地址',
-}
-
-/** 检查技能名称是否需要额外配置，返回配置说明或 null */
-export function getSkillConfigHint(skillName: string): string | null {
-  const lower = skillName.toLowerCase()
-  for (const [keyword, hint] of Object.entries(SKILLS_REQUIRING_CONFIG)) {
-    if (lower.includes(keyword)) return hint
-  }
-  return null
 }
 
 /** prompt 模板 — {userRequirement}、{skillsSection} 占位符由调用方替换 */

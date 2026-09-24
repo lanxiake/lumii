@@ -133,34 +133,6 @@ export function formatDuration(ms: number): string {
   return `${minutes}m ${seconds}s`
 }
 
-/**
- * 解析 cron 任务的周计划时段
- * 返回 { day: 0-6, hour: 0-23 } 数组
- */
-export function parseScheduleSlots(job: CronJob): Array<{ day: number; hour: number }> {
-  if (job.scheduleType !== 'cron' || !job.scheduleExpr) return []
-
-  const parts = job.scheduleExpr.trim().split(/\s+/)
-  if (parts.length < 5) return []
-
-  const [, hour, , , dow] = parts
-
-  // 解析小时
-  const hours = parseField(hour, 0, 23)
-  if (hours.length === 0) return []
-
-  // 解析星期
-  const days = parseDow(dow)
-
-  const slots: Array<{ day: number; hour: number }> = []
-  for (const d of days) {
-    for (const h of hours) {
-      slots.push({ day: d, hour: h })
-    }
-  }
-  return slots
-}
-
 function parseField(field: string, min: number, max: number): number[] {
   if (field === '*') {
     return Array.from({ length: max - min + 1 }, (_, i) => min + i)

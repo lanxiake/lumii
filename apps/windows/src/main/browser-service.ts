@@ -330,13 +330,3 @@ export async function stopBrowserService(): Promise<void> {
 export function getBrowserContext(): BrowserRouteContext | null {
   return browserContext
 }
-
-/**
- * 获取浏览器服务状态
- */
-export function getBrowserServiceState(): { running: boolean; port: number | null } {
-  return {
-    running: browserState !== null,
-    port: browserState?.port ?? null,
-  }
-}

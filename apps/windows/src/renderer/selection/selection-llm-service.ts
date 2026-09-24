@@ -11,10 +11,6 @@ export const SELECTION_LLM_ACTIONS: readonly SelectionLlmAction[] = [
   'polish',
 ]
 
-export function isSelectionLlmAction(value: string): value is SelectionLlmAction {
-  return (SELECTION_LLM_ACTIONS as readonly string[]).includes(value)
-}
-
 /**
  * 跑一个 L2 动作。**requestId 由调用方给** —— 取消是按 id 的，id 生成在服务内部
  * 的话调用方就无从取消。

@@ -78,9 +78,6 @@ export interface VoiceModelPaths {
   qwen3Base17?: string
 }
 
-/** 模型在设置页中的分组（下载区分区展示） */
-export type VoiceModelUiGroup = 'asr-core' | 'tts-synth' | 'tts-clone'
-
 /** 国内 HTTP 直链文件映射（不经 GitHub）；可多源回退 + 按字节估进度 */
 interface HttpFileMapping {
   /** 主下载 URL */

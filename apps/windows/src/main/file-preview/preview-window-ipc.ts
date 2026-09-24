@@ -15,11 +15,6 @@ import {
 let manager: PreviewWindowManager | null = null
 let registered = false
 
-/** 供其它模块取管理器（可选） */
-export function getPreviewWindowManager(): PreviewWindowManager | null {
-  return manager
-}
-
 /**
  * 注册 file-preview:* IPC，并初始化 PreviewWindowManager
  */

@@ -398,27 +398,6 @@ function generateCareMessage(nickname: string, now: Date): string {
 
 // ── KV 读写：偏好 ──
 
-export function readPrefs(db: DatabaseAdapter): LocalCompanionPrefs {
-  try {
-    const row = db.prepare<{ value: string }>(
-      `SELECT value FROM runtime_state WHERE key = ?`
-    ).get(KV_KEY_PREFS) as { value: string } | undefined
-    if (!row) return { ...DEFAULT_PREFS }
-    return { ...DEFAULT_PREFS, ...JSON.parse(row.value) }
-  } catch {
-    return { ...DEFAULT_PREFS }
-  }
-}
-
-export function writePrefs(db: DatabaseAdapter, prefs: Partial<LocalCompanionPrefs>): void {
-  const current = readPrefs(db)
-  const merged = { ...current, ...prefs }
-  const now = new Date().toISOString()
-  db.prepare(
-    `INSERT OR REPLACE INTO runtime_state (key, value, updated_at) VALUES (?, ?, ?)`
-  ).run(KV_KEY_PREFS, JSON.stringify(merged), now)
-}
-
 // ── KV 读写：日计数 ──
 
 function readTodayCount(db: DatabaseAdapter): number {

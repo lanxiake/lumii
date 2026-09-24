@@ -34,10 +34,6 @@ export interface TemplateToolDefinition {
   timeoutMs?: number;
 }
 
-export interface TemplateToolExecutionError {
-  message: string;
-}
-
 /** 提取模板中的全部占位符名 */
 export function extractPlaceholders(template: string): string[] {
   const names: string[] = [];

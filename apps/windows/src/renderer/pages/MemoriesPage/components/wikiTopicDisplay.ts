@@ -45,14 +45,6 @@ export function subtopicFilterLabel(filter: WikiSubtopicFilter): string {
   return filter
 }
 
-/** 主题树只读形态，供展示格式化使用 */
-export interface WikiTopicTreeLike {
-  readonly categories: ReadonlyArray<{
-    readonly name: string
-    readonly subtopics: readonly string[]
-  }>
-}
-
 /**
  * 两列分组计数的 key。
  * 不能用 `/` 拼：小类名本身允许含斜杠（如「项目/任务资料」）。

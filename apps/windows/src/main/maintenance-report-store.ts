@@ -90,10 +90,6 @@ export function setMaintenanceReportDb(db: DatabaseAdapter | null): void {
   reportDb = db
 }
 
-export function getMaintenanceReportDb(): DatabaseAdapter | null {
-  return reportDb
-}
-
 function clampText(value: unknown, max: number): string {
   if (typeof value !== 'string') return ''
   const trimmed = value.trim()

@@ -16,9 +16,6 @@ export const DEFAULT_ERO_EXTRACT_MAX_PAGES = 20;
 /** 默认每页送入 LLM 的正文字符上限 */
 export const DEFAULT_ERO_EXTRACT_MAX_CHARS = 4000;
 
-/** maxPages 允许上限 */
-export const ERO_EXTRACT_MAX_PAGES_CAP = 100;
-
 /** maxCharsPerPage 允许上限 */
 export const ERO_EXTRACT_MAX_CHARS_CAP = 20000;
 
@@ -40,15 +37,6 @@ const VALID_ENTITY_TYPES = new Set<WikiEntityType>([
   "concept",
   "other",
 ]);
-
-/** 单批抽取汇总 */
-export interface WikiEroExtractResult {
-  readonly pagesProcessed: number;
-  readonly entitiesUpserted: number;
-  readonly relationsUpserted: number;
-  readonly observationsAdded: number;
-  readonly errors: readonly string[];
-}
 
 /** 三期：按资料抽取的范围 */
 export interface WikiEroExtractSourceScope {

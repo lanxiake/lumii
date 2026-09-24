@@ -606,13 +606,6 @@ export function prepareQwen3TtsRuntime(devicePref: Qwen3DevicePref = 'auto'): Pr
 }
 
 /**
- * 当前是否已有成功的预装结果（内存态；进程重启后需再检查）
- */
-export function isQwen3TtsRuntimePrepareInFlight(): boolean {
-  return prepareRuntimePromise !== null
-}
-
-/**
  * 将用户偏好解析为 sidecar load 的 device 参数
  */
 export function resolveQwen3LoadDevice(pref: Qwen3DevicePref = 'auto'): 'auto' | 'cpu' | 'cuda:0' {

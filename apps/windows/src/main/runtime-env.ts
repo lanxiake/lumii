@@ -232,24 +232,3 @@ export async function initScriptRuntimes(): Promise<void> {
     log.warn('内置 Python 后台安装失败，将在实际用到时重试:', err instanceof Error ? err.message : err)
   })
 }
-
-/** 供诊断用：当前脚本运行环境状态 */
-export function getScriptRuntimeStatus(): {
-  node: { source: 'system' | 'electron'; path: string }
-  python: { source: 'system' | 'bundled' | 'missing'; path: string }
-  sitePackages: string
-} {
-  const systemNode = detectSystemNode()
-  const systemPython = detectSystemPython()
-  return {
-    node: systemNode
-      ? { source: 'system', path: systemNode }
-      : { source: 'electron', path: process.execPath },
-    python: systemPython
-      ? { source: 'system', path: systemPython }
-      : existsSync(getBundledPythonExe())
-        ? { source: 'bundled', path: getBundledPythonExe() }
-        : { source: 'missing', path: getBundledPythonExe() },
-    sitePackages: getBundledSitePackages(),
-  }
-}

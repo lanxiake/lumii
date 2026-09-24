@@ -4,14 +4,8 @@
  * 缓存、超时、URL校验等通用逻辑，供 web-search-tool 和 web-fetch-tool 共用。
  */
 
-export type CacheEntry<T> = {
-  value: T;
-  expiresAt: number;
-};
-
 export const DEFAULT_TIMEOUT_SECONDS = 30;
 export const DEFAULT_CACHE_TTL_MINUTES = 15;
-const DEFAULT_CACHE_MAX_ENTRIES = 100;
 
 /**
  * 校验 URL 合法性，防止 SSRF 攻击
@@ -60,38 +54,6 @@ export function validateUrl(url: string): URL {
 
 export function normalizeCacheKey(value: string): string {
   return value.trim().toLowerCase();
-}
-
-export function readCache<T>(cache: Map<string, CacheEntry<T>>, key: string): { value: T } | null {
-  const entry = cache.get(key);
-  if (!entry) return null;
-  if (Date.now() > entry.expiresAt) {
-    cache.delete(key);
-    return null;
-  }
-  return { value: entry.value };
-}
-
-export function writeCache<T>(
-  cache: Map<string, CacheEntry<T>>,
-  key: string,
-  value: T,
-  ttlMs: number,
-): void {
-  if (ttlMs <= 0) return;
-  if (cache.size >= DEFAULT_CACHE_MAX_ENTRIES) {
-    // 先清理过期条目
-    const now = Date.now();
-    for (const [k, entry] of cache) {
-      if (now > entry.expiresAt) cache.delete(k);
-    }
-    // 仍然满则删除最旧
-    if (cache.size >= DEFAULT_CACHE_MAX_ENTRIES) {
-      const oldest = cache.keys().next();
-      if (!oldest.done) cache.delete(oldest.value);
-    }
-  }
-  cache.set(key, { value, expiresAt: Date.now() + ttlMs });
 }
 
 /**

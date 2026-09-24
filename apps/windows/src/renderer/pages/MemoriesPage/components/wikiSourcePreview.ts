@@ -16,17 +16,6 @@ export function parseOriginalUrlFromContext(originContext: string | null | undef
   return match?.[1] ?? null
 }
 
-/**
- * 合并 source_path 与 origin_context，得到可预览的原文 URL。
- */
-export function resolveSourceUrl(
-  sourcePath: string | null | undefined,
-  originContext: string | null | undefined,
-): string | null {
-  if (isHttpUrl(sourcePath)) return sourcePath!.trim()
-  return parseOriginalUrlFromContext(originContext)
-}
-
 /** 预览形态：网页内嵌预览，或本地文件预览 */
 export type WikiSourcePreviewMode = 'web' | 'file' | 'text-only'
 

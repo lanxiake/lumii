@@ -91,19 +91,6 @@ export async function recordPetPersonalityEvent(
   }
 }
 
-/**
- * 读出生快照（经历页的"出生时什么样"那一行）。
- *
- * 与 {@link getPetPersonalityLabel} 一样在 bridge 未就绪时返回 `null`
- * ——渲染层如实说"还不知道"，不编一个中性气质出来。
- */
-export function getPetBirthSnapshot(configId: string): BirthSnapshot | null {
-  if (!configId) return null
-  const bridge = getAgentRuntimeBridge()
-  if (!bridge) return null
-  return readBirthSnapshot(bridge.db, petAgentId(configId))
-}
-
 /** 五维的形状转换（`personality_state` 行 → DTO），两处共用一份，避免字段漏抄 */
 export function toTraitValues(state: {
   openness: number

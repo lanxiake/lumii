@@ -150,8 +150,3 @@ export function getCurrentPerchRect(): PerchRect | null {
     return null
   }
 }
-
-/** 供测试/诊断：当前是否在推 */
-export function isPerchTracking(): boolean {
-  return dispose !== null
-}

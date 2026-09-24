@@ -84,12 +84,6 @@ import { maybeSnapshot } from '../workspace-vcs/vcs-snapshot'
 import { notifyCloudSyncWorkspaceChanged } from '../cloud-sync/sync-accessor'
 import { selectPromptVariantForSession } from './autonomous-wiring'
 
-/** LLM 摘要生成器构造函数签名（由 bridge.ts 注入，避免循环依赖） */
-export type CreateSummaryGeneratorFn = (
-  innerStream: StreamFn,
-  model: import('@earendil-works/pi-ai/compat').Model<any>,
-) => any
-
 /** 引用盒子（mutable reference）— 允许多处共享同一个可变插槽 */
 export interface MutableRef<T> {
   value: T

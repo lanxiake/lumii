@@ -38,9 +38,6 @@ export const NEWS_PREF_PRIORITY = ['少推', '关注', '来源偏好'] as const
 /** 给人看的一句话版本（界面与提示词共用，避免两处措辞漂移） */
 export const NEWS_PREF_PRIORITY_SUMMARY = '明确少推 > 明确关注 > 来源偏好 > 默认排序'
 
-/** 参与裁决的字段（推送时段是时间窗，不参与冲突裁决） */
-export type NewsPrefPriorityField = (typeof NEWS_PREF_PRIORITY)[number]
-
 /** 一条偏好的分隔符：用「、」与「/」都常见，读的时候都认 */
 const ITEM_SEPARATORS = /[、,，/|]/
 

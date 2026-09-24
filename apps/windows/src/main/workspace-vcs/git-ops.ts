@@ -186,16 +186,6 @@ export function parseLsTree(stdout: string): string[] {
   return stdout.split('\n').filter(Boolean)
 }
 
-/** 把一条原始 log 记录转成对外的 VcsCommit（trailer 由调用方解析） */
-export function toVcsCommit(e: RawLogEntry): VcsCommit {
-  return {
-    oid: e.oid,
-    message: e.subject,
-    timestamp: e.tsSec * 1000,
-    author: 'user',
-  }
-}
-
 // ─────────────────────────── 读历史 ───────────────────────────
 
 /** 提交历史（最新在前）。`limit` 语义与原先 iso 的 depth 一致。 */
