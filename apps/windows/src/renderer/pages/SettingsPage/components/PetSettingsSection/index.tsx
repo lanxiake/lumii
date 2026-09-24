@@ -50,9 +50,12 @@ function capabilityLabel(level: ExpressionCapability): string {
 function capabilityHint(level: ExpressionCapability): string | null {
   if (level === 'rich') return null
   if (level === 'none') {
-    return '这个模型只有一张脸，它的情绪主要通过动作幅度表达（呼吸、浮动、走动）'
+    // ⚠ 别写"浮动/呼吸"：待机组的 bob/sway 会被 `stripIdleDrift` 摘掉（"待机不许浮动"，
+    // 用户 2026-09-24 拍板保留），breathe 在 80px 高的精灵上只有约 1px——承诺用户
+    // 看不到的东西，比不写更糟。**走动（活动间隔）是这条里真正看得见的那一半。**
+    return '这个模型只有一张脸，它的情绪更多体现在走动、坐立与眨眼节奏上'
   }
-  return '这个模型的表情较少，情绪主要靠动作幅度表达'
+  return '这个模型的表情较少，情绪更多体现在走动、坐立与眨眼节奏上'
 }
 
 export const PetSettingsSection: React.FC = () => {
