@@ -38,17 +38,6 @@ export type { WikiInvalidFilePurgeResult } from "./wiki-invalid-file-purge.js";
 
 export { serializeAttachmentReference, isAttachmentReferenceLine } from "./wiki-attachments.js";
 
-export { WikiGraphBuilder, subtopicNodeId, parseSubtopicNodeId } from "./wiki-graph.js";
-export type {
-  WikiGraphNodeKind,
-  WikiGraphEdgeKind,
-  WikiGraphNode,
-  WikiGraphEdge,
-  WikiGraphData,
-  WikiGraphBuildOptions,
-  WikiGraphLayer,
-} from "./wiki-graph.js";
-
 export {
   computeForgettingScore,
   rankByForgettingScore,

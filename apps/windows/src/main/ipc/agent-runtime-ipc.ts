@@ -1289,7 +1289,10 @@ export async function handleCommand(
         return handleSkillSessionDisabled(bridge, command)
 
       default: {
-        throw new Error(`Unknown command type: ${command.type}`)
+        // switch 已穷尽 AgentRuntimeCommand 的全部成员，故 command 在此被收窄为 never。
+        // 兜底仍要保留：旧版 renderer 或控制口可能发来本版本不认识的 type，静默返回
+        // undefined 会让这类问题极难排查（wiki 图谱那三个命令就是这么潜伏的）。
+        throw new Error(`Unknown command type: ${(command as { type?: string }).type}`)
       }
     }
   }

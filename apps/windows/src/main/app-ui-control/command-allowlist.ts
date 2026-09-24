@@ -46,8 +46,6 @@ export const COMMAND_ALLOWLIST: ReadonlySet<string> = new Set([
   // Wiki 文件夹导入（P0）：scan 只读预览；import 写入收件箱（引用优先，不移动原文件）；organize:run 触发 intake 管线
   'wiki:folder:scan', 'wiki:folder:import', 'wiki:organize:run',
   'wiki:search', 'wiki:source:get', 'wiki:runs:list', 'wiki:index:rebuild',
-  // 图谱只读：按大类/小类取子图（节点+边），与 wiki:search 同级；CLI 侧 wiki graph 一直有此命令
-  'wiki:graph:data',
   // 用途主题树 / 资料层（记忆重构一期）：set 接受结构化目录 JSON，非任意命令注入，按需放行。
   'wiki:topic:tree:get', 'wiki:topic:tree:set', 'wiki:topic:tree:migrate',
   'wiki:topic:mutate', 'wiki:source:list', 'wiki:source:counts',

@@ -17,5 +17,6 @@
     "updater.startAutoCheck",
     "updater.stopAutoCheck",
     "updater.updateConfig"
-  ]
+  ],
+  "unroutedCommands": []
 }

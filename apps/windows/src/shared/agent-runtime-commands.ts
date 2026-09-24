@@ -929,46 +929,6 @@ export interface WikiExportCommand {
   readonly targetDir: string
 }
 
-export interface WikiGraphDataCommand {
-  readonly type: 'wiki:graph:data'
-  readonly sessionKey?: string
-  readonly agentId?: string
-  /** 大类；为空时缺省到主题树第一个大类 */
-  readonly category?: string
-  /** 小类（可选） */
-  readonly subtopic?: string
-  /** source+entity 节点上限，默认 50 */
-  readonly limit?: number
-  /** 图层，默认 ['structure', 'entities'] */
-  readonly layers?: Array<'structure' | 'entities'>
-}
-
-export interface WikiEroListCommand {
-  readonly type: 'wiki:ero:list'
-  readonly sessionKey?: string
-  readonly agentId?: string
-  /** 指定实体时仅返回该实体的活跃观察摘要 */
-  readonly entityId?: string
-}
-
-export interface WikiEroExtractCommand {
-  readonly type: 'wiki:ero:extract'
-  readonly sessionKey?: string
-  readonly agentId?: string
-  /** 范围：category（+可选 subtopic）或显式 sourceIds */
-  readonly category?: string
-  readonly subtopic?: string
-  readonly sourceIds?: readonly string[]
-}
-
-/** 三期：实体出现于哪些资料（实体侧栏） */
-export interface WikiEroEntitySourcesCommand {
-  readonly type: 'wiki:ero:entity-sources'
-  readonly sessionKey?: string
-  readonly agentId?: string
-  readonly entityId: string
-}
-
 export interface WikiVectorRebuildCommand {
   readonly type: 'wiki:vector:rebuild'
   readonly sessionKey?: string
@@ -1728,10 +1688,6 @@ export type AgentRuntimeCommand =
   | WikiLinkSaveCommand
   | WikiVaultEnsureLayoutCommand
   | WikiExportCommand
-  | WikiGraphDataCommand
-  | WikiEroListCommand
-  | WikiEroExtractCommand
-  | WikiEroEntitySourcesCommand
   | WikiVectorRebuildCommand
   | WikiSourceSummaryCommand
   | ToolsListCommand
@@ -2186,60 +2142,6 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
   : T extends 'wiki:export' ? {
       exported: number
       failed: readonly { path: string; error: string }[]
-    }
-  : T extends 'wiki:graph:data' ? {
-      nodes: readonly {
-        id: string
-        kind: 'entity' | 'category' | 'subtopic' | 'source'
-        title: string
-        path?: string
-        category?: string
-        useCount?: number
-        entityType?: string
-        pageId?: string | null
-        topicCategory?: string | null
-        topicSubtopic?: string | null
-      }[]
-      edges: readonly {
-        id: string
-        kind: 'relation' | 'belongs_to' | 'sibling' | 'mentioned_in'
-        source: string
-        target: string
-        label: string
-        anchorText?: string
-        strength?: number
-      }[]
-      truncated: boolean
-    }
-  : T extends 'wiki:ero:list' ? {
-      entities: readonly unknown[]
-      relations: readonly unknown[]
-      observations?: readonly {
-        id: string
-        entity_id: string
-        content: string
-        source_page_id: string | null
-        created_at: string
-      }[]
-    }
-  : T extends 'wiki:ero:extract' ? {
-      sourcesScanned: number
-      sourcesSkipped: number
-      sourcesFailed: number
-      entitiesUpserted: number
-      relationsUpserted: number
-      observationsAdded: number
-      errors: readonly { sourceId: string; title: string; message: string }[]
-    }
-  : T extends 'wiki:ero:entity-sources' ? {
-      sources: readonly {
-        id: string
-        title: string
-        sourcePath: string | null
-        topicCategory: string | null
-        topicSubtopic: string | null
-        mediaType: string
-      }[]
     }
   : T extends 'wiki:vector:rebuild' ? { rebuiltCount: number; summarized: number; backend?: string; notice?: string | null }
   : T extends 'wiki:source:summary' ? { summary: string | null; level: 'heuristic' | 'extractive' | 'llm' | null }

@@ -14,10 +14,6 @@ import type {
   WikiRunItem,
   WikiCleanupSuggestionItem,
   WikiExportResultItem,
-  WikiGraphDataItem,
-  WikiGraphQuery,
-  WikiEroExtractSourceResult,
-  WikiEntitySourceRef,
   WikiTopicTree,
   WikiTopicMutation,
   WikiTopicMutateResult,
@@ -306,63 +302,6 @@ export function useWikiPage() {
       }),
     [trackLoading],
   )
-
-  /**
-   * 三期：图谱数据查询，支持三层架构与小类范围。
-   */
-  const getGraphData = useCallback(async (query: WikiGraphQuery): Promise<WikiGraphDataItem | null> => {
-    try {
-      return (await sendWikiCommand({
-        type: 'wiki:graph:data',
-        category: query.category,
-        subtopic: query.subtopic,
-        limit: query.limit,
-        layers: query.layers as ('structure' | 'entities')[] | undefined,
-      })) as WikiGraphDataItem
-    } catch {
-      return null
-    }
-  }, [])
-
-  /**
-   * 三期：按资料范围（小类/大类/sourceIds）抽取实体关系，写 source_id，增量跳过。
-   */
-  const extractEroFromSources = useCallback(
-    async (scope: {
-      category?: string
-      subtopic?: string
-      sourceIds?: readonly string[]
-    }): Promise<WikiEroExtractSourceResult | null> => {
-      try {
-        return (await sendWikiCommand({
-          type: 'wiki:ero:extract',
-          target: 'sources',
-          category: scope.category,
-          subtopic: scope.subtopic,
-          sourceIds: scope.sourceIds,
-        })) as WikiEroExtractSourceResult
-      } catch {
-        return null
-      }
-    },
-    [],
-  )
-
-  /**
-   * 三期：实体出现于哪些资料（实体侧栏）。
-   */
-  const listEntitySources = useCallback(async (entityId: string): Promise<readonly WikiEntitySourceRef[]> => {
-    if (!entityId) return []
-    try {
-      const r = (await sendWikiCommand({
-        type: 'wiki:ero:entity-sources',
-        entityId,
-      })) as { sources: readonly WikiEntitySourceRef[] }
-      return Array.isArray(r.sources) ? r.sources : []
-    } catch {
-      return []
-    }
-  }, [])
 
   const loadTopicTree = useCallback(async (): Promise<WikiTopicTree | null> => {
     try {
@@ -845,9 +784,6 @@ export function useWikiPage() {
     restoreSources,
     deleteSources,
     exportSources,
-    getGraphData,
-    extractEroFromSources,
-    listEntitySources,
     loadTopicTree,
     setTopicTree,
     mutateTopic,

@@ -8,8 +8,6 @@ import path from 'node:path'
 import fs from 'node:fs'
 import { shell } from 'electron'
 import {
-  WikiGraphBuilder,
-  WikiEroRepo,
   WikiSourceVectorIndex,
   mergeSourceHybridRanks,
   WikiSummarizer,
@@ -17,7 +15,6 @@ import {
   resolveAgentFilePath,
   sanitizeFilenameSegment,
   validateTopicAssignment,
-  WikiEroExtractor,
   WikiFolderImporter,
   type WikiFolderImporterFs,
   type WikiInboxItemType,
@@ -1335,107 +1332,6 @@ export async function handleWikiExport(
 
   const result = await exporter.exportSources(command.targetDir, sources)
   return result
-}
-
-/**
- * 三期混合知识子图：结构层（category/subtopic/source + belongs_to/sibling）+
- * 实体层（entity + relation/mentioned_in）。centerPageId/历史层已随 P3 删除，
- * category 缺省到主题树第一个大类。
- */
-export function handleWikiGraphData(
-  bridge: AgentRuntimeBridge,
-  command: Extract<AgentRuntimeCommand, { type: 'wiki:graph:data' }>,
-): unknown {
-  const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
-  const ero = new WikiEroRepo(bridge.wikiRepo.database)
-
-  let category = command.category
-  const subtopic = command.subtopic
-
-  if (!category) {
-    const tree = bridge.wikiRepo.getOrCreateTopicTree()
-    category = tree.categories[0]?.name ?? '工作'
-  }
-
-  const builder = new WikiGraphBuilder(bridge.wikiRepo)
-  return builder.buildSubgraph(agentId, LOCAL_USER_ID, {
-    category,
-    subtopic,
-    limit: command.limit,
-    layers: command.layers,
-    eroRepo: ero,
-  })
-}
-
-export function handleWikiEroList(
-  bridge: AgentRuntimeBridge,
-  command: Extract<AgentRuntimeCommand, { type: 'wiki:ero:list' }>,
-): unknown {
-  const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
-  const ero = new WikiEroRepo(bridge.wikiRepo.database)
-  const base = {
-    entities: ero.listEntities(agentId, LOCAL_USER_ID),
-    relations: ero.listRelations(agentId, LOCAL_USER_ID),
-  }
-  if (!command.entityId) {
-    return base
-  }
-  return {
-    ...base,
-    observations: ero.listActiveObservations(command.entityId).map((o) => ({
-      id: o.id,
-      entity_id: o.entity_id,
-      content: o.content,
-      source_page_id: o.source_page_id,
-      created_at: o.created_at,
-    })),
-  }
-}
-
-/**
- * AI 抽取知识图谱三元组：按目录/id 抽取资料，写 source_id，
- * 用 content_hash 游标增量跳过未变正文。旧的 target='pages'（历史页面图层）
- * 已随 P3 删除。
- */
-export async function handleWikiEroExtract(
-  bridge: AgentRuntimeBridge,
-  command: Extract<AgentRuntimeCommand, { type: 'wiki:ero:extract' }>,
-): Promise<unknown> {
-  const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
-  const ero = new WikiEroRepo(bridge.wikiRepo.database)
-  const extractor = new WikiEroExtractor(
-    bridge.wikiRepo,
-    ero,
-    (prompt) => bridge.callLLM(prompt, undefined, 'wiki_ero_extract'),
-  )
-
-  return extractor.extractFromSources(agentId, LOCAL_USER_ID, {
-    category: command.category,
-    subtopic: command.subtopic,
-    sourceIds: command.sourceIds,
-  })
-}
-
-/** 三期：实体出现于哪些资料（实体侧栏） */
-export function handleWikiEroEntitySources(
-  bridge: AgentRuntimeBridge,
-  command: Extract<AgentRuntimeCommand, { type: 'wiki:ero:entity-sources' }>,
-): unknown {
-  const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
-  const ero = new WikiEroRepo(bridge.wikiRepo.database)
-  const sourceIds = ero.listSourceIdsForEntity(agentId, LOCAL_USER_ID, command.entityId)
-  const sources = sourceIds
-    .map((id) => bridge.wikiRepo.findSourceById(id, agentId, LOCAL_USER_ID))
-    .filter((s): s is NonNullable<typeof s> => s !== null)
-    .map((s) => ({
-      id: s.id,
-      title: s.title,
-      sourcePath: s.source_path,
-      topicCategory: s.topic_category,
-      topicSubtopic: s.topic_subtopic,
-      mediaType: s.media_type,
-    }))
-  return { sources }
 }
 
 /**

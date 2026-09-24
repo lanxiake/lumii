@@ -44,6 +44,7 @@ if (argv.includes('--help') || argv.includes('-h')) {
   ① main 注册了 handler 但 preload 从不引用  ② preload 引用了但 main 没实现
   ③ main 推送事件但无人监听                  ④ 工具导出但没注册进工具数组
   ⑤ 从入口走不到的文件（死代码候选）          ⑥ preload 暴露了但 renderer 从不调用
+  ⑦ command handler 写了但没进分派表（调用必然 throw）
 
 判据说明与踩过的坑见文件头注释。`)
   process.exit(0)
@@ -793,6 +794,59 @@ const unconsumedMethods = [...exposed.keys()]
   .filter((k) => !usage.chained.has(k) && !usage.bare.has(k.slice(k.indexOf('.') + 1)))
   .sort()
 
+// ⑦ command handler 未接进分派表
+//
+// agent-runtime 的命令走统一的 'agent-runtime:command' 入口（一个大 switch），不走
+// ipcMain.handle——所以 ① 「main 注册了 handler 但 preload 从不引用」看不到它们；⑥ 也
+// 看不到：renderer 经 agentRuntimeApi.sendCommand 透传，不经 preload 包装。
+// 漏 case 时 default 分支 throw，而 renderer 侧普遍 try/catch 吞掉 → UI 静默失效。
+// 实测（2026-09-24）：wiki 图谱/ERO 的 4 个 handler 从没进过分派表——其中 3 个连
+// renderer 都在调（虽然那些调用点后来查明是死 hook），失败全程静默、控制台无报错。
+function findUnroutedCommands() {
+  const CMD_DIR = join(SRC, 'main', 'ipc', 'agent-runtime')
+  const DISPATCH = join(SRC, 'main', 'ipc', 'agent-runtime-ipc.ts')
+  if (!existsSync(DISPATCH) || !existsSync(CMD_DIR)) return []
+
+  // 分派表侧：这份文件 import 了哪些 handler
+  const imported = new Set()
+  const dsf = ts.createSourceFile(DISPATCH, readFileSync(DISPATCH, 'utf8'), ts.ScriptTarget.Latest, true)
+  const walkDispatch = (n) => {
+    if (
+      ts.isImportDeclaration(n) &&
+      n.importClause?.namedBindings &&
+      ts.isNamedImports(n.importClause.namedBindings)
+    ) {
+      for (const el of n.importClause.namedBindings.elements) imported.add(el.name.text)
+    }
+    ts.forEachChild(n, walkDispatch)
+  }
+  walkDispatch(dsf)
+
+  const out = []
+  for (const f of walk(CMD_DIR)) {
+    const r = rel(f)
+    if (r.endsWith('.test.ts') || r.endsWith('.d.ts')) continue
+    const sf = ts.createSourceFile(f, readFileSync(f, 'utf8'), ts.ScriptTarget.Latest, true)
+    const visit = (n) => {
+      const mods = ts.canHaveModifiers(n) ? ts.getModifiers(n) : undefined
+      if (
+        mods?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword) &&
+        ts.isFunctionDeclaration(n) &&
+        n.name?.text.startsWith('handle') &&
+        !imported.has(n.name.text)
+      ) {
+        const { line } = sf.getLineAndCharacterOfPosition(n.getStart())
+        out.push(`${n.name.text}  (${r}:${line + 1})`)
+      }
+      ts.forEachChild(n, visit)
+    }
+    visit(sf)
+  }
+  return out.sort()
+}
+
+const unroutedCommands = findUnroutedCommands()
+
 // ---- 基线（棘轮）
 //
 // 仓库有 100+ 处存量断线，一次性清完不现实；但"修完没有门禁"正是上一轮重构失败的根因。
@@ -828,13 +882,15 @@ if (UPDATE) {
     unregisteredTools,
     unreachable: unreachable.map(rel).sort(),
     unconsumedMethods,
+    unroutedCommands,
   }
   writeFileSync(BASELINE_PATH, JSON.stringify(out, null, 2) + '\n', 'utf8')
   console.log(`已写入基线 ${rel(BASELINE_PATH)}：`)
   console.log(
     `  孤儿 handler ${orphanHandlers.length}｜悬空引用 ${danglingRefs.length}｜` +
       `无人监听 ${orphanSends.length}｜未注册工具 ${unregisteredTools.length}｜` +
-      `不可达文件 ${unreachable.length}｜无消费者 ${unconsumedMethods.length}`,
+      `不可达文件 ${unreachable.length}｜无消费者 ${unconsumedMethods.length}｜` +
+      `未接分派 ${unroutedCommands.length}`,
   )
   process.exit(0)
 }
@@ -952,6 +1008,23 @@ const graded = gradeDangling(danglingRefs, reach.reachable)
   }
 }
 
+// ⑦
+{
+  const { fresh, known } = splitNew(unroutedCommands, 'unroutedCommands')
+  section(
+    `⑦ command handler 写了但没进分派表（调用必然 throw）— 新增 ${fresh.length} / 已知 ${known.length}`,
+  )
+  for (const k of fresh) console.log(`  ${RED('·')} ${k}`)
+  if (expandKnown) for (const k of known) console.log(`  ${DIM('·')} ${DIM(k)}`)
+  else if (known.length) console.log(`  ${DIM(`基线内已知 ${known.length} 处（--verbose 展开）`)}`)
+  if (fresh.length || expandKnown) {
+    console.log(
+      `  ${YEL('注：')}只看「handler 有没有被 agent-runtime-ipc.ts import」；分派表的 default 会` +
+        ` throw，而 renderer 侧常把 sendCommand 包在 try/catch 里，所以失败是静默的。`,
+    )
+  }
+}
+
 if (VERBOSE && reach.unresolvedSpecs.size) {
   // 按扩展名归类：.css / .json / 图片等资源导入解析不到是正常的（它们不是 TS 模块）。
   // **没有扩展名的**才可疑——那多半是别名没覆盖到，会让 ⑤ 漏报。
@@ -961,7 +1034,7 @@ if (VERBOSE && reach.unresolvedSpecs.size) {
     const k = m ? m[1] : '(无扩展名·可疑)'
     byExt.set(k, (byExt.get(k) ?? 0) + 1)
   }
-  section(`⑦ 未能解析的相对说明符（影响 ⑤ 的覆盖面）— ${reach.unresolvedSpecs.size} 种`)
+  section(`⑧ 未能解析的相对说明符（影响 ⑤ 的覆盖面）— ${reach.unresolvedSpecs.size} 种`)
   for (const [ext, n] of [...byExt].sort((a, b) => b[1] - a[1])) {
     console.log(`  ${ext === '(无扩展名·可疑)' ? YEL(ext) : DIM(ext)}  ${n}`)
   }
@@ -970,7 +1043,7 @@ if (VERBOSE && reach.unresolvedSpecs.size) {
 }
 
 if (VERBOSE && unresolved.length) {
-  section(`⑧ 无法静态解析的调用点（不计入上面任何判定）— ${unresolved.length}`)
+  section(`⑨ 无法静态解析的调用点（不计入上面任何判定）— ${unresolved.length}`)
   for (const u of unresolved.slice(0, 60)) console.log(`  ? ${u.at}\n      ${u.raw}  (${u.why})`)
   if (unresolved.length > 60) console.log(`  ... 另有 ${unresolved.length - 60} 处`)
 }
@@ -982,7 +1055,8 @@ const freshCount =
   splitNew(orphanSends, 'orphanSends').fresh.length +
   splitNew(unregisteredTools, 'unregisteredTools').fresh.length +
   splitNew(unreachable.map(rel), 'unreachable').fresh.length +
-  splitNew(unconsumedMethods, 'unconsumedMethods').fresh.length
+  splitNew(unconsumedMethods, 'unconsumedMethods').fresh.length +
+  splitNew(unroutedCommands, 'unroutedCommands').fresh.length
 
 console.log(
   `\n${

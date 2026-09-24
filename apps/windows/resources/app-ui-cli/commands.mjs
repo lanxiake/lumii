@@ -860,28 +860,6 @@ export const COMMANDS = [
     },
   },
   {
-    name: 'wiki graph',
-    group: 'Wiki',
-    usage: 'wiki graph [--category <c>] [--subtopic <s>] [--limit <n>] [--session <key>]',
-    summary: '输出用途+实体知识子图 JSON',
-    layer: 'A',
-    route: { method: 'POST', path: '/command' },
-    options: [
-      { flag: '--category <c>', desc: '大类；不传则用主题树第一个大类' },
-      { flag: '--subtopic <s>', desc: '小类（可选）' },
-      { flag: '--limit <n>', desc: '节点上限，默认 50' },
-      { flag: '--session <key>', desc: '指定会话' },
-    ],
-    build(args) {
-      const body = { type: 'wiki:graph:data' }
-      if (typeof args.flags.category === 'string') body.category = args.flags.category
-      if (typeof args.flags.subtopic === 'string') body.subtopic = args.flags.subtopic
-      if (typeof args.flags.limit === 'string') body.limit = Number(args.flags.limit)
-      if (typeof args.flags.session === 'string') body.sessionKey = args.flags.session
-      return body
-    },
-  },
-  {
     name: 'wiki search hybrid',
     group: 'Wiki',
     usage: 'wiki search hybrid <关键词> [--limit <n>] [--no-vector] [--session <key>]',
