@@ -26,6 +26,7 @@ export * from './settings'
 export * from './token-budget'
 export * from './planner'
 export * from './planner-landing'
+export * from './pet-definition'
 
 // P1 - 高级功能
 export * from './capability-tracker'

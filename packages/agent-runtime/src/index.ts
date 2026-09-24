@@ -855,6 +855,9 @@ export {
   getGoalToolAllowlist,
   getAutonomousToolsForAgent,
   finalizeGoal,
+  // 宠物定义：唯一入口就是这个构造函数。白名单 / 提示词 / 显示名都从返回的定义上读，
+  // 不再单独导出成平行的常量面——一个入口比四个更难接错。
+  buildPetDefinition,
   canSendOutreach,
   recordOutreach,
   getOutreachUsedToday,

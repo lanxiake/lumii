@@ -8,6 +8,7 @@
 
 import { GoalType } from './types';
 import type { DatabaseAdapter } from '../storage/local-database.js';
+import { PET_TOOL_ALLOWLIST } from './pet-definition.js';
 
 /** 目标执行结果 */
 export interface GoalExecutionResult {
@@ -137,6 +138,11 @@ export const SYSTEM_KEEPER_AUTONOMOUS_TOOLS: readonly string[] = [
  */
 export function getAutonomousToolsForAgent(agentId: string, goalType: string): string[] {
   if (agentId === 'system-keeper') return [...SYSTEM_KEEPER_AUTONOMOUS_TOOLS];
+  // 宠物走的是自己的派发循环（T3.3），本不该到这里。但万一被谁顺手接到通用路径上，
+  // 它会拿到 getGoalToolAllowlist —— 那份含 file_write / cron_create / message，比宠物的
+  // 白名单**宽得多**，而且是静默放宽。硬规则做成函数内部短路，不靠调用方自觉
+  // （与 refusal.ts 的 `kind === 'task' → 0` 同一手法）。
+  if (agentId.startsWith('pet:')) return [...PET_TOOL_ALLOWLIST];
   return getGoalToolAllowlist(goalType);
 }
 
