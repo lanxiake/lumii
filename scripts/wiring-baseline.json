@@ -12,12 +12,7 @@
   "unconsumedMethods": [
     "agentRuntime.clearAllCachedAgentDefinitions",
     "agentRuntime.clearCachedAgentsOlderThan",
-    "agentRuntime.createInstance",
-    "agentRuntime.createInstanceById",
-    "agentRuntime.getFeatureFlags",
-    "agentRuntime.getInstances",
     "agentRuntime.getLifecycleSnapshot",
-    "agentRuntime.isAvailable",
     "agentRuntime.listCachedAgentDefinitions",
     "agentRuntime.refreshCachedAgentDefinition",
     "agentRuntime.removeCachedAgentDefinition",

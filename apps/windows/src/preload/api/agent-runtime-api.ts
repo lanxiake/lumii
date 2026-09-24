@@ -16,14 +16,9 @@ function createEventListener(channel: string, callback: (...args: unknown[]) => 
 const send = (command: unknown) => ipcRenderer.invoke('agent-runtime:command', command)
 
 export const agentRuntimeApi = {
-  getFeatureFlags: () => send({ type: 'runtime:featureFlags:get' }),
   setFeatureFlags: (flags: Record<string, boolean>) =>
     send({ type: 'runtime:featureFlags:set', flags }),
   isEnabled: () => send({ type: 'runtime:enabled' }),
-  createInstance: (agentDef?: unknown) =>
-    send({ type: 'agentInstance:create', agentDef }),
-  createInstanceById: (agentId: string) =>
-    send({ type: 'agentInstance:createById', agentId }),
   getDefinitionSyncStatus: () => send({ type: 'agentDefinition:syncStatus' }),
   syncUserAgentDefinitions: () => send({ type: 'agentDefinition:syncUserAgents' }),
   listCachedAgentDefinitions: () => send({ type: 'agentDefinition:cacheList' }),
@@ -41,7 +36,6 @@ export const agentRuntimeApi = {
     send({ type: 'agentInstance:abort', instanceId }),
   destroy: (instanceId: string) =>
     send({ type: 'agentInstance:destroy', instanceId }),
-  getInstances: () => send({ type: 'agentInstance:list' }),
   getLifecycleSnapshot: (definitionId: string) =>
     send({ type: 'agentInstance:lifecycleSnapshot', definitionId }),
   onEvent: (callback: (event: unknown) => void) => {
@@ -75,8 +69,6 @@ export const agentRuntimeApi = {
       ipcRenderer.removeListener('agent-runtime:event', listener)
     }
   },
-  isAvailable: () =>
-    send({ type: 'runtime:ping' }).then(() => true).catch(() => false),
   getLocalStorageStats: () => send({ type: 'storage:stats' }),
   exportLocalDataJSONL: () => send({ type: 'storage:exportJsonl' }),
   clearMalformedMessages: () => send({ type: 'storage:clearMalformed' }),

@@ -1156,16 +1156,6 @@ export interface RuntimeEnabledCommand {
   readonly type: 'runtime:enabled'
 }
 
-export interface AgentInstanceCreateCommand {
-  readonly type: 'agentInstance:create'
-  readonly agentDef?: unknown
-}
-
-export interface AgentInstanceCreateByIdCommand {
-  readonly type: 'agentInstance:createById'
-  readonly agentId: string
-}
-
 export interface AgentDefinitionSyncStatusCommand {
   readonly type: 'agentDefinition:syncStatus'
 }
@@ -1798,8 +1788,6 @@ export type AgentRuntimeCommand =
   | RuntimeFeatureFlagsGetCommand
   | RuntimeFeatureFlagsSetCommand
   | RuntimeEnabledCommand
-  | AgentInstanceCreateCommand
-  | AgentInstanceCreateByIdCommand
   | AgentDefinitionSyncStatusCommand
   | AgentDefinitionSyncUserAgentsCommand
   | AgentDefinitionCacheListCommand

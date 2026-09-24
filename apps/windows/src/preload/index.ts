@@ -754,16 +754,10 @@ export interface ElectronAPI {
 
   // 客户�?Agent Runtime
   agentRuntime: {
-    /** 获取 Feature Flags */
-    getFeatureFlags: () => Promise<unknown>
     /** 设置 Feature Flags */
     setFeatureFlags: (flags: Record<string, boolean>) => Promise<unknown>
     /** 是否启用 */
     isEnabled: () => Promise<boolean>
-    /** 创建 Agent 实例 */
-    createInstance: (agentDef?: unknown) => Promise<{ ok: boolean; instanceId?: string; error?: string }>
-    /** 通过 agentId 创建实例（DefinitionStore�?*/
-    createInstanceById: (agentId: string) => Promise<{ ok: boolean; instanceId?: string; error?: string }>
     /** DefinitionStore 同步状�?*/
     getDefinitionSyncStatus: () => Promise<{
       lastSyncAt: string | null
@@ -792,8 +786,6 @@ export interface ElectronAPI {
     abort: (instanceId: string) => Promise<{ ok: boolean }>
     /** 销毁实�?*/
     destroy: (instanceId: string) => Promise<{ ok: boolean }>
-    /** 获取所有实�?*/
-    getInstances: () => Promise<Array<{ id: string; definitionId: string; state: string }>>
     /** 按定�?ID 聚合运行时快照（DetailPanel 运行状态） */
     getLifecycleSnapshot: (definitionId: string) => Promise<{
       definitionId: string
@@ -812,8 +804,6 @@ export interface ElectronAPI {
     sendCommand: (command: unknown) => Promise<unknown>
     /** [P3] 监听特定类型�?Agent Runtime 事件 */
     onEventType: (eventType: string, handler: (event: unknown) => void) => () => void
-    /** [P3] 检查新协议是否可用 */
-    isAvailable: () => Promise<boolean>
     /** 订阅 Wiki 库级迁移进度（wiki:migrate:progress） */
     onWikiMigrateProgress: (callback: (progress: unknown) => void) => () => void
     /** 本地 SQLite 存储占用与表行数 */

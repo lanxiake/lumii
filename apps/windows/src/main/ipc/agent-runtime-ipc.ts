@@ -112,8 +112,6 @@ import {
   handleAgentMemoriesUnarchive,
   handleAgentMemoriesRebuildIndex,
   handleAgentMemoriesStats,
-  handleAgentInstanceCreate,
-  handleAgentInstanceCreateById,
   handleAgentDefinitionSyncStatus,
   handleAgentDefinitionSyncUserAgents,
   handleAgentDefinitionCacheList,
@@ -1088,12 +1086,6 @@ export async function handleCommand(
 
       case 'runtime:enabled':
         return handleRuntimeEnabled(bridge)
-
-      case 'agentInstance:create':
-        return handleAgentInstanceCreate(bridge, command)
-
-      case 'agentInstance:createById':
-        return handleAgentInstanceCreateById(bridge, command)
 
       case 'agentDefinition:syncStatus':
         return handleAgentDefinitionSyncStatus(bridge)

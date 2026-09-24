@@ -5,7 +5,7 @@
  * 提取自 agent-runtime-ipc.ts
  */
 
-import { BUILT_IN_AGENTS, type AgentDefinition } from '@mtbot/agent-runtime'
+import { BUILT_IN_AGENTS } from '@mtbot/agent-runtime'
 import type { AgentRuntimeCommand } from '../../../shared/agent-runtime-commands'
 import type { AgentRuntimeBridge } from '../../agent-runtime/bridge'
 
@@ -180,32 +180,6 @@ export function handleAgentMemoriesStats(
   const dist = bridge.memoryManager.getTemperatureStats(agentId, LOCAL_USER_ID)
   const total = dist.hot + dist.warm + dist.cold
   return { hot: dist.hot, warm: dist.warm, cold: dist.cold, total }
-}
-
-export async function handleAgentInstanceCreate(
-  bridge: AgentRuntimeBridge,
-  command: Extract<AgentRuntimeCommand, { type: 'agentInstance:create' }>,
-): Promise<{ ok: boolean; instanceId?: string; error?: string }> {
-  try {
-    const instanceId = await bridge.createInstance(command.agentDef as AgentDefinition | undefined)
-    return { ok: true, instanceId }
-  } catch (err) {
-    log.error('agentInstance:create failed:', err)
-    return { ok: false, error: err instanceof Error ? err.message : String(err) }
-  }
-}
-
-export async function handleAgentInstanceCreateById(
-  bridge: AgentRuntimeBridge,
-  command: Extract<AgentRuntimeCommand, { type: 'agentInstance:createById' }>,
-): Promise<{ ok: boolean; instanceId?: string; error?: string }> {
-  try {
-    const instanceId = await bridge.createInstanceById(command.agentId)
-    return { ok: true, instanceId }
-  } catch (err) {
-    log.error('agentInstance:createById failed:', err)
-    return { ok: false, error: err instanceof Error ? err.message : String(err) }
-  }
 }
 
 export function handleAgentDefinitionSyncStatus(bridge: AgentRuntimeBridge): unknown {
