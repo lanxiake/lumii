@@ -143,3 +143,147 @@ export function planNextActivity(rand: () => number, cfg: AmbientConfig): Ambien
 export function initialPlan(rand: () => number, cfg: AmbientConfig): AmbientPlan {
   return { activity: "stand", durationMs: activityDuration("stand", rand, cfg.durations) };
 }
+
+// ---------------------------------------------------------------------------
+// 性格 / 情绪 → 活动参数（宠物智能化设计 §3.4、§8.6.1）
+// ---------------------------------------------------------------------------
+
+/**
+ * 权重夹取的上下界。
+ *
+ * **这是本模块唯一的硬护栏，不能省。** 五维系数会**乘到同一组权重上**，
+ * 无夹取时极端个体（0.15 / 0.85 两端）叠加出来的比例可以把某个活动推到
+ * 近乎 0（"永不动"）或吞掉其余全部（"永不停"）——两种都是"看起来像坏了"的形态，
+ * 而且不报错。下界 0.05 同时兼作"权重不得为 0"的保证：全 0 是非法配置，
+ * `pickActivity` 会退化成第一个键。
+ */
+export const WEIGHT_MIN = 0.05;
+export const WEIGHT_MAX = 5.0;
+
+/** 时长夹取：再活泼也不该 200ms 换一次姿势，再蔫也不该十分钟不动 */
+export const DURATION_SCALE_MIN = 0.6;
+export const DURATION_SCALE_MAX = 1.6;
+
+/** 情绪与性格里、本模块要用的那几个分量。全部可省——省了按中性/基线算。 */
+export interface AmbientTuningInput {
+  /** 精力 0..1（`mood.energy`）；高 → 更愿意走动 */
+  readonly energy?: number;
+  /** 心情 -1..1（`mood.valence`）；低 → 更多坐着（蔫） */
+  readonly valence?: number;
+  /** 外向性 0..1；高 → 走动多、站立少 */
+  readonly extraversion?: number;
+  /** 开放性 0..1；高 → 活动间隔短（更爱折腾） */
+  readonly openness?: number;
+}
+
+/** 中性值：全部取它时 `adjustAmbientConfig` 必须原样返回入参 */
+const NEUTRAL_ENERGY = 0.6;
+const NEUTRAL_TRAIT = 0.5;
+
+function norm01(v: number | undefined, fallback: number): number {
+  if (v === undefined || !Number.isFinite(v)) return fallback;
+  return v < 0 ? 0 : v > 1 ? 1 : v;
+}
+
+function lerp(lo: number, hi: number, t: number): number {
+  return lo + (hi - lo) * t;
+}
+
+function clampWeight(v: number): number {
+  if (!Number.isFinite(v)) return WEIGHT_MIN;
+  return Math.min(WEIGHT_MAX, Math.max(WEIGHT_MIN, v));
+}
+
+/** 是否中性输入（用于"原样返回入参"的快路径） */
+function isNeutralTuning(t: AmbientTuningInput): boolean {
+  return (
+    (t.energy === undefined || t.energy === NEUTRAL_ENERGY) &&
+    (t.valence === undefined || t.valence === 0) &&
+    (t.extraversion === undefined || t.extraversion === NEUTRAL_TRAIT) &&
+    (t.openness === undefined || t.openness === NEUTRAL_TRAIT)
+  );
+}
+
+/**
+ * 按情绪与性格调整活动权重。
+ *
+ * **只调相对关系，不做归一化**——`pickActivity` 用的是累积法、只比较相对大小，
+ * 归一化反而会引入一层无谓的浮点误差（并让"权重表可整表替换"这条约定变味）。
+ *
+ * | 输入 | 效果 | 依据 |
+ * |---|---|---|
+ * | extraversion 高 | 走动权重↑、坐下权重↓ | §3.4「走动权重」 |
+ * | energy 高 | 走动权重↑ | 精力足才走得动 |
+ * | valence 低 | 坐下权重↑ | 蔫了就多待着（§4.1.3 真实共情的行为出口） |
+ */
+export function adjustWeightsByMood(
+  base: Record<AmbientActivity, number>,
+  mood?: AmbientTuningInput | null,
+  traits?: AmbientTuningInput | null,
+): Record<AmbientActivity, number> {
+  const merged: AmbientTuningInput = { ...traits, ...mood };
+  if (isNeutralTuning(merged)) return base;
+
+  const extraversion = norm01(merged.extraversion, NEUTRAL_TRAIT);
+  const energy = norm01(merged.energy, NEUTRAL_ENERGY);
+  const valence = merged.valence === undefined || !Number.isFinite(merged.valence)
+    ? 0
+    : Math.max(-1, Math.min(1, merged.valence));
+
+  // 走动：外向 × 精力。两个因子都不取 0，内向且没精神的宠物也**偶尔**走一趟
+  const walkFactor = lerp(0.6, 1.6, extraversion) * lerp(0.75, 1.25, energy);
+  // 坐下：外向的反向 + 心情差的加成。低 valence 最多让"坐着"翻倍，不是无限大
+  const sitFactor = lerp(1.4, 0.7, extraversion) * lerp(1.0, 2.0, Math.max(0, -valence));
+
+  return {
+    stand: clampWeight(base.stand),
+    walk: clampWeight(base.walk * walkFactor),
+    sit: clampWeight(base.sit * sitFactor),
+  };
+}
+
+/**
+ * 按性格调整活动时长（设计 §8.6.1「活动间隔：高 openness/extraversion → 短」）。
+ *
+ * 与权重是两件事：权重决定"抽到哪种活动"，时长决定"这次待多久"。
+ * 一只好奇又外向的宠物既走得多、每次待得也短——两者叠加才是"闲不住"。
+ */
+export function adjustDurationsByTraits(
+  base: Record<AmbientActivity, DurationRange>,
+  traits?: AmbientTuningInput | null,
+): Record<AmbientActivity, DurationRange> {
+  if (!traits || isNeutralTuning(traits)) return base;
+  const openness = norm01(traits.openness, NEUTRAL_TRAIT);
+  const extraversion = norm01(traits.extraversion, NEUTRAL_TRAIT);
+  // 两个维度各贡献一半：只用 openness 会让内向的好奇宠物也变得"闲不住"
+  const liveliness = (openness + extraversion) / 2;
+  const scale = lerp(DURATION_SCALE_MIN, DURATION_SCALE_MAX, 1 - liveliness);
+
+  const scaled = (r: DurationRange): DurationRange => ({
+    min: Math.round(r.min * scale),
+    max: Math.round(r.max * scale),
+  });
+  return {
+    stand: scaled(base.stand),
+    sit: scaled(base.sit),
+    walk: scaled(base.walk),
+  };
+}
+
+/**
+ * 一次性算出这个宠物该用的完整活动配置。驱动侧唯一的入口。
+ *
+ * 中性输入时**原样返回 `base`**（引用相等）：这是"未接线 = 与上线前一致"的判据，
+ * 不能退化成"数值差不多"。
+ */
+export function adjustAmbientConfig(
+  base: AmbientConfig,
+  mood?: AmbientTuningInput | null,
+  traits?: AmbientTuningInput | null,
+): AmbientConfig {
+  const weights = adjustWeightsByMood(base.weights, mood, traits);
+  const durations = adjustDurationsByTraits(base.durations, traits);
+  if (weights === base.weights && durations === base.durations) return base;
+  return { ...base, weights, durations };
+}
+

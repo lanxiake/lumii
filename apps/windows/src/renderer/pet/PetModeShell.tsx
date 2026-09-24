@@ -19,7 +19,7 @@
 
 import React, { useCallback, useMemo, useRef, useState, useEffect } from 'react'
 import { usePetMode } from './hooks/usePetMode'
-import { PetCanvas, type PetCanvasHandle, type PetCanvasDegradeReason, setTapModelConfig, setTapInteractionEnabled } from './components/PetCanvas'
+import { PetCanvas, type PetCanvasHandle, type PetCanvasDegradeReason, setTapModelConfig, setTapInteractionEnabled, setOnModelApproach } from './components/PetCanvas'
 import { PetControlDock } from './components/PetControlDock'
 import { PetSpeechBubble } from './components/PetSpeechBubble'
 import { PetStatusGlyph } from './components/PetStatusGlyph'
@@ -27,7 +27,7 @@ import { PetContextMenu } from './components/PetContextMenu'
 import { spawnClickFireworks, spawnIdleSparkles } from './components/pet-particles'
 import { PetOrchestrator, type PetAvatarStatus } from './orchestrator/PetOrchestrator'
 import { PetEmotionMapper } from './orchestrator/PetEmotionMapper'
-import { mapAgentEvent, pendingNotices, type PetIdleStage, type PetNotice } from '@mtbot/pet-core'
+import { announceDurationMs, mapAgentEvent, pendingNotices, traitLabel, type PetIdleStage, type PetNotice } from '@mtbot/pet-core'
 import { useVoiceCall } from '../hooks/business/useVoiceCall/useVoiceCall'
 import { useAgentRuntimeActions } from '../hooks/business/useAgentRuntime/useAgentRuntime'
 import type { PetModelConfig } from './config/pet-model-types'
@@ -43,7 +43,8 @@ import {
   type VirtualHumanSettingsDTO,
 } from '../../shared/virtual-human'
 import type { PetChatMessage } from './components/PetControlDock'
-import type { PetModelConfigDTO } from '../../shared/pet-mode'
+import type { PetModelConfigDTO, PetPersonalityDTO } from '../../shared/pet-mode'
+import { usePrefersReducedMotion } from './utils/use-prefers-reduced-motion'
 import { resolveEmotionKeyByIndex } from './utils/pet-status-labels'
 import { pickStatusGlyph } from './utils/pet-status-glyph'
 import {
@@ -122,6 +123,35 @@ export const PetModeShell: React.FC = () => {
   /** 声音开关：开=文字回复出声(真音频口型)，关=静默(伪口型)。从 VH 设置同步。 */
   const enableVoiceReplyRef = useRef<boolean>(DEFAULT_VH_SETTINGS.enableVoiceReply)
   const enableIdleMotionRef = useRef<boolean>(DEFAULT_VH_SETTINGS.enableIdleMotion)
+  /**
+   * 系统「减少动效」（第二期 T2.6 / §8.7）。
+   *
+   * **它压的是"装饰性动作"，不压"状态表达"**：待机随机轮播关掉，自主走动照旧——
+   * 后者是"它现在怎么样"的表达，关掉等于把信息也关了。
+   * 因此它只与 `enableIdleMotion` 相与，不碰 `ambientEnabled`。
+   */
+  const reducedMotion = usePrefersReducedMotion()
+  const reducedMotionRef = useRef<boolean>(reducedMotion)
+
+  /**
+   * 待机随机动作的唯一出口：**用户开关 ∧ 系统未要求减少动效**。
+   *
+   * 收成一个函数而不是在三处调用点各写一次 `&& !reducedMotion`：那三处
+   * （模型加载、设置同步、设置补丁）本来就容易漏改一处，而漏掉的表现是
+   * "重进宠物模式它又开始乱动了"——看起来像设置没保存。
+   */
+  const applyIdleMotion = (enabled: boolean): void => {
+    orchestratorRef.current?.setEnableIdleMotion(enabled && !reducedMotionRef.current)
+  }
+
+  // 系统设置可能在应用运行期间被改（宠物窗是常驻的），改了要立刻重新结算
+  useEffect(() => {
+    reducedMotionRef.current = reducedMotion
+    applyIdleMotion(enableIdleMotionRef.current)
+    if (reducedMotion) {
+      log.info('[reduced-motion] 系统要求减少动效：已关闭待机随机动作（自主走动保留）')
+    }
+  }, [reducedMotion])
   /** Agent 活动感知（R5/R6）：关掉后宠物不再随 Agent 的思考/工具/等待改姿态 */
   const enableAgentActivityRef = useRef<boolean>(DEFAULT_VH_SETTINGS.enableAgentActivity)
   /** Agent 通知（R6「叫得动」）：关掉后不冒通知气泡、控制坞也不列待办 */
@@ -142,6 +172,13 @@ export const PetModeShell: React.FC = () => {
    */
   const mainWindowFocusedRef = useRef<boolean | undefined>(undefined)
   const [degrade, setDegrade] = useState<PetCanvasDegradeReason | null>(null)
+  /**
+   * 宠物性格（第二期）：接住 `getPetPersonality` 返回的五维。
+   *
+   * **两个消费者，同一个来源**：编排器那份走 `setTraits`（程序化原语），画布那份走
+   * `petTuning` props（自主行为权重）。两处都从这个 state 走，不各自再读一次 IPC。
+   */
+  const [petTraits, setPetTraits] = useState<PetPersonalityDTO['traits'] | null>(null)
   const [modelLoaded, setModelLoaded] = useState(false)
   const [muted, setMuted] = useState(false)
   const [voiceReplyEnabled, setVoiceReplyEnabled] = useState(DEFAULT_VH_SETTINGS.enableVoiceReply)
@@ -475,7 +512,22 @@ export const PetModeShell: React.FC = () => {
 
     // 每次模型加载都重绑状态监听与表情回调（热切换路径也需刷新 UI）
     orch.setStatusListener((status) => setAvatarStatus({ ...status }))
-    orch.setEnableIdleMotion(enableIdleMotionRef.current)
+    /**
+     * 一次性动作的**让位出口**（打哈欠 / 伸懒腰 / 挠头 / 雀跃 / 蔫 / 张望）。
+     *
+     * 编排器够不到 `PetWanderDriver`——驱动归 `PetCanvas` 持有，所以这条必须由宿主接。
+     * ⚠ **接不上的话那些动作一个都不会播**：`playOneShotMotion` 宁可不播，也不播成
+     * "一边平移一边打哈欠"（脚不动、人在飘）。见它的注释。
+     */
+    orch.setOneShotAmbientHold((ms) => canvasRef.current?.holdAmbientForOneShot(ms))
+    /**
+     * 「鼠标靠近 → 转头看」（设计 §8.3.1）。
+     *
+     * 画布只报**刚进入模型**那一个上升沿；冷却（20s）留给编排器——"多久看一次"
+     * 是行为纪律（§8.1.5 的克制），不是手势识别该管的事。
+     */
+    setOnModelApproach(() => orchestratorRef.current?.playLookMotion())
+    applyIdleMotion(enableIdleMotionRef.current)
     orch.setEnableAgentActivity(enableAgentActivityRef.current)
     orch.setEnableAgentNotice(enableAgentNoticeRef.current)
     // L4 气泡（R5/R6）：冒出来之后按自己的 TTL 撤，**不跟着 activity 生死**——
@@ -572,6 +624,26 @@ export const PetModeShell: React.FC = () => {
       })
       .catch((e) => log.warn(`获取动作映射失败: ${(e as Error).message}`))
 
+    /**
+     * 宠物性格（第二期）：**首次读即出生抽签**，此后每次都是同一组值。
+     *
+     * 拿不到时传 `null`（编排器回到恒等元），**不要兜底一组中性五维**——
+     * 那会让"IPC 没回来"看起来像"这只宠物刚好没脾气"，且用户无从分辨。
+     * 也不打五维数值：它是给渲染层算参数的，不是给人读的（§3.6）。
+     */
+    void window.electronAPI?.pet?.getPetPersonality?.(config.id)
+      .then((p) => {
+        const t = p?.traits ?? null
+        orch.setTraits(t)
+        setPetTraits(t)
+        log.info(
+          p
+            ? `[handleModelLoaded] 性格已绑定 agentId=${p.agentId} 脾气="${p.label}"`
+            : '[handleModelLoaded] 性格读取为空，程序化参数走恒等元',
+        )
+      })
+      .catch((e) => log.warn(`获取宠物性格失败: ${(e as Error).message}`))
+
     const defaultIdx = config.defaultExpression ?? 0
     const defaultKey = resolveEmotionKeyByIndex(emotionMap, defaultIdx)
     if (defaultKey) {
@@ -585,6 +657,8 @@ export const PetModeShell: React.FC = () => {
       orchestratorRef.current?.dispose()
       orchestratorRef.current = null
       orchestratorRendererRef.current = null
+      // 模块级的回调要**主动解绑**：宠物窗关掉之后画布不该再往一个已销毁的编排器上打
+      setOnModelApproach(null)
     }
   }, [])
 
@@ -613,7 +687,7 @@ export const PetModeShell: React.FC = () => {
       setVoiceReplyEnabled(s.enableVoiceReply)
       enableIdleMotionRef.current = s.enableIdleMotion ?? DEFAULT_VH_SETTINGS.enableIdleMotion
       setIdleMotionEnabled(enableIdleMotionRef.current)
-      orchestratorRef.current?.setEnableIdleMotion(enableIdleMotionRef.current)
+      applyIdleMotion(enableIdleMotionRef.current)
       enableAgentActivityRef.current = s.enableAgentActivity ?? DEFAULT_VH_SETTINGS.enableAgentActivity
       orchestratorRef.current?.setEnableAgentActivity(enableAgentActivityRef.current)
       enableAgentNoticeRef.current = s.enableAgentNotice ?? DEFAULT_VH_SETTINGS.enableAgentNotice
@@ -638,7 +712,7 @@ export const PetModeShell: React.FC = () => {
       if (patch.enableIdleMotion !== undefined) {
         enableIdleMotionRef.current = patch.enableIdleMotion
         setIdleMotionEnabled(patch.enableIdleMotion)
-        orchestratorRef.current?.setEnableIdleMotion(patch.enableIdleMotion)
+        applyIdleMotion(patch.enableIdleMotion)
       }
       if (patch.enableAgentActivity !== undefined) {
         enableAgentActivityRef.current = patch.enableAgentActivity
@@ -1202,6 +1276,41 @@ export const PetModeShell: React.FC = () => {
           }}
           // 自主活动（R9）：画布只报「该走/该坐/该站」，播哪个组由编排器按既有优先级决定
           onAmbientActivity={(activity) => orchestratorRef.current?.setAmbientActivity(activity)}
+          /**
+           * 性格 → 活动权重与时长（第二期 T2.2）。
+           *
+           * `mood` 恒为 `null`：宠物**自己的**情绪还没有来源（它随第四期的感知线一起上线）。
+           * 把助手的心情传进来会在 §3.7 刚拆开的两条通道上又接回去——那正是要避免的耦合。
+           */
+          petTuning={{ traits: petTraits, mood: null }}
+          /** 拒绝了这次互动（T2.3）：播「躲开」，不播点击回应 */
+          onRefusal={() => orchestratorRef.current?.playRefusalMotion()}
+          /**
+           * 摸头（T2.4）。三段各归各的：
+           * - `start` → 编排器播 `Purr` 循环（素材未装时它静默，长按仍成立）
+           * - `bubble` → 冒一句「呼~」，时长复用 `announceDurationMs`，不另起一套
+           * - `end` → 还原环境姿态（`Purr` 是循环组，不还原会一直呼噜下去）
+           *
+           * 气泡位置取**当前**位置而不是记下来的：摸头不移动宠物，所以两者一致；
+           * 用当前值可以少维护一份状态。
+           */
+          onPetting={(phase) => {
+            const orch = orchestratorRef.current
+            if (phase === 'start') {
+              orch?.startPurrMotion()
+              return
+            }
+            if (phase === 'end') {
+              orch?.endPurrMotion()
+              return
+            }
+            const renderer = canvasRef.current?.getRenderer()
+            const pos = renderer?.getPosition?.()
+            const layout = renderer?.getLayout?.()
+            if (bubbleTimerRef.current) clearTimeout(bubbleTimerRef.current)
+            setBubble({ text: '呼~', x: pos?.x ?? 0, y: pos?.y ?? 0, petHeight: layout?.modelHeight ?? 200 })
+            bubbleTimerRef.current = setTimeout(() => setBubble(null), announceDurationMs('呼~'))
+          }}
           onContextMenu={(x, y) => setMenuAt({ x, y })}
           // 对话进行中（听/想/说/收尾）不让宠物自己溜达——它正在跟用户交互，不该走开。
           // 复用 `enableIdleMotion` 开关：语义就是「待机时要不要自己动」，不必再加一个设置项。
@@ -1217,6 +1326,7 @@ export const PetModeShell: React.FC = () => {
 
       {dockOpen && (
         <PetControlDock
+        personalityLabel={petTraits ? traitLabel(petTraits) : null}
         voiceState={voiceState.state}
         partialTranscript={voiceState.partialTranscript}
         messages={messages}

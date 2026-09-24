@@ -26,10 +26,34 @@ import {
   DEFAULT_VH_SETTINGS,
 } from '../../../../../shared/virtual-human'
 import { useFeatureAvailability } from '../../../../hooks/business/useFeatureAvailability'
+import { expressionCapability, type ExpressionCapability } from '@mtbot/pet-core'
 import styles from '../../SettingsPage.module.css'
 
 /** 宠物模式 Agent 选择的本地存储键 */
 const PET_AGENT_STORAGE_KEY = 'mtbot:pet-agent-id'
+
+/**
+ * 模型的表情层能力 → 给用户看的一句话（设计 §8.5）。
+ *
+ * **这条提示不是装饰**：没有表情层的模型（团子 / 钢羽 / shimeji 系）情绪**只能**靠
+ * 动作幅度表达，不说明的话用户看到的是"我心情这么差它一点反应都没有"——
+ * 会以为宠物坏了，而实际是这个模型只有一张脸。
+ *
+ * 判据是**能解析出几个不同表情索引**而不是 emotionMap 有几个键，理由见
+ * `@mtbot/pet-core` 的 `expression-capability.ts`（xiaomai 是那条反例：
+ * 14 个键全指向索引 0）。
+ */
+function capabilityLabel(level: ExpressionCapability): string {
+  return level === 'rich' ? '表情丰富' : '基础'
+}
+
+function capabilityHint(level: ExpressionCapability): string | null {
+  if (level === 'rich') return null
+  if (level === 'none') {
+    return '这个模型只有一张脸，它的情绪主要通过动作幅度表达（呼吸、浮动、走动）'
+  }
+  return '这个模型的表情较少，情绪主要靠动作幅度表达'
+}
 
 export const PetSettingsSection: React.FC = () => {
   const toast = useToast()
@@ -129,7 +153,10 @@ export const PetSettingsSection: React.FC = () => {
               )}
               <Select
                 value={vhCurrentModelId || currentModel?.id || ''}
-                options={vhModels.map((m) => ({ value: m.id, label: m.name }))}
+                options={vhModels.map((m) => ({
+                  value: m.id,
+                  label: `${m.name}（${capabilityLabel(expressionCapability(m.emotionMap))}）`,
+                }))}
                 onChange={(e) => {
                   const id = e.target.value
                   setVhCurrentModelId(id)
@@ -138,6 +165,12 @@ export const PetSettingsSection: React.FC = () => {
                 className={styles['setting-select']}
               />
             </div>
+            {/* 能力差异必须对用户可见，否则"没反应"会被读成"坏了"（设计 §8.5 / 验收 U7） */}
+            {currentModel && capabilityHint(expressionCapability(currentModel.emotionMap)) && (
+              <span className={styles['setting-hint']}>
+                {capabilityHint(expressionCapability(currentModel.emotionMap))}
+              </span>
+            )}
           </div>
 
           {/* 气质标签（宠物智能化第一期）：宠物是独立 Agent，它的脾气与助手互不影响 */}

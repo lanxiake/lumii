@@ -5,6 +5,11 @@ import {
   initialPlan,
   pickActivity,
   planNextActivity,
+  adjustAmbientConfig,
+  adjustDurationsByTraits,
+  adjustWeightsByMood,
+  WEIGHT_MAX,
+  WEIGHT_MIN,
   type AmbientActivity,
 } from "./ambient.js";
 
@@ -120,5 +125,122 @@ describe("planNextActivity / initialPlan", () => {
   it("首次的时长按 stand 区间取", () => {
     const plan = initialPlan(fixed(0), AMBIENT_DEFAULTS);
     expect(plan.durationMs).toBe(AMBIENT_DEFAULTS.durations.stand.min);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 性格 / 情绪 → 活动参数（第二期 T2.2）
+// ---------------------------------------------------------------------------
+
+describe("adjustWeightsByMood — 性格与情绪调权重", () => {
+  const base = AMBIENT_DEFAULTS.weights;
+  const ALL_KEYS: AmbientActivity[] = ["stand", "walk", "sit"];
+
+  it("中性输入原样返回（引用相等）—— 未接线必须与上线前一致", () => {
+    expect(adjustWeightsByMood(base)).toBe(base);
+    expect(
+      adjustWeightsByMood(base, { energy: 0.6, valence: 0 }, { extraversion: 0.5, openness: 0.5 }),
+    ).toBe(base);
+  });
+
+  it("外向 → 走动权重高、坐下权重低；内向反过来", () => {
+    const out = adjustWeightsByMood(base, null, { extraversion: 0.85 });
+    const inn = adjustWeightsByMood(base, null, { extraversion: 0.15 });
+    expect(out.walk).toBeGreaterThan(inn.walk);
+    expect(out.sit).toBeLessThan(inn.sit);
+  });
+
+  it("精力高 → 走动更多；心情差 → 坐着更多", () => {
+    const fresh = adjustWeightsByMood(base, { energy: 0.9 });
+    const tired = adjustWeightsByMood(base, { energy: 0.2 });
+    expect(fresh.walk).toBeGreaterThan(tired.walk);
+
+    const glum = adjustWeightsByMood(base, { valence: -1 });
+    expect(glum.sit).toBeGreaterThan(adjustWeightsByMood(base, { valence: 0 }).sit);
+  });
+
+  it("★ 极端输入下不越界、不为 0、不溢出", () => {
+    // 两个极端个体 + 两个极端情绪，全组合都过一遍
+    const extremes = [
+      { extraversion: 0.15, openness: 0.15 },
+      { extraversion: 0.85, openness: 0.85 },
+      { extraversion: 0, openness: 0 },
+      { extraversion: 1, openness: 1 },
+    ];
+    const moods = [
+      { energy: 0, valence: -1 },
+      { energy: 1, valence: 1 },
+      { energy: Number.NaN, valence: Number.POSITIVE_INFINITY },
+      { energy: -5, valence: 99 },
+    ];
+    for (const t of extremes) {
+      for (const m of moods) {
+        const w = adjustWeightsByMood(base, m, t);
+        for (const k of ALL_KEYS) {
+          expect(Number.isFinite(w[k])).toBe(true);
+          expect(w[k]).toBeGreaterThanOrEqual(WEIGHT_MIN);
+          expect(w[k]).toBeLessThanOrEqual(WEIGHT_MAX);
+        }
+      }
+    }
+  });
+
+  it("★ 极端个体仍能走到三种活动（不会退化成「永不动」）", () => {
+    // 逐个活动看它是否还抽得到：权重为 0 的那个活动永远抽不到，
+    // 而"永不动"正是无夹取时最容易出现的形态
+    const w = adjustWeightsByMood(base, { energy: 0, valence: -1 }, { extraversion: 0 });
+    for (const k of ALL_KEYS) expect(w[k]).toBeGreaterThan(0);
+
+    // 扫一遍累积抽样区间，确认三个活动各自都有非空区间
+    const total = ALL_KEYS.reduce((s, k) => s + w[k], 0);
+    const hits = new Set<AmbientActivity>();
+    for (let i = 0; i <= 100; i++) hits.add(pickActivity(fixed(i / 100), w));
+    expect(hits.size).toBe(3);
+    expect(total).toBeGreaterThan(0);
+  });
+});
+
+describe("adjustDurationsByTraits — 好奇外向的宠物闲不住", () => {
+  const base = AMBIENT_DEFAULTS.durations;
+
+  it("中性输入原样返回（引用相等）", () => {
+    expect(adjustDurationsByTraits(base)).toBe(base);
+    expect(adjustDurationsByTraits(base, { openness: 0.5, extraversion: 0.5 })).toBe(base);
+  });
+
+  it("高 openness + 高 extraversion → 每一项都更短", () => {
+    const lively = adjustDurationsByTraits(base, { openness: 0.85, extraversion: 0.85 });
+    for (const k of ["stand", "walk", "sit"] as const) {
+      expect(lively[k].min).toBeLessThan(base[k].min);
+      expect(lively[k].max).toBeLessThan(base[k].max);
+    }
+  });
+
+  it("只动其中一个维度效果更弱（两维各贡献一半）", () => {
+    const both = adjustDurationsByTraits(base, { openness: 0.85, extraversion: 0.85 });
+    const onlyOpen = adjustDurationsByTraits(base, { openness: 0.85, extraversion: 0.5 });
+    expect(both.stand.min).toBeLessThan(onlyOpen.stand.min);
+    expect(onlyOpen.stand.min).toBeLessThan(base.stand.min);
+  });
+
+  it("极端输入不把区间推成 0 或负数", () => {
+    const d = adjustDurationsByTraits(base, { openness: 1, extraversion: 1 });
+    for (const k of ["stand", "walk", "sit"] as const) {
+      expect(d[k].min).toBeGreaterThan(0);
+      expect(d[k].min).toBeLessThanOrEqual(d[k].max);
+    }
+  });
+});
+
+describe("adjustAmbientConfig — 驱动侧唯一入口", () => {
+  it("中性输入原样返回整份配置（引用相等）", () => {
+    expect(adjustAmbientConfig(AMBIENT_DEFAULTS)).toBe(AMBIENT_DEFAULTS);
+  });
+
+  it("非中性输入返回新配置，且 walkSpeed 不被改动", () => {
+    const out = adjustAmbientConfig(AMBIENT_DEFAULTS, { energy: 0.9 }, { extraversion: 0.8 });
+    expect(out).not.toBe(AMBIENT_DEFAULTS);
+    expect(out.walkSpeed).toBe(AMBIENT_DEFAULTS.walkSpeed);
+    expect(out.weights.walk).toBeGreaterThan(AMBIENT_DEFAULTS.weights.walk);
   });
 });

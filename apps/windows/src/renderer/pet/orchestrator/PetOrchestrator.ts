@@ -23,15 +23,21 @@ import type { PetIdleStage, PetPose } from '@mtbot/pet-core'
 import {
   activityModulation,
   announceDurationMs,
+  composeScales,
+  countDistinctExpressions,
   IDENTITY_MODULATION,
+  IDENTITY_PROCEDURAL_SCALES,
   initialAgentActivity,
   isQuietHour,
+  needsAmplitudeCompensation,
+  NO_EXPRESSION_LAYER_SCALES,
   pickAgentAnnouncement,
   pickNoticeForBubble,
   reduceAgentActivity,
   reduceNotices,
   tickAgentActivity,
   tickNotices,
+  traitsToProceduralScales,
   type ActivityModulation,
   type AgentActivity,
   type AgentActivityEvent,
@@ -39,6 +45,7 @@ import {
   type NoticeEvent,
   type NoticeReportStamp,
   type PetNotice,
+  type TraitProceduralInput,
 } from '@mtbot/pet-core'
 import { PET_MOTION_GROUP_UNNAMED } from '../config/pet-model-types'
 import { PetBus } from './pet-bus'
@@ -66,6 +73,28 @@ const IDLE_MOTION_DROWSY_FACTOR = 3
 const POST_DIALOGUE_IDLE_DELAY_MS = 10_000
 /** 醒来反馈表情的停留时间（ms）：太短看不见，太长会盖住紧接着的对话表情 */
 const WAKE_FEEDBACK_MS = 1200
+
+/**
+ * 一次性动作（打哈欠/伸懒腰/挠头/雀跃/蔫/张望）期间按住自主行为的时长（ms）。
+ *
+ * 比最长的一条还长一点：Yawn/Stretch/Scratch/Droop/Look 是 2.0s、Cheer 1.6s
+ * （帧数 ÷ fps 由 `install-pet` 定，见 H3 实施记录 §13.1）。多出来的那点尾巴是给
+ * 「播完 → `next: 'Idle'` → 驱动交还」留的余量。
+ *
+ * ⚠ **不按每个动作的真实时长算**：渲染器的 provider 接口没有"这组播多久"
+ * （只有 `getMotionCount`），要算就得把 `manifest.animations` 的形状抄进编排器。
+ * 收尾由 `PetWanderDriver.resume` 负责——它末尾的 `resetToStand()` 会广播一次
+ * `stand`，环境姿态由此重新落点，所以按住期结束时不需要这边再做任何事。
+ */
+const ONE_SHOT_AMBIENT_HOLD_MS = 2600
+
+/**
+ * 「张望」的冷却（ms）。
+ *
+ * 鼠标从宠物身上扫过是高频事件，不加冷却就成了抽风。取 20 秒——比一次张望
+ *（2.0s）长一个量级，看到的才是"它看了我一眼"。
+ */
+const LOOK_COOLDOWN_MS = 20_000
 
 /**
  * agentActivity 状态的推进周期（ms）。
@@ -168,6 +197,15 @@ export class PetOrchestrator {
   private unbindAdapter: (() => void) | null = null
   private unbindBus: (() => void) | null = null
   private modelConfig: PetModelConfig | null = null
+  /**
+   * 宠物性格（第二期）。`null` = 还没拿到 → 程序化倍率走恒等元。
+   *
+   * **不能失败时随便编一组五维**：编出来的"性格"会直接改掉它的呼吸与眨眼，
+   * 用户看到的是"换了个模型它脾气就变了"，而真相是 IPC 没回来。
+   */
+  private traits: TraitProceduralInput | null = null
+  /** 宠物自己的精力（0..1）；`null` = 按基线。第二期恒为 null，第四期接真实 mood */
+  private moodEnergy: number | null = null
   /** 当前是否处于 speaking 态（避免重复触发动作） */
   private speaking = false
   /** 待机随机动作定时器 */
@@ -283,6 +321,23 @@ export class PetOrchestrator {
   private readingProgressListener: ((charsRead: number) => void) | null = null
   /** 动作实际播放监听（可观测/调试）：仅在动作真正开始播放时触发（被优先级拦截不触发） */
   private debugMotionListener: ((info: PetMotionPlayedInfo) => void) | null = null
+  /**
+   * 播一次性动作时"按住自主行为一会儿"的出口（ms）。
+   *
+   * 编排器**够不到 `PetWanderDriver`**（驱动归 `PetCanvas` 持有），所以只能让别人代按。
+   * 不按住的后果是实测过的：宠物一边平移一边播打哈欠——脚不动、人在飘，
+   * 与 `holdAmbientForTap` 当初被加上的理由一模一样（见 `PetCanvas` 那段注释），
+   * 只是点击那条路只管点击触发的动作。
+   */
+  private oneShotAmbientHold: ((ms: number) => void) | null = null
+  /**
+   * 上次「张望」的时刻（`performance.now()`）。见 `playLookMotion`。
+   *
+   * ⚠ 初值是 **`-Infinity` 而不是 0**：`performance.now()` 从页面加载起算，
+   * 用 0 当"从没看过"的话，宠物窗刚开的那 20 秒里**第一次靠近会被自己的冷却吞掉**
+   * ——表现为"刚进宠物模式的时候它不理我"（单测 `张望有冷却` 抓到的）。
+   */
+  private lastLookAt = Number.NEGATIVE_INFINITY
   private statusSeq = 0
   private status: PetAvatarStatus = {
     statusSeq: 0,
@@ -341,6 +396,57 @@ export class PetOrchestrator {
   /** 绑定模型配置（用于取 idle/talk 动作组名）。模型热切换时复用同一编排器，仅换配置。 */
   setModelConfig(config: PetModelConfig): void {
     this.modelConfig = config
+    this.pumpProceduralScales()
+  }
+
+  /**
+   * 绑定宠物性格（第二期）。`null` = 读不到 / 未接线 → 回到恒等元（与上线前逐帧一致）。
+   *
+   * 性格是**月级**的量（出生抽签 + 缓慢演化），所以这里只在绑定与换模型时结算一次，
+   * 不像 Agent 活动调制那样每帧推进——它没有"平滑过渡"可言，本来就是恒定的。
+   */
+  setTraits(traits: TraitProceduralInput | null): void {
+    this.traits = traits
+    this.pumpProceduralScales()
+  }
+
+  /**
+   * 绑定宠物**自己的**情绪能量（0..1）；`null` = 按基线算。
+   *
+   * ⚠ 第二期还没有宠物的 mood 来源（它随第四期的感知线一起上线），所以现在恒为 `null`，
+   * 本层纯粹由性格驱动——正是验收 U1「两只宠物静止时就能看出区别」要的东西。
+   * 第四期接上之后，同一个函数会自动开始吃真实精力，不必改这里。
+   */
+  setMoodEnergy(energy: number | null): void {
+    if (this.moodEnergy === energy) return
+    this.moodEnergy = energy
+    this.pumpProceduralScales()
+  }
+
+  /**
+   * 结算一次程序化倍率并下发给渲染器。
+   *
+   * 两路输入相乘而不是二选一：性格是"它天生怎样"，无表情层补偿是"这台模型只能靠幅度表达"，
+   * 两者同时成立时应当叠加（内向 + 没有表情层 ≠ 内向被抵消）。
+   */
+  private pumpProceduralScales(): void {
+    if (!this.traits) {
+      this.renderer.setProceduralScales?.(IDENTITY_PROCEDURAL_SCALES)
+      return
+    }
+    let scales = traitsToProceduralScales(
+      this.traits,
+      this.moodEnergy === null ? null : { energy: this.moodEnergy },
+    )
+    if (needsAmplitudeCompensation(this.modelConfig?.emotionMap)) {
+      scales = composeScales(scales, NO_EXPRESSION_LAYER_SCALES)
+      log.info(
+        `[pumpProceduralScales] 模型无表情层（emotionMap 解析出 ${countDistinctExpressions(
+          this.modelConfig?.emotionMap,
+        )} 个索引），幅度补偿 ×${NO_EXPRESSION_LAYER_SCALES.bob}`,
+      )
+    }
+    this.renderer.setProceduralScales?.(scales)
   }
 
   /** 订阅表情/动作状态变化（控制坞展示） */
@@ -357,6 +463,17 @@ export class PetOrchestrator {
   /** 订阅动作实际播放（真正开始播放才触发，被优先级拦截不触发；调试反馈用）。传 null 解绑。 */
   setDebugMotionListener(listener: ((info: PetMotionPlayedInfo) => void) | null): void {
     this.debugMotionListener = listener
+  }
+
+  /**
+   * 注册"一次性动作期间按住自主行为"的出口（宿主接到 `PetCanvasHandle` 上）。传 null 解绑。
+   *
+   * 只由 `playOneShotMotion` 调用。**没有它就不会播一次性动作**——宁可不播，
+   * 也不播成"边走边打哈欠"：那种画面比没有这个动作更糟（与 `playConventionalMotion`
+   * "语义不对的动作比不播更糟"同一条原则）。
+   */
+  setOneShotAmbientHold(hold: ((ms: number) => void) | null): void {
+    this.oneShotAmbientHold = hold
   }
 
   /** 开关待机随机动作；关闭时停止定时器并仅保持基础 Idle */
@@ -418,6 +535,14 @@ export class PetOrchestrator {
     // 「在等你确认」与「卡住了」。**不发的话 React 那边看不到**——activity 只走
     // 这条推送，状态对象里不带它，界面上就永远是上一次的样子。
     this.patchStatus({ agentActivity: next.activity })
+
+    // 「卡住了」要看得见：挠个头（设计 §8.6.2）。只认**进入** blocked 的那一次——
+    // 同档位重复已经在上面被 `changed` 挡掉了，这里不会每帧重播。
+    //
+    // 与头顶符号的分工：符号是**状态灯**（一直挂着），动作是**那一下的反应**（一次性）。
+    // 门用 `canShowIdleFace()`——它的含义其实是"此刻适合由闲置感知插手表现"
+    //（对话 / 说话 / 冷却中都不适合），名字里的 face 是历史原因。
+    if (next.activity === 'blocked' && this.canShowIdleFace()) this.playOneShotMotion('Scratch')
   }
 
   /** 当前 Agent 活动状态（只读，供调试与控制坞） */
@@ -1431,8 +1556,7 @@ export class PetOrchestrator {
   }
 
   /** 播当前环境动作（没有环境动作就用基础待机组） */
-  private playAmbientMotion(): void {
-    const group = this.ambientGroup ?? this.resolveIdleMotionGroup()
+  private playAmbientMotion(): void {    const group = this.ambientGroup ?? this.resolveIdleMotionGroup()
     if (this.renderer.getMotionCount(group) <= 0) return
     this.renderer.playMotion(group)
   }
@@ -1450,6 +1574,103 @@ export class PetOrchestrator {
     log.info(`[playConventionalMotion] 播放约定动作组 "${group}"`)
     this.renderer.playMotion(group)
     return true
+  }
+
+  /**
+   * 播一次**一次性动作**（打哈欠 / 伸懒腰 / 挠头 / 雀跃 / 蔫 / 张望）。
+   *
+   * 与 `playConventionalMotion` 只差一条：**先按住宿主**。那些组是
+   * `once` + `next: 'Idle'`，播完由**渲染器自己**跳回 `Idle` 组（`maybeCompleteOnce`
+   * 里 `if (p.anim.next) this.playMotion(p.anim.next)`），**不通知编排器**——
+   * 而驱动那边的环境姿态没变、`setAmbientActivity` 又对同值早返回。不按住的后果是
+   * 实测过的：**宠物一边平移一边播打哈欠**（脚不动、人在飘），一直到这次活动结束
+   * （走路一次 3~10 秒）。点击触发的动作有 `holdAmbientForTap` 挡着，编排器触发的没有。
+   *
+   * ⚠ 两个条件任一不满足就**什么都不播**，不退化成"照常播"：
+   *   · 模型没声明这一组（Live2D 一条都没有）
+   *   · 没人注册让位出口（`setOneShotAmbientHold` 还没挂上）
+   *
+   * ⚠ **`Purr` / `Dodge` 不走这里**：前者是 `loop`（按住期间一直播，松手才还原，
+   * 见 `startPurrMotion`），后者由点击那条路自己带着让位。
+   *
+   * @returns 是否真的播了
+   */
+  private playOneShotMotion(group: string): boolean {
+    if (this.renderer.getMotionCount(group) <= 0) return false
+    if (!this.oneShotAmbientHold) {
+      log.info(`[playOneShotMotion] 没有让位出口，跳过 "${group}"——播了会边走边演`)
+      return false
+    }
+    this.oneShotAmbientHold(ONE_SHOT_AMBIENT_HOLD_MS)
+    log.info(`[playOneShotMotion] 播放一次性动作组 "${group}"（按住自主行为 ${ONE_SHOT_AMBIENT_HOLD_MS}ms）`)
+    this.renderer.playMotion(group)
+    return true
+  }
+
+  // ---------------------------------------------------------------------------
+  // 互动回应（第二期 T2.3 / T2.4）
+  // ---------------------------------------------------------------------------
+
+  /**
+   * 「张望」——鼠标靠过来时转头看它（设计 §8.3.1「鼠标靠近 → 转头看鼠标」）。
+   *
+   * ⚠ **克制是这条的全部难点**：鼠标从宠物身上扫过是高频事件（每次移动都可能
+   * 触发一次进入），每次都转头就不是"看你一眼"而是抽风。与 §8.1.5「预判的克制」
+   * 同源——那条纪律管的是话，这条管的是动作。
+   *
+   * 冷却取 20 秒：比一次张望（2.0s）长一个量级，用户在这段时间里会看到"它刚才
+   * 看了我一眼"而不是"它在抽风"。
+   */
+  playLookMotion(): void {
+    const now = performance.now()
+    if (now - this.lastLookAt < LOOK_COOLDOWN_MS) return
+    if (!this.playOneShotMotion('Look')) return
+    this.lastLookAt = now
+  }
+
+  /**
+   * 「躲开」——拒绝了这次互动（设计 §4.4）。
+   *
+   * 模型没有 `Dodge` 组时**什么都不播**，而不是退化成播点击动作：拒绝的表现就是
+   * "不回应"，退化成照常回应等于把整个特性取消掉（与 `playConventionalMotion`
+   * 「不凭空造动作组」同一条原则）。素材尚未安装时这里静默，装好后自动生效。
+   */
+  playRefusalMotion(): void {
+    if (!this.playConventionalMotion('Dodge')) {
+      log.info('[playRefusalMotion] 模型没有 Dodge 组，这次拒绝表现为"不回应"')
+    }
+  }
+
+  /**
+   * 进入「被摸头」（长按）——设计 §8.3.1 / T2.4。
+   *
+   * `Purr` 是**循环**组：按住期间一直播，松手才停（这正是"持续的、有回应的接触"
+   * 与单击的区别）。用 `loopMotion` 而不是 `playMotion` 记录当前姿态，
+   * 松手时好还原到该有的环境组。
+   *
+   * 与 §8.5 的诚实降级同源：精灵图模型没有表情层，"复用 calm 表情"那条路不存在，
+   * 所以这里只认 `Purr` 动作组。**组不存在时什么都不播**——长按仍然成立
+   * （让位、气泡照旧），只是没有动画表达。
+   */
+  startPurrMotion(): void {
+    if (this.renderer.getMotionCount('Purr') <= 0) {
+      log.info('[startPurrMotion] 模型没有 Purr 组，长按只表现为"它停下来了"')
+      return
+    }
+    log.info('[startPurrMotion] 播放 Purr（循环，直到松手）')
+    this.renderer.playMotion('Purr')
+  }
+
+  /**
+   * 松手：回到当前该有的姿态。
+   *
+   * **必须显式还原**，不能等下一次环境切换：`Purr` 是循环组、没有 `next` 自动跳回，
+   * 松手后不还原的话它会一直呼噜下去，直到驱动恰好换活动为止（最长一分钟）。
+   */
+  endPurrMotion(): void {
+    if (this.renderer.getMotionCount('Purr') <= 0) return
+    log.info('[endPurrMotion] 松手，还原环境姿态')
+    this.playAmbientMotion()
   }
 
   /**
@@ -1525,8 +1746,18 @@ export class PetOrchestrator {
       if (this.canShowIdleFace()) {
         // 「被吵醒」只在**确实是我们把它哄睡的那张脸**上播。若这期间别处已经改过表情
         // （mood 事件 / AI 的表情标签），那就没有「从睡到醒」这回事，不该横插一手。
-        if (prev === 'asleep' && this.ownsIdleFace()) this.playWakeFeedback()
-        else this.revertIdleFace()
+        if (prev === 'asleep') {
+          // 醒来先伸个懒腰再回站立（设计 §8.6.3「醒来：先 stretch 再进入 stand，不直接弹起」）。
+          //
+          // ⚠ **只按 `prev` 判，不看表情归属**：`ownsIdleFace()` 对**没有表情层的模型**
+          // （精灵图三只的 `emotionMap` 都是空的）恒为假——拿它当门的话，最需要这个动作
+          // 的后端反而永远看不到。它与下面的表情反馈是两件独立的事，各判各的。
+          this.playOneShotMotion('Stretch')
+          if (this.ownsIdleFace()) this.playWakeFeedback()
+          else this.revertIdleFace()
+        } else {
+          this.revertIdleFace()
+        }
       }
       // 睡着期间定时器是停的，醒来要重新起一轮；打盹改回正常间隔
       if (this.idling && !this.speaking && !this.dialogueActive && !this.inPostDialogueCooldown) {
@@ -1539,6 +1770,10 @@ export class PetOrchestrator {
     this.clearIdleMotionTimer()
     if (stage === 'drowsy' && this.idling) this.scheduleNextIdleMotion()
     if (this.canShowIdleFace()) this.applyIdleFace()
+    // 「困了」要看得见：进 drowsy 的那一次打一个哈欠（设计 §8.6.2）。
+    // `setIdleStage` 对同值早返回，所以这里天然只在**跃迁进来**时触发一次。
+    // 与上面的定时器重排不冲突：一个按住的是**自主行为**，一个是**日程**。
+    if (stage === 'drowsy') this.playOneShotMotion('Yawn')
   }
 
   /** 此刻是否适合由闲置感知改表情（对话/说话/冷却中都不适合） */

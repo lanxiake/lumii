@@ -26,6 +26,7 @@
 
 import {
   AMBIENT_DEFAULTS,
+  adjustAmbientConfig,
   PERCH_DEFAULTS,
   ceilingY,
   flushEdges,
@@ -44,6 +45,7 @@ import {
   type AmbientActivity,
   type AmbientConfig,
   type AmbientPlan,
+  type AmbientTuningInput,
   type PerchConfig,
   type PerchRect,
   type PerchSide,
@@ -109,7 +111,13 @@ export interface PetWanderOptions {
 export class PetWanderDriver {
   private readonly renderer: PetRendererProvider
   private readonly onActivity: (pose: PetPose) => void
-  private readonly config: AmbientConfig
+  /**
+   * 生效中的活动配置。**不是 readonly**：性格/情绪会把它整表替换（`setTuning`）。
+   * 初始值就是调用方给的 base，中性输入下 `adjustAmbientConfig` 原样返回它。
+   */
+  private config: AmbientConfig
+  /** 调用方给的基准配置，`setTuning` 每次都从它重新算（不叠乘） */
+  private readonly baseConfig: AmbientConfig
   /**
    * 攀附参数。**不是 readonly**：素材实测的留白比例（`layout.perchGaps`）会覆盖
    * 兜底值，见 `refreshLayout`。
@@ -192,6 +200,7 @@ export class PetWanderDriver {
     this.renderer = opts.renderer
     this.onActivity = opts.onActivity
     this.config = opts.config ?? AMBIENT_DEFAULTS
+    this.baseConfig = this.config
     this.perchConfig = opts.perchConfig ?? PERCH_DEFAULTS
     this.windowPerchEnabled = opts.windowPerchEnabled ?? false
     this.rand = opts.rand ?? Math.random
@@ -217,6 +226,27 @@ export class PetWanderDriver {
   /** 当前朝向（测试与诊断用） */
   getFacing(): -1 | 1 {
     return this.facing
+  }
+
+  /**
+   * 按性格 / 情绪重算活动配置（第二期 T2.2）。
+   *
+   * **从基准配置重算，不叠乘**——否则每次换模型或情绪更新都会再乘一遍，
+   * 权重会一路漂走（实测过一版就是这样：越切越极端，且没有任何一步看着不对）。
+   *
+   * **已经抽好的这一轮计划不重掷**：`plan.durationMs` 是用旧时长定的，
+   * 中途改它会表现成"刚坐下就被拎起来重抽"。新参数从**下一次**活动切换起生效。
+   */
+  setTuning(mood: AmbientTuningInput | null, traits: AmbientTuningInput | null): void {
+    const next = adjustAmbientConfig(this.baseConfig, mood, traits)
+    if (next === this.config) return
+    this.config = next
+    log.info(
+      `[setTuning] 权重 stand=${next.weights.stand.toFixed(2)} walk=${next.weights.walk.toFixed(2)} ` +
+        `sit=${next.weights.sit.toFixed(2)}；` +
+        `时长 stand=${next.durations.stand.min}~${next.durations.stand.max}ms ` +
+        `walk=${next.durations.walk.min}~${next.durations.walk.max}ms`,
+    )
   }
 
   /**

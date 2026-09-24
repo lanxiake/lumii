@@ -24,6 +24,7 @@ import * as PIXI from 'pixi.js'
 import {
   adaptiveScale,
   advanceSpriteFrame,
+  BASE_BLINK_JITTER,
   BlinkScheduler,
   evaluateProcedural,
   findAnimation,
@@ -37,10 +38,13 @@ import {
   applyOverrides,
   contentExtents,
   resolveSpriteRuntime,
+  scaleProceduralParams,
   snapPixelScale,
   validateSpriteManifest,
+  IDENTITY_PROCEDURAL_SCALES,
   type ActivityModulation,
   type ContentBox,
+  type ProceduralScales,
   type ResolvedAnimation,
   type SlotState,
   type SlotOverride,
@@ -195,6 +199,13 @@ export class SpritePetRenderer implements PetRendererProvider {
   private fpsCap = 60
   private loaded = false
   private motionListener: ((info: PetMotionPlayedInfo) => void) | null = null
+  /**
+   * 性格/精力驱动的程序化倍率（设计 §8.6.1，第二期）。
+   *
+   * 与 `agentModulation` 并列但**不是一回事**：那一路随 Agent 在忙什么变（几百毫秒级），
+   * 这一路是宠物自己的脾气（月级），几乎不变。默认恒等元 → 未接线时逐帧与上线前一致。
+   */
+  private proceduralScales: ProceduralScales = IDENTITY_PROCEDURAL_SCALES
 
   // -------------------------------------------------------------------------
   // 生命周期
@@ -228,6 +239,42 @@ export class SpritePetRenderer implements PetRendererProvider {
 
   setMotionPlayedListener(listener: ((info: PetMotionPlayedInfo) => void) | null): void {
     this.motionListener = listener
+  }
+
+  /**
+   * 设置性格/精力驱动的原语倍率。
+   *
+   * 眨眼必须在这里**重建调度器**：它不是一个逐帧求值的量，而是一串**已经排好的时刻**——
+   * 只改字段而不重建的话，新的眨眼节奏要等下一次 `playMotion` 才生效，
+   * 表现为"换了性格之后十几秒还是老节奏"（而位移/呼吸是立刻变的，看起来像只改了一半）。
+   */
+  setProceduralScales(scales: ProceduralScales): void {
+    if (this.proceduralScales === scales) return
+    const blinkChanged =
+      this.proceduralScales.blink !== scales.blink ||
+      this.proceduralScales.blinkJitterBonus !== scales.blinkJitterBonus
+    this.proceduralScales = scales
+    if (blinkChanged) this.rebuildBlinkScheduler(this.playing?.anim)
+    log.info(
+      `[setProceduralScales] bob=${scales.bob.toFixed(2)} breathe=${scales.breathe.toFixed(2)} ` +
+        `sway=${scales.sway.toFixed(2)} nod=${scales.nod.toFixed(2)} blink=${scales.blink.toFixed(2)} ` +
+        `jitter=${(BASE_BLINK_JITTER + scales.blinkJitterBonus).toFixed(2)}`,
+    )
+  }
+
+  /**
+   * 按当前倍率重建眨眼调度器。**倍率同时管间隔与抖动**，两者都由调度器的构造参数决定。
+   *
+   * 抖动被夹在 [0, 1)：越过 1 时 `mean×(1−jitter)` 为负，序列会错乱（间隔为负）。
+   */
+  private rebuildBlinkScheduler(anim: ResolvedAnimation | undefined): void {
+    const blinkMs = scaleProceduralParams(anim?.params, this.proceduralScales)?.blink
+    if (!blinkMs || blinkMs <= 0) {
+      this.blinkScheduler = null
+      return
+    }
+    const jitter = Math.min(0.95, Math.max(0, BASE_BLINK_JITTER + this.proceduralScales.blinkJitterBonus))
+    this.blinkScheduler = new BlinkScheduler(blinkMs, undefined, jitter)
   }
 
   async loadModel(config: PetModelConfig): Promise<void> {
@@ -560,7 +607,7 @@ export class SpritePetRenderer implements PetRendererProvider {
     const p = this.playing
     if (!root) return
 
-    const params = p?.anim.params
+    const params = scaleProceduralParams(p?.anim.params, this.proceduralScales)
     // 用 pet-core 的 `evaluateProcedural` 合成，**不要在渲染器里手写一遍**。
     //
     // 手写过一次并踩了坑：四个原语的签名都是 `(量, tSec, periodSec?)`，量在前时间在后。
@@ -868,9 +915,10 @@ export class SpritePetRenderer implements PetRendererProvider {
       return
     }
     this.playing = { anim, frame: 0, acc: 0, completed: false }
-    // 眨眼调度器跟动画走：不同动作可以有各自的眨眼节奏；没声明就不眨
-    const blinkMs = anim.params?.blink
-    this.blinkScheduler = blinkMs && blinkMs > 0 ? new BlinkScheduler(blinkMs) : null
+    // 眨眼调度器跟动画走：不同动作可以有各自的眨眼节奏；没声明就不眨。
+    // 间隔与抖动都要过一遍性格倍率（`rebuildBlinkScheduler` 是唯一出口，
+    // 免得这里写一份、`setProceduralScales` 再写一份）
+    this.rebuildBlinkScheduler(anim)
     this.blinkClosed = false
     if (anim.frames.length > 0) this.applyState(anim.frames[0])
     log.info(`[playMotion] group="${motionGroup}" index=${anim.index} 帧数=${anim.frames.length}`)

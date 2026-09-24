@@ -24,7 +24,7 @@ import { ensureCubismCore } from '../utils/cubism-core-loader'
 import { getPetModelConfig } from '../config/pet-model-registry'
 import type { PetModelConfig } from '../config/pet-model-types'
 import { PET_MOTION_GROUP_UNNAMED } from '../config/pet-model-types'
-import { estimateVelocity, isThrowable, stepThrow, dragBoundsOf, type DragSample, type ThrowBody, type PetPose } from '@mtbot/pet-core'
+import { estimateVelocity, isThrowable, stepThrow, dragBoundsOf, shouldRefuse, type AmbientTuningInput, type DragSample, type ThrowBody, type PetPose, type TraitValues } from '@mtbot/pet-core'
 import { PetWanderDriver } from '../behavior/PetWanderDriver'
 import { petMetrics } from '../telemetry/pet-metrics'
 import type { PetHoverUpdate } from '../../../shared/pet-mode'
@@ -61,6 +61,28 @@ const TAP_AMBIENT_HOLD_MS = 2500
 const GRAB_HOLD_MS = 100
 
 /**
+ * 摸头（长按）的时间参数（第二期 T2.4 / 设计 §8.3.1）。
+ *
+ * **长按与抓取是两个手势，靠"按住不动"区分**：抓取 100ms 就成立（用户马上就拖），
+ * 摸头要按住**不动**才成立。判据里带位移容差，是因为手指/手腕按住时必然有几像素抖动。
+ *
+ * 起手 800ms：比点击窗口长得多（不会误触），又短到"按下去它就呼噜"来得及。
+ * 「呼~」放在 3 秒：设计原文是"持续 3 秒后气泡"——**响应先给，话后到**，
+ * 反过来（3 秒才有任何反应）用户会以为没生效而松手。
+ */
+const PET_START_MS = 800
+const PET_BUBBLE_MS = 3000
+/** 按住期间的位移容差：超过它说明用户其实在拖，退出摸头交给拖拽 */
+const PET_MOVE_TOLERANCE_PX = 8
+/**
+ * 摸头**已经开始**之后，再移动这么多就转成拖拽。
+ *
+ * 没有它就是一个 UX 陷阱：用户按住了想等它呼噜、结果又想拖，会发现"拖不动"——
+ * 因为摸头状态把跟手关掉了。容差比上面大，是为了不把"手腕晃了一下"判成拖拽。
+ */
+const PET_EXIT_DRAG_PX = 24
+
+/**
  * 抛掷时的能量保留比例（撞左右边与屏幕上沿都走它）。
  *
  * `pet-core` 的默认是 0.55，这里按用户要求**加 50% 弹性**（"丢宠物还是保留，
@@ -94,6 +116,16 @@ const AMBIENT_HOLD_DISABLED = 'ambient-disabled'
  */
 const AMBIENT_HOLD_BUBBLE = 'bubble'
 
+/**
+ * 编排器播**一次性动作**（打哈欠 / 伸懒腰 / 挠头 / 雀跃 / 蔫 / 张望）时的让位来源名。
+ *
+ * **必须与 `AMBIENT_HOLD_POINTER` 分开记账**：`PetWanderDriver` 的让位是**按 reason**
+ * 记的，两个来源混用一个名字，先解除的那个会把另一个也解掉（这条纪律来自一次
+ * 真实事故——计数式让位每点一下泄漏一个，把宠物永久钉死，详见
+ * `PetWanderDriver.test.ts` 的文件头）。
+ */
+const AMBIENT_HOLD_ONE_SHOT = 'one-shot'
+
 /** 降级状态：上层据此显示提示 */
 export type PetCanvasDegradeReason =
   | { kind: 'webgl'; message: string }
@@ -122,6 +154,35 @@ export interface PetCanvasProps {
    * `playMotion` 会和编排器抢同一个入口。
    */
   onAmbientActivity?: (pose: PetPose) => void
+  /**
+   * 宠物性格与情绪（第二期），喂给自主行为驱动的权重表。
+   *
+   * **不是驱动生命周期的依赖**：换性格不该把驱动停掉重来（那会把它从当前位置
+   * 拽回地面线重新计时）。单独一个 effect 调 `setTuning` 就够了。
+   */
+  petTuning?: {
+    /**
+     * 五维原值。驱动只用 `openness` / `extraversion`，拒绝判定用 `agreeableness`——
+     * 两者读同一份，不各自再取一次（多取一次就会有"权重变了但拒绝没变"的错位）。
+     */
+    traits: TraitValues | null
+    /** 宠物自己的情绪；第二期恒为 `null`（第四期才有来源），拒绝判定按基线算 */
+    mood: AmbientTuningInput | null
+  }
+  /**
+   * 拒绝了这次互动（第二期 T2.3）。
+   *
+   * 由上层转给编排器播「躲开」。**画布不自己 `playMotion`**——动作入口只有一个写者，
+   * 与 `onAmbientActivity` 同一条边界。
+   */
+  onRefusal?: () => void
+  /**
+   * 摸头（长按）阶段（第二期 T2.4）。
+   *
+   * 报**阶段**而不是文案：说什么话是 UI 的事，画布只负责"按住不动"这个手势的识别。
+   * `start` / `end` 由编排器换成 `Purr` 循环组与还原，`bubble` 由外层冒一句「呼~」。
+   */
+  onPetting?: (phase: 'start' | 'bubble' | 'end') => void
   /**
    * 右键宠物（屏幕坐标，CSS 像素）。
    *
@@ -157,9 +218,43 @@ export type PetInteractionEvent =
 /** 暴露给上层的句柄 */
 export interface PetCanvasHandle {
   getRenderer(): PetRendererProvider | null
+  /**
+   * 一次性动作期间按住自主行为，`ms` 后自动交还（编排器经宿主调用）。
+   *
+   * 与 `holdAmbientForTap` 是**同一套让位**，但记账分开了（见 `AMBIENT_HOLD_ONE_SHOT`），
+   * 而且这里**自己 suspend**——点击那条路的 suspend 是 `onMouseDown` 做的
+   *（一次指针交互只该有一个让位来源）。
+   *
+   * 不按住的后果：宠物一边平移一边播打哈欠，脚不动、人在飘（见 `holdAmbientForTap`
+   * 上方那段注释——它就是为同一个病加上的）。
+   */
+  holdAmbientForOneShot(ms: number): void
+}
+
+/**
+ * 鼠标**刚进入**模型时要通知谁（设计 §8.3.1「鼠标靠近 → 转头看鼠标」）。
+ *
+ * 为什么挂在 `reportModelHover` 这个咽喉点上，而不是去改那十来个调用处：
+ * hover 的布尔值是**到处算的**（mousedown、mouseup、拖拽、抛掷的每一帧都在报），
+ * 在调用处加边沿判断等于把同一段逻辑抄十几遍，还一定会漏掉其中几个。
+ * 这里做**唯一的边沿检测**，调用处一行都不用动。
+ *
+ * ⚠ 与 `cachedTapModelConfig` 同样是模块级的：`reportModelHover` 是**模块函数**
+ * （不在组件闭包里），够不到 React 的 ref。
+ */
+let onModelApproach: (() => void) | null = null
+let lastReportedHover = false
+
+/** 注册"鼠标刚进入模型"的通知（宿主接到编排器上）。传 null 解绑。 */
+export function setOnModelApproach(cb: (() => void) | null): void {
+  onModelApproach = cb
 }
 
 function reportModelHover(isHovering: boolean): void {
+  // 只认**上升沿**：鼠标在模型上移动时这个函数每帧都在调，不判边沿的话
+  // 「靠近」会变成一个每帧触发的高频事件
+  if (isHovering && !lastReportedHover) onModelApproach?.()
+  lastReportedHover = isHovering
   window.electronAPI?.pet?.reportHover({
     componentId: 'live2d-model',
     isHovering,
@@ -176,7 +271,7 @@ function toCanvasLocal(e: MouseEvent, canvas: HTMLCanvasElement): { x: number; y
 }
 
 export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
-  ({ modelId, onDegrade, onModelLoaded, onInteraction, onAmbientActivity, onContextMenu, ambientEnabled = true, bubbleHold = false }, ref) => {
+  ({ modelId, onDegrade, onModelLoaded, onInteraction, onAmbientActivity, petTuning, onRefusal, onPetting, onContextMenu, ambientEnabled = true, bubbleHold = false }, ref) => {
     /**
      * 宿主容器。**React 只管这个 div，里面的 canvas 由 setup effect 自己创建/替换。**
      *
@@ -237,6 +332,61 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
     const onContextMenuRef = useRef(onContextMenu)
     onContextMenuRef.current = onContextMenu
     /**
+     * 性格/情绪同样走 ref：拒绝判定在 `mouseup` 处理器里读它，而那个处理器
+     * 装在只跑一次的 effect 上——直接闭包捕获会永远读到挂载那一刻的值
+     * （表现为"换了个脾气差的模型，点它还是照常回应"）。
+     */
+    const petTuningRef = useRef(petTuning)
+    petTuningRef.current = petTuning
+    /** 同上：拒绝回调也只在 mouseup 处理器里读，不能闭包捕获 */
+    const onRefusalRef = useRef(onRefusal)
+    onRefusalRef.current = onRefusal
+    const onPettingRef = useRef(onPetting)
+    onPettingRef.current = onPetting
+
+    /**
+     * 摸头状态（第二期 T2.4）。三个 ref 各管一件事，不合成一个对象：
+     * 它们由不同的手势阶段读写，合起来会出现"清了一个忘了另一个"的半状态。
+     */
+    /** 起步计时器：按住不动 PET_START_MS 后进入摸头 */
+    const petTimerRef = useRef<number | null>(null)
+    /** 气泡计时器：进入摸头后再过 PET_BUBBLE_MS 冒「呼~」 */
+    const petBubbleTimerRef = useRef<number | null>(null)
+    /** 是否正处于摸头中（此时跟手被关掉，见 PET_EXIT_DRAG_PX） */
+    const pettingRef = useRef(false)
+    /** 按下的起点，用来量"动没动" */
+    const petOriginRef = useRef<{ x: number; y: number } | null>(null)
+
+    /** 退出摸头：清计时器 + 上报 end。重复调用是无害的（没在摸头就什么都不做） */
+    const stopPetting = (): void => {
+      if (petTimerRef.current !== null) {
+        clearTimeout(petTimerRef.current)
+        petTimerRef.current = null
+      }
+      if (petBubbleTimerRef.current !== null) {
+        clearTimeout(petBubbleTimerRef.current)
+        petBubbleTimerRef.current = null
+      }
+      petOriginRef.current = null
+      if (!pettingRef.current) return
+      pettingRef.current = false
+      onPettingRef.current?.('end')
+    }
+
+    /** 开始摸头：只在"按住不动"成立时调用 */
+    const startPetting = (): void => {
+      if (pettingRef.current) return
+      pettingRef.current = true
+      log.info(`[petting] 按住不动 ${PET_START_MS}ms，进入摸头`)
+      onPettingRef.current?.('start')
+      petBubbleTimerRef.current = window.setTimeout(() => {
+        petBubbleTimerRef.current = null
+        if (!pettingRef.current) return
+        log.info(`[petting] 持续 ${PET_BUBBLE_MS}ms，冒一句`)
+        onPettingRef.current?.('bubble')
+      }, PET_BUBBLE_MS - PET_START_MS)
+    }
+    /**
      * 拖拽状态。
      *
      * 这里**不记地面线**。它曾经是"拖拽开始时宠物所在的高度"，理由是"用屏幕底部当
@@ -271,6 +421,8 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
     const wanderRef = useRef<PetWanderDriver | null>(null)
     /** 点击回应期间"让位"的定时器（见 TAP_AMBIENT_HOLD_MS） */
     const tapHoldRef = useRef<number | null>(null)
+    /** 一次性动作期间"让位"的定时器（见 `AMBIENT_HOLD_ONE_SHOT`） */
+    const oneShotHoldRef = useRef<number | null>(null)
     /** "按住多久才算抓住"的定时器（见 GRAB_HOLD_MS） */
     const grabTimerRef = useRef<number | null>(null)
     /** 指针的最近位置。抓取定时器里没有事件对象，要用它重算拖拽偏移 */
@@ -285,6 +437,19 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
 
     useImperativeHandle(ref, () => ({
       getRenderer: () => rendererRef.current,
+      holdAmbientForOneShot: (ms: number) => {
+        const driver = wanderRef.current
+        if (!driver) return
+        // 自己的 reason 自己 suspend/resume。**不共用 `tapHoldRef`**：那个计时器
+        // 由 `onMouseDown` 的 suspend 配套，共用会让两个来源互相解除对方的让位
+        //（`PetWanderDriver` 是按 reason 记账的）
+        driver.suspend(AMBIENT_HOLD_ONE_SHOT)
+        if (oneShotHoldRef.current !== null) clearTimeout(oneShotHoldRef.current)
+        oneShotHoldRef.current = window.setTimeout(() => {
+          oneShotHoldRef.current = null
+          driver.resume(AMBIENT_HOLD_ONE_SHOT)
+        }, ms)
+      },
     }))
 
     // 1) 先取配置。后端类型由 rendererType 决定，所以这一步必须排在初始化之前。
@@ -515,6 +680,19 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
       }
     }, [ready, renderer, config?.id])
 
+    /**
+     * 性格/情绪 → 活动权重与时长（第二期 T2.2）。
+     *
+     * 单独一个 effect、**不并进上面那个**：`petTuning` 变化时重跑上面那个会把驱动
+     * stop 再 start，而 `start()` 会把宠物拽回地面线重新计时——换个模型它就从半空
+     * 掉回地上，看着像被重置了。这里只改参数，不动生命周期。
+     *
+     * 声明在上面那个之后，所以同一帧里 `wanderRef.current` 已经就位。
+     */
+    useEffect(() => {
+      wanderRef.current?.setTuning(petTuning?.mood ?? null, petTuning?.traits ?? null)
+    }, [petTuning, ready, renderer])
+
     // 攀附目标（程序主窗口的矩形）：主进程推来，转给驱动。
     //
     // 与注视订阅同一套守卫：只认当前实例、后端必须是 sprite——Live2D 那边
@@ -642,6 +820,9 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
           clearTimeout(grabTimerRef.current)
           grabTimerRef.current = null
         }
+        // 摸头也要一并收尾：它是与拖拽并列的一条状态分支，只清拖拽会把它留在
+        // "正在摸"里——`Purr` 会一直循环下去，且下一次按下时 `pettingRef` 还是 true
+        stopPetting()
         const wasGrabbed = dragRef.current.active
         dragRef.current.pressed = false
         dragRef.current.active = false
@@ -677,9 +858,24 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
           abandonDrag('左键已松开但没收到 mouseup（多半是在窗口外松的手）')
         }
         if (dragRef.current.pressed) {
+          /**
+           * 摸头 vs 拖拽的位移判定（第二期 T2.4）。两个阈值方向相反：
+           * - 还没摸上：动一点就**取消**（用户是要拖，不是要摸）
+           * - 已经摸上：要动得多才**退出**（手腕晃一下不该判成拖）
+           */
+          const origin = petOriginRef.current
+          const moved = origin ? Math.hypot(x - origin.x, y - origin.y) : 0
+          if (pettingRef.current) {
+            if (moved > PET_EXIT_DRAG_PX) stopPetting()
+          } else if (moved > PET_MOVE_TOLERANCE_PX && petTimerRef.current !== null) {
+            clearTimeout(petTimerRef.current)
+            petTimerRef.current = null
+          }
+
           // **只有抓住了才跟手**。没到 GRAB_HOLD_MS 之前指针怎么动宠物都不动——
-          // 那是"点击"的进行时，不该把宠物拖歪
-          if (dragRef.current.active) {
+          // 那是"点击"的进行时，不该把宠物拖歪。摸头中同样不跟手：
+          // 用户是在摸它，不是要把它拎走。
+          if (dragRef.current.active && !pettingRef.current) {
             const want = { x: x - dragRef.current.offsetX, y: y - dragRef.current.offsetY }
             const at = clampDrag(want, { x, y })
             renderer.setPosition(at.x, at.y)
@@ -855,6 +1051,21 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
           log.info(`[onMouseDown] 按住 ${GRAB_HOLD_MS}ms 进入抓取`)
           onInteractionRef.current?.({ type: 'picked' })
         }, GRAB_HOLD_MS)
+        /**
+         * 摸头的起步计时（第二期 T2.4）。
+         *
+         * 与上面那个抓取计时器**并行**、互不改写：抓取管"跟手"，摸头管"被摸"。
+         * 用户按住不动时两个都会到点——抓取先（100ms），所以宠物会先摆出被拎起的姿势，
+         * 到 800ms 再转呼噜。这条顺序是已知的、**待素材到位后手调**的观感问题，
+         * 不是逻辑错误；把 picked 延后到"首次移动"能消掉它，但那会改动拖拽手感，
+         * 在没有素材可验的当下不值得冒这个险。
+         */
+        petOriginRef.current = { x, y }
+        petTimerRef.current = window.setTimeout(() => {
+          petTimerRef.current = null
+          if (!dragRef.current.pressed) return
+          startPetting()
+        }, PET_START_MS)
       }
 
       const onMouseUp = (e: MouseEvent) => {
@@ -867,6 +1078,10 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
         }
         const wasPressed = dragRef.current.pressed
         const wasGrabbed = dragRef.current.active
+        // 摸头必须在下面各分支**之前**收尾：它自己那套（Purr 循环、让位）与
+        // 点击/抛掷/落地三条路的收尾方式都不同，混进去会两头都不对
+        const wasPetting = pettingRef.current
+        stopPetting()
         const { samples } = dragRef.current
         dragRef.current.pressed = false
         dragRef.current.active = false
@@ -885,12 +1100,38 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
           const hit = renderer.hitTest(x, y)
           const over = hit || renderer.isPointerOverModel(x, y)
           if (over) {
-            // 点击（非拖拽）落在模型身上即触发互动：优先用命中的 hitArea，
-            // 无命名 hitArea 的模型（如 mao_pro Name 全空）回退到 body，
-            // 保证"点击宠物身上有反应"，不再因缺 hitArea 而静默。
-            triggerTapMotion(renderer, hit ?? 'body')
-            // 点击特效：在点击位置绽放一簇烟花（受鼠标点击开关控制）
-            if (tapInteractionEnabled) spawnClickFireworks(e.clientX, e.clientY)
+            /**
+             * 拒绝判定（第二期 T2.3 / 设计 §4.4）。
+             *
+             * **只在这一处**：这里是"用户碰它"的入口，`kind` 恒为 `interaction`。
+             * 任务请求走的是另一条链路（编排器/受限实例），根本不经过这里——
+             * 硬规则由 `shouldRefuse` 内部短路，这里的字面量只是把语义写明白。
+             *
+             * 心情读 `?? 0`（基线）：宠物**自己的** mood 第二期还没有来源（第四期接上），
+             * 所以现在这条判定实际上不会触发——它随 mood 一起上线，不是死代码。
+             */
+            const tuning = petTuningRef.current
+            const refused = tuning?.traits
+              ? shouldRefuse(
+                  tuning.traits.agreeableness,
+                  tuning.mood?.valence ?? 0,
+                  'interaction',
+                )
+              : false
+
+            if (refused) {
+              // 「躲开」：不播点击动作、不放烟花，只播回避动作。模型没有 Dodge 组时
+              // `playConventionalMotion` 会静默跳过——组不存在不等于"要退化成照常回应"
+              log.info('[onMouseUp] 拒绝这次互动（低亲和 + 心情差）')
+              onRefusalRef.current?.()
+            } else {
+              // 点击（非拖拽）落在模型身上即触发互动：优先用命中的 hitArea，
+              // 无命名 hitArea 的模型（如 mao_pro Name 全空）回退到 body，
+              // 保证"点击宠物身上有反应"，不再因缺 hitArea 而静默。
+              triggerTapMotion(renderer, hit ?? 'body')
+              // 点击特效：在点击位置绽放一簇烟花（受鼠标点击开关控制）
+              if (tapInteractionEnabled) spawnClickFireworks(e.clientX, e.clientY)
+            }
           }
           // 点击回应期间**保持让位**，2.5 秒后自动交还。
           // 不这么做的话，宠物会在播跳跃动画的同时继续走路——脚不动、人在飘。
@@ -906,6 +1147,20 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
           // 上报 `landed` 复位。现在抓取改成"按住 `GRAB_HOLD_MS` 才成立"，未抓取时
           // `interactionActive` 本来就是 false，无状态可复位。
           // `landed` 只剩两条真正需要的路径，都在下方 `wasGrabbed` 分支里。
+          reportModelHover(renderer.isPointerOverModel(x, y))
+          return
+        }
+
+        /**
+         * 刚摸完头就松手：**不进抛掷/落地那两条路**。
+         *
+         * 用户全程没拖动过它（真拖了的话位移早把摸头顶掉、`wasPetting` 会是 false），
+         * 所以既没有"被拎起来"要落、也没有速度要抛。走 `landed` 反而会让编排器
+         * 播一次 `Land` 再回待机——那是"被放下"，不是"被摸完"。
+         */
+        if (wasPetting) {
+          log.info('[onMouseUp] 摸头结束，直接交还自主行为')
+          wanderRef.current?.resume(AMBIENT_HOLD_POINTER)
           reportModelHover(renderer.isPointerOverModel(x, y))
           return
         }
@@ -1012,6 +1267,8 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
           clearTimeout(grabTimerRef.current)
           grabTimerRef.current = null
         }
+        // 摸头的两个定时器命最长（800ms / 3s），漏清的话回调会去碰已销毁的驱动
+        stopPetting()
       }
     }, [ready])
 

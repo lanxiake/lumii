@@ -44,6 +44,13 @@ export interface PetControlDockProps {
   /** 当前虚拟人表情/动作状态（编排器推送） */
   avatarStatus?: PetAvatarStatus | null
   /**
+   * 气质标签（第二期 / 验收 U2）：出生抽签 + 演化出的那一句「好奇，但有点怕生」。
+   *
+   * 读不到时传 `null`，**不要在坞里凭空编一句**——用户看到的应当是"暂时不知道"
+   * 而不是一个随机脾气。数值一律不进 UI（§3.6）。
+   */
+  personalityLabel?: string | null
+  /**
    * 除当前会话之外**还在跑**的会话（多会话并发时用）。
    *
    * 只做展示与跳转，**不参与任何动画**——后台 cron agent 常年有活，
@@ -171,6 +178,7 @@ export const PetControlDock: React.FC<PetControlDockProps> = ({
   voiceReplyEnabled,
   idleMotionEnabled,
   avatarStatus,
+  personalityLabel,
   otherRuns,
   onFocusSession,
   pendingNotices,
@@ -295,7 +303,13 @@ export const PetControlDock: React.FC<PetControlDockProps> = ({
             userSelect: 'none',
           }}
         >
-          <span>{modelLoaded ? '虚拟人' : '加载中...'}</span>
+          <span>
+            {modelLoaded ? '虚拟人' : '加载中...'}
+            {/* 气质标签（第二期，验收 U2）：只给一句话，不给数值——§3.6 的禁令 */}
+            {personalityLabel && (
+              <span style={{ marginLeft: 8, color: `${light(0.6)}` }}>· {personalityLabel}</span>
+            )}
+          </span>
           <span style={{ fontSize: 10 }}>拖拽移动</span>
         </div>
 

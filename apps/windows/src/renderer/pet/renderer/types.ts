@@ -7,7 +7,7 @@
  * MVP 仅实现 Live2dPetRenderer（pixi-live2d-display），精灵帧后端留远期。
  */
 
-import type { PetCoreRenderer, PetMotionPlayedInfo } from '@mtbot/pet-core'
+import type { PetCoreRenderer, PetMotionPlayedInfo, ProceduralScales } from '@mtbot/pet-core'
 import type { PetModelConfig } from '../config/pet-model-types'
 
 /** hitTest 命中结果：命中的区域名（如 'Head' / 'Body'），未命中返回 null */
@@ -38,6 +38,15 @@ export interface PetRendererProvider extends PetCoreRenderer {
 
   /** 订阅动作实际播放结果（可选，Live2D 实现） */
   setMotionPlayedListener?(listener: ((info: PetMotionPlayedInfo) => void) | null): void
+
+  /**
+   * 设置程序化原语的倍率（可选，精灵后端实现）。
+   *
+   * 与 `setAgentActivityModulation` 是**同一层**的两路输入：那一路是"Agent 在忙什么"，
+   * 这一路是"它自己的性格与精力"。倍率乘在**清单声明的参数**上，清单没声明原语的
+   * 动作组不受影响（不凭空造动作）。
+   */
+  setProceduralScales?(scales: ProceduralScales): void
 
   /**
    * 命中测试：给定 canvas 局部坐标，返回命中的区域名。

@@ -37,15 +37,20 @@ export * from "./render/pet-renderer.js";
 // 是「AI 出静态部件 + 代码做动画」路线的基础
 export * from "./render/procedural-motion.js";
 
+// 性格 → 程序化原语倍率（设计 §8.6.1）：不靠新素材让静止状态就能看出性格差异
+export * from "./render/trait-procedural.js";
+
 // 宠物自制系统基础设施（P0-a）：两段式注册表合并 / 图集索引解析 / 安装包校验与安装计划。
 // 纯函数、零依赖，客户端运行时与构建期工具链（packages/pet-asset）共用同一份实现。
 export * from "./model/pet-registry.js";
+export * from "./model/expression-capability.js";
 export * from "./model/atlas-index.js";
 export * from "./model/pet-package.js";
 
 // 抓取/投掷物理（场景 A）：抛物线积分、落地判定、释放速度估计。纯函数，可脱离 DOM 单测。
 export * from "./interaction/throw-physics.js";
 export * from "./interaction/idle-stage.js";
+export * from "./interaction/refusal.js";
 
 // 自主行为（R9）：空闲时的活动决策与地面行走运动学。
 // 决策与运动分离——前者可整表替换（后续接 Agent 真实状态驱动时换的是数据不是逻辑）。

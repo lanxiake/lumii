@@ -34,5 +34,5 @@ export async function getPetPersonalityLabel(configId: string): Promise<PetPerso
     agreeableness: state.agreeableness,
     neuroticism: state.neuroticism,
   }
-  return { agentId, label: traitLabel(traits) }
+  return { agentId, label: traitLabel(traits), traits }
 }

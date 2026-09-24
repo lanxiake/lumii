@@ -64,6 +64,20 @@ export interface PetPersonalityDTO {
   /** 内部 agentId，诊断用 */
   agentId: string
   label: string
+  /**
+   * 五维原始值（第二期起）。
+   *
+   * **是给渲染层算程序化参数的，不是给用户看的**——§3.6 的禁令「不把数值展示给用户」
+   * 仍然成立，设置页只渲染 `label`。它出现在这条 DTO 上是因为渲染层与设置页共用同一个
+   * IPC（多开一条只为传五维的通道不值得），**别把它读进任何 UI 组件**。
+   */
+  traits: {
+    openness: number
+    conscientiousness: number
+    extraversion: number
+    agreeableness: number
+    neuroticism: number
+  }
 }
 
 /** pet IPC 通道名常量（主进程与 preload 共用，避免散落字符串） */
