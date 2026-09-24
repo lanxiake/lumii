@@ -8,6 +8,7 @@ import {
   adjustAmbientConfig,
   adjustDurationsByTraits,
   adjustWeightsByMood,
+  AMBIENT_GAIN_IDENTITY,
   WEIGHT_MAX,
   WEIGHT_MIN,
   type AmbientActivity,
@@ -244,3 +245,66 @@ describe("adjustAmbientConfig — 驱动侧唯一入口", () => {
     expect(out.weights.walk).toBeGreaterThan(AMBIENT_DEFAULTS.weights.walk);
   });
 });
+
+// ---------------------------------------------------------------------------
+// 表达增益（U7 2026-09-24 转投到活动参数）
+// ---------------------------------------------------------------------------
+
+describe("adjustAmbientConfig — 无表情层模型的表达增益", () => {
+  const LOUD = 1.6
+  const traits = { openness: 0.85, extraversion: 0.85 }
+
+  it("增益为 1 与不传完全一致（引用相等），保证接线前后逐字节一致", () => {
+    expect(adjustAmbientConfig(AMBIENT_DEFAULTS, null, traits, 1)).toEqual(
+      adjustAmbientConfig(AMBIENT_DEFAULTS, null, traits),
+    )
+    expect(adjustAmbientConfig(AMBIENT_DEFAULTS, null, null, 1)).toBe(AMBIENT_DEFAULTS)
+  })
+
+  it("★ 放大的是**偏离基准的量**，不是总量", () => {
+    const plain = adjustAmbientConfig(AMBIENT_DEFAULTS, null, traits)
+    const loud = adjustAmbientConfig(AMBIENT_DEFAULTS, null, traits, LOUD)
+    const base = AMBIENT_DEFAULTS.weights.walk
+    // walk 的偏离被乘了 1.6 倍，且方向不变
+    const dev = plain.weights.walk - base
+    expect(dev).not.toBe(0)
+    expect(loud.weights.walk - base).toBeCloseTo(dev * LOUD, 2)
+    expect(loud.weights.walk).toBeGreaterThan(plain.weights.walk)
+  })
+
+  it("时长同向放大：活泼的宠物在补偿后更闲不住", () => {
+    const plain = adjustAmbientConfig(AMBIENT_DEFAULTS, null, traits)
+    const loud = adjustAmbientConfig(AMBIENT_DEFAULTS, null, traits, LOUD)
+    expect(loud.durations.stand.min).toBeLessThan(plain.durations.stand.min)
+    expect(loud.durations.walk.min).toBeLessThan(plain.durations.walk.min)
+  })
+
+  it("中性性格 + 增益：数值与基准一致（偏离为 0，放大还是 0）", () => {
+    const loud = adjustAmbientConfig(AMBIENT_DEFAULTS, null, null, LOUD)
+    expect(loud.weights).toEqual(AMBIENT_DEFAULTS.weights)
+    expect(loud.durations).toEqual(AMBIENT_DEFAULTS.durations)
+  })
+
+  it("极端性格 + 增益仍被夹取，且时长不为 0", () => {
+    const loud = adjustAmbientConfig(
+      AMBIENT_DEFAULTS,
+      { energy: 1, valence: -1 },
+      { openness: 1, extraversion: 0 },
+      LOUD,
+    )
+    for (const k of ["stand", "walk", "sit"] as const) {
+      expect(loud.weights[k]).toBeGreaterThanOrEqual(WEIGHT_MIN)
+      expect(loud.weights[k]).toBeLessThanOrEqual(WEIGHT_MAX)
+      expect(loud.durations[k].min).toBeGreaterThan(0)
+      expect(loud.durations[k].min).toBeLessThanOrEqual(loud.durations[k].max)
+    }
+  })
+
+  it("非法增益落回 1（不抛错、不把配置算成 NaN）", () => {
+    for (const bad of [0, -2, Number.NaN, Number.POSITIVE_INFINITY]) {
+      const cfg = adjustAmbientConfig(AMBIENT_DEFAULTS, null, traits, bad)
+      expect(Number.isFinite(cfg.weights.walk)).toBe(true)
+      expect(cfg.weights.walk).toBeGreaterThan(0)
+    }
+  })
+})

@@ -160,9 +160,14 @@ export function initialPlan(rand: () => number, cfg: AmbientConfig): AmbientPlan
 export const WEIGHT_MIN = 0.05;
 export const WEIGHT_MAX = 5.0;
 
-/** 时长夹取：再活泼也不该 200ms 换一次姿势，再蔫也不该十分钟不动 */
-export const DURATION_SCALE_MIN = 0.6;
-export const DURATION_SCALE_MAX = 1.6;
+/**
+ * 时长倍率的夹取上下界：再活泼也不该几秒换一次姿势，再蔫也不该十几分钟不动。
+ *
+ * 上界随表达增益一起放宽过（无表情层模型把偏离放大 1.6 倍），下界必须跟着夹——
+ * `1 + (0.5−liveliness)×1.6` 在极端性格上会到 0.2，那时 stand 只有 3 秒。
+ */
+export const DURATION_SCALE_MIN = 0.4;
+export const DURATION_SCALE_MAX = 1.8;
 
 /**
  * 表达增益的**恒等值**。
@@ -194,9 +199,6 @@ function norm01(v: number | undefined, fallback: number): number {
   return v < 0 ? 0 : v > 1 ? 1 : v;
 }
 
-function lerp(lo: number, hi: number, t: number): number {
-  return lo + (hi - lo) * t;
-}
 
 function clampWeight(v: number): number {
   if (!Number.isFinite(v)) return WEIGHT_MIN;
@@ -240,10 +242,13 @@ export function adjustWeightsByMood(
     ? 0
     : Math.max(-1, Math.min(1, merged.valence));
 
-  // 走动：外向 × 精力。两个因子都不取 0，内向且没精神的宠物也**偶尔**走一趟
-  const walkFactor = lerp(0.6, 1.6, extraversion) * lerp(0.75, 1.25, energy);
+  // 走动：外向 × 精力。两个因子都在**中性处取 1.0**（写成"1 + 偏离"而不是 lerp 两端）——
+  // lerp(0.6, 1.6, 0.5) 是 1.1 不是 1，中性输入会平白多出 15% 的走动；以前靠"中性就提前
+  // return"盖住了，而表达增益恰好绕开那个提前返回，于是会浮出来。两个因子都不取 0，
+  // 内向且没精神的宠物也**偶尔**走一趟。
+  const walkFactor = (1 + (extraversion - NEUTRAL_TRAIT)) * (1 + (energy - NEUTRAL_ENERGY));
   // 坐下：外向的反向 + 心情差的加成。低 valence 最多让"坐着"翻倍，不是无限大
-  const sitFactor = lerp(1.4, 0.7, extraversion) * lerp(1.0, 2.0, Math.max(0, -valence));
+  const sitFactor = (1 - (extraversion - NEUTRAL_TRAIT)) * (1 + Math.max(0, -valence));
 
   // 偏离基准的部分再乘一次表达增益（无表情层模型，见 NO_EXPRESSION_LAYER_AMBIENT_GAIN）。
   // **放大的是偏差不是总量**：整体平移只会把每种性格都调活泼一点，那不是"表现力更强"。
@@ -274,10 +279,14 @@ export function adjustDurationsByTraits(
   const extraversion = norm01(traits?.extraversion, NEUTRAL_TRAIT);
   // 两个维度各贡献一半：只用 openness 会让内向的好奇宠物也变得"闲不住"
   const liveliness = (openness + extraversion) / 2;
-  const scale = lerp(DURATION_SCALE_MIN, DURATION_SCALE_MAX, 1 - liveliness);
+  // 与权重同一条：**中性处取 1.0**，写成"1 + 偏离"而不是 lerp 两端
+  const scale = 1 + (NEUTRAL_TRAIT - liveliness);
 
-  // 与权重同一条：先算出性格给的倍率，再把**偏离 1 的部分**乘上表达增益
-  const effective = 1 + (scale - 1) * expressiveness;
+  // 再把**偏离 1 的部分**乘上表达增益，并夹住上下界
+  const effective = Math.min(
+    DURATION_SCALE_MAX,
+    Math.max(DURATION_SCALE_MIN, 1 + (scale - 1) * expressiveness),
+  );
   const scaled = (r: DurationRange): DurationRange => ({
     min: Math.max(1, Math.round(r.min * effective)),
     max: Math.max(1, Math.round(r.max * effective)),
