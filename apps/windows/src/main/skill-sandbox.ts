@@ -361,27 +361,3 @@ export class SkillSandbox {
 export function createDefaultSandbox(): SkillSandbox {
   return new SkillSandbox()
 }
-
-/**
- * 创建高安全性沙箱
- */
-export function createSecureSandbox(): SkillSandbox {
-  return new SkillSandbox({
-    memoryLimitMb: 64,
-    timeoutMs: 10000,
-    allowNetwork: false,
-    allowFileSystem: false,
-  })
-}
-
-/**
- * 创建宽松配置的沙箱 (用于可信代码)
- */
-export function createTrustedSandbox(): SkillSandbox {
-  return new SkillSandbox({
-    memoryLimitMb: 256,
-    timeoutMs: 60000,
-    allowNetwork: true,
-    allowFileSystem: true,
-  })
-}

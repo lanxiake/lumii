@@ -7,6 +7,7 @@
  * - 已批准工具：启用/禁用开关、查看模板、删除（不可恢复）
  */
 
+import type { EvolvedToolInfo, PendingToolInfo } from '@shared/agent-runtime-commands'
 import React, { useCallback, useEffect, useState } from 'react'
 import { FlaskConical, Trash2, Check, X, Inbox, Hammer, TrendingUp, Clock, Activity } from 'lucide-react'
 import { Card } from '../../../../components/ui/Card/Card'
@@ -14,29 +15,6 @@ import { Button } from '../../../../components/ui/Button/Button'
 import { useToast } from '../../../../components/ui/Toast/useToast'
 import settingsStyles from '../../SettingsPage.module.css'
 import styles from './EvolvedToolsSection.module.css'
-
-interface EvolvedToolInfo {
-  name: string
-  description: string
-  commandTemplate: string
-  isReadOnly: boolean
-  enabled: boolean
-  sampleCount: number
-  approvedAt: string
-}
-
-interface PendingToolInfo {
-  name: string
-  description: string
-  pattern: string
-  commandTemplate: string
-  createdAt: string
-  whenToUse?: string
-  whenNotToUse?: string
-  samples?: string[]
-  similarApproved?: string[]
-  lowValueReason?: string | null
-}
 
 interface ListResult {
   ok: boolean

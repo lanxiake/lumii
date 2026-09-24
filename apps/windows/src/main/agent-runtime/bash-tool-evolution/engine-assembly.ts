@@ -12,6 +12,7 @@
 
 import type { BrowserWindow } from 'electron'
 import { EVOLUTION_CONVERSATION_ID } from '@mtbot/agent-runtime'
+import { readStoredTriggerThreshold } from '../../ipc/agent-runtime/tool-commands'
 import {
   ToolEvolutionEngine,
   DEFAULT_CHECK_INTERVAL_MS,
@@ -129,6 +130,10 @@ export function initToolEvolutionRuntime(deps: {
     })
 
     bridge.setToolEvolutionEngine(engine)
+    // 阈值已弃用（调度改用周窗口 Top5 / count>100），但设置页仍显示它。
+    // 这里从 runtime_state 读回落盘值 —— persistTriggerThreshold 从写下那天起
+    // 就没有人读回，用户设过的值重启即丢（2026-09-24 接上）。
+    engine.setTriggerThreshold(readStoredTriggerThreshold(bridge))
     engine.loadApprovedTools()
     log.info('[ToolEvolution] 引擎已装配（周窗口 Top5 / count>100 / 单次 LLM）')
 

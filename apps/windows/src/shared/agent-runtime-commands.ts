@@ -1512,6 +1512,12 @@ export interface PendingToolInfo {
   readonly pattern: string
   readonly commandTemplate: string
   readonly createdAt: string
+  /** 审批卡片展示用（2026-09-24 从 EvolvedToolsSection 的本地副本并回，此前契约落后于消费者） */
+  readonly whenToUse?: string
+  readonly whenNotToUse?: string
+  readonly samples?: readonly string[]
+  readonly similarApproved?: readonly string[]
+  readonly lowValueReason?: string | null
 }
 
 /** 拉取进化工具列表 + 待审批候选 */
