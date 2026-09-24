@@ -7,6 +7,7 @@
  * 打断标志），通过注入回调与 AgentInstance 协作执行 steer/followUp/abort。
  */
 
+import { createHash } from "node:crypto";
 import { detectToolLoop, detectDuplicateAssistantContent } from "../agent/stuck-detection.js";
 
 /** StuckGuard 所需的协作回调（由 AgentInstance 注入） */
@@ -38,7 +39,32 @@ const FOLLOWUP_MESSAGE =
 
 const COOLDOWN_TURNS = 3;
 const MAX_FINGERPRINTS = 24;
-const ARGS_DIGEST_LENGTH = 80;
+/**
+ * 参数指纹长度（十六进制字符数）。
+ *
+ * ⚠ **必须是完整内容的 hash，不能是前缀。** 早先这里是
+ * `JSON.stringify(args).slice(0, 80)` —— 取前 80 字符当指纹。
+ * 对**长公共前缀**的调用这会整体碰撞：bash 的 `cd "<很长的绝对路径>" && node xxx`
+ * 里，前 80 字符全被那个路径吃掉（实测刚好截到 `...\pet-sprite-h3\characters\"`），
+ * 于是**换哪个脚本都一样**，指纹完全相同。
+ *
+ * 后果不是"检测不到循环"，而是反过来的**误杀**：任何"反复在同一目录跑不同脚本"
+ * 的正常工作（`stage-frame` → `h3-motion` → `pose-pick` → `install-pet`）
+ * 都会被 `detectToolLoop` 的短序列检测判成死循环，反复 steer、最后 abort ——
+ * 2026-09-24 做月兔小仙时就因此把一轮跑得正好的任务中断了。
+ */
+const ARGS_DIGEST_LENGTH = 16;
+
+/** 参数指纹：对完整 JSON 取 hash 再截断（截断的是 hash，不是原文，所以没有前缀碰撞） */
+export function digestArgs(args: unknown): string {
+  let json: string;
+  try {
+    json = JSON.stringify(args) ?? "";
+  } catch {
+    json = String(args);
+  }
+  return createHash("sha1").update(json).digest("hex").slice(0, ARGS_DIGEST_LENGTH);
+}
 
 export class StuckGuard {
   private readonly deps: StuckGuardDeps;
@@ -61,8 +87,8 @@ export class StuckGuard {
 
   /** tool_execution_start 时调用：记录工具名+参数指纹（不做打断） */
   recordToolCall(toolName: string, args: unknown): void {
-    // 参数摘要：JSON 序列化后取前 80 字符，区分同名工具的不同调用
-    const argsDigest = args != null ? JSON.stringify(args).slice(0, ARGS_DIGEST_LENGTH) : "";
+    // 参数指纹：对完整参数取 hash。**别改回"取前 N 个字符"**——理由见 ARGS_DIGEST_LENGTH 的注释。
+    const argsDigest = args != null ? digestArgs(args) : "";
     this.recentToolNames.push(`${toolName}:${argsDigest}`);
     if (this.recentToolNames.length > MAX_FINGERPRINTS) this.recentToolNames.shift();
   }
