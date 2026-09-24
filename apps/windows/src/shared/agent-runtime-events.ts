@@ -591,10 +591,21 @@ export interface SkillDeprecationSuggestedEvent {
   readonly humanTitle: string
 }
 
-/** 自主进化 Mood 变化 → 桌宠实时表情（只推情绪键，不推 mood 数值） */
+/**
+ * 自主进化 Mood 变化 → 桌宠实时表情。
+ *
+ * `mood` 是 2026-09-23 补的三维载荷：宠物要按心情调呼吸幅度/活动频率，
+ * 光有 4 值表情键不够。**字段可选**，只读 `emotion` 的老消费者（PetOrchestrator /
+ * PetModeShell）不受影响；三维也**不直接展示给用户**（设计 11 §11 禁令），只喂给程序化动画。
+ */
 export interface AutonomousMoodEmotionEvent {
   readonly type: 'autonomous:mood:emotion'
   readonly emotion: 'joy' | 'sadness' | 'surprise' | 'neutral'
+  readonly mood?: {
+    readonly energy: number // 0..1
+    readonly valence: number // -1..1
+    readonly arousal: number // 0..1
+  }
 }
 
 // ============================================================

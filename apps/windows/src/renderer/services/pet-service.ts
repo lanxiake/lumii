@@ -4,7 +4,7 @@
  * 读取类接口失败时返回兜底值（原调用点均为「静默降级」）；
  * 切换模式保留结果对象让调用方处理错误提示。
  */
-import type { AppMode, PetModeSwitchResult, PetModelConfigDTO, VirtualHumanSettingsDTO } from '../../shared/pet-mode'
+import type { AppMode, PetModeSwitchResult, PetModelConfigDTO, PetPersonalityDTO, VirtualHumanSettingsDTO } from '../../shared/pet-mode'
 
 /** 获取虚拟人模型列表（主进程已规范化配置）；失败返回空列表 */
 export async function listPetModels(): Promise<readonly PetModelConfigDTO[]> {
@@ -75,6 +75,17 @@ export async function setVirtualHumanSettings(
   const api = window.electronAPI?.pet
   if (!api) return null
   return api.setVirtualHumanSettings(patch)
+}
+
+/** 读宠物人格标签（首次调用即出生抽签）；接口不可用或失败返回 null */
+export async function getPetPersonality(configId: string): Promise<PetPersonalityDTO | null> {
+  const api = window.electronAPI?.pet
+  if (!api) return null
+  try {
+    return await api.getPetPersonality(configId)
+  } catch {
+    return null
+  }
 }
 
 /** 切换当前虚拟人模型；接口不可用或失败时静默（原调用点为 void 未捕获，顺带消除潜在未处理拒绝） */

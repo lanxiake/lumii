@@ -410,6 +410,23 @@ export function registerPetModeIpc(deps: PetWindowManagerDeps): void {
     return actions.map((a) => ({ tag: a.tag, group: a.group, index: a.index }))
   })
 
+  /**
+   * 宠物人格标签。**首次调用 = 出生抽签**（惰性初始化在 PersonalityTracker 里），
+   * 抽签结果落 `personality_state['pet:<模型ID>']`，此后不再重掷。
+   *
+   * 惰性 import agent-runtime：pet 这一层不该在启动期就拽起整个运行时，
+   * 而且 bridge 未就绪时它会返回 null，渲染层按「暂时读不到」处理。
+   */
+  ipcMain.handle(PET_IPC.getPetPersonality, async (_evt, configId: string) => {
+    try {
+      const { getPetPersonalityLabel } = await import('../agent-runtime/pet-personality')
+      return await getPetPersonalityLabel(configId)
+    } catch (err) {
+      log.warn(`getPetPersonality 失败: ${err instanceof Error ? err.message : String(err)}`)
+      return null
+    }
+  })
+
   // 全局快捷键：Ctrl+Shift+P 切换宠物/桌面模式
   try {
     const okPet = globalShortcut.register(SHORTCUT_TOGGLE_PET_MODE, () => {

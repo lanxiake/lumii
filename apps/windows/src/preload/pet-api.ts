@@ -20,6 +20,7 @@ import {
   type PetMainWindowFocusEvent,
   type PetMotionActionDTO,
   type PetPerchEvent,
+  type PetPersonalityDTO,
   type PetVhSettingsChangedEvent,
   type VirtualHumanSettingsDTO,
   PET_IPC,
@@ -114,6 +115,9 @@ export const petApi: PetElectronAPI = {
 
   getModelMotionActions: (modelId: string): Promise<PetMotionActionDTO[]> =>
     ipcRenderer.invoke(PET_IPC.getModelMotionActions, modelId),
+
+  getPetPersonality: (configId: string): Promise<PetPersonalityDTO | null> =>
+    ipcRenderer.invoke(PET_IPC.getPetPersonality, configId),
 
   onModelChanged: (callback: (event: PetModelChangedEvent) => void): () => void =>
     createPetEventListener<PetModelChangedEvent>(PET_IPC.evtModelChanged, callback),

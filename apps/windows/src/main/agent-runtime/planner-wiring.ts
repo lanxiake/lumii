@@ -181,7 +181,7 @@ export async function runPlanner(deps: PlannerWiringDeps): Promise<PlannerPlan |
       .filter((c) => c.status === 'open')
       .map((c) => ({ description: c.description, origin: c.origin }));
 
-    const mood = readMood(db, now.getTime());
+    const mood = readMood(db, 'assistant', now.getTime());
     const budget = computePlannerBudget(db, deps.countAgentSelfCronJobs, now);
 
     const input: PlannerInput = {

@@ -33,7 +33,13 @@ const MOOD_HALF_LIFE_MS = 4 * 60 * 60 * 1000;
 
 const BASELINE: Omit<Mood, 'updatedAt'> = { energy: 0.6, valence: 0, arousal: 0.5 };
 
-const MOOD_STATE_KEY = 'autonomous.mood';
+/** 老库的全局单键（无 agent 维度）：首次读取 `assistant` 时迁移到分键后删除 */
+const LEGACY_MOOD_STATE_KEY = 'autonomous.mood';
+
+/** 情绪状态按 agent 分键，宠物（`pet:<configId>`）与任务 Agent（`assistant`）互不覆盖 */
+function moodStateKey(agentId: string): string {
+  return `autonomous.mood:${agentId}`;
+}
 
 /** 事件冲击表 —— 独立事件源，语义与 Big Five delta 不同 */
 const MOOD_IMPACT: Record<string, { energy?: number; valence?: number; arousal?: number }> = {
@@ -50,6 +56,18 @@ const MOOD_IMPACT: Record<string, { energy?: number; valence?: number; arousal?:
 
 function clamp(v: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, v));
+}
+
+function readRaw(db: DatabaseAdapter, key: string): string | undefined {
+  return db.prepare<{ value: string }>(`SELECT value FROM runtime_state WHERE key = ?`).get(key)?.value;
+}
+
+function writeRaw(db: DatabaseAdapter, key: string, value: string): void {
+  db.prepare(
+    `INSERT INTO runtime_state (key, value, updated_at)
+     VALUES (?, ?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+  ).run(key, value, new Date().toISOString());
 }
 
 /** 情绪随时间向基线衰减（半衰期 4h），返回新对象 */
@@ -106,14 +124,25 @@ export function moodToPetEmotion(mood: Mood): PetEmotion {
   return 'neutral';
 }
 
-/** 读情绪状态（未写过返回基线） */
-export function readMood(db: DatabaseAdapter, now = Date.now()): Mood {
+/**
+ * 读情绪状态（未写过返回基线）。
+ *
+ * 首次读取 `assistant` 时顺带把老库的全局单键迁到分键：先写新键再删旧键，
+ * 中途失败也不会丢老用户的当前情绪（下次读取会重试）。迁移只发生一次。
+ */
+export function readMood(db: DatabaseAdapter, agentId: string, now = Date.now()): Mood {
   try {
-    const row = db
-      .prepare<{ value: string }>(`SELECT value FROM runtime_state WHERE key = ?`)
-      .get(MOOD_STATE_KEY);
-    if (!row) return { ...BASELINE, updatedAt: now };
-    const parsed = JSON.parse(row.value) as Mood;
+    let raw = readRaw(db, moodStateKey(agentId));
+    if (!raw && agentId === 'assistant') {
+      const legacy = readRaw(db, LEGACY_MOOD_STATE_KEY);
+      if (legacy) {
+        writeRaw(db, moodStateKey(agentId), legacy);
+        db.prepare(`DELETE FROM runtime_state WHERE key = ?`).run(LEGACY_MOOD_STATE_KEY);
+        raw = legacy;
+      }
+    }
+    if (!raw) return { ...BASELINE, updatedAt: now };
+    const parsed = JSON.parse(raw) as Mood;
     return {
       energy: clamp(parsed.energy, 0, 1),
       valence: clamp(parsed.valence, -1, 1),
@@ -126,10 +155,6 @@ export function readMood(db: DatabaseAdapter, now = Date.now()): Mood {
 }
 
 /** 写情绪状态 */
-export function writeMood(db: DatabaseAdapter, mood: Mood): void {
-  db.prepare(
-    `INSERT INTO runtime_state (key, value, updated_at)
-     VALUES (?, ?, ?)
-     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
-  ).run(MOOD_STATE_KEY, JSON.stringify(mood), new Date().toISOString());
+export function writeMood(db: DatabaseAdapter, agentId: string, mood: Mood): void {
+  writeRaw(db, moodStateKey(agentId), JSON.stringify(mood));
 }

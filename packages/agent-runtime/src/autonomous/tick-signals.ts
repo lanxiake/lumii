@@ -77,7 +77,7 @@ export function collectTickSignals(db: DatabaseAdapter, agentId: string, now = n
   const due = executing.filter((g) => isGoalDue(g.scheduled_for, now));
   const stuckGoalCount = detectStuckGoals(executing, now, STUCK_GOAL_THRESHOLD_MS).length;
   const settings = readSettings(db);
-  const mood = readMood(db, now.getTime());
+  const mood = readMood(db, agentId, now.getTime());
   // 昼夜节律是精力「基线」而非硬乘子：纯乘法会在深夜把高精力也压到 ~0.04，
   // 使目标执行在夜间被绝对禁绝。改成 mood 与节律各半合成，高精力（≈1.0）仍可执行目标，
   // 符合设计 §7.3「状态影响决策，但不绝对禁绝」。

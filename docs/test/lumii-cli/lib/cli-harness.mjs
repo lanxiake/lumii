@@ -636,9 +636,9 @@ export function localDateKey(d = new Date()) {
   return `${y}-${m}-${day}`
 }
 
-/** 读 mood（JSON 解析；缺失返回 null） */
+/** 读 mood（JSON 解析；缺失返回 null）。mood 自 2026-09-23 起按 agent 分键 */
 export function readMood() {
-  const v = readRuntimeState('autonomous.mood')
+  const v = readRuntimeState('autonomous.mood:assistant')
   if (!v) return null
   try {
     return JSON.parse(v)
@@ -649,7 +649,7 @@ export function readMood() {
 
 /** 播种 mood（WRITE；测试用） */
 export function seedMood(mood) {
-  writeRuntimeState('autonomous.mood', JSON.stringify({ ...mood, updatedAt: new Date().toISOString() }))
+  writeRuntimeState('autonomous.mood:assistant', JSON.stringify({ ...mood, updatedAt: new Date().toISOString() }))
 }
 
 /** 手动触发心跳（cron run；manual 分支绕过 cron enabled，但不绕静默时段） */

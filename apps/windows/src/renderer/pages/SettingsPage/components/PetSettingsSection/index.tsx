@@ -14,6 +14,7 @@ import {
   listPetModels,
   getCurrentPetModelId,
   getPetMode,
+  getPetPersonality,
   getVirtualHumanSettings,
   setVirtualHumanSettings,
   setCurrentPetModelId,
@@ -42,6 +43,8 @@ export const PetSettingsSection: React.FC = () => {
   const [vhCurrentModelId, setVhCurrentModelId] = useState<string>('')
   const [vhSettings, setVhSettings] = useState<VirtualHumanSettingsDTO>(DEFAULT_VH_SETTINGS)
   const [isPetModeActive, setIsPetModeActive] = useState<boolean>(false)
+  /** 气质标签（宠物智能化第一期）。null = 还没取到，别凭空编一个脾气出来 */
+  const [petPersonality, setPetPersonality] = useState<string | null>(null)
 
   /**
    * 加载 Agent 列表、模型列表与设置
@@ -70,6 +73,23 @@ export const PetSettingsSection: React.FC = () => {
     }
     return subscribePetModeChanged(handleModeChanged)
   }, [])
+
+  /**
+   * 气质标签：宠物人格按模型分只（`pet:<模型ID>`），首次读即出生抽签，此后不再重掷。
+   * 换模型 = 换一只宠物，所以依赖模型 ID 重取。
+   */
+  useEffect(() => {
+    if (!ready || petModeBlocked) return
+    const modelId = vhCurrentModelId || vhModels[0]?.id || ''
+    if (!modelId) return
+    let cancelled = false
+    void getPetPersonality(modelId).then((p) => {
+      if (!cancelled) setPetPersonality(p?.label ?? null)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [ready, petModeBlocked, vhCurrentModelId, vhModels])
 
   const currentModel = vhModels.find((m) => m.id === vhCurrentModelId) ?? vhModels[0]
   const patchVh = async (patch: Partial<VirtualHumanSettingsDTO>) => {
@@ -119,6 +139,19 @@ export const PetSettingsSection: React.FC = () => {
               />
             </div>
           </div>
+
+          {/* 气质标签（宠物智能化第一期）：宠物是独立 Agent，它的脾气与助手互不影响 */}
+          {petPersonality && (
+            <div className={styles['setting-item']}>
+              <label className={styles['setting-label']} data-app-ui-label>它的脾气</label>
+              <span className={styles['setting-hint']}>
+                出生时随机抽签，之后随相处缓慢变化——换个模型就是另一只，脾气也不一样
+              </span>
+              <p style={{ margin: 0, fontSize: 13, color: 'var(--color-text-primary)' }}>
+                {petPersonality}
+              </p>
+            </div>
+          )}
 
           {/* 跟随模型默认 Agent */}
           <div className={styles['setting-item']}>

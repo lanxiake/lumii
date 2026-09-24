@@ -220,11 +220,12 @@ describe('自主进化 Agent E2E 测试', () => {
   });
 
   it('场景 5：人格状态演化', async () => {
-    // 初始化中性人格
+    // 首次读到 = 出生抽签（不再是固定 0.5）；本场景只关心「事件是否推动演化」
     mockDb.query = vi.fn().mockResolvedValue([]);
 
     const initialState = await personalityTracker.getCurrentState('agent1');
-    expect(initialState.openness).toBe(0.5);
+    expect(initialState.openness).toBeGreaterThanOrEqual(0.15);
+    expect(initialState.openness).toBeLessThanOrEqual(0.85);
 
     // 模拟一系列事件
     mockDb.query = vi.fn().mockImplementation(async (sql: string) => {
@@ -256,7 +257,7 @@ describe('自主进化 Agent E2E 测试', () => {
     const state1 = await personalityTracker.updatePersonality('agent1', event1);
 
     // 验证：openness 应增加
-    expect(state1.openness).toBeGreaterThan(0.5);
+    expect(state1.openness).toBeGreaterThan(initialState.openness);
     expect(state1.updateCount).toBe(1);
 
     // 事件 2: user-feedback-positive
@@ -288,8 +289,8 @@ describe('自主进化 Agent E2E 测试', () => {
     const state2 = await personalityTracker.updatePersonality('agent1', event2);
 
     // 验证：agreeableness 增加，neuroticism 降低
-    expect(state2.agreeableness).toBeGreaterThan(0.5);
-    expect(state2.neuroticism).toBeLessThan(0.5);
+    expect(state2.agreeableness).toBeGreaterThan(state1.agreeableness);
+    expect(state2.neuroticism).toBeLessThan(state1.neuroticism);
     expect(state2.updateCount).toBe(2);
 
     // 验证所有维度在 [0, 1] 范围

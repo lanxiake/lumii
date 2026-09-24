@@ -768,6 +768,8 @@ export const PetModeShell: React.FC = () => {
         const event = (raw ?? {}) as RawAgentEvent & {
           delta?: string
           emotion?: string
+          /** `autonomous:mood:emotion` 的可选三维载荷（第二期起用于调呼吸/活动频率） */
+          mood?: { energy: number; valence: number; arousal: number }
           content?: readonly { type: string; text?: string }[]
         }
         const evtSessionKey = event.rootSessionKey ?? event.sessionKey
@@ -829,6 +831,12 @@ export const PetModeShell: React.FC = () => {
 
         if (event.type === 'autonomous:mood:emotion') {
           const emotion = event.emotion
+          // mood 三维（可选载荷）先只记录：第二期才用它调呼吸/活动频率
+          if (event.mood) {
+            log.info(
+              `[onEvent] mood 三维 energy=${event.mood.energy.toFixed(2)} valence=${event.mood.valence.toFixed(2)} arousal=${event.mood.arousal.toFixed(2)}`,
+            )
+          }
           if (emotion && orchestratorRef.current) {
             const emotionMap = modelConfigRef.current?.emotionMap ?? {}
             const idx = emotionMap[emotion]

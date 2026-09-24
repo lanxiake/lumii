@@ -1737,7 +1737,7 @@ export class AgentRuntimeBridge {
                     goals: goals.map((g) => ({ description: g.description, status: g.status })),
                     reflections: reflections.map((r) => ({ primaryIssue: r.primary_issue })),
                     concerns: readConcerns(this.localDb.db),
-                    mood: readMood(this.localDb.db),
+                    mood: readMood(this.localDb.db, 'assistant'),
                     recentDiaries,
                     todayEvents,
                   })
@@ -2713,15 +2713,19 @@ export class AgentRuntimeBridge {
   }
 
   /** 记录一次情绪事件：衰减后叠加冲击并落库（best-effort，失败只记日志） */
-  private recordMoodEvent(event: string): void {
+  private recordMoodEvent(event: string, agentId = 'assistant'): void {
     try {
       const now = Date.now()
-      const mood = decayMood(readMood(this.localDb.db, now), now)
+      const mood = decayMood(readMood(this.localDb.db, agentId, now), now)
       const next = applyMoodImpact(mood, event)
-      writeMood(this.localDb.db, next)
-      // Mood 变化后推送桌宠实时表情（只推情绪键，不推 mood 数值，见设计 11 §11 禁令）
+      writeMood(this.localDb.db, agentId, next)
+      // Mood 变化后推送桌宠实时表情 + 三维（三维不展示给用户，只喂程序化动画参数）
       const emotion = moodToPetEmotion(next)
-      this.ipcChannel.forwardIpcEvent({ type: 'autonomous:mood:emotion', emotion })
+      this.ipcChannel.forwardIpcEvent({
+        type: 'autonomous:mood:emotion',
+        emotion,
+        mood: { energy: next.energy, valence: next.valence, arousal: next.arousal },
+      })
     } catch (err) {
       log.warn('[recordMoodEvent] 记录情绪事件失败:', err)
     }

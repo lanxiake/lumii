@@ -3,10 +3,56 @@
  *
  * 使用 Big Five 模型和 EMA 算法追踪 Agent 人格演化
  * 来源：设计文档 5-人格追踪系统.md
+ *
+ * 出生：首次读到某 agent 时抽一次签（`rollInnateTraits`）并落库，此后永不再掷；
+ * 同时写一份出生快照供「它变了没有」对照（宠物智能化设计 §3.2/§3.3）。
  */
 
 import type { PersonalityState, PersonalityEvent, PersonalityConfig } from './types';
 import type { DatabaseClient } from './meta-cognition-engine';
+
+/** 出生抽签：截断正态 σ=0.15，clip [0.15, 0.85] */
+const INNATE_TRAIT_SIGMA = 0.15;
+const INNATE_TRAIT_MIN = 0.15;
+const INNATE_TRAIT_MAX = 0.85;
+
+/** 出生快照键：`personality:birth:{agentId}` */
+const BIRTH_SNAPSHOT_KEY_PREFIX = 'personality:birth:';
+
+/** Big Five 五维原始值（不含元数据） */
+export type InnateTraits = Omit<PersonalityState, 'lastUpdated' | 'updateCount'>;
+
+/** 出生快照（设计 §3.3） */
+export interface BirthSnapshot {
+  /** 抽签时刻。存量装上这是升级时间、不是出生时间——见 `migrated` */
+  at: string;
+  traits: InnateTraits;
+  /** 升级时补抽的签：经历页要说「性格记录始于 X 日」而不是「出生」 */
+  migrated?: boolean;
+}
+
+/**
+ * 出生抽签（纯函数）。
+ *
+ * 用截断正态而不是均匀分布：均匀抽样在五维空间里会大量产出「又极度神经质又极度内向」
+ * 的极端个体；σ=0.15 让大多数宠物**正常但有偏向**，少数偏得明显。
+ */
+export function rollInnateTraits(rng: () => number = Math.random): InnateTraits {
+  const draw = (): number => {
+    const u = Math.max(rng(), Number.EPSILON); // Box-Muller
+    const v = rng();
+    const gauss = Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+    return Math.min(INNATE_TRAIT_MAX, Math.max(INNATE_TRAIT_MIN, 0.5 + gauss * INNATE_TRAIT_SIGMA));
+  };
+
+  return {
+    openness: draw(),
+    conscientiousness: draw(),
+    extraversion: draw(),
+    agreeableness: draw(),
+    neuroticism: draw(),
+  };
+}
 
 /**
  * 事件类型到人格影响的映射
@@ -123,18 +169,16 @@ export class PersonalityTracker {
         return this.mapRowToState(rows[0]);
       }
 
-      // 初始化默认状态（中性）
+      // 首次读到 = 出生：抽一次签并落库，此后永不再掷（设计 §3.2）
+      const traits = rollInnateTraits();
       const defaultState: PersonalityState = {
-        openness: 0.5,
-        conscientiousness: 0.5,
-        extraversion: 0.5,
-        agreeableness: 0.5,
-        neuroticism: 0.5,
+        ...traits,
         lastUpdated: new Date().toISOString(),
         updateCount: 0,
       };
 
       await this.saveState(agentId, defaultState);
+      await this.writeBirthSnapshot(agentId, traits);
       return defaultState;
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error));
@@ -249,6 +293,51 @@ export class PersonalityTracker {
   async getPersonalityTrend(agentId: string, dimension: keyof PersonalityState, days: number): Promise<number[]> {
     // 简化实现：返回空数组（完整实现需要时间序列查询）
     return [];
+  }
+
+  /**
+   * 写出生快照 `personality:birth:{agentId}`。只在缺失时写一次（不重掷）。
+   *
+   * **best-effort**：快照是给「成长对照」看的旁证，写不进去不能连累出生抽签
+   * ——否则 `getCurrentState` 会掉进 catch 返回中性值，而抽签结果其实已经落库了。
+   */
+  private async writeBirthSnapshot(agentId: string, traits: InnateTraits): Promise<void> {
+    const key = `${BIRTH_SNAPSHOT_KEY_PREFIX}${agentId}`;
+    try {
+      const existing = await this.db.query<{ value: string }>(
+        `SELECT value FROM runtime_state WHERE key = ?`,
+        [key],
+      );
+      if (existing.length > 0) return;
+
+      const snapshot: BirthSnapshot = { at: new Date().toISOString(), traits };
+      if (await this.isExistingInstall()) snapshot.migrated = true;
+
+      await this.db.execute(
+        `INSERT INTO runtime_state (key, value, updated_at) VALUES (?, ?, ?)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+        [key, JSON.stringify(snapshot), snapshot.at],
+      );
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error(String(error));
+      console.warn('[PersonalityTracker] 出生快照写入失败（不影响抽签结果）:', err.message);
+    }
+  }
+
+  /**
+   * 这是不是「存量装」：宠物人格上线前用户就已经在用它了。
+   *
+   * 拿最老最全的 `messages` 表当探针——有历史消息说明宠物早就存在，此时抽签的 `at`
+   * 是**升级时间**而不是出生时间，经历页必须改口（设计 §3.3）。探不到就按新装算：
+   * 「说是出生但其实更早」比「说是记录开始但其实更晚」伤害小。
+   */
+  private async isExistingInstall(): Promise<boolean> {
+    try {
+      const rows = await this.db.query<{ x: number }>('SELECT 1 AS x FROM messages LIMIT 1');
+      return rows.length > 0;
+    } catch {
+      return false;
+    }
   }
 
   /**

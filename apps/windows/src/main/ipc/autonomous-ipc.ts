@@ -350,7 +350,7 @@ ipcMain.handle('autonomous:settings:update', async (_event, settings: Partial<Au
 
 ipcMain.handle('autonomous:getMood', async () => {
   const bridge = requireBridge()
-  return readMood(bridge.db)
+  return readMood(bridge.db, 'assistant')
 })
 
 ipcMain.handle('autonomous:getConcerns', async () => {
