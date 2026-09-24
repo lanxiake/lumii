@@ -222,5 +222,3 @@ export const WikiTopicPicker: React.FC<WikiTopicPickerProps> = ({
     </Modal>
   )
 }
-
-export default WikiTopicPicker

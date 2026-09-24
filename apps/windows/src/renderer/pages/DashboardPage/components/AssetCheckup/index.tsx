@@ -238,5 +238,3 @@ export const AssetCheckupPanel: React.FC<AssetCheckupPanelProps> = ({ onViewChan
     </div>
   )
 }
-
-export default AssetCheckupPanel

@@ -48,7 +48,7 @@ export interface PalaceCounts {
   total: number
 }
 
-export const PALACE_PAGE_SIZE = 20
+const PALACE_PAGE_SIZE = 20
 
 export function usePalace() {
   const [available, setAvailable] = useState(true)

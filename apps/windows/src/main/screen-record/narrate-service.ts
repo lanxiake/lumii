@@ -73,7 +73,7 @@ export function resolveBurnFontPath(): string | null {
 /**
  * 转义 drawtext 文本中的特殊字符。
  */
-export function escapeFfmpegDrawtext(text: string): string {
+function escapeFfmpegDrawtext(text: string): string {
   return text
     .replace(/\\/g, '\\\\')
     .replace(/:/g, '\\:')
@@ -85,7 +85,7 @@ export function escapeFfmpegDrawtext(text: string): string {
  * 将 timeline annotation 烧录为中间视频（drawbox/drawtext）。
  * 失败时回退到源路径并带 warning，不阻塞后续字幕配音。
  */
-export async function preBurnAnnotations(
+async function preBurnAnnotations(
   srcPath: string,
   annotations: ScreenRecordAnnotation[],
   opts: {
@@ -158,7 +158,7 @@ export async function preBurnAnnotations(
  * 混音时视频走 `-c:v copy`，所以中间文件必须保持与源相同的容器：
  * WebM 只接受 Vorbis/Opus，MP4 中 H.264 需配 AAC，选错会在写头时直接失败。
  */
-export function resolveAudioCodecForContainer(outputPath: string): string {
+function resolveAudioCodecForContainer(outputPath: string): string {
   return path.extname(outputPath).toLowerCase() === '.webm' ? 'libopus' : 'aac'
 }
 

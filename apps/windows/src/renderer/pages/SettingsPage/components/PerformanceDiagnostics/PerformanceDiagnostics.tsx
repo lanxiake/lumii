@@ -407,5 +407,3 @@ export const PerformanceDiagnostics: React.FC = () => {
     </div>
   )
 }
-
-export default PerformanceDiagnostics

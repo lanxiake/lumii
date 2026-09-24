@@ -22,7 +22,7 @@ const log = {
 }
 
 // 开关的形状与默认值在 shared/channel-features.ts（main / preload / renderer 共用一份）
-export { DEFAULT_CHANNEL_FEATURES, type ChannelFeatureSettings }
+export { type ChannelFeatureSettings }
 
 let cache: ChannelFeatureSettings | null = null
 

@@ -303,5 +303,3 @@ export function AsrLiveTestPanel(): React.ReactElement {
     </div>
   )
 }
-
-export default AsrLiveTestPanel

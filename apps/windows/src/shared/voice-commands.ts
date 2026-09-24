@@ -3,7 +3,7 @@
  * 渲染进程 → 主进程的命令
  */
 
-export type VoiceStartCallCommand = {
+type VoiceStartCallCommand = {
   readonly type: 'voice:call:start'
   sessionKey: string
   agentId?: string
@@ -16,43 +16,43 @@ export type VoiceStartCallCommand = {
   persistent?: boolean
 }
 
-export type VoiceStopCallCommand = {
+type VoiceStopCallCommand = {
   readonly type: 'voice:call:stop'
   callId: string
 }
 
-export type VoiceGetModelsCommand = {
+type VoiceGetModelsCommand = {
   readonly type: 'voice:models:get'
 }
 
-export type VoiceDownloadModelCommand = {
+type VoiceDownloadModelCommand = {
   readonly type: 'voice:models:download'
   modelId: string
 }
 
 /** 暂停模型下载（保留 partial，可续传） */
-export type VoicePauseModelCommand = {
+type VoicePauseModelCommand = {
   readonly type: 'voice:models:pause'
   modelId: string
 }
 
 /** 取消模型下载并清理 partial */
-export type VoiceCancelModelCommand = {
+type VoiceCancelModelCommand = {
   readonly type: 'voice:models:cancel'
   modelId: string
 }
 
 /** 卸载已下载的模型/运行时（删除本地文件；PyTorch 另卸 pip 包） */
-export type VoiceUninstallModelCommand = {
+type VoiceUninstallModelCommand = {
   readonly type: 'voice:models:uninstall'
   modelId: string
 }
 
-export type VoiceGetConfigCommand = {
+type VoiceGetConfigCommand = {
   readonly type: 'voice:config:get'
 }
 
-export type VoiceSetConfigCommand = {
+type VoiceSetConfigCommand = {
   readonly type: 'voice:config:set'
   config: {
     asr?: Partial<import('./voice-events.js').VoiceAsrConfig>
@@ -63,7 +63,7 @@ export type VoiceSetConfigCommand = {
 }
 
 /** 渲染进程通知主进程：TTS 音频已完全播放完毕 */
-export type VoicePlaybackFinishedCommand = {
+type VoicePlaybackFinishedCommand = {
   readonly type: 'voice:playback:finished'
   callId: string
 }
@@ -71,6 +71,8 @@ export type VoicePlaybackFinishedCommand = {
 /**
  * 试听时临时覆盖的音色参数（不写入全局配置，仅本次预览生效）。
  * 用于「语音合成」区试听内置音色、「我的音色」列表逐条试听克隆声，避免串声。
+ *
+ * @lintignore 被 voice-service.ts 以 `import('../../shared/voice-commands.js').VoiceTtsPreviewOverride` 内联引用（计划文档 §4.9）
  */
 export type VoiceTtsPreviewOverride = {
   provider?: 'local-vits' | 'edge' | 'qwen3'
@@ -89,7 +91,7 @@ export type VoiceTtsPreviewOverride = {
 }
 
 /** 预览/朗读 TTS（设置页短试听；消息朗读可传更大 maxChars） */
-export type VoiceTtsPreviewCommand = {
+type VoiceTtsPreviewCommand = {
   readonly type: 'voice:tts:preview'
   text?: string
   /**
@@ -110,34 +112,34 @@ export type VoiceTtsPreviewCommand = {
 }
 
 /** 停止 TTS 预览/朗读播放 */
-export type VoiceTtsStopPreviewCommand = {
+type VoiceTtsStopPreviewCommand = {
   readonly type: 'voice:tts:stop-preview'
 }
 
 /** 将文本合成为音频文件，返回文件绝对路径 */
-export type VoiceTtsGenerateFileCommand = {
+type VoiceTtsGenerateFileCommand = {
   readonly type: 'voice:tts:generate-file'
   text: string
   destDir: string
 }
 
 /** 开始 ASR 实时识别测试（不拉起 Agent） */
-export type VoiceAsrTestStartCommand = {
+type VoiceAsrTestStartCommand = {
   readonly type: 'voice:asr:test:start'
 }
 
 /** 停止 ASR 实时识别测试 */
-export type VoiceAsrTestStopCommand = {
+type VoiceAsrTestStopCommand = {
   readonly type: 'voice:asr:test:stop'
 }
 
 /** 列出克隆音色档案 */
-export type VoiceProfilesListCommand = {
+type VoiceProfilesListCommand = {
   readonly type: 'voice:profiles:list'
 }
 
 /** 创建/更新克隆音色档案（refAudioPath 为绝对路径，将拷贝入库） */
-export type VoiceProfilesUpsertCommand = {
+type VoiceProfilesUpsertCommand = {
   readonly type: 'voice:profiles:upsert'
   profile: {
     id?: string
@@ -151,20 +153,20 @@ export type VoiceProfilesUpsertCommand = {
 }
 
 /** 删除克隆音色档案 */
-export type VoiceProfilesDeleteCommand = {
+type VoiceProfilesDeleteCommand = {
   readonly type: 'voice:profiles:delete'
   profileId: string
 }
 
 /** 重命名克隆音色档案（仅改名称，不动参考音频） */
-export type VoiceProfilesRenameCommand = {
+type VoiceProfilesRenameCommand = {
   readonly type: 'voice:profiles:rename'
   profileId: string
   name: string
 }
 
 /** 将克隆参考音频写入临时目录，返回绝对路径 */
-export type VoiceProfilesSaveTempRefCommand = {
+type VoiceProfilesSaveTempRefCommand = {
   readonly type: 'voice:profiles:save-temp-ref'
   /** 原始音频字节的 base64 */
   audioBase64: string

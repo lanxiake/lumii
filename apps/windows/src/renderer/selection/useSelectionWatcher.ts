@@ -11,9 +11,9 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { buildSnapshot, type SelectionSnapshot } from './snapshot'
 
 /** 快照由哪个入口承载 */
-export type SelectionSurface = 'bar' | 'menu'
+type SelectionSurface = 'bar' | 'menu'
 
-export interface SelectionView {
+interface SelectionView {
   snapshot: SelectionSnapshot
   surface: SelectionSurface
   /** menu 的弹出坐标（指针位置）；bar 不用它，bar 锚在 snapshot.anchorRect */

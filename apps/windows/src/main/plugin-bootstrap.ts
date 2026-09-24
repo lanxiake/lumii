@@ -14,7 +14,7 @@ const log = createLogger('PluginBootstrap')
 /**
  * 后台预下载 CloakBrowser（已安装则跳过；失败仅打日志不阻塞启动）。
  */
-export async function prefetchCloakBrowserOnInit(): Promise<void> {
+async function prefetchCloakBrowserOnInit(): Promise<void> {
   if (!isCloakBrowserBootstrapEnabled()) return
   try {
     const { ensureCloakBrowser } = await import('./cloak-browser-downloader.js')

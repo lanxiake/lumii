@@ -7,7 +7,7 @@ import { installPreviewZoomGuard } from './preview-zoom-guard'
 import { openExternalWithFallback } from './in-app-browser'
 import { shouldDeferToRenderer } from './context-menu-policy'
 
-export interface MainWindowLogger {
+interface MainWindowLogger {
   info: (...args: unknown[]) => void
   warn: (...args: unknown[]) => void
   error: (...args: unknown[]) => void

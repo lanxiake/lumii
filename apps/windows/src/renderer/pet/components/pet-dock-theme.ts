@@ -23,9 +23,9 @@
 import type { CSSProperties } from 'react'
 
 /** 浮层上的"亮色"（描边、分隔线、叠加底、次要文字） */
-export const LIGHT: [number, number, number] = [255, 255, 255]
+const LIGHT: [number, number, number] = [255, 255, 255]
 /** 浮层上的"暗色"（坞底、内嵌区底、投影） */
-export const DARK: [number, number, number] = [0, 0, 0]
+const DARK: [number, number, number] = [0, 0, 0]
 
 /** 按指定透明度取"亮色"。用法：`border: 1px solid ${light(0.12)}` */
 export const light = (alpha: number): string => `rgba(${LIGHT.join(', ')}, ${alpha})`

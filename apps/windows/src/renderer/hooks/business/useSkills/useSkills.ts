@@ -170,4 +170,4 @@ export function useSkills() {
 }
 
 /** useSkills 返回值类型，供 index 与其它模块导出 */
-export type UseSkillsReturn = ReturnType<typeof useSkills>
+type UseSkillsReturn = ReturnType<typeof useSkills>

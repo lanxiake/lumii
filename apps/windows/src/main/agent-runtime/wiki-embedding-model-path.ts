@@ -12,7 +12,7 @@ import { resolveWindowsClientDataRoot } from '../client-data-root'
 export const TRANSFORMERS_E5_MODEL_ID = 'Xenova/multilingual-e5-small'
 
 /** 用户数据目录下的模型缓存子路径 */
-export const WIKI_EMBEDDING_CACHE_SUBDIR = path.join('models', 'wiki-embeddings')
+const WIKI_EMBEDDING_CACHE_SUBDIR = path.join('models', 'wiki-embeddings')
 
 /** 量化 ONNX 权重（Transformers.js quantized:true） */
 export const WIKI_EMBEDDING_QUANTIZED_ONNX = path.join('onnx', 'model_quantized.onnx')

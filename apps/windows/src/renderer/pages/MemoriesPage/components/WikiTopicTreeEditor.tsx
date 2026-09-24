@@ -406,5 +406,3 @@ export const WikiTopicTreeEditor: React.FC<WikiTopicTreeEditorProps> = ({
     </Modal>
   )
 }
-
-export default WikiTopicTreeEditor

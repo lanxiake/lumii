@@ -43,7 +43,7 @@ export interface SkillStats {
 }
 
 /** 技能执行结果 */
-export interface SkillExecutionResult {
+interface SkillExecutionResult {
   success: boolean
   data?: unknown
   error?: string
@@ -51,13 +51,13 @@ export interface SkillExecutionResult {
 }
 
 /** API 响应类型 */
-export interface GetInstalledSkillsResponse {
+interface GetInstalledSkillsResponse {
   success: boolean
   data?: InstalledSkillInfo[]
   error?: string
 }
 
-export interface ToggleSkillResponse {
+interface ToggleSkillResponse {
   success: boolean
   data?: { isEnabled: boolean }
   error?: string

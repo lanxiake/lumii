@@ -1365,5 +1365,4 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
 const ChatMessageMemo = React.memo(ChatMessage)
 ChatMessageMemo.displayName = 'ChatMessage'
 
-export default ChatMessageMemo
 export { ChatMessageMemo as ChatMessage }

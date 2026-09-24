@@ -111,7 +111,7 @@ export function getGoalToolAllowlist(_goalType: string): string[] {
  * 与 `cron_guide`（排期口径，自主档自己建巡检任务时要查）都属于读/自组织，故一并保留。
  * 导出供单测断言「写类工具确实不在其中」。
  */
-export const SYSTEM_KEEPER_AUTONOMOUS_TOOLS: readonly string[] = [
+const SYSTEM_KEEPER_AUTONOMOUS_TOOLS: readonly string[] = [
   'cron_list',
   'cron_create',
   'cron_delete',

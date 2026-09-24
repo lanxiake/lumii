@@ -23,10 +23,10 @@ const logger = createLogger('cloud-sync/copy')
 export const SYNC_OUTPUTS_MAX_BYTES = 5 * 1024 * 1024
 
 /** 镜像删除单次上限：待删条目超过此数则整批放弃 */
-export const SYNC_MIRROR_MAX_DELETES = 200
+const SYNC_MIRROR_MAX_DELETES = 200
 
 /** 镜像删除比例上限：待删占目标条目数比例超过此值则整批放弃 */
-export const SYNC_MIRROR_MAX_DELETE_RATIO = 0.5
+const SYNC_MIRROR_MAX_DELETE_RATIO = 0.5
 
 /**
  * mtime 比对容差（毫秒）。
@@ -42,7 +42,7 @@ export const SYNC_MIRROR_MAX_DELETE_RATIO = 0.5
 export const SYNC_MTIME_TOLERANCE_MS = 2
 
 /** 待删条目少于此数时不套用比例阈值：小目录删一半是正常操作，不是事故 */
-export const SYNC_MIRROR_RATIO_MIN_COUNT = 10
+const SYNC_MIRROR_RATIO_MIN_COUNT = 10
 
 /**
  * 待删集合的指纹：排序后取 sha256 前 16 位。

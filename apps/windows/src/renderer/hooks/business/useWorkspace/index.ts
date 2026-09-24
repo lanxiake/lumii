@@ -3,4 +3,3 @@
  */
 
 export { useWorkspace } from './useWorkspace'
-export type { WorkspaceLocation, UseWorkspaceReturn } from './useWorkspace.types'

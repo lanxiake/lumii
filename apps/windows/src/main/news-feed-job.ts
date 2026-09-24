@@ -17,10 +17,10 @@
 import type { DatabaseAdapter } from '@mtbot/agent-runtime'
 
 /** 资讯管线任务的判定标记：任务指令里出现即算「这活是情报的」 */
-export const NEWS_FEED_TASK_MARKER = 'dashboard_feed_write'
+const NEWS_FEED_TASK_MARKER = 'dashboard_feed_write'
 
 /** 预置任务 id：老库的资讯管线正主，存在时优先认它 */
-export const NEWS_FEED_SEED_JOB_ID = 'news-pipeline'
+const NEWS_FEED_SEED_JOB_ID = 'news-pipeline'
 
 /** 资讯管线缺省执行者：一切回落路径都归「灵栖情报」 */
 export const NEWS_FEED_FALLBACK_AGENT_ID = 'info-curator'

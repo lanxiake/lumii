@@ -275,5 +275,3 @@ export const WikiMigrateReviewView: React.FC<WikiMigrateReviewViewProps> = ({
     </div>
   )
 }
-
-export default WikiMigrateReviewView

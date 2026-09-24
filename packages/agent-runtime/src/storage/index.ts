@@ -22,14 +22,9 @@ export type {
   ConversationRow,
   MessageRow,
   PiMessage,
-  PiContentBlock,
   PaginatedResult,
   MessagePageCursor,
   MessagePage,
-  MessageContentJson,
-  TextMessageContent,
-  ToolResultContent,
-  ToolCallRecord,
 } from "./conversation-repo.js";
 export { parseMessageContentJson, messageRowToAgentMessages } from "./conversation-repo.js";
 
@@ -44,24 +39,8 @@ export type { BashCommandRow, BashCommandLogParams } from "./bash-command-repo.j
 export { RuntimeStateRepo } from "./runtime-state-repo.js";
 
 export { AutonomousRepo } from "./autonomous-repo.js";
-export type {
-  SatisfactionRow,
-  GoalRow,
-  CapabilityRow,
-  ReflectionRow,
-  PromptVariantRow,
-} from "./autonomous-repo.js";
 
-export { SegmentRepo } from "./segment-repo.js";
-export type {
-  MemorySegment,
-  SegmentRow,
-  SegmentStatus,
-  CreateSegmentParams,
-  AppendSegmentParams,
-} from "./segment-repo.js";
-
-export { SCHEMA_VERSION, MIGRATIONS } from "./schema.js";
+export { SCHEMA_VERSION } from "./schema.js";
 
 export {
   isEnabledForSession,
@@ -76,7 +55,6 @@ export type { SessionConfig } from "./session-config.js";
 export { FileRepo } from "./file-repo.js";
 export type {
   ClientFile,
-  ClientFileRow,
   FileSourceType,
   FileCategory,
   RegisterFileParams,
@@ -87,16 +65,12 @@ export type {
 export {
   verifyDatabaseIntegrity,
   runBackupNow,
-  pruneOldBackups,
   tryRestoreFromLatestBackup,
   restoreDatabaseFromBackup,
   listDatabaseBackups,
-  findLatestBackupPath,
   deleteDatabaseBackup,
-  deleteSqliteSidecarFiles,
   startScheduledDatabaseBackup,
   stopScheduledDatabaseBackup,
-  msUntilNextLocalHour,
 } from "./backup.js";
 export type { DatabaseBackupInfo } from "./backup.js";
 

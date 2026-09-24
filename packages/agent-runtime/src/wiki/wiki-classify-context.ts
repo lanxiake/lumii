@@ -24,7 +24,7 @@ export interface WikiClassifyContext {
 }
 
 /** 构造 classify 上下文的输入 */
-export interface BuildFolderImportContextParams {
+interface BuildFolderImportContextParams {
   readonly importRoot: string;
   readonly workspaceRoot?: string;
   readonly inboxItems: readonly WikiInboxItem[];

@@ -2,9 +2,9 @@ import React from 'react';
 import clsx from 'clsx';
 import styles from './Loading.module.css';
 
-export type LoadingSize = 'sm' | 'md' | 'lg';
+type LoadingSize = 'sm' | 'md' | 'lg';
 
-export interface LoadingProps {
+interface LoadingProps {
   size?: LoadingSize;
   text?: string;
   className?: string;

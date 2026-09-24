@@ -465,7 +465,7 @@ export interface MemoryRankingFeatures {
 /**
  * P2: 记忆使用反馈
  */
-export interface MemoryUsageFeedback {
+interface MemoryUsageFeedback {
   /** 记忆 ID */
   memoryId: string;
   /** 会话 ID */
@@ -494,7 +494,7 @@ export interface MemoryUsageFeedback {
 /**
  * P2: 记忆排序权重
  */
-export interface MemoryRankingWeights {
+interface MemoryRankingWeights {
   semanticSimilarity: number;
   keywordMatch: number;
   memoryAge: number;
@@ -509,7 +509,7 @@ export interface MemoryRankingWeights {
 /**
  * P2: 工具选择统计（Beta 分布参数）
  */
-export interface ToolSelectionStats {
+interface ToolSelectionStats {
   /** 工具名称 */
   toolName: string;
   /** 成功次数 + 1 */
@@ -525,7 +525,7 @@ export interface ToolSelectionStats {
 /**
  * P2: 工具使用反馈
  */
-export interface ToolUsageFeedback {
+interface ToolUsageFeedback {
   /** 工具名称 */
   toolName: string;
   /** 会话 ID */
@@ -657,7 +657,7 @@ export interface SchedulerState {
 /**
  * P2: 冲突类型
  */
-export type ConflictSeverity = 'critical' | 'warning';
+type ConflictSeverity = 'critical' | 'warning';
 
 /**
  * P2: 冲突定义

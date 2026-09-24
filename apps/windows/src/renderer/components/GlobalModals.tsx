@@ -35,5 +35,3 @@ export const GlobalModals: React.FC = () => {
     </>
   )
 }
-
-export default GlobalModals

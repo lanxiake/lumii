@@ -8,7 +8,7 @@ import { resolvePackagedFfmpegPath } from './ffmpeg-runner'
 /**
  * 从 WAV 头解析时长（ms）；非标准 WAV 返回 null。
  */
-export function probeWavDurationMs(filePath: string): number | null {
+function probeWavDurationMs(filePath: string): number | null {
   try {
     const fd = fs.openSync(filePath, 'r')
     const hdr = Buffer.alloc(44)

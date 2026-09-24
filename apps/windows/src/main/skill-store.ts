@@ -678,7 +678,7 @@ export class LocalSkillStore {
 /**
  * 验证技能清单
  */
-export function validateManifest(manifest: SkillManifest): {
+function validateManifest(manifest: SkillManifest): {
   valid: boolean
   errors: string[]
 } {

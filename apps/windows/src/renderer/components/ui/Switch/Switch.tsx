@@ -2,7 +2,7 @@ import React, { forwardRef, useState } from 'react';
 import clsx from 'clsx';
 import styles from './Switch.module.css';
 
-export interface SwitchProps {
+interface SwitchProps {
   checked?: boolean;
   defaultChecked?: boolean;
   onChange?: (checked: boolean) => void;

@@ -81,5 +81,3 @@ export function AppearanceSection() {
     </div>
   )
 }
-
-export default AppearanceSection

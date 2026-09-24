@@ -6,8 +6,8 @@
  */
 
 /** 输出分辨率上限（超出等比缩放，兼顾体积与清晰度） */
-export const MAX_CAPTURE_WIDTH = 1920
-export const MAX_CAPTURE_HEIGHT = 1080
+const MAX_CAPTURE_WIDTH = 1920
+const MAX_CAPTURE_HEIGHT = 1080
 
 /** 连续空帧超过该时长才判定为「画面丢失」并冻结 */
 export const BLANK_HOLD_MS = 400

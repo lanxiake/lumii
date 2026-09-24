@@ -34,7 +34,7 @@ export function createBudgetTracker(): BudgetTracker {
   };
 }
 
-export interface ContinueDecision {
+interface ContinueDecision {
   action: "continue";
   /** 注入到 followUp 的 nudge 消息（提醒 LLM 继续工作、不要总结） */
   nudgeMessage: string;
@@ -44,7 +44,7 @@ export interface ContinueDecision {
   budget: number;
 }
 
-export interface StopDecision {
+interface StopDecision {
   action: "stop";
   /** 非 null 时表示因预算触发停止，可用于遥测上报 */
   completionEvent: {

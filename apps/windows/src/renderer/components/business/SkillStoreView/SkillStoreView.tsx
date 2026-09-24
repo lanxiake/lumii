@@ -491,5 +491,3 @@ export const SkillStoreView: React.FC<SkillStoreViewProps> = ({
     </div>
   )
 }
-
-export default SkillStoreView

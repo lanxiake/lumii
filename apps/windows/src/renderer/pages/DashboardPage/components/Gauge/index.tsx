@@ -34,5 +34,3 @@ export const Gauge: React.FC<GaugeProps> = ({ value, label, title, tone }) => {
     </div>
   )
 }
-
-export default Gauge

@@ -182,5 +182,3 @@ export const TitleBar: React.FC<TitleBarProps> = ({
     </header>
   );
 };
-
-export default TitleBar;

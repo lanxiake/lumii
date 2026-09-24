@@ -9,7 +9,7 @@ import { getDevContext } from './coding-dev-dev-context.js'
 import type { CodingDevBackendId } from './coding-dev-backends-stub/contracts.js'
 
 /** 与各本机 CLI 的 cwd 环境变量一致 */
-export const CODING_DEV_ACP_CWD_ENV_KEYS = [
+const CODING_DEV_ACP_CWD_ENV_KEYS = [
   'MTBOT_CODEX_ACP_CWD',
   'MTBOT_CLAUDE_ACP_CWD',
   'MTBOT_QODER_ACP_CWD',

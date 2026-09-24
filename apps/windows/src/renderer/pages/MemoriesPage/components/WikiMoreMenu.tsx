@@ -129,5 +129,3 @@ export const WikiMoreMenu: React.FC<WikiMoreMenuProps> = ({
     </div>
   )
 }
-
-export default WikiMoreMenu

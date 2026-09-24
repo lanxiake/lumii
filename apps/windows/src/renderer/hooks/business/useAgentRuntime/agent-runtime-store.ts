@@ -156,7 +156,7 @@ export interface PendingAskUser {
 }
 
 /** LLM 网关路由健康度（模型状态指示器） */
-export type LlmRouteStatus = 'healthy' | 'degraded' | 'error'
+type LlmRouteStatus = 'healthy' | 'degraded' | 'error'
 
 /** 上下文使用量状态 */
 export interface ContextUsage {
@@ -175,14 +175,14 @@ export interface ContextUsage {
 }
 
 /** 错误状态 */
-export interface ErrorState {
+interface ErrorState {
   readonly code: string
   readonly message: string
   readonly retryable?: boolean
 }
 
 /** 活动 Agent */
-export interface ActiveAgent {
+interface ActiveAgent {
   readonly instanceId: string
   readonly name: string
   readonly state: string
@@ -194,7 +194,7 @@ export interface ActiveAgent {
 }
 
 /** 回合统计 */
-export interface TurnStats {
+interface TurnStats {
   readonly toolUseCount: number
   readonly totalTokens: number
   readonly durationMs: number
@@ -243,7 +243,7 @@ export interface RuntimeFileEvent {
  * 历史懒加载状态：会话历史按页从 DB 取，用户上滑时再取更早的一页。
  * 压缩不再删除消息，历史可能很长，一次性全量加载会拖垮首屏。
  */
-export interface HistoryPaging {
+interface HistoryPaging {
   /** 是否还有更早的历史可加载 */
   readonly hasMore: boolean
   /** 正在加载更早的一页 */
@@ -253,7 +253,7 @@ export interface HistoryPaging {
 }
 
 /** 中途插话输入条的会话级状态（草稿与「已发送待生效」提示） */
-export interface SteerState {
+interface SteerState {
   readonly draft: string
   /** 已发出插话、等待 Agent 在下一个边界消费 */
   readonly sent: boolean
@@ -333,7 +333,7 @@ export interface MultiSessionRuntimeState {
  * @deprecated 使用 PerSessionState 和 MultiSessionRuntimeState 替代
  * 保留此别名以减少外部引用破坏
  */
-export type AgentRuntimeState = PerSessionState
+type AgentRuntimeState = PerSessionState
 
 // ============================================================
 // Store 实现
@@ -630,4 +630,4 @@ export function resetRuntimeStore(): void {
   runtimeStore.setState(() => getDefaultRuntimeState())
 }
 
-export type { RuntimeStore, AgentRuntimeEvent }
+export type { RuntimeStore }

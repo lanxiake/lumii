@@ -27,7 +27,7 @@ export function decodeGroupFromDescription(description: string): {
 }
 
 /** prompt 模板 — {userRequirement}、{skillsSection} 占位符由调用方替换 */
-export const TEAM_GENERATION_PROMPT = `你是一个 AI 团队架构师，专门为用户设计高效协作的 AI Agent 团队。
+const TEAM_GENERATION_PROMPT = `你是一个 AI 团队架构师，专门为用户设计高效协作的 AI Agent 团队。
 
 用户需求：{userRequirement}
 {skillsSection}{mcpSection}
@@ -73,7 +73,7 @@ capabilities 说明（按需选择，不要全选）：
 只返回 JSON 数组，不要任何解释文字。`
 
 /** 团队优化 prompt 模板 */
-export const TEAM_OPTIMIZATION_PROMPT = `你是一个 AI 团队优化专家。用户有一支现有的 AI Agent 团队，需要根据新的要求进行优化。
+const TEAM_OPTIMIZATION_PROMPT = `你是一个 AI 团队优化专家。用户有一支现有的 AI Agent 团队，需要根据新的要求进行优化。
 
 【现有团队】
 {existingAgents}
@@ -199,7 +199,7 @@ export interface GeneratedRoutingFields {
 }
 
 /** 路由字段生成 prompt — {agentSection}、{skillsSection} 由调用方替换 */
-export const AGENT_ROUTING_PROMPT = `你是一个 AI 团队路由配置专家。下面是用户正在创建的 Agent，请为它生成路由信号。
+const AGENT_ROUTING_PROMPT = `你是一个 AI 团队路由配置专家。下面是用户正在创建的 Agent，请为它生成路由信号。
 
 【Agent 信息】
 {agentSection}

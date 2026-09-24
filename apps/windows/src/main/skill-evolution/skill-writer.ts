@@ -99,7 +99,7 @@ export async function writeNewSkill(
  * 查找技能所在目录（支持分类子目录和根目录两种布局）。
  * 返回 { skillName, category? } 或 null（未找到）。
  */
-export async function findSkill(skillName: string): Promise<{ skillName: string; category?: string } | null> {
+async function findSkill(skillName: string): Promise<{ skillName: string; category?: string } | null> {
   // 先尝试根目录
   try {
     await fs.access(skillDir(skillName))
@@ -267,7 +267,7 @@ function withPendingDraftsLock<T>(fn: () => Promise<T>): Promise<T> {
   return next
 }
 
-export async function readPendingDrafts(): Promise<SkillDraft[]> {
+async function readPendingDrafts(): Promise<SkillDraft[]> {
   return loadPendingDrafts()
 }
 
@@ -285,5 +285,3 @@ export function removePendingDraft(draftId: string): Promise<void> {
     await savePendingDraftsFile(drafts.filter(d => d.id !== draftId))
   })
 }
-
-export { SKILLS_BASE_DIR }

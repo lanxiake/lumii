@@ -6,7 +6,7 @@
  */
 
 /** 记忆层级标识 */
-export type MemoryLayer = "personal" | "scene" | "work" | "palace";
+type MemoryLayer = "personal" | "scene" | "work" | "palace";
 
 /** 记忆层级元信息 */
 export interface MemoryLayerInfo {
@@ -70,10 +70,10 @@ export const MEMORY_LAYERS: readonly MemoryLayerInfo[] = [
 ] as const;
 
 /** 个人记忆类别 */
-export const PERSONAL_MEMORY_CATEGORIES = ["user", "feedback"] as const;
+const PERSONAL_MEMORY_CATEGORIES = ["user", "feedback"] as const;
 
 /** 工作记忆类别 */
-export const WORK_MEMORY_CATEGORIES = ["project", "reference", "general"] as const;
+const WORK_MEMORY_CATEGORIES = ["project", "reference", "general"] as const;
 
 /**
  * 记忆分层协作规则（注入 prompt 的硬约束摘要）
@@ -90,7 +90,7 @@ export const MEMORY_LAYER_RULES = [
 /**
  * 判断记忆类别属于哪一层
  */
-export function memoryCategoryToLayer(category: string): MemoryLayer {
+function memoryCategoryToLayer(category: string): MemoryLayer {
   if (category === "user" || category === "feedback") return "personal";
   if (category === "project" || category === "reference" || category === "general") return "work";
   return "palace";

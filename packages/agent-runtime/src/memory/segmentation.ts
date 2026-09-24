@@ -80,7 +80,7 @@ export function overlapCoefficient(a: Set<string>, b: Set<string>): number {
  *
  * 单选词查询（tokens=1）退化为 1，否则会一条都不返回。
  */
-export const MIN_QUERY_TOKEN_HITS = 2;
+const MIN_QUERY_TOKEN_HITS = 2;
 
 /** 双词及以上才启用最小命中；单词查询取 1 */
 export function requiredTokenHits(tokenCount: number): number {

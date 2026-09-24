@@ -240,5 +240,3 @@ export const WeixinChannelSettings: React.FC<WeixinChannelSettingsProps> = ({
     </>
   )
 }
-
-export default WeixinChannelSettings

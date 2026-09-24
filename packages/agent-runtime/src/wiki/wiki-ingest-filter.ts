@@ -38,7 +38,7 @@ export const DEFAULT_EXCLUDED_WIKI_INGEST_EXTENSIONS = new Set([
 /**
  * 从文件名解析扩展名；无扩展名时返回 null。
  */
-export function wikiIngestFileExtension(fileName: string): string | null {
+function wikiIngestFileExtension(fileName: string): string | null {
   const lastDot = fileName.lastIndexOf(".");
   if (lastDot <= 0) return null;
   return fileName.slice(lastDot + 1).toLowerCase();
@@ -50,7 +50,7 @@ export function wikiIngestFileExtension(fileName: string): string | null {
  * 例：verify-public-texts.js.lumii-ref → verify-public-texts.js
  *     download-public-texts.js-2.lumii-ref → download-public-texts.js
  */
-export function stripWikiRefSuffix(fileName: string): string {
+function stripWikiRefSuffix(fileName: string): string {
   return fileName
     .replace(/(\.url)?\.lumii-ref$/i, "")
     .replace(/-[0-9]+$/, "");

@@ -14,13 +14,13 @@
  */
 
 /** 美元 → 人民币折算汇率（本地估算用，非实时） */
-export const USD_TO_CNY = 7.2
+const USD_TO_CNY = 7.2
 
 function usdPerMToYuanPerM(usdPerM: number): number {
   return usdPerM * USD_TO_CNY
 }
 
-export interface ModelPrice {
+interface ModelPrice {
   /** 输入价（缓存未命中），元 / 1M token */
   readonly inputYuanPerMTok: number
   /** 输出价，元 / 1M token */
@@ -223,7 +223,7 @@ export function isLocalModel(modelId: string): boolean {
  * 判断给定时间戳（epoch ms）是否为 DeepSeek 高峰时段。
  * 高峰：北京时间 09:00-12:00、14:00-18:00（UTC+8）
  */
-export function isDeepSeekPeakHour(tsMs: number): boolean {
+function isDeepSeekPeakHour(tsMs: number): boolean {
   const d = new Date(tsMs)
   const beijingHour = (d.getUTCHours() + 8) % 24
   const beijingMinute = d.getUTCMinutes()
@@ -237,7 +237,7 @@ export function isDeepSeekPeakHour(tsMs: number): boolean {
  * 注意：此函数不处理 DeepSeek 峰谷价，只返回「高峰价（保守）」。
  * 真实花费估算请调用 estimateCostYuan。
  */
-export function lookupModelPrice(modelId: string): ModelPrice | undefined {
+function lookupModelPrice(modelId: string): ModelPrice | undefined {
   const id = modelId.toLowerCase()
   let matched: ModelPrice | undefined
   let matchedLen = 0
@@ -333,7 +333,7 @@ export function estimateCostYuan(
  * 保留此导出避免外部直接引用处编译报错，内部不再推荐使用。
  * @deprecated 请使用 estimateCostYuan（人民币口径，直接返回元）
  */
-export function estimateCostCents(
+function estimateCostCents(
   modelId: string,
   promptTokens: number,
   completionTokens: number,
@@ -352,9 +352,9 @@ export function estimateCostCents(
  * 新代码请直接使用人民币元。
  * @deprecated 新代码直接处理元
  */
-export const CNY_PER_USD = USD_TO_CNY
+const CNY_PER_USD = USD_TO_CNY
 /** @deprecated 直接处理人民币元 */
-export function centsToCny(cents: number): number {
+function centsToCny(cents: number): number {
   return (cents / 100) * CNY_PER_USD
 }
 
@@ -373,7 +373,7 @@ export function formatCostYuan(yuan: number | undefined): string {
  * 旧接口兼容：formatCostCny 内部已改为直接吃美分并折算（即保留原签名不变）。
  * @deprecated 新代码请使用 formatCostYuan，直接传人民币元
  */
-export function formatCostCny(cents: number | undefined): string {
+function formatCostCny(cents: number | undefined): string {
   if (cents === undefined) return '—'
   return formatCostYuan(centsToCny(cents))
 }

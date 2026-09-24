@@ -1928,5 +1928,3 @@ export const WikiTab: React.FC = () => {
     </div>
   )
 }
-
-export default WikiTab

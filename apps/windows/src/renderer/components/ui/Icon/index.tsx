@@ -7,18 +7,14 @@
 export {
   User,
   FolderOpen,
-  Link2,
   Radio,
   Palette,
-  Bell,
   Shield,
-  Keyboard,
-  RefreshCw,
   Info,
 } from 'lucide-react'
 
 // 主题图标
-export { Moon, Sun, Monitor } from 'lucide-react'
+export { Monitor } from 'lucide-react'
 
 // 同步图标
 export { Cloud } from 'lucide-react'
@@ -26,46 +22,32 @@ export { Cloud } from 'lucide-react'
 // 操作图标
 export {
   Plus,
-  Minus,
-  X,
-  Check,
   ChevronRight,
-  ChevronDown,
   ChevronLeft,
 } from 'lucide-react'
 
 // 内容图标
 export {
-  MessageSquare,
   Bot,
   Zap,
-  Clock,
-  FileText,
-  Brain,
-  BarChart2,
   Settings,
-  LogOut,
-  Code,
   PenLine,
 } from 'lucide-react'
 
 // 状态图标
-export { AlertCircle, CheckCircle, XCircle, Loader2, Circle } from 'lucide-react'
+export { Circle } from 'lucide-react'
 
 // Agent 相关
-export { Users, Cpu, Wrench, Search, Filter } from 'lucide-react'
+export { Cpu, Wrench, Search } from 'lucide-react'
 
 // 布局图标
-export { LayoutDashboard, Smartphone, Lock } from 'lucide-react'
+export { LayoutDashboard, Smartphone } from 'lucide-react'
 
 // 剪贴板图标
-export { Copy } from 'lucide-react'
 
 // 插件图标
-export { Plug } from 'lucide-react'
 
 // MCP 服务图标
-export { Boxes } from 'lucide-react'
 
 // 实验性功能图标
 export { FlaskConical } from 'lucide-react'
@@ -74,7 +56,6 @@ export { FlaskConical } from 'lucide-react'
 export { Mic } from 'lucide-react'
 
 // 会话列表 / 工具栏
-export { Pin, PinOff, Trash2, Type, FolderTree, GitBranch, MoreHorizontal } from 'lucide-react'
+export { Pin, PinOff, Trash2, MoreHorizontal } from 'lucide-react'
 
 // 重导出类型
-export type { LucideIcon, LucideProps } from 'lucide-react'

@@ -11,7 +11,7 @@ import clsx from 'clsx'
 import { ChevronRight, Loader2 } from 'lucide-react'
 import styles from './ActivityFold.module.css'
 
-export interface ActivityFoldProps {
+interface ActivityFoldProps {
   /** 完成后的静态摘要文案（如「💭 思考 · 读取 3 个文件」） */
   summary: string
   /** 流式中的实时状态短句（如「正在执行 grep…」）；非流式时为空 */
@@ -114,5 +114,4 @@ const ActivityFold: React.FC<ActivityFoldProps> = ({
   )
 }
 
-export default ActivityFold
 export { ActivityFold }

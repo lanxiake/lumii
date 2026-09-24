@@ -84,7 +84,7 @@ const TOOL_LABELS: Record<string, string> = {
 }
 
 /** 单个工具名 → 白话标签；未收录时回落为原始名 */
-export function labelForTool(tool: string): string {
+function labelForTool(tool: string): string {
   return TOOL_LABELS[tool] ?? tool
 }
 

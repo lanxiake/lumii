@@ -575,7 +575,7 @@ export async function handleWikiSearch(
 }
 
 /** 解析资料对应的原文 URL（网页检索归档或 source_path 即 URL） */
-export function resolveWikiSourceUrl(source: {
+function resolveWikiSourceUrl(source: {
   source_path: string | null
   origin_context: string | null
 }): string | null {

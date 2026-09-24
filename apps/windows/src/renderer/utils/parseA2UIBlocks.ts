@@ -57,7 +57,7 @@ const KNOWN_A2UI_COMPONENT_TYPES = new Set<string>([
 /**
  * 判断解析后的对象是否像 A2UISpec（含至少一个已知组件 type），降低 ```json 误匹配。
  */
-export function looksLikeA2UISpec(o: unknown): o is A2UISpec {
+function looksLikeA2UISpec(o: unknown): o is A2UISpec {
   if (!o || typeof o !== 'object') return false
   const components = (o as { components?: unknown }).components
   if (!Array.isArray(components) || components.length === 0) return false

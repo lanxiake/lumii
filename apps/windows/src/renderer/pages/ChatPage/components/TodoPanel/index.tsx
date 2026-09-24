@@ -364,5 +364,3 @@ export const TodoPanel: React.FC<TodoPanelProps> = ({
     </div>
   )
 }
-
-export default TodoPanel

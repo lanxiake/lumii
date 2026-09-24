@@ -12,7 +12,7 @@ const LARK_ACCOUNTS_URL = 'https://accounts.larksuite.com'
 const REGISTRATION_PATH = '/oauth/v1/app/registration'
 const REQUEST_TIMEOUT_MS = 10_000
 
-export interface AppRegistrationResult {
+interface AppRegistrationResult {
   appId: string
   appSecret: string
   domain: FeishuDomain

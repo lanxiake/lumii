@@ -3,8 +3,3 @@
  */
 
 export { useAgents } from './useAgents'
-export type {
-  UseAgentsReturn,
-  AgentDefinitionSyncUi,
-  AgentDefinitionSyncUiKind,
-} from './useAgents'

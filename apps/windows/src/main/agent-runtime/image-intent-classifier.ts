@@ -15,7 +15,7 @@ import { createLogger } from "../logger"
 const log = createLogger("image-intent-classifier")
 
 export const IMAGE_MODEL_SIMPLE = "gpt-image-2"
-export const IMAGE_MODEL_PRO = "gpt-image-2-vip"
+const IMAGE_MODEL_PRO = "gpt-image-2-vip"
 
 export type ImageModelChoice = typeof IMAGE_MODEL_SIMPLE | typeof IMAGE_MODEL_PRO
 
@@ -36,7 +36,7 @@ function buildClassifyPrompt(userPrompt: string): string {
 }
 
 /** 从 LLM 原始输出解析档位。无法判定时返回 null（由调用方兜底）。 */
-export function parseImageChoice(raw: string): ImageModelChoice | null {
+function parseImageChoice(raw: string): ImageModelChoice | null {
   const text = raw.toLowerCase()
   // 优先匹配 complex（避免 "not simple" 之类误判，complex 关键词更具体）
   if (text.includes("complex")) return IMAGE_MODEL_PRO

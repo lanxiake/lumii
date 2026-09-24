@@ -109,5 +109,3 @@ export const SelectionResultMarkdown: React.FC<{ text: string }> = ({ text }) =>
     </ReactMarkdown>
   </div>
 )
-
-export default SelectionResultMarkdown

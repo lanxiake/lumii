@@ -29,7 +29,7 @@ import {
 import { getAgents } from '../../../../services/agent-service'
 import styles from './CodingDevAcpPanel.module.css'
 
-export type LocalAcpToolStatusView = {
+type LocalAcpToolStatusView = {
   id: string
   label: string
   description: string
@@ -143,7 +143,7 @@ function buildAiInstallPrompt(t: LocalAcpToolStatusView): string {
     .join('\n')
 }
 
-export type CodingDevEnvInfo = {
+type CodingDevEnvInfo = {
   resolvedWorkspace: string
   usesDedicatedWorkspace: boolean
   powershellGatewayEnvBlock: string
@@ -741,5 +741,3 @@ export const CodingDevAcpPanel: React.FC = () => {
     </Card>
   )
 }
-
-export default CodingDevAcpPanel

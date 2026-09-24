@@ -338,5 +338,3 @@ export const QbotChannelSettings: React.FC<QbotChannelSettingsProps> = ({
     </>
   )
 }
-
-export default QbotChannelSettings

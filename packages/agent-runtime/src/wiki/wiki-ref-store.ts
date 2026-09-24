@@ -4,12 +4,12 @@
  */
 import { sanitizeFilenameSegment } from "./wiki-exporter.js";
 
-export const WIKI_REF_KIND = "wiki-ref";
-export const WIKI_REF_VERSION = 1;
+const WIKI_REF_KIND = "wiki-ref";
+const WIKI_REF_VERSION = 1;
 export const FILE_REF_EXT = ".lumii-ref";
 export const URL_REF_EXT = ".url.lumii-ref";
 
-export type WikiRefType = "file" | "url";
+type WikiRefType = "file" | "url";
 
 export interface WikiRefDocument {
   readonly kind: typeof WIKI_REF_KIND;
@@ -62,7 +62,7 @@ export function buildFileRefDoc(params: {
 /**
  * 构造 url-ref JSON 文档。
  */
-export function buildUrlRefDoc(params: {
+function buildUrlRefDoc(params: {
   readonly title: string;
   readonly targetUrl: string;
   readonly sourceId?: string;

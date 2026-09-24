@@ -108,5 +108,3 @@ export function useSettingsHub(): SettingsHubContextValue {
   }
   return ctx
 }
-
-export default SettingsHubProvider

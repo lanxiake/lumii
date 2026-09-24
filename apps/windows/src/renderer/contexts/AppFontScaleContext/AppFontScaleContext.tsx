@@ -23,8 +23,6 @@ import {
   type FontScaleLevel,
 } from './app-font-scale'
 
-export type { FontScaleLevel }
-
 interface AppFontScaleContextType {
   /** 当前档位 */
   level: FontScaleLevel
@@ -84,5 +82,3 @@ export function useAppFontScale(): AppFontScaleContextType {
   }
   return ctx
 }
-
-export default AppFontScaleContext

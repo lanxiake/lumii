@@ -136,4 +136,4 @@ export function pruneThinkingForDeepSeek(
 }
 
 // 导出供测试使用
-export { sliceTurns, assistantHasToolCall, assistantHasThinking };
+export { sliceTurns };

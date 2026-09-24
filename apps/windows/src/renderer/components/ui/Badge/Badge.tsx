@@ -2,7 +2,7 @@ import React, { ReactNode } from 'react';
 import clsx from 'clsx';
 import styles from './Badge.module.css';
 
-export interface BadgeProps {
+interface BadgeProps {
   count?: number;
   max?: number;
   dot?: boolean;
@@ -75,4 +75,3 @@ const Badge: React.FC<BadgeProps> = ({
 };
 
 export { Badge };
-export default Badge;

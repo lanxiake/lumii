@@ -9,7 +9,7 @@ import React, { createContext, useContext, useState, useCallback, useEffect, use
 /**
  * 技能信息
  */
-export interface Skill {
+interface Skill {
   id: string
   name: string
   description?: string
@@ -25,7 +25,7 @@ export interface Skill {
 /**
  * 安装技能参数
  */
-export interface InstallSkillParams {
+interface InstallSkillParams {
   id: string
   source: 'registry' | 'file' | 'url'
   url?: string
@@ -35,7 +35,7 @@ export interface InstallSkillParams {
 /**
  * 技能状态
  */
-export interface SkillsState {
+interface SkillsState {
   /** 所有技能列表 */
   skills: Skill[]
   /** 启用的技能 */
@@ -401,12 +401,10 @@ export const SkillsProvider: React.FC<SkillsProviderProps> = ({ children, autoLo
 /**
  * useSkills Hook - 使用技能上下文
  */
-export function useSkills(): SkillsContextType {
+function useSkills(): SkillsContextType {
   const context = useContext(SkillsContext)
   if (context === undefined) {
     throw new Error('useSkills must be used within a SkillsProvider')
   }
   return context
 }
-
-export default SkillsContext

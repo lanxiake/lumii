@@ -101,7 +101,7 @@ export function toAsyncClient(db: DatabaseAdapter) {
   }
 }
 
-export interface AutonomousRuntime {
+interface AutonomousRuntime {
   coordinator: AutonomousCoordinator
   /** 回合结束时调用；内部已 try-catch，不会把异常抛给会话流程 */
   onTurnEnd(sessionId: string, agentId: string): Promise<void>
@@ -306,7 +306,7 @@ export async function notifyAutonomousTurnEnd(conversationId: string): Promise<v
  * callLLM 复用桥接的独立 LLM 管道（同记忆提取/整理）装配反思引擎；
  * 缺省不装配反思，避免无 LLM 时启动报错。
  */
-export function createAutonomousRuntime(
+function createAutonomousRuntime(
   db: DatabaseAdapter,
   isEnabled: () => boolean,
   callLLM?: (prompt: string) => Promise<string>,

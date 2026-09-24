@@ -6,7 +6,7 @@
  */
 
 /** focus 渠道写入记忆时使用的前缀标签（与 cron-notify-format focus 策略一致） */
-export const CRON_FOCUS_MEMORY_LABELS = [
+const CRON_FOCUS_MEMORY_LABELS = [
   '早间简报',
   '工作日报整理',
   '每周复盘',

@@ -1,9 +1,9 @@
 import { resolve } from 'node:path'
 
 /** apps/windows 绝对路径 */
-export const APP_ROOT = __dirname
+const APP_ROOT = __dirname
 /** monorepo 根绝对路径 */
-export const REPO_ROOT = resolve(__dirname, '../..')
+const REPO_ROOT = resolve(__dirname, '../..')
 
 /**
  * 路径别名的单一来源。

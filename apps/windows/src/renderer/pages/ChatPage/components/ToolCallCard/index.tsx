@@ -1215,5 +1215,4 @@ interface ToolCardListProps {
   items: AgentWorkflowItem[]
 }
 
-export default ToolCallCard
 export { ToolCallCard }

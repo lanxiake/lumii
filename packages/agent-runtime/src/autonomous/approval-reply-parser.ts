@@ -56,7 +56,7 @@ export function parseApprovalReply(text: string): ApprovalDecision | null {
  * @param db 数据库接口
  * @returns 是否消费成功
  */
-export async function tryConsumeGoalApproval(
+async function tryConsumeGoalApproval(
   peerId: string,
   text: string,
   queue: ApprovalQueue,

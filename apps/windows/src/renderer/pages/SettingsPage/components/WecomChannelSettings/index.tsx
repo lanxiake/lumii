@@ -242,5 +242,3 @@ export const WecomChannelSettings: React.FC<WecomChannelSettingsProps> = ({
     </>
   )
 }
-
-export default WecomChannelSettings

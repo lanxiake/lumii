@@ -101,7 +101,7 @@ export function reciprocalRankFusion(
 }
 
 /** 凸组合里稀疏路（BM25）的权重。实测最优区间 0.6~0.7，取 0.6。 */
-export const CONVEX_ALPHA_SPARSE = 0.6;
+const CONVEX_ALPHA_SPARSE = 0.6;
 
 /**
  * 凸组合分数融合：`α·norm(稀疏) + (1−α)·norm(稠密)`。
@@ -178,4 +178,3 @@ export function convexScoreFusion(
 }
 
 /** 导出供索引重建提示：bigram 列仍由 WikiIndexRepo 维护 */
-export { wikiBigramJoin };

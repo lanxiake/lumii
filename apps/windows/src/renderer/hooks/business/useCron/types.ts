@@ -6,10 +6,10 @@
 export type CronScheduleType = 'cron' | 'every' | 'at'
 
 /** 任务状态 */
-export type CronJobStatus = 'ok' | 'error' | 'idle' | 'running'
+type CronJobStatus = 'ok' | 'error' | 'idle' | 'running'
 
 /** 运行状态 */
-export type CronRunStatus = 'ok' | 'error' | 'running'
+type CronRunStatus = 'ok' | 'error' | 'running'
 
 /** 来源：系统播种 / Agent 自建（agent-self:*、local-cron-*）/ 用户创建 */
 export type CronJobSource = 'system' | 'agent' | 'user'
@@ -85,7 +85,7 @@ export interface CreateCronJobParams {
 }
 
 /** 运行统计 */
-export interface CronRunStats {
+interface CronRunStats {
   totalRuns: number
   okRuns: number
   errorRuns: number

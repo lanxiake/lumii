@@ -11,9 +11,9 @@ import { getAgents, forkAgent, type Agent } from '../../../services/agent-servic
 const STORAGE_KEY = 'mtbot-selected-agent'
 
 /** 主进程 DefinitionStore 同步状态在 UI 上的简化分类 */
-export type AgentDefinitionSyncUiKind = 'synced' | 'syncing' | 'error' | 'stale' | 'idle'
+type AgentDefinitionSyncUiKind = 'synced' | 'syncing' | 'error' | 'stale' | 'idle'
 
-export interface AgentDefinitionSyncUi {
+interface AgentDefinitionSyncUi {
   kind: AgentDefinitionSyncUiKind
   /** 最近一次成功同步时间 */
   lastSyncAt: Date | null

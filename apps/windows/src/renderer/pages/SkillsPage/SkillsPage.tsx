@@ -618,4 +618,3 @@ const SkillsPage: React.FC<SkillsPageProps> = ({
 }
 
 export { SkillsPage };
-export default SkillsPage

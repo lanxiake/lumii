@@ -2,7 +2,7 @@
  * System Prompt 进化指引注入
  */
 
-export const SKILLS_EVOLUTION_GUIDANCE = `
+const SKILLS_EVOLUTION_GUIDANCE = `
 ## 技能记录指引
 
 完成以下情况后，主动考虑是否需要记录为可复用技能：
@@ -14,7 +14,7 @@ export const SKILLS_EVOLUTION_GUIDANCE = `
 未被维护的技能会成为负担。
 `
 
-export function injectEvolutionGuidance(systemPrompt: string): string {
+function injectEvolutionGuidance(systemPrompt: string): string {
   return systemPrompt + '\n\n' + SKILLS_EVOLUTION_GUIDANCE
 }
 

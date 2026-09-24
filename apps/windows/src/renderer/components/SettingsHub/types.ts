@@ -61,7 +61,7 @@ export const SETTINGS_HUB_TABS: Array<{ id: SettingsHubTab; label: string }> = [
 ]
 
 /** 可被 Hub 接管的路由视图 */
-export const HUB_VIEW_TABS = [
+const HUB_VIEW_TABS = [
   'settings',
   'agents',
   'skills',

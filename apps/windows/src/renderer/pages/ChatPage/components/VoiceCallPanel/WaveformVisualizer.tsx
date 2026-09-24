@@ -133,5 +133,3 @@ export function WaveformVisualizer({ state, analyserNode }: WaveformVisualizerPr
     </div>
   )
 }
-
-export default WaveformVisualizer

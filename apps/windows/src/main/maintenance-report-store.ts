@@ -15,11 +15,11 @@ import { randomUUID } from 'node:crypto'
 import type { DatabaseAdapter } from '@mtbot/agent-runtime'
 
 /** 体检覆盖的资产类别；'full' 表示一轮走完全部 */
-export const MAINTENANCE_SCOPES = ['full', 'memory', 'wiki', 'guides', 'settings', 'workspace'] as const
-export type MaintenanceScope = (typeof MAINTENANCE_SCOPES)[number]
+const MAINTENANCE_SCOPES = ['full', 'memory', 'wiki', 'guides', 'settings', 'workspace'] as const
+type MaintenanceScope = (typeof MAINTENANCE_SCOPES)[number]
 
 /** 报告的触发来源：用户使唤 / 定时任务 / 自主运行 */
-export const MAINTENANCE_TRIGGERS = ['manual', 'cron', 'autonomous'] as const
+const MAINTENANCE_TRIGGERS = ['manual', 'cron', 'autonomous'] as const
 export type MaintenanceTrigger = (typeof MAINTENANCE_TRIGGERS)[number]
 
 export type MaintenanceSeverity = 'high' | 'medium' | 'low'

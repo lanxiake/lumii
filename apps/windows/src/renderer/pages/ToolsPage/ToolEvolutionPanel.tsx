@@ -87,5 +87,3 @@ export function ToolEvolutionPanel() {
     </div>
   )
 }
-
-export default ToolEvolutionPanel

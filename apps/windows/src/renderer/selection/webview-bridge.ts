@@ -19,7 +19,7 @@ import type { SelectionSnapshot, SelectionSource, SnapshotRect } from './snapsho
 /** 与 `src/preload/webview-selection.ts` 约定的通道名，两侧必须一致 */
 export const WEBVIEW_SELECTION_CHANNEL = 'lumii:webview-selection'
 
-export type Surface = 'bar' | 'menu'
+type Surface = 'bar' | 'menu'
 
 export interface WebviewSelectionEvent {
   type: 'show' | 'close'
@@ -115,7 +115,7 @@ export const IFRAME_SELECTION_MARKER = 'lumii-selection'
  * 预览内容里自带的 `<script>`（SVG 可以有）也会跟着跑，所以配一条
  * `script-src 'nonce-…'` 的 CSP 把授权收到只认这段脚本。nonce 由调用方每次生成。
  */
-export function buildIframeSelectionScript(nonce: string): string {
+function buildIframeSelectionScript(nonce: string): string {
   return `<script nonce="${nonce}">(function(){
   var M = ${JSON.stringify(IFRAME_SELECTION_MARKER)};
   function rectOf(r){ return { top: r.top, left: r.left, width: r.width, height: r.height }; }

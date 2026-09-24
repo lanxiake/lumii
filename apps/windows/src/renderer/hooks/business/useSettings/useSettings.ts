@@ -153,4 +153,4 @@ export function useSettings() {
   }
 }
 
-export type UseSettingsReturn = ReturnType<typeof useSettings>
+type UseSettingsReturn = ReturnType<typeof useSettings>

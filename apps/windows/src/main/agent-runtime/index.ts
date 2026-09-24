@@ -1,4 +1,4 @@
-export { AgentRuntimeBridge, type AgentRuntimeBridgeConfig } from './bridge'
+export { AgentRuntimeBridge } from './bridge'
 export {
   installAgentRuntimeCommandIpc,
   setAgentRuntimeBridgeForIpc,

@@ -11,7 +11,7 @@ import { writeFile } from '../../../services/file-service'
 import { showItemInFolder } from '../../../services/app-service'
 import styles from '../SettingsPage.module.css'
 
-export interface LocalStorageStatsView {
+interface LocalStorageStatsView {
   readonly dbPath: string
   readonly fileSizeBytes: number
   readonly tableRowCounts: Readonly<Record<string, number>>

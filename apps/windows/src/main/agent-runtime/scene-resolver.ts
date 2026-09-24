@@ -30,7 +30,7 @@ export const MIN_ALIAS_MATCH_LENGTH = 2
  * 中文等非 ASCII 别名 >= 2 字符即可（"卤米"）；纯 ASCII 别名要求 >= 3 字符
  * （"AI"、"Go" 这类高频短词会大量误报）。
  */
-export function isAliasSpecific(alias: string): boolean {
+function isAliasSpecific(alias: string): boolean {
   const a = alias.trim()
   if (a.length < MIN_ALIAS_MATCH_LENGTH) return false
   if (/^[\x20-\x7e]+$/.test(a)) return a.length >= 3

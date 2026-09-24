@@ -30,7 +30,7 @@
  * 不细分 thinking/working——那是**主体会话**才需要的精度（头顶符号用它区分），
  * 而这里问的是"别人还要不要我管"。
  */
-export type SessionRunState = 'running' | 'waiting' | 'error'
+type SessionRunState = 'running' | 'waiting' | 'error'
 
 export interface SessionRun {
   /** 归一后的键（rootSessionKey 优先） */

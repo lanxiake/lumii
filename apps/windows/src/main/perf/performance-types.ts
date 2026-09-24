@@ -7,7 +7,7 @@ export interface StartupPhaseEvent {
 }
 
 // 启动完成事件
-export interface StartupCompleteEvent {
+interface StartupCompleteEvent {
   timestamp: number
   kind: 'startup.complete'
   totalDuration: number
@@ -24,7 +24,7 @@ export interface IpcSlowEvent {
 }
 
 // IPC 错误事件
-export interface IpcErrorEvent {
+interface IpcErrorEvent {
   timestamp: number
   kind: 'ipc.error'
   channel: string
@@ -47,7 +47,7 @@ export interface IpcAggregateEvent {
 }
 
 // 内存快照事件
-export interface MainProcessMemory {
+interface MainProcessMemory {
   heapUsed: number
   /**
    * V8 已提交的堆容量。与 heapUsed 的差值即「已向系统要来但当前没用上」的部分——
@@ -63,7 +63,7 @@ export interface MainProcessMemory {
   rss: number
 }
 
-export interface ChildProcessMemory {
+interface ChildProcessMemory {
   pid: number
   type: string
   workingSetSize: number
@@ -238,7 +238,7 @@ export interface MemoryStats {
   }
 }
 
-export type HealthStatus = 'good' | 'warning' | 'critical'
+type HealthStatus = 'good' | 'warning' | 'critical'
 
 export interface PerformanceReport {
   generatedAt: number

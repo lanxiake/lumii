@@ -130,7 +130,7 @@ const ASLEEP_EMOTIONS = ['闭眼', '睡着', 'sleep', 'calm']
 const WAKE_EMOTIONS = ['shocked', '惊讶', 'surprise', 'surprised', 'joy', '开心']
 
 /** 动作展示类型（UI 层转中文） */
-export type PetMotionKind = 'none' | 'idle' | 'idle-random' | 'talk' | 'cooldown'
+type PetMotionKind = 'none' | 'idle' | 'idle-random' | 'talk' | 'cooldown'
 
 /** 虚拟人当前表情/动作可观测状态（供控制坞展示） */
 export interface PetAvatarStatus {

@@ -22,7 +22,7 @@
  */
 
 /** Right Code 绘图接口文档（供工具描述与错误提示引用） */
-export const IMAGE_DRAW_API_DOCS = "https://docs.right.codes/docs/rc_extension/draw"
+const IMAGE_DRAW_API_DOCS = "https://docs.right.codes/docs/rc_extension/draw"
 
 import { Type, type Static } from "@sinclair/typebox";
 import type { MtBotToolConfig } from "../tool-adapter.js";
@@ -79,7 +79,7 @@ const ImageGenerateParams = Type.Object({
 
 type ImageGenerateInput = Static<typeof ImageGenerateParams> & { filename?: string };
 
-export interface ImageGenerateResult {
+interface ImageGenerateResult {
   /** workspace 相对路径，如 outputs/20260517/generated_a1b2.png */
   filePath: string;
   width: number;

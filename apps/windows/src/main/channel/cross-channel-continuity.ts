@@ -124,7 +124,7 @@ export function pickContinuityCandidate(params: {
  * 两套都问「1」时用户无法表达自己在回答哪一个。审批那一套是位阶选择，天然用数字；
  * 所以这里改用词，让两种提示在词面上就分得开（`parseContinuityReply` 仍容忍 1/0/是/否 等旧写法）。
  */
-export function formatContinuityPrompt(candidate: ContinuityCandidate): string {
+function formatContinuityPrompt(candidate: ContinuityCandidate): string {
   return [
     `检测到你在【${candidate.channelLabel}】有进行中的对话：`,
     `「${candidate.title}」`,
@@ -312,7 +312,7 @@ export class CrossChannelContinuity {
 /** 全局单例：各渠道共用一份「提示过 / 待兑现」记录 */
 let instance: CrossChannelContinuity | null = null
 
-export function getCrossChannelContinuity(deps: ContinuityDeps): CrossChannelContinuity {
+function getCrossChannelContinuity(deps: ContinuityDeps): CrossChannelContinuity {
   if (!instance) instance = new CrossChannelContinuity(deps)
   return instance
 }

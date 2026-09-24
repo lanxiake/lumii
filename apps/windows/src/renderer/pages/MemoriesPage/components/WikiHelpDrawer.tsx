@@ -183,5 +183,3 @@ export const WikiHelpDrawer: React.FC<WikiHelpDrawerProps> = ({ open, onClose })
     </div>
   )
 }
-
-export default WikiHelpDrawer

@@ -12,7 +12,7 @@ import type { SelectionSnapshot } from '../snapshot'
 export type SelectionSurface = 'bar' | 'menu'
 
 /** 执行档位：决定动作走哪条通道（见设计 §四） */
-export type SelectionTier = 'local' | 'single' | 'agent'
+type SelectionTier = 'local' | 'single' | 'agent'
 
 export interface SelectionActionApi {
   /**

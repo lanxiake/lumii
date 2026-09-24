@@ -4,10 +4,8 @@
 
 import type { AssistantPart, FileChangeEntry } from '@mtbot/agent-runtime/browser'
 
-export type { AssistantPart, FileChangeEntry } from '@mtbot/agent-runtime/browser'
-
 /** 消息附件类型 */
-export interface MessageAttachment {
+interface MessageAttachment {
   type: 'file' | 'image'
   mimeType: string
   fileName: string
@@ -88,7 +86,7 @@ export interface ToolCall {
 }
 
 /** 会话来源类型 */
-export type SessionSource = 'local' | 'server'
+type SessionSource = 'local' | 'server'
 
 /** 会话类型 */
 export interface ChatSession {
@@ -116,7 +114,7 @@ export interface ChatSession {
 }
 
 /** 流式消息状态 */
-export interface StreamingMessage {
+interface StreamingMessage {
   runId: string
   sessionKey: string
   content: string
@@ -127,7 +125,7 @@ export interface StreamingMessage {
 }
 
 /** Chat 事件负载 */
-export interface ChatEventPayload {
+interface ChatEventPayload {
   runId: string
   sessionKey: string
   state: 'delta' | 'final' | 'error' | 'aborted'
@@ -137,7 +135,7 @@ export interface ChatEventPayload {
 }
 
 /** Agent 事件负载（包含 tool 执行和子 Agent 信息） */
-export interface AgentEventPayload {
+interface AgentEventPayload {
   /** 运行 ID */
   runId: string
   /** 事件序列号 */
@@ -155,7 +153,7 @@ export interface AgentEventPayload {
 }
 
 /** Agent 事件数据 */
-export interface AgentEventData {
+interface AgentEventData {
   /** 阶段 */
   phase?: 'start' | 'update' | 'result' | 'spawn' | 'complete' | 'error' | 'end'
   /** 工具名称或子 Agent 名称 */
@@ -185,7 +183,7 @@ export interface AgentEventData {
 }
 
 /** 子 Agent 运行记录 */
-export interface SubagentRun {
+interface SubagentRun {
   id: string
   /** 关联的父级 runId */
   parentRunId: string
@@ -206,7 +204,7 @@ export interface SubagentRun {
 }
 
 /** 运行记录 */
-export interface RunRecord {
+interface RunRecord {
   runId: string
   sessionKey: string
   startTime: Date

@@ -25,7 +25,7 @@ import { ipcMain } from 'electron'
 import { PalaceRepo } from '@mtbot/agent-runtime'
 import type { AgentRuntimeBridge } from '../agent-runtime/bridge'
 
-export interface PalaceIpcLogger {
+interface PalaceIpcLogger {
   info: (...args: unknown[]) => void
   warn: (...args: unknown[]) => void
   error: (...args: unknown[]) => void

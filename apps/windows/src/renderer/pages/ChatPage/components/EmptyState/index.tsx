@@ -242,5 +242,4 @@ const EmptyState: React.FC<EmptyStateProps> = ({ onSuggestionClick }) => {
   )
 }
 
-export default EmptyState
 export { EmptyState }

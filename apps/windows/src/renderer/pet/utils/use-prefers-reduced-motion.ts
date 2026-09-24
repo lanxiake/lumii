@@ -16,10 +16,10 @@
 import { useEffect, useState } from 'react'
 
 /** 媒体查询串。抽出来是为了测试与阅读时不用在代码里找字面量 */
-export const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)'
+const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)'
 
 /** 读一次当前值；环境不支持 `matchMedia`（单测 / 老内核）时按"未要求"处理 */
-export function prefersReducedMotionNow(): boolean {
+function prefersReducedMotionNow(): boolean {
   if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false
   try {
     return window.matchMedia(REDUCED_MOTION_QUERY).matches

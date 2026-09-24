@@ -73,7 +73,6 @@ function ensurePixiOnWindow(): void {
 
 /** 注册表占位符：解析为模型内未命名（空字符串 key）或多动作组 */
 // 导出供编排器使用（定义在 pet-model-types.ts）
-export { PET_MOTION_GROUP_UNNAMED } from '../../config/pet-model-types'
 
 export class Live2dPetRenderer implements PetRendererProvider {
   private app: PIXI.Application | null = null

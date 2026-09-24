@@ -8,7 +8,7 @@ import { PET_MOTION_GROUP_UNNAMED } from '../config/pet-model-types'
 import type { PetAvatarStatus } from '../orchestrator/PetOrchestrator'
 
 /** 表情标签（emotionMap key）→ 中文名 */
-export const EMOTION_LABEL_ZH: Record<string, string> = {
+const EMOTION_LABEL_ZH: Record<string, string> = {
   neutral: '平静',
   joy: '开心',
   anger: '生气',
@@ -69,7 +69,7 @@ export const EMOTION_LABEL_ZH: Record<string, string> = {
 }
 
 /** 动作组技术名 → 中文简称 */
-export const MOTION_GROUP_LABEL_ZH: Record<string, string> = {
+const MOTION_GROUP_LABEL_ZH: Record<string, string> = {
   Idle: '待机',
   Talk: '说话',
   Tap: '轻触',
@@ -80,7 +80,7 @@ export const MOTION_GROUP_LABEL_ZH: Record<string, string> = {
 }
 
 /** motion3 文件名片段 → 中文（shizuku / mao_pro 常用） */
-export const MOTION_FILE_LABEL_ZH: Record<string, string> = {
+const MOTION_FILE_LABEL_ZH: Record<string, string> = {
   '01': '抬头',
   '02': '轻触',
   '03': '挥手',
@@ -112,7 +112,7 @@ export function formatExpressionLabel(expressionKey?: string): string {
 /**
  * 将动作组名格式化为中文。
  */
-export function formatMotionGroupLabel(group?: string): string {
+function formatMotionGroupLabel(group?: string): string {
   if (!group) return ''
   return MOTION_GROUP_LABEL_ZH[group] ?? group
 }
@@ -120,7 +120,7 @@ export function formatMotionGroupLabel(group?: string): string {
 /**
  * 从 motion3 路径提取并翻译为中文动作名。
  */
-export function formatMotionFileLabel(filePath?: string): string | undefined {
+function formatMotionFileLabel(filePath?: string): string | undefined {
   if (!filePath) return undefined
   const base = filePath.replace(/\\/g, '/').split('/').pop()?.replace(/\.motion3\.json$/i, '') ?? ''
   if (!base) return undefined

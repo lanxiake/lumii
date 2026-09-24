@@ -14,14 +14,6 @@ export type {
   CompactConfig,
   CompactionInfo,
   SummaryGeneratorFn,
-  CompactStrategy,
-  CompactStageResult,
-  TokenEstimation,
-  ActiveTaskInfo,
-  ResumeMode,
-  PartialDirection,
-  SummaryPromptOptions,
-  LlmSummaryMessageOptions,
 } from "./types.js";
 
 // === 常量 ===
@@ -59,17 +51,13 @@ export { ProgressFence, withProgressTimeout } from "./progress-fence.js";
 // === 提示词（供宿主自定义摘要时复用） ===
 export {
   buildCompactSummaryPrompt,
-  buildPartialSummaryPrompt,
   formatCompactSummary,
   NO_TOOLS_PREAMBLE,
   NO_TOOLS_TRAILER,
 } from "./summary-prompt.js";
-export { buildLlmSummaryMessage, createFallbackPlaceholder } from "./summary-message.js";
+export { buildLlmSummaryMessage } from "./summary-message.js";
 
 // === 压缩后处理（B4） ===
-export { RecompactionTracker } from "./post-compact.js";
-export type { PostCompactRebuild, PostCompactContext } from "./post-compact.js";
 
 // === 会话文件/技能索引（压缩后重建，兜底摘要遗漏） ===
 export { SessionActivityIndex, buildActivityIndexAttachment } from "./session-index.js";
-export type { FileOp, FileIndexEntry, SkillIndexEntry } from "./session-index.js";

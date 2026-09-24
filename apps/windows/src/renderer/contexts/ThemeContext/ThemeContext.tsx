@@ -26,7 +26,7 @@ function isTheme(value: unknown): value is Theme {
 /**
  * 主题状态
  */
-export interface ThemeState {
+interface ThemeState {
   /** 当前选择的主题 */
   theme: Theme
   /** 实际应用的主题（system 时根据系统主题确定） */
@@ -341,5 +341,3 @@ export function useTheme(): ThemeContextType {
   }
   return context
 }
-
-export default ThemeContext

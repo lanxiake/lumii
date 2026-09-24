@@ -197,15 +197,13 @@ const uninstallInflight = new Map<PrimaryLocalAcpToolId, Promise<AcpUninstallRes
 /**
  * 获取某工具的安装命令文案（供 UI 展示）
  */
-export function getAcpInstallDisplay(toolId: PrimaryLocalAcpToolId): {
+function getAcpInstallDisplay(toolId: PrimaryLocalAcpToolId): {
   displayCommand: string
   hint: string
 } {
   const r = WIN_INSTALL_RECIPES[toolId]
   return { displayCommand: r.displayCommand, hint: r.hint }
 }
-
-export { refreshCommonCliPathsInProcessEnv } from './cli-user-path'
 
 /**
  * 在 PowerShell 中执行白名单脚本（安装 / 卸载共用）

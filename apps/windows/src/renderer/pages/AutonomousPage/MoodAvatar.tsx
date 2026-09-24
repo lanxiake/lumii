@@ -106,5 +106,3 @@ export function MoodAvatar({ mood, size = 96 }: MoodAvatarProps) {
     </div>
   )
 }
-
-export default MoodAvatar

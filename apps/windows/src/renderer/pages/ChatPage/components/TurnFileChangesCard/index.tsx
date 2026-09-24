@@ -22,7 +22,7 @@ const STATUS_SHORT: Record<FileChangeEntry['status'], string> = {
   deleted: 'D',
 }
 
-export interface TurnFileChangesCardProps {
+interface TurnFileChangesCardProps {
   changes: readonly FileChangeEntry[]
   /**
    * 点击某行「查看」：透传相对路径与状态，交由上层打开 Workbench 并定位。
@@ -110,5 +110,4 @@ const TurnFileChangesCard: React.FC<TurnFileChangesCardProps> = ({ changes, onRe
   )
 }
 
-export default TurnFileChangesCard
 export { TurnFileChangesCard }

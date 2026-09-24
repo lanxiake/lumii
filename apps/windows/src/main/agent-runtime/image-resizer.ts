@@ -19,12 +19,12 @@ import { agentRuntimeLog as log } from './bridge-utils'
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024 // 5 MB
 
 /** 图片长边最大像素，超出则等比缩放 */
-export const MAX_DIMENSION = 2048
+const MAX_DIMENSION = 2048
 
 // ---------- 格式嗅探 ----------
 
 /** 从 Buffer 头部魔数推断 MIME 类型，识别不到返回 null */
-export function sniffMimeType(buf: Buffer): string | null {
+function sniffMimeType(buf: Buffer): string | null {
   // PNG: 89 50 4E 47
   if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) return 'image/png'
   // JPEG: FF D8 FF
@@ -54,7 +54,7 @@ export function sniffMimeType(buf: Buffer): string | null {
 }
 
 /** 从扩展名推断 MIME 类型（fallback，精度低） */
-export function mimeFromExt(ext: string): string {
+function mimeFromExt(ext: string): string {
   switch (ext.toLowerCase().replace(/^\./, '')) {
     case 'png': return 'image/png'
     case 'jpg': case 'jpeg': return 'image/jpeg'

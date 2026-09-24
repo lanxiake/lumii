@@ -40,7 +40,7 @@ import type {
 } from './types'
 
 /** 截图长边最大像素（与设计 §7 一致） */
-export const SCREENSHOT_MAX_DIMENSION = 1280
+const SCREENSHOT_MAX_DIMENSION = 1280
 
 /** capturePage 转 JPEG 的默认质量 */
 const CAPTURE_JPEG_QUALITY = 90
@@ -62,45 +62,45 @@ export const VIEW_STATE_SCRIPT = `(function () {
 })()`
 
 /** goto 失败时的稳定错误码 */
-export type AppUiGotoError = 'usage' | 'app_not_running'
+type AppUiGotoError = 'usage' | 'app_not_running'
 
 /** goto 成功结果（回读渲染层真实 view/hub） */
-export interface AppUiGotoSuccess {
+interface AppUiGotoSuccess {
   ok: true
   view: string | null
   hub: AppUiHubState
 }
 
 /** goto 失败结果 */
-export interface AppUiGotoFailure {
+interface AppUiGotoFailure {
   ok: false
   error: AppUiGotoError
 }
 
-export type AppUiGotoResult = AppUiGotoSuccess | AppUiGotoFailure
+type AppUiGotoResult = AppUiGotoSuccess | AppUiGotoFailure
 
 /** click 成功结果 */
-export interface AppUiClickSuccess {
+interface AppUiClickSuccess {
   ok: true
   /** stale_snapshot 自动重试成功时的说明 */
   note?: string
 }
 
 /** click 失败结果 */
-export interface AppUiClickFailure {
+interface AppUiClickFailure {
   ok: false
   error: AppUiClickError
   hint?: string
   note?: string
 }
 
-export type AppUiClickResult = AppUiClickSuccess | AppUiClickFailure
+type AppUiClickResult = AppUiClickSuccess | AppUiClickFailure
 
 /** goto 等待 React setState 落定的默认毫秒数 */
-export const GOTO_SETTLE_MS = 100
+const GOTO_SETTLE_MS = 100
 
 /** 截图目标窗口 */
-export type AppUiScreenshotTarget = 'main' | 'pet' | 'preview'
+type AppUiScreenshotTarget = 'main' | 'pet' | 'preview'
 
 /** screenshot() 可选参数 */
 export interface AppUiScreenshotOptions {
@@ -113,16 +113,16 @@ export interface AppUiScreenshotOptions {
 }
 
 /** 截图失败时的稳定错误码 */
-export type AppUiScreenshotError = 'app_not_running' | 'pet_not_running' | 'usage'
+type AppUiScreenshotError = 'app_not_running' | 'pet_not_running' | 'usage'
 
 /** 截图图片边界（与返回给模型的 width/height 一致） */
-export interface AppUiScreenshotBounds {
+interface AppUiScreenshotBounds {
   width: number
   height: number
 }
 
 /** 内存快照缓存条目，供 Part B click 校验消费 */
-export interface AppUiSnapshotCache {
+interface AppUiSnapshotCache {
   snapshotId: string
   refs: AppUiRef[]
   viewState: AppUiViewState
@@ -130,7 +130,7 @@ export interface AppUiSnapshotCache {
 }
 
 /** 截图成功结果（含内部 previewPath；图片以文件路径交付，不内联 base64） */
-export interface AppUiScreenshotSuccess {
+interface AppUiScreenshotSuccess {
   ok: true
   snapshotId: string
   width: number
@@ -145,12 +145,12 @@ export interface AppUiScreenshotSuccess {
 }
 
 /** 截图失败结果 */
-export interface AppUiScreenshotFailure {
+interface AppUiScreenshotFailure {
   ok: false
   error: AppUiScreenshotError
 }
 
-export type AppUiScreenshotResult = AppUiScreenshotSuccess | AppUiScreenshotFailure
+type AppUiScreenshotResult = AppUiScreenshotSuccess | AppUiScreenshotFailure
 
 /** resizeImageIfNeeded 注入签名 */
 export type ResizeImageFn = (
@@ -161,7 +161,7 @@ export type ResizeImageFn = (
 ) => Promise<ResizeResult>
 
 /** 控制器可解析的窗口目标（pet 截图走 getPetWindowManager，不经此回调） */
-export type AppUiWindowTarget = 'main' | 'pet' | 'preview'
+type AppUiWindowTarget = 'main' | 'pet' | 'preview'
 
 /** createAppUiController 依赖 */
 export interface AppUiControllerDeps {
@@ -175,10 +175,10 @@ export interface AppUiControllerDeps {
   getScaleFactor?: (win: BrowserWindow) => number
 }
 
-export type AppUiActResult = AppUiClickResult | AppUiActFailure
+type AppUiActResult = AppUiClickResult | AppUiActFailure
 
 /** act 失败结果（含 usage，供 key 白名单拒绝） */
-export interface AppUiActFailure {
+interface AppUiActFailure {
   ok: false
   error: AppUiActError
   /** 补充说明：如 select 未命中时的可选项列表 */
@@ -192,7 +192,7 @@ export interface AppUiActFailure {
 }
 
 /** type 成功结果：回传写入后的实际内容，省掉一次确认截图 */
-export interface AppUiTypeSuccess {
+interface AppUiTypeSuccess {
   ok: true
   /** 写入后的值；password 字段不回传明文 */
   value?: string
@@ -203,10 +203,10 @@ export interface AppUiTypeSuccess {
   note?: string
 }
 
-export type AppUiTypeResult = AppUiTypeSuccess | AppUiActFailure
+type AppUiTypeResult = AppUiTypeSuccess | AppUiActFailure
 
 /** select 成功结果 */
-export interface AppUiSelectSuccess {
+interface AppUiSelectSuccess {
   ok: true
   value: string
   label: string
@@ -214,15 +214,15 @@ export interface AppUiSelectSuccess {
   note?: string
 }
 
-export type AppUiSelectResult = AppUiSelectSuccess | AppUiActFailure
+type AppUiSelectResult = AppUiSelectSuccess | AppUiActFailure
 
 /** scroll 成功结果：带回滚动容器的位置，便于判断是否已到底 */
-export interface AppUiScrollSuccess extends ScrollScriptResult {
+interface AppUiScrollSuccess extends ScrollScriptResult {
   ok: true
   note?: string
 }
 
-export type AppUiScrollResult = AppUiScrollSuccess | AppUiActFailure
+type AppUiScrollResult = AppUiScrollSuccess | AppUiActFailure
 
 /** 控制器对外 API */
 export interface AppUiController {

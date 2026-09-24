@@ -46,5 +46,3 @@ export const PetDebugOverlay: React.FC = () => {
     </div>
   )
 }
-
-export default PetDebugOverlay

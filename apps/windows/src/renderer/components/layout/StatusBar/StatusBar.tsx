@@ -88,5 +88,3 @@ export const StatusBar: React.FC = () => {
     </footer>
   )
 }
-
-export default StatusBar

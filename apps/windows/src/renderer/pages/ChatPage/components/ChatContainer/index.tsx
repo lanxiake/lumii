@@ -704,9 +704,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
   )
 }
 
-export default ChatContainer
 // memo：输入框打字会触发 ChatPage 全量 render，但消息列表 props 未变时跳过重渲染，
 // 避免拖慢中文输入法（IME）的逐字上屏。前提：ChatPage 已稳定化传入的回调与占位数组。
 const ChatContainerMemo = React.memo(ChatContainer)
 export { ChatContainerMemo as ChatContainer }
-export type { MessageItem, CompactionItem, ChatItem }

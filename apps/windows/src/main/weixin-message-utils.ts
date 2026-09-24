@@ -52,7 +52,7 @@ export interface QRStatusResponse {
   ilink_user_id?: string
 }
 
-export interface CdnMediaRef {
+interface CdnMediaRef {
   file_key?: string
   encrypt_query_param?: string
   aes_key?: string
@@ -186,7 +186,7 @@ export function extractMediaCrypto(item: MessageItem): { encryptQueryParam?: str
 const CLIENT_MEDIA_DOWNLOAD_TIMEOUT_MS = 60_000
 
 /** Parse iLink aes key：hex-32 字符串或 raw-16-bytes base64。 */
-export function parseAesKeyLocal(aesKey: string): Buffer | undefined {
+function parseAesKeyLocal(aesKey: string): Buffer | undefined {
   const raw = aesKey.trim()
   if (!raw) return undefined
   if (/^[0-9a-fA-F]{32}$/.test(raw)) {
@@ -213,7 +213,7 @@ const DEFAULT_WEIXIN_CDN_BASE_URL = 'https://novac2c.cdn.weixin.qq.com/c2c'
  * 组装 CDN 主机列表：始终包含微信默认 CDN；再追加 MTBOT_WEIXIN_CDN_BASE_URL（若与默认不同）、最后 iLink base。
  * 避免环境变量误设为 iLink 时只打 iLink、跳过 novac2c。
  */
-export function collectWeixinCdnHosts(ilinkBaseUrl: string): string[] {
+function collectWeixinCdnHosts(ilinkBaseUrl: string): string[] {
   const base = ilinkBaseUrl.replace(/\/+$/, '')
   const fromEnv = process.env['MTBOT_WEIXIN_CDN_BASE_URL']?.trim()?.replace(/\/+$/, '')
   const seen = new Set<string>()
@@ -232,7 +232,7 @@ export function collectWeixinCdnHosts(ilinkBaseUrl: string): string[] {
 /**
  * 构建 CDN 下载候选 URL（与网关 channel 的 buildCdnDownloadCandidates 语义对齐）。
  */
-export function buildCdnCandidates(encryptedQueryParam: string, ilinkBaseUrl: string): string[] {
+function buildCdnCandidates(encryptedQueryParam: string, ilinkBaseUrl: string): string[] {
   const enc = encodeURIComponent(encryptedQueryParam)
   return collectWeixinCdnHosts(ilinkBaseUrl).flatMap((host) => [
     `${host}/download?encrypted_query_param=${enc}`,
@@ -265,7 +265,7 @@ export function isPureMediaMessage(msg: {
 }
 
 /** MessageItemType → 文件扩展名映射（IMAGE=2, VOICE=3, FILE=4, VIDEO=5） */
-export function mapItemTypeToExt(type: 2 | 3 | 4 | 5): string {
+function mapItemTypeToExt(type: 2 | 3 | 4 | 5): string {
   switch (type) {
     case 2: return '.jpg'
     case 3: return '.silk'

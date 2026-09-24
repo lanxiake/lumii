@@ -8,8 +8,6 @@
  */
 
 import React, { ReactNode } from 'react'
-export { useSettings } from '../../hooks/business/useSettings/useSettings'
-export type { AppSettings } from '../../hooks/business/useSettings/useSettings.types'
 
 /** @deprecated 不再需要 Provider，保留仅为兼容 AppProviders.tsx */
 export const SettingsProvider: React.FC<{ children: ReactNode; autoSave?: boolean; autoSaveDelay?: number }> = ({
@@ -17,5 +15,3 @@ export const SettingsProvider: React.FC<{ children: ReactNode; autoSave?: boolea
 }) => {
   return <>{children}</>
 }
-
-export default SettingsProvider

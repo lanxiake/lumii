@@ -20,16 +20,16 @@ export const PROFILE_BUDGET_CHARS = 2400
 /** 长期未用的判定线 */
 export const STALE_DAYS = 30
 
-export type CheckStatus = 'ok' | 'issue' | 'skipped'
+type CheckStatus = 'ok' | 'issue' | 'skipped'
 
-export interface CheckCandidate {
+interface CheckCandidate {
   /** 可点名的对象 id（记忆条目 id / 章节名），让报告能落到具体东西上 */
   readonly id: string
   /** 给用户看的一行 */
   readonly label: string
 }
 
-export interface CheckResult {
+interface CheckResult {
   /** 跨期稳定的问题标识，与 maintenance_report_write 的 findings[].key 同源 */
   readonly key: string
   readonly title: string
@@ -75,7 +75,11 @@ export interface AssetCheckupDeps {
   readonly getPalaceStats?: () => PalaceStatsLike | null
 }
 
-/** 与 @mtbot/agent-runtime 的 PalaceArchiveStats 同构（避免主机侧深引 runtime 类型） */
+/**
+ * 与 @mtbot/agent-runtime 的 PalaceArchiveStats 同构（避免主机侧深引 runtime 类型）
+ *
+ * @lintignore 被 bridge-tool-registrar-types.ts 以 `import('../asset-checkup').PalaceStatsLike` 内联引用（计划文档 §4.9）
+ */
 export interface PalaceStatsLike {
   readonly attempted: number
   readonly archived: number
@@ -84,7 +88,12 @@ export interface PalaceStatsLike {
   readonly lastError: { readonly at: string; readonly message: string } | null
 }
 
-/** 与 @mtbot/agent-runtime 的 SummarizationStats 同构（避免主机侧深引 runtime 类型） */
+/**
+ * 与 @mtbot/agent-runtime 的 SummarizationStats 同构（避免主机侧深引 runtime 类型）
+ *
+ * @lintignore 被 bridge-tool-registrar-types.ts 以 `import('../asset-checkup').SegmentStatsLike`
+ * 内联类型导入引用，knip 不追踪这种形态（见计划文档 §4.9，删了会编译失败）
+ */
 export interface SegmentStatsLike {
   readonly summarised: number
   readonly emptyCandidates: number

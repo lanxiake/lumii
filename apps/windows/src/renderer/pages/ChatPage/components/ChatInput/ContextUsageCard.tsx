@@ -33,7 +33,7 @@ const CATEGORY_META: Record<ContextUsageCategory, { label: string; color: string
   conversation: { label: '对话历史', color: 'var(--mt-chart-7)', hint: '当前会话消息；压缩只裁剪这一项' },
 }
 
-export interface ContextUsageCardProps {
+interface ContextUsageCardProps {
   readonly contextUsage: ContextUsage | null | undefined
   readonly contextWindow: number
 }
@@ -127,4 +127,3 @@ const ContextUsageCard: React.FC<ContextUsageCardProps> = ({ contextUsage, conte
 }
 
 export default ContextUsageCard
-export { ContextUsageCard }

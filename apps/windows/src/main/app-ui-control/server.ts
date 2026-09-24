@@ -42,9 +42,9 @@ import {
 import { testProviderConnection } from '../provider-probe'
 
 /** 浏览器控制相关端口（对照用，app-ui 控制口需避开） */
-export const DEFAULT_BROWSER_CONTROL_PORT = 18790
-export const DEFAULT_CDP_PORT = 18791
-export const DEFAULT_EXTENSION_RELAY_PORT = 18793
+const DEFAULT_BROWSER_CONTROL_PORT = 18790
+const DEFAULT_CDP_PORT = 18791
+const DEFAULT_EXTENSION_RELAY_PORT = 18793
 
 /** App UI 控制口起始端口（避开 CDP / extension relay） */
 export const APP_UI_CONTROL_PORT_START = 18795
@@ -98,18 +98,18 @@ export interface AppUiControlServerDeps {
 }
 
 /** 四个渠道登录服务的公共结构（startLogin/logout/getStatus 签名一致） */
-export interface ChannelLoginServiceLike {
+interface ChannelLoginServiceLike {
   startLogin: () => Promise<unknown>
   logout: () => Promise<unknown>
   getStatus: () => string
 }
 
 /** 渠道名 → 登录服务（未初始化的渠道为 null） */
-export type ChannelLoginServiceMap = Record<ChannelName, ChannelLoginServiceLike | null>
+type ChannelLoginServiceMap = Record<ChannelName, ChannelLoginServiceLike | null>
 
 /** 支持的渠道 */
-export const CHANNEL_NAMES = ['weixin', 'wecom', 'feishu', 'qbot'] as const
-export type ChannelName = (typeof CHANNEL_NAMES)[number]
+const CHANNEL_NAMES = ['weixin', 'wecom', 'feishu', 'qbot'] as const
+type ChannelName = (typeof CHANNEL_NAMES)[number]
 
 let httpServer: http.Server | null = null
 /** 当前启动时传入的 deps，供 /command /settings/* /ipc/* 路由读取 */

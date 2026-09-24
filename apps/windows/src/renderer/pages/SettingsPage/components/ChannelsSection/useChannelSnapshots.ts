@@ -7,13 +7,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 /** 出站渠道标识，与主进程 outbound-types 对齐 */
-export type OutboundChannelId = 'feishu' | 'weixin' | 'wecom' | 'qbot'
+type OutboundChannelId = 'feishu' | 'weixin' | 'wecom' | 'qbot'
 
 /** 渠道推送能力 */
-export type ChannelPushMode = 'native_push' | 'cached_reply' | 'reply_only'
+type ChannelPushMode = 'native_push' | 'cached_reply' | 'reply_only'
 
 /** 单个可发送对象 */
-export interface ChannelPeerSnapshot {
+interface ChannelPeerSnapshot {
   id: string
   label?: string
   canSend: boolean

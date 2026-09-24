@@ -30,7 +30,7 @@ const log = {
  * 常见本地代理端口，顺序即尝试顺序。
  * 前几个是 Clash / v2ray / Verge 的默认值，命中率最高。
  */
-export const COMMON_LOCAL_PROXY_PORTS = [10808, 7890, 7897, 10809, 1080, 8080, 8888]
+const COMMON_LOCAL_PROXY_PORTS = [10808, 7890, 7897, 10809, 1080, 8080, 8888]
 
 /** 单次经代理尝试的上限。**不复用调用方的 signal**，理由见 `retryViaLocalProxy` */
 const PROXY_ATTEMPT_TIMEOUT_MS = 20_000

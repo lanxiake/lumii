@@ -1,1 +1,1 @@
-export { CodingDevAcpPanel as default, CodingDevAcpPanel } from './CodingDevAcpPanel'
+export { CodingDevAcpPanel } from './CodingDevAcpPanel'

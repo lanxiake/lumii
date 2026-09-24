@@ -44,20 +44,20 @@ export type VoiceModelStatus = {
 
 // ─── 事件类型 ────────────────────────────────────────────────────────────────
 
-export type VoiceCallStateEvent = {
+type VoiceCallStateEvent = {
   readonly type: 'voice:call:state'
   callId: string
   state: VoiceCallState
 }
 
-export type VoiceTranscriptEvent = {
+type VoiceTranscriptEvent = {
   readonly type: 'voice:transcript'
   callId: string
   text: string
   isFinal: boolean
 }
 
-export type VoiceTtsChunkEvent = {
+type VoiceTtsChunkEvent = {
   readonly type: 'voice:tts:chunk'
   callId: string
   samples: number[]   // Float32Array 序列化为 number[]（IPC 传输）
@@ -66,25 +66,25 @@ export type VoiceTtsChunkEvent = {
 }
 
 /** 当 TTS 产出音频文件路径时（Edge/OpenAI 降级场景），通知渲染进程加载并播放 */
-export type VoiceTtsAudioFileEvent = {
+type VoiceTtsAudioFileEvent = {
   readonly type: 'voice:tts:audio-file'
   callId: string
   audioPath: string   // 本地文件绝对路径
   isFinal: boolean
 }
 
-export type VoiceCallEndedEvent = {
+type VoiceCallEndedEvent = {
   readonly type: 'voice:call:ended'
   callId: string
   reason: 'user_hangup' | 'error' | 'timeout'
 }
 
-export type VoiceModelsStatusEvent = {
+type VoiceModelsStatusEvent = {
   readonly type: 'voice:models:status'
   models: VoiceModelStatus[]
 }
 
-export type VoiceModelsProgressEvent = {
+type VoiceModelsProgressEvent = {
   readonly type: 'voice:models:progress'
   modelId: string
   progress: number    // 0.0 ~ 1.0
@@ -97,7 +97,7 @@ export type VoiceModelsProgressEvent = {
 }
 
 /** 模型下载失败事件 */
-export type VoiceModelsErrorEvent = {
+type VoiceModelsErrorEvent = {
   readonly type: 'voice:models:error'
   modelId: string
   message: string
@@ -118,7 +118,7 @@ export type VoiceRuntimePhase =
   | 'error'
 
 /** 主进程 → 渲染：TTS/依赖安装等长耗时步骤的可读状态 */
-export type VoiceRuntimeStatusEvent = {
+type VoiceRuntimeStatusEvent = {
   readonly type: 'voice:runtime:status'
   phase: VoiceRuntimePhase
   /** 面向用户的短说明 */
@@ -128,7 +128,7 @@ export type VoiceRuntimeStatusEvent = {
 }
 
 /** TTS 预览音频块（主进程 → 渲染，流式推送） */
-export type VoiceTtsPreviewChunkEvent = {
+type VoiceTtsPreviewChunkEvent = {
   readonly type: 'voice:tts:preview:chunk'
   /** PCM Float32 采样（sampleRate=-1 时为 Edge MP3 字节） */
   samples: Float32Array | number[]
@@ -140,7 +140,7 @@ export type VoiceTtsPreviewChunkEvent = {
 }
 
 /** TTS 预览结束（成功或失败），便于 UI 结束「播放中」并展示错误 */
-export type VoiceTtsPreviewEndedEvent = {
+type VoiceTtsPreviewEndedEvent = {
   readonly type: 'voice:tts:preview:ended'
   ok: boolean
   message?: string
@@ -148,7 +148,7 @@ export type VoiceTtsPreviewEndedEvent = {
   previewId?: string
 }
 
-export type VoiceErrorEvent = {
+type VoiceErrorEvent = {
   readonly type: 'voice:error'
   callId?: string
   code: VoiceErrorCode
@@ -156,12 +156,12 @@ export type VoiceErrorEvent = {
 }
 
 /** 配置更新事件（主进程 → 渲染进程，config:set 后推送，用于热更新音量等渲染侧状态） */
-export type VoiceConfigUpdatedEvent = {
+type VoiceConfigUpdatedEvent = {
   readonly type: 'voice:config:updated'
   config: VoiceEngineConfig
 }
 
-export type VoiceEvent =
+type VoiceEvent =
   | VoiceCallStateEvent
   | VoiceTranscriptEvent
   | VoiceTtsChunkEvent
@@ -177,7 +177,7 @@ export type VoiceEvent =
 
 // ─── 错误码 ──────────────────────────────────────────────────────────────────
 
-export type VoiceErrorCode =
+type VoiceErrorCode =
   | 'mic_permission_denied'   // 麦克风权限被拒绝
   | 'model_not_ready'         // 模型未就绪
   | 'asr_init_failed'         // ASR 初始化失败
@@ -189,6 +189,7 @@ export type VoiceErrorCode =
 
 // ─── 引擎配置 ────────────────────────────────────────────────────────────────
 
+/** @lintignore 被 voice-commands.ts 以 `import('./voice-events.js').VoiceAsrConfig` 内联引用（计划文档 §4.9） */
 export type VoiceAsrConfig = {
   /** ASR 提供者：local-paraformer = 本地 sherpa-onnx，openai-whisper = 云端 */
   provider: 'local-paraformer' | 'openai-whisper'
@@ -206,14 +207,14 @@ export type Qwen3TtsVariant =
 /**
  * 是否为声音克隆（Base）变体
  */
-export function isQwen3CloneVariant(variant?: string): boolean {
+function isQwen3CloneVariant(variant?: string): boolean {
   return variant === '0.6b-base' || variant === '1.7b-base'
 }
 
 /**
  * 是否为内置音色（CustomVoice）变体
  */
-export function isQwen3CustomVariant(variant?: string): boolean {
+function isQwen3CustomVariant(variant?: string): boolean {
   return variant === '0.6b-custom' || variant === '1.7b-custom' || !variant
 }
 
@@ -254,7 +255,7 @@ export type VoiceTtsConfig = {
 }
 
 /** Qwen3 CustomVoice 内置音色（含方言） */
-export const QWEN3_CUSTOM_SPEAKERS = [
+const QWEN3_CUSTOM_SPEAKERS = [
   { id: 'Vivian', name: 'Vivian', gender: '女', style: '明亮略带锋芒', native: '中文' },
   { id: 'Serena', name: 'Serena', gender: '女', style: '温暖柔和', native: '中文' },
   { id: 'Uncle_Fu', name: 'Uncle Fu', gender: '男', style: '沉稳低沉', native: '中文' },
@@ -267,7 +268,7 @@ export const QWEN3_CUSTOM_SPEAKERS = [
 ] as const
 
 /** Qwen3 官方语言列表（与模型能力对齐，供设置页选用） */
-export const QWEN3_TTS_LANGUAGES = [
+const QWEN3_TTS_LANGUAGES = [
   { id: 'Auto', name: '自动检测' },
   { id: 'Chinese', name: '中文' },
   { id: 'English', name: 'English' },
@@ -298,7 +299,7 @@ export type VoiceCloneProfile = {
 }
 
 /** Edge TTS 可用中文音色 */
-export const EDGE_TTS_VOICES = [
+const EDGE_TTS_VOICES = [
   { id: 'zh-CN-XiaoxiaoNeural', name: '晓晓', gender: '女', style: '温暖亲切' },
   { id: 'zh-CN-XiaoyiNeural', name: '晓伊', gender: '女', style: '活泼可爱' },
   { id: 'zh-CN-YunjianNeural', name: '云健', gender: '男', style: '沉稳大气' },
@@ -309,6 +310,7 @@ export const EDGE_TTS_VOICES = [
   { id: 'zh-CN-shaanxi-XiaoniNeural', name: '晓妮', gender: '女', style: '陕西方言' },
 ] as const
 
+/** @lintignore 被 voice-commands.ts 以 `import('./voice-events.js').VoiceVadConfig` 内联引用（计划文档 §4.9） */
 export type VoiceVadConfig = {
   /** 语音概率阈值（0.0 ~ 1.0），即"语音识别阈值"：silero 判定为说话的敏感度 */
   threshold: number

@@ -45,5 +45,3 @@ export const ImageLightbox: React.FC<ImageLightboxProps> = ({ src, alt, onClose 
     document.body,
   )
 }
-
-export default ImageLightbox

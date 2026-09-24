@@ -120,7 +120,7 @@ export async function loadRegistry(baseDir: string): Promise<SceneRegistry> {
 }
 
 /** 写入注册表（内容小，直接覆盖写） */
-export async function saveRegistry(baseDir: string, registry: SceneRegistry): Promise<void> {
+async function saveRegistry(baseDir: string, registry: SceneRegistry): Promise<void> {
   const dir = resolveSceneMemoryDir(baseDir)
   await fsp.mkdir(dir, { recursive: true })
   await fsp.writeFile(
@@ -215,7 +215,7 @@ export async function registerProject(
 }
 
 /** 更新项目最近活跃时间（命中时调用；失败不抛） */
-export async function touchProject(baseDir: string, key: string): Promise<void> {
+async function touchProject(baseDir: string, key: string): Promise<void> {
   try {
     const registry = await loadRegistry(baseDir)
     const projects = registry.projects.map((p) =>

@@ -323,5 +323,3 @@ export const WikiSourceDetailDrawer: React.FC<WikiSourceDetailDrawerProps> = ({
 
   return createPortal(drawer, document.body)
 }
-
-export default WikiSourceDetailDrawer

@@ -2,7 +2,7 @@ import React, { ReactNode } from 'react';
 import clsx from 'clsx';
 import styles from './Empty.module.css';
 
-export interface EmptyProps {
+interface EmptyProps {
   icon?: ReactNode;
   title?: string;
   description?: string;

@@ -31,7 +31,7 @@ const log = {
 }
 
 /** 解析 live2d 资源根目录 */
-export function resolveLive2dDir(): string {
+function resolveLive2dDir(): string {
   if (app.isPackaged) {
     return join(process.resourcesPath, 'live2d')
   }
@@ -53,7 +53,7 @@ export function resolveCubismCoreUrl(): string {
 }
 
 /** 解析内置 pet-models 资源根目录 */
-export function resolvePetModelsDir(): string {
+function resolvePetModelsDir(): string {
   if (app.isPackaged) {
     return join(process.resourcesPath, 'pet-models')
   }

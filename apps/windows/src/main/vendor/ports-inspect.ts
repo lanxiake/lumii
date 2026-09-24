@@ -10,7 +10,7 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
-export type PortListener = {
+type PortListener = {
   pid?: number;
   command?: string;
   commandLine?: string;
@@ -18,7 +18,7 @@ export type PortListener = {
   address?: string;
 };
 
-export type PortUsageStatus = "free" | "busy" | "unknown";
+type PortUsageStatus = "free" | "busy" | "unknown";
 
 export type PortUsage = {
   port: number;

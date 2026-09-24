@@ -3,7 +3,7 @@ import { TrayManager } from '../tray-manager'
 import type { ScreenRecordService } from '../screen-record'
 import { isPetMode, switchPetMode, isPetForceIgnore, disablePetForceIgnore } from '../pet/pet-mode-ipc'
 
-export interface TrayLogger {
+interface TrayLogger {
   info: (...args: unknown[]) => void
   /** 托盘在 Linux 上可能不可用（GNOME 无 AppIndicator），失败时要能记一笔 */
   warn: (...args: unknown[]) => void

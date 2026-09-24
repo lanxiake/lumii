@@ -20,7 +20,7 @@ export const SESSION_THINKING_STORAGE_KEYS = {
 } as const
 
 /** 未持久化时的默认值（与 ChatPage 一致：默认开启） */
-export const DEFAULT_PERSISTED_SESSION_THINKING_PREFS: PersistedSessionThinkingPrefs = {
+const DEFAULT_PERSISTED_SESSION_THINKING_PREFS: PersistedSessionThinkingPrefs = {
   thinkingEnabled: true,
   reasoningEffort: 'high',
 }

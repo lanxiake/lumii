@@ -219,7 +219,7 @@ export interface PetCanvasProps {
 }
 
 /** 物理交互事件 */
-export type PetInteractionEvent =
+type PetInteractionEvent =
   | { type: 'picked' }
   /** 松手且速度够快，接下来是抛物线飞行（`landed` 会在这之后到达） */
   | { type: 'thrown' }
@@ -1363,5 +1363,3 @@ function triggerTapMotion(renderer: PetRendererProvider, hitArea: string): void 
     }
   }
 }
-
-export default PetCanvas

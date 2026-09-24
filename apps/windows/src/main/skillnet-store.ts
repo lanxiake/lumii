@@ -91,7 +91,7 @@ function mapRawSkill(raw: SkillnetRawSkill): StoreSkillInfo {
 /** 详情缓存：搜索结果按 id 缓存，供 getStoreSkillDetail 命中（skillnet 无独立详情接口） */
 const detailCache = new Map<string, StoreSkillInfo>()
 
-export interface StoreQuery {
+interface StoreQuery {
   category?: string
   subscription?: string
   sortBy?: 'downloads' | 'rating' | 'updated' | 'name'

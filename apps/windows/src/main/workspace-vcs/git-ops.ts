@@ -57,7 +57,7 @@ const LOG_FORMAT = `--format=%H${F}%at${F}%s${F}%B${R}`
 /** 提交身份（与 vcs-git-cli.ts 保持一致；真 git 走环境变量，见 gitEnvFor） */
 export const GIT_AUTHOR = { name: 'Mtbot', email: 'vcs@mtbot.local' } as const
 
-export function authorEnv(author: { name: string; email: string }): Record<string, string> {
+function authorEnv(author: { name: string; email: string }): Record<string, string> {
   return {
     GIT_AUTHOR_NAME: author.name, GIT_AUTHOR_EMAIL: author.email,
     GIT_COMMITTER_NAME: author.name, GIT_COMMITTER_EMAIL: author.email,
@@ -116,7 +116,7 @@ export interface RawLogEntry {
  * 记录之间用 RS 分隔。注意 `git log` 会在**每条记录末尾**追加换行，于是 RS 后面
  * 跟着一个 `\n`；用 RS 切分后每条记录开头都会有它，所以下面统一 trim 掉。
  */
-export function parseLogOutput(stdout: string): RawLogEntry[] {
+function parseLogOutput(stdout: string): RawLogEntry[] {
   const out: RawLogEntry[] = []
   for (const chunk of stdout.split(R)) {
     const rec = chunk.replace(/^\n+/, '')
@@ -142,7 +142,7 @@ export function parseLogOutput(stdout: string): RawLogEntry[] {
  *
  * 状态字母（XY 两位）：? 未跟踪、A 新增、D 删除、M 修改、T 类型变化。
  */
-export function parseStatusPorcelain(stdout: string): Array<{ filepath: string; status: VcsFileStatus }> {
+function parseStatusPorcelain(stdout: string): Array<{ filepath: string; status: VcsFileStatus }> {
   const out: Array<{ filepath: string; status: VcsFileStatus }> = []
   const fields = stdout.split('\0')
   for (let i = 0; i < fields.length; i++) {
@@ -165,7 +165,7 @@ export function parseStatusPorcelain(stdout: string): Array<{ filepath: string; 
 }
 
 /** 解析 `git diff --name-status` 的输出（只认 A/D/M/T，见文件头说明） */
-export function parseNameStatus(stdout: string): Array<{ filepath: string; status: VcsFileStatus }> {
+function parseNameStatus(stdout: string): Array<{ filepath: string; status: VcsFileStatus }> {
   const out: Array<{ filepath: string; status: VcsFileStatus }> = []
   for (const line of stdout.split('\n')) {
     if (!line) continue
@@ -182,7 +182,7 @@ export function parseNameStatus(stdout: string): Array<{ filepath: string; statu
 }
 
 /** 解析 `git ls-tree -r --name-only` 的输出 */
-export function parseLsTree(stdout: string): string[] {
+function parseLsTree(stdout: string): string[] {
   return stdout.split('\n').filter(Boolean)
 }
 

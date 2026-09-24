@@ -235,5 +235,3 @@ export const WikiTaskCenter: React.FC<WikiTaskCenterProps> = ({
     </div>
   )
 }
-
-export default WikiTaskCenter

@@ -59,7 +59,7 @@ export type ScreenRecordErrorCode =
   | 'denied'
 
 /** list_sources 工具参数 */
-export interface ScreenRecordListSourcesParams {
+interface ScreenRecordListSourcesParams {
   includeThumbnail?: boolean
 }
 
@@ -312,7 +312,7 @@ export const MEDIA_RECORDER_TIMESLICE_MS = 3000
 export const MAX_CHUNK_BYTES_PER_IPC = 2 * 1024 * 1024
 
 /** 确认超时触发的 session 内部定时 tick 精度 */
-export const CONFIRM_TIMEOUT_TICK_MS = 1000
+const CONFIRM_TIMEOUT_TICK_MS = 1000
 
 /* ---------------- IPC 命令 & 事件类型（三处同步用） ---------------- */
 
@@ -416,7 +416,7 @@ export type ScreenRecordResumeResult =
   | { ok: false; error: ScreenRecordErrorCode; message?: string }
 
 /** 旁白单条字幕/口播 cue（缺 endMs 时由 TTS 时长填补） */
-export interface ScreenRecordNarrateCue {
+interface ScreenRecordNarrateCue {
   startMs: number
   text: string
   endMs?: number

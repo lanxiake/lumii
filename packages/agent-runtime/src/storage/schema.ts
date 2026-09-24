@@ -21,7 +21,7 @@ export const SCHEMA_VERSION = 52;
  * - tool_audit_log: 工具审计日志
  * - runtime_state: 运行时 KV 状态
  */
-export const SCHEMA_V1 = `
+const SCHEMA_V1 = `
 -- conversations — 对话元数据
 CREATE TABLE IF NOT EXISTS conversations (
   id              TEXT PRIMARY KEY,

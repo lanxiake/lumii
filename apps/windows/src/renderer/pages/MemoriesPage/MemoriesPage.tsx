@@ -485,5 +485,3 @@ export const MemoriesPage: React.FC<MemoriesPageProps> = ({
     </div>
   )
 }
-
-export default MemoriesPage

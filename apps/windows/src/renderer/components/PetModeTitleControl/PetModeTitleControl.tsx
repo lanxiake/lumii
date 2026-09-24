@@ -90,5 +90,3 @@ export const PetModeTitleControl: React.FC = () => {
     </button>
   )
 }
-
-export default PetModeTitleControl

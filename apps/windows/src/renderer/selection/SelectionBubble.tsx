@@ -233,5 +233,3 @@ export const SelectionBubble: React.FC<SelectionBubbleProps> = ({ rootRef }) => 
     document.body,
   )
 }
-
-export default SelectionBubble

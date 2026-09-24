@@ -19,5 +19,4 @@ const TypingIndicator: React.FC<TypingIndicatorProps> = ({ label }) => {
   )
 }
 
-export default TypingIndicator
 export { TypingIndicator }

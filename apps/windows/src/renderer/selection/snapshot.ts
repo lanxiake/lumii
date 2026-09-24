@@ -18,7 +18,7 @@ export interface SnapshotRect {
   readonly height: number
 }
 
-export type SelectionSourceKind =
+type SelectionSourceKind =
   | 'chat-message'
   | 'markdown-preview'
   | 'wiki'

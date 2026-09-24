@@ -27,7 +27,7 @@ export interface TokenUsage {
 }
 
 /** 网关 / 流式层结构化错误（与 createGatewayStreamFn 对齐） */
-export interface GatewayLlmErrorDetail {
+interface GatewayLlmErrorDetail {
   readonly code: string
   readonly message: string
   readonly retryable: boolean
@@ -37,7 +37,7 @@ export interface GatewayLlmErrorDetail {
 /**
  * 多 Agent：来源实例与对话聚合键（主 Agent 与子 Agent 共享 rootSessionKey）
  */
-export type AgentEventInstanceMeta = {
+type AgentEventInstanceMeta = {
   readonly instanceId?: string
   readonly rootSessionKey?: string
 }
@@ -46,7 +46,7 @@ export type AgentEventInstanceMeta = {
 // Agent 消息事件
 // ============================================================
 
-export interface AgentMessageStartEvent {
+interface AgentMessageStartEvent {
   readonly type: 'agent:message:start'
   readonly runId: string
   readonly sessionKey: string
@@ -101,14 +101,14 @@ export interface AgentMessageEndEvent {
 // Agent 思考事件
 // ============================================================
 
-export interface AgentThinkingDeltaEvent {
+interface AgentThinkingDeltaEvent {
   readonly type: 'agent:thinking:delta'
   readonly runId: string
   readonly sessionKey?: string
   readonly delta: string
 }
 
-export interface AgentThinkingEndEvent {
+interface AgentThinkingEndEvent {
   readonly type: 'agent:thinking:end'
   readonly runId: string
   readonly sessionKey?: string
@@ -119,7 +119,7 @@ export interface AgentThinkingEndEvent {
 // 工具执行事件
 // ============================================================
 
-export interface AgentToolStartEvent {
+interface AgentToolStartEvent {
   readonly type: 'agent:tool:start'
   readonly runId: string
   readonly toolCallId: string
@@ -130,7 +130,7 @@ export interface AgentToolStartEvent {
   readonly textPositionAtStart?: number
 }
 
-export interface AgentToolProgressEvent {
+interface AgentToolProgressEvent {
   readonly type: 'agent:tool:progress'
   readonly runId: string
   readonly toolCallId: string
@@ -141,7 +141,7 @@ export interface AgentToolProgressEvent {
   readonly progressText?: string
 }
 
-export interface AgentToolEndEvent {
+interface AgentToolEndEvent {
   readonly type: 'agent:tool:end'
   readonly runId: string
   readonly toolCallId: string
@@ -155,7 +155,7 @@ export interface AgentToolEndEvent {
 // 回合生命周期事件
 // ============================================================
 
-export interface AgentTurnStartEvent {
+interface AgentTurnStartEvent {
   readonly type: 'agent:turn:start'
   readonly runId: string
   readonly sessionKey: string
@@ -163,7 +163,7 @@ export interface AgentTurnStartEvent {
   readonly timestamp: number
 }
 
-export interface AgentTurnEndEvent {
+interface AgentTurnEndEvent {
   readonly type: 'agent:turn:end'
   readonly runId: string
   readonly sessionKey: string
@@ -176,7 +176,7 @@ export interface AgentTurnEndEvent {
 }
 
 /** 一轮 Agent 执行完成后检测到的工作区净文件变更。 */
-export interface AgentTurnFileChangesEvent {
+interface AgentTurnFileChangesEvent {
   readonly type: 'agent:turn:file-changes'
   readonly runId: string
   readonly sessionKey: string
@@ -201,7 +201,7 @@ export interface AgentIdleEvent {
  * 为什么不需要带具体消息 id：`steeringMode: 'all'` 下同一次投递会把排队中的插话**一起**注入，
  * 所以「收到本事件 → 该会话所有待注入插话都已生效」是成立的。
  */
-export interface AgentSteerDeliveredEvent {
+interface AgentSteerDeliveredEvent {
   readonly type: 'steer:delivered'
   readonly runId: string
   readonly sessionKey: string
@@ -216,7 +216,7 @@ export interface AgentErrorEvent {
   readonly isRetryable: boolean
 }
 
-export interface AgentAbortEvent {
+interface AgentAbortEvent {
   readonly type: 'agent:abort'
   readonly runId: string
   readonly sessionKey: string
@@ -224,7 +224,7 @@ export interface AgentAbortEvent {
 }
 
 /** LLM 路由遥测（降级 / HTTP 错误），供 UI 模型状态指示与开发者面板 */
-export type AgentLlmDiagnosticEvent = {
+type AgentLlmDiagnosticEvent = {
   readonly type: 'agent:llm:diagnostic'
   readonly runId: string
   readonly sessionKey: string
@@ -237,7 +237,7 @@ export type AgentLlmDiagnosticEvent = {
 // 权限请求事件
 // ============================================================
 
-export interface AgentPermissionRequestEvent {
+interface AgentPermissionRequestEvent {
   readonly type: 'agent:permission:request'
   readonly requestId: string
   readonly runId: string
@@ -271,7 +271,7 @@ export interface AgentPermissionRequestEvent {
  * ⚠️ 超时当前走 `denied`（`PermissionController` 超时即按 deny 处理），
  * 所以 `timeout` 暂时没有发送者；要区分时先让 controller 把超时标记传出来。
  */
-export interface AgentPermissionResolvedEvent {
+interface AgentPermissionResolvedEvent {
   readonly type: 'agent:permission:granted' | 'agent:permission:denied' | 'agent:permission:timeout'
   readonly requestId: string
   readonly toolName?: string
@@ -285,7 +285,7 @@ export interface AgentPermissionResolvedEvent {
  * Agent 调用 ask_user_question 工具时，主进程推送到渲染进程，
  * 渲染进程显示 Modal，用户提交后通过 `user:ask-user:respond` 命令回传。
  */
-export interface AgentAskUserRequestEvent {
+interface AgentAskUserRequestEvent {
   readonly type: 'agent:ask-user:request'
   readonly requestId: string
   readonly instanceId?: string
@@ -313,7 +313,7 @@ export interface AgentAskUserRequestEvent {
 /**
  * 主进程在超时或取消时通知渲染进程关闭 Modal。
  */
-export interface AgentAskUserCancelledEvent {
+interface AgentAskUserCancelledEvent {
   readonly type: 'agent:ask-user:cancelled'
   readonly requestId: string
   /** 对话根 sessionKey，用于跨会话清除 pendingAskUser */
@@ -325,14 +325,14 @@ export interface AgentAskUserCancelledEvent {
 // 会话事件
 // ============================================================
 
-export interface ConversationCreatedEvent {
+interface ConversationCreatedEvent {
   readonly type: 'conversation:created'
   readonly sessionKey: string
   readonly title: string
   readonly createdAt: number
 }
 
-export interface ConversationUpdatedEvent {
+interface ConversationUpdatedEvent {
   readonly type: 'conversation:updated'
   readonly sessionKey: string
   readonly title?: string
@@ -340,7 +340,7 @@ export interface ConversationUpdatedEvent {
 }
 
 /** 外部通道（如微信 /new 命令）触发的会话导航事件：通知客户端切换到指定会话 */
-export interface ConversationNavigateEvent {
+interface ConversationNavigateEvent {
   readonly type: 'conversation:navigate'
   readonly sessionKey: string
   readonly title?: string
@@ -378,7 +378,7 @@ export interface ConversationMessageNewEvent {
 // ============================================================
 
 /** 同一对话下当前活动实例列表（主进程推送） */
-export interface AgentActivitySnapshotEvent {
+interface AgentActivitySnapshotEvent {
   readonly type: 'agent:activity:snapshot'
   readonly rootSessionKey: string
   readonly agents: readonly {
@@ -470,7 +470,7 @@ export interface AgentContextUsageEvent {
 /**
  * 上下文压缩完成事件（手动或自动压缩后由 bridge 推送）
  */
-export interface AgentContextCompactedEvent {
+interface AgentContextCompactedEvent {
   readonly type: 'agent:context:compacted'
   readonly sessionKey: string
   /** 压缩前整窗占用（含系统提示/工具/MCP，与占用卡片同一口径） */
@@ -509,7 +509,7 @@ export interface AgentContextCompactedEvent {
 // ============================================================
 
 /** Agent 生成文件后（或跨通道收到文件）主进程推送到渲染进程 */
-export interface AgentFileCreatedEvent {
+interface AgentFileCreatedEvent {
   readonly type: 'agent:file:created'
   readonly fileId: string
   readonly fileName: string
@@ -525,34 +525,34 @@ export interface AgentFileCreatedEvent {
 }
 
 /** Bridge 初始化完成后推送到渲染进程，触发历史会话加载 */
-export interface AgentRuntimeReadyEvent {
+interface AgentRuntimeReadyEvent {
   readonly type: 'runtime:ready'
   readonly timestamp: number
 }
 
 // ── 客户端命令工具事件（Agent 主动调用工具时推送到渲染进程） ──
 
-export interface SessionCreateRequestEvent { readonly type: 'session:create-request' }
-export interface SessionClearedEvent { readonly type: 'session:cleared'; readonly sessionKey: string }
-export interface SessionCompactRequestEvent { readonly type: 'session:compact-request'; readonly sessionKey: string; readonly keepRecentTurns: number }
-export interface SessionSwitchRequestEvent { readonly type: 'session:switch-request'; readonly sessionKey: string }
-export interface SettingsThinkLevelEvent { readonly type: 'settings:think-level'; readonly level: string }
-export interface SettingsBackendChangedEvent { readonly type: 'settings:backend-changed'; readonly backendId: string }
+interface SessionCreateRequestEvent { readonly type: 'session:create-request' }
+interface SessionClearedEvent { readonly type: 'session:cleared'; readonly sessionKey: string }
+interface SessionCompactRequestEvent { readonly type: 'session:compact-request'; readonly sessionKey: string; readonly keepRecentTurns: number }
+interface SessionSwitchRequestEvent { readonly type: 'session:switch-request'; readonly sessionKey: string }
+interface SettingsThinkLevelEvent { readonly type: 'settings:think-level'; readonly level: string }
+interface SettingsBackendChangedEvent { readonly type: 'settings:backend-changed'; readonly backendId: string }
 
 /** Agent 团队生成完成（渲染进程刷新 Agent 列表） */
-export interface AgentTeamGeneratedEvent {
+interface AgentTeamGeneratedEvent {
   readonly type: 'agent:team:generated'
   readonly agents: readonly { readonly name: string; readonly agentId?: string; readonly ok: boolean; readonly error?: string }[]
 }
 
 /** Agent 团队优化完成（渲染进程刷新 Agent 列表） */
-export interface AgentTeamOptimizedEvent {
+interface AgentTeamOptimizedEvent {
   readonly type: 'agent:team:optimized'
   readonly agentIds: readonly string[]
 }
 
 /** 自定义 Agent 已删除（渲染进程刷新 Agent 列表） */
-export interface AgentRemovedEvent {
+interface AgentRemovedEvent {
   readonly type: 'agent:removed'
   readonly agentId: string
 }
@@ -562,7 +562,7 @@ export interface AgentRemovedEvent {
 // ============================================================
 
 /** 技能草稿已生成，等待用户确认 */
-export interface SkillDraftReadyEvent {
+interface SkillDraftReadyEvent {
   readonly type: 'skill:draft_ready'
   readonly draft: {
     readonly id: string
@@ -578,14 +578,14 @@ export interface SkillDraftReadyEvent {
 }
 
 /** 技能改进方案已生成，等待用户确认 */
-export interface SkillImprovementReadyEvent {
+interface SkillImprovementReadyEvent {
   readonly type: 'skill:improvement_ready'
   readonly skillName: string
   readonly naturalLanguageDiff: string
 }
 
 /** 建议废弃技能 */
-export interface SkillDeprecationSuggestedEvent {
+interface SkillDeprecationSuggestedEvent {
   readonly type: 'skill:deprecation_suggested'
   readonly skillName: string
   readonly humanTitle: string
@@ -606,7 +606,7 @@ export interface SkillDeprecationSuggestedEvent {
  * **宠物为助手的情绪雀跃或沮丧**——不报错、日志里也看不出，只能靠用户觉得别扭。
  * 唯一的生产者是 `bridge.recordMoodEvent`，漏传会当场编译不过。
  */
-export interface AutonomousMoodEmotionEvent {
+interface AutonomousMoodEmotionEvent {
   readonly type: 'autonomous:mood:emotion'
   /** 这份心情是谁的：`assistant` 或 `pet:<模型ID>`。渲染层按它决定要不要采纳 */
   readonly agentId: string

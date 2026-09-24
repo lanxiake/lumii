@@ -11,13 +11,7 @@
  */
 
 export type {
-  PetRendererType,
-  PetModelSource,
-  PetActionMotion,
   PetModelConfig,
-  PetRegistryDiagnostic,
-  MergedPetModel,
-  MergedPetRegistry,
 } from '@mtbot/pet-core'
 
-export { PET_MOTION_GROUP_UNNAMED, PET_MODEL_DEFAULTS, applyModelDefaults, mergePetRegistries } from '@mtbot/pet-core'
+export { PET_MOTION_GROUP_UNNAMED } from '@mtbot/pet-core'

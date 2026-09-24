@@ -308,5 +308,3 @@ export const UsageChart: React.FC<UsageChartProps> = ({ buckets, groupBy }) => {
     </div>
   )
 }
-
-export default UsageChart

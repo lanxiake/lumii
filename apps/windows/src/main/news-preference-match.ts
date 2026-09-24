@@ -32,7 +32,7 @@ import { NEWS_PREF_PRIORITY, type NewsPrefField, type NewsPreferences } from './
 export const MATCHABLE_FIELDS: readonly NewsPrefField[] = NEWS_PREF_PRIORITY
 
 /** 一条规则的命中详情 */
-export interface RuleHit {
+interface RuleHit {
   readonly title: string
   readonly source: string
   /** 条目时间（epoch ms）；缺省 0 */

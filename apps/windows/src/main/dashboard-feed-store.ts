@@ -45,7 +45,7 @@ export function getDashboardFeedDb(): DatabaseAdapter | null {
   return dashboardFeedDb
 }
 
-export type DashboardFeedMetadata = Record<string, string | number | boolean | null>
+type DashboardFeedMetadata = Record<string, string | number | boolean | null>
 
 export interface DashboardFeedItem {
   id: string
@@ -206,7 +206,7 @@ const SOURCE_SEPARATOR = /(?:\s*[/／|｜]\s*|\s*·\s*)/g
  *   那是派生视图，不需要动存储。
  * - `InfoQ` 与 `InfoQ 中文` 也不合并：那是两家不同的站点，不是写法差异。
  */
-export function normalizeSource(raw: string | undefined): string | undefined {
+function normalizeSource(raw: string | undefined): string | undefined {
   const trimmed = raw?.trim()
   if (!trimmed) return undefined
   const unified = trimmed

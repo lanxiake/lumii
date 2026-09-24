@@ -14,7 +14,7 @@ const USER_GUIDES_DIR_NAME = 'user-guides'
 /**
  * 返回内置指南根目录绝对路径。
  */
-export function getUserGuidesDir(): string {
+function getUserGuidesDir(): string {
   if (app.isPackaged) {
     return join(process.resourcesPath, USER_GUIDES_DIR_NAME)
   }

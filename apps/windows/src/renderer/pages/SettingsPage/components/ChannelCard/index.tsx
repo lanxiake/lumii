@@ -9,8 +9,6 @@ import React from 'react'
 import { ChannelStatusPill, type ChannelConnectionState } from '../ChannelStatusPill'
 import styles from './ChannelCard.module.css'
 
-export type { ChannelConnectionState }
-
 /** meta 条中的一项，如「连接时长 / 3 天 5 小时」 */
 export interface ChannelMetaItem {
   label: string
@@ -20,7 +18,7 @@ export interface ChannelMetaItem {
 }
 
 /** 可发送对象（对齐 Agent channel_list 返回的 peer） */
-export interface ChannelPeerItem {
+interface ChannelPeerItem {
   id: string
   label?: string
   canSend: boolean
@@ -143,5 +141,3 @@ export const ChannelCard: React.FC<ChannelCardProps> = ({
     </section>
   )
 }
-
-export default ChannelCard

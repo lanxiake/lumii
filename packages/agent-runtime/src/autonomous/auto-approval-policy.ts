@@ -16,7 +16,7 @@ import { classifyGoalRisk } from './goal-risk-classifier'
 /**
  * L0 内部目标是否自动批准（默认开启，可关闭回退到全人工）
  */
-export const AUTO_APPROVE_INTERNAL_GOALS =
+const AUTO_APPROVE_INTERNAL_GOALS =
   process.env.AUTONOMOUS_AUTO_APPROVE_INTERNAL !== 'false'
 
 /**

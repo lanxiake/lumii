@@ -3,7 +3,7 @@ import { getSoulContent, updateSoulContent } from '../../../services/soul-servic
 
 const DRAFT_KEY = 'mtbot_soul_draft'
 
-export interface SoulData {
+interface SoulData {
   content: string
   updatedAt: string
 }

@@ -124,5 +124,3 @@ export const ExpiredTab: FC<ExpiredTabProps> = ({ jobs, onEdit, onRun, onDelete,
     </div>
   )
 }
-
-export default ExpiredTab

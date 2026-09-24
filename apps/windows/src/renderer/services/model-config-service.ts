@@ -66,7 +66,7 @@ export interface ListedModel {
  * 2026‑08 主流Agent模型上下文窗口，单位：千tokens(k)
  * 数值为官方标称最大上下文，用于Agent框架路由/限流
  */
-export const BUILTIN_CONTEXT_WINDOWS_K: Record<string, number> = {
+const BUILTIN_CONTEXT_WINDOWS_K: Record<string, number> = {
   // OpenAI
   'gpt-4o': 128,
   'gpt-4o-mini': 128,
@@ -265,7 +265,7 @@ export const PROVIDER_TYPE_LABEL: Record<ProviderType, string> = {
 }
 
 /** 仅在特定能力槽可选的 provider 类型 */
-export const PROVIDER_TYPE_SLOT_RESTRICTION: Partial<Record<ProviderType, CapabilitySlot[]>> = {
+const PROVIDER_TYPE_SLOT_RESTRICTION: Partial<Record<ProviderType, CapabilitySlot[]>> = {
   rightapi: ['image'],
 }
 
@@ -314,7 +314,7 @@ const CHAT_LISTED_MODELS_KEY = 'lumii:chat-listed-models'
 /**
  * 规范化允许模型列表
  */
-export function normalizeAllowedModelIds(
+function normalizeAllowedModelIds(
   allowed: string[] | undefined,
   modelId: string,
 ): string[] {
@@ -330,7 +330,7 @@ export function normalizeAllowedModelIds(
 /**
  * 创建默认单槽配置（不预填模型名）
  */
-export function createDefaultSlotConfig(_slot: CapabilitySlot): LocalProviderConfigView {
+function createDefaultSlotConfig(_slot: CapabilitySlot): LocalProviderConfigView {
   return {
     enabled: false,
     type: 'openai',

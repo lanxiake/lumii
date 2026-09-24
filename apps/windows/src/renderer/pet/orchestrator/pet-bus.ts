@@ -10,7 +10,7 @@
 import type { VoiceCallState } from '../../../shared/voice-events'
 
 /** 语音状态事件 */
-export interface PetBusVoiceState {
+interface PetBusVoiceState {
   readonly kind: 'voice:state'
   state: VoiceCallState
   /** 是否为打断触发（state=listening 且 interrupted） */
@@ -19,13 +19,13 @@ export interface PetBusVoiceState {
 }
 
 /** 通话结束 */
-export interface PetBusCallEnded {
+interface PetBusCallEnded {
   readonly kind: 'voice:ended'
   callId: string
 }
 
 /** Agent 流式文本（MVP 仅用于字幕/调试，可选消费） */
-export interface PetBusAgentText {
+interface PetBusAgentText {
   readonly kind: 'agent:text'
   sessionKey: string
   delta: string
@@ -33,7 +33,7 @@ export interface PetBusAgentText {
 }
 
 /** 用户点击宠物（命中区域） */
-export interface PetBusUserTap {
+interface PetBusUserTap {
   readonly kind: 'user:tap'
   hitArea: string
 }

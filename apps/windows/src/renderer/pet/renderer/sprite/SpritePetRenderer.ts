@@ -85,7 +85,7 @@ const MOUTH_NAMES = ['mouth', 'mouths']
  * 不是目标值：正常由注册表的 `scale` 决定大小，这条只防"某个模型把 scale 配大了"
  * 演变成占满整屏。
  */
-export const SPRITE_MAX_HEIGHT_RATIO = 0.35
+const SPRITE_MAX_HEIGHT_RATIO = 0.35
 
 /**
  * 地面线距视口底边的距离（CSS 像素）。
@@ -99,7 +99,7 @@ export const SPRITE_MAX_HEIGHT_RATIO = 0.35
  *
  * 取固定值而不是比例这条仍然成立：宠物的**绝对**体量不该随窗口大小变。
  */
-export const GROUND_MARGIN_PX = 0
+const GROUND_MARGIN_PX = 0
 
 /**
  * 首次摆放的水平位置（视口宽度的比例）。
@@ -111,7 +111,7 @@ export const GROUND_MARGIN_PX = 0
  * 走动时仍会经过中间——那时从面板后面穿过去是自然的（真实桌宠也会走到 UI 后面），
  * 要避免的只是"一进宠物模式就看不见它"。
  */
-export const GROUND_START_X_RATIO = 0.25
+const GROUND_START_X_RATIO = 0.25
 
 /** 正在播放的动画状态 */
 interface PlayingState {

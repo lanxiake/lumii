@@ -8,10 +8,10 @@ import { createPortal } from 'react-dom'
 import clsx from 'clsx'
 import styles from './Tooltip.module.css'
 
-export type TooltipPlacement = 'top' | 'bottom' | 'left' | 'right'
-export type TooltipTrigger = 'hover' | 'click' | 'focus'
+type TooltipPlacement = 'top' | 'bottom' | 'left' | 'right'
+type TooltipTrigger = 'hover' | 'click' | 'focus'
 
-export interface TooltipProps {
+interface TooltipProps {
   content: React.ReactNode
   placement?: TooltipPlacement
   trigger?: TooltipTrigger
@@ -239,4 +239,3 @@ const Tooltip: React.FC<TooltipProps> = ({
 }
 
 export { Tooltip }
-export default Tooltip

@@ -228,5 +228,3 @@ export const SettingsHubModal: React.FC<{
     </Modal>
   )
 }
-
-export default SettingsHubModal

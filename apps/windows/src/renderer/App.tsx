@@ -41,7 +41,7 @@ const THEME_TOGGLE_TITLES: Record<AppliedTheme, string> = {
   dark: '切换为浅色主题',
 }
 
-export interface AuthenticatedAppProps {
+interface AuthenticatedAppProps {
   /** 主壳（MainLayout）首次布局完成后回调，供开机动画等待 */
   onShellReady?: () => void
 }

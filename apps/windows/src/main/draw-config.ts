@@ -8,7 +8,7 @@ import { join } from 'path'
 import { promises as fs } from 'fs'
 
 /** 打包/配置文件中的生图上游结构 */
-export interface DrawConfigFile {
+interface DrawConfigFile {
   drawApiBaseUrl?: string
   drawApiKey?: string
   /** llm-link 等 OpenAI 兼容根地址（含 /v1），用于 gpt-image-2 流式生图 */

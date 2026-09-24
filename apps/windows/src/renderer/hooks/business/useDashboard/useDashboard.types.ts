@@ -11,7 +11,7 @@ export interface SkillStats {
 }
 
 /** 到当前模型 provider 的首字节延迟 */
-export interface LatencyStats {
+interface LatencyStats {
   /** 最近 N 次 TTFB 中位数（毫秒）；无样本时缺省 */
   medianMs?: number
   sampleCount: number
@@ -55,7 +55,7 @@ export interface UsageBucketView {
 }
 
 /** 单个模型的用量聚合，供图表下方总结卡片 */
-export interface UsageModelStatView {
+interface UsageModelStatView {
   model: string
   calls: number
   promptTokens: number

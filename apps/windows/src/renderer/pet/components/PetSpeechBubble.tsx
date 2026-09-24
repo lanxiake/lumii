@@ -32,7 +32,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import { placePetOverlay } from '../utils/pet-overlay-position'
 
 /** 气泡上的一个按钮（目前只有「去审批」/「去回答」那一类） */
-export interface PetSpeechBubbleAction {
+interface PetSpeechBubbleAction {
   readonly label: string
   readonly onClick: () => void
 }

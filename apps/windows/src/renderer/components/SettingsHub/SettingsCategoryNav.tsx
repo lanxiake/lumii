@@ -40,5 +40,3 @@ export const SettingsCategoryNav: React.FC<SettingsCategoryNavProps> = ({
     </nav>
   )
 }
-
-export default SettingsCategoryNav

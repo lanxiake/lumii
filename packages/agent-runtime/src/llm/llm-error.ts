@@ -38,12 +38,12 @@ const HTTP_STATUS_TO_CODE: Readonly<Record<number, string>> = {
 const RETRYABLE_HTTP_STATUS: ReadonlySet<number> = new Set([408, 429, 500, 502, 503, 504]);
 
 /** 判定 HTTP 状态是否适合自动重试 / 降级换模 */
-export function isRetryableHttpStatus(status: number): boolean {
+function isRetryableHttpStatus(status: number): boolean {
   return RETRYABLE_HTTP_STATUS.has(status);
 }
 
 /** HTTP 状态 → 错误码；未知状态回落为 `http_<status>` */
-export function llmErrorCodeFromHttpStatus(status: number): string {
+function llmErrorCodeFromHttpStatus(status: number): string {
   return HTTP_STATUS_TO_CODE[status] ?? `http_${status}`;
 }
 

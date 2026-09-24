@@ -60,5 +60,3 @@ export const WikiBreadcrumb: React.FC<WikiBreadcrumbProps> = ({ items, suffix, o
     </nav>
   )
 }
-
-export default WikiBreadcrumb

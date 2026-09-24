@@ -21,7 +21,7 @@ const log = {
 /**
  * 更新状态
  */
-export type UpdateStatus =
+type UpdateStatus =
   | 'idle'
   | 'checking'
   | 'available'

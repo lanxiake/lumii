@@ -17,12 +17,12 @@ export const DEFAULT_ERO_EXTRACT_MAX_PAGES = 20;
 export const DEFAULT_ERO_EXTRACT_MAX_CHARS = 4000;
 
 /** maxCharsPerPage 允许上限 */
-export const ERO_EXTRACT_MAX_CHARS_CAP = 20000;
+const ERO_EXTRACT_MAX_CHARS_CAP = 20000;
 
 /**
  * 将每页字符上限钳制到 [0, ERO_EXTRACT_MAX_CHARS_CAP]。
  */
-export function clampEroExtractMaxChars(value: number | undefined): number {
+function clampEroExtractMaxChars(value: number | undefined): number {
   const n = value ?? DEFAULT_ERO_EXTRACT_MAX_CHARS;
   return Math.min(ERO_EXTRACT_MAX_CHARS_CAP, Math.max(0, n));
 }
@@ -115,7 +115,7 @@ export function buildEroExtractPrompt(title: string, contentMd: string): string 
  * 没有正文的资料（音视频）退化为标题 + 元数据 + 来源上下文，
  * 与设计 §3.5 的「不转录，靠 origin_context 兜底」一致。
  */
-export function buildSourceEroExtractPrompt(source: {
+function buildSourceEroExtractPrompt(source: {
   readonly title: string;
   readonly extracted_text: string | null;
   readonly media_meta: string | null;

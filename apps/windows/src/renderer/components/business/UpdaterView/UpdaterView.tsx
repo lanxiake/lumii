@@ -160,5 +160,3 @@ export const UpdaterView: React.FC<UpdaterViewProps> = ({ standalone = false }) 
     </div>
   )
 }
-
-export default UpdaterView

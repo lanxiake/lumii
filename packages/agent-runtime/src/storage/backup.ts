@@ -228,7 +228,7 @@ export function findLatestBackupPath(backupDir: string): string | null {
 /**
  * 计算到本地时间「次日 hour:00:00」或「今日若未到 hour」的毫秒数（用于首次调度）。
  */
-export function msUntilNextLocalHour(hour: number): number {
+function msUntilNextLocalHour(hour: number): number {
   const h = Math.min(23, Math.max(0, hour));
   const now = new Date();
   const target = new Date(now);

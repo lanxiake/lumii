@@ -52,7 +52,7 @@ export interface TtsProvider {
 
 // ─── 本地 VITS 中文 TTS ────────────────────────────────────────────────────
 
-export class LocalVitsTts implements TtsProvider {
+class LocalVitsTts implements TtsProvider {
   readonly name = 'local-vits-zh'
   readonly isLocal = true
   sampleRate = 22050
@@ -205,7 +205,7 @@ export class LocalVitsTts implements TtsProvider {
  * 使用 msedge-tts 包直接调用 Microsoft Edge Read Aloud API，
  * 通过 toStream 在内存中收集 mp3 字节，不写临时文件。
  */
-export class EdgeTtsFallback implements TtsProvider {
+class EdgeTtsFallback implements TtsProvider {
   readonly name = 'edge-tts'
   readonly isLocal = false
   sampleRate = 24000
@@ -332,7 +332,7 @@ export class EdgeTtsFallback implements TtsProvider {
 
 // ─── Qwen3-TTS（Python sidecar）──────────────────────────────────────────
 
-export class Qwen3Tts implements TtsProvider {
+class Qwen3Tts implements TtsProvider {
   readonly name = 'qwen3-tts'
   readonly isLocal = true
   sampleRate = 24000

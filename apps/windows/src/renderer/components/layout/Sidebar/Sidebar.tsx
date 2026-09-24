@@ -34,7 +34,7 @@ export type ViewType =
 /**
  * 导航菜单项
  */
-export interface NavItem {
+interface NavItem {
   id: ViewType;
   label: string;
   icon: React.ReactNode;
@@ -175,5 +175,3 @@ export const Sidebar: React.FC<SidebarProps> = ({
     </aside>
   );
 };
-
-export default Sidebar;

@@ -22,7 +22,7 @@ type RawRecord = Record<string, unknown>
  *
  * github.com/foo/bar → github-com-foo-bar
  */
-export function sanitizeMcpName(name: string): string {
+function sanitizeMcpName(name: string): string {
   const cleaned = name
     .trim()
     .replace(/[^A-Za-z0-9_-]+/g, '-')

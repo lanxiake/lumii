@@ -190,5 +190,3 @@ export const PetStatusGlyph: React.FC<PetStatusGlyphProps> = ({
     </div>
   )
 }
-
-export default PetStatusGlyph

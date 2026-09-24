@@ -4,7 +4,7 @@
 
 import React from 'react'
 
-export type ChannelBrandKind = 'weixin' | 'wecom' | 'feishu' | 'qbot'
+type ChannelBrandKind = 'weixin' | 'wecom' | 'feishu' | 'qbot'
 
 const BRAND: Record<
   ChannelBrandKind,
@@ -54,5 +54,3 @@ export const ChannelBrandIcon: React.FC<ChannelBrandIconProps> = ({
     </span>
   )
 }
-
-export default ChannelBrandIcon

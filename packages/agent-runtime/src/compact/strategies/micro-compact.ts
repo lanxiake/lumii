@@ -18,7 +18,7 @@ import { COMPACTABLE_TOOLS, DEFAULT_KEEP_RECENT_TOOL_RESULTS } from "../types.js
 import { createHash } from "node:crypto";
 import { estimateTokenCount } from "../token-estimate.js";
 
-export const MICROCOMPACT_PLACEHOLDER =
+const MICROCOMPACT_PLACEHOLDER =
   "[旧工具结果已清理以节省上下文空间。如需原始内容，请重新调用工具。]";
 
 /**

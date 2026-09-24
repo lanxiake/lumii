@@ -24,7 +24,7 @@ export interface AskUserModalQuestion {
   }[]
 }
 
-export interface AskUserModalPayload {
+interface AskUserModalPayload {
   readonly answers: Record<string, string>
   readonly annotations?: Record<string, { preview?: string; notes?: string }>
   readonly declined?: boolean

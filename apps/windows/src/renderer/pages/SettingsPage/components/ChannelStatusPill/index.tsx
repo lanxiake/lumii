@@ -25,5 +25,3 @@ export const ChannelStatusPill: React.FC<ChannelStatusPillProps> = ({ state, lab
     {label}
   </span>
 )
-
-export default ChannelStatusPill

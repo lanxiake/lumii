@@ -39,5 +39,3 @@ export function useToast(): UseToastReturn {
     [showToast, hideToast, hideAllToasts],
   );
 }
-
-export default useToast;

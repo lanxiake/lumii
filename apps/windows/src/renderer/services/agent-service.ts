@@ -5,7 +5,7 @@
  * Phase 6: Windows 客户端 Agent 切换功能
  */
 
-export type ModelTier = 'basic' | 'balanced' | 'performance'
+type ModelTier = 'basic' | 'balanced' | 'performance'
 
 /** 只读定义详情（系统 Agent 由主进程从内置定义镜像，见 main/agents-repo.ts） */
 export interface AgentDefinitionDetail {
@@ -89,7 +89,7 @@ export async function getAgents(): Promise<AgentListResponse> {
 /**
  * 获取 Agent 详情
  */
-export async function getAgent(agentId: string): Promise<Agent> {
+async function getAgent(agentId: string): Promise<Agent> {
   const response = await window.electronAPI.api.getAgent(agentId) as ApiResponse<Agent>
   return unwrap(response, '获取 Agent 详情失败')
 }

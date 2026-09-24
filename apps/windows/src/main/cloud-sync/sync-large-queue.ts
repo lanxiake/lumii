@@ -143,7 +143,7 @@ export function splitIntoBatches(
 }
 
 /** isomorphic-git 参数（结构与 CloudSyncManager 内部的 GitParams 一致） */
-export interface LargeQueueGitParams {
+interface LargeQueueGitParams {
   fs: PromiseFsClient
   dir: string
   gitdir: string

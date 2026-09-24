@@ -54,7 +54,7 @@ export interface AsrProvider {
 
 // ─── 本地 Paraformer 流式 ASR ──────────────────────────────────────────────
 
-export class LocalStreamingParaformerAsr implements AsrProvider {
+class LocalStreamingParaformerAsr implements AsrProvider {
   readonly name = 'local-paraformer-streaming'
   readonly isLocal = true
   private recognizer: any = null
@@ -132,7 +132,7 @@ export class LocalStreamingParaformerAsr implements AsrProvider {
 
 // ─── 本地 Paraformer 离线 ASR ──────────────────────────────────────────────
 
-export class LocalOfflineParaformerAsr implements AsrProvider {
+class LocalOfflineParaformerAsr implements AsrProvider {
   readonly name = 'local-paraformer-offline'
   readonly isLocal = true
   private recognizer: any = null

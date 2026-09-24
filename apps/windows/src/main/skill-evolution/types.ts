@@ -2,7 +2,7 @@
  * 技能自进化系统 — 核心类型定义
  */
 
-export type SkillLifecycleState =
+type SkillLifecycleState =
   | 'draft'            // 系统生成，未告知用户
   | 'pending_confirm'  // 已告知用户，等待确认
   | 'active'           // 用户确认，正常使用
@@ -34,7 +34,7 @@ export interface EvolutionRecord {
   patchNewString?: string          // 局部 Patch：新内容
 }
 
-export interface HumanSummary {
+interface HumanSummary {
   title: string                    // 如 "Git PR 审查"
   scenario: string                 // 适用场景，一句话
   steps: string[]                  // 步骤列表，自然语言

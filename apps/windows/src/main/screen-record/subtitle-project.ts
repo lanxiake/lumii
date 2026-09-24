@@ -23,7 +23,7 @@ export interface SubtitleProjectCue {
 }
 
 /** lumii-subs.json 结构 */
-export interface SubtitleProjectFile {
+interface SubtitleProjectFile {
   version: 1
   videoPath?: string
   cues: SubtitleProjectCue[]
@@ -33,7 +33,7 @@ export interface SubtitleProjectFile {
 }
 
 /** 旧版散落在 recordings 根目录的 sidecar 路径（仅用于兼容读取与迁移） */
-export interface LegacySubtitleProjectPaths {
+interface LegacySubtitleProjectPaths {
   projectPath: string
   srtPath: string
   narratedSrtPath: string
@@ -70,7 +70,7 @@ export function hashCueText(text: string): string {
 }
 
 /** 附属目录后缀；成片旁只多这一个文件夹 */
-export const SUBTITLE_ASSET_DIR_SUFFIX = '.lumii-subs'
+const SUBTITLE_ASSET_DIR_SUFFIX = '.lumii-subs'
 
 /** 原片备份在附属目录内的文件名（不含扩展名） */
 const ORIGINAL_BASENAME = 'original'

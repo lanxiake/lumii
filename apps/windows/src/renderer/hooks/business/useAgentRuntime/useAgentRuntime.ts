@@ -750,7 +750,7 @@ export function useAgentRuntimeActions() {
  * 注意：每个 useAgentRuntimeState 调用都是独立的订阅，
  * 消息列表变化不会导致 isThinking 的消费组件 re-render。
  */
-export function useAgentRuntime() {
+function useAgentRuntime() {
   const messages = useAgentRuntimeState((s) => s.messages)
   const isThinking = useAgentRuntimeState((s) => s.isThinking)
   const currentTool = useAgentRuntimeState((s) => s.currentTool)

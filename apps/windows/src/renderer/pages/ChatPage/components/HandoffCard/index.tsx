@@ -12,7 +12,7 @@ import React, { useMemo, useState } from 'react'
 import { useChatMessageActions } from '../../contexts/ChatMessageActionsContext'
 import styles from './HandoffCard.module.css'
 
-export interface HandoffToolPart {
+interface HandoffToolPart {
   id: string
   args?: Record<string, unknown>
   result?: unknown

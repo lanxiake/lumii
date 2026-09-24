@@ -3,14 +3,14 @@
  */
 
 /** model3.json 中的单个表情条目 */
-export interface Model3Expression {
+interface Model3Expression {
   index: number
   name: string
   file: string
 }
 
 /** model3.json 中的单个动作条目 */
-export interface Model3Motion {
+interface Model3Motion {
   /** 模型内真实组名（空串表示未命名组） */
   group: string
   /** 展示用组名（空串 → $unnamed） */
@@ -55,7 +55,7 @@ export function basename(filePath: string): string {
 /**
  * 解析 model3.json 对象为资源目录（纯函数，便于单测）。
  */
-export function parseModel3Json(data: unknown): Model3Catalog {
+function parseModel3Json(data: unknown): Model3Catalog {
   const raw = data as Model3Json
   const expressions: Model3Expression[] = []
   const motions: Model3Motion[] = []

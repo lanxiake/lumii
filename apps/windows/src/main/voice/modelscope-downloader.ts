@@ -20,7 +20,7 @@ const log = {
   error: (...a: unknown[]) => console.error('[ModelScopeDownload]', ...a),
 }
 
-export interface ModelScopeFileMapping {
+interface ModelScopeFileMapping {
   /** 魔搭仓库内路径 */
   remote: string
   /** 落到本地模型目录的文件名 */

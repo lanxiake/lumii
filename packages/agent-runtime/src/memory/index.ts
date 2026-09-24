@@ -9,16 +9,11 @@ export type { FtsHealth } from "./memory-index.js";
 // 自建记忆宫殿（去 Python 依赖）：palace_drawers + FTS5，替代 MemPalace
 export { PalaceRepo, buildDrawerExcerpt, SEARCH_EXCERPT_CHARS } from "./palace-repo.js";
 export type {
-  PalaceClearResult,
   PalaceDrawerDetail,
   PalaceDrawerInput,
-  PalaceListItem,
-  PalaceListParams,
-  PalaceListResult,
   PalaceScopeCounts,
   PalaceSearchItem,
   PalaceSearchParams,
-  PalaceWingCount,
 } from "./palace-repo.js";
 export { PalaceIndexRepo } from "./palace-index.js";
 export type { PalaceFtsHealth } from "./palace-index.js";
@@ -28,7 +23,6 @@ export {
   buildPalaceVectorCorpus,
   PALACE_VECTOR_CORPUS_MAX_CHARS,
 } from "./palace-vector.js";
-export type { PalaceVectorHit } from "./palace-vector.js";
 
 export { MemoryManager } from "./manager.js";
 export type {
@@ -63,7 +57,6 @@ export {
   // 避免两套规则各自漂移（2026-09-17）
   isJsonFragment,
   validateCandidates,
-  logRejections,
   MIN_MEMORY_CHARS,
   MAX_MEMORY_CHARS,
 } from "./memory-extractor.js";
@@ -82,7 +75,6 @@ export {
   stripMemoryPlaceholder,
   MEMORY_PLACEHOLDER,
 } from "./memory-injector.js";
-export type { UnifiedMemoryLimits } from "./memory-injector.js";
 
 export {
   consolidateUserMemory,
@@ -95,12 +87,8 @@ export type { ConsolidationResult, ConsolidationTrigger } from "./memory-consoli
 export {
   MEMORY_LAYERS,
   MEMORY_LAYER_RULES,
-  PERSONAL_MEMORY_CATEGORIES,
-  WORK_MEMORY_CATEGORIES,
   buildMemoryArchitectureSection,
-  memoryCategoryToLayer,
 } from "./memory-architecture.js";
-export type { MemoryLayer, MemoryLayerInfo } from "./memory-architecture.js";
 
 export type {
   MemoryCategory,

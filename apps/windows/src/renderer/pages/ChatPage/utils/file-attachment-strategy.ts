@@ -42,7 +42,7 @@ export interface AttachedFile {
   category: AttachmentCategory
 }
 
-export interface FileAttachmentStrategy {
+interface FileAttachmentStrategy {
   /** 策略名称，用于日志 */
   readonly name: string
   /** 该策略对应的类别 */
@@ -103,7 +103,7 @@ export function parseMediaAttachedLine(
  * 判断是否为仅供 Agent 使用、不应展示在用户气泡中的提示行。
  * 包括文档解析伴生路径、图片识别块标题、视觉降级占位等。
  */
-export function isHiddenAgentPromptLine(line: string): boolean {
+function isHiddenAgentPromptLine(line: string): boolean {
   const trimmed = line.trim()
   return (
     /^\[parsed text:/i.test(trimmed) ||
@@ -166,7 +166,7 @@ export function getDisplayMessagePreview(content: string, maxLen = 30): string {
  * 从用户消息中提取应保留给 Agent 的后缀行（附件标记、parsed text、图片识别块等）。
  * 编辑用户可见正文时，保存时再拼回该后缀，避免丢失附件上下文。
  */
-export function extractAgentPromptSuffix(content: string): string {
+function extractAgentPromptSuffix(content: string): string {
   const lines = content.split('\n')
   const suffix: string[] = []
   let skippingRecognitionBlock = false
@@ -311,7 +311,7 @@ function makeAttachedFile(
 // ---------------------------------------------------------------
 
 /** 图片附件策略 */
-export const imageAttachmentStrategy: FileAttachmentStrategy = {
+const imageAttachmentStrategy: FileAttachmentStrategy = {
   name: 'ImageAttachmentStrategy',
   category: 'image',
   accepts(file: File): boolean {
@@ -324,7 +324,7 @@ export const imageAttachmentStrategy: FileAttachmentStrategy = {
 }
 
 /** Office / PDF 文档策略 */
-export const officeAttachmentStrategy: FileAttachmentStrategy = {
+const officeAttachmentStrategy: FileAttachmentStrategy = {
   name: 'OfficeAttachmentStrategy',
   category: 'office',
   accepts(file: File): boolean {
@@ -336,7 +336,7 @@ export const officeAttachmentStrategy: FileAttachmentStrategy = {
 }
 
 /** 电子书策略 */
-export const ebookAttachmentStrategy: FileAttachmentStrategy = {
+const ebookAttachmentStrategy: FileAttachmentStrategy = {
   name: 'EbookAttachmentStrategy',
   category: 'ebook',
   accepts(file: File): boolean {
@@ -348,7 +348,7 @@ export const ebookAttachmentStrategy: FileAttachmentStrategy = {
 }
 
 /** 数据集策略（CSV/TSV/Parquet/JSONL 等） */
-export const dataAttachmentStrategy: FileAttachmentStrategy = {
+const dataAttachmentStrategy: FileAttachmentStrategy = {
   name: 'DataAttachmentStrategy',
   category: 'data',
   accepts(file: File): boolean {
@@ -360,7 +360,7 @@ export const dataAttachmentStrategy: FileAttachmentStrategy = {
 }
 
 /** 压缩包策略 */
-export const archiveAttachmentStrategy: FileAttachmentStrategy = {
+const archiveAttachmentStrategy: FileAttachmentStrategy = {
   name: 'ArchiveAttachmentStrategy',
   category: 'archive',
   accepts(file: File): boolean {
@@ -372,7 +372,7 @@ export const archiveAttachmentStrategy: FileAttachmentStrategy = {
 }
 
 /** 音频策略 */
-export const audioAttachmentStrategy: FileAttachmentStrategy = {
+const audioAttachmentStrategy: FileAttachmentStrategy = {
   name: 'AudioAttachmentStrategy',
   category: 'audio',
   accepts(file: File): boolean {
@@ -385,7 +385,7 @@ export const audioAttachmentStrategy: FileAttachmentStrategy = {
 }
 
 /** 视频策略 */
-export const videoAttachmentStrategy: FileAttachmentStrategy = {
+const videoAttachmentStrategy: FileAttachmentStrategy = {
   name: 'VideoAttachmentStrategy',
   category: 'video',
   accepts(file: File): boolean {
@@ -398,7 +398,7 @@ export const videoAttachmentStrategy: FileAttachmentStrategy = {
 }
 
 /** 代码 / 文本 / 配置文件策略 */
-export const codeAttachmentStrategy: FileAttachmentStrategy = {
+const codeAttachmentStrategy: FileAttachmentStrategy = {
   name: 'CodeAttachmentStrategy',
   category: 'code',
   accepts(file: File): boolean {
@@ -411,7 +411,7 @@ export const codeAttachmentStrategy: FileAttachmentStrategy = {
 }
 
 /** 兜底策略：接受所有文件 */
-export const fallbackAttachmentStrategy: FileAttachmentStrategy = {
+const fallbackAttachmentStrategy: FileAttachmentStrategy = {
   name: 'FallbackAttachmentStrategy',
   category: 'other',
   accepts(_file: File): boolean {
@@ -453,7 +453,7 @@ export function processFilesWithStrategies(files: FileList): AttachedFile[] {
 }
 
 /** 汇总所有支持的文档扩展名，供 <input accept="..."> 使用 */
-export function getSupportedDocumentAccept(): string {
+function getSupportedDocumentAccept(): string {
   return [
     ...OFFICE_EXTENSIONS,
     ...EBOOK_EXTENSIONS,
@@ -466,7 +466,7 @@ export function getSupportedDocumentAccept(): string {
 }
 
 /** 汇总所有支持的图片 accept，供 <input accept="..."> 使用 */
-export function getSupportedImageAccept(): string {
+function getSupportedImageAccept(): string {
   return [...IMAGE_MIME_TYPES, ...IMAGE_EXTENSIONS].join(',')
 }
 

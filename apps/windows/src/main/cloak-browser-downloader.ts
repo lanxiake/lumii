@@ -56,7 +56,7 @@ const FALLBACK_VERSION = process.env.CLOAK_FALLBACK_VERSION ?? 'chromium-v146.0.
 // 数据流静默超时：超过此时间没收到任何数据则中断
 const DATA_IDLE_TIMEOUT_MS = 30_000
 
-export type DownloadProgress = {
+type DownloadProgress = {
   phase: 'checking' | 'downloading' | 'extracting' | 'done' | 'skipped' | 'error' | 'cancelled'
   percent?: number
   downloadedBytes?: number
@@ -83,7 +83,7 @@ type GitHubRelease = {
 // AbortController（Node 14+ 内置，兼容写法）
 // ============================================================================
 
-export class DownloadAbortError extends Error {
+class DownloadAbortError extends Error {
   constructor() {
     super('下载已取消')
     this.name = 'DownloadAbortError'
@@ -251,7 +251,7 @@ function findAssetForPlatform(assets: GitHubAsset[]): GitHubAsset | null {
 }
 
 /** 目录名统一为 chromium-<纯版本>，去掉 tag_name 自带的 chromium- 前缀避免双重前缀 */
-export function versionDirPath(version: string): string {
+function versionDirPath(version: string): string {
   const bare = version.replace(/^chromium-/, '')
   return path.join(CLOAK_DIR, `chromium-${bare}`)
 }
@@ -260,7 +260,7 @@ export function exeFilename(): string {
   return process.platform === 'win32' ? 'chrome.exe' : 'chrome'
 }
 
-export function exePath(version: string): string {
+function exePath(version: string): string {
   return path.join(versionDirPath(version), exeFilename())
 }
 

@@ -117,5 +117,3 @@ export const VirtualHuman: React.FC = () => {
     </Card>
   )
 }
-
-export default VirtualHuman

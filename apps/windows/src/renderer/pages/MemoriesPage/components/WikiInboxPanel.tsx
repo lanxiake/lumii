@@ -301,5 +301,3 @@ export const WikiInboxPanel: React.FC<WikiInboxPanelProps> = ({
     </>
   )
 }
-
-export default WikiInboxPanel

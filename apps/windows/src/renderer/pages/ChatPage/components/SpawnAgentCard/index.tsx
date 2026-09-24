@@ -17,7 +17,7 @@ import { SubAgentRunBlock } from '../SubAgentRun'
 import type { SubAgentRun } from '../ChatContainer/sub-agent-runs'
 import styles from './SpawnAgentCard.module.css'
 
-export interface SpawnToolPart {
+interface SpawnToolPart {
   id: string
   args?: Record<string, unknown>
   result?: unknown
@@ -37,7 +37,7 @@ export interface SpawnResultPayload {
 }
 
 /** 从 jsonToolResult 的 content text 块取原始文本（成功与失败包装格式一致） */
-export function extractSpawnResultText(result: unknown): string | undefined {
+function extractSpawnResultText(result: unknown): string | undefined {
   if (typeof result === 'string') return result
   if (result && typeof result === 'object') {
     const content = (result as { content?: unknown }).content

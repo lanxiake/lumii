@@ -102,11 +102,11 @@ export async function setAutonomousEnabled(enabled: boolean) {
 }
 
 /** 获取开启自主能力的额外 Agent id 列表（除 assistant 外） */
-export async function getAutonomousAgents(): Promise<string[]> {
+async function getAutonomousAgents(): Promise<string[]> {
   return window.electronAPI.autonomous.getAutonomousAgents()
 }
 
 /** 设置开启自主能力的额外 Agent id 列表 */
-export async function setAutonomousAgents(agentIds: string[]): Promise<{ ok: boolean }> {
+async function setAutonomousAgents(agentIds: string[]): Promise<{ ok: boolean }> {
   return window.electronAPI.autonomous.setAutonomousAgents(agentIds)
 }

@@ -234,5 +234,3 @@ export const FeishuChannelSettings: React.FC<FeishuChannelSettingsProps> = ({
     </>
   )
 }
-
-export default FeishuChannelSettings

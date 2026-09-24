@@ -1,6 +1,6 @@
 import React, { createContext, useCallback, useState } from 'react';
 
-export type ToastType = 'success' | 'error' | 'warning' | 'info';
+type ToastType = 'success' | 'error' | 'warning' | 'info';
 
 /**
  * 提示条默认展示时长（毫秒）。

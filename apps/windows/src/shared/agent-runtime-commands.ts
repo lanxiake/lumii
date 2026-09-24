@@ -32,7 +32,7 @@ export interface SessionContextUsageResult {
 // 用户交互命令
 // ============================================================
 
-export interface UserSendCommand {
+interface UserSendCommand {
   readonly type: 'user:send'
   readonly sessionKey: string
   readonly content: string
@@ -64,7 +64,7 @@ export interface UserSendCommand {
   readonly imageAttachmentPaths?: readonly string[]
 }
 
-export interface UserSteerCommand {
+interface UserSteerCommand {
   readonly type: 'user:steer'
   readonly runId: string
   /**
@@ -76,7 +76,7 @@ export interface UserSteerCommand {
   readonly steerText: string
 }
 
-export interface UserAbortCommand {
+interface UserAbortCommand {
   readonly type: 'user:abort'
   /** 可选 runId（有值时优先按 run 精确中止） */
   readonly runId?: string
@@ -88,7 +88,7 @@ export interface UserAbortCommand {
  * 转交确认（F2 队长制）：用户在转交卡片上点击「交给灵栖开发」后发出。
  * 取出 propose_dev_handoff 登记的提案并执行（新建/复用开发会话 → 发起 run）。
  */
-export interface HandoffConfirmCommand {
+interface HandoffConfirmCommand {
   readonly type: 'handoff:confirm'
   /** propose_dev_handoff 返回的提案 ID */
   readonly handoffId: string
@@ -98,7 +98,7 @@ export interface HandoffConfirmCommand {
 // 权限响应命令
 // ============================================================
 
-export interface UserPermissionRespondCommand {
+interface UserPermissionRespondCommand {
   readonly type: 'user:permission:respond'
   readonly requestId: string
   readonly decision: 'allow-once' | 'allow-always' | 'deny'
@@ -115,7 +115,7 @@ export interface UserPermissionRespondCommand {
  * - `annotations`: 可选的 notes / preview
  * - `declined`: 用户按"拒绝回答"
  */
-export interface UserAskUserRespondCommand {
+interface UserAskUserRespondCommand {
   readonly type: 'user:ask-user:respond'
   readonly requestId: string
   readonly answers: Record<string, string>
@@ -130,7 +130,7 @@ export interface UserAskUserRespondCommand {
  * 渠道（飞书/企微/微信）需要它来判断是否值得把审批请求文字化推给用户：
  * 开着时审批会被立刻自动放行，推过去纯属噪音。
  */
-export interface UserAutoApproveSetCommand {
+interface UserAutoApproveSetCommand {
   readonly type: 'user:auto-approve:set'
   readonly enabled: boolean
 }
@@ -139,7 +139,7 @@ export interface UserAutoApproveSetCommand {
 // 会话管理命令
 // ============================================================
 
-export interface ConversationCreateCommand {
+interface ConversationCreateCommand {
   readonly type: 'conversation:create'
   readonly title?: string
   readonly agentId?: string
@@ -150,7 +150,7 @@ export interface ConversationCreateCommand {
 }
 
 /** 将 GET /api/config/models 拉平后的条目同步到主进程（用于上下文压缩与用量条） */
-export interface RuntimeModelCatalogSetCommand {
+interface RuntimeModelCatalogSetCommand {
   readonly type: 'runtime:modelCatalog:set'
   readonly entries: readonly {
     readonly id: string
@@ -160,21 +160,21 @@ export interface RuntimeModelCatalogSetCommand {
 }
 
 /** 仅更新会话级模型偏好与压缩参数（如下拉切换、未发送时） */
-export interface SessionPreferredModelSetCommand {
+interface SessionPreferredModelSetCommand {
   readonly type: 'session:preferredModel:set'
   readonly sessionKey: string
   readonly modelId?: string
 }
 
 /** 切换会话时预热模型上下文；不会修改会话级模型覆盖。 */
-export interface SessionPreferredModelPrimeCommand {
+interface SessionPreferredModelPrimeCommand {
   readonly type: 'session:preferredModel:prime'
   readonly sessionKey: string
   readonly modelId?: string
 }
 
 /** 更新会话级思考模式与推理强度 */
-export interface SessionThinkingPrefsSetCommand {
+interface SessionThinkingPrefsSetCommand {
   readonly type: 'session:thinkingPrefs:set'
   readonly sessionKey: string
   readonly thinkingEnabled?: boolean
@@ -185,23 +185,23 @@ export interface SessionThinkingPrefsSetCommand {
  * 更新全局默认思考偏好（对话页开关）：渠道会话 / 心跳 / cron 等没有会话级
  * 偏好的实例跟随它，并落盘供重启后继承。
  */
-export interface SessionThinkingPrefsSetGlobalCommand {
+interface SessionThinkingPrefsSetGlobalCommand {
   readonly type: 'session:thinkingPrefs:setGlobal'
   readonly thinkingEnabled?: boolean
   readonly reasoningEffort?: 'high' | 'max'
 }
 
-export interface ConversationCloseCommand {
+interface ConversationCloseCommand {
   readonly type: 'conversation:close'
   readonly sessionKey: string
 }
 
-export interface ConversationListCommand {
+interface ConversationListCommand {
   readonly type: 'conversation:list'
 }
 
 /** UI 历史懒加载游标：指向已加载的最早一条消息，请求严格早于它的记录 */
-export interface ConversationMessagesCursor {
+interface ConversationMessagesCursor {
   /** ISO 时间串（与 DB 中的 messages.timestamp 一致） */
   readonly timestamp: string
   readonly id: string
@@ -211,7 +211,7 @@ export interface ConversationMessagesCursor {
  * 分页读取会话历史（含已被上下文压缩标记的消息，用户仍需回看）。
  * 不传 before 时返回最新一页。
  */
-export interface ConversationMessagesCommand {
+interface ConversationMessagesCommand {
   readonly type: 'conversation:messages'
   readonly sessionKey: string
   readonly limit?: number
@@ -221,48 +221,48 @@ export interface ConversationMessagesCommand {
 /**
  * 查询指定会话的实时上下文使用量（用于会话切换后立即展示真实窗口占用）
  */
-export interface ConversationContextUsageCommand {
+interface ConversationContextUsageCommand {
   readonly type: 'conversation:context-usage'
   readonly sessionKey: string
 }
 
-export interface ConversationDeleteCommand {
+interface ConversationDeleteCommand {
   readonly type: 'conversation:delete'
   readonly sessionKey: string
 }
 
-export interface ConversationRenameCommand {
+interface ConversationRenameCommand {
   readonly type: 'conversation:rename'
   readonly sessionKey: string
   readonly newTitle: string
 }
 
-export interface ConversationPinToggleCommand {
+interface ConversationPinToggleCommand {
   readonly type: 'conversation:pin-toggle'
   readonly sessionKey: string
 }
 
 /** 忽略中断标记 */
-export interface ConversationDismissInterruptCommand {
+interface ConversationDismissInterruptCommand {
   readonly type: 'conversation:dismiss-interrupt'
   readonly sessionKey: string
 }
 
 /** 继续被中断的对话（发送 continuation prompt） */
-export interface ConversationContinueInterruptedCommand {
+interface ConversationContinueInterruptedCommand {
   readonly type: 'conversation:continue-interrupted'
   readonly sessionKey: string
 }
 
 /** 切换 Agent = 转移当前会话：保留历史，下条消息起由目标 Agent 处理 */
-export interface ConversationTransferAgentCommand {
+interface ConversationTransferAgentCommand {
   readonly type: 'conversation:transfer-agent'
   readonly sessionKey: string
   /** 目标 Agent id；省略表示系统默认 */
   readonly agentId?: string
 }
 
-export interface CronCreateCommand {
+interface CronCreateCommand {
   readonly type: 'cron:create'
   readonly name: string
   readonly taskText: string
@@ -278,17 +278,17 @@ export interface CronCreateCommand {
   readonly notifyTargets?: string
 }
 
-export interface CronListCommand {
+interface CronListCommand {
   readonly type: 'cron:list'
   readonly includeDisabled?: boolean
 }
 
-export interface CronDeleteCommand {
+interface CronDeleteCommand {
   readonly type: 'cron:delete'
   readonly id: string
 }
 
-export interface CronUpdateCommand {
+interface CronUpdateCommand {
   readonly type: 'cron:update'
   readonly id: string
   readonly patch: {
@@ -305,12 +305,12 @@ export interface CronUpdateCommand {
   }
 }
 
-export interface CronRunCommand {
+interface CronRunCommand {
   readonly type: 'cron:run'
   readonly id: string
 }
 
-export interface CronRunsCommand {
+interface CronRunsCommand {
   readonly type: 'cron:runs'
   readonly id: string
   readonly limit?: number
@@ -320,11 +320,11 @@ export interface CronRunsCommand {
 // Agent 定义查询
 // ============================================================
 
-export interface AgentDefinitionsListCommand {
+interface AgentDefinitionsListCommand {
   readonly type: 'agent:definitions:list'
 }
 
-export interface AgentMemoriesListCommand {
+interface AgentMemoriesListCommand {
   readonly type: 'agent:memories:list'
   /** 对话 ID（与 sessionKey 相同）；不传则仅用 agentId */
   readonly sessionKey?: string
@@ -332,37 +332,37 @@ export interface AgentMemoriesListCommand {
   readonly agentId?: string
 }
 
-export interface AgentMemoriesDeleteCommand {
+interface AgentMemoriesDeleteCommand {
   readonly type: 'agent:memories:delete'
   readonly memoryId: string
 }
 
-export interface AgentMemoriesUpdateCommand {
+interface AgentMemoriesUpdateCommand {
   readonly type: 'agent:memories:update'
   readonly memoryId: string
   readonly content: string
 }
 
-export interface AgentMemoriesClearCommand {
+interface AgentMemoriesClearCommand {
   readonly type: 'agent:memories:clear'
   readonly sessionKey?: string
   readonly agentId?: string
 }
 
-export interface AgentMemoriesExportCommand {
+interface AgentMemoriesExportCommand {
   readonly type: 'agent:memories:export'
   readonly sessionKey?: string
   readonly agentId?: string
 }
 
 /** 记忆来源下转（诉求 A）：一条工作记忆 → 来源段 + 段原文区间 + 宫殿片段 */
-export interface AgentMemoriesProvenanceCommand {
+interface AgentMemoriesProvenanceCommand {
   readonly type: 'agent:memories:provenance'
   readonly memoryId: string
 }
 
 /** 搜索记忆（FTS5 + BM25） */
-export interface AgentMemoriesSearchCommand {
+interface AgentMemoriesSearchCommand {
   readonly type: 'agent:memories:search'
   readonly sessionKey?: string
   readonly agentId?: string
@@ -371,25 +371,25 @@ export interface AgentMemoriesSearchCommand {
 }
 
 /** 归档冷记忆（> 30 天未用且非 personal 类） */
-export interface AgentMemoriesArchiveColdCommand {
+interface AgentMemoriesArchiveColdCommand {
   readonly type: 'agent:memories:archiveCold'
   readonly sessionKey?: string
   readonly agentId?: string
 }
 
 /** 恢复归档记忆 */
-export interface AgentMemoriesUnarchiveCommand {
+interface AgentMemoriesUnarchiveCommand {
   readonly type: 'agent:memories:unarchive'
   readonly memoryId: string
 }
 
 /** 重建 FTS5 索引 */
-export interface AgentMemoriesRebuildIndexCommand {
+interface AgentMemoriesRebuildIndexCommand {
   readonly type: 'agent:memories:rebuildIndex'
 }
 
 /** 温度分布统计 */
-export interface AgentMemoriesStatsCommand {
+interface AgentMemoriesStatsCommand {
   readonly type: 'agent:memories:stats'
   readonly sessionKey?: string
   readonly agentId?: string
@@ -399,32 +399,32 @@ export interface AgentMemoriesStatsCommand {
 // Wiki 知识库命令（P0）
 // ============================================================
 
-export interface WikiInboxListCommand {
+interface WikiInboxListCommand {
   readonly type: 'wiki:inbox:list'
   readonly sessionKey?: string
   readonly agentId?: string
   readonly status?: 'pending' | 'organized' | 'discarded'
 }
 
-export interface WikiInboxCountCommand {
+interface WikiInboxCountCommand {
   readonly type: 'wiki:inbox:count'
   readonly sessionKey?: string
   readonly agentId?: string
   readonly status?: 'pending' | 'organized' | 'discarded'
 }
 
-export interface WikiInboxRetryCommand {
+interface WikiInboxRetryCommand {
   readonly type: 'wiki:inbox:retry'
   readonly inboxId: string
 }
 
-export interface WikiInboxDiscardCommand {
+interface WikiInboxDiscardCommand {
   readonly type: 'wiki:inbox:discard'
   readonly inboxId: string
 }
 
 /** 手动指定用途分类立即归档：绕开 AI 分类，直接把一条收件箱条目写入资料层 */
-export interface WikiInboxOrganizeCommand {
+interface WikiInboxOrganizeCommand {
   readonly type: 'wiki:inbox:organize'
   readonly sessionKey?: string
   readonly agentId?: string
@@ -440,7 +440,7 @@ export interface WikiInboxOrganizeCommand {
 }
 
 /** 预览目录内可导入 Wiki 的文件（不写库） */
-export interface WikiFolderScanCommand {
+interface WikiFolderScanCommand {
   readonly type: 'wiki:folder:scan'
   readonly dir: string
   readonly recursive?: boolean
@@ -450,7 +450,7 @@ export interface WikiFolderScanCommand {
 }
 
 /** 批量将目录文件摄入 Wiki 收件箱 */
-export interface WikiFolderImportCommand {
+interface WikiFolderImportCommand {
   readonly type: 'wiki:folder:import'
   readonly dir: string
   readonly recursive?: boolean
@@ -464,7 +464,7 @@ export interface WikiFolderImportCommand {
 }
 
 /** 显式触发一批 intake/organize */
-export interface WikiOrganizeRunCommand {
+interface WikiOrganizeRunCommand {
   readonly type: 'wiki:organize:run'
   readonly mode?: 'intake' | 'organize' | 'organize-all'
   readonly itemType?: 'upload' | 'output' | 'search' | 'chat'
@@ -477,13 +477,13 @@ export interface WikiOrganizeRunCommand {
   readonly agentId?: string
 }
 
-export interface AutonomousStatusCommand {
+interface AutonomousStatusCommand {
   readonly type: 'autonomous:status'
   readonly sessionKey?: string
   readonly agentId?: string
 }
 
-export interface AutonomousGoalsListCommand {
+interface AutonomousGoalsListCommand {
   readonly type: 'autonomous:goals:list'
   readonly sessionKey?: string
   readonly agentId?: string
@@ -491,32 +491,32 @@ export interface AutonomousGoalsListCommand {
   readonly status?: string
 }
 
-export interface AutonomousGoalsApproveCommand {
+interface AutonomousGoalsApproveCommand {
   readonly type: 'autonomous:goals:approve'
   readonly goalId: string
   readonly note?: string
 }
 
-export interface AutonomousGoalsRejectCommand {
+interface AutonomousGoalsRejectCommand {
   readonly type: 'autonomous:goals:reject'
   readonly goalId: string
   readonly reason?: string
 }
 
-export interface AutonomousCapabilitiesCommand {
+interface AutonomousCapabilitiesCommand {
   readonly type: 'autonomous:capabilities'
   readonly sessionKey?: string
   readonly agentId?: string
 }
 
-export interface AutonomousReflectionsCommand {
+interface AutonomousReflectionsCommand {
   readonly type: 'autonomous:reflections'
   readonly sessionKey?: string
   readonly agentId?: string
   readonly limit?: number
 }
 
-export interface AutonomousSatisfactionHistoryCommand {
+interface AutonomousSatisfactionHistoryCommand {
   readonly type: 'autonomous:satisfaction:history'
   readonly sessionKey?: string
   readonly agentId?: string
@@ -524,36 +524,36 @@ export interface AutonomousSatisfactionHistoryCommand {
   readonly window?: string
 }
 
-export interface AutonomousPromptVariantsCommand {
+interface AutonomousPromptVariantsCommand {
   readonly type: 'autonomous:prompt:variants'
   /** 按 baseline_prompt_id 过滤 */
   readonly fragmentKey?: string
 }
 
-export interface AutonomousEnableCommand {
+interface AutonomousEnableCommand {
   readonly type: 'autonomous:enable'
 }
 
-export interface AutonomousDisableCommand {
+interface AutonomousDisableCommand {
   readonly type: 'autonomous:disable'
 }
 
-export interface AutonomousReflectCommand {
+interface AutonomousReflectCommand {
   readonly type: 'autonomous:reflect'
   readonly sessionKey?: string
   readonly agentId?: string
 }
 
-export interface AutonomousSettingsGetCommand {
+interface AutonomousSettingsGetCommand {
   readonly type: 'autonomous:settings:get'
 }
 
-export interface AutonomousSettingsUpdateCommand {
+interface AutonomousSettingsUpdateCommand {
   readonly type: 'autonomous:settings:update'
   readonly settings: Record<string, unknown>
 }
 
-export interface WikiSearchCommand {
+interface WikiSearchCommand {
   readonly type: 'wiki:search'
   readonly sessionKey?: string
   readonly agentId?: string
@@ -563,19 +563,19 @@ export interface WikiSearchCommand {
   readonly enableVector?: boolean
 }
 
-export interface WikiSourceGetCommand {
+interface WikiSourceGetCommand {
   readonly type: 'wiki:source:get'
   readonly sourceId: string
 }
 
-export interface WikiRunsListCommand {
+interface WikiRunsListCommand {
   readonly type: 'wiki:runs:list'
   readonly sessionKey?: string
   readonly agentId?: string
   readonly limit?: number
 }
 
-export interface WikiIndexRebuildCommand {
+interface WikiIndexRebuildCommand {
   readonly type: 'wiki:index:rebuild'
 }
 
@@ -583,13 +583,13 @@ export interface WikiIndexRebuildCommand {
 // Wiki 用途主题树 / 资料层命令（记忆重构一期）
 // ============================================================
 
-export interface WikiTopicTreeGetCommand {
+interface WikiTopicTreeGetCommand {
   readonly type: 'wiki:topic:tree:get'
   readonly agentId: string
   readonly userId?: string
 }
 
-export interface WikiTopicTreeSetCommand {
+interface WikiTopicTreeSetCommand {
   readonly type: 'wiki:topic:tree:set'
   readonly agentId: string
   readonly userId?: string
@@ -599,19 +599,19 @@ export interface WikiTopicTreeSetCommand {
   }
 }
 
-export interface WikiTopicTreeMigrateCommand {
+interface WikiTopicTreeMigrateCommand {
   readonly type: 'wiki:topic:tree:migrate'
   readonly agentId: string
   readonly userId?: string
 }
 
 /** 删除节点时的文件去向；删除有文件的节点必须带 disposition */
-export type WikiFileDispositionDto =
+type WikiFileDispositionDto =
   | { readonly type: 'parking' }
   | { readonly type: 'move'; readonly category: string; readonly subtopic: string }
 
 /** 主题树九种变更操作；只由用户 UI 触发，AI 不可调用 */
-export type WikiTopicMutationDto =
+type WikiTopicMutationDto =
   | { readonly op: 'addCategory'; readonly name: string; readonly index?: number }
   | { readonly op: 'renameCategory'; readonly from: string; readonly to: string }
   | { readonly op: 'deleteCategory'; readonly name: string; readonly disposition?: WikiFileDispositionDto }
@@ -622,14 +622,14 @@ export type WikiTopicMutationDto =
   | { readonly op: 'moveSubtopic'; readonly fromCategory: string; readonly name: string; readonly toCategory: string; readonly index?: number }
   | { readonly op: 'mergeSubtopic'; readonly fromCategory: string; readonly fromName: string; readonly toCategory: string; readonly toName: string }
 
-export interface WikiTopicMutateCommand {
+interface WikiTopicMutateCommand {
   readonly type: 'wiki:topic:mutate'
   readonly agentId: string
   readonly userId?: string
   readonly mutation: WikiTopicMutationDto
 }
 
-export interface WikiSourceCreateNoteCommand {
+interface WikiSourceCreateNoteCommand {
   readonly type: 'wiki:source:create-note'
   readonly agentId: string
   readonly userId?: string
@@ -638,7 +638,7 @@ export interface WikiSourceCreateNoteCommand {
   readonly title?: string
 }
 
-export interface WikiSourceRenameCommand {
+interface WikiSourceRenameCommand {
   readonly type: 'wiki:source:rename'
   readonly agentId: string
   readonly userId?: string
@@ -648,7 +648,7 @@ export interface WikiSourceRenameCommand {
 
 // ---- 重新编目（二期）----
 
-export interface WikiReclassifyRunCommand {
+interface WikiReclassifyRunCommand {
   readonly type: 'wiki:reclassify:run'
   readonly agentId: string
   readonly userId?: string
@@ -662,7 +662,7 @@ export interface WikiReclassifyRunCommand {
   readonly enableRename?: boolean
 }
 
-export interface WikiReclassifyEstimateCommand {
+interface WikiReclassifyEstimateCommand {
   readonly type: 'wiki:reclassify:estimate'
   readonly agentId: string
   readonly userId?: string
@@ -672,33 +672,33 @@ export interface WikiReclassifyEstimateCommand {
   readonly subtopic?: string
 }
 
-export interface WikiReclassifyGetCommand {
+interface WikiReclassifyGetCommand {
   readonly type: 'wiki:reclassify:get'
   readonly agentId: string
   readonly userId?: string
 }
 
-export interface WikiReclassifyApplyCommand {
+interface WikiReclassifyApplyCommand {
   readonly type: 'wiki:reclassify:apply'
   readonly agentId: string
   readonly userId?: string
   readonly candidateIds: readonly string[]
 }
 
-export interface WikiReclassifyIgnoreCommand {
+interface WikiReclassifyIgnoreCommand {
   readonly type: 'wiki:reclassify:ignore'
   readonly agentId: string
   readonly userId?: string
   readonly candidateId: string
 }
 
-export interface WikiReclassifyDiscardCommand {
+interface WikiReclassifyDiscardCommand {
   readonly type: 'wiki:reclassify:discard'
   readonly agentId: string
   readonly userId?: string
 }
 
-export interface WikiReclassifyCancelCommand {
+interface WikiReclassifyCancelCommand {
   readonly type: 'wiki:reclassify:cancel'
   readonly agentId: string
   readonly userId?: string
@@ -707,7 +707,7 @@ export interface WikiReclassifyCancelCommand {
 // ---- 库级迁移（文件夹导入 plan→review）----
 
 /** migrate run IPC DTO（与 summarizeMigrateRun 对齐） */
-export interface WikiMigrateRunDto {
+interface WikiMigrateRunDto {
   readonly runId: string
   readonly phase: string
   readonly importRoot: string
@@ -743,49 +743,49 @@ export interface WikiMigrateRunDto {
   readonly finishedAt: string | null
 }
 
-export interface WikiMigrateGetCommand {
+interface WikiMigrateGetCommand {
   readonly type: 'wiki:migrate:get'
   readonly agentId?: string
   readonly userId?: string
   readonly sessionKey?: string
 }
 
-export interface WikiMigrateApplyCommand {
+interface WikiMigrateApplyCommand {
   readonly type: 'wiki:migrate:apply'
   readonly agentId?: string
   readonly userId?: string
   readonly sessionKey?: string
 }
 
-export interface WikiMigrateCancelCommand {
+interface WikiMigrateCancelCommand {
   readonly type: 'wiki:migrate:cancel'
   readonly agentId?: string
   readonly userId?: string
   readonly sessionKey?: string
 }
 
-export interface WikiMigrateDiscardCommand {
+interface WikiMigrateDiscardCommand {
   readonly type: 'wiki:migrate:discard'
   readonly agentId?: string
   readonly userId?: string
   readonly sessionKey?: string
 }
 
-export interface WikiMigrateUndoCommand {
+interface WikiMigrateUndoCommand {
   readonly type: 'wiki:migrate:undo'
   readonly agentId?: string
   readonly userId?: string
   readonly sessionKey?: string
 }
 
-export interface WikiMigrateReplanCommand {
+interface WikiMigrateReplanCommand {
   readonly type: 'wiki:migrate:replan'
   readonly agentId?: string
   readonly userId?: string
   readonly sessionKey?: string
 }
 
-export interface WikiMigrateUpdateMappingCommand {
+interface WikiMigrateUpdateMappingCommand {
   readonly type: 'wiki:migrate:update-mapping'
   readonly agentId?: string
   readonly userId?: string
@@ -799,7 +799,7 @@ export interface WikiMigrateUpdateMappingCommand {
   }
 }
 
-export interface WikiSourceListCommand {
+interface WikiSourceListCommand {
   readonly type: 'wiki:source:list'
   readonly sessionKey?: string
   readonly agentId?: string
@@ -815,14 +815,14 @@ export interface WikiSourceListCommand {
 }
 
 /** 左栏角标 / 小类芯片用的轻量计数（不拉正文、不拉列表） */
-export interface WikiSourceCountsCommand {
+interface WikiSourceCountsCommand {
   readonly type: 'wiki:source:counts'
   readonly sessionKey?: string
   readonly agentId?: string
   readonly userId?: string
 }
 
-export interface WikiSourceUpdateTopicCommand {
+interface WikiSourceUpdateTopicCommand {
   readonly type: 'wiki:source:update-topic'
   readonly agentId: string
   readonly sourceId: string
@@ -835,13 +835,13 @@ export interface WikiSourceUpdateTopicCommand {
   readonly description?: string | null
 }
 
-export interface WikiSourceMoveToParkingCommand {
+interface WikiSourceMoveToParkingCommand {
   readonly type: 'wiki:source:move-to-parking'
   readonly agentId: string
   readonly sourceId: string
 }
 
-export interface WikiSourceOpenCommand {
+interface WikiSourceOpenCommand {
   readonly type: 'wiki:source:open'
   readonly agentId: string
   readonly sourceId: string
@@ -851,7 +851,7 @@ export interface WikiSourceOpenCommand {
 // Wiki 知识库命令（P1）
 // ============================================================
 
-export interface WikiCleanupScanCommand {
+interface WikiCleanupScanCommand {
   readonly type: 'wiki:cleanup:scan'
   readonly sessionKey?: string
   readonly agentId?: string
@@ -859,48 +859,48 @@ export interface WikiCleanupScanCommand {
   readonly staleDays?: number
 }
 
-export interface WikiSourceArchiveCommand {
+interface WikiSourceArchiveCommand {
   readonly type: 'wiki:source:archive'
   readonly sessionKey?: string
   readonly agentId?: string
   readonly sourceIds: readonly string[]
 }
 
-export interface WikiSourceRestoreCommand {
+interface WikiSourceRestoreCommand {
   readonly type: 'wiki:source:restore'
   readonly sessionKey?: string
   readonly agentId?: string
   readonly sourceIds: readonly string[]
 }
 
-export interface WikiSourceDeleteCommand {
+interface WikiSourceDeleteCommand {
   readonly type: 'wiki:source:delete'
   readonly sessionKey?: string
   readonly agentId?: string
   readonly sourceIds: readonly string[]
 }
 
-export interface WikiAutoClassifyGetCommand {
+interface WikiAutoClassifyGetCommand {
   readonly type: 'wiki:auto-classify:get'
   readonly sessionKey?: string
   readonly agentId?: string
 }
 
-export interface WikiAutoClassifySetCommand {
+interface WikiAutoClassifySetCommand {
   readonly type: 'wiki:auto-classify:set'
   readonly sessionKey?: string
   readonly agentId?: string
   readonly enabled: boolean
 }
 
-export interface WikiSourceClearTopicCommand {
+interface WikiSourceClearTopicCommand {
   readonly type: 'wiki:source:clear-topic'
   readonly sessionKey?: string
   readonly agentId?: string
   readonly sourceId: string
 }
 
-export interface WikiLinkAddCommand {
+interface WikiLinkAddCommand {
   readonly type: 'wiki:link:add'
   readonly sessionKey?: string
   readonly agentId?: string
@@ -908,35 +908,35 @@ export interface WikiLinkAddCommand {
   readonly title?: string
 }
 
-export interface WikiLinkSaveCommand {
+interface WikiLinkSaveCommand {
   readonly type: 'wiki:link:save'
   readonly sessionKey?: string
   readonly agentId?: string
   readonly sourceId: string
 }
 
-export interface WikiVaultEnsureLayoutCommand {
+interface WikiVaultEnsureLayoutCommand {
   readonly type: 'wiki:vault:ensure-layout'
   readonly sessionKey?: string
   readonly agentId?: string
   readonly backfill?: boolean
 }
 
-export interface WikiExportCommand {
+interface WikiExportCommand {
   readonly type: 'wiki:export'
   readonly sessionKey?: string
   readonly agentId?: string
   readonly targetDir: string
 }
 
-export interface WikiVectorRebuildCommand {
+interface WikiVectorRebuildCommand {
   readonly type: 'wiki:vector:rebuild'
   readonly sessionKey?: string
   readonly agentId?: string
 }
 
 /** 供 P5 编目/P7 重命名索取摘要；allowLlm=true 时长正文可能触发一次 LLM 调用 */
-export interface WikiSourceSummaryCommand {
+interface WikiSourceSummaryCommand {
   readonly type: 'wiki:source:summary'
   readonly sessionKey?: string
   readonly agentId?: string
@@ -948,11 +948,11 @@ export interface WikiSourceSummaryCommand {
 // 工具管理命令
 // ============================================================
 
-export interface ToolsListCommand {
+interface ToolsListCommand {
   readonly type: 'tools:list'
 }
 
-export interface ToolsToggleCommand {
+interface ToolsToggleCommand {
   readonly type: 'tools:toggle'
   readonly toolName: string
   readonly enabled: boolean
@@ -965,7 +965,7 @@ export interface ToolsToggleCommand {
  * （MCP 面板、技能页、输入框的加号菜单），每个都多背一份按 Agent 的明细
  * 是白花成本；这个视图只有工具页用。
  */
-export interface ToolsUsageByAgentCommand {
+interface ToolsUsageByAgentCommand {
   readonly type: 'tools:usage-by-agent'
   /**
    * 只统计最近 N 天（含今天）；省略或 0 表示累计。
@@ -983,16 +983,16 @@ export interface ToolsUsageByAgentCommand {
  * 「这条规则现在生效的话会碰到哪些条目」，只是一个按需查、一个是常驻计数。
  * 分两个命令会让两边口径漂开，那正好毁掉预览的意义。
  */
-export interface NewsPreferencePreviewCommand {
+interface NewsPreferencePreviewCommand {
   readonly type: 'news-preference:preview'
 }
 
 /** 导出工具累计使用记录（JSON），供离线分析 */
-export interface ToolsUsageExportCommand {
+interface ToolsUsageExportCommand {
   readonly type: 'tools:usage:export'
 }
 
-export interface McpStatusCommand {
+interface McpStatusCommand {
   readonly type: 'mcp:status'
 }
 
@@ -1006,24 +1006,24 @@ export interface McpServerConfigInput {
   readonly enabled?: boolean
 }
 
-export interface McpUpsertCommand {
+interface McpUpsertCommand {
   readonly type: 'mcp:upsert'
   readonly entry: McpServerConfigInput
   /** 编辑已有条目时传入原名称，用于支持改名 */
   readonly originalName?: string
 }
 
-export interface McpImportCommand {
+interface McpImportCommand {
   readonly type: 'mcp:import'
   readonly entries: readonly McpServerConfigInput[]
 }
 
-export interface McpRemoveCommand {
+interface McpRemoveCommand {
   readonly type: 'mcp:remove'
   readonly name: string
 }
 
-export interface McpSetEnabledCommand {
+interface McpSetEnabledCommand {
   readonly type: 'mcp:setEnabled'
   readonly name: string
   readonly enabled: boolean
@@ -1033,7 +1033,7 @@ export interface McpSetEnabledCommand {
  * 会话级启停 MCP server（设置页的 mcp:setEnabled 是全局总开关）。
  * 全局关闭的 server 无法在会话里单独开启。
  */
-export interface McpSetSessionEnabledCommand {
+interface McpSetSessionEnabledCommand {
   readonly type: 'mcp:setSessionEnabled'
   readonly sessionKey: string
   readonly name: string
@@ -1041,7 +1041,7 @@ export interface McpSetSessionEnabledCommand {
 }
 
 /** 读取会话级 MCP 禁用集 */
-export interface McpSessionDisabledCommand {
+interface McpSessionDisabledCommand {
   readonly type: 'mcp:sessionDisabled'
   readonly sessionKey: string
 }
@@ -1050,7 +1050,7 @@ export interface McpSessionDisabledCommand {
  * 会话级启停技能（技能中心的启用/禁用是全局总开关）。
  * 全局未启用的技能无法在会话里单独开启。
  */
-export interface SkillSetSessionEnabledCommand {
+interface SkillSetSessionEnabledCommand {
   readonly type: 'skill:setSessionEnabled'
   readonly sessionKey: string
   readonly skillId: string
@@ -1058,23 +1058,23 @@ export interface SkillSetSessionEnabledCommand {
 }
 
 /** 读取会话级技能禁用集 */
-export interface SkillSessionDisabledCommand {
+interface SkillSessionDisabledCommand {
   readonly type: 'skill:sessionDisabled'
   readonly sessionKey: string
 }
 
-export interface McpReconnectCommand {
+interface McpReconnectCommand {
   readonly type: 'mcp:reconnect'
   readonly name: string
 }
 
 /** 读取 mcp-servers.json 原文 */
-export interface McpReadConfigFileCommand {
+interface McpReadConfigFileCommand {
   readonly type: 'mcp:readConfigFile'
 }
 
 /** 写入 mcp-servers.json 原文并重载全部连接 */
-export interface McpWriteConfigFileCommand {
+interface McpWriteConfigFileCommand {
   readonly type: 'mcp:writeConfigFile'
   readonly content: string
 }
@@ -1099,87 +1099,87 @@ export interface McpStatusPayload {
 // 主进程桥接（原独立 IPC，统一经 sendCommand）
 // ============================================================
 
-export interface RuntimePingCommand {
+interface RuntimePingCommand {
   readonly type: 'runtime:ping'
 }
 
-export interface RuntimeFeatureFlagsGetCommand {
+interface RuntimeFeatureFlagsGetCommand {
   readonly type: 'runtime:featureFlags:get'
 }
 
-export interface RuntimeEnabledCommand {
+interface RuntimeEnabledCommand {
   readonly type: 'runtime:enabled'
 }
 
-export interface AgentDefinitionSyncStatusCommand {
+interface AgentDefinitionSyncStatusCommand {
   readonly type: 'agentDefinition:syncStatus'
 }
 
-export interface AgentDefinitionSyncUserAgentsCommand {
+interface AgentDefinitionSyncUserAgentsCommand {
   readonly type: 'agentDefinition:syncUserAgents'
 }
 
-export interface AgentInstancePromptCommand {
+interface AgentInstancePromptCommand {
   readonly type: 'agentInstance:prompt'
   readonly instanceId: string
   readonly message: string
 }
 
-export interface AgentInstanceAbortCommand {
+interface AgentInstanceAbortCommand {
   readonly type: 'agentInstance:abort'
   readonly instanceId: string
 }
 
-export interface AgentInstanceDestroyCommand {
+interface AgentInstanceDestroyCommand {
   readonly type: 'agentInstance:destroy'
   readonly instanceId: string
 }
 
-export interface AgentInstanceListCommand {
+interface AgentInstanceListCommand {
   readonly type: 'agentInstance:list'
 }
 
-export interface StorageStatsCommand {
+interface StorageStatsCommand {
   readonly type: 'storage:stats'
 }
 
-export interface StorageExportJsonlCommand {
+interface StorageExportJsonlCommand {
   readonly type: 'storage:exportJsonl'
 }
 
-export interface StorageClearMalformedCommand {
+interface StorageClearMalformedCommand {
   readonly type: 'storage:clearMalformed'
 }
 
 /** 列出本地 SQLite 自动备份 */
-export interface StorageListBackupsCommand {
+interface StorageListBackupsCommand {
   readonly type: 'storage:listBackups'
 }
 
 /** 立即创建本地 SQLite 备份 */
-export interface StorageCreateBackupCommand {
+interface StorageCreateBackupCommand {
   readonly type: 'storage:createBackup'
 }
 
 /** 从指定备份文件恢复聊天记录 */
-export interface StorageRestoreBackupCommand {
+interface StorageRestoreBackupCommand {
   readonly type: 'storage:restoreBackup'
   readonly backupFileName: string
 }
 
 /** 从最新备份恢复聊天记录 */
-export interface StorageRestoreLatestBackupCommand {
+interface StorageRestoreLatestBackupCommand {
   readonly type: 'storage:restoreLatestBackup'
 }
 
 /** 删除指定备份文件 */
-export interface StorageDeleteBackupCommand {
+interface StorageDeleteBackupCommand {
   readonly type: 'storage:deleteBackup'
   readonly backupFileName: string
 }
 
 /** 拉取最近工具审计记录（含权限决策摘要） */
-export interface StorageAuditRecentCommand {
+interface StorageAuditRecentCommand {
   readonly type: 'storage:auditRecent'
   readonly limit?: number
 }
@@ -1188,13 +1188,13 @@ export interface StorageAuditRecentCommand {
 // 消息管理命令
 // ============================================================
 
-export interface MessageDeleteCommand {
+interface MessageDeleteCommand {
   readonly type: 'message:delete'
   readonly messageId: string
   readonly sessionKey: string
 }
 
-export interface MessageEditCommand {
+interface MessageEditCommand {
   readonly type: 'message:edit'
   readonly messageId: string
   readonly sessionKey: string
@@ -1210,7 +1210,7 @@ export interface MessageEditCommand {
  * 复制 sourceSessionKey 中 uptoMessageId（含）之前的历史到新会话，并追加编辑后的 user 消息。
  * 返回 { sessionKey: string } — 新会话的 key。
  */
-export interface ConversationForkCommand {
+interface ConversationForkCommand {
   readonly type: 'conversation:fork'
   readonly sourceSessionKey: string
   /** 复制至（含）此消息 ID，该消息的后续历史不复制 */
@@ -1223,7 +1223,7 @@ export interface ConversationForkCommand {
  * 编辑用户消息并重新触发回答（删除该消息之后的所有消息，然后重发）。
  * 等价于：deleteMessagesAfter(messageId) + updateMessageContent + resend。
  */
-export interface MessageEditAndResendCommand {
+interface MessageEditAndResendCommand {
   readonly type: 'message:edit-and-resend'
   readonly sessionKey: string
   readonly messageId: string
@@ -1235,12 +1235,12 @@ export interface MessageEditAndResendCommand {
 // ============================================================
 
 /** 查询客户端可用的基础斜杠命令列表 */
-export interface CommandsListCommand {
+interface CommandsListCommand {
   readonly type: 'commands:list'
 }
 
 /** 按会话列出 TaskRepo 中的任务（重启后恢复 TodoPanel） */
-export interface TasksListCommand {
+interface TasksListCommand {
   readonly type: 'tasks:list'
   /** 会话 key / conversationId */
   readonly conversationId: string
@@ -1261,7 +1261,7 @@ export interface CommandListEntry {
 // 上下文压缩命令
 // ============================================================
 
-export interface UserCompactContextCommand {
+interface UserCompactContextCommand {
   readonly type: 'user:compact-context'
   readonly sessionKey: string
   /** 保留最近 N 轮对话，默认 6 */
@@ -1269,7 +1269,7 @@ export interface UserCompactContextCommand {
 }
 
 /** 用户手动停止正在进行的上下文压缩 */
-export interface UserAbortCompactContextCommand {
+interface UserAbortCompactContextCommand {
   readonly type: 'user:abort-compact-context'
   readonly sessionKey: string
 }
@@ -1279,7 +1279,7 @@ export interface UserAbortCompactContextCommand {
 // ============================================================
 
 /** 分页查询文件列表 */
-export interface FilesListCommand {
+interface FilesListCommand {
   readonly type: 'files:list'
   readonly userId: string
   readonly agentId?: string
@@ -1291,7 +1291,7 @@ export interface FilesListCommand {
 }
 
 /** 按关键词 + 过滤条件搜索文件 */
-export interface FilesSearchCommand {
+interface FilesSearchCommand {
   readonly type: 'files:search'
   readonly userId: string
   readonly query: string
@@ -1305,21 +1305,21 @@ export interface FilesSearchCommand {
 }
 
 /** 批量软删除文件 */
-export interface FilesDeleteCommand {
+interface FilesDeleteCommand {
   readonly type: 'files:delete'
   readonly fileIds: readonly string[]
   readonly userId: string
 }
 
 /** 用系统默认应用打开文件 */
-export interface FilesOpenCommand {
+interface FilesOpenCommand {
   readonly type: 'files:open'
   readonly fileId: string
   readonly userId: string
 }
 
 /** 另存为指定路径 */
-export interface FilesSaveAsCommand {
+interface FilesSaveAsCommand {
   readonly type: 'files:save-as'
   readonly fileId: string
   readonly userId: string
@@ -1327,14 +1327,14 @@ export interface FilesSaveAsCommand {
 }
 
 /** 读取文件内容用于预览（带 10MB 安全上限） */
-export interface FilesReadPreviewContentCommand {
+interface FilesReadPreviewContentCommand {
   readonly type: 'files:read-preview-content'
   readonly fileId: string
   readonly userId: string
 }
 
 /** 将外部文件导入到 workspace uploads 目录并注册到 FileRepo */
-export interface FilesImportCommand {
+interface FilesImportCommand {
   readonly type: 'files:import'
   readonly userId: string
   /** 源文件绝对路径（来自 Electron File.path）；与 fileBuffer 二选一 */
@@ -1355,7 +1355,7 @@ export interface FilesImportCommand {
  * 只要路径在当前 Agent workspace 内，即可读取。
  * 用于读取/写入类工具卡片上的"点击文件名预览"。
  */
-export interface FilesReadPreviewByPathCommand {
+interface FilesReadPreviewByPathCommand {
   readonly type: 'files:read-preview-by-path'
   readonly filePath: string
   readonly userId: string
@@ -1364,7 +1364,7 @@ export interface FilesReadPreviewByPathCommand {
   readonly endLine?: number
 }
 
-export interface CodingDevSetBackendCommand {
+interface CodingDevSetBackendCommand {
   readonly type: 'codingDev:setBackend'
   /** 目标后端 ID（如 'claude'、'codex'、'opencode'） */
   readonly backendId: string
@@ -1381,7 +1381,7 @@ export interface CodingDevSetBackendCommand {
   readonly sessionKey?: string
 }
 
-export interface CodingDevSetProjectCommand {
+interface CodingDevSetProjectCommand {
   readonly type: 'codingDev:setProject'
   /** 桌面会话 id（sessionKey === conversationId）；渠道请用 /project 命令走 peer 级 */
   readonly sessionKey: string
@@ -1389,18 +1389,18 @@ export interface CodingDevSetProjectCommand {
   readonly projectName: string | null
 }
 
-export interface CodingDevGetDevContextCommand {
+interface CodingDevGetDevContextCommand {
   readonly type: 'codingDev:getDevContext'
   readonly sessionKey: string
 }
 
-export interface CodingDevGetBackendCommand {
+interface CodingDevGetBackendCommand {
   readonly type: 'codingDev:getBackend'
   readonly accountId: string
   readonly peerId?: string
 }
 
-export interface CodingDevListBackendsCommand {
+interface CodingDevListBackendsCommand {
   readonly type: 'codingDev:listBackends'
 }
 
@@ -1415,7 +1415,7 @@ export interface CodingDevListBackendsCommand {
  * 在 Agent 使用的模型本身支持多模态时，可跳过此调用（Agent 会直接看图）。
  * 当 Agent 使用纯文本模型时，前端可先识别，再把识别结果注入消息文本。
  */
-export interface ImageRecognizeCommand {
+interface ImageRecognizeCommand {
   readonly type: 'image:recognize'
   /** workspace 内绝对路径或相对 cwd 路径 */
   readonly imagePath: string
@@ -1431,7 +1431,7 @@ export interface ImageRecognizeCommand {
  * 图片生成：通过 AI 模型根据文字描述生成图片。
  * 支持模型：gpt-image-2 / gpt-image-2-vip / nano-banana 系列
  */
-export interface ImageGenerateCommand {
+interface ImageGenerateCommand {
   readonly type: 'image:generate'
   readonly prompt: string
   readonly modelId?: string
@@ -1445,7 +1445,7 @@ export interface ImageGenerateCommand {
  * 当前仅定义接口占位，具体策略由后续按 operation 注册具体处理器实现。
  * 前端只需传递 operation + options，后端根据 operation 路由到具体策略。
  */
-export interface ImageProcessCommand {
+interface ImageProcessCommand {
   readonly type: 'image:process'
   /** 输入图片路径（workspace 内） */
   readonly imagePath: string
@@ -1460,7 +1460,7 @@ export interface ImageProcessCommand {
 // ============================================================
 
 /** 确认技能草稿（写入磁盘并激活） */
-export interface SkillConfirmDraftCommand {
+interface SkillConfirmDraftCommand {
   readonly type: 'skill:confirm_draft'
   readonly draft: {
     readonly id: string
@@ -1476,13 +1476,13 @@ export interface SkillConfirmDraftCommand {
 }
 
 /** 拒绝技能草稿（删除 pending 记录） */
-export interface SkillRejectDraftCommand {
+interface SkillRejectDraftCommand {
   readonly type: 'skill:reject_draft'
   readonly draftId: string
 }
 
 /** 废弃技能 */
-export interface SkillDeprecateCommand {
+interface SkillDeprecateCommand {
   readonly type: 'skill:deprecate'
   readonly skillName: string
 }
@@ -1521,37 +1521,37 @@ export interface PendingToolInfo {
 }
 
 /** 拉取进化工具列表 + 待审批候选 */
-export interface ToolEvolutionListCommand {
+interface ToolEvolutionListCommand {
   readonly type: 'tool-evolution:list'
 }
 
 /** 确认待审批候选（注册生效） */
-export interface ToolEvolutionConfirmCommand {
+interface ToolEvolutionConfirmCommand {
   readonly type: 'tool-evolution:confirm'
   readonly toolName: string
 }
 
 /** 拒绝待审批候选 */
-export interface ToolEvolutionRejectCommand {
+interface ToolEvolutionRejectCommand {
   readonly type: 'tool-evolution:reject'
   readonly toolName: string
 }
 
 /** 启用/禁用已批准工具 */
-export interface ToolEvolutionSetEnabledCommand {
+interface ToolEvolutionSetEnabledCommand {
   readonly type: 'tool-evolution:set-enabled'
   readonly toolName: string
   readonly enabled: boolean
 }
 
 /** 删除已批准工具（不可恢复） */
-export interface ToolEvolutionRemoveCommand {
+interface ToolEvolutionRemoveCommand {
   readonly type: 'tool-evolution:remove'
   readonly toolName: string
 }
 
 /** CLI 模拟 bash 命令数据（工具进化测试用；agentId 固定 cli-simulator 可整批清理） */
-export interface ToolEvolutionSimulateCommand {
+interface ToolEvolutionSimulateCommand {
   readonly type: 'tool-evolution:simulate'
   /** 要写入 bash_command_log 的命令列表（逐条 log） */
   readonly commands: readonly string[]
@@ -1560,29 +1560,29 @@ export interface ToolEvolutionSimulateCommand {
 }
 
 /** 手动触发一次挖掘周期（不等每日定时器） */
-export interface ToolEvolutionMineCommand {
+interface ToolEvolutionMineCommand {
   readonly type: 'tool-evolution:mine'
 }
 
 /** 获取工具进化功能总开关状态 */
-export interface ToolEvolutionGetEnabledCommand {
+interface ToolEvolutionGetEnabledCommand {
   readonly type: 'tool-evolution:get-enabled'
 }
 
 /** 设置工具进化功能总开关（启用/禁用整个功能） */
-export interface ToolEvolutionSetFeatureEnabledCommand {
+interface ToolEvolutionSetFeatureEnabledCommand {
   readonly type: 'tool-evolution:set-feature-enabled'
   readonly enabled: boolean
 }
 
 /** 设置过去 24h 调用次数触发分析的频率阈值 */
-export interface ToolEvolutionSetTriggerThresholdCommand {
+interface ToolEvolutionSetTriggerThresholdCommand {
   readonly type: 'tool-evolution:set-trigger-threshold'
   readonly threshold: number
 }
 
 /** 获取工具进化统计数据（用于设置页展示） */
-export interface ToolEvolutionStatsCommand {
+interface ToolEvolutionStatsCommand {
   readonly type: 'tool-evolution:stats'
 }
 
@@ -1775,7 +1775,7 @@ export type AgentRuntimeCommand =
 // ============================================================
 
 /** 命令返回类型的条件类型映射，确保类型安全 */
-export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
+type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
   T extends 'user:send' ? { runId: string }
   : T extends 'user:steer' ? void
   : T extends 'user:abort' ? { ok: true }

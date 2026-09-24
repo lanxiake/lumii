@@ -196,5 +196,3 @@ export const WorkspaceWizard: React.FC = () => {
     </div>
   )
 }
-
-export default WorkspaceWizard

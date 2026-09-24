@@ -17,9 +17,9 @@ import { formatTokenCount } from '../../../../utils/format-token-count'
 import Switch from '../../../../components/ui/Switch/Switch'
 import { isMcpEnabledForSession } from './mcp-session-state'
 
-export type ComposerPlusPanel = 'main' | 'skills' | 'mcp' | 'agents'
+type ComposerPlusPanel = 'main' | 'skills' | 'mcp' | 'agents'
 
-export interface ComposerPlusMenuProps {
+interface ComposerPlusMenuProps {
   disabled?: boolean
   /** 触发统一附件选择器 */
   onAttachFiles: () => void
@@ -569,5 +569,4 @@ function SubPanel({
 const ComposerPlusMenuMemo = React.memo(ComposerPlusMenu)
 ComposerPlusMenuMemo.displayName = 'ComposerPlusMenu'
 
-export default ComposerPlusMenuMemo
 export { ComposerPlusMenuMemo as ComposerPlusMenu }

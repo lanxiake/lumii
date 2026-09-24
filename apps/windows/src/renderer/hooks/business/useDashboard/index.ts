@@ -3,13 +3,7 @@
  */
 
 export { useDashboard } from './useDashboard'
-export type { UseDashboardReturn } from './useDashboard'
 export type {
-  LatencyStats,
-  RuntimeGauges,
-  SkillStats,
   UsageRange,
-  UsageView,
   UsageBucketView,
-  UsageModelStatView,
 } from './useDashboard.types'

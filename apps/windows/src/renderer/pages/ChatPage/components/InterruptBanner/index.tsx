@@ -52,4 +52,3 @@ const InterruptBanner: React.FC<InterruptBannerProps> = ({ sessionKey, onContinu
 }
 
 export { InterruptBanner }
-export default InterruptBanner

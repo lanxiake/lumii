@@ -108,7 +108,7 @@ const PERSONALITY_DIMENSIONS: Array<keyof Omit<PersonalityState, 'lastUpdated' |
 /**
  * P2: 校验人格状态各维度是否在 [0, 1] 内且为有限数
  */
-export function validatePersonalityState(state: PersonalityState): { valid: boolean; errors: string[] } {
+function validatePersonalityState(state: PersonalityState): { valid: boolean; errors: string[] } {
   const errors: string[] = [];
 
   for (const dim of PERSONALITY_DIMENSIONS) {
@@ -126,7 +126,7 @@ export function validatePersonalityState(state: PersonalityState): { valid: bool
 /**
  * P2: 描述人格变更（用于审计日志，只包含实际发生变化的维度）
  */
-export function describePersonalityChange(
+function describePersonalityChange(
   before: PersonalityState,
   after: PersonalityState,
 ): Record<string, { before: number; after: number; delta: number }> {

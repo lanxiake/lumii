@@ -68,7 +68,7 @@ export function isPetExperienceKind(value: unknown): value is PetExperienceKind 
 }
 
 /** 键前缀；按 agent 分（每只宠物各记各的账，理由同 mood 分键） */
-export const PET_EXPERIENCE_KEY_PREFIX = 'pet.experience:';
+const PET_EXPERIENCE_KEY_PREFIX = 'pet.experience:';
 
 /** 保留窗口：7 天。反思是日频的，一周足够看出"最近它跟这个人处得怎么样" */
 const KEEP_MS = 7 * 24 * 60 * 60 * 1000;

@@ -13,7 +13,7 @@ import type { WikiSource } from "./types.js";
 export type WikiCleanupReason = "stale" | "broken_source" | "duplicate_content";
 
 /** 建议动作：降级到临时存放，或直接删除 */
-export type WikiCleanupAction = "parking" | "delete";
+type WikiCleanupAction = "parking" | "delete";
 
 export interface WikiCleanupSuggestion {
   readonly source: WikiSource;

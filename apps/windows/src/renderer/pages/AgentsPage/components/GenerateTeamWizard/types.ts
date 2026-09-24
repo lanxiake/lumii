@@ -59,4 +59,4 @@ export interface QuickTemplate {
 }
 
 /** 向导步骤 */
-export type WizardStep = 1 | 2 | 3
+type WizardStep = 1 | 2 | 3

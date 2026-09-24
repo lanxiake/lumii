@@ -5,8 +5,8 @@
  */
 
 /** 与原对话页 `mtbot:chat-font-scale` 对齐；同时兼容旧全局 key */
-export const STORAGE_KEY = 'mtbot:app-font-scale'
-export const LEGACY_CHAT_KEY = 'mtbot:chat-font-scale'
+const STORAGE_KEY = 'mtbot:app-font-scale'
+const LEGACY_CHAT_KEY = 'mtbot:chat-font-scale'
 
 export type FontScaleLevel = 'small' | 'medium' | 'large' | 'xlarge'
 
@@ -41,7 +41,7 @@ export const CHAT_FONT_PX: Record<FontScaleLevel, number> = {
 /**
  * 基准字号（px，medium 档）。缩放时按 LEVEL_FACTOR 重写到 documentElement。
  */
-export const FONT_VAR_BASES: Readonly<Record<string, number>> = {
+const FONT_VAR_BASES: Readonly<Record<string, number>> = {
   '--font-size-xs': 12,
   '--font-size-sm': 14,
   '--font-size-base': 16,

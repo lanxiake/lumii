@@ -26,7 +26,7 @@ const log = {
 
 // ── 偏好配置类型 ──
 
-export interface LocalCompanionPrefs {
+interface LocalCompanionPrefs {
   /** 是否启用 Companion（整体开关） */
   enabled: boolean
   /** 模式：off / gentle / active */
@@ -75,7 +75,7 @@ const GENTLE_WORK_DAYS = new Set([1, 2, 3, 4, 5])
 
 // ── 历史记录类型 ──
 
-export interface LocalCompanionAction {
+interface LocalCompanionAction {
   id: string
   content: string
   createdAt: string  // ISO 8601
@@ -592,8 +592,6 @@ export function migrateLocalCompanionPrefsToVhSettings(db: DatabaseAdapter): voi
   }
 }
 
-export { KV_KEY_CRON_SEEDED }
-
 // ── 历史记录读写 ──
 
 function appendHistory(db: DatabaseAdapter, content: string): void {
@@ -615,7 +613,7 @@ function appendHistory(db: DatabaseAdapter, content: string): void {
   }
 }
 
-export function readHistory(db: DatabaseAdapter): LocalCompanionAction[] {
+function readHistory(db: DatabaseAdapter): LocalCompanionAction[] {
   try {
     const row = db.prepare<{ value: string }>(
       `SELECT value FROM runtime_state WHERE key = ?`
@@ -627,7 +625,7 @@ export function readHistory(db: DatabaseAdapter): LocalCompanionAction[] {
   }
 }
 
-export function updateHistoryFeedback(
+function updateHistoryFeedback(
   db: DatabaseAdapter,
   id: string,
   feedback: 'accept' | 'ignore' | 'dismiss',

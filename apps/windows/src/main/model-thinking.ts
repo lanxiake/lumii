@@ -118,10 +118,10 @@ export function apiForProviderType(type: string | undefined): string | undefined
 }
 
 /** Max 档使用的思考预算（pi-ai 默认 high=16384，Max 给两倍） */
-export const MAX_THINKING_BUDGET = 32_768
+const MAX_THINKING_BUDGET = 32_768
 
 /** 该 API 家族是否按 token 预算控制思考（其余家族是档位语义） */
-export function isTokenBudgetApi(api: string): boolean {
+function isTokenBudgetApi(api: string): boolean {
   return api === 'anthropic-messages' || api.startsWith('google') || api === 'bedrock-converse-stream'
 }
 

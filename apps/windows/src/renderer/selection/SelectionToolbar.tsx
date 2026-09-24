@@ -86,5 +86,3 @@ export const SelectionToolbar: React.FC<SelectionToolbarProps> = ({
     document.body,
   )
 }
-
-export default SelectionToolbar

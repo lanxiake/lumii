@@ -69,5 +69,3 @@ export const LumiiLogo: React.FC<LumiiLogoProps> = ({
     </span>
   )
 }
-
-export default LumiiLogo

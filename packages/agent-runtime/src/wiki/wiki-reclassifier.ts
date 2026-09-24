@@ -37,9 +37,7 @@ export type {
   WikiReclassifyCandidate,
   WikiReclassifyRun,
   WikiReclassifyScope,
-  WikiReclassifyStatus,
 } from "./wiki-reclassify-types.js";
-export { RECLASSIFY_RUN_META_KEY } from "./wiki-reclassify-types.js";
 
 /** 结构轮/内容轮批量置信阈值：低于此不产候选（有人工复核，比增量 0.75 宽） */
 export const RECLASSIFY_CONFIDENCE_THRESHOLD = 0.6;

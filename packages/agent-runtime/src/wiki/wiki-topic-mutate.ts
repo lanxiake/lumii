@@ -14,7 +14,7 @@ import {
 } from "./wiki-topic-tree.js";
 
 /** 新建大类时自带的默认小类，避免出现空大类（树校验允许空，但 UI 上无处可放文件） */
-export const DEFAULT_NEW_SUBTOPIC = "待归类";
+const DEFAULT_NEW_SUBTOPIC = "待归类";
 
 export type FileDisposition =
   | { readonly type: "parking" }

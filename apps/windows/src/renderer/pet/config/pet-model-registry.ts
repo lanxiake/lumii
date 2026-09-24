@@ -33,7 +33,7 @@ function toPetModelConfig(dto: PetModelConfigDTO): PetModelConfig {
 }
 
 /** 获取全部模型配置 */
-export async function listPetModels(): Promise<PetModelConfig[]> {
+async function listPetModels(): Promise<PetModelConfig[]> {
   const dtos = (await window.electronAPI?.pet?.listModels()) ?? []
   return dtos.map(toPetModelConfig)
 }

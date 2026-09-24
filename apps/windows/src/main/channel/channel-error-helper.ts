@@ -23,7 +23,7 @@ export const CHANNEL_ACK_TEXT = '✅ 已收到，正在处理…'
  * 5. ACP 后端不可用 / AcpBackendManager.xxx → 保持原信息（Acp 路径已自己回复）
  * 6. 否则拼接原 message（截断到 200 字符内，避免刷屏）
  */
-export function toFriendlyChannelError(err: unknown): string {
+function toFriendlyChannelError(err: unknown): string {
   const msg =
     err instanceof Error
       ? (err.message || '').trim()

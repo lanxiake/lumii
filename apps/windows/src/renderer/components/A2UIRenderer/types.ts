@@ -54,7 +54,7 @@ export interface A2UIDivider {
 // 扩展组件
 // ---------------------------------------------------------------
 
-export interface A2UIChartDataset {
+interface A2UIChartDataset {
   label: string
   values: number[]
 }
@@ -117,7 +117,7 @@ export interface A2UIFilePreview {
   editable?: boolean
 }
 
-export interface A2UIDataTableColumn {
+interface A2UIDataTableColumn {
   key: string
   label: string
   sortable?: boolean

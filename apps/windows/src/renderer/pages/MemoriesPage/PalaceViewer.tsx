@@ -420,5 +420,3 @@ export const PalaceViewer: React.FC = () => {
     </div>
   )
 }
-
-export default PalaceViewer

@@ -86,5 +86,3 @@ export function VoiceCallPanel({
     </div>
   )
 }
-
-export default VoiceCallPanel

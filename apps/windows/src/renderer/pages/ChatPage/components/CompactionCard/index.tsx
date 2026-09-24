@@ -88,5 +88,4 @@ const CompactionCard: React.FC<CompactionCardProps> = ({
   )
 }
 
-export default CompactionCard
 export { CompactionCard }

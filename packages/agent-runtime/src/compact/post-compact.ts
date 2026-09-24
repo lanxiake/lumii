@@ -38,7 +38,7 @@ export class RecompactionTracker {
 }
 
 /** 压缩后上下文重建的运行时上下文 */
-export interface PostCompactContext {
+interface PostCompactContext {
   /** 被压缩掉的旧消息段（供重建器决定回填哪些文件/状态） */
   oldMessages: AgentMessage[];
   /** 压缩后保留的最近消息段 */

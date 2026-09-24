@@ -3,7 +3,7 @@
  */
 
 /** 下拉框选项摘要（快照中随 combobox 一起回传） */
-export interface AppUiRefOption {
+interface AppUiRefOption {
   value: string
   label: string
 }

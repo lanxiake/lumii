@@ -37,7 +37,7 @@ import { registerClientCommandTools, registerAgentManagementTools } from './brid
 import { registerHandoffTools } from './bridge-tool-registrar-handoff'
 import type { BridgeToolRegistrarDeps } from './bridge-tool-registrar-types'
 
-export type { BridgeToolRegistrarDeps, WeixinCtxAccessor } from './bridge-tool-registrar-types'
+export type { BridgeToolRegistrarDeps } from './bridge-tool-registrar-types'
 export { resolveChannelFromSessionKey } from './bridge-tool-registrar-cron'
 
 export class BridgeToolRegistrar {

@@ -3,6 +3,4 @@ export type {
   StoreSkillInfo,
   SkillCategory,
   StoreFilters,
-  StoreStats,
-  SkillUploadData,
 } from './useSkillStore'

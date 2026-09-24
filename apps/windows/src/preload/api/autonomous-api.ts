@@ -10,7 +10,7 @@ import type { AutonomousSettings, Mood, Concern } from '@mtbot/agent-runtime'
 /**
  * 内心 Tab 日记流条目（evolution:main 会话里 agent 的自述/独白）
  */
-export interface DiaryEntry {
+interface DiaryEntry {
   id: string
   text: string
   timestamp: number

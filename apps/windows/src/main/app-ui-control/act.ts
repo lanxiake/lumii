@@ -24,9 +24,9 @@ export const KEY_WHITELIST = [
   'Space',
 ] as const
 
-export type AllowedKey = (typeof KEY_WHITELIST)[number]
+type AllowedKey = (typeof KEY_WHITELIST)[number]
 
-export type ClickAllowedError =
+type ClickAllowedError =
   | 'missing_ref'
   | 'stale_snapshot'
   | 'blocked_composer'
@@ -38,16 +38,16 @@ export type ClickAllowedError =
  * - click_blocked：元素还在，但中心点被弹层/遮罩挡住，硬点会误触遮罩
  * - use_select_action：目标是原生 select，点击只会弹出截图捕获不到的系统菜单
  */
-export type ClickPrepareError = 'click_target_lost' | 'click_blocked' | 'use_select_action'
+type ClickPrepareError = 'click_target_lost' | 'click_blocked' | 'use_select_action'
 
 /** act 通用错误（含 usage，供 key 白名单拒绝等） */
-export type ActUsageError = 'usage'
+type ActUsageError = 'usage'
 
 /** scrollToText 专用：已按方向滚动查找完毕仍未命中匹配文字 */
-export type ScrollSearchError = 'not_found'
+type ScrollSearchError = 'not_found'
 
 /** type/select 注入阶段错误 */
-export type ActInjectError = 'not_editable' | 'not_select' | 'option_not_found' | 'inject_failed'
+type ActInjectError = 'not_editable' | 'not_select' | 'option_not_found' | 'inject_failed'
 
 export type AppUiClickError = ClickAllowedError | ClickPrepareError | 'app_not_running'
 

@@ -2,7 +2,7 @@ import React, { forwardRef, InputHTMLAttributes, ReactNode } from 'react';
 import clsx from 'clsx';
 import styles from './Input.module.css';
 
-export interface InputProps
+interface InputProps
   extends Omit<InputHTMLAttributes<HTMLInputElement>, 'prefix'> {
   label?: string;
   error?: string;

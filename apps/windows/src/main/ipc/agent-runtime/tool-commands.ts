@@ -138,7 +138,7 @@ export function handleToolEvolutionRemove(
 }
 
 /** CLI 模拟数据的 agentId 标记（deleteByAgent 可整批清理） */
-export const SIMULATED_AGENT_ID = 'cli-simulator'
+const SIMULATED_AGENT_ID = 'cli-simulator'
 
 export function handleToolEvolutionSimulate(
   bridge: AgentRuntimeBridge,

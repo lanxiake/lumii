@@ -36,7 +36,7 @@ export interface ImageProcessingContext {
 }
 
 /** 识别结果 */
-export interface RecognitionResult {
+interface RecognitionResult {
   kind: 'recognize'
   description: string
   ocrText: string
@@ -45,7 +45,7 @@ export interface RecognitionResult {
 }
 
 /** 处理类结果（美化 / 抠图 / 超分等），输出新图片路径 */
-export interface TransformResult {
+interface TransformResult {
   kind: 'transform'
   operation: string
   outputPath: string
@@ -53,7 +53,7 @@ export interface TransformResult {
 }
 
 /** 策略执行失败的结果（不抛异常，让调用方决定如何展示） */
-export interface FailedResult {
+interface FailedResult {
   kind: 'failed'
   strategy: string
   errorCode?: string
@@ -95,7 +95,7 @@ async function sendCommand<TResult>(payload: Record<string, unknown>): Promise<T
 // ---------------------------------------------------------------
 
 /** 图片识别策略（OCR + 图文描述，默认启用） */
-export const recognizeStrategy: ImageProcessingStrategy = {
+const recognizeStrategy: ImageProcessingStrategy = {
   name: 'recognize',
   description: '使用多模态模型识别图片内容并提取文字（OCR）',
   defaultEnabled: true,
@@ -122,7 +122,7 @@ export const recognizeStrategy: ImageProcessingStrategy = {
 }
 
 /** 图片美化策略（占位，尚未实现） */
-export const beautifyStrategy: ImageProcessingStrategy = {
+const beautifyStrategy: ImageProcessingStrategy = {
   name: 'beautify',
   description: '智能美化（亮度 / 色调 / 降噪），开发中',
   defaultEnabled: false,
@@ -140,7 +140,7 @@ export const beautifyStrategy: ImageProcessingStrategy = {
 }
 
 /** 分辨率提升策略（占位） */
-export const upscaleStrategy: ImageProcessingStrategy = {
+const upscaleStrategy: ImageProcessingStrategy = {
   name: 'upscale',
   description: '超分辨率（2x / 4x），开发中',
   defaultEnabled: false,
@@ -157,7 +157,7 @@ export const upscaleStrategy: ImageProcessingStrategy = {
 }
 
 /** 智能抠图策略（占位） */
-export const bgRemoveStrategy: ImageProcessingStrategy = {
+const bgRemoveStrategy: ImageProcessingStrategy = {
   name: 'bg-remove',
   description: '智能抠图去背景，开发中',
   defaultEnabled: false,
@@ -185,7 +185,7 @@ const STRATEGY_REGISTRY: ImageProcessingStrategy[] = [
 ]
 
 /** 注册自定义策略（后续扩展） */
-export function registerImageProcessingStrategy(strategy: ImageProcessingStrategy): void {
+function registerImageProcessingStrategy(strategy: ImageProcessingStrategy): void {
   const existing = STRATEGY_REGISTRY.findIndex((s) => s.name === strategy.name)
   if (existing >= 0) {
     logger.warn(`[register] 覆盖已存在策略: ${strategy.name}`)
@@ -196,7 +196,7 @@ export function registerImageProcessingStrategy(strategy: ImageProcessingStrateg
 }
 
 /** 列出所有注册的策略 */
-export function listImageProcessingStrategies(): readonly ImageProcessingStrategy[] {
+function listImageProcessingStrategies(): readonly ImageProcessingStrategy[] {
   return STRATEGY_REGISTRY
 }
 

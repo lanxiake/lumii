@@ -16,8 +16,6 @@ export {
   createReadBeforeWriteHook,
   createToolResultPersistHook,
   type ToolRunnerLogger,
-  type ReadBeforeWriteHookOptions,
-  type ToolResultPersistHookOptions,
 } from "./hooks/index.js";
 export {
   FileStateCache,
@@ -27,10 +25,6 @@ export {
 } from "./file-state-cache.js";
 export {
   persistLargeResult,
-  DEFAULT_PERSIST_THRESHOLD,
-  DEFAULT_PREVIEW_LENGTH,
-  type PersistLargeResultOptions,
-  type PersistLargeResultOutcome,
 } from "./tool-result-storage.js";
 export {
   createTemplateTool,

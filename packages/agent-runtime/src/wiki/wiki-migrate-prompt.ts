@@ -17,7 +17,7 @@ import { validateTopicAssignment, type WikiTopicTree } from "./wiki-topic-tree.j
 export const MIGRATE_PLAN_BATCH_SIZE = 30;
 
 /** 低于此置信度的映射标为 conflict，预览需人工处理 */
-export const MIGRATE_CONFIDENCE_THRESHOLD = 0.6;
+const MIGRATE_CONFIDENCE_THRESHOLD = 0.6;
 
 /**
  * 构造 MapPlan 阶段 prompt：分类口诀 + wiki 占用/锚点 + 源目录树 + 本批簇。

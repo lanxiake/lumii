@@ -13,7 +13,7 @@ import type { MemoryEntry, ExtractedCandidate, MemoryCategory } from "./types.js
 import { stripDrawerPointer } from "./content-address.js";
 
 /** 待更新的已有记忆（合并后的字段） */
-export interface MemoryUpdate {
+interface MemoryUpdate {
   readonly id: string;
   readonly tags: readonly string[];
   readonly importance: number;

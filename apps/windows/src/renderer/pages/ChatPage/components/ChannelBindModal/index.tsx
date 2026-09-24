@@ -412,5 +412,3 @@ export const ChannelBindModal: React.FC<ChannelBindModalProps> = ({ open, onClos
     </>
   )
 }
-
-export default ChannelBindModal

@@ -45,7 +45,7 @@ export interface DeliveryTarget {
 /**
  * 送达配置接口
  */
-export interface DeliverySettings {
+interface DeliverySettings {
   channel: string
   peerId?: string
 }

@@ -123,7 +123,7 @@ function mapRuntimeMessageToChatMessage(msg: RuntimeMessage) {
 }
 
 /** ChatPage 可选 props（由 Router 传入主导航视图） */
-export interface ChatPageProps {
+interface ChatPageProps {
   /**
    * 当前主导航视图；切换到「对话」时会再次拉取会话列表，避免启动竞态下侧栏长期为空。
    */

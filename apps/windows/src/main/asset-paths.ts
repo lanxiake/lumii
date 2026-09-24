@@ -12,7 +12,7 @@ import { app } from 'electron'
 /**
  * 返回 assets 目录绝对路径
  */
-export function getAssetsDir(): string {
+function getAssetsDir(): string {
   if (app.isPackaged) {
     return join(process.resourcesPath, 'assets')
   }
@@ -23,7 +23,7 @@ export function getAssetsDir(): string {
 /**
  * 解析指定资源文件；若不存在则尝试备选名
  */
-export function resolveAssetPath(...candidates: string[]): string {
+function resolveAssetPath(...candidates: string[]): string {
   const dir = getAssetsDir()
   for (const name of candidates) {
     const full = join(dir, name)

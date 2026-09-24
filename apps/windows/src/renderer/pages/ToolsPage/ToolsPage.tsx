@@ -207,5 +207,3 @@ export const ToolsPage: React.FC<ToolsPageProps> = ({ embedded = false }) => {
     </div>
   )
 }
-
-export default ToolsPage

@@ -2,7 +2,7 @@ import React, { ReactNode } from 'react';
 import clsx from 'clsx';
 import styles from './Tag.module.css';
 
-export interface TagProps {
+interface TagProps {
   color?: 'default' | 'primary' | 'success' | 'warning' | 'error' | 'info' | string;
   closable?: boolean;
   onClose?: () => void;
@@ -50,4 +50,3 @@ const Tag: React.FC<TagProps> = ({
 };
 
 export { Tag };
-export default Tag;

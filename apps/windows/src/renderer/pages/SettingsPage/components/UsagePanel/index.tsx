@@ -268,5 +268,3 @@ export const UsagePanel: React.FC = () => {
     </div>
   )
 }
-
-export default UsagePanel

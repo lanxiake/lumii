@@ -8,7 +8,7 @@
  * 将麦克风音轨接到 destination；无麦时返回 null（仅视频轨录制）。
  * @returns MediaStreamAudioDestinationNode 的 stream，或 null
  */
-export function mixMicIntoDestination(
+function mixMicIntoDestination(
   audioCtx: AudioContext,
   micStream: MediaStream,
 ): MediaStream {

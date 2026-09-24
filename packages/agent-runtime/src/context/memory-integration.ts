@@ -13,7 +13,7 @@ import { hasMemoryTrigger } from "../memory/memory-extractor.js";
 import { stripMemoryPlaceholder } from "../memory/memory-injector.js";
 
 /** 记忆集成所需的最小 agent 状态访问能力（避免依赖 pi-agent-core 具体类型） */
-export interface AgentStateAccessor {
+interface AgentStateAccessor {
   /** 当前对话消息（结构未知，按 role/content 鸭子类型读取） */
   readonly messages: readonly unknown[];
   /** 当前系统提示词 */

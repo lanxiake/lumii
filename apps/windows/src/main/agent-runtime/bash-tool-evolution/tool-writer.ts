@@ -35,7 +35,7 @@ export interface PendingToolDraft extends ToolDraft {
   draftId: string
 }
 
-export function resolveToolsDir(): string {
+function resolveToolsDir(): string {
   return path.join(resolveLegacyWorkspaceDir(), 'tools')
 }
 

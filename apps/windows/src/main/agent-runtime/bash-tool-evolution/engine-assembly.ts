@@ -32,7 +32,7 @@ const TOOL_EVO_NOTIFY_TITLE = 'Lumii · 工具进化'
  * 不再注入用户当前活跃会话，避免打断正常对话上下文。
  * 同时发送系统桌面通知，点击可跳转到进化会话查看详情。
  */
-export function buildApprovalPromptEmitter(
+function buildApprovalPromptEmitter(
   bridge: AgentRuntimeBridge,
   getMainWindow: () => BrowserWindow | null,
 ): (text: string) => void {

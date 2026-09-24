@@ -22,17 +22,17 @@ import type { FileReference } from './index'
 /** chip 根节点上的判别标记 */
 export const CHIP_ATTR = 'data-composer-chip'
 
-export interface QuoteChipSpec {
+interface QuoteChipSpec {
   kind: 'quote'
   input: QuoteInput
 }
 
-export interface FileChipSpec {
+interface FileChipSpec {
   kind: 'file'
   ref: FileReference
 }
 
-export type ChipSpec = QuoteChipSpec | FileChipSpec
+type ChipSpec = QuoteChipSpec | FileChipSpec
 
 export type ComposerSegment =
   | { kind: 'text'; text: string }
@@ -40,7 +40,7 @@ export type ComposerSegment =
   | FileChipSpec
 
 /** 文件引用写进消息里的文本形态（Agent 侧按它认路径，不能改） */
-export function fileToken(ref: FileReference): string {
+function fileToken(ref: FileReference): string {
   return `@${ref.relativePath}`
 }
 

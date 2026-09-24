@@ -819,5 +819,4 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ onViewChange, embedded = false 
   )
 }
 
-export default AgentsPage
 export { AgentsPage }

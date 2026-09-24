@@ -21,7 +21,7 @@ function joinPathPrefix(userPath: readonly string[] | null | undefined): string 
 }
 
 /** 芯片粒度和 media_type 不是一对一：音视频一个芯片覆盖 audio + video 两种类型 */
-export type WikiMediaChip = 'all' | 'document' | 'image' | 'av'
+type WikiMediaChip = 'all' | 'document' | 'image' | 'av'
 
 const MEDIA_CHIPS: ReadonlyArray<{ key: WikiMediaChip; label: string }> = [
   { key: 'all', label: '全部' },
@@ -333,5 +333,3 @@ export const WikiFileList: React.FC<WikiFileListProps> = ({
     </div>
   )
 }
-
-export default WikiFileList

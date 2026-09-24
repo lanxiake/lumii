@@ -229,7 +229,7 @@ export interface StoreFilters {
 /**
  * 商店统计信息
  */
-export interface StoreStats {
+interface StoreStats {
   totalSkills: number
   totalDownloads: number
   categories: SkillCategory[]
@@ -239,7 +239,7 @@ export interface StoreStats {
 /**
  * 技能上传数据
  */
-export interface SkillUploadData {
+interface SkillUploadData {
   /** 技能名称 */
   name: string
   /** 技能描述 */

@@ -35,7 +35,7 @@ export const BUILTIN_AGENT_ID_ALIASES: Readonly<Record<string, string>> = {
 };
 
 /** 模型常编造、不在定义表中的「角色名」（等同省略 agentType） */
-export const INVENTED_SPAWN_AGENT_TYPES: Readonly<Set<string>> = new Set([
+const INVENTED_SPAWN_AGENT_TYPES: Readonly<Set<string>> = new Set([
   "worker",
   "researcher",
 ]);

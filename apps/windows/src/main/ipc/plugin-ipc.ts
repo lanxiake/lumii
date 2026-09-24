@@ -4,7 +4,7 @@ import { promises as fs, existsSync, readdirSync } from 'fs'
 import os from 'os'
 import { resolveClientStateDir } from '../paths'
 
-export interface PluginIpcLogger {
+interface PluginIpcLogger {
   info: (...args: unknown[]) => void
   warn: (...args: unknown[]) => void
   error: (...args: unknown[]) => void
@@ -53,7 +53,7 @@ export async function writeSoulFile(content: string): Promise<{ updatedAt: strin
   }
 }
 
-export function getUserMemoryFilePath(): string {
+function getUserMemoryFilePath(): string {
   return join(resolveClientStateDir(), 'data', 'user-memory.md')
 }
 

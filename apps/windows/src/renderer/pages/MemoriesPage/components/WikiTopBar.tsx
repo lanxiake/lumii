@@ -150,5 +150,3 @@ export const WikiTopBar: React.FC<WikiTopBarProps> = ({
     </header>
   )
 }
-
-export default WikiTopBar

@@ -15,8 +15,6 @@ import { QbotChannelSettings } from '../QbotChannelSettings'
 import { useChannelSnapshots } from './useChannelSnapshots'
 import styles from './ChannelsSection.module.css'
 
-export type { ChannelSnapshot, ChannelPeerSnapshot, OutboundChannelId } from './useChannelSnapshots'
-
 const TOTAL_CHANNELS = 4
 
 /**
@@ -57,5 +55,3 @@ export const ChannelsSection: React.FC = () => {
     </div>
   )
 }
-
-export default ChannelsSection

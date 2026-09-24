@@ -8,10 +8,10 @@
 export type OutboundChannelId = 'feishu' | 'weixin' | 'wecom' | 'qbot'
 
 /** 出站能力模式：真 Push / 缓存 token 伪 Push / 仅被动回复 */
-export type ChannelPushMode = 'native_push' | 'cached_reply' | 'reply_only'
+type ChannelPushMode = 'native_push' | 'cached_reply' | 'reply_only'
 
 /** 稳定错误码（硬失败，禁止 silent success） */
-export type ChannelSendErrorCode =
+type ChannelSendErrorCode =
   | 'CHANNEL_NOT_CONNECTED'
   | 'HUB_NOT_READY'
   | 'PEER_NOT_FOUND'

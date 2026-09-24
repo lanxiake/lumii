@@ -14,7 +14,7 @@ import './PromptVariantStats.css'
 /**
  * Prompt 变体数据
  */
-export interface PromptVariant {
+interface PromptVariant {
   id: string
   variantText: string
   isBaseline: boolean

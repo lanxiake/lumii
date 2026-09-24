@@ -1117,5 +1117,3 @@ const DockTextButton: React.FC<{
     {children}
   </button>
 )
-
-export default PetControlDock

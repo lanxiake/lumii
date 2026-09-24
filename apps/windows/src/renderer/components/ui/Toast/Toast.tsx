@@ -3,7 +3,7 @@ import clsx from 'clsx';
 import { ToastItem, TOAST_DEFAULT_DURATION_MS } from './ToastContext';
 import styles from './Toast.module.css';
 
-export interface ToastProps extends ToastItem {
+interface ToastProps extends ToastItem {
   onClose?: (id: string) => void;
 }
 
@@ -71,4 +71,3 @@ const Toast: React.FC<ToastProps> = ({
 };
 
 export { Toast };
-export default Toast;

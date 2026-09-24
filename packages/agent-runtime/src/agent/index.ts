@@ -11,20 +11,6 @@ export {
   type DefinitionSyncStatus,
 } from "./definition-store.js";
 export {
-  BUILTIN_AGENT_DEFINITIONS,
-  BUILTIN_AGENT_ID_PREFIX,
-  findBuiltInAgent,
-  isBuiltInSubAgentId,
-} from "./builtin/definitions.js";
-export {
-  BUILTIN_AGENT_DISPLAY_NAMES,
-  BUILTIN_AGENT_ID_ALIASES,
-  INVENTED_SPAWN_AGENT_TYPES,
-  normalizeAgentTypeId,
-  resolveBuiltinDisplayName,
-  resolveSpawnAgentTypeInput,
-} from "./builtin/agent-display-names.js";
-export {
   HookExecutor,
   type HookContext,
   type HookResult,
@@ -93,11 +79,4 @@ export {
   VERIFICATION_NUDGE_TEXT,
   type NudgeTaskLike,
 } from "./verification-nudge.js";
-export {
-  markVerified,
-  isVerified,
-  recordCompleteAttempt,
-  resetCompleteAttempts,
-  _clearVerificationRegistry,
-} from "./verification-tracker.js";
 export { createVerificationGateHook } from "./hooks/verification-gate-hook.js";

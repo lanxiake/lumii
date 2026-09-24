@@ -708,5 +708,3 @@ export const WorkspaceVersionPanel: React.FC<WorkspaceVersionPanelProps> = ({
     document.body,
   )
 }
-
-export default WorkspaceVersionPanel

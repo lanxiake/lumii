@@ -30,7 +30,7 @@ import { recordToolUsage } from '../../tool-usage-store'
 export const FAILURE_SUMMARY_MAX_CHARS = 300
 
 /** 失败审计落库出口（由 bridge 注入；未注入时静默降级，只计数） */
-export type ToolFailureAudit = (row: {
+type ToolFailureAudit = (row: {
   readonly toolName: string
   readonly resultSummary: string
   readonly isError: boolean

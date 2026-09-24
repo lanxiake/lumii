@@ -385,5 +385,3 @@ export const WindowEdgeGlow: React.FC<WindowEdgeGlowProps> = ({ disabled = false
     />
   )
 }
-
-export default WindowEdgeGlow

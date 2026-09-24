@@ -69,5 +69,3 @@ export const Router: React.FC<RouterProps> = ({ activeView, onViewChange }) => {
     </>
   )
 }
-
-export default Router

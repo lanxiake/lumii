@@ -163,4 +163,4 @@ export function useDashboard() {
   }
 }
 
-export type UseDashboardReturn = ReturnType<typeof useDashboard>
+type UseDashboardReturn = ReturnType<typeof useDashboard>

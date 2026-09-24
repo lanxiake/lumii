@@ -8,17 +8,7 @@
 export type {
   ChatMessage,
   ChatSession,
-  SessionSource,
-  StreamingMessage,
-  ChatEventPayload,
-  MessageAttachment,
   ToolCall,
-  AgentEventPayload,
-  AgentEventData,
   AgentWorkflowItem,
   ChildToolItem,
-  SubagentRun,
-  RunRecord,
-  AssistantPart,
-  FileChangeEntry,
 } from './useChat.types'

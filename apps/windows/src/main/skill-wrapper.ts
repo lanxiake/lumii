@@ -37,7 +37,7 @@ const EXTENSION_RUNTIME_MAP: Record<string, SkillManifest['runtime']> = {
  * @param filePath - 文件路径（仅使用扩展名）
  * @returns runtime 类型，不支持的扩展名返回 null
  */
-export function inferRuntime(filePath: string): SkillManifest['runtime'] | null {
+function inferRuntime(filePath: string): SkillManifest['runtime'] | null {
   const ext = path.extname(filePath).toLowerCase()
   return EXTENSION_RUNTIME_MAP[ext] ?? null
 }

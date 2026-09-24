@@ -50,7 +50,7 @@ interface McpServersFile {
 }
 
 /** MCP 配置文件路径 */
-export function getMcpConfigPath(): string {
+function getMcpConfigPath(): string {
   return path.join(resolveSharedConfigDir(), 'mcp-servers.json')
 }
 
@@ -171,7 +171,7 @@ function normalizeRawEntry(name: string, rec: McpServerRecord & { url?: string; 
 }
 
 /** 解析配置文本为条目列表；失败时抛出带原因的 Error */
-export function parseMcpServerConfigs(raw: string): McpServerEntry[] {
+function parseMcpServerConfigs(raw: string): McpServerEntry[] {
   let parsed: McpServersFile & {
     mcpServers?: Record<string, McpServerRecord & { url?: string; disabled?: boolean }>
   }

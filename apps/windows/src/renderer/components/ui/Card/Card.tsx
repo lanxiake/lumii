@@ -2,7 +2,7 @@ import React, { ReactNode } from 'react';
 import clsx from 'clsx';
 import styles from './Card.module.css';
 
-export interface CardProps {
+interface CardProps {
   title?: string;
   children: ReactNode;
   header?: ReactNode;
@@ -57,4 +57,3 @@ const Card: React.FC<CardProps> = ({
 };
 
 export { Card };
-export default Card;

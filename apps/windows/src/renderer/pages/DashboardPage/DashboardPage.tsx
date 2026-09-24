@@ -28,7 +28,7 @@ function formatGb(bytes: number | undefined): string {
   return `${(bytes / 1024 ** 3).toFixed(1)} GB`
 }
 
-export interface DashboardPageProps {
+interface DashboardPageProps {
   /** 视图切换回调 */
   onViewChange?: (view: ViewType) => void
 }
@@ -168,4 +168,3 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ onViewChange }) => {
 }
 
 export { DashboardPage }
-export default DashboardPage

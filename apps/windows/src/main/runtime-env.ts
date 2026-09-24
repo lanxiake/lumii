@@ -47,7 +47,7 @@ export function _resetSystemNodeCache(primed?: string | null): void {
 }
 
 /** 系统上是否有可用的 node */
-export function detectSystemNode(): string | null {
+function detectSystemNode(): string | null {
   if (cachedSystemNode !== undefined) return cachedSystemNode
   try {
     execSync('node --version', { encoding: 'utf-8', timeout: 5000, windowsHide: true })
@@ -138,7 +138,7 @@ ${envLinesCmd}\r
  * 只为系统缺失的命令写 shim；系统已有的不写，避免遮蔽用户环境。
  * 每次启动重写一遍（内容含绝对路径，客户端换安装位置后需刷新）。
  */
-export async function writeShims(): Promise<void> {
+async function writeShims(): Promise<void> {
   const dir = getShimDir()
   await fs.mkdir(dir, { recursive: true })
 

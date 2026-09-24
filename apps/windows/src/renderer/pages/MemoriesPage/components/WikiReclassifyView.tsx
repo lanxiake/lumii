@@ -167,5 +167,3 @@ export const WikiReclassifyView: React.FC<WikiReclassifyViewProps> = ({
   )
 }
 
-export default WikiReclassifyView
-

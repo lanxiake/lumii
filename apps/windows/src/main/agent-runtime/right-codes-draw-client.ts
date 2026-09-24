@@ -20,7 +20,6 @@ import { pollRightApiTaskById, downloadRightApiImage } from './rightapi-image-cl
 import { agentRuntimeLog as log } from './bridge-utils'
 
 /** @deprecated 使用 DEFAULT_DRAW_API_BASE_URL（来自 draw-config 模块） */
-export { DEFAULT_DRAW_API_BASE_URL }
 
 /** nano-banana 系列（Right Code Draw 原生支持） */
 const CHAT_COMPLETIONS_IMAGE_MODELS = new Set([
@@ -94,7 +93,7 @@ function resolveImageUpstreamConfig(): ImageUpstreamConfig | null {
 /**
  * 解析 Right Code Draw 配置（需先经 loadDrawConfig 注入环境变量）。
  */
-export function resolveDrawApiConfig(): { baseUrl: string; apiKey: string } {
+function resolveDrawApiConfig(): { baseUrl: string; apiKey: string } {
   const apiKey = process.env.MTBOT_DRAW_API_KEY?.trim() ?? ''
   const baseUrl = (
     process.env.MTBOT_DRAW_API_BASE_URL?.trim() || DEFAULT_DRAW_API_BASE_URL

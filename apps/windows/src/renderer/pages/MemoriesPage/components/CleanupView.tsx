@@ -249,5 +249,3 @@ export const CleanupView: React.FC<CleanupViewProps> = ({
     </div>
   )
 }
-
-export default CleanupView

@@ -5,7 +5,7 @@
 import type { PromptStyleValue } from '../../../../shared/prompt-style'
 
 /** 主题配置 */
-export interface ThemeConfig {
+interface ThemeConfig {
   /** light/dark/system 为标准模式；eye-care 为护眼暖色浅色主题 */
   mode: 'light' | 'dark' | 'system' | 'eye-care'
   primaryColor: string
@@ -31,7 +31,7 @@ export interface PrivacyConfig {
 }
 
 /** 快捷键配置 */
-export interface ShortcutConfig {
+interface ShortcutConfig {
   sendMessage: string
   newChat: string
   toggleSidebar: string
@@ -50,7 +50,7 @@ export interface WorkspaceConfig {
 }
 
 /** 窗口配置 */
-export interface WindowConfig {
+interface WindowConfig {
   /** 窗口透明度 0~1 */
   opacity: number
   /** 侧边栏宽度（像素） */
@@ -84,7 +84,7 @@ export interface MemoryConfig {
  * - terse：索引式 + 渐进式加载（段尾引导句按需展开），面向强模型；系统初始化默认
  * - minimal：极简——terse 之上，发给模型的工具定义只保留名称+参数（复杂工具保留描述）
  */
-export interface PromptStyleConfig {
+interface PromptStyleConfig {
   style: PromptStyleValue
 }
 

@@ -61,5 +61,3 @@ export const SelectionContextMenu: React.FC<SelectionContextMenuProps> = ({
     document.body,
   )
 }
-
-export default SelectionContextMenu

@@ -14,7 +14,7 @@ export interface SendUserMessageOptions {
 }
 
 /** 生成与本地乐观写入同源的稳定消息 id（主进程按此 id 落库，切会话不重复） */
-export function makeUserMessageId(): string {
+function makeUserMessageId(): string {
   return typeof crypto !== 'undefined' && crypto.randomUUID
     ? crypto.randomUUID()
     : `user-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`

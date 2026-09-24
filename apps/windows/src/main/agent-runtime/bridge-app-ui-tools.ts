@@ -68,7 +68,7 @@ function effectiveLimit(kind: AppUiToolKind, now: number): number {
 }
 
 /** 配额超限时回传给模型的信息，避免它盲目 sleep 或反复重试 */
-export interface AppUiQuotaExceeded {
+interface AppUiQuotaExceeded {
   ok: false
   error: 'quota_exceeded'
   tool: AppUiToolKind

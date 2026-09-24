@@ -356,5 +356,3 @@ export const NewsFeed: React.FC<NewsFeedProps> = ({ onViewChange }) => {
     </Card>
   )
 }
-
-export default NewsFeed

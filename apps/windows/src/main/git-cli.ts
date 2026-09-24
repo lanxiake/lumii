@@ -26,7 +26,7 @@ const log = {
 }
 
 /** 单次 git 命令的默认超时；超时即杀，绝不无限等 */
-export const DEFAULT_GIT_TIMEOUT_MS = 120_000
+const DEFAULT_GIT_TIMEOUT_MS = 120_000
 
 /**
  * 两个仓库都必须带上的 `-c`，**每一条都是必须的**：
@@ -59,7 +59,7 @@ export const DEFAULT_GIT_TIMEOUT_MS = 120_000
  * 代价是对象目录会慢慢变大（本就不小的 1.5GB 量级）。**这是刻意的取舍**：
  * 仓库形状必须迁就能力更弱的那一方。
  */
-export const GIT_BASE_CONFIG: readonly string[] = [
+const GIT_BASE_CONFIG: readonly string[] = [
   '-c', 'core.autocrlf=false',
   '-c', 'core.safecrlf=false',
   '-c', 'commit.gpgsign=false',
@@ -104,7 +104,7 @@ function ensureEmptyConfig(gitDir: string): string {
 }
 
 /** 构造 git 环境变量（提交身份走环境变量，避免读写用户 config） */
-export function gitEnvFor(gitDir: string, author = { name: 'Mtbot', email: 'vcs@mtbot.local' }): NodeJS.ProcessEnv {
+function gitEnvFor(gitDir: string, author = { name: 'Mtbot', email: 'vcs@mtbot.local' }): NodeJS.ProcessEnv {
   const cfg = ensureEmptyConfig(gitDir)
   return {
     ...process.env,
@@ -125,7 +125,7 @@ export function gitEnvFor(gitDir: string, author = { name: 'Mtbot', email: 'vcs@
 }
 
 /** 组装完整参数（供执行与日志共用，避免两处拼得不一样） */
-export function gitArgv(opts: {
+function gitArgv(opts: {
   workTree: string
   gitDir: string
   args: readonly string[]

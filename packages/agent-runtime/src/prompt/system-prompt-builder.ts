@@ -68,7 +68,6 @@ export type {
   WorkspaceLayout,
   ContextFile,
   UserDeviceInfo,
-  McpToolInfo,
   McpServerHint,
   ActiveTaskInfo,
   PromptStyle,

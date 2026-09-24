@@ -105,5 +105,3 @@ export const PromptInputModal: React.FC<PromptInputModalProps> = ({
     </Modal>
   )
 }
-
-export default PromptInputModal

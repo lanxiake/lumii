@@ -12,7 +12,7 @@ export interface CronJobGroup {
 
 const GROUP_ORDER: CronJobSource[] = ['user', 'system', 'agent']
 
-export const GROUP_LABELS: Record<CronJobSource, string> = {
+const GROUP_LABELS: Record<CronJobSource, string> = {
   user: '我的任务',
   system: '系统任务',
   agent: 'Agent 自建',

@@ -13,7 +13,7 @@ export type AskUserDelivery = 'channel-only' | 'desktop'
  * 渠道文字化能承载的最大选项数（设计 §5.5）。
  * 超过这个数的选项列表在聊天窗里刷屏且无法对照，改为引导回客户端。
  */
-export const CHANNEL_MAX_OPTIONS = 3
+const CHANNEL_MAX_OPTIONS = 3
 
 /** 工具审批投递目标 */
 export type PermissionDelivery =

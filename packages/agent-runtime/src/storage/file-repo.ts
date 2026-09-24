@@ -13,7 +13,7 @@ import type { DatabaseAdapter } from "./local-database.js";
 export type FileSourceType = "agent_output" | "channel_upload" | "user_upload";
 export type FileCategory = "upload" | "output";
 
-export interface ClientFileRow {
+interface ClientFileRow {
   readonly id: string;
   readonly user_id: string;
   readonly agent_id: string | null;

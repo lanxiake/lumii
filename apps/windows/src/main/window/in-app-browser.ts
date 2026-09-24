@@ -10,7 +10,7 @@ import { BrowserWindow, shell } from 'electron'
 let fallbackWindow: BrowserWindow | null = null
 
 /** 在应用内浏览器窗口中打开 URL（单例复用，页面内新开链接就地导航） */
-export function openInAppBrowser(url: string): void {
+function openInAppBrowser(url: string): void {
   if (fallbackWindow && !fallbackWindow.isDestroyed()) {
     void fallbackWindow.loadURL(url)
     fallbackWindow.show()

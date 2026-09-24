@@ -1,12 +1,12 @@
 import { useState, useEffect, useCallback } from 'react'
 
-export interface InputTip {
+interface InputTip {
   text: string
   command?: string
 }
 
 /** 输入框 placeholder 轮播 Tips 文案库 */
-export const INPUT_TIPS: InputTip[] = [
+const INPUT_TIPS: InputTip[] = [
   { text: '输入 / 可以唤出斜杠命令菜单，快速执行常用操作', command: '/' },
   { text: '按 Ctrl+N 新建对话，Ctrl+B 收起/展开侧边栏' },
   { text: '发送消息时按 Shift+Enter 换行，Enter 直接发送' },

@@ -105,7 +105,7 @@ function fromCommandListEntry(entry: CommandListEntry): SlashCommand {
 let cachedCommands: SlashCommand[] | null = null
 
 /** 使缓存失效（用于 IPC 加载完成后刷新） */
-export function invalidateSlashCommandsCache(): void {
+function invalidateSlashCommandsCache(): void {
   cachedCommands = null
 }
 
@@ -166,7 +166,7 @@ export async function loadSlashCommandsFromIpc(): Promise<void> {
  * 保持向后兼容 — 导出 SLASH_COMMANDS 常量（实际使用 getSlashCommands()）
  * @deprecated 请使用 getSlashCommands()
  */
-export const SLASH_COMMANDS: SlashCommand[] = getBuiltinCommands()
+const SLASH_COMMANDS: SlashCommand[] = getBuiltinCommands()
 
 /** 按名称和别名查找命令（精确匹配） */
 export function findCommand(input: string): SlashCommand | null {

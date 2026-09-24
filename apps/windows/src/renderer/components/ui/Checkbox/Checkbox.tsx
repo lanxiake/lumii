@@ -2,7 +2,7 @@ import React, { forwardRef, useEffect, useRef, useState } from 'react';
 import clsx from 'clsx';
 import styles from './Checkbox.module.css';
 
-export interface CheckboxProps {
+interface CheckboxProps {
   checked?: boolean;
   defaultChecked?: boolean;
   onChange?: (checked: boolean) => void;
@@ -99,4 +99,3 @@ const Checkbox = forwardRef<HTMLInputElement, CheckboxProps>(
 Checkbox.displayName = 'Checkbox';
 
 export { Checkbox };
-export default Checkbox;

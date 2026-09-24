@@ -89,7 +89,7 @@ export function spawnFakeChild(realSpawn: SpawnLike, mode: 'serve' | 'stall'): C
 }
 
 /** 管道缓冲默认 64KB，写满它才能让写入挂在管道里（而不是被缓冲吞掉） */
-export const PENDING_WRITE_BYTES = 4 * 1024 * 1024
+const PENDING_WRITE_BYTES = 4 * 1024 * 1024
 
 /** 造一段大到写不完整、必然挂起的 payload */
 export function bigPayload(): string {

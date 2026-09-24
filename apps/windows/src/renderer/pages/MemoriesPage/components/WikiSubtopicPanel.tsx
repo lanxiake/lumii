@@ -205,5 +205,3 @@ export const WikiSubtopicPanel: React.FC<WikiSubtopicPanelProps> = ({
     </div>
   )
 }
-
-export default WikiSubtopicPanel

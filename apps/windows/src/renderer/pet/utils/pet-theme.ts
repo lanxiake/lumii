@@ -34,7 +34,7 @@
 export type PetAppliedTheme = 'light' | 'dark' | 'eye-care'
 
 /** 设置里可能写着的四档（含跟随系统） */
-export type PetThemeMode = PetAppliedTheme | 'system'
+type PetThemeMode = PetAppliedTheme | 'system'
 
 const THEME_KEY = 'mtbot_theme'
 const SETTINGS_KEY = 'mtbot-assistant-settings'

@@ -243,5 +243,3 @@ export const SplashOverlay: React.FC<SplashOverlayProps> = ({ onDone, waitForRea
     </div>
   )
 }
-
-export default SplashOverlay

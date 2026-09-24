@@ -182,5 +182,3 @@ export const NewsPreferencesPanel: React.FC<NewsPreferencesPanelProps> = ({ open
     </Modal>
   )
 }
-
-export default NewsPreferencesPanel

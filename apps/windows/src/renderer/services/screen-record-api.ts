@@ -36,7 +36,7 @@ let captureSingleton: ScreenRecordCapture | null = null
 /**
  * 获取全局 ScreenRecordCapture 单例（组件卸载不销毁）。
  */
-export function getScreenRecordCapture(): ScreenRecordCapture {
+function getScreenRecordCapture(): ScreenRecordCapture {
   if (!captureSingleton) {
     captureSingleton = new ScreenRecordCapture({
       nowMs: () => Date.now(),

@@ -14,7 +14,7 @@ import { webmToMp4 } from './ffmpeg-runner'
 import type { ScreenRecordServiceDeps, ScreenRecordWriteStream } from './screen-record-service'
 
 /** 生成 recording-yyyyMMdd-HHmmss.webm 文件名（本地时区） */
-export function formatRecordingFilename(now: Date = new Date()): string {
+function formatRecordingFilename(now: Date = new Date()): string {
   const pad = (n: number) => String(n).padStart(2, '0')
   const y = now.getFullYear()
   const M = pad(now.getMonth() + 1)
@@ -32,7 +32,7 @@ const LUMII_TITLE_RE = /灵栖|Lumii/i
  * 判断源是否为 Lumii 自身窗口。
  * 优先 mediaSourceId 精确匹配；否则标题 fallback。
  */
-export function markIsLumii(
+function markIsLumii(
   source: { id: string; name: string; display_id?: string },
   lumiiMediaSourceId: string | null,
 ): boolean {

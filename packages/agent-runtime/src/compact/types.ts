@@ -119,10 +119,10 @@ export interface CompactionInfo {
 // ==================== 策略类型 ====================
 
 /** 压缩策略枚举 */
-export type CompactStrategy = "micro" | "summary" | "hard-trim" | "none";
+type CompactStrategy = "micro" | "summary" | "hard-trim" | "none";
 
 /** 续聊强度（B3） */
-export type ResumeMode = "resume-task" | "resume-soft";
+type ResumeMode = "resume-task" | "resume-soft";
 
 /** 部分压缩方向（B3，预留：from 保前缀 / up_to 摘要在前） */
 export type PartialDirection = "from" | "up_to";
@@ -151,7 +151,7 @@ export interface LlmSummaryMessageOptions {
 }
 
 /** 单级策略执行结果（管线内部传递） */
-export interface CompactStageResult {
+interface CompactStageResult {
   messages: AgentMessage[];
   strategy: CompactStrategy;
   /** 该级是否实际改动了消息（false 时管线可继续尝试下一级） */
@@ -339,7 +339,7 @@ export interface TokenEstimation {
 }
 
 /** 活跃任务信息（摘要提示词注入用） */
-export type ActiveTaskInfo = {
+type ActiveTaskInfo = {
   id: string;
   subject: string;
   status: string;

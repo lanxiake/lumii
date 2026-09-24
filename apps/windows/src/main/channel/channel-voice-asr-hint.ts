@@ -27,7 +27,7 @@ export function setChannelAsrReadyChecker(fn: (() => boolean) | null): void {
 }
 
 /** 查询本地 ASR 模型是否就绪；未注入 checker 时视为未就绪。 */
-export function isChannelAsrModelReady(): boolean {
+function isChannelAsrModelReady(): boolean {
   try {
     return asrReadyChecker?.() ?? false
   } catch {

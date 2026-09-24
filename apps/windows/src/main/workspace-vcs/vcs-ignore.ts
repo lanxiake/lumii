@@ -8,7 +8,7 @@
  */
 
 /** 默认忽略条目（每行一条 .gitignore 规则） */
-export const DEFAULT_VCS_IGNORE_RULES: readonly string[] = [
+const DEFAULT_VCS_IGNORE_RULES: readonly string[] = [
   '# Lumii 工作空间版本管理默认忽略规则（自动生成，可手动追加）',
   'node_modules/',
   '.DS_Store',
@@ -83,7 +83,7 @@ export function shouldSkipWalkDir(relDir: string, entryName: string): boolean {
 }
 
 /** 按扩展名判定为二进制，跳过逐行文本 diff（仍纳入 status / commit） */
-export const VCS_BINARY_EXTENSIONS: ReadonlySet<string> = new Set([
+const VCS_BINARY_EXTENSIONS: ReadonlySet<string> = new Set([
   '.pdf', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.ico',
   '.zip', '.rar', '.7z', '.gz', '.tar', '.bz2',
   '.mp3', '.mp4', '.wav', '.webm', '.mov', '.avi',

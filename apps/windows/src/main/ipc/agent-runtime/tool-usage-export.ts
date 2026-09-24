@@ -1,7 +1,7 @@
 import type { ToolUsageMap } from '../../tool-usage-store'
 
 /** 导出文件中单个工具的一行 */
-export interface ToolUsageExportRow {
+interface ToolUsageExportRow {
   name: string
   count: number
   errorCount: number

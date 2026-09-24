@@ -13,7 +13,7 @@ export const CODING_DEV_BACKEND_IDS = [
   "opencode",
 ] as const;
 
-export const IMPLEMENTED_CODING_DEV_BACKEND_IDS = CODING_DEV_BACKEND_IDS;
+const IMPLEMENTED_CODING_DEV_BACKEND_IDS = CODING_DEV_BACKEND_IDS;
 
 export type CodingDevBackendId = (typeof CODING_DEV_BACKEND_IDS)[number];
 export type ImplementedCodingDevBackendId = (typeof IMPLEMENTED_CODING_DEV_BACKEND_IDS)[number];
@@ -41,7 +41,7 @@ export type CodingDevLightweightBackendOutput = {
 };
 
 /** 工具调用进度阶段 */
-export type CodingDevToolProgressPhase = "start" | "progress" | "end";
+type CodingDevToolProgressPhase = "start" | "progress" | "end";
 
 /** 工具调用进度结构（用于 kind:"tool"） */
 export type CodingDevToolProgress = {

@@ -111,7 +111,7 @@ export interface ApprovalDatabase {
 /**
  * 超时策略配置
  */
-export interface TimeoutPolicy {
+interface TimeoutPolicy {
   ttlMs: number
   onTimeout: ApprovalStatus
 }
@@ -123,7 +123,7 @@ export interface TimeoutPolicy {
  * - proactive-message: 2h 超时 → 拒绝（过期的主动消息是骚扰）
  * - skill-enhancement: 24h 超时 → 归档（有副作用，绝不自动批准）
  */
-export const TIMEOUT_POLICIES: Record<GoalType, TimeoutPolicy> = {
+const TIMEOUT_POLICIES: Record<GoalType, TimeoutPolicy> = {
   learning: { ttlMs: 4 * 3600_000, onTimeout: 'approved' },
   'proactive-message': { ttlMs: 2 * 3600_000, onTimeout: 'rejected' },
   'capability-improvement': { ttlMs: 4 * 3600_000, onTimeout: 'approved' },

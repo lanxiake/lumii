@@ -15,7 +15,7 @@ export interface IntervalUnit {
 }
 
 /** 5 字段 cron 表达式的拆分结果（供 getNextCronRun 展开） */
-export interface CronFields {
+interface CronFields {
   minute: string
   hour: string
   dayOfMonth: string
@@ -23,7 +23,7 @@ export interface CronFields {
   dayOfWeek: string
 }
 
-export const INTERVAL_UNITS: IntervalUnit[] = [
+const INTERVAL_UNITS: IntervalUnit[] = [
   { label: '分钟', value: 'minutes', ms: 60_000 },
   { label: '小时', value: 'hours',   ms: 3_600_000 },
   { label: '天',   value: 'days',    ms: 86_400_000 },
@@ -122,7 +122,7 @@ export function getNextRunTime(type: CronScheduleType, expr: string, _tz?: strin
 
 // ─── Cron 表达式解析 ────────────────────────────────────
 
-export function parseCronExpr(expr: string): CronFields | null {
+function parseCronExpr(expr: string): CronFields | null {
   const parts = expr.trim().split(/\s+/)
   if (parts.length !== 5) return null
   return {

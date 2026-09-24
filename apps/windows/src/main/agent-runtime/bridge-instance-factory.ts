@@ -85,7 +85,7 @@ import { notifyCloudSyncWorkspaceChanged } from '../cloud-sync/sync-accessor'
 import { selectPromptVariantForSession } from './autonomous-wiring'
 
 /** 引用盒子（mutable reference）— 允许多处共享同一个可变插槽 */
-export interface MutableRef<T> {
+interface MutableRef<T> {
   value: T
 }
 

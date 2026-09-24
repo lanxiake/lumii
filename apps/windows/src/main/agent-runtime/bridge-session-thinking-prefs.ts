@@ -3,7 +3,7 @@
  */
 
 /** 推理努力程度（low/medium/xhigh 会在网关层映射为 high/max） */
-export type ReasoningEffort = "high" | "max";
+type ReasoningEffort = "high" | "max";
 
 /** 会话思考控制参数 */
 export interface SessionThinkingPrefs {

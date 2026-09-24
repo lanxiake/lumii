@@ -80,7 +80,7 @@ export function navIdFromLegacyCategory(category: string | null): WikiNavId {
 /**
  * 分区 → 涵盖的旧大类列表。
  */
-export function legacyCategoriesForNav(navId: WikiNavId): readonly string[] {
+function legacyCategoriesForNav(navId: WikiNavId): readonly string[] {
   const sec = WIKI_NAV_SECTIONS.find((s) => s.id === navId);
   return sec?.legacyCategories ?? [];
 }
@@ -103,7 +103,7 @@ export function navLabel(navId: WikiNavId): string {
 /**
  * 按分区 id 取磁盘目录 slug。
  */
-export function folderSlugForNavId(navId: WikiNavId): string {
+function folderSlugForNavId(navId: WikiNavId): string {
   return WIKI_NAV_SECTIONS.find((s) => s.id === navId)?.folderSlug ?? "00-收件箱";
 }
 

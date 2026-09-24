@@ -26,7 +26,7 @@ import type { CronScheduler } from './cron-scheduler'
 /**
  * 微信会话上下文（与 AgentRuntimeBridge 共享）
  */
-export interface WeixinCtxAccessor {
+interface WeixinCtxAccessor {
   /** 读取当前活跃的微信会话上下文 */
   getCurrent: () => { channelUserId: string; contextToken: string; botToken?: string; ilinkBaseUrl?: string } | null
   /** 标记本轮已通过 message 工具发送微信消息 */

@@ -33,15 +33,10 @@ import { selectRunner as selectRunnerImpl, loadExternalSkills as loadExternalSki
 import { handleSkillInstallPush as handleSkillInstallPushImpl, type SkillInstallPushRequest } from './skill-install-push'
 
 export type {
-  SkillRunMode,
   SkillExecuteRequest,
   SkillExecuteResult,
-  SkillExecuteError,
   SkillErrorCode,
-  SkillResourceUsage,
   SkillDefinition,
-  SkillPermissions,
-  SkillExecutionContext,
 } from './skill-runtime-types'
 
 // 日志输出

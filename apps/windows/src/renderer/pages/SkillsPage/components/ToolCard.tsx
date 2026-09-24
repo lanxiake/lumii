@@ -116,5 +116,3 @@ export const ToolCard: React.FC<ToolCardProps> = ({
     </div>
   )
 }
-
-export default ToolCard

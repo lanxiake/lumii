@@ -160,7 +160,7 @@ export interface WikiPageRevision {
 export type WikiOrganizeRunStatus = "running" | "succeeded" | "degraded" | "partial" | "failed";
 
 /** 单条归档运行明细的终态 */
-export type WikiOrganizeRunDetailOutcome = "archived" | "corrected" | "degraded" | "failed";
+type WikiOrganizeRunDetailOutcome = "archived" | "corrected" | "degraded" | "failed";
 
 /** 正文来源：原有预览 / 本次提取 / 无正文 */
 export type WikiOrganizeRunDetailExtract = "preview" | "extracted" | "none";

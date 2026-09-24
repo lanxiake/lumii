@@ -85,7 +85,7 @@ export function buildImageModelSelectionGuideForAgent(): string {
 }
 
 /** @deprecated 使用 buildImageModelSelectionGuideForAgent */
-export const IMAGE_MODEL_GUIDE = IMAGE_GENERATION_MODEL_OPTIONS.map(
+const IMAGE_MODEL_GUIDE = IMAGE_GENERATION_MODEL_OPTIONS.map(
   (m) => `${m.id}：${m.description}`,
 ).join("\n")
 

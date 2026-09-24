@@ -34,7 +34,7 @@ import { createLogger } from './logger'
 
 const log = createLogger('BundledSkillsSeeder')
 
-export const SEED_VERSION_FILENAME = '.bundled-skills-seeded'
+const SEED_VERSION_FILENAME = '.bundled-skills-seeded'
 /** 每个技能目录里的基线哈希文件名（记的是**上次种子时源目录**的哈希） */
 export const SKILL_BASELINE_FILENAME = '.bundled-skill-hash'
 const BUNDLED_SKILLS_DIR_NAME = 'bundled-skills'

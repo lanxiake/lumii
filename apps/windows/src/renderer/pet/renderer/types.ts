@@ -125,4 +125,4 @@ export interface PetRendererProvider extends PetCoreRenderer {
 }
 
 /** 点击区域 → 动作回调（PetCanvas 注册，命中 hitArea 时触发） */
-export type TapHandler = (hitArea: string) => void
+type TapHandler = (hitArea: string) => void

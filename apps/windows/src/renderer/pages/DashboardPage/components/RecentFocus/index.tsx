@@ -275,5 +275,3 @@ export const RecentFocus: React.FC<RecentFocusProps> = ({ onViewChange }) => {
     </Card>
   )
 }
-
-export default RecentFocus

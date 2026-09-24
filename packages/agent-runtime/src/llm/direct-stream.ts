@@ -28,7 +28,7 @@ import { captureLLMCall } from "./prompt-capture";
  * .outputReserveTokens 对齐），调用方仍可用 options.maxTokens 覆盖。上限再大也架不住
  * 无限长文档，故真正的大文件应由 file_write 的分段写入兜底。
  */
-export const DEFAULT_MAX_OUTPUT_TOKENS = 16_384;
+const DEFAULT_MAX_OUTPUT_TOKENS = 16_384;
 
 /** 直连凭据（host 本地，注入时提供） */
 export interface DirectStreamCredentials {

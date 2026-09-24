@@ -24,11 +24,7 @@ import {
   type MessageContentJson,
 } from "./message-content-json.js";
 export {
-  assistantUsageOf,
   parseMessageContentJson,
-  type ToolCallRecord,
-  type TextMessageContent,
-  type ToolResultContent,
   type MessageContentJson,
 };
 
@@ -74,7 +70,7 @@ export interface PiMessage {
   readonly content: string | readonly PiContentBlock[];
 }
 
-export interface PiContentBlock {
+interface PiContentBlock {
   readonly type: "text" | "tool_use" | "tool_result" | "toolCall" | "thinking";
   readonly [key: string]: unknown;
 }

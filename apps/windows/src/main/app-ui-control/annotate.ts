@@ -12,16 +12,16 @@ export const BADGE_HEIGHT = 20
 export const BADGE_MIN_WIDTH = 20
 
 /** 徽章水平内边距（像素） */
-export const BADGE_PADDING_X = 4
+const BADGE_PADDING_X = 4
 
 /** 徽章文字字号（像素） */
-export const BADGE_FONT_SIZE = 12
+const BADGE_FONT_SIZE = 12
 
 /** 半透明背景色 */
-export const BADGE_BG_COLOR = 'rgba(220, 38, 38, 0.75)'
+const BADGE_BG_COLOR = 'rgba(220, 38, 38, 0.75)'
 
 /** 徽章文字颜色 */
-export const BADGE_TEXT_COLOR = '#ffffff'
+const BADGE_TEXT_COLOR = '#ffffff'
 
 /** 单个编号徽章的几何与标签（供单测与 composite 共用） */
 export interface AnnotateOverlay {

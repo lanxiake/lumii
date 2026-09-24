@@ -22,7 +22,7 @@ const SAMPLE_W = 32
 const SAMPLE_H = 18
 
 /** 采集层 IPC 依赖 */
-export interface ScreenRecordCaptureIpc {
+interface ScreenRecordCaptureIpc {
   sendChunk: (sessionId: string, chunkBase64: string, index: number, isLast: boolean) => void
   notifyStreamEnded: (sessionId: string) => void
   notifyCaptureError: (sessionId: string, reason: string) => void

@@ -42,7 +42,7 @@ import { agentRuntimeLog as log } from './bridge-utils'
  * ⚠ 与**未读数**的关系：未读数是在这 20 条里数的，更早的那些不计入。
  * 这是刻意的——坞里列不出来的一律不给未读标记（标了也没处看）。
  */
-export const PET_TASK_LIST_LIMIT = 20
+const PET_TASK_LIST_LIMIT = 20
 
 /** 一批取出来再筛的数量。SQL 只做 agent_id 前缀，精确过滤在 JS（见 `readPetTaskState`） */
 const PET_TASK_SCAN_LIMIT = 60

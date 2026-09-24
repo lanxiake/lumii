@@ -150,7 +150,7 @@ const CAPABILITY_DIMENSION_NAMES: Record<string, string> = {
  * @param agentId Agent ID
  * @returns 能力改进目标或 null
  */
-export function generateCapabilityImprovementGoal(
+function generateCapabilityImprovementGoal(
   gaps: CapabilityGap[],
   agentId: string
 ): AutonomousGoal | null {

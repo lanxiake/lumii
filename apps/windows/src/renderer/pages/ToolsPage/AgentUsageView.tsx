@@ -159,5 +159,3 @@ function emptyDescription(days: number): string {
   if (days === 0) return '还没有任何工具调用记录——让任意 Agent 干点活再回来'
   return `最近 ${days} 天没有工具调用记录。按日统计是本次升级后才开始累积的，更早的历史只在「累计」里看得到。`
 }
-
-export default AgentUsageView

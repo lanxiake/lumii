@@ -46,7 +46,7 @@ function writeSuspendedIds(db: DatabaseAdapter, ids: string[]): void {
 }
 
 /** 暂停全部启用中的 Agent 自建任务，返回本次暂停的 id（并入挂起清单，供重开时恢复） */
-export function suspendAutonomousAgentSelfJobs(db: DatabaseAdapter): string[] {
+function suspendAutonomousAgentSelfJobs(db: DatabaseAdapter): string[] {
   const rows = db
     .prepare<{ id: string }>(`SELECT id FROM local_cron_jobs WHERE id LIKE ? AND enabled = 1`)
     .all(`${SELF_CRON_ID_PREFIX}%`)
@@ -63,7 +63,7 @@ export function suspendAutonomousAgentSelfJobs(db: DatabaseAdapter): string[] {
 }
 
 /** 恢复挂起清单中仍可运行的任务；已删除或已过期的一次性任务丢弃（不复活） */
-export function restoreSuspendedAutonomousJobs(db: DatabaseAdapter): {
+function restoreSuspendedAutonomousJobs(db: DatabaseAdapter): {
   restored: string[]
   skippedExpired: string[]
 } {

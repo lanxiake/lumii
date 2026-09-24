@@ -116,7 +116,7 @@ function markEvolvedToday(db: DatabaseAdapter, agentId: string, now: Date): void
 }
 
 /** 人格事件种类（与 `EVENT_PERSONALITY_IMPACT` 里那三条同名） */
-export type PetPersonalityEventType =
+type PetPersonalityEventType =
   | 'error-handled'
   | 'user-feedback-positive'
   | 'user-feedback-negative'

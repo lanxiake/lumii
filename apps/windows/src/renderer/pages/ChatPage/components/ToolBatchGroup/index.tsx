@@ -38,7 +38,7 @@ export function summarizeToolBatch(items: readonly AgentWorkflowItem[]): string 
     .join(' · ')
 }
 
-export interface ToolBatchGroupProps {
+interface ToolBatchGroupProps {
   /** 组内工具项，已由 toWorkflowItem 转换为 AgentWorkflowItem */
   items: readonly AgentWorkflowItem[]
   /** 内嵌于「执行过程」时用扁平行样式（去掉外层卡片描边/背景），减少视觉噪声 */
@@ -101,5 +101,4 @@ const ToolBatchGroup: React.FC<ToolBatchGroupProps> = ({ items, compact = false 
   )
 }
 
-export default ToolBatchGroup
 export { ToolBatchGroup }

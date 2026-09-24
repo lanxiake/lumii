@@ -10,7 +10,7 @@
  */
 
 /** 用户可见产品名（技术命名空间仍为 pet:*，见 ADR-09） */
-export const VIRTUAL_HUMAN_PRODUCT_NAME = '宠物模式'
+const VIRTUAL_HUMAN_PRODUCT_NAME = '宠物模式'
 
 /**
  * 虚拟人设置的 localStorage 键名（新增 mtbot:vh-*，读时兼容旧 mtbot:pet-*）。
@@ -46,7 +46,7 @@ export const VH_STORAGE_KEYS = {
 } as const
 
 /** 动作/神态标签（替代 OLV 的 <think>，避免与推理块冲突，ADR-12） */
-export const VH_ACTION_TAG = 'vh_action'
+const VH_ACTION_TAG = 'vh_action'
 
 /**
  * 虚拟人可触发的一个 Live2D 动作（注入提示词 + 渲染层据 tag 真实播放）。

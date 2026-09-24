@@ -44,7 +44,7 @@ export interface FeishuCardJson {
  * 回复会静默失真。这里只处理明确成对、被词边界包围的记号；`__` 粗体不处理
  * （dunder 变量名远多于该写法）。
  */
-export function stripInlineMarkdown(text: string): string {
+function stripInlineMarkdown(text: string): string {
   return text
     // 图片先于链接处理，否则 ![alt](url) 会剩一个孤立的 !
     .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')

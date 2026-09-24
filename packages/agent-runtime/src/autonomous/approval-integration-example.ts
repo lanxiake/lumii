@@ -18,7 +18,7 @@ import type { DatabaseSync } from 'node:sqlite'
 /**
  * 集成示例类（伪代码，展示集成流程）
  */
-export class AutonomousApprovalIntegration {
+class AutonomousApprovalIntegration {
   private approvalQueue: ApprovalQueue
   private deliveryService: ApprovalDeliveryService
   private timeoutScanner: ApprovalTimeoutScanner
@@ -227,7 +227,7 @@ export class AutonomousApprovalIntegration {
 /**
  * 使用示例
  */
-export async function exampleUsage() {
+async function exampleUsage() {
   // 1. 初始化（在 AutonomousCoordinator.initialize 中）
   const integration = new AutonomousApprovalIntegration(
     { db: {} as any }, // 数据库实例

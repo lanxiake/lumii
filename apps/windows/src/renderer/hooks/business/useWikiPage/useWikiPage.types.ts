@@ -21,7 +21,7 @@ export interface WikiInboxItem {
 }
 
 /** 文件夹导入 scan 单条候选 */
-export interface WikiFolderCandidateItem {
+interface WikiFolderCandidateItem {
   readonly path: string
   readonly title: string
   readonly size: number
@@ -172,7 +172,7 @@ export interface WikiTopicTree {
 }
 
 /** 删除主题节点时的文件去向 */
-export type WikiFileDisposition =
+type WikiFileDisposition =
   | { readonly type: 'parking' }
   | { readonly type: 'move'; readonly category: string; readonly subtopic: string }
 
@@ -198,7 +198,7 @@ export type WikiReclassifyScopeDto =
   | { readonly kind: 'subtopic'; readonly category: string; readonly subtopic: string | null }
   | { readonly kind: 'all' }
 
-export interface WikiReclassifyCandidateItem {
+interface WikiReclassifyCandidateItem {
   readonly id: string
   readonly sourceId: string
   readonly title: string

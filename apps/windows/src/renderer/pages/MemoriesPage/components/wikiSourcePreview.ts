@@ -10,7 +10,7 @@ export function isHttpUrl(value: string | null | undefined): boolean {
 /**
  * 从 origin_context 解析「原文链接: …」行（网页检索归档时写入）。
  */
-export function parseOriginalUrlFromContext(originContext: string | null | undefined): string | null {
+function parseOriginalUrlFromContext(originContext: string | null | undefined): string | null {
   if (!originContext) return null
   const match = originContext.match(/原文链接:\s*(https?:\/\/\S+)/i)
   return match?.[1] ?? null

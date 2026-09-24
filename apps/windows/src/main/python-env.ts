@@ -44,7 +44,7 @@ const PYTHON_EMBED_URLS = [
 ]
 
 /** 内置 Python 运行时目录 */
-export function getPythonRuntimeDir(): string {
+function getPythonRuntimeDir(): string {
   return resolvePluginRuntimeDir(RUNTIME_NAME)
 }
 
@@ -59,7 +59,7 @@ export function getBundledSitePackages(): string {
 }
 
 /** 内置运行时是否已就绪（python.exe + pip 均在位） */
-export function isBundledPythonReady(): boolean {
+function isBundledPythonReady(): boolean {
   return existsSync(getBundledPythonExe()) && hasPackage('pip')
 }
 
@@ -128,7 +128,7 @@ async function canImportOnnxRuntime(pythonExe: string): Promise<boolean> {
  *
  * @returns 是否执行了降级安装
  */
-export async function repairOnnxRuntimeIfNeeded(): Promise<boolean> {
+async function repairOnnxRuntimeIfNeeded(): Promise<boolean> {
   const pythonExe = getBundledPythonExe()
   if (!existsSync(pythonExe)) return false
   // 原先还判 `hasPackage('chromadb')`——那是 MemPalace 拉来的包，已于 2026-09-18 随插件移除

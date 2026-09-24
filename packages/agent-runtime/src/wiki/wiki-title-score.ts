@@ -127,7 +127,7 @@ export function isLowInfoTitle(title: string, corpus: string | null): boolean {
 }
 
 /** renameTitle 提案的置信阈值：低于此丢弃（比批量分类阈值更严，改名影响更直观） */
-export const RENAME_CONFIDENCE_THRESHOLD = 0.7;
+const RENAME_CONFIDENCE_THRESHOLD = 0.7;
 
 /**
  * 服务端校验改名提案是否可接受（P6 Task 3）：

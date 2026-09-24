@@ -28,8 +28,8 @@ const log = {
   warn: (...args: unknown[]) => console.warn('[pet-asset-protocol]', ...args),
 }
 
-export const PET_ASSET_SCHEME = 'lumii-pet'
-export const PET_ASSET_HOST = 'model'
+const PET_ASSET_SCHEME = 'lumii-pet'
+const PET_ASSET_HOST = 'model'
 
 /**
  * 用户宠物目录。
@@ -54,7 +54,7 @@ export function resolveUserPetModelsDir(): string {
 }
 
 /** 用户宠物目录名（数据根之下）。packages/pet-asset 侧有一份同值实现，改动须同步。 */
-export const PET_MODELS_SUBDIR = 'pet-models'
+const PET_MODELS_SUBDIR = 'pet-models'
 
 /** 绝对路径 → `lumii-pet://` URL；不在用户宠物目录内时抛错（调用方传错路径属于 bug） */
 export function buildPetAssetUrl(absPath: string): string {

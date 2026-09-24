@@ -51,9 +51,7 @@ function requireFromAppRoot<T = unknown>(specifier: string): T {
   return createRequire(path.join(findAppRoot(), 'package.json'))(specifier) as T
 }
 
-export { TRANSFORMERS_E5_MODEL_ID } from './wiki-embedding-model-path'
-
-export const TRANSFORMERS_E5_DIMS = 384
+const TRANSFORMERS_E5_DIMS = 384
 
 const DEFAULT_HF_REMOTE_HOST = 'https://huggingface.co/'
 const HF_MIRROR_REMOTE_HOST = 'https://hf-mirror.com/'
@@ -78,7 +76,7 @@ export function resolveTransformersRemoteHosts(): readonly string[] {
   return [...new Set(hosts)]
 }
 
-export type WikiEmbedBackend = 'transformers' | 'bigram-hash'
+type WikiEmbedBackend = 'transformers' | 'bigram-hash'
 
 export interface WikiHostEmbedderResult {
   readonly embedder: WikiEmbedder

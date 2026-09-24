@@ -4,7 +4,7 @@
 
 import type { SelectionLlmAction, SelectionLlmResult } from '../../shared/selection-llm-types'
 
-export const SELECTION_LLM_ACTIONS: readonly SelectionLlmAction[] = [
+const SELECTION_LLM_ACTIONS: readonly SelectionLlmAction[] = [
   'translate',
   'explain',
   'summarize',

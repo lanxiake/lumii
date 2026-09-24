@@ -409,5 +409,3 @@ export function VoiceModelsPanel({
     </div>
   )
 }
-
-export default VoiceModelsPanel

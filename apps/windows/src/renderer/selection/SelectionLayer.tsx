@@ -237,5 +237,3 @@ export const SelectionLayer: React.FC = () => {
     </>
   )
 }
-
-export default SelectionLayer

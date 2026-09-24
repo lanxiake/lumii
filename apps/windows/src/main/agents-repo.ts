@@ -25,7 +25,7 @@ const LOCAL_USER_ID = 'local-user'
  * 且 `forkAgentRecord` 的展开会把顶层字段复制进用户 Agent —— 铺平会让内置 Agent
  * 的工具面悄悄套到用户 Agent 头上。
  */
-export interface AgentDefinitionDetail {
+interface AgentDefinitionDetail {
   tools?: string[]
   disallowedTools?: string[]
   bundledSkills?: string[]

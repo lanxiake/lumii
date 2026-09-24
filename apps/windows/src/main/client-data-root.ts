@@ -13,7 +13,7 @@ import os from 'node:os'
 import path from 'node:path'
 
 /** 设计约定：Lumii 独立版客户端数据根目录名（与原 MtBot 产品彻底隔离，避免冲突） */
-export const WINDOWS_CLIENT_DATA_DIRNAME = '.lumii'
+const WINDOWS_CLIENT_DATA_DIRNAME = '.lumii'
 
 /**
  * 展开以 ~ 开头的路径为当前用户主目录下的绝对路径。

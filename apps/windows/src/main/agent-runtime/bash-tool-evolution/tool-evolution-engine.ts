@@ -81,8 +81,8 @@ export interface ToolEvolutionEngineDeps {
 
 /** @deprecated 实时触发已移除；保留常量以免旧 IPC/UI 引用崩掉 */
 export const DEFAULT_TRIGGER_THRESHOLD = 50
-export const MIN_TRIGGER_THRESHOLD = 10
-export const MAX_TRIGGER_THRESHOLD = 500
+const MIN_TRIGGER_THRESHOLD = 10
+const MAX_TRIGGER_THRESHOLD = 500
 /** runtime_state 键：历史触发阈值（已弃用，仅兼容） */
 export const TRIGGER_THRESHOLD_KEY = 'tool-evolution.trigger-threshold'
 /** runtime_state 键：上次成功挖掘时间 */
@@ -152,7 +152,7 @@ export function buildApprovalPrompt(draft: PendingToolDraft): string {
 /**
  * 找出与候选模板等价（参数位归一后相同）的已批准工具名。
  */
-export function findSimilarApprovedTools(
+function findSimilarApprovedTools(
   commandTemplate: string,
   approved: Array<{ name: string; commandTemplate: string }>,
 ): string[] {

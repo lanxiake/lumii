@@ -17,7 +17,7 @@ import type {
 } from "./agent-turn-types.js";
 import type { AgentKernel, UnsubscribeFn } from "./types.js";
 
-export interface FakeTurnToolCall {
+interface FakeTurnToolCall {
   toolCallId: string;
   toolName: string;
   args: unknown;

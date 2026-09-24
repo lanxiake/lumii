@@ -83,7 +83,7 @@ export function isPetAssetOp(v: unknown): v is PetAssetOp {
 }
 
 /** Agent 生成物的落点：workspace/outputs */
-export function resolveOutputsDir(): string {
+function resolveOutputsDir(): string {
   return resolve(resolveActiveWorkspaceDir(), 'outputs')
 }
 

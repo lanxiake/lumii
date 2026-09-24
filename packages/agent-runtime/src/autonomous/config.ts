@@ -236,35 +236,35 @@ export const MAX_SELF_CRON_JOBS = 20;
  * 来源：设计文档 2026-09-04-autonomous-evolution-agent-implementation-p2.md
  * 控制记忆排序模型的权重更新速度
  */
-export const MEMORY_LEARNING_RATE = 0.01;
+const MEMORY_LEARNING_RATE = 0.01;
 
 /**
  * P2: 记忆排序最小样本量
  * 来源：设计文档 2026-09-04-autonomous-evolution-agent-implementation-p2.md
  * 至少收集此数量的样本才开始训练模型
  */
-export const MEMORY_MIN_SAMPLES = 50;
+const MEMORY_MIN_SAMPLES = 50;
 
 /**
  * P2: 低效记忆识别阈值
  * 来源：设计文档 2026-09-04-autonomous-evolution-agent-implementation-p2.md
  * 平均贡献度低于此值且至少使用 5 次的记忆被标记为低效
  */
-export const MEMORY_INEFFECTIVE_THRESHOLD = 0.2;
+const MEMORY_INEFFECTIVE_THRESHOLD = 0.2;
 
 /**
  * P2: 低效记忆判定最小使用次数
  * 来源：设计文档 2026-09-04-autonomous-evolution-agent-implementation-p2.md
  * 记忆至少被使用此次数后才参与低效判定，避免小样本误判
  */
-export const MEMORY_INEFFECTIVE_MIN_USES = 5;
+const MEMORY_INEFFECTIVE_MIN_USES = 5;
 
 /**
  * P2: 记忆排序批量重训练周期（天）
  * 来源：设计文档 2026-09-04-autonomous-evolution-agent-implementation-p2.md
  * 每隔此天数重新训练记忆排序模型
  */
-export const MEMORY_RETRAIN_INTERVAL_DAYS = 7;
+const MEMORY_RETRAIN_INTERVAL_DAYS = 7;
 
 /**
  * P2: 技能统计最小样本量
@@ -299,7 +299,7 @@ export const SKILL_EXECUTION_TIME_THRESHOLD = 30000;
  * 来源：设计文档 2026-09-04-autonomous-evolution-agent-implementation-p2.md
  * Beta/Gamma 采样最大重试次数，防止无限循环
  */
-export const THOMPSON_SAMPLING_MAX_ITERATIONS = 1000;
+const THOMPSON_SAMPLING_MAX_ITERATIONS = 1000;
 
 /**
  * P2: Shapley Value 最大组合数

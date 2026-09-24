@@ -31,5 +31,3 @@ export const ErrorBanner: React.FC<ErrorBannerProps> = ({
     </div>
   );
 };
-
-export default ErrorBanner;

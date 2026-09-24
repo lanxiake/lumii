@@ -215,7 +215,7 @@ export function extractPreviewText(contentJson: string): string {
  *
  * @param messages - 该会话的最近消息，按时间正序
  */
-export function resolveLastMessagePreview(
+function resolveLastMessagePreview(
   messages: readonly { readonly role: string; readonly content_json: string }[],
 ): string | undefined {
   let userFallback = ''

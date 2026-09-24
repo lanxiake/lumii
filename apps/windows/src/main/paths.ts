@@ -29,7 +29,7 @@ import { resolveClientStateDir } from './client-data-root'
  * 各持一份进程级缓存，是「改一处漏一处」的隐患。现在统一从那里导入，
  * 两个导出名指向同一份实现与缓存；`expandUserPath` 也随之只剩一份。
  */
-export { resolveClientStateDir, WINDOWS_CLIENT_DATA_DIRNAME } from './client-data-root'
+export { resolveClientStateDir } from './client-data-root'
 
 // ============================================================================
 // 共享资源路径 (根级别)
@@ -47,7 +47,7 @@ export function resolveSharedConfigDir(): string {
  * 获取应用级日志目录（根级别）
  * @returns %USERPROFILE%/.lumii/logs/ 的完整路径
  */
-export function resolveSharedLogsDir(): string {
+function resolveSharedLogsDir(): string {
   return path.join(resolveClientStateDir(), 'logs')
 }
 

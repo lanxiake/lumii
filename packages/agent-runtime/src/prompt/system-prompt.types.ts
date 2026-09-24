@@ -7,8 +7,6 @@
 import type { AgentDefinition } from "../types/agent-definition.js"
 import type { PromptSectionStat } from "./prompt-sections.js"
 
-export type { PromptSectionStat }
-
 /** 技能描述（用于注入系统提示词） */
 export interface SkillInfo {
   /** 技能名称 */
@@ -140,7 +138,7 @@ export interface UserDeviceInfo {
 }
 
 /** 单个 MCP 工具的名称与描述 */
-export interface McpToolInfo {
+interface McpToolInfo {
   /** 工具全名（含 mcp__server__ 前缀） */
   readonly name: string
   /** 工具自带的说明（来自 MCP Server 元数据） */

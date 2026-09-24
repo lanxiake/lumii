@@ -9,10 +9,10 @@ import { RECORDINGS_DIRNAME } from '../shared/screen-record'
 import { resolveWindowsClientDataRoot } from './client-data-root'
 
 /** 工作空间下临时根目录名 */
-export const WORKSPACE_TEMP_DIRNAME = 'temp'
+const WORKSPACE_TEMP_DIRNAME = 'temp'
 
 /** 截图临时子目录（相对 workspace/temp） */
-export const SCREENSHOTS_TEMP_DIRNAME = 'screenshots'
+const SCREENSHOTS_TEMP_DIRNAME = 'screenshots'
 
 let activeWorkspaceDirGetter: (() => string) | null = null
 
@@ -45,7 +45,7 @@ export function resolveActiveWorkspaceDir(): string {
 /**
  * 确保目录存在（已存在则 no-op）。
  */
-export function ensureDirExists(dirPath: string): string {
+function ensureDirExists(dirPath: string): string {
   const resolved = path.resolve(dirPath)
   try {
     accessSync(resolved)
@@ -56,7 +56,7 @@ export function ensureDirExists(dirPath: string): string {
 }
 
 /** 工作空间下 Wiki 资料库根目录名 */
-export const WORKSPACE_WIKI_DIRNAME = 'wiki'
+const WORKSPACE_WIKI_DIRNAME = 'wiki'
 
 /**
  * `{workspace}/wiki` — Wiki 资料库物理目录（ref 侧车与 native md）。

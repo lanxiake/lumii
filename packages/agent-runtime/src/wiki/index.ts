@@ -2,8 +2,6 @@
  * Wiki 模块入口
  */
 
-export { wikiRecordsShareFileIdentity } from "./wiki-source-identity.js";
-export type { WikiFileIdentity } from "./wiki-source-identity.js";
 export { WikiRepo } from "./wiki-repo.js";
 export type { WikiSourceSearchHit } from "./wiki-repo.js";
 
@@ -18,7 +16,6 @@ export {
   DEFAULT_EXCLUDED_WIKI_INGEST_EXTENSIONS,
   resolveWikiAutoIngestItemType,
   shouldSkipWikiIngestPath,
-  wikiIngestFileExtension,
 } from "./wiki-ingest-filter.js";
 
 export { resolveWikiSourceFileExists } from "./wiki-source-exists.js";
@@ -126,32 +123,12 @@ export type {
 } from "./wiki-reclassify-types.js";
 
 export type {
-  WikiMigratePhase,
   WikiMigrateProgress,
-  MigrateFolderMapping,
   WikiMigrateRun,
 } from "./wiki-migrate-types.js";
-export { MIGRATE_RUN_META_KEY } from "./wiki-migrate-types.js";
-
-export { buildMigrateInventory } from "./wiki-migrate-inventory.js";
-export type {
-  MigrateFolderCluster,
-  MigrateInventory,
-  BuildMigrateInventoryParams,
-} from "./wiki-migrate-inventory.js";
-
-export {
-  MIGRATE_PLAN_BATCH_SIZE,
-  MIGRATE_CONFIDENCE_THRESHOLD,
-  buildMigratePlanPrompt,
-  parseMigratePlanResponse,
-} from "./wiki-migrate-prompt.js";
 
 export { WikiLibraryMigrate } from "./wiki-library-migrate.js";
 export type {
-  WikiLibraryMigratePlanOptions,
-  WikiLibraryMigrateReplanOptions,
-  WikiLibraryMigrateHooks,
   WikiMigrateMappingPatch,
 } from "./wiki-library-migrate.js";
 
@@ -180,14 +157,9 @@ export {
   titleInfoScore,
   isLowInfoTitle,
   LOW_INFO_THRESHOLD,
-  shouldAcceptRenameProposal,
-  RENAME_CONFIDENCE_THRESHOLD,
 } from "./wiki-title-score.js";
 
-export { GRAPH_EXTRACT_CURSOR_META_KEY } from "./wiki-graph-types.js";
-export type { WikiGraphExtractCursor } from "./wiki-graph-types.js";
-
-export { planTopicMutation, topicCountKey, DEFAULT_NEW_SUBTOPIC } from "./wiki-topic-mutate.js";
+export { planTopicMutation, topicCountKey } from "./wiki-topic-mutate.js";
 export type {
   FileDisposition,
   WikiTopicMutation,
@@ -208,36 +180,16 @@ export {
 } from "./wiki-folder-importer.js";
 
 export { WikiOrganizer, WIKI_INBOX_ITEM_TYPES } from "./wiki-organizer.js";
-export type { WikiOrganizerHooks } from "./wiki-organizer.js";
 
 export {
-  WIKI_NAV_SECTIONS,
-  WIKI_PARKING_DIR,
-  WIKI_META_DIR,
-  navIdFromLegacyCategory,
-  legacyCategoriesForNav,
-  primaryLegacyCategoryForNav,
-  navLabel,
-  folderSlugForNavId,
   vaultDirSegmentsForSource,
 } from "./wiki-nav-map.js";
-export type { WikiNavId, WikiNavSectionDef } from "./wiki-nav-map.js";
 
 export {
-  WIKI_REF_KIND,
-  WIKI_REF_VERSION,
-  FILE_REF_EXT,
-  URL_REF_EXT,
   isVaultRefPath,
-  buildFileRefDoc,
-  buildUrlRefDoc,
   parseRefDocument,
   readRefTarget,
-  writeFileRef,
-  writeUrlRef,
-  moveRefFile,
 } from "./wiki-ref-store.js";
-export type { WikiRefDocument, WikiRefStoreFs, WikiRefType } from "./wiki-ref-store.js";
 
 export { ensureWikiVaultLayout, WIKI_VAULT_LAYOUT_ID } from "./wiki-vault-layout.js";
 export type { WikiVaultLayoutFs, WikiVaultLayoutResult } from "./wiki-vault-layout.js";
@@ -277,7 +229,6 @@ export {
   buildTopicOccupancySummary,
   buildNavSectionGuide,
 } from "./wiki-classify-context.js";
-export type { BuildFolderImportContextParams } from "./wiki-classify-context.js";
 
 export {
   generateWikiId,
@@ -297,9 +248,6 @@ export type {
   WikiRevisionEditor,
   WikiOrganizeRun,
   WikiOrganizeRunStatus,
-  WikiOrganizeRunDetailItem,
-  WikiOrganizeRunDetailOutcome,
-  WikiOrganizeRunDetailExtract,
   WikiLink,
   WikiBacklink,
   WikiAttachment,

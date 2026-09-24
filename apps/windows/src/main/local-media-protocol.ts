@@ -9,7 +9,7 @@ import { net, protocol } from 'electron'
 import { resolveRecordingsDir, resolveScreenshotTempDir } from './workspace-paths'
 import { isAllowedPreviewPath } from './preview-path-acl'
 
-export const LOCAL_MEDIA_SCHEME = 'lumii-local'
+const LOCAL_MEDIA_SCHEME = 'lumii-local'
 
 let workspaceCwdGetter: (() => string) | null = null
 
@@ -55,7 +55,7 @@ function resolveAclDirs(): {
 /**
  * 判断路径是否允许经 lumii-local 提供。
  */
-export function isAllowedLocalMediaPath(resolvedAbs: string): boolean {
+function isAllowedLocalMediaPath(resolvedAbs: string): boolean {
   const abs = path.resolve(resolvedAbs)
   if (extraAllowedLocalMediaPaths.has(abs)) return true
   return isAllowedPreviewPath(abs, resolveAclDirs())

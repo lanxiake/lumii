@@ -99,7 +99,7 @@ export function isCommandExposed(type: unknown): type is string {
  * 转 base64 投喂模型——放开等于把被拒的 files:* 读能力从侧门放进来。
  * 故 user:send 只允许 sessionKey + content + msgId，其余一律拒。
  */
-export const COMMAND_FIELD_DENYLIST: ReadonlyMap<string, ReadonlySet<string>> = new Map([
+const COMMAND_FIELD_DENYLIST: ReadonlyMap<string, ReadonlySet<string>> = new Map([
   [
     'user:send',
     new Set(['attachments', 'imageAttachmentPaths', 'audioWavBase64', 'agentId']),

@@ -167,5 +167,3 @@ export const WikiLeftNav: React.FC<WikiLeftNavProps> = ({
     </nav>
   )
 }
-
-export default WikiLeftNav

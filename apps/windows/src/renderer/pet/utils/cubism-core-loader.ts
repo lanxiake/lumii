@@ -72,5 +72,3 @@ export function ensureCubismCore(): Promise<void> {
 
   return loadPromise
 }
-
-export { isCoreLoaded }

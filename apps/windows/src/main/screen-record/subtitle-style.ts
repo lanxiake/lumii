@@ -10,8 +10,8 @@ import {
 } from '../../shared/screen-record'
 
 /** 字号可选区间（ASS 基准，非最终像素） */
-export const SUBTITLE_FONT_SIZE_MIN = 10
-export const SUBTITLE_FONT_SIZE_MAX = 120
+const SUBTITLE_FONT_SIZE_MIN = 10
+const SUBTITLE_FONT_SIZE_MAX = 120
 /** 描边宽度上限 */
 const OUTLINE_MAX = 8
 

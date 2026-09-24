@@ -49,14 +49,14 @@ export interface ChannelHub {
 /**
  * 创建微信 reply context 持久化路径。
  */
-export function resolveWeixinReplyContextPath(dataRoot: string): string {
+function resolveWeixinReplyContextPath(dataRoot: string): string {
   return path.join(dataRoot, 'channel', 'weixin-reply-contexts.json')
 }
 
 /**
  * 创建渠道 peer 持久化路径。
  */
-export function resolveChannelPeerStorePath(dataRoot: string): string {
+function resolveChannelPeerStorePath(dataRoot: string): string {
   return path.join(dataRoot, 'channel', 'channel-peers.json')
 }
 

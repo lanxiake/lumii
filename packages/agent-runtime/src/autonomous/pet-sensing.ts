@@ -67,7 +67,7 @@ import { moodToDecisionParams, readMood, type Mood } from './mood.js';
 /** 规则①的观察窗口：只看最近这段发生的打断 */
 export const INTERRUPTION_WINDOW_MS = 30 * 60_000;
 /** 规则①：窗口内打断/重发/编辑达到这个次数就靠近 */
-export const INTERRUPTION_THRESHOLD = 3;
+const INTERRUPTION_THRESHOLD = 3;
 
 /** 规则②：连续工作多久算久坐 */
 export const CONTINUOUS_WORK_MS = 2 * 60 * 60_000;
@@ -82,17 +82,17 @@ export const CONTINUOUS_WORK_SPARSE_MS = 3 * 60 * 60_000;
  */
 export const IDLE_BREAK_MS = 15 * 60_000;
 /** 规则②往回查多远：够得着放宽后的 3 小时阈值，再留一小时余量 */
-export const CHAIN_LOOKBACK_MS = 4 * 60 * 60_000;
+const CHAIN_LOOKBACK_MS = 4 * 60 * 60_000;
 
 /** 规则③：低于这个分数，宠物跟着低落（设计 §4.1.3） */
 export const LOW_SATISFACTION = 0.6;
 /** 历史评分少于此数 = 数据稀疏 → 规则②走放宽档 */
-export const SPARSE_SESSION_THRESHOLD = 5;
+const SPARSE_SESSION_THRESHOLD = 5;
 
 /** 一天最多说几次（全局）。两条规则各 1 次也正好是这个数 */
 export const MAX_PET_SENSING_PER_DAY = 2;
 /** **同类**一天不超过 1 次（设计 §4.1.5 第 2 条：说两遍就是唠叨） */
-export const MAX_PET_SENSING_PER_KIND_PER_DAY = 1;
+const MAX_PET_SENSING_PER_KIND_PER_DAY = 1;
 
 /**
  * 规则③写进宠物 mood 的事件名。
@@ -126,7 +126,7 @@ const STATE_PREFIX = 'pet.sensing.';
  * 老键（`pet.sensing.spoken:<日>`，无 agentId）**不做读时迁移**：真机上它从来是空的
  * （感知上线后没有任何一拍说过话），没有存量可分。
  */
-export function petSensingSpokenKey(agentId: string, now: Date): string {
+function petSensingSpokenKey(agentId: string, now: Date): string {
   const day = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(
     now.getDate(),
   ).padStart(2, '0')}`;
@@ -139,7 +139,7 @@ export function petSensingSpokenKey(agentId: string, now: Date): string {
  * ⚠ 同 {@link petSensingSpokenKey}：**必须带 agentId**。不带的话，一只宠物消费了
  * 那条低分，另一只（切模型后的新宠物）就永远不会因它而低落——静默、且只在换宠物时出现。
  */
-export function petSensingHandledScoreKey(agentId: string): string {
+function petSensingHandledScoreKey(agentId: string): string {
   return `${STATE_PREFIX}handled-score:${agentId}`;
 }
 

@@ -23,7 +23,7 @@ export function wikiBigramJoin(text: string | null | undefined): string {
  * 把标签/描述一并并入检索语料：标签 JSON 里的 `[` `"` `,` 会被 bigram 分词器当成
  * 非词字符忽略，直接拼接即可命中（如 tag「Lumii」→ "lumii"，「教程」→ "教程"）。
  */
-export function wikiContentTokens(
+function wikiContentTokens(
   extractedText: string | null | undefined,
   userPath: string | null | undefined,
   tags: string | null | undefined,

@@ -16,7 +16,7 @@ export const NEWS_PREF_FIELDS = ['关注', '少推', '来源偏好', '推送时�
 export type NewsPrefField = (typeof NEWS_PREF_FIELDS)[number]
 
 /** 章节标题 */
-export const NEWS_PREF_SECTION = '资讯偏好'
+const NEWS_PREF_SECTION = '资讯偏好'
 
 /**
  * 规则的**裁决顺序**：同时命中时谁说了算。

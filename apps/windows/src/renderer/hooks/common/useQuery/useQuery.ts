@@ -36,7 +36,7 @@ export interface UseQueryOptionsObject<T> {
  * useQuery 返回值
  */
 /** @deprecated 与通用导出 `UseQueryOptions` 同义 */
-export type UseQueryOptions<T> = UseQueryOptionsObject<T>
+type UseQueryOptions<T> = UseQueryOptionsObject<T>
 
 export interface UseQueryReturn<T> {
   /** 数据 */
@@ -209,7 +209,7 @@ export function useQuery<T>(
 /**
  * 清除查询缓存
  */
-export function clearQueryCache(queryKey?: string): void {
+function clearQueryCache(queryKey?: string): void {
   if (queryKey) {
     queryCache.delete(queryKey)
   } else {
@@ -220,6 +220,6 @@ export function clearQueryCache(queryKey?: string): void {
 /**
  * 使指定查询失效（清除缓存）
  */
-export function invalidateQuery(queryKey: string): void {
+function invalidateQuery(queryKey: string): void {
   queryCache.delete(queryKey)
 }

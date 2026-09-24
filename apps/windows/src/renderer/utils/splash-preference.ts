@@ -12,7 +12,7 @@ const SPLASH_DONE_KEY = 'lumii.splash.done'
 /**
  * 当前窗口是否为非主壳模式（宠物 / 文件预览等），一律跳过开机动画
  */
-export function isAuxiliaryWindowMode(): boolean {
+function isAuxiliaryWindowMode(): boolean {
   try {
     const search = new URLSearchParams(window.location.search)
     const hash = new URLSearchParams(window.location.hash.replace(/^#\??/, ''))
@@ -26,7 +26,7 @@ export function isAuxiliaryWindowMode(): boolean {
 /**
  * 用户是否在设置中关闭了开机动画（默认开启）
  */
-export function isSplashDisabledInSettings(): boolean {
+function isSplashDisabledInSettings(): boolean {
   try {
     const raw = localStorage.getItem(SETTINGS_STORAGE_KEY)
     if (!raw) return false
@@ -41,7 +41,7 @@ export function isSplashDisabledInSettings(): boolean {
 /**
  * 本会话是否已播完开机动画
  */
-export function hasSplashPlayedThisSession(): boolean {
+function hasSplashPlayedThisSession(): boolean {
   try {
     return sessionStorage.getItem(SPLASH_DONE_KEY) === '1'
   } catch {

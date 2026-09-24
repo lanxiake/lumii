@@ -70,7 +70,7 @@ export type SkillErrorCode =
 /**
  * 资源使用情况
  */
-export interface SkillResourceUsage {
+interface SkillResourceUsage {
   cpuTimeMs?: number
   memoryPeakBytes?: number
   networkRequests?: number
@@ -94,7 +94,7 @@ export interface SkillDefinition {
 /**
  * 技能权限
  */
-export interface SkillPermissions {
+interface SkillPermissions {
   fileSystem?: {
     read?: string[]
     write?: string[]

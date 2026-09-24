@@ -15,7 +15,7 @@ import type { DatabaseAdapter } from "./local-database.js";
 export type SegmentStatus = "open" | "closed" | "summarised";
 
 /** 数据库行（原始 SQLite 格式） */
-export interface SegmentRow {
+interface SegmentRow {
   readonly id: string;
   readonly conversation_id: string;
   readonly user_id: string;

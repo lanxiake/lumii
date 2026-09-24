@@ -17,7 +17,7 @@ const log = {
 /**
  * 克隆音色档案根目录
  */
-export function resolveVoiceProfilesRoot(): string {
+function resolveVoiceProfilesRoot(): string {
   return path.join(resolveWindowsClientDataRoot(), 'voice', 'profiles')
 }
 

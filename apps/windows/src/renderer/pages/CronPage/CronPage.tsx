@@ -96,5 +96,3 @@ export const CronPage: FC<{ embedded?: boolean }> = ({ embedded = false }) => {
     </div>
   )
 }
-
-export default CronPage

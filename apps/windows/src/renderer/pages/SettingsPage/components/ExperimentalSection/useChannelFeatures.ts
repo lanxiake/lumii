@@ -16,8 +16,6 @@ import {
 /** 读取失败时的回落值：与主进程同一份默认（全关） */
 const DEFAULTS = DEFAULT_CHANNEL_FEATURES
 
-export type { ChannelFeatureSettings }
-
 export interface UseChannelFeaturesResult {
   features: ChannelFeatureSettings
   loading: boolean
