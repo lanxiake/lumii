@@ -149,6 +149,38 @@ describe('stepCrawl — 沿窗口上边缘', () => {
     expect(r.x).toBe(RECT.x)
     expect(r.reachedEnd).toBe(true)
   })
+
+  it('留出身体的缝隙：爬到尽头停在离边缘一个缝隙处，不是硬边缘', () => {
+    // 用户实测报的「从天花板掉下来每次都有半边身体在屏幕外」。
+    // 锚点在身体中间，停在硬边缘 = 半个身子在外面；日志里是
+    // `松手（爬到尽头）@(2560, 156)`，而屏幕宽正好就是 2560。
+    const MH = 100
+    const gap = MH * PERCH_DEFAULTS.wallGapRatio
+    const r = stepCrawl(RECT.x + RECT.width - 1, RECT, 'left', 1, PERCH_DEFAULTS, MH)
+    expect(r.x).toBeCloseTo(RECT.x + RECT.width - gap, 6)
+    expect(r.reachedEnd).toBe(true)
+  })
+
+  it('左侧同理（往左爬到离左边缘一个缝隙处）', () => {
+    const MH = 100
+    const gap = MH * PERCH_DEFAULTS.wallGapRatio
+    const r = stepCrawl(RECT.x + 1, RECT, 'right', 1, PERCH_DEFAULTS, MH)
+    expect(r.x).toBeCloseTo(RECT.x + gap, 6)
+    expect(r.reachedEnd).toBe(true)
+  })
+
+  it('不传 modelHeight 时缝隙为 0 —— 与加这个参数之前逐位一致', () => {
+    // 向后兼容：老的调用点不受影响
+    const r = stepCrawl(RECT.x + RECT.width - 1, RECT, 'left', 1, PERCH_DEFAULTS)
+    expect(r.x).toBe(RECT.x + RECT.width)
+  })
+
+  it('目标比两倍缝隙还窄时退回中点，不给反向区间', () => {
+    const MH = 3000 // 缝隙 1290，比 RECT 还宽
+    const r = stepCrawl(RECT.x + 1, RECT, 'right', 1, PERCH_DEFAULTS, MH)
+    expect(r.reachedEnd).toBe(true)
+    expect(Number.isFinite(r.x)).toBe(true)
+  })
 })
 
 describe('shouldLetGo — 什么时候松手', () => {

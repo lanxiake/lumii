@@ -175,6 +175,14 @@ export interface CrawlStep {
  *
  * **走到另一角就掉下去**，不在顶上折返：折返会让宠物永远赖在窗口上，
  * 而"爬到头掉下来"是参考项目里那个更有生命感的收尾。
+ *
+ * ⚠ **终点要留出身体的缝隙**（2026-09-25 加 `modelHeight` 参数）。
+ * 锚点在身体中间，停在窗口/屏幕的**硬边缘** = 半个身子在外面 ——
+ * 用户实测报的「从天花板掉下来每次都有半边身体在屏幕外」就是这条：
+ * 日志里 `松手（爬到尽头）@(2560, 156)`，而屏幕宽正好 2560。
+ * 之前修的是**吸附到墙**那条路（`perchWallX` 的夹取），横爬的终点是另一处。
+ *
+ * `modelHeight = 0`（缺省）时缝隙为 0，行为与加这个参数之前**完全一致**。
  */
 export function stepCrawl(
   x: number,
@@ -182,17 +190,26 @@ export function stepCrawl(
   side: PerchSide,
   dtSec: number,
   cfg: PerchConfig = PERCH_DEFAULTS,
+  modelHeight = 0,
 ): CrawlStep {
   // 从左墙上来的，向右爬；从右墙上来的，向左爬
   const dir = side === 'left' ? 1 : -1
   const next = x + cfg.climbSpeed * dir * Math.max(0, dtSec)
 
+  const gap = modelHeight * cfg.wallGapRatio
+  const lo = rect.x + gap
+  const hi = rect.x + rect.width - gap
+  // 目标比两倍缝隙还窄时（极窄窗口）退回中点：给出反向区间会让夹取"啪"一下跳到边上
+  if (lo > hi) {
+    const mid = (lo + hi) / 2
+    return { x: mid, reachedEnd: true }
+  }
+
   if (side === 'left') {
-    const end = rect.x + rect.width
-    if (next >= end) return { x: end, reachedEnd: true }
+    if (next >= hi) return { x: hi, reachedEnd: true }
     return { x: next, reachedEnd: false }
   }
-  if (next <= rect.x) return { x: rect.x, reachedEnd: true }
+  if (next <= lo) return { x: lo, reachedEnd: true }
   return { x: next, reachedEnd: false }
 }
 
