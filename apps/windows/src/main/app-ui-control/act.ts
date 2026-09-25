@@ -24,8 +24,6 @@ export const KEY_WHITELIST = [
   'Space',
 ] as const
 
-type AllowedKey = (typeof KEY_WHITELIST)[number]
-
 type ClickAllowedError =
   | 'missing_ref'
   | 'stale_snapshot'

@@ -104,12 +104,6 @@ export interface MiningSummary {
   skippedReason: string | null
 }
 
-interface ToolEvolutionEngineEvents {
-  'approval_asked': { text: string; toolName: string }
-  'tool_activated': { toolName: string }
-  'draft_rejected': { toolName: string }
-}
-
 /** 确认/拒绝关键词（先测拒绝再测确认，避免「不用」被「用」误判） */
 const REJECT_RE = /(不用|不要|不需要|拒绝|取消|忽略|跳过|no|reject|skip)/i
 const CONFIRM_RE = /(启用|好的|保存|同意|可以|确认|好|yes|enable|ok)/i

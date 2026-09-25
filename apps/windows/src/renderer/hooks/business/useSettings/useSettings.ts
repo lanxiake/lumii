@@ -152,5 +152,3 @@ export function useSettings() {
     saveSettings,
   }
 }
-
-type UseSettingsReturn = ReturnType<typeof useSettings>

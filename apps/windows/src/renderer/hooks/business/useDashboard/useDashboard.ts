@@ -162,5 +162,3 @@ export function useDashboard() {
     refresh,
   }
 }
-
-type UseDashboardReturn = ReturnType<typeof useDashboard>

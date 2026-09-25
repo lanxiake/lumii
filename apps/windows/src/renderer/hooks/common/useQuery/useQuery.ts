@@ -35,9 +35,6 @@ export interface UseQueryOptionsObject<T> {
 /**
  * useQuery 返回值
  */
-/** @deprecated 与通用导出 `UseQueryOptions` 同义 */
-type UseQueryOptions<T> = UseQueryOptionsObject<T>
-
 export interface UseQueryReturn<T> {
   /** 数据 */
   data: T | null

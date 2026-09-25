@@ -340,14 +340,6 @@ export class UpdaterService extends EventEmitter {
 }
 
 /**
- * 发布说明信息类型
- */
-interface ReleaseNoteInfo {
-  version: string
-  note: string
-}
-
-/**
  * 设置更新相关的 IPC 处理器
  */
 export function setupUpdaterIpcHandlers(updaterService: UpdaterService): void {

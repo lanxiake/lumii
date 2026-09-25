@@ -1211,8 +1211,4 @@ const ToolCallCard: React.FC<ToolCallCardProps> = ({ item }) => {
   )
 }
 
-interface ToolCardListProps {
-  items: AgentWorkflowItem[]
-}
-
 export { ToolCallCard }

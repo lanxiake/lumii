@@ -449,8 +449,6 @@ export function useFiles(config?: FileManagerConfig) {
   }
 }
 
-type UseFilesReturn = ReturnType<typeof useFiles>
-
 /** 格式化文件大小 */
 function formatFileSize(bytes: number): string {
   if (bytes === 0) return '0 B'

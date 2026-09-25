@@ -328,12 +328,6 @@ export interface MultiSessionRuntimeState {
   readonly pendingPetHandoff: string | null
 }
 
-/**
- * @deprecated 使用 PerSessionState 和 MultiSessionRuntimeState 替代
- * 保留此别名以减少外部引用破坏
- */
-type AgentRuntimeState = PerSessionState
-
 // ============================================================
 // Store 实现
 // ============================================================

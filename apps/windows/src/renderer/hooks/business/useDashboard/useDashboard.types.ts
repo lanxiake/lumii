@@ -10,15 +10,6 @@ export interface SkillStats {
   installed: number
 }
 
-/** 到当前模型 provider 的首字节延迟 */
-interface LatencyStats {
-  /** 最近 N 次 TTFB 中位数（毫秒）；无样本时缺省 */
-  medianMs?: number
-  sampleCount: number
-  /** 本机推理无网络往返，UI 需换文案而不是直接叫「延迟」 */
-  isLocal: boolean
-}
-
 /** 运行时态势：CPU / 内存 / 磁盘 三环 */
 export interface RuntimeGauges {
   /** CPU 占用百分比；首次采样无基准时为 undefined */
