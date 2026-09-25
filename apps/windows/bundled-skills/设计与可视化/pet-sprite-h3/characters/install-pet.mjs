@@ -115,7 +115,25 @@ const ACTIONS = [
   // 播 `once` 的话动作放完就僵住。
   { key: 'walk', group: 'Walk', label: '走路', kind: 'loop' },
   { key: 'fall', group: 'Fall', label: '下落', kind: 'loop' },
-  { key: 'climb', group: 'Climb', label: '攀爬', kind: 'loop' },
+  /**
+   * ⚠ **首尾两帧都要丢**（2026-09-25 用户报的「还是会闪一个异常帧」）。
+   *
+   * 腾云那张表的首帧和末帧都是**机位图的摆拍**（"刚踏上云"的瞬间），而中间帧
+   * 是模型自己生成的（她飘起来、云变小）。实测逐帧白像素（云的体量）：
+   *
+   *   帧0: 38400   帧1~14: 27700~29500   帧15: 37900
+   *        ↑ 首尾的云比中间大 34% ↑
+   *
+   * 为什么**两条路都判不出来**（所以只能显式声明）：
+   *   · 末帧：`probeWrap` 判的是「末格像不像首格」，这里 MAD 25.99 超阈值 →
+   *     判成"不是复件"。它确实不是逐像素复件，但**是同一个状态**；
+   *   · 首帧：更量不出来 —— 这个动画整体相邻帧 MAD 就有 16~41，
+   *     首帧在它自己的邻居里并不"异常"，它是**另一个状态**。
+   *
+   * 与硬规则 8 的 `invertY`、"朝向只能由生产侧声明"是同一条原则：
+   * **凡是判据量不出来的，就必须由生产侧说。**
+   */
+  { key: 'climb', group: 'Climb', label: '攀爬', kind: 'loop', dropFirst: true, dropLast: true },
   /**
    * ⚠ `invertY` —— 这一行**必须**垂直翻转，别人不许抄。
    *
@@ -130,23 +148,19 @@ const ACTIONS = [
    * 给本来就是倒挂的素材再翻一次，同样头朝上。
    */
   /**
-   * ⚠ `flipX` —— 这一行**必须**水平镜像（2026-09-25 加，月兔）。
+   * ⚠ **不倒挂**（2026-09-25 用户定的）：天花板上的运动是**飞行**，不是倒挂爬行。
    *
-   * 约定是硬的：**素材一律朝右画**（`PetWanderDriver.applyFacing` 写死
-   * "素材面朝右，故 facing=-1 时才翻转"）。而这一行的素材**画成了朝左**——
-   * 提示词里明写着 `facing the right of the frame`，模型没听。
-   * 用户看到的说法是「运动方向反了」：往右爬时脸朝左。
+   * 以前挂着 `invertY`，理由是素材"趴在地上"（脚朝下）→ 翻过来才"脚朝上贴天花板"。
+   * 但用户要的语义是**飞**：她水平地飘在天花板下面，头朝上、肚子朝下，
+   * 与地面上的姿态**同向**。翻过来就成了"倒吊着飞"，不是那个意思。
    *
-   * 判据不是观感，是量的（`lib/motion-signals.mjs` 的 `probeFacing`，
-   * 两个独立信号 + 负对照）：眼睛偏移 **−10.0%**、头+耳的最高列落在 **0.27**（左端）；
-   * 同角色的 walk / fall 读 **+35.7% / +39.3%**（朝右基准），idle 读近 0（负对照）。
+   * `ceilingGapRatio` 的口径不受影响 —— 它量的一直是「锚点到**内容顶边**」：
+   * 不颠倒是"头顶贴天花板"、颠倒是"脚底贴天花板"，两者都是那个距离。
    *
-   * 为什么不重渲：镜像是一张 16 格的本地翻转，**零 GPU**；重渲要十几分钟，
-   * 而且不保证模型这次肯听话（它就是没听才画反的）。
-   * ⚠ 但**不要**把这个当常规手段——新角色仍应在**出图侧**就画对（见 SKILL.md 的朝向规则），
-   * 这里是"已经烧掉的钱把它救回来"。
+   * `flipX` 跟着**素材**走：这张素材画的是**朝左**（下面有 probeFacing 的实测），
+   * 而硬约定是"素材一律朝右"（`PetWanderDriver.applyFacing`）。
    */
-  { key: 'crawl', group: 'Crawl', label: '爬行', kind: 'loop', invertY: true, flipX: true, side: true },
+  { key: 'crawl', group: 'Crawl', label: '爬行', kind: 'loop', flipX: true },
   // 参考素材（demo_shimeji_*）里 Sit 是**正面**坐姿、`kind: loop`、**1 帧**。
   // 我们出的是 8 帧的呼吸循环（同一套管线，首帧是自己的坐姿），比单帧静止好看，
   // 而且**不用**为它开特例（单帧要改 install 的 cols，还会换掉格尺寸→换组）。
@@ -270,7 +284,8 @@ const installedGroups = new Set()
 /** 装进去的总帧数，用来算图集列数（见 ATLAS_MAX_DIM） */
 let totalFrames = 0
 for (const a of ACTIONS) {
-  const sub = path.join(sheetDir, `${charKey}-${a.key}-sheet`)
+  // `a.sheet` 允许这一组去读**另一个动作的表**（见 Climb/Crawl 的对调说明）
+  const sub = path.join(sheetDir, `${charKey}-${a.sheet || a.key}-sheet`)
   if (!fs.existsSync(sub)) {
     // 缺一个动作不该让整包装不上——先装有的，缺的下次补齐
     console.warn(`  ⚠ 跳过 ${a.group || 'Idle'}（找不到 ${sub}）`)
@@ -305,6 +320,30 @@ for (const a of ACTIONS) {
   let cols = tableCols ?? a.cols ?? COLS
   const rows = a.rows ?? ROWS
 
+  // —— 首帧：FL2VA 把它钉在**机位图**上，而机位图是"摆拍" ——
+  //
+  // 如果它和中间帧不是同一个状态，循环每转一圈都会闪一下那个状态。实测腾云：
+  // 首尾帧的云比中间帧**大 34%**（白像素 38400 vs 28000 上下），用户的原话是
+  // 「突然显示一个比较不合理的起始帧」。
+  //
+  // ⚠ **用显式开关，不用自动判**：这个动画整体都在剧烈变化（相邻帧 MAD 16~41），
+  // 首帧在自己的邻居里并不"异常"——它就是**另一个状态**，从像素上量不出来，
+  // 只能由生产侧说。
+  let droppedFirst = false
+  if (a.dropFirst && cols > 2) {
+    const meta = await sharp(src).metadata()
+    const cw = Math.floor(meta.width / cols)
+    const trimmed = path.join(workDir, `${id}-${a.key}-nofirst.png`)
+    await sharp(src)
+      .extract({ left: cw, top: 0, width: cw * (cols - 1), height: meta.height })
+      .png()
+      .toFile(trimmed)
+    src = trimmed
+    cols -= 1
+    droppedFirst = true
+    console.log(`     ↳ 首帧是机位图摆拍（和中间不是一个状态）→ 丢掉：${cols + 1} → ${cols} 格`)
+  }
+
   // —— 循环组的末格复件（FL2VA「同一张图当首尾」的产物）——
   //
   // 抽帧含第 0 帧、末帧又被钉回首帧，于是**末格必然取到那个复件**；留在表里
@@ -318,8 +357,11 @@ for (const a of ACTIONS) {
   // 于是它被错丢了一格）。`probeWrap` 的阈值是按**带 alpha 的原表**标定的。
   let droppedLast = false
   if (a.kind === 'loop' && cols > 2) {
-    const w = await probeWrap(src, cols)
-    if (w.ok && w.dup) {
+    // 显式要求丢时直接丢，不跑判据 —— `probeWrap` 判的是「末格像不像首格」，
+    // 而首尾都是摆拍、中间是另一状态时它**判不出来**（腾云实测：末帧的云和首帧
+    // 一样大，但 MAD 25.99 超过阈值 → 判"不是复件" → 留着 → 循环闪一下）。
+    const w = a.dropLast ? null : await probeWrap(src, cols)
+    if (a.dropLast === true || (w && w.ok && w.dup)) {
       const meta = await sharp(src).metadata()
       const cw = Math.floor(meta.width / cols)
       const trimmed = path.join(workDir, `${id}-${a.key}-wrap.png`)
@@ -329,7 +371,7 @@ for (const a of ACTIONS) {
         .toFile(trimmed)
       src = trimmed
       console.log(
-        `     ↳ 末格是首格的复件（MAD ${w.dEnd} vs 末-1 ${w.dPrev}）→ 丢掉：${cols} → ${cols - 1} 格`,
+        `     ↳ 丢掉末格（${a.dropLast ? '显式要求' : `末格是首格的复件，MAD ${w.dEnd} vs 末-1 ${w.dPrev}`}）：${cols} → ${cols - 1} 格`,
       )
       cols -= 1
       droppedLast = true
@@ -367,6 +409,7 @@ for (const a of ACTIONS) {
       `  ${cols}格 @${fps}fps（${(cols / fps).toFixed(2)}s）` +
       (a.invertY ? '（已垂直翻转 → 倒挂）' : '') +
       (a.flipX ? '（已水平镜像 → 朝右）' : '') +
+      (droppedFirst ? '（丢了首帧摆拍）' : '') +
       (droppedLast ? '（丢了末格复件）' : ''),
   )
 }
