@@ -807,7 +807,7 @@ export class PetWanderDriver {
       return
     }
 
-    const r = stepCrawl(this.x, rect, this.perch.side, dtSec, this.perchConfig)
+    const r = stepCrawl(this.x, rect, this.perch.side, dtSec, this.perchConfig, this.modelHeight)
     this.x = r.x
     this.y = this.perchCeilingY()
     this.renderer.setPosition(this.x, this.y)
