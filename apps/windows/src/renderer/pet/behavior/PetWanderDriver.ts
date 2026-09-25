@@ -606,7 +606,19 @@ export class PetWanderDriver {
       : this.perchRect
         ? wallX(this.perchRect, side, this.perchConfig, this.modelHeight)
         : this.x
-    return Math.min(Math.max(raw, 0), window.innerWidth)
+    // ⚠ 夹取的下界**不是 0，是一个缝隙**。
+    //
+    // 夹的是**锚点**，而身体从锚点向两侧伸出去（月兔实测：画布空间左 148 / 右 124，
+    // 屏幕上各 ~36px）。夹到 0 的话锚点落在屏幕最边缘，**半个身子在屏幕外** ——
+    // 用户实测报的"从天花板掉下来每次都有半边身体在屏幕外"就是这条：主窗口贴着
+    // 屏幕边时 `wallX` 算出负数（宠物本该在窗口外侧，可那儿没地方站），
+    // 一夹到 0 就正好把左半身推出去。
+    //
+    // 缝隙取 `wallGapRatio × modelHeight` —— 这正是这个比值本来的定义
+    // （"爬墙时身体侧边与墙面的缝隙"）。屏幕那条路的 `screenWallX` 本来就返回
+    // 一个缝隙，所以夹取对它是恒等的，只对"窗口贴边"这一种情形起作用。
+    const margin = this.modelHeight * this.perchConfig.wallGapRatio
+    return Math.min(Math.max(raw, margin), Math.max(margin, window.innerWidth - margin))
   }
 
   /** 当前该贴的天花板线 y。屏幕时窗口上沿就是 y=0 */

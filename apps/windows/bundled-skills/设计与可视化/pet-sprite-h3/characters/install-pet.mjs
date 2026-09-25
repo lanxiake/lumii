@@ -52,6 +52,9 @@ import sharp from 'sharp'
 import { measurePerchGaps } from '../lib/perch-gaps.mjs'
 import { makeThumbnail } from '../lib/pet-thumbnail.mjs'
 import { op } from '../lib/control.mjs'
+// 末格复件检测（FL2VA「同一张图当首尾」的产物——末格必然取到那个复件）。
+// 判据与实测见 lib/motion-signals.mjs 的 probeWrap。
+import { probeWrap } from '../lib/motion-signals.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 /**
@@ -126,7 +129,24 @@ const ACTIONS = [
    * 头部朝下"完全一致。翻早了也不行——`import-shimeji.mjs` 里记着一次：
    * 给本来就是倒挂的素材再翻一次，同样头朝上。
    */
-  { key: 'crawl', group: 'Crawl', label: '爬行', kind: 'loop', invertY: true },
+  /**
+   * ⚠ `flipX` —— 这一行**必须**水平镜像（2026-09-25 加，月兔）。
+   *
+   * 约定是硬的：**素材一律朝右画**（`PetWanderDriver.applyFacing` 写死
+   * "素材面朝右，故 facing=-1 时才翻转"）。而这一行的素材**画成了朝左**——
+   * 提示词里明写着 `facing the right of the frame`，模型没听。
+   * 用户看到的说法是「运动方向反了」：往右爬时脸朝左。
+   *
+   * 判据不是观感，是量的（`lib/motion-signals.mjs` 的 `probeFacing`，
+   * 两个独立信号 + 负对照）：眼睛偏移 **−10.0%**、头+耳的最高列落在 **0.27**（左端）；
+   * 同角色的 walk / fall 读 **+35.7% / +39.3%**（朝右基准），idle 读近 0（负对照）。
+   *
+   * 为什么不重渲：镜像是一张 16 格的本地翻转，**零 GPU**；重渲要十几分钟，
+   * 而且不保证模型这次肯听话（它就是没听才画反的）。
+   * ⚠ 但**不要**把这个当常规手段——新角色仍应在**出图侧**就画对（见 SKILL.md 的朝向规则），
+   * 这里是"已经烧掉的钱把它救回来"。
+   */
+  { key: 'crawl', group: 'Crawl', label: '爬行', kind: 'loop', invertY: true, flipX: true, side: true },
   // 参考素材（demo_shimeji_*）里 Sit 是**正面**坐姿、`kind: loop`、**1 帧**。
   // 我们出的是 8 帧的呼吸循环（同一套管线，首帧是自己的坐姿），比单帧静止好看，
   // 而且**不用**为它开特例（单帧要改 install 的 cols，还会换掉格尺寸→换组）。
@@ -267,13 +287,7 @@ for (const a of ACTIONS) {
   if (pngs.length > 1) {
     console.warn(`  ⚠ ${path.basename(sub)} 里有 ${pngs.length} 个 png（${pngs.join(', ')}）——按约定只该有 f0000.png`)
   }
-  const src = path.join(sub, pngs.includes('f0000.png') ? 'f0000.png' : pngs.sort()[0])
-  const flat = path.join(workDir, `${id}-${a.key}-flat.png`)
-  // 翻转要在**切格之前**做：表是 8×1 横排，`flip()` 把整幅上下镜像，
-  // 等价于每一格各自就地翻转（列不变，格不会串位）。
-  // 与 `flatten` 的先后无关——一个是几何操作、一个只改 alpha。
-  const prepped = a.invertY ? sharp(src).flip() : sharp(src)
-  await prepped.flatten({ background: bgHex }).png().toFile(flat)
+  let src = path.join(sub, pngs.includes('f0000.png') ? 'f0000.png' : pngs.sort()[0])
   const nameKey = a.nameKey || a.group.toLowerCase()
   if (a.group) installedGroups.add(a.group)
 
@@ -288,8 +302,50 @@ for (const a of ACTIONS) {
   if (tableCols && a.cols && tableCols !== a.cols) {
     console.warn(`  ⚠ ${path.basename(sub)}：f0000.json 报 ${tableCols} 列，ACTIONS 写的是 ${a.cols}——以 f0000.json 为准`)
   }
-  const cols = tableCols ?? a.cols ?? COLS
+  let cols = tableCols ?? a.cols ?? COLS
   const rows = a.rows ?? ROWS
+
+  // —— 循环组的末格复件（FL2VA「同一张图当首尾」的产物）——
+  //
+  // 抽帧含第 0 帧、末帧又被钉回首帧，于是**末格必然取到那个复件**；留在表里
+  // 每次循环到那一格都会顿一下。判据见 `lib/motion-signals.mjs` 的 `probeWrap`：
+  // **三条同时成立才丢**（对齐 MAD < 6、明显比「0↔末-1」低一半以上、包围盒差 <6%
+  // 且位移 ≤6px）——少一条就宁可保留，**丢错一格会把循环跳变做得更糟**。
+  //
+  // ⚠ **必须在 `flatten` 之前、拿原始表判**。flatten 会把透明区填成纯底色，
+  // 而绿底的亮度是 150、这一身银白又都是高亮度 —— 两者亮度接近，比对被压平，
+  // 连"其实一直在动"的组也会被误判成复件（实测 Climb 从 25.99 掉到 2.6，
+  // 于是它被错丢了一格）。`probeWrap` 的阈值是按**带 alpha 的原表**标定的。
+  let droppedLast = false
+  if (a.kind === 'loop' && cols > 2) {
+    const w = await probeWrap(src, cols)
+    if (w.ok && w.dup) {
+      const meta = await sharp(src).metadata()
+      const cw = Math.floor(meta.width / cols)
+      const trimmed = path.join(workDir, `${id}-${a.key}-wrap.png`)
+      await sharp(src)
+        .extract({ left: 0, top: 0, width: cw * (cols - 1), height: meta.height })
+        .png()
+        .toFile(trimmed)
+      src = trimmed
+      console.log(
+        `     ↳ 末格是首格的复件（MAD ${w.dEnd} vs 末-1 ${w.dPrev}）→ 丢掉：${cols} → ${cols - 1} 格`,
+      )
+      cols -= 1
+      droppedLast = true
+    }
+  }
+
+  // 翻转与铺底要在**切格之前**做：表是 N×1 横排，`flip()`/`flop()` 把整幅镜像，
+  // 等价于每一格各自就地翻转（列不变，格不会串位）；与 `flatten` 的先后无关
+  // ——一个是几何操作、一个只改 alpha。两个镜像**互相正交**（`flip` 上下、
+  // `flop` 左右），同时开也没有先后问题。
+  const flat = path.join(workDir, `${id}-${a.key}-flat.png`)
+  let img = sharp(src)
+  if (a.invertY) img = img.flip()
+  if (a.flipX) img = img.flop()
+  await img.flatten({ background: bgHex }).png().toFile(flat)
+
   const frames = cols * rows
   const fps = a.fps ?? FPS
   totalFrames += frames
@@ -309,7 +365,9 @@ for (const a of ACTIONS) {
   console.log(
     `  ${(a.group || 'Idle(base)').padEnd(12)} ← ${path.basename(path.dirname(src))}/${path.basename(src)}` +
       `  ${cols}格 @${fps}fps（${(cols / fps).toFixed(2)}s）` +
-      (a.invertY ? '（已垂直翻转 → 倒挂）' : ''),
+      (a.invertY ? '（已垂直翻转 → 倒挂）' : '') +
+      (a.flipX ? '（已水平镜像 → 朝右）' : '') +
+      (droppedLast ? '（丢了末格复件）' : ''),
   )
 }
 

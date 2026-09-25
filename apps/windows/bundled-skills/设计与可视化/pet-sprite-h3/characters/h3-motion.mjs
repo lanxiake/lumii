@@ -316,7 +316,13 @@ const _CLOSED_FREE =
  * 时间点写占位符 `{deadline}`，由 buildPrompt 填 MOTION_DEADLINE ——
  * 帧数一改，动作的完成时刻就得跟着改，两处分别硬编码迟早会对不上。
  */
-const ACTIONS = {
+/**
+ * ⚠ **必须导出**：朝向核对（`lib/motion-signals.mjs` 的审计/闸门）靠这张表的
+ * `facing` 字段决定「这组该对称还是该朝右」。它以前没导出，审计脚本拿不到声明、
+ * 只能把 `walk` 当成正面动作判 → 报出一个不存在的"违反朝右约定"。
+ * 判据必须**由生产侧声明驱动**，不要在下游另写一份动作清单。
+ */
+export const ACTIONS = {
   idle: {
     label: '待机呼吸',
     motionClass: 'static',

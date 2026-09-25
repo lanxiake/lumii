@@ -291,6 +291,30 @@ describe('PetWanderDriver — 攀附与掉落', () => {
     expect(driver.getPerch()).toEqual({ kind: 'ceiling', side: 'left' })
   })
 
+  it('窗口贴着屏幕左边时，锚点不落到屏幕边缘（夹取要留一个缝隙）', () => {
+    // 用户实测报的"从天花板掉下来每次都有半边身体在屏幕外"。
+    //
+    // 根因：主窗口贴着屏幕边时 `wallX` 算出负数——那个公式的前提是"宠物在窗口
+    // **外侧**"，可窗口已经贴到屏幕边了，外侧没地方站。旧实现把负数夹到 **0**，
+    // 于是锚点落在屏幕最左边，而身体是从锚点向两侧伸出去的（月兔实测屏幕上各
+    // ~36px），**左半身整个在屏幕外**。
+    //
+    // 缝隙取 `wallGapRatio × modelHeight`（这里 100 × 0.43 = 43）——这正是这个
+    // 比值本来的定义："爬墙时身体侧边与墙面的缝隙"。
+    const clock = makeClock()
+    const { driver, setPos, getPos } = makePerchScene()
+    setPos({ x: 10, y: 768 })
+    driver.setPerchRect({ x: 0, y: 400, width: 800, height: 368 })
+
+    driver.suspend('pointer')
+    driver.resume('pointer')
+
+    // ⚠ 不能 advance：测试配置的 climbSpeed 是 4500（"爬得飞快"），推进 1 秒就
+    // 爬到顶转 ceiling 了。吸附本身是**立刻**贴到墙线上的，不用等积分。
+    expect(driver.getPerch()).toEqual({ kind: 'wall', side: 'left' })
+    expect(getPos().x).toBeCloseTo(43, 0)
+  })
+
   it('松手后落回地面线（视口底边），而不是停在半空', () => {
     const clock = makeClock()
     const { driver, onActivity, getPos } = makePerchScene()
