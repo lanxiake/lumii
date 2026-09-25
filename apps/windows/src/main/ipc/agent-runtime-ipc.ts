@@ -1369,7 +1369,7 @@ let _ipcChannelAdapter: IpcChannelAdapter | null = null
 
 function getIpcChannelAdapter(bridge: AgentRuntimeBridge): IpcChannelAdapter {
   if (!_ipcChannelAdapter) {
-    _ipcChannelAdapter = new IpcChannelAdapter(bridge, getAcpBackendManager(), () => null)
+    _ipcChannelAdapter = new IpcChannelAdapter(bridge)
   }
   return _ipcChannelAdapter
 }

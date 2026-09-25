@@ -41,11 +41,6 @@ import {
 } from '../provider-config'
 import { testProviderConnection } from '../provider-probe'
 
-/** 浏览器控制相关端口（对照用，app-ui 控制口需避开） */
-const DEFAULT_BROWSER_CONTROL_PORT = 18790
-const DEFAULT_CDP_PORT = 18791
-const DEFAULT_EXTENSION_RELAY_PORT = 18793
-
 /** App UI 控制口起始端口（避开 CDP / extension relay） */
 export const APP_UI_CONTROL_PORT_START = 18795
 

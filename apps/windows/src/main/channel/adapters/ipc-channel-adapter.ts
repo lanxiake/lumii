@@ -10,7 +10,6 @@ import type { AgentRuntimeBridge } from '../../agent-runtime/bridge'
 import type { IChannelAdapter, ChannelSession, ContextStrategy } from '../types'
 import { StatefulContextStrategy } from '../context-strategy/stateful-strategy'
 import { SessionManager } from '../session-manager'
-import { AcpBackendManager } from '../acp-backend-manager'
 
 const log = {
   info: (...args: unknown[]) => console.log('[IpcChannelAdapter]', ...args),
@@ -24,11 +23,7 @@ export class IpcChannelAdapter implements IChannelAdapter {
   private readonly contextStrategy: StatefulContextStrategy
   readonly sessionManager: SessionManager
 
-  constructor(
-    private readonly bridge: AgentRuntimeBridge,
-    private readonly acpBackendManager: AcpBackendManager,
-    private readonly getMainWindow: () => BrowserWindow | null,
-  ) {
+  constructor(private readonly bridge: AgentRuntimeBridge) {
     this.contextStrategy = new StatefulContextStrategy(bridge)
     this.sessionManager = new SessionManager(bridge)
   }
