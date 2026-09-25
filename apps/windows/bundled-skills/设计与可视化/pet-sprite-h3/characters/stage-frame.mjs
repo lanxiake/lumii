@@ -100,6 +100,48 @@ function largestFigureBox(rgba, w, h, thr = 128) {
 }
 
 /**
+ * 把抠底结果切成**连通域清单**（带逐像素归属），给碎渣拦截用。
+ *
+ * `largestFigureBox` 也会数块数，但它只把数字记进元数据就结束了——
+ * 「记下来、不判断」的数据等于没记（悬浮机位上 5 块绿渣就是这么混进走路表的）。
+ * 这个函数把每块像素属于哪一域也交出来，调用方才有可能**动手**。
+ */
+function figureComponents(rgba, w, h, thr = 128) {
+  const N = w * h
+  const labels = new Int32Array(N).fill(-1)
+  const comps = []
+  for (let i = 0; i < N; i++) {
+    if (labels[i] !== -1 || rgba[i * 4 + 3] <= thr) continue
+    const id = comps.length
+    const q = [i]
+    labels[i] = id
+    let minX = w, minY = h, maxX = -1, maxY = -1
+    for (let head = 0; head < q.length; head++) {
+      const j = q[head]
+      const x = j % w
+      const y = (j / w) | 0
+      if (x < minX) minX = x
+      if (x > maxX) maxX = x
+      if (y < minY) minY = y
+      if (y > maxY) maxY = y
+      const go = (k) => {
+        if (labels[k] === -1 && rgba[k * 4 + 3] > thr) {
+          labels[k] = id
+          q.push(k)
+        }
+      }
+      if (x > 0) go(j - 1)
+      if (x < w - 1) go(j + 1)
+      if (y > 0) go(j - w)
+      if (y < h - 1) go(j + w)
+    }
+    comps.push({ id, minX, minY, maxX, maxY, area: q.length })
+  }
+  comps.sort((a, b) => b.area - a.area)
+  return { comps, labels }
+}
+
+/**
  * 选 flood fill 的实心容差。默认 48，取自 sprite_h3 的实测值
  * （`background_tolerance = 48`）。
  *
@@ -127,11 +169,14 @@ function autoSolid(rgba, w, h, B, tSolid = 48) {
   }
 }
 
+const IS_MAIN = Boolean(process.argv[1]) && import.meta.url === pathToFileURL(process.argv[1]).href
 const argv = process.argv.slice(2)
 const src = argv[0]
 const dst = argv[1]
-if (!src || !dst) {
-  console.error('用法：node stage-frame.mjs <源图> <输出.png> [--canvas WxH] [--ratio 0.70] [--baseline 0.856] [--bg 00ffff] [--keep-scale] [--src-h 448]')
+// ⚠ 只有**作为入口跑**才允许吃参数/退进程：这文件同时被驱动脚本当模块 import，
+// 顶层 process.exit 会把宿主整个带走（实测：摆位驱动一声不吭就退了）。
+if (IS_MAIN && (!src || !dst)) {
+  console.error('用法：node stage-frame.mjs <源图> <输出.png> [--canvas WxH] [--ratio 0.70] [--baseline 0.856] [--bg 00ffff] [--keep-scale] [--src-h 448] [--drop-debris] [--debris-max 800]')
   process.exit(1)
 }
 const opt = (n, d) => {
@@ -174,13 +219,24 @@ const KEEP_SCALE = argv.includes('--keep-scale')
 const SRC_H = Number(opt('src-h', 0)) || null
 
 /**
+ * `--drop-debris`：把主体之外的**小块碎渣**（面积 < `--debris-max` px²，默认 800）
+ * 从像素里直接清掉再摆图。不传这个开关时，存在碎渣就是**错误**——
+ * 渣会被视频模型当成角色长相的一部分、逐帧复制进视频（2026-09-24 实测：
+ * 悬浮机位上 5 块绿色渣，走路表里成了满屏飘动的草屑）。
+ * 大块悬浮物（脚下的云、和主体断开的缎带）只提示不清除：那是创作决定，
+ * 但会写进 meta.debris.remaining，不再允许沉默。
+ */
+const DROP_DEBRIS = argv.includes('--drop-debris')
+const DEBRIS_MAX = Number(opt('debris-max', 800))
+
+/**
  * 摆一张图。返回 staging 元数据（后续 frame-0 snap 要拿它当参考）。
  *
  * 元数据里的 `figureHeightPx` 是关键：H3 出的第 0 帧理应复现这张参考图，
  * 但实测总会有出入——用第 0 帧的角色高度除以这个值，就是这一整段的
  * 全局缩放系数（**整段共用一个变换**，逐帧对齐会让画面抖）。
  */
-export async function stageFrame(srcPath, dstPath, { canvas = CANVAS, ratio = RATIO, baseline = BASELINE, bg = BGC, keepScale = KEEP_SCALE, srcH = SRC_H } = {}) {
+export async function stageFrame(srcPath, dstPath, { canvas = CANVAS, ratio = RATIO, baseline = BASELINE, bg = BGC, keepScale = KEEP_SCALE, srcH = SRC_H, dropDebris = DROP_DEBRIS, debrisMax = DEBRIS_MAX } = {}) {
   const bgRGB = [0, 2, 4].map((i) => parseInt(bg.slice(i, i + 2), 16))
   const { data, info } = await sharp(srcPath).ensureAlpha().raw().toBuffer({ resolveWithObject: true })
 
@@ -190,8 +246,38 @@ export async function stageFrame(srcPath, dstPath, { canvas = CANVAS, ratio = RA
   // 把它当像素缓冲用会得到一整片 undefined，症状是 alphaBBox 返回 null、
   // 「抠底后没有找到任何前景」——这个坑踩过一次。
   const { data: cut } = cutout(data, info.width, info.height, B, { tSolid })
-  const box = largestFigureBox(cut, info.width, info.height, 128)
-  if (!box) throw new Error('抠底后没有找到任何前景——源图可能整张都是背景色')
+  let box0 = largestFigureBox(cut, info.width, info.height, 128)
+  if (!box0) throw new Error('抠底后没有找到任何前景——源图可能整张都是背景色')
+
+  // —— 碎渣拦截（2026-09-24）——
+  // 存在即报错；`--drop-debris` 才放行（从像素里清干净）。见 CLI 注释。
+  const { comps, labels } = figureComponents(cut, info.width, info.height, 128)
+  const junk = comps.slice(1).filter((c) => c.area >= 16 && c.area < debrisMax)
+  const floaters = comps.slice(1).filter((c) => c.area >= debrisMax)
+  if (junk.length && !dropDebris) {
+    throw new Error(
+      `角色旁有 ${junk.length} 块碎渣（${junk.map((c) => c.area + 'px²').join('、')}，` +
+        `左上角分别在 ${junk.map((c) => `(${c.minX},${c.minY})`).join(' ')}）。` +
+        '碎渣会被视频模型当成角色长相逐帧复制（实测：五块绿渣 → 走路表满屏草屑）。' +
+        '先回去重挑一帧；确定只要清掉它们，就加 --drop-debris 重跑。',
+    )
+  }
+  let debris = null
+  if (junk.length) {
+    for (const c of junk) {
+      for (let k = 0; k < labels.length; k++) if (labels[k] === c.id) cut[k * 4 + 3] = 0
+    }
+    // 渣可能把包围盒撑大过——清完重新框一次，别让空白混进缩放
+    box0 = largestFigureBox(cut, info.width, info.height, 128)
+    if (!box0) throw new Error('清完碎渣就没有主体了——--debris-max 是不是开太大了？')
+  }
+  if (junk.length || floaters.length) {
+    debris = { dropped: junk.map((c) => c.area), remaining: floaters.map((c) => ({ area: c.area, x: c.minX, y: c.minY })) }
+    if (junk.length) console.log(`  · 已清掉 ${junk.length} 块碎渣（${junk.map((c) => c.area + 'px²').join('、')}）`)
+    if (floaters.length)
+      console.log(`  ⚠ 另有 ${floaters.length} 块较大的悬浮物（${floaters.map((c) => c.area + 'px²').join('、')}）被保留——确认那是姿势的一部分（脚下的云？断开的水袖？），已记入 meta.debris.remaining`)
+  }
+  const box = box0
 
   // 画布比例跟着**客户端的宠物格**走。
   //
@@ -258,6 +344,7 @@ export async function stageFrame(srcPath, dstPath, { canvas = CANVAS, ratio = RA
     backgroundMaxDistance: Number(bgMax.toFixed(1)),
     backgroundShare: Number((bgShare * 100).toFixed(1)),
     sourceBBox: box,
+    ...(debris ? { debris } : {}),
     figureHeightPx: targetH,
     figureWidthPx: targetW,
     placement: { left, top, baselineRow },
@@ -265,7 +352,7 @@ export async function stageFrame(srcPath, dstPath, { canvas = CANVAS, ratio = RA
   return meta
 }
 
-const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href
+const isMain = IS_MAIN
 if (isMain) {
   const meta = await stageFrame(src, dst)
   // snap 要拿这份元数据当参考（角色高度、基线行），所以得能落盘

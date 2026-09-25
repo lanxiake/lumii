@@ -70,11 +70,22 @@ function findRepoRoot(start) {
     if (up === d) break
     d = up
   }
-  throw new Error(`从 ${start} 往上找不到仓库根（标记：apps/windows/bundled-skills）`)
+  return null
 }
+/**
+ * 无仓库投放（本机部署）的回退：仓库找不到时不 throw——
+ * RUN_TS 退到技能树旁边的 pet-creator 部署副本（只要 node 内置模块 + 控制口，
+ * node24 可直接跑 .ts）；RESOURCES 退到 ~/.lumii/pet-models（已安装包就是
+ * 旧 scale / personaAddon 的现实来源，语义等价：都是"上一版这只宠物的清单"）。
+ */
 const REPO = findRepoRoot(HERE)
-const RUN_TS = path.join(REPO, 'apps/windows/bundled-skills/设计与可视化/pet-creator/run.ts')
-const RESOURCES = path.join(REPO, 'apps/windows/resources/pet-models')
+const RUN_TS = REPO
+  ? path.join(REPO, 'apps/windows/bundled-skills/设计与可视化/pet-creator/run.ts')
+  : path.resolve(HERE, '..', '..', 'pet-creator', 'run.ts')
+const DATA_ROOT = process.env.LUMII_CLIENT_DATA_DIR?.trim() || path.join(os.homedir(), '.lumii')
+const RESOURCES = REPO
+  ? path.join(REPO, 'apps/windows/resources/pet-models')
+  : path.join(DATA_ROOT, 'pet-models')
 
 /**
  * 客户端既有的九个动作。`group: null` = 走 base 槽（技能据此生成 Idle/Talk）。
@@ -188,6 +199,30 @@ const ROWS = Number(opt('rows', 1))
 const FPS = Number(opt('fps', 8))
 
 /**
+ * 特效层（`--fx-dir`，2026-09-24）。
+ *
+ * 渲染器早就支持 `manifest.slots`（分层特效叠在角色身上、可开关、跟身体缩放），
+ * 但我们的安装器只发 base 批次，slots 永远是 `{}`——光尘、花环这些特效只能
+ * 烤死在每个动作帧里。这里补一条独立批次走非 base 的槽：
+ * run.ts 会把它打进**同一张图集**（同一套 normalize/锚点空间），并在
+ * `manifest.slots` 里生成 `{kind:'layered', at:[0,0], parts:{<cat>:[帧名…]}}`。
+ * `at` 在 run.ts 侧写死 [0,0]，覆盖在安装后补（和 perchGaps 同一段、同一个写者）。
+ *
+ * 用法：`--fx-dir <表目录> [--fx-slot fx] [--fx-cat aura] [--fx-cols 8] [--fx-fps 8] [--fx-at 0,-12]`
+ */
+const FX = opt('fx-dir')
+  ? {
+      dir: opt('fx-dir'),
+      slot: opt('fx-slot', 'fx'),
+      cat: opt('fx-cat', 'aura'),
+      cols: Number(opt('fx-cols', 8)),
+      rows: Number(opt('fx-rows', 1)),
+      fps: Number(opt('fx-fps', 8)),
+      at: (opt('fx-at', '0,0') || '0,0').split(',').map((v) => Math.round(Number(v))),
+    }
+  : null
+
+/**
  * 图集单边上限（像素）。
  *
  * 图集是**一张**贴图，`maxCols` 固定为 8 时高度 = ⌈帧数/8⌉ × 格高（这里是 448），
@@ -242,8 +277,18 @@ for (const a of ACTIONS) {
   const nameKey = a.nameKey || a.group.toLowerCase()
   if (a.group) installedGroups.add(a.group)
 
-  // 逐条动作的网格与帧率（见 ACTIONS 的说明）：格数必须与出图时的抽帧数一致
-  const cols = a.cols ?? COLS
+  // 逐条动作的网格与帧率（见 ACTIONS 的说明）：格数必须与出图时的抽帧数一致。
+  // 列数优先读表自带的 f0000.json（硬规则 15：列数由生产侧声明，别让下游猜）。
+  let tableCols = null
+  try {
+    tableCols = JSON.parse(fs.readFileSync(path.join(sub, 'f0000.json'), 'utf8')).cols ?? null
+  } catch {
+    /* 老表没有 json，走 ACTIONS 表 */
+  }
+  if (tableCols && a.cols && tableCols !== a.cols) {
+    console.warn(`  ⚠ ${path.basename(sub)}：f0000.json 报 ${tableCols} 列，ACTIONS 写的是 ${a.cols}——以 f0000.json 为准`)
+  }
+  const cols = tableCols ?? a.cols ?? COLS
   const rows = a.rows ?? ROWS
   const frames = cols * rows
   const fps = a.fps ?? FPS
@@ -266,6 +311,30 @@ for (const a of ACTIONS) {
       `  ${cols}格 @${fps}fps（${(cols / fps).toFixed(2)}s）` +
       (a.invertY ? '（已垂直翻转 → 倒挂）' : ''),
   )
+}
+
+// —— 特效层批次（见 FX 定义的说明）：slot ≠ base，run.ts 会把它们登记进 slots ——
+if (FX) {
+  const fxSrc = path.join(FX.dir, 'f0000.png')
+  if (!fs.existsSync(fxSrc)) {
+    console.error(`✗ 特效层表找不到：${fxSrc}（约定只吃 f0000.png）`)
+    process.exit(1)
+  }
+  const fxFlat = path.join(workDir, `${id}-fx-${FX.slot}-${FX.cat}-flat.png`)
+  await sharp(fxSrc).flatten({ background: bgHex }).png().toFile(fxFlat)
+  const frames = FX.cols * FX.rows
+  totalFrames += frames
+  batches.push({
+    file: fxFlat,
+    cols: FX.cols,
+    rows: FX.rows,
+    slot: FX.slot,
+    category: FX.cat,
+    action: `FX·${FX.slot}:${FX.cat}`,
+    names: Array.from({ length: frames }, (_, i) => `${prefix}_fx_${FX.cat}_${String(i).padStart(2, '0')}`),
+    durationsMs: Array.from({ length: frames }, () => Math.round(1000 / FX.fps)),
+  })
+  console.log(`  FX:${FX.slot}     ← ${path.basename(FX.dir)}  ${FX.cols}格 @${FX.fps}fps（部件类别 ${FX.cat}）`)
 }
 
 const tapMotions = Object.fromEntries(
@@ -351,6 +420,25 @@ child.on('close', async (code) => {
     console.error('  ⚠ 技能没回 packageDir，perchGaps 与缩略图都没补')
     process.exit(code || 0)
   }
+  // slots 的 `at` 偏移：run.ts 建 slots 时写死 [0,0]（那是给"贴在锚点原位"的部件
+  // 准备的默认值）。环绕光尘要抬到头顶附近，只能在这里覆盖——同一个写者、同一次写盘。
+  if (FX) {
+    try {
+      const p = path.join(pkgDir, 'manifest.json')
+      const m = JSON.parse(fs.readFileSync(p, 'utf-8'))
+      const def = m.slots && m.slots[FX.slot]
+      if (def) {
+        def.at = FX.at
+        fs.writeFileSync(p, JSON.stringify(m, null, 2))
+        console.log(`  · slot ${FX.slot} 的 at → [${FX.at.join(', ')}]（覆盖 run.ts 默认的 [0, 0]）`)
+      } else {
+        console.warn(`  ⚠ manifest.slots 里没有 "${FX.slot}"——特效层批次没被 run.ts 登记，检查 --fx-slot/--fx-cat`)
+      }
+    } catch (err) {
+      console.error(`  ⚠ slot 的 at 偏移没写上：${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
+
   try {
     const gaps = await measurePerchGaps(pkgDir)
     if (!gaps) {

@@ -54,6 +54,9 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
+// 抠底之后的第二道碎块拦截（绿渣是**视频中段长出来的**，机位图那道拦不住；
+// 判据与三档分法见 lib/detached-blobs.mjs）
+import { scrubSheetPng } from './detached-check.mjs'
 
 // ---------------------------------------------------------------------------
 // 连接：与 MCP 用同一份配置，别抄第二份 URL
@@ -168,6 +171,23 @@ const _POSITION_STANDING =
   'standing in the middle of the frame with clear empty space above the head and below the feet'
 /** 位移类动作（跳）用这个：角色压低，给顶点留出上面的空间 */
 const _POSITION_LOW = 'standing in the lower half of the frame with plenty of empty space above the head'
+/**
+ * **主帧净空句**（2026-09-24 月兔小仙，用户定的分工）。
+ *
+ * 光点/花瓣/粒子**不许画进动作帧**，一律由 `slots` 特效层出。两条实测理由：
+ *
+ * 1. 模型自己在空中画的粒子，颜色跟精确底色对不上（实测离 #00FF00 有 26~80 之远），
+ *    `ColorToMask threshold=30` 抠不掉 → 变成精灵表上的绿渣。而且**只长在中间格**
+ *    （首末格等于机位图本身），所以机位图抠得再干净也拦不住它长出来。
+ * 2. 画在帧里，位置、时机、密度全归模型说了算；特效层出才能由代码控。
+ *
+ * 措辞用**肯定式列清单**（no petals / no sparkles / …）而不是一句 "clean background"，
+ * 因为"干净背景"会被理解成"干净的绿幕"，粒子照画。
+ */
+const _CLEAN_PLATE =
+  ' The air around her stays completely empty: no flower petals, no sparkles, no glowing dots, no dust ' +
+  'motes, no light streaks and no particles of any kind — the only thing drawn on the plain background ' +
+  'is her own body, clothing and hair.'
 
 const _FACING_DOWN =
   'The character keeps exactly the orientation shown in <Picture 1> for the whole shot: ' +
@@ -254,8 +274,23 @@ const MOTION_CLASS = {
   suspended:
     'The figure stays at the same spot in the frame, the head stays at the same height, and the figure keeps the ' +
     'same size — never closer to or further from the camera, never rising or dropping, never drifting sideways, ' +
-    'and it never leaves the frame. The limbs, ears and tail flail and wobble in the air, but the body itself does ' +
+    'and it never leaves the frame. The limbs, ears and any loose hanging parts (long hair, ribbons, a dress ' +
+    'hem) flail and wobble in the air, but the body itself does ' +
     'not change position.',
+  /**
+   * 骑乘悬浮类——仙女系"飘行/腾云"循环专用（2026-09-24 月兔小仙仙女化重做）。
+   *
+   * `static`/`locomotion` 都以"脚在地上"为前提（"feet stay planted / legs cycle"），
+   * 配悬浮措辞自相矛盾；`suspended` 措辞接近但明令禁止升降、还带"四肢扑腾"，
+   * 像坠落不像飞行。`riding` = 悬浮在原位 + **允许小幅浮沉**（FL2VA 首尾同帧，
+   * "升一段再落回"是循环内合法的动态；真位移由客户端驱动负责），
+   * 并把"衣袂飘带大幅飘动"写成位移的**画法**——这就是仙女的速度线。
+   */
+  riding:
+    'The figure floats in the air, never touching the ground and taking no steps: it may bob up and down ' +
+    'and drift forward, always returning to its starting spot by the end of the shot; it keeps the same ' +
+    'size, never gets closer to or further from the camera, and never leaves the frame. The motion is ' +
+    'carried by clothing, hair and ribbons streaming strongly in the passing air.',
 }
 
 const _CLOSED = 'The shot ends in exactly the same pose it started in so the clip can loop.'
@@ -708,6 +743,47 @@ const POSES = {
       'size and the same distance from the camera the whole time, and it does not land or touch the ground.',
   },
   /**
+   * 二足角色专用机位（2026-09-24 月兔小仙「飘行/腾云」加，仙女化行为重做）。
+   *
+   * ⚠ 不能拿侧身站立当飘行首帧、贴墙当腾云首帧：FL2VA 把**首尾钉在同一张图**上，
+   * 首帧脚踩地面，循环就永远带着落地感；首帧贴着墙，就永远带着抓墙感。
+   * 机位本身就得是"离地悬浮、衣摆被气流托起"/"站在一朵云上、双手上举"。
+   * 全局 prose 保持物种中立，角色细节走 `scene.motions` 覆盖。
+   */
+  floaty: {
+    label: '侧身悬浮',
+    from: 'side',
+    facing: 'pose',
+    motionClass: 'displacement',
+    motion:
+      'The character lifts up off the ground and floats a short distance above it in full profile: the body ' +
+      'hovers weightless at a constant height, the hem of its dress or clothing billows softly around it as ' +
+      'if caught in a gentle updraft, and nothing beneath its floating hem ever touches the ground. It ' +
+      'holds that floating stance for the rest of the shot, bobbing only slightly, and it does ' +
+      'not set down, turn, or rise out of the frame.',
+  },
+  ascend: {
+    label: '侧身踏云',
+    from: 'side',
+    facing: 'pose',
+    motionClass: 'displacement',
+    /**
+     * **起幅占画面 60%（默认 70%）**——`buildPrompt` 里 `figureRatio ≤ 0.65` 会换成
+     * `_POSITION_LOW`（"站在画面下半部、头顶留大片空天"），高度百分比也跟着这句走。
+     * 不写这个数的后果实测过：这一轮 16 格里 12 格头顶贴边被切，往上飞的余量为零，
+     * 摆位只是照着已经切掉头部的图裁（2026-09-24 月兔小仙腾云机位）。
+     */
+    ratio: 0.6,
+    motion:
+      'The character mounts a small cloud: a distinct puffy white cloud with a clear cartoon cloud shape ' +
+      'slides under its feet and lifts it up into the air in full profile. It starts low in the frame, with ' +
+      'a wide empty band of sky above its head, and stands upright on the cloud with its arms raised only ' +
+      'to the sides of its head, the hem of its dress and any ribbons fluttering downward in the passing ' +
+      'air. It holds that riding-the-cloud stance for the rest ' +
+      'of the shot, lifting only slightly, and it does not step back onto the ground, grip anything with ' +
+      'its hands, or turn.',
+  },
+  /**
    * 正面坐姿。
    *
    * ⚠ `from: ''` = **从正面立绘出发**，不走转身那一段：坐下是**姿态变化**，
@@ -817,6 +893,327 @@ export const CHARACTERS = {
       'a red chest plate with gold trim, and wide square shoulder armor. It has a 3D-rendered look with ' +
       'metallic sheen, hard beveled edges and soft volumetric lighting.',
   },
+  /**
+   * 月兔小仙（2026-09-24）。**第一个二足人形角色**——全局 ACTIONS/POSES 的 prose
+   * 是四措辞（front paws / hind legs / tail / muzzle），直接套用会给小仙女画出
+   * 猫爪和尾巴，所以本档案带 `motions` 覆盖（机制见 buildPrompt 的 motionProse）：
+   * 二足步态、双手抓握、长裙与飘带随动、兔耳替代猫耳的摆动描述。
+   * 底色 #00FF00：离描边紫檀 #866BB2 距离 267、离最浅藕荷 #DCC9EE 距离 327，
+   * 全部高于 S8 安全线 150（与正面立绘批用的同一底色，实测过抠底闸门）。
+   */
+  moonrabbit: {
+    label: '月兔小仙（玉兔仙子）',
+    background: '#00FF00',
+    // 2026-09-24 仙女化行为重做（用户方向）：Walk/Climb/Crawl/Fall 组名是客户端
+    // `PetOrchestrator.resolveAmbientGroup` 硬编码的，**不许改**；改的是组里放什么——
+    // 走路→飘行（悬浮前飘、裙摆飘带后扬、花瓣拖尾）、爬墙→腾云上升（踏云飞升、
+    // 整个人在画面里明显上升）。poseMap 换掉动作要的机位首帧（侧身站立→悬浮、
+    // 贴墙→踏云）；pose 名只影响 staged/ 取哪张首帧，四足角色不受影响。
+    poseMap: { side: 'floaty', cling: 'ascend' },
+    // 朝向/运动锁定句的角色级覆盖（`motions` 覆盖的同类机制，见 buildPrompt）：
+    // Climb 全局的朝向句是"四爪抓着竖直面"、motionClass 是"四肢在原地蹬"——两条
+    // 都和踏云飞升打架（旧 climb 画成站着不动，"head stays at the same height"
+    // 就是元凶之一）。仙女系：朝向锁到首帧姿势本身；运动类见下面 `motionClassMap`
+    // （**不是** displacement，那句是"允许画面内明显的上下位移"，实测会升 124px）。
+    facingMap: { climb: 'pose', crawl: 'pose', fall: 'pose' },
+    // ⚠ Climb 的运动类**不是** `displacement`（2026-09-24 连栽两轮之后改的）。
+    // `displacement` 那句允许"整个人在画面里升起"，模型就真的升：实测两轮的升幅
+    // 分别是 **124px**（顶空 125px，正好吃干）和更早一轮的 12/16 格头顶出格。
+    // 而**上升的净位移本来就归客户端**（`RisingWallClimber` 的上升段是代码平移），
+    // 帧里要的是"云载着她 + 衣袂往下淌"的姿态线索，不是画面内的长途位移。
+    // `riding` = 悬浮在原位、允许小幅浮沉、位移由衣着画法承担 —— 正是腾云要的。
+    motionClassMap: { walk: 'riding', climb: 'riding', crawl: 'riding' },
+    style: '2D-animated cel-shaded anime game sprite',
+    identity:
+      'a graceful little moon-rabbit fairy from Chinese mythology, a cute young girl with softly rounded ' +
+      'chibi-like proportions, a round face, big eyes, a small nose and mouth. She has long straight ' +
+      'silver-white hair falling to her waist, and two long rabbit ears with pale-pink inner fur standing ' +
+      'up on top of her head. She wears a lilac (#DCC9EE) waist-high long dress flowing down to the ground, ' +
+      'a cream-white (#FCF8F2) cloud-shaped shoulder cape, and a moon-gold (#F2CE74) tasseled sash at her ' +
+      'waist; two pale-lavender ribbons float close along her body, a small yellow flower sits in her hair, ' +
+      'and a crescent-moon Chinese-knot charm hangs at her waist. Her long dress reaches down to her ankles, ' +
+      'and its hem sways and lifts freely as she moves. Flat cel-shaded anime style with clean thick violet (#866BB2) outlines, simple solid ' +
+      'color fills, no gradients and no shading.',
+    motions: {
+      idle:
+        'The character breathes gently in place. Her chest rises and falls in one slow soft breath, her head ' +
+        'dips down a touch on the exhale, and she blinks once near the middle of the shot; everything returns ' +
+        'to the exact starting pose by {deadline} seconds while her feet stay planted and her body stays in ' +
+        'place. The long dress hem and the two ribbons sway only a little and settle back to their initial ' +
+        'shape and position; her rabbit ears stay upright and still.',
+      wave:
+        'The character performs two big, unmistakable waves with one arm. Her right arm lifts up and out ' +
+        'beside her head until the open palm rises ABOVE the tips of her rabbit ears, at head height, elbow ' +
+        'clearly bent; the raised hand then swings left and right twice in wide visible arcs at that high ' +
+        'position, and only then the arm comes back down to her side into the exact starting pose by ' +
+        '{deadline} seconds while both feet stay planted on the ground and her body stays in place. This is ' +
+        'a LARGE arm movement: from the shoulders up, the picture must change far more than the dress hem ' +
+        'does. Her hair, dress and ribbons sway only a little and settle back to their initial shape and ' +
+        'position.',
+      nod:
+        'The character performs exactly ONE deep, unmistakable nod in the whole clip — and this is NOT a ' +
+        'breathing motion. Her head pitches forward and DOWN, down a long way, until her chin nearly touches ' +
+        'her chest — a dip far deeper than any natural breath would move her head — and she HOLDS that deeply ' +
+        'dropped head for a full pause, about a quarter of the clip, clearly frozen at the bottom; then she ' +
+        'lifts her head back up to the exact starting pose and stays perfectly still until {deadline} seconds. ' +
+        'Exactly one nod; after the head comes back up there is no second dip. Her body, arms and feet stay ' +
+        'completely still — only the head and neck move. Her eyes stay open, her long rabbit ears swing ' +
+        'gently forward as the head dips and settle back when it rises, and her dress and ribbons barely move.',
+      // 飘行（原走路，2026-09-24 仙女化）：**一个字都不提速/步/腿/裙下**——历史上
+      // `walks / stride / under the long dress` 三版全被模型理解成"把腿藏好站着蹭"。
+      // 位移=画面内向右飘一段再缓缓回到原位闭合。
+      // ⚠ 原先这里写着"花瓣与光点在身后拖尾"——**已删**：那些粒子抠不掉（模型画的
+      // 底色偏了，见 `_CLEAN_PLATE`），而且位置和时机不归代码管。改由 fx 特效层出。
+      walk:
+        'The character glides through the air, floating weightless a short distance above the ground, seen ' +
+        'in profile. Her whole body drifts smoothly toward the right of the frame and then eases gently ' +
+        'back to its starting place by {deadline} seconds so the clip can loop — one continuous airy glide, ' +
+        'light and dreamy. Her long dress hem and the two ribbons stream out behind her, rippling in the ' +
+        'airflow like small flags, and her silver hair floats back softly. Her head stays level, her arms ' +
+        'relax at her sides, and nothing about her ever touches the ground.' + _CLEAN_PLATE,
+      // 腾云（原爬墙，2026-09-24 仙女化）：**不再出现墙 / 爪子 / 抓握**。
+      // ⚠ 旧账（压振幅那一版）见下面 `climb:` 上面那段：升幅给了额度就会被超，
+      //   额度这条路已经废弃，现在的口径是"画面内不许上升" + 首帧摆小。
+      // ⚠ 不要写"待在画面下三分之二"：那是把底空删掉，下降段必然踩底边（实测格 2/12/13 底空 0）。
+
+      // ⚠ **第 5 次改写的方向：不是"压振幅"，是"画面内根本不许上升"**（账记在这里）。
+      // 上一版给的是额度（`about one tenth of the frame height, and never more than
+      // that`，格子空间 45px），模型**照超**：实测升幅 **104px**。用户从远端捞回来的
+      // 两张表（`outputs/pet-motion/01a98896`、`6bae8bb9`）一张 6 格、一张 8 格头顶
+      // 出格，出格那几格**第 0 行上的平头宽 84~111px** —— 削掉的不是耳尖，是
+      // **耳朵连举起的手一起被切平**（她的姿势双臂举在头侧）。平头**不可逆**：模型
+      // 在生成时就把画面上半部分丢了，本地挪位/缩小只能把平头从画框边挪到半空里。
+      // 所以这次不给额度了，改成明确禁止画面内位移（真正的上升由客户端
+      // `RisingWallClimber` 平移驱动，帧里只要"云载着她 + 衣袂往下淌"的线索），
+      // 并且**首帧摆小做保险**：`temp/restage-ascend4.mjs` 以
+      // `--ratio 0.50 --baseline 0.885` 重摆 `staged/moonrabbit-ascend.png`
+      // （顶空 259 / 底空 78，够容「长高 111 + 实测乱窜 104」）。归一化倍率取
+      // **组内最高包围盒**（`install-pet.mjs:415`），摆小不会让她小一号。
+      // 另：`01a98896` 那张还有**首尾不闭合**（第 0 格内容高 197 vs 第 15 格 291），
+      // 就算不越界也不能用——每次循环会有一次尺寸跳变。
+      climb:
+        'The character rides a small puffy white cartoon cloud high in the air, seen in clean side view ' +
+        'facing the right of the frame. She and her cloud stay at **exactly the same height and the same ' +
+        'place inside the frame** for the whole clip: she does not rise, she does not sink, the cloud under ' +
+        'her feet never gets closer to the top or the bottom edge, and the camera does not move, zoom in or ' +
+        'zoom out. Only her hair, dress, cape and ribbons move. She stays around the middle of the frame the ' +
+        'whole time, with clear empty space above her ears and below the cloud at every moment, and she keeps ' +
+        'exactly the size and the framing of <Picture 1>: she never grows taller or wider than she is in ' +
+        '<Picture 1>, and she never fills more of the frame than she does there. Both arms are raised only to ' +
+        'the sides of her head, elbows bent, in ' +
+        'a relaxed joyful immortal-flying pose. The cloud under her feet is small and compact, no wider than ' +
+        'her shoulders, and stays under her feet. Her dress hem, cloud-shaped cape, hair and ribbons all ' +
+        'stream DOWNWARD in the passing air, which is what sells the ascent. Her body stays upright on the ' +
+        'cloud; her hands grasp nothing, and no part of her body, her ribbons or her hair loops back to touch ' +
+        'her arms or torso.' + _CLEAN_PLATE,
+      floaty:
+        'The character lifts up off the ground and floats a short distance above it in full profile: she ' +
+        'hovers weightless at a constant height, the hem of her lilac dress billows softly around her as ' +
+        'if caught in a gentle updraft, her two ribbons and silver hair float outward in the same breath ' +
+        'of air, and nothing beneath her floating hem ever touches the ground. She holds that floating ' +
+        'stance for the rest of the shot, bobbing only slightly, and she does not set down, turn, or rise ' +
+        'out of the frame.' + _CLEAN_PLATE,
+      // 腾云机位（Climb 的首帧由 poseMap 换到 ascend）。
+      // ⚠ **起幅必须压低**：一个要往上飞的动作，画面里得先有能往上飞的地方。
+      // 实测这一轮的 16 格里 12 格头顶贴边被切（ratio 冲到 0.90），摆位只是照着裁，
+      // 治不了——所以起幅位置写进 prose，并且 POSES.ascend 带 `ratio` 把组合句一起改掉。
+      // 末句"不成环"是为了不困住背景：手臂/飘带与身子围成封闭环时，环里的底色
+      // 抠不掉（实测腾云表最差格 16.9% 近绿不透明像素，46% 是被围住的整块绿）。
+      ascend:
+        'The character mounts a small cloud: a compact puffy white cartoon cloud (no wider than her ' +
+        'shoulders) slides under her feet and lifts her up into the air in full profile. She starts LOW in ' +
+        'the frame — her whole figure inside the lower two thirds — so a wide empty band of sky stays above ' +
+        'her head from the very first frame to the last. She stands upright on it with her hands raised only ' +
+        'to the sides of her head, elbows bent, never above her ears. Her long dress hem, cloud-shaped cape, ' +
+        'hair and ribbons flutter downward in the passing air, her rabbit ears tilted gently back. She holds ' +
+        'that riding-the-cloud stance for the rest of the shot, lifting only slightly, and she does not ' +
+        'step back onto the ground, grip anything with her hands, or turn. Her arms, ribbons and hair stay ' +
+        'clear of her torso so they never form a closed loop around it.' + _CLEAN_PLATE,
+      side:
+        'The character turns on the spot until she is standing in full profile, seen from her right side, with ' +
+        'her head, shoulders and body all pointing to the right of the frame. Her long hair and the two ' +
+        'ribbons settle along her back, her rabbit ears stay upright and both are visible in profile. She ' +
+        'settles into that side-on stance and holds it for the rest of the shot, only shifting her weight ' +
+        'slightly, and she does not turn back toward the camera.',
+      cling:
+        'The character rears up and presses herself against an invisible vertical surface on the right of the ' +
+        'frame: she rises onto her feet, her body goes upright and vertical, and both hands grip that surface, ' +
+        'one hand reaching high and the other lower, while the hem of her long dress and her hair hang ' +
+        'downward along her body. She holds that clinging stance for the rest of the shot, only shifting her ' +
+        'grip slightly, and she does not slide down, let go, or turn.',
+      // ---- 2026-09-25 第二批：交互那套（Shake / Jump / Picked / Land / Sit）----
+      //
+      // 全局 `ACTIONS` 原文是**写给四足猫**的（`its tail` / `front paw` /
+      // `sitting on its haunches`）。月兔没有尾巴、直立、穿长裙：照抄会画出一条
+      // 不存在的尾巴，或者让她蹲成四足。这一批逐条改写成二足 + 裙/飘带/兔耳。
+      //
+      // 共同口径（全是前面几条动作一轮轮试出来的，别再放开）：
+      //   · 尺寸与机位钉死（`keeps exactly the same size and framing`）——不写这句
+      //     模型会顺手推近镜头，抽出来的帧尺寸对不齐；
+      //   · 画面内位移必须给**方向 + 落点 + 幅度上限**，并明说耳尖不碰顶边
+      //     （`hop` 用的是 `baseline 0.95` 那张压低版首帧，头顶才换来 168px 余量）；
+      //   · 末尾一律挂 `_CLEAN_PLATE`：摇头/跳/被拎起都会让身体移开、身后那块
+      //     底色被模型重画，碎块就是这么长出来的（判据见 `lib/detached-blobs.mjs`）。
+      shake:
+        'The character shakes her head once from side to side in a clear "no". Her head turns to one side, ' +
+        'swings over to the other side, and then comes back to face the camera, settling into the exact ' +
+        'starting pose by {deadline} seconds. Only her head and her long rabbit ears move — the ears swing ' +
+        'a beat behind the head and settle back upright. Her body, arms and feet stay completely still, her ' +
+        'feet stay planted on the ground, and she keeps exactly the same size and framing as in <Picture 1>: ' +
+        'the tips of her ears never come near the top edge of the frame.' + _CLEAN_PLATE,
+      hop:
+        'The character hops straight up once, in place. She bends her knees a little, springs up a short way ' +
+        'so her feet leave the ground for a moment — her whole body rises only barely a tenth of the frame ' +
+        'height — and then she comes down onto the very same spot, knees bending once to absorb the landing, ' +
+        'and settles into the exact starting pose by {deadline} seconds. She hops exactly once: after landing ' +
+        'she stays put and only her dress hem, hair and ribbons keep swinging for a moment. She keeps exactly ' +
+        'the same size and proportions throughout, and a wide empty band of air stays above her ears the whole ' +
+        'clip, so the tips of her ears never come near the top edge of the frame.' + _CLEAN_PLATE,
+      picked:
+        'The character is lifted up into the air. Her feet leave the ground, her whole body drifts up a short ' +
+        'distance, and she hangs there weightless: her legs dangle loose, her arms lift a little at her sides ' +
+        'with open hands, and she sways only gently from side to side at the same height, as if held up by ' +
+        'someone invisible. Her long dress hem, her hair and her two ribbons hang downward and swing with the ' +
+        'sway. She keeps exactly the same size and framing as in <Picture 1>, she never spins or turns around, ' +
+        'and she drifts gently back down to the exact standing pose she started in by {deadline} seconds so ' +
+        'the clip can loop.' + _CLEAN_PLATE,
+      land:
+        'The character drops the last short distance and lands. She comes down with her knees bent, touches ' +
+        'down on the same ground line, and squashes slightly as her knees bend to absorb the landing — her ' +
+        'dress hem, hair and ribbons lift upward from the impact and then fall back down — after which she ' +
+        'straightens up and settles into the exact starting pose by {deadline} seconds. She lands exactly once ' +
+        'and never bounces away from that spot. She keeps exactly the same size throughout and never leaves ' +
+        'the frame or turns around.' + _CLEAN_PLATE,
+      sit:
+        'The character stays sitting on the ground facing the camera: she breathes steadily, her chest rising ' +
+        'and falling slowly, her head tilts very slightly, her long rabbit ears twitch once or twice, and the ' +
+        'hem of her lilac dress settles around her legs. She does not stand up, does not lie down, and does ' +
+        'not move from the spot, and she settles back into the exact same sitting pose she started in by ' +
+        '{deadline} seconds so the clip can loop. She keeps exactly the same size and framing as in ' +
+        '<Picture 1>.' + _CLEAN_PLATE,
+      // 坐姿**机位图**的措辞（`POSES.sitting` 的月兔版，走 freeEnd 那一轮）。
+      // 全局那句是「后腿着地、前腿笔直、尾巴卷在身侧」。末句必须"保持坐姿到片尾"：
+      // freeEnd 的片子只有后半段是稳的，pose-pick 取的就是尾部那几格。
+      sitting:
+        'The character sits down on the ground and settles into a tidy seated pose: her legs fold under her ' +
+        'long lilac dress, which spreads out on the ground around her, her hands rest loosely in her lap, her ' +
+        'back stays straight and her head stays up and facing the camera. Her long rabbit ears stand upright ' +
+        'and relax a little. She holds that sitting pose for the rest of the shot, only breathing, and she ' +
+        'does not stand back up, lie down, or turn around.',
+      // ---- 2026-09-25 第三批：行为那套（PlayBall / Fall / Crawl）+ 情绪那八条 ----
+      //
+      // `Crawl` / `Fall` 的**仙女化口径与 Walk/Climb 一致**（组名是客户端硬编码的，
+      // 不许改；改的是组里放什么）：全局那句 `creeps forward on all four paws / knocked
+      // off its feet` 对她不成立，改成**贴地飘行的卧式 glide** 和**悬空下坠的姿态**。
+      // ⚠ Crawl 这一行装包时会被 `install-pet` 垂直翻转（`invertY: true`，只有天花板
+      //   播），所以材料里**不能有重力线索**：头发裙摆一律"往后淌"，不能"往下垂"，
+      //   否则翻完变成头发倒立。
+      playball:
+        'The character plays with one small puffy white cartoon cloud-ball no bigger than her head, floating ' +
+        'just in front of her waist. She pats it gently once with one hand, the cloud-ball bobs a little in ' +
+        'front of her, and she follows the bob with her head and her eyes; then she pats it once more and both ' +
+        'settle back into the exact starting pose by {deadline} seconds. The cloud-ball stays white, stays ' +
+        'small, and stays right in front of her the whole time — it never leaves the frame, never drifts to an ' +
+        'edge, and returns to exactly where it started. Her body and feet stay in place, and she keeps exactly ' +
+        'the same size and framing as in <Picture 1>.' + _CLEAN_PLATE,
+      fall:
+        'The character hangs in the air in a falling pose, seen from the side: her arms drift upward, her ' +
+        'knees bend loosely, her body tilts very slightly from side to side without moving from the spot, and ' +
+        'the hem of her long dress, her hair and her two ribbons all **lift upward** around her as if the air ' +
+        'were rushing past her from below. Her rabbit ears tilt back. She holds that pose at exactly the same ' +
+        'height and the same size as in <Picture 1> for the whole clip, she never turns or spins, and she ' +
+        'settles back into the exact same pose she started in by {deadline} seconds so the clip can loop.' +
+        _CLEAN_PLATE,
+      crawl:
+        'The character glides forward through the air in a prone, horizontal flying stance, seen in full ' +
+        'profile. Her body stays level and parallel to the ground and hovers a short distance above it: her ' +
+        'arms reach loosely forward and drift in two slow, weightless strokes, her legs trail straight behind ' +
+        'her in one line, and her long dress, her hair and her two ribbons all **stream straight backward** ' +
+        'behind her in the passing air, like small flags. Her head stays level and her body stays at exactly ' +
+        'the same height and the same place inside the frame the whole time: she does not rise, she does not ' +
+        'sink, and she does not touch the ground with her body. She stays in the same profile, keeps exactly ' +
+        'the same size and framing as in <Picture 1>, completes a whole number of slow arm strokes, and ' +
+        'settles back into the exact starting pose by {deadline} seconds so the clip can loop.' + _CLEAN_PLATE,
+      yawn:
+        'The character yawns once, slowly and sleepily. Her mouth opens wide into one long yawn while both ' +
+        'eyes squeeze shut, her head tips back and up a little, her chest swells with a deep breath, and her ' +
+        'long rabbit ears fall back slightly; then her mouth closes, her eyes open again and she settles back ' +
+        'into the exact starting pose by {deadline} seconds. Her body, arms and feet stay completely still and ' +
+        'she does not step or leave the ground, and she keeps exactly the same size and framing as in ' +
+        '<Picture 1>.' + _CLEAN_PLATE,
+      stretch:
+        'The character stretches lazily after waking up. She lifts both arms up and over her head and ' +
+        'stretches them long, rises up a little on her feet, lifts her chest and arches her back, and tips her ' +
+        'head back; she holds the stretch for a moment, then lets her arms fall back down to her sides and ' +
+        'settles into the exact starting pose by {deadline} seconds. Her feet stay on the same spot and she ' +
+        'never walks or turns. Her stretched hands stay a clear distance below the top edge of the frame, she ' +
+        'keeps exactly the same size and proportions throughout, and her dress hem and ribbons sway only a ' +
+        'little.' + _CLEAN_PLATE,
+      scratch:
+        'The character raises one hand up to the side of her own head and scratches there twice with two ' +
+        'short quick strokes, tilting her head toward that hand and squinting one eye; then she lowers her ' +
+        'arm and settles back into the exact starting pose by {deadline} seconds. Her hand stays pressed ' +
+        'against the side of her head and **never rises above the tips of her rabbit ears**. Her body, her ' +
+        'other arm and her feet stay completely still and she does not step or leave the ground, and she keeps ' +
+        'exactly the same size and framing as in <Picture 1>.' + _CLEAN_PLATE,
+      dodge:
+        'The character flinches away. She ducks down and leans her whole body a little to one side, pulls her ' +
+        'head back and down between her shoulders, flattens both long rabbit ears back against her head, ' +
+        'squeezes both eyes shut and lifts her hands a little toward her face to shield herself; then she ' +
+        'carefully straightens up and settles back into the exact starting pose by {deadline} seconds. Her ' +
+        'feet stay planted on the same spot the whole time, she keeps exactly the same size, and she never ' +
+        'turns away or leaves the ground.' + _CLEAN_PLATE,
+      cheer:
+        'The character celebrates: she gathers herself, hops straight up once with both arms lifted **out to ' +
+        'her sides**, her hands staying well below the level of her ears, waving them left and right there, ' +
+        'her rabbit ears perked up; she lands back on the very same ground line, bounces once more only ' +
+        'slightly, then settles into the exact starting pose by {deadline} seconds. The top of her head rises ' +
+        'by barely a tenth of the frame height and a wide empty band of air stays above her head the whole ' +
+        'time: **the highest anything in the frame reaches is the tips of her ears**, and neither her ears nor ' +
+        'her hands ever come near the top edge. Her dress, hair and ribbons bounce with the hops and settle ' +
+        'back. Her body keeps exactly the same size and proportions throughout.' + _CLEAN_PLATE,
+      droop:
+        'The character deflates. Her head and both long rabbit ears droop down, her shoulders slump, her whole ' +
+        'body sinks a little lower and her dress folds in around her; she lets out one slow heavy sigh and her ' +
+        'chest sinks as she breathes out, her eyes half-closed. Then she slowly lifts her head back up, her ' +
+        'ears stand up again and she settles back into the exact starting pose by {deadline} seconds. Her feet ' +
+        'stay planted on the same spot, she never sits down or lies down, and she keeps exactly the same size ' +
+        'throughout.' + _CLEAN_PLATE,
+      look:
+        'The character looks around. Only her head turns: she turns her head and her long rabbit ears to one ' +
+        'side to look, holds there for a moment, then turns to the other side to look, and finally turns back ' +
+        'to face the camera, settling into the exact starting pose by {deadline} seconds. Her body, ' +
+        'shoulders, arms and feet stay completely still the whole time and her body never turns with her ' +
+        'head. Her dress hem and ribbons barely move, and she keeps exactly the same size and framing as in ' +
+        '<Picture 1>.' + _CLEAN_PLATE,
+      purr:
+        'The character stays settled with both eyes closed, enjoying being petted. She breathes slowly and ' +
+        'deeply, her head presses up very slightly as if leaning into an invisible hand, her long rabbit ears ' +
+        'relax and sway a little, and her two ribbons drift softly. She keeps her eyes closed the whole time, ' +
+        'she does not stand up or move from the spot, and she settles back into the exact same pose she ' +
+        'started in by {deadline} seconds so the clip can loop.' + _CLEAN_PLATE,
+      // ---- 三张机位图（`POSES.*`）的月兔版；口径同 `sitting` ----
+      creep:
+        'The character lowers her body until it is horizontal and hovers just above the ground in a prone ' +
+        'gliding stance, seen in full profile: her body is level and parallel to the ground, her arms reach ' +
+        'loosely forward, her legs trail straight behind her in one line, and her long dress, her hair and her ' +
+        'two ribbons all stream straight backward behind her. She holds that floating prone stance for the rest ' +
+        'of the shot, shifting only slightly, and she does not stand back up, does not touch the ground with ' +
+        'her body, and does not roll over.',
+      falling:
+        'The character is lifted off her feet and hangs in the air in a falling pose, seen from the side: her ' +
+        'arms drift upward, her knees bend loosely, her body tilts very slightly, her rabbit ears tilt back, ' +
+        'and the hem of her long dress, her hair and her two ribbons lift upward around her as if the air were ' +
+        'rushing past her from below. She keeps exactly the same size and the same distance from the camera ' +
+        'the whole time, and she does not land or touch the ground.',
+      purring:
+        'The character settles down contentedly, as if a hand were resting on the top of her head: her head ' +
+        'dips forward, both eyes close into happy curved slits, her long rabbit ears relax and tip back ' +
+        'slightly, her shoulders drop and her hands hang loose at her sides. She holds that relaxed pose for ' +
+        'the rest of the shot, only breathing, and she does not stand straight up, open her eyes, or move from ' +
+        'the spot.',
+    },
+  },
 }
 
 /**
@@ -852,6 +1249,9 @@ export function buildPrompt(action, scene = {}, { loopAnchor = 'first-last', sec
   const identity = scene.identity || DEFAULT_IDENTITY
   const style = scene.style || STYLE
   const bg = scene.background ? backgroundWords(scene.background) : BACKGROUND.words
+  // 角色级 prose 覆盖：全身措辞（四足 paws/tail ↔ 二足 arms/dress）按角色换；
+  // 未覆盖的角色/动作走全局 ACTIONS/POSES 原文，对既有角色行为不变。
+  const motionProse = (scene.motions && scene.motions[action]) || A.motion
   // 位置描述必须跟画面里的事实一致，否则等于让模型自己猜该信哪句
   // （这里曾按 motionClass 判，结果给占 70% 高的角色写了 "standing in the lower half"）。
   // 两个触发条件：角色本身压得低（ratio ≤ 0.65），或者**基线被推到了底边**
@@ -879,9 +1279,9 @@ export function buildPrompt(action, scene = {}, { loopAnchor = 'first-last', sec
       `at exactly the same size and framing as in <Picture 1>: the figure fills about ${heightWord} of the ` +
       `frame height, ${position}, centered horizontally on a flat ${bg} background.`,
     `Preserve the exact visual identity without redesign: ${identity}`,
-    FACING[A.facing || 'front'],
-    `The camera holds a static shot. ${A.motion.replaceAll('{deadline}', deadline)}`,
-    MOTION_CLASS[A.motionClass],
+    FACING[(scene.facingMap && scene.facingMap[action]) || A.facing || 'front'],
+    `The camera holds a static shot. ${motionProse.replaceAll('{deadline}', deadline)}`,
+    MOTION_CLASS[(scene.motionClassMap && scene.motionClassMap[action]) || A.motionClass],
     loopAnchor === 'first-last' ? _CLOSED_LAST : loopAnchor === 'first' ? _CLOSED_FREE : _CLOSED,
     `The background stays a single flat ${bg} colour edge to edge, with no floor, shadow, scenery, text, or props. ` +
       `The full body stays visible in one continuous shot with no cuts, transitions, zooms, or camera movement. ` +
@@ -1314,6 +1714,32 @@ export function writeSheetGrid(outDir, cols, rows = 1) {
   )
 }
 
+/**
+ * 拼条落盘后的**第二道碎块拦截**（`--no-scrub` 可关）。
+ *
+ * 拦的是"抠完底还留在帧上的小块"。为什么不能在机位图阶段拦完：机位图自带的渣
+ * 确实能在那一步清掉（`stage-frame --drop-debris`），但表里**中间格**的渣是视频
+ * 播放时新长出来的——角色移动后把身后的地方让开，模型把那块重画一遍，画出来的
+ * 底色跟精确底色差 26~80（实测），色键 threshold=30 抠不掉。首末格等于机位图本身，
+ * 所以那两格干净，渣集中在中段——这就是"机位图明明一块渣都没有、表里还是有"的原因。
+ *
+ * 只改 alpha，格子几何不动，所以 `f0000.json` 网格说明照旧有效。
+ */
+async function scrubAndReport(saved, picks) {
+  if (argv.includes('--no-scrub')) {
+    console.log('⚠ --no-scrub：跳过碎块拦截（表里可能留绿渣）')
+    return
+  }
+  const png = saved.find((f) => /f\d+\.png$/.test(f)) || saved[0]
+  const r = await scrubSheetPng(png, picks, { apply: true })
+  console.log(r.lines.join('\n'))
+  const big = r.kept.filter((k) => k.area >= 420 && !k.nearBody)
+  if (big.length) {
+    console.log(`⚠ 保留并告警（大块/悬空，肉眼确认一下是不是真东西——脚下的云、断开的水袖都算正常）：` +
+      big.slice(0, 10).map((k) => `格${k.cell}:${k.area}px@(${k.cx},${k.cy})`).join(' '))
+  }
+}
+
 // ---------------------------------------------------------------------------
 // CLI
 // ---------------------------------------------------------------------------
@@ -1362,8 +1788,9 @@ function resolveStage(charId, action, prof) {
   // 把角色压低（baseline 0.95）的首帧；两张图的姿势完全一样，重出一份只会多一个
   // 会各自漂移的副本。用名字显式声明依赖，比复制文件强——复制出来的那份没人知道
   // 它跟 hop 是同一个机位，改了 hop 的 baseline 也不会跟着变。
-  const stem = A.pose
-    ? `${charId}-${A.pose}`
+  const poseKey = A.pose ? (prof?.poseMap?.[A.pose] || A.pose) : null
+  const stem = poseKey
+    ? `${charId}-${poseKey}`
     : A.stage?.from
       ? `${charId}-${A.stage.from}`
       : A.stage && (A.stage.ratio || A.stage.baseline)
@@ -1393,10 +1820,21 @@ function resolveStage(charId, action, prof) {
     throw new Error(`缺少 staged/${stem}.png 或 .json —— 先跑 stage-frame.mjs${hint}`)
   }
   const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'))
+  // **底色优先读首帧自己记下的那份**（2026-09-24）。staged 的 json 里记着这张图
+  // 实际铺的颜色，档案里的 `background` 只是出厂默认——两者不是一份东西。
+  // 曾经拿档案绿去抠一张铺了青底的首帧（stage-frame 的 `--bg` 默认青色，摆位时
+  // 忘了传），一个像素都对不上，整张腾云表顶着青底进了包。
+  // 显式的 `A.background`（借用机位的动作）仍然最优先。
+  const metaBg = typeof meta.background === 'string' ? meta.background.replace('#', '').trim() : ''
+  const bg = A.background || (metaBg.length === 6 ? metaBg : null) || prof.background
+  const normHex = (s) => String(s || '').replace('#', '').trim().toLowerCase()
+  if (normHex(bg) !== normHex(prof.background)) {
+    console.log(`  · 「${action}」的首帧铺的是 #${normHex(bg)}（档案默认 #${normHex(prof.background)}）——按首帧的来`)
+  }
   return {
     src,
     meta,
-    bg: A.background || prof.background,
+    bg,
     ratio: Number(meta.figureHeightRatio),
     baseline: Number(meta.baselineRatio),
   }
@@ -1426,7 +1864,7 @@ if (isMain) {
     // --free-end：不接 last_frame（I2VA）。姿势图专用，见 POSES 的说明。
     const freeEnd = argv.includes('--free-end')
     // 档案给默认，显式参数覆盖
-    const scene = prof ? { identity: prof.identity, style: prof.style, background: prof.background } : {}
+    const scene = prof ? { identity: prof.identity, style: prof.style, background: prof.background, motions: prof.motions, facingMap: prof.facingMap, motionClassMap: prof.motionClassMap } : {}
     if (flag('identity')) scene.identity = flag('identity')
     if (flag('style')) scene.style = flag('style')
     if (flag('bg')) scene.background = flag('bg')
@@ -1485,7 +1923,7 @@ if (isMain) {
       image: await uploadImage(st.src, path.basename(st.src)),
       prompt: buildPrompt(
         action,
-        { identity: prof.identity, style: prof.style, background: st.bg },
+        { identity: prof.identity, style: prof.style, background: st.bg, motions: prof.motions, facingMap: prof.facingMap, motionClassMap: prof.motionClassMap },
         { seconds: frames / 24, figureRatio: st.ratio, baselineRatio: st.baseline },
       ),
       width: w,
@@ -1513,6 +1951,7 @@ if (isMain) {
     const saved = await pullFrames(entry, outDir, { onProgress: () => {} })
     writeSheetGrid(outDir, picks)
     console.log(`✓ 精灵表 → ${saved.join(', ')}`)
+    await scrubAndReport(saved, picks)
   } else if (cmd === 'pose') {
     // 姿势图也走**同一套组合图**（生成 → 抠底 → 抽帧 → 拼条 → 存一张）。
     //
@@ -1538,13 +1977,31 @@ if (isMain) {
     const frames = Number(flag('frames', DEFAULT_FRAMES))
     const picks = Number(flag('picks', 16))
     const token = flag('token', `${charId}-pose-${action}`)
+    // 底色读**出发那张首帧自己记录的铺色**（同 resolveStage，2026-09-24）：
+    // 姿势视频从那张图长出来，铺什么色就该按什么色抠。
+    let poseBg = prof.background
+    try {
+      const m = JSON.parse(fs.readFileSync(path.join(MOTION_DIR, 'staged', `${fromStem}.json`), 'utf-8'))
+      const s = typeof m.background === 'string' ? m.background.replace('#', '').trim() : ''
+      if (s.length === 6) poseBg = s
+    } catch {
+      /* 没有元数据就用档案默认 */
+    }
     const { graph, cell } = buildSheetGraph({
       image: await uploadImage(src, `${fromStem}.png`),
       // 尾帧自由那一轮不能写"末帧回到 Picture 2"——那张图根本没接进去
       prompt: buildPrompt(
         action,
-        { identity: prof.identity, style: prof.style, background: prof.background },
-        { seconds: frames / 24, loopAnchor: 'first' },
+        { identity: prof.identity, style: prof.style, background: poseBg, motions: prof.motions, facingMap: prof.facingMap, motionClassMap: prof.motionClassMap },
+        {
+          seconds: frames / 24,
+          loopAnchor: 'first',
+          // 姿势图**也要吃 `POSES.<x>.ratio`**：不给就一律 0.70 + "画面正中"，
+          // 于是"往上飞的机位"没有任何起飞余量（踏云机位 16 格里 12 格头顶被切，
+          // 2026-09-24）。传进去之后 `figureRatio ≤ 0.65` 自动换成 `_POSITION_LOW`。
+          figureRatio: P.ratio ?? 0.7,
+          baselineRatio: P.baseline ?? 0.856,
+        },
       ),
       width: canvas.w,
       height: canvas.h,
@@ -1553,7 +2010,7 @@ if (isMain) {
       seed: Number(flag('seed', 0)),
       picks,
       cellH: Number(flag('cell', 448)),
-      key: hexToRgb(prof.background),
+      key: hexToRgb(poseBg),
       threshold: Number(flag('threshold', 30)),
       prefix: `petmotion/${token}`,
       // 姿势图必须尾帧自由，否则角色转过去会被末帧钉回正面
@@ -1567,6 +2024,7 @@ if (isMain) {
     const saved = await pullFrames(entry, outDir, { onProgress: () => {} })
     writeSheetGrid(outDir, picks)
     console.log(`✓ 拼条 ${picks} 格 → ${saved.join(', ')}`)
+    await scrubAndReport(saved, picks)
     console.log(`挑帧：node pose-pick.mjs ${outDir} --cols ${picks} --pick ${P.pick ?? 'desc'}`)
   } else if (cmd === 'batch') {
     // 一次把整批动作排进 ComfyUI 队列，再统一收。
@@ -1613,7 +2071,7 @@ if (isMain) {
       const token = sheetMode ? `${job.charId}-${job.action}-sheet` : `${job.charId}-${job.action}`
       const prompt = buildPrompt(
         job.action,
-        { identity: prof.identity, style: prof.style, background: st.bg },
+        { identity: prof.identity, style: prof.style, background: st.bg, motions: prof.motions, facingMap: prof.facingMap, motionClassMap: prof.motionClassMap },
         { seconds: frames / 24, figureRatio: st.ratio, baselineRatio: st.baseline },
       )
       const graph = sheetMode
@@ -1663,7 +2121,11 @@ if (isMain) {
         })
         // 只有拼表模式才写网格：非拼表模式落的是**原始帧序列**，一帧一个文件，
         // 没有"一格是多少像素"这回事
-        if (sheetMode) writeSheetGrid(path.join(MOTION_DIR, s.token), Number(flag('picks', DEFAULT_PICKS)))
+        if (sheetMode) {
+          const pc = Number(flag('picks', DEFAULT_PICKS))
+          writeSheetGrid(path.join(MOTION_DIR, s.token), pc)
+          await scrubAndReport(framesOut, pc)
+        }
         console.log(`✓ ${s.token} ${framesOut.length} 帧`)
         results.push({ ...s, ok: true, count: framesOut.length })
       } catch (err) {
