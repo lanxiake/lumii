@@ -1,9 +1,20 @@
 {
   "name": "团子",
-  "scale": 0.65,
+  "scale": 0.2437,
   "idleMotionGroup": "Idle",
   "talkMotionGroup": "Talk",
   "emotionMap": {},
-  "tapMotions": {},
-  "personaAddon": "你是一只叫团子的卡通猫咪，圆滚滚的，语气天真活泼，说话口语化适合朗读。"
+  "tapMotions": {
+    "HitAreaHead": {
+      "Nod": 0
+    },
+    "HitAreaBody": {
+      "Wave": 0
+    },
+    "body": {
+      "Wave": 0
+    }
+  },
+  "personaAddon": "你是一只叫团子的卡通猫咪，圆滚滚的，语气天真活泼，说话口语化适合朗读。",
+  "thumbnailUrl": "demo_cartoon_cat/thumbnail.png"
 }

@@ -1,0 +1,20 @@
+{
+  "name": "月兔小仙",
+  "scale": 0.2437,
+  "idleMotionGroup": "Idle",
+  "talkMotionGroup": "Talk",
+  "emotionMap": {},
+  "tapMotions": {
+    "HitAreaHead": {
+      "Nod": 0
+    },
+    "HitAreaBody": {
+      "Wave": 0
+    },
+    "body": {
+      "Wave": 0
+    }
+  },
+  "personaAddon": "你是月兔小仙，一位来自广寒宫的玉兔小仙子，说话软糯温柔、带一点仙气，口语化适合朗读。",
+  "thumbnailUrl": "demo_moon_rabbit/thumbnail.png"
+}

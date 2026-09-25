@@ -1,0 +1,2192 @@
+{
+  "id": "demo_moon_rabbit",
+  "rendererType": "sprite",
+  "canvas": {
+    "w": 400,
+    "h": 448
+  },
+  "anchor": [
+    200,
+    442
+  ],
+  "atlas": "atlas.png",
+  "atlasJson": "atlas.json",
+  "slots": {
+    "fx": {
+      "kind": "layered",
+      "at": [
+        0,
+        0
+      ],
+      "parts": {
+        "aura": [
+          "rabbit_fx_aura_00",
+          "rabbit_fx_aura_01",
+          "rabbit_fx_aura_02",
+          "rabbit_fx_aura_03",
+          "rabbit_fx_aura_04",
+          "rabbit_fx_aura_05",
+          "rabbit_fx_aura_06",
+          "rabbit_fx_aura_07"
+        ]
+      }
+    }
+  },
+  "animations": [
+    {
+      "group": "Idle",
+      "index": 0,
+      "kind": "loop",
+      "fps": 4,
+      "frames": [
+        {
+          "base": "rabbit_body_00",
+          "fx": {
+            "aura": "rabbit_fx_aura_00"
+          },
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_body_01",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_body_02",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_body_03",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_body_04",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_body_05",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_body_06",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_body_07",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_body_08",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_body_09",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_body_10",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_body_11",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_body_12",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_body_13",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_body_14",
+          "durationMs": 125
+        }
+      ],
+      "params": {
+        "bob": 9,
+        "breathe": 1.01,
+        "blink": 3200
+      }
+    },
+    {
+      "group": "Talk",
+      "index": 0,
+      "kind": "loop",
+      "fps": 8,
+      "frames": [
+        {
+          "base": "rabbit_body_00",
+          "fx": {
+            "aura": "rabbit_fx_aura_00"
+          },
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_body_01",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_body_02",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_body_03",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_body_04",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_body_05",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_body_06",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_body_07",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_body_08",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_body_09",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_body_10",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_body_11",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_body_12",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_body_13",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_body_14",
+          "durationMs": 125
+        }
+      ],
+      "params": {
+        "bob": 1
+      }
+    },
+    {
+      "group": "Wave",
+      "index": 0,
+      "kind": "once",
+      "next": "Idle",
+      "fps": 8,
+      "frames": [
+        {
+          "base": "rabbit_wave_00",
+          "fx": {
+            "aura": "rabbit_fx_aura_00"
+          },
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_wave_01",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_wave_02",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_wave_03",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_wave_04",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_wave_05",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_wave_06",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_wave_07",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_wave_08",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_wave_09",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_wave_10",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_wave_11",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_wave_12",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_wave_13",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_wave_14",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_wave_15",
+          "durationMs": 125
+        }
+      ]
+    },
+    {
+      "group": "Jump",
+      "index": 0,
+      "kind": "once",
+      "next": "Idle",
+      "fps": 8,
+      "frames": [
+        {
+          "base": "rabbit_jump_00",
+          "fx": {
+            "aura": "rabbit_fx_aura_00"
+          },
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_jump_01",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_jump_02",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_jump_03",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_jump_04",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_jump_05",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_jump_06",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_jump_07",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_jump_08",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_jump_09",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_jump_10",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_jump_11",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_jump_12",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_jump_13",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_jump_14",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_jump_15",
+          "durationMs": 125
+        }
+      ]
+    },
+    {
+      "group": "Nod",
+      "index": 0,
+      "kind": "once",
+      "next": "Idle",
+      "fps": 8,
+      "frames": [
+        {
+          "base": "rabbit_nod_00",
+          "fx": {
+            "aura": "rabbit_fx_aura_00"
+          },
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_nod_01",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_nod_02",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_nod_03",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_nod_04",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_nod_05",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_nod_06",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_nod_07",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_nod_08",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_nod_09",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_nod_10",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_nod_11",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_nod_12",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_nod_13",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_nod_14",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_nod_15",
+          "durationMs": 125
+        }
+      ]
+    },
+    {
+      "group": "Shake",
+      "index": 0,
+      "kind": "once",
+      "next": "Idle",
+      "fps": 8,
+      "frames": [
+        {
+          "base": "rabbit_shake_00",
+          "fx": {
+            "aura": "rabbit_fx_aura_00"
+          },
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_shake_01",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_shake_02",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_shake_03",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_shake_04",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_shake_05",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_shake_06",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_shake_07",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_shake_08",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_shake_09",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_shake_10",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_shake_11",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_shake_12",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_shake_13",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_shake_14",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_shake_15",
+          "durationMs": 125
+        }
+      ]
+    },
+    {
+      "group": "Picked",
+      "index": 0,
+      "kind": "loop",
+      "fps": 8,
+      "frames": [
+        {
+          "base": "rabbit_picked_00",
+          "fx": {
+            "aura": "rabbit_fx_aura_00"
+          },
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_picked_01",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_picked_02",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_picked_03",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_picked_04",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_picked_05",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_picked_06",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_picked_07",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_picked_08",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_picked_09",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_picked_10",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_picked_11",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_picked_12",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_picked_13",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_picked_14",
+          "durationMs": 125
+        }
+      ]
+    },
+    {
+      "group": "Land",
+      "index": 0,
+      "kind": "once",
+      "next": "Idle",
+      "fps": 8,
+      "frames": [
+        {
+          "base": "rabbit_land_00",
+          "fx": {
+            "aura": "rabbit_fx_aura_00"
+          },
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_land_01",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_land_02",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_land_03",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_land_04",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_land_05",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_land_06",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_land_07",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_land_08",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_land_09",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_land_10",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_land_11",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_land_12",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_land_13",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_land_14",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_land_15",
+          "durationMs": 125
+        }
+      ]
+    },
+    {
+      "group": "PlayBall",
+      "index": 0,
+      "kind": "once",
+      "next": "Idle",
+      "fps": 8,
+      "frames": [
+        {
+          "base": "rabbit_playball_00",
+          "fx": {
+            "aura": "rabbit_fx_aura_00"
+          },
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_playball_01",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_playball_02",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_playball_03",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_playball_04",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_playball_05",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_playball_06",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_playball_07",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_playball_08",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_playball_09",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_playball_10",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_playball_11",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_playball_12",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_playball_13",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_playball_14",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_playball_15",
+          "durationMs": 125
+        }
+      ]
+    },
+    {
+      "group": "Walk",
+      "index": 0,
+      "kind": "loop",
+      "fps": 8,
+      "frames": [
+        {
+          "base": "rabbit_walk_00",
+          "fx": {
+            "aura": "rabbit_fx_aura_00"
+          },
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_walk_01",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_walk_02",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_walk_03",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_walk_04",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_walk_05",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_walk_06",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_walk_07",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_walk_08",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_walk_09",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_walk_10",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_walk_11",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_walk_12",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_walk_13",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_walk_14",
+          "durationMs": 125
+        }
+      ]
+    },
+    {
+      "group": "Fall",
+      "index": 0,
+      "kind": "loop",
+      "fps": 8,
+      "frames": [
+        {
+          "base": "rabbit_fall_00",
+          "fx": {
+            "aura": "rabbit_fx_aura_00"
+          },
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_fall_01",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_fall_02",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_fall_03",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_fall_04",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_fall_05",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_fall_06",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_fall_07",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_fall_08",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_fall_09",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_fall_10",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_fall_11",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_fall_12",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_fall_13",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_fall_14",
+          "durationMs": 125
+        }
+      ]
+    },
+    {
+      "group": "Climb",
+      "index": 0,
+      "kind": "loop",
+      "fps": 8,
+      "frames": [
+        {
+          "base": "rabbit_climb_00",
+          "fx": {
+            "aura": "rabbit_fx_aura_00"
+          },
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_climb_01",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_climb_02",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_climb_03",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_climb_04",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_climb_05",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_climb_06",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_climb_07",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_climb_08",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_climb_09",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_climb_10",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_climb_11",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_climb_12",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_climb_13",
+          "durationMs": 125
+        }
+      ]
+    },
+    {
+      "group": "Crawl",
+      "index": 0,
+      "kind": "loop",
+      "fps": 8,
+      "frames": [
+        {
+          "base": "rabbit_crawl_00",
+          "fx": {
+            "aura": "rabbit_fx_aura_00"
+          },
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_crawl_01",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_crawl_02",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_crawl_03",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_crawl_04",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_crawl_05",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_crawl_06",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_crawl_07",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_crawl_08",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_crawl_09",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_crawl_10",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_crawl_11",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_crawl_12",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_crawl_13",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_crawl_14",
+          "durationMs": 125
+        }
+      ]
+    },
+    {
+      "group": "Sit",
+      "index": 0,
+      "kind": "loop",
+      "fps": 8,
+      "frames": [
+        {
+          "base": "rabbit_sit_00",
+          "fx": {
+            "aura": "rabbit_fx_aura_00"
+          },
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_sit_01",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_sit_02",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_sit_03",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_sit_04",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_sit_05",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_sit_06",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_sit_07",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_sit_08",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_sit_09",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_sit_10",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_sit_11",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_sit_12",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_sit_13",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_sit_14",
+          "durationMs": 125
+        }
+      ]
+    },
+    {
+      "group": "Yawn",
+      "index": 0,
+      "kind": "once",
+      "next": "Idle",
+      "fps": 8,
+      "frames": [
+        {
+          "base": "rabbit_yawn_00",
+          "fx": {
+            "aura": "rabbit_fx_aura_00"
+          },
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_yawn_01",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_yawn_02",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_yawn_03",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_yawn_04",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_yawn_05",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_yawn_06",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_yawn_07",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_yawn_08",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_yawn_09",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_yawn_10",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_yawn_11",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_yawn_12",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_yawn_13",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_yawn_14",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_yawn_15",
+          "durationMs": 125
+        }
+      ]
+    },
+    {
+      "group": "Stretch",
+      "index": 0,
+      "kind": "once",
+      "next": "Idle",
+      "fps": 8,
+      "frames": [
+        {
+          "base": "rabbit_stretch_00",
+          "fx": {
+            "aura": "rabbit_fx_aura_00"
+          },
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_stretch_01",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_stretch_02",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_stretch_03",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_stretch_04",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_stretch_05",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_stretch_06",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_stretch_07",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_stretch_08",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_stretch_09",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_stretch_10",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_stretch_11",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_stretch_12",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_stretch_13",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_stretch_14",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_stretch_15",
+          "durationMs": 125
+        }
+      ]
+    },
+    {
+      "group": "Scratch",
+      "index": 0,
+      "kind": "once",
+      "next": "Idle",
+      "fps": 8,
+      "frames": [
+        {
+          "base": "rabbit_scratch_00",
+          "fx": {
+            "aura": "rabbit_fx_aura_00"
+          },
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_scratch_01",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_scratch_02",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_scratch_03",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_scratch_04",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_scratch_05",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_scratch_06",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_scratch_07",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_scratch_08",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_scratch_09",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_scratch_10",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_scratch_11",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_scratch_12",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_scratch_13",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_scratch_14",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_scratch_15",
+          "durationMs": 125
+        }
+      ]
+    },
+    {
+      "group": "Dodge",
+      "index": 0,
+      "kind": "once",
+      "next": "Idle",
+      "fps": 14,
+      "frames": [
+        {
+          "base": "rabbit_dodge_00",
+          "fx": {
+            "aura": "rabbit_fx_aura_00"
+          },
+          "durationMs": 71
+        },
+        {
+          "base": "rabbit_dodge_01",
+          "durationMs": 71
+        },
+        {
+          "base": "rabbit_dodge_02",
+          "durationMs": 71
+        },
+        {
+          "base": "rabbit_dodge_03",
+          "durationMs": 71
+        },
+        {
+          "base": "rabbit_dodge_04",
+          "durationMs": 71
+        },
+        {
+          "base": "rabbit_dodge_05",
+          "durationMs": 71
+        },
+        {
+          "base": "rabbit_dodge_06",
+          "durationMs": 71
+        },
+        {
+          "base": "rabbit_dodge_07",
+          "durationMs": 71
+        },
+        {
+          "base": "rabbit_dodge_08",
+          "durationMs": 71
+        },
+        {
+          "base": "rabbit_dodge_09",
+          "durationMs": 71
+        },
+        {
+          "base": "rabbit_dodge_10",
+          "durationMs": 71
+        },
+        {
+          "base": "rabbit_dodge_11",
+          "durationMs": 71
+        },
+        {
+          "base": "rabbit_dodge_12",
+          "durationMs": 71
+        },
+        {
+          "base": "rabbit_dodge_13",
+          "durationMs": 71
+        },
+        {
+          "base": "rabbit_dodge_14",
+          "durationMs": 71
+        },
+        {
+          "base": "rabbit_dodge_15",
+          "durationMs": 71
+        }
+      ]
+    },
+    {
+      "group": "Cheer",
+      "index": 0,
+      "kind": "once",
+      "next": "Idle",
+      "fps": 10,
+      "frames": [
+        {
+          "base": "rabbit_cheer_00",
+          "fx": {
+            "aura": "rabbit_fx_aura_00"
+          },
+          "durationMs": 100
+        },
+        {
+          "base": "rabbit_cheer_01",
+          "durationMs": 100
+        },
+        {
+          "base": "rabbit_cheer_02",
+          "durationMs": 100
+        },
+        {
+          "base": "rabbit_cheer_03",
+          "durationMs": 100
+        },
+        {
+          "base": "rabbit_cheer_04",
+          "durationMs": 100
+        },
+        {
+          "base": "rabbit_cheer_05",
+          "durationMs": 100
+        },
+        {
+          "base": "rabbit_cheer_06",
+          "durationMs": 100
+        },
+        {
+          "base": "rabbit_cheer_07",
+          "durationMs": 100
+        },
+        {
+          "base": "rabbit_cheer_08",
+          "durationMs": 100
+        },
+        {
+          "base": "rabbit_cheer_09",
+          "durationMs": 100
+        },
+        {
+          "base": "rabbit_cheer_10",
+          "durationMs": 100
+        },
+        {
+          "base": "rabbit_cheer_11",
+          "durationMs": 100
+        },
+        {
+          "base": "rabbit_cheer_12",
+          "durationMs": 100
+        },
+        {
+          "base": "rabbit_cheer_13",
+          "durationMs": 100
+        },
+        {
+          "base": "rabbit_cheer_14",
+          "durationMs": 100
+        },
+        {
+          "base": "rabbit_cheer_15",
+          "durationMs": 100
+        }
+      ]
+    },
+    {
+      "group": "Droop",
+      "index": 0,
+      "kind": "once",
+      "next": "Idle",
+      "fps": 8,
+      "frames": [
+        {
+          "base": "rabbit_droop_00",
+          "fx": {
+            "aura": "rabbit_fx_aura_00"
+          },
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_droop_01",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_droop_02",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_droop_03",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_droop_04",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_droop_05",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_droop_06",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_droop_07",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_droop_08",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_droop_09",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_droop_10",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_droop_11",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_droop_12",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_droop_13",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_droop_14",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_droop_15",
+          "durationMs": 125
+        }
+      ]
+    },
+    {
+      "group": "Look",
+      "index": 0,
+      "kind": "once",
+      "next": "Idle",
+      "fps": 8,
+      "frames": [
+        {
+          "base": "rabbit_look_00",
+          "fx": {
+            "aura": "rabbit_fx_aura_00"
+          },
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_look_01",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_look_02",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_look_03",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_look_04",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_look_05",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_look_06",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_look_07",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_look_08",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_look_09",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_look_10",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_look_11",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_look_12",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_look_13",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_look_14",
+          "durationMs": 125
+        },
+        {
+          "base": "rabbit_look_15",
+          "durationMs": 125
+        }
+      ]
+    },
+    {
+      "group": "Purr",
+      "index": 0,
+      "kind": "loop",
+      "fps": 6,
+      "frames": [
+        {
+          "base": "rabbit_purr_00",
+          "fx": {
+            "aura": "rabbit_fx_aura_00"
+          },
+          "durationMs": 167
+        },
+        {
+          "base": "rabbit_purr_01",
+          "durationMs": 167
+        },
+        {
+          "base": "rabbit_purr_02",
+          "durationMs": 167
+        },
+        {
+          "base": "rabbit_purr_03",
+          "durationMs": 167
+        },
+        {
+          "base": "rabbit_purr_04",
+          "durationMs": 167
+        },
+        {
+          "base": "rabbit_purr_05",
+          "durationMs": 167
+        },
+        {
+          "base": "rabbit_purr_06",
+          "durationMs": 167
+        },
+        {
+          "base": "rabbit_purr_07",
+          "durationMs": 167
+        },
+        {
+          "base": "rabbit_purr_08",
+          "durationMs": 167
+        },
+        {
+          "base": "rabbit_purr_09",
+          "durationMs": 167
+        },
+        {
+          "base": "rabbit_purr_10",
+          "durationMs": 167
+        },
+        {
+          "base": "rabbit_purr_11",
+          "durationMs": 167
+        },
+        {
+          "base": "rabbit_purr_12",
+          "durationMs": 167
+        },
+        {
+          "base": "rabbit_purr_13",
+          "durationMs": 167
+        },
+        {
+          "base": "rabbit_purr_14",
+          "durationMs": 167
+        },
+        {
+          "base": "rabbit_purr_15",
+          "durationMs": 167
+        }
+      ]
+    }
+  ],
+  "hitAreas": [
+    {
+      "id": "HitAreaBody",
+      "points": [
+        [
+          142,
+          203
+        ],
+        [
+          149,
+          211
+        ],
+        [
+          146,
+          218
+        ],
+        [
+          142,
+          226
+        ],
+        [
+          133,
+          234
+        ],
+        [
+          121,
+          242
+        ],
+        [
+          113,
+          249
+        ],
+        [
+          105,
+          257
+        ],
+        [
+          101,
+          265
+        ],
+        [
+          101,
+          272
+        ],
+        [
+          104,
+          280
+        ],
+        [
+          103,
+          288
+        ],
+        [
+          79,
+          296
+        ],
+        [
+          72,
+          303
+        ],
+        [
+          67,
+          311
+        ],
+        [
+          64,
+          319
+        ],
+        [
+          62,
+          326
+        ],
+        [
+          63,
+          334
+        ],
+        [
+          65,
+          342
+        ],
+        [
+          80,
+          349
+        ],
+        [
+          92,
+          357
+        ],
+        [
+          103,
+          365
+        ],
+        [
+          131,
+          373
+        ],
+        [
+          132,
+          380
+        ],
+        [
+          131,
+          388
+        ],
+        [
+          126,
+          396
+        ],
+        [
+          121,
+          403
+        ],
+        [
+          127,
+          411
+        ],
+        [
+          132,
+          419
+        ],
+        [
+          141,
+          427
+        ],
+        [
+          163,
+          434
+        ],
+        [
+          169,
+          442
+        ],
+        [
+          225,
+          442
+        ],
+        [
+          236,
+          434
+        ],
+        [
+          256,
+          427
+        ],
+        [
+          267,
+          419
+        ],
+        [
+          266,
+          411
+        ],
+        [
+          272,
+          403
+        ],
+        [
+          268,
+          396
+        ],
+        [
+          264,
+          388
+        ],
+        [
+          267,
+          380
+        ],
+        [
+          271,
+          373
+        ],
+        [
+          310,
+          365
+        ],
+        [
+          332,
+          357
+        ],
+        [
+          341,
+          349
+        ],
+        [
+          342,
+          342
+        ],
+        [
+          339,
+          334
+        ],
+        [
+          332,
+          326
+        ],
+        [
+          326,
+          319
+        ],
+        [
+          300,
+          311
+        ],
+        [
+          306,
+          303
+        ],
+        [
+          312,
+          296
+        ],
+        [
+          319,
+          288
+        ],
+        [
+          320,
+          280
+        ],
+        [
+          317,
+          272
+        ],
+        [
+          312,
+          265
+        ],
+        [
+          301,
+          257
+        ],
+        [
+          285,
+          249
+        ],
+        [
+          275,
+          242
+        ],
+        [
+          267,
+          234
+        ],
+        [
+          263,
+          226
+        ],
+        [
+          260,
+          218
+        ],
+        [
+          263,
+          211
+        ],
+        [
+          267,
+          203
+        ]
+      ]
+    },
+    {
+      "id": "HitAreaHead",
+      "points": [
+        [
+          165,
+          79
+        ],
+        [
+          163,
+          83
+        ],
+        [
+          158,
+          87
+        ],
+        [
+          154,
+          91
+        ],
+        [
+          150,
+          95
+        ],
+        [
+          147,
+          99
+        ],
+        [
+          145,
+          103
+        ],
+        [
+          143,
+          107
+        ],
+        [
+          141,
+          111
+        ],
+        [
+          139,
+          115
+        ],
+        [
+          136,
+          119
+        ],
+        [
+          135,
+          123
+        ],
+        [
+          132,
+          127
+        ],
+        [
+          130,
+          131
+        ],
+        [
+          129,
+          135
+        ],
+        [
+          126,
+          139
+        ],
+        [
+          124,
+          143
+        ],
+        [
+          123,
+          147
+        ],
+        [
+          121,
+          151
+        ],
+        [
+          119,
+          155
+        ],
+        [
+          118,
+          159
+        ],
+        [
+          116,
+          163
+        ],
+        [
+          116,
+          167
+        ],
+        [
+          115,
+          171
+        ],
+        [
+          115,
+          179
+        ],
+        [
+          116,
+          183
+        ],
+        [
+          144,
+          187
+        ],
+        [
+          144,
+          191
+        ],
+        [
+          142,
+          195
+        ],
+        [
+          142,
+          199
+        ],
+        [
+          141,
+          203
+        ],
+        [
+          268,
+          203
+        ],
+        [
+          265,
+          199
+        ],
+        [
+          263,
+          195
+        ],
+        [
+          263,
+          191
+        ],
+        [
+          261,
+          187
+        ],
+        [
+          260,
+          183
+        ],
+        [
+          289,
+          179
+        ],
+        [
+          291,
+          175
+        ],
+        [
+          291,
+          167
+        ],
+        [
+          289,
+          163
+        ],
+        [
+          288,
+          159
+        ],
+        [
+          286,
+          155
+        ],
+        [
+          284,
+          151
+        ],
+        [
+          283,
+          147
+        ],
+        [
+          281,
+          143
+        ],
+        [
+          280,
+          139
+        ],
+        [
+          277,
+          135
+        ],
+        [
+          275,
+          131
+        ],
+        [
+          274,
+          127
+        ],
+        [
+          271,
+          123
+        ],
+        [
+          269,
+          119
+        ],
+        [
+          266,
+          115
+        ],
+        [
+          265,
+          111
+        ],
+        [
+          261,
+          107
+        ],
+        [
+          260,
+          103
+        ],
+        [
+          257,
+          99
+        ],
+        [
+          256,
+          95
+        ],
+        [
+          252,
+          91
+        ],
+        [
+          248,
+          87
+        ],
+        [
+          244,
+          83
+        ],
+        [
+          240,
+          79
+        ]
+      ]
+    }
+  ],
+  "perchGaps": {
+    "wall": 0.4219,
+    "ceiling": 0.7098
+  }
+}

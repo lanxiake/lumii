@@ -2,12 +2,12 @@
   "id": "demo_cartoon_cat",
   "rendererType": "sprite",
   "canvas": {
-    "w": 144,
-    "h": 168
+    "w": 560,
+    "h": 448
   },
   "anchor": [
-    72,
-    162
+    280,
+    442
   ],
   "atlas": "atlas.png",
   "atlasJson": "atlas.json",
@@ -19,19 +19,40 @@
       "fps": 4,
       "frames": [
         {
-          "base": "cat_body_00"
+          "base": "cat_body_00",
+          "durationMs": 125
         },
         {
-          "base": "cat_body_01"
+          "base": "cat_body_01",
+          "durationMs": 125
         },
         {
-          "base": "cat_body_02"
+          "base": "cat_body_02",
+          "durationMs": 125
         },
         {
-          "base": "cat_body_03"
+          "base": "cat_body_03",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_body_04",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_body_05",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_body_06",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_body_07",
+          "durationMs": 125
         }
       ],
       "params": {
+        "bob": 9,
         "breathe": 1.01,
         "blink": 3200
       }
@@ -43,16 +64,36 @@
       "fps": 8,
       "frames": [
         {
-          "base": "cat_body_00"
+          "base": "cat_body_00",
+          "durationMs": 125
         },
         {
-          "base": "cat_body_01"
+          "base": "cat_body_01",
+          "durationMs": 125
         },
         {
-          "base": "cat_body_02"
+          "base": "cat_body_02",
+          "durationMs": 125
         },
         {
-          "base": "cat_body_03"
+          "base": "cat_body_03",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_body_04",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_body_05",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_body_06",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_body_07",
+          "durationMs": 125
         }
       ],
       "params": {
@@ -67,22 +108,1064 @@
       "fps": 8,
       "frames": [
         {
-          "base": "cat_wave_00"
+          "base": "cat_wave_00",
+          "durationMs": 125
         },
         {
-          "base": "cat_wave_01"
+          "base": "cat_wave_01",
+          "durationMs": 125
         },
         {
-          "base": "cat_wave_02"
+          "base": "cat_wave_02",
+          "durationMs": 125
         },
         {
-          "base": "cat_wave_03"
+          "base": "cat_wave_03",
+          "durationMs": 125
         },
         {
-          "base": "cat_wave_04"
+          "base": "cat_wave_04",
+          "durationMs": 125
         },
         {
-          "base": "cat_wave_05"
+          "base": "cat_wave_05",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_wave_06",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_wave_07",
+          "durationMs": 125
+        }
+      ]
+    },
+    {
+      "group": "Jump",
+      "index": 0,
+      "kind": "once",
+      "next": "Idle",
+      "fps": 8,
+      "frames": [
+        {
+          "base": "cat_jump_00",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_jump_01",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_jump_02",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_jump_03",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_jump_04",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_jump_05",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_jump_06",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_jump_07",
+          "durationMs": 125
+        }
+      ]
+    },
+    {
+      "group": "Nod",
+      "index": 0,
+      "kind": "once",
+      "next": "Idle",
+      "fps": 8,
+      "frames": [
+        {
+          "base": "cat_nod_00",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_nod_01",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_nod_02",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_nod_03",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_nod_04",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_nod_05",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_nod_06",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_nod_07",
+          "durationMs": 125
+        }
+      ]
+    },
+    {
+      "group": "Shake",
+      "index": 0,
+      "kind": "once",
+      "next": "Idle",
+      "fps": 8,
+      "frames": [
+        {
+          "base": "cat_shake_00",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_shake_01",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_shake_02",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_shake_03",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_shake_04",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_shake_05",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_shake_06",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_shake_07",
+          "durationMs": 125
+        }
+      ]
+    },
+    {
+      "group": "Picked",
+      "index": 0,
+      "kind": "loop",
+      "fps": 8,
+      "frames": [
+        {
+          "base": "cat_picked_00",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_picked_01",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_picked_02",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_picked_03",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_picked_04",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_picked_05",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_picked_06",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_picked_07",
+          "durationMs": 125
+        }
+      ]
+    },
+    {
+      "group": "Land",
+      "index": 0,
+      "kind": "once",
+      "next": "Idle",
+      "fps": 8,
+      "frames": [
+        {
+          "base": "cat_land_00",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_land_01",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_land_02",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_land_03",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_land_04",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_land_05",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_land_06",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_land_07",
+          "durationMs": 125
+        }
+      ]
+    },
+    {
+      "group": "PlayBall",
+      "index": 0,
+      "kind": "once",
+      "next": "Idle",
+      "fps": 8,
+      "frames": [
+        {
+          "base": "cat_playball_00",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_playball_01",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_playball_02",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_playball_03",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_playball_04",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_playball_05",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_playball_06",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_playball_07",
+          "durationMs": 125
+        }
+      ]
+    },
+    {
+      "group": "Walk",
+      "index": 0,
+      "kind": "loop",
+      "fps": 8,
+      "frames": [
+        {
+          "base": "cat_walk_00",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_walk_01",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_walk_02",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_walk_03",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_walk_04",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_walk_05",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_walk_06",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_walk_07",
+          "durationMs": 125
+        }
+      ]
+    },
+    {
+      "group": "Fall",
+      "index": 0,
+      "kind": "loop",
+      "fps": 8,
+      "frames": [
+        {
+          "base": "cat_fall_00",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_fall_01",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_fall_02",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_fall_03",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_fall_04",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_fall_05",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_fall_06",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_fall_07",
+          "durationMs": 125
+        }
+      ]
+    },
+    {
+      "group": "Climb",
+      "index": 0,
+      "kind": "loop",
+      "fps": 8,
+      "frames": [
+        {
+          "base": "cat_climb_00",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_climb_01",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_climb_02",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_climb_03",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_climb_04",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_climb_05",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_climb_06",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_climb_07",
+          "durationMs": 125
+        }
+      ]
+    },
+    {
+      "group": "Crawl",
+      "index": 0,
+      "kind": "loop",
+      "fps": 8,
+      "frames": [
+        {
+          "base": "cat_crawl_00",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_crawl_01",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_crawl_02",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_crawl_03",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_crawl_04",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_crawl_05",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_crawl_06",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_crawl_07",
+          "durationMs": 125
+        }
+      ]
+    },
+    {
+      "group": "Sit",
+      "index": 0,
+      "kind": "loop",
+      "fps": 8,
+      "frames": [
+        {
+          "base": "cat_sit_00",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_sit_01",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_sit_02",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_sit_03",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_sit_04",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_sit_05",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_sit_06",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_sit_07",
+          "durationMs": 125
+        }
+      ]
+    },
+    {
+      "group": "Yawn",
+      "index": 0,
+      "kind": "once",
+      "next": "Idle",
+      "fps": 8,
+      "frames": [
+        {
+          "base": "cat_yawn_00",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_yawn_01",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_yawn_02",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_yawn_03",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_yawn_04",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_yawn_05",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_yawn_06",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_yawn_07",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_yawn_08",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_yawn_09",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_yawn_10",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_yawn_11",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_yawn_12",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_yawn_13",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_yawn_14",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_yawn_15",
+          "durationMs": 125
+        }
+      ]
+    },
+    {
+      "group": "Stretch",
+      "index": 0,
+      "kind": "once",
+      "next": "Idle",
+      "fps": 8,
+      "frames": [
+        {
+          "base": "cat_stretch_00",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_stretch_01",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_stretch_02",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_stretch_03",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_stretch_04",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_stretch_05",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_stretch_06",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_stretch_07",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_stretch_08",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_stretch_09",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_stretch_10",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_stretch_11",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_stretch_12",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_stretch_13",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_stretch_14",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_stretch_15",
+          "durationMs": 125
+        }
+      ]
+    },
+    {
+      "group": "Scratch",
+      "index": 0,
+      "kind": "once",
+      "next": "Idle",
+      "fps": 8,
+      "frames": [
+        {
+          "base": "cat_scratch_00",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_scratch_01",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_scratch_02",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_scratch_03",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_scratch_04",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_scratch_05",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_scratch_06",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_scratch_07",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_scratch_08",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_scratch_09",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_scratch_10",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_scratch_11",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_scratch_12",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_scratch_13",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_scratch_14",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_scratch_15",
+          "durationMs": 125
+        }
+      ]
+    },
+    {
+      "group": "Dodge",
+      "index": 0,
+      "kind": "once",
+      "next": "Idle",
+      "fps": 14,
+      "frames": [
+        {
+          "base": "cat_dodge_00",
+          "durationMs": 71
+        },
+        {
+          "base": "cat_dodge_01",
+          "durationMs": 71
+        },
+        {
+          "base": "cat_dodge_02",
+          "durationMs": 71
+        },
+        {
+          "base": "cat_dodge_03",
+          "durationMs": 71
+        },
+        {
+          "base": "cat_dodge_04",
+          "durationMs": 71
+        },
+        {
+          "base": "cat_dodge_05",
+          "durationMs": 71
+        },
+        {
+          "base": "cat_dodge_06",
+          "durationMs": 71
+        },
+        {
+          "base": "cat_dodge_07",
+          "durationMs": 71
+        },
+        {
+          "base": "cat_dodge_08",
+          "durationMs": 71
+        },
+        {
+          "base": "cat_dodge_09",
+          "durationMs": 71
+        },
+        {
+          "base": "cat_dodge_10",
+          "durationMs": 71
+        },
+        {
+          "base": "cat_dodge_11",
+          "durationMs": 71
+        },
+        {
+          "base": "cat_dodge_12",
+          "durationMs": 71
+        },
+        {
+          "base": "cat_dodge_13",
+          "durationMs": 71
+        },
+        {
+          "base": "cat_dodge_14",
+          "durationMs": 71
+        },
+        {
+          "base": "cat_dodge_15",
+          "durationMs": 71
+        }
+      ]
+    },
+    {
+      "group": "Cheer",
+      "index": 0,
+      "kind": "once",
+      "next": "Idle",
+      "fps": 10,
+      "frames": [
+        {
+          "base": "cat_cheer_00",
+          "durationMs": 100
+        },
+        {
+          "base": "cat_cheer_01",
+          "durationMs": 100
+        },
+        {
+          "base": "cat_cheer_02",
+          "durationMs": 100
+        },
+        {
+          "base": "cat_cheer_03",
+          "durationMs": 100
+        },
+        {
+          "base": "cat_cheer_04",
+          "durationMs": 100
+        },
+        {
+          "base": "cat_cheer_05",
+          "durationMs": 100
+        },
+        {
+          "base": "cat_cheer_06",
+          "durationMs": 100
+        },
+        {
+          "base": "cat_cheer_07",
+          "durationMs": 100
+        },
+        {
+          "base": "cat_cheer_08",
+          "durationMs": 100
+        },
+        {
+          "base": "cat_cheer_09",
+          "durationMs": 100
+        },
+        {
+          "base": "cat_cheer_10",
+          "durationMs": 100
+        },
+        {
+          "base": "cat_cheer_11",
+          "durationMs": 100
+        },
+        {
+          "base": "cat_cheer_12",
+          "durationMs": 100
+        },
+        {
+          "base": "cat_cheer_13",
+          "durationMs": 100
+        },
+        {
+          "base": "cat_cheer_14",
+          "durationMs": 100
+        },
+        {
+          "base": "cat_cheer_15",
+          "durationMs": 100
+        }
+      ]
+    },
+    {
+      "group": "Droop",
+      "index": 0,
+      "kind": "once",
+      "next": "Idle",
+      "fps": 8,
+      "frames": [
+        {
+          "base": "cat_droop_00",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_droop_01",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_droop_02",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_droop_03",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_droop_04",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_droop_05",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_droop_06",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_droop_07",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_droop_08",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_droop_09",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_droop_10",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_droop_11",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_droop_12",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_droop_13",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_droop_14",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_droop_15",
+          "durationMs": 125
+        }
+      ]
+    },
+    {
+      "group": "Look",
+      "index": 0,
+      "kind": "once",
+      "next": "Idle",
+      "fps": 8,
+      "frames": [
+        {
+          "base": "cat_look_00",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_look_01",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_look_02",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_look_03",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_look_04",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_look_05",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_look_06",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_look_07",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_look_08",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_look_09",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_look_10",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_look_11",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_look_12",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_look_13",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_look_14",
+          "durationMs": 125
+        },
+        {
+          "base": "cat_look_15",
+          "durationMs": 125
+        }
+      ]
+    },
+    {
+      "group": "Purr",
+      "index": 0,
+      "kind": "loop",
+      "fps": 6,
+      "frames": [
+        {
+          "base": "cat_purr_00",
+          "durationMs": 167
+        },
+        {
+          "base": "cat_purr_01",
+          "durationMs": 167
+        },
+        {
+          "base": "cat_purr_02",
+          "durationMs": 167
+        },
+        {
+          "base": "cat_purr_03",
+          "durationMs": 167
+        },
+        {
+          "base": "cat_purr_04",
+          "durationMs": 167
+        },
+        {
+          "base": "cat_purr_05",
+          "durationMs": 167
+        },
+        {
+          "base": "cat_purr_06",
+          "durationMs": 167
+        },
+        {
+          "base": "cat_purr_07",
+          "durationMs": 167
+        },
+        {
+          "base": "cat_purr_08",
+          "durationMs": 167
+        },
+        {
+          "base": "cat_purr_09",
+          "durationMs": 167
+        },
+        {
+          "base": "cat_purr_10",
+          "durationMs": 167
+        },
+        {
+          "base": "cat_purr_11",
+          "durationMs": 167
+        },
+        {
+          "base": "cat_purr_12",
+          "durationMs": 167
+        },
+        {
+          "base": "cat_purr_13",
+          "durationMs": 167
+        },
+        {
+          "base": "cat_purr_14",
+          "durationMs": 167
+        },
+        {
+          "base": "cat_purr_15",
+          "durationMs": 167
         }
       ]
     }
@@ -92,244 +1175,260 @@
       "id": "HitAreaBody",
       "points": [
         [
-          10,
-          60
+          151,
+          203
         ],
         [
-          12,
-          63
+          150,
+          211
         ],
         [
-          11,
-          67
+          147,
+          218
         ],
         [
-          10,
-          70
+          154,
+          226
         ],
         [
-          14,
-          73
+          156,
+          234
         ],
         [
-          14,
-          76
+          163,
+          242
         ],
         [
-          17,
-          80
+          169,
+          249
         ],
         [
-          20,
-          83
+          179,
+          257
         ],
         [
-          25,
-          86
+          195,
+          265
         ],
         [
-          33,
-          90
+          196,
+          272
         ],
         [
-          31,
-          93
+          189,
+          280
         ],
         [
-          29,
-          96
+          183,
+          288
         ],
         [
-          27,
-          99
+          178,
+          296
         ],
         [
-          25,
-          103
+          175,
+          303
         ],
         [
-          23,
-          106
+          172,
+          311
         ],
         [
-          23,
-          109
+          169,
+          319
         ],
         [
-          22,
-          113
+          168,
+          326
         ],
         [
-          22,
-          123
+          167,
+          334
         ],
         [
-          23,
-          126
+          167,
+          342
         ],
         [
-          25,
-          129
+          168,
+          349
         ],
         [
-          27,
-          132
+          172,
+          357
         ],
         [
-          31,
-          136
+          179,
+          365
         ],
         [
-          32,
-          139
+          192,
+          373
         ],
         [
-          33,
-          142
+          193,
+          380
         ],
         [
-          35,
-          146
+          196,
+          388
         ],
         [
-          37,
-          149
+          199,
+          396
         ],
         [
-          36,
-          152
+          203,
+          403
         ],
         [
-          36,
-          159
+          209,
+          411
         ],
         [
-          38,
-          162
+          207,
+          419
         ],
         [
-          92,
-          162
+          205,
+          427
         ],
         [
-          94,
-          159
+          207,
+          434
         ],
         [
-          94,
-          152
+          211,
+          442
         ],
         [
-          92,
-          149
+          335,
+          442
         ],
         [
-          95,
-          146
+          339,
+          434
         ],
         [
-          113,
-          142
+          342,
+          427
         ],
         [
-          120,
-          139
+          340,
+          419
         ],
         [
-          124,
-          136
+          338,
+          411
         ],
         [
-          127,
-          132
+          344,
+          403
         ],
         [
-          129,
-          129
+          385,
+          396
         ],
         [
-          131,
-          126
+          400,
+          388
         ],
         [
-          132,
-          123
+          410,
+          380
         ],
         [
-          132,
-          119
+          416,
+          373
         ],
         [
-          133,
-          116
+          422,
+          365
         ],
         [
-          133,
-          113
+          425,
+          357
         ],
         [
-          131,
-          109
+          428,
+          349
         ],
         [
-          129,
-          106
+          429,
+          342
         ],
         [
-          105,
-          103
+          430,
+          334
         ],
         [
-          103,
-          99
+          428,
+          326
         ],
         [
-          101,
-          96
+          426,
+          319
         ],
         [
-          99,
-          93
+          416,
+          311
         ],
         [
-          97,
-          90
+          371,
+          303
         ],
         [
-          105,
-          86
+          368,
+          296
         ],
         [
-          109,
-          83
+          362,
+          288
         ],
         [
-          112,
-          80
+          357,
+          280
         ],
         [
-          115,
-          76
+          351,
+          272
         ],
         [
-          116,
-          73
+          350,
+          265
         ],
         [
-          116,
-          70
+          367,
+          257
         ],
         [
-          118,
-          67
+          377,
+          249
         ],
         [
-          118,
-          63
+          383,
+          242
         ],
         [
-          119,
-          60
+          390,
+          234
+        ],
+        [
+          392,
+          226
+        ],
+        [
+          399,
+          218
+        ],
+        [
+          396,
+          211
+        ],
+        [
+          395,
+          203
         ]
       ]
     },
@@ -337,198 +1436,230 @@
       "id": "HitAreaHead",
       "points": [
         [
-          24,
-          7
+          182,
+          80
         ],
         [
-          23,
-          9
+          180,
+          84
         ],
         [
-          22,
-          10
+          177,
+          88
         ],
         [
-          21,
-          12
+          174,
+          92
         ],
         [
-          20,
-          14
+          173,
+          96
         ],
         [
-          20,
-          16
+          171,
+          100
         ],
         [
-          19,
-          17
+          169,
+          104
         ],
         [
-          19,
-          19
+          168,
+          108
         ],
         [
-          18,
-          21
+          167,
+          112
         ],
         [
-          18,
-          26
+          166,
+          116
         ],
         [
-          17,
-          28
+          166,
+          120
         ],
         [
-          17,
-          38
+          165,
+          124
         ],
         [
-          18,
-          39
+          165,
+          128
         ],
         [
-          18,
-          43
+          164,
+          132
         ],
         [
-          19,
-          45
+          164,
+          151
         ],
         [
-          18,
-          46
+          165,
+          155
         ],
         [
-          17,
-          48
+          166,
+          159
         ],
         [
-          16,
-          50
+          166,
+          163
         ],
         [
-          15,
-          51
+          165,
+          167
         ],
         [
-          14,
-          53
+          163,
+          171
         ],
         [
-          13,
-          55
+          160,
+          175
         ],
         [
-          12,
-          57
+          158,
+          179
         ],
         [
-          12,
-          58
+          156,
+          183
         ],
         [
-          10,
-          60
+          154,
+          187
         ],
         [
-          119,
-          60
+          152,
+          191
         ],
         [
-          118,
-          58
+          150,
+          195
         ],
         [
-          117,
-          57
+          148,
+          199
         ],
         [
-          116,
-          55
+          152,
+          203
         ],
         [
-          116,
-          53
+          394,
+          203
         ],
         [
-          115,
-          51
+          399,
+          199
         ],
         [
-          114,
-          50
+          396,
+          195
         ],
         [
-          113,
-          48
+          394,
+          191
         ],
         [
-          112,
-          46
+          392,
+          187
         ],
         [
-          111,
-          45
+          390,
+          183
         ],
         [
-          111,
-          43
+          388,
+          179
         ],
         [
-          112,
-          41
+          386,
+          175
         ],
         [
-          112,
-          36
+          383,
+          171
         ],
         [
-          113,
-          34
+          380,
+          167
         ],
         [
-          113,
-          26
+          380,
+          163
         ],
         [
-          112,
-          24
+          381,
+          159
         ],
         [
-          112,
-          19
+          381,
+          155
         ],
         [
-          111,
-          17
+          382,
+          151
         ],
         [
-          111,
-          16
+          382,
+          147
         ],
         [
-          110,
-          14
+          383,
+          143
         ],
         [
-          110,
-          12
+          383,
+          120
         ],
         [
-          108,
-          10
+          382,
+          116
         ],
         [
-          108,
-          9
+          381,
+          112
         ],
         [
-          107,
-          7
+          381,
+          108
+        ],
+        [
+          380,
+          104
+        ],
+        [
+          379,
+          100
+        ],
+        [
+          377,
+          96
+        ],
+        [
+          376,
+          92
+        ],
+        [
+          374,
+          88
+        ],
+        [
+          370,
+          84
+        ],
+        [
+          368,
+          80
         ]
       ]
     }
-  ]
+  ],
+  "perchGaps": {
+    "wall": 0.2478,
+    "ceiling": 0.5625
+  }
 }

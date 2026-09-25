@@ -604,15 +604,160 @@
           "group": "Wave",
           "index": 0,
           "description": "同挥手"
+        },
+        "点头": {
+          "group": "Nod",
+          "index": 0,
+          "description": "点头表示明白、赞同"
+        },
+        "摇头": {
+          "group": "Shake",
+          "index": 0,
+          "description": "摇头表示否定、不同意"
+        },
+        "跳跃": {
+          "group": "Jump",
+          "index": 0,
+          "description": "蹲下蓄力向上跳，适合惊喜、兴奋"
+        },
+        "打哈欠": {
+          "group": "Yawn",
+          "index": 0,
+          "description": "困倦时打哈欠"
+        },
+        "伸懒腰": {
+          "group": "Stretch",
+          "index": 0,
+          "description": "伸展身体，舒展筋骨"
+        },
+        "挠头": {
+          "group": "Scratch",
+          "index": 0,
+          "description": "挠头思考或困惑"
+        },
+        "躲闪": {
+          "group": "Dodge",
+          "index": 0,
+          "description": "闪避动作"
+        },
+        "欢呼": {
+          "group": "Cheer",
+          "index": 0,
+          "description": "跳起欢呼庆祝"
+        },
+        "低落": {
+          "group": "Droop",
+          "index": 0,
+          "description": "情绪低落，耷拉着"
+        },
+        "张望": {
+          "group": "Look",
+          "index": 0,
+          "description": "左右张望查看"
         }
       },
       "defaultExpression": 0,
-      "personaAddon": "你是一只叫「团子」的卡通猫咪，圆滚滚的，语气天真。请积极用方括号标签驱动表情与动作，让形象真正「活」起来。\n\n**表情**：这只角色没有可切换的表情层，不要输出表情标签。\n\n**动作标签**（单次播放，播完自动回待机）：\n- [motion:挥手]/[motion:打招呼]：抬手打招呼\n\n**示例**：[joy][motion:挥手]你来啦！\n回复口语化、适合朗读。",
+      "personaAddon": "你是一只叫「团子」的卡通猫咪，圆滚滚的，语气天真活泼。有完整的动作系统（走路、攀爬、跳跃等），请积极用方括号标签驱动动作。\n\n**表情**：这只角色没有可切换的表情层，不要输出表情标签。\n\n**动作标签**：\n- [motion:挥手]/[motion:打招呼]：打招呼\n- [motion:点头]：表示赞同、明白\n- [motion:摇头]：表示否定、不同意\n- [motion:跳跃]：跳起来，惊喜或兴奋时用\n- [motion:打哈欠]：困倦\n- [motion:伸懒腰]：舒展身体\n- [motion:挠头]：困惑、思考\n- [motion:躲闪]：闪避\n- [motion:欢呼]：庆祝、非常开心\n- [motion:低落]：情绪低落\n- [motion:张望]：左右看\n\n**示例**：[motion:挥手]你来啦！/ [motion:点头]嗯嗯，知道啦！/ [motion:欢呼]太好了！\n回复口语化、适合朗读。",
       "toolPrompts": {
-        "expression": true,
+        "expression": false,
         "thinkTag": true
-      }
+      },
+      "thumbnailUrl": "demo_cartoon_cat/thumbnail.png"
+    },
+    {
+      "id": "demo_moon_rabbit",
+      "name": "月兔小仙",
+      "rendererType": "sprite",
+      "modelUrl": "demo_moon_rabbit/manifest.json",
+      "scale": 0.2437,
+      "idleMotionGroup": "Idle",
+      "talkMotionGroup": "Talk",
+      "agentId": "",
+      "emotionMap": {
+        "neutral": 0,
+        "平静": 0,
+        "默认": 0
+      },
+      "tapMotions": {
+        "HitAreaBody": {
+          "Wave": 0
+        }
+      },
+      "actionMotions": {
+        "挥手": {
+          "group": "Wave",
+          "index": 0,
+          "description": "抬手打招呼"
+        },
+        "打招呼": {
+          "group": "Wave",
+          "index": 0,
+          "description": "同挥手"
+        },
+        "点头": {
+          "group": "Nod",
+          "index": 0,
+          "description": "点头表示明白、赞同"
+        },
+        "摇头": {
+          "group": "Shake",
+          "index": 0,
+          "description": "摇头表示否定"
+        },
+        "跳跃": {
+          "group": "Jump",
+          "index": 0,
+          "description": "蹲下蓄力跳起"
+        },
+        "打哈欠": {
+          "group": "Yawn",
+          "index": 0,
+          "description": "困倦时打哈欠"
+        },
+        "伸懒腰": {
+          "group": "Stretch",
+          "index": 0,
+          "description": "伸展身体"
+        },
+        "挠头": {
+          "group": "Scratch",
+          "index": 0,
+          "description": "挠头思考"
+        },
+        "躲闪": {
+          "group": "Dodge",
+          "index": 0,
+          "description": "闪避"
+        },
+        "欢呼": {
+          "group": "Cheer",
+          "index": 0,
+          "description": "跳起欢呼"
+        },
+        "低落": {
+          "group": "Droop",
+          "index": 0,
+          "description": "情绪低落"
+        },
+        "张望": {
+          "group": "Look",
+          "index": 0,
+          "description": "左右张望"
+        },
+        "呼噜": {
+          "group": "Purr",
+          "index": 0,
+          "description": "满足地发出呼噜声（长按摸头时循环）"
+        }
+      },
+      "defaultExpression": 0,
+      "personaAddon": "你是「月兔小仙」，来自月宫的小仙子，温柔优雅、带点仙气，语气轻灵。有完整的动作系统（走路、攀爬、腾云驾雾等），请积极用方括号标签驱动动作。\n\n**表情**：这只角色没有可切换的表情层，不要输出表情标签。\n\n**动作标签**：\n- [motion:挥手]/[motion:打招呼]：打招呼\n- [motion:点头]：表示赞同、明白\n- [motion:摇头]：表示否定\n- [motion:跳跃]：跳起来\n- [motion:打哈欠]：困倦\n- [motion:伸懒腰]：舒展\n- [motion:挠头]：困惑、思考\n- [motion:躲闪]：闪避\n- [motion:欢呼]：庆祝、开心\n- [motion:低落]：情绪低\n- [motion:张望]：左右看\n- [motion:呼噜]：满足（长按时循环）\n\n**示例**：[motion:挥手]你好呀～/ [motion:点头]嗯，明白了。/ [motion:欢呼]太好啦！\n回复口语化、带点仙气、适合朗读。",
+      "toolPrompts": {
+        "expression": false,
+        "thinkTag": true
+      },
+      "thumbnailUrl": "demo_moon_rabbit/thumbnail.png"
     }
   ],
-  "defaultModelId": "demo_cartoon_cat"
+  "defaultModelId": "demo_moon_rabbit"
 }
