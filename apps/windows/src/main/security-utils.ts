@@ -458,12 +458,6 @@ export const securityUtils = new SecurityUtils()
 /**
  * 导出便捷函数
  */
-const validatePath = (path: string, basePath?: string) =>
-  securityUtils.validatePath(path, basePath)
-
-const sanitizeInput = (input: string, options?: Parameters<SecurityUtils['sanitizeInput']>[1]) =>
-  securityUtils.sanitizeInput(input, options)
-
 export const sanitizeFileName = (fileName: string) =>
   securityUtils.sanitizeFileName(fileName)
 

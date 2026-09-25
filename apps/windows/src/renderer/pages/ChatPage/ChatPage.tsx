@@ -150,7 +150,7 @@ const EMPTY_WORKFLOW_ITEMS: never[] = []
 
 const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewChange }) => {
   // Hooks
-  const { selectableAgents, isLoading: agentsLoading, mainAgentId, agentsMap, refreshAgents } = useAgents()
+  const { selectableAgents, isLoading: agentsLoading, mainAgentId, agentsMap } = useAgents()
 
   // 本地 Agent Runtime hooks（Feature Flag 开启时生效）
   const runtimeActions = useAgentRuntimeActions()
@@ -158,7 +158,6 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
   const { listSessions } = runtimeActions
   const runtimeIsStreaming = useAgentRuntimeState((s) => s.isStreaming)
   const runtimeThinkingLive = useAgentRuntimeState((s) => s.currentThinkingText)
-  const runtimeError = useAgentRuntimeState((s) => s.error)
   const runtimeMessages = useAgentRuntimeState((s) => s.messages)
   const runtimeCurrentSessionKey = useAgentRuntimeGlobalState((s) => s.currentSessionKey)
   const { sessionKey: permissionSessionKey, pending: runtimePendingPermission } = useAnyPendingPermission()
@@ -820,7 +819,6 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
     workbenchLayout,
     locateFileTarget,
     uncommittedDiff,
-    refreshVcs,
     toggleFilesWorkbench,
     handleReviewTurnFileChange,
     closeWorkbench,

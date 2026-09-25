@@ -73,8 +73,6 @@ export function useQuery<T>(
     enabled = true,
     refetchInterval = 0,
     refetchOnWindowFocus = false,
-    retryCount = 3,
-    retryDelay = 1000,
     onSuccess,
     onError,
   } = options
@@ -201,22 +199,4 @@ export function useQuery<T>(
     refetch,
     reset,
   }
-}
-
-/**
- * 清除查询缓存
- */
-function clearQueryCache(queryKey?: string): void {
-  if (queryKey) {
-    queryCache.delete(queryKey)
-  } else {
-    queryCache.clear()
-  }
-}
-
-/**
- * 使指定查询失效（清除缓存）
- */
-function invalidateQuery(queryKey: string): void {
-  queryCache.delete(queryKey)
 }

@@ -5,7 +5,6 @@
  * 使用 StatefulContextStrategy（增量同步，不清空内存）。
  */
 
-import type { BrowserWindow } from 'electron'
 import type { AgentRuntimeBridge } from '../../agent-runtime/bridge'
 import type { IChannelAdapter, ChannelSession, ContextStrategy } from '../types'
 import { StatefulContextStrategy } from '../context-strategy/stateful-strategy'
