@@ -20,36 +20,45 @@ export interface MainWindowOptions {
   getScreenRecordService: () => ScreenRecordService | null
 }
 
+/** 初始窗口整体放大系数（2026-09-30 用户要求：启动窗口再大 20%） */
+const WINDOW_SIZE_SCALE = 1.2
+
 /**
  * 根据屏幕分辨率动态计算窗口大小
- * 
- * 规则：
- * - 窗口宽度 = 屏幕宽度的 70%（最小 800，最大 1400）
- * - 窗口高度 = 屏幕高度的 80%（最小 600，最大 900）
+ *
+ * 规则（在基础比例之上整体乘以 WINDOW_SIZE_SCALE）：
+ * - 窗口宽度 = 屏幕宽度的 70%（最小 800，最大 1400）→ 放大后最小 960，最大 1680
+ * - 窗口高度 = 屏幕高度的 80%（最小 600，最大 900）→ 放大后最小 720，最大 1080
  * - 使用主显示器的工作区域大小（排除任务栏）
- * 
+ *
  * @returns 计算后的窗口宽度和高度
  */
 function calculateWindowSize(logger: MainWindowLogger): { width: number; height: number } {
   try {
     const primaryDisplay = screen.getPrimaryDisplay()
     const { width: screenWidth, height: screenHeight } = primaryDisplay.workAreaSize
-    
-    // 计算窗口宽度：屏幕宽度的 70%，限制在 800-1400 之间
-    const calculatedWidth = Math.floor(screenWidth * 0.7)
-    const width = Math.min(Math.max(calculatedWidth, 800), 1400)
-    
-    // 计算窗口高度：屏幕高度的 80%，限制在 600-900 之间
-    const calculatedHeight = Math.floor(screenHeight * 0.8)
-    const height = Math.min(Math.max(calculatedHeight, 600), 900)
-    
+
+    // 计算窗口宽度：屏幕宽度的 70%，限制在 800-1400 之间（整体再放大）
+    const calculatedWidth = Math.floor(screenWidth * 0.7 * WINDOW_SIZE_SCALE)
+    const width = Math.min(
+      Math.max(calculatedWidth, Math.round(800 * WINDOW_SIZE_SCALE)),
+      Math.round(1400 * WINDOW_SIZE_SCALE),
+    )
+
+    // 计算窗口高度：屏幕高度的 80%，限制在 600-900 之间（整体再放大）
+    const calculatedHeight = Math.floor(screenHeight * 0.8 * WINDOW_SIZE_SCALE)
+    const height = Math.min(
+      Math.max(calculatedHeight, Math.round(600 * WINDOW_SIZE_SCALE)),
+      Math.round(900 * WINDOW_SIZE_SCALE),
+    )
+
     logger.info(`屏幕分辨率: ${screenWidth}x${screenHeight}, 计算窗口大小: ${width}x${height}`)
-    
+
     return { width, height }
   } catch (error) {
-    // 如果获取屏幕信息失败，使用默认值
+    // 如果获取屏幕信息失败，使用默认值（同样按放大系数折算）
     logger.warn('获取屏幕信息失败，使用默认窗口大小', error)
-    return { width: 800, height: 700 }
+    return { width: Math.round(800 * WINDOW_SIZE_SCALE), height: Math.round(700 * WINDOW_SIZE_SCALE) }
   }
 }
 
