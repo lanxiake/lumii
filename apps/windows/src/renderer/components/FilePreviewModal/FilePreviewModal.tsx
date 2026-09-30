@@ -630,14 +630,40 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [isFullscreen, isEditingMarkdown, onClose, isWindow, zoomSupported, zoomBy])
 
-  // Ctrl+滚轮缩放：原生非 passive 监听（React 根容器的 wheel 为 passive，无法 preventDefault）
+  /**
+   * 滚轮缩放：无修饰键直接缩放（图片查看器习惯）。
+   * 放大后的长文档仍需能滚动：Shift+滚轮滚动光标下的滚动容器
+   * （浏览器不会把 Shift+滚轮映射成垂直滚动，只能手动处理）。
+   * 原生非 passive 监听：React 根容器的 wheel 为 passive，无法 preventDefault。
+   */
   useEffect(() => {
     const el = bodyRef.current
     if (!el) return
+    /** 触控板每帧 delta 很小，累积满一个步进才走一档，避免一个手势连跳多档 */
+    const WHEEL_STEP_PX = 100
+    let acc = 0
     const onWheel = (e: WheelEvent) => {
-      if (!e.ctrlKey || !zoomSupported) return
+      if (!zoomSupported) return
       e.preventDefault()
-      zoomBy(e.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP)
+      const raw = e.deltaY !== 0 ? e.deltaY : e.deltaX
+      const px = e.deltaMode === 1 ? raw * 33 : raw
+      if (e.shiftKey) {
+        let node: HTMLElement | null = e.target instanceof HTMLElement ? e.target : null
+        while (
+          node &&
+          node !== el &&
+          !(node.scrollHeight > node.clientHeight && /(auto|scroll)/.test(getComputedStyle(node).overflowY))
+        ) {
+          node = node.parentElement
+        }
+        ;(node ?? el).scrollTop += px
+        return
+      }
+      acc += px
+      while (Math.abs(acc) >= WHEEL_STEP_PX) {
+        zoomBy(acc < 0 ? ZOOM_STEP : -ZOOM_STEP)
+        acc -= Math.sign(acc) * WHEEL_STEP_PX
+      }
     }
     el.addEventListener('wheel', onWheel, { passive: false })
     return () => el.removeEventListener('wheel', onWheel)
@@ -952,7 +978,12 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
               </button>
             )}
             {zoomSupported && (
-              <div className={styles.zoomGroup} role="group" aria-label="内容缩放">
+              <div
+                className={styles.zoomGroup}
+                role="group"
+                aria-label="内容缩放"
+                title="滚轮直接缩放；Shift+滚轮滚动内容"
+              >
                 <button
                   type="button"
                   className={styles.iconBtn}
