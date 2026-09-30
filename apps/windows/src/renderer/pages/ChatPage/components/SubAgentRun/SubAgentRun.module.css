@@ -62,7 +62,7 @@
 /* 专家名：这是「谁在干」的唯一线索，给足对比度 */
 .name {
   flex-shrink: 0;
-  font-size: 12px;
+  font-size: calc(12px * var(--app-font-scale, 1));
   font-weight: 600;
   color: var(--mt-fg-1);
 }
@@ -72,7 +72,7 @@
   align-items: center;
   gap: 4px;
   flex-shrink: 0;
-  font-size: 11px;
+  font-size: calc(11px * var(--app-font-scale, 1));
   padding: 1px 7px;
   border-radius: 999px;
   font-family: var(--mt-font-mono, monospace);
@@ -103,7 +103,7 @@
 /* 失败原因常驻头部下方一行（截断）；全文在展开体顶部 */
 .errorLine {
   padding: 0 10px 6px;
-  font-size: 11.5px;
+  font-size: calc(11.5px * var(--app-font-scale, 1));
   color: var(--mt-error);
   word-break: break-word;
 }
@@ -114,7 +114,7 @@
 }
 
 .errorFull {
-  font-size: 11.5px;
+  font-size: calc(11.5px * var(--app-font-scale, 1));
   color: var(--mt-error);
   white-space: pre-wrap;
   word-break: break-word;
@@ -131,7 +131,7 @@
 .meta {
   flex: 1;
   min-width: 0;
-  font-size: 11px;
+  font-size: calc(11px * var(--app-font-scale, 1));
   color: var(--mt-fg-4);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -141,7 +141,7 @@
 /* 右侧展开/收起提示：与 ActivityFold 的交互语义保持一致 */
 .hint {
   flex-shrink: 0;
-  font-size: 11px;
+  font-size: calc(11px * var(--app-font-scale, 1));
   padding: 1px 7px;
   border-radius: 999px;
   color: var(--mt-fg-3);
@@ -176,7 +176,7 @@
   border-radius: 4px;
   background: transparent;
   color: var(--mt-fg-3);
-  font-size: 11px;
+  font-size: calc(11px * var(--app-font-scale, 1));
   cursor: pointer;
   transition: color var(--mt-dur-fast) var(--mt-ease-standard),
               background var(--mt-dur-fast) var(--mt-ease-standard);

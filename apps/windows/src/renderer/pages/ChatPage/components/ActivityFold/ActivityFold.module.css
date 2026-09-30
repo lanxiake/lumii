@@ -80,7 +80,7 @@
   align-items: center;
   gap: 5px;
   flex-shrink: 0;
-  font-size: 12px;
+  font-size: calc(12px * var(--app-font-scale, 1));
   font-weight: 600;
   color: var(--mt-fg-2);
 }
@@ -107,7 +107,7 @@
 .status {
   flex: 1;
   min-width: 0;
-  font-size: 12px;
+  font-size: calc(12px * var(--app-font-scale, 1));
   color: var(--color-primary-400);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -118,7 +118,7 @@
 .summary {
   flex: 1;
   min-width: 0;
-  font-size: 12px;
+  font-size: calc(12px * var(--app-font-scale, 1));
   color: var(--mt-fg-3);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -127,7 +127,7 @@
 
 .duration {
   flex-shrink: 0;
-  font-size: 10px;
+  font-size: calc(10px * var(--app-font-scale, 1));
   color: var(--mt-fg-4);
   font-family: var(--mt-font-mono, monospace);
 }
@@ -135,7 +135,7 @@
 /* 右侧展开/收起文字提示：让交互语义一目了然 */
 .hint {
   flex-shrink: 0;
-  font-size: 11px;
+  font-size: calc(11px * var(--app-font-scale, 1));
   padding: 1px 7px;
   border-radius: 999px;
   color: var(--mt-fg-3);
@@ -173,7 +173,7 @@
   border-radius: 4px;
   background: transparent;
   color: var(--mt-fg-3);
-  font-size: 11px;
+  font-size: calc(11px * var(--app-font-scale, 1));
   cursor: pointer;
   transition: color var(--mt-dur-fast) var(--mt-ease-standard),
               background var(--mt-dur-fast) var(--mt-ease-standard);

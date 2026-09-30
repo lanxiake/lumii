@@ -602,7 +602,7 @@
 }
 
 .thinking-chevron {
-  font-size: 10px;
+  font-size: calc(10px * var(--app-font-scale, 1));
   transition: transform 0.2s;
 }
 
@@ -964,7 +964,7 @@
   border: none;
   border-radius: 0;
   background: transparent;
-  font-size: 13px;
+  font-size: calc(13px * var(--app-font-scale, 1));
   color: var(--mt-fg-3, var(--color-text-secondary));
   animation: thinking-fade-in 0.25s ease;
 }
@@ -1002,7 +1002,7 @@
   align-items: center;
   gap: 6px;
   padding: 8px 12px;
-  font-size: 13px;
+  font-size: calc(13px * var(--app-font-scale, 1));
   font-weight: 500;
   color: var(--color-text-secondary);
   user-select: none;
@@ -1012,7 +1012,7 @@
 
 .rt-header-icon {
   flex-shrink: 0;
-  font-size: 12px;
+  font-size: calc(12px * var(--app-font-scale, 1));
   line-height: 1;
 }
 
@@ -1035,7 +1035,7 @@
 }
 
 .rt-header-meta {
-  font-size: 12px;
+  font-size: calc(12px * var(--app-font-scale, 1));
   color: var(--color-text-tertiary);
   font-weight: 400;
 }
@@ -1053,7 +1053,7 @@
 
 .rt-header-chevron::before {
   content: '▸';
-  font-size: 11px;
+  font-size: calc(11px * var(--app-font-scale, 1));
   color: var(--color-text-tertiary);
   transition: transform 0.15s ease;
   display: inline-block;
@@ -1069,7 +1069,7 @@
   width: 100%;
   margin-top: 4px;
   padding: 0 4px;
-  font-size: 11px;
+  font-size: calc(11px * var(--app-font-scale, 1));
   color: var(--color-text-tertiary);
   font-style: italic;
   white-space: nowrap;
@@ -1102,17 +1102,17 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  font-size: calc(12px * var(--app-font-scale, 1));
   font-weight: 500;
   color: var(--color-text-secondary);
 }
 
 .rt-step-icon {
-  font-size: 13px;
+  font-size: calc(13px * var(--app-font-scale, 1));
 }
 
 .rt-live-badge {
-  font-size: 10px;
+  font-size: calc(10px * var(--app-font-scale, 1));
   padding: 1px 5px;
   border-radius: 4px;
   background: var(--color-primary-subtle);
@@ -1124,7 +1124,7 @@
 .rt-thinking-pre {
   margin: 0;
   padding: 8px 10px;
-  font-size: 12px;
+  font-size: calc(12px * var(--app-font-scale, 1));
   line-height: 1.6;
   color: var(--color-text-secondary);
   background: var(--color-bg-tertiary);
@@ -1180,7 +1180,7 @@
   border-radius: 50%;
   background: var(--color-bg-tertiary);
   color: var(--color-text-secondary);
-  font-size: 10px;
+  font-size: calc(10px * var(--app-font-scale, 1));
   font-weight: 600;
   display: flex;
   align-items: center;
@@ -1222,7 +1222,7 @@
 /* 时间线内单元卡片通用：左侧 chevron + 右侧展开/收起提示 */
 .rt-unit-chevron {
   flex-shrink: 0;
-  font-size: 14px;
+  font-size: calc(14px * var(--app-font-scale, 1));
   line-height: 1;
   transition: transform var(--mt-dur-normal) var(--mt-ease-spring);
 }
@@ -1234,7 +1234,7 @@
 .rt-unit-hint {
   flex-shrink: 0;
   margin-left: auto;
-  font-size: 11px;
+  font-size: calc(11px * var(--app-font-scale, 1));
   padding: 1px 7px;
   border-radius: 999px;
   color: var(--mt-fg-3);
@@ -1279,7 +1279,7 @@
 /* 折叠态预览文字：提高对比度、放大字号，避免「看不清」 */
 .rt-thinking-card--compact .rt-thinking-card-preview {
   color: var(--mt-fg-3);
-  font-size: 12px;
+  font-size: calc(12px * var(--app-font-scale, 1));
   font-style: normal;
   opacity: 1;
 }
@@ -1312,14 +1312,14 @@
 
 .rt-thinking-card-icon {
   flex-shrink: 0;
-  font-size: 13px;
+  font-size: calc(13px * var(--app-font-scale, 1));
   color: var(--mt-violet);
 }
 
 /* 「思考」标签：紫色笔记标签风胶囊，一眼区分类型 */
 .rt-thinking-card-title {
   flex-shrink: 0;
-  font-size: 11px;
+  font-size: calc(11px * var(--app-font-scale, 1));
   font-weight: 600;
   letter-spacing: 0.02em;
   padding: 2px 8px;
@@ -1366,7 +1366,7 @@
   font-style: italic;
   opacity: 0.85;
   color: var(--mt-fg-4);
-  font-size: 11px;
+  font-size: calc(11px * var(--app-font-scale, 1));
   margin-left: 4px;
 }
 
@@ -1408,7 +1408,7 @@
 
 /* 已废弃的内联思考样式（保留避免 CSS module 报错） */
 .rt-thinking-inline { display: flex; flex-direction: column; gap: 4px; }
-.rt-thinking-inline-label { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; color: var(--color-text-secondary); }
+.rt-thinking-inline-label { display: flex; align-items: center; gap: 6px; font-size: calc(12px * var(--app-font-scale, 1)); font-weight: 500; color: var(--color-text-secondary); }
 
 /* 工具列表区块 */
 .rt-tools-section {
@@ -1428,7 +1428,7 @@
   border-radius: 8px;
   background: color-mix(in srgb, var(--mt-accent-500) 8%, var(--mt-surface-2, var(--color-bg-secondary)));
   color: var(--mt-fg-2, var(--color-text-primary));
-  font-size: 12px;
+  font-size: calc(12px * var(--app-font-scale, 1));
   line-height: 1.3;
   animation: rt-current-in 0.18s ease-out;
 }
@@ -1461,7 +1461,7 @@
 .rt-current-tool-label {
   flex-shrink: 0;
   color: var(--mt-fg-3, var(--color-text-secondary));
-  font-size: 11px;
+  font-size: calc(11px * var(--app-font-scale, 1));
 }
 
 .rt-current-tool-name {
@@ -1480,7 +1480,7 @@
   border-radius: 999px;
   background: color-mix(in srgb, var(--mt-accent-500) 14%, transparent);
   color: var(--mt-fg-3, var(--color-text-secondary));
-  font-size: 10px;
+  font-size: calc(10px * var(--app-font-scale, 1));
 }
 
 /* 折叠/展开切换按钮 */
@@ -1494,7 +1494,7 @@
   border-radius: var(--radius-sm);
   background: var(--color-bg-primary);
   color: var(--color-text-secondary);
-  font-size: 12px;
+  font-size: calc(12px * var(--app-font-scale, 1));
   cursor: pointer;
   user-select: none;
   transition: background 0.15s;
@@ -1505,13 +1505,13 @@
 }
 
 .rt-tools-toggle-icon {
-  font-size: 10px;
+  font-size: calc(10px * var(--app-font-scale, 1));
   flex-shrink: 0;
 }
 
 .rt-tools-toggle-meta {
   opacity: 0.6;
-  font-size: 11px;
+  font-size: calc(11px * var(--app-font-scale, 1));
   margin-left: 2px;
 }
 
@@ -1671,7 +1671,7 @@
   width: 100%;
   padding: 2px 6px 2px 28px;
   color: var(--mt-fg-2);
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--app-font-scale, 1));
   line-height: 1.6;
 }
 

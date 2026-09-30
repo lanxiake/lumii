@@ -15,7 +15,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 12px;
+  font-size: calc(12px * var(--app-font-scale, 1));
   background: none;
   border: none;
   padding: 0;
@@ -34,7 +34,7 @@
 }
 
 .expert {
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--app-font-scale, 1));
   color: var(--mt-fg-1);
   font-weight: 500;
   flex-shrink: 0;
@@ -45,14 +45,14 @@
   border-radius: 6px;
   border: 1px solid var(--mt-border-hairline);
   color: var(--mt-fg-4);
-  font-size: 11px;
+  font-size: calc(11px * var(--app-font-scale, 1));
   flex-shrink: 0;
 }
 
 .status {
   padding: 1px 8px;
   border-radius: 999px;
-  font-size: 11px;
+  font-size: calc(11px * var(--app-font-scale, 1));
   flex-shrink: 0;
 }
 
@@ -84,24 +84,24 @@
 }
 
 .task {
-  font-size: 13px;
+  font-size: calc(13px * var(--app-font-scale, 1));
   line-height: 1.5;
   color: var(--mt-fg-1);
 }
 
 .hint {
-  font-size: 12px;
+  font-size: calc(12px * var(--app-font-scale, 1));
   color: var(--mt-fg-4);
 }
 
 .summary {
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--app-font-scale, 1));
   line-height: 1.5;
   color: var(--mt-fg-2);
 }
 
 .errorText {
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--app-font-scale, 1));
   color: var(--mt-error);
 }
 
@@ -120,7 +120,7 @@
 }
 
 .detailLabel {
-  font-size: 11px;
+  font-size: calc(11px * var(--app-font-scale, 1));
   color: var(--mt-fg-4);
 }
 
@@ -129,7 +129,7 @@
   padding: 8px 10px;
   border-radius: 8px;
   background: var(--mt-surface-2);
-  font-size: 12px;
+  font-size: calc(12px * var(--app-font-scale, 1));
   line-height: 1.5;
   color: var(--mt-fg-2);
   white-space: pre-wrap;
