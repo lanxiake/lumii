@@ -109,7 +109,8 @@ export class VoiceCallService {
   private profileStore = new VoiceProfileStore()
 
   constructor(
-    private win: BrowserWindow,
+    /** 主窗口；无头模式（--headless）没有窗口，传 null——推送类调用会自动跳过 */
+    private win: BrowserWindow | null,
     /** 提交用户消息给 Agent 的回调（由 agent-runtime-ipc 注入） */
     private submitAgentMessage: (sessionKey: string, content: string, audioWavBase64?: string) => Promise<void>,
     private modelManager: VoiceModelManager,
@@ -1442,7 +1443,10 @@ export class VoiceCallService {
   }
 
   private pushVoiceEvent(event: any): void {
-    if (!this.win.isDestroyed()) {
+    // 无头模式没有主窗口（构造时传 null）：推送是 no-op。
+    // 不能假设 win 一定存在——预热（ensureInitialized → emitRuntimeStatus）会在无头下走到这里，
+    // 旧实现直接 this.win.isDestroyed() 会以 "Cannot read properties of null" 让预热失败。
+    if (this.win && !this.win.isDestroyed()) {
       try {
         this.win.webContents.send('voice:event', event)
       } catch (e) {
