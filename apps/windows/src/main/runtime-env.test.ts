@@ -5,16 +5,23 @@
  * 若我们另写一个 PATH，子进程会拿到两个变量，行为不确定。
  */
 
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
 
-import { delimiter } from 'node:path'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import os from 'node:os'
+import { delimiter, join } from 'node:path'
+// lumii-ui shim 解析走 electron 的 app.isPackaged；测试里给个开发态替身
+vi.mock('electron', () => ({ app: { isPackaged: false } }))
+import { _resetWindowsClientDataRootCacheForTest } from './client-data-root'
 import { PYPI_MIRROR, _resetSystemPythonCache } from './python-env'
 import {
   _resetSystemNodeCache,
   buildScriptEnv,
   getShimDir,
+  initScriptRuntimes,
   resolveElectronNodeExec,
   resolveNodeExec,
+  shouldUseBundledPython,
 } from './runtime-env'
 
 /** 取 env 里所有 path 键（不分大小写） */
@@ -76,4 +83,49 @@ describe('runtime-env', () => {
     expect(buildScriptEnv().CLI_HUB_NO_ANALYTICS).toBe('1')
     expect(buildScriptEnv({ CLI_HUB_NO_ANALYTICS: '0' }).CLI_HUB_NO_ANALYTICS).toBe('0')
   })
+})
+
+describe('python shim 平台策略（设计 D22）', () => {
+  const tmpRoots: string[] = []
+
+  afterEach(() => {
+    delete process.env.LUMII_CLIENT_DATA_DIR
+    delete process.env.LUMII_SKIP_PYTHON_BOOTSTRAP
+    _resetWindowsClientDataRootCacheForTest()
+    for (const root of tmpRoots.splice(0)) {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('shouldUseBundledPython：仅 Windows 且系统无 Python 时', () => {
+    expect(shouldUseBundledPython('win32', false)).toBe(true)
+    expect(shouldUseBundledPython('win32', true)).toBe(false)
+    expect(shouldUseBundledPython('linux', false)).toBe(false)
+    expect(shouldUseBundledPython('darwin', false)).toBe(false)
+  })
+
+  it.skipIf(process.platform === 'win32')(
+    'Linux 不写 python shim，并清理历史坏 shim（指向 python.exe 的那种）',
+    async () => {
+      const root = mkdtempSync(join(os.tmpdir(), 'lumii-shim-test-'))
+      tmpRoots.push(root)
+      process.env.LUMII_CLIENT_DATA_DIR = root
+      process.env.LUMII_SKIP_PYTHON_BOOTSTRAP = '1'
+      _resetWindowsClientDataRootCacheForTest()
+      // 模拟「系统无 python」——旧实现会在此写指向 python.exe 的坏 shim
+      _resetSystemPythonCache(null)
+
+      const binDir = join(root, 'runtimes', 'bin')
+      mkdirSync(binDir, { recursive: true })
+      writeFileSync(join(binDir, 'python'), '#!/bin/sh\n# stale shim')
+      writeFileSync(join(binDir, 'python3.cmd'), '@echo off')
+
+      await initScriptRuntimes()
+
+      expect(existsSync(join(binDir, 'python'))).toBe(false)
+      expect(existsSync(join(binDir, 'python3.cmd'))).toBe(false)
+      // lumii-ui shim 照常写入（与 Python 无关的能力不受影响）
+      expect(existsSync(join(binDir, 'lumii-ui'))).toBe(true)
+    },
+  )
 })

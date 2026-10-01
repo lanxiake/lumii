@@ -37,8 +37,17 @@ export interface LocalAcpToolMeta {
   installUrl: string
   /** 官方一键安装命令（Windows PowerShell，供 UI 展示） */
   installCommand: string
+  /**
+   * Linux 一键安装命令（**展示与执行同源**：`coding-dev-cli-install.ts` 的
+   * posix 配方直接引用此字段，避免两处各写一份漂移）。
+   * 取值经 2026-10-01 实测：cursor 用官方脚本；claude/codex/opencode 走 npm
+   * （官方 .sh 分别存在区域受限 / 域名不可达 / GitHub 裸域的问题，见二期实施计划 W3-0）。
+   */
+  linuxInstallCommand: string
   /** 安装说明 */
   installHint: string
+  /** Linux 平台追加的安装说明（可选；不设则用 installHint） */
+  linuxInstallHint?: string
   /** npm 包名，用于查询最新版本（registry.npmjs.org）；不设置则跳过最新版本查询（如 cursor-agent 无公开查询接口） */
   npmPackageName?: string
   /** PyPI 包名，用于查询最新版本；与 npmPackageName 互斥（Python 系工具） */
@@ -77,6 +86,7 @@ export const LOCAL_ACP_TOOL_META: Record<PrimaryLocalAcpToolId, LocalAcpToolMeta
     homepageUrl: 'https://cursor.com/docs/cli/overview',
     installUrl: 'https://cursor.com/cn/docs/cli/installation',
     installCommand: "irm 'https://cursor.com/install?win32=true' | iex",
+    linuxInstallCommand: 'curl https://cursor.com/install -fsS | bash',
     installHint: '安装的是 Agent CLI，不是 Cursor 编辑器；安装到 ~/.local/bin',
     // 无 npm/PyPI 包可查最新版；官方提供自更新命令
     selfUpdateCommand: 'agent update',
@@ -89,6 +99,8 @@ export const LOCAL_ACP_TOOL_META: Record<PrimaryLocalAcpToolId, LocalAcpToolMeta
     homepageUrl: 'https://code.claude.com/docs/en/installation',
     installUrl: 'https://code.claude.com/docs/en/installation',
     installCommand: 'irm https://claude.ai/install.ps1 | iex',
+    linuxInstallCommand: 'npm install -g @anthropic-ai/claude-code',
+    linuxInstallHint: '官方 npm 包（需本机已装 Node.js）。官方另有原生脚本 curl -fsSL https://claude.ai/install.sh | bash，部分网络/地区不可用。',
     installHint: '官方原生安装脚本（推荐）',
     npmPackageName: '@anthropic-ai/claude-code',
   },
@@ -100,6 +112,8 @@ export const LOCAL_ACP_TOOL_META: Record<PrimaryLocalAcpToolId, LocalAcpToolMeta
     homepageUrl: 'https://openai.com/codex',
     installUrl: 'https://developers.openai.com/codex/cli',
     installCommand: 'irm https://chatgpt.com/codex/install.ps1 | iex',
+    linuxInstallCommand: 'npm install -g @openai/codex',
+    linuxInstallHint: '官方 npm 包（需本机已装 Node.js）。',
     installHint: '官方独立安装脚本',
     npmPackageName: '@openai/codex',
   },
@@ -111,6 +125,8 @@ export const LOCAL_ACP_TOOL_META: Record<PrimaryLocalAcpToolId, LocalAcpToolMeta
     homepageUrl: 'https://opencode.ai',
     installUrl: 'https://opencode.ai/docs',
     installCommand: 'npm install -g opencode-ai',
+    linuxInstallCommand: 'npm install -g opencode-ai',
+    linuxInstallHint: '官方 npm 包（内含各平台预编译二进制，需本机已装 Node.js）。',
     installHint: '官方 npm 包（内含各平台预编译二进制）',
     npmPackageName: 'opencode-ai',
   },
@@ -346,15 +362,22 @@ async function withVersionInfo(
  *
  * `LOCAL_ACP_TOOL_META` 里的 `installCommand` 是 **Windows 专属**的
  * （`irm ... | iex` / `install.ps1`），在 Linux 上原样显示会误导用户去执行一条
- * 跑不通的命令。渲染层还会把它拼进「让 AI 安装」的提示词——那条提示词也硬编码了
- * 「这台 Windows 电脑上」。
+ * 跑不通的命令。渲染层还会把它拼进「让 AI 安装」的提示词。
  *
- * 不在这里改 `LOCAL_ACP_TOOL_META` 本身：它是 Windows 的配方表，被 `automatic`
- * 判定（`Boolean(powershellCommand) && platform === 'win32'`）依赖，改掉会动摇
- * 「Linux 上不自动安装」的依据。**只在出口处替换**，Windows 行为一字不变。
+ * Linux 出口换成 `linuxInstallCommand`（**与安装执行同源**，见
+ * `coding-dev-cli-install.ts` 的 posix 配方）；没有该字段的工具回落官方文档链接。
+ * 不改 `LOCAL_ACP_TOOL_META` 本身——两个出口（列表与单个探测）都过本函数，
+ * 避免「列表对了、探测又变回 Windows 命令」的缺口（2026-10-01 修）。
  */
 function withPlatformInstallHints(meta: LocalAcpToolMeta): LocalAcpToolMeta {
   if (process.platform === 'win32') return meta
+  if (meta.linuxInstallCommand) {
+    return {
+      ...meta,
+      installCommand: meta.linuxInstallCommand,
+      installHint: meta.linuxInstallHint ?? meta.installHint,
+    }
+  }
   return {
     ...meta,
     // 不再给出可执行命令，改为指向官方文档——具体命令让用户/AI 按官方最新文档取
@@ -373,9 +396,13 @@ export function listLocalAcpToolsMetadata(): LocalAcpToolMeta[] {
 
 /**
  * 探测单个工具是否已安装，并补充版本信息（当前 + 最新）
+ *
+ * 注意出口同样要过 `withPlatformInstallHints`：渲染层探测后会用本结果覆盖
+ * 元数据（`CodingDevAcpPanel` 的 detectOne），不过的话 Linux 上安装命令
+ * 会从「Linux 命令」回退成 Windows 的 `irm ... | iex`。
  */
 export async function detectLocalAcpTool(id: PrimaryLocalAcpToolId): Promise<LocalAcpToolStatus> {
-  const meta = LOCAL_ACP_TOOL_META[id]
+  const meta = withPlatformInstallHints(LOCAL_ACP_TOOL_META[id])
   for (const cmd of meta.commands) {
     const resolved = await resolveCommandPath(cmd)
     if (!resolved) continue

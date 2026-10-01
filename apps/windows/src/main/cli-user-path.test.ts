@@ -49,6 +49,24 @@ describe('listUserCliBinDirs', () => {
       expect(dirs).toContain('/usr/local/bin')
     })
 
+    it('包含应用 venv 的 bin（uv 的 pip 兜底与 Qwen3 链路落点）', () => {
+      expect(listUserCliBinDirs()).toContain(
+        path.join(os.homedir(), '.lumii', 'runtimes', 'python-venv', 'bin'),
+      )
+    })
+
+    it('设置 npm_config_prefix 时包含其 bin 且排在最前（nvm / 自定义前缀）', () => {
+      const prev = process.env.npm_config_prefix
+      process.env.npm_config_prefix = '/opt/npm-global'
+      try {
+        const dirs = listUserCliBinDirs()
+        expect(dirs[0]).toBe(path.join('/opt/npm-global', 'bin'))
+      } finally {
+        if (prev === undefined) delete process.env.npm_config_prefix
+        else process.env.npm_config_prefix = prev
+      }
+    })
+
     it('不返回 Windows 专属项', () => {
       const dirs = listUserCliBinDirs()
 

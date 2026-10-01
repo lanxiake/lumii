@@ -1,12 +1,16 @@
 /**
  * uv / uvx 自动安装测试
+ *
+ * 安装执行走 `platform/shell-command`（mock 掉）；`resolveCommand` 与
+ * `refreshCommonCliPathsInProcessEnv` 也 mock，覆盖状态机与降级逻辑。
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 const mockResolveCommand = vi.fn()
-const mockSpawn = vi.fn()
 const mockRefreshPath = vi.fn()
+const mockRunShellCommand = vi.fn()
+const mockVenvReady = vi.fn(() => false)
 
 vi.mock('@mtbot/agent-runtime', () => ({
   resolveCommand: (...args: unknown[]) => mockResolveCommand(...args),
@@ -16,46 +20,39 @@ vi.mock('./cli-user-path.js', () => ({
   refreshCommonCliPathsInProcessEnv: () => mockRefreshPath(),
 }))
 
-import {
-  __resetUvInstallerStateForTests,
-  __setUvSpawnForTests,
-  ensureUvxInstalled,
-  isUvxAvailable,
-} from './uv-installer.js'
+vi.mock('./platform/shell-command.js', () => ({
+  runShellCommand: (...args: unknown[]) => mockRunShellCommand(...args),
+}))
 
-/** 模拟 PowerShell 安装子进程 */
-function mockInstallChild(exitCode: number): void {
-  mockSpawn.mockImplementation(() => {
-    const handlers: Record<string, Array<(arg?: unknown) => void>> = {}
-    const child = {
-      stdout: { on: vi.fn() },
-      stderr: { on: vi.fn() },
-      on: vi.fn((event: string, fn: (arg?: unknown) => void) => {
-        handlers[event] = handlers[event] ?? []
-        handlers[event].push(fn)
-      }),
-      kill: vi.fn(),
-    }
-    queueMicrotask(() => {
-      for (const fn of handlers.close ?? []) fn(exitCode)
-    })
-    return child
-  })
-  __setUvSpawnForTests(mockSpawn as never)
-}
+vi.mock('./python-venv.js', () => ({
+  isPythonVenvReady: () => mockVenvReady(),
+  getPythonVenvExe: () => '/home/x/.lumii/runtimes/python-venv/bin/python',
+}))
+
+import { __resetUvInstallerStateForTests, ensureUvxInstalled, isUvxAvailable } from './uv-installer.js'
 
 function mockUvxFound(found: boolean): void {
   mockResolveCommand.mockReturnValue(
     found
-      ? { command: 'C:\\Users\\x\\.local\\bin\\uvx.exe', prefixArgs: [] }
+      ? { command: '/home/x/.local/bin/uvx', prefixArgs: [] }
       : { command: 'uvx', prefixArgs: [] },
   )
 }
 
+/** 官方脚本退出码 + 后续探测结果序列 */
+function mockShell(exitCode: number | null, stderr = ''): void {
+  mockRunShellCommand.mockResolvedValue({ exitCode, stdout: '', stderr })
+}
+
+const isWin = process.platform === 'win32'
+
 describe('uv-installer', () => {
   beforeEach(() => {
-    vi.clearAllMocks()
+    // reset（非 clear）：清掉上一次用例遗留的 mockResolvedValueOnce 队列
+    vi.resetAllMocks()
     mockRefreshPath.mockImplementation(() => {})
+    mockResolveCommand.mockReturnValue({ command: 'uvx', prefixArgs: [] })
+    mockVenvReady.mockReturnValue(false)
     __resetUvInstallerStateForTests()
   })
 
@@ -74,50 +71,83 @@ describe('uv-installer', () => {
     const result = await ensureUvxInstalled()
     expect(result.ok).toBe(true)
     expect(result.installed).toBe(false)
-    expect(mockSpawn).not.toHaveBeenCalled()
+    expect(mockRunShellCommand).not.toHaveBeenCalled()
   })
 
-  // 本目录的用例并不都依赖 Windows：spawn 被注入 mock 后，多条路径在 Linux 上
-  // 同样能跑通（覆盖的是状态机与降级逻辑，不是 PowerShell 本身）。
-  // 只有这条在验证「用 PowerShell 跑官方安装脚本并断言命令行」，而实现非 win32
-  // 直接返回「仅 Windows 支持自动安装」（uv-installer.ts:133），跨平台跑会假失败。
-  const itOnWindows = process.platform === 'win32' ? it : it.skip
-  itOnWindows('ensureUvxInstalled 缺失时执行官方脚本并在成功后返回', async () => {
+  it('缺失时执行官方安装脚本（命令按平台），成功后返回已安装', async () => {
     let calls = 0
     mockResolveCommand.mockImplementation(() => {
       calls += 1
-      return calls === 1
-        ? { command: 'uvx', prefixArgs: [] }
-        : { command: 'C:\\Users\\x\\.local\\bin\\uvx.exe', prefixArgs: [] }
+      return calls === 1 ? { command: 'uvx', prefixArgs: [] } : { command: '/home/x/.local/bin/uvx', prefixArgs: [] }
     })
-    mockInstallChild(0)
+    mockShell(0)
 
     const result = await ensureUvxInstalled()
+
     expect(result.ok).toBe(true)
     expect(result.installed).toBe(true)
-    expect(mockSpawn).toHaveBeenCalledWith(
-      'powershell.exe',
-      expect.arrayContaining(['-ExecutionPolicy', 'Bypass']),
-      expect.any(Object),
-    )
+    const command = String(mockRunShellCommand.mock.calls[0]?.[0])
+    if (isWin) {
+      expect(command).toContain('astral.sh/uv/install.ps1')
+    } else {
+      expect(command).toContain('astral.sh/uv/install.sh')
+    }
   })
 
-  it('ensureUvxInstalled 安装后仍找不到 uvx 时返回失败', async () => {
+  it('安装后仍找不到 uvx 时返回失败，给出手动安装链接', async () => {
     mockUvxFound(false)
-    mockInstallChild(1)
+    mockShell(1)
 
     const result = await ensureUvxInstalled()
     expect(result.ok).toBe(false)
     expect(result.message).toMatch(/uv/)
+    expect(result.message).toContain('https://docs.astral.sh/uv/')
   })
 
-  it('非 Windows 上缺失 uvx 时明确拒绝，并给出手动安装链接', async () => {
-    if (process.platform === 'win32') return
+  it.skipIf(isWin)('Linux：官方脚本失败且 venv 未就绪时，不尝试 pip 兜底', async () => {
     mockUvxFound(false)
+    mockVenvReady.mockReturnValue(false)
+    mockShell(1)
+
+    await ensureUvxInstalled()
+
+    expect(mockRunShellCommand).toHaveBeenCalledTimes(1)
+  })
+
+  it.skipIf(isWin)('Linux：官方脚本失败、venv 就绪时用 venv pip 兜底并成功', async () => {
+    // 探测时序：入口一次 + 脚本后一次都找不到；pip 之后再查才命中
+    let calls = 0
+    mockResolveCommand.mockImplementation(() => {
+      calls += 1
+      return calls <= 2
+        ? { command: 'uvx', prefixArgs: [] }
+        : { command: '/home/x/.lumii/runtimes/python-venv/bin/uvx', prefixArgs: [] }
+    })
+    mockVenvReady.mockReturnValue(true)
+    mockRunShellCommand
+      .mockResolvedValueOnce({ exitCode: 1, stdout: '', stderr: 'github unreachable' })
+      .mockResolvedValueOnce({ exitCode: 0, stdout: 'Successfully installed uv', stderr: '' })
+
+    const result = await ensureUvxInstalled()
+
+    expect(result.ok).toBe(true)
+    expect(result.message).toContain('venv')
+    const pipCommand = String(mockRunShellCommand.mock.calls[1]?.[0])
+    expect(pipCommand).toContain('-m pip install uv')
+  })
+
+  it.skipIf(isWin)('Linux：两条路都失败时把两个退出码都带进消息', async () => {
+    mockUvxFound(false)
+    mockVenvReady.mockReturnValue(true)
+    mockRunShellCommand
+      .mockResolvedValueOnce({ exitCode: 1, stdout: '', stderr: 'github unreachable' })
+      .mockResolvedValueOnce({ exitCode: 2, stdout: '', stderr: 'no matching distribution' })
 
     const result = await ensureUvxInstalled()
 
     expect(result.ok).toBe(false)
-    expect(result.message).toContain('https://docs.astral.sh/uv/')
+    expect(result.message).toContain('no matching distribution')
+    expect(result.message).toMatch(/exit=1/)
+    expect(result.message).toMatch(/exit=2/)
   })
 })

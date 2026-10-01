@@ -12,6 +12,7 @@ import { SkillStoreView } from '../../components/business/SkillStoreView'
 import { MySkillDetailModal } from './components/MySkillDetailModal'
 import { SkillRow } from './components/SkillRow'
 import { useSkills } from '../../hooks/business/useSkills'
+import { useFeatureAvailability } from '../../hooks/business/useFeatureAvailability'
 import {
   refreshSkills,
   refreshSkillsInBackground,
@@ -38,6 +39,14 @@ const SkillsPage: React.FC<SkillsPageProps> = ({
   mcpOnly = false,
 }) => {
   const { installedSkills, stats: skillStats, isLoading, error, loadInstalledSkills, enableSkill, disableSkill, uninstallSkill } = useSkills()
+
+  // Python 技能在缺运行时的平台（如未装 python3 的 Linux）由矩阵屏蔽：
+  // 逐行禁用启用开关并给出原因（设计 D4/D22）。没有 Python 技能时不出提示，避免噪音。
+  const { isAvailable: isFeatureAvailable, blockMessage } = useFeatureAvailability()
+  const pythonSkillsBlocked = !isFeatureAvailable('pythonSkills')
+  const pythonSkillsBlockMessage = blockMessage('pythonSkills')
+  const showPythonSkillsHint =
+    pythonSkillsBlocked && installedSkills.some((s) => s.runtime === 'python')
 
   // 标签页状态（Composer「管理」可经 sessionStorage 指定初始 Tab）
   const [activeTab, setActiveTab] = useState<TabType>(() => {
@@ -461,6 +470,13 @@ const SkillsPage: React.FC<SkillsPageProps> = ({
             )}
           </div>
 
+          {/* 运行时缺失提示（只在确有 Python 技能时出现，文案取矩阵，不在消费点写副本） */}
+          {showPythonSkillsHint && pythonSkillsBlockMessage && (
+            <div className={styles['skills-block-hint']} role="status">
+              {pythonSkillsBlockMessage}
+            </div>
+          )}
+
           {/* 主体：左侧分类导航 + 右侧技能列表 */}
           {isLoading && installedSkills.length === 0 && !error ? (
             <Loading text="加载技能中..." />
@@ -538,6 +554,11 @@ const SkillsPage: React.FC<SkillsPageProps> = ({
                               key={skillInfo.skillItemId}
                               skillInfo={skillInfo}
                               isOperating={operatingSkillId === skillInfo.skillItemId}
+                              blockedReason={
+                                pythonSkillsBlocked && skillInfo.runtime === 'python'
+                                  ? pythonSkillsBlockMessage
+                                  : null
+                              }
                               onDetail={() => setDetailSkillInfo({
                                 skillItemId: skillInfo.skillItemId,
                                 isEnabled: skillInfo.isEnabled,

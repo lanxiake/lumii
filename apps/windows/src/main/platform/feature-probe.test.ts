@@ -10,12 +10,17 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
-const { detectSystemPythonSpy } = vi.hoisted(() => ({
+const { detectSystemPythonSpy, pythonVenvReadySpy } = vi.hoisted(() => ({
   detectSystemPythonSpy: vi.fn(() => null as string | null),
+  pythonVenvReadySpy: vi.fn(() => false),
 }))
 
 vi.mock('../python-env', () => ({
   detectSystemPython: () => detectSystemPythonSpy(),
+}))
+
+vi.mock('../python-venv', () => ({
+  isPythonVenvReady: () => pythonVenvReadySpy(),
 }))
 
 import {
@@ -38,6 +43,8 @@ beforeEach(() => {
   process.argv = [...savedArgv]
   detectSystemPythonSpy.mockReset()
   detectSystemPythonSpy.mockReturnValue(null)
+  pythonVenvReadySpy.mockReset()
+  pythonVenvReadySpy.mockReturnValue(false)
 })
 
 afterEach(() => {
@@ -154,6 +161,14 @@ describe('collectFeatureProbeInput', () => {
 
     detectSystemPythonSpy.mockReturnValue(null)
     expect(collectFeatureProbeInput().hasSystemPython).toBe(false)
+  })
+
+  it('带上应用 venv 就绪状态（运行时对等：Qwen3/克隆的前提）', () => {
+    pythonVenvReadySpy.mockReturnValue(true)
+    expect(collectFeatureProbeInput().pythonVenvReady).toBe(true)
+
+    pythonVenvReadySpy.mockReturnValue(false)
+    expect(collectFeatureProbeInput().pythonVenvReady).toBe(false)
   })
 
   it('headless 只在 Linux 上判断（Windows/macOS 没有这个维度）', () => {

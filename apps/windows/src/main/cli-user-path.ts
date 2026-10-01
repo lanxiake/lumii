@@ -8,6 +8,7 @@
 import { existsSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { getPythonVenvBinDir } from './python-venv'
 
 /**
  * 用户机器上常见的 CLI 安装目录。
@@ -17,22 +18,30 @@ import path from 'node:path'
  *   早期 cursor-agent 落 `%LOCALAPPDATA%\cursor-agent`。
  * - **POSIX**：除 `~/.local/bin`（uv 与各官方安装脚本的默认位置）与 `~/.cargo/bin`
  *   （rustup）外，还有 npm 的常见前缀配置 `~/.npm-global/bin`、pnpm 的默认目录
- *   `~/.local/share/pnpm`、以及 bun 的 `~/.bun/bin`。
- *   另补 `/usr/local/bin`——Linux 上手工安装的 CLI 常落这里，而桌面环境下从
+ *   `~/.local/share/pnpm`、以及 bun 的 `~/.bun/bin`；
+ *   另加**应用 venv 的 bin**——uv 也可走 venv 的 pip 兜底安装（见 uv-installer），
+ *   落点不在前几个目录里。
+ *   再补 `/usr/local/bin`——Linux 上手工安装的 CLI 常落这里，而桌面环境下从
  *   GUI 启动的进程**未必继承登录 shell 的完整 PATH**（这正是本模块存在的理由）。
  */
 export function listUserCliBinDirs(): string[] {
   const home = os.homedir()
 
   if (process.platform !== 'win32') {
-    return [
+    const dirs = [
       path.join(home, '.local', 'bin'),
       path.join(home, '.cargo', 'bin'),
       path.join(home, '.npm-global', 'bin'),
       path.join(home, '.local', 'share', 'pnpm'),
       path.join(home, '.bun', 'bin'),
+      getPythonVenvBinDir(),
       '/usr/local/bin',
     ]
+    // 用户显式配置过 npm 前缀时的全局 bin（如 nvm / 自定义 prefix；
+    // GUI 启动的进程拿不到登录 shell 里那截 PATH，见模块头注释）
+    const npmPrefix = process.env.npm_config_prefix?.trim()
+    if (npmPrefix) dirs.unshift(path.join(npmPrefix, 'bin'))
+    return dirs
   }
 
   const extras: string[] = [
