@@ -11,7 +11,8 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import git, { TREE } from 'isomorphic-git'
 import type { PromiseFsClient, WalkerEntry } from 'isomorphic-git'
-import http from 'isomorphic-git/http/node'
+import { gitHttp } from './git-http'
+import { nativeFetch, nativePush } from './git-network'
 import { enqueueSyncMaintenance, enqueueWorkspace, getWorkspaceQueueDepth } from '../workspace-vcs/vcs-snapshot'
 import { detectGit, runGit } from '../git-cli'
 import { SyncLargeQueue, type LargeQueueStats } from './sync-large-queue'
@@ -39,8 +40,26 @@ const execFileAsync = promisify(execFile)
  */
 const PUSH_TIMEOUT_MS = 600_000
 
-/** fetch 超时：网络黑洞时让同步失败等下轮，而不是永久占着串行队列 */
-const FETCH_TIMEOUT_MS = 300_000
+/**
+ * fetch 超时。
+ *
+ * 2026-09-30 由 300s 放宽到 60 分钟。实测依据：
+ * 1. **服务端算 pack 要先安静十几到几十秒**（TTFB 实测 13~23s），这段时间 socket
+ *    上没有任何字节——原先 5s 的 socket 空闲超时会先把它 abort，见 `git-http.ts`；
+ *    关掉之后墙钟成了唯一闸门。
+ * 2. **首次追平时 pack 极大**：对同一远端实测流到 1.3GB 仍未结束，下行 0.5~0.7MB/s。
+ *    体积来自历史里反复重写的生成物（`agent-memories.jsonl` 单文件历史就压着
+ *    67MB+34MB+34MB… 的旧版本；5MB 以上的 blob 合计 0.8GB）。
+ *    300s 连零头都传不完，而超时掐的只是**等待**：后台仍在传、下一轮又从头开始，
+ *    永远完不成（2026-09-25 起连续失败的真实成因）。
+ *
+ * 增量成功后 pack 会退回小尺寸，本值只在首次追平时吃满。
+ * ⚠ 本值**大于**调度间隔（默认 30 分钟）是刻意的——`sync()` 走串行队列，
+ * 上一轮还在跑时下一轮会排队而不是并发，不会出现双重 fetch。
+ * ⚠ 治本是给仓库瘦身（生成物大文件移出 Git 历史，或改对象存储）——
+ * 见设计文档《云同步架构重构方案》方案 A；本值只是让"首次追平"有机会完成。
+ */
+const FETCH_TIMEOUT_MS = 60 * 60_000
 
 /**
  * 冲突落决对外的超时（**Agent 工具等待上限**，不是任务死亡时间）。
@@ -54,8 +73,8 @@ const RESOLVE_TIMEOUT_MS = 300_000
 /** 冲突落决路径上的 push 超时（落决 commit 变更量大，实测 240s 不够用） */
 const RESOLVE_PUSH_TIMEOUT_MS = 600_000
 
-/** 刷新冲突快照时重新 fetch 的超时 */
-const REFRESH_FETCH_TIMEOUT_MS = 300_000
+/** 刷新冲突快照时重新 fetch 的超时（与 FETCH_TIMEOUT_MS 同因放宽） */
+const REFRESH_FETCH_TIMEOUT_MS = 20 * 60_000
 
 /** 只读远端 tip 查询（cloud_sync_git remote）超时：仅 getRemoteInfo，远短于 fetch */
 const REMOTE_INFO_TIMEOUT_MS = 60_000
@@ -619,15 +638,35 @@ export class CloudSyncManager extends EventEmitter {
       logger.info('[sync] 2. Fetch 远端数据...')
       let remoteOid: string | null
       try {
-        // 不要传 singleBranch：该模式下 isomorphic-git 只把「本地分支 tip」作为 have 发出，
-        // 而同步流程第 3 步刚产生过未推送的本地提交 → 服务端无法排除任何对象，
-        // 每次 fetch 都近全量下载（实测每次 ~490MB pack，对象库滚到 GB 级）。
-        // 放开后 refs/remotes/origin/* 也进入 have 列表，恢复增量协商。
-        await withTimeout(
-          git.fetch({ ...p, http, remote: 'origin', ref: branch, onAuth: auth }),
-          FETCH_TIMEOUT_MS,
-          `git fetch 超时（${FETCH_TIMEOUT_MS}ms），已中止等待`,
-        )
+        // **真 git 优先**：同远端/凭证/网络实测 3.2~8.3MB/s，而 isomorphic-git
+        // 只有 0.5~0.7MB/s 且大 pack 反复中途 aborted（见 git-network.ts 文件头）。
+        // 系统 git 不可用时回退 iso 路径，保持"零系统依赖仍能同步"的旧承诺。
+        const native = await nativeFetch({
+          syncDir: this.syncDir,
+          gitDir: p.gitdir,
+          repoUrl: url,
+          branch,
+          token,
+          timeoutMs: FETCH_TIMEOUT_MS,
+        })
+        if (native.ok) {
+          logger.info(`[sync] fetch 完成（真 git），远端 tip=${native.remoteOid?.slice(0, 8) ?? '?'}`)
+          // **立刻试探性 gc**：真 git 落下来的是 GB 级单包，而接下来的
+          // merge/checkout/import 都走 isomorphic-git —— 它读 pack 是整包进内存，
+          // 大包必炸。先按 64MB 上限分包，后续步骤才读得动。
+          await this.maybePruneObjectStore()
+        } else {
+          // 回退 iso 路径（真 git 在的环境问题/极旧版本时仍能同步）
+          logger.warn(`[sync] 真 git fetch 不可用，回退 isomorphic-git：${native.error ?? ''}`)
+          // 不要传 singleBranch：该模式下 isomorphic-git 只把「本地分支 tip」作为 have
+          // 发出，而同步流程第 3 步刚产生过未推送的本地提交 → 服务端无法排除任何对象，
+          // 每次 fetch 都近全量下载。放开后 refs/remotes/origin/* 也进入 have 列表。
+          await withTimeout(
+            git.fetch({ ...p, http: gitHttp, remote: 'origin', ref: branch, onAuth: auth }),
+            FETCH_TIMEOUT_MS,
+            `git fetch 超时（${FETCH_TIMEOUT_MS}ms），已中止等待`,
+          )
+        }
       } catch (err) {
         // 「远端确实没有该分支」（NotFoundError → 首次同步）与「拉取失败」（网络/认证/超时）
         // 必须区分：后者若当作空远端，会错误地走到「首次推送」路径掩盖真实故障
@@ -815,7 +854,11 @@ export class CloudSyncManager extends EventEmitter {
     const needGc =
       packCount > PACK_GC_THRESHOLD ||
       looseCount > LOOSE_COUNT_THRESHOLD ||
-      looseSizeKib > LOOSE_SIZE_KIB_THRESHOLD
+      looseSizeKib > LOOSE_SIZE_KIB_THRESHOLD ||
+      // **单包超限也要 gc**：真 git fetch 落下来的每个 pack 都是几百 MB~GB 级
+      // （不是 isomorphic-git 那种一个个小 pack），只看数量永远达不到阈值，
+      // 而 iso 读 pack 是整包进内存 —— 一个 2.9GB 的包会让它的读路径全废。
+      this.listPacks().some((pk) => pk.bytes > PACK_SIZE_LIMIT_BYTES)
     if (!needGc) return
 
     logger.warn(
@@ -887,15 +930,39 @@ export class CloudSyncManager extends EventEmitter {
    */
   private async push(
     p: GitParams,
-    _url: string,
+    url: string,
     localRef: string,
     auth: AuthFn,
     opts?: PushOptions,
   ): Promise<boolean> {
     const timeoutMs = opts?.timeoutMs ?? PUSH_TIMEOUT_MS
+
+    // **真 git 优先**（与 fetch 同因，见 git-network.ts 文件头）。
+    // push 的对象量级远小于首次 fetch，但同一套传输层能让大仓库的落决 push 也稳。
+    const cfg = loadCloudSyncConfig()
+    const branch = localRef.replace(/^refs\/heads\//, '')
+    if (url) {
+      const native = await nativePush({
+        syncDir: this.syncDir,
+        gitDir: p.gitdir,
+        repoUrl: url,
+        branch,
+        token: decryptToken(cfg.tokenEnc),
+        timeoutMs,
+      })
+      if (native.ok) return true
+      if (native.rejected) {
+        const err = new Error('远程有更新（non-fast-forward）')
+        if (opts?.failOnReject) throw err
+        logger.warn('[sync] 远程有更新，下轮重试')
+        return false
+      }
+      logger.warn(`[sync] 真 git push 失败，回退 isomorphic-git：${native.error ?? ''}`)
+    }
+
     const pushPromise = git.push({
       ...p,
-      http,
+      http: gitHttp,
       remote: 'origin',
       ref: localRef,
       remoteRef: localRef,
@@ -1822,7 +1889,7 @@ export class CloudSyncManager extends EventEmitter {
     let newRemoteOid: string | null = null
     try {
       await withTimeout(
-        git.fetch({ ...p, http, remote: 'origin', ref: branch, onAuth: auth }),
+        git.fetch({ ...p, http: gitHttp, remote: 'origin', ref: branch, onAuth: auth }),
         REFRESH_FETCH_TIMEOUT_MS,
         `git fetch 超时（${REFRESH_FETCH_TIMEOUT_MS}ms）`,
       )
@@ -2029,7 +2096,7 @@ export class CloudSyncManager extends EventEmitter {
       const token = decryptToken(cfg.tokenEnc)
       const info = await withTimeout(
         git.getRemoteInfo({
-          http,
+          http: gitHttp,
           url: cfg.repoUrl.trim(),
           onAuth: () => provider.auth(token),
         }),

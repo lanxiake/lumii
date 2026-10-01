@@ -7,7 +7,7 @@
 import { ipcMain, Notification } from 'electron'
 import type { BrowserWindow } from 'electron'
 import git from 'isomorphic-git'
-import http from 'isomorphic-git/http/node'
+import { gitHttp } from './git-http'
 import { getCloudSyncManager } from './sync-accessor'
 import { loadCloudSyncConfig, saveConfigFromView, toConfigView, decryptToken } from './sync-config'
 import { getProvider } from './git-provider'
@@ -59,7 +59,7 @@ export function registerCloudSyncIpcHandlers(): void {
     const token =
       view.token && view.token.trim() !== '' ? view.token : decryptToken(loadCloudSyncConfig().tokenEnc)
     try {
-      await git.getRemoteInfo({ http, url: view.repoUrl.trim(), onAuth: () => provider.auth(token) })
+      await git.getRemoteInfo({ http: gitHttp, url: view.repoUrl.trim(), onAuth: () => provider.auth(token) })
       return { success: true }
     } catch (err) {
       return { success: false, error: sanitize(err instanceof Error ? err.message : String(err)) }
