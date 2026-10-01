@@ -151,7 +151,8 @@
     "node_modules/silk-wasm/**/*.wasm",
     "**/*.node",
     "node_modules/sherpa-onnx-node/**/*",
-    "node_modules/onnxruntime-node/bin/napi-v3/*/x64/*"
+    "node_modules/onnxruntime-node/bin/napi-v3/*/x64/*",
+    "node_modules/@ffmpeg-installer/**/*"
   ],
   "win": {
     "target": [
