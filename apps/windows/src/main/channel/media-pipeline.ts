@@ -9,7 +9,7 @@ import path from 'node:path'
 import { spawn } from 'node:child_process'
 import { promises as fs } from 'node:fs'
 import { resolveActiveWorkspaceDir } from '../workspace-paths.js'
-import { resolvePackagedFfmpegPath } from '../screen-record/ffmpeg-runner.js'
+import { resolveFfmpegExecutable } from '../screen-record/ffmpeg-runner.js'
 
 const log = {
   info: (...args: unknown[]) => console.log('[MediaPipeline]', ...args),
@@ -104,7 +104,7 @@ async function decodeSilk(absPath: string): Promise<Float32Array> {
 
 /** 任意 ffmpeg 可解格式（amr / opus / m4a / mp3 …）→ 16k 单声道 PCM Float32 */
 async function decodeViaFfmpeg(absPath: string): Promise<Float32Array> {
-  const ffmpeg = resolvePackagedFfmpegPath()
+  const ffmpeg = resolveFfmpegExecutable()
   return new Promise<Float32Array>((resolve, reject) => {
     const child = spawn(
       ffmpeg,

@@ -6,10 +6,17 @@ import fs from 'node:fs'
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest'
 import {
   resetFfmpegRunnerDeps,
+  resolveFfmpegExecutable,
   runFfmpeg,
+  selectFfmpegExecutable,
   setFfmpegRunnerDepsForTest,
   webmToMp4,
 } from './ffmpeg-runner'
+
+// 只用到 resolveCommand；真包的入口会牵入整棵 LLM 依赖树（同 uv-installer.test.ts）
+vi.mock('@mtbot/agent-runtime', () => ({
+  resolveCommand: (command: string) => ({ command, prefixArgs: [] }),
+}))
 
 /** 构造假 ChildProcess：可控制 close/error 与 stderr */
 function makeFakeChild(opts: {
@@ -90,5 +97,80 @@ describe('webmToMp4', () => {
     expect(args).toContain('libx264')
     expect(args).toContain('aac')
     expect(args.at(-1)).toMatch(/a\.mp4$/)
+  })
+})
+
+describe('selectFfmpegExecutable（四级解析的纯函数核心）', () => {
+  const all = (p: string) => p !== '/missing'
+
+  it('显式指定优先于包内与系统', () => {
+    const r = selectFfmpegExecutable(
+      { override: '/custom/ffmpeg', bundled: '/pkg/ffmpeg', system: '/usr/bin/ffmpeg' },
+      all,
+    )
+    expect(r).toBe('/custom/ffmpeg')
+  })
+
+  it('显式指定不存在时回退包内（再回退系统）', () => {
+    expect(
+      selectFfmpegExecutable(
+        { override: '/missing', bundled: '/pkg/ffmpeg', system: '/usr/bin/ffmpeg' },
+        all,
+      ),
+    ).toBe('/pkg/ffmpeg')
+    expect(
+      selectFfmpegExecutable(
+        { override: '/missing', bundled: '/missing', system: '/usr/bin/ffmpeg' },
+        all,
+      ),
+    ).toBe('/usr/bin/ffmpeg')
+  })
+
+  it('包内平台包缺失（null）时用系统', () => {
+    expect(
+      selectFfmpegExecutable({ bundled: null, system: '/usr/bin/ffmpeg' }, all),
+    ).toBe('/usr/bin/ffmpeg')
+  })
+
+  it('全缺返回 null', () => {
+    expect(
+      selectFfmpegExecutable({ override: '/missing', bundled: null, system: null }, all),
+    ).toBeNull()
+  })
+
+  it('空白 override 视为未设置', () => {
+    expect(
+      selectFfmpegExecutable({ override: '   ', bundled: null, system: '/usr/bin/ffmpeg' }, all),
+    ).toBe('/usr/bin/ffmpeg')
+  })
+})
+
+describe('resolveFfmpegExecutable（环境变量逃生口）', () => {
+  const prev = process.env.LUMII_FFMPEG_PATH
+
+  afterEach(() => {
+    resetFfmpegRunnerDeps()
+    vi.restoreAllMocks()
+    if (prev === undefined) delete process.env.LUMII_FFMPEG_PATH
+    else process.env.LUMII_FFMPEG_PATH = prev
+  })
+
+  it('LUMII_FFMPEG_PATH 指向存在的文件时直接采用', () => {
+    process.env.LUMII_FFMPEG_PATH = '/custom/ffmpeg'
+    vi.spyOn(fs, 'existsSync').mockImplementation((p) => String(p) === '/custom/ffmpeg')
+    expect(resolveFfmpegExecutable()).toBe('/custom/ffmpeg')
+  })
+
+  it('指向不存在的文件时回退（不抛错）', () => {
+    process.env.LUMII_FFMPEG_PATH = '/missing'
+    // 包内/系统候选在测试环境不可控，只断言「没有因 override 无效而失败」：
+    // 能返回（走回退）或抛「未找到」都算未采用无效 override——这里用宽松断言防环境耦合
+    let result: string | null = null
+    try {
+      result = resolveFfmpegExecutable()
+    } catch {
+      result = null
+    }
+    expect(result).not.toBe('/missing')
   })
 })

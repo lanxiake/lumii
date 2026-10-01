@@ -3,7 +3,7 @@
  */
 import { spawn } from 'node:child_process'
 import fs from 'node:fs'
-import { resolvePackagedFfmpegPath } from './ffmpeg-runner'
+import { resolveFfmpegExecutable } from './ffmpeg-runner'
 
 /**
  * 从 WAV 头解析时长（ms）；非标准 WAV 返回 null。
@@ -37,7 +37,7 @@ export async function probeMediaDurationMs(filePath: string): Promise<number | n
   }
   let bin: string
   try {
-    bin = resolvePackagedFfmpegPath()
+    bin = resolveFfmpegExecutable()
   } catch {
     return null
   }
