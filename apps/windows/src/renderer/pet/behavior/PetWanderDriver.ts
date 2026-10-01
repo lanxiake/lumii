@@ -229,6 +229,20 @@ export class PetWanderDriver {
   }
 
   /**
+   * 设置朝向（抛掷反弹用）。
+   *
+   * 抛物线跑在 `PetCanvas` 里、不经过本驱动，撞墙翻面只能由那边调进来——
+   * 否则驱动的 `facing` 会停在抛掷前的值，落地恢复走路时第一帧就朝错方向。
+   * 幂等，可无脑调用。
+   */
+  setFacing(facing: -1 | 1): void {
+    const flip = facing < 0
+    if (this.facing === facing) return
+    this.facing = facing
+    this.renderer.setFlip?.(flip)
+  }
+
+  /**
    * 按性格 / 情绪重算活动配置（第二期 T2.2）。
    *
    * **从基准配置重算，不叠乘**——否则每次换模型或情绪更新都会再乘一遍，
@@ -773,6 +787,9 @@ export class PetWanderDriver {
     this.falling = r.body
     this.x = r.body.x
     this.y = r.body.y
+    // 撞墙反弹时翻面（背面朝着被撞的一侧），与走路折返、抛掷同一条规则。
+    // 看 `vx` 符号而不是"撞了哪边"：贴墙那一帧速度已被弹反，两者等价。
+    if (r.bouncedX) this.applyFacing(this.falling.vx >= 0)
     this.renderer.setPosition(this.x, this.y)
     if (r.landed) {
       this.falling = null

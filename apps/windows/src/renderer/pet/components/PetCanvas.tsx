@@ -1013,6 +1013,11 @@ export const PetCanvas = forwardRef<PetCanvasHandle, PetCanvasProps>(
           last = now
           const r = stepThrow(body, dt, bounds, { restitution: THROW_RESTITUTION })
           body = r.body
+          // 撞墙反弹时把朝向翻过来（背面朝着被撞的一侧）。
+          // **抛掷这条路上原先没有这一步**：走路折返会 `setFlip`（见 PetWanderDriver
+          // 的 stepPosition），但抛物线只会改 `vx` 的符号，宠物就"背面朝墙倒着飞"。
+          // 同时写回驱动（`setFacing`）——否则落地恢复走路时第一帧还朝向撞墙前的方向。
+          if (r.bouncedX) wanderRef.current?.setFacing(body.vx < 0 ? -1 : 1)
           renderer.setPosition(body.x, body.y)
           if (r.landed) {
             throwRef.current = null

@@ -46,14 +46,14 @@ export interface AmbientConfig {
   weights: Record<AmbientActivity, number>
   /** 各活动的持续时长 */
   durations: Record<AmbientActivity, DurationRange>
-  /** 行走速度（像素/秒）。60 取自参考项目的 `MOVE_VELOCITY` */
+  /** 行走速度（像素/秒）。30 = 参考项目 `MOVE_VELOCITY`（60）的一半 —— 2026-09-30 用户要求跨屏来回走再慢一半 */
   walkSpeed: number
 }
 
 /**
  * 默认配置：平均每 20~35 秒有一次活动。
  *
- * 数值来自两处：`walkSpeed` 直接沿用参考项目；时长区间是本项目自己定的——
+ * `walkSpeed` 取参考项目 `MOVE_VELOCITY`（60）的一半；时长区间是本项目自己定的——
  * 参考项目没有"活动时长"这个概念（它只有 5 秒的决策节拍，活动本身持续到被下次掷签打断）。
  */
 export const AMBIENT_DEFAULTS: AmbientConfig = {
@@ -63,7 +63,7 @@ export const AMBIENT_DEFAULTS: AmbientConfig = {
     sit: { min: 20_000, max: 60_000 },
     walk: { min: 3_000, max: 10_000 },
   },
-  walkSpeed: 60,
+  walkSpeed: 30,
 }
 
 /** 一次活动计划 */

@@ -196,6 +196,16 @@ describe('PetWanderDriver — 朝向', () => {
     const { driver } = makeDriver()
     expect(driver.getFacing()).toBe(1)
   })
+
+  it('setFacing 改朝向且幂等（抛掷反弹用）', () => {
+    const { driver } = makeDriver()
+    driver.setFacing(-1)
+    expect(driver.getFacing()).toBe(-1)
+    driver.setFacing(-1)
+    expect(driver.getFacing()).toBe(-1)
+    driver.setFacing(1)
+    expect(driver.getFacing()).toBe(1)
+  })
 })
 
 describe('PetWanderDriver — 攀附与掉落', () => {
@@ -268,6 +278,26 @@ describe('PetWanderDriver — 攀附与掉落', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
     vi.restoreAllMocks()
+  })
+
+  it('走到屏幕边界折返时朝向翻面（背面朝着被撞的一侧）', () => {
+    // jsdom 视口 1024 宽、fakeRenderer 的 anchorX=45、scale=2 → 可行走区间
+    // [90, 934]（见 walkBoundsOf）。起点 x=100、面朝右，walkSpeed=30、每帧 100ms
+    // → 每帧 3px，撞到右界需要约 280 帧；但首个活动固定是 stand（`initialPlan`
+    // 不掷签），时长的固定随机源下约 42s，所以推进 1000 帧才覆盖到走路段。
+    const clock = makeClock()
+    const driver = new PetWanderDriver({
+      renderer: fakeRenderer(),
+      onActivity: vi.fn(),
+      config: AMBIENT_DEFAULTS,
+      // 0.9 在调整前后的权重表里都落在 walk 区间，计划切换后仍是走路
+      rand: () => 0.9,
+    })
+    driver.start()
+    expect(driver.getFacing()).toBe(1)
+
+    clock.advance(1000)
+    expect(driver.getFacing()).toBe(-1)
   })
 
   it('落地静止时靠近窗口边缘会吸附上去', () => {
