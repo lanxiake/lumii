@@ -8,7 +8,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import fs from 'node:fs'
-import { pickBestWindowsCliPath, listLocalAcpToolsMetadata } from './coding-dev-cli-detect.js'
+import { pickBestWindowsCliPath, listLocalAcpToolsMetadata, LOCAL_ACP_TOOL_META } from './coding-dev-cli-detect.js'
 
 describe('pickBestWindowsCliPath', () => {
   beforeEach(() => {
@@ -40,9 +40,9 @@ describe('pickBestWindowsCliPath', () => {
  * 元数据出口按平台调整安装提示。
  *
  * 背景：`LOCAL_ACP_TOOL_META` 里的 `installCommand` 是 Windows 专属的
- * （`irm ... | iex`）。Linux 上该命令跑不通，而渲染层会把它原样展示、还会拼进
- * 「让 AI 安装」的提示词，所以**出口处必须换掉**，同时不能动摇
- * `automatic` 判据所依赖的原始配方（那条判据正是「Linux 不自动安装」的依据）。
+ * （`irm ... | iex`）。渲染层会把它原样展示、还会拼进「让 AI 安装」的提示词，
+ * 所以**出口处必须换掉**：Linux 换成 `linuxInstallCommand`（与安装执行同源），
+ * 没有该字段的工具回落官方文档链接。
  */
 describe('listLocalAcpToolsMetadata 的平台差异', () => {
   const ORIGINAL_PLATFORM = process.platform
@@ -51,18 +51,27 @@ describe('listLocalAcpToolsMetadata 的平台差异', () => {
     Object.defineProperty(process, 'platform', { value: ORIGINAL_PLATFORM, configurable: true })
   })
 
-  it('Linux 上不给出 PowerShell 安装命令，改为指向官方文档', () => {
+  it('Linux 上给出 Linux 安装命令，不再出现 PowerShell 命令', () => {
     Object.defineProperty(process, 'platform', { value: 'linux', configurable: true })
 
     const metadatas = listLocalAcpToolsMetadata()
     expect(metadatas.length).toBeGreaterThan(0)
     for (const m of metadatas) {
       expect(m.installCommand).not.toMatch(/irm |\.ps1|iex/i)
-      expect(m.installCommand).toContain(m.installUrl)
+      expect(m.installCommand).toBe(m.linuxInstallCommand)
     }
-    // 原始配方不能被就地改掉：`automatic` 判据依赖 powershellCommand 是否存在
-    expect(listLocalAcpToolsMetadata().find((m) => m.id === 'claude')?.installHint)
-      .toContain('当前平台')
+    const claude = metadatas.find((m) => m.id === 'claude')
+    expect(claude?.installCommand).toBe('npm install -g @anthropic-ai/claude-code')
+  })
+
+  it('Linux 的 installHint 用平台专属文案（没有则回落通用 hint）', () => {
+    Object.defineProperty(process, 'platform', { value: 'linux', configurable: true })
+
+    const claude = listLocalAcpToolsMetadata().find((m) => m.id === 'claude')
+    expect(claude?.installHint).toBe(LOCAL_ACP_TOOL_META.claude.linuxInstallHint)
+    // 未单独写 Linux hint 的工具回落通用 hint
+    const cursor = listLocalAcpToolsMetadata().find((m) => m.id === 'cursor')
+    expect(cursor?.installHint).toBe(LOCAL_ACP_TOOL_META.cursor.installHint)
   })
 
   it('Windows 上原样返回（安装命令保持 PowerShell 脚本）', () => {

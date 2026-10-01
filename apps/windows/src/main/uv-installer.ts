@@ -2,19 +2,24 @@
  * uv / uvx 自动安装
  *
  * flight-price-compare 等内置 MCP 通过 uvx 启动，首次连接前检测并执行官方安装脚本。
+ * Windows 用官方 PowerShell 脚本；Linux 用官方 shell 脚本（装到 ~/.local/bin，无需 root），
+ * 脚本失败且应用 venv 已就绪时用 venv 的 pip 兜底（PyPI 通道，绕开 GitHub Releases）。
  */
 
-import { spawn } from 'node:child_process'
-import os from 'node:os'
 import path from 'node:path'
 import { resolveCommand } from '@mtbot/agent-runtime'
 import { refreshCommonCliPathsInProcessEnv } from './cli-user-path'
 import { createLogger } from './logger'
+import { runShellCommand } from './platform/shell-command'
+import { getPythonVenvExe, isPythonVenvReady } from './python-venv'
 
 const log = createLogger('UvInstaller')
 
 /** 官方 Windows 安装脚本（https://docs.astral.sh/uv/getting-started/installation/） */
 const UV_INSTALL_PS1 = 'irm https://astral.sh/uv/install.ps1 | iex'
+
+/** 官方 Linux/macOS 安装脚本 */
+const UV_INSTALL_SH = 'curl -LsSf https://astral.sh/uv/install.sh | sh'
 
 const INSTALL_TIMEOUT_MS = 5 * 60_000
 
@@ -31,17 +36,6 @@ let inflight: Promise<UvEnsureResult> | null = null
 /** 仅供单测重置模块内状态 */
 export function __resetUvInstallerStateForTests(): void {
   inflight = null
-  spawnCommand = spawn
-}
-
-/** 可注入的 spawn（单测用） */
-let spawnCommand: typeof spawn = spawn
-
-/**
- * 仅供单测注入 spawn 实现
- */
-export function __setUvSpawnForTests(fn: typeof spawn | null): void {
-  spawnCommand = fn ?? spawn
 }
 
 /**
@@ -61,64 +55,6 @@ export function isUvxAvailable(): boolean {
 }
 
 /**
- * 在 PowerShell 中执行安装脚本
- */
-function runPowershell(
-  command: string,
-  timeoutMs: number,
-): Promise<{ exitCode: number | null; stdout: string; stderr: string }> {
-  return new Promise((resolve) => {
-    const child = spawnCommand(
-      'powershell.exe',
-      ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', command],
-      {
-        windowsHide: true,
-        env: { ...process.env },
-        cwd: os.homedir(),
-      },
-    )
-
-    let stdout = ''
-    let stderr = ''
-    let settled = false
-
-    const timer = setTimeout(() => {
-      try {
-        child.kill()
-      } catch {
-        /* ignore */
-      }
-      if (settled) return
-      settled = true
-      resolve({ exitCode: null, stdout, stderr: `${stderr}\n安装超时（${timeoutMs}ms）`.trim() })
-    }, timeoutMs)
-
-    child.stdout?.on('data', (chunk: Buffer | string) => {
-      stdout += typeof chunk === 'string' ? chunk : chunk.toString('utf8')
-      if (stdout.length > 8000) stdout = stdout.slice(-8000)
-    })
-    child.stderr?.on('data', (chunk: Buffer | string) => {
-      stderr += typeof chunk === 'string' ? chunk : chunk.toString('utf8')
-      if (stderr.length > 8000) stderr = stderr.slice(-8000)
-    })
-
-    child.on('close', (exitCode) => {
-      clearTimeout(timer)
-      if (settled) return
-      settled = true
-      resolve({ exitCode, stdout, stderr })
-    })
-
-    child.on('error', (err) => {
-      clearTimeout(timer)
-      if (settled) return
-      settled = true
-      resolve({ exitCode: null, stdout, stderr: err.message })
-    })
-  })
-}
-
-/**
  * 确保 uvx 可用：已安装则直接成功，否则执行官方安装脚本
  */
 export async function ensureUvxInstalled(): Promise<UvEnsureResult> {
@@ -130,21 +66,42 @@ export async function ensureUvxInstalled(): Promise<UvEnsureResult> {
   if (inflight) return inflight
 
   inflight = (async (): Promise<UvEnsureResult> => {
-    if (process.platform !== 'win32') {
-      return {
-        ok: false,
-        installed: false,
-        message: '当前仅 Windows 客户端支持自动安装 uv，请手动安装：https://docs.astral.sh/uv/',
-      }
-    }
-
-    log.info('未检测到 uvx，开始执行官方安装脚本...')
-    const { exitCode, stdout, stderr } = await runPowershell(UV_INSTALL_PS1, INSTALL_TIMEOUT_MS)
+    const isWin = process.platform === 'win32'
+    log.info(`未检测到 uvx，开始执行官方安装脚本（${isWin ? 'Windows' : 'Linux'}）...`)
+    const { exitCode, stdout, stderr } = await runShellCommand(
+      isWin ? UV_INSTALL_PS1 : UV_INSTALL_SH,
+      INSTALL_TIMEOUT_MS,
+    )
     refreshCommonCliPathsInProcessEnv()
 
     if (isUvxAvailable()) {
       log.info('uv 安装成功')
       return { ok: true, installed: true, message: 'uv 已自动安装' }
+    }
+
+    // 官方脚本失败的常见原因：脚本本体可达，但二进制在 GitHub Releases（国内网络不通）。
+    // 兜底走应用 venv 的 pip（PyPI 通道）；只在 venv 已就绪时用，不在安装路径上现建 venv。
+    if (!isWin && isPythonVenvReady()) {
+      log.info('官方脚本未成功，改用应用 venv 的 pip 安装 uv...')
+      const pip = await runShellCommand(
+        `"${getPythonVenvExe()}" -m pip install uv --no-warn-script-location`,
+        3 * 60_000,
+      )
+      refreshCommonCliPathsInProcessEnv()
+      if (isUvxAvailable()) {
+        log.info('uv 安装成功（venv pip 兜底）')
+        return { ok: true, installed: true, message: 'uv 已自动安装（应用 venv 的 pip）' }
+      }
+      const pipDetail = (pip.stderr || pip.stdout).trim().slice(0, 300)
+      const scriptDetail = (stderr || stdout).trim().slice(0, 200)
+      const detail = pipDetail || scriptDetail
+      return {
+        ok: false,
+        installed: false,
+        message: detail
+          ? `uv 自动安装失败（官方脚本 exit=${exitCode}；pip exit=${pip.exitCode}）：${detail}`
+          : `uv 自动安装后仍找不到 uvx（官方脚本 exit=${exitCode}），请重启灵栖或手动安装：https://docs.astral.sh/uv/`,
+      }
     }
 
     const detail = (stderr || stdout).trim().slice(0, 300)
