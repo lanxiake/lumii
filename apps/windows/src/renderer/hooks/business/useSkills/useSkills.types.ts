@@ -15,8 +15,12 @@ export interface InstalledSkillInfo {
   executionCount?: number
   /** 分类目录名，无分类时为空字符串 */
   category: string
-  /** 运行时类型（主进程技能索引同源；Python 技能在缺运行时的平台上会被置灰） */
-  runtime?: 'typescript' | 'javascript' | 'python' | 'shell'
+  /**
+   * 运行时类型（主进程技能索引同源）。实际取值除 typescript/javascript/python/shell 外
+   * 还有 claude-code（SKILL.md 类技能，见 skill-store），故不设窄联合；
+   * 消费点目前只用它判 `=== 'python'`（缺运行时的平台上置灰 Python 技能）。
+   */
+  runtime?: string
   skill: {
     id: string
     name: string
