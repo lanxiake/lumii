@@ -15,11 +15,13 @@
  * win32 的 taskkill 参数契约由 shell-runner / ts-runner 两处的同构实现覆盖——
  * 四处实现逐字相同，T3.1 会合并成一份。
  */
-import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'vitest'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { PythonRunner } from './python-runner'
+import { _resetSystemPythonCache } from './python-env'
+import { _resetPythonVenvCache, getPythonVenvExe } from './python-venv'
 
 describe('PythonRunner 超时终止', () => {
   let dir: string
@@ -85,4 +87,53 @@ describe('PythonRunner 超时终止', () => {
 
     expect(res.success).toBe(true)
   }, 20_000)
+})
+
+/**
+ * 解释器链（设计 D22）：技能 .venv → 系统 Python → 末级（Win: 内置 / Linux: 应用 venv）。
+ * 只测解析顺序，不 spawn。
+ */
+describe('PythonRunner.detectPython 解释器链', () => {
+  let dir: string
+  let runner: PythonRunner
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lumii-py-detect-'))
+    runner = new PythonRunner()
+    _resetPythonVenvCache()
+  })
+
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true })
+    _resetSystemPythonCache()
+    _resetPythonVenvCache()
+  })
+
+  it('系统 Python 优先于末级回退', async () => {
+    _resetSystemPythonCache('python3', [3, 12, 3])
+    _resetPythonVenvCache(true)
+    expect(await runner.detectPython()).toBe('python3')
+  })
+
+  it.skipIf(process.platform === 'win32')('技能目录自带 .venv 优先于系统 Python', async () => {
+    _resetSystemPythonCache('python3', [3, 12, 3])
+    const venvPython = path.join(dir, '.venv', 'bin', 'python')
+    fs.mkdirSync(path.dirname(venvPython), { recursive: true })
+    fs.writeFileSync(venvPython, '#!/bin/sh\n')
+    fs.chmodSync(venvPython, 0o755)
+
+    expect(await runner.detectPython(dir)).toBe(venvPython)
+  })
+
+  it.skipIf(process.platform === 'win32')('Linux 末级：venv 就绪时用应用 venv', async () => {
+    _resetSystemPythonCache(null)
+    _resetPythonVenvCache(true)
+    expect(await runner.detectPython()).toBe(getPythonVenvExe())
+  })
+
+  it.skipIf(process.platform === 'win32')('Linux 末级：venv 未就绪且无系统 Python → null', async () => {
+    _resetSystemPythonCache(null)
+    _resetPythonVenvCache(false)
+    expect(await runner.detectPython()).toBeNull()
+  })
 })

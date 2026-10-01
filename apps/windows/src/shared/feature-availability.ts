@@ -52,6 +52,8 @@ export interface FeatureProbeInput {
   waylandSession?: boolean
   /** 系统 Python 3 是否可用 */
   hasSystemPython?: boolean
+  /** 应用 Python venv 是否就绪（Linux 运行时对等：Qwen3/声纹克隆等宿主级 Python 能力的前提） */
+  pythonVenvReady?: boolean
 }
 
 /**
@@ -75,14 +77,20 @@ export const FEATURE_BLOCK_MESSAGES: Record<FeatureId, Partial<Record<BlockReaso
   pythonSkills: {
     'missing-runtime': '需要 Python 3。请先安装：sudo apt install python3 python3-venv python3-pip',
   },
+  // D26（二期运行时对等）：自动安装已有 Linux 配方（`platform/shell-command` +
+  // 各工具官方命令），不再有平台屏蔽。条目保留以维持「每功能都有文案表」的约定。
   codingCliAutoInstall: {
     'platform-unsupported': '当前平台不支持自动安装，请参考文档手动安装。',
   },
+  // D26：sherpa-onnx 在打包产物中实测可加载（含 asar），本地 TTS（MeloTTS/local-vits）
+  // 在 Linux 上可用，不再有平台屏蔽。条目保留以维持约定。
   localTts: {
     'platform-unsupported': '本地语音合成当前版本暂不支持，可使用在线语音（Edge TTS）。',
   },
+  // D15 → D26：声纹克隆（Qwen3）依赖宿主级 Python 运行链路。
+  // Windows 走内置运行时（始终可用）；Linux 在应用 venv 就绪前按 missing-runtime 屏蔽。
   voiceCloning: {
-    'platform-unsupported': '声纹克隆依赖本地语音合成，当前版本暂不支持。',
+    'missing-runtime': '声纹克隆需要本地 Python 运行环境（Qwen3 引擎），当前环境尚未就绪。',
   },
 }
 
@@ -91,7 +99,7 @@ export function getFeatureBlockMessage(id: FeatureId, reason: BlockReason): stri
   return FEATURE_BLOCK_MESSAGES[id]?.[reason] ?? '当前环境不支持该功能。'
 }
 
-const WIN_ONLY: FeatureAvailability = { available: true }
+const AVAILABLE: FeatureAvailability = { available: true }
 const blocked = (reason: BlockReason): FeatureAvailability => ({ available: false, reason })
 
 function isLinux(platform: NodeJS.Platform): boolean {
@@ -101,7 +109,7 @@ function isLinux(platform: NodeJS.Platform): boolean {
 /**
  * 解析能力矩阵（纯函数）。
  *
- * 各功能的判定依据（设计 §7.2 的表 + D13/D14/D15 的决策）：
+ * 各功能的判定依据（设计 §7.2 的表 + D13/D14/D15/D26 的决策）：
  *
  * | 功能 | 判定 |
  * |------|------|
@@ -109,8 +117,9 @@ function isLinux(platform: NodeJS.Platform): boolean {
  * | `screenRecord` | D14 **修订**（2026-09-20）：X11 实测可用 → 改为**按会话类型**判定，仅 Wayland 屏蔽；**无头形态下屏蔽**（没有屏幕可录） |
  * | `systemAudioCapture` | **全平台**屏蔽（Windows 侧也没实现） |
  * | `pythonSkills` | Linux 上看**运行时是否存在**——装了 Python 3 就能用 |
- * | `codingCliAutoInstall` | Linux 屏蔽**自动安装**，手动指引保留 |
- * | `localTts` / `voiceCloning` | D15：屏蔽本地 TTS（依赖 sherpa-onnx 模型与 Windows 内嵌运行时） |
+ * | `codingCliAutoInstall` | D26：Linux 配方已落地（官方脚本 / npm），**全平台可用** |
+ * | `localTts` | D26：sherpa-onnx 打包实测可加载，**全平台可用**（MeloTTS/local-vits） |
+ * | `voiceCloning` | D15 → D26：依赖宿主级 Python（Windows 内置运行时 / Linux 应用 venv 就绪） |
  */
 export function resolveFeatureAvailability(
   input: FeatureProbeInput,
@@ -121,30 +130,37 @@ export function resolveFeatureAvailability(
   return {
     // D13：宠物模式在 Linux 上屏蔽。将来以精灵图重写后，这里改为「探测精灵图资源」。
     // 无头形态下没有窗口可挂，理由单列（与平台无关，所以先判 headless）。
-    petMode: headless ? blocked('headless') : linux ? blocked('platform-unsupported') : WIN_ONLY,
+    petMode: headless ? blocked('headless') : linux ? blocked('platform-unsupported') : AVAILABLE,
 
     // D14 修订（2026-09-20）：X11 下实测跑通（捕获 + 音频 + 成片 + 中文烧字幕），
     // 由「Linux 全屏蔽」改为「**按会话类型**判定」——只有 Wayland 仍屏蔽
     // （桌面捕获的授权模型不同，第一期不接；原因单列，将来只支持 X11 时文案不用改结构）。
     screenRecord: !linux
-      ? WIN_ONLY
+      ? AVAILABLE
       : headless
         ? blocked('headless')
         : input.waylandSession === true
           ? blocked('wayland-session')
-          : WIN_ONLY,
+          : AVAILABLE,
 
     // 全平台屏蔽：Windows 侧也没有实现，不是平台差异问题。
     systemAudioCapture: blocked('platform-unsupported'),
 
     // Linux 上是「缺运行时」而非「不支持」——装了 Python 3 即可用，所以文案给出安装命令。
-    pythonSkills: linux && input.hasSystemPython !== true ? blocked('missing-runtime') : WIN_ONLY,
+    pythonSkills: linux && input.hasSystemPython !== true ? blocked('missing-runtime') : AVAILABLE,
 
-    // 只屏蔽「自动安装」这一环；手动安装指引在 UI 里保留。
-    codingCliAutoInstall: linux ? blocked('platform-unsupported') : WIN_ONLY,
+    // D26：Linux 配方已落地（platform/shell-command + 各工具官方命令）。
+    codingCliAutoInstall: AVAILABLE,
 
-    // D15：本地 TTS 与声纹克隆依赖本地语音合成运行时，本期在 Linux 上屏蔽。
-    localTts: linux ? blocked('platform-unsupported') : WIN_ONLY,
-    voiceCloning: linux ? blocked('platform-unsupported') : WIN_ONLY,
+    // D26：sherpa-onnx 在打包产物（含 asar）中实测可加载，本地 TTS 全平台可用。
+    localTts: AVAILABLE,
+
+    // D15 → D26：Qwen3/克隆依赖宿主级 Python 链路。Windows 走内置运行时（始终可用）；
+    // Linux 看应用 venv 是否就绪（首次触发语音下载/合成时会自动创建）。
+    voiceCloning: linux
+      ? input.pythonVenvReady === true
+        ? AVAILABLE
+        : blocked('missing-runtime')
+      : AVAILABLE,
   }
 }

@@ -19,9 +19,15 @@ export interface SkillRowProps {
   onToggle: () => void
   onUninstall: () => void
   onOpenDir?: () => void
+  /**
+   * 当前技能被环境屏蔽时的原因（如 Linux 缺 Python 3）。
+   * 非空时启用开关禁用并显示原因（设计 D4：屏蔽入口 + 文案说明，禁止静默失败）。
+   */
+  blockedReason?: string | null
 }
 
-export const SkillRow: React.FC<SkillRowProps> = ({ skillInfo, isOperating, onDetail, onToggle, onUninstall, onOpenDir }) => {
+export const SkillRow: React.FC<SkillRowProps> = ({ skillInfo, isOperating, onDetail, onToggle, onUninstall, onOpenDir, blockedReason }) => {
+  const blocked = Boolean(blockedReason)
   return (
     <div
       className={clsx(styles['skill-row'], !skillInfo.isEnabled && styles['skill-row--disabled'])}
@@ -54,8 +60,8 @@ export const SkillRow: React.FC<SkillRowProps> = ({ skillInfo, isOperating, onDe
         <button
           className={clsx(styles['skill-row-btn'], skillInfo.isEnabled ? styles['btn-disable'] : styles['btn-enable'])}
           onClick={(e) => { e.stopPropagation(); onToggle() }}
-          disabled={isOperating}
-          title={skillInfo.isEnabled ? '禁用' : '启用'}
+          disabled={isOperating || blocked}
+          title={blocked ? (blockedReason ?? undefined) : skillInfo.isEnabled ? '禁用' : '启用'}
         >
           {isOperating ? <Loader2 size={13} className="animate-spin" /> : skillInfo.isEnabled ? <ToggleRight size={14} /> : <ToggleLeft size={14} />}
         </button>

@@ -8,6 +8,7 @@
  * `process.platform`，需要什么能力就问矩阵。
  */
 import { detectSystemPython } from '../python-env'
+import { isPythonVenvReady } from '../python-venv'
 import {
   resolveFeatureAvailability,
   type FeatureAvailability,
@@ -70,6 +71,7 @@ export function collectFeatureProbeInput(): FeatureProbeInput {
     headless: isHeadlessSession(),
     waylandSession: isWaylandSession(),
     hasSystemPython: detectSystemPython() !== null,
+    pythonVenvReady: isPythonVenvReady(),
   }
 }
 

@@ -114,6 +114,16 @@
   cursor: pointer;
 }
 
+/* 运行时缺失提示（Python 技能被屏蔽时的页级说明） */
+.skills-block-hint {
+  padding: var(--spacing-2) var(--spacing-4);
+  margin-bottom: var(--spacing-3);
+  border-radius: var(--radius-md);
+  background-color: var(--color-warning-bg, var(--color-bg-secondary));
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+}
+
 /* 提示条样式 */
 .skills-result-banner {
   display: flex;

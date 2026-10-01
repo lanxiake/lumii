@@ -97,53 +97,113 @@ export function buildBundledPipInstallArgs(
   ]
 }
 
-/** 系统 Python 探测结果缓存（undefined = 未探测） */
-let cachedSystemPython: string | null | undefined
+/** 系统 Python 的探测结果 */
+export interface SystemPythonInfo {
+  /** 可用命令名（python3 / python / py） */
+  readonly command: string
+  /** `Python 3.12.3` → [3, 12, 3] */
+  readonly version: readonly [number, number, number]
+}
+
+/** 系统 Python 探测结果缓存（undefined = 未探测；正结果常驻） */
+let cachedSystemPython: SystemPythonInfo | null | undefined
+/** 负结果的写入时间（TTL 用） */
+let cachedSystemPythonAt = 0
+
+/**
+ * 负结果缓存时长。
+ *
+ * 用户可能在我们探测失败**之后**才装上 python3（apt / 官方安装包），
+ * 永久缓存会让「装了也要重启应用才生效」（与 feature-probe 的
+ * 「用户装完不该要求重启」承诺矛盾）。30s 是「不重启能自愈」与
+ * 「不每次探测都起进程」之间的折中。
+ */
+const SYSTEM_PYTHON_NEGATIVE_TTL_MS = 30_000
 
 /**
  * 测试用：重置或预置系统 Python 探测结果。
  *
  * @param primed 传 null 表示"已探测且系统无 Python"，不传表示回到未探测状态
+ * @param version 预置命令的版本号（默认 3.12.0；venv 路径要求 ≥3.10 时用得上）
  */
-export function _resetSystemPythonCache(primed?: string | null): void {
-  cachedSystemPython = primed === undefined ? undefined : primed
+export function _resetSystemPythonCache(
+  primed?: string | null,
+  version: readonly [number, number, number] = [3, 12, 0],
+): void {
+  if (primed === undefined) {
+    cachedSystemPython = undefined
+    cachedSystemPythonAt = 0
+    return
+  }
+  cachedSystemPython = primed === null ? null : { command: primed, version }
+  cachedSystemPythonAt = primed === null ? Date.now() : 0
 }
 
-/** 某个命令是否是可用的 Python 3 */
-function verifyPython3(command: string, args: readonly string[] = []): boolean {
+/** 解析 `--version` 输出；非 Python 3 返回 null */
+function parsePythonVersion(out: string): readonly [number, number, number] | null {
+  const m = out.match(/Python\s+(\d+)\.(\d+)\.(\d+)/)
+  if (!m) return null
+  if (m[1] !== '3') return null
+  return [3, Number(m[2]), Number(m[3])]
+}
+
+/** 跑 `<cmd> --version`；返回 Python 3 版本号，命令不存在或非 Python 3 返回 null */
+function queryPython3(
+  command: string,
+  args: readonly string[] = [],
+): readonly [number, number, number] | null {
   try {
     const out = execSync([command, ...args, '--version', '2>&1'].join(' '), {
       encoding: 'utf-8',
       timeout: 5000,
       windowsHide: true,
     }).trim()
-    return out.startsWith('Python 3')
+    return parsePythonVersion(out)
   } catch {
-    return false
+    return null
   }
 }
 
 /**
  * 探测系统 Python 3：python3 → python → py -3。
  *
- * @returns 可用命令名，未找到返回 null
+ * @returns 命令名与版本；未找到返回 null（负结果带 30s TTL）
  */
-export function detectSystemPython(): string | null {
-  if (cachedSystemPython !== undefined) return cachedSystemPython
+export function detectSystemPythonInfo(): SystemPythonInfo | null {
+  if (cachedSystemPython !== undefined) {
+    const expiredNegative =
+      cachedSystemPython === null &&
+      Date.now() - cachedSystemPythonAt >= SYSTEM_PYTHON_NEGATIVE_TTL_MS
+    if (!expiredNegative) return cachedSystemPython
+  }
 
   for (const cmd of ['python3', 'python']) {
-    if (verifyPython3(cmd)) {
-      cachedSystemPython = cmd
-      return cmd
+    const version = queryPython3(cmd)
+    if (version) {
+      cachedSystemPython = { command: cmd, version }
+      return cachedSystemPython
     }
   }
-  if (process.platform === 'win32' && verifyPython3('py', ['-3'])) {
-    cachedSystemPython = 'py'
-    return 'py'
+  if (process.platform === 'win32') {
+    const version = queryPython3('py', ['-3'])
+    if (version) {
+      cachedSystemPython = { command: 'py', version }
+      return cachedSystemPython
+    }
   }
 
   cachedSystemPython = null
+  cachedSystemPythonAt = Date.now()
   return null
+}
+
+/**
+ * 探测系统 Python 3（只要命令名）。
+ *
+ * @returns 可用命令名，未找到返回 null
+ */
+export function detectSystemPython(): string | null {
+  return detectSystemPythonInfo()?.command ?? null
 }
 
 /** 单飞 promise：并发调用共用同一次安装，避免重复下载 */

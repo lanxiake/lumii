@@ -57,14 +57,25 @@ describe('resolveFeatureAvailability — Linux', () => {
     expect(linux.screenRecord.reason).toBeUndefined()
   })
 
-  it('D15：本地 TTS 与声纹克隆屏蔽（在线 Edge TTS 不受影响）', () => {
-    expect(linux.localTts.available).toBe(false)
-    expect(linux.voiceCloning.available).toBe(false)
+  it('D26：本地 TTS 在 Linux 上可用（sherpa 打包实测可加载）', () => {
+    expect(linux.localTts.available).toBe(true)
+    expect(linux.localTts.reason).toBeUndefined()
   })
 
-  it('编码 CLI 只屏蔽「自动安装」，不是整个功能', () => {
-    expect(linux.codingCliAutoInstall.available).toBe(false)
-    expect(linux.codingCliAutoInstall.reason).toBe('platform-unsupported')
+  it('D26：声纹克隆在 Linux 按应用 venv 就绪判定（未就绪=缺运行时，就绪=可用）', () => {
+    expect(linux.voiceCloning.available).toBe(false)
+    expect(linux.voiceCloning.reason).toBe('missing-runtime')
+
+    const linuxReady = resolveFeatureAvailability({
+      platform: 'linux',
+      hasSystemPython: true,
+      pythonVenvReady: true,
+    })
+    expect(linuxReady.voiceCloning.available).toBe(true)
+  })
+
+  it('D26：编码 CLI 自动安装已有 Linux 配方，不再屏蔽', () => {
+    expect(linux.codingCliAutoInstall.available).toBe(true)
   })
 
   it('pythonSkills：有 Python 3 时可用', () => {

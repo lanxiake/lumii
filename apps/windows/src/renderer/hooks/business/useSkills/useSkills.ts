@@ -40,6 +40,7 @@ export function useSkills() {
         lastUsedAt: s.lastExecutedAt,
         executionCount: s.executionCount,
         category: s.category || '',
+        runtime: s.runtime,
         skill: {
           id: s.id,
           name: s.name || s.id,

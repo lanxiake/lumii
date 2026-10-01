@@ -3,7 +3,8 @@
  *
  * 两条来源：
  * - Node：Electron 自带（process.execPath + ELECTRON_RUN_AS_NODE=1），零额外体积
- * - Python：内置 embeddable 运行时（见 python-env.ts），首次用到时自动下载
+ * - Python：Windows 用内置 embeddable 运行时（见 python-env.ts），首次用到时自动下载；
+ *   Linux 用系统 python3（PATH 直接可见）+ 应用 venv（见 python-venv.ts），不下载。
  *
  * 对 bash 工具里的裸命令（`node x.js` / `python3 x.py`），在 ~/.lumii/runtimes/bin
  * 生成 shim 并**追加**到 PATH 末尾 —— 追加而非前置，保证用户机器上真实的
@@ -132,6 +133,36 @@ ${envLinesCmd}\r
 }
 
 /**
+ * 是否使用内置（embeddable）Python 运行时：仅 Windows 且系统无 Python 时。
+ *
+ * embeddable 包本身是 win_amd64 专属；Linux 的等价物是「系统 python3 + 应用
+ * venv」——venv 的前置就是系统 python3，缺它时 venv 也建不出来，因此 Linux 上
+ * 既不写 python shim（会指向不存在的 `python.exe`，误导），也不后台下载。
+ * 缺 python3 的引导由能力矩阵的 `missing-runtime` 文案负责（apt 安装指引）。
+ */
+export function shouldUseBundledPython(
+  platform: NodeJS.Platform,
+  hasSystemPython: boolean,
+): boolean {
+  return platform === 'win32' && !hasSystemPython
+}
+
+/** 清理历史版本留下的 python/python3 shim；返回是否删掉了东西 */
+async function removePythonShims(dir: string): Promise<boolean> {
+  let removed = false
+  for (const name of ['python', 'python3']) {
+    for (const file of [name, `${name}.cmd`]) {
+      const target = join(dir, file)
+      if (existsSync(target)) {
+        await fs.rm(target, { force: true })
+        removed = true
+      }
+    }
+  }
+  return removed
+}
+
+/**
  * 按需写入 node / python shim。
  *
  * 只为系统缺失的命令写 shim；系统已有的不写，避免遮蔽用户环境。
@@ -148,12 +179,18 @@ async function writeShims(): Promise<void> {
     log.info('已写入 node shim（系统未装 Node，使用 Electron 内置）')
   }
 
-  if (!detectSystemPython()) {
+  if (shouldUseBundledPython(process.platform, Boolean(detectSystemPython()))) {
     const exe = getBundledPythonExe()
     for (const name of ['python', 'python3']) {
       await writeShimPair(dir, name, exe, [], {})
     }
     log.info('已写入 python/python3 shim（系统未装 Python，使用内置运行时）')
+  } else if (process.platform !== 'win32') {
+    // Linux 不写 python shim（见 shouldUseBundledPython 注释）；历史版本在
+    // 「系统无 python3」时写过指向 python.exe 的坏 shim，这里顺手清掉
+    if (await removePythonShims(dir)) {
+      log.info('已清理 python/python3 shim（Linux 走系统 python3，不再生成本地 shim）')
+    }
   }
 
   // lumii-ui CLI：始终用客户端内置 Node，与 Electron 版本一致
@@ -223,7 +260,8 @@ export async function initScriptRuntimes(): Promise<void> {
     log.warn('写入 shim 失败:', err instanceof Error ? err.message : err)
   }
 
-  if (detectSystemPython() || process.env.LUMII_SKIP_PYTHON_BOOTSTRAP === '1') return
+  if (process.env.LUMII_SKIP_PYTHON_BOOTSTRAP === '1') return
+  if (!shouldUseBundledPython(process.platform, Boolean(detectSystemPython()))) return
   if (existsSync(getBundledPythonExe())) return
 
   log.info('系统未检测到 Python，后台下载内置运行时...')

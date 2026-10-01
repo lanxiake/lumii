@@ -16,6 +16,7 @@ import * as fs from 'node:fs'
 import type { RunnerOptions, RunnerResult } from './ts-runner'
 import { extractResult } from './ts-runner'
 import { detectSystemPython, ensureBundledPython } from './python-env'
+import { getPythonVenvExe, isPythonVenvReady } from './python-venv'
 import { buildScriptEnv } from './runtime-env'
 import { killProcessTree, spawnChildInGroup } from './platform/process-kill'
 
@@ -37,7 +38,10 @@ export class PythonRunner {
    * 优先级：
    * 1. skillDir 下的 .venv/Scripts/python.exe (Win) 或 .venv/bin/python (Unix)
    * 2. 系统 Python 3（python3 → python → py -3，见 python-env.ts）
-   * 3. 内置 embeddable 运行时（缺失时自动下载，用户无需自行安装）
+   * 3. 末级回退：Windows 用内置 embeddable 运行时（缺失时自动下载）；
+   *    Linux 用应用 venv（python-venv.ts，设计 D22）——只**就绪才用**：
+   *    这里不现场创建（创建要下载 pip，不应发生在一个技能执行路径上，
+   *    引导创建是状态层/UI 的事）
    *
    * @param skillDir - 可选的技能目录，用于检测虚拟环境
    * @returns Python 可执行文件路径，彻底不可用时返回 null
@@ -59,14 +63,23 @@ export class PythonRunner {
       return system
     }
 
-    // 3. 内置运行时；未就绪则现场装（并发调用共用同一次安装）
-    try {
-      log.info('系统无 Python，回退内置运行时')
-      return await ensureBundledPython((msg) => log.info(msg))
-    } catch (err) {
-      log.error('内置 Python 准备失败', { error: err instanceof Error ? err.message : err })
-      return null
+    // 3a. Windows：内置运行时；未就绪则现场装（并发调用共用同一次安装）
+    if (process.platform === 'win32') {
+      try {
+        log.info('系统无 Python，回退内置运行时')
+        return await ensureBundledPython((msg) => log.info(msg))
+      } catch (err) {
+        log.error('内置 Python 准备失败', { error: err instanceof Error ? err.message : err })
+        return null
+      }
     }
+
+    // 3b. Linux：应用 venv（就绪才用；不存在时返回 null，由能力矩阵/技能页给引导）
+    if (isPythonVenvReady()) {
+      log.info('系统无 Python，回退应用 venv', { path: getPythonVenvExe() })
+      return getPythonVenvExe()
+    }
+    return null
   }
 
   /**

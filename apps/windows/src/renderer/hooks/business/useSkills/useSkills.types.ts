@@ -15,6 +15,8 @@ export interface InstalledSkillInfo {
   executionCount?: number
   /** 分类目录名，无分类时为空字符串 */
   category: string
+  /** 运行时类型（主进程技能索引同源；Python 技能在缺运行时的平台上会被置灰） */
+  runtime?: 'typescript' | 'javascript' | 'python' | 'shell'
   skill: {
     id: string
     name: string
