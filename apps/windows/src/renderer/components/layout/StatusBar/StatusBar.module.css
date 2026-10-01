@@ -116,3 +116,42 @@
   background: var(--mt-surface-2);
 }
 
+/* 网络状态点：绿=通、红=离线、灰呼吸=探测中 */
+.netDot {
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--mt-fg-4);
+}
+
+.netDot[data-state='ok'] {
+  background: var(--mt-success);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--mt-success) 60%, transparent);
+}
+
+.netDot[data-state='off'] {
+  background: var(--mt-error);
+}
+
+.netDot[data-state='init'] {
+  animation: netDotPulse 1.4s ease-in-out infinite;
+}
+
+@keyframes netDotPulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .netDot[data-state='init'] {
+    animation: none;
+    opacity: 0.6;
+  }
+}
+

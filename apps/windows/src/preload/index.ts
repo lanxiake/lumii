@@ -19,6 +19,7 @@ import type { UsageSummary } from '../main/usage-store'
 import type { DashboardFeedSnapshot, DashboardFeedPage, DashboardFeedMeta, DashboardFeedBatchPage } from '../main/dashboard-feed-store'
 import type { MaintenanceReport, FindingDiff } from '../main/maintenance-report-store'
 import type { LatencyView } from '../main/provider-latency'
+import type { PingReport } from '../shared/net-latency-types'
 import type { PerformanceReport, IpcAggregateEvent, MemorySnapshotEvent, RendererMemorySample } from '../main/perf/performance-types'
 import type { RendererNativeMemory } from '../main/perf/performance-types'
 import { readRendererNativeMemory } from './renderer-native-memory'
@@ -48,6 +49,7 @@ import {
   selectionApi,
   autonomousApi,
   cloudSyncApi,
+  netApi,
 } from './api'
 import type { BundledUserGuideContent, BundledUserGuideIndex } from '../shared/user-guides-types'
 import type { SelectionLlmRequest, SelectionLlmResult } from '../shared/selection-llm-types'
@@ -989,6 +991,12 @@ export interface ElectronAPI {
 
   // 云同步
   cloudSync: typeof cloudSyncApi
+
+  /** 网络延迟探测（右下角状态条指标） */
+  net: {
+    /** 低频探测；返回国内/国外两组与自适应 best */
+    ping: () => Promise<PingReport>
+  }
 }
 
 /**
@@ -1228,6 +1236,9 @@ const electronAPI: ElectronAPI = {
 
   // 云同步
   cloudSync: cloudSyncApi,
+
+  // 网络探测与测速
+  net: netApi,
 }
 
 // 通过 contextBridge 安全地暴�?API
