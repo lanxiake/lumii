@@ -83,6 +83,19 @@ pnpm --filter ./apps/windows package:linux:deb   # 只要 deb
 **开发期（`pnpm dev`）不需要上述手工步骤**：`scripts/run-dev.cjs` 检测 `chrome-sandbox` 是否已正确配置，
 未配置时自动追加 electron-vite 的 `--noSandbox` 并打印提示（仅开发期；发布产物由 deb 的 postinst 保证）。
 
+**运行时对等（二期，2026-10-01）**——Linux 上由系统运行时替代 Windows 专有链路，动手改这几块前先读
+[`docs/plans/Linux客户端移植/2026-10-01-第二期运行时对等实施计划.md`](docs/plans/Linux客户端移植/2026-10-01-第二期运行时对等实施计划.md)：
+
+- **ffmpeg**：解析顺序 `LUMII_FFMPEG_PATH` → 包内 `@ffmpeg-installer` → 系统 PATH（`screen-record/ffmpeg-runner.ts`）；
+  包内是 4.1.0（2018）静态版，要用发行版新版就设环境变量。
+- **Python**：Linux 用系统 `python3` + 应用 venv（`~/.lumii/runtimes/python-venv`，`python-venv.ts`）。
+  **venv 创建不依赖 `python3-venv` 包**（缺 ensurepip 时自动回退 `--without-pip` + get-pip.py，与 Windows 内嵌流程同源）。
+  技能解释器链：技能自带 `.venv` → 系统 python3 → 应用 venv。宿主级 Python 包（modelscope、Qwen3/Torch）只装进 venv（避 PEP 668）。
+- **uv / 编码 CLI**：Linux 配方在 `coding-dev-cli-detect.ts` 的 `linuxInstallCommand`（**展示与执行同源**）；
+  执行走 `platform/shell-command.ts`（内联命令 + 进程树 kill）。uv：官方脚本 → 应用 venv 的 pip 兜底。
+- **本地语音**：sherpa-onnx 在 asar 打包下可加载（已实测）；`localTts` 全平台可用，`voiceCloning`（Qwen3）
+  在 Linux 由「应用 venv 就绪」门禁。**GPU（CUDA）轮目前仅 Windows**，Linux 首版为 CPU 合成。
+
 **平台包声明注意**：`apps/windows` 有自己的 `node_modules`（electron-builder 的打包根），平台相关的
 optional 包（`@img/sharp-*`、`sherpa-onnx-*`、`onnxruntime-node`）**必须显式声明为 `apps/windows` 的
 `optionalDependencies`**——只在 `packages/*` 声明或被 pnpm hoist 到仓库根，打包时会静默丢失。
