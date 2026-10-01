@@ -97,8 +97,10 @@ pnpm --filter ./apps/windows package:linux:deb   # 只要 deb
   在 Linux 由「应用 venv 就绪」门禁。**GPU（CUDA）轮目前仅 Windows**，Linux 首版为 CPU 合成。
 
 **平台包声明注意**：`apps/windows` 有自己的 `node_modules`（electron-builder 的打包根），平台相关的
-optional 包（`@img/sharp-*`、`sherpa-onnx-*`、`onnxruntime-node`）**必须显式声明为 `apps/windows` 的
-`optionalDependencies`**——只在 `packages/*` 声明或被 pnpm hoist 到仓库根，打包时会静默丢失。
+optional 包（`@img/sharp-*`、`sherpa-onnx-*`、`onnxruntime-node`、`@ffmpeg-installer/*`）**必须显式声明为
+`apps/windows` 的 `optionalDependencies`**——只在 `packages/*` 声明或被 pnpm hoist 到仓库根，打包时会静默丢失。
+2026-10-01 实测抓到一次：`@ffmpeg-installer/linux-x64` 只由 meta 包间接引入，dir 产物里整个平台包
+连同 ffmpeg 二进制一起丢失（asar 里只剩 meta 包，运行期解析直接失败）。
 
 **测试基线（2026-09-15，Windows 口径）**：`test:all` 全量应**无失败**（此前 6 个既有失败已修正）。仅在满载跑序下有个别 30 秒超时/摆动位——`main/workspace-vcs/vcs-repo`（`diffCommits`）、`main/perf/performance-monitor`（日志轮转）、`main/perf/performance-ipc`（慢调用计时）、`test/components/WikiGraphView`（subtopic 点击）、`main/pet/pet-model-resolver`；**单跑这些文件通过即视为摆动**，不是新引入的问题。另：vitest 请在包目录下执行，在仓库根跑会命中 root 配置（缺 jest-dom setup），组件测试会以 `expect is not defined` 假失败。
 

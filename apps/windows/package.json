@@ -93,6 +93,9 @@
     "xlsx": "^0.18.5"
   },
   "optionalDependencies": {
+    "@ffmpeg-installer/linux-x64": "^4.1.0",
+    "@ffmpeg-installer/win32-ia32": "^4.1.0",
+    "@ffmpeg-installer/win32-x64": "^4.1.0",
     "@img/sharp-libvips-linux-x64": "^1.2.4",
     "@img/sharp-linux-x64": "^0.34.5",
     "@img/sharp-win32-x64": "^0.34.5",
