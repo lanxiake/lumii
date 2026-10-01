@@ -652,7 +652,12 @@ export class VoiceModelManager {
    * 汇总各模型状态（含下载进度字段）
    */
   getModelsStatus(): VoiceModelStatus[] {
-    return Object.values(MODEL_CATALOG).map((m) => {
+    return Object.values(MODEL_CATALOG)
+      // PyTorch CUDA 运行时是 win_amd64 专属轮（aliyun / pytorch.org 的 cu121 直链按平台命名）。
+      // Linux 上隐藏该条目：CPU 版 torch 由 pip 按平台自动选轮，无需目录条目；
+      // Linux 的 GPU 轮（按 venv Python 版本取 cp 标签）留待有真实 GPU 需求时再做。
+      .filter((m) => process.platform === 'win32' || m.id !== PYTORCH_CUDA_RUNTIME_ID)
+      .map((m) => {
       const id = m.id as ModelId
       const downloaded = this.isModelDownloaded(id)
       const task = this.tasks.get(id)

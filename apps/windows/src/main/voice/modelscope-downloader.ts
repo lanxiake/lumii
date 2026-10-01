@@ -13,6 +13,7 @@ import {
   getBundledPythonExe,
   hasPackage,
 } from '../python-env.js'
+import { ensurePythonVenv } from '../python-venv.js'
 
 const log = {
   info: (...a: unknown[]) => console.log('[ModelScopeDownload]', ...a),
@@ -48,8 +49,16 @@ export interface ModelScopeProgress {
 
 /**
  * 解析用于跑 SDK 的 python 可执行文件
+ *
+ * - Windows：系统 Python 优先，其次内置运行时（现状不变）；
+ * - Linux（D26 运行时对等）：**应用 venv 优先**——Ubuntu 的 PEP 668
+ *   externally-managed 会拒绝往系统 python 装 modelscope；venv 不存在则
+ *   就地创建（模型下载正是首次需要它的场景）。
  */
 async function resolvePythonExe(): Promise<string> {
+  if (process.platform !== 'win32') {
+    return ensurePythonVenv((msg) => log.info(msg))
+  }
   const sys = detectSystemPython()
   if (sys === 'py') return 'py'
   if (sys) return sys

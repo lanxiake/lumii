@@ -16,8 +16,10 @@ import {
 import styles from '../../SettingsPage.module.css'
 
 export function VoiceSettingsSection() {
-  // D15：本地 TTS（MeloTTS / Qwen3）与声纹克隆依赖 sherpa-onnx 与内嵌运行时，
-  // 第一期在 Linux 上屏蔽。在线 Edge TTS 不受影响，是保留下来的那条链路。
+  // D15 → D26（二期运行时对等）：本地 TTS（MeloTTS）依赖随包的 sherpa-onnx，
+  // 打包实测可加载，Linux 上已可用；Qwen3 引擎与声纹克隆依赖宿主级 Python 链路
+  // （Windows 内置运行时 / Linux 应用 venv），与 voiceCloning 同门禁。
+  // 在线 Edge TTS 始终可用，是各平台都保留的兜底链路。
   const { isAvailable, blockMessage } = useFeatureAvailability()
   const localTtsBlocked = !isAvailable('localTts')
   const voiceCloningBlocked = !isAvailable('voiceCloning')
@@ -507,13 +509,15 @@ export function VoiceSettingsSection() {
                       disabled: localTtsBlocked || !vitsDownloaded,
                     },
                     {
-                      label: localTtsBlocked
-                        ? 'Qwen3 本地多音色（当前平台不支持）'
-                        : qwen3CustomReady
-                          ? 'Qwen3（本地多音色 + 声音克隆）'
-                          : 'Qwen3（需先下载 Tokenizer+CustomVoice）',
+                      // Qwen3 引擎（含克隆）走宿主级 Python 链路，与 voiceCloning 同门禁
+                      label:
+                        localTtsBlocked || voiceCloningBlocked
+                          ? 'Qwen3 本地多音色（当前平台不支持）'
+                          : qwen3CustomReady
+                            ? 'Qwen3（本地多音色 + 声音克隆）'
+                            : 'Qwen3（需先下载 Tokenizer+CustomVoice）',
                       value: 'qwen3',
-                      disabled: localTtsBlocked || !qwen3CustomReady,
+                      disabled: localTtsBlocked || voiceCloningBlocked || !qwen3CustomReady,
                     },
                   ]}
                   onChange={(e) => {

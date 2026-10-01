@@ -11,6 +11,7 @@ import {
   ensureBundledPython,
   getBundledPythonExe,
 } from '../python-env.js'
+import { ensurePythonVenv, getPythonVenvExe } from '../python-venv.js'
 import { resolveWindowsClientDataRoot } from '../client-data-root.js'
 import type { VoiceRuntimePhase } from '../../shared/voice-events.js'
 
@@ -74,15 +75,36 @@ function resolveSidecarScript(): string {
 }
 
 /**
- * Qwen3 TTS 固定使用 ~/.lumii 内置 Python，避免系统 conda 里 torch/torchaudio 版本错乱（WinError 127）。
+ * Qwen3 TTS 使用**应用管理的隔离 Python**，不使用系统 conda（torch/torchaudio 版本错乱 → WinError 127）：
+ * - Windows：`~/.lumii/runtimes/python-embed` 内置运行时；
+ * - Linux（二期运行时对等 D21/D26）：`~/.lumii/runtimes/python-venv` 应用 venv。
  */
 async function resolvePythonExe(): Promise<string> {
+  if (process.platform !== 'win32') {
+    emitStatus('checking_python', '正在准备语音合成 Python 虚拟环境…')
+    const exe = await ensurePythonVenv((msg) => {
+      emitStatus('checking_python', msg || '正在准备 Python 虚拟环境…')
+    })
+    log.info(`[resolvePythonExe] 使用应用 venv: ${exe}`)
+    return exe
+  }
   emitStatus('checking_python', '正在准备隔离的语音合成 Python（不使用系统 conda）…')
   const exe = await ensureBundledPython((msg) => {
     emitStatus('checking_python', msg || '正在准备内置 Python…')
   })
   log.info(`[resolvePythonExe] 使用内置运行时: ${exe}`)
   return exe
+}
+
+/**
+ * 该解释器是否为应用管理的 Python（Windows 内置运行时 / Linux 应用 venv）。
+ *
+ * Qwen3 的依赖装进这个环境才安全（不碰系统 conda / PEP 668 externally-managed）。
+ */
+function isAppManagedPython(pythonExe: string): boolean {
+  return process.platform === 'win32'
+    ? pythonExe === getBundledPythonExe()
+    : pythonExe === getPythonVenvExe()
 }
 
 /**
@@ -251,8 +273,8 @@ async function pipUninstallTorch(pythonExe: string): Promise<void> {
  */
 export async function uninstallPytorchFromBundledPython(): Promise<void> {
   const pythonExe = await resolvePythonExe()
-  if (pythonExe !== getBundledPythonExe()) {
-    log.warn(`[uninstallPytorch] 非内置 Python，跳过 pip 卸载: ${pythonExe}`)
+  if (!isAppManagedPython(pythonExe)) {
+    log.warn(`[uninstallPytorch] 非应用管理的 Python，跳过 pip 卸载: ${pythonExe}`)
     return
   }
   emitStatus('installing_deps', '正在卸载内置 Python 中的 PyTorch…')
@@ -267,9 +289,13 @@ export type Qwen3DevicePref = 'auto' | 'cpu' | 'cuda'
 
 /**
  * 根据用户偏好决定是否要装/用 CUDA
+ *
+ * Linux 暂不支持 GPU（CUDA 轮按 venv Python 版本解析 cp 标签的工作未做，
+ * 目录里的 cu121 轮是 win_amd64 专属；D6：GPU 本就是显式开关，按需再加）。
  */
 function resolveWantCuda(pref: Qwen3DevicePref): boolean {
   if (pref === 'cpu') return false
+  if (process.platform !== 'win32') return false
   if (pref === 'cuda') return true
   return hasNvidiaGpu()
 }
@@ -338,8 +364,8 @@ export async function installPytorchCudaFromWheelDir(
   signal?: AbortSignal,
 ): Promise<void> {
   const pythonExe = await resolvePythonExe()
-  if (pythonExe !== getBundledPythonExe()) {
-    throw new Error(`Qwen3 TTS 仅支持内置 Python，当前: ${pythonExe}`)
+  if (!isAppManagedPython(pythonExe)) {
+    throw new Error(`Qwen3 TTS 仅支持应用管理的 Python（Windows 内置运行时 / Linux 应用 venv），当前: ${pythonExe}`)
   }
   const wheels = fs
     .readdirSync(wheelDir)
@@ -425,7 +451,9 @@ async function installQwenDeps(pythonExe: string): Promise<void> {
       'soundfile',
       'numpy',
       'librosa',
-      BUNDLED_ONNXRUNTIME_SPEC,
+      // onnxruntime 1.20.1 钉版是 Windows 专属规避（Win10 19045 LoadLibrary 1114，
+      // 见 python-env.BUNDLED_ONNXRUNTIME_SPEC）；Linux 不钉，取当前可用版本。
+      ...(process.platform === 'win32' ? [BUNDLED_ONNXRUNTIME_SPEC] : []),
       'einops',
       '-i',
       PYPI_MIRROR,
@@ -473,10 +501,13 @@ async function ensureQwenTtsPackage(
   pythonExe: string,
   devicePref: Qwen3DevicePref = 'auto',
 ): Promise<void> {
-  if (pythonExe !== getBundledPythonExe()) {
-    throw new Error(`Qwen3 TTS 仅支持内置 Python，当前: ${pythonExe}`)
+  if (!isAppManagedPython(pythonExe)) {
+    throw new Error(`Qwen3 TTS 仅支持应用管理的 Python（Windows 内置运行时 / Linux 应用 venv），当前: ${pythonExe}`)
   }
 
+  if (devicePref === 'cuda' && process.platform !== 'win32') {
+    throw new Error('GPU 加速（CUDA）当前仅 Windows 支持，Linux 版请使用 CPU 合成')
+  }
   if (devicePref === 'cuda' && !hasNvidiaGpu()) {
     throw new Error('已选择 GPU，但未检测到 NVIDIA 显卡/驱动（nvidia-smi 不可用）')
   }
