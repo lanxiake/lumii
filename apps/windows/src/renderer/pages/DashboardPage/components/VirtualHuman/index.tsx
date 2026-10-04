@@ -1,8 +1,10 @@
 /**
- * VirtualHuman - 虚拟人展示框（原型 .pet.petprev）
+ * VirtualHuman - 概览页的「宠物」展示框（原型 .pet.petprev）
  *
- * 只读展示当前虚拟人形象 + 模式状态，交互入口只有「打开/关闭宠物模式」，
+ * 只读展示当前宠物形象 + 模式状态，交互入口只有「打开/关闭宠物模式」，
  * 模型与人格配置仍在设置页（避免概览页出现第二份配置面板）。
+ *
+ * 组件名沿用 VirtualHuman（改名会波及文件路径与引用），对外文案统一叫「宠物」。
  */
 
 import React, { useEffect, useState } from 'react'
@@ -70,7 +72,7 @@ export const VirtualHuman: React.FC = () => {
   return (
     <Card className={styles.panel} flush>
       <div className={styles.head}>
-        <span className={styles.title}>虚拟人</span>
+        <span className={styles.title}>宠物</span>
         <span className={clsx(styles.tag, isPetMode && styles['tag--on'])}>
           {isPetMode ? '宠物模式中' : '待机'}
         </span>
@@ -98,7 +100,7 @@ export const VirtualHuman: React.FC = () => {
         <span className={styles.sub}>
           {model
             ? `${rendererLabel(model.rendererType)} · 共 ${models.length} 个形象`
-            : '在设置页添加虚拟人形象'}
+            : '在设置页添加宠物形象'}
         </span>
       </div>
 
