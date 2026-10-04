@@ -49,7 +49,7 @@ interface SeedJob {
 export const NEWS_PIPELINE_TASK_TEXT =
   '搜索今天值得关注的热门资讯，整理 10-12 条，' +
   '每条包含标题、一句话正文摘要（交代清楚事件是什么）、来源、链接，' +
-  '并写一段不超过 120 字的整体综述，调用 dashboard_feed_write 工具写入概览页资讯卡片（标题「最近资讯」）。'
+  '并写一段不超过 120 字的整体综述，调用 dashboard_feed_write 工具写入概览页资讯卡片（标题「AI 情报站」）。'
 
 export const NEWS_PIPELINE_SYSTEM_PROMPT = [
   '你在为用户生成资讯汇总，请：',

@@ -38,6 +38,14 @@ const BATCH_PAGE_SIZE = 5
 /** 滑动分页上限：最多展示这么多期 */
 const MAX_BATCHES = 60
 
+/**
+ * 面板标题取**固定产品名**，不再读 feed meta 的 title。
+ *
+ * meta.title 是 Agent 每次抓取时自己写进 DB 的，会随提示词与模型漂移
+ * （用户在界面上看到的「AI 早报」就是这么来的）。产品名不该由 LLM 决定。
+ */
+const FEED_TITLE = 'AI 情报站'
+
 function formatWhen(ts?: number): string {
   if (!ts) return ''
   const diff = Date.now() - ts
@@ -91,7 +99,6 @@ export interface NewsFeedProps {
 }
 
 export const NewsFeed: React.FC<NewsFeedProps> = ({ onViewChange }) => {
-  const [title, setTitle] = useState('最近资讯')
   const [updatedAt, setUpdatedAt] = useState<number | undefined>()
   const [batches, setBatches] = useState<DashboardFeedBatch[]>([])
   const [hasMore, setHasMore] = useState(false)
@@ -134,7 +141,6 @@ export const NewsFeed: React.FC<NewsFeedProps> = ({ onViewChange }) => {
         ])
         if (cancelled) return
         if (meta) {
-          setTitle(meta.title ?? '最近资讯')
           setUpdatedAt(meta.updatedAt)
         }
         setBatches(page.batches)
@@ -226,36 +232,41 @@ export const NewsFeed: React.FC<NewsFeedProps> = ({ onViewChange }) => {
     <Card className={styles.panel} flush>
       <div className={styles.head}>
         <Newspaper size={14} strokeWidth={1.8} className={styles['head-icon']} />
-        <span className={styles.title}>{title}</span>
+        <span className={styles.title}>{FEED_TITLE}</span>
         <span className={styles.tag}>
           {updatedAt
             ? `${batches.length} 期 · ${totalCount} 条 · 更新于 ${formatWhen(updatedAt)}`
             : '尚未抓取'}
         </span>
-        <button
-          type="button"
-          className={styles.refresh}
-          onClick={() => void refresh()}
-          disabled={refreshing}
-          title="立即抓取一次"
-          aria-label={refreshing ? '抓取中' : '立即抓取一次'}
-        >
-          <RefreshCw size={12} strokeWidth={2} className={refreshing ? styles.spin : undefined} />
-        </button>
-        {/* 偏好放这里而不是新开一张卡：用户是在看资讯的时候才想起「这条为什么推给我」，
-            放在被质疑的那份内容旁边，比放在别处更容易被找到 */}
-        <button
-          type="button"
-          className={styles.refresh}
-          onClick={() => setPrefsOpen(true)}
-          title="看资讯偏好会命中什么"
-          aria-label="资讯偏好"
-        >
-          <SlidersHorizontal size={12} strokeWidth={2} />
-        </button>
-        <button type="button" className={styles.link} onClick={() => onViewChange?.('cron')}>
-          定时任务
-        </button>
+        {/* 三个按钮必须收在一个容器里右对齐。原先它们各自带 .refresh 类的
+            margin-left:auto —— 两个 auto 边距把剩余空间对半分，刷新按钮被顶到面板
+            中间、离偏好按钮四百多像素，看着像两个不相关的控件。 */}
+        <div className={styles.actions}>
+          <button
+            type="button"
+            className={styles.refresh}
+            onClick={() => void refresh()}
+            disabled={refreshing}
+            title="立即抓取一次"
+            aria-label={refreshing ? '抓取中' : '立即抓取一次'}
+          >
+            <RefreshCw size={12} strokeWidth={2} className={refreshing ? styles.spin : undefined} />
+          </button>
+          {/* 偏好放这里而不是新开一张卡：用户是在看资讯的时候才想起「这条为什么推给我」，
+              放在被质疑的那份内容旁边，比放在别处更容易被找到 */}
+          <button
+            type="button"
+            className={styles.refresh}
+            onClick={() => setPrefsOpen(true)}
+            title="看资讯偏好会命中什么"
+            aria-label="资讯偏好"
+          >
+            <SlidersHorizontal size={12} strokeWidth={2} />
+          </button>
+          <button type="button" className={styles.link} onClick={() => onViewChange?.('cron')}>
+            定时任务
+          </button>
+        </div>
       </div>
 
       <NewsPreferencesPanel open={prefsOpen} onClose={() => setPrefsOpen(false)} />

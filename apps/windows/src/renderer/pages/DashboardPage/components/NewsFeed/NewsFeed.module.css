@@ -64,13 +64,21 @@
   text-overflow: ellipsis;
 }
 
+/* 右侧按钮组：右对齐只在容器上做一次，组内按钮自然相邻 */
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
 .refresh {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 26px;
   height: 26px;
-  margin-left: auto;
   padding: 0;
   border: 1px solid transparent;
   border-radius: 7px;
