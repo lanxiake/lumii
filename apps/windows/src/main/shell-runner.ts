@@ -31,6 +31,35 @@ const log = createLogger('ShellRunner')
 const SUPPORTED_EXTENSIONS = new Set(['.sh', '.bash', '.ps1', '.bat', '.cmd'])
 
 /**
+ * 解码子进程输出。
+ *
+ * 中文 Windows 上 `powershell.exe -File` / `cmd.exe` 的 stdout 走**控制台 OEM
+ * 代码页**（GBK/936），一律按 UTF-8 解码会把中文变成 U+FFFD —— 技能脚本输出的
+ * `__SKILL_RESULT__:` JSON 里若含中文，解析出来就是乱码。
+ *
+ * 为什么不改调用方式：`-File` 无法像 `-Command` 那样前置编码设置，而改成
+ * `-Command "& '脚本'"` 会破坏退出码传播（实测脚本内 `exit 3` 会变成 1），
+ * 调用方正是靠 `exitCode === 0` 判成功的。故这里只改解码：
+ * **先严格 UTF-8，失败再 GBK** —— 真 UTF-8（bash / .sh / 已设 UTF-8 的脚本）走
+ * 第一条，OEM 代码页的走第二条，两边都不误伤。
+ *
+ * 注意必须在**收完整个输出后**再解码：按块解码会在多字节字符被 chunk 边界切开时
+ * 误判编码。
+ */
+export function decodeShellOutput(buf: Buffer): string {
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(buf)
+  } catch {
+    try {
+      return new TextDecoder('gbk').decode(buf)
+    } catch {
+      // 缺 GBK 解码器（非完整 ICU 的运行时）：退回宽容 UTF-8，至少不抛
+      return buf.toString('utf8')
+    }
+  }
+}
+
+/**
  * pwsh（PowerShell Core）在 Linux 上的常见安装位置。
  *
  * **不能只查 PATH**：Electron 从 GUI 启动时未必继承登录 shell 的完整 PATH，
@@ -175,6 +204,13 @@ export class ShellRunner {
       let child: ChildProcess
       let stdout = ''
       let stderr = ''
+      // 先攒原始字节，进程结束后再整体解码（按块解码会在多字节字符被切断时误判编码）
+      const stdoutChunks: Buffer[] = []
+      const stderrChunks: Buffer[] = []
+      const flushOutput = (): void => {
+        stdout = decodeShellOutput(Buffer.concat(stdoutChunks))
+        stderr = decodeShellOutput(Buffer.concat(stderrChunks))
+      }
       let killed = false
       let timeoutId: ReturnType<typeof setTimeout> | null = null
 
@@ -206,12 +242,12 @@ export class ShellRunner {
 
       // 收集 stdout
       child.stdout?.on('data', (chunk: Buffer) => {
-        stdout += chunk.toString()
+        stdoutChunks.push(chunk)
       })
 
       // 收集 stderr
       child.stderr?.on('data', (chunk: Buffer) => {
-        stderr += chunk.toString()
+        stderrChunks.push(chunk)
       })
 
       // 超时处理：直接强制终止进程树
@@ -240,6 +276,7 @@ export class ShellRunner {
         if (timeoutId) {
           clearTimeout(timeoutId)
         }
+        flushOutput()
 
         const executionTimeMs = Date.now() - startTime
 
@@ -290,6 +327,7 @@ export class ShellRunner {
         if (timeoutId) {
           clearTimeout(timeoutId)
         }
+        flushOutput()
 
         log.error('Shell 子进程错误', { error: err.message })
         resolve({

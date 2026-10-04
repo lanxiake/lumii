@@ -45,7 +45,7 @@ vi.mock('node:child_process', async (importOriginal) => {
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import { ShellRunner, findPwshExecutable } from './shell-runner'
+import { ShellRunner, decodeShellOutput, findPwshExecutable } from './shell-runner'
 
 /** 假子进程：只暴露 forceKillProcess 真正用到的两个字段 */
 function fakeChild(over: Partial<{ pid: number | undefined; killed: boolean }> = {}) {
@@ -333,4 +333,53 @@ describe('ShellRunner —— .ps1 的 pwsh 探测', () => {
     expect(res.error).toContain('PowerShell Core')
     expect(res.error).not.toContain('不支持的脚本类型')
   })
+})
+
+/**
+ * 输出解码（2026-10-04）。
+ *
+ * 中文 Windows 上 `powershell.exe -File` / `cmd.exe` 的 stdout 是控制台 OEM
+ * 代码页（GBK）编码，一律按 UTF-8 解会让技能脚本 `__SKILL_RESULT__:` JSON 里的
+ * 中文变乱码。这里锁住「先严格 UTF-8、失败再 GBK」这条判据。
+ */
+describe('decodeShellOutput', () => {
+  it('UTF-8 字节正常解出中文（bash / .sh 路径不受影响）', () => {
+    expect(decodeShellOutput(Buffer.from('中文结果', 'utf8'))).toBe('中文结果')
+  })
+
+  it('GBK 字节按 GBK 解出中文，而不是变成 U+FFFD', () => {
+    // 「中文」的 GBK 编码是 D6 D0 CE C4
+    const gbk = Buffer.from([0xd6, 0xd0, 0xce, 0xc4])
+    expect(decodeShellOutput(gbk)).toBe('中文')
+    expect(decodeShellOutput(gbk)).not.toContain('�')
+  })
+
+  it('纯 ASCII 两种编码下都原样返回', () => {
+    expect(decodeShellOutput(Buffer.from('{"ok":true}', 'ascii'))).toBe('{"ok":true}')
+  })
+})
+
+describe('端到端：.ps1 输出中文（实机，仅 win32）', () => {
+  it.skipIf(process.platform !== 'win32')(
+    '真实 powershell -File 的中文能解对，不是 U+FFFD',
+    async () => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'shell-runner-enc-'))
+      const script = path.join(dir, 'echo.ps1')
+      // 带 BOM：PowerShell 5.1 无 BOM 时按 ANSI 读脚本，中文会先坏在脚本自己这一步
+      fs.writeFileSync(script, '﻿Write-Output "中文结果 ok"\n', 'utf8')
+      try {
+        const res = await new ShellRunner().execute({
+          entryPath: script,
+          params: {},
+          timeoutMs: 20_000,
+        })
+        expect(res.success).toBe(true)
+        expect(res.stdout).toContain('中文结果')
+        expect(res.stdout).not.toContain('�')
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true })
+      }
+    },
+    30_000,
+  )
 })
