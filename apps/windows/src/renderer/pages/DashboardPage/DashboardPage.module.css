@@ -1,7 +1,7 @@
 /**
  * DashboardPage Styles - 概览页
  *
- * 一屏布局：页头 / 最近资讯（吃掉剩余高度）/ 底部四栏「近期关注 + 场景推荐 + 用量 + 宠物」。
+ * 一屏布局：页头 / 最近资讯（吃掉剩余高度）/ 底部三栏「近期关注 + 场景推荐 + 宠物」。
  * 页面自身不出滚动条（内部列表溢出时各自滚）。
  */
 
@@ -53,10 +53,10 @@
   letter-spacing: -0.025em;
 }
 
-/* ── 底部四栏：近期关注 + 场景推荐 + 用量 + 宠物 ── */
+/* ── 底部三栏：近期关注（文字最多，给最宽）+ 场景推荐 + 宠物 ── */
 .bottom-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 176px 216px;
+  grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr) 216px;
   gap: 10px;
   flex: 0 0 auto;
   min-height: 168px;
@@ -79,14 +79,14 @@
   min-height: 0;
 }
 
-/* 窄屏：先收窄用量与宠物两栏，再堆叠 */
+/* 窄屏：宠物栏收窄一档 */
 @media (max-width: 1180px) {
   .bottom-grid {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 156px 188px;
+    grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr) 188px;
   }
 }
 
-/* 窄屏堆叠后四块各占一行，此时页面允许滚动，不再压高度上限 */
+/* 窄屏堆叠后三块各占一行，此时页面允许滚动，不再压高度上限 */
 @media (max-width: 900px) {
   .bottom-grid {
     grid-template-columns: 1fr;
