@@ -130,6 +130,7 @@ import { clearScreenshotTempDir } from './app-ui-control/screenshot-cleanup'
 import { startAppUiControlServer, stopAppUiControlServer } from './app-ui-control/server'
 import { resizeImageIfNeeded } from './agent-runtime/image-resizer'
 import { notifyAutonomousTurnEnd } from './agent-runtime/autonomous-wiring'
+import { maybeGenerateConversationTitle } from './ipc/agent-runtime/conversation-commands'
 import { initToolEvolutionRuntime } from './agent-runtime/bash-tool-evolution/engine-assembly'
 import {
   AgentRuntimeBridge,
@@ -806,6 +807,10 @@ async function initAgentRuntime(): Promise<void> {
       // 换了后端却漏切，旧库当天仍在增长而新检索读不到。
       // 自主进化：回合结束触发满意度评分与目标生成（旁路，失败不影响会话）
       void notifyAutonomousTurnEnd(convId)
+      // 首轮结束补一次模型命名，替代「取用户第一句」的粗糙标题（旁路，失败不影响会话）
+      if (agentRuntimeBridge) {
+        void maybeGenerateConversationTitle(agentRuntimeBridge, convId, assistantText)
+      }
     },
     setAcpBackend: async (backendId: string) => {
       try {

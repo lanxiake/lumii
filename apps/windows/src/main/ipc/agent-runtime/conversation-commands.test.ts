@@ -3,6 +3,9 @@ import {
   handleConversationDelete,
   handleConversationList,
   handleConversationTransferAgent,
+  maybeGenerateConversationTitle,
+  purgeEmptyConversations,
+  repairTruncatedTitles,
   setConversationDependencies,
   resolveConversationChannel,
 } from './conversation-commands'
@@ -286,6 +289,170 @@ describe('resolveConversationChannel 会话来源推导', () => {
   it('wecom:/feishu: 前缀 → 对应渠道', () => {
     expect(resolveConversationChannel('wecom:u1', emptyWeixin)).toBe('wecom')
     expect(resolveConversationChannel('feishu:ou_1', emptyWeixin)).toBe('feishu')
+  })
+})
+
+describe('purgeEmptyConversations 空会话清理', () => {
+  const makeDeleteDeps = () =>
+    setConversationDependencies({
+      sessionToInstance: new Map(),
+      untrackInstanceRuns: vi.fn(),
+    } as never)
+
+  /** 造一个含清理所需方法的 bridge，deleteConversation 用 spy 记录删了谁 */
+  const makeBridge = (emptyIds: readonly string[], deleteImpl?: () => void) => {
+    const deleteConversation = vi.fn(deleteImpl)
+    return {
+      bridge: {
+        destroy: vi.fn(),
+        clearSessionPreferredModel: vi.fn(),
+        fileRepo: { listByConversation: vi.fn(() => []), softDelete: vi.fn() },
+        conversationRepo: {
+          listEmptyConversationIds: vi.fn(() => emptyIds),
+          deleteConversation,
+        },
+        segmentRepo: { deleteByConversation: vi.fn() },
+      } as never,
+      deleteConversation,
+    }
+  }
+
+  it('把识别出的空会话逐个走删除路径', () => {
+    makeDeleteDeps()
+    const { bridge, deleteConversation } = makeBridge(['empty-1', 'empty-2'])
+
+    expect(purgeEmptyConversations(bridge)).toBe(2)
+    expect(deleteConversation).toHaveBeenCalledWith('empty-1')
+    expect(deleteConversation).toHaveBeenCalledWith('empty-2')
+  })
+
+  it('跳过自主进化会话（归属由进化机制固定）', () => {
+    makeDeleteDeps()
+    const { bridge, deleteConversation } = makeBridge(['evolution:main', 'empty-1'])
+
+    expect(purgeEmptyConversations(bridge)).toBe(1)
+    expect(deleteConversation).toHaveBeenCalledTimes(1)
+    expect(deleteConversation).toHaveBeenCalledWith('empty-1')
+  })
+
+  it('单个删除失败不阻断其余会话', () => {
+    makeDeleteDeps()
+    const deleteConversation = vi.fn((id: string) => {
+      if (id === 'boom') throw new Error('删不动')
+    })
+    const bridge = {
+      destroy: vi.fn(),
+      clearSessionPreferredModel: vi.fn(),
+      fileRepo: { listByConversation: vi.fn(() => []), softDelete: vi.fn() },
+      conversationRepo: {
+        listEmptyConversationIds: vi.fn(() => ['boom', 'empty-1']),
+        deleteConversation,
+      },
+      segmentRepo: { deleteByConversation: vi.fn() },
+    } as never
+
+    expect(purgeEmptyConversations(bridge)).toBe(1)
+    expect(deleteConversation).toHaveBeenCalledWith('empty-1')
+  })
+
+  it('repo 缺 listEmptyConversationIds（老 Bridge / 测试替身）时静默返回 0', () => {
+    expect(purgeEmptyConversations({ conversationRepo: {} } as never)).toBe(0)
+  })
+})
+
+describe('repairTruncatedTitles 修正带字面省略号的旧标题', () => {
+  it('按首条用户消息重算为完整标题', () => {
+    const updateTitle = vi.fn()
+    const bridge = {
+      conversationRepo: {
+        listTruncatedTitleFirstMessages: () => [
+          {
+            id: 'c1',
+            contentJson: JSON.stringify({ type: 'text', text: 'MCP Server mcp-trends-hub 怎么配置' }),
+          },
+        ],
+        updateTitle,
+      },
+    } as never
+
+    expect(repairTruncatedTitles(bridge)).toBe(1)
+    expect(updateTitle).toHaveBeenCalledWith('c1', 'MCP Server mcp-trends-hub 怎么配置')
+  })
+
+  it('重算结果为空时跳过，不把标题改坏', () => {
+    const updateTitle = vi.fn()
+    const bridge = {
+      conversationRepo: {
+        listTruncatedTitleFirstMessages: () => [
+          { id: 'c1', contentJson: JSON.stringify({ type: 'assistant_parts', parts: [] }) },
+        ],
+        updateTitle,
+      },
+    } as never
+
+    expect(repairTruncatedTitles(bridge)).toBe(0)
+    expect(updateTitle).not.toHaveBeenCalled()
+  })
+
+  it('repo 缺方法（老 Bridge / 测试替身）时静默返回 0', () => {
+    expect(repairTruncatedTitles({ conversationRepo: {} } as never)).toBe(0)
+  })
+})
+
+describe('maybeGenerateConversationTitle 首轮模型命名', () => {
+  const firstUserContent = JSON.stringify({ type: 'text', text: '帮我看看这个项目的依赖有没有问题' })
+
+  const makeBridge = (
+    opts: { title?: string | null; userCount?: number; channel?: string | null; llm?: string } = {},
+  ) => {
+    const updateTitle = vi.fn()
+    const forwardIpcEvent = vi.fn()
+    const bridge = {
+      conversationRepo: {
+        countUserMessages: () => opts.userCount ?? 1,
+        getConversation: () => ({ title: opts.title ?? '新对话', channel_type: opts.channel ?? null }),
+        getFirstUserMessageContentJson: () => firstUserContent,
+        updateTitle,
+      },
+      callLLM: vi.fn(async () => opts.llm ?? '项目依赖排查'),
+      forwardIpcEvent,
+    } as never
+    return { bridge, updateTitle, forwardIpcEvent }
+  }
+
+  it('首轮结束：写入模型给的标题并广播 conversation:updated', async () => {
+    const { bridge, updateTitle, forwardIpcEvent } = makeBridge({ llm: '"项目依赖排查。"' })
+
+    await maybeGenerateConversationTitle(bridge, 'c1', '我来看一下')
+
+    expect(updateTitle).toHaveBeenCalledWith('c1', '项目依赖排查')
+    expect(forwardIpcEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'conversation:updated', sessionKey: 'c1', title: '项目依赖排查' }),
+    )
+  })
+
+  it('非首轮不再命名', async () => {
+    const { bridge, updateTitle } = makeBridge({ userCount: 2 })
+    await maybeGenerateConversationTitle(bridge, 'c1', 'x')
+    expect(updateTitle).not.toHaveBeenCalled()
+  })
+
+  it('用户改过名（标题≠启发式默认值）时不覆盖', async () => {
+    const { bridge, updateTitle } = makeBridge({ title: '我的专属会话' })
+    await maybeGenerateConversationTitle(bridge, 'c1', 'x')
+    expect(updateTitle).not.toHaveBeenCalled()
+  })
+
+  it('渠道会话不命名（标题归渠道模块管）', async () => {
+    const { bridge, updateTitle } = makeBridge({ channel: 'weixin' })
+    await maybeGenerateConversationTitle(bridge, 'c1', 'x')
+    expect(updateTitle).not.toHaveBeenCalled()
+  })
+
+  it('模型返回空白时不写库', async () => {
+    const { bridge, updateTitle } = makeBridge({ llm: '   \n  ' })
+    await maybeGenerateConversationTitle(bridge, 'c1', 'x')
+    expect(updateTitle).not.toHaveBeenCalled()
   })
 })
 

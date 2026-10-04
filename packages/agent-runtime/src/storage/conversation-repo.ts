@@ -323,6 +323,65 @@ export class ConversationRepo {
   }
 
   /**
+   * 列出「一条消息都没有」的空本地会话 id，供清理用户新建后从未发言的会话使用。
+   *
+   * 只取本地归属（`channel_type` 为空或 `ipc`）：渠道会话（weixin/feishu/…）与系统会话
+   * （cron/evolution/onboarding）即使暂时没有消息也由各自模块管理，不在这里动。
+   * `createConversation` 不带 channel_type（落库为 NULL），V41 之前的旧行回填为 `ipc`，
+   * 两者都属于本地会话。
+   *
+   * 置顶会话排除：用户显式标记过，即便为空也保留。
+   */
+  listEmptyConversationIds(userId: string): readonly string[] {
+    return this.db
+      .prepare<{ id: string }>(
+        `SELECT c.id AS id FROM conversations c
+          WHERE c.user_id = ? AND c.is_active = 1 AND c.is_pinned = 0
+            AND (c.channel_type IS NULL OR c.channel_type = 'ipc')
+            AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.conversation_id = c.id)`,
+      )
+      .all(userId)
+      .map((row) => row.id);
+  }
+
+  /**
+   * 列出标题以字面「...」结尾的会话，并带回其首条用户消息的 content_json。
+   *
+   * 旧版 `deriveConversationTitleFromUserText` 会把标题砍到 18 字再补「...」，
+   * 省略号因此被写进了数据。原始文本没丢——它还在首条用户消息里——启动时可据此
+   * 重算成完整标题。`LIKE '%...'` 里只有 `%` 是通配符，点号是字面量。
+   */
+  listTruncatedTitleFirstMessages(
+    userId: string,
+  ): readonly { id: string; contentJson: string }[] {
+    return this.db
+      .prepare<{ id: string; content_json: string | null }>(
+        `SELECT c.id AS id, (
+             SELECT m.content_json FROM messages m
+              WHERE m.conversation_id = c.id AND m.role = 'user'
+              ORDER BY m.timestamp ASC LIMIT 1
+           ) AS content_json
+           FROM conversations c
+          WHERE c.user_id = ? AND c.is_active = 1 AND c.title LIKE '%...'`,
+      )
+      .all(userId)
+      .filter((row): row is { id: string; content_json: string } => typeof row.content_json === 'string')
+      .map((row) => ({ id: row.id, contentJson: row.content_json }));
+  }
+
+  /** 取某会话首条用户消息的 content_json（供标题推导 / 重命名判据使用） */
+  getFirstUserMessageContentJson(conversationId: string): string | undefined {
+    const row = this.db
+      .prepare<{ content_json: string }>(
+        `SELECT content_json FROM messages
+          WHERE conversation_id = ? AND role = 'user'
+          ORDER BY timestamp ASC LIMIT 1`,
+      )
+      .get(conversationId);
+    return row?.content_json;
+  }
+
+  /**
    * 获取最近一条带 usage 的助手消息的 prompt tokens（提供商真实读数）。
    * 用于重启或切换会话后恢复上下文用量展示。
    *

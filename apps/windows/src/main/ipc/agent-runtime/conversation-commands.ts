@@ -12,6 +12,7 @@ import { isEvolutionConversationId } from '@mtbot/agent-runtime'
 import { resolveChannelIdentity } from '../../channel/channel-identity'
 import { acpSessionStateKey } from '../../coding-dev-acp-run.js'
 import { normalizeAgentIdForBinding } from '../../coding-dev-env.js'
+import { deriveConversationTitleFromUserText } from '../../../shared/conversation-title'
 
 const log = {
   info: (...args: unknown[]) => console.log('[AgentRuntime:IPC]', ...args),
@@ -83,6 +84,9 @@ interface ConversationDependencies {
 
 let deps: ConversationDependencies | null = null
 
+/** 启动后是否已跑过一次会话维护（清空会话 + 修旧标题，见 handleConversationList） */
+let startupConversationMaintenanceDone = false
+
 export function setConversationDependencies(dependencies: ConversationDependencies): void {
   deps = dependencies
 }
@@ -96,6 +100,9 @@ export async function handleConversationCreate(
   command: Extract<AgentRuntimeCommand, { type: 'conversation:create' }>,
 ): Promise<{ sessionKey: string; conversationId: string }> {
   const { title, agentId, selectedModelId } = command
+
+  // 新会话一出，之前被搁置的空会话（点了「新建对话」却没发消息）就没必要留了。
+  purgeEmptyConversations(bridge)
 
   // 1. 持久化到 DB
   const conversation = bridge.conversationRepo.createConversation({
@@ -262,6 +269,14 @@ export function handleConversationList(
   wasInterrupted?: boolean
   channel?: string
 }[] {
+  // 启动后第一次拉列表时做一次会话维护（清历史遗留的空会话、修带字面省略号的旧标题）。
+  // 只做一次：不能放在每次 list 里，否则会把用户正在输入的空会话也删掉。
+  if (!startupConversationMaintenanceDone) {
+    startupConversationMaintenanceDone = true
+    purgeEmptyConversations(bridge)
+    repairTruncatedTitles(bridge)
+  }
+
   // 侧栏按「默认 / 渠道 / 系统」三个 tab 分组展示。这里不能设全局 LIMIT：
   // 否则数量最多的「默认」会话会把「渠道」「系统」会话挤出列表（重启后这些会话的
   // last_msg_at 靠后即从侧栏消失）。预览走 loadLastMessagesForConversations 单次
@@ -365,6 +380,180 @@ export function handleConversationDelete(
   bridge.conversationRepo.deleteConversation(sessionKey)
 
   log.info(`[conversation:delete] sessionKey=${sessionKey}`)
+}
+
+/**
+ * 清理「空会话」：用户点了「新建对话」却一条消息都没发过的本地会话，留库没有价值
+ * ——侧栏只会堆出一排「新对话」，谁也分不清。
+ *
+ * 复用单会话删除的清理路径（销毁实例 / 清偏好 / 清 ACP 续接键 / 清记忆分段），
+ * 避免只删 conversations 行留下孤儿数据。
+ *
+ * 只清本地会话；渠道与系统会话由 `listEmptyConversationIds` 排除在外。
+ * 自主进化会话即便为空也跳过（归属由进化机制固定）。
+ *
+ * @returns 实际删除的会话数
+ */
+export function purgeEmptyConversations(bridge: AgentRuntimeBridge): number {
+  // 测试替身与老 Bridge 可能没有这个方法；缺了就静默跳过，不影响主流程。
+  const repo = bridge.conversationRepo as {
+    listEmptyConversationIds?: (userId: string) => readonly string[]
+  }
+  if (typeof repo.listEmptyConversationIds !== 'function') return 0
+
+  let ids: readonly string[]
+  try {
+    ids = repo.listEmptyConversationIds(LOCAL_USER_ID)
+  } catch (err) {
+    log.warn('[purgeEmptyConversations] 查询空会话失败:', err)
+    return 0
+  }
+
+  let removed = 0
+  for (const id of ids) {
+    if (isEvolutionConversationId(id)) continue
+    try {
+      handleConversationDelete(bridge, { type: 'conversation:delete', sessionKey: id })
+      removed++
+    } catch (err) {
+      log.warn(`[purgeEmptyConversations] 删除空会话失败 id=${id}:`, err)
+    }
+  }
+  if (removed > 0) {
+    log.info(`[purgeEmptyConversations] 已清理 ${removed} 个空会话`)
+  }
+  return removed
+}
+
+/**
+ * 修「标题里带字面省略号」的历史数据。
+ *
+ * 旧版把标题砍到 18 字再补「...」，省略号被写进了库。原文没丢——就在首条用户消息里
+ * ——按新规则（不截断、不拼接）重算即可。只处理标题确实以「...」结尾的会话；重算结果
+ * 为空或仍是占位符时跳过，避免把空会话改成「新对话」。
+ *
+ * @returns 实际修正的会话数
+ */
+export function repairTruncatedTitles(bridge: AgentRuntimeBridge): number {
+  const repo = bridge.conversationRepo as {
+    listTruncatedTitleFirstMessages?: (
+      userId: string,
+    ) => readonly { id: string; contentJson: string }[]
+  }
+  if (typeof repo.listTruncatedTitleFirstMessages !== 'function') return 0
+
+  let rows: readonly { id: string; contentJson: string }[]
+  try {
+    rows = repo.listTruncatedTitleFirstMessages(LOCAL_USER_ID)
+  } catch (err) {
+    log.warn('[repairTruncatedTitles] 查询带省略号标题失败:', err)
+    return 0
+  }
+
+  let fixed = 0
+  for (const row of rows) {
+    const title = deriveConversationTitleFromUserText(extractPreviewText(row.contentJson))
+    if (!title || title === '新对话') continue
+    try {
+      bridge.conversationRepo.updateTitle(row.id, title)
+      fixed++
+    } catch (err) {
+      log.warn(`[repairTruncatedTitles] 更新标题失败 id=${row.id}:`, err)
+    }
+  }
+  if (fixed > 0) {
+    log.info(`[repairTruncatedTitles] 已修复 ${fixed} 个带省略号的旧标题`)
+  }
+  return fixed
+}
+
+/** 自动标题：交给模型的用途标签 */
+const AUTO_TITLE_PURPOSE = 'conversation_title'
+/** 自动标题硬上限（模型被要求 ≤12 字，这里只是护栏，不拼接省略号） */
+const AUTO_TITLE_MAX_CHARS = 18
+
+/**
+ * 首轮对话结束后，让模型把会话概括成一句短标题。
+ *
+ * 现有标题是「取用户第一句」（见 `deriveConversationTitleFromUserText`），遇上
+ * 「帮我看看这个项目」这类宽泛开场就分不清会话。这里在**首轮**结束时补一次更好的命名。
+ *
+ * 三条护栏：
+ * - **只改首轮**：第 2 条用户消息起就不再自动命名；
+ * - **用户改过名就不动**：标题已不等于启发式默认值（也不是占位符）时视为人工命名，跳过；
+ * - **只碰本地会话**：渠道 / 系统会话的标题由各自模块管。
+ *
+ * 旁路执行，失败只记日志，不影响会话。
+ */
+export async function maybeGenerateConversationTitle(
+  bridge: AgentRuntimeBridge,
+  conversationId: string,
+  assistantText: string,
+): Promise<void> {
+  try {
+    const repo = bridge.conversationRepo
+    if (repo.countUserMessages(conversationId) !== 1) return
+
+    const conv = repo.getConversation(conversationId)
+    if (!conv) return
+    const channel = conv.channel_type
+    if (channel && channel !== 'ipc') return
+
+    const firstUserContent = repo.getFirstUserMessageContentJson(conversationId)
+    const firstUserText = firstUserContent ? extractPreviewText(firstUserContent) : ''
+    if (!firstUserText.trim()) return
+
+    const derived = deriveConversationTitleFromUserText(firstUserText)
+    if (!isStillAutoTitle(conv.title, derived)) return
+
+    const aiTitle = await generateTitleWithLlm(bridge, firstUserText, assistantText)
+    if (!aiTitle) return
+
+    // 生成期间用户可能改了名，落库前再确认一次
+    const latest = repo.getConversation(conversationId)
+    if (!isStillAutoTitle(latest?.title, derived)) return
+
+    repo.updateTitle(conversationId, aiTitle)
+    bridge.forwardIpcEvent({
+      type: 'conversation:updated',
+      sessionKey: conversationId,
+      title: aiTitle,
+    })
+    log.info(`[maybeGenerateConversationTitle] conv=${conversationId} 标题 → "${aiTitle}"`)
+  } catch (err) {
+    log.warn('[maybeGenerateConversationTitle] 生成会话标题失败:', err)
+  }
+}
+
+/** 标题是否仍处于「自动生成」状态（空 / 占位符 / 等于启发式默认值） */
+function isStillAutoTitle(title: string | null | undefined, derived: string): boolean {
+  const t = title?.trim()
+  return !t || t === '新对话' || t === derived
+}
+
+async function generateTitleWithLlm(
+  bridge: AgentRuntimeBridge,
+  userText: string,
+  assistantText: string,
+): Promise<string> {
+  const prompt =
+    '你是会话标题生成器。根据下面这段对话的开头，用不超过 12 个字概括主题，作为会话标题。\n' +
+    '只输出标题本身：不要引号、不要句末标点、不要解释、不要换行。\n\n' +
+    `【用户】${userText.slice(0, 500)}\n【助手】${assistantText.slice(0, 500)}`
+  const raw = await bridge.callLLM(prompt, undefined, AUTO_TITLE_PURPOSE)
+  return sanitizeGeneratedTitle(raw)
+}
+
+/** 清洗模型输出：取首个非空行、剥掉包裹的引号/括号与首尾标点、压空白、限长 */
+function sanitizeGeneratedTitle(raw: string): string {
+  const line = (raw ?? '')
+    .split('\n')
+    .map((s) => s.trim())
+    .find(Boolean)
+    ?.replace(/^[\s"'“”‘’《》【】()（）\[\]]+/, '')
+    .replace(/[\s"'“”‘’《》【】()（）\[\]。，、.!?！？:：;；]+$/, '')
+  const title = line ? line.replace(/\s+/g, ' ').trim() : ''
+  return title.length > AUTO_TITLE_MAX_CHARS ? title.slice(0, AUTO_TITLE_MAX_CHARS) : title
 }
 
 /**
