@@ -20,19 +20,45 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 
-// electron 的 app 在测试环境不可用；autostart 只在非 Linux 分支才碰它
-vi.mock('electron', () => ({
-  app: {
-    getLoginItemSettings: () => ({ openAtLogin: false }),
-    setLoginItemSettings: vi.fn(),
-  },
-}))
+// electron 的 app 在测试环境不可用；autostart 只在非 Linux 分支才碰它。
+//
+// 这个假 app **模拟 Electron 在 Windows 上的真实契约**：注册表里只有一条
+// （按值名覆盖）启动命令，回读时用传入的 `path + args` 去比对——带了参写入却
+// 不带参回读，就会被判成「未开启」。只有这样，下面那条 win32 用例才能在旧实现
+// （回读不传 args）下变红；用无状态 stub 永远抓不到这个 bug。
+const { fakeLoginStore } = vi.hoisted(() => {
+  const state: { args: string[] | null } = { args: null }
+  const sameArgs = (a: string[], b: string[]) =>
+    a.length === b.length && a.every((v, i) => v === b[i])
+
+  return {
+    fakeLoginStore: {
+      /** 用例间清空「注册表」，避免互相污染 */
+      reset(): void {
+        state.args = null
+      },
+      app: {
+        setLoginItemSettings(settings: { openAtLogin?: boolean; args?: string[] }): void {
+          state.args = settings.openAtLogin ? settings.args ?? [] : null
+        },
+        getLoginItemSettings(options?: { args?: string[] }): { openAtLogin: boolean } {
+          const query = options?.args ?? []
+          return { openAtLogin: state.args !== null && sameArgs(state.args, query) }
+        },
+      },
+    },
+  }
+})
+
+vi.mock('electron', () => ({ app: fakeLoginStore.app }))
 
 import {
   resolveAutostartExecPath,
   STARTUP_ARG,
   isLinuxAutostartEnabled,
   setLinuxAutostart,
+  getOpenAtLogin,
+  setOpenAtLogin,
 } from './autostart'
 
 const originalAppImage = process.env.APPIMAGE
@@ -212,5 +238,44 @@ describe('setLinuxAutostart — 真实读写 .desktop', () => {
 
     expect(content).toContain('/home/x/Apps/Lumii.AppImage')
     expect(content).not.toContain('/tmp/.mount_')
+  })
+})
+
+/**
+ * 回归：Windows 上「设置成功却回读为 false，导致关不掉自启」。
+ *
+ * 旧实现写入时带 `args: [STARTUP_ARG]`，回读却调 `getLoginItemSettings()`（不传
+ * args）。Electron 按空数组比对，带参条目的 `openAtLogin` 永远是 false——渲染层
+ * 把开关置回关闭，用户再点就只会重复「开启」，**根本发不出关闭指令**。
+ */
+describe('win32：回读必须带写入时同一组 args', () => {
+  const originalPlatform = process.platform
+
+  beforeEach(() => {
+    Object.defineProperty(process, 'platform', { value: 'win32', configurable: true })
+    fakeLoginStore.reset()
+  })
+
+  afterEach(() => {
+    Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true })
+  })
+
+  it('开启后 getOpenAtLogin 为 true（旧实现此处为 false）', () => {
+    expect(setOpenAtLogin(true)).toBe(true)
+    expect(getOpenAtLogin()).toBe(true)
+  })
+
+  it('关闭后回读为 false', () => {
+    setOpenAtLogin(true)
+
+    expect(setOpenAtLogin(false)).toBe(false)
+    expect(getOpenAtLogin()).toBe(false)
+  })
+
+  it('开→关→再开，开关状态始终跟随注册表（不再卡死在“开启”）', () => {
+    expect(setOpenAtLogin(true)).toBe(true)
+    expect(setOpenAtLogin(false)).toBe(false)
+    expect(setOpenAtLogin(true)).toBe(true)
+    expect(getOpenAtLogin()).toBe(true)
   })
 })

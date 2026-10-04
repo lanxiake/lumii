@@ -103,10 +103,27 @@ export function setLinuxAutostart(enable: boolean): void {
   fs.writeFileSync(file, buildDesktopEntry(resolveAutostartExecPath()), 'utf8')
 }
 
+/**
+ * 读取 Electron 登录项状态（win32 / darwin）。
+ *
+ * **Windows 必须带上写入时同一组 `args`**：Electron 的 `openAtLogin` 是拿
+ * `path + args` 去比对注册表里的启动命令行。我们写入时带了 `--startup-launched`，
+ * 若回读不传 `args`，Electron 默认按**空数组**比对，于是带参的条目一律被判成
+ * 「未开启」——表现就是「设置明明成功了却回读为 false」，渲染层据此把开关置回
+ * 关闭，用户再也点不到「取消」。
+ * `path` 两侧都取默认值 `process.execPath`，故只需对齐 `args`。
+ */
+function readElectronLoginItem(): boolean {
+  if (process.platform === 'win32') {
+    return app.getLoginItemSettings({ args: [STARTUP_ARG] }).openAtLogin
+  }
+  return app.getLoginItemSettings().openAtLogin
+}
+
 /** 读取开机自启状态（按平台分派） */
 export function getOpenAtLogin(): boolean {
   if (process.platform === 'linux') return isLinuxAutostartEnabled()
-  return app.getLoginItemSettings().openAtLogin
+  return readElectronLoginItem()
 }
 
 /**
@@ -126,5 +143,5 @@ export function setOpenAtLogin(enable: boolean): boolean {
     // 开机启动时携带参数，用于检测是否由系统自动启动（隐藏到托盘）
     args: enable ? [STARTUP_ARG] : [],
   })
-  return app.getLoginItemSettings().openAtLogin
+  return readElectronLoginItem()
 }
