@@ -49,6 +49,7 @@ export const COMPLEX_TOOL_NAMES: ReadonlySet<string> = new Set([
   // 会话与交互
   "session_list",
   "session_resume",
+  "session_rename",
   "ask_user_question",
   // 渐进式加载引导（描述即「何时调用」）
   "prompt_guide",

@@ -142,6 +142,7 @@ const FAILURE_SEMANTICS: Record<string, FileFailureSemantics> = {
       "session_compact",
       "session_resume",
       "session_list",
+      "session_rename",
       "settings_think",
       "settings_backend",
       "info_status",

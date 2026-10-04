@@ -127,8 +127,31 @@ export const sessionListToolConfig: MtBotToolConfig<typeof SessionListParams> = 
   },
 };
 
-// ── 设置 ──
+const SessionRenameParams = Type.Object({
+  title: Type.String({
+    description: "New conversation title. Keep it short (≤ 12 characters) and specific to the topic.",
+  }),
+});
+type SessionRenameInput = Static<typeof SessionRenameParams>;
 
+export const sessionRenameToolConfig: MtBotToolConfig<typeof SessionRenameParams> = {
+  name: "session_rename",
+  label: "Rename Session",
+  description:
+    "Rename the current conversation so it is easy to tell apart in the sidebar. " +
+    "Call this when the user asks to rename the conversation, or when the conversation's " +
+    "topic has clearly moved away from what the current title says. Use a short, specific " +
+    "title (≤ 12 characters); do not include quotes or trailing punctuation.",
+  parameters: SessionRenameParams,
+  category: "agent",
+  isReadOnly: false,
+  needsPermission: false,
+  async execute(_id: string, _p: SessionRenameInput): Promise<AgentToolResult<unknown>> {
+    return notImplemented();
+  },
+};
+
+// ── 设置 ──
 const SettingsThinkParams = Type.Object({
   level: Type.Union(
     [Type.Literal("off"), Type.Literal("low"), Type.Literal("medium"), Type.Literal("high")],

@@ -14,6 +14,7 @@ import {
   sessionCompactToolConfig,
   sessionResumeToolConfig,
   sessionListToolConfig,
+  sessionRenameToolConfig,
   settingsThinkToolConfig,
   settingsBackendToolConfig,
   infoStatusToolConfig,
@@ -154,6 +155,36 @@ export function registerClientCommandTools(deps: BridgeToolRegistrarDeps, ctx: T
     },
   }
   deps.toolRegistry.register(createMtBotTool(sessionListConfig, ctx))
+
+  // session_rename — 改当前会话的侧栏标题（用户说「改个名」或话题已明显偏移时）
+  const sessionRenameConfig: MtBotToolConfig = {
+    ...sessionRenameToolConfig,
+    execute: async (toolCallId, rawParams) => {
+      const { title } = rawParams as { title: string }
+      const newTitle = String(title ?? '').trim()
+      if (!newTitle) return jsonToolResult({ ok: false, message: '标题不能为空' })
+
+      const instanceId = deps.toolCallInstanceMap.get(toolCallId) ?? deps.getCurrentToolExecutorInstanceId()
+      const currentSessionKey = instanceId ? deps.instanceToConversation.get(instanceId) : undefined
+      if (!currentSessionKey) {
+        return jsonToolResult({ ok: false, message: '无法确定当前会话，无法改名。' })
+      }
+
+      const conversationRepo = getConversationRepo()
+      if (!conversationRepo) return jsonToolResult({ ok: false, message: 'conversationRepo not initialized' })
+
+      conversationRepo.updateTitle(currentSessionKey, newTitle)
+      forwardIpcEvent({ type: 'conversation:updated', sessionKey: currentSessionKey, title: newTitle })
+      log.info(`[session_rename] sessionKey=${currentSessionKey} 标题 → "${newTitle}"`)
+      return jsonToolResult({
+        ok: true,
+        sessionKey: currentSessionKey,
+        title: newTitle,
+        message: `会话已重命名为「${newTitle}」。`,
+      })
+    },
+  }
+  deps.toolRegistry.register(createMtBotTool(sessionRenameConfig, ctx))
 
   // session_resume — 切换到指定会话（客户端界面 + 渠道消息路由）
   const sessionResumeConfig: MtBotToolConfig = {
