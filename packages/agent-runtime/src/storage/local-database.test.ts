@@ -7,11 +7,13 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   activePathPointerFile,
   applySqliteConnectionPragmas,
+  LocalDatabase,
   readActivePathPointer,
+  rotateCorruptedDb,
   SQLITE_BUSY_TIMEOUT_MS,
   sqliteConnectionPragmaStatements,
   writeActivePathPointer,
@@ -77,5 +79,100 @@ describe("active-path pointer", () => {
     const dir = makeTmpDir();
     const dbPath = path.join(dir, "agent-runtime.db");
     expect(readActivePathPointer(dbPath)).toBeNull();
+  });
+});
+
+describe("rotateCorruptedDb 锁与损坏分离", () => {
+  const tmpDirs: string[] = [];
+
+  function makeTmpDir(): string {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mtbot-localdb-rotate-"));
+    tmpDirs.push(dir);
+    return dir;
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    for (const dir of tmpDirs.splice(0)) {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("文件被占用（重命名失败）时抛错，绝不另起 .new 空库", () => {
+    const dir = makeTmpDir();
+    const dbPath = path.join(dir, "agent-runtime.db");
+    fs.writeFileSync(dbPath, "locked");
+
+    // 模拟 Windows EBUSY：rename 直接失败
+    vi.spyOn(fs, "renameSync").mockImplementation(() => {
+      throw new Error("EBUSY: resource busy or locked");
+    });
+
+    expect(() => rotateCorruptedDb(dbPath)).toThrow(/被占用/);
+
+    // 关键断言：不得遗留 `.new-<ts>` 分叉库
+    expect(fs.readdirSync(dir).some((f) => f.includes(".new-"))).toBe(false);
+  });
+
+  it("文件未被占用时正常重命名到 .corrupted-<ts>", () => {
+    const dir = makeTmpDir();
+    const dbPath = path.join(dir, "agent-runtime.db");
+    fs.writeFileSync(dbPath, "corrupt");
+
+    expect(() => rotateCorruptedDb(dbPath)).not.toThrow();
+    expect(fs.existsSync(dbPath)).toBe(false);
+    expect(fs.readdirSync(dir).some((f) => f.startsWith("agent-runtime.db.corrupted-"))).toBe(true);
+  });
+});
+
+describe("LocalDatabase 粘性指针", () => {
+  const tmpDirs: string[] = [];
+
+  function makeTmpDir(): string {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mtbot-localdb-sticky-"));
+    tmpDirs.push(dir);
+    return dir;
+  }
+
+  afterEach(() => {
+    for (const dir of tmpDirs.splice(0)) {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  function openOptions(dbPath: string, backupDir: string) {
+    return { dbPath, backupDirectory: backupDir, enableScheduledBackup: false, backupOnOpen: false };
+  }
+
+  it("指针存在时优先打开轮转路径，而不是原始路径（避免遗弃更新的数据）", async () => {
+    const dir = makeTmpDir();
+    const dbPath = path.join(dir, "agent-runtime.db");
+    const rotatedPath = path.join(dir, "agent-runtime.db.new-999");
+    // 空文件即可作为可打开的空库；只需验证「选了哪条路径」
+    fs.writeFileSync(dbPath, "");
+    fs.writeFileSync(rotatedPath, "");
+    writeActivePathPointer(dbPath, rotatedPath);
+
+    const ldb = new LocalDatabase();
+    try {
+      await ldb.open(openOptions(dbPath, path.join(dir, "backups")));
+      expect(ldb.dbPath).toBe(rotatedPath);
+    } finally {
+      ldb.close();
+    }
+  });
+
+  it("无指针时打开原始路径", async () => {
+    const dir = makeTmpDir();
+    const dbPath = path.join(dir, "agent-runtime.db");
+    fs.writeFileSync(dbPath, "");
+
+    const ldb = new LocalDatabase();
+    try {
+      await ldb.open(openOptions(dbPath, path.join(dir, "backups")));
+      expect(ldb.dbPath).toBe(dbPath);
+    } finally {
+      ldb.close();
+    }
   });
 });

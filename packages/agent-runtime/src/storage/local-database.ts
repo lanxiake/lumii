@@ -97,16 +97,14 @@ export function writeActivePathPointer(dbPath: string, actualDbPath: string): vo
 }
 
 /**
- * 将损坏的数据库文件重命名为备份
+ * 将「确实损坏（且未被占用）」的数据库文件重命名为带时间戳的备份，
+ * 允许应用在该路径上以空库启动、再由上层从 backups/ 恢复，避免无限崩溃。
  *
- * 在 SQLITE_IOERR 等无法恢复的错误发生时，
- * 将主 db 及其辅助文件重命名为带时间戳的备份，
- * 允许应用以空数据库启动，避免无限崩溃。
- *
- * @returns 新空库应使用的路径。正常情况返回原 dbPath（rename 成功，原路径已空出）；
- *          Windows EBUSY 文件被锁时返回带时间戳的新路径（绕开被锁文件）。
+ * 关键约束：重命名失败即代表文件被其他进程占用（Windows EBUSY），这是**锁**而非损坏。
+ * 此时必须抛错终止启动，绝不另起 `.new-<ts>` 空库 —— 那会把同一份历史劈成两条互不相见的
+ * 时间线：应用继续往新库写，旧库原地冻结，等锁释放后又被静默切回旧库，中间写入全部丢失。
  */
-function rotateCorruptedDb(dbPath: string): string {
+export function rotateCorruptedDb(dbPath: string): void {
   const ts = Date.now();
   for (const ext of ["", "-wal", "-shm"]) {
     const src = dbPath + ext;
@@ -116,22 +114,14 @@ function rotateCorruptedDb(dbPath: string): string {
       }
     } catch (err) {
       if (ext === "") {
-        console.warn("[local-database] 无法重命名损坏的数据库文件，将尝试直接删除:", err);
-        try {
-          fs.unlinkSync(src);
-        } catch (unlinkErr) {
-          // Windows EBUSY：文件被 SQLite/其他进程锁定，rename 和 unlink 均失败。
-          // 此时无法清空原路径，改用带时间戳的新路径作为空库，彻底绕开被锁文件。
-          console.warn(
-            "[local-database] 无法删除损坏的数据库文件（文件被锁定），将使用新路径启动空库:",
-            unlinkErr,
-          );
-          return `${dbPath}.new-${ts}`;
-        }
+        console.warn("[local-database] 无法重命名数据库文件，判定为文件被占用而非损坏:", err);
+        throw new Error(
+          `数据库文件被占用，无法轮转（${(err as Error).message}）。` +
+            "可能有另一个 Lumii 实例仍在运行或未完全退出；请先彻底退出它再重试。",
+        );
       }
     }
   }
-  return dbPath;
 }
 
 /**
@@ -461,19 +451,29 @@ export class LocalDatabase {
       );
     };
 
-    // 实际打开的数据库路径（正常情况 = dbPath；Windows EBUSY 时 = 带时间戳的新路径）
-    let actualDbPath = dbPath;
+    // 实际打开的数据库路径。
+    //
+    // 「粘性指针」：一旦此前发生过损坏轮转，轮转出的路径就是数据的权威副本 ——
+    // 原路径已被冻结，之后所有写入都落在轮转路径上。因此只要指针存在且目标仍在，
+    // 就必须优先沿用它，**绝不因为原路径的锁已释放就静默切回去**：那会把轮转路径里
+    // 更新的会话数据永久遗弃（2026-10-04 碧瑶会话当日丢失即由此产生）。
+    const priorRotatedPath = readActivePathPointer(dbPath);
+    if (priorRotatedPath) {
+      console.warn(`[local-database] 检测到历史轮转路径，优先沿用: ${priorRotatedPath}`);
+    }
+    let actualDbPath = priorRotatedPath ?? dbPath;
 
     // Windows 下文件锁冲突（残留进程未完全退出、杀软/云同步短暂占用）与真正的磁盘损坏
-    // 都会抛出同样的 SQLITE_IOERR，仅凭一次失败无法区分。短暂重试给锁一个自然清除的窗口，
-    // 避免把「文件暂时被占用」误判为「损坏」而触发下面的轮转 + 备份恢复（会丢失最近数据）。
-    const LOCK_RETRY_DELAYS_MS = [200, 500, 1000, 2000];
+    // 都会抛出同样的 SQLITE_IOERR，仅凭一次失败无法区分。给锁一个足够长的自然清除窗口：
+    // 预算覆盖 SQLITE_BUSY_TIMEOUT_MS 并显著放宽（dev:restart 的残留进程可能占用数十秒），
+    // 避免把「文件暂时被占用」误判为「损坏」而触发下面的轮转（会丢失最近数据）。
+    const LOCK_RETRY_DELAYS_MS = [500, 1000, 2000, 4000, 8000, 15000];
 
     // 第 1 次尝试：直接打开（SQLite 会自动重放有效的 WAL 文件，保留已提交的变更）
     // ⚠️ 不在此处预先删除 WAL/SHM：若进程上次异常退出，WAL 中可能保存着已提交但
     //    尚未 checkpoint 的操作（如用户删除会话的 DELETE）。预先删 WAL 会丢失这些变更。
     try {
-      this._db = await tryOpen();
+      this._db = await tryOpen(actualDbPath);
     } catch (err) {
       logSqliteErr("第1次打开失败", err);
       if (!isIoErr(err)) throw err;
@@ -482,7 +482,7 @@ export class LocalDatabase {
       for (const delay of LOCK_RETRY_DELAYS_MS) {
         await sleep(delay);
         try {
-          this._db = await tryOpen();
+          this._db = await tryOpen(actualDbPath);
           recoveredFromLock = true;
           console.info(`[local-database] 等待 ${delay}ms 后重试打开成功，判定为瞬时文件锁而非损坏`);
           break;
@@ -495,33 +495,31 @@ export class LocalDatabase {
       if (!recoveredFromLock) {
         // 第 2 次尝试：IOERR → WAL/SHM 可能处于不一致状态，清理后重试
         // 仅在打开失败后才删 WAL，此时 WAL 已损坏，删除不会造成数据丢失
-        tryDeleteWalFiles(dbPath);
+        tryDeleteWalFiles(actualDbPath);
         try {
-          this._db = await tryOpen();
+          this._db = await tryOpen(actualDbPath);
         } catch (err2) {
           logSqliteErr("第2次打开失败（清理WAL后）", err2);
           if (!isIoErr(err2)) throw err2;
 
-          // 若此前已轮转到某个 .new-<ts> 路径且该文件仍存在，说明主库路径持续被锁定
-          // （如残留僵尸进程）。继续使用上次轮转的路径，而不是再轮转出一个新空库——
-          // 否则每次启动都会遗弃上一次轮转路径里已经写入的会话数据。
-          const priorRotatedPath = readActivePathPointer(dbPath);
-          if (priorRotatedPath) {
+          // 若沿用的是历史轮转路径且它打不开，退一步试原始路径（它可能仍然完好）
+          if (actualDbPath !== dbPath) {
             try {
-              this._db = await tryOpen(priorRotatedPath);
-              actualDbPath = priorRotatedPath;
-              console.warn(
-                `[local-database] 主库路径持续被锁定，继续使用此前轮转路径: ${priorRotatedPath}`,
-              );
-            } catch (resumeErr) {
-              logSqliteErr("继续使用此前轮转路径失败", resumeErr);
+              this._db = await tryOpen(dbPath);
+              if (this._db) {
+                actualDbPath = dbPath;
+                console.warn(`[local-database] 轮转路径打不开，回退到原始路径: ${dbPath}`);
+              }
+            } catch (fallbackErr) {
+              logSqliteErr("回退原始路径也失败", fallbackErr);
             }
           }
 
           if (!this._db) {
-            // 第 3 次尝试：WAL 清理后仍失败，主 db 文件本身损坏（或仍被锁定且无可复用的轮转路径）
-            // 先轮转/绕开被锁文件，再优先从 backups/ 恢复，避免以空库启动丢失历史
-            actualDbPath = rotateCorruptedDb(dbPath);
+            // 第 3 次尝试：长重试 + 清 WAL 后仍打不开，才判定需要轮转。
+            // rotateCorruptedDb 若因文件仍被占用而无法重命名，会直接抛错而不是另起空库 ——
+            // 「锁」绝不能演变成「分叉出第二条时间线」。
+            rotateCorruptedDb(actualDbPath);
             let openedFromBackup = false;
             if (recoveryDepth < maxRecovery && findLatestBackupPath(backupDir)) {
               if (tryRestoreFromLatestBackup(actualDbPath, backupDir)) {
@@ -609,7 +607,9 @@ export class LocalDatabase {
       dbForIntegrity.close();
       this._db = null;
       this._dbPath = null;
-      if (recoveryDepth < maxRecovery && tryRestoreFromLatestBackup(dbPath, backupDir)) {
+      // 用 actualDbPath 而非 dbPath 恢复：本轮打开的可能是历史轮转路径，
+      // 恢复到 dbPath 会让「当前正在用的库」保持损坏状态。
+      if (recoveryDepth < maxRecovery && tryRestoreFromLatestBackup(actualDbPath, backupDir)) {
         await this.openWithRecovery(options, backupDir, recoveryDepth + 1);
         return;
       }
