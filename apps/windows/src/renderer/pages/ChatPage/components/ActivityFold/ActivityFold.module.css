@@ -132,6 +132,111 @@
   font-family: var(--mt-font-mono, monospace);
 }
 
+/* 头部进度胶囊（流式）：任务 3/8 / 5/12 步 */
+.progressText {
+  flex-shrink: 0;
+  font-family: var(--mt-font-mono);
+  font-size: calc(11px * var(--app-font-scale, 1));
+  color: var(--color-primary-400);
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-primary-400) 12%, transparent);
+}
+
+/* 折叠态迷你活动流（仅流式回合）：最多 3 行，最新在最后 */
+.feed {
+  padding: 1px 10px 6px 28px;
+  cursor: pointer;
+  transition: background var(--mt-dur-normal) var(--mt-ease-standard);
+}
+
+.feed:hover {
+  background: color-mix(in srgb, var(--mt-accent-500) 6%, transparent);
+}
+
+.feedList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-height: calc(54px * var(--app-font-scale, 1));
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.feedList::-webkit-scrollbar {
+  display: none;
+}
+
+.feedLine {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-family: var(--mt-font-mono);
+  font-size: calc(11.5px * var(--app-font-scale, 1));
+  line-height: 1.5;
+  color: var(--mt-fg-3);
+}
+
+.feedIcon {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  color: var(--mt-fg-4);
+}
+
+.feedText {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 运行中：主色高亮 + 旋转 loader */
+.feedSpinner {
+  color: var(--color-primary-400);
+  animation: activitySpin 0.8s linear infinite;
+}
+
+.feedLine--running .feedText {
+  color: var(--color-primary-400);
+}
+
+.feedLine--running .feedIcon {
+  color: var(--color-primary-400);
+}
+
+.feedLine--failed .feedText {
+  color: var(--color-error);
+}
+
+.feedLine--failed .feedIcon {
+  color: var(--color-error);
+}
+
+.feedLine--interrupted .feedText {
+  color: var(--mt-fg-4);
+}
+
+/* 细进度条：折叠态活动流底部 */
+.progressBar {
+  margin-top: 5px;
+  height: 2px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--mt-accent-500) 14%, transparent);
+  overflow: hidden;
+}
+
+.progressFill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--color-primary-400), var(--mt-violet));
+  transition: width var(--mt-dur-normal) var(--mt-ease-standard);
+}
+
 /* 右侧展开/收起文字提示：让交互语义一目了然 */
 .hint {
   flex-shrink: 0;
@@ -187,7 +292,9 @@
 @media (prefers-reduced-motion: reduce) {
   .fold--streaming::before,
   .spinner,
+  .feedSpinner,
   .body { animation: none; }
   .chevron,
+  .progressFill,
   .collapse { transition: none; }
 }

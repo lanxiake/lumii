@@ -39,7 +39,7 @@ import {
   type SubAgentRun,
 } from '../ChatContainer/sub-agent-runs'
 import { getStatusLabel } from '../ToolCallCard'
-import { ActivityFold } from '../ActivityFold'
+import { ActivityFold, type ActivityLine, type ActivityProgress } from '../ActivityFold'
 import { useChatMessageActions } from '../../contexts/ChatMessageActionsContext'
 import {
   markLargeCodeBlocks,
@@ -78,6 +78,11 @@ interface ChatMessageProps {
    * 子运行按 spawn 卡片的 instanceId 渲染进卡片内部，未认领的作为独立运行块兜底。
    */
   subAgentRuns?: readonly SubAgentRun[]
+  /**
+   * 当前会话任务列表完成度（来自 TodoPanel 的聚合）。
+   * 有值时「执行过程」折叠态进度显示「任务 3/8」，否则回退为执行步骤进度。
+   */
+  todoProgress?: { done: number; total: number } | null
 }
 
 // ---------------------------------------------------------------
@@ -564,6 +569,77 @@ function buildCurrentStatus(process: RenderUnit[]): string {
   return '正在处理…'
 }
 
+/** 折叠态活动流最多露出的行数 */
+const ACTIVITY_LINE_LIMIT = 3
+
+/** 思考预览：折叠态活动流里取尾部（最新），压成单行 */
+function thinkingActivityPreview(text: string, max = 80): string {
+  const clean = text.replace(/\s+/g, ' ').trim()
+  if (!clean) return ''
+  return clean.length > max ? `…${clean.slice(-max)}` : clean
+}
+
+/**
+ * 折叠态迷你活动流：按时间线把过程单元压成「思考预览 / 工具动作短句」，
+ * 只保留最后 ACTIVITY_LINE_LIMIT 行（正在执行的通常落在末尾，自然可见）。
+ */
+function buildActivityLines(process: RenderUnit[]): ActivityLine[] {
+  const lines: ActivityLine[] = []
+  for (const unit of process) {
+    if (unit.kind === 'thinking') {
+      const text = thinkingActivityPreview(unit.part.text)
+      if (!text) continue
+      lines.push({
+        key: `think-${unit.part.id}`,
+        kind: 'thinking',
+        status: unit.part.status === 'streaming' ? 'running' : 'done',
+        text,
+      })
+      continue
+    }
+    if (unit.kind === 'toolGroup') {
+      for (const item of unit.items) {
+        lines.push({
+          key: `tool-${item.id}`,
+          kind: 'tool',
+          status:
+            item.status === 'running' || item.status === 'pending'
+              ? 'running'
+              : item.status === 'failed'
+                ? 'failed'
+                : item.status === 'interrupted'
+                  ? 'interrupted'
+                  : 'done',
+          text: getStatusLabel(item),
+        })
+      }
+    }
+  }
+  return lines.length > ACTIVITY_LINE_LIMIT
+    ? lines.slice(lines.length - ACTIVITY_LINE_LIMIT)
+    : lines
+}
+
+/** 无任务列表时的回退进度口径：思考单元 + 工具项计步 */
+function buildStepProgress(process: RenderUnit[]): ActivityProgress {
+  let total = 0
+  let done = 0
+  for (const unit of process) {
+    if (unit.kind === 'thinking') {
+      total++
+      if (unit.part.status === 'done') done++
+      continue
+    }
+    if (unit.kind === 'toolGroup') {
+      for (const item of unit.items) {
+        total++
+        if (item.status === 'completed') done++
+      }
+    }
+  }
+  return { done, total, kind: 'step' }
+}
+
 // ---------------------------------------------------------------
 // 组件
 // ---------------------------------------------------------------
@@ -577,6 +653,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
   fileAttachments,
   replayMessageId,
   subAgentRuns,
+  todoProgress,
 }) => {
   // 复制/编辑/删除/重新生成/回放/文件变更定位等消息级动作由 Context 提供，
   // 不再逐层 props 穿透（见 ChatMessageActionsContext 的稳定性契约）
@@ -888,6 +965,8 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
       fileChanges?: readonly FileChangeEntry[]
       /** 本条时间线可认领的子运行（仅父回合传入；子运行内部不再嵌套） */
       subAgentRuns?: readonly SubAgentRun[]
+      /** 会话任务列表完成度（仅父回合传入） */
+      todoProgress?: { done: number; total: number }
     },
   ) => {
     const units = buildRenderUnits(parts, context)
@@ -908,6 +987,11 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
     )
     const unclaimedRuns = runs.filter((run) => !claimedInstanceIds.has(run.instanceId))
 
+    // 折叠态进度口径：优先会话任务列表完成度，无列表时回退执行步骤进度
+    const foldProgress: ActivityProgress = context.todoProgress
+      ? { done: context.todoProgress.done, total: context.todoProgress.total, kind: 'task' }
+      : buildStepProgress(processOnly)
+
     return (
       <div className={styles['parts-timeline']}>
         {processOnly.length > 0 && (
@@ -917,6 +1001,8 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
             isStreaming={isStreaming}
             durationMs={context.durationMs}
             startTime={context.timestamp}
+            activityLines={buildActivityLines(processOnly)}
+            progress={foldProgress}
           >
             {processOnly.map((u) => renderUnit(u, true, [], isStreaming))}
           </ActivityFold>
@@ -951,6 +1037,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
       durationMs: message.streamMetrics?.durationMs,
       ...(message.fileChanges ? { fileChanges: message.fileChanges } : {}),
       ...(subAgentRuns && subAgentRuns.length > 0 ? { subAgentRuns } : {}),
+      ...(todoProgress ? { todoProgress } : {}),
     })
 
   /**

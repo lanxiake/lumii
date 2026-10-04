@@ -510,9 +510,11 @@ describe('ChatMessage 子 Agent 执行过程归属', () => {
     const runBlock = container.querySelector('[data-testid="sub-agent-run"]')!
     expect(runBlock).toHaveAttribute('data-streaming', 'true')
     expect(runBlock.textContent).toContain('执行中')
-    // 默认展开 → 子的执行过程正文已在 DOM 中
-    expect(within(runBlock as HTMLElement).getAllByRole('button', { name: /执行过程/ })[0]!.textContent)
-      .toContain('编辑 1 个文件')
+    // 默认展开 → 子的执行过程正文已在 DOM 中：
+    // 流式子运行的「执行过程」折叠态改露步骤进度 + 迷你活动流（思考预览可见）
+    const childFold = within(runBlock as HTMLElement).getAllByRole('button', { name: /执行过程/ })[0]!
+    expect(childFold.textContent).toContain('2/2 步')
+    expect(runBlock.textContent).toContain('MARKER_CHILD_THINK')
 
     const parentFold = getAllByRole('button', { name: /执行过程/ })[0]!
     expect(parentFold.textContent).toContain('读取 1 个文件')
@@ -543,5 +545,76 @@ describe('ChatMessage 子 Agent 执行过程归属', () => {
       el.getAttribute('data-instance-id'),
     )
     expect(ids).toEqual(['inst-child-1', 'inst-child-2'])
+  })
+})
+
+/**
+ * 「执行过程」折叠态迷你活动流（仅流式回合）
+ * 目标：长任务折叠时也能看到最新思考、正在执行的命令与大致进度，不再一无所知。
+ */
+describe('ChatMessage 执行过程折叠态活动流', () => {
+  it('流式中折叠态露出迷你活动流与步骤进度', () => {
+    const parts: AssistantPart[] = [
+      { type: 'thinking', id: 'th-1', text: '先看下目录里有什么', status: 'done' },
+      { type: 'tool', id: 't1', name: 'bash', args: { command: 'ls -la' }, status: 'running' },
+    ]
+    const { getByRole, queryAllByTestId } = renderMessage(parts, undefined, true)
+
+    const lines = queryAllByTestId('activity-line')
+    expect(lines).toHaveLength(2)
+    // 最新思考预览 + 正在执行的命令
+    expect(lines[0]!.textContent).toContain('先看下目录里有什么')
+    expect(lines[1]!.textContent).toContain('正在执行 ls -la')
+    // 头部进度：思考已完成 1、工具进行中 → 1/2 步
+    expect(getByRole('button', { name: /执行过程/ }).textContent).toContain('1/2 步')
+  })
+
+  it('活动流最多露 3 行，只保留最新若干步', () => {
+    const parts: AssistantPart[] = [1, 2, 3, 4].map((i) => ({
+      type: 'tool',
+      id: `t${i}`,
+      name: 'bash',
+      args: { command: `ls${i}` },
+      status: 'done',
+    })) as AssistantPart[]
+    parts.push({ type: 'tool', id: 't5', name: 'bash', args: { command: 'ls5' }, status: 'running' })
+
+    const { queryAllByTestId } = renderMessage(parts, undefined, true)
+    const lines = queryAllByTestId('activity-line')
+
+    expect(lines).toHaveLength(3)
+    const feedText = lines.map((l) => l.textContent).join('|')
+    expect(feedText).toContain('ls3')
+    expect(feedText).toContain('ls4')
+    expect(feedText).toContain('ls5')
+    expect(feedText).not.toContain('ls1')
+  })
+
+  it('完成后折叠态不再露活动流，只显示静态摘要', () => {
+    const parts: AssistantPart[] = [
+      { type: 'thinking', id: 'th-1', text: 'MARKER_DONE_THINK', status: 'done' },
+      { type: 'tool', id: 't1', name: 'bash', args: { command: 'ls' }, status: 'done' },
+    ]
+    const { container, queryAllByTestId } = renderMessage(parts, undefined, false)
+
+    expect(queryAllByTestId('activity-line')).toHaveLength(0)
+    expect(container.textContent).toContain('思考 · 执行 1 条命令')
+  })
+
+  it('有会话任务列表时，折叠态进度改用「任务 N/M」', () => {
+    const parts: AssistantPart[] = [
+      { type: 'thinking', id: 'th-1', text: '拆分步骤', status: 'done' },
+      { type: 'tool', id: 't1', name: 'bash', args: { command: 'ls' }, status: 'running' },
+    ]
+    const { getByRole } = render(
+      <ChatMessageActionsProvider value={messageActions}>
+        <ChatMessage
+          message={buildPartsMessage(parts, true)}
+          todoProgress={{ done: 3, total: 8 }}
+        />
+      </ChatMessageActionsProvider>,
+    )
+
+    expect(getByRole('button', { name: /执行过程/ }).textContent).toContain('任务 3/8')
   })
 })

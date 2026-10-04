@@ -200,6 +200,18 @@ function isDone(status?: string): boolean {
   return status === 'completed' || status === 'done'
 }
 
+/**
+ * 从 todo 工具调用聚合出任务完成度，供「执行过程」折叠卡片做进度联动。
+ * 复用 aggregateTasks 的口径，避免两处任务统计分叉；无任务列表时返回 null。
+ */
+export function computeTodoProgress(
+  toolCalls: TodoPanelProps['toolCalls'],
+): { done: number; total: number } | null {
+  const tasks = aggregateTasks(toolCalls)
+  if (!tasks || tasks.length === 0) return null
+  return { done: tasks.filter((t) => isDone(t.status)).length, total: tasks.length }
+}
+
 function isActive(status?: string): boolean {
   return status === 'in_progress' || status === 'in-progress'
 }
