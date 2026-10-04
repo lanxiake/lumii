@@ -33,24 +33,13 @@
   color: var(--mt-fg-1);
 }
 
-.tag {
-  padding: 1px 6px;
-  border: 1px solid color-mix(in srgb, var(--mt-accent-500) 24%, var(--mt-border));
-  border-radius: var(--mt-radius-full);
-  background: color-mix(in srgb, var(--mt-accent-500) 8%, transparent);
-  color: var(--mt-fg-3);
-  font-family: var(--mt-font-mono);
-  font-size: var(--font-size-xs);
-  line-height: 1.6;
-}
-
 /* 分段控件（原型 .seg），靠 margin-left 顶到右侧 */
 .seg {
   display: flex;
   gap: 2px;
-  /* 四段（工作记忆/资料库/定时任务/资产体检）平分；按钮 flex:1 自适应，
+  /* 三段（工作记忆/资料库/定时任务）平分；按钮 flex:1 自适应，
      这里只给容器留够宽度 */
-  width: 300px;
+  width: 264px;
   margin-left: auto;
   padding: 4px;
   border: 1px solid var(--mt-border);
