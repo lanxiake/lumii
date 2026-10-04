@@ -26,6 +26,12 @@ const MAX_FULL_HASH_TOTAL_BYTES = 200 * 1024 * 1024;
 const YIELD_EVERY_N_FILES = 50;
 
 /**
+ * 单次快照的硬超时。快照挂在会话串行的 prompt 链上，挂起即等于会话哑掉，
+ * 因此必须有上界；超时后放弃本轮快照（文件变更检测降级），对话继续。
+ */
+export const TURN_SNAPSHOT_TIMEOUT_MS = 15_000;
+
+/**
  * 判断相对 posix 路径是否应被快照忽略（对应 DEFAULT_VCS_IGNORE 中的文件级规则）。
  */
 function shouldIgnoreSnapshotFile(relPosix: string): boolean {
@@ -104,13 +110,17 @@ interface WalkStats {
  * 递归遍历工作区，收集相对 posix 路径 → sha256(内容) 映射。
  * 跳过 node_modules、.git、.mtbot-vcs、tmp/temp/.cache、根层 projects/ 及 DEFAULT_VCS_IGNORE 大文件模式。
  * 异步 IO + 定期让出事件循环；触达文件数/字节数上限后剩余文件降级为伪哈希。
+ * `isAborted` 为真时尽快停止递归（超时后由调用方触发，避免后台空转）。
  */
 async function walkWorkspace(
   absDir: string,
   relDir: string,
   out: Map<string, string>,
   stats: WalkStats,
+  isAborted: () => boolean = () => false,
 ): Promise<void> {
+  if (isAborted()) return;
+
   let entries: fs.Dirent[];
   try {
     entries = await fs.promises.readdir(absDir, { withFileTypes: true });
@@ -119,6 +129,7 @@ async function walkWorkspace(
   }
 
   for (const entry of entries) {
+    if (isAborted()) return;
     if (shouldSkipWalkDir(relDir, entry.name)) continue;
 
     const abs = path.join(absDir, entry.name);
@@ -126,7 +137,7 @@ async function walkWorkspace(
     const relPosix = rel.replace(/\\/g, "/");
 
     if (entry.isDirectory()) {
-      await walkWorkspace(abs, relPosix, out, stats);
+      await walkWorkspace(abs, relPosix, out, stats, isAborted);
     } else if (entry.isFile()) {
       if (shouldIgnoreSnapshotFile(relPosix)) continue;
 
@@ -158,10 +169,15 @@ async function walkWorkspace(
 /**
  * 递归遍历工作区，返回相对 posix 路径 → sha256(内容) 映射。
  * 跳过：node_modules、.git、.mtbot-vcs、tmp/temp/.cache、根层 projects/，以及 DEFAULT_VCS_IGNORE 中的大文件模式。
- * workspaceDir 无效或不存在时抛错。
+ * workspaceDir 无效或不存在时抛错；超过 `timeoutMs` 仍未完成则抛超时错误。
+ *
+ * 快照是「尽力而为」的旁路信息，用超时兜底是因为它位于会话串行的 prompt 链上：
+ * 一旦某个 stat/read 卡在慢盘或被占用文件上无限期挂起，整个会话都会永久哑掉。
+ * 调用方（桥接层）捕获错误后会把本轮快照置为 undefined，对话照常继续。
  */
 export async function captureWorkspaceTurnSnapshot(
   workspaceDir: string,
+  timeoutMs: number = TURN_SNAPSHOT_TIMEOUT_MS,
 ): Promise<Map<string, string>> {
   await assertWorkspaceDir(workspaceDir);
 
@@ -177,7 +193,23 @@ export async function captureWorkspaceTurnSnapshot(
     filesSinceYield: 0,
   };
 
-  await walkWorkspace(workspaceDir, "", snapshot, stats);
+  let timedOut = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      timedOut = true;
+      reject(new Error(`工作区快照超时（>${timeoutMs}ms），已放弃本轮快照`));
+    }, timeoutMs);
+  });
+
+  try {
+    await Promise.race([
+      walkWorkspace(workspaceDir, "", snapshot, stats, () => timedOut),
+      timeout,
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 
   const durationMs = Math.round(performance.now() - startTime);
   logger.info(
