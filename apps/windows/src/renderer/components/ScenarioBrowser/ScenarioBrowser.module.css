@@ -95,6 +95,54 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* 领域标签筛选：一排可点的胶囊，选中即只看这一类 */
+.cats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border: 1px solid var(--mt-border);
+  border-radius: var(--mt-radius-full);
+  background: var(--mt-surface-2);
+  color: var(--mt-fg-3);
+  font: inherit;
+  font-size: var(--font-size-xs);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color var(--mt-dur-fast) var(--mt-ease-standard),
+    border-color var(--mt-dur-fast) var(--mt-ease-standard),
+    background var(--mt-dur-fast) var(--mt-ease-standard);
+}
+
+.chip:hover {
+  border-color: color-mix(in srgb, var(--mt-accent-500) 45%, var(--mt-border));
+  color: var(--mt-fg-1);
+}
+
+.chip--on {
+  border-color: color-mix(in srgb, var(--mt-accent-500) 55%, var(--mt-border));
+  background: color-mix(in srgb, var(--mt-accent-500) 14%, transparent);
+  color: var(--mt-accent-500);
+}
+
+.chip-n {
+  color: var(--mt-fg-4);
+  font-family: var(--mt-font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.chip--on .chip-n {
+  color: inherit;
+  opacity: 0.75;
+}
+
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(216px, 1fr));

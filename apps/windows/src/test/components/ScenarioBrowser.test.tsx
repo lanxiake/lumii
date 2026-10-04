@@ -71,6 +71,17 @@ describe('ScenarioBrowser', () => {
     expect(screen.queryAllByRole('button')).toHaveLength(1) // 只剩右上角关闭
   })
 
+  it('点领域标签只看这一类，点「全部」还原', () => {
+    render(<ScenarioBrowser open onClose={noop} onSelect={noop} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /^生活/ }))
+    expect(screen.getByRole('button', { name: /菜谱推荐/ })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /写工作邮件/ })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '全部' }))
+    expect(screen.getByRole('button', { name: /写工作邮件/ })).toBeInTheDocument()
+  })
+
   it('点卡片：回传该场景并关闭弹窗', () => {
     const onSelect = vi.fn()
     const onClose = vi.fn()

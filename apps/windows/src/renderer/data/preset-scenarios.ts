@@ -47,7 +47,7 @@ export interface ScenarioItem {
   icon: LucideIcon
   label: string
   prompt: string
-  /** 领域标签（二级）：工作 / 写作 / 开发 / 生活 … */
+  /** 领域标签（二级）：工作 / 创作 / 开发 / 生活 … */
   category: string
   /** 触发方式（一级分组） */
   group: ScenarioGroupId
@@ -86,23 +86,23 @@ export const ALL_SCENARIOS: ScenarioItem[] = [
 
   // 内容创作
   {
-    icon: PenLine, label: '写公众号文章', category: '写作', group: 'now',
+    icon: PenLine, label: '写公众号文章', category: '创作', group: 'now',
     prompt: '帮我写一篇公众号文章：\n\n主题：为什么越来越多的人开始用 AI 助手处理工作\n目标读者：职场白领\n风格：轻松有趣，有数据支撑\n字数：1500字左右\n结构：开头钩子 + 3个核心观点 + 行动号召',
   },
   {
-    icon: MessageSquare, label: '写小红书文案', category: '写作', group: 'now',
+    icon: MessageSquare, label: '写小红书文案', category: '创作', group: 'now',
     prompt: '帮我写一条小红书种草文案：\n\n产品：降噪耳机\n卖点：主动降噪、续航30小时、轻量设计\n目标用户：通勤族、学生\n风格：真实体验感，带emoji，适合年轻人\n\n需要标题、正文和5个相关话题标签。',
   },
   {
-    icon: Video, label: '短视频脚本', category: '写作', group: 'now',
+    icon: Video, label: '短视频脚本', category: '创作', group: 'now',
     prompt: '帮我写一个60秒短视频脚本：\n\n主题：3个让工作效率翻倍的AI工具\n平台：抖音/视频号\n风格：干货分享，节奏快\n\n请包含：开场钩子（前3秒）、内容分段、结尾引导关注。',
   },
   {
-    icon: Newspaper, label: '新闻稿撰写', category: '写作', group: 'now',
+    icon: Newspaper, label: '新闻稿撰写', category: '创作', group: 'now',
     prompt: '帮我写一篇产品发布新闻稿：\n\n事件：MtBot 2.0 正式发布\n核心亮点：支持多 Agent 协作、本地隐私部署、跨平台同步\n发布时间：2025年5月\n目标媒体：科技媒体、AI 垂直媒体\n\n格式：标准新闻稿，500字以内。',
   },
   {
-    icon: Mic, label: '播客提纲', category: '写作', group: 'now',
+    icon: Mic, label: '播客提纲', category: '创作', group: 'now',
     prompt: '帮我写一期播客的提纲和开场白：\n\n主题：AI 如何改变普通人的工作方式\n时长：30分钟\n嘉宾：一位使用AI工具1年以上的产品经理\n\n请包含：开场白（2分钟）、5个讨论问题、结尾总结。',
   },
 
@@ -228,11 +228,11 @@ export const ALL_SCENARIOS: ScenarioItem[] = [
     prompt: '帮我从这个网页把数据抓下来：\n\n地址：https://example.com/list\n要抓：每一行的名称、价格、更新时间\n要求：翻完所有分页，最后整理成一张表贴给我，并附上抓取时间。\n如果页面要登录或有验证码，先停下来告诉我，别硬试。',
   },
   {
-    icon: Image, label: '生成一张配图', category: '写作', group: 'now',
+    icon: Image, label: '生成一张配图', category: '创作', group: 'now',
     prompt: '给这篇文章生成一张封面配图：\n\n主题：为什么本地优先的软件正在回来\n风格：极简、冷色调、留白多，画面里不要出现文字\n尺寸：16:9\n\n先给我 2-3 个不同方向的描述让我挑，我说好再出图。',
   },
   {
-    icon: Music, label: '用我的声音念这段稿', category: '写作', group: 'now',
+    icon: Music, label: '用我的声音念这段稿', category: '创作', group: 'now',
     prompt: '用我克隆好的声音，把下面这段稿子念出来并导出音频：\n\n[粘贴要念的文本]\n\n语气口语化一点、语速正常，遇到逗号自然停顿。',
   },
   {
@@ -246,6 +246,72 @@ export const ALL_SCENARIOS: ScenarioItem[] = [
   {
     icon: Globe, label: '网页内容提取', category: '资料', group: 'now',
     prompt: '帮我浏览并分析这个网页的内容：\nhttps://example.com\n\n需要：\n- 提取核心信息和关键数据\n- 总结主要观点（300字以内）\n- 列出值得关注的细节',
+  },
+
+  // ── 音视频与图片 ──
+  {
+    icon: Video, label: '给视频配上旁白和字幕', category: '创作', group: 'now',
+    prompt: '把这段录屏做成一条能直接发出去的教程视频：\n\n素材：~/outputs/screen-record/demo.mp4\n要求：\n- 按我的操作节奏写一段口语化旁白，别念界面文字\n- 旁白烧成字幕，压在画面下方\n- 开头 2 秒加一句标题，结尾留 2 秒静帧\n- 导出 1080p，告诉我文件在哪',
+  },
+  {
+    icon: Layers, label: '把几段素材剪成一条视频', category: '创作', group: 'now',
+    prompt: '把这几个片段剪成一条 60 秒的片子：\n\n素材目录：~/uploads/clips/\n要求：\n- 按时间顺序拼，去掉开头结尾的废镜头\n- 统一成 16:9，加一段轻音乐铺底\n- 需要转场的地方不要花哨，硬切就行\n- 先用文字给我一份剪辑清单，我确认再动手',
+  },
+  {
+    icon: Image, label: '做一张海报', category: '创作', group: 'now',
+    prompt: '做一张活动海报：\n\n活动：我们团队的 AI 工具内部分享会\n时间地点：下周三 19:00，三号会议室\n风格：和现有产品视觉一致，冷色、干净、信息层级清楚\n尺寸：竖版 1080×1440\n\n文字我自己给，你只负责排版和背景。先出两个方向让我挑。',
+  },
+
+  // ── 编程（ACP 后端）──
+  {
+    icon: Cpu, label: '用 Claude Code 改这个项目', category: '开发', group: 'now',
+    prompt: '用 Claude Code 在这个项目里做一次改动：\n\n项目：~/projects/my-app\n任务：把列表页的加载态换成骨架屏，别整页白屏\n要求：\n- 先读相关组件，别凭猜测改\n- 改完跑 typecheck 和这个目录下的测试\n- 最后用中文说明你动了哪些文件、为什么',
+  },
+
+  // ── 资料库（Wiki）──
+  {
+    icon: Archive, label: '整理我的资料库', category: '资料', group: 'now',
+    prompt: '帮我把资料库整理一遍：\n\n- 找出重复、近似重复的条目，合并并保留信息更全的那份\n- 给没打标签的补上主题标签\n- 长期没人打开、且已经过时的，标出来让我决定要不要归档\n\n先给我一份整理方案（要动哪些、怎么动），我确认后再执行。',
+  },
+  {
+    icon: Search, label: '在资料库里查一件事', category: '资料', group: 'now',
+    prompt: '在我自己的资料库里查一下这件事，别去网上搜：\n\n问题：[要查的内容]\n\n要求：\n- 只依据资料库里的内容回答，每条结论标出出自哪份资料\n- 资料库里没有就说没有，不要用常识补\n- 如果多份资料互相矛盾，把矛盾点摆出来',
+  },
+  {
+    icon: BookOpen, label: '把这篇网页存进资料库', category: '资料', group: 'now',
+    prompt: '把这个网页收进我的资料库：\n\n地址：https://example.com/article\n\n- 抓正文，去掉广告和导航\n- 起一个能一眼认出的标题，写一段 100 字摘要\n- 按内容打主题标签，方便以后按主题翻回来',
+  },
+
+  // ── 记忆 ──
+  {
+    icon: Brain, label: '整理一下我的记忆', category: '记忆', group: 'now',
+    prompt: '帮我把记忆整理一遍，重点是别把有用的删了：\n\n- 找出重复和自相矛盾的条目，冲突的以时间更近的为准\n- 已经过期的事实（比如早就换掉的岗位、停用的工具）标出来\n- 项目约定、我的偏好、还在进行的任务，一律保留\n\n先给清单我过目，我确认之后再落。',
+  },
+
+  // ── 声音 ──
+  {
+    icon: Music, label: '克隆我的声音', category: '系统', group: 'now',
+    prompt: '用这段录音克隆我的声音，做成一档可以长期用的音色：\n\n参考音频：~/uploads/my-voice.wav（大约 3 分钟，安静环境下录的）\n\n- 克隆完先念一段话让我听听像不像，我确认后再保存\n- 保存时给音色起个能认出的名字\n- 顺便告诉我怎么在后续任务里指定用它',
+  },
+
+  // ── 宠物 ──
+  {
+    icon: Sparkles, label: '定好宠物的性格', category: '系统', group: 'now',
+    prompt: '帮我把桌面宠物的性格调一下：\n\n- 平时安静、别动不动就凑过来；我主动找它才回应\n- 加班到很晚的时候可以说一句话，但不要刷屏\n- 不要用感叹号\n\n改完把「怎么再改回去」也告诉我。如果它能记住我的偏好，把这条也一并记住。',
+  },
+
+  // ── 技能与渠道 ──
+  {
+    icon: Plug, label: '做一个新技能', category: '系统', group: 'now',
+    prompt: '我有一件事会反复做，想固化成一个技能：\n\n流程：[按步骤写清你每次都是怎么做的]\n输入：[每次要给什么]\n产出：[期望得到什么]\n\n帮我：\n1. 先搜一下有没有现成技能能覆盖，有就别重复造\n2. 没有的话，把它写成一个技能草稿，连同调用说明给我\n3. 告诉我它会放在哪、怎么改',
+  },
+  {
+    icon: MessageSquare, label: '在微信里回复这条消息', category: '通知', group: 'now',
+    prompt: '帮我在微信里回一条消息：\n\n对方：[联系人]\n他说的大意：[内容]\n我想要的语气：不卑不亢，简短，别用客套话\n\n把草稿先给我看一眼，我改完你再发。别替我承诺任何时间和数字。',
+  },
+  {
+    icon: Globe, label: '帮我登录这个网站并操作', category: '自动化', group: 'now',
+    prompt: '帮我在这个网站上操作几步：\n\n地址：https://example.com\n要做的：登录 → 打开设置页 → 把通知频率改成每周汇总\n\n注意：\n- 账号密码在密码管理器里，别问我要明文\n- 每一步做完截个图给我看\n- 遇到验证码或者页面和描述对不上，立刻停下告诉我',
   },
 
   // ── 定时自动：一次设定，以后按点自己跑（多会落到 cron_create）──
@@ -290,6 +356,11 @@ export const ALL_SCENARIOS: ScenarioItem[] = [
     prompt: '/cron 每天早上 9:00 检查这个页面有没有更新：\n\n地址：https://example.com/changelog\n\n只看「新增了什么」，没变化就别打扰我。\n有更新就抓出变更要点发给我，附上链接。',
   },
 
+  {
+    icon: BookOpen, label: '每天早上汇总资料库的新料', category: '资料', group: 'scheduled',
+    prompt: '/cron 每天早上 8:00 看一眼我的资料库：\n\n- 昨天到今早新入库了哪些，按主题分组给我\n- 同一主题攒够 3 份以上，就顺手写一段综述，别只罗列标题\n- 什么都没进就别推消息\n\n控制在 10 行以内。',
+  },
+
   // ── 长期设定：一次设定，长期生效 ──
   {
     icon: Brain, label: '记住我的项目约定', category: '记忆', group: 'standing',
@@ -326,6 +397,10 @@ export const ALL_SCENARIOS: ScenarioItem[] = [
   {
     icon: Sparkles, label: '给我换个宠物形象', category: '系统', group: 'standing',
     prompt: '帮我换个桌面宠物形象：\n\n- 先列出我本地已有的形象让我挑，别自己决定\n- 我想要偏安静、不抢视线的风格\n- 换完之后把「怎么关掉它」也一并告诉我',
+  },
+  {
+    icon: Users, label: '让一个 Agent 常驻盯项目', category: '团队', group: 'standing',
+    prompt: '我想让一个 Agent 长期盯着我的项目，不要每次都重新交代背景：\n\n项目：~/projects/my-app\n盯什么：每天有没有新的报错、依赖有没有安全更新、CI 有没有反复失败的用例\n\n- 先告诉我打算建一个什么样的角色、它每天具体做什么、什么时候会打扰我\n- 我确认之后再建\n- 建好后演示一次它实际会输出什么',
   },
 ]
 
