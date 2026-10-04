@@ -106,6 +106,20 @@
   opacity: 0.7;
 }
 
+.more-btn {
+  margin: calc(-1 * var(--spacing-4)) 0 var(--spacing-6);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--color-primary);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.more-btn:hover {
+  text-decoration: underline;
+}
+
 .empty-shortcuts {
   display: flex;
   gap: var(--spacing-6);

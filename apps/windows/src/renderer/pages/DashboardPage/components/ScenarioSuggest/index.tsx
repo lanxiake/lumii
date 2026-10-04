@@ -6,10 +6,13 @@
  *
  * 与 NewsFeed 的「解读资讯」走同一条 `mtbot:chat-draft-request` 通道；`newSession: true`
  * 是必须的——跑一个场景和用户当前对话无关，塞进进行中的会话会污染上下文。
+ *
+ * 卡片位置窄，只放精选几条；全量浏览在「更多」里（`ScenarioBrowser`，与新建会话空态共用）。
  */
 
-import React from 'react'
+import React, { useState } from 'react'
 import { Card } from '../../../../components/ui/Card/Card'
+import { ScenarioBrowser } from '../../../../components/ScenarioBrowser'
 import { getFeaturedScenarios, type ScenarioItem } from '../../../../data/preset-scenarios'
 import type { ViewType } from '../../../../components/layout/Sidebar/Sidebar'
 import styles from './ScenarioSuggest.module.css'
@@ -23,6 +26,8 @@ interface ScenarioSuggestProps {
 const SCENARIOS = getFeaturedScenarios()
 
 export const ScenarioSuggest: React.FC<ScenarioSuggestProps> = ({ onViewChange }) => {
+  const [browserOpen, setBrowserOpen] = useState(false)
+
   const start = (item: ScenarioItem) => {
     window.dispatchEvent(
       new CustomEvent('mtbot:chat-draft-request', {
@@ -36,7 +41,9 @@ export const ScenarioSuggest: React.FC<ScenarioSuggestProps> = ({ onViewChange }
     <Card className={styles.panel} flush>
       <div className={styles.head}>
         <span className={styles.title}>场景推荐</span>
-        <span className={styles.tag}>开箱即用</span>
+        <button type="button" className={styles.more} onClick={() => setBrowserOpen(true)}>
+          更多
+        </button>
       </div>
 
       <ul className={styles.list}>
@@ -60,6 +67,12 @@ export const ScenarioSuggest: React.FC<ScenarioSuggestProps> = ({ onViewChange }
           )
         })}
       </ul>
+
+      <ScenarioBrowser
+        open={browserOpen}
+        onClose={() => setBrowserOpen(false)}
+        onSelect={start}
+      />
     </Card>
   )
 }

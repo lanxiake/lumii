@@ -1,6 +1,7 @@
-import React, { useMemo } from 'react'
+import React, { useMemo, useState } from 'react'
 import { Bot } from 'lucide-react'
 import { ALL_SCENARIOS, pickRandom } from '../../../../data/preset-scenarios'
+import { ScenarioBrowser } from '../../../../components/ScenarioBrowser'
 import styles from './EmptyState.module.css'
 
 interface EmptyStateProps {
@@ -9,6 +10,7 @@ interface EmptyStateProps {
 
 const EmptyState: React.FC<EmptyStateProps> = ({ onSuggestionClick }) => {
   const displayed = useMemo(() => pickRandom(ALL_SCENARIOS, 6), [])
+  const [browserOpen, setBrowserOpen] = useState(false)
 
   return (
     <div className={styles['empty-state']}>
@@ -40,6 +42,14 @@ const EmptyState: React.FC<EmptyStateProps> = ({ onSuggestionClick }) => {
         })}
       </div>
 
+      <button
+        type="button"
+        className={styles['more-btn']}
+        onClick={() => setBrowserOpen(true)}
+      >
+        更多场景
+      </button>
+
       <div className={styles['empty-shortcuts']}>
         <div className={styles['shortcut-hint']}>
           <kbd>Ctrl</kbd> + <kbd>N</kbd> <span>新建对话</span>
@@ -51,6 +61,12 @@ const EmptyState: React.FC<EmptyStateProps> = ({ onSuggestionClick }) => {
           <kbd>/</kbd> <span>斜杠命令</span>
         </div>
       </div>
+
+      <ScenarioBrowser
+        open={browserOpen}
+        onClose={() => setBrowserOpen(false)}
+        onSelect={(scenario) => onSuggestionClick?.(scenario.prompt)}
+      />
     </div>
   )
 }

@@ -23,16 +23,20 @@
   font-weight: var(--mt-fw-semibold);
 }
 
-.tag {
+.more {
   margin-left: auto;
-  padding: 1px 7px;
-  border: 1px solid var(--mt-border);
-  border-radius: var(--mt-radius-full);
-  background: var(--mt-surface-2);
-  color: var(--mt-fg-4);
-  font-family: var(--mt-font-mono);
+  flex-shrink: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--mt-accent-500);
+  font: inherit;
   font-size: var(--font-size-xs);
-  line-height: 1.7;
+  cursor: pointer;
+}
+
+.more:hover {
+  text-decoration: underline;
 }
 
 .list {
