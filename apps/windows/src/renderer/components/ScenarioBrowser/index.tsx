@@ -1,15 +1,22 @@
 /**
  * ScenarioBrowser - 预置场景全量浏览弹窗
  *
- * 概览页「场景推荐」与新建会话空态**共用**：点各自的「更多」打开，按网格铺开全部预置场景，
- * 支持搜索（同时匹配场景名、类别与 prompt 正文 —— 用户记得「定时提醒」但忘了它叫什么时，
- * 搜正文比搜标题命中率高）。点卡片即选中，选中后关闭。
+ * 概览页「场景推荐」与新建会话空态**共用**：点各自的「更多」打开，按**触发方式分组**
+ * 铺开全部预置场景，支持搜索（同时匹配场景名、类别与 prompt 正文 —— 用户记得
+ * 「每天早上要份资讯」但忘了场景叫什么时，搜正文比搜标题命中率高）。点卡片即选中，选中后关闭。
+ *
+ * 分组用 `groupScenarios()`：一级是触发方式（现在就做 / 定时自动 / 长期设定），
+ * 理由见 `data/preset-scenarios.ts` 文件头。搜索后空组不显示。
  */
 
 import React, { useMemo, useState } from 'react'
 import { Search } from 'lucide-react'
 import { Modal } from '../ui/Modal/Modal'
-import { ALL_SCENARIOS, type ScenarioItem } from '../../data/preset-scenarios'
+import {
+  ALL_SCENARIOS,
+  groupScenarios,
+  type ScenarioItem,
+} from '../../data/preset-scenarios'
 import styles from './ScenarioBrowser.module.css'
 
 interface ScenarioBrowserProps {
@@ -37,6 +44,9 @@ export const ScenarioBrowser: React.FC<ScenarioBrowserProps> = ({ open, onClose,
     )
   }, [query])
 
+  /** 分组在结果上算，搜索命中少的组自然只剩几条、空组直接不出现 */
+  const groups = useMemo(() => groupScenarios(results), [results])
+
   const close = () => {
     setQuery('')
     onClose()
@@ -48,7 +58,7 @@ export const ScenarioBrowser: React.FC<ScenarioBrowserProps> = ({ open, onClose,
   }
 
   return (
-    <Modal open={open} title="全部场景" width={780} onClose={close} bodyClassName={styles.body}>
+    <Modal open={open} title="全部场景" width={820} onClose={close} bodyClassName={styles.body}>
       <div className={styles.search}>
         <Search size={15} strokeWidth={1.8} aria-hidden="true" className={styles['search-icon']} />
         <input
@@ -66,30 +76,41 @@ export const ScenarioBrowser: React.FC<ScenarioBrowserProps> = ({ open, onClose,
       {results.length === 0 ? (
         <div className={styles.empty}>没有匹配「{query.trim()}」的场景。</div>
       ) : (
-        <ul className={styles.grid}>
-          {results.map((item) => {
-            const Icon = item.icon
-            return (
-              <li key={item.label}>
-                <button
-                  type="button"
-                  className={styles.card}
-                  onClick={() => choose(item)}
-                  title={item.prompt}
-                >
-                  <span className={styles['card-head']}>
-                    <span className={styles['card-icon']} aria-hidden="true">
-                      <Icon size={15} strokeWidth={1.8} />
-                    </span>
-                    <span className={styles['card-label']}>{item.label}</span>
-                  </span>
-                  <span className={styles['card-cat']}>{item.category}</span>
-                  <span className={styles['card-snippet']}>{firstLine(item.prompt)}</span>
-                </button>
-              </li>
-            )
-          })}
-        </ul>
+        <div className={styles.groups}>
+          {groups.map(({ group, items }) => (
+            <section key={group.id} className={styles.group}>
+              <div className={styles['group-head']}>
+                <span className={styles['group-label']}>{group.label}</span>
+                <span className={styles['group-hint']}>{group.hint}</span>
+                <span className={styles['group-count']}>{items.length}</span>
+              </div>
+              <ul className={styles.grid}>
+                {items.map((item) => {
+                  const Icon = item.icon
+                  return (
+                    <li key={item.label}>
+                      <button
+                        type="button"
+                        className={styles.card}
+                        onClick={() => choose(item)}
+                        title={item.prompt}
+                      >
+                        <span className={styles['card-head']}>
+                          <span className={styles['card-icon']} aria-hidden="true">
+                            <Icon size={15} strokeWidth={1.8} />
+                          </span>
+                          <span className={styles['card-label']}>{item.label}</span>
+                        </span>
+                        <span className={styles['card-cat']}>{item.category}</span>
+                        <span className={styles['card-snippet']}>{firstLine(item.prompt)}</span>
+                      </button>
+                    </li>
+                  )
+                })}
+              </ul>
+            </section>
+          ))}
+        </div>
       )}
     </Modal>
   )

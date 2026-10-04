@@ -49,6 +49,52 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* 分组容器：每组是一个「段落」，组间留白比组内大 */
+.groups {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.group-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--mt-border);
+}
+
+.group-label {
+  flex-shrink: 0;
+  color: var(--mt-fg-1);
+  font-size: var(--font-size-sm);
+  font-weight: var(--mt-fw-semibold);
+}
+
+.group-hint {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--mt-fg-4);
+  font-size: var(--font-size-xs);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.group-count {
+  margin-left: auto;
+  flex-shrink: 0;
+  color: var(--mt-fg-4);
+  font-family: var(--mt-font-mono);
+  font-size: var(--font-size-xs);
+  font-variant-numeric: tabular-nums;
+}
+
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(216px, 1fr));
