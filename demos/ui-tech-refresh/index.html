@@ -472,8 +472,6 @@ body{font-family:var(--font);background:var(--bg);color:var(--fg1);
 /* 顶部：标题降为小字标签，系统时钟成为全页最大字——把层级倒过来 */
 .fd-top{position:relative;z-index:3;display:flex;align-items:flex-start;gap:18px;flex-shrink:0}
 .fd-kicker{font-size:10.5px;font-weight:500;letter-spacing:.34em;color:var(--fg4)}
-.fd-sub{display:flex;align-items:center;gap:7px;margin-top:10px;font-size:11px;color:var(--fg3)}
-.fd-sub b{color:var(--fg1);font-family:var(--mono);font-weight:500}
 .fd-right{margin-left:auto;display:flex;align-items:center;gap:22px;flex-shrink:0}
 .fd-clock{text-align:right;line-height:1}
 .fd-clock b{font-size:42px;font-weight:200;letter-spacing:-.02em;color:var(--fg1);
@@ -481,26 +479,12 @@ body{font-family:var(--font);background:var(--bg);color:var(--fg1);
   text-shadow:0 0 44px color-mix(in srgb,var(--tone,var(--accent)) 32%,transparent)}
 .fd-clock span{display:block;margin-top:9px;font-family:var(--mono);font-size:9px;
   letter-spacing:.24em;color:var(--fg4)}
-.ghost{border:1px solid var(--border);background:none;color:var(--fg3);cursor:pointer;
-  font:inherit;font-size:11px;padding:6px 12px;border-radius:2px;
-  transition:color var(--dur) var(--ease),border-color var(--dur) var(--ease)}
-.ghost:hover{color:var(--fg1);border-color:color-mix(in srgb,var(--tone,var(--accent)) 55%,var(--border))}
-.ghost:disabled{opacity:.45;cursor:default}
 .fd-body{position:relative;z-index:2;flex:1;min-height:0;display:grid;
   grid-template-columns:minmax(0,1fr) 372px;gap:44px;padding-top:4px}
 /* ── 舞台 ── */
 .stage{position:relative;display:flex;flex-direction:column;min-height:0;min-width:0}
 .core{position:relative;flex:1;min-height:0;display:grid;place-items:center;
   align-content:center;gap:20px}
-.gvals{display:flex;gap:28px;justify-content:center}
-.gv{display:flex;align-items:baseline;gap:7px}
-.gv::before{content:'';width:12px;height:1px;align-self:center;
-  background:var(--tone-a);box-shadow:0 0 6px var(--tone-a)}
-.gv:nth-child(2)::before{background:var(--tone-b);box-shadow:0 0 6px var(--tone-b)}
-.gv:nth-child(3)::before{background:var(--tone-c);box-shadow:0 0 6px var(--tone-c)}
-.gv b{font-family:var(--mono);font-size:16px;font-weight:300;color:var(--fg1);
-  letter-spacing:-.02em;font-variant-numeric:tabular-nums}
-.gv em{font-style:normal;font-size:9.5px;letter-spacing:.16em;color:var(--fg4)}
 .core-ring{position:relative;width:300px;height:300px;flex-shrink:0;display:grid;place-items:center}
 .core-ring>*{position:absolute;inset:0;width:100%;height:100%}
 #coreCv{cursor:pointer;transform:translate3d(calc(var(--px)*7px),calc(var(--py)*7px),0);
@@ -509,11 +493,6 @@ body{font-family:var(--font);background:var(--bg);color:var(--fg1);
   transition:transform .3s var(--ease)}
 .core-arcs circle{fill:none;stroke-linecap:round}
 .core-arcs .trk{stroke:color-mix(in srgb,var(--fg4) 32%,transparent);stroke-width:1}
-.core-arcs .val{stroke-width:1.6;transition:stroke-dashoffset 1s var(--ease);
-  filter:drop-shadow(0 0 5px currentColor)}
-#gCpu{stroke:var(--tone-a);color:var(--tone-a)}
-#gMem{stroke:var(--tone-b);color:var(--tone-b)}
-#gDsk{stroke:var(--tone-c);color:var(--tone-c)}
 /* 形象 + 宠物模式：合成一个下拉框（原来是一排按钮 + 页脚一个按钮） */
 .swap{position:absolute;top:0;right:0;display:flex;align-items:center;gap:9px;
   font-family:var(--mono);font-size:9.5px;color:var(--fg4);z-index:3}
@@ -565,28 +544,6 @@ body{font-family:var(--font);background:var(--bg);color:var(--fg1);
 .mic:hover,.snd:not(:disabled):hover{color:var(--fg1)}
 .mic.live{color:var(--warn);animation:stPulse 1.1s var(--ease) infinite}
 .snd:disabled{opacity:.28;cursor:default}
-/* 调用节律：一条连续回波，不是一排柱子 */
-.wave{position:relative;height:88px;flex-shrink:0;margin-top:16px;cursor:crosshair}
-.wave svg{display:block;width:100%;height:100%;color:var(--tone,var(--accent))}
-.wave .wl{fill:none;stroke:currentColor;stroke-width:1.4;stroke-linejoin:round;
-  filter:drop-shadow(0 0 5px color-mix(in srgb,currentColor 55%,transparent))}
-.wave .wf{stroke:none;fill:url(#wGrad)}
-.wave .base{stroke:var(--border);stroke-width:1}
-.wave-cur{position:absolute;top:0;bottom:16px;width:1px;background:var(--fg4);opacity:0;
-  pointer-events:none;transition:opacity var(--dur) var(--ease)}
-.wave-tip{position:absolute;bottom:0;transform:translateX(-50%);pointer-events:none;
-  font-family:var(--mono);font-size:9px;color:var(--fg3);white-space:nowrap;opacity:0;
-  transition:opacity var(--dur) var(--ease)}
-.wave:hover .wave-cur,.wave:hover .wave-tip{opacity:1}
-/* 技能 / MCP：两个纯读数，不是两张卡 */
-.reads{display:flex;gap:28px;flex-shrink:0;padding-top:2px}
-.ro{border:0;background:none;padding:0;cursor:pointer;font:inherit;color:var(--fg3);
-  display:flex;align-items:baseline;gap:7px;transition:color var(--dur) var(--ease)}
-.ro b{font-family:var(--mono);font-size:19px;font-weight:300;color:var(--fg1);
-  transition:text-shadow var(--dur) var(--ease)}
-.ro span{font-size:10.5px;letter-spacing:.14em}
-.ro:hover{color:var(--fg1)}
-.ro:hover b{text-shadow:0 0 14px color-mix(in srgb,var(--tone,var(--accent)) 75%,transparent)}
 /* ── 右侧索引：发丝线分栏，没有框 ── */
 .index{display:flex;flex-direction:column;min-height:0;min-width:0;gap:24px;
   transform:translate3d(calc(var(--px)*-4px),calc(var(--py)*-4px),0);
@@ -623,40 +580,22 @@ body{font-family:var(--font);background:var(--bg);color:var(--fg1);
 .ix-f button{margin-left:auto;border:0;background:none;color:var(--accent);cursor:pointer;
   font:inherit;font-size:10px}
 .ix-f button:hover{text-decoration:underline}
-/* ── 底部遥测条：状态读数的归处。主角只留角色与对话 ── */
-.fd-tele{position:relative;z-index:2;display:flex;align-items:center;gap:26px;flex-shrink:0;
-  margin-top:16px;padding-top:14px;border-top:1px solid var(--hairline)}
-.tele-g{display:flex;gap:24px;flex-shrink:0}
-.tg{display:flex;align-items:center;gap:9px}
-.tg-ring{width:32px;height:32px;flex-shrink:0}
-.tg-ring circle{fill:none;stroke-linecap:round}
-.tg-ring .trk{stroke:color-mix(in srgb,var(--fg4) 30%,transparent);stroke-width:3}
-.tg-ring .val{stroke-width:3.6;transition:stroke-dashoffset 1s var(--ease);
-  filter:drop-shadow(0 0 5px currentColor)}
-.tg .gv::before{display:none}
-.fd-tele .wave{flex:1;min-width:0;height:52px;margin-top:0}
-.fd-tele .reads{gap:26px;padding-top:0;flex-shrink:0}
 /* 入场：整页从核心向外展开，不是分块掉落 */
-.fd-top,.fd-body,.fd-tele{animation:fdIn .8s var(--ease) both}
+.fd-top,.fd-body{animation:fdIn .8s var(--ease) both}
 .fd-body{animation-delay:.06s}
-.fd-tele{animation-delay:.1s}
 @keyframes fdIn{from{opacity:0;transform:translateY(9px)}}
 .core-ring{animation:coreIn 1.1s var(--ease) both}
 @keyframes coreIn{from{opacity:0;transform:scale(.82);filter:blur(7px)}}
 @media(max-width:1200px){.fd-body{grid-template-columns:minmax(0,1fr) 320px;gap:28px}}
 @media(max-height:850px){
   .core-ring{width:246px;height:246px}
-  .wave{height:56px;margin-top:10px}
   .talk{margin-top:10px;gap:7px}
   .line{font-size:14px;min-height:2.5em}
 }
-@media(max-height:760px){.wave{display:none}.core-ring{width:210px;height:210px}}
+@media(max-height:760px){.core-ring{width:210px;height:210px}}
 @media(max-width:980px){.fd-body{grid-template-columns:1fr;gap:16px}.index{display:none}
-  .fd-tele{flex-wrap:wrap;gap:16px}.fd-tele .wave{order:3;flex-basis:100%;min-height:46px}
   #v-dashboard{overflow:auto}}
 [data-theme=light] .fd-clock b{text-shadow:none}
-[data-theme=light] .tg-ring .val{filter:none}
-[data-theme=light] .wave .wl{filter:none}
 @media(prefers-reduced-motion:reduce){
   .fd-bg,.core-arcs,#coreCv,.index{transform:none!important}
 }
@@ -823,15 +762,8 @@ body{font-family:var(--font);background:var(--bg);color:var(--fg1);
           <div class="fd-bg" aria-hidden="true"></div>
 
           <header class="fd-top">
-            <div>
-              <div class="fd-kicker">概览 · OVERVIEW</div>
-              <div class="fd-sub">
-                <span class="dot"></span>本地运行正常 · 全部数据来自本机采集 · 已记录
-                <b id="todayCalls" data-count="1284">0</b> 次调用
-              </div>
-            </div>
+            <div class="fd-kicker">概览 · OVERVIEW</div>
             <div class="fd-right">
-              <button class="ghost" id="dkRefresh" type="button">刷新</button>
               <div class="fd-clock"><b id="clk">--:--:--</b><span>LOCAL · SAMPLED 3S</span></div>
             </div>
           </header>
@@ -874,66 +806,6 @@ body{font-family:var(--font);background:var(--bg);color:var(--fg1);
                 <button class="mic" id="mic" type="button" title="按住说话（演示语音输入）">◍</button>
                 <button class="snd" id="snd" type="submit" title="发送" disabled>↑</button>
               </form>
-
-              <!-- 遥测条：CPU/内存/磁盘 · 调用节律 · 技能/MCP。
-                   这些是「状态读数」不是「要交互的东西」——压在左栏最下，
-                   右栏的资讯 / 关注因此能整列铺满。 -->
-              <div class="fd-tele">
-                <div class="tele-g">
-                  <span class="tg">
-                    <svg class="tg-ring" viewBox="0 0 44 44" aria-hidden="true">
-                      <g transform="rotate(-90 22 22)">
-                        <circle class="trk" cx="22" cy="22" r="18"/>
-                        <circle class="val" id="gCpu" cx="22" cy="22" r="18"/>
-                      </g>
-                    </svg>
-                    <span class="gv"><b id="gCpuT">33</b><em>CPU</em></span>
-                  </span>
-                  <span class="tg">
-                    <svg class="tg-ring" viewBox="0 0 44 44" aria-hidden="true">
-                      <g transform="rotate(-90 22 22)">
-                        <circle class="trk" cx="22" cy="22" r="18"/>
-                        <circle class="val" id="gMem" cx="22" cy="22" r="18"/>
-                      </g>
-                    </svg>
-                    <span class="gv"><b id="gMemT">47</b><em>内存</em></span>
-                  </span>
-                  <span class="tg">
-                    <svg class="tg-ring" viewBox="0 0 44 44" aria-hidden="true">
-                      <g transform="rotate(-90 22 22)">
-                        <circle class="trk" cx="22" cy="22" r="18"/>
-                        <circle class="val" id="gDsk" cx="22" cy="22" r="18"/>
-                      </g>
-                    </svg>
-                    <span class="gv"><b id="gDskT">61</b><em>磁盘</em></span>
-                  </span>
-                </div>
-
-                <div class="wave" id="wave" title="近 24 小时调用节律">
-                  <svg viewBox="0 0 1000 88" preserveAspectRatio="none" aria-hidden="true">
-                    <defs>
-                      <linearGradient id="wGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0" stop-color="currentColor" stop-opacity=".2"/>
-                        <stop offset="1" stop-color="currentColor" stop-opacity="0"/>
-                      </linearGradient>
-                    </defs>
-                    <line class="base" x1="0" y1="87" x2="1000" y2="87"/>
-                    <path class="wf" id="wFill" d=""/>
-                    <path class="wl" id="wLine" d=""/>
-                  </svg>
-                  <span class="wave-cur" id="wCur"></span>
-                  <span class="wave-tip" id="wTip"></span>
-                </div>
-
-                <div class="reads">
-                  <button class="ro" id="modSkills" type="button">
-                    <b data-count="18">0</b><span>技能已安装</span>
-                  </button>
-                  <button class="ro" id="modMcp" type="button">
-                    <b data-count="5">0</b><span>/ 6 MCP 在线</span>
-                  </button>
-                </div>
-              </div>
             </section>
 
             <aside class="index">
@@ -1478,19 +1350,6 @@ ring.addEventListener('pointerdown',()=>{
 });
 if(typeof ResizeObserver!=='undefined')new ResizeObserver(sizeCv).observe(ring);
 
-/* 调用节律：一条连续回波；目标值每 1.8s 推一格，显示值指数逼近 */
-const WN=72;
-let wCur=Array.from({length:WN},()=>.35),wTgt=Array.from({length:WN},()=>.25+Math.random()*.55);
-const wLine=$('#wLine'),wFill=$('#wFill');
-function waveD(vals){
-  const n=vals.length,w=1000,ht=88,y=(v)=>ht-8-v*(ht-22);
-  let d='M0,'+y(vals[0]).toFixed(1);
-  for(let i=0;i<n-1;i++){
-    const x0=i/(n-1)*w,y0=y(vals[i]),x1=(i+1)/(n-1)*w,y1=y(vals[i+1]),mx=(x0+x1)/2;
-    d+=` C${mx.toFixed(1)},${y0.toFixed(1)} ${mx.toFixed(1)},${y1.toFixed(1)} ${x1.toFixed(1)},${y1.toFixed(1)}`;
-  }
-  return d;
-}
 /* ── 光体 ────────────────────────────────────
    不是「画一张脸」，是一颗软壳光体：外缘一圈硬高光，内里一颗会亮的核心。
    轮廓故意不是正圆——完美的圆是 CG，微微不对称的形才像有重量的东西。
@@ -1763,10 +1622,6 @@ function loop(now){
     cctx.globalAlpha=1;
     drawFace(now,r,g,b,light);
   }
-  for(let i=0;i<WN;i++)wCur[i]+=(wTgt[i]-wCur[i])*.045;
-  const d=waveD(wCur);
-  wLine.setAttribute('d',d);
-  wFill.setAttribute('d',d+' L1000,88 L0,88 Z');
   requestAnimationFrame(loop);
 }
 requestAnimationFrame(loop);
@@ -1782,19 +1637,6 @@ fdEl.addEventListener('pointermove',(e)=>{
 fdEl.addEventListener('pointerleave',()=>{
   fdEl.style.setProperty('--px','0');fdEl.style.setProperty('--py','0');
 });
-
-/* 底部遥测条上的三枚小环：只有弧线，没有刻度也没有框；数值在环侧 */
-const ARCS=[['#gCpu','#gCpuT',18],['#gMem','#gMemT',18],['#gDsk','#gDskT',18]];
-ARCS.forEach(([id,_,r])=>{
-  const C=2*Math.PI*r,el=$(id);
-  el.style.strokeDasharray=C;el.style.strokeDashoffset=C;
-});
-function setArc(i,p){
-  const [id,tid,r]=ARCS[i],C=2*Math.PI*r;
-  p=Math.max(0,Math.min(100,Math.round(p)));
-  $(id).style.strokeDashoffset=C*(1-p/100);
-  $(tid).textContent=p;
-}
 
 /* ── 它会说话 ──────────────────────────────
    脚本化应答引擎：关键词命中就顺着说，没命中也不装懂。
@@ -1969,19 +1811,6 @@ setInterval(()=>{
   if(gazing&&now-gazeAt>3600&&now-gazeSaid>24000){gazeSaid=now;say(pick(GAZE));}
 },1200);
 
-/* 波形游标：横轴 24h，每格 20 分钟 */
-const waveEl=$('#wave');
-waveEl.addEventListener('pointermove',(e)=>{
-  const r=waveEl.getBoundingClientRect();
-  const k=Math.max(0,Math.min(1,(e.clientX-r.left)/r.width));
-  const i=Math.round(k*(WN-1));
-  $('#wCur').style.left=(k*100).toFixed(2)+'%';
-  $('#wTip').style.left=(k*100).toFixed(2)+'%';
-  const d=new Date(Date.now()-(WN-1-i)*1200000);
-  const hh=String(d.getHours()).padStart(2,'0'),mm=String(d.getMinutes()).padStart(2,'0');
-  $('#wTip').textContent=`${hh}:${mm} · ${Math.round(wTgt[i]*46)} 次调用`;
-});
-
 /* ── [02] 最近资讯：按期；最新一期摊开，更早的收成一行，点了就换上来 ── */
 const FEED=[
   {when:'今天 14:00',src:'情报推送',
@@ -2126,29 +1955,10 @@ idxBox.addEventListener('pointermove',(e)=>{
 idxBox.addEventListener('pointerleave',()=>{
   for(const r of rowCache)r.li.style.setProperty('--o',String(r.base));
 });
-$('#modSkills').onclick=()=>go('plugins');
-$('#modMcp').onclick=()=>go('mcp');
-$('#dkRefresh').onclick=(e)=>{
-  const b=e.currentTarget;
-  b.disabled=true;b.textContent='刷新中';
-  setTimeout(()=>{
-    sizeCv();
-    wTgt=wTgt.map(()=>.15+Math.random()*.75);
-    b.disabled=false;b.textContent='刷新';
-  },420);
-};
 
-/* ── 数字滚动 + 时钟 ── */
-function countUp(){
-  $$('[data-count]').forEach(el=>{
-    const to=+el.dataset.count,t0=performance.now();
-    (function tick(n){const p=Math.min(1,(n-t0)/700);
-      el.textContent=Math.round(to*(1-(1-p)**3)).toLocaleString();
-      if(p<1)requestAnimationFrame(tick);})(t0);
-  });
-}
+/* ── 时钟 ── */
 function drawClock(){$('#clk').textContent=new Date().toLocaleTimeString('zh-CN',{hour12:false});}
-countUp();drawClock();drawFocus();
+drawClock();drawFocus();
 setInterval(drawClock,1000);
 setTimeout(()=>{if(phase==='idle'&&!typeTimer)say('我在这儿。今天想聊点什么？');},1500);
 
@@ -2167,28 +1977,17 @@ function hudSession(){
 }
 hudSession();
 
-/* ── telemetry：三环 + 波形目标值 ── */
+/* ── telemetry：会话状态栏读数 ── */
 let live=true;
 function tickTelemetry(){
   if(!live)return;
-  const cpu=ri(9,34),memP=Math.round(rnd(1,1.8)/4*100),dsk=ri(52,58),
-        lat=ri(24,68),ctx=ri(31,46),tok=ri(24,52);
+  const lat=ri(24,68),ctx=ri(31,46),tok=ri(24,52);
   hudSet('#sbLat',lat);hudSet('#sbTok',tok);
   $('#ctxFill').style.width=ctx+'%';$('#ctxTxt').textContent=ctx+'%';
-  setArc(0,cpu);setArc(1,memP);setArc(2,dsk);
   $('#pulse').classList.toggle('warn',lat>58);
   $('#statusText').textContent=lat>58?'本地运行正常 · 响应变慢':'本地运行正常 · 模型就绪';
-  wTgt=[...wTgt.slice(1),.12+Math.random()*.78];
 }
 setInterval(tickTelemetry,1800);
-
-/* ── 调用计数递增 ── */
-let calls=1284;
-setInterval(()=>{
-  if(!live)return;
-  calls+=(1+ri(0,2));
-  $('#todayCalls').textContent=calls.toLocaleString();
-},6500);
 
 /* ── nav ── */
 function go(v){
