@@ -43,6 +43,21 @@ export interface CompactResult {
   hadSummary: boolean
 }
 
+/** 会话锁排队超过此时长即告警：通常意味着前一轮 prompt 卡住了 */
+const STALL_WARN_MS = 2 * 60_000
+
+/**
+ * 会话锁的硬界：超过它仍未结束就强制释放，避免单次卡死永久堵住该会话的后续消息。
+ *
+ * 为什么需要：`prompt()` 用 Promise 链串行化同一 sessionKey 的消息，链上任何一环
+ * 永不 resolve，该会话就永久哑掉（2026-10-04「你好」被卡死的快照堵住即如此）。
+ * 默认 30 分钟，远大于正常回合；可用 `LUMII_PROMPT_STALL_TIMEOUT_MS` 覆盖。
+ */
+const STALL_RELEASE_MS =
+  Number(process.env.LUMII_PROMPT_STALL_TIMEOUT_MS) > 0
+    ? Number(process.env.LUMII_PROMPT_STALL_TIMEOUT_MS)
+    : 30 * 60_000
+
 /**
  * 本轮消息的「回信地址」——channel_send 省略 `to` 时的默认收件人。
  *
@@ -68,6 +83,12 @@ export class SessionManager {
    */
   private readonly promptLocks = new Map<string, Promise<void>>()
 
+  /** sessionKey → 当前回合真正开始执行的时刻（用于卡死计时，区别于「入队时刻」） */
+  private readonly lockStartedAt = new Map<string, number>()
+
+  /** sessionKey → 卡死看门狗定时器（锁存活期间存在） */
+  private readonly stallWatchdogs = new Map<string, ReturnType<typeof setTimeout>>()
+
   constructor(private readonly bridge: AgentRuntimeBridge) {}
 
   /**
@@ -77,10 +98,63 @@ export class SessionManager {
   async prompt(params: PromptParams): Promise<void> {
     const { sessionKey } = params
     const prev = this.promptLocks.get(sessionKey) ?? Promise.resolve()
-    const next = prev.then(() => this._doPrompt(params))
+    // 在真正轮到自己执行时才重置计时：若前一轮卡死，后续消息只是排队，
+    // 计时必须继续从前一轮的起点算，否则卡死会因新消息入队而永远检测不到。
+    const next = prev.then(() => {
+      this.lockStartedAt.set(sessionKey, Date.now())
+      return this._doPrompt(params)
+    })
     // catch 包裹：防止一次失败阻塞后续请求
-    this.promptLocks.set(sessionKey, next.catch(() => {}))
+    const guarded = next.catch(() => {})
+    this.promptLocks.set(sessionKey, guarded)
+
+    // 锁正常落定即清理，避免陈旧条目与看门狗泄漏
+    void guarded.finally(() => {
+      if (this.promptLocks.get(sessionKey) === guarded) {
+        this.promptLocks.delete(sessionKey)
+        this.lockStartedAt.delete(sessionKey)
+        const timer = this.stallWatchdogs.get(sessionKey)
+        if (timer) {
+          clearTimeout(timer)
+          this.stallWatchdogs.delete(sessionKey)
+        }
+      }
+    })
+
+    this.armStallWatchdog(sessionKey)
     return next
+  }
+
+  /**
+   * 给 sessionKey 的锁挂看门狗：超时未结束就告警；到达硬界则强制释放锁。
+   * 强制释放是最后手段（正常工作不会触发），目的是不让一次卡死永久堵住该会话。
+   */
+  private armStallWatchdog(sessionKey: string): void {
+    if (this.stallWatchdogs.has(sessionKey)) return
+
+    const check = (): void => {
+      this.stallWatchdogs.delete(sessionKey)
+      const startedAt = this.lockStartedAt.get(sessionKey)
+      // 锁已正常落定（无锁或未记录起点）→ 无需处理
+      if (!this.promptLocks.has(sessionKey) || startedAt === undefined) return
+
+      const elapsed = Date.now() - startedAt
+      if (elapsed < STALL_RELEASE_MS) {
+        log.warn(
+          `[prompt] 会话锁已持续 ${Math.round(elapsed / 1000)}s 未结束，仍在等待: sessionKey=${sessionKey}`,
+        )
+        this.stallWatchdogs.set(sessionKey, setTimeout(check, STALL_WARN_MS))
+        return
+      }
+
+      log.error(
+        `[prompt] 会话锁疑似卡死 ${Math.round(elapsed / 1000)}s，强制释放以便后续消息继续: sessionKey=${sessionKey}`,
+      )
+      this.promptLocks.delete(sessionKey)
+      this.lockStartedAt.delete(sessionKey)
+    }
+
+    this.stallWatchdogs.set(sessionKey, setTimeout(check, STALL_WARN_MS))
   }
 
   /**
@@ -88,6 +162,12 @@ export class SessionManager {
    */
   clearLock(sessionKey: string): void {
     this.promptLocks.delete(sessionKey)
+    this.lockStartedAt.delete(sessionKey)
+    const timer = this.stallWatchdogs.get(sessionKey)
+    if (timer) {
+      clearTimeout(timer)
+      this.stallWatchdogs.delete(sessionKey)
+    }
     log.debug(`[clearLock] 已清除锁: sessionKey=${sessionKey}`)
   }
 
