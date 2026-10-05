@@ -176,7 +176,7 @@ const dst = argv[1]
 // ⚠ 只有**作为入口跑**才允许吃参数/退进程：这文件同时被驱动脚本当模块 import，
 // 顶层 process.exit 会把宿主整个带走（实测：摆位驱动一声不吭就退了）。
 if (IS_MAIN && (!src || !dst)) {
-  console.error('用法：node stage-frame.mjs <源图> <输出.png> [--canvas WxH] [--ratio 0.70] [--baseline 0.856] [--bg 00ffff] [--keep-scale] [--src-h 448] [--drop-debris] [--debris-max 800]')
+  console.error('用法：node stage-frame.mjs <源图> <输出.png> [--canvas WxH] [--ratio 0.70] [--baseline 0.856] [--bg RRGGBB（不传=用原图探测到的底色）] [--keep-scale] [--src-h 448] [--drop-debris] [--debris-max 800]')
   process.exit(1)
 }
 const opt = (n, d) => {
@@ -188,7 +188,16 @@ const canvasArg = opt('canvas', 'auto')
 const CANVAS = canvasArg === 'auto' ? null : canvasArg.split('x').map(Number)
 const RATIO = Number(opt('ratio', 0.7))
 const BASELINE = Number(opt('baseline', 0.856))
-const BGC = opt('bg', '00ffff')
+/**
+ * `--bg`：重铺的底色（6 位 hex，可带或不带 `#`）。
+ *
+ * **不传 = 自动用「原图自己探测到的底色」**（`estimateBackground` 取四角众数，见
+ * `stageFrame` 内的 `bgHex`）。这条是默认行为，因为「按角色原图的底色抠图」——
+ * 立绘用什么 key 色生成，动作帧就用同一个 key 色，提示词说的颜色与 `ColorToMask`
+ * 抠的颜色才和画面一致。写死一个全局色（旧默认青 `00ffff`）会在角色本身含近该色
+ * 的部位（如青碧色上衣）时，把角色自己的颜色误判成背景。
+ */
+const BGC = opt('bg', null)
 /**
  * `--keep-scale`：**不按 `--ratio` 重摆**，保持图形在**源画布里的比例**，
  * 只重新铺底 + 重新落位。
@@ -230,17 +239,35 @@ const DROP_DEBRIS = argv.includes('--drop-debris')
 const DEBRIS_MAX = Number(opt('debris-max', 800))
 
 /**
+ * `--transparent`：**不铺底色**，机位图输出为透明底（角色剪影）。
+ *
+ * 用户 2026-10-04 要求「输入图也用无背景图，避免底色干扰生成」。注意副作用：
+ * ComfyUI 的 `LoadImage` 会把 RGBA 的透明区当**黑底**，于是整段视频在黑底上生成，
+ * 抠底时要按**黑键**——而角色若有纯黑部位（如黑发），黑底与黑发色距近，容差要收紧。
+ */
+const TRANSPARENT = argv.includes('--transparent')
+
+/**
  * 摆一张图。返回 staging 元数据（后续 frame-0 snap 要拿它当参考）。
  *
  * 元数据里的 `figureHeightPx` 是关键：H3 出的第 0 帧理应复现这张参考图，
  * 但实测总会有出入——用第 0 帧的角色高度除以这个值，就是这一整段的
  * 全局缩放系数（**整段共用一个变换**，逐帧对齐会让画面抖）。
  */
-export async function stageFrame(srcPath, dstPath, { canvas = CANVAS, ratio = RATIO, baseline = BASELINE, bg = BGC, keepScale = KEEP_SCALE, srcH = SRC_H, dropDebris = DROP_DEBRIS, debrisMax = DEBRIS_MAX } = {}) {
-  const bgRGB = [0, 2, 4].map((i) => parseInt(bg.slice(i, i + 2), 16))
+export async function stageFrame(srcPath, dstPath, { canvas = CANVAS, ratio = RATIO, baseline = BASELINE, bg = BGC, keepScale = KEEP_SCALE, srcH = SRC_H, dropDebris = DROP_DEBRIS, debrisMax = DEBRIS_MAX, transparent = TRANSPARENT } = {}) {
   const { data, info } = await sharp(srcPath).ensureAlpha().raw().toBuffer({ resolveWithObject: true })
 
+  // 原图底色：四角邻域众数（`estimateBackground`）
   const B = estimateBackground(data, info.width, info.height)
+  // 重铺的底色：显式 `--bg` 优先；否则用**原图自己探测到的底色**（"按角色原图底色抠图"）。
+  // 这一步是整条链路的关键——它写进 meta.background，下游批量路径优先读它当提示词与
+  // ColorToMask 的 key 色，于是动作帧与立绘用的是同一个底色。
+  const bgHex = (
+    typeof bg === 'string' && bg.trim()
+      ? bg.trim()
+      : B.map((v) => v.toString(16).padStart(2, '0')).join('')
+  ).replace('#', '').toLowerCase()
+  const bgRGB = [0, 2, 4].map((i) => parseInt(bgHex.slice(i, i + 2), 16))
   const { tSolid, bgMax, bgShare } = autoSolid(data, info.width, info.height, B)
   // ⚠ cutout() 返回的是 { data, tuning, opaqueCount, semiCount }，**不是** Buffer。
   // 把它当像素缓冲用会得到一整片 undefined，症状是 alphaBBox 返回 null、
@@ -288,7 +315,16 @@ export async function stageFrame(srcPath, dstPath, { canvas = CANVAS, ratio = RA
   // 576×672 与 640×640 像素量相当（0.39MP vs 0.41MP），但格子能开到
   // 384×448（角色 313px）而不是 128×128（角色 96px），放大后清楚得多。
   const aspect = box.w / box.h
-  const [cw, ch] = canvas || [576, 672]
+  const [cw0, ch0] = canvas || [576, 672]
+  // ⚠ H3 的 video VAE 按 **32** 下采样：画布宽高必须是 32 的整数倍，否则
+  // `SamplerCustomAdvanced` 直接报 `shape '[1,24,1,1,14,2,17,2]' is invalid for input of size …`
+  // （14=448/32、17=544/32；实测 560×448 必炸——560 不是 32 的倍数——544×448 正常）。
+  // 这不是模型问题，换任何 unet/LoRA 都会炸，所以在这里就地取整。
+  const cw = Math.round(cw0 / 32) * 32
+  const ch = Math.round(ch0 / 32) * 32
+  if (cw !== cw0 || ch !== ch0) {
+    console.log(`  · 画布 ${cw0}×${ch0} 不是 32 的整数倍，已取整为 ${cw}×${ch}（H3 latent 要求）`)
+  }
   // ⚠ 这里**不能**拿「图形宽高比 vs 画布宽高比」判溢出。那个判据假设图形按高度
   // 撑满画布，而 `ratio < 1` 时图形根本没占满高度——实测侧身下落姿势宽高比 1.33
   // 就被它拦下，而按 ratio 0.70 摆出来只有 625px 宽，768 的画布绰绰有余。
@@ -323,10 +359,19 @@ export async function stageFrame(srcPath, dstPath, { canvas = CANVAS, ratio = RA
   }
 
   fs.mkdirSync(path.dirname(path.resolve(dstPath)), { recursive: true })
-  await sharp({ create: { width: cw, height: ch, channels: 3, background: { r: bgRGB[0], g: bgRGB[1], b: bgRGB[2] } } })
-    .composite([{ input: figure, left, top }])
-    .png()
-    .toFile(dstPath)
+  if (transparent) {
+    // 不铺底色：机位图本身透明。模型（ComfyUI LoadImage）会把透明当**黑底**，
+    // 于是首帧与后续帧都在黑底上生成——抠底时按黑键即可（黑发与纯黑底的色距需靠紧容差区分）。
+    await sharp({ create: { width: cw, height: ch, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } })
+      .composite([{ input: figure, left, top }])
+      .png()
+      .toFile(dstPath)
+  } else {
+    await sharp({ create: { width: cw, height: ch, channels: 3, background: { r: bgRGB[0], g: bgRGB[1], b: bgRGB[2] } } })
+      .composite([{ input: figure, left, top }])
+      .png()
+      .toFile(dstPath)
+  }
 
   const meta = {
     source: path.basename(srcPath),
@@ -338,7 +383,8 @@ export async function stageFrame(srcPath, dstPath, { canvas = CANVAS, ratio = RA
     figureHeightRatio: Number((targetH / ch).toFixed(3)),
     baselineRatio: baseline,
     keepScale,
-    background: `#${bg}`,
+    background: `#${bgHex}`,
+    transparent,
     estimatedBackground: `rgb(${B.join(',')})`,
     solidTolerance: tSolid,
     backgroundMaxDistance: Number(bgMax.toFixed(1)),

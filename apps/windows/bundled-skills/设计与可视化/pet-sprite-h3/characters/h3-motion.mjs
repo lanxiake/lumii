@@ -1289,7 +1289,11 @@ export function buildPrompt(action, scene = {}, { loopAnchor = 'first-last', sec
     `The camera holds a static shot. ${motionProse.replaceAll('{deadline}', deadline)}`,
     MOTION_CLASS[(scene.motionClassMap && scene.motionClassMap[action]) || A.motionClass],
     loopAnchor === 'first-last' ? _CLOSED_LAST : loopAnchor === 'first' ? _CLOSED_FREE : _CLOSED,
-    `The background stays a single flat ${bg} colour edge to edge, with no floor, shadow, scenery, text, or props. ` +
+    `The background is a completely static, frozen colour field: a single flat ${bg} colour edge to edge, ` +
+      `with no floor, shadow, scenery, text, or props. Every background pixel keeps exactly the same position ` +
+      `and the same colour in every single frame — zero coordinate offset, no perspective change, no light ` +
+      `falloff, no texture resampling, no gradient and no vignette. The background never moves, never pans ` +
+      `and never brightens or darkens. Only the character moves. ` +
       `The full body stays visible in one continuous shot with no cuts, transitions, zooms, or camera movement. ` +
       `The complete video is silent throughout, with no dialogue, vocalization, ambience, sound effects, or music.`,
   ]
@@ -1310,10 +1314,35 @@ export function buildPrompt(action, scene = {}, { loopAnchor = 'first-last', sec
 // ---------------------------------------------------------------------------
 
 const MODELS = {
-  unet: 'minimax_h3_fl2va_pruned_int8_convrot.safetensors',
+  // 按《MiniMax-H3_PDMD 加速 LoRA 实测教程》：16GB 卡的综合最佳组合是
+  // **W4A8 主模型 + PDMD-4 步 LoRA + INT8 ConvRot VAE**（比原生 ~5×，画质/稳定性最好）。
+  // int8_convrot 主模型 32.4GB，跑得动但每步更慢、更吃交换。
+  unet: 'minimax_h3_fl2va_pruned_w4a8_mixed.safetensors',
   clip: 'qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors',
-  vae: 'minimax_h3_video_vae_fp16.safetensors',
+  vae: 'minimax_h3_video_vae_int8_convrot.safetensors',
   turbo: 'minimax_h3_turbo_v4_step600_ema.safetensors',
+}
+
+/**
+ * 加速 LoRA 短名 → 远端实际文件名。
+ *
+ * `--lora pdmd4` 走这里解析；也可以直接给完整文件名。挂 LoRA 时**步数必须等于 LoRA 的步数**
+ * （PDMD-2 → 2、PDMD-4 → 4、acc8 → 8），乱设会明显崩。
+ *
+ * ⚠ PDMD 系列（Kijai 实验量化生态）**只配 W4A8 主模型**：配到 int8 主模型上会刷
+ * `lora key not loaded`（2026-10-04 实测 203 条），LoRA 不生效。
+ */
+const LORAS = {
+  pdmd2: 'minimax_h3_pdmd_2step_lora_avg_rank_38_bf16.safetensors',
+  pdmd4: 'minimax_h3_pdmd_4step_lora_avg_rank_57_bf16.safetensors',
+  acc8: 'MiniMax-H3-FL2VA-Acc-8Step_pruned_comfy.safetensors',
+  turbo: 'minimax_h3_turbo_v4_step600_ema.safetensors',
+}
+
+/** `--lora` 入参 → 远端文件名：短名走 LORAS，未知值当完整文件名用 */
+function resolveLora(v) {
+  if (!v) return null
+  return LORAS[v] ?? v
 }
 
 /**
@@ -1431,9 +1460,45 @@ export function buildSheetGraph({
    * 循环动作保持 false（FL2VA），见节点 6 的说明。
    */
   freeEnd = false,
+  /**
+   * 加速 LoRA（如 PDMD-4）：挂在 `UNETLoader` 与采样器之间。`null` = 不挂（走 20 步底模）。
+   *
+   * ⚠ 与 `buildGraph` 同理：LoRA 必须**同时**进 `BasicScheduler` 与 `BasicGuider` 的 `model`，
+   * 漏掉任一个都会静默走回底模行为（步数白改）。挂 LoRA 时 `steps` 要相应调小
+   * （PDMD-2 → 2 步、PDMD-4 → 4 步）。
+   */
+  lora = null,
+  loraStrength = 1,
+  /**
+   * `ColorToMask` 的 `invert`。**默认 false 是正确的**（2026-10-04 实测复核）：
+   * 首末机位帧在 `false` 下不透明占比 11%（干净），在 `true` 下变 88.9%（反了）。
+   *
+   * ⚠ 别被「整表 alpha 占比」误导：当**中间帧抠不掉**（背景漂出 threshold）时，
+   * 整表会被中段撑到 ~78% 不透明，看起来像"反了"，其实要**逐格**看首末机位帧。
+   * 这个开关只是留给异常情况的逃生口，正常别开。
+   */
+  maskInvert = false,
+  /**
+   * `noKey = true`：**不在图里抠底**，直接输出原始帧（含模型自己画的背景）。
+   *
+   * 为什么要有这条路（2026-10-04）：H3 只锚定**首帧**，后续帧背景是模型自己生成的——
+   * PDMD 加速 LoRA 下中段背景会变成**近黑色**（教程实测），与首帧铺的紫键色对不上，
+   * `ColorToMask threshold=30` 必然抠不掉中段；而且近黑底与角色黑发天然冲突。
+   * 所以把抠底整条链交回**本地脚本**（`matte-sheet.mjs`）按帧自适应处理。
+   */
+  noKey = false,
+  /**
+   * 抽帧区间（占全片比例）。**默认跳过头尾各 12%**——FL2VA 把首尾帧钉回输入机位图，
+   * 那几帧是「静止的」；取中段才拿到动作幅度最大的变化帧。设 `pickEndRatio >= 1` 表示到片尾。
+   */
+  pickStartRatio = 0.06,
+  pickEndRatio = 0.94,
 }) {
   const ref = (id, out = 0) => [String(id), out]
   const cellW = Math.max(16, Math.round((cellH * width) / height))
+  const modelSrc = lora ? ref(2) : ref(1)
+  const pickStart = Math.max(0, Math.floor(frames * pickStartRatio))
+  const pickEnd = pickEndRatio >= 1 ? -1 : Math.max(pickStart + picks, Math.min(frames - 1, Math.ceil(frames * pickEndRatio)))
 
   const g = {
     1: { class_type: 'UNETLoader', inputs: { unet_name: MODELS.unet, weight_dtype: 'default' } },
@@ -1464,9 +1529,9 @@ export function buildSheetGraph({
       },
     },
     7: { class_type: 'KSamplerSelect', inputs: { sampler_name: 'res_multistep' } },
-    8: { class_type: 'BasicScheduler', inputs: { model: ref(1), scheduler: 'simple', steps, denoise: 1 } },
+    8: { class_type: 'BasicScheduler', inputs: { model: modelSrc, scheduler: 'simple', steps, denoise: 1 } },
     9: { class_type: 'RandomNoise', inputs: { noise_seed: seed } },
-    10: { class_type: 'BasicGuider', inputs: { model: ref(1), conditioning: ref(6) } },
+    10: { class_type: 'BasicGuider', inputs: { model: modelSrc, conditioning: ref(6) } },
     11: { class_type: 'SamplerCustomAdvanced', inputs: { noise: ref(9), guider: ref(10), sampler: ref(7), sigmas: ref(8), latent_image: ref(6, 1) } },
     12: { class_type: 'VAEDecode', inputs: { samples: ref(11), vae: ref(4) } },
 
@@ -1475,7 +1540,11 @@ export function buildSheetGraph({
     // （上限 4096），所以别图省事填个大数。
     20: {
       class_type: 'RandomImageFromBatch',
-      inputs: { input: ref(12), start_index: 0, end_index: -1, num_frames: picks, randomness: 0, min_distance: 1, max_distance: 1024, seed: 0 },
+      // 抽帧**只取中段**（`pickStartRatio` ~ `pickEndRatio`）：
+      // FL2VA 把首帧和尾帧都钉回输入机位图，所以 `start_index:0/end_index:-1` 全片均匀取时，
+      // 头几张、尾几张几乎等于原图（看不出动作）——精灵表就成了「一堆一样的站姿」。
+      // 动作的位移/摆幅在中段最大，取中段才拿到**有效的变化帧**。
+      inputs: { input: ref(12), start_index: pickStart, end_index: pickEnd, num_frames: picks, randomness: 0, min_distance: 1, max_distance: 1024, seed: 0 },
     },
     // 色键。`invert: false` —— 这个方向是**实测**出来的，而且两次实测不一致，
     // 所以别照着任何文档推：
@@ -1485,13 +1554,29 @@ export function buildSheetGraph({
     // ComfyUI 这几组 mask 语义**互不统一**（BiRefNet 的 1 是角色、JoinImageWithAlpha
     // 的 1 是透明、ColorToMask 又是第三套），唯一可靠的判据是**跑完看 alpha 占比**：
     // 背景该占六七成透明，角色占两三成不透明。反了就翻这个开关。
-    21: { class_type: 'ColorToMask', inputs: { images: ref(20), invert: false, red: key[0], green: key[1], blue: key[2], threshold, per_batch: picks } },
+    21: { class_type: 'ColorToMask', inputs: { images: ref(20), invert: maskInvert, red: key[0], green: key[1], blue: key[2], threshold, per_batch: picks } },
     22: { class_type: 'MaskToImage', inputs: { mask: ref(21) } },
     23: { class_type: 'ImageScale', inputs: { image: ref(22), upscale_method: 'lanczos', width: cellW, height: cellH, crop: 'disabled' } },
     24: { class_type: 'ImageToMask', inputs: { image: ref(23), channel: 'red' } },
     // 颜色与遮罩各自缩放（lanczos 出来的半透明边正好当抗锯齿）
     25: { class_type: 'ImageScale', inputs: { image: ref(20), upscale_method: 'lanczos', width: cellW, height: cellH, crop: 'disabled' } },
     26: { class_type: 'JoinImageWithAlpha', inputs: { image: ref(25), alpha: ref(24) } },
+  }
+
+  // 加速 LoRA：插在 UNET 与采样器之间；BasicScheduler / BasicGuider 都要吃加过 LoRA 的 model
+  if (lora) {
+    g[2] = { class_type: 'LoraLoaderModelOnly', inputs: { model: ref(1), lora_name: lora, strength_model: loraStrength } }
+  }
+
+  // noKey：删掉整条色键链（21-24），node 26 改为**直接缩放原始帧**——
+  // 下游 ImageFromBatch 仍接 ref(26)，所以这里保持节点号不变。原始帧带模型自己的背景，
+  // 抠底交给本地脚本按帧处理。
+  if (noKey) {
+    for (const id of [21, 22, 23, 24]) delete g[id]
+    g[26] = {
+      class_type: 'ImageScale',
+      inputs: { image: ref(20), upscale_method: 'lanczos', width: cellW, height: cellH, crop: 'disabled' },
+    }
   }
 
   // 拆成单帧再横向拼——ImageStitch 一次只吃两张，所以串成一条链
@@ -1647,7 +1732,20 @@ export async function waitDone(promptId, { timeoutMs = 45 * 60 * 1000, queueTime
         // （history 只在结束时才写），别每个 tick 都去戳。
         // 队列查询自己失败时按"还在"处理——宁可多等，不可误杀。
         const still = await inQueue(promptId).catch(() => true)
-        if (!still) throw new Error(`任务从 history 与队列里都消失了（${promptId}）——ComfyUI 可能重启过`)
+        if (!still) {
+          // ⚠ 竞态（2026-10-05 实测踩到）：任务可能**正好**在上面查 history 与
+          // 这里查队列之间跑完——那一刻两份数据都没有它，于是刚跑完的任务被误判
+          // 成"消失"、整轮重出（实测 wave 任务 status=success 却报"从 history 与
+          // 队列里都消失了"）。收盘前再抓一次 history 确认：有就按完成收下。
+          const e2 = await history(promptId).catch(() => null)
+          if (e2?.status?.completed) return e2
+          if (e2?.status?.status_str === 'error') throw new Error(describeFailure(e2))
+          if (e2) {
+            consecutiveMissing = 0
+          } else {
+            throw new Error(`任务从 history 与队列里都消失了（${promptId}）——ComfyUI 可能重启过`)
+          }
+        }
       }
     }
 
@@ -1869,8 +1967,19 @@ if (isMain) {
     const [w, h] = (flag('size') || `${canvas.w}x${canvas.h}`).split('x').map(Number)
     // --free-end：不接 last_frame（I2VA）。姿势图专用，见 POSES 的说明。
     const freeEnd = argv.includes('--free-end')
-    // 档案给默认，显式参数覆盖
-    const scene = prof ? { identity: prof.identity, style: prof.style, background: prof.background, motions: prof.motions, facingMap: prof.facingMap, motionClassMap: prof.motionClassMap } : {}
+    // 档案给默认，显式参数覆盖。
+    // 底色优先读**首帧自己记的那份**（stage-frame 铺的，见 staged/<stem>.json），
+    // 与批量路径同一口径——「按角色原图底色抠图」；档案的 `background` 只是兜底。
+    let stagedBg = null
+    if (prof) {
+      try {
+        const m = JSON.parse(fs.readFileSync(path.join(MOTION_DIR, 'staged', `${fromStem}.json`), 'utf-8'))
+        if (typeof m.background === 'string') stagedBg = m.background
+      } catch {
+        // 没有 staged json 就用档案默认
+      }
+    }
+    const scene = prof ? { identity: prof.identity, style: prof.style, background: stagedBg || prof.background, motions: prof.motions, facingMap: prof.facingMap, motionClassMap: prof.motionClassMap } : {}
     if (flag('identity')) scene.identity = flag('identity')
     if (flag('style')) scene.style = flag('style')
     if (flag('bg')) scene.background = flag('bg')
@@ -1941,6 +2050,12 @@ if (isMain) {
       cellH,
       key: hexToRgb(st.bg),
       threshold: Number(flag('threshold', 30)),
+      lora: resolveLora(flag('lora')),
+      loraStrength: Number(flag('lora-strength', 1)),
+      maskInvert: argv.includes('--invert-mask'),
+      noKey: argv.includes('--no-key'),
+      pickStartRatio: Number(flag('pick-from', 0.06)),
+      pickEndRatio: Number(flag('pick-to', 0.94)),
       prefix: `petmotion/${token}`,
     })
     console.log(`提交 ${token}（${w}×${h} / ${frames} 帧 / 抽 ${picks} 帧 → ${cell.w}×${cell.h} 格子）`)
