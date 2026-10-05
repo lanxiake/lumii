@@ -500,6 +500,14 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
   /** 内容区容器：用于挂载非 passive 的 Ctrl+滚轮缩放监听 */
   const bodyRef = useRef<HTMLDivElement>(null)
 
+  /** 图片容器：放大超出画布后，按住左键拖动可平移查看被遮挡的部分 */
+  const imageWrapRef = useRef<HTMLDivElement>(null)
+  const [isPanning, setIsPanning] = useState(false)
+  /** 是否处于可平移状态（图片已超出画布，出现滚动条） */
+  const [imageCanPan, setImageCanPan] = useState(false)
+  /** 拖动起点快照：鼠标坐标 + 起始滚动位置 */
+  const panOriginRef = useRef<{ x: number; y: number; left: number; top: number } | null>(null)
+
   /** 按步进增减缩放（收敛到 [50%, 300%]） */
   const zoomBy = useCallback((delta: number) => {
     setZoom((z) => clampZoom(z + delta))
@@ -631,10 +639,11 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
   }, [isFullscreen, isEditingMarkdown, onClose, isWindow, zoomSupported, zoomBy])
 
   /**
-   * 滚轮缩放：无修饰键直接缩放（图片查看器习惯）。
-   * 放大后的长文档仍需能滚动：Shift+滚轮滚动光标下的滚动容器
-   * （浏览器不会把 Shift+滚轮映射成垂直滚动，只能手动处理）。
-   * 原生非 passive 监听：React 根容器的 wheel 为 passive，无法 preventDefault。
+   * 缩放：仅 Ctrl/Cmd + 滚轮触发（与浏览器/编辑器一致）。
+   * 无修饰键时放行给浏览器原生滚动——放大后的长文档、超大图片都靠原生滚动查看，
+   * 因此这里不再无条件 preventDefault。
+   * 原生非 passive 监听：React 根容器的 wheel 为 passive，无法 preventDefault，
+   * 也就拦不住 Electron 对 Ctrl+滚轮的整体页面缩放。
    */
   useEffect(() => {
     const el = bodyRef.current
@@ -644,21 +653,10 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
     let acc = 0
     const onWheel = (e: WheelEvent) => {
       if (!zoomSupported) return
+      if (!e.ctrlKey && !e.metaKey) return
       e.preventDefault()
       const raw = e.deltaY !== 0 ? e.deltaY : e.deltaX
       const px = e.deltaMode === 1 ? raw * 33 : raw
-      if (e.shiftKey) {
-        let node: HTMLElement | null = e.target instanceof HTMLElement ? e.target : null
-        while (
-          node &&
-          node !== el &&
-          !(node.scrollHeight > node.clientHeight && /(auto|scroll)/.test(getComputedStyle(node).overflowY))
-        ) {
-          node = node.parentElement
-        }
-        ;(node ?? el).scrollTop += px
-        return
-      }
       acc += px
       while (Math.abs(acc) >= WHEEL_STEP_PX) {
         zoomBy(acc < 0 ? ZOOM_STEP : -ZOOM_STEP)
@@ -668,6 +666,56 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
     el.addEventListener('wheel', onWheel, { passive: false })
     return () => el.removeEventListener('wheel', onWheel)
   }, [zoomSupported, zoomBy])
+
+  /** 图片放大超出画布后开始拖动：记录起点，改由 window 上的 mousemove 续接 */
+  const handleImageMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    const el = imageWrapRef.current
+    if (!el || e.button !== 0) return
+    if (el.scrollWidth <= el.clientWidth && el.scrollHeight <= el.clientHeight) return
+    panOriginRef.current = { x: e.clientX, y: e.clientY, left: el.scrollLeft, top: el.scrollTop }
+    setIsPanning(true)
+    e.preventDefault()
+  }, [])
+
+  /** 平移进行中：按鼠标位移反向滚动容器（等价于拖动画布） */
+  useEffect(() => {
+    if (!isPanning) return
+    const onMove = (e: MouseEvent) => {
+      const el = imageWrapRef.current
+      const origin = panOriginRef.current
+      if (!el || !origin) return
+      el.scrollLeft = origin.left - (e.clientX - origin.x)
+      el.scrollTop = origin.top - (e.clientY - origin.y)
+    }
+    const onUp = () => {
+      panOriginRef.current = null
+      setIsPanning(false)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    return () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+  }, [isPanning])
+
+  /** 重算图片是否已溢出画布（决定是否显示拖动光标） */
+  const refreshImageCanPan = useCallback(() => {
+    const el = imageWrapRef.current
+    setImageCanPan(
+      !!el && (el.scrollWidth > el.clientWidth + 1 || el.scrollHeight > el.clientHeight + 1),
+    )
+  }, [])
+
+  /** 缩放或换图后重算「是否可平移」：仅在内容真的溢出画布时才给抓手光标 */
+  useEffect(() => {
+    if (route !== 'image') {
+      setImageCanPan(false)
+      return
+    }
+    const id = requestAnimationFrame(refreshImageCanPan)
+    return () => cancelAnimationFrame(id)
+  }, [route, zoom, imageDataUrl, refreshImageCanPan])
 
   /** 切换文件时重置 Markdown 视图为预览、退出全屏并复位缩放 */
   useEffect(() => {
@@ -982,7 +1030,7 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
                 className={styles.zoomGroup}
                 role="group"
                 aria-label="内容缩放"
-                title="滚轮直接缩放；Shift+滚轮滚动内容"
+                title="Ctrl+滚轮缩放"
               >
                 <button
                   type="button"
@@ -1090,12 +1138,22 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
           )}
 
           {!loading && !error && result && !result.truncated && route === 'image' && imageDataUrl && (
-            <div className={styles.imageWrap}>
+            <div
+              ref={imageWrapRef}
+              className={clsx(
+                styles.imageWrap,
+                imageCanPan && styles.imageWrapPannable,
+                isPanning && styles.imageWrapPanning,
+              )}
+              onMouseDown={handleImageMouseDown}
+            >
               <img
                 src={imageDataUrl}
                 alt={fileName}
                 className={styles.image}
-                style={zoom !== 1 ? { zoom } : undefined}
+                draggable={false}
+                onLoad={refreshImageCanPan}
+                style={zoom !== 1 ? { zoom, maxWidth: 'none', maxHeight: 'none' } : undefined}
               />
             </div>
           )}

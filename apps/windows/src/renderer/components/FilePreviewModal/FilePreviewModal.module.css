@@ -345,8 +345,6 @@
   min-height: 0;
   overflow: auto;
   display: flex;
-  align-items: center;
-  justify-content: center;
   padding: 16px;
   background:
     linear-gradient(45deg, color-mix(in srgb, var(--mt-fg-4) 8%, transparent) 25%, transparent 25%),
@@ -357,7 +355,23 @@
   background-position: 0 0, 0 8px, 8px -8px, -8px 0;
 }
 
+/* 放大超出画布后：抓手光标提示可拖动平移 */
+.imageWrapPannable {
+  cursor: grab;
+}
+
+.imageWrapPanning {
+  cursor: grabbing;
+}
+
+.imageWrapPanning .image {
+  user-select: none;
+}
+
 .image {
+  /* margin:auto 居中且不吞溢出：flex 下容器小于内容时自动外边距归零，
+     让左上角也能滚到（align/justify 居中会裁掉起始边） */
+  margin: auto;
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
