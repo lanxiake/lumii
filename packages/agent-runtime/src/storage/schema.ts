@@ -6,7 +6,7 @@
  */
 
 /** 当前 schema 版本号 */
-export const SCHEMA_VERSION = 52;
+export const SCHEMA_VERSION = 53;
 
 /**
  * V1 DDL — 初始 schema

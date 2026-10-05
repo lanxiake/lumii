@@ -47,8 +47,8 @@ function insertLegacyAudit(db: DatabaseAdapter, toolName: string, isError: 0 | 1
 }
 
 describe("V52 迁移：tool_audit_log 来源维度", () => {
-  it("SCHEMA_VERSION 已递增到 52", () => {
-    expect(SCHEMA_VERSION).toBe(52);
+  it("SCHEMA_VERSION 已递增到 52 之后（V52 迁移仍在）", () => {
+    expect(SCHEMA_VERSION).toBeGreaterThanOrEqual(52);
   });
 
   it("新建库直接带 source 列：NOT NULL，默认 'unknown'（不假装能归因）", () => {

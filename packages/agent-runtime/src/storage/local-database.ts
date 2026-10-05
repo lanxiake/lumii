@@ -723,6 +723,12 @@ export class LocalDatabase {
         // 静默把已归因的 agent 维度全部压回 'unknown'——比报错更糟，所以必须守卫。
         case 44:
           return hasColumn("tool_usage_stats", "agent_id");
+        // V53 在 SCHEMA_VERSION 仍写 52 期间就发布过，于是老库有两条到达路径：
+        // 一条是从 ≤51 升上来时顺带跑过 V53（列已存在，版本却记成 52），另一条是
+        // 早已停在 52、根本没跑过 V53。bump 到 53 后两条路径都会进到这里重放，
+        // 靠本守卫按「列是否已存在」区分，避免前一条撞 duplicate column。
+        case 53:
+          return hasColumn("autonomous_satisfaction_scores", "task_summary");
         default:
           return false;
       }
