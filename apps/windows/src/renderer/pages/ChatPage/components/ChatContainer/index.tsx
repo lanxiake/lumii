@@ -5,7 +5,7 @@ import { ChatMessage } from '../ChatMessage'
 import { TypingIndicator } from '../TypingIndicator'
 import { EmptyState } from '../EmptyState'
 import { CompactionCard } from '../CompactionCard'
-import { TodoPanel } from '../TodoPanel'
+import { TodoPanel, computeTodoProgress } from '../TodoPanel'
 import { useStableMapById } from '../../../../utils/useStableMapById'
 import { useWindowedRows } from './useWindowedRows'
 import type { ChatSession, ChatMessage as ChatMessageType, AgentWorkflowItem, ToolCall } from '../../../../hooks/business/useChat'
@@ -145,6 +145,8 @@ interface ChatMessageRowProps {
   workflowToolItems: readonly AgentWorkflowItem[]
   /** 挂在本条消息下的子 Agent 运行（按 instanceId 归组，见 sub-agent-runs.ts） */
   subAgentRuns?: readonly SubAgentRun[]
+  /** 当前会话任务列表完成度（供「执行过程」折叠态进度联动） */
+  todoProgress?: { done: number; total: number } | null
 }
 
 /**
@@ -163,6 +165,7 @@ const ChatMessageRow: React.FC<ChatMessageRowProps> = ({
   replayMessageId,
   workflowToolItems,
   subAgentRuns,
+  todoProgress,
 }) => {
   const message: ChatMessageType = useMemo(() => ({
     id: item.id,
@@ -230,6 +233,7 @@ const ChatMessageRow: React.FC<ChatMessageRowProps> = ({
       fileAttachments={fileAttachments}
       replayMessageId={replayMessageId}
       subAgentRuns={subAgentRuns}
+      todoProgress={todoProgress}
     />
   )
 }
@@ -544,6 +548,11 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
   )
   const windowed = useWindowedRows({ scrollRoot, keys: rowKeys, pinnedKeys: pinnedRowKeys })
 
+  // 会话任务列表完成度：供「执行过程」折叠态进度联动。
+  // 必须与其余 hooks 一样无条件执行 —— 放到下方「空列表提前 return」之后会触发
+  // "Rendered more hooks than during the previous render"。
+  const todoProgress = useMemo(() => computeTodoProgress(todoCalls), [todoCalls])
+
   if (isLoading && chatItems.length === 0) {
     return (
       <div className={styles['chat-container']}>
@@ -603,6 +612,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
         replayMessageId={replayMessageId}
         workflowToolItems={workflowToolItems}
         subAgentRuns={subAgentRunsByParent.get(item.id)}
+        todoProgress={todoProgress}
       />
     )
   }
