@@ -191,6 +191,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
   const runtimeCompactionEvents = useAgentRuntimeState((s) => s.compactionEvents)
   const runtimeHistoryPaging = useAgentRuntimeState((s) => s.historyPaging)
   const runtimeLastTaskCompletion = useAgentRuntimeState((s) => s.lastTaskCompletion)
+  const runtimeBackgroundTasks = useAgentRuntimeState((s) => s.backgroundTasks)
 
   /**
    * 侧栏运行态：已进过内存的会话以 store.isStreaming 为准（避免 DB hasRunning 滞后导致动效不消）；
@@ -1786,6 +1787,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
               hasMoreHistory={runtimeHistoryPaging?.hasMore ?? false}
               isLoadingHistory={runtimeHistoryPaging?.isLoading ?? false}
               onLoadOlderMessages={handleLoadOlderMessages}
+              backgroundTasks={runtimeBackgroundTasks}
             />
           </ChatMessageActionsProvider>
         </div>

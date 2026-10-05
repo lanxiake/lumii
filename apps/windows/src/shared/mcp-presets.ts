@@ -51,6 +51,13 @@ export interface McpPreset {
   readonly todo?: string
   /** 播种时是否默认启用；未指定时按 isReadyToUse 判断 */
   readonly defaultEnabled?: boolean
+  /**
+   * 单次请求默认超时（ms）。长耗时服务（如远程 ComfyUI 出片）需调大，
+   * 否则会被本地 30s 默认值截断。
+   */
+  readonly timeoutMs?: number
+  /** 需要后台化的工具短名（命中后立即返回，完成后唤醒 Agent，避免拖垮回合） */
+  readonly backgroundTools?: readonly string[]
 }
 
 /**
@@ -75,6 +82,10 @@ export const MCP_PRESETS: readonly McpPreset[] = [
     command: 'npx',
     args: ['-y', 'comfyui-mcp'],
     env: { COMFYUI_URL: 'https://cfui.cpolar.top' },
+    // 一次 wait:true 最长等 300s，且 npx 冷启动握手也慢；30s 默认值会在本地先超时
+    timeoutMs: 360_000,
+    // 出片是分钟级长任务：后台执行，完成后唤醒 Agent 续跑
+    backgroundTools: ['enqueue_workflow'],
     defaultEnabled: false,
   },
   {

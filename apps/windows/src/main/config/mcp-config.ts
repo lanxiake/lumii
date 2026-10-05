@@ -38,6 +38,17 @@ export interface McpServerEntry {
   readonly cwd?: string
   /** 是否启用（默认 true） */
   readonly enabled?: boolean
+  /**
+   * 单次请求默认超时（ms，正整数）。不填用运行时默认 30s。
+   * 远程视频/图像生成这类长耗时工具所在 Server 需调大（如 360000）。
+   */
+  readonly timeoutMs?: number
+  /**
+   * 需要「后台化」的工具短名列表（如 enqueue_workflow）。
+   * 命中后工具调用立即返回「已在后台执行」，真实结果完成后唤醒 Agent 续跑——
+   * 避免长耗时工具把整轮回合拖到超时结束。
+   */
+  readonly backgroundTools?: readonly string[]
 }
 
 /** 标准 MCP 格式的单条 server（name 由对象 key 提供） */
@@ -136,6 +147,26 @@ function sanitizeMcpName(name: string): string {
   return cleaned || 'mcp-server'
 }
 
+/** 归一化超时值：只接受正有限数，其余丢弃（避免负数/NaN/字符串污染运行时） */
+function normalizeTimeoutMs(value: unknown): number | undefined {
+  const n = typeof value === 'number' ? value : Number(value)
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : undefined
+}
+
+/** 归一化后台化工具名列表：去空、去重；空列表视为未配置 */
+function normalizeBackgroundTools(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const names = [
+    ...new Set(
+      value
+        .filter((v): v is string => typeof v === 'string')
+        .map((v) => v.trim())
+        .filter((v) => v !== ''),
+    ),
+  ]
+  return names.length > 0 ? names : undefined
+}
+
 /**
  * 规范化单条原始记录：补 name、把 url-only 转成 mcp-remote、disabled→enabled
  */
@@ -160,6 +191,9 @@ function normalizeRawEntry(name: string, rec: McpServerRecord & { url?: string; 
     enabled = !rec.disabled
   }
 
+  const timeoutMs = normalizeTimeoutMs(rec.timeoutMs)
+  const backgroundTools = normalizeBackgroundTools(rec.backgroundTools)
+
   return {
     name: safeName,
     command: String(command).trim(),
@@ -167,6 +201,8 @@ function normalizeRawEntry(name: string, rec: McpServerRecord & { url?: string; 
     ...(rec.env ? { env: rec.env } : {}),
     ...(rec.cwd ? { cwd: rec.cwd } : {}),
     ...(enabled !== undefined ? { enabled } : {}),
+    ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+    ...(backgroundTools !== undefined ? { backgroundTools } : {}),
   }
 }
 
@@ -211,6 +247,8 @@ function presetToEntry(preset: McpPreset): McpServerEntry {
     command: preset.command,
     args: [...preset.args],
     ...(preset.env ? { env: { ...preset.env } } : {}),
+    ...(preset.timeoutMs !== undefined ? { timeoutMs: preset.timeoutMs } : {}),
+    ...(preset.backgroundTools ? { backgroundTools: [...preset.backgroundTools] } : {}),
     enabled,
   })
 }
@@ -304,6 +342,8 @@ function mcpEntriesSignature(entries: readonly McpServerEntry[]): string {
     args: entry.args,
     env: entry.env,
     enabled: entry.enabled,
+    timeoutMs: entry.timeoutMs,
+    backgroundTools: entry.backgroundTools,
   })))
 }
 
@@ -413,11 +453,53 @@ function seedDefaultMcpServers(): void {
   }
 }
 
+/**
+ * 用内置清单的默认值补齐用户条目缺失的 `timeoutMs` / `backgroundTools`。
+ *
+ * 老用户的 mcp-servers.json 是在这些字段存在之前播种的，文件里不会有它们——
+ * 而「内置 Server 的这些默认值」理应随应用升级生效。用户显式配过的值优先，不覆盖。
+ */
+export function applyPresetDefaults(entry: McpServerEntry, preset?: McpPreset): McpServerEntry {
+  if (!preset) return entry
+  const timeoutMs = entry.timeoutMs ?? preset.timeoutMs
+  const backgroundTools =
+    entry.backgroundTools ?? (preset.backgroundTools ? [...preset.backgroundTools] : undefined)
+  if (timeoutMs === entry.timeoutMs && backgroundTools === entry.backgroundTools) return entry
+  return {
+    ...entry,
+    ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+    ...(backgroundTools !== undefined ? { backgroundTools } : {}),
+  }
+}
+
+/**
+ * 由各 Server 的 `backgroundTools`（短名）算出完整工具名集合
+ *
+ * 完整名格式与 MCP 工具注册一致：`mcp__<server>__<tool>`。
+ */
+export function computeBackgroundToolNames(
+  entries: readonly Pick<McpServerEntry, 'name' | 'backgroundTools'>[],
+): Set<string> {
+  const names = new Set<string>()
+  for (const entry of entries) {
+    for (const short of entry.backgroundTools ?? []) {
+      if (short) names.add(`mcp__${entry.name}__${short}`)
+    }
+  }
+  return names
+}
+
 /** 校验单条配置，返回错误信息；通过则返回 null */
 export function validateMcpServerEntry(entry: McpServerEntry): string | null {
   if (!entry.name?.trim()) return '名称不能为空'
   if (!/^[A-Za-z0-9_-]+$/.test(entry.name)) return '名称只能包含字母、数字、下划线和短横线'
   if (!entry.command?.trim()) return '启动命令不能为空'
+  if (entry.timeoutMs !== undefined && (!Number.isFinite(entry.timeoutMs) || entry.timeoutMs <= 0)) {
+    return '超时（timeoutMs）必须是正整数毫秒'
+  }
+  if (entry.backgroundTools !== undefined && !Array.isArray(entry.backgroundTools)) {
+    return '后台化工具（backgroundTools）必须是字符串数组'
+  }
   return null
 }
 

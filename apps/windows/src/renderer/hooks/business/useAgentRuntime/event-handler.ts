@@ -12,7 +12,13 @@ import type { AgentRuntimeEvent, AgentRuntimeEventType } from '../../../../share
 import { patchBreakdownAfterConversationCompact } from '../../../../shared/context-usage-compact'
 import { isNoReplySentinel } from '../../../../shared/no-reply-sentinel'
 import type { RuntimeToolCall, RuntimeMessage, StreamMetrics, PerSessionState, RuntimeFileEvent, RuntimeCompactionEvent } from './agent-runtime-store'
-import { runtimeStore, updateSessionState, getDefaultPerSessionState } from './agent-runtime-store'
+import {
+  runtimeStore,
+  updateSessionState,
+  getDefaultPerSessionState,
+  upsertBackgroundTask,
+  type BackgroundTask,
+} from './agent-runtime-store'
 import {
   applyAssistantPartEvent,
   describeLlmError,
@@ -1673,6 +1679,22 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
           : preview
         : '结果已汇入会话，点击查看'
       notifyDesktop(`Lumii · ${event.name} ${statusText}`, body, sessionKey)
+      break
+    }
+
+    case 'agent:background-task': {
+      // 长耗时工具后台化：开始/终态各推一次，按 taskId 合并进会话的后台任务列表
+      const task: BackgroundTask = {
+        taskId: event.taskId,
+        toolName: event.toolName,
+        label: event.label,
+        status: event.status,
+        startedAt: event.startedAt,
+        ...(event.endedAt !== undefined ? { endedAt: event.endedAt } : {}),
+        ...(event.summary !== undefined ? { summary: event.summary } : {}),
+        ...(event.error !== undefined ? { error: event.error } : {}),
+      }
+      upsertBackgroundTask(sessionKey, task)
       break
     }
 

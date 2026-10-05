@@ -727,6 +727,11 @@ export async function handleCommand(
       case 'user:send':
         return handleUserSend(bridge, command)
 
+      // ---- 后台任务取消（长耗时工具后台化，用户在任务卡点「中断」）----
+      case 'background-task:cancel':
+        bridge.cancelBackgroundTask(command.taskId)
+        return { ok: true }
+
       // 转交确认（F2 队长制）：主助手提案 → 用户点卡片确认 → 新建/复用开发会话并发起任务
       case 'handoff:confirm':
         return handleHandoffConfirm(bridge, command)

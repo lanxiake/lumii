@@ -6,12 +6,13 @@ import { TypingIndicator } from '../TypingIndicator'
 import { EmptyState } from '../EmptyState'
 import { CompactionCard } from '../CompactionCard'
 import { TodoPanel, computeTodoProgress } from '../TodoPanel'
+import { BackgroundTaskList } from '../BackgroundTaskCard'
 import { useStableMapById } from '../../../../utils/useStableMapById'
 import { useWindowedRows } from './useWindowedRows'
 import type { ChatSession, ChatMessage as ChatMessageType, AgentWorkflowItem, ToolCall } from '../../../../hooks/business/useChat'
 import type { AssistantPart, FileChangeEntry } from '@mtbot/agent-runtime/browser'
 import { groupSubAgentRuns, type SubAgentRun } from './sub-agent-runs'
-import type { RuntimeFileEvent, RuntimeCompactionEvent } from '../../../../hooks/business/useAgentRuntime/agent-runtime-store'
+import type { RuntimeFileEvent, RuntimeCompactionEvent, BackgroundTask } from '../../../../hooks/business/useAgentRuntime/agent-runtime-store'
 import { isCompactSummaryText, unwrapCompactSummaryText } from '../../../../../shared/compact-summary-text'
 import styles from './ChatContainer.module.css'
 
@@ -113,6 +114,8 @@ interface ChatContainerProps {
   isLoadingHistory?: boolean
   /** 请求加载更早的一页历史消息 */
   onLoadOlderMessages?: () => void
+  /** 本会话的长耗时后台任务（远程视频生成等），渲染为对话流内任务卡 */
+  backgroundTasks?: readonly BackgroundTask[]
 }
 
 /** 距顶部小于该像素时触发历史懒加载，留出提前量避免用户滚到边界才开始请求 */
@@ -254,6 +257,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
   hasMoreHistory = false,
   isLoadingHistory = false,
   onLoadOlderMessages,
+  backgroundTasks,
 }) => {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   // 显式带上 null 联合类型：useRef<T>(null) 得到的是只读 RefObject，
@@ -690,6 +694,13 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
               variant="inline"
               defaultExpanded
             />
+          </div>
+        )}
+
+        {/* 长耗时后台任务（远程视频生成等）：随消息流滚动，运行中可见进度与耗时 */}
+        {backgroundTasks && backgroundTasks.length > 0 && (
+          <div className={styles['session-meta-inline']}>
+            <BackgroundTaskList tasks={backgroundTasks} />
           </div>
         )}
 

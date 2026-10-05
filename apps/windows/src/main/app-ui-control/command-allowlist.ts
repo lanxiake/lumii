@@ -34,6 +34,9 @@ export const COMMAND_ALLOWLIST: ReadonlySet<string> = new Set([
   // **做不出插话**。长任务一轮动辄十几分钟，外部只能干等它跑完 —— 或者落回
   // 那条「把整条 assistant 消息挪到插话之后」的老路（见插话分段实施计划）。
   'user:steer',
+  // 后台任务取消（长耗时工具后台化）：taskId 引用内存中已登记的任务（不能凭空构造），
+  // 效果 = 中断该任务挂起的 MCP 请求并标记取消，与 user:abort 同级风险。供 UI 与控制面使用。
+  'background-task:cancel',
   // 转交确认（F2）：handoffId 引用内存中的主助手提案（不可构造任意任务内容），
   // 执行 = 新建/复用开发会话并发起一次 run，与 user:send 同级。供自动化测试与控制面使用。
   'handoff:confirm',

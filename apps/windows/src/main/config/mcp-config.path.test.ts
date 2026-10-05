@@ -3,10 +3,13 @@ import os from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
+  applyPresetDefaults,
   computeMcpPresetBackfill,
+  computeBackgroundToolNames,
   getDefaultMcpDocumentsDir,
   reconcileBuiltinMcpPresets,
   resolveMcpEntryPaths,
+  validateMcpServerEntry,
   type McpServerEntry,
 } from './mcp-config'
 import { MCP_PRESETS } from '../../shared/mcp-presets'
@@ -121,5 +124,65 @@ describe('新增内置项补给老用户', () => {
       args: ['-y', '@modelcontextprotocol/server-filesystem', custom],
     }
     expect(resolveMcpEntryPaths(entry)).toBe(entry)
+  })
+})
+
+describe('MCP 请求超时配置', () => {
+  it('comfyui-remote 预置带 6 分钟超时，随播种落到配置条目', () => {
+    const comfy = computeMcpPresetBackfill([], new Set()).added.find((e) => e.name === 'comfyui-remote')
+    expect(comfy?.timeoutMs).toBe(360_000)
+  })
+
+  it('timeoutMs 非正整数时校验拦下', () => {
+    expect(validateMcpServerEntry({ name: 'x', command: 'npx', timeoutMs: 0 })).toMatch(/正整数/)
+    expect(validateMcpServerEntry({ name: 'x', command: 'npx', timeoutMs: -1 })).toMatch(/正整数/)
+    expect(validateMcpServerEntry({ name: 'x', command: 'npx', timeoutMs: Number.NaN })).toMatch(/正整数/)
+    expect(validateMcpServerEntry({ name: 'x', command: 'npx', timeoutMs: 60_000 })).toBeNull()
+  })
+})
+
+describe('MCP 后台化工具配置', () => {
+  it('comfyui-remote 预置标记 enqueue_workflow 后台化', () => {
+    const comfy = computeMcpPresetBackfill([], new Set()).added.find((e) => e.name === 'comfyui-remote')
+    expect(comfy?.backgroundTools).toEqual(['enqueue_workflow'])
+  })
+
+  it('computeBackgroundToolNames 拼出完整工具名（未配的 Server 不出现在集合里）', () => {
+    const names = computeBackgroundToolNames([
+      { name: 'comfyui-remote', backgroundTools: ['enqueue_workflow'] },
+      { name: 'other', backgroundTools: ['run'] },
+      { name: 'plain' },
+    ])
+    expect([...names].sort()).toEqual([
+      'mcp__comfyui-remote__enqueue_workflow',
+      'mcp__other__run',
+    ])
+  })
+
+  it('backgroundTools 非数组时校验拦下', () => {
+    expect(
+      validateMcpServerEntry({ name: 'x', command: 'npx', backgroundTools: 'nope' as never }),
+    ).toMatch(/字符串数组/)
+  })
+
+  it('applyPresetDefaults：老配置缺字段时用预置补齐，用户显式值优先', () => {
+    const preset = MCP_PRESETS.find((p) => p.name === 'comfyui-remote')
+    // 老用户条目：只有 command/args/env，没有 timeoutMs/backgroundTools
+    const legacy: McpServerEntry = { name: 'comfyui-remote', command: 'npx', args: ['-y', 'comfyui-mcp'] }
+    const filled = applyPresetDefaults(legacy, preset)
+    expect(filled.timeoutMs).toBe(360_000)
+    expect(filled.backgroundTools).toEqual(['enqueue_workflow'])
+
+    // 用户已配的值不被覆盖
+    const overridden = applyPresetDefaults(
+      { ...legacy, timeoutMs: 1_000, backgroundTools: ['custom_tool'] },
+      preset,
+    )
+    expect(overridden.timeoutMs).toBe(1_000)
+    expect(overridden.backgroundTools).toEqual(['custom_tool'])
+
+    // 非内置 Server 无预设，原样返回
+    const custom: McpServerEntry = { name: 'my-mcp', command: 'npx' }
+    expect(applyPresetDefaults(custom, undefined)).toBe(custom)
   })
 })

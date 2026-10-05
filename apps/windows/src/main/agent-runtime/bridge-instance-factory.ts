@@ -38,6 +38,7 @@ import {
   type AgentRuntimeFeatureFlags,
   type AgentDefinition,
   type ToolExecutionContext,
+  type BackgroundToolConfig,
   type SkillInfo,
   type CustomAgentInfo,
   type UserDeviceInfo,
@@ -140,6 +141,8 @@ export interface BridgeInstanceFactoryDeps {
   getFileRepo: () => FileRepo | null
   getMemoryManager: () => MemoryManager | null
   getToolContext: () => ToolExecutionContext | null
+  /** 长耗时工具后台化配置（策略 + 执行器），由 bridge 注入 */
+  background?: BackgroundToolConfig
   /** 推送活动快照（委派到 lifecycle.pushActivitySnapshot） */
   pushActivitySnapshot: (rootSessionKey: string) => void
   /** 发送消息给 Agent（被 ProactivityScheduler 触发时使用） */
@@ -755,6 +758,7 @@ export class BridgeInstanceFactory {
         tools: allTools,
         toolContext: tc,
         optionalHooks,
+        background: this.deps.background,
         memoryManager: this.deps.getMemoryManager() ?? undefined,
       },
       runtime,

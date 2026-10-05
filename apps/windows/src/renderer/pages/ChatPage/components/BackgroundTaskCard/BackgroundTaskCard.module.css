@@ -1,0 +1,158 @@
+/**
+ * BackgroundTaskCard.module.css —— 后台任务卡片样式
+ *
+ * 与 CompactionCard 同一视觉权重：对话流里的紧凑折叠卡，
+ * 运行中给强调色 + 转圈，让「任务还在跑」一眼可见。
+ */
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px auto;
+  max-width: 640px;
+  width: 100%;
+}
+
+.card {
+  border-radius: var(--mt-radius-lg, 12px);
+  border: 1px solid var(--mt-border);
+  background: var(--mt-bg-overlay);
+  overflow: hidden;
+}
+
+.running {
+  border-color: var(--mt-accent-500);
+}
+
+.failed {
+  border-color: var(--mt-danger-500, var(--mt-border));
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 12px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  font-size: 12px;
+  color: var(--mt-fg-3);
+}
+
+/* 头部行：折叠按钮占满剩余宽度，「中断」按钮靠右固定 */
+.headerRow {
+  display: flex;
+  align-items: center;
+}
+
+.headerRow .header {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+}
+
+.cancelBtn {
+  flex-shrink: 0;
+  margin-right: 10px;
+  padding: 2px 10px;
+  font-size: 11px;
+  font-family: var(--mt-font-mono);
+  color: var(--mt-fg-3);
+  background: transparent;
+  border: 1px solid var(--mt-border);
+  border-radius: var(--mt-radius-md, 8px);
+  cursor: pointer;
+}
+
+.cancelBtn:hover {
+  color: var(--mt-danger-500, var(--mt-fg-2));
+  border-color: var(--mt-danger-500, var(--mt-border));
+}
+
+.cancelBtn:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.header:disabled {
+  cursor: default;
+}
+
+.icon {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  color: var(--mt-fg-4);
+}
+
+.running .icon {
+  color: var(--mt-accent-500);
+}
+
+.failed .icon {
+  color: var(--mt-danger-500, var(--mt-fg-2));
+}
+
+.spinner {
+  animation: bg-task-spin 0.9s linear infinite;
+}
+
+@keyframes bg-task-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.title {
+  font-weight: var(--mt-fw-medium);
+  color: var(--mt-fg-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 300px;
+}
+
+.status {
+  flex-shrink: 0;
+  color: var(--mt-fg-4);
+}
+
+.running .status {
+  color: var(--mt-accent-500);
+}
+
+.elapsed {
+  font-family: var(--mt-font-mono);
+  font-size: 11px;
+  color: var(--mt-fg-4);
+  flex-shrink: 0;
+}
+
+.chevron {
+  display: inline-flex;
+  align-items: center;
+  margin-left: auto;
+  flex-shrink: 0;
+  color: var(--mt-fg-4);
+}
+
+.detail {
+  margin: 0;
+  padding: 4px 12px 10px 33px;
+  max-height: 320px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--mt-font-sans, inherit);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--mt-fg-2);
+}
+
+.detailError {
+  color: var(--mt-danger-500, var(--mt-fg-2));
+}

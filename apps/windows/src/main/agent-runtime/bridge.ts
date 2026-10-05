@@ -50,6 +50,8 @@ import {
   type AgentDefinition,
   type ToolExecutionContext,
   type AgentRuntimeFeatureFlags,
+  type BackgroundToolConfig,
+  type BackgroundToolRunner,
   estimateTokenCount,
   estimateTextTokenCount,
   ceilTokenEstimate,
@@ -182,6 +184,7 @@ import { syncAutonomousManagedCronJobs } from './autonomous-cron-linkage'
 import { runPlanner, shouldFallbackPlan } from './planner-wiring'
 import { OUTREACH_SYSTEM_NOTIFY_TITLE } from '../desktop-notify'
 import { BridgeInstanceFactory } from './bridge-instance-factory'
+import { BackgroundTaskManager, type BackgroundTaskRecord } from './background-task-manager'
 import { BridgeToolRegistrar } from './bridge-tool-registrar'
 import { BridgePromptDispatcher } from './bridge-prompt-dispatcher'
 import { RouterService } from './router/router-service'
@@ -410,6 +413,10 @@ export class AgentRuntimeBridge {
 
   private readonly mcpClients = new Map<string, McpStdioClient>()
   private mcpManager!: McpManager
+  /** 长耗时工具后台化任务登记（懒建） */
+  private backgroundTaskManager: BackgroundTaskManager | null = null
+  /** 运行中后台任务的中断控制器（取消/看门狗用），taskId → controller */
+  private readonly backgroundTaskAborts = new Map<string, AbortController>()
   private readonly instanceToRootSessionKey = new Map<string, string>()
   private readonly nodeStreamCallbacks = new Map<string, (event: AgentRuntimeEvent) => void>()
   /** sessionKey → 最近一次 LLM 调用返回的 inputTokens（提供商真实 prompt tokens） */
@@ -2389,6 +2396,7 @@ export class AgentRuntimeBridge {
       getToolEvolutionEngine: () => this._toolEvolutionEngine,
       getConversationRepo: () => this._conversationRepo,
       getFileRepo: () => this._fileRepo,
+      background: this.buildBackgroundToolConfig(),
       getSessionDisabledMcpServers: (sk) => this.getSessionDisabledMcpServers(sk),
       getSessionDisabledSkills: (sk) => this.getSessionDisabledSkills(sk),
       getMemoryManager: () => this._memoryManager,
@@ -3305,6 +3313,112 @@ export class AgentRuntimeBridge {
 
   reconnectMcpServer(name: string): Promise<void> { return this.mcpManager.reconnect(name) }
 
+  /** 懒建后台任务管理器：事件推渲染层，终态唤醒归属实例 */
+  private getBackgroundTaskManager(): BackgroundTaskManager {
+    if (!this.backgroundTaskManager) {
+      this.backgroundTaskManager = new BackgroundTaskManager({
+        emit: (event) => {
+          this.ipcChannel.forwardIpcEvent(event)
+        },
+        deliver: (task) => this.deliverBackgroundTask(task),
+      })
+    }
+    return this.backgroundTaskManager
+  }
+
+  /** 长耗时工具后台化配置（策略 + 执行器），注入实例装配层 */
+  private buildBackgroundToolConfig(): BackgroundToolConfig {
+    const policy = {
+      shouldBackground: (toolName: string): boolean =>
+        this.mcpManager?.getBackgroundToolNames().has(toolName) ?? false,
+    }
+    const runner: BackgroundToolRunner = {
+      run: ({ toolName, label, instanceId, execute }) => {
+        const manager = this.getBackgroundTaskManager()
+        // 工具的 ToolExecutionContext 是共享的、不带 instanceId；真实调用者由本引用标记
+        const ownerId = instanceId ?? this.currentToolExecutorInstanceIdRef.value
+        const sessionKey = ownerId ? this.instanceToRootSessionKey.get(ownerId) : undefined
+        const taskId = manager.start({ instanceId: ownerId, sessionKey, toolName, label })
+
+        // 每个后台任务一个独立中断控制器：任务活过回合结束，可单独取消，看门狗兜底
+        const controller = new AbortController()
+        this.backgroundTaskAborts.set(taskId, controller)
+        const watchdogMs = BACKGROUND_TASK_MAX_MS
+        const watchdog = setTimeout(() => {
+          if (!this.backgroundTaskAborts.has(taskId)) return
+          log.warn(`[background-task] 看门狗超时，判定失败 task=${taskId}`)
+          this.backgroundTaskAborts.delete(taskId)
+          controller.abort()
+          manager.fail(taskId, `后台任务超过 ${Math.round(watchdogMs / 60000)} 分钟未返回，已中止`)
+        }, watchdogMs)
+
+        const settle = (apply: () => void): void => {
+          clearTimeout(watchdog)
+          this.backgroundTaskAborts.delete(taskId)
+          apply()
+        }
+
+        // detached：真实执行不阻塞本轮；结束后回填任务并（终态）唤醒 Agent
+        void (async () => {
+          try {
+            const result = await execute(controller.signal)
+            const text = extractToolResultText(result)
+            settle(() => {
+              log.info(`[background-task] 执行返回 task=${taskId} isError=${result.isError ?? false}`)
+              if (result.isError) manager.fail(taskId, text || '工具执行失败')
+              else manager.complete(taskId, text)
+            })
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err)
+            settle(() => {
+              log.warn(`[background-task] 执行异常 task=${taskId}: ${message}`)
+              manager.fail(taskId, message)
+            })
+          }
+        })()
+        return taskId
+      },
+    }
+    return { policy, runner }
+  }
+
+  /** 取消一个后台任务：标记取消并中断其挂起的执行 */
+  cancelBackgroundTask(taskId: string): void {
+    this.getBackgroundTaskManager().cancel(taskId)
+    const controller = this.backgroundTaskAborts.get(taskId)
+    if (controller) {
+      controller.abort()
+      this.backgroundTaskAborts.delete(taskId)
+    }
+  }
+
+  /** 后台任务终态时唤醒归属 Agent：运行中 followUp，空闲时 prompt(internal) 起新回合 */
+  private async deliverBackgroundTask(task: BackgroundTaskRecord): Promise<void> {
+    const inst = task.instanceId ? this.agentRegistry.get(task.instanceId) : undefined
+    if (!inst || inst.state === 'destroyed') {
+      log.warn(
+        `[background-task] 归属实例不可达，结果仅保留在任务卡 task=${task.taskId} instance=${task.instanceId ?? '-'}`,
+      )
+      return
+    }
+    const text = formatBackgroundResultMessage(task)
+    try {
+      if (inst.state === 'running') {
+        inst.followUp(text)
+      } else if (inst.state === 'idle') {
+        await inst.prompt(text, undefined, 'internal')
+      } else {
+        log.warn(
+          `[background-task] 实例状态 ${inst.state} 暂不可投递 task=${task.taskId}，结果仅保留在任务卡`,
+        )
+      }
+    } catch (err) {
+      log.error(
+        `[background-task] 唤醒失败 task=${task.taskId}: ${err instanceof Error ? err.message : String(err)}`,
+      )
+    }
+  }
+
   /**
    * 向渲染进程广播事件（窗口不可用时入队）。
    * 供 IPC handler 推 conversation:created 等列表类事件——CLI / 控制口建的会话
@@ -3830,4 +3944,28 @@ function extractAssistantTextFromAgentMessage(content: unknown): string {
     .filter(Boolean)
     .join('\n')
     .trim()
+}
+
+/** 后台任务看门狗上限：超过即判失败，避免任务卡永远停在「运行中」 */
+const BACKGROUND_TASK_MAX_MS = 15 * 60 * 1000
+
+/** 从工具结果里抽纯文本（后台任务的产出摘要来源） */
+function extractToolResultText(result: {
+  content?: readonly { type?: string; text?: string }[]
+}): string {
+  return (result.content ?? [])
+    .filter((c) => c.type === 'text' && typeof c.text === 'string')
+    .map((c) => c.text as string)
+    .join('\n')
+    .trim()
+}
+
+/** 后台任务终态 → 唤醒消息文案 */
+function formatBackgroundResultMessage(task: BackgroundTaskRecord): string {
+  const statusText =
+    task.status === 'succeeded' ? '完成' : task.status === 'failed' ? '失败' : '已取消'
+  const head = `【后台任务${statusText}】${task.label}（taskId=${task.taskId}）`
+  if (task.status === 'failed') return `${head}\n失败原因：${task.error ?? '未知'}`
+  if (task.status === 'cancelled') return `${head}\n任务已取消。`
+  return `${head}\n结果：\n${task.summary ?? '(无输出)'}`
 }

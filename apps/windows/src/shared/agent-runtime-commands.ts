@@ -1596,8 +1596,15 @@ interface ToolEvolutionStatsCommand {
 // 联合类型
 // ============================================================
 
+/** 取消一个运行中的后台任务（长耗时工具后台化，用户在任务卡上点「中断」） */
+interface BackgroundTaskCancelCommand {
+  readonly type: 'background-task:cancel'
+  readonly taskId: string
+}
+
 /** 所有 Agent Runtime 命令的联合类型 */
 export type AgentRuntimeCommand =
+  | BackgroundTaskCancelCommand
   | UserSendCommand
   | UserSteerCommand
   | UserAbortCommand

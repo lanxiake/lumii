@@ -856,3 +856,43 @@ describe('会话级插话状态', () => {
     expect(runtimeStore.getState().sessions.get('s-A')?.steer.draft).toBe('')
   })
 })
+
+describe('handleRuntimeEvent background-task routing', () => {
+  beforeEach(() => {
+    resetRuntimeStore()
+    resetAgentRuntimeEventHandlerForTests()
+  })
+
+  const base = {
+    type: 'agent:background-task' as const,
+    sessionKey: 'session-bg',
+    toolName: 'mcp__comfyui-remote__enqueue_workflow',
+    label: 'ComfyUI: enqueue_workflow',
+    startedAt: 1_000,
+  }
+
+  it('start → running；终态按 taskId 合并而非新增', () => {
+    handleRuntimeEvent({ ...base, taskId: 'tk-1', status: 'running' })
+    let tasks = runtimeStore.getState().sessions.get('session-bg')?.backgroundTasks ?? []
+    expect(tasks).toHaveLength(1)
+    expect(tasks[0]).toMatchObject({ taskId: 'tk-1', status: 'running' })
+
+    handleRuntimeEvent({
+      ...base,
+      taskId: 'tk-1',
+      status: 'succeeded',
+      endedAt: 2_000,
+      summary: '产出 8 帧',
+    })
+    tasks = runtimeStore.getState().sessions.get('session-bg')?.backgroundTasks ?? []
+    expect(tasks).toHaveLength(1)
+    expect(tasks[0]).toMatchObject({ status: 'succeeded', summary: '产出 8 帧' })
+  })
+
+  it('不同 taskId 各自成条', () => {
+    handleRuntimeEvent({ ...base, taskId: 'tk-a', status: 'running' })
+    handleRuntimeEvent({ ...base, taskId: 'tk-b', status: 'running' })
+    const tasks = runtimeStore.getState().sessions.get('session-bg')?.backgroundTasks ?? []
+    expect(tasks.map((t) => t.taskId).sort()).toEqual(['tk-a', 'tk-b'])
+  })
+})

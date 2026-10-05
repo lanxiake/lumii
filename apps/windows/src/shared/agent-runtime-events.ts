@@ -409,6 +409,40 @@ export interface AgentSubagentCompletedEvent {
 }
 
 // ============================================================
+// 后台任务（长耗时工具后台化）
+// ============================================================
+
+/** 后台任务状态 */
+export type BackgroundTaskStatus = 'running' | 'succeeded' | 'failed' | 'cancelled'
+
+/**
+ * 后台任务快照事件。
+ *
+ * 长耗时工具（如远程视频生成）不再是「阻塞回合直到超时」，而是立即返回、
+ * 后台执行；此事件在开始与终态各推送一次，UI 据此在对话里显示任务卡。
+ * 用单一事件类型 + status 字段承载全生命周期，与 agent:activity:snapshot 同构，
+ * 便于 store 直接按 taskId 合并。
+ */
+export interface AgentBackgroundTaskEvent {
+  readonly type: 'agent:background-task'
+  readonly taskId: string
+  readonly instanceId?: string
+  /** 归属会话：完成结果汇入的会话，供 UI 路由 */
+  readonly sessionKey?: string
+  /** 触发该后台任务的工具名（如 mcp__comfyui-remote__enqueue_workflow） */
+  readonly toolName: string
+  /** 人类可读标签（供 UI 显示） */
+  readonly label: string
+  readonly status: BackgroundTaskStatus
+  readonly startedAt: number
+  readonly endedAt?: number
+  /** 终态摘要（成功时截断的产出预览） */
+  readonly summary?: string
+  /** 失败原因 */
+  readonly error?: string
+}
+
+// ============================================================
 // 上下文使用量事件
 // ============================================================
 
@@ -724,6 +758,7 @@ export type AgentRuntimeEvent =
   | ConversationMessageNewEvent
   | AgentActivitySnapshotEvent
   | AgentSubagentCompletedEvent
+  | AgentBackgroundTaskEvent
   | AgentContextUsageEvent
   | AgentContextCompactedEvent
   | AgentFileCreatedEvent

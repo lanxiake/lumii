@@ -258,6 +258,21 @@ interface SteerState {
   readonly sent: boolean
 }
 
+/** 后台任务状态（长耗时工具后台化，见主进程 background-task-manager） */
+export type BackgroundTaskStatus = 'running' | 'succeeded' | 'failed' | 'cancelled'
+
+/** 一条后台任务快照（渲染为对话内的任务卡） */
+export interface BackgroundTask {
+  readonly taskId: string
+  readonly toolName: string
+  readonly label: string
+  readonly status: BackgroundTaskStatus
+  readonly startedAt: number
+  readonly endedAt?: number
+  readonly summary?: string
+  readonly error?: string
+}
+
 export interface PerSessionState {
   readonly messages: readonly RuntimeMessage[]
   /** 历史消息懒加载分页状态 */
@@ -286,6 +301,8 @@ export interface PerSessionState {
   readonly lastTaskCompletion: { summary: string; timestamp: number } | null
   /** 中途插话输入条状态（会话级） */
   readonly steer: SteerState
+  /** 长耗时工具后台化任务（会话级，按 taskId 更新） */
+  readonly backgroundTasks: readonly BackgroundTask[]
 }
 
 /**
@@ -347,6 +364,8 @@ const EMPTY_MESSAGES: readonly RuntimeMessage[] = []
 const EMPTY_ACTIVE_AGENTS: readonly ActiveAgent[] = []
 const EMPTY_FILE_EVENTS: readonly RuntimeFileEvent[] = []
 const EMPTY_COMPACTION_EVENTS: readonly RuntimeCompactionEvent[] = []
+/** 共享空后台任务列表，保证无任务时快照引用稳定 */
+const EMPTY_BACKGROUND_TASKS: readonly BackgroundTask[] = []
 /** 共享空插话态，保证无插话时快照引用稳定 */
 const EMPTY_STEER_STATE: SteerState = { draft: '', sent: false }
 
@@ -383,6 +402,7 @@ const DEFAULT_PER_SESSION_STATE: PerSessionState = {
   compactionEvents: EMPTY_COMPACTION_EVENTS,
   lastTaskCompletion: null,
   steer: EMPTY_STEER_STATE,
+  backgroundTasks: EMPTY_BACKGROUND_TASKS,
 }
 
 /**
@@ -475,10 +495,36 @@ export function updateSessionState(
   })
 }
 
+/**
+ * 插入/更新一条后台任务（按 taskId 去重）。
+ *
+ * 新任务置顶；已存在的原位替换（保留列表顺序，避免每次进度刷新都跳动）。
+ */
+export function upsertBackgroundTask(sessionKey: string, task: BackgroundTask): void {
+  updateSessionState(sessionKey, (prev) => {
+    const idx = prev.backgroundTasks.findIndex((t) => t.taskId === task.taskId)
+    if (idx < 0) {
+      return { ...prev, backgroundTasks: [task, ...prev.backgroundTasks] }
+    }
+    const existing = prev.backgroundTasks[idx]!
+    // 无实质变化则保持引用，避免无谓重渲染
+    if (
+      existing.status === task.status &&
+      existing.summary === task.summary &&
+      existing.error === task.error &&
+      existing.endedAt === task.endedAt
+    ) {
+      return prev
+    }
+    const next = [...prev.backgroundTasks]
+    next[idx] = task
+    return { ...prev, backgroundTasks: next }
+  })
+}
+
 // ============================================================
 // 会话级插话状态操作
 // ============================================================
-
 /** 更新插话草稿（按会话存储，切会话不串） */
 export function setSteerDraft(sessionKey: string, draft: string): void {
   updateSessionState(sessionKey, (prev) =>

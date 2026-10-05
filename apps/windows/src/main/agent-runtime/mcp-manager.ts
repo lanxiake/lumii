@@ -15,8 +15,11 @@ import {
   saveMcpServerConfigs,
   validateMcpServerEntry,
   writeMcpConfigRaw,
+  computeBackgroundToolNames,
+  applyPresetDefaults,
   type McpServerEntry,
 } from '../config/mcp-config'
+import { findMcpPreset } from '../../shared/mcp-presets'
 
 /** 单个 MCP Server 的运行时状态（含配置本身，供设置页直接渲染） */
 export interface McpServerRuntimeStatus extends McpServerEntry {
@@ -118,7 +121,9 @@ export class McpManager {
     if (this.shuttingDown) return
     // 会话中新装的 uv 会创建 ~/.local/bin，每次连接前刷新，避免仍 ENOENT
     refreshCommonCliPathsInProcessEnv()
-    const { name, command, args, env, cwd } = expandEntry(config)
+    // 老用户配置缺 timeoutMs/backgroundTools：用内置清单默认值补齐（用户显式值优先）
+    const effective = applyPresetDefaults(config, findMcpPreset(config.name))
+    const { name, command, args, env, cwd } = expandEntry(effective)
     log.info(`[connect] 连接 MCP Server: ${name} (${command} ${(args ?? []).join(' ')})`)
 
     if (command === 'uvx' || command === 'uv') {
@@ -134,7 +139,7 @@ export class McpManager {
       refreshCommonCliPathsInProcessEnv()
     }
 
-    const client = new McpStdioClient({ command, args, env, cwd })
+    const client = new McpStdioClient({ command, args, env, cwd, requestTimeoutMs: effective.timeoutMs })
     this.connecting.add(name)
     this.intentionalStops.delete(name)
     // 先登记再握手：退出清理要能停掉「已 spawn 但还没握手完」的 client（见字段注释）
@@ -301,6 +306,18 @@ export class McpManager {
   /** 配置文件级错误（解析失败等），无则 null */
   getConfigError(): string | null {
     return this.configError
+  }
+
+  /**
+   * 需要后台化的完整工具名集合（如 mcp__comfyui-remote__enqueue_workflow）。
+   *
+   * 由各 Server 配置的 `backgroundTools`（短名）拼上 `mcp__<server>__` 前缀得到，
+   * 供工具装配层的后台化策略判定。
+   */
+  getBackgroundToolNames(): ReadonlySet<string> {
+    return computeBackgroundToolNames(
+      [...this.configs.values()].map((c) => applyPresetDefaults(c, findMcpPreset(c.name))),
+    )
   }
 
   /** 读取 mcp-servers.json 原文供客户端内编辑 */
