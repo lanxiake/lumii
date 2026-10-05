@@ -17,6 +17,7 @@ import type { AgentRuntimeFeatureFlags } from "../config/index.js";
 import type { AgentDefinition } from "../types/agent-definition.js";
 import type { MtBotTool, ToolExecutionContext } from "../types/tool.js";
 import type { ToolHook } from "../tools/tool-hooks.js";
+import type { BackgroundToolConfig } from "../tools/background-tool.js";
 import type { MemoryManager } from "../memory/manager.js";
 import type { AgentInstance } from "../agent/agent-instance.js";
 import type {
@@ -199,6 +200,8 @@ export interface AssembleAgentOptions {
   readonly toolContext: ToolExecutionContext;
   /** 宿主增强 hooks（analytics / VCS / skill-evolution 等，可选） */
   readonly optionalHooks?: readonly ToolHook[];
+  /** 长耗时工具后台化策略 + 执行器（可选） */
+  readonly background?: BackgroundToolConfig;
   /** 客户端会话级模型覆盖（透传给 config.resolveModel） */
   readonly modelOverride?: ModelOverride;
   /** 客户端会话级 feature flags 覆盖 */

@@ -3,6 +3,13 @@ export { createMtBotTool, type MtBotToolConfig } from "./tool-adapter.js";
 export { ALL_BUILT_IN_TOOL_CONFIGS } from "./built-in/index.js";
 export { resolveAgentFilePath } from "./resolve-file-path.js";
 export { ToolRunner } from "./tool-runner.js";
+export {
+  buildBackgroundNotice,
+  type BackgroundToolConfig,
+  type BackgroundToolPolicy,
+  type BackgroundToolRunInput,
+  type BackgroundToolRunner,
+} from "./background-tool.js";
 export type {
   ToolHook,
   ToolHookContext,

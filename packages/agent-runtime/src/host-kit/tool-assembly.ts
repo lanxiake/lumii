@@ -29,6 +29,7 @@ import { createVerificationGateHook } from "../agent/hooks/verification-gate-hoo
 import { DEFAULT_CACHE_TTL_MINUTES, normalizeCacheKey } from "../tools/built-in/web-shared.js";
 import { WRITE_TOOL_NAMES } from "../security/permission-types.js";
 import { createPermissionGateHook, type PermissionGateHookDeps } from "./permission-gate-hook.js";
+import type { BackgroundToolConfig } from "../tools/background-tool.js";
 
 /**
  * 按 Agent 定义过滤工具列表
@@ -103,6 +104,8 @@ export interface AssembleToolsOptions {
     success: boolean;
     errorType?: string;
   }) => void;
+  /** 长耗时工具后台化策略 + 执行器（宿主注入；缺省则全部同步执行） */
+  readonly background?: BackgroundToolConfig;
 }
 
 /** 工具装配产物 */
@@ -137,6 +140,7 @@ export function assembleTools(opts: AssembleToolsOptions): AssembledTools {
     : undefined;
 
   const runner = new ToolRunner(telemetryCollector);
+  if (opts.background) runner.setBackground(opts.background);
 
   // 1) 权限闸门（critical）
   runner.addHook(createPermissionGateHook(opts.permissionGate));

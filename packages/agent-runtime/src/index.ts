@@ -90,6 +90,10 @@ export type {
   TelemetrySink,
   TemplateToolDefinition,
   ToolDefinitionLike,
+  BackgroundToolConfig,
+  BackgroundToolPolicy,
+  BackgroundToolRunInput,
+  BackgroundToolRunner,
 } from "./tools/index.js";
 export {
   createBashCommandLogHook,

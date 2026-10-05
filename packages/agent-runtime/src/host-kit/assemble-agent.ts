@@ -147,6 +147,7 @@ export async function assembleAgent(
     lifecycle: runtime.toolLifecycle,
     cacheKeyFn: runtime.cacheKeyFn,
     onTelemetry: runtime.onTelemetry,
+    background: opts.background,
   });
   const toolNames = assembledTools.tools.map((t) => t.name);
 

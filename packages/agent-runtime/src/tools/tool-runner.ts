@@ -14,6 +14,7 @@ import type {
 } from "./tool-hooks.js";
 import { reportToolMetrics, type ToolTelemetryCollector } from "./telemetry.js";
 import type { AgentTurnOrigin } from "../kernel/agent-turn-types.js";
+import { buildBackgroundNotice, type BackgroundToolConfig } from "./background-tool.js";
 
 /**
  * 协调 hooks 与 MtBotTool 原始 execute 的执行器
@@ -24,10 +25,17 @@ export class ToolRunner {
   private readonly telemetry?: ToolTelemetryCollector;
   /** turn 来源 */
   private readonly origin: AgentTurnOrigin;
+  /** 长耗时工具后台化（可选，宿主注入） */
+  private background?: BackgroundToolConfig;
 
   constructor(telemetry?: ToolTelemetryCollector, origin: AgentTurnOrigin = "local_ui") {
     this.telemetry = telemetry;
     this.origin = origin;
+  }
+
+  /** 注入/清除后台化配置 */
+  setBackground(background: BackgroundToolConfig | undefined): void {
+    this.background = background;
   }
 
   /** 注册全局 hook（按注册顺序执行） */
@@ -99,7 +107,43 @@ export class ToolRunner {
       return this.runAfterHooks(activeHooks, resultCtx, shortCircuit);
     }
 
+    // 标记「当前正在执行工具的实例」：后台化归属判定也依赖它（宿主 runner 读取该引用）
     lifecycle?.beforeActualToolExecute?.();
+
+    // 长耗时工具后台化：权限闸门已放行，把真实执行挪到后台，立即返回占位结果。
+    // 触发点必须在 beforeHooks（含权限闸门）之后——否则权限弹窗会晚于「已提交」出现。
+    if (this.background?.policy.shouldBackground(tool.name, params)) {
+      let taskId: string | undefined;
+      try {
+        taskId = this.background.runner.run({
+          toolName: tool.name,
+          label: tool.label,
+          instanceId: executionContext.instanceId,
+          // 后台任务用宿主注入的 signal：不沿用回合 signal，否则回合一结束任务即被 abort
+          execute: (taskSignal) => tool.execute(toolCallId, params as never, taskSignal, onUpdate),
+        });
+      } catch (err) {
+        // 登记失败不能让工具调用凭空消失，退化为同步执行
+        console.warn(`[ToolRunner] 后台化登记失败，退化为同步执行 ${tool.name}:`, err);
+      }
+      if (taskId) {
+        lifecycle?.afterActualToolExecute?.();
+        const placeholder: HookAgentToolResult = {
+          content: [{ type: "text", text: buildBackgroundNotice(tool.label, taskId) }],
+          isError: false,
+          details: { background: true, taskId },
+        };
+        const durationMs = Date.now() - startTime;
+        const resultCtx: ToolHookResultContext = {
+          ...hookCtx,
+          result: placeholder,
+          isError: false,
+          durationMs,
+        };
+        return this.runAfterHooks(activeHooks, resultCtx, placeholder);
+      }
+    }
+
     let result: HookAgentToolResult;
     try {
       result = await tool.execute(toolCallId, params as never, signal, onUpdate);
