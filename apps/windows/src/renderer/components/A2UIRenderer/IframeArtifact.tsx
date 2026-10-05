@@ -4,7 +4,7 @@ import styles from './IframeArtifact.module.css'
 // iframe 内容 CSP 已禁用（主进程禁用 CSP，iframe 也无需限制）
 // 允许加载外部资源以支持 YouTube 嵌入、GSAP 等功能
 const IFRAME_CSP =
-  "default-src *; script-src * 'unsafe-inline' 'unsafe-eval'; style-src * 'unsafe-inline'; img-src * data: blob:; font-src * data:; media-src * data: blob:; frame-src *; connect-src * ws: wss:;"
+  "default-src *; script-src * 'unsafe-inline' 'unsafe-eval'; style-src * 'unsafe-inline'; img-src * data: blob: lumii-local:; font-src * data:; media-src * data: blob: lumii-local:; frame-src *; connect-src * ws: wss:;"
 
 export interface IframeArtifactProps {
   content: string
