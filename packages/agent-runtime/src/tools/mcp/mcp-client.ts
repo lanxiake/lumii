@@ -23,6 +23,31 @@ export interface McpServerConfig {
   readonly env?: Readonly<Record<string, string>>;
   /** 工作目录 */
   readonly cwd?: string;
+  /**
+   * 单次 JSON-RPC 请求的默认超时（ms）。不传用 {@link DEFAULT_MCP_REQUEST_TIMEOUT_MS}。
+   *
+   * 长耗时工具（如远程视频生成，一次 `wait:true` 最长 300s）所在的 Server
+   * 必须调大，否则请求会在 30s 被本地判超时，工具在模型看来直接失败。
+   */
+  readonly requestTimeoutMs?: number;
+}
+
+/** 单次 MCP 请求默认超时（ms） */
+export const DEFAULT_MCP_REQUEST_TIMEOUT_MS = 30_000;
+
+/** 归一化请求超时：非正数/非法值一律回退默认 */
+export function resolveMcpRequestTimeoutMs(requested?: number): number {
+  return typeof requested === "number" && Number.isFinite(requested) && requested > 0
+    ? requested
+    : DEFAULT_MCP_REQUEST_TIMEOUT_MS;
+}
+
+/** 单次请求的超时/中断选项 */
+export interface McpRequestOptions {
+  /** 覆盖本次请求的超时（ms）；不传用 Server 级默认 */
+  readonly timeoutMs?: number;
+  /** 中断信号：触发时立即 reject 该请求，不再等超时 */
+  readonly signal?: AbortSignal;
 }
 
 /** MCP 工具定义 */
@@ -263,13 +288,19 @@ export class McpStdioClient extends EventEmitter {
       resolve: (value: unknown) => void;
       reject: (error: Error) => void;
       timer: ReturnType<typeof setTimeout>;
+      /** 请求被中断时清理的监听器（若绑定了 signal） */
+      onAbort?: () => void;
+      signal?: AbortSignal;
     }
   >();
   private _initialized = false;
   private _instructions?: string;
+  /** Server 级默认请求超时（ms） */
+  private readonly requestTimeoutMs: number;
 
   constructor(private readonly config: McpServerConfig) {
     super();
+    this.requestTimeoutMs = resolveMcpRequestTimeoutMs(config.requestTimeoutMs);
   }
 
   get initialized(): boolean {
@@ -410,8 +441,12 @@ export class McpStdioClient extends EventEmitter {
   }
 
   /** 调用 MCP 工具 */
-  async callTool(name: string, args: Record<string, unknown>): Promise<unknown> {
-    const result = (await this.sendRequest("tools/call", { name, arguments: args })) as {
+  async callTool(
+    name: string,
+    args: Record<string, unknown>,
+    opts?: McpRequestOptions,
+  ): Promise<unknown> {
+    const result = (await this.sendRequest("tools/call", { name, arguments: args }, opts)) as {
       content?: Array<{ type: string; text?: string }>;
       isError?: boolean;
     };
@@ -432,7 +467,11 @@ export class McpStdioClient extends EventEmitter {
     this.cleanup();
   }
 
-  private sendRequest(method: string, params: Record<string, unknown>): Promise<unknown> {
+  private sendRequest(
+    method: string,
+    params: Record<string, unknown>,
+    opts?: McpRequestOptions,
+  ): Promise<unknown> {
     return new Promise((resolve, reject) => {
       const id = this.nextId++;
       const request: JsonRpcRequest = {
@@ -446,21 +485,48 @@ export class McpStdioClient extends EventEmitter {
         const entry = this.pending.get(id);
         if (entry) {
           clearTimeout(entry.timer);
+          if (entry.onAbort && entry.signal) {
+            entry.signal.removeEventListener("abort", entry.onAbort);
+          }
           this.pending.delete(id);
           fn(value);
         }
       };
 
+      const timeoutMs =
+        opts?.timeoutMs !== undefined ? resolveMcpRequestTimeoutMs(opts.timeoutMs) : this.requestTimeoutMs;
+
       // 超时定时器 — 在 settle 时清除，避免泄漏
       const timer = setTimeout(() => {
         settle(reject, new Error(`MCP request timeout: ${method}`));
-      }, 30000);
+      }, timeoutMs);
 
-      this.pending.set(id, {
+      const entry: {
+        resolve: (value: unknown) => void;
+        reject: (error: Error) => void;
+        timer: ReturnType<typeof setTimeout>;
+        onAbort?: () => void;
+        signal?: AbortSignal;
+      } = {
         resolve: (v) => settle(resolve, v),
         reject: (e) => settle(reject, e),
         timer,
-      });
+      };
+
+      // 先登记再处理已中断，避免竞态下 settle 找不到条目
+      this.pending.set(id, entry);
+
+      const signal = opts?.signal;
+      if (signal) {
+        const onAbort = () => settle(reject, new Error(`MCP request aborted: ${method}`));
+        if (signal.aborted) {
+          onAbort();
+          return;
+        }
+        entry.signal = signal;
+        entry.onAbort = onAbort;
+        signal.addEventListener("abort", onAbort, { once: true });
+      }
 
       const line = JSON.stringify(request) + "\n";
       this.process?.stdin?.write(line, (err) => {

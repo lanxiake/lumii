@@ -2,7 +2,13 @@ import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { listWellKnownCliBinDirs, McpStdioClient, resolveCommand } from "./mcp-client";
+import {
+  DEFAULT_MCP_REQUEST_TIMEOUT_MS,
+  listWellKnownCliBinDirs,
+  McpStdioClient,
+  resolveCommand,
+  resolveMcpRequestTimeoutMs,
+} from "./mcp-client";
 
 describe("resolveCommand", () => {
   it("npx 直接跑 npx-cli.js，优先系统 node", () => {
@@ -61,9 +67,40 @@ describe("resolveCommand", () => {
   });
 });
 
+describe("resolveMcpRequestTimeoutMs", () => {
+  it("不传/非法值回退默认 30s", () => {
+    expect(DEFAULT_MCP_REQUEST_TIMEOUT_MS).toBe(30_000);
+    expect(resolveMcpRequestTimeoutMs(undefined)).toBe(30_000);
+    expect(resolveMcpRequestTimeoutMs(0)).toBe(30_000);
+    expect(resolveMcpRequestTimeoutMs(-5)).toBe(30_000);
+    expect(resolveMcpRequestTimeoutMs(Number.NaN)).toBe(30_000);
+  });
+
+  it("正数原样返回（长任务 Server 调大）", () => {
+    expect(resolveMcpRequestTimeoutMs(360_000)).toBe(360_000);
+  });
+});
+
 describe("McpStdioClient", () => {
   it("命令不存在时 reject，不抛未捕获异常", async () => {
     const client = new McpStdioClient({ command: "lumii-no-such-command-xyz" });
     await expect(client.start()).rejects.toThrow(/启动 MCP Server 失败/);
+  });
+
+  it("按配置的 requestTimeoutMs 超时（不再固定 30s）", async () => {
+    // 桩服务：握手后永不响应 initialize，只能靠本地超时收场
+    const client = new McpStdioClient({
+      command: process.execPath,
+      args: ["-e", "process.stdin.resume()"],
+      requestTimeoutMs: 250,
+    });
+    const startedAt = Date.now();
+    try {
+      await expect(client.start()).rejects.toThrow(/timeout/i);
+      // 明显小于默认 30s，证明用了配置值
+      expect(Date.now() - startedAt).toBeLessThan(5_000);
+    } finally {
+      await client.stop().catch(() => {});
+    }
   });
 });

@@ -43,11 +43,12 @@ function createMcpProxyTool(
     async execute(
       _toolCallId: string,
       params: unknown,
-      _signal?: AbortSignal,
+      signal?: AbortSignal,
     ): Promise<MtBotToolResult<unknown>> {
       const args = (params ?? {}) as Record<string, unknown>;
       try {
-        const result = (await client.callTool(toolDef.name, args)) as {
+        // 透传中断信号：后台化任务的取消（以及回合 abort）才能真正打断挂起的 MCP 请求
+        const result = (await client.callTool(toolDef.name, args, { signal })) as {
           content?: Array<{ type: string; text?: string }>;
           isError?: boolean;
         };
