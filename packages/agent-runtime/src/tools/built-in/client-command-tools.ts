@@ -139,9 +139,10 @@ export const sessionRenameToolConfig: MtBotToolConfig<typeof SessionRenameParams
   label: "Rename Session",
   description:
     "Rename the current conversation so it is easy to tell apart in the sidebar. " +
-    "Call this when the user asks to rename the conversation, or when the conversation's " +
-    "topic has clearly moved away from what the current title says. Use a short, specific " +
-    "title (≤ 12 characters); do not include quotes or trailing punctuation.",
+    "Call this ONLY when the user explicitly asks to rename the conversation. " +
+    "Automatic titling — including keeping the title in step as the topic moves on — " +
+    "is handled by the system, so do NOT call this on your own initiative. " +
+    "Use a short, specific title (≤ 12 characters); do not include quotes or trailing punctuation.",
   parameters: SessionRenameParams,
   category: "agent",
   isReadOnly: false,

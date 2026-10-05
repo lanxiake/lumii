@@ -382,6 +382,25 @@ export class ConversationRepo {
   }
 
   /**
+   * 取某会话最近 N 条用户消息的 content_json（新 → 旧）。
+   * 供自动标题刷新时回看当前话题——只凭第一句话命名，会话聊到别处后标题会跟不上。
+   */
+  listRecentUserMessageContentJsons(
+    conversationId: string,
+    limit: number,
+  ): readonly string[] {
+    return this.db
+      .prepare<{ content_json: string }>(
+        `SELECT content_json FROM messages
+          WHERE conversation_id = ? AND role = 'user'
+          ORDER BY timestamp DESC
+          LIMIT ?`,
+      )
+      .all(conversationId, limit)
+      .map((row) => row.content_json);
+  }
+
+  /**
    * 获取最近一条带 usage 的助手消息的 prompt tokens（提供商真实读数）。
    * 用于重启或切换会话后恢复上下文用量展示。
    *

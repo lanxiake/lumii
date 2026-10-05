@@ -98,3 +98,29 @@ describe("ConversationRepo.listTruncatedTitleFirstMessages", () => {
   });
 });
 
+describe("ConversationRepo.listRecentUserMessageContentJsons", () => {
+  it("按时间倒序取最近 N 条用户消息，忽略助手消息", () => {
+    const db = createMigratedTestDb();
+    const repo = new ConversationRepo(db);
+    const conv = repo.createConversation({ userId: USER, title: "新对话", participants: [] });
+
+    // 显式时间戳：同毫秒插入会让 ORDER BY timestamp 的顺序不稳定，测试会偶发失败
+    const insert = db.prepare(
+      `INSERT INTO messages (id, conversation_id, role, content_json, is_proactive, timestamp)
+       VALUES (?, ?, ?, ?, 0, ?)`,
+    );
+    const put = (text: string, ts: string, role: "user" | "assistant" = "user") =>
+      insert.run(`m-${ts}`, conv.id, role, JSON.stringify({ type: "text", text }), ts);
+
+    put("第一句", "2026-01-01T00:00:01.000Z");
+    put("第二句", "2026-01-01T00:00:02.000Z");
+    put("助手的回复", "2026-01-01T00:00:03.000Z", "assistant");
+    put("第三句", "2026-01-01T00:00:04.000Z");
+    put("第四句", "2026-01-01T00:00:05.000Z");
+
+    const rows = repo.listRecentUserMessageContentJsons(conv.id, 2);
+    expect(rows.map((r) => JSON.parse(r).text)).toEqual(["第四句", "第三句"]);
+    db.close();
+  });
+});
+

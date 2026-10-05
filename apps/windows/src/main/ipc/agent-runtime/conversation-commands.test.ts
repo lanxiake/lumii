@@ -399,25 +399,43 @@ describe('repairTruncatedTitles 修正带字面省略号的旧标题', () => {
   })
 })
 
-describe('maybeGenerateConversationTitle 首轮模型命名', () => {
+describe('maybeGenerateConversationTitle 会话命名与刷新', () => {
   const firstUserContent = JSON.stringify({ type: 'text', text: '帮我看看这个项目的依赖有没有问题' })
+  const AUTO_TITLES_KEY = 'conversation:titles:auto'
 
   const makeBridge = (
-    opts: { title?: string | null; userCount?: number; channel?: string | null; llm?: string } = {},
+    opts: {
+      title?: string | null
+      userCount?: number
+      channel?: string | null
+      llm?: string
+      autoTitles?: Record<string, string>
+      recent?: readonly string[]
+    } = {},
   ) => {
     const updateTitle = vi.fn()
     const forwardIpcEvent = vi.fn()
+    const state: Record<string, unknown> = {}
+    if (opts.autoTitles) state[AUTO_TITLES_KEY] = opts.autoTitles
     const bridge = {
       conversationRepo: {
         countUserMessages: () => opts.userCount ?? 1,
         getConversation: () => ({ title: opts.title ?? '新对话', channel_type: opts.channel ?? null }),
         getFirstUserMessageContentJson: () => firstUserContent,
+        listRecentUserMessageContentJsons: () =>
+          opts.recent ?? [JSON.stringify({ type: 'text', text: '再帮我把容器化也一起做了' })],
         updateTitle,
       },
       callLLM: vi.fn(async () => opts.llm ?? '项目依赖排查'),
       forwardIpcEvent,
+      runtimeStateRepo: {
+        getJson: (k: string) => state[k],
+        setJson: (k: string, v: unknown) => {
+          state[k] = v
+        },
+      },
     } as never
-    return { bridge, updateTitle, forwardIpcEvent }
+    return { bridge, updateTitle, forwardIpcEvent, state }
   }
 
   it('首轮结束：写入模型给的标题并广播 conversation:updated', async () => {
@@ -431,10 +449,49 @@ describe('maybeGenerateConversationTitle 首轮模型命名', () => {
     )
   })
 
-  it('非首轮不再命名', async () => {
+  it('首轮命名后记下「自动标题」，供后续刷新识别', async () => {
+    const { bridge, state } = makeBridge({ llm: '项目依赖排查' })
+    await maybeGenerateConversationTitle(bridge, 'c1', 'x')
+    expect(state[AUTO_TITLES_KEY]).toEqual({ c1: '项目依赖排查' })
+  })
+
+  it('非触发轮（未满刷新间隔）不命名', async () => {
     const { bridge, updateTitle } = makeBridge({ userCount: 2 })
     await maybeGenerateConversationTitle(bridge, 'c1', 'x')
     expect(updateTitle).not.toHaveBeenCalled()
+  })
+
+  it('满刷新间隔且标题仍是自动写入的：按最近消息重命名', async () => {
+    const { bridge, updateTitle } = makeBridge({
+      userCount: 4,
+      title: '项目依赖排查',
+      autoTitles: { c1: '项目依赖排查' },
+      llm: '依赖与容器化排查',
+    })
+
+    await maybeGenerateConversationTitle(bridge, 'c1', '好的，已处理')
+
+    expect(updateTitle).toHaveBeenCalledWith('c1', '依赖与容器化排查')
+  })
+
+  it('满刷新间隔但用户改过名：不覆盖', async () => {
+    const { bridge, updateTitle } = makeBridge({
+      userCount: 4,
+      title: '我的专属会话',
+      autoTitles: { c1: '项目依赖排查' },
+    })
+    await maybeGenerateConversationTitle(bridge, 'c1', 'x')
+    expect(updateTitle).not.toHaveBeenCalled()
+  })
+
+  it('刷新跳过自主进化 / 定时任务会话', async () => {
+    const evo = makeBridge({ userCount: 4, title: '项目依赖排查', autoTitles: { 'evolution:main': '项目依赖排查' } })
+    await maybeGenerateConversationTitle(evo.bridge, 'evolution:main', 'x')
+    expect(evo.updateTitle).not.toHaveBeenCalled()
+
+    const cron = makeBridge({ userCount: 4, title: '项目依赖排查', autoTitles: { 'cron:job-1': '项目依赖排查' } })
+    await maybeGenerateConversationTitle(cron.bridge, 'cron:job-1', 'x')
+    expect(cron.updateTitle).not.toHaveBeenCalled()
   })
 
   it('用户改过名（标题≠启发式默认值）时不覆盖', async () => {

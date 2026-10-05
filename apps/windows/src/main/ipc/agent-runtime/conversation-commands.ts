@@ -473,15 +473,79 @@ const AUTO_TITLE_PURPOSE = 'conversation_title'
 const AUTO_TITLE_MAX_CHARS = 18
 
 /**
- * 首轮对话结束后，让模型把会话概括成一句短标题。
+ * 自动标题刷新节奏：首轮命名之后，每积累这么多条用户消息再刷新一次。
  *
- * 现有标题是「取用户第一句」（见 `deriveConversationTitleFromUserText`），遇上
- * 「帮我看看这个项目」这类宽泛开场就分不清会话。这里在**首轮**结束时补一次更好的命名。
+ * 会话话题常在开头几轮才浮出水面——「先闲聊、后切正题」的会话若只命名一次，
+ * 侧栏会长期挂着泛泛的旧标题。取 4：够密，能跟上话题迁移；又远低于逐轮调用，
+ * 不额外烧模型。
+ */
+const AUTO_TITLE_REFRESH_EVERY = 4
+
+/** 记录「我们自动写过的标题」的 KV 键：{ conversationId: title } */
+const AUTO_TITLES_KEY = 'conversation:titles:auto'
+/** 记录条数上限，避免 KV 无界增长（超出按写入顺序淘汰最旧的） */
+const AUTO_TITLES_MAX = 300
+/** 刷新标题时回看的历史用户消息条数 */
+const AUTO_TITLE_CONTEXT_MESSAGES = 6
+
+/** 读「自动写过标题」的表；bridge 未初始化 / 结构异常（测试替身）时返回空表 */
+function readAutoTitles(bridge: AgentRuntimeBridge): Record<string, string> {
+  try {
+    return bridge.runtimeStateRepo.getJson<Record<string, string>>(AUTO_TITLES_KEY) ?? {}
+  } catch {
+    return {}
+  }
+}
+
+/** 记住某会话的最新自动标题；写失败只记日志，不影响命名本身 */
+function rememberAutoTitle(
+  bridge: AgentRuntimeBridge,
+  conversationId: string,
+  title: string,
+): void {
+  try {
+    const map = readAutoTitles(bridge)
+    delete map[conversationId]
+    map[conversationId] = title
+    const keys = Object.keys(map)
+    for (const stale of keys.slice(0, Math.max(0, keys.length - AUTO_TITLES_MAX))) {
+      delete map[stale]
+    }
+    bridge.runtimeStateRepo.setJson(AUTO_TITLES_KEY, map)
+  } catch (err) {
+    log.warn('[rememberAutoTitle] 持久化自动标题失败:', err)
+  }
+}
+
+/** 系统会话（自主进化 / 定时任务）不参与标题刷新，避免给自动化轮次白烧模型调用 */
+function isSystemConversation(conversationId: string): boolean {
+  return isEvolutionConversationId(conversationId) || conversationId.startsWith('cron:')
+}
+
+/** 取刷新命名的素材：最近若干条用户消息（新 → 旧倒回正序），拼接成一段 */
+function collectRecentUserText(
+  repo: AgentRuntimeBridge['conversationRepo'],
+  conversationId: string,
+  fallback: string,
+): string {
+  if (typeof repo.listRecentUserMessageContentJsons !== 'function') return fallback
+  const texts = repo
+    .listRecentUserMessageContentJsons(conversationId, AUTO_TITLE_CONTEXT_MESSAGES)
+    .map((json) => extractPreviewText(json))
+    .filter((text) => text.trim())
+  return texts.length > 0 ? texts.reverse().join('\n') : fallback
+}
+
+/**
+ * 让模型把会话概括成一句短标题，并在会话推进中定期刷新。
  *
- * 三条护栏：
- * - **只改首轮**：第 2 条用户消息起就不再自动命名；
- * - **用户改过名就不动**：标题已不等于启发式默认值（也不是占位符）时视为人工命名，跳过；
- * - **只碰本地会话**：渠道 / 系统会话的标题由各自模块管。
+ * 标题来源分两类：用户手动改的（神圣不可覆盖）与我们自动写的。为区分两者，
+ * 每次自动命名都把结果记进 `runtimeStateRepo`（见 [[rememberAutoTitle]]）——
+ * 落库标题既不等于启发式默认值、也不等于我们上次写的值，即视为人工命名。
+ *
+ * 两条护栏：
+ * - **触发点**：首轮（此时标题还是启发式默认值）与之后每满 REFRESH_EVERY 条用户消息；
+ * - **人工命名退出**：一旦检测到用户改过名，本会话再不自作主张。
  *
  * 旁路执行，失败只记日志，不影响会话。
  */
@@ -492,7 +556,12 @@ export async function maybeGenerateConversationTitle(
 ): Promise<void> {
   try {
     const repo = bridge.conversationRepo
-    if (repo.countUserMessages(conversationId) !== 1) return
+    const userCount = repo.countUserMessages(conversationId)
+    const isFirstTurn = userCount === 1
+    const isRefresh = userCount > 1 && userCount % AUTO_TITLE_REFRESH_EVERY === 0
+    if (!isFirstTurn && !isRefresh) return
+    // 刷新只服务真人会话；自主进化 / 定时任务的轮次不额外命名
+    if (isRefresh && isSystemConversation(conversationId)) return
 
     const conv = repo.getConversation(conversationId)
     if (!conv) return
@@ -503,23 +572,39 @@ export async function maybeGenerateConversationTitle(
     const firstUserText = firstUserContent ? extractPreviewText(firstUserContent) : ''
     if (!firstUserText.trim()) return
 
+    // 自动管理判据：仍是占位 / 启发式默认值，或等于我们上次自动写入的值
     const derived = deriveConversationTitleFromUserText(firstUserText)
-    if (!isStillAutoTitle(conv.title, derived)) return
+    const autoTitle = readAutoTitles(bridge)[conversationId]
+    const autoManaged =
+      isStillAutoTitle(conv.title, derived) || (!!autoTitle && conv.title === autoTitle)
+    if (!autoManaged) return
 
-    const aiTitle = await generateTitleWithLlm(bridge, firstUserText, assistantText)
+    // 首轮用第一句（此时尚无更多上下文）；刷新时回看最近几条用户消息，跟上话题迁移
+    const sourceText = isFirstTurn
+      ? firstUserText
+      : collectRecentUserText(repo, conversationId, firstUserText)
+
+    const aiTitle = await generateTitleWithLlm(bridge, sourceText, assistantText)
     if (!aiTitle) return
 
-    // 生成期间用户可能改了名，落库前再确认一次
+    // 生成期间用户可能改了名 / 又来了新消息，落库前再确认一次
     const latest = repo.getConversation(conversationId)
-    if (!isStillAutoTitle(latest?.title, derived)) return
+    if (!latest) return
+    const stillAuto =
+      isStillAutoTitle(latest.title, derived) || (!!autoTitle && latest.title === autoTitle)
+    if (!stillAuto) return
+    if (latest.title === aiTitle) return
 
     repo.updateTitle(conversationId, aiTitle)
+    rememberAutoTitle(bridge, conversationId, aiTitle)
     bridge.forwardIpcEvent({
       type: 'conversation:updated',
       sessionKey: conversationId,
       title: aiTitle,
     })
-    log.info(`[maybeGenerateConversationTitle] conv=${conversationId} 标题 → "${aiTitle}"`)
+    log.info(
+      `[maybeGenerateConversationTitle] conv=${conversationId} userCount=${userCount} 标题 → "${aiTitle}"`,
+    )
   } catch (err) {
     log.warn('[maybeGenerateConversationTitle] 生成会话标题失败:', err)
   }
@@ -537,7 +622,7 @@ async function generateTitleWithLlm(
   assistantText: string,
 ): Promise<string> {
   const prompt =
-    '你是会话标题生成器。根据下面这段对话的开头，用不超过 12 个字概括主题，作为会话标题。\n' +
+    '你是会话标题生成器。根据下面这段对话内容，用不超过 12 个字概括会话主题，作为会话标题。\n' +
     '只输出标题本身：不要引号、不要句末标点、不要解释、不要换行。\n\n' +
     `【用户】${userText.slice(0, 500)}\n【助手】${assistantText.slice(0, 500)}`
   const raw = await bridge.callLLM(prompt, undefined, AUTO_TITLE_PURPOSE)

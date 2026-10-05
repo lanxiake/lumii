@@ -27,7 +27,10 @@ import { ALL_BUILT_IN_TOOL_CONFIGS } from '../../../tools/built-in/index.js'
 const TOOL_BUDGET: Record<string, number> = {
   // 55 = 54 + `execute_skill`（2026-09-18 批次 3 接线：它此前从未注册，
   // 提示词却一直写着"MUST be invoked via execute_skill tool"）
-  assistant: 55,
+  // 56 = 55 + `session_rename`（2026-10-04 加入，用于用户显式要求改名的场景；
+  // 会话的**自动**标题由宿主在每轮结束时确定性生成/刷新，不依赖该工具，见
+  // apps/windows conversation-commands.ts 的 maybeGenerateConversationTitle）
+  assistant: 56,
   'system-keeper': 31,
   'info-curator': 13,
   chronicler: 10,
