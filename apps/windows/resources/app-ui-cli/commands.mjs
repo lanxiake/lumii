@@ -1074,6 +1074,27 @@ export const COMMANDS = [
     },
   },
   {
+    name: 'send steer',
+    group: '上下文压缩',
+    usage: 'send steer --session <key> [--text <t>|--data -]',
+    summary: '向**正在运行**的回合插话——不等它结束，立刻注入（长任务纠偏用）；回合已结束时按普通消息唤醒新回合',
+    layer: 'A',
+    route: { method: 'POST', path: '/command' },
+    options: [
+      { flag: '--session <key>', desc: '会话 key' },
+      { flag: '--text <t>', desc: '插话正文；长文本用 --data - 从 stdin 读' },
+      { flag: '--data -', desc: '从 stdin 读取正文' },
+    ],
+    build(args, extra) {
+      const sessionKey = args.flags.session
+      if (typeof sessionKey !== 'string' || sessionKey.length === 0) return null
+      const content = args.flags.data === '-' ? extra?.stdin ?? '' : args.flags.text
+      if (typeof content !== 'string' || content.length === 0) return null
+      // 控制面拿不到 runId（conversation list 不返回），按 sessionKey 兜底定位运行中的实例
+      return { type: 'user:steer', sessionKey, steerText: content }
+    },
+  },
+  {
     name: 'send edit',
     group: '上下文压缩',
     usage: 'send edit --session <key> --message <id> --text <t>',

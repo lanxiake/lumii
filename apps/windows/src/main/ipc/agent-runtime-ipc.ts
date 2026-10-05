@@ -732,7 +732,11 @@ export async function handleCommand(
         return handleHandoffConfirm(bridge, command)
 
       case 'user:steer':
-        handleUserSteer(bridge, command)
+        // 目标空闲时会被当作普通消息唤醒新回合（内部不 await 整个回合）。
+        // 失败已在内部捕获，这里再兜一层防未处理拒绝。
+        handleUserSteer(bridge, command).catch((err) =>
+          log.error('[user:steer] 处理失败:', err),
+        )
         // 控制口 /command 需可 JSON 序列化的 body；undefined → sendJson 抛错（CLI command_failed）。
         // 渲染层不关心返回值，故与 user:abort 同样返回 { ok: true }，两条路都能走。
         return { ok: true }

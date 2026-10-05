@@ -1256,6 +1256,10 @@ async function main() {
         console.log('')
         console.log(`⏳ 等待超时（${Math.round(reply.elapsedMs / 1000)}s）——回复可能仍在生成`)
         console.log(`   看进展: lumii-ui context messages --session ${body.sessionKey} --text`)
+        // 会话本来就在跑长任务时，send 只是排队；干等没意义，给两条立刻生效的路。
+        console.log('   ⚠️  若该会话原本就在跑长任务，这条消息只是排队等待。要立刻生效：')
+        console.log(`       插话（不等回合结束，直接注入）: lumii-ui send steer --session ${body.sessionKey} --text "..."`)
+        console.log(`       或先打断再发:                 lumii-ui send abort --session ${body.sessionKey}`)
       }
       process.exit(exitCode)
     }

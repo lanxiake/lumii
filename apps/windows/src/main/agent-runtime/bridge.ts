@@ -2826,6 +2826,17 @@ export class AgentRuntimeBridge {
     }
   }
 
+  /**
+   * 读取会话当前的首选模型（原始串，未解析）。
+   *
+   * 与 setSessionPreferredModel 对称：需要「原样转发」该偏好的调用方用它，
+   * 而不是传一个求不出的值进去 —— patchSessionConfig 对 undefined 是删除语义，
+   * 会把用户选的模型悄悄清掉。
+   */
+  getSessionPreferredModelRaw(sessionKey: string): string | undefined {
+    return this.sessionModelCatalog.getPreferredModelRawForStream(sessionKey, sessionKey)
+  }
+
   clearInvalidSessionPreferredModels(availableModelIds: readonly string[]): number {
     this.sessionModelCatalog.clearInvalidSessionPreferredModels(availableModelIds)
     if (!this.localDb.isOpen) return 0

@@ -267,10 +267,10 @@ export async function handleUserSend(
   return { runId }
 }
 
-export function handleUserSteer(
+export async function handleUserSteer(
   bridge: AgentRuntimeBridge,
   command: Extract<AgentRuntimeCommand, { type: 'user:steer' }>,
-): void {
+): Promise<void> {
   log.info(
     `[user:steer] runId=${command.runId ?? '(none)'} sessionKey=${command.sessionKey ?? '(none)'} steerText="${command.steerText.slice(0, 50)}"`,
   )
@@ -283,22 +283,40 @@ export function handleUserSteer(
     byRun ?? (command.sessionKey ? deps!.sessionToInstance.get(command.sessionKey) : undefined)
   const target = targetId ? bridge.getInstances().find((i) => i.id === targetId) : undefined
 
-  if (!target) {
-    log.warn(
-      `[user:steer] 未找到目标实例，插话未注入 runId=${command.runId} sessionKey=${command.sessionKey ?? '(none)'}`,
-    )
-  } else if (target.state !== 'running') {
-    // 回合已结束：没有可注入的循环。如实记日志，不静默丢弃也不改投别的实例
-    log.info(
-      `[user:steer] 目标实例不在运行中（state=${target.state}），跳过注入 instanceId=${target.id}`,
-    )
-  } else {
+  if (target && target.state === 'running') {
     bridge.steer(target.id, command.steerText)
+    persistSteerMessage(bridge, command)
+    return
   }
 
-  // 无论是否注入成功都落库：用户确实说了这句话，记下来比丢掉更接近事实，
-  // 会话恢复时它也应当出现在历史里（此前插话只活在 Agent 内存，刷新即失）。
-  persistSteerMessage(bridge, command)
+  // 没有可注入的运行中回合（回合已结束，或压根定位不到实例）：插话无从「插进」。
+  //
+  // 旧实现只落库一条 `isSteer` 气泡就返回 —— 模型永远看不到它，气泡也永远停在
+  // 「插话 · 等待注入」（2026-10-04 缺陷：通过 CLI 向已停止的会话插话，会话不会被唤醒）。
+  // `isSteer` 的语义本就是「插进正在跑的回合」，空闲时不成立，故这里按普通用户消息处理，
+  // 走 handleUserSend 全流程（会话自动创建、ACP 后端路由、标题、段落记忆）真正执行它。
+  if (!command.sessionKey) {
+    log.warn(
+      `[user:steer] 目标不在运行中且无 sessionKey，无处唤醒 runId=${command.runId ?? '(none)'}`,
+    )
+    return
+  }
+  log.info(
+    `[user:steer] 目标不在运行中（${target ? `state=${target.state}` : '未定位到实例'}），转为普通消息唤醒新回合 sessionKey=${command.sessionKey}`,
+  )
+  try {
+    // 原样带上会话当前的首选模型：handleUserSend 用 undefined 会把它删掉
+    // （patchSessionConfig 对 undefined 是删除语义），凭空改变用户的模型选择。
+    const preferredModel = bridge.getSessionPreferredModelRaw(command.sessionKey)
+    await handleUserSend(bridge, {
+      type: 'user:send',
+      sessionKey: command.sessionKey,
+      content: command.steerText,
+      ...(preferredModel ? { modelId: preferredModel } : {}),
+    })
+  } catch (err) {
+    log.error(`[user:steer] 空闲唤醒失败，插话未执行 sessionKey=${command.sessionKey}:`, err)
+  }
 }
 
 /**
