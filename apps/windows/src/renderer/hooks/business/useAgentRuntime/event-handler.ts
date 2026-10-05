@@ -10,6 +10,7 @@
 
 import type { AgentRuntimeEvent, AgentRuntimeEventType } from '../../../../shared/agent-runtime-events'
 import { patchBreakdownAfterConversationCompact } from '../../../../shared/context-usage-compact'
+import { isNoReplySentinel } from '../../../../shared/no-reply-sentinel'
 import type { RuntimeToolCall, RuntimeMessage, StreamMetrics, PerSessionState, RuntimeFileEvent, RuntimeCompactionEvent } from './agent-runtime-store'
 import { runtimeStore, updateSessionState, getDefaultPerSessionState } from './agent-runtime-store'
 import {
@@ -459,6 +460,39 @@ function finalizeStreamingAssistantMessages(
   return changed ? next : messages
 }
 
+/**
+ * NO_REPLY 哨兵命中时，对这条助手消息做「保留但剔除哨兵文本」还是「整条移除」的裁决。
+ *
+ * 判据与主进程落库一致（bridge-agent-instance-events.ts 的 agent:end 分支）：整轮只剩哨兵
+ * → 无可见产出，移除；只要还剩正文或工具轨迹 → 保留。渠道轮（飞书/微信/QQ）的常态是
+ * 把答案经 channel_send 发给对端后用哨兵收尾，那些工具轨迹与正文正是用户要在对话里看到的东西。
+ *
+ * 早期这里对**任意**一次命中哨兵的 message:end 都无条件删整条气泡，于是渠道回合在 App 里
+ * 只剩用户消息、看不到 Agent 回复（而库里其实整轮都在）——见 event-handler.test.ts。
+ */
+function resolveNoReplyMessage(
+  message: RuntimeMessage,
+): { readonly drop: true } | { readonly drop: false; readonly message: RuntimeMessage } {
+  const parts = message.parts.filter(
+    (part) => !(part.type === 'text' && isNoReplySentinel(part.text)),
+  )
+  const hasVisiblePart = parts.some((part) => part.type === 'text' || part.type === 'tool')
+  if (!hasVisiblePart) return { drop: true }
+  const text = parts
+    .filter((part): part is Extract<AssistantPart, { type: 'text' }> => part.type === 'text')
+    .map((part) => part.text)
+    .join('\n\n')
+  return {
+    drop: false,
+    message: {
+      ...message,
+      content: [{ type: 'text' as const, text }],
+      parts: finalizeAssistantParts(parts),
+      isStreaming: false,
+    },
+  }
+}
+
 // ============================================================
 // 事件路由
 // ============================================================
@@ -763,13 +797,17 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
         const mid = getSubAgentMsgId(sessionKey, instanceId)
         const finalTextSub = event.content?.[0]?.text?.trim()
 
-        if (finalTextSub === 'NO_REPLY') {
+        if (isNoReplySentinel(finalTextSub)) {
           // 副作用在 updater 外部执行，避免 updater 被多次调用时重复操作 Map
           deleteSubAgentMsgId(sessionKey, instanceId)
           updateSessionState(sessionKey, (prev) => {
             const msgs = [...prev.messages]
             const idx = mid ? msgs.findIndex((m) => m.id === mid) : -1
-            if (idx >= 0) msgs.splice(idx, 1)
+            if (idx >= 0) {
+              const verdict = resolveNoReplyMessage(msgs[idx]!)
+              if (verdict.drop) msgs.splice(idx, 1)
+              else msgs[idx] = verdict.message
+            }
             return { ...prev, messages: msgs, isStreaming: false }
           })
           break
@@ -823,9 +861,9 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
         break
       }
 
-      // NO_REPLY 协议：Agent 返回 NO_REPLY 表示无需展示消息，移除占位消息
+      // NO_REPLY 哨兵：只有整轮只剩哨兵才移除气泡；带正文/工具轨迹的轮次保留（见 resolveNoReplyMessage）
       const finalText = event.content?.[0]?.text?.trim()
-      if (finalText === 'NO_REPLY') {
+      if (isNoReplySentinel(finalText)) {
         clearTurnTextStart(sessionKey, event.messageId)
         updateSessionState(sessionKey, (prev) => {
           const msgs = [...prev.messages]
@@ -836,7 +874,11 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
             const lastIdx = msgs.length - 1
             targetIdx = lastIdx >= 0 && msgs[lastIdx]?.role === 'assistant' ? lastIdx : -1
           }
-          if (targetIdx >= 0) msgs.splice(targetIdx, 1)
+          if (targetIdx >= 0) {
+            const verdict = resolveNoReplyMessage(msgs[targetIdx]!)
+            if (verdict.drop) msgs.splice(targetIdx, 1)
+            else msgs[targetIdx] = verdict.message
+          }
           return { ...prev, messages: msgs, isStreaming: false }
         })
         break

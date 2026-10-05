@@ -20,7 +20,7 @@ import { DEFAULT_AGENT_ID } from '../seed-cron-jobs'
 import { formatForTarget, formatDashboardFeedForPush } from './cron-notify-format'
 import { shouldSkipCronFocusMemoryWrite } from './cron-focus-memory'
 import { dispatchChannelTarget } from './channel-target-dispatch'
-import { isNoReplySentinel } from './bridge-agent-instance-events'
+import { isNoReplySentinel } from '../../shared/no-reply-sentinel'
 import { buildSelfBriefing } from './self-briefing'
 import { readLatestMaintenanceReport } from '../maintenance-report-store'
 

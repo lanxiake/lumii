@@ -39,6 +39,7 @@ import { markRunStart, markFirstToken, clearRun } from '../provider-latency'
 import { captureWorkspaceTurnSnapshot } from '../workspace-vcs/workspace-turn-snapshot'
 import { recordTurnTouchedPath, filterOwnFileChanges } from './turn-touched-paths'
 import { applyConversationCompactToUsage } from '../../shared/context-usage-compact'
+import { isNoReplySentinel } from '../../shared/no-reply-sentinel'
 
 /** 单实例运行时累计指标（主进程内部，与 DetailPanel「运行状态」对应） */
 export interface InstanceRuntimeMetrics {
@@ -66,15 +67,6 @@ function toPersistedLlmError(err: {
   const message = err.message?.trim()
   if (!message) return undefined
   return { code: err.code ?? 'llm_error', message, retryable: err.retryable ?? false }
-}
-
-/**
- * NO_REPLY 哨兵：整轮回复就是这个值 = 本轮没有面向用户的话要说。
- * 渠道适配器（微信/飞书/QQ）已按此跳过投递；本地会话此前只在渲染层实时移除占位，
- * 落库侧没有对应处理 —— 重开会话就会看到一个「NO_REPLY」气泡。
- */
-export function isNoReplySentinel(text: string | undefined): boolean {
-  return typeof text === 'string' && text.trim().toUpperCase() === 'NO_REPLY'
 }
 
 /**

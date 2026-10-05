@@ -343,3 +343,101 @@ describe('agent:permission:granted / denied 收起审批卡', () => {
     expect(pendingRequestId()).toBe(REQUEST_ID)
   })
 })
+
+/**
+ * NO_REPLY 哨兵只代表「这次 LLM 调用不用再往对话流说一遍」，不代表整轮没有产出。
+ *
+ * 渠道轮（飞书/微信/QQ）的常态：干活 → channel_send 把答案发给对端 → 最后用哨兵收尾。
+ * 主进程落库只在「整轮只剩哨兵」时删行；渲染层早期对**任意**一次命中哨兵的 message:end
+ * 都删掉整条助手气泡，于是这轮的工具轨迹与正文全从界面消失（2026-10-05 飞书会话
+ * 「看不到 Agent 回复」——库里 20 条，界面只剩 19 条）。
+ */
+describe('agent:message:end 的 NO_REPLY 哨兵', () => {
+  beforeEach(() => {
+    resetRuntimeStore()
+    resetAgentRuntimeEventHandlerForTests()
+  })
+
+  function messagesOf(sessionKey = SESSION_KEY) {
+    return runtimeStore.getState().sessions.get(sessionKey)?.messages ?? []
+  }
+
+  it('带工具轨迹的渠道轮：保留气泡并剔除哨兵文本，工具轨迹仍在', () => {
+    emitTurn([
+      { type: 'agent:turn:start', runId: RUN_ID, sessionKey: SESSION_KEY, turnIndex: 0, timestamp: Date.now() },
+      { type: 'agent:message:start', runId: RUN_ID, sessionKey: SESSION_KEY, messageId: MESSAGE_ID, model: 'test-model', timestamp: Date.now() },
+      { type: 'agent:message:delta', runId: RUN_ID, sessionKey: SESSION_KEY, messageId: MESSAGE_ID, delta: '报告已经通过飞书发给你了', totalLength: 12 },
+      { type: 'agent:tool:start', runId: RUN_ID, rootSessionKey: SESSION_KEY, toolCallId: 'call-1', toolName: 'channel_send', args: {}, timestamp: Date.now() },
+      { type: 'agent:tool:end', runId: RUN_ID, rootSessionKey: SESSION_KEY, toolCallId: 'call-1', toolName: 'channel_send', result: { ok: true }, isError: false, durationMs: 3 },
+      // 收尾那次 LLM 调用：另起一段 text part，内容就是哨兵
+      { type: 'agent:message:start', runId: RUN_ID, sessionKey: SESSION_KEY, messageId: MESSAGE_ID, model: 'test-model', timestamp: Date.now() },
+      { type: 'agent:message:delta', runId: RUN_ID, sessionKey: SESSION_KEY, messageId: MESSAGE_ID, delta: 'NO_REPLY', totalLength: 8 },
+      {
+        type: 'agent:message:end',
+        runId: RUN_ID,
+        sessionKey: SESSION_KEY,
+        messageId: MESSAGE_ID,
+        content: [{ type: 'text', text: '\n\nNO_REPLY' }],
+        usage: { inputTokens: 10, outputTokens: 3 },
+        stopReason: 'end_turn',
+      },
+    ])
+
+    const msg = messagesOf().find((m) => m.id === MESSAGE_ID)
+    expect(msg).toBeTruthy()
+    expect(msg!.parts.filter((p) => p.type === 'tool').length).toBe(1)
+    const text = msg!.content.map((c) => c.text).join('')
+    expect(text).toContain('报告已经通过飞书发给你了')
+    expect(text).not.toContain('NO_REPLY')
+    expect(msg!.isStreaming).toBe(false)
+  })
+
+  it('整轮只剩哨兵：气泡被移除（无可见产出的轮次不留空泡）', () => {
+    emitTurn([
+      { type: 'agent:turn:start', runId: RUN_ID, sessionKey: SESSION_KEY, turnIndex: 0, timestamp: Date.now() },
+      { type: 'agent:message:start', runId: RUN_ID, sessionKey: SESSION_KEY, messageId: MESSAGE_ID, model: 'test-model', timestamp: Date.now() },
+      { type: 'agent:message:delta', runId: RUN_ID, sessionKey: SESSION_KEY, messageId: MESSAGE_ID, delta: 'NO_REPLY', totalLength: 8 },
+      {
+        type: 'agent:message:end',
+        runId: RUN_ID,
+        sessionKey: SESSION_KEY,
+        messageId: MESSAGE_ID,
+        content: [{ type: 'text', text: 'NO_REPLY' }],
+        usage: { inputTokens: 10, outputTokens: 3 },
+        stopReason: 'end_turn',
+      },
+    ])
+
+    expect(messagesOf().some((m) => m.id === MESSAGE_ID)).toBe(false)
+  })
+
+  it('子 Agent 带工具轨迹：同样保留而不是删掉整条', () => {
+    const SUB_SESSION = 'child-session-noreply'
+    const SUB_MESSAGE_ID = 'sub-message-noreply'
+    const SUB_INSTANCE = 'inst-sub-noreply'
+
+    emitTurn([
+      { type: 'agent:turn:start', runId: RUN_ID, sessionKey: SESSION_KEY, turnIndex: 0, timestamp: Date.now() },
+      { type: 'agent:message:start', runId: RUN_ID, sessionKey: SUB_SESSION, rootSessionKey: SESSION_KEY, instanceId: SUB_INSTANCE, messageId: SUB_MESSAGE_ID, model: 'test-model', timestamp: Date.now() },
+      { type: 'agent:tool:start', runId: RUN_ID, rootSessionKey: SESSION_KEY, instanceId: SUB_INSTANCE, toolCallId: 'sub-call-1', toolName: 'file_read', args: {}, timestamp: Date.now() },
+      { type: 'agent:tool:end', runId: RUN_ID, rootSessionKey: SESSION_KEY, instanceId: SUB_INSTANCE, toolCallId: 'sub-call-1', toolName: 'file_read', result: 'ok', isError: false, durationMs: 2 },
+      { type: 'agent:message:start', runId: RUN_ID, sessionKey: SUB_SESSION, rootSessionKey: SESSION_KEY, instanceId: SUB_INSTANCE, messageId: SUB_MESSAGE_ID, model: 'test-model', timestamp: Date.now() },
+      { type: 'agent:message:delta', runId: RUN_ID, sessionKey: SUB_SESSION, rootSessionKey: SESSION_KEY, instanceId: SUB_INSTANCE, messageId: SUB_MESSAGE_ID, delta: 'NO_REPLY', totalLength: 8 },
+      {
+        type: 'agent:message:end',
+        runId: RUN_ID,
+        sessionKey: SUB_SESSION,
+        rootSessionKey: SESSION_KEY,
+        instanceId: SUB_INSTANCE,
+        messageId: SUB_MESSAGE_ID,
+        content: [{ type: 'text', text: '\n\nNO_REPLY' }],
+        usage: { inputTokens: 10, outputTokens: 3 },
+        stopReason: 'end_turn',
+      },
+    ])
+
+    const sub = messagesOf().find((m) => m.id === SUB_MESSAGE_ID)
+    expect(sub).toBeTruthy()
+    expect(sub!.parts.filter((p) => p.type === 'tool').length).toBe(1)
+  })
+})
