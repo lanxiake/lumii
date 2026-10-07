@@ -1,0 +1,4 @@
+# pycryptodome：解密微信 SQLCipher4 库（**必需**，`wxread4.py` 的 AES/HMAC）
+pycryptodome>=3.20
+# zstandard：解压被压缩的 message_content（**推荐**；缺了压缩消息会解码成乱码）
+zstandard>=0.22

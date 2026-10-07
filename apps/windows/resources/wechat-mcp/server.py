@@ -452,7 +452,7 @@ def main():
         mid, method = msg.get("id"), msg.get("method")
         if method == "initialize":
             reply(mid, {"protocolVersion": "2024-11-05", "capabilities": {"tools": {}},
-                        "serverInfo": {"name": "wechat-local", "version": "0.3.0"},
+                        "serverInfo": {"name": "wechat-local", "version": "0.4.0"},
                         "instructions": INSTRUCTIONS})
         elif method == "tools/list":
             reply(mid, {"tools": TOOLS})
