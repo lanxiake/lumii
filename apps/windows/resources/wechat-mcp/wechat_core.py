@@ -4,11 +4,14 @@
 数据目录自动发现：`~/xwechat_files/<wxid>_<4hex>/db_storage`（可被环境变量 LUMII_WECHAT_DB 覆盖）。
 """
 import hashlib
+import json
 import os
+import re
 import shutil
 import sqlite3
 import sys
 import tempfile
+import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 if HERE not in sys.path:
@@ -140,15 +143,52 @@ def _plain(km, root, rel):
     return out
 
 
+def _msg_shard_rels():
+    """message_N.db 分片（**时间滚动**：0=最新、数字越大越旧）；按 N 升序。
+
+    微信 4.x 会把消息按时间滚进多个分片（实测新号：0=2026、1=2025、2=2024~25初），
+    只读 message_0.db 会漏掉绝大部分历史 —— 完整历史/语料必须**合并所有分片**。
+    """
+    root = db_root()
+    d = os.path.join(root, "message")
+    rels = [f"message/{n}" for n in os.listdir(d) if re.match(r"^message_\d+\.db$", n)]
+    rels.sort(key=lambda r: int(re.search(r"(\d+)", os.path.basename(r)).group(1)))
+    return rels
+
+
+def _tables_in(path):
+    """某分片里的 Msg_* 会话表名。"""
+    c = sqlite3.connect(path)
+    try:
+        return [r[0] for r in c.execute(
+            "select name from sqlite_master where type='table' and name like 'Msg_%'")]
+    finally:
+        c.close()
+
+
+def _sender_map(path):
+    """某分片的 `real_sender_id → user_name` 映射（`Msg_*.real_sender_id` 指向 `Name2Id.rowid`）。"""
+    try:
+        c = sqlite3.connect(path)
+        m = {rowid: u for rowid, u in c.execute("select rowid, user_name from Name2Id")}
+        c.close()
+        return m
+    except Exception:
+        return {}
+
+
 def _refresh():
     root = db_root()
-    mt = os.path.getmtime(os.path.join(root, "message", "message_0.db"))
-    if _cache["mtime"] == mt and _cache["root"] == root and _cache["msg"]:
+    rels = _msg_shard_rels()
+    key = (root,) + tuple(os.path.getmtime(os.path.join(root, r.replace("/", os.sep))) for r in rels)
+    if _cache["mtime"] == key and _cache["msg"] and _cache["root"] == root:
         return
     km = keys(root)
-    _cache["msg"] = _plain(km, root, "message/message_0.db")
+    _cache["msg"] = [_plain(km, root, r) for r in rels]   # 各分片的明文副本（列表）
+    _cache["tables"] = {p: set(_tables_in(p)) for p in _cache["msg"]}
+    _cache["senders"] = {p: _sender_map(p) for p in _cache["msg"]}
     _cache["contact"] = _plain(km, root, "contact/contact.db")
-    _cache["mtime"] = mt
+    _cache["mtime"] = key
     _cache["root"] = root
 
 
@@ -224,15 +264,15 @@ def tbl_of(talker):
     return "Msg_" + hashlib.md5(talker.encode()).hexdigest()
 
 def talkers():
-    """[(表名, talker)]，本次库里出现过的会话。"""
+    """[(表名, talker)]，**所有分片**里出现过的会话（去重保序）。"""
     _refresh()
-    c = sqlite3.connect(_cache["msg"])
-    tables = [r[0] for r in c.execute(
-        "select name from sqlite_master where type='table' and name like 'Msg_%'")]
-    c.close()
     nm = names()
     by_tbl = {tbl_of(u): u for u in nm}
-    return [(t, by_tbl.get(t, t)) for t in tables]
+    seen = {}
+    for p in _cache["msg"]:
+        for t in _cache["tables"].get(p, ()):
+            seen.setdefault(t, None)
+    return [(t, by_tbl.get(t, t)) for t in seen]
 
 
 def decode(b):
@@ -246,26 +286,34 @@ def decode(b):
 
 
 def _rows(tbl, limit, since=0, before=0):
+    """**跨分片**取会话消息：各分片同条件查询后按时间倒序合并，取前 limit 条。"""
     _refresh()
-    c = sqlite3.connect(_cache["msg"])
-    try:
-        conds, params = [], []
-        if since:
-            conds.append("create_time > ?")
-            params.append(since)
-        if before:
-            conds.append("create_time < ?")
-            params.append(before)
-        where = (" where " + " and ".join(conds)) if conds else ""
-        q = (f"select create_time, local_type, message_content from [{tbl}]"
-             + where + " order by create_time desc limit ?")
-        params.append(limit)
-        return list(c.execute(q, params))
-    finally:
-        c.close()
+    conds, params = [], []
+    if since:
+        conds.append("create_time > ?")
+        params.append(since)
+    if before:
+        conds.append("create_time < ?")
+        params.append(before)
+    where = (" where " + " and ".join(conds)) if conds else ""
+    q = (f"select create_time, local_type, message_content from [{tbl}]"
+         + where + " order by create_time desc limit ?")
+    rows = []
+    for p in _cache["msg"]:
+        if tbl not in _cache["tables"].get(p, ()):
+            continue
+        c = sqlite3.connect(p)
+        try:
+            rows.extend(c.execute(q, params + [limit]))
+        except Exception:
+            pass
+        finally:
+            c.close()
+    rows.sort(key=lambda r: r[0], reverse=True)
+    return rows[:limit]
 
 
-def msg_dict(ct, lt, content, nm, talker=None, name=None):
+def msg_dict(ct, lt, content, nm, talker=None, name=None, sender=None, me=None):
     t = decode(content).replace("\n", " ").strip()
     if t.startswith("<"):
         t = "[非文本消息]"
@@ -273,6 +321,9 @@ def msg_dict(ct, lt, content, nm, talker=None, name=None):
     if talker is not None:
         d["talker"] = talker
         d["name"] = name
+    if sender is not None:                    # 发送者（real_sender_id 判定）；用于蒸馏分辨双方
+        d["from_me"] = (sender == me) if sender else False
+        d["sender"] = ("我" if sender == me else nm.get(sender, sender)) if sender else "(未知)"
     return d
 
 
@@ -298,8 +349,9 @@ def history(talker, limit=20, before_ts=0):
     返回带 `cursor`（本页最老一条的 ts）与 `has_more`，Agent 可用 `before_ts=cursor` 翻更早的页。
     """
     nm = names()
-    rows = _rows(tbl_of(talker), limit, before=before_ts)
-    msgs = [msg_dict(ct, lt, c, nm) for ct, lt, c in reversed(rows)]
+    me = self_wxid()
+    rows = _rows_full(tbl_of(talker), limit, before=before_ts)
+    msgs = [msg_dict(ct, lt, c, nm, sender=s, me=me) for ct, lt, c, s in reversed(rows)]
     out = {"talker": talker, "name": nm.get(talker, talker), "count": len(msgs), "messages": msgs}
     if msgs:
         out["cursor"] = msgs[0]["ts"]          # 本页最老一条，供取更早一页
@@ -360,29 +412,23 @@ def _session_plain():
 
 
 def search_messages(keyword, talker=None, since=0, until=0, limit=50, scan=3000):
-    """按关键词检索消息（跨会话或指定会话；支持时间范围）。逐条解码匹配，兼容压缩内容。"""
+    """按关键词检索消息（跨会话或指定会话；支持时间范围，**跨全部分片**）。逐条解码匹配。"""
     _refresh()
     nm = names()
     pairs = [(talker, tbl_of(talker))] if talker else [(t, tbl) for tbl, t in talkers()]
     hits = []
-    c = sqlite3.connect(_cache["msg"])
-    try:
-        for t, tbl in pairs:
-            try:
-                rows = c.execute(
-                    f"select create_time, local_type, message_content from [{tbl}] "
-                    "order by create_time desc limit ?", (scan,))
-            except Exception:
+    for t, tbl in pairs:
+        try:
+            rows = _rows(tbl, scan)
+        except Exception:
+            continue
+        for ct, lt, content in rows:
+            if since and ct <= since:
                 continue
-            for ct, lt, content in rows:
-                if since and ct <= since:
-                    continue
-                if until and ct >= until:
-                    continue
-                if keyword in decode(content):
-                    hits.append(msg_dict(ct, lt, content, nm, talker=t, name=nm.get(t, t)))
-    finally:
-        c.close()
+            if until and ct >= until:
+                continue
+            if keyword in decode(content):
+                hits.append(msg_dict(ct, lt, content, nm, talker=t, name=nm.get(t, t)))
     hits.sort(key=lambda d: d["ts"], reverse=True)
     return {"keyword": keyword, "count": len(hits), "scanned_per_talker": scan, "messages": hits[:limit]}
 
@@ -405,3 +451,197 @@ def unread():
             last = ""
         out.append({"talker": u, "name": nm.get(u, u), "last": last})
     return {"count": len(out), "sessions": out}
+
+
+# ---------- P0：用户/好友知识与行为蒸馏（确定性、只读、本地）----------
+_STOP = {"的", "了", "是", "我", "你", "他", "她", "它", "在", "就", "都", "和", "也", "这", "那",
+         "不", "有", "要", "会", "吗", "呢", "啊", "吧", "嗯", "一个", "我们", "你们", "他们",
+         "the", "a", "an", "and", "to", "of", "is", "in", "it", "for", "on", "you", "that",
+         "this", "with", "at", "be", "are", "was", "s", "t", "re", "ve", "ll", "don"}
+
+
+def _rows_full(tbl, limit, since=0, before=0):
+    """跨分片取会话消息（带发送者 user_name）：[(create_time, local_type, content, sender)]。"""
+    _refresh()
+    conds, params = [], []
+    if since:
+        conds.append("create_time > ?")
+        params.append(since)
+    if before:
+        conds.append("create_time < ?")
+        params.append(before)
+    where = (" where " + " and ".join(conds)) if conds else ""
+    q = (f"select create_time, local_type, message_content, real_sender_id from [{tbl}]"
+         + where + " order by create_time desc limit ?")
+    out = []
+    for p in _cache["msg"]:
+        if tbl not in _cache["tables"].get(p, ()):
+            continue
+        smap = _cache["senders"].get(p, {})
+        c = sqlite3.connect(p)
+        try:
+            for ct, lt, content, sid in c.execute(q, params + [limit]):
+                out.append((ct, lt, content, smap.get(sid, "")))
+        except Exception:
+            pass
+        finally:
+            c.close()
+    out.sort(key=lambda r: r[0], reverse=True)
+    return out[:limit]
+
+
+def _tokens(t):
+    return [w for w in re.findall(r"[A-Za-z]{2,}|[一-鿿]{2,}", t) if w.lower() not in _STOP]
+
+
+def digest(talker=None, limit=500, samples=6, top=15, since=0):
+    """蒸馏「行为与语料」：全局（`talker` 为空）或指定会话；`since` 只统计该 Unix 秒之后的（**增量蒸馏**）。
+
+    **确定性**：只用本地库统计（**不调用 LLM、不外传**），返回结构化 digest（统计 + 代表性样本），
+    供上层（LLM 或模板）提炼成「用户画像 / 好友画像」。发送者判定用 `real_sender_id`（精确）。
+    """
+    _refresh()
+    me = self_wxid()
+    nm = names()
+    pairs = [(talker, tbl_of(talker))] if talker else [(t, tbl) for tbl, t in talkers()]
+    hour = [0] * 24
+    by_type, words = {}, {}
+    my_lens, my_samples = [], []
+    per_contact = {}
+    total = from_me = 0
+    for t, tbl in pairs:
+        rows = _rows_full(tbl, limit, since=since)
+        tot = fm = ft = 0
+        first = last = 0
+        sm_me, sm_them = [], []
+        for ct, lt, content, sender in rows:
+            body = decode(content).strip()
+            is_me = (sender == me)
+            tot += 1
+            total += 1
+            fm += 1 if is_me else 0
+            ft += 0 if is_me else 1
+            from_me += 1 if is_me else 0
+            if ct:
+                first = ct if not first else min(first, ct)
+                last = max(last, ct)
+            ty = lt & 0xFFFFFFFF
+            by_type[ty] = by_type.get(ty, 0) + 1
+            if ty == 1 and body and not body.startswith("<"):     # 纯文本
+                if is_me:
+                    my_lens.append(len(body))
+                    hour[time.localtime(ct).tm_hour] += 1
+                    if len(sm_me) < samples:
+                        sm_me.append(body[:80])
+                    if len(my_samples) < samples * 4:
+                        my_samples.append(body[:80])
+                    for w in _tokens(body):
+                        words[w] = words.get(w, 0) + 1
+                elif len(sm_them) < samples:
+                    sm_them.append(body[:80])
+        if tot:
+            per_contact[t] = {"talker": t, "name": nm.get(t, t), "total": tot,
+                              "from_me": fm, "from_them": ft, "first_ts": first, "last_ts": last,
+                              "sample_from_me": sm_me, "sample_from_them": sm_them}
+    top_words = sorted(words.items(), key=lambda kv: -kv[1])[:top]
+    top_contacts = sorted(({"talker": k, "name": v["name"], "sent": v["from_me"]}
+                           for k, v in per_contact.items()), key=lambda d: -d["sent"])[:top]
+    return {
+        "scope": talker or "all",
+        "generated_at": int(time.time()),
+        "shards": len(_cache["msg"]),
+        "scanned_per_talker": limit,
+        "since": since,
+        "self": {"total": total, "from_me": from_me, "from_others": total - from_me,
+                 "by_type": by_type, "hour_hist": hour,
+                 "avg_len": round(sum(my_lens) / len(my_lens), 1) if my_lens else 0,
+                 "top_contacts": top_contacts},
+        "top_words": [{"word": w, "n": n} for w, n in top_words],
+        "contacts": sorted(per_contact.values(), key=lambda d: -d["total"])[:top],
+        "contacts_total": len(per_contact),
+        "samples_from_me": my_samples,
+    }
+
+
+# ---------- P1：画像落盘 / 读取（白盒 Markdown，本地，可一键删）----------
+DISTILL_DIR = os.path.join(os.path.expanduser("~"), ".lumii", "wechat-distill")
+
+
+def _safe_name(s):
+    return re.sub(r"[^0-9A-Za-z_@.\-]", "_", str(s))[:80] or "scope"
+
+
+def profile_dir():
+    """画像/状态目录。可用 `LUMII_WECHAT_DISTILL` 覆盖（测试用它指向临时目录，**别动用户真实数据**）。"""
+    d = os.environ.get("LUMII_WECHAT_DISTILL") or DISTILL_DIR
+    os.makedirs(os.path.join(d, "contacts"), exist_ok=True)
+    return d
+
+
+def _profile_path(scope):
+    if not scope or scope in ("self", "me", "我"):
+        return os.path.join(profile_dir(), "self.md")
+    return os.path.join(profile_dir(), "contacts", _safe_name(scope) + ".md")
+
+
+def profile_save(scope, content):
+    """写入画像 Markdown（`scope` 空/self → **用户画像**；否则该会话的**好友/群画像**）。返回路径。
+
+    文件头写 `updated=`（供"定期重合成/过期"判断）；正文由上层（Agent/LLM）产出、**白盒可编辑**。
+    """
+    p = _profile_path(scope)
+    if os.path.isfile(p):                 # 稳定性：留上一版（`<name>.md.prev`），防误覆盖、可回滚比对
+        try:
+            shutil.copy2(p, p + ".prev")
+        except Exception:
+            pass
+    head = f"<!-- wechat-distill scope={scope or 'self'} updated={_ts(int(time.time()))} -->\n"
+    open(p, "w", encoding="utf-8").write(head + (content or "").rstrip() + "\n")
+    return p
+
+
+def profile_get(scope=None):
+    """读画像：给 `scope` 返回该画像内容；否则列出已产出的画像文件（相对 `~/.lumii/wechat-distill/`）。"""
+    d = profile_dir()
+    if scope:
+        p = _profile_path(scope)
+        ok = os.path.isfile(p)
+        return {"scope": scope, "path": p, "exists": ok,
+                "content": open(p, encoding="utf-8").read() if ok else ""}
+    files = []
+    for root, _dirs, fs in os.walk(d):
+        for f in fs:
+            if f.endswith(".md"):
+                files.append(os.path.relpath(os.path.join(root, f), d).replace("\\", "/"))
+    return {"dir": d, "files": sorted(files)}
+
+
+def _state_path():
+    return os.path.join(profile_dir(), "state.json")
+
+
+def distill_state(scope=None):
+    """读蒸馏**水位**（`state.json`）：给 `scope` 返回其水位 ts（下次增量只处理该 ts 之后的消息）；不给则返回全部。"""
+    p = _state_path()
+    data = {}
+    try:
+        if os.path.isfile(p):
+            data = json.loads(open(p, encoding="utf-8").read())
+    except Exception:
+        data = {}
+    key = scope or "self"
+    return {"state_path": p, "scope": key, "since": int(data.get(key, 0) or 0), "all": data}
+
+
+def set_distill_state(scope, ts):
+    """写蒸馏水位（供**增量蒸馏**：下次只处理该 ts 之后的新消息）。"""
+    p = _state_path()
+    data = {}
+    try:
+        if os.path.isfile(p):
+            data = json.loads(open(p, encoding="utf-8").read())
+    except Exception:
+        data = {}
+    data[scope or "self"] = int(ts)
+    open(p, "w", encoding="utf-8").write(json.dumps(data, ensure_ascii=False, indent=2))
+    return {"ok": True, "state_path": p, "scope": scope or "self", "since": int(ts)}

@@ -19,6 +19,8 @@
  * - WM-15 批量发送：Agent 调 send_batch(dry_run=true) → 报成功但**库内无痕**
  * - WM-16 群/单聊结构反证：误开另一类会话 → `verify_target` 拒绝（双向 fail-closed，确定性）
  * - WM-17 引用回复：Agent 调 reply_to(dry_run=true) → 报成功但**库内无痕**
+ * - WM-18 蒸馏 digest：`core.digest` 结构/跨分片/全局·单会话一致（确定性）
+ * - WM-19 蒸馏画像：`profile_save/get` 落盘·读回·列出 + 历史带 `from_me`（确定性）
  *
  * 微信侧断言用 `apps/windows/resources/wechat-mcp/devcli.py`（只读、固定动作脚本），不经 LLM。
  * 规范：docs/test/lumii-cli/CLI-TEST-SPEC.md
@@ -453,6 +455,65 @@ async function main() {
       const scan = wxScan(MARK_REPLY)
       h.assert(scan.hits.length === 0, `dry-run 引用竟然落库：全库扫描命中 ${scan.hits.length}`)
       return 'Agent 经 reply_to 演练通过、未发送（全库扫描命中 0）'
+    }, { fails })
+  }
+
+  // WM-18 蒸馏 digest（确定性：结构 + 跨分片 + 全局/单会话一致）
+  if (selected('WM-18')) {
+    h.runCase(ev, 'WM-18', () => {
+      const nl = String.fromCharCode(10)
+      const code = [
+        'import sys',
+        `sys.path.insert(0, r"${WX_DIR}")`,
+        'import wechat_core as core',
+        'd = core.digest(None, limit=100)',
+        'assert d["shards"] >= 1, "shards"',
+        'assert len(d["self"]["hour_hist"]) == 24, "hour_hist"',
+        'assert d["self"]["from_me"] + d["self"]["from_others"] == d["self"]["total"], "sum"',
+        'assert d["contacts_total"] >= 1, "contacts"',
+        'g = core.resolve_talker("测试微信群")',
+        'dg = core.digest(g)',
+        'assert dg["contacts_total"] == 1 and dg["contacts"][0]["talker"] == g, "scope"',
+        'print("OK shards=%d total=%d from_me=%d contacts=%d" % (d["shards"], d["self"]["total"], d["self"]["from_me"], d["contacts_total"]))',
+      ].join(nl)
+      const r = spawnSync(PY, ['-c', code], { encoding: 'utf8', timeout: 120000 })
+      const out = (r.stdout || '').trim()
+      h.assert(/^OK /.test(out), `digest 断言失败：${out.slice(0, 300)} | ${(r.stderr || '').slice(0, 200)}`)
+      return `蒸馏 digest 结构正确、跨分片、全局/单会话一致（${out.slice(3)}）`
+    }, { fails })
+  }
+
+  // WM-19 蒸馏画像落盘/读取 + 历史发送者字段（确定性；**用临时目录，不动用户真实画像**）
+  if (selected('WM-19')) {
+    h.runCase(ev, 'WM-19', () => {
+      const nl = String.fromCharCode(10)
+      const tmp = path.join(__dirname, '.wmtmp-wm19')
+      const code = [
+        'import sys, os',
+        `sys.path.insert(0, r"${WX_DIR}")`,
+        'import wechat_core as core',
+        'p = core.profile_save(None, "# 用户画像\\n- WM-19 测试")',
+        'assert os.path.isfile(p), "not written"',
+        'assert ".wmtmp-wm19" in p, "not in tmp dir: " + p',
+        'g = core.profile_get("self")',
+        'assert g["exists"] and "WM-19" in g["content"], "readback"',
+        'assert "self.md" in core.profile_get()["files"], "list"',
+        'h = core.history("filehelper", 3)',
+        'assert all("from_me" in m for m in h["messages"]), "sender field"',
+        'print("OK")',
+      ].join(nl)
+      let r
+      try {
+        r = spawnSync(PY, ['-c', code], {
+          encoding: 'utf8', timeout: 120000,
+          env: { ...process.env, LUMII_WECHAT_DISTILL: tmp },
+        })
+        const out = (r.stdout || '').trim()
+        h.assert(out === 'OK', `画像/发送者断言失败：${out.slice(0, 200)} | ${(r.stderr || '').slice(0, 200)}`)
+      } finally {
+        fs.rmSync(tmp, { recursive: true, force: true })
+      }
+      return '画像可落盘/读回/列出（临时目录）＋ 历史带 from_me（确定性）'
     }, { fails })
   }
 

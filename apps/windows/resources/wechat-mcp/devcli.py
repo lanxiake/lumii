@@ -10,7 +10,7 @@
   python devcli.py send <talker> <text> [--yes]   发文本；默认 dry-run，--yes 才真发
   python devcli.py sendfile <talker> <path> [--yes]  发图片/文件/视频/音频（剪贴板粘贴；默认 dry-run）
   python devcli.py reply <talker> <quote> <text> [--yes]  引用回复（quote=被引用消息文字；默认 dry-run）
-  python devcli.py search <关键词> [talker] | unread | accounts | stats
+  python devcli.py search <关键词> [talker] | digest [talker] [limit] | profile [scope] | state [scope] [ts] | unread | accounts | stats
   python devcli.py selftest                   只读自检：环境 + 会话 + 一次历史读取
 
 退出码：0 成功 / 1 操作失败 / 2 参数错误。
@@ -57,17 +57,17 @@ def cmd_history(talker, n=10, before_ts=0):
 
 def cmd_scan(marker):
     core._refresh()
-    c = sqlite3.connect(core._cache["msg"])
-    tabs = [r[0] for r in c.execute(
-        "select name from sqlite_master where type='table' and name like 'Msg_%'")]
-    hits = []
-    for t in tabs:
-        for _ct, co in c.execute(f"select create_time, message_content from [{t}]"):
-            if marker in core.decode(co):
-                hits.append(t)
-    c.close()
-    _out({"marker": marker, "tables_scanned": len(tabs), "hits": hits})
-    return 0 if not hits else 0  # 扫描本身总是成功；命中与否看 hits
+    seen, hits = set(), []
+    for p in core._cache["msg"]:                 # 遍历**全部分片**
+        c = sqlite3.connect(p)
+        for t in core._cache["tables"].get(p, ()):
+            seen.add(t)
+            for _ct, co in c.execute(f"select create_time, message_content from [{t}]"):
+                if marker in core.decode(co):
+                    hits.append(t)
+        c.close()
+    _out({"marker": marker, "tables_scanned": len(seen), "hits": sorted(set(hits))})
+    return 0
 
 
 def cmd_send(talker, text, real=False):
@@ -103,6 +103,29 @@ def cmd_search(kw, talker=None, n=10):
 
 def cmd_unread():
     _out(core.unread())
+    return 0
+
+
+def cmd_digest(talker=None, limit=500):
+    """蒸馏统计（确定性、只读、本地）：<talker> 可选，不给则全局。"""
+    t = (core.resolve_talker(talker) or talker) if talker else None
+    _out(core.digest(t, int(limit)))
+    return 0
+
+
+def cmd_profile(scope=None):
+    """列出已产出的画像，或读回指定 scope 的画像（self / 会话名 / wxid）。"""
+    s = None
+    if scope and scope not in ("self", "me", "我", "本人"):
+        s = core.resolve_talker(scope) or scope
+    _out(core.profile_get(s))
+    return 0
+
+
+def cmd_state(scope=None, ts=None):
+    """蒸馏水位：无 ts 读取；有 ts 写入（增量蒸馏用）。"""
+    _out(core.set_distill_state(scope or "self", int(ts)) if ts is not None
+         else core.distill_state(scope))
     return 0
 
 
@@ -183,6 +206,12 @@ def main(argv):
         return cmd_reply(argv[1], argv[2], argv[3], real="--yes" in argv)
     if cmd == "search" and len(argv) >= 2:
         return cmd_search(argv[1], argv[2] if len(argv) > 2 else None)
+    if cmd == "digest":
+        return cmd_digest(argv[1] if len(argv) > 1 else None, argv[2] if len(argv) > 2 else 500)
+    if cmd == "profile":
+        return cmd_profile(argv[1] if len(argv) > 1 else None)
+    if cmd == "state":
+        return cmd_state(argv[1] if len(argv) > 1 else None, argv[2] if len(argv) > 2 else None)
     if cmd == "unread":
         return cmd_unread()
     if cmd == "accounts":

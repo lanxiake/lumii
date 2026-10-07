@@ -861,6 +861,8 @@ def send_attachment(path, talker, name=None, dry_run=True, verbose=False):
             ok, _why = verify_target(talker, name, lines, ww, wh, verbose)
             if not ok:
                 ok = open_chat(name, talker, win, verbose)
+            if not ok:                       # 与文本路径一致：列表名 OCR 读花时用微信搜索兜底
+                ok = open_chat_via_search(name, talker, win, verbose)
             if not ok:
                 return False, "目标会话未确认（fail-closed）"
             base_ts = _talker_latest_ts(talker)

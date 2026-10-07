@@ -200,6 +200,53 @@ def tool_unread(_args):
     return core.unread()
 
 
+def tool_digest(args):
+    """用户/好友知识与行为蒸馏（确定性、只读、本地）：返回统计 + 代表性样本。"""
+    talker = args.get("talker")
+    if talker:
+        talker, err = _resolve_or_error(talker)
+        if err:
+            return {"error_code": "target_not_found", "error": err}
+    return core.digest(talker, int(args.get("limit") or 500), since=int(args.get("since") or 0))
+
+
+def tool_distill_state(args):
+    """蒸馏水位（增量蒸馏用）：`action=set` 传 `ts` 写入；默认读取。"""
+    if (args.get("action") or "get") == "set":
+        return core.set_distill_state(args.get("scope") or "self", int(args.get("ts") or 0))
+    return core.distill_state(args.get("scope") or None)
+
+
+def _resolve_scope(scope):
+    """画像 scope：空/self/me/我 → 用户本人（None）；否则解析成会话 talker。返回 (talker|None, err|None)。"""
+    if not scope or scope in ("self", "me", "我", "本人"):
+        return None, None
+    t = _resolve(scope)
+    if t:
+        return t, None
+    return None, f"未找到会话「{scope}」"
+
+
+def tool_profile_save(args):
+    """把提炼好的画像落本地（用户画像 / 某会话画像）。"""
+    scope, err = _resolve_scope(args.get("scope"))
+    if err:
+        return {"ok": False, "error_code": "target_not_found", "error": err}
+    content = args.get("content") or ""
+    if not content.strip():
+        return {"ok": False, "error_code": "bad_args", "error": "content 为空（画像正文）"}
+    p = core.profile_save(scope, content)
+    return {"ok": True, "scope": scope or "self", "path": p}
+
+
+def tool_profile_get(args):
+    """读回已蒸馏的画像（给 scope）或列出已产出的画像文件（不给）。"""
+    scope, err = _resolve_scope(args.get("scope"))
+    if err:
+        return {"error_code": "target_not_found", "error": err}
+    return core.profile_get(scope)
+
+
 def tool_status(_args):
     import wechat_sender
     st = wechat_sender.check_env()
@@ -233,6 +280,12 @@ INSTRUCTIONS = """\
 5. 一次发一条；失败会在 detail 里说明卡在哪一道校验，可据此调整或提示用户。
 
 读取建议：先用 wechat_sessions 找目标会话名，再用 wechat_history 拉上下文，然后据此起草回复。
+
+蒸馏（用户/好友知识与行为）：要提炼「我的表达习惯 / 与谁联系最多 / 活跃时段 / 某会话里对方是谁」时，用 wechat_digest——
+它做**本地确定性统计 + 代表性样本**（覆盖微信全部时间分片，**不外传**），你再据此写成画像；
+用 wechat_profile_save 存成画像（scope 留空=用户本人），wechat_profile_get 读回。画像存本地白盒 Markdown，可编辑可删。
+**增量**：蒸馏完用 wechat_distill_state(action=set) 记水位，下次 wechat_digest(since=水位) 只处理新消息。
+**回答与微信/某联系人相关的问题前，先 wechat_profile_get 看有没有现成画像**（有就用，别重复蒸馏）。
 """
 
 TOOLS = [
@@ -315,12 +368,48 @@ TOOLS = [
     {"name": "list_unread",
      "description": "【何时用】用户问「有哪些没回/没看」、要**批量处理未读**时（返回未读会话 + 最近一条预览）。【别用】渠道(Bot)。",
      "inputSchema": {"type": "object", "properties": {}, "required": []}},
+    {"name": "wechat_digest",
+     "description": ("【何时用】要**蒸馏用户/好友的画像与行为**时（「我平常怎么说话」「我和谁联系最多」「这个群/这个人大概是谁」「什么时段我活跃」）："
+                     "返回**本地确定性统计**（消息量、我发的/对方发的、消息类型分布、活跃时段、最常联系的人、高频词）"
+                     "＋**代表性样本**，你再据此提炼画像。【别用】只想读几条消息（用 read_history）。"
+                     "**全本地、只读、不外传**；覆盖微信**所有时间分片**。talker 可选（限定某会话），不给则全局。"),
+     "inputSchema": {"type": "object", "properties": {
+         "talker": {"type": "string", "description": "可选：限定某个会话（name 或 wxid/群号）"},
+         "limit": {"type": "integer", "description": "每个会话最多扫描条数，默认 500"},
+         "since": {"type": "integer", "description": "可选：只统计该 Unix 秒之后的消息（增量蒸馏用）"}},
+         "required": []}},
+    {"name": "wechat_distill_state",
+     "description": ("【何时用】做**增量蒸馏**时：蒸馏完把水位（处理到的最新 ts）用 `action=set` 记下；"
+                     "下次先默认读回水位，再用 `wechat_digest(since=水位)` 只处理新消息。【别用】一次全量蒸馏（不需要水位）。"
+                     "`scope`：self(默认) / all / 会话名。"),
+     "inputSchema": {"type": "object", "properties": {
+         "action": {"type": "string", "description": "get（默认）读取 | set 写入"},
+         "scope": {"type": "string", "description": "水位键：self（默认）/ all / 会话名"},
+         "ts": {"type": "integer", "description": "action=set 时的水位（Unix 秒）"}}, "required": []}},
+    {"name": "wechat_profile_save",
+     "description": ("【何时用】**把你从 wechat_digest + read_history 提炼出的画像存下来**，供以后复用（「我平常怎么说话」「某人/某群是谁」）。"
+                     "content 传 **Markdown 画像正文**（结构建议：身份/关系 · 常聊话题 · 沟通风格 · 关键事实（尽量带时间））。"
+                     "scope 留空=**用户本人画像**；给出会话名/wxid 则是**该好友/群的画像**。"
+                     "**全本地**写入 `~/.lumii/wechat-distill/`（白盒、可编辑、可删）。【别用】存原始聊天记录。"),
+     "inputSchema": {"type": "object", "properties": {
+         "scope": {"type": "string", "description": "留空=用户本人；或会话名/wxid/群号（对该会话画像）"},
+         "content": {"type": "string", "description": "Markdown 画像正文"}},
+         "required": ["content"]}},
+    {"name": "wechat_profile_get",
+     "description": ("【何时用】要**读回已蒸馏的画像**（「我是谁」「某个好友是谁」）时。"
+                     "【别用】还没有画像时——应先 wechat_digest + 提炼，再 wechat_profile_save。"
+                     "scope 留空则**列出**已产出的画像文件。"),
+     "inputSchema": {"type": "object", "properties": {
+         "scope": {"type": "string", "description": "可选：留空列出全部"}}, "required": []}},
 ]
 DISPATCH = {"list_sessions": tool_sessions, "read_history": tool_history,
             "poll_new": tool_poll, "check_env": tool_status,
             "send_text": tool_send, "send_file": tool_send_file,
             "send_batch": tool_send_batch, "reply_to": tool_reply,
-            "search_messages": tool_search, "list_unread": tool_unread}
+            "search_messages": tool_search, "list_unread": tool_unread,
+            "wechat_digest": tool_digest,
+            "wechat_distill_state": tool_distill_state,
+            "wechat_profile_save": tool_profile_save, "wechat_profile_get": tool_profile_get}
 
 
 def reply(mid, result):

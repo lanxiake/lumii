@@ -35,6 +35,8 @@ Lumii 通过本机 **MCP server**（`apps/windows/resources/wechat-mcp/`）给 A
 | WM-15 | **批量发送演练** | 让 Agent 调 `send_batch(dry_run=true)` → 报成功但**库内无痕** | 真实 LLM 回合 + 全库扫描 |
 | WM-16 | **群/单聊结构反证** | 合成行数据直接驱动 `verify_target`：目标单聊却开着群、目标群却开着单聊 → **两个方向都返回 `False`** | 直接驱动 `wechat_sender`（确定性，不走 LLM/UI） |
 | WM-17 | **引用回复演练** | 让 Agent 调 `reply_to(quote,talker,text,dry_run=true)` → 报成功（已引用并填入）但**库内无痕** | 真实 LLM 回合 + 全库扫描 |
+| WM-18 | **蒸馏 digest** | 直接调 `core.digest`：`shards≥1`、`hour_hist` 24 格、`from_me+from_others==total`、全局/单会话一致 | 直接驱动 `wechat_core`（确定性，不走 LLM/UI） |
+| WM-19 | **蒸馏画像落盘** | 直接调 `profile_save/get`（`LUMII_WECHAT_DISTILL` 指向**临时目录**，不动用户画像）：落盘可读回、`profile_get()` 列出、`history` 每条带 `from_me` | 直接驱动 `wechat_core`（确定性，不走 LLM/UI） |
 
 ## 为什么这样断言
 
