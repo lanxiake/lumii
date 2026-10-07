@@ -415,20 +415,21 @@ def search_messages(keyword, talker=None, since=0, until=0, limit=50, scan=3000)
     """按关键词检索消息（跨会话或指定会话；支持时间范围，**跨全部分片**）。逐条解码匹配。"""
     _refresh()
     nm = names()
+    me = self_wxid()
     pairs = [(talker, tbl_of(talker))] if talker else [(t, tbl) for tbl, t in talkers()]
     hits = []
     for t, tbl in pairs:
         try:
-            rows = _rows(tbl, scan)
+            rows = _rows_full(tbl, scan)
         except Exception:
             continue
-        for ct, lt, content in rows:
+        for ct, lt, content, s in rows:
             if since and ct <= since:
                 continue
             if until and ct >= until:
                 continue
             if keyword in decode(content):
-                hits.append(msg_dict(ct, lt, content, nm, talker=t, name=nm.get(t, t)))
+                hits.append(msg_dict(ct, lt, content, nm, talker=t, name=nm.get(t, t), sender=s, me=me))
     hits.sort(key=lambda d: d["ts"], reverse=True)
     return {"keyword": keyword, "count": len(hits), "scanned_per_talker": scan, "messages": hits[:limit]}
 
@@ -601,13 +602,22 @@ def profile_save(scope, content):
 
 
 def profile_get(scope=None):
-    """读画像：给 `scope` 返回该画像内容；否则列出已产出的画像文件（相对 `~/.lumii/wechat-distill/`）。"""
+    """读画像：给 `scope` 返回该画像内容 + `updated`/`age_days`/`stale`（**过期提示**）；否则列出已产出的画像文件。"""
     d = profile_dir()
     if scope:
         p = _profile_path(scope)
         ok = os.path.isfile(p)
-        return {"scope": scope, "path": p, "exists": ok,
-                "content": open(p, encoding="utf-8").read() if ok else ""}
+        content = open(p, encoding="utf-8").read() if ok else ""
+        m = re.search(r"updated=(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})", content)
+        age = None
+        if m:
+            try:
+                age = round((time.time() - time.mktime(time.strptime(m.group(1), "%Y-%m-%d %H:%M:%S"))) / 86400, 1)
+            except Exception:
+                age = None
+        return {"scope": scope, "path": p, "exists": ok, "content": content,
+                "updated": m.group(1) if m else None, "age_days": age,
+                "stale": bool(age is not None and age >= 30)}     # ≥30 天提示 Agent 重新蒸馏
     files = []
     for root, _dirs, fs in os.walk(d):
         for f in fs:

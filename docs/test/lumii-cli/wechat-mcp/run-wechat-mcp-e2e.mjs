@@ -498,9 +498,12 @@ async function main() {
         'assert ".wmtmp-wm19" in p, "not in tmp dir: " + p',
         'g = core.profile_get("self")',
         'assert g["exists"] and "WM-19" in g["content"], "readback"',
+        'assert "updated" in g and "stale" in g, "meta"',
         'assert "self.md" in core.profile_get()["files"], "list"',
         'h = core.history("filehelper", 3)',
         'assert all("from_me" in m for m in h["messages"]), "sender field"',
+        's = core.search_messages("的", limit=1)',
+        'assert not s["messages"] or "from_me" in s["messages"][0], "search sender"',
         'print("OK")',
       ].join(nl)
       let r
