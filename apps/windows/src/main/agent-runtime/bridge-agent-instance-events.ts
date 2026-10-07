@@ -37,7 +37,12 @@ import { agentRuntimeLog as log } from './bridge-utils'
 import { recordUsage } from '../usage-store'
 import { markRunStart, markFirstToken, clearRun } from '../provider-latency'
 import { captureWorkspaceTurnSnapshot } from '../workspace-vcs/workspace-turn-snapshot'
-import { recordTurnTouchedPath, filterOwnFileChanges } from './turn-touched-paths'
+import {
+  collectResultTouchedPaths,
+  filterOwnFileChanges,
+  recordTurnTouchedFilePath,
+  recordTurnTouchedPath,
+} from './turn-touched-paths'
 import { applyConversationCompactToUsage } from '../../shared/context-usage-compact'
 import { isNoReplySentinel } from '../../shared/no-reply-sentinel'
 
@@ -738,6 +743,13 @@ export function createAgentInstanceRuntimeEventHandler(
         event.toolName === 'writeLocalFile'
       if (isWriteTool && !event.isError) {
         recordTurnTouchedPath(instanceId, args, getCwd())
+      }
+      // 生图 / 语音 / 截图等工具自身写盘但不走写文件工具，从结果里补登产出路径，
+      // 否则严格归属下这些产物会从变更卡片漏掉
+      if (!event.isError) {
+        for (const outputPath of collectResultTouchedPaths(event.toolName, event.result)) {
+          recordTurnTouchedFilePath(instanceId, outputPath, getCwd())
+        }
       }
       const writtenPath =
         typeof args['filePath'] === 'string'

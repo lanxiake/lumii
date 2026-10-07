@@ -1,7 +1,9 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import {
   recordTurnTouchedPath,
+  recordTurnTouchedFilePath,
   clearTurnTouchedPaths,
+  collectResultTouchedPaths,
   filterOwnFileChanges,
 } from "./turn-touched-paths";
 
@@ -30,10 +32,10 @@ describe("turn-touched-paths", () => {
     ]);
   });
 
-  it("无人声明的变更（bash 等）仍归本回合", () => {
+  it("严格归属：无人声明的变更（bash 等）不进卡片", () => {
     recordTurnTouchedPath("B", { filePath: "outputs/b.txt" }, cwd);
     const diff = [{ path: "outputs/via-bash.txt", status: "added" as const }];
-    expect(filterOwnFileChanges("A", diff)).toEqual(diff);
+    expect(filterOwnFileChanges("A", diff)).toEqual([]);
   });
 
   it("绝对路径归一化，越出 workspace 的路径不记录", () => {
@@ -65,10 +67,29 @@ describe("turn-touched-paths", () => {
     expect(filterOwnFileChanges("B", diff)).toEqual([]);
   });
 
-  it("clearTurnTouchedPaths 后不再影响其他会话", () => {
+  it("未登记路径的实例一律返回空（严格归属）", () => {
     recordTurnTouchedPath("B", { filePath: "outputs/b.txt" }, cwd);
     clearTurnTouchedPaths("B");
     const diff = [{ path: "outputs/b.txt", status: "added" as const }];
-    expect(filterOwnFileChanges("A", diff)).toEqual(diff);
+    expect(filterOwnFileChanges("A", diff)).toEqual([]);
+  });
+
+  it("recordTurnTouchedFilePath 登记工具结果里的产出路径", () => {
+    recordTurnTouchedFilePath("A", `${cwd}/outputs/gen.png`, cwd);
+    expect(
+      filterOwnFileChanges("A", [{ path: "outputs/gen.png", status: "added" }]),
+    ).toHaveLength(1);
+  });
+
+  it("collectResultTouchedPaths 只认产文件工具，从 details/filePath 取路径", () => {
+    expect(
+      collectResultTouchedPaths("image_generate", { details: { filePath: "outputs/a.png" } }),
+    ).toEqual(["outputs/a.png"]);
+    expect(
+      collectResultTouchedPaths("speech_generate", { details: { filePath: "x.wav" } }),
+    ).toEqual(["x.wav"]);
+    // 读类工具带 path 也不登记，避免别的会话改了同一路径重新串进来
+    expect(collectResultTouchedPaths("file_read", { path: "a.txt" })).toEqual([]);
+    expect(collectResultTouchedPaths("image_generate", undefined)).toEqual([]);
   });
 });

@@ -47,7 +47,11 @@ import { summarizeRecentTurns } from './router/recent-turns-summarizer'
 import { classifyImageModel, IMAGE_MODEL_SIMPLE } from './image-intent-classifier'
 import type { RouterLlmCaller } from './router/llm-caller'
 import { captureWorkspaceTurnSnapshot } from '../workspace-vcs/workspace-turn-snapshot'
-import { clearTurnTouchedPaths } from './turn-touched-paths'
+import {
+  clearTurnTouchedPaths,
+  filterOwnFileChanges,
+  recordTurnTouchedFilePath,
+} from './turn-touched-paths'
 
 export type WeixinCtxValue = {
   channelUserId: string
@@ -203,6 +207,9 @@ export class BridgePromptDispatcher {
 
   /**
    * 完成直接生图轮次快照并返回净变更，同时确保起点不会污染下一轮。
+   *
+   * 与 pi 内核回合一致按归属过滤：直连生图绕过写文件工具，产出的图片路径由调用方先
+   * 登记，这里只保留本实例登记过的变更，避免把并发会话 / 后台任务的写入算进来。
    */
   private async finishDirectImageTurnSnapshot(
     state: InstanceState | undefined,
@@ -210,10 +217,12 @@ export class BridgePromptDispatcher {
     const turnSnapshotStart = state?.turnSnapshotStart
     if (state) state.turnSnapshotStart = undefined
     if (!turnSnapshotStart) return undefined
+    const instanceId = state?.ctx.instanceId
 
     try {
       const turnSnapshotEnd = await captureWorkspaceTurnSnapshot(this.deps.config.getCwd())
-      return diffTurnSnapshots(turnSnapshotStart, turnSnapshotEnd)
+      const diff = diffTurnSnapshots(turnSnapshotStart, turnSnapshotEnd)
+      return instanceId ? filterOwnFileChanges(instanceId, diff) : []
     } catch (err) {
       log.warn(`[turn-snapshot] direct image end failed: ${err instanceof Error ? err.message : String(err)}`)
       return undefined
@@ -546,6 +555,8 @@ export class BridgePromptDispatcher {
           filename: message,
           signal: imgAbort.signal,
         })
+        // 直连生图不经工具链，先把产出图片登记为本实例本轮写入，供归属过滤保留
+        recordTurnTouchedFilePath(instanceId, result.filePath, this.deps.config.getCwd())
         const durationMs = Date.now() - startMs
         const fileChanges = await this.finishDirectImageTurnSnapshot(state)
         const assistantText = `图片已生成：${result.filePath}（${result.width}×${result.height}，模型：${result.model}）`

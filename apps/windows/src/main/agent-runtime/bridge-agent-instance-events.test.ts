@@ -9,6 +9,7 @@ import {
   createAgentInstanceRuntimeEventHandler,
   createAssistantPartsContent,
 } from "./bridge-agent-instance-events";
+import { recordTurnTouchedPath, clearTurnTouchedPaths } from "./turn-touched-paths";
 
 describe("Wiki 摄入钩子接线", () => {
   function buildHandler(getWikiIngestHook: () => never) {
@@ -431,6 +432,9 @@ describe("assistant parts bridge persistence", () => {
       state.streamingAssistantMsgId = "message-1";
       state.turnSnapshotStart = new Map([["tracked.txt", "old-hash"]]);
       instanceStates.set("instance", state);
+      // 严格归属：卡片只留本实例登记过的路径
+      clearTurnTouchedPaths("instance");
+      recordTurnTouchedPath("instance", { filePath: "tracked.txt" }, workspaceDir);
 
       const updateMessageContent = vi.fn();
       const forwardIpcEvent = vi.fn();
