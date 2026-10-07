@@ -21,6 +21,7 @@
  * - WM-17 引用回复：Agent 调 reply_to(dry_run=true) → 报成功但**库内无痕**
  * - WM-18 蒸馏 digest：`core.digest` 结构/跨分片/全局·单会话一致（确定性）
  * - WM-19 蒸馏画像：`profile_save/get` 落盘·读回·列出 + 历史带 `from_me`（确定性）
+ * - WM-20 蒸馏清除：`distill_clear` 单 scope / 防误清 / everything（确定性，临时目录）
  *
  * 微信侧断言用 `apps/windows/resources/wechat-mcp/devcli.py`（只读、固定动作脚本），不经 LLM。
  * 规范：docs/test/lumii-cli/CLI-TEST-SPEC.md
@@ -514,6 +515,42 @@ async function main() {
         fs.rmSync(tmp, { recursive: true, force: true })
       }
       return '画像可落盘/读回/列出（临时目录）＋ 历史带 from_me（确定性）'
+    }, { fails })
+  }
+
+  // WM-20 蒸馏一键清除（确定性；临时目录）
+  if (selected('WM-20')) {
+    h.runCase(ev, 'WM-20', () => {
+      const nl = String.fromCharCode(10)
+      const tmp = path.join(__dirname, '.wmtmp-wm20')
+      const code = [
+        'import sys',
+        `sys.path.insert(0, r"${WX_DIR}")`,
+        'import wechat_core as core',
+        'core.profile_save(None, "# self")',
+        'core.profile_save("50313322756@chatroom", "# grp")',
+        'core.set_distill_state("self", 123)',
+        'assert len(core.profile_get()["files"]) == 2, "seed"',
+        'r = core.distill_clear("self")',
+        'assert r["ok"] and core.profile_get("self")["exists"] is False, "clear scope"',
+        'assert core.distill_state()["since"] == 0, "clear state"',
+        'assert core.distill_clear()["ok"] is False, "guard"',
+        'core.distill_clear(None, everything=True)',
+        'assert core.profile_get()["files"] == [], "clear all"',
+        'print("OK")',
+      ].join(nl)
+      let r
+      try {
+        r = spawnSync(PY, ['-c', code], {
+          encoding: 'utf8', timeout: 120000,
+          env: { ...process.env, LUMII_WECHAT_DISTILL: tmp },
+        })
+        const out = (r.stdout || '').trim()
+        h.assert(out === 'OK', `清除断言失败：${out.slice(0, 200)} | ${(r.stderr || '').slice(0, 200)}`)
+      } finally {
+        fs.rmSync(tmp, { recursive: true, force: true })
+      }
+      return '一键清除：单 scope 清画像+水位、无 scope 被拒、everything 清空全部（临时目录）'
     }, { fails })
   }
 

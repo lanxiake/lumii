@@ -10,7 +10,7 @@
   python devcli.py send <talker> <text> [--yes]   发文本；默认 dry-run，--yes 才真发
   python devcli.py sendfile <talker> <path> [--yes]  发图片/文件/视频/音频（剪贴板粘贴；默认 dry-run）
   python devcli.py reply <talker> <quote> <text> [--yes]  引用回复（quote=被引用消息文字；默认 dry-run）
-  python devcli.py search <关键词> [talker] | digest [talker] [limit] | profile [scope] | state [scope] [ts] | unread | accounts | stats
+  python devcli.py search <关键词> [talker] | digest [talker] [limit] | profile [scope] | state [scope] [ts] | clear [scope] [--all] | unread | accounts | stats
   python devcli.py selftest                   只读自检：环境 + 会话 + 一次历史读取
 
 退出码：0 成功 / 1 操作失败 / 2 参数错误。
@@ -129,6 +129,14 @@ def cmd_state(scope=None, ts=None):
     return 0
 
 
+def cmd_clear(scope=None, everything=False):
+    """一键清除蒸馏产物：<scope>=self/会话名 删单个；--all 清空全部。"""
+    if scope and scope not in ("self", "me", "我", "本人"):
+        scope = core.resolve_talker(scope) or scope
+    _out(core.distill_clear(scope, everything=everything))
+    return 0
+
+
 def cmd_accounts():
     """列出本机微信账号数据目录与当前生效账号（多账号选择用 LUMII_WECHAT_ACCOUNT）。"""
     try:
@@ -212,6 +220,8 @@ def main(argv):
         return cmd_profile(argv[1] if len(argv) > 1 else None)
     if cmd == "state":
         return cmd_state(argv[1] if len(argv) > 1 else None, argv[2] if len(argv) > 2 else None)
+    if cmd == "clear":
+        return cmd_clear(None, everything=True) if "--all" in argv else cmd_clear(argv[1] if len(argv) > 1 else None)
     if cmd == "unread":
         return cmd_unread()
     if cmd == "accounts":

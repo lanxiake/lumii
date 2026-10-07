@@ -217,6 +217,19 @@ def tool_distill_state(args):
     return core.distill_state(args.get("scope") or None)
 
 
+def tool_distill_clear(args):
+    """一键清除蒸馏产物（隐私约束）。"""
+    scope = args.get("scope")
+    if scope:
+        if scope in ("self", "me", "我", "本人"):
+            scope = "self"
+        else:
+            scope, err = _resolve_scope(scope)
+            if err:
+                return {"ok": False, "error_code": "target_not_found", "error": err}
+    return core.distill_clear(scope, everything=bool(args.get("everything")))
+
+
 def _resolve_scope(scope):
     """画像 scope：空/self/me/我 → 用户本人（None）；否则解析成会话 talker。返回 (talker|None, err|None)。"""
     if not scope or scope in ("self", "me", "我", "本人"):
@@ -286,6 +299,7 @@ INSTRUCTIONS = """\
 用 wechat_profile_save 存成画像（scope 留空=用户本人），wechat_profile_get 读回。画像存本地白盒 Markdown，可编辑可删。
 **增量**：蒸馏完用 wechat_distill_state(action=set) 记水位，下次 wechat_digest(since=水位) 只处理新消息。
 **回答与微信/某联系人相关的问题前，先 wechat_profile_get 看有没有现成画像**（有就用，别重复蒸馏）。
+**隐私**：画像全在本地、不外传；用户要删时用 wechat_distill_clear（删单个给 scope，清空全部须 everything=true）。
 """
 
 TOOLS = [
@@ -386,6 +400,12 @@ TOOLS = [
          "action": {"type": "string", "description": "get（默认）读取 | set 写入"},
          "scope": {"type": "string", "description": "水位键：self（默认）/ all / 会话名"},
          "ts": {"type": "integer", "description": "action=set 时的水位（Unix 秒）"}}, "required": []}},
+    {"name": "wechat_distill_clear",
+     "description": ("【何时用】用户要**删除蒸馏产物**（隐私 / 一键清除）时：给 `scope`（self 或会话名）删该画像（含备份与水位）；"
+                     "**清空全部须显式 `everything=true`**（防误清）。【别用】清无关文件——它**只动** `~/.lumii/wechat-distill/`，不碰微信库。"),
+     "inputSchema": {"type": "object", "properties": {
+         "scope": {"type": "string", "description": "要删的画像：self 或会话名/wxid（不给则须 everything=true）"},
+         "everything": {"type": "boolean", "description": "清空整个产出目录（须显式传 true）"}}, "required": []}},
     {"name": "wechat_profile_save",
      "description": ("【何时用】**把你从 wechat_digest + read_history 提炼出的画像存下来**，供以后复用（「我平常怎么说话」「某人/某群是谁」）。"
                      "content 传 **Markdown 画像正文**（结构建议：身份/关系 · 常聊话题 · 沟通风格 · 关键事实（尽量带时间））。"
@@ -409,6 +429,7 @@ DISPATCH = {"list_sessions": tool_sessions, "read_history": tool_history,
             "search_messages": tool_search, "list_unread": tool_unread,
             "wechat_digest": tool_digest,
             "wechat_distill_state": tool_distill_state,
+            "wechat_distill_clear": tool_distill_clear,
             "wechat_profile_save": tool_profile_save, "wechat_profile_get": tool_profile_get}
 
 

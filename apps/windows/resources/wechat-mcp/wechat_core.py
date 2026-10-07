@@ -645,3 +645,32 @@ def set_distill_state(scope, ts):
     data[scope or "self"] = int(ts)
     open(p, "w", encoding="utf-8").write(json.dumps(data, ensure_ascii=False, indent=2))
     return {"ok": True, "state_path": p, "scope": scope or "self", "since": int(ts)}
+
+
+def distill_clear(scope=None, everything=False):
+    """**一键清除**蒸馏产物（隐私硬约束）。给 `scope` 清该画像（含 `.prev` 备份与该 scope 水位）；
+    `everything=True` 才清空整个产出目录。两者都不给 → 拒绝（避免误清）。"""
+    d = profile_dir()
+    removed = []
+    if scope:
+        p = _profile_path(scope)
+        for f in (p, p + ".prev"):
+            if os.path.isfile(f):
+                os.remove(f)
+                removed.append(os.path.relpath(f, d))
+        sp = _state_path()
+        try:
+            data = json.loads(open(sp, encoding="utf-8").read()) if os.path.isfile(sp) else {}
+        except Exception:
+            data = {}
+        if scope in data:
+            data.pop(scope)
+            open(sp, "w", encoding="utf-8").write(json.dumps(data, ensure_ascii=False, indent=2))
+            removed.append("state.json:" + scope)
+    elif everything:
+        shutil.rmtree(d, ignore_errors=True)
+        removed.append("(整个 " + d + ")")
+    else:
+        return {"ok": False, "error_code": "bad_args",
+                "error": "需给 scope 清除单个画像，或显式 everything=true 清空全部（防误清）"}
+    return {"ok": True, "removed": removed, "dir": d}
