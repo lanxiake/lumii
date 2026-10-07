@@ -1849,6 +1849,10 @@ export class AgentRuntimeBridge {
         if (this._conversationRepo?.getAgentParticipantId(conversationId) === agentId) return
         this._conversationRepo?.updateAgentParticipant(conversationId, agentId)
       },
+      resolveAgentId: async (agentId) => {
+        const def = this.definitionStore ? await this.definitionStore.get(agentId) : undefined
+        return def?.id
+      },
       notifyIncomingMessage: (sessionKey, text) => this.notifyIncomingMessage(sessionKey, text),
       saveMessage: (params) => {
         this._conversationRepo?.saveMessage({

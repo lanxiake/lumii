@@ -316,7 +316,11 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
 
     for (const session of filteredSessions) {
       const ch = normalizeChannel(session.channel)
-      const isMain = isMainAgentSession(session.agentId)
+      // 未知 Agent（查不到定义的脏 id，如 cron 落了模型幻觉出的 `assistant-at8`）按系统默认处理，
+      // 否则侧栏会凭原始 id 多出一个幽灵分组。仅在 Agent 列表已加载时才判定，避免加载中误折叠。
+      const isUnknownAgent =
+        agentsMap.size > 0 && !isMainAgentSession(session.agentId) && !agentsMap.has(session.agentId!)
+      const isMain = isMainAgentSession(session.agentId) || isUnknownAgent
       const belongsToAgentGroup = ch === 'default' || (ch === 'cron' && !isMain)
       if (!belongsToAgentGroup) continue
       const key = isMain ? '__main__' : session.agentId!

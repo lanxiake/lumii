@@ -116,7 +116,21 @@ export function registerLocalCronTools(deps: BridgeToolRegistrarDeps): void {
       const fallbackAgentId = currentInstanceId
         ? deps.getDefinitionIdByInstanceId(currentInstanceId)
         : undefined
-      const agentId = p.agentId?.trim() || fallbackAgentId || null
+      // 指定 Agent 时必须校验：模型会幻觉出不存在的 id（如 `assistant-at8`），
+      // 落库后会传播到会话参与者，侧栏据此多出一个查不到定义的幽灵分组。
+      // 未知 id 一律回落到当前 Agent（再兜底 'assistant'），并回报实际值让模型纠正。
+      const requestedAgentId = p.agentId?.trim()
+      let agentId = requestedAgentId || fallbackAgentId || null
+      if (requestedAgentId) {
+        const store = deps.getDefinitionStore()
+        const def = store ? await store.get(requestedAgentId) : undefined
+        if (!def) {
+          agentId = fallbackAgentId || 'assistant'
+          log.warn(
+            `[cron_create] 未知 agentId=${requestedAgentId}，回落为 ${agentId}`,
+          )
+        }
+      }
 
       const jobId = `local-cron-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
       const row = {
@@ -157,6 +171,7 @@ export function registerLocalCronTools(deps: BridgeToolRegistrarDeps): void {
         job: {
           id: row.id,
           name: row.name,
+          agentId: row.agent_id ?? undefined,
           scheduleType: row.schedule_type,
           scheduleExpr: row.schedule_expr,
           nextRunAt: row.next_run_at,

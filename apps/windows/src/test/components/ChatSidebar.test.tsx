@@ -444,5 +444,23 @@ describe('Phase 4: 会话管理 - ChatSidebar组件', () => {
       expect(screen.queryByText('定时任务 · 已删除的任务')).not.toBeInTheDocument()
       expect(screen.queryByRole('button', { name: '「main」更多操作' })).not.toBeInTheDocument()
     })
+
+    it('未知 Agent id（如 cron 幻觉出的 assistant-at8）不产生幽灵分组', async () => {
+      ;(window as any).electronAPI = {
+        ...(window as any).electronAPI,
+        api: {
+          getAgents: vi.fn().mockResolvedValue({
+            success: true,
+            data: { agents: [{ id: 'code-dev', name: '灵栖开发', description: '', selectable: true }] },
+          }),
+        },
+      }
+      renderSidebar({ sessions: [cronSession('assistant-at8', '定时任务 · Skill系列日更生产')] })
+
+      // 等 Agent 列表加载完成（「开发」组出现即已加载）
+      await screen.findByRole('button', { name: '「开发」更多操作' })
+      expect(screen.queryByRole('button', { name: '「assistant-at8」更多操作' })).not.toBeInTheDocument()
+      expect(screen.queryByText('assistant-at8')).not.toBeInTheDocument()
+    })
   })
 })

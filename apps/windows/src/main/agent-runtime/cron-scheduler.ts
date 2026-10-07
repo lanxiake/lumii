@@ -215,6 +215,13 @@ export interface CronSchedulerDeps {
    * 必须由执行者覆盖。实现方需保证幂等（相同值不重复写库）。
    */
   setConversationAgent?: (conversationId: string, agentId: string) => void
+  /**
+   * 校验 Agent id 是否真实存在，存在返回其 id，否则返回 undefined。
+   *
+   * 定时任务的 agent_id 可能是旧数据或模型幻觉出的脏值（如 assistant-at8），
+   * driveAgent 用它兜底回落，避免 createInstanceById 抛错让任务永久失败。
+   */
+  resolveAgentId?: (agentId: string) => Promise<string | undefined>
   /** 通知渲染进程有新的用户消息（不落库，仅推送 UI 展示；不跳转视图，避免打断用户当前操作） */
   notifyIncomingMessage: (sessionKey: string, text: string) => void
   /** 落库一条消息到指定会话。cron 实例不走 UI 流式落库路径，产出只在内存，
@@ -1082,25 +1089,33 @@ export class CronScheduler {
     startedAt: number,
   ): Promise<string> {
     log.info(`[driveAgent] 驱动 Agent agentId=${agentId} 执行任务 jobId=${job.id}`)
+    // 落库的 agent_id 可能是旧数据 / 模型幻觉出的脏值（如 assistant-at8）。执行前校验，
+    // 不存在就回落 assistant：既避免 createInstanceById 抛错让任务永久失败，也让会话分组自愈。
+    const resolvedAgentId = this.deps.resolveAgentId
+      ? (await this.deps.resolveAgentId(agentId)) ?? 'assistant'
+      : agentId
+    if (resolvedAgentId !== agentId) {
+      log.warn(`[driveAgent] 未知 agentId=${agentId}，回落为 ${resolvedAgentId} jobId=${job.id}`)
+    }
     const convId = `cron:${job.id}`
     this.deps.ensureConversationExists(convId, `定时任务 · ${currentRow.name}`)
     // 会话归属执行者：侧栏据此把记录归到对应 Agent 分组（如「早间简报」→「记事」）
-    this.deps.setConversationAgent?.(convId, agentId)
+    this.deps.setConversationAgent?.(convId, resolvedAgentId)
     this.deps.notifyIncomingMessage(convId, job.task_text)
     // 硬防线：自主规划的自建任务（agent-self:*）必须走工具白名单受限实例，
     // 不能像预置/用户任务那样拿 assistant 全量工具。
     const isSelfTask = job.id.startsWith(SELF_CRON_ID_PREFIX)
     const instanceId =
       isSelfTask && this.deps.createRestrictedInstanceById
-        ? await this.deps.createRestrictedInstanceById(agentId, convId, convId)
-        : await this.deps.createInstanceById(agentId, convId, convId)
+        ? await this.deps.createRestrictedInstanceById(resolvedAgentId, convId, convId)
+        : await this.deps.createInstanceById(resolvedAgentId, convId, convId)
     try {
       // 构建完整消息：system_prompt + 通知工具指导 + 「自述」+ task_text
       const notifyPrompt = buildNotifyToolsPrompt(currentRow.notify_targets)
       const systemPart = currentRow.system_prompt ? `${currentRow.system_prompt}${notifyPrompt}` : ''
       // 自述必须在 prompt() 之前取——晚一步就会读到本轮自己的回复。
       // 放在任务指令之前：先「上次说到哪」，再「这次要做什么」。
-      const selfBriefing = this.buildSelfBriefingFor(convId, agentId)
+      const selfBriefing = this.buildSelfBriefingFor(convId, resolvedAgentId)
       log.info(
         selfBriefing
           ? `[driveAgent] 已注入自述 jobId=${job.id} ${selfBriefing.length} 字`
