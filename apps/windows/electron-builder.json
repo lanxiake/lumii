@@ -139,6 +139,14 @@
       ]
     },
     {
+      "from": "resources/wechat-mcp",
+      "to": "wechat-mcp",
+      "filter": [
+        "**/*",
+        "!**/__pycache__/**"
+      ]
+    },
+    {
       "from": "resources/user-guides",
       "to": "user-guides",
       "filter": [

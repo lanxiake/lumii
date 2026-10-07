@@ -20,6 +20,7 @@ import {
   type McpServerEntry,
 } from '../config/mcp-config'
 import { findMcpPreset } from '../../shared/mcp-presets'
+import { expandBundledResources } from '../bundled-resources'
 
 /** 单个 MCP Server 的运行时状态（含配置本身，供设置页直接渲染） */
 export interface McpServerRuntimeStatus extends McpServerEntry {
@@ -123,7 +124,13 @@ export class McpManager {
     refreshCommonCliPathsInProcessEnv()
     // 老用户配置缺 timeoutMs/backgroundTools：用内置清单默认值补齐（用户显式值优先）
     const effective = applyPresetDefaults(config, findMcpPreset(config.name))
-    const { name, command, args, env, cwd } = expandEntry(effective)
+    // 展开 {{LUMII_RESOURCES}}：用户配置里存占位符，避免写死绝对路径（换机器/打包后仍可解析）
+    const expanded = expandEntry(effective)
+    const name = expanded.name
+    const command = expandBundledResources(expanded.command)
+    const args = (expanded.args ?? []).map(expandBundledResources)
+    const env = expanded.env
+    const cwd = expanded.cwd ? expandBundledResources(expanded.cwd) : undefined
     log.info(`[connect] 连接 MCP Server: ${name} (${command} ${(args ?? []).join(' ')})`)
 
     if (command === 'uvx' || command === 'uv') {

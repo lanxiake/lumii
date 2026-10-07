@@ -22,6 +22,7 @@ docs/test/lumii-cli/
 ├── agent-deepdive/        # 体验深挖 · 地基篇（G1-G4）真实使用旅程 E2E
 ├── cloud-sync/            # 云同步专项（含 GitCode 真实同步用例）
 ├── browser/               # 浏览器控制工具（BROWSER）：LLM 驱动 + 裸 CDP 独立观测
+├── wechat-mcp/            # 微信 MCP 集成（WM）：Agent 经 MCP 读/写微信（含 fail-closed 无痕断言）
 └── materials/             # 真实文档样本（docx/mp4/PDF，gitignore 不提交）
 ```
 
@@ -150,6 +151,17 @@ docs/test/lumii-cli/
 > `sleep()` 用 `Atomics.wait`，**都会阻塞事件循环**——服务器在套件进程内会在模型调用工具的
 > 那一刻无法响应（表现为 Chrome 的 `page.goto: Timeout`）。详细坑见 [CLI-TEST-SPEC.md](./CLI-TEST-SPEC.md) 陷阱清单 13/14。
 
+### 微信 MCP 集成（wechat-mcp/）— Agent 经 MCP 读/写微信
+
+| 文件 | 说明 |
+|---|---|
+| [wechat-mcp-test-cases.md](./wechat-mcp/wechat-mcp-test-cases.md) | 用例 WM-01~WM-11：工具注册 / 环境检查 / Agent 读会话·历史 / **dry-run 不发出** / **真发送落库** / **图片·文件发送** / **fail-closed 无痕** / **最小化时拒绝** / 回归（**11/11 通过**） |
+| [run-wechat-mcp-e2e.mjs](./wechat-mcp/run-wechat-mcp-e2e.mjs) | 执行器（`WM_ONLY=WM-05,WM-06` 选择性运行、`WM_TURN_TIMEOUT_MS`、`LUMII_WECHAT_PYTHON`） |
+| [wechat-mcp-report.md](./wechat-mcp/wechat-mcp-report.md) | 最新报告 |
+
+> 微信侧断言**不经 LLM**：走 `apps/windows/resources/wechat-mcp/devcli.py`（只读、固定动作脚本）。
+> 「消息真的没发出去」只能靠**全库扫描**证明——只看工具返回 `ok=false` 不够。探针只发到「文件传输助手」（自己给自己），不打扰他人。
+
 ### 云同步专项（cloud-sync/）
 
 | 文件 | 说明 |
@@ -210,6 +222,10 @@ AT_SKIP_LLM=1 node docs/test/lumii-cli/agent-team/run-agent-team-e2e.mjs # 离�
 
 # 云同步
 node docs/test/lumii-cli/cloud-sync/run-cloud-sync-suite.mjs
+
+# 微信 MCP 集成（WM：Agent 经 MCP 读/写微信；探针只发「文件传输助手」）
+node docs/test/lumii-cli/wechat-mcp/run-wechat-mcp-e2e.mjs
+WM_ONLY=WM-01,WM-02 node docs/test/lumii-cli/wechat-mcp/run-wechat-mcp-e2e.mjs  # 只跑不依赖 LLM 的用例
 ```
 
 通用环境变量（chat 套件）：`CHAT_ONLY=<用例ID前缀>` 过滤、`CHAT_SKIP_LLM=1` 跳过真实 LLM 用例、`CHAT_TURN_TIMEOUT_MS` 回合超时、`LUMII_CLI_VERBOSE=1` 详细日志。
