@@ -1,7 +1,7 @@
 /**
  * 工作区回合快照 — 轻量文件 hash 映射，供 diffTurnSnapshots 计算净变更。
  *
- * 每轮对话开始/结束都会调用一次，采用异步 fs API 并在遍历批次间让出事件循环，
+ * 每轮对话开始/结束都会调用一次，采用异步 fs API 并对文件做有界并发处理，
  * 避免大工作区下长时间独占 Electron 主进程（会阻塞所有 IPC，表现为 UI 卡顿）。
  */
 
@@ -22,8 +22,14 @@ const MAX_FULL_HASH_FILE_COUNT = 5000;
 /** 单次快照允许全量哈希读取的累计字节数上限（200MB）；超过后剩余文件降级为伪哈希 */
 const MAX_FULL_HASH_TOTAL_BYTES = 200 * 1024 * 1024;
 
-/** 每处理完这么多个文件，让出一次事件循环（setImmediate），避免长时间占用主线程 */
-const YIELD_EVERY_N_FILES = 50;
+/**
+ * 并发处理文件的通道数（同时最多这么多个 stat / readFile 在飞）。
+ *
+ * 逐个 `await stat/readFile` 会把每个文件的往返延迟串起来：实测真实工作区
+ * 5881 个文件串行 stat 约 1.5s，并发 32 路降到约 0.3s。快照挂在 prompt 串行链上、
+ * 每回合开始/结束各跑一次，这段串行等待就是「发消息后十多秒没反应」的一部分。
+ */
+const STAT_CONCURRENCY = 32;
 
 /**
  * 单次快照的硬超时。快照挂在会话串行的 prompt 链上，挂起即等于会话哑掉，
@@ -74,11 +80,6 @@ async function assertWorkspaceDir(workspaceDir: string): Promise<void> {
   }
 }
 
-/** 让出一次事件循环，避免遍历/哈希大量文件时长时间独占主线程 */
-function yieldToEventLoop(): Promise<void> {
-  return new Promise((resolve) => setImmediate(resolve));
-}
-
 /** 用 size+mtime 合成伪 hash（不读文件内容），用于超大文件或触达数量/字节上限后的降级 */
 function pseudoHash(stat: fs.Stats): string {
   return createHash("sha256")
@@ -103,21 +104,25 @@ interface WalkStats {
   totalBytes: number;
   fullHashCount: number;
   pseudoHashCount: number;
-  filesSinceYield: number;
+}
+
+/** 待处理文件：绝对路径 + 相对 cwd 的 posix 路径 */
+interface PendingFile {
+  abs: string;
+  relPosix: string;
 }
 
 /**
- * 递归遍历工作区，收集相对 posix 路径 → sha256(内容) 映射。
+ * 只做 readdir 的递归遍历，收集待处理文件清单（不 stat、不读内容）。
  * 跳过 node_modules、.git、.mtbot-vcs、tmp/temp/.cache、根层 projects/ 及 DEFAULT_VCS_IGNORE 大文件模式。
- * 异步 IO + 定期让出事件循环；触达文件数/字节数上限后剩余文件降级为伪哈希。
- * `isAborted` 为真时尽快停止递归（超时后由调用方触发，避免后台空转）。
+ * 目录递归是串行的（目录数远小于文件数），每个文件的 stat/hash 留给后续并发阶段。
+ * `isAborted` 为真时尽快停止（超时后由调用方触发，避免后台空转）。
  */
-async function walkWorkspace(
+async function collectWorkspaceFiles(
   absDir: string,
   relDir: string,
-  out: Map<string, string>,
-  stats: WalkStats,
-  isAborted: () => boolean = () => false,
+  out: PendingFile[],
+  isAborted: () => boolean,
 ): Promise<void> {
   if (isAborted()) return;
 
@@ -137,33 +142,53 @@ async function walkWorkspace(
     const relPosix = rel.replace(/\\/g, "/");
 
     if (entry.isDirectory()) {
-      await walkWorkspace(abs, relPosix, out, stats, isAborted);
+      await collectWorkspaceFiles(abs, relPosix, out, isAborted);
     } else if (entry.isFile()) {
       if (shouldIgnoreSnapshotFile(relPosix)) continue;
+      out.push({ abs, relPosix });
+    }
+  }
+}
 
-      const stat = await fs.promises.stat(abs);
+/**
+ * 以 STAT_CONCURRENCY 路并发对收集到的文件做 stat + 哈希，写入 out。
+ * 触达文件数/字节数上限后剩余文件降级为 size+mtime 伪哈希（与串行版同一套规则；
+ * 仅因并发完成顺序不同，「哪些文件被全量哈希」略有差异 —— 都是降级，语义不变）。
+ */
+async function hashFilesConcurrently(
+  files: readonly PendingFile[],
+  out: Map<string, string>,
+  stats: WalkStats,
+  isAborted: () => boolean,
+): Promise<void> {
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    while (next < files.length) {
+      if (isAborted()) return;
+      const file = files[next];
+      next += 1;
+      if (!file) return;
+
+      const stat = await fs.promises.stat(file.abs);
       const overLimit =
         stats.fileCount >= MAX_FULL_HASH_FILE_COUNT ||
         stats.totalBytes >= MAX_FULL_HASH_TOTAL_BYTES;
 
       if (overLimit) {
-        out.set(relPosix, pseudoHash(stat));
+        out.set(file.relPosix, pseudoHash(stat));
         stats.pseudoHashCount += 1;
       } else {
-        out.set(relPosix, await hashFile(abs, stat));
+        out.set(file.relPosix, await hashFile(file.abs, stat));
         stats.fullHashCount += 1;
       }
-
       stats.fileCount += 1;
       stats.totalBytes += stat.size;
-      stats.filesSinceYield += 1;
-
-      if (stats.filesSinceYield >= YIELD_EVERY_N_FILES) {
-        stats.filesSinceYield = 0;
-        await yieldToEventLoop();
-      }
     }
-  }
+  };
+
+  await Promise.all(
+    Array.from({ length: Math.min(STAT_CONCURRENCY, files.length) }, () => worker()),
+  );
 }
 
 /**
@@ -190,7 +215,6 @@ export async function captureWorkspaceTurnSnapshot(
     totalBytes: 0,
     fullHashCount: 0,
     pseudoHashCount: 0,
-    filesSinceYield: 0,
   };
 
   let timedOut = false;
@@ -204,7 +228,11 @@ export async function captureWorkspaceTurnSnapshot(
 
   try {
     await Promise.race([
-      walkWorkspace(workspaceDir, "", snapshot, stats, () => timedOut),
+      (async () => {
+        const files: PendingFile[] = [];
+        await collectWorkspaceFiles(workspaceDir, "", files, () => timedOut);
+        await hashFilesConcurrently(files, snapshot, stats, () => timedOut);
+      })(),
       timeout,
     ]);
   } finally {
