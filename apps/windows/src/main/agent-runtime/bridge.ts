@@ -3047,19 +3047,33 @@ export class AgentRuntimeBridge {
     )
   }
 
-  /** 确保对话记录存在（idempotent） */
+  /**
+   * 确保对话记录存在（idempotent）。
+   *
+   * 新建时广播 `conversation:created`：定时任务 / 渠道 / 自主进化等后台会话不经过前端
+   * createSession，侧栏列表只在收到该事件时重拉，不发则要切页面或重启才能看到。
+   */
   ensureConversationExists(
     conversationId: string,
     title?: string,
     channelType?: string,
     agentParticipantId?: string,
   ): boolean {
-    return this.conversationManager.ensureConversationExists(
+    const created = this.conversationManager.ensureConversationExists(
       conversationId,
       title,
       channelType,
       agentParticipantId,
     )
+    if (created) {
+      this.forwardIpcEvent({
+        type: 'conversation:created',
+        sessionKey: conversationId,
+        title: title ?? conversationId,
+        createdAt: Date.now(),
+      })
+    }
+    return created
   }
 
   /** 读某个会话级禁用集 */
