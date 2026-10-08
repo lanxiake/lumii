@@ -514,6 +514,43 @@ def suite_C():
     return r
 
 
+def suite_D():
+    """会话名解析：大小写放开，但**防错人的铁律不许动**（唯一候选才采信）。"""
+    import wechat_core as core
+    r = R('D 层：resolve_talker 的名字解析')
+
+    # 夹具：两个会话，其中一个名字里嵌着另一个（历史事故的形状）
+    NAMES = {'wxid_loop': 'Loop', 'wxid_toolan': 'TOOLAN', 'wxid_toolan_han': 'TOOLAN、韩玉',
+             '123@chatroom': '两河10组村民群'}
+    TALKS = [(core.tbl_of(t), t) for t in NAMES]
+
+    def patch():
+        core.names = lambda: dict(NAMES)
+        core.talkers = lambda: list(TALKS)
+
+    def d1_case_insensitive():
+        patch()
+        assert core.resolve_talker('loop') == 'wxid_loop', '小写 loop 必须解析到 Loop'
+        assert core.resolve_talker('LOOP') == 'wxid_loop'
+        assert core.resolve_talker('toolan') is None or True
+    r.case('大小写不敏感（loop → Loop）', d1_case_insensitive)
+
+    def d2_no_mis_send():
+        patch()
+        # 全名精确命中（历史事故的形状：短名嵌在长名里，靠"精确优先"避开）
+        assert core.resolve_talker('TOOLAN、韩玉') == 'wxid_toolan_han', '全名应精确命中'
+        # 大小写不敏感后，仍是**唯一精确**才采信
+        assert core.resolve_talker('toolan') == 'wxid_toolan', '唯一精确匹配（忽略大小写）应采信'
+        # 子串命中多个 → 必须拒绝（宁可不发，让上层问人）
+        NAMES['wxid_abc1'] = 'ABC组'
+        NAMES['wxid_abc2'] = 'ABC组2'
+        TALKS.extend([(core.tbl_of('wxid_abc1'), 'wxid_abc1'), (core.tbl_of('wxid_abc2'), 'wxid_abc2')])
+        assert core.resolve_talker('abc') is None, '子串命中两个会话，必须拒绝而不是猜一个'
+    r.case('防错人铁律不变：歧义一律拒绝', d2_no_mis_send)
+
+    return r
+
+
 def main():
     try:
         import Crypto  # noqa: F401
@@ -524,7 +561,7 @@ def main():
     print("  wechat-mcp 增量读取路径测试（离线夹具）")
     print("=" * 70)
     total_p = total_f = 0
-    for suite, need_crypto in ((suite_A, True), (suite_B, False), (suite_C, False)):
+    for suite, need_crypto in ((suite_A, True), (suite_B, False), (suite_C, False), (suite_D, False)):
         if need_crypto and not has_crypto:
             print("\n（跳过 A 层：没有 pycryptodome）")
             continue

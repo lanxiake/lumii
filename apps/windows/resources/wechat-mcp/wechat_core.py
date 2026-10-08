@@ -677,6 +677,10 @@ def resolve_talker(query):
     安全要点（踩过事故）：**绝不做「短名嵌在长查询里」的宽松匹配**——
     查询「TOOLAN、韩玉」含子串「TOOLAN」，宽松匹配会命中好友 TOOLAN，导致**发错人**。
     所以：精确匹配 → 唯一候选的「查询是名字的子串」→ 否则一律 None（宁可不发，由上层报错让 Agent 重问）。
+
+    **大小写不敏感**（2026-10-08 实测事故）：用户/Agent 常把 `Loop` 敲成 `loop`，
+    之前严格区分大小写 → 「找不到会话」，人就卡在这一步（真实案例：飞书里说「发给loop」，
+    助手回「微信里没有叫 loop 的会话」）。大小写不构成歧义，放开它不影响防错人。
     """
     if not query:
         return None
@@ -685,18 +689,50 @@ def resolve_talker(query):
     talks = {t for _, t in talkers()}
     if q in nm or q in talks:
         return q
+    # ① 区分大小写的精确匹配优先：**规范名**（微信里原样的显示名）必须永远可用。
+    #    本机实测有三个 loop（`Loop`/`loop`/`loop`）——若先做忽略大小写，规范名 'Loop'
+    #    反而变成三选一的歧义，把「本来能解析」的也弄坏。
     exact = [u for u, d in nm.items() if d == q]
     if len(exact) == 1:
         return exact[0]
-    # 模糊：仅当「查询是名字的子串」（用户只打了名字的一部分）且**候选唯一**时才采用
+    # ② 忽略大小写的精确匹配：仅唯一时采信（用户敲 loop 想找 Loop，但本机真有多个 loop 时
+    #    这里会数出 3 个 → 落到 ③/④ 拒绝，交给上层问清是哪个）。
+    ql = q.lower()
+    ci = {u for u, d in nm.items() if d and d.lower() == ql}
+    ci |= {t for t in talks if t.lower() == ql}
+    if len(ci) == 1:
+        return next(iter(ci))
+    # ③ 模糊：仅当「查询是名字的子串」（用户只打了名字的一部分）且**候选唯一**时才采用
     cands = set()
     if len(q) >= 2:
-        cands |= {u for u, d in nm.items() if d and q in d}
+        cands |= {u for u, d in nm.items() if d and ql in d.lower()}
     if len(q) >= 5:
-        cands |= {t for t in talks if q in t}
+        cands |= {t for t in talks if ql in t.lower()}
     if len(cands) == 1:
         return next(iter(cands))
     return None
+
+
+def suggest_talkers(query, limit=6):
+    """解析失败时的**近似候选**（名字或 talker 包含查询，忽略大小写）。
+
+    用途：`resolve_talker` 拒绝歧义之后，上层不该只说「找不到」——本机真有三个 `loop`，
+    要把它们列出来（`Loop(wxid_s6piy…)` / `loop(wxid_s7vhn…)` / `loop(zhaorenjien)`），
+    人或 Agent 才能一句问清是哪个，而不是卡在「没有这个会话」。
+    """
+    q = str(query or "").strip().lower()
+    if not q:
+        return []
+    nm = names()
+    out = []
+    for u, d in nm.items():
+        if q in (d or "").lower() or q in u.lower():
+            out.append({"talker": u, "name": d or u, "has_history": False})
+    seen = {t for _, t in talkers()}
+    for r in out:
+        r["has_history"] = r["talker"] in seen
+    out.sort(key=lambda r: (not r["has_history"], r["name"]))
+    return out[:limit]
 
 
 # ---------- P1：消息检索 / 未读 ----------

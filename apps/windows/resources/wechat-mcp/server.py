@@ -56,15 +56,27 @@ def _resolve(talker):
 
 
 def _resolve_or_error(talker):
-    """解析会话；失败时给出**可选清单**（避免宽松匹配发错人）。返回 (talker|None, error|None)。"""
+    """解析会话；失败时给出**近似候选 + 可选清单**（避免宽松匹配发错人）。返回 (talker|None, error|None)。
+
+    为什么要把「近似候选」放最前：本机实测有三个 `loop`（`Loop`/`loop`/`loop`），
+    用户说「发给loop」时正确答案是**拒绝并要求指认**——但必须把候选摆出来
+    （`Loop(wxid_s6piy…)` 等），否则人和 Agent 都只能看到一句「没有这个会话」而卡死。
+    """
     t = _resolve(talker)
     if t:
         return t, None
     try:
+        near = core.suggest_talkers(talker)
+    except Exception:
+        near = []
+    near_s = "；".join(f"{r['name']}({r['talker']})" for r in near) if near else ""
+    try:
         opts = "；".join(f"{s['name']}({s['talker']})" for s in core.sessions())
     except Exception:
         opts = "（会话列表读取失败）"
-    return None, (f"未找到会话「{talker}」——本工具**严格匹配**（需与显示名或 wxid/群号完全一致），"
+    head = (f"「{talker}」不能唯一确定（相似会话：{near_s}）——请从里面挑**确切的一个**"
+            if near_s else f"未找到会话「{talker}」")
+    return None, (f"{head}。本工具**严格匹配**（需与显示名或 wxid/群号完全一致），"
                   f"歧义或部分匹配一律拒绝以免发错人。可选会话：{opts}")
 
 
@@ -167,11 +179,17 @@ def _send_with_retry(send_fn, max_retries=2, retry_delay=0.5):
 
 
 def tool_sessions(args):
-    """列出会话；带 query 时按关键词过滤（让 Agent 在发送前就能拿到**确切名字/talker**）。"""
+    """列出会话；带 query 时按关键词过滤（让 Agent 在发送前就能拿到**确切名字/talker**）。
+
+    过滤**大小写不敏感**：与 `core.resolve_talker` 同一口径——用户敲 `loop` 也得能
+    查出 `Loop`，否则「先查再发」这条最自然的路会在第一步就断掉。
+    """
     rows = core.sessions()
-    q = str((args or {}).get("query") or "").strip()
+    q = str((args or {}).get("query") or "").strip().lower()
     if q:
-        rows = [r for r in rows if q in r["name"] or q in r["talker"] or q in (r.get("last") or "")]
+        rows = [r for r in rows
+                if q in r["name"].lower() or q in r["talker"].lower()
+                or q in (r.get("last") or "").lower()]
     return rows
 
 
