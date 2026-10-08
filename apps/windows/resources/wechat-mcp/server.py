@@ -634,8 +634,15 @@ def handle_tools_call(mid, params):
         reply_error(mid, INVALID_PARAMS, "arguments 必须是对象")
         return
     log("call", name)
+    import time as _t
+    _t0 = _t.perf_counter()
     try:
         data = handler(args)
+        _dt = (_t.perf_counter() - _t0) * 1000
+        if _dt > 1000:
+            # 观测用：读取侧正常几十毫秒。客户端报「请求超时」时，比对这一行就能分清
+            # 是**工具本身慢**（这里也慢）还是**子进程被饿着/主进程卡住**（这里很快、那边很慢）
+            log(f"slow: {name} 用了 {_dt:.0f}ms")
         reply(mid, {"content": [{"type": "text", "text": json.dumps(data, ensure_ascii=False)}],
                     "isError": False})
     except Exception as e:
