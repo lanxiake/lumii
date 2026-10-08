@@ -12,13 +12,17 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import {
-  DEFAULT_WECHAT_WATCH_CONFIG,
+  buildAutoPrompt,
+  buildDraftPrompt,
   cooldownSecondsFor,
+  DEFAULT_WECHAT_WATCH_CONFIG,
   ensureWechatWatchConfigFile,
   ensureWechatWatchCronJobSeeded,
   formatWechatNotice,
+  loadInstructions,
   parseWechatWatchConfig,
   resolveWatchMode,
+  resolveWorkspacePath,
   runWechatWatch,
   selectNewMessages,
   WECHAT_WATCH_INSTRUCTION,
@@ -315,6 +319,37 @@ describe('runWechatWatch · 分组策略', () => {
     const out2 = await runWechatWatch(d)
     expect(driveTurn).toHaveBeenCalledTimes(1)
     expect(out2).toContain('提醒 1 条')
+  })
+})
+
+describe('手册注入（RUNBOOK）', () => {
+  const msg = { ts: 100, name: 'Loop', talker: 'wxid_loop', text: '在吗' }
+
+  it('提示词把手册放在最前（硬约束，不靠模型"记得去读"），触发信息在后', () => {
+    const p = buildAutoPrompt(msg, '好友', '【护栏】涉钱不发', 'temp/wx-loop/RUNBOOK.md')
+    expect(p.indexOf('【护栏】涉钱不发')).toBeGreaterThanOrEqual(0)
+    expect(p.indexOf('【护栏】涉钱不发')).toBeLessThan(p.indexOf('【本次触发】'))
+    expect(p).toContain('不要再轮询')
+    expect(p).toContain('转人工')
+    const d = buildDraftPrompt(msg, '好友', '【护栏】涉钱不发', 'temp/wx-loop/RUNBOOK.md')
+    expect(d.indexOf('【护栏】涉钱不发')).toBeLessThan(d.indexOf('【本次触发】'))
+    expect(d).toContain('只起草、不要发送')
+  })
+
+  it('配置解析认 instructionsFile；没配/手册读不到时提示词照常生成', () => {
+    const cfg = parseWechatWatchConfig({
+      groups: [{ name: '好友', mode: 'auto', peers: ['Loop'] }],
+      instructionsFile: 'temp/wx-loop/RUNBOOK.md',
+    })
+    expect(cfg.instructionsFile).toBe('temp/wx-loop/RUNBOOK.md')
+    expect(buildAutoPrompt(msg, null)).not.toContain('【必须遵守的手册')
+    expect(loadInstructions(undefined)).toBe('')
+    expect(loadInstructions('不存在的-abc-123.md')).toBe('')
+  })
+
+  it('workspace 相对路径按 ~/.lumii/workspace 解析；绝对路径原样', () => {
+    expect(resolveWorkspacePath('temp/x.md')).toContain('workspace')
+    expect(resolveWorkspacePath('C:/tmp/x.md')).toBe('C:/tmp/x.md')
   })
 })
 

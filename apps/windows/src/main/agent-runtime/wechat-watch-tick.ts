@@ -83,6 +83,14 @@ export interface WechatWatchConfig {
   blacklist: string[]
   /** 分组策略（先匹配到的分组生效） */
   groups: WechatWatchGroup[]
+  /**
+   * 手册文件（workspace 相对路径或绝对路径）：内容**注入每一轮 draft/auto 的提示词**。
+   *
+   * 为什么要注入而不是让模型自己去读：手册是用户手写的护栏（身份不披露 / 涉钱不发 /
+   * 不做实质安排 / 拿不准转人工…），它每一条都是「不许做什么」——这种约束交给模型
+   * 「记得先去读」是赌运气（attended 时它会读，忙着回消息时它可能直接开口）。注入是硬约束。
+   */
+  instructionsFile?: string
 }
 
 export const DEFAULT_WECHAT_WATCH_CONFIG: WechatWatchConfig = {
@@ -167,6 +175,9 @@ export function parseWechatWatchConfig(raw: unknown): WechatWatchConfig {
     }
   }
   out.groups = groups
+  if (typeof o.instructionsFile === 'string' && o.instructionsFile.trim()) {
+    out.instructionsFile = o.instructionsFile.trim()
+  }
   // ── v1 兼容 ──
   if (out.groups.length === 0 && asStringArray(o.watch)?.length) {
     out.groups = [{ name: '白名单', mode: 'notify', peers: asStringArray(o.watch)! }]
@@ -250,40 +261,87 @@ export function selectNewMessages(
 const fmtText = (s?: string) => (s || '').replace(/\s+/g, ' ').slice(0, 300)
 const fmtWhen = (ts: number) => new Date(ts * 1000).toLocaleString('zh-CN')
 
-/** 起草模式的提示词：看上下文 → 写草稿 → **明确不许发** */
-export function buildDraftPrompt(msg: WechatMessage, group: string | null): string {
+/** 手册文件（workspace 相对或绝对）→ 全文；读不到给空串（不阻塞，但会记一条 warn） */
+export const MAX_INSTRUCTIONS_CHARS = 20_000
+
+export function resolveWorkspacePath(p: string): string {
+  return path.isAbsolute(p) ? p : path.join(resolveWindowsClientDataRoot(), 'workspace', p)
+}
+
+export function loadInstructions(file: string | undefined): string {
+  if (!file) return ''
+  const full = resolveWorkspacePath(file)
+  try {
+    if (!fs.existsSync(full)) {
+      log.warn(`[wechat-watch] 手册文件不存在：${full}（本轮不带手册跑，注意护栏可能不全）`)
+      return ''
+    }
+    const text = fs.readFileSync(full, 'utf-8').trim()
+    return text.length > MAX_INSTRUCTIONS_CHARS ? text.slice(0, MAX_INSTRUCTIONS_CHARS) : text
+  } catch (err) {
+    log.warn(`[wechat-watch] 手册读取失败：${full}`, err)
+    return ''
+  }
+}
+
+function instructionsBlock(runbook: string, file: string | undefined): string[] {
+  if (!runbook) return []
+  return [
+    `【必须遵守的手册（${file} 全文，**优先级最高**）】`,
+    runbook,
+    '【手册结束】',
+    '',
+  ]
+}
+
+/** 起草模式的提示词：手册 → 本次触发 → 只起草不许发 */
+export function buildDraftPrompt(
+  msg: WechatMessage,
+  group: string | null,
+  runbook = '',
+  instructionsFile?: string,
+): string {
   const who = msg.name || msg.talker || '对方'
   return [
-    `微信「${who}」刚给我发来消息（${fmtWhen(msg.ts)}）：`,
+    ...instructionsBlock(runbook, instructionsFile),
+    `【本次触发】监控回路把消息取好了，**不要再轮询**；按手册处置这一批即可：`,
+    `微信「${who}」刚给我发来（${fmtWhen(msg.ts)}）：`,
     `「${fmtText(msg.text)}」`,
-    group ? `（这个会话在「${group}」分组里，策略：起草给我确认，不要直接发。）` : '',
+    group ? `（会话在「${group}」分组里，策略：起草给我确认。）` : '',
     '',
-    '请做两件事：',
-    `1. 用 wechat-local 的 read_history 看一眼我和「${who}」最近的对话（talker 用 ${msg.talker}），把握语气与上下文；`,
-    '2. 起草一条**以我本人身份**发出的回复（像我平时说话：短、自然，别用敬语腔，别暴露你是助手）。',
+    '请：',
+    `1. 用 wechat-local 的 read_history 看我和「${who}」最近的对话（talker=${msg.talker}）与手册里的口径；`,
+    `2. 按手册写一条**以我本人身份**发出的回复草稿（手册优先于你自己的语感；手册要求转人工的，就给我转人工的措辞）。`,
     '',
-    '⚠️ 现在**只起草、不要发送**（不要调用 send_text）——把草稿写在回复里给我看，',
-    '我会回你「发」或给你修改意见；我说「发」时你再用 send_text 发出去。',
+    '⚠️ 这一档**只起草、不要发送**（不要调用 send_text、也不要走任何发送脚本）——',
+    '把草稿写给我看，我回「发」你才发。',
   ]
     .filter(Boolean)
     .join('\n')
 }
 
-/** 自动回模式的提示词：允许直接发，但要求发完自报「发了什么」 */
-export function buildAutoPrompt(msg: WechatMessage, group: string | null): string {
+/** 自动回模式的提示词：手册 → 本次触发 → 按手册的三分支处置 */
+export function buildAutoPrompt(
+  msg: WechatMessage,
+  group: string | null,
+  runbook = '',
+  instructionsFile?: string,
+): string {
   const who = msg.name || msg.talker || '对方'
   return [
-    `微信「${who}」刚给我发来消息（${fmtWhen(msg.ts)}）：`,
+    ...instructionsBlock(runbook, instructionsFile),
+    `【本次触发】监控回路把消息取好了，**不要再轮询、也不要读 state.json 的水位**；按手册处置这一批：`,
+    `微信「${who}」刚给我发来（${fmtWhen(msg.ts)}）：`,
     `「${fmtText(msg.text)}」`,
-    group ? `（这个会话在「${group}」分组里，策略：**允许直接替我回**。）` : '',
+    group ? `（会话在「${group}」分组里，策略：**允许按手册直接替我回**。）` : '',
     '',
-    '请：',
-    `1. 用 wechat-local 的 read_history 看一眼我和「${who}」最近的对话（talker 用 ${msg.talker}）；`,
-    `2. 以我本人身份直接回复（用 wechat-local 的 send_text，talker=${msg.talker}）——短发、自然、像我平时说话；`,
-    '   不确定、敏感、或涉及承诺/金钱/时间安排时**不要猜**：改为只把草稿写给我看，等我定；',
-    '3. 回复里告诉我你发出去的原文；没发就说明为什么。',
+    '按手册的处置分支办：',
+    `- 日常闲聊 → 用 wechat-local 的 send_text（talker=${msg.talker}, dry_run=false）直接回，短、口语，像我本人；`,
+    '- 命中护栏（涉钱 / 冲突情感健康 / 要承诺或实质安排 / 质疑是不是 AI）→ **一条都不发**，按手册转人工；',
+    '- 介于两者之间、或内容读不懂（图片/语音/卡片）→ 取**保守侧**：不回 + 转人工，或按手册允许的方式轻描淡写。',
     '',
-    '注意：不暴露你是助手；不编造我不知道的事实；对话不连贯时宁可少说。',
+    '收尾（手册要求）：发完按手册做落地校验；把本轮追加进 transcript；',
+    '并把 state.json 的 last_ts 更新到现在（水位由回路推进，你只需保持一致）。',
   ]
     .filter(Boolean)
     .join('\n')
@@ -477,6 +535,7 @@ export async function runWechatWatch(deps: WechatWatchDeps): Promise<string> {
       else byPeer.set(key, [m])
     }
 
+    const runbook = loadInstructions(cfg.instructionsFile)  // 每拍读一次（手册可能随时被改）
     const notifyOnly: WechatMessage[] = []
     const acted: string[] = []
     const cooldown = readCooldowns(db)
@@ -515,8 +574,8 @@ export async function runWechatWatch(deps: WechatWatchDeps): Promise<string> {
       }
       const prompt =
         mode === 'auto'
-          ? buildAutoPrompt(last, group)
-          : buildDraftPrompt(last, group)
+          ? buildAutoPrompt(last, group, runbook, cfg.instructionsFile)
+          : buildDraftPrompt(last, group, runbook, cfg.instructionsFile)
       let result = ''
       try {
         result = await deps.driveTurn(prompt, { peer, mode, group })
@@ -559,6 +618,7 @@ export async function runWechatWatch(deps: WechatWatchDeps): Promise<string> {
     const parts: string[] = []
     if (acted.length > 0) parts.push(acted.join('；'))
     if (notifyOnly.length > 0) parts.push(`提醒 ${notifyOnly.length} 条`)
+    if (parts.length > 0 && runbook) parts.push('带手册')
     return parts.join('｜') || '无新消息'
   } catch (err) {
     log.error('[wechat-watch] 本拍异常：', err)
