@@ -1,5 +1,5 @@
 /**
- * Channel Hub 装配：Registry + 四 Provider + Router + 微信 token store + peer 持久化。
+ * Channel Hub 装配：Registry + Provider + Router + 微信 token store + peer 持久化。
  *
  * 独立于 index.ts，避免入口继续膨胀。
  */
@@ -17,6 +17,10 @@ import { FeishuChannelProvider } from './providers/feishu-outbound-provider'
 import { WeixinChannelProvider } from './providers/weixin-outbound-provider'
 import { WecomChannelProvider } from './providers/wecom-outbound-provider'
 import { QbotChannelProvider } from './providers/qbot-outbound-provider'
+import {
+  PcwechatChannelProvider,
+  type PcwechatProviderDeps,
+} from './providers/pcwechat-outbound-provider'
 
 export { ChannelPeerStore }
 
@@ -25,6 +29,8 @@ export interface ChannelHubDeps {
   weixin?: WeixinLoginService
   wecom: WecomLoginService
   qbot?: QbotLoginService
+  /** 本机微信（pcwechat）：不走登录服务，靠 wechat-local MCP + 渠道策略名单 */
+  pcwechat?: PcwechatProviderDeps
   /** 客户端数据根（默认 ~/.lumii） */
   dataRoot: string
   /** 可注入已有 store（微信 adapter 需更早持有同一实例） */
@@ -88,6 +94,7 @@ export function createChannelHub(deps: ChannelHubDeps): ChannelHub {
   if (deps.weixin) registry.register(new WeixinChannelProvider(deps.weixin, weixinStore))
   registry.register(wecomProvider)
   if (qbotProvider) registry.register(qbotProvider)
+  if (deps.pcwechat) registry.register(new PcwechatChannelProvider(deps.pcwechat))
   const router = new ChannelOutboundRouter(registry)
   return {
     router,

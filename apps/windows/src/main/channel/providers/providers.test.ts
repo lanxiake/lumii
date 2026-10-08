@@ -1,12 +1,14 @@
 /**
- * 三渠道 Outbound Provider 行为单测（mock LoginService / Store）。
+ * 各渠道 Outbound Provider 行为单测（mock LoginService / Store / MCP）。
  */
 import { describe, expect, it, vi } from 'vitest'
 import { FeishuChannelProvider } from './feishu-outbound-provider'
 import { WeixinChannelProvider } from './weixin-outbound-provider'
 import { WecomChannelProvider } from './wecom-outbound-provider'
 import { QbotChannelProvider } from './qbot-outbound-provider'
+import { PcwechatChannelProvider } from './pcwechat-outbound-provider'
 import { WeixinReplyContextStore } from '../weixin-reply-context-store'
+import type { ChannelPolicy } from '../../../shared/channel-policy'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -214,5 +216,92 @@ describe('QbotChannelProvider', () => {
     expect(res.ok).toBe(false)
     expect(res.errorCode).toBe('PEER_NOT_FOUND')
     expect(login.replyMarkdown).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * 本机微信：对面是真人，发出去收不回。所以这一组测试盯的是**失败闭合**——
+ * 名单之外发不出去、工具没给出"确实发了"的确认就不许报成功。
+ */
+describe('PcwechatChannelProvider', () => {
+  const policy = (
+    peers: ChannelPolicy['peers'],
+    extra: Partial<ChannelPolicy> = {},
+  ): ChannelPolicy => ({ defaultMode: 'notify', peers, ...extra })
+
+  function make(opts: { policy?: ChannelPolicy; connected?: boolean; reply?: string } = {}) {
+    const callMcpTool = vi.fn(
+      async () => opts.reply ?? '{"ok":true,"detail":"sent","dry_run":false}',
+    )
+    const provider = new PcwechatChannelProvider({
+      getPolicy: () => opts.policy ?? policy([{ id: 'wxid_loop', label: 'Loop', mode: 'auto' }]),
+      mcpServer: 'wechat-local',
+      isMcpConnected: () => opts.connected ?? true,
+      callMcpTool,
+    })
+    return { provider, callMcpTool }
+  }
+
+  it('MCP 没连上 = 不在线：名单为空，发送直接失败且不碰工具', async () => {
+    const { provider, callMcpTool } = make({ connected: false })
+    expect(provider.getSnapshot().connected).toBe(false)
+    expect(provider.getSnapshot().peers).toEqual([])
+    const res = await provider.sendText({ to: 'wxid_loop', text: '在吗' })
+    expect(res.errorCode).toBe('CHANNEL_NOT_CONNECTED')
+    expect(callMcpTool).not.toHaveBeenCalled()
+  })
+
+  it('peers = 策略里非 ignore 的名单（黑名单与没配过的人都不出现）', () => {
+    const { provider } = make({
+      policy: policy([
+        { id: 'filehelper', mode: 'ignore' },
+        { id: 'wxid_loop', label: 'Loop', mode: 'auto' },
+        { id: 'wxid_draft', label: '待点头的人', mode: 'draft' },
+      ]),
+    })
+    expect(provider.getSnapshot().peers.map((p) => p.id)).toEqual(['wxid_loop', 'wxid_draft'])
+  })
+
+  it('名单里的人发得出去，且显式 dry_run=false（工具的默认值是只校验）', async () => {
+    const { provider, callMcpTool } = make()
+    const res = await provider.sendText({ to: 'wxid_loop', text: '在的' })
+    expect(res).toEqual({ ok: true, channel: 'pcwechat', to: 'wxid_loop' })
+    expect(callMcpTool).toHaveBeenCalledWith('wechat-local', 'send_text', {
+      talker: 'wxid_loop',
+      text: '在的',
+      dry_run: false,
+    })
+  })
+
+  it('名单外（含黑名单）不发：Router 之外的第二道白名单', async () => {
+    const { provider, callMcpTool } = make({ policy: policy([{ id: 'filehelper', mode: 'ignore' }]) })
+    for (const to of ['filehelper', 'wxid_陌生人']) {
+      const res = await provider.sendText({ to, text: 'hi' })
+      expect(res.errorCode, to).toBe('PEER_NOT_FOUND')
+    }
+    expect(callMcpTool).not.toHaveBeenCalled()
+  })
+
+  it('工具只做了演练（ok:true 但 dry_run 不是 false）绝不算发出去', async () => {
+    const { provider } = make({ reply: '{"ok":true,"detail":"dry","dry_run":true}' })
+    const res = await provider.sendText({ to: 'wxid_loop', text: '在的' })
+    expect(res.ok).toBe(false)
+    expect(res.message).toContain('演练')
+  })
+
+  it('上游失败归一：窗口拿不到前台 → 未连接；send_not_confirmed → 不可重试的上游错误', async () => {
+    const { provider: envFail } = make({
+      reply: '{"ok":false,"error_code":"env_not_ready","detail":"微信窗口切不到前台","suggestion":"请确保微信窗口可见"}',
+    })
+    const r1 = await envFail.sendText({ to: 'wxid_loop', text: '在的' })
+    expect(r1.errorCode).toBe('CHANNEL_NOT_CONNECTED')
+    expect(r1.message).toContain('窗口')
+
+    const { provider: unconfirmed } = make({
+      reply: '{"ok":false,"error_code":"send_not_confirmed","detail":"已按回车但读库没看到新消息"}',
+    })
+    const r2 = await unconfirmed.sendText({ to: 'wxid_loop', text: '在的' })
+    expect(r2.errorCode).toBe('UPSTREAM_ERROR')
+    expect(r2.message).toContain('读库')
   })
 })

@@ -13,6 +13,11 @@ import type { WecomLoginService } from '../wecom-login-service'
 import type { FeishuLoginService } from '../feishu-login-service'
 import type { QbotLoginService } from '../qbot-login-service'
 import type { ChannelHub } from '../channel/channel-hub-bootstrap'
+import { getChannelPolicyStore } from '../channel/channel-policy-store'
+import type { ChannelPolicy } from '../../shared/channel-policy'
+import { loadWechatContacts, type WechatContactsResult } from '../channel/wechat-contacts'
+import { PCWECHAT_CHANNEL, WECHAT_WATCH_MCP_SERVER } from '../agent-runtime/wechat-watch-tick'
+import type { AgentRuntimeBridge } from '../agent-runtime/bridge'
 
 interface ChannelIpcDeps {
   getWeixinLoginService: () => WeixinLoginService | null
@@ -20,6 +25,8 @@ interface ChannelIpcDeps {
   getFeishuLoginService: () => FeishuLoginService | null
   getQbotLoginService: () => QbotLoginService | null
   getChannelHub: () => ChannelHub | null
+  /** 读本机微信会话（列候选名单用）；未就绪返回 null */
+  getAgentRuntimeBridge: () => AgentRuntimeBridge | null
 }
 
 let deps: ChannelIpcDeps | null = null
@@ -129,5 +136,27 @@ export function registerChannelIpcHandlers(): void {
   ipcMain.handle('channel:getFeatures', () => getChannelFeatures())
   ipcMain.handle('channel:setFeatures', (_event, patch: Partial<ChannelFeatureSettings>) =>
     setChannelFeatures(patch ?? {}),
+  )
+
+  // === 渠道绑定级回复策略（设置 → 渠道 里按 peer 配；盯梢循环每拍读同一份缓存） ===
+  ipcMain.handle('channel:getPolicy', (_event, channel: unknown) =>
+    getChannelPolicyStore().get(String(channel ?? '')),
+  )
+  ipcMain.handle('channel:setPolicy', (_event, channel: unknown, policy: unknown) =>
+    getChannelPolicyStore().set(String(channel ?? ''), policy as ChannelPolicy),
+  )
+  // 本机微信「从微信里挑人」：候选 = 微信会话（真名 + wxid）∪ 已配过的条目
+  ipcMain.handle(
+    'channel:listWechatContacts',
+    (): Promise<WechatContactsResult> =>
+      loadWechatContacts({
+        mcpServer: WECHAT_WATCH_MCP_SERVER,
+        callMcpTool: (server, tool, args) => {
+          const bridge = deps!.getAgentRuntimeBridge()
+          if (!bridge) throw new Error('Agent Runtime 尚未就绪，读不了微信会话')
+          return bridge.callMcpTool(server, tool, args)
+        },
+        getPolicy: () => getChannelPolicyStore().get(PCWECHAT_CHANNEL),
+      }),
   )
 }

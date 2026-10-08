@@ -18,13 +18,19 @@
   justify-content: center;
 }
 
+/* 原生方框交给 .checkbox-inner 画，input 自己**透明但不隐形**：
+   原先的 `width/height: 0; opacity: 0` 会让它从无障碍树和 app-ui-control
+   的快照里整个消失（于是每个勾选框都既读不出来也点不到）。 */
 .checkbox-input {
   position: absolute;
-  opacity: 0;
-  width: 0;
-  height: 0;
+  inset: 0;
+  appearance: none;
+  -webkit-appearance: none;
   margin: 0;
   padding: 0;
+  background: none;
+  border: none;
+  cursor: inherit;
 }
 
 .checkbox-inner {

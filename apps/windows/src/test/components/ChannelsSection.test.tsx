@@ -36,6 +36,9 @@ function mockChannelServices(overrides: {
   ;(window as any).channelService = {
     list: vi.fn(async () => ({ channels: overrides.channels ?? [] })),
     send: vi.fn(),
+    // 本机微信卡片挂载即读策略；没配过时返回默认档（只提醒）
+    getPolicy: vi.fn(async () => ({ defaultMode: 'notify', peers: [] })),
+    setPolicy: vi.fn(async (_c: string, p: unknown) => p),
   }
 }
 
@@ -44,15 +47,44 @@ describe('ChannelsSection', () => {
     vi.restoreAllMocks()
   })
 
-  it('三个渠道均未连接时汇总显示 0 / 4', async () => {
+  it('五个渠道均未连接时汇总显示 0 / 5', async () => {
     mockChannelServices({})
     render(<ChannelsSection />)
 
-    expect(await screen.findByText('0 / 4 渠道已连接')).toBeInTheDocument()
+    expect(await screen.findByText('0 / 5 渠道已连接')).toBeInTheDocument()
     expect(screen.getByText('微信（个人）')).toBeInTheDocument()
     expect(screen.getByText('企业微信')).toBeInTheDocument()
     expect(screen.getByText('飞书')).toBeInTheDocument()
     expect(screen.getByText('QQ')).toBeInTheDocument()
+    expect(screen.getByText('本机微信')).toBeInTheDocument()
+  })
+
+  it('本机微信：卡片摘要说人话——谁、什么档、名单外怎么办', async () => {
+    mockChannelServices({
+      channels: [
+        {
+          channel: 'pcwechat',
+          connected: true,
+          pushMode: 'native_push',
+          peers: [{ id: 'wxid_loop', label: '阿呆', canSend: true }],
+        },
+      ],
+    })
+    ;(window as any).channelService.getPolicy = vi.fn(async () => ({
+      defaultMode: 'ignore',
+      peers: [
+        { id: 'wxid_loop', label: '阿呆', mode: 'auto', cooldownSeconds: 90 },
+        { id: 'filehelper', mode: 'ignore' },
+      ],
+    }))
+    render(<ChannelsSection />)
+
+    expect(await screen.findByText('1 / 5 渠道已连接')).toBeInTheDocument()
+    // 黑名单（ignore）不算"可代回"的人
+    expect(await screen.findByText('1 人')).toBeInTheDocument()
+    expect(screen.getByText('阿呆·直接代回')).toBeInTheDocument()
+    expect(screen.getByText('不处理（黑名单）')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '配置' })).toBeInTheDocument()
   })
 
   it('微信已连接时展示 meta 与可发送对象芯片', async () => {
@@ -70,7 +102,7 @@ describe('ChannelsSection', () => {
     })
     render(<ChannelsSection />)
 
-    expect(await screen.findByText('1 / 4 渠道已连接')).toBeInTheDocument()
+    expect(await screen.findByText('1 / 5 渠道已连接')).toBeInTheDocument()
     expect(screen.getByText('可发送对象 · 1')).toBeInTheDocument()
     expect(screen.getByText('小明')).toBeInTheDocument()
     expect(screen.getByText('wxid_a1b2c3')).toBeInTheDocument()

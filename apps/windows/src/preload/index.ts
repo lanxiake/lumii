@@ -11,6 +11,7 @@ import { pathToFileURL } from 'node:url'
 import { petApi } from './pet-api'
 import type { PetElectronAPI } from '../shared/pet-mode'
 import type { ChannelFeatureSettings } from '../shared/channel-features'
+import type { ChannelPolicy } from '../shared/channel-policy'
 import type { PromptStyleValue } from '../shared/prompt-style'
 import type { FeatureAvailability, FeatureId } from '../shared/feature-availability'
 import type { FEATURE_BLOCK_MESSAGES } from '../shared/feature-availability'
@@ -1308,12 +1309,18 @@ declare global {
       getFeatures: () => Promise<ChannelFeatureSettings>
       setFeatures: (patch: Partial<ChannelFeatureSettings>) => Promise<ChannelFeatureSettings>
       send: (params: {
-        channel: 'feishu' | 'weixin' | 'wecom' | 'qbot'
+        channel: 'feishu' | 'weixin' | 'wecom' | 'qbot' | 'pcwechat'
         to: string
         text: string
         mediaPath?: string
         fileName?: string
       }) => Promise<unknown>
+      getPolicy: (channel: string) => Promise<ChannelPolicy>
+      setPolicy: (channel: string, policy: ChannelPolicy) => Promise<ChannelPolicy>
+      listWechatContacts: () => Promise<{
+        contacts: Array<{ id: string; label: string; isGroup: boolean }>
+        error?: string
+      }>
     }
   }
 }

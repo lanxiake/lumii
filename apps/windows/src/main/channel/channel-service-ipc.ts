@@ -4,7 +4,7 @@
  * 从 index.ts 抽出以便单测覆盖 list/send 转发与参数校验，不依赖 Electron ipcMain。
  */
 import type { ChannelOutboundRouter } from './channel-outbound-router'
-import type { ChannelSendResult, OutboundChannelId } from './outbound-types'
+import { isOutboundChannelId, OUTBOUND_CHANNEL_IDS, type ChannelSendResult } from './outbound-types'
 
 /** channelService IPC 所需的最小 Hub 形状 */
 export interface ChannelServiceHub {
@@ -33,15 +33,15 @@ export async function handleChannelSend(
   }
   const p = (params ?? {}) as Record<string, unknown>
   const channel = String(p.channel ?? '').trim()
-  if (channel !== 'feishu' && channel !== 'weixin' && channel !== 'wecom' && channel !== 'qbot') {
+  if (!isOutboundChannelId(channel)) {
     return {
       ok: false,
       errorCode: 'PEER_NOT_FOUND',
-      message: "channel 必须是 'feishu' | 'weixin' | 'wecom' | 'qbot'",
+      message: `channel 必须是 ${OUTBOUND_CHANNEL_IDS.join(' | ')}`,
     }
   }
   return hub.router.send({
-    channel: channel as OutboundChannelId,
+    channel,
     to: String(p.to ?? ''),
     text: String(p.text ?? ''),
     ...(typeof p.title === 'string' && p.title ? { title: p.title } : {}),

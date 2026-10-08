@@ -118,6 +118,7 @@ export function registerAllIpcHandlers(deps: IpcHandlersDeps): void {
     getFeishuLoginService: deps.getFeishuLoginService,
     getQbotLoginService: deps.getQbotLoginService,
     getChannelHub: deps.getChannelHub,
+    getAgentRuntimeBridge: deps.getAgentRuntimeBridge,
   })
 
   setFileSystemIpcDeps({

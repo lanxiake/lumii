@@ -4,7 +4,7 @@
 
 import React from 'react'
 
-type ChannelBrandKind = 'weixin' | 'wecom' | 'feishu' | 'qbot'
+type ChannelBrandKind = 'weixin' | 'wecom' | 'feishu' | 'qbot' | 'pcwechat'
 
 const BRAND: Record<
   ChannelBrandKind,
@@ -14,6 +14,8 @@ const BRAND: Record<
   wecom: { bg: '#2B7BD6', fg: '#fff', label: '企', title: '企业微信' },
   feishu: { bg: '#3370FF', fg: '#fff', label: '飞', title: '飞书' },
   qbot: { bg: '#12B7F5', fg: '#fff', label: 'Q', title: 'QQ' },
+  // 本机微信：与 weixin 同为微信绿，用「本」区分「我在这台电脑上说话」这条反向通路
+  pcwechat: { bg: '#07C160', fg: '#fff', label: '本', title: '本机微信' },
 }
 
 export interface ChannelBrandIconProps {

@@ -49,8 +49,9 @@ export const qbotApi = {
 
 /** 渠道实验性功能开关（§5.4 跨渠道接续）：形状在 shared，main / preload / renderer 共用一份 */
 import type { ChannelFeatureSettings } from '../../shared/channel-features'
+import type { ChannelPolicy } from '../../shared/channel-policy'
 
-export type { ChannelFeatureSettings }
+export type { ChannelFeatureSettings, ChannelPolicy }
 
 export const channelApi = {
   /** 列出已注册渠道快照（含未连接渠道） */
@@ -63,10 +64,21 @@ export const channelApi = {
   ): Promise<ChannelFeatureSettings> => ipcRenderer.invoke('channel:setFeatures', patch),
   /** 向指定 channel + to 发送文本/富媒体；仅供调试，非 Agent 主路径 */
   send: (params: {
-    channel: 'feishu' | 'weixin' | 'wecom' | 'qbot'
+    channel: 'feishu' | 'weixin' | 'wecom' | 'qbot' | 'pcwechat'
     to: string
     text: string
     mediaPath?: string
     fileName?: string
   }): Promise<unknown> => ipcRenderer.invoke('channel:send', params),
+  /** 读某渠道的绑定级回复策略（账号 / 默认档 / 每人一档的名单） */
+  getPolicy: (channel: string): Promise<ChannelPolicy> =>
+    ipcRenderer.invoke('channel:getPolicy', channel),
+  /** 整体覆盖写某渠道的策略，返回收窄后落盘的那份 */
+  setPolicy: (channel: string, policy: ChannelPolicy): Promise<ChannelPolicy> =>
+    ipcRenderer.invoke('channel:setPolicy', channel, policy),
+  /** 本机微信可选的人员名单（真名 + wxid；读不到微信时只回已配过的条目并在 error 里说明） */
+  listWechatContacts: (): Promise<{
+    contacts: Array<{ id: string; label: string; isGroup: boolean }>
+    error?: string
+  }> => ipcRenderer.invoke('channel:listWechatContacts'),
 }

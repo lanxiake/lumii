@@ -4,8 +4,21 @@
  * 设计文档：docs/design/渠道与CLI/2026-08-14-渠道出站Hub设计.md
  */
 
-/** Agent / cron 使用的渠道标识（一期） */
-export type OutboundChannelId = 'feishu' | 'weixin' | 'wecom' | 'qbot'
+/**
+ * Agent / cron 使用的渠道标识。
+ *
+ * `pcwechat`（本机微信）是第 5 个：助手在这台电脑上以用户身份跟微信好友说话，
+ * 方向与 `weixin`（用户在微信里找 Lumii）相反。它没有登录服务，靠本机的
+ * wechat-local MCP，出站名单来自渠道策略（见 providers/pcwechat-outbound-provider.ts）。
+ *
+ * 清单与类型都从 agent-runtime 的 channel 工具契约取（**唯一一份**）：
+ * 那边用它生成 `channel_send` 的 JSON schema enum，这边用它做 Router 入参校验，
+ * 各写一份就会漏改——pcwechat 就这样在工具参数层被拒过一次。
+ */
+import type { OutboundChannelId } from '@mtbot/agent-runtime'
+
+export type { OutboundChannelId }
+export { OUTBOUND_CHANNEL_IDS, isOutboundChannelId } from '@mtbot/agent-runtime'
 
 /** 出站能力模式：真 Push / 缓存 token 伪 Push / 仅被动回复 */
 type ChannelPushMode = 'native_push' | 'cached_reply' | 'reply_only'

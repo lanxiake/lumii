@@ -11,6 +11,8 @@ interface CheckboxProps {
   children?: React.ReactNode;
   className?: string;
   id?: string;
+  /** 无 children（只有个方框）时用：读屏与 UI 自动化都靠它认人 */
+  'aria-label'?: string;
 }
 
 const Checkbox = forwardRef<HTMLInputElement, CheckboxProps>(

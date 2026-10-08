@@ -12,10 +12,11 @@ import { WeixinChannelSettings } from '../WeixinChannelSettings'
 import { WecomChannelSettings } from '../WecomChannelSettings'
 import { FeishuChannelSettings } from '../FeishuChannelSettings'
 import { QbotChannelSettings } from '../QbotChannelSettings'
+import { PcwechatChannelSettings } from '../PcwechatChannelSettings'
 import { useChannelSnapshots } from './useChannelSnapshots'
 import styles from './ChannelsSection.module.css'
 
-const TOTAL_CHANNELS = 4
+const TOTAL_CHANNELS = 5
 
 /**
  * 渲染渠道设置分区。
@@ -47,6 +48,7 @@ export const ChannelsSection: React.FC = () => {
         <WecomChannelSettings snapshot={snapshots.wecom} snapshotLoading={loading} />
         <FeishuChannelSettings snapshot={snapshots.feishu} snapshotLoading={loading} />
         <QbotChannelSettings snapshot={snapshots.qbot} snapshotLoading={loading} />
+        <PcwechatChannelSettings snapshot={snapshots.pcwechat} snapshotLoading={loading} />
       </div>
 
       <p className={styles.footnote}>

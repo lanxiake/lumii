@@ -12,6 +12,31 @@ import type { AgentToolResult } from "@earendil-works/pi-agent-core";
 export const CHANNEL_LIST_TOOL_NAME = "channel_list";
 export const CHANNEL_SEND_TOOL_NAME = "channel_send";
 
+/**
+ * 合法出站渠道 id —— **唯一一份**。
+ *
+ * 下面的 JSON schema enum 由它生成，Windows 主进程的 Router 校验
+ * （channel/outbound-types.ts）也从它取，避免"加了渠道但漏改一处"：
+ * 那次漏改让 pcwechat 在参数校验层就被拒，压根没走到 Router 的白名单。
+ */
+export const OUTBOUND_CHANNEL_IDS = [
+  "feishu",
+  "weixin",
+  "wecom",
+  "qbot",
+  "pcwechat",
+] as const;
+
+export type OutboundChannelId = (typeof OUTBOUND_CHANNEL_IDS)[number];
+
+/** 入参校验用：这个字符串是不是合法渠道 id */
+export function isOutboundChannelId(value: unknown): value is OutboundChannelId {
+  return (
+    typeof value === "string" &&
+    (OUTBOUND_CHANNEL_IDS as readonly string[]).includes(value)
+  );
+}
+
 const ChannelListParams = Type.Object({});
 type ChannelListInput = Static<typeof ChannelListParams>;
 
@@ -20,7 +45,7 @@ export const channelListToolConfig: MtBotToolConfig<typeof ChannelListParams> = 
   name: CHANNEL_LIST_TOOL_NAME,
   label: "Channel List",
   description:
-    "List connected messaging channels (feishu/weixin/qbot/wecom), their pushMode, and addressable peers. " +
+    "List connected messaging channels (feishu/weixin/wecom/qbot/pcwechat), their pushMode, and addressable peers. " +
     "Call this BEFORE channel_send to obtain valid peer ids. Do not guess recipient ids.",
   parameters: ChannelListParams,
   category: "channel",
@@ -44,17 +69,15 @@ export const channelListToolConfig: MtBotToolConfig<typeof ChannelListParams> = 
 
 const ChannelSendParams = Type.Object({
   channel: Type.Optional(
-    Type.Union([
-      Type.Literal("feishu"),
-      Type.Literal("weixin"),
-      Type.Literal("qbot"),
-      Type.Literal("wecom"),
-    ], {
-      description:
-        "Target channel id. OMIT it to reply on the channel this turn came from " +
-        "(the active conversation) — that is the right choice for 'send it to me'. " +
-        "Only set it explicitly when the user names another channel.",
-    }),
+    Type.Union(
+      OUTBOUND_CHANNEL_IDS.map((id) => Type.Literal(id)),
+      {
+        description:
+          "Target channel id. OMIT it to reply on the channel this turn came from " +
+          "(the active conversation) — that is the right choice for 'send it to me'. " +
+          "Only set it explicitly when the user names another channel.",
+      },
+    ),
   ),
   to: Type.Optional(
     Type.String({
@@ -77,7 +100,9 @@ const ChannelSendParams = Type.Object({
         "Absolute local path of a file to send. Supported: Feishu (any file), WeChat " +
         "(any file, needs a fresh inbound token), QQ (images/video/voice only — the official " +
         "API has file_type=4 'file' marked 暂不开放, so documents hard-fail). " +
-        "WeCom cannot send files proactively at all. Omit for text-only messages.",
+        "WeCom cannot send files proactively at all. " +
+        "pcwechat (本机微信) is text-only, and only to peers on its reply allowlist. " +
+        "Omit for text-only messages.",
     }),
   ),
   fileName: Type.Optional(

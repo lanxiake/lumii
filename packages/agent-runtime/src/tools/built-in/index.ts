@@ -33,6 +33,9 @@ export {
   channelSendToolConfig,
   CHANNEL_LIST_TOOL_NAME,
   CHANNEL_SEND_TOOL_NAME,
+  OUTBOUND_CHANNEL_IDS,
+  isOutboundChannelId,
+  type OutboundChannelId,
 } from "./channel-tools.js";
 export {
   askUserQuestionToolConfig,

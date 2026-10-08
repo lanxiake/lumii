@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 /** 出站渠道标识，与主进程 outbound-types 对齐 */
-type OutboundChannelId = 'feishu' | 'weixin' | 'wecom' | 'qbot'
+type OutboundChannelId = 'feishu' | 'weixin' | 'wecom' | 'qbot' | 'pcwechat'
 
 /** 渠道推送能力 */
 type ChannelPushMode = 'native_push' | 'cached_reply' | 'reply_only'

@@ -25,6 +25,7 @@ import type { AgentToolResult } from '@earendil-works/pi-agent-core'
 import { agentRuntimeLog as log, jsonToolResult, removeMarkdownSection } from './bridge-utils'
 import type { BridgeToolRegistrarDeps } from './bridge-tool-registrar-types'
 import { resolveOriginChannel } from './bridge-tool-registrar-client-cmd'
+import { isOutboundChannelId, OUTBOUND_CHANNEL_IDS } from '../channel/outbound-types'
 import { resolveWindowsClientDataRoot } from '../client-data-root'
 import {
   findProject,
@@ -87,12 +88,12 @@ export function registerChannelTools(deps: BridgeToolRegistrarDeps): void {
       const requestedChannel = String(p.channel ?? '').trim()
       const requestedTo = String(p.to ?? '').trim()
       const channel = requestedChannel || (origin?.channelType ?? '')
-      if (channel !== 'feishu' && channel !== 'weixin' && channel !== 'qbot' && channel !== 'wecom') {
+      if (!isOutboundChannelId(channel)) {
         return jsonToolResult({
           ok: false,
           errorCode: 'PEER_NOT_FOUND',
           message: requestedChannel
-            ? "channel 必须是 'feishu' | 'weixin' | 'qbot' | 'wecom'"
+            ? `channel 必须是 ${OUTBOUND_CHANNEL_IDS.join(' | ')}`
             : '当前不在任何消息渠道会话里，无法推断目标渠道；请先 channel_list 再显式指定 channel 和 to',
           channels: null,
         })

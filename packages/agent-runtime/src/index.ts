@@ -140,6 +140,10 @@ export {
   channelSendToolConfig,
   CHANNEL_LIST_TOOL_NAME,
   CHANNEL_SEND_TOOL_NAME,
+  /** 渠道 id 清单（唯一一份）：channel_send 的 schema enum 与主进程 Router 校验共用 */
+  OUTBOUND_CHANNEL_IDS,
+  isOutboundChannelId,
+  type OutboundChannelId,
   memorySearchToolConfig,
   memoryReadToolConfig,
   profileMemoryToolConfig,
