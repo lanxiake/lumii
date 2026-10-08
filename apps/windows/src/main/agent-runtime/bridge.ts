@@ -180,6 +180,8 @@ import { ensurePetSensingCronJobSeeded, runPetSensing } from './pet-sensing-tick
 import {
   ensureWechatWatchCronJobSeeded,
   runWechatWatch,
+  type WatchMode,
+  WECHAT_WATCH_CONV_ID,
   WECHAT_WATCH_MCP_SERVER,
 } from './wechat-watch-tick'
 import { ensurePetEvolveCronJobSeeded, runPetEvolve, syncPetEvolveJobEnabled } from './pet-evolve'
@@ -187,6 +189,7 @@ import { recordPetPersonalityEvent } from './pet-personality'
 import { persistPetTaskReceipt, readPetTaskDimension, recordPetTaskOutcome } from './pet-task-store'
 import { syncAutonomousManagedCronJobs } from './autonomous-cron-linkage'
 import { runPlanner, shouldFallbackPlan } from './planner-wiring'
+import { DEFAULT_AGENT_ID } from '../seed-cron-jobs'
 import { OUTREACH_SYSTEM_NOTIFY_TITLE } from '../desktop-notify'
 import { BridgeInstanceFactory } from './bridge-instance-factory'
 import { BackgroundTaskManager, type BackgroundTaskRecord } from './background-task-manager'
@@ -1825,6 +1828,41 @@ export class AgentRuntimeBridge {
     persistPetTaskReceipt(this.localDb.db, goal.id, ok, text, new Date().toISOString())
   }
 
+  /**
+   * 在「微信盯梢」会话里驱动一次回合（draft/auto 两档用）。
+   *
+   * 配方抄的是 `cron-scheduler.driveAgent`（L1 五件套：确保会话 → 建实例 → prompt →
+   * 等空闲 → 取输出 → 收实例），差别只有两点：
+   * - 会话 key 固定 `wechat:watch`（用户的草稿与代回都落在这里，能翻能接管）；
+   * - 先把「被盯到的那条消息」作为一条消息插进会话（用户点进来就知道为什么有这一轮）。
+   */
+  private async driveWechatWatchTurn(
+    prompt: string,
+    meta: { peer: string; mode: WatchMode; group: string | null },
+  ): Promise<string> {
+    this.ensureConversationExists(WECHAT_WATCH_CONV_ID, '微信盯梢')
+    try {
+      this.notifyIncomingMessage(
+        WECHAT_WATCH_CONV_ID,
+        `【微信${meta.mode === 'auto' ? '代回' : '草稿'}】${meta.peer}${meta.group ? `（${meta.group}）` : ''}`,
+      )
+    } catch (err) {
+      log.warn('[wechat-watch] 会话内提示失败（继续）:', err)
+    }
+    const instanceId = await this.createInstanceById(
+      DEFAULT_AGENT_ID,
+      WECHAT_WATCH_CONV_ID,
+      WECHAT_WATCH_CONV_ID,
+    )
+    try {
+      await this.prompt(instanceId, prompt)
+      await this.waitForInstanceIdle(instanceId)
+      return this.getAssistantOutputFromInstance(instanceId) ?? ''
+    } finally {
+      this.destroy(instanceId)
+    }
+  }
+
   /** initialize() 子块 3/7：构造 CronScheduler、迁移/播种 companion cron、订阅 vhSettings 变更。
    *  start() 推迟到 finalizeInitialize（7/7），此时实例工厂已就绪，过期任务补跑不会打空。 */
   private initializeCronScheduler(): void {
@@ -2156,9 +2194,12 @@ export class AgentRuntimeBridge {
               runWechatWatch({
                 getDb: () => this.localDb.db,
                 callMcpTool: (server, tool, args) => this.mcpManager.callTool(server, tool, args),
+                // 第三个参数是会话 id：点通知直接跳到「微信盯梢」看草稿/代回结果
                 showNotification: this.config.showCronNotification
-                  ? (title, body) => this.config.showCronNotification!(title, body)
+                  ? (title, body, convId) => this.config.showCronNotification!(title, body, convId)
                   : undefined,
+                // draft/auto 两档要叫醒模型（notify 档不调它，所以空闲仍然零 token）
+                driveTurn: (prompt, meta) => this.driveWechatWatchTurn(prompt, meta),
               }),
             runPetEvolve: (options) =>
               runPetEvolve({
