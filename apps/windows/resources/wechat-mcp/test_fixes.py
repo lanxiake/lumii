@@ -15,6 +15,12 @@ import sys
 import json
 import tempfile
 
+# stdout 固定 UTF-8：Windows 控制台默认 GBK，打印 ✅/❌ 会直接抛 UnicodeEncodeError
+try:
+    sys.stdout.reconfigure(encoding="utf-8")
+except Exception:
+    pass
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 

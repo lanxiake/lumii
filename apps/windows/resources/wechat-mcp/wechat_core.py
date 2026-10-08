@@ -26,9 +26,13 @@ except Exception:  # pragma: no cover
     zstd = None
 
 WORK = os.path.join(tempfile.gettempdir(), "lumii-wechat-mcp")
-os.makedirs(WORK, exist_ok=True)
+# 明文镜像**按进程隔离**：App 里的 MCP 子进程和命令行（devcli/测试）会同时读同一台机器，
+# 共用一份镜像文件就会出现「一个进程正在重写、另一个正在读」的窗口。UI 锁/截图仍在 WORK
+#（那个锁本来就该跨进程共享），只有镜像与解密副本挪进各自的子目录。
+MIRROR_DIR = os.path.join(WORK, f"mirror-{os.getpid()}")
+os.makedirs(MIRROR_DIR, exist_ok=True)
 
-_cache = {"mtime": None, "msg": None, "contact": None, "root": None}
+_cache = {"rels": None, "msg": None, "contact": None, "root": None}
 
 
 def deps():
@@ -118,14 +122,32 @@ def self_wxid(root=None):
     return os.path.basename(os.path.dirname(root)).rsplit("_", 1)[0]
 
 
-def keys(root=None):
+KEY_TTL_S = 600
+_key_cache = {}          # root -> (km, at)：取密钥要扫微信进程内存（实测本机 ~1.9s），
+                         # 而密钥在微信重启前不变——不缓存的话每次全量重建都要白等两秒。
+
+
+def keys(root=None, refresh=False):
+    """取各库的 SQLCipher 密钥（只读扫描微信进程内存）。
+
+    实测：本机一次约 1.9s，是整个「全量重建」里的绝对大头（解密 908 页才 30ms）。
+    密钥在微信重启前不变 → 按 root 缓存 10 分钟；解密出现 HMAC 失败时会 `refresh=True`
+    重取一次（微信重启换了密钥的情形）。
+    """
     root = root or db_root()
+    ent = _key_cache.get(root)
+    if ent and not refresh and time.time() - ent[1] < KEY_TTL_S:
+        return ent[0]
     files, s2d = wxkey4.collect_db_files(root)
     km, rem = {}, set(s2d)
     for _m, pid in wxkey4.find_wechat_pids():
         if not rem:
             break
         wxkey4.scan_pid(pid, files, s2d, km, rem)
+    if not km:
+        raise RuntimeError("未能从微信进程内存取到数据库密钥：微信可能没在运行、或刚重启。"
+                           "请确认微信已登录并打开过聊天窗口后重试。")
+    _key_cache[root] = (km, time.time())
     return km
 
 
@@ -140,18 +162,28 @@ def _sqlite_ok(path):
         return False
 
 
-def _plain(km, root, rel):
-    """解密并尽力重放 WAL —— 微信新消息常先落在 `-wal` 里，只读主库会读到旧数据。"""
+def _plain(km, root, rel, _retry=True):
+    """解密并尽力重放 WAL —— 微信新消息常先落在 `-wal` 里，只读主库会读到旧数据。
+
+    ⚠️ 只保留给「全量重建」路径用；实时路径走 `_ShardMirror`（增量重放，见下）。
+    """
     key = next(k for s, (k, r) in km.items() if r.replace("\\", "/").lower() == rel.lower())
     enc = bytes.fromhex(key)
     src = os.path.join(root, rel.replace("/", os.sep))
-    dst = os.path.join(WORK, os.path.basename(rel) + ".copy")
+    dst = os.path.join(MIRROR_DIR, os.path.basename(rel) + ".copy")
     for sfx in ("", "-wal", "-shm"):          # WAL 必须连 -wal/-shm 一起复制
         if os.path.exists(src + sfx):
             shutil.copy2(src + sfx, dst + sfx)
+        elif os.path.exists(dst + sfx):
+            # ⚠️ 源里已经没有的（checkpoint 后 SQLite 会**删掉** -wal）必须把上一轮的旧副本清掉，
+            # 否则会拿**过期副本**当这次的 WAL 重放——实测症状就是「群行消失/改名回退」（读旧）。
+            os.remove(dst + sfx)
     salt = open(dst, "rb").read(16)
     mac = wxread4.derive_mac_key(enc, salt)
-    pages, _ = wxread4.read_main(dst, enc, mac)
+    pages, bad = wxread4.read_main(dst, enc, mac)
+    if bad and _retry:
+        # 整页 HMAC 不过 ⇒ 密钥大概率变了（微信重启后换了密钥）→ 重取一次密钥再来
+        return _plain(keys(root, refresh=True), root, rel, _retry=False)
     best = pages
     try:
         if os.path.exists(dst + "-wal") and os.path.getsize(dst + "-wal") > 32:
@@ -163,15 +195,179 @@ def _plain(km, root, rel):
             # ② 重放结果必须过 quick_check。
             fresh = dbsize is not None and dbsize >= len(pages)
             if applied and fresh:
-                try_path = os.path.join(WORK, "try_" + os.path.basename(rel))
+                try_path = os.path.join(MIRROR_DIR, "try_" + os.path.basename(rel))
                 open(try_path, "wb").write(b"".join(wal_pages))
                 if _sqlite_ok(try_path):
                     best = wal_pages
     except Exception:
         pass
-    out = os.path.join(WORK, "plain_" + os.path.basename(rel))
-    open(out, "wb").write(b"".join(best))
+    out = os.path.join(MIRROR_DIR, "plain_" + os.path.basename(rel))
+    tmp = out + ".tmp"
+    open(tmp, "wb").write(b"".join(best))
+    os.replace(tmp, out)          # 写完再换名：任何时刻读到的都是完整的一份镜像
     return out
+
+
+# ---------- 明文镜像（增量刷新）：把「读旧 / 读贵」两件事一起解决 ----------
+# 微信是 WAL 模式：新消息**先落 `-wal`，主库文件常常不动**（只在 checkpoint 时才写）。
+# 所以旧实现「只按主库 mtime 判缓存新鲜」有两个问题：
+#   ① 静默读旧——两次 checkpoint 之间的新消息在这个键上完全不可见（轮询永远轮不到）；
+#   ② 全量重解密——500MB 库一次要几十秒，做不了「盯着看」的实时轮询。
+# `_ShardMirror`：主库或 -wal 任一变化都刷新；-wal 只解密**新增的提交帧**、原地打进明文镜像
+#（一条新消息通常几帧 → 毫秒级）。任何异常（帧 HMAC 不过 / WAL 被重置截断 / quick_check 失败）
+# 都退回全量重建——宁可慢一次，不可读错一次。
+class _ShardMirror:
+    """一个分片（`message/message_0.db`、`session/session.db`、`contact/contact.db`…）的明文镜像。"""
+
+    def __init__(self, root, rel):
+        self.root = root
+        self.rel = rel
+        self.src = os.path.join(root, rel.replace("/", os.sep))
+        self.out = os.path.join(MIRROR_DIR, "plain_" + os.path.basename(self.src))  # 与 _plain 同约定
+        self.st = None            # {"key", "wal_off", "salt", "pages"}
+        self.version = 0          # 内容版本号：变了才需要上层重建 tables/senders
+        self._tables, self._tables_v = set(), -1
+        self._senders, self._senders_v = {}, -1
+        self._keys = None
+
+    # -- 新鲜度键：主库与 -wal 的 (mtime, size) 都要 --
+    @staticmethod
+    def _stat(p):
+        try:
+            s = os.stat(p)
+            return (round(s.st_mtime, 6), s.st_size)
+        except OSError:
+            return None
+
+    def key(self):
+        return (self._stat(self.src), self._stat(self.src + "-wal"))
+
+    # -- 对外：确保镜像最新；返回「内容是否变化」--
+    def refresh(self):
+        key = self.key()
+        if self.st and self.st["key"] == key:
+            return False
+        # 主库没变、只有 -wal 变 → 走增量；主库变了（checkpoint）→ 必须全量
+        if self.st and self.st["key"][0] == key[0]:
+            ok, changed = self._incr(key)
+            if ok:
+                if changed:
+                    self.version += 1
+                return changed
+        self._full(key)
+        return True
+
+    # -- 分片里的会话表 / 发送者映射（随版本缓存）--
+    def tables(self):
+        if self._tables_v != self.version:
+            self._tables, self._tables_v = set(_tables_in(self.out)), self.version
+        return self._tables
+
+    def senders(self):
+        if self._senders_v != self.version:
+            self._senders, self._senders_v = _sender_map(self.out), self.version
+        return self._senders
+
+    # -- 密钥（enc, mac）：按需取、缓存；失败下次重建时会重取 --
+    def _kmac(self):
+        if self._keys is None:
+            km = keys(self.root)
+            k = next(k for s, (k, r) in km.items()
+                     if r.replace("\\", "/").lower() == self.rel.lower())
+            enc = bytes.fromhex(k)
+            salt = open(self.src, "rb").read(16)
+            self._keys = (enc, wxread4.derive_mac_key(enc, salt))
+        return self._keys
+
+    # -- 全量重建 --
+    def _full(self, key):
+        km = keys(self.root)
+        self.out = _plain(km, self.root, self.rel)          # 复用带双重护栏的全量路径
+        self.st = {"key": key, "wal_off": None, "salt": None, "pages": None}
+        # 记录「当前 WAL 会话已消费到哪」，供之后的增量续读。
+        # 关键：这里记的是**当前会话**（salt 一致）已提交到的偏移；没有提交帧就从 32 起
+        #（WAL 刚被 checkpoint 重置时正是「新 salt + 0 帧」，此时 wal_off=32 表示
+        # 「这条会话我一个还没消费」——对方接下来追加的第一帧就能被增量接上）。
+        try:
+            dst = os.path.join(MIRROR_DIR, os.path.basename(self.rel) + ".copy")
+            w = open(dst + "-wal", "rb").read()
+            if wxread4.wal_header_ok(w):
+                frames, _off = wxread4.parse_wal_frames(w)
+                last = wxread4.last_commit_index(frames)
+                frame_bytes = wxread4.FRAME_HDR + wxread4.PAGE
+                self.st["salt"] = wxread4.wal_salt(w)
+                self.st["wal_off"] = 32 + (last + 1) * frame_bytes
+                if last >= 0:
+                    self.st["pages"] = frames[last][1]
+        except Exception:
+            pass
+        self._keys = None
+        self.version += 1
+
+    # -- 增量：续读 -wal 里新出现的提交帧，原地打进明文镜像 --
+    def _incr(self, key):
+        st = self.st
+        if not st or st.get("wal_off") is None or not st.get("salt"):
+            return False, False
+        try:
+            w = open(self.src + "-wal", "rb").read()
+        except OSError:
+            return False, False
+        if not wxread4.wal_header_ok(w) or wxread4.wal_salt(w) != st["salt"] \
+                or len(w) < st["wal_off"]:
+            return False, False                    # WAL 被重置 / 截断 → 退回全量
+        frames, _off = wxread4.parse_wal_frames(w, start=st["wal_off"])
+        last = wxread4.last_commit_index(frames)
+        if last < 0:
+            # 只有未提交的尾帧（对方正写到一半）：不动镜像，但记住新 stat 免得每次重读
+            st["key"] = key
+            return True, False
+        dbsize = frames[last][1]
+        # ⚠️ 陈旧 WAL 护栏（与 _plain 同一条规则）：末次提交的页数比镜像还小，说明这条 WAL
+        # 比库旧（真实里会出现：reset 前后残留 + 库已前进）——宁可退回全量，不可读旧。
+        if dbsize < os.path.getsize(self.out) // wxread4.PAGE:
+            return False, False
+        try:
+            enc, mac = self._kmac()
+        except Exception:
+            return False, False
+        try:
+            f = open(self.out, "r+b")
+            try:
+                for pageno, _c, pgdata in frames[:last + 1]:
+                    if not any(pgdata):
+                        continue
+                    dec = wxread4.decrypt_page(pgdata, enc, mac, pageno - 1,
+                                               has_salt=(pageno == 1))
+                    if dec is None:                # 页 HMAC 不过：这一版 WAL 不能信
+                        return False, False
+                    f.seek((pageno - 1) * wxread4.PAGE)
+                    f.write(dec)
+                f.truncate(dbsize * wxread4.PAGE)  # 提交后的库大小（不足补零、超出截断）
+            finally:
+                f.close()
+        except Exception:
+            return False, False
+        if not _sqlite_ok(self.out):               # 护栏：增量结果必须还是个好库
+            return False, False
+        st.update({"key": key, "pages": dbsize,
+                   "wal_off": st["wal_off"] + (last + 1) * (wxread4.FRAME_HDR + wxread4.PAGE)})
+        return True, True
+
+
+_mirrors = {}          # rel -> _ShardMirror（同 root 内复用）
+# poll 的复用缓存：{table: {"ids": 各分片高水位, "since": 上次窗口, "rows": 上次结果, "complete"}}
+# 语义：高水位没动 + 这次窗口不比上次宽 + 上次没被 per 截断 → 结果必然一样，直接复用。
+_poll_memo = {}
+
+
+def _mirror(rel):
+    root = db_root()
+    m = _mirrors.get(rel)
+    if m is None or m.root != root:
+        m = _ShardMirror(root, rel)
+        _mirrors[rel] = m
+    return m
 
 
 def _msg_shard_rels():
@@ -209,18 +405,21 @@ def _sender_map(path):
 
 
 def _refresh():
+    """确保各分片镜像与 contact 镜像最新（增量；只有真变化才做解密工作）。"""
     root = db_root()
     rels = _msg_shard_rels()
-    key = (root,) + tuple(os.path.getmtime(os.path.join(root, r.replace("/", os.sep))) for r in rels)
-    if _cache["mtime"] == key and _cache["msg"] and _cache["root"] == root:
-        return
-    km = keys(root)
-    _cache["msg"] = [_plain(km, root, r) for r in rels]   # 各分片的明文副本（列表）
-    _cache["tables"] = {p: set(_tables_in(p)) for p in _cache["msg"]}
-    _cache["senders"] = {p: _sender_map(p) for p in _cache["msg"]}
-    _cache["contact"] = _plain(km, root, "contact/contact.db")
-    _cache["mtime"] = key
-    _cache["root"] = root
+    if _cache["root"] != root or _cache.get("rels") != rels:
+        _mirrors.clear()
+        _cache["root"], _cache["rels"] = root, rels
+    ms = [_mirror(r) for r in rels]
+    for m in ms:
+        m.refresh()
+    _cache["msg"] = [m.out for m in ms]                   # 各分片的明文镜像（列表）
+    _cache["tables"] = {m.out: m.tables() for m in ms}
+    _cache["senders"] = {m.out: m.senders() for m in ms}
+    contact = _mirror("contact/contact.db")
+    contact.refresh()
+    _cache["contact"] = contact.out
 
 
 def names():
@@ -391,13 +590,85 @@ def history(talker, limit=20, before_ts=0):
 
 
 def poll(since_ts, per=20):
+    """增量新消息（实时监控用）。返回 `create_time > since_ts` 的消息，按时间正序。
+
+    性能关键：`Msg_*` 表**没有 create_time 索引**，`create_time > ?` 是全表扫描 + 临时排序
+    （实测：68 张表一轮 266ms，用户库越大越慢，且要区分「有变化」才能跳过）。这里用
+    `local_id`（INTEGER PRIMARY KEY，AUTOINCREMENT，插入即单调增）做**高水位探测**：
+    表的高水位没动、且上次已按不更窄的窗口查过、还留了完整结果 → 直接复用，一次索引探测即可跳过；
+    只有真变了的表才做那次扫描。`per` 是每会话上限（达到上限的表标记为不完整，不复用）。
+
+    返回带 `from_me`/`sender`（自己发的也返回——用户可能自己在手机上回过了，Agent 应当知道）。
+    """
+    since_ts = int(since_ts or 0)
+    _refresh()
     nm = names()
+    me = self_wxid()
     out = []
-    for tbl, talker in talkers():
-        for ct, lt, c in _rows(tbl, per, since=int(since_ts or 0)):
-            out.append(msg_dict(ct, lt, c, nm, talker=talker, name=nm.get(talker, talker)))
+    stats = {"tables": 0, "scanned": 0, "reused": 0}
+    conns = {}
+    try:
+        for tbl, talker in talkers():
+            rels = [p for p in _cache["msg"] if tbl in _cache["tables"].get(p, ())]
+            if not rels:
+                continue
+            stats["tables"] += 1
+            ids = tuple(_max_local_id(conns, p, tbl) for p in rels)
+            ent = _poll_memo.get(tbl)
+            rows = None
+            if (ent and None not in ids and ent["ids"] == ids
+                    and since_ts >= ent["since"] and ent["complete"]):
+                rows = [r for r in ent["rows"] if r[0] > since_ts]
+                stats["reused"] += 1
+            if rows is None:
+                rows = _rows_full_conn(conns, rels, tbl, per, since=since_ts)
+                _poll_memo[tbl] = {"ids": ids, "since": since_ts, "rows": rows,
+                                   "complete": len(rows) < per}
+                stats["scanned"] += 1
+            for ct, lt, content, sender in rows:
+                out.append(msg_dict(ct, lt, content, nm, talker=talker,
+                                    name=nm.get(talker, talker), sender=sender, me=me))
+    finally:
+        for c in conns.values():
+            try:
+                c.close()
+            except Exception:
+                pass
     out.sort(key=lambda d: d["ts"])
-    return {"count": len(out), "messages": out}
+    return {"count": len(out), "messages": out, "since_ts": since_ts,
+            "next_since_ts": (out[-1]["ts"] if out else since_ts), "stats": stats}
+
+
+def _max_local_id(conns, path, tbl):
+    """某分片某表的高水位（`local_id` 是主键 → 走索引，成本 ~0）。读不了返回 None（绝不复用）。"""
+    try:
+        c = conns.get(path)
+        if c is None:
+            c = conns[path] = sqlite3.connect(path)
+        row = c.execute(f"select max(local_id) from [{tbl}]").fetchone()
+        return row[0] or 0
+    except Exception:
+        return None
+
+
+def _rows_full_conn(conns, rels, tbl, limit, since=0):
+    """跨分片取 `[(create_time, local_type, content, sender)]`（复用调用方的连接）。"""
+    q = ("select create_time, local_type, message_content, real_sender_id"
+         f" from [{tbl}] where create_time > ? order by create_time desc limit ?")
+    out = []
+    for p in rels:
+        smap = _cache["senders"].get(p, {})
+        try:
+            c = conns.get(p)
+            if c is None:
+                c = conns[p] = sqlite3.connect(p)
+            rows = list(c.execute(q, (since, limit)))
+        except Exception:
+            continue
+        for ct, lt, content, sid in rows:
+            out.append((ct, lt, content, smap.get(sid, "")))
+    out.sort(key=lambda r: r[0], reverse=True)
+    return out[:limit]
 
 
 def resolve_talker(query):
@@ -429,17 +700,11 @@ def resolve_talker(query):
 
 
 # ---------- P1：消息检索 / 未读 ----------
-_sess_cache = {"mtime": None, "path": None}
-
-
 def _session_plain():
-    root = db_root()
-    src = os.path.join(root, "session", "session.db")
-    mt = os.path.getmtime(src)
-    if _sess_cache["mtime"] != mt or not _sess_cache["path"]:
-        _sess_cache["path"] = _plain(keys(root), root, "session/session.db")
-        _sess_cache["mtime"] = mt
-    return _sess_cache["path"]
+    """session.db 的明文镜像路径（同样走增量刷新：未读数/会话列表也要实时）。"""
+    m = _mirror("session/session.db")
+    m.refresh()
+    return m.out
 
 
 def search_messages(keyword, talker=None, since=0, until=0, limit=50, scan=3000):

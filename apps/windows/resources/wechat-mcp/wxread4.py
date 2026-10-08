@@ -75,32 +75,69 @@ def read_main(path, enc_key, mac_key):
     return pages, bad
 
 
+FRAME_HDR = 24          # 帧头：pageno(4) + commit_size(4) + salt(8) + checksum(8)
+
+
+def wal_header_ok(w):
+    """WAL 头部校验（魔数 + 页大小）。`w` 为整段文件内容。"""
+    if len(w) < 32:
+        return False
+    magic = struct.unpack(">I", w[0:4])[0]
+    if magic not in (0x377F0682, 0x377F0683):
+        return False
+    return struct.unpack(">I", w[8:12])[0] == PAGE
+
+
+def wal_salt(w):
+    """WAL 头部的 salt（16..24）——WAL 被 checkpoint 重置后 salt 会变，用它判「换了新 WAL」。"""
+    return w[16:24] if len(w) >= 24 else None
+
+
+def parse_wal_frames(w, start=32):
+    """解析 WAL 帧序列：`[(pageno, commit_size, pagedata)], 停止偏移`。
+
+    **只认属于当前 WAL 会话的帧**：每一帧头部都带 salt（[8:16]），必须与 WAL 头部的
+    salt（[16:24]）一致；一旦不一致就停下。
+
+    为什么必须这么判（实测，2026-10-08）：`-wal` 文件是**不截断复用**的——每次 checkpoint
+    重置时只把新 salt 写进 32 字节的头，随后从偏移 32 起追加新帧；上一轮的老帧还**物理留在
+    后面**。实测本机 message_0.db 的 WAL：689 帧里 683 帧的 salt 与头不符（是历史残留），
+    真正属于当前会话的只有开头那几帧。机械地把全文件当一段来重放，会把**多个时代的页**
+    混着贴上去（现场症状就是「群行消失 / 群名回退」这类读旧）。salt 就是 SQLite 自己的
+    有效性判据，按它截断即可。
+    """
+    salt = wal_salt(w)
+    frames, off = [], start
+    while off + FRAME_HDR + PAGE <= len(w):
+        pageno, commit_size = struct.unpack(">II", w[off:off + 8])
+        if pageno == 0:
+            break
+        if salt is not None and w[off + 8:off + 16] != salt:
+            break                                # 上一轮残留的帧：到此为止
+        frames.append((pageno, commit_size, w[off + FRAME_HDR:off + FRAME_HDR + PAGE]))
+        off += FRAME_HDR + PAGE
+    return frames, off
+
+
+def last_commit_index(frames):
+    """最后一次提交的帧下标（-1 = 没有任何提交帧）。"""
+    last = -1
+    for i, (_p, c, _d) in enumerate(frames):
+        if c:
+            last = i
+    return last
+
+
 def apply_wal(wal_path, pages, enc_key, mac_key):
     """重放 WAL：**只应用到最后一次提交**（提交后的未完成帧必须丢弃，否则会破坏库）。"""
     if not os.path.exists(wal_path):
         return 0, 0, None
     w = open(wal_path, "rb").read()
-    if len(w) < 32:
-        return 0, 0, None
-    magic = struct.unpack(">I", w[0:4])[0]
-    if magic not in (0x377F0682, 0x377F0683):
+    if not wal_header_ok(w):
         return 0, 0, None
 
-    frames = []
-    off = 32
-    while off + 24 + PAGE <= len(w):
-        f = w[off:off + 24 + PAGE]
-        pageno = struct.unpack(">I", f[0:4])[0]
-        commit_size = struct.unpack(">I", f[4:8])[0]
-        if pageno == 0:
-            break
-        frames.append((pageno, commit_size, f[24:24 + PAGE]))
-        off += 24 + PAGE
-
-    last_commit = -1
-    for i, (_p, c, _d) in enumerate(frames):
-        if c:
-            last_commit = i
+    frames, _off = parse_wal_frames(w)
+    last_commit = last_commit_index(frames)
     if last_commit < 0:
         return 0, 0, None
 

@@ -73,53 +73,76 @@ def _get_fix_suggestion(error_code):
     suggestions = {
         "env_not_ready": "请确保微信窗口可见且在前台（不要最小化或被其他窗口遮挡），然后重试。",
         "target_not_found": "未找到目标会话，请先用 list_sessions 确认会话名称或 talker ID。",
+        "busy": "另一个微信操作正在进行（发送/读取有互斥锁）。等几秒后重试即可，不用做别的。",
         "input_not_landed": "输入框定位失败。建议：1) 确保微信窗口完全可见；2) 稍后重试；3) 检查微信版本（推荐 4.x）。",
-        "send_unconfirmed": "发送后输入框未清空，可能发送失败。建议：1) 检查微信窗口是否失去焦点；2) 手动确认是否已发送；3) 重试。",
+        "send_unconfirmed": "回车/点发送后输入框仍有文字，消息没发出去。输入框已在下次尝试时清空，可直接重试。",
+        "send_not_confirmed": "已按回车但读库没看到新消息——可能真发出去了、只是还没落库，也可能发到了别处。"
+                              "**不要自动重发**：先 read_history 看一眼该会话，或请用户人工确认。",
         "quote_not_found": "未找到要引用的消息。建议：1) 确认引用文字准确；2) 该消息在聊天区可见；3) 使用消息原文而非摘要。",
         "verification_failed": "目标会话校验失败。建议：1) 确认微信已打开正确的会话；2) 会话中有足够的历史消息用于校验。",
+        "attachment_not_landed": "输入区没出现文件名，附件没粘上。重试一次；仍失败则改用 send_text 告知用户手动发。",
+        "attachment_missing": "本地文件不存在或不可读，请核对绝对路径后重试。",
+        "clipboard_failed": "写剪贴板失败（偶发被其它程序占用）。等几秒重试即可。",
         "bad_args": "参数错误，请检查输入参数是否完整且格式正确。",
     }
     return suggestions.get(error_code, "请检查微信窗口状态并重试，或查看 detail 字段了解详情。")
 
 
 def _code_of(detail):
-    """把发送层的中文 detail 归一到**稳定错误码**（Agent 据此决策，不必字符串匹配）。"""
+    """把发送层的中文 detail 归一到**稳定错误码**（Agent 据此决策，不必字符串匹配）。
+
+    码表与 `wechat_sender.py` 实际返回的 detail 文案一一对应——改发送层文案时必须同步改这里，
+    改错不会报错、只会静默退化成 `unknown`（Agent 就不再重试了）。
+    """
     d = detail or ""
     if "环境前置检查" in d or "窗口前置检查" in d:
         return "env_not_ready"
+    if "busy" in d or "正在进行" in d:
+        return "busy"
     if "未找到要引用的消息" in d:
         return "quote_not_found"
     if "菜单里未找到" in d:
         return "menu_not_found"
-    if "未找到" in d:
-        return "not_found"
+    if "剪贴板写入失败" in d:
+        return "clipboard_failed"
+    if "文件不存在" in d:
+        return "attachment_missing"
+    if "附件未落地" in d:
+        return "attachment_not_landed"
     if "输入未落地" in d:
         return "input_not_landed"
-    if "未清空" in d or "发送可能失败" in d:
-        return "send_unconfirmed"
-    if "校验失败" in d or "不通过" in d:
+    if "目标会话未确认" in d:
+        return "target_unconfirmed"
+    if "更像其它会话" in d or "校验失败" in d or "不通过" in d:
         return "verification_failed"
+    if "输入框未清空" in d:
+        return "send_unconfirmed"
+    if "未见新消息" in d:
+        return "send_not_confirmed"
+    if "为空" in d:
+        return "bad_args"
+    if "未找到" in d:
+        return "not_found"
     return "unknown"
 
 
 def _send_with_retry(send_fn, max_retries=2, retry_delay=0.5):
     """发送重试包装器（P0-B 增强）。
 
-    策略：
-    - 首次失败时自动重试（最多 max_retries 次）
-    - 仅对可重试的错误码重试（input_not_landed, send_unconfirmed）
-    - 环境错误（env_not_ready）和目标错误（not_found）不重试
-    - 每次重试间隔 retry_delay 秒
+    策略：只重试「**确实没发出去**」的临时性失败——发送层的 `_type_and_check` 每次都会
+    先 Ctrl+A/Delete 清空输入框，所以重来一遍不会把文字粘两遍。语义存疑的
+    `send_not_confirmed`（已回车、库里没看到）**绝不自动重试**：可能已经发出去、
+    重试就是给好友发第二遍。
 
     返回：(ok, detail, attempts) 元组
     """
     import time
 
-    # 可重试的错误码（临时性失败）
-    RETRIABLE_CODES = {"input_not_landed", "send_unconfirmed", "verification_failed"}
-    # 不可重试的错误码（永久性失败）
-    NON_RETRIABLE_CODES = {"env_not_ready", "target_not_found", "quote_not_found",
-                           "menu_not_found", "bad_args"}
+    RETRIABLE_CODES = {"input_not_landed", "send_unconfirmed", "attachment_not_landed",
+                       "busy", "clipboard_failed", "verification_failed"}
+    NON_RETRIABLE_CODES = {"env_not_ready", "target_unconfirmed", "quote_not_found",
+                           "menu_not_found", "bad_args", "send_not_confirmed",
+                           "attachment_missing", "not_found", "target_not_found"}
 
     last_ok, last_detail = False, ""
     for attempt in range(1, max_retries + 1):
@@ -130,47 +153,17 @@ def _send_with_retry(send_fn, max_retries=2, retry_delay=0.5):
             suffix = f"（第 {attempt} 次尝试成功）" if attempt > 1 else ""
             return True, detail + suffix, attempt
 
-        # 判断是否应该重试
         error_code = _code_of(detail)
         if error_code in NON_RETRIABLE_CODES:
-            # 永久性失败，不重试
             return False, detail + f"（不可重试的错误：{error_code}）", attempt
-
         if error_code not in RETRIABLE_CODES:
-            # 未知错误，保守起见不重试
             return False, detail + "（未知错误类型，不自动重试）", attempt
 
-        # 可重试错误，继续尝试
         if attempt < max_retries:
             log(f"发送失败（{error_code}），{retry_delay}s 后重试（{attempt}/{max_retries}）...")
             time.sleep(retry_delay)
 
-    # 所有重试都失败
     return False, last_detail + f"（已重试 {max_retries} 次，仍失败）", max_retries
-
-
-def _code_of(detail):
-    """把发送层的中文 detail 归一到**稳定错误码**（Agent 据此决策，不必字符串匹配）。"""
-    d = detail or ""
-    if "环境前置检查" in d or "窗口前置检查" in d:
-        return "env_not_ready"
-    if "未找到要引用的消息" in d:
-        return "quote_not_found"
-    if "菜单里未找到" in d:
-        return "menu_not_found"
-    if "未找到" in d:
-        return "target_not_found"
-    if "目标会话未确认" in d:
-        return "target_unconfirmed"
-    if "输入未落地" in d:
-        return "input_not_landed"
-    if "附件未落地" in d:
-        return "attachment_not_landed"
-    if "文件不存在" in d:
-        return "attachment_missing"
-    if "未见新消息" in d or "发送未生效" in d:
-        return "send_not_confirmed"
-    return "unknown"
 
 
 def tool_sessions(args):
@@ -413,6 +406,14 @@ INSTRUCTIONS = """\
 
 读取建议：先用 list_sessions 找目标会话名，再用 read_history 拉上下文，然后据此起草回复。
 
+实时盯消息（监控回路）：
+- 增量用 poll_new(since_ts)：每条消息带 `from_me`/`sender`，**自己发的也会返回**——用户可能自己在手机上
+  回过了，你要据此判断「还要不要开口」；返回的 `next_since_ts` 就是下一轮的 `since_ts`（别用墙上时钟的 now，
+  同秒消息会漏）。它只解密新增的 WAL 帧、只扫有变化的会话表，**很便宜**，几秒一次也没负担。
+- 回路姿势：定时（cron/循环）→ poll_new → 没有 `from_me=false` 的新消息就静默结束（别发 NO_REPLY 给用户看），
+  有才起草回复；发送前先 check_env，窗口不在前台就把 hint 转给用户，不要自己去点。
+- 「有哪些没回」用 list_unread；「这个会话刚才聊到哪」用 read_history。
+
 蒸馏（用户/好友知识与行为）：要提炼「我的表达习惯 / 与谁联系最多 / 活跃时段 / 某会话里对方是谁」时，用 wechat_digest——
 它做**本地确定性统计 + 代表性样本**（覆盖微信全部时间分片，**不外传**），你再据此写成画像；
 用 wechat_profile_save 存成画像（scope 留空=用户本人），wechat_profile_get 读回。画像存本地白盒 Markdown，可编辑可删。
@@ -437,9 +438,15 @@ TOOLS = [
          "before_ts": {"type": "integer", "description": "可选：只返回该 Unix 秒**之前**的消息（翻页用，传上一页返回的 cursor）"}},
          "required": ["talker"]}},
     {"name": "poll_new",
-     "description": "【何时用】要**实时/增量**盯用户本人微信的新消息时（配 wechat-local 的轮询）。【别用】渠道收件；那是渠道的事。读取某 Unix 秒时间戳之后的新消息。",
+     "description": ("【何时用】要**实时/增量**盯用户本人微信的新消息时（定时轮询、收到回复后等下文）。"
+                     "【别用】渠道(Bot)收件——那是渠道的事；也别用它读历史（用 read_history）。"
+                     "返回 `create_time > since_ts` 的消息（正序），每条带 `from_me`/`sender`："
+                     "**自己发的也会返回**——用户可能自己在手机上回过了，据此判断还要不要回。"
+                     "返回值里的 `next_since_ts` 就是下次该传的 `since_ts`（**不要传墙上时钟的 now**："
+                     "同一秒内的消息会被跳过）；首轮起点取 read_history 最后一条的 `ts`。"
+                     "本工具是增量快路径（只解密新增的 WAL 帧、只扫有变化的会话表），可以高频调用。"),
      "inputSchema": {"type": "object", "properties": {
-         "since_ts": {"type": "integer", "description": "Unix 秒；返回 create_time 大于它的消息"}},
+         "since_ts": {"type": "integer", "description": "Unix 秒；返回 create_time 严格大于它的消息"}},
          "required": ["since_ts"]}},
     {"name": "check_env",
      "description": ("【何时用】**发消息前**先自检本机微信自动化环境（是否运行/窗口可见/最小化/在前台/尺寸·DPI）。【别用】与渠道无关。"

@@ -11,7 +11,8 @@
   python devcli.py sendfile <talker> <path> [--yes]  发图片/文件/视频/音频（剪贴板粘贴；默认 dry-run）
   python devcli.py reply <talker> <quote> <text> [--yes]  引用回复（quote=被引用消息文字；默认 dry-run）
   python devcli.py search <关键词> [talker] | digest [talker] [limit] | profile [scope] | state [scope] [ts] | clear [scope] [--all] | unread | accounts | stats
-  python devcli.py selftest                   只读自检：环境 + 会话 + 一次历史读取
+  python devcli.py watch [since_ts] [--ticks N] [--interval S]  增量盯消息（默认 1 拍；N>1 则连续盯）
+  python devcli.py selftest                   只读自检：依赖 + 数据目录 + 会话 + 实时读取耗时
 
 退出码：0 成功 / 1 操作失败 / 2 参数错误。
 """
@@ -173,22 +174,98 @@ def cmd_stats():
     return 0
 
 
+def cmd_watch(since=None, ticks=1, interval=3.0):
+    """增量盯消息：每拍打一行 JSON（新消息 + 读取耗时 + 快路径复用情况）。
+
+    用法：
+      python devcli.py watch                 # 从现在开始，打一拍
+      python devcli.py watch --ticks 20 --interval 3   # 连续盯 1 分钟
+      python devcli.py watch 1791441000      # 从指定 Unix 秒开始补看
+    """
+    import time as _t
+    since = int(since) if since is not None else int(_t.time())
+    rc = 0
+    for i in range(max(1, int(ticks))):
+        t0 = _t.perf_counter()
+        core._refresh()
+        t_ref = (_t.perf_counter() - t0) * 1000
+        t0 = _t.perf_counter()
+        try:
+            r = core.poll(since)
+        except Exception as e:
+            _out({"tick": i, "error": str(e)[:300]})
+            rc = 1
+            break
+        t_poll = (_t.perf_counter() - t0) * 1000
+        since = r["next_since_ts"]
+        newest = r["messages"][-1]["ts"] if r["messages"] else None
+        _out({"tick": i, "now": int(_t.time()), "count": r["count"],
+              "from_others": sum(1 for m in r["messages"] if not m.get("from_me")),
+              "newest_ts": newest,
+              "lag_s": (int(_t.time()) - newest) if newest else None,
+              "refresh_ms": round(t_ref, 1), "poll_ms": round(t_poll, 1),
+              "stats": r.get("stats"),
+              "messages": [{"ts": m["ts"], "name": m.get("name"), "from_me": m.get("from_me"),
+                            "text": m["text"][:120]} for m in r["messages"][:20]]})
+        if i + 1 < int(ticks):
+            _t.sleep(max(0.2, float(interval)))
+    return rc
+
+
 def cmd_selftest():
     ok = True
-    st = core.sessions()
-    _out({"step": "sessions", "count": len(st), "names": [s["name"] for s in st]})
-    if st:
-        t = st[0]["talker"]
-        h = core.history(t, 3)
-        _out({"step": "history", "talker": t, "count": h["count"]})
+    d = core.deps()
+    _out({"step": "deps", "pycryptodome": d["pycryptodome"], "zstandard": d["zstandard"], "ok": d["ok"]})
+    ok = ok and d["ok"]
+    try:
+        accts = core.list_accounts()
+        _out({"step": "accounts", "count": len(accts),
+              "active": accts[0]["wxid"] if accts else None,
+              "root": accts[0]["root"] if accts else None,
+              "all": [a["wxid"] for a in accts]})
+        ok = ok and bool(accts)
+    except Exception as e:
+        _out({"step": "accounts", "error": str(e)[:200]})
+        ok = False
+    try:
+        accts = core.list_accounts()
+        if accts:
+            import os as _os
+            f = _os.path.join(accts[0]["root"], "message", "message_0.db")
+            s = _os.stat(f)
+            _out({"step": "message_0.db", "size_mb": round(s.st_size / 1048576, 1),
+                  "mtime": int(s.st_mtime),
+                  "wal_mb": round(_os.path.getsize(f + "-wal") / 1048576, 1)
+                  if _os.path.exists(f + "-wal") else 0})
+    except Exception as e:
+        _out({"step": "message_0.db", "error": str(e)[:200]})
+    try:
+        import time as _t
+        t0 = _t.perf_counter()
+        core._refresh()
+        cold = (_t.perf_counter() - t0) * 1000
+        t0 = _t.perf_counter()
+        core._refresh()
+        warm = (_t.perf_counter() - t0) * 1000
+        t0 = _t.perf_counter()
+        st = core.sessions()
+        sess = (_t.perf_counter() - t0) * 1000
+        _out({"step": "read_timing", "first_refresh_ms": round(cold, 1),
+              "cached_refresh_ms": round(warm, 1), "sessions_ms": round(sess, 1)})
+        _out({"step": "sessions", "count": len(st), "names": [s["name"] for s in st][:20]})
+        if st:
+            t = st[0]["talker"]
+            h = core.history(t, 3)
+            _out({"step": "history", "talker": t, "count": h["count"]})
+    except Exception as e:
+        _out({"step": "read", "error": str(e)[:300]})
+        ok = False
     try:
         import wechat_sender as S
         env = S.check_env()
         _out({"step": "env", "ok": env["ok"], "reason": env["reason"], "size": env["size"], "dpi": env["dpi"]})
-        ok = env["ok"]
     except Exception as e:
         _out({"step": "env", "error": str(e)[:200]})
-        ok = False
     return 0 if ok else 1
 
 
@@ -228,6 +305,11 @@ def main(argv):
         return cmd_accounts()
     if cmd == "stats":
         return cmd_stats()
+    if cmd == "watch":
+        since = argv[1] if len(argv) > 1 and not argv[1].startswith("--") else None
+        ticks = argv[argv.index("--ticks") + 1] if "--ticks" in argv else 1
+        interval = argv[argv.index("--interval") + 1] if "--interval" in argv else 3.0
+        return cmd_watch(since, ticks, interval)
     if cmd == "selftest":
         return cmd_selftest()
     print(__doc__)

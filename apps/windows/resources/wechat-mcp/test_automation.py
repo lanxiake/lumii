@@ -20,6 +20,12 @@ import time
 import traceback
 from datetime import datetime
 
+# stdout 固定 UTF-8：Windows 控制台默认 GBK，打印 ✅/❌ 会直接抛 UnicodeEncodeError
+try:
+    sys.stdout.reconfigure(encoding="utf-8")
+except Exception:
+    pass
+
 # 添加当前目录到 sys.path
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -317,9 +323,9 @@ def test_integration_list_sessions():
     """集成测试：list_sessions"""
     import wechat_core as core
 
-    print("  [1] 调用 list_sessions()...")
+    print("  [1] 调用 sessions()...")
     try:
-        sessions = core.list_sessions()
+        sessions = core.sessions()
         print(f"     ✅ 返回 {len(sessions)} 个会话")
 
         if sessions:
