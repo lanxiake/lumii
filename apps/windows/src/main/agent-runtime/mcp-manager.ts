@@ -21,6 +21,7 @@ import {
 } from '../config/mcp-config'
 import { findMcpPreset } from '../../shared/mcp-presets'
 import { expandBundledResources } from '../bundled-resources'
+import { LUMII_PYTHON_TOKEN, classifyPythonCommand, resolveMcpPython } from '../mcp-python'
 
 /** 单个 MCP Server 的运行时状态（含配置本身，供设置页直接渲染） */
 export interface McpServerRuntimeStatus extends McpServerEntry {
@@ -123,11 +124,12 @@ export class McpManager {
     // 会话中新装的 uv 会创建 ~/.local/bin，每次连接前刷新，避免仍 ENOENT
     refreshCommonCliPathsInProcessEnv()
     // 老用户配置缺 timeoutMs/backgroundTools：用内置清单默认值补齐（用户显式值优先）
-    const effective = applyPresetDefaults(config, findMcpPreset(config.name))
+    const preset = findMcpPreset(config.name)
+    const effective = applyPresetDefaults(config, preset)
     // 展开 {{LUMII_RESOURCES}}：用户配置里存占位符，避免写死绝对路径（换机器/打包后仍可解析）
     const expanded = expandEntry(effective)
     const name = expanded.name
-    const command = expandBundledResources(expanded.command)
+    let command = expandBundledResources(expanded.command)
     const args = (expanded.args ?? []).map(expandBundledResources)
     const env = expanded.env
     const cwd = expanded.cwd ? expandBundledResources(expanded.cwd) : undefined
@@ -144,6 +146,22 @@ export class McpManager {
         log.info(`[connect] MCP Server [${name}] 已自动安装 uv`)
       }
       refreshCommonCliPathsInProcessEnv()
+    }
+
+    // {{LUMII_PYTHON}} / 裸 python：解析为真实解释器绝对路径，避开 WindowsApps 占位程序（9009）
+    if (classifyPythonCommand(command)) {
+      const packages = command === LUMII_PYTHON_TOKEN ? preset?.pythonPackages : undefined
+      const python = await resolveMcpPython(command, packages)
+      if (!python.ok) {
+        log.error(`[connect] MCP Server [${name}] ${python.message}`)
+        this.lastErrors.set(name, python.message)
+        return
+      }
+      if (python.warning) log.warn(`[connect] MCP Server [${name}] ${python.warning}`)
+      log.info(`[connect] MCP Server [${name}] Python 解释器: ${python.command}`)
+      command = python.command
+      // 首次准备运行时可能耗时数十秒，期间应用可能已开始退出
+      if (this.shuttingDown) return
     }
 
     const client = new McpStdioClient({ command, args, env, cwd, requestTimeoutMs: effective.timeoutMs })

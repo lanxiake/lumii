@@ -4,11 +4,34 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_MCP_REQUEST_TIMEOUT_MS,
+  describeEarlyExit,
   listWellKnownCliBinDirs,
   McpStdioClient,
   resolveCommand,
   resolveMcpRequestTimeoutMs,
 } from "./mcp-client";
+
+describe("describeEarlyExit", () => {
+  it("9009 + python：说明命令未找到并提示 Store 占位程序", () => {
+    const message = describeEarlyExit(9009, "python", "");
+    expect(message).toContain("找不到可执行的命令「python」");
+    expect(message).toContain("code=9009");
+    expect(message).toContain("Microsoft Store");
+    expect(message).not.toContain("进程提前退出");
+  });
+
+  it("127 + 其他命令：说明命令未找到，不误导到 Store", () => {
+    const message = describeEarlyExit(127, "foo-mcp", "sh: foo-mcp: not found");
+    expect(message).toContain("找不到可执行的命令「foo-mcp」");
+    expect(message).not.toContain("Microsoft Store");
+    expect(message).toContain("not found");
+  });
+
+  it("其他退出码保留原文案并带上 stderr", () => {
+    expect(describeEarlyExit(1, "node", "boom\n")).toBe("MCP Server 进程提前退出（code=1）：boom");
+    expect(describeEarlyExit(null, "node", "")).toBe("MCP Server 进程提前退出（code=null）");
+  });
+});
 
 describe("resolveCommand", () => {
   it("npx 直接跑 npx-cli.js，优先系统 node", () => {

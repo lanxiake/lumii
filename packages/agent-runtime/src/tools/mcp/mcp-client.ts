@@ -158,6 +158,38 @@ export function resolveCommand(
   return found ? { command: found, prefixArgs: [] } : plain;
 }
 
+/**
+ * 「命令未找到」的退出码：Windows cmd / 应用执行别名占位程序为 9009，POSIX shell 为 127
+ */
+const COMMAND_NOT_FOUND_EXIT_CODES = new Set([9009, 127]);
+
+/**
+ * 生成握手前进程退出的错误文案
+ *
+ * 9009 / 127 单独解释：最常见的是 Windows 上 `python` 命中了
+ * `WindowsApps` 里的 Microsoft Store 占位程序，只报「进程提前退出」用户无从下手。
+ *
+ * @param code 进程退出码
+ * @param command 配置里的原始命令
+ * @param stderr 握手前累计的 stderr
+ */
+export function describeEarlyExit(code: number | null, command: string, stderr: string): string {
+  const detail = stderr.trim().slice(0, 500);
+  if (code !== null && COMMAND_NOT_FOUND_EXIT_CODES.has(code)) {
+    const storeHint = /^python3?(\.exe)?$/i.test(command.trim())
+      ? "Windows 上多半是命中了 WindowsApps 里的 Microsoft Store 占位程序；"
+      : "";
+    return (
+      `MCP Server 启动失败：找不到可执行的命令「${command}」（code=${code}）。` +
+      `${storeHint}请安装对应程序，或把 command 改为可执行文件的绝对路径` +
+      (detail ? `：${detail}` : "")
+    );
+  }
+  return detail
+    ? `MCP Server 进程提前退出（code=${code}）：${detail}`
+    : `MCP Server 进程提前退出（code=${code}）`;
+}
+
 /** 预加载脚本内容（与 windows-hide-spawn-preload.cjs 同源，写入临时目录以便 asar 内外都能 -r） */
 const HIDE_SPAWN_PRELOAD_SOURCE = `"use strict";
 (function () {
@@ -369,14 +401,7 @@ export class McpStdioClient extends EventEmitter {
     const exitedEarly = new Promise<never>((_, reject) => {
       this.process?.once("exit", (code) => {
         if (this._initialized) return;
-        const detail = stderrBuf.trim();
-        reject(
-          new Error(
-            detail
-              ? `MCP Server 进程提前退出（code=${code}）：${detail.slice(0, 500)}`
-              : `MCP Server 进程提前退出（code=${code}）`,
-          ),
-        );
+        reject(new Error(describeEarlyExit(code, this.config.command, stderrBuf)));
       });
     });
 
@@ -417,10 +442,13 @@ export class McpStdioClient extends EventEmitter {
       throw err;
     }
 
-    // 提取服务器说明（如果有）
-    const typed = initResult as { serverInfo?: { instructions?: string } } | null;
-    if (typed?.serverInfo?.instructions) {
-      this._instructions = typed.serverInfo.instructions;
+    // 提取服务器说明：规范位置是 result.instructions；兼容个别实现放在 serverInfo 里
+    const typed = initResult as
+      | { instructions?: string; serverInfo?: { instructions?: string } }
+      | null;
+    const instructions = typed?.instructions ?? typed?.serverInfo?.instructions;
+    if (typeof instructions === "string" && instructions.trim()) {
+      this._instructions = instructions;
     }
 
     // 发送 initialized 通知

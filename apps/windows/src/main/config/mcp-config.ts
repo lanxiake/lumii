@@ -17,6 +17,7 @@ import path from 'node:path'
 import os from 'node:os'
 import { MCP_PRESETS, isReadyToUse, type McpPreset } from '../../shared/mcp-presets'
 import { resolveClientStateDir, resolveSharedConfigDir } from '../paths.js'
+import { LUMII_PYTHON_TOKEN, getManagedPythonExePaths } from '../mcp-python'
 
 const log = {
   info: (...args: unknown[]) => console.log('[MCP-Config]', ...args),
@@ -292,6 +293,39 @@ export function reconcileBuiltinMcpPresets(entries: readonly McpServerEntry[]): 
   return next
 }
 
+/** 路径/命令比较用的归一化：统一分隔符；Windows 不区分大小写 */
+function normalizeCommandForCompare(command: string): string {
+  const unified = command.trim().replace(/\\/g, '/')
+  return process.platform === 'win32' ? unified.toLowerCase() : unified
+}
+
+/**
+ * 内置 Python MCP 的旧启动命令迁移为 `{{LUMII_PYTHON}}`
+ *
+ * 旧版 wechat-local 播种的是裸 `python`（Windows 上常命中 Store 占位程序，code=9009），
+ * 有用户为绕开它手工改成了托管解释器的绝对路径（换机器即失效）。两种写法都迁回占位符。
+ * 只动「名字 + args 与内置项完全一致」的条目，用户自建的同名服务或改过参数的不碰。
+ *
+ * @param entries 当前配置
+ * @param managedExePaths 托管解释器绝对路径（识别写死的旧值）
+ */
+export function migrateManagedPythonCommands(
+  entries: readonly McpServerEntry[],
+  managedExePaths: readonly string[] = getManagedPythonExePaths(),
+): McpServerEntry[] {
+  const legacy = new Set(
+    ['python', 'python3', 'python.exe', 'python3.exe', ...managedExePaths].map(normalizeCommandForCompare),
+  )
+  return entries.map((entry) => {
+    const preset = MCP_PRESETS.find((item) => item.name === entry.name)
+    if (!preset || preset.command !== LUMII_PYTHON_TOKEN) return entry
+    if (entry.command === LUMII_PYTHON_TOKEN) return entry
+    if (!legacy.has(normalizeCommandForCompare(entry.command))) return entry
+    if (JSON.stringify(entry.args ?? []) !== JSON.stringify(preset.args)) return entry
+    return { ...entry, command: LUMII_PYTHON_TOKEN }
+  })
+}
+
 /** 记录「哪些内置项已经推给过用户」，避免删掉的项每次启动又回来 */
 function getSeededPresetsPath(): string {
   return path.join(resolveClientStateDir(), 'state', 'mcp-seeded-presets.json')
@@ -373,7 +407,9 @@ export function loadMcpServerConfigs(): McpServerEntry[] {
   }
 
   const original = parseMcpServerConfigs(raw)
-  const entries = reconcileBuiltinMcpPresets(original.map(resolveMcpEntryPaths))
+  const entries = reconcileBuiltinMcpPresets(
+    migrateManagedPythonCommands(original.map(resolveMcpEntryPaths)),
+  )
 
   // 老用户没有记档文件：按「当前配置即已推过」立档，只补这之后新增的内置项
   const seeded = readSeededPresetNames() ?? new Set(entries.map((entry) => entry.name))

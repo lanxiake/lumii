@@ -7,6 +7,7 @@ import {
   computeMcpPresetBackfill,
   computeBackgroundToolNames,
   getDefaultMcpDocumentsDir,
+  migrateManagedPythonCommands,
   reconcileBuiltinMcpPresets,
   resolveMcpEntryPaths,
   validateMcpServerEntry,
@@ -184,5 +185,38 @@ describe('MCP 后台化工具配置', () => {
     // 非内置 Server 无预设，原样返回
     const custom: McpServerEntry = { name: 'my-mcp', command: 'npx' }
     expect(applyPresetDefaults(custom, undefined)).toBe(custom)
+  })
+})
+
+describe('内置 Python MCP 旧命令迁移', () => {
+  const wechatArgs = ['{{LUMII_RESOURCES}}/wechat-mcp/server.py']
+  const managedExe = path.join(os.tmpdir(), 'lumii-test', 'python-embed', 'python.exe')
+
+  it('裸 python / python3 迁移为 {{LUMII_PYTHON}}', () => {
+    for (const command of ['python', 'python3', 'Python.exe']) {
+      const [migrated] = migrateManagedPythonCommands(
+        [{ name: 'wechat-local', command, args: wechatArgs, enabled: true }],
+        [managedExe],
+      )
+      expect(migrated.command, command).toBe('{{LUMII_PYTHON}}')
+      expect(migrated.enabled).toBe(true)
+    }
+  })
+
+  it('写死的托管解释器绝对路径迁回占位符（换机器不失效）', () => {
+    const [migrated] = migrateManagedPythonCommands(
+      [{ name: 'wechat-local', command: managedExe, args: wechatArgs }],
+      [managedExe],
+    )
+    expect(migrated.command).toBe('{{LUMII_PYTHON}}')
+  })
+
+  it('用户自定义的解释器、改过参数或非内置项都不动', () => {
+    const entries: McpServerEntry[] = [
+      { name: 'wechat-local', command: 'D:/my-python/python.exe', args: wechatArgs },
+      { name: 'wechat-local', command: 'python', args: ['D:/fork/server.py'] },
+      { name: 'my-py-mcp', command: 'python', args: wechatArgs },
+    ]
+    expect(migrateManagedPythonCommands(entries, [managedExe])).toEqual(entries)
   })
 })

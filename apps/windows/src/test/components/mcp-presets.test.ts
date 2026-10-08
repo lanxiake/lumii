@@ -35,14 +35,29 @@ describe('MCP 内置清单', () => {
     }
   })
 
-  it('npx 项走 -y 自动安装；uvx 项用于 Python 包', () => {
+  it('npx 项走 -y 自动安装；uvx 项用于 Python 包；随包 Python 脚本走托管解释器', () => {
     for (const preset of MCP_PRESETS) {
       if (preset.command === 'npx') {
         expect(preset.args[0]).toBe('-y')
+      } else if (preset.command === '{{LUMII_PYTHON}}') {
+        expect(preset.args[0]).toMatch(/^\{\{LUMII_RESOURCES\}\}\/.+\.py$/)
       } else {
         expect(preset.command).toBe('uvx')
       }
     }
+  })
+
+  it('不写裸 python（Windows 上会命中 Store 占位程序，code=9009）', () => {
+    for (const preset of MCP_PRESETS) {
+      expect(preset.command.toLowerCase()).not.toMatch(/^python3?(\.exe)?$/)
+    }
+  })
+
+  it('wechat-local 声明的依赖与 requirements.txt 一致', () => {
+    const wechat = findMcpPreset('wechat-local')
+    expect(wechat?.command).toBe('{{LUMII_PYTHON}}')
+    expect(wechat?.pythonPackages?.map((p) => p.spec)).toEqual(['pycryptodome>=3.20', 'zstandard>=0.22'])
+    expect(wechat?.pythonPackages?.map((p) => p.module)).toEqual(['Crypto', 'zstandard'])
   })
 
   it('不重复内置的 browser_* 工具', () => {
