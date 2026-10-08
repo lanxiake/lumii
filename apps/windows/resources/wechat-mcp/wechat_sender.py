@@ -97,6 +97,120 @@ def ctrl(vk):
     _snd([_kd(0x11), _kd(vk), _kd(vk, True), _kd(0x11, True)])
 
 
+# ---- 剪贴板回读（输入落地/清空校验用；替代不可靠的区域 OCR）------------------
+# ⚠️ 必须显式声明 restype/argtypes：HANDLE 在 64 位下是 8 字节，ctypes 默认按
+#    32 位 int 接收会把句柄**高位截断**，GlobalLock 拿到非法指针 → 静默返回空串。
+_k32 = ctypes.windll.kernel32
+CF_UNICODETEXT = 13
+
+u.OpenClipboard.restype = ctypes.c_bool
+u.OpenClipboard.argtypes = [ctypes.c_void_p]
+u.GetClipboardData.restype = ctypes.c_void_p
+u.GetClipboardData.argtypes = [ctypes.c_uint]
+u.CloseClipboard.restype = ctypes.c_bool
+u.CloseClipboard.argtypes = []
+u.EmptyClipboard.restype = ctypes.c_bool
+u.EmptyClipboard.argtypes = []
+_k32.GlobalLock.restype = ctypes.c_void_p
+_k32.GlobalLock.argtypes = [ctypes.c_void_p]
+_k32.GlobalUnlock.restype = ctypes.c_bool
+_k32.GlobalUnlock.argtypes = [ctypes.c_void_p]
+u.SetClipboardData.restype = ctypes.c_void_p
+u.SetClipboardData.argtypes = [ctypes.c_uint, ctypes.c_void_p]
+_k32.GlobalAlloc.restype = ctypes.c_void_p
+_k32.GlobalAlloc.argtypes = [ctypes.c_uint, ctypes.c_size_t]
+_k32.GlobalFree.restype = ctypes.c_void_p
+_k32.GlobalFree.argtypes = [ctypes.c_void_p]
+
+
+def _clip_open(retries=6):
+    for _ in range(retries):
+        if u.OpenClipboard(None):
+            return True
+        time.sleep(0.05)  # 别的进程正占用剪贴板：短暂重试
+    return False
+
+
+def _clip_get_text():
+    """读系统剪贴板文本（CF_UNICODETEXT）；无文本/打不开返回 ''。"""
+    if not _clip_open():
+        return ""
+    try:
+        h = u.GetClipboardData(CF_UNICODETEXT)
+        if not h:
+            return ""
+        p = _k32.GlobalLock(ctypes.c_void_p(h))
+        if not p:
+            return ""
+        try:
+            return ctypes.c_wchar_p(p).value or ""
+        finally:
+            _k32.GlobalUnlock(ctypes.c_void_p(h))
+    finally:
+        u.CloseClipboard()
+
+
+def _clip_clear():
+    """清空剪贴板（只放一个空文本项）。"""
+    if not _clip_open():
+        return
+    try:
+        u.EmptyClipboard()
+    finally:
+        u.CloseClipboard()
+
+
+def _clip_set_text(s):
+    """把文本写入系统剪贴板（CF_UNICODETEXT）。成功返回 True。
+
+    用于「粘贴代替键入」：SendInput 逐字注入在本版微信输入框上会把**每个标点后的
+    一个字符替换成该标点**（实测 "看-着，挺-离谱，的" → "看--，，--谱，，"，
+    100% 可复现、加字符间隔也不解决）；剪贴板粘贴是原子的，无此问题。
+    """
+    if not _clip_open():
+        return False
+    h = None
+    try:
+        u.EmptyClipboard()
+        data = (s + "\0").encode("utf-16-le")
+        GMEM_MOVEABLE = 0x0002
+        h = _k32.GlobalAlloc(GMEM_MOVEABLE, len(data))
+        if not h:
+            return False
+        p = _k32.GlobalLock(ctypes.c_void_p(h))
+        if not p:
+            _k32.GlobalFree(ctypes.c_void_p(h))
+            return False
+        ctypes.memmove(p, data, len(data))
+        _k32.GlobalUnlock(ctypes.c_void_p(h))
+        if not u.SetClipboardData(CF_UNICODETEXT, ctypes.c_void_p(h)):
+            _k32.GlobalFree(ctypes.c_void_p(h))
+            return False
+        h = None  # 所有权已移交系统，不能再释放
+        return True
+    finally:
+        u.CloseClipboard()
+
+
+def _composer_copy_all():
+    """读回「微信输入框里当前内容」：清空剪贴板 → Ctrl+A 全选 → Ctrl+C 复制 → 读文本。
+
+    为什么不用截图 OCR 做这个判断：
+    1. 本版微信输入框很高（实测 1280×820 下占 y≈455~795），文字从**框的顶部**开始
+       渲染，而旧实现按「输入框贴底」取区域（by−115 起），区域里根本没有文字；
+    2. Windows OCR 读不出小号拉丁字符——实测输入框里的 "test" 在整张 OCR 结果里
+       一行都没有，中文也只有零散乱码。
+    剪贴板回读是确定性的：复制到什么就是什么，不受字号/渲染影响。
+    输入框为空且无选区时 Ctrl+C 是 no-op，剪贴板保持我们刚清空的空串——不会误读旧内容。
+    """
+    _clip_clear()
+    ctrl(0x41)  # 全选输入框内容
+    time.sleep(0.12)
+    ctrl(0x43)  # 复制
+    time.sleep(0.25)
+    return _clip_get_text()
+
+
 EnumProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
 
 
@@ -378,7 +492,13 @@ def read_ui_stable(tag, tries=4):
 
 
 def norm(s):
-    return "".join(ch for ch in s if ch.isalnum())
+    """归一化：只保留字母数字（含 CJK）+ 统一小写。
+
+    小写化是必须的：Windows OCR 对短拉丁词常**全大写输出**（实测把会话名 "Loop"
+    读成 "LOOP"），而 difflib 比较区分大小写——"Loop" vs "LOOP" 相似度只有 0.25，
+    会让头部匹配（verify_target）与列表查找（find_session）双双误判为「未找到会话」。
+    """
+    return "".join(ch for ch in s if ch.isalnum()).lower()
 
 
 def contains_sub(a, b, n=4):
@@ -593,7 +713,12 @@ def open_chat_via_search(name, talker, win, verbose=False):
         ctrl(0x41)
         press(0x2E)                  # 清空搜索框
         time.sleep(0.2)
-        type_text(name)
+        # 同样用粘贴代替键入：名字里带标点时逐字注入会被吞字（见 _clip_set_text）
+        if _clip_set_text(name):
+            time.sleep(0.15)
+            ctrl(0x56)
+        else:
+            type_text(name)
         time.sleep(1.4)
         press(0x0D)                  # 回车打开首条结果
         time.sleep(1.5)
@@ -709,18 +834,27 @@ def _send_locked(text, talker, name, dry_run, verbose):
             time.sleep(0.15)
             press(0x2E)
             time.sleep(0.3)
-            type_text(text)
-            time.sleep(1.0)
-            w2, h2, l2 = read_ui_stable(tag)
-            if not contains_sub(text, _input_text(l2, w2, h2), 4):
+            # 粘贴而不是逐字键入：见 _clip_set_text 注释（逐字注入会被标点吞字）
+            if not _clip_set_text(text):
+                return False, None
+            time.sleep(0.15)
+            ctrl(0x56)
+            time.sleep(0.6)
+            # 落地校验走剪贴板回读（见 _composer_copy_all 注释：区域 OCR 在本版微信必漏读）
+            if not contains_sub(text, _composer_copy_all(), 4):
                 ctrl(0x41)
                 press(0x2E)
+                try:  # 失败现场留证据截图（不做判定，仅供排查）
+                    png = os.path.join(core.WORK, f"ui_{tag}.png")
+                    if grab_png(find_main_hwnd(), png):
+                        _LAST_SHOT["path"] = png
+                except Exception:
+                    pass
                 return False, None
-            return True, (w2, h2, l2)
+            return True, (ww, wh, lines)
 
         ok, got = _type_and_check(None, "s2")
         if not ok:
-            # OCR 把聊天区误当输入区时的兜底：无视按钮检测，用贴底默认坐标重来一次
             if verbose:
                 print("[type] 首轮输入未落地，改用默认贴底坐标重试", flush=True)
             ok, got = _type_and_check("default", "s2b")
@@ -734,12 +868,11 @@ def _send_locked(text, talker, name, dry_run, verbose):
         ly2 = layout(l2, ww, wh)
         press(0x0D)
         time.sleep(1.0)
-        ww, wh, l3 = read_ui("s3")
-        if contains_sub(text, _input_text(l3, ww, wh), 4):
+        # 发送生效校验：输入框应已清空（同样走剪贴板回读，不依赖 OCR）
+        if contains_sub(text, _composer_copy_all(), 4):
             win.click(*ly2["send_btn"])
             time.sleep(1.0)
-            ww, wh, l3 = read_ui("s3b")
-            if contains_sub(text, _input_text(l3, ww, wh), 4):
+            if contains_sub(text, _composer_copy_all(), 4):
                 ctrl(0x41)
                 press(0x2E)
                 return False, "发送未生效（输入框未清空）"
@@ -879,7 +1012,11 @@ def send_attachment(path, talker, name=None, dry_run=True, verbose=False):
             time.sleep(1.8)
             if not is_image:                    # 文件：输入区应出现文件名（强校验）
                 ww, wh, l2 = read_ui_stable("a2")
-                if not contains_sub(os.path.basename(path), _input_text(l2, ww, wh), 4):
+                ocr_ok = contains_sub(os.path.basename(path), _input_text(l2, ww, wh), 4)
+                # 文件 chip 复制出的文本格式取决于微信实现（可能只在 CF_HDROP 里，读不到文本），
+                # 所以这里是「OCR 或剪贴板」的并集：任一命中即算落地；最终仍有读库/发送环节兜底。
+                clip_ok = contains_sub(os.path.basename(path), _composer_copy_all(), 4)
+                if not (ocr_ok or clip_ok):
                     return False, "附件未落地（输入区未见文件名，fail-closed）"
             if dry_run:
                 ctrl(0x41)
@@ -1051,14 +1188,17 @@ def _reply_locked(quote, text, talker, name, dry_run, verbose):
             print(f"[reply] 点「引用」@screen({(item[0]+item[2])//2},{(item[1]+item[3])//2})")
         _lclick((item[0] + item[2]) // 2, (item[1] + item[3]) // 2)
         time.sleep(1.0)
-        # 3) 输入正文（点输入框后直接打字，保留引用条）
+        # 3) 输入正文（点输入框后**粘贴**，保留引用条；不 Ctrl+A/Del——引用条不能删）
         ww, wh, l2 = read_ui_stable("q2")
         win.click(*layout(l2, ww, wh)["input_pt"])
         time.sleep(0.3)
-        type_text(text)
-        time.sleep(1.0)
-        ww, wh, l3 = read_ui_stable("q3")
-        if not contains_sub(text, _input_text(l3, ww, wh), 4):
+        if not _clip_set_text(text):
+            return False, "剪贴板写入失败（fail-closed）"
+        time.sleep(0.15)
+        ctrl(0x56)
+        time.sleep(0.8)
+        # 落地校验走剪贴板回读：此时输入框 = 引用条 + 正文，复制回来的文本里含正文即可
+        if not contains_sub(text, _composer_copy_all(), 4):
             ctrl(0x41)
             press(0x2E)
             return False, "输入未落地（fail-closed）"
