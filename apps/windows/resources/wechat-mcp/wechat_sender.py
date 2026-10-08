@@ -622,6 +622,24 @@ def _member_nick_hits(lines, ly, members):
     return n
 
 
+def _header_distinguishes_target(hn, hr, talker):
+    """只凭「聊天头部」放行**安全**吗——即头部真的在区分目标与别人。
+
+    不安全 = 有**别的会话**名字与头部吻合得不比目标差：那时头部不含任何区分信息。
+    本机实测有三个 `loop`（不同 wxid、显示名归一后相同），拿 `Loop` 当目标时头部只会照出
+    「loop」——凭它放行等于抽签发错人。反过来「两河10组村民群」目标 + 真开着的
+    「两河10组村民群2」也会被这条挡住（那个名字对头部的吻合度只会更高）——正是要的拒绝。
+    """
+    if not hn:
+        return False
+    for u, d in core.names().items():
+        if u == talker or not d:
+            continue
+        if difflib.SequenceMatcher(None, norm(d), hn).ratio() >= max(0.85, hr - 0.05):
+            return False
+    return True
+
+
 def verify_target(talker, name, lines, ww, wh, verbose=False):
     """目标会话校验。**判据从紧**——错判 = 发错人。
 
@@ -632,7 +650,8 @@ def verify_target(talker, name, lines, ww, wh, verbose=False):
     ⓪′ **群结构**（P2-4）：目标是群、且聊天区出现**群成员昵称独立行** ⇒ 确认是群（第三重印证）。
     ① 内容锚点命中 **且** 聊天头部与目标名吻合（hr≥0.5）。
     ② 内容锚点命中 **≥2 个**（头部 OCR 全花时的兜底）。
-    ③ 无可用锚点（纯语音/图片会话）时，只认**很强**的头部匹配（hr>0.85）。
+    ③ 没有**够长**的锚点可用（纯语音/图片会话，或锚点都是短消息）时，只认**很强**且
+       **能区分是谁**的头部匹配（hr>0.85 且没有别的会话名字同样吻合）。
     """
     ly = layout(lines, ww, wh)
     header, chat = ly["header"], ly["chat_text"]
@@ -660,7 +679,13 @@ def verify_target(talker, name, lines, ww, wh, verbose=False):
         return True, "消息"
     if hits >= 2:
         return True, "消息x2"
-    if not usable and hr > 0.85:
+    # ③ 落这一档的前提是「**没有够长的锚点**」。够长 = ≥10 字（anchor_lcs 的门槛）：
+    #    短锚点只能靠 anchor_exact 精确命中，OCR 读花一个字就整体失效——实测「你在干嘛？」
+    #    被读成「你在干雨7」⇒ 4 字锚点全灭、hits=0。此时若还拿「有锚点」去否决头部，
+    #    白名单里的人会**永远发不出去**（环境/名单/窗口全对，却一直 target_unconfirmed，
+    #    2026-10-08 实测）。锚点够长时则仍然一票否决：它真能证伪，就不许被头部绕过去。
+    if all(len(norm(t)) < 10 for t in usable) and hr > 0.85 \
+            and _header_distinguishes_target(hn, hr, talker):
         return True, "标题"
     return False, "-"
 

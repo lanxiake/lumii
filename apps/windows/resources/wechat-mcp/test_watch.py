@@ -551,6 +551,80 @@ def suite_D():
     return r
 
 
+def suite_E():
+    """E 层：目标会话校验（verify_target）的**证据强度**——纯逻辑，用假 OCR 行。
+
+    为什么单开一层：这条判据松一格是**发错人**（不可撤回），紧一格是**发不出去**。
+    2026-10-08 的现场是紧过头那一侧：白名单里的人、环境/窗口全对，却一直 `target_unconfirmed`
+    ——因为「你在干嘛？」被 OCR 读成「你在干雨7」，4 字锚点精确匹配全灭（`anchor_lcs` 门槛
+    10 字，短消息永远够不着），而当时只要 `usable` 非空就不允许凭头部放行。
+    """
+    import wechat_core as core
+    import wechat_sender as snd
+    r = R("E 层：目标会话校验的证据强度")
+    WW, WH = 1280, 820
+    TALKER, NAME = "wxid_hanyu", "韩玉"
+
+    def scene(header, chat):
+        """一屏 OCR 行：会话列表一条（定 session_right）+ 头部 + 聊天区若干行。"""
+        out = [(126, 90, 250, 105, "Loop")]
+        if header:
+            out.append((340, 45, 390, 60, header))
+        out += [(340, 120, 520, 140, t) for t in chat]
+        return out
+
+    def with_fakes(anchors, names, fn):
+        """锚点与「本机会话名」都得造假：真跑会连真实微信库（这层要能离线跑）。"""
+        old_a, old_n = snd._usable_anchors, core.names
+        snd._usable_anchors = lambda talker: list(anchors)
+        core.names = lambda: dict(names)
+        try:
+            return fn()
+        finally:
+            snd._usable_anchors, core.names = old_a, old_n
+
+    NAMES = {TALKER: NAME, "wxid_loop": "Loop"}
+
+    def e1_short_anchor_garbled():
+        v, why = with_fakes(["你在干嘛？"], NAMES,
+                            lambda: snd.verify_target(TALKER, NAME, scene("韩玉", ["你在干雨7"]), WW, WH))
+        assert v, f"短锚点被 OCR 读花、头部精确吻合时不该拒绝：{why}"
+    r.case("短锚点被 OCR 读花 + 头部精确 ⇒ 放行（2026-10-08 故障的回归锁）", e1_short_anchor_garbled)
+
+    def e2_wrong_chat_open():
+        v, _ = with_fakes(["你在干嘛？"], NAMES,
+                          lambda: snd.verify_target(TALKER, NAME, scene("杨冬", ["你在干雨7"]), WW, WH))
+        assert not v, "头部是别的会话时必须拒绝"
+    r.case("短锚点读花 + 开着别的会话 ⇒ 拒绝", e2_wrong_chat_open)
+
+    def e3_embedded_name():
+        # 本机真实存在的形状：`韩玉` / `韩玉妈`（一个名字嵌在另一个里，相似度 0.80）
+        names = {TALKER: "韩玉", "wxid_mama": "韩玉妈", "wxid_loop": "Loop"}
+        v1, _ = with_fakes(["在吗"], names,
+                           lambda: snd.verify_target(TALKER, "韩玉", scene("韩玉妈", ["在吗"]), WW, WH))
+        assert not v1, "开着「韩玉妈」时不许当成「韩玉」"
+        v2, _ = with_fakes(["在吗"], names,
+                           lambda: snd.verify_target("wxid_mama", "韩玉妈", scene("韩玉", ["在吗"]), WW, WH))
+        assert not v2, "开着「韩玉」时不许当成「韩玉妈」"
+    r.case("名字嵌名字（韩玉 / 韩玉妈）：两个方向都不放行", e3_embedded_name)
+
+    def e4_duplicate_names():
+        # 本机实测三个 loop：这种头部照出谁都一样，凭它放行 = 抽签发错人
+        names = {TALKER: "韩玉", "wxid_hanyu2": "韩玉", "wxid_loop": "Loop"}
+        v, _ = with_fakes(["在吗"], names,
+                          lambda: snd.verify_target(TALKER, "韩玉", scene("韩玉", ["在吗"]), WW, WH))
+        assert not v, "重名会话时头部不含区分信息，不许单独放行"
+    r.case("重名会话（两个「韩玉」）⇒ 头部证明不了什么，拒绝", e4_duplicate_names)
+
+    def e5_long_anchor_missing():
+        v, _ = with_fakes(["明天下午三点我们公司门口见"], NAMES,
+                          lambda: snd.verify_target(TALKER, NAME, scene("韩玉", ["明天下午我们门口碰头"]), WW, WH))
+        assert not v, "长锚点没命中却凭头部放行——这正是发错人的老路"
+    r.case("够长的锚点没命中 ⇒ 仍然拒绝（头部不许绕过内容）", e5_long_anchor_missing)
+
+    return r
+
+
 def main():
     try:
         import Crypto  # noqa: F401
@@ -561,7 +635,8 @@ def main():
     print("  wechat-mcp 增量读取路径测试（离线夹具）")
     print("=" * 70)
     total_p = total_f = 0
-    for suite, need_crypto in ((suite_A, True), (suite_B, False), (suite_C, False), (suite_D, False)):
+    for suite, need_crypto in ((suite_A, True), (suite_B, False), (suite_C, False),
+                               (suite_D, False), (suite_E, False)):
         if need_crypto and not has_crypto:
             print("\n（跳过 A 层：没有 pycryptodome）")
             continue
