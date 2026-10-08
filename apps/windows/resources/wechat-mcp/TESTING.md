@@ -405,6 +405,34 @@ pip install pycryptodome zstandard
 
 ---
 
+## 测试 4：实时读取（增量路径）
+
+> 离线夹具回归（不需要微信、不碰真实数据）：
+
+```bash
+python test_watch.py
+```
+
+分三层（脚本头部有说明）：
+- **A 层**（真加密夹具，逐字节）：陈旧 WAL 护栏、增量重放 == 全量重建、WAL 重置、未提交尾帧；
+- **B 层**（真 SQLite 语义）：只动 `-wal` 的新消息必须可见（**回归锁**）、`from_me`、poll 快路径复用/变宽/不漏/`next_since_ts`；
+- **C 层**：`server._code_of` 与 `wechat_sender.py` 实际文案对账 + 重试安全边界。
+
+> 真机观测（只读，不碰窗口）：
+
+```bash
+python devcli.py watch --ticks 10 --interval 3
+```
+
+**预期**：
+- 空闲拍：`refresh_ms` ≈ 2~5ms、`stats.reused` = 表数（全命中复用）；
+- 有新消息那拍：`count` > 0、`lag_s` 很小（秒级）、`stats.scanned` > 0；
+- 只有微信 checkpoint 落主库的那拍 `refresh_ms` 才会跳到几十毫秒（密钥已缓存；首拍冷启动 ~2s 是扫进程内存取密钥，属正常）。
+
+对照判据：`python devcli.py history <talker> 3` 看到的最新一条，应与手机/PC 微信界面上的一致。
+
+---
+
 ## 测试检查清单
 
 - [ ] P0-A: list_accounts() 能找到多个路径下的账号
@@ -416,6 +444,8 @@ pip install pycryptodome zstandard
 - [ ] 完整流程: read_history → send_text → poll_new 正常工作
 - [ ] 批量发送: send_batch 独立校验，失败隔离
 - [ ] 真实对话: 与 Loop 的消息收发无乱码、无丢失
+- [ ] 实时读取: `test_watch.py` 10 例全过
+- [ ] 实时读取: `devcli.py watch` 空闲拍在毫秒级、新消息拍能立刻看到
 
 ---
 

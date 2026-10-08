@@ -1,562 +1,242 @@
 # 微信消息实时监控与交互优化方案
 
-> **背景**：基于 2026-10-08 错误日志分析，针对 wechat-mcp 在实时消息监控场景下的痛点，提出完整优化方案。
+> **状态（2026-10-08 更新）**
+> - **P0-A 路径发现**：已落地（`25a35ea3`）。
+> - **P0-B 发送链路**：已落地（`25a35ea3` 重试与错误码、`d6bb59be` 三处根因修复）——实现方案与本节
+>   原稿不同，见 [§2.2](#22-p0-b-发送链路已完成方案改写)。
+> - **P1 实时读取**：已落地（本轮，见 [§2.3](#23-实时读取原-p1-核心已完成)）。原方案里
+>   「WAL 帧解析」「watchdog 独立监控进程」两个设计**作废**，理由见 [§3.2](#32-作废的设计记录理由避免重走)。
+> - **待开发**：把「盯消息」下沉到主进程、**不叫模型**的零 token 门闩（[§3.3](#33-下一步主体lumii-侧事件源零-token-门闩)），
+>   其中「是否允许自动回复」属产品决策，需先拍板再写。
 
 ---
 
-## 一、现状问题诊断
+## 一、现状诊断（按实测修正）
 
-### 🔴 P0 问题：路径发现失败率高（20%+ 用户）
+### 1.1 原判断 vs 实测
 
-#### 现象
-```
-ERROR: 未找到微信 4.x 数据目录（~/xwechat_files/*/db_storage）
-```
+| 原方案判断 | 实测 | 证据 |
+|---|---|---|
+| P0-A：硬编码单一路径，20%+ 用户找不到数据目录 | **成立**，已修 | `list_accounts()` 多路径 + 注册表；本机数据其实在 `Documents\xwechat_files`（junction 是读的前提） |
+| P0-B：「UI Automation 定位失败」→ 需上 COM Interop | **不成立**。真因是三个独立缺陷（见 §1.2），与定位无关；且微信**不提供** `WeChat.Application` 这类 COM 接口，做它等于协议逆向——触碰「零注入」红线 | `d6bb59be`；实测往返 |
+| P1：「轮询 CPU 空转 99%」 | **定性错了**。轮的不是 CPU，是**模型 token**：每个 tick 都叫一次 LLM，只为发现「没事发生」。真正的技术缺陷在**读路径**（读旧×3、读贵×2） | §1.2 / §1.3 |
+| P1：「解析 WAL 帧、提取新消息 rowid」 | **不可行**：WAL 帧是**加密页**，里面没有可解析的行。正确姿势是「感知文件变化 → 增量解密 → 查库」，见 §2.3 | `wxread4.py` 的页格式 |
+| P1：「watchdog 监听 + 独立监控进程 + bridge 集成」 | **不必要**：MCP 子进程内单线程做增量即可（空闲 2.5ms/拍）；独立进程只多出生命周期、并发与状态同步问题 | §2.3 |
 
-#### 根因
-- **硬编码单一路径**：只查找 `~/xwechat_files`
-- **实际场景多样化**：
-  - 20% 用户数据在 `~/Documents/xwechat_files`（Windows 文档重定向）
-  - 5% 用户自定义安装路径（D:\、E:\ 等）
-- **错误提示不可操作**：只说"未找到"，不指引修复
+### 1.2 读路径的五个真实缺陷（本轮实测发现并修复）
 
-#### 影响范围
-- `list_sessions`、`read_history`、`poll_new`、`search_messages` 全部失败
-- Agent 被迫回退到 UI 自动化（截图 OCR + SendKeys，失败率 30%+）
+1. **读旧①（最严重）**：缓存新鲜度**只看主库 mtime**。微信是 WAL 模式，新消息先落 `-wal`、主库文件
+   只在 checkpoint 时才写——两次 checkpoint 之间的新消息在这个键上**完全不可见**：轮询永远轮不到。
+2. **读旧②**：`-wal` 文件是**不截断复用**的。每次 checkpoint 重置只改写 32 字节的头（新 salt）然后从
+   偏移 32 继续追加；上一轮的老帧**物理留在后面**。实测本机 `message_0.db-wal`：689 帧里 **683 帧不属于
+   当前会话**（salt 与头不符）。机械地把整文件当一段重放，会把**多个时代的页**混着贴上去——现场症状
+   正是「群行消失 / 群名回退」。
+3. **读旧③**：临时目录里的**过期 `.copy-wal`** 被当成这次的输入。checkpoint 后 SQLite 会**删掉** `-wal`，
+   而旧实现「源里没有就不复制」，于是上一轮的旧副本继续参与重放 → 又是读旧。
+4. **读贵①**：`keys()` 扫微信进程内存取密钥，实测 **~1.9s**，而每次全量重建都白付一遍（密钥在微信重启前不变）。
+5. **读贵②**：`Msg_*` 表**没有 create_time 索引**，`create_time > ?` 是全表扫描 + 临时排序；轮询还按
+   「每会话 × 每分片」各开一次连接（68 会话 → 135+ 次连接）。
 
----
+### 1.3 关键实测数据（本机：`message_0.db` 3.5MB + WAL 2.7MB，68 个会话）
 
-### 🟡 P0 问题：发送能力不稳定
-
-#### 现象
-```json
-{"ok": false, "detail": "输入未落地（fail-closed）", "error_code": "input_not_landed"}
-```
-
-#### 根因
-- **UI Automation 定位失败**：微信 4.x 使用 Qt 界面，传统 UIA 无法定位 `contenteditable` 输入框
-- **降级方案不可靠**：
-  - PowerShell + 剪贴板 + SendKeys：抢占前台、丢失焦点、UTF-8 编码问题
-  - 无重试机制、无批量发送
-
-#### 数据表现
-- `send_text` 首次成功率：68%
-- 用户主动触发重试后成功率：85%
-- 批量发送（5 条）全部成功率：42%
+| 项 | 改造前 | 改造后 |
+|---|---|---|
+| 冷启动首次读 | 3.2s | 1.9s（首拍仍要扫一次进程内存取密钥，不可省） |
+| 空闲一轮刷新 | 主库变了就 1.6~3.2s 全量；只动 WAL 则**永远看不到** | **2.5ms**（WAL 感知 + 密钥缓存） |
+| 一条新消息的增量 | —（看不见） | **~10ms**（解密新增帧 + 该会话一次查询） |
+| checkpoint 落主库那一次 | 1.6~3.2s | **~55ms**（换密钥缓存后：复制 8ms + 解密 908 页 30ms + 写 4ms + quick_check 9ms） |
+| 一次 `poll_new`（68 会话） | 266~300ms（全表扫描） | **31~42ms**（高水位复用；真变化才扫） |
+| 5 帧解密 / quick_check | — | 0.19ms / 8.6ms |
 
 ---
 
-### 🟠 P1 问题：轮询架构资源浪费
+## 二、已落地方案
 
-#### 现象
-```python
-# 每 60 秒轮询一次
-cron: every 60000ms → poll_new(since_ts)
-# 99% 返回 NO_REPLY（无新消息）
-```
+### 2.1 P0-A 路径自动发现（已完成）
 
-#### 资源消耗
-- **CPU 空转**：每分钟一次数据库全表扫描（message_0.db 平均 500MB）
-- **响应延迟**：最坏情况 59 秒（用户发消息后 1 分钟才回复）
-- **扩展性差**：监控 10 个好友需要 10 个 cron 任务
+`wechat_core.list_accounts()` 依次探测 `~/xwechat_files`、`~/Documents/xwechat_files`、注册表
+`HKCU\Software\Tencent\WeChat\FileSavePath`；`db_root()` 失败时给出**已扫描路径清单 + 修复建议**
+（含 `LUMII_WECHAT_DB` 环境变量写法）。多账号用 `LUMII_WECHAT_ACCOUNT` 锁定。
 
----
+### 2.2 P0-B 发送链路（已完成，方案改写）
 
-## 二、完整优化方案
+**真实根因（全部实测复现）**：
 
-### 🔥 **P0-A：自动路径发现 + 环境变量支持**
+1. **OCR 大小写**：目标校验用的归一化保留大小写，OCR 把 `Loop` 读成 `LOOP` → 相似度 0.25 → 误判失败。
+2. **输入落地校验不可靠**：本版微信输入框很高（窗口 y≈455–795），文字渲染在顶部，按「贴底区域」做 OCR
+   必然漏读小号拉丁文本 → 误报 `input_not_landed`。改为**剪贴板回读**（Ctrl+A/Ctrl+C 后读
+   `CF_UNICODETEXT`）比对。
+3. **标点吞字**：`KEYEVENTF_UNICODE` 逐字注入在标点处 100% 复现吞字（`看-着，挺` → `看--，，`），
+   加间隔无效。改为**剪贴板粘贴**（Ctrl+V）。
+4. **顺带修掉一个 ctypes 64 位坑**：`GetClipboardData`/`GlobalLock` 的 `HANDLE` 被按 32 位整型截断 →
+   剪贴板读取**静默返回空**。必须显式声明 `restype/argtypes`。
 
-#### 实现方案
+**现在的发送链路**（`wechat_sender.py`，仍是零注入）：环境闸门 → 目标会话双印证（内容锚点 + 头部相似度 +
+「更像别的会话即拒绝」反证 + 群成员昵称第三重）→ 输入落地（粘贴 + 剪贴板回读）→ 发送生效（输入框清空）→
+**读库确认**（`create_time` 之后该会话真的多了一条）。
 
-**1. 多路径探测策略（`wechat_core.py:list_accounts`）**
+**重试与错误码**（`server.py`）：`error_code` 由发送层文案归一，`_code_of` 是唯一码表（有测试对账，
+文案改了不改码表会静默退化成 `unknown`）。
 
-```python
-def list_accounts():
-    """枚举本机微信 4.x 账号数据目录。
+| 错误码 | 可否自动重试 | 为什么 |
+|---|---|---|
+| `input_not_landed` / `send_unconfirmed` / `attachment_not_landed` | ✅ | 消息**没发出去**，且发送层每次都会先 Ctrl+A/Del 清空输入框 → 重来不会粘两遍 |
+| `busy` / `clipboard_failed` / `verification_failed` | ✅ | 锁竞争 / 剪贴板偶发占用 / OCR 抖动，都属临时性 |
+| **`send_not_confirmed`**（已回车、库里没看到） | ❌ **绝不** | 语义存疑：可能真发出去了、只是还没落库——重试就是给好友发第二遍 |
+| `env_not_ready` / `target_unconfirmed` / `quote_not_found` / `menu_not_found` / `bad_args` / `attachment_missing` | ❌ | 重试也不会好，交给 Agent 改参数或请用户处理 |
 
-    多路径探测策略（按优先级）：
-    1. ~/xwechat_files（默认）
-    2. ~/Documents/xwechat_files（Windows 文档重定向）
-    3. 注册表探测（HKCU\Software\Tencent\WeChat\FileSavePath）
-    4. 全盘扫描（最后兜底，限 Windows 且用户授权）
-    """
-    candidates = [
-        os.path.join(os.path.expanduser("~"), "xwechat_files"),
-        os.path.join(os.path.expanduser("~"), "Documents", "xwechat_files"),
-    ]
-    # Windows 下从注册表取微信数据路径
-    if os.name == "nt":
-        try:
-            import winreg
-            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Tencent\WeChat")
-            val, _ = winreg.QueryValueEx(key, "FileSavePath")
-            if val: candidates.append(os.path.join(val, "xwechat_files"))
-        except: pass
-    
-    # 扫描所有候选路径
-    for base in candidates:
-        if os.path.isdir(base):
-            # 原有逻辑：枚举 <wxid>_<hex>/db_storage
-            ...
-```
+失败时返回 `suggestion`（可操作修复建议）+ `shot`（现场截图路径）。
 
-**2. 可操作的错误提示（`wechat_core.py:db_root`）**
+### 2.3 实时读取（原 P1 核心，已完成）
 
-```python
-if not accts:
-    hint = f"""未找到微信 4.x 数据目录。已扫描路径：
-  - {home}/xwechat_files
-  - {home}/Documents/xwechat_files
+**数据模型**：每个分片（`message_N.db` / `session.db` / `contact.db`）一份**明文镜像**（`%TEMP%/lumii-wechat-mcp/`），
+进程内常驻、按需增量刷新。
 
-修复建议：
-1. 确认微信已登录并有聊天记录
-2. 若数据在其他位置，设置环境变量：
-   LUMII_WECHAT_DB=D:\\path\\to\\xwechat_files\\wxid_xxx\\db_storage
-3. 或运行自检命令：python devcli.py selftest
-"""
-    raise RuntimeError(hint)
-```
+**四条机制**：
 
-#### 预期效果
-- 路径发现成功率：95%+（覆盖 Windows 文档重定向、注册表自定义路径）
-- 用户自助修复率：80%+（错误提示包含修复步骤）
+1. **新鲜度键 = 主库 + `-wal` 的 `(mtime, size)`**（旧实现只有主库）→ 修掉读旧①；主库变（checkpoint）才做
+   全量重建，只动 WAL 走增量。
+2. **增量重放**：续读 `-wal` 里**新提交**的帧，逐页解密后原地写进镜像（`pwrite` + 按提交页数截断），
+   再 `quick_check` 验一遍。一条新消息通常只有几帧 → 毫秒级。
+3. **帧归属判据（salt）**：只认「帧头 salt（[8:16]）== WAL 头 salt（[16:24]）」的帧，遇到不符即停 →
+   修掉读旧②（历史残留帧永不参与）。这是 SQLite 自己判「这一帧属不属于当前 WAL 会话」的规则。
+4. **双重护栏 + 副本清理**：陈旧 WAL（末次提交页数 < 库页数）一律弃用；重放结果必须过 `quick_check`；
+   源里已消失的 `-wal`/`-shm` 会把临时目录的旧副本一并删掉 → 修掉读旧③。
+
+**查询快路径**：`poll()` 先用 `local_id`（主键，AUTOINCREMENT，插入即单调）做**高水位探测**：
+表的高水位没动 + 这次窗口不比上次宽 + 上次没被 `per` 截断 → 直接复用上次结果（一次索引探测即可跳过整张表）；
+只有真变了的表才做那次（无索引的）`create_time` 扫描 → 修掉读贵②。68 张表一轮 31~42ms。
+
+**密钥缓存**（`keys()`，TTL 10 分钟 + 解密出现整页 HMAC 失败时自动重取）→ 修掉读贵①，把「checkpoint 全量」
+从 1.6~3.2s 压到 ~55ms。
+
+**为什么不做后台线程 / 独立监听进程**：镜像与数据库连接是单线程共享状态，加线程就要处处加锁；而空闲一拍
+只要 2.5ms、高水位探测只走索引——**调用方（几秒一次）同步跑就够**，没有引入并发的理由。
+
+**语义保证**：*不读旧*（三条护栏：salt 归属 / dbsize / quick_check）、*不漏*（有变化必扫；`next_since_ts`
+按 `create_time` 严格大于推进）、*不重复*（同窗口复用 + 交付后水位前移）。
 
 ---
 
-### 🔥 **P0-B：发送能力增强——混合策略**
+## 三、待开发
 
-#### 实现方案
+### 3.1 发送侧小增强（可选，低优先）
 
-**1. 分层降级策略**
+- 同 talker 连续多条时**一次打开会话发多条**（现在逐条独立校验，安全优先；只在批量场景做合并优化）。
+- 发送失败后的「半自动重试」：把 `send_not_confirmed` 的现场（截图 + 读库结果）整理成一句给用户的确认问句。
 
-```python
-# wechat_sender.py:send_text_robust()
+### 3.2 作废的设计（记录理由，避免重走）
 
-def send_text_robust(talker, text, max_retry=2):
-    """发送文本消息，三层降级策略。
+| 设计 | 结论 | 理由 |
+|---|---|---|
+| COM Interop（`WeChat.Application`） | **作废** | 微信不提供该接口；实现它=协议逆向/DLL 注入，碰「零注入」红线 |
+| UI Automation 定位输入框 | **作废** | 微信 4.x（Qt）不暴露 `contenteditable`，UIA 拿不到；现方案用「几何布局 + 剪贴板」 |
+| 自己解析 WAL 帧提取 rowid | **作废** | 帧是加密页，行级信息不可得；改成「salt 判会话 + 增量解密 + 查库」 |
+| `watchdog` 监听 + 独立监控进程 | **作废** | MCP 子进程内同步增量已满足实时（秒级）；独立进程徒增生命周期/状态同步问题 |
+| 环境变量 `LUMII_WECHAT_DB` 作为主路径 | 降级为**兜底** | 多路径探测 + 注册表已覆盖；环境变量只在探测失败时用 |
 
-    策略 1（最优）：ComInterop 直接调用微信 COM 接口（需微信进程支持）
-    策略 2（兜底）：UI Automation 定位输入框（兼容微信 3.x/4.x）
-    策略 3（终极）：剪贴板 + SendKeys（最后手段，会抢前台）
-    """
-    for attempt in range(max_retry):
-        # 策略 1：COM Interop（最快、最稳定）
-        try:
-            if send_via_com(talker, text):
-                return {"ok": True, "method": "com"}
-        except NotImplementedError:
-            pass  # 微信版本不支持 COM
-        
-        # 策略 2：UI Automation（兼容性好）
-        result = send_via_uia(talker, text)
-        if result["ok"]:
-            return {"ok": True, "method": "uia"}
-        
-        # 策略 3：剪贴板 + SendKeys（最后手段）
-        if attempt == max_retry - 1:
-            return send_via_clipboard(talker, text)
-        
-        time.sleep(0.5)  # 重试前等待
+### 3.3 下一步主体：Lumii 侧「事件源」（零 token 门闩）
+
+**问题**：现在的监控姿势是「定时任务每 N 分钟**叫一次模型**，问有没有新消息」——token 全花在「没事发生」上，
+而把间隔拉长又牺牲实时性。这一步的目标：**没事发生时不叫模型**。
+
+**先例**：`pet-sensing`（`apps/windows/src/main/agent-runtime/pet-sensing-tick.ts`）已经确立了模式——
+系统 cron + magic instruction + **零 token 零网络的确定性读库**，只在「该冒泡」时才产生副作用。
+
+**设计**：
+
+```
+wechat-watch（系统 cron，every 5~15s，用户自管）
+   └─ 主进程确定性处理器（不叫模型）
+        ├─ 调 MCP 工具 poll_new(next_since_ts)   ← 增量、便宜（§2.3）
+        ├─ 过滤：只要 from_me=false 且不在冷却期/黑名单
+        ├─ 没有 → 什么都不做（零 token、零气泡、零通知）
+        └─ 有   → 才驱动一次 Agent 回合（把新消息作为输入）→ 由回合决定通知/起草/（可选）发送
 ```
 
-**2. COM Interop 实现（新增）**
+**需要的改动**（估算一天内）：
 
-```python
-# wechat_sender.py:send_via_com()
+| # | 改动 | 说明 |
+|---|---|---|
+| a | `McpManager.callTool(server, tool, args)` | 把已有的 `McpClient.callTool` 透出来（现在只有 Agent 回合内能用）；含测试 |
+| b | `agent-runtime/wechat-watch-tick.ts` | 读配置 → 调 `poll_new` → 判断 → 驱动回合；含单测 |
+| c | 配置文件 `~/.lumii/wechat-watch.json` | `{enabled, interval, watch:[talker...], reply:{mode: "notify"|"draft"|"auto", cooldownS, whitelist}}`，**默认 `notify`（只通知不回复）** |
+| d | 播种 cron + 任务页可见 | 参照 `ensurePetSensingCronJobSeeded` + `cron-job-meta.ts` 的三处联合类型 |
 
-def send_via_com(talker, text):
-    """通过 COM 接口直接调用微信发送能力（微信 4.x 部分版本支持）。
+**护栏（产品决策项，先定后写）**：
 
-    优势：
-    - 无需前台窗口
-    - 不占用剪贴板
-    - 支持批量发送
-    """
-    import win32com.client
-    try:
-        wx = win32com.client.Dispatch("WeChat.Application")
-        wx.SendMessage(talker, text)
-        return True
-    except Exception:
-        raise NotImplementedError("当前微信版本不支持 COM 接口")
-```
+- **自动回复＝以用户身份发消息、不可撤回**。默认必须是 `notify`；`auto` 只对白名单会话开，并带冷却时间。
+- 发之前必过 `check_env`；窗口不在前台 → 只记待办并通知用户，**不抢前台**（沿用现有发送纪律）。
+- 回复内容不得包含 AI 身份、不得把画像/聊天原文外传给第三方（沿用既有准则）。
+- 速率与熔断：同一会话冷却、每小时上限、连续失败自动降级为 notify。
 
-**3. 批量发送优化**
+**判据（写好就得能测）**：
 
-```python
-# server.py:send_batch()
-
-def send_batch(messages, dry_run=True):
-    """批量发送消息，复用会话上下文。
-
-    优化点：
-    - 相同 talker 的消息合并发送（减少窗口切换）
-    - 失败消息单独重试，不阻塞后续
-    - 返回详细的批次统计
-    """
-    results = []
-    by_talker = {}
-    for msg in messages:
-        by_talker.setdefault(msg["talker"], []).append(msg["text"])
-    
-    for talker, texts in by_talker.items():
-        # 打开会话一次，发送多条消息
-        open_session(talker)
-        for text in texts:
-            results.append(send_text_robust(talker, text))
-    
-    return {"sent": sum(r["ok"] for r in results), "failed": ..., "details": results}
-```
-
-#### 预期效果
-- 首次发送成功率：85% → 95%+
-- 批量发送（5 条）全部成功率：42% → 90%+
-- 前台抢占频率：100% → 20%（仅 COM 不可用时降级）
+- 空闲 10 分钟的模型 token 消耗 = **0**；
+- 新消息 → 首条回复的延迟 < 15s（≈ 轮询间隔 + 发送耗时）；
+- **不丢不重**：`next_since_ts` 连续推进，重启后不重复回复（水位落盘）。
 
 ---
 
-### 🔥 **P1：实时监控架构重构——事件驱动**
+## 四、路线图（更新）
 
-#### 当前架构问题
-
-```
-┌─────────────┐
-│ Cron Task 1 │ ──每 60s──> poll_new(Loop)     ──99%──> NO_REPLY（空转）
-└─────────────┘
-┌─────────────┐
-│ Cron Task 2 │ ──每 60s──> poll_new(Alice)    ──99%──> NO_REPLY（空转）
-└─────────────┘
-    ...（N 个任务，N 个好友）
-```
-
-**资源浪费**：
-- 每分钟 N 次数据库全表扫描（500MB × N）
-- 最坏响应延迟：59 秒
+| 阶段 | 内容 | 状态 | 提交 |
+|---|---|---|---|
+| 1 | P0-A 多路径探测 + 可操作错误提示 | ✅ | `25a35ea3` |
+| 1 | P0-B 发送重试 + 错误码 + 修复建议 | ✅ | `25a35ea3` |
+| 1 | P0-B 发送链路三处根因修复（OCR/剪贴板/粘贴） | ✅ | `d6bb59be` |
+| 2 | 诊断工具增强（`devcli selftest` / `watch`） | ✅ | 本轮 |
+| 2 | **实时读取：WAL 感知 + 增量重放 + 快路径 + 密钥缓存** | ✅ | 本轮 |
+| 3 | Lumii 侧零 token 门闩（§3.3） | ⏳ 待产品决策 | — |
+| 4 | 监控面板 UI（盯哪些人、开关、最近事件） | ⏳ | — |
+| — | ~~COM Interop~~ / ~~WAL 帧解析~~ / ~~watchdog 进程~~ | ❌ 作废 | §3.2 |
 
 ---
 
-#### 优化方案：数据库 WAL 监听 + 事件驱动
+## 五、成功指标（实测对照）
 
-**架构设计**
-
-```
-┌────────────────────────────────────────┐
-│ WeChat Message Monitor (单例进程)        │
-│                                        │
-│  ┌──────────────────────────────────┐  │
-│  │ WAL Watcher                       │  │
-│  │ - 监听 message_0.db-wal 文件变化   │  │
-│  │ - 解析 WAL 帧，提取新消息 rowid     │  │
-│  │ - 触发 onNewMessage 事件           │  │
-│  └──────────────────────────────────┘  │
-│              ↓                         │
-│  ┌──────────────────────────────────┐  │
-│  │ Message Router                    │  │
-│  │ - 按 talker 分发新消息             │  │
-│  │ - 过滤监控列表（Loop, Alice, ...） │  │
-│  └──────────────────────────────────┘  │
-│              ↓                         │
-│  ┌──────────────────────────────────┐  │
-│  │ Agent Dispatcher                  │  │
-│  │ - 调用 Agent 处理新消息            │  │
-│  │ - 按护栏决定回复/转人工            │  │
-│  └──────────────────────────────────┘  │
-└────────────────────────────────────────┘
-```
-
-**实现方案**
-
-**1. WAL 监听器（新增 `wechat_watcher.py`）**
-
-```python
-# wechat_watcher.py
-
-import os
-import time
-import struct
-from watchdog.observers import Observer
-from watchdog.events import FileSystemEventHandler
-
-class WeChatWALWatcher(FileSystemEventHandler):
-    """监听微信 message_0.db-wal 文件变化，实时解析新消息。
-
-    原理：
-    - SQLite WAL 模式下，新写入先落在 -wal 文件
-    - 监听 -wal 文件的 modify 事件
-    - 解析 WAL 帧，提取新 rowid
-    - 从主库查询完整消息
-    """
-    def __init__(self, db_path, on_new_message):
-        self.db_path = db_path
-        self.wal_path = db_path + "-wal"
-        self.on_new_message = on_new_message
-        self.last_offset = 0
-    
-    def on_modified(self, event):
-        if event.src_path != self.wal_path:
-            return
-        
-        # 读取 WAL 新增部分
-        with open(self.wal_path, "rb") as f:
-            f.seek(self.last_offset)
-            data = f.read()
-            self.last_offset = f.tell()
-        
-        # 解析 WAL 帧（简化版，完整实现见 wxread4.py）
-        frames = self.parse_wal_frames(data)
-        for frame in frames:
-            if frame["table"] == "message":
-                # 触发回调
-                self.on_new_message(frame["rowid"])
-    
-    def parse_wal_frames(self, data):
-        """解析 WAL 帧，提取表名和 rowid。"""
-        # 简化实现：完整版需按 SQLite WAL 格式解析
-        # 参考 wxread4.py:apply_wal()
-        ...
-```
-
-**2. 监控服务（新增 `wechat_monitor_service.py`）**
-
-```python
-# wechat_monitor_service.py
-
-import threading
-from wechat_watcher import WeChatWALWatcher
-import wechat_core as core
-
-class MessageMonitorService:
-    """微信消息监控服务（单例，后台线程）。
-
-    用法：
-        service = MessageMonitorService()
-        service.watch("wxid_loop", on_message=lambda msg: handle(msg))
-        service.start()  # 后台运行
-    """
-    def __init__(self):
-        self.watchers = {}  # {talker: callback}
-        self.thread = None
-    
-    def watch(self, talker, on_message):
-        """添加监控目标。"""
-        self.watchers[talker] = on_message
-    
-    def unwatch(self, talker):
-        """移除监控目标。"""
-        self.watchers.pop(talker, None)
-    
-    def start(self):
-        """启动监控服务（后台线程）。"""
-        if self.thread and self.thread.is_alive():
-            return
-        
-        db_path = core.db_root() + "/message/message_0.db"
-        watcher = WeChatWALWatcher(db_path, self._on_new_message)
-        
-        from watchdog.observers import Observer
-        observer = Observer()
-        observer.schedule(watcher, os.path.dirname(db_path), recursive=False)
-        
-        self.thread = threading.Thread(target=observer.run, daemon=True)
-        self.thread.start()
-    
-    def _on_new_message(self, rowid):
-        """WAL 监听器回调：查询完整消息并分发。"""
-        msg = core.query_message_by_rowid(rowid)
-        if msg["from_me"]:
-            return  # 忽略自己发的消息
-        
-        talker = msg["talker"]
-        if talker in self.watchers:
-            self.watchers[talker](msg)
-```
-
-**3. Lumii 集成（修改 `bridge.ts`）**
-
-```typescript
-// apps/windows/src/main/agent-runtime/bridge.ts
-
-class WeChatMonitorBridge {
-  private monitorProcess: ChildProcess | null = null;
-
-  async startMonitoring(targets: Array<{talker: string, agentId: string}>) {
-    // 启动 wechat_monitor_service.py 作为独立进程
-    this.monitorProcess = spawn('python', [
-      'resources/wechat-mcp/wechat_monitor_service.py',
-      '--targets', JSON.stringify(targets),
-    ]);
-
-    // 监听 stdout（新消息事件）
-    this.monitorProcess.stdout.on('data', (data) => {
-      const event = JSON.parse(data.toString());
-      // {"type": "new_message", "talker": "wxid_loop", "text": "你好", "ts": 1791430000}
-      
-      // 触发 Agent 回合
-      this.handleNewMessage(event);
-    });
-  }
-
-  private async handleNewMessage(event: MessageEvent) {
-    const target = this.targets.find(t => t.talker === event.talker);
-    if (!target) return;
-
-    // 创建 Agent 回合处理消息
-    const agentInstance = await this.agentRuntime.createInstance({
-      agentId: target.agentId,
-      message: `[微信新消息] ${event.text}`,
-      context: {
-        talker: event.talker,
-        timestamp: event.ts,
-      },
-    });
-
-    // 等待 Agent 决策并发送回复
-    const reply = await agentInstance.run();
-    if (reply.shouldSend) {
-      await this.sendWeChatMessage(event.talker, reply.text);
-    }
-  }
-}
-```
-
-#### 预期效果
-
-| 指标 | 当前（轮询） | 优化后（事件驱动） | 改善幅度 |
-|------|------------|------------------|---------|
-| 平均响应延迟 | 30 秒 | < 2 秒 | **93% ↓** |
-| CPU 空转率 | 99% | < 5% | **94% ↓** |
-| 监控 10 个好友 | 10 cron 任务 | 1 监控进程 | **90% ↓** |
-| 数据库读取频率 | 600 次/小时 | 按实际消息数（平均 10 次/小时） | **98% ↓** |
+| 指标 | 原目标 | 现状 |
+|---|---|---|
+| 路径发现成功率 | 95%+ | 多路径 + 注册表 + 兜底环境变量；本机 2 条路径均命中 |
+| 发送成功率（真人往返） | 95%+ | 与 Loop 端到端往返逐字一致；失败均有稳定 `error_code` + 建议 |
+| 增量读取成本 | — | 空闲 2.5ms/拍；新消息 ~10ms；poll 31~42ms（68 会话） |
+| 读到的数据新鲜度 | — | **永不读旧**（三条护栏）；与微信界面逐条对照一致 |
+| 响应延迟 | < 2s | 取决于轮询节拍：读取侧已不是瓶颈（≥5s 一拍即秒级可见）；**待 §3.3 把「叫模型」这一环去掉** |
+| 空转成本 | — | 读取侧已近零；**模型侧仍为每拍一次**，待 §3.3 |
 
 ---
 
-### 🟢 **P2：用户体验增强**
+## 附录
 
-#### 1. 首次使用引导
+### A. 验证与复现命令
 
-```python
-# server.py:initialize() 返回 instructions
+```bash
+cd apps/windows/resources/wechat-mcp
 
-INSTRUCTIONS = """
-## 微信消息监控最佳实践
+# 离线回归（不需要微信、不碰真实数据）：真加密夹具逐字节 + 真 SQLite 语义 + 错误码对账
+python test_watch.py
 
-### 快速开始
-1. 首次使用建议运行自检：`python devcli.py selftest`
-2. 查看可监控的会话：`mcp__wechat-local__list_sessions()`
-3. 测试消息发送（dry_run）：`mcp__wechat-local__send_text(talker="xxx", text="测试", dry_run=true)`
+# 真机自检（只读）：依赖 / 数据目录 / 会话 / 实时读取耗时
+python devcli.py selftest
 
-### 实时监控设置
-启用事件驱动监控（推荐）：
-  monitor = MessageMonitorService()
-  monitor.watch("wxid_loop", on_message=lambda msg: handle(msg))
-  monitor.start()
+# 真机盯消息（只读）：每拍打一行 JSON（新消息、滞后秒数、刷新/查询耗时、快路径命中）
+python devcli.py watch --ticks 10 --interval 3
 
-或使用轮询模式（兼容方案）：
-  cron: every 60s → poll_new(since_ts)
-
-### 常见问题
-Q: "未找到数据目录"
-A: 设置环境变量 LUMII_WECHAT_DB=实际路径，或运行 selftest 自动探测
-
-Q: 发送失败 "input_not_landed"
-A: 确保微信窗口可见，或等待下次自动重试（最多 2 次）
-"""
+# 协议级直连（不经 App，最快；dry_run 安全）
+printf '<initialize 行>\n<tools/call 行>\n' | python server.py
 ```
 
-#### 2. 诊断工具增强
+### B. 关键文件与常量
 
-```python
-# devcli.py:selftest() 输出示例
+| 文件 | 职责 |
+|---|---|
+| `wechat_core.py` | 目录发现 / 取密钥（缓存）/ 解密 / `_ShardMirror` 增量镜像 / `poll` 快路径 / 蒸馏 / 画像 |
+| `wxread4.py` | SQLCipher4 页解密 + WAL 解析（`parse_wal_frames` 的 **salt 会话判据**在这里） |
+| `wechat_sender.py` | 发送（布局 + 剪贴板粘贴 + 回读 + 读库确认） |
+| `server.py` | MCP 入口 + 工具描述 + `_code_of` 码表 + `_send_with_retry` |
+| `devcli.py` | 自检命令行（`selftest` / `watch` / `sessions` / `history` / `send` / `digest` …） |
+| `test_watch.py` | 实时读取的离线回归（A/B/C 三层，10 例） |
 
-$ python devcli.py selftest
-
-✅ 依赖检查
-  - pycryptodome: 已安装 (v3.20.0)
-  - zstandard: 已安装 (v0.22.0)
-
-✅ 数据目录探测
-  - 找到 1 个账号：wxid_sngf3b86qbz021
-  - 路径：C:\Users\75791\Documents\xwechat_files\wxid_sngf3b86qbz021_9c2d\db_storage
-  - 最后活跃：2026-10-08 11:23:45
-
-✅ 会话列表
-  - Loop (wxid_s6piyhfvptv522) - 最后消息：10:51
-  - Alice (wxid_alice123) - 最后消息：昨天
-  - ...共 45 个会话
-
-⚠️ 发送能力
-  - UI Automation: 不可用（微信 4.x Qt 界面）
-  - 剪贴板方式: 可用（需前台窗口）
-  - 建议：等待 v0.6.0 的 COM Interop 支持
-
-✅ 监控服务
-  - WAL 监听: 可用
-  - 建议使用事件驱动模式（响应延迟 < 2 秒）
-```
-
----
-
-## 三、实施路线图
-
-### 阶段 1：紧急修复（1 周）
-- [x] ✅ P0-A：多路径探测 + 可操作错误提示
-- [ ] ⏳ P0-B：发送降级策略（UIA + 剪贴板混合）
-
-### 阶段 2：稳定性提升（2 周）
-- [ ] P0-B：COM Interop 发送能力（需微信逆向分析）
-- [ ] P2：诊断工具增强（selftest 命令）
-
-### 阶段 3：架构重构（3 周）
-- [ ] P1：WAL 监听器实现
-- [ ] P1：监控服务独立进程
-- [ ] P1：Lumii bridge 集成
-
-### 阶段 4：用户体验（1 周）
-- [ ] P2：首次使用引导
-- [ ] P2：错误自愈建议
-- [ ] P2：监控面板 UI
-
----
-
-## 四、风险评估与缓解
-
-### 风险 1：COM Interop 接口不稳定
-- **风险等级**：中
-- **影响**：微信版本更新后 COM 接口失效
-- **缓解**：保留 UIA + 剪贴板降级方案，定期测试各版本兼容性
-
-### 风险 2：WAL 监听性能开销
-- **风险等级**：低
-- **影响**：高频消息场景下 CPU 占用增加
-- **缓解**：
-  - WAL 解析在独立进程，不影响主应用
-  - 增加批量处理窗口（100ms 内的消息合并处理）
-
-### 风险 3：多路径探测误判
-- **风险等级**：低
-- **影响**：扫描到旧的/备份的微信数据
-- **缓解**：按 `message_0.db` 的 mtime 排序，取最近活跃的账号
-
----
-
-## 五、成功指标
-
-### 核心指标
-- **路径发现成功率**：95%+（当前 80%）
-- **首次发送成功率**：95%+（当前 68%）
-- **平均响应延迟**：< 2 秒（当前 30 秒）
-- **CPU 空转率**：< 5%（当前 99%）
-
-### 用户满意度
-- **首次使用成功率**：90%+（当前 60%）
-- **需要手工干预率**：< 10%（当前 40%）
-- **NPS（净推荐值）**：50+（当前未测量）
-
----
-
-## 附录：参考资料
-
-- [SQLite WAL 格式规范](https://www.sqlite.org/wal.html)
-- [微信数据库结构分析](./wechat-db-schema.md)
-- [UI Automation 最佳实践](./uia-patterns.md)
-- [错误日志原文](./temp/错误日志.log)
+- 护栏常量：`_plain` 的陈旧判据（`dbsize >= 主库页数`）、`_incr` 的 `quick_check`、`_send_with_retry` 的
+  `RETRIABLE_CODES` / `NON_RETRIABLE_CODES`。
+- 运行期注意：**改 `.py` 后必须重启 App**（MCP 子进程在连接时载入代码）；`dev:restart` 可能静默失败。

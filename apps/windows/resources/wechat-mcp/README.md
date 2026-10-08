@@ -98,7 +98,7 @@ Windows 上 PATH 里的 `%LOCALAPPDATA%\Microsoft\WindowsApps\python.exe` 是 Mi
 |---|---|
 | `list_sessions(query?)` | 列会话（显示名 + talker + 最新预览），`query` 按关键词过滤 |
 | `read_history(talker, limit, before_ts?)` | 读历史（正序；带 `cursor`/`has_more` 翻页）；每条带 `from_me`/`sender` |
-| `poll_new(since_ts)` | 读某 Unix 秒之后的增量新消息 |
+| `poll_new(since_ts)` | 增量新消息（正序）。每条带 `from_me`/`sender`（自己发的也返回）；返回 `next_since_ts` 供下一轮直接用（**别传墙上时钟的 now**，同秒会漏）。走增量快路径：只解密新增的 WAL 帧、只扫有变化的会话表 |
 | `search_messages(keyword, talker?, since?, until?)` | 关键词/时间检索（跨全部时间分片） |
 | `list_unread()` | 未读会话 + 最近一条预览 |
 | `check_env()` | 自检：微信进程/窗口/最小化/前台/尺寸·DPI + 依赖(`deps`)与账号(`accounts`) |
@@ -143,7 +143,17 @@ Windows 上 PATH 里的 `%LOCALAPPDATA%\Microsoft\WindowsApps\python.exe` 是 Mi
 | `wechat_core.py` | 只读读取（发现目录/取密钥/解密/查询/蒸馏/画像） |
 | `wechat_sender.py` | 发送（截图 OCR + SendInput + 剪贴板） |
 | `wxread4.py` / `wxkey4.py` | SQLCipher4 解密 / 进程内存取密钥 |
-| `devcli.py` | 自检命令行（`status/sessions/history/send/sendfile/reply/digest/profile/state/clear/accounts...`） |
+| `devcli.py` | 自检命令行（`status/sessions/history/send/sendfile/reply/watch/selftest/digest/profile/state/clear/accounts...`） |
 | `ocr4.ps1` / `shot.ps1` | OCR / 截图兜底（PowerShell） |
 
-自检：`python devcli.py selftest`。
+自检：`python devcli.py selftest`（依赖 / 数据目录 / 会话 / 实时读取耗时一次看全）。
+盯消息：`python devcli.py watch [since_ts] [--ticks N] [--interval S]` —— 连续打拍，
+输出每拍的新消息、滞后秒数、刷新与查询耗时、快路径命中情况。
+
+### 实时读取（2026-10-08 起）
+
+微信是 WAL 模式：新消息先落 `-wal`，主库文件常常不动。读取层因此按「**主库 + -wal 任一变化都刷新**」
+判新鲜（旧实现只看主库 mtime，会**静默读旧**），并只把**属于当前 WAL 会话**的提交帧增量打进明文镜像
+（`-wal` 是不截断复用的，文件里混着多轮历史残留帧，靠每条帧自带的 salt 与 WAL 头比对来判定归属）。
+实测（本机 3.5MB 库）：空闲刷新 ~2.5ms，单条新消息增量 ~10ms，只有 checkpoint 落主库时才做一次全量
+（~55ms，密钥已缓存；原先一次要 ~1.9s 全在扫进程内存取密钥）。
