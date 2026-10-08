@@ -8,7 +8,17 @@ import hmac
 import os
 import struct
 import sys
-from Crypto.Cipher import AES
+
+# pycryptodome 缺失时仍要让 MCP Server 能启动、完成握手并通过 check_env 报告依赖，
+# 只在真正解密时才报错
+try:
+    from Crypto.Cipher import AES
+except ImportError:  # pragma: no cover
+    AES = None
+
+MISSING_CRYPTO_HINT = ("缺少依赖 pycryptodome，无法解密微信数据库。"
+                       "请执行：python -m pip install pycryptodome zstandard"
+                       "（或用 `uv run server.py` 启动，依赖会自动安装）")
 
 PAGE = 4096
 RESERVE = 80
@@ -38,6 +48,8 @@ def decrypt_page(page, enc_key, mac_key, pageno, has_salt):
     ct = page[offset:PAGE - RESERVE]
     if len(ct) % 16:
         return None
+    if AES is None:
+        raise RuntimeError(MISSING_CRYPTO_HINT)
     pt = AES.new(enc_key, AES.MODE_CBC, iv).decrypt(ct)
     body = pt + page[PAGE - RESERVE:PAGE]
     if pageno == 0 and has_salt:
