@@ -97,6 +97,7 @@ const COMPANION_INSTRUCTIONS = new Set([
   '__pet_dispatch__',
   '__pet_sensing__',
   '__pet_evolve__',
+  '__wechat_watch__',
 ])
 
 export function isLocalCompanionInstruction(message: string): boolean {
@@ -145,6 +146,11 @@ export interface LocalCompanionDeps {
    * 但冷启动与让路那两道闸门不绕。
    */
   runPetEvolve?: (options?: LocalCompanionRunOptions) => Promise<string>
+  /**
+   * 微信消息盯梢一拍（cron 触发，见 wechat-watch-tick.ts）。
+   * 零 token 的确定性读库：没有新消息就什么都不做。
+   */
+  runWechatWatch?: () => Promise<string>
 }
 
 /** Companion 指令执行选项 */
@@ -203,6 +209,11 @@ export async function handleLocalCompanionInstruction(
       // 反思走 `manual` 绕的是**日界守卫**（一天一次）——手动点一下不该什么都不发生；
       // 冷启动与"让路于用户回合"那两道不绕（见 pet-evolve.ts 的 `manual` 注释）
       return deps.runPetEvolve({ manual: options.manual === true })
+    }
+    case '__wechat_watch__': {
+      if (!deps.runWechatWatch) return 'wechat watch unavailable'
+      // 无软门闩：这拍要么「无新消息」（零成本），要么报告几条——没有需要绕过的判断
+      return deps.runWechatWatch()
     }
     default:
       return `unknown companion instruction: ${instruction}`

@@ -124,7 +124,7 @@ import {
   type WikiEroExtractSourceResult,
 } from '@mtbot/agent-runtime'
 import { McpManager, type McpServerRuntimeStatus } from './mcp-manager'
-import type { McpServerEntry } from '../config/mcp-config'
+import { loadMcpServerConfigs, type McpServerEntry } from '../config/mcp-config'
 import { PermissionController } from './permission-controller'
 import { readWorkspaceTextForWiki } from './wiki-text-reader'
 import { syncWikiSourceToVault } from './wiki-vault-host'
@@ -177,6 +177,11 @@ import {
 import { handleEvolutionTick } from './evolution-tick'
 import { ensurePetDispatchCronJobSeeded, runPetDispatch, syncPetDispatchJobEnabled } from './pet-dispatch'
 import { ensurePetSensingCronJobSeeded, runPetSensing } from './pet-sensing-tick'
+import {
+  ensureWechatWatchCronJobSeeded,
+  runWechatWatch,
+  WECHAT_WATCH_MCP_SERVER,
+} from './wechat-watch-tick'
 import { ensurePetEvolveCronJobSeeded, runPetEvolve, syncPetEvolveJobEnabled } from './pet-evolve'
 import { recordPetPersonalityEvent } from './pet-personality'
 import { persistPetTaskReceipt, readPetTaskDimension, recordPetTaskOutcome } from './pet-task-store'
@@ -2142,6 +2147,19 @@ export class AgentRuntimeBridge {
              * 其余的出口各自注入：日记走 `writeDiaryFor`（与助手那份同一个实现）、
              * 人格事件走 `recordPetPersonalityEvent`（它内部装 tracker）。
              */
+            /**
+             * 微信消息盯梢（本机微信）：零 token 的确定性读库——
+             * 主进程直接调 MCP 工具 `wechat-local.poll_new`，没有新消息就什么都不做。
+             * 见 wechat-watch-tick.ts 文件头（为什么不能靠"每 N 分钟叫一次模型问一句"）。
+             */
+            runWechatWatch: () =>
+              runWechatWatch({
+                getDb: () => this.localDb.db,
+                callMcpTool: (server, tool, args) => this.mcpManager.callTool(server, tool, args),
+                showNotification: this.config.showCronNotification
+                  ? (title, body) => this.config.showCronNotification!(title, body)
+                  : undefined,
+              }),
             runPetEvolve: (options) =>
               runPetEvolve({
                 getDb: () => this.localDb.db,
@@ -2196,6 +2214,22 @@ export class AgentRuntimeBridge {
     // 门闩与派发**相同**（让路于用户回合）、节拍与两条都不同（1 小时一拍），
     // 那正是"该新开一条"的判据（见 pet-evolve.ts 文件头）
     ensurePetEvolveCronJobSeeded(this.localDb.db)
+    // 微信消息盯梢（本机微信）：同样是独立的一条——它是**零 token 的确定性读库**，
+    // 15 秒一拍、没有新消息就什么都不做（见 wechat-watch-tick.ts 文件头）。
+    // **看配置决定建不建**：客户端不依赖微信 MCP，没配/没启用的机器上不出现这条任务。
+    //
+    // ⚠️ 这里必须读**配置文件**（`loadMcpServerConfigs`）而不是 `this.mcpManager`：
+    // initializeCronScheduler 在构造函数早期（:803）就跑，而 mcpManager 要到 :2384 才赋值——
+    // 走 manager 会 TypeError 把整个启动打断（实测：应用起来后立刻"优雅退出"）。
+    // 而且任何异常都不该影响启动：种子失败最多是没有这条任务。
+    try {
+      const mcpConfigured = loadMcpServerConfigs().some(
+        (s) => s.name === WECHAT_WATCH_MCP_SERVER && s.enabled !== false,
+      )
+      ensureWechatWatchCronJobSeeded(this.localDb.db, { mcpConfigured })
+    } catch (err) {
+      log.warn('[bridge] wechat-watch 播种失败（不影响启动）:', err)
+    }
     // 宠物侧**两条** job 都跟「允许宠物主动做事」（五期 T5.9 / 七期 T7.4）。
     // **启动时也同步一次**，否则会出现"设置里关着、任务页里开着"——两个开关互相打架
     // （详见 setCompanionCronJobEnabled 的注释）

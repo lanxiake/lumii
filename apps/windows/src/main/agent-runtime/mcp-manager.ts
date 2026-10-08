@@ -334,6 +334,36 @@ export class McpManager {
   }
 
   /**
+   * 直接调某个 MCP Server 的工具——**不经 Agent 回合、不叫醒模型**。
+   *
+   * 用途：主进程里的确定性门闩（如微信消息巡检）要先用一个只读工具做判断，
+   * 「没变化」这一路不该产生任何模型开销。返回工具文本；Server 未连接或工具
+   * `isError` 时**抛错**，由调用方降级（门闩的失败一律是「这次什么都不做」，绝不乱发）。
+   */
+  async callTool(
+    serverName: string,
+    toolName: string,
+    args: Record<string, unknown> = {},
+  ): Promise<string> {
+    const client = this.mcpClients.get(serverName)
+    if (!client) {
+      throw new Error(`MCP Server [${serverName}] 未连接`)
+    }
+    const result = (await client.callTool(toolName, args)) as {
+      content?: Array<{ type: string; text?: string }>
+      isError?: boolean
+    }
+    const text = (result.content ?? [])
+      .filter((c) => c.type === 'text' && c.text)
+      .map((c) => c.text as string)
+      .join('\n')
+    if (result.isError) {
+      throw new Error(text || `MCP 工具 ${toolName} 返回错误`)
+    }
+    return text
+  }
+
+  /**
    * 需要后台化的完整工具名集合（如 mcp__comfyui-remote__enqueue_workflow）。
    *
    * 由各 Server 配置的 `backgroundTools`（短名）拼上 `mcp__<server>__` 前缀得到，

@@ -152,3 +152,44 @@ describe('McpManager.disconnectAll（连接中竞态）', () => {
     ).toBe(0)
   })
 })
+
+/**
+ * `McpManager.callTool` 的契约：给主进程里的**确定性门闩**用——
+ * 巡检逻辑要先用一个只读工具做判断，「没变化」这一路不该叫醒模型。
+ * 关键约束：失败**必须抛错**（调用方据此降级为「这次什么都不做」），
+ * 绝不能把 `isError` 的结果当成功数据返回——那会让门闩拿到垃圾 JSON。
+ */
+describe('McpManager.callTool', () => {
+  function makeCallToolManager(callTool: (name: string, args: unknown) => Promise<unknown>) {
+    const clients = new Map([['wechat-local', { callTool } as never]])
+    const toolRegistry = { register: vi.fn(), unregister: vi.fn() }
+    return new McpManager(toolRegistry as never, clients as never)
+  }
+
+  it('把多段 text content 拼起来返回', async () => {
+    const manager = makeCallToolManager(async () => ({
+      content: [
+        { type: 'text', text: '{"count":0}' },
+        { type: 'text', text: '第二段' },
+        { type: 'image', data: 'x' },
+      ],
+      isError: false,
+    }))
+    await expect(manager.callTool('wechat-local', 'poll_new', { since_ts: 1 })).resolves.toBe(
+      '{"count":0}\n第二段',
+    )
+  })
+
+  it('isError=true 时抛错，且把工具文本带进错误信息', async () => {
+    const manager = makeCallToolManager(async () => ({
+      content: [{ type: 'text', text: 'ERROR: boom' }],
+      isError: true,
+    }))
+    await expect(manager.callTool('wechat-local', 'poll_new', {})).rejects.toThrow('boom')
+  })
+
+  it('Server 未连接时抛错（而不是静默返回空）', async () => {
+    const manager = makeCallToolManager(async () => ({ content: [] }))
+    await expect(manager.callTool('not-connected', 'poll_new', {})).rejects.toThrow('未连接')
+  })
+})
