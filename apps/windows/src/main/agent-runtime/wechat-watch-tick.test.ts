@@ -238,19 +238,44 @@ describe('runWechatWatch · 分组策略', () => {
       next_since_ts: ts,
     })
 
-  it('auto 组：驱动一次回合，提示词带 talker 与「直接回」，并告知用户已代回', async () => {
+  it('auto 组：回合说发了 → 还要读库确认；库里没有就写「未发」（不替它邀功）', async () => {
     const driveTurn = vi.fn(async () => '已发出：在的')
     const { d, callMcpTool, showNotification } = deps({ config: cfgAutoLoop, driveTurn })
-    callMcpTool.mockResolvedValue(incoming('在吗'))
+    callMcpTool.mockResolvedValueOnce(incoming('在吗'))
     const out = await runWechatWatch(d)
     expect(driveTurn).toHaveBeenCalledTimes(1)
     const [prompt, meta] = driveTurn.mock.calls[0] as unknown as [string, { mode: string }]
     expect(prompt).toContain('direct' in {} ? '' : 'wxid_loop')
     expect(prompt).toContain('send_text')
     expect(meta.mode).toBe('auto')
-    expect(out).toContain('已代回')
+    expect(out).toContain('未发') // 库里查不到我的发送 → 不写「已代回」
     const titles = showNotification.mock.calls.map((c) => String(c[0]))
     expect(titles.some((t) => t.includes('已处理'))).toBe(true)
+  })
+
+  it('auto 组：库里确实有我发的 → 写「已代回」', async () => {
+    const driveTurn = vi.fn(async () => '发好了')
+    const { d, callMcpTool } = deps({ config: cfgAutoLoop, driveTurn })
+    callMcpTool
+      .mockResolvedValueOnce(incoming('在吗'))
+      .mockResolvedValueOnce(JSON.stringify({ messages: [{ ts: 1991, name: 'Loop', talker: 'wxid_loop', from_me: true, text: '我回的' }] }))
+    const out = await runWechatWatch(d)
+    expect(out).toContain('已代回')
+  })
+
+  it('用户自己刚回过（from_me）→ 冷却被他占住，auto 不重复代聊', async () => {
+    const driveTurn = vi.fn(async () => 'ok')
+    const { d, callMcpTool } = deps({ config: cfgAutoLoop, driveTurn, nowMs: () => 1_800_000 })
+    callMcpTool.mockResolvedValueOnce(JSON.stringify({
+      messages: [
+        { ts: 1990, name: '我', talker: 'wxid_loop', from_me: true, text: '我自己回了' },
+        { ts: 1991, name: 'Loop', talker: 'wxid_loop', from_me: false, text: '他又说了一句' },
+      ],
+      next_since_ts: 1991,
+    }))
+    const out = await runWechatWatch(d)
+    expect(driveTurn).not.toHaveBeenCalled()
+    expect(out).toContain('提醒 1 条')
   })
 
   it('draft 组：提示词明确「只起草不许发」；回合后若真发了消息，如实加警告', async () => {

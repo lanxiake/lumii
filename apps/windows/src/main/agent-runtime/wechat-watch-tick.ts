@@ -302,12 +302,13 @@ export function formatWechatNotice(messages: readonly WechatMessage[]): string {
 }
 
 /**
- * 起草模式的**兜底自证**：这一轮之后，我名下有没有真发出去的消息？
+ * 这一轮之后，我名下有没有真发出去的消息？（**读库实测**，不是看回合怎么说）
  *
- * 提示词里写了「只起草不许发」，但提示词只是约定——这里用读库实测一次。
- * 检测到就如实告诉用户（宁可虚报一次，也不让「以为只是草稿、其实已经发出去」成真）。
+ * 两个地方都用它，理由相同——回合的说法只是文本，库才是事实：
+ * - auto：回合说「已发出」也可能是没发成/它改主意了 → 摘要不能写成「已代回」；
+ * - draft：提示词写了「只起草不许发」，但那是约定 → 真发了要标 ⚠️。
  */
-async function detectUnauthorizedSend(
+async function detectSentTo(
   deps: WechatWatchDeps,
   msg: WechatMessage,
   since: number,
@@ -481,6 +482,19 @@ export async function runWechatWatch(deps: WechatWatchDeps): Promise<string> {
     const cooldown = readCooldowns(db)
     let cooldownDirty = false
 
+    // 「你自己刚回过了」也算一次动作：用户可能在手机/PC 上亲自回了，也可能在「微信盯梢」
+    // 会话里手动说「发」。不加这一条，watcher 会在他刚回完的头上再替他回一遍（**双重代聊**，
+    // 现场实测过：16:40:42 用户手动发了一条，watcher 12 秒后也在同一会话动作）。
+    const nowForSent = deps.nowMs?.() ?? Date.now()
+    for (const m of messages) {
+      if (!m.from_me) continue
+      const key = m.talker || m.name || '?'
+      if ((cooldown[key] ?? 0) < nowForSent) {
+        cooldown[key] = nowForSent
+        cooldownDirty = true
+      }
+    }
+
     for (const [peer, msgs] of byPeer) {
       const last = msgs[msgs.length - 1]
       const { mode, group } = resolveWatchMode(last, cfg)
@@ -512,19 +526,14 @@ export async function runWechatWatch(deps: WechatWatchDeps): Promise<string> {
       }
       cooldown[peer] = nowMsNow
       cooldownDirty = true
-      // 起草模式的自证：回合若擅自发了消息，如实告诉用户（提示词只是约定，这里才是兜底）
-      let sent = false
-      if (mode === 'draft') {
-        sent = await detectUnauthorizedSend(deps, last, last.ts)
-        if (sent) {
-          result += '｜⚠️ 检测到该回合真的发出了消息，请检查'
-          log.warn(`[wechat-watch] 起草模式下仍发出了消息（${peer}）`)
-        }
-      }
-      acted.push(
-        `${mode === 'auto' ? '已代回' : '草稿'}${sent ? '⚠️疑似已发出' : ''}·${last.name || peer}：${(last.text || '').slice(0, 40)}`,
-      )
-      log.info(`[wechat-watch] ${mode} 完成（${peer}/${group ?? '默认'}）：${result.slice(0, 120)}`)
+      // **读库实测**这一轮到底发没发（回合的说法只是文本）：
+      // - auto：真发了才敢写「已代回」；没发就写「未发」，别替它邀功；
+      // - draft：本不该发，真发了要标 ⚠️ 告知用户。
+      const sent = await detectSentTo(deps, last, last.ts)
+      const label =
+        mode === 'auto' ? (sent ? '已代回' : '未发') : sent ? '草稿⚠️疑似已发出' : '草稿'
+      acted.push(`${label}·${last.name || peer}：${(last.text || '').slice(0, 40)}`)
+      log.info(`[wechat-watch] ${mode} 完成（${peer}/${group ?? '默认'}，sent=${sent}）：${result.slice(0, 160)}`)
     }
     if (cooldownDirty) writeCooldowns(db, cooldown)
 
