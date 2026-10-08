@@ -91,7 +91,12 @@ export const OverviewTab: FC<OverviewTabProps> = ({ jobs, agents, onToggle, onRu
                       />
                       <span aria-hidden="true" />
                     </label>
-                    <button type="button" className={styles.iconButton} title="编辑任务" aria-label="编辑任务" onClick={() => onEdit(job)}><Pencil size={16} /></button>
+                    {/* 存在性播种的管道任务不可编辑：表单保存必然写入非空 Agent（CreateJobModal 的
+                        canSubmit 要求），那会把 companion 拦截通道的 magic 指令变成普通任务文本，
+                        还顺带改写节奏。要改行为请改它的配置/开关，或直接改代码里的播种。 */}
+                    {!job.reseeded && (
+                      <button type="button" className={styles.iconButton} title="编辑任务" aria-label="编辑任务" onClick={() => onEdit(job)}><Pencil size={16} /></button>
+                    )}
                     <button type="button" className={styles.iconButton} title={job.status === 'running' ? '正在执行中' : '立即执行'} aria-label="立即执行" disabled={job.status === 'running'} onClick={async () => {
                       const ok = await onRun(job.id, true)
                       if (ok) toast.success('任务已开始执行')

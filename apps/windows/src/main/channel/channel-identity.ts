@@ -25,6 +25,7 @@ export type ChannelOwnership =
   | 'feishu'
   | 'wecom'
   | 'qbot'
+  | 'pcwechat'
   | 'cron'
   | 'evolution'
   | 'onboarding'
@@ -37,6 +38,15 @@ export const SYSTEM_OWNERSHIPS: ReadonlySet<ChannelOwnership> = new Set([
 ])
 
 /**
+ * 「代聊型」归属：会话里说话的是**助手**（以用户身份对外），不是用户本人在跟 Lumii 说话。
+ *
+ * `pcwechat`（本机微信）就是这一类：会话的另一头是用户的微信好友，助手在替用户回话。
+ * 因此它们**不参与跨渠道接续**——把飞书/QQ 的消息「接续」进一条代聊会话没有语义
+ * （那是助手在对外的通道，不是用户的对话），还可能让回复发错人。
+ */
+export const DELEGATED_OWNERSHIPS: ReadonlySet<ChannelOwnership> = new Set(['pcwechat'])
+
+/**
  * 前缀 → 归属。**只用于回填与回退**，运行期不要拿它当渠道判定。
  *
  * 顺序即匹配顺序；未命中即为 `ipc`（客户端会话是裸 conversationId，无前缀）。
@@ -46,6 +56,7 @@ const OWNERSHIP_BY_PREFIX: ReadonlyArray<readonly [string, ChannelOwnership]> = 
   ['feishu', 'feishu'],
   ['wecom', 'wecom'],
   ['qbot', 'qbot'],
+  ['pcwechat', 'pcwechat'],
   ['cron', 'cron'],
   ['evolution', 'evolution'],
   ['onboarding', 'onboarding'],
@@ -62,6 +73,9 @@ const OWNERSHIP_LABELS: Readonly<Partial<Record<ChannelOwnership, string>>> = {
   feishu: '飞书',
   wecom: '企业微信',
   qbot: 'QQ',
+  // 与「微信」（weixin，= 用户在微信里找 Lumii）区分：本机微信是反方向——
+  // 助手在这台电脑上以用户身份跟他的好友说话（盯梢/代聊回落在这里）
+  pcwechat: '本机微信',
 }
 
 /** 是否为已登记的归属值（读库时校验，避免脏值污染判定） */
@@ -83,6 +97,11 @@ export function channelOwnershipFromKey(conversationId: string): ChannelOwnershi
 /** 是否系统会话（cron / evolution / onboarding） */
 export function isSystemOwnership(ownership: string): boolean {
   return SYSTEM_OWNERSHIPS.has(ownership as ChannelOwnership)
+}
+
+/** 是否代聊型会话（助手以用户身份对外说话，见 `DELEGATED_OWNERSHIPS`） */
+export function isDelegatedOwnership(ownership: string): boolean {
+  return DELEGATED_OWNERSHIPS.has(ownership as ChannelOwnership)
 }
 
 /** 归属的中文名；系统会话与未知值为空串 */

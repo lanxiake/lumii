@@ -959,7 +959,7 @@ export function resolveConversationChannel(
   conversationId: string,
   weixinConvIds: Set<string>,
   storedOwnership?: string | null,
-): 'default' | 'wechat' | 'wecom' | 'feishu' | 'qbot' | 'cron' | 'evolution' {
+): 'default' | 'wechat' | 'wecom' | 'feishu' | 'qbot' | 'pcwechat' | 'cron' | 'evolution' {
   if (weixinConvIds.has(conversationId) || conversationId.startsWith('weixin:')) {
     return 'wechat'
   }
@@ -973,6 +973,9 @@ export function resolveConversationChannel(
       return 'feishu'
     case 'qbot':
       return 'qbot'
+    // 本机微信（盯梢/代聊）：助手在这台电脑上以用户身份跟好友说话，与 weixin 方向相反
+    case 'pcwechat':
+      return 'pcwechat'
     case 'cron':
       return 'cron'
     case 'evolution':

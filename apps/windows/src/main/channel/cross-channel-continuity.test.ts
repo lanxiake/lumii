@@ -59,6 +59,25 @@ describe('pickContinuityCandidate', () => {
     expect(pickContinuityCandidate({ ...base, recent })).toBeNull()
   })
 
+  /**
+   * 本机微信（pcwechat）= 助手以用户身份对外说话的通道，不是「用户在跟 Lumii 对话」。
+   * 把别处的消息「接续」进去没有语义，还可能让助手的回复发错人。它有中文标签
+   * （所以不会被「空标签」那条规则挡住），必须单独排除。
+   */
+  it('跳过代聊型会话（本机微信）——有标签但不可接续', () => {
+    const recent: RecentConversation[] = [
+      { id: 'pcwechat:wxid_loop', title: '本机微信 · Loop', updatedAt: iso(HOUR) },
+    ]
+    expect(pickContinuityCandidate({ ...base, recent })).toBeNull()
+    // 对照：同样「有标签」的普通渠道会话仍会被挑出来
+    expect(
+      pickContinuityCandidate({
+        ...base,
+        recent: [{ id: 'feishu:ou_x', title: '飞书 - ou_x', updatedAt: iso(HOUR) }],
+      }),
+    ).toMatchObject({ conversationId: 'feishu:ou_x', channelLabel: '飞书' })
+  })
+
   // ── 归属落库值（10-S2） ──────────────────────────────────────────────────
   it('当前会话归属读落库值：qbot 键被微信适配器服务时仍按 QQ 判定（不问）', () => {
     const recent: RecentConversation[] = [

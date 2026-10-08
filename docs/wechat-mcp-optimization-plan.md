@@ -6,8 +6,11 @@
 >   原稿不同，见 [§2.2](#22-p0-b-发送链路已完成方案改写)。
 > - **P1 实时读取**：已落地（`246f6d59`，见 [§2.3](#23-实时读取原-p1-核心已完成)）。原方案里
 >   「WAL 帧解析」「watchdog 独立监控进程」两个设计**作废**，理由见 [§3.2](#32-作废的设计记录理由避免重走)。
-> - **监控回路（零 token 门闩）**：**v1+v2 已落地**（v1 `7f5e9b5f` / v2 `2afdf560`，见 [§3.3](#33-监控回路零-token-门闩v1-已落地)）——
+> - **监控回路（零 token 门闩）**：**v1+v2 已落地**（v1 `7f5e9b5f` / v2 `2afdf560`，见 [§3.3](#33-监控回路零-token-门闩v1--v2-已落地)）——
 >   15 秒一拍、确定性读库；按**分组**决定「只提醒 / 起草待确认 / 直接代回」。
+> - **组织形态收敛**：**M1 已落地**（本机微信成为独立渠道 `pcwechat`，会话按 peer 分，
+>   见 [§3.4](#34-组织形态复盘与收敛路线m1-已落地)）；M2（专属代聊 agent）/ M3（注册为正式渠道 +
+>   绑定内配置账号·回复策略·黑白名单）在路线图上。
 
 ---
 
@@ -172,7 +175,7 @@ wechat-watch（系统 cron，every 15s，任务页可见/可暂停，agent_id=NU
 |---|---|---|
 | `ignore` | 完全不处理（黑名单；或「只盯名单」时的默认档） | 无 |
 | `notify` | 只提醒我 | 无 |
-| `draft` | 叫醒模型**起草**，草稿落在「微信盯梢」会话里等我点头（我说「发」才发） | 有新消息才付 |
+| `draft` | 叫醒模型**起草**，草稿落在**那个好友的会话**里等我点头（我说「发」才发） | 有新消息才付 |
 | `auto` | 以我本人身份直接回（信得过的人；仍有冷却与「发完必报」） | 有新消息才付 |
 
 ```jsonc
@@ -186,10 +189,11 @@ wechat-watch（系统 cron，every 15s，任务页可见/可暂停，agent_id=NU
 }
 ```
 
-- 交互落点是**「微信盯梢」会话**（`wechat:watch`）：被盯到的消息以一条提示出现在会话里，
-  助手的草稿/代回结果紧跟其后；通知点击直接跳进来 ✓（通知第三个参数传 convId）。
+- 交互落点是**每个好友自己的会话**（`pcwechat:<talker>`，侧栏「渠道 → 本机微信」分组，见 §3.4 的 M1）：
+  被盯到的消息以一条提示出现在那个人的会话里，助手的草稿/代回结果紧跟其后；
+  通知点击直达 ✓（通知第三个参数传该会话 id；一拍涉及多个会话时不带跳转目标——没法替用户挑一个）。
 - 驱动回合沿用 `cron-scheduler.driveAgent` 的 L1 五件套配方（确保会话 → 建实例 → prompt →
-  等空闲 → 取输出 → 收实例），只是会话 key 固定。
+  等空闲 → 取输出 → 收实例），只是会话按 peer 分。
 - 护栏：**冷却**（分组可配，默认 60s，冷却期内降级为提醒）；**起草模式自证**——回合结束后读库实测
   「我名下有没有真发出去的消息」，有就如实标 ⚠️（提示词只是约定，这才是不让它悄悄代发的兜底）；
   没有 `driveTurn` 接线时 draft/auto 自动降级为提醒（缺部件就退档，不半途出错）；auto 的提示词里写明
@@ -198,6 +202,77 @@ wechat-watch（系统 cron，every 15s，任务页可见/可暂停，agent_id=NU
 
 **判据**：空闲时模型 token = 0（v1 实测 `agentId=none`）；draft 档下**未经确认不会有任何消息发出**（有自证兜底）；
 auto 档新消息 → 回复延迟 ≈ 回合时长 + 发送（秒级）；不丢不重（`next_since_ts` 连续推进 + 水位落盘）。
+
+---
+
+### 3.4 组织形态复盘与收敛路线（M1 已落地）
+
+**问题**：v2 的能力是对的，但**归属**是错的——它被拼成「通用助手 + 假会话 + 外挂配置」，
+而 app 里三套现成范式只用了半套。用户体感「别扭」，来源是四个错位：
+
+| 维度 | app 既有范式 | v1/v2 的做法（错位） | 后果 |
+|---|---|---|---|
+| **会话** | 三种既定来路：`<渠道>:<peerId>`（唯一构造点 `channel-route.ts:108`）、`cron:<jobId>`、`evolution:<agentId>` | 手搓单例 `wechat:watch`（第四种；前缀不在归属表 → `channel_type` 回落 `ipc` → 侧栏归**默认 tab**） | 所有好友混一条线；通知跳进一个"没有对方"的线程；与助手会话并排 |
+| **身份** | 领域专属 agent：`code-dev`/`system-keeper`/`chronicler`/`info-curator`，各自 `systemPrompt` 就是它的路数（`chronicler` 的描述明写绑定定时任务） | 通用 `assistant`（`bridge.ts` 的 `DEFAULT_AGENT_ID`）+ 每轮把 RUNBOOK 全文硬注入提示词 | 人格是补丁；"谁在替我说话"看不见、改不了、审计不到；每轮多花几千字 |
+| **配置** | `local_cron_jobs` 自带 `system_prompt`（表注释："预置任务的完整系统提示词"）与 `notify_targets` | 分四片：cron 行 / `wechat-watch.json` / RUNBOOK.md（workspace 里的 md）/ 隐式的 agent 选择 | 用户问"怎么停"要改文件、问"按什么规矩"要读 md |
+| **传输** | 渠道层齐活：入站 adapter 注册表、出站 provider 注册表、peer 白名单硬校验（`channel-outbound-router.ts:75-84`）、presence 驱动默认收件人、设置页 peer 列表 UI、长轮询先例（weixin 35s） | **平行管线**：绕开 adapter/provider/Router/peer store/presence 全套，直连 MCP `send_text` | 同一件事两套实现；代聊不在渠道审计里 |
+
+**根因**：渠道层假设「入站 = 叫醒 agent」，全库**没有任何 per-peer 策略/自动回复开关**
+（唯一渠道级开关是跨渠道接续）——「允许谁自动回」在 app 里**没有归属地**，于是被塞进了 `wechat-watch.json`。
+
+**收敛路线（三步，可独立落地）**
+
+**M1 · 会话归位（✅ 本轮）**——本机微信成为一个**渠道**，会话按 peer 分：
+
+- 新归属 `pcwechat`（`channel-identity.ts`），中文名**「本机微信」**：与 `weixin`（**用户在**微信里找 Lumii）
+  方向相反——这条是**助手替用户**在微信里回好友。侧栏独立分组（渠道 tab），不再混进默认 tab。
+- 会话 id `pcwechat:<talker>`、标题 `本机微信 · <备注名>`（唯一构造处 `watchConversationIdFor` /
+  `watchConversationTitleFor`）。草稿/代回/对方消息都落在那个人的会话里，通知点击直达。
+- 代聊型会话**不参与跨渠道接续**（`DELEGATED_OWNERSHIPS`）：飞书/QQ 的消息「接续」进一条代聊会话
+  没有语义（那是助手对外的通道，不是用户的对话），还可能让回复发错人。
+- 历史遗留的 `wechat:watch` 单例会话不再使用（仍回落 `ipc`/默认 tab，可手动删）。
+
+**M2 · 身份与配置归位（⏳ 下一步，不动传输）**
+
+- 建**「灵栖代聊」专属 agent**（沿用 `code-dev`/`chronicler` 那套：agent 定义 + `systemPrompt`），
+  RUNBOOK 的内容搬进它的 `systemPrompt`；回路的 `agentId` 从 `assistant` 换成它，
+  `buildAutoPrompt`/`buildDraftPrompt` 不再注入全文，只留「本次触发」。
+- 收益：代聊主体在 agent 设置页**可见、可改、可审计**；每轮省几千字注入；要给不同好友不同人格，
+  就再建一个 agent 绑到那个 peer。配置源（`wechat-watch.json`）这轮先不动，一次只改一件事。
+
+**M3 · 渠道归位 + 产品化（⏳ 方向已定：做成**公共渠道**，在**绑定**里配置）**
+
+把它注册成**第 5 个渠道**（`pcwechat`），形状照抄现有四个（`feishu`/`weixin`/`wecom`/`qbot`）：
+
+| 部件 | 现状（盯梢旁路） | M3（正式渠道） |
+|---|---|---|
+| 入站传输 | 15s cron tick 直接读库 | 同一个轮询，但作为该渠道的 **adapter 入站**（weixin 已有长轮询先例） |
+| 出站 | agent 直接调 MCP `send_text` | **provider** 走 `channel_send` → 免费的"省略 to 回来源"、peer 白名单校验、审计 |
+| 会话 | `pcwechat:<talker>` ✅ M1 已做 | 不变 |
+| 策略 | `wechat-watch.json` 的 groups | **peer 属性**，在**渠道绑定**里配置 |
+
+**绑定内要配的东西（用户 2026-10-08 指定）**：
+
+1. **账号**——盯哪个微信账号（本机可能登录多个：`wechat_core` 的账号根探测已支持多账号）；
+2. **回复策略**——`ignore` / `notify` / `draft` / `auto`（现在就是这四档语义，只是挪到 peer 上）；
+3. **黑白名单**——哪些人不处理、哪些人允许自动回（现在 `blacklist` + `groups[].peers` 的语义）。
+
+这一条同时**反向补齐渠道层的缺口**：渠道层目前没有 per-peer 策略概念（入站一律叫醒），
+而飞书/QQ 一样需要「这个人自动回、那个只提醒」。**per-peer 回复策略是渠道层的通用能力**，
+不是为微信特设——这是把 M3 从"重构"变成"新能力"的关键。
+
+**同一轮要补的工程缺口**（已知、未做）：
+- python 侧 `test_watch.py`（12 例）未接入 CI（CI 只跑 vitest）；
+- 「窗口最小化时不能发」挡住了远程（飞书）回话——要不要让发送自动还原窗口，属产品决策；
+- 主进程争用（73s 的 `app_screenshot`、cloud-sync 导出周期）会拖慢盯梢的某一拍（下一拍补上，不丢消息）。
+
+**坑已修（本轮）**：任务页曾把 `wechat-watch` 判成**用户的普通任务**（`classifyCronJobSource` → `user`），
+露出删除与编辑入口。编辑弹窗保存必然写入非空 `agentId`（`CreateJobModal` 的 `canSubmit` 要求），
+一写就让 magic 拦截失效（`cron-scheduler` 只在 `!job.agent_id` 时走 companion 通道）——
+管道会变成拿 `__wechat_watch__` 当普通文本跑的普通任务，15s 节奏也会被表单改写。
+现修法：`wechat-watch` 归入 `SYSTEM_EXACT_IDS` + `isReseededCronJob`（→ 系统任务组、无删除入口），
+UI 对 `reseeded` 任务隐藏编辑按钮，`handleCronUpdate` 再加一道闸**只挡身份字段**
+（`taskText`/`agentId`/`scheduleType`/`scheduleExpr`）——**启停走同一个接口，必须放行**（任务页暂停是受支持的操作）。
 
 ---
 
@@ -212,7 +287,13 @@ auto 档新消息 → 回复延迟 ≈ 回合时长 + 发送（秒级）；不�
 | 2 | **实时读取：WAL 感知 + 增量重放 + 快路径 + 密钥缓存** | ✅ | 本轮 |
 | 3 | 零 token 门闩 v1：确定性读库 + 通知（§3.3） | ✅ | `7f5e9b5f` |
 | 3 | 门闩 v2：分组策略 + 起草/代回（§3.3） | ✅ | 本轮 |
+| 3 | 任务页管道护栏：`wechat-watch` 归系统任务 + 禁改身份字段（§3.4） | ✅ | 本轮 |
+| 3 | **M1 会话归位**：`pcwechat` 渠道 + 每 peer 会话 + 通知直达（§3.4） | ✅ | 本轮 |
+| 4 | **M2 身份归位**：专属「灵栖代聊」agent（RUNBOOK → systemPrompt） | ⏳ | §3.4 |
+| 4 | **M3 渠道归位**：注册 `pcwechat` 渠道（adapter + provider），策略迁到 peer | ⏳ | §3.4 |
+| 4 | **绑定内配置**：账号 / 回复策略 / 黑白名单（M3 的一部分） | ⏳ | §3.4 |
 | 4 | 监控面板 UI（盯哪些人、开关、最近事件） | ⏳ | — |
+| — | python 测试接入 CI（`test_watch.py` 12 例） | ⏳ | §3.4 |
 | — | ~~COM Interop~~ / ~~WAL 帧解析~~ / ~~watchdog 进程~~ | ❌ 作废 | §3.2 |
 
 ---
@@ -264,3 +345,12 @@ printf '<initialize 行>\n<tools/call 行>\n' | python server.py
 - 护栏常量：`_plain` 的陈旧判据（`dbsize >= 主库页数`）、`_incr` 的 `quick_check`、`_send_with_retry` 的
   `RETRIABLE_CODES` / `NON_RETRIABLE_CODES`。
 - 运行期注意：**改 `.py` 后必须重启 App**（MCP 子进程在连接时载入代码）；`dev:restart` 可能静默失败。
+
+客户端侧（盯梢回路与渠道归属）：
+
+| 文件 | 职责 |
+|---|---|
+| `src/main/agent-runtime/wechat-watch-tick.ts` | 15s 门闩：配置解析 / 分组策略 / 冷却 / 水位 / 会话 id 与标题的**唯一构造处** |
+| `src/main/channel/channel-identity.ts` | 归属 `pcwechat` 与中文名「本机微信」的**唯一登记处**（`DELEGATED_OWNERSHIPS` = 不可接续） |
+| `src/main/agent-runtime/cron-job-meta.ts` | `wechat-watch` 归系统任务（+ 受管的启停、无删除入口） |
+| `src/main/ipc/agent-runtime/cron-commands.ts` | `handleCronUpdate` 的管道护栏（只挡身份字段，放行启停） |

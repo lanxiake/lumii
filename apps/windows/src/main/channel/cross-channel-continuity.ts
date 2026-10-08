@@ -24,7 +24,7 @@
  */
 
 import type { ChannelSession, IChannelAdapter } from './types'
-import { resolveChannelIdentity } from './channel-identity'
+import { isDelegatedOwnership, resolveChannelIdentity } from './channel-identity'
 import { RECENT_SCAN_LIMIT, sortByUpdatedAtDesc } from './recent-conversations'
 
 const log = {
@@ -104,6 +104,8 @@ export function pickContinuityCandidate(params: {
     const { ownership, label } = resolveChannelIdentity(conv.id, conv.channelType)
     // 同渠道 / 非用户会话不作候选
     if (ownership === currentChannelType || !label) continue
+    // 代聊型会话（本机微信）不作候选：那是助手在对外的通道，不是「你的对话」
+    if (isDelegatedOwnership(ownership)) continue
 
     if (now - Date.parse(conv.updatedAt) > windowMs) continue
 

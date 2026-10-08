@@ -9,6 +9,7 @@ import { randomUUID } from 'node:crypto'
 import type { AgentRuntimeBridge } from '../../agent-runtime/bridge'
 import type { AgentRuntimeCommand } from '../../../shared/agent-runtime-commands'
 import { classifyCronJobSource, getCronJobManagedBy, isReseededCronJob } from '../../agent-runtime/cron-job-meta'
+import { isLocalCompanionInstruction } from '../../agent-runtime/local-companion-handler'
 
 const log = {
   info: (...args: unknown[]) => console.log('[agent-runtime-ipc/cron]', ...args),
@@ -184,6 +185,24 @@ export function handleCronUpdate(
   const row = bridge.getLocalCronJobRecordById(id)
   if (!row) {
     return { status: 'error', id, message: `定时任务不存在: ${id}` }
+  }
+
+  // 管道任务（task_text 是 companion 魔法指令）的**身份字段**不可改：表单保存必然写非空
+  // agentId（CreateJobModal 的 canSubmit 要求），一写就让 magic 拦截失效（cron-scheduler 只在
+  // `!job.agent_id` 时走 companion 通道），管道会变成拿魔法指令当普通文本跑的普通任务，
+  // 节奏也会被表单改写。UI 已隐藏编辑入口，这里是第二道闸。
+  // **只挡身份字段**：启停（enabled）走的是同一个 cron:update，是受支持的用户操作，不能拦。
+  const touchesPipelineIdentity =
+    patch.taskText !== undefined ||
+    patch.agentId !== undefined ||
+    patch.scheduleType !== undefined ||
+    patch.scheduleExpr !== undefined
+  if (touchesPipelineIdentity && isLocalCompanionInstruction(row.task_text)) {
+    return {
+      status: 'error',
+      id,
+      message: '这是系统管道任务（companion 指令），指令与节奏不可改；可在任务页暂停/启用',
+    }
   }
 
   const nextScheduleType = patch.scheduleType ?? row.schedule_type

@@ -10,6 +10,7 @@ import {
   channelLabelOfOwnership,
   channelOwnershipFromKey,
   isChannelOwnership,
+  isDelegatedOwnership,
   isSystemOwnership,
   resolveChannelIdentity,
   SYSTEM_OWNERSHIPS,
@@ -21,6 +22,11 @@ describe('channelOwnershipFromKey（迁移期回退）', () => {
     expect(channelOwnershipFromKey('feishu:ou_x')).toBe('feishu')
     expect(channelOwnershipFromKey('wecom:u1')).toBe('wecom')
     expect(channelOwnershipFromKey('qbot:964A')).toBe('qbot')
+    // 本机微信（盯梢/代聊）——与 weixin 方向相反的一条渠道
+    expect(channelOwnershipFromKey('pcwechat:wxid_s6piyhfvptv522')).toBe('pcwechat')
+    expect(channelOwnershipFromKey('pcwechat:1234@chatroom')).toBe('pcwechat')
+    // 历史遗留：单例盯梢会话（M1 之前）不是渠道，回落到 ipc
+    expect(channelOwnershipFromKey('wechat:watch')).toBe('ipc')
   })
 
   it('带时间戳的 /new 键同样识别', () => {
@@ -64,6 +70,8 @@ describe('标签与系统归属', () => {
   it('渠道有中文名，客户端是「客户端」，系统会话无标签', () => {
     expect(channelLabelOfOwnership('weixin')).toBe('微信')
     expect(channelLabelOfOwnership('qbot')).toBe('QQ')
+    // 与「微信」(weixin = 用户在微信里找 Lumii) 必须能分辨：本机微信是反方向
+    expect(channelLabelOfOwnership('pcwechat')).toBe('本机微信')
     expect(channelLabelOfOwnership('ipc')).toBe('客户端')
     // 空标签是既有消费方（/resume 列表、接续候选）排除系统会话的判据，不能改成「系统」
     expect(channelLabelOfOwnership('cron')).toBe('')
@@ -76,6 +84,14 @@ describe('标签与系统归属', () => {
     expect(isSystemOwnership('cron')).toBe(true)
     expect(isSystemOwnership('weixin')).toBe(false)
     expect(isSystemOwnership('ipc')).toBe(false)
+  })
+
+  it('代聊型归属（本机微信）不是系统会话，但被标记为不可接续', () => {
+    // 它不是系统会话：有中文标签，用户在侧栏「渠道」tab 里能看到、能进
+    expect(isSystemOwnership('pcwechat')).toBe(false)
+    expect(isDelegatedOwnership('pcwechat')).toBe(true)
+    expect(isDelegatedOwnership('weixin')).toBe(false)
+    expect(isDelegatedOwnership('ipc')).toBe(false)
   })
 
   it('isChannelOwnership 只认登记过的值', () => {

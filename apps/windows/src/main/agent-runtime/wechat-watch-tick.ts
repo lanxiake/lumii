@@ -56,7 +56,7 @@ const MAX_NOTIFY_ITEMS = 3
  *
  * - `ignore`  完全不处理（黑名单 / 未列入且默认就是忽略）
  * - `notify`  只提醒我（不打扰对方，也不叫模型）
- * - `draft`   叫醒模型**起草**，草稿落在「微信盯梢」会话里等我点头（我不会不知情地被代表）
+ * - `draft`   叫醒模型**起草**，草稿落在**那个好友的会话**里等我点头（我不会不知情地被代表）
  * - `auto`    直接以我本人身份回（白名单专用：仍有冷却与「发完必报」）
  */
 export type WatchMode = 'ignore' | 'notify' | 'draft' | 'auto'
@@ -434,7 +434,7 @@ export interface WechatWatchDeps {
   getDb: () => DatabaseAdapter
   /** 直接调 MCP 工具（主进程内、不经 Agent 回合），见 `McpManager.callTool` */
   callMcpTool: (server: string, tool: string, args: Record<string, unknown>) => Promise<string>
-  /** 系统通知（第三个参数是会话 id，点击可跳到「微信盯梢」会话） */
+  /** 系统通知（第三个参数是会话 id，点击可跳到那个好友的会话） */
   showNotification?: (title: string, body: string, convId?: string) => void
   /**
    * 驱动一次 Agent 回合（bridge 注入）。
@@ -442,7 +442,7 @@ export interface WechatWatchDeps {
    * 没有它时 draft/auto 一律降级为「通知」——这条循环的核心是**不依赖**某个具体接线，
    * 缺哪个部件就退到哪一档，绝不半途出错。
    */
-  driveTurn?: (prompt: string, meta: { peer: string; mode: WatchMode; group: string | null }) => Promise<string>
+  driveTurn?: (prompt: string, meta: WatchTurnMeta) => Promise<string>
   /** 覆盖配置路径（测试用） */
   configPath?: string
   /** 直接给定配置（测试用；给了就不读文件） */
@@ -451,8 +451,48 @@ export interface WechatWatchDeps {
   nowMs?: () => number
 }
 
-/** 「微信盯梢」会话 id：草稿与代回都发生在这里，用户能翻能追 */
-export const WECHAT_WATCH_CONV_ID = 'wechat:watch'
+/**
+ * 驱动回合时要带上「这条会话是谁的」。
+ *
+ * 会话**按 peer 分**（`pcwechat:<talker>`，见 `watchConversationIdFor`）：一个好友一条线，
+ * 历史按人聚合、点通知直达那个人。此前是所有好友共用一条 `wechat:watch` 单例——
+ * 那是为了满足「建实例必须给 conversationId」而手搓的宿主，不是功能必需；
+ * 混线会让用户在一个没有对方的线程里看所有人的代回记录。
+ */
+export interface WatchTurnMeta {
+  /** 冷却/分组的会话键（talker 优先，退化到显示名） */
+  peer: string
+  /** 会话 id（`pcwechat:<peer>`） */
+  convId: string
+  /** 会话标题（`本机微信 · <名字>`） */
+  title: string
+  mode: WatchMode
+  group: string | null
+}
+
+/**
+ * 本机微信会话的 id / 标题（**唯一构造处**）。
+ *
+ * 归属 `pcwechat` = 「助手在这台电脑上以用户身份跟好友说话」，与 `weixin`
+ * （用户在微信里找 Lumii）方向相反，所以在侧栏是独立分组（渠道 tab → 本机微信）。
+ * 前缀同时被 `channel-identity.ts` 的归属表用于落库 `conversations.channel_type`。
+ */
+export const PCWECHAT_CONV_PREFIX = 'pcwechat:'
+
+export function watchConversationIdFor(peer: string): string {
+  return `${PCWECHAT_CONV_PREFIX}${peer}`
+}
+
+export function watchConversationTitleFor(name: string | undefined, peer: string): string {
+  // 不能写 `(name || peer).trim()`：`'   '` 是真值，会 trim 成空 → 标题只剩「本机微信 · 」
+  const display = (name ?? '').trim() || peer.trim() || '微信好友'
+  return `本机微信 · ${display}`
+}
+
+/** 只在这拍恰好涉及一个会话时给出跳转目标（涉及多个就没法替用户挑一个） */
+function soleConvId(ids: ReadonlySet<string>): string | undefined {
+  return ids.size === 1 ? [...ids][0] : undefined
+}
 
 const KV_KEY_COOLDOWN = 'wechat_watch_cooldown'
 
@@ -537,7 +577,9 @@ export async function runWechatWatch(deps: WechatWatchDeps): Promise<string> {
 
     const runbook = loadInstructions(cfg.instructionsFile)  // 每拍读一次（手册可能随时被改）
     const notifyOnly: WechatMessage[] = []
+    const notifyConvIds = new Set<string>()
     const acted: string[] = []
+    const actedConvIds = new Set<string>()
     const cooldown = readCooldowns(db)
     let cooldownDirty = false
 
@@ -557,8 +599,10 @@ export async function runWechatWatch(deps: WechatWatchDeps): Promise<string> {
     for (const [peer, msgs] of byPeer) {
       const last = msgs[msgs.length - 1]
       const { mode, group } = resolveWatchMode(last, cfg)
+      const convId = watchConversationIdFor(peer)
       if (mode === 'notify') {
         notifyOnly.push(...msgs)
+        notifyConvIds.add(convId)
         continue
       }
       const cd = cooldownSecondsFor(last, cfg)
@@ -566,10 +610,12 @@ export async function runWechatWatch(deps: WechatWatchDeps): Promise<string> {
       if ((cooldown[peer] ?? 0) + cd * 1000 > nowMsNow) {
         // 冷却期内不打扰对方（也不叫模型），降级成提醒——用户仍然看得见
         notifyOnly.push(...msgs)
+        notifyConvIds.add(convId)
         continue
       }
       if (!deps.driveTurn) {
         notifyOnly.push(...msgs)
+        notifyConvIds.add(convId)
         continue
       }
       const prompt =
@@ -578,7 +624,13 @@ export async function runWechatWatch(deps: WechatWatchDeps): Promise<string> {
           : buildDraftPrompt(last, group, runbook, cfg.instructionsFile)
       let result = ''
       try {
-        result = await deps.driveTurn(prompt, { peer, mode, group })
+        result = await deps.driveTurn(prompt, {
+          peer,
+          convId,
+          title: watchConversationTitleFor(last.name, peer),
+          mode,
+          group,
+        })
       } catch (err) {
         log.error(`[wechat-watch] 驱动回合失败（${peer}）：`, err)
         result = `回合失败：${err instanceof Error ? err.message : String(err)}`
@@ -592,14 +644,19 @@ export async function runWechatWatch(deps: WechatWatchDeps): Promise<string> {
       const label =
         mode === 'auto' ? (sent ? '已代回' : '未发') : sent ? '草稿⚠️疑似已发出' : '草稿'
       acted.push(`${label}·${last.name || peer}：${(last.text || '').slice(0, 40)}`)
+      actedConvIds.add(convId)
       log.info(`[wechat-watch] ${mode} 完成（${peer}/${group ?? '默认'}，sent=${sent}）：${result.slice(0, 160)}`)
     }
     if (cooldownDirty) writeCooldowns(db, cooldown)
 
     if (notifyOnly.length > 0 && cfg.notify) {
       try {
-        deps.showNotification?.(`微信新消息（${notifyOnly.length}）`, formatWechatNotice(notifyOnly),
-          acted.length > 0 ? WECHAT_WATCH_CONV_ID : undefined)
+        // 点通知直达那个好友的会话（只涉及一个会话时才给跳转目标）
+        deps.showNotification?.(
+          `微信新消息（${notifyOnly.length}）`,
+          formatWechatNotice(notifyOnly),
+          soleConvId(notifyConvIds),
+        )
       } catch (err) {
         log.warn('[wechat-watch] 通知发送失败：', err)
       }
@@ -609,7 +666,7 @@ export async function runWechatWatch(deps: WechatWatchDeps): Promise<string> {
         deps.showNotification?.(
           `微信盯梢：${acted.length} 个会话已处理`,
           acted.join('\n'),
-          WECHAT_WATCH_CONV_ID,
+          soleConvId(actedConvIds),
         )
       } catch (err) {
         log.warn('[wechat-watch] 通知发送失败：', err)

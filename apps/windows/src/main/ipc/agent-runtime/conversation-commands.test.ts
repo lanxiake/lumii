@@ -286,6 +286,20 @@ describe('resolveConversationChannel 会话来源推导', () => {
     expect(resolveConversationChannel('bound-conv-1', weixin)).toBe('wechat')
   })
 
+  /**
+   * 本机微信（盯梢/代聊）与 wechat（weixin 渠道）是**反方向**的两条线：
+   * 前者是助手替用户在微信里回好友，后者是用户在微信里找 Lumii。共用一条会让
+   * 「好友」和「跟 Lumii 的对话」混在同一个侧栏分组里。
+   */
+  it('pcwechat:<talker> → pcwechat（与 weixin 的 wechat 分开）', () => {
+    expect(resolveConversationChannel('pcwechat:wxid_loop', emptyWeixin)).toBe('pcwechat')
+    expect(resolveConversationChannel('weixin:u1', emptyWeixin)).toBe('wechat')
+  })
+
+  it('M1 之前的单例盯梢会话（wechat:watch）仍回落 default，不会误判成渠道', () => {
+    expect(resolveConversationChannel('wechat:watch', emptyWeixin)).toBe('default')
+  })
+
   it('wecom:/feishu: 前缀 → 对应渠道', () => {
     expect(resolveConversationChannel('wecom:u1', emptyWeixin)).toBe('wecom')
     expect(resolveConversationChannel('feishu:ou_1', emptyWeixin)).toBe('feishu')

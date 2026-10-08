@@ -180,8 +180,7 @@ import { ensurePetSensingCronJobSeeded, runPetSensing } from './pet-sensing-tick
 import {
   ensureWechatWatchCronJobSeeded,
   runWechatWatch,
-  type WatchMode,
-  WECHAT_WATCH_CONV_ID,
+  type WatchTurnMeta,
   WECHAT_WATCH_MCP_SERVER,
 } from './wechat-watch-tick'
 import { ensurePetEvolveCronJobSeeded, runPetEvolve, syncPetEvolveJobEnabled } from './pet-evolve'
@@ -1829,31 +1828,25 @@ export class AgentRuntimeBridge {
   }
 
   /**
-   * 在「微信盯梢」会话里驱动一次回合（draft/auto 两档用）。
+   * 在**那个好友的会话**里驱动一次回合（draft/auto 两档用）。
    *
    * 配方抄的是 `cron-scheduler.driveAgent`（L1 五件套：确保会话 → 建实例 → prompt →
    * 等空闲 → 取输出 → 收实例），差别只有两点：
-   * - 会话 key 固定 `wechat:watch`（用户的草稿与代回都落在这里，能翻能接管）；
+   * - 会话按 peer 分（`pcwechat:<talker>`，见 `wechat-watch-tick.ts`）——一个好友一条线，
+   *   草稿/代回/对方的消息都落在同一处，点通知直达；
    * - 先把「被盯到的那条消息」作为一条消息插进会话（用户点进来就知道为什么有这一轮）。
    */
-  private async driveWechatWatchTurn(
-    prompt: string,
-    meta: { peer: string; mode: WatchMode; group: string | null },
-  ): Promise<string> {
-    this.ensureConversationExists(WECHAT_WATCH_CONV_ID, '微信盯梢')
+  private async driveWechatWatchTurn(prompt: string, meta: WatchTurnMeta): Promise<string> {
+    this.ensureConversationExists(meta.convId, meta.title)
     try {
       this.notifyIncomingMessage(
-        WECHAT_WATCH_CONV_ID,
+        meta.convId,
         `【微信${meta.mode === 'auto' ? '代回' : '草稿'}】${meta.peer}${meta.group ? `（${meta.group}）` : ''}`,
       )
     } catch (err) {
       log.warn('[wechat-watch] 会话内提示失败（继续）:', err)
     }
-    const instanceId = await this.createInstanceById(
-      DEFAULT_AGENT_ID,
-      WECHAT_WATCH_CONV_ID,
-      WECHAT_WATCH_CONV_ID,
-    )
+    const instanceId = await this.createInstanceById(DEFAULT_AGENT_ID, meta.convId, meta.convId)
     try {
       await this.prompt(instanceId, prompt)
       await this.waitForInstanceIdle(instanceId)

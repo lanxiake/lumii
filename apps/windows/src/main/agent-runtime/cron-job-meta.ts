@@ -35,6 +35,12 @@ const SYSTEM_EXACT_IDS = new Set([
   'pet-dispatch',
   'pet-sensing',
   'pet-evolve',
+  // 微信盯梢回路：不是用户建的任务，是**管道**（companion 拦截通道，agent_id 恒为 NULL）。
+  // 不列在这里的话它会被判成「我的任务」并露出编辑入口——而编辑弹窗保存时必然写入
+  // 非空 agentId（CreateJobModal 的 canSubmit 要求），那一写就让 magic 拦截失效
+  // （cron-scheduler 只在 `!job.agent_id` 时走 companion 通道），管道变成拿
+  // `__wechat_watch__` 当普通指令跑的普通任务，15s 节奏也会被表单改写。
+  'wechat-watch',
 ])
 const SYSTEM_PREFIXES = ['seed-', 'wiki-purge-', 'companion-']
 const AGENT_PREFIXES = [SELF_CRON_ID_PREFIX, 'local-cron-']
@@ -71,6 +77,7 @@ export function isReseededCronJob(id: string): boolean {
     id === 'pet-dispatch' ||
     id === 'pet-sensing' ||
     id === 'pet-evolve' ||
+    id === 'wechat-watch' ||
     id === 'wiki-purge-broken-refs'
   )
 }

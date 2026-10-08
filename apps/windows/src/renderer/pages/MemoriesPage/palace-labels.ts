@@ -26,6 +26,8 @@ const CHANNEL_LABELS: Record<string, string> = {
   weixin: '微信',
   wecom: '企业微信',
   qbot: 'QQ',
+  // 本机微信（盯梢/代聊）：助手替用户回好友，与 weixin（用户在微信里找 Lumii）方向相反
+  pcwechat: '本机微信',
   cron: '定时任务',
 }
 

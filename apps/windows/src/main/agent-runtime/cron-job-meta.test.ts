@@ -17,6 +17,14 @@ describe('classifyCronJobSource', () => {
     }
   })
 
+  /**
+   * 微信盯梢回路是管道不是任务，必须归 system：归 user 会让它在「我的任务」组里
+   * 露出编辑入口，而编辑弹窗保存必然写非空 agentId → magic 拦截失效（见 cron-job-meta 注释）。
+   */
+  it('微信盯梢回路识别为 system（不是「我的任务」）', () => {
+    expect(classifyCronJobSource('wechat-watch')).toBe('system')
+  })
+
   it('Agent 自建任务识别为 agent', () => {
     expect(classifyCronJobSource('agent-self:1789222884334-0ikjlow')).toBe('agent')
     expect(classifyCronJobSource('local-cron-1789224893621-kjgd6d')).toBe('agent')
@@ -68,6 +76,8 @@ describe('isReseededCronJob', () => {
     expect(isReseededCronJob('companion-memory-fast')).toBe(true)
     // companion 播种组里的 wiki 清理任务（前缀不叫 companion）
     expect(isReseededCronJob('wiki-purge-broken-refs')).toBe(true)
+    // 微信盯梢回路：存在性播种（ensureWechatWatchCronJobSeeded），删了下次启动会回来
+    expect(isReseededCronJob('wechat-watch')).toBe(true)
   })
 
   it('有种子哨兵或用户创建的任务删除后不重建', () => {

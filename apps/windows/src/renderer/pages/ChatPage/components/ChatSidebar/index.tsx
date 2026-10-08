@@ -11,8 +11,8 @@ import type { ClearGroupHistoryRequest } from '../../clearGroupPlan'
 import type { ChatSession } from '../../../../hooks/business/useChat'
 import styles from './ChatSidebar.module.css'
 
-/** 会话来源：系统默认 / 个人微信 / 企业微信 / 飞书 / QQ / 定时任务 / 自主进化 */
-type SessionChannel = 'default' | 'wechat' | 'wecom' | 'feishu' | 'qbot' | 'cron' | 'evolution'
+/** 会话来源：系统默认 / 个人微信 / 本机微信 / 企业微信 / 飞书 / QQ / 定时任务 / 自主进化 */
+type SessionChannel = 'default' | 'wechat' | 'pcwechat' | 'wecom' | 'feishu' | 'qbot' | 'cron' | 'evolution'
 
 /** 侧栏顶层 tab */
 type SidebarTab = 'default' | 'channel' | 'system'
@@ -28,6 +28,8 @@ interface ChannelMeta {
 const CHANNEL_META: readonly ChannelMeta[] = [
   { id: 'default', label: '系统默认', icon: '本机', tab: 'default' },
   { id: 'wechat', label: '个人微信', icon: '微信', tab: 'channel' },
+  // 本机微信跟个人微信方向相反：前者是助手替你回好友（盯梢/代聊），后者是你在微信里找助手
+  { id: 'pcwechat', label: '本机微信', icon: '代聊', tab: 'channel' },
   { id: 'wecom', label: '企业微信', icon: '企微', tab: 'channel' },
   { id: 'feishu', label: '飞书', icon: '飞书', tab: 'channel' },
   { id: 'qbot', label: 'QQ', icon: 'QQ', tab: 'channel' },
@@ -57,6 +59,7 @@ interface ChatSidebarProps {
 function normalizeChannel(channel?: string): SessionChannel {
   if (
     channel === 'wechat' ||
+    channel === 'pcwechat' ||
     channel === 'wecom' ||
     channel === 'feishu' ||
     channel === 'qbot' ||

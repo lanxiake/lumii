@@ -26,6 +26,8 @@ import {
   runWechatWatch,
   selectNewMessages,
   WECHAT_WATCH_INSTRUCTION,
+  watchConversationIdFor,
+  watchConversationTitleFor,
   type WechatWatchDeps,
 } from './wechat-watch-tick'
 
@@ -181,7 +183,8 @@ describe('runWechatWatch', () => {
       }),
     )
     const out = await runWechatWatch(d)
-    expect(showNotification).toHaveBeenCalledWith('微信新消息（1）', 'Loop：在吗', undefined)
+    // 第三个参数是跳转目标：只涉及一个会话 → 直达那个好友（M1 起按 peer 分会话）
+    expect(showNotification).toHaveBeenCalledWith('微信新消息（1）', 'Loop：在吗', 'pcwechat:wxid_loop')
     expect(out).toContain('提醒 1 条')
     expect(kv.get('wechat_watch_last_ts')).toBe('1991')
   })
@@ -230,6 +233,22 @@ describe('runWechatWatch', () => {
   })
 })
 
+describe('会话 id / 标题（每 peer 一条线）', () => {
+  it('id 用稳定 talker，标题用显示名', () => {
+    expect(watchConversationIdFor('wxid_s6piyhfvptv522')).toBe('pcwechat:wxid_s6piyhfvptv522')
+    expect(watchConversationTitleFor('Loop', 'wxid_s6piyhfvptv522')).toBe('本机微信 · Loop')
+  })
+
+  it('没有显示名时退回 talker（绝不产生空标题）', () => {
+    expect(watchConversationTitleFor(undefined, 'wxid_x')).toBe('本机微信 · wxid_x')
+    expect(watchConversationTitleFor('   ', 'wxid_x')).toBe('本机微信 · wxid_x')
+  })
+
+  it('群聊 / 带 @ 的 talker 一样能当 id（weixin 渠道已有同样先例）', () => {
+    expect(watchConversationIdFor('1234@chatroom')).toBe('pcwechat:1234@chatroom')
+  })
+})
+
 describe('runWechatWatch · 分组策略', () => {
   const cfgAutoLoop = parseWechatWatchConfig({
     defaultMode: 'notify',
@@ -248,13 +267,51 @@ describe('runWechatWatch · 分组策略', () => {
     callMcpTool.mockResolvedValueOnce(incoming('在吗'))
     const out = await runWechatWatch(d)
     expect(driveTurn).toHaveBeenCalledTimes(1)
-    const [prompt, meta] = driveTurn.mock.calls[0] as unknown as [string, { mode: string }]
+    const [prompt, meta] = driveTurn.mock.calls[0] as unknown as [
+      string,
+      { mode: string; convId: string; title: string; peer: string },
+    ]
     expect(prompt).toContain('direct' in {} ? '' : 'wxid_loop')
     expect(prompt).toContain('send_text')
     expect(meta.mode).toBe('auto')
+    // 回合落在**那个好友的会话**里（不是所有人共用的单例）
+    expect(meta.convId).toBe('pcwechat:wxid_loop')
+    expect(meta.title).toBe('本机微信 · Loop')
+    expect(meta.peer).toBe('wxid_loop')
     expect(out).toContain('未发') // 库里查不到我的发送 → 不写「已代回」
     const titles = showNotification.mock.calls.map((c) => String(c[0]))
     expect(titles.some((t) => t.includes('已处理'))).toBe(true)
+    // 只涉及一个会话 → 点通知直达 Loop
+    const actedCall = showNotification.mock.calls.find((c) => String(c[0]).includes('已处理'))
+    expect(actedCall?.[2]).toBe('pcwechat:wxid_loop')
+  })
+
+  it('同一拍里两个会话 → 通知不带跳转目标（没法替用户挑一个）', async () => {
+    const cfgBoth = parseWechatWatchConfig({
+      defaultMode: 'notify',
+      groups: [{ name: '好友', mode: 'auto', peers: ['Loop', '小明'], cooldownSeconds: 300 }],
+    })
+    const driveTurn = vi.fn(async () => 'ok')
+    const { d, callMcpTool, showNotification } = deps({ config: cfgBoth, driveTurn })
+    callMcpTool.mockResolvedValueOnce(
+      JSON.stringify({
+        count: 2,
+        messages: [
+          { ts: 1990, name: 'Loop', talker: 'wxid_loop', from_me: false, text: '在吗' },
+          { ts: 1991, name: '小明', talker: 'wxid_ming', from_me: false, text: '在吗' },
+        ],
+        next_since_ts: 1991,
+      }),
+    )
+    await runWechatWatch(d)
+    expect(driveTurn).toHaveBeenCalledTimes(2)
+    const convIds = (driveTurn.mock.calls as unknown as Array<[string, { convId: string }]>).map(
+      (c) => c[1].convId,
+    )
+    expect(convIds.sort()).toEqual(['pcwechat:wxid_loop', 'pcwechat:wxid_ming'])
+    for (const call of showNotification.mock.calls) {
+      expect(call[2]).toBeUndefined()
+    }
   })
 
   it('auto 组：库里确实有我发的 → 写「已代回」', async () => {
