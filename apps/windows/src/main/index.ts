@@ -85,6 +85,7 @@ import {
   updateAgentRecord,
   deleteAgentRecord,
 } from './agents-repo'
+import { WECHAT_RELAY_AGENT_ID } from './agent-runtime/wechat-relay-agent'
 import { fileLogger } from './file-logger'
 import { SkillWatcher } from './skill-watcher'
 import { seedBundledSkills } from './bundled-skills-seeder'
@@ -107,6 +108,8 @@ import {
   createWeixinReplyContextStore,
   type ChannelHub,
 } from './channel/channel-hub-bootstrap'
+import { getChannelPolicyStore } from './channel/channel-policy-store'
+import { PCWECHAT_CHANNEL, WECHAT_WATCH_MCP_SERVER } from './agent-runtime/wechat-watch-tick'
 import { resolveWindowsClientDataRoot } from './client-data-root'
 import { transcribeVoiceFile } from './channel/media-pipeline'
 import {
@@ -648,6 +651,10 @@ async function initAgentRuntime(): Promise<void> {
       return [
         ...listUserAgentRecords()
           .filter((a) => a.isEnabled !== false)
+          // 「灵栖代聊」是渠道回路按名单驱动的**行为主体**，不是可选路由目标：
+          // 让 Router 把普通对话路由到它 = 拿一份微信代聊口径的 systemPrompt 聊别的。
+          // 它在设置页照常可见可改（它是用户 Agent），只是不进 Router 候选。
+          .filter((a) => a.id !== WECHAT_RELAY_AGENT_ID)
           .map((a) => ({
             id: a.id,
             name: a.name,
@@ -1676,6 +1683,27 @@ async function initialize(): Promise<void> {
         weixin: weixinLoginService ?? undefined,
         wecom: wecomLoginService!,
         qbot: qbotLoginService ?? undefined,
+        // 本机微信：没有登录服务——"在线"= wechat-local MCP 连着，名单 = 渠道策略里配过的人
+        pcwechat: {
+          getPolicy: () => getChannelPolicyStore().get(PCWECHAT_CHANNEL),
+          mcpServer: WECHAT_WATCH_MCP_SERVER,
+          isMcpConnected: () => {
+            try {
+              // 门闩失败一律当"没连上"（发不了），manager 还没起来时同理
+              return (
+                agentRuntimeBridge
+                  ?.getMcpStatus()
+                  .some((s) => s.name === WECHAT_WATCH_MCP_SERVER && s.connected) ?? false
+              )
+            } catch {
+              return false
+            }
+          },
+          callMcpTool: (server, tool, args) => {
+            if (!agentRuntimeBridge) throw new Error('Agent Runtime 尚未就绪，无法调用 MCP 工具')
+            return agentRuntimeBridge.callMcpTool(server, tool, args)
+          },
+        },
         dataRoot: resolveWindowsClientDataRoot(),
         weixinStore: weixinReplyContextStore,
         peerStore: channelPeerStore,

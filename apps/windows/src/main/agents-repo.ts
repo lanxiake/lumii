@@ -194,6 +194,38 @@ export function forkAgentRecord(
   return forked
 }
 
+/**
+ * 新建一个用户 Agent（id 由调用方给定；同 id 已存在则抛错）。
+ *
+ * 与 `forkAgentRecord` 的区别只有两点：id 是**固定的**（播种要靠它按 id 找回，
+ * 见 `wechat-relay-agent.ts`），且不复制任何源 Agent 的字段。
+ */
+export function createUserAgentRecord(data: {
+  id: string
+  name: string
+  description?: string
+  systemPrompt?: string
+}): AgentRecord {
+  const users = loadUserAgents()
+  if (users.some((a) => a.id === data.id)) throw new Error(`用户 Agent 已存在: ${data.id}`)
+  const now = new Date().toISOString()
+  const record: AgentRecord = {
+    id: data.id,
+    name: data.name,
+    ...(data.description ? { description: data.description } : {}),
+    systemPrompt: data.systemPrompt,
+    isEnabled: true,
+    isDefault: false,
+    userId: LOCAL_USER_ID,
+    sourceType: 'custom',
+    createdAt: now,
+    updatedAt: now,
+  }
+  users.push(record)
+  saveUserAgents(users)
+  return record
+}
+
 /** 更新用户 Agent（系统 Agent 不可改，抛错） */
 export function updateAgentRecord(agentId: string, patch: Record<string, unknown>): AgentRecord {
   const users = loadUserAgents()

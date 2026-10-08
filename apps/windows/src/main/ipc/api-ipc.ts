@@ -345,11 +345,31 @@ export function registerApiIpcHandlers(): void {
   })
 
   /**
+   * 改完用户 Agent，让**已经活着的**定义缓存跟上。
+   *
+   * `AgentDefinitionStore` 的解析顺序是「内存 → SQLite 缓存 → API(fetchById) → 内置兜底」，
+   * 而它只在启动时 `syncUserAgents()` 一次——所以改完不刷，内存里那份旧定义会一直生效到
+   * 用户下次重启，界面上却已经显示新内容（"改了没反应"的静默失效）。
+   * 这不只是美观问题：**「灵栖代聊」的护栏就住在 systemPrompt 里**（见 wechat-relay-agent.ts），
+   * 用户改护栏若没生效，他会以为已经改好了。
+   *
+   * 失败只记 warn，不影响这次保存本身（文件已经写对了）。
+   */
+  const refreshAgentDefinitions = (): void => {
+    void deps
+      ?.getAgentRuntimeBridge()
+      ?.syncUserAgentDefinitions()
+      .catch((err: unknown) => deps?.log.warn('[agents] 定义缓存刷新失败（重启后生效）:', err))
+  }
+
+  /**
    * 更新用户 Agent（本地存储）
    */
   ipcMain.handle('api:updateAgent', async (_event, agentId: string, data: Record<string, unknown>) => {
     try {
-      return { success: true, data: updateAgentRecord(agentId, data) }
+      const updated = updateAgentRecord(agentId, data)
+      refreshAgentDefinitions()
+      return { success: true, data: updated }
     } catch (err) {
       return { success: false, error: err instanceof Error ? err.message : String(err) }
     }
@@ -361,6 +381,7 @@ export function registerApiIpcHandlers(): void {
   ipcMain.handle('api:deleteAgent', async (_event, agentId: string) => {
     try {
       deleteAgentRecord(agentId)
+      refreshAgentDefinitions()
       return { success: true }
     } catch (err) {
       return { success: false, error: err instanceof Error ? err.message : String(err) }

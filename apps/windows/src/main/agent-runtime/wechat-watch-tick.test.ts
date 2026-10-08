@@ -7,27 +7,30 @@
  *   2. 报的是「别人发的、不在忽略名单里」的那些（自己发的不必提醒自己）；
  *   3. 水位一定推进且落库（重启不重复报，也不重复读同一段）。
  */
-import { describe, it, expect, vi } from 'vitest'
+import { afterAll, beforeAll, describe, it, expect, vi } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { resolvePeerPolicy } from '../../shared/channel-policy'
+import { agentRuntimeLog as log } from './bridge-utils'
 import {
   buildAutoPrompt,
   buildDraftPrompt,
-  cooldownSecondsFor,
   DEFAULT_WECHAT_WATCH_CONFIG,
   ensureWechatWatchConfigFile,
   ensureWechatWatchCronJobSeeded,
+  formatIncomingForHistory,
   formatWechatNotice,
   loadInstructions,
   parseWechatWatchConfig,
-  resolveWatchMode,
+  policyFromWatchConfig,
   resolveWorkspacePath,
   runWechatWatch,
   selectNewMessages,
   WECHAT_WATCH_INSTRUCTION,
   watchConversationIdFor,
   watchConversationTitleFor,
+  type WechatMessage,
   type WechatWatchDeps,
 } from './wechat-watch-tick'
 
@@ -95,29 +98,54 @@ describe('parseWechatWatchConfig', () => {
   })
 })
 
-describe('resolveWatchMode / cooldownSecondsFor', () => {
-  const cfg = parseWechatWatchConfig({
-    defaultMode: 'notify',
-    blacklist: ['filehelper'],
-    groups: [
-      { name: '家人', mode: 'auto', peers: ['妈妈'], cooldownSeconds: 10 },
-      { name: '同事', mode: 'draft', peers: ['张三', 'wxid_zhangsan'] },
-    ],
-  })
+/**
+ * 老配置（blacklist + groups）→ 渠道策略 → 每人一档的解析。
+ * 这几条同时是**迁移的同义性证明**：搬迁前后同一个会话必须走同一档。
+ */
+describe('policyFromWatchConfig / resolvePeerPolicy', () => {
+  const policy = policyFromWatchConfig(
+    parseWechatWatchConfig({
+      defaultMode: 'notify',
+      blacklist: ['filehelper'],
+      groups: [
+        { name: '家人', mode: 'auto', peers: ['妈妈'], cooldownSeconds: 10 },
+        { name: '同事', mode: 'draft', peers: ['张三', 'wxid_zhangsan'] },
+      ],
+    }),
+  )
 
-  it('黑名单优先于分组；分组按先匹配到的生效；其余走 defaultMode', () => {
-    expect(resolveWatchMode({ name: '文件传输助手', talker: 'filehelper' }, cfg).mode).toBe('ignore')
-    expect(resolveWatchMode({ name: '妈妈', talker: 'wxid_mama' }, cfg)).toEqual({ mode: 'auto', group: '家人' })
-    expect(resolveWatchMode({ name: '张三', talker: 'wxid_zhangsan' }, cfg).mode).toBe('draft')
+  it('黑名单→ignore；命中一条就生效；其余走 defaultMode', () => {
+    expect(resolvePeerPolicy(policy, { label: '文件传输助手', id: 'filehelper' }).mode).toBe('ignore')
+    expect(resolvePeerPolicy(policy, { id: 'wxid_mama', label: '妈妈' })).toMatchObject({
+      mode: 'auto',
+      matchedBy: '妈妈',
+      cooldownSeconds: 10,
+    })
+    expect(resolvePeerPolicy(policy, { id: 'wxid_zhangsan', label: '张三' }).mode).toBe('draft')
     // 大小写不敏感：talker 命中
-    expect(resolveWatchMode({ talker: 'WXID_ZHANGSAN' }, cfg).mode).toBe('draft')
-    expect(resolveWatchMode({ name: '陌生人', talker: 'wxid_x' }, cfg)).toEqual({ mode: 'notify', group: null })
+    expect(resolvePeerPolicy(policy, { id: 'WXID_ZHANGSAN' }).mode).toBe('draft')
+    expect(resolvePeerPolicy(policy, { id: 'wxid_x', label: '陌生人' })).toMatchObject({
+      mode: 'notify',
+      matchedBy: null,
+    })
   })
 
-  it('冷却：分组可以自定，没写用默认 60 秒', () => {
-    expect(cooldownSecondsFor({ name: '妈妈' }, cfg)).toBe(10)
-    expect(cooldownSecondsFor({ name: '张三' }, cfg)).toBe(60)
-    expect(cooldownSecondsFor({ name: '陌生人' }, cfg)).toBe(60)
+  it('冷却：条目可以自定，没写用默认 60 秒', () => {
+    // 老配置是按**显示名**写的（`peers:['妈妈']`），所以查的人要带上 name —— 盯梢那边
+    // 传的是 `{id: talker, label: name}`，两种写法都命中（旧解析器同样是 talker/name 各试一遍）
+    expect(resolvePeerPolicy(policy, { id: 'wxid_mama', label: '妈妈' }).cooldownSeconds).toBe(10)
+    expect(resolvePeerPolicy(policy, { id: 'wxid_zhangsan', label: '张三' }).cooldownSeconds).toBe(60)
+    expect(resolvePeerPolicy(policy, { id: 'wxid_x', label: '陌生人' }).cooldownSeconds).toBe(60)
+  })
+
+  it('同一个名字既在黑名单又在分组里：黑名单优先（迁移靠保序，不靠两套判据）', () => {
+    const p = policyFromWatchConfig(
+      parseWechatWatchConfig({
+        blacklist: ['张三'],
+        groups: [{ name: '同事', mode: 'auto', peers: ['张三'] }],
+      }),
+    )
+    expect(resolvePeerPolicy(p, { id: 'wxid_zhangsan', label: '张三' }).mode).toBe('ignore')
   })
 })
 
@@ -129,17 +157,17 @@ describe('selectNewMessages', () => {
     { ts: 4, name: '群聊', talker: '123@chatroom', from_me: false },
   ]
 
-  it('只处理别人发的；黑名单连提醒都不给', () => {
-    const out = selectNewMessages(msgs, DEFAULT_WECHAT_WATCH_CONFIG)
+  it('只处理别人发的；ignore 档连提醒都不给', () => {
+    const out = selectNewMessages(msgs, policyFromWatchConfig(DEFAULT_WECHAT_WATCH_CONFIG))
     expect(out.map((m) => m.ts)).toEqual([1, 4])
   })
 
-  it('defaultMode=ignore 时：只有分组里的会话会被处理（=只盯名单）', () => {
+  it('defaultMode=ignore 时：只有表里的会话会被处理（=只盯名单）', () => {
     const cfg = parseWechatWatchConfig({
       defaultMode: 'ignore',
       groups: [{ name: '好友', mode: 'notify', peers: ['wxid_loop'] }],
     })
-    expect(selectNewMessages(msgs, cfg).map((m) => m.ts)).toEqual([1])
+    expect(selectNewMessages(msgs, policyFromWatchConfig(cfg)).map((m) => m.ts)).toEqual([1])
   })
 })
 
@@ -272,7 +300,10 @@ describe('runWechatWatch · 分组策略', () => {
       { mode: string; convId: string; title: string; peer: string },
     ]
     expect(prompt).toContain('direct' in {} ? '' : 'wxid_loop')
-    expect(prompt).toContain('send_text')
+    // 发送走渠道出站（名单是硬门），不是拿 MCP 的工具自己发
+    expect(prompt).toContain('channel_send')
+    expect(prompt).toContain('pcwechat')
+    expect(prompt).not.toMatch(/send_text\(/)
     expect(meta.mode).toBe('auto')
     // 回合落在**那个好友的会话**里（不是所有人共用的单例）
     expect(meta.convId).toBe('pcwechat:wxid_loop')
@@ -379,18 +410,27 @@ describe('runWechatWatch · 分组策略', () => {
   })
 })
 
-describe('手册注入（RUNBOOK）', () => {
+describe('手册注入（RUNBOOK）——**回落路径**：代聊 Agent 不在时才是这条', () => {
   const msg = { ts: 100, name: 'Loop', talker: 'wxid_loop', text: '在吗' }
 
   it('提示词把手册放在最前（硬约束，不靠模型"记得去读"），触发信息在后', () => {
-    const p = buildAutoPrompt(msg, '好友', '【护栏】涉钱不发', 'temp/wx-loop/RUNBOOK.md')
+    const p = buildAutoPrompt(msg, '【护栏】涉钱不发', 'temp/wx-loop/RUNBOOK.md')
     expect(p.indexOf('【护栏】涉钱不发')).toBeGreaterThanOrEqual(0)
     expect(p.indexOf('【护栏】涉钱不发')).toBeLessThan(p.indexOf('【本次触发】'))
     expect(p).toContain('不要再轮询')
     expect(p).toContain('转人工')
-    const d = buildDraftPrompt(msg, '好友', '【护栏】涉钱不发', 'temp/wx-loop/RUNBOOK.md')
+    const d = buildDraftPrompt(msg, '【护栏】涉钱不发', 'temp/wx-loop/RUNBOOK.md')
     expect(d.indexOf('【护栏】涉钱不发')).toBeLessThan(d.indexOf('【本次触发】'))
     expect(d).toContain('只起草、不要发送')
+  })
+
+  it('auto 档的发送指令只指向渠道出站，且把<收件人>钉死成这一条消息的 talker', () => {
+    const p = buildAutoPrompt(msg, '【手册】日常闲聊可直接回', 'temp/wx-loop/RUNBOOK.md')
+    expect(p).toContain('channel_send')
+    expect(p).toContain('channel="pcwechat"')
+    expect(p).toContain('to="wxid_loop"')
+    // 绕过渠道直发 = 绕开名单，提示词里不许出现这条路
+    expect(p).not.toMatch(/send_text\(/)
   })
 
   it('配置解析认 instructionsFile；没配/手册读不到时提示词照常生成', () => {
@@ -399,7 +439,7 @@ describe('手册注入（RUNBOOK）', () => {
       instructionsFile: 'temp/wx-loop/RUNBOOK.md',
     })
     expect(cfg.instructionsFile).toBe('temp/wx-loop/RUNBOOK.md')
-    expect(buildAutoPrompt(msg, null)).not.toContain('【必须遵守的手册')
+    expect(buildAutoPrompt(msg)).not.toContain('【必须遵守的手册')
     expect(loadInstructions(undefined)).toBe('')
     expect(loadInstructions('不存在的-abc-123.md')).toBe('')
   })
@@ -407,6 +447,126 @@ describe('手册注入（RUNBOOK）', () => {
   it('workspace 相对路径按 ~/.lumii/workspace 解析；绝对路径原样', () => {
     expect(resolveWorkspacePath('temp/x.md')).toContain('workspace')
     expect(resolveWorkspacePath('C:/tmp/x.md')).toBe('C:/tmp/x.md')
+  })
+})
+
+/**
+ * M2 身份归位（2026-10-08）：手册搬进「灵栖代聊」的 systemPrompt 之后，
+ * 回路这一侧只剩两件事要盯死——
+ *   1. Agent 在 → 提示词里**不再重复那几千字**（否则 M2 的收益没了）；
+ *   2. Agent 不在（删了/禁用/手册读不到）→ **退回注入**（护栏不许静默消失）。
+ */
+describe('手册归属：住在代聊 Agent 的 systemPrompt 里（M2）', () => {
+  const RUNBOOK_TEXT = '【护栏】涉钱 / 冲突 / 身份质疑一律不发，转人工'
+  let runbookFile = ''
+  let cfgFile = parseWechatWatchConfig({ groups: [] })
+
+  beforeAll(() => {
+    runbookFile = path.join(os.tmpdir(), `wx-runbook-${Date.now()}.md`)
+    fs.writeFileSync(runbookFile, RUNBOOK_TEXT, 'utf-8')
+    cfgFile = parseWechatWatchConfig({
+      groups: [{ name: '好友', mode: 'auto', peers: ['Loop'], cooldownSeconds: 300 }],
+      instructionsFile: runbookFile,
+    })
+  })
+  afterAll(() => {
+    try {
+      fs.unlinkSync(runbookFile)
+    } catch {
+      /* 临时文件删不掉不影响判定 */
+    }
+  })
+
+  const incoming = JSON.stringify({
+    count: 1,
+    messages: [{ ts: 1990, name: 'Loop', talker: 'wxid_loop', from_me: false, text: '在吗' }],
+    next_since_ts: 1990,
+  })
+
+  it('代聊 Agent 在 → 手册不重复注入，但「本次触发」和发送通道照旧', async () => {
+    const driveTurn = vi.fn(async () => 'ok')
+    const { d, callMcpTool } = deps({
+      config: cfgFile,
+      driveTurn,
+      getRelayAgent: () => ({ id: 'wechat-relay', systemPrompt: `身份…\n${RUNBOOK_TEXT}` }),
+    })
+    callMcpTool.mockResolvedValueOnce(incoming)
+    await runWechatWatch(d)
+    const [prompt] = driveTurn.mock.calls[0] as unknown as [string]
+    expect(prompt).not.toContain(RUNBOOK_TEXT)
+    expect(prompt).toContain('【本次触发】')
+    expect(prompt).toContain('channel_send')
+  })
+
+  it('代聊 Agent 不在 → 退回每轮注入（护栏不能因为少了个 Agent 就消失）', async () => {
+    const driveTurn = vi.fn(async () => 'ok')
+    const { d, callMcpTool } = deps({ config: cfgFile, driveTurn, getRelayAgent: () => undefined })
+    callMcpTool.mockResolvedValueOnce(incoming)
+    await runWechatWatch(d)
+    const [prompt] = driveTurn.mock.calls[0] as unknown as [string]
+    expect(prompt).toContain(RUNBOOK_TEXT)
+    expect(prompt).toContain('本次触发')
+  })
+
+  it('Agent 里那份和手册文件不一致 → 仍以 Agent 为准（手册文件只是留档），并记一条 warn', async () => {
+    const warn = vi.spyOn(log, 'warn').mockImplementation(() => {})
+    const driveTurn = vi.fn(async () => 'ok')
+    const { d, callMcpTool } = deps({
+      config: cfgFile,
+      driveTurn,
+      // 用户在设置页把护栏改短了/改了措辞：文件里那句就不在里面了
+      getRelayAgent: () => ({ id: 'wechat-relay', systemPrompt: '身份…\n【护栏】我自己改过的版本' }),
+    })
+    callMcpTool.mockResolvedValueOnce(incoming)
+    await runWechatWatch(d)
+    const [prompt] = driveTurn.mock.calls[0] as unknown as [string]
+    expect(prompt).not.toContain(RUNBOOK_TEXT)
+    expect(warn.mock.calls.some((c) => String(c[0]).includes('已不一致'))).toBe(true)
+    warn.mockRestore()
+  })
+})
+
+/**
+ * 会话历史里要看得见**对方的输入**：此前只推一条 `【微信代回】<peer>` 的界面提示
+ * （不落库），用户点进代聊会话只看得到助手单方面的回复。把消息交给桥接侧去落库的
+ * 前提是**整批原样送到**（同一拍同一会话的多条合并成一个回合，只送最后一条会丢历史）。
+ */
+describe('回合元数据带上触发这一轮的消息', () => {
+  const cfg = parseWechatWatchConfig({
+    groups: [{ name: '好友', mode: 'auto', peers: ['Loop', '123@chatroom'], cooldownSeconds: 300 }],
+  })
+  const payload = JSON.stringify({
+    count: 2,
+    messages: [
+      { ts: 1991, name: 'Loop', talker: 'wxid_loop', from_me: false, text: '在吗', sender: 'Loop' },
+      { ts: 1992, name: 'Loop', talker: 'wxid_loop', from_me: false, text: '在的', sender: 'Loop' },
+      { ts: 1993, name: '家人群', talker: '123@chatroom', from_me: false, text: '周末回不回来', sender: '小舅' },
+    ],
+    next_since_ts: 1993,
+  })
+
+  it('同一会话这拍的多条一起给桥接侧；群消息补发送者，私聊不补', async () => {
+    const driveTurn = vi.fn(async () => 'ok')
+    const { d, callMcpTool } = deps({ config: cfg, driveTurn })
+    callMcpTool.mockResolvedValueOnce(payload)
+    await runWechatWatch(d)
+    const byConv = new Map(
+      (driveTurn.mock.calls as unknown as [string, { convId: string; incoming: WechatMessage[] }][]).map(
+        ([, meta]) => [meta.convId, meta.incoming],
+      ),
+    )
+    const loop = byConv.get('pcwechat:wxid_loop') ?? []
+    expect(loop.map(formatIncomingForHistory)).toEqual(['在吗', '在的'])
+    // 私聊的 sender 就是对方本人，与会话标题重复，不再往正文里塞
+    const group = byConv.get('pcwechat:123@chatroom') ?? []
+    expect(group.map(formatIncomingForHistory)).toEqual(['小舅：周末回不回来'])
+  })
+
+  it('非文本 / 空正文：历史里也得留下一条，不能静默空掉', () => {
+    expect(formatIncomingForHistory({ ts: 1, talker: 'wxid_loop', text: '' })).toBe('（非文本消息）')
+    expect(formatIncomingForHistory({ ts: 1, talker: 'wxid_loop', text: '[非文本消息]' })).toBe(
+      '[非文本消息]',
+    )
   })
 })
 

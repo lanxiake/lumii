@@ -179,10 +179,18 @@ import { ensurePetDispatchCronJobSeeded, runPetDispatch, syncPetDispatchJobEnabl
 import { ensurePetSensingCronJobSeeded, runPetSensing } from './pet-sensing-tick'
 import {
   ensureWechatWatchCronJobSeeded,
+  formatIncomingForHistory,
+  loadInstructions,
+  loadWechatWatchConfig,
+  PCWECHAT_CHANNEL,
+  policyFromWatchConfig,
   runWechatWatch,
   type WatchTurnMeta,
   WECHAT_WATCH_MCP_SERVER,
 } from './wechat-watch-tick'
+import { ensureWechatRelayAgent, WECHAT_RELAY_AGENT_ID } from './wechat-relay-agent'
+import { createUserAgentRecord, getAgentRecord } from '../agents-repo'
+import { getChannelPolicyStore } from '../channel/channel-policy-store'
 import { ensurePetEvolveCronJobSeeded, runPetEvolve, syncPetEvolveJobEnabled } from './pet-evolve'
 import { recordPetPersonalityEvent } from './pet-personality'
 import { persistPetTaskReceipt, readPetTaskDimension, recordPetTaskOutcome } from './pet-task-store'
@@ -1828,25 +1836,104 @@ export class AgentRuntimeBridge {
   }
 
   /**
+   * 代聊 Agent（M2 身份归位）：在就是它，不在就没有。
+   *
+   * **回路与建实例读的是同一个函数**——`runbook` 归谁（注入提示词还是住在 Agent 的
+   * systemPrompt 里）和这一轮用谁建实例是同一个判断，两边不会各说各话。
+   *
+   * 用户在设置页把它禁用（`isEnabled: false`）也算"不在"：那就回落默认助手 + 手册注入，
+   * 尊重他的开关，而不是绕过去接着用它。
+   */
+  private wechatRelayAgent(): { id: string; systemPrompt?: string } | undefined {
+    const rec = getAgentRecord(WECHAT_RELAY_AGENT_ID)
+    if (!rec || rec.isEnabled === false) return undefined
+    return { id: rec.id, systemPrompt: rec.systemPrompt }
+  }
+
+  /**
+   * 把代聊会话的 agent 参与者**替换**成这一轮真正的主体（M1 建的会话写的是 `main`）。
+   *
+   * 为什么必须修：宫殿归档按 `conversation_participants` 解析归属
+   * （`palace-backend.ts` 的 `resolveConversationAgentId`），不修的话微信里替用户说的话
+   * 永远记在"系统默认"助手名下——那正是 M2 要修的第三条（归属错位）。
+   *
+   * **替换而不是追加**，理由同 `ensurePetConversation`：那里 `LIMIT 1` 取到哪一行未定义，
+   * 追加了等于没修。失败只记 warn——归属修不动不该让这一轮跑不成。
+   */
+  private assignWatchConversationAgent(conversationId: string, agentId: string): void {
+    try {
+      const db = this.localDb.db
+      db.prepare(
+        `DELETE FROM conversation_participants
+          WHERE conversation_id = ? AND participant_type = 'agent' AND participant_id != ?`,
+      ).run(conversationId, agentId)
+      db.prepare(
+        `INSERT OR IGNORE INTO conversation_participants
+           (conversation_id, participant_type, participant_id, joined_at)
+         VALUES (?, 'agent', ?, ?)`,
+      ).run(conversationId, agentId, new Date().toISOString())
+    } catch (err) {
+      log.warn(`[wechat-watch] 会话归属校正失败 convId=${conversationId} agent=${agentId}:`, err)
+    }
+  }
+
+  /**
+   * 把「被盯到的消息」按**用户消息**落进这个好友的会话，并推给渲染层。
+   *
+   * 为什么必须落库、而不是像从前只推一条界面提示（`【微信代回】<peer>`，不落库）：
+   * 那样用户点进代聊会话**看不到对方说了什么**——只有助手单方面的回复，读起来像自言自语
+   * （回复里说「你刚问的…」无处对照），重载一次连提示都没了。落库后历史就是
+   * 「对方：… → 我（代聊）：…」，与其它渠道入站一致
+   * （`weixin-channel-adapter` 同样是 `saveMessage` + `notifyIncomingMessage`）。
+   *
+   * 时间戳用**现在**：`saveMessage` 会一并改写 `conversations.last_msg_at`，拿对方的发送
+   * 时刻回填会让这条会话在侧栏往下沉（消息列表与侧栏是两条排序口径，别在这一处动）。
+   */
+  private appendIncomingWatchMessages(meta: WatchTurnMeta): void {
+    const repo = this._conversationRepo
+    if (!repo) return
+    for (const m of meta.incoming) {
+      const text = formatIncomingForHistory(m)
+      try {
+        const row = repo.saveMessage({
+          conversationId: meta.convId,
+          role: 'user',
+          contentJson: { type: 'text', text },
+        })
+        this.notifyIncomingMessage(meta.convId, text, row.id)
+      } catch (err) {
+        log.warn('[wechat-watch] 对方消息落库失败（继续这一轮）:', err)
+      }
+    }
+  }
+
+  /**
    * 在**那个好友的会话**里驱动一次回合（draft/auto 两档用）。
    *
    * 配方抄的是 `cron-scheduler.driveAgent`（L1 五件套：确保会话 → 建实例 → prompt →
-   * 等空闲 → 取输出 → 收实例），差别只有两点：
+   * 等空闲 → 取输出 → 收实例），差别只有三点：
    * - 会话按 peer 分（`pcwechat:<talker>`，见 `wechat-watch-tick.ts`）——一个好友一条线，
    *   草稿/代回/对方的消息都落在同一处，点通知直达；
-   * - 先把「被盯到的那条消息」作为一条消息插进会话（用户点进来就知道为什么有这一轮）。
+   * - 先把「对方发来的消息」落进会话历史（见 `appendIncomingWatchMessages`）——
+   *   用户点进来就能看见对方说了什么、为什么有这一轮；
+   * - 主体是**「灵栖代聊」**（M2，见 `wechat-relay-agent.ts`），不是默认助手——手册住在
+   *   它的 systemPrompt 里；它不在（删了/禁用/没手册）则回落默认助手 + 每轮注入手册。
    */
   private async driveWechatWatchTurn(prompt: string, meta: WatchTurnMeta): Promise<string> {
-    this.ensureConversationExists(meta.convId, meta.title)
+    const agentId = this.wechatRelayAgent()?.id ?? DEFAULT_AGENT_ID
+    this.ensureConversationExists(meta.convId, meta.title, undefined, agentId)
+    this.assignWatchConversationAgent(meta.convId, agentId)
     try {
-      this.notifyIncomingMessage(
-        meta.convId,
-        `【微信${meta.mode === 'auto' ? '代回' : '草稿'}】${meta.peer}${meta.group ? `（${meta.group}）` : ''}`,
-      )
+      this.appendIncomingWatchMessages(meta)
+      // 草稿档「只起草、不发送」在历史里看不出来（草稿长得跟真发出的回复一样），
+      // 补一条**不落库**的界面提示；代回档不必——回复本身就是结果。
+      if (meta.mode === 'draft') {
+        this.notifyIncomingMessage(meta.convId, '【微信草稿】这条只起草、不发送——你说「发」才发')
+      }
     } catch (err) {
       log.warn('[wechat-watch] 会话内提示失败（继续）:', err)
     }
-    const instanceId = await this.createInstanceById(DEFAULT_AGENT_ID, meta.convId, meta.convId)
+    const instanceId = await this.createInstanceById(agentId, meta.convId, meta.convId)
     try {
       await this.prompt(instanceId, prompt)
       await this.waitForInstanceIdle(instanceId)
@@ -2193,6 +2280,14 @@ export class AgentRuntimeBridge {
                   : undefined,
                 // draft/auto 两档要叫醒模型（notify 档不调它，所以空闲仍然零 token）
                 driveTurn: (prompt, meta) => this.driveWechatWatchTurn(prompt, meta),
+                // 「谁能被怎么回」住在渠道层（设置页 → 渠道 → 本机微信）；每拍现读，改完下一拍生效
+                getPolicy: () => getChannelPolicyStore().get(PCWECHAT_CHANNEL),
+                // 自愈绑定要写回：人名条目在收到本人消息时换成真 wxid
+                setPolicy: (p) => {
+                  getChannelPolicyStore().set(PCWECHAT_CHANNEL, p)
+                },
+                // 「灵栖代聊」在不在 —— 手册归谁、这一轮用谁建实例，都看它（同一个函数）
+                getRelayAgent: () => this.wechatRelayAgent(),
               }),
             runPetEvolve: (options) =>
               runPetEvolve({
@@ -2263,6 +2358,34 @@ export class AgentRuntimeBridge {
       ensureWechatWatchCronJobSeeded(this.localDb.db, { mcpConfigured })
     } catch (err) {
       log.warn('[bridge] wechat-watch 播种失败（不影响启动）:', err)
+    }
+    // 「谁能被怎么回」的老策略（`wechat-watch.json` 的 blacklist/groups）搬进渠道层。
+    // **只在渠道还没有策略时写一次**——迁移之后，设置页里改的那份才是真源，
+    // 旧文件再怎么改都不会把它覆盖回去（这条是 seedIfAbsent 的全部意义）。
+    try {
+      const seeded = getChannelPolicyStore().seedIfAbsent(
+        PCWECHAT_CHANNEL,
+        policyFromWatchConfig(loadWechatWatchConfig()),
+      )
+      if (seeded) log.info('[bridge] 本机微信的回复策略已从 wechat-watch.json 搬到渠道策略（此后以渠道侧为准）')
+    } catch (err) {
+      log.warn('[bridge] 渠道策略播种失败（不影响启动）:', err)
+    }
+    // 「灵栖代聊」——代聊的执行主体（M2 身份归位，见 wechat-relay-agent.ts）。
+    // 同样 **seedIfAbsent**：手册只在这里当种子搬进它的 systemPrompt 一次，
+    // 之后真源是设置页里的那条 Agent；RUNBOOK.md 用户照旧可以改，但不再影响行为
+    // （不一致时回路会记 warn 说清楚）。
+    try {
+      const relay = ensureWechatRelayAgent({
+        readRunbook: () => loadInstructions(loadWechatWatchConfig().instructionsFile),
+        getAgent: (id) => getAgentRecord(id),
+        createAgent: (data) => createUserAgentRecord(data),
+      })
+      if (relay?.created) {
+        log.info('[bridge] 已播种「灵栖代聊」：手册已搬进它的 systemPrompt（此后以设置页里那份为准）')
+      }
+    } catch (err) {
+      log.warn('[bridge] 代聊 Agent 播种失败（不影响启动，回路会退回每轮注入手册）:', err)
     }
     // 宠物侧**两条** job 都跟「允许宠物主动做事」（五期 T5.9 / 七期 T7.4）。
     // **启动时也同步一次**，否则会出现"设置里关着、任务页里开着"——两个开关互相打架
@@ -3373,6 +3496,18 @@ export class AgentRuntimeBridge {
   }
 
   getMcpStatus(): McpServerRuntimeStatus[] { return this.mcpManager.getStatus() }
+
+  /**
+   * 主进程内直接调一个 MCP 工具（不经 Agent 回合）。
+   *
+   * 给渠道出站用：本机微信的 Provider 要发消息时只有这一条路（见
+   * `channel/providers/pcwechat-outbound-provider.ts`）——它拿不到 agent 的 tool 执行器，
+   * 而 `mcpManager` 只被 bridge 持有。与 `getMcpStatus` 同一层：都是"把 manager 的一小块
+   * 暴露给装配处"，不开放 manager 本身。
+   */
+  callMcpTool(server: string, tool: string, args: Record<string, unknown>): Promise<string> {
+    return this.mcpManager.callTool(server, tool, args)
+  }
 
   /**
    * 停止所有 MCP Server 子进程（应用退出时调用，见 `performCleanup`）。

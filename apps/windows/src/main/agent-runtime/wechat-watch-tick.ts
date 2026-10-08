@@ -32,7 +32,15 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { DatabaseAdapter } from '@mtbot/agent-runtime'
 import { resolveWindowsClientDataRoot } from '../client-data-root'
+import {
+  isSamePeer,
+  resolvePeerPolicy,
+  type ChannelPeerPolicy,
+  type ChannelPolicy,
+  type PeerReplyMode,
+} from '../../shared/channel-policy'
 import { agentRuntimeLog as log } from './bridge-utils'
+import { relayCoversRunbook } from './wechat-relay-agent'
 
 export const WECHAT_WATCH_INSTRUCTION = '__wechat_watch__'
 /**
@@ -52,18 +60,25 @@ const KV_KEY_LAST_TS = 'wechat_watch_last_ts'
 const MAX_NOTIFY_ITEMS = 3
 
 /**
- * 对某个会话的处理方式。
+ * 这个文件里的 `mode` 用的就是渠道策略的四档（定义与解析在 `shared/channel-policy.ts`）：
  *
- * - `ignore`  完全不处理（黑名单 / 未列入且默认就是忽略）
+ * - `ignore`  完全不处理（连提醒都不发；黑名单就是它）
  * - `notify`  只提醒我（不打扰对方，也不叫模型）
- * - `draft`   叫醒模型**起草**，草稿落在**那个好友的会话**里等我点头（我不会不知情地被代表）
+ * - `draft`   叫醒模型**起草**，草稿落在**那个 peer 的会话**里等我点头（我不会不知情地被代表）
  * - `auto`    直接以我本人身份回（白名单专用：仍有冷却与「发完必报」）
  */
-export type WatchMode = 'ignore' | 'notify' | 'draft' | 'auto'
+export type WatchMode = PeerReplyMode
 
-/** 一个分组的策略：把「谁能替我用哪种方式回」写成一张表 */
+/**
+ * 一个分组的策略。**自 2026-10-08 起只是历史形态**：
+ *
+ * 策略的真源已经搬到渠道层（`~/.lumii/channel/channel-policies.json`，设置页 → 渠道里改），
+ * 这里的 `blacklist` / `groups` 只在**首次播种**时读一次（`policyFromWatchConfig`），
+ * 之后改这个文件里的这两项不再影响行为。`enabled` / `notify` / `instructionsFile` 仍是
+ * 本文件的活跃字段（它们是"这条循环怎么跑"，不是"谁可以被代表"）。
+ */
 export interface WechatWatchGroup {
-  /** 分组名（只用于日志/通知里说明是谁） */
+  /** 分组名（只用于日志里说明这一组是怎么来的） */
   name: string
   mode: WatchMode
   /** 组内会话（显示名或 wxid/群号，大小写不敏感） */
@@ -77,11 +92,11 @@ export interface WechatWatchConfig {
   enabled: boolean
   /** 是否发系统通知 */
   notify: boolean
-  /** 不在任何分组里的会话怎么处理（默认只提醒；想「只盯名单」就设成 ignore） */
+  /** 不在 peers 表里的人怎么处理（**仅播种用**；真源在渠道策略里） */
   defaultMode: WatchMode
-  /** 永不处理（连提醒都不发）：默认忽略「文件传输助手」这类自用会话 */
+  /** 永不处理（连提醒都不发）——**仅播种用**（播种时落成 mode='ignore' 的条目） */
   blacklist: string[]
-  /** 分组策略（先匹配到的分组生效） */
+  /** 分组策略（先匹配到的组生效）——**仅播种用** */
   groups: WechatWatchGroup[]
   /**
    * 手册文件（workspace 相对路径或绝对路径）：内容**注入每一轮 draft/auto 的提示词**。
@@ -119,7 +134,10 @@ export function ensureWechatWatchConfigFile(configPath = wechatWatchConfigPath()
     fs.mkdirSync(path.dirname(configPath), { recursive: true })
     const content = {
       _hint:
-        '微信消息盯梢：enabled=总开关；notify=是否弹系统通知；defaultMode=不在分组里的会话怎么处理（ignore/notify/draft/auto）；blacklist=永不处理；groups=分组策略（{name, mode, peers:[名字或 wxid/群号], cooldownSeconds}）。mode 含义：notify=只提醒我；draft=让助手起草、我点头才发；auto=直接替我回（建议只给信得过的人，cooldownSeconds 默认 60）。改完存盘即生效，不用重启。',
+        '微信消息盯梢：enabled=总开关；notify=是否弹系统通知；instructionsFile=手册文件（workspace 相对路径）。' +
+        '⚠️ 「谁可以被怎么回」已搬到渠道策略（~/.lumii/channel/channel-policies.json，之后在设置页的渠道卡片里改）；' +
+        '这里的 defaultMode / blacklist / groups 只在**首次**把老策略搬过去时读一次，之后改它们不再生效。' +
+        'mode 含义：ignore=完全不处理；notify=只提醒我；draft=让助手起草、我点头才发；auto=直接替我回（建议只给信得过的人，cooldownSeconds 默认 60）。改完存盘即生效，不用重启。',
       ...DEFAULT_WECHAT_WATCH_CONFIG,
     }
     fs.writeFileSync(configPath, JSON.stringify(content, null, 2) + '\n', 'utf-8')
@@ -188,39 +206,60 @@ export function parseWechatWatchConfig(raw: unknown): WechatWatchConfig {
   return out
 }
 
-/** 会话按分组策略该走哪一档；命中的分组名一并返回（通知/日志里说明依据） */
-export function resolveWatchMode(
-  msg: Pick<WechatMessage, 'name' | 'talker'>,
-  cfg: WechatWatchConfig,
-): { mode: WatchMode; group: string | null } {
-  const norm = (s: string) => s.trim().toLowerCase()
-  const keys = [msg.talker, msg.name].filter((x): x is string => !!x).map(norm)
-  if (keys.some((k) => cfg.blacklist.map(norm).includes(k))) {
-    return { mode: 'ignore', group: null }
-  }
-  for (const g of cfg.groups) {
-    const peers = g.peers.map(norm)
-    if (keys.some((k) => peers.includes(k))) return { mode: g.mode, group: g.name }
-  }
-  return { mode: cfg.defaultMode, group: null }
+/**
+ * 旧配置 → 渠道策略（**迁移用，只播种一次**；之后真源在渠道策略里）。
+ *
+ * 映射是同义的：黑名单 → `mode:'ignore'` 的条目，分组 → 组内每个人各一条（带上组里的冷却），
+ * 组外走 `defaultMode`。
+ *
+ * **黑名单条目排在最前**：旧模型里黑名单优先于分组（同一个名字两边都写时），新模型是
+ * 「先出现的生效」——保序即保语义。
+ */
+export function policyFromWatchConfig(cfg: WechatWatchConfig): ChannelPolicy {
+  const peers: ChannelPeerPolicy[] = [
+    ...cfg.blacklist
+      .filter((id) => id.trim())
+      .map((id) => ({ id: id.trim(), mode: 'ignore' as const })),
+    ...cfg.groups.flatMap((g) =>
+      g.peers
+        .filter((p) => p.trim())
+        .map((p) => ({
+          id: p.trim(),
+          mode: g.mode,
+          ...(g.cooldownSeconds !== undefined ? { cooldownSeconds: g.cooldownSeconds } : {}),
+        })),
+    ),
+  ]
+  return { defaultMode: cfg.defaultMode, peers }
 }
 
-/** 某个会话的冷却时长（秒）：命中分组用分组的，否则 60 */
-export function cooldownSecondsFor(
-  msg: Pick<WechatMessage, 'name' | 'talker'>,
-  cfg: WechatWatchConfig,
-): number {
-  const norm = (s: string) => s.trim().toLowerCase()
-  const keys = [msg.talker, msg.name].filter((x): x is string => !!x).map(norm)
-  for (const g of cfg.groups) {
-    if (keys.some((k) => g.peers.map(norm).includes(k))) {
-      return g.cooldownSeconds ?? DEFAULT_COOLDOWN_S
-    }
-  }
-  return DEFAULT_COOLDOWN_S
+/**
+ * 把人名条目换成真 wxid（自愈绑定）。
+ *
+ * 从 `wechat-watch.json` 迁移过来的老条目 id 就是**备注名**（`peers: ["Loop"]`）。
+ * 名字只说明"他现在叫什么"，不说明"他是谁"：对方一改名就失联，而且渠道出站的名单闸门
+ * 只认 id（`to ∈ snapshot.peers`），拿 wxid 去发会被当成"名单外的人"拒掉——同一份策略
+ * 两个口径。所以在第一次收到他本人的消息时（此刻才知道 talker↔名字的对应）换成真 talker，
+ * 名字挪到 label 里，一次改完。
+ *
+ * 返回要落盘的新策略；不需要改（已绑好 / 找不到条目）时返回 `null`。
+ */
+export function healPeerBinding(
+  policy: ChannelPolicy,
+  peer: { id?: string; label?: string },
+): ChannelPolicy | null {
+  const id = peer.id?.trim()
+  const label = peer.label?.trim()
+  if (!id || !label) return null
+  if (policy.peers.some((p) => isSamePeer(p.id, id))) return null // 已经对得上，别动
+  const idx = policy.peers.findIndex(
+    (p) => isSamePeer(p.id, label) || (p.label ? isSamePeer(p.label, label) : false),
+  )
+  if (idx < 0) return null
+  const peers = [...policy.peers]
+  peers[idx] = { ...peers[idx], id, label }
+  return { ...policy, peers }
 }
-
-const DEFAULT_COOLDOWN_S = 60
 
 export function loadWechatWatchConfig(configPath = wechatWatchConfigPath()): WechatWatchConfig {
   try {
@@ -239,6 +278,8 @@ export interface WechatMessage {
   talker?: string
   text?: string
   from_me?: boolean
+  /** 真实发送者的显示名（`msg_dict` 给的；私聊即对方本人，群里才是说话的人） */
+  sender?: string
 }
 
 /** `poll_new` 的返回（只声明这条循环用到的字段） */
@@ -249,13 +290,15 @@ interface PollPayload {
 
 /**
  * 挑出「要处理」的消息：**只处理别人发的**（自己发的不必提醒自己），
- * 黑名单与 ignore 档一律剔除（连提醒都不给）。
+ * `ignore` 档一律剔除（连提醒都不给）。
  */
 export function selectNewMessages(
   messages: readonly WechatMessage[],
-  cfg: WechatWatchConfig,
+  policy: ChannelPolicy,
 ): WechatMessage[] {
-  return messages.filter((m) => !m.from_me && resolveWatchMode(m, cfg).mode !== 'ignore')
+  return messages.filter(
+    (m) => !m.from_me && resolvePeerPolicy(policy, { id: m.talker, label: m.name }).mode !== 'ignore',
+  )
 }
 
 const fmtText = (s?: string) => (s || '').replace(/\s+/g, ' ').slice(0, 300)
@@ -297,7 +340,6 @@ function instructionsBlock(runbook: string, file: string | undefined): string[] 
 /** 起草模式的提示词：手册 → 本次触发 → 只起草不许发 */
 export function buildDraftPrompt(
   msg: WechatMessage,
-  group: string | null,
   runbook = '',
   instructionsFile?: string,
 ): string {
@@ -307,7 +349,7 @@ export function buildDraftPrompt(
     `【本次触发】监控回路把消息取好了，**不要再轮询**；按手册处置这一批即可：`,
     `微信「${who}」刚给我发来（${fmtWhen(msg.ts)}）：`,
     `「${fmtText(msg.text)}」`,
-    group ? `（会话在「${group}」分组里，策略：起草给我确认。）` : '',
+    '（这个人的策略是：起草给我确认。）',
     '',
     '请：',
     `1. 用 wechat-local 的 read_history 看我和「${who}」最近的对话（talker=${msg.talker}）与手册里的口径；`,
@@ -323,7 +365,6 @@ export function buildDraftPrompt(
 /** 自动回模式的提示词：手册 → 本次触发 → 按手册的三分支处置 */
 export function buildAutoPrompt(
   msg: WechatMessage,
-  group: string | null,
   runbook = '',
   instructionsFile?: string,
 ): string {
@@ -333,10 +374,13 @@ export function buildAutoPrompt(
     `【本次触发】监控回路把消息取好了，**不要再轮询、也不要读 state.json 的水位**；按手册处置这一批：`,
     `微信「${who}」刚给我发来（${fmtWhen(msg.ts)}）：`,
     `「${fmtText(msg.text)}」`,
-    group ? `（会话在「${group}」分组里，策略：**允许按手册直接替我回**。）` : '',
+    '（这个人的策略是：**允许按手册直接替我回**。）',
     '',
     '按手册的处置分支办：',
-    `- 日常闲聊 → 用 wechat-local 的 send_text（talker=${msg.talker}, dry_run=false）直接回，短、口语，像我本人；`,
+    `- 日常闲聊 → 用 **channel_send**（channel="pcwechat", to="${msg.talker}", text=你要说的话）直接回，短、口语，像我本人；`,
+    '  · 这是**唯一允许的发送路径**：渠道层会照「本机微信回复名单」再挡一道，并留下发送记录；',
+    '    绕过它直发（比如拿 MCP 的发送工具自己发）等于绕开名单，绝对不要。',
+    '  · 名单外的人会被渠道拒成 PEER_NOT_FOUND——那就**别发**，按手册转人工。',
     '- 命中护栏（涉钱 / 冲突情感健康 / 要承诺或实质安排 / 质疑是不是 AI）→ **一条都不发**，按手册转人工；',
     '- 介于两者之间、或内容读不懂（图片/语音/卡片）→ 取**保守侧**：不回 + 转人工，或按手册允许的方式轻描淡写。',
     '',
@@ -443,6 +487,22 @@ export interface WechatWatchDeps {
    * 缺哪个部件就退到哪一档，绝不半途出错。
    */
   driveTurn?: (prompt: string, meta: WatchTurnMeta) => Promise<string>
+  /**
+   * 绑定的回复策略（bridge 注入：读渠道策略存储，设置页里改的就是它）。
+   *
+   * 不给就按旧 `wechat-watch.json` 推导——测试与「渠道层还没接上」时行为与从前一致。
+   */
+  getPolicy?: () => ChannelPolicy
+  /** 落盘策略（bridge 注入：写渠道策略存储）。自愈绑定用它把人名条目换成真 wxid */
+  setPolicy?: (policy: ChannelPolicy) => void
+  /**
+   * 代聊 Agent（bridge 注入：`getAgentRecord('wechat-relay')`，见 `wechat-relay-agent.ts`）。
+   *
+   * **给了它**就说明手册已经住在这个 Agent 的 systemPrompt 里，提示词只递「本次触发」；
+   * **没给**（老机器没播种 / 用户在设置页把它删了·禁用了 / 手册文件读不到）就回落到
+   * 老办法：把手册全文注入本轮提示词——护栏绝不能因为少了一个 Agent 就静默消失。
+   */
+  getRelayAgent?: () => { id: string; systemPrompt?: string } | undefined
   /** 覆盖配置路径（测试用） */
   configPath?: string
   /** 直接给定配置（测试用；给了就不读文件） */
@@ -460,14 +520,32 @@ export interface WechatWatchDeps {
  * 混线会让用户在一个没有对方的线程里看所有人的代回记录。
  */
 export interface WatchTurnMeta {
-  /** 冷却/分组的会话键（talker 优先，退化到显示名） */
+  /** 冷却表的会话键（talker 优先，退化到显示名） */
   peer: string
   /** 会话 id（`pcwechat:<peer>`） */
   convId: string
   /** 会话标题（`本机微信 · <名字>`） */
   title: string
   mode: WatchMode
-  group: string | null
+  /**
+   * 触发这一轮的那批消息（本拍同一会话合并而来的全部）。
+   *
+   * 要整批带上：桥接侧得把它们**落进会话历史**（见 `formatIncomingForHistory`），
+   * 否则用户点进代聊会话只看得到助手一边的回复，不知道对方说了什么。
+   */
+  incoming: readonly WechatMessage[]
+}
+
+/**
+ * 「对方说了什么」在代聊会话历史里的显示形态。
+ *
+ * 群消息前面补发送者：群里 `talker` 是群号、`name` 是群名（`wechat_core.msg_dict`），
+ * 不补就不知道是谁说的。私聊不补——会话标题里就是这个人。
+ * 非文本（图片/语音/卡片）在 MCP 侧已被换成 `[非文本消息]`，只有空正文才走兜底。
+ */
+export function formatIncomingForHistory(m: WechatMessage): string {
+  const body = (m.text ?? '').trim() || '（非文本消息）'
+  return m.sender && m.talker?.endsWith('@chatroom') ? `${m.sender}：${body}` : body
 }
 
 /**
@@ -477,7 +555,8 @@ export interface WatchTurnMeta {
  * （用户在微信里找 Lumii）方向相反，所以在侧栏是独立分组（渠道 tab → 本机微信）。
  * 前缀同时被 `channel-identity.ts` 的归属表用于落库 `conversations.channel_type`。
  */
-export const PCWECHAT_CONV_PREFIX = 'pcwechat:'
+export const PCWECHAT_CHANNEL = 'pcwechat'
+export const PCWECHAT_CONV_PREFIX = `${PCWECHAT_CHANNEL}:`
 
 export function watchConversationIdFor(peer: string): string {
   return `${PCWECHAT_CONV_PREFIX}${peer}`
@@ -521,6 +600,9 @@ function writeCooldowns(db: DatabaseAdapter, map: Record<string, number>): void 
   }
 }
 
+/** 上一次因"手册文件 ≠ Agent 里那份"报过的内容（同一条只报一次，别每 15 秒刷屏） */
+let lastDriftWarned: string | null = null
+
 /**
  * 跑一拍。返回一句给 `cron_runs` 的摘要（任务页的「最近执行」能看到）。
  *
@@ -529,6 +611,8 @@ function writeCooldowns(db: DatabaseAdapter, map: Record<string, number>): void 
  */
 export async function runWechatWatch(deps: WechatWatchDeps): Promise<string> {
   const cfg = deps.config ?? loadWechatWatchConfig(deps.configPath)
+  // 策略每拍读一次（设置页改完下一拍就生效，跟手册同一口径；存储层有内存缓存，不碰盘）
+  let policy = deps.getPolicy?.() ?? policyFromWatchConfig(cfg)
   const nowMs = deps.nowMs?.() ?? Date.now()
   const nowS = Math.floor(nowMs / 1000)
   try {
@@ -560,7 +644,7 @@ export async function runWechatWatch(deps: WechatWatchDeps): Promise<string> {
     const messages = Array.isArray(payload?.messages) ? payload!.messages! : []
     const next = Number(payload?.next_since_ts ?? since)
     if (Number.isFinite(next) && next > 0) writeLastTs(db, next) // 无论报不报都要推进，免得重复读
-    const fresh = selectNewMessages(messages, cfg)
+    const fresh = selectNewMessages(messages, policy)
     pruneOwnRuns(db)
     if (fresh.length === 0) {
       return messages.length > 0 ? `新消息 ${messages.length} 条（均被过滤，不报）` : '无新消息'
@@ -575,7 +659,21 @@ export async function runWechatWatch(deps: WechatWatchDeps): Promise<string> {
       else byPeer.set(key, [m])
     }
 
+    // 手册**住在哪**：M2 起它进了「灵栖代聊」的 systemPrompt（每轮自动带上，零重复 token）。
+    // 代聊 Agent 不在，就照老办法把全文注入本轮提示词——护栏不能因为少了个 Agent 就消失。
     const runbook = loadInstructions(cfg.instructionsFile)  // 每拍读一次（手册可能随时被改）
+    const relayAgent = deps.getRelayAgent?.()
+    const injectRunbook = relayAgent ? '' : runbook
+    // 手册文件与 Agent 里那份不一致（用户改了文件 / 在设置页改了 Agent）：说清楚谁说了算，
+    // 否则就是「改了手册却没反应」的静默失效。同一条只报一次，别刷屏。
+    const runbookDrift = !!relayAgent && !relayCoversRunbook(relayAgent.systemPrompt, runbook)
+    if (runbookDrift && runbook !== lastDriftWarned) {
+      lastDriftWarned = runbook
+      log.warn(
+        '[wechat-watch] RUNBOOK.md 与「灵栖代聊」的 systemPrompt 已不一致——代聊按 **Agent 设置页里那份**跑' +
+          '（手册文件现在只是留档）。要改护栏请改设置页里的「灵栖代聊」；想以文件为准，就把文件内容贴回它的提示词。',
+      )
+    }
     const notifyOnly: WechatMessage[] = []
     const notifyConvIds = new Set<string>()
     const acted: string[] = []
@@ -598,14 +696,25 @@ export async function runWechatWatch(deps: WechatWatchDeps): Promise<string> {
 
     for (const [peer, msgs] of byPeer) {
       const last = msgs[msgs.length - 1]
-      const { mode, group } = resolveWatchMode(last, cfg)
+      // 人名条目在这里自愈成真 wxid（此刻才知道 talker↔名字的对应），改动立即落盘
+      const healed = healPeerBinding(policy, { id: last.talker, label: last.name })
+      if (healed) {
+        policy = healed
+        deps.setPolicy?.(healed)
+        log.info(
+          `[wechat-watch] 名单里的人名条目「${last.name}」已绑到真 wxid（${last.talker}）`,
+        )
+      }
+      const { mode, cooldownSeconds: cd, matchedBy } = resolvePeerPolicy(policy, {
+        id: last.talker,
+        label: last.name,
+      })
       const convId = watchConversationIdFor(peer)
       if (mode === 'notify') {
         notifyOnly.push(...msgs)
         notifyConvIds.add(convId)
         continue
       }
-      const cd = cooldownSecondsFor(last, cfg)
       const nowMsNow = deps.nowMs?.() ?? Date.now()
       if ((cooldown[peer] ?? 0) + cd * 1000 > nowMsNow) {
         // 冷却期内不打扰对方（也不叫模型），降级成提醒——用户仍然看得见
@@ -620,8 +729,8 @@ export async function runWechatWatch(deps: WechatWatchDeps): Promise<string> {
       }
       const prompt =
         mode === 'auto'
-          ? buildAutoPrompt(last, group, runbook, cfg.instructionsFile)
-          : buildDraftPrompt(last, group, runbook, cfg.instructionsFile)
+          ? buildAutoPrompt(last, injectRunbook, cfg.instructionsFile)
+          : buildDraftPrompt(last, injectRunbook, cfg.instructionsFile)
       let result = ''
       try {
         result = await deps.driveTurn(prompt, {
@@ -629,7 +738,7 @@ export async function runWechatWatch(deps: WechatWatchDeps): Promise<string> {
           convId,
           title: watchConversationTitleFor(last.name, peer),
           mode,
-          group,
+          incoming: msgs,
         })
       } catch (err) {
         log.error(`[wechat-watch] 驱动回合失败（${peer}）：`, err)
@@ -645,7 +754,9 @@ export async function runWechatWatch(deps: WechatWatchDeps): Promise<string> {
         mode === 'auto' ? (sent ? '已代回' : '未发') : sent ? '草稿⚠️疑似已发出' : '草稿'
       acted.push(`${label}·${last.name || peer}：${(last.text || '').slice(0, 40)}`)
       actedConvIds.add(convId)
-      log.info(`[wechat-watch] ${mode} 完成（${peer}/${group ?? '默认'}，sent=${sent}）：${result.slice(0, 160)}`)
+      log.info(
+        `[wechat-watch] ${mode} 完成（${peer}，策略来自${matchedBy ? `「${matchedBy}」` : '默认档'}，sent=${sent}）：${result.slice(0, 160)}`,
+      )
     }
     if (cooldownDirty) writeCooldowns(db, cooldown)
 
@@ -675,7 +786,13 @@ export async function runWechatWatch(deps: WechatWatchDeps): Promise<string> {
     const parts: string[] = []
     if (acted.length > 0) parts.push(acted.join('；'))
     if (notifyOnly.length > 0) parts.push(`提醒 ${notifyOnly.length} 条`)
-    if (parts.length > 0 && runbook) parts.push('带手册')
+    // 「带手册」这行在任务页是用户唯一能看出"护栏到底在不在"的地方——
+    // M2 之后手册住在代聊 Agent 里，就不能再报成"带"了（否则看不出它其实没进提示词）。
+    if (parts.length > 0) {
+      if (runbookDrift) parts.push('⚠️手册与「灵栖代聊」不一致')
+      else if (relayAgent) parts.push('手册在「灵栖代聊」里')
+      else if (runbook) parts.push('带手册')
+    }
     return parts.join('｜') || '无新消息'
   } catch (err) {
     log.error('[wechat-watch] 本拍异常：', err)

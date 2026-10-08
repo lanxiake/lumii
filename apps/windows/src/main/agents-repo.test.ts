@@ -11,7 +11,12 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { _resetWindowsClientDataRootCacheForTest } from './client-data-root'
-import { forkAgentRecord, listAgentDefinitions, listAgents } from './agents-repo'
+import {
+  createUserAgentRecord,
+  forkAgentRecord,
+  listAgentDefinitions,
+  listAgents,
+} from './agents-repo'
 
 let dir: string
 
@@ -88,6 +93,23 @@ describe('agents-repo 系统 Agent 定义镜像', () => {
       expect(raw.permissionMode).toBeUndefined()
       expect(raw.memoryConfig).toBeUndefined()
     }
+  })
+
+  it('createUserAgentRecord：按给定 id 建一条用户 Agent；同 id 再建抛错（播种靠它幂等）', () => {
+    const rec = createUserAgentRecord({
+      id: 'wechat-relay',
+      name: '灵栖代聊',
+      description: '本机微信代聊',
+      systemPrompt: '身份…',
+    })
+    expect(rec.userId).toBe('local-user')
+    expect(rec.isEnabled).toBe(true)
+    expect(rec.definition).toBeUndefined()
+    // 真落盘了才算数（回路是另开一个进程按 id 读回来的）
+    const reloaded = listAgents().agents.find((a) => a.id === 'wechat-relay')
+    expect(reloaded?.systemPrompt).toBe('身份…')
+    // 它在 getCustomAgents 里被排除出 Router 候选，靠的就是这个 id
+    expect(() => createUserAgentRecord({ id: 'wechat-relay', name: '再来一条' })).toThrow(/已存在/)
   })
 
   it('fork 出的用户 Agent 不携带 definition', () => {

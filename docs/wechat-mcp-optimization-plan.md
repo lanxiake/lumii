@@ -8,9 +8,12 @@
 >   「WAL 帧解析」「watchdog 独立监控进程」两个设计**作废**，理由见 [§3.2](#32-作废的设计记录理由避免重走)。
 > - **监控回路（零 token 门闩）**：**v1+v2 已落地**（v1 `7f5e9b5f` / v2 `2afdf560`，见 [§3.3](#33-监控回路零-token-门闩v1--v2-已落地)）——
 >   15 秒一拍、确定性读库；按**分组**决定「只提醒 / 起草待确认 / 直接代回」。
-> - **组织形态收敛**：**M1 已落地**（本机微信成为独立渠道 `pcwechat`，会话按 peer 分，
->   见 [§3.4](#34-组织形态复盘与收敛路线m1-已落地)）；M2（专属代聊 agent）/ M3（注册为正式渠道 +
->   绑定内配置账号·回复策略·黑白名单）在路线图上。
+> - **组织形态收敛**：**M1 + M2 + M3 已落地**（本机微信成为独立渠道 `pcwechat`，会话按 peer 分；
+>   注册为该渠道的**出站 provider**，策略落 `channel-policies.json` 并在
+>   设置 → 渠道 → 本机微信 里配账号·回复策略·黑白名单；
+>   代聊主体是用户 Agent **「灵栖代聊」**，手册住在它的 `systemPrompt` 里，
+>   盯梢改走 `channel_send`，见 [§3.4](#34-组织形态复盘与收敛路线m1-已落地)）；
+>   剩 M3 的入站 adapter（现在仍走盯梢旁路）。
 
 ---
 
@@ -73,10 +76,20 @@
    加间隔无效。改为**剪贴板粘贴**（Ctrl+V）。
 4. **顺带修掉一个 ctypes 64 位坑**：`GetClipboardData`/`GlobalLock` 的 `HANDLE` 被按 32 位整型截断 →
    剪贴板读取**静默返回空**。必须显式声明 `restype/argtypes`。
+5. **短消息让目标校验永远过不去**（2026-10-08 实测，白名单里的人照样发不出）：`verify_target` 的
+   内容锚点里，`anchor_exact` 要求 4 字**精确**子串、`anchor_lcs` 门槛 10 字——两者之间那段（4~9 字）
+   **只能靠精确匹配**。而微信里最常见的消息（「你在干嘛？」）恰好在这个区间，OCR 把 `吗` 读成 `雨`、
+   `？` 读成 `7` 之后锚点全灭（`hits=0`）；此时**只要锚点列表非空**就不允许凭头部放行（原 ③ 档的前提是
+   `not usable`），于是环境对、窗口对、名单对，仍然稳定失败成 `target_unconfirmed`（现场截图
+   `ui_srch00.png` 里头部明明是 `韩玉`、聊天区就是那条消息）。
+   修法：把 ③ 档的前提从「**没有**锚点」改成「**没有够长的**锚点」（够长 = ≥10 字，即 `anchor_lcs`
+   够得着的那批），并给这条独占放行的路加了道**重名反证**——有别的会话名字与头部吻合得不比目标差时
+   不许放行（本机真有 `韩玉` / `韩玉妈`、三个 `loop` 这种形状，头部那时不含任何区分信息）。
+   锚点够长时仍是一票否决：它真能证伪，就不许被头部绕过去。
 
-**现在的发送链路**（`wechat_sender.py`，仍是零注入）：环境闸门 → 目标会话双印证（内容锚点 + 头部相似度 +
-「更像别的会话即拒绝」反证 + 群成员昵称第三重）→ 输入落地（粘贴 + 剪贴板回读）→ 发送生效（输入框清空）→
-**读库确认**（`create_time` 之后该会话真的多了一条）。
+**现在的发送链路**（`wechat_sender.py`，仍是零注入）：环境闸门 → 目标会话校验（内容锚点 + 头部相似度 +
+「更像别的会话即拒绝」反证 + 群成员昵称第三重；锚点全短时才允许「强头部 + 无重名」独占放行）→
+输入落地（粘贴 + 剪贴板回读）→ 发送生效（输入框清空）→ **读库确认**（`create_time` 之后该会话真的多了一条）。
 
 **重试与错误码**（`server.py`）：`error_code` 由发送层文案归一，`_code_of` 是唯一码表（有测试对账，
 文案改了不改码表会静默退化成 `unknown`）。
@@ -232,24 +245,46 @@ auto 档新消息 → 回复延迟 ≈ 回合时长 + 发送（秒级）；不�
   没有语义（那是助手对外的通道，不是用户的对话），还可能让回复发错人。
 - 历史遗留的 `wechat:watch` 单例会话不再使用（仍回落 `ipc`/默认 tab，可手动删）。
 
-**M2 · 身份与配置归位（⏳ 下一步，不动传输）**
+**M2 · 身份与配置归位（✅ 本轮，不动传输）**
 
-- 建**「灵栖代聊」专属 agent**（沿用 `code-dev`/`chronicler` 那套：agent 定义 + `systemPrompt`），
-  RUNBOOK 的内容搬进它的 `systemPrompt`；回路的 `agentId` 从 `assistant` 换成它，
-  `buildAutoPrompt`/`buildDraftPrompt` 不再注入全文，只留「本次触发」。
+- 建**「灵栖代聊」专属 agent**（`apps/windows/src/main/agent-runtime/wechat-relay-agent.ts`）：
+  RUNBOOK 的内容成了它的 `systemPrompt`（`agent-instance.ts:344` 每轮现取现用）；
+  回路的 `agentId` 从 `assistant` 换成它，`buildAutoPrompt`/`buildDraftPrompt` 不再注入全文，
+  只留「本次触发」+ 发送分支。
+- **它是用户 Agent**（`~/.lumii/config/agents.json`），不是内置定义：内置的权威在 api-server 的
+  `system_agents`，客户端自加一条只会造成漂移；而且系统 Agent 在 `updateAgentRecord` 里不可改，
+  用户就改不了口吻与护栏。播种语义 = `seedIfAbsent`（与渠道策略同款，见 bridge 里那段）：
+  **只在不存在时创建一次**，此后真源是设置页里那条记录。
+- **手册读不到就不建**（没配 `instructionsFile` / 文件没了）：一个"代聊"却在裸奔比没有更危险。
+  回路发现 **Agent 里那份 ≠ RUNBOOK.md** 时记一条 warn 说明"以设置页为准、文件只是留档"——
+  否则"改了手册却没反应"就是静默失效。RUNBOOK.md 是用户的文件，**绝不修改**。
+- 它被排除出 Pre-LLM Router 候选（`getCustomAgents` 里按 id 过滤）：那是渠道回路按名单驱动的
+  **行为主体**，不是拿一份微信口径的 systemPrompt 去接普通对话的路由目标；设置页里照常可见可改。
 - 收益：代聊主体在 agent 设置页**可见、可改、可审计**；每轮省几千字注入；要给不同好友不同人格，
   就再建一个 agent 绑到那个 peer。配置源（`wechat-watch.json`）这轮先不动，一次只改一件事。
+- 刻意**没做**的：`memory` 字段留空（`autoExtract` 不再把微信闲聊抽进用户长期记忆；要恢复就照
+  assistant 那份补 `memoryConfig`）。
 
-**M3 · 渠道归位 + 产品化（⏳ 方向已定：做成**公共渠道**，在**绑定**里配置）**
+**M3 · 渠道归位 + 产品化（✅ 出站与策略已落地；⏳ 入站 adapter 未做）**
 
 把它注册成**第 5 个渠道**（`pcwechat`），形状照抄现有四个（`feishu`/`weixin`/`wecom`/`qbot`）：
 
 | 部件 | 现状（盯梢旁路） | M3（正式渠道） |
 |---|---|---|
-| 入站传输 | 15s cron tick 直接读库 | 同一个轮询，但作为该渠道的 **adapter 入站**（weixin 已有长轮询先例） |
-| 出站 | agent 直接调 MCP `send_text` | **provider** 走 `channel_send` → 免费的"省略 to 回来源"、peer 白名单校验、审计 |
+| 入站传输 | 15s cron tick 直接读库 | ⏳ 同一个轮询，但作为该渠道的 **adapter 入站**（weixin 已有长轮询先例） |
+| 出站 | ~~agent 直接调 MCP `send_text`~~ → ✅ 已注册 provider：`snapshot.peers` 就是策略名单，名单外的人 `PEER_NOT_FOUND`（Provider 内还会再拦一道），工具没确认发出就不算成功 | 不变 |
 | 会话 | `pcwechat:<talker>` ✅ M1 已做 | 不变 |
-| 策略 | `wechat-watch.json` 的 groups | **peer 属性**，在**渠道绑定**里配置 |
+| 策略 | ~~`wechat-watch.json` 的 groups~~ → ✅ 落 `~/.lumii/channel/channel-policies.json`，旧文件只在首次播种时读一次；盯梢每拍读主进程同一份缓存，改完立即生效 | 不变 |
+
+> 实测记一笔：加了渠道却只改了主进程的合法渠道清单，忘了 `channel_send` 的 **JSON schema enum**，
+> 结果模型一调用就被参数校验层拒掉（`channel: must be equal to constant`），Router 的白名单门根本没执行。
+> 现在清单只有一份（`packages/agent-runtime` 的 `OUTBOUND_CHANNEL_IDS`，schema enum 由它生成、
+> 主进程 `outbound-types.ts` 再导出），并有对账测试盯着。
+>
+> 绑定内配置的三个字段：**账号**是给用户自己区分"哪个微信"的备注（本机多账号探测还没接，
+> 出站永远走本机此刻登录的那个）；**回复策略**是四档 `ignore/notify/draft/auto`；
+> **黑白名单**就是名单里的 `ignore` 档——黑名单不再是另一份清单。单人条目按 wxid/群号配，
+> 只知备注名也能匹配（联系人改名后失效）。
 
 **绑定内要配的东西（用户 2026-10-08 指定）**：
 
@@ -289,11 +324,16 @@ UI 对 `reseeded` 任务隐藏编辑按钮，`handleCronUpdate` 再加一道闸*
 | 3 | 门闩 v2：分组策略 + 起草/代回（§3.3） | ✅ | 本轮 |
 | 3 | 任务页管道护栏：`wechat-watch` 归系统任务 + 禁改身份字段（§3.4） | ✅ | 本轮 |
 | 3 | **M1 会话归位**：`pcwechat` 渠道 + 每 peer 会话 + 通知直达（§3.4） | ✅ | 本轮 |
-| 4 | **M2 身份归位**：专属「灵栖代聊」agent（RUNBOOK → systemPrompt） | ⏳ | §3.4 |
-| 4 | **M3 渠道归位**：注册 `pcwechat` 渠道（adapter + provider），策略迁到 peer | ⏳ | §3.4 |
-| 4 | **绑定内配置**：账号 / 回复策略 / 黑白名单（M3 的一部分） | ⏳ | §3.4 |
+| 4 | **M2 身份归位**：专属「灵栖代聊」agent（RUNBOOK → systemPrompt） | ✅ | 本轮 |
+| 4 | **M3 渠道归位**：注册 `pcwechat` 出站 provider（策略即出站名单） | ✅ | 本轮 |
+| 4 | **策略归位**：落 `~/.lumii/channel/channel-policies.json`，旧 `wechat-watch.json` 只播种一次 | ✅ | 本轮 |
+| 4 | **绑定内配置**：账号 / 回复策略 / 黑白名单（设置 → 渠道 → 本机微信），弹窗 + 从微信里挑人 + 批量设档 | ✅ | 本轮 |
+| 4 | 盯梢改走 `channel_send`（绕过渠道直发 = 绕开名单） | ✅ | 本轮 |
+| 4 | 代聊会话里**看得见对方的输入**（对方消息落成会话里的用户消息，不再只有助手独白） | ✅ | 本轮 |
+| 4 | 发送层根因修复：短消息锚点被 OCR 读花 ⇒ 目标会话永远校验不过（白名单里也发不出） | ✅ | 本轮 |
+| 4 | M3 收尾：入站 adapter（现在仍走盯梢旁路） | ⏳ | §3.4 |
 | 4 | 监控面板 UI（盯哪些人、开关、最近事件） | ⏳ | — |
-| — | python 测试接入 CI（`test_watch.py` 12 例） | ⏳ | §3.4 |
+| — | python 测试接入 CI（`test_watch.py` 17 例，含 E 层目标校验证据强度） | ⏳ | §3.4 |
 | — | ~~COM Interop~~ / ~~WAL 帧解析~~ / ~~watchdog 进程~~ | ❌ 作废 | §3.2 |
 
 ---
