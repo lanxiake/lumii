@@ -77,6 +77,29 @@ export function wechatWatchConfigPath(): string {
   return path.join(resolveWindowsClientDataRoot(), 'wechat-watch.json')
 }
 
+/**
+ * 首次运行时把默认配置写到盘上（存在就不动）。
+ *
+ * 为什么写：不写的话用户根本不知道有哪些开关（`watch` 白名单尤其要紧——
+ * 不窄化的话每个群消息都会弹通知）。文件里带一个 `_hint` 字段说明用法，
+ * 解析器会忽略它（见 `parseWechatWatchConfig`）。
+ */
+export function ensureWechatWatchConfigFile(configPath = wechatWatchConfigPath()): void {
+  try {
+    if (fs.existsSync(configPath)) return
+    fs.mkdirSync(path.dirname(configPath), { recursive: true })
+    const content = {
+      _hint:
+        '微信消息盯梢：enabled=总开关；watch=只盯这些会话（名字或 wxid/群号，空数组=全部，群多的建议窄化）；ignore=永不报告；notify=是否弹系统通知。改完存盘即生效，不用重启。',
+      ...DEFAULT_WECHAT_WATCH_CONFIG,
+    }
+    fs.writeFileSync(configPath, JSON.stringify(content, null, 2) + '\n', 'utf-8')
+    log.info(`[wechat-watch] 已写出默认配置：${configPath}`)
+  } catch (err) {
+    log.warn('[wechat-watch] 写默认配置失败（继续用内置默认值）:', err)
+  }
+}
+
 function asStringArray(v: unknown): string[] | undefined {
   if (!Array.isArray(v)) return undefined
   return v.filter((x): x is string => typeof x === 'string' && x.trim().length > 0)
@@ -301,6 +324,7 @@ export function ensureWechatWatchCronJobSeeded(
          schedule_type = 'every', schedule_expr = '', notify_targets = NULL
          WHERE id = ?`,
       ).run(WECHAT_WATCH_INTERVAL_MS, WECHAT_WATCH_CRON_ID)
+      ensureWechatWatchConfigFile()
       return
     }
     const now = Date.now()
@@ -319,6 +343,7 @@ export function ensureWechatWatchCronJobSeeded(
     log.info(
       `[ensureWechatWatchCronJobSeeded] 新建 job id=${WECHAT_WATCH_CRON_ID} intervalMs=${WECHAT_WATCH_INTERVAL_MS}`,
     )
+    ensureWechatWatchConfigFile()
   } catch (err) {
     log.error('[ensureWechatWatchCronJobSeeded] 失败:', err)
   }

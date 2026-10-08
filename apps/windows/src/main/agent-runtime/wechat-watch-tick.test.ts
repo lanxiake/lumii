@@ -8,8 +8,12 @@
  *   3. 水位一定推进且落库（重启不重复报，也不重复读同一段）。
  */
 import { describe, it, expect, vi } from 'vitest'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import {
   DEFAULT_WECHAT_WATCH_CONFIG,
+  ensureWechatWatchConfigFile,
   ensureWechatWatchCronJobSeeded,
   formatWechatNotice,
   parseWechatWatchConfig,
@@ -180,6 +184,21 @@ describe('runWechatWatch', () => {
     expect(showNotification).not.toHaveBeenCalled()
     expect(out).toContain('均被过滤')
     expect(kv.get('wechat_watch_last_ts')).toBe('1995')
+  })
+})
+
+describe('ensureWechatWatchConfigFile', () => {
+  it('首次写出默认配置；已存在则不动（用户改过的不许被覆盖）', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wxwatch-'))
+    const p = path.join(dir, 'wechat-watch.json')
+    ensureWechatWatchConfigFile(p)
+    const first = JSON.parse(fs.readFileSync(p, 'utf-8'))
+    expect(first.enabled).toBe(true)
+    expect(first.ignore).toEqual(['filehelper'])
+    expect(typeof first._hint).toBe('string')
+    fs.writeFileSync(p, JSON.stringify({ enabled: false, watch: ['Loop'] }), 'utf-8')
+    ensureWechatWatchConfigFile(p)
+    expect(JSON.parse(fs.readFileSync(p, 'utf-8'))).toEqual({ enabled: false, watch: ['Loop'] })
   })
 })
 
