@@ -438,9 +438,15 @@ export async function runWechatWatch(deps: WechatWatchDeps): Promise<string> {
     const since = readLastTs(db) ?? nowS // 首次：从现在起，不翻历史
     let payload: PollPayload | null = null
     try {
+      const t0 = Date.now()
       const text = await deps.callMcpTool(WECHAT_WATCH_MCP_SERVER, WECHAT_WATCH_MCP_TOOL, {
         since_ts: since,
       })
+      const cost = Date.now() - t0
+      if (cost > 2000) {
+        // 观测用：读取侧正常是几十毫秒；偶发几秒的话，先分清是 MCP 侧还是主进程阻塞
+        log.warn(`[wechat-watch] poll_new 耗时 ${cost}ms（读取侧正常 <100ms，值得看一眼）`)
+      }
       payload = JSON.parse(text) as PollPayload
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
