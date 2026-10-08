@@ -864,6 +864,20 @@ export class CloudSyncManager extends EventEmitter {
     logger.warn(
       `[maybePruneObjectStore] packs=${packCount} loose=${looseCount}(${Math.round(looseSizeKib / 1024)}MB)，执行 git gc…`,
     )
+
+    // 清理残留的锁文件：gc 进程异常退出后不清理会导致后续 gc 永久失败
+    const gcPidFile = path.join(this.syncDir, '.git', 'gc.pid')
+    try {
+      if (fs.existsSync(gcPidFile)) {
+        fs.rmSync(gcPidFile, { force: true })
+        logger.info('[maybePruneObjectStore] 已清理残留的 gc.pid 锁文件')
+      }
+    } catch (err) {
+      logger.warn(
+        `[maybePruneObjectStore] 清理 gc.pid 失败: ${err instanceof Error ? err.message : String(err)}`,
+      )
+    }
+
     try {
       // packSizeLimit 是关键：不限制就会压出 GB 级单包，而 isomorphic-git 要整个读进内存。
       // 见 PACK_SIZE_LIMIT 的注释。

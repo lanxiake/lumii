@@ -2,7 +2,8 @@
  * 内置常用 MCP 服务清单
  *
  * 收录门槛（三条都满足才进来）：
- *   1. 优先 `npx -y` 能装上；少数 Python 包可用 `uvx`（客户端会在连接前自动安装 uv）
+ *   1. 优先 `npx -y` 能装上；少数 Python 包可用 `uvx`（客户端会在连接前自动安装 uv）；
+ *      随包 Python 脚本用 `{{LUMII_PYTHON}}`（托管解释器 + pythonPackages 自动补依赖）
  *   2. 包在 npm/PyPI 上，国内配了镜像就能拉；服务端也得是国内可访问的
  *   3. 官方或一方维护，包名可确认
  *
@@ -58,6 +59,11 @@ export interface McpPreset {
   readonly timeoutMs?: number
   /** 需要后台化的工具短名（命中后立即返回，完成后唤醒 Agent，避免拖垮回合） */
   readonly backgroundTools?: readonly string[]
+  /**
+   * command 为 `{{LUMII_PYTHON}}` 时，连接前在托管解释器里补齐的依赖。
+   * `module` 是导入名（用于探测是否已装），与 pip 包名不同时必须写对。
+   */
+  readonly pythonPackages?: readonly { readonly spec: string; readonly module: string }[]
 }
 
 /**
@@ -75,6 +81,21 @@ export function isReadyToUse(preset: McpPreset): boolean {
 
 export const MCP_PRESETS: readonly McpPreset[] = [
   {
+    name: 'wechat-local',
+    title: '本机微信',
+    description: '读取本机微信会话、历史消息、检索聊天记录，并能发送消息、文件、引用回复、群发，以及蒸馏用户/好友画像',
+    categories: ['life'],
+    // 不能写裸 python：Windows 上常命中 WindowsApps 的 Store 占位程序（code=9009）
+    command: '{{LUMII_PYTHON}}',
+    args: ['{{LUMII_RESOURCES}}/wechat-mcp/server.py'],
+    // 与 resources/wechat-mcp/requirements.txt 保持一致
+    pythonPackages: [
+      { spec: 'pycryptodome>=3.20', module: 'Crypto' },
+      { spec: 'zstandard>=0.22', module: 'zstandard' },
+    ],
+    defaultEnabled: true,
+  },
+  {
     name: 'comfyui-remote',
     title: 'ComfyUI 生图',
     description: '连接远程 ComfyUI，用工作流生成图片、处理图像',
@@ -84,7 +105,7 @@ export const MCP_PRESETS: readonly McpPreset[] = [
     env: { COMFYUI_URL: 'https://cfui.cpolar.top' },
     // 一次 wait:true 最长等 300s，且 npx 冷启动握手也慢；30s 默认值会在本地先超时
     timeoutMs: 360_000,
-    // 出片是分钟级长任务：后台执行，完成后唤醒 Agent 续跑
+    // 出片是分钟级长任务：后台执行,完成后唤醒 Agent 续跑
     backgroundTools: ['enqueue_workflow'],
     defaultEnabled: false,
   },

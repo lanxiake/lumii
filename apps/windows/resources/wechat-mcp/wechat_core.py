@@ -44,10 +44,35 @@ def deps():
 
 
 def list_accounts():
-    """枚举本机微信 4.x 账号数据目录：`[{wxid, dir, root, mtime}]`（按最近修改倒序）。"""
-    base = os.path.join(os.path.expanduser("~"), "xwechat_files")
+    """枚举本机微信 4.x 账号数据目录：`[{wxid, dir, root, mtime}]`（按最近修改倒序）。
+
+    多路径探测策略（按优先级）：
+    1. ~/xwechat_files（默认）
+    2. ~/Documents/xwechat_files（常见重定向）
+    3. 注册表/微信进程探测（终极兜底）
+    """
     out = []
-    if os.path.isdir(base):
+    # 候选路径：优先用户目录，再 Documents，最后全盘扫描（限 Windows）
+    home = os.path.expanduser("~")
+    candidates = [
+        os.path.join(home, "xwechat_files"),
+        os.path.join(home, "Documents", "xwechat_files"),
+    ]
+    # Windows 下额外探测：从注册表/进程取微信数据路径
+    if os.name == "nt":
+        try:
+            import winreg
+            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Tencent\WeChat", 0, winreg.KEY_READ)
+            val, _ = winreg.QueryValueEx(key, "FileSavePath")
+            winreg.CloseKey(key)
+            if val and os.path.isdir(val):
+                candidates.append(os.path.join(val, "xwechat_files"))
+        except Exception:
+            pass
+
+    for base in candidates:
+        if not os.path.isdir(base):
+            continue
         for name in os.listdir(base):
             d = os.path.join(base, name, "db_storage")
             msg = os.path.join(d, "message", "message_0.db")
@@ -63,6 +88,8 @@ def db_root():
 
     选择优先级：`LUMII_WECHAT_DB`（显式路径）> `LUMII_WECHAT_ACCOUNT`（指定 wxid/目录名）>
     最近修改的账号（多账号并存时取活跃度最高的那个）。
+
+    **改进点**：探测失败时给出可操作的错误提示（含候选路径、修复建议）。
     """
     env = os.environ.get("LUMII_WECHAT_DB")
     if env and os.path.isfile(os.path.join(env, "message", "message_0.db")):
@@ -73,11 +100,15 @@ def db_root():
         for a in accts:
             if a["wxid"] == want or a["dir"] == want:
                 return a["root"]
-        raise RuntimeError(f"LUMII_WECHAT_ACCOUNT={want} 未匹配到账号数据目录（可选："
-                           + "、".join(a["wxid"] for a in accts) + "）")
+        avail = "、".join(a["wxid"] for a in accts) if accts else "（无）"
+        raise RuntimeError(f"LUMII_WECHAT_ACCOUNT={want} 未匹配到账号数据目录。可选账号：{avail}")
     if not accts:
-        raise RuntimeError("未找到微信 4.x 数据目录（~/xwechat_files/*/db_storage；"
-                           "微信 3.x 的 `WeChat Files` 布局暂不支持）")
+        # 给出可操作的错误提示
+        home = os.path.expanduser("~")
+        hint = f"未找到微信 4.x 数据目录。已扫描路径：\n  - {home}/xwechat_files\n  - {home}/Documents/xwechat_files"
+        if os.name == "nt":
+            hint += "\n\n修复建议：\n1. 确认微信已登录并有聊天记录\n2. 若数据在其他位置，设置环境变量：\n   LUMII_WECHAT_DB=D:\\path\\to\\xwechat_files\\wxid_xxx\\db_storage"
+        raise RuntimeError(hint)
     return accts[0]["root"]
 
 

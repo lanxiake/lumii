@@ -12,42 +12,77 @@
 
 - **Windows**（依赖 Win32 GDI/UI Automation/剪贴板与 PowerShell）。
 - **微信 4.x**，且已登录、主窗口可正常显示。
-- **Python 3.10+**（在微信所在的同一台机器上运行）。
+- **Python 3.10+**（在微信所在的同一台机器上运行），或者装了 [uv](https://docs.astral.sh/uv/)（推荐，uv 会自动准备 Python 与依赖）。
 
-## 2. 安装
+## 2. 协议与兼容性
 
-```bash
-pip install -r requirements.txt      # 必需 pycryptodome；推荐 zstandard
-```
+- 传输：**stdio**（换行分隔的 JSON-RPC 2.0），stdout 只输出协议消息，日志走 stderr。
+- 协议版本：`2025-06-18` / `2025-03-26` / `2024-11-05`，`initialize` 时按客户端请求协商。
+- 能力：`tools`（15 个工具，带 `readOnlyHint` / `destructiveHint` 等 annotations），`initialize` 返回 `instructions` 使用引导。
+- 支持 `ping`；未知方法回 `-32601`，未知工具回 `-32602`；工具内部失败以 `isError: true` 结果返回。
+- 依赖缺失时服务仍能启动并列出工具，`check_env` 的 `deps` 字段会报告缺什么，相关工具返回带安装命令的错误。
 
-## 3. 配置（把它挂到你的 MCP 客户端）
+## 3. 安装与配置（任选一种）
 
-在客户端的 MCP 配置里加一项，命令用 `python`，参数指向本目录的 `server.py`：
+> 以下路径换成你本机 `wechat-mcp` 目录的**绝对路径**。
 
-```jsonc
+### 方式 A：uv（推荐，零手工安装）
+
+`server.py` 顶部带 [PEP 723](https://peps.python.org/pep-0723/) 内联依赖声明，`uv run` 会自动创建隔离环境并装好依赖：
+
+```json
 {
   "mcpServers": {
     "wechat-local": {
-      "command": "python",
-      "args": ["C:\\path\\to\\wechat-mcp\\server.py"],
-      "env": {
-        // 可选：多账号时锁定账号（wxid 或数据目录名），否则取"最近修改"的那个
-        // "LUMII_WECHAT_ACCOUNT": "wxid_xxxxxxxxxxxx",
-        // 可选：直接指定数据目录（含 message/message_0.db）
-        // "LUMII_WECHAT_DB": "C:\\Users\\you\\xwechat_files\\wxid_xxx_xxxx\\db_storage",
-        // 可选：画像/状态产出目录（默认 ~/.lumii/wechat-distill）
-        // "LUMII_WECHAT_DISTILL": "D:\\wechat-distill"
-      }
+      "command": "uv",
+      "args": ["run", "C:\\path\\to\\wechat-mcp\\server.py"]
     }
   }
 }
 ```
 
-- 客户端（Claude Desktop / Cursor / 各类支持 stdio MCP 的宿主）填法大同小异，都是 `command` + `args`。
-- 用 `uv` 亦可：`command: "uv"`, `args: ["run", "--with", "pycryptodome", "--with", "zstandard", "server.py"]`。
-- **改了 py 代码要重连 MCP**（客户端"MCP 面板 → 保存并重连"），否则跑的还是旧进程。
+首次启动要下载依赖（可能需要十几秒）；国内网络可在 `env` 里加 `"UV_DEFAULT_INDEX": "https://pypi.tuna.tsinghua.edu.cn/simple"`。
 
-## 4. 环境变量
+### 方式 B：自己的 Python + pip
+
+```bash
+python -m pip install -r requirements.txt   # 必需 pycryptodome；推荐 zstandard
+```
+
+```json
+{
+  "mcpServers": {
+    "wechat-local": {
+      "command": "C:\\Python312\\python.exe",
+      "args": ["C:\\path\\to\\wechat-mcp\\server.py"]
+    }
+  }
+}
+```
+
+**`command` 请写解释器的绝对路径，不要写裸 `python`**：多数 MCP 客户端不经过 shell 直接启动进程，
+Windows 上 PATH 里的 `%LOCALAPPDATA%\Microsoft\WindowsApps\python.exe` 是 Microsoft Store 的占位程序，
+命中它会直接以 **code=9009** 退出（表现为「进程提前退出」）。用 `where python` 查真实路径，
+或在「设置 → 应用 → 应用执行别名」里关闭 `python.exe` / `python3.exe` 两个别名。
+
+### 可选环境变量
+
+在上面任一配置里加 `env`：
+
+```json
+"env": {
+  "LUMII_WECHAT_ACCOUNT": "wxid_xxxxxxxxxxxx",
+  "LUMII_WECHAT_DB": "C:\\Users\\you\\xwechat_files\\wxid_xxx_xxxx\\db_storage",
+  "LUMII_WECHAT_DISTILL": "D:\\wechat-distill"
+}
+```
+
+- 客户端（Claude Desktop / Cursor / Cline / Cherry Studio 等支持 stdio MCP 的宿主）填法大同小异，都是 `command` + `args`。
+- 在灵栖里无需手工配置：内置项使用 `{{LUMII_PYTHON}}`，由客户端托管解释器并自动补齐依赖。
+- **改了 py 代码要重连 MCP**（客户端"MCP 面板 → 保存并重连"），否则跑的还是旧进程。
+- 连通性自测：`echo {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}} | python server.py`，应输出一行 `initialize` 结果。
+
+## 4. 环境变量说明
 
 | 变量 | 作用 |
 |---|---|

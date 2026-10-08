@@ -1,20 +1,42 @@
-"""微信 MCP Server（stdio JSON-RPC）—— 给 Lumii Agent 用。
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#     "pycryptodome>=3.20",
+#     "zstandard>=0.22",
+# ]
+# ///
+"""微信 MCP Server（MCP stdio 传输，JSON-RPC 2.0）—— 任意 MCP 客户端可用。
 
-工具：
-- wechat_sessions()                        列出会话（name + talker）
-- wechat_history(talker, limit)            读历史
-- wechat_poll(since_ts)                    读增量新消息
-- wechat_status()                          检查自动化环境（进程/窗口/可见/最小化/前台/尺寸·DPI）
-- wechat_send(talker, text, dry_run=true)  发消息（默认 dry-run，需显式 dry_run=false 才真发）
-- wechat_send_file(talker, path, dry_run=true)  发图片/文件/视频/音频（同上默认 dry-run）
+启动方式（二选一）：
+- `uv run server.py`：按上方 PEP 723 元数据自动准备隔离环境与依赖，零配置；
+- `python server.py`：需先 `pip install -r requirements.txt`。
+
+工具（15 个，详见 TOOLS）：list_sessions / read_history / poll_new / search_messages / list_unread /
+check_env / send_text / send_file / send_batch / reply_to / wechat_digest / wechat_distill_state /
+wechat_distill_clear / wechat_profile_save / wechat_profile_get。
 
 发送前依次校验：环境 → 目标会话（数据库锚点）→ 输入落地 → 发送生效；任一不过即中止（fail-closed）。
 只读部分不改动任何微信文件；发送走「OCR 定位 + SendInput」（零注入）。
-`initialize` 返回 `instructions`（引导词），帮助 Agent 正确使用；stdout 仅输出 JSON-RPC 单行，日志走 stderr。
+
+协议约定：
+- 支持协议版本见 SUPPORTED_PROTOCOL_VERSIONS，`initialize` 时按客户端请求协商；
+- stdout 只输出换行分隔的 JSON-RPC 消息；业务代码里的 print 一律被重定向到 stderr；
+- 依赖缺失时仍能完成握手与 tools/list，调用相关工具时返回带安装命令的错误，`check_env` 报告依赖状态。
 """
 import json
 import sys
 import os
+
+SERVER_NAME = "wechat-local"
+SERVER_VERSION = "0.5.0"
+# 新 → 旧；客户端请求的版本在列表中则原样回应，否则回应最新版（由客户端决定是否断开）
+SUPPORTED_PROTOCOL_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
+
+# JSON-RPC 2.0 标准错误码
+PARSE_ERROR = -32700
+INVALID_REQUEST = -32600
+METHOD_NOT_FOUND = -32601
+INVALID_PARAMS = -32602
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 if HERE not in sys.path:
@@ -44,6 +66,87 @@ def _resolve_or_error(talker):
         opts = "（会话列表读取失败）"
     return None, (f"未找到会话「{talker}」——本工具**严格匹配**（需与显示名或 wxid/群号完全一致），"
                   f"歧义或部分匹配一律拒绝以免发错人。可选会话：{opts}")
+
+
+def _get_fix_suggestion(error_code):
+    """根据错误码返回可操作的修复建议（P0-B 增强）。"""
+    suggestions = {
+        "env_not_ready": "请确保微信窗口可见且在前台（不要最小化或被其他窗口遮挡），然后重试。",
+        "target_not_found": "未找到目标会话，请先用 list_sessions 确认会话名称或 talker ID。",
+        "input_not_landed": "输入框定位失败。建议：1) 确保微信窗口完全可见；2) 稍后重试；3) 检查微信版本（推荐 4.x）。",
+        "send_unconfirmed": "发送后输入框未清空，可能发送失败。建议：1) 检查微信窗口是否失去焦点；2) 手动确认是否已发送；3) 重试。",
+        "quote_not_found": "未找到要引用的消息。建议：1) 确认引用文字准确；2) 该消息在聊天区可见；3) 使用消息原文而非摘要。",
+        "verification_failed": "目标会话校验失败。建议：1) 确认微信已打开正确的会话；2) 会话中有足够的历史消息用于校验。",
+        "bad_args": "参数错误，请检查输入参数是否完整且格式正确。",
+    }
+    return suggestions.get(error_code, "请检查微信窗口状态并重试，或查看 detail 字段了解详情。")
+
+
+def _code_of(detail):
+    """把发送层的中文 detail 归一到**稳定错误码**（Agent 据此决策，不必字符串匹配）。"""
+    d = detail or ""
+    if "环境前置检查" in d or "窗口前置检查" in d:
+        return "env_not_ready"
+    if "未找到要引用的消息" in d:
+        return "quote_not_found"
+    if "菜单里未找到" in d:
+        return "menu_not_found"
+    if "未找到" in d:
+        return "not_found"
+    if "输入未落地" in d:
+        return "input_not_landed"
+    if "未清空" in d or "发送可能失败" in d:
+        return "send_unconfirmed"
+    if "校验失败" in d or "不通过" in d:
+        return "verification_failed"
+    return "unknown"
+
+
+def _send_with_retry(send_fn, max_retries=2, retry_delay=0.5):
+    """发送重试包装器（P0-B 增强）。
+
+    策略：
+    - 首次失败时自动重试（最多 max_retries 次）
+    - 仅对可重试的错误码重试（input_not_landed, send_unconfirmed）
+    - 环境错误（env_not_ready）和目标错误（not_found）不重试
+    - 每次重试间隔 retry_delay 秒
+
+    返回：(ok, detail, attempts) 元组
+    """
+    import time
+
+    # 可重试的错误码（临时性失败）
+    RETRIABLE_CODES = {"input_not_landed", "send_unconfirmed", "verification_failed"}
+    # 不可重试的错误码（永久性失败）
+    NON_RETRIABLE_CODES = {"env_not_ready", "target_not_found", "quote_not_found",
+                           "menu_not_found", "bad_args"}
+
+    last_ok, last_detail = False, ""
+    for attempt in range(1, max_retries + 1):
+        ok, detail = send_fn()
+        last_ok, last_detail = ok, detail
+
+        if ok:
+            suffix = f"（第 {attempt} 次尝试成功）" if attempt > 1 else ""
+            return True, detail + suffix, attempt
+
+        # 判断是否应该重试
+        error_code = _code_of(detail)
+        if error_code in NON_RETRIABLE_CODES:
+            # 永久性失败，不重试
+            return False, detail + f"（不可重试的错误：{error_code}）", attempt
+
+        if error_code not in RETRIABLE_CODES:
+            # 未知错误，保守起见不重试
+            return False, detail + "（未知错误类型，不自动重试）", attempt
+
+        # 可重试错误，继续尝试
+        if attempt < max_retries:
+            log(f"发送失败（{error_code}），{retry_delay}s 后重试（{attempt}/{max_retries}）...")
+            time.sleep(retry_delay)
+
+    # 所有重试都失败
+    return False, last_detail + f"（已重试 {max_retries} 次，仍失败）", max_retries
 
 
 def _code_of(detail):
@@ -100,12 +203,28 @@ def tool_send(args):
     dry = args.get("dry_run")
     dry = True if dry is None else bool(dry)
     import wechat_sender
-    ok, detail = wechat_sender.send_text(text, talker, dry_run=dry)
+
+    # P0-B 增强：使用重试机制
+    if not dry:
+        # 真实发送时启用重试
+        ok, detail, attempts = _send_with_retry(
+            lambda: wechat_sender.send_text(text, talker, dry_run=False),
+            max_retries=2
+        )
+    else:
+        # dry_run 不重试
+        ok, detail = wechat_sender.send_text(text, talker, dry_run=True)
+        attempts = 1
+
     out = {"ok": ok, "detail": detail, "talker": talker, "name": core.names().get(talker, talker),
            "dry_run": dry, "text": text[:120]}
+    if attempts > 1:
+        out["attempts"] = attempts  # 标记重试次数
     if not ok:
         out["error_code"] = _code_of(detail)
         out["shot"] = wechat_sender.last_shot()
+        # P0-B 增强：失败时给出可操作的修复建议
+        out["suggestion"] = _get_fix_suggestion(out["error_code"])
     return out
 
 
@@ -275,11 +394,11 @@ INSTRUCTIONS = """\
 本服务让 Agent 以【用户本人】身份读微信、并按需发消息（零注入：截图 OCR 定位 + 模拟键鼠；不改微信数据）。
 
 工具选择：
-- 只读（不需要微信窗口）：wechat_sessions 列会话 / wechat_history 读历史 / wechat_poll 读增量新消息。
-- 发送（需要微信窗口可见且在前台）：wechat_send 发**文本**；wechat_send_file 发**图片/文件/视频/音频**；wechat_send_batch 把消息**群发给多个目标**（逐目标独立校验）；wechat_reply 发**带引用的回复**（quote 传被引用消息的文字用于定位）。
-- 发送前可先调 wechat_status 确认环境（微信是否运行、窗口是否可见/最小化/在前台）。
+- 只读（不需要微信窗口）：list_sessions 列会话 / read_history 读历史 / poll_new 读增量新消息 / search_messages 检索 / list_unread 未读。
+- 发送（需要微信窗口可见且在前台）：send_text 发**文本**；send_file 发**图片/文件/视频/音频**；send_batch 把消息**群发给多个目标**（逐目标独立校验）；reply_to 发**带引用的回复**（quote 传被引用消息的文字用于定位）。
+- 发送前可先调 check_env 确认环境（微信是否运行、窗口是否可见/最小化/在前台）与依赖是否就绪。
 
-附件说明（wechat_send_file）：
+附件说明（send_file）：
 - path 传本地绝对路径；图片按内联图片发，其余按文件发，视频一般按视频消息发。
 - 微信「语音消息」是按住录音、**无法自动化**——语音只能把音频文件当附件发。
 - 用户说「发给我」但没给路径时，先问清文件路径，不要猜。
@@ -287,12 +406,12 @@ INSTRUCTIONS = """\
 发送纪律（重要）：
 1. 默认 dry_run=true —— 只校验、不发送。**只有用户明确要求真发时才传 dry_run=false**。
 2. 内容以用户本人身份发出、且**不可撤回**。含义模糊或有风险的内容，先草拟给用户确认。
-3. 需要微信窗口可见且在前台：若 wechat_status 返回 ok=false，先请用户把微信窗口调出来（别自己去点）。
+3. 需要微信窗口可见且在前台：若 check_env 返回 ok=false，先请用户把微信窗口调出来（别自己去点）。
    最小化/后台/锁屏时发送会失败（这是设计使然，不是 bug）。
-4. talker 用 wechat_sessions 返回的 name（如「文件传输助手」「TOOLAN」「TOOLAN、韩玉」）或 wxid/群号最稳。
+4. talker 用 list_sessions 返回的 name（如「文件传输助手」「TOOLAN」「TOOLAN、韩玉」）或 wxid/群号最稳。
 5. 一次发一条；失败会在 detail 里说明卡在哪一道校验，可据此调整或提示用户。
 
-读取建议：先用 wechat_sessions 找目标会话名，再用 wechat_history 拉上下文，然后据此起草回复。
+读取建议：先用 list_sessions 找目标会话名，再用 read_history 拉上下文，然后据此起草回复。
 
 蒸馏（用户/好友知识与行为）：要提炼「我的表达习惯 / 与谁联系最多 / 活跃时段 / 某会话里对方是谁」时，用 wechat_digest——
 它做**本地确定性统计 + 代表性样本**（覆盖微信全部时间分片，**不外传**），你再据此写成画像；
@@ -310,7 +429,7 @@ TOOLS = [
          "required": []}},
     {"name": "read_history",
      "description": ("【何时用】要读**用户本人微信**里某个好友/群的聊天记录、或据此起草回复时。【别用】想读渠道(Bot)会话时；——那是渠道(`weixin`)的 Bot 收件箱，与本工具无关。读取**用户本人微信**指定会话的历史消息（按时间正序）。"
-                     "talker 可传 wechat_sessions 返回的 name 或 wxid/群号/filehelper。"
+                     "talker 可传 list_sessions 返回的 name 或 wxid/群号/filehelper。"
                      "消息多时可**翻页**：返回带 `cursor`（本页最老一条 ts）与 `has_more`；要读更早的一页再调一次并传 `before_ts=cursor`。"),
      "inputSchema": {"type": "object", "properties": {
          "talker": {"type": "string", "description": "会话显示名或 wxid/群号/filehelper"},
@@ -432,15 +551,132 @@ DISPATCH = {"list_sessions": tool_sessions, "read_history": tool_history,
             "wechat_distill_clear": tool_distill_clear,
             "wechat_profile_save": tool_profile_save, "wechat_profile_get": tool_profile_get}
 
+# 工具行为提示（MCP tool annotations）：客户端据此决定是否需要用户确认
+_READ_ONLY_TOOLS = {"list_sessions", "read_history", "poll_new", "check_env", "search_messages",
+                    "list_unread", "wechat_digest", "wechat_profile_get"}
+# 以用户本人身份对外发出、不可撤回，或删除本地画像
+_DESTRUCTIVE_TOOLS = {"send_text", "send_file", "send_batch", "reply_to", "wechat_distill_clear"}
+_OPEN_WORLD_TOOLS = {"send_text", "send_file", "send_batch", "reply_to"}
+
+
+def _annotate_tools(tools):
+    """给每个工具补上 annotations（readOnly / destructive / idempotent / openWorld 提示）。"""
+    for t in tools:
+        name = t["name"]
+        read_only = name in _READ_ONLY_TOOLS
+        t["annotations"] = {
+            "readOnlyHint": read_only,
+            "destructiveHint": name in _DESTRUCTIVE_TOOLS,
+            "idempotentHint": read_only or name in ("wechat_profile_save", "wechat_distill_state"),
+            "openWorldHint": name in _OPEN_WORLD_TOOLS,
+        }
+    return tools
+
+
+_annotate_tools(TOOLS)
+
+# 协议输出通道：启动时锁定真实 stdout，随后把 sys.stdout 指向 stderr，
+# 防止业务代码或第三方库的 print 混进 JSON-RPC 流导致客户端解析失败
+_PROTOCOL_OUT = sys.stdout
+
+
+def _send(message):
+    """向客户端写一条 JSON-RPC 消息（单行 UTF-8 JSON）。"""
+    _PROTOCOL_OUT.write(json.dumps(message, ensure_ascii=False) + "\n")
+    _PROTOCOL_OUT.flush()
+
 
 def reply(mid, result):
-    sys.stdout.write(json.dumps({"jsonrpc": "2.0", "id": mid, "result": result}, ensure_ascii=False) + "\n")
-    sys.stdout.flush()
+    """回应成功结果。"""
+    _send({"jsonrpc": "2.0", "id": mid, "result": result})
+
+
+def reply_error(mid, code, message):
+    """回应 JSON-RPC 协议级错误（工具执行失败不走这里，而是 isError=true 的结果）。"""
+    _send({"jsonrpc": "2.0", "id": mid, "error": {"code": code, "message": message}})
+
+
+def negotiate_protocol_version(requested):
+    """协议版本协商：支持则原样回应，否则回应本服务支持的最新版本。"""
+    if requested in SUPPORTED_PROTOCOL_VERSIONS:
+        return requested
+    return SUPPORTED_PROTOCOL_VERSIONS[0]
+
+
+def handle_initialize(params):
+    """处理 initialize：协商版本，声明 tools 能力与服务信息。"""
+    return {
+        "protocolVersion": negotiate_protocol_version(params.get("protocolVersion")),
+        "capabilities": {"tools": {"listChanged": False}},
+        "serverInfo": {"name": SERVER_NAME, "title": "本机微信", "version": SERVER_VERSION},
+        "instructions": INSTRUCTIONS,
+    }
+
+
+def handle_tools_call(mid, params):
+    """处理 tools/call：未知工具/参数非法属协议错误；工具内部异常以 isError 结果返回给模型。"""
+    name = params.get("name")
+    args = params.get("arguments")
+    if args is None:
+        args = {}
+    handler = DISPATCH.get(name)
+    if handler is None:
+        reply_error(mid, INVALID_PARAMS, f"Unknown tool: {name}")
+        return
+    if not isinstance(args, dict):
+        reply_error(mid, INVALID_PARAMS, "arguments 必须是对象")
+        return
+    log("call", name)
+    try:
+        data = handler(args)
+        reply(mid, {"content": [{"type": "text", "text": json.dumps(data, ensure_ascii=False)}],
+                    "isError": False})
+    except Exception as e:
+        log("error", name, repr(e))
+        reply(mid, {"content": [{"type": "text", "text": f"ERROR: {e}"}], "isError": True})
+
+
+def handle_message(msg):
+    """分发单条 JSON-RPC 消息；通知（无 id）不回应，未知请求回 Method not found。"""
+    if not isinstance(msg, dict) or msg.get("jsonrpc") != "2.0":
+        reply_error(msg.get("id") if isinstance(msg, dict) else None, INVALID_REQUEST, "Invalid Request")
+        return
+    method = msg.get("method")
+    if not isinstance(method, str):
+        # 客户端发来的响应（本服务不发请求）或畸形消息：有 id 才回错误
+        if "id" in msg and "result" not in msg and "error" not in msg:
+            reply_error(msg.get("id"), INVALID_REQUEST, "Invalid Request")
+        return
+    is_notification = "id" not in msg
+    mid = msg.get("id")
+    params = msg.get("params")
+    if not isinstance(params, dict):
+        params = {}
+
+    if is_notification:
+        # notifications/initialized、notifications/cancelled 等：按规范不回应
+        return
+    if method == "initialize":
+        reply(mid, handle_initialize(params))
+    elif method == "ping":
+        reply(mid, {})
+    elif method == "tools/list":
+        reply(mid, {"tools": TOOLS})
+    elif method == "tools/call":
+        handle_tools_call(mid, params)
+    else:
+        reply_error(mid, METHOD_NOT_FOUND, f"Method not found: {method}")
 
 
 def main():
+    """stdio 主循环：逐行读取 JSON-RPC 消息，直到 stdin 关闭。"""
+    global _PROTOCOL_OUT
     sys.stdin.reconfigure(encoding="utf-8")
     sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
+    _PROTOCOL_OUT = sys.stdout
+    sys.stdout = sys.stderr
+    log(f"started v{SERVER_VERSION} (python {sys.version.split()[0]})")
     for line in sys.stdin:
         line = line.strip()
         if not line:
@@ -448,26 +684,14 @@ def main():
         try:
             msg = json.loads(line)
         except Exception:
+            reply_error(None, PARSE_ERROR, "Parse error")
             continue
-        mid, method = msg.get("id"), msg.get("method")
-        if method == "initialize":
-            reply(mid, {"protocolVersion": "2024-11-05", "capabilities": {"tools": {}},
-                        "serverInfo": {"name": "wechat-local", "version": "0.4.0"},
-                        "instructions": INSTRUCTIONS})
-        elif method == "tools/list":
-            reply(mid, {"tools": TOOLS})
-        elif method == "tools/call":
-            p = msg.get("params") or {}
-            name, args = p.get("name"), (p.get("arguments") or {})
-            log("call", name)
-            try:
-                data = DISPATCH[name](args)
-                reply(mid, {"content": [{"type": "text", "text": json.dumps(data, ensure_ascii=False)}], "isError": False})
-            except Exception as e:
-                log("error", name, repr(e))
-                reply(mid, {"content": [{"type": "text", "text": f"ERROR: {e}"}], "isError": True})
-        elif mid is not None:
-            reply(mid, {})
+        try:
+            handle_message(msg)
+        except Exception as e:  # 兜底：单条消息出错不能拖垮整个服务
+            log("internal error", repr(e))
+            if isinstance(msg, dict) and "id" in msg and msg.get("method"):
+                reply_error(msg.get("id"), -32603, f"Internal error: {e}")
 
 
 if __name__ == "__main__":
