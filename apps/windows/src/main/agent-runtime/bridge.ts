@@ -180,16 +180,18 @@ import { ensurePetSensingCronJobSeeded, runPetSensing } from './pet-sensing-tick
 import {
   ensureWechatWatchCronJobSeeded,
   formatIncomingForHistory,
+  formatWechatProfiles,
   loadInstructions,
   loadWechatWatchConfig,
   PCWECHAT_CHANNEL,
   policyFromWatchConfig,
   runWechatWatch,
   type WatchTurnMeta,
+  type WechatProfileBlock,
   WECHAT_WATCH_MCP_SERVER,
 } from './wechat-watch-tick'
-import { ensureWechatRelayAgent, WECHAT_RELAY_AGENT_ID } from './wechat-relay-agent'
-import { createUserAgentRecord, getAgentRecord } from '../agents-repo'
+import { ensureWechatRelayAgent, relayPromptWithWorkflow, WECHAT_RELAY_AGENT_ID } from './wechat-relay-agent'
+import { createUserAgentRecord, getAgentRecord, updateAgentRecord } from '../agents-repo'
 import { getChannelPolicyStore } from '../channel/channel-policy-store'
 import { ensurePetEvolveCronJobSeeded, runPetEvolve, syncPetEvolveJobEnabled } from './pet-evolve'
 import { recordPetPersonalityEvent } from './pet-personality'
@@ -1908,16 +1910,55 @@ export class AgentRuntimeBridge {
   }
 
   /**
+   * 代聊回合的**画像注入**：取用户画像 + 这个人/群的画像，拼成提示词前缀（拼装见
+   * `formatWechatProfiles`）。
+   *
+   * 拿不到（没蒸馏过 / MCP 没连上 / 返回不可解析）就**静默不注入**：画像只提高准确度，
+   * 不该因为读不到而挡住这一轮——`wechat_profile_get` 在没文件时返回 `exists:false` + 空正文。
+   */
+  private async wechatProfilePrompt(peer: string): Promise<string> {
+    const blocks: WechatProfileBlock[] = []
+    for (const [scope, label] of [['self', '关于我（本人）'], [peer, '关于这个人']] as const) {
+      const target = scope === 'self' ? '我（本人）' : '这个人/群'
+      try {
+        const raw = await this.callMcpTool(WECHAT_WATCH_MCP_SERVER, 'wechat_profile_get', { scope })
+        const got = JSON.parse(raw) as { content?: string; exists?: boolean; stale?: boolean }
+        const content = got.content ?? ''
+        // 只在**确实读到了**（exists 为真且正文非空）且过期时才说"过期"；
+        // MCP 没连上/返回怪形状时 `exists` 是 undefined——那不能断言"没有画像"（会误导模型去重建）
+        const missing = got.exists !== undefined && !content.trim()
+        blocks.push({
+          label,
+          content,
+          whenMissing: missing
+            ? got.stale
+              ? `${target}的画像**已过期**（≥30 天没更新）——按预设工作流先用 wechat_digest 增量更新它，再回。`
+              : `${target}还没有画像——按预设工作流先建一份再回。`
+            : undefined,
+        })
+      } catch (err) {
+        log.warn(`[wechat-watch] 画像读取失败 scope=${scope}（本轮不注入）:`, err)
+      }
+    }
+    const profiles = formatWechatProfiles(blocks)
+    // 留一条可观测的证据：注入本身在提示词里看不出来（提示词不落盘），
+    // 而"到底注入了没有"是下一轮代聊质量归因的前提。没有画像时**不记**（免刷屏）。
+    if (profiles) log.info(`[wechat-watch] 已注入画像 peer=${peer} chars=${profiles.length}`)
+    return profiles
+  }
+
+  /**
    * 在**那个好友的会话**里驱动一次回合（draft/auto 两档用）。
    *
    * 配方抄的是 `cron-scheduler.driveAgent`（L1 五件套：确保会话 → 建实例 → prompt →
-   * 等空闲 → 取输出 → 收实例），差别只有三点：
+   * 等空闲 → 取输出 → 收实例），差别只有四点：
    * - 会话按 peer 分（`pcwechat:<talker>`，见 `wechat-watch-tick.ts`）——一个好友一条线，
    *   草稿/代回/对方的消息都落在同一处，点通知直达；
    * - 先把「对方发来的消息」落进会话历史（见 `appendIncomingWatchMessages`）——
    *   用户点进来就能看见对方说了什么、为什么有这一轮；
    * - 主体是**「灵栖代聊」**（M2，见 `wechat-relay-agent.ts`），不是默认助手——手册住在
-   *   它的 systemPrompt 里；它不在（删了/禁用/没手册）则回落默认助手 + 每轮注入手册。
+   *   它的 systemPrompt 里；它不在（删了/禁用/没手册）则回落默认助手 + 每轮注入手册；
+   * - 提示词前面拼上**画像**（见 `wechatProfilePrompt`）——把蒸馏产物变成每轮都在场的前提。
    */
   private async driveWechatWatchTurn(prompt: string, meta: WatchTurnMeta): Promise<string> {
     const agentId = this.wechatRelayAgent()?.id ?? DEFAULT_AGENT_ID
@@ -1935,7 +1976,8 @@ export class AgentRuntimeBridge {
     }
     const instanceId = await this.createInstanceById(agentId, meta.convId, meta.convId)
     try {
-      await this.prompt(instanceId, prompt)
+      const profiles = await this.wechatProfilePrompt(meta.peer)
+      await this.prompt(instanceId, profiles ? `${profiles}\n\n${prompt}` : prompt)
       await this.waitForInstanceIdle(instanceId)
       return this.getAssistantOutputFromInstance(instanceId) ?? ''
     } finally {
@@ -2383,6 +2425,13 @@ export class AgentRuntimeBridge {
       })
       if (relay?.created) {
         log.info('[bridge] 已播种「灵栖代聊」：手册已搬进它的 systemPrompt（此后以设置页里那份为准）')
+      }
+      // 老 Agent（补预设工作流之前播种的）补一段**追加**式升级——只往后接程序自己那一段，
+      // 用户改过的口吻与护栏原样保留（判据是分区标记，见 relayPromptWithWorkflow）。
+      const upgraded = relayPromptWithWorkflow(getAgentRecord(WECHAT_RELAY_AGENT_ID)?.systemPrompt)
+      if (upgraded) {
+        updateAgentRecord(WECHAT_RELAY_AGENT_ID, { systemPrompt: upgraded })
+        log.info('[bridge] 「灵栖代聊」已补上预设工作流分区（画像/蒸馏的口径）')
       }
     } catch (err) {
       log.warn('[bridge] 代聊 Agent 播种失败（不影响启动，回路会退回每轮注入手册）:', err)

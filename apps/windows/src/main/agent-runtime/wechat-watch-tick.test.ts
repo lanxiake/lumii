@@ -21,12 +21,14 @@ import {
   ensureWechatWatchCronJobSeeded,
   formatIncomingForHistory,
   formatWechatNotice,
+  formatWechatProfiles,
   loadInstructions,
   parseWechatWatchConfig,
   policyFromWatchConfig,
   resolveWorkspacePath,
   runWechatWatch,
   selectNewMessages,
+  WECHAT_PROFILE_MAX_CHARS,
   WECHAT_WATCH_INSTRUCTION,
   watchConversationIdFor,
   watchConversationTitleFor,
@@ -567,6 +569,62 @@ describe('回合元数据带上触发这一轮的消息', () => {
     expect(formatIncomingForHistory({ ts: 1, talker: 'wxid_loop', text: '[非文本消息]' })).toBe(
       '[非文本消息]',
     )
+  })
+})
+
+describe('formatWechatProfiles（代聊每轮注入的画像前缀）', () => {
+  it('剥掉落盘文件的元数据行，只留正文档', () => {
+    const out = formatWechatProfiles([
+      { label: '关于我（本人）', content: '<!-- wechat-distill scope=self updated=2026-10-08 22:00:00 -->\n说话简短。' },
+    ])
+    expect(out).toContain('## 关于我（本人）\n说话简短。')
+    expect(out).not.toContain('<!--')
+  })
+
+  it('两份画像都拼进去，顺序是「我」在前', () => {
+    const out = formatWechatProfiles([
+      { label: '关于我（本人）', content: '说话简短' },
+      { label: '关于这个人', content: '韩玉，同事' },
+    ])
+    expect(out.indexOf('说话简短')).toBeLessThan(out.indexOf('韩玉，同事'))
+  })
+
+  it('没有一份可用（没蒸馏过 / 空正文 / 只有元数据）→ 空串，调用方据此不注入', () => {
+    expect(formatWechatProfiles([])).toBe('')
+    expect(formatWechatProfiles([{ label: '关于我（本人）', content: '' }])).toBe('')
+    expect(formatWechatProfiles([{ label: '关于我（本人）', content: '<!-- x -->\n  \n' }])).toBe('')
+    // 一份空一份有 → 只注入有的那份，不因为缺一半就整体放弃
+    const out = formatWechatProfiles([
+      { label: '关于我（本人）', content: '' },
+      { label: '关于这个人', content: '韩玉' },
+    ])
+    expect(out).toContain('韩玉')
+    expect(out).not.toContain('关于我（本人）')
+  })
+
+  it('超长画像截断到上限（注入 = 内容进模型上下文，不能无限塞）', () => {
+    const out = formatWechatProfiles([{ label: '关于这个人', content: 'x'.repeat(5000) }])
+    expect(out).toContain('x'.repeat(WECHAT_PROFILE_MAX_CHARS))
+    expect(out).not.toContain('x'.repeat(WECHAT_PROFILE_MAX_CHARS + 1))
+  })
+
+  it('缺画像时把「缺」这条事实写进提示词（Agent 才知道该先建再回）', () => {
+    const out = formatWechatProfiles([
+      { label: '关于这个人', content: '', whenMissing: '这个人还没有画像——先建一份再回。' },
+    ])
+    expect(out).toContain('## 关于这个人\n这个人还没有画像——先建一份再回。')
+  })
+
+  it('有正文时不写 whenMissing（否则等于叫它重建已有的画像）', () => {
+    const out = formatWechatProfiles([
+      { label: '关于这个人', content: '韩玉，家人', whenMissing: '还没有画像——先建再回。' },
+    ])
+    expect(out).toContain('韩玉，家人')
+    expect(out).not.toContain('还没有画像')
+  })
+
+  it('没给 whenMissing 的缺失项安静跳过（MCP 没连上时不误导模型去重建）', () => {
+    expect(formatWechatProfiles([{ label: '关于这个人', content: '' }])).toBe('')
   })
 })
 

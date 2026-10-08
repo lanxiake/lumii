@@ -548,6 +548,52 @@ export function formatIncomingForHistory(m: WechatMessage): string {
   return m.sender && m.talker?.endsWith('@chatroom') ? `${m.sender}：${body}` : body
 }
 
+/** 注入提示词的每份画像上限（字符）。画像卡本该几百字，超了是该重蒸馏，不是该塞更多。 */
+export const WECHAT_PROFILE_MAX_CHARS = 1500
+
+/** 一份画像：`label` 是给模型看的标题，`content` 是 `wechat_profile_get` 返回的正文。 */
+export interface WechatProfileBlock {
+  label: string
+  content: string
+  /**
+   * 没有这份画像（或已过期）时，在提示词里写下这句**事实**。
+   *
+   * 只写事实、不在这里写步骤：步骤是 Agent 的预设工作流（`wechat-relay-agent.ts`
+   * 的 `relayWorkflowSection`），两处各写一份就会漂移。没给这句时缺画像就静默跳过。
+   */
+  whenMissing?: string
+}
+
+/**
+ * 把蒸馏出的画像拼成**代聊提示词的前缀**（每轮注入）。没有任何一份可用时返回 `''`。
+ *
+ * 落盘文件的正文由 LLM 写成（`wechat_profile_save`），第一行是
+ * `<!-- wechat-distill scope=… updated=… -->` 这类元数据——那行是给机器看的，注入前剥掉，
+ * 否则模型会把它当成内容的一部分。
+ *
+ * 为什么要**注入**而不是让模型自己调 `wechat_profile_get`：取不取、取到几条全靠模型自觉，
+ * 那就是"有时候准有时候不准"；代聊要的是每轮都带着同一份前提（用户 2026-10-08 定的）。
+ * 代价记在这里：画像来自聊天内容，拼进提示词等于把那部分内容送进模型上下文，
+ * 所以**有长度上限**；文件全在本机白盒目录，可编辑、可一键删。
+ */
+export function formatWechatProfiles(blocks: readonly WechatProfileBlock[]): string {
+  const parts: string[] = []
+  for (const b of blocks) {
+    const body = b.content
+      .split('\n')
+      .filter((l) => !l.trim().startsWith('<!--'))
+      .join('\n')
+      .trim()
+    if (body) parts.push(`## ${b.label}\n${body.slice(0, WECHAT_PROFILE_MAX_CHARS)}`)
+    else if (b.whenMissing) parts.push(`## ${b.label}\n${b.whenMissing}`)
+  }
+  if (!parts.length) return ''
+  return `以下是本机微信**本地蒸馏**出的画像，用作口吻与背景的参考；与本次消息冲突时**以消息为准**：
+（来源是本机 \`~/.lumii/wechat-distill/\`，用户可编辑或删除）
+
+${parts.join('\n\n')}`
+}
+
 /**
  * 本机微信会话的 id / 标题（**唯一构造处**）。
  *

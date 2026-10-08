@@ -73,7 +73,51 @@ export function buildRelaySystemPrompt(runbook: string): string {
     '',
   ]
   if (!runbook) return head.join('\n').trimEnd()
-  return [...head, '【用户手写的手册（全文）】', runbook, '【手册结束】'].join('\n')
+  return [
+    ...head,
+    relayWorkflowSection(),
+    '【用户手写的手册（全文）】',
+    runbook,
+    '【手册结束】',
+  ].join('\n')
+}
+
+/**
+ * 「预设工作流」分区的标记。
+ *
+ * 为什么要标记：这段是**程序维护**的（跟手册不同——手册是用户的），而 Agent 记录一旦播种
+ * 就归用户所有、之后由他改。老 Agent（补这段之前播种的）需要一次追加式升级，
+ * 标记就是"补过没有"的判据（有它就别再追加，也别覆盖用户改过的内容）。
+ */
+export const RELAY_WORKFLOW_MARKER = '<!-- lumii:relay-workflow v1 -->'
+
+/**
+ * 代聊的**预设工作流**（用户 2026-10-08：把这些行为定制进代聊 Agent，让它能稳定执行）。
+ *
+ * 为什么写在 Agent 的 systemPrompt 里、而不是每轮由回路拼：这是**长期行为约定**
+ * （什么时候蒸馏、按什么口径写画像卡、别把画像当话题说出来），不是一次性的数据；
+ * 而画像本身是**事实**，每轮由回路拼在提示词里（`bridge.wechatProfilePrompt`）——
+ * 事实会变、约定不变，两边分工按这个来。
+ *
+ * 这段会每轮付一遍 token（本机是每 ~15s 一拍、真有新消息才跑），所以写短、写死。
+ */
+export function relayWorkflowSection(): string {
+  return [
+    RELAY_WORKFLOW_MARKER,
+    '【Lumii 预设的工作流（这段由程序维护，别删）】',
+    '1. **画像**：每轮提示词前面会拼上本机微信**本地蒸馏**出的画像（「关于我（本人）」+「关于这个人」）。',
+    '   按它把握口吻、称呼与话题；它与本次消息冲突时**以消息为准**（画像是统计出来的，可能过时）。',
+    '2. **画像缺失/过期时先建再回**（提示词里会写明缺哪一份）：',
+    '   `wechat_digest`（对方就传 `talker=<对手方>`，自己那份不传）拿统计与样本 → 据此写成',
+    '   **≤250 字的画像卡**（身份与关系 / 常聊话题 / 沟通风格）→ `wechat_profile_save`',
+    '   （scope 传同一个 talker；自己那份 scope 留空）→ 用',
+    '   `wechat_distill_state(action="set", scope=<同一个 scope>, ts=<digest 的 generated_at>)` 记水位。',
+    '   **一个 scope 只建一次**，之后按水位增量更新；资料不够就在画像里写「样本不足」，别编。',
+    '3. 蒸馏是**本机只读统计**（读自己的微信库，不外传、不往微信里写任何东西），产物在',
+    '   `~/.lumii/wechat-distill/`，白盒、用户可编辑可删。**别在回话里提画像/蒸馏/水位**——',
+    '   它们只是你回话的依据。',
+    '',
+  ].join('\n')
 }
 
 /**
@@ -100,6 +144,20 @@ export interface EnsureRelayAgentDeps {
     description?: string
     systemPrompt?: string
   }) => AgentRecord
+}
+
+/**
+ * 给**已存在**的代聊 Agent 补上预设工作流分区（老 Agent 是补这段之前播种的）。
+ *
+ * 返回要写回的新 systemPrompt；没什么可补（已有标记 / 记录不存在 / prompt 为空）时返回 `null`。
+ *
+ * **追加，不覆盖**：Agent 记录归用户所有（他可能改过口吻和护栏），程序只往后面接自己那一段。
+ * prompt 为空是特例——那说明用户把内容清空了，尊重他，不硬塞。
+ */
+export function relayPromptWithWorkflow(systemPrompt: string | undefined): string | null {
+  const cur = systemPrompt ?? ''
+  if (!cur.trim() || cur.includes(RELAY_WORKFLOW_MARKER)) return null
+  return `${cur.trimEnd()}\n\n${relayWorkflowSection()}`
 }
 
 /**

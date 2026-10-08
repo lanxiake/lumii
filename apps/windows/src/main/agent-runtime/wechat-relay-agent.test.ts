@@ -10,7 +10,10 @@ import { describe, it, expect, vi } from 'vitest'
 import {
   buildRelaySystemPrompt,
   ensureWechatRelayAgent,
+  RELAY_WORKFLOW_MARKER,
   relayCoversRunbook,
+  relayPromptWithWorkflow,
+  relayWorkflowSection,
   WECHAT_RELAY_AGENT_ID,
   WECHAT_RELAY_AGENT_NAME,
 } from './wechat-relay-agent'
@@ -54,6 +57,45 @@ describe('relayCoversRunbook', () => {
     expect(relayCoversRunbook('身份…', '')).toBe(true)
     expect(relayCoversRunbook(undefined, '')).toBe(true)
     expect(relayCoversRunbook(undefined, RUNBOOK)).toBe(false)
+  })
+})
+
+describe('预设工作流分区', () => {
+  it('播种时就在里面（新 Agent 从第一天起带着工作流）', () => {
+    const p = buildRelaySystemPrompt(RUNBOOK)
+    expect(p).toContain(RELAY_WORKFLOW_MARKER)
+    // 工作流在手册**前面**：铁律 > 工作流 > 用户手册（手册里历史口径多）
+    expect(p.indexOf(RELAY_WORKFLOW_MARKER)).toBeLessThan(p.indexOf('【用户手写的手册'))
+  })
+
+  it('忘了带 whenMissing 的缺失事实时，工作流自己把口径说全（digest→save→水位）', () => {
+    const s = relayWorkflowSection()
+    expect(s).toContain('wechat_digest')
+    expect(s).toContain('wechat_profile_save')
+    expect(s).toContain('wechat_distill_state')
+    // 画像只是依据，不许当话题说出来
+    expect(s).toContain('别在回话里提画像')
+  })
+
+  it('老 Agent 补分区 = 追加，用户改过的正文原样保留', () => {
+    const userOwned = '【我改过的口吻】只说"嗯"，别的都不许说。'
+    const out = relayPromptWithWorkflow(userOwned)
+    expect(out).toContain(userOwned)
+    expect(out).toContain(RELAY_WORKFLOW_MARKER)
+    expect(out!.startsWith(userOwned)).toBe(true)
+  })
+
+  it('补过一次就不再补（否则每启动一次长一截）', () => {
+    const once = relayPromptWithWorkflow('口吻…')
+    expect(once).not.toBeNull()
+    expect(relayPromptWithWorkflow(once!)).toBeNull()
+    expect(relayPromptWithWorkflow(buildRelaySystemPrompt(RUNBOOK))).toBeNull()
+  })
+
+  it('prompt 为空/未定义 → 不动：内容被清空是用户的决定，不硬塞', () => {
+    expect(relayPromptWithWorkflow('')).toBeNull()
+    expect(relayPromptWithWorkflow('   \n ')).toBeNull()
+    expect(relayPromptWithWorkflow(undefined)).toBeNull()
   })
 })
 
