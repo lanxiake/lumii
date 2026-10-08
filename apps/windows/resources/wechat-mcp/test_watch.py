@@ -625,6 +625,91 @@ def suite_E():
     return r
 
 
+def suite_F():
+    """F 层：最小化时的**自恢复发送闸门**（`env_gate` / `wake_minimized`）——纯逻辑，假窗口。
+
+    为什么单开一层：`check_env` 的严格闸门是给**报告**用的（如实说环境如何），但代聊回路的
+    现实是「人不在电脑前 ⇒ 微信常是最小化的 ⇒ 自己不恢复就永远发不出去」。2026-10-08 实测
+    被它挡了两次（22:33 Loop、22:37 韩玉）。这层钉四件事：
+      1. 最小化 → 恢复一次后复检，复检过了就放行；
+      2. 恢复不动（或没有窗口句柄）→ 照旧拒发，不假装成功；
+      3. 本来 ok → **不碰窗口**（别平白把用户的窗口拎到前台）；
+      4. 没运行 / 不可见 → 不恢复、直接拒（这两类恢复不了）。
+    """
+    import wechat_sender as snd
+    r = R("F 层：最小化自恢复（发送闸门）")
+
+    def with_env(seq, find_hwnd, fn):
+        """`check_env` 按 seq 依次返回（用完后重复最后一个）；`ShowWindow`/`sleep` 打桩。"""
+        st = {"n": 0}
+
+        def fake_check_env():
+            i = min(st["n"], len(seq) - 1)
+            st["n"] += 1
+            return dict(seq[i])
+
+        shown = []
+        old = (snd.check_env, snd.find_main_hwnd, snd.u.ShowWindow, snd.time.sleep)
+        snd.check_env = fake_check_env
+        snd.find_main_hwnd = lambda: find_hwnd
+        # 传入的是 ctypes.c_void_p，这里归一成整数，免得断言被 c_void_p 包装挡住
+        snd.u.ShowWindow = lambda h, n: shown.append((getattr(h, "value", h), n))
+        snd.time.sleep = lambda *_: None
+        try:
+            return fn(shown, st)
+        finally:
+            (snd.check_env, snd.find_main_hwnd, snd.u.ShowWindow, snd.time.sleep) = old
+
+    MIN = {"ok": False, "reason": "主窗口已最小化", "minimized": True,
+           "visible": True, "weixin_running": True, "hwnd": 199150}
+    OK = {"ok": True, "reason": "", "minimized": False,
+          "visible": True, "weixin_running": True, "hwnd": 199150}
+    GONE = {"ok": False, "reason": "未检测到微信进程（Weixin.exe 未运行）", "minimized": False,
+            "visible": False, "weixin_running": False, "hwnd": 0}
+
+    def f1_restores_and_passes():
+        def run(shown, st):
+            ok, s = snd.env_gate()
+            assert ok and s["ok"], "恢复后复检通过就该放行"
+            assert shown == [(199150, 9)], f"应当且只应当 SW_RESTORE 一次：{shown}"
+            assert st["n"] == 2, f"应当复检一次：{st['n']}"
+        with_env([MIN, OK], 0, run)
+    r.case("最小化 ⇒ 自恢复一次 + 复检 ⇒ 放行", f1_restores_and_passes)
+
+    def f2_stays_minimized():
+        def run(shown, st):
+            ok, _s = snd.env_gate()
+            assert not ok, "恢复不动时必须拒发（不许带着最小化的窗口往下做）"
+            assert shown == [(199150, 9)]
+        with_env([MIN], 0, run)
+    r.case("恢复不动（仍最小化）⇒ 拒发", f2_stays_minimized)
+
+    def f3_no_hwnd():
+        def run(shown, _st):
+            ok, _s = snd.env_gate()
+            assert not ok and shown == [], "拿不到窗口句柄时不许瞎点，直接拒"
+        with_env([{**MIN, "hwnd": 0}], 0, run)
+    r.case("最小化但拿不到句柄 ⇒ 拒发且不碰窗口", f3_no_hwnd)
+
+    def f4_already_ok():
+        def run(shown, st):
+            ok, _s = snd.env_gate()
+            assert ok and shown == [], "本来就 ok 就不许碰窗口"
+            assert st["n"] == 1, "本来就 ok 不必复检"
+        with_env([OK], 0, run)
+    r.case("本来 ok ⇒ 一次都不碰窗口", f4_already_ok)
+
+    def f5_not_running():
+        def run(shown, _st):
+            ok, s = snd.env_gate()
+            assert not ok and shown == [], "微信没运行不是「恢复」能解决的，直接拒"
+            assert "未运行" in s["reason"]
+        with_env([GONE], 199150, run)
+    r.case("微信没运行 ⇒ 拒发（不尝试恢复）", f5_not_running)
+
+    return r
+
+
 def main():
     try:
         import Crypto  # noqa: F401
@@ -636,7 +721,7 @@ def main():
     print("=" * 70)
     total_p = total_f = 0
     for suite, need_crypto in ((suite_A, True), (suite_B, False), (suite_C, False),
-                               (suite_D, False), (suite_E, False)):
+                               (suite_D, False), (suite_E, False), (suite_F, False)):
         if need_crypto and not has_crypto:
             print("\n（跳过 A 层：没有 pycryptodome）")
             continue

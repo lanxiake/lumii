@@ -338,6 +338,35 @@ def check_env():
     return info
 
 
+def wake_minimized(st=None):
+    """主窗口最小化时把它恢复出来，再复检一遍环境。返回**复检后**的 check_env()。
+
+    为什么发送路径要自己恢复：`check_env` 那道严格闸门是给**报告**用的（如实告诉调用方
+    环境如何），但无人值守的代聊回路里「窗口最小化 ⇒ 永远发不出去」是死锁——用户
+    2026-10-08 实测被它挡了两次（22:33 Loop、22:37 韩玉），而人不在电脑前时窗口本来就
+    常是最小化的。恢复只做 `SW_RESTORE`（不点微信内部内容），且**可逆**：
+    `Win.__exit__` 本来就会把窗口的位置与尺寸还原。
+
+    其余失败原因（微信没运行 / 主窗口不可见）**不动**，照旧拒发——那些恢复不了，
+    硬来只会变成"以为发出了"。
+    """
+    st = st or check_env()
+    if st.get("ok") or not st.get("minimized"):
+        return st
+    h = st.get("hwnd") or find_main_hwnd()
+    if not h:
+        return st
+    u.ShowWindow(ctypes.c_void_p(h), 9)          # SW_RESTORE
+    time.sleep(0.7)
+    return check_env()
+
+
+def env_gate():
+    """发送入口的统一闸门：(ok, st)。最小化时先自恢复一次再判定。"""
+    st = wake_minimized()
+    return bool(st["ok"]), st
+
+
 class Win:
     """窗口几何：进入时【前置检查 → 规范化为固定尺寸 → 逐项校验】，退出时还原。"""
 
@@ -817,14 +846,14 @@ def send_text(text, talker, name=None, dry_run=True, verbose=False):
     """发送文本。返回 (ok, detail)。
 
     两步前置闸门，任一不过就**不触碰窗口**直接失败：
-    1. `check_env()`：微信是否运行 / 主窗口可见 / 未最小化。
+    1. `env_gate()`：微信是否运行 / 主窗口可见 / 未最小化（**最小化时先自恢复一次**，见 `wake_minimized`）。
     2. `Win.__enter__`：切前台 + 固定尺寸，并逐项校验规范化真的生效。
     之后才是「目标校验 → 输入落地 → 发送生效」三道动作校验。
     """
     if not name:
         name = core.names().get(talker, talker)
-    st = check_env()
-    if not st["ok"]:
+    env_ok, st = env_gate()
+    if not env_ok:
         return False, f"环境前置检查未通过：{st['reason']}（微信运行={st['weixin_running']}，可见={st['visible']}，最小化={st['minimized']}）"
     lk = _acquire_ui()
     if lk is None:
@@ -1004,8 +1033,8 @@ def send_attachment(path, talker, name=None, dry_run=True, verbose=False):
         return False, f"文件不存在：{path}"
     if not name:
         name = core.names().get(talker, talker)
-    st = check_env()
-    if not st["ok"]:
+    env_ok, st = env_gate()
+    if not env_ok:
         return False, f"环境前置检查未通过：{st['reason']}"
     is_image = os.path.splitext(path)[1].lower() in IMAGE_EXTS
     holder = None
@@ -1156,8 +1185,8 @@ def reply_text(quote, text, talker, name=None, dry_run=True, verbose=False):
         name = core.names().get(talker, talker)
     if not quote:
         return False, "quote 为空：给出要引用消息的文字（用于定位）"
-    st = check_env()
-    if not st["ok"]:
+    env_ok, st = env_gate()
+    if not env_ok:
         return False, f"环境前置检查未通过：{st['reason']}"
     lk = _acquire_ui()
     if lk is None:
