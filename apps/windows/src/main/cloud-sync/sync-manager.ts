@@ -79,8 +79,17 @@ const REFRESH_FETCH_TIMEOUT_MS = 20 * 60_000
 /** 只读远端 tip 查询（cloud_sync_git remote）超时：仅 getRemoteInfo，远短于 fetch */
 const REMOTE_INFO_TIMEOUT_MS = 60_000
 
-/** isomorphic-git 每次 fetch 会新增 pack；超过此数量则触发系统 git gc */
-const PACK_GC_THRESHOLD = 3
+/**
+ * 包数触发 gc 的「超出稳态」余量。
+ *
+ * 不能再用固定包数阈值（原值 3）：那是在「不限包大小」年代定的，
+ * 而 `pack.packSizeLimit=64m` 生效后，GB 级对象库**按设计就是多包**
+ * （2.8GB ≈ 45 个 64MB 包）——固定阈值 3 会让每轮同步都跑一次全量 gc
+ * （2026-10-08 实测：49 包恒大于 3，gc 完成下一秒又触发，每次 2.5 分钟
+ * 反复重打包 2.8GB）。改为与 packSizeLimit 一致的动态界：包数超过
+ * 「总体积折算的稳态包数 + 余量」才算有东西可并。
+ */
+const PACK_GC_SLACK = 4
 
 /** 松散对象触发 gc 的数量/体积阈值（isomorphic-git 的提交只写松散对象，不会自动打包） */
 const LOOSE_COUNT_THRESHOLD = 1500
@@ -851,14 +860,21 @@ export class CloudSyncManager extends EventEmitter {
       // 系统 git 不可用：退化为只看 pack 数
     }
 
+    const packs = this.listPacks()
+    // 稳态包数 = 总体积按 packSizeLimit 折算，再留 PACK_GC_SLACK 余量吸收 fetch 新落的小包。
+    // 只有超出这个界（或下面两条硬信号）才值得付一次全量 gc 的代价。
+    const steadyPacks = Math.max(
+      8,
+      Math.ceil(packs.reduce((sum, pk) => sum + pk.bytes, 0) / PACK_SIZE_LIMIT_BYTES) + PACK_GC_SLACK,
+    )
     const needGc =
-      packCount > PACK_GC_THRESHOLD ||
+      packCount > steadyPacks ||
       looseCount > LOOSE_COUNT_THRESHOLD ||
       looseSizeKib > LOOSE_SIZE_KIB_THRESHOLD ||
       // **单包超限也要 gc**：真 git fetch 落下来的每个 pack 都是几百 MB~GB 级
       // （不是 isomorphic-git 那种一个个小 pack），只看数量永远达不到阈值，
       // 而 iso 读 pack 是整包进内存 —— 一个 2.9GB 的包会让它的读路径全废。
-      this.listPacks().some((pk) => pk.bytes > PACK_SIZE_LIMIT_BYTES)
+      packs.some((pk) => pk.bytes > PACK_SIZE_LIMIT_BYTES)
     if (!needGc) return
 
     logger.warn(
