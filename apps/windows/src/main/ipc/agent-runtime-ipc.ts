@@ -833,6 +833,10 @@ export async function handleCommand(
       case 'cron:runs':
         return handleCronRuns(bridge, command.id, command.limit ?? 50)
 
+      // ---- 微信盯梢（开发专用回放，见 bridge.replayWechatWatchInbox）----
+      case 'wechat-watch:replay':
+        return bridge.replayWechatWatchInbox(command)
+
       // ---- Agent 定义查询 ----
       case 'agent:definitions:list':
         return handleAgentDefinitionsList()

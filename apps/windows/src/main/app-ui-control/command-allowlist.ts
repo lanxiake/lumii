@@ -12,6 +12,14 @@
 export const COMMAND_ALLOWLIST: ReadonlySet<string> = new Set([
   // 定时任务
   'cron:list', 'cron:runs', 'cron:run', 'cron:create', 'cron:update', 'cron:delete',
+  // 微信盯梢回放（2026-10-09 扩白名单）：**开发专用**，喂一条合成入站把
+  // 「入站 → 代聊 → 回发 → 落库」整条闭环真跑一遍。触发器只认 `!from_me`，而自聊
+  // （文件传输助手）恒 true，真实入站造不出来——五-1 的实测只能靠这个口子。
+  //
+  // 它不新增可读资源（只多读一次本来就每拍在读的 poll_new），但**会真的发一条微信**，
+  // 所以主进程侧按 `app.isPackaged` 拒绝（见 bridge.replayWechatWatchInbox）——白名单
+  // 只是第一道闸，打包版即使命令发得到也执行不了。
+  'wechat-watch:replay',
   // 工具开关
   'tools:list', 'tools:toggle',
   // 逐 Agent 工具用量 / 导出：只读聚合计数，与 tools:list 同风险级（不含参数、不含结果）

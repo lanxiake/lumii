@@ -556,6 +556,46 @@ dry_run=False)` → `(True, '已发送')`，13.7s，**发前发后 `GetForegroun
 ③`PrintWindow` 在①②下给旧帧，于是"界面没变"被当成"投递无效"。
 **这些记录不能作为投递无效的证据**；期间据此推出的「切会话需要窗口激活」也已被实验**否掉**。
 
+### 3.7 入站闭环的端到端实测（2026-10-09）
+
+闭环 = 入站 → 策略 → 叫醒代聊 → 代聊回话 → 渠道出站 → 真微信 → 落库。逐段核对下来，
+只有「**回路真的会因为一条新消息叫醒代聊**」这一段没被真机证过（其余四段在 10-09 白天已各自实测）。
+卡点在于**真实入站造不出来**：触发器只认 `!from_me`，而自己发的消息 `from_me` 恒 true
+——文件传输助手是自聊，同样恒 true。
+
+**① 生产现场自证（13:30:16）**：杨冬发来「人呢？」，回路照常跑完全程——
+`selectNewMessages` 放行 → `driveWechatWatchTurn` 建实例 → 代聊回合 →
+`channel_send(pcwechat, wxid_bmr50soxlyen22, "在工位，咋了")`。
+唯一失败的是最后那一下发送（`target_unconfirmed`，已进待补发队列）。
+**这恰好证明「叫醒」这一段是通的**——它一路走到了出站。
+
+**② 受控回放（13:32:47）**：为了把最后一段也拿下来，加了一个**开发专用**的合成入站口子
+`wechat-watch:replay`（`lumii-ui command wechat-watch:replay --data '{"talker":…,"text":…,"mode":"auto"}'`）。
+它只在**最外层**（`poll_new` 返回的 `messages` 里）追加一条合成消息，其余全走生产同一份代码：
+策略解析、冷却、代聊 Agent、`channel_send`、真微信发送、`detectSentTo` 读库复核。
+三条设计约束：
+- 只拦**第一次** `poll_new`，后续放行给真 MCP——`detectSentTo` 必须真读库，否则「已代回」是自证；
+- `next_since_ts` 用真值，**不推进水位**，不吞真消息也不翻历史；
+- `mode` 参数只活在这一次调用里（名单里存的那档随时会被用户在设置页改掉，改写不进存储）；
+- 按 `app.isPackaged` 拒绝 + 白名单单独列出：打包版没有这个口子（它会**真的发一条微信**）。
+
+实测（目标=文件传输助手，自聊零风险）：
+```
+13:32:47.057  回放：注入合成入站「文件传输助手」：帮我看下现在几点了
+13:32:47.069  conversation:message:new  role=user        # 对方消息落进会话历史
+13:32:47.617  已注入画像 peer=filehelper chars=577
+13:32:50.547  memory_search → 13:32:51 bash(date)        # 代聊自己去查了时间
+13:32:54.061  channel_send {"channel":"pcwechat","to":"filehelper","text":"13点33"}
+13:33:01.743  ToolTelemetry channel_send durationMs=7679 success=true
+13:33:02.709  mcp__wechat-local__read_history(talker=filehelper)   # 代聊自己按手册做落地校验
+回路摘要：已代回·文件传输助手：帮我看下现在几点了     # sent=true ⇒ detectSentTo 真读库确认
+```
+**独立回读**（不经回合、直接读微信库）：
+`2026-10-09 13:32:58 | from_me=True | 我 | 13点33`。
+
+**结论：入站闭环五段全通。** 剩下的失败面只在出站那一下（`target_unconfirmed`，
+见下条路线图项），不再有"回路本身不工作"的疑点。
+
 ---
 
 ## 四、路线图（更新）
@@ -590,6 +630,9 @@ dry_run=False)` → `(True, '已发送')`，13.7s，**发前发后 `GetForegroun
 | 4 | 堵三个**静默丢消息**的口子：`target_unconfirmed` 也投待补发队列；删掉把用户收进托盘的微信强显出来的 `_unhide`；`env_gate` 的锁屏放行不再连「窗口最小化/不可见」一起放掉（否则跑满 30s 被 MCP 超时杀掉，超时不是错误码、归不出 `env_not_ready`，回复照样丢）（§3.6） | ✅ | 本轮 |
 | 4 | `verify_target` 撤掉「长锚点一票否决」（聊天区 OCR 读花长锚点是常态，命中数随机翻转 ⇒ 敢否决的是「读不清」不是「不对」；改由「强且独家的头部」判）（§3.6-6） | ✅ | `e179490a` |
 | 4 | 读界面重试判据 `header/chat` → `OCR 出过行`（空聊天区是合法形态，原判据每调用点白等 4 轮 ⇒ 实测 29.7s 逼近 30s MCP 超时）（§3.6） | ✅ | `25493049` |
+| 5 | **入站闭环实测**：生产现场（杨冬）证明「回路叫醒代聊」这一段通；受控回放把「→ 出站 → 落库」也拿下（§3.7） | ✅ | 本轮 |
+| 5 | **合成入站回放口子** `wechat-watch:replay`（开发专用，只替换最外层 `poll_new`，`app.isPackaged` 拒绝）（§3.7） | ✅ | 本轮 |
+| 5 | `target_unconfirmed` 仍在真机拦下发送（13:30 杨冬「在工位，咋了」，累计第 4 次；对话已开、peer 在名单、`canSend=true`，仍被 fail-closed 拒）。**根因未定位** | ⏳ | §3.7 |
 | 4 | 附件类发送（`send_file`/`send_batch`/`reply_to`）同样后台化 | ⏳ | §3.6 |
 | 4 | M3 收尾：入站 adapter（现在仍走盯梢旁路） | ⏳ | §3.4 |
 | 4 | 监控面板 UI（盯哪些人、开关、最近事件） | ⏳ | — |
@@ -629,6 +672,16 @@ python devcli.py watch --ticks 10 --interval 3
 
 # 协议级直连（不经 App，最快；dry_run 安全）
 printf '<initialize 行>\n<tools/call 行>\n' | python server.py
+```
+
+入站闭环的**受控回放**（走运行中的 App，开发构建专属；见 §3.7。⚠️ 它会**真的发一条微信**，
+`talker` 一律用自聊的 `filehelper`，别指向真人）：
+
+```bash
+cd <仓库根>
+node apps/windows/resources/app-ui-cli/lumii-ui.mjs command wechat-watch:replay \
+  --data '{"talker":"filehelper","name":"文件传输助手","text":"帮我看下现在几点了","mode":"auto"}'
+# 回一句摘要：「已代回·文件传输助手：…」＝ 全链通（sent 由 detectSentTo 真读库判定）
 ```
 
 ### B. 关键文件与常量

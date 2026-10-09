@@ -49,7 +49,8 @@ export const WECHAT_WATCH_INSTRUCTION = '__wechat_watch__'
  * 盯梢安静跳过（见 `runWechatWatch` 的「未连接」分支），客户端不因此不可用。
  */
 export const WECHAT_WATCH_MCP_SERVER = 'wechat-local'
-const WECHAT_WATCH_MCP_TOOL = 'poll_new'
+/** 导出给开发期回放用：它要认出「哪一次调用是 poll」才好在返回里追加合成消息 */
+export const WECHAT_WATCH_MCP_TOOL = 'poll_new'
 const WECHAT_WATCH_CRON_ID = 'wechat-watch'
 const WECHAT_WATCH_NAME = '微信消息盯梢'
 const WECHAT_WATCH_INTERVAL_MS = 15_000

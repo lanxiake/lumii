@@ -188,12 +188,20 @@ import {
   policyFromWatchConfig,
   runWechatWatch,
   type WatchTurnMeta,
+  type WechatMessage,
   type WechatProfileBlock,
+  type WechatWatchDeps,
   WECHAT_WATCH_MCP_SERVER,
+  WECHAT_WATCH_MCP_TOOL,
 } from './wechat-watch-tick'
 import { ensureWechatRelayAgent, relayPromptUpgrade, WECHAT_RELAY_AGENT_ID } from './wechat-relay-agent'
 import { createUserAgentRecord, getAgentRecord, updateAgentRecord } from '../agents-repo'
 import { getChannelPolicyStore } from '../channel/channel-policy-store'
+import {
+  DEFAULT_CHANNEL_POLICY,
+  type ChannelPeerPolicy,
+  type PeerReplyMode,
+} from '../../shared/channel-policy'
 import { ensurePetEvolveCronJobSeeded, runPetEvolve, syncPetEvolveJobEnabled } from './pet-evolve'
 import { recordPetPersonalityEvent } from './pet-personality'
 import { persistPetTaskReceipt, readPetTaskDimension, recordPetTaskOutcome } from './pet-task-store'
@@ -1987,6 +1995,95 @@ export class AgentRuntimeBridge {
     }
   }
 
+  /**
+   * 微信盯梢的依赖装配。生产 tick 与**开发期回放**共用这一份，回放只换 `callMcpTool`。
+   */
+  private wechatWatchDeps(): WechatWatchDeps {
+    return {
+      getDb: () => this.localDb.db,
+      callMcpTool: (server, tool, args) => this.mcpManager.callTool(server, tool, args),
+      // 第三个参数是会话 id：点通知直接跳到「微信盯梢」看草稿/代回结果
+      showNotification: this.config.showCronNotification
+        ? (title, body, convId) => this.config.showCronNotification!(title, body, convId)
+        : undefined,
+      // draft/auto 两档要叫醒模型（notify 档不调它，所以空闲仍然零 token）
+      driveTurn: (prompt, meta) => this.driveWechatWatchTurn(prompt, meta),
+      // 「谁能被怎么回」住在渠道层（设置页 → 渠道 → 本机微信）；每拍现读，改完下一拍生效
+      getPolicy: () => getChannelPolicyStore().get(PCWECHAT_CHANNEL),
+      // 自愈绑定要写回：人名条目在收到本人消息时换成真 wxid
+      setPolicy: (p) => {
+        getChannelPolicyStore().set(PCWECHAT_CHANNEL, p)
+      },
+      // 「灵栖代聊」在不在 —— 手册归谁、这一轮用谁建实例，都看它（同一个函数）
+      getRelayAgent: () => this.wechatRelayAgent(),
+    }
+  }
+
+  /**
+   * **开发专用**：给盯梢喂一条合成入站，把「入站 → 代聊 → 回发 → 落库」整条闭环真跑一遍。
+   *
+   * 存在的理由：触发器只认「别人发来的」（`!from_me`），自己发的 `from_me` 恒 true
+   * ——文件传输助手是自聊，同样恒 true，**真实入站只能靠第三方真发消息，造不出来**。
+   * 于是只在最外层（`poll_new` 的返回里）追加一条合成消息，其余全走生产同一份代码：
+   * 渠道策略、冷却、代聊 Agent、`channel_send`、真微信发送、`detectSentTo` 读库复核。
+   *
+   * 只拦**第一次** `poll_new`（后续调用放行给真 MCP）——`detectSentTo` 必须真读库，
+   * 否则它会被自己的假数据骗过去，「已代回」就成了自证。
+   * 水位也不动：`next_since_ts` 用真值，不吞真消息、也不翻历史。
+   *
+   * 它会**真的发一条微信**，故打包版没有这个口子（`app.isPackaged`）。
+   */
+  async replayWechatWatchInbox(msg: {
+    talker: string
+    name?: string
+    text?: string
+    /**
+     * 这一轮把目标会话按哪个档走。不给就用渠道策略里存的那份。
+     *
+     * 为什么要这个参数：想验的是 `auto`（tick 真的叫醒代聊去回），而名单里存的那档
+     * 随时可能被用户在设置页改掉（filehelper 一度就是 `notify`，那样只会停在「提醒」）。
+     * 改写**只活在本次调用里**，不去动用户的渠道策略。
+     */
+    mode?: PeerReplyMode
+  }): Promise<string> {
+    if (app.isPackaged) throw new Error('wechat-watch:replay 只在开发构建里可用')
+    const deps = this.wechatWatchDeps()
+    let injected = false
+    return runWechatWatch({
+      ...deps,
+      // 档位改写只活在本次调用里：用户的渠道策略（设置页里那份）一个字都不动
+      ...(msg.mode
+        ? {
+            getPolicy: () => {
+              const p = deps.getPolicy?.() ?? DEFAULT_CHANNEL_POLICY
+              const isTarget = (x: ChannelPeerPolicy) =>
+                x.id === msg.talker || (!!msg.name && x.label === msg.name)
+              // 名单里没这个人就直接补一条——否则改写会**静默不生效**，回放又悄悄退回 defaultMode
+              const peers = p.peers.some(isTarget)
+                ? p.peers.map((x) => (isTarget(x) ? { ...x, mode: msg.mode! } : x))
+                : [...p.peers, { id: msg.talker, label: msg.name, mode: msg.mode! }]
+              return { ...p, peers }
+            },
+          }
+        : {}),
+      callMcpTool: async (server, tool, args) => {
+        const text = await deps.callMcpTool(server, tool, args)
+        if (injected || tool !== WECHAT_WATCH_MCP_TOOL) return text
+        injected = true
+        const payload = JSON.parse(text) as { messages?: WechatMessage[] }
+        const synthetic: WechatMessage = {
+          ts: Math.floor(Date.now() / 1000),
+          talker: msg.talker,
+          name: msg.name ?? msg.talker,
+          text: msg.text ?? '',
+          from_me: false,
+        }
+        log.info(`[wechat-watch] 回放：注入合成入站「${synthetic.name}」：${synthetic.text}`)
+        return JSON.stringify({ ...payload, messages: [...(payload.messages ?? []), synthetic] })
+      },
+    })
+  }
+
   /** initialize() 子块 3/7：构造 CronScheduler、迁移/播种 companion cron、订阅 vhSettings 变更。
    *  start() 推迟到 finalizeInitialize（7/7），此时实例工厂已就绪，过期任务补跑不会打空。 */
   private initializeCronScheduler(): void {
@@ -2314,25 +2411,7 @@ export class AgentRuntimeBridge {
              * 主进程直接调 MCP 工具 `wechat-local.poll_new`，没有新消息就什么都不做。
              * 见 wechat-watch-tick.ts 文件头（为什么不能靠"每 N 分钟叫一次模型问一句"）。
              */
-            runWechatWatch: () =>
-              runWechatWatch({
-                getDb: () => this.localDb.db,
-                callMcpTool: (server, tool, args) => this.mcpManager.callTool(server, tool, args),
-                // 第三个参数是会话 id：点通知直接跳到「微信盯梢」看草稿/代回结果
-                showNotification: this.config.showCronNotification
-                  ? (title, body, convId) => this.config.showCronNotification!(title, body, convId)
-                  : undefined,
-                // draft/auto 两档要叫醒模型（notify 档不调它，所以空闲仍然零 token）
-                driveTurn: (prompt, meta) => this.driveWechatWatchTurn(prompt, meta),
-                // 「谁能被怎么回」住在渠道层（设置页 → 渠道 → 本机微信）；每拍现读，改完下一拍生效
-                getPolicy: () => getChannelPolicyStore().get(PCWECHAT_CHANNEL),
-                // 自愈绑定要写回：人名条目在收到本人消息时换成真 wxid
-                setPolicy: (p) => {
-                  getChannelPolicyStore().set(PCWECHAT_CHANNEL, p)
-                },
-                // 「灵栖代聊」在不在 —— 手册归谁、这一轮用谁建实例，都看它（同一个函数）
-                getRelayAgent: () => this.wechatRelayAgent(),
-              }),
+            runWechatWatch: () => runWechatWatch(this.wechatWatchDeps()),
             runPetEvolve: (options) =>
               runPetEvolve({
                 getDb: () => this.localDb.db,

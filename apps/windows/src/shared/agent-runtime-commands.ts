@@ -1602,9 +1602,39 @@ interface BackgroundTaskCancelCommand {
   readonly taskId: string
 }
 
+// ============================================================
+// 微信盯梢（本机微信）
+// ============================================================
+
+/**
+ * **开发专用**：给微信盯梢喂一条合成入站，把「入站 → 代聊 → 回发 → 落库」整条闭环真跑一遍。
+ *
+ * 为什么要这个口子：触发器只认「别人发来的」（`!from_me`，见 `wechat-watch-tick.ts` 的
+ * `selectNewMessages`），而自己发的消息 `from_me` 恒 true —— 文件传输助手是自聊，同样恒 true。
+ * 所以真实入站只能靠第三方真发消息，**造不出来**。于是只在最外层（`poll_new` 的返回里）
+ * 追加一条合成消息，其余全走生产同一份代码：渠道策略、冷却、代聊 Agent、`channel_send`、
+ * 真微信发送、`detectSentTo` 读库复核。它**会真的发一条微信**，所以主进程侧按
+ * `app.isPackaged` 拒绝，打包版没有这个口子。
+ */
+interface WechatWatchReplayCommand {
+  readonly type: 'wechat-watch:replay'
+  /** 对方的 talker（wxid；自测用 `filehelper`） */
+  readonly talker: string
+  /** 显示名。不给就拿 talker 顶上（提示词里的「对方」会变成 wxid，不至于空着） */
+  readonly name?: string
+  readonly text?: string
+  /**
+   * 这一轮把目标会话按哪个档走（不传就用渠道策略里存的那份）。
+   * 要验 `auto`（tick 真的叫醒代聊去回）就得传它——名单里存的那档随时可能被改掉。
+   * 改写只活在本次调用里，不动用户的渠道策略。
+   */
+  readonly mode?: 'ignore' | 'notify' | 'draft' | 'auto'
+}
+
 /** 所有 Agent Runtime 命令的联合类型 */
 export type AgentRuntimeCommand =
   | BackgroundTaskCancelCommand
+  | WechatWatchReplayCommand
   | UserSendCommand
   | UserSteerCommand
   | UserAbortCommand
