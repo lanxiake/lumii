@@ -617,10 +617,21 @@ def suite_E():
     r.case("重名会话（两个「韩玉」）⇒ 头部证明不了什么，拒绝", e4_duplicate_names)
 
     def e5_long_anchor_missing():
+        # 2026-10-09 改判：原判据「长锚点没命中 ⇒ 不许凭头部放行」已撤。理由见 verify_target ③
+        # ——聊天区 OCR 读花是常态，命中数会随机翻转（同一操作 12:24 命中 3 / 13:06 命中 0），
+        # 一个随 OCR 运气翻转的门禁挡不住错发，只让回复常态性进补发队列。
+        # 头部精确吻合（hr=1.00）且没有别人跟它一样像时，放行。
+        v, why = with_fakes(["明天下午三点我们公司门口见"], NAMES,
+                            lambda: snd.verify_target(TALKER, NAME, scene("韩玉", ["明天下午我们门口碰头"]), WW, WH))
+        assert v, f"头部精确吻合且能区分是谁时，长锚点缺位不该否决：{why}"
+    r.case("长锚点没命中 + 头部精确且能区分 ⇒ 放行（2026-10-09 撤掉否决）", e5_long_anchor_missing)
+
+    def e6_garbled_header_still_rejected():
+        # 撤掉锚点否决**不等于**放低头部门槛：头部读不全（hr 掉到 0.85 以下）时仍拒绝。
         v, _ = with_fakes(["明天下午三点我们公司门口见"], NAMES,
-                          lambda: snd.verify_target(TALKER, NAME, scene("韩玉", ["明天下午我们门口碰头"]), WW, WH))
-        assert not v, "长锚点没命中却凭头部放行——这正是发错人的老路"
-    r.case("够长的锚点没命中 ⇒ 仍然拒绝（头部不许绕过内容）", e5_long_anchor_missing)
+                          lambda: snd.verify_target(TALKER, NAME, scene("韩", ["明天下午我们门口碰头"]), WW, WH))
+        assert not v, "头部读不全（hr<0.85）又没锚点时不许放行"
+    r.case("长锚点没命中 + 头部读不全 ⇒ 仍然拒绝（门槛没跟着松）", e6_garbled_header_still_rejected)
 
     return r
 
