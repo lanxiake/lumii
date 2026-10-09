@@ -7,7 +7,7 @@
 
 import fs from "node:fs/promises";
 import path from "node:path";
-import { resolveAgentFilePath } from "../resolve-file-path.js";
+import { resolveAgentFilePath, type PathAccessMode } from "../resolve-file-path.js";
 import type { ToolExecutionContext } from "../../types/tool.js";
 
 /** 单层列目录的条目上限，避免一次打爆上下文 */
@@ -17,10 +17,16 @@ export const LIST_DIR_MAX_ENTRIES = 200;
 export type PathResolveContext = Pick<ToolExecutionContext, "getCwd" | "getAllowedRoots">;
 
 /**
- * 把 Agent 传入路径解析为允许范围内的绝对路径
+ * 把 Agent 传入路径解析为允许范围内的绝对路径。
+ *
+ * `mode` 默认 `write`（严格白名单）；`read` 放开到任意路径（只用于读/搜类工具，见 resolve-file-path.ts）。
  */
-export function resolveFsPath(rawPath: string, context: PathResolveContext): string {
-  return resolveAgentFilePath(rawPath, context.getCwd(), context.getAllowedRoots?.());
+export function resolveFsPath(
+  rawPath: string,
+  context: PathResolveContext,
+  mode: PathAccessMode = "write",
+): string {
+  return resolveAgentFilePath(rawPath, context.getCwd(), context.getAllowedRoots?.(), mode);
 }
 
 /**

@@ -25,14 +25,14 @@ export const listDirToolConfig: MtBotToolConfig<typeof ListDirInput> = {
     "Results clearly distinguish between files and directories with [FILE] and [DIR] " +
     "prefixes. This tool is essential for understanding directory structure and " +
     "finding specific files within a directory. It lists a single level only — use `glob` " +
-    "for recursive filename search. Works within the workspace and any project " +
-    "directories registered in Settings → Development.",
+    "for recursive filename search. Read-only: can list any directory on this machine " +
+    "(writing/editing is still restricted to the workspace and registered project directories).",
   parameters: ListDirInput,
   category: "filesystem",
   isReadOnly: true,
   needsPermission: false,
   execute: async (_toolCallId, params, context) => {
-    const dirPath = resolveFsPath(params.path, context);
+    const dirPath = resolveFsPath(params.path, context, "read");
     let stat;
     try {
       stat = await fs.stat(dirPath);

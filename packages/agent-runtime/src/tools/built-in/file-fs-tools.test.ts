@@ -54,10 +54,15 @@ describe("workspace 文件结构工具", () => {
       expect(text).toContain("[FILE] readme.md");
     });
 
-    it("拒绝越出工作空间的路径", async () => {
-      await expect(listDirToolConfig.execute("t1", { path: ".." }, ctx)).rejects.toThrow(
-        /不在允许范围内/,
-      );
+    it("读/搜放开：越出工作空间的目录也能列（改动/删除才严格）", async () => {
+      const outside = fs.mkdtempSync(path.join(os.tmpdir(), "lumii-outside-"));
+      fs.writeFileSync(path.join(outside, "x.txt"), "hi");
+      try {
+        const result = await listDirToolConfig.execute("t1", { path: outside }, ctx);
+        expect(textOf(result)).toContain("[FILE] x.txt");
+      } finally {
+        fs.rmSync(outside, { recursive: true, force: true });
+      }
     });
   });
 
@@ -160,9 +165,9 @@ describe("已注册项目目录（getAllowedRoots）", () => {
     expect(fs.readFileSync(path.join(project, "b.txt"), "utf-8")).toBe("payload");
   });
 
-  it("未注入 getAllowedRoots 时项目目录仍被拒（向后兼容）", async () => {
+  it("未注入 getAllowedRoots 时，**写**类工具对项目目录仍拒绝（向后兼容）", async () => {
     await expect(
-      listDirToolConfig.execute("t1", { path: project }, mockContext(workspace)),
+      fileMkdirToolConfig.execute("t1", { path: path.join(project, "src") }, mockContext(workspace)),
     ).rejects.toThrow(/不在允许范围内/);
   });
 });

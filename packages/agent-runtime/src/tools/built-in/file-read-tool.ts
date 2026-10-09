@@ -249,11 +249,11 @@ export const fileReadToolConfig: MtBotToolConfig<typeof FileReadInput> = {
   name: "file_read",
   label: "Read File",
   description:
-    "Read the contents of a file from the workspace as text. " +
+    "Read the contents of a file as text (from the workspace, or any absolute path on this machine). " +
     `Default reads the first ${DEFAULT_READ_LIMIT} lines (max ${MAX_READ_LIMIT} per call). ` +
     "Use offset/limit (1-based line numbers) to page through large files. " +
     "Do not use this tool for image, audio, video, PDF, or Office binaries — those formats are rejected with guidance. " +
-    "Works within the workspace and any project directories registered in Settings → Development.",
+    "Read-only: can read any file on this machine (writing/editing is still restricted to the workspace and registered project directories).",
   parameters: FileReadInput,
   category: "filesystem",
   isReadOnly: true,
@@ -263,6 +263,7 @@ export const fileReadToolConfig: MtBotToolConfig<typeof FileReadInput> = {
       params.filePath,
       context.getCwd(),
       context.getAllowedRoots?.(),
+      "read",
     );
     const instanceId = context.instanceId ?? "default";
     const state = getTrackerState(instanceId);

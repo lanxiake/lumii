@@ -69,3 +69,27 @@ describe("resolveAgentFilePath · extraRoots（宿主注册的项目目录）", 
     ).toThrow(/不在允许范围内/);
   });
 });
+
+describe("resolveAgentFilePath · mode=read（读/搜放开）", () => {
+  const workspace = path.resolve("/tmp/mtbot-workspace");
+
+  it("read：workspace 外的绝对路径也放行（可搜/读其他目录）", () => {
+    const outside = path.resolve("/tmp/elsewhere/notes.md");
+    expect(resolveAgentFilePath(outside, workspace, [], "read")).toBe(outside);
+  });
+
+  it("read：相对路径仍锚定 workspace", () => {
+    expect(resolveAgentFilePath("outputs/foo.md", workspace, [], "read")).toBe(
+      path.join(workspace, "outputs", "foo.md"),
+    );
+  });
+
+  it("read：空路径仍拒绝", () => {
+    expect(() => resolveAgentFilePath("  ", workspace, [], "read")).toThrow(/不能为空/);
+  });
+
+  it("write（默认）不受影响：workspace 外仍被拒", () => {
+    const outside = path.resolve("/tmp/elsewhere/notes.md");
+    expect(() => resolveAgentFilePath(outside, workspace, [])).toThrow(/不在允许范围内/);
+  });
+});
