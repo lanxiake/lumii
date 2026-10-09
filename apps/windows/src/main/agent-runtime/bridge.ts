@@ -195,7 +195,12 @@ import {
   WECHAT_WATCH_MCP_SERVER,
   WECHAT_WATCH_MCP_TOOL,
 } from './wechat-watch-tick'
-import { ensureWechatRelayAgent, relayPromptUpgrade, WECHAT_RELAY_AGENT_ID } from './wechat-relay-agent'
+import {
+  ensureWechatRelayAgent,
+  relayPromptUpgrade,
+  relayRecordKnobs,
+  WECHAT_RELAY_AGENT_ID,
+} from './wechat-relay-agent'
 import { createUserAgentRecord, getAgentRecord, updateAgentRecord } from '../agents-repo'
 import { getChannelPolicyStore } from '../channel/channel-policy-store'
 import {
@@ -1121,7 +1126,7 @@ export class AgentRuntimeBridge {
         const delivery = resolveAskUserDelivery(channelHandled, delegated)
         if (delivery === 'none') {
           // 不问、不等、不弹 —— 立即按「用户未应答」交还给模型（工具侧文案是"自行判断或换个问法"）。
-          // 代聊的护栏是它自己的手册（拿不准转人工 = 通知用户），不靠这一问。
+          // 代聊的护栏在「灵栖代聊」的程序分区里（拿不准转人工 = 飞书通知用户），不靠这一问。
           log.warn(
             `[askUserQuestion] 代聊会话无人可答，按未应答立即收口 sessionKey=${sessionKey} requestId=${input.requestId}`,
           )
@@ -1867,11 +1872,12 @@ export class AgentRuntimeBridge {
   /**
    * 代聊 Agent（M2 身份归位）：在就是它，不在就没有。
    *
-   * **回路与建实例读的是同一个函数**——`runbook` 归谁（注入提示词还是住在 Agent 的
-   * systemPrompt 里）和这一轮用谁建实例是同一个判断，两边不会各说各话。
+   * **回路与建实例读的是同一个函数**——"这一轮用谁建实例"和"要不要在提示词里补一份护栏"
+   * 是同一个判断，两边不会各说各话（M3 之后护栏的**真源**是 `relayOwnedSection()` 程序分区，
+   * 用户手写的手册只在回落路径当补充口径）。
    *
-   * 用户在设置页把它禁用（`isEnabled: false`）也算"不在"：那就回落默认助手 + 手册注入，
-   * 尊重他的开关，而不是绕过去接着用它。
+   * 用户在设置页把它禁用（`isEnabled: false`）也算"不在"：那就回落默认助手 + 每轮注入
+   * 程序分区（见 `wechat-watch-tick.ts`），尊重他的开关，而不是绕过去接着用它。
    */
   private wechatRelayAgent(): { id: string; systemPrompt?: string } | undefined {
     const rec = getAgentRecord(WECHAT_RELAY_AGENT_ID)
@@ -1983,8 +1989,9 @@ export class AgentRuntimeBridge {
    *   草稿/代回/对方的消息都落在同一处，点通知直达；
    * - 先把「对方发来的消息」落进会话历史（见 `appendIncomingWatchMessages`）——
    *   用户点进来就能看见对方说了什么、为什么有这一轮；
-   * - 主体是**「灵栖代聊」**（M2，见 `wechat-relay-agent.ts`），不是默认助手——手册住在
-   *   它的 systemPrompt 里；它不在（删了/禁用/没手册）则回落默认助手 + 每轮注入手册；
+   * - 主体是**「灵栖代聊」**（M2，见 `wechat-relay-agent.ts`），不是默认助手——护栏与工作流
+   *   住在它的 systemPrompt 里（M3：手册已整段移出，不再每轮付那 5.5k 字）；它不在
+   *   （删了/禁用了）则回落默认助手 + 每轮注入程序分区；
    * - 提示词前面拼上**画像**（见 `wechatProfilePrompt`）——把蒸馏产物变成每轮都在场的前提。
    */
   private async driveWechatWatchTurn(prompt: string, meta: WatchTurnMeta): Promise<string> {
@@ -2032,7 +2039,7 @@ export class AgentRuntimeBridge {
       setPolicy: (p) => {
         getChannelPolicyStore().set(PCWECHAT_CHANNEL, p)
       },
-      // 「灵栖代聊」在不在 —— 手册归谁、这一轮用谁建实例，都看它（同一个函数）
+      // 「灵栖代聊」在不在 —— 这一轮用谁建实例、要不要补一份程序分区，都看它（同一个函数）
       getRelayAgent: () => this.wechatRelayAgent(),
     }
   }
@@ -2513,27 +2520,35 @@ export class AgentRuntimeBridge {
       log.warn('[bridge] 渠道策略播种失败（不影响启动）:', err)
     }
     // 「灵栖代聊」——代聊的执行主体（M2 身份归位，见 wechat-relay-agent.ts）。
-    // 同样 **seedIfAbsent**：手册只在这里当种子搬进它的 systemPrompt 一次，
-    // 之后真源是设置页里的那条 Agent；RUNBOOK.md 用户照旧可以改，但不再影响行为
-    // （不一致时回路会记 warn 说清楚）。
+    // 同样 **seedIfAbsent**：护栏与工作流（程序分区）在播种时写进它的 systemPrompt，
+    // 之后真源是设置页里的那条 Agent。
+    // M3（2026-10-09）：RUNBOOK.md **不再进提示词**（原文 5.5k 字里九成是失效的操作史），
+    // 退回"留档 + Agent 被删时的回落"，所以播种也不再读它。
     try {
       const relay = ensureWechatRelayAgent({
-        readRunbook: () => loadInstructions(loadWechatWatchConfig().instructionsFile),
         getAgent: (id) => getAgentRecord(id),
         createAgent: (data) => createUserAgentRecord(data),
       })
       if (relay?.created) {
-        log.info('[bridge] 已播种「灵栖代聊」：手册已搬进它的 systemPrompt（此后以设置页里那份为准）')
+        log.info('[bridge] 已播种「灵栖代聊」（护栏与工作流在它的 systemPrompt 里，此后以设置页里那份为准）')
       }
-      // 老 Agent 升到当前的程序分区与铁律口径：只动程序写过的那几块（精确匹配 + 起止标记），
-      // 用户改过的口吻、手册原文原样保留（见 relayPromptUpgrade）。
-      const upgraded = relayPromptUpgrade(getAgentRecord(WECHAT_RELAY_AGENT_ID)?.systemPrompt)
+      // 老 Agent 升到当前的程序分区、铁律口径，并把搬进来的手册区摘掉：只动程序写过的那几块
+      // （精确匹配 + 起止标记），用户改过的口吻原样保留（见 relayPromptUpgrade）。
+      const rec = getAgentRecord(WECHAT_RELAY_AGENT_ID)
+      const upgraded = relayPromptUpgrade(rec?.systemPrompt)
       if (upgraded) {
         updateAgentRecord(WECHAT_RELAY_AGENT_ID, { systemPrompt: upgraded.prompt })
         log.info(`[bridge] 「灵栖代聊」已升级：${upgraded.applied.join('、')}`)
       }
+      // M4：提示词段落收敛（回复型 Agent 关掉任务/协作/产物那批通用段）。
+      // 播种是 seedIfAbsent，老记录只能在这里补——幂等，一致就不写库。
+      const knobs = rec ? relayRecordKnobs(rec) : null
+      if (knobs) {
+        updateAgentRecord(WECHAT_RELAY_AGENT_ID, knobs)
+        log.info(`[bridge] 「灵栖代聊」已收敛提示词段落：关掉 ${knobs.disabledPromptSections.length} 段`)
+      }
     } catch (err) {
-      log.warn('[bridge] 代聊 Agent 播种失败（不影响启动，回路会退回每轮注入手册）:', err)
+      log.warn('[bridge] 代聊 Agent 播种失败（不影响启动，回路会退回每轮注入程序分区护栏）:', err)
     }
     // 宠物侧**两条** job 都跟「允许宠物主动做事」（五期 T5.9 / 七期 T7.4）。
     // **启动时也同步一次**，否则会出现"设置里关着、任务页里开着"——两个开关互相打架

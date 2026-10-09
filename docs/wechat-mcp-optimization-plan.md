@@ -23,9 +23,13 @@
 > - **组织形态收敛**：**M1 + M2 + M3 已落地**（本机微信成为独立渠道 `pcwechat`，会话按 peer 分；
 >   注册为该渠道的**出站 provider**，策略落 `channel-policies.json` 并在
 >   设置 → 渠道 → 本机微信 里配账号·回复策略·黑白名单；
->   代聊主体是用户 Agent **「灵栖代聊」**，手册住在它的 `systemPrompt` 里，
+>   代聊主体是用户 Agent **「灵栖代聊」**，
 >   盯梢改走 `channel_send`，见 [§3.4](#34-组织形态复盘与收敛路线m1-已落地)）；
 >   剩 M3 的入站 adapter（现在仍走盯梢旁路）。
+> - **M4 · 代聊提示词收敛**（2026-10-09 晚，见 [§3.9](#39-m4-代聊提示词收敛2026-10-09-晚)）：
+>   RUNBOOK 全文**整段移出**提示词（原文 5.5k 字里九成是失效的操作史），代聊 Agent 关掉
+>   18 个通用运行时段（实测省 9.1k/24.9k 字段落），并修掉 `scope="self"` 读不回**本人画像**的
+>   根因——那一条让「关于我」这份画像从来没进过代聊的提示词。
 
 ---
 
@@ -287,13 +291,16 @@ auto 档新消息 → 回复延迟 ≈ 回合时长 + 发送（秒级）；不�
   RUNBOOK 的内容成了它的 `systemPrompt`（`agent-instance.ts:344` 每轮现取现用）；
   回路的 `agentId` 从 `assistant` 换成它，`buildAutoPrompt`/`buildDraftPrompt` 不再注入全文，
   只留「本次触发」+ 发送分支。
+  （**2026-10-09 晚修正**：RUNBOOK 全文已**整段移出**，改成程序维护的护栏+工作流分区——
+  见 [§3.9](#39-m4-代聊提示词收敛2026-10-09-晚)。）
 - **它是用户 Agent**（`~/.lumii/config/agents.json`），不是内置定义：内置的权威在 api-server 的
   `system_agents`，客户端自加一条只会造成漂移；而且系统 Agent 在 `updateAgentRecord` 里不可改，
   用户就改不了口吻与护栏。播种语义 = `seedIfAbsent`（与渠道策略同款，见 bridge 里那段）：
   **只在不存在时创建一次**，此后真源是设置页里那条记录。
-- **手册读不到就不建**（没配 `instructionsFile` / 文件没了）：一个"代聊"却在裸奔比没有更危险。
-  回路发现 **Agent 里那份 ≠ RUNBOOK.md** 时记一条 warn 说明"以设置页为准、文件只是留档"——
-  否则"改了手册却没反应"就是静默失效。RUNBOOK.md 是用户的文件，**绝不修改**。
+- ~~**手册读不到就不建**~~ / ~~回路发现 Agent 里那份 ≠ RUNBOOK.md 时记一条 warn~~（2026-10-08 的
+  设计，**已被 §3.9 取代**）：护栏搬进程序分区后，手册不再是提示词的组成部分，"文件读不到"
+  既不构成裸奔风险、也无从比对；那两条只在回落路径（代聊 Agent 被删/禁用）上还剩下半条命。
+  RUNBOOK.md 是用户的文件，**绝不修改**，现在退回"留档 + 回落补充口径"。
 - 它被排除出 Pre-LLM Router 候选（`getCustomAgents` 里按 id 过滤）：那是渠道回路按名单驱动的
   **行为主体**，不是拿一份微信口径的 systemPrompt 去接普通对话的路由目标；设置页里照常可见可改。
 - 收益：代聊主体在 agent 设置页**可见、可改、可审计**；每轮省几千字注入；要给不同好友不同人格，
@@ -305,6 +312,8 @@ auto 档新消息 → 回复延迟 ≈ 回合时长 + 发送（秒级）；不�
   带标记 `<!-- lumii:relay-workflow v1 -->`，位置在铁律之后、用户手册之前。老 Agent 靠
   `relayPromptWithWorkflow` **追加**式升级——Agent 记录归用户所有，程序只往后面接自己那一段，
   有标记就不重复追加、prompt 被清空就尊重不动。
+  （**2026-10-09 晚**：标记升到 `<!-- lumii:relay-owned v2 -->`，升级改由 `relayPromptUpgrade`
+  做**逐段精确替换**，且升级时会把手册区整段摘掉——见 §3.9。）
   分工：**约定住在 Agent 里**（长期不变），**画像每轮由回路拼在提示词前面**（事实会变，见
   `bridge.wechatProfilePrompt`；命中 `wechat-distill` 设计文档 §7 的隐私口径变更）。
 
@@ -712,6 +721,65 @@ bridge 侧一认出代聊归属就**立刻**返回 `{ answers: {}, cancelled: tr
 
 ---
 
+### 3.9 M4 代聊提示词收敛（2026-10-09 晚）
+
+**由来**：抓出运行中那轮代聊的提示词一看，45,220 字里只有 8,403 字是代聊专属的，其中
+**5,507 字是把用户的 RUNBOOK.md 原样搬进来的**——而那份手册九成是失效的操作史
+（cron 每分钟轮询 / `state.json` 水位 / `transcript.md` / `send-msg.ps1` / 剪贴板 / 前台焦点 /
+296×388 窗口 / 锁屏禁令），**七处自称"优先级最高"且互相打架**。真正有用的（闲聊尺度 / 防重 /
+转人工格式）程序分区里本来就写全了。危害不止是费 token：模型照着过时段落去调废弃通道、
+去找不存在的状态文件，一个回合白跑 61 秒（15:54:31 → 15:55:32，其间四拍盯梢全在"跳过"）。
+
+做了三件事，都不改行为口径、只清提示词：
+
+**① 手册整段移出**（`wechat-relay-agent.ts`）
+
+- 护栏与工作流的**唯一真源**变成 `relayOwnedSection()`（`<!-- lumii:relay-owned v2 -->` 分区）。
+  它同时是**回落路径**的注入内容：代聊 Agent 不在（删了/禁用了）时，盯梢回路每轮现拼这一段，
+  而不是拼手册。RUNBOOK.md 退回"留档 + 回落时的补充口径"，**不再进提示词**。
+- 老记录由 `relayPromptUpgrade` 升级：**逐段精确替换**（铁律措辞 / 「怎么被叫醒」两处悬空引用），
+  再把 `【用户手写的手册（全文）】…【手册结束】` 整段摘掉。用户自己改过的口吻**一字不动**
+  （匹配不上就跳过那一段）——Agent 记录归用户所有。
+- **播种不再依赖 RUNBOOK.md 是否存在**：旧行为下文件读不到就不建 Agent、随后"每轮注入"也注不出
+  东西，整条代聊**没有护栏**（比没有更危险）。现在护栏住在程序分区里，跟文件无关。
+- 迁移保留 v1（分区追加式）与 v2（手册搬进来了）两代文本常量，只为给老记录做精确匹配。
+
+**② 关掉 18 个通用运行时段**（新旋钮 `AgentDefinition.disabledPromptSections`）
+
+- 依据是**实测的段级计量**（`[prompt-section] id=…`，style=minimal 的一轮）：通用契约占
+  **9.1k / 24.9k** 字，重头是 `agentCollaboration` 2.7k、`memory` 1.8k、`workspace` 1.1k、
+  `taskOrchestration` 0.6k。这些段没有一条对「看一条消息、回一句话」成立，而且**会误导**：
+  `task_complete` 完成信号、`NO_REPLY` 协议（哨兵字面量会漏进微信会话）、todo/spawn 编排、
+  `outputs/<task>/` 产物目录、子 Agent 目录——模型会照它们去调它根本没有的工具。
+- **保留**：`identity` / `systemRules` / `safety` / `verification` / `language` / `tooling` /
+  `mcp` / `messaging` / `runtime` / `progressiveLoading`。`verification` 尤其不能关——刚实测过
+  一轮"声称已发其实没发"，那正是它管的。
+- 旋钮本身是**通用**的（`packages/agent-runtime/src/prompt/system-prompt-builder.ts` 的 `emit`
+  里早退，段 ID 取自 `PROMPT_SECTIONS`），不给 = 全都要 = 其他 Agent 逐字不变（有测试钉住）。
+  `memory` 段被关掉时**只留热记忆占位符**：缺占位符会撞上 `injectMemories` 的开发期装配断言，
+  「不要记忆指南」不等于「不要热记忆注入」。
+- 清单住在 `wechat-relay-agent.ts`，测试拿 `PROMPT_SECTIONS` **逐条对账**（段 ID 发布后不可改名，
+  写错的后果是"收敛悄悄少生效一段"）；另有测试钉死护栏六段不在清单里。
+- 播种是 `seedIfAbsent`，老记录只能靠启动时补：`relayRecordKnobs()` 幂等比对，
+  一致就不写库。
+
+**③ 修 `scope="self"` 读不回本人画像**（`wechat-mcp/server.py`）
+
+- `_resolve_scope` 对 self/me/我/本人 返回 `None`，而 `core.profile_get(None)` 的语义是
+  **「列出已产出的画像文件」**——于是 `wechat_profile_get(scope="self")` 静默返回目录清单。
+  每轮注入画像的 `bridge.wechatProfilePrompt` 拿不到 `exists`/`content`，**把这一整块丢掉**。
+- 后果不是"画像质量差"，而是**「关于我（本人）」这份画像从来没进过代聊的提示词**：模型按工作流
+  去查、每次都得到"没有"，于是每轮重新蒸馏重建（`self.md` 反复被覆盖、水位停在 0）。
+  实测佐证：日志里注入 `chars=444`，正文里只有 `## 关于这个人` 一行标题。
+- 现在显式给 scope（含 `"self"`）就**必须**读回正文，只有**完全不给**才列清单；`distill_clear`
+  同样先判空再解析（它是隐私口子，不能因为 scope 写成 `"self"` 就变成"清全部"）。
+- 回归用 `test_watch.py` 的 **suite_I**（5 例，`LUMII_WECHAT_DISTILL` 指向临时目录）。
+
+> **判据别写成"提示词变短了"**：真正的验收是（a）段级计量里那 18 段不再出现、
+> （b）代聊回合不再提 `state.json`/`send-msg.ps1`/手册、（c）本人画像能读回正文。
+
+---
+
 ## 四、路线图（更新）
 
 | 阶段 | 内容 | 状态 | 提交 |
@@ -752,10 +820,13 @@ bridge 侧一认出代聊归属就**立刻**返回 `{ answers: {}, cancelled: tr
 | 4 | **收进托盘也自动拉起**（用户决策「一律自动拉起」）：`wake_window` 统一 `SW_SHOWNOACTIVATE(4)`，`find_main_hwnd(include_hidden=True)` 把隐藏句柄捞回来；真机隐藏态 / 最小化态各测一次，`已发送` 且前台不变（§3.6） | ✅ | 本轮 |
 | 4 | **附件后台化**：`send_attachment` 改走「点『发送文件』→ 驱动文件对话框控件消息」（不碰剪贴板/光标/窗口，锁屏实测落条）；发送前加「读—清—回读」闸门（§3.6、§3.7-③） | ✅ | `9f3b5cea` |
 | 4 | 代聊回合调 `ask_user_question` 会挂满 10 分钟超时 ⇒ **整条盯梢回路停摆**；代聊型会话改为「无人可答」立即收口（§3.8） | ✅ | 本轮 |
+| 4 | **M4 手册移出**：RUNBOOK 全文不再进提示词，护栏与工作流成唯一真源（程序分区 v2） | ✅ | §3.9 |
+| 4 | **M4 段落收敛**：`disabledPromptSections` 旋钮 + 代聊关掉 18 段通用契约（实测 -9.1k/24.9k） | ✅ | §3.9 |
+| 4 | **`scope="self"` 读不回本人画像**（`_resolve_scope` 返回 `None` = 列清单）⇒ 本人画像从来没进过提示词 | ✅ | §3.9 |
 | 4 | `reply_to` 后台化（聊天区没有逐条消息的 UIA 元素，按消息定位只能靠实时帧 ⇒ 卡在这） | ⏳ | §3.6 |
 | 4 | M3 收尾：入站 adapter（现在仍走盯梢旁路） | ⏳ | §3.4 |
 | 4 | 监控面板 UI（盯哪些人、开关、最近事件） | ⏳ | — |
-| — | **python 测试接入 CI**：`test_watch.py`（A–H 八层 **42 例**，含目标校验证据强度 / 发送闸门（含托盘还原、清空输入框、正文落地）/ 锁屏识别 / UIA 格式契约与文件对话框控件认领 / 读界面重试预算）走独立的 `wechat-mcp` job；`test_automation.py` 要读注册表与真实会话，**只在本地跑**（进 CI 只会「因为没数据所以通过」；同名的 `test_fixes.py` 2026-10-09 清理时已删——它的用例是它自己的子集） | ✅ | 本轮 |
+| — | **python 测试接入 CI**：`test_watch.py`（A–I 九层 **47 例**，含目标校验证据强度 / 发送闸门（含托盘还原、清空输入框、正文落地）/ 锁屏识别 / UIA 格式契约与文件对话框控件认领 / 读界面重试预算 / 画像 scope 语义）走独立的 `wechat-mcp` job；`test_automation.py` 要读注册表与真实会话，**只在本地跑**（进 CI 只会「因为没数据所以通过」；同名的 `test_fixes.py` 2026-10-09 清理时已删——它的用例是它自己的子集） | ✅ | 本轮 |
 | — | ~~COM Interop~~ / ~~WAL 帧解析~~ / ~~watchdog 进程~~ | ❌ 作废 | §3.2 |
 
 ---
@@ -781,7 +852,7 @@ bridge 侧一认出代聊归属就**立刻**返回 `{ answers: {}, cancelled: tr
 cd apps/windows/resources/wechat-mcp
 
 # 离线回归（不需要微信、不碰真实数据）：真加密夹具逐字节 + 真 SQLite 语义 + 错误码对账
-# A–H 八层 42 例。**已接入 CI**（.github/workflows/ci.yml 的 wechat-mcp job）。
+# A–I 九层 47 例。**已接入 CI**（.github/workflows/ci.yml 的 wechat-mcp job）。
 # 本机没有 PATH python（Store 占位），用 App 那份托管解释器：
 #   ~/.lumii/runtimes/python-embed/python.exe test_watch.py
 python test_watch.py
@@ -825,7 +896,7 @@ node apps/windows/resources/app-ui-cli/lumii-ui.mjs command wechat-watch:replay 
 | `uia_read.ps1` | UIA 树导出（WIN/ITEM/HEADER/MLIST…）→ `read_uia`；**STA 线程**（见 `_run_ps` 注释） |
 | `server.py` | MCP 入口 + 工具描述 + `_code_of` 码表 + `_send_with_retry` |
 | `devcli.py` | 自检命令行（`selftest` / `watch` / `sessions` / `history` / `send` / `digest` …） |
-| `test_watch.py` | 离线回归（A–H 八层 **39 例**：含 UIA 格式契约、`find_session` 精确名、读界面重试预算） |
+| `test_watch.py` | 离线回归（A–I 九层 **47 例**：含 UIA 格式契约、`find_session` 精确名、读界面重试预算、画像 scope 语义） |
 
 - 护栏常量：`_plain` 的陈旧判据（`dbsize >= 主库页数`）、`_incr` 的 `quick_check`、`_send_with_retry` 的
   `RETRIABLE_CODES` / `NON_RETRIABLE_CODES`。

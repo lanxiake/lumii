@@ -506,3 +506,71 @@ describe("buildClientSystemPromptStructured — personality 委派口径与工�
     expect(staticPrompt).not.toContain("## Tool Availability");
   });
 });
+
+describe("disabledPromptSections（回复型 Agent 的段落收敛）", () => {
+  // 来路：本机微信代聊的实测计量（style=minimal 一轮 24.9k 字里 9.1k 是通用契约），
+  // 其中 task_complete / NO_REPLY / todo-spawn 编排 / outputs 产物目录这些段
+  // 对「看一条消息回一句话」不成立，还会引得模型去调它没有的工具。
+  const OFF: AgentDefinition = {
+    ...BASE_DEF,
+    disabledPromptSections: ["taskCompletion", "silentReplies", "taskOrchestration", "workspace"],
+  };
+
+  it("关掉的段一个字都不进提示词，开着的一字不动", () => {
+    const params = {
+      toolNames: ["memory_search", "todo_write", "file_write", "spawn_agent"],
+      cwd: "/workspace",
+      promptStyle: "minimal" as const,
+    };
+    const on = buildClientSystemPromptStructured({ agentDefinition: BASE_DEF, ...params });
+    const off = buildClientSystemPromptStructured({ agentDefinition: OFF, ...params });
+    for (const s of ["## Task Completion", "NO_REPLY", "## Task Orchestration", "## Workspace"]) {
+      expect(on.fullPrompt, `基线里本来就该有 ${s}`).toContain(s);
+      expect(off.fullPrompt, `${s} 应被关掉`).not.toContain(s);
+    }
+    // 红线类不参与收敛
+    expect(off.fullPrompt).toContain("## Safety");
+    expect(off.fullPrompt).toContain("## Language");
+  });
+
+  it("关掉的段不计量：sectionStats 是「实际付了多少」的账，不是目录", () => {
+    const { sectionStats } = buildClientSystemPromptStructured({
+      agentDefinition: OFF,
+      toolNames: ["todo_write"],
+      cwd: "/workspace",
+    });
+    const ids = sectionStats.map((s) => s.id);
+    expect(ids).not.toContain("taskCompletion");
+    expect(ids).not.toContain("workspace");
+    expect(ids).toContain("systemRules");
+  });
+
+  it("memory 段被关掉时占位符仍在场（injectMemories 的开发期装配断言）", () => {
+    // 缺占位符会走到 memory-injector 的 `throw`（dev），每轮一条 console.error。
+    // 「不要记忆指南」不等于「不要热记忆注入」——所以只关正文，保留锚点。
+    const { fullPrompt, sectionStats } = buildClientSystemPromptStructured({
+      agentDefinition: { ...BASE_DEF, disabledPromptSections: ["memory"] },
+      toolNames: ["memory_search"],
+      cwd: "/workspace",
+    });
+    expect(fullPrompt).toContain("{{LUMII_MEMORY_BLOCK}}");
+    // 判据用正文句子而不是 "## Memory"：`### Memory & Knowledge`（Tooling 的工具分组标题）
+    // 把它当子串含进去了，拿标题当判据是本条测试自己的假通过来源。
+    expect(fullPrompt).not.toContain("Four layers: personal memory");
+    expect(sectionStats.map((s) => s.id)).toContain("memory");
+  });
+
+  it("不给这个字段 → 与从前逐字一致（其他 Agent 不受影响）", () => {
+    const params = {
+      toolNames: ["memory_search", "todo_write"],
+      cwd: "/workspace",
+      promptStyle: "terse" as const,
+    };
+    expect(buildClientSystemPromptStructured({ agentDefinition: BASE_DEF, ...params }).fullPrompt).toBe(
+      buildClientSystemPromptStructured({
+        agentDefinition: { ...BASE_DEF, disabledPromptSections: [] },
+        ...params,
+      }).fullPrompt,
+    );
+  });
+});

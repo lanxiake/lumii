@@ -94,11 +94,11 @@ jobs:
       # 用例全部在临时目录里跑，不碰用户目录。
       - run: pnpm --filter @mtbot/pet-asset test
 
-  # 2026-10-09 新增：wechat-mcp 的**离线**回归（test_watch.py，A–H 八层 35 例）。
+  # 2026-10-09 新增：wechat-mcp 的**离线**回归（test_watch.py，A–I 九层 47 例）。
   #
   # 为什么只有它进 CI：这一目录下有三个 python 套件，只有这份是**夹具驱动、不碰真机**的
   # （文件头写着「不需要微信、不碰真实数据」）——覆盖重放/新鲜度护栏、镜像与水位、
-  # 错误码对账、目标会话校验的证据强度、发送闸门、锁屏识别、读界面重试预算。
+  # 错误码对账、目标会话校验的证据强度、发送闸门、锁屏识别、读界面重试预算、画像 scope 语义。
   # test_automation.py 要读注册表与真实账号/会话（`core.list_accounts`、
   # `core.sessions`、真实数据目录），在 CI 上只会「因为没数据所以通过」，绿得没有意义；
   # 它们仍是本机跑的冒烟脚本（复现命令见 docs/wechat-mcp-optimization-plan.md 附录 A）。

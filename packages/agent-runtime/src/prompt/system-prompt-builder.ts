@@ -170,9 +170,13 @@ export function buildClientSystemPromptStructured(params: ClientSystemPromptPara
   const staticLines: string[] = []
   const dynamicLines: string[] = []
   const stats: PromptSectionStat[] = []
+  /** 关掉的段（回复型 Agent 用；不给 = 全都要）。见 AgentDefinition.disabledPromptSections */
+  const disabledSections = new Set<string>(agentDefinition.disabledPromptSections ?? [])
   /** 段级写入：空数组跳过（与原 push 行为一致），同时记录段级计量 */
   const emit = (zone: "static" | "dynamic", id: PromptSectionId, lines: string[]): void => {
     if (lines.length === 0) return
+    // 关掉的段**不渲染也不计量**：sectionStats 是"实际付了多少 token"的账，不是目录
+    if (disabledSections.has(id)) return
     if (zone === "static") staticLines.push(...lines)
     else dynamicLines.push(...lines)
     stats.push({ id, zone, chars: lines.join("\n").length })
@@ -428,13 +432,22 @@ export function buildClientSystemPromptStructured(params: ClientSystemPromptPara
     // 工作记忆注入锚点（Task 3 P0）：injectMemories() 按占位符查找替换，
     // 必须落在 cache boundary 之后的 dynamic 段——工作记忆每轮变化，
     // 放进 static 段会让 prompt cache 每轮失效。
-    emit("dynamic", "memory", [
-      ...tagged(
-        "memory",
-        buildMemorySection(effectiveToolNames, userMemoryContent, params.includeFullMemoryGuide),
-      ),
-      MEMORY_PLACEHOLDER,
-    ])
+    //
+    // 段被 disabledPromptSections 关掉时**只留占位符**：缺占位符在开发期会被
+    // injectMemories 当装配错误抛掉（memory-injector.ts）——「不要记忆指南」不等于
+    // 「不要热记忆注入」。这里绕过 emit 直接写：emit 对关掉的段一律早退。
+    if (disabledSections.has("memory")) {
+      dynamicLines.push("", MEMORY_PLACEHOLDER)
+      stats.push({ id: "memory", zone: "dynamic", chars: MEMORY_PLACEHOLDER.length })
+    } else {
+      emit("dynamic", "memory", [
+        ...tagged(
+          "memory",
+          buildMemorySection(effectiveToolNames, userMemoryContent, params.includeFullMemoryGuide),
+        ),
+        MEMORY_PLACEHOLDER,
+      ])
+    }
   }
 
   // === D2. Workspace ===

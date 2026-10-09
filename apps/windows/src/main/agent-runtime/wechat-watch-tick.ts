@@ -40,7 +40,7 @@ import {
   type PeerReplyMode,
 } from '../../shared/channel-policy'
 import { agentRuntimeLog as log } from './bridge-utils'
-import { relayCoversRunbook } from './wechat-relay-agent'
+import { relayOwnedSection } from './wechat-relay-agent'
 
 export const WECHAT_WATCH_INSTRUCTION = '__wechat_watch__'
 /**
@@ -100,10 +100,13 @@ export interface WechatWatchConfig {
   /** 分组策略（先匹配到的组生效）——**仅播种用** */
   groups: WechatWatchGroup[]
   /**
-   * 手册文件（workspace 相对路径或绝对路径）：内容**注入每一轮 draft/auto 的提示词**。
+   * 用户手写的手册文件（workspace 相对路径或绝对路径）。
    *
-   * 为什么要注入而不是让模型自己去读：手册是用户手写的护栏（身份不披露 / 涉钱不发 /
-   * 不做实质安排 / 拿不准转人工…），它每一条都是「不许做什么」——这种约束交给模型
+   * **兜底用**（M3，2026-10-09）：护栏与工作流的唯一真源是程序分区 `relayOwnedSection()`，
+   * 平时住在「灵栖代聊」的 systemPrompt 里；只有这条 Agent 不在（删了/禁用了）时才回落成
+   * 每轮注入，那时这份手册作为**补充口径**跟着走。
+   *
+   * 为什么要注入而不是让模型自己去读：手册里每一条都是「不许做什么」——这种约束交给模型
    * 「记得先去读」是赌运气（attended 时它会读，忙着回消息时它可能直接开口）。注入是硬约束。
    */
   instructionsFile?: string
@@ -305,7 +308,8 @@ export function selectNewMessages(
 const fmtText = (s?: string) => (s || '').replace(/\s+/g, ' ').slice(0, 300)
 const fmtWhen = (ts: number) => new Date(ts * 1000).toLocaleString('zh-CN')
 
-/** 手册文件（workspace 相对或绝对）→ 全文；读不到给空串（不阻塞，但会记一条 warn） */
+/** 手册文件（workspace 相对或绝对）→ 全文；读不到给空串（不阻塞，但会记一条 warn）。
+ *  只在回落路径上被调用（代聊 Agent 不在时）——它在的时候手册不参与提示词。 */
 export const MAX_INSTRUCTIONS_CHARS = 20_000
 
 export function resolveWorkspacePath(p: string): string {
@@ -317,7 +321,7 @@ export function loadInstructions(file: string | undefined): string {
   const full = resolveWorkspacePath(file)
   try {
     if (!fs.existsSync(full)) {
-      log.warn(`[wechat-watch] 手册文件不存在：${full}（本轮不带手册跑，注意护栏可能不全）`)
+      log.warn(`[wechat-watch] 手册文件不存在：${full}（本轮只带程序分区护栏，不带用户的补充口径）`)
       return ''
     }
     const text = fs.readFileSync(full, 'utf-8').trim()
@@ -329,16 +333,18 @@ export function loadInstructions(file: string | undefined): string {
 }
 
 function instructionsBlock(runbook: string, file: string | undefined): string[] {
-  if (!runbook) return []
+  // 护栏分档与工作流是**程序分区**，兜底路径也必须带上：它现在是护栏的唯一真源
+  // （代聊 Agent 在的时候这段住在它的 systemPrompt 里，见 wechat-relay-agent.ts）。
+  // 用户手册只在 Agent 不在时作为**补充口径**跟着走。
   return [
-    `【必须遵守的手册（${file} 全文，**优先级最高**）】`,
-    runbook,
-    '【手册结束】',
-    '',
+    relayOwnedSection(),
+    ...(runbook
+      ? [`【用户手写的手册（${file} 全文，补充口径；与上面的分档冲突时以分档为准）】`, runbook, '【手册结束】', '']
+      : []),
   ]
 }
 
-/** 起草模式的提示词：手册 → 本次触发 → 只起草不许发 */
+/** 起草模式的提示词：本次触发 → 只起草不许发 */
 export function buildDraftPrompt(
   msg: WechatMessage,
   runbook = '',
@@ -347,23 +353,36 @@ export function buildDraftPrompt(
   const who = msg.name || msg.talker || '对方'
   return [
     ...instructionsBlock(runbook, instructionsFile),
-    `【本次触发】监控回路把消息取好了，**不要再轮询**；按手册处置这一批即可：`,
+    '【本次触发】监控回路把消息取好了，**不要再轮询**；按上面的护栏与工作流处置这一批即可：',
     `微信「${who}」刚给我发来（${fmtWhen(msg.ts)}）：`,
     `「${fmtText(msg.text)}」`,
     '（这个人的策略是：起草给我确认。）',
     '',
     '请：',
-    `1. 用 wechat-local 的 read_history 看我和「${who}」最近的对话（talker=${msg.talker}）与手册里的口径；`,
-    `2. 按手册写一条**以我本人身份**发出的回复草稿（手册优先于你自己的语感；手册要求转人工的，就给我转人工的措辞）。`,
+    `1. 用 wechat-local 的 read_history 看我和「${who}」最近的对话（talker=${msg.talker}）；`,
+    '2. 判档后写一条**以我本人身份**发出的回复草稿（放行/软回那两档）；命中硬停的，就写转人工的措辞。',
     '',
-    '⚠️ 这一档**只起草、不要发送**（不要调用 send_text、也不要走任何发送脚本）——',
+    '⚠️ 这一档**只起草、不要发送**（不要调用 channel_send、也不要碰 MCP 的发送工具）——',
     '把草稿写给我看，我回「发」你才发。',
   ]
     .filter(Boolean)
     .join('\n')
 }
 
-/** 自动回模式的提示词：手册 → 本次触发 → 按手册的三分支处置 */
+/**
+ * 自动回模式的提示词：本次触发 → 判档 → 三个出口。
+ *
+ * **不复述护栏的映射**（哪类消息属于哪档只在程序分区里写一次）。2026-10-09 之前这里
+ * 自带过一份清单，写的是 v1 的旧口径（要承诺/质疑身份 → **一条都不发**），与 v2 分档
+ * （那两档是**软回**：发一句不含承诺的话再转人工）**正好相反**——而这段是用户消息、
+ * 位置最靠后最显眼，于是"该软回的事变成沉默"的老毛病在这儿复发。
+ *
+ * 收尾也不再要求模型「等 20~30 秒做落地校验、写 transcript、更新 state.json」：
+ * - 落地校验回路自己用读库实测做（`detectSentTo`），模型的说法本来就只是文本；
+ * - transcript.md / state.json 是死掉的 30s cron 的产物，与盯梢回路无关。
+ * 实测代价：那条指令让每个回合多烧 ~60 秒（模型真的 `sleep 25`），而 15 秒一拍的回路
+ * 在此期间被「已在运行中，跳过」，新消息至少晚一分钟才被处理。
+ */
 export function buildAutoPrompt(
   msg: WechatMessage,
   runbook = '',
@@ -372,21 +391,19 @@ export function buildAutoPrompt(
   const who = msg.name || msg.talker || '对方'
   return [
     ...instructionsBlock(runbook, instructionsFile),
-    `【本次触发】监控回路把消息取好了，**不要再轮询、也不要读 state.json 的水位**；按手册处置这一批：`,
+    '【本次触发】监控回路把消息取好了，**不要再轮询、也不要去查水位**：',
     `微信「${who}」刚给我发来（${fmtWhen(msg.ts)}）：`,
     `「${fmtText(msg.text)}」`,
-    '（这个人的策略是：**允许按手册直接替我回**。）',
+    '（这个人的策略是：**允许按护栏直接替我回**。）',
     '',
-    '按手册的处置分支办：',
-    `- 日常闲聊 → 用 **channel_send**（channel="pcwechat", to="${msg.talker}", text=你要说的话）直接回，短、口语，像我本人；`,
-    '  · 这是**唯一允许的发送路径**：渠道层会照「本机微信回复名单」再挡一道，并留下发送记录；',
-    '    绕过它直发（比如拿 MCP 的发送工具自己发）等于绕开名单，绝对不要。',
-    '  · 名单外的人会被渠道拒成 PEER_NOT_FOUND——那就**别发**，按手册转人工。',
-    '- 命中护栏（涉钱 / 冲突情感健康 / 要承诺或实质安排 / 质疑是不是 AI）→ **一条都不发**，按手册转人工；',
-    '- 介于两者之间、或内容读不懂（图片/语音/卡片）→ 取**保守侧**：不回 + 转人工，或按手册允许的方式轻描淡写。',
+    '先判档，再走对应的出口：',
+    `- **放行** → \`channel_send\`（channel="pcwechat", to="${msg.talker}", text=你要说的话）直接回；`,
+    '  短、口语，像我本人。这是**唯一允许的发送路径**（渠道层会再挡一道名单并留发送记录，绕开它自己发绝对不要）。',
+    '- **软回** → 先把那一句「不含任何承诺」的话发出去，再转人工。',
+    '- **硬停** → 微信侧一条都不发，只转人工。',
     '',
-    '收尾（手册要求）：发完按手册做落地校验；把本轮追加进 transcript；',
-    '并把 state.json 的 last_ts 更新到现在（水位由回路推进，你只需保持一致）。',
+    '发送成不成**不用你自己去验**：回路的读库实测会判定这一轮到底发出去没有；',
+    '发不出去的那条系统已经排队，手一回来会自己补发。把该说的话说完就**到此为止**。',
   ]
     .filter(Boolean)
     .join('\n')
@@ -499,9 +516,9 @@ export interface WechatWatchDeps {
   /**
    * 代聊 Agent（bridge 注入：`getAgentRecord('wechat-relay')`，见 `wechat-relay-agent.ts`）。
    *
-   * **给了它**就说明手册已经住在这个 Agent 的 systemPrompt 里，提示词只递「本次触发」；
-   * **没给**（老机器没播种 / 用户在设置页把它删了·禁用了 / 手册文件读不到）就回落到
-   * 老办法：把手册全文注入本轮提示词——护栏绝不能因为少了一个 Agent 就静默消失。
+   * **给了它**就说明护栏与工作流已经住在这个 Agent 的 systemPrompt 里，提示词只递「本次触发」；
+   * **没给**（老机器没播种 / 用户在设置页把它删了·禁用了）就回落：把程序分区 `relayOwnedSection()`
+   * 注入本轮提示词（再带上用户手册当补充口径）——护栏绝不能因为少了一个 Agent 就静默消失。
    */
   getRelayAgent?: () => { id: string; systemPrompt?: string } | undefined
   /** 覆盖配置路径（测试用） */
@@ -708,9 +725,6 @@ function writeCooldowns(db: DatabaseAdapter, map: Record<string, number>): void 
     log.warn('[wechat-watch] 冷却表写入失败:', err)
   }
 }
-
-/** 上一次因"手册文件 ≠ Agent 里那份"报过的内容（同一条只报一次，别每 15 秒刷屏） */
-let lastDriftWarned: string | null = null
 
 function readKvNumber(db: DatabaseAdapter, key: string): number {
   try {
@@ -991,21 +1005,14 @@ export async function runWechatWatch(deps: WechatWatchDeps): Promise<string> {
       else byPeer.set(key, [m])
     }
 
-    // 手册**住在哪**：M2 起它进了「灵栖代聊」的 systemPrompt（每轮自动带上，零重复 token）。
-    // 代聊 Agent 不在，就照老办法把全文注入本轮提示词——护栏不能因为少了个 Agent 就消失。
+    // 护栏与口径**住在哪**：M3 起唯一真源是「灵栖代聊」的 systemPrompt（每轮自动带上，零重复 token）。
+    // 代聊 Agent 不在，就退回每轮注入（程序分区 + 用户手册全文）——护栏不能因为少了个 Agent 就消失。
+    //
+    // 这里不再比对「手册文件 vs Agent 里那份」：手册已**整段移出**提示词（见
+    // wechat-relay-agent.ts 的 M3 说明），两边本来就该不一样，比对只会变成永久假警告。
     const runbook = loadInstructions(cfg.instructionsFile)  // 每拍读一次（手册可能随时被改）
     const relayAgent = deps.getRelayAgent?.()
     const injectRunbook = relayAgent ? '' : runbook
-    // 手册文件与 Agent 里那份不一致（用户改了文件 / 在设置页改了 Agent）：说清楚谁说了算，
-    // 否则就是「改了手册却没反应」的静默失效。同一条只报一次，别刷屏。
-    const runbookDrift = !!relayAgent && !relayCoversRunbook(relayAgent.systemPrompt, runbook)
-    if (runbookDrift && runbook !== lastDriftWarned) {
-      lastDriftWarned = runbook
-      log.warn(
-        '[wechat-watch] RUNBOOK.md 与「灵栖代聊」的 systemPrompt 已不一致——代聊按 **Agent 设置页里那份**跑' +
-          '（手册文件现在只是留档）。要改护栏请改设置页里的「灵栖代聊」；想以文件为准，就把文件内容贴回它的提示词。',
-      )
-    }
     const notifyOnly: WechatMessage[] = []
     const notifyConvIds = new Set<string>()
     const acted: string[] = []
@@ -1118,12 +1125,12 @@ export async function runWechatWatch(deps: WechatWatchDeps): Promise<string> {
     const parts: string[] = []
     if (acted.length > 0) parts.push(acted.join('；'))
     if (notifyOnly.length > 0) parts.push(`提醒 ${notifyOnly.length} 条`)
-    // 「带手册」这行在任务页是用户唯一能看出"护栏到底在不在"的地方——
-    // M2 之后手册住在代聊 Agent 里，就不能再报成"带"了（否则看不出它其实没进提示词）。
+    // 这行在任务页是用户唯一能看出"护栏到底在不在"的地方：
+    // 护栏的口径（硬停/软回/放行 + 工作流）住在代聊 Agent 的程序分区里，
+    // 它不在时才退回每轮注入。
     if (parts.length > 0) {
-      if (runbookDrift) parts.push('⚠️手册与「灵栖代聊」不一致')
-      else if (relayAgent) parts.push('手册在「灵栖代聊」里')
-      else if (runbook) parts.push('带手册')
+      if (relayAgent) parts.push('护栏在「灵栖代聊」里')
+      else parts.push(runbook ? '带护栏+手册' : '带护栏')
     }
     return parts.join('｜') || '无新消息'
   } catch (err) {

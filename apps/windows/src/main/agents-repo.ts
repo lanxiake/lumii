@@ -64,6 +64,11 @@ export interface AgentRecord {
   bundledSkills?: string[]
   /** UI 展示分类（coding / writing / learning / life / general） */
   category?: string
+  /**
+   * 关掉的系统提示词段（段 ID 见 @mtbot/agent-runtime 的 PROMPT_SECTIONS）。
+   * 回复型 Agent（如「灵栖代聊」）用它把自己从通用运行时契约里摘出来。
+   */
+  disabledPromptSections?: string[]
   /** 只读定义详情（系统 Agent 由内置定义镜像；用户 Agent 无此字段） */
   definition?: AgentDefinitionDetail
   createdAt: string
@@ -205,6 +210,7 @@ export function createUserAgentRecord(data: {
   name: string
   description?: string
   systemPrompt?: string
+  disabledPromptSections?: string[]
 }): AgentRecord {
   const users = loadUserAgents()
   if (users.some((a) => a.id === data.id)) throw new Error(`用户 Agent 已存在: ${data.id}`)
@@ -214,6 +220,7 @@ export function createUserAgentRecord(data: {
     name: data.name,
     ...(data.description ? { description: data.description } : {}),
     systemPrompt: data.systemPrompt,
+    ...(data.disabledPromptSections ? { disabledPromptSections: data.disabledPromptSections } : {}),
     isEnabled: true,
     isDefault: false,
     userId: LOCAL_USER_ID,

@@ -8,6 +8,7 @@
  */
 
 import type { PermissionMode } from "../security/permission-types.js";
+import type { PromptSectionId } from "../prompt/prompt-sections.js";
 
 // ==================== 辅助类型 ====================
 
@@ -185,6 +186,18 @@ export interface AgentDefinition {
   readonly disallowedTools?: readonly string[];
   /** 细粒度工具权限配置（与 DB schema 对齐） */
   readonly toolPermissions?: AgentToolPermissions;
+
+  /**
+   * 关掉的系统提示词段（段 ID 见 `prompt-sections.ts` 的 `PROMPT_SECTIONS`）。
+   *
+   * 为什么需要：通用运行时契约里有一批段只对「做任务」的 Agent 成立——`task_complete`
+   * 完成信号、`NO_REPLY` 协议、todo/spawn 编排、`outputs/<task>/` 产物目录、子 Agent 目录。
+   * 对**回复型 Agent**（如本机微信代聊：看一条消息、回一句话）这些段是纯噪声，
+   * 更糟的是模型会照它们去调一个它没有的工具、或把 `NO_REPLY` 当"不回"的口径。
+   *
+   * 不给 = 全都要（现状，其他 Agent 一字不变）。
+   */
+  readonly disabledPromptSections?: readonly PromptSectionId[];
 
   // ==================== 技能 ====================
   /** 预加载的技能列表（技能 ID 数组） */

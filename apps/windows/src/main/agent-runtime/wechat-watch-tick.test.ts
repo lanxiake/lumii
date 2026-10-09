@@ -466,7 +466,7 @@ describe('手册注入（RUNBOOK）——**回落路径**：代聊 Agent 不在�
  *   1. Agent 在 → 提示词里**不再重复那几千字**（否则 M2 的收益没了）；
  *   2. Agent 不在（删了/禁用/手册读不到）→ **退回注入**（护栏不许静默消失）。
  */
-describe('手册归属：住在代聊 Agent 的 systemPrompt 里（M2）', () => {
+describe('手册归属：护栏住在代聊 Agent 里，手册只在回落路径兜底（M3）', () => {
   const RUNBOOK_TEXT = '【护栏】涉钱 / 冲突 / 身份质疑一律不发，转人工'
   let runbookFile = ''
   let cfgFile = parseWechatWatchConfig({ groups: [] })
@@ -508,7 +508,7 @@ describe('手册归属：住在代聊 Agent 的 systemPrompt 里（M2）', () =>
     expect(prompt).toContain('channel_send')
   })
 
-  it('代聊 Agent 不在 → 退回每轮注入（护栏不能因为少了个 Agent 就消失）', async () => {
+  it('代聊 Agent 不在 → 退回每轮注入：**护栏分档照样在**（不能因为少了个 Agent 就没了护栏）', async () => {
     const driveTurn = vi.fn(async () => 'ok')
     const { d, callMcpTool } = deps({ config: cfgFile, driveTurn, getRelayAgent: () => undefined })
     callMcpTool.mockResolvedValueOnce(incoming)
@@ -516,9 +516,12 @@ describe('手册归属：住在代聊 Agent 的 systemPrompt 里（M2）', () =>
     const [prompt] = driveTurn.mock.calls[0] as unknown as [string]
     expect(prompt).toContain(RUNBOOK_TEXT)
     expect(prompt).toContain('本次触发')
+    // 回落路径也必须带上程序分区——旧行为下"文件读不到"就等于整条代聊没有护栏
+    expect(prompt).toContain('硬停')
+    expect(prompt).toContain('软回')
   })
 
-  it('Agent 里那份和手册文件不一致 → 仍以 Agent 为准（手册文件只是留档），并记一条 warn', async () => {
+  it('手册改了不再报「不一致」——手册已整段移出提示词，比对只会变成永久假警告', async () => {
     const warn = vi.spyOn(log, 'warn').mockImplementation(() => {})
     const driveTurn = vi.fn(async () => 'ok')
     const { d, callMcpTool } = deps({
@@ -531,7 +534,7 @@ describe('手册归属：住在代聊 Agent 的 systemPrompt 里（M2）', () =>
     await runWechatWatch(d)
     const [prompt] = driveTurn.mock.calls[0] as unknown as [string]
     expect(prompt).not.toContain(RUNBOOK_TEXT)
-    expect(warn.mock.calls.some((c) => String(c[0]).includes('已不一致'))).toBe(true)
+    expect(warn.mock.calls.some((c) => String(c[0]).includes('已不一致'))).toBe(false)
     warn.mockRestore()
   })
 })

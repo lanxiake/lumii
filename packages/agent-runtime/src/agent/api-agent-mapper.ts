@@ -95,6 +95,7 @@ export function mapApiRecordToAgentDefinition(raw: Record<string, unknown>): Age
     effort,
     tools,
     disallowedTools: (raw.toolsBlacklist ?? raw.skillBlacklist) as string[] | undefined,
+    disabledPromptSections: raw.disabledPromptSections as AgentDefinition["disabledPromptSections"],
     toolPermissions: raw.toolPermissions as AgentDefinition["toolPermissions"],
     skills: (raw.skillFilter as string[] | undefined) ?? undefined,
     // 路由信号 + 常驻技能：用户 Agent 在 AI 团队页配置，运行时据此做路由与技能预激活
