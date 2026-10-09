@@ -93,3 +93,31 @@ jobs:
       # （该包无 install 脚本），所以上面的 --ignore-scripts 不影响它加载。
       # 用例全部在临时目录里跑，不碰用户目录。
       - run: pnpm --filter @mtbot/pet-asset test
+
+  # 2026-10-09 新增：wechat-mcp 的**离线**回归（test_watch.py，A–H 八层 35 例）。
+  #
+  # 为什么只有它进 CI：这一目录下有三个 python 套件，只有这份是**夹具驱动、不碰真机**的
+  # （文件头写着「不需要微信、不碰真实数据」）——覆盖重放/新鲜度护栏、镜像与水位、
+  # 错误码对账、目标会话校验的证据强度、发送闸门、锁屏识别、读界面重试预算。
+  # test_fixes.py / test_automation.py 要读注册表与真实账号/会话（`core.list_accounts`、
+  # `core.sessions`、真实数据目录），在 CI 上只会「因为没数据所以通过」，绿得没有意义；
+  # 它们仍是本机跑的冒烟脚本（复现命令见 docs/wechat-mcp-optimization-plan.md 附录 A）。
+  #
+  # 这一套此前**能跑但没人跑**（既不在本 workflow 也不在 pnpm verify 里，与 pet-core 当初一样），
+  # 等于没有防线：`read_ui_stable` 的重试预算、`verify_target` 的锚点否决这些改动，
+  # 都是靠人记得在本地跑才发现的。
+  #
+  # windows-latest 而非 ubuntu：D–H 层要 import wechat_sender（`ctypes.wintypes`、`msvcrt`）。
+  # python 版本对齐 App 内置的托管解释器（3.11.x），免得本地绿、CI 红。
+  wechat-mcp:
+    name: 微信 MCP 离线回归
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      # A 层（真加密夹具，逐字节）要 AES。不给就整层跳过（套件自己会打印跳过），
+      # 装的是纯 python 轮子，秒级。
+      - run: python -m pip install --disable-pip-version-check pycryptodome
+      - run: python apps/windows/resources/wechat-mcp/test_watch.py

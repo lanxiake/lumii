@@ -636,7 +636,7 @@ dry_run=False)` → `(True, '已发送')`，13.7s，**发前发后 `GetForegroun
 | 4 | 附件类发送（`send_file`/`send_batch`/`reply_to`）同样后台化 | ⏳ | §3.6 |
 | 4 | M3 收尾：入站 adapter（现在仍走盯梢旁路） | ⏳ | §3.4 |
 | 4 | 监控面板 UI（盯哪些人、开关、最近事件） | ⏳ | — |
-| — | python 测试接入 CI（`test_watch.py` 27 例，含 E 层目标校验证据强度 / F 层发送闸门 / G 层锁屏识别） | ⏳ | §3.4 |
+| — | **python 测试接入 CI**：`test_watch.py`（A–H 八层 **35 例**，含目标校验证据强度 / 发送闸门 / 锁屏识别 / 读界面重试预算）走独立的 `wechat-mcp` job；`test_fixes.py` / `test_automation.py` 要读注册表与真实会话，**只在本地跑**（进 CI 只会「因为没数据所以通过」） | ✅ | 本轮 |
 | — | ~~COM Interop~~ / ~~WAL 帧解析~~ / ~~watchdog 进程~~ | ❌ 作废 | §3.2 |
 
 ---
@@ -662,7 +662,16 @@ dry_run=False)` → `(True, '已发送')`，13.7s，**发前发后 `GetForegroun
 cd apps/windows/resources/wechat-mcp
 
 # 离线回归（不需要微信、不碰真实数据）：真加密夹具逐字节 + 真 SQLite 语义 + 错误码对账
+# A–H 八层 35 例。**已接入 CI**（.github/workflows/ci.yml 的 wechat-mcp job）。
+# 本机没有 PATH python（Store 占位），用 App 那份托管解释器：
+#   ~/.lumii/runtimes/python-embed/python.exe test_watch.py
 python test_watch.py
+
+# 真机冒烟（**只在本地跑**，不进 CI）：P0-A 路径发现 / P0-B 重试 / server.py 加载
+# 与 list_sessions + check_env。它们要读注册表与真实账号、会话，
+# 在 CI 上只会「因为没数据所以通过」，绿得没有意义。
+python test_fixes.py
+python test_automation.py
 
 # 真机自检（只读）：依赖 / 数据目录 / 会话 / 实时读取耗时
 python devcli.py selftest
