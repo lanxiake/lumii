@@ -503,8 +503,9 @@ UI 对 `reseeded` 任务隐藏编辑按钮，`handleCronUpdate` 再加一道闸*
 真机实测（`send_text(filehelper, dry_run=False)`，`talker` 全程只用自聊的文件传输助手）：
 隐藏态 `find_vis=0 find_hidden=199150` → `ok=True 已发送` 10.9s，前台不变、窗口回到可见；
 最小化态 `find_vis=199150` → `ok=True 已发送` 10.7s，前台不变。独立回读微信库落条
-`13:43:06 from_me=True 我 托盘还原实测-134257`。`tray_click.ps1`（UIA 点托盘图标）就此
-**降级为兜底**——正常路径不需要它。
+`13:43:06 from_me=True 我 托盘还原实测-134257`。`tray_click.ps1`（UIA 点托盘图标）当时
+**降级为兜底**——**2026-10-09 清理时已删除**：代码里零引用（`SW_SHOWNOACTIVATE` 一招通吃，
+再没有"UIA 点托盘"这条路），留着只会让人以为还有一条兜底。
 
 **两个「静默丢消息」的口子已堵**（2026-10-09 晚）：①出站 Provider 原先只在 `env_not_ready` 时
 投队列，`target_unconfirmed` 直接丢弃 ⇒ 现改为 `UNDELIVERABLE_CODES = {env_not_ready,
@@ -721,7 +722,7 @@ InvokePattern，落在 (857,712,924,289)。于是两道闸门从"盲退格 + 靠
 | 4 | `reply_to` 后台化（聊天区没有逐条消息的 UIA 元素，按消息定位只能靠实时帧 ⇒ 卡在这） | ⏳ | §3.6 |
 | 4 | M3 收尾：入站 adapter（现在仍走盯梢旁路） | ⏳ | §3.4 |
 | 4 | 监控面板 UI（盯哪些人、开关、最近事件） | ⏳ | — |
-| — | **python 测试接入 CI**：`test_watch.py`（A–H 八层 **42 例**，含目标校验证据强度 / 发送闸门（含托盘还原、清空输入框、正文落地）/ 锁屏识别 / UIA 格式契约与文件对话框控件认领 / 读界面重试预算）走独立的 `wechat-mcp` job；`test_fixes.py` / `test_automation.py` 要读注册表与真实会话，**只在本地跑**（进 CI 只会「因为没数据所以通过」） | ✅ | 本轮 |
+| — | **python 测试接入 CI**：`test_watch.py`（A–H 八层 **42 例**，含目标校验证据强度 / 发送闸门（含托盘还原、清空输入框、正文落地）/ 锁屏识别 / UIA 格式契约与文件对话框控件认领 / 读界面重试预算）走独立的 `wechat-mcp` job；`test_automation.py` 要读注册表与真实会话，**只在本地跑**（进 CI 只会「因为没数据所以通过」；同名的 `test_fixes.py` 2026-10-09 清理时已删——它的用例是它自己的子集） | ✅ | 本轮 |
 | — | ~~COM Interop~~ / ~~WAL 帧解析~~ / ~~watchdog 进程~~ | ❌ 作废 | §3.2 |
 
 ---
@@ -755,7 +756,6 @@ python test_watch.py
 # 真机冒烟（**只在本地跑**，不进 CI）：P0-A 路径发现 / P0-B 重试 / server.py 加载
 # 与 list_sessions + check_env。它们要读注册表与真实账号、会话，
 # 在 CI 上只会「因为没数据所以通过」，绿得没有意义。
-python test_fixes.py
 python test_automation.py
 
 # 真机自检（只读）：依赖 / 数据目录 / 会话 / 实时读取耗时
