@@ -89,6 +89,12 @@ export const MCP_PRESETS: readonly McpPreset[] = [
     command: 'wechat-mcp.exe',
     args: [],
     bundledExe: 'wechat-mcp',
+    // 每条回复都要走一整串 GUI 安全网（UIA 全树读 ≈3–4s/次 × 5–6 次 + 切会话 + 读库确认），
+    // 表头不对、要走切会话那条路时单发实测 36.2s；服务端 tool_send 外面还套了
+    // `_send_with_retry(max_retries=2)`，最坏两轮 ⇒ 30s 默认值会把**已经发成功**的那次
+    // 报成失败（2026-10-09 15:15 实测：消息 15:15:50 落库，服务端 36.2s 自报 ok，客户端
+    // 15:15:46 超时）。给足 5 分钟，让本地这双手自己把结论说完。
+    timeoutMs: 300_000,
     defaultEnabled: true,
   },
   {

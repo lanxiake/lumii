@@ -649,12 +649,20 @@ describe('待补发队列（发送门够不着时排队，门开了自动补发�
   })
 
   /** poll_new 无新消息 + 按工具分流的 MCP 桩；`send` 决定发送门开没开 */
-  function outboxDeps(opts: { send?: (n: number) => string; lastFromMe?: boolean } = {}) {
+  function outboxDeps(
+    opts: { send?: (n: number) => string; lastFromMe?: boolean; lastFromMeTs?: number } = {},
+  ) {
     const { d, callMcpTool, kv } = deps({ config: cfgOutbox, nowMs: () => Date.now() })
     let sends = 0
     callMcpTool.mockImplementation(async (_s: string, tool: string) => {
       if (tool === 'read_history') {
-        return JSON.stringify({ messages: [{ from_me: opts.lastFromMe === true }] })
+        // 默认取「入队之后」的秒（时钟往后挪一分钟只为满足判据），正是"期间已回过话"的形态
+        const ts = opts.lastFromMeTs ?? Math.floor(Date.now() / 1000) + 60
+        return JSON.stringify({
+          messages: [
+            opts.lastFromMe === true ? { from_me: true, ts } : { from_me: false, ts },
+          ],
+        })
       }
       if (tool === 'send_text') {
         sends += 1
@@ -687,12 +695,26 @@ describe('待补发队列（发送门够不着时排队，门开了自动补发�
     expect(kv.get('wechat_watch_last_ts')).toBe('2000')
   })
 
-  it('末条是本人发的 → 不补、直接丢弃（期间用户自己回过话了）', async () => {
+  it('末条是本人发的、且晚于入队 → 不补、直接丢弃（期间用户自己回过话了）', async () => {
     const { d, sent } = outboxDeps({ lastFromMe: true })
     const db = d.getDb()
     enqueueWechatOutbox(db, 'wxid_s6piyhfvptv522', '10月9号 周五')
     await runWechatWatch(d)
     expect(sent()).toBe(0)
+    expect(readWechatOutbox(db)).toEqual([])
+  })
+
+  it('末条 from_me 但是**入队之前**的老消息 → 不算已回过话，照补', async () => {
+    // 2026-10-09 15:34 实测：15:33 排队的「15:34」被 14:53 那条附件判成"本人已回过话"而
+    // 静默丢弃——那条回复其实从没发出去。判据只看 from_me 就是这个下场。
+    const { d, sent } = outboxDeps({
+      lastFromMe: true,
+      lastFromMeTs: Math.floor(Date.now() / 1000) - 3600,
+    })
+    const db = d.getDb()
+    enqueueWechatOutbox(db, 'wxid_s6piyhfvptv522', '15:34')
+    expect(await runWechatWatch(d)).toBe('无新消息｜补发 1 条')
+    expect(sent()).toBe(1)
     expect(readWechatOutbox(db)).toEqual([])
   })
 

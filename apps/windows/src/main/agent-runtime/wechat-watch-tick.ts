@@ -812,8 +812,12 @@ export function enqueueWechatOutbox(db: DatabaseAdapter, peer: string, text: str
 /**
  * 把排队中的补发**按顺序**送出去（零模型）。门还关着就停下、留到下一拍。
  *
- * 送之前每条都先 `read_history(limit=1)` 复核：**末条是本人发的就不再补**——
- * 期间用户自己（或在别处）已经回过话了，这时候再把几十分钟前的草稿发出去只会更怪。
+ * 送之前每条都先 `read_history(limit=1)` 复核：**末条是本人发的、且比这条入队还晚**才不再补——
+ * 那才说明期间用户自己（或在别处）已经回过话了，这时候再把几十分钟前的草稿发出去只会更怪。
+ * ⚠️ 判据必须带上「晚于入队时刻」：只看 `from_me` 会把**跟这条排队项毫无关系的旧消息**当成
+ * 已送达（2026-10-09 15:34 实测：15:33 排队的「15:34」被 14:53 那条附件判成「本人已回过话」
+ * 而丢弃，那条回复其实从没发出去）。排队项的 `text` 与最近那条 from_me 未必是同一句，
+ * 所以比文本不如比时间。
  */
 async function flushWechatOutbox(
   deps: WechatWatchDeps,
@@ -835,18 +839,22 @@ async function flushWechatOutbox(
     writeKvNumber(db, KV_KEY_OUTBOX_TRY, nowMs) // 先记：门关着时这一撞的代价是完整的 bring_to_front
     let sent = 0
     for (const item of queue) {
-      let lastFromMe = false
+      let repliedAfterQueue = false
       try {
         const raw = await deps.callMcpTool(WECHAT_WATCH_MCP_SERVER, 'read_history', {
           talker: item.peer,
           limit: 1,
         })
-        const msgs = (JSON.parse(raw) as { messages?: { from_me?: boolean }[] }).messages
-        lastFromMe = msgs?.[msgs.length - 1]?.from_me === true
+        const msgs = (JSON.parse(raw) as { messages?: { from_me?: boolean; ts?: number }[] })
+          .messages
+        const last = msgs?.[msgs.length - 1]
+        // `ts` 是秒、`item.at` 是毫秒。读不到 ts 就当没回过话（宁可迟到，不可丢）
+        repliedAfterQueue =
+          last?.from_me === true && typeof last.ts === 'number' && last.ts * 1000 >= item.at
       } catch {
-        lastFromMe = false // 读不到就不拦（宁可迟到，不可丢）
+        repliedAfterQueue = false // 读不到就不拦（宁可迟到，不可丢）
       }
-      if (lastFromMe) {
+      if (repliedAfterQueue) {
         log.info(`[wechat-watch] 补发作废（本人已回过话）：${item.peer}`)
         queue = queue.filter((x) => x !== item)
         writeWechatOutbox(db, queue)

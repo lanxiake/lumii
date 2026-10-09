@@ -65,6 +65,14 @@ describe('MCP 内置清单', () => {
     expect(wechat?.args).toEqual([])
   })
 
+  it('wechat-local 必须自带超时：发送要走整串 GUI 安全网，30s 默认值会把已发成功的那次报成失败', () => {
+    // 2026-10-09 15:15 实测：send_text 实耗 36.2s、自报 ok=true，而 30s 的客户端超时先到。
+    // 服务端 tool_send 还套了 `_send_with_retry(max_retries=2)`，最坏两轮。断言取的是
+    // 「盖得住两轮最坏」这条不变量，不是那个具体数字——调参不必回来改这里。
+    const ms = findMcpPreset('wechat-local')?.timeoutMs
+    expect(ms).toBeGreaterThanOrEqual(120_000)
+  })
+
   it('不重复内置的 browser_* 工具', () => {
     const pkgs = MCP_PRESETS.flatMap((p) => p.args).join(' ')
     expect(pkgs).not.toContain('playwright')
