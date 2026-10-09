@@ -546,9 +546,15 @@ def env_gate(allow_locked=False):
     allow_locked=True 给**全投递**的文本路径用：锁屏只挡得住 SendInput（模拟键鼠），
     挡不住 PostMessage 投递 —— 实测锁屏下搜索/切会话/输入/发送全通，不该拦。
     附件路径仍用默认的 False：它靠剪贴板 + Ctrl+V，是真的 SendInput，锁屏时够不着。
+
+    ⚠️ 放行只针对**锁屏这一条理由**，不能连「窗口根本读不了」一起放掉：最小化 / 收进托盘时
+    `PrintWindow` 拍出来是空白，投递照样跑不动，却会一路重试到 MCP 客户端超时——而超时不是
+    错误码，出站 Provider 归不出 `env_not_ready`、**那条回复就静默没了**（2026-10-09 实测：
+    锁屏 + 最小化，send_text 跑满 30.006s 被超时杀掉）。所以逐条要求窗口本身可用。
     """
     st = wake_minimized()
-    if allow_locked and st.get("locked"):
+    win_usable = bool(st.get("visible")) and not st.get("minimized") and bool(st.get("hwnd"))
+    if allow_locked and st.get("locked") and win_usable:
         st = dict(st, ok=True)
     return bool(st["ok"]), st
 

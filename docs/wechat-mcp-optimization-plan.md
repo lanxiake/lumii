@@ -456,6 +456,32 @@ UI 对 `reseeded` 任务隐藏编辑按钮，`handleCronUpdate` 再加一道闸*
 target_unconfirmed}` 两者都投（`pcwechat-outbound-provider.ts`），并给 `target_unconfirmed` 补了
 `suggestion` 文案；②上面的 `_unhide` 已删，不再把「够不着」伪装成「内容不对」。
 
+**第三个口子：`env_gate` 的锁屏放行连「窗口读不了」一起放掉了**（2026-10-09 晚，重启后实测抓到的）：
+
+```
+[12:51:15] ToolRunner → mcp__wechat-local__send_text
+[12:51:45] ToolTelemetry durationMs=30006 success=false   ← 正好 30.006s = MCP 客户端超时
+          结果 = "MCP tool error: MCP request timeout: tools/call"
+```
+**超时不是错误码**：出站 Provider 只认 `error_code`，拿不到就归 `UPSTREAM_ERROR` ⇒ **不进待补发队列**
+⇒ 那条回复照样静默没了。现场证据（`%TEMP%/lumii-wechat-mcp/ui_*.png` 的尺寸序列）显示这 30s 里
+`read_ui_stable` 一直在吃**空白帧**（68219B，正常内容帧约 98KB）：`lstv0..3`、`q00..q03` 八次全空白，
+一路重试到被超时杀掉。根因在闸门：
+
+```python
+# 旧：锁屏 ⇒ 无条件 ok=True —— 把「最小化/不可见」这条独立的拒绝理由也一起放掉了
+if allow_locked and st.get("locked"):
+    st = dict(st, ok=True)
+```
+锁屏该放的**只是锁屏这一条**（锁屏挡得住 SendInput、挡不住 PostMessage）。窗口最小化 / 收进托盘时
+`PrintWindow` 拍出来是空白，投递一样跑不动。现改为逐条要求窗口可用
+（`visible and not minimized and hwnd`），并在 `test_watch.py` F 层钉了正反两例：
+「锁屏 + 最小化 ⇒ 仍拒发」「锁屏 + 窗口可用 ⇒ 放行（锁屏不挡投递）」。
+
+**判据教训**：`send_not_confirmed` 那条「绝不自动重试」的规矩说明超时是**语义存疑**的，不能一律排队
+（可能真发出去了、重发就是给好友发第二遍）；所以这里不是「超时就排队」，而是**别走到超时**——
+让闸门在 2 秒内给出干净的 `env_not_ready`，由它去排队。
+
 **实测结论**（2026-10-09，真人锁屏）：模块级 `send_text(dry_run=false)` → `ok:true` / 读库落条 /
 前台全程锁屏；App 级端到端（`mcp__wechat-local__send_text` 经真实 Agent 回合）→
 `{"ok":true,"detail":"已发送"}`。
@@ -526,7 +552,7 @@ dry_run=False)` → `(True, '已发送')`，13.7s，**发前发后 `GetForegroun
 | 4 | `find_session` 下界 `wh*0.85` → `wh-8`（末尾两行会话被滤，锁屏下切会话断链） | ✅ | `a7957c46` |
 | 4 | 后台（微信非前台/非激活）端到端复测：切会话+输入+发送+读库全通，前台未被抢（§3.6） | ✅ | 本轮 |
 | 4 | 锁屏下的**切会话**复测：起点确实非目标，锁屏下切走再切回，全链 `(True,'已发送')`，前台未被抢（§3.6） | ✅ | 本轮 |
-| 4 | 堵两个**静默丢消息**的口子：`target_unconfirmed` 也投待补发队列；删掉把用户收进托盘的微信强显出来的 `_unhide`（§3.6） | ✅ | 本轮 |
+| 4 | 堵三个**静默丢消息**的口子：`target_unconfirmed` 也投待补发队列；删掉把用户收进托盘的微信强显出来的 `_unhide`；`env_gate` 的锁屏放行不再连「窗口最小化/不可见」一起放掉（否则跑满 30s 被 MCP 超时杀掉，超时不是错误码、归不出 `env_not_ready`，回复照样丢）（§3.6） | ✅ | 本轮 |
 | 4 | 附件类发送（`send_file`/`send_batch`/`reply_to`）同样后台化 | ⏳ | §3.6 |
 | 4 | M3 收尾：入站 adapter（现在仍走盯梢旁路） | ⏳ | §3.4 |
 | 4 | 监控面板 UI（盯哪些人、开关、最近事件） | ⏳ | — |

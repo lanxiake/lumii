@@ -707,6 +707,24 @@ def suite_F():
         with_env([GONE], 199150, run)
     r.case("微信没运行 ⇒ 拒发（不尝试恢复）", f5_not_running)
 
+    def f6_locked_but_window_unusable():
+        """锁屏放行只放"锁屏"这一条：窗口最小化/不可见时照样拒——否则会跑满 30s 被 MCP 超时杀掉，
+        而超时不是错误码，Provider 归不出 `env_not_ready`，那条回复就静默没了（2026-10-09 实测）。"""
+        def run(shown, _st):
+            ok, _s = snd.env_gate(allow_locked=True)
+            assert not ok, "锁屏不是「窗口读不了」的通行证"
+            assert shown == [(199150, 9)], "仍该试过恢复一次"
+        with_env([{**MIN, "locked": True}], 0, run)
+    r.case("锁屏 + 最小化 ⇒ 仍拒发（不许带着读不了的窗口往下做）", f6_locked_but_window_unusable)
+
+    def f7_locked_and_usable_passes():
+        """反面：窗口可用时锁屏必须放行——否则全投递的锁屏能力（实测 LOCK-9 全链）会被这道闸门挡掉。"""
+        def run(_shown, _st):
+            ok, _s = snd.env_gate(allow_locked=True)
+            assert ok, "窗口可用 + 锁屏 ⇒ 全投递能发，不该拦"
+        with_env([{**OK, "locked": True}], 0, run)
+    r.case("锁屏 + 窗口可用 ⇒ 放行（锁屏不挡投递）", f7_locked_and_usable_passes)
+
     return r
 
 
