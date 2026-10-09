@@ -910,7 +910,10 @@ def find_session(lines, name, ww, wh):
     n = norm(name)
     best = None
     for x0, y0, x1, y1, t in lines:
-        if x0 < SESSION_COL and 40 < y0 < wh * 0.85:
+        # 下界用整窗高度而不是 wh*0.85：会话列（x<SESSION_COL）从 y=40 一直排到窗口底部，
+        # 卡在 85% 会把**最后两行**会话滤掉——实测「文件传输助手」在 y≈747/wh=820 时被滤，
+        # 于是列表路找不到目标、只能退搜索，锁屏下整条链就断在这儿（2026-10-09）。
+        if x0 < SESSION_COL and 40 < y0 < wh - 8:
             nt = norm(t)
             if not nt:
                 continue
