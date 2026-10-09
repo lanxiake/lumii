@@ -213,18 +213,18 @@ def _composer_copy_all():
 EnumProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
 
 
-def find_main_hwnd(include_hidden=False):
-    """微信主窗口句柄（取面积最大的 Qt 窗口）。
+def find_main_hwnd():
+    """微信主窗口句柄（取面积最大的 Qt 窗口）。**只看可见窗口**。
 
-    `include_hidden=False`（默认）只看**可见**窗口——常规调用够用。但微信主窗口会进入
-    「进程在跑、句柄还在、`IsWindowVisible=0`（不是最小化）」的隐藏态（2026-10-09 实测），
-    这时默认查法返回 0，发送路径会在第一行就以「找不到微信主窗口」退出、连恢复的机会都没有。
-    需要恢复的调用方传 `include_hidden=True` 拿到句柄，再 `_unhide()`。
+    微信主窗口可以进入「进程在跑、句柄还在、`IsWindowVisible=0`（不是最小化）」的隐藏态
+    （2026-10-09 实测）——那是用户把它收起来了，**故意不当可用**：强显（SW_SHOWNA）会把
+    用户收进托盘的微信弹出来。查不到就当「那双手不在」，发送路径第一行即以
+    「找不到微信主窗口」退出，由 Provider 归一到 `env_not_ready` 投进待补发队列。
     """
     best = [0, 0]
 
     def cb(h, _l):
-        if not include_hidden and not u.IsWindowVisible(h):
+        if not u.IsWindowVisible(h):
             return True
         cls = ctypes.create_unicode_buffer(256)
         u.GetClassNameW(h, cls, 256)
@@ -647,10 +647,9 @@ def read_ui(tag):
     BitBlt 拍的是屏幕那一块——锁屏时拍回来的是锁屏壁纸，于是 header 读成空、
     被误判成「目标会话未确认」。顺带也不再 `SetForegroundWindow`，读界面不必抢前台。
     """
-    h = find_main_hwnd() or find_main_hwnd(include_hidden=True)
+    h = find_main_hwnd()    # 只认可见窗口：隐藏态（收进托盘）不强显，直接交空结果
     if not h:
         return 0, 0, []
-    _unhide(h)              # 隐藏态下 PrintWindow 拍出来是空白，先恢复可见
     _, _, ww, wh = win_rect(h)
     png = os.path.join(core.WORK, f"ui_{tag}.png")
     out = os.path.join(core.WORK, f"ui_{tag}.txt")
@@ -698,7 +697,7 @@ def read_ui_stable(tag, tries=4):
             return ww, wh, lines
         if i == 0:  # 首轮空白：投递点一下聊天区逼它重绘
             try:
-                h = find_main_hwnd() or find_main_hwnd(include_hidden=True)
+                h = find_main_hwnd()
                 if h and ww > 0 and wh > 0:
                     post_click(h, int(ww * 0.55), int(wh * 0.35))
             except Exception:
@@ -1059,20 +1058,6 @@ def send_text(text, talker, name=None, dry_run=True, verbose=False):
         _release_ui(lk)
 
 
-def _unhide(h):
-    """主窗口被**隐藏**（IsWindowVisible=0，并非最小化）时显示出来。
-
-    用 SW_SHOWNA：显示但不激活，不抢用户的前台。2026-10-09 实测遇到过这种状态——
-    微信进程在跑、窗口有句柄，但 IsWindowVisible=0，`find_main_hwnd` 因此返回 0。
-    """
-    try:
-        if not u.IsWindowVisible(ctypes.c_void_p(h)):
-            u.ShowWindow(ctypes.c_void_p(h), 8)   # SW_SHOWNA
-            time.sleep(0.5)
-    except Exception:
-        pass
-
-
 def _give_back_foreground(wechat_h, prev_fg):
     """把前台还给用户。
 
@@ -1094,10 +1079,9 @@ def _send_locked(text, talker, name, dry_run, verbose):
     PostMessage。fail-closed：任一步不成立即返回失败，由上层排队重试。
     发送生效校验改为**发完读库**——那本就是最后一道，且不像剪贴板回读那样需要前台。
     """
-    h = find_main_hwnd() or find_main_hwnd(include_hidden=True)
+    h = find_main_hwnd()    # 隐藏态（收进托盘）**不强显**：找不到就交空，由上层排队补发
     if not h:
         return False, "找不到微信主窗口"
-    _unhide(h)          # 隐藏态先恢复出来（否则「找不到主窗口」直接失败，连恢复的机会都没有）
     prev_fg = int(u.GetForegroundWindow())
     ww, wh, lines = read_ui_stable("s0")
     ok, _why = verify_target(talker, name, lines, ww, wh, verbose)

@@ -26,6 +26,16 @@ import type {
   IChannelOutboundProvider,
 } from '../outbound-types'
 
+/**
+ * 「此刻够不着」而不是「内容不对」的错误码：微信没跑 / 窗口被收起收进托盘 / 切不过去。
+ * 这类失败**重试就能成功**，所以投进待补发队列等门开；其余错误码（名单外、找不到会话）
+ * 重试一万次也没用，进队列只会把队列变成噪声桶。
+ *
+ * `target_unconfirmed` 是发送层的 fail-closed 兜底：目标会话没能确认下来，**一个字都没输入**，
+ * 所以补发绝不会重复发。不排它的话，切换一失败那条回复就**静默没了**（2026-10-09 定）。
+ */
+const UNDELIVERABLE_CODES = new Set(['env_not_ready', 'target_unconfirmed'])
+
 /** 发送工具（wechat-local 的 send_text）返回的最小面 */
 interface SendTextPayload {
   ok?: boolean
@@ -47,8 +57,8 @@ export interface PcwechatProviderDeps {
   /** 直接调 MCP 工具（主进程内，不经 Agent 回合） */
   callMcpTool: (server: string, tool: string, args: Record<string, unknown>) => Promise<string>
   /**
-   * 「此刻发不出去」（`env_not_ready`：微信没运行 / 主窗口被隐藏或抢不到前台）时，把这条
-   * 投进待补发队列，等那双手回来了由盯梢回路补发（见 `wechat-watch-tick.ts`）。
+   * 「此刻发不出去」（`UNDELIVERABLE_CODES`：微信没运行 / 主窗口被收进托盘 / 切不过去）时，
+   * 把这条投进待补发队列，等那双手回来了由盯梢回路补发（见 `wechat-watch-tick.ts`）。
    *
    * 为什么生产者在**这一层**：只有这里拿得到工具的错误码——"内容不对"（名单外/找不到会话）
    * 与"环境够不着"必须分得开，前者重试一万次也没用，后者重试就能成功。
@@ -137,8 +147,8 @@ export class PcwechatChannelProvider implements IChannelOutboundProvider {
       return fail('UPSTREAM_ERROR', '发送工具只做了演练（dry_run=true），并没有真发出去——不要按"已发送"上报')
     }
     if (!out.ok) {
-      if (out.error_code === 'env_not_ready') {
-        // 内容没问题，只是此刻那双手不在（微信没跑 / 窗口抢不到前台）——**排队等门开**，
+      if (UNDELIVERABLE_CODES.has(out.error_code ?? '')) {
+        // 内容没问题，只是此刻那双手不在——**排队等门开**，
         // 别让调用方（代聊）误判成"发错了"而去改内容或转人工。
         // 队列本身出问题也不能改写这次失败的判定，故吞掉异常
         try {

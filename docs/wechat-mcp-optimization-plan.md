@@ -109,8 +109,9 @@
 | `input_not_landed` / `send_unconfirmed` / `attachment_not_landed` | ✅ | 消息**没发出去**，且发送层每次都会先 Ctrl+A/Del 清空输入框 → 重来不会粘两遍 |
 | `busy` / `clipboard_failed` / `verification_failed` | ✅ | 锁竞争 / 剪贴板偶发占用 / OCR 抖动，都属临时性 |
 | **`send_not_confirmed`**（已回车、库里没看到） | ❌ **绝不** | 语义存疑：可能真发出去了、只是还没落库——重试就是给好友发第二遍 |
-| `env_not_ready` | ❌ 重试，但**要排队** | 分两类：**锁屏 / 抢不到前台**＝「此刻发不出去」，硬件/桌面暂时够不着，解锁后会好 ⇒ 由出站 provider 投进待补发队列（§3.5）；**窗口被挪走**一类的环境问题也归这里，同样不该让 Agent 反复重试 |
-| `target_unconfirmed` / `quote_not_found` / `menu_not_found` / `bad_args` / `attachment_missing` | ❌ | 重试也不会好，交给 Agent 改参数或请用户处理 |
+| `env_not_ready` | ❌ 进程内重试，但**要排队** | 分两类：**锁屏 / 抢不到前台 / 主窗口收进托盘**＝「此刻发不出去」，硬件/桌面暂时够不着 ⇒ 由出站 provider 投进待补发队列（§3.5）；**窗口被挪走**一类的环境问题也归这里，同样不该让 Agent 反复重试 |
+| **`target_unconfirmed`** | ❌ 进程内重试，但**要排队** | 发送层 fail-closed 的兜底：目标会话没确认下来 ⇒ **一个字都没输入**，所以「稍后补发」绝不会重复发。不排队的话切换一失败那条回复就**静默没了**（2026-10-09 定，见 §3.6）。进程内 0.5s 重试没用（读界面+点会话一次就要几秒），交给队列按拍重试 |
+| `quote_not_found` / `menu_not_found` / `bad_args` / `attachment_missing` | ❌ | 重试也不会好，交给 Agent 改参数或请用户处理 |
 
 失败时返回 `suggestion`（可操作修复建议）+ `shot`（现场截图路径）。
 
@@ -439,9 +440,21 @@ UI 对 `reseeded` 任务隐藏编辑按钮，`handleCronUpdate` 再加一道闸*
 新增 `post_click` / `post_text` / `post_key` / `open_chat_post` / `_open_chat_via_search_post`；
 `read_ui_stable` 的空白重试由**真鼠标**（`SetCursorPos`+`mouse_event`）改为**投递**点击
 （原来那个既挪用户光标，又会把正开着的搜索浮层点掉）；
-`_send_locked` 由 SendInput 改为全投递（新增 `_unhide` / `_give_back_foreground`）；
+`_send_locked` 由 SendInput 改为全投递（新增 `_give_back_foreground`）；
 `env_gate(allow_locked=True)` 让文本路径放行锁屏。附件类路径（`send_file`/`send_batch`/`reply_to`）
 **未改**，仍走 `Win()` + 模拟键鼠。
+
+**只认可见窗口，不强显**（2026-10-09 晚收紧）：曾经为「窗口进了 `IsWindowVisible=0` 的隐藏态」加过
+`_unhide`（`SW_SHOWNA`）——但那是**用户自己把微信收进托盘**，把它弹出来是纯打扰，而且会把
+「找不到主窗口 ⇒ `env_not_ready` ⇒ 进待补发队列」的安全路径，换成「强显后切不过去 ⇒
+`target_unconfirmed` ⇒ 直接丢」。现在 `find_main_hwnd()` 只认可见窗口、`_unhide` 已删除；
+隐藏态就是「那双手不在」，照常排队等门开。**最小化**（`IsIconic`）不在此列，仍由
+`wake_minimized` 做一次 `SW_RESTORE` 自恢复（那本来就是用户会主动还原的动作）。
+
+**两个「静默丢消息」的口子已堵**（2026-10-09 晚）：①出站 Provider 原先只在 `env_not_ready` 时
+投队列，`target_unconfirmed` 直接丢弃 ⇒ 现改为 `UNDELIVERABLE_CODES = {env_not_ready,
+target_unconfirmed}` 两者都投（`pcwechat-outbound-provider.ts`），并给 `target_unconfirmed` 补了
+`suggestion` 文案；②上面的 `_unhide` 已删，不再把「够不着」伪装成「内容不对」。
 
 **实测结论**（2026-10-09，真人锁屏）：模块级 `send_text(dry_run=false)` → `ok:true` / 读库落条 /
 前台全程锁屏；App 级端到端（`mcp__wechat-local__send_text` 经真实 Agent 回合）→
@@ -513,6 +526,7 @@ dry_run=False)` → `(True, '已发送')`，13.7s，**发前发后 `GetForegroun
 | 4 | `find_session` 下界 `wh*0.85` → `wh-8`（末尾两行会话被滤，锁屏下切会话断链） | ✅ | `a7957c46` |
 | 4 | 后台（微信非前台/非激活）端到端复测：切会话+输入+发送+读库全通，前台未被抢（§3.6） | ✅ | 本轮 |
 | 4 | 锁屏下的**切会话**复测：起点确实非目标，锁屏下切走再切回，全链 `(True,'已发送')`，前台未被抢（§3.6） | ✅ | 本轮 |
+| 4 | 堵两个**静默丢消息**的口子：`target_unconfirmed` 也投待补发队列；删掉把用户收进托盘的微信强显出来的 `_unhide`（§3.6） | ✅ | 本轮 |
 | 4 | 附件类发送（`send_file`/`send_batch`/`reply_to`）同样后台化 | ⏳ | §3.6 |
 | 4 | M3 收尾：入站 adapter（现在仍走盯梢旁路） | ⏳ | §3.4 |
 | 4 | 监控面板 UI（盯哪些人、开关、最近事件） | ⏳ | — |

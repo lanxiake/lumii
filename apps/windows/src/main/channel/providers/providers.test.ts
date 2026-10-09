@@ -299,6 +299,16 @@ describe('PcwechatChannelProvider', () => {
     expect(notQueued).not.toHaveBeenCalled()
   })
 
+  it('target_unconfirmed = 会话切不过去：也进队列（fail-closed 没输入过字，补发不会重复发）', async () => {
+    const { provider, onUndeliverable } = make({
+      reply: '{"ok":false,"error_code":"target_unconfirmed","detail":"目标会话未确认（fail-closed）"}',
+    })
+    const res = await provider.sendText({ to: 'wxid_loop', text: '在的' })
+    expect(onUndeliverable).toHaveBeenCalledWith('wxid_loop', '在的')
+    // 队列归队列，这次 send 的结论仍是失败——不能因为"排上了"就回报已发送
+    expect(res.ok).toBe(false)
+  })
+
   it('队列本身抛异常也不改写这次发送的结论（失败的判定比排队重要）', async () => {
     const { provider, onUndeliverable } = make({
       reply: '{"ok":false,"error_code":"env_not_ready","detail":"电脑已锁屏"}',
