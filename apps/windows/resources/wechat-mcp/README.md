@@ -1,5 +1,28 @@
 # wechat-mcp · 本机微信 MCP 服务
 
+## 社区安装（npm，持续更新）
+
+**Windows x64 + Node 18+**，在任意支持 stdio MCP 的客户端（Cursor、Claude Desktop、Cline 等）配置：
+
+```json
+{
+  "mcpServers": {
+    "wechat-local": {
+      "command": "npx",
+      "args": ["-y", "@lumii/wechat-mcp"]
+    }
+  }
+}
+```
+
+- npm：[@lumii/wechat-mcp](https://www.npmjs.com/package/@lumii/wechat-mcp)（无需本机 Python）
+- **国内网络**：可用 npmmirror（`registry.npmmirror.com`），见 [`PUBLISHING.md` §1.1](PUBLISHING.md#11-国内网络镜像源通常不必-vpn)
+- **离线 / 内网**：exe 或 tgz，见 [`PUBLISHING.md` §1.2](PUBLISHING.md#12-离线安装不依赖-npm-在线拉包)
+- 维护者发版、CI、版本规则：[`PUBLISHING.md`](PUBLISHING.md)
+- 使用灵栖的用户：设置里启用内置 **wechat-local** 即可，exe 在 `%USERPROFILE%\.lumii\mcp\wechat-mcp\`
+
+---
+
 一个 **stdio MCP server**：让 AI Agent 以**用户本人身份**读本机微信（会话/历史/检索/未读），并能**发消息、发文件、引用回复、群发**，以及**蒸馏用户/好友画像与行为**。
 
 **零注入、零外传、只读优先**：读层用 SQLCipher4 直读（密钥从进程内存**只读**扫描取，不注入、不改微信数据）；写层用**截图 OCR 定位 + SendInput** 模拟真人操作。
@@ -24,9 +47,30 @@
 
 ## 3. 安装与配置（任选一种）
 
-> 以下路径换成你本机 `wechat-mcp` 目录的**绝对路径**。
+### 方式 0：独立 exe（推荐，不需要 Python）
 
-### 方式 A：uv（推荐，零手工安装）
+`wechat-mcp.exe` 是 PyInstaller 打出的单文件，依赖全在里面。装了灵栖的机器上它已部署在
+`%USERPROFILE%\.lumii\mcp\wechat-mcp\wechat-mcp.exe`（灵栖每次启动按内容同步，路径固定、不随安装位置变化）；
+也可以自己构建：`pnpm --filter ./apps/windows build:wechat-mcp`（产物 `dist/wechat-mcp.exe`，需要 [uv](https://docs.astral.sh/uv/)）。
+
+```json
+{
+  "mcpServers": {
+    "wechat-local": {
+      "command": "C:\\Users\\you\\.lumii\\mcp\\wechat-mcp\\wechat-mcp.exe"
+    }
+  }
+}
+```
+
+装了 Node 的机器也可以走 npm（同一个 exe，按平台自动下载）——见文首 **社区安装**。
+维护者：`pnpm --filter ./apps/windows pack:wechat-mcp-npm`，发布见 [`PUBLISHING.md`](PUBLISHING.md) 与 Actions **publish-wechat-mcp**；版本号取 `server.py` 的 `SERVER_VERSION`。
+
+`wechat-mcp.exe --version` 打印版本号。exe 是两层进程（引导进程 + Python），客户端停掉引导进程时内层会跟着退出。
+
+> 以下源码方式的路径换成你本机 `wechat-mcp` 目录的**绝对路径**。
+
+### 方式 A：uv（零手工安装）
 
 `server.py` 顶部带 [PEP 723](https://peps.python.org/pep-0723/) 内联依赖声明，`uv run` 会自动创建隔离环境并装好依赖：
 
@@ -78,8 +122,10 @@ Windows 上 PATH 里的 `%LOCALAPPDATA%\Microsoft\WindowsApps\python.exe` 是 Mi
 ```
 
 - 客户端（Claude Desktop / Cursor / Cline / Cherry Studio 等支持 stdio MCP 的宿主）填法大同小异，都是 `command` + `args`。
-- 在灵栖里无需手工配置：内置项使用 `{{LUMII_PYTHON}}`，由客户端托管解释器并自动补齐依赖。
-- **改了 py 代码要重连 MCP**（客户端"MCP 面板 → 保存并重连"），否则跑的还是旧进程。
+- 在灵栖里无需手工配置：内置项直接写方式 0 的 exe 绝对路径（不含任何占位符，可原样复制给别的客户端）；
+  旧版的 `{{LUMII_PYTHON}}` + `{{LUMII_RESOURCES}}/wechat-mcp/server.py` 配置会在启动时自动迁移。
+- **改了 py 代码要重新构建 exe 并重启灵栖**（`build:wechat-mcp` → 启动时同步到部署目录）；
+  用源码方式跑的，重连 MCP 即可。
 - 连通性自测：`echo {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}} | python server.py`，应输出一行 `initialize` 结果。
 
 ## 4. 环境变量说明

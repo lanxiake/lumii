@@ -68,6 +68,7 @@
 | 了解技术债治理 | [`plans/代码重构/README.md`](plans/代码重构/README.md)（总报告 + 大文件/死代码 + 客户端切片） |
 | 跑真实环境测试 | [`test/README.md`](test/README.md) + [`test/lumii-cli/CLI-TEST-SPEC.md`](test/lumii-cli/CLI-TEST-SPEC.md) |
 | 改用户手册 | [`guide/`](guide/)（改完跑 `pnpm --filter ./apps/windows sync:guides`） |
+| 发 wechat-mcp 到 npm / 社区安装 | [`apps/windows/resources/wechat-mcp/PUBLISHING.md`](../apps/windows/resources/wechat-mcp/PUBLISHING.md) + [`design/工程基建/2026-10-09-wechat-mcp-npm社区分发.md`](design/工程基建/2026-10-09-wechat-mcp-npm社区分发.md) |
 
 ## 维护须知
 

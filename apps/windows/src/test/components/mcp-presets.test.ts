@@ -35,15 +35,21 @@ describe('MCP 内置清单', () => {
     }
   })
 
-  it('npx 项走 -y 自动安装；uvx 项用于 Python 包；随包 Python 脚本走托管解释器', () => {
+  it('npx 项走 -y 自动安装；uvx 项用于 Python 包；随包自研服务是独立 exe', () => {
     for (const preset of MCP_PRESETS) {
       if (preset.command === 'npx') {
         expect(preset.args[0]).toBe('-y')
-      } else if (preset.command === '{{LUMII_PYTHON}}') {
-        expect(preset.args[0]).toMatch(/^\{\{LUMII_RESOURCES\}\}\/.+\.py$/)
+      } else if (preset.bundledExe) {
+        expect(preset.command).toBe(`${preset.bundledExe}.exe`)
       } else {
         expect(preset.command).toBe('uvx')
       }
+    }
+  })
+
+  it('内置项不依赖灵栖占位符（配置要能原样给别的 MCP 客户端用）', () => {
+    for (const preset of MCP_PRESETS) {
+      expect(JSON.stringify(preset), preset.name).not.toMatch(/\{\{LUMII_/)
     }
   })
 
@@ -53,11 +59,10 @@ describe('MCP 内置清单', () => {
     }
   })
 
-  it('wechat-local 声明的依赖与 requirements.txt 一致', () => {
+  it('wechat-local 是随包独立 exe，不带参数', () => {
     const wechat = findMcpPreset('wechat-local')
-    expect(wechat?.command).toBe('{{LUMII_PYTHON}}')
-    expect(wechat?.pythonPackages?.map((p) => p.spec)).toEqual(['pycryptodome>=3.20', 'zstandard>=0.22'])
-    expect(wechat?.pythonPackages?.map((p) => p.module)).toEqual(['Crypto', 'zstandard'])
+    expect(wechat?.bundledExe).toBe('wechat-mcp')
+    expect(wechat?.args).toEqual([])
   })
 
   it('不重复内置的 browser_* 工具', () => {

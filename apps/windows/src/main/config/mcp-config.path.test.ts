@@ -7,7 +7,7 @@ import {
   computeMcpPresetBackfill,
   computeBackgroundToolNames,
   getDefaultMcpDocumentsDir,
-  migrateManagedPythonCommands,
+  migrateBundledExeCommands,
   reconcileBuiltinMcpPresets,
   resolveMcpEntryPaths,
   validateMcpServerEntry,
@@ -188,35 +188,42 @@ describe('MCP 后台化工具配置', () => {
   })
 })
 
-describe('内置 Python MCP 旧命令迁移', () => {
+describe('内置自研 MCP 迁移为独立 exe', () => {
   const wechatArgs = ['{{LUMII_RESOURCES}}/wechat-mcp/server.py']
   const managedExe = path.join(os.tmpdir(), 'lumii-test', 'python-embed', 'python.exe')
+  const deployedExe = path.join(os.tmpdir(), 'lumii-test', 'mcp', 'wechat-mcp', 'wechat-mcp.exe')
+  const resolveExe = (name: string) => (name === 'wechat-mcp' ? deployedExe : `unexpected:${name}`)
 
-  it('裸 python / python3 迁移为 {{LUMII_PYTHON}}', () => {
-    for (const command of ['python', 'python3', 'Python.exe']) {
-      const [migrated] = migrateManagedPythonCommands(
-        [{ name: 'wechat-local', command, args: wechatArgs, enabled: true }],
+  it('占位符 / 裸 python / 写死的托管解释器都迁成 exe 绝对路径，且不再带参数', () => {
+    for (const command of ['{{LUMII_PYTHON}}', 'python', 'python3', 'Python.exe', managedExe]) {
+      const [migrated] = migrateBundledExeCommands(
+        [{ name: 'wechat-local', command, args: wechatArgs, enabled: true, env: { LUMII_WECHAT_ACCOUNT: 'wxid_a' } }],
         [managedExe],
+        resolveExe,
       )
-      expect(migrated.command, command).toBe('{{LUMII_PYTHON}}')
+      expect(migrated.command, command).toBe(deployedExe)
+      expect(migrated.args, command).toEqual([])
       expect(migrated.enabled).toBe(true)
+      expect(migrated.env).toEqual({ LUMII_WECHAT_ACCOUNT: 'wxid_a' })
+      expect(JSON.stringify(migrated)).not.toContain('{{')
     }
   })
 
-  it('写死的托管解释器绝对路径迁回占位符（换机器不失效）', () => {
-    const [migrated] = migrateManagedPythonCommands(
-      [{ name: 'wechat-local', command: managedExe, args: wechatArgs }],
-      [managedExe],
-    )
-    expect(migrated.command).toBe('{{LUMII_PYTHON}}')
-  })
-
-  it('用户自定义的解释器、改过参数或非内置项都不动', () => {
+  it('用户自定义的解释器、改过脚本路径、已是 exe 或非内置项都不动', () => {
     const entries: McpServerEntry[] = [
       { name: 'wechat-local', command: 'D:/my-python/python.exe', args: wechatArgs },
       { name: 'wechat-local', command: 'python', args: ['D:/fork/server.py'] },
+      { name: 'wechat-local', command: deployedExe, args: [] },
       { name: 'my-py-mcp', command: 'python', args: wechatArgs },
     ]
-    expect(migrateManagedPythonCommands(entries, [managedExe])).toEqual(entries)
+    expect(migrateBundledExeCommands(entries, [managedExe], resolveExe)).toEqual(entries)
+  })
+
+  it('播种出的 wechat-local 不含任何占位符，command 指向部署后的 exe', () => {
+    const wechat = computeMcpPresetBackfill([], new Set()).added.find((e) => e.name === 'wechat-local')
+    expect(wechat?.command).toMatch(/[\\/]mcp[\\/]wechat-mcp[\\/]wechat-mcp\.exe$/)
+    expect(path.isAbsolute(wechat!.command)).toBe(true)
+    expect(JSON.stringify(wechat)).not.toContain('{{')
+    expect(wechat?.enabled).toBe(process.platform === 'win32')
   })
 })

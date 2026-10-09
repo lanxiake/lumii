@@ -1,0 +1,16 @@
+{
+  "name": "@lumii/wechat-mcp-win32-x64",
+  "version": "0.0.0",
+  "description": "@lumii/wechat-mcp 的 Windows x64 二进制（由主包自动选用，无需直接安装）",
+  "license": "UNLICENSED",
+  "homepage": "https://github.com/lanxiake/lumii/blob/main/apps/windows/resources/wechat-mcp/README.md",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lanxiake/lumii.git",
+    "directory": "apps/windows/resources/wechat-mcp"
+  },
+  "os": ["win32"],
+  "cpu": ["x64"],
+  "files": ["bin/"],
+  "preferUnplugged": true
+}

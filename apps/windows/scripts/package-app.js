@@ -590,12 +590,16 @@ function ensureDrawConfigForPackaging() {
   return generated
 }
 
-/** electron-vite 生产构建 */
-function stepBuild() {
+/** electron-vite 生产构建（Windows 另外产出独立的 wechat-mcp.exe） */
+function stepBuild(config) {
   log('步骤 4/5: 构建项目 (electron-vite build)')
   log('从 assets/icon.png 生成 icon.ico + icon-512.png（win / linux 图标）')
   run('node scripts/generate-icon.cjs')
   run('npx electron-vite build')
+  if (config.platformKey === 'win') {
+    log('构建独立的 wechat-mcp.exe（源码未变则跳过）')
+    run('node scripts/build-wechat-mcp.mjs --if-stale')
+  }
   success('构建完成')
 }
 
@@ -765,7 +769,7 @@ async function main() {
       }
     }
 
-    stepBuild()
+    stepBuild(config)
     stepPackage(config)
 
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1)

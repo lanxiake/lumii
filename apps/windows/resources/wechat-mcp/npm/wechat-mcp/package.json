@@ -1,0 +1,26 @@
+{
+  "name": "@lumii/wechat-mcp",
+  "version": "0.0.0",
+  "description": "本机微信 MCP Server（Windows）：读会话/历史/检索、发消息与文件、蒸馏画像。任意 stdio MCP 客户端可用。",
+  "keywords": ["mcp", "model-context-protocol", "wechat", "weixin"],
+  "license": "UNLICENSED",
+  "homepage": "https://github.com/lanxiake/lumii/blob/main/apps/windows/resources/wechat-mcp/README.md",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lanxiake/lumii.git",
+    "directory": "apps/windows/resources/wechat-mcp"
+  },
+  "bugs": {
+    "url": "https://github.com/lanxiake/lumii/issues"
+  },
+  "bin": {
+    "wechat-mcp": "bin/cli.js"
+  },
+  "files": ["bin/"],
+  "engines": {
+    "node": ">=18"
+  },
+  "optionalDependencies": {
+    "@lumii/wechat-mcp-win32-x64": "0.0.0"
+  }
+}

@@ -1,0 +1,22 @@
+# 手动发布 @lumii/wechat-mcp 与 @lumii/wechat-mcp-win32-x64 到 npmjs
+#
+# 版本号取 server.py 的 SERVER_VERSION：发版前先改它，npm 不允许重复发布同一版本。
+# 需要仓库 secret NPM_TOKEN（npmjs 的 Automation token，且对 @lumii scope 有发布权限）。
+name: publish-wechat-mcp
+
+on:
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+      - uses: astral-sh/setup-uv@v5
+      - run: node apps/windows/scripts/pack-wechat-mcp-npm.mjs --publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

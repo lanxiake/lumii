@@ -19,9 +19,10 @@ import {
   applyPresetDefaults,
   type McpServerEntry,
 } from '../config/mcp-config'
-import { findMcpPreset } from '../../shared/mcp-presets'
-import { expandBundledResources } from '../bundled-resources'
-import { LUMII_PYTHON_TOKEN, classifyPythonCommand, resolveMcpPython } from '../mcp-python'
+import { MCP_PRESETS, findMcpPreset } from '../../shared/mcp-presets'
+import { expandBundledResources, resolveBundledMcpExe } from '../bundled-resources'
+import { getDeployedMcpExePath, syncMcpExecutable } from '../bundled-mcp-exe'
+import { classifyPythonCommand, resolveMcpPython } from '../mcp-python'
 
 /** 单个 MCP Server 的运行时状态（含配置本身，供设置页直接渲染） */
 export interface McpServerRuntimeStatus extends McpServerEntry {
@@ -85,11 +86,41 @@ export class McpManager {
   /** 配置文件级错误（JSON 损坏等），展示在面板顶部 */
   private configError: string | null = null
 
+  /** 随包独立 exe 部署失败的原因（按 Server 名），连接时作为 lastError 展示 */
+  private readonly exeDeployErrors = new Map<string, string>()
+
+  /**
+   * 把随包独立 exe（如 wechat-mcp.exe）同步到数据根下的固定位置
+   *
+   * 不论灵栖里是否启用都同步：部署路径也是给其他 MCP 客户端用的。
+   * 失败不抛错，只记原因，连接该 Server 时展示。
+   */
+  private async deployBundledExecutables(): Promise<void> {
+    if (process.platform !== 'win32') return
+    for (const preset of MCP_PRESETS) {
+      if (!preset.bundledExe) continue
+      const source = resolveBundledMcpExe(preset.bundledExe)
+      const target = getDeployedMcpExePath(preset.bundledExe)
+      const result = await syncMcpExecutable(source, target).catch(
+        (err: unknown) => ({ ok: false, path: target, message: `部署失败：${String(err)}` }) as const,
+      )
+      if (!result.ok) {
+        this.exeDeployErrors.set(preset.name, result.message)
+        log.error(`[deploy] ${preset.name}: ${result.message}`)
+        continue
+      }
+      this.exeDeployErrors.delete(preset.name)
+      if (result.warning) log.warn(`[deploy] ${preset.name}: ${result.warning}`)
+      if (result.updated) log.info(`[deploy] ${preset.name} 已部署到 ${result.path}`)
+    }
+  }
+
   /**
    * 加载并连接配置的 MCP Server，将工具注册到 toolRegistry
    */
   async load(): Promise<void> {
     this.configError = null
+    await this.deployBundledExecutables()
     let configs: McpServerEntry[]
     try {
       configs = loadMcpServerConfigs()
@@ -126,7 +157,7 @@ export class McpManager {
     // 老用户配置缺 timeoutMs/backgroundTools：用内置清单默认值补齐（用户显式值优先）
     const preset = findMcpPreset(config.name)
     const effective = applyPresetDefaults(config, preset)
-    // 展开 {{LUMII_RESOURCES}}：用户配置里存占位符，避免写死绝对路径（换机器/打包后仍可解析）
+    // 展开 {{LUMII_RESOURCES}}：兼容用户自建配置里的占位符（内置项已不再使用）
     const expanded = expandEntry(effective)
     const name = expanded.name
     let command = expandBundledResources(expanded.command)
@@ -134,6 +165,12 @@ export class McpManager {
     const env = expanded.env
     const cwd = expanded.cwd ? expandBundledResources(expanded.cwd) : undefined
     log.info(`[connect] 连接 MCP Server: ${name} (${command} ${(args ?? []).join(' ')})`)
+
+    const deployError = this.exeDeployErrors.get(name)
+    if (deployError && preset?.bundledExe && command === getDeployedMcpExePath(preset.bundledExe)) {
+      this.lastErrors.set(name, deployError)
+      return
+    }
 
     if (command === 'uvx' || command === 'uv') {
       const uv = await ensureUvxInstalled()
@@ -150,8 +187,7 @@ export class McpManager {
 
     // {{LUMII_PYTHON}} / 裸 python：解析为真实解释器绝对路径，避开 WindowsApps 占位程序（9009）
     if (classifyPythonCommand(command)) {
-      const packages = command === LUMII_PYTHON_TOKEN ? preset?.pythonPackages : undefined
-      const python = await resolveMcpPython(command, packages)
+      const python = await resolveMcpPython(command)
       if (!python.ok) {
         log.error(`[connect] MCP Server [${name}] ${python.message}`)
         this.lastErrors.set(name, python.message)

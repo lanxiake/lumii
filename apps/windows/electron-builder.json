@@ -139,11 +139,10 @@
       ]
     },
     {
-      "from": "resources/wechat-mcp",
+      "from": "resources/wechat-mcp/dist",
       "to": "wechat-mcp",
       "filter": [
-        "**/*",
-        "!**/__pycache__/**"
+        "wechat-mcp.exe"
       ]
     },
     {

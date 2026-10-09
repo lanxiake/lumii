@@ -3,7 +3,7 @@
  *
  * 收录门槛（三条都满足才进来）：
  *   1. 优先 `npx -y` 能装上；少数 Python 包可用 `uvx`（客户端会在连接前自动安装 uv）；
- *      随包 Python 脚本用 `{{LUMII_PYTHON}}`（托管解释器 + pythonPackages 自动补依赖）
+ *      随包自研服务打成独立 exe（`bundledExe`），配置里写部署后的绝对路径，可脱离灵栖使用
  *   2. 包在 npm/PyPI 上，国内配了镜像就能拉；服务端也得是国内可访问的
  *   3. 官方或一方维护，包名可确认
  *
@@ -60,10 +60,10 @@ export interface McpPreset {
   /** 需要后台化的工具短名（命中后立即返回，完成后唤醒 Agent，避免拖垮回合） */
   readonly backgroundTools?: readonly string[]
   /**
-   * command 为 `{{LUMII_PYTHON}}` 时，连接前在托管解释器里补齐的依赖。
-   * `module` 是导入名（用于探测是否已装），与 pip 包名不同时必须写对。
+   * 随包独立可执行文件名（不含 .exe）。设置后播种/迁移写进配置的 command 是
+   * 部署后的绝对路径 `<数据根>/mcp/<name>/<name>.exe`，`command` 字段只作展示。
    */
-  readonly pythonPackages?: readonly { readonly spec: string; readonly module: string }[]
+  readonly bundledExe?: string
 }
 
 /**
@@ -85,14 +85,10 @@ export const MCP_PRESETS: readonly McpPreset[] = [
     title: '本机微信',
     description: '读取本机微信会话、历史消息、检索聊天记录，并能发送消息、文件、引用回复、群发，以及蒸馏用户/好友画像',
     categories: ['life'],
-    // 不能写裸 python：Windows 上常命中 WindowsApps 的 Store 占位程序（code=9009）
-    command: '{{LUMII_PYTHON}}',
-    args: ['{{LUMII_RESOURCES}}/wechat-mcp/server.py'],
-    // 与 resources/wechat-mcp/requirements.txt 保持一致
-    pythonPackages: [
-      { spec: 'pycryptodome>=3.20', module: 'Crypto' },
-      { spec: 'zstandard>=0.22', module: 'zstandard' },
-    ],
+    // 独立单文件 exe（scripts/build-wechat-mcp.mjs），不依赖 Python 与灵栖占位符
+    command: 'wechat-mcp.exe',
+    args: [],
+    bundledExe: 'wechat-mcp',
     defaultEnabled: true,
   },
   {

@@ -18,6 +18,7 @@ import os from 'node:os'
 import { MCP_PRESETS, isReadyToUse, type McpPreset } from '../../shared/mcp-presets'
 import { resolveClientStateDir, resolveSharedConfigDir } from '../paths.js'
 import { LUMII_PYTHON_TOKEN, getManagedPythonExePaths } from '../mcp-python'
+import { getDeployedMcpExePath } from '../bundled-mcp-exe'
 
 const log = {
   info: (...args: unknown[]) => console.log('[MCP-Config]', ...args),
@@ -240,12 +241,22 @@ function parseMcpServerConfigs(raw: string): McpServerEntry[] {
   return entries
 }
 
-/** 内置清单条目 → 可落盘的配置条目（需填 Key/路径的默认停用） */
+/**
+ * 内置清单条目 → 可落盘的配置条目（需填 Key/路径的默认停用）
+ *
+ * 随包独立 exe 写部署后的绝对路径（不落占位符，配置可原样拿去别的客户端用）；
+ * 它们目前只有 Windows 版，其他平台播种为停用。
+ */
 function presetToEntry(preset: McpPreset): McpServerEntry {
-  const enabled = preset.defaultEnabled !== undefined ? preset.defaultEnabled : isReadyToUse(preset)
+  const supported = !preset.bundledExe || process.platform === 'win32'
+  const enabled = !supported
+    ? false
+    : preset.defaultEnabled !== undefined
+      ? preset.defaultEnabled
+      : isReadyToUse(preset)
   return resolveMcpEntryPaths({
     name: preset.name,
-    command: preset.command,
+    command: preset.bundledExe ? getDeployedMcpExePath(preset.bundledExe) : preset.command,
     args: [...preset.args],
     ...(preset.env ? { env: { ...preset.env } } : {}),
     ...(preset.timeoutMs !== undefined ? { timeoutMs: preset.timeoutMs } : {}),
@@ -300,29 +311,34 @@ function normalizeCommandForCompare(command: string): string {
 }
 
 /**
- * 内置 Python MCP 的旧启动命令迁移为 `{{LUMII_PYTHON}}`
+ * 内置自研 MCP 的旧 Python 启动方式迁移为独立 exe 的绝对路径
  *
- * 旧版 wechat-local 播种的是裸 `python`（Windows 上常命中 Store 占位程序，code=9009），
- * 有用户为绕开它手工改成了托管解释器的绝对路径（换机器即失效）。两种写法都迁回占位符。
- * 只动「名字 + args 与内置项完全一致」的条目，用户自建的同名服务或改过参数的不碰。
+ * 历史上 wechat-local 播种过 `python` / `{{LUMII_PYTHON}}`（或被手工改成托管解释器的绝对路径）
+ * + `{{LUMII_RESOURCES}}/<name>/server.py`——占位符只有灵栖认得，配置无法独立使用。
+ * 只动「命令是这几种 Python 写法 + 参数恰是内置脚本」的条目；用户自建的同名服务、
+ * 自己指定的解释器或改过脚本路径的不碰。env / enabled 等其余字段原样保留。
  *
  * @param entries 当前配置
  * @param managedExePaths 托管解释器绝对路径（识别写死的旧值）
+ * @param resolveExe 独立 exe 的部署路径（测试注入）
  */
-export function migrateManagedPythonCommands(
+export function migrateBundledExeCommands(
   entries: readonly McpServerEntry[],
   managedExePaths: readonly string[] = getManagedPythonExePaths(),
+  resolveExe: (name: string) => string = getDeployedMcpExePath,
 ): McpServerEntry[] {
-  const legacy = new Set(
-    ['python', 'python3', 'python.exe', 'python3.exe', ...managedExePaths].map(normalizeCommandForCompare),
+  const legacyCommands = new Set(
+    [LUMII_PYTHON_TOKEN, 'python', 'python3', 'python.exe', 'python3.exe', ...managedExePaths].map(
+      normalizeCommandForCompare,
+    ),
   )
   return entries.map((entry) => {
     const preset = MCP_PRESETS.find((item) => item.name === entry.name)
-    if (!preset || preset.command !== LUMII_PYTHON_TOKEN) return entry
-    if (entry.command === LUMII_PYTHON_TOKEN) return entry
-    if (!legacy.has(normalizeCommandForCompare(entry.command))) return entry
-    if (JSON.stringify(entry.args ?? []) !== JSON.stringify(preset.args)) return entry
-    return { ...entry, command: LUMII_PYTHON_TOKEN }
+    if (!preset?.bundledExe) return entry
+    if (!legacyCommands.has(normalizeCommandForCompare(entry.command))) return entry
+    const legacyArgs = [`{{LUMII_RESOURCES}}/${preset.bundledExe}/server.py`]
+    if (JSON.stringify(entry.args ?? []) !== JSON.stringify(legacyArgs)) return entry
+    return { ...entry, command: resolveExe(preset.bundledExe), args: [] }
   })
 }
 
@@ -408,7 +424,7 @@ export function loadMcpServerConfigs(): McpServerEntry[] {
 
   const original = parseMcpServerConfigs(raw)
   const entries = reconcileBuiltinMcpPresets(
-    migrateManagedPythonCommands(original.map(resolveMcpEntryPaths)),
+    migrateBundledExeCommands(original.map(resolveMcpEntryPaths)),
   )
 
   // 老用户没有记档文件：按「当前配置即已推过」立档，只补这之后新增的内置项

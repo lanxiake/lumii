@@ -1,2 +1,4 @@
 __pycache__/
 *.pyc
+# scripts/build-wechat-mcp.mjs 的产物
+dist/
