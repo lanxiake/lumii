@@ -680,6 +680,38 @@ InvokePattern，落在 (857,712,924,289)。于是两道闸门从"盲退格 + 靠
 
 ---
 
+### 3.8 代聊回合里的提问会**堵死整条盯梢回路**（2026-10-09 实测）
+
+**现场**：14:41 起 `wechat-watch` 连续 9 分钟刷「已在运行中，跳过」，之后所有新消息都不处理。
+根因在 14:42:33 的那一拍——代聊回合（群 `pcwechat:56702515680@chatroom`）觉得**这个群的策略
+配得不对，想问用户要不要改 `wechat-watch.json`**，于是调了 `ask_user_question`：
+
+```
+[AgentRuntime] [ToolRunner] → ask_user_question params={"context":"…修法是改 C:\\…\\wechat-watch.jso…
+[WARN] [ChannelInteractionHub] [onInteraction] 未找到渠道路由 sessionKey=pcwechat:… kind=ask
+[WARN] [AgentRuntime] [askUserQuestion] 渠道未承接提问 sessionKey=pcwechat:…
+```
+
+两个投递面**都够不着**，于是 `waitForAnswer` 挂满默认的 **10 分钟**超时——这一挂就是
+`runWechatWatch` 的一次 tick（`deps.driveTurn` 是裸 await，重入护栏只保证不并行，不保证不卡），
+整条回路陪着停 10 分钟，**且没有任何用户可见信号**。
+
+**为什么两个面都够不着**：`pcwechat` 是**代聊型归属**（`DELEGATED_OWNERSHIPS`）——会话另一头是
+用户的**好友**，不是用户本人。所以（a）它从来没有、也不该有渠道路由（真推出去 = 把
+「要不要这么回」这句直接发给好友）；（b）桌面弹窗是发给一个用户在后台会话里不会去点的弹窗。
+
+**修法**：把「没人可答」做成投递决策的第三种结果，而不是让它走完 10 分钟超时——
+`resolveAskUserDelivery(channelHandled, delegated)` 新增 `'none'`（`desktop-interaction-gate.ts`），
+bridge 侧一认出代聊归属就**立刻**返回 `{ answers: {}, cancelled: true }`，**连渠道都不推**。
+工具侧把 `cancelled` 读成「用户没答，自行判断」，代聊的护栏仍归它自己的手册（拿不准转人工 = 落通知）。
+
+> 顺带记一笔它当时报的**另一半理由**，**没查到证据**：它说「review 机制在循环重放这批历史消息，
+> 已经绕回第二条，每轮都占用一次我的回合」。查库不成立——`wechat_watch_last_ts` 一直贴着
+> 当前时间（落后 ~10 秒 = 一拍），没有卡在旧位置。这句话很可能是模型自己的判断失误
+> （也正是它为什么要"问用户"的由头）。真要有水位不推进的形状，得另找判据。
+
+---
+
 ## 四、路线图（更新）
 
 | 阶段 | 内容 | 状态 | 提交 |
@@ -719,6 +751,7 @@ InvokePattern，落在 (857,712,924,289)。于是两道闸门从"盲退格 + 靠
 | 5 | 杨冬「在工位，咋了」真机补发读库（14:23，`devcli send --yes`） | ✅ | §3.7-③ |
 | 4 | **收进托盘也自动拉起**（用户决策「一律自动拉起」）：`wake_window` 统一 `SW_SHOWNOACTIVATE(4)`，`find_main_hwnd(include_hidden=True)` 把隐藏句柄捞回来；真机隐藏态 / 最小化态各测一次，`已发送` 且前台不变（§3.6） | ✅ | 本轮 |
 | 4 | **附件后台化**：`send_attachment` 改走「点『发送文件』→ 驱动文件对话框控件消息」（不碰剪贴板/光标/窗口，锁屏实测落条）；发送前加「读—清—回读」闸门（§3.6、§3.7-③） | ✅ | `9f3b5cea` |
+| 4 | 代聊回合调 `ask_user_question` 会挂满 10 分钟超时 ⇒ **整条盯梢回路停摆**；代聊型会话改为「无人可答」立即收口（§3.8） | ✅ | 本轮 |
 | 4 | `reply_to` 后台化（聊天区没有逐条消息的 UIA 元素，按消息定位只能靠实时帧 ⇒ 卡在这） | ⏳ | §3.6 |
 | 4 | M3 收尾：入站 adapter（现在仍走盯梢旁路） | ⏳ | §3.4 |
 | 4 | 监控面板 UI（盯哪些人、开关、最近事件） | ⏳ | — |

@@ -6,8 +6,8 @@
  * AskUserModal / 审批卡，与渠道文字通知重复且卡住操作。
  */
 
-/** ask_user_question 投递目标 */
-export type AskUserDelivery = 'channel-only' | 'desktop'
+/** ask_user_question 投递目标：`none` = 这个会话里没人能回答（见 `resolveAskUserDelivery`） */
+export type AskUserDelivery = 'channel-only' | 'desktop' | 'none'
 
 /**
  * 渠道文字化能承载的最大选项数（设计 §5.5）。
@@ -23,10 +23,23 @@ export type PermissionDelivery =
   | 'desktop-native'
 
 /**
- * 决定 ask_user_question 走渠道文字还是桌面弹窗。
+ * 决定 ask_user_question 走渠道文字、桌面弹窗，还是**根本没人可答**。
+ *
  * @param channelHandled ChannelInteractionHub 是否已承接该会话
+ * @param delegated 会话是否「代聊型」（`DELEGATED_OWNERSHIPS`：助手以用户身份对外说话）。
+ *   代聊会话的另一头是用户的**好友**，不是用户本人：推给渠道等于把「要不要这么回」
+ *   问给朋友，桌面弹窗则是等一个用户在后台会话里点确认。两条都送不到 ⇒ `none`，
+ *   由调用方立即按「无人应答」收口，**不许等**。
+ *
+ *   为什么这条要紧（2026-10-09 14:42 实测）：代聊回合是 `wechat-watch` 的一次 tick，
+ *   而 `waitForAnswer` 默认挂 10 分钟超时 ⇒ 整条盯梢回路停摆（15 秒一拍变 10 分钟一拍，
+ *   期间所有新消息都不处理），且**没有任何用户可见信号**。
  */
-export function resolveAskUserDelivery(channelHandled: boolean): AskUserDelivery {
+export function resolveAskUserDelivery(
+  channelHandled: boolean,
+  delegated = false,
+): AskUserDelivery {
+  if (delegated) return 'none'
   return channelHandled ? 'channel-only' : 'desktop'
 }
 

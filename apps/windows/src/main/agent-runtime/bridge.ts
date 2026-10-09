@@ -131,6 +131,7 @@ import { syncWikiSourceToVault } from './wiki-vault-host'
 import { isWikiVectorEnabled } from './wiki-embedding-config'
 import { AskUserQuestionController } from './ask-user-question-controller'
 import { resolveAskUserDelivery } from '../channel/desktop-interaction-gate'
+import { isDelegatedOwnership, resolveChannelIdentity } from '../channel/channel-identity'
 import { FileMemoryHandler } from './file-memory-handler'
 import { SegmentMemoryService } from './segment-memory-service'
 import { CronScheduler } from './cron-scheduler'
@@ -1089,9 +1090,17 @@ export class AgentRuntimeBridge {
           ? (this.instanceToRootSessionKey.get(instanceId) ??
             this.instanceToConversation.get(instanceId))
           : undefined
+        // 代聊型会话（本机微信）里没人能回答：另一头是用户的好友，不是用户本人 —— 渠道推不了，
+        // 弹窗也没人等（见 resolveAskUserDelivery 的 `none`）。**连渠道都别推**：万一以后有人给
+        // pcwechat 注册了路由，推出去的这行字就是直接发给好友的消息。
+        const delegated =
+          !!sessionKey &&
+          isDelegatedOwnership(
+            resolveChannelIdentity(sessionKey, this.getConversationOwnership(sessionKey)).ownership,
+          )
         // 优先文字化推给渠道；渠道已承接则不再向客户端弹 AskUserModal（maskClosable=false）
         let channelHandled = false
-        if (sessionKey) {
+        if (sessionKey && !delegated) {
           channelHandled = this.notifyChannelInteraction({
             kind: 'ask',
             requestId: input.requestId,
@@ -1104,12 +1113,21 @@ export class AgentRuntimeBridge {
               `[askUserQuestion] 渠道未承接提问 sessionKey=${sessionKey} requestId=${input.requestId}`,
             )
           }
-        } else {
+        } else if (!sessionKey) {
           log.warn(
             `[askUserQuestion] 无法解析 sessionKey，跳过渠道提问推送 requestId=${input.requestId} instanceId=${instanceId ?? 'none'}`,
           )
         }
-        if (resolveAskUserDelivery(channelHandled) === 'desktop') {
+        const delivery = resolveAskUserDelivery(channelHandled, delegated)
+        if (delivery === 'none') {
+          // 不问、不等、不弹 —— 立即按「用户未应答」交还给模型（工具侧文案是"自行判断或换个问法"）。
+          // 代聊的护栏是它自己的手册（拿不准转人工 = 通知用户），不靠这一问。
+          log.warn(
+            `[askUserQuestion] 代聊会话无人可答，按未应答立即收口 sessionKey=${sessionKey} requestId=${input.requestId}`,
+          )
+          return { answers: {}, cancelled: true }
+        }
+        if (delivery === 'desktop') {
           this.ipcChannel.forwardIpcEvent({
             type: 'agent:ask-user:request',
             requestId: input.requestId,

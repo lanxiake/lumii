@@ -17,6 +17,14 @@ describe('resolveAskUserDelivery', () => {
   it('渠道未承接时走桌面弹窗', () => {
     expect(resolveAskUserDelivery(false)).toBe('desktop')
   })
+
+  it('代聊会话（本机微信）里没人可答 —— 渠道与弹窗都不投，由调用方立即收口', () => {
+    // 实测 2026-10-09 14:42：代聊回合问了句配置问题，两个投递面都够不着，
+    // waitForAnswer 挂满 10 分钟，把 wechat-watch 整条回路堵死。
+    expect(resolveAskUserDelivery(false, true)).toBe('none')
+    // 即便"渠道已承接"也是 none：代聊会话的另一头是好友，推出去就是发给好友
+    expect(resolveAskUserDelivery(true, true)).toBe('none')
+  })
 })
 
 describe('resolvePermissionDelivery', () => {
