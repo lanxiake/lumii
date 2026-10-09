@@ -8,7 +8,7 @@
   python devcli.py history <talker> [n] [before_ts]    读历史（正序；before_ts 翻更早一页）
   python devcli.py scan <marker>              全库扫描文本（验证「没发出去」/「发到了哪」）
   python devcli.py send <talker> <text> [--yes]   发文本；默认 dry-run，--yes 才真发
-  python devcli.py sendfile <talker> <path> [--yes]  发图片/文件/视频/音频（剪贴板粘贴；默认 dry-run）
+  python devcli.py sendfile <talker> <path> [--yes]  发图片/文件/视频/音频（点「发送文件」驱动文件对话框；默认 dry-run）
   python devcli.py reply <talker> <quote> <text> [--yes]  引用回复（quote=被引用消息文字；默认 dry-run）
   python devcli.py search <关键词> [talker] | digest [talker] [limit] | profile [scope] | state [scope] [ts] | clear [scope] [--all] | unread | accounts | stats
   python devcli.py watch [since_ts] [--ticks N] [--interval S]  增量盯消息（默认 1 拍；N>1 则连续盯）

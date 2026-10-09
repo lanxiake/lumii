@@ -86,8 +86,8 @@ def _get_fix_suggestion(error_code):
         "env_not_ready": "环境没就绪：微信没运行、或主窗口不可见（收进托盘）。窗口**最小化**时工具已会"
                          "自己恢复一次（不动）；**收进托盘不强显**——那是用户自己收的，不去把它弹出来。"
                          "这条已经自动排队，发送门恢复后盯梢回路自己补发。"
-                         "**锁屏不再拦 send_text**（它走窗口消息投递，锁屏照发）；"
-                         "但 send_file / send_batch / reply_to 是模拟键鼠，锁屏期间确实发不出去——"
+                         "**锁屏不再拦 send_text / send_file / send_batch**（都走窗口消息投递，锁屏照发）；"
+                         "只有 reply_to（引用回复）还走模拟键鼠，锁屏期间确实发不出去——"
                          "别自己去点、也别叫用户去点，解锁后发送门自己恢复、积压由盯梢回路自动补发。",
         "target_unconfirmed": "没能确认目标会话（发送层 fail-closed：**一个字都没输入**，不会发错、也不会重复）。"
                               "这条已经自动排队、盯梢回路会自己补发——不用改内容，也不用转人工。",
@@ -99,7 +99,7 @@ def _get_fix_suggestion(error_code):
                               "**不要自动重发**：先 read_history 看一眼该会话，或请用户人工确认。",
         "quote_not_found": "未找到要引用的消息。建议：1) 确认引用文字准确；2) 该消息在聊天区可见；3) 使用消息原文而非摘要。",
         "verification_failed": "目标会话校验失败。建议：1) 确认微信已打开正确的会话；2) 会话中有足够的历史消息用于校验。",
-        "attachment_not_landed": "输入区没出现文件名，附件没粘上。重试一次；仍失败则改用 send_text 告知用户手动发。",
+        "attachment_not_landed": "附件没能进输入框（文件对话框没弹、或路径没写进去）。重试一次；仍失败则改用 send_text 告知用户手动发。",
         "attachment_missing": "本地文件不存在或不可读，请核对绝对路径后重试。",
         "clipboard_failed": "写剪贴板失败（偶发被其它程序占用）。等几秒重试即可。",
         "bad_args": "参数错误，请检查输入参数是否完整且格式正确。",
@@ -126,7 +126,9 @@ def _code_of(detail):
         return "clipboard_failed"
     if "文件不存在" in d:
         return "attachment_missing"
-    if "附件未落地" in d:
+    if "附件未落地" in d or "文件对话框" in d or "「发送文件」" in d or "参考系" in d:
+        # 附件后台化后的新文案（点「发送文件」→ 驱动文件对话框那条路）都归到同一个码：
+        # 它们的语义就是「附件没能进输入框」，且都是可重试的临时 UI 故障，不必新开码。
         return "attachment_not_landed"
     if "输入未落地" in d or "投递输入失败" in d:
         return "input_not_landed"
@@ -409,12 +411,12 @@ def tool_status(_args):
 
 # 服务级引导：客户端把这段注入给 Agent，帮助它正确使用这些工具。
 INSTRUCTIONS = """\
-本服务让 Agent 以【用户本人】身份读微信、并按需发消息（零注入：截图 OCR 定位 + 模拟键鼠；不改微信数据）。
+本服务让 Agent 以【用户本人】身份读微信、并按需发消息（零注入：窗口消息投递 + UI Automation 读数；不改微信数据）。
 
 工具选择：
 - 只读（不需要微信窗口）：list_sessions 列会话 / read_history 读历史 / poll_new 读增量新消息 / search_messages 检索 / list_unread 未读。
-- 发送：send_text 发**文本** —— **不需要前台，锁屏也能发**（走窗口消息投递，不移动光标、不动剪贴板、不打断用户操作）；send_file 发**图片/文件/视频/音频**、send_batch **群发给多个目标**（逐目标独立校验）、reply_to **带引用的回复** —— 这三个仍需要微信窗口可见且在前台（走模拟键鼠 + 剪贴板）。
-- 发送前可先调 check_env 确认环境（微信是否运行、窗口是否可见/最小化/在前台）与依赖是否就绪（仅附件类需要）。
+- 发送：send_text 发**文本**、send_file 发**图片/文件/视频/音频**、send_batch **群发给多个目标**（逐目标独立校验）—— 这三个都**不需要前台，锁屏也能发**（走窗口消息投递，不移动光标、不动剪贴板、不搬窗口、不打断用户操作）。reply_to **带引用的回复**是唯一还需要微信窗口可见且在前台的。
+- 发送前可先调 check_env 确认环境（微信是否运行、窗口是否可见/最小化）；只有 reply_to 需要它在**前台**。
 
 附件说明（send_file）：
 - path 传本地绝对路径；图片按内联图片发，其余按文件发，视频一般按视频消息发。
@@ -424,10 +426,10 @@ INSTRUCTIONS = """\
 发送纪律（重要）：
 1. 默认 dry_run=true —— 只校验、不发送。**只有用户明确要求真发时才传 dry_run=false**。
 2. 内容以用户本人身份发出、且**不可撤回**。含义模糊或有风险的内容，先草拟给用户确认。
-3. send_text **不需要前台**：走窗口消息投递，锁屏、窗口在后台都照发，不移动光标、不动剪贴板、
-   不打断用户正在做的事（唯一可感的副作用：投递字符的一瞬微信会把自己顶到前台约 0.1–0.3 秒，
-   工具会自动把前台还回去）。send_file / send_batch / reply_to 仍需要微信窗口可见且在前台：
-   窗口**最小化**时会自己 SW_RESTORE 恢复一次（可逆，不用管也不用去点）；若仍 ok=false
+3. send_text / send_file / send_batch **不需要前台**：走窗口消息投递，锁屏、窗口在后台都照发，
+   不移动光标、不动剪贴板、不搬窗口、不打断用户正在做的事（唯一可感的副作用：投递字符的一瞬
+   微信会把自己顶到前台约 0.1–0.3 秒，工具会自动把前台还回去）。只有 reply_to 需要窗口可见且在前台：
+   窗口**最小化**时会自己 SW_SHOWNOACTIVATE 还原一次（可逆，不用管也不用去点）；若仍 ok=false
    （微信没运行 / 主窗口不可见 / 锁屏），别自己去点、也别叫用户去点，解锁后发送门自己恢复、
    代聊那条积压由盯梢回路自动补发。
 4. talker 用 list_sessions 返回的 name（如「文件传输助手」「TOOLAN」「TOOLAN、韩玉」）或 wxid/群号最稳。
@@ -440,7 +442,7 @@ INSTRUCTIONS = """\
   回过了，你要据此判断「还要不要开口」；返回的 `next_since_ts` 就是下一轮的 `since_ts`（别用墙上时钟的 now，
   同秒消息会漏）。它只解密新增的 WAL 帧、只扫有变化的会话表，**很便宜**，几秒一次也没负担。
 - 回路姿势：定时（cron/循环）→ poll_new → 没有 `from_me=false` 的新消息就静默结束（别发 NO_REPLY 给用户看），
-  有才起草回复；send_text 不需要前台（锁屏也能发），直接用；附件类工具才需先 check_env，窗口不在前台就把 hint 转给用户，不要自己去点。
+  有才起草回复；send_text / send_file 不需要前台（锁屏也能发），直接用；只有 reply_to 才需先 check_env 确认窗口在前台，不在就把 hint 转给用户，不要自己去点。
 - 「有哪些没回」用 list_unread；「这个会话刚才聊到哪」用 read_history。
 
 蒸馏（用户/好友知识与行为）：要提炼「我的表达习惯 / 与谁联系最多 / 活跃时段 / 某会话里对方是谁」时，用 wechat_digest——
@@ -478,8 +480,8 @@ TOOLS = [
          "since_ts": {"type": "integer", "description": "Unix 秒；返回 create_time 严格大于它的消息"}},
          "required": ["since_ts"]}},
     {"name": "check_env",
-     "description": ("【何时用】发**附件类**消息（send_file/send_batch/reply_to）前，或想诊断微信自动化环境时，自检本机微信（是否运行/窗口可见/最小化/在前台/尺寸·DPI）。【别用】与渠道无关。"
-                     "**send_text 不需要它**——文本走投递、不依赖前台。返回 ok=false 时把 hint 转告用户。"),
+     "description": ("【何时用】发**引用回复**（reply_to，唯一还需要前台的工具）前，或想诊断微信自动化环境时，自检本机微信（是否运行/窗口可见/最小化/在前台/尺寸·DPI）。【别用】与渠道无关。"
+                     "**send_text / send_file / send_batch 都不需要它**——它们走投递、不依赖前台。返回 ok=false 时把 hint 转告用户。"),
      "inputSchema": {"type": "object", "properties": {}, "required": []}},
     {"name": "send_text",
      "description": ("【何时用】用户说「给我微信里的某人/某群发条消息」时（**以用户本人身份**，不可撤回）。【别用】回渠道(Bot)消息；那走渠道回执。"
@@ -498,7 +500,8 @@ TOOLS = [
                      "其余(pdf/docx/xlsx/pptx/txt/mp4/mov/mp3/wav/zip…)作为**文件**发送；视频一般按视频消息发出。"
                      "**默认 dry_run=true 只校验不发送**；仅当用户明确要求真发时才传 dry_run=false。"
                      "注意：微信「语音消息」是按住录音、无法自动化——语音只能把音频**当文件**发。"
-                     "需要微信窗口可见且在前台；失败时 detail 会说明卡在哪一步。"),
+                     "**不需要前台、锁屏也能发**（点「发送文件」驱动文件对话框，不碰剪贴板/光标/窗口）；"
+                     "失败时 detail 会说明卡在哪一步。"),
      "inputSchema": {"type": "object", "properties": {
          "talker": {"type": "string", "description": "会话显示名或 wxid/群号/filehelper"},
          "path": {"type": "string", "description": "本地文件的绝对路径"},
@@ -712,9 +715,35 @@ def handle_message(msg):
         reply_error(mid, METHOD_NOT_FOUND, f"Method not found: {method}")
 
 
+def _exit_with_parent():
+    """打成单文件 exe 后随父进程退出。
+
+    PyInstaller onefile 是「引导进程 → Python 子进程」两层，MCP 客户端停服务只杀得到引导进程；
+    子进程若正卡在一次长发送里，就会残留下来占着 exe 文件（部署更新换不掉）和微信 UI 操作锁。
+    实测：杀掉引导进程后子进程照常存活。这里起一个守护线程等父进程句柄，父进程一没就立即退出。
+    """
+    if not getattr(sys, "frozen", False) or os.name != "nt":
+        return
+    import ctypes
+    import threading
+    k32 = ctypes.windll.kernel32
+    k32.OpenProcess.restype = ctypes.c_void_p
+    k32.WaitForSingleObject.argtypes = (ctypes.c_void_p, ctypes.c_uint32)
+    handle = k32.OpenProcess(0x00100000, False, os.getppid())  # SYNCHRONIZE
+    if not handle:
+        return
+
+    def wait_parent():
+        k32.WaitForSingleObject(handle, 0xFFFFFFFF)
+        os._exit(0)
+
+    threading.Thread(target=wait_parent, name="parent-watch", daemon=True).start()
+
+
 def main():
     """stdio 主循环：逐行读取 JSON-RPC 消息，直到 stdin 关闭。"""
     global _PROTOCOL_OUT
+    _exit_with_parent()
     sys.stdin.reconfigure(encoding="utf-8")
     sys.stdout.reconfigure(encoding="utf-8")
     sys.stderr.reconfigure(encoding="utf-8")
@@ -739,4 +768,7 @@ def main():
 
 
 if __name__ == "__main__":
+    if "--version" in sys.argv[1:]:
+        print(SERVER_VERSION)
+        sys.exit(0)
     main()

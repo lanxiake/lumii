@@ -548,6 +548,170 @@ def suite_D():
         assert core.resolve_talker('abc') is None, '子串命中两个会话，必须拒绝而不是猜一个'
     r.case('防错人铁律不变：歧义一律拒绝', d2_no_mis_send)
 
+    def d3_find_session_exact_over_embedded():
+        import wechat_sender as snd
+        lines = [
+            (126, 100, 250, 115, '严子云。、杨冬'),
+            (126, 160, 250, 175, '杨冬'),
+        ]
+        hit = snd.find_session(lines, '杨冬', 1280, 820)
+        assert hit and hit[3] == '杨冬', f'应点单聊而非群：{hit}'
+    r.case('find_session：精确名压过群名嵌短名', d3_find_session_exact_over_embedded)
+
+    def d4_uia_read_and_target():
+        """UIA 读数器：**格式契约**（.ps1 的制表符行 ↔ read_uia 的结构）与目标判据。
+
+        为什么值得离线钉住：`uia_read.ps1` 与 `wechat_sender.read_uia` 靠一个手写的文本协议
+        对接，字段错位**不会报错**，只会静默把预览/时间当成会话名——那正好是「发错人」的形状。
+        样本取自真机 dump（最小化态，坐标是 UIA 给的还原位）。
+        """
+        sample = "\r\n".join([
+            "WIN\t537\t269\t1264\t788",
+            "ITEM\tsession_item_杨冬\t597\t999\t240\t65\t0\t杨冬 人呢？ 13:30",
+            "ITEM\tsession_item_文件传输助手\t597\t869\t240\t65\t0\t文件传输助手 最小化还原实测 13:43",
+            "ITEM\t\t597\t934\t240\t65\t1\t腾讯新闻 白应苍 13:34",
+            "HEADER\t成都市龙泉驿区妇幼保健院",
+            "EDIT\t\t635\t315\t126\t20\t搜索",
+            "INPUT\t上一轮留下的草稿",
+            "MLIST\t837\t349\t960\t643",
+            "BTN\t\t1729\t1010\t48\t26\t发送",
+            # -All 才输出的形状（驱动文件对话框用）：controlType / aid / NativeWindowHandle / rect / name
+            "CTL\tListItem\t1\t99\t700\t500\t200\t30\tFinalShell",
+            "CTL\tPane\t1148\t1148\t737\t907\t775\t26\t",
+        ])
+        import wechat_sender as snd
+        old_ps, old_click = snd._run_ps, snd.post_click
+        clicks = []
+        snd._run_ps = lambda script, args, sta=False: open(args[3], "w", encoding="utf-8").write(sample)
+        snd.post_click = lambda h, x, y: clicks.append((x, y)) or True
+        try:
+            d = snd.read_uia(1, "t")
+            assert d and d["win"] == (537, 269, 1264, 788), d
+            assert d["header"] == "成都市龙泉驿区妇幼保健院", d["header"]
+            assert d["mlist"] == (837, 349, 960, 643), d["mlist"]
+            assert len(d["items"]) == 3 and d["items"][0]["aid"] == "session_item_杨冬", d["items"]
+            # 会话定位：AutomationId 精确命中（不受预览文字影响）
+            it = snd.uia_find_session(d, "文件传输助手")
+            assert it and it["aid"] == "session_item_文件传输助手", it
+            # aid 缺失（微信改 id 规则）时退回显示名匹配：行文本是「名字 预览 时间」
+            assert snd.uia_find_session(d, "腾讯新闻")["rect"][1] == 934
+            assert snd.uia_find_session(d, "韩玉") is None, "不在列表里必须返回 None，不能猜一个"
+            # 目标校验：表头就是当前开会话，精确比
+            assert snd.uia_header_is(d, "成都市龙泉驿区妇幼保健院")
+            assert not snd.uia_header_is(d, "杨冬") and not snd.uia_header_is(d, "")
+            # 点击坐标 = 屏幕坐标 − 客户区原点；行滚出窗口外一律不点
+            assert snd.uia_click_item(1, d, it) and clicks[-1] == (717 - 537, 901 - 269), clicks
+            far = {"win": None, "items": [], "edits": [], "mlist": None, "btns": [], "header": None}
+            assert not snd.uia_click_item(1, far, it), "参考系拿不到就不能点"
+            outside = dict(far, win=d["win"])
+            assert not snd.uia_click_item(1, outside, {"rect": (597, 1300, 240, 65), "aid": "x"}), "滚出可视区不能点"
+            # 输入框：不在 UIA 树里，用同棵树里的「发送」按钮反推（按钮中心上方 101px）。
+            # 实测 (1729,1010,48,26) → 客户区中心 x、y=1010+13-101=922。
+            assert snd.uia_input_pt(1, d) == (537 + 1264 // 2 - 537, 922 - 269), snd.uia_input_pt(1, d)
+            assert snd.uia_input_pt(1, {"win": None, "btns": d["btns"]}) is None
+            assert snd.uia_input_pt(1, dict(d, btns=[])) is None, "没有「发送」按钮可锚就不能猜"
+            # 输入框当前内容（INPUT 行）：发送前"框里是什么"的唯一来源，缺字段=读不到≠空
+            assert d["input"] == "上一轮留下的草稿", d["input"]
+            # -All 的 CTL 行：原生句柄必须落在 nwh 上（错位了就会去驱动别的控件，且不报错）
+            assert [c["nwh"] for c in d["ctls"]] == [99, 1148], d["ctls"]
+            assert d["ctls"][0]["type"] == "ListItem" and d["ctls"][1]["aid"] == "1148", d["ctls"]
+        finally:
+            snd._run_ps, snd.post_click = old_ps, old_click
+    r.case('UIA：格式契约 + 会话定位 + 表头校验 + 活几何点击', d4_uia_read_and_target)
+
+    def d5_file_dialog():
+        """附件后台化：驱动文件对话框时的**认控件判据**（写没写进去、点的是不是「打开」）。
+
+        为什么值得离线钉住：这条路全凭控件 id/名字认控件，认错了不报错、只是静默走偏——
+        实测误点过文件列表项（它的 aid 也是 "1"），对话框不关，看起来像"点了没反应"。
+        样本取自真机 dump（微信弹的 `#32770 '选择文件'`）。
+        """
+        import wechat_sender as snd
+        BOX, OPEN_BTN, CANCEL = 1148, 331, 332
+        base = [
+            {"type": "Pane", "aid": "1148", "nwh": BOX, "rect": (737, 907, 775, 26), "name": ""},
+            {"type": "ListItem", "aid": "1", "nwh": 99, "rect": (700, 500, 200, 30), "name": "FinalShell"},
+            {"type": "Pane", "aid": "1", "nwh": OPEN_BTN, "rect": (1524, 938, 88, 26), "name": "打开(O)"},
+            {"type": "Pane", "aid": "2", "nwh": CANCEL, "rect": (1620, 938, 88, 26), "name": "取消"},
+        ]
+
+        class FakeU32:
+            @staticmethod
+            def SendMessageW(hwnd, msg, _w, _l):
+                if msg == snd.BM_CLICK:
+                    clicked.append(getattr(hwnd, "value", hwnd))
+                return 0
+
+        def run(ctls, echo=True):
+            del box[:], clicked[:]
+            snd.read_uia = lambda h, tag, all_ctls=False: {"win": (1, 2, 3, 4), "ctls": ctls}
+            snd._dlg_get_text = lambda hwnd, n=1024: box[0][1] if (box and echo) else ""
+            return snd._dlg_fill_and_open(1, r"C:\tmp\报表 8月.xlsx")
+
+        box, clicked = [], []
+        old = snd.read_uia, snd._dlg_set_text, snd._dlg_get_text, snd._u32, snd.u.IsWindow
+        snd._dlg_set_text = lambda hwnd, text: box.append((hwnd, text))
+        snd._u32 = FakeU32
+        snd.u.IsWindow = lambda h: 0            # 点完「打开」对话框就消失
+        try:
+            ok, why = run(base)
+            assert ok and why, (ok, why)
+            assert box == [(BOX, r"C:\tmp\报表 8月.xlsx")], box
+            assert clicked == [OPEN_BTN], f"必须点「打开」而不是 aid 同为 1 的列表项：{clicked}"
+            # 写不进文件名框（回读为空）就不许点「打开」——否则发出的是上一个文件/空文件名
+            assert not run(base, echo=False)[0], "回读不匹配必须 fail-closed"
+            # 认不出「打开」（只剩同名 aid 的列表项）时不许乱点
+            assert not run([c for c in base if c["nwh"] != OPEN_BTN])[0], "认不出按钮必须 fail-closed"
+            # 对话框树读不到
+            snd.read_uia = lambda h, tag, all_ctls=False: None
+            assert not snd._dlg_fill_and_open(1, r"C:\tmp\a.txt")[0]
+        finally:
+            snd.read_uia, snd._dlg_set_text, snd._dlg_get_text, snd._u32, snd.u.IsWindow = old
+    r.case('附件：文件对话框的控件认领与回读校验', d5_file_dialog)
+
+    def d6_input_gate():
+        """发送前的「读—清—回读」闸门。为什么值得离线钉住：`post_text` 只看 PostMessage 的
+        返回值，而它基本恒真；框里剩什么全靠这两处读回。2026-10-09 实测踩过——探测留下的
+        'ZQ1aaccaaaacc' 跟着附件一起发了出去（用户可撤回，但那是实打实的错发）。
+        """
+        import wechat_sender as snd
+        sent, old_pb, old_read = [], snd.post_backspaces, snd.read_uia
+        snd.post_backspaces = lambda h, n, dt=0.004: sent.append(n)
+        try:
+            # 空框：一个退格都不发（别把用户的正常路径拖慢）
+            snd.read_uia = lambda h, tag="uia", all_ctls=False: {"input": ""}
+            assert snd.clear_input(1, "") == (True, "输入框本来就是空的")
+            assert sent == [], sent
+            # 有 6 字残留：退格数按**实际长度**算（不是固定值），回读空了才算过
+            ok, why = snd.clear_input(1, "ZQ1aac")
+            assert ok and sent == [26], (ok, why, sent)
+            # 退完还剩 → fail-closed（这正是"残留跟着发出去"的形状）
+            snd.read_uia = lambda h, tag="uia", all_ctls=False: {"input": "还留着"}
+            ok, why = snd.clear_input(1, "x")
+            assert not ok and "输入框未清空" in why, why
+            # 框里读不到：盲退兜底，回读也读不到时不拦（别把"读不到"变成"发不出去"）
+            del sent[:]
+            snd.read_uia = lambda h, tag="uia", all_ctls=False: None
+            assert snd.clear_input(1, None)[0] and sent == [200], sent
+        finally:
+            snd.post_backspaces, snd.read_uia = old_pb, old_read
+    r.case('发送闸门：清空输入框要按实读长度 + 回读确认', d6_input_gate)
+
+    def d7_residue():
+        """回车前的正文落地判据：只允许「框里的字都在正文里」，不许有正文之外的东西。
+
+        为什么不是 `got == text`：WM_CHAR 投递**会丢字**（emoji/非 BMP，`post_text` 注释里写了），
+        严格相等会让带 emoji 的正常回复永远判失败、卡在重试队列里——那比不校验更糟。
+        """
+        import wechat_sender as snd
+        res = lambda got, text: "".join(snd._residue(got, text))
+        assert res("你好", "你好") == ""                      # 完全落地
+        assert res("你好", "你好😀") == "", "投递丢字（emoji 漏）不该拦"
+        assert res("abc你好", "你好") == "abc", "正文之外的残留必须拦下来"
+        assert res("", "你好") == "", "一个字都没进去 = 空框，交给读库兜底"
+        assert res("你好abc", "你好") == "abc"
+    r.case('发送闸门：正文落地判据（容忍丢字、不容忍残留）', d7_residue)
+
     return r
 
 
@@ -637,15 +801,17 @@ def suite_E():
 
 
 def suite_F():
-    """F 层：最小化时的**自恢复发送闸门**（`env_gate` / `wake_minimized`）——纯逻辑，假窗口。
+    """F 层：窗口不在时的**自恢复发送闸门**（`env_gate` / `wake_window`）——纯逻辑，假窗口。
 
     为什么单开一层：`check_env` 的严格闸门是给**报告**用的（如实说环境如何），但代聊回路的
-    现实是「人不在电脑前 ⇒ 微信常是最小化的 ⇒ 自己不恢复就永远发不出去」。2026-10-08 实测
-    被它挡了两次（22:33 Loop、22:37 韩玉）。这层钉四件事：
-      1. 最小化 → 恢复一次后复检，复检过了就放行；
-      2. 恢复不动（或没有窗口句柄）→ 照旧拒发，不假装成功；
-      3. 本来 ok → **不碰窗口**（别平白把用户的窗口拎到前台）；
-      4. 没运行 / 不可见 → 不恢复、直接拒（这两类恢复不了）。
+    现实是「人不在电脑前 ⇒ 微信常是最小化或收进托盘 ⇒ 自己不恢复就永远发不出去」。2026-10-08
+    实测被它挡了两次（22:33 Loop、22:37 韩玉）。这层钉五件事：
+      1. 最小化 → 还原一次后复检，复检过了就放行；
+      2. 还原不动（或没有窗口句柄）→ 照旧拒发，不假装成功；
+      3. 本来可用 → **不碰窗口**（别平白把用户的窗口拎到前台）；
+      4. 没运行 → 不还原、直接拒（恢复不了）；
+      5. 收进托盘（隐藏态）→ 用 `include_hidden` 把句柄找回来再还原（用户 2026-10-09 决策
+         「一律自动拉起」）；还原一律走 `SW_SHOWNOACTIVATE`，实测两种态都不抢前台。
     """
     import wechat_sender as snd
     r = R("F 层：最小化自恢复（发送闸门）")
@@ -662,7 +828,8 @@ def suite_F():
         shown = []
         old = (snd.check_env, snd.find_main_hwnd, snd.u.ShowWindow, snd.time.sleep)
         snd.check_env = fake_check_env
-        snd.find_main_hwnd = lambda: find_hwnd
+        # 还原路径会用 include_hidden=True 找隐藏窗口；这里两种口径都给同一个假句柄
+        snd.find_main_hwnd = lambda include_hidden=False: find_hwnd
         # 传入的是 ctypes.c_void_p，这里归一成整数，免得断言被 c_void_p 包装挡住
         snd.u.ShowWindow = lambda h, n: shown.append((getattr(h, "value", h), n))
         snd.time.sleep = lambda *_: None
@@ -673,6 +840,9 @@ def suite_F():
 
     MIN = {"ok": False, "reason": "主窗口已最小化", "minimized": True,
            "visible": True, "weixin_running": True, "hwnd": 199150}
+    # 收进托盘：进程在、句柄在，但按可见性过滤找不到 ⇒ hwnd=0，只能靠 include_hidden 捞回来
+    HID = {"ok": False, "reason": "主窗口不可见（可能已隐藏到托盘）", "minimized": False,
+           "visible": False, "weixin_running": True, "hwnd": 0}
     OK = {"ok": True, "reason": "", "minimized": False,
           "visible": True, "weixin_running": True, "hwnd": 199150}
     GONE = {"ok": False, "reason": "未检测到微信进程（Weixin.exe 未运行）", "minimized": False,
@@ -682,7 +852,7 @@ def suite_F():
         def run(shown, st):
             ok, s = snd.env_gate()
             assert ok and s["ok"], "恢复后复检通过就该放行"
-            assert shown == [(199150, 9)], f"应当且只应当 SW_RESTORE 一次：{shown}"
+            assert shown == [(199150, 4)], f"应当且只应当 SW_SHOWNOACTIVATE 一次：{shown}"
             assert st["n"] == 2, f"应当复检一次：{st['n']}"
         with_env([MIN, OK], 0, run)
     r.case("最小化 ⇒ 自恢复一次 + 复检 ⇒ 放行", f1_restores_and_passes)
@@ -691,7 +861,7 @@ def suite_F():
         def run(shown, st):
             ok, _s = snd.env_gate()
             assert not ok, "恢复不动时必须拒发（不许带着最小化的窗口往下做）"
-            assert shown == [(199150, 9)]
+            assert shown == [(199150, 4)]
         with_env([MIN], 0, run)
     r.case("恢复不动（仍最小化）⇒ 拒发", f2_stays_minimized)
 
@@ -724,7 +894,7 @@ def suite_F():
         def run(shown, _st):
             ok, _s = snd.env_gate(allow_locked=True)
             assert not ok, "锁屏不是「窗口读不了」的通行证"
-            assert shown == [(199150, 9)], "仍该试过恢复一次"
+            assert shown == [(199150, 4)], "仍该试过还原一次"
         with_env([{**MIN, "locked": True}], 0, run)
     r.case("锁屏 + 最小化 ⇒ 仍拒发（不许带着读不了的窗口往下做）", f6_locked_but_window_unusable)
 
@@ -735,6 +905,27 @@ def suite_F():
             assert ok, "窗口可用 + 锁屏 ⇒ 全投递能发，不该拦"
         with_env([{**OK, "locked": True}], 0, run)
     r.case("锁屏 + 窗口可用 ⇒ 放行（锁屏不挡投递）", f7_locked_and_usable_passes)
+
+    def f8_hidden_restores():
+        """收进托盘（隐藏态）：按可见性过滤拿不到句柄，必须靠 `include_hidden=True` 捞回来再还原。
+        用户 2026-10-09 决策「一律自动拉起（含托盘）」——不还原的代价是那条回复最多在补发队列里
+        躺 30 分钟然后被丢掉。"""
+        def run(shown, st):
+            ok, s = snd.env_gate()
+            assert ok and s["ok"], "收进托盘 ⇒ 还原后复检通过就该放行"
+            assert shown == [(199150, 4)], f"应当且只应当还原一次：{shown}"
+            assert st["n"] == 2, f"应当复检一次：{st['n']}"
+        with_env([HID, OK], 199150, run)
+    r.case("收进托盘 ⇒ 找回来 + 还原一次 + 复检 ⇒ 放行", f8_hidden_restores)
+
+    def f9_hidden_unrestorable():
+        """隐藏态但连隐藏窗口都找不到（未登录 / 句柄都没了）⇒ 照旧拒发，不假装成功。"""
+        def run(shown, _st):
+            ok, s = snd.env_gate()
+            assert not ok and shown == [], "找不到句柄就不许瞎点"
+            assert "不可见" in s["reason"]
+        with_env([HID], 0, run)
+    r.case("收进托盘但捞不到句柄 ⇒ 拒发且不碰窗口", f9_hidden_unrestorable)
 
     return r
 
