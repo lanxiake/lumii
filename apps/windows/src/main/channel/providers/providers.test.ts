@@ -305,8 +305,28 @@ describe('PcwechatChannelProvider', () => {
     })
     const res = await provider.sendText({ to: 'wxid_loop', text: '在的' })
     expect(onUndeliverable).toHaveBeenCalledWith('wxid_loop', '在的')
-    // 队列归队列，这次 send 的结论仍是失败——不能因为"排上了"就回报已发送
+    // 队列归队列，这次 send 的结论仍是没送达——不能因为"排上了"就回报已发送；
+    // 但要带 queued 让工具层报「排队中」而不是失败
     expect(res.ok).toBe(false)
+    expect(res.queued).toBe(true)
+    expect(res.message).toContain('已排队待补发')
+  })
+
+  it('没排上（内容问题 / 没接队列）就不带 queued：照实报失败', async () => {
+    const { provider } = make({
+      reply: '{"ok":false,"error_code":"target_not_found","detail":"未找到目标会话"}',
+    })
+    expect((await provider.sendText({ to: 'wxid_loop', text: '在的' })).queued).toBeUndefined()
+
+    const bare = new PcwechatChannelProvider({
+      getPolicy: () => policy([{ id: 'wxid_loop', mode: 'auto' }]),
+      mcpServer: 'wechat-local',
+      isMcpConnected: () => true,
+      callMcpTool: async () => '{"ok":false,"error_code":"target_unconfirmed","detail":"x"}',
+    })
+    const res = await bare.sendText({ to: 'wxid_loop', text: '在的' })
+    expect(res.ok).toBe(false)
+    expect(res.queued).toBeUndefined()
   })
 
   it('队列本身抛异常也不改写这次发送的结论（失败的判定比排队重要）', async () => {
@@ -319,6 +339,8 @@ describe('PcwechatChannelProvider', () => {
     const res = await provider.sendText({ to: 'wxid_loop', text: '在的' })
     expect(res.ok).toBe(false)
     expect(res.errorCode).toBe('CHANNEL_NOT_CONNECTED')
+    // 没排上就绝不能对外宣称「会自动补发」
+    expect(res.queued).toBeUndefined()
   })
 
   it('工具只做了演练（ok:true 但 dry_run 不是 false）绝不算发出去', async () => {

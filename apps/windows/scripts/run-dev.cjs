@@ -61,6 +61,17 @@ try {
 } catch {
   console.warn('[run-dev] sync-user-guides 失败，将使用 resources/user-guides 现有副本')
 }
+
+// 内置 MCP（wechat-mcp.exe）是构建产物（dist/ 不入库），开发期启动前先确保它存在、且不比源码旧。
+// 客户端启动时会把 dist/wechat-mcp.exe 同步到数据根给各 MCP 客户端用；源缺失则该同步失败。
+// --if-stale 命中时只做几次 stat 秒过；首次要下载 Python/PyInstaller，可能数分钟。
+if (process.platform === 'win32') {
+  try {
+    execSync('node scripts/build-wechat-mcp.mjs --if-stale', { cwd, stdio: 'inherit' })
+  } catch {
+    console.warn('[run-dev] build-wechat-mcp 失败，wechat-local MCP 将缺少随包 exe（稍后可重试）')
+  }
+}
 // 透传 CLI 参数，供调试用（如 --inspect=5858 --remoteDebuggingPort=9222 --sourcemap）
 const child = spawn('npx', ['electron-vite', 'dev', ...extraArgs, ...process.argv.slice(2)], {
   cwd,

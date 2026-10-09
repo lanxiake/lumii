@@ -617,7 +617,40 @@ def suite_D():
             assert d["ctls"][0]["type"] == "ListItem" and d["ctls"][1]["aid"] == "1148", d["ctls"]
         finally:
             snd._run_ps, snd.post_click = old_ps, old_click
+
+    def d4b_uia_blank_tree_is_unavailable():
+        """微信没暴露控件树（只剩 WIN 行）时 read_uia 必须返回 None，让发送退回帧判据。
+
+        2026-10-09 20:33 真机：树里只有窗口外框，表头恒空，被当成「有效 UIA」后直接判
+        「不是目标会话」⇒ `target_unconfirmed`，帧判据一次都没跑。
+        """
+        import wechat_sender as snd
+        old_ps, old_metric = snd._run_ps, snd._metric
+        noted = []
+        snd._metric = lambda op, ms, ok, extra=None: noted.append(op)
+        snd._UIA_BLANK_NOTED = False
+        samples = {
+            "blank": "WIN\t623\t270\t1241\t928\r\nHEADER\t",
+            # 文件对话框：没有会话列表/表头，但有编辑框和按钮——不是空树
+            "dialog": "WIN\t10\t10\t600\t400\r\nHEADER\t\r\nEDIT\t1148\t20\t300\t200\t20\t文件名\r\n"
+                      "BTN\t1\t400\t350\t80\t26\t打开",
+        }
+        try:
+            for key, body in samples.items():
+                snd._run_ps = lambda script, args, sta=False, b=body: open(args[3], "w", encoding="utf-8").write(b)
+                d = snd.read_uia(1, "blank_" + key)
+                if key == "blank":
+                    assert d is None, f"空树必须当成读不到：{d}"
+                else:
+                    assert d and d["btns"] and d["edits"], f"对话框树不能被误判成空树：{d}"
+            snd._run_ps = lambda script, args, sta=False: open(args[3], "w", encoding="utf-8").write(samples["blank"])
+            assert snd.read_uia(1, "blank_again") is None
+            assert noted == ["uia_blank"], f"空树指标按进程只记一次：{noted}"
+        finally:
+            snd._run_ps, snd._metric = old_ps, old_metric
+            snd._UIA_BLANK_NOTED = False
     r.case('UIA：格式契约 + 会话定位 + 表头校验 + 活几何点击', d4_uia_read_and_target)
+    r.case('UIA：空树（微信未暴露控件）= 读不到，退回帧判据', d4b_uia_blank_tree_is_unavailable)
 
     def d5_file_dialog():
         """附件后台化：驱动文件对话框时的**认控件判据**（写没写进去、点的是不是「打开」）。

@@ -147,22 +147,32 @@ export class PcwechatChannelProvider implements IChannelOutboundProvider {
       return fail('UPSTREAM_ERROR', '发送工具只做了演练（dry_run=true），并没有真发出去——不要按"已发送"上报')
     }
     if (!out.ok) {
-      if (UNDELIVERABLE_CODES.has(out.error_code ?? '')) {
-        // 内容没问题，只是此刻那双手不在——**排队等门开**，
-        // 别让调用方（代聊）误判成"发错了"而去改内容或转人工。
-        // 队列本身出问题也不能改写这次失败的判定，故吞掉异常
-        try {
-          this.deps.onUndeliverable?.(to, text)
-        } catch {
-          /* 排队失败不影响这次 send 的结论 */
+      const detail = [out.detail, out.suggestion].filter(Boolean).join(' ') || '本机微信发送失败'
+      if (UNDELIVERABLE_CODES.has(out.error_code ?? '') && this.enqueue(to, text)) {
+        // 内容没问题，只是此刻那双手不在——**排队等门开**，并如实报「排队中」：
+        // 报成失败会让调用方（代聊）误判成"发错了"而去改内容或转人工
+        return {
+          ...fail(mapErrorCode(out.error_code), `已排队待补发（此刻还没送达）：${detail}`),
+          queued: true,
         }
       }
-      return fail(
-        mapErrorCode(out.error_code),
-        [out.detail, out.suggestion].filter(Boolean).join(' ') || '本机微信发送失败',
-      )
+      return fail(mapErrorCode(out.error_code), detail)
     }
     return { ok: true, channel: 'pcwechat', to }
+  }
+
+  /**
+   * 投进待补发队列，返回是否真的排上了。
+   * 没接队列、或队列本身抛错，都算没排上——那就照实报失败，绝不谎报「会自动补发」。
+   */
+  private enqueue(to: string, text: string): boolean {
+    if (!this.deps.onUndeliverable) return false
+    try {
+      this.deps.onUndeliverable(to, text)
+      return true
+    } catch {
+      return false
+    }
   }
 }
 

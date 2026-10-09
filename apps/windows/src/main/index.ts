@@ -1705,7 +1705,11 @@ async function initialize(): Promise<void> {
           },
           // 「此刻发不出去」（锁屏 / 窗口抢不到前台）：排队，盯梢回路下一拍自己补发。
           // 没有这条，锁屏期间的回复就只能靠人——见 wechat-watch-tick.ts 的 flushWechatOutbox
-          onUndeliverable: (to, text) => agentRuntimeBridge?.enqueueWechatOutbox(to, text),
+          // bridge 不在就抛：Provider 据此照实报失败，不能对外说「已排队」
+          onUndeliverable: (to, text) => {
+            if (!agentRuntimeBridge) throw new Error('Agent Runtime 尚未就绪，无法排队补发')
+            agentRuntimeBridge.enqueueWechatOutbox(to, text)
+          },
         },
         dataRoot: resolveWindowsClientDataRoot(),
         weixinStore: weixinReplyContextStore,

@@ -38,6 +38,8 @@ export const agentRuntimeLog = {
  *     「**不要重复调用本工具**」——标失败正好把 Agent 推向反面，重排一轮落决。
  *     契约第 3 条 a 类，2026-09-17 T3.4 已定案，不得改回。
  *   - `'proposed'`：开发转交在「宿主未启用自动执行」时的正常终态（提案已生成，等确认）。
+ *   - `'queued'`：渠道发送此刻没送达、但已进待补发队列由后台回路接管（见 `queuedSendPayload`）。
+ *     标失败会把 Agent 推向改内容 / 重发 / 转人工，与「不用管、会自己补」正好相反。
  */
 const FAILURE_STATUSES = new Set(['error', 'not_found', 'partial'])
 

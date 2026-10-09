@@ -93,6 +93,11 @@ export interface ChannelSendResult {
   message?: string
   channel?: OutboundChannelId
   to?: string
+  /**
+   * 这次没发出去，但**已进待补发队列**、由后台回路自动补发（目前只有 pcwechat）。
+   * 恒与 `ok:false` 同现：此刻确实没送达，不能报「已发送」；工具层据此把它报成「排队中」而非失败。
+   */
+  queued?: boolean
 }
 
 /** 微信伪 Push 持久化记录 */

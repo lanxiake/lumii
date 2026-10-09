@@ -14,14 +14,16 @@
  *
  * ## 子命令
  *
- *   asar    读 app.asar，逐个 package.json 做 JSON.parse，并核对数据区长度
- *   launch  用隔离的数据根启动 win-unpacked/Lumii.exe，等日志出现就绪标记后退出
- *   all     两者都跑（默认）
+ *   asar       读 app.asar，逐个 package.json 做 JSON.parse，并核对数据区长度
+ *   resources  断言随包独立 MCP exe 真的进了产物，且与仓库构建产物一致
+ *   launch     用隔离的数据根启动 win-unpacked/Lumii.exe，等日志出现就绪标记后退出
+ *   all        全跑（默认）
  *
  * ## 用法
  *
  *   node apps/windows/scripts/verify-win-package.mjs all
  *   node apps/windows/scripts/verify-win-package.mjs asar
+ *   node apps/windows/scripts/verify-win-package.mjs resources
  *   node apps/windows/scripts/verify-win-package.mjs all --release-dir release-build-1234
  *
  * `--release-dir` 用相对 `apps/windows` 的路径指定产物目录（默认 `release`）——
@@ -36,6 +38,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { createHash } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { spawn, spawnSync } from 'node:child_process'
 
@@ -220,6 +223,72 @@ function checkSizeBudget(header) {
   return ok
 }
 
+// ------------------------------------------------------------ resources
+
+/**
+ * 随包独立 MCP 可执行文件：仓库构建产物 → 打包内目标。
+ *
+ * 两侧路径与「来源/落点」必须和 electron-builder.json 的 extraResources 段、
+ * 以及运行时 `resolveBundledMcpExe()`（packaged 分支）保持一致：
+ *   from: resources/wechat-mcp/dist （filter 只留 wechat-mcp.exe） → to: wechat-mcp
+ */
+const BUNDLED_MCP = {
+  label: 'wechat-mcp.exe',
+  repo: path.join(WIN_ROOT, 'resources', 'wechat-mcp', 'dist', 'wechat-mcp.exe'),
+  packed: path.join(UNPACKED, 'resources', 'wechat-mcp', 'wechat-mcp.exe'),
+}
+
+/** 文件 sha256（这些产物 10 MB 级，一次性读入即可，不必流式） */
+function sha256(file) {
+  return createHash('sha256').update(fs.readFileSync(file)).digest('hex')
+}
+
+/**
+ * 断言随包独立 MCP exe 真的进了产物，且与仓库当前构建产物逐字节一致。
+ *
+ * ## 存在理由
+ *
+ * `extraResources` 的 `from` 目录不存在时 electron-builder **不报错**，只是静默少拷一个
+ * 文件——命令退出码仍是 0。2026-09-16 那份 `release/win-unpacked/resources` 就同时缺了
+ * `wechat-mcp/` 与 `headless/`，肉眼要逐个目录比对才发现。
+ *
+ * 缺了这个 exe 的后果不是「少个可选功能」：灵栖启动时 `deployBundledExecutables()` 找不到
+ * 随包源，wechat-local 会连接失败（从未部署过）或带告警沿用旧版（部署过），两者都只在
+ * 用户机器上暴露。哈希比对还能顺带拦住「打包用的 exe 与当前仓库不同步」。
+ */
+function cmdResources() {
+  step('随包资源体检：内置 MCP 可执行文件必须在产物里')
+
+  if (!fs.existsSync(UNPACKED)) {
+    red(`缺少 ${UNPACKED} —— 先跑 pnpm package:win`)
+    return false
+  }
+  if (!fs.existsSync(BUNDLED_MCP.repo)) {
+    red(`仓库构建产物缺失 ${BUNDLED_MCP.repo}`)
+    console.log('  先跑 pnpm build:wechat-mcp，再重新打包')
+    return false
+  }
+  if (!fs.existsSync(BUNDLED_MCP.packed)) {
+    red(`产物缺 ${BUNDLED_MCP.packed} —— extraResources 未把它拷进去`)
+    return false
+  }
+
+  const repoHash = sha256(BUNDLED_MCP.repo)
+  const packedHash = sha256(BUNDLED_MCP.packed)
+  const mb = (fs.statSync(BUNDLED_MCP.packed).size / 1048576).toFixed(1)
+
+  if (repoHash === packedHash) {
+    grn(`${BUNDLED_MCP.label} 已随包（${mb} MB，与仓库产物 sha256 一致）`)
+    return true
+  }
+
+  red(`${BUNDLED_MCP.label} 与仓库产物不一致`)
+  console.log(`    产物 ${packedHash.slice(0, 16)}…`)
+  console.log(`    仓库 ${repoHash.slice(0, 16)}…`)
+  console.log('  说明：打包用的 exe 与当前仓库不同步——重跑 pnpm build:wechat-mcp 后再打包')
+  return false
+}
+
 // -------------------------------------------------------------- launch
 
 /** 收尾：按 PID 杀进程树（我们用独立 user-data-dir 启的实例，不会误伤用户正在跑的） */
@@ -332,8 +401,8 @@ async function main() {
   // 子命令 = 第一个既不是选项、也不是选项取值的参数
   const args = process.argv.slice(2)
   const cmd = args.find((a, i) => !a.startsWith('--') && args[i - 1] !== '--release-dir') ?? 'all'
-  if (!['asar', 'launch', 'all'].includes(cmd)) {
-    red(`未知子命令: ${cmd}（可选 asar | launch | all）`)
+  if (!['asar', 'resources', 'launch', 'all'].includes(cmd)) {
+    red(`未知子命令: ${cmd}（可选 asar | resources | launch | all）`)
     process.exit(2)
   }
 
@@ -344,6 +413,7 @@ async function main() {
 
   let ok = true
   if (cmd === 'asar' || cmd === 'all') ok = cmdAsar() && ok
+  if (cmd === 'resources' || cmd === 'all') ok = cmdResources() && ok
   if (cmd === 'launch' || cmd === 'all') ok = (await cmdLaunch()) && ok
 
   console.log('')

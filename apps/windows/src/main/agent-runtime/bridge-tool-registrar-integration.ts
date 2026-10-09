@@ -25,7 +25,11 @@ import type { AgentToolResult } from '@earendil-works/pi-agent-core'
 import { agentRuntimeLog as log, jsonToolResult, removeMarkdownSection } from './bridge-utils'
 import type { BridgeToolRegistrarDeps } from './bridge-tool-registrar-types'
 import { resolveOriginChannel } from './bridge-tool-registrar-client-cmd'
-import { isOutboundChannelId, OUTBOUND_CHANNEL_IDS } from '../channel/outbound-types'
+import {
+  isOutboundChannelId,
+  OUTBOUND_CHANNEL_IDS,
+  type ChannelSendResult,
+} from '../channel/outbound-types'
 import { resolveWindowsClientDataRoot } from '../client-data-root'
 import {
   findProject,
@@ -115,11 +119,29 @@ export function registerChannelTools(deps: BridgeToolRegistrarDeps): void {
         ...(p.mediaPath ? { mediaPath: String(p.mediaPath) } : {}),
         ...(p.fileName ? { fileName: String(p.fileName) } : {}),
       })
-      return jsonToolResult(result)
+      return jsonToolResult(result.queued ? queuedSendPayload(result) : result)
     },
   }
   deps.toolRegistry.register(createMtBotTool(channelSend, ctx))
   log.info('[registerChannelTools] channel_list/channel_send registered')
+}
+
+/**
+ * 「没发出去但已排队补发」的工具载荷：`status:'queued'`，不带 `ok:false`。
+ *
+ * 不标失败是刻意的（同 `bridge-utils` 里 `running`/`started` 的口径）：这条回复已由后台回路接管，
+ * 标成失败只会把 Agent 推向改内容、重发或转人工。也不报 `ok:true`——此刻确实还没送达。
+ */
+export function queuedSendPayload(result: ChannelSendResult): Record<string, unknown> {
+  return {
+    status: 'queued',
+    delivered: false,
+    channel: result.channel,
+    to: result.to,
+    reason: result.errorCode,
+    message: result.message,
+    note: '这条已进待补发队列，后台回路会原句自动补发。不要重发、不要改内容、不要转人工，本轮到此为止。',
+  }
 }
 
 /**

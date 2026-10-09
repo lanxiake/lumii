@@ -796,15 +796,18 @@ export function readWechatOutbox(db: DatabaseAdapter): WechatOutboxItem[] {
   }
 }
 
-function writeWechatOutbox(db: DatabaseAdapter, items: readonly WechatOutboxItem[]): void {
+/** 落盘待补发队列；返回是否写成功（失败只记日志，不抛）。 */
+function writeWechatOutbox(db: DatabaseAdapter, items: readonly WechatOutboxItem[]): boolean {
   try {
     db.prepare(`INSERT OR REPLACE INTO runtime_state (key, value, updated_at) VALUES (?, ?, ?)`).run(
       KV_KEY_OUTBOX,
       JSON.stringify(items),
       new Date().toISOString(),
     )
+    return true
   } catch (err) {
     log.warn('[wechat-watch] 待补发队列写入失败:', err)
+    return false
   }
 }
 
@@ -812,6 +815,7 @@ function writeWechatOutbox(db: DatabaseAdapter, items: readonly WechatOutboxItem
  * 投递一条待补发（渠道 Provider 在 `env_not_ready` 时调）。
  *
  * 同一 (peer, text) 只留一条：回路重试/模型重述都可能送进同一句，队列不该因此变长。
+ * 落盘失败会**抛出**：调用方（出站 Provider）据此照实报失败，而不是对外宣称「已排队」。
  */
 export function enqueueWechatOutbox(db: DatabaseAdapter, peer: string, text: string): void {
   const bare = text.trim()
@@ -819,7 +823,7 @@ export function enqueueWechatOutbox(db: DatabaseAdapter, peer: string, text: str
   const cur = readWechatOutbox(db)
   if (cur.some((x) => x.peer === peer && x.text === bare)) return
   const next = [...cur, { peer, text: bare, at: Date.now() }].slice(-OUTBOX_MAX)
-  writeWechatOutbox(db, next)
+  if (!writeWechatOutbox(db, next)) throw new Error('待补发队列写入失败')
   log.info(`[wechat-watch] 发送门暂不可用，已排队待补发：${peer}（队列 ${next.length} 条）`)
 }
 
@@ -836,6 +840,7 @@ export function enqueueWechatOutbox(db: DatabaseAdapter, peer: string, text: str
 async function flushWechatOutbox(
   deps: WechatWatchDeps,
   nowMs: number,
+  peers: readonly { id: string; label?: string }[] = [],
 ): Promise<string> {
   try {
     const db = deps.getDb()
@@ -889,6 +894,13 @@ async function flushWechatOutbox(
       queue = queue.filter((x) => x !== item)
       writeWechatOutbox(db, queue)
       log.info(`[wechat-watch] 补发成功：${item.peer} → ${item.text.slice(0, 40)}`)
+      // 当初那轮 channel_send 报的是「已排队」，会话里没有后续——这里把「已送达」补上
+      const name = peers.find((p) => p.id === item.peer)?.label || item.peer
+      deps.showNotification?.(
+        `微信补发成功 · ${name}`,
+        item.text,
+        watchConversationIdFor(item.peer),
+      )
     }
     return sent > 0 ? `补发 ${sent} 条` : ''
   } catch (err) {
@@ -990,7 +1002,7 @@ export async function runWechatWatch(deps: WechatWatchDeps): Promise<string> {
       // 空闲拍：先把锁屏/抢不到前台时积压的送出去（见 flushWechatOutbox），
       // 再给名单里还没有画像的人补一张（见 maybeDistillProfiles）。
       // 两件都只在空闲拍做——有活回合时它们会跟这一轮抢那双手和那个端点。
-      const flushed = await flushWechatOutbox(deps, nowMs)
+      const flushed = await flushWechatOutbox(deps, nowMs, policy.peers)
       const swept = await maybeDistillProfiles(deps, policy.peers, nowMs)
       const base = messages.length > 0 ? `新消息 ${messages.length} 条（均被过滤，不报）` : '无新消息'
       return [base, flushed, swept].filter(Boolean).join('｜')

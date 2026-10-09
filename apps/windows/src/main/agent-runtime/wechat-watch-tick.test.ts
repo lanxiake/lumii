@@ -655,7 +655,7 @@ describe('待补发队列（发送门够不着时排队，门开了自动补发�
   function outboxDeps(
     opts: { send?: (n: number) => string; lastFromMe?: boolean; lastFromMeTs?: number } = {},
   ) {
-    const { d, callMcpTool, kv } = deps({ config: cfgOutbox, nowMs: () => Date.now() })
+    const { d, callMcpTool, kv, showNotification } = deps({ config: cfgOutbox, nowMs: () => Date.now() })
     let sends = 0
     callMcpTool.mockImplementation(async (_s: string, tool: string) => {
       if (tool === 'read_history') {
@@ -673,7 +673,7 @@ describe('待补发队列（发送门够不着时排队，门开了自动补发�
       }
       return JSON.stringify({ count: 0, messages: [], next_since_ts: 2000 })
     })
-    return { d, callMcpTool, kv, sent: () => sends }
+    return { d, callMcpTool, kv, showNotification, sent: () => sends }
   }
 
   it('入队去重（同一 (peer, 文本) 只留一条）；空 peer / 空文本直接丢', () => {
@@ -696,6 +696,41 @@ describe('待补发队列（发送门够不着时排队，门开了自动补发�
     expect(sent()).toBe(1)
     expect(readWechatOutbox(db)).toEqual([])
     expect(kv.get('wechat_watch_last_ts')).toBe('2000')
+  })
+
+  it('补发成功 → 发系统通知（点开直达那个好友的会话），补上当初「已排队」之后的结局', async () => {
+    const { d, showNotification } = outboxDeps()
+    enqueueWechatOutbox(d.getDb(), 'wxid_s6piyhfvptv522', '在家瘫着 你呢')
+    await runWechatWatch(d)
+    expect(showNotification).toHaveBeenCalledWith(
+      '微信补发成功 · wxid_s6piyhfvptv522',
+      '在家瘫着 你呢',
+      'pcwechat:wxid_s6piyhfvptv522',
+    )
+  })
+
+  it('补发没成功 → 不发「补发成功」通知', async () => {
+    const { d, showNotification } = outboxDeps({
+      send: () => JSON.stringify({ ok: false, error_code: 'target_unconfirmed' }),
+    })
+    enqueueWechatOutbox(d.getDb(), 'wxid_s6piyhfvptv522', '一')
+    await runWechatWatch(d)
+    expect(showNotification).not.toHaveBeenCalled()
+  })
+
+  it('队列落盘失败 → 入队抛错（Provider 据此照实报失败，不宣称「已排队」）', () => {
+    const db = fakeDb().db as unknown as { prepare: (sql: string) => unknown }
+    const broken = {
+      prepare: (sql: string) =>
+        sql.startsWith('INSERT')
+          ? {
+              run: () => {
+                throw new Error('disk full')
+              },
+            }
+          : db.prepare(sql),
+    }
+    expect(() => enqueueWechatOutbox(broken as never, 'wxid_a', '早')).toThrow('待补发队列写入失败')
   })
 
   it('末条是本人发的、且晚于入队 → 不补、直接丢弃（期间用户自己回过话了）', async () => {

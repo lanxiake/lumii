@@ -76,6 +76,58 @@ describe('PcwechatPolicyModal', () => {
     expect(screen.getAllByDisplayValue('起草给我确认')).toHaveLength(2)
   })
 
+  it('跨搜索累积勾选：勾一个 → 搜别的再勾一个 → 加入名单时两个都要进去', async () => {
+    mockChannelService({
+      contacts: [
+        { id: 'wxid_mama', label: '妈妈', isGroup: false },
+        { id: 'wxid_ayi', label: '阿姨', isGroup: false },
+        { id: 'wxid_baba', label: '爸爸', isGroup: false },
+      ],
+    })
+    render(<PolicyModal open onClose={() => undefined} />)
+
+    await clickPickPeople()
+    expect(await screen.findByText('妈妈')).toBeInTheDocument()
+
+    // 第一轮：不搜索，勾「妈妈」
+    fireEvent.click(screen.getByRole('checkbox', { name: '选择 妈妈' }))
+    expect(screen.getByRole('button', { name: /加入名单（1）/ })).toBeInTheDocument()
+
+    // 第二轮：搜索后候选只剩「爸爸」，再勾它——「妈妈」此时已不在可见列表里
+    fireEvent.change(screen.getByPlaceholderText('搜名字或 wxid'), { target: { value: '爸爸' } })
+    await waitFor(() => expect(screen.queryByText('妈妈')).not.toBeInTheDocument())
+    fireEvent.click(screen.getByRole('checkbox', { name: '选择 爸爸' }))
+    // 计数本来就承认勾了 2 个（是「加入」那一步把它们丢了一个）
+    expect(screen.getByRole('button', { name: /加入名单（2）/ })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /加入名单（2）/ }))
+
+    expect(await screen.findByText('谁可以被代回（2）')).toBeInTheDocument()
+    expect(screen.getByText('妈妈')).toBeInTheDocument()
+    expect(screen.getByText('爸爸')).toBeInTheDocument()
+  })
+
+  it('「全选」只把当前可见的人并进勾选，不吞掉先前勾的', async () => {
+    mockChannelService({
+      contacts: [
+        { id: 'wxid_mama', label: '妈妈', isGroup: false },
+        { id: 'wxid_baba', label: '爸爸', isGroup: false },
+      ],
+    })
+    render(<PolicyModal open onClose={() => undefined} />)
+
+    await clickPickPeople()
+    fireEvent.click(await screen.findByRole('checkbox', { name: '选择 妈妈' }))
+
+    // 搜到只剩「爸爸」，点全选——应把「爸爸」并进勾选，而不是把「妈妈」挤掉
+    fireEvent.change(screen.getByPlaceholderText('搜名字或 wxid'), { target: { value: '爸爸' } })
+    await waitFor(() => expect(screen.queryByText('妈妈')).not.toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: '全选' }))
+
+    fireEvent.click(screen.getByRole('button', { name: /加入名单（2）/ }))
+    expect(await screen.findByText('谁可以被代回（2）')).toBeInTheDocument()
+  })
+
   it('批量设档：勾选名单里的人 → 选「直接代回」→ 应用 + 保存', async () => {
     const { setPolicy } = mockChannelService({
       policy: {

@@ -19,7 +19,14 @@ interface Presence {
 function makeRegistrar(opts: {
   presence?: Presence
   instanceId?: string
-  routerSend?: (params: unknown) => Promise<{ ok: boolean; errorCode?: string; message?: string }>
+  routerSend?: (params: unknown) => Promise<{
+    ok: boolean
+    errorCode?: string
+    message?: string
+    queued?: boolean
+    channel?: string
+    to?: string
+  }>
 }) {
   const registered = new Map<string, { execute: (...args: unknown[]) => unknown }>()
   const toolRegistry = {
@@ -135,5 +142,49 @@ describe('channel_send 默认回来源渠道', () => {
     const body = textOf(result)
     expect(body.ok).toBe(false)
     expect(String(body.message)).toContain('channel_list')
+  })
+})
+
+describe('channel_send 已排队待补发', () => {
+  it('Provider 报 queued → 工具报 status:queued，不标失败、也不谎报已送达', async () => {
+    const { tool } = makeRegistrar({
+      routerSend: vi.fn(async () => ({
+        ok: false,
+        queued: true,
+        errorCode: 'UPSTREAM_ERROR',
+        message: '已排队待补发（此刻还没送达）：目标会话未确认（fail-closed）',
+        channel: 'pcwechat',
+        to: 'wxid_loop',
+      })),
+    })
+
+    const result = (await tool.execute('call-1', {
+      channel: 'pcwechat',
+      to: 'wxid_loop',
+      text: '在家瘫着',
+    })) as { isError?: boolean }
+
+    expect(result.isError).toBeUndefined()
+    const body = textOf(result)
+    expect(body).toMatchObject({
+      status: 'queued',
+      delivered: false,
+      channel: 'pcwechat',
+      to: 'wxid_loop',
+      reason: 'UPSTREAM_ERROR',
+    })
+    expect(body.ok).toBeUndefined()
+  })
+
+  it('没排上的失败照旧标失败', async () => {
+    const { tool } = makeRegistrar({
+      routerSend: vi.fn(async () => ({ ok: false, errorCode: 'PEER_NOT_FOUND', message: 'x' })),
+    })
+    const result = (await tool.execute('call-1', {
+      channel: 'pcwechat',
+      to: 'wxid_loop',
+      text: 'hi',
+    })) as { isError?: boolean }
+    expect(result.isError).toBe(true)
   })
 })

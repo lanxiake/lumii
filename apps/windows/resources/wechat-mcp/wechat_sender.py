@@ -554,7 +554,38 @@ def read_uia(h=None, tag="uia", all_ctls=False):
                                      "name": "\t".join(q[8:])})
     except Exception:
         return None
-    return data if data["win"] else None
+    if not data["win"]:
+        return None
+    if _uia_tree_blank(data):
+        _note_uia_blank(tag)
+        return None
+    return data
+
+
+_UIA_BLANK_NOTED = False
+
+
+def _uia_tree_blank(data):
+    """UIA 树是不是**只剩窗口外框**（微信没向 UIA 暴露内部控件）。
+
+    微信 4.x 默认不暴露 mmui 控件树：能不能读到取决于微信进程本身（登录前开着讲述人、
+    账号/设备未受限等，社区记录见 pywechat Weixin4.0.md），且**跟进程同生命周期**——
+    2026-10-09 19:44 微信重启后整棵树只剩两个 Win32 Pane，连读多次、设读屏标志、
+    挂 UIA 事件监听都唤不醒。这种树里没有会话列表、表头、按钮、输入框中的任何一个，
+    却带着 WIN 行；当成「有效 UIA」用的后果是：表头恒空 ⇒ 判成「不是目标会话」，
+    还跳过了本来能用的帧判据 ⇒ `target_unconfirmed`（2026-10-09 20:33 Loop 那条）。
+    """
+    return not (data["items"] or data["header"] or data["edits"] or data["btns"]
+                or data["mlist"] or data["input"] is not None or data["ctls"])
+
+
+def _note_uia_blank(tag):
+    """空树按进程只记一次指标：每次发送要读好几次 UIA，逐次记会把 metrics 刷屏。"""
+    global _UIA_BLANK_NOTED
+    if _UIA_BLANK_NOTED:
+        return
+    _UIA_BLANK_NOTED = True
+    _metric("uia_blank", 0, False, {"tag": tag, "detail": "微信未暴露 UIA 控件树，退回帧判据"})
 
 
 def uia_find_session(data, name):
@@ -1323,7 +1354,9 @@ def _send_locked(text, talker, name, dry_run, verbose):
 def _send_locked_body(h, text, talker, name, dry_run, verbose, prev_fg):
     # 目标校验优先用 UIA 的**活表头**（`current_chat_name_label`，精确文本）：这是唯一不受
     # 旧帧影响的判据。窗口被盖住时帧里的会话列表和头部都是几分钟前的，用它校验正是那些
-    # `target_unconfirmed` 的来路。UIA 拿不到（罕见）才退回帧判据，两路都不做反向放行。
+    # `target_unconfirmed` 的来路。UIA 拿不到才退回帧判据，两路都不做反向放行。
+    # 「拿不到」**并不罕见**：微信 4.x 不暴露控件树时 read_uia 返回 None（见 `_uia_tree_blank`），
+    # 此时整条发送都靠帧判据——这正是那次 20:34 补发成功走的路。
     d = read_uia(h, "s0")
     if d:
         ok = uia_header_is(d, name)

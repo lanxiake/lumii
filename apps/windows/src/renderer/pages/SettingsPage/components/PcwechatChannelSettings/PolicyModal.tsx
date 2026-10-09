@@ -168,7 +168,14 @@ export const PolicyModal: React.FC<PolicyModalProps> = ({ open, onClose, onSaved
   }, [candidates, inList, search])
 
   const addCheckedCandidates = useCallback(() => {
-    const chosen = selectableCandidates.filter((c) => pickerChecked.has(c.id))
+    // 不能用 selectableCandidates 取人：它是「按当前搜索词过滤后」的可见列表。
+    // 勾选集是跨搜索累积的，一旦改了搜索词，先勾的人就不在可见列表里了，会被静默丢掉
+    // （2026-10-09 用户实测：先勾几个 → 搜索再勾几个 → 加入名单，只有最后勾的进去了）。
+    // 所以按 id 回到完整候选表解析。
+    const byId = new Map((candidates ?? []).map((c) => [c.id, c]))
+    const chosen = [...pickerChecked]
+      .map((id) => byId.get(id))
+      .filter((c): c is Candidate => c !== undefined)
     if (chosen.length === 0) return
     setRows((prev) => [
       ...prev,
@@ -182,7 +189,7 @@ export const PolicyModal: React.FC<PolicyModalProps> = ({ open, onClose, onSaved
     ])
     setPickerOpen(false)
     setPickerChecked(new Set())
-  }, [selectableCandidates, pickerChecked])
+  }, [candidates, pickerChecked])
 
   const toggleChecked = useCallback((id: string, on: boolean) => {
     setChecked((prev) => {
@@ -305,9 +312,9 @@ export const PolicyModal: React.FC<PolicyModalProps> = ({ open, onClose, onSaved
                   size="sm"
                   variant="ghost"
                   onClick={() =>
-                    setPickerChecked(
-                      new Set(selectableCandidates.map((c) => c.id)),
-                    )
+                    // 「全选」= 把当前可见的人并进勾选，而不是覆盖整个勾选集：
+                    // 与上一处同源——搜索会换掉可见列表，覆盖式全选会吞掉先前勾的人。
+                    setPickerChecked((prev) => new Set([...prev, ...selectableCandidates.map((c) => c.id)]))
                   }
                   disabled={candidateLoading || selectableCandidates.length === 0}
                 >
