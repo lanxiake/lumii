@@ -233,13 +233,15 @@ describe('PcwechatChannelProvider', () => {
     const callMcpTool = vi.fn(
       async () => opts.reply ?? '{"ok":true,"detail":"sent","dry_run":false}',
     )
+    const onUndeliverable = vi.fn()
     const provider = new PcwechatChannelProvider({
       getPolicy: () => opts.policy ?? policy([{ id: 'wxid_loop', label: 'Loop', mode: 'auto' }]),
       mcpServer: 'wechat-local',
       isMcpConnected: () => opts.connected ?? true,
       callMcpTool,
+      onUndeliverable,
     })
-    return { provider, callMcpTool }
+    return { provider, callMcpTool, onUndeliverable }
   }
 
   it('MCP 没连上 = 不在线：名单为空，发送直接失败且不碰工具', async () => {
@@ -280,6 +282,33 @@ describe('PcwechatChannelProvider', () => {
       expect(res.errorCode, to).toBe('PEER_NOT_FOUND')
     }
     expect(callMcpTool).not.toHaveBeenCalled()
+  })
+
+  it('env_not_ready = 此刻够不着（锁屏/抢不到前台）：投进待补发队列；别的失败不投', async () => {
+    const { provider, onUndeliverable } = make({
+      reply: '{"ok":false,"error_code":"env_not_ready","detail":"电脑已锁屏"}',
+    })
+    await provider.sendText({ to: 'wxid_loop', text: '10月9号 周五' })
+    expect(onUndeliverable).toHaveBeenCalledWith('wxid_loop', '10月9号 周五')
+
+    // 内容问题（找不到会话）重试一万次也没用——不进队列，否则队列会变成噪声桶
+    const { provider: badTarget, onUndeliverable: notQueued } = make({
+      reply: '{"ok":false,"error_code":"target_not_found","detail":"未找到目标会话"}',
+    })
+    await badTarget.sendText({ to: 'wxid_loop', text: '在的' })
+    expect(notQueued).not.toHaveBeenCalled()
+  })
+
+  it('队列本身抛异常也不改写这次发送的结论（失败的判定比排队重要）', async () => {
+    const { provider, onUndeliverable } = make({
+      reply: '{"ok":false,"error_code":"env_not_ready","detail":"电脑已锁屏"}',
+    })
+    onUndeliverable.mockImplementation(() => {
+      throw new Error('db 炸了')
+    })
+    const res = await provider.sendText({ to: 'wxid_loop', text: '在的' })
+    expect(res.ok).toBe(false)
+    expect(res.errorCode).toBe('CHANNEL_NOT_CONNECTED')
   })
 
   it('工具只做了演练（ok:true 但 dry_run 不是 false）绝不算发出去', async () => {

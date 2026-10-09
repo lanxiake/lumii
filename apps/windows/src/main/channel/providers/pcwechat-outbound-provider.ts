@@ -46,6 +46,14 @@ export interface PcwechatProviderDeps {
   isMcpConnected: () => boolean
   /** 直接调 MCP 工具（主进程内，不经 Agent 回合） */
   callMcpTool: (server: string, tool: string, args: Record<string, unknown>) => Promise<string>
+  /**
+   * 「此刻发不出去」（`env_not_ready`：**电脑锁屏** / 微信窗口拿不到前台）时，把这条
+   * 投进待补发队列，等那双手回来了由盯梢回路补发（见 `wechat-watch-tick.ts`）。
+   *
+   * 为什么生产者在**这一层**：只有这里拿得到工具的错误码——"内容不对"（名单外/找不到会话）
+   * 与"环境够不着"必须分得开，前者重试一万次也没用，后者重试就能成功。
+   */
+  onUndeliverable?: (to: string, text: string) => void
 }
 
 export class PcwechatChannelProvider implements IChannelOutboundProvider {
@@ -129,6 +137,16 @@ export class PcwechatChannelProvider implements IChannelOutboundProvider {
       return fail('UPSTREAM_ERROR', '发送工具只做了演练（dry_run=true），并没有真发出去——不要按"已发送"上报')
     }
     if (!out.ok) {
+      if (out.error_code === 'env_not_ready') {
+        // 内容没问题，只是此刻那双手不在（锁屏 / 窗口抢不到前台）——**排队等门开**，
+        // 别让调用方（代聊）误判成"发错了"而去改内容或转人工。
+        // 队列本身出问题也不能改写这次失败的判定，故吞掉异常
+        try {
+          this.deps.onUndeliverable?.(to, text)
+        } catch {
+          /* 排队失败不影响这次 send 的结论 */
+        }
+      }
       return fail(
         mapErrorCode(out.error_code),
         [out.detail, out.suggestion].filter(Boolean).join(' ') || '本机微信发送失败',

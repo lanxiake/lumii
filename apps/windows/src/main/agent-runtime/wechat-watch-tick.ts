@@ -614,6 +614,68 @@ export function watchConversationTitleFor(name: string | undefined, peer: string
   return `本机微信 · ${display}`
 }
 
+/** 画像巡检的间隔：空闲拍上给名单里**还没有画像**的人补一张（一轮一个，不是批量刷） */
+export const PROFILE_SWEEP_INTERVAL_MS = 30 * 60_000
+const KV_KEY_PROFILE_SWEEP = 'wechat_watch_profile_sweep'
+
+/**
+ * `wechat_profile_get`（不给 scope）返回的 `files`（相对路径）→ 已有的 scope 列表。
+ *
+ * `contacts/<scope>.md` 是某个联系人的画像、`self.md` 是用户自己的（scope=self，
+ * 不是"某人"）。只认这两种形状，认不出的文件忽略——枚举目录是别人的自由。
+ */
+export function profileScopesFromFiles(files: unknown): string[] {
+  if (!Array.isArray(files)) return []
+  const out: string[] = []
+  for (const f of files) {
+    if (typeof f !== 'string') continue
+    const m = /^contacts[/\\](.+)\.md$/.exec(f.trim())
+    if (m) out.push(m[1]!)
+  }
+  return out
+}
+
+/**
+ * 本拍该给谁补画像：名单里（非 ignore）**第一**个还没有画像的。
+ *
+ * 为什么只取一个：「补齐所有人的画像」不是一次突发任务——每轮一个，模型每轮只付一次
+ * 蒸馏的代价，也不会一开机就把端点打满（见 shared-model-endpoint-concurrency 那笔账）。
+ */
+export function pickProfileSweepTarget(
+  peers: readonly { id: string; label?: string; mode: WatchMode }[],
+  knownScopes: readonly string[],
+): { id: string; label?: string } | undefined {
+  const known = new Set(knownScopes)
+  for (const p of peers) {
+    if (!p.id || p.mode === 'ignore') continue
+    // 名单里的人名条目（还没自愈成 wxid）也会被当成 talker 试一次；对不上就在下一拍换成
+    // 真正的条目——巡检是**机会性**的，不必为它加一套解析
+    if (!known.has(p.id) && !(p.label && known.has(p.label))) return { id: p.id, label: p.label }
+  }
+  return undefined
+}
+
+/**
+ * 让代聊给某人**建画像**的本轮指令（后台巡检用）。
+ *
+ * 三条都不能省：① 指明只做一件事；② 步骤指向 Agent 自己那份工作流（不在这里复述，
+ * 免得两处口径漂移）；③ **明确不许发微信**——巡检轮没有"新消息要回"，
+ * 但代聊的 systemPrompt 是鼓励回话的，不写死这一条就可能给人家凭空发一句。
+ */
+export function buildProfileSweepPrompt(name: string | undefined, peer: string): string {
+  return [
+    `【画像巡检】本轮**只做一件事**：给「${name || peer}」（talker=${peer}）建一份画像，`,
+    '放进本机 `~/.lumii/wechat-distill/`。',
+    '',
+    '步骤按你 systemPrompt 里【Lumii 预设的工作流】第 2 条走：`wechat_digest`（talker 传上面那个）',
+    '拿统计与样本 → 写成 ≤250 字的画像卡 → `wechat_profile_save` → `wechat_distill_state(action="set")` 记水位。',
+    '',
+    '⚠️ 这是**后台巡检**：本轮**不要给微信里的任何人发消息**（没有新消息要回，也不要用',
+    '`channel_send` 去打招呼）。做完用 task_complete 汇报一句「已建画像」或「样本不足」。',
+  ].join('\n')
+}
+
+
 /** 只在这拍恰好涉及一个会话时给出跳转目标（涉及多个就没法替用户挑一个） */
 function soleConvId(ids: ReadonlySet<string>): string | undefined {
   return ids.size === 1 ? [...ids][0] : undefined
@@ -648,6 +710,214 @@ function writeCooldowns(db: DatabaseAdapter, map: Record<string, number>): void 
 
 /** 上一次因"手册文件 ≠ Agent 里那份"报过的内容（同一条只报一次，别每 15 秒刷屏） */
 let lastDriftWarned: string | null = null
+
+function readKvNumber(db: DatabaseAdapter, key: string): number {
+  try {
+    const row = db
+      .prepare<{ value: string }>(`SELECT value FROM runtime_state WHERE key = ?`)
+      .get(key) as { value: string } | undefined
+    const n = Number(row?.value)
+    return Number.isFinite(n) ? n : 0
+  } catch {
+    return 0
+  }
+}
+
+function writeKvNumber(db: DatabaseAdapter, key: string, value: number): void {
+  try {
+    db.prepare(`INSERT OR REPLACE INTO runtime_state (key, value, updated_at) VALUES (?, ?, ?)`).run(
+      key,
+      String(value),
+      new Date().toISOString(),
+    )
+  } catch (err) {
+    log.warn(`[wechat-watch] ${key} 写入失败:`, err)
+  }
+}
+
+/**
+ * 待补发的出站（**发送门暂时够不着**：电脑锁屏 / 微信窗口拿不到前台）。
+ *
+ * 为什么要有它：`channel_send` 失败分两类——「内容不对」（名单外、找不到会话）与
+ * 「此刻发不出去」（环境够不着）。后者**内容是对的**，只是那双手暂时不在（锁屏时
+ * 输入桌面是 Winlogon，普通进程的 SendInput/keybd_event 到不了微信）。原先没有这条队列，
+ * 这类失败只能靠人——回路写 pending.txt、转人工、还让用户去点/拖窗口，一锁屏就全卡住。
+ *
+ * 分工：**渠道 Provider 是唯一的生产者**（它才看得见 `env_not_ready` 这个判定，
+ * 见 `pcwechat-outbound-provider.ts`），**本回路是唯一的消费者**（它才每 15 秒跑一次、
+ * 且这一步不需要模型）。补发时**直接调 `send_text`**：这些文本已经过完白名单校验、
+ * 只差"手"那一步，重跑一遍模型回合既贵又可能换成另一句话——要发的就是当初那一句。
+ */
+const KV_KEY_OUTBOX = 'wechat_watch_outbox'
+/** 上一回尝试补发的时刻（门关着时别每 15 秒去撞一次） */
+const KV_KEY_OUTBOX_TRY = 'wechat_watch_outbox_try'
+const OUTBOX_RETRY_MS = 60_000
+/** 队列上限：锁一整天也最多攒这么多，超了丢最早的（迟到太久的问候不如不发） */
+const OUTBOX_MAX = 20
+/** 超过这个岁数就不再补发：几十分钟前的「早」发出去比不发更怪 */
+const OUTBOX_TTL_MS = 30 * 60_000
+
+export interface WechatOutboxItem {
+  peer: string
+  text: string
+  /** 入队时刻（ms），仅用于排空顺序与日志 */
+  at: number
+}
+
+export function readWechatOutbox(db: DatabaseAdapter): WechatOutboxItem[] {
+  try {
+    const row = db
+      .prepare<{ value: string }>(`SELECT value FROM runtime_state WHERE key = ?`)
+      .get(KV_KEY_OUTBOX) as { value: string } | undefined
+    const arr = JSON.parse(row?.value ?? '[]')
+    if (!Array.isArray(arr)) return []
+    return arr.filter(
+      (x): x is WechatOutboxItem =>
+        !!x && typeof x.peer === 'string' && typeof x.text === 'string' && !!x.peer && !!x.text,
+    )
+  } catch {
+    return []
+  }
+}
+
+function writeWechatOutbox(db: DatabaseAdapter, items: readonly WechatOutboxItem[]): void {
+  try {
+    db.prepare(`INSERT OR REPLACE INTO runtime_state (key, value, updated_at) VALUES (?, ?, ?)`).run(
+      KV_KEY_OUTBOX,
+      JSON.stringify(items),
+      new Date().toISOString(),
+    )
+  } catch (err) {
+    log.warn('[wechat-watch] 待补发队列写入失败:', err)
+  }
+}
+
+/**
+ * 投递一条待补发（渠道 Provider 在 `env_not_ready` 时调）。
+ *
+ * 同一 (peer, text) 只留一条：回路重试/模型重述都可能送进同一句，队列不该因此变长。
+ */
+export function enqueueWechatOutbox(db: DatabaseAdapter, peer: string, text: string): void {
+  const bare = text.trim()
+  if (!peer || !bare) return
+  const cur = readWechatOutbox(db)
+  if (cur.some((x) => x.peer === peer && x.text === bare)) return
+  const next = [...cur, { peer, text: bare, at: Date.now() }].slice(-OUTBOX_MAX)
+  writeWechatOutbox(db, next)
+  log.info(`[wechat-watch] 发送门暂不可用，已排队待补发：${peer}（队列 ${next.length} 条）`)
+}
+
+/**
+ * 把排队中的补发**按顺序**送出去（零模型）。门还关着就停下、留到下一拍。
+ *
+ * 送之前每条都先 `read_history(limit=1)` 复核：**末条是本人发的就不再补**——
+ * 期间用户自己（或在别处）已经回过话了，这时候再把几十分钟前的草稿发出去只会更怪。
+ */
+async function flushWechatOutbox(
+  deps: WechatWatchDeps,
+  nowMs: number,
+): Promise<string> {
+  try {
+    const db = deps.getDb()
+    let queue = readWechatOutbox(db)
+    if (queue.length === 0) return ''
+    // 先扔掉过期的：锁一下午醒来再补「早上好」不如不补，也免得解禁那一刻一次倒出几十条
+    const kept = queue.filter((x) => nowMs - x.at <= OUTBOX_TTL_MS)
+    if (kept.length !== queue.length) {
+      log.info(`[wechat-watch] 丢弃 ${queue.length - kept.length} 条过期待补发`)
+      queue = kept
+      writeWechatOutbox(db, queue)
+    }
+    if (queue.length === 0) return ''
+    if (nowMs - readKvNumber(db, KV_KEY_OUTBOX_TRY) < OUTBOX_RETRY_MS) return ''
+    writeKvNumber(db, KV_KEY_OUTBOX_TRY, nowMs) // 先记：门关着时这一撞的代价是完整的 bring_to_front
+    let sent = 0
+    for (const item of queue) {
+      let lastFromMe = false
+      try {
+        const raw = await deps.callMcpTool(WECHAT_WATCH_MCP_SERVER, 'read_history', {
+          talker: item.peer,
+          limit: 1,
+        })
+        const msgs = (JSON.parse(raw) as { messages?: { from_me?: boolean }[] }).messages
+        lastFromMe = msgs?.[msgs.length - 1]?.from_me === true
+      } catch {
+        lastFromMe = false // 读不到就不拦（宁可迟到，不可丢）
+      }
+      if (lastFromMe) {
+        log.info(`[wechat-watch] 补发作废（本人已回过话）：${item.peer}`)
+        queue = queue.filter((x) => x !== item)
+        writeWechatOutbox(db, queue)
+        continue
+      }
+      const out = await deps.callMcpTool(WECHAT_WATCH_MCP_SERVER, 'send_text', {
+        talker: item.peer,
+        text: item.text,
+        dry_run: false,
+      })
+      const ok = (JSON.parse(out) as { ok?: boolean }).ok === true
+      if (!ok) {
+        // 门还关着（或这条本身发不出去了）：停在这里，剩下的下一拍再试，绝不重复发
+        log.info(`[wechat-watch] 补发未成功，留队下一拍：${item.peer}`)
+        break
+      }
+      sent += 1
+      queue = queue.filter((x) => x !== item)
+      writeWechatOutbox(db, queue)
+      log.info(`[wechat-watch] 补发成功：${item.peer} → ${item.text.slice(0, 40)}`)
+    }
+    return sent > 0 ? `补发 ${sent} 条` : ''
+  } catch (err) {
+    log.warn('[wechat-watch] 补发失败（不影响本拍）:', err)
+    return ''
+  }
+}
+
+/**
+ * 空闲拍上的**画像巡检**：名单里还有人没有画像时，让代聊去建一份（一轮一个）。
+ *
+ * 为什么要有它：画像本来是「来消息 → 提示词里写着缺哪份 → 模型顺手建」自然长出来的，
+ * 但那**依赖模型每一轮都照做**——漏一次就永久缺着，而缺画像恰恰是代聊口吻最不像的时候。
+ * 这里是**兜底**：不依赖模型自觉，由回路按名单把它点出来。只在**没有新消息**的拍上跑，
+ * 绝不和新消息抢这一轮。
+ *
+ * 返回一句放进任务页摘要的话（没做事就是空串）。
+ */
+async function maybeDistillProfiles(
+  deps: WechatWatchDeps,
+  peers: readonly { id: string; label?: string; mode: WatchMode }[],
+  nowMs: number,
+): Promise<string> {
+  if (!deps.driveTurn) return ''
+  try {
+    const db = deps.getDb()
+    if (nowMs - readKvNumber(db, KV_KEY_PROFILE_SWEEP) < PROFILE_SWEEP_INTERVAL_MS) return ''
+    // 读一次已有画像：读不到（MCP 没连/返回怪形状）就**什么都别做**——
+    // 拿不到清单时"以为缺"会变成每隔半小时空跑一轮模型
+    const raw = await deps.callMcpTool(WECHAT_WATCH_MCP_SERVER, 'wechat_profile_get', {})
+    const files = (JSON.parse(raw) as { files?: unknown }).files
+    if (!Array.isArray(files)) return ''
+    writeKvNumber(db, KV_KEY_PROFILE_SWEEP, nowMs) // 先记一拍：失败也不要在 15 秒后重来
+    const target = pickProfileSweepTarget(peers, profileScopesFromFiles(files))
+    if (!target) return ''
+    const peer = target.id
+    const name = target.label
+    const result = await deps.driveTurn(buildProfileSweepPrompt(name, peer), {
+      peer,
+      convId: watchConversationIdFor(peer),
+      title: watchConversationTitleFor(name, peer),
+      mode: 'auto',
+      incoming: [],
+    })
+    log.info(
+      `[wechat-watch] 画像巡检·${name || peer}：${String(result).slice(0, 120)}`,
+    )
+    return `画像巡检·${name || peer}`
+  } catch (err) {
+    log.warn('[wechat-watch] 画像巡检失败（不影响本拍）:', err)
+    return ''
+  }
+}
 
 /**
  * 跑一拍。返回一句给 `cron_runs` 的摘要（任务页的「最近执行」能看到）。
@@ -693,7 +963,13 @@ export async function runWechatWatch(deps: WechatWatchDeps): Promise<string> {
     const fresh = selectNewMessages(messages, policy)
     pruneOwnRuns(db)
     if (fresh.length === 0) {
-      return messages.length > 0 ? `新消息 ${messages.length} 条（均被过滤，不报）` : '无新消息'
+      // 空闲拍：先把锁屏/抢不到前台时积压的送出去（见 flushWechatOutbox），
+      // 再给名单里还没有画像的人补一张（见 maybeDistillProfiles）。
+      // 两件都只在空闲拍做——有活回合时它们会跟这一轮抢那双手和那个端点。
+      const flushed = await flushWechatOutbox(deps, nowMs)
+      const swept = await maybeDistillProfiles(deps, policy.peers, nowMs)
+      const base = messages.length > 0 ? `新消息 ${messages.length} 条（均被过滤，不报）` : '无新消息'
+      return [base, flushed, swept].filter(Boolean).join('｜')
     }
 
     // 同一会话这拍里的多条合并成一次动作（一条消息一个回合会太吵，也浪费）

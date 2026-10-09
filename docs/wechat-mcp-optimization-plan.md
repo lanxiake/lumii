@@ -1,6 +1,9 @@
 # 微信消息实时监控与交互优化方案
 
-> **状态（2026-10-08 更新）**
+> **状态（2026-10-09 更新）**
+> - **锁屏自愈**：已落地（见 [§3.5](#35-锁屏自愈2026-10-09)）。锁屏时 `SendInput` 到不了微信是
+>   Windows 的安全设计，改不了；能做的是**不丢**——发送门够不着的那条回复进待补发队列，
+>   解锁后由盯梢回路零 token 自动补发。
 > - **P0-A 路径发现**：已落地（`25a35ea3`）。
 > - **P0-B 发送链路**：已落地（`25a35ea3` 重试与错误码、`d6bb59be` 三处根因修复）——实现方案与本节
 >   原稿不同，见 [§2.2](#22-p0-b-发送链路已完成方案改写)。
@@ -99,7 +102,8 @@
 | `input_not_landed` / `send_unconfirmed` / `attachment_not_landed` | ✅ | 消息**没发出去**，且发送层每次都会先 Ctrl+A/Del 清空输入框 → 重来不会粘两遍 |
 | `busy` / `clipboard_failed` / `verification_failed` | ✅ | 锁竞争 / 剪贴板偶发占用 / OCR 抖动，都属临时性 |
 | **`send_not_confirmed`**（已回车、库里没看到） | ❌ **绝不** | 语义存疑：可能真发出去了、只是还没落库——重试就是给好友发第二遍 |
-| `env_not_ready` / `target_unconfirmed` / `quote_not_found` / `menu_not_found` / `bad_args` / `attachment_missing` | ❌ | 重试也不会好，交给 Agent 改参数或请用户处理 |
+| `env_not_ready` | ❌ 重试，但**要排队** | 分两类：**锁屏 / 抢不到前台**＝「此刻发不出去」，硬件/桌面暂时够不着，解锁后会好 ⇒ 由出站 provider 投进待补发队列（§3.5）；**窗口被挪走**一类的环境问题也归这里，同样不该让 Agent 反复重试 |
+| `target_unconfirmed` / `quote_not_found` / `menu_not_found` / `bad_args` / `attachment_missing` | ❌ | 重试也不会好，交给 Agent 改参数或请用户处理 |
 
 失败时返回 `suggestion`（可操作修复建议）+ `shot`（现场截图路径）。
 
@@ -304,7 +308,7 @@ auto 档新消息 → 回复延迟 ≈ 回合时长 + 发送（秒级）；不�
 不是为微信特设——这是把 M3 从"重构"变成"新能力"的关键。
 
 **同一轮要补的工程缺口**（已知、未做）：
-- python 侧 `test_watch.py`（12 例）未接入 CI（CI 只跑 vitest）；
+- python 侧 `test_watch.py`（27 例）未接入 CI（CI 只跑 vitest）；
 - 「窗口最小化时不能发」挡住了远程（飞书）回话——要不要让发送自动还原窗口，属产品决策；
 - 主进程争用（73s 的 `app_screenshot`、cloud-sync 导出周期）会拖慢盯梢的某一拍（下一拍补上，不丢消息）。
 
@@ -315,6 +319,40 @@ auto 档新消息 → 回复延迟 ≈ 回合时长 + 发送（秒级）；不�
 现修法：`wechat-watch` 归入 `SYSTEM_EXACT_IDS` + `isReseededCronJob`（→ 系统任务组、无删除入口），
 UI 对 `reseeded` 任务隐藏编辑按钮，`handleCronUpdate` 再加一道闸**只挡身份字段**
 （`taskText`/`agentId`/`scheduleType`/`scheduleExpr`）——**启停走同一个接口，必须放行**（任务页暂停是受支持的操作）。
+
+---
+
+### 3.5 锁屏自愈（2026-10-09）
+
+**先纠正一个口径。** 「锁屏发不出去」曾被当成「窗口尺寸不对」，代聊因此写下
+「请把微信主窗口拖大到 1280x820」——**那是错的**，而且是对用户的纯打扰（锁屏时他本来
+也没法动窗口）。实测：那个 296×388 的 hwnd 早已不存在；当前窗口 `bring_to_front` 一次成功、
+`send_text(dry_run=True)` 返回 ok。
+
+**真相**：锁屏时 Windows 把**输入桌面**切到 `Winlogon`，`SendInput` / `keybd_event` /
+`SetForegroundWindow` 一律够不着——窗口的 `visible` / `minimized` 看上去**全绿**，
+`check_env().ok` 也照报 true。这是「此刻发不出去」，与窗口大小无关，也**没法绕过**（这正是它的设计目的）。
+
+**所以做两件事：认出它、不丢它。**
+
+1. **认出**（`wechat_sender.py`）：`session_locked()` 用 `OpenInputDesktop` +
+   `GetUserObjectInformationW(UOI_NAME)` 读**输入桌面名**——`Default` = 正常，`Winlogon` = 锁屏。
+   `check_env()` 多一个 `locked` 字段并在 reason 里排最前；`Win.__enter__` 里
+   `bring_to_front` 失败时先问是不是锁屏，好把「锁屏」和「窗口真被压住了」分开报。
+   （`server.py` 的 `env_not_ready` 修复建议同步：锁屏是死路，明确**不要叫人去点窗口**。）
+2. **不丢**（`pcwechat-outbound-provider.ts` → `wechat-watch-tick.ts`）：出站 provider 是**唯一**
+   看得见 `error_code` 的地方，因此由它当生产者——`env_not_ready` 就调 `onUndeliverable`，
+   把这条 `(peer, text)` 塞进 `runtime_state` 的 `wechat_watch_outbox` 队列；盯梢回路是唯一消费者，
+   **只走空闲拍**（不与活回合抢那双手），每 60s 至多试一次，逐条 `send_text(dry_run:false)`
+   **原样重发**。三条护栏：TTL 30 分钟（过期丢弃，别把隔夜话翻出来发）、队列上限 20、
+   发之前先 `read_history(limit=1)`——末条已是 `from_me` 就当已发出、作废丢弃（宁可少发不重复发）。
+   补发结果并进那拍的 `result` 文本（`补发 N 条`），日志 `[wechat-watch] 补发 …`。
+
+代聊 Agent 的 `relayOwnedSection` 同步改了口径：拿到 `env_not_ready` 时**本轮到此为止**，
+不要点/拖/最大化窗口、不要自己写 pending 文件、不要转人工、更不要叫用户去动窗口。
+
+> 未实测：真·锁屏下的 `session_locked() == True`（需要一个真人把机器锁上）。
+> 目前只有 `test_watch.py` G 层用打桩的输入桌面名覆盖这条分支。
 
 ---
 
@@ -341,9 +379,11 @@ UI 对 `reseeded` 任务隐藏编辑按钮，`handleCronUpdate` 再加一道闸*
 | 4 | 发送闸门自恢复：主窗口最小化 ⇒ 恢复一次再复检（不再"看着在跑、一条没发"） | ✅ | 本轮 |
 | 4 | 预设工作流写进代聊 Agent（程序维护分区，追加式升级不覆盖用户改动） | ✅ | 本轮 |
 | 4 | 每轮自动注入本地蒸馏画像 + 缺画像时明说「还没有/已过期」 | ✅ | 本轮 |
+| 4 | **锁屏自愈**：`check_env` 报 `locked`，够不着的那条回复排队、解锁后自动补发（§3.5） | ✅ | 本轮 |
+| 4 | 真·锁屏下的端到端验证（需要真人把机器锁上；目前只有 G 层打桩） | ⏳ | §3.5 |
 | 4 | M3 收尾：入站 adapter（现在仍走盯梢旁路） | ⏳ | §3.4 |
 | 4 | 监控面板 UI（盯哪些人、开关、最近事件） | ⏳ | — |
-| — | python 测试接入 CI（`test_watch.py` 22 例，含 E 层目标校验证据强度 / F 层发送闸门） | ⏳ | §3.4 |
+| — | python 测试接入 CI（`test_watch.py` 27 例，含 E 层目标校验证据强度 / F 层发送闸门 / G 层锁屏识别） | ⏳ | §3.4 |
 | — | ~~COM Interop~~ / ~~WAL 帧解析~~ / ~~watchdog 进程~~ | ❌ 作废 | §3.2 |
 
 ---
@@ -390,7 +430,7 @@ printf '<initialize 行>\n<tools/call 行>\n' | python server.py
 | `wechat_sender.py` | 发送（布局 + 剪贴板粘贴 + 回读 + 读库确认） |
 | `server.py` | MCP 入口 + 工具描述 + `_code_of` 码表 + `_send_with_retry` |
 | `devcli.py` | 自检命令行（`selftest` / `watch` / `sessions` / `history` / `send` / `digest` …） |
-| `test_watch.py` | 实时读取的离线回归（A/B/C 三层，10 例） |
+| `test_watch.py` | 实时读取的离线回归（A/B/C 六层… A/B/C/E/F/G，27 例） |
 
 - 护栏常量：`_plain` 的陈旧判据（`dbsize >= 主库页数`）、`_incr` 的 `quick_check`、`_send_with_retry` 的
   `RETRIABLE_CODES` / `NON_RETRIABLE_CODES`。

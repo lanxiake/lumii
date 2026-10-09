@@ -180,6 +180,7 @@ import { ensurePetSensingCronJobSeeded, runPetSensing } from './pet-sensing-tick
 import {
   ensureWechatWatchCronJobSeeded,
   formatIncomingForHistory,
+  enqueueWechatOutbox,
   formatWechatProfiles,
   loadInstructions,
   loadWechatWatchConfig,
@@ -1968,7 +1969,8 @@ export class AgentRuntimeBridge {
       this.appendIncomingWatchMessages(meta)
       // 草稿档「只起草、不发送」在历史里看不出来（草稿长得跟真发出的回复一样），
       // 补一条**不落库**的界面提示；代回档不必——回复本身就是结果。
-      if (meta.mode === 'draft') {
+      // 带 `incoming` 才提示：画像巡检那类回合没有"对方发来的消息"，说"这条只起草"是错的。
+      if (meta.mode === 'draft' && meta.incoming.length > 0) {
         this.notifyIncomingMessage(meta.convId, '【微信草稿】这条只起草、不发送——你说「发」才发')
       }
     } catch (err) {
@@ -3566,6 +3568,16 @@ export class AgentRuntimeBridge {
    * （2026-09-20 Linux 实测：`app.exit(0)` 后仍在重连，GPU watchdog 报 FATAL）。
    */
   stopMcpServers(): Promise<void> { return this.mcpManager.disconnectAll() }
+
+  /**
+   * 把一条「此刻发不出去」的微信出站投进待补发队列（盯梢回路下一拍补发）。
+   *
+   * 装配处（`index.ts` 的渠道 Hub）拿不到本地库，而队列就住在 `runtime_state` 里；
+   * 与 `callMcpTool` 同一层——把 bridge 的一小块能力借出去，不开放 `localDb`。
+   */
+  enqueueWechatOutbox(to: string, text: string): void {
+    enqueueWechatOutbox(this.localDb.db, to, text)
+  }
 
   getMcpConfigError(): string | null { return this.mcpManager.getConfigError() }
 

@@ -296,13 +296,42 @@ def bring_to_front(h, tries=3):
     return int(u.GetForegroundWindow()) == h
 
 
+DESKTOP_READOBJECTS = 0x0001
+
+
+def session_locked():
+    """工作站的**输入桌面**是不是 Winlogon（= 电脑锁屏）。
+
+    为什么要单独判它：`SendInput`/`keybd_event`/`SetForegroundWindow` 只作用于**输入桌面**，
+    锁屏时输入桌面是安全的 Winlogon 桌面，普通用户态进程够不着——于是锁屏期间**任何**
+    模拟键鼠都发不到微信，跟窗口大小、前台与否都无关。早先把这种现象一律报成
+    「窗口规范化失败 / 切不到前台」，让人去拖窗口、点窗口，白折腾（2026-10-09 实测）。
+    分清「锁屏」与「窗口没在前台」，调用方才知道该"等"还是该"修"。
+    """
+    try:
+        h = u.OpenInputDesktop(0, False, DESKTOP_READOBJECTS)
+        if not h:
+            return True
+        try:
+            buf = ctypes.create_unicode_buffer(256)
+            need = ctypes.c_ulong()
+            # UOI_NAME = 2；正常桌面叫 "Default"，锁屏/安全桌面叫 "Winlogon"
+            if u.GetUserObjectInformationW(h, 2, buf, ctypes.sizeof(buf), ctypes.byref(need)):
+                return buf.value.strip().lower() != "default"
+            return False
+        finally:
+            u.CloseDesktop(h)
+    except Exception:
+        return False
+
+
 def check_env():
     """操作前置检查：微信是否运行 / 主窗口 / 可见 / 已最小化 / 是否前台 / 尺寸·比例 / DPI。
 
     「验证完成再进行操作」——任何 UI 操作前先跑这个，`ok=False` 就绝不动作。
     """
     info = {"weixin_running": False, "pids": [], "hwnd": 0, "visible": False, "minimized": False,
-            "foreground": False, "rect": None, "size": None, "ratio": None, "dpi": None,
+            "foreground": False, "locked": False, "rect": None, "size": None, "ratio": None, "dpi": None,
             "target_size": [NW, NH], "ok": False, "reason": "", "deps": core.deps()}
     try:                      # 多账号：报告本机账号与当前使用的账号（P2-6）
         info["accounts"] = [a["wxid"] for a in core.list_accounts()]
@@ -312,6 +341,7 @@ def check_env():
     pids = weixin_pids()
     info["weixin_running"] = bool(pids)
     info["pids"] = pids
+    info["locked"] = session_locked()
     h = find_main_hwnd()
     if not h:
         info["reason"] = ("微信进程在运行，但找不到可见主窗口（可能最小化到托盘或未登录）"
@@ -329,7 +359,10 @@ def check_env():
         info["dpi"] = int(u.GetDpiForWindow(ctypes.c_void_p(h)))
     except Exception:
         info["dpi"] = None
-    if not info["visible"]:
+    if info["locked"]:
+        # 最具体的原因先说：锁屏时窗口状态全是"正常"，但一条也发不出去
+        info["reason"] = "电脑已锁屏（锁屏期间模拟键鼠到不了微信；解锁后发送门自己会恢复）"
+    elif not info["visible"]:
         info["reason"] = "主窗口不可见（可能已隐藏到托盘）"
     elif info["minimized"]:
         info["reason"] = "主窗口已最小化"
@@ -381,6 +414,9 @@ class Win:
         self.h = st["hwnd"]
         self.orig = tuple(st["rect"])
         if not bring_to_front(self.h):
+            if session_locked():
+                # 锁屏时拿不到前台是**必然**的，不是"窗口有问题"——说清楚，别让人去点窗口
+                raise RuntimeError("电脑已锁屏：锁屏期间无法模拟键鼠（解锁后会自动补发）")
             raise RuntimeError("微信窗口切不到前台（自动化要求窗口可见且在前台）")
         u.MoveWindow(ctypes.c_void_p(self.h), NX, NY, NW, NH, True)
         time.sleep(0.9)

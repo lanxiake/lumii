@@ -1703,6 +1703,9 @@ async function initialize(): Promise<void> {
             if (!agentRuntimeBridge) throw new Error('Agent Runtime 尚未就绪，无法调用 MCP 工具')
             return agentRuntimeBridge.callMcpTool(server, tool, args)
           },
+          // 「此刻发不出去」（锁屏 / 窗口抢不到前台）：排队，盯梢回路下一拍自己补发。
+          // 没有这条，锁屏期间的回复就只能靠人——见 wechat-watch-tick.ts 的 flushWechatOutbox
+          onUndeliverable: (to, text) => agentRuntimeBridge?.enqueueWechatOutbox(to, text),
         },
         dataRoot: resolveWindowsClientDataRoot(),
         weixinStore: weixinReplyContextStore,

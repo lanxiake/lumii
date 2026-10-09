@@ -21,10 +21,15 @@ import {
   ensureWechatWatchCronJobSeeded,
   formatIncomingForHistory,
   formatWechatNotice,
+  buildProfileSweepPrompt,
+  enqueueWechatOutbox,
   formatWechatProfiles,
   loadInstructions,
   parseWechatWatchConfig,
+  pickProfileSweepTarget,
   policyFromWatchConfig,
+  profileScopesFromFiles,
+  readWechatOutbox,
   resolveWorkspacePath,
   runWechatWatch,
   selectNewMessages,
@@ -54,11 +59,14 @@ function fakeDb(initial: Record<string, string> = {}) {
 
 function deps(over: Partial<WechatWatchDeps> = {}) {
   const { db, kv } = fakeDb()
-  const callMcpTool = vi.fn(async () => JSON.stringify({ count: 0, messages: [], next_since_ts: 2000 }))
+  // 形参写全（server/tool），`mockImplementation` 才按工具分流；契约类型只声明了 0 参，故断言一次
+  const callMcpTool = vi.fn(async (_server: string, _tool: string) =>
+    JSON.stringify({ count: 0, messages: [], next_since_ts: 2000 }),
+  )
   const showNotification = vi.fn()
   const d: WechatWatchDeps = {
     getDb: () => db,
-    callMcpTool,
+    callMcpTool: callMcpTool as unknown as WechatWatchDeps['callMcpTool'],
     showNotification,
     configPath: 'NUL',
     nowMs: () => 1_800_000,
@@ -625,6 +633,216 @@ describe('formatWechatProfiles（代聊每轮注入的画像前缀）', () => {
 
   it('没给 whenMissing 的缺失项安静跳过（MCP 没连上时不误导模型去重建）', () => {
     expect(formatWechatProfiles([{ label: '关于这个人', content: '' }])).toBe('')
+  })
+})
+
+/**
+ * 锁屏/抢不到前台时的那条队列。
+ *
+ * 盯死三件事：**同一句只排一次**（回路重试不该把队列撑大）、**本人已回过话就不补**
+ * （几十分钟前的草稿发出去比不发更怪）、**门还关着就停手**（绝不重复发第二条）。
+ */
+describe('待补发队列（发送门够不着时排队，门开了自动补发）', () => {
+  const cfgOutbox = parseWechatWatchConfig({
+    defaultMode: 'notify',
+    groups: [{ name: '好友', mode: 'auto', peers: ['Loop'] }],
+  })
+
+  /** poll_new 无新消息 + 按工具分流的 MCP 桩；`send` 决定发送门开没开 */
+  function outboxDeps(opts: { send?: (n: number) => string; lastFromMe?: boolean } = {}) {
+    const { d, callMcpTool, kv } = deps({ config: cfgOutbox, nowMs: () => Date.now() })
+    let sends = 0
+    callMcpTool.mockImplementation(async (_s: string, tool: string) => {
+      if (tool === 'read_history') {
+        return JSON.stringify({ messages: [{ from_me: opts.lastFromMe === true }] })
+      }
+      if (tool === 'send_text') {
+        sends += 1
+        return opts.send ? opts.send(sends) : JSON.stringify({ ok: true, dry_run: false })
+      }
+      return JSON.stringify({ count: 0, messages: [], next_since_ts: 2000 })
+    })
+    return { d, callMcpTool, kv, sent: () => sends }
+  }
+
+  it('入队去重（同一 (peer, 文本) 只留一条）；空 peer / 空文本直接丢', () => {
+    const { db } = fakeDb()
+    const d = db as never
+    enqueueWechatOutbox(d, '', 'x')
+    enqueueWechatOutbox(d, 'wxid_a', '   ')
+    enqueueWechatOutbox(d, 'wxid_a', '早')
+    enqueueWechatOutbox(d, 'wxid_a', '早')
+    enqueueWechatOutbox(d, 'wxid_a', '九点零三分')
+    expect(readWechatOutbox(d).map((x) => x.text)).toEqual(['早', '九点零三分'])
+  })
+
+  it('空闲拍补发并清队；摘要里报补了几条', async () => {
+    const { d, kv, sent } = outboxDeps()
+    const db = d.getDb()
+    enqueueWechatOutbox(db, 'wxid_s6piyhfvptv522', '10月9号 周五')
+    const out = await runWechatWatch(d)
+    expect(out).toBe('无新消息｜补发 1 条')
+    expect(sent()).toBe(1)
+    expect(readWechatOutbox(db)).toEqual([])
+    expect(kv.get('wechat_watch_last_ts')).toBe('2000')
+  })
+
+  it('末条是本人发的 → 不补、直接丢弃（期间用户自己回过话了）', async () => {
+    const { d, sent } = outboxDeps({ lastFromMe: true })
+    const db = d.getDb()
+    enqueueWechatOutbox(db, 'wxid_s6piyhfvptv522', '10月9号 周五')
+    await runWechatWatch(d)
+    expect(sent()).toBe(0)
+    expect(readWechatOutbox(db)).toEqual([])
+  })
+
+  it('门还关着：留队、停手，不重复发第二条', async () => {
+    const { d, sent } = outboxDeps({
+      send: () => JSON.stringify({ ok: false, error_code: 'env_not_ready' }),
+    })
+    const db = d.getDb()
+    enqueueWechatOutbox(db, 'wxid_s6piyhfvptv522', '一')
+    enqueueWechatOutbox(db, 'wxid_7igswtmzj7nr22', '二')
+    const out = await runWechatWatch(d)
+    expect(sent()).toBe(1) // 撞了一次门就停，不把第二条也捅上去
+    expect(readWechatOutbox(db)).toHaveLength(2)
+    expect(out).toBe('无新消息')
+  })
+
+  it('补发有节流：连着两拍不会各撞一次门', async () => {
+    const { d, sent } = outboxDeps({
+      send: () => JSON.stringify({ ok: false, error_code: 'env_not_ready' }),
+    })
+    enqueueWechatOutbox(d.getDb(), 'wxid_s6piyhfvptv522', '一')
+    await runWechatWatch(d)
+    await runWechatWatch(d)
+    expect(sent()).toBe(1)
+  })
+
+  it('过期（>30 分钟）的不再补——迟到的问候不如不发', async () => {
+    const { d, callMcpTool, sent } = outboxDeps()
+    const db = d.getDb()
+    enqueueWechatOutbox(db, 'wxid_s6piyhfvptv522', '早')
+    const future = Date.now() + 31 * 60_000
+    const out = await runWechatWatch({ ...d, nowMs: () => future })
+    expect(out).toBe('无新消息')
+    expect(sent()).toBe(0)
+    expect(readWechatOutbox(db)).toEqual([])
+    // 全程只有本拍那次 poll_new：过期判定在**碰微信之前**，不该白读一次历史
+    expect(callMcpTool.mock.calls.map((c) => c[1])).toEqual(['poll_new'])
+  })
+
+  it('这一拍有活回合 → 不补发（不跟回合抢那双手）', async () => {
+    const { d, callMcpTool, sent } = outboxDeps()
+    const db = d.getDb()
+    enqueueWechatOutbox(db, 'wxid_s6piyhfvptv522', '早')
+    callMcpTool.mockImplementation(async (_s: string, tool: string) => {
+      if (tool === 'poll_new') {
+        return JSON.stringify({
+          count: 1,
+          messages: [{ ts: 1990, name: 'Loop', talker: 'wxid_s6piyhfvptv522', from_me: false, text: '在吗' }],
+          next_since_ts: 1990,
+        })
+      }
+      return JSON.stringify({ ok: true, dry_run: false })
+    })
+    // 名单里的人是 wxid_...，消息里是同一个 talker，会被 policy 命中 → 这一轮非空闲
+    await runWechatWatch({ ...d, driveTurn: undefined })
+    expect(sent()).toBe(0)
+    expect(readWechatOutbox(db)).toHaveLength(1)
+  })
+})
+
+describe('画像巡检（空闲拍给名单里的人补画像）', () => {
+  // 名单里就一个人（还只是显示名，没有 wxid），巡检的"谁缺画像"判断才有确定的答案
+  const cfgSweep = parseWechatWatchConfig({
+    defaultMode: 'notify',
+    groups: [{ name: '好友', mode: 'auto', peers: ['Loop'] }],
+  })
+  const files = (...scopes: string[]) => JSON.stringify({ dir: 'x', files: scopes.map((s) => `contacts/${s}.md`) })
+
+  it('只认 contacts/<scope>.md；self.md 不是"某个人"，认不出的忽略', () => {
+    expect(profileScopesFromFiles(['contacts/a.md', 'self.md', 'contacts/b.md', 'junk', 7])).toEqual([
+      'a',
+      'b',
+    ])
+    expect(profileScopesFromFiles(undefined)).toEqual([])
+  })
+
+  it('挑第一个没画像的；ignore 档不挑', () => {
+    const peers = [
+      { id: 'wxid_a', label: 'A', mode: 'auto' as const },
+      { id: 'wxid_b', label: 'B', mode: 'auto' as const },
+      { id: 'wxid_c', label: 'C', mode: 'ignore' as const },
+    ]
+    expect(pickProfileSweepTarget(peers, ['wxid_a'])).toEqual({ id: 'wxid_b', label: 'B' })
+    expect(pickProfileSweepTarget(peers, ['wxid_a', 'wxid_b'])).toBeUndefined()
+    // 显示名匹配也算「已有画像」（老配置是按名字写的，文件名却可能是 wxid）
+    expect(pickProfileSweepTarget(peers, ['A'])).toEqual({ id: 'wxid_b', label: 'B' })
+  })
+
+  it('提示词写死"别发微信"（代聊的 systemPrompt 是鼓励回话的，不写就可能凭空发一句）', () => {
+    const p = buildProfileSweepPrompt('韩玉', 'wxid_h')
+    expect(p).toContain('wechat_digest')
+    expect(p).toContain('不要给微信里的任何人发消息')
+    expect(p).toContain('wxid_h')
+  })
+
+  it('空闲拍驱动一轮巡检：给还没画像的那个人，且提示词里禁发消息', async () => {
+    const driveTurn = vi.fn(async () => '已建画像')
+    const { d, callMcpTool } = deps({ config: cfgSweep, driveTurn, nowMs: () => 1_800_000_000 })
+    callMcpTool.mockImplementation(async (_s: string, tool: string) =>
+      tool === 'wechat_profile_get'
+        ? files('wxid_loop')
+        : JSON.stringify({ messages: [], next_since_ts: 2000 }),
+    )
+    const out = await runWechatWatch(d)
+    expect(out).toContain('画像巡检')
+    expect(driveTurn).toHaveBeenCalledTimes(1)
+    const [prompt, meta] = driveTurn.mock.calls[0] as unknown as [
+      string,
+      { incoming: unknown[]; peer: string },
+    ]
+    expect(prompt).toContain('不要给微信里的任何人发消息')
+    expect(meta.incoming).toEqual([])
+    // 名单里那条是显示名「Loop」，已有画像的文件名是 wxid → 名字条目没对上，仍算"缺"
+    // （巡检是机会性的，不值得为它加一套"人名→wxid"解析；下一拍自愈后就对上了）
+    expect(meta.peer).toBe('Loop')
+  })
+
+  it('30 分钟节流：紧接着下一拍不再巡检（否则每 15 秒叫一轮模型）', async () => {
+    const driveTurn = vi.fn(async () => 'ok')
+    const { d, callMcpTool } = deps({ config: cfgSweep, driveTurn, nowMs: () => 1_800_000_000 })
+    callMcpTool.mockImplementation(async (_s: string, tool: string) =>
+      tool === 'wechat_profile_get' ? files('wxid_loop') : JSON.stringify({ messages: [], next_since_ts: 2000 }),
+    )
+    await runWechatWatch(d)
+    expect(driveTurn).toHaveBeenCalledTimes(1)
+    const out2 = await runWechatWatch(d)
+    expect(driveTurn).toHaveBeenCalledTimes(1)
+    expect(out2).toBe('无新消息')
+  })
+
+  it('画像清单读不到（MCP 没连/怪形状）→ 什么都不做，不空跑模型', async () => {
+    const driveTurn = vi.fn(async () => 'ok')
+    const { d, callMcpTool } = deps({ config: cfgSweep, driveTurn, nowMs: () => 1_800_000_000 })
+    callMcpTool.mockImplementation(async (_s: string, tool: string) =>
+      tool === 'wechat_profile_get' ? '{"error":"boom"}' : JSON.stringify({ messages: [], next_since_ts: 2000 }),
+    )
+    expect(await runWechatWatch(d)).toBe('无新消息')
+    expect(driveTurn).not.toHaveBeenCalled()
+  })
+
+  it('名单里人人都有画像 → 不驱动', async () => {
+    const driveTurn = vi.fn(async () => 'ok')
+    const { d, callMcpTool } = deps({ config: cfgSweep, driveTurn, nowMs: () => 1_800_000_000 })
+    callMcpTool.mockImplementation(async (_s: string, tool: string) =>
+      tool === 'wechat_profile_get'
+        ? files('Loop')
+        : JSON.stringify({ messages: [], next_since_ts: 2000 }),
+    )
+    expect(await runWechatWatch(d)).toBe('无新消息')
+    expect(driveTurn).not.toHaveBeenCalled()
   })
 })
 

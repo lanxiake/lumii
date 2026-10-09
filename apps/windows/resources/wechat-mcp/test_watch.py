@@ -710,6 +710,90 @@ def suite_F():
     return r
 
 
+def suite_G():
+    """G 层：锁屏识别（`session_locked`）——把「锁屏」与「窗口没在前台」分开。
+
+    为什么单开一层：锁屏期间输入桌面是安全的 Winlogon 桌面，`SendInput`/`keybd_event`/
+    `SetForegroundWindow` **一律够不着**，可窗口状态看上去全绿（visible、未最小化、
+    foreground 也可能是真）。不做这个判定就会把"锁屏"报成"窗口尺寸不对 / 切不到前台"，
+    让人白折腾着去拖窗口、点窗口（2026-10-09 实测，代聊就是这么误报的）。
+    这层钉：桌面名才是判据；锁屏时 `check_env` 必须 ok=False 且 reason 说清是锁屏；
+    `Win` 的前台失败也必须归因到锁屏，而不是"窗口有问题"。
+    """
+    import wechat_sender as snd
+    r = R("G 层：锁屏识别")
+
+    def with_stubs(mods, us, fn):
+        old_m = {k: getattr(snd, k) for k in mods}
+        old_u = {k: getattr(snd.u, k) for k in us}
+        for k, v in mods.items():
+            setattr(snd, k, v)
+        for k, v in us.items():
+            setattr(snd.u, k, v)
+        try:
+            return fn()
+        finally:
+            for k, v in old_m.items():
+                setattr(snd, k, v)
+            for k, v in old_u.items():
+                setattr(snd.u, k, v)
+
+    DESKTOP = {"OpenInputDesktop": None, "GetUserObjectInformationW": None, "CloseDesktop": None}
+
+    def fake_desktop(name, handle=0x1234):
+        def open_desktop(*_a):
+            return handle
+
+        def get_name(_h, _idx, buf, _size, _need):
+            buf.value = name
+            return True
+        return {"OpenInputDesktop": open_desktop, "GetUserObjectInformationW": get_name,
+                "CloseDesktop": lambda _h: True}
+
+    def g1():
+        st = fake_desktop("Winlogon")
+        assert with_stubs({}, {**DESKTOP, **st}, snd.session_locked) is True, "Winlogon 桌面=锁屏"
+    r.case("输入桌面是 Winlogon ⇒ 判为锁屏", g1)
+
+    def g2():
+        st = fake_desktop("Default")
+        assert with_stubs({}, {**DESKTOP, **st}, snd.session_locked) is False, "Default=没锁屏"
+    r.case("输入桌面是 Default ⇒ 没锁屏", g2)
+
+    def g3():
+        st = dict(DESKTOP, OpenInputDesktop=lambda *a: 0, CloseDesktop=lambda _h: True)
+        assert with_stubs({}, st, snd.session_locked) is True, "连输入桌面都打不开=锁屏"
+    r.case("OpenInputDesktop 失败 ⇒ 判为锁屏", g3)
+
+    WININFO = {"IsWindowVisible": lambda _h: True, "IsIconic": lambda _h: False,
+               "GetForegroundWindow": lambda: 199150, "GetDpiForWindow": lambda _h: 96}
+
+    def g4():
+        mods = {"weixin_pids": lambda: [1], "find_main_hwnd": lambda: 199150,
+                "session_locked": lambda: True, "win_rect": lambda _h: (0, 0, 1280, 820)}
+        info = with_stubs(mods, WININFO, snd.check_env)
+        assert info["locked"] is True, "check_env 要把 locked 报出来（否则调用方只能猜）"
+        assert info["ok"] is False, "锁屏时 ok 必须为 False——「能发吗」的答案是不能"
+        assert "锁屏" in info["reason"], f"reason 得说清是锁屏，别甩给窗口：{info['reason']}"
+    r.case("锁屏时 check_env：locked=true / ok=false / reason 点名锁屏", g4)
+
+    def g5():
+        mods = {"check_env": lambda: {"ok": True, "hwnd": 199150, "rect": (0, 0, 1280, 820),
+                                      "reason": ""},
+                "bring_to_front": lambda _h: False, "session_locked": lambda: True}
+        def run():
+            try:
+                snd.Win().__enter__()
+                raise AssertionError("拿不到前台还在锁屏，必须中止")
+            except RuntimeError as e:
+                assert "锁屏" in str(e), f"前台失败要归因到锁屏：{e}"
+                assert "尺寸" not in str(e), "别把锁屏说成尺寸问题"
+        with_stubs(mods, {}, run)
+    r.case("锁屏时前台失败 ⇒ 报「已锁屏」，不报尺寸/窗口", g5)
+
+    return r
+
+
 def main():
     try:
         import Crypto  # noqa: F401
@@ -721,7 +805,8 @@ def main():
     print("=" * 70)
     total_p = total_f = 0
     for suite, need_crypto in ((suite_A, True), (suite_B, False), (suite_C, False),
-                               (suite_D, False), (suite_E, False), (suite_F, False)):
+                               (suite_D, False), (suite_E, False), (suite_F, False),
+                               (suite_G, False)):
         if need_crypto and not has_crypto:
             print("\n（跳过 A 层：没有 pycryptodome）")
             continue
