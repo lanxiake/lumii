@@ -1010,6 +1010,14 @@ export interface McpServerConfigInput {
   readonly env?: Record<string, string>
   readonly cwd?: string
   readonly enabled?: boolean
+  /**
+   * 单次请求超时（ms）。**必须在类型里**：`mcp:status` 是把配置原样 spread 上来的，
+   * 缺这个字段的话渲染层「编辑 → 保存」会把它当不存在而整条替换掉（`mcp:upsert` 是全量替换），
+   * 界面上还看不出少了什么——2026-10-09 实测把 `timeoutMs: 300000` 就这么丢过。
+   */
+  readonly timeoutMs?: number
+  /** 需要后台化的工具短名（同一条替换路径，丢了一样静默失效） */
+  readonly backgroundTools?: readonly string[]
 }
 
 interface McpUpsertCommand {

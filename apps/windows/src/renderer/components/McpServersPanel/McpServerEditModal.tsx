@@ -49,6 +49,42 @@ function textToEnv(text: string): Record<string, string> | undefined {
   return Object.keys(env).length ? env : undefined
 }
 
+/** 表单能编的字段（其余靠 `editing` 原样带过去，见 `buildFormEntry`） */
+export interface McpFormFields {
+  readonly editing?: McpServerConfigInput
+  readonly name: string
+  readonly command: string
+  readonly argsText: string
+  readonly envText: string
+  readonly cwd: string
+  /** 毫秒的文本形态；空 = 不写进配置，让内置预设决定（30s 或预设自带的值） */
+  readonly timeoutMsText: string
+}
+
+/**
+ * 表单字段 → 一条配置。
+ *
+ * ⚠️ `...editing` 那行不是顺手写的：`mcp:upsert` 是**整条替换**（`McpManager.upsert` →
+ * `configs.set`），表单编不了的字段（`timeoutMs` / `backgroundTools` / `bundledExe`）不带上
+ * 就会被静默抹掉——2026-10-09 实测过：打开编辑再保存一下，`timeoutMs: 300000` 就没了，
+ * 而界面上根本看不出少了什么。
+ *
+ * 表单占的字段显式写 `undefined` 而不是省略：省略的话 `...editing` 里的旧值还在，
+ * 用户清空「参数」「工作目录」会清不掉。
+ */
+export function buildFormEntry(f: McpFormFields): McpServerConfigInput {
+  const ms = Number(f.timeoutMsText.trim())
+  return {
+    ...f.editing,
+    name: f.name.trim(),
+    command: f.command.trim(),
+    args: f.argsText.trim() ? f.argsText.split('\n').map((a) => a.trim()).filter(Boolean) : undefined,
+    env: textToEnv(f.envText),
+    cwd: f.cwd.trim() || undefined,
+    timeoutMs: Number.isFinite(ms) && ms > 0 ? Math.floor(ms) : undefined,
+  }
+}
+
 export const McpServerEditModal: React.FC<McpServerEditModalProps> = ({ open, editing, onClose, onSubmit }) => {
   // 新增默认进 JSON（最常见是粘贴官方配置），编辑进表单
   const [mode, setMode] = useState<'form' | 'json'>('json')
@@ -57,6 +93,7 @@ export const McpServerEditModal: React.FC<McpServerEditModalProps> = ({ open, ed
   const [argsText, setArgsText] = useState('')
   const [envText, setEnvText] = useState('')
   const [cwd, setCwd] = useState('')
+  const [timeoutMsText, setTimeoutMsText] = useState('')
   const [jsonText, setJsonText] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
@@ -71,6 +108,7 @@ export const McpServerEditModal: React.FC<McpServerEditModalProps> = ({ open, ed
     setArgsText((editing?.args ?? []).join('\n'))
     setEnvText(envToText(editing?.env))
     setCwd(editing?.cwd ?? '')
+    setTimeoutMsText(editing?.timeoutMs ? String(editing.timeoutMs) : '')
     setJsonText('')
   }, [open, editing])
 
@@ -94,14 +132,11 @@ export const McpServerEditModal: React.FC<McpServerEditModalProps> = ({ open, ed
     } else {
       if (!name.trim()) return setError('请填写名称')
       if (!command.trim()) return setError('请填写启动命令')
-      entries = [{
-        name: name.trim(),
-        command: command.trim(),
-        ...(argsText.trim() ? { args: argsText.split('\n').map((a) => a.trim()).filter(Boolean) } : {}),
-        ...(textToEnv(envText) ? { env: textToEnv(envText) } : {}),
-        ...(cwd.trim() ? { cwd: cwd.trim() } : {}),
-        ...(editing ? { enabled: editing.enabled } : {}),
-      }]
+      const ms = Number(timeoutMsText.trim())
+      if (timeoutMsText.trim() && !(Number.isFinite(ms) && ms > 0)) {
+        return setError('超时（毫秒）要填正整数，留空表示用内置默认')
+      }
+      entries = [buildFormEntry({ editing, name, command, argsText, envText, cwd, timeoutMsText })]
     }
 
     setSubmitting(true)
@@ -210,6 +245,20 @@ export const McpServerEditModal: React.FC<McpServerEditModalProps> = ({ open, ed
             <label className={styles['field']}>
               <span className={styles['field-label']}>工作目录</span>
               <Input value={cwd} onChange={(e) => setCwd(e.target.value)} placeholder="可选" />
+            </label>
+
+            <label className={styles['field']}>
+              <span className={styles['field-label']}>单次请求超时（毫秒）</span>
+              <Input
+                value={timeoutMsText}
+                onChange={(e) => setTimeoutMsText(e.target.value)}
+                placeholder={String(preset?.timeoutMs ?? 30000)}
+                inputMode="numeric"
+              />
+              <span className={styles['field-hint']}>
+                留空表示用内置默认（{Math.round((preset?.timeoutMs ?? 30000) / 1000)} 秒）。长耗时服务要调大，
+                否则单次调用会被截断成「失败」——本机微信的发送要走一整串 GUI 安全网，实测有 36 秒的。
+              </span>
             </label>
           </>
         ) : (
