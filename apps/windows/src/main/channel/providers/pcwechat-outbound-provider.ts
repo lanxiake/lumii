@@ -47,7 +47,7 @@ export interface PcwechatProviderDeps {
   /** 直接调 MCP 工具（主进程内，不经 Agent 回合） */
   callMcpTool: (server: string, tool: string, args: Record<string, unknown>) => Promise<string>
   /**
-   * 「此刻发不出去」（`env_not_ready`：**电脑锁屏** / 微信窗口拿不到前台）时，把这条
+   * 「此刻发不出去」（`env_not_ready`：微信没运行 / 主窗口被隐藏或抢不到前台）时，把这条
    * 投进待补发队列，等那双手回来了由盯梢回路补发（见 `wechat-watch-tick.ts`）。
    *
    * 为什么生产者在**这一层**：只有这里拿得到工具的错误码——"内容不对"（名单外/找不到会话）
@@ -138,7 +138,7 @@ export class PcwechatChannelProvider implements IChannelOutboundProvider {
     }
     if (!out.ok) {
       if (out.error_code === 'env_not_ready') {
-        // 内容没问题，只是此刻那双手不在（锁屏 / 窗口抢不到前台）——**排队等门开**，
+        // 内容没问题，只是此刻那双手不在（微信没跑 / 窗口抢不到前台）——**排队等门开**，
         // 别让调用方（代聊）误判成"发错了"而去改内容或转人工。
         // 队列本身出问题也不能改写这次失败的判定，故吞掉异常
         try {

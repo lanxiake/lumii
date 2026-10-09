@@ -1,9 +1,12 @@
 # 微信消息实时监控与交互优化方案
 
 > **状态（2026-10-09 更新）**
-> - **锁屏自愈**：已落地（见 [§3.5](#35-锁屏自愈2026-10-09)）。锁屏时 `SendInput` 到不了微信是
->   Windows 的安全设计，改不了；能做的是**不丢**——发送门够不着的那条回复进待补发队列，
->   解锁后由盯梢回路零 token 自动补发。
+> - **后台发送**：`send_text` 改走**窗口消息投递**（`PostMessage`）——不占前台、不移动光标、
+>   不劫持剪贴板、**锁屏也能发**（见 [§3.6](#36-后台发送不占前台不打断用户锁屏可发2026-10-09)）。
+>   真人锁屏下模块级与 App 级均实测通过。附件类（`send_file`/`send_batch`/`reply_to`）仍走
+>   模拟键鼠，需前台。
+> - **锁屏自愈**：已落地（见 [§3.5](#35-锁屏自愈2026-10-09)）。对仍需要前台的路径，发送门够不着
+>   的那条回复进待补发队列，解锁后由盯梢回路零 token 自动补发。
 > - **P0-A 路径发现**：已落地（`25a35ea3`）。
 > - **P0-B 发送链路**：已落地（`25a35ea3` 重试与错误码、`d6bb59be` 三处根因修复）——实现方案与本节
 >   原稿不同，见 [§2.2](#22-p0-b-发送链路已完成方案改写)。
@@ -329,30 +332,88 @@ UI 对 `reseeded` 任务隐藏编辑按钮，`handleCronUpdate` 再加一道闸*
 也没法动窗口）。实测：那个 296×388 的 hwnd 早已不存在；当前窗口 `bring_to_front` 一次成功、
 `send_text(dry_run=True)` 返回 ok。
 
-**真相**：锁屏时 Windows 把**输入桌面**切到 `Winlogon`，`SendInput` / `keybd_event` /
-`SetForegroundWindow` 一律够不着——窗口的 `visible` / `minimized` 看上去**全绿**，
-`check_env().ok` 也照报 true。这是「此刻发不出去」，与窗口大小无关，也**没法绕过**（这正是它的设计目的）。
+**真相（2026-10-09 修订）**：锁屏时 Windows 把**输入桌面**切到 `Winlogon`，`SendInput` /
+`keybd_event` / `SetForegroundWindow` 一律够不着——窗口的 `visible` / `minimized` 看上去**全绿**，
+`check_env().ok` 也照报 true。但**仿真键鼠够不着 ≠ 发不出去**：窗口消息投递（`PostMessage`）
+走的是目标窗口自己的消息队列，锁屏期间照样送达（§3.6 已实测）。所以「锁屏发不出去」这半句
+前半是对的、结论是错的。
 
-**所以做两件事：认出它、不丢它。**
+**做两件事：认出它、然后绕开它。**
 
-1. **认出**（`wechat_sender.py`）：`session_locked()` 用 `OpenInputDesktop` +
-   `GetUserObjectInformationW(UOI_NAME)` 读**输入桌面名**——`Default` = 正常，`Winlogon` = 锁屏。
-   `check_env()` 多一个 `locked` 字段并在 reason 里排最前；`Win.__enter__` 里
-   `bring_to_front` 失败时先问是不是锁屏，好把「锁屏」和「窗口真被压住了」分开报。
-   （`server.py` 的 `env_not_ready` 修复建议同步：锁屏是死路，明确**不要叫人去点窗口**。）
-2. **不丢**（`pcwechat-outbound-provider.ts` → `wechat-watch-tick.ts`）：出站 provider 是**唯一**
-   看得见 `error_code` 的地方，因此由它当生产者——`env_not_ready` 就调 `onUndeliverable`，
-   把这条 `(peer, text)` 塞进 `runtime_state` 的 `wechat_watch_outbox` 队列；盯梢回路是唯一消费者，
-   **只走空闲拍**（不与活回合抢那双手），每 60s 至多试一次，逐条 `send_text(dry_run:false)`
-   **原样重发**。三条护栏：TTL 30 分钟（过期丢弃，别把隔夜话翻出来发）、队列上限 20、
-   发之前先 `read_history(limit=1)`——末条已是 `from_me` 就当已发出、作废丢弃（宁可少发不重复发）。
-   补发结果并进那拍的 `result` 文本（`补发 N 条`），日志 `[wechat-watch] 补发 …`。
+1. **认出**（`wechat_sender.py`）：`session_locked()` 有两道判据——**Win11 主力**判据是前台窗口
+   类名 `Windows.UI.Core.CoreWindow` 且标题含「锁屏」（LockApp 覆盖在**同一个** `Default`
+   桌面上，所以老判据假阴性，实测锁屏时 `OpenInputDesktop` 仍返回 `Default`）；**经典判据**是
+   `UOI_NAME` 读到 `Winlogon`。`check_env()` 多一个 `locked` 字段；`bring_to_front` 失败时先问
+   是不是锁屏，把「锁屏」和「窗口真被压住了」分开报。
+2. **绕开**：`send_text` 改走全投递路径（§3.6），锁屏不再进 `env_not_ready`。附件类
+   （`send_file`/`send_batch`/`reply_to`）仍是模拟键鼠 + 剪贴板，锁屏下确实发不出去——
+   它们失败仍走「不丢」通道：出站 provider 是**唯一**看得见 `error_code` 的地方，由它当生产者，
+   `env_not_ready` 就调 `onUndeliverable`，把 `(peer, text)` 塞进 `runtime_state` 的
+   `wechat_watch_outbox` 队列；盯梢回路是唯一消费者，**只走空闲拍**（不与活回合抢那双手），
+   每 60s 至多试一次，逐条 `send_text(dry_run:false)` **原样重发**。三条护栏：TTL 30 分钟、
+   队列上限 20、发之前先 `read_history(limit=1)`——末条已是 `from_me` 就当已发出、作废丢弃
+   （宁可少发不重复发）。补发结果并进那拍的 `result` 文本（`补发 N 条`）。
 
 代聊 Agent 的 `relayOwnedSection` 同步改了口径：拿到 `env_not_ready` 时**本轮到此为止**，
-不要点/拖/最大化窗口、不要自己写 pending 文件、不要转人工、更不要叫用户去动窗口。
+不要点/拖/最大化窗口、不要自己写 pending 文件、不要转人工、更不要叫用户去动窗口；
+并注明**锁屏不再算发不出去**。
 
-> 未实测：真·锁屏下的 `session_locked() == True`（需要一个真人把机器锁上）。
-> 目前只有 `test_watch.py` G 层用打桩的输入桌面名覆盖这条分支。
+> 已实测（2026-10-09，真人锁屏）：`session_locked()` 返回 True 判据成立；`send_text(dry_run=false)`
+> 在本机微信锁屏状态下返回 `ok:true`、读库确认落条；全程前台一直是锁屏界面（未被微信抢走）。
+
+---
+
+### 3.6 后台发送：不占前台、不打断用户、锁屏可发（2026-10-09）
+
+**动机**：旧 `send_text` 是「`Win.__enter__` 切前台 + 固定尺寸 → 真点击输入框 → 剪贴板粘贴
+→ 回车」。代价是**抢占用户的前台**：光标被挪走、剪贴板被改写、用户正在敲的字会落进微信输入框。
+用户要求去掉这三样打扰（移动窗口 / 移动光标 / 劫持剪贴板）。
+
+**方案**：文本发送全改走**窗口消息投递**（`PostMessage`），不再切前台、不再模拟键鼠、不再碰剪贴板。
+
+| 环节 | 手段 | 前台需求 |
+|---|---|---|
+| 读界面 | `PrintWindow(hwnd, hdc, PW_RENDERFULLCONTENT=2)` 拍**窗口内容** | 无（后台/最小化/锁屏都能拍） |
+| 切会话 | **优先投递点击左侧会话列表那一行**（常驻、行位稳）→ `verify_target` 复核；不在列表里才回退搜索浮层 | 无 |
+| 输入 | 投递 `WM_CHAR`（前提：输入框已有焦点；**切会话时微信会自动 focus 输入框**） | 无 |
+| 发送 | 投递 `WM_KEYDOWN/UP(VK_RETURN)` | 无 |
+| 校验 | 发完**读库**确认该会话多了一条（不再依赖剪贴板回读） | 无 |
+
+**实测边界**（1280×820 / 微信 4.x Qt / Win11）：
+
+- **投递字符会把微信自己顶到前台约 0.1–0.3 秒**（Qt 收到输入消息时的自激活，30/30 次）。
+  绕不开——往子窗口 `MMUIRenderSubWindowHW`（覆盖整个内容区）投递**不抢前台，但输入也进不去**
+  （它只是渲染表面）。对策：投递完 `SetForegroundWindow(用户窗口)` 夺回（实测守 6 秒只被抢 1 次）。
+  用户可感的打扰 ≈ 0.1–0.5 秒，且**不移动光标、不动剪贴板**。
+- **锁屏下这条路径全程静默**：微信抢不上前台（前台一直是 LockApp），零打扰。
+- **坐标系**：`win_rect()` 是窗口矩形（含边框），`PostMessage` 的 lParam 要**客户区坐标**，
+  必须 `ScreenToClient` 换算（`_client_pt`）。
+- **OCR 会把名字读花**（「文件传输助手」→「文件传蝓助手」），切会话必须用
+  `difflib.SequenceMatcher(...).ratio()` 相似度匹配，再逐个候选过 `verify_target`。
+- **切会话优先点会话列表，别一上来就搜索**：搜索浮层有俩坑——结果**覆盖在会话列上**（不能按
+  `x < SESSION_COL` 过滤），且它会把**搜索框里刚输入的那串字**也 OCR 成一个候选
+  （实测「LOOP」在 y≈49、真结果在 y≈97）。列表常驻、行位稳、投递点击确实打得到
+  （实测误连点两下会把会话弹成**独立窗口**，反证点击是落地的）。
+- **`contains_sub` 阈值 4 太松**（`FLASH-7` vs `FLASH-6` 判真），发送校验不能用它。
+- **判据陷阱**：只投 1 个字符时「没抢前台」是假象——真相是输入根本没生效。凡测「抢不抢前台」，
+  同一轮必须读 OCR 确认文本真进了输入框。
+
+**改动落点**（`wechat_sender.py`）：`read_ui` 换 `PrintWindow` 并去掉 `SetForegroundWindow`；
+新增 `post_click` / `post_text` / `post_key` / `open_chat_post` / `_open_chat_via_search_post`；
+`read_ui_stable` 的空白重试由**真鼠标**（`SetCursorPos`+`mouse_event`）改为**投递**点击
+（原来那个既挪用户光标，又会把正开着的搜索浮层点掉）；
+`_send_locked` 由 SendInput 改为全投递（新增 `_unhide` / `_give_back_foreground`）；
+`env_gate(allow_locked=True)` 让文本路径放行锁屏。附件类路径（`send_file`/`send_batch`/`reply_to`）
+**未改**，仍走 `Win()` + 模拟键鼠。
+
+**实测结论**（2026-10-09，真人锁屏）：模块级 `send_text(dry_run=false)` → `ok:true` / 读库落条 /
+前台全程锁屏；App 级端到端（`mcp__wechat-local__send_text` 经真实 Agent 回合）→
+`{"ok":true,"detail":"已发送"}`。
+切会话两条路各自实测（11:27 / 11:30，解锁态）：**列表路** `find_session('Loop')` → 点击 → header
+由空变 `LOOP`；从 `LOOP` 发 `filehelper`（列表里可见）→ 列表命中 → 切过去 → 落库 `LIST-1`；
+**搜索路**单独跑 `_open_chat_via_search_post`（起点 `LOOP`）→ 切到 `文件传输助手` → True。
+同一条链 App 级复跑 → 落库 `APP-1`（`durationMs=8242`）。
+⚠️ 上面这两条是**解锁态**跑的；上一轮锁屏态只覆盖了旧的搜索路径，列表路的锁屏复测待补。
 
 ---
 
@@ -380,7 +441,9 @@ UI 对 `reseeded` 任务隐藏编辑按钮，`handleCronUpdate` 再加一道闸*
 | 4 | 预设工作流写进代聊 Agent（程序维护分区，追加式升级不覆盖用户改动） | ✅ | 本轮 |
 | 4 | 每轮自动注入本地蒸馏画像 + 缺画像时明说「还没有/已过期」 | ✅ | 本轮 |
 | 4 | **锁屏自愈**：`check_env` 报 `locked`，够不着的那条回复排队、解锁后自动补发（§3.5） | ✅ | 本轮 |
-| 4 | 真·锁屏下的端到端验证（需要真人把机器锁上；目前只有 G 层打桩） | ⏳ | §3.5 |
+| 4 | 真·锁屏下的端到端验证（真人锁屏：`session_locked()==True` + 发送落库 + 前台未被动） | ✅ | §3.5 |
+| 4 | **后台发送**：`send_text` 改走窗口消息投递——不占前台/不动光标/不动剪贴板/锁屏可发（§3.6） | ✅ | §3.6 |
+| 4 | 附件类发送（`send_file`/`send_batch`/`reply_to`）同样后台化 | ⏳ | §3.6 |
 | 4 | M3 收尾：入站 adapter（现在仍走盯梢旁路） | ⏳ | §3.4 |
 | 4 | 监控面板 UI（盯哪些人、开关、最近事件） | ⏳ | — |
 | — | python 测试接入 CI（`test_watch.py` 27 例，含 E 层目标校验证据强度 / F 层发送闸门 / G 层锁屏识别） | ⏳ | §3.4 |
@@ -427,7 +490,7 @@ printf '<initialize 行>\n<tools/call 行>\n' | python server.py
 |---|---|
 | `wechat_core.py` | 目录发现 / 取密钥（缓存）/ 解密 / `_ShardMirror` 增量镜像 / `poll` 快路径 / 蒸馏 / 画像 |
 | `wxread4.py` | SQLCipher4 页解密 + WAL 解析（`parse_wal_frames` 的 **salt 会话判据**在这里） |
-| `wechat_sender.py` | 发送（布局 + 剪贴板粘贴 + 回读 + 读库确认） |
+| `wechat_sender.py` | 发送（文本走窗口消息投递 / 附件走布局 + 剪贴板粘贴；均有读库确认） |
 | `server.py` | MCP 入口 + 工具描述 + `_code_of` 码表 + `_send_with_retry` |
 | `devcli.py` | 自检命令行（`selftest` / `watch` / `sessions` / `history` / `send` / `digest` …） |
 | `test_watch.py` | 实时读取的离线回归（A/B/C 六层… A/B/C/E/F/G，27 例） |

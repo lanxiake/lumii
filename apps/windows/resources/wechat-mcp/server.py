@@ -83,11 +83,10 @@ def _resolve_or_error(talker):
 def _get_fix_suggestion(error_code):
     """根据错误码返回可操作的修复建议（P0-B 增强）。"""
     suggestions = {
-        "env_not_ready": "若是**电脑锁屏**（check_env 的 locked=true）：这是死路——锁屏期间键鼠注入"
-                         "到不了微信，跟窗口无关，解锁后发送门自己会恢复、积压会自动补发，"
-                         "**不需要任何人去点或拖窗口**。其余情况请确保微信窗口可见且在前台"
-                         "（被其他窗口遮挡也算）后重试；最小化时工具已会自己恢复一次——"
-                         "再失败说明微信没运行或主窗口不可见，需人工看一眼。",
+        "env_not_ready": "环境没就绪：微信没运行、或主窗口被隐藏/不可见。窗口**最小化**时工具已会"
+                         "自己恢复一次，不用管。**锁屏不再拦 send_text**（它走窗口消息投递，锁屏照发）；"
+                         "但 send_file / send_batch / reply_to 是模拟键鼠，锁屏期间确实发不出去——"
+                         "别自己去点、也别叫用户去点，解锁后发送门自己恢复、积压由盯梢回路自动补发。",
         "target_not_found": "未找到目标会话，请先用 list_sessions 确认会话名称或 talker ID。",
         "busy": "另一个微信操作正在进行（发送/读取有互斥锁）。等几秒后重试即可，不用做别的。",
         "input_not_landed": "输入框定位失败。建议：1) 确保微信窗口完全可见；2) 稍后重试；3) 检查微信版本（推荐 4.x）。",
@@ -111,7 +110,7 @@ def _code_of(detail):
     改错不会报错、只会静默退化成 `unknown`（Agent 就不再重试了）。
     """
     d = detail or ""
-    if "环境前置检查" in d or "窗口前置检查" in d:
+    if "环境前置检查" in d or "窗口前置检查" in d or "找不到微信主窗口" in d:
         return "env_not_ready"
     if "busy" in d or "正在进行" in d:
         return "busy"
@@ -125,7 +124,7 @@ def _code_of(detail):
         return "attachment_missing"
     if "附件未落地" in d:
         return "attachment_not_landed"
-    if "输入未落地" in d:
+    if "输入未落地" in d or "投递输入失败" in d:
         return "input_not_landed"
     if "目标会话未确认" in d:
         return "target_unconfirmed"
@@ -410,8 +409,8 @@ INSTRUCTIONS = """\
 
 工具选择：
 - 只读（不需要微信窗口）：list_sessions 列会话 / read_history 读历史 / poll_new 读增量新消息 / search_messages 检索 / list_unread 未读。
-- 发送（需要微信窗口可见且在前台）：send_text 发**文本**；send_file 发**图片/文件/视频/音频**；send_batch 把消息**群发给多个目标**（逐目标独立校验）；reply_to 发**带引用的回复**（quote 传被引用消息的文字用于定位）。
-- 发送前可先调 check_env 确认环境（微信是否运行、窗口是否可见/最小化/在前台）与依赖是否就绪。
+- 发送：send_text 发**文本** —— **不需要前台，锁屏也能发**（走窗口消息投递，不移动光标、不动剪贴板、不打断用户操作）；send_file 发**图片/文件/视频/音频**、send_batch **群发给多个目标**（逐目标独立校验）、reply_to **带引用的回复** —— 这三个仍需要微信窗口可见且在前台（走模拟键鼠 + 剪贴板）。
+- 发送前可先调 check_env 确认环境（微信是否运行、窗口是否可见/最小化/在前台）与依赖是否就绪（仅附件类需要）。
 
 附件说明（send_file）：
 - path 传本地绝对路径；图片按内联图片发，其余按文件发，视频一般按视频消息发。
@@ -421,10 +420,12 @@ INSTRUCTIONS = """\
 发送纪律（重要）：
 1. 默认 dry_run=true —— 只校验、不发送。**只有用户明确要求真发时才传 dry_run=false**。
 2. 内容以用户本人身份发出、且**不可撤回**。含义模糊或有风险的内容，先草拟给用户确认。
-3. 需要微信窗口可见且在前台：窗口**最小化**时发送路径会自己 SW_RESTORE 恢复一次（可逆，
-   不用管也不用去点）；若仍 ok=false（微信没运行 / 主窗口不可见 / **锁屏**），别自己去点、
-   也别叫用户去点。**锁屏是设计使然、不是 bug**：`check_env` 会明确报 `locked=true`，
-   这期间发不出去，解锁后发送门自己恢复；代聊那条积压由盯梢回路自动补发。
+3. send_text **不需要前台**：走窗口消息投递，锁屏、窗口在后台都照发，不移动光标、不动剪贴板、
+   不打断用户正在做的事（唯一可感的副作用：投递字符的一瞬微信会把自己顶到前台约 0.1–0.3 秒，
+   工具会自动把前台还回去）。send_file / send_batch / reply_to 仍需要微信窗口可见且在前台：
+   窗口**最小化**时会自己 SW_RESTORE 恢复一次（可逆，不用管也不用去点）；若仍 ok=false
+   （微信没运行 / 主窗口不可见 / 锁屏），别自己去点、也别叫用户去点，解锁后发送门自己恢复、
+   代聊那条积压由盯梢回路自动补发。
 4. talker 用 list_sessions 返回的 name（如「文件传输助手」「TOOLAN」「TOOLAN、韩玉」）或 wxid/群号最稳。
 5. 一次发一条；失败会在 detail 里说明卡在哪一道校验，可据此调整或提示用户。
 
@@ -435,7 +436,7 @@ INSTRUCTIONS = """\
   回过了，你要据此判断「还要不要开口」；返回的 `next_since_ts` 就是下一轮的 `since_ts`（别用墙上时钟的 now，
   同秒消息会漏）。它只解密新增的 WAL 帧、只扫有变化的会话表，**很便宜**，几秒一次也没负担。
 - 回路姿势：定时（cron/循环）→ poll_new → 没有 `from_me=false` 的新消息就静默结束（别发 NO_REPLY 给用户看），
-  有才起草回复；发送前先 check_env，窗口不在前台就把 hint 转给用户，不要自己去点。
+  有才起草回复；send_text 不需要前台（锁屏也能发），直接用；附件类工具才需先 check_env，窗口不在前台就把 hint 转给用户，不要自己去点。
 - 「有哪些没回」用 list_unread；「这个会话刚才聊到哪」用 read_history。
 
 蒸馏（用户/好友知识与行为）：要提炼「我的表达习惯 / 与谁联系最多 / 活跃时段 / 某会话里对方是谁」时，用 wechat_digest——
@@ -473,13 +474,14 @@ TOOLS = [
          "since_ts": {"type": "integer", "description": "Unix 秒；返回 create_time 严格大于它的消息"}},
          "required": ["since_ts"]}},
     {"name": "check_env",
-     "description": ("【何时用】**发消息前**先自检本机微信自动化环境（是否运行/窗口可见/最小化/在前台/尺寸·DPI）。【别用】与渠道无关。"
-                     "发送前先调它；返回 ok=false 时把 hint 转告用户（通常是让用户把微信窗口调出来）。"),
+     "description": ("【何时用】发**附件类**消息（send_file/send_batch/reply_to）前，或想诊断微信自动化环境时，自检本机微信（是否运行/窗口可见/最小化/在前台/尺寸·DPI）。【别用】与渠道无关。"
+                     "**send_text 不需要它**——文本走投递、不依赖前台。返回 ok=false 时把 hint 转告用户。"),
      "inputSchema": {"type": "object", "properties": {}, "required": []}},
     {"name": "send_text",
      "description": ("【何时用】用户说「给我微信里的某人/某群发条消息」时（**以用户本人身份**，不可撤回）。【别用】回渠道(Bot)消息；那走渠道回执。"
+                     "**不需要前台、锁屏也能发**：走窗口消息投递，不移动光标、不动剪贴板、不打断用户操作。"
                      "**默认 dry_run=true 只校验不发送**；仅当用户明确要求真发时才传 dry_run=false。"
-                     "发送前依次校验：环境（窗口可见在前台）→ 目标会话（数据库锚点匹配）→ 输入落地 → 发送生效；"
+                     "发送前依次校验：环境 → 目标会话（数据库锚点匹配）→ 输入落地 → 发送生效；"
                      "任一不通过即中止，绝不盲发。失败时 detail 会说明卡在哪一步。"),
      "inputSchema": {"type": "object", "properties": {
          "talker": {"type": "string", "description": "会话显示名或 wxid/群号/filehelper"},

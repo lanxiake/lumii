@@ -182,7 +182,7 @@ await mcp.call('wechat-local', 'send_text', {
   "ok": false,
   "error_code": "env_not_ready",
   "detail": "环境前置检查失败：微信窗口未在前台（不可重试的错误：env_not_ready）",
-  "suggestion": "请确保微信窗口可见且在前台（不要最小化或被其他窗口遮挡），然后重试。"
+  "suggestion": "环境没就绪：微信没运行、或主窗口被隐藏/不可见。（锁屏不再拦 send_text——文本走投递、锁屏照发。）"
 }
 ```
 
@@ -198,7 +198,7 @@ await mcp.call('wechat-local', 'send_text', {
 
 | 场景 | 错误码 | 修复建议关键词 |
 |------|--------|---------------|
-| 微信窗口最小化 | `env_not_ready` | "微信窗口可见且在前台" |
+| 微信未运行 / 主窗口被隐藏 | `env_not_ready` | "环境没就绪"（注：最小化会自恢复；锁屏不拦 `send_text`） |
 | 输入框定位失败 | `input_not_landed` | "输入框定位失败" + "稍后重试" |
 | 发送后未清空 | `send_unconfirmed` | "输入框未清空" + "手动确认" |
 | 目标会话未找到 | `target_not_found` | "先用 list_sessions" |

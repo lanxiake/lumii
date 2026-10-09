@@ -106,12 +106,12 @@ Windows 上 PATH 里的 `%LOCALAPPDATA%\Microsoft\WindowsApps\python.exe` 是 Mi
 | `wechat_profile_get(scope?)` | 读回画像（含 `updated`/`age_days`/`stale`）；不给 `scope` 列出全部 |
 | `wechat_distill_state(action?, scope?, ts?)` | 蒸馏**水位**（增量蒸馏用） |
 
-**发送（需要微信窗口可见且在前台；均默认 `dry_run=true`）**
+**发送（均默认 `dry_run=true`）**
 
 | 工具 | 说明 |
 |---|---|
-| `send_text(talker, text, dry_run)` | 发文本 |
-| `send_file(talker, path, dry_run)` | 发图片（内联）/ 文件 / 视频（按扩展名） |
+| `send_text(talker, text, dry_run)` | 发文本 —— **不需要前台，锁屏也能发**（窗口消息投递，不移动光标/剪贴板、不打断用户） |
+| `send_file(talker, path, dry_run)` | 发图片（内联）/ 文件 / 视频（按扩展名）—— 需窗口可见在前台 |
 | `send_batch(messages=[{talker,text}], dry_run)` | 群发（逐目标独立校验） |
 | `reply_to(talker, quote, text, dry_run)` | **引用回复**（`quote` 传被引用消息的文字定位） |
 | `wechat_profile_save(scope?, content)` | 存画像（Markdown，本地白盒） |
@@ -119,7 +119,7 @@ Windows 上 PATH 里的 `%LOCALAPPDATA%\Microsoft\WindowsApps\python.exe` 是 Mi
 
 ## 6. 发送安全（fail-closed）
 
-发送前依次校验，任一不过即中止、**绝不盲发**：**环境**（窗口可见在前台）→ **目标会话**（内容锚点 + 头部双印证，
+发送前依次校验，任一不过即中止、**绝不盲发**：**环境**（微信运行、主窗口可见；`send_text` 不要求前台）→ **目标会话**（内容锚点 + 头部双印证，
 并新增"**头部更像别的会话即拒绝**"的通用反证与群成员昵称第三重印证）→ **输入落地** → **发送生效** → **读库确认**。
 失败返回稳定 `error_code` + 最后截图路径；跨进程文件锁保证一次只做一个 UI 操作。
 
@@ -144,7 +144,7 @@ Windows 上 PATH 里的 `%LOCALAPPDATA%\Microsoft\WindowsApps\python.exe` 是 Mi
 | `wechat_sender.py` | 发送（截图 OCR + SendInput + 剪贴板） |
 | `wxread4.py` / `wxkey4.py` | SQLCipher4 解密 / 进程内存取密钥 |
 | `devcli.py` | 自检命令行（`status/sessions/history/send/sendfile/reply/watch/selftest/digest/profile/state/clear/accounts...`） |
-| `ocr4.ps1` / `shot.ps1` | OCR / 截图兜底（PowerShell） |
+| `ocr4.ps1` | 四角坐标 OCR（PowerShell）；截图已在进程内用 `PrintWindow` 完成，不再有 `shot.ps1` |
 
 自检：`python devcli.py selftest`（依赖 / 数据目录 / 会话 / 实时读取耗时一次看全）。
 盯消息：`python devcli.py watch [since_ts] [--ticks N] [--interval S]` —— 连续打拍，

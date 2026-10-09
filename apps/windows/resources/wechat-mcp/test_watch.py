@@ -750,18 +750,37 @@ def suite_G():
         return {"OpenInputDesktop": open_desktop, "GetUserObjectInformationW": get_name,
                 "CloseDesktop": lambda _h: True}
 
+    # 判据一是「前台是 LockApp（类名 Windows.UI.Core.CoreWindow + 标题含锁屏）」——
+    # 它要先于桌面名判据跑，所以测桌面名时必须把它按掉（前台=0），否则跑测试的机器
+    # 一旦真锁着屏，Default 那条用例会被前台判据抢先命中而假红。
+    NO_LOCKAPP = {"GetForegroundWindow": lambda: 0}
+
+    def fake_lockapp(title="Windows 默认锁屏界面"):
+        def cls(_h, buf, _size):
+            buf.value = "Windows.UI.Core.CoreWindow"
+            return len(buf.value)
+        return {"GetForegroundWindow": lambda: 111, "GetClassNameW": cls,
+                "GetWindowTextLengthW": lambda _h: len(title),
+                "GetWindowTextW": lambda _h, buf, _n: setattr(buf, "value", title) or len(title)}
+
+    def g0():
+        st = fake_lockapp()
+        assert with_stubs({}, {**DESKTOP, **st}, snd.session_locked) is True, \
+            "前台是 LockApp 的锁屏界面=锁屏（Win11 主力判据）"
+    r.case("前台是 LockApp 锁屏界面 ⇒ 判为锁屏（Win11 判据）", g0)
+
     def g1():
         st = fake_desktop("Winlogon")
-        assert with_stubs({}, {**DESKTOP, **st}, snd.session_locked) is True, "Winlogon 桌面=锁屏"
+        assert with_stubs({}, {**DESKTOP, **NO_LOCKAPP, **st}, snd.session_locked) is True, "Winlogon 桌面=锁屏"
     r.case("输入桌面是 Winlogon ⇒ 判为锁屏", g1)
 
     def g2():
         st = fake_desktop("Default")
-        assert with_stubs({}, {**DESKTOP, **st}, snd.session_locked) is False, "Default=没锁屏"
+        assert with_stubs({}, {**DESKTOP, **NO_LOCKAPP, **st}, snd.session_locked) is False, "Default=没锁屏"
     r.case("输入桌面是 Default ⇒ 没锁屏", g2)
 
     def g3():
-        st = dict(DESKTOP, OpenInputDesktop=lambda *a: 0, CloseDesktop=lambda _h: True)
+        st = dict(DESKTOP, **NO_LOCKAPP, OpenInputDesktop=lambda *a: 0, CloseDesktop=lambda _h: True)
         assert with_stubs({}, st, snd.session_locked) is True, "连输入桌面都打不开=锁屏"
     r.case("OpenInputDesktop 失败 ⇒ 判为锁屏", g3)
 

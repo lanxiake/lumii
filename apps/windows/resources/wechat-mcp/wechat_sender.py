@@ -25,7 +25,6 @@ if HERE not in sys.path:
 import wechat_core as core  # noqa: E402
 
 u = ctypes.windll.user32
-SHOT = os.path.join(HERE, "shot.ps1")
 OCR4 = os.path.join(HERE, "ocr4.ps1")
 
 # ============================================================================
@@ -214,11 +213,18 @@ def _composer_copy_all():
 EnumProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
 
 
-def find_main_hwnd():
+def find_main_hwnd(include_hidden=False):
+    """微信主窗口句柄（取面积最大的 Qt 窗口）。
+
+    `include_hidden=False`（默认）只看**可见**窗口——常规调用够用。但微信主窗口会进入
+    「进程在跑、句柄还在、`IsWindowVisible=0`（不是最小化）」的隐藏态（2026-10-09 实测），
+    这时默认查法返回 0，发送路径会在第一行就以「找不到微信主窗口」退出、连恢复的机会都没有。
+    需要恢复的调用方传 `include_hidden=True` 拿到句柄，再 `_unhide()`。
+    """
     best = [0, 0]
 
     def cb(h, _l):
-        if not u.IsWindowVisible(h):
+        if not include_hidden and not u.IsWindowVisible(h):
             return True
         cls = ctypes.create_unicode_buffer(256)
         u.GetClassNameW(h, cls, 256)
@@ -300,29 +306,168 @@ DESKTOP_READOBJECTS = 0x0001
 
 
 def session_locked():
-    """工作站的**输入桌面**是不是 Winlogon（= 电脑锁屏）。
+    """电脑是不是锁屏了。
 
-    为什么要单独判它：`SendInput`/`keybd_event`/`SetForegroundWindow` 只作用于**输入桌面**，
-    锁屏时输入桌面是安全的 Winlogon 桌面，普通用户态进程够不着——于是锁屏期间**任何**
-    模拟键鼠都发不到微信，跟窗口大小、前台与否都无关。早先把这种现象一律报成
-    「窗口规范化失败 / 切不到前台」，让人去拖窗口、点窗口，白折腾（2026-10-09 实测）。
-    分清「锁屏」与「窗口没在前台」，调用方才知道该"等"还是该"修"。
+    判据一（Win11 主力）：锁屏是 LockApp.exe 的窗口——类名 `Windows.UI.Core.CoreWindow`、
+    标题含「锁屏」——它**覆盖在同一个 Default 桌面上**。所以下面那条老判据在 Win11 上会
+    **假阴性**（2026-10-09 实测：锁屏时 OpenInputDesktop 依然返回 Default）。
+    判据二（经典）：输入桌面切到了 Winlogon；连输入桌面都拿不到时保守当作已锁。
+
+    注意：锁屏 ≠ 发不出去。`SendInput` 那类模拟键鼠确实够不着 Winlogon，但**投递**
+    （PostMessage）走的是窗口消息队列，锁屏期间照样有效（实测搜索/切会话/输入/发送全通）。
+    这个判据用来判断「能不能走需要前台的那条路」，别拿它当「能不能发」。
     """
     try:
-        h = u.OpenInputDesktop(0, False, DESKTOP_READOBJECTS)
-        if not h:
+        fh = int(u.GetForegroundWindow())
+        if fh:
+            cls = ctypes.create_unicode_buffer(256)
+            u.GetClassNameW(ctypes.c_void_p(fh), cls, 256)
+            if cls.value == "Windows.UI.Core.CoreWindow":
+                n = u.GetWindowTextLengthW(ctypes.c_void_p(fh))
+                b = ctypes.create_unicode_buffer(n + 1)
+                u.GetWindowTextW(ctypes.c_void_p(fh), b, n + 1)
+                if "锁屏" in b.value:
+                    return True
+    except Exception:
+        pass
+    try:
+        dh = u.OpenInputDesktop(0, False, DESKTOP_READOBJECTS)
+        if not dh:
             return True
         try:
             buf = ctypes.create_unicode_buffer(256)
             need = ctypes.c_ulong()
             # UOI_NAME = 2；正常桌面叫 "Default"，锁屏/安全桌面叫 "Winlogon"
-            if u.GetUserObjectInformationW(h, 2, buf, ctypes.sizeof(buf), ctypes.byref(need)):
+            if u.GetUserObjectInformationW(dh, 2, buf, ctypes.sizeof(buf), ctypes.byref(need)):
                 return buf.value.strip().lower() != "default"
             return False
         finally:
-            u.CloseDesktop(h)
+            u.CloseDesktop(dh)
     except Exception:
         return False
+
+
+# ============================================================================
+# 全投递路径 —— 不抢前台、不碰鼠标键盘、不劫持剪贴板
+# ----------------------------------------------------------------------------
+# 2026-10-09 实测的能力边界（1280×820、微信 4.x）：
+#   读界面  PrintWindow 即可，窗口在后台 / 最小化 / 被锁屏盖住都能拍到完整内容
+#   切会话  投递点击**左侧会话列表**那一行（列表常驻、最稳）；不在列表里才回退搜索浮层
+#   送文本  投递 WM_CHAR，**前提是输入框已有焦点**（微信切会话时会自动 focus）
+#   发送    投递回车（或投递点击发送按钮），读库回读确认落地
+# 绕不开的一点：投递字符会让微信**自己**跳到前台（0.1–0.3 秒，Qt 收到输入消息时的自激活）。
+# 子窗口 MMUIRenderSubWindowHW 虽不抢前台，但输入也进不去，所以没有替代路径。
+# ============================================================================
+WM_CHAR, WM_LBUTTONDOWN, WM_LBUTTONUP = 0x0102, 0x0201, 0x0202
+WM_KEYDOWN, WM_KEYUP, VK_RETURN, VK_ESC, VK_BACK = 0x0100, 0x0101, 0x0D, 0x1B, 0x08
+SEARCH_BOX = (185, 57)          # 窗口坐标；1280×820 规范尺寸下实测的搜索框位置
+SEARCH_PANEL_TOP = 80           # 搜索浮层里结果行的 y0 下界：此值以上是搜索框自身的文字，不是结果
+
+
+def _client_pt(h, x, y):
+    """把 layout() 的窗口坐标换算成 PostMessage 要的客户区坐标（两者差一个边框）。"""
+    l, t, _w, _h = win_rect(h)
+    pt = wintypes.POINT(l + x, t + y)
+    u.ScreenToClient(ctypes.c_void_p(h), ctypes.byref(pt))
+    return pt.x, pt.y
+
+
+def post_click(h, x, y):
+    """投递一次点击（x,y 同 layout 的窗口坐标）。窗口不必在前台。"""
+    cx, cy = _client_pt(h, x, y)
+    lp = ((cy & 0xFFFF) << 16) | (cx & 0xFFFF)
+    r1 = u.PostMessageW(ctypes.c_void_p(h), WM_LBUTTONDOWN, 1, lp)
+    time.sleep(0.06)
+    r2 = u.PostMessageW(ctypes.c_void_p(h), WM_LBUTTONUP, 0, lp)
+    return bool(r1) and bool(r2)
+
+
+def post_text(h, text, dt=0.05):
+    """把文本投进输入框。
+
+    走 WM_CHAR 而不是剪贴板：**不劫持用户的剪贴板**（用户可能正在复制别的东西）。
+    需要输入框已有焦点 —— 微信切换会话时会自动 focus 输入框；焦点不在时投递会落空，
+    表现为「投递返回成功但读库无新消息」，由调用方按失败处理（排队重试）。
+    非 BMP 字符（emoji 等代理对）会漏，暂不支持。
+    """
+    ok = True
+    for ch in text:
+        if not u.PostMessageW(ctypes.c_void_p(h), WM_CHAR, ord(ch), 1):
+            ok = False
+        time.sleep(dt)
+    return ok
+
+
+def post_key(h, vk):
+    a = bool(u.PostMessageW(ctypes.c_void_p(h), WM_KEYDOWN, vk, 1))
+    time.sleep(0.05)
+    b = bool(u.PostMessageW(ctypes.c_void_p(h), WM_KEYUP, vk, 1))
+    return a and b
+
+
+def _post_click_verify(h, x, y, tag, name, talker, verbose):
+    """投递点一下 (x,y)，等一拍再用 verify_target 复核是否切到了目标会话。"""
+    post_click(h, x, y)
+    time.sleep(1.3)
+    ww, wh, lines = read_ui_stable(f"{tag}v")
+    return verify_target(talker, name, lines, ww, wh, verbose)[0]
+
+
+def open_chat_post(h, name, talker, verbose=False):
+    """切到目标会话，全程投递（锁屏也能用）。
+
+    两条路，优先走稳的那条：
+    1. **会话列表**（常驻、行位稳定、行高 ~60px）——`find_session` 已能按名字模糊匹配到行，
+       点一下即切（2026-10-09 实测：投递点击确实打得到列表项，双击还会把会话弹成独立窗口）。
+    2. **搜索浮层**——只有目标不在可见列表里时才用（见 `_open_chat_via_search_post`）。
+
+    每个候选点完都用 verify_target 复核，任一路先通过即返回；都不行就 Esc 收场。
+    """
+    # 路一：点左侧会话列表里那一行
+    ww, wh, lines = read_ui_stable("lst")
+    s = find_session(lines, name, ww, wh)
+    if s:
+        if verbose:
+            print(f"[open] 列表命中「{s[3][:16]}」@({s[1]},{s[2]})")
+        if _post_click_verify(h, s[1], s[2], "lst", name, talker, verbose):
+            return True
+
+    # 路二：搜索浮层
+    return _open_chat_via_search_post(h, name, talker, verbose)
+
+
+def _open_chat_via_search_post(h, name, talker, verbose=False):
+    """搜索浮层开法（目标不在可见会话列表里时才用，如被收起的老会话）。
+
+    浮层的坑：结果**覆盖在会话列上**（故不能按 x < SESSION_COL 过滤），且它会把
+    **搜索框里刚输入的那串字**也 OCR 成一个候选（实测「LOOP」在 y≈49，真结果 y≈97），
+    所以结果行一律要求 y0 >= SEARCH_PANEL_TOP。
+    """
+    post_click(h, *SEARCH_BOX)
+    time.sleep(0.8)
+    for _ in range(30):          # 先清空（上一次尝试可能留了词）；投递退格，不碰真键盘
+        post_key(h, VK_BACK)
+    time.sleep(0.2)
+    post_text(h, name)
+    time.sleep(1.6)
+    n = norm(name)
+    tried = set()
+    for k in range(4):
+        ww, wh, lines = read_ui_stable(f"q{k}")
+        cands = sorted(
+            [(x0, y0, x1, y1, t) for x0, y0, x1, y1, t in lines
+             if y0 >= SEARCH_PANEL_TOP and norm(t)
+             and difflib.SequenceMatcher(None, norm(t), n).ratio() >= 0.6],
+            key=lambda c: c[1])
+        cands = [c for c in cands if c[1] // 30 not in tried]
+        if not cands:
+            break
+        x0, y0, x1, y1, _t = cands[0]
+        tried.add(y0 // 30)
+        if _post_click_verify(h, 200, (y0 + y1) // 2, f"q{k}", name, talker, verbose):
+            return True
+    post_key(h, VK_ESC)
+    return False
 
 
 def check_env():
@@ -361,7 +506,8 @@ def check_env():
         info["dpi"] = None
     if info["locked"]:
         # 最具体的原因先说：锁屏时窗口状态全是"正常"，但一条也发不出去
-        info["reason"] = "电脑已锁屏（锁屏期间模拟键鼠到不了微信；解锁后发送门自己会恢复）"
+        info["reason"] = ("电脑已锁屏（锁屏期间模拟键鼠到不了微信；**send_text 走投递、锁屏照发**，"
+                          "附件类解锁后发送门自己会恢复）")
     elif not info["visible"]:
         info["reason"] = "主窗口不可见（可能已隐藏到托盘）"
     elif info["minimized"]:
@@ -394,9 +540,16 @@ def wake_minimized(st=None):
     return check_env()
 
 
-def env_gate():
-    """发送入口的统一闸门：(ok, st)。最小化时先自恢复一次再判定。"""
+def env_gate(allow_locked=False):
+    """发送入口的统一闸门：(ok, st)。最小化时先自恢复一次再判定。
+
+    allow_locked=True 给**全投递**的文本路径用：锁屏只挡得住 SendInput（模拟键鼠），
+    挡不住 PostMessage 投递 —— 实测锁屏下搜索/切会话/输入/发送全通，不该拦。
+    附件路径仍用默认的 False：它靠剪贴板 + Ctrl+V，是真的 SendInput，锁屏时够不着。
+    """
     st = wake_minimized()
+    if allow_locked and st.get("locked"):
+        st = dict(st, ok=True)
     return bool(st["ok"]), st
 
 
@@ -454,9 +607,9 @@ def _run_ps(script, args):
                    capture_output=True, text=True)
 
 
-# ---- 进程内截图（ctypes GDI BitBlt → PNG）----
+# ---- 进程内截图（ctypes GDI → PNG）----
 # 为什么不用 shot.ps1：每张截图 spawn 一次 PowerShell 要约 1~2s，一次发送要抓 5~8 张，
-# 累计是最大的一处浪费。这里直接 BitBlt 屏幕对应区域，再手写 PNG（零依赖）。
+# 累计是最大的一处浪费。这里直接抓窗口内容（PrintWindow，见 read_ui），再手写 PNG（零依赖）。
 _gdi = ctypes.windll.gdi32
 
 
@@ -486,39 +639,37 @@ def _png_from_bgra(buf, w, h):
             + chunk(b"IDAT", zlib.compress(raw, 6)) + chunk(b"IEND", b""))
 
 
-def grab_png(h, path):
-    """抓窗口所在屏幕区域并存 PNG。返回是否成功。"""
-    l, t, w, hh = win_rect(h)
-    if w <= 0 or hh <= 0:
-        return False
+def read_ui(tag):
+    """拍微信主窗口并 OCR。
+
+    用 `PrintWindow(PW_RENDERFULLCONTENT)` 而不是 BitBlt 屏幕区域：只取**这个窗口**的内容，
+    所以窗口在后台、被别的窗口盖住、乃至被锁屏盖住时都拍得到（2026-10-09 实测）。
+    BitBlt 拍的是屏幕那一块——锁屏时拍回来的是锁屏壁纸，于是 header 读成空、
+    被误判成「目标会话未确认」。顺带也不再 `SetForegroundWindow`，读界面不必抢前台。
+    """
+    h = find_main_hwnd() or find_main_hwnd(include_hidden=True)
+    if not h:
+        return 0, 0, []
+    _unhide(h)              # 隐藏态下 PrintWindow 拍出来是空白，先恢复可见
+    _, _, ww, wh = win_rect(h)
+    png = os.path.join(core.WORK, f"ui_{tag}.png")
+    out = os.path.join(core.WORK, f"ui_{tag}.txt")
+    if ww <= 0 or wh <= 0:
+        return ww, wh, []
     hdc = u.GetDC(None)
     mem = _gdi.CreateCompatibleDC(hdc)
-    bmp = _gdi.CreateCompatibleBitmap(hdc, w, hh)
+    bmp = _gdi.CreateCompatibleBitmap(hdc, ww, wh)
     _gdi.SelectObject(mem, bmp)
-    ok = _gdi.BitBlt(mem, 0, 0, w, hh, hdc, l, t, 0x00CC0020)  # SRCCOPY
-    bi = _BMIH(ctypes.sizeof(_BMIH), w, -hh, 1, 32, 0, 0, 0, 0, 0, 0)
-    buf = ctypes.create_string_buffer(w * 4 * hh)
-    _gdi.GetDIBits(mem, bmp, 0, hh, buf, ctypes.byref(bi), 0)
+    ok = u.PrintWindow(ctypes.c_void_p(h), mem, 2)          # 2 = PW_RENDERFULLCONTENT
+    bi = _BMIH(ctypes.sizeof(_BMIH), ww, -wh, 1, 32, 0, 0, 0, 0, 0, 0)
+    buf = ctypes.create_string_buffer(ww * 4 * wh)
+    _gdi.GetDIBits(mem, bmp, 0, wh, buf, ctypes.byref(bi), 0)
     _gdi.DeleteObject(bmp)
     _gdi.DeleteDC(mem)
     u.ReleaseDC(None, hdc)
     if not ok:
-        return False
-    open(path, "wb").write(_png_from_bgra(buf.raw, w, hh))
-    return True
-
-
-def read_ui(tag):
-    h = find_main_hwnd()
-    _, _, ww, wh = win_rect(h)
-    png = os.path.join(core.WORK, f"ui_{tag}.png")
-    out = os.path.join(core.WORK, f"ui_{tag}.txt")
-    try:
-        u.SetForegroundWindow(ctypes.c_void_p(h))
-        if not grab_png(h, png):
-            raise RuntimeError("grab failed")
-    except Exception:
-        _run_ps(SHOT, ["-Out", png, "-Hwnd", str(h)])   # 回退：老路径（spawn PowerShell）
+        return ww, wh, []          # 拍不到就交空结果让调用方 fail-closed，别拿旧画面糊弄
+    open(png, "wb").write(_png_from_bgra(buf.raw, ww, wh))
     _LAST_SHOT["path"] = png
     _run_ps(OCR4, ["-Path", png, "-Out", out])
     lines = []
@@ -534,7 +685,10 @@ def read_ui(tag):
 
 def read_ui_stable(tag, tries=4):
     """聊天区偶发抓成空白；重试直到右侧有内容（或到次数上限）。
-    空白时点一下聊天区，促使微信重绘/置前。"""
+
+    空白时**投递**点一下聊天区逼微信重绘——不能用真鼠标（`SetCursorPos` + `mouse_event`）：
+    那既违反「不动用户光标」的约定，又会把正开着的搜索浮层点掉（2026-10-09 实测）。
+    """
     ww = wh = 0
     lines = []
     for i in range(tries):
@@ -542,14 +696,11 @@ def read_ui_stable(tag, tries=4):
         ly = layout(lines, ww, wh)
         if ly["header"] or ly["chat_text"]:
             return ww, wh, lines
-        if i == 0:  # 首轮空白：点一下聊天区逼它重绘
+        if i == 0:  # 首轮空白：投递点一下聊天区逼它重绘
             try:
-                u.SetForegroundWindow(ctypes.c_void_p(find_main_hwnd()))
-                _, _, w0, h0 = win_rect(find_main_hwnd())
-                u.SetCursorPos(int(w0 * 0.55), int(h0 * 0.35))
-                u.mouse_event(0x0002, 0, 0, 0, 0)
-                time.sleep(0.05)
-                u.mouse_event(0x0004, 0, 0, 0, 0)
+                h = find_main_hwnd() or find_main_hwnd(include_hidden=True)
+                if h and ww > 0 and wh > 0:
+                    post_click(h, int(ww * 0.55), int(wh * 0.35))
             except Exception:
                 pass
         time.sleep(0.7)
@@ -881,14 +1032,14 @@ def _release_ui(fh):
 def send_text(text, talker, name=None, dry_run=True, verbose=False):
     """发送文本。返回 (ok, detail)。
 
-    两步前置闸门，任一不过就**不触碰窗口**直接失败：
-    1. `env_gate()`：微信是否运行 / 主窗口可见 / 未最小化（**最小化时先自恢复一次**，见 `wake_minimized`）。
-    2. `Win.__enter__`：切前台 + 固定尺寸，并逐项校验规范化真的生效。
-    之后才是「目标校验 → 输入落地 → 发送生效」三道动作校验。
+    走**全投递**路径（PostMessage）：不抢前台、不碰鼠标键盘、不劫持剪贴板，锁屏下同样可用。
+    前置闸门只剩 `env_gate(allow_locked=True)`：微信是否运行 / 主窗口可见（最小化时先自恢复一次）。
+    之后是「目标校验 → 输入落地 → 发送生效（读库）」三道动作校验，任一不过即中止、绝不盲发。
+    附件类路径（send_file/send_batch/reply_to）不变，仍走 `Win()` + 模拟键鼠，需要前台。
     """
     if not name:
         name = core.names().get(talker, talker)
-    env_ok, st = env_gate()
+    env_ok, st = env_gate(allow_locked=True)   # 文本走投递，锁屏也能发
     if not env_ok:
         return False, f"环境前置检查未通过：{st['reason']}（微信运行={st['weixin_running']}，可见={st['visible']}，最小化={st['minimized']}）"
     lk = _acquire_ui()
@@ -905,71 +1056,71 @@ def send_text(text, talker, name=None, dry_run=True, verbose=False):
         _release_ui(lk)
 
 
+def _unhide(h):
+    """主窗口被**隐藏**（IsWindowVisible=0，并非最小化）时显示出来。
+
+    用 SW_SHOWNA：显示但不激活，不抢用户的前台。2026-10-09 实测遇到过这种状态——
+    微信进程在跑、窗口有句柄，但 IsWindowVisible=0，`find_main_hwnd` 因此返回 0。
+    """
+    try:
+        if not u.IsWindowVisible(ctypes.c_void_p(h)):
+            u.ShowWindow(ctypes.c_void_p(h), 8)   # SW_SHOWNA
+            time.sleep(0.5)
+    except Exception:
+        pass
+
+
+def _give_back_foreground(wechat_h, prev_fg):
+    """把前台还给用户。
+
+    投递字符会让微信**自己**跳到前台（Qt 收到输入消息时的自激活，实测 0.1–0.3 秒内发生），
+    投递完必须还回去，否则用户正要敲的字会落进微信输入框、被随后的回车一起发出去。
+    锁屏时前台是 LockApp、微信抢不上去，这一步是无害的空转。
+    """
+    try:
+        if prev_fg and prev_fg != wechat_h and int(u.GetForegroundWindow()) == wechat_h:
+            u.SetForegroundWindow(ctypes.c_void_p(prev_fg))
+    except Exception:
+        pass
+
+
 def _send_locked(text, talker, name, dry_run, verbose):
-    with Win() as win:
-        ww, wh, lines = read_ui_stable("s0")
-        ok, why = verify_target(talker, name, lines, ww, wh, verbose)
-        if not ok:
-            # ① 会话列表按名点击；② 列表名被 OCR 读花时用微信自带搜索兜底
-            ok = open_chat(name, talker, win, verbose) or open_chat_via_search(name, talker, win, verbose)
-        if not ok:
-            return False, "目标会话未确认（fail-closed）"
-        base_ts = _talker_latest_ts(talker)   # 发送后据此**读库确认**真的落到目标会话
-        ww, wh, lines = read_ui_stable("s1")
+    """全投递发送：不抢前台、不碰鼠标键盘、不劫持剪贴板，锁屏下同样可用。
 
-        def _type_and_check(btn_hint, tag):
-            ip = layout(lines, ww, wh, btn_hint=btn_hint)["input_pt"]
-            win.click(ip[0], ip[1])
-            ctrl(0x41)
-            time.sleep(0.15)
-            press(0x2E)
-            time.sleep(0.3)
-            # 粘贴而不是逐字键入：见 _clip_set_text 注释（逐字注入会被标点吞字）
-            if not _clip_set_text(text):
-                return False, None
-            time.sleep(0.15)
-            ctrl(0x56)
-            time.sleep(0.6)
-            # 落地校验走剪贴板回读（见 _composer_copy_all 注释：区域 OCR 在本版微信必漏读）
-            if not contains_sub(text, _composer_copy_all(), 4):
-                ctrl(0x41)
-                press(0x2E)
-                try:  # 失败现场留证据截图（不做判定，仅供排查）
-                    png = os.path.join(core.WORK, f"ui_{tag}.png")
-                    if grab_png(find_main_hwnd(), png):
-                        _LAST_SHOT["path"] = png
-                except Exception:
-                    pass
-                return False, None
-            return True, (ww, wh, lines)
+    三道安全网不变（目标校验 → 发送 → 读库确认），只是执行手段从 SendInput 换成了
+    PostMessage。fail-closed：任一步不成立即返回失败，由上层排队重试。
+    发送生效校验改为**发完读库**——那本就是最后一道，且不像剪贴板回读那样需要前台。
+    """
+    h = find_main_hwnd() or find_main_hwnd(include_hidden=True)
+    if not h:
+        return False, "找不到微信主窗口"
+    _unhide(h)          # 隐藏态先恢复出来（否则「找不到主窗口」直接失败，连恢复的机会都没有）
+    prev_fg = int(u.GetForegroundWindow())
+    ww, wh, lines = read_ui_stable("s0")
+    ok, _why = verify_target(talker, name, lines, ww, wh, verbose)
+    if not ok:
+        ok = open_chat_post(h, name, talker, verbose)
+    if not ok:
+        return False, "目标会话未确认（fail-closed）"
+    if dry_run:
+        return True, "dry-run：已验证目标会话，未输入未发送"
+    base_ts = _talker_latest_ts(talker)   # 发送后据此**读库确认**真的落到目标会话
 
-        ok, got = _type_and_check(None, "s2")
-        if not ok:
-            if verbose:
-                print("[type] 首轮输入未落地，改用默认贴底坐标重试", flush=True)
-            ok, got = _type_and_check("default", "s2b")
-        if not ok:
-            return False, "输入未落地（fail-closed）"
-        ww, wh, l2 = got
-        if dry_run:
-            ctrl(0x41)
-            press(0x2E)
-            return True, "dry-run：已校验、未发送"
-        ly2 = layout(l2, ww, wh)
-        press(0x0D)
-        time.sleep(1.0)
-        # 发送生效校验：输入框应已清空（同样走剪贴板回读，不依赖 OCR）
-        if contains_sub(text, _composer_copy_all(), 4):
-            win.click(*ly2["send_btn"])
-            time.sleep(1.0)
-            if contains_sub(text, _composer_copy_all(), 4):
-                ctrl(0x41)
-                press(0x2E)
-                return False, "发送未生效（输入框未清空）"
-        # 最后一道：**读库确认**新消息真的落在目标会话（防「看着发出去了、其实发到别处」）
-        if not _wait_new_message(talker, base_ts):
-            return False, "已回车但目标会话未见新消息（可能发到了别处或未生效）"
-        return True, "已发送"
+    ww, wh, lines = read_ui_stable("s1")
+    # 投递点击输入框：尽力把焦点摆过去。微信切会话时会自动 focus 输入框，这里是兜底；
+    # 焦点若真在别处，投递的字符会落空 —— 下面的读库校验会把它拦成失败，不会盲发。
+    post_click(h, *layout(lines, ww, wh)["input_pt"])
+    time.sleep(0.4)
+    if not post_text(h, text):
+        return False, "投递输入失败（PostMessage 未送达）"
+    time.sleep(0.6)
+    post_key(h, VK_RETURN)
+    _give_back_foreground(h, prev_fg)
+    time.sleep(1.0)
+    # 最后一道：**读库确认**新消息真的落在目标会话（防「看着发出去了、其实发到别处」）
+    if not _wait_new_message(talker, base_ts):
+        return False, "已回车但目标会话未见新消息（可能发到了别处或未生效）"
+    return True, "已发送"
 
 
 # ============================================================================
