@@ -1105,6 +1105,69 @@ def suite_H():
     return r
 
 
+def suite_I():
+    """I 层：画像 scope 路由（`wechat_profile_get` 能不能把**用户本人**那份读回来）。
+
+    为什么单开一层：`_resolve_scope` 曾把 `self`/`me`/`我` 一并归一成 `None`，而
+    `core.profile_get(None)` 的语义是「**列出**已产出的画像文件」——于是
+    `wechat_profile_get(scope="self")` 静默返回 `{dir, files}`（**没有 content/exists**）。
+    调用方 `bridge.ts` 的判据是 `got.exists !== undefined && !content.trim()`，拿到 undefined
+    就按「不缺失」处理 → **「关于我（本人）」这份画像从来没进过代聊的提示词**，
+    而模型按工作流去查每次都得到"没有"，于是每轮重新蒸馏重建一遍。
+    这层钉两件事：显式 self 必须读回**正文**；不给 scope 才允许只列清单。
+    """
+    import server
+
+    r = R("I 层：画像 scope 路由")
+    tmp = tempfile.mkdtemp(prefix="lumii-distill-")
+    old_env = os.environ.get("LUMII_WECHAT_DISTILL")
+    os.environ["LUMII_WECHAT_DISTILL"] = tmp
+    try:
+        server.tool_profile_save({"scope": "self", "content": "# 我\n说话短，爱用「好的」。"})
+
+        def i0():
+            got = server.tool_profile_get({"scope": "self"})
+            assert "content" in got, f"显式 self 必须读回正文，而不是目录清单：{sorted(got)}"
+            assert got.get("exists") is True, f"self.md 刚写过，exists 该为真：{got}"
+            assert "好的" in got["content"], "读回来的必须是本人画像正文"
+        r.case("scope=self ⇒ 读回本人画像正文（不是列清单）", i0)
+
+        def i1():
+            for alias in ("me", "我", "本人"):
+                got = server.tool_profile_get({"scope": alias})
+                assert "content" in got and got.get("exists") is True, f"{alias} 该与 self 同义：{got}"
+        r.case("me / 我 / 本人 ⇒ 与 self 同义", i1)
+
+        def i2():
+            got = server.tool_profile_get({})
+            assert "files" in got and "content" not in got, \
+                f"不给 scope 才该只列清单（不给正文）：{got}"
+        r.case("不给 scope ⇒ 只列已产出的画像文件", i2)
+
+        def i3():
+            """反面：scope 给了但解析不出来，要**报错**，不能退回列清单（那会重演静默失效）。"""
+            got = server.tool_profile_get({"scope": "不存在的会话名xyz"})
+            assert got.get("error_code") == "target_not_found", f"解析不出来该报 target_not_found：{got}"
+        r.case("scope 解析不出来 ⇒ 报错，不退回列清单", i3)
+
+        def i4():
+            """蒸馏水位与画像走**同一个 self 键**（`state.json` 里就是 "self"），别一个 None 一个 "self"。"""
+            server.tool_distill_state({"action": "set", "scope": "self", "ts": 1791532458})
+            assert server.tool_distill_state({}).get("since") == 1791532458, "self 水位该被记住"
+            assert server.tool_distill_state({"scope": "self"}).get("since") == 1791532458, \
+                "给 scope=self 读水位要与不给一致"
+        r.case("水位：set(scope=self) 与 get(不给) 是同一个键", i4)
+    finally:
+        if old_env is None:
+            os.environ.pop("LUMII_WECHAT_DISTILL", None)
+        else:
+            os.environ["LUMII_WECHAT_DISTILL"] = old_env
+        import shutil
+        shutil.rmtree(tmp, ignore_errors=True)
+
+    return r
+
+
 def main():
     try:
         import Crypto  # noqa: F401
@@ -1117,7 +1180,7 @@ def main():
     total_p = total_f = 0
     for suite, need_crypto in ((suite_A, True), (suite_B, False), (suite_C, False),
                                (suite_D, False), (suite_E, False), (suite_F, False),
-                               (suite_G, False), (suite_H, False)):
+                               (suite_G, False), (suite_H, False), (suite_I, False)):
         if need_crypto and not has_crypto:
             print("\n（跳过 A 层：没有 pycryptodome）")
             continue

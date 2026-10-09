@@ -28,7 +28,7 @@ import sys
 import os
 
 SERVER_NAME = "wechat-local"
-SERVER_VERSION = "0.5.0"
+SERVER_VERSION = "0.5.1"
 # 新 → 旧；客户端请求的版本在列表中则原样回应，否则回应最新版（由客户端决定是否断开）
 SUPPORTED_PROTOCOL_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
 
@@ -358,21 +358,27 @@ def tool_distill_state(args):
 
 def tool_distill_clear(args):
     """一键清除蒸馏产物（隐私约束）。"""
-    scope = args.get("scope")
-    if scope:
-        if scope in ("self", "me", "我", "本人"):
-            scope = "self"
-        else:
-            scope, err = _resolve_scope(scope)
-            if err:
-                return {"ok": False, "error_code": "target_not_found", "error": err}
+    raw = args.get("scope")
+    if raw is None or not str(raw).strip():
+        return core.distill_clear(None, everything=bool(args.get("everything")))
+    scope, err = _resolve_scope(raw)
+    if err:
+        return {"ok": False, "error_code": "target_not_found", "error": err}
     return core.distill_clear(scope, everything=bool(args.get("everything")))
 
 
 def _resolve_scope(scope):
-    """画像 scope：空/self/me/我 → 用户本人（None）；否则解析成会话 talker。返回 (talker|None, err|None)。"""
-    if not scope or scope in ("self", "me", "我", "本人"):
-        return None, None
+    """画像 scope → core 的键：空/self/me/我/本人 → **`"self"`**（用户本人）；否则解析成会话 talker。
+
+    ⚠️ 本人这一档**必须返回 "self"，不能返回 None**。`core.profile_get(None)` 的语义是
+    「列出已产出的画像文件」，所以 `wechat_profile_get(scope="self")` 会静默返回目录清单——
+    调用方（`bridge.ts` 每轮注入画像）拿不到 `exists`/`content`，就把这一整块丢掉。
+    后果不是「画像质量差」而是**「关于我（本人）」这份画像从来没进过代聊的提示词**：模型按
+    工作流去查，每次都得到"没有"，于是每轮重新蒸馏重建一遍（`self.md` 反复被覆盖、
+    水位停在 0）。2026-10-09 实测：注入 `chars=444`，正文里只有 `## 关于这个人`。
+    """
+    if not scope or str(scope).strip() in ("self", "me", "我", "本人"):
+        return "self", None
     t = _resolve(scope)
     if t:
         return t, None
@@ -392,8 +398,13 @@ def tool_profile_save(args):
 
 
 def tool_profile_get(args):
-    """读回已蒸馏的画像（给 scope）或列出已产出的画像文件（不给）。"""
-    scope, err = _resolve_scope(args.get("scope"))
+    """读画像：`scope="self"`（或 me/我/本人）→ **用户本人**画像；给会话名/wxid → 该好友/群画像；
+    **完全不给 scope** → 只列出已产出的画像文件（清单，不含正文）。"""
+    raw = args.get("scope")
+    if raw is None or not str(raw).strip():
+        return core.profile_get(None)          # 列清单
+    # 显式给了 scope（含 "self"）→ 必须读回正文，不能走上面那条列清单的分支
+    scope, err = _resolve_scope(raw)
     if err:
         return {"error_code": "target_not_found", "error": err}
     return core.profile_get(scope)
@@ -576,10 +587,11 @@ TOOLS = [
          "required": ["content"]}},
     {"name": "wechat_profile_get",
      "description": ("【何时用】要**读回已蒸馏的画像**（「我是谁」「某个好友是谁」）时。"
+                     "`scope=\"self\"`（或 me/我/本人）读**用户本人**那份；给会话名/wxid 读该好友/群那份。"
                      "【别用】还没有画像时——应先 wechat_digest + 提炼，再 wechat_profile_save。"
-                     "scope 留空则**列出**已产出的画像文件。"),
+                     "**完全不给 scope** 才只**列出**已产出的画像文件（清单，没有正文）。"),
      "inputSchema": {"type": "object", "properties": {
-         "scope": {"type": "string", "description": "可选：留空列出全部"}}, "required": []}},
+         "scope": {"type": "string", "description": "self=用户本人；或会话名/wxid/群号；留空=只列出有哪些画像"}}, "required": []}},
 ]
 DISPATCH = {"list_sessions": tool_sessions, "read_history": tool_history,
             "poll_new": tool_poll, "check_env": tool_status,

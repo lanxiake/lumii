@@ -149,7 +149,7 @@ Windows 上 PATH 里的 `%LOCALAPPDATA%\Microsoft\WindowsApps\python.exe` 是 Mi
 | `list_unread()` | 未读会话 + 最近一条预览 |
 | `check_env()` | 自检：微信进程/窗口/最小化/前台/尺寸·DPI + 依赖(`deps`)与账号(`accounts`) |
 | `wechat_digest(talker?, limit?, since?)` | **蒸馏**：行为统计 + 代表性样本（多分片、本地、不外传） |
-| `wechat_profile_get(scope?)` | 读回画像（含 `updated`/`age_days`/`stale`）；不给 `scope` 列出全部 |
+| `wechat_profile_get(scope?)` | 读回画像（含 `updated`/`age_days`/`stale`）。`scope="self"`（或 `me`/`我`/`本人`）＝ **用户本人**的画像；给会话名/wxid ＝ 该好友/群；**留空**才只列出已产出的画像清单（不含正文） |
 | `wechat_distill_state(action?, scope?, ts?)` | 蒸馏**水位**（增量蒸馏用） |
 
 **发送（均默认 `dry_run=true`）**
@@ -160,8 +160,8 @@ Windows 上 PATH 里的 `%LOCALAPPDATA%\Microsoft\WindowsApps\python.exe` 是 Mi
 | `send_file(talker, path, dry_run)` | 发图片（内联）/ 文件 / 视频（按扩展名）—— 需窗口可见在前台 |
 | `send_batch(messages=[{talker,text}], dry_run)` | 群发（逐目标独立校验） |
 | `reply_to(talker, quote, text, dry_run)` | **引用回复**（`quote` 传被引用消息的文字定位） |
-| `wechat_profile_save(scope?, content)` | 存画像（Markdown，本地白盒） |
-| `wechat_distill_clear(scope?, everything?)` | **一键清除**画像/水位（清空全部须 `everything=true`） |
+| `wechat_profile_save(scope?, content)` | 存画像（Markdown，本地白盒）。本人那份用 `scope="self"`。⚠️ **整份覆盖写**（旧的只留一份 `.prev` 备份）——更新前先 `wechat_profile_get` 读回 |
+| `wechat_distill_clear(scope?, everything?)` | **一键清除**画像/水位（清空全部须 `everything=true`；`scope="self"` 只清本人那份） |
 
 ## 6. 发送安全（fail-closed）
 
@@ -171,7 +171,9 @@ Windows 上 PATH 里的 `%LOCALAPPDATA%\Microsoft\WindowsApps\python.exe` 是 Mi
 
 ## 7. 隐私
 
-- 只读本人账号数据；**全本地处理、不外传**（画像默认不自动注入，靠 `wechat_profile_get` **按需取**）。
+- 只读本人账号数据；**全本地处理、不外传**（裸 MCP 客户端下画像不自动注入，靠 `wechat_profile_get` **按需取**；
+  灵栖的「本机微信代聊」会**每轮注入一次**命中的画像——那是 App 侧行为，见
+  [`docs/wechat-mcp-optimization-plan.md`](../../../../docs/wechat-mcp-optimization-plan.md) §3.9）。
 - 画像落 `~/.lumii/wechat-distill/`（白盒 Markdown，可读/可改/可删）；`wechat_distill_clear` 一键清除。
 - **注意**：把画像/聊天内容交给云端 LLM 即等于外传——这由你的客户端与模型决定，请自行评估。
 
