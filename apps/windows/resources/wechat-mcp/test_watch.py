@@ -831,6 +831,78 @@ def suite_G():
     return r
 
 
+def suite_H():
+    """H 层：`read_ui_stable` 的重试预算——**读到字就算读到**，别拿「右侧有内容」当判据。
+
+    为什么单开一层：没开会话 / 开着搜索浮层时聊天区本来就空，但左边会话列表还在、字也都读到了。
+    旧判据（`header or chat_text`）在这两种形态下每处白等 4 轮 ≈ 8s，而一轮失败的 `send_text`
+    要过 4–8 处这样的读——实测耗到 **29.7s**，离 MCP 客户端的 30s 超时只差 283ms。
+    超时不是错误码 ⇒ Provider 归不出 `env_not_ready` ⇒ 那条回复静默没了（2026-10-09 实测）。
+    """
+    import wechat_sender as snd
+    r = R("H 层：读界面重试预算")
+
+    # 只有左侧列表、右侧空白的一帧——正是「没开会话/搜索浮层」的真实形态
+    LIST_ONLY = [(126, 97, 196, 109, "产 品 术 部"), (126, 558, 300, 570, "文 件 传 输 助 手")]
+    # 聊天区开着的一帧（对照：两种形态都必须一次返回）
+    WITH_CHAT = LIST_ONLY + [(324, 49, 408, 61, "文 件 传 输 助 手"), (800, 300, 900, 312, "LOCK-9")]
+
+    def run_with(frames, fn):
+        """read_ui 按 frames 依次返回（用完后重复最后一个）；sleep/post_click/find_main_hwnd 打桩。"""
+        st = {"n": 0}
+        clicks = []
+
+        def fake_read_ui(tag):
+            i = min(st["n"], len(frames) - 1)
+            st["n"] += 1
+            return 1280, 820, list(frames[i])
+
+        old = (snd.read_ui, snd.time.sleep, snd.find_main_hwnd, snd.post_click)
+        snd.read_ui = fake_read_ui
+        snd.time.sleep = lambda *_: None
+        snd.find_main_hwnd = lambda: 199150
+        snd.post_click = lambda h, x, y: clicks.append((x, y))
+        try:
+            return fn(st, clicks)
+        finally:
+            (snd.read_ui, snd.time.sleep, snd.find_main_hwnd, snd.post_click) = old
+
+    def h1_list_only_returns_first_try():
+        def run(st, clicks):
+            ww, wh, lines = snd.read_ui_stable("t")
+            assert st["n"] == 1, f"读到了就该立刻返回，别白等 4 轮：试了 {st['n']} 次"
+            assert lines == LIST_ONLY, "返回的得是这一帧的行"
+            assert clicks == [], "读到了就不该再逼重绘（那会点掉正开着的搜索浮层）"
+        run_with([LIST_ONLY], run)
+    r.case("只有会话列表（没开会话/搜索浮层）⇒ 一次返回，不逼重绘", h1_list_only_returns_first_try)
+
+    def h2_with_chat_returns_first_try():
+        def run(st, _clicks):
+            _ww, _wh, lines = snd.read_ui_stable("t")
+            assert st["n"] == 1 and lines == WITH_CHAT
+        run_with([WITH_CHAT], run)
+    r.case("聊天区开着 ⇒ 一次返回", h2_with_chat_returns_first_try)
+
+    def h3_truly_blank_still_retries():
+        """反面：真空白（OCR 一行都没读到）仍要重试到上限——这条别被上面两条顺手删掉。"""
+        def run(st, clicks):
+            ww, wh, lines = snd.read_ui_stable("t", tries=4)
+            assert st["n"] == 4, f"真空白才该试满：试了 {st['n']} 次"
+            assert lines == [] and (ww, wh) == (1280, 820)
+            assert len(clicks) == 1, f"应在首轮空白时逼重绘**一次**：{clicks}"
+        run_with([[]], run)
+    r.case("真空白 ⇒ 试满 + 首轮逼重绘一次", h3_truly_blank_still_retries)
+
+    def h4_blank_then_ok():
+        def run(st, _clicks):
+            _ww, _wh, lines = snd.read_ui_stable("t")
+            assert st["n"] == 2 and lines == LIST_ONLY, "第二帧读到了就该收手"
+        run_with([[], LIST_ONLY], run)
+    r.case("首帧空白、次帧读到 ⇒ 第二次收手", h4_blank_then_ok)
+
+    return r
+
+
 def main():
     try:
         import Crypto  # noqa: F401
@@ -843,7 +915,7 @@ def main():
     total_p = total_f = 0
     for suite, need_crypto in ((suite_A, True), (suite_B, False), (suite_C, False),
                                (suite_D, False), (suite_E, False), (suite_F, False),
-                               (suite_G, False)):
+                               (suite_G, False), (suite_H, False)):
         if need_crypto and not has_crypto:
             print("\n（跳过 A 层：没有 pycryptodome）")
             continue

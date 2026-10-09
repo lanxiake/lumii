@@ -689,7 +689,13 @@ def read_ui(tag):
 
 
 def read_ui_stable(tag, tries=4):
-    """聊天区偶发抓成空白；重试直到右侧有内容（或到次数上限）。
+    """拍一帧**读得动**的界面，读到就返回；真的抓成空白才重试（或到次数上限）。
+
+    判据是「**OCR 出过东西**」，不是「右侧有内容」：没开会话、开着搜索浮层时聊天区本来就空，
+    但左边会话列表还在、字也都读到了——拿 header/chat 当判据会在这两种形态下白等 4 轮
+    （每轮 PrintWindow+OCR+0.7s ≈ 2s）。重试预算从没跟 MCP 客户端的 30s 超时对过账：
+    实测失败一轮 `send_text` 一路耗到 **29.7s**，离被超时杀掉只差 283ms——而超时不是错误码，
+    Provider 归不出 `env_not_ready`，那条回复就静默没了（2026-10-09 实测）。
 
     空白时**投递**点一下聊天区逼微信重绘——不能用真鼠标（`SetCursorPos` + `mouse_event`）：
     那既违反「不动用户光标」的约定，又会把正开着的搜索浮层点掉（2026-10-09 实测）。
@@ -698,8 +704,7 @@ def read_ui_stable(tag, tries=4):
     lines = []
     for i in range(tries):
         ww, wh, lines = read_ui(f"{tag}{i}")
-        ly = layout(lines, ww, wh)
-        if ly["header"] or ly["chat_text"]:
+        if lines:
             return ww, wh, lines
         if i == 0:  # 首轮空白：投递点一下聊天区逼它重绘
             try:
