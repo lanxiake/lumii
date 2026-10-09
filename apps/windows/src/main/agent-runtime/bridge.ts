@@ -190,7 +190,7 @@ import {
   type WechatProfileBlock,
   WECHAT_WATCH_MCP_SERVER,
 } from './wechat-watch-tick'
-import { ensureWechatRelayAgent, relayPromptWithWorkflow, WECHAT_RELAY_AGENT_ID } from './wechat-relay-agent'
+import { ensureWechatRelayAgent, relayPromptUpgrade, WECHAT_RELAY_AGENT_ID } from './wechat-relay-agent'
 import { createUserAgentRecord, getAgentRecord, updateAgentRecord } from '../agents-repo'
 import { getChannelPolicyStore } from '../channel/channel-policy-store'
 import { ensurePetEvolveCronJobSeeded, runPetEvolve, syncPetEvolveJobEnabled } from './pet-evolve'
@@ -2426,12 +2426,12 @@ export class AgentRuntimeBridge {
       if (relay?.created) {
         log.info('[bridge] 已播种「灵栖代聊」：手册已搬进它的 systemPrompt（此后以设置页里那份为准）')
       }
-      // 老 Agent（补预设工作流之前播种的）补一段**追加**式升级——只往后接程序自己那一段，
-      // 用户改过的口吻与护栏原样保留（判据是分区标记，见 relayPromptWithWorkflow）。
-      const upgraded = relayPromptWithWorkflow(getAgentRecord(WECHAT_RELAY_AGENT_ID)?.systemPrompt)
+      // 老 Agent 升到当前的程序分区与铁律口径：只动程序写过的那几块（精确匹配 + 起止标记），
+      // 用户改过的口吻、手册原文原样保留（见 relayPromptUpgrade）。
+      const upgraded = relayPromptUpgrade(getAgentRecord(WECHAT_RELAY_AGENT_ID)?.systemPrompt)
       if (upgraded) {
-        updateAgentRecord(WECHAT_RELAY_AGENT_ID, { systemPrompt: upgraded })
-        log.info('[bridge] 「灵栖代聊」已补上预设工作流分区（画像/蒸馏的口径）')
+        updateAgentRecord(WECHAT_RELAY_AGENT_ID, { systemPrompt: upgraded.prompt })
+        log.info(`[bridge] 「灵栖代聊」已升级：${upgraded.applied.join('、')}`)
       }
     } catch (err) {
       log.warn('[bridge] 代聊 Agent 播种失败（不影响启动，回路会退回每轮注入手册）:', err)

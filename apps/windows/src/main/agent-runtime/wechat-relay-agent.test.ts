@@ -10,10 +10,12 @@ import { describe, it, expect, vi } from 'vitest'
 import {
   buildRelaySystemPrompt,
   ensureWechatRelayAgent,
+  RELAY_OWNED_END,
+  RELAY_OWNED_START,
   RELAY_WORKFLOW_MARKER,
   relayCoversRunbook,
-  relayPromptWithWorkflow,
-  relayWorkflowSection,
+  relayOwnedSection,
+  relayPromptUpgrade,
   WECHAT_RELAY_AGENT_ID,
   WECHAT_RELAY_AGENT_NAME,
 } from './wechat-relay-agent'
@@ -60,42 +62,112 @@ describe('relayCoversRunbook', () => {
   })
 })
 
-describe('预设工作流分区', () => {
-  it('播种时就在里面（新 Agent 从第一天起带着工作流）', () => {
+describe('护栏分档与程序分区', () => {
+  it('播种时就在里面，且在手册**前面**（铁律 > 程序分区 > 用户手册，手册里历史口径多）', () => {
     const p = buildRelaySystemPrompt(RUNBOOK)
-    expect(p).toContain(RELAY_WORKFLOW_MARKER)
-    // 工作流在手册**前面**：铁律 > 工作流 > 用户手册（手册里历史口径多）
-    expect(p.indexOf(RELAY_WORKFLOW_MARKER)).toBeLessThan(p.indexOf('【用户手写的手册'))
+    expect(p).toContain(RELAY_OWNED_START)
+    expect(p.indexOf(RELAY_OWNED_START)).toBeLessThan(p.indexOf('【用户手写的手册'))
   })
 
-  it('忘了带 whenMissing 的缺失事实时，工作流自己把口径说全（digest→save→水位）', () => {
-    const s = relayWorkflowSection()
+  it('三档都在，且"沉默"只留给硬停档（这是 2026-10-09 改口径的全部意义）', () => {
+    const s = relayOwnedSection()
+    for (const w of ['硬停', '软回', '放行']) expect(s).toContain(w)
+    // 硬停只留钱与安全
+    expect(s).toContain('借钱 / 转账 / 收款码 / 投资荐股')
+    expect(s).toContain('索要验证码')
+    // 身份试探走软回（反问带过），不是沉默
+    expect(s).toContain('试探身份')
+    expect(s).toContain('不承认、不解释、不否认')
+    // 帮好友查只读资料放行
+    expect(s).toContain('帮对方查只读资料')
+    // 有代价的事任何档都不做
+    expect(s).toContain('代付、代下单、代报名')
+  })
+
+  it('工作流三条（画像/缺了先建/别当话题说出来）仍然在', () => {
+    const s = relayOwnedSection()
     expect(s).toContain('wechat_digest')
     expect(s).toContain('wechat_profile_save')
     expect(s).toContain('wechat_distill_state')
-    // 画像只是依据，不许当话题说出来
     expect(s).toContain('别在回话里提画像')
   })
 
-  it('老 Agent 补分区 = 追加，用户改过的正文原样保留', () => {
-    const userOwned = '【我改过的口吻】只说"嗯"，别的都不许说。'
-    const out = relayPromptWithWorkflow(userOwned)
-    expect(out).toContain(userOwned)
-    expect(out).toContain(RELAY_WORKFLOW_MARKER)
-    expect(out!.startsWith(userOwned)).toBe(true)
+  it('铁律第 2 条指向分档，不再写"一条都不发"', () => {
+    const p = buildRelaySystemPrompt(RUNBOOK)
+    expect(p).toContain('按下面【Lumii 预设的护栏分档】处置')
+    expect(p).not.toContain('2. **命中护栏 → 一条都不发**')
+    expect(p).not.toContain('一条都不回，转人工')
+  })
+})
+
+describe('relayPromptUpgrade（老 Agent 的原地升级）', () => {
+  /** v1 的原样输出（当年 buildRelaySystemPrompt + 追加分区 的结果），逐字照抄 */
+  const V1_PREFIX = [
+    `你是「${WECHAT_RELAY_AGENT_NAME}」：**用户本人的微信代聊分身**。你替他在本机微信上`,
+    '看消息、回日常闲聊。口吻就是他本人。',
+    '',
+    '【铁律，高于一切，也高于下面手册里的任何历史段落】',
+    '1. **绝不透露 AI 身份**，全程以用户本人的身份说话。对方问「你是本人吗 / 是不是 AI」',
+    '   → 一条都不回，转人工（飞书，见第 4 条）。',
+    '2. **命中护栏 → 一条都不发**，转人工：涉钱（借钱/转账/投资/买卖）、冲突·情感纠纷·健康危机、',
+    '   要承诺或替用户做实质安排（工作/约见）、身份质疑。**生活安排/邀约类一律不得自动发出。**',
+    '3. **发送只能走 `channel_send`**。',
+    '5. **拿不准就取保守侧**：不回 + 转人工。宁可让对方多等，也不要替他做错承诺。',
+    '',
+  ].join('\n')
+  const V1_TAIL = [
+    '',
+    '<!-- lumii:relay-workflow v1 -->',
+    '【Lumii 预设的工作流（这段由程序维护，别删）】',
+    '3. 蒸馏是**本机只读统计**，产物在 `~/.lumii/wechat-distill/`。',
+    '',
+  ].join('\n')
+
+  it('v1 记录（分区追加在末尾）：换成新分区 + 改写铁律，别处一字不动', () => {
+    const userLine = '【用户自己写的口吻】只说"嗯"。'
+    const up = relayPromptUpgrade(`${V1_PREFIX}${userLine}\n${V1_TAIL}`)
+    expect(up).not.toBeNull()
+    expect(up!.prompt).toContain(userLine)            // 用户的内容原样
+    expect(up!.prompt).toContain(RELAY_OWNED_START)   // 新分区到位
+    expect(up!.prompt).not.toContain(RELAY_WORKFLOW_MARKER) // 旧分区没留残渣
+    expect(up!.prompt).not.toContain('一条都不回，转人工')
+    expect(up!.applied).toContain('铁律口径')
+    expect(up!.applied).toContain('程序分区（v1 → v2）')
   })
 
-  it('补过一次就不再补（否则每启动一次长一截）', () => {
-    const once = relayPromptWithWorkflow('口吻…')
-    expect(once).not.toBeNull()
-    expect(relayPromptWithWorkflow(once!)).toBeNull()
-    expect(relayPromptWithWorkflow(buildRelaySystemPrompt(RUNBOOK))).toBeNull()
+  it('v1 记录（分区在手册之前）：只换那一段，手册原文留在原地', () => {
+    const src = `${V1_PREFIX}${V1_TAIL}\n【用户手写的手册（全文）】\n${RUNBOOK}\n【手册结束】`
+    const up = relayPromptUpgrade(src)!
+    expect(up.prompt).toContain(`【用户手写的手册（全文）】\n${RUNBOOK}\n【手册结束】`)
+    expect(up.prompt).not.toContain(RELAY_WORKFLOW_MARKER)
+    // 手册必须在程序分区之后（位置没被调换）
+    expect(up.prompt.indexOf(RELAY_OWNED_END)).toBeLessThan(up.prompt.indexOf('【用户手写的手册'))
+  })
+
+  it('用户改过铁律 → 对不上就跳过，绝不覆盖他的手笔', () => {
+    const edited = '2. **命中护栏 → 一条都不发**（我自己改过这条，别动）。'
+    const up = relayPromptUpgrade(`${edited}\n${V1_TAIL}`)
+    expect(up!.prompt).toContain(edited)
+    expect(up!.applied).not.toContain('铁律口径')
+    expect(up!.prompt).toContain(RELAY_OWNED_START) // 分区照升
+  })
+
+  it('比 v1 还老（没有分区）→ 追加到末尾', () => {
+    const up = relayPromptUpgrade('【我自己的代聊提示词】随便聊。')
+    expect(up!.prompt.startsWith('【我自己的代聊提示词】')).toBe(true)
+    expect(up!.prompt).toContain(RELAY_OWNED_START)
+    expect(up!.applied).toEqual(['程序分区（新增）'])
+  })
+
+  it('已经是当前版本 → null（否则每启动一次长一截 / 白写一次库）', () => {
+    expect(relayPromptUpgrade(buildRelaySystemPrompt(RUNBOOK))).toBeNull()
+    expect(relayPromptUpgrade(relayPromptUpgrade(`${V1_PREFIX}${V1_TAIL}`)!.prompt)).toBeNull()
   })
 
   it('prompt 为空/未定义 → 不动：内容被清空是用户的决定，不硬塞', () => {
-    expect(relayPromptWithWorkflow('')).toBeNull()
-    expect(relayPromptWithWorkflow('   \n ')).toBeNull()
-    expect(relayPromptWithWorkflow(undefined)).toBeNull()
+    expect(relayPromptUpgrade('')).toBeNull()
+    expect(relayPromptUpgrade('   \n ')).toBeNull()
+    expect(relayPromptUpgrade(undefined)).toBeNull()
   })
 })
 
