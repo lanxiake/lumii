@@ -3,12 +3,14 @@
 > **状态（2026-10-09 更新）**
 > - **后台发送**：`send_text` 改走**窗口消息投递**（`PostMessage`）——不占前台、不移动光标、
 >   不劫持剪贴板、**锁屏也能发**（见 [§3.6](#36-后台发送不占前台不打断用户锁屏可发2026-10-09)）。
->   真人锁屏下模块级与 App 级均实测通过。附件类（`send_file`/`send_batch`/`reply_to`）仍走
->   模拟键鼠，需前台。
+>   真人锁屏下模块级与 App 级均实测通过。**附件也已后台化**（`9f3b5cea`：点「发送文件」驱动
+>   文件对话框的控件消息，不碰剪贴板/光标/窗口，锁屏实测落条）——只剩 `reply_to` 走模拟键鼠需前台
+>   （聊天区没有逐条消息的 UIA 元素，按消息定位只能靠实时帧，而背景窗口给不出实时帧）。
 >   后台复测（2026-10-09 晚）：微信**非前台、非激活**下，`send_text(..., dry_run=False)` 仍
 >   `(True,'已发送')`（切会话 + 输入 + 发送 + 读库全通），**发前发后前台都是用户的窗口**，
->   全程没被抢走。⚠️ 但读界面的判据有个坑：窗口被遮挡/卡死时 `PrintWindow` 会给**冻结旧帧**，
->   据此得出过一整轮假阴性——详见 §3.6「观测陷阱」。
+>   全程没被抢走。⚠️ 用 **PrintWindow/OCR 当发送判据** 有个坑：窗口被遮挡/卡死时会给**冻结旧帧**，
+>   会稳定误判成 `target_unconfirmed`（累计 4 次，含 13:30 杨冬）——详见 §3.6「观测陷阱」；
+>   **已改**：切会话/表头校验优先 **UIA 活几何**（§3.7-③），14:23 同句「在工位，咋了」读库落地。
 > - **锁屏自愈**：已落地（见 [§3.5](#35-锁屏自愈2026-10-09)）。对仍需要前台的路径，发送门够不着
 >   的那条回复进待补发队列，解锁后由盯梢回路零 token 自动补发。
 > - **P0-A 路径发现**：已落地（`25a35ea3`）。
@@ -112,9 +114,15 @@
    **判据教训（与「帧尺寸当空白判据」同一类）**：拿一个**测量不可靠**的信号去做否决，产出的不是
    安全而是噪声——否决权只能交给「读得准」的证据。
 
-**现在的发送链路**（`wechat_sender.py`，仍是零注入）：环境闸门 → 目标会话校验（**强且独家的头部**
-+ 内容锚点加分 + 「更像别的会话即拒绝」反证 + 群成员昵称第三重）→
-输入落地（粘贴 + 剪贴板回读）→ 发送生效（输入框清空）→ **读库确认**（`create_time` 之后该会话真的多了一条）。
+**现在的发送链路**（`wechat_sender.py`，仍是零注入）：环境闸门 → **目标会话校验**
+（优先 **UIA 活表头** `current_chat_name_label`；UIA 不可用时才退回帧 OCR 的 `verify_target`）→
+切会话（优先 **UIA 会话列表** `session_item_<名>` + 活几何 `post_click`；帧列表 `find_session` 兜底；
+**不再有搜索浮层兜底**——投递搜索在真机上不可靠且会残留浮层）→
+文本输入（投递 `WM_CHAR`；输入框落点按「发送」按钮往上反推 `uia_input_pt`）→ **读库确认**（`create_time` 之后该会话真的多了一条）。
+发送前另有两道读回闸门（2026-10-09 加，见 §3.7-③）：清空输入框要按实读长度退格 + 回读确认；
+回车前读回正文，只容忍投递丢字、不容忍正文之外的残留。
+附件走同一条投递路（点「发送文件」驱动文件对话框控件消息，`9f3b5cea`）；
+只剩 `reply_to` 走前台：`Win()` + 模拟键鼠（聊天区没有逐条消息的 UIA 元素，按消息定位只能靠实时帧）。
 
 **重试与错误码**（`server.py`）：`error_code` 由发送层文案归一，`_code_of` 是唯一码表（有测试对账，
 文案改了不改码表会静默退化成 `unknown`）。
@@ -173,7 +181,8 @@
 | 设计 | 结论 | 理由 |
 |---|---|---|
 | COM Interop（`WeChat.Application`） | **作废** | 微信不提供该接口；实现它=协议逆向/DLL 注入，碰「零注入」红线 |
-| UI Automation 定位输入框 | **作废** | 微信 4.x（Qt）不暴露 `contenteditable`，UIA 拿不到；现方案用「几何布局 + 剪贴板」 |
+| UI Automation 定位**消息输入框** | **作废** | 微信 4.x（Qt）树里通常只有一个 Edit（左上角搜索框）；消息框用 `chat_message_list` 下方几何推点（§3.7-③） |
+| UI Automation 读**会话列表 + 表头**（发送判据） | **已采用**（§3.7-③） | 与上条不矛盾：UIA 给**活状态/活几何/精确名**，不受 `PrintWindow` 旧帧影响；`uia_read.ps1` + `read_uia` |
 | 自己解析 WAL 帧提取 rowid | **作废** | 帧是加密页，行级信息不可得；改成「salt 判会话 + 增量解密 + 查库」 |
 | `watchdog` 监听 + 独立监控进程 | **作废** | MCP 子进程内同步增量已满足实时（秒级）；独立进程徒增生命周期/状态同步问题 |
 | 环境变量 `LUMII_WECHAT_DB` 作为主路径 | 降级为**兜底** | 多路径探测 + 注册表已覆盖；环境变量只在探测失败时用 |
@@ -394,7 +403,8 @@ UI 对 `reseeded` 任务隐藏编辑按钮，`handleCronUpdate` 再加一道闸*
 | 环节 | 手段 | 前台需求 |
 |---|---|---|
 | 读界面 | `PrintWindow(hwnd, hdc, PW_RENDERFULLCONTENT=2)` 拍**窗口内容** | 无（后台/最小化/锁屏都能拍） |
-| 切会话 | **优先投递点击左侧会话列表那一行**（常驻、行位稳）→ `verify_target` 复核；不在列表里才回退搜索浮层 | 无（已实测否定"需要激活"，见下） |
+| 切会话 | **UIA** `session_item_<名>` → 活几何 `post_click` → UIA 表头复核；UIA 不可用时帧 OCR 列表（**无搜索浮层**，§3.7-③） | 无（已实测否定"需要激活"，见下） |
+| 判当前会话 | **UIA 活表头**；帧 OCR `verify_target` 仅兜底 | 无 |
 | 输入 | 投递 `WM_CHAR`（前提：输入框已有焦点；**切会话时微信会自动 focus 输入框**） | 无 |
 | 发送 | 投递 `WM_KEYDOWN/UP(VK_RETURN)` | 无 |
 | 校验 | 发完**读库**确认该会话多了一条（不再依赖剪贴板回读） | 无 |
@@ -426,9 +436,8 @@ UI 对 `reseeded` 任务隐藏编辑按钮，`handleCronUpdate` 再加一道闸*
   必须 `ScreenToClient` 换算（`_client_pt`）。
 - **OCR 会把名字读花**（「文件传输助手」→「文件传蝓助手」），切会话必须用
   `difflib.SequenceMatcher(...).ratio()` 相似度匹配，再逐个候选过 `verify_target`。
-- **切会话优先点会话列表，别一上来就搜索**：搜索浮层有俩坑——结果**覆盖在会话列上**（不能按
-  `x < SESSION_COL` 过滤），且它会把**搜索框里刚输入的那串字**也 OCR 成一个候选
-  （实测「LOOP」在 y≈49、真结果在 y≈97）。列表常驻、行位稳。
+- **切会话优先 UIA 列表，别走搜索浮层**（§3.7-③ 起投递路**已去掉**搜索兜底）：浮层 OCR 常读到
+  底下会话列表；PostMessage 投中文进搜索框也不稳。UIA 列表拿不到时才用帧 OCR `find_session`。
   ⚠️ 「误连点两下会把会话弹成独立窗口」这个反证**别当通用判据**：UI 卡死态下连点两下同样没反应，
   会用假阴性骗你。
 - **⚠️ 观测陷阱：被遮挡/卡死的窗口，`PrintWindow` 会给旧帧**（2026-10-09 晚踩坑实录）。
@@ -451,20 +460,51 @@ UI 对 `reseeded` 任务隐藏编辑按钮，`handleCronUpdate` 再加一道闸*
 - **判据陷阱**：只投 1 个字符时「没抢前台」是假象——真相是输入根本没生效。凡测「抢不抢前台」，
   同一轮必须读 OCR 确认文本真进了输入框。
 
-**改动落点**（`wechat_sender.py`）：`read_ui` 换 `PrintWindow` 并去掉 `SetForegroundWindow`；
-新增 `post_click` / `post_text` / `post_key` / `open_chat_post` / `_open_chat_via_search_post`；
-`read_ui_stable` 的空白重试由**真鼠标**（`SetCursorPos`+`mouse_event`）改为**投递**点击
-（原来那个既挪用户光标，又会把正开着的搜索浮层点掉）；
-`_send_locked` 由 SendInput 改为全投递（新增 `_give_back_foreground`）；
-`env_gate(allow_locked=True)` 让文本路径放行锁屏。附件类路径（`send_file`/`send_batch`/`reply_to`）
-**未改**，仍走 `Win()` + 模拟键鼠。
+**改动落点**（`wechat_sender.py` + `uia_read.ps1`）：文本发送仍走 `post_click` / `post_text` / `post_key`、
+`_send_locked` 全投递、`env_gate(allow_locked=True)`；**2026-10-09 晚**起切会话/校验改为
+`read_uia` → `uia_find_session` / `uia_header_is` / `uia_click_item` / `uia_input_pt`（详见 §3.7-③）。
+帧路径 `read_ui`（`PrintWindow`）只作 UIA 不可用时的兜底；**已移除** `_open_chat_via_search_post`
+（投递搜索词微信会收下但不渲染结果，OCR「候选」其实是底下会话列表，补发重试还会把浮层堆在窗口上）。
+**附件类路径也已后台化**（`9f3b5cea`，2026-10-09）：`send_attachment` = 投递点工具栏「发送文件」
+→ 微信自己弹标准 `#32770 '选择文件'`（不抢前台）→ UIA `-All` 读控件的 `NativeWindowHandle`
+→ `SendMessageW(WM_SETTEXT)` 写路径 + `BM_CLICK` 点「打开」→ 投递回车 → 读库。
+（系统消息跨进程会被编组，不必注入；**投递的组合键在 Qt 微信上无效**，Ctrl+A/C/V 实测全不通，
+所以对话框只能走控件消息，输入框也只能一次一个退格。）
+控件认领：文件名框 `aid=1148`（一次命中好几个，挨个写、**以回读为准**）、打开按钮 `aid=1`
+且名字含「打开」（**光认 aid 不行**，文件列表项的 aid 也是 1，实测误点过）。图片走同一条路，
+落库仍是 `type=3`（实测：`.txt`→49、PNG→3、文本→1）。
+发送闸门同步升级成「读—清—回读」：回车前读 `chat_input_field`（**输入框其实在 UIA 树里**，
+旧结论"整棵树只有一个 Edit=搜索框"是错的）→ 按实读长度退格 → 回读确认清空；回车前再读回正文，
+判据是「框里的字都在正文里」（容忍投递丢字，**不容忍正文之外的残留**——探测残留
+`ZQ1aaccaaaacc` 真跟着附件发出去过）。
+**只剩 `reply_to` 走 `Win()` + 模拟键鼠**：聊天区没有逐条消息的 UIA 元素，按消息定位只能靠实时帧。
 
-**只认可见窗口，不强显**（2026-10-09 晚收紧）：曾经为「窗口进了 `IsWindowVisible=0` 的隐藏态」加过
-`_unhide`（`SW_SHOWNA`）——但那是**用户自己把微信收进托盘**，把它弹出来是纯打扰，而且会把
-「找不到主窗口 ⇒ `env_not_ready` ⇒ 进待补发队列」的安全路径，换成「强显后切不过去 ⇒
-`target_unconfirmed` ⇒ 直接丢」。现在 `find_main_hwnd()` 只认可见窗口、`_unhide` 已删除；
-隐藏态就是「那双手不在」，照常排队等门开。**最小化**（`IsIconic`）不在此列，仍由
-`wake_minimized` 做一次 `SW_RESTORE` 自恢复（那本来就是用户会主动还原的动作）。
+**窗口不在就自己还原（含收进托盘）**（2026-10-09 二次修订，用户决策「一律自动拉起」）：曾经为
+「窗口进了 `IsWindowVisible=0` 的隐藏态」加过 `_unhide`（`SW_SHOWNA`），随后又整个撤掉，理由是
+「那是用户自己把微信收进托盘，弹出来是纯打扰」。**这条现在推翻**——不还原的代价是那条回复最多在
+补发队列里躺 30 分钟然后被丢掉；而还原可以做到**零打扰**，关键在**用哪个 ShowWindow 档**：
+
+- 用 **`SW_SHOWNOACTIVATE(4)`**，不用 `SW_SHOWNA`/`SW_RESTORE`：实测隐藏态、最小化态各一次
+  （`SW_HIDE`/`SW_MINIMIZE` → `ShowWindow(h,4)`），`GetForegroundWindow` **前后同一**，
+  也不动光标、不动窗口位置（`MoveWindow` 只出现在附件路径的 `Win()` 里）。2026-10-09 实测：
+  `min: iconic=True fg=4261806` → `show4: iconic=False fg=4261806 unchanged=True`。
+- 隐藏态下句柄依然在，所以捞得回来：`SW_HIDE` 后按可见性过滤枚举 `[]`、不过滤
+  `[199150, 199070]` ⇒ 新增 `find_main_hwnd(include_hidden=True)` 给还原那一步专用。
+  类名 `Qt51514QWindowIcon` 全机只有两条——主窗口 199150「微信」1280×820 与常驻隐形的
+  199070「Weixin」176×199——取面积最大选得对；真捞不到照旧拒发（fail-closed），不会拿错窗口硬发。
+- 「强显后切不过去 ⇒ `target_unconfirmed` ⇒ 直接丢」这条顾虑随之消失：`target_unconfirmed`
+  现在和 `env_not_ready` 一样进补发队列（见下）。
+
+改动落点：`find_main_hwnd(include_hidden=False)`；`wake_minimized` → **`wake_window`**
+（最小化与隐藏统一成一个 `SW_SHOWNOACTIVATE`，原来最小化走 `SW_RESTORE`）；`env_gate` 改调它；
+`check_env` 仍按「当前可不可用」如实报告，但 reason 会点名「发送时会先自动还原一次」——
+免得 agent 读到 `ok=false` 就自己放弃。
+
+真机实测（`send_text(filehelper, dry_run=False)`，`talker` 全程只用自聊的文件传输助手）：
+隐藏态 `find_vis=0 find_hidden=199150` → `ok=True 已发送` 10.9s，前台不变、窗口回到可见；
+最小化态 `find_vis=199150` → `ok=True 已发送` 10.7s，前台不变。独立回读微信库落条
+`13:43:06 from_me=True 我 托盘还原实测-134257`。`tray_click.ps1`（UIA 点托盘图标）就此
+**降级为兜底**——正常路径不需要它。
 
 **两个「静默丢消息」的口子已堵**（2026-10-09 晚）：①出站 Provider 原先只在 `env_not_ready` 时
 投队列，`target_unconfirmed` 直接丢弃 ⇒ 现改为 `UNDELIVERABLE_CODES = {env_not_ready,
@@ -522,7 +562,8 @@ if allow_locked and st.get("locked"):
 `{"ok":true,"detail":"已发送"}`。
 切会话两条路各自实测（11:27 / 11:30，解锁态）：**列表路** `find_session('Loop')` → 点击 → header
 由空变 `LOOP`；从 `LOOP` 发 `filehelper`（列表里可见）→ 列表命中 → 切过去 → 落库 `LIST-1`；
-**搜索路**单独跑 `_open_chat_via_search_post`（起点 `LOOP`）→ 切到 `文件传输助手` → True。
+**搜索路**（历史）：曾单独跑 `_open_chat_via_search_post` → True；该兜底已在 §3.7-③ **移除**
+（真机杨冬 case + 浮层残留）。
 同一条链 App 级复跑 → 落库 `APP-1`（`durationMs=8242`）。
 ⚠️ 上面这两条是**解锁态**跑的；上一轮锁屏态只覆盖了旧的搜索路径，列表路的锁屏复测待补。
 
@@ -579,6 +620,14 @@ dry_run=False)` → `(True, '已发送')`，13.7s，**发前发后 `GetForegroun
 - `mode` 参数只活在这一次调用里（名单里存的那档随时会被用户在设置页改掉，改写不进存储）；
 - 按 `app.isPackaged` 拒绝 + 白名单单独列出：打包版没有这个口子（它会**真的发一条微信**）。
 
+⚠️ **跑之前先看两件事**（2026-10-09 连踩两次，两次都读成「回归」）：
+① **冷却期**——上一拍动作过的 peer，下一拍落在 `cooldownSeconds` 内会被**降级成提醒**
+（`wechat-watch-tick.ts` 的那句 `cooldown[peer] + cd*1000 > nowMs`），回放结果直接是
+「提醒 N 条」而不是「已代回」。默认 60s，隔一分钟以上再跑。
+② **代聊自己可能选择 NO_REPLY**——回合正常跑完、`sent=false`、摘要写「未发·…」，
+那是**模型决定不回**（日志里 `outputTokens≈72` 且末行就是 `NO_REPLY`），不是管道坏了；
+换个更明确的请求再跑一次即可。
+
 实测（目标=文件传输助手，自聊零风险）：
 ```
 13:32:47.057  回放：注入合成入站「文件传输助手」：帮我看下现在几点了
@@ -593,8 +642,40 @@ dry_run=False)` → `(True, '已发送')`，13.7s，**发前发后 `GetForegroun
 **独立回读**（不经回合、直接读微信库）：
 `2026-10-09 13:32:58 | from_me=True | 我 | 13点33`。
 
-**结论：入站闭环五段全通。** 剩下的失败面只在出站那一下（`target_unconfirmed`，
-见下条路线图项），不再有"回路本身不工作"的疑点。
+**结论：入站闭环五段全通。** 13:30 那次失败是**旧发送判据**（帧 OCR）在遮挡态下的假阴性，不是
+「回路本身不工作」（§3.7-③ 已定位并修复；14:23 同句补发读库落地）。
+
+**③ `target_unconfirmed` 根因与修复（14:xx 定稿）**
+
+| 现象 | 13:30 杨冬「人呢？」→ 代聊拟「在工位，咋了」→ `channel_send` 报 `target_unconfirmed`（第 4 次） |
+|---|---|
+| **表面** | `check_env` / 名单 / `canSend` 全绿，仍 fail-closed「一个字都没输入」 |
+| **根因** | 发送前用 **`PrintWindow` + OCR** 判「当前是不是目标会话」。微信被别的窗口**整块盖住**或 UI 不重绘时，帧里是**几分钟前的旧画面**（实测右侧表头 OCR 成「实业信息化项目…」，而 UIA/库侧杨冬会话是活的）。旧帧里①表头对不上目标 → `verify_target` 否决；②左侧列表也缺行/缺置顶 → `find_session` 找不到「杨冬」→ 切不过去 → `target_unconfirmed`。这与 §3.6「观测陷阱」同一类：**判据假阴性**，不是 PostMessage「点不到」。 |
+| **加剧因素** | 搜索浮层兜底：PostMessage 往搜索框投中文**常进不去**；浮层 OCR 读到的「候选」其实是底下会话列表；补发回路重试会把浮层堆在窗口上（用户截图里手动搜「杨冬」是正常的，自动化那条路不对）。列表子串匹配曾把「严子云。、杨冬」抬到与「杨冬」同档 → `_session_name_score` 改为**精确名压过群名嵌短名**。 |
+| **修复** | `uia_read.ps1` + `read_uia()`：读 **活** 会话行（`AutomationId=session_item_<显示名>`）、**活表头**、`chat_message_list` 矩形；`open_chat_post` **UIA 优先**，点活几何后 UIA 表头复核；`_send_locked_body` 校验同样 **UIA 表头优先**。UIA 只读、实测不抢前台。投递路**不再** `MoveWindow` 规范化（坐标跟 UIA 走）。 |
+| **复测** | `devcli.py send wxid_bmr50soxlyen22 "在工位，咋了"` dry-run → ok；`--yes` → `(True,'已发送')`；读库 `2026-10-09 14:23:36 from_me=True | 在工位，咋了`。日志：`[open] UIA 命中「杨冬」@(597,999)`。 |
+| **运维** | 改 `wechat-mcp/*.py` 或 `uia_read.ps1` 后须**重启 App / 重连 MCP 子进程**，否则 `channel_send` 仍跑旧代码；补发队列里同 peer 同文案会按新逻辑重试。 |
+
+**③-补 输入框其实在树里 ⇒ 发送闸门做实（`9f3b5cea`，同日）**
+
+上一版说法「整棵树只有一个 Edit=搜索框」**是错的**（来自一次没扫到它的 ControlType 扫描）：
+`Edit` + `AutomationId=chat_input_field` 就在树里，带 `ValuePattern`（值可读）+ TextPattern +
+InvokePattern，落在 (857,712,924,289)。于是两道闸门从"盲退格 + 靠读库兜底"升级成真的读回：
+
+- **清空输入框**：读实读长度 → 退格（`len+20`，上限 2000）→ **回读确认空**。读不到就不拦
+  （别把"读不到"变成"发不出去"），但读到了没清干净 ⇒ fail-closed（那正是"残留跟着发出去"的形状）。
+- **正文落地**：回车前读回输入框，判据是**子序列**（框里的字都在正文里）——容忍投递丢字
+  （非 BMP/emoji 走 `WM_CHAR` 会漏），但**不容忍正文之外的残留**。留字就中止，一个字符都不发。
+
+同一套读数也用在了附件路径上，两条路现在都是"读—清—回读"。
+
+**UIA 读脚本的三个静默陷阱**（都表现为"没输出也不报错"，实测踩全）：
+① **无 BOM 的 UTF-8 `.ps1` 被 PS 5.1 当 GBK 读**，中文注释变 mojibake，若乱码以反引号结尾会
+**吃掉下一行**——实测吃掉了 `FindAll` 那行，而 `FindAll(null)` 返回 null 不抛，整块静默为空
+⇒ 辅助 `.ps1` **一律纯 ASCII**（`LC_ALL=C grep -n '[^ -~]'` 自查）。
+② 变量名**不区分大小写**：`$all` 与 `[switch]$All` 撞名，赋值时强转 SwitchParameter 抛异常。
+③ 虚拟化/离屏项的 `BoundingRectangle` 是 **NaN**，`[int]$NaN` 抛异常会**中断整个枚举**
+（实测 159 个元素只出 50 个）⇒ 每个元素单独 try/catch。
 
 ---
 
@@ -618,7 +699,7 @@ dry_run=False)` → `(True, '已发送')`，13.7s，**发前发后 `GetForegroun
 | 4 | 盯梢改走 `channel_send`（绕过渠道直发 = 绕开名单） | ✅ | 本轮 |
 | 4 | 代聊会话里**看得见对方的输入**（对方消息落成会话里的用户消息，不再只有助手独白） | ✅ | 本轮 |
 | 4 | 发送层根因修复：短消息锚点被 OCR 读花 ⇒ 目标会话永远校验不过（白名单里也发不出） | ✅ | 本轮 |
-| 4 | 发送闸门自恢复：主窗口最小化 ⇒ 恢复一次再复检（不再"看着在跑、一条没发"） | ✅ | 本轮 |
+| 4 | 发送闸门自恢复：主窗口不在（最小化 / 收进托盘）⇒ 还原一次再复检（不再"看着在跑、一条没发"）（§3.6） | ✅ | 本轮 |
 | 4 | 预设工作流写进代聊 Agent（程序维护分区，追加式升级不覆盖用户改动） | ✅ | 本轮 |
 | 4 | 每轮自动注入本地蒸馏画像 + 缺画像时明说「还没有/已过期」 | ✅ | 本轮 |
 | 4 | **锁屏自愈**：`check_env` 报 `locked`，够不着的那条回复排队、解锁后自动补发（§3.5） | ✅ | 本轮 |
@@ -627,16 +708,20 @@ dry_run=False)` → `(True, '已发送')`，13.7s，**发前发后 `GetForegroun
 | 4 | `find_session` 下界 `wh*0.85` → `wh-8`（末尾两行会话被滤，锁屏下切会话断链） | ✅ | `a7957c46` |
 | 4 | 后台（微信非前台/非激活）端到端复测：切会话+输入+发送+读库全通，前台未被抢（§3.6） | ✅ | 本轮 |
 | 4 | 锁屏下的**切会话**复测：起点确实非目标，锁屏下切走再切回，全链 `(True,'已发送')`，前台未被抢（§3.6） | ✅ | 本轮 |
-| 4 | 堵三个**静默丢消息**的口子：`target_unconfirmed` 也投待补发队列；删掉把用户收进托盘的微信强显出来的 `_unhide`；`env_gate` 的锁屏放行不再连「窗口最小化/不可见」一起放掉（否则跑满 30s 被 MCP 超时杀掉，超时不是错误码、归不出 `env_not_ready`，回复照样丢）（§3.6） | ✅ | 本轮 |
+| 4 | 堵三个**静默丢消息**的口子：`target_unconfirmed` 也投待补发队列；`env_gate` 的锁屏放行不再连「窗口最小化/不可见」一起放掉（否则跑满 30s 被 MCP 超时杀掉，超时不是错误码、归不出 `env_not_ready`，回复照样丢）（§3.6） | ✅ | 本轮 |
 | 4 | `verify_target` 撤掉「长锚点一票否决」（聊天区 OCR 读花长锚点是常态，命中数随机翻转 ⇒ 敢否决的是「读不清」不是「不对」；改由「强且独家的头部」判）（§3.6-6） | ✅ | `e179490a` |
 | 4 | 读界面重试判据 `header/chat` → `OCR 出过行`（空聊天区是合法形态，原判据每调用点白等 4 轮 ⇒ 实测 29.7s 逼近 30s MCP 超时）（§3.6） | ✅ | `25493049` |
 | 5 | **入站闭环实测**：生产现场（杨冬）证明「回路叫醒代聊」这一段通；受控回放把「→ 出站 → 落库」也拿下（§3.7） | ✅ | 本轮 |
 | 5 | **合成入站回放口子** `wechat-watch:replay`（开发专用，只替换最外层 `poll_new`，`app.isPackaged` 拒绝）（§3.7） | ✅ | 本轮 |
-| 5 | `target_unconfirmed` 仍在真机拦下发送（13:30 杨冬「在工位，咋了」，累计第 4 次；对话已开、peer 在名单、`canSend=true`，仍被 fail-closed 拒）。**根因未定位** | ⏳ | §3.7 |
-| 4 | 附件类发送（`send_file`/`send_batch`/`reply_to`）同样后台化 | ⏳ | §3.6 |
+| 5 | **`target_unconfirmed` 根因**：帧 OCR 旧帧假阴性 + 搜索兜底不可靠（§3.7-③） | ✅ | 本轮 |
+| 5 | **UIA 发送判据**：`uia_read.ps1` + 活表头/会话列表/几何点击；去掉搜索浮层兜底；`find_session` 精确名优先 | ✅ | 本轮 |
+| 5 | 杨冬「在工位，咋了」真机补发读库（14:23，`devcli send --yes`） | ✅ | §3.7-③ |
+| 4 | **收进托盘也自动拉起**（用户决策「一律自动拉起」）：`wake_window` 统一 `SW_SHOWNOACTIVATE(4)`，`find_main_hwnd(include_hidden=True)` 把隐藏句柄捞回来；真机隐藏态 / 最小化态各测一次，`已发送` 且前台不变（§3.6） | ✅ | 本轮 |
+| 4 | **附件后台化**：`send_attachment` 改走「点『发送文件』→ 驱动文件对话框控件消息」（不碰剪贴板/光标/窗口，锁屏实测落条）；发送前加「读—清—回读」闸门（§3.6、§3.7-③） | ✅ | `9f3b5cea` |
+| 4 | `reply_to` 后台化（聊天区没有逐条消息的 UIA 元素，按消息定位只能靠实时帧 ⇒ 卡在这） | ⏳ | §3.6 |
 | 4 | M3 收尾：入站 adapter（现在仍走盯梢旁路） | ⏳ | §3.4 |
 | 4 | 监控面板 UI（盯哪些人、开关、最近事件） | ⏳ | — |
-| — | **python 测试接入 CI**：`test_watch.py`（A–H 八层 **35 例**，含目标校验证据强度 / 发送闸门 / 锁屏识别 / 读界面重试预算）走独立的 `wechat-mcp` job；`test_fixes.py` / `test_automation.py` 要读注册表与真实会话，**只在本地跑**（进 CI 只会「因为没数据所以通过」） | ✅ | 本轮 |
+| — | **python 测试接入 CI**：`test_watch.py`（A–H 八层 **42 例**，含目标校验证据强度 / 发送闸门（含托盘还原、清空输入框、正文落地）/ 锁屏识别 / UIA 格式契约与文件对话框控件认领 / 读界面重试预算）走独立的 `wechat-mcp` job；`test_fixes.py` / `test_automation.py` 要读注册表与真实会话，**只在本地跑**（进 CI 只会「因为没数据所以通过」） | ✅ | 本轮 |
 | — | ~~COM Interop~~ / ~~WAL 帧解析~~ / ~~watchdog 进程~~ | ❌ 作废 | §3.2 |
 
 ---
@@ -662,7 +747,7 @@ dry_run=False)` → `(True, '已发送')`，13.7s，**发前发后 `GetForegroun
 cd apps/windows/resources/wechat-mcp
 
 # 离线回归（不需要微信、不碰真实数据）：真加密夹具逐字节 + 真 SQLite 语义 + 错误码对账
-# A–H 八层 35 例。**已接入 CI**（.github/workflows/ci.yml 的 wechat-mcp job）。
+# A–H 八层 42 例。**已接入 CI**（.github/workflows/ci.yml 的 wechat-mcp job）。
 # 本机没有 PATH python（Store 占位），用 App 那份托管解释器：
 #   ~/.lumii/runtimes/python-embed/python.exe test_watch.py
 python test_watch.py
@@ -675,6 +760,10 @@ python test_automation.py
 
 # 真机自检（只读）：依赖 / 数据目录 / 会话 / 实时读取耗时
 python devcli.py selftest
+
+# 真机发送（默认 dry-run；--yes 才真发。**只能指向 filehelper 自聊**，别指向真人）
+python devcli.py send filehelper "测试文本" --yes
+python devcli.py sendfile filehelper "C:/path/图.png" --yes   # 附件：点「发送文件」驱动文件对话框
 
 # 真机盯消息（只读）：每拍打一行 JSON（新消息、滞后秒数、刷新/查询耗时、快路径命中）
 python devcli.py watch --ticks 10 --interval 3
@@ -699,10 +788,11 @@ node apps/windows/resources/app-ui-cli/lumii-ui.mjs command wechat-watch:replay 
 |---|---|
 | `wechat_core.py` | 目录发现 / 取密钥（缓存）/ 解密 / `_ShardMirror` 增量镜像 / `poll` 快路径 / 蒸馏 / 画像 |
 | `wxread4.py` | SQLCipher4 页解密 + WAL 解析（`parse_wal_frames` 的 **salt 会话判据**在这里） |
-| `wechat_sender.py` | 发送（文本走窗口消息投递 / 附件走布局 + 剪贴板粘贴；均有读库确认） |
+| `wechat_sender.py` | 发送（文本与附件：UIA 判据 + 窗口消息投递，附件另驱文件对话框控件消息；发送前「读—清—回读」闸门；均有读库确认。仅 `reply_to` 走 `Win()` + 模拟键鼠） |
+| `uia_read.ps1` | UIA 树导出（WIN/ITEM/HEADER/MLIST…）→ `read_uia`；**STA 线程**（见 `_run_ps` 注释） |
 | `server.py` | MCP 入口 + 工具描述 + `_code_of` 码表 + `_send_with_retry` |
 | `devcli.py` | 自检命令行（`selftest` / `watch` / `sessions` / `history` / `send` / `digest` …） |
-| `test_watch.py` | 实时读取的离线回归（A/B/C 六层… A/B/C/E/F/G，27 例） |
+| `test_watch.py` | 离线回归（A–H 八层 **39 例**：含 UIA 格式契约、`find_session` 精确名、读界面重试预算） |
 
 - 护栏常量：`_plain` 的陈旧判据（`dbsize >= 主库页数`）、`_incr` 的 `quick_check`、`_send_with_retry` 的
   `RETRIABLE_CODES` / `NON_RETRIABLE_CODES`。
