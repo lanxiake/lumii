@@ -14,7 +14,7 @@ import { formatTokenCount } from '../../utils/format-token-count'
 import { openExternalUrl } from '../../utils/markdown-external-link'
 import { ConfirmModal } from '../ui/Modal/ConfirmModal'
 import type { McpServerConfigInput } from '@shared/agent-runtime-commands'
-import { findMcpPreset } from '@shared/mcp-presets'
+import { findMcpPreset, type McpPreset } from '@shared/mcp-presets'
 import { McpConfigFileModal } from './McpConfigFileModal'
 import { McpServerEditModal } from './McpServerEditModal'
 import { type McpServer, useMcpServers } from './useMcpServers'
@@ -34,6 +34,21 @@ function isMissingKey(server: McpServer): boolean {
   const env = server.env
   if (!env) return false
   return Object.values(env).some((value) => !value?.trim())
+}
+
+/**
+ * 内置项的悬停说明：讲清这个 MCP 能干什么，并给出脱离灵栖自装的等价入口
+ *
+ * @param preset 命中的内置清单项
+ */
+function presetTooltip(preset: McpPreset): string {
+  return [
+    preset.title,
+    preset.description,
+    preset.npmPackage ? `脱离灵栖独立使用：npx -y ${preset.npmPackage}` : '',
+  ]
+    .filter(Boolean)
+    .join('\n')
 }
 
 /** 是否处于连接/写操作忙态（用于禁用开关与展示「连接中」） */
@@ -286,11 +301,14 @@ export const McpServersPanel: React.FC = () => {
                   <span
                     className={styles['server-name']}
                     // 悬停看这个 MCP 能干什么；用户自建的服务查不到说明，退回命令行
-                    title={preset ? `${preset.title}\n${preset.description}` : commandSummary(server)}
+                    title={preset ? presetTooltip(preset) : commandSummary(server)}
                   >
                     {server.name}
                   </span>
                   {preset && <span className={styles['server-preset-title']}>{preset.title}</span>}
+                  {preset?.bundledVersion && (
+                    <span className={styles['server-version']}>v{preset.bundledVersion}</span>
+                  )}
                   <span className={busy ? styles['server-status-busy'] : styles['server-status']}>
                     {statusText(server, busy)}
                   </span>

@@ -74,8 +74,12 @@ MCP 客户端里的 `npx` 参数**不用改**（仍 `-y @lumii/wechat-mcp`），
 ```powershell
 cd <仓库根>
 pnpm --filter ./apps/windows build:wechat-mcp
-# 产物：apps\windows\resources\wechat-mcp\dist\wechat-mcp.exe
+# 产物：apps\windows\resources\wechat-mcp\dist\
+#   wechat-mcp.exe            名字固定（安装包与灵栖部署路径都写死它）
+#   wechat-mcp-<version>.exe  同一份二进制的副本，按版本命名，方便区分与单独分发
 ```
+
+版本号唯一来源是 `server.py` 的 `SERVER_VERSION`，会写进 exe 的 Windows 版本资源——右键属性 → 详细信息看「文件版本」，改名或复制后依然可辨认。
 
 把 `wechat-mcp.exe` 拷到对方机器（路径无中文空格更稳），MCP 配置：
 
@@ -133,8 +137,10 @@ MCP 配置（用装出来的 cli）：
 
 ## 二、维护者发版流程（唯一版本源）
 
-版本号**只**改一处：`server.py` 顶部的 `SERVER_VERSION`（例如 `0.5.0`）。  
+版本号的**权威来源**是 `server.py` 顶部的 `SERVER_VERSION`（例如 `0.5.0`）。  
 组装脚本会把它写入两个 npm 包的 `package.json`，并打进 exe 的 `--version` / MCP `initialize`。
+
+bump 之后还要同步一处**镜像**：`apps/windows/src/shared/mcp-presets.ts` 的 `WECHAT_MCP_VERSION`（灵栖的 MCP 面板要显示它；面板每 5s 轮询状态，而 `wechat-mcp.exe --version` 冷启动要 1–3s，实读会把轮询拖垮，所以留了常量）。忘改不会静默漂移——`apps/windows/src/test/components/mcp-presets.test.ts` 会读回 `server.py` 对账并失败。
 
 ### 2.1 发版前检查
 
@@ -159,7 +165,7 @@ pnpm --filter ./apps/windows pack:wechat-mcp-npm
 
 脚本会依次：
 
-1. `build-wechat-mcp.mjs --if-stale` → `dist/wechat-mcp.exe`
+1. `build-wechat-mcp.mjs --if-stale` → `dist/wechat-mcp.exe` + `dist/wechat-mcp-<version>.exe`
 2. 拷贝 npm 模板 → `dist/npm/`，写入 `SERVER_VERSION`
 3. `npm pack` 两个包 → `dist/npm/*.tgz`
 4. 离线安装 tgz，跑 `wechat-mcp --version` 与 MCP `initialize` 握手

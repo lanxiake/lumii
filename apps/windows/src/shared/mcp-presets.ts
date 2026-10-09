@@ -20,6 +20,21 @@
  * list_dir、file_mkdir、file_move、file_copy、glob、grep，装了只是重复一套还多占上下文。
  */
 
+/**
+ * wechat-mcp 的两条分发入口
+ *
+ * - `WECHAT_MCP_NPM_PACKAGE`：社区客户端 `npx -y <包名>` 用（见 PUBLISHING.md §1），
+ *   灵栖内置**不走**它——装了灵栖就随包带 exe，不必联网装 npm 包；
+ * - `WECHAT_MCP_VERSION`：随包 exe 的版本，面板上展示，方便对账用户截图。
+ *
+ * 版本号唯一来源仍是 `resources/wechat-mcp/server.py` 的 `SERVER_VERSION`，这里是它的
+ * TS 镜像。为什么不运行时实读：`wechat-mcp.exe --version` 是 PyInstaller onefile，
+ * 本机实测冷启动 1.0–3.4s，而面板每 5s 轮询一次状态，实读会把轮询拖垮。
+ * `mcp-presets.test.ts` 会读回 server.py 与 npm 模板对账，发版漏改这里会红，不会静默漂移。
+ */
+export const WECHAT_MCP_NPM_PACKAGE = '@lumii/wechat-mcp'
+export const WECHAT_MCP_VERSION = '0.5.1'
+
 export type McpPresetCategory =
   | 'office'
   | 'news'
@@ -64,6 +79,10 @@ export interface McpPreset {
    * 部署后的绝对路径 `<数据根>/mcp/<name>/<name>.exe`，`command` 字段只作展示。
    */
   readonly bundledExe?: string
+  /** `bundledExe` 的版本，面板上展示；来源见 `WECHAT_MCP_VERSION` */
+  readonly bundledVersion?: string
+  /** 同一能力的 npm 分发包名，供用户脱离灵栖时自行安装；灵栖内置不读它 */
+  readonly npmPackage?: string
 }
 
 /**
@@ -89,6 +108,8 @@ export const MCP_PRESETS: readonly McpPreset[] = [
     command: 'wechat-mcp.exe',
     args: [],
     bundledExe: 'wechat-mcp',
+    bundledVersion: WECHAT_MCP_VERSION,
+    npmPackage: WECHAT_MCP_NPM_PACKAGE,
     // 每条回复都要走一整串 GUI 安全网（UIA 全树读 ≈3–4s/次 × 5–6 次 + 切会话 + 读库确认），
     // 表头不对、要走切会话那条路时单发实测 36.2s；服务端 tool_send 外面还套了
     // `_send_with_retry(max_retries=2)`，最坏两轮 ⇒ 30s 默认值会把**已经发成功**的那次

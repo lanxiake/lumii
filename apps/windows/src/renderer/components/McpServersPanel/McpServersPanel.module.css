@@ -371,10 +371,17 @@
 }
 
 /* 内置项的中文名，跟在英文 name 后面做人话补充 */
-.server-preset-title {
+.server-preset-title,
+.server-version {
   font-size: var(--mt-fs-xs, 11px);
   color: var(--mt-fg-3);
   flex-shrink: 0;
+}
+
+/* 内置 exe 的版本：等宽数字，横向排列时不跳 */
+.server-version {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.75;
 }
 
 .server-key-link,

@@ -1,6 +1,20 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { MCP_PRESETS, MCP_PRESET_CATEGORIES, findMcpPreset, isReadyToUse } from '../../shared/mcp-presets'
+import {
+  MCP_PRESETS,
+  MCP_PRESET_CATEGORIES,
+  WECHAT_MCP_NPM_PACKAGE,
+  WECHAT_MCP_VERSION,
+  findMcpPreset,
+  isReadyToUse,
+} from '../../shared/mcp-presets'
 import { validateMcpServerEntry } from '../../main/config/mcp-config'
+
+/** apps/windows 根 */
+const windowsRoot = resolve(__dirname, '../../..')
+/** 随包 MCP 的源码目录（server.py 与 npm 模板都在这里） */
+const wechatSrc = resolve(windowsRoot, 'resources/wechat-mcp')
 
 describe('MCP 内置清单', () => {
   it('每条都能通过主进程的配置校验', () => {
@@ -63,6 +77,34 @@ describe('MCP 内置清单', () => {
     const wechat = findMcpPreset('wechat-local')
     expect(wechat?.bundledExe).toBe('wechat-mcp')
     expect(wechat?.args).toEqual([])
+  })
+
+  it('面板展示的版本跟 server.py 的 SERVER_VERSION 对得上', () => {
+    // 版本号唯一来源是 server.py；TS 侧只是镜像（面板每 5s 轮询，实读 exe 太慢，
+    // 见 mcp-presets.ts 里 WECHAT_MCP_VERSION 的注释）。发版只改 server.py 时这里会红。
+    const declared = readFileSync(resolve(wechatSrc, 'server.py'), 'utf-8').match(
+      /^SERVER_VERSION\s*=\s*"([^"]+)"/m,
+    )?.[1]
+    expect(declared, 'server.py 里找不到 SERVER_VERSION').toBeTruthy()
+    expect(WECHAT_MCP_VERSION).toBe(declared)
+    expect(findMcpPreset('wechat-local')?.bundledVersion).toBe(declared)
+  })
+
+  it('npm 包名跟实际发出去的模板一致（外部客户端 npx 装的就是它）', () => {
+    const template = JSON.parse(
+      readFileSync(resolve(wechatSrc, 'npm/wechat-mcp/package.json'), 'utf-8'),
+    ) as { name: string }
+    expect(template.name).toBe(WECHAT_MCP_NPM_PACKAGE)
+    expect(findMcpPreset('wechat-local')?.npmPackage).toBe(WECHAT_MCP_NPM_PACKAGE)
+  })
+
+  it('只有带 bundledExe 的预置项才提供版本与包名，其它项不给假值', () => {
+    for (const preset of MCP_PRESETS) {
+      if (preset.bundledExe) continue
+      expect(preset.bundledVersion, preset.name).toBeUndefined()
+      expect(preset.npmPackage, preset.name).toBeUndefined()
+    }
+    expect(findMcpPreset('wechat-local')?.bundledVersion).toBeTruthy()
   })
 
   it('wechat-local 必须自带超时：发送要走整串 GUI 安全网，30s 默认值会把已发成功的那次报成失败', () => {

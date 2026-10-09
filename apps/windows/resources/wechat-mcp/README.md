@@ -51,7 +51,8 @@
 
 `wechat-mcp.exe` 是 PyInstaller 打出的单文件，依赖全在里面。装了灵栖的机器上它已部署在
 `%USERPROFILE%\.lumii\mcp\wechat-mcp\wechat-mcp.exe`（灵栖每次启动按内容同步，路径固定、不随安装位置变化）；
-也可以自己构建：`pnpm --filter ./apps/windows build:wechat-mcp`（产物 `dist/wechat-mcp.exe`，需要 [uv](https://docs.astral.sh/uv/)）。
+也可以自己构建：`pnpm --filter ./apps/windows build:wechat-mcp`（产物 `dist/wechat-mcp.exe` 与按版本命名的副本 `dist/wechat-mcp-<version>.exe`，需要 [uv](https://docs.astral.sh/uv/)）。
+版本号来自 `server.py` 的 `SERVER_VERSION`，也写在 exe 的 Windows 属性（右键 → 详细信息 → 文件版本）里，`wechat-mcp.exe --version` 输出同一值。
 
 ```json
 {
