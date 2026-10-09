@@ -24,6 +24,7 @@ import {
   buildProfileSweepPrompt,
   enqueueWechatOutbox,
   formatWechatProfiles,
+  isSelfChatPeer,
   loadInstructions,
   parseWechatWatchConfig,
   pickProfileSweepTarget,
@@ -33,6 +34,8 @@ import {
   resolveWorkspacePath,
   runWechatWatch,
   selectNewMessages,
+  SELF_PEER_COOLDOWN_S,
+  withSelfPeers,
   WECHAT_PROFILE_MAX_CHARS,
   WECHAT_WATCH_INSTRUCTION,
   watchConversationIdFor,
@@ -169,7 +172,8 @@ describe('selectNewMessages', () => {
 
   it('只处理别人发的；ignore 档连提醒都不给', () => {
     const out = selectNewMessages(msgs, policyFromWatchConfig(DEFAULT_WECHAT_WATCH_CONFIG))
-    expect(out.map((m) => m.ts)).toEqual([1, 4])
+    // filehelper 不再默认黑名单 ⇒ ts:3 进；ts:2 是普通会话里自己发的 ⇒ 出
+    expect(out.map((m) => m.ts)).toEqual([1, 3, 4])
   })
 
   it('defaultMode=ignore 时：只有表里的会话会被处理（=只盯名单）', () => {
@@ -178,6 +182,54 @@ describe('selectNewMessages', () => {
       groups: [{ name: '好友', mode: 'notify', peers: ['wxid_loop'] }],
     })
     expect(selectNewMessages(msgs, policyFromWatchConfig(cfg)).map((m) => m.ts)).toEqual([1])
+  })
+
+  it('自聊（文件传输助手）里自己发的也放行——那是"用户发给助手"，不是"自己发的不必提醒"', () => {
+    const selfChat = [
+      { ts: 10, name: '文件传输助手', talker: 'filehelper', from_me: true },
+      { ts: 11, name: '我', talker: 'wxid_me', from_me: true },
+    ]
+    const out = selectNewMessages(
+      selfChat,
+      policyFromWatchConfig(DEFAULT_WECHAT_WATCH_CONFIG),
+      ['wxid_me'],
+    )
+    // filehelper 放行；本人 wxid（也自聊）放行；普通会话的自己发的仍出局（此处二者都是自聊）
+    expect(out.map((m) => m.ts)).toEqual([10, 11])
+  })
+
+  it('非自聊会话里自己发的**仍**被过滤（防自回环）', () => {
+    const out = selectNewMessages(
+      [{ ts: 20, name: 'Loop', talker: 'wxid_loop', from_me: true }],
+      policyFromWatchConfig(DEFAULT_WECHAT_WATCH_CONFIG),
+      ['wxid_me'],
+    )
+    expect(out).toEqual([])
+  })
+})
+
+describe('自聊 peer（文件传输助手 / 本人 wxid）', () => {
+  it('isSelfChatPeer：filehelper 与本人 wxid 命中，别的都不命中', () => {
+    expect(isSelfChatPeer('filehelper', [])).toBe(true)
+    expect(isSelfChatPeer('FILEHELPER', ['wxid_me'])).toBe(true)
+    expect(isSelfChatPeer('wxid_me', ['wxid_me'])).toBe(true)
+    expect(isSelfChatPeer('wxid_loop', ['wxid_me'])).toBe(false)
+    expect(isSelfChatPeer(undefined, ['wxid_me'])).toBe(false)
+  })
+
+  it('withSelfPeers：补缺（新增即 auto）；flipIgnore 才把旧黑名单纠成 auto', () => {
+    const base = { defaultMode: 'notify' as const, peers: [{ id: 'filehelper', mode: 'ignore' as const }] }
+    const keep = withSelfPeers(base, ['wxid_me'])
+    expect(keep.changed).toBe(true)
+    // 补了 wxid_me；filehelper 仍是 ignore（没给 flipIgnore）
+    expect(resolvePeerPolicy(keep.policy, { id: 'wxid_me' }).mode).toBe('auto')
+    expect(resolvePeerPolicy(keep.policy, { id: 'filehelper' }).mode).toBe('ignore')
+
+    const flipped = withSelfPeers(base, ['wxid_me'], { flipIgnore: true })
+    expect(resolvePeerPolicy(flipped.policy, { id: 'filehelper' }).mode).toBe('auto')
+    expect(resolvePeerPolicy(flipped.policy, { id: 'filehelper' }).cooldownSeconds).toBe(
+      SELF_PEER_COOLDOWN_S,
+    )
   })
 })
 
@@ -258,9 +310,8 @@ describe('runWechatWatch', () => {
     callMcpTool.mockResolvedValueOnce(
       JSON.stringify({
         count: 1,
-        messages: [
-          { ts: 1995, name: '文件传输助手', talker: 'filehelper', from_me: false, text: '自用' },
-        ],
+        // 普通会话里**自己发的**（非自聊）⇒ 被 `!from_me` 过滤：不必提醒自己
+        messages: [{ ts: 1995, name: 'Loop', talker: 'wxid_loop', from_me: true, text: '我发的' }],
         next_since_ts: 1995,
       }),
     )
@@ -906,6 +957,33 @@ describe('画像巡检（空闲拍给名单里的人补画像）', () => {
   })
 })
 
+describe('runWechatWatch · 自聊（文件传输助手）当入站渠道', () => {
+  it('文件传输助手里自己发的消息（from_me=true）会驱动代聊，而不是被当"自己发的"丢掉', async () => {
+    const driveTurn = vi.fn(async () => 'ok')
+    const { d, callMcpTool } = deps({ driveTurn })
+    const impl = async (_s: string, tool: string, args: Record<string, unknown>) => {
+      if (tool !== 'poll_new') return JSON.stringify({ messages: [], next_since_ts: 2000 })
+      // 第一拍（since=1800）给自聊消息；其后 detectSentTo 的 poll 返回空
+      if (args.since_ts === 1800) {
+        return JSON.stringify({
+          messages: [
+            { ts: 1990, name: '文件传输助手', talker: 'filehelper', from_me: true, text: '几点了' },
+          ],
+          next_since_ts: 1990,
+        })
+      }
+      return JSON.stringify({ messages: [], next_since_ts: 1990 })
+    }
+    callMcpTool.mockImplementation(impl as unknown as (...a: unknown[]) => Promise<string>)
+    const out = await runWechatWatch(d)
+    expect(driveTurn).toHaveBeenCalledTimes(1)
+    const [, meta] = driveTurn.mock.calls[0] as unknown as [string, { peer: string }]
+    expect(meta.peer).toBe('filehelper')
+    // 回合没真发（detectSentTo 读库为空）⇒ 摘要如实写「未发」，不替它邀功
+    expect(out).toContain('文件传输助手')
+  })
+})
+
 describe('ensureWechatWatchConfigFile', () => {
   it('首次写出默认配置；已存在则不动（用户改过的不许被覆盖）', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wxwatch-'))
@@ -913,7 +991,7 @@ describe('ensureWechatWatchConfigFile', () => {
     ensureWechatWatchConfigFile(p)
     const first = JSON.parse(fs.readFileSync(p, 'utf-8'))
     expect(first.enabled).toBe(true)
-    expect(first.blacklist).toEqual(['filehelper'])
+    expect(first.blacklist).toEqual([])
     expect(typeof first._hint).toBe('string')
     fs.writeFileSync(p, JSON.stringify({ enabled: false, defaultMode: 'ignore' }), 'utf-8')
     ensureWechatWatchConfigFile(p)

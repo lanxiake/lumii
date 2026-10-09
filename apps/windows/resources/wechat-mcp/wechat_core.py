@@ -47,73 +47,294 @@ def deps():
             "ok": found["Crypto"]}
 
 
-def list_accounts():
-    """枚举本机微信 4.x 账号数据目录：`[{wxid, dir, root, mtime}]`（按最近修改倒序）。
+# ---------------------------------------------------------------------------
+# 数据目录探测
+#
+# 微信 4.x（Weixin.exe）的**自定义数据目录不在注册表**，而是写在
+# `%APPDATA%\Tencent\xwechat\config\<哈希>.ini`——文件内容就是数据基目录
+# （`xwechat_files` 的父目录；实测本机内容为 `C:\Users\Administrator`）。
+# 旧代码只认 3.x 的注册表键 `Tencent\WeChat\FileSavePath`，换机/自定义目录必挂。
+#
+# 探测优先级（先命中先用；`list_accounts` 命中即止，避免每次调用都整盘扫描）：
+#   1. `LUMII_WECHAT_DB` / `LUMII_WECHAT_ACCOUNT`（显式，最高）
+#   2. ini（4.x 自定义目录的权威来源）
+#   3. 注册表（4.x `Tencent\Weixin` / 3.x `Tencent\WeChat`）
+#   4. 默认路径（`~/xwechat_files`、`~/Documents/xwechat_files`）
+#   5. 固定盘有界扫描（深度≤2，覆盖数据目录被放到**其他盘**的情形）
+# ---------------------------------------------------------------------------
 
-    多路径探测策略（按优先级）：
-    1. ~/xwechat_files（默认）
-    2. ~/Documents/xwechat_files（常见重定向）
-    3. 注册表/微信进程探测（终极兜底）
-    """
+def _valid_root(root):
+    """root 是否指向可读的 db_storage（含 message/message_0.db）。"""
+    return bool(root) and os.path.isfile(os.path.join(root, "message", "message_0.db"))
+
+
+def _parse_ini_paths(txt):
+    """从 ini 文本抽出候选路径：兼容 `MyDocument=…` / `My Document: …` / 纯路径一行。"""
     out = []
-    # 候选路径：优先用户目录，再 Documents，最后全盘扫描（限 Windows）
-    home = os.path.expanduser("~")
-    candidates = [
-        os.path.join(home, "xwechat_files"),
-        os.path.join(home, "Documents", "xwechat_files"),
-    ]
-    # Windows 下额外探测：从注册表/进程取微信数据路径
-    if os.name == "nt":
-        try:
-            import winreg
-            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Tencent\WeChat", 0, winreg.KEY_READ)
-            val, _ = winreg.QueryValueEx(key, "FileSavePath")
-            winreg.CloseKey(key)
-            if val and os.path.isdir(val):
-                candidates.append(os.path.join(val, "xwechat_files"))
-        except Exception:
-            pass
-
-    for base in candidates:
-        if not os.path.isdir(base):
+    for raw in txt.splitlines():
+        line = raw.strip()
+        if not line or line.startswith((";", "#", "[")):
             continue
-        for name in os.listdir(base):
-            d = os.path.join(base, name, "db_storage")
-            msg = os.path.join(d, "message", "message_0.db")
-            if os.path.isfile(msg):
-                out.append({"wxid": name.rsplit("_", 1)[0], "dir": name, "root": d,
-                            "mtime": os.path.getmtime(msg)})
+        val = line
+        # 形如 `Key=值` / `Key: 值`；键不含盘符，避免把 `C:\…` 当键值对拆坏
+        m = re.match(r"^[^:=]{1,32}\s*[:=]\s*(.+)$", line)
+        if m and not re.match(r"^[A-Za-z]:[\\/]", line):
+            val = m.group(1)
+        val = val.strip().strip('"').strip("'")
+        if val:
+            out.append(val)
+    return out
+
+
+def _resolve_xwechat_dir(p):
+    """把候选路径归一成**存在的** `xwechat_files` 目录，找不到返回 None。"""
+    if not p:
+        return None
+    try:
+        q = os.path.normpath(os.path.expandvars(os.path.expanduser(p.strip())))
+    except Exception:
+        return None
+    cands = []
+    if os.path.basename(q).lower() == "xwechat_files":
+        cands.append(q)
+    cands.append(os.path.join(q, "xwechat_files"))
+    cands.append(os.path.dirname(q))          # 也可能给的是账号目录 <xwechat_files>/<wxid>_<4hex>
+    for c in cands:
+        if c and os.path.isdir(c) and os.path.basename(c).lower() == "xwechat_files":
+            return c
+    return None
+
+
+def _ini_bases():
+    """微信 4.x 自定义数据基目录（来自 config/*.ini）。"""
+    out = []
+    dirs = []
+    appdata = os.environ.get("APPDATA")
+    if appdata:
+        dirs.append(os.path.join(appdata, "Tencent", "xwechat", "config"))
+    dirs.append(os.path.join(os.path.expanduser("~"), ".xwechat", "config"))
+    for d in dirs:
+        try:
+            names = os.listdir(d)
+        except OSError:
+            continue
+        for name in names:
+            if not name.lower().endswith(".ini"):
+                continue
+            try:
+                with open(os.path.join(d, name), "r", encoding="utf-8", errors="ignore") as f:
+                    out.extend(_parse_ini_paths(f.read(4096)))
+            except OSError:
+                continue
+    return out
+
+
+def _registry_bases():
+    """注册表里的数据目录（4.x `Tencent\\Weixin` / 3.x `Tencent\\WeChat`）。"""
+    out = []
+    if os.name != "nt":
+        return out
+    try:
+        import winreg
+    except Exception:
+        return out
+    want = {"filesavepath", "filedir", "savedir", "datapath", "filesavedir"}
+    for sub in (r"Software\Tencent\Weixin", r"Software\Tencent\WeChat", r"Software\Tencent\Wexin"):
+        try:
+            k = winreg.OpenKey(winreg.HKEY_CURRENT_USER, sub, 0, winreg.KEY_READ)
+        except OSError:
+            continue
+        try:
+            i = 0
+            while True:
+                try:
+                    name, val, _ = winreg.EnumValue(k, i)
+                except OSError:
+                    break
+                i += 1
+                if isinstance(val, str) and val and name.lower() in want:
+                    out.append(val)
+            try:
+                val, _ = winreg.QueryValueEx(k, "")
+                if isinstance(val, str) and val:
+                    out.append(val)
+            except OSError:
+                pass
+        finally:
+            winreg.CloseKey(k)
+    return out
+
+
+def _fixed_drives():
+    """本机固定盘根（仅 Windows；跳过网络/可移动盘）。"""
+    if os.name != "nt":
+        return []
+    out = []
+    try:
+        import ctypes
+        DRIVE_FIXED = 3
+        k32 = ctypes.windll.kernel32
+        for letter in "ABCDEFGHIJKLMNOPQRSTUVWXYZ":
+            root = f"{letter}:\\"
+            try:
+                if k32.GetDriveTypeW(ctypes.c_wchar_p(root)) == DRIVE_FIXED and os.path.isdir(root):
+                    out.append(root)
+            except Exception:
+                continue
+    except Exception:
+        return []
+    return out
+
+
+def _scan_xwechat_dirs(drives, max_depth=2):
+    """在所有固定盘上按深度≤2找 `xwechat_files`（覆盖 `D:\\微信\\xwechat_files` 这类）。"""
+    out = []
+    for drv in drives:
+        c = os.path.join(drv, "xwechat_files")
+        if os.path.isdir(c):
+            out.append(c)
+        if max_depth < 2:
+            continue
+        try:
+            subs = os.listdir(drv)
+        except OSError:
+            continue
+        for s in subs:
+            p = os.path.join(drv, s)
+            if not os.path.isdir(p):
+                continue
+            c = os.path.join(p, "xwechat_files")
+            if os.path.isdir(c):
+                out.append(c)
+    return out
+
+
+def _accounts_under(xdir):
+    """`xwechat_files` 目录下的账号：`[{wxid, dir, root, mtime}]`（按修改时间倒序）。"""
+    out = []
+    try:
+        names = os.listdir(xdir)
+    except OSError:
+        return out
+    for name in names:
+        root = os.path.join(xdir, name, "db_storage")
+        if not _valid_root(root):
+            continue
+        try:
+            mtime = os.path.getmtime(os.path.join(root, "message", "message_0.db"))
+        except OSError:
+            mtime = 0.0
+        out.append({"wxid": name.rsplit("_", 1)[0], "dir": name, "root": root, "mtime": mtime})
     out.sort(key=lambda r: r["mtime"], reverse=True)
     return out
 
 
-def db_root():
-    """定位微信 4.x 数据目录（含 message/message_0.db）。
+def detect_xwechat_dirs():
+    """按优先级**惰性**产出 `(xwechat_files 目录, source)`，去重保序。
 
-    选择优先级：`LUMII_WECHAT_DB`（显式路径）> `LUMII_WECHAT_ACCOUNT`（指定 wxid/目录名）>
-    最近修改的账号（多账号并存时取活跃度最高的那个）。
+    生成器：调用方命中即止（`list_accounts` 拿到账号就 return）时，后面的整盘扫描
+    不会被执行——探测要覆盖任意盘，但绝不能每次调用都扫盘。
+    """
+    seen = set()
 
-    **改进点**：探测失败时给出可操作的错误提示（含候选路径、修复建议）。
+    def emit(d, src):
+        if d and d not in seen:
+            seen.add(d)
+            return (d, src)
+        return None
+
+    for base in _ini_bases():
+        e = emit(_resolve_xwechat_dir(base), "ini")
+        if e:
+            yield e
+    for base in _registry_bases():
+        e = emit(_resolve_xwechat_dir(base), "registry")
+        if e:
+            yield e
+    home = os.path.expanduser("~")
+    for p in (os.path.join(home, "xwechat_files"), os.path.join(home, "Documents", "xwechat_files")):
+        e = emit(p if os.path.isdir(p) else None, "default")
+        if e:
+            yield e
+    for d in _scan_xwechat_dirs(_fixed_drives()):
+        e = emit(d, "scan")
+        if e:
+            yield e
+
+
+def list_accounts():
+    """枚举本机微信 4.x 账号数据目录：`[{wxid, dir, root, mtime, source}]`（按修改时间倒序）。
+
+    先命中的探测源非空即返回（不再整盘扫描）。source ∈ ini/registry/default/scan。
+    """
+    for xdir, src in detect_xwechat_dirs():
+        accts = _accounts_under(xdir)
+        if accts:
+            for a in accts:
+                a["source"] = src
+            return accts
+    return []
+
+
+def _root_from_any(p):
+    """把一个可能是 db_storage / 账号目录 / xwechat_files / 其父目录的路径解析成 db_storage。"""
+    if not p:
+        return None
+    try:
+        q = os.path.normpath(os.path.expandvars(os.path.expanduser(p.strip())))
+    except Exception:
+        return None
+    if _valid_root(q):
+        return q
+    if _valid_root(os.path.join(q, "db_storage")):
+        return os.path.join(q, "db_storage")
+    d = _resolve_xwechat_dir(q)
+    if d:
+        accs = _accounts_under(d)
+        if accs:
+            return accs[0]["root"]
+    return None
+
+
+def db_root_info():
+    """定位微信数据目录，返回 `(root, source)`；source ∈ env/ini/registry/default/scan。
+
+    优先级：`LUMII_WECHAT_DB`（显式路径，最高）> `LUMII_WECHAT_ACCOUNT`（指定 wxid/目录名）
+    > 探测源（ini > 注册表 > 默认 > 固定盘扫描）。探测失败给出可操作提示。
     """
     env = os.environ.get("LUMII_WECHAT_DB")
-    if env and os.path.isfile(os.path.join(env, "message", "message_0.db")):
-        return env
+    if env:
+        root = _root_from_any(env)
+        if root:
+            return root, "env"
     accts = list_accounts()
     want = os.environ.get("LUMII_WECHAT_ACCOUNT")
     if want:
         for a in accts:
             if a["wxid"] == want or a["dir"] == want:
-                return a["root"]
+                return a["root"], a.get("source", "auto")
         avail = "、".join(a["wxid"] for a in accts) if accts else "（无）"
         raise RuntimeError(f"LUMII_WECHAT_ACCOUNT={want} 未匹配到账号数据目录。可选账号：{avail}")
     if not accts:
-        # 给出可操作的错误提示
         home = os.path.expanduser("~")
-        hint = f"未找到微信 4.x 数据目录。已扫描路径：\n  - {home}/xwechat_files\n  - {home}/Documents/xwechat_files"
+        hint = ("未找到微信 4.x 数据目录。已尝试：\n"
+                "  - 环境变量 LUMII_WECHAT_DB\n"
+                "  - 配置 %APPDATA%/Tencent/xwechat/config/*.ini\n"
+                "  - 注册表 HKCU\\Software\\Tencent\\Weixin\n"
+                f"  - 默认路径 {home}/xwechat_files、{home}/Documents/xwechat_files\n"
+                "  - 固定盘扫描（深度≤2）")
         if os.name == "nt":
-            hint += "\n\n修复建议：\n1. 确认微信已登录并有聊天记录\n2. 若数据在其他位置，设置环境变量：\n   LUMII_WECHAT_DB=D:\\path\\to\\xwechat_files\\wxid_xxx\\db_storage"
+            hint += ("\n\n修复建议：\n1. 确认微信已登录并有聊天记录\n"
+                     "2. 在微信「设置 → 文件管理」里确认数据目录\n"
+                     "3. 仍找不到时手动指定："
+                     "LUMII_WECHAT_DB=<数据目录>\\xwechat_files\\<账号>_<4位>\\db_storage")
         raise RuntimeError(hint)
-    return accts[0]["root"]
+    return accts[0]["root"], accts[0].get("source", "auto")
+
+
+def db_root():
+    """定位微信 4.x 数据目录（含 message/message_0.db）。"""
+    return db_root_info()[0]
 
 
 def self_wxid(root=None):

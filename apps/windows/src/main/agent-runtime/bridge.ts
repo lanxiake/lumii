@@ -2041,6 +2041,32 @@ export class AgentRuntimeBridge {
       },
       // 「灵栖代聊」在不在 —— 这一轮用谁建实例、要不要补一份程序分区，都看它（同一个函数）
       getRelayAgent: () => this.wechatRelayAgent(),
+      // 本机微信的本人 wxid（自聊识别：文件传输助手 + 本人账号都算"用户发给助手"）
+      getSelfWxids: () => this.wechatSelfWxids(),
+    }
+  }
+
+  /**
+   * 本机微信的本人 wxid（缓存 5 分钟）。
+   *
+   * 从 MCP `locate_db` 拿（换机自动探测数据目录后，`wxid` 就是从目录名反推的本人账号）。
+   * 拿不到就返回上次的缓存 / 空数组——盯梢只认 `filehelper`，不影响主流程。
+   */
+  private selfWxidCache: { ids: string[]; at: number } = { ids: [], at: 0 }
+
+  private async wechatSelfWxids(): Promise<readonly string[]> {
+    const now = Date.now()
+    if (now - this.selfWxidCache.at < 5 * 60_000) return this.selfWxidCache.ids
+    try {
+      const raw = await this.mcpManager.callTool(WECHAT_WATCH_MCP_SERVER, 'locate_db', {})
+      const out = JSON.parse(raw) as { wxid?: string }
+      const ids = out.wxid ? [out.wxid] : []
+      this.selfWxidCache = { ids, at: now }
+      return ids
+    } catch (err) {
+      // 记时刻避免每拍都撞（MCP 没连/未配置时不该反复重试）；沿用上次的结果
+      this.selfWxidCache = { ids: this.selfWxidCache.ids, at: now }
+      return this.selfWxidCache.ids
     }
   }
 

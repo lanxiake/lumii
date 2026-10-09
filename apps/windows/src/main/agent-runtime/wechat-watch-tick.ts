@@ -116,8 +116,84 @@ export const DEFAULT_WECHAT_WATCH_CONFIG: WechatWatchConfig = {
   enabled: true,
   notify: true,
   defaultMode: 'notify',
-  blacklist: ['filehelper'],
+  // 早先默认把 `filehelper` 当黑名单（自聊也被当"自己发的"过滤）。2026-10-09 起**不管它**：
+  // 用户给自己（文件传输助手）发的消息要当成与飞书/企微一样的**入站渠道**（见 isSelfChatPeer）。
+  blacklist: [],
   groups: [],
+}
+
+/** 自聊会话标识：文件传输助手（用户给自己发消息的天然通道）。 */
+export const FILE_HELPER_TALKER = 'filehelper'
+/** 自聊 peer 的默认冷却（秒）：要盖过「一拍 15s + 发送延迟」，免得助手刚回的那条又被当成新消息。 */
+export const SELF_PEER_COOLDOWN_S = 20
+
+/**
+ * 是不是「用户给自己发消息」的自聊会话：文件传输助手，或本人 wxid。
+ *
+ * 为什么单列：这些会话里 `from_me` **恒为真**（发的人就是本人），但语义是「用户发给助手」，
+ * 必须当**入站**处理——否则 `!from_me` 那条通用过滤会把它们全丢掉（这正是"手机给自己发消息
+ * 被无视"的来路）。普通会话仍严格 `!from_me`：那是**防自回环**（助手自己发的话不再触发）。
+ */
+export function isSelfChatPeer(talker: string | undefined, selfWxids: readonly string[] = []): boolean {
+  const t = (talker ?? '').trim().toLowerCase()
+  if (!t) return false
+  if (t === FILE_HELPER_TALKER) return true
+  return selfWxids.some((w) => !!w && w.trim().toLowerCase() === t)
+}
+
+/**
+ * 确保自聊 peer 在名单里且**可回**（`auto`）：用户显式要求「把自己的微信号默认加入白名单」。
+ *
+ * `flipIgnore`：只在该 peer 从未被处理过时（一次性迁移）把旧默认的 `ignore` 纠成 `auto`；
+ * 迁完之后只补缺、不覆盖——用户在设置页把 filehelper 改回 `ignore`/`notify` 是用户的选择。
+ * 返回新策略与是否改动（改动才落盘）。
+ */
+export function withSelfPeers(
+  policy: ChannelPolicy,
+  selfWxids: readonly string[],
+  opts: { flipIgnore?: boolean } = {},
+): { policy: ChannelPolicy; changed: boolean } {
+  const ids = [FILE_HELPER_TALKER, ...selfWxids.filter((w) => !!w && w.trim())]
+  const peers = [...policy.peers]
+  let changed = false
+  for (const id of ids) {
+    const idx = peers.findIndex((p) => isSamePeer(p.id, id))
+    if (idx === -1) {
+      peers.push({
+        id,
+        mode: 'auto',
+        label: id === FILE_HELPER_TALKER ? '文件传输助手' : id,
+        cooldownSeconds: SELF_PEER_COOLDOWN_S,
+      })
+      changed = true
+    } else if (opts.flipIgnore && peers[idx].mode === 'ignore') {
+      peers[idx] = {
+        ...peers[idx],
+        mode: 'auto',
+        cooldownSeconds: peers[idx].cooldownSeconds ?? SELF_PEER_COOLDOWN_S,
+      }
+      changed = true
+    }
+  }
+  return changed ? { policy: { ...policy, peers }, changed } : { policy, changed }
+}
+
+// 自聊回环护栏：助手刚发出去的话，下一拍会以 `from_me` 出现在同一会话里——不记住的话会被
+// 当成"用户又发了一条"再触发一次。记 peer→[文本, 时刻]，TTL 内按**文本**跳过。
+const SELF_SEND_TTL_MS = 5 * 60_000
+const recentSelfSends = new Map<string, { text: string; at: number }[]>()
+
+export function rememberSelfSends(peer: string, texts: readonly string[], nowMs: number): void {
+  if (!peer || !texts.length) return
+  const fresh = (recentSelfSends.get(peer) ?? []).filter((x) => nowMs - x.at <= SELF_SEND_TTL_MS)
+  for (const t of texts) if (t && t.trim()) fresh.push({ text: t, at: nowMs })
+  recentSelfSends.set(peer, fresh)
+}
+
+function wasSelfSent(peer: string, text: string | undefined, nowMs: number): boolean {
+  const arr = recentSelfSends.get(peer)
+  if (!arr || !text) return false
+  return arr.some((x) => nowMs - x.at <= SELF_SEND_TTL_MS && x.text === text)
 }
 
 /** 配置文件路径（用户可手改；`LUMII_CLIENT_DATA_DIR` 生效，便于隔离测试） */
@@ -293,16 +369,21 @@ interface PollPayload {
 }
 
 /**
- * 挑出「要处理」的消息：**只处理别人发的**（自己发的不必提醒自己），
+ * 挑出「要处理」的消息：**别人发的**，外加**自聊会话里自己发的**（用户给自己发消息=发给助手）。
  * `ignore` 档一律剔除（连提醒都不给）。
+ *
+ * 自聊（文件传输助手 / 本人 wxid）的 `from_me=true` 是常态，不能按"自己发的不必提醒自己"过滤掉
+ * ——那是**入站**。普通会话仍严格 `!from_me`：助手自己的回复（from_me）不再触发，防自回环。
  */
 export function selectNewMessages(
   messages: readonly WechatMessage[],
   policy: ChannelPolicy,
+  selfWxids: readonly string[] = [],
 ): WechatMessage[] {
-  return messages.filter(
-    (m) => !m.from_me && resolvePeerPolicy(policy, { id: m.talker, label: m.name }).mode !== 'ignore',
-  )
+  return messages.filter((m) => {
+    if (m.from_me && !isSelfChatPeer(m.talker, selfWxids)) return false
+    return resolvePeerPolicy(policy, { id: m.talker, label: m.name }).mode !== 'ignore'
+  })
 }
 
 const fmtText = (s?: string) => (s || '').replace(/\s+/g, ' ').slice(0, 300)
@@ -432,17 +513,18 @@ async function detectSentTo(
   deps: WechatWatchDeps,
   msg: WechatMessage,
   since: number,
-): Promise<boolean> {
+): Promise<{ sent: boolean; texts: string[] }> {
   try {
     const text = await deps.callMcpTool(WECHAT_WATCH_MCP_SERVER, WECHAT_WATCH_MCP_TOOL, {
       since_ts: since,
     })
     const payload = JSON.parse(text) as PollPayload
-    return (payload.messages ?? []).some(
+    const mine = (payload.messages ?? []).filter(
       (m) => m.from_me && (m.talker === msg.talker || (!!m.name && m.name === msg.name)),
     )
+    return { sent: mine.length > 0, texts: mine.map((m) => m.text ?? '') }
   } catch {
-    return false
+    return { sent: false, texts: [] }
   }
 }
 
@@ -513,6 +595,13 @@ export interface WechatWatchDeps {
   getPolicy?: () => ChannelPolicy
   /** 落盘策略（bridge 注入：写渠道策略存储）。自愈绑定用它把人名条目换成真 wxid */
   setPolicy?: (policy: ChannelPolicy) => void
+  /**
+   * 本机微信的**本人 wxid 列表**（bridge 注入：从 MCP `locate_db`/`check_env` 拿，带缓存）。
+   *
+   * 用来识别「自聊会话」（文件传输助手 + 本人 wxid）：那些会话里 `from_me` 恒真，但要当**入站**
+   * 处理。拿不到就给空数组，此时只认 `filehelper`（仍能覆盖最常见的"手机给自己发"）。
+   */
+  getSelfWxids?: () => Promise<readonly string[]>
   /**
    * 代聊 Agent（bridge 注入：`getAgentRecord('wechat-relay')`，见 `wechat-relay-agent.ts`）。
    *
@@ -965,11 +1054,32 @@ export async function runWechatWatch(deps: WechatWatchDeps): Promise<string> {
   const cfg = deps.config ?? loadWechatWatchConfig(deps.configPath)
   // 策略每拍读一次（设置页改完下一拍就生效，跟手册同一口径；存储层有内存缓存，不碰盘）
   let policy = deps.getPolicy?.() ?? policyFromWatchConfig(cfg)
+  // 本机微信的本人 wxid（自聊识别用）。拿不到就给空数组，此时只认 filehelper。
+  let selfWxids: readonly string[] = []
+  try {
+    selfWxids = (await deps.getSelfWxids?.()) ?? []
+  } catch {
+    selfWxids = []
+  }
   const nowMs = deps.nowMs?.() ?? Date.now()
   const nowS = Math.floor(nowMs / 1000)
   try {
     if (!cfg.enabled) return '（盯梢已关闭：配置 enabled=false）'
     const db = deps.getDb()
+    // 自聊 peer（文件传输助手 / 本人 wxid）默认加入名单且可回 —— 用户显式要的"当作入站渠道"。
+    // **一次性**迁移：旧装机把 filehelper 播种成了黑名单(ignore)，第一次把它纠成 auto 并落盘；
+    // 之后只补缺不覆盖（用户在设置页把它改回 ignore/notify 是用户的选择，尊重）。
+    {
+      const migratedKey = 'wechat_watch_selfpeer_migrated'
+      const migrated = readKvNumber(db, migratedKey) > 0
+      const withSelf = withSelfPeers(policy, selfWxids, { flipIgnore: !migrated })
+      if (withSelf.changed) {
+        policy = withSelf.policy
+        deps.setPolicy?.(policy)
+        log.info('[wechat-watch] 文件传输助手/本人账号已加入名单（可回）')
+      }
+      if (!migrated) writeKvNumber(db, migratedKey, nowMs)
+    }
     const since = readLastTs(db) ?? nowS // 首次：从现在起，不翻历史
     let payload: PollPayload | null = null
     try {
@@ -996,14 +1106,19 @@ export async function runWechatWatch(deps: WechatWatchDeps): Promise<string> {
     const messages = Array.isArray(payload?.messages) ? payload!.messages! : []
     const next = Number(payload?.next_since_ts ?? since)
     if (Number.isFinite(next) && next > 0) writeLastTs(db, next) // 无论报不报都要推进，免得重复读
-    const fresh = selectNewMessages(messages, policy)
+    const fresh = selectNewMessages(messages, policy, selfWxids).filter(
+      // 自聊回环护栏：助手刚发出去的话会以 from_me 再出现，按文本跳过（普通会话不会走到这里）
+      (m) => !(isSelfChatPeer(m.talker, selfWxids) && wasSelfSent(m.talker || '', m.text, nowMs)),
+    )
     pruneOwnRuns(db)
+    // 画像巡检只针对**人**：自聊（文件传输助手/本人账号）不是"某个人"，给它蒸馏画像是白花 token
+    const personPeers = policy.peers.filter((p) => !isSelfChatPeer(p.id, selfWxids))
     if (fresh.length === 0) {
       // 空闲拍：先把锁屏/抢不到前台时积压的送出去（见 flushWechatOutbox），
       // 再给名单里还没有画像的人补一张（见 maybeDistillProfiles）。
       // 两件都只在空闲拍做——有活回合时它们会跟这一轮抢那双手和那个端点。
       const flushed = await flushWechatOutbox(deps, nowMs, policy.peers)
-      const swept = await maybeDistillProfiles(deps, policy.peers, nowMs)
+      const swept = await maybeDistillProfiles(deps, personPeers, nowMs)
       const base = messages.length > 0 ? `新消息 ${messages.length} 条（均被过滤，不报）` : '无新消息'
       return [base, flushed, swept].filter(Boolean).join('｜')
     }
@@ -1038,6 +1153,9 @@ export async function runWechatWatch(deps: WechatWatchDeps): Promise<string> {
     const nowForSent = deps.nowMs?.() ?? Date.now()
     for (const m of messages) {
       if (!m.from_me) continue
+      // 自聊会话的 from_me **不代表"用户刚手动回了"**（那正是用户发给助手的消息本身），
+      // 给它推冷却会把刚到的入站消息直接降级成提醒、代聊永远收不到——跳过。
+      if (isSelfChatPeer(m.talker, selfWxids)) continue
       const key = m.talker || m.name || '?'
       if ((cooldown[key] ?? 0) < nowForSent) {
         cooldown[key] = nowForSent
@@ -1068,9 +1186,12 @@ export async function runWechatWatch(deps: WechatWatchDeps): Promise<string> {
       }
       const nowMsNow = deps.nowMs?.() ?? Date.now()
       if ((cooldown[peer] ?? 0) + cd * 1000 > nowMsNow) {
-        // 冷却期内不打扰对方（也不叫模型），降级成提醒——用户仍然看得见
-        notifyOnly.push(...msgs)
-        notifyConvIds.add(convId)
+        // 冷却期内不打扰对方（也不叫模型）。自聊会话**静默跳过**，不降级成提醒——
+        // 冷却内多半就是助手自己刚回的那条（或用户同一波连发），提醒只会自己刷自己。
+        if (!isSelfChatPeer(last.talker, selfWxids)) {
+          notifyOnly.push(...msgs)
+          notifyConvIds.add(convId)
+        }
         continue
       }
       if (!deps.driveTurn) {
@@ -1100,7 +1221,10 @@ export async function runWechatWatch(deps: WechatWatchDeps): Promise<string> {
       // **读库实测**这一轮到底发没发（回合的说法只是文本）：
       // - auto：真发了才敢写「已代回」；没发就写「未发」，别替它邀功；
       // - draft：本不该发，真发了要标 ⚠️ 告知用户。
-      const sent = await detectSentTo(deps, last, last.ts)
+      const sentInfo = await detectSentTo(deps, last, last.ts)
+      const sent = sentInfo.sent
+      // 记住"我们刚发出去的话"：下一拍它会以 from_me 再出现，自聊会话按文本跳过（防自回环）
+      rememberSelfSends(last.talker || peer, sentInfo.texts, nowMsNow)
       const label =
         mode === 'auto' ? (sent ? '已代回' : '未发') : sent ? '草稿⚠️疑似已发出' : '草稿'
       acted.push(`${label}·${last.name || peer}：${(last.text || '').slice(0, 40)}`)

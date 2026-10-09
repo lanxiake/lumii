@@ -133,11 +133,24 @@ Windows 上 PATH 里的 `%LOCALAPPDATA%\Microsoft\WindowsApps\python.exe` 是 Mi
 
 | 变量 | 作用 |
 |---|---|
-| `LUMII_WECHAT_DB` | 直接指定微信数据目录（含 `message/message_0.db`） |
+| `LUMII_WECHAT_DB` | 直接指定微信数据目录（含 `message/message_0.db`）。**一般不用填**：自动探测已覆盖 4.x 自定义目录与任意盘；只在探测失败时兜底 |
 | `LUMII_WECHAT_ACCOUNT` | 多账号时锁定账号（`wxid` 或目录名） |
 | `LUMII_WECHAT_DISTILL` | 画像/状态产出目录（默认 `~/.lumii/wechat-distill`） |
 
-## 5. 工具（15 个）
+### 数据目录自动探测
+
+微信 4.x 的**自定义数据目录不在注册表**，而是写在 `%APPDATA%\Tencent\xwechat\config\<哈希>.ini`（文件内容即数据基目录，
+即 `xwechat_files` 的父目录）。本服务按下列优先级自动定位（先命中先用），**换机 / 数据目录在别的盘都能找到**：
+
+1. `LUMII_WECHAT_DB` / `LUMII_WECHAT_ACCOUNT`（显式，最高）
+2. `%APPDATA%\Tencent\xwechat\config\*.ini`（4.x 自定义目录的权威来源；Linux 为 `~/.xwechat/config/*.ini`）
+3. 注册表 `HKCU\Software\Tencent\Weixin`（4.x）/ `Tencent\WeChat`（3.x）
+4. 默认路径 `~/xwechat_files`、`~/Documents/xwechat_files`
+5. **固定盘有界扫描**（深度 ≤ 2，覆盖 `D:\微信\xwechat_files` 这类）
+
+用 `locate_db` 工具或 `devcli.py accounts` 可查看命中的 `root` 与其 `source`（从哪找到的）。
+
+## 5. 工具（17 个）
 
 **只读（不需要微信窗口）**
 
@@ -148,7 +161,9 @@ Windows 上 PATH 里的 `%LOCALAPPDATA%\Microsoft\WindowsApps\python.exe` 是 Mi
 | `poll_new(since_ts)` | 增量新消息（正序）。每条带 `from_me`/`sender`（自己发的也返回）；返回 `next_since_ts` 供下一轮直接用（**别传墙上时钟的 now**，同秒会漏）。走增量快路径：只解密新增的 WAL 帧、只扫有变化的会话表 |
 | `search_messages(keyword, talker?, since?, until?)` | 关键词/时间检索（跨全部时间分片） |
 | `list_unread()` | 未读会话 + 最近一条预览 |
-| `check_env()` | 自检：微信进程/窗口/最小化/前台/尺寸·DPI + 依赖(`deps`)与账号(`accounts`) |
+| `check_env()` | 自检：微信进程/窗口/最小化/前台/尺寸·DPI + 依赖(`deps`)、账号(`accounts`)、数据目录(`db_root`/`db_source`) |
+| `locate_db()` | 只读定位微信数据目录：返回 `root`/`source`（从哪找到的）/`accounts`（所有候选账号），换机排查用 |
+| `repair_env()` | 确定性环境修复：还原微信窗口 + 规范化到预设尺寸(1280×820) + 重探数据目录；返回修复前后对比 |
 | `wechat_digest(talker?, limit?, since?)` | **蒸馏**：行为统计 + 代表性样本（多分片、本地、不外传） |
 | `wechat_profile_get(scope?)` | 读回画像（含 `updated`/`age_days`/`stale`）。`scope="self"`（或 `me`/`我`/`本人`）＝ **用户本人**的画像；给会话名/wxid ＝ 该好友/群；**留空**才只列出已产出的画像清单（不含正文） |
 | `wechat_distill_state(action?, scope?, ts?)` | 蒸馏**水位**（增量蒸馏用） |

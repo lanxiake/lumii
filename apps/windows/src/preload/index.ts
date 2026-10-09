@@ -24,6 +24,7 @@ import type { PingReport } from '../shared/net-latency-types'
 import type { PerformanceReport, IpcAggregateEvent, MemorySnapshotEvent, RendererMemorySample } from '../main/perf/performance-types'
 import type { RendererNativeMemory } from '../main/perf/performance-types'
 import { readRendererNativeMemory } from './renderer-native-memory'
+import type { WechatSelfcheckResult, WechatRepairResult } from './api/channel-api'
 // 导入提取的 API 模块
 import {
   fileApi,
@@ -1321,6 +1322,8 @@ declare global {
         contacts: Array<{ id: string; label: string; isGroup: boolean }>
         error?: string
       }>
+      wechatSelfcheck: () => Promise<WechatSelfcheckResult | null>
+      wechatRepair: () => Promise<WechatRepairResult | null>
     }
   }
 }

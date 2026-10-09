@@ -28,7 +28,7 @@ import sys
 import os
 
 SERVER_NAME = "wechat-local"
-SERVER_VERSION = "0.5.1"
+SERVER_VERSION = "0.6.0"
 # 新 → 旧；客户端请求的版本在列表中则原样回应，否则回应最新版（由客户端决定是否断开）
 SUPPORTED_PROTOCOL_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
 
@@ -147,6 +147,26 @@ def _code_of(detail):
     return "unknown"
 
 
+# 错误码 → 发送前状态机的**档位**：让 Agent 一眼看出卡在「环境/窗口/目标/输入/发送」哪一道。
+# 与 `wechat_sender.preflight` 的 stage 一致（proc/window/restore/size/foreground 归到 env/window）。
+_STAGE_BY_CODE = {
+    "env_not_ready": "env",        # 进程未运行 / 窗口不可用 / 还原失败 / 前台切不到
+    "target_unconfirmed": "target",
+    "target_not_found": "target",
+    "verification_failed": "target",
+    "input_not_landed": "input",
+    "send_unconfirmed": "input",
+    "attachment_not_landed": "attachment",
+    "attachment_missing": "attachment",
+    "send_not_confirmed": "send",
+    "busy": "lock",
+}
+
+
+def _stage_of(code):
+    return _STAGE_BY_CODE.get(code or "", "unknown")
+
+
 def _send_with_retry(send_fn, max_retries=2, retry_delay=0.5):
     """发送重试包装器（P0-B 增强）。
 
@@ -242,6 +262,7 @@ def tool_send(args):
         out["attempts"] = attempts  # 标记重试次数
     if not ok:
         out["error_code"] = _code_of(detail)
+        out["stage"] = _stage_of(out["error_code"])
         out["shot"] = wechat_sender.last_shot()
         # P0-B 增强：失败时给出可操作的修复建议
         out["suggestion"] = _get_fix_suggestion(out["error_code"])
@@ -263,6 +284,7 @@ def tool_send_file(args):
            "dry_run": dry, "path": path}
     if not ok:
         out["error_code"] = _code_of(detail)
+        out["stage"] = _stage_of(out["error_code"])
         out["shot"] = wechat_sender.last_shot()
     return out
 
@@ -294,6 +316,7 @@ def tool_send_batch(args):
              "name": core.names().get(talker, talker), "dry_run": dry, "text": text[:120]}
         if not ok:
             r["error_code"] = _code_of(detail)
+            r["stage"] = _stage_of(r["error_code"])
             r["shot"] = wechat_sender.last_shot()
         results.append(r)
     sent = sum(1 for r in results if r["ok"])
@@ -320,6 +343,7 @@ def tool_reply(args):
            "dry_run": dry, "quote": quote[:60], "text": text[:120]}
     if not ok:
         out["error_code"] = _code_of(detail)
+        out["stage"] = _stage_of(out["error_code"])
         out["shot"] = wechat_sender.last_shot()
     return out
 
@@ -413,11 +437,58 @@ def tool_profile_get(args):
 def tool_status(_args):
     import wechat_sender
     st = wechat_sender.check_env()
+    # 数据目录探测（单独一栏，来源可归因）：换机/自定义目录时，这一栏是排查的第一落点
+    try:
+        root, src = core.db_root_info()
+        st["db_root"], st["db_source"], st["db_ok"] = root, src, True
+    except Exception as e:
+        st["db_root"], st["db_source"], st["db_ok"], st["db_hint"] = None, None, False, str(e)
     st["can_send"] = bool(st["ok"])
     st["hint"] = ("可以发送" if st["ok"] else
                   "发送功能不可用：" + (st.get("reason") or "") +
                   "。最小化时发送会自己恢复一次（不用管）；其余情况请先把微信主窗口调到可见且在前台，再重试。")
     return st
+
+
+def tool_locate_db(_args):
+    """定位本机微信 4.x 数据目录（只读诊断）。
+
+    探测源见 `wechat_core.detect_xwechat_dirs()`：env → ini（4.x 自定义目录的权威来源）
+    → 注册表 → 默认路径 → 固定盘有界扫描。返回命中的 root 与来源，以及所有候选账号，
+    方便换机后一眼看出「数据目录在哪、是从哪找到的」。
+    """
+    try:
+        root, src = core.db_root_info()
+        err = None
+    except Exception as e:
+        root, src, err = None, None, str(e)
+    accts = core.list_accounts()
+    out = {
+        "found": bool(root),
+        "root": root,
+        "source": src,
+        "accounts": [{"wxid": a["wxid"], "dir": a["dir"], "root": a["root"], "source": a.get("source")}
+                     for a in accts],
+    }
+    if err:
+        out["error"] = err
+        out["hint"] = ("未自动找到微信数据目录。可在微信「设置 → 文件管理」查看当前数据目录；"
+                       "仍找不到时设置环境变量 "
+                       "LUMII_WECHAT_DB=<数据目录>\\xwechat_files\\<账号>_<4位>\\db_storage，再重连本 MCP。")
+    elif root:
+        out["wxid"] = core.self_wxid(root)
+    return out
+
+
+def tool_repair_env(_args):
+    """确定性环境修复：还原微信窗口 + 规范化到预设尺寸 + 重探数据目录。
+
+    只做可逆/无副作用操作（ShowWindow/MoveWindow/重探目录），不点微信内部任何东西。
+    返回修复前后对比（`before`/`after`/`db`/`actions`），供初始化自检与设置卡片展示。
+    """
+    import wechat_sender
+    return wechat_sender.repair_env()
+
 
 
 # 服务级引导：客户端把这段注入给 Agent，帮助它正确使用这些工具。
@@ -491,8 +562,19 @@ TOOLS = [
          "since_ts": {"type": "integer", "description": "Unix 秒；返回 create_time 严格大于它的消息"}},
          "required": ["since_ts"]}},
     {"name": "check_env",
-     "description": ("【何时用】发**引用回复**（reply_to，唯一还需要前台的工具）前，或想诊断微信自动化环境时，自检本机微信（是否运行/窗口可见/最小化/在前台/尺寸·DPI）。【别用】与渠道无关。"
+     "description": ("【何时用】发**引用回复**（reply_to，唯一还需要前台的工具）前，或想诊断微信自动化环境时，自检本机微信（是否运行/窗口可见/最小化/在前台/尺寸·DPI）与数据目录（db_root/db_source）。【别用】与渠道无关。"
                      "**send_text / send_file / send_batch 都不需要它**——它们走投递、不依赖前台。返回 ok=false 时把 hint 转告用户。"),
+     "inputSchema": {"type": "object", "properties": {}, "required": []}},
+    {"name": "locate_db",
+     "description": ("【何时用】换机部署后微信数据读不到、或想确认本机微信数据目录在哪时。只读定位微信 4.x 数据目录："
+                     "探测源 = 环境变量 LUMII_WECHAT_DB → 配置 %APPDATA%/Tencent/xwechat/config/*.ini（4.x 自定义目录的权威来源）"
+                     "→ 注册表 → 默认路径 → **固定盘有界扫描**（数据目录可能在别的盘）。"
+                     "返回 root / source（从哪找到的）/ accounts（所有候选账号）。【别用】发送消息。"),
+     "inputSchema": {"type": "object", "properties": {}, "required": []}},
+    {"name": "repair_env",
+     "description": ("【何时用】check_env / locate_db 报环境异常（窗口最小化收进托盘 / 尺寸漂移 / 前台切不到 / "
+                     "数据目录找不到）后，试试一键修复。只做可逆操作：还原微信窗口、把窗口规范化到预设可操作尺寸 "
+                     "（1280×820）、重探数据目录。【别用】发送消息（用 send_text）。返回修复前后对比便于判断是否奏效。"),
      "inputSchema": {"type": "object", "properties": {}, "required": []}},
     {"name": "send_text",
      "description": ("【何时用】用户说「给我微信里的某人/某群发条消息」时（**以用户本人身份**，不可撤回）。【别用】回渠道(Bot)消息；那走渠道回执。"
@@ -594,7 +676,8 @@ TOOLS = [
          "scope": {"type": "string", "description": "self=用户本人；或会话名/wxid/群号；留空=只列出有哪些画像"}}, "required": []}},
 ]
 DISPATCH = {"list_sessions": tool_sessions, "read_history": tool_history,
-            "poll_new": tool_poll, "check_env": tool_status,
+            "poll_new": tool_poll, "check_env": tool_status, "locate_db": tool_locate_db,
+            "repair_env": tool_repair_env,
             "send_text": tool_send, "send_file": tool_send_file,
             "send_batch": tool_send_batch, "reply_to": tool_reply,
             "search_messages": tool_search, "list_unread": tool_unread,
@@ -604,7 +687,7 @@ DISPATCH = {"list_sessions": tool_sessions, "read_history": tool_history,
             "wechat_profile_save": tool_profile_save, "wechat_profile_get": tool_profile_get}
 
 # 工具行为提示（MCP tool annotations）：客户端据此决定是否需要用户确认
-_READ_ONLY_TOOLS = {"list_sessions", "read_history", "poll_new", "check_env", "search_messages",
+_READ_ONLY_TOOLS = {"list_sessions", "read_history", "poll_new", "check_env", "locate_db", "search_messages",
                     "list_unread", "wechat_digest", "wechat_profile_get"}
 # 以用户本人身份对外发出、不可撤回，或删除本地画像
 _DESTRUCTIVE_TOOLS = {"send_text", "send_file", "send_batch", "reply_to", "wechat_distill_clear"}
@@ -619,7 +702,7 @@ def _annotate_tools(tools):
         t["annotations"] = {
             "readOnlyHint": read_only,
             "destructiveHint": name in _DESTRUCTIVE_TOOLS,
-            "idempotentHint": read_only or name in ("wechat_profile_save", "wechat_distill_state"),
+            "idempotentHint": read_only or name in ("wechat_profile_save", "wechat_distill_state", "repair_env"),
             "openWorldHint": name in _OPEN_WORLD_TOOLS,
         }
     return tools

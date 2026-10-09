@@ -16,6 +16,7 @@ import type { ChannelHub } from '../channel/channel-hub-bootstrap'
 import { getChannelPolicyStore } from '../channel/channel-policy-store'
 import type { ChannelPolicy } from '../../shared/channel-policy'
 import { loadWechatContacts, type WechatContactsResult } from '../channel/wechat-contacts'
+import { repairWechatEnv, runWechatSelfcheck } from '../channel/wechat-selfcheck'
 import { PCWECHAT_CHANNEL, WECHAT_WATCH_MCP_SERVER } from '../agent-runtime/wechat-watch-tick'
 import type { AgentRuntimeBridge } from '../agent-runtime/bridge'
 
@@ -159,4 +160,15 @@ export function registerChannelIpcHandlers(): void {
         getPolicy: () => getChannelPolicyStore().get(PCWECHAT_CHANNEL),
       }),
   )
+
+  // === 本机微信环境自检（确定性：check_env + locate_db；不叫模型） ===
+  const withBridge =
+    <T>(fn: (call: (s: string, t: string, a: Record<string, unknown>) => Promise<string>) => Promise<T>) =>
+    async (): Promise<T | null> => {
+      const bridge = deps!.getAgentRuntimeBridge()
+      if (!bridge) return null
+      return fn((s, t, a) => bridge.callMcpTool(s, t, a))
+    }
+  ipcMain.handle('wechat:selfcheck', withBridge((call) => runWechatSelfcheck(call)))
+  ipcMain.handle('wechat:repair', withBridge((call) => repairWechatEnv(call)))
 }

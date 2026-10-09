@@ -472,7 +472,10 @@ def suite_C():
     def c1_code_map():
         src = open(os.path.join(HERE, "wechat_sender.py"), encoding="utf-8").read()
         lits = [s for s in re.findall(r'return False, "([^"]+)"', src) if s != "-"]
-        # ^ "-" 是 verify_target 的内部哨兵（不通过、但由上层转成「目标会话未确认」），不是对外的错误文案
+        # ^ "-" 是 verify_target 的内部哨兵（不通过、但由上层转成「目标会话未确认」），不是对外的错误文案。
+        # preflight 用 `return False, "proc", "详情…", info` 四元组，正则会把 stage 标签（全小写）也捞进来，
+        # 那是指路标不是文案 —— 过滤掉（面向用户的失败文案都含中文）。
+        lits = [s for s in lits if not re.fullmatch(r"[a-z_]+", s)]
         assert len(lits) >= 10, f"从 wechat_sender.py 抽到的文案太少（{len(lits)}），正则可能失效"
         bad = [s for s in lits if server._code_of(s) == "unknown"]
         assert not bad, f"这些文案没有错误码（改了文案要同步 _code_of）：{bad}"
@@ -1201,6 +1204,222 @@ def suite_I():
     return r
 
 
+def suite_J():
+    """J 层：微信数据目录探测（自定义目录 / 其他盘 / env）。
+
+    为什么单开一层：旧实现只认 `~/xwechat_files`、`~/Documents/xwechat_files` 和 3.x 的
+    注册表键 `Tencent\\WeChat\\FileSavePath`；微信 4.x 把自定义目录写在
+    `%APPDATA%\\Tencent\\xwechat\\config\\*.ini`，且数据目录可落在**任意盘**。
+    这层钉三件事：ini 能解析出来、被搬到其他盘的目录能被扫到、env 显式路径优先。
+    """
+    import wechat_core as core
+    import shutil
+
+    r = R("J 层：数据目录探测（ini / 其他盘 / env）")
+    tmp = tempfile.mkdtemp(prefix="lumii-dbdir-")
+    try:
+        def mk(base, wxid_dir):
+            """在 base 下造 `<base>/xwechat_files/<wxid_dir>/db_storage/…`，返回 db_storage。"""
+            root = os.path.join(base, "xwechat_files", wxid_dir, "db_storage")
+            os.makedirs(os.path.join(root, "message"), exist_ok=True)
+            with open(os.path.join(root, "message", "message_0.db"), "wb") as f:
+                f.write(b"x")
+            return root
+
+        # 1) ini 解析：纯路径 / Key=值 / Key: 值 三种写法都要认得
+        def j0():
+            for line, expect in (
+                (r"C:\Users\Administrator", r"C:\Users\Administrator"),
+                (r"MyDocument=D:\微信", r"D:\微信"),
+                (r"My Document: D:\WeChatData", r"D:\WeChatData"),
+            ):
+                got = core._parse_ini_paths(line + "\n; 注释\n# 注释\n")
+                assert got == [expect], f"{line!r} 应解析为 [{expect!r}]，实得 {got}"
+        r.case("ini 三种写法（纯路径 / Key=值 / Key: 值）都能解析", j0)
+
+        # 2) 路径归一：xwechat_files 本体 / 其父目录 / 账号目录 三种形态都认
+        def j1():
+            xf = os.path.join(tmp, "xwechat_files")
+            acc = os.path.join(xf, "wxid_a_9c2d")
+            mk(tmp, "wxid_a_9c2d")                 # tmp/xwechat_files/wxid_a_9c2d/db_storage
+            assert core._resolve_xwechat_dir(xf) == xf, "给 xwechat_files 本体"
+            assert core._resolve_xwechat_dir(tmp) == xf, "给 xwechat_files 的父目录"
+            assert core._resolve_xwechat_dir(acc) == xf, "给账号目录"
+        r.case("_resolve_xwechat_dir：父目录 / 本体 / 账号目录都能归一", j1)
+
+        # 3) ini 命中即止 → source=ini（不再扫盘）
+        def j2():
+            base = os.path.join(tmp, "custom_base")
+            mk(base, "wxid_b_5f3a")
+            old_ini, old_reg = core._ini_bases, core._registry_bases
+            core._ini_bases, core._registry_bases = (lambda: [base]), (lambda: [])
+            try:
+                accts = core.list_accounts()
+                assert accts and accts[0]["source"] == "ini", f"该由 ini 命中：{accts}"
+                assert accts[0]["wxid"] == "wxid_b", f"wxid 该从目录名反推：{accts}"
+            finally:
+                core._ini_bases, core._registry_bases = old_ini, old_reg
+        r.case("ini 命中的自定义目录 ⇒ source=ini、wxid 反推正确", j2)
+
+        # 4) 数据目录被搬到**另一块盘**的二级目录 → 有界扫描找得到
+        def j4():
+            drive = os.path.join(tmp, "F_drive")          # 冒充固定盘根
+            os.makedirs(drive, exist_ok=True)
+            mk(os.path.join(drive, "微信"), "wxid_c_1234")   # F:\微信\xwechat_files\...
+            found = core._scan_xwechat_dirs([drive])
+            assert os.path.join(drive, "微信", "xwechat_files") in found, \
+                f"深度 2 的扫描该找到 F:\\微信\\xwechat_files：{found}"
+        r.case("其他盘的二级目录（…\\微信\\xwechat_files）能被有界扫描找到", j4)
+
+        # 5) LUMII_WECHAT_DB 显式路径优先，且能接受 db_storage / xwechat_files / 父目录三种
+        def j5():
+            base = os.path.join(tmp, "env_base")
+            root = mk(base, "wxid_d_abcd")
+            old_env = os.environ.get("LUMII_WECHAT_DB")
+            try:
+                for given, expect in (
+                    (root, root),
+                    (os.path.join(base, "xwechat_files"), root),
+                    (base, root),
+                ):
+                    os.environ["LUMII_WECHAT_DB"] = given
+                    got, src = core.db_root_info()
+                    assert (got, src) == (expect, "env"), f"env={given!r} → 期望 env 源：{(got, src)}"
+            finally:
+                if old_env is None:
+                    os.environ.pop("LUMII_WECHAT_DB", None)
+                else:
+                    os.environ["LUMII_WECHAT_DB"] = old_env
+        r.case("LUMII_WECHAT_DB 优先，且接受 db_storage / xwechat_files / 父目录", j5)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+    return r
+
+
+def suite_K():
+    """K 层：发送前**按序状态机**（preflight）与 repair_env。
+
+    钉四件事：① 失败时**按 proc→window→restore→foreground 的序**给出档位（不是一句笼统的"环境不行"）；
+    ② 尺寸不合规在 fix=False 时**不算失败**（只报告 size_ok），免得每次发送都搬窗口——
+       规范化只在目标确认失败后**按需**触发；③ fix=True 才搬窗口；④ repair_env 能如实汇报动作。
+    """
+    import wechat_core as core
+    import wechat_sender as snd
+
+    r = R("K 层：发送前状态机与 repair_env")
+
+    def with_stub(seq, find_hwnd, fn, rect=(0, 0, 894, 578), front=None, db=None):
+        st = {"n": 0}
+
+        def fc():
+            i = min(st["n"], len(seq) - 1)
+            st["n"] += 1
+            return dict(seq[i])
+
+        shown, moved = [], []
+        old = (snd.check_env, snd.find_main_hwnd, snd.u.ShowWindow, snd.time.sleep,
+               snd.win_rect, snd.u.MoveWindow, snd.bring_to_front, core.db_root_info)
+        snd.check_env = fc
+        snd.find_main_hwnd = lambda include_hidden=False: find_hwnd
+        snd.u.ShowWindow = lambda h, n: shown.append((getattr(h, "value", h), n))
+        snd.time.sleep = lambda *_: None
+        snd.win_rect = lambda h: rect
+        snd.u.MoveWindow = lambda h, x, y, w, hh, rp: moved.append((x, y, w, hh))
+        snd.bring_to_front = front or (lambda h, tries=3: True)
+        if db is not None:
+            core.db_root_info = db
+        try:
+            return fn(shown, moved, st)
+        finally:
+            (snd.check_env, snd.find_main_hwnd, snd.u.ShowWindow, snd.time.sleep,
+             snd.win_rect, snd.u.MoveWindow, snd.bring_to_front, core.db_root_info) = old
+
+    RUN = {"ok": True, "reason": "", "minimized": False, "visible": True, "locked": False,
+           "weixin_running": True, "hwnd": 199150, "rect": [60, 40, 1280, 820]}
+    BAD = {**RUN, "rect": [0, 0, 894, 578]}
+    GONE = {"ok": False, "reason": "未检测到微信进程", "minimized": False, "visible": False,
+            "locked": False, "weixin_running": False, "hwnd": 0, "rect": None}
+    MIN = {"ok": False, "reason": "主窗口已最小化", "minimized": True, "visible": True,
+           "locked": False, "weixin_running": True, "hwnd": 199150, "rect": [60, 40, 1280, 820]}
+    NOHWND = {"ok": False, "reason": "找不到主窗口", "minimized": False, "visible": False,
+              "locked": False, "weixin_running": True, "hwnd": 0, "rect": None}
+
+    def k1_proc():
+        def run(_s, _m, _st):
+            ok, stage, detail, _i = snd.preflight()
+            assert not ok and stage == "proc", (ok, stage)
+            assert "环境前置检查" in detail, detail
+        with_stub([GONE], 0, run)
+    r.case("进程未运行 ⇒ stage=proc（第一道）", k1_proc)
+
+    def k2_window():
+        def run(_s, _m, _st):
+            ok, stage, _d, _i = snd.preflight()
+            assert not ok and stage == "window", (ok, stage)
+        with_stub([NOHWND], 0, run)
+    r.case("拿不到主窗口 ⇒ stage=window", k2_window)
+
+    def k3_restore():
+        def run(shown, _m, _st):
+            ok, stage, _d, _i = snd.preflight()
+            assert not ok and stage == "restore", (ok, stage)
+            assert shown == [(199150, 4)], f"该试过还原一次：{shown}"
+        with_stub([MIN, MIN], 199150, run)
+    r.case("还原后仍最小化 ⇒ stage=restore（拒发）", k3_restore)
+
+    def k4_size_reported_not_failed():
+        def run(_s, moved, _st):
+            ok, stage, _d, info = snd.preflight(fix=False)
+            assert ok and stage == "ok", (ok, stage)
+            assert info.get("size_ok") is False, f"尺寸不合规要如实报告：{info.get('size_ok')}"
+            assert moved == [], "fix=False 时不许搬窗口"
+        with_stub([BAD], 199150, run)
+    r.case("尺寸不合规 + fix=False ⇒ 不算失败、不搬窗口，只报告 size_ok=False", k4_size_reported_not_failed)
+
+    def k5_size_fixed():
+        def run(_s, moved, _st):
+            ok, stage, _d, info = snd.preflight(fix=True)
+            assert ok and stage == "ok", (ok, stage)
+            assert info.get("size_ok") is True, "复检该已合规"
+            assert moved == [(60, 40, 1280, 820)], f"fix=True 该规范化到预设尺寸：{moved}"
+        with_stub([BAD, RUN], 199150, run)
+    r.case("尺寸不合规 + fix=True ⇒ 规范化到预设尺寸并复检", k5_size_fixed)
+
+    def k6_foreground_fails():
+        def run(_s, _m, _st):
+            ok, stage, _d, _i = snd.preflight(need_foreground=True)
+            assert not ok and stage == "foreground", (ok, stage)
+        with_stub([RUN], 199150, run, front=lambda h, tries=3: False)
+    r.case("需要前台但切不过去 ⇒ stage=foreground", k6_foreground_fails)
+
+    def k7_locked_delivery_ok():
+        def run(_s, _m, _st):
+            ok, _stage, _d, _i = snd.preflight(need_foreground=False, allow_locked=True)
+            assert ok, "投递路锁屏不该拦（锁屏照发）"
+        with_stub([{**RUN, "locked": True}], 199150, run)
+    r.case("锁屏 + 投递路（allow_locked）⇒ 放行", k7_locked_delivery_ok)
+
+    def k8_locked_needs_foreground():
+        def run(_s, _m, _st):
+            ok, stage, _d, _i = snd.preflight(need_foreground=True, allow_locked=True)
+            assert not ok and stage == "foreground", (ok, stage)
+        with_stub([{**RUN, "locked": True}], 199150, run)
+    r.case("锁屏 + 需要前台 ⇒ stage=foreground", k8_locked_needs_foreground)
+
+    def k9_repair_env_normalizes():
+        def run(_s, moved, _st):
+            out = snd.repair_env()
+            assert out["db"]["ok"] and out["db"]["source"] == "stub", out["db"]
+            assert any("窗口已规范化" in a for a in out["actions"]), out["actions"]
+            assert moved == [(60, 40, 1280, 820)], f"repair 该规范化窗口：{moved}"
+        with_stub([BAD, RUN], 199150, run, rect=(0, 0, 894, 578),
+                  db=lambda: (r"C:\x\xwechat_files\wxid_a_1234\db_storage", "stub"))
+    r.case("repair_env：尺寸异常 ⇒ 规范化窗口 + 重探数据目录并汇报", k9_repair_env_normalizes)
+
+    return r
+
+
 def main():
     try:
         import Crypto  # noqa: F401
@@ -1213,7 +1432,8 @@ def main():
     total_p = total_f = 0
     for suite, need_crypto in ((suite_A, True), (suite_B, False), (suite_C, False),
                                (suite_D, False), (suite_E, False), (suite_F, False),
-                               (suite_G, False), (suite_H, False), (suite_I, False)):
+                               (suite_G, False), (suite_H, False), (suite_I, False),
+                               (suite_J, False), (suite_K, False)):
         if need_crypto and not has_crypto:
             print("\n（跳过 A 层：没有 pycryptodome）")
             continue

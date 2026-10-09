@@ -81,4 +81,24 @@ export const channelApi = {
     contacts: Array<{ id: string; label: string; isGroup: boolean }>
     error?: string
   }> => ipcRenderer.invoke('channel:listWechatContacts'),
+  /** 本机微信环境自检（MCP check_env + locate_db；确定性、不叫模型） */
+  wechatSelfcheck: (): Promise<WechatSelfcheckResult | null> => ipcRenderer.invoke('wechat:selfcheck'),
+  /** 一键修复本机微信环境（还原/规范化窗口 + 重探数据目录），随后返回复检结果 */
+  wechatRepair: (): Promise<WechatRepairResult | null> => ipcRenderer.invoke('wechat:repair'),
+}
+
+/** 本机微信环境自检结果（与 main 侧 `wechat-selfcheck.ts` 同构） */
+export interface WechatSelfcheckResult {
+  at: number
+  connected: boolean
+  db: { ok: boolean; root: string | null; source: string | null; wxid: string | null }
+  env: Record<string, unknown> | null
+  actions: string[]
+  ok: boolean
+  reason: string
+}
+
+export interface WechatRepairResult {
+  repaired: Record<string, unknown> | null
+  selfcheck: WechatSelfcheckResult
 }

@@ -786,6 +786,56 @@ def env_gate(allow_locked=False):
     return bool(st["ok"]), st
 
 
+def _size_canonical(rect):
+    """窗口尺寸是否达到预设可操作尺寸（容差内）。只看尺寸，不管位置。"""
+    if not rect or len(rect) < 4:
+        return False
+    _l, _t, w, h = rect
+    return abs(w - NW) <= 8 and abs(h - NH) <= 8
+
+
+def preflight(need_foreground=False, fix=False, allow_locked=True):
+    """发送前**统一前置检查**：按序 `进程 → 主窗口 → 还原 → 尺寸 → 前台`。
+
+    返回 `(ok, stage, detail, info)`；stage ∈ proc/window/restore/size/ok/foreground。
+    失败时 detail 里点名卡在哪一档（同时保留 `_code_of` 认得的「环境前置检查/窗口前置检查」措辞）。
+
+    - `allow_locked=True`（投递路）：锁屏**不算失败**（PostMessage 投递锁屏照发），只在 info 报告。
+    - `need_foreground=True`（reply_to）：前台切不过去即失败。
+    - `fix=True`：对可自愈项动手——还原最小化/收起窗口、窗口尺寸不合规时规范化到预设尺寸
+      （返回的 info 是修复后复检结果）；**调用方负责还原窗口**（修复改的是用户窗口）。
+      `fix=False` 时尺寸不合规**不算失败**，只在 info 里报告 `size_ok=False`，由发送层在
+      目标确认失败后**按需** repair（否则每次发送都搬窗口太打扰）。
+    """
+    info = check_env()
+    if not info["weixin_running"]:
+        return False, "proc", "环境前置检查未通过：未检测到微信进程（Weixin.exe 未运行）", info
+    if info["locked"] and not allow_locked:
+        return False, "foreground", "窗口前置检查未通过：电脑已锁屏（锁屏期间无法模拟键鼠；解锁后自动补发）", info
+    if not info["hwnd"] or not info["visible"] or info["minimized"]:
+        info = wake_window(info)                       # 最小化/收起 → 还原一次再复检
+    if not info.get("hwnd"):
+        return False, "window", "环境前置检查未通过：找不到微信主窗口（可能未登录）", info
+    if not info.get("visible") or info.get("minimized"):
+        return False, "restore", "环境前置检查未通过：微信主窗口不可见（收进托盘或最小化）且还原失败", info
+    h = info["hwnd"]
+    size_ok = _size_canonical(info.get("rect"))
+    if fix and not size_ok:
+        u.MoveWindow(ctypes.c_void_p(h), NX, NY, NW, NH, True)
+        time.sleep(0.6)
+        info = check_env()
+        size_ok = _size_canonical(info.get("rect"))
+    info["size_ok"] = size_ok
+    if need_foreground:
+        if info.get("locked"):
+            return False, "foreground", "窗口前置检查未通过：电脑已锁屏，切不到前台（解锁后自动恢复）", info
+        if not bring_to_front(h):
+            return False, "foreground", "窗口前置检查未通过：微信窗口切不到前台（自动化要求窗口可见且在前台）", info
+        info["foreground"] = True
+    info["stage"] = "ok" if size_ok or not fix else "size"
+    return True, "ok", "", info
+
+
 class Win:
     """窗口几何：进入时【前置检查 → 规范化为固定尺寸 → 逐项校验】，退出时还原。"""
 
@@ -1297,16 +1347,18 @@ def send_text(text, talker, name=None, dry_run=True, verbose=False):
     """发送文本。返回 (ok, detail)。
 
     走**全投递**路径（PostMessage）：不抢前台、不碰鼠标键盘、不劫持剪贴板，锁屏下同样可用。
-    前置闸门只剩 `env_gate(allow_locked=True)`：微信是否运行 / 主窗口可用（最小化或收进托盘时先自还原一次）。
+    前置走统一的**按序状态机** `preflight(allow_locked=True)`：进程 → 主窗口 → 还原 → 尺寸 → （前台按需）。
     之后是「目标校验 → 输入落地 → 发送生效（读库）」三道动作校验，任一不过即中止、绝不盲发。
+    目标确认失败时**按需把窗口规范化到预设尺寸再重试**（帧 OCR 布局按 1280×820 标定，
+    尺寸漂移是 target_unconfirmed 的主因之一）；修复是临时的，发完还原。
     send_file 已改成同一条投递路（点「发送文件」+ 驱动文件对话框，见下节）；reply_to 仍走
     `Win()` + 模拟键鼠，需要前台。
     """
     if not name:
         name = core.names().get(talker, talker)
-    env_ok, st = env_gate(allow_locked=True)   # 文本走投递，锁屏也能发
-    if not env_ok:
-        return False, f"环境前置检查未通过：{st['reason']}（微信运行={st['weixin_running']}，可见={st['visible']}，最小化={st['minimized']}）"
+    p_ok, _stage, detail, st = preflight(need_foreground=False, allow_locked=True)
+    if not p_ok:
+        return False, f"{detail}（微信运行={st.get('weixin_running')}，可见={st.get('visible')}，最小化={st.get('minimized')}）"
     lk = _acquire_ui()
     if lk is None:
         return False, "另一个微信操作正在进行，请稍后重试（busy）"
@@ -1341,14 +1393,46 @@ def _send_locked(text, talker, name, dry_run, verbose):
     三道安全网不变（目标校验 → 发送 → 读库确认），只是执行手段从 SendInput 换成了
     PostMessage。fail-closed：任一步不成立即返回失败，由上层排队重试。
     发送生效校验改为**发完读库**——那本就是最后一道，且不像剪贴板回读那样需要前台。
-    **不动窗口**（原先每次发送都把微信 MoveWindow 到 1280×820 再还原，那本身就是打扰）：
-    只有 `Win()` 那条前台老路需要规范化尺寸，投递路的坐标现在来自 UIA 活几何。
+    **不主动搬窗口**：投递路的坐标来自 UIA 活几何；只有目标确认失败时才**按需**把窗口规范化到
+    预设尺寸再重试一次（见 `_repair_geometry_for_send`），发完还原（用户窗口归用户）。
     """
-    h = find_main_hwnd()    # 走到这儿窗口必然可见：上面的 env_gate 已经还原过（含收进托盘那种）
+    h = find_main_hwnd()    # 走到这儿窗口必然可见：上面的 preflight 已经还原过（含收进托盘那种）
     if not h:
         return False, "找不到微信主窗口"
     prev_fg = int(u.GetForegroundWindow())
     return _send_locked_body(h, text, talker, name, dry_run, verbose, prev_fg)
+
+
+def _repair_geometry_for_send(h):
+    """目标确认失败时的**按需修复**：窗口规范化到预设尺寸 + 尽量置前台。
+
+    为什么需要：帧 OCR 的布局常量按 1280×820 标定，窗口尺寸漂移（实测 894×578）会让
+    头部/输入框坐标错位 → 目标确认失败（`target_unconfirmed`）。这一步把窗口搬回预设尺寸再重试。
+    **可逆**：返回原 rect，调用方必须在 finally 里还原（用户窗口归用户）。
+    尺寸已合规时不动窗口，只补一次置前台（失败也无妨，投递路不依赖前台）。
+    """
+    orig = None
+    l, t, w, ht = win_rect(h)
+    if not (abs(l - NX) <= 4 and abs(t - NY) <= 4 and abs(w - NW) <= 8 and abs(ht - NH) <= 8):
+        orig = (l, t, w, ht)
+    try:
+        u.ShowWindow(ctypes.c_void_p(h), 9)          # SW_RESTORE（最小化/隐藏时先还原）
+        time.sleep(0.2)
+        if orig:
+            u.MoveWindow(ctypes.c_void_p(h), NX, NY, NW, NH, True)
+            time.sleep(0.6)
+        bring_to_front(h)                             # 尽力而为；投递路不依赖前台
+    except Exception:
+        pass
+    return orig
+
+
+def _restore_geometry(h, rect):
+    """把窗口还原到修复前的位置与尺寸（尽力而为）。"""
+    try:
+        u.MoveWindow(ctypes.c_void_p(h), rect[0], rect[1], rect[2], rect[3], True)
+    except Exception:
+        pass
 
 
 def _send_locked_body(h, text, talker, name, dry_run, verbose, prev_fg):
@@ -1357,54 +1441,111 @@ def _send_locked_body(h, text, talker, name, dry_run, verbose, prev_fg):
     # `target_unconfirmed` 的来路。UIA 拿不到才退回帧判据，两路都不做反向放行。
     # 「拿不到」**并不罕见**：微信 4.x 不暴露控件树时 read_uia 返回 None（见 `_uia_tree_blank`），
     # 此时整条发送都靠帧判据——这正是那次 20:34 补发成功走的路。
-    d = read_uia(h, "s0")
-    if d:
-        ok = uia_header_is(d, name)
-    else:
-        ww, wh, lines = read_ui_stable("s0")
-        ok, _why = verify_target(talker, name, lines, ww, wh, verbose)
-    if not ok:
-        ok = open_chat_post(h, name, talker, verbose)
-        if ok:
-            d = read_uia(h, "s1")     # 切完重读：下面点输入框要用切换后的活几何
-    if not ok:
-        return False, "目标会话未确认（fail-closed）"
-    if dry_run:
-        return True, "dry-run：已验证目标会话，未输入未发送"
-    base_ts = _talker_latest_ts(talker)   # 发送后据此**读库确认**真的落到目标会话
+    orig = None                       # 按需修复时记下原几何，finally 还原
+    try:
+        d = read_uia(h, "s0")
+        if d:
+            ok = uia_header_is(d, name)
+        else:
+            ww, wh, lines = read_ui_stable("s0")
+            ok, _why = verify_target(talker, name, lines, ww, wh, verbose)
+        if not ok:
+            # 按需修复：窗口尺寸漂移 / 不在前台时，帧 OCR 布局错位、切会话也会失败
+            orig = _repair_geometry_for_send(h)
+            d = read_uia(h, "s0r")
+            ok = uia_header_is(d, name) if d else False
+        if not ok:
+            ok = open_chat_post(h, name, talker, verbose)
+            if ok:
+                d = read_uia(h, "s1")     # 切完重读：下面点输入框要用切换后的活几何
+        if not ok:
+            return False, "目标会话未确认（fail-closed）"
+        if dry_run:
+            return True, "dry-run：已验证目标会话，未输入未发送"
+        base_ts = _talker_latest_ts(talker)   # 发送后据此**读库确认**真的落到目标会话
 
-    # 投递点击输入框：尽力把焦点摆过去。微信切会话时会自动 focus 输入框，这里是兜底；
-    # 焦点若真在别处，投递的字符会落空 —— 下面的读库校验会把它拦成失败，不会盲发。
-    ip = uia_input_pt(h, d) if d else None
-    if not ip:
-        ww, wh, lines = read_ui_stable("s1")
-        ip = layout(lines, ww, wh)["input_pt"]
-    post_click(h, *ip)
-    time.sleep(0.4)
-    ok, why = clear_input(h, (d or {}).get("input"))   # 残留（用户草稿/上次失败留下的）会被回车一起发出去
-    if not ok:
-        _give_back_foreground(h, prev_fg)   # 退格也是输入消息，微信可能已经自己跳到前台了
-        return False, why
-    if not post_text(h, text):
-        _give_back_foreground(h, prev_fg)
-        return False, "投递输入失败（PostMessage 未送达）"
-    time.sleep(0.6)
-    # 回车前**读回框里到底有什么**：投递是逐字 WM_CHAR，丢字/落空都不报错（`post_text` 只看
-    # PostMessage 的返回值，而它基本恒真）。读不到就不拦（别把"读不到"变成"发不出去"），
-    # 读到了但混进正文之外的东西就中止——那正是「残留跟着一起发出去」的那个事故。
-    got = (read_uia(h, "s2") or {}).get("input")
-    if got is not None:
-        res = "".join(_residue(got, text))
-        if res:
+        # 投递点击输入框：尽力把焦点摆过去。微信切会话时会自动 focus 输入框，这里是兜底；
+        # 焦点若真在别处，投递的字符会落空 —— 下面的读库校验会把它拦成失败，不会盲发。
+        ip = uia_input_pt(h, d) if d else None
+        if not ip:
+            ww, wh, lines = read_ui_stable("s1")
+            ip = layout(lines, ww, wh)["input_pt"]
+        post_click(h, *ip)
+        time.sleep(0.4)
+        ok, why = clear_input(h, (d or {}).get("input"))   # 残留（用户草稿/上次失败留下的）会被回车一起发出去
+        if not ok:
+            _give_back_foreground(h, prev_fg)   # 退格也是输入消息，微信可能已经自己跳到前台了
+            return False, why
+        if not post_text(h, text):
             _give_back_foreground(h, prev_fg)
-            return False, f"输入框未清空（正文之外还有残留 {len(res)} 字，fail-closed）"
-    post_key(h, VK_RETURN)
-    _give_back_foreground(h, prev_fg)
-    time.sleep(1.0)
-    # 最后一道：**读库确认**新消息真的落在目标会话（防「看着发出去了、其实发到别处」）
-    if not _wait_new_message(talker, base_ts):
-        return False, "已回车但目标会话未见新消息（可能发到了别处或未生效）"
-    return True, "已发送"
+            return False, "投递输入失败（PostMessage 未送达）"
+        time.sleep(0.6)
+        # 回车前**读回框里到底有什么**：投递是逐字 WM_CHAR，丢字/落空都不报错（`post_text` 只看
+        # PostMessage 的返回值，而它基本恒真）。读不到就不拦（别把"读不到"变成"发不出去"），
+        # 读到了但混进正文之外的东西就中止——那正是「残留跟着一起发出去」的那个事故。
+        got = (read_uia(h, "s2") or {}).get("input")
+        if got is not None:
+            res = "".join(_residue(got, text))
+            if res:
+                _give_back_foreground(h, prev_fg)
+                return False, f"输入框未清空（正文之外还有残留 {len(res)} 字，fail-closed）"
+        post_key(h, VK_RETURN)
+        _give_back_foreground(h, prev_fg)
+        time.sleep(1.0)
+        # 最后一道：**读库确认**新消息真的落在目标会话（防「看着发出去了、其实发到别处」）
+        if not _wait_new_message(talker, base_ts):
+            return False, "已回车但目标会话未见新消息（可能发到了别处或未生效）"
+        return True, "已发送"
+    finally:
+        if orig:
+            _restore_geometry(h, orig)
+        # 修复路径可能把微信抢到前台（bring_to_front）；失败返回时也要还回去，别把用户的前台占了
+        _give_back_foreground(h, prev_fg)
+
+
+def repair_env():
+    """确定性环境修复：还原微信窗口 + 规范化到预设尺寸 + 重探数据目录。
+
+    只做可逆/无副作用操作：`ShowWindow` 还原、`MoveWindow` 规范化（**保留**——这是"修复"，
+    用户要的就是把窗口调到可操作尺寸）、重探数据目录。不点微信内部任何东西。
+    返回修复前后的对比，供初始化自检与设置卡片展示。
+    """
+    before = check_env()
+    actions = []
+    # 数据目录
+    try:
+        db_root, db_src = core.db_root_info()
+        db_ok = True
+    except Exception as e:
+        db_root, db_src, db_ok = None, None, False
+        actions.append(f"数据目录未找到：{e}")
+    # 窗口
+    if not before.get("weixin_running"):
+        actions.append("微信未运行（无法修复窗口）")
+    else:
+        h = before.get("hwnd") or find_main_hwnd(include_hidden=True)
+        if not h:
+            actions.append("拿不到微信主窗口（可能未登录）")
+        else:
+            l, t, w, ht = win_rect(h)
+            u.ShowWindow(ctypes.c_void_p(h), 9)       # SW_RESTORE
+            time.sleep(0.3)
+            if not (abs(w - NW) <= 8 and abs(ht - NH) <= 8):
+                u.MoveWindow(ctypes.c_void_p(h), NX, NY, NW, NH, True)
+                time.sleep(0.6)
+                actions.append(f"窗口已规范化到 {NW}×{NH}（原 {w}×{ht}）")
+            else:
+                actions.append("窗口尺寸已合规")
+    after = check_env()
+    return {
+        "ok": bool(after.get("ok")) and db_ok,
+        "before": before,
+        "after": after,
+        "db": {"ok": db_ok, "root": db_root, "source": db_src},
+        "actions": actions,
+    }
+
+
 
 
 
@@ -1577,14 +1718,17 @@ def send_attachment(path, talker, name=None, dry_run=True, verbose=False):
         return False, f"文件不存在：{path}"
     if not name:
         name = core.names().get(talker, talker)
-    env_ok, st = env_gate(allow_locked=True)   # 投递路，锁屏也能发
-    if not env_ok:
-        return False, f"环境前置检查未通过：{st['reason']}"
+    p_ok, _stage, detail, st = preflight(need_foreground=False, allow_locked=True)
+    if not p_ok:
+        return False, f"{detail}（微信运行={st.get('weixin_running')}，可见={st.get('visible')}，最小化={st.get('minimized')}）"
     lk = _acquire_ui()
     if lk is None:
         return False, "另一个微信操作正在进行，请稍后重试（busy）"
     _t0 = time.time()
     _ok, _d = False, ""
+    orig = None
+    h = 0
+    prev_fg = 0
     try:
         h = find_main_hwnd()
         if not h:
@@ -1592,6 +1736,10 @@ def send_attachment(path, talker, name=None, dry_run=True, verbose=False):
         prev_fg = int(u.GetForegroundWindow())
         d = read_uia(h, "af0")
         ok = uia_header_is(d, name) if d else False
+        if not ok:
+            orig = _repair_geometry_for_send(h)     # 按需修复：尺寸漂移会让确认失败
+            d = read_uia(h, "af0r")
+            ok = uia_header_is(d, name) if d else False
         if not ok:
             ok = open_chat_post(h, name, talker, verbose)
             if ok:
@@ -1623,6 +1771,10 @@ def send_attachment(path, talker, name=None, dry_run=True, verbose=False):
         _ok, _d = False, f"窗口前置检查未通过：{e}"
         return _ok, _d
     finally:
+        if orig and h:
+            _restore_geometry(h, orig)
+        if h:
+            _give_back_foreground(h, prev_fg)
         _metric("send_file", (time.time() - _t0) * 1000, _ok, {"path": os.path.basename(path)})
         _release_ui(lk)
 

@@ -780,6 +780,48 @@ bridge 侧一认出代聊归属就**立刻**返回 `{ answers: {}, cancelled: tr
 
 ---
 
+### 3.10 换机可用性 + 自发消息渠道 + 发送前状态机 + 沙箱放宽（2026-10-09 晚）
+
+四条一起落地，都以**用户 2026-10-09 的三个实测问题**为背景（打包后换机部署）。
+
+**① 微信数据目录自愈（任意磁盘）** —— 换机后 MCP 读不到库。
+- 根因：微信 4.x 的**自定义数据目录不在注册表**，写在 `%APPDATA%\Tencent\xwechat\config\<哈希>.ini`
+  （文件内容即数据基目录，`xwechat_files` 的父目录）；旧代码只扫 `~/xwechat_files`、`~/Documents/xwechat_files`
+  和 3.x 的注册表键 `Tencent\WeChat\FileSavePath`（4.x 根本不是这个键），且客户端从不写 `LUMII_WECHAT_DB`。
+- 修法（`wechat_core.py`）：新增 `detect_xwechat_dirs()` 惰性探测，优先级
+  `env → ini（4.x 权威）→ 注册表（Weixin/WeChat）→ 默认路径 → 固定盘有界扫描（深度≤2，覆盖 `D:\微信\xwechat_files`）`；
+  `list_accounts/db_root_info` 带 `source`（env/ini/registry/default/scan）。新工具 `locate_db`；`check_env` 增 `db_root/db_source/db_ok`。
+- 回归：`test_watch.py` **suite_J**（5 例：ini 三种写法 / 路径归一 / ini 命中 / 其他盘扫描 / env 优先）。
+
+**② 自发消息当入站渠道（文件传输助手）** —— "手机给自己发的消息被无视"。
+- 根因：`selectNewMessages` 硬过滤 `!from_me`，而自聊恒 `from_me=true`；默认还把 `filehelper` 列黑名单。
+- 修法（`wechat-watch-tick.ts`）：`isSelfChatPeer`（`filehelper` / 本人 wxid）→ 对自聊放行 `from_me`；默认黑名单清空；
+  `withSelfPeers` 把自聊 peer 补进名单且 `auto`（一次性把旧黑名单纠成 auto，之后尊重用户设置）；自聊的 from_me
+  **不进**"用户刚回过"的冷却种子、冷却期内**静默跳过**；加"助手近期已发文本"去回环兜底。bridge 注入 `getSelfWxids`
+  （MCP `locate_db.wxid`，缓存 5 分钟）。提示词补一句：自聊不算第三方好友，可直接 `channel_send` 推给用户。
+- 回归：`wechat-watch-tick.test.ts`（自聊放行 / 非自聊仍过滤 / withSelfPeers / 自聊驱动代聊）。
+
+**③ 发送前状态机 + 按需窗口规范化** —— 894×578 的窗口 `check_env` 仍报 ok 但发送反复 `target_unconfirmed`。
+- 根因：`check_env` 只判"未锁屏+可见+未最小化"，尺寸/比例只上报不参与判定；投递路不做窗口规范化，
+  而帧 OCR 的布局常量按 1280×820 标定，窗口漂移就错位。
+- 修法（`wechat_sender.py`）：新增 `preflight()`（按序 `proc→window→restore→size→foreground`，返回 `stage`）；
+  目标确认失败时 `_repair_geometry_for_send()` **按需**规范化到预设尺寸再重试，**发完还原**（用户窗口归用户）；
+  失败返回带 `stage`（server 侧 `_stage_of`）。新工具 `repair_env`（还原 + 规范化 + 重探目录，返回前后对比）。
+- 回归：`test_watch.py` **suite_K**（9 例：各 stage / fix=False 不搬窗口 / fix=True 规范化 / 锁屏各档 / repair_env）。
+
+**④ 沙箱放宽（读/搜放开、改/删严格）** —— agent 帮用户找微信目录、配 MCP 环境变量时被路径白名单挡住。
+- 修法：`resolveAgentFilePath(..., mode)` —— `read`（file_read / list_dir；glob/grep 本就无根限制）**放开到任意路径**；
+  `write`（file_write / file_edit / mkdir / move / copy）保持严格白名单。`getAllowedRoots` 增补**客户端数据根 `~/.lumii`**，
+  让 agent 能改 `config/mcp-servers.json`（设置微信 MCP 的 `LUMII_WECHAT_DB`）。
+- 回归：`resolve-file-path.test.ts` + `file-fs-tools.test.ts`（读放开 / 写仍拒）。
+
+**⑤ 初始化确定性自检 + 设置卡片** —— `channel/wechat-selfcheck.ts`：
+跑 MCP `check_env`+`locate_db`，探测到目录而配置没写时**补写** `LUMII_WECHAT_DB`（用户决策"两者都做"）；
+IPC `wechat:selfcheck` / `wechat:repair`；「本机微信」设置卡片显示数据目录（来源）+ 微信态 + 「重新检测 / 一键修复」。
+**不叫模型、零 token**（用户决策）。回归：`wechat-selfcheck.test.ts`（8 例）。
+
+---
+
 ## 四、路线图（更新）
 
 | 阶段 | 内容 | 状态 | 提交 |
