@@ -5,6 +5,9 @@
 | 内容 | 说明 |
 | --- | --- |
 | [`sqlite-fts5-fulltext-search.md`](sqlite-fts5-fulltext-search.md) | 外部文章（2026-05-30）：SQLite FTS5 全文搜索实战 —— 中文分词方案对比、BM25 排序调优、增量合并与 Node.js 生产部署。Wiki 检索层重度使用 FTS5 + BM25，可作背景参考 |
+| [`pi-框架研究课程/`](pi-框架研究课程/) | 对 earendil-works/pi 的源码级研究课程（9 篇文章 + 实验代码）。**本项目直接依赖 pi-ai / pi-agent-core**，改动流式与提示词构建前先查这里 |
+| [`AGENT设计实践教程/`](AGENT设计实践教程/) | Agent 设计实践教程：单册 + `chapters/` + `hands-on/` |
+| [`Jev决策模型/`](Jev决策模型/) | TypeSafe 的 **Jev**（首个 "System One" 决策模型）与 Datawhale Jev Cookbook 中文课程的通读笔记（10 篇文章，2026-10-10）。核心是**代码掌握控制权、模型只做原子判断**；含 18 篇 cookbook 的实测数字与官方 9 条已知短板。**注意：默认是云 API，且官方明说中文准确率"效果不一"** |
 | [`开源项目解构/`](开源项目解构/) | 11 个外部开源项目（记忆 / LLM Wiki / 知识管理方向）的解构分析，每项目一个目录：`设计解构.md` + `源码/README.md` |
 
 > `开源项目解构/` 原在 `design/记忆与Wiki/参考项目/`，2026-09-17 移出——它们是**别人的项目**，不属于 Lumii 的设计，且占了原目录 65% 的篇幅。
