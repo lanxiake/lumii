@@ -408,6 +408,54 @@ def test_open_chat_post_no_unfreeze_when_alive():
     return True
 
 
+def test_layout_joins_split_header_fragments():
+    """头部被 OCR 切成两段时必须**拼起来**，只取第一段会拿到残名 ⇒ 误判成开错会话。
+
+    2026-10-10 现场（群「严子云。、杨冬」开着，坐标取自真实帧）：头部同一行被切成
+    `严 子 云 ·` + `杨 冬 （ 3 ）`。只取第一段时 norm=`严子云`，与目标 `严子云杨冬` 的 hr 只有
+    0.75，而名单里**真有个叫「严子云。」的私聊**（别家 hr=1.00）⇒ `verify_target` 的 ⓪ 反证
+    一票否决 ⇒ 连续 30 拍 `target_unconfirmed`，回复到点被补发队列的 TTL 丢掉。
+    """
+    import wechat_sender as ws
+
+    frame = [
+        (324, 49, 371, 61, "严 子 云 ·"),          # 头部第一段
+        (394, 49, 441, 62, "杨 冬 （ 3 ）"),        # 头部第二段（同一行！）
+        (328, 90, 364, 113, "0"),                  # 头部下方：不许混进来
+        (126, 97, 262, 109, "成 都 市 龙 泉 驿 区 妇 幼"),   # 会话列表
+    ]
+    header = ws.layout(frame, 1041, 843)["header"]
+    if ws.norm("严子云杨冬") not in ws.norm(header):
+        raise AssertionError(f"头部没拼全：{header!r}（norm={ws.norm(header)!r}）")
+    if "0" in ws.norm(header).replace("3", ""):
+        raise AssertionError(f"把头部下方的内容也吞进来了：{header!r}")
+    print(f"     ✅ 两段拼成 {header!r}")
+    return True
+
+
+def test_session_score_ignores_short_fragments():
+    """子串抬分要够长——会话列表里的**未读数红点** OCR 成的一行纯数字不许命中目标名。
+
+    2026-10-10 实测：目标「两河10组村民群」被红点行 `0`（`0` ⊂ 目标名）抬到 0.82、
+    压过真会话行，于是**点进了别人家的会话**（头部变成「成都市龙泉驿区妇幼」）。
+    同时不许把这条防护做得过头：真片段（OCR 把长名截断/切开）还得抬上去。
+    """
+    import wechat_sender as ws
+
+    if ws._session_name_score(ws.norm("两河10组村民群"), "0") > 0.55:
+        raise AssertionError("红点行 `0` 被抬分命中了目标（会点错会话）")
+    if ws._session_name_score("严子云杨冬", ws.norm("杨冬")) > 0.8:
+        raise AssertionError("2 字片段不该被抬到 0.82")
+    # 真片段：OCR 把群名切成两半时，前半段仍要够得着（否则列表路永远找不到会话）
+    if ws._session_name_score("严子云杨冬", ws.norm("严 子 云 ·")) < 0.8:
+        raise AssertionError("3 字片段被误伤，列表路会找不到会话")
+    # 精确名永远 1.0
+    if ws._session_name_score("严子云杨冬", ws.norm("严 子 云 · 杨 冬")) != 1.0:
+        raise AssertionError("精确名没拿到满分")
+    print("     ✅ 红点行被挡住、真片段仍够得着")
+    return True
+
+
 def test_ui_alive_reads_failure_as_alive():
     """`_ui_alive` 拍不到图时必须判「活着」——判不了 ≠ 卡死（误判的代价是抢前台）。"""
     import wechat_sender as ws
@@ -1000,6 +1048,8 @@ def main():
     runner.test("群聊前缀与XML泄漏", test_render_strips_group_prefix_and_never_leaks_xml)
     runner.test("群消息@我判定", test_at_me_from_msgsource)
     runner.test("非BMP字符跳过并上报", test_post_text_skips_nonbmp)
+    runner.test("头部被 OCR 切段时拼接", test_layout_joins_split_header_fragments)
+    runner.test("会话匹配不认短片段", test_session_score_ignores_short_fragments)
     runner.test("拍不到图不乱判卡死", test_ui_alive_reads_failure_as_alive)
     runner.test("探针不点当前会话/服务号", test_ui_alive_skips_current_row_and_nonchat)
     runner.test("点了画面不动 → 判卡死", test_ui_alive_click_without_change_is_dead)

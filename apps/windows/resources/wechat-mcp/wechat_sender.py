@@ -1241,7 +1241,17 @@ def layout(lines, ww, wh, btn_hint=None):
     bx, by = (sb[0], (sb[1] + sb[3]) // 2) if sb else (int(ww * 0.95), int(wh * 0.94))
     hdr = [(x0, y0, x1, y1, t) for x0, y0, x1, y1, t in lines
            if session_right - 25 <= x0 <= session_right + HEADER_DX and y1 < HEADER_DY and norm(t)]
-    header = sorted(hdr, key=lambda c: (c[1], c[0]))[0][4] if hdr else ""
+    # 头部可能是**同一行被 OCR 切成好几段**的，只取第一段会拿到残名。
+    # 实测（2026-10-10）：群「严子云。、杨冬」开着时，头部被切成 `严 子 云 ·` + `杨 冬 （ 3 ）`
+    # 两段，取第一段得 norm=「严子云」⇒ hr 只有 0.75，而名单里**真有个叫「严子云。」的私聊**
+    # （other_hr=1.00），于是踩中 ⓪ 反证被误判成「开错会话」——目标明明就开着，却连续 30 拍
+    # 报 target_unconfirmed，回复到点被 TTL 丢掉。同一行的段按 x 拼起来才是完整头部。
+    if hdr:
+        top = min(hdr, key=lambda c: (c[1], c[0]))
+        row = [c for c in hdr if abs(c[1] - top[1]) <= max(8, top[3] - top[1])]
+        header = "".join(c[4] for c in sorted(row, key=lambda c: c[0]))
+    else:
+        header = ""
     # 聊天区下界：以「发送」按钮为锚（输入框在它上方约 115px），避免漏掉贴底的最后一条消息
     chat_bottom = by - CHAT_BOTTOM_DY
     input_pt = ((max(session_right + 40, bx - 300) + session_right) // 2 + 40, by - INPUT_PT_DY)
@@ -1376,16 +1386,20 @@ def _session_name_score(n, nt):
 
     精确名必须压过「群名里嵌短名」（实测 `杨冬` vs `严子云。、杨冬`：旧逻辑子串一律抬到
     0.95，列表路会点进群聊，verify_target 过不了 ⇒ `target_unconfirmed`）。
+
+    **子串抬分要够长**（2026-10-10 实测）：会话列表里的**未读数红点**也会被 OCR 成独立一行
+    （x≈84、内容就是 `0`/`20` 这类纯数字）。抬分不看长度时，目标「两河10组村民群」会被这行
+    `0` 命中（`0` ⊂ 目标名）抬到 0.82、压过真会话列表，于是**点进了别人家的会话**——现场就是
+    头部变成「成都市龙泉驿区妇幼」。片段短到 1–2 字不含任何信息，不配抬分。
     """
     if not nt:
         return 0.0
     if nt == n:
         return 1.0
     r = difflib.SequenceMatcher(None, n, nt).ratio()
-    if n and n in nt and nt != n:
-        r = max(r, 0.82)
-    elif n and nt in n and nt != n:
-        r = max(r, 0.82)
+    if n and min(len(n), len(nt)) >= 3 and nt != n:
+        if n in nt or nt in n:
+            r = max(r, 0.82)
     return r
 
 
