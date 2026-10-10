@@ -11,6 +11,7 @@
  */
 
 import type {
+  BackgroundTaskOutput,
   ContentBlock,
   ContextBudgetSnapshot,
   ContextUsageBreakdownEntry,
@@ -270,6 +271,12 @@ export interface BackgroundTask {
   readonly startedAt: number
   readonly endedAt?: number
   readonly summary?: string
+  /** 完整结果文本（展开展示） */
+  readonly result?: string
+  /** 产出文件（如生成的视频），逐个给出打开链接 */
+  readonly outputs?: readonly BackgroundTaskOutput[]
+  /** 运行中进度说明 */
+  readonly note?: string
   readonly error?: string
 }
 
@@ -511,6 +518,9 @@ export function upsertBackgroundTask(sessionKey: string, task: BackgroundTask): 
     if (
       existing.status === task.status &&
       existing.summary === task.summary &&
+      existing.result === task.result &&
+      existing.outputs?.length === task.outputs?.length &&
+      existing.note === task.note &&
       existing.error === task.error &&
       existing.endedAt === task.endedAt
     ) {

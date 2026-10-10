@@ -1692,6 +1692,9 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
         startedAt: event.startedAt,
         ...(event.endedAt !== undefined ? { endedAt: event.endedAt } : {}),
         ...(event.summary !== undefined ? { summary: event.summary } : {}),
+        ...(event.result !== undefined ? { result: event.result } : {}),
+        ...(event.outputs !== undefined ? { outputs: event.outputs } : {}),
+        ...(event.note !== undefined ? { note: event.note } : {}),
         ...(event.error !== undefined ? { error: event.error } : {}),
       }
       upsertBackgroundTask(sessionKey, task)

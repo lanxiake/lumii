@@ -11,7 +11,11 @@
  * 任务为内存态：应用重启即丢（长任务本身也随子进程结束而终止）。
  */
 
-import type { AgentRuntimeEvent, BackgroundTaskStatus } from '../../shared/agent-runtime-events'
+import type {
+  AgentRuntimeEvent,
+  BackgroundTaskOutput,
+  BackgroundTaskStatus,
+} from '../../shared/agent-runtime-events'
 import { agentRuntimeLog as log } from './bridge-utils'
 
 /** 后台任务记录（对外只读快照） */
@@ -26,8 +30,19 @@ export interface BackgroundTaskRecord {
   readonly endedAt?: number
   /** 终态摘要（成功产出的截断预览） */
   readonly summary?: string
+  /** 完整结果文本（按 resultMaxLength 截断）：任务卡展开展示，也是唤醒 Agent 时的结果正文 */
+  readonly result?: string
+  /** 产出文件清单 */
+  readonly outputs?: readonly BackgroundTaskOutput[]
+  /** 运行中进度说明 */
+  readonly note?: string
   /** 失败原因 */
   readonly error?: string
+}
+
+/** complete 的附加产出 */
+export interface BackgroundTaskCompleteExtras {
+  readonly outputs?: readonly BackgroundTaskOutput[]
 }
 
 export interface BackgroundTaskStartInput {
@@ -50,6 +65,8 @@ export interface BackgroundTaskManagerDeps {
   readonly maxRetained?: number
   /** 摘要预览截断长度 */
   readonly summaryMaxLength?: number
+  /** 完整结果 / 失败原因的截断长度（防止超长工具输出撑爆事件与唤醒消息） */
+  readonly resultMaxLength?: number
 }
 
 const TERMINAL: ReadonlySet<BackgroundTaskStatus> = new Set(['succeeded', 'failed', 'cancelled'])
@@ -64,12 +81,14 @@ export class BackgroundTaskManager {
   private readonly now: () => number
   private readonly maxRetained: number
   private readonly summaryMaxLength: number
+  private readonly resultMaxLength: number
   private seq = 0
 
   constructor(private readonly deps: BackgroundTaskManagerDeps) {
     this.now = deps.now ?? (() => Date.now())
     this.maxRetained = normalizeRetained(deps.maxRetained)
     this.summaryMaxLength = deps.summaryMaxLength ?? 200
+    this.resultMaxLength = deps.resultMaxLength ?? 8000
   }
 
   /** 登记一个后台任务并推 started（running）事件，返回 taskId */
@@ -92,15 +111,29 @@ export class BackgroundTaskManager {
     return taskId
   }
 
-  /** 标记成功，可选带产出摘要 */
-  complete(taskId: string, summary?: string): void {
+  /**
+   * 运行中更新进度说明（如「ComfyUI 渲染中」）并推事件；终态或说明未变时忽略。
+   */
+  update(taskId: string, note: string): void {
+    const rec = this.tasks.get(taskId)
+    if (!rec || TERMINAL.has(rec.status) || rec.note === note) return
+    const next: BackgroundTaskRecord = { ...rec, note }
+    this.tasks.set(taskId, next)
+    this.push(next)
+  }
+
+  /** 标记成功：summary 为截断预览，result 保留完整结果（有上限），可附产出文件 */
+  complete(taskId: string, summary?: string, extras?: BackgroundTaskCompleteExtras): void {
     const rec = this.tasks.get(taskId)
     if (!rec || TERMINAL.has(rec.status)) return
+    const { note: _note, ...rest } = rec
     const next: BackgroundTaskRecord = {
-      ...rec,
+      ...rest,
       status: 'succeeded',
       endedAt: this.now(),
-      ...(summary ? { summary: this.truncate(summary) } : {}),
+      ...(summary ? { summary: this.truncate(summary, this.summaryMaxLength) } : {}),
+      ...(summary ? { result: this.truncate(summary, this.resultMaxLength) } : {}),
+      ...(extras?.outputs && extras.outputs.length > 0 ? { outputs: [...extras.outputs] } : {}),
     }
     this.settle(next)
   }
@@ -109,14 +142,21 @@ export class BackgroundTaskManager {
   fail(taskId: string, error: string): void {
     const rec = this.tasks.get(taskId)
     if (!rec || TERMINAL.has(rec.status)) return
-    this.settle({ ...rec, status: 'failed', endedAt: this.now(), error: this.truncate(error) })
+    const { note: _note, ...rest } = rec
+    this.settle({
+      ...rest,
+      status: 'failed',
+      endedAt: this.now(),
+      error: this.truncate(error, this.resultMaxLength),
+    })
   }
 
   /** 标记取消 */
   cancel(taskId: string): void {
     const rec = this.tasks.get(taskId)
     if (!rec || TERMINAL.has(rec.status)) return
-    this.settle({ ...rec, status: 'cancelled', endedAt: this.now() })
+    const { note: _note, ...rest } = rec
+    this.settle({ ...rest, status: 'cancelled', endedAt: this.now() })
   }
 
   get(taskId: string): BackgroundTaskRecord | undefined {
@@ -171,8 +211,8 @@ export class BackgroundTaskManager {
     }
   }
 
-  private truncate(text: string): string {
-    return text.length > this.summaryMaxLength ? `${text.slice(0, this.summaryMaxLength)}…` : text
+  private truncate(text: string, maxLength: number): string {
+    return text.length > maxLength ? `${text.slice(0, maxLength)}…` : text
   }
 
   private generateId(toolName: string): string {

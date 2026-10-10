@@ -63,6 +63,37 @@ describe('BackgroundTaskList', () => {
     expect(getByText('MCP request timeout')).toBeInTheDocument()
   })
 
+  it('运行中有进度说明时显示进度（如 ComfyUI 渲染中）', () => {
+    const { getByText, queryByText } = render(
+      <BackgroundTaskList tasks={[makeTask({ note: 'ComfyUI 渲染中（prompt_id=p-1）' })]} />,
+    )
+    expect(getByText('ComfyUI 渲染中（prompt_id=p-1）')).toBeInTheDocument()
+    expect(queryByText('后台执行中')).toBeNull()
+  })
+
+  it('完成后产出文件直接可见，带打开链接；展开看完整结果而不是截断摘要', () => {
+    const task = makeTask({
+      status: 'succeeded',
+      endedAt: 1_300_000,
+      summary: '## Execution…',
+      result: '## Execution: p-1\n完整历史',
+      outputs: [
+        { name: 'Wan_00001.mp4', path: 'video/Wan_00001.mp4', kind: 'video', url: 'https://cfui/view?filename=Wan_00001.mp4' },
+        { name: 'thumb.png', path: 'thumb.png', kind: 'image' },
+      ],
+    })
+    const { getByRole, getByText } = render(<BackgroundTaskList tasks={[task]} />)
+
+    const link = getByRole('link', { name: /Wan_00001\.mp4/ })
+    expect(link).toHaveAttribute('href', 'https://cfui/view?filename=Wan_00001.mp4')
+    expect(link).toHaveAttribute('target', '_blank')
+    // 没有地址的产出只列文件名，不做成链接
+    expect(getByText('thumb.png').closest('a')).toBeNull()
+
+    fireEvent.click(getByText('ComfyUI: enqueue_workflow'))
+    expect(getByText(/完整历史/)).toBeInTheDocument()
+  })
+
   it('多任务按序渲染', () => {
     const { getAllByRole } = render(
       <BackgroundTaskList

@@ -400,6 +400,19 @@ export class McpManager {
   }
 
   /**
+   * 按完整工具名（`mcp__<server>__<tool>`）反查所属 Server 配置。
+   * 多个名字都是前缀时取最长的那个，避免 `a` 抢走 `a__b` 的工具。
+   */
+  findServerForTool(fullToolName: string): McpServerEntry | undefined {
+    let best: McpServerEntry | undefined
+    for (const config of this.configs.values()) {
+      if (!fullToolName.startsWith(`mcp__${config.name}__`)) continue
+      if (!best || config.name.length > best.name.length) best = config
+    }
+    return best
+  }
+
+  /**
    * 需要后台化的完整工具名集合（如 mcp__comfyui-remote__enqueue_workflow）。
    *
    * 由各 Server 配置的 `backgroundTools`（短名）拼上 `mcp__<server>__` 前缀得到，

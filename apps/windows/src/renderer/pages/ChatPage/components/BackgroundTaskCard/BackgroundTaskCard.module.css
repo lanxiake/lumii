@@ -153,6 +153,54 @@
   color: var(--mt-fg-2);
 }
 
+.outputs {
+  list-style: none;
+  margin: 0;
+  padding: 0 12px 8px 33px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.outputItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 12px;
+}
+
+.outputKind {
+  flex-shrink: 0;
+  padding: 0 6px;
+  font-size: 11px;
+  color: var(--mt-fg-4);
+  border: 1px solid var(--mt-border);
+  border-radius: var(--mt-radius-md, 8px);
+}
+
+.outputLink,
+.outputName {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.outputLink {
+  color: var(--mt-accent-500);
+  text-decoration: none;
+}
+
+.outputLink:hover,
+.outputLink:focus-visible {
+  text-decoration: underline;
+}
+
+.outputName {
+  color: var(--mt-fg-2);
+}
+
 .detailError {
   color: var(--mt-danger-500, var(--mt-fg-2));
 }

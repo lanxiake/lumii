@@ -217,6 +217,7 @@ import { DEFAULT_AGENT_ID } from '../seed-cron-jobs'
 import { OUTREACH_SYSTEM_NOTIFY_TITLE } from '../desktop-notify'
 import { BridgeInstanceFactory } from './bridge-instance-factory'
 import { BackgroundTaskManager, type BackgroundTaskRecord } from './background-task-manager'
+import { followComfyJob, parseEnqueuedPromptId, resolveComfyBaseUrl } from './comfyui-job-follower'
 import { BridgeToolRegistrar } from './bridge-tool-registrar'
 import { BridgePromptDispatcher } from './bridge-prompt-dispatcher'
 import { RouterService } from './router/router-service'
@@ -3782,16 +3783,47 @@ export class AgentRuntimeBridge {
 
         // detached：真实执行不阻塞本轮；结束后回填任务并（终态）唤醒 Agent
         void (async () => {
+          let comfyJob: { promptId: string; serverName: string } | undefined
           try {
             const result = await execute(controller.signal)
             const text = extractToolResultText(result)
+            log.info(`[background-task] 执行返回 task=${taskId} isError=${result.isError ?? false}`)
+
+            // ComfyUI「入队即返回」：只拿到 prompt_id 时继续跟进到真正出片，再终结任务、唤醒 Agent
+            const promptId = result.isError ? null : parseEnqueuedPromptId(text)
+            const server = promptId ? this.mcpManager.findServerForTool(toolName) : undefined
+            if (promptId && server) {
+              comfyJob = { promptId, serverName: server.name }
+              log.info(`[background-task] 跟进 ComfyUI 任务 task=${taskId} prompt_id=${promptId}`)
+              manager.update(taskId, `ComfyUI 已入队（prompt_id=${promptId}）`)
+              const outcome = await followComfyJob({
+                promptId,
+                callTool: (tool, args) => this.mcpManager.callTool(server.name, tool, args),
+                signal: controller.signal,
+                baseUrl: resolveComfyBaseUrl(server.env),
+                onProgress: (note) => manager.update(taskId, `${note}（prompt_id=${promptId}）`),
+              })
+              settle(() => {
+                log.info(`[background-task] ComfyUI 任务结束 task=${taskId} ok=${outcome.ok} outputs=${outcome.outputs.length}`)
+                if (outcome.ok) manager.complete(taskId, outcome.text || text, { outputs: outcome.outputs })
+                else manager.fail(taskId, outcome.text)
+              })
+              return
+            }
+
             settle(() => {
-              log.info(`[background-task] 执行返回 task=${taskId} isError=${result.isError ?? false}`)
               if (result.isError) manager.fail(taskId, text || '工具执行失败')
               else manager.complete(taskId, text)
             })
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err)
+            // 用户中断 / 看门狗：顺手撤掉 ComfyUI 侧的任务（排队中撤队列、渲染中打断），尽力而为
+            if (controller.signal.aborted && comfyJob) {
+              const { promptId, serverName } = comfyJob
+              for (const action of ['cancel_queued', 'cancel'] as const) {
+                void this.mcpManager.callTool(serverName, 'queue', { action, prompt_id: promptId }).catch(() => {})
+              }
+            }
             settle(() => {
               log.warn(`[background-task] 执行异常 task=${taskId}: ${message}`)
               manager.fail(taskId, message)
@@ -4368,8 +4400,11 @@ function extractAssistantTextFromAgentMessage(content: unknown): string {
     .trim()
 }
 
-/** 后台任务看门狗上限：超过即判失败，避免任务卡永远停在「运行中」 */
-const BACKGROUND_TASK_MAX_MS = 15 * 60 * 1000
+/**
+ * 后台任务看门狗上限：超过即判失败，避免任务卡永远停在「运行中」。
+ * 含 ComfyUI 入队后的跟进轮询——远程视频出片常见十几到几十分钟，15 分钟会误杀。
+ */
+const BACKGROUND_TASK_MAX_MS = 60 * 60 * 1000
 
 /** 从工具结果里抽纯文本（后台任务的产出摘要来源） */
 function extractToolResultText(result: {
@@ -4389,5 +4424,10 @@ function formatBackgroundResultMessage(task: BackgroundTaskRecord): string {
   const head = `【后台任务${statusText}】${task.label}（taskId=${task.taskId}）`
   if (task.status === 'failed') return `${head}\n失败原因：${task.error ?? '未知'}`
   if (task.status === 'cancelled') return `${head}\n任务已取消。`
-  return `${head}\n结果：\n${task.summary ?? '(无输出)'}`
+  const outputLines = (task.outputs ?? []).map((o) => `- ${o.name}（${o.kind}）${o.url ? `：${o.url}` : ''}`)
+  const outputsBlock = outputLines.length > 0 ? `\n产出文件：\n${outputLines.join('\n')}` : ''
+  return (
+    `${head}\n结果：\n${task.result ?? task.summary ?? '(无输出)'}${outputsBlock}\n\n` +
+    `请把结果告知用户（产出文件可直接给出链接），并继续完成依赖该结果的后续步骤。`
+  )
 }

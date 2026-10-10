@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import clsx from 'clsx'
 import type { BackgroundTask } from '../../../../hooks/business/useAgentRuntime/agent-runtime-store'
+import type { BackgroundTaskOutput } from '../../../../../shared/agent-runtime-events'
 import { formatTaskElapsed } from './format'
 import styles from './BackgroundTaskCard.module.css'
 
@@ -59,11 +60,46 @@ const StatusIcon: React.FC<{ status: BackgroundTask['status'] }> = ({ status }) 
   )
 }
 
-/** 单条后台任务卡：折叠头显示标签/状态/耗时；运行中可中断；展开看产出或失败原因 */
+const OUTPUT_KIND_TEXT: Record<BackgroundTaskOutput['kind'], string> = {
+  video: '视频',
+  image: '图片',
+  audio: '音频',
+  file: '文件',
+}
+
+/**
+ * 产出文件清单：终态后直接可见（不必展开），有地址的做成外链——
+ * 主窗口的 window.open 拦截会交给系统浏览器打开。
+ */
+const BackgroundTaskOutputs: React.FC<{ outputs: readonly BackgroundTaskOutput[] }> = ({ outputs }) => (
+  <ul className={styles.outputs} aria-label="产出文件">
+    {outputs.map((output) => (
+      <li key={`${output.kind}:${output.path}`} className={styles.outputItem}>
+        <span className={styles.outputKind}>{OUTPUT_KIND_TEXT[output.kind]}</span>
+        {output.url ? (
+          <a
+            className={styles.outputLink}
+            href={output.url}
+            target="_blank"
+            rel="noreferrer"
+            title={output.path}
+          >
+            {output.name}
+          </a>
+        ) : (
+          <span className={styles.outputName} title={output.path}>{output.name}</span>
+        )}
+      </li>
+    ))}
+  </ul>
+)
+
+/** 单条后台任务卡：折叠头显示标签/状态/耗时；运行中可中断；产出文件直接列出，展开看完整结果或失败原因 */
 const BackgroundTaskCard: React.FC<{ task: BackgroundTask }> = ({ task }) => {
   const [expanded, setExpanded] = useState(false)
   const running = task.status === 'running'
-  const detail = task.error ?? task.summary
+  const detail = task.error ?? task.result ?? task.summary
+  const statusText = running && task.note ? task.note : STATUS_TEXT[task.status]
 
   // 运行中每秒刷新耗时
   const [, forceTick] = useState(0)
@@ -96,7 +132,7 @@ const BackgroundTaskCard: React.FC<{ task: BackgroundTask }> = ({ task }) => {
           <span className={styles.title} title={task.toolName}>
             {task.label}
           </span>
-          <span className={styles.status}>{STATUS_TEXT[task.status]}</span>
+          <span className={styles.status}>{statusText}</span>
           <span className={styles.elapsed}>
             {formatTaskElapsed(task.startedAt, task.endedAt)}
           </span>
@@ -120,6 +156,7 @@ const BackgroundTaskCard: React.FC<{ task: BackgroundTask }> = ({ task }) => {
           </button>
         )}
       </div>
+      {task.outputs && task.outputs.length > 0 && <BackgroundTaskOutputs outputs={task.outputs} />}
       {expanded && detail && (
         <pre className={clsx(styles.detail, task.status === 'failed' && styles.detailError)}>
           {detail}

@@ -415,6 +415,17 @@ export interface AgentSubagentCompletedEvent {
 /** 后台任务状态 */
 export type BackgroundTaskStatus = 'running' | 'succeeded' | 'failed' | 'cancelled'
 
+/** 后台任务的单个产出文件（如 ComfyUI 生成的视频/图片） */
+export interface BackgroundTaskOutput {
+  /** 文件名（不含子目录） */
+  readonly name: string
+  /** 产出方侧的相对路径（含子目录） */
+  readonly path: string
+  readonly kind: 'video' | 'image' | 'audio' | 'file'
+  /** 可直接打开/下载的地址；产出方地址未知时缺省 */
+  readonly url?: string
+}
+
 /**
  * 后台任务快照事件。
  *
@@ -438,6 +449,12 @@ export interface AgentBackgroundTaskEvent {
   readonly endedAt?: number
   /** 终态摘要（成功时截断的产出预览） */
   readonly summary?: string
+  /** 完整结果文本（有上限），任务卡展开时展示 */
+  readonly result?: string
+  /** 产出文件清单（如生成的视频），任务卡逐个给出打开链接 */
+  readonly outputs?: readonly BackgroundTaskOutput[]
+  /** 运行中进度说明（如「ComfyUI 渲染中」） */
+  readonly note?: string
   /** 失败原因 */
   readonly error?: string
 }

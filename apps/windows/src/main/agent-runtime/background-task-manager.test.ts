@@ -118,6 +118,34 @@ describe('BackgroundTaskManager', () => {
     expect(manager.listBySession('s2')).toHaveLength(1)
   })
 
+  it('摘要截断不影响完整结果：result 保留全文，唤醒投递拿到的是全文', () => {
+    const { manager, delivered } = makeManager({ summaryMaxLength: 5 })
+    const taskId = manager.start({ toolName: 't', label: 'L' })
+    manager.complete(taskId, '0123456789', {
+      outputs: [{ name: 'a.mp4', path: 'video/a.mp4', kind: 'video', url: 'https://x/view?filename=a.mp4' }],
+    })
+    expect(manager.get(taskId)).toMatchObject({ summary: '01234…', result: '0123456789' })
+    expect(delivered[0]?.result).toBe('0123456789')
+    expect(delivered[0]?.outputs).toEqual([
+      { name: 'a.mp4', path: 'video/a.mp4', kind: 'video', url: 'https://x/view?filename=a.mp4' },
+    ])
+  })
+
+  it('update 只在运行中推进度事件，终态清掉进度说明', () => {
+    const { manager, events } = makeManager()
+    const taskId = manager.start({ toolName: 't', label: 'L' })
+    manager.update(taskId, 'ComfyUI 排队中')
+    manager.update(taskId, 'ComfyUI 排队中') // 未变化不重复推
+    manager.update(taskId, 'ComfyUI 渲染中')
+    expect(events).toHaveLength(3)
+    expect(events[2]).toMatchObject({ status: 'running', note: 'ComfyUI 渲染中' })
+
+    manager.complete(taskId, 'ok')
+    expect(manager.get(taskId)?.note).toBeUndefined()
+    manager.update(taskId, '终态后不该再推')
+    expect(events).toHaveLength(4)
+  })
+
   it('自动 taskId 唯一', () => {
     const { manager } = makeManager()
     const ids = new Set<string>()
