@@ -764,17 +764,261 @@ def _rows(tbl, limit, since=0, before=0):
     return rows[:limit]
 
 
-def msg_dict(ct, lt, content, nm, talker=None, name=None, sender=None, me=None):
-    t = decode(content).replace("\n", " ").strip()
-    if t.startswith("<"):
-        t = "[非文本消息]"
-    d = {"time": _ts(ct), "ts": ct, "type": lt & 0xFFFFFFFF, "text": t[:400]}
+# 非文本消息里的「人话」——以前一律压成 `[非文本消息]`，等于把图片/语音/位置/链接
+# 全部信息丢掉（本机实测 470+ 条，占样本的 1/3）。这里按 local_type 抽成一行摘要。
+_LINK_KINDS = {
+    5: "链接", 6: "文件", 19: "聊天记录", 33: "小程序", 36: "小程序", 44: "视频号",
+    49: "文件", 51: "视频号", 57: "直播", 63: "视频号", 87: "群公告",
+    2000: "转账", 2001: "红包", 2002: "转账", 2003: "转账",
+}
+
+
+def _attr(raw, name):
+    """取 XML 属性值（不引 bs4：这些标签结构固定，正则够用且不引入依赖）。"""
+    m = re.search(name + r'="([^"]*)"', raw)
+    return m.group(1) if m else ""
+
+
+def _tag(raw, name):
+    m = re.search(r"<" + name + r"[^>]*>(.*?)</" + name + r">", raw, re.S)
+    return m.group(1).strip() if m else ""
+
+
+def _num(raw, name):
+    """数值字段——**先属性后元素**。
+
+    appmsg 的 `<type>` 是**元素**（`<type>6</type>`），而 `img` 那些是**属性**（`length="18227"`）。
+    只认属性会把分享文件的 `type=6` 读成 0，于是文件全被标成「链接」（实测踩过）。
+    """
+    v = _attr(raw, name) or _tag(raw, name)
+    return int(v) if v.isdigit() else 0
+
+
+def _unxml(s):
+    import html
+    s = (s or "").strip()
+    if s.startswith("<![CDATA[") and s.endswith("]]>"):     # 通话那类内容包在 CDATA 里
+        s = s[9:-3]
+    return html.unescape(s).strip()
+
+
+def describe_nontext(lt, raw):
+    """非文本消息 → 一行**人能读的摘要**（以前一律是 `[非文本消息]`）。
+
+    ⚠️ 只给**元数据**，拿不到内容本身——这一点是实测定死的，别再试：
+    - **图片**：聊天图存在 `msg/attach/<hash>/<月>/Img/*.dat`，是 **V4 加密**
+      （magic `07085632`，V3 是 `...31`）。试过用消息 XML 里的 `aeskey` 做
+      AES-ECB/CBC 解密（398 个密钥 × 8 个偏移）**全部未命中**；文件里嵌明文 JPEG 的只有
+      1.4%（7/504）；`cache/<月>/Message/<hash>/Thumb/` 看着像图片缩略图，实测 85 张
+      **全是 type=49 的文章封面**，没有一张对得上 type=3。→ 要拿图片内容得先逆向 V4，
+      是研究任务，不是顺手能做的。
+    - **语音**：本机**一个音频文件都没有**（全盘搜 `.silk/.slk/.amr` 为空），
+      `Msg` 表也没有转写列，`voicemsg` 只带 `voiceurl`+`aeskey`——
+      音频在微信服务器上，播放时才按需下载。→ 离线拿不到，只能给时长。
+    """
+    if lt == 3:
+        n = _attr(raw, "length")             # 中间图字节数
+        size = ""
+        if n.isdigit() and int(n) > 0:
+            b = int(n)
+            size = f" {b / 1024:.0f}KB" if b >= 1024 else f" {b}B"
+        return f"[图片{size}]"
+    if lt == 34:
+        # voicelength 是**毫秒**（实测 2000 → 2.0 秒、11338 → 11.3 秒）
+        ms = _attr(raw, "voicelength")
+        sec = f" {int(ms) / 1000:.1f} 秒" if ms.isdigit() else ""
+        return f"[语音{sec}]"
+    if lt == 43:
+        pl = _attr(raw, "playlength")
+        return f"[视频 {pl} 秒]" if pl else "[视频]"
+    if lt == 47:
+        return "[表情]"
+    if lt == 48:
+        label, poi = _attr(raw, "label"), _attr(raw, "poiname")
+        where = " ".join(x for x in (poi, label) if x)
+        return f"[位置] {where}" if where else "[位置]"
+    if lt == 49:
+        kind = _LINK_KINDS.get(_num(raw, "type"), "链接")
+        title = _unxml(_tag(raw, "title")) or _unxml(_attr(raw, "title"))
+        url = _unxml(_tag(raw, "url"))
+        out = f"[{kind}] {title}" if title else f"[{kind}]"
+        if url:
+            out += f" ({url[:120]})"
+        return out
+    if lt == 50:
+        body = _unxml(_tag(raw, "msg"))      # CDATA：「通话时长 02:41」「已在其它设备接听」
+        dur = _attr(raw, "duration")
+        out = "[通话] " + (body or "已结束")
+        if dur.isdigit() and dur != "0":
+            out += f"（{int(dur) // 60}分{int(dur) % 60}秒）"
+        return out
+    if lt == 42:
+        nick = _attr(raw, "nickname")
+        return f"[名片] {nick}" if nick else "[名片]"
+    if lt == 10000:                          # 系统消息：撤回、入群、拍一拍…
+        body = _unxml(_tag(raw, "content"))  # `revokemsg` 这类内容直接在 <content> 里
+        if body:
+            return body
+        # `sysmsgtemplate` 是**模板 + 变量**：模板里写 `"$username$"邀请"$names$"加入了群聊`，
+        # 变量值在同级的 <link name="username"> → <list> → <nickname> 里。
+        tmpl = _unxml(_tag(raw, "template"))
+        if tmpl:
+            for m in re.finditer(r'<link name="([^"]+)"[^>]*>(.*?)</link>', raw, re.S):
+                nick = _unxml(_tag(m.group(2), "nickname"))
+                if nick:
+                    tmpl = tmpl.replace(f"${m.group(1)}$", nick)
+            tmpl = re.sub(r"\$\w+\$", "", tmpl).strip()   # 没替上的变量清掉，别漏给 Agent
+            if tmpl:
+                return tmpl
+        return "[系统消息]"
+    if lt == 10002:
+        return "[系统消息]"
+    return "[非文本消息]"
+
+
+# 群聊里 `message_content` 前**先缀了发送者**。两种形态：
+#   非文本：`hdghdx: <?xml…`       → 不剥的话 `startswith("<")` 判定失败，整段 XML 漏给 Agent（实测踩过）
+#   纯文本：`vicky1990202:\n12345那边回复了`  → 冒号后**紧跟换行**（实测 1117 条群文本命中 1010 条，
+#           单聊 1461 条命中 **0** 条 ⇒ 这个形状本身足够安全）
+# 不剥纯文本那半的后果（2026-10-10 实测）：群历史、会话预览、搜索、以及**群画像卡里的范本**
+# 全是裸 id；而且客户端 `formatIncomingForHistory` 自己会补「名字：」，于是显示成
+# `张三：wxid_xxx: 好的`。发送者另有 `sender` 字段承载，这里只管剥干净。
+_PREFIX_RE = re.compile(r"^[^\s:]{1,40}:(?:\n|\s*(?=<))")
+
+
+def _media_paths():
+    """所有 `message/media_*.db` 的**明文镜像路径**（语音数据住在这里）。
+
+    语音**不在磁盘文件里**——`VoiceInfo.voice_data` 才是音频本体（明文 SILK_V3，
+    头 `\\x02#!SILK_V3`）。2026-10-10 实测本机 36 条全在，别再去文件系统里找 `.silk`（找不到）。
+
+    **返回路径而不是连接**：`refresh()` 会**重写镜像文件**，而这里要能看见刚写进去的新行
+    （语音 SILK 是异步落库的）。连接一旦缓存住就可能读到旧页——每次现开最稳。
+    """
+    out = []
+    try:
+        names = os.listdir(os.path.join(db_root(), "message"))
+    except OSError:
+        return out
+    for n in names:
+        if not (n.startswith("media_") and n.endswith(".db")):
+            continue
+        try:
+            m = _mirror("message/" + n)
+            m.refresh()
+            out.append(m.out)
+        except Exception:
+            continue
+    return out
+
+
+# 语音 SILK 的异步下载窗口：只对**这个时长内**的语音等待（更老的数据已永久缺失）
+_VOICE_FRESH_S = 180
+# 有界等待：最多等这么久、每次隔这么久再看一眼。盯梢一拍 15s，这里封顶 6s 不会把节拍拖垮
+_VOICE_WAIT_S = 6.0
+_VOICE_POLL_S = 1.5
+
+
+def voice_file(talker, ct, local_id=None):
+    """把一条语音的 SILK 落成临时文件，返回路径；没有则 None。
+
+    **为什么不直接回字节**：MCP 工具结果是文本，几万字节的 base64 灌进模型上下文纯属浪费，
+    而且模型也解不了 SILK。落成文件，交给客户端**本来就有的**那套去处理
+    （`channel/media-pipeline.transcribeVoiceFile`：silk-wasm 解码 → 本地 ASR → 文字，
+    QQ/飞书语音走的就是它）。Python 这边因此**不需要任何新依赖**。
+
+    **必须带 `local_id` 消歧**：`VoiceInfo` 与 `Msg_*` 用 `local_id` 一一对应，
+    而 `create_time` 会撞（实测同一秒两条语音：lid 41 是 3.4 秒、lid 42 是 34.8 秒）。
+    只按 `create_time` 取第一条会**转写出另一个人的另一段话**——比不转写更糟。
+    没给 `local_id` 时宁可返回 None。
+
+    命中率是**部分的**（本机 47 条语音消息里 36 条有数据，其余更早被清掉了）。
+
+    **刚到的语音要等一拍**：SILK 是**异步下载**的——消息先落库、音频几秒后才写进 `VoiceInfo`
+    （2026-10-10 实测：14:12:55 的语音，回声处理时读不到、过后就有了）。所以对**最近几分钟**的
+    语音做有界重试；老语音不等待——它们的数据是**永久缺失**的，等再久也没有。
+    """
+    if local_id is None:
+        return None
+    recent = (time.time() - ct) < _VOICE_FRESH_S
+    deadline = time.time() + (_VOICE_WAIT_S if recent else 0)
+    while True:
+        for path in _media_paths():          # 每次都重新取路径（refresh 会重写镜像）
+            row = None
+            try:
+                conn = sqlite3.connect(path)  # 现开现关：缓存的连接会读到重写前的旧页
+                try:
+                    row = conn.execute(
+                        "select v.voice_data from VoiceInfo v "
+                        "join Name2Id n on v.chat_name_id = n.rowid "
+                        "where n.user_name=? and v.local_id=? limit 1",
+                        (talker, local_id)).fetchone()
+                finally:
+                    conn.close()
+            except Exception:
+                row = None
+            if row and row[0]:
+                d = os.path.join(WORK, "voice")
+                try:
+                    os.makedirs(d, exist_ok=True)
+                    p = os.path.join(d, f"{hashlib.md5(talker.encode()).hexdigest()[:12]}_{ct}_{local_id}.silk")
+                    if not os.path.exists(p):
+                        raw = row[0] if isinstance(row[0], (bytes, bytearray)) else bytes(row[0])
+                        with open(p, "wb") as f:
+                            f.write(raw)
+                    return p
+                except OSError:
+                    return None
+        if time.time() >= deadline:
+            return None
+        time.sleep(_VOICE_POLL_S)
+
+
+def _render(lt, content):
+    """消息 → 一行可读文本。**唯一入口**——历史、会话列表预览、搜索、画像蒸馏都走它，
+    免得有的地方还在吐原始 XML / 裸 wxid 前缀。"""
+    # 顺序要紧：得在把换行压成空格**之前**剥前缀（纯文本那种形态靠 `\n` 定位）
+    raw = _PREFIX_RE.sub("", decode(content)).replace("\n", " ").strip()
+    if raw.startswith("<"):
+        return describe_nontext(lt & 0xFFFFFFFF, raw)
+    return raw
+
+
+_ATUSERS_RE = re.compile(r"<atuserlist><!\[CDATA\[(.*?)\]\]></atuserlist>", re.S)
+
+
+def at_me_in_source(source, me):
+    """`source`（`msgsource` XML）的 `<atuserlist>` 里有没有本人 wxid。
+
+    群消息 @人 时微信把**被 @ 的 wxid** 写在这里（2026-10-10 实测本机群库），是**确定性**信号
+    ——比拿昵称去正文里猜可靠得多：群昵称跟全局昵称经常不是一回事（本人在群里叫 TOOLAN，
+    正文里就只是一句 `@TOOLAN …`，同名/改名立刻失准）。
+    """
+    if not source or not me:
+        return False
+    try:
+        s = decode(source) if isinstance(source, (bytes, bytearray)) else str(source)
+    except Exception:
+        return False
+    m = _ATUSERS_RE.search(s)
+    if not m:
+        return False
+    return me in [x.strip() for x in re.split(r"[,\s]+", m.group(1)) if x.strip()]
+
+
+def msg_dict(ct, lt, content, nm, talker=None, name=None, sender=None, me=None, local_id=None,
+             source=None):
+    d = {"time": _ts(ct), "ts": ct, "type": lt & 0xFFFFFFFF, "text": _render(lt, content)[:400]}
+    if local_id is not None:
+        d["local_id"] = local_id             # 会话内稳定序号；语音靠它精确对应到 VoiceInfo
     if talker is not None:
         d["talker"] = talker
         d["name"] = name
     if sender is not None:                    # 发送者（real_sender_id 判定）；用于蒸馏分辨双方
         d["from_me"] = (sender == me) if sender else False
         d["sender"] = ("我" if sender == me else nm.get(sender, sender)) if sender else "(未知)"
+    if at_me_in_source(source, me):           # 群消息 @我（客户端按它决定群要不要叫代聊）
+        d["at_me"] = True
     return d
 
 
@@ -788,13 +1032,32 @@ def sessions():
     out = []
     for tbl, talker in talkers():
         rows = _rows(tbl, 1)
-        last = decode(rows[0][2]).replace("\n", " ").strip()[:80] if rows else ""
+        # 走 _render：不然最后一条是图片/语音时，会话列表预览会吐一整段 XML
+        last = _render(rows[0][1], rows[0][2])[:80] if rows else ""
         out.append({"talker": talker, "name": nm.get(talker, talker), "last": last})
     out.sort(key=lambda r: r["name"])
     return out
 
 
-def history(talker, limit=20, before_ts=0):
+def attach_voice(msgs, talker):
+    """给语音消息补上 `voice_path`（本地 SILK 文件），失败静默跳过。
+
+    只对 `type=34` 且**真能从 `VoiceInfo` 取到音频**的消息加。客户端拿这个路径去
+    解 SILK + 转写（见 `voice_file` 的说明）；取不到就只剩 `[语音 N 秒]` 那段元数据。
+    """
+    for m in msgs:
+        if m.get("type") != 34:
+            continue
+        try:
+            p = voice_file(talker, m["ts"], m.get("local_id"))
+        except Exception:
+            p = None
+        if p:
+            m["voice_path"] = p
+    return msgs
+
+
+def history(talker, limit=10, before_ts=0):
     """读历史（时间正序）。`before_ts` 取更早一页：只返回 create_time 严格小于它的消息。
 
     返回带 `cursor`（本页最老一条的 ts）与 `has_more`，Agent 可用 `before_ts=cursor` 翻更早的页。
@@ -802,7 +1065,9 @@ def history(talker, limit=20, before_ts=0):
     nm = names()
     me = self_wxid()
     rows = _rows_full(tbl_of(talker), limit, before=before_ts)
-    msgs = [msg_dict(ct, lt, c, nm, sender=s, me=me) for ct, lt, c, s in reversed(rows)]
+    msgs = [msg_dict(ct, lt, c, nm, sender=s, me=me, local_id=lid, source=src)
+            for ct, lt, c, s, lid, src in reversed(rows)]
+    attach_voice(msgs, talker)
     out = {"talker": talker, "name": nm.get(talker, talker), "count": len(msgs), "messages": msgs}
     if msgs:
         out["cursor"] = msgs[0]["ts"]          # 本页最老一条，供取更早一页
@@ -846,9 +1111,14 @@ def poll(since_ts, per=20):
                 _poll_memo[tbl] = {"ids": ids, "since": since_ts, "rows": rows,
                                    "complete": len(rows) < per}
                 stats["scanned"] += 1
-            for ct, lt, content, sender in rows:
-                out.append(msg_dict(ct, lt, content, nm, talker=talker,
-                                    name=nm.get(talker, talker), sender=sender, me=me))
+            batch = [msg_dict(ct, lt, content, nm, talker=talker, name=nm.get(talker, talker),
+                              sender=sender, me=me, local_id=lid, source=src)
+                     for ct, lt, content, sender, lid, src in rows]
+            # 入站语音要能被代聊「听懂」：补上 SILK 文件路径，客户端据此转写。
+            # 只在真有 type=34 时才去碰 media 库，绝大多数轮询是零成本。
+            if any(m.get("type") == 34 for m in batch):
+                attach_voice(batch, talker)
+            out.extend(batch)
     finally:
         for c in conns.values():
             try:
@@ -872,10 +1142,33 @@ def _max_local_id(conns, path, tbl):
         return None
 
 
+def _msg_select(tbl, where, with_source=True):
+    """`Msg_*` 的公共 select（第 6 列是 `source`）。
+
+    `with_source=False` 是**退化路**：老库/异形库里没有 `source` 列时不能整条读不出来
+    ——那只 @我 信号没了，消息本身还是要读得到（盯梢宁可不认 @，也不能变成瞎子）。
+    """
+    col = "source" if with_source else "NULL"
+    return (f"select create_time, local_type, message_content, real_sender_id, local_id, {col}"
+            f" from [{tbl}]" + where + " order by create_time desc limit ?")
+
+
+def _query_rows(c, tbl, where, params, with_source):
+    """带 `source` 的查询失败（列不存在）就退化成不带它——见 `_msg_select`。"""
+    try:
+        return list(c.execute(_msg_select(tbl, where, with_source), params))
+    except Exception:
+        if not with_source:
+            return []
+        try:
+            return list(c.execute(_msg_select(tbl, where, False), params))
+        except Exception:
+            return []
+
+
 def _rows_full_conn(conns, rels, tbl, limit, since=0):
-    """跨分片取 `[(create_time, local_type, content, sender)]`（复用调用方的连接）。"""
-    q = ("select create_time, local_type, message_content, real_sender_id"
-         f" from [{tbl}] where create_time > ? order by create_time desc limit ?")
+    """跨分片取 `[(create_time, local_type, content, sender, local_id, source)]`（复用调用方的连接）。"""
+    where = " where create_time > ?"
     out = []
     for p in rels:
         smap = _cache["senders"].get(p, {})
@@ -883,11 +1176,11 @@ def _rows_full_conn(conns, rels, tbl, limit, since=0):
             c = conns.get(p)
             if c is None:
                 c = conns[p] = sqlite3.connect(p)
-            rows = list(c.execute(q, (since, limit)))
+            rows = _query_rows(c, tbl, where, (since, limit), True)
         except Exception:
             continue
-        for ct, lt, content, sid in rows:
-            out.append((ct, lt, content, smap.get(sid, "")))
+        for ct, lt, content, sid, lid, src in rows:
+            out.append((ct, lt, content, smap.get(sid, ""), lid, src))
     out.sort(key=lambda r: r[0], reverse=True)
     return out[:limit]
 
@@ -976,12 +1269,14 @@ def search_messages(keyword, talker=None, since=0, until=0, limit=50, scan=3000)
             rows = _rows_full(tbl, scan)
         except Exception:
             continue
-        for ct, lt, content, s in rows:
+        for ct, lt, content, s, _lid, _src in rows:
             if since and ct <= since:
                 continue
             if until and ct >= until:
                 continue
-            if keyword in decode(content):
+            # 搜**渲染后的文本**而不是原始 XML：这样「图片」「语音」「撤回」这些
+            # 摘要词才搜得到，也避免命中 XML 属性里的随机十六进制（aeskey/md5 之类）。
+            if keyword in _render(lt, content):
                 hits.append(msg_dict(ct, lt, content, nm, talker=t, name=nm.get(t, t), sender=s, me=me))
     hits.sort(key=lambda d: d["ts"], reverse=True)
     return {"keyword": keyword, "count": len(hits), "scanned_per_talker": scan, "messages": hits[:limit]}
@@ -1025,8 +1320,6 @@ def _rows_full(tbl, limit, since=0, before=0):
         conds.append("create_time < ?")
         params.append(before)
     where = (" where " + " and ".join(conds)) if conds else ""
-    q = (f"select create_time, local_type, message_content, real_sender_id from [{tbl}]"
-         + where + " order by create_time desc limit ?")
     out = []
     for p in _cache["msg"]:
         if tbl not in _cache["tables"].get(p, ()):
@@ -1034,8 +1327,8 @@ def _rows_full(tbl, limit, since=0, before=0):
         smap = _cache["senders"].get(p, {})
         c = sqlite3.connect(p)
         try:
-            for ct, lt, content, sid in c.execute(q, params + [limit]):
-                out.append((ct, lt, content, smap.get(sid, "")))
+            for ct, lt, content, sid, lid, src in _query_rows(c, tbl, where, params + [limit], True):
+                out.append((ct, lt, content, smap.get(sid, ""), lid, src))
         except Exception:
             pass
         finally:
@@ -1048,11 +1341,206 @@ def _tokens(t):
     return [w for w in re.findall(r"[A-Za-z]{2,}|[一-鿿]{2,}", t) if w.lower() not in _STOP]
 
 
-def digest(talker=None, limit=500, samples=6, top=15, since=0):
-    """蒸馏「行为与语料」：全局（`talker` 为空）或指定会话；`since` 只统计该 Unix 秒之后的（**增量蒸馏**）。
+_CJK_PUNCT = set("，。！？、：；…—～·「」『』《》（）")
+_LONG_RUN = re.compile(r"[A-Za-z0-9+/=_-]{20,}")     # base64/token/长路径碎片
+_SHELLY = re.compile(r"^(root@|\$ |# |[A-Za-z]:\|ps [A-Za-z]|sudo )")
 
-    **确定性**：只用本地库统计（**不调用 LLM、不外传**），返回结构化 digest（统计 + 代表性样本），
-    供上层（LLM 或模板）提炼成「用户画像 / 好友画像」。发送者判定用 `real_sender_id`（精确）。
+
+def is_conversational(t):
+    """这条消息是不是「**人打字说的话**」，而不是粘过来的命令/URL/配置/日志。
+
+    为什么要它（2026-10-10 实测）：`top_words` 里前 20 有 7 个来自**同一条**粘贴的终端会话
+    （`root@iZww601n9e4jlvpsogs18mZ:/home/wxwj# ls …` → 贡献 tomcat/wxwj/iZww/jlvpsogs/mZ/home/root），
+    外加粘的配置（`ANTHROPIC_AUTH_TOKEN`、`sk-…`）。画像的「常聊话题」于是写成「服务器运维」——
+    **那只是他把终端输出粘进聊天，不是他在聊什么**。
+    同一批污染也在拉低风格统计：60 字的 base64 落进「26+ 字」档、且不带中文标点。
+    """
+    if not t:
+        return False
+    if "://" in t:                                    # URL
+        return False
+    if _SHELLY.match(t) or t.count("\n") >= 3:        # 终端提示符 / 多行粘贴
+        return False
+    if _LONG_RUN.search(t):                           # 一长串无空格字母数字 = token/密钥/路径
+        return False
+    # 可打印 ASCII（字母数字+常见符号）占比过高 ⇒ 代码/配置/日志，不是中文口语
+    ascii_ish = sum(1 for c in t if c.isascii() and (c.isalnum() or c in "{}[]()<>/\|;=+*&^%$#@!~`\"'"))
+    if ascii_ish / len(t) > 0.7:
+        return False
+    return True
+_EMOJI_CODE = re.compile(r"\[[^\]\[]{1,6}\]")     # 微信表情短码，如 [捂脸]
+
+
+_LEN_BUCKETS = (("1-5", 1, 5), ("6-12", 6, 12), ("13-25", 13, 25), ("26+", 26, 10 ** 9))
+_SPACE_DELIM = (" ", "\t", "　")           # 半角空格 / 制表 / 全角空格
+
+
+def _lenb(L):
+    """长度 → 档名（`_LEN_BUCKETS` 的**唯一取档处**，别在各处再写一遍 if-else）。"""
+    for k, lo, hi in _LEN_BUCKETS:
+        if lo <= L <= hi:
+            return k
+    return "26+"
+
+
+def style_stats(texts):
+    """从我发出去的消息里量出**可核对的**打字风格数字。
+
+    为什么要它：以前只给模型的 `avg_len` + 二十几条样本，模型就拿目测去写「口吻」那一栏——
+    实测踩过：本机 809 条里 36% 带中文标点、长句（13 字以上）**66–69% 都带**，
+    但样本里大量是「要得」「可以」这种三字短句，模型于是写成「**几乎不加标点**」，
+    代聊照着模仿，用户一眼看出不对（2026-10-10 用户报障）。
+
+    **短句本来就不需要标点**，所以只看总比例同样会误导——必须**按长度分层**给。
+
+    `delim_long` 是补的第二刀：标点率只问「有没有中文标点」，而实测有人长句是
+    **用空格代顿号**（「差不多 一整天都是阴的 上午到中午小雨最密 …出门带伞」）——
+    空格不算标点，那条会被算进「无标点」，卡上「26+ 字 88% 带标点」于是偏高。
+    """
+    buckets = {k: [0, 0] for k, _, _ in _LEN_BUCKETS}
+    n = punct = emoji = 0
+    dl = {"n": 0, "punct": 0, "space": 0, "newline": 0, "none": 0}
+    for t in texts:
+        t = (t or "").strip()
+        if not t or len(t) > 300 or not is_conversational(t):
+            continue
+        n += 1
+        has_p = any(c in _CJK_PUNCT for c in t)
+        if has_p:
+            punct += 1
+        if _EMOJI_CODE.search(t):
+            emoji += 1
+        L = len(t)
+        key = _lenb(L)
+        buckets[key][0] += 1
+        if has_p:
+            buckets[key][1] += 1
+        if L >= 13:                        # 短句本来就不需要断句，只统计 13 字以上
+            has_s = any(c in _SPACE_DELIM for c in t)
+            has_n = "\n" in t
+            dl["n"] += 1
+            if has_p:
+                dl["punct"] += 1
+            if has_s:
+                dl["space"] += 1
+            if has_n:
+                dl["newline"] += 1
+            if not (has_p or has_s or has_n):
+                dl["none"] += 1
+    if not n:
+        return {}
+    r = lambda c: round(c / dl["n"], 2) if dl["n"] else None
+    return {
+        "messages": n,
+        "punct_rate": round(punct / n, 2),
+        "emoji_rate": round(emoji / n, 2),
+        "length_hist": {k: v[0] for k, v in buckets.items()},
+        # 按长度分层的标点率——**这一栏才是关键**，别只看总的
+        "punct_rate_by_len": {k: (round(v[1] / v[0], 2) if v[0] else None)
+                              for k, v in buckets.items()},
+        # 13 字以上怎么断句（可叠加：既用标点也用空格是常态，四项不互斥）
+        "delim_long": {"n": dl["n"], "punct": r(dl["punct"]), "space": r(dl["space"]),
+                       "newline": r(dl["newline"]), "none": r(dl["none"])},
+    }
+
+
+def style_samples(texts, per_bucket=4, cap=200):
+    """按**长度分层**挑几条原文，让上层看得见「长句是怎么写的」。
+
+    为什么要它：`samples_from_me` 是「最新 24 条、每条截断到 80 字」。而口吻的关键恰恰在长句
+    ——短句（「要得」「可以」）本来就不带标点，看不出风格；长句才分得出「用不用标点、怎么断句」。
+    只给短样本，模型只能写出「几乎不加标点」这种错结论（2026-10-10 用户报障）。
+    所以这里**每个长度档各给几条**，并且放宽截断（200 字）。
+    """
+    out = {k: [] for k, _, _ in _LEN_BUCKETS}
+    for t in texts:
+        t = (t or "").strip()
+        if not t or not is_conversational(t):
+            continue
+        k = _lenb(len(t))
+        if len(out[k]) < per_bucket:
+            out[k].append(t[:cap])
+    return out
+
+
+# ---------- 范本对：对方说了什么 → 我回了什么（代聊面对的**就是这道题**）----------
+_PAIR_GAP_S = 120          # 两条之间 ≤120s（中间没人插话）算同一「轮」
+_PAIR_MIN_THEIR = 3        # 「?」「？」这种没有信息，别当范本
+_PAIR_SCAN = 300           # 一次最多攒多少组（护栏，防大群把内存/耗时拉爆）
+
+
+def _seq_of(rows, me, nm, talker):
+    """rows（`_rows_full` 的产物，倒序）→ 时间正序的 `[(ct, 是不是我, 文本)]`。
+
+    **同秒按 `local_id` 排**：微信时间戳只到秒，同秒的两条不加这层就会乱序，
+    直接把「对方说完我接什么」配错（2026-10-10 实测，v1 版就是这么错配的）。
+    """
+    out = []
+    for r in sorted(rows, key=lambda x: (x[0], x[4] if isinstance(x[4], int) else 0)):
+        ct, lt, content, sender, _lid, _src = r
+        if (lt & 0xFFFFFFFF) != 1:            # 只认纯文本；图片/语音走 describe_nontext
+            continue
+        body = _render(lt, content).strip()
+        if not body or body.startswith("[") or len(body) > 300:
+            continue
+        mine = bool(me) and sender == me
+        # 群消息补上说话人，否则范本里不知道是谁说的（私聊不必——就在这个会话里）
+        if not mine and str(talker).endswith("@chatroom") and sender:
+            body = f"{nm.get(sender, sender)}：{body}"
+        out.append((ct, mine, body))
+    return out
+
+
+def _pairs_from(seq):
+    """时间正序的 seq → `[(对方一轮, 我一轮)]`。两侧都必须像「人说的话」。
+
+    **两侧都要过滤**这条是实测定死的：只过滤对方那侧的话，抽样里会出现
+    「对方：收到！ / 我：http://内网地址/login 明文账号口令」这种对子——
+    而范本是要**每轮拼进提示词**的，等于把口令烤进每一次模型请求。
+    """
+    turns = []
+    for ct, mine, txt in seq:
+        if turns and turns[-1][1] == mine and ct - turns[-1][3] <= _PAIR_GAP_S:
+            turns[-1][0].append(txt)
+            turns[-1][3] = ct
+        else:
+            turns.append([[txt], mine, ct, ct])
+    out = []
+    for k in range(len(turns) - 1):
+        a, b = turns[k], turns[k + 1]
+        if a[1] or not b[1]:                  # 只要「对方 → 我」
+            continue
+        their, mine = " / ".join(a[0]), " / ".join(b[0])
+        if len(their) < _PAIR_MIN_THEIR:
+            continue
+        if not (is_conversational(their) and is_conversational(mine)):
+            continue
+        out.append((their, mine))
+        if len(out) >= _PAIR_SCAN:
+            break
+    return out
+
+
+def _pick_pairs(pairs, per_bucket=2):
+    """按**我这边回话的长度**分层各取几条——长短都要有，别全是「收到」。"""
+    b = {k: [] for k, _, _ in _LEN_BUCKETS}
+    for their, mine in pairs:
+        k = _lenb(len(mine))
+        if len(b[k]) < per_bucket:
+            b[k].append({"them": their, "me": mine})
+    return [p for k, _, _ in _LEN_BUCKETS for p in b[k]]
+
+
+def digest(talker=None, limit=500, samples=6, top=15, since=0):
+    """蒸馏「行为与语料」：全局（`talker` 为空）或指定会话。
+
+    ⚠️ **`since` 只收窄「样本」，统计永远基于全量**（见下面 pairs 循环里的说明）——
+    这样增量蒸馏拿去覆盖画像时不会把老底丢掉。
+    
+
+    **确定性**：只用本地库统计（**不调用 LLM、不外传**），返回结构化 digest（统计 + 代表性样本
+    + **真实对子** `exchange_pairs`），供上层（LLM 或模板）提炼成「用户画像 / 好友画像」。
+    发送者判定用 `real_sender_id`（精确）。
     """
     _refresh()
     me = self_wxid()
@@ -1061,16 +1549,27 @@ def digest(talker=None, limit=500, samples=6, top=15, since=0):
     hour = [0] * 24
     by_type, words = {}, {}
     my_lens, my_samples = [], []
+    my_texts = []                     # 我发的原文（量风格用；封顶防内存）
+    their_texts = []                  # **对方**发的原文（只在限定了某个会话时才有意义）
+    ex_by_talker = {}                 # {talker: [(对方一轮, 我一轮)]}
     per_contact = {}
     total = from_me = 0
     for t, tbl in pairs:
-        rows = _rows_full(tbl, limit, since=since)
+        # ⚠️ **统计永远基于全量**（不加 `since`）：`since` 只用来挑「这次要看的**新样本**」。
+        #
+        # 为什么必须这样（2026-10-10 实测）：`profile_save` 是**整体覆盖**，而提示词教的是
+        # 「回来用 distill_state 记水位，下次 `wechat_digest(since=水位)` 只处理新消息」。
+        # 若统计也被 `since` 收窄，一次增量蒸馏就会把全量画像换成几天切片的统计——
+        # 实测：3 天切片只剩 403 条（全量 3903）、联系人 69→21、活跃时段只有 15 个小时非零，
+        # 写出来的画像会把这些当成「事实」。
+        rows = _rows_full(tbl, limit)
         tot = fm = ft = 0
         first = last = 0
         sm_me, sm_them = [], []
-        for ct, lt, content, sender in rows:
+        for ct, lt, content, sender, _lid, _src in rows:
             body = decode(content).strip()
             is_me = (sender == me)
+            fresh = (not since) or ct > since     # 只影响**样本**（见下）
             tot += 1
             total += 1
             fm += 1 if is_me else 0
@@ -1085,18 +1584,35 @@ def digest(talker=None, limit=500, samples=6, top=15, since=0):
                 if is_me:
                     my_lens.append(len(body))
                     hour[time.localtime(ct).tm_hour] += 1
-                    if len(sm_me) < samples:
+                    if fresh and len(sm_me) < samples:
                         sm_me.append(body[:80])
-                    if len(my_samples) < samples * 4:
+                    if fresh and len(my_samples) < samples * 4:
                         my_samples.append(body[:80])
-                    for w in _tokens(body):
-                        words[w] = words.get(w, 0) + 1
-                elif len(sm_them) < samples:
+                    # 只从**人说的话**里收词：粘的终端输出/配置/URL 不算「常聊话题」
+                    if is_conversational(body):
+                        for w in _tokens(body):
+                            words[w] = words.get(w, 0) + 1
+                    if len(my_texts) < 3000:
+                        my_texts.append(body)
+                elif fresh and len(sm_them) < samples:
                     sm_them.append(body[:80])
+                if not is_me and len(their_texts) < 3000:
+                    their_texts.append(body)
         if tot:
             per_contact[t] = {"talker": t, "name": nm.get(t, t), "total": tot,
                               "from_me": fm, "from_them": ft, "first_ts": first, "last_ts": last,
                               "sample_from_me": sm_me, "sample_from_them": sm_them}
+        # 范本对：代聊每轮面对的题面就是「对方说了 X，我回什么」，**真实对子**比
+        # 一堆我的单句更贴题（研究结论：exemplar 胜过描述；而这是同一道题的标准答案）
+        ex_by_talker[t] = _pairs_from(_seq_of(rows, me, nm, t))
+    if talker:
+        pool = ex_by_talker.get(talker, [])
+    else:                                 # 全局：各会话**轮流**取，免得被最大的那个会话包场
+        _lsts = [v for k, v in ex_by_talker.items()
+                 if v and k != "filehelper" and "ClawBot" not in nm.get(k, "")]
+        pool = [x for i in range(max((len(v) for v in _lsts), default=0))
+                for v in _lsts if i < len(v) for x in (v[i],)]
+    exchange_pairs = _pick_pairs(pool, per_bucket=2 if talker else 3)
     top_words = sorted(words.items(), key=lambda kv: -kv[1])[:top]
     top_contacts = sorted(({"talker": k, "name": v["name"], "sent": v["from_me"]}
                            for k, v in per_contact.items()), key=lambda d: -d["sent"])[:top]
@@ -1106,14 +1622,27 @@ def digest(talker=None, limit=500, samples=6, top=15, since=0):
         "shards": len(_cache["msg"]),
         "scanned_per_talker": limit,
         "since": since,
+        # 明确告诉调用方：`since` 只影响 samples_*，下面这些统计是全量的
+        "stats_scope": "all",
         "self": {"total": total, "from_me": from_me, "from_others": total - from_me,
                  "by_type": by_type, "hour_hist": hour,
                  "avg_len": round(sum(my_lens) / len(my_lens), 1) if my_lens else 0,
-                 "top_contacts": top_contacts},
+                 # **写口吻那一栏必须看这两个**（见 style_stats / style_samples 的说明）
+                "style": style_stats(my_texts),
+                "style_samples": style_samples(my_texts),
+                # 对方那侧的风格（**只在 talker 限定了某个会话时才有意义**）：
+                # 联系人画像的「沟通风格」写的是**对方**，以前同样只能目测 6 条样本
+                **({"style_from_them": style_stats(their_texts),
+                    "style_samples_from_them": style_samples(their_texts)}
+                   if talker else {}),
+                "top_contacts": top_contacts},
         "top_words": [{"word": w, "n": n} for w, n in top_words],
         "contacts": sorted(per_contact.values(), key=lambda d: -d["total"])[:top],
         "contacts_total": len(per_contact),
         "samples_from_me": my_samples,
+        # **写口吻那一栏优先用这个**：真实对子（对方一轮 → 我一轮），按我回话的长度分层。
+        # 它自带「长度匹配」「标点习惯」「该不该发表情」——比任何描述句都直接。
+        "exchange_pairs": exchange_pairs,
     }
 
 

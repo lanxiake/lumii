@@ -586,6 +586,369 @@ def test_integration_check_env():
         return True
 
 
+
+def test_post_text_skips_nonbmp():
+    """非 BMP 字符必须**跳过并上报**，绝不能整投出去。
+
+    实测（2026-10-10，两个方向都试过）：
+    - 直接投 `ord(ch)`：接收端按 16 位码元取低 16 位，`😊`(U+1F60A) 静默变成 `U+F60A`
+      （私用区），读库还能读到、`ok=True` —— 没有任何一道会报错。
+    - 拆成合法代理对 `(0xD83D, 0xDE0A)` 分两次投：微信整个丢掉。
+    所以正确行为是「不发它，但说清发了什么」。
+    """
+    import wechat_sender as ws
+
+    posted = []
+    saved_post, saved_sleep = ws.u.PostMessageW, ws.time.sleep
+    try:
+        ws.u.PostMessageW = lambda h, msg, wp, lp: posted.append(wp) or True
+        ws.time.sleep = lambda *_a: None
+        ws.post_text(1234, "A😊中👍")
+    finally:
+        ws.u.PostMessageW, ws.time.sleep = saved_post, saved_sleep
+
+    # A -> 0x41 ; 中 -> 0x4E2D ; 两个 emoji 都不该出现在投递序列里
+    assert posted == [0x41, 0x4E2D], [hex(x) for x in posted]
+    assert not any(x > 0xFFFF for x in posted), "把非 BMP 码点整投了 ⇒ 会被截成私用区字符"
+    assert not any(0xD800 <= x <= 0xDFFF for x in posted), "投了裸代理项 ⇒ 微信会整个丢掉"
+
+    n, chars = ws.dropped_nonbmp()
+    assert n == 2 and chars == "😊👍", f"丢弃上报不对：n={n} chars={chars!r}"
+    print("     ✅ 非 BMP 跳过并上报 2 个，BMP 原样投递")
+    return True
+
+
+def test_nontext_rendering():
+    """非文本消息必须渲染成**有信息的一行**，且绝不漏原始 XML。
+
+    XML 形态全部取自 2026-10-10 的现场样本。以前一律 `[非文本消息]`，
+    把图片/语音/位置/链接/撤回全丢了（实测占样本 1/3）。
+    """
+    import wechat_core as core
+
+    cases = [
+        (3, '<msg><img aeskey="fa43d919293fc5b79067e3262ad859bd" length="18227" md5="x"/></msg>',
+         "[图片 18KB]"),          # 18227B = 17.8KB，四舍五入
+        (3, '<msg><img length="500" md5="x"/></msg>', "[图片 500B]"),
+        (34, '<msg><voicemsg voiceformat="4" voicelength="11338" length="19882"/></msg>',
+         "[语音 11.3 秒]"),
+        (43, '<msg><videomsg playlength="38" length="12816159"/></msg>', "[视频 38 秒]"),
+        (47, '<msg><emoji md5="90cc" len="13793"/></msg>', "[表情]"),
+        (48, '<msg><location x="30.5" y="104.0" label="四川省成都市武侯区交子北二路17号"'
+             ' poiname="市级机关(第六办公区)"/></msg>',
+         "[位置] 市级机关(第六办公区) 四川省成都市武侯区交子北二路17号"),
+        (49, '<msg><appmsg><title>都看过</title><type>5</type>'
+             '<url>https://mp.weixin.qq.com/s/abc</url></appmsg></msg>',
+         "[链接] 都看过 (https://mp.weixin.qq.com/s/abc)"),
+        (49, '<msg><appmsg><title>数据表.xlsx</title><type>6</type></appmsg></msg>',
+         "[文件] 数据表.xlsx"),
+        (50, '<voipmsg type="VoIPBubbleMsg"><VoIPBubbleMsg><msg><![CDATA[通话时长 02:41]]></msg>'
+             '</VoIPBubbleMsg></voipmsg>', "[通话] 通话时长 02:41"),
+        (42, '<msg nickname="Elvy" username="wxid_1"/></msg>', "[名片] Elvy"),
+        (10000, '<sysmsg type="revokemsg"><revokemsg><content>"韩玉" 撤回了一条消息</content>'
+                '</revokemsg></sysmsg>', '"韩玉" 撤回了一条消息'),
+    ]
+    for lt, raw, want in cases:
+        got = core.describe_nontext(lt, raw)
+        assert got == want, "type=%s want=%r got=%r" % (lt, want, got)
+
+    # 模板型系统消息：$username$ 要换成 link 里的 nickname
+    tmpl = ('<sysmsg type="sysmsgtemplate"><sysmsgtemplate><content_template>'
+            '<template><![CDATA["$username$"邀请"$names$"加入了群聊]]></template>'
+            '<link_list><link name="username"><memberlist><member>'
+            '<nickname><![CDATA[肖美虹]]></nickname></member></memberlist></link>'
+            '<link name="names"><memberlist><member>'
+            '<nickname><![CDATA[杨冬]]></nickname></member></memberlist></link>'
+            '</link_list></content_template></sysmsgtemplate></sysmsg>')
+    got = core.describe_nontext(10000, tmpl)
+    assert got == '"肖美虹"邀请"杨冬"加入了群聊', repr(got)
+    assert "$" not in got, f"没替上的变量漏出来了：{got!r}"
+
+    print("     ✅ 11 类消息 + 模板替换都渲染正确")
+    return True
+
+
+def test_render_strips_group_prefix_and_never_leaks_xml():
+    """群聊 content 前面缀了发送者（`wxid_x: <msg>…`），必须剥掉再判类型。
+
+    不剥的话 `startswith("<")` 判定失败 ⇒ 整段 XML 漏给 Agent（实测踩过）。
+    """
+    import wechat_core as core
+
+    # 形态一（非文本）：前缀后跟 `<?xml`／空格 + `<`
+    for wrapped in ['hdghdx: <msg><img aeskey="abc" length="2048"/></msg>',
+                    'hdghdx:<msg><img aeskey="abc" length="2048"/></msg>']:
+        assert core._render(3, wrapped) == "[图片 2KB]", core._render(3, wrapped)
+
+    # 形态二（纯文本）：前缀后**紧跟换行**。实测 1117 条群文本命中 1010 条、单聊 0 条。
+    # 不剥的话群历史/预览/搜索里全是裸 id，客户端还会再补一次「名字：」变成 `张三：wxid_x: …`。
+    for raw, want in [("vicky1990202:\n12345那边回复了", "12345那边回复了"),
+                      ("wxid_pio7v0rpnq4n22:\n服务器卡死了，我重启下服务哈。", "服务器卡死了，我重启下服务哈。")]:
+        assert core._render(1, raw) == want, core._render(1, raw)
+
+    # 普通文本不能被误伤（前缀里含空格/是正常中文句子的都不该剥）
+    for plain in ["注意: 明天开会", "他说:你好", "12:30 见", "Note: 明天再说"]:
+        assert core._render(1, plain) == plain, f"误剥了普通文本：{plain!r}"
+
+    # 全类型扫一遍：渲染结果里不许再出现 XML 痕迹
+    core._refresh()
+    bad = []
+    n = 0
+    for tbl, tk in core.talkers()[:25]:
+        for ct, lt, c, s, _lid, _src in core._rows_full(tbl, 60):
+            n += 1
+            t = core._render(lt, c)
+            if t.lstrip().startswith("<") or "aeskey=" in t or "<msg>" in t[:40]:
+                bad.append((tk, lt, t[:60]))
+    assert not bad, f"{n} 条里有 {len(bad)} 条漏了 XML：{bad[:3]}"
+    print(f"     ✅ 群聊前缀已剥；{n} 条消息无 XML 泄漏")
+    return True
+
+
+def test_at_me_from_msgsource():
+    """群消息 @我 按 `source` 的 `<atuserlist>` 里的 **wxid** 判定，不猜昵称。
+
+    样本取自 2026-10-10 现场：本人 wxid_sngf3b86qbz021 在群里被 @ 成 `@TOOLAN …`，
+    正文里的昵称与全局昵称不是一回事（换昵称就失准），只有 atuserlist 是确定的。
+    """
+    import wechat_core as core
+
+    me = "wxid_sngf3b86qbz021"
+    hit = "<msgsource>\n\t<atuserlist><![CDATA[wxid_sngf3b86qbz021]]></atuserlist>\n</msgsource>"
+    multi = "<msgsource><atuserlist><![CDATA[wxid_a,wxid_sngf3b86qbz021]]></atuserlist></msgsource>"
+    other = "<msgsource><atuserlist><![CDATA[wxid_other]]></atuserlist></msgsource>"
+    assert core.at_me_in_source(hit, me) is True
+    assert core.at_me_in_source(multi, me) is True, "多人被 @ 时也要认出来"
+    assert core.at_me_in_source(other, me) is False, "别人被 @ 不算我"
+    assert core.at_me_in_source("<msgsource><pua>1</pua></msgsource>", me) is False
+    assert core.at_me_in_source(None, me) is False
+
+    # msg_dict 只在命中时才带 at_me（没命中不写字段——省得每条消息都多一个假 flags）
+    d = core.msg_dict(1, 1, "你好", {}, talker="1@chatroom", me=me, source=hit)
+    assert d.get("at_me") is True, d
+    d2 = core.msg_dict(1, 1, "你好", {}, talker="1@chatroom", me=me, source=other)
+    assert "at_me" not in d2, d2
+
+    # `_rows_full` / `_rows_full_conn` 现在多带一列 `source`——元组宽度错了会当场炸在
+    # 调用方（历史上靠 unpack 报错才发现的），所以在这里钉一下宽度。
+    try:
+        core._refresh()
+        tk = next((t for t in core.talkers() if str(t[1]).endswith("@chatroom")), None)
+        if tk:
+            rows = core._rows_full(tk[0], 5)
+            assert rows and len(rows[0]) == 6, f"行宽应为 6（含 source），实际 {rows[:1]}"
+    except Exception as e:                                # 换机/无库：跳过而非误报
+        print(f"     （跳过真库抽查：{e}）")
+    print("     ✅ atuserlist 判定正确（含多人被 @ / 别人被 @ / 无 source）")
+    return True
+
+
+def test_voice_extraction():
+    """语音能从 media 库取出来，且**必须靠 local_id 消歧**。
+
+    音频不在磁盘上——它在 `message/media_*.db` 的 `VoiceInfo.voice_data`（明文 SILK_V3）。
+    同一秒可以有多条语音，只按 create_time 取第一条会转写出**另一个人的另一段话**，
+    比不转写更糟（模型会照着错内容回话），所以没给 local_id 时必须拒绝。
+    """
+    import os
+    import wechat_core as core
+
+    # 1. 没有 local_id ⇒ 宁可返回 None，绝不猜
+    assert core.voice_file("filehelper", 0) is None, "无 local_id 时不该返回文件"
+
+    core._refresh()
+    found = []
+    for tbl, tk in core.talkers():
+        for m in core.history(tk, 500)["messages"]:
+            if m.get("voice_path"):
+                found.append((tk, m))
+    assert found, "一条语音都没导出来 —— VoiceInfo 读取可能坏了"
+
+    # 2. 倒出来的确实是 SILK
+    tk, m = found[0]
+    with open(m["voice_path"], "rb") as f:
+        head = f.read(10)
+    # 头是 0x02 + "#!SILK_V3"（10 字节），不是 9 字节的纯文本标记
+    assert head == b"#!SILK_V3", f"不是 SILK_V3：{head!r}"
+
+    # 3. 文件必须由 (talker, local_id) 唯一决定：
+    #    同一个 local_id 只能对应一个文件（否则同一条语音被导成两份），
+    #    不同 local_id 必须对应不同文件（否则就是**转写了别人的话**）。
+    by_id = {}
+    by_file = {}
+    for tk2, m2 in found:
+        k = (tk2, m2.get("local_id"))
+        p2 = m2["voice_path"]
+        assert by_id.setdefault(k, p2) == p2, f"同一 local_id 导出了不同文件：{k}"
+        assert by_file.setdefault(p2, k) == k, f"不同 local_id 共用了同一个文件：{p2}"
+
+    # 4. 同秒（create_time 相同）但 local_id 不同 ⇒ 必须是两个文件
+    grp = {}
+    for tk3, m3 in found:
+        grp.setdefault((tk3, m3["ts"]), {})[m3.get("local_id")] = m3["voice_path"]
+    same_sec = {k: v for k, v in grp.items() if len(v) > 1}
+    for k, byid in same_sec.items():
+        assert len(set(byid.values())) == len(byid), f"{k} 同秒多条语音撞成同一文件（会转写出别人的话）"
+    if same_sec:
+        print(f"     （其中 {len(same_sec)} 组同秒语音，已正确分开）")
+
+    print(f"     ✅ 导出 {len(found)} 条 SILK，同秒消歧正常")
+    return True
+
+
+def test_style_stats_by_length():
+    """打字风格必须**按长度分层**量，不能只看总比例。
+
+    起因（2026-10-10 用户报障）：画像里写「几乎不加标点」，代聊照着模仿，用户一眼看出不对。
+    实测本机 809 条：1-5 字只有 6% 带标点、13 字以上 66-69% 都带——
+    **短句本来就不需要标点**。只看总比例（38%）或只看几条短样本，都会得出错结论。
+    """
+    import wechat_core as core
+
+    short = ["要得", "可以", "在干嘛"]                            # 2-3 字，不带标点
+    long_ = ["开关一下MCP服务，有可能是连接没有刷新",              # 18 字，带逗号
+             "我觉得很难，毕竟你要和更年轻的博士竞争。"]          # 21 字，句读齐全
+    st = core.style_stats(short * 4 + long_ * 4)
+
+    assert st["messages"] == 20, st
+
+    assert st["length_hist"]["1-5"] == 12, st["length_hist"]
+    # 关键：短句不带标点、长句都带——分层里看得清清楚楚
+    assert st["punct_rate_by_len"]["1-5"] == 0.0, st["punct_rate_by_len"]
+    assert st["punct_rate_by_len"]["13-25"] == 1.0, st["punct_rate_by_len"]
+    # 总比例被短句拉低 ⇒ **单看它就会写成「几乎不加标点」**，这正是要防的
+    assert st["punct_rate"] < 0.6 < st["punct_rate_by_len"]["13-25"], st["punct_rate"]
+
+    # 微信表情短码要能量出来（画像里那句「爱用[捂脸]」得有数字支撑）
+    st2 = core.style_stats(["要得[捂脸]", "好嘛", "收到了[呲牙]"])
+    assert st2["emoji_rate"] == round(2 / 3, 2), st2
+
+    # 断句方式：标点率只问「有没有中文标点」，而长句**用空格代顿号**的人会被算成「无标点」
+    # （实测本机 26+ 字里有 9% 是这种），画像那句「26+ 字 88% 带标点」因此偏高。
+    d = core.style_stats(["差不多 一整天都是阴的 上午到中午小雨最密 下午3点以后雨停了但还是阴",
+                          "不要想太多，我也没想那么多。小朋友还是要多鼓励。",
+                          "要得"] * 3)["delim_long"]
+    assert d["n"] == 6, d                      # 「要得」2 字不算
+    assert d["punct"] == 0.5, d                # 3 条带逗号句号
+    assert d["space"] == 0.5, d                # 3 条用空格断
+    assert d["none"] == 0.0, d
+
+    # 空输入不能炸
+    assert core.style_stats([]) == {}
+
+    print("     ✅ 分层标点率/表情率/断句方式都能量出来，空输入不炸")
+    return True
+
+
+def test_exchange_pairs_both_sides_filtered():
+    """范本对（对方说了什么 → 我回了什么）：三条硬门禁，一条都不能少。
+
+    这是代聊每轮真正面对的题面（`exchange_pairs` 会**每轮拼进提示词**），所以：
+    ① **两侧**都得像「人说的话」。只过滤对方那侧的话，实测会出现
+       「对方：收到！ / 我：http://内网地址/login 明文账号口令」——等于把口令烤进每一次请求。
+    ② 对方那轮太短（`?`）没有信息，不是范本。
+    ③ 同秒的消息靠 `local_id` 定序；微信时间戳只到秒，不排就会把对子配错。
+    """
+    import wechat_core as core
+
+    me = "wxid_me"
+    rows = [                                  # (ct, lt, content, sender, local_id, source)
+        (100, 1, "在吗", "wxid_a", 1, ""),
+        (101, 1, "在的", me, 2, ""),
+        (102, 1, "http://10.1.2.3:9003/login admin/admin123456", me, 3, ""),  # ★ 我这侧
+        (103, 1, "看下这个", "wxid_a", 4, ""),
+        (104, 1, "好的", me, 5, ""),
+        (105, 1, "?", "wxid_a", 6, ""),       # 太短
+        (106, 1, "在吗？", me, 7, ""),
+        (300, 1, "回来吃饭不", "wxid_a", 8, ""),   # 跟上一轮隔 194s > 120 ⇒ 新的一轮
+        (301, 1, "要回来", me, 9, ""),
+    ]
+    got = core._pairs_from(core._seq_of(rows, me, {}, "wxid_a"))
+    assert got == [("看下这个", "好的"), ("回来吃饭不", "要回来")], got
+    for _t, mine in got:
+        assert "://" not in mine, f"我这一侧的网址/口令没拦住：{mine!r}"
+
+    # 同秒按下标定序：输入给的是**倒序**，排完必须是我先说、对方后说
+    same = [(100, 1, "对方那句", "wxid_a", 2, ""), (100, 1, "我先说的", me, 1, "")]
+    seq = core._seq_of(same, me, {}, "wxid_a")
+    assert [s[2] for s in seq] == ["我先说的", "对方那句"], seq
+
+    # 群消息的范本要带上说话人（不然不知道是谁说的）；私聊不必
+    g = core._seq_of([(1, 1, "xiaomeihong99:\n几张信用卡就有了", "wxid_x", 1, "")],
+                     me, {"wxid_x": "肖美虹"}, "1@chatroom")
+    assert g[0][2] == "肖美虹：几张信用卡就有了", g
+    p = core._seq_of([(1, 1, "xiaomeihong99:\n几张信用卡就有了", "wxid_x", 1, "")],
+                     me, {"wxid_x": "肖美虹"}, "wxid_someone")
+    assert p[0][2] == "几张信用卡就有了", p
+
+    # 分层：我回话的长短都要有，别全是「收到」
+    picked = core._pick_pairs([("a", "要得"), ("b", "好的，我看下"), ("c", "行" * 20),
+                               ("d", "三台都这样那就不是偶发了，基本能锁定是设计或批次的问题。")],
+                              per_bucket=1)
+    assert len(picked) == 4, picked
+    assert [len(p["me"]) for p in picked] == sorted(len(p["me"]) for p in picked), picked
+    assert all(p["them"] and p["me"] for p in picked)
+
+    # 真跑一遍 digest：键在、两侧非空、且**没有一侧是网址/口令**
+    d = core.digest(limit=200)
+    assert d["exchange_pairs"], "digest 没产出范本对"
+    for pr in d["exchange_pairs"]:
+        assert pr["them"].strip() and pr["me"].strip(), pr
+        assert "://" not in pr["me"], f"我这侧混进了网址：{pr['me']!r}"
+    assert d["self"]["style"]["delim_long"]["n"] > 0, d["self"]["style"]
+
+    print(f"     ✅ 两侧过滤/定序/分层都对；实测蒸馏出 {len(d['exchange_pairs'])} 组范本对")
+    return True
+
+
+def test_distill_filters_and_scope():
+    """蒸馏要剔掉「粘过来的东西」，且增量**不许丢全量统计**。
+
+    两个都是 2026-10-10 实测定型的：
+    ① `top_words` 前 20 里有 7 个来自**同一条**粘贴的终端会话，画像因此写成「服务器运维」；
+       同一批污染还把「26+ 字带标点」从 88% 拉到 68%。
+    ② 提示词教的是「下次 `since=水位` 只处理新消息」，而 `profile_save` 是**整体覆盖**——
+       统计若被 `since` 收窄，一次增量蒸馏就把全量画像换成几天切片（实测 3 天只剩 403/3903 条、
+       联系人 69→21）。
+    """
+    import time
+    import wechat_core as core
+
+    # ① 过滤器
+    assert not core.is_conversational("root@iZww601n9e4jlvpsogs18mZ:/home/wxwj# ls images")
+    assert not core.is_conversational("https://github.com/andatoshiki/toshiki-live2d")
+    assert not core.is_conversational("sk-S0glPlSekdU9dloREQ297JSdDhnKWsScpQwJfEr6bhpSFt4X")
+    assert core.is_conversational("要得")
+    assert core.is_conversational("开关一下MCP服务，有可能是连接没有刷新")
+
+    # ② 分层样本：长句那档必须真的有长句（口吻的关键就在那儿）
+    ss = core.style_samples(["要得", "可以", "开关一下MCP服务，有可能是连接没有刷新"] * 5)
+    assert ss["1-5"] and ss["13-25"], ss.keys()
+    assert all(13 <= len(x) <= 26 for x in ss["13-25"]), ss["13-25"]
+    assert ss["26+"] == [], "没长句就不该编"
+
+    # ③ 增量只收窄样本，统计恒为全量
+    import server
+    full = server.tool_digest({"limit": 80})
+    assert full.get("stats_scope") == "all", full.get("stats_scope")
+    future = int(time.time()) + 86400
+    inc = server.tool_digest({"limit": 80, "since": future})
+    assert inc["samples_from_me"] == [], "未来的水位不该有样本"
+    for k in ("total", "from_me"):
+        assert inc["self"][k] == full["self"][k], f"增量把 {k} 收窄了：{inc['self'][k]} vs {full['self'][k]}"
+    assert inc["contacts_total"] == full["contacts_total"], "增量把联系人收窄了"
+    assert inc["self"]["style"] == full["self"]["style"], "增量把风格统计收窄了"
+
+    # ④ 对方那侧的风格（联系人画像的「沟通风格」写的是对方）
+    d = server.tool_digest({"talker": "wxid_s6piyhfvptv522", "limit": 80})
+    assert "style_from_them" in d["self"], "限定了 talker 就该给对方的风格实测"
+    assert "style_samples_from_them" in d["self"]
+    # 不限定会话时「对方」= 所有人，没有意义，不该给
+    assert "style_from_them" not in server.tool_digest({"limit": 80})["self"]
+
+    print("     ✅ 过滤器命中；分层样本有长句；增量不丢全量统计；对方风格也给了")
+    return True
+
 def main():
     """主测试流程"""
     runner = TestRunner()
@@ -629,6 +992,14 @@ def main():
     runner.test("UIA 拿不到时退回帧判据", test_uia_blank_falls_back_to_frames)
     runner.test("UI 卡死 → 拉托盘恢复并重试", test_open_chat_post_unfreezes_when_ui_dead)
     runner.test("UI 活着 → 不拉托盘", test_open_chat_post_no_unfreeze_when_alive)
+    runner.test("蒸馏过滤与增量口径", test_distill_filters_and_scope)
+    runner.test("风格统计按长度分层", test_style_stats_by_length)
+    runner.test("范本对两侧过滤与分层", test_exchange_pairs_both_sides_filtered)
+    runner.test("语音提取与消歧", test_voice_extraction)
+    runner.test("非文本消息渲染", test_nontext_rendering)
+    runner.test("群聊前缀与XML泄漏", test_render_strips_group_prefix_and_never_leaks_xml)
+    runner.test("群消息@我判定", test_at_me_from_msgsource)
+    runner.test("非BMP字符跳过并上报", test_post_text_skips_nonbmp)
     runner.test("拍不到图不乱判卡死", test_ui_alive_reads_failure_as_alive)
     runner.test("探针不点当前会话/服务号", test_ui_alive_skips_current_row_and_nonchat)
     runner.test("点了画面不动 → 判卡死", test_ui_alive_click_without_change_is_dead)

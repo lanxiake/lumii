@@ -402,19 +402,41 @@ def post_click(h, x, y):
     return bool(r1) and bool(r2)
 
 
+_LAST_DROPPED = {"n": 0, "chars": ""}
+
+
+def dropped_nonbmp():
+    """上一次 `post_text` 丢掉的非 BMP 字符（`send_text` 据此在 detail 里如实交代）。"""
+    return _LAST_DROPPED["n"], _LAST_DROPPED["chars"]
+
+
 def post_text(h, text, dt=0.05):
-    """把文本投进输入框。
+    """把文本投进输入框。返回是否全部投递成功（非 BMP 字符不算成功也不算失败，见下）。
 
     走 WM_CHAR 而不是剪贴板：**不劫持用户的剪贴板**（用户可能正在复制别的东西）。
     需要输入框已有焦点 —— 微信切换会话时会自动 focus 输入框；焦点不在时投递会落空，
     表现为「投递返回成功但读库无新消息」，由调用方按失败处理（排队重试）。
-    非 BMP 字符（emoji 等代理对）会漏，暂不支持。
+
+    **非 BMP 字符（emoji 等）这里主动跳过**，并把丢掉的字符记进 `_LAST_DROPPED`。
+    为什么不是硬发（2026-10-10 实测两轮）：
+    - 直接投 `ord(ch)`：`WM_CHAR` 的 wParam 只被当成**一个 UTF-16 码元**、接收端取低 16 位，
+      `😊`(U+1F60A) 会静默变成 `U+F60A`（私用区）——**不是漏字，是变成另一个字符**，
+      读库还能读到、`ok=True`，整条链没有任何一道会报错（三个 emoji 的差值恒为 0x10000）。
+    - 拆成合法的 UTF-16 代理对 `(0xD800+高10位, 0xDC00+低10位)` 分两次投：微信**整个丢掉**。
+    两个方向都拿不到 emoji，所以选「少发几个字 + 如实上报」，绝不静默发错字。
     """
     ok = True
+    dropped = []
     for ch in text:
-        if not u.PostMessageW(ctypes.c_void_p(h), WM_CHAR, ord(ch), 1):
+        cp = ord(ch)
+        if cp > 0xFFFF:
+            dropped.append(ch)
+            continue
+        if not u.PostMessageW(ctypes.c_void_p(h), WM_CHAR, cp, 1):
             ok = False
         time.sleep(dt)
+    _LAST_DROPPED["n"] = len(dropped)
+    _LAST_DROPPED["chars"] = "".join(dropped)
     return ok
 
 
@@ -1682,6 +1704,11 @@ def _send_locked_body(h, text, talker, name, dry_run, verbose, prev_fg):
         # 最后一道：**读库确认**新消息真的落在目标会话（防「看着发出去了、其实发到别处」）
         if not _wait_new_message(talker, base_ts):
             return False, "已回车但目标会话未见新消息（可能发到了别处或未生效）"
+        # 非 BMP 字符（emoji 等）走 WM_CHAR 投不进去，`post_text` 已把它们跳过。
+        # 这里**如实交代**——调用方以为发全了、实际少了几个字，是最难查的那类问题。
+        n_drop, _ = dropped_nonbmp()
+        if n_drop:
+            return True, f"已发送（注意：{n_drop} 个 emoji/生僻字符无法投递，已略去）"
         return True, "已发送"
     finally:
         if orig:

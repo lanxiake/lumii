@@ -49,19 +49,6 @@ def log(*a):
     print("[wechat-mcp]", *a, file=sys.stderr, flush=True)
 
 
-def _make_diagnostics(**kwargs):
-    """组装结构化诊断字段，供 Agent 判断原因和决策重试。
-
-    可选字段：
-    - ui_readable: bool，界面是否读取成功
-    - session_count: int，当前读到的会话行数
-    - best_match_score: float，最佳匹配的得分（<0.6 判定为不匹配）
-    - ui_frozen: bool，是否触发过冻结探针
-    - retry_attempted: bool，工具内部是否已重试过
-    """
-    return {k: v for k, v in kwargs.items() if v is not None}
-
-
 def _resolve(talker):
     if not talker:
         return None
@@ -120,11 +107,29 @@ def _get_fix_suggestion(error_code):
     return suggestions.get(error_code, "请检查微信窗口状态并重试，或查看 detail 字段了解详情。")
 
 
+def _fail(error_code, message, **extra):
+    """失败的**统一信封**——所有工具的任何失败出口都必须走这里。
+
+    为什么要有它：以前十几处「参数校验不过就提前返回」各写各的，形状是
+    `{"ok": False, "error_code": ..., "error": ...}`——字段叫 `error` 而不是 `detail`，
+    而且**少了 `stage` 和 `suggestion`**。对照发送路径的失败返回（有 `detail`/`stage`/`suggestion`），
+    Agent 拿到的形状随「错在哪一步」而变，同一份提示词没法覆盖，只能靠猜。
+
+    现在统一成一条契约：任何失败都返回
+    `{ok: false, detail, error_code, stage, suggestion}`（+ 调用方自己的字段）。
+    """
+    out = {"ok": False, "detail": message, "error_code": error_code,
+           "stage": _stage_of(error_code), "suggestion": _get_fix_suggestion(error_code)}
+    out.update(extra)
+    return out
+
+
 def _code_of(detail):
     """把发送层的中文 detail 归一到**稳定错误码**（Agent 据此决策，不必字符串匹配）。
 
     码表与 `wechat_sender.py` 实际返回的 detail 文案一一对应——改发送层文案时必须同步改这里，
     改错不会报错、只会静默退化成 `unknown`（Agent 就不再重试了）。
+
     """
     d = detail or ""
     if "环境前置检查" in d or "窗口前置检查" in d or "找不到微信主窗口" in d:
@@ -172,6 +177,7 @@ _STAGE_BY_CODE = {
     "attachment_not_landed": "attachment",
     "attachment_missing": "attachment",
     "send_not_confirmed": "send",
+    "ui_unresponsive": "send",     # UI 冻结（已自动恢复）
     "busy": "lock",
 }
 
@@ -239,7 +245,7 @@ def tool_history(args):
     talker, err = _resolve_or_error(args.get("talker"))
     if err:
         return {"error": err}
-    return core.history(talker, int(args.get("limit") or 20), int(args.get("before_ts") or 0))
+    return core.history(talker, int(args.get("limit") or 10), int(args.get("before_ts") or 0))
 
 
 def tool_poll(args):
@@ -249,10 +255,10 @@ def tool_poll(args):
 def tool_send(args):
     talker, err = _resolve_or_error(args.get("talker"))
     if err:
-        return {"ok": False, "error_code": "target_not_found", "error": err}
+        return _fail("target_not_found", err)
     text = args.get("text") or ""
     if not text:
-        return {"ok": False, "error_code": "bad_args", "error": "text 为空"}
+        return _fail("bad_args", "text 为空")
     dry = args.get("dry_run")
     dry = True if dry is None else bool(dry)
     import wechat_sender
@@ -292,10 +298,10 @@ def tool_send(args):
 def tool_send_file(args):
     talker, err = _resolve_or_error(args.get("talker"))
     if err:
-        return {"ok": False, "error_code": "target_not_found", "error": err}
+        return _fail("target_not_found", err)
     path = args.get("path") or ""
     if not path:
-        return {"ok": False, "error_code": "bad_args", "error": "path 为空"}
+        return _fail("bad_args", "path 为空")
     dry = args.get("dry_run")
     dry = True if dry is None else bool(dry)
     import wechat_sender
@@ -305,6 +311,7 @@ def tool_send_file(args):
     if not ok:
         out["error_code"] = _code_of(detail)
         out["stage"] = _stage_of(out["error_code"])
+        out["suggestion"] = _get_fix_suggestion(out["error_code"])
         out["shot"] = wechat_sender.last_shot()
     return out
 
@@ -318,7 +325,7 @@ def tool_send_batch(args):
     dry = args.get("dry_run")
     dry = True if dry is None else bool(dry)
     if not isinstance(items, list) or not items:
-        return {"ok": False, "error_code": "bad_args", "error": "messages 为空（需 [{talker, text}, ...]）"}
+        return _fail("bad_args", "messages 为空（需 [{talker, text}, ...]）")
     import wechat_sender
     results = []
     for it in items:
@@ -326,10 +333,10 @@ def tool_send_batch(args):
         raw, text = it.get("talker"), (it.get("text") or "")
         talker, err = _resolve_or_error(raw)
         if err:
-            results.append({"ok": False, "error_code": "target_not_found", "error": err, "talker": raw})
+            results.append(_fail("target_not_found", err, talker=raw))
             continue
         if not text:
-            results.append({"ok": False, "error_code": "bad_args", "error": "text 为空", "talker": talker})
+            results.append(_fail("bad_args", "text 为空", talker=talker))
             continue
         ok, detail = wechat_sender.send_text(text, talker, dry_run=dry)
         r = {"ok": ok, "detail": detail, "talker": talker,
@@ -337,6 +344,7 @@ def tool_send_batch(args):
         if not ok:
             r["error_code"] = _code_of(detail)
             r["stage"] = _stage_of(r["error_code"])
+            r["suggestion"] = _get_fix_suggestion(r["error_code"])
             r["shot"] = wechat_sender.last_shot()
         results.append(r)
     sent = sum(1 for r in results if r["ok"])
@@ -348,13 +356,13 @@ def tool_reply(args):
     """引用回复：引用聊天区里含 `quote` 的那条消息，再发出 `text`。"""
     talker, err = _resolve_or_error(args.get("talker"))
     if err:
-        return {"ok": False, "error_code": "target_not_found", "error": err}
+        return _fail("target_not_found", err)
     quote = args.get("quote") or ""
     text = args.get("text") or ""
     if not text:
-        return {"ok": False, "error_code": "bad_args", "error": "text 为空"}
+        return _fail("bad_args", "text 为空")
     if not quote:
-        return {"ok": False, "error_code": "bad_args", "error": "quote 为空（要引用那条消息的文字，用于定位）"}
+        return _fail("bad_args", "quote 为空（要引用那条消息的文字，用于定位）")
     dry = args.get("dry_run")
     dry = True if dry is None else bool(dry)
     import wechat_sender
@@ -364,6 +372,7 @@ def tool_reply(args):
     if not ok:
         out["error_code"] = _code_of(detail)
         out["stage"] = _stage_of(out["error_code"])
+        out["suggestion"] = _get_fix_suggestion(out["error_code"])
         out["shot"] = wechat_sender.last_shot()
     return out
 
@@ -407,7 +416,7 @@ def tool_distill_clear(args):
         return core.distill_clear(None, everything=bool(args.get("everything")))
     scope, err = _resolve_scope(raw)
     if err:
-        return {"ok": False, "error_code": "target_not_found", "error": err}
+        return _fail("target_not_found", err)
     return core.distill_clear(scope, everything=bool(args.get("everything")))
 
 
@@ -433,10 +442,10 @@ def tool_profile_save(args):
     """把提炼好的画像落本地（用户画像 / 某会话画像）。"""
     scope, err = _resolve_scope(args.get("scope"))
     if err:
-        return {"ok": False, "error_code": "target_not_found", "error": err}
+        return _fail("target_not_found", err)
     content = args.get("content") or ""
     if not content.strip():
-        return {"ok": False, "error_code": "bad_args", "error": "content 为空（画像正文）"}
+        return _fail("bad_args", "content 为空（画像正文）")
     p = core.profile_save(scope, content)
     return {"ok": True, "scope": scope or "self", "path": p}
 
@@ -537,7 +546,44 @@ INSTRUCTIONS = """\
 4. talker 用 list_sessions 返回的 name（如「文件传输助手」「TOOLAN」「TOOLAN、韩玉」）或 wxid/群号最稳。
 5. 一次发一条；失败会在 detail 里说明卡在哪一道校验，可据此调整或提示用户。
 
+耗时预期（**别提前判失败**）：
+- 单次 send_text / send_file 正常 **7–15 秒**；目标会话**不在当前打开的那个**时要先切会话，最长 **36 秒**；
+  界面卡死被自动探到还会多花 5–10 秒恢复。调用方预设超时已给到 **5 分钟**，等它把话说完。
+- **超时 ≠ 失败**：真发生超时时消息很可能已经发出去了（服务端会自报 ok、库里能查到）。
+  这时**不要重发**，改用 read_history 确认到底发出去没有。
+
+失败与重试（**先看 error_code，别一律重试**）：
+- 返回里的 `ok` / `error_code` / `stage` / `suggestion` / `attempts` 就是给你决策用的：
+  `stage` 说明卡在「环境 / 目标 / 输入 / 发送 / 附件」哪一道，`suggestion` 是该码对应的处置建议，
+  `attempts > 1` 表示**工具内部已经重试过**（最多 2 轮），你不要再叠一层重试。
+- **工具已自动重试、别自己重发**：临时性的 UI 故障（`input_not_landed` / `busy` /
+  `attachment_not_landed` / `clipboard_failed`）工具内部已经重试两轮了。
+- **绝不重试**（重发就是给对方发第二遍）：
+  - `send_not_confirmed` —— 回车已按、库里没看到。可能真发出去了。先 read_history 看，或问用户。
+  - `target_unconfirmed` —— 没确认成目标会话（fail-closed：**一个字都没输入**，不会发错）。
+    已自动排队，盯梢回路会自己补发；**不用改内容、不用转人工、更不要换个写法再发一遍**。
+  - `target_not_found` / `bad_args` —— 参数或名字不对，重试一百次也一样。
+- **换做法，而不是重试**：`target_not_found` → 先 list_sessions 拿到确切名字/talker 再发；
+  `env_not_ready` → 微信没运行或窗口收进托盘，已自动排队等发送门恢复；
+  `attachment_missing` → 路径不对，问用户要正确路径。
+- 同一内容**最多只发两次**（第二次是因为工具报的临时故障，不是让你手动补发）。
+
 读取建议：先用 list_sessions 找目标会话名，再用 read_history 拉上下文，然后据此起草回复。
+起草回复时**默认读 10 条**（`read_history(limit=10)`）——够看清一轮来回，又不至于把上下文撑爆；
+要更早的用返回的 `cursor` 配 `before_ts` 翻页。
+
+非文本消息怎么看：
+- 历史里除了文本，还会有这些**摘要**：`[图片 17KB]`、`[语音 3.2 秒]`、`[视频 38 秒]`、
+  `[表情]`、`[位置] 成都市武侯区…`、`[链接] 标题 (url)`、`[名片] 昵称`、`[通话] 通话时长 02:41`、
+  以及系统消息（「X 撤回了一条消息」）。**位置/链接/撤回这些本身就有信息**，直接拿来用。
+- **语音**：监控回路在**叫醒你之前**已经本地转写过一遍，转写文字会以
+  「（上面这条是语音，本地转写的文字是：…）」的形式**直接摆在【本次触发】里**——有就用，
+  那才是对方说的话。你自己调 `read_history` 时看到的是 `[语音 N 秒]`，**那不表示没转写**，
+  只是历史接口给的是元数据；消息里带的 `voice_path` 是本地 SILK 文件，转写由客户端做。
+- ⚠️ **图片画面读不到，别去猜也别编**：聊天图片在本地是**加密**的（V2 格式，密钥不在磁盘上），
+  拿不到画面。用户问「我刚发的图你看了吗」时：**如实说你看不到内容**，可以复述它是什么时候
+  发的、多大，并请用户用文字说一下。凭 `[图片]` 编造画面内容是**最严重的那类错误**。
+- 用户主动贴了文字描述、或把图另存到本地给了路径，才能谈图片内容。
 
 实时盯消息（监控回路）：
 - 增量用 poll_new(since_ts)：每条消息带 `from_me`/`sender`，**自己发的也会返回**——用户可能自己在手机上
@@ -550,8 +596,24 @@ INSTRUCTIONS = """\
 蒸馏（用户/好友知识与行为）：要提炼「我的表达习惯 / 与谁联系最多 / 活跃时段 / 某会话里对方是谁」时，用 wechat_digest——
 它做**本地确定性统计 + 代表性样本**（覆盖微信全部时间分片，**不外传**），你再据此写成画像；
 用 wechat_profile_save 存成画像（scope 留空=用户本人），wechat_profile_get 读回。画像存本地白盒 Markdown，可编辑可删。
-**增量**：蒸馏完用 wechat_distill_state(action=set) 记水位，下次 wechat_digest(since=水位) 只处理新消息。
+**增量**：蒸馏完用 wechat_distill_state(action=set) 记水位，下次 wechat_digest(since=水位)
+就只看那段之后的新样本（**统计仍是全量**，见下）。
 **回答与微信/某联系人相关的问题前，先 wechat_profile_get 看有没有现成画像**（有就用，别重复蒸馏）。
+**风格那一栏要按实测数字 + 真实对子写，别目测**：`wechat_digest` 返回的 `self.style` 里有
+`punct_rate_by_len`（**按消息长度分层的标点使用率**）——**短句不用标点、长句才用**是常态，
+只看总比例或只看几条样本都会得出「几乎不加标点」那种错结论（实测踩过：本机 1-5 字 7%、
+13 字以上 71–88%，写成「几乎不加标点」后代聊照着模仿，用户一眼看出不对）。
+`delim_long` 是**断句方式**：长句里有人**用空格代顿号**（本机实测 9%），那部分不算中文标点，
+别把它归进「无标点」。
+`emoji_rate` 同理——**没量过就不要断言「爱用/不用表情」**。
+**写口吻优先用 `exchange_pairs`**：那是**真实对子**（对方说了什么 → 我回了什么），
+和代聊每轮面对的题面**是同一道题**；它自带长度匹配、标点习惯、该不该发表情，比任何描述句都直接。
+（已按「我回话的长度」分层，两侧都过滤过粘贴内容。）`self.style_samples` 是补充。
+
+**增量蒸馏不会丢历史**：`since` 只收窄 `samples_*`（「这次有什么新的」），
+**统计（`self` / `contacts` / `top_words` / `style`）永远是全量的**（`stats_scope: "all"`）。
+所以增量跑完照样可以整体覆盖画像，不必手工合并。
+
 **隐私**：画像全在本地、不外传；用户要删时用 wechat_distill_clear（删单个给 scope，清空全部须 everything=true）。
 """
 
@@ -567,7 +629,7 @@ TOOLS = [
                      "消息多时可**翻页**：返回带 `cursor`（本页最老一条 ts）与 `has_more`；要读更早的一页再调一次并传 `before_ts=cursor`。"),
      "inputSchema": {"type": "object", "properties": {
          "talker": {"type": "string", "description": "会话显示名或 wxid/群号/filehelper"},
-         "limit": {"type": "integer", "description": "条数，默认 20"},
+         "limit": {"type": "integer", "description": "条数，默认 10"},
          "before_ts": {"type": "integer", "description": "可选：只返回该 Unix 秒**之前**的消息（翻页用，传上一页返回的 cursor）"}},
          "required": ["talker"]}},
     {"name": "poll_new",
@@ -575,6 +637,8 @@ TOOLS = [
                      "【别用】渠道(Bot)收件——那是渠道的事；也别用它读历史（用 read_history）。"
                      "返回 `create_time > since_ts` 的消息（正序），每条带 `from_me`/`sender`："
                      "**自己发的也会返回**——用户可能自己在手机上回过了，据此判断还要不要回。"
+                     "群消息若 @ 了用户本人，该条带 `at_me: true`（按被 @ 的 wxid 判定，不看昵称）；"
+                     "其余消息没有这个字段。"
                      "返回值里的 `next_since_ts` 就是下次该传的 `since_ts`（**不要传墙上时钟的 now**："
                      "同一秒内的消息会被跳过）；首轮起点取 read_history 最后一条的 `ts`。"
                      "本工具是增量快路径（只解密新增的 WAL 帧、只扫有变化的会话表），可以高频调用。"),
@@ -656,9 +720,21 @@ TOOLS = [
      "inputSchema": {"type": "object", "properties": {}, "required": []}},
     {"name": "wechat_digest",
      "description": ("【何时用】要**蒸馏用户/好友的画像与行为**时（「我平常怎么说话」「我和谁联系最多」「这个群/这个人大概是谁」「什么时段我活跃」）："
-                     "返回**本地确定性统计**（消息量、我发的/对方发的、消息类型分布、活跃时段、最常联系的人、高频词）"
-                     "＋**代表性样本**，你再据此提炼画像。【别用】只想读几条消息（用 read_history）。"
-                     "**全本地、只读、不外传**；覆盖微信**所有时间分片**。talker 可选（限定某会话），不给则全局。"),
+                     "返回**本地确定性统计**（消息量、我发的/对方发的、消息类型分布、活跃时段、最常联系的人、高频词、"
+                     "**`self.style` 打字风格实测值**、**`exchange_pairs` 真实对子**、按长度分层的原文）"
+                     "＋**代表性样本**，你再据此提炼画像。"
+                     "【别用】只想读几条消息（用 read_history）。"
+                     "**全本地、只读、不外传**；覆盖微信**所有时间分片**。talker 可选（限定某会话），不给则全局。"
+                     "⚠️ 写「口吻/沟通风格」那一栏**优先用 `exchange_pairs`**："
+                     "它是**真实对子**（`{them, me}`＝对方说了什么 → 我回了什么），和代聊每轮面对的题面是同一道，"
+                     "自带长度匹配/标点习惯/要不要发表情；已按「我回话的长度」分层、两侧都过滤过粘贴内容。"
+                     "**必须用 `self.style` 里的实测数字**（`punct_rate_by_len` 尤其要紧），"
+                     "**不许拿几条样本目测**——样本以短句居多，目测会得出「几乎不加标点」这种错结论"
+                     "（2026-10-10 实测：短句 7% 带标点、13 字以上 71–88% 带，完全不是一回事）。"
+                     "`delim_long` 是**断句方式**——长句里**用空格代顿号**的不算标点（本机实测 9%），别归进「无标点」。"
+                     "**还要看 `self.style_samples`**——它按长度分层给了原文，26+ 那档就是长句的真实写法。"
+                     "写**联系人**画像时同理：`talker` 给了就有 `self.style_from_them` / "
+                     "`style_samples_from_them`（**对方**的风格实测），别再目测那几条 `sample_from_them`。"),
      "inputSchema": {"type": "object", "properties": {
          "talker": {"type": "string", "description": "可选：限定某个会话（name 或 wxid/群号）"},
          "limit": {"type": "integer", "description": "每个会话最多扫描条数，默认 500"},

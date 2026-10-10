@@ -51,9 +51,11 @@ ME_WXID = "wxid_me"          # 目录名 <wxid>_<4hex>，self_wxid() 从目录�
 # 通用：造库 / 迷你运行器
 # ============================================================================
 def _schema(tbl):
+    # `source` 是**真库有、必须有的列**（`msgsource` XML 住在那儿，群消息的 @我 判据就是它）。
+    # 合成库少了它，读到的就是退化路（没有 at_me）——那会让"真库能读"这件事测不到。
     return f"""CREATE TABLE [{tbl}](local_id INTEGER PRIMARY KEY AUTOINCREMENT, server_id INTEGER,
  local_type INTEGER, sort_seq INTEGER, real_sender_id INTEGER, create_time INTEGER, status INTEGER,
- message_content TEXT);
+ message_content TEXT, source TEXT);
 CREATE TABLE Name2Id(user_name TEXT);
 CREATE INDEX [{tbl}_SORTSEQ] ON [{tbl}](sort_seq);"""
 
