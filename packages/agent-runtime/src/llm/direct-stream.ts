@@ -265,14 +265,24 @@ function injectThinkingParams(
 ): void {
   if (!payload || typeof payload !== 'object') return;
   const p = payload as Record<string, unknown>;
-  if (format === 'qwen' && api === 'openai-completions') {
-    // vLLM/SGLang 系（含百炼兼容模式）：服务端默认开思考，必须显式关；
-    // 且部分端点只认 low/medium/xhigh 档位，发 reasoning_effort:"high" 会 400。
-    delete p.reasoning_effort;
-    p.chat_template_kwargs = {
-      ...((p.chat_template_kwargs as Record<string, unknown> | undefined) ?? {}),
-      enable_thinking: Boolean(reasoning),
-    };
+  if (format === 'qwen') {
+    // vLLM/SGLang 系（含百炼兼容模式）的网关按模型逐个校验档位：Qwen 系只认端点自己的
+    // 档位表（如 xhigh/medium/low），发 pi-ai 的 "high"（High 档）或 "max"（Max 档）直接
+    // 400。档位一律交给端点默认（即其最高档），开关只表达「开/关」。
+    if (api === 'openai-completions') {
+      // completions：服务端默认开思考，必须显式关；开启用 chat_template_kwargs。
+      delete p.reasoning_effort;
+      p.chat_template_kwargs = {
+        ...((p.chat_template_kwargs as Record<string, unknown> | undefined) ?? {}),
+        enable_thinking: Boolean(reasoning),
+      };
+    } else if (api === 'openai-responses') {
+      // responses：没有 chat_template_kwargs 开关（发了也被忽略），关闭只能靠 effort:"none"。
+      const reasoningParam = (p.reasoning as Record<string, unknown> | undefined) ?? {};
+      if (reasoning) delete reasoningParam.effort;
+      else reasoningParam.effort = 'none';
+      p.reasoning = reasoningParam;
+    }
   }
   if (api === 'openai-responses' && !baseUrl.includes('api.openai.com')) {
     normalizeResponsesRoles(p);

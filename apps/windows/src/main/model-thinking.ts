@@ -55,19 +55,33 @@ export function defaultSupportsReasoning(modelId: string): boolean {
 }
 
 /**
+ * 把各家的思考档位归一成 OpenAI 词表（reasoning_effort）的托管端点类型。
+ * 只有这些类型下，槽位里显式选「OpenAI」才可信——它们是别人家模型的中转/托管，
+ * 协议由平台文档约定；自建中转（type=openai + 自定义 baseUrl）不在其中。
+ */
+const OPENAI_NATIVE_TYPES: ReadonlySet<string> = new Set(['openrouter', 'groq'])
+
+/**
  * 解析思考参数格式：
- * 显式配置优先 → z.ai 端点 → qwen 系模型（vLLM/SGLang 走 chat_template_kwargs）→ OpenAI 原生。
+ * 显式 qwen/zai → z.ai 端点 → qwen 系模型（vLLM/SGLang 走 chat_template_kwargs）→ OpenAI 原生。
+ *
+ * Qwen 系模型上，显式选「OpenAI」**不生效**：档位词表是端点私有的（实测某中转的
+ * Qwen3.8-Flash-Next 只认 xhigh(默认)/medium/low，发 pi-ai 的 "high" 直接 400），
+ * 而显式设置只能表达「用不用 reasoning_effort」这一个 bit，救不了词表对不上的端点。
+ * qwen 分支「不发档位（= 端点自己的最高档）+ 显式开关」才是实测可用的形态。
+ * 于是：Qwen 系按模型走（auto 本来就这么推断），只有 OpenAI 原生词表的托管端点除外。
  */
 export function resolveThinkingFormat(
   cfg: Pick<LocalProviderConfig, 'type' | 'baseUrl' | 'thinkingFormat'> | undefined,
   modelId: string,
 ): ResolvedThinkingFormat {
   const explicit = cfg?.thinkingFormat
-  if (explicit === 'openai' || explicit === 'qwen' || explicit === 'zai') return explicit
+  if (explicit === 'qwen' || explicit === 'zai') return explicit
   // 'zai' 类型在片2加入 ProviderType；这里用字符串比较，加类型前也成立
   const typeName: string = cfg?.type ?? ''
+  if (/qwen/i.test(modelId) && !OPENAI_NATIVE_TYPES.has(typeName)) return 'qwen'
+  if (explicit === 'openai') return 'openai'
   if (typeName === 'zai' || (cfg?.baseUrl ?? '').includes('api.z.ai')) return 'zai'
-  if (/qwen/i.test(modelId)) return 'qwen'
   return 'openai'
 }
 

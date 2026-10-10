@@ -35,13 +35,32 @@ describe('defaultSupportsReasoning', () => {
 })
 
 describe('resolveThinkingFormat', () => {
-  it('显式配置优先', () => {
+  it('显式 qwen/zai 优先于一切推断', () => {
     expect(resolveThinkingFormat({ ...baseCfg, thinkingFormat: 'qwen' }, 'gpt-4o')).toBe('qwen')
-    expect(resolveThinkingFormat({ ...baseCfg, thinkingFormat: 'openai' }, 'qwen3-next')).toBe('openai')
+    expect(resolveThinkingFormat({ ...baseCfg, thinkingFormat: 'zai' }, 'gpt-4o')).toBe('zai')
   })
 
   it('qwen 系模型默认走 chat_template_kwargs（vLLM/SGLang 系）', () => {
     expect(resolveThinkingFormat(baseCfg, 'Qwen3.8-Flash-Next')).toBe('qwen')
+  })
+
+  it('qwen 系模型上显式选 openai 不生效（档位词表是端点私有的，发 pi-ai 的 high 会 400）', () => {
+    expect(resolveThinkingFormat({ ...baseCfg, thinkingFormat: 'openai' }, 'qwen3-next')).toBe(
+      'qwen',
+    )
+  })
+
+  it('OpenAI 原生词表的托管端点（OpenRouter/Groq）保留显式 openai', () => {
+    expect(
+      resolveThinkingFormat(
+        { type: 'openrouter', baseUrl: 'https://openrouter.ai/api/v1', thinkingFormat: 'openai' },
+        'qwen3-next',
+      ),
+    ).toBe('openai')
+    // 非 qwen 模型不受该例外影响
+    expect(resolveThinkingFormat({ ...baseCfg, thinkingFormat: 'openai' }, 'deepseek-v4-flash')).toBe(
+      'openai',
+    )
   })
 
   it('z.ai 端点走 thinking 格式', () => {

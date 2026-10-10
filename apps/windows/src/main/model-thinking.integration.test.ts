@@ -44,7 +44,10 @@ afterAll(() => {
   server.close()
 })
 
-function makeCfg(modelId: string): LocalProviderConfigView {
+function makeCfg(
+  modelId: string,
+  apiFormat: 'completions' | 'responses' = 'completions',
+): LocalProviderConfigView {
   return {
     enabled: true,
     type: 'openai',
@@ -52,7 +55,7 @@ function makeCfg(modelId: string): LocalProviderConfigView {
     modelId,
     apiKey: 'test-key',
     allowedModelIds: [modelId],
-    apiFormat: 'completions',
+    apiFormat,
     modelReasoning: {},
     thinkingFormat: 'auto',
   }
@@ -121,5 +124,72 @@ describe('思考开关 → 请求体（qwen 中转，chat_template_kwargs）', (
     expect(captured).toHaveLength(1)
     expect(captured[0]!.chat_template_kwargs).toBeUndefined()
     expect(captured[0]!.reasoning_effort).toBeUndefined()
+  })
+})
+
+/**
+ * Responses 路径（`apiFormat: 'responses'`，例如 provider 类型为 rightapi/未显式存格式的槽位）
+ *
+ * 实测 2026-10-10 @ kms.sczxsc.cn：网关按模型逐个校验档位，Qwen3.8-Flash-Next 只认
+ * xhigh(默认)/medium/low，发 `reasoning.effort:"high"`（High 档）或 `"max"`（Max 档）
+ * 一律 400 "Unexpected reasoning effort high."（deepseek-v4-flash 等同端点模型则接受）。
+ * 该端点默认档位即 xhigh，关思考只能靠 effort:"none"（chat_template_kwargs 在
+ * /v1/responses 上被忽略）。
+ */
+describe('思考开关 → 请求体（qwen 中转，responses 路径）', () => {
+  it('开思考：不发档位（交给端点默认），绝不发 high/xhigh 这类端点会拒的值', async () => {
+    captured.length = 0
+    await callStream(makeCfg('Qwen3.8-Flash-Next', 'responses'), {
+      enabled: true,
+      effort: 'high',
+    })
+
+    expect(captured).toHaveLength(1)
+    expect((captured[0]!.reasoning as Record<string, unknown> | undefined)?.effort).toBeUndefined()
+  })
+
+  it('Max 档同样不发档位', async () => {
+    captured.length = 0
+    await callStream(makeCfg('Qwen3.8-Flash-Next', 'responses'), { enabled: true, effort: 'max' })
+
+    expect((captured[0]!.reasoning as Record<string, unknown> | undefined)?.effort).toBeUndefined()
+  })
+
+  it('关思考：显式 effort:"none"（端点默认开思考，不发参数关不掉）', async () => {
+    captured.length = 0
+    await callStream(makeCfg('Qwen3.8-Flash-Next', 'responses'), {
+      enabled: false,
+      effort: 'high',
+    })
+
+    expect((captured[0]!.reasoning as Record<string, unknown> | undefined)?.effort).toBe('none')
+  })
+
+  it('端点不支持思考的模型：不发 reasoning', async () => {
+    captured.length = 0
+    await callStream(makeCfg('my-custom-model', 'responses'), { enabled: true, effort: 'high' })
+
+    expect(captured).toHaveLength(1)
+    expect(captured[0]!.reasoning).toBeUndefined()
+  })
+})
+
+/**
+ * 槽位里显式把「思考参数格式」选成 OpenAI（reasoning_effort）的 Qwen 系模型。
+ *
+ * 旧行为：显式设置压过按模型推断 → pi-ai 发出 `reasoning_effort:"high"` → 端点 400。
+ * 档位词表是端点私有的（见上），显式那个 bit 救不了它，故 Qwen 系一律按 qwen 处理。
+ */
+describe('思考开关 → 请求体（Qwen 系 + 槽位显式选 openai）', () => {
+  it('仍按 qwen 处理：不发 reasoning_effort，用 chat_template_kwargs 表达开关', async () => {
+    captured.length = 0
+    await callStream(
+      { ...makeCfg('Qwen3.8-Flash-Next'), thinkingFormat: 'openai' },
+      { enabled: true, effort: 'high' },
+    )
+
+    expect(captured).toHaveLength(1)
+    expect(captured[0]!.reasoning_effort).toBeUndefined()
+    expect(captured[0]!.chat_template_kwargs).toEqual({ enable_thinking: true })
   })
 })
