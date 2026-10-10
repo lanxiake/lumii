@@ -152,8 +152,12 @@ export const RichComposer = forwardRef<RichComposerHandle, RichComposerProps>(fu
    *
    * 不会与「点内联 × → 通知外部删引用」形成回环：内联删除是**先摘 DOM 再通知**，
    * 等外部把清单更新回来时，chip 早已不在 DOM 里，这里找不到东西可删。
+   *
+   * 必须是 layout effect：发送成功后外部会**同一批**清空草稿与引用清单，这里摘 chip 后
+   * 回吐的剩余文本要先于 useComposerDraft 的外部值同步（父级 layout effect）落地，
+   * 否则会把刚清空的草稿又写回去，输入框残留用户编辑的文字。
    */
-  useEffect(() => {
+  useLayoutEffect(() => {
     const root = rootRef.current
     if (!root) return
     const known = new Set(fileReferences.map((ref) => ref.relativePath))

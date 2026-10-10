@@ -350,3 +350,37 @@ describe('上下文指示器的触发线口径', () => {
     expect(labelOf()).toContain('固定开销已占满窗口，压缩无法释放空间')
   })
 })
+
+describe('拖入工作空间文件后发送', () => {
+  const REF = {
+    relativePath: '项目分析报告.md',
+    name: '项目分析报告.md',
+    absolutePath: 'C:/ws/项目分析报告.md',
+    isDirectory: false,
+  }
+
+  /**
+   * 发送成功后父组件**同一批**清空草稿与文件引用：
+   * 引用清单变空会摘掉框内 chip 并回吐剩余文本，这次回吐不能盖过外部清空。
+   */
+  it('草稿与文件引用同时清空时，输入框不残留用户编辑的文字', () => {
+    const baseProps = {
+      onChange: vi.fn(),
+      onSend: vi.fn(),
+      isConnected: true,
+      onFileReferenceAdd: vi.fn(),
+      onFileReferenceRemove: vi.fn(),
+    }
+    const draft = `@${REF.relativePath} 读取上述文件内容`
+    const { container, rerender } = render(
+      <ChatInput {...baseProps} value={draft} fileReferences={[REF]} />,
+    )
+    const composer = container.querySelector('.chat-textarea') as HTMLElement
+    expect(composer.querySelectorAll('[data-composer-chip="file"]')).toHaveLength(1)
+
+    rerender(<ChatInput {...baseProps} value="" fileReferences={[]} />)
+
+    expect(composer.textContent).toBe('')
+    expect(composer.getAttribute('data-empty')).toBe('true')
+  })
+})
