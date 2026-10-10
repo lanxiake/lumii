@@ -51,8 +51,8 @@
     "verify:win-package": "node scripts/verify-win-package.mjs"
   },
   "dependencies": {
-    "@earendil-works/pi-agent-core": "^0.87.1",
-    "@earendil-works/pi-ai": "^0.87.1",
+    "@earendil-works/pi-agent-core": "1.1.0",
+    "@earendil-works/pi-ai": "1.1.0",
     "@ffmpeg-installer/ffmpeg": "^1.1.0",
     "@larksuiteoapi/node-sdk": "^1.73.3",
     "@mtbot/agent-runtime": "workspace:*",

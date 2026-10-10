@@ -5,7 +5,7 @@ packages:
 overrides:
   "@sinclair/typebox": "0.34.47"
   tar: "7.5.7"
-  "@earendil-works/pi-ai": "0.87.1"
+  "@earendil-works/pi-ai": "1.1.0"
   # @xenova/transformers 依赖 sharp ^0.32，与 apps/windows 的 0.34 统一，避免嵌套旧版 native 安装失败
   sharp: "0.34.5"
 
