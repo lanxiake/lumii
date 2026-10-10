@@ -7,13 +7,14 @@
  *   2. 报的是「别人发的、不在忽略名单里」的那些（自己发的不必提醒自己）；
  *   3. 水位一定推进且落库（重启不重复报，也不重复读同一段）。
  */
-import { afterAll, beforeAll, describe, it, expect, vi } from 'vitest'
+import { afterAll, beforeAll, beforeEach, describe, it, expect, vi } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { resolvePeerPolicy } from '../../shared/channel-policy'
+import { parseChannelPolicy, resolvePeerPolicy } from '../../shared/channel-policy'
 import { agentRuntimeLog as log } from './bridge-utils'
 import {
+  __resetWatchPendingForTest,
   buildAutoPrompt,
   buildDraftPrompt,
   DEFAULT_WECHAT_WATCH_CONFIG,
@@ -208,6 +209,95 @@ describe('selectNewMessages', () => {
   })
 })
 
+describe('触发条件（只回 @我 / 关键字）', () => {
+  const GROUP = '123@chatroom'
+  const DM = 'wxid_loop'
+  const policy = (id: string, mode: 'auto' | 'draft' | 'notify', peer: object) =>
+    parseChannelPolicy({ defaultMode: 'ignore', peers: [{ id, mode, ...peer }] })
+  const g = (ts: number, text: string, at_me = false) => ({
+    ts,
+    name: '群聊',
+    talker: GROUP,
+    from_me: false,
+    text,
+    ...(at_me ? { at_me } : {}),
+  })
+  const d = (ts: number, text: string) => ({
+    ts,
+    name: 'Loop',
+    talker: DM,
+    from_me: false,
+    text,
+  })
+
+  it('mention：只有 @我的那条进；别人被 @ 的不算', () => {
+    const p = policy(GROUP, 'auto', { trigger: 'mention' })
+    const out = selectNewMessages(
+      [g(1, '在吗'), g(2, '@我 帮看下', true), g(3, '@张三 帮看下')],
+      p,
+    )
+    expect(out.map((m) => m.ts)).toEqual([2])
+  })
+
+  it('keyword：命中任一关键字才进（大小写不敏感）', () => {
+    const p = policy(GROUP, 'auto', { trigger: 'keyword', keywords: ['报错', 'deploy'] })
+    const out = selectNewMessages(
+      [g(1, '哈哈哈'), g(2, '这接口报错了'), g(3, 'please DEPLOY now')],
+      p,
+    )
+    expect(out.map((m) => m.ts)).toEqual([2, 3])
+  })
+
+  it('mention_or_keyword：@我 命中、关键字命中，两个都不沾的不进', () => {
+    const p = policy(GROUP, 'auto', { trigger: 'mention_or_keyword', keywords: ['报错'] })
+    const out = selectNewMessages(
+      [g(1, '哈哈哈'), g(2, '@我 你看下', true), g(3, '这接口报错了'), g(4, '@张三')],
+      p,
+    )
+    expect(out.map((m) => m.ts)).toEqual([2, 3])
+  })
+
+  it('notify 档不设闸门：每条都照样提醒（闸门只管叫不叫模型）', () => {
+    const p = policy(GROUP, 'notify', { trigger: 'mention' })
+    expect(selectNewMessages([g(1, '在吗'), g(2, '@我', true)], p).map((m) => m.ts)).toEqual([1, 2])
+  })
+
+  it('私聊也能用关键字（话痨好友只回提到正事的那些）', () => {
+    const p = policy(DM, 'auto', { trigger: 'keyword', keywords: ['报错', '合同'] })
+    const out = selectNewMessages(
+      [d(1, '哈哈哈哈'), d(2, '这个合同你看看'), d(3, '接口报错了'), d(4, '睡了')],
+      p,
+    )
+    expect(out.map((m) => m.ts)).toEqual([2, 3])
+  })
+
+  it('私聊里手写成 mention 当作不过滤（界面不给这档，静默吞掉全部消息是最糟的失败）', () => {
+    const p = policy(DM, 'auto', { trigger: 'mention' })
+    expect(selectNewMessages([d(1, '在吗'), d(2, '早')], p).map((m) => m.ts)).toEqual([1, 2])
+  })
+
+  it('mention_or_keyword 的关键字要能存下来（不是只有纯 keyword 才落 keywords）', () => {
+    const p = parseChannelPolicy({
+      defaultMode: 'ignore',
+      peers: [{ id: GROUP, mode: 'auto', trigger: 'mention_or_keyword', keywords: ['报错'] }],
+    })
+    expect(p.peers[0]).toMatchObject({ trigger: 'mention_or_keyword', keywords: ['报错'] })
+  })
+})
+
+describe('名单外的人不叫模型（NON_AGENT_MODES）', () => {
+  it('defaultMode=draft/auto 一律收敛成 notify——老配置与手写文件都绕不过去', () => {
+    expect(parseChannelPolicy({ defaultMode: 'draft', peers: [] }).defaultMode).toBe('notify')
+    expect(parseChannelPolicy({ defaultMode: 'auto', peers: [] }).defaultMode).toBe('notify')
+    expect(parseChannelPolicy({ defaultMode: 'ignore', peers: [] }).defaultMode).toBe('ignore')
+  })
+
+  it('旧 wechat-watch.json 的 draft 兜底路径同样收敛', () => {
+    const cfg = parseWechatWatchConfig({ defaultMode: 'draft', groups: [] })
+    expect(policyFromWatchConfig(cfg).defaultMode).toBe('notify')
+  })
+})
+
 describe('自聊 peer（文件传输助手 / 本人 wxid）', () => {
   it('isSelfChatPeer：filehelper 与本人 wxid 命中，别的都不命中', () => {
     expect(isSelfChatPeer('filehelper', [])).toBe(true)
@@ -339,6 +429,8 @@ describe('会话 id / 标题（每 peer 一条线）', () => {
 })
 
 describe('runWechatWatch · 分组策略', () => {
+  beforeEach(() => __resetWatchPendingForTest())
+
   const cfgAutoLoop = parseWechatWatchConfig({
     defaultMode: 'notify',
     groups: [{ name: '好友', mode: 'auto', peers: ['Loop'], cooldownSeconds: 300 }],
@@ -416,7 +508,9 @@ describe('runWechatWatch · 分组策略', () => {
     expect(out).toContain('已代回')
   })
 
-  it('用户自己刚回过（from_me）→ 冷却被他占住，auto 不重复代聊', async () => {
+  it('冷却期内的消息**攒着不丢**：这一拍不代聊，但**不降级成"仅提醒"**', async () => {
+    // 2026-10-10 用户定调：冷却期的语义是「等后续消息累计，下一轮合并交给 Agent 回」，
+    // **不是静默丢弃**。用户自己刚回过也是一个冷却来源，同样按这个语义走。
     const driveTurn = vi.fn(async () => 'ok')
     const { d, callMcpTool } = deps({ config: cfgAutoLoop, driveTurn, nowMs: () => 1_800_000 })
     callMcpTool.mockResolvedValueOnce(JSON.stringify({
@@ -428,7 +522,7 @@ describe('runWechatWatch · 分组策略', () => {
     }))
     const out = await runWechatWatch(d)
     expect(driveTurn).not.toHaveBeenCalled()
-    expect(out).toContain('提醒 1 条')
+    expect(out).not.toContain('提醒')   // 降级成提醒 = 那条消息就没人回了
   })
 
   it('draft 组：提示词明确「只起草不许发」；回合后若真发了消息，如实加警告', async () => {
@@ -457,17 +551,89 @@ describe('runWechatWatch · 分组策略', () => {
     expect(showNotification).toHaveBeenCalled()
   })
 
-  it('冷却期内不重复驱动：第二次只提醒', async () => {
+  it('助手自己回的那条**不算**"用户在聊"——不能把自己关进冷却（回归）', async () => {
+    // 起因（2026-10-10 实测）：回合里 channel_send 发出去的话，下一拍会以 `from_me` 回来。
+    // 若不排掉，助手每回一次就把自己关进「用户正在聊」一整个冷却窗口，期间对方再说话
+    // 只会弹个通知、既不回也不落库——用户连发三条语音全丢。
+    const driveTurn = vi.fn(async () => '我在的')
+    const { d, callMcpTool } = deps({
+      config: cfgAutoLoop,
+      driveTurn,
+      nowMs: () => 1_800_000,
+    })
+    // 第一拍：入站一条；`detectSentTo` 的第二次 poll 回我们**真发出去**的那句
+    callMcpTool
+      .mockResolvedValueOnce(incoming('在吗', 1990))
+      .mockResolvedValueOnce(
+        JSON.stringify({
+          count: 1,
+          messages: [{ ts: 1991, name: 'Loop', talker: 'wxid_loop', from_me: true, text: '我在的' }],
+          next_since_ts: 1991,
+        }),
+      )
+    const out1 = await runWechatWatch(d)
+    expect(driveTurn).toHaveBeenCalledTimes(1)
+    expect(out1).toContain('已代回') // 读库确认发了
+
+    // 第二拍：我们那句以 from_me 回来 + 对方又说了句新的
+    callMcpTool.mockResolvedValue(
+      JSON.stringify({
+        count: 2,
+        messages: [
+          { ts: 1991, name: 'Loop', talker: 'wxid_loop', from_me: true, text: '我在的' },
+          { ts: 1995, name: 'Loop', talker: 'wxid_loop', from_me: false, text: '又问一句' },
+        ],
+        next_since_ts: 1995,
+      }),
+    )
+    const out2 = await runWechatWatch(d)
+    // 关键：**不能**降级成"仅提醒"（那是消息被丢掉的那条路）——应攒着等冷却过
+    expect(out2).not.toContain('提醒')
+  })
+
+  it('冷却期内的后续消息**攒着不丢**（不驱动、也不降级成"仅提醒"）', async () => {
+    // 起因（2026-10-10 用户实测报障）：连发三条语音，只有第一条被回、也只有第一条进了会话记录——
+    // 后两条撞进冷却期被降级成"只弹个通知"，既不回也不落库。现在改成攒着等冷却过。
     const driveTurn = vi.fn(async () => 'ok')
     const { d, callMcpTool } = deps({ config: cfgAutoLoop, driveTurn, nowMs: () => 1_800_000 })
     callMcpTool.mockResolvedValue(incoming('第一条', 1990))
     await runWechatWatch(d)
     expect(driveTurn).toHaveBeenCalledTimes(1)
-    // 同一会话、下一拍（水位推进后）又来一条 → 冷却 300s 未过 → 不再驱动
+    // 同一会话、下一拍（水位推进后）又来一条 → 冷却 300s 未过 → 不驱动
     callMcpTool.mockResolvedValue(incoming('第二条', 1995))
     const out2 = await runWechatWatch(d)
     expect(driveTurn).toHaveBeenCalledTimes(1)
-    expect(out2).toContain('提醒 1 条')
+    // 关键：**不再降级成"仅提醒"**——那正是消息被丢掉的那条路
+    expect(out2).not.toContain('提醒')
+  })
+
+  it('冷却期内攒下的消息 → **下一轮**合并成一次交给 Agent（不是等冷却过期）', async () => {
+    const driveTurn = vi.fn(async () => 'ok')
+    const { d, callMcpTool } = deps({
+      config: cfgAutoLoop,
+      driveTurn,
+      nowMs: () => 1_800_000,   // 时钟不动：证明**不靠冷却过期**也能放行
+    })
+
+    callMcpTool.mockResolvedValue(incoming('第一条', 1990))
+    await runWechatWatch(d)
+    expect(driveTurn).toHaveBeenCalledTimes(1)
+
+    // 冷却期内又来一条：**攒着**，不驱动、也不降级成"仅提醒"
+    callMcpTool.mockResolvedValue(incoming('第二条', 1995))
+    const out2 = await runWechatWatch(d)
+    expect(driveTurn).toHaveBeenCalledTimes(1)
+    expect(out2).not.toContain('提醒')
+
+    // **下一轮**：又到一条 → 攒着的那条连新到的一起交给 Agent
+    // （一次回合、两条都在提示词里；时钟一动没动，证明不靠"冷却过期"）
+    callMcpTool.mockResolvedValue(incoming('第三条', 1996))
+    await runWechatWatch(d)
+    expect(driveTurn).toHaveBeenCalledTimes(2)
+    const [prompt] = driveTurn.mock.calls[1] as unknown as [string]
+    expect(prompt).toContain('第二条')
+    expect(prompt).toContain('第三条')
+    expect(prompt).toContain('2 条')
   })
 })
 
@@ -475,18 +641,18 @@ describe('手册注入（RUNBOOK）——**回落路径**：代聊 Agent 不在�
   const msg = { ts: 100, name: 'Loop', talker: 'wxid_loop', text: '在吗' }
 
   it('提示词把手册放在最前（硬约束，不靠模型"记得去读"），触发信息在后', () => {
-    const p = buildAutoPrompt(msg, '【护栏】涉钱不发', 'temp/wx-loop/RUNBOOK.md')
+    const p = buildAutoPrompt([msg], '【护栏】涉钱不发', 'temp/wx-loop/RUNBOOK.md')
     expect(p.indexOf('【护栏】涉钱不发')).toBeGreaterThanOrEqual(0)
     expect(p.indexOf('【护栏】涉钱不发')).toBeLessThan(p.indexOf('【本次触发】'))
     expect(p).toContain('不要再轮询')
     expect(p).toContain('转人工')
-    const d = buildDraftPrompt(msg, '【护栏】涉钱不发', 'temp/wx-loop/RUNBOOK.md')
+    const d = buildDraftPrompt([msg], '【护栏】涉钱不发', 'temp/wx-loop/RUNBOOK.md')
     expect(d.indexOf('【护栏】涉钱不发')).toBeLessThan(d.indexOf('【本次触发】'))
     expect(d).toContain('只起草、不要发送')
   })
 
   it('auto 档的发送指令只指向渠道出站，且把<收件人>钉死成这一条消息的 talker', () => {
-    const p = buildAutoPrompt(msg, '【手册】日常闲聊可直接回', 'temp/wx-loop/RUNBOOK.md')
+    const p = buildAutoPrompt([msg], '【手册】日常闲聊可直接回', 'temp/wx-loop/RUNBOOK.md')
     expect(p).toContain('channel_send')
     expect(p).toContain('channel="pcwechat"')
     expect(p).toContain('to="wxid_loop"')
@@ -500,7 +666,7 @@ describe('手册注入（RUNBOOK）——**回落路径**：代聊 Agent 不在�
       instructionsFile: 'temp/wx-loop/RUNBOOK.md',
     })
     expect(cfg.instructionsFile).toBe('temp/wx-loop/RUNBOOK.md')
-    expect(buildAutoPrompt(msg)).not.toContain('【必须遵守的手册')
+    expect(buildAutoPrompt([msg])).not.toContain('【必须遵守的手册')
     expect(loadInstructions(undefined)).toBe('')
     expect(loadInstructions('不存在的-abc-123.md')).toBe('')
   })

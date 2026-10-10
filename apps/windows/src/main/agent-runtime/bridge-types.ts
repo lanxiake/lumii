@@ -66,6 +66,14 @@ export interface AgentRuntimeBridgeConfig {
    */
   showCronNotification?: (title: string, body: string, convId?: string) => void
   /**
+   * 语音文件 → 文字（由 index.ts 注入：`transcribeVoiceFile` + 本地 ASR）。
+   *
+   * 供微信盯梢把入站**语音消息**转成人话——音频不在磁盘上，是 MCP 从
+   * `media_*.db` 的 `VoiceInfo` 取出来落成文件的。不给这个钩子就只是没有转写，
+   * 消息仍带 `[语音 N 秒]` 元数据照常走。
+   */
+  transcribeVoice?: (absPath: string) => Promise<string>
+  /**
    * 开启自主能力的额外 Agent（除 assistant 外；来自 app.json autonomousAgents）。
    * 心跳 tick 遍历 assistant + 本列表；缺省/空表示仅 assistant 参与。
    */

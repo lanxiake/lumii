@@ -765,6 +765,24 @@ async function initAgentRuntime(): Promise<void> {
       if (!feishuLoginService) return { ok: false, error: '飞书服务未初始化' }
       return feishuLoginService.pushText(text)
     },
+    /**
+     * 语音文件 → 文字（微信盯梢的入站语音用它）。
+     *
+     * 复用**已有的**那套：`transcribeVoiceFile` 按内容嗅探 SILK（silk-wasm 解）
+     * 或交给 ffmpeg，再走本地 ASR —— QQ/飞书语音走的就是它，这里只是多接一个调用方。
+     * `voiceCallService` 是懒取的（它可能晚于本配置创建），没有就返回空串，绝不抛。
+     */
+    transcribeVoice: async (absPath: string) => {
+      if (!voiceCallService) return ''
+      try {
+        return await transcribeVoiceFile(absPath, (samples, sampleRate) =>
+          voiceCallService!.transcribePcm(samples, sampleRate),
+        )
+      } catch (e) {
+        log.warn('[WechatVoice] 转写失败:', e instanceof Error ? e.message : String(e))
+        return ''
+      }
+    },
     getChannelRouter: () => channelHub?.router ?? null,
     generateVoiceFile: async (
       text: string,

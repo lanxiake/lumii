@@ -34,10 +34,12 @@ import type { DatabaseAdapter } from '@mtbot/agent-runtime'
 import { resolveWindowsClientDataRoot } from '../client-data-root'
 import {
   isSamePeer,
+  NON_AGENT_MODES,
   resolvePeerPolicy,
   type ChannelPeerPolicy,
   type ChannelPolicy,
   type PeerReplyMode,
+  type ResolvedPeerPolicy,
 } from '../../shared/channel-policy'
 import { agentRuntimeLog as log } from './bridge-utils'
 import { relayOwnedSection } from './wechat-relay-agent'
@@ -180,6 +182,43 @@ export function withSelfPeers(
 
 // 自聊回环护栏：助手刚发出去的话，下一拍会以 `from_me` 出现在同一会话里——不记住的话会被
 // 当成"用户又发了一条"再触发一次。记 peer→[文本, 时刻]，TTL 内按**文本**跳过。
+/**
+ * 冷却期攒下的消息（按会话）——**待办，不是丢弃**。
+ *
+ * 为什么要有：用户连发三条语音时，第一条触发回合并设下冷却，后两条撞进冷却期，
+ * 旧行为把它们降级成「只弹个通知」：**既没被回、也不进会话记录**（2026-10-10 用户实测报障）。
+ * 现在攒着，**下一轮连同期新到的一起交给 Agent**——消息不丢，连发还被合并成一次回复
+ * （冷却的语义就是「等对方把话说完再回一次」）。
+ *
+ * 放内存即可：它只活**一拍**；真丢了（重启）也不影响正确性——那些消息已经落在微信侧，
+ * 用户看得到，只是这一轮不会被自动回。
+ */
+const pendingByPeer = new Map<string, WechatMessage[]>()
+
+
+/** 一个会话最多攒多少条待办（防呆：冷却被配成很大时不至于无限涨）。超了丢**最老**的。 */
+const MAX_PENDING_PER_PEER = 50
+
+/**
+ * 仅供测试：清掉上面那两个模块级内存态。
+ *
+ * 它们是**跨拍存活**的（这正是设计意图），但测试之间必须隔离——不清的话，
+ * 上一个用例攒下的待办会漏进下一个用例的提示词里。
+ */
+export function __resetWatchPendingForTest(): void {
+  pendingByPeer.clear()
+}
+
+/** 消息身份：`local_id` 是会话内稳定序号，比 `ts` 可靠（同秒可能多条）。 */
+function msgKey(m: WechatMessage): string {
+  return String(m.local_id ?? m.ts)
+}
+
+function deferPeer(peer: string, msgs: WechatMessage[]): void {
+  const keep = msgs.length > MAX_PENDING_PER_PEER ? msgs.slice(-MAX_PENDING_PER_PEER) : msgs
+  pendingByPeer.set(peer, keep)
+}
+
 const SELF_SEND_TTL_MS = 5 * 60_000
 const recentSelfSends = new Map<string, { text: string; at: number }[]>()
 
@@ -310,7 +349,10 @@ export function policyFromWatchConfig(cfg: WechatWatchConfig): ChannelPolicy {
         })),
     ),
   ]
-  return { defaultMode: cfg.defaultMode, peers }
+  // 名单外**只能是非-agent 档**（`NON_AGENT_MODES`）：这条兜底路径（渠道存储没接上时）也得守
+  // 同一条铁律，否则「名单外不叫模型」会被一份手写的 wechat-watch.json 绕过去。
+  const defaultMode = NON_AGENT_MODES.includes(cfg.defaultMode) ? cfg.defaultMode : 'notify'
+  return { defaultMode, peers }
 }
 
 /**
@@ -360,12 +402,61 @@ export interface WechatMessage {
   from_me?: boolean
   /** 真实发送者的显示名（`msg_dict` 给的；私聊即对方本人，群里才是说话的人） */
   sender?: string
+  /**
+   * 语音消息的 SILK 文件路径（MCP 从 `media_*.db` 的 `VoiceInfo` 导出的，仅当确实取到）。
+   * 拿到就用 `deps.transcribeVoice` 转成文字——微信语音**不在磁盘上**，音频本体住在库里，
+   * 由服务端落成文件再交给客户端已有的 silk-wasm + 本地 ASR 解（见 `voice_file`）。
+   */
+  voice_path?: string
+  /** 会话内稳定序号；MCP 用它把语音精确对上 `VoiceInfo`（`create_time` 会同秒相撞） */
+  local_id?: number
+  /**
+   * 群消息里**@了本人**（MCP 按 `msgsource` 的 `<atuserlist>` 里的 wxid 判定，不看昵称）。
+   * 只有命中才带这个字段；用来实现「群里只回 @我的」那档闸门。
+   */
+  at_me?: boolean
+  /**
+   * 语音的**本地转写文字**（回路拿到 `voice_path` 后转写出来的）。
+   *
+   * 挂在这个字段上而不是只塞进当轮提示词：用户点进会话要能看见「对方到底说了什么」，
+   * 所以 `formatIncomingForHistory` 落库时也要带上它。
+   */
+  voice_text?: string
 }
 
 /** `poll_new` 的返回（只声明这条循环用到的字段） */
 interface PollPayload {
   messages?: WechatMessage[]
   next_since_ts?: number
+}
+
+/** 是不是群会话（本机微信的群 talker 恒以 `@chatroom` 结尾）。 */
+export function isGroupTalker(talker: string | undefined): boolean {
+  return !!talker && talker.trim().toLowerCase().endsWith('@chatroom')
+}
+
+/**
+ * 闸门：这条消息够不够格**叫醒代聊**。
+ *
+ * 只挡「要叫模型」的两档（draft/auto）——`notify` 档本来就不叫模型，用户要的是照旧提醒，
+ * 拿 @/关键字去筛它只会让通知变哑。判定放这里而不是循环里：`selectNewMessages` 是
+ * **所有**路径的唯一漏斗，闸门开在这儿，通知、冷却、画像巡检就都不会漏。
+ *
+ * 群与私聊的差别只有一处：**@ 是群才有的概念**。私聊里选了 `mention`（界面不会给，
+ * 手写配置可能给）就当作不过滤——静默把这个人所有消息吞掉是最糟的失败方式。
+ */
+export function triggerAllows(
+  m: WechatMessage,
+  p: Pick<ResolvedPeerPolicy, 'trigger' | 'keywords'>,
+): boolean {
+  if (p.trigger === 'all') return true
+  const hitKeyword =
+    p.keywords.length > 0 &&
+    p.keywords.some((k) => k.length > 0 && (m.text ?? '').toLowerCase().includes(k.toLowerCase()))
+  if (!isGroupTalker(m.talker)) return p.trigger === 'mention' ? true : hitKeyword
+  if (p.trigger === 'mention') return m.at_me === true
+  // keyword / mention_or_keyword：命中关键字（或 @我）即可
+  return hitKeyword || (p.trigger === 'mention_or_keyword' && m.at_me === true)
 }
 
 /**
@@ -382,12 +473,49 @@ export function selectNewMessages(
 ): WechatMessage[] {
   return messages.filter((m) => {
     if (m.from_me && !isSelfChatPeer(m.talker, selfWxids)) return false
-    return resolvePeerPolicy(policy, { id: m.talker, label: m.name }).mode !== 'ignore'
+    const resolved = resolvePeerPolicy(policy, { id: m.talker, label: m.name })
+    if (resolved.mode === 'ignore') return false
+    if (resolved.mode === 'notify') return true // 只提醒：不叫模型，没什么可挡的
+    return triggerAllows(m, resolved)
   })
 }
 
 const fmtText = (s?: string) => (s || '').replace(/\s+/g, ' ').slice(0, 300)
 const fmtWhen = (ts: number) => new Date(ts * 1000).toLocaleString('zh-CN')
+
+/**
+ * 这一批里语音消息的**转写说明**（按整批统计，不是只看最后一条）。
+ *
+ * 两句话分开说，因为处置完全不同：
+ * - 转出来了 → 文字就在消息行的「（转写：…）」里，**以它为准**；
+ * - 没转出来 → **别猜**（音频可能根本没下载下来）。这一条不写的话，模型看着
+ *   「[语音 3.8 秒]」会自己编一段内容出来——那是最糟的失败方式。
+ */
+function voiceLine(msgs: readonly WechatMessage[]): string[] {
+  const done = msgs.filter((m) => (m.voice_text || '').trim()).length
+  const missed = msgs.filter((m) => m.voice_path && !(m.voice_text || '').trim()).length
+  const out: string[] = []
+  if (done) {
+    out.push(`（上面 ${done} 条语音已**本地转写**，文字就在「（转写：…）」里，**以它为准**。）`)
+  }
+  if (missed) {
+    out.push(
+      `（还有 ${missed} 条语音**没转出文字**——音频可能没下载完。**别去猜它说了什么**，` +
+        `拿不准就如实回一句没听清。）`,
+    )
+  }
+  return out
+}
+
+/**
+ * 把一批消息渲染成提示词里的「对方发来了什么」。
+ *
+ * 用 `formatIncomingForHistory` 而不是自己拼：**提示词和落到会话历史里的必须是同一段文字**
+ * （用户翻记录看到的、和模型当时看到的是同一个东西，对不上就没法复盘）。
+ */
+function renderBatch(msgs: readonly WechatMessage[]): string[] {
+  return msgs.map((m) => `「${formatIncomingForHistory(m)}」`)
+}
 
 /** 手册文件（workspace 相对或绝对）→ 全文；读不到给空串（不阻塞，但会记一条 warn）。
  *  只在回落路径上被调用（代聊 Agent 不在时）——它在的时候手册不参与提示词。 */
@@ -427,16 +555,18 @@ function instructionsBlock(runbook: string, file: string | undefined): string[] 
 
 /** 起草模式的提示词：本次触发 → 只起草不许发 */
 export function buildDraftPrompt(
-  msg: WechatMessage,
+  msgs: readonly WechatMessage[],
   runbook = '',
   instructionsFile?: string,
 ): string {
+  const msg = msgs[msgs.length - 1]
   const who = msg.name || msg.talker || '对方'
   return [
     ...instructionsBlock(runbook, instructionsFile),
     '【本次触发】监控回路把消息取好了，**不要再轮询**；按上面的护栏与工作流处置这一批即可：',
-    `微信「${who}」刚给我发来（${fmtWhen(msg.ts)}）：`,
-    `「${fmtText(msg.text)}」`,
+    `微信「${who}」刚给我发来 ${msgs.length} 条：`,
+    ...renderBatch(msgs),
+    ...voiceLine(msgs),
     '（这个人的策略是：起草给我确认。）',
     '',
     '请：',
@@ -465,16 +595,18 @@ export function buildDraftPrompt(
  * 在此期间被「已在运行中，跳过」，新消息至少晚一分钟才被处理。
  */
 export function buildAutoPrompt(
-  msg: WechatMessage,
+  msgs: readonly WechatMessage[],
   runbook = '',
   instructionsFile?: string,
 ): string {
+  const msg = msgs[msgs.length - 1]
   const who = msg.name || msg.talker || '对方'
   return [
     ...instructionsBlock(runbook, instructionsFile),
     '【本次触发】监控回路把消息取好了，**不要再轮询、也不要去查水位**：',
-    `微信「${who}」刚给我发来（${fmtWhen(msg.ts)}）：`,
-    `「${fmtText(msg.text)}」`,
+    `微信「${who}」刚给我发来 ${msgs.length} 条：`,
+    ...renderBatch(msgs),
+    ...voiceLine(msgs),
     '（这个人的策略是：**允许按护栏直接替我回**。）',
     '',
     '先判档，再走对应的出口：',
@@ -612,6 +744,14 @@ export interface WechatWatchDeps {
   getRelayAgent?: () => { id: string; systemPrompt?: string } | undefined
   /** 覆盖配置路径（测试用） */
   configPath?: string
+  /**
+   * 语音转文字（bridge 注入：`transcribeVoiceFile` + 本地 ASR）。
+   *
+   * 微信语音的音频**不在磁盘上**，在 `media_*.db` 的 `VoiceInfo` 表里。MCP 取出 SILK
+   * 落成文件、在消息上给 `voice_path`，这里把它转成文字——**不给就只是没有转写**，
+   * 消息仍带着 `[语音 N 秒]` 的元数据照常走，绝不因为缺这个部件就断掉。
+   */
+  transcribeVoice?: (absPath: string) => Promise<string>
   /** 直接给定配置（测试用；给了就不读文件） */
   config?: WechatWatchConfig
   /** 时间源（测试用） */
@@ -651,7 +791,11 @@ export interface WatchTurnMeta {
  * 非文本（图片/语音/卡片）在 MCP 侧已被换成 `[非文本消息]`，只有空正文才走兜底。
  */
 export function formatIncomingForHistory(m: WechatMessage): string {
-  const body = (m.text ?? '').trim() || '（非文本消息）'
+  const raw = (m.text ?? '').trim() || '（非文本消息）'
+  // 语音消息把**转写文字**一并落库：用户翻这个会话时要能看见对方说了什么，
+  // 而不是只看到一句「[语音 1.9 秒]」。转写在 `voice_text`（回路转出来的）。
+  const t = (m.voice_text ?? '').trim()
+  const body = t ? `${raw}（转写：${t}）` : raw
   return m.sender && m.talker?.endsWith('@chatroom') ? `${m.sender}：${body}` : body
 }
 
@@ -1116,7 +1260,7 @@ export async function runWechatWatch(deps: WechatWatchDeps): Promise<string> {
     pruneOwnRuns(db)
     // 画像巡检只针对**人**：自聊（文件传输助手/本人账号）不是"某个人"，给它蒸馏画像是白花 token
     const personPeers = policy.peers.filter((p) => !isSelfChatPeer(p.id, selfWxids))
-    if (fresh.length === 0) {
+    if (fresh.length === 0 && pendingByPeer.size === 0) {
       // 空闲拍：先把锁屏/抢不到前台时积压的送出去（见 flushWechatOutbox），
       // 再给名单里还没有画像的人补一张（见 maybeDistillProfiles）。
       // 两件都只在空闲拍做——有活回合时它们会跟这一轮抢那双手和那个端点。
@@ -1126,13 +1270,21 @@ export async function runWechatWatch(deps: WechatWatchDeps): Promise<string> {
       return [base, flushed, swept].filter(Boolean).join('｜')
     }
 
-    // 同一会话这拍里的多条合并成一次动作（一条消息一个回合会太吵，也浪费）
+    // 同一会话这拍里的多条合并成一次动作（一条消息一个回合会太吵，也浪费）。
+    // **待办排在前面**：上一拍因为冷却被攒下的消息，这一拍要跟新到的一起处理。
+    // **合并时要按消息身份去重**：待办里的消息水位已经推进过了，正常不会再出现；
+    // 但一旦重叠（水位回退、同一条被两拍取到），不去重就会把它**重复写进提示词**，
+    // 模型会以为对方说了两遍（实测踩过：批次渲染出「第二条 / 第三条 / 第三条」）。
     const byPeer = new Map<string, WechatMessage[]>()
+    for (const [peerKey, arr] of pendingByPeer) byPeer.set(peerKey, [...arr])
     for (const m of fresh) {
       const key = m.talker || m.name || '?'
       const arr = byPeer.get(key)
-      if (arr) arr.push(m)
-      else byPeer.set(key, [m])
+      if (!arr) {
+        byPeer.set(key, [m])
+      } else if (!arr.some((x) => msgKey(x) === msgKey(m))) {
+        arr.push(m)
+      }
     }
 
     // 护栏与口径**住在哪**：M3 起唯一真源是「灵栖代聊」的 systemPrompt（每轮自动带上，零重复 token）。
@@ -1160,14 +1312,23 @@ export async function runWechatWatch(deps: WechatWatchDeps): Promise<string> {
       // 给它推冷却会把刚到的入站消息直接降级成提醒、代聊永远收不到——跳过。
       if (isSelfChatPeer(m.talker, selfWxids)) continue
       const key = m.talker || m.name || '?'
+      // ⚠️ **我们自己刚发出去的那条也会以 `from_me` 回来**（回合里 channel_send 发的）。
+      // 不排掉的话：助手每回一次就把自己关进「用户正在聊」一整个冷却窗口——期间对方
+      // 再说话只会弹个通知、**既不回也不落库**（2026-10-10 实测：连发三条语音全丢）。
+      // `rememberSelfSends` 记的是**读库实测**发出去的原话，所以文本能对上。
+      if (wasSelfSent(key, m.text, nowForSent)) continue
       if ((cooldown[key] ?? 0) < nowForSent) {
         cooldown[key] = nowForSent
         cooldownDirty = true
       }
+
     }
 
     for (const [peer, msgs] of byPeer) {
       const last = msgs[msgs.length - 1]
+      // 这一批里有没有**上一拍攒下的**：有就说明它们已经等过一轮了，**这一拍必须处理**，
+      // 不能再让冷却把它们挡回去（那样攒着就退化成丢弃了）。
+      const wasPending = pendingByPeer.has(peer)
       // 人名条目在这里自愈成真 wxid（此刻才知道 talker↔名字的对应），改动立即落盘
       const healed = healPeerBinding(policy, { id: last.talker, label: last.name })
       if (healed) {
@@ -1185,27 +1346,56 @@ export async function runWechatWatch(deps: WechatWatchDeps): Promise<string> {
       if (mode === 'notify') {
         notifyOnly.push(...msgs)
         notifyConvIds.add(convId)
+        pendingByPeer.delete(peer)
         continue
       }
       const nowMsNow = deps.nowMs?.() ?? Date.now()
-      if ((cooldown[peer] ?? 0) + cd * 1000 > nowMsNow) {
-        // 冷却期内不打扰对方（也不叫模型）。自聊会话**静默跳过**，不降级成提醒——
-        // 冷却内多半就是助手自己刚回的那条（或用户同一波连发），提醒只会自己刷自己。
-        if (!isSelfChatPeer(last.talker, selfWxids)) {
-          notifyOnly.push(...msgs)
-          notifyConvIds.add(convId)
-        }
+      if (!wasPending && (cooldown[peer] ?? 0) + cd * 1000 > nowMsNow) {
+        // **冷却期 = 等后续消息累计**（不是静默丢弃）。
+        //
+        // 用户连发几条时，第一条触发回合并设下冷却；随后到的那些**攒进待办**，
+        // **下一轮连同一起来的一起交给 Agent 回一次**——既不丢消息，也不一条一回合地刷屏。
+        //
+        // 为什么不是「攒到冷却过期」：缺省冷却 60 秒，连发三条要等一分钟才有人理，
+        // 那是另一种不可用。攒**一拍（15 秒）**的语义正好是「等对方把这句话说完整」。
+        //
+        // ⚠️ 攒着的消息**冷却期没到也会在下一拍放行**（`wasPending` 就是为了这个）——
+        // 否则「等冷却」会变成事实上的丢弃。
+        deferPeer(peer, msgs)
+        log.info(`[wechat-watch] ${peer} 冷却期内收到 ${msgs.length} 条，攒到下一轮合并处理`)
         continue
       }
       if (!deps.driveTurn) {
         notifyOnly.push(...msgs)
         notifyConvIds.add(convId)
+        pendingByPeer.delete(peer)
         continue
       }
+      // 语音消息：MCP 已把 SILK 落成文件（`voice_path`），这里转成文字再拼进提示词。
+      // **整批都转**——以前只看 `last`，一批三条语音时前两条的转写就白丢了。
+      // 缺 `transcribeVoice` 部件、或某条转写失败，都只是那条**没有转写**——消息本身
+      // 仍带 `[语音 N 秒]` 照常走，绝不因为这一步断掉整轮。
+      if (deps.transcribeVoice) {
+        for (const vm of msgs) {
+          if (!vm.voice_path || (vm.voice_text ?? '').trim()) continue
+          try {
+            const t = await deps.transcribeVoice(vm.voice_path)
+            if (t) {
+              vm.voice_text = t          // 提示词与**落库的会话历史**都从它取
+              log.info(`[wechat-watch] 语音已转写（${t.length} 字）peer=${peer}`)
+            } else {
+              log.info(`[wechat-watch] 语音转写返回空（模型未就绪或音频无声）peer=${peer}`)
+            }
+          } catch (err) {
+            log.warn(`[wechat-watch] 语音转写失败 peer=${peer}:`, err instanceof Error ? err.message : err)
+          }
+        }
+      }
+      pendingByPeer.delete(peer)
       const prompt =
         mode === 'auto'
-          ? buildAutoPrompt(last, injectRunbook, cfg.instructionsFile)
-          : buildDraftPrompt(last, injectRunbook, cfg.instructionsFile)
+          ? buildAutoPrompt(msgs, injectRunbook, cfg.instructionsFile)
+          : buildDraftPrompt(msgs, injectRunbook, cfg.instructionsFile)
       let result = ''
       try {
         result = await deps.driveTurn(prompt, {

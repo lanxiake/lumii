@@ -2043,6 +2043,8 @@ export class AgentRuntimeBridge {
       getRelayAgent: () => this.wechatRelayAgent(),
       // 本机微信的本人 wxid（自聊识别：文件传输助手 + 本人账号都算"用户发给助手"）
       getSelfWxids: () => this.wechatSelfWxids(),
+      // 入站语音 → 文字（缺这个部件就只剩 `[语音 N 秒]`，不影响这一轮能不能跑）
+      transcribeVoice: this.config.transcribeVoice,
     }
   }
 
