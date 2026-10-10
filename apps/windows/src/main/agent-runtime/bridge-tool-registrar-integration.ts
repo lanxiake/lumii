@@ -20,6 +20,7 @@ import {
   systemPromptToolConfig,
   speechGenerateToolConfig,
   imageGenerateToolConfig,
+  OUTBOUND_CHANNEL_PROFILES,
 } from '@mtbot/agent-runtime'
 import type { AgentToolResult } from '@earendil-works/pi-agent-core'
 import { agentRuntimeLog as log, jsonToolResult, removeMarkdownSection } from './bridge-utils'
@@ -29,6 +30,7 @@ import {
   isOutboundChannelId,
   OUTBOUND_CHANNEL_IDS,
   type ChannelSendResult,
+  type ChannelSnapshot,
 } from '../channel/outbound-types'
 import { resolveWindowsClientDataRoot } from '../client-data-root'
 import {
@@ -41,6 +43,17 @@ import {
   writeSceneMemory,
 } from './scene-memory-store'
 import { resolveChannel } from './scene-resolver'
+
+/**
+ * 给 channel_list 的快照补上渠道身份与能力说明（name / note）。
+ * 只有 id + pushMode 时模型分不清「个人微信」与「本机微信」，见 OUTBOUND_CHANNEL_PROFILES。
+ */
+export function describeChannelSnapshot(
+  snapshot: ChannelSnapshot,
+): ChannelSnapshot & { name: string; note: string } {
+  const profile = OUTBOUND_CHANNEL_PROFILES[snapshot.channel]
+  return { ...snapshot, name: profile.name, note: profile.note }
+}
 
 /**
  * 注册渠道出站工具 channel_list / channel_send（走 ChannelOutboundRouter）。
@@ -62,7 +75,7 @@ export function registerChannelTools(deps: BridgeToolRegistrarDeps): void {
         })
       }
       const channels = await router.list()
-      return jsonToolResult({ channels })
+      return jsonToolResult({ channels: channels.map(describeChannelSnapshot) })
     },
   }
   deps.toolRegistry.register(createMtBotTool(channelList, ctx))

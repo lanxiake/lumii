@@ -29,6 +29,52 @@ export const OUTBOUND_CHANNEL_IDS = [
 
 export type OutboundChannelId = (typeof OUTBOUND_CHANNEL_IDS)[number];
 
+/**
+ * 本机微信里「用户本人」的收件人：文件传输助手。
+ * 给它发 = 主动推送给用户自己（个人微信渠道做不到的那条路）。
+ */
+export const PCWECHAT_SELF_PEER_ID = "filehelper";
+
+/**
+ * 各渠道写给 Agent 的身份与能力说明 —— **唯一一份**。
+ *
+ * `weixin` 与 `pcwechat` 都叫「微信」，但方向与能力完全不同，只给 id + pushMode 时
+ * 模型分不清：把需要主动推送的通知发到个人微信（被动回复窗口外必失败），
+ * 或不知道本机微信可以发给文件传输助手来通知用户本人。channel_list 的每条快照
+ * 带上这里的 name/note，工具描述与提示词也按同一口径写。
+ */
+export const OUTBOUND_CHANNEL_PROFILES: Readonly<
+  Record<OutboundChannelId, { readonly name: string; readonly note: string }>
+> = {
+  feishu: {
+    name: "飞书",
+    note: "Native push: can message any listed peer at any time; supports files.",
+  },
+  weixin: {
+    name: "个人微信 (Lumii WeChat bot)",
+    note:
+      "The user chats WITH the Lumii bot from their phone. Reply-window only: it can send only to a peer " +
+      "who messaged the bot recently (cached context token, stale after ~24h) and cannot push multiple " +
+      "unsolicited messages or reach a conversation that has been quiet for a long time. " +
+      "Not suited for proactive notifications.",
+  },
+  wecom: {
+    name: "企业微信",
+    note: "Reply-only: no proactive push at all.",
+  },
+  qbot: {
+    name: "QQ",
+    note: "Text within ~5 minutes of the peer's last message; files limited to images/video/voice.",
+  },
+  pcwechat: {
+    name: "本机微信 (desktop WeChat on this PC)",
+    note:
+      "Sends AS THE USER from the WeChat client on this computer (GUI automation). Native push: can send " +
+      "at any time, any number of messages, text only, and only to peers on its reply allowlist. " +
+      `To proactively notify the USER THEMSELF, send to to="${PCWECHAT_SELF_PEER_ID}" (文件传输助手, File Transfer).`,
+  },
+};
+
 /** 入参校验用：这个字符串是不是合法渠道 id */
 export function isOutboundChannelId(value: unknown): value is OutboundChannelId {
   return (
@@ -46,6 +92,8 @@ export const channelListToolConfig: MtBotToolConfig<typeof ChannelListParams> = 
   label: "Channel List",
   description:
     "List connected messaging channels (feishu/weixin/wecom/qbot/pcwechat), their pushMode, and addressable peers. " +
+    "Each entry carries name and note fields describing what that channel can do — read them: " +
+    "weixin (个人微信, the Lumii WeChat bot) and pcwechat (本机微信, desktop WeChat on this PC) are DIFFERENT channels. " +
     "Call this BEFORE channel_send to obtain valid peer ids. Do not guess recipient ids.",
   parameters: ChannelListParams,
   category: "channel",
@@ -75,7 +123,9 @@ const ChannelSendParams = Type.Object({
         description:
           "Target channel id. OMIT it to reply on the channel this turn came from " +
           "(the active conversation) — that is the right choice for 'send it to me'. " +
-          "Only set it explicitly when the user names another channel.",
+          "Only set it explicitly when the user names another channel. " +
+          "weixin = 个人微信 (Lumii WeChat bot, reply-window only); " +
+          "pcwechat = 本机微信 (desktop WeChat on this PC, can push anytime).",
       },
     ),
   ),
@@ -122,7 +172,10 @@ export const channelSendToolConfig: MtBotToolConfig<typeof ChannelSendParams> = 
     "Set 'mediaPath' to an absolute local path to send a file. " +
     "For reports/long content, pass the source Markdown — don't pre-flatten it to plain text. " +
     "Capability limits (report them honestly, never silently switch channel): " +
-    "WeChat needs a prior inbound message (cached context token); " +
+    "weixin (个人微信, Lumii bot) needs a recent inbound message from that peer (cached context token) and " +
+    "cannot push multiple unsolicited messages or reach a long-quiet conversation; " +
+    `pcwechat (本机微信, desktop WeChat on this PC) can push at any time — to notify the user themself use ` +
+    `channel="pcwechat", to="${PCWECHAT_SELF_PEER_ID}" (文件传输助手); ` +
     "QQ text is deliverable within ~5 minutes of the peer's last message (passive window), " +
     "and QQ files are limited to images/video/voice (documents are not open on the platform yet); " +
     "WeCom does not support proactive push (will hard-fail). " +

@@ -6,6 +6,8 @@ import {
   CHANNEL_LIST_TOOL_NAME,
   CHANNEL_SEND_TOOL_NAME,
   OUTBOUND_CHANNEL_IDS,
+  OUTBOUND_CHANNEL_PROFILES,
+  PCWECHAT_SELF_PEER_ID,
   channelListToolConfig,
   channelSendToolConfig,
 } from "./channel-tools.js";
@@ -34,5 +36,19 @@ describe("channel-tools stub contract", () => {
     expect(channelSendToolConfig.isReadOnly).toBe(false);
     expect(channelSendToolConfig.needsPermission).toBe(true);
     expect(channelSendToolConfig.category).toBe("channel");
+  });
+
+  it("个人微信与本机微信在渠道说明与工具描述里区分清楚，并给出自推送路径", () => {
+    // 反例：只给 id + pushMode 时，模型把需要主动推送的通知发到个人微信（被动窗口外必失败），
+    // 或不知道本机微信可以发给文件传输助手来通知用户本人。
+    for (const id of OUTBOUND_CHANNEL_IDS) {
+      expect(OUTBOUND_CHANNEL_PROFILES[id].name.length).toBeGreaterThan(0);
+      expect(OUTBOUND_CHANNEL_PROFILES[id].note.length).toBeGreaterThan(0);
+    }
+    expect(OUTBOUND_CHANNEL_PROFILES.weixin.name).toContain("个人微信");
+    expect(OUTBOUND_CHANNEL_PROFILES.pcwechat.name).toContain("本机微信");
+    expect(OUTBOUND_CHANNEL_PROFILES.pcwechat.note).toContain(`to="${PCWECHAT_SELF_PEER_ID}"`);
+    expect(channelSendToolConfig.description).toContain("个人微信");
+    expect(channelSendToolConfig.description).toContain(`to="${PCWECHAT_SELF_PEER_ID}"`);
   });
 });

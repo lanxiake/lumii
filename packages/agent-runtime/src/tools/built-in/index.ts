@@ -34,6 +34,8 @@ export {
   CHANNEL_LIST_TOOL_NAME,
   CHANNEL_SEND_TOOL_NAME,
   OUTBOUND_CHANNEL_IDS,
+  OUTBOUND_CHANNEL_PROFILES,
+  PCWECHAT_SELF_PEER_ID,
   isOutboundChannelId,
   type OutboundChannelId,
 } from "./channel-tools.js";

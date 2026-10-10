@@ -142,6 +142,9 @@ export {
   CHANNEL_SEND_TOOL_NAME,
   /** 渠道 id 清单（唯一一份）：channel_send 的 schema enum 与主进程 Router 校验共用 */
   OUTBOUND_CHANNEL_IDS,
+  /** 渠道身份与能力说明（唯一一份）：channel_list 输出与提示词口径共用，区分个人微信 / 本机微信 */
+  OUTBOUND_CHANNEL_PROFILES,
+  PCWECHAT_SELF_PEER_ID,
   isOutboundChannelId,
   type OutboundChannelId,
   memorySearchToolConfig,

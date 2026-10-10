@@ -45,7 +45,9 @@ const CronCreateParams = Type.Object({
       description:
         "Comma-separated notification targets. " +
         "Local: system (desktop notification) / news (dashboard feed) / focus (work memory) / silent. " +
-        "Channels: feishu / qbot:<peerId> / weixin:<peerId> — weixin and qbot require an explicit peer id. " +
+        "Channels: feishu / qbot:<peerId> / weixin:<peerId> / pcwechat[:<peerId>] — weixin and qbot require an explicit peer id. " +
+        "weixin = 个人微信 (Lumii bot, reply-window only: unreliable for scheduled pushes to a quiet chat); " +
+        "pcwechat = 本机微信 (desktop WeChat on this PC, can push anytime; without a peer it goes to the user's own 文件传输助手). " +
         "If omitted, defaults to the channel this conversation is happening in.",
     }),
   ),

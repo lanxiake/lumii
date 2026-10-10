@@ -78,6 +78,19 @@ describe('dispatchChannelTarget', () => {
     expect(send).not.toHaveBeenCalled()
   })
 
+  it('pcwechat 未指定 peer 时发给文件传输助手（主动推送给用户本人）', async () => {
+    const { router, send, list } = makeRouter()
+    await dispatchChannelTarget('pcwechat', '正文', '日报', { getChannelRouter: () => router })
+    expect(list).not.toHaveBeenCalled()
+    expect(send).toHaveBeenCalledWith({ channel: 'pcwechat', to: 'filehelper', text: '正文', title: '日报' })
+  })
+
+  it('pcwechat:peer 显式指定时发给该会话', async () => {
+    const { router, send } = makeRouter()
+    await dispatchChannelTarget('pcwechat:wxid_mom', '正文', '日报', { getChannelRouter: () => router })
+    expect(send).toHaveBeenCalledWith({ channel: 'pcwechat', to: 'wxid_mom', text: '正文', title: '日报' })
+  })
+
   it('无可用 peer 的 feishu 目标跳过', async () => {
     const { router, send } = makeRouter([])
     await dispatchChannelTarget('feishu', '正文', '日报', { getChannelRouter: () => router })

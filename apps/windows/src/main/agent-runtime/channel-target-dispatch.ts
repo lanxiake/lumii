@@ -12,6 +12,7 @@
 
 import type { ChannelOutboundRouter } from '../channel/channel-outbound-router'
 import { compileForFeishu } from '../channel/format/channel-message-compiler'
+import { PCWECHAT_SELF_PEER_ID } from '@mtbot/agent-runtime'
 
 const log = {
   warn: (...args: unknown[]) => console.warn('[ChannelTargetDispatch]', ...args),
@@ -26,7 +27,8 @@ export interface ChannelTargetDispatchDeps {
 /**
  * 派发单个渠道目标。target 语法 `kind` 或 `kind:peerId`。
  *
- * feishu 未指定 peer 时自动选第一个可发送 peer；weixin/qbot 必须显式指定
+ * feishu 未指定 peer 时自动选第一个可发送 peer；pcwechat（本机微信）未指定时发给
+ * 文件传输助手，即推送给用户本人；weixin（个人微信）/qbot 必须显式指定
  * （cached_reply / 被动窗口语义下乱选 peer 会发错人）。
  */
 export async function dispatchChannelTarget(
@@ -37,13 +39,14 @@ export async function dispatchChannelTarget(
 ): Promise<void> {
   const colon = target.indexOf(':')
   const kind = colon > 0 ? target.slice(0, colon) : target
-  const peer = colon > 0 ? target.slice(colon + 1).trim() : ''
+  const explicitPeer = colon > 0 ? target.slice(colon + 1).trim() : ''
+  const peer = explicitPeer || (kind === 'pcwechat' ? PCWECHAT_SELF_PEER_ID : '')
 
   if (kind === 'wecom') {
     log.warn('企业微信不支持主动推送（reply_only），已跳过')
     return
   }
-  if (kind !== 'feishu' && kind !== 'weixin' && kind !== 'qbot') {
+  if (kind !== 'feishu' && kind !== 'weixin' && kind !== 'qbot' && kind !== 'pcwechat') {
     log.warn(`未知渠道目标，已忽略: ${target}`)
     return
   }

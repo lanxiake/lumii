@@ -7,6 +7,7 @@
 
 import { isLeanStyle, type PromptStyle, type ContextFile, type UserDeviceInfo, type McpServerHint } from "../system-prompt.types.js"
 import { MEMORY_GUIDE_CONTENT } from "../guides/index.js"
+import { PCWECHAT_SELF_PEER_ID } from "../../tools/built-in/channel-tools.js"
 
 /**
  * 构建「安全与边界」section（合并操作守则 + 红线）。
@@ -280,6 +281,14 @@ export function buildWikiKnowledgeSection(
 }
 
 /**
+ * 两个「微信」渠道的区分（详细档与精简档共用）：方向与推送能力完全不同，模型常把二者混用。
+ */
+const WECHAT_CHANNELS_LINE =
+  "- Two different WeChat channels: `weixin` = 个人微信 (user chats with the Lumii bot; reply-window only, " +
+  "cannot push multiple messages or reach a long-quiet chat); `pcwechat` = 本机微信 (desktop WeChat on this PC, " +
+  `sends as the user, can push anytime — notify the user themself via \`to="${PCWECHAT_SELF_PEER_ID}"\`, 文件传输助手).`
+
+/**
  * 构建消息投递 section（message 或 channel_* 工具可用时注入）。
  * terse 档：核心投递规则压缩 + 引导（WeChat 走既有 weixin_send_guide 工具链）。
  */
@@ -306,6 +315,9 @@ export function buildMessagingSection(params: {
     } else {
       lines.push("- Cross-peer delivery uses `channel_send` (call `channel_list` first; never guess the recipient).")
     }
+    if (hasChannelOutbound) {
+      lines.push(WECHAT_CHANNELS_LINE)
+    }
     if (isWeixin) {
       lines.push("- WeChat file/image delivery: call `weixin_send_guide` first.")
     }
@@ -329,9 +341,11 @@ export function buildMessagingSection(params: {
       "## Channel outbound",
       "- Call `channel_list` first to get connected channels and peer ids, then `channel_send`.",
       "- `to` is required; never guess the recipient.",
-      "- WeChat requires the user to have messaged the bot first; otherwise ask them to send one message to activate it.",
+      WECHAT_CHANNELS_LINE,
+      "- 个人微信 (`weixin`) requires that peer to have messaged the bot recently; otherwise ask them to send one message to activate it.",
+      `- When 个人微信 cannot deliver a proactive notification (NO_REPLY_CONTEXT / TOKEN_STALE) and 本机微信 is connected with \`${PCWECHAT_SELF_PEER_ID}\` listed, deliver it via \`channel="pcwechat", to="${PCWECHAT_SELF_PEER_ID}"\` and tell the user which channel you used.`,
       "- WeCom does not support outbound push; you can only reply inside a WeCom conversation.",
-      "- To send images or files, pass `mediaPath` (absolute local path) to `channel_send`; an optional `text` is delivered first as a separate message. Only Feishu and WeChat support this.",
+      "- To send images or files, pass `mediaPath` (absolute local path) to `channel_send`; an optional `text` is delivered first as a separate message. Only Feishu and 个人微信 (`weixin`) support this; 本机微信 (`pcwechat`) is text-only.",
       "- On failure, report the actual errorCode and message; never claim success.",
       "- Use `channel_send` for outbound delivery; `message` remains only for in-conversation quick replies.",
     )

@@ -132,6 +132,7 @@ function buildNotifyToolsPrompt(notifyTargets: string | null): string {
         )
         break
       case 'weixin':
+      case 'pcwechat':
         toolInstructions.push(
           '- 微信：输出手机友好的纯文本报告（系统会编译并分段发送）。' +
           '要点式、每条一行、带序号；避免表格与代码块；控制在 400 字内。'
@@ -1008,6 +1009,7 @@ export class CronScheduler {
             break
           case 'feishu':
           case 'weixin':
+          case 'pcwechat':
           case 'qbot':
           case 'wecom':
             // 正文以原始 Markdown 交给渠道层编译（飞书卡片 / 企微·QQ markdown / 微信分段），
