@@ -1006,6 +1006,23 @@ def at_me_in_source(source, me):
     return me in [x.strip() for x in re.split(r"[,\s]+", m.group(1)) if x.strip()]
 
 
+_IMG_MD5_RE = re.compile(r'(?<![0-9A-Za-z_])md5="([0-9a-fA-F]{32})"')
+
+
+def _image_md5(content):
+    """图片消息原文里的 `md5`——**消息里没有文件路径**，磁盘文件名只能拿它去 `hardlink` 索引换。
+
+    负向后视是必须的（实测踩点）：`<img … cdnthumbmd5="…" …>` 也以 `md5="` 结尾，
+    宽松匹配会取到**缩略图的 md5**，换出来的文件是另一张图——而且不报错。
+    """
+    try:
+        raw = decode(content) if isinstance(content, (bytes, bytearray)) else str(content)
+    except Exception:
+        return None
+    m = _IMG_MD5_RE.search(raw or "")
+    return m.group(1) if m else None
+
+
 def msg_dict(ct, lt, content, nm, talker=None, name=None, sender=None, me=None, local_id=None,
              source=None):
     d = {"time": _ts(ct), "ts": ct, "type": lt & 0xFFFFFFFF, "text": _render(lt, content)[:400]}
@@ -1019,6 +1036,10 @@ def msg_dict(ct, lt, content, nm, talker=None, name=None, sender=None, me=None, 
         d["sender"] = ("我" if sender == me else nm.get(sender, sender)) if sender else "(未知)"
     if at_me_in_source(source, me):           # 群消息 @我（客户端按它决定群要不要叫代聊）
         d["at_me"] = True
+    if (lt & 0xFFFFFFFF) == 3:
+        md5 = _image_md5(content)
+        if md5:
+            d["image_md5"] = md5
     return d
 
 
@@ -1037,6 +1058,23 @@ def sessions():
         out.append({"talker": talker, "name": nm.get(talker, talker), "last": last})
     out.sort(key=lambda r: r["name"])
     return out
+
+
+def attach_image(msgs):
+    """给图片消息补上 `image_path`（解密后的本地图片），失败静默跳过。
+
+    与 `attach_voice` 同约定：只补路径、不回字节（MCP 结果是文本，几十万字节灌进模型纯浪费），
+    交给客户端**本来就有的**那套看图/读文件的能力去处理。
+
+    解密需要**账号级的图片 AES key**，而抓它要扫一遍微信内存（本机约 50 秒），绝不能塞进
+    15 秒一拍的盯梢回路。所以这里**只用已缓存的 key**，没有就原样返回——key 的抓取入口
+    在 `wechat_image.image_aes_key()`（设置页的按钮 / devcli）。
+    """
+    try:
+        import wechat_image                 # 延迟导入：它依赖本模块（镜像 / 数据目录 / WORK）
+        return wechat_image.attach_image(msgs)
+    except Exception:
+        return msgs
 
 
 def attach_voice(msgs, talker):
@@ -1068,6 +1106,7 @@ def history(talker, limit=10, before_ts=0):
     msgs = [msg_dict(ct, lt, c, nm, sender=s, me=me, local_id=lid, source=src)
             for ct, lt, c, s, lid, src in reversed(rows)]
     attach_voice(msgs, talker)
+    attach_image(msgs)
     out = {"talker": talker, "name": nm.get(talker, talker), "count": len(msgs), "messages": msgs}
     if msgs:
         out["cursor"] = msgs[0]["ts"]          # 本页最老一条，供取更早一页
@@ -1118,6 +1157,9 @@ def poll(since_ts, per=20):
             # 只在真有 type=34 时才去碰 media 库，绝大多数轮询是零成本。
             if any(m.get("type") == 34 for m in batch):
                 attach_voice(batch, talker)
+            # 图片同理：没缓存图片 AES key 时 `attach_image` 立刻返回，零成本
+            if any(m.get("type") == 3 for m in batch):
+                attach_image(batch)
             out.extend(batch)
     finally:
         for c in conns.values():

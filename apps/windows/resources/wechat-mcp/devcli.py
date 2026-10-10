@@ -7,6 +7,8 @@
   python devcli.py sessions                   列出会话（name + talker）
   python devcli.py history <talker> [n] [before_ts]    读历史（正序；before_ts 翻更早一页）
   python devcli.py scan <marker>              全库扫描文本（验证「没发出去」/「发到了哪」）
+  python devcli.py imagekey [--refresh]       抓图片 AES 密钥（慢；先在微信里点开一张图）
+  python devcli.py image <talker> [n]         解出该会话最近的图片，给出文件路径
   python devcli.py send <talker> <text> [--yes]   发文本；默认 dry-run，--yes 才真发
   python devcli.py sendfile <talker> <path> [--yes]  发图片/文件/视频/音频（点「发送文件」驱动文件对话框；默认 dry-run）
   python devcli.py reply <talker> <quote> <text> [--yes]  引用回复（quote=被引用消息文字；默认 dry-run）
@@ -269,11 +271,45 @@ def cmd_selftest():
     return 0 if ok else 1
 
 
+def cmd_imagekey(refresh=False):
+    """抓图片 AES 密钥（慢：要扫微信内存，本机约 50 秒）。**在微信里点开一张图之后跑**。"""
+    import wechat_image as IM
+    k = IM.image_aes_key(refresh=refresh)
+    if not k:
+        _out({"ok": False, "reason": "扫不到：先在微信里点开一张图片（大图界面），再跑一次"})
+        return 1
+    _out({"ok": True, "aes_key": k.hex(), "path": IM._key_path(), "验证": "已用真文件解出图片"})
+    return 0
+
+
+def cmd_image(talker, n=5):
+    """列一个会话最近的图片消息，解出图片并给出路径（顺带验证整条链）。"""
+    import wechat_image as IM
+    t = core.resolve_talker(talker) or talker
+    msgs = [m for m in core.history(t, 200)["messages"] if m.get("type") == 3 and m.get("image_md5")]
+    msgs = msgs[-int(n):]
+    key = IM.cached_aes_key()
+    if not key:
+        _out({"ok": False, "reason": "没有缓存的图片密钥，先跑 devcli.py imagekey", "图片消息": len(msgs)})
+        return 1
+    out = []
+    for m in msgs:
+        p = IM.image_file(m["image_md5"], key)
+        out.append({"time": m["time"], "md5": m["image_md5"], "path": p,
+                    "bytes": (os.path.getsize(p) if p else 0)})
+    _out({"ok": all(x["path"] for x in out), "talker": t, "count": len(out), "images": out})
+    return 0 if out and all(x["path"] for x in out) else 1
+
+
 def main(argv):
     if not argv:
         print(__doc__)
         return 2
     cmd = argv[0]
+    if cmd == "imagekey":
+        return cmd_imagekey(refresh="--refresh" in argv)
+    if cmd == "image" and len(argv) >= 2:
+        return cmd_image(argv[1], argv[2] if len(argv) > 2 else 5)
     if cmd == "status":
         return cmd_status()
     if cmd == "sessions":
