@@ -688,6 +688,12 @@ def open_chat_post(h, name, talker, verbose=False):
 
         ww, wh, lines = read_ui_stable("lst")
         s = find_session(lines, name, ww, wh)
+        # 记录诊断数据：界面是否可读、会话数量、匹配得分
+        _record_diagnostics(
+            ui_readable=bool(lines),
+            session_count=len([l for l in lines if l[0] < SESSION_COL and l[1] > 40]),
+            best_match_score=s[0] if s else 0.0
+        )
         if s:
             if verbose:
                 print(f"[open] 帧列表命中「{s[3][:16]}」@({s[1]},{s[2]})")
@@ -699,6 +705,7 @@ def open_chat_post(h, name, talker, verbose=False):
         t0 = time.time()
         alive = _ui_alive(h)
         _metric("ui_alive", (time.time() - t0) * 1000, alive)
+        _record_diagnostics(ui_frozen=not alive)  # 记录是否触发冻结探针
         if alive:
             break                      # 界面活着 ⇒ 是目标真够不着，交给上层排队，别瞎拉托盘
         if verbose:
@@ -1444,6 +1451,27 @@ def last_shot():
     return _LAST_SHOT["path"]
 
 
+_LAST_DIAGNOSTICS = {
+    "ui_readable": None,
+    "session_count": None,
+    "best_match_score": None,
+    "ui_frozen": None,
+    "retry_attempted": None,
+}
+
+
+def last_diagnostics():
+    """最近一次操作的诊断数据（供 MCP Server 组装结构化错误信息）。"""
+    return {k: v for k, v in _LAST_DIAGNOSTICS.items() if v is not None}
+
+
+def _record_diagnostics(**kwargs):
+    """记录诊断数据到全局字典。"""
+    for k, v in kwargs.items():
+        if k in _LAST_DIAGNOSTICS:
+            _LAST_DIAGNOSTICS[k] = v
+
+
 def _metric(op, ms, ok, extra=None):
     """记录一次操作的耗时/结果，供「准确·稳定·快速」量化。"""
     try:
@@ -1494,10 +1522,14 @@ def send_text(text, talker, name=None, dry_run=True, verbose=False):
     前置走统一的**按序状态机** `preflight(allow_locked=True)`：进程 → 主窗口 → 还原 → 尺寸 → （前台按需）。
     之后是「目标校验 → 输入落地 → 发送生效（读库）」三道动作校验，任一不过即中止、绝不盲发。
     目标确认失败时**按需把窗口规范化到预设尺寸再重试**（帧 OCR 布局按 1280×820 标定，
-    尺寸漂移是 target_unconfirmed 的主因之一）；修复是临时的，发完还原。
+    尺寸漂移是 target_unconfirmed 的主因之一）；���复是临时的，发完还原。
     send_file 已改成同一条投递路（点「发送文件」+ 驱动文件对话框，见下节）；reply_to 仍走
     `Win()` + 模拟键鼠，需要前台。
     """
+    # 每次发送前清空诊断数据
+    global _LAST_DIAGNOSTICS
+    _LAST_DIAGNOSTICS = {k: None for k in _LAST_DIAGNOSTICS}
+
     if not name:
         name = core.names().get(talker, talker)
     p_ok, _stage, detail, st = preflight(need_foreground=False, allow_locked=True)

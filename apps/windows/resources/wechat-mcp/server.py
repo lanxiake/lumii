@@ -49,6 +49,19 @@ def log(*a):
     print("[wechat-mcp]", *a, file=sys.stderr, flush=True)
 
 
+def _make_diagnostics(**kwargs):
+    """组装结构化诊断字段，供 Agent 判断原因和决策重试。
+
+    可选字段：
+    - ui_readable: bool，界面是否读取成功
+    - session_count: int，当前读到的会话行数
+    - best_match_score: float，最佳匹配的得分（<0.6 判定为不匹配）
+    - ui_frozen: bool，是否触发过冻结探针
+    - retry_attempted: bool，工具内部是否已重试过
+    """
+    return {k: v for k, v in kwargs.items() if v is not None}
+
+
 def _resolve(talker):
     if not talker:
         return None
@@ -251,6 +264,9 @@ def tool_send(args):
             lambda: wechat_sender.send_text(text, talker, dry_run=False),
             max_retries=2
         )
+        # P1 增强：标记工具内部是否已重试
+        if attempts > 1:
+            wechat_sender._record_diagnostics(retry_attempted=True)
     else:
         # dry_run 不重试
         ok, detail = wechat_sender.send_text(text, talker, dry_run=True)
@@ -264,6 +280,10 @@ def tool_send(args):
         out["error_code"] = _code_of(detail)
         out["stage"] = _stage_of(out["error_code"])
         out["shot"] = wechat_sender.last_shot()
+        # P1 增强：附加结构化诊断数据
+        diag = wechat_sender.last_diagnostics()
+        if diag:
+            out["diagnostics"] = diag
         # P0-B 增强：失败时给出可操作的修复建议
         out["suggestion"] = _get_fix_suggestion(out["error_code"])
     return out
