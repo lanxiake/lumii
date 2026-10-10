@@ -163,6 +163,11 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
     openHub('settings', 'channels')
   }, [openHub])
 
+  /** 「本机微信」没有扫码这回事，只有回复名单要配——同一处路由，直达渠道设置 */
+  const handleGoToWechatSettings = useCallback(() => {
+    openHub('settings', 'channels')
+  }, [openHub])
+
   /**
    * 搜索过滤后的会话。
    */
@@ -547,7 +552,12 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
 
   return (
     <div className={styles['chat-sidebar']}>
-      <ChannelBindModal open={bindModalOpen} onClose={() => setBindModalOpen(false)} onGoToQbotSettings={handleGoToQbotSettings} />
+      <ChannelBindModal
+        open={bindModalOpen}
+        onClose={() => setBindModalOpen(false)}
+        onGoToQbotSettings={handleGoToQbotSettings}
+        onGoToWechatSettings={handleGoToWechatSettings}
+      />
 
       {groupMenu && (
         <ContextMenu

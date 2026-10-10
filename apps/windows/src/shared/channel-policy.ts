@@ -32,6 +32,19 @@
  */
 export type PeerReplyMode = 'ignore' | 'notify' | 'draft' | 'auto'
 
+/**
+ * **触发条件**：进来的消息够不够格叫醒代聊。
+ *
+ * 为什么需要：群一天几百条、话痨好友一天几十条，绝大多数跟本人无关。不加闸门时，
+ * 只要是名单里的人，每条都要叫一次模型——既贵又吵（回一句「哈哈哈」也值得起一个回合？）。
+ *
+ * - `all`     每条都处理（不加闸门，默认）
+ * - `mention` 只有 @我（**只有群有 @ 这回事**；私聊选了它等于不过滤，见 `triggerAllows`）
+ * - `keyword` 正文命中 `keywords` 里任一个词
+ * - `mention_or_keyword` 上面两个满足任一（群专用）
+ */
+export type PeerTrigger = 'all' | 'mention' | 'keyword' | 'mention_or_keyword'
+
 export interface ChannelPeerPolicy {
   /** peer 的稳定 id（本机微信 = 好友 wxid / 群 `xxx@chatroom`） */
   id: string
@@ -40,6 +53,10 @@ export interface ChannelPeerPolicy {
   mode: PeerReplyMode
   /** 同一 peer 两次自动动作之间的最小间隔（秒）；缺省 60 */
   cooldownSeconds?: number
+  /** 触发条件（缺省 `all`＝每条都处理），见 {@link PeerTrigger} */
+  trigger?: PeerTrigger
+  /** `trigger` 用了关键字时命中任一即触发（大小写不敏感的子串匹配） */
+  keywords?: string[]
 }
 
 export interface ChannelPolicy {
@@ -71,6 +88,30 @@ export function isPeerReplyMode(v: unknown): v is PeerReplyMode {
   return typeof v === 'string' && (MODES as readonly string[]).includes(v)
 }
 
+/**
+ * 「名单外的人怎么处理」**只允许这两档**（2026-10-10 用户定）。
+ *
+ * 名单外的消息连对方是谁都不知道，让它叫醒模型纯属烧 token——用户原话
+ * 「不在代理名单内的微信消息，不需要发给 AGENT」。所以：**想代回谁就把他加进名单**
+ * （那是显式选择），名单外最多「只提醒我」（零 token 的确定性读库照样弹通知）。
+ *
+ * 这里是硬约束而不是界面过滤器：`wechat-watch.json` 手写进来的 `defaultMode: "draft"`
+ * 也会被 `parseChannelPolicy` 收敛成 `notify`——只有一道口子等于没有口子。
+ */
+export const NON_AGENT_MODES: readonly PeerReplyMode[] = ['ignore', 'notify']
+
+const TRIGGERS: readonly PeerTrigger[] = ['all', 'mention', 'keyword', 'mention_or_keyword']
+
+/** 哪些触发条件要配关键字（`keywords` 只对它们有意义）。 */
+export const KEYWORD_TRIGGERS: readonly PeerTrigger[] = ['keyword', 'mention_or_keyword']
+
+/** 只有群适用的两档（私聊没有 @ 这回事，界面上不该给用户这个选项）。 */
+export const GROUP_ONLY_TRIGGERS: readonly PeerTrigger[] = ['mention', 'mention_or_keyword']
+
+export function isPeerTrigger(v: unknown): v is PeerTrigger {
+  return typeof v === 'string' && (TRIGGERS as readonly string[]).includes(v)
+}
+
 /** peer 名的比较口径：大小写不敏感（wxid 大小写混写见得多） */
 export function isSamePeer(a: string, b: string): boolean {
   return a.trim().toLowerCase() === b.trim().toLowerCase()
@@ -86,7 +127,10 @@ export function parseChannelPolicy(raw: unknown): ChannelPolicy {
   if (!raw || typeof raw !== 'object') return out
   const o = raw as Record<string, unknown>
   if (typeof o.accountId === 'string' && o.accountId.trim()) out.accountId = o.accountId.trim()
-  if (isPeerReplyMode(o.defaultMode)) out.defaultMode = o.defaultMode
+  // 名单外**收敛到非-agent 档**（见 NON_AGENT_MODES）：老配置里的 draft/auto 一律退回 notify
+  if (isPeerReplyMode(o.defaultMode) && NON_AGENT_MODES.includes(o.defaultMode)) {
+    out.defaultMode = o.defaultMode
+  }
   if (Array.isArray(o.peers)) {
     for (const item of o.peers) {
       if (!item || typeof item !== 'object') continue
@@ -95,6 +139,12 @@ export function parseChannelPolicy(raw: unknown): ChannelPolicy {
       if (!id || !isPeerReplyMode(p.mode)) continue
       if (out.peers.some((x) => isSamePeer(x.id, id))) continue // 同一个 peer 只认先出现的
       const label = typeof p.label === 'string' ? p.label.trim() : ''
+      const trigger = isPeerTrigger(p.trigger) ? p.trigger : undefined
+      const keywords = Array.isArray(p.keywords)
+        ? p.keywords
+            .filter((k): k is string => typeof k === 'string' && k.trim().length > 0)
+            .map((k) => k.trim())
+        : []
       out.peers.push({
         id,
         mode: p.mode,
@@ -102,6 +152,9 @@ export function parseChannelPolicy(raw: unknown): ChannelPolicy {
         ...(typeof p.cooldownSeconds === 'number' && p.cooldownSeconds >= 0
           ? { cooldownSeconds: p.cooldownSeconds }
           : {}),
+        // 只在真的不是默认行为时落字段：`all` 不写、空关键字不写——配置少一堆噪音
+        ...(trigger && trigger !== 'all' ? { trigger } : {}),
+        ...(trigger && KEYWORD_TRIGGERS.includes(trigger) && keywords.length ? { keywords } : {}),
       })
     }
   }
@@ -113,6 +166,9 @@ export interface ResolvedPeerPolicy {
   cooldownSeconds: number
   /** 命中的那一条（`label ?? id`）；走 defaultMode 时为 null —— 日志/提示词用它说明依据 */
   matchedBy: string | null
+  /** 触发条件（走 defaultMode 时恒为 `all`：名单外本来就不叫模型，没什么可挡） */
+  trigger: PeerTrigger
+  keywords: string[]
 }
 
 /**
@@ -140,6 +196,8 @@ export function resolvePeerPolicy(
         mode: hit.mode,
         cooldownSeconds: hit.cooldownSeconds ?? DEFAULT_POLICY_COOLDOWN_S,
         matchedBy: hit.label ?? hit.id,
+        trigger: hit.trigger ?? 'all',
+        keywords: hit.keywords ?? [],
       }
     }
   }
@@ -147,5 +205,7 @@ export function resolvePeerPolicy(
     mode: policy.defaultMode,
     cooldownSeconds: DEFAULT_POLICY_COOLDOWN_S,
     matchedBy: null,
+    trigger: 'all',
+    keywords: [],
   }
 }

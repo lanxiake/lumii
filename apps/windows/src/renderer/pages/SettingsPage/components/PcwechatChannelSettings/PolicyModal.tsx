@@ -14,10 +14,14 @@ import { Input } from '../../../../components/ui/Input/Input'
 import { Select } from '../../../../components/ui/Select/Select'
 import { Checkbox } from '../../../../components/ui/Checkbox/Checkbox'
 import { Modal } from '../../../../components/ui/Modal/Modal'
-import type {
-  ChannelPeerPolicy,
-  ChannelPolicy,
-  PeerReplyMode,
+import {
+  GROUP_ONLY_TRIGGERS,
+  KEYWORD_TRIGGERS,
+  NON_AGENT_MODES,
+  type ChannelPeerPolicy,
+  type ChannelPolicy,
+  type PeerReplyMode,
+  type PeerTrigger,
 } from '../../../../../shared/channel-policy'
 
 /** 四档「怎么处理」——文案就是界面上给用户看的话 */
@@ -28,10 +32,32 @@ export const MODE_OPTIONS: Array<{ value: PeerReplyMode; label: string }> = [
   { value: 'ignore', label: '不处理（黑名单）' },
 ]
 
-/** 档位释义：放在下方当图例，避免用户猜「起草」到底发不发 */
-const MODE_HELP =
-  '直接代回 = 助手用你的口吻直接回；起草给我确认 = 先写好放到那个好友的会话里等你点头；' +
-  '只提醒我 = 不叫模型，只弹通知；不处理 = 当没看见（黑名单就是它）。'
+/**
+ * 「名单外的人怎么处理」只给非-agent 两档。
+ *
+ * 名单外的消息连对方是谁都不知道，让它叫醒模型就是白烧 token（见 `NON_AGENT_MODES`）。
+ * 想代回谁，把人加进下面的名单——那是显式选择。
+ */
+const DEFAULT_MODE_OPTIONS = MODE_OPTIONS.filter((o) => NON_AGENT_MODES.includes(o.value))
+
+const TRIGGER_OPTIONS: Array<{ value: PeerTrigger; label: string }> = [
+  { value: 'all', label: '每条都回' },
+  { value: 'mention', label: '只回 @我的' },
+  { value: 'keyword', label: '命中关键字才回' },
+  { value: 'mention_or_keyword', label: '@我 或 命中关键字' },
+]
+
+/** 私聊没有 @，只给「每条都回 / 命中关键字」。 */
+const privateTriggerOptions = TRIGGER_OPTIONS.filter(
+  (o) => !GROUP_ONLY_TRIGGERS.includes(o.value),
+)
+
+/** 关键字在输入框里用逗号分隔（中英文逗号、顿号、空格都当分隔符，写起来不挑） */
+const splitKeywords = (s: string): string[] =>
+  s.split(/[,，、\s]+/).map((k) => k.trim()).filter(Boolean)
+
+/** 群会话（talker 恒以 `@chatroom` 结尾） */
+const isGroupId = (id: string): boolean => id.trim().toLowerCase().endsWith('@chatroom')
 
 interface Candidate {
   id: string
@@ -39,12 +65,14 @@ interface Candidate {
   isGroup: boolean
 }
 
-/** 名单里的一行（编辑态）：冷却留空 = 用默认值 */
+/** 名单里的一行（编辑态）：冷却留空 = 用默认值；触发条件见 `PeerTrigger` */
 interface DraftPeer {
   id: string
   label: string
   mode: PeerReplyMode
   cooldownSeconds: string
+  trigger: PeerTrigger
+  keywords: string
 }
 
 function toDraft(peers: ChannelPeerPolicy[]): DraftPeer[] {
@@ -53,6 +81,8 @@ function toDraft(peers: ChannelPeerPolicy[]): DraftPeer[] {
     label: p.label ?? '',
     mode: p.mode,
     cooldownSeconds: p.cooldownSeconds === undefined ? '' : String(p.cooldownSeconds),
+    trigger: p.trigger ?? 'all',
+    keywords: (p.keywords ?? []).join('，'),
   }))
 }
 
@@ -62,11 +92,14 @@ function toPeers(rows: DraftPeer[]): ChannelPeerPolicy[] {
     const id = r.id.trim()
     if (!id) continue
     const cd = Number.parseInt(r.cooldownSeconds.trim(), 10)
+    const keywords = splitKeywords(r.keywords)
     out.push({
       id,
       mode: r.mode,
       ...(r.label.trim() ? { label: r.label.trim() } : {}),
       ...(Number.isFinite(cd) && cd >= 0 ? { cooldownSeconds: cd } : {}),
+      ...(r.trigger !== 'all' ? { trigger: r.trigger } : {}),
+      ...(KEYWORD_TRIGGERS.includes(r.trigger) && keywords.length ? { keywords } : {}),
     })
   }
   return out
@@ -185,6 +218,9 @@ export const PolicyModal: React.FC<PolicyModalProps> = ({ open, onClose, onSaved
         // 新加的人默认「起草给我确认」：先看得见草稿，再决定要不要放开直接回
         mode: 'draft' as PeerReplyMode,
         cooldownSeconds: '',
+        // 群默认「只回 @我的」：群里一天几百条，默认全回等于把模型丢进噪音里
+        trigger: (c.isGroup ? 'mention' : 'all') as PeerTrigger,
+        keywords: '',
       })),
     ])
     setPickerOpen(false)
@@ -269,7 +305,7 @@ export const PolicyModal: React.FC<PolicyModalProps> = ({ open, onClose, onSaved
             <Select
               label="名单外的人怎么处理"
               value={defaultMode}
-              options={MODE_OPTIONS}
+              options={DEFAULT_MODE_OPTIONS}
               onChange={(e) => setDefaultMode(e.target.value as PeerReplyMode)}
               disabled={loading}
             />
@@ -277,7 +313,8 @@ export const PolicyModal: React.FC<PolicyModalProps> = ({ open, onClose, onSaved
         </div>
         <p style={{ margin: 0, color: 'var(--mt-fg-3)', fontSize: 12 }}>
           账号只给你自己区分是哪个微信（实际发送永远走本机此刻登录的那个）；
-          名单外的人建议留<strong>只提醒我</strong>——谁都动不了，你只多一条通知。
+          名单外的人一律<strong>不叫模型</strong>（不烧 token）——最多弹条通知。
+          想让助手回谁，把人加进下面的名单。
         </p>
 
         <div style={{ borderTop: '1px solid var(--mt-border-hairline)', paddingTop: 12 }}>
@@ -414,75 +451,138 @@ export const PolicyModal: React.FC<PolicyModalProps> = ({ open, onClose, onSaved
             </div>
           )}
 
-          <div style={{ marginTop: 10 }}>
+          {/* 名单自己滚（`maxHeight`），不让它把上面的「名单外怎么处理」顶出视口——
+              人一多整张弹窗就超过 86vh，Modal 的 body 一滚，顶部两个设置项就没影了（实测）。
+              固定高度而不是 flex:1：不依赖父链上的 min-height，少一处会随别人改动失效的耦合。 */}
+          <div style={{ marginTop: 10, maxHeight: '46vh', overflowY: 'auto', paddingRight: 4 }}>
             {rows.length === 0 && (
               <div style={{ fontSize: 13, color: 'var(--mt-fg-3)' }}>
                 名单还是空的。点上面的「从微信里挑人」，勾选允许助手代聊的好友——名单外的人一律不动。
               </div>
             )}
-            {rows.map((row) => (
-              <div
-                key={row.id}
-                style={{
-                  display: 'flex',
-                  gap: 8,
-                  alignItems: 'center',
-                  flexWrap: 'wrap',
-                  padding: '6px 0',
-                  borderBottom: '1px solid var(--mt-border-hairline)',
-                }}
-              >
-                <Checkbox
-                  aria-label={`选择 ${nameOf(row)}`}
-                  checked={checked.has(row.id)}
-                  onChange={(on) => toggleChecked(row.id, on)}
-                />
-                <div style={{ flex: '2 1 200px', minWidth: 170 }}>
-                  <div style={{ fontSize: 13, color: 'var(--mt-fg-1)' }}>{nameOf(row)}</div>
-                  {row.label.trim() !== '' && (
-                    <div
-                      style={{ fontSize: 11, color: 'var(--mt-fg-3)', fontFamily: 'monospace' }}
+            {rows.map((row) => {
+              const patch = (p: Partial<DraftPeer>) =>
+                setRows((prev) => prev.map((r) => (r.id === row.id ? { ...r, ...p } : r)))
+              const isGroup = isGroupId(row.id)
+              const needsKeywords = KEYWORD_TRIGGERS.includes(row.trigger)
+              return (
+                <div
+                  key={row.id}
+                  style={{
+                    border: '1px solid var(--mt-border-hairline)',
+                    borderRadius: 8,
+                    padding: '10px 12px',
+                    marginTop: 8,
+                    background: checked.has(row.id) ? 'var(--mt-bg-overlay)' : undefined,
+                  }}
+                >
+                  {/* 抬头：勾选框 + 名字 + 群/私聊 + wxid（同名的人靠 wxid 区分，所以常显） */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <Checkbox
+                      aria-label={`选择 ${nameOf(row)}`}
+                      checked={checked.has(row.id)}
+                      onChange={(on) => toggleChecked(row.id, on)}
+                    />
+                    <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--mt-fg-1)' }}>
+                      {nameOf(row)}
+                    </span>
+                    <span
+                      style={{
+                        fontSize: 11,
+                        padding: '1px 6px',
+                        borderRadius: 999,
+                        color: 'var(--mt-fg-3)',
+                        border: '1px solid var(--mt-border-hairline)',
+                      }}
+                    >
+                      {isGroup ? '群' : '私聊'}
+                    </span>
+                    <span
+                      style={{
+                        marginLeft: 'auto',
+                        fontSize: 11,
+                        color: 'var(--mt-fg-3)',
+                        fontFamily: 'monospace',
+                      }}
                     >
                       {row.id}
+                    </span>
+                  </div>
+
+                  {/* 控件各自带标签：比"一行四个裸控件"少一半「这格里是什么」的疑问 */}
+                  <div
+                    style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 10 }}
+                  >
+                    <div style={{ flex: '1 1 170px', minWidth: 150 }}>
+                      <Select
+                        label="怎么处理"
+                        aria-label={`${nameOf(row)} 的处理方式`}
+                        value={row.mode}
+                        options={MODE_OPTIONS}
+                        onChange={(e) => patch({ mode: e.target.value as PeerReplyMode })}
+                      />
                     </div>
-                  )}
+                    <div style={{ flex: '0 1 120px', minWidth: 108 }}>
+                      <Input
+                        label="冷却（秒）"
+                        value={row.cooldownSeconds}
+                        onChange={(e) => patch({ cooldownSeconds: e.target.value })}
+                        placeholder="60"
+                      />
+                    </div>
+                    <div style={{ flex: '1 1 170px', minWidth: 150 }}>
+                      <Select
+                        label="什么消息才惊动助手"
+                        aria-label={`${nameOf(row)} 的触发条件`}
+                        value={row.trigger}
+                        options={isGroup ? TRIGGER_OPTIONS : privateTriggerOptions}
+                        onChange={(e) => patch({ trigger: e.target.value as PeerTrigger })}
+                      />
+                    </div>
+                    {needsKeywords && (
+                      <div style={{ flex: '1 1 100%' }}>
+                        <Input
+                          label="关键字（出现任一个才回，逗号分隔）"
+                          aria-label={`${nameOf(row)} 的关键字`}
+                          value={row.keywords}
+                          onChange={(e) => patch({ keywords: e.target.value })}
+                          placeholder="报错，上线，帮我看下"
+                        />
+                      </div>
+                    )}
+                  </div>
                 </div>
-                <div style={{ flex: '1 1 160px', minWidth: 150 }}>
-                  <Select
-                    aria-label={`${nameOf(row)} 的处理方式`}
-                    value={row.mode}
-                    options={MODE_OPTIONS}
-                    onChange={(e) =>
-                      setRows((prev) =>
-                        prev.map((r) =>
-                          r.id === row.id ? { ...r, mode: e.target.value as PeerReplyMode } : r,
-                        ),
-                      )
-                    }
-                  />
-                </div>
-                <div style={{ flex: '0 1 110px', minWidth: 96 }}>
-                  <Input
-                    value={row.cooldownSeconds}
-                    onChange={(e) =>
-                      setRows((prev) =>
-                        prev.map((r) =>
-                          r.id === row.id ? { ...r, cooldownSeconds: e.target.value } : r,
-                        ),
-                      )
-                    }
-                    placeholder="冷却 60"
-                  />
-                </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
 
-          <p style={{ margin: '8px 0 0', color: 'var(--mt-fg-3)', fontSize: 12 }}>
-            {MODE_HELP}
-            <br />
-            冷却 = 同一个人的两次自动动作之间至少隔多少秒（留空按 60）。同一个 id 只算一条。
-          </p>
+          <div
+            style={{
+              marginTop: 10,
+              padding: '8px 10px',
+              borderRadius: 8,
+              background: 'var(--mt-bg-overlay)',
+              color: 'var(--mt-fg-3)',
+              fontSize: 12,
+              lineHeight: 1.7,
+            }}
+          >
+            <div>
+              <strong style={{ color: 'var(--mt-fg-2)' }}>怎么处理</strong>：
+              <code style={{ fontFamily: 'inherit' }}>直接代回</code> 用你的口吻直接回；
+              <code style={{ fontFamily: 'inherit' }}>起草给我确认</code> 先写好放进那个会话等你点头；
+              <code style={{ fontFamily: 'inherit' }}>只提醒我</code> 不叫模型、只弹通知；
+              <code style={{ fontFamily: 'inherit' }}>不处理</code> 当没看见。
+            </div>
+            <div>
+              <strong style={{ color: 'var(--mt-fg-2)' }}>什么消息才惊动助手</strong>：不满足条件的消息
+              <strong>不叫模型</strong>（只有「只提醒我」那档照旧提醒）；「@我」按微信里被 @ 的 wxid 判定，
+              「关键字」是正文出现任一个词（不区分大小写）——私聊也能用关键字。
+            </div>
+            <div>
+              <strong style={{ color: 'var(--mt-fg-2)' }}>冷却</strong>：同一个人两次自动动作至少隔多少秒（留空按 60）。
+            </div>
+          </div>
         </div>
       </div>
     </Modal>

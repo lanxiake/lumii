@@ -11,7 +11,7 @@ import { Button } from '../../../../components/ui/Button/Button'
 import { Tag } from '../../../../components/ui/Tag/Tag'
 import styles from './ChannelBindModal.module.css'
 
-type BindableChannel = 'wechat' | 'wecom' | 'feishu' | 'qbot'
+type BindableChannel = 'wechat' | 'wecom' | 'feishu' | 'qbot' | 'pcwechat'
 
 type ChannelRowStatus = 'idle' | 'waiting' | 'connected' | 'error'
 
@@ -22,6 +22,11 @@ interface ChannelRow {
   description: string
   status: ChannelRowStatus
   detail?: string
+  /**
+   * 本机微信不是「扫码绑定」，是「用这台电脑上已登录的微信代聊」——它没有登录动作，
+   * 只有一份**回复名单**要配。所以这一行只给一个「去配置」的入口（见下面 rowActions）。
+   */
+  local?: boolean
 }
 
 interface ChannelBindModalProps {
@@ -29,6 +34,8 @@ interface ChannelBindModalProps {
   onClose: () => void
   /** QQ 扫码失败降级手填时，导航到设置页填写 AppID/AppSecret */
   onGoToQbotSettings?: () => void
+  /** 「本机微信」行的入口：跳到 设置 → 渠道（回复名单与触发条件在那儿配） */
+  onGoToWechatSettings?: () => void
 }
 
 const CHANNEL_DEFS: Array<Omit<ChannelRow, 'status' | 'detail'>> = [
@@ -56,12 +63,23 @@ const CHANNEL_DEFS: Array<Omit<ChannelRow, 'status' | 'detail'>> = [
     icon: 'QQ',
     description: '手机 QQ 扫码绑定已创建的机器人',
   },
+  {
+    id: 'pcwechat',
+    name: '本机微信',
+    icon: '本机',
+    description: '用这台电脑上登录的微信替你回消息（回复名单在设置里配）',
+    local: true,
+  },
 ]
 
 /**
  * 将各渠道服务状态归一化为行状态。
  */
 function normalizeStatus(channel: BindableChannel, raw: string): ChannelRowStatus {
+  if (channel === 'pcwechat') {
+    // 本机微信没有登录状态，只有「这台机器上够不够得着微信」（MCP 连上=就绪）
+    return raw === 'connected' ? 'connected' : 'idle'
+  }
   if (channel === 'wechat') {
     if (raw === 'logged_in') return 'connected'
     if (raw === 'waiting_qrcode' || raw === 'scanned' || raw === 'confirmed') return 'waiting'
@@ -92,7 +110,12 @@ const STATUS_COLOR: Record<ChannelRowStatus, 'default' | 'success' | 'warning' |
 /**
  * 聊天页渠道快捷绑定弹窗。
  */
-export const ChannelBindModal: React.FC<ChannelBindModalProps> = ({ open, onClose, onGoToQbotSettings }) => {
+export const ChannelBindModal: React.FC<ChannelBindModalProps> = ({
+  open,
+  onClose,
+  onGoToQbotSettings,
+  onGoToWechatSettings,
+}) => {
   const [rows, setRows] = useState<ChannelRow[]>(() =>
     CHANNEL_DEFS.map((d) => ({ ...d, status: 'idle' as ChannelRowStatus })),
   )
@@ -137,6 +160,11 @@ export const ChannelBindModal: React.FC<ChannelBindModalProps> = ({ open, onClos
             | { appIdMasked?: string }
             | null
           if (sess?.appIdMasked) detail = `App ${sess.appIdMasked}`
+        } else if (def.id === 'pcwechat') {
+          // 就绪 = 本机 wechat-local MCP 连上（与设置页那张卡片同一个判据，不叫模型）
+          const r = await window.channelService?.wechatSelfcheck?.()
+          raw = r?.connected ? 'connected' : 'idle'
+          if (r?.db?.root) detail = '已就绪，可配回复名单'
         } else {
           raw = (await window.feishuService?.getStatus?.()) ?? 'idle'
           const sess = (await window.feishuService?.getSession?.()) as
@@ -345,7 +373,18 @@ export const ChannelBindModal: React.FC<ChannelBindModalProps> = ({ open, onClos
                   </div>
                 </div>
                 <div className={styles.rowActions}>
-                  {row.status === 'connected' ? (
+                  {row.local ? (
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      onClick={() => {
+                        onGoToWechatSettings?.()
+                        onClose?.()
+                      }}
+                    >
+                      配置回复名单
+                    </Button>
+                  ) : row.status === 'connected' ? (
                     <Button
                       variant="danger"
                       size="sm"
