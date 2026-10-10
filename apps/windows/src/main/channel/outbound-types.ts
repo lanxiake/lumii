@@ -98,6 +98,12 @@ export interface ChannelSendResult {
    * 恒与 `ok:false` 同现：此刻确实没送达，不能报「已发送」；工具层据此把它报成「排队中」而非失败。
    */
   queued?: boolean
+  /**
+   * 上游工具（如 wechat-local MCP）自报的**原始错误码**，供调用方看清真实来路。
+   * `errorCode` 是渠道内归一化后的码，粒度粗（目前 `target_unconfirmed` 只能退成
+   * `UPSTREAM_ERROR`）；这里保留原值，Agent 才能分辨「卡在目标确认」还是别的。
+   */
+  upstreamCode?: string
 }
 
 /** 微信伪 Push 持久化记录 */

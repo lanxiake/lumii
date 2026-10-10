@@ -139,6 +139,8 @@ export function queuedSendPayload(result: ChannelSendResult): Record<string, unk
     channel: result.channel,
     to: result.to,
     reason: result.errorCode,
+    // 上游工具的原始错误码（如 target_unconfirmed）：reason 归一后太粗，这个才看得出卡在哪一道
+    ...(result.upstreamCode ? { upstreamReason: result.upstreamCode } : {}),
     message: result.message,
     note: '这条已进待补发队列，后台回路会原句自动补发。不要重发、不要改内容、不要转人工，本轮到此为止。',
   }

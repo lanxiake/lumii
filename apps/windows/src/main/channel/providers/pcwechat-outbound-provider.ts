@@ -148,15 +148,19 @@ export class PcwechatChannelProvider implements IChannelOutboundProvider {
     }
     if (!out.ok) {
       const detail = [out.detail, out.suggestion].filter(Boolean).join(' ') || '本机微信发送失败'
+      // 原样带上工具自报的错误码：归一化后的 errorCode 粒度太粗（target_unconfirmed → UPSTREAM_ERROR），
+      // 调用方（代聊/日志）看不出到底卡在目标确认还是别处
+      const upstream = out.error_code ? { upstreamCode: out.error_code } : {}
       if (UNDELIVERABLE_CODES.has(out.error_code ?? '') && this.enqueue(to, text)) {
         // 内容没问题，只是此刻那双手不在——**排队等门开**，并如实报「排队中」：
         // 报成失败会让调用方（代聊）误判成"发错了"而去改内容或转人工
         return {
           ...fail(mapErrorCode(out.error_code), `已排队待补发（此刻还没送达）：${detail}`),
+          ...upstream,
           queued: true,
         }
       }
-      return fail(mapErrorCode(out.error_code), detail)
+      return { ...fail(mapErrorCode(out.error_code), detail), ...upstream }
     }
     return { ok: true, channel: 'pcwechat', to }
   }

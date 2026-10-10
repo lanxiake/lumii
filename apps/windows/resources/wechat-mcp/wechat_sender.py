@@ -14,6 +14,7 @@
 """
 import ctypes
 import difflib
+import hashlib
 import os
 import re
 import subprocess
@@ -31,6 +32,7 @@ u = ctypes.windll.user32
 # 打成单文件 wechat-mcp.exe（PyInstaller）后，随包数据解压在 sys._MEIPASS 而不在模块旁
 OCR4 = os.path.join(getattr(sys, "_MEIPASS", HERE), "ocr4.ps1")
 UIA_READ = os.path.join(getattr(sys, "_MEIPASS", HERE), "uia_read.ps1")
+TRAY_CLICK = os.path.join(getattr(sys, "_MEIPASS", HERE), "tray_click.ps1")
 
 # ============================================================================
 # 微信 4.x 主窗口几何与操作锚点（1280×820 规范化后实测，2026-10-07，微信 4.1.15.x）
@@ -663,29 +665,165 @@ def open_chat_post(h, name, talker, verbose=False):
     微信只会收下、不渲染结果（实测浮层里读到的「候选」全是底下那层会话列表），而这条路的
     代价是劫持剪贴板 + 失败时把浮层留在窗口上——2026-10-09 那次「界面卡住」就是它被补发
     回路每分钟重放一次攒出来的。目标不在列表里就 fail-closed，交给上层排队。
-    """
-    try:
-        d = read_uia(h, "uopen")
-        it = uia_find_session(d, name) if d else None
-        if it:
-            if verbose:
-                print(f"[open] UIA 命中「{it['aid'][len('session_item_'):][:16]}」@({it['rect'][0]},{it['rect'][1]})")
-            if uia_click_item(h, d, it):
-                time.sleep(1.2)
-                if uia_header_is(read_uia(h, "uopen2"), name):
-                    return True
-    except Exception as e:
-        if verbose:
-            print(f"[open] UIA 路径异常，回退帧路径：{e}")
 
-    ww, wh, lines = read_ui_stable("lst")
-    s = find_session(lines, name, ww, wh)
-    if s:
+    **失败后先分辨「目标够不着」还是「界面压根不动」**（2026-10-10 加）：后者是微信 UI
+    卡死——那时 `PrintWindow` 给的是一张冻结旧帧，目标往往**不在**这张旧帧里，于是
+    `find_session` 恒 None、表面上看像"目标不在列表"，实际是整屏都不响应。判据见
+    `_ui_alive`，卡死时拉一次托盘图标恢复再重试一遍。
+    """
+    for attempt in range(2):
+        try:
+            d = read_uia(h, "uopen")
+            it = uia_find_session(d, name) if d else None
+            if it:
+                if verbose:
+                    print(f"[open] UIA 命中「{it['aid'][len('session_item_'):][:16]}」@({it['rect'][0]},{it['rect'][1]})")
+                if uia_click_item(h, d, it):
+                    time.sleep(1.2)
+                    if uia_header_is(read_uia(h, "uopen2"), name):
+                        return True
+        except Exception as e:
+            if verbose:
+                print(f"[open] UIA 路径异常，回退帧路径：{e}")
+
+        ww, wh, lines = read_ui_stable("lst")
+        s = find_session(lines, name, ww, wh)
+        if s:
+            if verbose:
+                print(f"[open] 帧列表命中「{s[3][:16]}」@({s[1]},{s[2]})")
+            if _post_click_verify(h, s[1], s[2], "lst", name, talker, verbose):
+                return True
+
+        if attempt:
+            break                      # 第二次还是切不过去：认了，交给上层排队
+        t0 = time.time()
+        alive = _ui_alive(h)
+        _metric("ui_alive", (time.time() - t0) * 1000, alive)
+        if alive:
+            break                      # 界面活着 ⇒ 是目标真够不着，交给上层排队，别瞎拉托盘
         if verbose:
-            print(f"[open] 帧列表命中「{s[3][:16]}」@({s[1]},{s[2]})")
-        if _post_click_verify(h, s[1], s[2], "lst", name, talker, verbose):
-            return True
+            print("[open] 投递点了却整屏不动 ⇒ 判定 UI 卡死，拉托盘图标恢复")
+        if not _unfreeze_ui():
+            break
     return False
+
+
+def _snap(tag):
+    """拍一帧：`(指纹, ww, wh, lines)`，指纹为 "" 表示拍不到、**判不了**。
+
+    先删同名旧图再拍是有意的：`PrintWindow` 拍失败时 `read_ui` **提前返回、不写文件**，
+    不删的话这里读到的是上一轮的同名旧图，指纹一样 ⇒ 把"拍不到"误判成"画面没动"。
+    """
+    p = os.path.join(core.WORK, f"ui_{tag}.png")
+    try:
+        os.remove(p)
+    except OSError:
+        pass
+    ww, wh, lines = read_ui(tag)
+    if ww <= 0 or wh <= 0 or not lines:
+        return "", ww, wh, lines
+    try:
+        with open(p, "rb") as f:
+            return hashlib.md5(f.read()).hexdigest(), ww, wh, lines
+    except OSError:
+        return "", ww, wh, lines
+
+
+def _ui_alive(h):
+    """微信 UI 还响应投递吗？**像素判据**——常规判据全都查不出来。
+
+    `IsHungAppWindow` 是 False、`WM_NULL` 往返 0ms、`IsWindowVisible`/`IsIconic` 都正常，
+    同时**点哪都不动**（2026-10-10 实测现场）。所以只能：投递一个健康时必然引起重绘的动作、
+    看画面动没动。这里点**一个**会话行，两次 `PrintWindow` 的 PNG 一字节不差才判卡死。
+
+    四条都是实测踩出来的（2026-10-10）：
+
+    - **只点一行**，且要挑一个**不在当前会话那一行里**的。所以先得知道「当前开着的是哪个」
+      ——读帧里的表头名字，找不到就干脆不探（返回 True）。
+    - **「不在那一行」要按整行的范围判，不能只比中心点**：一行会话在 OCR 结果里是**两行文字**
+      （名字 + 紧跟其下的消息预览，低约 2 个文字高度），预览行 y 不同、但点它等于点当前会话。
+      实测踩过：以为点了"第二行"，其实点的是当前行的预览 ⇒ 微信把聊天区**重绘成空白**
+      （表头跟着空，连续几秒都是），看起来就像被点坏了。
+    - **服务号/公众号这类不能点**：它们右半边是**网页面板**，点了会**异步**把聊天区换成加载态的
+      占位页；等我们把用户原来的会话点回去，它才加载完，一覆盖就还原成空白。只点真会话。
+    - **还原要按名字在新一帧里重新定位**，不能拿老坐标：点开会话可能让列表重排，
+      老坐标会点到别的行上。`cur[3]` 是命中行的文字，`find_session` 能在新帧里找回它。
+
+    **判不了（拍不到、列表里挑不出可点的行、读不出当前开着的是哪个会话）一律返回 True**——
+    宁可漏判（大不了继续排队等下一拍），也不能误判：误判会拉托盘，那会把微信顶到前台、
+    抢用户的前台（见 `_unfreeze_ui`）。
+    """
+    base = ww = wh = None
+    lines, cur, cl = [], None, None
+    for i in range(2):                  # 首帧可能正好拍在界面过渡中（OCR 少几行、表头读不出）：重读一次
+        base, ww, wh, lines = _snap(f"alive0{i}")
+        if not base:
+            continue
+        cur = find_session(lines, layout(lines, ww, wh)["header"], ww, wh)
+        cl = cur and next((l for l in lines
+                           if ((l[0] + l[2]) // 2, (l[1] + l[3]) // 2) == (cur[1], cur[2])), None)
+        if cl:
+            break
+    if not cl:
+        return True                     # 不知道开的是哪个就点不了"点回来"，索性别动
+    rows = sorted([(x0, y0, x1, y1, t) for x0, y0, x1, y1, t in lines
+                   if x0 < SESSION_COL and y0 > 40 and norm(t)], key=lambda r: r[1])
+    if len(rows) < 2:
+        return True
+    dh = max(6, cl[3] - cl[1])          # 一个字的高度：行高/行距都按它换算，别写死像素（DPI 会变）
+
+    def band(r):
+        """这一行文字所属**会话行**的纵向范围：名字 + 紧跟着的预览行（低约 3 个字高）。"""
+        return (r[1] - dh, r[1] + 3 * dh)
+
+    cur_band = band(cl)
+    bad = [band(r) for r in rows if any(n in norm(r[4]) for n in _UI_NONCHAT)]
+    tgt = None
+    for r in rows:
+        cy = (r[1] + r[3]) // 2
+        if cur_band[0] <= cy <= cur_band[1]:
+            continue                    # 当前会话自己那一行（含预览）——点它只会把聊天区点成空白
+        if any(b[0] <= cy <= b[1] for b in bad):
+            continue                    # 服务号/公众号那类：点开是异步网页面板，会盖掉还原
+        tgt = r
+        break
+    if not tgt:
+        return True                     # 一行都挑不出来 ⇒ 判不了，当活的
+    post_click(h, (tgt[0] + tgt[2]) // 2, (tgt[1] + tgt[3]) // 2)
+    time.sleep(1.1)
+    sig, w2, h2, l2 = _snap("alive1")
+    if sig == base:                     # 画面一字节不差 ⇒ 这一下没落地
+        return False
+    back = find_session(l2, cur[3], w2, h2) if sig else None
+    if back:                            # 还原用户本来开着的会话（列表可能已重排，重新定位）
+        post_click(h, back[1], back[2])
+        time.sleep(1.1)
+    return True                         # 变了 ⇒ 活着；拍不到（""）也走这支，同样算活着
+
+
+def _unfreeze_ui(tag="tray"):
+    """微信 UI 卡死时的恢复：UIA `InvokePattern` 点系统托盘的「微信」图标（`tray_click.ps1`）。
+
+    **必须走 UIA，别用真鼠标双击**（用户给的办法，2026-10-10 实测无效）：托盘里那个
+    `Qt51514QWindowToolSaveBits`/`TrayRocketView` 窗虽然被 `WindowFromPoint` 命中，但
+    **不可被真实输入命中**——真双击落到 `Shell_TrayWnd`（前台变成任务栏），主窗可见性都不变；
+    图标真实位置在 x≈2287（`SystemTray.NormalButton` 报的矩形），不是它报的 2083。
+    InvokePattern 直接进 provider，绕过命中测试，一次即恢复。
+
+    ⚠️ **只在已判定卡死时调**：它会顺带把微信顶到前台（实测健康态下调用：窗口可见性不变、
+    但 `GetForegroundWindow` 变成微信），误调用就是白抢用户的前台。
+    """
+    out = os.path.join(core.WORK, f"tray_{tag}.txt")
+    t0 = time.time()
+    try:
+        _run_ps(TRAY_CLICK, ["-NameMatch", "微信", "-Out", out], sta=True)
+        ok = "INVOKED" in open(out, encoding="utf-8", errors="replace").read()
+    except Exception:
+        ok = False
+    _metric("unfreeze_ui", (time.time() - t0) * 1000, ok, {"detail": "托盘图标恢复微信 UI"})
+    if ok:
+        time.sleep(1.2)      # 给微信一拍去重建窗口
+    return ok
 
 
 def check_env():
@@ -695,7 +833,10 @@ def check_env():
     """
     info = {"weixin_running": False, "pids": [], "hwnd": 0, "visible": False, "minimized": False,
             "foreground": False, "locked": False, "rect": None, "size": None, "ratio": None, "dpi": None,
-            "target_size": [NW, NH], "ok": False, "reason": "", "deps": core.deps()}
+            "target_size": [NW, NH], "ok": False, "reason": "", "deps": core.deps(),
+            # 微信 4.x 可能整条生命周期都不向 UIA 暴露控件树（见 `read_uia` / `_uia_tree_blank`）。
+            # 一旦本进程观察到，目标确认就只剩帧判据这一条路——报出来，别让「发不出去」变成玄学。
+            "uia_tree": "blank" if _UIA_BLANK_NOTED else "unknown"}
     try:                      # 多账号：报告本机账号与当前使用的账号（P2-6）
         info["accounts"] = [a["wxid"] for a in core.list_accounts()]
         info["active_account"] = core.self_wxid()
@@ -1047,6 +1188,9 @@ def anchor_lcs(anchor, chat):
 
 
 SESSION_COL = 310        # 会话列表固定宽（不随窗口宽度缩放）
+# 会话列表里「不是会话」的固定项：右半边是网页面板，点开是**异步**加载，
+# 会盖掉随后的还原点击（见 `_ui_alive` 的 docstring），挑探针目标时要跳过。
+_UI_NONCHAT = ("服务号", "公众号", "订阅号", "折叠", "搜一搜", "看一看", "视频号")
 CHAT_BOTTOM_DY = 115     # 聊天区下界 = 「发送」按钮 y − 115（避免漏掉贴底最后一条消息）
 INPUT_PT_DY = 95         # 输入框点击 y = 「发送」按钮 y − 95
 HEADER_DY = 80           # 聊天头部行的 y1 上界
@@ -1404,24 +1548,27 @@ def _send_locked(text, talker, name, dry_run, verbose):
 
 
 def _repair_geometry_for_send(h):
-    """目标确认失败时的**按需修复**：窗口规范化到预设尺寸 + 尽量置前台。
+    """目标确认失败时的**按需修复**：窗口规范化到预设尺寸（**不抢前台**）。
 
     为什么需要：帧 OCR 的布局常量按 1280×820 标定，窗口尺寸漂移（实测 894×578）会让
     头部/输入框坐标错位 → 目标确认失败（`target_unconfirmed`）。这一步把窗口搬回预设尺寸再重试。
     **可逆**：返回原 rect，调用方必须在 finally 里还原（用户窗口归用户）。
-    尺寸已合规时不动窗口，只补一次置前台（失败也无妨，投递路不依赖前台）。
+
+    **用 `SW_SHOWNOACTIVATE`，不用 `SW_RESTORE` + `bring_to_front`**（2026-10-10 改）：
+    投递路根本不依赖前台（`wake_window` 早有同结论，用的是同一个常量），而抢前台会在
+    **失败路径**上把用户正在用的窗口顶掉——发送一时不成，用户的活也白干。还原收起的窗口
+    这件事 `preflight` 已经做过，这里只补「搬尺寸」。
     """
     orig = None
     l, t, w, ht = win_rect(h)
     if not (abs(l - NX) <= 4 and abs(t - NY) <= 4 and abs(w - NW) <= 8 and abs(ht - NH) <= 8):
         orig = (l, t, w, ht)
     try:
-        u.ShowWindow(ctypes.c_void_p(h), 9)          # SW_RESTORE（最小化/隐藏时先还原）
+        u.ShowWindow(ctypes.c_void_p(h), 4)          # SW_SHOWNOACTIVATE：还原但不抢前台
         time.sleep(0.2)
         if orig:
             u.MoveWindow(ctypes.c_void_p(h), NX, NY, NW, NH, True)
             time.sleep(0.6)
-        bring_to_front(h)                             # 尽力而为；投递路不依赖前台
     except Exception:
         pass
     return orig
@@ -1453,7 +1600,15 @@ def _send_locked_body(h, text, talker, name, dry_run, verbose, prev_fg):
             # 按需修复：窗口尺寸漂移 / 不在前台时，帧 OCR 布局错位、切会话也会失败
             orig = _repair_geometry_for_send(h)
             d = read_uia(h, "s0r")
-            ok = uia_header_is(d, name) if d else False
+            if d:
+                ok = uia_header_is(d, name)
+            else:
+                # **与上面第一次读取对称**：UIA 拿不到就退帧判据。这里原先硬写 `if d else False`，
+                # 而微信 4.x 常整条生命周期都不暴露控件树（`_uia_tree_blank`），于是修复后**必判失败**
+                # ——白切一次会话（用户看到的「只是打开了微信界面」）、再报 `target_unconfirmed`
+                # （2026-10-10 定位：Loop 连续 3 拍失败即此路）。刚搬正过窗口，帧多半新鲜了。
+                ww, wh, lines = read_ui_stable("s0r")
+                ok, _why = verify_target(talker, name, lines, ww, wh, verbose)
         if not ok:
             ok = open_chat_post(h, name, talker, verbose)
             if ok:
@@ -1499,7 +1654,7 @@ def _send_locked_body(h, text, talker, name, dry_run, verbose, prev_fg):
     finally:
         if orig:
             _restore_geometry(h, orig)
-        # 修复路径可能把微信抢到前台（bring_to_front）；失败返回时也要还回去，别把用户的前台占了
+        # 投递字符会让微信自己跳到前台（Qt 的自激活）；失败返回时也要还回去，别把用户的前台占了
         _give_back_foreground(h, prev_fg)
 
 

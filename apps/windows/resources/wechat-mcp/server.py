@@ -28,7 +28,7 @@ import sys
 import os
 
 SERVER_NAME = "wechat-local"
-SERVER_VERSION = "0.6.0"
+SERVER_VERSION = "0.6.2"
 # 新 → 旧；客户端请求的版本在列表中则原样回应，否则回应最新版（由客户端决定是否断开）
 SUPPORTED_PROTOCOL_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
 

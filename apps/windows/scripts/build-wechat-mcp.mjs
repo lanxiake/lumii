@@ -27,7 +27,7 @@ const SRC_DIR = path.join(WINDOWS_ROOT, 'resources', 'wechat-mcp')
 const DIST_DIR = path.join(SRC_DIR, 'dist')
 const EXE_PATH = path.join(DIST_DIR, 'wechat-mcp.exe')
 /** exe 里需要的随包数据（运行时由 sys._MEIPASS 定位） */
-const DATA_FILES = ['ocr4.ps1', 'uia_read.ps1']
+const DATA_FILES = ['ocr4.ps1', 'uia_read.ps1', 'tray_click.ps1']
 /** 与 requirements.txt 保持一致 */
 const RUNTIME_DEPS = ['pycryptodome>=3.20', 'zstandard>=0.22']
 const PYINSTALLER_SPEC = 'pyinstaller>=6.10'

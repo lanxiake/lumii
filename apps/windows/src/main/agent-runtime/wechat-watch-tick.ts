@@ -973,10 +973,13 @@ async function flushWechatOutbox(
         text: item.text,
         dry_run: false,
       })
-      const ok = (JSON.parse(out) as { ok?: boolean }).ok === true
-      if (!ok) {
-        // 门还关着（或这条本身发不出去了）：停在这里，剩下的下一拍再试，绝不重复发
-        log.info(`[wechat-watch] 补发未成功，留队下一拍：${item.peer}`)
+      const payload = JSON.parse(out) as { ok?: boolean; error_code?: string; detail?: string }
+      if (payload.ok !== true) {
+        // 门还关着（或这条本身发不出去了）：停在这里，剩下的下一拍再试，绝不重复发。
+        // **务必记 error_code/detail**：原先只记 peer，导致「为什么一直发不出去」在日志里查无实据
+        // （2026-10-10：Loop 挂了 20 次 target_unconfirmed，全靠手动复现才定位到发送层）。
+        const why = [payload.error_code, payload.detail].filter(Boolean).join(' ') || '无错误码'
+        log.info(`[wechat-watch] 补发未成功，留队下一拍：${item.peer}（${why}）`)
         break
       }
       sent += 1

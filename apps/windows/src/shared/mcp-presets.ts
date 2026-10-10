@@ -33,7 +33,7 @@
  * `mcp-presets.test.ts` 会读回 server.py 与 npm 模板对账，发版漏改这里会红，不会静默漂移。
  */
 export const WECHAT_MCP_NPM_PACKAGE = '@lumii/wechat-mcp'
-export const WECHAT_MCP_VERSION = '0.6.0'
+export const WECHAT_MCP_VERSION = '0.6.2'
 
 export type McpPresetCategory =
   | 'office'
