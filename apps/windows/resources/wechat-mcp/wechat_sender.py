@@ -2261,18 +2261,36 @@ def _dlg_fill_and_open(dlg, path, verbose=False):
     return False, "点了「打开」但文件对话框没关（fail-closed）"
 
 
+# 工具栏「发送文件」图标的几何锚点（相对量，随实际布局自适应）。
+# ⚠️ **不能按名字找**：图标没有文字、微信也没暴露 UIA（本机整棵树只剩 2 个 Pane），
+# 悬停才出中文提示。实测把锚点定在「会话列右边界 +103、发送按钮上方/同高 +7」处，即那排
+# 5 个图标（x≈337/373/407/443/494，y≈777）里**第 3 个＝发送文件**（左「发送收藏」右「截图」）。
+ATTACH_BTN_DX = 103
+ATTACH_BTN_DY = 7
+
+
+def _attach_button_pt(h):
+    """工具栏「发送文件」图标在窗口内的坐标；读不到帧就返回 None。
+
+    图标本身**没有文字、也没有 UIA 名字**（鼠标悬停才出提示），所以只能**按位置**点。
+    锚点取**相对量**，随实际布局自适应：x = 会话列右边界 + 103，y = 「发送」按钮 y + 7。
+    2026-10-12 实测（1280×820，微信 4.1.15）：那排图标 y≈777，从左到右 x≈337/373/**407**/443/494，
+    第 3 个是「发送文件」（左「发送收藏」、右「截图」，用户逐一点名核对过）。
+    """
+    ww, wh, lines = read_ui_stable("atp")
+    if not lines:
+        return None
+    ly = layout(lines, ww, wh)
+    return ly["session_right"] + ATTACH_BTN_DX, ly["send_btn"][1] + ATTACH_BTN_DY
+
+
 def _attach_via_dialog(h, path, verbose=False):
-    """投递点「发送文件」→ 驱动弹出的文件对话框。返回 (ok, detail)。"""
+    """投递点工具栏的「发送文件」图标 → 驱动弹出的文件对话框。返回 (ok, detail)。"""
     pids = set(weixin_pids())
     before = set(_weixin_dialog(pids))
-    d = read_uia(h, "at0")
-    btn = next((b for b in (d or {}).get("btns", []) if "发送文件" in b["name"]), None)
-    if not btn:
-        return False, "没找到工具栏的「发送文件」按钮（fail-closed）"
-    bx, by, bw, bh = btn["rect"]
-    p = _uia_layout(h, d, bx + bw // 2, by + bh // 2)
+    p = _attach_button_pt(h)
     if not p:
-        return False, "UIA 参考系拿不到（fail-closed）"
+        return False, "读不到界面帧，无法定位工具栏「发送文件」（fail-closed）"
     post_click(h, *p)
     dlg = 0
     t0 = time.time()

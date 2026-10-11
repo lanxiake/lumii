@@ -1717,6 +1717,23 @@ def suite_L():
         assert ok is True and flag is True, f"列表点击切换也要标记 switched_chat：{flag}"
     r.case("列表点击切换 ⇒ 也标记 switched_chat（切完要真点击激活输入框）", l15_list_switch_marks_switched)
 
+    def l16_attach_button_pt():
+        """附件入口（工具栏「发送文件」图标）**没有名字**，只能按几何定位，且读不到帧要 fail-closed。"""
+        frame = [(126, 100, 200, 112, "321"), (126, 200, 296, 212, "韩玉"),
+                 (1200, 780, 1240, 796, "发送")]
+        ly = snd.layout(frame, 1280, 820)
+        old = snd.read_ui_stable
+        try:
+            snd.read_ui_stable = lambda tag, tries=4: (1280, 820, frame)
+            pt = snd._attach_button_pt(199150)
+            want = (ly["session_right"] + 103, ly["send_btn"][1] + 7)
+            assert pt == want, f"附件锚点应随布局算：{pt} != {want}"
+            snd.read_ui_stable = lambda tag, tries=4: (1280, 820, [])
+            assert snd._attach_button_pt(199150) is None, "读不到帧必须返回 None（不许瞎点）"
+        finally:
+            snd.read_ui_stable = old
+    r.case("附件入口按几何定位（会话列右边界+103、发送按钮 y+7）；读不到帧 ⇒ None", l16_attach_button_pt)
+
     return r
 
 
