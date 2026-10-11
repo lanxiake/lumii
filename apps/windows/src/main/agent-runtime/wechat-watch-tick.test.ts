@@ -17,6 +17,7 @@ import {
   __resetWatchPendingForTest,
   buildAutoPrompt,
   buildDraftPrompt,
+  buildOwnerPrompt,
   DEFAULT_WECHAT_WATCH_CONFIG,
   ensureWechatWatchConfigFile,
   ensureWechatWatchCronJobSeeded,
@@ -38,6 +39,10 @@ import {
   selectNewMessages,
   SELF_PEER_COOLDOWN_S,
   withSelfPeers,
+  AGENT_REPLY_MARKER,
+  hasAgentMarker,
+  stripAgentMarker,
+  withAgentMarker,
   WECHAT_PROFILE_MAX_CHARS,
   WECHAT_WATCH_INSTRUCTION,
   watchConversationIdFor,
@@ -1231,6 +1236,51 @@ describe('出站记账（挂出站唯一入口，防自回环）', () => {
     await tickWithEcho('这句只是演练', driveTurn)
     expect(driveTurn).toHaveBeenCalledTimes(1) // 用户真打的同一句照常驱动
   })
+
+  /**
+   * 加代发标记之后**最容易静默失效**的一处：回执里的 `text` 是 MCP 原样回显的入参（**带标记**），
+   * 而轮询侧 `poll_new` 的 `msg_dict` 已把标记剥掉。`wasSelfSent` 按**全等**比字符串——
+   * 记账时忘了剥，台账就永远对不上，防自回环**整个失效且不报错**。
+   */
+  it('记账要剥掉代发标记：否则与轮询侧（已剥）的全等比较永远不成立', async () => {
+    noteWechatOutbound(
+      'send_text',
+      { talker: 'filehelper' },
+      // 模拟出站 Provider 发出时的真实入参：正文 + 代发标记
+      JSON.stringify({ ok: true, dry_run: false, talker: 'filehelper', text: withAgentMarker('九点提醒你') }),
+    )
+    const driveTurn = vi.fn(async () => 'ok')
+    // 轮询侧解出来的是**剥掉标记**的正文（MCP `msg_dict` 干的）
+    await tickWithEcho('九点提醒你', driveTurn)
+    expect(driveTurn).not.toHaveBeenCalled()
+  })
+
+  it('带标记的回声走 MCP 侧 agent_sent 判据时，连文本比对都不需要', async () => {
+    const driveTurn = vi.fn(async () => 'ok')
+    const { d, callMcpTool } = deps({ driveTurn })
+    const impl = async (_s: string, tool: string, args: Record<string, unknown>) => {
+      if (tool !== 'poll_new') return JSON.stringify({ messages: [], next_since_ts: 2000 })
+      if (args.since_ts === 1800) {
+        return JSON.stringify({
+          messages: [
+            {
+              ts: 1990,
+              name: '文件传输助手',
+              talker: 'filehelper',
+              from_me: true,
+              text: '在的 有什么要办的',
+              agent_sent: true,
+            },
+          ],
+          next_since_ts: 1990,
+        })
+      }
+      return JSON.stringify({ messages: [], next_since_ts: 1990 })
+    }
+    callMcpTool.mockImplementation(impl as unknown as (...a: unknown[]) => Promise<string>)
+    await runWechatWatch(d)
+    expect(driveTurn).not.toHaveBeenCalled()
+  })
 })
 
 describe('ensureWechatWatchConfigFile', () => {
@@ -1303,5 +1353,61 @@ describe('ensureWechatWatchCronJobSeeded', () => {
     const upd = runs.find((r) => String(r[0]).includes('UPDATE local_cron_jobs'))
     expect(String(upd![0])).toContain('agent_id = NULL')
     expect(upd).toContain(15_000)
+  })
+})
+
+/**
+ * Agent 代发标记（2026-10-11）。
+ *
+ * 为什么必须锁死：自聊会话（文件传输助手 / 本人 wxid）里**用户和助手发的消息 `from_me` 都是真**
+ * ——身份用 `from_me` 分不开。原先靠 `wasSelfSent`（**文本匹配**、内存态、5 分钟 TTL）兜，
+ * 读不到或延迟落库时漏一次，就是**助手自己回自己**（`auto` 档下就是自问自答）。
+ *
+ * 三条硬约束，缺一条这个机制就不成立：
+ *   ① 标记**必须纯不可见**——这段文本是真的发到微信里的，普通好友也会收到；
+ *   ② 识别必须**先剥标记再截断**（MCP 侧 `msg_dict` 正文 400 字上限，长消息会把末尾标记切掉）；
+ *   ③ `agent_sent` 只按标记判定，**不能按 `from_me` 推**——那正是分不开的那一对。
+ */
+describe('Agent 代发标记', () => {
+  it('常量是纯零宽字符（不含任何可见字符）', () => {
+        // 逐码位钉死：ZWSP / ZWNJ / ZWSP。**必须与 Python 侧 `wechat_core.AGENT_MARK` 完全一致**
+    // ——两侧任一处被编辑器或格式化动过，这里就红。
+    expect([...AGENT_REPLY_MARKER].map((c) => c.codePointAt(0))).toEqual([0x200b, 0x200c, 0x200b])
+  })
+
+  it('写标记 → 认得出 → 剥得干净，且正文原样保留', () => {
+    const marked = withAgentMarker('在的 有什么要办的')
+    expect(hasAgentMarker(marked)).toBe(true)
+    expect(stripAgentMarker(marked)).toBe('在的 有什么要办的')
+    // 剥完必须和原文**一字不差**（多一个空格都会让微信里的消息和界面显示对不上）
+    expect(stripAgentMarker(withAgentMarker('a b'))).toBe('a b')
+  })
+
+  it('用户自己发的消息不带标记（否则这条防线就是把用户的真话吞掉）', () => {
+    expect(hasAgentMarker('在的 有什么要办的')).toBe(false)
+    expect(hasAgentMarker(undefined)).toBe(false)
+    expect(stripAgentMarker('原样')).toBe('原样')
+  })
+
+  it('agent_sent 的消息不进 fresh（自聊会话里唯一能把助手和用户分开的判据）', () => {
+    const selfPeer = 'wxid_self_me'
+    const policy = { defaultMode: 'auto' as const, peers: [{ id: selfPeer, mode: 'auto' as const }] }
+    const base = { ts: 100, talker: selfPeer, name: 'TOOLAN' }
+    const msgs: WechatMessage[] = [
+      // 用户真发的：自聊里也是 from_me=true，必须照常触发
+      { ...base, text: 'hello', from_me: true },
+      // 助手代发的：同样 from_me=true，必须剔除（这就是标记的全部意义）
+      { ...base, ts: 101, text: '在的 有什么要办的', from_me: true, agent_sent: true },
+    ]
+    const fresh = selectNewMessages(msgs, policy, [selfPeer])
+    expect(fresh.map((m) => m.text)).toEqual(['hello'])
+  })
+
+  it('收尾指令已进两条提示词（task_complete 不终止回合，不写死就会反复重处理）', () => {
+    const msgs: WechatMessage[] = [{ ts: 1, talker: 'wxid_x', name: '某人', text: 'hi', from_me: false }]
+    for (const p of [buildAutoPrompt(msgs), buildOwnerPrompt(msgs)]) {
+      expect(p).toContain('不会有新的')
+      expect(p).toContain('收手')
+    }
   })
 })

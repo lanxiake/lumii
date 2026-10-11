@@ -220,34 +220,33 @@ function deferPeer(peer: string, msgs: WechatMessage[]): void {
 }
 
 /**
- * Agent 回复标记：不可见字符（Zero-Width Space + 特殊序列），附加在消息末尾。
+ * Agent 代发标记：三个零宽字符（ZWSP / ZWNJ / ZWSP），**附在消息末尾**。
  *
- * 用途：区分"Agent 代发的消息"与"用户真实发送的消息"。
- * - 客户端发送时：在文本末尾加上这个标记
- * - MCP 读取时：识别带标记的消息，标注 `agent_sent: true`
- * - 回路过滤时：按标记跳过，而不是按文本匹配（文本匹配会误伤用户发的同样内容）
+ * 为什么需要：自聊会话（文件传输助手 / 本人 wxid）里**用户和助手发的消息 `from_me` 都是真**
+ * ——身份用 `from_me` 分不开。现有的 `wasSelfSent` 是**按文本匹配**的（内存态、5 分钟 TTL），
+ * MCP 一时读不到 / 消息延迟落库时会漏，漏了就是**助手自己回自己**。标记是精确的身份识别。
  *
- * 格式：`​` (Zero-Width Space) + `[AGENT]`
- * - 不可见：微信界面上看不到，不影响用户阅读
- * - 可识别：代码里能精确匹配
+ * ⚠️ **必须纯不可见**：这条文本是**真的发到微信里**的（普通好友也会收到）。可见标记
+ * （如 `[AGENT]`）会印在对方的消息气泡里——那是把内部实现泄漏给真人，绝对不能加。
+ *
+ * 识别方在 MCP 侧（`wechat_core.msg_dict`）：**先剥标记再截断**（正文 400 字上限会把
+ * 长消息末尾的标记切掉，先截断就永远认不出），并给这条消息打上 `agent_sent: true`。
  */
-export const AGENT_REPLY_MARKER = '​[AGENT]'
+export const AGENT_REPLY_MARKER = '\u200b\u200c\u200b'
 
-/** 检查消息是否带 Agent 标记 */
+/** 这条文本带不带 Agent 代发标记 */
 export function hasAgentMarker(text: string | undefined): boolean {
   return !!text && text.endsWith(AGENT_REPLY_MARKER)
 }
 
-/** 给消息添加 Agent 标记（发送前调用） */
+/** 给消息加 Agent 代发标记（发送前调用；见 `AGENT_REPLY_MARKER` 的"必须不可见"） */
 export function withAgentMarker(text: string): string {
   return text + AGENT_REPLY_MARKER
 }
 
-/** 去掉 Agent 标记（显示给用户时调用，可选） */
+/** 剥掉 Agent 代发标记（给要展示给人的场合用） */
 export function stripAgentMarker(text: string): string {
-  return text.endsWith(AGENT_REPLY_MARKER)
-    ? text.slice(0, -AGENT_REPLY_MARKER.length)
-    : text
+  return hasAgentMarker(text) ? text.slice(0, -AGENT_REPLY_MARKER.length) : text
 }
 
 const SELF_SEND_TTL_MS = 5 * 60_000
@@ -292,7 +291,12 @@ export function noteWechatOutbound(tool: string, args: Record<string, unknown>, 
   // 回执里的 `talker` 是**解析后的 wxid/群号**，`args.talker` 可能只是显示名（如「周礼」）——
   // 轮询侧的 peer 恒为前者，名字对名字是永远对不上的
   const peer = typeof out.talker === 'string' && out.talker ? out.talker : String(args.talker ?? '')
-  const text = typeof out.text === 'string' ? out.text : ''
+  // ⚠️ **必须剥掉代发标记再记账**：回执里的 `text` 是 MCP 原样回显的**入参**（带标记），
+  // 而轮询侧 `poll_new` 的 `msg_dict` 已把标记剥掉。`wasSelfSent` 按**全等**比字符串，
+  // 不剥就是永远对不上——那条防自回环的台账会**静默失效**（不报错，只是下一拍把自己的
+  // 话当成用户新指令，自聊会话里就是自问自答）。
+  const raw2 = typeof out.text === 'string' ? out.text : ''
+  const text = stripAgentMarker(raw2)
   if (peer && text.trim()) rememberSelfSends(peer, [text], Date.now())
 }
 
@@ -727,6 +731,12 @@ export function buildAutoPrompt(
     '',
     '发送成不成**不用你自己去验**：回路的读库实测会判定这一轮到底发出去没有；',
     '发不出去的那条系统已经排队，手一回来会自己补发。把该说的话说完就**到此为止**。',
+    '',
+    // 同 `buildOwnerPrompt` 的收尾指令：`task_complete` **不终止回合**（纯通知工具），
+    // 少了明确的收尾信号时，模型会把上下文里这条触发**当成新消息反复重处理**——
+    // 那里有实测量级（一次自聊 hello → 35 次工具调用 / 3 分钟 / 两条重复回复）。
+    '【收尾】以上是本轮**全部**触发消息，**不会有新的**。办完就调 `task_complete` 收手：',
+    '不要回头重读消息、不要把同一条**再处理一遍**、也不要为了"查有没有漏"去轮询或翻库。',
   ]
     .filter(Boolean)
     .join('\n')
@@ -763,6 +773,17 @@ export function buildOwnerPrompt(
     ...(draftOnly
       ? ['', '⚠️ 这个人的策略是「起草给我确认」：**只起草、不要发送**，我回「发」你才发。']
       : []),
+    '',
+    // 收尾指令（2026-10-11 加）：**这是一条真出过事的防线**。上面那句「不用你自己验」把
+    // 「等 20~30 秒读库复核」的仪式砍掉之后，模型少了明确的收尾信号，于是在**同一轮**里
+    // 反复把自己上下文里的这条触发**当成新来的消息**再处理一遍——实测一次自聊「hello」
+    // 引出 71 个 part（36 思考 + 35 次工具调用）、跑满 3 分钟、发了两条互为重复的回复
+    // （`agent-runtime.db` 里那条 assistant 消息就是证据，模型自己的思考原文写着
+    // 「I keep responding to repeated trigger messages… and each response just continues the loop」）。
+    // `task_complete` **不终止回合**（它是纯通知工具，见 task-complete-tool.ts），
+    // 而 `StuckGuard` 的两条判据都认不出这种"每次调用都不一样"的空转，所以只能在这儿说死。
+    '【收尾】以上是本轮**全部**触发消息，**不会有新的**。办完就调 `task_complete` 收手：',
+    '不要回头重读消息、不要把同一条**再处理一遍**、也不要为了"查有没有漏"去轮询或翻库。',
   ]
     .filter(Boolean)
     .join('\n')

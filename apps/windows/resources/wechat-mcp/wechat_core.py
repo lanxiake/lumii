@@ -1135,9 +1135,33 @@ def _image_name(packed):
     return m.group(0).decode() if m else None
 
 
+AGENT_MARK = "\u200b\u200c\u200b"
+
+
+def split_agent_mark(text):
+    """剥掉「Agent 代发」标记，返回 `(纯文本, 是否 Agent 代发)`。
+
+    标记由客户端（`wechat-watch-tick.ts` 的 `withAgentMarker`）在**发送前**追加，
+    落在微信消息正文里，所以这里读出来时也在。**必须纯不可见**（零宽字符）——这段文本
+    是真的发给真人的，可见标记会印在对方气泡里。
+
+    为什么要有它：自聊会话（文件传输助手 / 本人 wxid）里用户和助手发的消息 `from_me`
+    **都是真**，身份分不开。客户端原先靠**文本匹配**（`wasSelfSent`，内存态 + 5 分钟 TTL），
+    读不到或延迟落库时会漏，漏了就是助手自己回自己。标记是精确的身份识别。
+    """
+    if text.endswith(AGENT_MARK):
+        return text[:-len(AGENT_MARK)], True
+    return text, False
+
+
 def msg_dict(ct, lt, content, nm, talker=None, name=None, sender=None, me=None, local_id=None,
              source=None, packed=None):
-    d = {"time": _ts(ct), "ts": ct, "type": lt & 0xFFFFFFFF, "text": _render(lt, content)[:400]}
+    # ⚠️ **先剥标记、再截断**：下面是 400 字硬截断，长消息会把末尾的标记切掉——
+    # 先截断的话标记根本认不出来（标记恒在**末尾**，被截掉就等于没打）。
+    text, agent_sent = split_agent_mark(_render(lt, content))
+    d = {"time": _ts(ct), "ts": ct, "type": lt & 0xFFFFFFFF, "text": text[:400]}
+    if agent_sent:
+        d["agent_sent"] = True               # 客户端据此跳过：这条是助手代发的，不是用户说的
     if local_id is not None:
         d["local_id"] = local_id             # 会话内稳定序号；语音靠它精确对应到 VoiceInfo
     if talker is not None:
