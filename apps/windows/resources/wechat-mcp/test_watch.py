@@ -1586,9 +1586,9 @@ def suite_L():
         finally:
             (snd.open_chat_post, snd._scroll_find_session, snd.open_chat_via_search_posted,
              snd._LAST_DIAGNOSTICS) = old
-        assert ok is False, "卡死时应直接失败交给上层排队"
-        assert calls == {"scroll": 0, "search": 0}, f"卡死时不该再往界面戳：{calls}"
-    r.case("界面卡死 ⇒ 跳过滚动与搜索（不再戳冻结界面）", l10_frozen_skips_scroll_and_search)
+        assert ok is True, "判死时仍应走搜索兜底（它会 bring_to_front 自救）"
+        assert calls == {"scroll": 0, "search": 1}, f"判死应只跳过滚动、保留搜索：{calls}"
+    r.case("界面判死 ⇒ 跳过滚动，但仍走搜索兜底（避免误判致发送失败）", l10_frozen_skips_scroll_and_search)
 
     return r
 

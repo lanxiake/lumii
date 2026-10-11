@@ -1717,19 +1717,19 @@ def open_chat_any(h, name, talker, verbose=False):
     而列表一屏约 10 行、用户有 68 个会话——不在首屏又没有搜索兜底的人**永久发不出去**，
     表现为一直 `target_unconfirmed`（杨冬就是这个案子，2792 个联系人里排不进首屏）。
 
-    **界面卡死就到此为止、不再往下戳**：滚动和搜索都要往界面投递滚轮/点击/按键，对一个
-    不响应的界面戳既拿不到结果、又会把这次发送拖长（用户明确提醒过 `_ui_alive` 那类冻结）。
-    `open_chat_post` 内部刚探过一次冻结并试过托盘恢复，这里读它的判定：
-    仍判死就直接失败，交给上层排队，等界面活了再补发。
+    **界面判死只用来跳过滚动**：滚动要**反复投递滚轮**，对一个不响应的界面戳没意义；但搜索兜底
+    必须留着——它会先 `bring_to_front`（窗口一露出来帧就新鲜了），而且「目标不在列表首屏」只有
+    它这条可靠出路，尝试次数也有界。更重要的是：`_ui_alive` 在**窗口被别的窗口盖住**时会**误判**
+    成卡死（PrintWindow 拍的是旧表面、两次帧一模一样），若据此连搜索一起跳过，正常「微信在后台」
+    的发送会凭空失败。
     """
     _record_diagnostics(ui_frozen=None)   # 只认**本次**的冻结探测结果，别被上一次调用的残留带偏
     if open_chat_post(h, name, talker, verbose):
         return True
     if _LAST_DIAGNOSTICS.get("ui_frozen") is True:
         if verbose:
-            print("[open] 界面判定为卡死，跳过滚动与搜索（不再往冻结界面戳），交给上层排队")
-        return False
-    if _scroll_find_session(h, name, talker, verbose=verbose):
+            print("[open] 界面判定为卡死，跳过滚动（搜索兜底仍会尝试，它会先把窗口bring到前台）")
+    elif _scroll_find_session(h, name, talker, verbose=verbose):
         return True
     if verbose:
         print("[open] 会话列表里没找到，退到微信搜索（Ctrl+F）")
