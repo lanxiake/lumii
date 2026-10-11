@@ -83,6 +83,7 @@ const TOOL_SUMMARIES: Record<string, string> = {
   message: "Reply in the current conversation",
   channel_list: "List channels and peer ids",
   channel_send: "Send text/file to an explicit peer",
+  wechat_peer_mode: "Set a WeChat peer's relay mode (auto/draft/notify/ignore)",
 
   // Session & Settings
   session_create: "Start a fresh conversation session",
@@ -177,7 +178,7 @@ const MEMORY_TOOLS = new Set([
   "wiki_search",
   "wiki_read",
 ])
-const MESSAGING_TOOLS = new Set(["message", "channel_list", "channel_send"])
+const MESSAGING_TOOLS = new Set(["message", "channel_list", "channel_send", "wechat_peer_mode"])
 const SELF_CONFIG_TOOLS = new Set(["profile_memory", "system_prompt"])
 const INTERACTION_TOOLS = new Set(["ask_user_question"])
 const DASHBOARD_TOOLS = new Set(["dashboard_feed_write", "dashboard_feed_read"])

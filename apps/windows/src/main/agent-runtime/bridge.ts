@@ -183,8 +183,10 @@ import {
   formatIncomingForHistory,
   enqueueWechatOutbox,
   formatWechatProfiles,
+  isSelfChatPeer,
   loadInstructions,
   loadWechatWatchConfig,
+  noteWechatOutbound,
   PCWECHAT_CHANNEL,
   policyFromWatchConfig,
   runWechatWatch,
@@ -1996,7 +1998,11 @@ export class AgentRuntimeBridge {
    * - 提示词前面拼上**画像**（见 `wechatProfilePrompt`）——把蒸馏产物变成每轮都在场的前提。
    */
   private async driveWechatWatchTurn(prompt: string, meta: WatchTurnMeta): Promise<string> {
-    const agentId = this.wechatRelayAgent()?.id ?? DEFAULT_AGENT_ID
+    // 自聊 peer（文件传输助手 / 本人微信号）= 用户本人的**控制渠道**，和飞书/QQ 一样走**主助手**。
+    // 代聊那个身份的 systemPrompt 关掉了 18 个通用分区（定时提醒/资料整理/记忆/工作区…），
+    // 而用户在那儿说的正是那些事——拿代聊当控制渠道等于自断手脚（提示词同样分开，见 buildOwnerPrompt）。
+    const ownerChannel = isSelfChatPeer(meta.peer, await this.wechatSelfWxids())
+    const agentId = ownerChannel ? DEFAULT_AGENT_ID : (this.wechatRelayAgent()?.id ?? DEFAULT_AGENT_ID)
     this.ensureConversationExists(meta.convId, meta.title, undefined, agentId)
     this.assignWatchConversationAgent(meta.convId, agentId)
     try {
@@ -2027,7 +2033,8 @@ export class AgentRuntimeBridge {
   private wechatWatchDeps(): WechatWatchDeps {
     return {
       getDb: () => this.localDb.db,
-      callMcpTool: (server, tool, args) => this.mcpManager.callTool(server, tool, args),
+      // 走 public 的那个（多一层出站记账）：补发队列也是"以本人身份发消息"，一样要记
+      callMcpTool: (server, tool, args) => this.callMcpTool(server, tool, args),
       // 第三个参数是会话 id：点通知直接跳到「微信盯梢」看草稿/代回结果
       showNotification: this.config.showCronNotification
         ? (title, body, convId) => this.config.showCronNotification!(title, body, convId)
@@ -3710,8 +3717,12 @@ export class AgentRuntimeBridge {
    * 而 `mcpManager` 只被 bridge 持有。与 `getMcpStatus` 同一层：都是"把 manager 的一小块
    * 暴露给装配处"，不开放 manager 本身。
    */
-  callMcpTool(server: string, tool: string, args: Record<string, unknown>): Promise<string> {
-    return this.mcpManager.callTool(server, tool, args)
+  async callMcpTool(server: string, tool: string, args: Record<string, unknown>): Promise<string> {
+    const text = await this.mcpManager.callTool(server, tool, args)
+    // 出站唯一入口：真发出去的微信消息在这里记账，下一拍轮询才不会把自己的话当用户指令
+    // （见 `noteWechatOutbound`；代聊回合、主人渠道回复、补发队列全走这一条）
+    if (server === WECHAT_WATCH_MCP_SERVER) noteWechatOutbound(tool, args, text)
+    return text
   }
 
   /**

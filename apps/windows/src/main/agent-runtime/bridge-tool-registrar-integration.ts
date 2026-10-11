@@ -43,6 +43,10 @@ import {
   writeSceneMemory,
 } from './scene-memory-store'
 import { resolveChannel } from './scene-resolver'
+import { Type } from '@sinclair/typebox'
+import { isSamePeer, type ChannelPeerPolicy, type PeerReplyMode } from '../../shared/channel-policy'
+import { getChannelPolicyStore } from '../channel/channel-policy-store'
+import { PCWECHAT_CHANNEL } from './wechat-watch-tick'
 
 /**
  * 给 channel_list 的快照补上渠道身份与能力说明（name / note）。
@@ -53,6 +57,143 @@ export function describeChannelSnapshot(
 ): ChannelSnapshot & { name: string; note: string } {
   const profile = OUTBOUND_CHANNEL_PROFILES[snapshot.channel]
   return { ...snapshot, name: profile.name, note: profile.note }
+}
+
+/** 「谁是本人」——真源在盯梢那份（filehelper 恒算，wxid 从 `locate_db` 探测） */
+
+/**
+ * 改**一个 peer 的代聊档位**。
+ *
+ * 为什么必须有这个工具：用户在自己和助手的对话里说的是「让助手停止给某某代聊」，
+ * 而档位此前只由设置页 IPC 写（`channel-ipc.ts`）——Agent 一条路都没有。
+ * 也不能让模型直接写文件：策略在主进程里有内存缓存（`ChannelPolicyStore.load`），
+ * 外部写盘**运行中的进程根本读不到**，改了也不生效。
+ *
+ * 档位表的第二重身份是**出站白名单**：没列进去的人 `channel_send` 直接 `PEER_NOT_FOUND`。
+ * 所以「停止代聊」是把 mode 改成 `ignore`/`notify`，**不是**把人从表里删掉。
+ */
+const PEER_MODES = ['auto', 'draft', 'notify', 'ignore'] as const
+
+/**
+ * 把一个人设成某档，返回新的 peers（**纯函数**：落盘与缓存的事归 store）。
+ *
+ * 去重按 **id 或显示名**都算同一个人：表里两种键都可能存在——`wechat-watch.json` 时代
+ * 用户是按名字手写的（`peers: ["Loop"]`），迁移过来的条目 id 就是那个名字；
+ * 只按 id 去重会让「杨冬」和「wxid_bmr…」两条并存，一条 auto 一条 ignore，谁生效看顺序。
+ */
+export function withPeerMode(
+  peers: readonly ChannelPeerPolicy[],
+  peer: string,
+  mode: PeerReplyMode,
+  label?: string,
+): ChannelPeerPolicy[] {
+  // 与 `resolvePeerPolicy` **同一套匹配**（查询的 id/label 对条目的 id/label，任一相等即同一人）：
+  // 只比 id 的话，「杨冬」这条老条目会在新条目（id=wxid、label=杨冬）落进来后留下，
+  // 一条 auto 一条 ignore，谁生效就看顺序——正是那张表当初设计要消灭的自相矛盾。
+  const keys = [peer, label]
+    .filter((x): x is string => typeof x === 'string' && x.trim().length > 0)
+    .map((x) => x.trim().toLowerCase())
+  const rest = peers.filter((x) => {
+    const cand = [x.id, x.label]
+      .filter((v): v is string => typeof v === 'string' && v.trim().length > 0)
+      .map((v) => v.trim().toLowerCase())
+    return !keys.some((k) => cand.includes(k))
+  })
+  return [...rest, { id: peer, ...(label ? { label } : {}), mode }]
+}
+
+/**
+ * 在名单里认人：模型手上多半只有**显示名**（「杨冬」「文件传输助手」），而名单里的真键是
+ * wxid/群号，自聊的真键还是 `filehelper`。
+ *
+ * 为什么必须认：直接信模型给的字符串会**same person 建两条**——2026-10-11 实测真出现过
+ * （名单里 `filehelper` 与「文件传输助手」并存，`withSelfPeers` 每拍又把缺的 filehelper 补回来，
+ * 于是越用越多）。认人的口径与 `resolvePeerPolicy` 一致：条目的 id 或 label 任一对上即同一人。
+ */
+function resolvePeerEntry(
+  peers: readonly ChannelPeerPolicy[],
+  peer: string,
+): ChannelPeerPolicy | undefined {
+  return peers.find((x) => isSamePeer(x.id, peer) || (!!x.label && isSamePeer(x.label, peer)))
+}
+
+/**
+ * 认人 + 并表，一次做完（`wechat_peer_mode` 的整个决策就在这儿，好让测试打得着）。
+ *
+ * label **以名单里那份为准**：那是从微信读来的真显示名，模型给的多半是它自己概括的档位
+ * ——2026-10-11 实测它给 filehelper 传了 `label: "自动代回"`，把「文件传输助手」盖掉了。
+ * 只在名单里没有这个人时才用模型给的 label。
+ */
+export function applyPeerMode(
+  peers: readonly ChannelPeerPolicy[],
+  input: { peer: string; mode: PeerReplyMode; label?: string },
+): ChannelPeerPolicy[] {
+  const hit = resolvePeerEntry(peers, input.peer)
+  const id = hit?.id ?? input.peer
+  return withPeerMode(peers, id, input.mode, hit?.label || input.label || undefined)
+}
+
+const PeerModeParams = Type.Object({
+  peer: Type.String({
+    description: '对方的 wxid / 群号 / 显示名（如「杨冬」）；filehelper = 文件传输助手',
+  }),
+  mode: Type.Union(PEER_MODES.map((m) => Type.Literal(m)), {
+    description: 'auto=直接替用户回｜draft=只起草等确认｜notify=只提醒｜ignore=完全不处理',
+  }),
+  label: Type.Optional(
+    Type.String({ description: '显示名（peer 只给了 wxid 时补上，方便用户看懂）' }),
+  ),
+})
+
+const peerModeToolConfig: MtBotToolConfig = {
+  name: 'wechat_peer_mode',
+  label: 'WeChat Peer Mode',
+  description:
+    'Set how the LOCAL desktop WeChat channel (pcwechat) treats ONE peer. ' +
+    'mode: auto = reply as the user automatically; draft = write a draft in that chat and wait for approval; ' +
+    'notify = just notify the user (no model call); ignore = never handle them (the blacklist). ' +
+    'Use this when the user asks to start / stop / soften 代聊 for someone. ' +
+    'It sends NO message — it changes future behaviour, effective on the next watch tick (≤15s). ' +
+    'The peer table doubles as the outbound allowlist, so「停止代聊」means mode=ignore (or notify), ' +
+    'NOT removing the peer — remove them and channel_send can no longer reach them at all.',
+  parameters: PeerModeParams,
+  category: 'channel',
+  isReadOnly: false,
+  needsPermission: true,
+  async execute(_toolCallId: string, rawParams: unknown): Promise<AgentToolResult<unknown>> {
+    const p = rawParams as { peer?: string; mode?: string; label?: string }
+    const peer = String(p.peer ?? '').trim()
+    const mode = String(p.mode ?? '').trim()
+    const label = String(p.label ?? '').trim()
+    if (!peer) {
+      return jsonToolResult({ ok: false, errorCode: 'PEER_NOT_FOUND', message: 'peer 必填' })
+    }
+    if (!(PEER_MODES as readonly string[]).includes(mode)) {
+      return jsonToolResult({
+        ok: false,
+        errorCode: 'INVALID_MODE',
+        message: `mode 必须是 ${PEER_MODES.join(' | ')}（收到「${mode}」）`,
+      })
+    }
+    const store = getChannelPolicyStore()
+    const policy = store.get(PCWECHAT_CHANNEL)
+    const next = store.set(PCWECHAT_CHANNEL, {
+      ...policy,
+      peers: applyPeerMode(policy.peers, { peer, mode: mode as PeerReplyMode, label: label || undefined }),
+    })
+    // 回执报**名单里的真键**（模型多半给的是显示名，它需要知道最终改的是哪一条）
+    const target = next.peers[next.peers.length - 1]
+    log.info(`[wechat_peer_mode] ${peer} → ${target?.id ?? peer} = ${mode}（名单 ${next.peers.length} 人）`)
+    return jsonToolResult({
+      ok: true,
+      channel: PCWECHAT_CHANNEL,
+      peer: target?.id ?? peer,
+      label: target?.label,
+      mode,
+      peers: next.peers.length,
+      message: `已把「${target?.label || peer}」设为 ${mode}，下一拍盯梢（≤15 秒）生效`,
+    })
+  },
 }
 
 /**
@@ -136,7 +277,8 @@ export function registerChannelTools(deps: BridgeToolRegistrarDeps): void {
     },
   }
   deps.toolRegistry.register(createMtBotTool(channelSend, ctx))
-  log.info('[registerChannelTools] channel_list/channel_send registered')
+  deps.toolRegistry.register(createMtBotTool(peerModeToolConfig, ctx))
+  log.info('[registerChannelTools] channel_list/channel_send/wechat_peer_mode registered')
 }
 
 /**

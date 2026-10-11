@@ -31,6 +31,9 @@ const CLIENT_REGISTERED_NAMES: readonly string[] = [
   "cron_guide",
   "weixin_send_guide",
   "prompt_guide",
+  // 渠道档位（bridge-tool-registrar-integration.ts）：与 channel_list/channel_send 同组，
+  // 「让某某停止代聊」那条主人指令就靠它落地
+  "wechat_peer_mode",
   "browser_navigate",
   "browser_snapshot",
   "browser_screenshot",

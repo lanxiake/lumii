@@ -27,6 +27,7 @@ import {
   formatWechatProfiles,
   isSelfChatPeer,
   loadInstructions,
+  noteWechatOutbound,
   parseWechatWatchConfig,
   pickProfileSweepTarget,
   policyFromWatchConfig,
@@ -935,6 +936,33 @@ describe('待补发队列（发送门够不着时排队，门开了自动补发�
     expect(showNotification).not.toHaveBeenCalled()
   })
 
+  it('一直发不出去（≥3 分钟）→ 弹一次通知说清卡在哪；仍留队等门开', async () => {
+    const { d, showNotification } = outboxDeps({
+      send: () =>
+        JSON.stringify({ ok: false, error_code: 'target_unconfirmed', detail: '目标会话未确认' }),
+    })
+    enqueueWechatOutbox(d.getDb(), 'wxid_s6piyhfvptv522', '三分钟了')
+    const t0 = Date.now()
+    await runWechatWatch({ ...d, nowMs: () => t0 + 4 * 60_000 })
+    expect(showNotification).toHaveBeenCalledWith(
+      '微信消息发不出去 · 正在重试',
+      expect.stringContaining('target_unconfirmed'),
+      'pcwechat:wxid_s6piyhfvptv522',
+    )
+    expect(readWechatOutbox(d.getDb())).toHaveLength(1) // 只是提醒，不是放弃
+  })
+
+  it('同一句只弹一次（每拍都弹 = 每 60 秒一条系统通知）', async () => {
+    const { d, showNotification } = outboxDeps({
+      send: () => JSON.stringify({ ok: false, error_code: 'env_not_ready' }),
+    })
+    enqueueWechatOutbox(d.getDb(), 'wxid_s6piyhfvptv522', '别重复弹')
+    const t0 = Date.now()
+    await runWechatWatch({ ...d, nowMs: () => t0 + 4 * 60_000 })
+    await runWechatWatch({ ...d, nowMs: () => t0 + 6 * 60_000 }) // 过了节流、还没过提醒间隔
+    expect(showNotification).toHaveBeenCalledTimes(1)
+  })
+
   it('队列落盘失败 → 入队抛错（Provider 据此照实报失败，不宣称「已排队」）', () => {
     const db = fakeDb().db as unknown as { prepare: (sql: string) => unknown }
     const broken = {
@@ -997,7 +1025,7 @@ describe('待补发队列（发送门够不着时排队，门开了自动补发�
   })
 
   it('过期（>30 分钟）的不再补——迟到的问候不如不发', async () => {
-    const { d, callMcpTool, sent } = outboxDeps()
+    const { d, callMcpTool, sent, showNotification } = outboxDeps()
     const db = d.getDb()
     enqueueWechatOutbox(db, 'wxid_s6piyhfvptv522', '早')
     const future = Date.now() + 31 * 60_000
@@ -1005,6 +1033,12 @@ describe('待补发队列（发送门够不着时排队，门开了自动补发�
     expect(out).toBe('无新消息')
     expect(sent()).toBe(0)
     expect(readWechatOutbox(db)).toEqual([])
+    // 放弃 = **真的丢了**（不是"迟到"）：必须告诉用户，否则他以为消息早发出去了
+    expect(showNotification).toHaveBeenCalledWith(
+      '微信消息没发出去 · 已放弃',
+      expect.stringContaining('早'),
+      'pcwechat:wxid_s6piyhfvptv522',
+    )
     // 全程只有本拍那次 poll_new：过期判定在**碰微信之前**，不该白读一次历史
     expect(callMcpTool.mock.calls.map((c) => c[1])).toEqual(['poll_new'])
   })
@@ -1147,6 +1181,55 @@ describe('runWechatWatch · 自聊（文件传输助手）当入站渠道', () =
     expect(meta.peer).toBe('filehelper')
     // 回合没真发（detectSentTo 读库为空）⇒ 摘要如实写「未发」，不替它邀功
     expect(out).toContain('文件传输助手')
+  })
+})
+
+describe('出站记账（挂出站唯一入口，防自回环）', () => {
+  /** 跑一拍，poll_new 第一拍回一条 from_me 的自聊消息 */
+  async function tickWithEcho(text: string, driveTurn: ReturnType<typeof vi.fn>) {
+    const { d, callMcpTool } = deps({ driveTurn })
+    const impl = async (_s: string, tool: string, args: Record<string, unknown>) => {
+      if (tool !== 'poll_new') return JSON.stringify({ messages: [], next_since_ts: 2000 })
+      if (args.since_ts === 1800) {
+        return JSON.stringify({
+          messages: [
+            { ts: 1990, name: '文件传输助手', talker: 'filehelper', from_me: true, text },
+          ],
+          next_since_ts: 1990,
+        })
+      }
+      return JSON.stringify({ messages: [], next_since_ts: 1990 })
+    }
+    callMcpTool.mockImplementation(impl as unknown as (...a: unknown[]) => Promise<string>)
+    return runWechatWatch(d)
+  }
+
+  it('**别处**发出去的话（主人渠道回复 / 补发队列），下一拍不会被当成用户新指令', async () => {
+    // 关键在"别处"：这一句不是本回合发的，原先的台账只记本回合那个 peer，于是这条会驱动一轮自聊
+    noteWechatOutbound(
+      'send_text',
+      { talker: '文件传输助手' }, // 调用方给的是显示名
+      JSON.stringify({ ok: true, dry_run: false, talker: 'filehelper', text: '九点提醒你' }),
+    )
+    const driveTurn = vi.fn(async () => 'ok')
+    await tickWithEcho('九点提醒你', driveTurn)
+    expect(driveTurn).not.toHaveBeenCalled()
+  })
+
+  it('演练（dry_run）/ 失败的不记账——把没发出去的话记成"自己发的"会吞掉用户随后打的一模一样一句', async () => {
+    noteWechatOutbound(
+      'send_text',
+      { talker: 'filehelper' },
+      JSON.stringify({ ok: true, dry_run: true, talker: 'filehelper', text: '这句只是演练' }),
+    )
+    noteWechatOutbound(
+      'send_text',
+      { talker: 'filehelper' },
+      JSON.stringify({ ok: false, error_code: 'target_unconfirmed', text: '这句没发出去' }),
+    )
+    const driveTurn = vi.fn(async () => 'ok')
+    await tickWithEcho('这句只是演练', driveTurn)
+    expect(driveTurn).toHaveBeenCalledTimes(1) // 用户真打的同一句照常驱动
   })
 })
 

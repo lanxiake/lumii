@@ -8,6 +8,7 @@ import { WecomChannelProvider } from './wecom-outbound-provider'
 import { QbotChannelProvider } from './qbot-outbound-provider'
 import { PcwechatChannelProvider } from './pcwechat-outbound-provider'
 import { WeixinReplyContextStore } from '../weixin-reply-context-store'
+import { withAgentMarker } from '../../agent-runtime/wechat-watch-tick'
 import type { ChannelPolicy } from '../../../shared/channel-policy'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -270,7 +271,7 @@ describe('PcwechatChannelProvider', () => {
     expect(res).toEqual({ ok: true, channel: 'pcwechat', to: 'wxid_loop' })
     expect(callMcpTool).toHaveBeenCalledWith('wechat-local', 'send_text', {
       talker: 'wxid_loop',
-      text: '在的',
+      text: withAgentMarker('在的'),
       dry_run: false,
     })
   })
@@ -289,7 +290,7 @@ describe('PcwechatChannelProvider', () => {
       reply: '{"ok":false,"error_code":"env_not_ready","detail":"电脑已锁屏"}',
     })
     await provider.sendText({ to: 'wxid_loop', text: '10月9号 周五' })
-    expect(onUndeliverable).toHaveBeenCalledWith('wxid_loop', '10月9号 周五')
+    expect(onUndeliverable).toHaveBeenCalledWith('wxid_loop', withAgentMarker('10月9号 周五'))
 
     // 内容问题（找不到会话）重试一万次也没用——不进队列，否则队列会变成噪声桶
     const { provider: badTarget, onUndeliverable: notQueued } = make({
@@ -304,7 +305,7 @@ describe('PcwechatChannelProvider', () => {
       reply: '{"ok":false,"error_code":"target_unconfirmed","detail":"目标会话未确认（fail-closed）"}',
     })
     const res = await provider.sendText({ to: 'wxid_loop', text: '在的' })
-    expect(onUndeliverable).toHaveBeenCalledWith('wxid_loop', '在的')
+    expect(onUndeliverable).toHaveBeenCalledWith('wxid_loop', withAgentMarker('在的'))
     // 队列归队列，这次 send 的结论仍是没送达——不能因为"排上了"就回报已发送；
     // 但要带 queued 让工具层报「排队中」而不是失败
     expect(res.ok).toBe(false)

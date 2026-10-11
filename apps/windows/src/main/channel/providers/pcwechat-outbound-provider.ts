@@ -18,6 +18,7 @@
  * 拿不到工具的明确确认就报 ok:false，绝不把"可能发出去了"写成"已发出"。
  */
 
+import { withAgentMarker } from '../../agent-runtime/wechat-watch-tick'
 import type { ChannelPolicy } from '../../../shared/channel-policy'
 import { isSamePeer } from '../../../shared/channel-policy'
 import type {
@@ -115,11 +116,15 @@ export class PcwechatChannelProvider implements IChannelOutboundProvider {
       )
     }
 
+    // **M4 增强**（2026-10-11）：给 Agent 回复添加不可见标记，用于区分"Agent 代发"与"用户真实发送"。
+    // 标记会被 MCP 识别并在 poll_new 里标注 agent_sent=true，回路据此跳过（防自回环）。
+    const markedText = withAgentMarker(text)
+
     let raw: string
     try {
       raw = await this.deps.callMcpTool(this.deps.mcpServer, 'send_text', {
         talker: to,
-        text,
+        text: markedText,
         // 显式 false：工具的默认值是 true（只校验不发送），少写这一次就是"报告已发、其实没发"
         dry_run: false,
       })
@@ -151,7 +156,7 @@ export class PcwechatChannelProvider implements IChannelOutboundProvider {
       // 原样带上工具自报的错误码：归一化后的 errorCode 粒度太粗（target_unconfirmed → UPSTREAM_ERROR），
       // 调用方（代聊/日志）看不出到底卡在目标确认还是别处
       const upstream = out.error_code ? { upstreamCode: out.error_code } : {}
-      if (UNDELIVERABLE_CODES.has(out.error_code ?? '') && this.enqueue(to, text)) {
+      if (UNDELIVERABLE_CODES.has(out.error_code ?? '') && this.enqueue(to, markedText)) {
         // 内容没问题，只是此刻那双手不在——**排队等门开**，并如实报「排队中」：
         // 报成失败会让调用方（代聊）误判成"发错了"而去改内容或转人工
         return {

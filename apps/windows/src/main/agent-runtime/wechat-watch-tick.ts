@@ -219,6 +219,37 @@ function deferPeer(peer: string, msgs: WechatMessage[]): void {
   pendingByPeer.set(peer, keep)
 }
 
+/**
+ * Agent 回复标记：不可见字符（Zero-Width Space + 特殊序列），附加在消息末尾。
+ *
+ * 用途：区分"Agent 代发的消息"与"用户真实发送的消息"。
+ * - 客户端发送时：在文本末尾加上这个标记
+ * - MCP 读取时：识别带标记的消息，标注 `agent_sent: true`
+ * - 回路过滤时：按标记跳过，而不是按文本匹配（文本匹配会误伤用户发的同样内容）
+ *
+ * 格式：`​` (Zero-Width Space) + `[AGENT]`
+ * - 不可见：微信界面上看不到，不影响用户阅读
+ * - 可识别：代码里能精确匹配
+ */
+export const AGENT_REPLY_MARKER = '​[AGENT]'
+
+/** 检查消息是否带 Agent 标记 */
+export function hasAgentMarker(text: string | undefined): boolean {
+  return !!text && text.endsWith(AGENT_REPLY_MARKER)
+}
+
+/** 给消息添加 Agent 标记（发送前调用） */
+export function withAgentMarker(text: string): string {
+  return text + AGENT_REPLY_MARKER
+}
+
+/** 去掉 Agent 标记（显示给用户时调用，可选） */
+export function stripAgentMarker(text: string): string {
+  return text.endsWith(AGENT_REPLY_MARKER)
+    ? text.slice(0, -AGENT_REPLY_MARKER.length)
+    : text
+}
+
 const SELF_SEND_TTL_MS = 5 * 60_000
 const recentSelfSends = new Map<string, { text: string; at: number }[]>()
 
@@ -233,6 +264,36 @@ function wasSelfSent(peer: string, text: string | undefined, nowMs: number): boo
   const arr = recentSelfSends.get(peer)
   if (!arr || !text) return false
   return arr.some((x) => nowMs - x.at <= SELF_SEND_TTL_MS && x.text === text)
+}
+
+/** 会以本人身份发消息的工具（其余工具的回执里没有 talker/text，也不用记账） */
+const OUTBOUND_TOOLS = new Set(['send_text', 'reply_to'])
+
+/**
+ * 记账「这句话是助手自己发出去的」——挂在**出站唯一入口**上（`bridge.callMcpTool`）。
+ *
+ * 为什么不能只在盯梢回合里记（原先的做法）：那里只记得到**本回合那个 peer**，
+ * 而助手完全可以在一轮里给别人发消息（改代聊对象、发资料到文件传输助手、定时提醒…）。
+ * 那些消息下一拍会以 `from_me` 回到轮询里，台账上没有 ⇒ 被当成**用户新指令**，
+ * 于是自己跟自己聊起来（主人渠道走主 Agent 之后这条链是必经之路，不是边角）。
+ *
+ * 只记**确认发出去**的：把没发出去的话记成"自己发的"，会把用户随后打的一模一样的一句
+ * 当回声丢掉——两种错都比一次自我回环更糟（那是真的吞消息）。
+ */
+export function noteWechatOutbound(tool: string, args: Record<string, unknown>, raw: string): void {
+  if (!OUTBOUND_TOOLS.has(tool)) return
+  let out: { ok?: boolean; dry_run?: boolean; talker?: unknown; text?: unknown }
+  try {
+    out = JSON.parse(raw) as typeof out
+  } catch {
+    return // 回执不是 JSON：发没发出去都无从确认，宁可不记（漏记只是多一轮回声，误记是吞消息）
+  }
+  if (out?.ok !== true || out?.dry_run === true) return
+  // 回执里的 `talker` 是**解析后的 wxid/群号**，`args.talker` 可能只是显示名（如「周礼」）——
+  // 轮询侧的 peer 恒为前者，名字对名字是永远对不上的
+  const peer = typeof out.talker === 'string' && out.talker ? out.talker : String(args.talker ?? '')
+  const text = typeof out.text === 'string' ? out.text : ''
+  if (peer && text.trim()) rememberSelfSends(peer, [text], Date.now())
 }
 
 /** 配置文件路径（用户可手改；`LUMII_CLIENT_DATA_DIR` 生效，便于隔离测试） */
@@ -400,6 +461,13 @@ export interface WechatMessage {
   talker?: string
   text?: string
   from_me?: boolean
+  /**
+   * 这条消息是 Agent 代发的（MCP 识别出消息末尾带 AGENT_REPLY_MARKER）。
+   *
+   * 用途：区分"Agent 回复"与"用户真实发送"——自聊会话里两者都是 `from_me=true`，
+   * 必须用额外字段才能分辨。带标记的消息**不应该触发新一轮回复**（防自回环）。
+   */
+  agent_sent?: boolean
   /** 真实发送者的显示名（`msg_dict` 给的；私聊即对方本人，群里才是说话的人） */
   sender?: string
   /**
@@ -477,6 +545,9 @@ export function triggerAllows(
  *
  * 自聊（文件传输助手 / 本人 wxid）的 `from_me=true` 是常态，不能按"自己发的不必提醒自己"过滤掉
  * ——那是**入站**。普通会话仍严格 `!from_me`：助手自己的回复（from_me）不再触发，防自回环。
+ *
+ * **M4 增强**（2026-10-11）：识别 Agent 标记（`agent_sent` 字段），跳过 Agent 自己发出去的消息。
+ * 这比纯文本匹配更可靠：文本匹配会误伤用户发的同样内容，而标记是精确的身份识别。
  */
 export function selectNewMessages(
   messages: readonly WechatMessage[],
@@ -484,6 +555,8 @@ export function selectNewMessages(
   selfWxids: readonly string[] = [],
 ): WechatMessage[] {
   return messages.filter((m) => {
+    // 跳过 Agent 自己发出去的消息（按标记识别，比文本匹配更精确）
+    if (m.agent_sent) return false
     if (m.from_me && !isSelfChatPeer(m.talker, selfWxids)) return false
     const resolved = resolvePeerPolicy(policy, { id: m.talker, label: m.name })
     if (resolved.mode === 'ignore') return false
@@ -654,6 +727,42 @@ export function buildAutoPrompt(
     '',
     '发送成不成**不用你自己去验**：回路的读库实测会判定这一轮到底发出去没有；',
     '发不出去的那条系统已经排队，手一回来会自己补发。把该说的话说完就**到此为止**。',
+  ]
+    .filter(Boolean)
+    .join('\n')
+}
+
+/**
+ * 主人渠道（文件传输助手 / 本人微信号）的提示词：这里的消息是**用户本人的指令**，
+ * 不是"有个好友来找我聊天"。
+ *
+ * 为什么必须和代聊那套分开：`buildAutoPrompt` 要求先判档（硬停/软回/放行）再"以我本人身份
+ * 替我回"——那是给**第三方好友**的护栏。用户在自己和助手的对话里说的是「让助手给某某发消息 /
+ * 停止某某代聊 / 整理资料 / 设个提醒」，把它判成"对方发来的消息"就全歪了。
+ * 也不拼 `instructionsBlock`：手册与分档都是代聊口径，对主人渠道是错的说明书。
+ */
+export function buildOwnerPrompt(
+  msgs: readonly WechatMessage[],
+  draftOnly = false,
+): string {
+  const msg = msgs[msgs.length - 1]
+  const who = msg.name || msg.talker || '文件传输助手'
+  return [
+    '【本次触发】监控回路把消息取好了，**不要再轮询、也不要去查水位**：',
+    `这是**用户本人**在微信「${who}」里发给你的（等价于他在这里直接跟你说话），共 ${msgs.length} 条：`,
+    ...renderBatch(msgs),
+    ...voiceLine(msgs),
+    ...imageLine(msgs),
+    '',
+    '照他的指令办——这是**控制渠道**，不是"有人来找我聊天"，别套代聊那套判档：',
+    `- 要你给某人发微信 → \`channel_send\`（channel="pcwechat", to=那个人的 wxid 或显示名）；要回他本人 → \`channel_send\`(channel="pcwechat", to="${msg.talker}")。`,
+    '- 要你开始/停止/改成只提醒某人 → `wechat_peer_mode`（改的是本机微信渠道对那个人的策略，不是发消息）。',
+    '- 其他（整理资料、设定时提醒、记事、查东西）→ 用你平时那套工具照常做。',
+    '',
+    '发送成不成**不用你自己验**：回路按读库实测判定，发不出去的那条已经排队、手一回来会自己补发。',
+    ...(draftOnly
+      ? ['', '⚠️ 这个人的策略是「起草给我确认」：**只起草、不要发送**，我回「发」你才发。']
+      : []),
   ]
     .filter(Boolean)
     .join('\n')
@@ -1052,6 +1161,14 @@ const OUTBOX_RETRY_MS = 60_000
 const OUTBOX_MAX = 20
 /** 超过这个岁数就不再补发：几十分钟前的「早」发出去比不发更怪 */
 const OUTBOX_TTL_MS = 30 * 60_000
+/** 一条补发连着这么久还发不出去，就该告诉用户了（不是等 30 分钟后静默丢弃再说） */
+const OUTBOX_ALERT_MS = 3 * 60_000
+/**
+ * 已就「这条一直发不出去」提醒过的时刻（key = peer + 文本）。只存内存：重启后重来一遍不算错。
+ *
+ * 不记账就得每次重试都弹一条通知（每 60 秒一次）；记账了才是「发不出去」这条事实告一次。
+ */
+const outboxAlerted = new Map<string, number>()
 
 export interface WechatOutboxItem {
   peer: string
@@ -1126,10 +1243,26 @@ async function flushWechatOutbox(
     const db = deps.getDb()
     let queue = readWechatOutbox(db)
     if (queue.length === 0) return ''
+    const label = (id: string) => peers.find((p) => p.id === id)?.label || id
     // 先扔掉过期的：锁一下午醒来再补「早上好」不如不补，也免得解禁那一刻一次倒出几十条
     const kept = queue.filter((x) => nowMs - x.at <= OUTBOX_TTL_MS)
     if (kept.length !== queue.length) {
-      log.info(`[wechat-watch] 丢弃 ${queue.length - kept.length} 条过期待补发`)
+      const gone = queue.filter((x) => nowMs - x.at > OUTBOX_TTL_MS)
+      // **这是真的丢了**（不是"迟到"）：必须让用户知道，否则他以为消息早发出去了
+      // （2026-10-11 现场：杨冬那条排了 11:08→11:17 十次没发出去，全程只有 INFO，人不知道）
+      log.warn(
+        `[wechat-watch] 放弃 ${gone.length} 条过期待补发（>${Math.round(OUTBOX_TTL_MS / 60_000)} 分钟没发出去）：` +
+          gone.map((x) => label(x.peer)).join('、'),
+      )
+      deps.showNotification?.(
+        '微信消息没发出去 · 已放弃',
+        gone
+          .map((x) => `${label(x.peer)}：${x.text.slice(0, 40)}`)
+          .join('\n')
+          .slice(0, 200),
+        watchConversationIdFor(gone[gone.length - 1].peer),
+      )
+      for (const x of gone) outboxAlerted.delete(`${x.peer}\n${x.text}`)
       queue = kept
       writeWechatOutbox(db, queue)
     }
@@ -1170,7 +1303,17 @@ async function flushWechatOutbox(
         // **务必记 error_code/detail**：原先只记 peer，导致「为什么一直发不出去」在日志里查无实据
         // （2026-10-10：Loop 挂了 20 次 target_unconfirmed，全靠手动复现才定位到发送层）。
         const why = [payload.error_code, payload.detail].filter(Boolean).join(' ') || '无错误码'
-        log.info(`[wechat-watch] 补发未成功，留队下一拍：${item.peer}（${why}）`)
+        log.warn(`[wechat-watch] 补发未成功，留队下一拍：${item.peer}（${why}）`)
+        // 排队时只报过「已排队」；一直发不出去就得**让用户知道**，不能等到静默丢弃才吭声
+        const key = `${item.peer}\n${item.text}`
+        if (nowMs - item.at >= OUTBOX_ALERT_MS && nowMs - (outboxAlerted.get(key) ?? 0) >= OUTBOX_ALERT_MS) {
+          outboxAlerted.set(key, nowMs)
+          deps.showNotification?.(
+            '微信消息发不出去 · 正在重试',
+            `${label(item.peer)}：${item.text.slice(0, 40)}\n${why}`,
+            watchConversationIdFor(item.peer),
+          )
+        }
         break
       }
       sent += 1
@@ -1178,7 +1321,7 @@ async function flushWechatOutbox(
       writeWechatOutbox(db, queue)
       log.info(`[wechat-watch] 补发成功：${item.peer} → ${item.text.slice(0, 40)}`)
       // 当初那轮 channel_send 报的是「已排队」，会话里没有后续——这里把「已送达」补上
-      const name = peers.find((p) => p.id === item.peer)?.label || item.peer
+      const name = label(item.peer)
       deps.showNotification?.(
         `微信补发成功 · ${name}`,
         item.text,
@@ -1459,8 +1602,12 @@ export async function runWechatWatch(deps: WechatWatchDeps): Promise<string> {
         }
       }
       pendingByPeer.delete(peer)
-      const prompt =
-        mode === 'auto'
+      // 自聊（文件传输助手 / 本人微信号）= 主人渠道：那里的消息是用户本人的指令，换一套提示词
+      // （代聊那套会把他当第三方好友先判档；见 buildOwnerPrompt）
+      const ownerChannel = isSelfChatPeer(peer, selfWxids)
+      const prompt = ownerChannel
+        ? buildOwnerPrompt(msgs, mode !== 'auto')
+        : mode === 'auto'
           ? buildAutoPrompt(msgs, injectRunbook, cfg.instructionsFile)
           : buildDraftPrompt(msgs, injectRunbook, cfg.instructionsFile)
       let result = ''

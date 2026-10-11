@@ -348,6 +348,7 @@ export function buildMessagingSection(params: {
       "- To send images or files, pass `mediaPath` (absolute local path) to `channel_send`; an optional `text` is delivered first as a separate message. Only Feishu and 个人微信 (`weixin`) support this; 本机微信 (`pcwechat`) is text-only.",
       "- On failure, report the actual errorCode and message; never claim success.",
       "- Use `channel_send` for outbound delivery; `message` remains only for in-conversation quick replies.",
+      "- 「让某某停止代聊 / 恢复代聊」用 `wechat_peer_mode`（`peer` + `mode`：auto=代回、draft=只拟稿、notify=只提醒、ignore=不管），改完下一拍（≤15 秒）生效。peer 表同时是**主动发信白名单**，所以「停止代聊」是改档位、**不是删条目**。",
     )
   }
   lines.push("")
