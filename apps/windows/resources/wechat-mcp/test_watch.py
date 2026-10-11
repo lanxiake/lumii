@@ -1628,11 +1628,11 @@ def suite_L():
         snd._real_click_at = lambda h, x, y: calls.__setitem__("real", calls["real"] + 1)
         snd.post_click = lambda h, x, y: calls.__setitem__("post", calls["post"] + 1) or True
         try:
-            snd._record_diagnostics(switched_via_search=True)
+            snd._record_diagnostics(switched_chat=True)
             snd._click_input_box(199150, (100, 200))
             assert calls == {"real": 1, "post": 0}, f"经搜索切过来应真点击激活输入框：{calls}"
             calls["real"] = calls["post"] = 0
-            snd._record_diagnostics(switched_via_search=None)
+            snd._record_diagnostics(switched_chat=None)
             snd._ENV["restored"] = True
             snd._click_input_box(199150, (100, 200))
             assert calls == {"real": 1, "post": 0}, f"还原过窗口也应真点击（输入框被夺焦）：{calls}"
@@ -1703,6 +1703,19 @@ def suite_L():
         assert ok is True, "还原来的窗口找到目标后应返回 True"
         assert calls["search"] == 1, f"还原来的窗口也必须走搜索兜底：{calls}"
     r.case("窗口是还原来的 ⇒ 照样走搜索（托盘→还原→搜索→发送要通）", l14_restored_still_searches)
+
+    def l15_list_switch_marks_switched():
+        """经**会话列表点击**切换也要标记——切完焦点不在输入框，正文投递会落空。"""
+        old = (snd.open_chat_post, snd._LAST_DIAGNOSTICS)
+        snd._LAST_DIAGNOSTICS = dict(snd._LAST_DIAGNOSTICS)
+        snd.open_chat_post = lambda *a, **k: True
+        try:
+            ok = snd.open_chat_any(199150, "321", "t")
+            flag = snd._LAST_DIAGNOSTICS.get("switched_chat")
+        finally:
+            (snd.open_chat_post, snd._LAST_DIAGNOSTICS) = old
+        assert ok is True and flag is True, f"列表点击切换也要标记 switched_chat：{flag}"
+    r.case("列表点击切换 ⇒ 也标记 switched_chat（切完要真点击激活输入框）", l15_list_switch_marks_switched)
 
     return r
 

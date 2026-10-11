@@ -1654,11 +1654,12 @@ def _click_input_box(h, ip):
 
     **两种情形要用真实点击**（投递点击不足以把键盘焦点移到输入框，随后投递正文 WM_CHAR 就落空，
     表现为「已回车但目标会话未见新消息」）：
-    - 本次从**托盘/最小化还原过**窗口（还原后输入框被夺焦，2026-10-11 实测）；
-    - 会话是经**搜索兜底**切过来的（焦点留在搜索框/列表上，2026-10-11 实测）。
-    其余情形仍走投递点击（不动光标）。真实点击会短暂把微信顶到前台，发完由 `_give_back_foreground` 还回去。
+    - 本次**切过会话**（不管走的是会话列表点击还是搜索兜底）——切完焦点在列表/搜索框上；
+    - 本次从**托盘/最小化还原过**窗口（还原后输入框被夺焦，2026-10-11 实测）。
+    其余情形（目标会话本来就开着）仍走投递点击（不动光标）。真实点击会短暂把微信顶到前台，
+    发完由 `_give_back_foreground` 还回去。
     """
-    if _LAST_DIAGNOSTICS.get("switched_via_search") is True or _ENV.get("restored"):
+    if _LAST_DIAGNOSTICS.get("switched_chat") is True or _ENV.get("restored"):
         _real_click_at(h, *ip)
     else:
         post_click(h, *ip)
@@ -1772,8 +1773,11 @@ def open_chat_any(h, name, talker, verbose=False):
     已撤）。防卡死靠的是别的手段：投递优先、真键鼠只在该路径必要时用一次、失败时
     `_left_only_frame` + `_unfreeze_ui` 兜底恢复。
     """
-    _record_diagnostics(ui_frozen=None, switched_via_search=None, search_skipped_restored=None)
+    _record_diagnostics(ui_frozen=None, switched_chat=None, search_skipped_restored=None)
     if open_chat_post(h, name, talker, verbose):
+        # 走到这里就是「目标原先没开着、刚切过去」——切完焦点多半不在消息输入框上，
+        # 记一笔让发送层用真实点击激活它（投递正文要靠焦点落地）。
+        _record_diagnostics(switched_chat=True)
         return True
     if _LAST_DIAGNOSTICS.get("ui_frozen") is True:
         if verbose:
@@ -1791,7 +1795,7 @@ def open_chat_any(h, name, talker, verbose=False):
     if ok:
         # 搜索兜底切完会话后焦点在搜索框/列表上，投递正文会落空——记一笔，让发送层改用真实点击
         # 激活输入框（2026-10-11 实测：经搜索切换的那几次发送都卡在「已回车但未见新消息」）。
-        _record_diagnostics(switched_via_search=True)
+        _record_diagnostics(switched_chat=True)
     return ok
 
 
@@ -1822,9 +1826,9 @@ _LAST_DIAGNOSTICS = {
     "best_match_score": None,
     "ui_frozen": None,
     "retry_attempted": None,
-    # 本次是否经**搜索兜底**切过来的：那样焦点在搜索框/列表上，投递点击不足以把键盘焦点
-    # 移到消息输入框，正文会落空——调用方据此改用真实点击激活输入框（见 _send_locked_body）。
-    "switched_via_search": None,
+    # 本次是否**切过会话**（任一方式）：切完焦点可能不在消息输入框上，投递点击不足以把键盘焦点
+    # 移过去，正文（WM_CHAR）就落空——调用方据此改用真实点击激活输入框（见 `_click_input_box`）。
+    "switched_chat": None,
     # 因「窗口是从托盘/最小化还原来的」而**跳过**搜索兜底（避免真键鼠+切前台把界面弄卡）
     "search_skipped_restored": None,
 }
