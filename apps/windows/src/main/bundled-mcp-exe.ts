@@ -94,6 +94,21 @@ async function removeStaleCopies(target: string): Promise<void> {
 }
 
 /**
+ * 写「由灵栖部署」标记（exe 同目录的 `.lumii-bundled`）。
+ *
+ * wechat-mcp 的离线授权据此对灵栖用户免授权（见 `resources/wechat-mcp/licensing.py` 的
+ * `bundled_exempt`）。用 append：内容相同的重复写不该动 mtime。**幂等**。
+ *
+ * 除随包同步（`syncMcpExecutable`）外，插件按需下载 exe 后也必须调它——否则全新安装的
+ * wechat-mcp 拿不到免授权。
+ */
+export async function markLumiiDeployed(exePath: string): Promise<void> {
+  await fs
+    .writeFile(path.join(path.dirname(exePath), BUNDLED_MARKER), '', { flag: 'a' })
+    .catch(() => {})
+}
+
+/**
  * 把随包可执行文件同步到部署位置
  *
  * - 源缺失：已部署过就沿用旧版（带告警），从未部署则失败；
@@ -114,7 +129,7 @@ export async function syncMcpExecutable(source: string, target: string): Promise
 
   await fs.mkdir(path.dirname(target), { recursive: true })
   await removeStaleCopies(target)
-  await fs.writeFile(path.join(path.dirname(target), BUNDLED_MARKER), '', { flag: 'a' }).catch(() => {})
+  await markLumiiDeployed(target)
   if (deployed && (await hashFile(source)) === (await hashFile(target))) {
     return { ok: true, path: target, updated: false }
   }

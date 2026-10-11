@@ -15,7 +15,7 @@ import { existsSync, readdirSync, promises as fs } from 'fs'
 import { registerPlugin } from './plugin-manager'
 import { installNpmFile } from './npm-fetch'
 import { installGithubAsset, installGithubZip } from './github-fetch'
-import { getDeployedMcpExePath } from '../bundled-mcp-exe'
+import { getDeployedMcpExePath, markLumiiDeployed } from '../bundled-mcp-exe'
 import { MCP_PRESETS } from '../../shared/mcp-presets'
 import { presetToEntry, type McpServerEntry } from '../config/mcp-config'
 import { resolvePluginRuntimeDir } from '../paths'
@@ -197,6 +197,9 @@ export function registerBuiltinPlugins(deps: PluginDeps = {}): void {
         onProgress,
         signal,
       })
+      // 必须补写「由灵栖部署」标记：打包版随包源已移除、syncMcpExecutable 不再写它，
+      // 少了它 wechat-mcp 会对灵栖用户要求离线授权（见 bundled-mcp-exe 的 markLumiiDeployed）
+      await markLumiiDeployed(WECHAT_MCP_EXE)
       // 装完把 MCP 条目写进配置并启用（含热重连）
       await deps.upsertMcpServer?.(wechatMcpEntry())
     },

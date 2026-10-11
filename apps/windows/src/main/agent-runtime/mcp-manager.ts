@@ -99,6 +99,10 @@ export class McpManager {
     if (process.platform !== 'win32') return
     for (const preset of MCP_PRESETS) {
       if (!preset.bundledExe) continue
+      // wechat-mcp 已改为插件按需下载（见 plugins/builtin.ts），不再随包同步：否则 dev 下
+      // 仓库里有源、会在启动时把它同步回部署路径，与打包版行为不一致（卸载后面又「复活」）。
+      // 部署与 `.lumii-bundled` 标记现在都由插件在安装时负责。
+      if (preset.bundledExe === 'wechat-mcp') continue
       const source = resolveBundledMcpExe(preset.bundledExe)
       const target = getDeployedMcpExePath(preset.bundledExe)
       const result = await syncMcpExecutable(source, target).catch(
