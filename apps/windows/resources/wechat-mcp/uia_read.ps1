@@ -14,6 +14,7 @@ param([int]$Hwnd, [string]$Out, [switch]$All)
 # origin to get the layout space post_click() wants):
 #   WIN   <l> <t> <w> <h>
 #   ITEM  <automationId> <x> <y> <w> <h> <isSelected 0/1> <name>
+#   SITEM <class_name> <x> <y> <w> <h> <name>     <- search-results dropdown rows
 #   HEADER <current chat name>
 #   EDIT  <automationId> <x> <y> <w> <h> <name>
 #   INPUT <composer text>            <- what is typed in the message box RIGHT NOW
@@ -79,6 +80,24 @@ try {
   }
   # No session list is NOT an error: the same reader doubles as a dialog inspector
   # (the file picker the attachment path drives is a plain #32770 with Edit + Button).
+
+  # search-results dropdown (WeChat 4.x): AutomationId "search_list", ControlType List.
+  # The sender reads this to pick the EXACT target row instead of pressing Enter on whatever
+  # WeChat ranked first - a contact whose WeChat ID contains the query can outrank the matching
+  # group (measured 2026-10-11: searching "321" listed contact "cruel" / wxid crue1321 above the
+  # group "321"). class_name separates real chat rows (mmui::SearchContentCellView) from section
+  # headers and feature rows (mmui::XTableCell), so the picker can ignore the latter.
+  #   SITEM <class_name> <x> <y> <w> <h> <name>
+  $sr = One $root "search_list"
+  if ($sr) {
+    $kid = $cw.GetFirstChild($sr)
+    while ($kid -ne $null) {
+      $cls = ''
+      try { $cls = [string]$kid.Current.ClassName } catch {}
+      $lines += ("SITEM`t{0}`t{1}`t{2}" -f $cls, (RectStr $kid), (Clean $kid.Current.Name))
+      $kid = $cw.GetNextSibling($kid)
+    }
+  }
 
   # which conversation is actually open right now
   # 先认完整路径（快），失配再按尾段兜底（见 OneBySuffix 的说明）

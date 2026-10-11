@@ -48,6 +48,20 @@ export interface McpRequestOptions {
   readonly timeoutMs?: number;
   /** 中断信号：触发时立即 reject 该请求，不再等超时 */
   readonly signal?: AbortSignal;
+  /**
+   * 进度回调：本次请求会带 `_meta.progressToken`，Server 用 `notifications/progress`
+   * 上报阶段/重试（长耗时工具如微信发送会跑几十秒，没有它界面只能干等）。
+   */
+  readonly onProgress?: (progress: McpProgressNotification) => void;
+}
+
+/** `notifications/progress` 的参数（MCP 规范：progress 单调递增） */
+export interface McpProgressNotification {
+  readonly progressToken: string | number;
+  readonly progress: number;
+  readonly total?: number;
+  /** 人类可读的阶段说明，如「正在切换会话」「第 1/2 次重试」 */
+  readonly message?: string;
 }
 
 /** MCP 工具定义 */
@@ -327,6 +341,8 @@ export class McpStdioClient extends EventEmitter {
   >();
   private _initialized = false;
   private _instructions?: string;
+  /** 已发出、仍在等结果的请求 id → 进度回调（`notifications/progress` 按 token 派发到这） */
+  private readonly progressHandlers = new Map<number, (p: McpProgressNotification) => void>();
   /** Server 级默认请求超时（ms） */
   private readonly requestTimeoutMs: number;
 
@@ -502,11 +518,16 @@ export class McpStdioClient extends EventEmitter {
   ): Promise<unknown> {
     return new Promise((resolve, reject) => {
       const id = this.nextId++;
+      // 有 onProgress 才带 progressToken：MCP 规范里进度通知必须对应一个活动请求的 token，
+      // 不带 token 时 Server 无从上报（微信那种几十秒的发送就会全程无反馈）。
+      const progressToken = opts?.onProgress ? String(id) : undefined;
       const request: JsonRpcRequest = {
         jsonrpc: "2.0",
         id,
         method,
-        params,
+        params: progressToken
+          ? { ...params, _meta: { ...(params._meta as object | undefined), progressToken } }
+          : params,
       };
 
       const settle = (fn: typeof resolve | typeof reject, value: unknown) => {
@@ -517,6 +538,7 @@ export class McpStdioClient extends EventEmitter {
             entry.signal.removeEventListener("abort", entry.onAbort);
           }
           this.pending.delete(id);
+          this.progressHandlers.delete(id);
           fn(value);
         }
       };
@@ -543,6 +565,10 @@ export class McpStdioClient extends EventEmitter {
 
       // 先登记再处理已中断，避免竞态下 settle 找不到条目
       this.pending.set(id, entry);
+      if (opts?.onProgress) {
+        const cb = opts.onProgress;
+        this.progressHandlers.set(id, cb);
+      }
 
       const signal = opts?.signal;
       if (signal) {
@@ -580,13 +606,26 @@ export class McpStdioClient extends EventEmitter {
       return;
     }
     try {
-      const msg = JSON.parse(line) as JsonRpcResponse;
+      const msg = JSON.parse(line) as JsonRpcResponse & {
+        method?: string;
+        params?: McpProgressNotification;
+      };
       if (typeof msg.id === "number" && this.pending.has(msg.id)) {
         const entry = this.pending.get(msg.id)!;
         if (msg.error) {
           entry.reject(new Error(`MCP error ${msg.error.code}: ${msg.error.message}`));
         } else {
           entry.resolve(msg.result);
+        }
+        return;
+      }
+      // 进度通知（无 id）：按 progressToken 派发到发起该请求时的回调。
+      // 以前这里只认带 id 的响应，其余一律丢弃 —— 于是 Server 就算上报进度也到不了界面。
+      if (msg.method === "notifications/progress" && msg.params) {
+        const token = msg.params.progressToken;
+        const handlerId = typeof token === "number" ? token : Number(token);
+        if (Number.isInteger(handlerId)) {
+          this.progressHandlers.get(handlerId)?.(msg.params);
         }
       }
     } catch (parseErr) {
@@ -617,6 +656,7 @@ export class McpStdioClient extends EventEmitter {
     // 收集所有待处理请求后清空，避免迭代中删除
     const entries = [...this.pending.values()];
     this.pending.clear();
+    this.progressHandlers.clear();
     for (const entry of entries) {
       clearTimeout(entry.timer);
       entry.reject(new Error("MCP server process terminated"));

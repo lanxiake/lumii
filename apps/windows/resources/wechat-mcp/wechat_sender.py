@@ -412,6 +412,7 @@ def session_locked():
 # 子窗口 MMUIRenderSubWindowHW 虽不抢前台，但输入也进不去，所以没有替代路径。
 # ============================================================================
 WM_CHAR, WM_LBUTTONDOWN, WM_LBUTTONUP = 0x0102, 0x0201, 0x0202
+WM_MOUSEWHEEL = 0x020A
 WM_KEYDOWN, WM_KEYUP, VK_RETURN, VK_ESC, VK_BACK = 0x0100, 0x0101, 0x0D, 0x1B, 0x08
 
 
@@ -469,6 +470,20 @@ def post_text(h, text, dt=0.05):
     _LAST_DROPPED["n"] = len(dropped)
     _LAST_DROPPED["chars"] = "".join(dropped)
     return ok
+
+
+def post_wheel(h, x, y, notches):
+    """投递滚轮（x,y 同 layout 的窗口坐标；正=上滚，负=下滚）。
+
+    `WM_MOUSEWHEEL` 的 lParam 要的是**屏幕坐标**（不是客户区），wParam 高 16 位是带符号的
+    滚动量（每格 120）。用于把会话列表逐屏翻动去找不在首屏的目标（见 `_scroll_find_session`）。
+    """
+    l, t, _w, _h = win_rect(h)
+    sx, sy = l + x, t + y
+    delta = (int(notches) * 120) & 0xFFFF
+    wparam = (delta << 16) & 0xFFFFFFFF
+    lparam = ((sy & 0xFFFF) << 16) | (sx & 0xFFFF)
+    return bool(u.PostMessageW(ctypes.c_void_p(h), WM_MOUSEWHEEL, wparam, lparam))
 
 
 def post_key(h, vk):
@@ -575,7 +590,7 @@ def read_uia(h=None, tag="uia", all_ctls=False):
     args = ["-Hwnd", str(h), "-Out", out] + (["-All"] if all_ctls else [])
     _run_ps(UIA_READ, args, sta=True)
     data = {"h": h, "win": None, "items": [], "header": None, "edits": [],
-            "mlist": None, "btns": [], "ctls": [], "input": None}
+            "mlist": None, "btns": [], "ctls": [], "input": None, "search_results": []}
     try:
         for ln in open(out, encoding="utf-8", errors="replace").read().splitlines():
             q = ln.split("\t")
@@ -587,6 +602,9 @@ def read_uia(h=None, tag="uia", all_ctls=False):
             elif k == "ITEM" and len(q) >= 8:
                 data["items"].append({"aid": q[1], "rect": tuple(int(v) for v in q[2:6]),
                                       "sel": q[6] == "1", "name": "\t".join(q[7:])})
+            elif k == "SITEM" and len(q) >= 7:  # 搜索结果下拉的一行（class + 几何 + 显示名）
+                data["search_results"].append({"cls": q[1], "rect": tuple(int(v) for v in q[2:6]),
+                                               "name": "\t".join(q[6:])})
             elif k == "HEADER":
                 data["header"] = "\t".join(q[1:])
             elif k == "INPUT":                 # 输入框当前内容（空串 = 空；字段缺失 = 读不到）
@@ -631,7 +649,8 @@ def _uia_tree_blank(data):
     还跳过了本来能用的帧判据 ⇒ `target_unconfirmed`（2026-10-09 20:33 Loop 那条）。
     """
     return not (data["items"] or data["header"] or data["edits"] or data["btns"]
-                or data["mlist"] or data["input"] is not None or data["ctls"])
+                or data["mlist"] or data["input"] is not None or data["ctls"]
+                or data["search_results"])
 
 
 def _note_uia_blank(tag):
@@ -1471,13 +1490,85 @@ def open_chat(name, talker, win, verbose=False, attempts=2):
     return False
 
 
-def open_chat_via_search(name, talker, win, verbose=False):
+# 搜索结果里「不是会话候选」的行：分区标题（最常使用/联系人/群聊…）、功能入口、以及
+# 联系人那一行下方的**微信号副标题**（OCR 形如「信号：crue1321」——它含关键词，会被模糊匹配
+# 误当成命中）。挑行时一律跳过，否则会点到「微信号里带关键词的联系人」上。
+_SEARCH_NOISE_HINTS = ("最常使用", "最近使用", "联系人", "群聊", "服务号", "公众号",
+                       "更多", "搜索网络结果", "网络查找", "搜索相关", "信号", "讯号", "：")
+
+
+def pick_search_row(rows, name):
+    """从搜索结果里挑要点的行。`rows` = [(文本, cx, cy)]（layout 窗口坐标）。返回 (cx, cy) 或 None。
+
+    先要**名字精确相等**（归一化后），一个都没有才退模糊（`_session_name_score` > 0.8）。
+    两者都取**最靠上**的一条——微信把「群/联系人」区排在聊天记录与功能之前，同名时先命中的
+    就是真会话行。返回 None 交给调用方回退回车（**不猜**，宁可不点也不点错）。
+    """
+    n = norm(name)
+    if not n:
+        return None
+    exact, fuzzy = [], []
+    hints_n = [norm(hint) for hint in _SEARCH_NOISE_HINTS]
+    for text, cx, cy in rows:
+        if cy <= 76:                       # 搜索框自己那一行（y≈48–65）：点它等于没点，还会把词删掉
+            continue
+        # 噪声行按**原文与归一化**两路都判：OCR 会把「信号：crue1321」读成带空格的「信 号 ： …」，
+        # 只看原文的子串会漏判，而那一行的 321 又刚好能被模糊匹配命中 ⇒ 会点到「联系人」上。
+        nt_raw = norm(text)
+        if any(hint in text for hint in _SEARCH_NOISE_HINTS) \
+                or any(hn and hn in nt_raw for hn in hints_n):
+            continue
+        if not nt_raw:
+            continue
+        if nt_raw == n:
+            exact.append((cy, cx))
+        elif _session_name_score(n, nt_raw) > 0.8:
+            fuzzy.append((cy, cx))
+    cands = exact or fuzzy
+    if not cands:
+        return None
+    cy, cx = min(cands)                    # 最靠上
+    return cx, cy
+
+
+def _pick_search_result_row(h, name, verbose=False):
+    """读微信搜索结果下拉，挑出目标行；返回 layout 窗口坐标 (x, y) 或 None。
+
+    下拉**只有屏幕合成（BitBlt）拍得到**——PrintWindow 拍到的是主窗自己的表面，里面没有它
+    （2026-10-11 实测）。所以：UIA 可读时优先 UIA（精确文本 + 活几何），否则退屏幕抓取 + OCR。
+    """
+    rows = []
+    # 已知是空树就别再读：read_uia 一次要 ~1.8s，而微信某些账号整条生命周期都不暴露控件树
+    d = None if _UIA_BLANK_NOTED else read_uia(h, "srchh")
+    if d and d.get("search_results"):
+        o = _uia_origin(d)
+        if o:
+            for r in d["search_results"]:
+                x, y, w, ht = r["rect"]
+                rows.append((r["name"], x - o[0] + w // 2, y - o[1] + ht // 2))
+    if not rows:
+        l, t, _w, ht = win_rect(h)
+        if ht > 0:                          # 屏幕抓取左列（搜索结果就渲染在这一列上）
+            rows = [(txt, (x0 + x1) // 2 - l, (y0 + y1) // 2 - t)
+                    for x0, y0, x1, y1, txt in _ocr_rect(l, t, SESSION_COL, ht, "srchocr")]
+    if verbose:
+        print("[open] 搜索候选：", [(txt[:12], cy) for txt, _cx, cy in rows][:8])
+    return pick_search_row(rows, name)
+
+
+def open_chat_via_search(name, talker, win, h=None, click=None, verbose=False):
     """兜底开法：用**微信自带搜索**打开会话。
 
-    会话列表里的名字全靠 OCR（小字、易读花，实测「测试微信群」被读成「测满启群」），
-    而搜索是我们**输入**名字、微信自己模糊匹配——不依赖 OCR，稳得多。
-    打开后仍由 verify_target 把关（含头部 + 锚点，失败即拒绝）。
+    ⚠️ **不能「输入完直接回车」**（2026-10-11 实测定位）：微信搜索结果按它自己的规则排序，
+    把「**微信号里含关键词**的联系人」排在**同名群**前面——搜「321」时，微信号 `crue1321` 的
+    联系人 `cruel` 在 y≈118，而群「321」在 y≈226，回车开第一条必然开成联系人，随后
+    verify_target fail-closed（`target_unconfirmed`），目标**永远发不出去**。
+    改为「输入 → 读搜索结果 → 挑**名字精确相等**的那一行再点」；读不到结果才回退回车（老行为）。
+
+    `h` 给屏幕抓取/UIA 用；`click(x, y)` 是点击适配器（投递路的 `post_click`，前台路的真点击，
+    不传就用 `win.click`）。
     """
+    click = click or (lambda x, y: win.click(x, y))
     for attempt in range(2):
         win.click(600, 400)          # 点聊天区让微信吃键盘焦点
         time.sleep(0.4)
@@ -1492,8 +1583,16 @@ def open_chat_via_search(name, talker, win, verbose=False):
             ctrl(0x56)
         else:
             type_text(name)
-        time.sleep(1.4)
-        press(0x0D)                  # 回车打开首条结果
+        time.sleep(1.6)              # 等下拉渲染出结果
+        row = _pick_search_result_row(h, name, verbose) if h else None
+        if row:
+            if verbose:
+                print(f"[open] 搜索命中精确行 @win({row[0]},{row[1]})")
+            click(*row)
+        else:
+            if verbose:
+                print("[open] 读不到搜索结果，回退回车开首条")
+            press(0x0D)              # 老行为：回车开首条
         time.sleep(1.5)
         ww, wh, lines = read_ui_stable(f"srch{attempt}")
         ok, _why = verify_target(talker, name, lines, ww, wh, verbose)
@@ -1518,13 +1617,25 @@ class _PostedWin:
         return post_click(self.h, x, y)
 
 
-def open_chat_via_search_posted(h, name, talker, verbose=False):
-    """把 `open_chat_via_search` 包成本发送路径能用的样子：**用前备好前台与剪贴板，用完两样都还回去**。
+def _real_clicker(h):
+    """窗口坐标 → **真鼠标点击**（SetCursorPos + mouse_event）。
 
-    为什么需要这层壳：`open_chat_via_search` 走的是**真实键鼠**（SendInput + 剪贴板粘贴），
+    搜索结果下拉是一层**浮层**，投递点击对它无效（实测 2026-10-11：投递点会话列表行能切会话，
+    但点下拉行不生效），只能走真实命中。调用方负责用完把光标还回去。
+    """
+    def click(x, y):
+        l, t, _w, _h = win_rect(h)
+        _lclick(l + x, t + y)
+    return click
+
+
+def open_chat_via_search_posted(h, name, talker, verbose=False):
+    """把 `open_chat_via_search` 包成本发送路径能用的样子：**用前备好前台/剪贴板/光标，用完都还回去**。
+
+    为什么需要这层壳：`open_chat_via_search` 走的是**真实键鼠**（SendInput + 剪贴板粘贴 + 点下拉行），
     它假定调用方已经把窗口摆成前台并持有光标（原先那是 `Win()` 的职责）。而文本发送走的是
-    投递路——**本来不抢前台**，所以这一步得自己补上：把微信切到前台、存下用户剪贴板，
-    跑完关掉搜索浮层、还原剪贴板、把前台还给用户。
+    投递路——**本来不抢前台**，所以这一步得自己补上：把微信切到前台、存下用户剪贴板与光标，
+    跑完关掉搜索浮层、还原剪贴板、把前台与光标还给用户。
 
     锁屏时直接放弃：SendInput 在锁屏下必然落空，白试一次还会把用户的剪贴板动一遍。
     """
@@ -1532,10 +1643,13 @@ def open_chat_via_search_posted(h, name, talker, verbose=False):
         return False
     prev_fg = int(u.GetForegroundWindow())
     saved = _clip_get_text()
+    cur = wintypes.POINT()
+    u.GetCursorPos(ctypes.byref(cur))
     try:
         if not bring_to_front(h):
             return False
-        return open_chat_via_search(name, talker, _PostedWin(h), verbose)
+        return open_chat_via_search(name, talker, _PostedWin(h), h=h,
+                                    click=_real_clicker(h), verbose=verbose)
     finally:
         try:
             press(VK_ESC)   # 搜索浮层不关掉，下一拍会顶着它重来（2026-10-09「界面卡住」的来路）
@@ -1545,17 +1659,77 @@ def open_chat_via_search_posted(h, name, talker, verbose=False):
             # ponytail: 只还原文本。剪贴板里本来是图片/文件时还原不了（拿不到原格式）——
             # 这条路的调用前提已经收窄到「列表里找不到目标」，不是每次发送都走。
             _clip_set_text(saved)
+        try:
+            u.SetCursorPos(cur.x, cur.y)    # 点下拉行时挪过光标，还回去
+        except Exception:
+            pass
         _give_back_foreground(h, prev_fg)
 
 
+def _scroll_find_session(h, name, talker, pages=4, verbose=False):
+    """在会话列表里**逐屏翻动**找目标（首屏没找到时）。找到并确认即 True。
+
+    会话列表一屏约 10 行，用户常有几十上百个会话——目标排在首屏之外时，`open_chat_post`
+    直接 Miss、只能退搜索。先滚再说：点得到的行一律走 `_post_click_verify` 复核（fail-closed）。
+
+    ⚠️ 滚动本身**必须自证有效**：每滚一屏拍一次指纹，和上一屏**逐字节比**——没变说明滚轮在这台
+    机器上不生效（实测本机就是：投递 WM_MOUSEWHEEL 不动画面），立刻放弃去走搜索，
+    免得空转把一次发送拖成几十秒。**注意指纹拿的是 PrintWindow 帧（可能陈旧），只用来判「动没动」，
+    不拿它当状态源。** 滚动会临时改变用户的列表位置，结束时滚回顶部。
+    """
+    prev = _snap("scr0")[0]
+    scrolled = 0
+    try:
+        for i in range(pages):
+            d = None if _UIA_BLANK_NOTED else read_uia(h, "scr")
+            it = uia_find_session(d, name) if d else None
+            if it and uia_click_item(h, d, it):
+                time.sleep(1.1)
+                if uia_header_is(read_uia(h, "scr2"), name):
+                    return True
+            ww, wh, lines = read_ui_stable(f"scr{i}")
+            s = find_session(lines, name, ww, wh)
+            if s and _post_click_verify(h, s[1], s[2], f"scr{i}", name, talker, verbose):
+                return True
+            post_wheel(h, 150, int((wh or 820) * 0.55), -3)
+            scrolled += 1
+            time.sleep(0.8)
+            sig = _snap(f"scrv{i}")[0]
+            if not sig or sig == prev:      # 画面没动（拍不到也当没动）⇒ 滚轮不生效，别再空转
+                if verbose:
+                    print("[scroll] 画面未变化，判定滚轮不生效，放弃滚动")
+                break
+            prev = sig
+    except Exception as e:
+        if verbose:
+            print(f"[scroll] 异常，放弃滚动：{e}")
+    finally:
+        if scrolled:                        # 还原：把列表滚回顶部（尽力而为）
+            post_wheel(h, 150, 400, scrolled * 3 + 6)
+            time.sleep(0.5)
+    return False
+
+
 def open_chat_any(h, name, talker, verbose=False):
-    """把目标会话切到眼前。先走安静的那条（投递点会话列表），切不过去再用微信搜索兜底。
+    """把目标会话切到眼前。三步递进：投递点会话列表 → 滚动列表再找 → 微信搜索兜底。
 
     为什么必须有兜底（2026-10-11 实测定位）：`open_chat_post` **只能在当前可见的会话列表里找**，
     而列表一屏约 10 行、用户有 68 个会话——不在首屏又没有搜索兜底的人**永久发不出去**，
     表现为一直 `target_unconfirmed`（杨冬就是这个案子，2792 个联系人里排不进首屏）。
+
+    **界面卡死就到此为止、不再往下戳**：滚动和搜索都要往界面投递滚轮/点击/按键，对一个
+    不响应的界面戳既拿不到结果、又会把这次发送拖长（用户明确提醒过 `_ui_alive` 那类冻结）。
+    `open_chat_post` 内部刚探过一次冻结并试过托盘恢复，这里读它的判定：
+    仍判死就直接失败，交给上层排队，等界面活了再补发。
     """
+    _record_diagnostics(ui_frozen=None)   # 只认**本次**的冻结探测结果，别被上一次调用的残留带偏
     if open_chat_post(h, name, talker, verbose):
+        return True
+    if _LAST_DIAGNOSTICS.get("ui_frozen") is True:
+        if verbose:
+            print("[open] 界面判定为卡死，跳过滚动与搜索（不再往冻结界面戳），交给上层排队")
+        return False
+    if _scroll_find_session(h, name, talker, verbose=verbose):
         return True
     if verbose:
         print("[open] 会话列表里没找到，退到微信搜索（Ctrl+F）")
@@ -1608,6 +1782,36 @@ def _metric(op, ms, ok, extra=None):
         pass
 
 
+# ---- 进度上报 ---------------------------------------------------------------
+# MCP 客户端（客户侧）用 `_meta.progressToken` 请求通知；server 层把这里装的回调接到
+# `notifications/progress` 上。发送路径在每个阶段调 `_progress("...")`，界面就能看到
+# 「正在切会话 / 第 N 次重试」，而不是盯着转圈干等（一次发送最长 30 多秒）。
+_PROGRESS = {"cb": None, "n": 0}
+
+
+def set_progress(cb):
+    """安装进度回调 `cb(message, progress, total)`（None 表示关掉）。返回**旧的**回调，供恢复。
+
+    单进程、stdio 循环里工具调用是同步串行的，所以用一个模块级槽位就够，不必线程局部。
+    """
+    old = _PROGRESS["cb"]
+    _PROGRESS["cb"] = cb
+    _PROGRESS["n"] = 0
+    return old
+
+
+def _progress(msg, total=None):
+    """上报一条进度（没装回调时是空操作）。progress 从 1 起、单调递增（MCP 规范要求）。"""
+    cb = _PROGRESS.get("cb")
+    if not cb:
+        return
+    _PROGRESS["n"] += 1
+    try:
+        cb(msg, _PROGRESS["n"], total)
+    except Exception:
+        pass
+
+
 def _acquire_ui(timeout=90):
     """尝试独占 UI。拿不到返回 None（调用方据此返回 busy）。"""
     try:
@@ -1656,6 +1860,7 @@ def send_text(text, talker, name=None, dry_run=True, verbose=False):
 
     if not name:
         name = core.names().get(talker, talker)
+    _progress("正在检查微信环境")
     p_ok, _stage, detail, st = preflight(need_foreground=False, allow_locked=True)
     if not p_ok:
         return False, f"{detail}（微信运行={st.get('weixin_running')}，可见={st.get('visible')}，最小化={st.get('minimized')}）"
@@ -1746,6 +1951,7 @@ def _send_locked_body(h, text, talker, name, dry_run, verbose, prev_fg):
     # 此时整条发送都靠帧判据——这正是那次 20:34 补发成功走的路。
     orig = None                       # 按需修复时记下原几何，finally 还原
     try:
+        _progress("正在确认目标会话")
         d = read_uia(h, "s0")
         if d:
             ok = uia_header_is(d, name)
@@ -1753,6 +1959,7 @@ def _send_locked_body(h, text, talker, name, dry_run, verbose, prev_fg):
             ww, wh, lines = read_ui_stable("s0")
             ok, _why = verify_target(talker, name, lines, ww, wh, verbose)
         if not ok:
+            _progress("窗口尺寸漂移，正在把微信窗口规范化")
             # 按需修复：窗口尺寸漂移 / 不在前台时，帧 OCR 布局错位、切会话也会失败
             orig = _repair_geometry_for_send(h)
             d = read_uia(h, "s0r")
@@ -1766,6 +1973,7 @@ def _send_locked_body(h, text, talker, name, dry_run, verbose, prev_fg):
                 ww, wh, lines = read_ui_stable("s0r")
                 ok, _why = verify_target(talker, name, lines, ww, wh, verbose)
         if not ok:
+            _progress("目标不在当前会话，正在切换")
             ok = open_chat_any(h, name, talker, verbose)
             if ok:
                 d = read_uia(h, "s1")     # 切完重读：下面点输入框要用切换后的活几何
@@ -1775,6 +1983,7 @@ def _send_locked_body(h, text, talker, name, dry_run, verbose, prev_fg):
             return True, "dry-run：已验证目标会话，未输入未发送"
         base_ts = _talker_latest_ts(talker)   # 发送后据此**读库确认**真的落到目标会话
 
+        _progress("正在清空输入框并写入内容")
         # 投递点击输入框：尽力把焦点摆过去。微信切会话时会自动 focus 输入框，这里是兜底；
         # 焦点若真在别处，投递的字符会落空 —— 下面的读库校验会把它拦成失败，不会盲发。
         ip = uia_input_pt(h, d) if d else None
@@ -1800,9 +2009,11 @@ def _send_locked_body(h, text, talker, name, dry_run, verbose, prev_fg):
             if res:
                 _give_back_foreground(h, prev_fg)
                 return False, f"输入框未清空（正文之外还有残留 {len(res)} 字，fail-closed）"
+        _progress("正在发送")
         post_key(h, VK_RETURN)
         _give_back_foreground(h, prev_fg)
         time.sleep(1.0)
+        _progress("正在读库确认消息已送达")
         # 最后一道：**读库确认**新消息真的落在目标会话（防「看着发出去了、其实发到别处」）
         if not _wait_new_message(talker, base_ts):
             return False, "已回车但目标会话未见新消息（可能发到了别处或未生效）"
@@ -2034,6 +2245,7 @@ def send_attachment(path, talker, name=None, dry_run=True, verbose=False):
         return False, f"文件不存在：{path}"
     if not name:
         name = core.names().get(talker, talker)
+    _progress("正在检查微信环境")
     p_ok, _stage, detail, st = preflight(need_foreground=False, allow_locked=True)
     if not p_ok:
         return False, f"{detail}（微信运行={st.get('weixin_running')}，可见={st.get('visible')}，最小化={st.get('minimized')}）"
@@ -2050,6 +2262,7 @@ def send_attachment(path, talker, name=None, dry_run=True, verbose=False):
         if not h:
             return False, "找不到微信主窗口"
         prev_fg = int(u.GetForegroundWindow())
+        _progress("正在确认目标会话")
         d = read_uia(h, "af0")
         ok = uia_header_is(d, name) if d else False
         if not ok:
@@ -2057,6 +2270,7 @@ def send_attachment(path, talker, name=None, dry_run=True, verbose=False):
             d = read_uia(h, "af0r")
             ok = uia_header_is(d, name) if d else False
         if not ok:
+            _progress("目标不在当前会话，正在切换")
             ok = open_chat_any(h, name, talker, verbose)
             if ok:
                 d = read_uia(h, "af1")          # 切完重读：下面点输入框要用切换后的活几何
@@ -2074,9 +2288,11 @@ def send_attachment(path, talker, name=None, dry_run=True, verbose=False):
         ok, why = clear_input(h, (d or {}).get("input"))   # 残留会跟附件一起发出去
         if not ok:
             return False, why
+        _progress("正在把附件放进输入框")
         _ok, _d = _attach_via_dialog(h, path, verbose)
         if not _ok:
             return False, _d
+        _progress("正在发送")
         post_key(h, VK_RETURN)
         _give_back_foreground(h, prev_fg)
         time.sleep(1.5)
@@ -2187,6 +2403,7 @@ def reply_text(quote, text, talker, name=None, dry_run=True, verbose=False):
         name = core.names().get(talker, talker)
     if not quote:
         return False, "quote 为空：给出要引用消息的文字（用于定位）"
+    _progress("正在检查微信环境")
     env_ok, st = env_gate()
     if not env_ok:
         return False, f"环境前置检查未通过：{st['reason']}"
@@ -2208,7 +2425,8 @@ def _reply_locked(quote, text, talker, name, dry_run, verbose):
     with Win() as win:
         ww, wh, lines = read_ui_stable("q0")
         if not verify_target(talker, name, lines, ww, wh, verbose)[0]:
-            if not (open_chat(name, talker, win, verbose) or open_chat_via_search(name, talker, win, verbose)):
+            if not (open_chat(name, talker, win, verbose)
+                    or open_chat_via_search(name, talker, win, h=getattr(win, "h", None), verbose=verbose)):
                 return False, "目标会话未确认（fail-closed）"
         ww, wh, lines = read_ui_stable("q1")
         ly = layout(lines, ww, wh)

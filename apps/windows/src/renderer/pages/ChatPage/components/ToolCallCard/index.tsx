@@ -1137,6 +1137,11 @@ const ToolCallCard: React.FC<ToolCallCardProps> = ({ item }) => {
         )}
         <span className={styles.toolNameBadge}>{getToolDisplayName(item.name)}</span>
         <span className={styles.label}>{label}</span>
+        {isRunning && item.progressText && (
+          <span className={styles.progressText} title={item.progressText}>
+            {item.progressText}
+          </span>
+        )}
         {fileInfo && (
           <span
             className={clsx(styles.fileChip, canPreviewFile && styles.fileChipClickable)}

@@ -333,14 +333,28 @@ export function convertOldEventToIpcEvents(
     }
 
     case 'tool:update': {
+      // onUpdate 的 partialResult 是 AgentToolResult（`{content:[{type:'text',text}]}`）或纯字符串。
+      // 以前**只**透传字符串形态、而 renderer 读的是 `progressText` ⇒ 后者恒为 undefined，
+      // 「进度」这条链等于断的（MCP 上报了也显示不出来）。这里把文本块解出来同时填进两个字段。
+      const pr = oldEvent.partialResult
+      let text: string | undefined
+      if (typeof pr === 'string') {
+        text = pr
+      } else if (pr && typeof pr === 'object') {
+        const blocks = (pr as { content?: Array<{ type?: string; text?: string }> }).content
+        const joined = (blocks ?? [])
+          .filter((b) => b?.type === 'text' && b.text)
+          .map((b) => b.text)
+          .join('\n')
+        if (joined) text = joined
+      }
       return [{
         type: 'agent:tool:progress',
         runId: ctx.runId,
         toolCallId: oldEvent.toolCallId,
         toolName: oldEvent.toolName,
-        partialResult: typeof oldEvent.partialResult === 'string'
-          ? oldEvent.partialResult
-          : undefined,
+        partialResult: text,
+        progressText: text,
         ...ipcMeta(ctx),
       }]
     }

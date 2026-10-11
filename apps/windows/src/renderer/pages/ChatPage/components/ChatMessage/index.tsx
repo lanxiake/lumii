@@ -456,6 +456,7 @@ function toWorkflowItem(
     runId: context.runId ?? '',
     toolCallId: part.id,
     agentLabel: part.meta?.sourceAgent?.label,
+    progressText: part.progressText,
   }
 }
 

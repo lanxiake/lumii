@@ -47,6 +47,44 @@ describe('convertOldEventToIpcEvents agent:end', () => {
 })
 
 /**
+ * tool:update → agent:tool:progress 的 progressText
+ *
+ * 背景：渲染层卡片读的是 `progressText`，而 converter 原先只透传 `partialResult`（且只认字符串形态），
+ * 于是 MCP 上报的进度永远显示不出来 —— 微信发送几十秒里用户只看到转圈。
+ */
+describe('convertOldEventToIpcEvents tool:update', () => {
+  const base = { type: 'tool:update' as const, instanceId: INSTANCE_ID, toolCallId: 't1', toolName: 'mcp__wechat-local__send_text' }
+
+  it('partialResult 是 AgentToolResult（content 文本块）⇒ progressText 取出文本', () => {
+    const ctx = createRunContext(SESSION_KEY, INSTANCE_ID, SESSION_KEY)
+    const events = convertOldEventToIpcEvents(
+      { ...base, partialResult: { content: [{ type: 'text', text: '正在切换会话' }] } } as OldEvent,
+      ctx,
+    )
+    expect(events).toEqual([
+      expect.objectContaining({
+        type: 'agent:tool:progress',
+        toolCallId: 't1',
+        progressText: '正在切换会话',
+        partialResult: '正在切换会话',
+      }),
+    ])
+  })
+
+  it('partialResult 是纯字符串 ⇒ 同样落到 progressText', () => {
+    const ctx = createRunContext(SESSION_KEY, INSTANCE_ID, SESSION_KEY)
+    const events = convertOldEventToIpcEvents({ ...base, partialResult: '第 1/2 次重试' } as OldEvent, ctx)
+    expect(events[0]).toMatchObject({ type: 'agent:tool:progress', progressText: '第 1/2 次重试' })
+  })
+
+  it('非文本 partialResult ⇒ progressText 为空（不硬编）', () => {
+    const ctx = createRunContext(SESSION_KEY, INSTANCE_ID, SESSION_KEY)
+    const events = convertOldEventToIpcEvents({ ...base, partialResult: { foo: 1 } } as OldEvent, ctx)
+    expect(events[0]).toMatchObject({ type: 'agent:tool:progress', progressText: undefined })
+  })
+})
+
+/**
  * parseThinkTagsFromRaw —— 内联 think 标签的落库侧剥离
  *
  * 2026-09-18：函数的文档注释一直写着"支持孤立 </think>"，实现却是把它当正文输出。

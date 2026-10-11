@@ -127,3 +127,72 @@ describe("McpStdioClient", () => {
     }
   });
 });
+
+/** 桩 MCP server：tools/call 时按请求里的 progressToken 回两条进度，再把 token 塞进结果文本 */
+function writeProgressStub(): string {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "lumii-mcp-progress-"));
+  const stub = path.join(dir, "stub.mjs");
+  writeFileSync(
+    stub,
+    `
+import { createInterface } from "node:readline";
+const rl = createInterface({ input: process.stdin });
+const out = (o) => process.stdout.write(JSON.stringify(o) + "\\n");
+rl.on("line", (line) => {
+  if (!line.trim()) return;
+  const msg = JSON.parse(line);
+  if (msg.method === "initialize") {
+    out({ jsonrpc: "2.0", id: msg.id, result: { protocolVersion: "2024-11-05",
+      capabilities: {}, serverInfo: { name: "stub", version: "1" } } });
+  } else if (msg.method === "tools/list") {
+    out({ jsonrpc: "2.0", id: msg.id, result: { tools: [] } });
+  } else if (msg.method === "tools/call") {
+    const token = msg.params && msg.params._meta ? msg.params._meta.progressToken : null;
+    if (token !== null && token !== undefined) {
+      out({ jsonrpc: "2.0", method: "notifications/progress",
+        params: { progressToken: token, progress: 1, message: "第一步" } });
+      out({ jsonrpc: "2.0", method: "notifications/progress",
+        params: { progressToken: token, progress: 2, message: "第二步" } });
+    }
+    out({ jsonrpc: "2.0", id: msg.id,
+      result: { content: [{ type: "text", text: JSON.stringify({ token: token ?? null }) }] } });
+  }
+});
+`,
+    "utf8",
+  );
+  return stub;
+}
+
+describe("McpStdioClient 进度通知", () => {
+  it("带 onProgress ⇒ 请求带 progressToken，且 notifications/progress 触发回调", async () => {
+    const client = new McpStdioClient({ command: process.execPath, args: [writeProgressStub()] });
+    try {
+      await client.start();
+      const seen: string[] = [];
+      const result = (await client.callTool("send_text", { a: 1 }, {
+        onProgress: (p) => seen.push(`${p.progress}:${p.message}`),
+      })) as { content: Array<{ text: string }> };
+      expect(seen).toEqual(["1:第一步", "2:第二步"]);
+      // token 是客户端注进去的、且被 Server 原样回传 —— 证明 `_meta.progressToken` 确实发出去了
+      const payload = JSON.parse(result.content[0]!.text) as { token: string | null };
+      expect(typeof payload.token).toBe("string");
+    } finally {
+      await client.stop().catch(() => {});
+    }
+  });
+
+  it("不带 onProgress ⇒ 请求不带 progressToken，也就不产生进度", async () => {
+    const client = new McpStdioClient({ command: process.execPath, args: [writeProgressStub()] });
+    try {
+      await client.start();
+      const result = (await client.callTool("send_text", { a: 1 })) as {
+        content: Array<{ text: string }>;
+      };
+      const payload = JSON.parse(result.content[0]!.text) as { token: string | null };
+      expect(payload.token).toBeNull();
+    } finally {
+      await client.stop().catch(() => {});
+    }
+  });
+});

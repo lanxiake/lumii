@@ -1422,6 +1422,233 @@ def suite_K():
     return r
 
 
+def suite_L():
+    """L 层：搜索选会话——**读结果下拉、挑精确行**，不再回车开首条。
+
+    背景（2026-10-11 实测）：搜「321」时微信把「微信号含 321 的联系人」（显示名 cruel，
+    副标题「信号：crue1321」）排在**群「321」**前面，`press(Enter)` 开首条必然开错人，
+    随后 verify_target fail-closed ⇒ `target_unconfirmed`。这层钉住「读下拉 → 选精确行 → 点它」。
+    夹具用的是真机上抓到的下拉行（含坐标），不是编的。
+    """
+    import wechat_sender as snd
+
+    r = R("L 层：搜索选会话（精确选行）")
+
+    # 真机抓到的下拉左列：(cx, cy, text)，坐标是窗口坐标
+    REAL_ROWS = [( 98,  48, "、 321 |"),            # 搜索框自己那一行
+                 ( 92,  83, "杲 常 便 用"),          # 分区标题「最常使用」被 OCR 读花
+                 (136, 118, "cruel"),               # 联系人：显示名不含 321（靠微信号命中）
+                 (148, 142, "信 号 ： crue1321"),     # 它的微信号副标题，含 321
+                 (137, 226, "321"),                 # 群「321」← 正确目标
+                 (137, 312, "321"),                 # 聊天记录命中（同名，更靠下）
+                 (137, 422, "网 络 查 找 手 QQ 号 ： 321"),
+                 (118, 471, "搜 索 网 疳 结 果"),
+                 ( 94, 501, "0 321")]               # 搜索网络结果区
+
+    def rows_of(pairs):
+        return [(t, cx, cy) for cx, cy, t in pairs]
+
+    def l1_picks_group_not_contact():
+        got = snd.pick_search_row(rows_of(REAL_ROWS), "321")
+        assert got == (137, 226), f"应选中群行 (137,226)，实得 {got}"
+    r.case("真机下拉：跳过联系人/微信号副标题/标题/网络查找，选中群行", l1_picks_group_not_contact)
+
+    def l2_no_exact_returns_none():
+        rows = [(120, "cruel"), (200, "某联系人")]
+        got = snd.pick_search_row([(t, 130, cy) for cy, t in rows], "321")
+        assert got is None, f"一个精确匹配都没有时**不许猜**，应返回 None：{got}"
+    r.case("无精确匹配 ⇒ 返回 None（宁可不点也不点错）", l2_no_exact_returns_none)
+
+    def l3_exact_beats_fuzzy():
+        rows = [(130, "3215"), (260, "321")]      # 3215 会被子串抬分到 0.82
+        got = snd.pick_search_row([(t, 137, cy) for cy, t in rows], "321")
+        assert got == (137, 260), f"精确匹配必须压过模糊，实得 {got}"
+    r.case("精确匹配优先于模糊（321 胜过 3215）", l3_exact_beats_fuzzy)
+
+    def l4_empty_name():
+        assert snd.pick_search_row(rows_of(REAL_ROWS), "") is None
+    r.case("目标名为空 ⇒ None", l4_empty_name)
+
+    def l5_uia_branch():
+        """UIA 可读时走 search_list（精确文本 + 活几何），坐标按 UIA 根矩形换算。"""
+        data = {"win": (100, 50, 1280, 820),
+                "search_results": [{"cls": "mmui::SearchContentCellView",
+                                    "rect": (300, 400, 100, 20), "name": "321"}]}
+        old = (snd.read_uia, snd.win_rect)
+        snd.read_uia = lambda h, tag, all_ctls=False: data
+        snd.win_rect = lambda h: (100, 50, 1280, 820)
+        try:
+            got = snd._pick_search_result_row(199150, "321")
+        finally:
+            (snd.read_uia, snd.win_rect) = old
+        assert got == (300 - 100 + 50, 400 - 50 + 10), f"UIA 行中心换算错误：{got}"
+    r.case("UIA 可读 ⇒ 用 search_list 精确选行", l5_uia_branch)
+
+    def l6_ocr_branch():
+        """UIA 拿不到（微信未暴露控件树）时，退屏幕抓取 + OCR。"""
+        ocr = [(100 + 137, 50 + 226, 100 + 158, 50 + 237, "321"),
+               (100 + 136, 50 + 118, 100 + 160, 50 + 129, "cruel")]
+        old = (snd.read_uia, snd.win_rect, snd._ocr_rect)
+        snd.read_uia = lambda h, tag, all_ctls=False: None
+        snd.win_rect = lambda h: (100, 50, 1280, 820)
+        snd._ocr_rect = lambda l, t, w, h, tag: ocr
+        try:
+            got = snd._pick_search_result_row(199150, "321")
+        finally:
+            (snd.read_uia, snd.win_rect, snd._ocr_rect) = old
+        want = ((137 + 158) // 2, (226 + 237) // 2)   # 行中心（屏幕→窗口各减 (100,50)）
+        assert got == want, f"OCR 分支应换算出窗口坐标 {want}：{got}"
+    r.case("UIA 拿不到 ⇒ 退屏幕抓取 OCR 选行", l6_ocr_branch)
+
+    def l7_open_clicks_row_not_enter():
+        """命中精确行时**点那一行**，不按回车。"""
+        clicks, keys = [], []
+        old = (snd._pick_search_result_row, snd.read_ui_stable, snd.verify_target,
+               snd.time.sleep, snd.ctrl, snd.press, snd.type_text, snd._clip_set_text)
+        snd._pick_search_result_row = lambda h, name, verbose=False: (137, 226)
+        snd.read_ui_stable = lambda tag, tries=4: (1280, 820, [])
+        snd.verify_target = lambda *a, **k: (True, "消息")
+        snd.time.sleep = lambda *_: None
+        snd.ctrl = lambda vk: None
+        snd.press = lambda vk: keys.append(vk)
+        snd.type_text = lambda s: None
+        snd._clip_set_text = lambda s: True
+
+        class W:
+            def click(self, x, y): clicks.append((x, y))
+        try:
+            ok = snd.open_chat_via_search("321", "t", W(), h=199150,
+                                          click=lambda x, y: clicks.append((x, y)))
+        finally:
+            (snd._pick_search_result_row, snd.read_ui_stable, snd.verify_target,
+             snd.time.sleep, snd.ctrl, snd.press, snd.type_text, snd._clip_set_text) = old
+        assert ok is True
+        assert (137, 226) in clicks, f"应点中命中的行：{clicks}"
+        assert snd.VK_RETURN not in keys, f"命中时不该按回车：{keys}"
+    r.case("命中精确行 ⇒ 点它，不回车", l7_open_clicks_row_not_enter)
+
+    def l8_open_falls_back_to_enter():
+        """读不到结果下拉时**回退老行为**（回车），别把「读不到」变成「切不过去」。"""
+        keys = []
+        old = (snd._pick_search_result_row, snd.read_ui_stable, snd.verify_target,
+               snd.time.sleep, snd.ctrl, snd.press, snd.type_text, snd._clip_set_text)
+        snd._pick_search_result_row = lambda h, name, verbose=False: None
+        snd.read_ui_stable = lambda tag, tries=4: (1280, 820, [])
+        snd.verify_target = lambda *a, **k: (True, "消息")
+        snd.time.sleep = lambda *_: None
+        snd.ctrl = lambda vk: None
+        snd.press = lambda vk: keys.append(vk)
+        snd.type_text = lambda s: None
+        snd._clip_set_text = lambda s: True
+
+        class W:
+            def click(self, x, y): pass
+        try:
+            ok = snd.open_chat_via_search("321", "t", W(), h=199150, click=lambda x, y: None)
+        finally:
+            (snd._pick_search_result_row, snd.read_ui_stable, snd.verify_target,
+             snd.time.sleep, snd.ctrl, snd.press, snd.type_text, snd._clip_set_text) = old
+        assert ok is True and snd.VK_RETURN in keys, f"读不到结果应回退回车：{keys}"
+    r.case("读不到下拉 ⇒ 回退回车（老行为）", l8_open_falls_back_to_enter)
+
+    def l9_scroll_aborts_when_no_change():
+        """滚动**自证有效**：画面没变（滚轮在这台机器上不生效）⇒ 立刻放弃，不空转。"""
+        wheels = []
+        old = (snd._snap, snd.read_uia, snd.read_ui_stable, snd.post_wheel, snd.time.sleep)
+        snd._snap = lambda tag: ("same-sig", 1280, 820, [])
+        snd.read_uia = lambda h, tag, all_ctls=False: None
+        snd.read_ui_stable = lambda tag, tries=4: (1280, 820, [])
+        snd.post_wheel = lambda h, x, y, n: wheels.append(n) or True
+        snd.time.sleep = lambda *_: None
+        try:
+            ok = snd._scroll_find_session(199150, "321", "t")
+        finally:
+            (snd._snap, snd.read_uia, snd.read_ui_stable, snd.post_wheel, snd.time.sleep) = old
+        assert ok is False
+        downs = [n for n in wheels if n < 0]
+        assert len(downs) == 1, f"画面没变就该只滚一次就放弃：{wheels}"
+    r.case("滚动无变化 ⇒ 一次即放弃（不空转）", l9_scroll_aborts_when_no_change)
+
+    def l10_frozen_skips_scroll_and_search():
+        calls = {"scroll": 0, "search": 0}
+        old = (snd.open_chat_post, snd._scroll_find_session, snd.open_chat_via_search_posted,
+               snd._LAST_DIAGNOSTICS)
+        snd._LAST_DIAGNOSTICS = dict(snd._LAST_DIAGNOSTICS)
+
+        def fake_post(_h, _name, _talker, verbose=False):
+            snd._record_diagnostics(ui_frozen=True)   # 模拟 open_chat_post 探到界面卡死
+            return False
+        snd.open_chat_post = fake_post
+        snd._scroll_find_session = lambda *a, **k: calls.__setitem__("scroll", calls["scroll"] + 1) or True
+        snd.open_chat_via_search_posted = lambda *a, **k: calls.__setitem__("search", calls["search"] + 1) or True
+        try:
+            ok = snd.open_chat_any(199150, "321", "t")
+        finally:
+            (snd.open_chat_post, snd._scroll_find_session, snd.open_chat_via_search_posted,
+             snd._LAST_DIAGNOSTICS) = old
+        assert ok is False, "卡死时应直接失败交给上层排队"
+        assert calls == {"scroll": 0, "search": 0}, f"卡死时不该再往界面戳：{calls}"
+    r.case("界面卡死 ⇒ 跳过滚动与搜索（不再戳冻结界面）", l10_frozen_skips_scroll_and_search)
+
+    return r
+
+
+def suite_M():
+    """M 层：MCP 进度通知的**服务端接线**（离线、不碰微信）。
+
+    钉三件事：① 客户端带了 `_meta.progressToken` ⇒ 发送层的 `_progress` 变成 `notifications/progress`，
+    token 原样回传、progress 单调递增；② **不带 token 就不发**（规范里无主通知非法）；
+    ③ 调用结束**恢复**原来的进度槽（不泄漏到下一次调用）。
+    """
+    import server
+    import wechat_sender as snd
+
+    r = R("M 层：MCP 进度通知接线")
+    sent = []
+    old_send = server._send
+    old_handler = server.DISPATCH.get("send_text")
+
+    def fake_handler(_args):
+        snd._progress("第一步：检查环境")
+        snd._progress("第二步：切换会话", total=3)
+        return {"ok": True}
+
+    def with_stub_send(fn):
+        server._send = lambda m: sent.append(m)
+        server.DISPATCH["send_text"] = fake_handler
+        try:
+            return fn()
+        finally:
+            server._send = old_send
+            server.DISPATCH["send_text"] = old_handler
+
+    def m1_with_token():
+        server.handle_tools_call(1, {"name": "send_text", "arguments": {},
+                                     "_meta": {"progressToken": "tk-7"}})
+        notifs = [m for m in sent if m.get("method") == "notifications/progress"]
+        assert len(notifs) == 2, f"应上报 2 条进度：{notifs}"
+        ps = [n["params"] for n in notifs]
+        assert all(p["progressToken"] == "tk-7" for p in ps), ps
+        assert [p["progress"] for p in ps] == [1, 2], f"progress 必须从 1 单调递增：{ps}"
+        assert ps[1].get("total") == 3 and all(p.get("message") for p in ps), ps
+        assert any(m.get("id") == 1 and "result" in m for m in sent), "最终响应不能丢"
+    r.case("带 token ⇒ 逐阶段发 notifications/progress（token 回传、progress 递增）",
+           lambda: with_stub_send(m1_with_token))
+
+    def m2_without_token():
+        sent.clear()
+        server.handle_tools_call(2, {"name": "send_text", "arguments": {}})
+        notifs = [m for m in sent if m.get("method") == "notifications/progress"]
+        assert notifs == [], f"没带 token 不该发进度：{notifs}"
+    r.case("不带 token ⇒ 不发任何进度通知", lambda: with_stub_send(m2_without_token))
+
+    def m3_restores():
+        assert snd._PROGRESS["cb"] is None, "调用结束必须清掉进度槽，别泄漏到下一次"
+    r.case("调用结束恢复进度槽（不泄漏）", m3_restores)
+
+    return r
+
+
 def main():
     try:
         import Crypto  # noqa: F401
@@ -1435,7 +1662,8 @@ def main():
     for suite, need_crypto in ((suite_A, True), (suite_B, False), (suite_C, False),
                                (suite_D, False), (suite_E, False), (suite_F, False),
                                (suite_G, False), (suite_H, False), (suite_I, False),
-                               (suite_J, False), (suite_K, False)):
+                               (suite_J, False), (suite_K, False), (suite_L, False),
+                               (suite_M, False)):
         if need_crypto and not has_crypto:
             print("\n（跳过 A 层：没有 pycryptodome）")
             continue

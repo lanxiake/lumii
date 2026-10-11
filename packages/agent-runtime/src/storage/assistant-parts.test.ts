@@ -59,6 +59,31 @@ describe("applyAssistantPartEvent", () => {
     });
     expect(parts[0]).toMatchObject({ type: "tool", meta });
   });
+
+  it("tool_progress patch 进度、不改状态；没有对应工具段时丢弃（不凭空插入）", () => {
+    const started = applyAssistantPartEvent([], {
+      kind: "tool_start",
+      id: "t1",
+      name: "mcp__wechat-local__send_text",
+      args: {},
+    });
+    const withProgress = applyAssistantPartEvent(started, {
+      kind: "tool_progress",
+      id: "t1",
+      text: "正在切换会话",
+    });
+    expect(withProgress[0]).toMatchObject({ type: "tool", id: "t1", progressText: "正在切换会话", status: "running" });
+
+    const orphan = applyAssistantPartEvent([], { kind: "tool_progress", id: "nope", text: "x" });
+    expect(orphan).toHaveLength(0);
+  });
+
+  it("tool_end 清进度？不必——但进度文本随 tool_end 保留在 part 上不影响终态", () => {
+    let parts = applyAssistantPartEvent([], { kind: "tool_start", id: "t1", name: "x", args: {} });
+    parts = applyAssistantPartEvent(parts, { kind: "tool_progress", id: "t1", text: "读库确认中" });
+    parts = applyAssistantPartEvent(parts, { kind: "tool_end", id: "t1", name: "x", result: "ok", isError: false });
+    expect(parts[0]).toMatchObject({ type: "tool", id: "t1", status: "done", result: "ok" });
+  });
 });
 
 describe("finalizeAssistantParts", () => {

@@ -38,7 +38,7 @@ import sys
 import os
 
 SERVER_NAME = "wechat-local"
-SERVER_VERSION = "0.7.0"
+SERVER_VERSION = "0.8.0"
 # 新 → 旧；客户端请求的版本在列表中则原样回应，否则回应最新版（由客户端决定是否断开）
 SUPPORTED_PROTOCOL_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
 
@@ -263,6 +263,11 @@ def _send_with_retry(send_fn, max_retries=2, retry_delay=0.5):
 
         if attempt < max_retries:
             log(f"发送失败（{error_code}），{retry_delay}s 后重试（{attempt}/{max_retries}）...")
+            try:                       # 重试也要让界面看得见（否则用户只看到卡片一直转）
+                import wechat_sender as _ws
+                _ws._progress(f"发送未成功（{error_code}），准备第 {attempt + 1}/{max_retries} 次尝试")
+            except Exception:
+                pass
             time.sleep(retry_delay)
 
     return False, last_detail + f"（已重试 {max_retries} 次，仍失败）", max_retries
@@ -1051,6 +1056,21 @@ def handle_initialize(params):
     }
 
 
+def _emit_progress(token, message, progress, total=None):
+    """向客户端发一条 `notifications/progress`（MCP 规范：progress 单调递增、带原始 token）。
+
+    只在客户端**主动带了** `progressToken` 时调用——不带 token 的上报是无主的，规范也不允许。
+    """
+    params = {"progressToken": token, "progress": progress, "message": message}
+    if total is not None:
+        params["total"] = total
+    _send({"jsonrpc": "2.0", "method": "notifications/progress", "params": params})
+
+
+# 有阶段可播报的工具（发送路径才有；只读工具没必要、也不该为它去 import wechat_sender）
+_PROGRESS_TOOLS = {"send_text", "send_file", "send_batch", "reply_to"}
+
+
 def handle_tools_call(mid, params):
     """处理 tools/call：未知工具/参数非法属协议错误；工具内部异常以 isError 结果返回给模型。"""
     name = params.get("name")
@@ -1070,6 +1090,16 @@ def handle_tools_call(mid, params):
     log("call", name)
     import time as _t
     _t0 = _t.perf_counter()
+    # 进度：客户端带了 `_meta.progressToken` 时，把发送层的阶段/重试上报出去（界面据此显示实时状态）
+    meta = params.get("_meta")
+    token = meta.get("progressToken") if isinstance(meta, dict) else None
+    progress_installed = False
+    m_sender = None
+    if token is not None and name in _PROGRESS_TOOLS:
+        import wechat_sender as m_sender
+        m_sender.set_progress(
+            lambda message, progress, total=None: _emit_progress(token, message, progress, total))
+        progress_installed = True
     try:
         data = handler(args)
         _dt = (_t.perf_counter() - _t0) * 1000
@@ -1087,6 +1117,11 @@ def handle_tools_call(mid, params):
     except Exception as e:
         log("error", name, repr(e))
         reply(mid, {"content": [{"type": "text", "text": f"ERROR: {e}"}], "isError": True})
+    finally:
+        # 装了就必须还原（哪怕原来没有回调）——否则进度槽会泄漏到下一次调用，
+        # 把上一条请求的 token 带出去。
+        if progress_installed and m_sender is not None:
+            m_sender.set_progress(None)
 
 
 def handle_message(msg):

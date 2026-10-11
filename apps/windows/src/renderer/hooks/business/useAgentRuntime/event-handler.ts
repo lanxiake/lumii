@@ -1135,12 +1135,30 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
     }
 
     case 'agent:tool:progress': {
+      const text = event.progressText
       updateSessionState(sessionKey, (prev) => {
-        if (!prev.currentTool || prev.currentTool.id !== event.toolCallId) return prev
-        return {
-          ...prev,
-          currentTool: { ...prev.currentTool, progressText: event.progressText },
+        const next: typeof prev = !prev.currentTool || prev.currentTool.id !== event.toolCallId
+          ? prev
+          : { ...prev, currentTool: { ...prev.currentTool, progressText: text } }
+        // 时间线卡片渲染的是 message.parts 里的工具段（**不是** currentTool），所以进度也得写进 part，
+        // 否则「正在切会话 / 第 N 次重试」在卡片上根本显示不出来（2026-10-11 修）。
+        if (!text) return next
+        const msgs = [...next.messages]
+        for (let i = msgs.length - 1; i >= 0; i--) {
+          const m = msgs[i]!
+          if (m.role !== 'assistant') continue
+          if (!m.parts.some((part) => part.type === 'tool' && part.id === event.toolCallId)) continue
+          msgs[i] = {
+            ...m,
+            parts: applyRuntimeAssistantPartEvent(m.parts, {
+              kind: 'tool_progress',
+              id: event.toolCallId,
+              text,
+            }),
+          }
+          return { ...next, messages: msgs }
         }
+        return next
       })
       break
     }

@@ -151,6 +151,8 @@ export interface AgentWorkflowItem {
   agentId?: string
   /** 子 Agent 显示标签（仅子 Agent 类型） */
   agentLabel?: string
+  /** 运行中的**进度说明**（如「正在切换会话」「第 1/2 次重试」），来自 MCP 的进度通知 */
+  progressText?: string
   /** 子 Agent 内部的工具调用事件（仅子 Agent 类型，用于展开详情渲染） */
   childItems?: ChildToolItem[]
 }

@@ -17,6 +17,12 @@ import sys
 import threading
 import time
 
+# 控制台/管道默认走 GBK，失败明细里的 ⇒ 之类字符会直接抛 UnicodeEncodeError 盖住真正的失败
+try:
+    sys.stdout.reconfigure(encoding="utf-8")
+except Exception:
+    pass
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 # The deployed exe is what the client actually runs; prefer it, fall back to server.py.
 DEPLOYED = os.path.join(os.path.expanduser("~"), ".lumii", "mcp", "wechat-mcp", "wechat-mcp.exe")
@@ -50,6 +56,8 @@ class McpClient:
         self._pending = {}
         self._lock = threading.Lock()
         self._reader = None
+        # 无 id 的消息 = 通知（notifications/progress 等）；以前直接丢弃，进度就测不了
+        self.notifications = []
 
     def start(self, timeout=60):
         self.proc = subprocess.Popen(
@@ -87,6 +95,9 @@ class McpClient:
             if mid is not None:
                 with self._lock:
                     self._pending[mid] = msg
+            else:
+                with self._lock:
+                    self.notifications.append(msg)
 
     def request(self, method, params, timeout=300):
         self._id += 1
@@ -118,6 +129,26 @@ class McpClient:
         except (json.JSONDecodeError, TypeError):
             payload = {"_raw": text}
         return payload, result
+
+    def call_tool_progress(self, name, args, token, timeout=300):
+        """带 `_meta.progressToken` 调工具；返回 (payload, 本次期间收到的 notifications/progress)。
+
+        这是客户端侧要求的**规范姿势**：只有带了 token，Server 才会上报进度。
+        """
+        before = len(self.notifications)
+        resp = self.request("tools/call",
+                            {"name": name, "arguments": args, "_meta": {"progressToken": token}},
+                            timeout=timeout)
+        result = resp.get("result", {})
+        content = result.get("content", [])
+        text = content[0].get("text", "") if content else ""
+        try:
+            payload = json.loads(text)
+        except (json.JSONDecodeError, TypeError):
+            payload = {"_raw": text}
+        progs = [n for n in self.notifications[before:]
+                 if n.get("method") == "notifications/progress"]
+        return payload, progs
 
     def stop(self):
         if self.proc:
@@ -301,6 +332,25 @@ def main():
                 str(bad_req)[:200])
         still_alive, _ = client.call_tool("check_env", {})
         r.check("未知工具调用后进程仍可用", bool(still_alive), str(still_alive)[:150])
+
+        print("\n[9] 进度通知（notifications/progress）")
+        # 带 token 调一个真会走发送路径的 dry_run：服务端应在「检查环境/确认会话」各阶段上报。
+        # 不带 token 的调用**不该**产生进度通知——规范里无主通知是非法的。
+        _, progs = client.call_tool_progress(
+            "send_text", {"talker": "filehelper", "text": "进度探针", "dry_run": True}, token="probe-1")
+        r.check("带 progressToken ⇒ 服务端上报进度", len(progs) > 0, f"got {len(progs)}")
+        if progs:
+            ps = [p.get("params", {}) for p in progs]
+            r.check("progressToken 原样回传", all(p.get("progressToken") == "probe-1" for p in ps),
+                    str(ps[:2]))
+            nums = [p.get("progress") for p in ps]
+            r.check("progress 单调递增",
+                    all(isinstance(n, (int, float)) for n in nums)
+                    and nums == sorted(nums) and len(set(nums)) == len(nums), str(nums))
+            r.check("进度带人类可读 message", all(p.get("message") for p in ps), str(ps[:2]))
+        _, progs2 = client.call_tool_progress(
+            "check_env", {}, token="probe-2")
+        r.check("只读工具/无阶段 ⇒ 不产生进度（避免噪音）", len(progs2) == 0, f"got {len(progs2)}")
 
     except Exception as e:
         import traceback

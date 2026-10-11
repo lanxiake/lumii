@@ -5,7 +5,12 @@
  */
 
 import { Type, type TSchema } from "@sinclair/typebox";
-import type { MtBotTool, MtBotToolResult, ToolCategory } from "../../types/tool.js";
+import type {
+  MtBotTool,
+  MtBotToolResult,
+  ToolCategory,
+  AgentToolUpdateCallback,
+} from "../../types/tool.js";
 import type { McpStdioClient, McpToolDefinition } from "./mcp-client.js";
 
 /**
@@ -44,11 +49,23 @@ function createMcpProxyTool(
       _toolCallId: string,
       params: unknown,
       signal?: AbortSignal,
+      onUpdate?: AgentToolUpdateCallback,
     ): Promise<MtBotToolResult<unknown>> {
       const args = (params ?? {}) as Record<string, unknown>;
       try {
         // 透传中断信号：后台化任务的取消（以及回合 abort）才能真正打断挂起的 MCP 请求
-        const result = (await client.callTool(toolDef.name, args, { signal })) as {
+        // 透传进度：Server 的 notifications/progress → onUpdate → agent:tool:progress，
+        // 界面才能在长耗时调用（微信发送几十秒）里看到「正在切会话 / 第 N 次重试」。
+        const result = (await client.callTool(toolDef.name, args, {
+          signal,
+          onProgress: onUpdate
+            ? (p) =>
+                onUpdate({
+                  content: [{ type: "text", text: p.message ?? `进度 ${p.progress}` }],
+                  details: { mcpServer: serverName, mcpTool: toolDef.name },
+                })
+            : undefined,
+        })) as {
           content?: Array<{ type: string; text?: string }>;
           isError?: boolean;
         };

@@ -104,6 +104,18 @@
   color: var(--color-text-primary);
 }
 
+/* 运行中的进度说明（来自 MCP 进度通知，如「正在切换会话」「第 1/2 次重试」） */
+.progressText {
+  flex: 0 0 auto;
+  max-width: 45%;
+  margin-left: 6px;
+  font-size: calc(11px * var(--app-font-scale, 1));
+  color: var(--color-text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* 失败 - 红色 */
 .failed .icon,
 .failed .label {

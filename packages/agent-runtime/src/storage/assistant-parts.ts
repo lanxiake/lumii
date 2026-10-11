@@ -18,6 +18,11 @@ export type AssistantPart =
        * `interrupted` = 回合被中止/进程重启，工具不会再有 tool_end —— 终端态，不是错误。
        */
       status: "running" | "done" | "error" | "interrupted";
+      /**
+       * 执行中的**进度说明**（最近一条，如「正在切换会话」「第 1/2 次重试」）。
+       * 由 `tool_progress` 事件写入，长耗时工具（微信发送几十秒）据此在卡片上给实时反馈。
+       */
+      progressText?: string;
       meta?: { sourceAgent?: { instanceId: string; label: string } };
     };
 
@@ -78,6 +83,11 @@ export type AssistantPartEvent =
       name: string;
       result: unknown;
       isError: boolean;
+    }
+  | {
+      kind: "tool_progress";
+      id: string;
+      text: string;
     };
 
 /** 回合开始/结束时的路径 → 内容 hash 快照 */
@@ -204,6 +214,17 @@ export function applyAssistantPartEvent(
         isError: event.isError,
         status,
       });
+      return next;
+    }
+
+    case "tool_progress": {
+      // 只更新**已存在**的工具段：进度先于 tool_start 到达（不该发生）时宁可丢弃，
+      // 也不要凭空插入一个没有 args 的工具段。
+      const index = next.findIndex((p) => p.type === "tool" && p.id === event.id);
+      if (index >= 0) {
+        const existing = next[index] as Extract<AssistantPart, { type: "tool" }>;
+        next[index] = { ...existing, progressText: event.text };
+      }
       return next;
     }
 
