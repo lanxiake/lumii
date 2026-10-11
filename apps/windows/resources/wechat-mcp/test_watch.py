@@ -1572,8 +1572,10 @@ def suite_L():
     def l10_frozen_skips_scroll_and_search():
         calls = {"scroll": 0, "search": 0}
         old = (snd.open_chat_post, snd._scroll_find_session, snd.open_chat_via_search_posted,
-               snd._LAST_DIAGNOSTICS)
+               snd._LAST_DIAGNOSTICS, snd._ENV)
         snd._LAST_DIAGNOSTICS = dict(snd._LAST_DIAGNOSTICS)
+        snd._ENV = dict(snd._ENV)
+        snd._ENV["restored"] = False       # 隔离：前一层用例调过 wake_window，会把它留成 True
 
         def fake_post(_h, _name, _talker, verbose=False):
             snd._record_diagnostics(ui_frozen=True)   # 模拟 open_chat_post 探到界面卡死
@@ -1585,7 +1587,7 @@ def suite_L():
             ok = snd.open_chat_any(199150, "321", "t")
         finally:
             (snd.open_chat_post, snd._scroll_find_session, snd.open_chat_via_search_posted,
-             snd._LAST_DIAGNOSTICS) = old
+             snd._LAST_DIAGNOSTICS, snd._ENV) = old
         assert ok is True, "判死时仍应走搜索兜底（它会 bring_to_front 自救）"
         assert calls == {"scroll": 0, "search": 1}, f"判死应只跳过滚动、保留搜索：{calls}"
     r.case("界面判死 ⇒ 跳过滚动，但仍走搜索兜底（避免误判致发送失败）", l10_frozen_skips_scroll_and_search)
@@ -1632,8 +1634,10 @@ def suite_L():
     def l13_recover_after_left_only():
         calls = {"post": 0, "unfreeze": 0, "search": 0}
         old = (snd.open_chat_post, snd._scroll_find_session, snd.open_chat_via_search_posted,
-               snd._left_only_frame, snd._unfreeze_ui, snd._LAST_DIAGNOSTICS)
+               snd._left_only_frame, snd._unfreeze_ui, snd._LAST_DIAGNOSTICS, snd._ENV)
         snd._LAST_DIAGNOSTICS = dict(snd._LAST_DIAGNOSTICS)
+        snd._ENV = dict(snd._ENV)
+        snd._ENV["restored"] = False
 
         def post(_h, _n, _t, verbose=False):
             calls["post"] += 1
@@ -1647,10 +1651,31 @@ def suite_L():
             ok = snd.open_chat_any(199150, "321", "t")
         finally:
             (snd.open_chat_post, snd._scroll_find_session, snd.open_chat_via_search_posted,
-             snd._left_only_frame, snd._unfreeze_ui, snd._LAST_DIAGNOSTICS) = old
+             snd._left_only_frame, snd._unfreeze_ui, snd._LAST_DIAGNOSTICS, snd._ENV) = old
         assert ok is True, "唤醒后重试成功应返回 True"
         assert calls["unfreeze"] == 1 and calls["post"] == 2, f"应**只**唤醒一次并重试：{calls}"
     r.case("三路失败+只剩左列 ⇒ 唤醒一次并重试成功（不反复戳）", l13_recover_after_left_only)
+
+    def l14_restored_skips_search():
+        calls = {"search": 0}
+        old = (snd.open_chat_post, snd._scroll_find_session, snd.open_chat_via_search_posted,
+               snd._ENV, snd._LAST_DIAGNOSTICS)
+        snd._ENV = dict(snd._ENV)
+        snd._ENV["restored"] = True
+        snd._LAST_DIAGNOSTICS = dict(snd._LAST_DIAGNOSTICS)
+        snd.open_chat_post = lambda *a, **k: False
+        snd._scroll_find_session = lambda *a, **k: False
+        snd.open_chat_via_search_posted = lambda *a, **k: calls.__setitem__("search", calls["search"] + 1) or True
+        try:
+            ok = snd.open_chat_any(199150, "321", "t")
+            detail = snd._target_unconfirmed_detail()
+        finally:
+            (snd.open_chat_post, snd._scroll_find_session, snd.open_chat_via_search_posted,
+             snd._ENV, snd._LAST_DIAGNOSTICS) = old
+        assert ok is False, "还原来的窗口找不到目标时 fail-closed"
+        assert calls["search"] == 0, f"窗口是还原来的就不该走搜索兜底：{calls}"
+        assert "跳过搜索兜底" in detail, detail
+    r.case("窗口是还原来的 ⇒ 跳过搜索兜底，detail 讲明原因", l14_restored_skips_search)
 
     return r
 
@@ -1707,6 +1732,14 @@ def suite_M():
     def m3_restores():
         assert snd._PROGRESS["cb"] is None, "调用结束必须清掉进度槽，别泄漏到下一次"
     r.case("调用结束恢复进度槽（不泄漏）", m3_restores)
+
+    def m4_search_skipped_code():
+        detail = ("目标会话未确认（fail-closed）：不在可见会话列表，且微信窗口是从托盘/最小化还原的——"
+                  "为避免真键鼠搜索把界面卡死，已跳过搜索兜底；请先手动打开该会话再重试")
+        assert server._code_of(detail) == "search_skipped", server._code_of(detail)
+        assert server._stage_of("search_skipped") == "target", server._stage_of("search_skipped")
+        assert "卡死" in server._get_fix_suggestion("search_skipped"), server._get_fix_suggestion("search_skipped")
+    r.case("search_skipped：错误码 / 档位 / 建议都对得上", m4_search_skipped_code)
 
     return r
 

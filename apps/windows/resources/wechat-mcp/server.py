@@ -133,6 +133,10 @@ def _get_fix_suggestion(error_code):
                          "别自己去点、也别叫用户去点，解锁后发送门自己恢复、积压由盯梢回路自动补发。",
         "target_unconfirmed": "没能确认目标会话（发送层 fail-closed：**一个字都没输入**，不会发错、也不会重复）。"
                               "这条已经自动排队、盯梢回路会自己补发——不用改内容，也不用转人工。",
+        "search_skipped": "目标不在当前可见的会话列表里，而微信窗口刚从托盘/最小化还原——这条路上再自动"
+                          "搜索（真键鼠 + 切前台）有把微信界面卡死的风险，所以工具主动放弃了（fail-closed，"
+                          "**一个字都没输入**）。请先手动打开该会话、或让微信窗口处于正常可见状态后再发；"
+                          "内容不用改。",
         "target_not_found": "未找到目标会话，请先用 list_sessions 确认会话名称或 talker ID。",
         "busy": "另一个微信操作正在进行（发送/读取有互斥锁）。等几秒后重试即可，不用做别的。",
         "input_not_landed": "输入框定位失败。建议：1) 确保微信窗口完全可见；2) 稍后重试；3) 检查微信版本（推荐 4.x）。",
@@ -192,6 +196,9 @@ def _code_of(detail):
         return "attachment_not_landed"
     if "输入未落地" in d or "投递输入失败" in d:
         return "input_not_landed"
+    if "跳过搜索兜底" in d:
+        # 目标不在可见会话列表、且窗口是从托盘/最小化还原的：为免真键鼠搜索把界面卡死而主动跳过。
+        return "search_skipped"
     if "目标会话未确认" in d:
         return "target_unconfirmed"
     if "更像其它会话" in d or "校验失败" in d or "不通过" in d:
@@ -213,6 +220,7 @@ _STAGE_BY_CODE = {
     "env_not_ready": "env",        # 进程未运行 / 窗口不可用 / 还原失败 / 前台切不到
     "target_unconfirmed": "target",
     "target_not_found": "target",
+    "search_skipped": "target",
     "verification_failed": "target",
     "input_not_landed": "input",
     "send_unconfirmed": "input",
@@ -244,7 +252,7 @@ def _send_with_retry(send_fn, max_retries=2, retry_delay=0.5):
                        "busy", "clipboard_failed", "verification_failed"}
     NON_RETRIABLE_CODES = {"env_not_ready", "target_unconfirmed", "quote_not_found",
                            "menu_not_found", "bad_args", "send_not_confirmed",
-                           "attachment_missing", "not_found", "target_not_found"}
+                           "attachment_missing", "not_found", "target_not_found", "search_skipped"}
 
     last_ok, last_detail = False, ""
     for attempt in range(1, max_retries + 1):

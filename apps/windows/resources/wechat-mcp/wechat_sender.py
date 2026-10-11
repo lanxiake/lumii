@@ -1761,13 +1761,13 @@ def open_chat_any(h, name, talker, verbose=False):
     而列表一屏约 10 行、用户有 68 个会话——不在首屏又没有搜索兜底的人**永久发不出去**，
     表现为一直 `target_unconfirmed`（杨冬就是这个案子，2792 个联系人里排不进首屏）。
 
-    **界面判死只用来跳过滚动**：滚动要**反复投递滚轮**，对一个不响应的界面戳没意义；但搜索兜底
-    必须留着——它会先 `bring_to_front`（窗口一露出来帧就新鲜了），而且「目标不在列表首屏」只有
-    它这条可靠出路，尝试次数也有界。更重要的是：`_ui_alive` 在**窗口被别的窗口盖住**时会**误判**
-    成卡死（PrintWindow 拍的是旧表面、两次帧一模一样），若据此连搜索一起跳过，正常「微信在后台」
-    的发送会凭空失败。
+    **B：窗口是还原来的 ⇒ 不搜索**（2026-10-11 实测结论）：搜索兜底要**真实键鼠 + 切前台**
+    （`bring_to_front` 连模拟 Alt 都用上了），而「从托盘/最小化还原过来的窗口」再叠这一套，实测会把
+    微信 UI 卡在半渲染（只剩左列、聊天区全空、点击全无效、24 秒不自恢复）。所以这种情况下
+    **宁可 fail-closed**（把原因说清楚，交给用户手动打开该会话），也不冒把用户微信弄卡的风险。
+    窗口**本就在正常可见态**时，搜索兜底照旧。
     """
-    _record_diagnostics(ui_frozen=None)   # 只认**本次**的冻结探测结果，别被上一次调用的残留带偏
+    _record_diagnostics(ui_frozen=None, switched_via_search=None, search_skipped_restored=None)
     if open_chat_post(h, name, talker, verbose):
         return True
     if _LAST_DIAGNOSTICS.get("ui_frozen") is True:
@@ -1775,6 +1775,11 @@ def open_chat_any(h, name, talker, verbose=False):
             print("[open] 界面判定为卡死，跳过滚动（搜索兜底仍会尝试，它会先把窗口bring到前台）")
     elif _scroll_find_session(h, name, talker, verbose=verbose):
         return True
+    if _ENV.get("restored"):
+        _record_diagnostics(search_skipped_restored=True)
+        if verbose:
+            print("[open] 窗口是从托盘/最小化还原的 ⇒ 跳过搜索兜底（真键鼠+切前台会把 UI 卡死），fail-closed")
+        return False
     if verbose:
         print("[open] 会话列表里没找到，退到微信搜索（Ctrl+F）")
     ok = open_chat_via_search_posted(h, name, talker, verbose)
@@ -1788,6 +1793,14 @@ def open_chat_any(h, name, talker, verbose=False):
         # 激活输入框（2026-10-11 实测：经搜索切换的那几次发送都卡在「已回车但未见新消息」）。
         _record_diagnostics(switched_via_search=True)
     return ok
+
+
+def _target_unconfirmed_detail():
+    """目标未确认时的 detail 文案。跳过搜索兜底时把**原因与出路**说清楚，别让人以为在正常排队。"""
+    if _LAST_DIAGNOSTICS.get("search_skipped_restored"):
+        return ("目标会话未确认（fail-closed）：不在可见会话列表，且微信窗口是从托盘/最小化还原的——"
+                "为避免真键鼠搜索把界面卡死，已跳过搜索兜底；请先手动打开该会话再重试")
+    return "目标会话未确认（fail-closed）"
 
 
 # ---- 跨进程互斥：一次只允许一个 UI 操作（两个回合同时抢微信窗口会互相破坏）----
@@ -1812,6 +1825,8 @@ _LAST_DIAGNOSTICS = {
     # 本次是否经**搜索兜底**切过来的：那样焦点在搜索框/列表上，投递点击不足以把键盘焦点
     # 移到消息输入框，正文会落空——调用方据此改用真实点击激活输入框（见 _send_locked_body）。
     "switched_via_search": None,
+    # 因「窗口是从托盘/最小化还原来的」而**跳过**搜索兜底（避免真键鼠+切前台把界面弄卡）
+    "search_skipped_restored": None,
 }
 
 
@@ -2041,7 +2056,7 @@ def _send_locked_body(h, text, talker, name, dry_run, verbose, prev_fg):
             if ok:
                 d = read_uia(h, "s1")     # 切完重读：下面点输入框要用切换后的活几何
         if not ok:
-            return False, "目标会话未确认（fail-closed）"
+            return False, _target_unconfirmed_detail()
         if dry_run:
             return True, "dry-run：已验证目标会话，未输入未发送"
         base_ts = _talker_latest_ts(talker)   # 发送后据此**读库确认**真的落到目标会话
@@ -2339,7 +2354,7 @@ def send_attachment(path, talker, name=None, dry_run=True, verbose=False):
             if ok:
                 d = read_uia(h, "af1")          # 切完重读：下面点输入框要用切换后的活几何
         if not ok:
-            return False, "目标会话未确认（fail-closed）"
+            return False, _target_unconfirmed_detail()
         if dry_run:
             return True, "dry-run：已验证目标会话，未发送附件"
         base_ts = _talker_latest_ts(talker)
@@ -2491,7 +2506,7 @@ def _reply_locked(quote, text, talker, name, dry_run, verbose):
         if not verify_target(talker, name, lines, ww, wh, verbose)[0]:
             if not (open_chat(name, talker, win, verbose)
                     or open_chat_via_search(name, talker, win, h=getattr(win, "h", None), verbose=verbose)):
-                return False, "目标会话未确认（fail-closed）"
+                return False, _target_unconfirmed_detail()
         ww, wh, lines = read_ui_stable("q1")
         ly = layout(lines, ww, wh)
         # 先清空输入框，避免残留正文混进引用回复
