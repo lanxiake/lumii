@@ -1590,6 +1590,24 @@ def suite_L():
         assert calls == {"scroll": 0, "search": 1}, f"判死应只跳过滚动、保留搜索：{calls}"
     r.case("界面判死 ⇒ 跳过滚动，但仍走搜索兜底（避免误判致发送失败）", l10_frozen_skips_scroll_and_search)
 
+    def l11_input_box_real_click_after_search():
+        calls = {"real": 0, "post": 0}
+        old = (snd._real_click_at, snd.post_click, snd._LAST_DIAGNOSTICS)
+        snd._LAST_DIAGNOSTICS = dict(snd._LAST_DIAGNOSTICS)
+        snd._real_click_at = lambda h, x, y: calls.__setitem__("real", calls["real"] + 1)
+        snd.post_click = lambda h, x, y: calls.__setitem__("post", calls["post"] + 1) or True
+        try:
+            snd._record_diagnostics(switched_via_search=True)
+            snd._click_input_box(199150, (100, 200))
+            assert calls == {"real": 1, "post": 0}, f"经搜索切过来应真点击激活输入框：{calls}"
+            calls["real"] = calls["post"] = 0
+            snd._record_diagnostics(switched_via_search=None)
+            snd._click_input_box(199150, (100, 200))
+            assert calls == {"real": 0, "post": 1}, f"非搜索切换应仍走投递点击（不动光标）：{calls}"
+        finally:
+            (snd._real_click_at, snd.post_click, snd._LAST_DIAGNOSTICS) = old
+    r.case("搜索兜底切完会话 ⇒ 真点击激活输入框；否则投递", l11_input_box_real_click_after_search)
+
     return r
 
 

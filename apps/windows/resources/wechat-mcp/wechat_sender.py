@@ -1629,6 +1629,32 @@ def _real_clicker(h):
     return click
 
 
+def _real_click_at(h, x, y):
+    """真鼠标点一下窗口坐标 (x, y)，点完**把光标还回去**（不动用户的鼠标位置）。"""
+    cur = wintypes.POINT()
+    u.GetCursorPos(ctypes.byref(cur))
+    l, t, _w, _h = win_rect(h)
+    _lclick(l + x, t + y)
+    time.sleep(0.15)
+    try:
+        u.SetCursorPos(cur.x, cur.y)
+    except Exception:
+        pass
+
+
+def _click_input_box(h, ip):
+    """把键盘焦点移到消息输入框（ip 是 layout 窗口坐标）。
+
+    **经搜索兜底切过来的会话要用真实点击**：那条路焦点落在搜索框/列表上，投递点击（PostMessage）
+    不足以把键盘焦点移到输入框，随后投递正文（WM_CHAR）就落空——实测表现为「已回车但目标会话
+    未见新消息」（2026-10-11，微信收进托盘 + 搜索切换那两次）。其余情形仍走投递点击（不动光标）。
+    """
+    if _LAST_DIAGNOSTICS.get("switched_via_search") is True:
+        _real_click_at(h, *ip)
+    else:
+        post_click(h, *ip)
+
+
 def open_chat_via_search_posted(h, name, talker, verbose=False):
     """把 `open_chat_via_search` 包成本发送路径能用的样子：**用前备好前台/剪贴板/光标，用完都还回去**。
 
@@ -1733,7 +1759,12 @@ def open_chat_any(h, name, talker, verbose=False):
         return True
     if verbose:
         print("[open] 会话列表里没找到，退到微信搜索（Ctrl+F）")
-    return open_chat_via_search_posted(h, name, talker, verbose)
+    ok = open_chat_via_search_posted(h, name, talker, verbose)
+    if ok:
+        # 搜索兜底切完会话后焦点在搜索框/列表上，投递正文会落空——记一笔，让发送层改用真实点击
+        # 激活输入框（2026-10-11 实测：经搜索切换的那几次发送都卡在「已回车但未见新消息」）。
+        _record_diagnostics(switched_via_search=True)
+    return ok
 
 
 # ---- 跨进程互斥：一次只允许一个 UI 操作（两个回合同时抢微信窗口会互相破坏）----
@@ -1755,6 +1786,9 @@ _LAST_DIAGNOSTICS = {
     "best_match_score": None,
     "ui_frozen": None,
     "retry_attempted": None,
+    # 本次是否经**搜索兜底**切过来的：那样焦点在搜索框/列表上，投递点击不足以把键盘焦点
+    # 移到消息输入框，正文会落空——调用方据此改用真实点击激活输入框（见 _send_locked_body）。
+    "switched_via_search": None,
 }
 
 
@@ -1990,7 +2024,7 @@ def _send_locked_body(h, text, talker, name, dry_run, verbose, prev_fg):
         if not ip:
             ww, wh, lines = read_ui_stable("s1")
             ip = layout(lines, ww, wh)["input_pt"]
-        post_click(h, *ip)
+        _click_input_box(h, ip)
         time.sleep(0.4)
         ok, why = clear_input(h, (d or {}).get("input"))   # 残留（用户草稿/上次失败留下的）会被回车一起发出去
         if not ok:
@@ -2283,7 +2317,7 @@ def send_attachment(path, talker, name=None, dry_run=True, verbose=False):
         # （`open_chat_via_search`），焦点还在搜索框里，那几下退格会去删搜索词。
         ip = uia_input_pt(h, d) if d else None
         if ip:
-            post_click(h, *ip)
+            _click_input_box(h, ip)
             time.sleep(0.4)
         ok, why = clear_input(h, (d or {}).get("input"))   # 残留会跟附件一起发出去
         if not ok:
