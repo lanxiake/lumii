@@ -854,8 +854,11 @@ def suite_F():
     import wechat_sender as snd
     r = R("F 层：最小化自恢复（发送闸门）")
 
-    def with_env(seq, find_hwnd, fn):
-        """`check_env` 按 seq 依次返回（用完后重复最后一个）；`ShowWindow`/`sleep` 打桩。"""
+    def with_env(seq, find_hwnd, fn, unfreeze=True, tray=None):
+        """`check_env` 按 seq 依次返回（用完后重复最后一个）；`ShowWindow`/`sleep`/`_unfreeze_ui` 打桩。
+
+        `_unfreeze_ui` 必须打桩：托盘拉起那条路会真去点系统托盘，测试里绝不能碰真桌面。
+        """
         st = {"n": 0}
 
         def fake_check_env():
@@ -864,17 +867,23 @@ def suite_F():
             return dict(seq[i])
 
         shown = []
-        old = (snd.check_env, snd.find_main_hwnd, snd.u.ShowWindow, snd.time.sleep)
+        old = (snd.check_env, snd.find_main_hwnd, snd.u.ShowWindow, snd.time.sleep, snd._unfreeze_ui)
         snd.check_env = fake_check_env
         # 还原路径会用 include_hidden=True 找隐藏窗口；这里两种口径都给同一个假句柄
         snd.find_main_hwnd = lambda include_hidden=False: find_hwnd
         # 传入的是 ctypes.c_void_p，这里归一成整数，免得断言被 c_void_p 包装挡住
         snd.u.ShowWindow = lambda h, n: shown.append((getattr(h, "value", h), n))
         snd.time.sleep = lambda *_: None
+
+        def fake_unfreeze(tag="tray"):
+            if tray is not None:
+                tray.append(tag)
+            return unfreeze
+        snd._unfreeze_ui = fake_unfreeze
         try:
             return fn(shown, st)
         finally:
-            (snd.check_env, snd.find_main_hwnd, snd.u.ShowWindow, snd.time.sleep) = old
+            (snd.check_env, snd.find_main_hwnd, snd.u.ShowWindow, snd.time.sleep, snd._unfreeze_ui) = old
 
     MIN = {"ok": False, "reason": "主窗口已最小化", "minimized": True,
            "visible": True, "weixin_running": True, "hwnd": 199150}
@@ -945,16 +954,20 @@ def suite_F():
     r.case("锁屏 + 窗口可用 ⇒ 放行（锁屏不挡投递）", f7_locked_and_usable_passes)
 
     def f8_hidden_restores():
-        """收进托盘（隐藏态）：按可见性过滤拿不到句柄，必须靠 `include_hidden=True` 捞回来再还原。
+        """收进托盘（隐藏态）：按可见性过滤拿不到句柄，必须靠 `include_hidden=True` 捞回来再拉起。
         用户 2026-10-09 决策「一律自动拉起（含托盘）」——不还原的代价是那条回复最多在补发队列里
-        躺 30 分钟然后被丢掉。"""
+        躺 30 分钟然后被丢掉。**拉起必须走托盘图标 InvokePattern**：SW_SHOWNOACTIVATE 拉出来的
+        窗口只渲染不收输入，后面切会话/搜索/发正文全都会失败（2026-10-11 实测）。"""
+        tray = []
+
         def run(shown, st):
             ok, s = snd.env_gate()
-            assert ok and s["ok"], "收进托盘 ⇒ 还原后复检通过就该放行"
-            assert shown == [(199150, 4)], f"应当且只应当还原一次：{shown}"
+            assert ok and s["ok"], "收进托盘 ⇒ 拉起后复检通过就该放行"
+            assert tray == ["wake"], f"隐藏态应用托盘图标拉起一次：{tray}"
+            assert shown == [], f"隐藏态不该走 SW_SHOWNOACTIVATE：{shown}"
             assert st["n"] == 2, f"应当复检一次：{st['n']}"
-        with_env([HID, OK], 199150, run)
-    r.case("收进托盘 ⇒ 找回来 + 还原一次 + 复检 ⇒ 放行", f8_hidden_restores)
+        with_env([HID, OK], 199150, run, tray=tray)
+    r.case("收进托盘 ⇒ 托盘图标拉起一次 + 复检 ⇒ 放行", f8_hidden_restores)
 
     def f9_hidden_unrestorable():
         """隐藏态但连隐藏窗口都找不到（未登录 / 句柄都没了）⇒ 照旧拒发，不假装成功。"""
@@ -1656,7 +1669,8 @@ def suite_L():
         assert calls["unfreeze"] == 1 and calls["post"] == 2, f"应**只**唤醒一次并重试：{calls}"
     r.case("三路失败+只剩左列 ⇒ 唤醒一次并重试成功（不反复戳）", l13_recover_after_left_only)
 
-    def l14_restored_skips_search():
+    def l14_restored_still_searches():
+        """窗口是**还原来的**也必须走搜索——复杂环境（托盘→还原→搜索定位→发送）这条链要通。"""
         calls = {"search": 0}
         old = (snd.open_chat_post, snd._scroll_find_session, snd.open_chat_via_search_posted,
                snd._ENV, snd._LAST_DIAGNOSTICS)
@@ -1668,14 +1682,12 @@ def suite_L():
         snd.open_chat_via_search_posted = lambda *a, **k: calls.__setitem__("search", calls["search"] + 1) or True
         try:
             ok = snd.open_chat_any(199150, "321", "t")
-            detail = snd._target_unconfirmed_detail()
         finally:
             (snd.open_chat_post, snd._scroll_find_session, snd.open_chat_via_search_posted,
              snd._ENV, snd._LAST_DIAGNOSTICS) = old
-        assert ok is False, "还原来的窗口找不到目标时 fail-closed"
-        assert calls["search"] == 0, f"窗口是还原来的就不该走搜索兜底：{calls}"
-        assert "跳过搜索兜底" in detail, detail
-    r.case("窗口是还原来的 ⇒ 跳过搜索兜底，detail 讲明原因", l14_restored_skips_search)
+        assert ok is True, "还原来的窗口找到目标后应返回 True"
+        assert calls["search"] == 1, f"还原来的窗口也必须走搜索兜底：{calls}"
+    r.case("窗口是还原来的 ⇒ 照样走搜索（托盘→还原→搜索→发送要通）", l14_restored_still_searches)
 
     return r
 

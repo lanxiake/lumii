@@ -889,8 +889,9 @@ def _unfreeze_ui(tag="tray"):
     图标真实位置在 x≈2287（`SystemTray.NormalButton` 报的矩形），不是它报的 2083。
     InvokePattern 直接进 provider，绕过命中测试，一次即恢复。
 
-    ⚠️ **只在已判定卡死时调**：它会顺带把微信顶到前台（实测健康态下调用：窗口可见性不变、
-    但 `GetForegroundWindow` 变成微信），误调用就是白抢用户的前台。
+    ⚠️ **会顺带把微信顶到前台**。两处调用都有明确前提，别在别处乱用：
+    ① 已判定 UI 卡死时（恢复用）；② 窗口收在托盘需要**拉起**时（`wake_window`）——
+    实测 SW_SHOWNOACTIVATE 拉出来的窗口只渲染不收输入，只有经微信自己的显示+激活才恢复。
     """
     out = os.path.join(core.WORK, f"tray_{tag}.txt")
     t0 = time.time()
@@ -982,9 +983,18 @@ def wake_window(st=None):
     h = st.get("hwnd") or find_main_hwnd(include_hidden=True)
     if not h:
         return st
-    u.ShowWindow(ctypes.c_void_p(h), 4)          # SW_SHOWNOACTIVATE：还原，但不抢前台
+    if not st.get("visible"):
+        # 收在托盘（隐藏态）：**用托盘图标 InvokePattern 拉起**，不要用 SW_SHOWNOACTIVATE。
+        # 2026-10-11 实测：SW_SHOWNOACTIVATE 拉出来的窗口「只渲染、不收输入」——帧看着正常，
+        # 但投递与真实点击全无反应（表现为切不了会话、搜索没结果、正文投不进去）；
+        # 而托盘图标走的是微信自己的「显示 + 激活」逻辑，拉起来之后输入正常。
+        # 代价：这一步会把微信顶到前台（收在托盘时用户本就没在用，可以接受）。
+        if not _unfreeze_ui("wake"):
+            u.ShowWindow(ctypes.c_void_p(h), 4)   # 退路：托盘图标用不了时仍用原方式
+    else:
+        u.ShowWindow(ctypes.c_void_p(h), 4)       # 最小化（可见态）：原方式足够
     _ENV["restored"] = True
-    time.sleep(0.7)
+    time.sleep(0.9)
     return check_env()
 
 
@@ -1761,11 +1771,10 @@ def open_chat_any(h, name, talker, verbose=False):
     而列表一屏约 10 行、用户有 68 个会话——不在首屏又没有搜索兜底的人**永久发不出去**，
     表现为一直 `target_unconfirmed`（杨冬就是这个案子，2792 个联系人里排不进首屏）。
 
-    **B：窗口是还原来的 ⇒ 不搜索**（2026-10-11 实测结论）：搜索兜底要**真实键鼠 + 切前台**
-    （`bring_to_front` 连模拟 Alt 都用上了），而「从托盘/最小化还原过来的窗口」再叠这一套，实测会把
-    微信 UI 卡在半渲染（只剩左列、聊天区全空、点击全无效、24 秒不自恢复）。所以这种情况下
-    **宁可 fail-closed**（把原因说清楚，交给用户手动打开该会话），也不冒把用户微信弄卡的风险。
-    窗口**本就在正常可见态**时，搜索兜底照旧。
+    **复杂环境（微信收在托盘）下这条链必须通**：托盘 → 还原窗口 → 列表里没有就搜索定位 → 发送。
+    所以搜索兜底**不能因「窗口是还原来的」而跳过**（2026-10-11 一度这么加过，等于把这条路堵死，
+    已撤）。防卡死靠的是别的手段：投递优先、真键鼠只在该路径必要时用一次、失败时
+    `_left_only_frame` + `_unfreeze_ui` 兜底恢复。
     """
     _record_diagnostics(ui_frozen=None, switched_via_search=None, search_skipped_restored=None)
     if open_chat_post(h, name, talker, verbose):
@@ -1775,11 +1784,6 @@ def open_chat_any(h, name, talker, verbose=False):
             print("[open] 界面判定为卡死，跳过滚动（搜索兜底仍会尝试，它会先把窗口bring到前台）")
     elif _scroll_find_session(h, name, talker, verbose=verbose):
         return True
-    if _ENV.get("restored"):
-        _record_diagnostics(search_skipped_restored=True)
-        if verbose:
-            print("[open] 窗口是从托盘/最小化还原的 ⇒ 跳过搜索兜底（真键鼠+切前台会把 UI 卡死），fail-closed")
-        return False
     if verbose:
         print("[open] 会话列表里没找到，退到微信搜索（Ctrl+F）")
     ok = open_chat_via_search_posted(h, name, talker, verbose)
