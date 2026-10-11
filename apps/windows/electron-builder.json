@@ -124,7 +124,9 @@
       "from": "resources/pet-models",
       "to": "pet-models",
       "filter": [
-        "**/*"
+        "**/*",
+        "!dist/**",
+        "!**/dist/**"
       ]
     },
     {
