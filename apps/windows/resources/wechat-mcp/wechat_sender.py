@@ -967,11 +967,10 @@ def wake_window(st=None):
     `Win.__exit__` 本来就会把窗口的位置与尺寸还原。
 
     **收进托盘（隐藏态）也一起恢复**（用户 2026-10-09 决策「一律自动拉起」）。早先专门
-    不强显，怕把用户收起来的微信弹出来打扰他；现在的还原不一样——用 `SW_SHOWNOACTIVATE`
-    而不是 `SW_SHOWNA`/`SW_RESTORE`，实测**窗口回来但前台不变**（隐藏态与最小化态各测一次，
-    `GetForegroundWindow` 前后同一），也不动光标、不动窗口位置。不还原的代价是那条回复最多
-    在补发队列里躺 30 分钟然后被丢掉。
-
+    不强显，怕把用户收起来的微信弹出来打扰他，于是用 `SW_SHOWNOACTIVATE`「还原但不抢前台」；
+    **2026-10-11 实测推翻了这个做法**：那样拉出来的窗口**只渲染、不收输入**（帧正常但点击/投递
+    全无反应，切会话与发正文都不成），只有经微信自己的「显示+激活」（托盘图标 InvokePattern）
+    才真正可用。所以现在隐藏/最小化两种态都走托盘图标；仍不动窗口位置与尺寸。
     真的恢复不了的不硬来：微信没运行、或连句柄都拿不到（未登录），照旧拒发。
     """
     st = st or check_env()
@@ -983,16 +982,13 @@ def wake_window(st=None):
     h = st.get("hwnd") or find_main_hwnd(include_hidden=True)
     if not h:
         return st
-    if not st.get("visible"):
-        # 收在托盘（隐藏态）：**用托盘图标 InvokePattern 拉起**，不要用 SW_SHOWNOACTIVATE。
-        # 2026-10-11 实测：SW_SHOWNOACTIVATE 拉出来的窗口「只渲染、不收输入」——帧看着正常，
-        # 但投递与真实点击全无反应（表现为切不了会话、搜索没结果、正文投不进去）；
-        # 而托盘图标走的是微信自己的「显示 + 激活」逻辑，拉起来之后输入正常。
-        # 代价：这一步会把微信顶到前台（收在托盘时用户本就没在用，可以接受）。
-        if not _unfreeze_ui("wake"):
-            u.ShowWindow(ctypes.c_void_p(h), 4)   # 退路：托盘图标用不了时仍用原方式
-    else:
-        u.ShowWindow(ctypes.c_void_p(h), 4)       # 最小化（可见态）：原方式足够
+    # 隐藏（托盘）或最小化：**必须经微信自己的「显示 + 激活」**（托盘图标 InvokePattern）才能活——
+    # `SW_SHOWNOACTIVATE` / `SW_RESTORE` 出来的窗口「只渲染、不收输入」：帧看着完全正常（左列、
+    # 聊天区、表头都在），但投递点击、真实点击全无反应：切不了会话、搜索出不来、正文投不进去
+    # （2026-10-11 实测，托盘与最小化两种态都一样）。托盘图标拉起后输入立即恢复。
+    # 代价：这一步会把微信顶到前台（收在托盘/最小化时用户本就没在用，可以接受）。
+    if not _unfreeze_ui("wake"):
+        u.ShowWindow(ctypes.c_void_p(h), 4)       # 退路：托盘图标用不了时仍用原方式
     _ENV["restored"] = True
     time.sleep(0.9)
     return check_env()

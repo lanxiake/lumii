@@ -896,20 +896,25 @@ def suite_F():
             "visible": False, "weixin_running": False, "hwnd": 0}
 
     def f1_restores_and_passes():
+        """最小化也要走托盘图标拉起：SW_RESTORE/SW_SHOWNOACTIVATE 出来的窗口只渲染不收输入。"""
+        tray = []
+
         def run(shown, st):
             ok, s = snd.env_gate()
             assert ok and s["ok"], "恢复后复检通过就该放行"
-            assert shown == [(199150, 4)], f"应当且只应当 SW_SHOWNOACTIVATE 一次：{shown}"
+            assert tray == ["wake"], f"最小化应经托盘图标拉起一次：{tray}"
+            assert shown == [], f"不该退回 SW_SHOWNOACTIVATE：{shown}"
             assert st["n"] == 2, f"应当复检一次：{st['n']}"
-        with_env([MIN, OK], 0, run)
-    r.case("最小化 ⇒ 自恢复一次 + 复检 ⇒ 放行", f1_restores_and_passes)
+        with_env([MIN, OK], 0, run, tray=tray)
+    r.case("最小化 ⇒ 托盘图标拉起一次 + 复检 ⇒ 放行", f1_restores_and_passes)
 
     def f2_stays_minimized():
-        def run(shown, st):
+        def run(_shown, _st):
             ok, _s = snd.env_gate()
             assert not ok, "恢复不动时必须拒发（不许带着最小化的窗口往下做）"
-            assert shown == [(199150, 4)]
-        with_env([MIN], 0, run)
+        tray = []
+        with_env([MIN], 0, run, tray=tray)
+        assert tray == ["wake"], f"该试过用托盘图标拉起一次：{tray}"
     r.case("恢复不动（仍最小化）⇒ 拒发", f2_stays_minimized)
 
     def f3_no_hwnd():
@@ -938,11 +943,12 @@ def suite_F():
     def f6_locked_but_window_unusable():
         """锁屏放行只放"锁屏"这一条：窗口最小化/不可见时照样拒——否则会跑满 30s 被 MCP 超时杀掉，
         而超时不是错误码，Provider 归不出 `env_not_ready`，那条回复就静默没了（2026-10-09 实测）。"""
-        def run(shown, _st):
+        def run(_shown, _st):
             ok, _s = snd.env_gate(allow_locked=True)
             assert not ok, "锁屏不是「窗口读不了」的通行证"
-            assert shown == [(199150, 4)], "仍该试过还原一次"
-        with_env([{**MIN, "locked": True}], 0, run)
+        tray = []
+        with_env([{**MIN, "locked": True}], 0, run, tray=tray)
+        assert tray == ["wake"], "仍该试过拉起一次"
     r.case("锁屏 + 最小化 ⇒ 仍拒发（不许带着读不了的窗口往下做）", f6_locked_but_window_unusable)
 
     def f7_locked_and_usable_passes():
@@ -1324,7 +1330,7 @@ def suite_K():
 
     r = R("K 层：发送前状态机与 repair_env")
 
-    def with_stub(seq, find_hwnd, fn, rect=(0, 0, 894, 578), front=None, db=None):
+    def with_stub(seq, find_hwnd, fn, rect=(0, 0, 894, 578), front=None, db=None, tray=None):
         st = {"n": 0}
 
         def fc():
@@ -1334,7 +1340,7 @@ def suite_K():
 
         shown, moved = [], []
         old = (snd.check_env, snd.find_main_hwnd, snd.u.ShowWindow, snd.time.sleep,
-               snd.win_rect, snd.u.MoveWindow, snd.bring_to_front, core.db_root_info)
+               snd.win_rect, snd.u.MoveWindow, snd.bring_to_front, core.db_root_info, snd._unfreeze_ui)
         snd.check_env = fc
         snd.find_main_hwnd = lambda include_hidden=False: find_hwnd
         snd.u.ShowWindow = lambda h, n: shown.append((getattr(h, "value", h), n))
@@ -1342,13 +1348,20 @@ def suite_K():
         snd.win_rect = lambda h: rect
         snd.u.MoveWindow = lambda h, x, y, w, hh, rp: moved.append((x, y, w, hh))
         snd.bring_to_front = front or (lambda h, tries=3: True)
+
+        def fake_unfreeze(tag="tray"):
+            if tray is not None:
+                tray.append(tag)
+            return True
+        snd._unfreeze_ui = fake_unfreeze       # 必须打桩：托盘拉起会真去点系统托盘
         if db is not None:
             core.db_root_info = db
         try:
             return fn(shown, moved, st)
         finally:
             (snd.check_env, snd.find_main_hwnd, snd.u.ShowWindow, snd.time.sleep,
-             snd.win_rect, snd.u.MoveWindow, snd.bring_to_front, core.db_root_info) = old
+             snd.win_rect, snd.u.MoveWindow, snd.bring_to_front, core.db_root_info,
+             snd._unfreeze_ui) = old
 
     RUN = {"ok": True, "reason": "", "minimized": False, "visible": True, "locked": False,
            "weixin_running": True, "hwnd": 199150, "rect": [60, 40, 1280, 820]}
@@ -1376,11 +1389,13 @@ def suite_K():
     r.case("拿不到主窗口 ⇒ stage=window", k2_window)
 
     def k3_restore():
-        def run(shown, _m, _st):
+        tray = []
+
+        def run(_shown, _m, _st):
             ok, stage, _d, _i = snd.preflight()
             assert not ok and stage == "restore", (ok, stage)
-            assert shown == [(199150, 4)], f"该试过还原一次：{shown}"
-        with_stub([MIN, MIN], 199150, run)
+        with_stub([MIN, MIN], 199150, run, tray=tray)
+        assert tray == ["wake"], f"该试过用托盘图标拉起一次：{tray}"
     r.case("还原后仍最小化 ⇒ stage=restore（拒发）", k3_restore)
 
     def k4_size_reported_not_failed():
