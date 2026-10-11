@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback } from 'react'
+import { PLUGIN_REGISTRY } from '../../../pages/PluginCenterPage/plugins-registry'
 import type { PluginId } from '../../../pages/PluginCenterPage/plugins-registry'
 
 export type PluginStatus = {
@@ -19,7 +20,7 @@ export type PluginStatus = {
 }
 
 export type UsePluginsResult = {
-  statuses: Record<PluginId, PluginStatus>
+  statuses: Record<string, PluginStatus>
   install: (id: PluginId) => Promise<void>
   uninstall: (id: PluginId) => Promise<void>
   cancel: (id: PluginId) => Promise<void>
@@ -34,90 +35,109 @@ const DEFAULT_STATUS = (id: PluginId): PluginStatus => ({
 })
 
 /**
- * 插件中心的安装状态。
+ * 插件中心的安装状态（**通用**：状态与进度都按插件 id 分发）。
  *
- * 目前只剩 CloakBrowser 一个真·插件。记忆宫殿曾以 MemPalace 插件形式存在，
- * 2026-09-18 换成本地 SQLite 自研实现后**没有安装态**了（数据就在应用自己的库里），
- * 因此从这里移除——它的状态由 `usePalace` 自己管。
+ * 判据：**有下载、有运行时、可卸载 = 插件**。自研记忆宫殿没有安装态（数据就在应用自己的库里），
+ * 不算插件，因此不在这里——它的状态由 `usePalace` 自己管。
  */
 export function usePlugins(): UsePluginsResult {
-  const [statuses, setStatuses] = useState<Record<PluginId, PluginStatus>>({
-    'cloak-browser': DEFAULT_STATUS('cloak-browser'),
+  const [statuses, setStatuses] = useState<Record<string, PluginStatus>>(() => {
+    const init: Record<string, PluginStatus> = {}
+    for (const def of PLUGIN_REGISTRY) init[def.id] = DEFAULT_STATUS(def.id)
+    return init
   })
 
-  const unsubRef = useRef<(() => void) | null>(null)
-
   const patch = useCallback((id: PluginId, delta: Partial<PluginStatus>) => {
-    setStatuses((prev) => ({ ...prev, [id]: { ...prev[id], ...delta } }))
+    setStatuses((prev) => ({ ...prev, [id]: { ...(prev[id] ?? DEFAULT_STATUS(id)), ...delta } }))
   }, [])
 
-  // 订阅 CloakBrowser 进度
+  // 统一进度通道：载荷带 id，据此分发到对应插件
   useEffect(() => {
-    const unsub = window.electronAPI.plugins.cloak_browser.onProgress((p) => {
+    const unsub = window.electronAPI.plugins.onProgress((p) => {
+      const id = p.id as PluginId
       if (p.phase === 'cancelled') {
-        patch('cloak-browser', { installing: false, progress: undefined, error: undefined })
+        patch(id, { installing: false, progress: undefined, error: undefined })
         return
       }
-      patch('cloak-browser', {
-        progress: { phase: p.phase, percent: p.percent, downloadedBytes: p.downloadedBytes, totalBytes: p.totalBytes, mirror: p.mirror },
+      patch(id, {
+        progress: {
+          phase: p.phase,
+          percent: p.percent,
+          downloadedBytes: p.downloadedBytes,
+          totalBytes: p.totalBytes,
+          mirror: p.mirror,
+        },
         error: p.phase === 'error' ? p.error : undefined,
       })
     })
-    unsubRef.current = unsub
     return () => unsub()
   }, [patch])
 
-  const fetchCloakStatus = useCallback(async () => {
-    const s = await window.electronAPI.plugins.cloak_browser.getStatus()
-    patch('cloak-browser', { installed: s.installed, version: s.version, exePath: s.exePath })
-  }, [patch])
-
-  // 初始化时查询状态
-  useEffect(() => {
-    fetchCloakStatus()
-  }, [fetchCloakStatus])
-
-  const install = useCallback(async (id: PluginId) => {
-    patch(id, { installing: true, error: undefined, progress: undefined })
-    try {
-      if (id === 'cloak-browser') {
-        const result = await window.electronAPI.plugins.cloak_browser.install()
-        // cancelled 不算失败，静默处理
-        if (!result.success && result.error) throw new Error(result.error)
-        await fetchCloakStatus()
+  const refreshAll = useCallback(async () => {
+    const list = await window.electronAPI.plugins.list()
+    setStatuses((prev) => {
+      const next: Record<string, PluginStatus> = { ...prev }
+      for (const def of PLUGIN_REGISTRY) {
+        const s = list[def.id] ?? { installed: false }
+        next[def.id] = {
+          ...(prev[def.id] ?? DEFAULT_STATUS(def.id)),
+          installed: s.installed,
+          version: s.version,
+          exePath: s.exePath,
+        }
       }
-    } catch (err) {
-      patch(id, { error: String(err instanceof Error ? err.message : err) })
-    } finally {
-      patch(id, { installing: false })
-    }
-  }, [patch, fetchCloakStatus])
-
-  const uninstall = useCallback(async (id: PluginId) => {
-    patch(id, { uninstalling: true, error: undefined })
-    try {
-      if (id === 'cloak-browser') {
-        const result = await window.electronAPI.plugins.cloak_browser.uninstall()
-        if (!result.success) throw new Error(result.error ?? '卸载失败')
-        await fetchCloakStatus()
-      }
-    } catch (err) {
-      patch(id, { error: String(err instanceof Error ? err.message : err) })
-    } finally {
-      patch(id, { uninstalling: false })
-    }
-  }, [patch, fetchCloakStatus])
-
-  const cancel = useCallback(async (id: PluginId) => {
-    if (id === 'cloak-browser') {
-      await window.electronAPI.plugins.cloak_browser.cancel()
-      // 状态由 onProgress cancelled 事件回调重置，此处不重复 patch
-    }
+      return next
+    })
   }, [])
 
-  const refresh = useCallback(async (id: PluginId) => {
-    if (id === 'cloak-browser') await fetchCloakStatus()
-  }, [fetchCloakStatus])
+  useEffect(() => {
+    refreshAll()
+  }, [refreshAll])
+
+  const install = useCallback(
+    async (id: PluginId) => {
+      patch(id, { installing: true, error: undefined, progress: undefined })
+      try {
+        const result = await window.electronAPI.plugins.install(id)
+        // cancelled 不算失败，静默处理
+        if (!result.success && !result.cancelled && result.error) throw new Error(result.error)
+        await refreshAll()
+      } catch (err) {
+        patch(id, { error: String(err instanceof Error ? err.message : err) })
+      } finally {
+        patch(id, { installing: false })
+      }
+    },
+    [patch, refreshAll],
+  )
+
+  const uninstall = useCallback(
+    async (id: PluginId) => {
+      patch(id, { uninstalling: true, error: undefined })
+      try {
+        const result = await window.electronAPI.plugins.uninstall(id)
+        if (!result.success) throw new Error(result.error ?? '卸载失败')
+        await refreshAll()
+      } catch (err) {
+        patch(id, { error: String(err instanceof Error ? err.message : err) })
+      } finally {
+        patch(id, { uninstalling: false })
+      }
+    },
+    [patch, refreshAll],
+  )
+
+  const cancel = useCallback(async (id: PluginId) => {
+    // 状态由 progress cancelled 事件回调复位，此处不重复 patch
+    await window.electronAPI.plugins.cancel(id)
+  }, [])
+
+  const refresh = useCallback(
+    async (_id: PluginId) => {
+      await refreshAll()
+    },
+    [refreshAll],
+  )
 
   return { statuses, install, uninstall, cancel, refresh }
 }

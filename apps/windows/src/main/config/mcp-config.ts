@@ -247,7 +247,7 @@ function parseMcpServerConfigs(raw: string): McpServerEntry[] {
  * 随包独立 exe 写部署后的绝对路径（不落占位符，配置可原样拿去别的客户端用）；
  * 它们目前只有 Windows 版，其他平台播种为停用。
  */
-function presetToEntry(preset: McpPreset): McpServerEntry {
+export function presetToEntry(preset: McpPreset): McpServerEntry {
   const supported = !preset.bundledExe || process.platform === 'win32'
   const enabled = !supported
     ? false

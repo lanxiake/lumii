@@ -24,7 +24,7 @@ export const PluginCenterPage: React.FC<{ embedded?: boolean }> = ({ embedded = 
             status={statuses[def.id]}
             onInstall={() => install(def.id)}
             onUninstall={() => uninstall(def.id)}
-            onCancel={def.id === 'cloak-browser' ? () => cancel(def.id) : undefined}
+            onCancel={() => cancel(def.id)}
           />
         ))}
       </div>

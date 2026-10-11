@@ -69,7 +69,7 @@ const RUNTIME_DEPS = ['pycryptodome>=3.20', 'zstandard>=0.22']
 /** 只有 pro 的语音转写用得上的重依赖 */
 const ASR_DEPS = ['pilk>=0.2', 'sherpa-onnx>=1.10', 'numpy>=1.24']
 const PYINSTALLER_SPEC = 'pyinstaller>=6.10'
-const DEFAULT_INDEX = 'https://pypi.tuna.tsinghua.edu.cn/simple'
+const DEFAULT_INDEX = 'https://pypi.org/simple'
 
 /**
  * 打印带前缀的日志

@@ -126,6 +126,8 @@ export const PluginCard: React.FC<Props> = ({ def, status, onInstall, onUninstal
           content={`确认卸载 ${def.name}？相关数据将被删除。`}
           confirmText="确认卸载"
           confirmVariant="danger"
+          // 插件中心在设置中心（hub 层）内部，确认框必须再升一层，否则被压在下面点不到
+          layer="aboveHub"
           onConfirm={() => { setShowConfirm(false); onUninstall() }}
           onCancel={() => setShowConfirm(false)}
         />

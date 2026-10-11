@@ -933,23 +933,22 @@ export interface ElectronAPI {
       }) => void,
     ) => () => void
   }
-  /** 插件中心 API */
+  /** 插件中心 API（通用：按 id 分发） */
   plugins: {
-    cloak_browser: {
-      getStatus: () => Promise<{ installed: boolean; version?: string; exePath?: string }>
-      install: () => Promise<{ success: boolean; error?: string }>
-      uninstall: () => Promise<{ success: boolean; error?: string }>
-      cancel: () => Promise<{ success: boolean }>
-      onProgress: (callback: (payload: {
-        phase: 'checking' | 'downloading' | 'extracting' | 'done' | 'skipped' | 'error' | 'cancelled'
-        percent?: number
-        downloadedBytes?: number
-        totalBytes?: number
-        version?: string
-        error?: string
-        mirror?: string
-      }) => void) => () => void
-    }
+    list: () => Promise<Record<string, { installed: boolean; version?: string; exePath?: string }>>
+    install: (id: string) => Promise<{ success: boolean; error?: string; cancelled?: boolean }>
+    uninstall: (id: string) => Promise<{ success: boolean; error?: string }>
+    cancel: (id: string) => Promise<{ success: boolean }>
+    onProgress: (callback: (payload: {
+      id: string
+      phase: 'checking' | 'downloading' | 'extracting' | 'done' | 'skipped' | 'error' | 'cancelled'
+      percent?: number
+      downloadedBytes?: number
+      totalBytes?: number
+      version?: string
+      error?: string
+      mirror?: string
+    }) => void) => () => void
   }
 
   // 工作空间 Git 版本管理 (VCS)
@@ -1202,17 +1201,13 @@ const electronAPI: ElectronAPI = {
 
   // 插件中心 API
   plugins: {
-    cloak_browser: {
-      getStatus: () => ipcRenderer.invoke('plugin:cloak-browser:status'),
-      install: () => ipcRenderer.invoke('plugin:cloak-browser:install'),
-      uninstall: () => ipcRenderer.invoke('plugin:cloak-browser:uninstall'),
-      cancel: () => ipcRenderer.invoke('plugin:cloak-browser:cancel'),
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      onProgress: (callback: (payload: any) => void): () => void => {
-        return createEventListener('cloak-browser-progress', (payload: unknown) => {
-          callback(payload)
-        })
-      },
+    list: () => ipcRenderer.invoke('plugin:list'),
+    install: (id: string) => ipcRenderer.invoke('plugin:install', id),
+    uninstall: (id: string) => ipcRenderer.invoke('plugin:uninstall', id),
+    cancel: (id: string) => ipcRenderer.invoke('plugin:cancel', id),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    onProgress: (callback: (payload: any) => void): () => void => {
+      return createEventListener('plugin:progress', (payload: unknown) => callback(payload))
     },
   },
 

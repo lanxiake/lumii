@@ -24,8 +24,7 @@
     "package": "node scripts/package-app.js",
     "package:win": "node scripts/package-app.js --platform win",
     "package:win:x64": "pnpm build && pnpm build:wechat-mcp --if-stale && electron-builder --win --x64 --config electron-builder.json",
-    "package:win:ia32": "pnpm build && pnpm build:wechat-mcp --if-stale && electron-builder --win --ia32 --config electron-builder.json",
-    "package:nsis": "pnpm build && pnpm build:wechat-mcp --if-stale && electron-builder --win nsis --x64 --ia32 --config electron-builder.json",
+    "package:nsis": "pnpm build && pnpm build:wechat-mcp --if-stale && electron-builder --win nsis --x64 --config electron-builder.json",
     "package:nsis:x64": "pnpm build && pnpm build:wechat-mcp --if-stale && electron-builder --win nsis --x64 --config electron-builder.json",
     "package:zip": "pnpm build && pnpm build:wechat-mcp --if-stale && electron-builder --win zip --x64 --config electron-builder.json",
     "package:dir": "pnpm build && pnpm build:wechat-mcp --if-stale && electron-builder --dir --config electron-builder.json",
@@ -49,7 +48,8 @@
     "package:linux:appimage": "node scripts/package-app.js --platform linux --target appimage",
     "package:linux:deb": "node scripts/package-app.js --platform linux --target deb",
     "package:linux:dir": "node scripts/package-app.js --platform linux --target dir",
-    "verify:win-package": "node scripts/verify-win-package.mjs"
+    "verify:win-package": "node scripts/verify-win-package.mjs",
+    "upload:plugin-assets": "node scripts/upload-plugin-assets.mjs"
   },
   "dependencies": {
     "@earendil-works/pi-agent-core": "1.1.0",

@@ -51,6 +51,8 @@
     "!node_modules/zrender/**",
     "!node_modules/pptx-preview/**",
     "!node_modules/lottie-web/**",
+    "!node_modules/mermaid/**",
+    "!node_modules/@mermaid-js/**",
     "!node_modules/pixi.js/**",
     "!node_modules/@pixi/**",
     "!node_modules/pixi-live2d-display/**",
@@ -78,6 +80,7 @@
     "!node_modules/better-sqlite3/build/*.vcxproj*",
     "!node_modules/@xenova/transformers/dist/*.map",
     "!node_modules/@mtbot/**",
+    "!node_modules/@ffmpeg-installer/**",
     "!node_modules/openai/src/**",
     "!node_modules/@mistralai/mistralai/src/**",
     "!node_modules/zod/src/**",
@@ -146,13 +149,6 @@
       ]
     },
     {
-      "from": "resources/wechat-mcp/dist",
-      "to": "wechat-mcp",
-      "filter": [
-        "wechat-mcp.exe"
-      ]
-    },
-    {
       "from": "resources/user-guides",
       "to": "user-guides",
       "filter": [
@@ -165,16 +161,14 @@
     "node_modules/silk-wasm/**/*.wasm",
     "**/*.node",
     "node_modules/sherpa-onnx-node/**/*",
-    "node_modules/onnxruntime-node/bin/napi-v3/*/x64/*",
-    "node_modules/@ffmpeg-installer/**/*"
+    "node_modules/onnxruntime-node/bin/napi-v3/*/x64/*"
   ],
   "win": {
     "target": [
       {
         "target": "nsis",
         "arch": [
-          "x64",
-          "ia32"
+          "x64"
         ]
       },
       {
@@ -213,7 +207,8 @@
       "!node_modules/onnxruntime-node/bin/napi-v3/linux/**/*",
       "!node_modules/onnxruntime-node/bin/napi-v3/darwin/**/*",
       "!.env*",
-      "!build.log",
+      "!*.log",
+      "!.tmp-*",
       "!*.config.ts",
       "!tsconfig.json",
       "!paths.ts",
@@ -292,7 +287,8 @@
       "!node_modules/onnxruntime-node/bin/napi-v3/win32/**/*",
       "!node_modules/onnxruntime-node/bin/napi-v3/darwin/**/*",
       "!.env*",
-      "!build.log",
+      "!*.log",
+      "!.tmp-*",
       "!*.config.ts",
       "!tsconfig.json",
       "!paths.ts",
@@ -333,7 +329,7 @@
   },
   "publish": {
     "provider": "github",
-    "owner": "lumii",
+    "owner": "lanxiake",
     "repo": "lumii",
     "releaseType": "release"
   },

@@ -10,3 +10,4 @@
 | [`2026-09-21-打包体积治理.md`](2026-09-21-打包体积治理.md) | 安装包 253.9 → 156.2 MiB（−38.5%）：排掉 13 类「运行时用不到」的东西；含 electron-builder 三条反直觉配置真相与可复跑的产物判据 |
 | [`2026-09-23-pi框架0.87.1技术研究报告.md`](2026-09-23-pi框架0.87.1技术研究报告.md) | harness/durable 源码深潜：13 态 durable 状态机、意图先写+memo、钩子与压缩机制；两套内核栈并存（pico3 experimental）；分级给出对本仓的采纳建议与 `/compat` 到期风险 |
 | [`2026-10-09-wechat-mcp-npm社区分发.md`](2026-10-09-wechat-mcp-npm社区分发.md) | `@lumii/wechat-mcp` npm 双包架构；操作手册见 `apps/windows/resources/wechat-mcp/PUBLISHING.md` |
+| [`2026-10-11-可选组件插件化设计.md`](2026-10-11-可选组件插件化设计.md) | 装包 156→298 MiB 的复盘 + 把 ≥25MB 大件（pet-models/ffmpeg/wechat-mcp）做成插件、**统一在插件中心安装**：复用 `PluginCenterPage`（需泛化硬编码的 `plugin-ipc.ts`）、逐插件设计、分期 P0-P3、待拍板 |

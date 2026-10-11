@@ -9,6 +9,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { resolveCommand } from '@mtbot/agent-runtime'
 import { refreshCommonCliPathsInProcessEnv } from '../cli-user-path'
+import { resolvePluginRuntimeDir } from '../paths'
 import { createLogger } from '../logger'
 
 const log = createLogger('FfmpegRunner')
@@ -27,6 +28,8 @@ export interface FfmpegRunnerDeps {
 export interface FfmpegCandidateSet {
   /** 环境变量 LUMII_FFMPEG_PATH 的值（用户显式指定） */
   readonly override?: string
+  /** 插件下载的 ffmpeg（`~/.lumii/runtimes/ffmpeg/`）；未安装时 null */
+  readonly downloaded?: string | null
   /** 安装包内 @ffmpeg-installer 的路径；平台包缺失时为 null */
   readonly bundled?: string | null
   /** 系统 PATH 上的 ffmpeg；未找到时为 null */
@@ -34,7 +37,7 @@ export interface FfmpegCandidateSet {
 }
 
 /**
- * 纯函数：按「显式指定 → 包内 → 系统」选第一个存在的路径。
+ * 纯函数：按「显式指定 → 插件下载 → 包内 → 系统」选第一个存在的路径。
  *
  * 拆出来是为了可测（存在性判断由调用方以 fileExists 注入）。
  */
@@ -44,6 +47,7 @@ export function selectFfmpegExecutable(
 ): string | null {
   const override = candidates.override?.trim()
   if (override && fileExists(override)) return override
+  if (candidates.downloaded && fileExists(candidates.downloaded)) return candidates.downloaded
   if (candidates.bundled && fileExists(candidates.bundled)) return candidates.bundled
   if (candidates.system && fileExists(candidates.system)) return candidates.system
   return null
@@ -69,6 +73,15 @@ function tryResolveBundledFfmpegPath(): string | null {
   }
 }
 
+/** 插件下载的 ffmpeg（`~/.lumii/runtimes/ffmpeg/`）。未安装时为 null。 */
+function tryResolveDownloadedFfmpegPath(): string | null {
+  const exe = path.join(
+    resolvePluginRuntimeDir('ffmpeg'),
+    process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg',
+  )
+  return fs.existsSync(exe) ? exe : null
+}
+
 /**
  * 系统 PATH 上的 ffmpeg。找不到时 resolveCommand 原样返回命令名（非绝对路径）。
  */
@@ -83,16 +96,18 @@ function tryResolveSystemFfmpegPath(): string | null {
 }
 
 /**
- * 解析 ffmpeg 可执行文件（设计 D25）：
+ * 解析 ffmpeg 可执行文件：
  * 1. `LUMII_FFMPEG_PATH`（与 LUMII_BROWSER_EXECUTABLE 同一逃生口模式）；
- * 2. 安装包内 @ffmpeg-installer；
- * 3. 系统 PATH 的 ffmpeg（包内是 2018 年的 4.1.0，用户可能想用发行版新版）。
+ * 2. 插件下载的 ffmpeg（「本地媒体处理」插件，`~/.lumii/runtimes/ffmpeg/`）；
+ * 3. 安装包内 @ffmpeg-installer（过渡期仍在，后续随包移除）；
+ * 4. 系统 PATH 的 ffmpeg（包内是 2018 年的 4.1.0，用户可能想用发行版新版）。
  */
 export function resolveFfmpegExecutable(): string {
   const override = process.env.LUMII_FFMPEG_PATH?.trim()
   const selected = selectFfmpegExecutable(
     {
       override,
+      downloaded: tryResolveDownloadedFfmpegPath(),
       bundled: tryResolveBundledFfmpegPath(),
       system: tryResolveSystemFfmpegPath(),
     },
@@ -104,7 +119,9 @@ export function resolveFfmpegExecutable(): string {
     }
     return selected
   }
-  throw new Error('未找到可用的 ffmpeg：请安装系统 ffmpeg，或用 LUMII_FFMPEG_PATH 指定可执行文件')
+  throw new Error(
+    '未找到可用的 ffmpeg：请在「设置 → 插件中心」安装「本地媒体处理」插件，或安装系统 ffmpeg / 用 LUMII_FFMPEG_PATH 指定可执行文件',
+  )
 }
 
 let runnerDeps: FfmpegRunnerDeps = {

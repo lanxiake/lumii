@@ -147,10 +147,11 @@ import { submitVoiceTranscript } from './ipc/agent-runtime-ipc.js'
 import {
   readSoulFile,
   readUserMemoryFile,
-  setupCloakBrowserIpcHandlers,
   writeSoulFile,
   writeUserMemoryFile,
 } from './ipc/plugin-ipc'
+import { registerBuiltinPlugins } from './plugins/builtin'
+import { setupPluginIpcHandlers } from './plugins/plugin-manager'
 import { setPalaceBridgeProvider, setupPalaceIpcHandlers } from './ipc/palace-ipc'
 import { registerAllIpcHandlers } from './ipc/ipc-handlers-registry'
 import { registerCodingDevIpcHandlers } from './ipc/coding-dev-ipc'
@@ -1501,7 +1502,15 @@ async function initialize(): Promise<void> {
   // 记忆宫殿（自研 SQLite）IPC
   setPalaceBridgeProvider(() => agentRuntimeBridge)
   setupPalaceIpcHandlers()
-  setupCloakBrowserIpcHandlers()
+  registerBuiltinPlugins({
+    upsertMcpServer: async (entry) => {
+      await agentRuntimeBridge?.upsertMcpServer(entry)
+    },
+    setMcpServerEnabled: async (name, enabled) => {
+      await agentRuntimeBridge?.setMcpServerEnabled(name, enabled)
+    },
+  })
+  setupPluginIpcHandlers()
 
   // 种子内置技能：必须在 initSkillRuntime 之前。
   // SkillRuntime 初始化时会扫描 workspace/skills 并把结果缓存进 LocalSkillStore.index，

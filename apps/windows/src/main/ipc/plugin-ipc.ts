@@ -1,20 +1,6 @@
-import { ipcMain } from 'electron'
 import { join, dirname } from 'path'
-import { promises as fs, existsSync, readdirSync } from 'fs'
-import os from 'os'
+import { promises as fs, existsSync } from 'fs'
 import { resolveClientStateDir } from '../paths'
-
-interface PluginIpcLogger {
-  info: (...args: unknown[]) => void
-  warn: (...args: unknown[]) => void
-  error: (...args: unknown[]) => void
-}
-
-const logger: PluginIpcLogger = {
-  info: (...args) => console.log('[Main]', ...args),
-  warn: (...args) => console.warn('[Main]', ...args),
-  error: (...args) => console.error('[Main]', ...args),
-}
 
 export function getSoulFilePath(): string {
   return join(resolveClientStateDir(), 'data', 'soul.md')
@@ -107,73 +93,4 @@ async function pruneUserMemorySnapshots(dir: string): Promise<void> {
   }
 }
 
-export function setupCloakBrowserIpcHandlers(): void {
-  logger.info('设置 CloakBrowser IPC 处理器')
 
-  // 持有当前安装任务的 AbortController，用于取消下载
-  let installAbortController: AbortController | null = null
-
-  ipcMain.handle('plugin:cloak-browser:status', async () => {
-    try {
-      const { exeFilename } = await import('../cloak-browser-downloader.js')
-      const cloakDir = join(os.homedir(), '.cloakbrowser')
-      if (!existsSync(cloakDir)) return { installed: false }
-      const entries = readdirSync(cloakDir).filter((d) => d.startsWith('chromium-'))
-      if (entries.length === 0) return { installed: false }
-      entries.sort((a, b) => b.localeCompare(a, undefined, { numeric: true }))
-      const latest = entries[0]
-      const exePath = join(cloakDir, latest, exeFilename())
-      if (!existsSync(exePath)) return { installed: false }
-      const version = latest.replace('chromium-', '')
-      return { installed: true, version, exePath }
-    } catch {
-      return { installed: false }
-    }
-  })
-
-  ipcMain.handle('plugin:cloak-browser:install', async (_event) => {
-    try {
-      // 若已有安装任务在进行，先取消
-      installAbortController?.abort()
-      installAbortController = new AbortController()
-      const { signal } = installAbortController
-
-      const { ensureCloakBrowser } = await import('../cloak-browser-downloader.js')
-      const result = await ensureCloakBrowser(
-        (progress) => { _event.sender.send('cloak-browser-progress', progress) },
-        signal,
-      )
-      installAbortController = null
-      return { success: result !== null && result !== undefined && (result as string).length > 0 }
-    } catch (err) {
-      installAbortController = null
-      const message = err instanceof Error ? err.message : String(err)
-      logger.error('[CloakBrowser] 安装失败:', message)
-      return { success: false, error: message }
-    }
-  })
-
-  ipcMain.handle('plugin:cloak-browser:cancel', () => {
-    if (installAbortController) {
-      logger.info('[CloakBrowser] 收到取消指令')
-      installAbortController.abort()
-      installAbortController = null
-    }
-    return { success: true }
-  })
-
-  ipcMain.handle('plugin:cloak-browser:uninstall', async () => {
-    try {
-      const cloakDir = join(os.homedir(), '.cloakbrowser')
-      if (existsSync(cloakDir)) {
-        await fs.rm(cloakDir, { recursive: true, force: true })
-        logger.info('[CloakBrowser] 已删除目录:', cloakDir)
-      }
-      return { success: true }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      logger.error('[CloakBrowser] 卸载失败:', message)
-      return { success: false, error: message }
-    }
-  })
-}
