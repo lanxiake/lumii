@@ -34,14 +34,23 @@
 
 ## 消息 → 文件
 
-消息 XML 里只有 `md5`，没有路径。映射在 `hardlink.db` 的 `image_hardlink_info_v4`
-（`md5` → `file_name`）。本机实测：490 条图片消息里 241 条能对上索引，**且这 241 条的文件
-全都在盘上**。
+两条路，**都要走**：
+
+1. `hardlink.db` 的 `image_hardlink_info_v4`（`md5` → `file_name`）。⚠️ 但消息 XML 里的
+   `md5` 是**原图**的 md5，而微信不一定把原图下下来——原图那份 `_h.dat` 缺失时，索引里
+   根本没有这个 md5，整条链断在这里（2026-10-11 实测：只有 241/490 命中，且同批图怎么比
+   都看不出差异，因为差异不在消息里）。
+2. 消息自己的 `Msg_*.packed_info_data` 里带着**本地文件名**（32 位十六进制 ASCII，
+   见 `core._image_name`）——只要中图落了盘它就找得到，**不依赖微信下没下原图**。
+
+实测：464 条图片消息，只有 1 条两种路都落空（微信真没下载）。见 `image_file`。
 
 ## wxgf 兜底
 
 解出来是 `wxgf`（`77 78 67 66`，微信自研 HEVC 容器，要第二层解码）的，退回同目录
-`<hash>_t.dat` 缩略图——它一律是 JPEG。本机 241 条里：135 张原图 + 106 张缩略图 = **100%**。
+`<hash>_t.dat` 缩略图——它一律是 JPEG。缩略图实测只有 83x180，但**够用**：回放给视觉模型
+能 OCR 出状态栏与界面文字（中图是 wxgf 就没辙了，本机无 ffmpeg / HEVC 解码器，
+不值得为它引依赖）。
 """
 import glob
 import json
@@ -236,28 +245,36 @@ def attach_path(file_name):
     return hits[0] if hits else None
 
 
-def image_file(md5, aes_key=None):
-    """图片 md5 → 落盘的图片文件路径；解不出来返回 None。
+def image_file(md5, aes_key=None, base=None):
+    """图片 → 落盘的位图路径；解不出来返回 None。
 
-    原图优先，`wxgf` 退缩略图。落盘到 WORK 并按 md5 命名，重复调用直接命中缓存
-    （内容只由 md5 决定，不会变）。
+    `base` 是 `packed_info_data` 给出的**本地文件名**（见 `core._image_name`）。有它才找得到
+    「原图没下、只落了中图」的那批——那时 `md5` 是硬链索引里查不到的死键（见 `_image_name`）。
+    原图优先，`wxgf` 退缩略图。落盘到 WORK 并按 `md5 or base` 命名，重复调用直接命中缓存。
     """
-    if not md5:
+    if not md5 and not base:
         return None
-    name = hardlink_map().get(md5)
-    if not name:
+    key_id = md5 or base
+    cands = []
+    name = hardlink_map().get(md5) if md5 else None
+    if name:
+        cands.append(name)                       # 硬链索引给的是确切文件名（原图优先）
+    if base:
+        cands += [base + "_h.dat", base + ".dat", base + "_t.dat"]   # 原图 → 中图 → 缩略图
+    if not cands:
         return None
     d = os.path.join(core.WORK, "image")
     try:
         os.makedirs(d, exist_ok=True)
     except OSError:
         return None
-    for suffix, kind in (("", "hd"), ("_t", "thumb")):
+    for name in cands:
+        kind = "thumb" if name.endswith("_t.dat") else "hd"
         for ext in (".jpg", ".png"):             # 扩展名跟着内容走，两种都得认缓存
-            cached = os.path.join(d, "%s_%s%s" % (kind, md5, ext))
+            cached = os.path.join(d, "%s_%s%s" % (kind, key_id, ext))
             if os.path.exists(cached) and os.path.getsize(cached) > 0:
                 return cached
-        src = attach_path(name if not suffix else name[:-4] + suffix + ".dat")
+        src = attach_path(name)
         if not src:
             continue
         try:
@@ -267,10 +284,9 @@ def image_file(md5, aes_key=None):
             continue
         if not img or img[:4] == WXGF:            # wxgf 不是位图，退缩略图
             continue
-            continue
         # 本机图片有 JPEG 也有 PNG。一律写 `.jpg` 会让看图的那一侧按 JPEG 解码、
         # 直接报「文件损坏」——内容是对的，错的是名字。
-        out = os.path.join(d, "%s_%s%s" % (kind, md5, ".png" if img[:4] == b"\x89PNG" else ".jpg"))
+        out = os.path.join(d, "%s_%s%s" % (kind, key_id, ".png" if img[:4] == b"\x89PNG" else ".jpg"))
         try:
             with open(out, "wb") as f:
                 f.write(img)
@@ -290,10 +306,12 @@ def attach_image(msgs, aes_key=None):
     if not key:
         return msgs
     for m in msgs:
-        if m.get("type") != 3 or not m.get("image_md5"):
+        # `image_name`（本地文件名，来自 packed_info_data）比 `image_md5` 更靠得住：
+        # 有它的图哪怕原图没下、硬链索引查不到，也能在磁盘上把中图找出来。
+        if m.get("type") != 3 or not (m.get("image_md5") or m.get("image_name")):
             continue
         try:
-            p = image_file(m["image_md5"], key)
+            p = image_file(m.get("image_md5"), key, m.get("image_name"))
         except Exception:
             p = None
         if p:

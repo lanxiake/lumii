@@ -1023,8 +1023,28 @@ def _image_md5(content):
     return m.group(1) if m else None
 
 
+_PACKED_NAME_RE = re.compile(rb"[0-9a-f]{32}")
+
+
+def _image_name(packed):
+    """`packed_info_data` 里那个 32 位十六进制 —— 就是**本地图片的文件名**（不含后缀）。
+
+    ⚠️ 这是「图读不到」的正解（2026-10-11 实测）：消息 XML 里的 `md5` 是**原图**的 md5，
+    而微信**并不总是把原图下下来**——原图那份 `_h.dat` 缺失时，`hardlink` 索引里就没有这个
+    md5，整条链子断在里面（症状：一批图里前几张读得到、后几张永远读不到，XML 属性还一模一样）。
+    但只要中图 `.dat` 落了盘，`packed_info_data` 就带着它的文件名——**它才是本地真有的那份**。
+    """
+    if not packed:
+        return None
+    try:
+        m = _PACKED_NAME_RE.search(bytes(packed))
+    except Exception:
+        return None
+    return m.group(0).decode() if m else None
+
+
 def msg_dict(ct, lt, content, nm, talker=None, name=None, sender=None, me=None, local_id=None,
-             source=None):
+             source=None, packed=None):
     d = {"time": _ts(ct), "ts": ct, "type": lt & 0xFFFFFFFF, "text": _render(lt, content)[:400]}
     if local_id is not None:
         d["local_id"] = local_id             # 会话内稳定序号；语音靠它精确对应到 VoiceInfo
@@ -1040,6 +1060,9 @@ def msg_dict(ct, lt, content, nm, talker=None, name=None, sender=None, me=None, 
         md5 = _image_md5(content)
         if md5:
             d["image_md5"] = md5
+        nm2 = _image_name(packed)      # 本地真有的那份（原图没下时 `image_md5` 是查不到的死键）
+        if nm2:
+            d["image_name"] = nm2
     return d
 
 
@@ -1103,8 +1126,8 @@ def history(talker, limit=10, before_ts=0):
     nm = names()
     me = self_wxid()
     rows = _rows_full(tbl_of(talker), limit, before=before_ts)
-    msgs = [msg_dict(ct, lt, c, nm, sender=s, me=me, local_id=lid, source=src)
-            for ct, lt, c, s, lid, src in reversed(rows)]
+    msgs = [msg_dict(ct, lt, c, nm, sender=s, me=me, local_id=lid, source=src, packed=pk)
+            for ct, lt, c, s, lid, src, pk in reversed(rows)]
     attach_voice(msgs, talker)
     attach_image(msgs)
     out = {"talker": talker, "name": nm.get(talker, talker), "count": len(msgs), "messages": msgs}
@@ -1151,8 +1174,8 @@ def poll(since_ts, per=20):
                                    "complete": len(rows) < per}
                 stats["scanned"] += 1
             batch = [msg_dict(ct, lt, content, nm, talker=talker, name=nm.get(talker, talker),
-                              sender=sender, me=me, local_id=lid, source=src)
-                     for ct, lt, content, sender, lid, src in rows]
+                              sender=sender, me=me, local_id=lid, source=src, packed=pk)
+                     for ct, lt, content, sender, lid, src, pk in rows]
             # 入站语音要能被代聊「听懂」：补上 SILK 文件路径，客户端据此转写。
             # 只在真有 type=34 时才去碰 media 库，绝大多数轮询是零成本。
             if any(m.get("type") == 34 for m in batch):
@@ -1184,28 +1207,27 @@ def _max_local_id(conns, path, tbl):
         return None
 
 
-def _msg_select(tbl, where, with_source=True):
-    """`Msg_*` 的公共 select（第 6 列是 `source`）。
+def _msg_select(tbl, where, with_source=True, with_packed=True):
+    """`Msg_*` 的公共 select（第 6 列 `source`、第 7 列 `packed_info_data`）。
 
-    `with_source=False` 是**退化路**：老库/异形库里没有 `source` 列时不能整条读不出来
-    ——那只 @我 信号没了，消息本身还是要读得到（盯梢宁可不认 @，也不能变成瞎子）。
+    `with_source=False` / `with_packed=False` 是**退化路**：老库/异形库里缺列时不能整条读不出来
+    ——少了 @我 信号、或少了图片文件名，消息本身还是要读得到（盯梢宁可不认 @、认不出图，
+    也不能变成瞎子）。
     """
     col = "source" if with_source else "NULL"
-    return (f"select create_time, local_type, message_content, real_sender_id, local_id, {col}"
+    pk = "packed_info_data" if with_packed else "NULL"
+    return (f"select create_time, local_type, message_content, real_sender_id, local_id, {col}, {pk}"
             f" from [{tbl}]" + where + " order by create_time desc limit ?")
 
 
-def _query_rows(c, tbl, where, params, with_source):
-    """带 `source` 的查询失败（列不存在）就退化成不带它——见 `_msg_select`。"""
-    try:
-        return list(c.execute(_msg_select(tbl, where, with_source), params))
-    except Exception:
-        if not with_source:
-            return []
+def _query_rows(c, tbl, where, params, with_source, with_packed=True):
+    """带 `source` / `packed_info_data` 的查询失败（列不存在）就逐级退化——见 `_msg_select`。"""
+    for ws, wp in ((with_source, with_packed), (False, with_packed), (False, False)):
         try:
-            return list(c.execute(_msg_select(tbl, where, False), params))
+            return list(c.execute(_msg_select(tbl, where, ws, wp), params))
         except Exception:
-            return []
+            continue
+    return []
 
 
 def _rows_full_conn(conns, rels, tbl, limit, since=0):
@@ -1221,8 +1243,8 @@ def _rows_full_conn(conns, rels, tbl, limit, since=0):
             rows = _query_rows(c, tbl, where, (since, limit), True)
         except Exception:
             continue
-        for ct, lt, content, sid, lid, src in rows:
-            out.append((ct, lt, content, smap.get(sid, ""), lid, src))
+        for ct, lt, content, sid, lid, src, pk in rows:
+            out.append((ct, lt, content, smap.get(sid, ""), lid, src, pk))
     out.sort(key=lambda r: r[0], reverse=True)
     return out[:limit]
 
@@ -1311,7 +1333,7 @@ def search_messages(keyword, talker=None, since=0, until=0, limit=50, scan=3000)
             rows = _rows_full(tbl, scan)
         except Exception:
             continue
-        for ct, lt, content, s, _lid, _src in rows:
+        for ct, lt, content, s, _lid, _src, *_ in rows:
             if since and ct <= since:
                 continue
             if until and ct >= until:
@@ -1369,8 +1391,8 @@ def _rows_full(tbl, limit, since=0, before=0):
         smap = _cache["senders"].get(p, {})
         c = sqlite3.connect(p)
         try:
-            for ct, lt, content, sid, lid, src in _query_rows(c, tbl, where, params + [limit], True):
-                out.append((ct, lt, content, smap.get(sid, ""), lid, src))
+            for ct, lt, content, sid, lid, src, pk in _query_rows(c, tbl, where, params + [limit], True):
+                out.append((ct, lt, content, smap.get(sid, ""), lid, src, pk))
         except Exception:
             pass
         finally:
@@ -1608,7 +1630,7 @@ def digest(talker=None, limit=500, samples=6, top=15, since=0):
         tot = fm = ft = 0
         first = last = 0
         sm_me, sm_them = [], []
-        for ct, lt, content, sender, _lid, _src in rows:
+        for ct, lt, content, sender, _lid, _src, *_ in rows:
             body = decode(content).strip()
             is_me = (sender == me)
             fresh = (not since) or ct > since     # 只影响**样本**（见下）

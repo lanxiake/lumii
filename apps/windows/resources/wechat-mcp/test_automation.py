@@ -743,7 +743,7 @@ def test_render_strips_group_prefix_and_never_leaks_xml():
     bad = []
     n = 0
     for tbl, tk in core.talkers()[:25]:
-        for ct, lt, c, s, _lid, _src in core._rows_full(tbl, 60):
+        for ct, lt, c, s, _lid, _src, *_ in core._rows_full(tbl, 60):
             n += 1
             t = core._render(lt, c)
             if t.lstrip().startswith("<") or "aeskey=" in t or "<msg>" in t[:40]:
