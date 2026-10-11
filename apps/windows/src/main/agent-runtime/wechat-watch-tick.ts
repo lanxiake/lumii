@@ -1711,6 +1711,38 @@ export async function runWechatWatch(deps: WechatWatchDeps): Promise<string> {
  * 那时任务列表里不该出现一条永远「未连接」的循环。反过来，启用 MCP 后下次启动会自动建好。
  * 用户自己的启停（任务页开关）不会被这里覆盖。
  */
+/**
+ * 「自动暂停」标记路径：把「MCP 未配置 → 我们自动停的」与「用户手动关的」区分开。
+ *
+ * 没有它就修不了这个不对称：`!mcpConfigured` 时把 `enabled=0`，但恢复时若也强行 `=1`
+ * 就会覆盖用户的手动开关。有了标记，恢复时**只认领自己停的那次**。
+ */
+function autoPausedMarkerPath(): string {
+  return path.join(resolveWindowsClientDataRoot(), 'state', `${WECHAT_WATCH_CRON_ID}.auto-paused`)
+}
+function markAutoPaused(): void {
+  try {
+    const p = autoPausedMarkerPath()
+    fs.mkdirSync(path.dirname(p), { recursive: true })
+    fs.writeFileSync(p, new Date().toISOString())
+  } catch {
+    /* 标记写失败不影响暂停本身 */
+  }
+}
+/** 读取并清除标记；返回「之前是否为我们自动停的」 */
+function consumeAutoPausedMarker(): boolean {
+  try {
+    const p = autoPausedMarkerPath()
+    if (fs.existsSync(p)) {
+      fs.rmSync(p, { force: true })
+      return true
+    }
+  } catch {
+    /* ignore */
+  }
+  return false
+}
+
 export function ensureWechatWatchCronJobSeeded(
   db: DatabaseAdapter,
   opts: { mcpConfigured: boolean },
@@ -1722,6 +1754,7 @@ export function ensureWechatWatchCronJobSeeded(
     if (!opts.mcpConfigured) {
       if (existing) {
         db.prepare(`UPDATE local_cron_jobs SET enabled = 0 WHERE id = ?`).run(WECHAT_WATCH_CRON_ID)
+        markAutoPaused()
         log.info(
           `[ensureWechatWatchCronJobSeeded] wechat-local MCP 未配置/未启用，暂停 job id=${WECHAT_WATCH_CRON_ID}`,
         )
@@ -1729,6 +1762,13 @@ export function ensureWechatWatchCronJobSeeded(
       return
     }
     if (existing) {
+      // 之前若是**我们自动停的**，MCP 回来了就自动恢复；用户手停的（无标记）不碰
+      if (consumeAutoPausedMarker()) {
+        db.prepare(`UPDATE local_cron_jobs SET enabled = 1 WHERE id = ?`).run(WECHAT_WATCH_CRON_ID)
+        log.info(
+          `[ensureWechatWatchCronJobSeeded] wechat-local MCP 已恢复，自动重新启用 job id=${WECHAT_WATCH_CRON_ID}`,
+        )
+      }
       db.prepare(
         `UPDATE local_cron_jobs SET interval_ms = ?, agent_id = NULL,
          schedule_type = 'every', schedule_expr = '', notify_targets = NULL

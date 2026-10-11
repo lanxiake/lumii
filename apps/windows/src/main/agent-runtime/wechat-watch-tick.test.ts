@@ -7,10 +7,11 @@
  *   2. 报的是「别人发的、不在忽略名单里」的那些（自己发的不必提醒自己）；
  *   3. 水位一定推进且落库（重启不重复报，也不重复读同一段）。
  */
-import { afterAll, beforeAll, beforeEach, describe, it, expect, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, it, expect, vi } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { _resetWindowsClientDataRootCacheForTest } from '../client-data-root'
 import { parseChannelPolicy, resolvePeerPolicy } from '../../shared/channel-policy'
 import { agentRuntimeLog as log } from './bridge-utils'
 import {
@@ -1299,6 +1300,23 @@ describe('ensureWechatWatchConfigFile', () => {
 })
 
 describe('ensureWechatWatchCronJobSeeded', () => {
+  // 会在数据根下写「自动暂停」标记与 watch 配置文件——把数据根指到临时目录，
+  // 既别污染真实的 ~/.lumii，也别让用例之间通过真实文件串味。
+  let tmpRoot: string
+  let prevDataDir: string | undefined
+  beforeEach(() => {
+    prevDataDir = process.env.LUMII_CLIENT_DATA_DIR
+    tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lumii-ww-seed-'))
+    process.env.LUMII_CLIENT_DATA_DIR = tmpRoot
+    _resetWindowsClientDataRootCacheForTest()
+  })
+  afterEach(() => {
+    if (prevDataDir === undefined) delete process.env.LUMII_CLIENT_DATA_DIR
+    else process.env.LUMII_CLIENT_DATA_DIR = prevDataDir
+    _resetWindowsClientDataRootCacheForTest()
+    fs.rmSync(tmpRoot, { recursive: true, force: true })
+  })
+
   it('首次播种：agent_id 为 NULL（走确定性处理器、不叫模型）', () => {
     const runs: unknown[][] = []
     const db = {
@@ -1350,9 +1368,29 @@ describe('ensureWechatWatchCronJobSeeded', () => {
       })),
     }
     ensureWechatWatchCronJobSeeded(db as never, { mcpConfigured: true })
-    const upd = runs.find((r) => String(r[0]).includes('UPDATE local_cron_jobs'))
-    expect(String(upd![0])).toContain('agent_id = NULL')
+    const upd = runs.find((r) => String(r[0]).includes('agent_id = NULL'))
+    expect(upd).toBeTruthy()
     expect(upd).toContain(15_000)
+    // 用户手停（无自动暂停标记）→ 恢复时不该被强行打开
+    expect(runs.some((r) => String(r[0]).includes('SET enabled = 1'))).toBe(false)
+  })
+
+  it('自动暂停后 MCP 恢复：自动重新启用（认领自己停的那次）', () => {
+    const mkDb = (runs: unknown[][]) => ({
+      prepare: vi.fn((sql: string) => ({
+        get: () => ({ id: 'wechat-watch' }),
+        run: (...args: unknown[]) => {
+          runs.push([sql, ...args])
+          return { changes: 1 }
+        },
+      })),
+    })
+    // 1) MCP 未配置 → 自动暂停（写标记）
+    ensureWechatWatchCronJobSeeded(mkDb([]) as never, { mcpConfigured: false })
+    // 2) MCP 恢复 → 应自动重新启用
+    const runs: unknown[][] = []
+    ensureWechatWatchCronJobSeeded(mkDb(runs) as never, { mcpConfigured: true })
+    expect(runs.some((r) => String(r[0]).includes('SET enabled = 1'))).toBe(true)
   })
 })
 
