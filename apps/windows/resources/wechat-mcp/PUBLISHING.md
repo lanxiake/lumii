@@ -74,10 +74,17 @@ MCP 客户端里的 `npx` 参数**不用改**（仍 `-y @lumii/wechat-mcp`），
 ```powershell
 cd <仓库根>
 pnpm --filter ./apps/windows build:wechat-mcp
-# 产物：apps\windows\resources\wechat-mcp\dist\
-#   wechat-mcp.exe            名字固定（安装包与灵栖部署路径都写死它）
-#   wechat-mcp-<version>.exe  同一份二进制的副本，按版本命名，方便区分与单独分发
+# 一次打出**两档**。产物：apps\windows\resources\wechat-mcp\dist\
+#   wechat-mcp.exe                  pro（高级版）——名字固定，安装包与灵栖部署路径都写死它
+#   wechat-mcp-lite.exe             lite（基础版）——单独分发用，**不进安装包**
+#   wechat-mcp-<version>.exe 等     各自按版本命名的副本，方便区分与单独分发
+#
+# 只想出一档：--edition pro / --edition lite（或 pnpm build:wechat-mcp:lite）
 ```
+
+分发给「别的 AI 客户端」时，把 `skills/wechat-mcp-pro/` 或 `skills/wechat-mcp-lite/`
+一起给出去——那是给 Agent 看的接入说明（安装方式 + 工具面 + 一轮完整回路 + 能力边界）。
+**给哪一档就要给对应的那份**：基础版的技能里明说了「看不到图片和语音」。
 
 版本号唯一来源是 `server.py` 的 `SERVER_VERSION`，会写进 exe 的 Windows 版本资源——右键属性 → 详细信息看「文件版本」，改名或复制后依然可辨认。
 
@@ -167,8 +174,9 @@ pnpm --filter ./apps/windows pack:wechat-mcp-npm
 
 脚本会依次：
 
-1. `build-wechat-mcp.mjs --if-stale` → `dist/wechat-mcp.exe`（pro 档）+ `dist/wechat-mcp-<version>.exe`
-   （`--edition lite` 则出 `wechat-mcp-lite.exe`；**npm 平台包发哪一档尚未定**，见
+1. `build-wechat-mcp.mjs --if-stale` → **两档都出**（`wechat-mcp.exe` + `wechat-mcp-lite.exe`，
+   各带一份 `-<version>` 副本）。本步打的档位比 npm 包需要的多一个，无害——下面的步骤只取它要的那份。
+   （**npm 平台包发哪一档尚未定**，见
    [`双版本与授权改造计划`](../../../../docs/plans/渠道与CLI/2026-10-11-微信MCP双版本与授权改造计划.md) P0-5）
 2. 拷贝 npm 模板 → `dist/npm/`，写入 `SERVER_VERSION`
 3. `npm pack` 两个包 → `dist/npm/*.tgz`

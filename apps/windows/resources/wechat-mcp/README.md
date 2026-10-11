@@ -29,8 +29,14 @@
 
 > ⚠️ 仅用于**你自己的账号、你自己的机器**。数据涉及他人隐私——全部**本地处理、不外传**。
 
-想让 AI **自动回复**你的微信？那是接入侧的事（MCP 只提供工具，不会自己回复）——
-角色定义与完整回路见 [`DEMO-代聊回路.md`](DEMO-代聊回路.md)。
+想让 AI **自动回复**你的微信？那是接入侧的事（MCP 只提供工具，不会自己回复）。
+把带场景描述的「技能包」丢进客户端的 skills 目录即可，Agent 会自己认场景并调用：
+
+- [`skills/wechat-mcp-pro/`](skills/wechat-mcp-pro/SKILL.md) —— 高级版（能看图、转写语音、蒸馏画像）
+- [`skills/wechat-mcp-lite/`](skills/wechat-mcp-lite/SKILL.md) —— 基础版（只读收发文本/文件）
+
+两份都含**安装方式、工具面、一轮完整回路、发送纪律与能力边界**，是给**别的 AI 客户端**看的
+接入说明；[`DEMO-代聊回路.md`](DEMO-代聊回路.md) 是不分档位的通用回路原型，两版技能都由它派生。
 
 ---
 
@@ -54,8 +60,10 @@
 
 `wechat-mcp.exe` 是 PyInstaller 打出的单文件，依赖全在里面。装了灵栖的机器上它已部署在
 `%USERPROFILE%\.lumii\mcp\wechat-mcp\wechat-mcp.exe`（灵栖每次启动按内容同步，路径固定、不随安装位置变化）；
-也可以自己构建：`pnpm --filter ./apps/windows build:wechat-mcp`（产物 `dist/wechat-mcp.exe` 与按版本命名的副本 `dist/wechat-mcp-<version>.exe`，需要 [uv](https://docs.astral.sh/uv/)）。
-基础版用 `build:wechat-mcp:lite` 构建，产物是 `dist/wechat-mcp-lite.exe`（见 §6「两个档位」）。
+也可以自己构建：`pnpm --filter ./apps/windows build:wechat-mcp`——**一次把两档都打出来**
+（`dist/wechat-mcp.exe` + `dist/wechat-mcp-lite.exe`，各带一份按版本命名的副本；需要 [uv](https://docs.astral.sh/uv/)）。
+只想打一档用 `--edition pro` / `--edition lite`，或 `pnpm build:wechat-mcp:lite`；
+加 `--if-stale` 在两档都已是最新时跳过。
 版本号来自 `server.py` 的 `SERVER_VERSION`，也写在 exe 的 Windows 属性（右键 → 详细信息 → 文件版本）里，`wechat-mcp.exe --version` 输出同一值；`--edition` 打印档位（`pro`/`lite`）。
 
 ```json
@@ -281,14 +289,20 @@ Windows 上 PATH 里的 `%LOCALAPPDATA%\Microsoft\WindowsApps\python.exe` 是 Mi
 | `licensing.py` | 离线授权：机器指纹、RSA 验签、有效期、防回拨、灵栖内置豁免 |
 | `wechat_asr.py` | 本地语音转写（SILK → Paraformer），仅 pro 版用；含模型目录解析与 `--download-asr-model` 的下载实现 |
 | `tools/sign-license.py` | **离线签发工具（不随 exe 分发）**；私钥在 `~/.wechat-mcp-keys/`，绝不入库 |
-| `DEMO-代聊回路.md` | 用本 MCP 做「本机微信自动回复」的接入示例（角色定义 + 一轮完整回路 + 各客户端定时方式） |
+| `DEMO-代聊回路.md` | 用本 MCP 做「本机微信自动回复」的通用回路原型（不分档位；两版技能都由它派生） |
+| `skills/wechat-mcp-pro/` `skills/wechat-mcp-lite/` | **给别的 AI 客户端看的技能包**：安装方式 + 工具面 + 一轮完整回路 + 发送纪律 + 能力边界。放客户端 skills 目录即用 |
 | `devcli.py` | 自检命令行（`status/sessions/history/send/sendfile/reply/watch/selftest/digest/profile/state/clear/accounts...`） |
 | `test_edition.py` | 档位切分自测（工具集 / 门控 / 引导词 / 媒体裁剪），不碰微信，秒级 |
+| `test_agent_mark.py` | 代发标记自测（两侧码位一致 / 先剥后截断），不碰微信，毫秒级 |
+| `test_render_labels.py` | 非文本消息标签自测（`appmsg type` → `[引用]`/`[转账]`… 与未知类型兜底），纯函数，毫秒级 |
+| `test_skills.py` | **技能包 ↔ 产物一致性**：两份 `SKILL.md` 的工具名必须与真 exe 的 `tools/list` 完全对上（文档漂移不会自己报警，靠它兜） |
 | `ocr4.ps1` | 四角坐标 OCR（PowerShell）；截图已在进程内用 `PrintWindow` 完成，不再有 `shot.ps1` |
 
 自检：`python devcli.py selftest`（依赖 / 数据目录 / 会话 / 实时读取耗时一次看全）。
 档位自测：`python test_edition.py`（源码跑起来永远是 pro，两个档位的差异在开发机上看不见，靠它兜底）。
 授权自测：`python test_licensing.py`（临时密钥对 + 临时目录，不碰你机器上的授权；验签/指纹/到期/回拨/豁免/降级全覆盖）。
+标记/标签自测：`python test_agent_mark.py`、`python test_render_labels.py`（都是纯函数，不碰微信）。
+技能自测：`python test_skills.py`（需先 build 出 dist 的两个 exe；没 build 会自动跳过）。
 盯消息：`python devcli.py watch [since_ts] [--ticks N] [--interval S]` —— 连续打拍，
 输出每拍的新消息、滞后秒数、刷新与查询耗时、快路径命中情况。
 
