@@ -1,5 +1,5 @@
 /**
- * 从 GitHub Releases 下载一个资产（如 wechat-mcp.exe）。
+ * 从 GitHub Releases 下载资产（exe / zip）。
  *
  * **为什么不用 GitHub API 解析「最新版」**：国内常墙 `api.github.com`。
  * 因此调用方给**确定的 tag**（随 App 版本走：`v<appVersion>`）。
@@ -9,7 +9,9 @@
  * 37MB 要下一小时。这里对所有镜像**并发 Range 探测**、按吞吐选最快的，再按快→慢回退。
  * 镜像前缀可用 `LUMII_GH_MIRROR_PREFIXES` 覆盖（逗号分隔，空串表示直连）。
  */
+import { promises as fs } from 'node:fs'
 import { downloadToFile, verifySha256 } from './download'
+import { extractZip } from './zip'
 import type { PluginProgress } from './plugin-manager'
 
 /**
@@ -71,9 +73,38 @@ async function rankMirrors(rawUrl: string, prefixes: string[], signal?: AbortSig
   return [...ok, ...prefixes.filter((p) => !ok.includes(p))]
 }
 
-/**
- * 安装：把 GitHub Release 资产下载到 `destFile`，可选校验 sha256。
- */
+/** 逐镜像下载 `repo/tag/asset` 到 `destFile`（测速选源 + 空闲超时回退） */
+async function downloadRanked(
+  repo: string,
+  tag: string,
+  asset: string,
+  destFile: string,
+  onProgress: (p: PluginProgress) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  onProgress({ phase: 'checking' })
+  const rawUrl = `https://github.com/${repo}/releases/download/${tag}/${asset}`
+  const ordered = await rankMirrors(rawUrl, resolveMirrorPrefixes(), signal)
+
+  let lastErr: unknown
+  let ok = false
+  for (const prefix of ordered) {
+    const mirror = prefix || 'github.com'
+    try {
+      await downloadToFile(`${prefix}${rawUrl}`, destFile, (p) => onProgress({ ...p, mirror }), signal, {
+        idleTimeoutMs: IDLE_TIMEOUT_MS,
+      })
+      ok = true
+      break
+    } catch (err) {
+      lastErr = err
+      if (signal?.aborted) throw err
+    }
+  }
+  if (!ok) throw new Error(`下载失败：${lastErr instanceof Error ? lastErr.message : lastErr}`)
+}
+
+/** 安装：把 GitHub Release 资产（exe 等）下载到 `destFile`，可选校验 sha256。 */
 export async function installGithubAsset(opts: {
   /** 形如 `lanxiake/lumii` */
   repo: string
@@ -87,32 +118,30 @@ export async function installGithubAsset(opts: {
   signal?: AbortSignal
 }): Promise<void> {
   const { repo, tag, asset, destFile, sha256, onProgress, signal } = opts
-  onProgress({ phase: 'checking' })
-
-  const rawUrl = `https://github.com/${repo}/releases/download/${tag}/${asset}`
-  const ordered = await rankMirrors(rawUrl, resolveMirrorPrefixes(), signal)
-
-  let lastErr: unknown
-  let ok = false
-  for (const prefix of ordered) {
-    const mirror = prefix || 'github.com'
-    try {
-      await downloadToFile(
-        `${prefix}${rawUrl}`,
-        destFile,
-        (p) => onProgress({ ...p, mirror }),
-        signal,
-        { idleTimeoutMs: IDLE_TIMEOUT_MS },
-      )
-      ok = true
-      break
-    } catch (err) {
-      lastErr = err
-      if (signal?.aborted) throw err
-    }
-  }
-  if (!ok) throw new Error(`下载失败：${lastErr instanceof Error ? lastErr.message : lastErr}`)
-
+  await downloadRanked(repo, tag, asset, destFile, onProgress, signal)
   if (sha256) await verifySha256(destFile, sha256)
+  onProgress({ phase: 'done' })
+}
+
+/** 安装：把 GitHub Release 的 zip 资产下载并解压到 `destDir`（宠物包等）。 */
+export async function installGithubZip(opts: {
+  repo: string
+  tag: string
+  /** 资产文件名，如 `pet-demo_cartoon_cat.zip` */
+  asset: string
+  destDir: string
+  onProgress: (p: PluginProgress) => void
+  signal?: AbortSignal
+}): Promise<void> {
+  const { repo, tag, asset, destDir, onProgress, signal } = opts
+  await fs.mkdir(destDir, { recursive: true })
+  const tmpZip = `${destDir}.zip`
+  try {
+    await downloadRanked(repo, tag, asset, tmpZip, onProgress, signal)
+    onProgress({ phase: 'extracting' })
+    await extractZip(tmpZip, destDir)
+  } finally {
+    await fs.rm(tmpZip, { force: true })
+  }
   onProgress({ phase: 'done' })
 }

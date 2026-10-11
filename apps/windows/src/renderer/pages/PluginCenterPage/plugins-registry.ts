@@ -1,5 +1,11 @@
-export type PluginId = 'cloak-browser' | 'ffmpeg' | 'wechat-mcp'
-export type PluginCategory = 'browser' | 'comm' | 'media' | 'memory' | 'other'
+export type PluginId =
+  | 'cloak-browser'
+  | 'ffmpeg'
+  | 'wechat-mcp'
+  | 'pet:demo_cartoon_cat'
+  | 'pet:ug_official'
+  | 'pet:xiaomai'
+export type PluginCategory = 'browser' | 'comm' | 'media' | 'pet' | 'memory' | 'other'
 
 export type PluginDef = {
   id: PluginId
@@ -51,12 +57,38 @@ export const PLUGIN_REGISTRY: PluginDef[] = [
     installSize: '~37 MB',
     features: ['读取本机微信会话与历史', '以本人身份发送消息 / 文件 / 引用', '本地画像蒸馏'],
   },
+  {
+    id: 'pet:demo_cartoon_cat',
+    name: '宠物 · 团子（卡通猫）',
+    description: '像素风卡通猫宠物，含待机 / 跳跃 / 点击等动作与表情。按需下载（约 35 MB）。',
+    icon: '🐱',
+    category: 'pet',
+    installSize: '~35 MB',
+    features: ['像素卡通猫形象', '完整动作与表情'],
+  },
+  {
+    id: 'pet:ug_official',
+    name: '宠物 · UG',
+    description: 'Live2D 官方示例角色。按需下载（约 3 MB）。',
+    icon: '🐾',
+    category: 'pet',
+    installSize: '~3 MB',
+  },
+  {
+    id: 'pet:xiaomai',
+    name: '宠物 · 小麦',
+    description: 'Live2D 角色「小麦」。按需下载（约 3 MB）。',
+    icon: '🌾',
+    category: 'pet',
+    installSize: '~3 MB',
+  },
 ]
 
 export const CATEGORY_LABELS: Record<PluginCategory, string> = {
   browser: '浏览器',
   comm: '通讯',
   media: '媒体',
+  pet: '宠物',
   memory: '记忆',
   other: '其他',
 }

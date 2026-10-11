@@ -14,11 +14,12 @@ import os from 'os'
 import { existsSync, readdirSync, promises as fs } from 'fs'
 import { registerPlugin } from './plugin-manager'
 import { installNpmFile } from './npm-fetch'
-import { installGithubAsset } from './github-fetch'
+import { installGithubAsset, installGithubZip } from './github-fetch'
 import { getDeployedMcpExePath } from '../bundled-mcp-exe'
 import { MCP_PRESETS } from '../../shared/mcp-presets'
 import { presetToEntry, type McpServerEntry } from '../config/mcp-config'
 import { resolvePluginRuntimeDir } from '../paths'
+import { resolveUserPetModelsDir } from '../pet/pet-asset-protocol'
 
 /** CloakBrowser 的落点（历史上就在 homedir，不在客户端数据根，保持不变） */
 const CLOAK_DIR = join(os.homedir(), '.cloakbrowser')
@@ -37,6 +38,83 @@ const WECHAT_MCP_DIR = dirname(WECHAT_MCP_EXE)
 /** 资产托管在公开产品库 release，tag = `v<App 版本>`（随 App 一起发，见设计文档 §12-6） */
 const WECHAT_MCP_REPO = 'lanxiake/lumii'
 const WECHAT_MCP_ASSET = 'wechat-mcp.exe'
+const RELEASE_TAG = (): string => `v${app.getVersion()}`
+
+/** 移出随包的宠物（各自一个插件）：id 即用户宠物目录名，资产名 `pet-<id>.zip` */
+const PET_PLUGIN_IDS = ['demo_cartoon_cat', 'ug_official', 'xiaomai'] as const
+
+type PetRegistryEntry = { id: string; [k: string]: unknown }
+
+/** 用户宠物注册表路径（与 pet-model-resolver 的「用户」那一段一致） */
+function userPetRegistryPath(): string {
+  return join(resolveUserPetModelsDir(), 'registry.json')
+}
+
+/** 把一只宠物的清单条目并入用户注册表（按 id 覆盖） */
+async function upsertUserPetEntry(userDir: string, entry: PetRegistryEntry): Promise<void> {
+  const p = join(userDir, 'registry.json')
+  let reg: { version?: number; models?: PetRegistryEntry[]; defaultModelId?: string } = {}
+  try {
+    reg = JSON.parse(await fs.readFile(p, 'utf-8'))
+  } catch {
+    /* 首次安装：新建 */
+  }
+  const models = (reg.models ?? []).filter((m) => m.id !== entry.id)
+  models.push(entry)
+  await fs.mkdir(userDir, { recursive: true })
+  await fs.writeFile(p, JSON.stringify({ ...reg, version: reg.version ?? 2, models }, null, 2))
+}
+
+/** 从用户注册表移除一只宠物（按 id） */
+async function removeUserPetEntry(userDir: string, id: string): Promise<void> {
+  const p = join(userDir, 'registry.json')
+  try {
+    const reg = JSON.parse(await fs.readFile(p, 'utf-8')) as { models?: PetRegistryEntry[] }
+    const models = (reg.models ?? []).filter((m) => m.id !== id)
+    await fs.writeFile(p, JSON.stringify({ ...reg, models }, null, 2))
+  } catch {
+    /* 无注册表可改，忽略 */
+  }
+}
+
+/**
+ * 注册一只「移出随包」的宠物插件。
+ *
+ * 安装 = 下载 `pet-<id>.zip`（含 `<id>/` 资源与 `entry.json` 清单）→ 落到用户宠物目录
+ * `<数据根>/pet-models/<id>/` 并把条目并入 `<数据根>/pet-models/registry.json`。
+ * 用户目录与内置目录同布局，故内置注册表里的条目可**原样复用**（modelUrl 前缀就是 `<id>/`）。
+ */
+function registerPetPlugin(id: string): void {
+  const userDir = resolveUserPetModelsDir()
+  const petDir = join(userDir, id)
+  registerPlugin({
+    id: `pet:${id}`,
+    async status() {
+      return existsSync(join(petDir, 'runtime')) ? { installed: true } : { installed: false }
+    },
+    async install(onProgress, signal) {
+      const staging = join(userDir, `.staging-${id}`)
+      await fs.rm(staging, { recursive: true, force: true })
+      await installGithubZip({
+        repo: WECHAT_MCP_REPO,
+        tag: RELEASE_TAG(),
+        asset: `pet-${id}.zip`,
+        destDir: staging,
+        onProgress,
+        signal,
+      })
+      const entry = JSON.parse(await fs.readFile(join(staging, 'entry.json'), 'utf-8')) as PetRegistryEntry
+      await fs.rm(petDir, { recursive: true, force: true })
+      await fs.cp(join(staging, id), petDir, { recursive: true })
+      await upsertUserPetEntry(userDir, entry)
+      await fs.rm(staging, { recursive: true, force: true })
+    },
+    async uninstall() {
+      await fs.rm(petDir, { recursive: true, force: true })
+      await removeUserPetEntry(userDir, id)
+    },
+  })
+}
 
 /** 插件安装/卸载需要触达外部系统的钩子（由 index.ts 从 AgentRuntimeBridge 注入） */
 export interface PluginDeps {
@@ -134,4 +212,6 @@ export function registerBuiltinPlugins(deps: PluginDeps = {}): void {
       }
     },
   })
+
+  for (const id of PET_PLUGIN_IDS) registerPetPlugin(id)
 }
