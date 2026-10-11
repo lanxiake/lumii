@@ -2222,6 +2222,23 @@ def _reply_locked(quote, text, talker, name, dry_run, verbose):
         m = _find_message(lines, ly, quote)
         if not m:
             return False, f"聊天区未找到要引用的消息（quote=「{quote[:16]}」）"
+        # ⚠️ **dry-run 必须在这里收手，绝不能再往下走。**
+        #
+        # 下面两步会右键点「引用」，把**引用条挂进输入框**；而引用条是独立原子控件，
+        # `Ctrl+A`/`Del` **删不掉**（第 3 步的注释自己写着这句，见本函数下方）。
+        # 原先的 dry-run 分支恰恰用 `Ctrl+A`+`Del` 去清，清完就返回——引用条留在输入框里，
+        # 于是**下一句 `send_text` 被当成引用回复发出去**。
+        #
+        # 2026-10-11 实测：一次 `reply_to(dry_run=true)` 之后调 `send_text("CC3-文本")`，
+        # 落库是 `local_type=49` 的 appmsg 卡片，XML 里明明白白写着
+        # `<refermsg><content>CC2-探针-b</content>` —— 收件人收到一句莫名其妙的引用。
+        # 真实发送没这个毛病（回车后输入框自然复位），**只有 dry-run 会漏**。
+        #
+        # 代价照实说：dry-run 从此**不再验证**「右键菜单里有没有『引用』」这一步。
+        # 那一步本来也没法在 dry-run 里安全试（试了就会挂上）。最常见的失败
+        # ——「要引用的原文不在可视区」——由上面 `_find_message` 覆盖，仍然验得到。
+        if dry_run:
+            return True, f"dry-run：已确认目标会话与要引用的消息「{m[4][:16]}」，未右键、未写入输入框"
         mx, my = (m[0] + m[2]) // 2, (m[1] + m[3]) // 2
         if verbose:
             print(f"[reply] 右键「{m[4][:16]}」@win({mx},{my})")
@@ -2258,10 +2275,9 @@ def _reply_locked(quote, text, talker, name, dry_run, verbose):
             ctrl(0x41)
             press(0x2E)
             return False, "输入未落地（fail-closed）"
-        if dry_run:
-            ctrl(0x41)
-            press(0x2E)
-            return True, "dry-run：已引用并填入、未发送"
+        # 走到这儿 dry_run 必然为假：dry-run 已在**挂引用之前**返回（见上面那段说明）。
+        # 这里原先还有个 `if dry_run: Ctrl+A + Del` 的分支——它清不掉引用条、只会留下脏状态，
+        # 已删除；留着它比删掉更危险（下一个人会以为 dry-run 是安全的）。
         base_ts = _talker_latest_ts(talker)
         press(0x0D)
         time.sleep(1.2)
