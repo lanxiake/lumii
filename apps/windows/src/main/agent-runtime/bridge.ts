@@ -2046,6 +2046,13 @@ export class AgentRuntimeBridge {
       getSelfWxids: () => this.wechatSelfWxids(),
       // 入站语音 → 文字（缺这个部件就只剩 `[语音 N 秒]`，不影响这一轮能不能跑）
       transcribeVoice: this.config.transcribeVoice,
+      // 入站图片 → 文字。走的是**同一个**视觉槽（设置页 → 模型配置 → 视觉理解）：
+      // 聊天图是加密的 `.dat`，MCP 解出来只给个本地路径，这里才是真正把内容读进来的那一步。
+      // 没配视觉槽时 `recognizeImage` 抛 MODEL_NO_VISION，回路那边按「这条没识别」消化。
+      recognizeImage: async (absPath: string) => {
+        const r = await this.imageServices.recognizeImage({ imagePath: absPath })
+        return [r.description, r.ocrText && `图中文字：${r.ocrText}`].filter(Boolean).join('\n')
+      },
     }
   }
 
@@ -2092,6 +2099,11 @@ export class AgentRuntimeBridge {
     name?: string
     text?: string
     /**
+     * 回放一条**图片**消息：给合成消息挂上 `image_path`（本地已解出的位图），
+     * 用来验「图片 → 识别 → 提示词/落库」这条链，而不必等群里真有人发图。
+     */
+    imagePath?: string
+    /**
      * 这一轮把目标会话按哪个档走。不给就用渠道策略里存的那份。
      *
      * 为什么要这个参数：想验的是 `auto`（tick 真的叫醒代聊去回），而名单里存的那档
@@ -2131,6 +2143,7 @@ export class AgentRuntimeBridge {
           name: msg.name ?? msg.talker,
           text: msg.text ?? '',
           from_me: false,
+          ...(msg.imagePath ? { image_path: msg.imagePath } : {}),
         }
         log.info(`[wechat-watch] 回放：注入合成入站「${synthetic.name}」：${synthetic.text}`)
         return JSON.stringify({ ...payload, messages: [...(payload.messages ?? []), synthetic] })

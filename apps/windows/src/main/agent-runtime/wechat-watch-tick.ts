@@ -422,6 +422,18 @@ export interface WechatMessage {
    * 所以 `formatIncomingForHistory` 落库时也要带上它。
    */
   voice_text?: string
+  /**
+   * 图片消息**解密后的位图路径**（MCP 按消息 `md5` 去 `hardlink` 索引换出文件名、
+   * 再解 V4 容器落成 png/jpg 的，仅当确实解得出来）。
+   * 拿到就用 `deps.recognizeImage` 识别成文字——聊天图在磁盘上是加密的 `.dat`，
+   * 没有任何能直接喂给模型的位图。
+   */
+  image_path?: string
+  /**
+   * 图片的**本地识别文字**（回路拿到 `image_path` 后识别出来的）。落库口径同 `voice_text`：
+   * 用户点进会话要能看见「对方发了张什么图」，而不是只看到一句「[图片 4KB]」。
+   */
+  image_text?: string
 }
 
 /** `poll_new` 的返回（只声明这条循环用到的字段） */
@@ -508,6 +520,29 @@ function voiceLine(msgs: readonly WechatMessage[]): string[] {
 }
 
 /**
+ * 图片识别的「说清楚」行（与 `voiceLine` 同一个理由）。
+ *
+ * 识别到的图上文里就有「（图片内容：…）」，**以它为准**；没识别出的（解不出来 / 没配视觉槽 /
+ * 调用失败）**必须明说别猜**——模型对着「[图片 4KB]」会自己编一段图里的内容出来，
+ * 那是和瞎编语音一样糟的失败方式。
+ */
+function imageLine(msgs: readonly WechatMessage[]): string[] {
+  const isImage = (m: WechatMessage) => /^\[图片/.test((m.text ?? '').trim())
+  const done = msgs.filter((m) => (m.image_text || '').trim()).length
+  const missed = msgs.filter((m) => isImage(m) && !(m.image_text || '').trim()).length
+  const out: string[] = []
+  if (done) {
+    out.push(`（上面 ${done} 条图片已**识别**，内容就在「（图片内容：…）」里，**以它为准**。）`)
+  }
+  if (missed) {
+    out.push(
+      `（还有 ${missed} 条图片**没拿到内容**。**别去猜图里是什么**，拿不准就如实说没看清。）`,
+    )
+  }
+  return out
+}
+
+/**
  * 把一批消息渲染成提示词里的「对方发来了什么」。
  *
  * 用 `formatIncomingForHistory` 而不是自己拼：**提示词和落到会话历史里的必须是同一段文字**
@@ -567,6 +602,7 @@ export function buildDraftPrompt(
     `微信「${who}」刚给我发来 ${msgs.length} 条：`,
     ...renderBatch(msgs),
     ...voiceLine(msgs),
+    ...imageLine(msgs),
     '（这个人的策略是：起草给我确认。）',
     '',
     '请：',
@@ -607,6 +643,7 @@ export function buildAutoPrompt(
     `微信「${who}」刚给我发来 ${msgs.length} 条：`,
     ...renderBatch(msgs),
     ...voiceLine(msgs),
+    ...imageLine(msgs),
     '（这个人的策略是：**允许按护栏直接替我回**。）',
     '',
     '先判档，再走对应的出口：',
@@ -752,6 +789,14 @@ export interface WechatWatchDeps {
    * 消息仍带着 `[语音 N 秒]` 的元数据照常走，绝不因为缺这个部件就断掉。
    */
   transcribeVoice?: (absPath: string) => Promise<string>
+  /**
+   * 图片识别 → 文字（bridge 注入：`BridgeImageServices.recognizeImage`，走设置页的**视觉槽**）。
+   *
+   * 与 `transcribeVoice` 同一条约定：MCP 把解出来的位图路径挂在 `image_path` 上，
+   * 这里把它转成人话——**不给、或视觉槽没配，就只是没有识别**，消息仍带 `[图片 N KB]`
+   * 的元数据照常走，绝不因为缺这个部件断掉整轮。
+   */
+  recognizeImage?: (absPath: string) => Promise<string>
   /** 直接给定配置（测试用；给了就不读文件） */
   config?: WechatWatchConfig
   /** 时间源（测试用） */
@@ -792,10 +837,12 @@ export interface WatchTurnMeta {
  */
 export function formatIncomingForHistory(m: WechatMessage): string {
   const raw = (m.text ?? '').trim() || '（非文本消息）'
-  // 语音消息把**转写文字**一并落库：用户翻这个会话时要能看见对方说了什么，
-  // 而不是只看到一句「[语音 1.9 秒]」。转写在 `voice_text`（回路转出来的）。
+  // 语音转写、图片识别都**一并落库**：用户翻这个会话时要能看见对方说了什么/发了什么图，
+  // 而不是只看到「[语音 1.9 秒]」「[图片 4KB]」。两者都在回路里写进消息（`voice_text`/`image_text`）。
   const t = (m.voice_text ?? '').trim()
-  const body = t ? `${raw}（转写：${t}）` : raw
+  const img = (m.image_text ?? '').trim()
+  let body = t ? `${raw}（转写：${t}）` : raw
+  if (img) body += `（图片内容：${img}）`
   return m.sender && m.talker?.endsWith('@chatroom') ? `${m.sender}：${body}` : body
 }
 
@@ -1388,6 +1435,26 @@ export async function runWechatWatch(deps: WechatWatchDeps): Promise<string> {
             }
           } catch (err) {
             log.warn(`[wechat-watch] 语音转写失败 peer=${peer}:`, err instanceof Error ? err.message : err)
+          }
+        }
+      }
+      // 图片消息：MCP 已把 V4 加密的聊天图解出来落成位图（`image_path`），这里识别成文字。
+      // 整批都识别（同语音：只看最后一条的话，一批多图时前面的图就白解了）；
+      // 缺 `recognizeImage` 部件、或某条识别失败，都只是那条**没有识别**——消息本身
+      // 仍带 `[图片 N KB]` 照常走，绝不因为这一步断掉整轮。
+      if (deps.recognizeImage) {
+        for (const img of msgs) {
+          if (!img.image_path || (img.image_text ?? '').trim()) continue
+          try {
+            const t = await deps.recognizeImage(img.image_path)
+            if (t) {
+              img.image_text = t          // 提示词与**落库的会话历史**都从它取
+              log.info(`[wechat-watch] 图片已识别（${t.length} 字）peer=${peer}`)
+            } else {
+              log.info(`[wechat-watch] 图片识别返回空（视觉槽未配或模型没吐内容）peer=${peer}`)
+            }
+          } catch (err) {
+            log.warn(`[wechat-watch] 图片识别失败 peer=${peer}:`, err instanceof Error ? err.message : err)
           }
         }
       }

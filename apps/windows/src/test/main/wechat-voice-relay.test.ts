@@ -118,3 +118,48 @@ describe('微信语音 → 转写 → 提示词 / 会话历史', () => {
     }
   })
 })
+
+/**
+ * 图片走的是与语音**同一条**路（2026-10-11 实测：入站图片此前谁都没消费——
+ * MCP 把位图路径挂在 `image_path` 上，而客户端从头到尾没有读过这个字段，
+ * 于是代聊只看见一句「[图片 4KB]」）。这里钉同样的三件事。
+ */
+describe('微信图片 → 识别 → 提示词 / 会话历史', () => {
+  it('拿到识别 → 提示词里摆出内容，并禁止模型去猜', () => {
+    const msg = {
+      ts: 1_791_442_261,
+      talker: 'wxid_x',
+      name: '张三',
+      text: '[图片 4KB]',
+      image_path: 'C:\\tmp\\hd_a.png',
+      image_text: '一张发票，金额 128 元',
+    }
+    const p = buildAutoPrompt([msg], '', undefined)
+    expect(p).toContain('一张发票，金额 128 元')
+    expect(p).toMatch(/别去猜|以它为准/)
+  })
+
+  it('落库的会话历史也带图片内容（用户翻记录要看得见对方发了什么图）', () => {
+    const base = { ts: 1, talker: 'wxid_x', name: '张三', text: '[图片 4KB]' }
+    expect(formatIncomingForHistory({ ...base, image_text: '一只橘猫' })).toBe(
+      '[图片 4KB]（图片内容：一只橘猫）',
+    )
+    // 群里还要带上说话人
+    expect(
+      formatIncomingForHistory({ ...base, talker: '123@chatroom', sender: '张三', image_text: '一只橘猫' }),
+    ).toBe('张三：[图片 4KB]（图片内容：一只橘猫）')
+    // 没识别 → 原样落库，别加空壳
+    expect(formatIncomingForHistory(base)).toBe('[图片 4KB]')
+    expect(formatIncomingForHistory({ ...base, image_text: '   ' })).toBe('[图片 4KB]')
+  })
+
+  it('图没解出来或没识别 → 明说「别去猜」，但不留空壳', () => {
+    // 解不出来（hardlink 索引没这行）与压根没识别（视觉槽没配）在这里是同一形态：只有元数据
+    const msg = { ts: 1_791_442_261, talker: 'wxid_x', name: '张三', text: '[图片 4KB]' }
+    for (const p of [buildAutoPrompt([msg], '', undefined), buildDraftPrompt([msg], '', undefined)]) {
+      expect(p).toContain('[图片 4KB]')
+      expect(p).toMatch(/别去猜/)
+      expect(p).not.toContain('图片内容：')     // 没内容就不写「（图片内容：…）」
+    }
+  })
+})

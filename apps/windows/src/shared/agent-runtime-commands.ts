@@ -1632,6 +1632,11 @@ interface WechatWatchReplayCommand {
   readonly name?: string
   readonly text?: string
   /**
+   * 回放一条**图片**消息：挂上本地已解出的位图路径（MCP 从 `read_history` 拿到的那种），
+   * 用来验「图片 → 识别 → 提示词 / 落库」这条链，不必等群里真有人发图。
+   */
+  readonly imagePath?: string
+  /**
    * 这一轮把目标会话按哪个档走（不传就用渠道策略里存的那份）。
    * 要验 `auto`（tick 真的叫醒代聊去回）就得传它——名单里存的那档随时可能被改掉。
    * 改写只活在本次调用里，不动用户的渠道策略。
