@@ -337,6 +337,98 @@ def db_root():
     return db_root_info()[0]
 
 
+# ---------------------------------------------------------------------------
+# 微信版本探测
+#
+# 为什么要它：这套代码**只在 4.1.15.x 上真机验过**，而它对微信内部结构的假设是硬的
+# （`wxkey4` 的 Config.Cipher 结构体偏移、发送层的窗口类名、`uia_read.ps1` 的 AutomationId）。
+# 换版本最怕的不是报错，是**静默给错东西**——所以宁可先报"这个版本没验证过"。
+# ---------------------------------------------------------------------------
+
+# 真机验证过的版本前缀（见 `wechat_sender.py:38` 的标注）。新版本验过就往这里加。
+VERIFIED_VERSION_PREFIXES = ("4.1.15",)
+
+
+def wechat_exe_path():
+    """运行中的微信主程序路径（进程枚举 + 镜像路径查询，不依赖安装位置）。取不到返回 ""。"""
+    import ctypes
+    import wxkey4
+    PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+    k32 = ctypes.windll.kernel32
+    # 三个原型都得显式写：只设 restype 的话 ctypes 猜不出 PID 该按什么类型传
+    k32.OpenProcess.argtypes = (ctypes.c_uint32, ctypes.c_int, ctypes.c_uint32)
+    k32.OpenProcess.restype = ctypes.c_void_p
+    k32.CloseHandle.argtypes = (ctypes.c_void_p,)
+    k32.QueryFullProcessImageNameW.argtypes = (ctypes.c_void_p, ctypes.c_uint32,
+                                               ctypes.c_wchar_p, ctypes.POINTER(ctypes.c_uint32))
+    # `find_wechat_pids` 返回 `(工作集字节数, pid)` 并按内存降序——主进程排在最前
+    for _mem, pid in wxkey4.find_wechat_pids():
+        h = k32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+        if not h:
+            continue
+        try:
+            buf = ctypes.create_unicode_buffer(32768)
+            size = ctypes.c_uint32(32768)
+            if k32.QueryFullProcessImageNameW(h, 0, buf, ctypes.byref(size)):
+                return buf.value
+        finally:
+            k32.CloseHandle(ctypes.c_void_p(h))
+    return ""
+
+
+def _exe_version(path):
+    """读 PE 版本资源里的 FileVersion（形如 `4.1.15.19`）。读不到返回 ""。"""
+    import ctypes
+
+    class VS_FIXEDFILEINFO(ctypes.Structure):
+        _fields_ = [("dwSignature", ctypes.c_uint32), ("dwStrucVersion", ctypes.c_uint32),
+                    ("dwFileVersionMS", ctypes.c_uint32), ("dwFileVersionLS", ctypes.c_uint32),
+                    ("dwProductVersionMS", ctypes.c_uint32), ("dwProductVersionLS", ctypes.c_uint32),
+                    ("dwFileFlagsMask", ctypes.c_uint32), ("dwFileFlags", ctypes.c_uint32),
+                    ("dwFileOS", ctypes.c_uint32), ("dwFileType", ctypes.c_uint32),
+                    ("dwFileSubtype", ctypes.c_uint32), ("dwFileDateMS", ctypes.c_uint32),
+                    ("dwFileDateLS", ctypes.c_uint32)]
+
+    ver = ctypes.windll.version
+    size = ver.GetFileVersionInfoSizeW(ctypes.c_wchar_p(path), None)
+    if not size:
+        return ""
+    buf = ctypes.create_string_buffer(size)
+    if not ver.GetFileVersionInfoW(ctypes.c_wchar_p(path), 0, size, buf):
+        return ""
+    ptr = ctypes.c_void_p()
+    length = ctypes.c_uint32()
+    if not ver.VerQueryValueW(buf, ctypes.c_wchar_p("\\"), ctypes.byref(ptr), ctypes.byref(length)):
+        return ""
+    info = ctypes.cast(ptr, ctypes.POINTER(VS_FIXEDFILEINFO)).contents
+    if info.dwSignature != 0xFEEF04BD:
+        return ""
+    ms, ls = info.dwFileVersionMS, info.dwFileVersionLS
+    return f"{ms >> 16}.{ms & 0xFFFF}.{ls >> 16}.{ls & 0xFFFF}"
+
+
+def wechat_version():
+    """微信版本 + 是否落在真机验证过的范围内。
+
+    返回 `{"path","version","verified","hint"}`——**没装/没运行**时各项为空，按"未知"处理即可，
+    不要当成故障。
+    """
+    path = wechat_exe_path()
+    version = _exe_version(path) if path else ""
+    verified = bool(version) and version.startswith(VERIFIED_VERSION_PREFIXES)
+    if not path:
+        hint = "微信未运行，无法读取版本"
+    elif not version:
+        hint = "读不到 exe 版本资源（非预期：权限不足，或安装被改过）"
+    elif verified:
+        hint = "该版本已真机验证"
+    else:
+        hint = (f"⚠️ 微信 {version} **未在本项目验证过**（已验：{'/'.join(VERIFIED_VERSION_PREFIXES)}.x）。"
+                "读到的内容可能是错的——先 locate_db 确认数据目录能定位，"
+                "再用 read_history 抽查几条与界面核对，别直接拿结果当真。")
+    return {"path": path, "version": version, "verified": verified, "hint": hint}
+
+
 def self_wxid(root=None):
     """从数据目录名 `<wxid>_<4hex>` 推出本人 wxid。"""
     root = root or db_root()
@@ -1137,6 +1229,69 @@ def history(talker, limit=10, before_ts=0):
     return out
 
 
+def _message_by_id(talker, local_id):
+    """按 `talker` + `local_id` 定位**单条**消息 → `msg_dict`（不含媒体路径）。找不到返回 None。
+
+    按 `local_id` 而不是 `create_time`：后者会撞——实测同一秒两条语音，
+    lid 41 是 3.4 秒、lid 42 是 34.8 秒，按时间取会**转写出另一个人说的另一段话**。
+    """
+    _refresh()
+    tbl = tbl_of(talker)
+    nm = names()
+    me = self_wxid()
+    try:
+        lid = int(local_id)
+    except (TypeError, ValueError):
+        return None
+    for p in _cache["msg"]:
+        if tbl not in _cache["tables"].get(p, ()):
+            continue
+        c = sqlite3.connect(p)
+        try:
+            rows = _query_rows(c, tbl, " where local_id = ?", [lid, 1], True)
+        except Exception:
+            rows = []
+        finally:
+            c.close()
+        if not rows:
+            continue
+        ct, lt, content, sid, lid2, src, pk = rows[0]
+        return msg_dict(ct, lt, content, nm, talker=talker, name=nm.get(talker, talker),
+                        sender=_cache["senders"].get(p, {}).get(sid, ""), me=me,
+                        local_id=lid2, source=src, packed=pk)
+    return None
+
+
+def image_message(talker, local_id):
+    """按 `talker` + `local_id` 定位**单条**图片消息 → 带 `image_path` 的 `msg_dict`。
+
+    给 MCP 的 `read_image` 用：Agent 先在 `read_history` 里看见图片消息的 `local_id`，
+    再按这个 id 单独把图取回去——**别让 `read_history` 每次都内联多张图的 base64**
+    （一条原图 base64 后好几 MB，翻一页历史就爆了）。
+
+    找不到 / 不是图片 / 解不出位图 → 返回 None（调用方据此报错，**不要**伪造路径）。
+    """
+    m = _message_by_id(talker, local_id)
+    if not m or m.get("type") != 3:
+        return None
+    attach_image([m])
+    return m if m.get("image_path") else None
+
+
+def voice_message(talker, local_id):
+    """按 `talker` + `local_id` 定位**单条**语音消息 → 带 `voice_path` 的 `msg_dict`。
+
+    给 MCP 的 `transcribe_voice` 用。返回 None 的三种情形要分开告诉用户：
+    不是语音 / 找不到这条 / `VoiceInfo` 里没有音频（本机 47 条语音里 36 条有数据，
+    其余更早被清掉了，**永久缺失**）。
+    """
+    m = _message_by_id(talker, local_id)
+    if not m or m.get("type") != 34:
+        return None
+    attach_voice([m], talker)
+    return m if m.get("voice_path") else None
+
+
 def poll(since_ts, per=20):
     """增量新消息（实时监控用）。返回 `create_time > since_ts` 的消息，按时间正序。
 
@@ -1541,7 +1696,7 @@ def _seq_of(rows, me, nm, talker):
     """
     out = []
     for r in sorted(rows, key=lambda x: (x[0], x[4] if isinstance(x[4], int) else 0)):
-        ct, lt, content, sender, _lid, _src = r
+        ct, lt, content, sender, _lid, _src, *_ = r   # `_rows_full` 现在是 7 列（多带 packed_info_data）
         if (lt & 0xFFFFFFFF) != 1:            # 只认纯文本；图片/语音走 describe_nontext
             continue
         body = _render(lt, content).strip()

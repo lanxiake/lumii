@@ -3,6 +3,9 @@
 # dependencies = [
 #     "pycryptodome>=3.20",
 #     "zstandard>=0.22",
+#     "pilk>=0.2",
+#     "sherpa-onnx>=1.10",
+#     "numpy>=1.24",
 # ]
 # ///
 """微信 MCP Server（MCP stdio 传输，JSON-RPC 2.0）—— 任意 MCP 客户端可用。
@@ -11,9 +14,16 @@
 - `uv run server.py`：按上方 PEP 723 元数据自动准备隔离环境与依赖，零配置；
 - `python server.py`：需先 `pip install -r requirements.txt`。
 
-工具（15 个，详见 TOOLS）：list_sessions / read_history / poll_new / search_messages / list_unread /
-check_env / send_text / send_file / send_batch / reply_to / wechat_digest / wechat_distill_state /
-wechat_distill_clear / wechat_profile_save / wechat_profile_get。
+**两个档位**（`EDITION`，构建期决定，见下方 import 处注释）：
+- `pro`（高级版，默认）：19 个工具 —— 基础读写发送 + 媒体解析（图片路径 / 语音转写）+ 用户蒸馏；
+- `lite`（基础版）：12 个工具 —— 只保留基础读写发送，且**连 image_path/voice_path 都不给**
+  （见 `_strip_media`），消息只剩 `[图片 17KB]`/`[语音 3.2 秒]` 摘要。
+
+工具（详见 TOOLS）：list_sessions / read_history / poll_new / search_messages / list_unread /
+check_env / locate_db / repair_env / send_text / send_file / send_batch / reply_to，以及 **pro 追加**的
+read_image / transcribe_voice / wechat_digest / wechat_distill_state / wechat_distill_clear /
+wechat_profile_save / wechat_profile_get。
+其中 read_image 返回的是 MCP 的 **image 内容块**（内联 base64 位图），其余工具返回 text。
 
 发送前依次校验：环境 → 目标会话（数据库锚点）→ 输入落地 → 发送生效；任一不过即中止（fail-closed）。
 只读部分不改动任何微信文件；发送走「OCR 定位 + SendInput」（零注入）。
@@ -28,7 +38,7 @@ import sys
 import os
 
 SERVER_NAME = "wechat-local"
-SERVER_VERSION = "0.6.2"
+SERVER_VERSION = "0.7.0"
 # 新 → 旧；客户端请求的版本在列表中则原样回应，否则回应最新版（由客户端决定是否断开）
 SUPPORTED_PROTOCOL_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
 
@@ -42,11 +52,43 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
 
+# 档位：pro（高级版，默认）/ lite（基础版）。
+#
+# 两版**同一份源码**，差异只由构建期决定：构建脚本（build-wechat-mcp.mjs）把源码整个拷到
+# 临时目录，再往里写一个 `edition.py`（lite 版内容为 `EDITION = "lite"`）。工作区里**不落**
+# 这个文件，所以「跑源码 = pro」，不会被运行期环境变量改档、也不会出现"改了源码忘了改回来"。
+try:
+    from edition import EDITION as _BUILT_EDITION
+except ImportError:
+    _BUILT_EDITION = "pro"
+
+import licensing as _licensing  # noqa: E402
+
+# 构建档位再叠授权：pro 产物在**没有有效授权**时降级为 lite（不是拒绝启动，用户损失最小）。
+# 授权只对打包出来的 exe 生效——源码运行是开发/测试场景，不校验（见 licensing.effective_edition）。
+EDITION = _licensing.effective_edition(_BUILT_EDITION)
+
 import wechat_core as core  # noqa: E402
 
 
 def log(*a):
     print("[wechat-mcp]", *a, file=sys.stderr, flush=True)
+
+
+def force_utf8_stdio():
+    """把三个标准流的编码钉成 UTF-8。
+
+    为什么必须显式钉：Windows 上**重定向/管道时 Python 用 ANSI 代码页**（本机 cp936），
+    于是带中文的输出（`--license-status` 的 human 字段）出来是 GBK 字节，
+    任何按 UTF-8 读的下游（jq、Node、别的 MCP 客户端）都会解析失败。
+    实测两个打包产物在 CLI 路径上都是这样——**与打包器无关**，是 `main()` 里那句 reconfigure
+    只在 stdio 主循环路径上生效、而 `--xxx` 那几个诊断开关在它之前就打印了。
+    """
+    for stream in (sys.stdout, sys.stderr, sys.stdin):
+        try:
+            stream.reconfigure(encoding="utf-8")
+        except Exception:
+            pass
 
 
 def _resolve(talker):
@@ -245,11 +287,76 @@ def tool_history(args):
     talker, err = _resolve_or_error(args.get("talker"))
     if err:
         return {"error": err}
-    return core.history(talker, int(args.get("limit") or 10), int(args.get("before_ts") or 0))
+    return _strip_media(core.history(talker, int(args.get("limit") or 10), int(args.get("before_ts") or 0)))
+
+
+def tool_image(args):
+    """取一张图片消息的**内容**（解密后的位图，base64 内联返回）。
+
+    为什么要它（2026-10-11）：`read_history` 只给 `image_path`（本地路径）。**同机** Agent
+    能自己读文件，但**跨机 / 通用 MCP 客户端**读不到——而 MCP 本来就支持工具结果内联图片
+    （`{"type":"image","data":<base64>,"mimeType"}`），这一步以前整个缺失。微信原图是加密
+    `.dat`，但服务端解密早已完成、`image_path` 指向的就是明文位图，这里只是把它端上来。
+
+    返回两个 content 块：[image（位图）, text（元信息：实际取到的是 原图还是缩略图、字节数）]。
+    元信息块是必要的——`image_file` 会在原图没落盘时静默退到缩略图，不看这一块就分不清
+    「图模糊」是模型的锅还是只拿到了 83×180 的缩略图。
+    """
+    import base64
+    talker, err = _resolve_or_error(args.get("talker"))
+    if err:
+        return {"error": err}
+    m = core.image_message(talker, args.get("local_id"))
+    if not m:
+        return {"error": "该 local_id 不是可解出的图片消息（不是图片 / 图没落到本地 / 原始图与中图都缺）"}
+    p = m.get("image_path") or ""
+    try:
+        with open(p, "rb") as f:
+            raw = f.read()
+    except OSError as e:
+        return {"error": f"读取解密后的图片失败：{e}"}
+    mime = "image/png" if p.lower().endswith(".png") else "image/jpeg"
+    meta = {"talker": talker, "local_id": m.get("local_id"), "ts": m.get("ts"),
+            "path": p, "bytes": len(raw),
+            "variant": "thumb" if os.path.basename(p).startswith("thumb_") else "hd"}
+    return {"_mcp_content": [
+        {"type": "image", "data": base64.b64encode(raw).decode(), "mimeType": mime},
+        {"type": "text", "text": json.dumps(meta, ensure_ascii=False)},
+    ]}
+
+
+def tool_transcribe(args):
+    """把一条语音消息转成文字（**本地 ASR，全本地、不外传**）。
+
+    Agent 先在 read_history/poll_new 里看见语音消息的 `local_id`，再用它单独转写——
+    不做成"自动内联转写"：模型加载与推理有成本，只转真正要看的那几条。
+    """
+    talker, err = _resolve_or_error(args.get("talker"))
+    if err:
+        return _fail("target_not_found", err)
+    m = core.voice_message(talker, args.get("local_id"))
+    if not m:
+        return _fail("voice_unavailable",
+                     "取不到这条语音的音频：不是语音消息 / 找不到该 local_id / "
+                     "VoiceInfo 里没有音频（较老的语音数据会被微信清掉，缺失是永久的）")
+    import wechat_asr
+    ok, why = wechat_asr.available()
+    if not ok:
+        return _fail("asr_unavailable", why)
+    import time as _t
+    t0 = _t.perf_counter()
+    try:
+        text = wechat_asr.transcribe(m["voice_path"])
+    except Exception as e:
+        return _fail("asr_failed", f"转写失败：{type(e).__name__}: {e}")
+    return {"ok": True, "talker": talker, "name": core.names().get(talker, talker),
+            "local_id": m.get("local_id"), "time": m.get("time"), "text": text,
+            "elapsed_ms": round((_t.perf_counter() - t0) * 1000),
+            "model": "paraformer-zh-small（sherpa-onnx，本地）"}
 
 
 def tool_poll(args):
-    return core.poll(int(args.get("since_ts") or 0))
+    return _strip_media(core.poll(int(args.get("since_ts") or 0)))
 
 
 def tool_send(args):
@@ -383,13 +490,13 @@ def tool_search(args):
         talker, err = _resolve_or_error(talker)
         if err:
             return {"error_code": "target_not_found", "error": err}
-    return core.search_messages(str(args.get("keyword") or ""), talker,
-                                int(args.get("since") or 0), int(args.get("until") or 0),
-                                int(args.get("limit") or 50))
+    return _strip_media(core.search_messages(str(args.get("keyword") or ""), talker,
+                                              int(args.get("since") or 0), int(args.get("until") or 0),
+                                              int(args.get("limit") or 50)))
 
 
 def tool_unread(_args):
-    return core.unread()
+    return _strip_media(core.unread())
 
 
 def tool_digest(args):
@@ -472,6 +579,20 @@ def tool_status(_args):
         st["db_root"], st["db_source"], st["db_ok"] = root, src, True
     except Exception as e:
         st["db_root"], st["db_source"], st["db_ok"], st["db_hint"] = None, None, False, str(e)
+    # 语音转写（仅 pro 版有此工具）：模型缺了要在这里就看得出来，别等调用时才炸
+    if EDITION == "pro":
+        try:
+            import wechat_asr
+            _ok, _why = wechat_asr.available()
+            st["asr"] = {**wechat_asr.deps(), "model_dir": wechat_asr.model_dir(),
+                         "ready": _ok, "hint": _why}
+        except Exception as e:
+            st["asr"] = {"ok": False, "ready": False, "hint": f"{type(e).__name__}: {e}"}
+    # 微信版本：这套代码只在少数版本上真机验过，未知版本要**明确报出来**而不是装作没事
+    try:
+        st["wechat_version"] = core.wechat_version()
+    except Exception as e:
+        st["wechat_version"] = {"version": "", "verified": False, "hint": f"版本探测失败：{e}"}
     st["can_send"] = bool(st["ok"])
     st["hint"] = ("可以发送" if st["ok"] else
                   "发送功能不可用：" + (st.get("reason") or "") +
@@ -499,6 +620,10 @@ def tool_locate_db(_args):
         "accounts": [{"wxid": a["wxid"], "dir": a["dir"], "root": a["root"], "source": a.get("source")}
                      for a in accts],
     }
+    try:
+        out["wechat"] = core.wechat_version()
+    except Exception as e:
+        out["wechat"] = {"version": "", "verified": False, "hint": f"版本探测失败：{e}"}
     if err:
         out["error"] = err
         out["hint"] = ("未自动找到微信数据目录。可在微信「设置 → 文件管理」查看当前数据目录；"
@@ -521,7 +646,8 @@ def tool_repair_env(_args):
 
 
 # 服务级引导：客户端把这段注入给 Agent，帮助它正确使用这些工具。
-INSTRUCTIONS = """\
+# 按档位拼接：通用段 + 媒体段（分档）+ 盯梢段 + 蒸馏段（仅 pro）——见文件末尾的 INSTRUCTIONS。
+_CORE = """\
 本服务让 Agent 以【用户本人】身份读微信、并按需发消息（零注入：窗口消息投递 + UI Automation 读数；不改微信数据）。
 
 工具选择：
@@ -571,20 +697,38 @@ INSTRUCTIONS = """\
 读取建议：先用 list_sessions 找目标会话名，再用 read_history 拉上下文，然后据此起草回复。
 起草回复时**默认读 10 条**（`read_history(limit=10)`）——够看清一轮来回，又不至于把上下文撑爆；
 要更早的用返回的 `cursor` 配 `before_ts` 翻页。
+"""
 
+# 媒体消息的读法**按档位不同**：lite 只有摘要，pro 给解密后的本地路径与转写。
+# 分档是必要的——lite 版返回里根本没有 image_path/voice_path，留着 pro 的写法只会教模型去调不存在的字段。
+_MEDIA_PRO = """\
 非文本消息怎么看：
 - 历史里除了文本，还会有这些**摘要**：`[图片 17KB]`、`[语音 3.2 秒]`、`[视频 38 秒]`、
   `[表情]`、`[位置] 成都市武侯区…`、`[链接] 标题 (url)`、`[名片] 昵称`、`[通话] 通话时长 02:41`、
   以及系统消息（「X 撤回了一条消息」）。**位置/链接/撤回这些本身就有信息**，直接拿来用。
-- **语音**：监控回路在**叫醒你之前**已经本地转写过一遍，转写文字会以
-  「（上面这条是语音，本地转写的文字是：…）」的形式**直接摆在【本次触发】里**——有就用，
-  那才是对方说的话。你自己调 `read_history` 时看到的是 `[语音 N 秒]`，**那不表示没转写**，
-  只是历史接口给的是元数据；消息里带的 `voice_path` 是本地 SILK 文件，转写由客户端做。
-- ⚠️ **图片画面读不到，别去猜也别编**：聊天图片在本地是**加密**的（V2 格式，密钥不在磁盘上），
-  拿不到画面。用户问「我刚发的图你看了吗」时：**如实说你看不到内容**，可以复述它是什么时候
-  发的、多大，并请用户用文字说一下。凭 `[图片]` 编造画面内容是**最严重的那类错误**。
-- 用户主动贴了文字描述、或把图另存到本地给了路径，才能谈图片内容。
+- **语音**：消息里的 `voice_path` 是本地 SILK 文件。用 `transcribe_voice(talker, local_id)` 取转写
+  文字，**别去猜语音内容**。监控回路在**叫醒你之前**也可能已经转写过一遍，文字会以
+  「（上面这条是语音，本地转写的文字是：…）」的形式**直接摆在【本次触发】里**——有就用，那才是对方说的话。
+- **图片**：消息里的 `image_path` 指向的是**已解密的明文位图**（微信原图是加密 `.dat`，解密这步
+  服务端早已完成，你拿到的不是密文）。同机直接读那个文件即可；**跨机 / 客户端读不到本地文件时**，
+  调 `read_image(talker, local_id)` 让它以 **image 块**内联返回。
+  ⚠️ `image_path` 指向的**可能只是缩略图**（原图没落盘时会静默退到中图/缩略图，小到 83×180、字看不清）——
+  分不清「图模糊是模型的锅还是只拿到缩略图」时，看 `read_image` 返回的 `variant`(hd/thumb) 与 `bytes`。
+- 用户主动贴了文字描述、或把图另存到本地给了路径，才能谈图片内容；**读不到就别编画面内容**。
+"""
 
+_MEDIA_LITE = """\
+非文本消息怎么看：
+- 历史里除了文本，还会有这些**摘要**：`[图片 17KB]`、`[语音 3.2 秒]`、`[视频 38 秒]`、
+  `[表情]`、`[位置] 成都市武侯区…`、`[链接] 标题 (url)`、`[名片] 昵称`、`[通话] 通话时长 02:41`、
+  以及系统消息（「X 撤回了一条消息」）。**位置/链接/撤回这些本身就有信息**，直接拿来用。
+- ⚠️ **本档（基础版）不解析图片与语音**：消息里**没有** `image_path` / `voice_path`，也没有转写，
+  只有上方的摘要。用户问「我刚发的图你看了吗」「他说了句什么语音」时：**如实说看不到内容**，
+  可以复述它是什么时候发的、多大，并请用户用文字说一下。
+  凭 `[图片]`/`[语音]` 编造内容是**最严重的那类错误**。
+"""
+
+_WATCH = """\
 实时盯消息（监控回路）：
 - 增量用 poll_new(since_ts)：每条消息带 `from_me`/`sender`，**自己发的也会返回**——用户可能自己在手机上
   回过了，你要据此判断「还要不要开口」；返回的 `next_since_ts` 就是下一轮的 `since_ts`（别用墙上时钟的 now，
@@ -592,7 +736,9 @@ INSTRUCTIONS = """\
 - 回路姿势：定时（cron/循环）→ poll_new → 没有 `from_me=false` 的新消息就静默结束（别发 NO_REPLY 给用户看），
   有才起草回复；send_text / send_file 不需要前台（锁屏也能发），直接用；只有 reply_to 才需先 check_env 确认窗口在前台，不在就把 hint 转给用户，不要自己去点。
 - 「有哪些没回」用 list_unread；「这个会话刚才聊到哪」用 read_history。
+"""
 
+_DISTILL = """\
 蒸馏（用户/好友知识与行为）：要提炼「我的表达习惯 / 与谁联系最多 / 活跃时段 / 某会话里对方是谁」时，用 wechat_digest——
 它做**本地确定性统计 + 代表性样本**（覆盖微信全部时间分片，**不外传**），你再据此写成画像；
 用 wechat_profile_save 存成画像（scope 留空=用户本人），wechat_profile_get 读回。画像存本地白盒 Markdown，可编辑可删。
@@ -617,6 +763,10 @@ INSTRUCTIONS = """\
 **隐私**：画像全在本地、不外传；用户要删时用 wechat_distill_clear（删单个给 scope，清空全部须 everything=true）。
 """
 
+# 基础版没有蒸馏与媒体解析，对应段落整段去掉——留着只会教模型去调不存在的工具。
+INSTRUCTIONS = (_CORE + (_MEDIA_PRO if EDITION == "pro" else _MEDIA_LITE) + _WATCH
+                + (_DISTILL if EDITION == "pro" else ""))
+
 TOOLS = [
     {"name": "list_sessions",
      "description": "【何时用】用户要看你**本机微信**有哪些会话、或找某个好友/群（拿到它的 talker/name）时。【别用】别人通过 Bot 找这个助手时；——那是渠道(`weixin`)的 Bot 收件箱，与本工具无关。列出**用户本人微信**的会话（显示名 + talker 标识 + 最新消息预览），先用它确定目标会话。",
@@ -632,6 +782,30 @@ TOOLS = [
          "limit": {"type": "integer", "description": "条数，默认 10"},
          "before_ts": {"type": "integer", "description": "可选：只返回该 Unix 秒**之前**的消息（翻页用，传上一页返回的 cursor）"}},
          "required": ["talker"]}},
+    {"name": "read_image",
+     "description": ("【何时用】要看**用户本人微信**里某张图片的**内容**时——read_history/poll_new 返回的图片消息带 `local_id`，用它取。"
+                     "【别用】文本消息（read_history 已给全文）；也别拿它当 read_history 的替代。"
+                     "返回 MCP 的 **image 内容块**（base64 位图），**不是路径**——客户端可直接送进多模态模型，跨机也不用碰文件系统。"
+                     "图是**服务端已解密的明文位图**（微信原图是加密 `.dat`，解密这步早已完成，别以为拿到的是密文）。"
+                     "⚠️ 原图没落盘时会自动退到中图/缩略图（可能只有 83×180，截图里的字看不清）——"
+                     "随图返回的 text 块里有 `variant`（hd/thumb）和 `bytes`，据此判断看到的是不是高清图。"
+                     "体积：原图 base64 后可到数 MB，只取真要看的那些张。"),
+     "inputSchema": {"type": "object", "properties": {
+         "talker": {"type": "string", "description": "会话显示名或 wxid/群号/filehelper"},
+         "local_id": {"type": "integer", "description": "read_history/poll_new 返回的该条图片消息的 local_id"}},
+         "required": ["talker", "local_id"]}},
+    {"name": "transcribe_voice",
+     "description": ("【何时用】要**听懂一条语音**时——read_history/poll_new 里语音消息带 `local_id`，用它取文字。"
+                     "【别用】文本消息（已给全文）；也别拿它当 read_history 的替代。"
+                     "**全本地转写**（本地 ASR 模型，音频不外传）；运行前会确认模型就位，"
+                     "没有则返回 `asr_unavailable` 并说明怎么装（`wechat-mcp.exe --download-asr-model`）。"
+                     "没有自动内联：只在真正要看这条语音时才调它。"
+                     "⚠️ 较老的语音**音频可能已被微信清掉**（本机 47 条里 36 条还在），"
+                     "这时返回 `voice_unavailable`——**不要据此编内容**，如实告诉用户听不到。"),
+     "inputSchema": {"type": "object", "properties": {
+         "talker": {"type": "string", "description": "会话显示名或 wxid/群号/filehelper"},
+         "local_id": {"type": "integer", "description": "read_history/poll_new 返回的该条语音消息的 local_id"}},
+         "required": ["talker", "local_id"]}},
     {"name": "poll_new",
      "description": ("【何时用】要**实时/增量**盯用户本人微信的新消息时（定时轮询、收到回复后等下文）。"
                      "【别用】渠道(Bot)收件——那是渠道的事；也别用它读历史（用 read_history）。"
@@ -772,6 +946,7 @@ TOOLS = [
          "scope": {"type": "string", "description": "self=用户本人；或会话名/wxid/群号；留空=只列出有哪些画像"}}, "required": []}},
 ]
 DISPATCH = {"list_sessions": tool_sessions, "read_history": tool_history,
+            "read_image": tool_image, "transcribe_voice": tool_transcribe,
             "poll_new": tool_poll, "check_env": tool_status, "locate_db": tool_locate_db,
             "repair_env": tool_repair_env,
             "send_text": tool_send, "send_file": tool_send_file,
@@ -783,8 +958,8 @@ DISPATCH = {"list_sessions": tool_sessions, "read_history": tool_history,
             "wechat_profile_save": tool_profile_save, "wechat_profile_get": tool_profile_get}
 
 # 工具行为提示（MCP tool annotations）：客户端据此决定是否需要用户确认
-_READ_ONLY_TOOLS = {"list_sessions", "read_history", "poll_new", "check_env", "locate_db", "search_messages",
-                    "list_unread", "wechat_digest", "wechat_profile_get"}
+_READ_ONLY_TOOLS = {"list_sessions", "read_history", "read_image", "poll_new", "check_env", "locate_db",
+                    "search_messages", "list_unread", "wechat_digest", "wechat_profile_get"}
 # 以用户本人身份对外发出、不可撤回，或删除本地画像
 _DESTRUCTIVE_TOOLS = {"send_text", "send_file", "send_batch", "reply_to", "wechat_distill_clear"}
 _OPEN_WORLD_TOOLS = {"send_text", "send_file", "send_batch", "reply_to"}
@@ -805,6 +980,37 @@ def _annotate_tools(tools):
 
 
 _annotate_tools(TOOLS)
+
+# --- 档位切分（EDITION 见文件头） -------------------------------------------
+# pro = lite + 媒体解析（解密后的图片路径 / 语音转写）+ 用户蒸馏。
+# 这里只管「工具列不列得出来」；**拦住直接调用**在 handle_tools_call，
+# 两处都得有——只从 TOOLS 删掉的话，模型照样能按名字直接调。
+PRO_ONLY_TOOLS = {
+    "read_image", "transcribe_voice",
+    "wechat_digest", "wechat_distill_state", "wechat_distill_clear",
+    "wechat_profile_save", "wechat_profile_get",
+}
+_GATED_MSG = "该工具属于高级版（pro），当前运行的是基础版（lite）"
+_EDITION_LABEL = {"pro": "高级版", "lite": "基础版"}
+
+
+def _strip_media(payload):
+    """基础版返回前剥掉媒体路径，只留 `[图片 17KB]`/`[语音 3.2 秒]` 摘要。
+
+    pro 版原样返回。**在 server 层裁、不动 wechat_core**——core 的职责是把解密后的路径挂上，
+    「给不给模型看」是档位策略，不该渗进读取层。
+    """
+    if EDITION == "pro" or not isinstance(payload, dict):
+        return payload
+    for m in payload.get("messages") or []:
+        if isinstance(m, dict):
+            m.pop("image_path", None)
+            m.pop("voice_path", None)
+    return payload
+
+
+if EDITION != "pro":
+    TOOLS = [t for t in TOOLS if t["name"] not in PRO_ONLY_TOOLS]
 
 # 协议输出通道：启动时锁定真实 stdout，随后把 sys.stdout 指向 stderr，
 # 防止业务代码或第三方库的 print 混进 JSON-RPC 流导致客户端解析失败
@@ -839,7 +1045,8 @@ def handle_initialize(params):
     return {
         "protocolVersion": negotiate_protocol_version(params.get("protocolVersion")),
         "capabilities": {"tools": {"listChanged": False}},
-        "serverInfo": {"name": SERVER_NAME, "title": "本机微信", "version": SERVER_VERSION},
+        "serverInfo": {"name": SERVER_NAME, "title": f"本机微信（{_EDITION_LABEL[EDITION]}）",
+                       "version": SERVER_VERSION, "edition": EDITION},
         "instructions": INSTRUCTIONS,
     }
 
@@ -850,6 +1057,9 @@ def handle_tools_call(mid, params):
     args = params.get("arguments")
     if args is None:
         args = {}
+    if EDITION != "pro" and name in PRO_ONLY_TOOLS:
+        reply_error(mid, INVALID_PARAMS, _GATED_MSG)
+        return
     handler = DISPATCH.get(name)
     if handler is None:
         reply_error(mid, INVALID_PARAMS, f"Unknown tool: {name}")
@@ -867,7 +1077,12 @@ def handle_tools_call(mid, params):
             # 观测用：读取侧正常几十毫秒。客户端报「请求超时」时，比对这一行就能分清
             # 是**工具本身慢**（这里也慢）还是**子进程被饿着/主进程卡住**（这里很快、那边很慢）
             log(f"slow: {name} 用了 {_dt:.0f}ms")
-        reply(mid, {"content": [{"type": "text", "text": json.dumps(data, ensure_ascii=False)}],
+        # 绝大多数工具返回 dict → 序列化成一条 text 块。`read_image` 例外：它要内联位图，
+        # 用 `_mcp_content` 直接交出 content 列表（MCP 规范里 image 块就该这么返回，
+        # 客户端可原样送进多模态模型，无需碰文件系统）。
+        blocks = data.pop("_mcp_content", None) if isinstance(data, dict) else None
+        reply(mid, {"content": blocks if blocks is not None
+                    else [{"type": "text", "text": json.dumps(data, ensure_ascii=False)}],
                     "isError": False})
     except Exception as e:
         log("error", name, repr(e))
@@ -935,9 +1150,7 @@ def main():
     """stdio 主循环：逐行读取 JSON-RPC 消息，直到 stdin 关闭。"""
     global _PROTOCOL_OUT
     _exit_with_parent()
-    sys.stdin.reconfigure(encoding="utf-8")
-    sys.stdout.reconfigure(encoding="utf-8")
-    sys.stderr.reconfigure(encoding="utf-8")
+    force_utf8_stdio()
     _PROTOCOL_OUT = sys.stdout
     sys.stdout = sys.stderr
     log(f"started v{SERVER_VERSION} (python {sys.version.split()[0]})")
@@ -959,7 +1172,30 @@ def main():
 
 
 if __name__ == "__main__":
+    # 诊断开关在 main() 之前就打印，编码得先钉住——否则中文输出是控制台代码页（见函数注释）
+    force_utf8_stdio()
     if "--version" in sys.argv[1:]:
         print(SERVER_VERSION)
+        sys.exit(0)
+    if "--edition" in sys.argv[1:]:
+        # 构建冒烟用：这份 exe **构建成**哪一档。刻意报构建档位而不是运行期生效档位——
+        # 否则在没授权的构建机上（exe 会降级为 lite）冒烟必挂，而挂的原因是机器状态、不是产物。
+        # 运行期到底生效哪一档看 `--license-status` 的 effective_edition。
+        print(_BUILT_EDITION)
+        sys.exit(0)
+    if "--machine-id" in sys.argv[1:]:
+        # 客户排障/授权申请用：打印本机指纹 JSON，发给维护者签授权
+        print(json.dumps(_licensing.machine_fp(), ensure_ascii=False))
+        sys.exit(0)
+    if "--download-asr-model" in sys.argv[1:]:
+        # 显式下载，不做成"首次调用自动下"：78MB 悄悄下会让人以为卡死，离线环境还会白等
+        import wechat_asr
+        wechat_asr.download_model()
+        sys.exit(0)
+    if "--license-status" in sys.argv[1:]:
+        # 排障用：授权状态 + 生效档位 + 授权文件路径
+        _st = _licensing.check()
+        print(json.dumps({"effective_edition": EDITION, "license_path": _licensing.license_path(),
+                          "status": _st, "human": _licensing.describe(_st)}, ensure_ascii=False, indent=2))
         sys.exit(0)
     main()

@@ -26,7 +26,7 @@
 | npm 包 | [`@lumii/wechat-mcp`](https://www.npmjs.com/package/@lumii/wechat-mcp)（启动器）+ [`@lumii/wechat-mcp-win32-x64`](https://www.npmjs.com/package/@lumii/wechat-mcp-win32-x64)（exe，optional 依赖） |
 | 平台 | 仅 **Windows x64**；其它平台 `npx` 会报缺少平台包 |
 | 微信 | 4.x 已登录；读库自动发现目录，失败时用 `LUMII_WECHAT_DB` / `LUMII_WECHAT_ACCOUNT` |
-| 文档 | 安装与 15 个工具：[`README.md`](README.md) |
+| 文档 | 安装与工具清单（按档位 12/19 个）：[`README.md`](README.md) |
 | 调试 exe | `LUMII_WECHAT_MCP_BINARY=C:\path\to\wechat-mcp.exe` 可覆盖 npm 自带的二进制 |
 
 **不要用裸 `python` 作 MCP command**（Windows Store 占位会 9009 退出）——见 README §3 方式 B。
@@ -150,6 +150,8 @@ bump 之后还要同步一处**镜像**：`apps/windows/src/shared/mcp-presets.t
 cd <仓库根>
 pnpm --filter ./apps/windows test:all          # 若动过主进程；至少跑 wechat-mcp 离线回归
 cd apps\windows\resources\wechat-mcp
+& "$env:USERPROFILE\.lumii\runtimes\python-embed\python.exe" test_edition.py    # 档位切分（秒级，发版前必跑）
+& "$env:USERPROFILE\.lumii\runtimes\python-embed\python.exe" test_licensing.py  # 离线授权（同上）
 & "$env:USERPROFILE\.lumii\runtimes\python-embed\python.exe" test_watch.py   # 或本机 python 3.10+
 ```
 
@@ -165,7 +167,9 @@ pnpm --filter ./apps/windows pack:wechat-mcp-npm
 
 脚本会依次：
 
-1. `build-wechat-mcp.mjs --if-stale` → `dist/wechat-mcp.exe` + `dist/wechat-mcp-<version>.exe`
+1. `build-wechat-mcp.mjs --if-stale` → `dist/wechat-mcp.exe`（pro 档）+ `dist/wechat-mcp-<version>.exe`
+   （`--edition lite` 则出 `wechat-mcp-lite.exe`；**npm 平台包发哪一档尚未定**，见
+   [`双版本与授权改造计划`](../../../../docs/plans/渠道与CLI/2026-10-11-微信MCP双版本与授权改造计划.md) P0-5）
 2. 拷贝 npm 模板 → `dist/npm/`，写入 `SERVER_VERSION`
 3. `npm pack` 两个包 → `dist/npm/*.tgz`
 4. 离线安装 tgz，跑 `wechat-mcp --version` 与 MCP `initialize` 握手
@@ -212,7 +216,43 @@ node apps/windows/scripts/pack-wechat-mcp-npm.mjs --publish
 
 ---
 
-## 四、常见问题
+## 四、离线授权签发（pro 版 exe）
+
+`lite` 版免费、不校验；`pro` 版**打包成 exe** 后校验离线授权，没授权就降级为 lite。
+源码方式跑不校验（开发/测试场景）。完整说明见 [`README.md` §5](README.md)。
+
+**签发三步**
+
+```powershell
+# 1. 用户在**自己的机器**上取机器码，把 JSON 发给你
+wechat-mcp.exe --machine-id
+# {"board": "…", "disk": "…", "os": "…"}
+
+# 2. 你离线签（私钥在你手上，见下）
+python tools\sign-license.py --fp '<上面那段 JSON>' --days 365 --out license.json
+
+# 3. 用户放到 %USERPROFILE%\.lumii\wechat-mcp\license.json，再跑 --license-status 核对
+```
+
+**密钥管理（最容易出事的地方）**
+
+- 密钥对由 `RSA.generate(2048)` 生成，私钥在 `~/.wechat-mcp-keys/private.pem`，**离线保管、绝不入库**；
+  公钥 PEM 内嵌在 `licensing.py` 的 `PUBLIC_KEY_PEM`（公钥可以公开，改它才需要重新出包）。
+- **私钥丢了** = 以后签不出新的授权（**已发出的授权仍然有效**，不用慌）。
+- **私钥泄了** = 谁都能自己签授权，必须换密钥重出所有 exe，且**已发授权全部作废**。
+- 换密钥后 `PUBLIC_KEY_PEM` 变了 → 必须重新 `build:wechat-mcp` 并分发。
+
+**防迁移强度与边界**
+
+- 授权绑三个子指纹（主板 UUID / 系统盘卷序列号 / 系统 MachineGuid），**2/3 命中即通过**：
+  换网卡、加硬盘、单硬件漂移不误伤；换整机必挂。**刻意不用 MAC**（虚拟网卡/VPN 常变，误伤率最高）。
+- 到期按 `exp` 判；`~/.lumii/wechat-mcp/.state.json` 记见过的最大时间，**回拨系统时钟按过期处理**。
+- 灵栖内置的那份**免授权**：灵栖部署 exe 时在同目录写 `.lumii-bundled` 标记
+  （`src/main/bundled-mcp-exe.ts`），exe 见到就按已授权处理。
+- ⚠️ **诚实边界**：标记可伪造、纯 Python 校验可被 patch 掉。离线方案挡的是**伪造与跨机复用**，
+  挡不住**整机转卖与逆向 patch**。真强度要靠打包加固（见改造计划 P2）。
+
+## 五、常见问题
 
 | 问题 | 处理 |
 |---|---|
@@ -225,7 +265,7 @@ node apps/windows/scripts/pack-wechat-mcp-npm.mjs --publish
 
 ---
 
-## 五、交叉引用
+## 六、交叉引用
 
 - 设计改进脉络：[`docs/plans/渠道与CLI/2026-10-07-微信MCP设计改进计划.md`](../../../../docs/plans/渠道与CLI/2026-10-07-微信MCP设计改进计划.md)
 - 工程索引：[`docs/design/工程基建/2026-10-09-wechat-mcp-npm社区分发.md`](../../../../docs/design/工程基建/2026-10-09-wechat-mcp-npm社区分发.md)

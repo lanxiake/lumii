@@ -568,6 +568,7 @@ def test_mcp_server_structure():
     required_tools = [
         "list_sessions",
         "read_history",
+        "read_image",
         "send_text",
         "poll_new",
         "check_env",
@@ -777,17 +778,88 @@ def test_at_me_from_msgsource():
     d2 = core.msg_dict(1, 1, "你好", {}, talker="1@chatroom", me=me, source=other)
     assert "at_me" not in d2, d2
 
-    # `_rows_full` / `_rows_full_conn` 现在多带一列 `source`——元组宽度错了会当场炸在
-    # 调用方（历史上靠 unpack 报错才发现的），所以在这里钉一下宽度。
+    # `_rows_full` / `_rows_full_conn` 现在多带两列（`source` + `packed_info_data`）——
+    # 元组宽度错了会当场炸在调用方（历史上靠 unpack 报错才发现的），所以在这里钉一下宽度。
+    #
+    # ⚠️ `except AssertionError: raise` 不能省（2026-10-11 实测的坑）：下面那个 `except
+    # Exception` 是用来「换机/无库时跳过」的，但它**把 AssertionError 也一起吞了**——
+    # 于是 7 列改动让本守卫的断言失败时，测试照样打印「跳过」并返回 True，回归一路溜到
+    # 部署产物的 `wechat_digest` 才炸（`too many values to unpack`）。
     try:
         core._refresh()
         tk = next((t for t in core.talkers() if str(t[1]).endswith("@chatroom")), None)
         if tk:
             rows = core._rows_full(tk[0], 5)
-            assert rows and len(rows[0]) == 6, f"行宽应为 6（含 source），实际 {rows[:1]}"
+            assert rows and len(rows[0]) == 7, f"行宽应为 7（含 source + packed_info_data），实际 {rows[:1]}"
+    except AssertionError:
+        raise
     except Exception as e:                                # 换机/无库：跳过而非误报
         print(f"     （跳过真库抽查：{e}）")
     print("     ✅ atuserlist 判定正确（含多人被 @ / 别人被 @ / 无 source）")
+    return True
+
+
+def test_read_image_returns_content_blocks():
+    """`read_image` 必须把位图作为 MCP **image 内容块**端出去，而不是裹成 text。
+
+    这是「Agent 怎么用 MCP 读图」的正解（2026-10-11）：只给 `image_path` 的话，**跨机 /
+    通用 MCP 客户端**根本读不到文件；而 MCP 规范本来就允许 image 块内联 base64。
+    分三层验，缺一层这条链就是断的：
+    ① 分发层 —— `handle_tools_call` 见到 `_mcp_content` 要**原样透出**，不能再包一层 JSON；
+    ② 其余工具 —— 仍是单条 text 块（别为了图片把别的工具一起改了）；
+    ③ 真库层 —— 拿一条真图片消息，端上来的 base64 解出来必须是**合法位图头**。
+    """
+    import base64
+    import json as _json
+    import server
+
+    sent = []
+    orig_reply, orig_dispatch = server.reply, dict(server.DISPATCH)
+    try:
+        # ① 分发层
+        server.reply = lambda mid, payload: sent.append(payload)
+        server.DISPATCH["_fake_image"] = lambda a: {
+            "_mcp_content": [{"type": "image", "data": "QUJD", "mimeType": "image/png"}]}
+        server.handle_tools_call(1, {"name": "_fake_image", "arguments": {}})
+        blocks = sent[0]["content"]
+        assert isinstance(blocks, list) and blocks[0]["type"] == "image", blocks
+        assert blocks[0]["data"] == "QUJD", f"image 块被改写了：{blocks}"
+        print("     ✅ `_mcp_content` 原样透出为 image 块（未被 JSON 包裹）")
+
+        # ② 其余工具仍是 text 块
+        sent.clear()
+        server.handle_tools_call(2, {"name": "check_env", "arguments": {}})
+        assert sent[0]["content"][0]["type"] == "text", sent[0]
+        print("     ✅ 其余工具仍是单条 text 块")
+    finally:
+        server.reply, server.DISPATCH = orig_reply, orig_dispatch
+
+    # ③ 真库层
+    try:
+        mm = next((m for m in server.core.history("filehelper", 200).get("messages", [])
+                   if m.get("type") == 3 and m.get("image_path")), None)
+        if not mm:
+            print("     （跳过真库抽查：filehelper 里没有带 image_path 的图片）")
+            return True
+        out = server.tool_image({"talker": "filehelper", "local_id": mm["local_id"]})
+        assert "_mcp_content" in out, out
+        img, txt = out["_mcp_content"]
+        raw = base64.b64decode(img["data"])
+        assert raw[:4] == b"\x89PNG" or raw[:3] == b"\xff\xd8\xff", f"不是位图头：{raw[:8]!r}"
+        assert img["mimeType"] in ("image/png", "image/jpeg"), img["mimeType"]
+        meta = _json.loads(txt["text"])
+        # `variant` 是必需的元信息：退到缩略图时调用方得知道自己看到的是 83×180
+        assert meta["variant"] in ("hd", "thumb") and meta["bytes"] == len(raw), meta
+        print(f"     ✅ 真库图片内联成功：{meta['variant']} {meta['bytes']}B {img['mimeType']}")
+    except AssertionError:
+        raise
+    except Exception as e:                                # 换机/无库：跳过而非误报
+        print(f"     （跳过真库抽查：{e}）")
+
+    # ④ 取不到就报 error，绝不伪造一张图
+    bad = server.tool_image({"talker": "filehelper", "local_id": -1})
+    assert "error" in bad, bad
+    print("     ✅ 取不到时返回 error，不伪造")
     return True
 
 
@@ -915,6 +987,12 @@ def test_exchange_pairs_both_sides_filtered():
     assert got == [("看下这个", "好的"), ("回来吃饭不", "要回来")], got
     for _t, mine in got:
         assert "://" not in mine, f"我这一侧的网址/口令没拦住：{mine!r}"
+
+    # 真实 `_rows_full` 是 **7 列**（多带 `packed_info_data`）。上面喂的是 6 元组，
+    # 所以宽度漂了这条守卫也照样绿——2026-10-11 的 `too many values to unpack` 回归
+    # 就是这么溜到部署产物的。这里补一遍 7 元组，结果必须一模一样。
+    got7 = core._pairs_from(core._seq_of([r + ("",) for r in rows], me, {}, "wxid_a"))
+    assert got7 == got, got7
 
     # 同秒按下标定序：输入给的是**倒序**，排完必须是我先说、对方后说
     same = [(100, 1, "对方那句", "wxid_a", 2, ""), (100, 1, "我先说的", me, 1, "")]
@@ -1060,6 +1138,7 @@ def main():
     runner.section("MCP 服务器结构")
 
     runner.test("服务器元信息和工具定义", test_mcp_server_structure)
+    runner.test("图片以 image 内容块返回", test_read_image_returns_content_blocks)
 
     # ========================================================================
     # 集成测试（可能因环境原因失败）

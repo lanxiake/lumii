@@ -26,6 +26,15 @@ export type McpExeSyncResult =
 const STALE_MARKER = '.old-'
 
 /**
+ * 灵栖内置标记：exe 同目录存在它，随包服务即视为「由灵栖部署」。
+ *
+ * wechat-mcp 的离线授权据此对灵栖用户免授权（见 `resources/wechat-mcp/licensing.py`
+ * 的 `bundled_exempt`）。**刻意在每次同步都补写**——用户手删过、或上一版漏写，都靠这一步恢复。
+ * 用 append 而不是覆盖：内容相同的重复写不该动 mtime。
+ */
+const BUNDLED_MARKER = '.lumii-bundled'
+
+/**
  * 独立 MCP 可执行文件的固定部署路径（写进 MCP 配置的就是它）
  *
  * @param name 可执行文件名（不含 .exe），同时也是目录名
@@ -105,6 +114,7 @@ export async function syncMcpExecutable(source: string, target: string): Promise
 
   await fs.mkdir(path.dirname(target), { recursive: true })
   await removeStaleCopies(target)
+  await fs.writeFile(path.join(path.dirname(target), BUNDLED_MARKER), '', { flag: 'a' }).catch(() => {})
   if (deployed && (await hashFile(source)) === (await hashFile(target))) {
     return { ok: true, path: target, updated: false }
   }

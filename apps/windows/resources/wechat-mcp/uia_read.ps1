@@ -45,6 +45,20 @@ function One($root, $id) {
   return $root.FindFirst($TS::Descendants, $c)
 }
 function Clean($s) { if ($null -eq $s) { return '' }; return $s.Replace("`r", ' ').Replace("`n", ' ') }
+function OneBySuffix($root, $suffix) {
+  # 兜底查找：微信的 AutomationId 是**整条点分路径**
+  # （`content_view.top_content_view....current_chat_name_label`），中间多包一层容器就整个失配——
+  # 而这条路径正是发送前「头部双印证」用的锚点，失配即整条发送链废掉。
+  # 退一步只认**尾段**：`id -eq 尾段` 或 `id 以 ".尾段" 结尾`。找不到才扫全树（慢，所以只做兜底）。
+  $all = $root.FindAll($TS::Descendants, [System.Windows.Automation.Condition]::TrueCondition)
+  foreach ($e in $all) {
+    # 必须强转成字符串：AutomationId 为 null 时 `AId` 返回 $null，
+    # 直接 `$null.EndsWith(...)` 会抛「不能对 Null 值表达式调用方法」把整次读取废掉（踩过）
+    $id = [string](AId $e)
+    if ($id -eq $suffix -or $id.EndsWith("." + $suffix)) { return $e }
+  }
+  return $null
+}
 function AId($e) { try { return $e.Current.AutomationId } catch { return '' } }
 try {
   $root = $AE::FromHandle([IntPtr]$Hwnd)
@@ -67,7 +81,9 @@ try {
   # (the file picker the attachment path drives is a plain #32770 with Edit + Button).
 
   # which conversation is actually open right now
+  # 先认完整路径（快），失配再按尾段兜底（见 OneBySuffix 的说明）
   $lbl = One $root "content_view.top_content_view.title_h_view.left_v_view.left_content_v_view.left_ui_.big_title_line_h_view.current_chat_name_label"
+  if (-not $lbl) { $lbl = OneBySuffix $root "current_chat_name_label" }
   if ($lbl) { $lines += ("HEADER`t" + (Clean $lbl.Current.Name)) } else { $lines += "HEADER`t" }
 
   # text boxes: the search box (name <search>) and the message input

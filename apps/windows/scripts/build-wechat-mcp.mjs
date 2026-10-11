@@ -4,16 +4,22 @@
  * 产物不依赖任何 Python 环境与灵栖占位符，任意 MCP 客户端写 exe 绝对路径即可用。
  * 构建用 uv 准备隔离的 Python 3.11 + PyInstaller，不污染本机/托管解释器。
  *
- * 用法：node scripts/build-wechat-mcp.mjs [--if-stale]
- *   --if-stale  exe 已存在且比所有源码都新时跳过（开发期反复执行不浪费 1 分钟）
+ * 用法：node scripts/build-wechat-mcp.mjs [--if-stale] [--edition lite|pro]
+ *   --if-stale       exe 已存在且比所有源码都新时跳过（开发期反复执行不浪费 1 分钟）
+ *   --edition        档位，默认 pro。pro 出 `wechat-mcp.exe`（灵栖内置与 npm 平台包都用它，
+ *                    路径写死不能改），lite 出 `wechat-mcp-lite.exe`（基础版，单独分发）
+ *
+ * **档位是构建期注入的**：源码整个拷进临时目录，再写一个 `edition.py`（server.py 里
+ * `from edition import EDITION`，取不到就默认 pro）。工作区不落这个文件，
+ * 所以「跑源码 = pro」，也不会出现"本地改过 edition.py 忘了改回来"。
  *
  * 版本号唯一来源是 server.py 的 SERVER_VERSION（与 pack-wechat-mcp-npm.mjs 一致），
  * 它同时写进 exe 的 Windows 版本资源（右键属性 → 详细信息）。
  *
  * 产物：resources/wechat-mcp/dist/
- *   wechat-mcp.exe            名字固定，electron-builder 由此拷进安装包、
- *                             灵栖也据此把 exe 同步到固定的部署路径，不能带版本号
- *   wechat-mcp-<version>.exe  同一份二进制的副本，供人眼区分与单独分发
+ *   wechat-mcp.exe / wechat-mcp-lite.exe            名字固定，electron-builder 由此拷进安装包、
+ *                                                   灵栖也据此把 exe 同步到固定的部署路径，不能带版本号
+ *   wechat-mcp-<version>.exe 等                     同一份二进制的副本，供人眼区分与单独分发
  */
 
 import { execFileSync, spawnSync } from 'node:child_process'
@@ -25,11 +31,34 @@ import { fileURLToPath } from 'node:url'
 const WINDOWS_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const SRC_DIR = path.join(WINDOWS_ROOT, 'resources', 'wechat-mcp')
 const DIST_DIR = path.join(SRC_DIR, 'dist')
-const EXE_PATH = path.join(DIST_DIR, 'wechat-mcp.exe')
+/** 档位：pro（默认，`wechat-mcp.exe`）/ lite（`wechat-mcp-lite.exe`） */
+const EDITION = (() => {
+  const i = process.argv.indexOf('--edition')
+  const value = i >= 0 ? process.argv[i + 1] : 'pro'
+  if (value !== 'pro' && value !== 'lite') throw new Error(`--edition 只认 pro / lite，收到 ${value}`)
+  return value
+})()
+/** exe 基名：灵栖内置与 npm 平台包都写死 `wechat-mcp`（绑定部署路径），不能带版本号或档位 */
+const EXE_NAME = EDITION === 'lite' ? 'wechat-mcp-lite' : 'wechat-mcp'
+/**
+ * 另一档的基名——清理旧副本时必须排除它。
+ *
+ * pro 的名字 `wechat-mcp` 恰好是 lite 名字的前缀，光按 `startsWith('wechat-mcp-')` 判断
+ * 会把 `wechat-mcp-lite.exe` 一起当旧副本删掉（踩过一次）。lite 反过来不会误伤 pro。
+ */
+const OTHER_EXE_NAME = EXE_NAME === 'wechat-mcp' ? 'wechat-mcp-lite' : null
+const EXE_PATH = path.join(DIST_DIR, `${EXE_NAME}.exe`)
 /** exe 里需要的随包数据（运行时由 sys._MEIPASS 定位） */
 const DATA_FILES = ['ocr4.ps1', 'uia_read.ps1', 'tray_click.ps1']
-/** 与 requirements.txt 保持一致 */
+/** 基础依赖，与 requirements.txt 前两条保持一致 */
 const RUNTIME_DEPS = ['pycryptodome>=3.20', 'zstandard>=0.22']
+/**
+ * 只有 **pro 的语音转写**（`wechat_asr.py`，惰性导入）用得上的重依赖——**lite 版不带**，
+ * 否则两版体积就没区别了。ASR **模型**（78MB）也不在这里：按需下到 `~/.lumii/models/voice/`。
+ */
+const ASR_DEPS = ['pilk>=0.2', 'sherpa-onnx>=1.10', 'numpy>=1.24']
+/** 惰性导入的模块，PyInstaller 静态分析看不见，必须显式声明 */
+const HIDDEN_IMPORTS = { pro: ['wechat_sender', 'wechat_asr'], lite: ['wechat_sender'] }
 const PYINSTALLER_SPEC = 'pyinstaller>=6.10'
 const DEFAULT_INDEX = 'https://pypi.tuna.tsinghua.edu.cn/simple'
 
@@ -57,7 +86,30 @@ function readServerVersion() {
  * @param {string} version 版本号
  */
 function versionedExePath(version) {
-  return path.join(DIST_DIR, `wechat-mcp-${version}.exe`)
+  return path.join(DIST_DIR, `${EXE_NAME}-${version}.exe`)
+}
+
+/**
+ * 把源码拷进临时目录并写入 `edition.py`（档位**只在构建期**注入，工作区不落这个文件）
+ *
+ * 只拷源码与随包数据，跳过 dist/、npm/、__pycache__ 与 test_*.py——
+ * PyInstaller 只跟 import 和显式 `--add-data`，测试文件进不进目录都不影响产物。
+ *
+ * @param {string} workDir 本次构建的临时目录
+ * @returns {string} 供 PyInstaller 使用的源码目录（绝对路径）
+ */
+function prepareSource(workDir) {
+  const dst = path.join(workDir, 'src')
+  fs.mkdirSync(dst, { recursive: true })
+  for (const f of fs.readdirSync(SRC_DIR)) {
+    if (f.startsWith('test_') || ['dist', 'npm', '__pycache__'].includes(f)) continue
+    const src = path.join(SRC_DIR, f)
+    if (!fs.statSync(src).isFile()) continue
+    if (!(f.endsWith('.py') || DATA_FILES.includes(f))) continue
+    fs.copyFileSync(src, path.join(dst, f))
+  }
+  fs.writeFileSync(path.join(dst, 'edition.py'), `# 构建期生成：本产物的档位\nEDITION = "${EDITION}"\n`)
+  return dst
 }
 
 /**
@@ -79,9 +131,9 @@ function versionInfoSource(version) {
       StringStruct('CompanyName', 'Lumii'),
       StringStruct('FileDescription', 'Lumii 本机微信 MCP 服务'),
       StringStruct('FileVersion', '${dotted}'),
-      StringStruct('InternalName', 'wechat-mcp'),
-      StringStruct('OriginalFilename', 'wechat-mcp.exe'),
-      StringStruct('ProductName', 'Lumii wechat-mcp'),
+      StringStruct('InternalName', '${EXE_NAME}'),
+      StringStruct('OriginalFilename', '${EXE_NAME}.exe'),
+      StringStruct('ProductName', 'Lumii ${EXE_NAME}'),
       StringStruct('ProductVersion', '${dotted}')])]),
     VarFileInfo([VarStruct('Translation', [1033, 1200])])])`
 }
@@ -149,14 +201,19 @@ function smokeTest() {
   }
   const reported = reply.result.serverInfo.version
   if (printed !== reported) throw new Error(`exe 版本自相矛盾：--version 给 ${printed}，initialize 给 ${reported}`)
-  log(`冒烟通过：${reply.result.serverInfo.name} v${reported}`)
+  // 档位是构建期写进去的——产物自报的**构建档位**必须与本次参数一致，否则等于发错版本。
+  // 注意比的是 `--edition`（构建档位）而不是 initialize 里的 `edition`（**运行期生效**档位）：
+  // 后者会因构建机上有没有授权/内置标记而变，拿它当判据等于让机器状态决定构建是否通过。
+  const edition = spawnSync(EXE_PATH, ['--edition'], { encoding: 'utf-8', windowsHide: true }).stdout?.trim()
+  if (edition !== EDITION) throw new Error(`exe 档位不符：本次构建 --edition ${EDITION}，产物自报 ${edition}`)
+  log(`冒烟通过：${reply.result.serverInfo.name} v${reported} (构建档位 ${edition}，运行期 ${reply.result.serverInfo.edition})`)
   return reported
 }
 
 /** 构建主流程 */
 function main() {
   if (process.platform !== 'win32') {
-    log('wechat-mcp 仅支持 Windows，跳过构建')
+    log(`${EXE_NAME} 仅支持 Windows，跳过构建`)
     return
   }
   const version = readServerVersion()
@@ -166,10 +223,11 @@ function main() {
   }
   const uv = locateUv()
   if (!uv) {
-    throw new Error('未找到 uv（https://docs.astral.sh/uv/），无法构建 wechat-mcp.exe')
+    throw new Error(`未找到 uv（https://docs.astral.sh/uv/），无法构建 ${EXE_NAME}.exe`)
   }
 
   const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wechat-mcp-build-'))
+  const srcDir = prepareSource(workDir)
   const versionFile = path.join(workDir, 'version_info.txt')
   fs.writeFileSync(versionFile, versionInfoSource(version))
   const env = { ...process.env }
@@ -179,22 +237,22 @@ function main() {
     'run', '--no-project', '--python', '3.11',
     '--with', PYINSTALLER_SPEC,
     ...RUNTIME_DEPS.flatMap((dep) => ['--with', dep]),
+    ...(EDITION === 'pro' ? ASR_DEPS.flatMap((dep) => ['--with', dep]) : []),
     '--', 'pyinstaller',
     '--noconfirm', '--clean', '--onefile', '--console',
-    '--name', 'wechat-mcp',
+    '--name', EXE_NAME,
     '--version-file', versionFile,
     '--distpath', DIST_DIR,
     '--workpath', path.join(workDir, 'build'),
     '--specpath', workDir,
-    '--paths', SRC_DIR,
-    // server.py 在函数体里才 import 发送层，显式声明避免被分析漏掉
-    '--hidden-import', 'wechat_sender',
-    ...DATA_FILES.flatMap((f) => ['--add-data', `${path.join(SRC_DIR, f)};.`]),
-    path.join(SRC_DIR, 'server.py'),
+    '--paths', srcDir,
+    ...HIDDEN_IMPORTS[EDITION].flatMap((m) => ['--hidden-import', m]),
+    ...DATA_FILES.flatMap((f) => ['--add-data', `${path.join(srcDir, f)};.`]),
+    path.join(srcDir, 'server.py'),
   ]
-  log(`开始构建（uv + PyInstaller，首次需下载依赖）`)
+  log(`开始构建 ${EDITION} 档（uv + PyInstaller，首次需下载依赖）`)
   try {
-    execFileSync(uv, args, { cwd: SRC_DIR, env, stdio: 'inherit', windowsHide: true })
+    execFileSync(uv, args, { cwd: srcDir, env, stdio: 'inherit', windowsHide: true })
   } finally {
     fs.rmSync(workDir, { recursive: true, force: true })
   }
@@ -204,11 +262,12 @@ function main() {
     log(`警告：构建期间 server.py 的 SERVER_VERSION 由 ${version} 变成了 ${built}，以 exe 实际版本为准`)
   }
 
-  // dist 里历史版本的副本清掉，免得堆一堆认不出谁是谁的 exe（正被占用就留给下一次）
+  // dist 里**本档**历史版本的副本清掉，免得堆一堆认不出谁是谁的 exe（正被占用就留给下一次）
   const versionedExe = versionedExePath(built)
   for (const f of fs.readdirSync(DIST_DIR)) {
     const full = path.join(DIST_DIR, f)
-    if (full === versionedExe || !/^wechat-mcp-.*\.exe$/.test(f)) continue
+    const owned = f.startsWith(`${EXE_NAME}-`) && !(OTHER_EXE_NAME && f.startsWith(OTHER_EXE_NAME))
+    if (full === versionedExe || !owned) continue
     try {
       fs.rmSync(full, { force: true })
     } catch {

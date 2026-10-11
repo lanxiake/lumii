@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Comprehensive Test Suite for WeChat MCP v0.6.2"""
+"""Comprehensive Test Suite for WeChat MCP v0.7.0"""
 import sys
 import os
 
@@ -188,7 +188,7 @@ def test_dry_run():
 
 def main():
     print("\n" + "="*70)
-    print("  WECHAT MCP COMPREHENSIVE TEST SUITE v0.6.2")
+    print("  WECHAT MCP COMPREHENSIVE TEST SUITE v0.7.0")
     print("  (Prompt Enhancement + Diagnostics)")
     print("="*70)
 

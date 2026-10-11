@@ -240,30 +240,61 @@ def find_main_hwnd(include_hidden=False):
     """
     pids = set(weixin_pids())
     best = [0, 0]        # 微信进程名下：面积最大的
-    fallback = [0, 0]    # 同类名但进程认不出：兜底
+    fallback = [0, 0]    # 进程认不出时的兜底（**只认精确类名**，见下）
 
     def cb(h, _l):
         if not include_hidden and not u.IsWindowVisible(h):
             return True
         cls = ctypes.create_unicode_buffer(256)
         u.GetClassNameW(h, cls, 256)
-        if cls.value == "Qt51514QWindowIcon":
-            r = Rect()
-            u.GetWindowRect(h, ctypes.byref(r))
-            area = (r.R - r.L) * (r.B - r.T)
-            pid = ctypes.c_ulong()
-            u.GetWindowThreadProcessId(ctypes.c_void_p(h), ctypes.byref(pid))
-            slot = best if (not pids or pid.value in pids) else fallback
-            if area > slot[0]:
-                slot[0], slot[1] = area, int(h)
+        pid = ctypes.c_ulong()
+        u.GetWindowThreadProcessId(ctypes.c_void_p(h), ctypes.byref(pid))
+        mine = bool(pids) and pid.value in pids
+        if mine:
+            # 认得出进程：类名只认**形状**（`Qt*QWindowIcon`），跨 Qt 版本仍能命中
+            if not _is_main_window_class(cls.value):
+                return True
+            slot = best
+        else:
+            # 认不出进程：只认**精确**类名。放宽到形状会把别人家的 Qt 窗口收进来——
+            # 2026-10-09 实测撞过（表现为 `target_unconfirmed`），**别再把口子开回来**。
+            if cls.value != MAIN_WINDOW_CLASS:
+                return True
+            slot = fallback
+        r = Rect()
+        u.GetWindowRect(h, ctypes.byref(r))
+        area = (r.R - r.L) * (r.B - r.T)
+        if area > slot[0]:
+            slot[0], slot[1] = area, int(h)
         return True
 
     u.EnumWindows(EnumProc(cb), None)
-    return best[1] or fallback[1]
+    if best[1]:
+        return best[1]
+    # 兜底只在**进程信息拿不到**时启用——这才是 docstring 里写的那个前提。
+    # 拿得到 pid 却匹配不上，意思是「微信窗口此刻不可用」（典型：收进托盘、隐藏态），
+    # 这种时候返回 0 让上层去走 `wake_window` 还原，**而不是**抓一个外人窗口继续办事。
+    return 0 if pids else fallback[1]
 
 
 class Rect(ctypes.Structure):
     _fields_ = [("L", ctypes.c_long), ("T", ctypes.c_long), ("R", ctypes.c_long), ("B", ctypes.c_long)]
+
+
+# 实测的微信主窗口类名。`Qt` 后面那串是 **Qt 版本号**（5.15.14 → `51514`），升级就会变——
+# 所以它只用作「进程认不出时」的**精确**兜底（那时宁可找不到，也不能抓错窗口）。
+MAIN_WINDOW_CLASS = "Qt51514QWindowIcon"
+
+
+def _is_main_window_class(cls):
+    """微信主窗口类名是不是「主窗口形状」：只认 `Qt*QWindowIcon`，不认具体版本号。
+
+    ⚠️ **只在已经用 `GetWindowThreadProcessId` 确认过进程归属之后才能用它**。
+    形状判据本身**认不出是不是微信**——别人家的 Qt 应用同样长这样；
+    2026-10-11 就因为拿它当唯一判据，`find_main_hwnd` 返回了一个不属于微信的窗口，
+    整条发送链静默走偏（`target_unconfirmed`、找不到「发送文件」按钮、最小化不生效）。
+    """
+    return cls.startswith("Qt") and cls.endswith("QWindowIcon")
 
 
 def win_rect(h):
@@ -1473,6 +1504,63 @@ def open_chat_via_search(name, talker, win, verbose=False):
     return False
 
 
+class _PostedWin:
+    """喂给 `open_chat_via_search` 的最小适配器：点击走**投递**，不动用户的光标。
+
+    真的 `Win.click` 是 `SetCursorPos` + 真点击（会抢光标、抢前台、还会把窗口搬到预设几何）。
+    搜索这条路只需要「微信吃到键盘焦点」，投递点击就够，光标不必动。
+    """
+
+    def __init__(self, h):
+        self.h = h
+
+    def click(self, x, y):
+        return post_click(self.h, x, y)
+
+
+def open_chat_via_search_posted(h, name, talker, verbose=False):
+    """把 `open_chat_via_search` 包成本发送路径能用的样子：**用前备好前台与剪贴板，用完两样都还回去**。
+
+    为什么需要这层壳：`open_chat_via_search` 走的是**真实键鼠**（SendInput + 剪贴板粘贴），
+    它假定调用方已经把窗口摆成前台并持有光标（原先那是 `Win()` 的职责）。而文本发送走的是
+    投递路——**本来不抢前台**，所以这一步得自己补上：把微信切到前台、存下用户剪贴板，
+    跑完关掉搜索浮层、还原剪贴板、把前台还给用户。
+
+    锁屏时直接放弃：SendInput 在锁屏下必然落空，白试一次还会把用户的剪贴板动一遍。
+    """
+    if session_locked():
+        return False
+    prev_fg = int(u.GetForegroundWindow())
+    saved = _clip_get_text()
+    try:
+        if not bring_to_front(h):
+            return False
+        return open_chat_via_search(name, talker, _PostedWin(h), verbose)
+    finally:
+        try:
+            press(VK_ESC)   # 搜索浮层不关掉，下一拍会顶着它重来（2026-10-09「界面卡住」的来路）
+        except Exception:
+            pass
+        if saved:
+            # ponytail: 只还原文本。剪贴板里本来是图片/文件时还原不了（拿不到原格式）——
+            # 这条路的调用前提已经收窄到「列表里找不到目标」，不是每次发送都走。
+            _clip_set_text(saved)
+        _give_back_foreground(h, prev_fg)
+
+
+def open_chat_any(h, name, talker, verbose=False):
+    """把目标会话切到眼前。先走安静的那条（投递点会话列表），切不过去再用微信搜索兜底。
+
+    为什么必须有兜底（2026-10-11 实测定位）：`open_chat_post` **只能在当前可见的会话列表里找**，
+    而列表一屏约 10 行、用户有 68 个会话——不在首屏又没有搜索兜底的人**永久发不出去**，
+    表现为一直 `target_unconfirmed`（杨冬就是这个案子，2792 个联系人里排不进首屏）。
+    """
+    if open_chat_post(h, name, talker, verbose):
+        return True
+    if verbose:
+        print("[open] 会话列表里没找到，退到微信搜索（Ctrl+F）")
+    return open_chat_via_search_posted(h, name, talker, verbose)
+
 
 # ---- 跨进程互斥：一次只允许一个 UI 操作（两个回合同时抢微信窗口会互相破坏）----
 import msvcrt  # noqa: E402
@@ -1678,7 +1766,7 @@ def _send_locked_body(h, text, talker, name, dry_run, verbose, prev_fg):
                 ww, wh, lines = read_ui_stable("s0r")
                 ok, _why = verify_target(talker, name, lines, ww, wh, verbose)
         if not ok:
-            ok = open_chat_post(h, name, talker, verbose)
+            ok = open_chat_any(h, name, talker, verbose)
             if ok:
                 d = read_uia(h, "s1")     # 切完重读：下面点输入框要用切换后的活几何
         if not ok:
@@ -1969,7 +2057,7 @@ def send_attachment(path, talker, name=None, dry_run=True, verbose=False):
             d = read_uia(h, "af0r")
             ok = uia_header_is(d, name) if d else False
         if not ok:
-            ok = open_chat_post(h, name, talker, verbose)
+            ok = open_chat_any(h, name, talker, verbose)
             if ok:
                 d = read_uia(h, "af1")          # 切完重读：下面点输入框要用切换后的活几何
         if not ok:

@@ -11,6 +11,7 @@ Usage:
 """
 import json
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -21,6 +22,11 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 DEPLOYED = os.path.join(os.path.expanduser("~"), ".lumii", "mcp", "wechat-mcp", "wechat-mcp.exe")
 LOCAL_EXE = os.path.join(HERE, "dist", "wechat-mcp.exe")
 PYTHON = os.path.join(os.path.expanduser("~"), ".lumii", "runtimes", "python-embed", "python.exe")
+
+# 期望版本号：从**唯一版本源** server.py 读，别写死字面量（写死就得每次发版手工同步）
+with open(os.path.join(HERE, "server.py"), encoding="utf-8") as _f:
+    _m = re.search(r'^SERVER_VERSION\s*=\s*"([^"]+)"', _f.read(), re.M)
+EXPECT_VERSION = _m.group(1) if _m else "?"
 
 
 def pick_command(use_source=False):
@@ -176,7 +182,10 @@ def main():
         print(f"\n[1] 握手（{boot:.1f}s）")
         info = init.get("result", {}).get("serverInfo", {})
         r.check("initialize 返回 serverInfo", bool(info), str(init)[:200])
-        r.check("版本号 = 0.6.2", info.get("version") == "0.6.2", f"got {info.get('version')}")
+        # 期望值**从源码读**，不写死：本测试优先驱动的是**已部署的 exe**，所以这一条真正查的是
+        # 「部署的 exe 有没有落后于源码」——写死字面量的话，改版本时它必然红，还得手工同步一份。
+        r.check(f"版本号 = 源码 {EXPECT_VERSION}", info.get("version") == EXPECT_VERSION,
+                f"got {info.get('version')}（部署的 exe 可能落后于源码）")
         # instructions 走 result.instructions 才生效（不是 serverInfo 里）
         instr = init.get("result", {}).get("instructions", "")
         r.check("initialize 带 instructions 引导", bool(instr), f"len={len(instr)}")
@@ -189,7 +198,7 @@ def main():
         tools = tools_resp.get("result", {}).get("tools", [])
         r.check("工具数量 >= 15", len(tools) >= 15, f"got {len(tools)}")
         names = {t["name"] for t in tools}
-        expected = {"send_text", "send_file", "read_history", "list_sessions",
+        expected = {"send_text", "send_file", "read_history", "read_image", "list_sessions",
                     "search_messages", "poll_new", "check_env"}
         missing = expected - names
         r.check("核心工具齐全", not missing, f"missing={missing}")

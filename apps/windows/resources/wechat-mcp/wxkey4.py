@@ -227,6 +227,79 @@ def _blob_key_candidates(blob):
                 yield item
 
 
+# ---------------------------------------------------------------------------
+# 从 Config.Cipher 节点里挖出 blob
+#
+# **快路径**按实测布局读（4.1.15：`node+0x28` → 对象 `+0x88` → `{ptr@+0x8, len@+0x10}`）。
+# 微信一旦挪了内部结构，快路径就什么都挖不到——这正是"换版本即整体失效"的那类硬绑定。
+#
+# 所以加了**无偏移兜底**：把节点窗口里每个 qword 都当候选指针、把候选对象里每个 qword 对当
+# `{ptr, len}`，**唯一判据是 `verify_enc_key` 能不能过**。错候选在密码学上必然验不过，
+# 代价只是几次内存读——这也是为什么这条路可以"瞎试"而不怕给出错值。
+#
+# ⚠️ 兜底路径**没有在第二个微信版本上验证过**（本机只有 4.1.15，无版本可换）。
+#    它不可能给出**错的**密钥（判据是验签），但"能不能真的救回新版本"尚未证实。
+# ---------------------------------------------------------------------------
+NODE_READ = 0x100             # 节点窗口读多大（快路径只要 0x50，兜底要扫得更宽）
+_FAST_NODE_PTR_OFF = 0x28     # 快路径：node 里的 config 指针偏移
+_FAST_OBJ_OFF = 0x88          # 快路径：config 对象里的 blob 访问器偏移
+_FAST_OBJ_PTR = 0x8
+_FAST_OBJ_LEN = 0x10
+_GENERIC_SCAN_FROM = 0x20     # 兜底扫描起点（0x20 之前是节点头，不放指针）
+_GENERIC_MAX_CFG_PTRS = 12    # 每个节点最多试几个候选指针，防止病态内存把扫描拖死
+
+
+def _blob_keys_from_node(h, node, seen_cands, stats):
+    """把节点窗口里所有可能的 blob 都挖出来，逐个交给 `_blob_key_candidates` 拆密钥。
+
+    产出 `(key_hex, embedded_salt)`；按 `seen_cands` 去重（跨节点也去重）。
+    """
+    def blob_at(data_ptr, data_len):
+        if not (0 < data_len <= CONFIG_BLOB_MAX and 0x10000 <= data_ptr < MAX_USER_ADDRESS):
+            return None
+        blob = read_mem(h, data_ptr, int(data_len))
+        return blob if blob and len(blob) == data_len else None
+
+    def emit(blob):
+        for key_hex, emb_salt in _blob_key_candidates(blob):
+            cand = (key_hex, emb_salt)
+            if cand in seen_cands:
+                continue
+            seen_cands.add(cand)
+            stats["candidates"] += 1
+            if emb_salt:
+                stats["cand_salts"].add(emb_salt)
+            yield key_hex, emb_salt
+
+    # 快路径：已知布局。命中就不必兜底扫了。
+    config_ptr = _u64_from(node, _FAST_NODE_PTR_OFF)
+    if 0x10000 <= config_ptr < MAX_USER_ADDRESS:
+        obj = read_mem(h, config_ptr + _FAST_OBJ_OFF, 0x28)
+        if obj and len(obj) >= 0x18:
+            blob = blob_at(_u64_from(obj, _FAST_OBJ_PTR), _u64_from(obj, _FAST_OBJ_LEN))
+            if blob:
+                yield from emit(blob)
+                return
+
+    # 兜底：无偏移扫描
+    tried = 0
+    for off in range(_GENERIC_SCAN_FROM, len(node) - 8, 8):
+        ptr = _u64_from(node, off)
+        if not (0x10000 <= ptr < MAX_USER_ADDRESS):
+            continue
+        tried += 1
+        if tried > _GENERIC_MAX_CFG_PTRS:
+            break
+        obj = read_mem(h, ptr, 0x100)
+        if not obj:
+            continue
+        for i in range(0, len(obj) - 16, 8):
+            blob = blob_at(_u64_from(obj, i), _u64_from(obj, i + 8))
+            if blob:
+                stats["generic_hits"] = stats.get("generic_hits", 0) + 1
+                yield from emit(blob)
+
+
 def scan_pid(pid, files, salt_to_dbs, key_map, remaining):
     stats = {"needles": 0, "nodes": 0, "candidates": 0, "verified": 0,
              "opened": False, "open_error": 0, "regions": 0, "cand_salts": set()}
@@ -262,45 +335,26 @@ def scan_pid(pid, files, salt_to_dbs, key_map, remaining):
                 pos = data.find(pat)
                 while pos >= 0:
                     node_base = base + pos - 0x10
-                    node = read_mem(h, node_base, 0x50)
+                    node = read_mem(h, node_base, NODE_READ)
                     if node and len(node) >= 0x40:
                         if (_u64_from(node, 0x10) in needle_addrs
                                 and _u64_from(node, 0x18) == len(CONFIG_CIPHER_NAME)):
-                            config_ptr = _u64_from(node, 0x28)
-                            if 0x10000 <= config_ptr < MAX_USER_ADDRESS:
-                                stats["nodes"] += 1
-                                obj = read_mem(h, config_ptr + 0x88, 0x28)
-                                if obj and len(obj) >= 0x18:
-                                    data_ptr = _u64_from(obj, 0x8)
-                                    data_len = _u64_from(obj, 0x10)
-                                    if (0 < data_len <= CONFIG_BLOB_MAX
-                                            and 0x10000 <= data_ptr < MAX_USER_ADDRESS):
-                                        blob = read_mem(h, data_ptr, int(data_len))
-                                        if blob and len(blob) == data_len:
-                                            for key_hex, emb_salt in _blob_key_candidates(blob):
-                                                cand = (key_hex, emb_salt)
-                                                if cand in seen_cands:
-                                                    continue
-                                                seen_cands.add(cand)
-                                                stats["candidates"] += 1
-                                                if emb_salt:
-                                                    stats["cand_salts"].add(emb_salt)
-                                                try:
-                                                    key = bytes.fromhex(key_hex)
-                                                except ValueError:
-                                                    continue
-                                                targets = [emb_salt] if (emb_salt in remaining) else list(remaining)
-                                                for salt_hex in targets:
-                                                    if salt_hex not in remaining:
-                                                        continue
-                                                    for rel, _p, _sz, s, page1 in files:
-                                                        if s == salt_hex and verify_enc_key(key, page1):
-                                                            key_map[salt_hex] = (key_hex, rel)
-                                                            remaining.discard(salt_hex)
-                                                            stats["verified"] += 1
-                                                            break
-                                                    if salt_hex not in remaining:
-                                                        break
+                            stats["nodes"] += 1
+                            for key_hex, emb_salt in _blob_keys_from_node(h, node, seen_cands, stats):
+                                try:
+                                    key = bytes.fromhex(key_hex)
+                                except ValueError:
+                                    continue
+                                targets = [emb_salt] if (emb_salt in remaining) else list(remaining)
+                                for salt_hex in targets:
+                                    if salt_hex not in remaining:
+                                        continue
+                                    for rel, _p, _sz, s, page1 in files:
+                                        if s == salt_hex and verify_enc_key(key, page1):
+                                            key_map[salt_hex] = (key_hex, rel)
+                                            remaining.discard(salt_hex)
+                                            stats["verified"] += 1
+                                            break
                     pos = data.find(pat, pos + 1)
     finally:
         kernel32.CloseHandle(h)
