@@ -983,6 +983,7 @@ def wake_window(st=None):
     if not h:
         return st
     u.ShowWindow(ctypes.c_void_p(h), 4)          # SW_SHOWNOACTIVATE：还原，但不抢前台
+    _ENV["restored"] = True
     time.sleep(0.7)
     return check_env()
 
@@ -1645,11 +1646,13 @@ def _real_click_at(h, x, y):
 def _click_input_box(h, ip):
     """把键盘焦点移到消息输入框（ip 是 layout 窗口坐标）。
 
-    **经搜索兜底切过来的会话要用真实点击**：那条路焦点落在搜索框/列表上，投递点击（PostMessage）
-    不足以把键盘焦点移到输入框，随后投递正文（WM_CHAR）就落空——实测表现为「已回车但目标会话
-    未见新消息」（2026-10-11，微信收进托盘 + 搜索切换那两次）。其余情形仍走投递点击（不动光标）。
+    **两种情形要用真实点击**（投递点击不足以把键盘焦点移到输入框，随后投递正文 WM_CHAR 就落空，
+    表现为「已回车但目标会话未见新消息」）：
+    - 本次从**托盘/最小化还原过**窗口（还原后输入框被夺焦，2026-10-11 实测）；
+    - 会话是经**搜索兜底**切过来的（焦点留在搜索框/列表上，2026-10-11 实测）。
+    其余情形仍走投递点击（不动光标）。真实点击会短暂把微信顶到前台，发完由 `_give_back_foreground` 还回去。
     """
-    if _LAST_DIAGNOSTICS.get("switched_via_search") is True:
+    if _LAST_DIAGNOSTICS.get("switched_via_search") is True or _ENV.get("restored"):
         _real_click_at(h, *ip)
     else:
         post_click(h, *ip)
@@ -1736,6 +1739,21 @@ def _scroll_find_session(h, name, talker, pages=4, verbose=False):
     return False
 
 
+def _left_only_frame():
+    """帧是不是「只有左列会话列表、聊天区一行都没有」——微信卡在**半渲染**时的样子。
+
+    ⚠️ **不能单凭它判故障**：没开会话时也是这个形状。它只在「切会话三路都失败之后」当
+    **兜底恢复的触发条件**——那时我们点过目标行却毫无反应，才说明是真卡住（2026-10-11 实测：
+    这种状态下投递与真实点击全无效、24 秒不自恢复，`_unfreeze_ui` 一次即救回）。
+    """
+    _ww, _wh, lines = read_ui_stable("lonly")
+    if not lines:
+        return False
+    left = any(x0 < SESSION_COL for x0, *_ in lines)
+    right = any(x0 > SESSION_COL + 8 for x0, *_ in lines)
+    return left and not right
+
+
 def open_chat_any(h, name, talker, verbose=False):
     """把目标会话切到眼前。三步递进：投递点会话列表 → 滚动列表再找 → 微信搜索兜底。
 
@@ -1760,6 +1778,11 @@ def open_chat_any(h, name, talker, verbose=False):
     if verbose:
         print("[open] 会话列表里没找到，退到微信搜索（Ctrl+F）")
     ok = open_chat_via_search_posted(h, name, talker, verbose)
+    if not ok and _left_only_frame() and _unfreeze_ui():
+        # 三路都失败 + 帧只剩左列 ⇒ 疑半渲染/卡死；**只唤醒一次**再试一遍，仍不成即认输。
+        if verbose:
+            print("[open] 三路失败且帧只剩左列 ⇒ 疑半渲染/卡死，托盘唤醒后重试一次")
+        ok = open_chat_post(h, name, talker, verbose)
     if ok:
         # 搜索兜底切完会话后焦点在搜索框/列表上，投递正文会落空——记一笔，让发送层改用真实点击
         # 激活输入框（2026-10-11 实测：经搜索切换的那几次发送都卡在「已回车但未见新消息」）。
@@ -1821,6 +1844,11 @@ def _metric(op, ms, ok, extra=None):
 # `notifications/progress` 上。发送路径在每个阶段调 `_progress("...")`，界面就能看到
 # 「正在切会话 / 第 N 次重试」，而不是盯着转圈干等（一次发送最长 30 多秒）。
 _PROGRESS = {"cb": None, "n": 0}
+
+# 本次发送里「是否从托盘/最小化还原过窗口」：还原后微信的输入框往往**没有键盘焦点**，
+# 投递点击不足以把焦点移过去（实测 2026-10-11：还原过一次的发送都卡在「已回车但未见新消息」）。
+# 发送层据此改用真实点击激活输入框（见 `_click_input_box`）。
+_ENV = {"restored": False}
 
 
 def set_progress(cb):
@@ -1891,6 +1919,7 @@ def send_text(text, talker, name=None, dry_run=True, verbose=False):
     # 每次发送前清空诊断数据
     global _LAST_DIAGNOSTICS
     _LAST_DIAGNOSTICS = {k: None for k in _LAST_DIAGNOSTICS}
+    _ENV["restored"] = False               # 本次是否还原过窗口，由随后的 wake_window 置位
 
     if not name:
         name = core.names().get(talker, talker)
@@ -2279,6 +2308,7 @@ def send_attachment(path, talker, name=None, dry_run=True, verbose=False):
         return False, f"文件不存在：{path}"
     if not name:
         name = core.names().get(talker, talker)
+    _ENV["restored"] = False               # 本次是否还原过窗口，由随后的 wake_window 置位
     _progress("正在检查微信环境")
     p_ok, _stage, detail, st = preflight(need_foreground=False, allow_locked=True)
     if not p_ok:

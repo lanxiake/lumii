@@ -1592,8 +1592,9 @@ def suite_L():
 
     def l11_input_box_real_click_after_search():
         calls = {"real": 0, "post": 0}
-        old = (snd._real_click_at, snd.post_click, snd._LAST_DIAGNOSTICS)
+        old = (snd._real_click_at, snd.post_click, snd._LAST_DIAGNOSTICS, snd._ENV)
         snd._LAST_DIAGNOSTICS = dict(snd._LAST_DIAGNOSTICS)
+        snd._ENV = dict(snd._ENV)
         snd._real_click_at = lambda h, x, y: calls.__setitem__("real", calls["real"] + 1)
         snd.post_click = lambda h, x, y: calls.__setitem__("post", calls["post"] + 1) or True
         try:
@@ -1602,11 +1603,54 @@ def suite_L():
             assert calls == {"real": 1, "post": 0}, f"经搜索切过来应真点击激活输入框：{calls}"
             calls["real"] = calls["post"] = 0
             snd._record_diagnostics(switched_via_search=None)
+            snd._ENV["restored"] = True
             snd._click_input_box(199150, (100, 200))
-            assert calls == {"real": 0, "post": 1}, f"非搜索切换应仍走投递点击（不动光标）：{calls}"
+            assert calls == {"real": 1, "post": 0}, f"还原过窗口也应真点击（输入框被夺焦）：{calls}"
+            calls["real"] = calls["post"] = 0
+            snd._ENV["restored"] = False
+            snd._click_input_box(199150, (100, 200))
+            assert calls == {"real": 0, "post": 1}, f"普通情形应仍走投递点击（不动光标）：{calls}"
         finally:
-            (snd._real_click_at, snd.post_click, snd._LAST_DIAGNOSTICS) = old
-    r.case("搜索兜底切完会话 ⇒ 真点击激活输入框；否则投递", l11_input_box_real_click_after_search)
+            (snd._real_click_at, snd.post_click, snd._LAST_DIAGNOSTICS, snd._ENV) = old
+    r.case("搜索切换/还原过窗口 ⇒ 真点击激活输入框；否则投递", l11_input_box_real_click_after_search)
+
+    def l12_left_only_frame():
+        old = (snd.read_ui_stable, snd.SESSION_COL)
+        left_only = [(126, 100, 200, 112, "321"), (126, 200, 260, 212, "韩玉")]
+        with_right = left_only + [(400, 300, 600, 312, "消息内容")]
+        try:
+            snd.read_ui_stable = lambda tag, tries=4: (1280, 820, left_only)
+            assert snd._left_only_frame() is True, "只有左列应判为半渲染"
+            snd.read_ui_stable = lambda tag, tries=4: (1280, 820, with_right)
+            assert snd._left_only_frame() is False, "聊天区有内容就不是半渲染"
+            snd.read_ui_stable = lambda tag, tries=4: (1280, 820, [])
+            assert snd._left_only_frame() is False, "空帧（读不到）不算半渲染，别误唤醒"
+        finally:
+            (snd.read_ui_stable, snd.SESSION_COL) = old
+    r.case("只剩左列 ⇒ 判半渲染；有聊天区/空帧 ⇒ 否", l12_left_only_frame)
+
+    def l13_recover_after_left_only():
+        calls = {"post": 0, "unfreeze": 0, "search": 0}
+        old = (snd.open_chat_post, snd._scroll_find_session, snd.open_chat_via_search_posted,
+               snd._left_only_frame, snd._unfreeze_ui, snd._LAST_DIAGNOSTICS)
+        snd._LAST_DIAGNOSTICS = dict(snd._LAST_DIAGNOSTICS)
+
+        def post(_h, _n, _t, verbose=False):
+            calls["post"] += 1
+            return calls["post"] >= 2          # 首次失败，唤醒后第二次成功
+        snd.open_chat_post = post
+        snd._scroll_find_session = lambda *a, **k: False
+        snd.open_chat_via_search_posted = lambda *a, **k: calls.__setitem__("search", calls["search"] + 1) or False
+        snd._left_only_frame = lambda: True
+        snd._unfreeze_ui = lambda tag="tray": calls.__setitem__("unfreeze", calls["unfreeze"] + 1) or True
+        try:
+            ok = snd.open_chat_any(199150, "321", "t")
+        finally:
+            (snd.open_chat_post, snd._scroll_find_session, snd.open_chat_via_search_posted,
+             snd._left_only_frame, snd._unfreeze_ui, snd._LAST_DIAGNOSTICS) = old
+        assert ok is True, "唤醒后重试成功应返回 True"
+        assert calls["unfreeze"] == 1 and calls["post"] == 2, f"应**只**唤醒一次并重试：{calls}"
+    r.case("三路失败+只剩左列 ⇒ 唤醒一次并重试成功（不反复戳）", l13_recover_after_left_only)
 
     return r
 
