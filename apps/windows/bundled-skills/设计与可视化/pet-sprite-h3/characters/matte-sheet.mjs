@@ -22,13 +22,15 @@
  */
 import fs from 'node:fs'
 import path from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath } from 'node:url'
 import sharp from 'sharp'
 import { cutout, estimateBackground, alphaBBox } from '../lib/cutout.mjs'
 import { dropDetachedBlobs } from '../lib/detached-blobs.mjs'
 
 const argv = process.argv.slice(2)
-const IS_MAIN = Boolean(process.argv[1]) && import.meta.url === pathToFileURL(process.argv[1]).href
+// 两边都取 realpath：经 junction/symlink 调用时 argv[1] 是链接路径，直接比字符串会静默空跑。
+const IS_MAIN = Boolean(process.argv[1]) &&
+  fs.realpathSync(fileURLToPath(import.meta.url)) === fs.realpathSync(process.argv[1])
 const flag = (n, d) => {
   const i = argv.indexOf(`--${n}`)
   return i === -1 ? d : argv[i + 1]

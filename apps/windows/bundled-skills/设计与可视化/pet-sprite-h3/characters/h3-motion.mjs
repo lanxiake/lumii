@@ -53,7 +53,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath } from 'node:url'
 // 抠底之后的第二道碎块拦截（绿渣是**视频中段长出来的**，机位图那道拦不住；
 // 判据与三档分法见 lib/detached-blobs.mjs）
 import { scrubSheetPng } from './detached-check.mjs'
@@ -1854,7 +1854,10 @@ const flag = (n, d) => {
   const i = argv.indexOf(`--${n}`)
   return i === -1 ? d : argv[i + 1]
 }
-const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href
+// 两边都取 realpath：经 junction/symlink 调用时 argv[1] 是链接路径而
+// import.meta.url 已是真实路径，直接比字符串会静默判成「不是主模块」而不执行。
+const isMain = Boolean(process.argv[1]) &&
+  fs.realpathSync(fileURLToPath(import.meta.url)) === fs.realpathSync(process.argv[1])
 
 /**
  * 解析某个动作该用哪张 staged 首帧、哪个底色。

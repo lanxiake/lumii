@@ -28,7 +28,7 @@
  */
 import fs from 'node:fs'
 import path from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath } from 'node:url'
 import sharp from 'sharp'
 import { dropDetachedBlobs, labelComponents, componentBoxes } from '../lib/detached-blobs.mjs'
 import { fixSpill, spillStats } from '../lib/spill-fix.mjs'
@@ -109,7 +109,8 @@ export async function scrubSheetPng(sheetPng, cols, { apply = false, ...opt } = 
 }
 
 // —— 直接运行时当 CLI 用 ——
-if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+// 两边都取 realpath：经 junction/symlink 调用时 argv[1] 是链接路径，直接比字符串会静默空跑。
+if (process.argv[1] && fs.realpathSync(fileURLToPath(import.meta.url)) === fs.realpathSync(process.argv[1])) {
   const args = process.argv.slice(2)
   const target = args[0]
   const flag = (n, d) => { const i = args.indexOf(`--${n}`); return i >= 0 ? args[i + 1] : d }

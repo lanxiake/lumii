@@ -22,7 +22,7 @@
  */
 import fs from 'node:fs'
 import path from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath } from 'node:url'
 import sharp from 'sharp'
 import { alphaBBox, cutout, distanceField, floodOutside } from '../lib/cutout.mjs'
 
@@ -115,7 +115,8 @@ const opt = (n, d) => {
 }
 
 // 被 import 时不要跑 CLI —— `uniformPositions` 是给别的脚本用的导出
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+// 两边都取 realpath：经 junction/symlink 调用时 argv[1] 是链接路径，直接比字符串会静默空跑。
+if (process.argv[1] && fs.realpathSync(fileURLToPath(import.meta.url)) === fs.realpathSync(process.argv[1])) {
 if (cmd === 'cut') {
   if (!src || !dst) throw new Error('用法：node motion-frames.mjs cut <帧目录> <输出目录>')
   const files = listPng(src)
