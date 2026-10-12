@@ -4,12 +4,13 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import '@testing-library/jest-dom'
 import type { ComponentProps } from 'react'
 import ChatSidebar from '../../renderer/pages/ChatPage/components/ChatSidebar'
 import { SettingsHubProvider } from '../../renderer/components/SettingsHub/SettingsHubContext'
 import type { ChatSession } from '../../renderer/hooks/business/useChat'
+import type { ConversationSearchMatch } from '../../shared/agent-runtime-commands'
 
 describe('Phase 4: 会话管理 - ChatSidebar组件', () => {
   const createMockSession = (overrides: Partial<ChatSession> = {}): ChatSession => ({
@@ -139,6 +140,71 @@ describe('Phase 4: 会话管理 - ChatSidebar组件', () => {
       fireEvent.change(searchInput, { target: { value: '不存在的内容' } })
 
       expect(screen.getByText('未找到匹配的会话')).toBeInTheDocument()
+    })
+
+    it('TC-4.1.7: 侧栏预览里没有的更早内容，由后端正文检索命中，并显示高亮片段', async () => {
+      // 本地每条会话只带最后一条预览，更早的历史搜不到 —— 这正是「只搜得到会话名」的成因
+      const sessions = [
+        createMockSession({ id: 's1', title: '会话1', messages: [] }),
+        createMockSession({ id: 's2', title: '会话2', messages: [] }),
+      ]
+      const onSearchSessions = vi.fn(async (q: string) =>
+        q === '精灵图' ? [{ conversationId: 's1', snippet: '…在讨论精灵图的抠底算法…' }] : [],
+      )
+      renderSidebar({ sessions, onSearchSessions })
+
+      fireEvent.change(screen.getByPlaceholderText('搜索会话...'), {
+        target: { value: '精灵图' },
+      })
+      // 防抖窗口内还没发查询
+      expect(screen.queryByText('会话1')).not.toBeInTheDocument()
+
+      await waitFor(() => expect(screen.getByText('会话1')).toBeInTheDocument())
+      expect(onSearchSessions).toHaveBeenCalledWith('精灵图')
+      expect(screen.queryByText('会话2')).not.toBeInTheDocument()
+
+      // 片段行：关键词单独包成 <mark>，其余是普通文本
+      const hit = screen.getByText('精灵图')
+      expect(hit.tagName).toBe('MARK')
+      expect(hit.parentElement?.textContent).toBe('…在讨论精灵图的抠底算法…')
+    })
+
+    it('TC-4.1.8: 命中落在不可见内容里（片段为空）时不渲染片段行', async () => {
+      const sessions = [createMockSession({ id: 's1', title: '会话1', messages: [] })]
+      const onSearchSessions = vi.fn(async () => [{ conversationId: 's1', snippet: '' }])
+      const { container } = renderSidebar({ sessions, onSearchSessions })
+
+      fireEvent.change(screen.getByPlaceholderText('搜索会话...'), {
+        target: { value: 'jlvpsogs' },
+      })
+
+      await waitFor(() => expect(screen.getByText('会话1')).toBeInTheDocument())
+      // 会话照常列出，但不能留一行空白
+      expect(container.querySelector('[class*="session-snippet"]')).toBeNull()
+    })
+
+    it('TC-4.1.9: 过期响应不会覆盖最新一次检索结果', async () => {
+      const pending: Array<(matches: readonly ConversationSearchMatch[]) => void> = []
+      const onSearchSessions = vi.fn(
+        () => new Promise<readonly ConversationSearchMatch[]>((resolve) => pending.push(resolve)),
+      )
+      const sessions = [createMockSession({ id: 's1', title: '会话1', messages: [] })]
+      renderSidebar({ sessions, onSearchSessions })
+
+      const searchInput = screen.getByPlaceholderText('搜索会话...')
+      fireEvent.change(searchInput, { target: { value: '精灵' } })
+      await waitFor(() => expect(pending).toHaveLength(1))
+
+      fireEvent.change(searchInput, { target: { value: '精灵图' } })
+      await waitFor(() => expect(pending).toHaveLength(2))
+
+      // 最新一次先回空集，被取代的那次后回命中 —— 迟到的必须被丢弃
+      await act(async () => {
+        pending[1]([])
+        pending[0]([{ conversationId: 's1', snippet: '…精灵图…' }])
+      })
+
+      expect(screen.queryByText('会话1')).not.toBeInTheDocument()
     })
 
     it('TC-4.1.6: 点击清除按钮清空搜索', () => {

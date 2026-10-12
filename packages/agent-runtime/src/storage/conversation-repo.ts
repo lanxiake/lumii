@@ -30,6 +30,10 @@ export {
 
 // ─── 类型定义 ───
 
+/** 搜索片段取词窗口：关键词前后各截多少字符（改动见 searchConversationsByContent） */
+const SNIPPET_CONTEXT_BEFORE = 24;
+const SNIPPET_CONTEXT_AFTER = 48;
+
 export interface ConversationRow {
   readonly id: string;
   readonly user_id: string;
@@ -1199,6 +1203,62 @@ export class ConversationRepo {
     return this.db
       .prepare<MessageRow>("SELECT * FROM messages WHERE content_json LIKE ?")
       .all(like) as MessageRow[];
+  }
+
+  /**
+   * 按正文子串反查命中的会话，附上命中处附近的正文片段（侧栏搜索用）。
+   *
+   * 先用 LIKE 在 `content_json` 上粗筛（不解析 JSON、不建 FTS 表）。选 LIKE 而不是
+   * FTS5 的理由是中文：unicode61 分词器切不动中文（整段算一个 token），trigram 又
+   * 要求查询至少 3 个字符，都盖不住「搜一个字」这种输入。messages 实测 7300 行 /
+   * 1.1 亿字符全表扫一次只要 6~31ms。
+   *
+   * 筛出来的每条**再解析一次**取可见正文（`extractMessageText`）——不能直接切
+   * `content_json`，那样会把 `","text":"` 这类 JSON 结构当正文显示出来。
+   *
+   * 已知天花板：粗筛匹配的是 JSON 编码后的字面量，用户按原文搜 `\` 或 `"` 会漏
+   * （库里存的是 `\\` / `\"`）。要补这一块就得放弃 LIKE 改成解析后逐条比对。
+   * ponytail: 全表 LIKE + 每会话解析一条，messages 涨到十万级再换 FTS5 trigram。
+   */
+  searchConversationsByContent(
+    keyword: string,
+    limit = 200,
+  ): readonly { conversationId: string; snippet: string }[] {
+    // LIKE 的通配符必须转义，否则用户输入一个 `%` 会命中全部会话
+    const pattern = `%${keyword.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+    // 每个会话只取最近的一条命中消息：同一件事往往在会话里反复出现，列表里堆满
+    // 同一段话没有意义（微信也是每条会话给一段）。
+    const rows = this.db
+      .prepare<{ conversation_id: string; content_json: string }>(
+        `SELECT conversation_id, content_json FROM (
+           SELECT conversation_id, content_json,
+                  ROW_NUMBER() OVER (PARTITION BY conversation_id ORDER BY timestamp DESC) AS rn
+           FROM messages
+           WHERE content_json LIKE ? ESCAPE '\\'
+         ) WHERE rn = 1 LIMIT ?`,
+      )
+      .all(pattern, limit);
+
+    const needle = keyword.toLowerCase();
+    const matches: { conversationId: string; snippet: string }[] = [];
+    for (const row of rows) {
+      // 空白压平：正文里的换行会让片段在单行侧栏里断成好几段
+      const flat = extractMessageText(row.content_json).replace(/\s+/g, " ");
+      const idx = flat.toLowerCase().indexOf(needle);
+      if (idx < 0) {
+        // 粗筛命中的是 thinking / 工具结果，可见正文里并没有这个词。会话仍要返回
+        // （否则「搜得到」这件事就悄悄退化了），只是没有片段可展示。
+        matches.push({ conversationId: row.conversation_id, snippet: "" });
+        continue;
+      }
+      const start = Math.max(0, idx - SNIPPET_CONTEXT_BEFORE);
+      const end = Math.min(flat.length, idx + keyword.length + SNIPPET_CONTEXT_AFTER);
+      matches.push({
+        conversationId: row.conversation_id,
+        snippet: `${start > 0 ? "…" : ""}${flat.slice(start, end)}${end < flat.length ? "…" : ""}`,
+      });
+    }
+    return matches;
   }
 
   /**

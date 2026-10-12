@@ -206,6 +206,25 @@ interface ConversationListCommand {
   readonly type: 'conversation:list'
 }
 
+/**
+ * 侧栏搜索：按会话正文反查命中的会话，附一段命中处的正文。
+ * 标题匹配由渲染层在本地完成（列表本来就在内存里，不用往返），两侧结果并集即为命中会话。
+ */
+interface ConversationSearchCommand {
+  readonly type: 'conversation:search'
+  readonly query: string
+}
+
+/**
+ * 一条搜索命中：会话 id + 命中处附近的正文片段。
+ * `snippet` 为空串表示这个词落在 thinking / 工具结果里、可见正文中并不存在——
+ * 会话照样返回（不然「搜得到」会静默退化），只是没有片段可展示。
+ */
+export interface ConversationSearchMatch {
+  readonly conversationId: string
+  readonly snippet: string
+}
+
 /** UI 历史懒加载游标：指向已加载的最早一条消息，请求严格早于它的记录 */
 interface ConversationMessagesCursor {
   /** ISO 时间串（与 DB 中的 messages.timestamp 一致） */
@@ -1663,6 +1682,7 @@ export type AgentRuntimeCommand =
   | ConversationCreateCommand
   | ConversationCloseCommand
   | ConversationListCommand
+  | ConversationSearchCommand
   | ConversationMessagesCommand
   | ConversationContextUsageCommand
   | ConversationDeleteCommand
@@ -1861,6 +1881,7 @@ type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
       wasInterrupted?: boolean
       channel?: string
     }[]
+  : T extends 'conversation:search' ? readonly ConversationSearchMatch[]
   : T extends 'conversation:messages' ? {
       /** 按时间升序的一页消息 */
       items: readonly ConversationMessageNewEvent['message'][]

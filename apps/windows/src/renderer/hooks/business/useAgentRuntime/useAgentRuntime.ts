@@ -24,7 +24,10 @@ import {
   type PendingAskUserSnapshot,
 } from './agent-runtime-store'
 import { sendUserMessage } from './send-user-message'
-import type { SessionContextUsageResult } from '../../../../shared/agent-runtime-commands'
+import type {
+  ConversationSearchMatch,
+  SessionContextUsageResult,
+} from '../../../../shared/agent-runtime-commands'
 import { isCommandError } from '../../../../shared/agent-runtime-commands'
 import { debugLog, ensureIpcEventListener, sleep, LIST_NOT_READY_RETRY_MS, LIST_NOT_READY_MAX_ATTEMPTS } from './bridge-init'
 import { switchSession as switchSessionImpl } from './switch-session'
@@ -332,6 +335,26 @@ export function useAgentRuntimeActions() {
       }
     }
     return []
+  }, [])
+
+  /**
+   * 侧栏搜索：按正文反查命中的会话及片段（标题匹配在渲染层本地做，这里只补正文那一半）。
+   * 查询失败返回空集 —— 搜索是旁路功能，不该让它把侧栏整体拖成错误态。
+   */
+  const searchSessions = useCallback(async (query: string): Promise<readonly ConversationSearchMatch[]> => {
+    const api = window.electronAPI?.agentRuntime
+    if (!api?.sendCommand || !query.trim()) return []
+    try {
+      const result = await api.sendCommand({ type: 'conversation:search', query })
+      if (isCommandError(result)) {
+        console.warn('[useAgentRuntime] conversation:search 返回错误', result)
+        return []
+      }
+      return Array.isArray(result) ? (result as readonly ConversationSearchMatch[]) : []
+    } catch (err) {
+      console.warn('[useAgentRuntime] conversation:search 调用异常', err)
+      return []
+    }
   }, [])
 
   /**
@@ -703,6 +726,7 @@ export function useAgentRuntimeActions() {
       switchSession,
       loadOlderMessages,
       listSessions,
+      searchSessions,
       deleteMessage,
       editMessage,
       forkConversation,
@@ -727,6 +751,7 @@ export function useAgentRuntimeActions() {
       switchSession,
       loadOlderMessages,
       listSessions,
+      searchSessions,
       deleteMessage,
       editMessage,
       forkConversation,

@@ -3,6 +3,8 @@
   position: relative;
   display: flex;
   align-items: center;
+  /* 搜索命中片段（.session-snippet）靠 flex-basis:100% 换到第二行；非搜索态没有第二行，不受影响 */
+  flex-wrap: wrap;
   gap: 8px;
   width: 100%;
   min-height: 32px;
@@ -83,6 +85,27 @@
  * 运行中：标题文字始终可见；光波用 ::after 叠加从左扫到右，不改文字 fill/clip。
  * 高级感处理：细窄流光 + 白芯高光 + 柔化边缘，叠加文字呼吸微光，缓动更从容。
  */
+/* 搜索命中的正文片段：换行到会话项第二行，左沿与标题对齐（状态槽 16 + gap 8） */
+.session-snippet {
+  flex-basis: 100%;
+  min-width: 0;
+  padding-left: 24px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: calc(11.5px * var(--app-font-scale, 1));
+  line-height: 1.35;
+  color: var(--mt-fg-4);
+  cursor: pointer;
+}
+
+/* 片段里的关键词。用 accent 的混色而不是实底：实底在深色主题下会把周围的灰字压没 */
+.session-snippet-hit {
+  background: color-mix(in srgb, var(--mt-accent-500) 24%, transparent);
+  color: var(--mt-fg-1);
+  border-radius: 3px;
+}
+
 .session-title--streaming {
   animation: mt-title-breathe 2.6s ease-in-out infinite;
 }

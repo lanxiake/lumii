@@ -155,7 +155,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
   // 本地 Agent Runtime hooks（Feature Flag 开启时生效）
   const runtimeActions = useAgentRuntimeActions()
   /** listSessions 为 useCallback 稳定引用，仅依赖它可避免把整个 runtimeActions 放进 deps 导致 effect 异常抖动 */
-  const { listSessions } = runtimeActions
+  const { listSessions, searchSessions } = runtimeActions
   const runtimeIsStreaming = useAgentRuntimeState((s) => s.isStreaming)
   const runtimeThinkingLive = useAgentRuntimeState((s) => s.currentThinkingText)
   const runtimeMessages = useAgentRuntimeState((s) => s.messages)
@@ -1747,6 +1747,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
       <ChatSidebarArea
         slot={sessionSlot}
         sessions={localRuntimeSessionsAsChatSessions}
+        onSearchSessions={searchSessions}
         activeSessionId={runtimeCurrentSessionKey ?? null}
         onSelectSession={handleSelectSidebarSession}
         onCreateSession={handleCreateSidebarSession}

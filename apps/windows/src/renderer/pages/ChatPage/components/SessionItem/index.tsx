@@ -14,6 +14,27 @@ interface SessionItemProps {
   onDelete: () => void
   onRename: (newTitle: string) => void
   agent?: { id: string; name: string }
+  /** 搜索态：命中处附近的正文片段（空串＝命中落在不可见内容里，不显示这一行） */
+  searchSnippet?: string
+  /** 搜索关键词，用于在片段里高亮 */
+  searchQuery?: string
+}
+
+/**
+ * 把命中片段按关键词切成「普通 / 命中」若干段，命中部分包进 <mark>。
+ * 大小写不敏感（对齐 SQL LIKE 的语义）；片段里找不到关键词就原样返回。
+ */
+function renderHighlightedSnippet(snippet: string, query: string): React.ReactNode {
+  if (!query) return snippet
+  const idx = snippet.toLowerCase().indexOf(query.toLowerCase())
+  if (idx < 0) return snippet
+  return (
+    <>
+      {snippet.slice(0, idx)}
+      <mark className={styles['session-snippet-hit']}>{snippet.slice(idx, idx + query.length)}</mark>
+      {snippet.slice(idx + query.length)}
+    </>
+  )
 }
 
 /**
@@ -43,6 +64,8 @@ const SessionItem: React.FC<SessionItemProps> = ({
   onPin,
   onDelete,
   onRename,
+  searchSnippet,
+  searchQuery,
 }) => {
   const [showContextMenu, setShowContextMenu] = useState(false)
   const [contextMenuPosition, setContextMenuPosition] = useState({ x: 0, y: 0 })
@@ -228,6 +251,12 @@ const SessionItem: React.FC<SessionItemProps> = ({
         >
           <MoreHorizontal size={14} strokeWidth={1.8} />
         </button>
+
+        {searchSnippet && (
+          <div className={styles['session-snippet']} title={searchSnippet}>
+            {renderHighlightedSnippet(searchSnippet, searchQuery ?? '')}
+          </div>
+        )}
       </div>
 
       {showContextMenu && (

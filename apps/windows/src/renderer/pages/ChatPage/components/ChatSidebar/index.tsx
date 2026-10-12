@@ -8,6 +8,7 @@ import { useAgents } from '../../../../hooks/business/useAgents/useAgents'
 import { useSettingsHub } from '../../../../components/SettingsHub'
 import { isMainAgentSession } from '../../utils/main-agent-session'
 import type { ClearGroupHistoryRequest } from '../../clearGroupPlan'
+import type { ConversationSearchMatch } from '../../../../../shared/agent-runtime-commands'
 import type { ChatSession } from '../../../../hooks/business/useChat'
 import styles from './ChatSidebar.module.css'
 
@@ -39,8 +40,13 @@ const CHANNEL_META: readonly ChannelMeta[] = [
 
 /** 分组清空历史的请求类型见 ../../clearGroupPlan（ChatPage 与侧栏共用） */
 
+/** 正文检索的防抖窗口：一次全表 LIKE 约 30ms 且在主进程里同步执行，逐字发会把主进程刷满 */
+const SEARCH_DEBOUNCE_MS = 200
+
 interface ChatSidebarProps {
   sessions: ChatSession[]
+  /** 按正文反查命中的会话及片段；不传则只支持标题 / 预览匹配 */
+  onSearchSessions?: (query: string) => Promise<readonly ConversationSearchMatch[]>
   activeSessionId: string | null
   onSelectSession: (sessionId: string) => void
   onCreateSession: () => void
@@ -130,6 +136,7 @@ function resolveSidebarEmptyDesc(agentId: string | null, fallback?: string): str
  */
 const ChatSidebar: React.FC<ChatSidebarProps> = ({
   sessions,
+  onSearchSessions,
   activeSessionId,
   onSelectSession,
   onCreateSession,
@@ -140,6 +147,8 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
   onRenameSession,
 }) => {
   const [searchQuery, setSearchQuery] = useState('')
+  /** 正文命中的会话 → 命中片段（空串＝命中不可见内容，只列会话不给片段）；防抖后到位 */
+  const [contentMatches, setContentMatches] = useState<ReadonlyMap<string, string>>(() => new Map())
   /** 已折叠的渠道 key */
   const [collapsedChannels, setCollapsedChannels] = useState<Set<string>>(() => new Set())
   /** 绑定渠道弹窗 */
@@ -169,7 +178,30 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
   }, [openHub])
 
   /**
-   * 搜索过滤后的会话。
+   * 正文检索：本地每条会话只有最后一条预览，更早的历史只存在于库里，
+   * 所以交给主进程 LIKE 反查（conversation-repo.searchConversationIdsByContent）。
+   * 防抖期间保留上一次的命中集，避免边打字边闪。
+   */
+  useEffect(() => {
+    const query = searchQuery.trim()
+    if (!query || !onSearchSessions) {
+      setContentMatches(new Map())
+      return
+    }
+    let cancelled = false
+    const timer = setTimeout(() => {
+      void onSearchSessions(query).then((matches) => {
+        if (!cancelled) setContentMatches(new Map(matches.map((m) => [m.conversationId, m.snippet])))
+      })
+    }, SEARCH_DEBOUNCE_MS)
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [searchQuery, onSearchSessions])
+
+  /**
+   * 搜索过滤后的会话：标题 / 最后一条预览本地即时匹配，正文命中由主进程异步补齐。
    */
   const filteredSessions = useMemo(() => {
     if (!searchQuery.trim()) return sessions
@@ -177,9 +209,10 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
     return sessions.filter(
       (s) =>
         s.title.toLowerCase().includes(q) ||
-        s.messages.some((m) => m.content.toLowerCase().includes(q)),
+        s.messages.some((m) => m.content.toLowerCase().includes(q)) ||
+        contentMatches.has(s.id),
     )
-  }, [sessions, searchQuery])
+  }, [sessions, searchQuery, contentMatches])
 
   /**
    * 汇总运行中会话：按渠道、按顶层 Tab，供折叠分组与 Tab 脉冲点使用。
@@ -534,6 +567,8 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
         onDelete={() => onDeleteSession(session.id)}
         onRename={(newTitle) => onRenameSession(session.id, newTitle)}
         agent={searchQuery && session.agentId ? agentsMap.get(session.agentId) : undefined}
+        searchSnippet={searchQuery ? contentMatches.get(session.id) : undefined}
+        searchQuery={searchQuery.trim() || undefined}
       />
     ))
 

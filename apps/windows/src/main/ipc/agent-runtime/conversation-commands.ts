@@ -4,7 +4,10 @@
  * 提取自 agent-runtime-ipc.ts
  */
 
-import type { AgentRuntimeCommand } from '../../../shared/agent-runtime-commands'
+import type {
+  AgentRuntimeCommand,
+  ConversationSearchMatch,
+} from '../../../shared/agent-runtime-commands'
 import type { AgentRuntimeBridge } from '../../agent-runtime/bridge'
 import { parseThinkTagsFromRaw } from '../../agent-runtime/event-converter'
 import { isCompactSummaryText } from '../../../shared/compact-summary-text'
@@ -26,6 +29,8 @@ const CONVERSATION_PAGE_SIZE = 50
 const PREVIEW_SCAN_LIMIT = 20
 /** 会话列表预览的最大字符数 */
 const PREVIEW_MAX_LENGTH = 80
+/** 侧栏搜索最多返回多少个命中会话（超出按 SQL 扫描顺序截断） */
+const SEARCH_MAX_HITS = 200
 
 // ============================================================
 // 类型定义
@@ -314,6 +319,21 @@ export function handleConversationList(
       channel: resolveConversationChannel(c.id, weixinConvIds, c.channel_type),
     }
   })
+}
+
+/**
+ * 侧栏搜索：按正文子串返回命中的会话及其片段。
+ *
+ * 只查正文、不查标题 —— 标题匹配渲染层在本地做（会话列表本来就在内存里），
+ * 这里少一次 LIKE，也免得把「搜不到」和「还没查回来」两种空结果混在一起。
+ */
+export function handleConversationSearch(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'conversation:search' }>,
+): readonly ConversationSearchMatch[] {
+  const query = command.query.trim()
+  if (!query) return []
+  return bridge.conversationRepo.searchConversationsByContent(query, SEARCH_MAX_HITS)
 }
 
 export function handleConversationDelete(
