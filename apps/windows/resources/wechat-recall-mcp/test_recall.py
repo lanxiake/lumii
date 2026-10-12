@@ -5,6 +5,12 @@ import sys
 import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+try:                                # Windows 控制台常是 GBK：会话名里可能带编不出的字符（实测 U+00A0），
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")   # 不钉住 print 会抛错 → 测试**假失败**
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
 import archive as A
 
 TALK = "room@chatroom"
