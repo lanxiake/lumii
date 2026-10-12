@@ -127,7 +127,7 @@ let cpuPrev: { total: number; idle: number } | null = null
  * 执行一次系统诊断采样（CPU 100ms 间隔取增量、内存 os.totalmem/freemem、
  * 磁盘按 data-root 所在卷用 fs.statfsSync）。
  *
- * 不探测 CLI：`lumii --help` 的全文曾内联进 prompt（最长 3k 字符、每轮注入），
+ * 不探测 CLI：`lumii-ui help` 的全文曾内联进 prompt（最长 3k 字符、每轮注入），
  * 篇幅不划算——改为在诊断段里提示模型按需自己执行。
  */
 function sampleClientDiagnostics(): ClientDiagnostics {
@@ -246,7 +246,7 @@ function buildClientDiagnosticsSection(d: ClientDiagnostics): string {
     '## Client Diagnostics（本机快照 · 只读）',
     '用于自查运行/配置异常，数值本身不必念给用户；改动用户数据或设置前必须先 ask_user_question 取得同意。',
     `- 日志：\`${d.logsDir}\` —— \`app/mtbot-${today}.log\` 是全量（WARN 级故障只在这里），\`app/mtbot-error-${today}.log\` 只有 ERROR；排查先看全量。`,
-    '- CLI：自愈命令以 `lumii --help` 的实际输出为准（本机没有该命令就改为引导用户到设置页操作）；配置改动先 ask_user_question，`lumii app restart` 会中断当前对话。',
+    '- CLI：自愈命令以 `lumii-ui help` 的实际输出为准（命令清单会漂移，先跑 help 再决定；本机没有该命令就改为引导用户到设置页操作）；配置改动先 ask_user_question。',
     `- 资源：CPU ${d.cpuPct}%（${d.cpuLogicalCores} 核）· 内存 ${d.memPct}%（${d.memUsedGB}/${d.memTotalGB}GB）· 磁盘 ${d.diskRoot} ${d.diskPct}%（${d.diskUsedGB}/${d.diskTotalGB}GB）`,
     ...alerts.map((a) => `- ⚠️ ${a}`),
     '',
