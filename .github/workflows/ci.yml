@@ -121,6 +121,9 @@ jobs:
       # 装的是纯 python 轮子，秒级。
       - run: python -m pip install --disable-pip-version-check pycryptodome
       - run: python apps/windows/resources/wechat-mcp/test_watch.py
+      # mcp_stdio（四件套共用的协议层）：握手/协议版协商、工具错误码、isError、通知不回帧。
+      # 协议循环原先在四个 server.py 里各一份，已踩过两次「手搓对不上 SDK」——收敛后这是唯一的哨位。
+      - run: python apps/windows/resources/wechat-mcp/test_mcp_stdio.py
       # wechat-file-mcp（文件归档，独立小工具）：纯函数单测（解析/磁盘映射/归档路径）
       # + 真机只读冒烟（CI 无微信库时自己跳过，不会假绿）。
       - run: python apps/windows/resources/wechat-file-mcp/test_filecore.py

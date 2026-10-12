@@ -11,36 +11,26 @@
 
 工具：`export_chat`（+ 只读的 `list_sessions` 帮用户挑会话）。
 
-共享基础层：读取层直接复用同目录 `../wechat-mcp/` 的模块，本包不复制。
+协议层与工具边界约定在共享层 `../wechat-mcp/mcp_stdio.py`；读取层复用 `../wechat-mcp/wechat_core.py`。
 """
-import json
 import os
 import sys
 
-SERVER_NAME = "wechat-export"
-SERVER_VERSION = "0.1.0"
-SUPPORTED_PROTOCOL_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
-
-PARSE_ERROR, INVALID_REQUEST, METHOD_NOT_FOUND, INVALID_PARAMS = -32700, -32600, -32601, -32602
-
 HERE = os.path.dirname(os.path.abspath(__file__))
-if HERE not in sys.path:
-    sys.path.insert(0, HERE)
+SHARED = os.path.join(os.path.dirname(HERE), "wechat-mcp")   # 共享基础层（零复制）
+for _p in (HERE, SHARED):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
-import exportcore as E  # noqa: E402
+import exportcore as E        # noqa: E402
+import mcp_stdio              # noqa: E402
 
+SERVER_NAME = "wechat-export"
+SERVER_VERSION = "0.2.0"
+TITLE = "微信记录导出"
 
-def log(*a):
-    print("[wechat-export]", *a, file=sys.stderr, flush=True)
-
-
-def force_utf8_stdio():
-    for stream in (sys.stdout, sys.stderr, sys.stdin):
-        try:
-            stream.reconfigure(encoding="utf-8")
-        except Exception:
-            pass
-
+# 合法值只有一份来源（exportcore），工具 schema 与校验都读它——别在这里再抄一遍
+FORMATS, MEDIA, SPLIT = tuple(E._RENDER), E._MEDIA, E._SPLIT
 
 TOOLS = [
     {
@@ -60,19 +50,20 @@ TOOLS = [
             "【媒体】默认 `media=none` 只出文字；`images` 连图片（已解密）；`all` 再加语音 wav。"
             "`transcribe_voice=true` 追加语音转写（**需本机装了语音识别模型**，较慢，默认关）。"
             "【返回】导出条数 / 落盘文件 / 体积 / 媒体成功与跳过计数。"
+            "`format`/`media`/`split` 传非法值会被**拒**（`bad_args`），不会静默降级。"
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
                 "talker": {"type": "string", "description": "会话名（如「文件传输助手」）或 wxid/群号"},
                 "out_dir": {"type": "string", "description": "导出目标目录（绝对路径）"},
-                "format": {"type": "string", "enum": ["md", "html", "json"], "description": "默认 md"},
+                "format": {"type": "string", "enum": list(FORMATS), "description": "默认 md"},
                 "since": {"type": "integer", "description": "起始时间（Unix 秒，含）"},
                 "until": {"type": "integer", "description": "结束时间（Unix 秒，含）"},
-                "media": {"type": "string", "enum": ["none", "images", "all"],
+                "media": {"type": "string", "enum": list(MEDIA),
                           "description": "none(默认) / images / all(图片+语音wav)"},
                 "transcribe_voice": {"type": "boolean", "description": "追加语音转写（需模型，默认 false）"},
-                "split": {"type": "string", "enum": ["none", "month"],
+                "split": {"type": "string", "enum": list(SPLIT),
                           "description": "none(默认单文件) / month 按月分段成目录"},
             },
             "required": ["talker", "out_dir"],
@@ -91,6 +82,7 @@ INSTRUCTIONS = """\
 
 要点：
 - 导出**只读**，不发送、不修改任何微信内容。
+- 会话名解析不出唯一目标 → `target_not_found`（**不是**"这个会话没记录"）。
 - `out_dir` 由用户指定；会话名会做文件名净化，避免非法字符。
 - 记录含他人隐私：**本地导出**，别把内容送去云端（是否外传由用户的客户端决定，如实告知）。
 """
@@ -112,15 +104,15 @@ def _tool_export(args):
     talker = args.get("talker")
     out_dir = args.get("out_dir")
     if not talker:
-        return {"error": "talker 必填（会话名或 wxid/群号；可先用 list_sessions 查）"}
+        return {"error": "talker 必填（会话名或 wxid/群号；可先用 list_sessions 查）",
+                "error_code": "bad_args"}
     if not out_dir:
-        return {"error": "out_dir 必填（导出目标目录的绝对路径）"}
-    resolved = E.core.resolve_talker(talker)
-    if resolved is None:
-        return {"error": f"找不到唯一确定的会话「{talker}」，请用 list_sessions 取确切名字",
-                "error_code": "target_not_found"}
+        return {"error": "out_dir 必填（导出目标目录的绝对路径）", "error_code": "bad_args"}
+    bad = E.bad_args(args)
+    if bad:
+        return {"error": "参数不合法：" + "；".join(bad), "error_code": "bad_args"}
     return E.export_chat(
-        talker=resolved, out_dir=out_dir,
+        talker=talker, out_dir=out_dir,
         format=args.get("format") or "md",
         since=int(args.get("since") or 0),
         until=int(args.get("until") or 0),
@@ -130,99 +122,5 @@ def _tool_export(args):
     )
 
 
-# ---- 协议层（stdio JSON-RPC）----
-_PROTOCOL_OUT = sys.stdout
-
-
-def _send(message):
-    _PROTOCOL_OUT.write(json.dumps(message, ensure_ascii=False) + "\n")
-    _PROTOCOL_OUT.flush()
-
-
-def reply(mid, result):
-    _send({"jsonrpc": "2.0", "id": mid, "result": result})
-
-
-def reply_error(mid, code, message):
-    _send({"jsonrpc": "2.0", "id": mid, "error": {"code": code, "message": message}})
-
-
-def handle_initialize(params):
-    req = params.get("protocolVersion")
-    return {
-        "protocolVersion": req if req in SUPPORTED_PROTOCOL_VERSIONS else SUPPORTED_PROTOCOL_VERSIONS[0],
-        "capabilities": {"tools": {"listChanged": False}},
-        "serverInfo": {"name": SERVER_NAME, "title": "微信记录导出", "version": SERVER_VERSION},
-        "instructions": INSTRUCTIONS,
-    }
-
-
-def handle_tools_call(mid, params):
-    name = params.get("name")
-    args = params.get("arguments") or {}
-    handler = DISPATCH.get(name)
-    if handler is None:
-        reply_error(mid, INVALID_PARAMS, f"Unknown tool: {name}")
-        return
-    if not isinstance(args, dict):
-        reply_error(mid, INVALID_PARAMS, "arguments 必须是对象")
-        return
-    log("call", name)
-    try:
-        data = handler(args)
-        reply(mid, {"content": [{"type": "text", "text": json.dumps(data, ensure_ascii=False)}],
-                    "isError": False})
-    except Exception as e:
-        log("error", name, repr(e))
-        reply(mid, {"content": [{"type": "text", "text": f"ERROR: {e}"}], "isError": True})
-
-
-def handle_message(msg):
-    if not isinstance(msg, dict) or msg.get("jsonrpc") != "2.0":
-        reply_error(msg.get("id") if isinstance(msg, dict) else None, INVALID_REQUEST, "Invalid Request")
-        return
-    method = msg.get("method")
-    if not isinstance(method, str) or "id" not in msg:
-        return
-    mid, params = msg.get("id"), msg.get("params")
-    if not isinstance(params, dict):
-        params = {}
-    if method == "initialize":
-        reply(mid, handle_initialize(params))
-    elif method == "ping":
-        reply(mid, {})
-    elif method == "tools/list":
-        reply(mid, {"tools": TOOLS})
-    elif method == "tools/call":
-        handle_tools_call(mid, params)
-    else:
-        reply_error(mid, METHOD_NOT_FOUND, f"Method not found: {method}")
-
-
-def main():
-    global _PROTOCOL_OUT
-    force_utf8_stdio()
-    _PROTOCOL_OUT = sys.stdout
-    sys.stdout = sys.stderr
-    log(f"started v{SERVER_VERSION} (python {sys.version.split()[0]})")
-    for line in sys.stdin:
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            msg = json.loads(line)
-        except Exception:
-            reply_error(None, PARSE_ERROR, "Parse error")
-            continue
-        try:
-            handle_message(msg)
-        except Exception as e:
-            log("internal error", repr(e))
-
-
 if __name__ == "__main__":
-    force_utf8_stdio()
-    if "--version" in sys.argv[1:]:
-        print(SERVER_VERSION)
-        sys.exit(0)
-    main()
+    raise SystemExit(mcp_stdio.serve(SERVER_NAME, TITLE, SERVER_VERSION, TOOLS, INSTRUCTIONS, DISPATCH))

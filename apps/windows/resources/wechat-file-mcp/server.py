@@ -9,38 +9,25 @@
 
 两个工具：`list_files`（列 + 定位）与 `archive_files`（拷贝归档，默认 dry_run）。
 
-共享基础层：读取层（密钥扫描 / SQLCipher 解密 / 多分片镜像 / 路径发现）直接复用同目录
-`../wechat-mcp/` 的模块，本包不复制。
+协议层与工具边界约定在共享层 `../wechat-mcp/mcp_stdio.py`（四件套共用一份，别在这里再写一遍）；
+读取层（密钥扫描 / SQLCipher 解密 / 多分片镜像 / 路径发现）复用 `../wechat-mcp/wechat_core.py`。
 """
-import json
 import os
 import sys
 
-SERVER_NAME = "wechat-file"
-SERVER_VERSION = "0.1.0"
-SUPPORTED_PROTOCOL_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
-
-PARSE_ERROR, INVALID_REQUEST, METHOD_NOT_FOUND, INVALID_PARAMS = -32700, -32600, -32601, -32602
-
 HERE = os.path.dirname(os.path.abspath(__file__))
-if HERE not in sys.path:
-    sys.path.insert(0, HERE)
+SHARED = os.path.join(os.path.dirname(HERE), "wechat-mcp")   # 共享基础层（零复制）
+for _p in (HERE, SHARED):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
-import filecore as F  # noqa: E402
+import filecore as F          # noqa: E402
+import mcp_stdio              # noqa: E402
 
-
-def log(*a):
-    print("[wechat-file]", *a, file=sys.stderr, flush=True)
-
-
-def force_utf8_stdio():
-    """钉住三个标准流编码为 UTF-8（Windows 重定向时默认是 ANSI 代码页）。"""
-    for stream in (sys.stdout, sys.stderr, sys.stdin):
-        try:
-            stream.reconfigure(encoding="utf-8")
-        except Exception:
-            pass
-
+SERVER_NAME = "wechat-file"
+SERVER_VERSION = "0.2.0"
+TITLE = "微信文件归档"
+DEFAULT_LIMIT = 500           # 默认最多返回多少条（`limit=0` = 全部）
 
 TOOLS = [
     {
@@ -48,9 +35,11 @@ TOOLS = [
         "description": (
             "【何时用】想知道微信里收发的**文件**有哪些、在不在本地磁盘上（文件会过期下不动）。"
             "可按会话/时间/扩展名/关键词过滤。"
-            "【返回】每条文件的文件名、大小、时间、发送者、会话，以及磁盘定位结果 "
-            "`status`：`ok` 可归档 / `size_mismatch` 同名但大小不同（可能是另一版本）/ "
+            "【返回】`total` 命中总数、`count` 本次条数——不等就说明被 `limit` 截断了；"
+            "每条含文件名、大小、时间、发送者、会话，以及磁盘定位 `status`："
+            "`ok` 可归档 / `size_mismatch` 同名但大小不同（可能是另一版本）/ "
             "`missing` 未下载或已过期（**服务器端拿不到，只能报告**）。"
+            "默认只回**最近 500 条**（仍按时间正序），`limit=0` 回全部。"
             "【别用】要读图片内容用别的工具；这里只管文件消息。"
         ),
         "inputSchema": {
@@ -63,6 +52,7 @@ TOOLS = [
                           "description": "扩展名过滤，如 [\"pdf\",\"zip\"]（不区分大小写）"},
                 "keyword": {"type": "string", "description": "文件名关键词（子串匹配）"},
                 "only_missing": {"type": "boolean", "description": "只列已过期/未下载的文件（过期预警）"},
+                "limit": {"type": "integer", "description": f"最多返回条数，默认 {DEFAULT_LIMIT}；0=全部"},
             },
         },
     },
@@ -71,9 +61,11 @@ TOOLS = [
         "description": (
             "【何时用】把微信里的文件**归档到本地目录**（防过期、做整理）。以用户本人身份、只读微信。"
             "【行为】**拷贝**（不动微信原文件）；同一磁盘文件多处引用只拷一次；"
-            "重名加时间戳后缀；`dry_run=true`（默认）只出计划不落盘。"
+            "目标已存在且是同一份**不重拷**（`exists`，重跑幂等）；同名不同版本另存带时间戳的名字，"
+            "**绝不覆盖**已归档的文件；`dry_run=true`（默认）只出计划不落盘。"
             "【落点】`layout=by_session`（默认，每会话一个子目录）/ `by_type` / `flat`。"
-            "【返回】copied / dedup / missing 计数与逐条计划。`missing` 的文件**无法归档**（已过期）。"
+            "【返回】copied / dedup / exists / missing 计数与逐条计划。`missing` 的文件**无法归档**"
+            "（已过期），如实告诉用户，别承诺能救回来。"
         ),
         "inputSchema": {
             "type": "object",
@@ -102,6 +94,7 @@ INSTRUCTIONS = """\
 
 要点：
 - 归档**只做拷贝**，微信原文件不受影响（不会让微信里的「打开文件」失效）。
+- 归档**不会覆盖**已经归档过的东西：同一份跳过（`exists`），另一个版本另存带时间戳的名字。
 - `missing` 的文件是**服务器端已拿不到**的，无法归档——如实告诉用户，别承诺能救回来。
 - 文件本体在 `msg/file/<月>/`，当归档目标与源在同一磁盘时是拷贝（不移动）。
 - 群里发的文件会标发送者；同名不同版本靠大小区分。
@@ -122,19 +115,22 @@ def _tool_list(args):
         keyword=args.get("keyword") or "",
         only_missing=bool(args.get("only_missing")),
     )
+    limit = int(args["limit"]) if args.get("limit") is not None else DEFAULT_LIMIT
+    shown = recs if limit <= 0 else recs[-limit:]      # 保留**最近**的 limit 条（子列表仍是时间正序）
     return {
-        "count": len(recs),
-        "ok": sum(1 for r in recs if r["status"] == "ok"),
-        "missing": sum(1 for r in recs if r["status"] == "missing"),
-        "size_mismatch": sum(1 for r in recs if r["status"] == "size_mismatch"),
-        "files": recs,
+        "total": len(recs),
+        "count": len(shown),
+        "ok": sum(1 for r in shown if r["status"] == "ok"),
+        "missing": sum(1 for r in shown if r["status"] == "missing"),
+        "size_mismatch": sum(1 for r in shown if r["status"] == "size_mismatch"),
+        "files": shown,
     }
 
 
 def _tool_archive(args):
     out_dir = args.get("out_dir")
     if not out_dir:
-        return {"error": "out_dir 必填（归档目标目录的绝对路径）"}
+        return {"error": "out_dir 必填（归档目标目录的绝对路径）", "error_code": "bad_args"}
     return F.archive_files(
         out_dir=out_dir,
         talker=args.get("talker") or None,
@@ -146,99 +142,5 @@ def _tool_archive(args):
     )
 
 
-# ---- 协议层（stdio JSON-RPC）----
-_PROTOCOL_OUT = sys.stdout
-
-
-def _send(message):
-    _PROTOCOL_OUT.write(json.dumps(message, ensure_ascii=False) + "\n")
-    _PROTOCOL_OUT.flush()
-
-
-def reply(mid, result):
-    _send({"jsonrpc": "2.0", "id": mid, "result": result})
-
-
-def reply_error(mid, code, message):
-    _send({"jsonrpc": "2.0", "id": mid, "error": {"code": code, "message": message}})
-
-
-def handle_initialize(params):
-    req = params.get("protocolVersion")
-    return {
-        "protocolVersion": req if req in SUPPORTED_PROTOCOL_VERSIONS else SUPPORTED_PROTOCOL_VERSIONS[0],
-        "capabilities": {"tools": {"listChanged": False}},
-        "serverInfo": {"name": SERVER_NAME, "title": "微信文件归档", "version": SERVER_VERSION},
-        "instructions": INSTRUCTIONS,
-    }
-
-
-def handle_tools_call(mid, params):
-    name = params.get("name")
-    args = params.get("arguments") or {}
-    handler = DISPATCH.get(name)
-    if handler is None:
-        reply_error(mid, INVALID_PARAMS, f"Unknown tool: {name}")
-        return
-    if not isinstance(args, dict):
-        reply_error(mid, INVALID_PARAMS, "arguments 必须是对象")
-        return
-    log("call", name)
-    try:
-        data = handler(args)
-        reply(mid, {"content": [{"type": "text", "text": json.dumps(data, ensure_ascii=False)}],
-                    "isError": False})
-    except Exception as e:  # 工具内部失败以 isError 结果返回，不拖垮服务
-        log("error", name, repr(e))
-        reply(mid, {"content": [{"type": "text", "text": f"ERROR: {e}"}], "isError": True})
-
-
-def handle_message(msg):
-    if not isinstance(msg, dict) or msg.get("jsonrpc") != "2.0":
-        reply_error(msg.get("id") if isinstance(msg, dict) else None, INVALID_REQUEST, "Invalid Request")
-        return
-    method = msg.get("method")
-    if not isinstance(method, str) or "id" not in msg:
-        return                                    # 通知不回应
-    mid, params = msg.get("id"), msg.get("params")
-    if not isinstance(params, dict):
-        params = {}
-    if method == "initialize":
-        reply(mid, handle_initialize(params))
-    elif method == "ping":
-        reply(mid, {})
-    elif method == "tools/list":
-        reply(mid, {"tools": TOOLS})
-    elif method == "tools/call":
-        handle_tools_call(mid, params)
-    else:
-        reply_error(mid, METHOD_NOT_FOUND, f"Method not found: {method}")
-
-
-def main():
-    global _PROTOCOL_OUT
-    force_utf8_stdio()
-    _PROTOCOL_OUT = sys.stdout
-    sys.stdout = sys.stderr                        # 业务 print 一律走 stderr，别污染协议流
-    log(f"started v{SERVER_VERSION} (python {sys.version.split()[0]})")
-    for line in sys.stdin:
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            msg = json.loads(line)
-        except Exception:
-            reply_error(None, PARSE_ERROR, "Parse error")
-            continue
-        try:
-            handle_message(msg)
-        except Exception as e:
-            log("internal error", repr(e))
-
-
 if __name__ == "__main__":
-    force_utf8_stdio()
-    if "--version" in sys.argv[1:]:
-        print(SERVER_VERSION)
-        sys.exit(0)
-    main()
+    raise SystemExit(mcp_stdio.serve(SERVER_NAME, TITLE, SERVER_VERSION, TOOLS, INSTRUCTIONS, DISPATCH))

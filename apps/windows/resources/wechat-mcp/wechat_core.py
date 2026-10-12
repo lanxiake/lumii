@@ -1501,6 +1501,31 @@ def resolve_talker(query):
     return None
 
 
+class UnknownTalker(LookupError):
+    """会话参数解析不出**唯一**目标（`resolve_talker` 返回 None）。
+
+    为什么要一个专门的类型：工具边界上不能"猜"，也**不允许静默降级成空结果**——
+    `{"count": 0}` 与「这个会话真没消息」在 JSON 里一模一样，四件套里 A/C/D 都踩过这一跤
+    （传显示名 → 算出不存在的表 → 0 条，看着像正常回答）。MCP 侧统一翻成 `target_not_found`
+    （见 `mcp_stdio.py`）。
+    """
+
+
+def talker_of(query):
+    """用户给的会话名 / wxid / 群号 → talker。解析不出唯一目标就抛 `UnknownTalker`。
+
+    与 `resolve_talker` 的分工：那个是纯解析（返回 None，让调用方按自己的语义决定），
+    这个给**工具边界**用——`query` 为空返回 None（表示"不筛会话"），非空则要么给出 talker、
+    要么抛。
+    """
+    if not query:
+        return None
+    got = resolve_talker(query)
+    if got is None:
+        raise UnknownTalker(str(query))
+    return got
+
+
 def suggest_talkers(query, limit=6):
     """解析失败时的**近似候选**（名字或 talker 包含查询，忽略大小写）。
 
