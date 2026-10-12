@@ -21,8 +21,22 @@ if _SHARED not in sys.path:
 import wechat_core as core  # noqa: E402
 
 MEDIA_NONE, MEDIA_IMAGES, MEDIA_ALL = "none", "images", "all"
+_MEDIA = (MEDIA_NONE, MEDIA_IMAGES, MEDIA_ALL)
+_SPLIT = ("none", "month")
 _WIN_BAD = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 _BIG = 10 ** 9
+
+
+def bad_args(args):
+    """枚举参数的**边界校验**，返回问题列表（空 = 没问题）。合法值在这里定，工具 schema 也读它。
+
+    为什么要单独校验：`media="image"`（拼错）原来会连着两次比较都不命中 → 一颗媒体都不出、
+    也不报错，调用方拿到的是 `isError=false` 的正常结果——"参数打错"与"这批消息没图"分不出来。
+    `format` 更隐蔽：悄悄退回 md，返回里看着一切正常。
+    """
+    return [f"{k}={args[k]!r}（可选 {list(ok)}）"
+            for k, ok in (("format", tuple(_RENDER)), ("media", _MEDIA), ("split", _SPLIT))
+            if args.get(k) and args[k] not in ok]
 
 
 def _safe(name):
@@ -85,7 +99,13 @@ def iter_rows(talker, since=0, until=0):
 
 
 def build_records(talker, since=0, until=0):
-    """导出用的记录列表（时间正序）。每条含显示名、from_me、完整文本、类型。"""
+    """导出用的记录列表（时间正序）。每条含显示名、from_me、完整文本、类型。
+
+    `talker` 走 `core.talker_of`：会话**显示名**必须能导出，解析不出唯一目标就抛
+    `UnknownTalker`（MCP 侧 → `target_not_found`）。校验放在这里而不是 server，
+    是因为它同时守住"只传显示名"这条路——别指望每个调用方都记得先解析。
+    """
+    talker = core.talker_of(talker)
     core._refresh()
     names, me = core.names(), core.self_wxid()
     out = []

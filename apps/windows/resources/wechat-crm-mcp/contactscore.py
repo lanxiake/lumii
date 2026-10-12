@@ -57,6 +57,19 @@ def _contact_db():
     return m.out
 
 
+def page_of(rows, limit, offset=0):
+    """切片 + 总数，返回 `{total, count, offset, contacts}`。`limit<=0` = 全部。
+
+    **工具层默认只回 200 条**：本机好友 2500+，全量一次就是 415 KB 灌进模型上下文。
+    但截断必须**报数**——`total` 与 `count` 不等才看得出"这是被截断的一页"，
+    否则调用方会以为"我只有 200 个好友"。
+    """
+    limit = int(limit or 0)
+    offset = max(0, int(offset or 0))
+    page = rows[offset:] if limit <= 0 else rows[offset:offset + limit]
+    return {"total": len(rows), "count": len(page), "offset": offset, "contacts": page}
+
+
 def list_contacts(scope="friend", room=None, keyword="", include_deleted=False):
     """通讯录清单。
 
@@ -69,7 +82,7 @@ def list_contacts(scope="friend", room=None, keyword="", include_deleted=False):
     会让 `os.replace` 抛 PermissionError（实测踩到）。
     """
     if room is not None:
-        resolved = core.resolve_talker(room) or room
+        resolved = core.talker_of(room)      # 解析不出唯一目标就抛（→ target_not_found）
         me = core.self_wxid()
         con = sqlite3.connect(_contact_db())
         try:
@@ -103,7 +116,11 @@ def list_contacts(scope="friend", room=None, keyword="", include_deleted=False):
 
 
 def _room_members(con, resolved, me):
-    """群成员（**全局显示名**；群内昵称需逆向，见模块头）。`resolved` 已是群 username。"""
+    """群成员（**全局显示名**；群内昵称需逆向，见模块头）。`resolved` 已是群 username。
+
+    **包含自己**（`is_me=true`）：微信的成员列表里本来就有你，漏掉的话"这个群几个人"与
+    微信里对不上（原来是自己被 `continue` 掉、`is_me` 硬编码 False —— 那个字段是死的）。
+    """
     cid = con.execute("select id from contact where username=?", (resolved,)).fetchone()
     if not cid:
         return []
@@ -112,10 +129,10 @@ def _room_members(con, resolved, me):
     out = []
     for (mid,) in con.execute("select member_id from chatroom_member where room_id=?", (cid[0],)):
         u = con.execute("select username from contact where id=?", (mid,)).fetchone()
-        if not u or u[0] == me:
+        if not u:
             continue
         out.append({"username": u[0], "name": disp.get(u[0], u[0]),
-                    "kind": kind_of(u[0]), "is_me": False})
+                    "kind": kind_of(u[0]), "is_me": u[0] == me})
     out.sort(key=lambda d: d["name"])
     return out
 
@@ -152,7 +169,12 @@ def contact_stats(talker, since=0, until=0):
     """单会话互动统计（**只给数字**，不做"关系好不好"之类的判断）。
 
     返回：首末时间、总条数、我发/对方发、活跃小时分布、活跃天 Top、连续沉默天数、跨度天数。
+
+    `talker` 走 `core.talker_of`：解析不出唯一目标就抛 `UnknownTalker`（→ `target_not_found`）。
+    原先 server 里那句 `resolve_talker(x) or x` 会把歧义名（本机真有多个 `loop`）与不存在的名字
+    一起降级成"0 条"，看起来就像"你俩没聊过"。
     """
+    talker = core.talker_of(talker)
     rows = _iter_rows(talker, since, until)
     names, me = core.names(), core.self_wxid()
     now = int(time.time())
@@ -212,7 +234,7 @@ def interaction_rank(since=0, until=0, top=20, sort="count"):
         finally:
             con.close()
 
-    by_tbl = {core.tbl_of(u): u for u in names}
+    by_tbl = {tbl: tk for tbl, tk in core.talkers()}   # 复用共享层的表名↔会话约定，别自己再算一遍
     out = []
     for tbl, (cnt, last) in per.items():
         tk = by_tbl.get(tbl, tbl)

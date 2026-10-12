@@ -43,8 +43,7 @@ def _idx(tmp):
             with open(p, "wb") as fh:
                 fh.write(data)
             paths[name] = p
-    return F.build_index(root, {}), paths
-
+    return F.build_index(root), paths
 
 def test_parse_file():
     fm = F.parse_file_msg(SAMPLE)
@@ -89,6 +88,48 @@ def test_dest_path():
     print("ok dest_path")
 
 
+def test_index_has_no_stale_cache(tmp):
+    """索引**不复用**上一次的结果：归档后微信又下了一个文件，必须看得见。
+
+    曾经按 root 永久缓存 → 「报 8 条过期 → 用户去下载 → 再跑还报过期」，而"过期预警 →
+    下载 → 归档"正是本产品的卖点路径。
+    """
+    root = os.path.join(tmp, "no_stale")
+    os.makedirs(root)
+    open(os.path.join(root, "a.pdf"), "wb").write(b"a" * 10)
+    assert "a.pdf" in F.build_index(root)
+    open(os.path.join(root, "b.pdf"), "wb").write(b"b" * 20)   # 模拟"之后新下载的"
+    assert "b.pdf" in F.build_index(root), "新落盘的文件必须能被下一次扫描看到"
+    print("ok index_no_stale_cache")
+
+
+def test_archive_never_overwrites(tmp):
+    """同名不同版本 → 另存带时间戳的名字，**不覆盖**上次归档的那份。"""
+    dest = os.path.join(tmp, "out")
+    os.makedirs(dest)
+    old = os.path.join(tmp, "old.pdf")
+    new = os.path.join(tmp, "new.pdf")
+    open(old, "wb").write(b"x" * 100)
+    open(new, "wb").write(b"x" * 999)
+    rec = {"title": "a.pdf", "ext": "pdf", "name": "客户群", "talker": "x", "ts": 111,
+           "local_path": new}
+    assert F._sizes_equal(old, old) and not F._sizes_equal(old, new)
+    assert not F._conflict(os.path.join(dest, "还不存在.pdf"), new), "目标不存在不算冲突"
+    assert not F._conflict(new, new), "同一份不算冲突"
+    assert F._conflict(old, new), "同名不同大小 = 冲突"
+
+    target = os.path.join(dest, "客户群", "a.pdf")
+    os.makedirs(os.path.dirname(target))
+    with open(target, "wb") as f:
+        f.write(b"x" * 100)                                    # 上次归档的那一版（100 字节）
+    assert F._conflict(target, new), "盘上已有一份且不是同一份 → 要换名"
+    d = F._dest_path(dest, rec, "by_session", set())
+    assert d != target and "(111)" in d, d
+    with open(old, "rb") as f:
+        assert f.read() == b"x" * 100, "上次归档的内容不该被动过"
+    print("ok archive_never_overwrites")
+
+
 def test_needs_wechat():
     """真机只读冒烟（无微信库时跳过，不算失败）。"""
     try:
@@ -104,6 +145,37 @@ def test_needs_wechat():
     print(f"ok 真机冒烟：文件消息 {len(recs)} 条，可定位 {ok} 条，缺失 {len(recs) - ok} 条")
 
 
+def test_talker_by_display_name():
+    """真机只读冒烟（无微信库时跳过）：**会话显示名**必须能筛，解析不出必须报错。
+
+    这是 P0 的回归。修之前 `list_files(talker="文件传输助手")` = **0 条**（显示名被喂给
+    `tbl_of` = md5(username)，算出张不存在的表），而 `list_files(talker="filehelper")` = 13 条
+    ——工具描述里教用户的恰恰是显示名那个用法，而且返回的是**成功**的空结果。
+    """
+    try:
+        root = F.core.db_root()
+    except Exception as e:                              # noqa: BLE001
+        print(f"skip 显示名冒烟（取不到库: {e}）")
+        return
+    if not root or not os.path.isdir(root):
+        print("skip 显示名冒烟（无数据目录）")
+        return
+    name = F.core.names().get("filehelper")
+    if not name:
+        print("skip 显示名冒烟（本机没有文件传输助手）")
+        return
+    by_name = F.list_files(talker=name)
+    by_id = F.list_files(talker="filehelper")
+    assert by_name and by_name == by_id, f"显示名与 username 必须等价：{len(by_name)} vs {len(by_id)}"
+    try:
+        F.list_files(talker="绝对不存在的会话xyz")
+    except F.core.UnknownTalker:
+        pass
+    else:
+        raise AssertionError("解析不出的会话名必须抛 UnknownTalker，不能静默返回 0 条")
+    print(f"ok 显示名等价：{name} == filehelper（{len(by_name)} 条），不存在的名字会被拒")
+
+
 if __name__ == "__main__":
     import tempfile
     _tmp = tempfile.mkdtemp()
@@ -112,7 +184,10 @@ if __name__ == "__main__":
         test_parse_entity()
         test_match(_tmp)
         test_dest_path()
+        test_index_has_no_stale_cache(_tmp)
+        test_archive_never_overwrites(_tmp)
         test_needs_wechat()
+        test_talker_by_display_name()
     finally:
         import shutil as _sh
         _sh.rmtree(_tmp, ignore_errors=True)

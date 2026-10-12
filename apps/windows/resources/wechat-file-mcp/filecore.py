@@ -58,15 +58,19 @@ def files_root():
     return os.path.join(os.path.dirname(core.db_root()), "msg", "file")
 
 
-def build_index(root=None, _cache={}):
-    """扫描磁盘 → `{文件名: [(大小, 路径), …]}`。按 root 缓存（换库/重扫传 force）。
+def build_index(root=None):
+    """扫描磁盘 → `{文件名: [(大小, 路径), …]}`。
 
     少量文件带 `YYYYMMDD` 日期前缀（磁盘侧有、消息标题没有），所以再给去前缀的名字挂**别名键**
     （真名优先，别名只在没撞名时加），让 `match_file` 保持一次查表。
+
+    **每次调用都真扫**（2026-10-13 改）：原先按 root 把结果缓存起来且永不失效，后果是
+    「`list_files` 报 8 条过期 → 用户去微信里点下载 → 再跑还是报过期」，直到 MCP 进程重启
+    ——而「过期预警 → 下载 → 归档」正是本产品的卖点路径（原 docstring 还说"重扫传 force"，
+    那个参数**从来就不存在**）。实测整盘重扫本机 135 个文件只要 **8.9 ms**，比同一次调用里读
+    消息库便宜得多，缓存换来的那点时间不值这个 bug。
     """
     root = root or files_root()
-    if _cache.get("root") == root and "idx" in _cache:
-        return _cache["idx"]
     idx = {}
     for dp, _dirs, fs in os.walk(root):
         for f in fs:
@@ -79,7 +83,6 @@ def build_index(root=None, _cache={}):
         alias = _DATE_PREFIX.sub("", name)
         if alias and alias != name:
             idx.setdefault(alias, cands)
-    _cache["root"], _cache["idx"] = root, idx
     return idx
 
 
@@ -104,7 +107,13 @@ def _tbl_targets(talker):
 
 
 def list_files(talker=None, since=0, until=0, types=None, keyword="", only_missing=False):
-    """列文件消息。返回**时间正序**的记录列表，每条带磁盘定位结果。"""
+    """列文件消息。返回**时间正序**的记录列表，每条带磁盘定位结果。
+
+    `talker` 走 `core.talker_of`（**不是** `tbl_of`）——传会话**显示名**必须能筛出东西来，
+    解析不出唯一目标就抛 `UnknownTalker`（MCP 侧 → `target_not_found`）。曾经直接把它喂给
+    `tbl_of`（= md5(username)），于是 `talker="文件传输助手"` 算出张不存在的表、**静默返回 0 条**。
+    """
+    talker = core.talker_of(talker)
     core._refresh()
     names, me = core.names(), core.self_wxid()
     idx = build_index()
@@ -159,8 +168,28 @@ def _safe(name):
     return cleaned or "file"
 
 
+def _sizes_equal(dest, src):
+    """`dest` 存在且与 `src` 同大小（任一取不到大小就算不同）——即"同一份已归档过"。"""
+    try:
+        return os.path.getsize(dest) == os.path.getsize(src)
+    except (OSError, TypeError):
+        return False
+
+
+def _conflict(target, src):
+    """目标已存在且**不是同一份** → 要换名，别覆盖上次归档的另一个版本。
+
+    目标不存在 → 不冲突；大小相同 → 视为同一份（幂等重跑，交给 `_sizes_equal` 去跳过拷贝）。
+    """
+    return bool(src) and os.path.exists(target) and not _sizes_equal(target, src)
+
+
 def _dest_path(out_dir, rec, layout, used):
-    """决定归档目标路径，并处理重名冲突（同目录同名 → 加时间戳后缀）。"""
+    """决定归档目标路径，并处理重名冲突（同目录同名 → 加时间戳后缀）。
+
+    冲突有两个来源：**本次调用内**（`used`，多条消息同名）与**盘上已有的**（`_conflict`，
+    上次归档留下的另一版本）。后者不看会静默覆盖——同名不同版本正是重命名后缀存在的理由。
+    """
     if layout == "flat":
         sub = ""
     elif layout == "by_type":
@@ -169,7 +198,7 @@ def _dest_path(out_dir, rec, layout, used):
         sub = _safe(rec["name"] or rec["talker"])
     folder = os.path.join(out_dir, sub) if sub else out_dir
     target = os.path.join(folder, _safe(rec["title"]))
-    if target.lower() in used:
+    if target.lower() in used or _conflict(target, rec.get("local_path")):
         stem, ext = os.path.splitext(target)
         target = f"{stem}({rec['ts']}){ext}"
     used.add(target.lower())
@@ -180,13 +209,17 @@ def archive_files(out_dir, talker=None, since=0, until=0, types=None,
                   layout="by_session", dry_run=True):
     """把可定位的文件**拷贝**到 out_dir（**不动微信原文件**）。
 
-    返回 `{out_dir, layout, dry_run, copied, skipped, missing, files[]}`。
-    同一磁盘源只拷一次（多条消息引用同一文件时不重复）。
+    返回 `{out_dir, layout, dry_run, total, copied, dedup, exists, missing, files[]}`。
+    - 同一磁盘源只拷一次（多条消息引用同一文件时不重复）；
+    - 目标已存在且**是同一份** → `exists` 跳过，不重拷（重跑幂等，也方便"昨天归档到一半"续跑）；
+    - 目标已存在但是**另一版本**（大小不同）→ 另存为带时间戳的名字，**绝不覆盖**。
+
+    返回的 `copied` 在 `dry_run=true` 时是"将拷贝"的计划数（`exists` 同样会被提前算出来）。
     """
     recs = list_files(talker=talker, since=since, until=until, types=types)
     used = set()
     seen_src = set()
-    files, copied, skipped, missing = [], 0, 0, 0
+    files, copied, skipped, missing, exists = [], 0, 0, 0, 0
     for rec in recs:
         src, status = rec["local_path"], rec["status"]
         if status == "missing" or not src:
@@ -202,6 +235,11 @@ def archive_files(out_dir, talker=None, since=0, until=0, types=None,
         seen_src.add(src)
         entry = {"title": rec["title"], "status": status, "dest": dest, "src": src,
                  "session": rec["name"], "ts": rec["ts"], "size": rec["size"]}
+        if _sizes_equal(dest, src):                # 目标已是同一份 → 不重拷（重跑幂等）
+            entry["status"] = "exists"
+            exists += 1
+            files.append(entry)
+            continue
         if not dry_run:
             try:
                 os.makedirs(os.path.dirname(dest), exist_ok=True)
@@ -214,5 +252,5 @@ def archive_files(out_dir, talker=None, since=0, until=0, types=None,
         copied += 1
         files.append(entry)
     return {"out_dir": os.path.abspath(out_dir), "layout": layout, "dry_run": bool(dry_run),
-            "total": len(recs), "copied": copied, "dedup": skipped, "missing": missing,
-            "files": files}
+            "total": len(recs), "copied": copied, "dedup": skipped, "exists": exists,
+            "missing": missing, "files": files}

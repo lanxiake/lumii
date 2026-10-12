@@ -96,6 +96,50 @@ def test_split_grouping(tmp):
     print("ok split_grouping")
 
 
+def test_args_are_validated():
+    """非法枚举值必须被**挑出来**，不许静默降级。
+
+    原先 `media="image"`（拼错）会连着两次比较都不命中 → 一颗媒体都不出、也不报错，
+    调用方拿到的还是 `isError=false` 的正常结果，"参数打错"与"这批消息没图"分不出来。
+    """
+    ok = {"talker": "x", "out_dir": "D:\\x", "format": "md", "media": "all", "split": "month"}
+    assert E.bad_args(ok) == [], E.bad_args(ok)
+    assert E.bad_args({}) == [], "没给的可选参数不该算错"
+    for bad in ("image", "IMAGE", "imgs"):          # 空串/None 按"没给"处理（server 里回落默认值）
+        got = E.bad_args({"media": bad})
+        assert got and "media" in got[0], (bad, got)
+    assert "format" in E.bad_args({"format": "pdf"})[0]
+    assert "split" in E.bad_args({"split": "week"})[0]
+    # 合法值只有一份来源：schema 的 enum 与校验读的是同一个元组
+    assert set(E._MEDIA) == {"none", "images", "all"} and E._SPLIT == ("none", "month")
+    print("ok args_are_validated")
+
+
+def test_real_display_name_talker():
+    """真机只读冒烟（无微信库时跳过）：会话**显示名**能导出，解析不出要报错。"""
+    try:
+        root = E.core.db_root()
+    except Exception as e:                                  # noqa: BLE001
+        print(f"skip 显示名冒烟（取不到库: {e}）")
+        return
+    if not root or not os.path.isdir(root):
+        print("skip 显示名冒烟（无数据目录）")
+        return
+    name = E.core.names().get("filehelper")
+    if not name:
+        print("skip 显示名冒烟（本机没有文件传输助手）")
+        return
+    data = E.build_records(name)
+    assert data["records"] and data["talker"] == "filehelper", (len(data["records"]), data["talker"])
+    try:
+        E.build_records("绝对不存在的会话xyz")
+    except E.core.UnknownTalker:
+        pass
+    else:
+        raise AssertionError("解析不出的会话名必须抛 UnknownTalker，不能静默导出 0 条")
+    print(f"ok 显示名可导出：{name} → {len(data['records'])} 条，不存在的名字会被拒")
+
+
 def test_real_smoke():
     """真机只读冒烟（无微信库时跳过，不算失败）：导出最近一个会话的最近 30 条成 md。"""
     try:
@@ -133,6 +177,8 @@ if __name__ == "__main__":
         test_safe_and_clock()
         test_render_formats()
         test_split_grouping(_t)
+        test_args_are_validated()
+        test_real_display_name_talker()
         test_real_smoke()
     finally:
         shutil.rmtree(_t, ignore_errors=True)
