@@ -121,6 +121,16 @@ jobs:
       # 装的是纯 python 轮子，秒级。
       - run: python -m pip install --disable-pip-version-check pycryptodome
       - run: python apps/windows/resources/wechat-mcp/test_watch.py
+      # wechat-file-mcp（文件归档，独立小工具）：纯函数单测（解析/磁盘映射/归档路径）
+      # + 真机只读冒烟（CI 无微信库时自己跳过，不会假绿）。
+      - run: python apps/windows/resources/wechat-file-mcp/test_filecore.py
+      # wechat-export-mcp（记录导出）：渲染/转义/代发标记/格式 纯函数测 + 真机只读导出冒烟（无库时跳过）。
+      - run: python apps/windows/resources/wechat-export-mcp/test_exportcore.py
+      # wechat-recall-mcp（撤回防护）：用**合成库**验撤回判定（删行/原地改写两种机制、
+      # 假阳性防护、归档永不覆盖）+ 真机只读打底冒烟（无库时跳过）。
+      - run: python apps/windows/resources/wechat-recall-mcp/test_recall.py
+      # wechat-crm-mcp（客户分析）：联系人分类纯函数测 + 真机只读冒烟（通讯录/群成员/统计/排行，无库时跳过）。
+      - run: python apps/windows/resources/wechat-crm-mcp/test_contactscore.py
       # 安装包里随的是独立 wechat-mcp.exe（PyInstaller 单文件）：构建脚本末尾自带 initialize 握手冒烟，
       # 能拦下「源码能跑、冻结后缺模块/缺随包数据」这一类只在 exe 里出现的问题。
       - uses: astral-sh/setup-uv@v5
