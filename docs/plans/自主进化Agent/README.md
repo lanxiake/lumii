@@ -2,7 +2,7 @@
 
 设计见 [`../../design/自主进化Agent/`](../../design/自主进化Agent/)。
 
-**状态**：P0/P1 已完成，P2 代码已落地待接线，P3 设计阶段。
+**状态**：P0/P1 已完成。P2 四个协同算法模块（scheduler / frontier / detector / shapley）**代码已落地但仍零业务消费**。P3 主线 B（审批链路）模块已写完但**未接线**（`apps/windows/src` 对 `ApprovalQueue` 等零引用）；主线 A（协同闭环）**未开工**；主线 C 门控未启动。
 
 ## 文档
 

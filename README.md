@@ -188,7 +188,7 @@ lumii/
 
 | 领域 | 选型 | 备注 |
 |------|------|------|
-| **Agent 内核** | `@earendil-works/pi-agent-core` 0.87.1 | pnpm override 锁版（升级后不再需要本地补丁） |
+| **Agent 内核** | `@earendil-works/pi-agent-core` 1.1.0 | pnpm override 锁版（升级后不再需要本地补丁） |
 | **存储** | `node:sqlite` 原生 + `better-sqlite3` 12.8 回退 | 自动备份（每日 3:00，保留 10 份）+ 损坏自愈 |
 | **桌宠渲染** | `pixi.js` 6.5.10 + `pixi-live2d-display` 0.4.0 | **版本锁死**，升级必测 Cubism 4 兼容性 |
 | **浏览器自动化** | `playwright-core` 1.58.1 | app 与 browser-control 包必须同版本 |
@@ -390,27 +390,28 @@ lumii/
 
 ## 六、待完善的地方
 
+> 本节只列**当前仍然成立**的欠账。活账本另有两处，以它们为准：`pnpm check:large-files`（大文件棘轮基线）、`pnpm check:wiring`（未接线/死代码基线）。重构总账见 [`docs/plans/代码重构/`](docs/plans/代码重构/)。
+
 ### 6.1 已知工程债
 
-1. **主进程入口过大**：`src/main/index.ts` 仍 3000+ 行，需按模块拆成 bootstrap 序列
-2. **Preload 单文件**：`src/preload/index.ts` 1700+ 行，应按 domain 分片 + 自动生成类型
-3. **遗留路径文案**：部分 `.env.example` / 注释仍写旧目录 `~/.mtbot-client`，需全局统一为 `~/.lumii`（`client-data-root.ts` 为准）
-4. **E2E 覆盖率低**：`pnpm test:e2e` 仅跑 `e2e/memory/memory-management.spec.ts`
-5. **测试命令不一致**：`vitest.config.include` 是 `src/**/*.test.ts(x)`，但 `pnpm test` 只跑 `src/test`；`src/main/**` 下的同目录测试需显式命令
+1. **大文件存量**：`pnpm check:large-files` 记 49 个文件 >800 行，最大者 `bridge.ts` 4457 行、`sync-manager.ts` 2175、`ChatPage.tsx` 1962、`index.ts` 1944、`preload/index.ts` 1325。守卫只禁继续变大，不要求立刻拆。
+2. **更新器 renderer 未接线**：主进程 `updater-service.ts` 已真实封装 electron-updater，preload 亦已暴露；但 `UpdaterView.tsx` 仍是假实现（假进度条 + 谎报「已是最新」）。属接线缺口，非实现缺口。
+3. **E2E 命令是死的**：`pnpm test:e2e` 指向 `e2e/memory/memory-management.spec.ts`，但 `apps/windows/e2e/` 目录不存在（未入库）。
+4. **测试命令不一致**：`pnpm test` 只跑 `src/test`，全量要走 `pnpm test:all`（`vitest run`）。
+5. **本地提交无门禁**：`.githooks/pre-commit` 是 `exit 0`，把关全在 CI。
 
 ### 6.2 功能缺口
 
-- **桌宠物理交互**：当前纯 2D Live2D，碰撞检测、拖拽惯性、桌面穿透等未完成
-- **跨平台**：目前仅 Windows，macOS / Linux 的 shell 适配器、托盘、原生模块需补
-- **多显示器 DPI**：桌宠窗口在高分屏跨屏拖动坐标换算未覆盖所有缩放组合
-- **模型价格表**：`model-pricing.ts` 覆盖不全，新模型（o3、Claude 3.7 Sonnet…）需补
-- **自动更新**：`updater-service.ts` 已接入 electron-updater，但签名 & 发布流未打通
+- **自动更新流水线**：签名 & 发布流未打通（另有上条 renderer 接线）
+- **图片处理**：`image:process` 后端对所有操作直接抛「尚未实现」；前端三条策略（美化/超分/抠图）为占位
+- **跨平台**：macOS 客户端未做；Linux 见 [`docs/plans/Linux客户端移植/`](docs/plans/Linux客户端移植/)
+- **模型价格表**：`apps/windows/src/shared/model-pricing.ts` 覆盖不全，新模型需补
 
 ### 6.3 性能优化
 
-- **首屏启动**：主进程 3000+ 行同步初始化 + SQLite 首次打开 VACUUM，冷启动需 3-5s
-- **长对话渲染**：1000+ 条消息的虚拟滚动还未做，滚动明显卡顿
-- **上下文压缩**：摘要压缩策略还偏保守，高 token 成本可进一步下降
+- **长对话渲染**：虚拟滚动未做（全仓无 `react-window`/`react-virtuoso`），千条消息为全量 DOM
+- **工作区快照降级**：文件数超 5000 时全量哈希降级为 size+mtime 伪哈希，判据会漏判同尺寸改写
+- **上下文压缩**：摘要策略仍偏保守，token 成本可再降
 
 ---
 
