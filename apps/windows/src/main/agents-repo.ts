@@ -69,6 +69,11 @@ export interface AgentRecord {
    * 回复型 Agent（如「灵栖代聊」）用它把自己从通用运行时契约里摘出来。
    */
   disabledPromptSections?: string[]
+  /**
+   * 回合上限。**必须是顶层**：`mapApiRecordToAgentDefinition` 只读顶层的 `raw.maxTurns`
+   * （见下面 `definition` 的说明），写进 `definition` 子对象不会生效。
+   */
+  maxTurns?: number
   /** 只读定义详情（系统 Agent 由内置定义镜像；用户 Agent 无此字段） */
   definition?: AgentDefinitionDetail
   createdAt: string
@@ -211,6 +216,7 @@ export function createUserAgentRecord(data: {
   description?: string
   systemPrompt?: string
   disabledPromptSections?: string[]
+  maxTurns?: number
 }): AgentRecord {
   const users = loadUserAgents()
   if (users.some((a) => a.id === data.id)) throw new Error(`用户 Agent 已存在: ${data.id}`)
@@ -221,6 +227,7 @@ export function createUserAgentRecord(data: {
     ...(data.description ? { description: data.description } : {}),
     systemPrompt: data.systemPrompt,
     ...(data.disabledPromptSections ? { disabledPromptSections: data.disabledPromptSections } : {}),
+    ...(data.maxTurns !== undefined ? { maxTurns: data.maxTurns } : {}),
     isEnabled: true,
     isDefault: false,
     userId: LOCAL_USER_ID,

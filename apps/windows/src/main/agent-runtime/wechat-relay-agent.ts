@@ -85,6 +85,17 @@ export const RELAY_DISABLED_PROMPT_SECTIONS = [
 ] as const
 
 /**
+ * 代聊回合的**兜底上限**（见 agent-instance.ts 的 `maxTurns`）。
+ *
+ * 正常代聊回合是 3 次模型往返（实测：读历史 → 发一条 → 收尾）。这里给 20，是正常量的
+ * 六倍多，只在模型不收手时兜底。为什么必须有：`task_complete` 曾经**不终止回合**，
+ * 模型于是把上下文里那条旧触发当成新消息反复重处理——2026-10-12 实测一个回合 109 次
+ * 往返 / 3 分 20 秒 / 1089 万 inputTokens。`task_complete` 现在带 `terminate` 了，
+ * 这里是第二道；内置 Agent 全都设了 maxTurns（30~80），代聊是唯一漏网的那个。
+ */
+export const RELAY_MAX_TURNS = 20
+
+/**
  * 现有记录该补的运行时旋钮；已经是目标值就返回 null（别每启动一次白写一次库）。
  *
  * 为什么要单独一步：`ensureWechatRelayAgent` 是 `seedIfAbsent`，只在**不存在**时播种，
@@ -92,11 +103,15 @@ export const RELAY_DISABLED_PROMPT_SECTIONS = [
  * 「收敛提示词」就只在全新安装上生效。
  */
 export function relayRecordKnobs(
-  rec: Pick<AgentRecord, 'disabledPromptSections'>,
-): { disabledPromptSections: string[] } | null {
+  rec: Pick<AgentRecord, 'disabledPromptSections' | 'maxTurns'>,
+): { disabledPromptSections?: string[]; maxTurns?: number } | null {
+  const patch: { disabledPromptSections?: string[]; maxTurns?: number } = {}
   const want = [...RELAY_DISABLED_PROMPT_SECTIONS]
-  const has = rec.disabledPromptSections ?? []
-  return has.join(',') === want.join(',') ? null : { disabledPromptSections: want }
+  if ((rec.disabledPromptSections ?? []).join(',') !== want.join(',')) {
+    patch.disabledPromptSections = want
+  }
+  if (rec.maxTurns !== RELAY_MAX_TURNS) patch.maxTurns = RELAY_MAX_TURNS
+  return Object.keys(patch).length ? patch : null
 }
 
 /**
@@ -282,6 +297,8 @@ export interface EnsureRelayAgentDeps {
     description?: string
     systemPrompt?: string
     disabledPromptSections?: string[]
+    /** 回合上限（见 RELAY_MAX_TURNS）。写进记录的**顶层**，运行时映射只认顶层。 */
+    maxTurns?: number
   }) => AgentRecord
 }
 
@@ -433,6 +450,7 @@ export function ensureWechatRelayAgent(
       '本机微信代聊（盯梢回路的执行主体）：按设置页「渠道 → 本机微信」的回复名单与护栏分档代回。不用于通用对话。',
     systemPrompt: buildRelaySystemPrompt(),
     disabledPromptSections: [...RELAY_DISABLED_PROMPT_SECTIONS],
+    maxTurns: RELAY_MAX_TURNS,
   })
   return { created: true, id: WECHAT_RELAY_AGENT_ID }
 }

@@ -732,9 +732,10 @@ export function buildAutoPrompt(
     '发送成不成**不用你自己去验**：回路的读库实测会判定这一轮到底发出去没有；',
     '发不出去的那条系统已经排队，手一回来会自己补发。把该说的话说完就**到此为止**。',
     '',
-    // 同 `buildOwnerPrompt` 的收尾指令：`task_complete` **不终止回合**（纯通知工具），
-    // 少了明确的收尾信号时，模型会把上下文里这条触发**当成新消息反复重处理**——
-    // 那里有实测量级（一次自聊 hello → 35 次工具调用 / 3 分钟 / 两条重复回复）。
+    // 同 `buildOwnerPrompt` 的收尾指令。**这段和 task_complete 的 `terminate` 是一对**：
+    // 光有 terminate 而没有「不会有新的」这句，模型仍会去轮询找漏（白烧 token）；
+    // 光有这句而没有 terminate，模型调完 task_complete 回合作罢不了，就**再调一次**，
+    // 一路空转（2026-10-12 微信代聊实测：一个回合 109 次模型往返 / 3 分 20 秒）。
     '【收尾】以上是本轮**全部**触发消息，**不会有新的**。办完就调 `task_complete` 收手：',
     '不要回头重读消息、不要把同一条**再处理一遍**、也不要为了"查有没有漏"去轮询或翻库。',
   ]
@@ -780,8 +781,9 @@ export function buildOwnerPrompt(
     // 引出 71 个 part（36 思考 + 35 次工具调用）、跑满 3 分钟、发了两条互为重复的回复
     // （`agent-runtime.db` 里那条 assistant 消息就是证据，模型自己的思考原文写着
     // 「I keep responding to repeated trigger messages… and each response just continues the loop」）。
-    // `task_complete` **不终止回合**（它是纯通知工具，见 task-complete-tool.ts），
-    // 而 `StuckGuard` 的两条判据都认不出这种"每次调用都不一样"的空转，所以只能在这儿说死。
+    // 当天只有这句提示词挡着，2026-10-12 又原样复发一次（109 次往返 / 1089 万 inputTokens）——
+    // 提示词挡不住空转，所以 `task_complete` 现在带 `terminate: true`（见 task-complete-tool.ts），
+    // 代聊 Agent 也补上了 `maxTurns`。这句留着是因为它管的是**另一半**：别回头翻库找漏。
     '【收尾】以上是本轮**全部**触发消息，**不会有新的**。办完就调 `task_complete` 收手：',
     '不要回头重读消息、不要把同一条**再处理一遍**、也不要为了"查有没有漏"去轮询或翻库。',
   ]

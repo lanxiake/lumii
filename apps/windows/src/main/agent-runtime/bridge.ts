@@ -2589,12 +2589,20 @@ export class AgentRuntimeBridge {
         updateAgentRecord(WECHAT_RELAY_AGENT_ID, { systemPrompt: upgraded.prompt })
         log.info(`[bridge] 「灵栖代聊」已升级：${upgraded.applied.join('、')}`)
       }
-      // M4：提示词段落收敛（回复型 Agent 关掉任务/协作/产物那批通用段）。
+      // M4：提示词段落收敛（回复型 Agent 关掉任务/协作/产物那批通用段）+ 回合上限兜底。
       // 播种是 seedIfAbsent，老记录只能在这里补——幂等，一致就不写库。
       const knobs = rec ? relayRecordKnobs(rec) : null
       if (knobs) {
         updateAgentRecord(WECHAT_RELAY_AGENT_ID, knobs)
-        log.info(`[bridge] 「灵栖代聊」已收敛提示词段落：关掉 ${knobs.disabledPromptSections.length} 段`)
+        log.info(
+          `[bridge] 「灵栖代聊」已补运行时旋钮：` +
+            [
+              knobs.disabledPromptSections && `关掉 ${knobs.disabledPromptSections.length} 段`,
+              knobs.maxTurns !== undefined && `maxTurns=${knobs.maxTurns}`,
+            ]
+              .filter(Boolean)
+              .join('、'),
+        )
       }
     } catch (err) {
       log.warn('[bridge] 代聊 Agent 播种失败（不影响启动，回路会退回每轮注入程序分区护栏）:', err)

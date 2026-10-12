@@ -13,6 +13,7 @@ import {
   buildRelaySystemPrompt,
   ensureWechatRelayAgent,
   RELAY_DISABLED_PROMPT_SECTIONS,
+  RELAY_MAX_TURNS,
   RELAY_OWNED_END,
   RELAY_OWNED_START,
   RELAY_WORKFLOW_MARKER,
@@ -215,8 +216,13 @@ describe('ensureWechatRelayAgent', () => {
 
   it('不存在 → 建一条，护栏（程序分区）就在 systemPrompt 里，段落收敛一并落盘', () => {
     const createAgent = vi.fn(
-      (d: { id: string; name: string; systemPrompt?: string; disabledPromptSections?: string[] }) =>
-        existing(d),
+      (d: {
+        id: string
+        name: string
+        systemPrompt?: string
+        disabledPromptSections?: string[]
+        maxTurns?: number
+      }) => existing(d),
     )
     const res = ensureWechatRelayAgent({ getAgent: () => undefined, createAgent })
     expect(res).toEqual({ created: true, id: WECHAT_RELAY_AGENT_ID })
@@ -227,6 +233,9 @@ describe('ensureWechatRelayAgent', () => {
     expect(data.systemPrompt).toContain('软回')
     // 播种时就带上，否则第一次启动后要等下一轮 sync 才收敛
     expect(data.disabledPromptSections).toEqual([...RELAY_DISABLED_PROMPT_SECTIONS])
+    // 回合上限同理。写顶层：`api-agent-mapper` 只认顶层的 maxTurns
+    // （写进 `definition` 子对象等于没写，见 agents-repo 的 AgentRecord 注释）
+    expect(data.maxTurns).toBe(RELAY_MAX_TURNS)
   })
 
   it('已存在 → 一个字都不写（设置页里那份才是真源）', () => {
@@ -275,11 +284,21 @@ describe('RELAY_DISABLED_PROMPT_SECTIONS（M4 段落收敛）', () => {
 })
 
 describe('relayRecordKnobs（老记录补旋钮）', () => {
+  const atTarget = {
+    disabledPromptSections: [...RELAY_DISABLED_PROMPT_SECTIONS],
+    maxTurns: RELAY_MAX_TURNS,
+  }
+
   it('缺字段 / 与目标不一致 → 给出目标值；一致 → null（不白写一次库）', () => {
     expect(relayRecordKnobs({})?.disabledPromptSections).toEqual([...RELAY_DISABLED_PROMPT_SECTIONS])
     expect(relayRecordKnobs({ disabledPromptSections: ['taskCompletion'] })).not.toBeNull()
-    expect(
-      relayRecordKnobs({ disabledPromptSections: [...RELAY_DISABLED_PROMPT_SECTIONS] }),
-    ).toBeNull()
+    expect(relayRecordKnobs(atTarget)).toBeNull()
+  })
+
+  // 只有 maxTurns 缺的老记录（2026-10-12 之前播种的**全部**老记录）也必须被补上，
+  // 否则「代聊回合有上限」只在全新安装上生效——上一版正是这么漏掉 disabledPromptSections 的。
+  it('只缺 maxTurns 的老记录也补 maxTurns', () => {
+    const patch = relayRecordKnobs({ disabledPromptSections: [...RELAY_DISABLED_PROMPT_SECTIONS] })
+    expect(patch).toEqual({ maxTurns: RELAY_MAX_TURNS })
   })
 })
