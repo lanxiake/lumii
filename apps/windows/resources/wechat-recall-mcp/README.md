@@ -24,7 +24,8 @@
 ```bash
 wechat-recall-mcp.exe --install-autostart   # 写 HKCU Run，开机自启（一次即可）
 wechat-recall-mcp.exe --daemon              # 或手动前台跑（--interval 30 可调）
-wechat-recall-mcp.exe --status              # 查状态（归档条数 / 水位 / 缺口 / 自启）
+wechat-recall-mcp.exe --daemon --retain-days 365   # 可选：只留一年（默认 0 = 永不删）
+wechat-recall-mcp.exe --status              # 查状态（归档条数 / 体积 / 缺口 / 自启）
 wechat-recall-mcp.exe --uninstall-autostart
 ```
 
@@ -39,10 +40,13 @@ wechat-recall-mcp.exe --uninstall-autostart
 
 | 工具 | 说明 |
 |---|---|
-| `daemon_status()` | 守护在不在跑 / 归档条数 / 水位 / 缺口数 / 是否已自启 |
-| `list_recalls(talker?, since?, until?, limit?)` | 被撤回/删除的消息（`reason`：`deleted`/`recalled`/`changed`） |
+| `daemon_status()` | 守护在不在跑 / 归档条数 / **体积** / 最早·最新一条 / 缺口数 / 是否已自启 |
+| `list_recalls(talker?, since?, until?, limit?)` | 被撤回/删除的消息（`reason`：`deleted`/`recalled`/`changed`）。`total` 是命中总数，与 `count` 不等说明被截断 |
 | `read_recall(talker, local_id)` | 取某条撤回消息的完整原文 |
-| `archive_gap()` | 归档漏记的时间段（关机等）——**如实报告，不假装全覆盖** |
+| `archive_gap()` | 归档漏记的时间段（关机/休眠）——**如实报告，不假装全覆盖** |
+
+`talker` 传会话**显示名**（如「文件传输助手」）或 wxid/群号都可以；解析不出唯一目标时返回
+`error_code=target_not_found`（**不是**"没有撤回"）。
 
 ## 怎么工作的
 
@@ -64,9 +68,17 @@ wechat-recall-mcp.exe --uninstall-autostart
 **为什么用变体集合而不是直接比 id**：实测 `local_id` 在每个会话内唯一（70 个表零重复），
 但跨分片理论上可能撞号；按变体集合比对，撞号时两侧一致 → 不误报（有专门单测兜）。
 
-**打底与缺口**：首次启动做一次全量打底（本机实测 4637 条 / 70 会话 / 约 3 秒），
+**打底与缺口**：首次启动做一次全量打底（本机实测 4696 条 / 70 会话 / 约 5 秒），
 之后每 30s 增量（每次多回扫 5 分钟接住异步落库的晚到行，`INSERT OR IGNORE` 保证幂等）。
-停机超过 3 个周期就落一条 `gap`。
+每拍都会看"上一拍距今多久"，超过 3 个周期就落一条 `gap`——**休眠不会让守护退出**
+（`time.sleep` 只是被挂起），只在开机时查一次的话，睡过去那段就是静默漏记。
+
+**每 24h 回头做一次全量对账**：增量只捞 `create_time > 水位 - 5 分钟`，而"落库晚、时间戳却更老"
+的行（换机/重新登录时微信补历史、离线消息成批落库）永远进不来；打底只做一次是补不上这个洞的。
+
+**归档库只增不减**，所以要控体积得自己指定：`--retain-days N`（默认 **0 = 永不删**）会在每天
+全量对账那一拍删掉 N 天前的归档并压实文件。代价是**如实存在的**——删掉的那段，之后发生的
+撤回/删除就查不到了。`daemon_status()` 的 `db_bytes` 能看出它涨多快（本机 4696 条 ≈ 1.9 MB）。
 
 ## 不支持的
 

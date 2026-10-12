@@ -30,9 +30,12 @@
 
 | 工具 | 说明 |
 |---|---|
-| `list_contacts(scope?, room?, keyword?, include_deleted?)` | 通讯录；`room=` 时列该群成员 |
+| `list_contacts(scope?, room?, keyword?, include_deleted?, limit?, offset?)` | 通讯录；`room=` 时列该群成员。默认只回 200 条，看 `total` 判断有没有被截断，用 `offset` 接着翻 |
 | `contact_stats(talker, since?, until?)` | 单会话：总条数 / 我发对方发 / 活跃小时 / 活跃天 Top / 首末 / 跨度 / 沉默天数 |
 | `interaction_rank(since?, until?, top?, sort?)` | 互动排行；`sort=recent` = 久未联系在前 |
+
+`talker` / `room` 传会话**显示名**（如「文件传输助手」）或 wxid/群号都可以；解析不出唯一目标时
+返回 `error_code=target_not_found`（**不是**"你俩没聊过"——那个"0 条"是能骗过模型的）。
 
 ## 怎么工作的
 
@@ -40,6 +43,7 @@
    系统名单→系统、其余→好友。
    **不按 `local_type`**——实测它语义不干净（`wxid_` 既有 1 也有 3，自定义用户名同样两档都有）。
 2. **群成员**：`chatroom_member` 给成员 id，join `contact` 取**全局**显示名（备注 > 昵称）。
+   列表**包含自己**（`is_me=true`）——否则"这个群几个人"与微信里对不上。
 3. **统计**：跨**所有分片**扫会话消息（微信 4.x 按时间滚动分片），只取 `create_time` 与发送者，
    在 Python 里聚合。
 

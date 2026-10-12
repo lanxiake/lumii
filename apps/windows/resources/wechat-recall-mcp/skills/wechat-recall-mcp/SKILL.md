@@ -61,6 +61,8 @@ wechat-recall-mcp.exe --status              # 查状态
 
 ## 4. 硬约束
 
+- **会话名对不上要问，不要当空结果**：`talker`/`room` 解析不出**唯一**目标时返回 `error_code=target_not_found`——那是「名字没对上」，**不是**「没有数据」。换成确切会话名或 wxid/群号再试；**别把 `count: 0` 直接讲给用户听**。
+
 - **绝不编造撤回内容**：查不到就说查不到，并说明原因（守护没跑 / 在缺口里 / 早于守护启用）。
 - `daemon_status` 里 `backfilled` 为 false 说明打底还没完成——先让用户等它跑完。
 - 归档库（`~/.lumii/wechat-recall/archive.db`）含他人隐私：**本地、不外传**。

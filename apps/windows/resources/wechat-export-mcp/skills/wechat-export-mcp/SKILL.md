@@ -59,6 +59,8 @@ claude mcp add wechat-export -s user -- "C:\完整路径\wechat-export-mcp.exe"
 
 ## 4. 硬约束
 
+- **会话名对不上要问，不要当空结果**：`talker`/`room` 解析不出**唯一**目标时返回 `error_code=target_not_found`——那是「名字没对上」，**不是**「没有数据」。换成确切会话名或 wxid/群号再试；**别把 `count: 0` 直接讲给用户听**。
+
 - `talker` 不唯一时**不要猜**——用 `list_sessions` 让用户确认，导错会话就是把别人的私聊给了用户。
 - `out_dir` 由用户指定，别自己挑目录。
 - 记录含他人隐私：**本地导出**。要发给第三方或送去云端分析前**先问用户**（如实说明那是外传）。

@@ -60,6 +60,8 @@ claude mcp add wechat-file -s user -- "C:\完整路径\wechat-file-mcp.exe"
 
 ## 4. 硬约束
 
+- **会话名对不上要问，不要当空结果**：`talker`/`room` 解析不出**唯一**目标时返回 `error_code=target_not_found`——那是「名字没对上」，**不是**「没有数据」。换成确切会话名或 wxid/群号再试；**别把 `count: 0` 直接讲给用户听**。
+
 - 归档**只拷贝**，绝不移动/删除微信原文件。
 - `out_dir` 必须由用户指定或确认，别自己挑目录。
 - 过期文件（`missing`）**不要**反复重试——服务器端拿不到就是拿不到。

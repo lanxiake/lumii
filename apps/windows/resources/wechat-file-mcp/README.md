@@ -30,11 +30,17 @@ Windows x64 + Node 18+（或用独立 exe，不需要 Node/Python）：
 
 | 工具 | 说明 |
 |---|---|
-| `list_files(talker?, since?, until?, types?, keyword?, only_missing?)` | 列文件消息 + 磁盘定位。`only_missing=true` = **过期预警** |
+| `list_files(talker?, since?, until?, types?, keyword?, only_missing?, limit?)` | 列文件消息 + 磁盘定位。`only_missing=true` = **过期预警**。默认只回**最近 500 条**，看 `total`/`count` 判断有没有被截断 |
 | `archive_files(out_dir, talker?, since?, until?, types?, layout?, dry_run?)` | 拷贝归档；`dry_run=true`（默认）只出计划 |
 
 `layout`：`by_session`（默认，每会话一个子目录）/ `by_type` / `flat`。
 每条文件的 `status`：`ok` 可归档 / `size_mismatch` 同名但大小不符（可能另一版本）/ `missing` 过期或未下载。
+归档侧另有两种**不落盘新内容**的状态：`exists` 目标已是同一份（重跑幂等，不重拷）、
+`dedup` 同一磁盘文件被多条消息引用（只拷一次）。
+
+**归档绝不覆盖**：目标已存在又是**另一版本**（大小不同）→ 另存为带时间戳的名字。
+`talker` 传会话**显示名**（如「文件传输助手」）或 wxid/群号都可以；解析不出唯一目标时返回
+`error_code=target_not_found`（**不是**"0 条"）。
 
 ## 怎么工作的（一条链）
 
@@ -42,7 +48,7 @@ Windows x64 + Node 18+（或用独立 exe，不需要 Node/Python）：
    带 `title`(文件名) / `totallen`(大小) / `fileext`。
 2. 磁盘：文件本体在 `msg/file/<YYYY-MM>/<文件名>`，与消息 `title` **同名**；
    同名用 `totallen` 对大小消歧，少量文件带 `YYYYMMDD` 前缀（按别名命中）。
-3. 关联率：真机实测 140 条文件消息 → 132 条可定位（94%），其余 8 条是**未下载/已过期**。
+3. 关联率：真机实测 145 条文件消息 → 137 条可定位（94%），其余 8 条是**未下载/已过期**。
 
 ## 不支持的
 
@@ -54,12 +60,14 @@ Windows x64 + Node 18+（或用独立 exe，不需要 Node/Python）：
 
 | 文件 | 作用 |
 |---|---|
-| `server.py` | MCP 入口（stdio JSON-RPC）+ 2 个工具 |
+| `server.py` | MCP 入口 + 2 个工具（协议层在共享层，本文件不含 JSON-RPC 循环） |
 | `filecore.py` | 核心逻辑（纯函数，可单测）：文件消息解析、磁盘映射、归档 |
 | `test_filecore.py` | 单测（纯函数 + 真机只读冒烟，无微信库时跳过） |
 | `skills/wechat-file-mcp/SKILL.md` | 给别的 AI 客户端看的技能包 |
 
-**共享基础层**：读取层（密钥扫描 / SQLCipher 解密 / 多分片镜像 / 路径发现）直接复用 `../wechat-mcp/`
-的模块，本包**不复制**——详见 `docs/design/渠道与CLI/2026-10-12-微信小工具MCP四件套设计.md`。
+**共享基础层**：读取层（密钥扫描 / SQLCipher 解密 / 多分片镜像 / 路径发现）与**协议层**
+（stdio JSON-RPC + 工具错误约定）直接复用 `../wechat-mcp/` 的模块（`wechat_core.py` /
+`mcp_stdio.py`），本包**不复制**——详见
+`docs/design/渠道与CLI/2026-10-12-微信小工具MCP四件套设计.md`。
 
 自检：`python test_filecore.py`（纯函数秒回 + 真机只读冒烟）。

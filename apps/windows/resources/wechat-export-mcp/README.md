@@ -36,6 +36,10 @@
 - `media`：`none`（默认）/ `images` / `all`（+语音 wav）。
 - `split`：`none`（默认）/ `month`（按月拆子目录）。
 - `transcribe_voice`：默认 `false`；需本机装语音识别模型，缺了就逐条跳过并计数。
+- 这三个枚举值**传错会被拒**（返回 `error_code=bad_args`），**不会静默降级**——否则
+  "参数打错"和"这批消息没图"在返回里分不出来。
+- `talker` 传会话**显示名**（如「文件传输助手」）或 wxid/群号都可以；解析不出唯一目标时返回
+  `error_code=target_not_found`（**不是**"这个会话没记录"）。
 
 ## 输出形态
 
