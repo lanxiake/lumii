@@ -251,7 +251,7 @@ Windows 上 PATH 里的 `%LOCALAPPDATA%\Microsoft\WindowsApps\python.exe` 是 Mi
 | 工具 | 说明 |
 |---|---|
 | `send_text(talker, text, dry_run)` | 发文本 —— **不需要前台，锁屏也能发**（窗口消息投递，不移动光标/剪贴板、不打断用户） |
-| `send_file(talker, path, dry_run)` | 发图片（内联）/ 文件 / 视频（按扩展名）—— 需窗口可见在前台 |
+| `send_file(talker, path, dry_run)` | 发文件/图片/视频——**不按扩展名分流**，一律走微信「发送文件」入口；**不需要前台，锁屏也能发** |
 | `send_batch(messages=[{talker,text}], dry_run)` | 群发（逐目标独立校验） |
 | `reply_to(talker, quote, text, dry_run)` | **引用回复**（`quote` 传被引用消息的文字定位） |
 | `wechat_profile_save(scope?, content)` | 存画像（Markdown，本地白盒）。本人那份用 `scope="self"`。⚠️ **整份覆盖写**（旧的只留一份 `.prev` 备份）——更新前先 `wechat_profile_get` 读回 |
@@ -259,7 +259,7 @@ Windows 上 PATH 里的 `%LOCALAPPDATA%\Microsoft\WindowsApps\python.exe` 是 Mi
 
 ## 7. 发送安全（fail-closed）
 
-发送前依次校验，任一不过即中止、**绝不盲发**：**环境**（微信运行、主窗口可见；`send_text` 不要求前台）→ **目标会话**（内容锚点 + 头部双印证，
+发送前依次校验，任一不过即中止、**绝不盲发**：**环境**（微信运行、主窗口可见；`send_text`/`send_file` 都不要求前台）→ **目标会话**（内容锚点 + 头部双印证，
 并新增"**头部更像别的会话即拒绝**"的通用反证与群成员昵称第三重印证）→ **输入落地** → **发送生效** → **读库确认**。
 失败返回稳定 `error_code` + 最后截图路径；跨进程文件锁保证一次只做一个 UI 操作。
 

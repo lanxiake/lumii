@@ -1372,6 +1372,9 @@ def suite_K():
            "locked": False, "weixin_running": True, "hwnd": 199150, "rect": [60, 40, 1280, 820]}
     NOHWND = {"ok": False, "reason": "找不到主窗口", "minimized": False, "visible": False,
               "locked": False, "weixin_running": True, "hwnd": 0, "rect": None}
+    # 2026-10-12 实测现场：`visible=True`、没最小化，但位置在桌面外
+    OFF = {**RUN, "ok": False, "onscreen": False, "reason": "主窗口被搬到桌面外",
+           "rect": [-32000, -32000, 440, 452]}
 
     def k1_proc():
         def run(_s, _m, _st):
@@ -1446,6 +1449,117 @@ def suite_K():
         with_stub([BAD, RUN], 199150, run, rect=(0, 0, 894, 578),
                   db=lambda: (r"C:\x\xwechat_files\wxid_a_1234\db_storage", "stub"))
     r.case("repair_env：尺寸异常 ⇒ 规范化窗口 + 重探数据目录并汇报", k9_repair_env_normalizes)
+
+    # ── 窗口被搬到桌面外（2026-10-12 实测）─────────────────────────────────────────
+    # 现场：`visible=True`、`iconic=False`、`rect=-32000,-32000 440x452`——Win32 眼里窗口一直
+    # "显示着"，于是微信自己的托图标 toggle 方向正好反了、任务栏点了也没反应，用户彻底找不回
+    # 微信界面。`-32000` 正是最小化窗口在 `GetWindowRect` 里的哨兵值（见 `_uia_origin`），
+    # 而发送收尾的「还原几何」会把它照抄回去 ⇒ 钉死。这组钉住：判据、搬回、以及**不许还原**。
+    def with_win(rect, fn, visible=True, iconic=False):
+        """真跑 `check_env`，只把窗口探针换掉（这层测的就是 check_env 自己的判据）。"""
+        moved = []
+        old = (snd.weixin_pids, snd.find_main_hwnd, snd.session_locked, snd.win_rect,
+               snd.u.IsWindowVisible, snd.u.IsIconic, snd.u.GetForegroundWindow,
+               snd.u.GetDpiForWindow, snd.u.MoveWindow, snd._virtual_screen,
+               core.list_accounts, core.self_wxid)
+        snd.weixin_pids = lambda: [19732]
+        snd.find_main_hwnd = lambda include_hidden=False: 199150
+        snd.session_locked = lambda: False
+        snd.win_rect = lambda h: rect
+        snd.u.IsWindowVisible = lambda h: visible
+        snd.u.IsIconic = lambda h: iconic
+        snd.u.GetForegroundWindow = lambda: 199150
+        snd.u.GetDpiForWindow = lambda h: 96
+        snd.u.MoveWindow = lambda h, x, y, w, hh, rp: moved.append((x, y, w, hh))
+        snd._virtual_screen = lambda: (0, 0, 2560, 1440)
+        core.list_accounts = lambda: []
+        core.self_wxid = lambda: None
+        try:
+            return fn(moved)
+        finally:
+            (snd.weixin_pids, snd.find_main_hwnd, snd.session_locked, snd.win_rect,
+             snd.u.IsWindowVisible, snd.u.IsIconic, snd.u.GetForegroundWindow,
+             snd.u.GetDpiForWindow, snd.u.MoveWindow, snd._virtual_screen,
+             core.list_accounts, core.self_wxid) = old
+
+    def k10_check_env_offscreen():
+        def run(_m):
+            st = snd.check_env()
+            assert st["visible"] and not st["minimized"], st
+            assert st["ok"] is False, "位置在桌面外就不算可用（原先只看 visible/minimized，会放行）"
+            assert "桌面外" in st["reason"], st["reason"]
+        with_win([-32000, -32000, 440, 452], run)
+    r.case("check_env：窗口在桌面外 ⇒ ok=False（不是「可见」就放行）", k10_check_env_offscreen)
+
+    def k11_check_env_normal_still_ok():
+        def run(_m):
+            st = snd.check_env()
+            assert st["ok"] and st["onscreen"], st
+            assert not st["reason"], st["reason"]
+        with_win([60, 40, 1280, 820], run)
+    r.case("check_env：正常窗口照样 ok（别把合规态也判成桌面外）", k11_check_env_normal_still_ok)
+
+    def k12_offscreen_judgement():
+        old = snd._virtual_screen
+        snd._virtual_screen = lambda: (-1920, 0, 4480, 1440)      # 左边挂了一台显示器
+        try:
+            assert snd._offscreen([60, 40, 1280, 820]) is False, "主屏可见区不算"
+            assert snd._offscreen([-1920, 0, 1920, 1080]) is False, "副屏的负坐标不算桌面外"
+            assert snd._offscreen([-32000, -32000, 440, 452]) is True, "最小化哨兵必须算"
+            assert snd._offscreen([5000, 100, 800, 600]) is True, "整窗在桌面右侧外"
+            assert snd._offscreen([100, -900, 800, 600]) is True, "整窗在桌面上方外"
+            assert snd._offscreen(None) is False, "位置读不到就不判"
+        finally:
+            snd._virtual_screen = old
+    r.case("桌面外判据：哨兵/整窗出界算，副屏负坐标不算", k12_offscreen_judgement)
+
+    def k13_wake_pulls_offscreen_back():
+        tray = []
+
+        def run(_s, moved, _st):
+            st = snd.wake_window(OFF)
+            assert st.get("ok") is True, f"该复检一遍再返回（不是把入参原样退回）：{st}"
+            assert tray == [], f"桌面外别去点托盘图标（那是可见性 toggle，方向正好反）：{tray}"
+            assert moved == [(60, 40, 440, 452)], f"该搬回预设原点、尺寸照旧：{moved}"
+        with_stub([RUN], 199150, run, rect=(-32000, -32000, 440, 452), tray=tray)
+    r.case("wake_window：桌面外 ⇒ 不点托盘、直接搬回可见区", k13_wake_pulls_offscreen_back)
+
+    def k14_restore_skips_offscreen():
+        moved = []
+        old = snd.u.MoveWindow
+        snd.u.MoveWindow = lambda h, x, y, w, hh, rp: moved.append((x, y, w, hh))
+        try:
+            snd._restore_geometry(199150, (-32000, -32000, 440, 452))
+            assert moved == [], f"桌面外的原位置不许还原（还原 = 把微信永久搬出屏幕）：{moved}"
+            snd._restore_geometry(199150, (0, 0, 894, 578))
+            assert moved == [(0, 0, 894, 578)], f"桌面内的原位置要照常还原：{moved}"
+        finally:
+            snd.u.MoveWindow = old
+    r.case("_restore_geometry：桌面外的原位置不还原", k14_restore_skips_offscreen)
+
+    def k15_win_exit_uses_guarded_restore():
+        # `Win()`（reply_to）退出时也得走同一个守卫，别再内联一份 MoveWindow
+        moved = []
+        old = snd.u.MoveWindow
+        snd.u.MoveWindow = lambda h, x, y, w, hh, rp: moved.append((x, y, w, hh))
+        try:
+            w = snd.Win()
+            w.h, w.orig = 199150, (-32000, -32000, 440, 452)
+            w.__exit__()
+            assert moved == [], f"Win 退出也不许把窗口还原到桌面外：{moved}"
+        finally:
+            snd.u.MoveWindow = old
+    r.case("Win.__exit__：桌面外的原位置同样不还原", k15_win_exit_uses_guarded_restore)
+
+    def k16_repair_env_pulls_back():
+        def run(_s, moved, _st):
+            out = snd.repair_env()
+            assert moved == [(60, 40, 1280, 820)], f"桌面外要搬回预设位置+尺寸：{moved}"
+            assert any("桌面外" in a for a in out["actions"]), out["actions"]
+            assert out["ok"], out  # 复检后该恢复可用
+        with_stub([OFF, RUN], 199150, run, rect=(-32000, -32000, 1280, 820),
+                  db=lambda: (r"C:\x\xwechat_files\wxid_a_1234\db_storage", "stub"))
+    r.case("repair_env：窗口在桌面外 ⇒ 搬回可见区（尺寸本来就合规也要搬）", k16_repair_env_pulls_back)
 
     return r
 

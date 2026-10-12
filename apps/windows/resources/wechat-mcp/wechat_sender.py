@@ -303,6 +303,66 @@ def win_rect(h):
     return r.L, r.T, r.R - r.L, r.B - r.T
 
 
+# ============================================================================
+# 「窗口在桌面外（用户看不见）」的判据
+# ----------------------------------------------------------------------------
+# 2026-10-12 实测现场：主窗口处在「`IsWindowVisible=1`、`IsIconic=0`、`GetWindowRect`
+# 报 `-32000,-32000 440x452`」的态——**Win32 眼里它一直"显示着"**，于是：
+#   · 微信自己的托盘图标按可见性 toggle，点一下反而是"藏起来"，点回来还是那个桌面外坐标；
+#   · 任务栏也点不出来（缩略图有、点了什么也看不见）。
+# 这个态之所以能留下来，是因为 `check_env` 原先只看 `visible/minimized`（全"正常"），
+# 发送路径把它当可用窗口用，收尾的「还原几何」又把读到的哨兵坐标**照抄回去**
+# （见 `_restore_geometry`）——越用越钉死。所以这里补上位置判据。
+# `-32000` 同时是最小化窗口在 `GetWindowRect` 里的哨兵值（见 `_uia_origin` 的实测记录），
+# 两者在数值上无法区分，一律按"看不见"处理。
+# ============================================================================
+_SENTINEL = -30000          # 哨兵放宽一档：「真的 -32000」与「搬到很左边」不该各判一次
+
+
+def _virtual_screen():
+    """虚拟桌面（所有显示器）的 `(x, y, w, h)`；问不到返回全 0。"""
+    try:
+        return (int(u.GetSystemMetrics(76)), int(u.GetSystemMetrics(77)),    # X/YVIRTUALSCREEN
+                int(u.GetSystemMetrics(78)), int(u.GetSystemMetrics(79)))    # CXV/CYVIRTUALSCREEN
+    except Exception:
+        return (0, 0, 0, 0)
+
+
+def _offscreen(rect):
+    """这个 `(l, t, w, h)` 用户看得见吗？返回 True = 在可见区外（含最小化哨兵）。
+
+    判据用**几何**而不是 `IsWindowVisible`/`IsIconic`：它们在本函数要拦的那个态里全是"正常"。
+    多显示器的负坐标不算桌面外——比的是整个虚拟桌面，不是主屏。
+    """
+    if not rect or len(rect) < 4:
+        return False                       # 位置读不到就别乱判
+    x, y, w, ht = rect[0], rect[1], rect[2], rect[3]
+    if x <= _SENTINEL or y <= _SENTINEL:
+        return True                        # 最小化哨兵 / 被搬到很远
+    vx, vy, vw, vh = _virtual_screen()
+    if vw <= 0 or vh <= 0:
+        return False                       # 问不到桌面尺寸，就说不了"在桌面外"
+    return (x + max(w, 1) <= vx or x >= vx + vw
+            or y + max(ht, 1) <= vy or y >= vy + vh)
+
+
+def _bring_onscreen(h, rect=None):
+    """把被搬到桌面外的窗口拉回可见区——**只动位置**，尺寸照旧（尺寸归 `_repair_geometry_for_send`）。
+
+    落点是预设的 `NX, NY`：坐标类布局本来就按这个原点标定，搬到别处下一次发送还得再搬一次。
+    尺寸读不到时用预设尺寸，别搬出个 0×0 的窗口。返回落地后的 `(l, t, w, h)`。
+    """
+    l, t, w, ht = (rect or win_rect(h))
+    if w <= 0 or ht <= 0:
+        w, ht = NW, NH
+    try:
+        u.MoveWindow(ctypes.c_void_p(h), NX, NY, w, ht, True)
+        time.sleep(0.4)
+    except Exception:
+        pass
+    return win_rect(h)
+
+
 def weixin_pids():
     """微信进程 PID 列表（用于判断「是否在运行」）。"""
     try:
@@ -912,7 +972,8 @@ def check_env():
     「验证完成再进行操作」——任何 UI 操作前先跑这个，`ok=False` 就绝不动作。
     """
     info = {"weixin_running": False, "pids": [], "hwnd": 0, "visible": False, "minimized": False,
-            "foreground": False, "locked": False, "rect": None, "size": None, "ratio": None, "dpi": None,
+            "foreground": False, "locked": False, "onscreen": False,
+            "rect": None, "size": None, "ratio": None, "dpi": None,
             "target_size": [NW, NH], "ok": False, "reason": "", "deps": core.deps(),
             # 微信 4.x 可能整条生命周期都不向 UIA 暴露控件树（见 `read_uia` / `_uia_tree_blank`）。
             # 一旦本进程观察到，目标确认就只剩帧判据这一条路——报出来，别让「发不出去」变成玄学。
@@ -938,6 +999,7 @@ def check_env():
     info["foreground"] = (int(u.GetForegroundWindow()) == h)
     l, t, w, ht = win_rect(h)
     info["rect"] = [l, t, w, ht]
+    info["onscreen"] = not _offscreen(info["rect"])
     info["size"] = [w, ht]
     info["ratio"] = round(w / ht, 3) if ht else None
     try:
@@ -952,13 +1014,17 @@ def check_env():
         info["reason"] = "主窗口不可见（已收进托盘；发送时会先自动还原一次）"
     elif info["minimized"]:
         info["reason"] = "主窗口已最小化（发送时会先自动还原一次）"
+    elif not info["onscreen"]:
+        # ⚠️ `visible`/`minimized` 在这条路上全是"正常"，只有位置能说明问题（见 `_offscreen`）
+        info["reason"] = (f"主窗口被搬到桌面外（位置 {l},{t}，用户看不见；"
+                          "发送时会先搬回可见区）")
     else:
         info["ok"] = True
     return info
 
 
 def wake_window(st=None):
-    """主窗口最小化 / 被收进托盘时把它还原出来，再复检一遍环境。返回**复检后**的 check_env()。
+    """主窗口最小化 / 收进托盘 / **被搬到桌面外**时把它弄回可见，再复检一遍环境。返回**复检后**的 check_env()。
 
     为什么发送路径要自己恢复：`check_env` 那道严格闸门是给**报告**用的（如实告诉调用方
     环境如何），但无人值守的代聊回路里「窗口不在 ⇒ 永远发不出去」是死锁——用户
@@ -974,14 +1040,25 @@ def wake_window(st=None):
     真的恢复不了的不硬来：微信没运行、或连句柄都拿不到（未登录），照旧拒发。
     """
     st = st or check_env()
-    # 窗口本来就可用（visible 且非最小化）就别碰它——锁屏那条理由不是窗口的错，平白动一下没意义
-    if st.get("ok") or (st.get("visible") and not st.get("minimized") and st.get("hwnd")):
+    # 窗口本来就可用（visible 且非最小化**且位置在可见区**）就别碰它——锁屏那条理由不是窗口的错，
+    # 平白动一下没意义。位置那一项不能省：被搬到桌面外的窗口 `visible/minimized` 全是"正常"，
+    # 少了它就是"看着能用、其实用户根本看不见"（正是 2026-10-12 那次的现场）。
+    if st.get("ok") or (st.get("visible") and not st.get("minimized") and st.get("hwnd")
+                        and not _offscreen(st.get("rect"))):
         return st
     if not st.get("weixin_running"):
         return st
     h = st.get("hwnd") or find_main_hwnd(include_hidden=True)
     if not h:
         return st
+    if _offscreen(st.get("rect")):
+        # 被搬到桌面外：**别走托盘图标那条路**。窗口此刻 `IsWindowVisible=1`，而托盘图标是按
+        # 可见性 toggle 的——点一下很可能变成"藏起来"，越点越乱（这就是用户点不出来的原因）。
+        # 位置是唯一能确定修好的东西：直接搬回可见区。
+        _bring_onscreen(h)
+        _ENV["restored"] = True
+        time.sleep(0.9)
+        return check_env()
     # 隐藏（托盘）或最小化：**必须经微信自己的「显示 + 激活」**（托盘图标 InvokePattern）才能活——
     # `SW_SHOWNOACTIVATE` / `SW_RESTORE` 出来的窗口「只渲染、不收输入」：帧看着完全正常（左列、
     # 聊天区、表头都在），但投递点击、真实点击全无反应：切不了会话、搜索出不来、正文投不进去
@@ -997,9 +1074,10 @@ def wake_window(st=None):
 def env_gate(allow_locked=False):
     """发送入口的统一闸门：(ok, st)。窗口最小化 / 收进托盘时先自还原一次再判定。
 
-    allow_locked=True 给**全投递**的文本路径用：锁屏只挡得住 SendInput（模拟键鼠），
+    allow_locked=True 给**全投递**路径用（文本与附件同一条）：锁屏只挡得住 SendInput（模拟键鼠），
     挡不住 PostMessage 投递 —— 实测锁屏下搜索/切会话/输入/发送全通，不该拦。
-    附件路径仍用默认的 False：它靠剪贴板 + Ctrl+V，是真的 SendInput，锁屏时够不着。
+    ⚠️ 附件早期走「剪贴板 + Ctrl+V」，那时必须 False；现已改为文件对话框投递（见
+    `send_attachment` 头注释），两个调用点都传 True，别照旧注释改回去。
 
     ⚠️ 放行只针对**锁屏这一条理由**，不能连「窗口根本读不了」一起放掉：窗口恢复不出来时
     `PrintWindow` 拍出来是空白，投递照样跑不动，却会一路重试到 MCP 客户端超时——而超时不是
@@ -1007,7 +1085,8 @@ def env_gate(allow_locked=False):
     锁屏 + 最小化，send_text 跑满 30.006s 被超时杀掉）。所以逐条要求窗口本身可用。
     """
     st = wake_window()
-    win_usable = bool(st.get("visible")) and not st.get("minimized") and bool(st.get("hwnd"))
+    win_usable = (bool(st.get("visible")) and not st.get("minimized") and bool(st.get("hwnd"))
+                  and bool(st.get("onscreen", True)))
     if allow_locked and st.get("locked") and win_usable:
         st = dict(st, ok=True)
     return bool(st["ok"]), st
@@ -1039,12 +1118,13 @@ def preflight(need_foreground=False, fix=False, allow_locked=True):
         return False, "proc", "环境前置检查未通过：未检测到微信进程（Weixin.exe 未运行）", info
     if info["locked"] and not allow_locked:
         return False, "foreground", "窗口前置检查未通过：电脑已锁屏（锁屏期间无法模拟键鼠；解锁后自动补发）", info
-    if not info["hwnd"] or not info["visible"] or info["minimized"]:
-        info = wake_window(info)                       # 最小化/收起 → 还原一次再复检
+    if not info["hwnd"] or not info["visible"] or info["minimized"] or not info.get("onscreen", True):
+        info = wake_window(info)                       # 最小化/收起/挪出屏幕 → 还原一次再复检
     if not info.get("hwnd"):
         return False, "window", "环境前置检查未通过：找不到微信主窗口（可能未登录）", info
-    if not info.get("visible") or info.get("minimized"):
-        return False, "restore", "环境前置检查未通过：微信主窗口不可见（收进托盘或最小化）且还原失败", info
+    if not info.get("visible") or info.get("minimized") or not info.get("onscreen", True):
+        return False, "restore", ("环境前置检查未通过：微信主窗口不可见（收进托盘、最小化或被搬到"
+                                  "桌面外）且还原失败"), info
     h = info["hwnd"]
     size_ok = _size_canonical(info.get("rect"))
     if fix and not size_ok:
@@ -1095,11 +1175,8 @@ class Win:
         return self
 
     def __exit__(self, *_a):
-        try:
-            ol, ot, ow, oh = self.orig
-            u.MoveWindow(ctypes.c_void_p(self.h), ol, ot, ow, oh, True)
-        except Exception:
-            pass
+        if self.orig:
+            _restore_geometry(self.h, self.orig)     # 桌面外的原位置不还原，见该函数
 
     def click(self, x, y):
         u.SetForegroundWindow(ctypes.c_void_p(self.h))
@@ -1935,6 +2012,13 @@ def send_text(text, talker, name=None, dry_run=True, verbose=False):
     send_file 已改成同一条投递路（点「发送文件」+ 驱动文件对话框，见下节）；reply_to 仍走
     `Win()` + 模拟键鼠，需要前台。
     """
+    # **发送出口统一打「Agent 代发」标记**（2026-10-12）：所有文本出口都经过这里
+    # （客户端 `channel_send` 走的也是这个工具），但**直接调 MCP 的发送工具**绕开了客户端
+    # 那层标记——自检载荷就是这么以本人身份落进真实会话的。在这里打一次，标记才真的等于
+    # 「这串字是 AI 写的」，蒸馏才能据此把 AI 的口气排除在本人语料之外（见 `digest`）。
+    # 幂等：客户端已经打过标记的（重试/排队会带着走）不会叠成两串。
+    text = core.with_agent_mark(text)
+
     # 每次发送前清空诊断数据
     global _LAST_DIAGNOSTICS
     _LAST_DIAGNOSTICS = {k: None for k in _LAST_DIAGNOSTICS}
@@ -2018,7 +2102,16 @@ def _repair_geometry_for_send(h):
 
 
 def _restore_geometry(h, rect):
-    """把窗口还原到修复前的位置与尺寸（尽力而为）。"""
+    """把窗口还原到修复前的位置与尺寸（尽力而为）。
+
+    **桌面外的位置不还原**：`rect` 来自 `GetWindowRect`，而最小化（或被挪出屏幕）的窗口在那里
+    只报哨兵 `-32000,-32000`（见 `_offscreen`）。照抄回去就是**把用户的微信永久搬出屏幕**：
+    2026-10-12 实测现场正是这个——窗口 `visible=True, iconic=False, rect=-32000,-32000 440x452`，
+    托盘图标/任务栏都点不出来（Win32 认为它一直显示着，微信自己也按这个 toggle）。
+    这种时候「留在搬回来之后的可见位置」比「忠于原样」重要。
+    """
+    if _offscreen(rect):
+        return
     try:
         u.MoveWindow(ctypes.c_void_p(h), rect[0], rect[1], rect[2], rect[3], True)
     except Exception:
@@ -2139,10 +2232,13 @@ def repair_env():
             l, t, w, ht = win_rect(h)
             u.ShowWindow(ctypes.c_void_p(h), 9)       # SW_RESTORE
             time.sleep(0.3)
-            if not (abs(w - NW) <= 8 and abs(ht - NH) <= 8):
+            off = _offscreen((l, t, w, ht))
+            if off or not (abs(w - NW) <= 8 and abs(ht - NH) <= 8):
                 u.MoveWindow(ctypes.c_void_p(h), NX, NY, NW, NH, True)
                 time.sleep(0.6)
-                actions.append(f"窗口已规范化到 {NW}×{NH}（原 {w}×{ht}）")
+                # 被搬到桌面外也算"该修"：尺寸可能本来就合规，只搬位置（否则用户点了修复还是看不见）
+                actions.append(f"窗口被搬到桌面外（{l},{t}），已搬回 {NX},{NY} 并规范化到 {NW}×{NH}"
+                               if off else f"窗口已规范化到 {NW}×{NH}（原 {w}×{ht}）")
             else:
                 actions.append("窗口尺寸已合规")
     after = check_env()
@@ -2502,6 +2598,8 @@ def reply_text(quote, text, talker, name=None, dry_run=True, verbose=False):
     """
     if not name:
         name = core.names().get(talker, talker)
+    # 与 send_text 同一个理由：发送出口统一打标记（引用回复也是 AI 写的字）
+    text = core.with_agent_mark(text)
     if not quote:
         return False, "quote 为空：给出要引用消息的文字（用于定位）"
     _progress("正在检查微信环境")
