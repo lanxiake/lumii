@@ -4,11 +4,12 @@
  * 产物不依赖任何 Python 环境与灵栖占位符，任意 MCP 客户端写 exe 绝对路径即可用。
  * 构建用 uv 准备隔离的 Python 3.11 + PyInstaller，不污染本机/托管解释器。
  *
- * 用法：node scripts/build-wechat-mcp.mjs [--if-stale] [--edition pro|lite|both]
+ * 用法：node scripts/build-wechat-mcp.mjs [--if-stale] [--edition pro|lite|both] [--self-check]
  *   （不带 --edition）= **两档都打**（默认），等价于 --edition both
  *   --edition pro     只打高级版（`wechat-mcp.exe`）
  *   --edition lite    只打基础版（`wechat-mcp-lite.exe`）
  *   --if-stale        两档产物都已存在且比所有源码新时跳过（开发期反复执行不浪费几分钟）
+ *   --self-check      只跑 `ownerOf` 的产物归属自检（秒回，不构建）
  *
  * **档位是构建期注入的**：源码整个拷进临时目录，再写一个 `edition.py`（server.py 里
  * `from edition import EDITION`，取不到就默认 pro）。工作区不落这个文件，
@@ -119,11 +120,38 @@ function versionedExePath(spec, version) {
   return path.join(DIST_DIR, `${spec.exe}-${version}.exe`)
 }
 
-/** dist 里这个文件归哪一档（不属于任何一档返回 null） */
+/**
+ * dist 里这个文件归哪一档（不属于任何一档返回 null）
+ *
+ * ⚠️ 必须同时认「固定名」`<档名>.exe`：只按 `<档名>-` 判前缀时，`wechat-mcp-lite.exe`
+ * 一个都不匹配，于是**掉进 pro 的前缀**（`wechat-mcp-`）被判成 pro 的历史副本——
+ * 单打 pro 会顺手删掉 lite 的固定名产物（2026-10-12 实测踩到）。
+ */
 function ownerOf(fileName) {
-  const hit = NAMES_LONGEST_FIRST.find((n) => fileName.startsWith(`${n}-`))
+  const hit = NAMES_LONGEST_FIRST.find((n) => fileName === `${n}.exe` || fileName.startsWith(`${n}-`))
   return hit ?? null
 }
+
+/**
+ * `ownerOf` 的唯一可跑检查——它就是那个删错文件的判据，光靠人眼看代码看不出来。
+ *
+ * 跑法：`node scripts/build-wechat-mcp.mjs --self-check`（秒回，不构建）；
+ * 每次构建也会先跑一遍，回归了就直接停在构建前，不会静默产出「只剩一档」的 dist。
+ */
+function selfCheck() {
+  const cases = []
+  for (const [edition, spec] of Object.entries(EDITION_SPECS)) {
+    cases.push([`${spec.exe}.exe`, spec.exe, `${edition} 的固定名产物`])
+    cases.push([`${spec.exe}-0.0.1.exe`, spec.exe, `${edition} 的带版本号副本`])
+  }
+  // 两档互不认领：pro 眼里不能出现 lite 的任何文件（2026-10-12 的 bug 就是这里反了）
+  for (const [name, want, why] of cases) {
+    const got = ownerOf(name)
+    if (got !== want) throw new Error(`ownerOf('${name}') = ${got}，应为 ${want}（${why}）`)
+  }
+  log(`自检通过：ownerOf 正确认领 ${cases.length} 种产物，两档互不误删`)
+}
+
 
 /**
  * 把源码拷进临时目录并写入 `edition.py`（档位**只在构建期**注入，工作区不落这个文件）
@@ -307,7 +335,8 @@ function buildOne(uv, edition, version, env) {
   const versionedExe = versionedExePath(spec, built)
   for (const f of fs.readdirSync(DIST_DIR)) {
     const full = path.join(DIST_DIR, f)
-    if (ownerOf(f) !== spec.exe || full === versionedExe) continue
+    // 本档的固定名产物与刚生成的副本都要留下（固定名现在也被 ownerOf 认领了，得显式排除）
+    if (ownerOf(f) !== spec.exe || full === exe || full === versionedExe) continue
     try {
       fs.rmSync(full, { force: true })
     } catch {
@@ -323,6 +352,8 @@ function buildOne(uv, edition, version, env) {
 
 /** 构建主流程 */
 function main() {
+  selfCheck()
+  if (process.argv.includes('--self-check')) return
   if (process.platform !== 'win32') {
     log('本机微信 MCP 仅支持 Windows，跳过构建')
     return
