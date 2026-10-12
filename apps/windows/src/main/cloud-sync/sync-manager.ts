@@ -987,6 +987,13 @@ export class CloudSyncManager extends EventEmitter {
         logger.warn('[sync] 远程有更新，下轮重试')
         return false
       }
+      // 远端 pre-receive 钩子拒绝（超限 / 要求 LFS / 配额…）：**不回退 iso、不当作"下轮重试"**。
+      // 回退只会再撞同一堵墙（白等一次超时），而"下轮重试"会把一条**永远不可能成功**的推送
+      // 伪装成暂时性故障，每 30 分钟重试一次、每次都只留下一句误导性的"超时"。
+      // 这里抛出真实原因，让它出现在同步状态里等人处理。
+      if (native.hookDeclined) {
+        throw new Error(`远端拒绝推送（pre-receive hook）：\n${native.error ?? '未提供原因'}`)
+      }
       logger.warn(`[sync] 真 git push 失败，回退 isomorphic-git：${native.error ?? ''}`)
     }
 

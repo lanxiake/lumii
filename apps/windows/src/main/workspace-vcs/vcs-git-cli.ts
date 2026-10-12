@@ -1,9 +1,5 @@
 /**
  * Workspace VCS — 写路径（暂存、排除规则、index 锁重试、仓库配置）
- */
-import fs from 'node:fs'
-import path from 'node:path'
-/**
  *
  * ## 为什么工作区仓库改用真 git
  *
@@ -245,26 +241,8 @@ async function runWithLockRetry(
 export async function stageAllCli(workspaceDir: string, gitdir: string): Promise<void> {
   const r = await runWithLockRetry(workspaceDir, gitdir, ['add', '-A'])
   if (r.code !== 0) {
-    const err = r.stderr.trim()
-    if (err.includes('index file smaller than expected') || err.includes('index file corrupt')) {
-      await repairIndex(workspaceDir, gitdir)
-      const retry = await runWithLockRetry(workspaceDir, gitdir, ['add', '-A'])
-      if (retry.code !== 0) {
-        throw new Error(`git add -A 退出码 ${retry.code}: ${retry.stderr.trim().slice(0, 300)}`)
-      }
-      return
-    }
-    throw new Error(`git add -A 退出码 ${r.code}: ${err.slice(0, 300)}`)
+    throw new Error(`git add -A 退出码 ${r.code}: ${r.stderr.trim().slice(0, 300)}`)
   }
-}
-
-async function repairIndex(workspaceDir: string, gitdir: string): Promise<void> {
-  const indexPath = path.join(gitdir, 'index')
-  try {
-    await fs.promises.unlink(indexPath)
-  } catch {}
-  const r = await runGit({ workTree: workspaceDir, gitDir: gitdir, args: ['reset'] })
-  if (r.code !== 0) throw new Error(`git reset 修复索引失败: ${r.stderr.trim()}`)
 }
 
 /*

@@ -143,7 +143,7 @@ export async function nativePush(opts: {
   branch: string
   token: string
   timeoutMs?: number
-}): Promise<{ ok: boolean; rejected: boolean; error?: string }> {
+}): Promise<{ ok: boolean; rejected: boolean; hookDeclined?: boolean; error?: string }> {
   if (!(await detectGit())) return { ok: false, rejected: false, error: '系统 git 不可用' }
 
   const t0 = Date.now()
@@ -168,6 +168,11 @@ export async function nativePush(opts: {
       ok: false,
       // 非快进是"远端有更新"，调用方要降级为下轮重试而不是报错
       rejected: /\[rejected\]|non-fast-forward|fetch first/i.test(text),
+      // 远端 pre-receive 钩子直接拒绝（超限、要求 LFS、配额用尽…）：与服务端"已接收但客户端
+      // 等待超时"是两回事，**必须原样上报**。2026-10-12 实测：漏了这条判据，于是先回退到
+      // isomorphic-git 再撞同一堵墙，最后只报了一句"git push 超时（600000ms）"，
+      // 真正的原因（remote: ... migrate large files to LFS）全被埋掉，排查了两小时。
+      hookDeclined: /pre-receive hook declined|remote rejected/i.test(text),
       error: sanitizeGitError(text, opts.token),
     }
   } catch (err) {
@@ -181,5 +186,12 @@ function sanitizeGitError(text: string, token: string): string {
   if (token) out = out.split(token).join('***')
   out = out.replace(/\/\/[^/@\s]*@/g, '//***@')
   const lines = out.split(/\r?\n/).filter((l) => l.trim() && !/^\s*(Receiving|Resolving|Counting|Compressing)\s/.test(l))
+  // pre-receive 拒绝的**原因在头部**：GitCode 把「仓库/单文件超限、改用 LFS」放在 remote: 的
+  // 前几行，末尾反而是 `git add .` / `git commit -m '...'` 的补救模板。只留末尾 6 行
+  // 会把真正的原因丢掉（2026-10-12 就是这么被埋掉的），这里对这类错误保留头部。
+  if (/pre-receive hook declined|remote rejected/i.test(text)) {
+    const remoteLines = lines.filter((l) => l.startsWith('remote:'))
+    if (remoteLines.length > 0) return remoteLines.slice(0, 12).join('\n').slice(0, 2000)
+  }
   return lines.slice(-6).join('\n').slice(0, 2000) || 'git 退出码非 0'
 }
