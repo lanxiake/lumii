@@ -12,6 +12,12 @@
 import os
 import sys
 
+# 管道默认 GBK：失败明细里的中文会抛 UnicodeEncodeError 盖住真正的失败
+try:
+    sys.stdout.reconfigure(encoding="utf-8")
+except Exception:
+    pass
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
@@ -57,6 +63,36 @@ check("长正文里不残留标记", core.AGENT_MARK not in d["text"])
 d2 = core.msg_dict(1700000000, 1, "普通消息", {}, talker="wxid_x")
 check("普通消息不带 agent_sent 字段", "agent_sent" not in d2)
 check("普通消息文本原样", d2["text"] == "普通消息", repr(d2["text"]))
+
+# ⑤ 蒸馏只用**本人打的字**（2026-10-12 用户报障「不要蒸馏错误人了」）。
+#    失败模式是静默的：代聊自己写的、MCP 自检载荷 `from_me` 恒真，会被当成「我的原话」
+#    写进画像卡的「真实例子」，再喂回去让代聊照着演——越演越不像本人。
+check("幂等：带标记的再打一次还是只有一个",
+      core.with_agent_mark(core.with_agent_mark("在的")) == "在的" + core.AGENT_MARK,
+      repr(core.with_agent_mark(core.with_agent_mark("在的"))))
+check("代发的算 Agent 的", core.is_agent_or_probe("在的" + core.AGENT_MARK) is True)
+check("自检载荷不算本人语料", core.is_agent_or_probe("【自检】切会话后发送 2/4") is True)
+check("本人打的算本人的", core.is_agent_or_probe("兄弟门，出来和我的AI聊会儿天呀") is False)
+
+ME = "wxid_me"
+rows = [
+    (100,  1, "哥们儿在吗", "wxid_them", 1, ""),
+    (110,  1, "在的 什么事" + core.AGENT_MARK, ME, 2, ""),   # 代聊回的
+    (120,  1, "【自检】切会话后发送 2/4", ME, 3, ""),         # MCP 自检载荷
+    (200,  1, "帮我看看这个报错", "wxid_them", 4, ""),
+    (210,  1, "发我看看，我下午有空", ME, 5, ""),             # 本人真回的
+]
+seq = core._seq_of(rows, ME, {}, "wxid_them")
+check("代发/自检不进对子语料",
+      [t for _, _, t in seq] == ["哥们儿在吗", "帮我看看这个报错", "发我看看，我下午有空"], str(seq))
+pairs = core._pairs_from(seq)
+check("对子「我」那一侧只会是本人打的字",
+      pairs and pairs[-1][1] == "发我看看，我下午有空", str(pairs))
+
+# 剔除代发会在序列里留下**空洞**：不卡「隔了太久就不是回他」这条，就会把隔夜的两句配成范本。
+far = [(1000, 1, "在吗", "wxid_them", 1, ""), (999999, 1, "刚看到，什么事", ME, 2, "")]
+far_pairs = core._pairs_from(core._seq_of(far, ME, {}, "wxid_them"))
+check("隔太久的「对方→我」不配成范本", far_pairs == [], str(far_pairs))
 
 print()
 print("结果：" + ("全部通过" if not fails else f"{len(fails)} 项失败 -> {fails}"))

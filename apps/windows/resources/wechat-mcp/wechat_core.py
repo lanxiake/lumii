@@ -1158,6 +1158,33 @@ def split_agent_mark(text):
     return text, False
 
 
+def with_agent_mark(text):
+    """给正文打上「Agent 代发」标记（**幂等**：已有就先剥再加，重复调用只留一个）。
+
+    **唯一打标记的地方就在发送出口**（`wechat_sender.send_text`）——别在调用方各打一遍：
+    客户端 `pcwechat-outbound-provider` 也打，是因为它的重试/排队要带着标记走；两条路都会
+    经过 `send_text`（见 `wechat_sender.send_text` 顶部），所以这里幂等才不会叠成两串。
+    """
+    return split_agent_mark(text)[0] + AGENT_MARK
+
+
+# 链路自检载荷的前缀：`test_mcp_client.py` 的「自检：…」与手工发的「【自检】…」。
+# 它们以**用户身份**落在真实会话里（不可撤回），但一个字都不是人打的。
+SELFCHECK_PREFIXES = ("【自检】", "自检：")
+
+
+def is_agent_or_probe(text):
+    """这条正文算不算「本人打的字」。不算的两类：Agent 代发（零宽标记）、链路自检载荷。
+
+    为什么必须一刀切：**蒸馏的输入只有本人打的字**（2026-10-12 用户报障「不要蒸馏错误人了」）。
+    实测 321 群：卡片把代聊自己写的「潜水大半年了 看你们还活着我就放心了」当成**我的原话**
+    举证口吻，又把 6 条 `【自检】…` 当成我的长句——统计出来的是**代聊 + 测试载荷**的人格，
+    再喂回去让代聊照着演，越演越不像本人（反馈回路，见 `digest` 顶部）。
+    """
+    body, agent = split_agent_mark(text)
+    return agent or body.lstrip().startswith(SELFCHECK_PREFIXES)
+
+
 def msg_dict(ct, lt, content, nm, talker=None, name=None, sender=None, me=None, local_id=None,
              source=None, packed=None):
     # ⚠️ **先剥标记、再截断**：下面是 400 字硬截断，长消息会把末尾的标记切掉——
@@ -1728,6 +1755,10 @@ def _seq_of(rows, me, nm, talker):
         if (lt & 0xFFFFFFFF) != 1:            # 只认纯文本；图片/语音走 describe_nontext
             continue
         body = _render(lt, content).strip()
+        # 代聊代发的、自检载荷的一律不进对子——`exchange_pairs` 是要**每轮拼进提示词**的
+        # 「对方说 X → 我回 Y」，把 AI 自己写的那一轮当示例，就是让模型照着自己的口气学。
+        if is_agent_or_probe(body):
+            continue
         if not body or body.startswith("[") or len(body) > 300:
             continue
         mine = bool(me) and sender == me
@@ -1756,6 +1787,13 @@ def _pairs_from(seq):
     for k in range(len(turns) - 1):
         a, b = turns[k], turns[k + 1]
         if a[1] or not b[1]:                  # 只要「对方 → 我」
+            continue
+        # 「隔了太久就不是回他」：范本的含义是「他这么说 → 我这么接」，中间隔夜/隔半天，
+        # 这两句根本没有因果关系。**代发消息被剔除后，序列会出现空洞**，不卡这一条就会把
+        # 「他昨晚最后一句 → 我今天第一句」配成范本（2026-10-12 实锤：剔除代发后 321 群
+        # 立刻冒出「张松：故意不小心是吧[旺柴] → 我：兄弟门，出来和我的AI聊会儿天呀」，
+        # 两句差 10 小时）。
+        if b[2] - a[3] > _PAIR_GAP_S:
             continue
         their, mine = " / ".join(a[0]), " / ".join(b[0])
         if len(their) < _PAIR_MIN_THEIR:
@@ -1815,6 +1853,11 @@ def digest(talker=None, limit=500, samples=6, top=15, since=0):
         sm_me, sm_them = [], []
         for ct, lt, content, sender, _lid, _src, *_ in rows:
             body = decode(content).strip()
+            # **蒸馏只用本人打的字**（2026-10-12）：代聊自己发的、MCP 自检载荷全都不算——
+            # 它们 `from_me` 恒真（以本人身份发出），混进来就是拿 AI 的口气当我的口气，
+            # 再写成画像卡喂回去，代聊照着演一个不属于本人的人格。见 `is_agent_or_probe`。
+            if is_agent_or_probe(body):
+                continue
             is_me = (sender == me)
             fresh = (not since) or ct > since     # 只影响**样本**（见下）
             tot += 1
