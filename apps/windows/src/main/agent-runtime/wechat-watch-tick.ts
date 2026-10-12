@@ -1460,6 +1460,10 @@ export async function runWechatWatch(deps: WechatWatchDeps): Promise<string> {
       if (msg.includes('未连接')) {
         return '（wechat-local MCP 未连接，本拍跳过）'
       }
+      if (msg.includes('未能从微信进程内存取到数据库密钥') || msg.includes('微信可能没在运行')) {
+        log.warn('[wechat-watch] 微信未运行或密钥取不到，本拍跳过')
+        return `微信未运行，本拍跳过`
+      }
       log.warn('[wechat-watch] poll_new 调用失败，本拍跳过：', err)
       return `poll 失败，本拍跳过：${msg}`
     }

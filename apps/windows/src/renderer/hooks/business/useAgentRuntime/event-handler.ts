@@ -591,8 +591,14 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
 
   if (event.type === 'agent:message:end') {
     debugLog('[AgentRuntime] message:end messageId:', event.messageId, 'runId:', event.runId, 'stopReason:', event.stopReason)
-  } else if (!event.type.endsWith(':delta') && !event.type.includes('thinking')) {
-    debugLog('[AgentRuntime] event:', event.type, 'sessionKey:', sessionKey)
+  } else {
+    const quiet = event.type.endsWith(':delta')
+      || event.type.includes('thinking')
+      || event.type === 'agent:file:created'
+      || event.type === 'agent:context:usage'
+    if (!quiet) {
+      debugLog('[AgentRuntime] event:', event.type, 'sessionKey:', sessionKey)
+    }
   }
 
   // updateSessionState 内部已有"不存在时用默认状态"的兜底，无需额外的 ensureSessionExists 调用

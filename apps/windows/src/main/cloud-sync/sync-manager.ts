@@ -1328,9 +1328,18 @@ export class CloudSyncManager extends EventEmitter {
     p: GitParams,
     excluded: ReadonlySet<string>,
   ): Promise<boolean> {
-    const add = await runGit({ workTree: p.dir, gitDir: p.gitdir, args: ['add', '-A'] })
+    let add = await runGit({ workTree: p.dir, gitDir: p.gitdir, args: ['add', '-A'] })
     if (add.code !== 0) {
-      throw new Error(`git add -A 退出码 ${add.code}: ${add.stderr.trim().slice(0, 300)}`)
+      const err = add.stderr.trim()
+      if (err.includes('index file smaller than expected') || err.includes('index file corrupt')) {
+        await this.repairSyncIndex(p)
+        add = await runGit({ workTree: p.dir, gitDir: p.gitdir, args: ['add', '-A'] })
+        if (add.code !== 0) {
+          throw new Error(`git add -A 退出码 ${add.code}: ${add.stderr.trim().slice(0, 300)}`)
+        }
+      } else {
+        throw new Error(`git add -A 退出码 ${add.code}: ${err.slice(0, 300)}`)
+      }
     }
 
     const absent = [...excluded].filter((f) => !fs.existsSync(path.join(p.dir, f)))
@@ -1350,6 +1359,15 @@ export class CloudSyncManager extends EventEmitter {
     if (diff.code === 0) return false
     if (diff.code === 1) return true
     throw new Error(`git diff --cached 退出码 ${diff.code}: ${diff.stderr.trim().slice(0, 300)}`)
+  }
+
+  private async repairSyncIndex(p: GitParams): Promise<void> {
+    const indexPath = path.join(p.gitdir, 'index')
+    try {
+      await fs.promises.unlink(indexPath)
+    } catch {}
+    const r = await runGit({ workTree: p.dir, gitDir: p.gitdir, args: ['reset'] })
+    if (r.code !== 0) throw new Error(`git reset 修复索引失败: ${r.stderr.trim()}`)
   }
 
   /**

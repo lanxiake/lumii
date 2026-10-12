@@ -206,7 +206,11 @@ export function ensureIpcEventListener(): void {
       'type' in rawEvent
     ) {
       const evtType = (rawEvent as { type?: string }).type
-      if (evtType && !evtType.endsWith(':delta') && !evtType.includes('thinking')) {
+      const quiet = evtType?.endsWith(':delta')
+        || evtType?.includes('thinking')
+        || evtType === 'agent:file:created'
+        || evtType === 'agent:context:usage'
+      if (evtType && !quiet) {
         debugLog('[useAgentRuntime] onEvent received type:', evtType)
       }
       handleRuntimeEvent(rawEvent as AgentRuntimeEvent)
