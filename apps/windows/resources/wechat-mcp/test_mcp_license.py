@@ -38,6 +38,7 @@ KEY = RSA.generate(2048)
 # 只在本进程里换公钥做测试；**不要**给生产路径加任何"可换公钥"的开关
 licensing.PUBLIC_KEY_PEM = KEY.publickey().export_key().decode()
 licensing._data_dir = lambda: TMP          # 授权与状态全部落到临时目录
+os.environ.pop(licensing.LICENSE_KEY_ENV, None)   # 开发机上配过真密钥也不能串进测试
 
 import mcp_license as L  # noqa: E402  （必须在改完 licensing 之后再导入）
 from wechat_core import UnknownTalker  # noqa: E402,F401
@@ -74,9 +75,34 @@ def test_unlicensed_is_gated():
     err = L.gate_error(PRODUCT)
     assert err and err["error_code"] == "not_licensed", err
     assert err["stage"] == "license" and err["hint"], err
-    assert L.license_path() in err["hint"], err["hint"]     # 得告诉用户文件放哪
+    assert licensing.LICENSE_KEY_ENV in err["hint"], err["hint"]   # 得告诉用户密钥配在哪
     assert L.license_path() in err["license_path"], err
     print("ok unlicensed_is_gated")
+
+
+def make_key(scope, **over):
+    """签一条不绑机器的授权密钥（`tools/sign-license.py` 同口径）。"""
+    payload = {"v": 2, "id": "t0", "scope": scope, "edition": "pro",
+               "iat": NOW - 10, "exp": NOW + 86400 * 365, **over}
+    sig = pkcs1_15.new(KEY).sign(SHA256.new(licensing.canonical_bytes(payload)))
+    return licensing.encode_license_key(payload, sig)
+
+
+def test_env_key():
+    """环境变量密钥：打包 scope 放行四个、别的产品 scope 拒绝、坏密钥给出 bad_key 提示。"""
+    clear_license()
+    try:
+        os.environ[licensing.LICENSE_KEY_ENV] = make_key("wechat-toolkits")
+        for p in ("wechat-file-mcp", "wechat-export-mcp", "wechat-recall-mcp", "wechat-crm-mcp"):
+            assert L.status(p)["ok"], f"{p} 该被打包密钥覆盖"
+        os.environ[licensing.LICENSE_KEY_ENV] = make_key("wechat-crm-mcp")
+        assert not L.status(PRODUCT)["ok"]
+        os.environ[licensing.LICENSE_KEY_ENV] = "WMK1.broken"
+        err = L.gate_error(PRODUCT)
+        assert err["error_code"] == "not_licensed" and "不是合法的授权密钥" in err["hint"], err
+    finally:
+        os.environ.pop(licensing.LICENSE_KEY_ENV, None)
+    print("ok env_key")
 
 
 def test_right_scope_passes():
@@ -184,6 +210,7 @@ def test_stdio_without_scope_is_untouched():
 if __name__ == "__main__":
     try:
         test_unlicensed_is_gated()
+        test_env_key()
         test_right_scope_passes()
         test_bundle_scope_covers_all()
         test_wrong_scope_is_gated()

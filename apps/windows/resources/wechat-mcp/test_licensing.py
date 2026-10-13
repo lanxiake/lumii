@@ -31,6 +31,7 @@ KEY = RSA.generate(2048)
 # 只在本进程内换公钥做测试；**不要**给生产路径加任何"可换公钥"的开关——那等于把授权体系送人
 licensing.PUBLIC_KEY_PEM = KEY.publickey().export_key().decode()
 licensing._data_dir = lambda: TMP          # 授权/状态全部落到临时目录
+os.environ.pop(licensing.LICENSE_KEY_ENV, None)   # 开发机上配过真密钥也不能串进测试
 
 
 def check(label, cond, extra=""):
@@ -117,6 +118,50 @@ licensing.check(now=NOW + 100 * 86400)          # 先让水位涨到未来
 check("时间回拨 → clock_rollback",
       licensing.check(now=NOW + 86400)["reason"] == "clock_rollback")
 
+
+def make_key(payload, key=KEY):
+    """按 `tools/sign-license.py` 的口径签一条授权密钥。"""
+    sig = pkcs1_15.new(key).sign(SHA256.new(licensing.canonical_bytes(payload)))
+    return licensing.encode_license_key(payload, sig)
+
+
+def with_key(value):
+    """设置/清除授权密钥环境变量，返回当前 `check()` 结果。"""
+    if value is None:
+        os.environ.pop(licensing.LICENSE_KEY_ENV, None)
+    else:
+        os.environ[licensing.LICENSE_KEY_ENV] = value
+    return licensing.check()
+
+
+print("=== 授权密钥（环境变量，不绑机器）===")
+KP = {"v": 2, "id": "a1b2c3d4", "scope": "retail", "edition": "pro", "iat": NOW - 10, "exp": NOW + 86400}
+fresh()
+k = make_key(KP)
+check("密钥只含 URL 安全字符（能原样塞进 env/JSON/TOML）",
+      all(c.isalnum() or c in "._-" for c in k), k[:40])
+check("密钥往返解析一致", {kk: vv for kk, vv in licensing.decode_license_key(k).items() if kk != "sig"} == KP)
+st = with_key(k)
+check("有效密钥 → ok（无 fp 不比机器）", st["ok"] and st["source"] == "env" and st.get("key_id") == "a1b2c3d4", str(st))
+st = with_key("  " + k + "\n")
+check("首尾空白/换行容忍", st["ok"], str(st))
+fresh()
+st = with_key(make_key(dict(KP, exp=0)))
+check("exp=0 → 永久有效", st["ok"] and st["days_left"] is None, str(st))
+fresh()
+check("过期密钥 → expired", with_key(make_key(dict(KP, exp=NOW - 86400)))["reason"] == "expired")
+fresh()
+check("别的私钥签的密钥 → bad_signature", with_key(make_key(KP, RSA.generate(2048)))["reason"] == "bad_signature")
+_, body, sig = k.split(".")
+forged_body = licensing._b64url_encode(licensing.canonical_bytes(dict(KP, scope="all")))
+check("改载荷（scope 提权）→ bad_signature", with_key(f"WMK1.{forged_body}.{sig}")["reason"] == "bad_signature")
+check("格式不对 → bad_key", with_key("hello")["reason"] == "bad_key")
+check("前缀不对 → bad_key", with_key(f"XXX1.{body}.{sig}")["reason"] == "bad_key")
+write_license(sign({"v": 1, "scope": "retail", "edition": "pro", "fp": FP, "iat": NOW - 10, "exp": NOW + 86400}))
+check("配了坏密钥不回落到旧文件（错误要暴露出来）", with_key("hello")["reason"] == "bad_key")
+check("清掉密钥 → 回到授权文件", with_key(None)["reason"] == "ok" and licensing.check()["source"] == "file")
+fresh()
+
 print("=== 灵栖内置豁免 ===")
 fresh()
 marker_dir = tempfile.mkdtemp(prefix="wm-bundled-", dir=TMP)
@@ -138,6 +183,9 @@ try:
                         "iat": NOW - 10, "exp": NOW + 86400}))
     check("exe + 有效授权 → pro", licensing.effective_edition("pro") == "pro")
     os.remove(licensing.license_path())
+    os.environ[licensing.LICENSE_KEY_ENV] = make_key(KP)
+    check("exe + 有效密钥 → pro", licensing.effective_edition("pro") == "pro")
+    os.environ.pop(licensing.LICENSE_KEY_ENV)
     lic_dir = tempfile.mkdtemp(prefix="wm-bundled2-", dir=TMP)
     open(os.path.join(lic_dir, licensing.BUNDLED_MARKER), "w").close()
     licensing._exe_dir = lambda: lic_dir

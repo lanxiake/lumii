@@ -42,12 +42,83 @@ DATA_DIRNAME = ".lumii"
 # `docs/design/渠道与CLI/2026-10-12-微信小工具MCP四件套设计.md` §16，要恢复照着捞即可。
 # 本模块因此**一条网络请求都不发**——与产品红线「本地处理、不外传」一致。
 
-# 能安全合并的 JSON 客户端配置。**判据是文件在不在**，不是"这个客户端装没装"——
-# 有的客户端不装也有配置目录，有的装了配置在别的形状里（Codex 是 TOML，见文件头说明）。
-JSON_CLIENTS = (
-    ("Claude Desktop", ("APPDATA", "Claude", "claude_desktop_config.json")),
-    ("Cursor", ("~", ".cursor", "mcp.json")),
+# 客户端注册表（2026-10-13 调研后扩到 15 家）。每条说清三件事：
+#   ① 怎么认出"装了"（`detect` 目录在不在）
+#   ② 配置写在哪（`paths`，**命中第一个已存在的**，都不存在就用第一个）
+#   ③ 写进去长什么样（`kind` 决定，因为各家语法差别很大）
+#
+# **判据是"客户端在不在"，不是"配置文件在不在"**：客户端装了但还没建过配置（首次使用的
+# 客户端就是），我们**该**替它建——那正是它自己的 UI 也会做的事。反过来，客户端目录都不在
+# 就一个字节都不碰。
+#
+# `kind` 的五种写法：
+#   claude_code        —— 走它自己的 `claude mcp` CLI（**不手改它的状态文件**）
+#   json_mcp           —— JSON，顶层 `mcpServers`（大多数）
+#   json_servers       —— JSON，顶层 `servers`（VS Code）
+#   json_context       —— JSON，顶层 `context_servers`（Zed）
+#   json_opencode      —— JSON，顶层 `mcp`，且 command 是**数组**、env 叫 `environment`
+#   toml_codex         —— TOML 段 `[mcp_servers.<名>]`
+#
+# **刻意没做的**（都有明确理由，不是漏）：
+#   Continue    —— YAML，且 `mcpServers` 是**列表**。标准库没有 YAML 解析器 ⇒
+#                  **没法"写完读回来验"**；写坏了看不出来。宁可不上。
+#   JetBrains / 通义灵码 —— 官方没文档化独立配置文件（只能 UI 或内部 XML），程序化写不了。
+#   Windsurf(Devin) —— 顶层键在多个来源里说法不一，且产品已改名 ⇒ 没把握就别动。
+#   Aider       —— MCP 支持至今没合并发布（PR #3672/#3937/#5694 挂着）。
+CLIENTS = (
+    {"key": "claude-code", "label": "Claude Code", "kind": "claude_code"},
+    {"key": "claude-desktop", "label": "Claude Desktop", "kind": "json_mcp",
+     # MSIX/Store 版会被文件系统虚拟化重定向到 Packages 下——两个位置都试
+     "paths": (("APPDATA", "Claude", "claude_desktop_config.json"),
+               ("LOCALAPPDATA", "Packages", "Claude_*", "LocalCache", "Roaming",
+                "Claude", "claude_desktop_config.json")),
+     "detect": ("APPDATA", "Claude")},
+    {"key": "cursor", "label": "Cursor", "kind": "json_mcp",
+     "paths": (("~", ".cursor", "mcp.json"),)},
+    {"key": "codex", "label": "Codex", "kind": "toml_codex",
+     "paths": (("~", ".codex", "config.toml"),)},
+    {"key": "gemini", "label": "Gemini CLI", "kind": "json_mcp",
+     "paths": (("~", ".gemini", "settings.json"),), "detect": ("~", ".gemini")},
+    {"key": "qwen", "label": "Qwen Code", "kind": "json_mcp",
+     "paths": (("~", ".qwen", "settings.json"),), "detect": ("~", ".qwen")},
+    {"key": "opencode", "label": "OpenCode", "kind": "json_opencode",
+     "paths": (("~", ".config", "opencode", "opencode.json"),)},
+    {"key": "zed", "label": "Zed", "kind": "json_context",
+     "paths": (("APPDATA", "Zed", "settings.json"),), "detect": ("APPDATA", "Zed")},
+    {"key": "vscode", "label": "VS Code", "kind": "json_servers",
+     # 官方说"别手摸这个路径、走命令面板"，但路径本身是确定的；合并写（不动别的键）风险可控
+     "paths": (("APPDATA", "Code", "User", "globalStorage", "modelcontextprotocol.mcp",
+                "mcp.json"),),
+     "detect": ("APPDATA", "Code", "User", "globalStorage",
+                "modelcontextprotocol.mcp")},
+    {"key": "copilot-cli", "label": "Copilot CLI", "kind": "json_mcp",
+     "paths": (("~", ".copilot", "mcp-config.json"),), "detect": ("~", ".copilot")},
+    {"key": "cline", "label": "Cline", "kind": "json_mcp",
+     "paths": (("APPDATA", "Code", "User", "globalStorage", "saoudrizwan.claude-dev",
+                "settings", "cline_mcp_settings.json"),
+               ("~", ".cline", "data", "settings", "cline_mcp_settings.json")),
+     "detect": ("APPDATA", "Code", "User", "globalStorage", "saoudrizwan.claude-dev")},
+    {"key": "roo", "label": "Roo Code", "kind": "json_mcp",
+     "paths": (("APPDATA", "Code", "User", "globalStorage", "rooveterinaryinc.roo-cline",
+                "settings", "mcp_settings.json"),),
+     "detect": ("APPDATA", "Code", "User", "globalStorage", "rooveterinaryinc.roo-cline")},
+    {"key": "trae", "label": "Trae", "kind": "json_mcp",
+     "paths": (("APPDATA", "Trae", "User", "mcp.json"),
+               ("APPDATA", "Trae CN", "User", "mcp.json"))},
+    {"key": "warp", "label": "Warp", "kind": "json_mcp",
+     "paths": (("~", ".warp", ".mcp.json"),), "detect": ("~", ".warp")},
 )
+
+# 各家顶层键 / 条目形状（`kind` → 怎么塞我们那一条）
+JSON_SHAPES = {
+    "json_mcp": ("mcpServers", lambda exe: {"type": "stdio", "command": exe, "args": [],
+                                            "env": {}}),
+    "json_servers": ("servers", lambda exe: {"type": "stdio", "command": exe, "args": []}),
+    "json_context": ("context_servers", lambda exe: {"command": exe, "args": [], "env": {}}),
+    # OpenCode 三处都不一样：顶层 `mcp`、command 是 **argv 数组**、env 叫 `environment`
+    "json_opencode": ("mcp", lambda exe: {"type": "local", "command": [exe], "args": [],
+                                          "enabled": True, "environment": {}}),
+}
 
 
 def _say(*a):
@@ -196,27 +267,89 @@ def deploy_self(product):
 # ---- 客户端注册：JSON 配置（Claude Desktop / Cursor）-------------------------
 
 def _client_path(spec_parts):
+    """把路径段拼成绝对路径。段里带 `*`（MSIX 的 `Packages\\Claude_*`）就 **glob 展开取第一个**。
+
+    展开不到（那个包还没装 / 环境变量没有）返回 `None`——调用方据此跳过这一条候选路径。
+    """
+    if not spec_parts:
+        return None
     parts = []
     for p in spec_parts:
         if p == "~":
             parts.append(os.path.expanduser("~"))
-        elif p == "APPDATA":
-            base = os.environ.get("APPDATA")
+        elif p in ("APPDATA", "LOCALAPPDATA"):
+            base = os.environ.get(p)
             if not base:
                 return None
             parts.append(base)
         else:
             parts.append(p)
-    return os.path.join(*parts)
+    pattern = os.path.join(*parts)
+    if "*" not in pattern:
+        return pattern
+    import glob
+    hits = sorted(glob.glob(pattern))
+    return hits[0] if hits else None
+
+
+def _strip_jsonc(text):
+    """去掉 JSONC 的注释 → `(去注释后的文本, 是否原本有注释)`。
+
+    哪些客户端是 JSONC：**OpenCode 的 `opencode.json`、Zed 的 `settings.json`**（Zed 出厂那份
+    默认设置里就带一大段注释）。逐字符走、跟踪 in-string 状态——字符串里的 `//` 不是注释。
+    """
+    out, i, n, in_str, esc, had = [], 0, len(text), False, False, False
+    while i < n:
+        ch = text[i]
+        if in_str:
+            out.append(ch)
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+            i += 1
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch == "/" and i + 1 < n and text[i + 1] == "/":
+            had = True
+            while i < n and text[i] not in "\r\n":
+                i += 1
+            continue
+        elif ch == "/" and i + 1 < n and text[i + 1] == "*":
+            had = True
+            i += 2
+            while i + 1 < n and not (text[i] == "*" and text[i + 1] == "/"):
+                i += 1
+            i += 2
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out), had
 
 
 def _read_cfg(path):
-    """读客户端配置；**读不懂就抛**（调用方据此拒绝改动，绝不覆盖）。"""
+    """读客户端配置 → `(data, 原本有没有注释)`；**读不懂就抛**（调用方据此拒绝改动）。
+
+    带注释的 JSONC 也能读，但调用方拿到 `had_comments=True` 时必须**拒绝写**：
+    我们写回是 `json.dump` 重新序列化，**注释会被抹掉**——那是用户手写的内容，
+    宁可不装也不能洗掉（与"读不出来一个字节都不动"同一条纪律）。
+    """
     with open(path, encoding="utf-8") as f:
-        data = json.load(f)
+        raw = f.read()
+    try:
+        data = json.loads(raw)
+        had = False
+    except ValueError:
+        cleaned, had = _strip_jsonc(raw)
+        data = json.loads(cleaned)              # 还是不行就抛出去（fail-closed）
+        if not had:
+            raise                           # 不是注释的锅（比如尾逗号）：别假装读懂了
     if not isinstance(data, dict):
         raise ValueError("顶层不是 JSON 对象")
-    return data
+    return data, had
 
 
 def _write_cfg(path, data):
@@ -235,15 +368,32 @@ def _backup(path):
         pass                          # 备份失败不阻断（有 .bak 是加分项，不是前提）
 
 
-def json_client_apply(label, path, name, entry):
-    """向某个 JSON 客户端增删我们那一条 → `(状态, 说明)`；状态 ∈ ok/skip/fail。"""
-    if not path or not os.path.isfile(path):
-        return "skip", "未安装（没有配置文件）"
+def json_client_apply(label, path, name, entry, top_key="mcpServers"):
+    """向某个 **JSON** 客户端增删我们那一条 → `(状态, 说明)`；状态 ∈ ok/skip/fail。
+
+    `top_key` 各家不同（多数 `mcpServers`、VS Code `servers`、Zed `context_servers`、
+    OpenCode `mcp`）——**只动我们自己的那个键**，其余内容原样保留。
+    """
+    if not path:
+        return "skip", "没有可写的位置"
+    if not os.path.isfile(path):
+        # 客户端在、配置还没建过（首次使用的客户端就是这样）⇒ **替它建**，这正是它自己的 UI 也会做的事。
+        # 注意：调用方只在"客户端目录在"时才会走到这儿（见 `clients()`）。
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+        except OSError as e:
+            return "fail", f"建不了配置目录：{e}"
     try:
-        data = _read_cfg(path)
+        data, had_comments = _read_cfg(path) if os.path.isfile(path) else ({}, False)
     except Exception as e:                                     # noqa: BLE001
         return "fail", f"配置读不出来，**一个字节都没动**：{e}"
-    servers = data.get("mcpServers")
+    if had_comments and entry is not None:
+        # 写回是重新序列化 ⇒ 会把用户写的 `// 注释` 抹掉。**宁可不装**，把能直接粘的片段给他。
+        snippet = json.dumps({top_key: {name: entry}}, ensure_ascii=False, indent=2)
+        return "fail", ("这个配置里有 `//` 注释——重写会**丢掉你的注释**，所以没动它。\n"
+                        f"     手动加进去（粘到 {top_key} 里即可）：\n"
+                        + "\n".join("     " + ln for ln in snippet.splitlines()))
+    servers = data.get(top_key)
     if entry is None:                                          # 注销
         if not isinstance(servers, dict) or name not in servers:
             return "skip", "本来就没注册"
@@ -252,8 +402,9 @@ def json_client_apply(label, path, name, entry):
     else:
         if isinstance(servers, dict) and servers.get(name) == entry:
             return "ok", "已在注册（内容一致）"
-        _backup(path)
-        data.setdefault("mcpServers", {})[name] = entry
+        if os.path.isfile(path):
+            _backup(path)
+        data.setdefault(top_key, {})[name] = entry
     _write_cfg(path, data)
     return "ok", path
 
@@ -406,62 +557,302 @@ def skill_source(spec):
 # Cursor 不在列：它的 `~/.cursor/skills-cursor/` 旁边有个 `.sync-manifest.json`，
 # 看着是**别人在管**的目录——往一个自己看不懂其管理方式的目录里写，比不写更糟。
 SKILL_TARGETS = (
-    ("Claude Code", ("~", ".claude", "skills"), ("~", ".claude")),
-    ("Codex",       ("~", ".codex", "skills"),  ("~", ".codex")),
+    # ① **skills 目录**（首选落点）：渐进披露——只在真的用到时才进模型的上下文。
+    #    三种形态里最不打扰用户，能放这儿就不往指令文件里塞。
+    {"label": "Claude Code", "kind": "skill_dir",
+     "root": ("~", ".claude", "skills"), "detect": ("~", ".claude")},
+    # 跨工具的约定目录（Zed 等认这个，见调研）
+    {"label": "通用 skills", "kind": "skill_dir",
+     "root": ("~", ".agents", "skills"), "detect": ("~", ".agents")},
+
+    # ② **单文件规则**（往它自己的规则目录放一个文件；不动用户已有的东西）
+    {"label": "Copilot", "kind": "rule_file",
+     "path": ("~", ".copilot", "instructions", "@P@.instructions.md"),
+     "detect": ("~", ".copilot")},
+    {"label": "Roo Code", "kind": "rule_file",
+     "path": ("~", ".roo", "rules", "@P@.md"), "detect": ("~", ".roo")},
+    {"label": "Cline", "kind": "rule_file",
+     "path": ("~", "Documents", "Cline", "Rules", "@P@.md"),
+     "detect": ("~", "Documents", "Cline")},
+    {"label": "Trae", "kind": "rule_file",
+     "path": ("~", ".trae-cn", "user_rules", "@P@.md"), "detect": ("~", ".trae-cn")},
+    # Qwen 既有全局 `QWEN.md` 也有 `~/.qwen/rules/` 目录——**用目录**：
+    # 放一个文件进去不影响用户已有的 QWEN.md（合并进单文件是不得已才做的事）。
+    {"label": "Qwen Code", "kind": "rule_file",
+     "path": ("~", ".qwen", "rules", "@P@.md"), "detect": ("~", ".qwen")},
+
+    # ③ **合并进用户的指令文件**：这几种只有"一份全局指令文件"这一条路。
+    #    ⚠️ 这类文件**每次会话都会进上下文**，所以只放一小段指路、**不塞整份技能**
+    #    （见 `pointer_block()`）。改前备份 + 分隔块 + 卸载时精确摘掉。
+    {"label": "Codex", "kind": "merge_block",
+     "path": ("~", ".codex", "AGENTS.md"), "detect": ("~", ".codex")},
+    {"label": "Gemini CLI", "kind": "merge_block",
+     "path": ("~", ".gemini", "GEMINI.md"), "detect": ("~", ".gemini")},
+    {"label": "OpenCode", "kind": "merge_block",
+     "path": ("~", ".config", "opencode", "AGENTS.md"), "detect": ("~", ".config", "opencode")},
+    {"label": "Zed", "kind": "merge_block",
+     "path": ("APPDATA", "Zed", "AGENTS.md"), "detect": ("APPDATA", "Zed")},
+    {"label": "Windsurf", "kind": "merge_block",
+     "path": ("~", ".codeium", "windsurf", "memories", "global_rules.md"),
+     "detect": ("~", ".codeium", "windsurf")},
 )
 
+# 刻意**没做**的（都有理由，不是漏）：
+#   Claude Desktop —— 官方明确"**没有文件系统自动发现**"，技能只能手工上传 ZIP。没有可落盘的位置。
+#   Cursor         —— 官方只文档化了 **project 级** `.cursor/rules/*.mdc`；user 级磁盘路径是社区说法。
+#                     我们是**用户级**安装器，不往别人的仓库里写文件。
+#   Continue       —— 用户级规则要走 `config.yaml`（YAML 合并）。同 MCP 那边：没有 YAML 校验器
+#                     ⇒ 写坏了看不出来 ⇒ 不做。
+#   Aider          —— `.aider.conf.yml` 的 `read:` 列表（YAML），同上。
+#   Warp           —— 用户级规则存在**云端 Warp Drive**，本地没有文件。
+#   通义灵码        —— 官方只文档化了 project 级 `.lingma/rules/`，**没有 user 级路径**。
+#   Trae 国际版     —— 只找到中文版 `~/.trae-cn/user_rules/`，国际版路径未找到官方说明。
+#
+# 另外记一条**没有采纳的"证据"**：本机 `~/.codex/skills/` 下确实有 16 个 `<名>/SKILL.md`，
+# 但调研（官方文档）只说 Codex 读 `~/.codex/AGENTS.md`；那些目录是**别的东西同步进去的**，
+# 不能据此断言 Codex 会读。所以 Codex 走**有官方出处**的那条路（合并一小段进 AGENTS.md）。
 
-def skill_targets():
-    """装了哪些会读技能包的客户端 → `[(客户端, 技能根目录)]`。
 
-    与 JSON 配置同一条纪律：**不去给没装的客户端造目录**。
+def skill_targets(product):
+    """装了哪些**会读技能/规则**的客户端 → `[目标 dict]`（附 `resolved` 落点）。
+
+    与 MCP 配置同一条纪律：**判据是客户端在不在，不是文件在不在**——客户端装了、文件还没建过，
+    那时我们该替它建（那正是它自己的 UI 也会做的事）。
+
+    `@P@` 是产品名占位（每个产品的规则**文件名**不一样：`wechat-file-mcp.md` 那种），
+    在这里换成真名——写死就没法四个产品共用了。
     """
     out = []
-    for label, root_parts, client_parts in SKILL_TARGETS:
-        if os.path.isdir(_client_path(client_parts)):
-            out.append((label, _client_path(root_parts)))
+    for spec in SKILL_TARGETS:
+        mark = _client_path(spec["detect"])
+        if not (mark and os.path.isdir(mark)):
+            continue
+        key = "root" if spec["kind"] == "skill_dir" else "path"
+        t = dict(spec)
+        t["resolved"] = _client_path([seg.replace("@P@", product) for seg in spec[key]])
+        out.append(t)
     return out
 
 
-def skill_apply(spec, remove=False):
-    """装/卸技能包到**各已装客户端** → `[(客户端, 状态, 说明)]`。
+def fill_skill(dst_root, exe):
+    """把技能文件里的占位符换成**装完之后的真实路径**。
 
-    目录名是**技能 id**（= `spec["product"]`），不是 MCP 服务名（= `spec["name"]`）——
-    这两个名字不一样，混用过一次，后果是技能包静默没装上而其余步骤全绿。
+    为什么要这一步：技能是给**AI 客户端**读的。写上真实路径，AI 就能照着它自己把 MCP 配好
+    （或告诉用户"你已经装好了，路径是这个"）——用户不必知道 exe 在哪，也不必手抄路径。
+
+    两个占位符，因为**同一个路径在两种语法里写法不同**：
+      `{{EXE}}`      —— 原样，给 shell / 命令行 / 散文用
+      `{{EXE_JSON}}` —— 反斜杠**双写**，给 JSON 配置片段用（不双写那段 JSON 是**非法**的，
+                       而 AI 很可能直接照抄）
+    没替换到的占位符会**原样留着**——宁可露馅，也别悄悄写个错的路径进去。
+    """
+    if not exe:
+        return 0                                        # 没有可写的路径就别动——留住占位符比填个空串强
+    exe = str(exe)
+    repl = {"{{EXE}}": exe, "{{EXE_JSON}}": exe.replace("\\", "\\\\")}
+    n = 0
+    for dp, _dirs, files in os.walk(dst_root):
+        for f in files:
+            if not f.lower().endswith((".md", ".mdx", ".mdc", ".txt", ".json", ".toml")):
+                continue
+            p = os.path.join(dp, f)
+            try:
+                with open(p, encoding="utf-8") as fh:
+                    txt = fh.read()
+                if not any(k in txt for k in repl):
+                    continue
+                for k, v in repl.items():
+                    txt = txt.replace(k, v)
+                with open(p, "w", encoding="utf-8") as fh:
+                    fh.write(txt)
+                n += 1
+            except OSError:
+                continue
+    return n
+
+
+def skill_body(spec):
+    """技能源里的**正文**（去掉 YAML frontmatter）。
+
+    frontmatter 是 Claude Code 那套的元数据（`name`/`description`），别的客户端读的是**纯规则**，
+    带着它反而是噪音。所以按形态各取所需，正文只有一份。
     """
     src = skill_source(spec)
-    targets = skill_targets()
+    p = os.path.join(src, "SKILL.md") if src else ""
+    try:
+        with open(p, encoding="utf-8") as f:
+            txt = f.read()
+    except OSError:
+        return ""
+    if txt.startswith("---"):
+        end = txt.find("\n---", 3)
+        if end != -1:
+            return txt[end + 4:].lstrip("\n")
+    return txt
+
+
+def pointer_block(spec, exe):
+    """给**指令文件**用的**一小段指引**。
+
+    为什么不塞整份技能：`AGENTS.md` / `GEMINI.md` 这类文件**每次会话都会进上下文**（不像 skills
+    是渐进披露）。把几百行塞进去等于每轮都在烧用户的 token，换来的只是"偶尔用得上"。
+    所以这里只写清三件事：**这是什么、exe 在哪、出错怎么读**——够模型自己把事情办对了。
+    """
+    name = spec["name"]
+    label = spec.get("label") or name
+    return (
+        f"## {label}（MCP：`{name}`）\n\n"
+        f"本机已装。可执行文件：`{exe}`\n\n"
+        f"- 它是个 MCP 服务器，工具面见 `{name}` 客户端里的工具列表。\n"
+        f"- 需要重新配置到别的客户端时：跑 `\"{exe}\" --install`（交互式会列出所有客户端）。\n"
+        f"- **失败一律返回** `{{\"ok\": false, \"detail\", \"error_code\", \"stage\", \"suggestion\"}}`；"
+        f"看到 `ok: false` 就是没成功，**别当成数据用**。按 `error_code` 处置：\n"
+        f"  - `target_not_found` —— 会话名没对上唯一目标（**不是**「没有数据」），"
+        f"`candidates` 里是相近的，拿它问清是哪一个。\n"
+        f"  - `env_not_ready` —— 微信没就绪（没运行 / 找不到数据目录 / 密钥扫不到）；"
+        f"把 `hint` 里的动手步骤转告用户，**别重试**。\n"
+        f"  - `bad_args` —— 参数错，按 `detail` 改。\n"
+        f"  - `not_licensed` —— 未授权，把 `hint` 转告用户；重试没用。\n"
+        f"- 数据全部**本地处理、不外传**。\n"
+    )
+
+
+# 分隔块：卸载时靠它**精确摘掉**自己那一段，不碰用户在同一文件里写的别的内容
+BLOCK_BEGIN = "<!-- lumii:{p} 开始（由安装器写入，卸载时会自动摘掉） -->"
+BLOCK_END = "<!-- lumii:{p} 结束 -->"
+
+
+def merge_block_apply(path, product, body=None):
+    """把一段带分隔标记的文字**合并进**用户的指令文件 → `(状态, 说明)`。
+
+    - 已经有一段了 ⇒ 原地替换（幂等，升级时更新）；
+    - 没有 ⇒ 追加到文件末尾（不插到中间，避免打断人家的结构）；
+    - `body=None` ⇒ 摘掉我们那一段（连标记一起），**其余内容一个字节不动**。
+    """
+    begin = BLOCK_BEGIN.format(p=product)
+    end = BLOCK_END.format(p=product)
+    try:
+        old = open(path, encoding="utf-8").read() if os.path.isfile(path) else ""
+    except OSError as e:
+        return "fail", f"读不出来，**没动它**：{e}"
+    if body is None:
+        if begin not in old:
+            return "skip", "本来就没写进去"
+        i = old.index(begin)
+        j = old.find(end, i)
+        kept = (old[:i] + (old[j + len(end):] if j != -1 else "")).strip("\n")
+        _backup(path) if os.path.isfile(path) else None
+        _write_text(path, kept + "\n" if kept else "")
+        return "ok", f"{path}（已摘掉我们那段）"
+
+    block = f"{begin}\n{body.rstrip()}\n{end}\n"
+    if begin in old:
+        i = old.index(begin)
+        j = old.find(end, i)
+        new = old[:i] + block + (old[j + len(end):].lstrip("\n") if j != -1 else "")
+    else:
+        new = old.rstrip("\n") + ("\n\n" if old.strip() else "") + block
+    if new == old:
+        return "ok", f"{path}（内容一致）"
+    if os.path.isfile(path):
+        _backup(path)
+    _write_text(path, new)
+    return "ok", path
+
+
+def _write_text(path, text):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(text)
+    os.replace(tmp, path)
+
+
+def skill_apply(spec, remove=False, exe=None):
+    """装/卸技能到**各已装客户端** → `[(客户端, 状态, 说明)]`。
+
+    三种形态（见 `SKILL_TARGETS`）：`skill_dir` 拷整个技能目录、`rule_file` 写一个规则文件、
+    `merge_block` 往用户的指令文件里合并一小段。
+
+    目录/文件名是**技能 id**（= `spec["product"]`），不是 MCP 服务名（= `spec["name"]`）——
+    这两个名字不一样，混用过一次，后果是技能静默没装上而其余步骤全绿。
+    """
+    product = spec["product"]
+    src = skill_source(spec)
+    targets = skill_targets(product)
     if not targets:
-        return [("技能包", "skip", "没检测到会读技能包的客户端")]
+        return [("技能", "skip", "没检测到会读技能/规则的客户端")]
+    need_src = any(t["kind"] != "merge_block" for t in targets)
+    if not remove and need_src and not os.path.isdir(src):
+        # 源码模式：技能就在仓库里，找不到是调用方没给路径 → 跳过
+        # 冻结模式：技能**本该**打进 exe，找不到就是构建漏了 `--add-data` → **报失败**，
+        #           别用 skip 蒙混过去（用户会以为装好了，实际客户端里没有这个技能）
+        why = (f"技能没打进这个 exe（构建漏了 --add-data）：{src or '未提供'}"
+               if getattr(sys, "frozen", False) else f"技能源没找到（{src or '未提供'}）")
+        return [(t["label"], "fail" if getattr(sys, "frozen", False) else "skip", why)
+                for t in targets]
+
     rows = []
-    for label, root in targets:
-        dst = os.path.join(root, spec["product"])
+    for t in targets:
+        label, dst = t["label"], t["resolved"]
+        if t["kind"] == "merge_block":
+            rows.append((label, *merge_block_apply(
+                dst, product, None if remove else pointer_block(spec, exe or ""))))
+            continue
+        if t["kind"] == "rule_file":
+            if remove:
+                rows.append((label, *_remove_file(dst)))
+            else:
+                body = skill_body(spec) or "（技能正文缺失）"
+                if exe:
+                    body = body.replace("{{EXE}}", exe).replace(
+                        "{{EXE_JSON}}", str(exe).replace("\\", "\\\\"))
+                rows.append((label, *_write_rule(dst, body)))
+            continue
+        # skill_dir
+        sub = os.path.join(dst, product)
         if remove:
-            if not os.path.isdir(dst):
+            if not os.path.isdir(sub):
                 rows.append((label, "skip", "本来就没装"))
                 continue
-            shutil.rmtree(dst, ignore_errors=True)
-            rows.append((label, "ok", dst))
-            continue
-        if not os.path.isdir(src):
-            # 源码模式：技能包就在仓库里，找不到是调用方没给路径 → 跳过
-            # 冻结模式：技能包**本该**打进 exe，找不到就是构建漏了 `--add-data` → **报失败**，
-            #           别用 skip 蒙混过去（用户会以为装好了，实际客户端里没有这个技能）
-            if getattr(sys, "frozen", False):
-                rows.append((label, "fail",
-                             f"技能包没打进这个 exe（构建漏了 --add-data）：{src or '未提供'}"))
-            else:
-                rows.append((label, "skip", f"技能包源没找到（{src or '未提供'}）"))
+            shutil.rmtree(sub, ignore_errors=True)
+            rows.append((label, "ok", sub))
             continue
         try:
-            os.makedirs(root, exist_ok=True)
-            if os.path.isdir(dst):
-                shutil.rmtree(dst, ignore_errors=True)   # 覆盖装：旧文件别留下
-            shutil.copytree(src, dst)
-            rows.append((label, "ok", dst))
+            os.makedirs(dst, exist_ok=True)
+            if os.path.isdir(sub):
+                shutil.rmtree(sub, ignore_errors=True)   # 覆盖装：旧文件别留下
+            shutil.copytree(src, sub)
+            if exe:
+                fill_skill(sub, exe)                     # 把 `{{EXE}}` 落成真实路径
+            rows.append((label, "ok", sub))
         except OSError as e:
-            rows.append((label, "fail", f"拷贝失败（{e}）：{dst}"))
+            rows.append((label, "fail", f"拷贝失败（{e}）：{sub}"))
     return rows
+
+
+def _write_rule(path, body):
+    """写一个规则文件。有 frontmatter 的客户端（Copilot/Trae）由各自的 `SKILL_TARGETS` 约定说明——
+    这里统一写**纯 Markdown**（调研里只有 Copilot 的 `applyTo` 与 Trae 的 `alwaysApply` 是"可选"，
+    不写它们规则照样加载，写了反而可能因为 glob 不匹配而不生效）。
+    """
+    try:
+        if os.path.isfile(path):
+            _backup(path)
+        _write_text(path, body.rstrip() + "\n")
+        return "ok", path
+    except OSError as e:
+        return "fail", f"写失败（{e}）：{path}"
+
+
+def _remove_file(path):
+    if not os.path.isfile(path):
+        return "skip", "本来就没装"
+    try:
+        os.remove(path)
+        return "ok", path
+    except OSError as e:
+        return "fail", f"删不掉（{e}）：{path}"
 
 
 # ---- 三个动作 ---------------------------------------------------------------
@@ -497,27 +888,34 @@ def _footer(seen):
 def clients():
     """本机**可能注册的客户端**及其装没装 → `[{key,label,kind,path,detected}]`。
 
-    判据是"那个客户端自己的东西在不在"（CLI 在不在 PATH / 配置文件在不在），**不是**
-    "我们上次装过没"。所以这份清单随机器变，向导据此只列真正能动的那些。
+    `path` 是**命中的那个配置文件**（已存在的优先，都没有就用第一个候选——用来展示"期望位置"）。
+    `detected` 看的是**客户端自己的目录在不在**，不是配置文件在不在：首次使用某客户端时它的
+    配置还没建过，那时我们**该**替它建（那正是它自己的 UI 也会做的事）；而客户端目录都不在
+    就一个字节都不碰。
 
-    `kind` 决定怎么读写：`claude_code`（走它的 CLI）/ `json`（合并 JSON）/ `toml`（Codex）。
-    三家的纪律完全不同，但**对调用方长得一样**——所以三个动作（装/卸/看状态）都只遍历这一份。
+    `kind` 决定**怎么读写**（五家语法差别很大），但对调用方长得一样——装/卸/看状态都只遍历这一份。
     """
     out = []
-    cli = claude_cli()
-    out.append({"key": "claude-code", "label": "Claude Code", "kind": "claude_code",
-                "path": cli, "detected": bool(cli)})
-    for label, parts in JSON_CLIENTS:
-        p = _client_path(parts)
-        out.append({"key": label.lower().replace(" ", "-"), "label": label, "kind": "json",
-                    "path": p, "detected": bool(p and os.path.isfile(p))})
-    cp = _client_path(CODEX_CONFIG)
-    out.append({"key": "codex", "label": "Codex", "kind": "toml",
-                "path": cp, "detected": bool(cp and os.path.isfile(cp))})
+    for spec in CLIENTS:
+        if spec["kind"] == "claude_code":
+            cli = claude_cli()
+            out.append({"key": spec["key"], "label": spec["label"], "kind": spec["kind"],
+                        "path": cli, "detected": bool(cli)})
+            continue
+        paths = [p for p in (_client_path(t) for t in spec.get("paths", ())) if p]
+        hit = next((p for p in paths if os.path.isfile(p)), None)
+        if spec.get("detect"):
+            mark = _client_path(spec["detect"])
+            detected = bool(mark) and (os.path.isdir(mark) or bool(hit))
+        else:
+            parent = os.path.dirname(paths[0]) if paths else ""
+            detected = bool(hit) or (bool(parent) and os.path.isdir(parent))
+        out.append({"key": spec["key"], "label": spec["label"], "kind": spec["kind"],
+                    "path": hit or (paths[0] if paths else None), "detected": detected})
     return out
 
 
-def register_client(c, name, entry):
+def register_client(c, name, exe):
     """按 `kind` 分派注册 → `(状态, 说明)`。
 
     Claude Code 那条**先摘再挂**（幂等）；而**摘是尽力而为**——目标本来就不存在时
@@ -527,18 +925,20 @@ def register_client(c, name, entry):
     """
     if c["kind"] == "claude_code":
         claude_code_apply(name)
-        return claude_code_apply(name, entry["command"])
-    if c["kind"] == "toml":
-        return codex_apply(name, entry)
-    return json_client_apply(c["label"], c["path"], name, entry)
+        return claude_code_apply(name, exe)
+    if c["kind"] == "toml_codex":
+        return codex_apply(name, {"type": "stdio", "command": exe, "args": [], "env": {}})
+    top, shape = JSON_SHAPES[c["kind"]]
+    return json_client_apply(c["label"], c["path"], name, shape(exe), top)
 
 
 def unregister_client(c, name):
     if c["kind"] == "claude_code":
         return claude_code_apply(name)                 # command=None ⇒ 摘
-    if c["kind"] == "toml":
+    if c["kind"] == "toml_codex":
         return codex_apply(name, None)
-    return json_client_apply(c["label"], c["path"], name, None)
+    top, _shape = JSON_SHAPES[c["kind"]]
+    return json_client_apply(c["label"], c["path"], name, None, top)
 
 
 def _registered_line(c, name):
@@ -549,7 +949,7 @@ def _registered_line(c, name):
             return "fail", err
         out = (r.stdout or b"").decode("utf-8", "replace").strip().splitlines()
         return ("ok" if r.returncode == 0 else "skip"), (out[0][:90] if out else "未注册")
-    if c["kind"] == "toml":
+    if c["kind"] == "toml_codex":
         try:
             with open(c["path"], encoding="utf-8") as f:
                 txt = f.read()
@@ -557,11 +957,12 @@ def _registered_line(c, name):
             return "fail", f"配置读不出来：{e}"
         has = f"[mcp_servers.{name}]" in txt
         return ("ok" if has else "skip"), (c["path"] if has else "未注册")
+    top, _shape = JSON_SHAPES[c["kind"]]
     try:
-        servers = (_read_cfg(c["path"]).get("mcpServers") or {})
+        servers = (_read_cfg(c["path"])[0].get(top) or {})
     except Exception as e:                                     # noqa: BLE001
         return "fail", f"配置读不出来：{e}"
-    got = servers.get(name)
+    got = servers.get(name) if isinstance(servers, dict) else None
     return ("ok" if got else "skip"), (str(got.get("command", "")) if got else "未注册")
 
 
@@ -572,28 +973,28 @@ def do_install(spec, only=None):
 
     prev = _read_installed(product).get("version") or ""
     cur = spec.get("version") or ""
-    exe, how = deploy_self(product)
-    if exe:
-        note = exe
+    deployed, how = deploy_self(product)
+    exe = deployed
+    if deployed:
+        note = deployed
         if prev and cur and prev != cur:
-            arrow = "→"
-            note = f"{exe}\n      v{prev} {arrow} **v{cur}**"
+            note = f"{deployed}\n      v{prev} → **v{cur}**"
         seen.append(_line("部署", "ok", note))
-        _write_installed(product, spec, exe)
+        _write_installed(product, spec, deployed)
     else:
         seen.append(_line("部署", "skip", how))
         exe, _args = _own_command()
 
-    entry = {"type": "stdio", "command": exe, "args": [], "env": {}}
     for c in clients():
         if not c["detected"]:
             seen.append(_line(c["label"], "skip", "未安装（不去给没装的客户端造配置）"))
         elif only is not None and c["key"] not in only:
             seen.append(_line(c["label"], "skip", "按你的选择跳过"))
         else:
-            seen.append(_line(c["label"], *register_client(c, name, entry)))
+            seen.append(_line(c["label"], *register_client(c, name, exe)))
 
-    for label, st, detail in skill_apply(spec):
+    # 技能里落**部署后的真实路径**（源码模式没有部署副本 ⇒ 留着 `{{EXE}}`，那是开发场景）
+    for label, st, detail in skill_apply(spec, exe=deployed):
         seen.append(_line(f"技能包·{label}", st, detail))
 
     if _footer(seen):
@@ -614,20 +1015,40 @@ def do_install(spec, only=None):
     return 0
 
 
-def do_uninstall(spec):
+def do_uninstall(spec, only=None):
+    """摘注册 + 删技能包 + 删部署的 exe。`only` 给了就**只从这些客户端**里摘。
+
+    `only=None`（命令行 `--uninstall`）表示全摘——脚本化调用要的就是"清干净"；
+    交互式调用会在向导里先让用户勾。
+    """
     name, product = spec["name"], spec["product"]
     _say(f"\n卸载 {spec.get('label') or name}（{name}）")
     seen = []
 
-    # 卸载**不问**要摘哪些：装的时候能挑，是因为那是加法；摘干净是减法，留一半更糟
     for c in clients():
         if not c["detected"]:
             seen.append(_line(c["label"], "skip", "未安装"))
+        elif only is not None and c["key"] not in only:
+            seen.append(_line(c["label"], "skip", "按你的选择保留"))
         else:
             seen.append(_line(c["label"], *unregister_client(c, name)))
 
     for label, st, detail in skill_apply(spec, remove=True):
         seen.append(_line(f"技能包·{label}", st, detail))
+
+    # 需要常驻的产品：**卸载要连守护一起停**，否则"卸载完了"它还在后台跑（同一类静默错误）
+    daemon_flag = spec.get("daemon_uninstall")
+    if daemon_flag:
+        cmd, args = _own_command()
+        try:
+            r = subprocess.run([cmd, *args, daemon_flag], capture_output=True, timeout=180,
+                               **_quiet_kwargs())
+            seen.append(_line("常驻守护", "ok" if r.returncode == 0 else "skip",
+                              "已停掉、并取消开机自启" if r.returncode == 0
+                              else (r.stderr or b"").decode("utf-8", "replace").strip()[:90]
+                              or "本来就没装自启"))
+        except Exception as e:                                  # noqa: BLE001
+            seen.append(_line("常驻守护", "fail", str(e)))
 
     dst = deployed_exe(product)
     if not os.path.isfile(dst):
@@ -689,16 +1110,30 @@ def do_status(spec):
             continue
         _line(c["label"], *_registered_line(c, name))
 
-    # 技能包按**技能 id**（= product）找目录，不是按服务名。跟 skill_apply 用同一份判断，
-    # 别各写各的（写错过一次：明明装了却报"没装"）。
-    sts = skill_targets()
+    # 技能落点按**技能 id**（= product）找，不是按服务名。跟 skill_apply 用同一份判断，
+    # 别各写各的（写错过一次：明明装了却报"没装"）。三种形态各自的"在不在"判据不同。
+    sts = skill_targets(product)
     if not sts:
-        _line("技能包", "skip", "没检测到会读技能包的客户端")
-    for label, root in sts:
-        dst_skill = os.path.join(root, product)
-        _line(f"技能包·{label}", "ok" if os.path.isdir(dst_skill) else "skip",
-              dst_skill if os.path.isdir(dst_skill) else "没装")
+        _line("技能", "skip", "没检测到会读技能/规则的客户端")
+    for t in sts:
+        where = t["resolved"]
+        if t["kind"] == "skill_dir":
+            where = os.path.join(where, product)
+            there = os.path.isdir(where)
+        elif t["kind"] == "rule_file":
+            there = os.path.isfile(where)
+        else:
+            there = os.path.isfile(where) and BLOCK_BEGIN.format(p=product) in _peek(where)
+        _line(f"技能·{t['label']}", "ok" if there else "skip", where if there else "没装")
     return 0
+
+
+def _peek(path):
+    try:
+        with open(path, encoding="utf-8") as f:
+            return f.read()
+    except OSError:
+        return ""
 
 
 def is_interactive():
@@ -749,21 +1184,175 @@ def _ask(prompt, default_yes=True):
     return ans.strip().lower() in ("y", "yes", "是")
 
 
-def _choose_clients(cs, ask_raw=_ask_raw):
-    """勾选要注册到哪些客户端 → 选中的 key 集合。
+# ---- 选择界面：**只用方向键和空格，不用打字** --------------------------------
+_VT = {"ok": None}
 
-    交互：输入序号**切换**那一项（`2 3` 同时切两个），**直接回车 = 就用当前勾选**。
-    默认把检测到的全勾上；没装的显示「（未安装）」且点了不生效——别让人选一个我们根本
-    找不到的东西。
+
+def _vt_ok():
+    """当前控制台支持 ANSI 转义吗（菜单要**原地重画**，靠的就是它）。
+
+    不打开的话 `\\x1b[2K` 会被**原样打印**成乱码。Python 在真控制台上一般会开，但拿不到就
+    退化成"每按一次重印一遍"——难看，但能用、不会崩。
     """
-    chosen = {c["key"] for c in cs if c["detected"]}
+    if _VT["ok"] is None:
+        _VT["ok"] = False
+        if os.name == "nt":
+            try:
+                import ctypes
+                k32 = ctypes.windll.kernel32
+                h = k32.GetStdHandle(-11)              # STD_OUTPUT_HANDLE
+                mode = ctypes.c_uint32(0)
+                if k32.GetConsoleMode(ctypes.c_void_p(h), ctypes.byref(mode)):
+                    _VT["ok"] = bool(k32.SetConsoleMode(ctypes.c_void_p(h), mode.value | 0x0004))
+            except Exception:                          # noqa: BLE001
+                pass
+    return _VT["ok"]
+
+
+def _emit(text):
+    """往 stdout 写一段**不带换行**的文本；编不出来就降级（同 `_say`，别在重画时抛）。"""
+    try:
+        sys.stdout.write(text)
+    except UnicodeEncodeError:
+        enc = getattr(sys.stdout, "encoding", None) or "ascii"
+        sys.stdout.write(text.encode(enc, "replace").decode(enc, "replace"))
+    sys.stdout.flush()
+
+
+def _key_reader():
+    """逐键读 → 规范化记号；**拿不到真控制台就返回 None**（调用方退化成打字）。
+
+    为什么要逐键：用户要的是"**只选择，不打字**"。打序号也算打字。
+    """
+    try:
+        import msvcrt
+    except ImportError:
+        return None                                    # 非 Windows
+    if not is_interactive():
+        return None                                    # 没控制台：读键会抛
+
+    def read():
+        ch = msvcrt.getch()
+        if ch in (b"\x00", b"\xe0"):                   # 方向键是两字节序列
+            return {"H": "up", "P": "down"}.get(msvcrt.getch().decode("latin1", "replace"), "?")
+        c = ch.decode("latin1", "replace")
+        return {"\r": "enter", "\n": "enter", " ": "toggle", "a": "all", "A": "all",
+                "\x1b": "quit", "\x03": "quit"}.get(c, c)
+    return read
+
+
+def _menu(title, rows, cur, redraw):
+    """画 / 原地重画菜单。`rows` = `[(label, checked, selectable, note)]`，`cur` 是光标行号。"""
+    lines = ["", title]
+    for i, (label, checked, selectable, note) in enumerate(rows):
+        pointer = ">" if i == cur else " "
+        box = "[✓]" if checked else "[ ]"
+        lines.append(f"   {pointer} {box} {label}{note}")
+    lines.append("   ↑/↓ 移动 · 空格 勾选 · a 全选/全不选 · 回车 确认")
+    if redraw and _vt_ok():
+        _emit(f"\x1b[{len(lines)}A")                   # 回到上一次的块首
+        for ln in lines:
+            _emit("\x1b[2K" + ln + "\n")
+    else:
+        _emit("\n".join(lines) + "\n")
+
+
+def pick_clients(cs, title="要注册到哪些 AI 客户端？", keys=None, ask_raw=_ask_raw,
+                 prechecked=None):
+    """**只用选择**地勾客户端 → 选中的 key 集合。
+
+    ↑/↓ 移动、空格勾选、`a` 全选、回车确认。没装的显示「（未安装）」且**光标不停在它上面**
+    ——别让人选一个我们根本找不到的东西。
+
+    退化路径：拿不到真控制台（非 Windows / 被管道接走）时回到"输入序号"那套，认 `ask_raw`；
+    `keys` 可注入（测试用）。
+    """
+    if not cs:
+        return set()
+    chosen = set(prechecked) if prechecked is not None else {c["key"] for c in cs if c["detected"]}
+    rows = [(c["label"], c["key"] in chosen, c["detected"],
+             "" if c["detected"] else "   （未安装）") for c in cs]
+    selectable = [i for i, r in enumerate(rows) if r[2]]
+    if not selectable:
+        return chosen
+
+    read = _key_reader() if keys is None else None
+    if read is None and keys is None:
+        return _pick_clients_typed(cs, title, ask_raw, chosen)
+
+    cur = selectable[0]
+    _menu(title, [(l, c, s, n) for l, c, s, n in rows], cur, redraw=False)
+    it = iter(keys) if keys is not None else None
+    while True:
+        k = next(it, "enter") if it is not None else read()
+        if k in ("quit", None):
+            return chosen
+        if k == "up":
+            cur = selectable[(selectable.index(cur) - 1) % len(selectable)]
+        elif k == "down":
+            cur = selectable[(selectable.index(cur) + 1) % len(selectable)]
+        elif k == "toggle":
+            rows[cur] = (rows[cur][0], not rows[cur][1], True, rows[cur][3])
+            _menu(title, rows, cur, redraw=True)
+        elif k == "all":
+            want = not all(r[1] for r in rows if r[2])
+            rows = [(l, want if s else c, s, n) for l, c, s, n in rows]
+            _menu(title, rows, cur, redraw=True)
+        elif k == "enter":
+            _menu(title, rows, cur, redraw=True)
+            return {c["key"] for c, r in zip(cs, rows) if r[1] and r[2]}
+        else:                                          # 别的键：光标往下走一格，别没反应
+            cur = selectable[(selectable.index(cur) + 1) % len(selectable)]
+            _menu(title, rows, cur, redraw=True)
+
+
+def _menu_one(title, options, cur, redraw):
+    lines = ["", title]
+    for i, o in enumerate(options):
+        lines.append(f"   {'>' if i == cur else ' '} {o}")
+    lines.append("   ↑/↓ 移动 · 回车 选定")
+    if redraw and _vt_ok():
+        _emit(f"\x1b[{len(lines)}A")
+        for ln in lines:
+            _emit("\x1b[2K" + ln + "\n")
+    else:
+        _emit("\n".join(lines) + "\n")
+
+
+def pick_one(title, options, keys=None, default=0):
+    """**单选**（↑/↓ 移动、回车选定）→ 选中的下标。
+
+    拿不到真控制台（脚本/管道）时返回 `default`——那正是"没人能回答，就用默认"的正确语义。
+    """
+    read = _key_reader() if keys is None else None
+    if read is None and keys is None:
+        return default
+    cur = default
+    _menu_one(title, options, cur, redraw=False)
+    it = iter(keys) if keys is not None else None
+    while True:
+        k = next(it, "enter") if it is not None else read()
+        if k in ("quit", None):
+            return len(options) - 1 if len(options) > 1 else default
+        if k == "up":
+            cur = (cur - 1) % len(options)
+        elif k == "down" or k not in ("enter",):
+            cur = (cur + 1) % len(options)
+        if k == "enter":
+            _menu_one(title, options, cur, redraw=True)
+            return cur
+        _menu_one(title, options, cur, redraw=True)
+
+
+def _pick_clients_typed(cs, title, ask_raw, chosen):
+    """退化路径：没有真控制台时用"输入序号切换 + 回车确认"（脚本/非 Windows 也能用）。"""
     while True:
         _say("")
-        _say("检测到你装了这些 AI 客户端，要注册到哪些？")
+        _say(title)
         for i, c in enumerate(cs, 1):
-            box = "[✓]" if c["key"] in chosen else "[ ]"
-            _say(f"  {i}. {box} {c['label']}" + ("" if c["detected"] else "   （未安装）"))
-        raw = ask_raw("  输入序号切换（空格/逗号分开），直接回车 = 就这些：")
+            _say(f"   {i}. {'[✓]' if c['key'] in chosen else '[ ]'} {c['label']}"
+                 + ("" if c["detected"] else "   （未安装）"))
+        raw = ask_raw("   输入序号切换（空格/逗号分开），直接回车 = 就这些：")
         if raw is None or not str(raw).strip():
             return chosen
         for tok in re.split(r"[\s,，]+", str(raw).strip()):
@@ -771,13 +1360,11 @@ def _choose_clients(cs, ask_raw=_ask_raw):
                 continue
             c = cs[int(tok) - 1]
             if not c["detected"]:
-                _say(f"     {c['label']} 没装，跳过")
+                _say(f"      {c['label']} 没装，跳过")
             elif c["key"] in chosen:
                 chosen.discard(c["key"])
             else:
                 chosen.add(c["key"])
-        if not chosen:
-            _say("     （一个都没勾：那就只部署 exe，不注册到任何客户端）")
 
 
 def _pause():
@@ -788,10 +1375,12 @@ def _pause():
         pass
 
 
-def interactive(spec, ask=_ask, ask_raw=_ask_raw):
-    """双击时走的路：说清楚这是什么 → **勾选客户端** → 一键装 → 该常驻的顺带装上。
+def interactive(spec, ask=_ask, ask_raw=_ask_raw, keys=None):
+    """双击时走的路：说清楚这是什么 → **只按方向键勾客户端** → 一键装 → 该常驻的顺带装上。
 
-    `ask` / `ask_raw` 可注入（测试用），默认走真 `input()`。
+    已经装过时先给一个岔路（重装 / **只从某些客户端摘掉** / 退出）——首次用户看不到这一步。
+
+    `ask` / `ask_raw` / `keys` 可注入（测试用），默认走真 `input()` 与真键盘。
     """
     label = spec.get("label") or spec["product"]
     _say("=" * 62)
@@ -806,15 +1395,33 @@ def interactive(spec, ask=_ask, ask_raw=_ask_raw):
     _say("  2. 注册到你指定的 AI 客户端（只加我们这一条，改前备份，不动你的其它配置）")
     _say("  3. 把技能包放到对应客户端的技能目录")
     _say("")
-    _say("想撤随时可以：跑 `<本 exe> --uninstall`。")
-
-    prev = _read_installed(spec["product"]).get("version") or ""
-    if prev:
-        _say(f"\n（检测到已经装过 v{prev}，这一步会直接覆盖升级。）")
 
     cs = clients()
-    if any(c["detected"] for c in cs):
-        only = _choose_clients(cs, ask_raw)
+    detected = [c for c in cs if c["detected"]]
+    prev = _read_installed(spec["product"]).get("version") or ""
+
+    # 已经装过 ⇒ 先给一个岔路。**没装过就不问**，首次用户不该为常见路径多按一次键。
+    if prev and detected:
+        _say(f"\n（检测到已经装过 v{prev}。）")
+        idx = pick_one("要做什么？",
+                       ["重新安装 / 升级", "卸载（可以只从某些客户端里摘掉）", "退出"], keys)
+        if idx == 2:
+            _say("\n好，什么都没做。")
+            _pause()
+            return 0
+        if idx == 1:
+            only = pick_clients(detected, "要从哪些客户端里摘掉？", keys, ask_raw,
+                                prechecked={c["key"] for c in detected})
+            if not only:
+                _say("\n一个都没勾——那就什么都不动。")
+                _pause()
+                return 0
+            rc = do_uninstall(spec, only=only)
+            _pause()
+            return rc
+
+    if detected:
+        only = pick_clients(detected, "要注册到哪些 AI 客户端？", keys, ask_raw)
     else:
         only = set()
         _say("\n（一个 AI 客户端都没检测到——那就只部署 exe；之后可以跑 `--install` 再来一次。）")
@@ -849,27 +1456,18 @@ def interactive(spec, ask=_ask, ask_raw=_ask_raw):
 
 
 def do_license_status(spec):
-    """`--license-status`：看授权状态 + 授权文件该放哪 + 本机机器码。
-
-    机器码一起打出来是有意的：换授权的整个流程就是「用户把这段发给发行方」，
-    分成两条命令会让人多跑一趟。
-    """
+    """`--license-status`：看授权状态、授权来源（环境变量密钥 / 旧版授权文件）与修复步骤。"""
     import mcp_license as L
     st = L.status(spec["product"])
     _say(f"\n{spec.get('label') or spec['product']} 授权状态")
     _line("授权", "ok" if st["ok"] else "fail", L.describe(st))
     if not st["ok"]:
         _say(f"\n    {L.how_to_fix(st)}")
-    _say(f"\n  授权文件：{L.license_path()}")
-    _say(f"  本机机器码（把这段发给签发方）：\n{json.dumps(L.machine_id(), ensure_ascii=False, indent=2)}")
+    if st.get("source") == "env":
+        _say(f"\n  授权来源：环境变量 {L.licensing.LICENSE_KEY_ENV}")
+    else:
+        _say(f"\n  授权来源：未配置 {L.licensing.LICENSE_KEY_ENV}，回落到授权文件 {L.license_path()}")
     return 0 if st["ok"] else 1
-
-
-def do_machine_id(_spec):
-    """`--machine-id`：只打机器码（脚本化调用时好抓）。"""
-    import mcp_license as L
-    _say(json.dumps(L.machine_id(), ensure_ascii=False, indent=2))
-    return 0
 
 
 def _delete_on_reboot(path):
@@ -893,7 +1491,6 @@ FLAGS = {
     "--uninstall": do_uninstall,
     "--install-status": do_status,
     "--license-status": do_license_status,
-    "--machine-id": do_machine_id,
 }
 
 
@@ -902,8 +1499,7 @@ def consume_flags(argv, spec):
 
     只认第一个命中的开关：`--install --uninstall` 一起传是没想清楚，别猜。
     """
-    for f in ("--install", "--uninstall", "--install-status",
-              "--license-status", "--machine-id"):
+    for f in ("--install", "--uninstall", "--install-status", "--license-status"):
         if f in argv:
             return FLAGS[f](spec) or 0
     return None

@@ -15,14 +15,14 @@ description: 用「微信文件归档 MCP」操作用户本机的微信**文件*
 
 **Claude Code**：
 ```bash
-claude mcp add wechat-file -s user -- "C:\完整路径\wechat-file-mcp.exe"
+claude mcp add wechat-file -s user -- "{{EXE}}"
 ```
 
 **其它客户端**（Claude Desktop / Cursor / Cline / 自建——都是这份 JSON）：
 ```json
 {
   "mcpServers": {
-    "wechat-file": { "command": "C:\\完整路径\\wechat-file-mcp.exe", "args": [] }
+    "wechat-file": { "command": "{{EXE_JSON}}", "args": [] }
   }
 }
 ```

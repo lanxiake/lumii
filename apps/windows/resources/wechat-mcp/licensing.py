@@ -1,8 +1,17 @@
 # -*- coding: utf-8 -*-
-"""离线授权：机器指纹 + RSA 签名授权文件（无服务端）。
+"""离线授权：RSA 签名的授权密钥 / 授权文件（无服务端）。
+
+两种载体（**密钥优先**）
+------------------------
+1. **授权密钥**（推荐，v2）：环境变量 `WECHAT_MCP_LICENSE_KEY`，写在 MCP 客户端配置的 `env` 里。
+   形如 `WMK1.<base64url(载荷)>.<base64url(签名)>`，载荷 `{v, id, scope, edition, iat, exp}`，
+   **不绑机器**——发行方用 `tools/sign-license.py --count N` 批量签，用户无需提供任何信息。
+   代价：密钥可被转手，挡得住伪造与篡改（含改到期/改 scope），挡不住共享。
+2. **授权文件**（旧，v1）：`license.json`，载荷带 `fp` 时按机器指纹校验（见下）。
 
 设计要点
 --------
+- **签名载荷里有 `fp` 才校验机器指纹**（`fp` 在签名覆盖范围内，删掉它签名就对不上）。
 - **机器指纹三个子项各自独立存放，校验时 2/3 命中即通过**——换网卡、加硬盘、单硬件漂移都不误伤，
   换整机必挂。**刻意不用 MAC**：虚拟网卡 / VPN 常变，误伤率最高。
 - **授权文件** `license.json`：`{v, scope, edition, fp{board,disk,os}, iat, exp}` + `sig`
@@ -40,6 +49,9 @@ QhITBlTroybI5lnIDzyovbHFAhopaS2G+BvLYN8ZqxAXAFe9EYNn6s4TyPzxrKDZ
 BUNDLED_MARKER = ".lumii-bundled"
 # 时钟回拨容差：允许的“倒退”秒数（时区/夏令时/小幅 NTP 校正不该判死）
 CLOCK_SKEW_TOLERANCE = 86400
+# 授权密钥的环境变量名与前缀（四件套与主产品共用，靠载荷里的 scope 区分产品）
+LICENSE_KEY_ENV = "WECHAT_MCP_LICENSE_KEY"
+LICENSE_KEY_PREFIX = "WMK1"
 
 
 def _data_dir():
@@ -198,6 +210,54 @@ def canonical_bytes(payload):
     return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
 
 
+def _b64url_encode(data):
+    """base64url 去掉填充：密钥要能原样塞进 env / JSON / TOML，不能带 `+/=`。"""
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
+
+
+def _b64url_decode(text):
+    """`_b64url_encode` 的逆运算（补回填充）。"""
+    return base64.urlsafe_b64decode(text + "=" * (-len(text) % 4))
+
+
+def encode_license_key(payload, sig_bytes):
+    """把载荷与签名拼成授权密钥 `WMK1.<载荷>.<签名>`（签发侧用）。"""
+    return ".".join((LICENSE_KEY_PREFIX, _b64url_encode(canonical_bytes(payload)), _b64url_encode(sig_bytes)))
+
+
+def decode_license_key(key):
+    """解析授权密钥 → 与 `license.json` 同形的 dict（`sig` 为标准 base64）；格式不对返回 None。
+
+    只解析不验签——验签统一走 `verify_signature`，两种载体共用同一条判定路径。
+    """
+    try:
+        prefix, body, sig = key.strip().split(".")
+        if prefix != LICENSE_KEY_PREFIX:
+            return None
+        payload = json.loads(_b64url_decode(body).decode("utf-8"))
+        if not isinstance(payload, dict):
+            return None
+        return {**payload, "sig": base64.b64encode(_b64url_decode(sig)).decode("ascii")}
+    except (ValueError, UnicodeDecodeError):
+        return None
+
+
+def license_key():
+    """环境变量里的授权密钥（去空白；没配返回空串）。"""
+    return (os.environ.get(LICENSE_KEY_ENV) or "").strip()
+
+
+def _load_license():
+    """取授权内容 → `(lic | None, source)`。配了密钥就**只认密钥**，不再回落到文件。
+
+    不回落是故意的：用户既配了密钥又有旧文件时，密钥写错应当报出来，而不是被旧文件悄悄兜住。
+    """
+    key = license_key()
+    if key:
+        return decode_license_key(key), "env"
+    return _read_json(license_path()), "file"
+
+
 def verify_signature(payload, sig_b64):
     """RSA-2048 PKCS1v15/SHA256 验签。缺 pycryptodome 或签名不合法一律 False（**fail-closed**）。"""
     try:
@@ -221,15 +281,26 @@ def bundled_exempt():
 
 
 def check(now=None):
-    """完整校验，返回 `{ok, reason, edition, exp, days_left, scope}`。reason 用于排障与提示。"""
+    """完整校验，返回 `{ok, reason, edition, exp, days_left, scope, source}`。reason 用于排障与提示。
+
+    `source`：`env`（授权密钥）/ `file`（授权文件）/ `bundled`（灵栖内置）。
+    """
+    st = _check(now)
+    st.setdefault("source", "bundled" if st["reason"] == "bundled" else ("env" if license_key() else "file"))
+    return st
+
+
+def _check(now=None):
+    """`check` 的判定主体（不含 `source` 标注）。"""
     now = int(now if now is not None else time.time())
     if bundled_exempt():
         return {"ok": True, "reason": "bundled", "edition": "pro", "scope": "bundled",
                 "exp": 0, "days_left": None}
 
-    lic = _read_json(license_path())
+    lic, source = _load_license()
     if not isinstance(lic, dict):
-        return {"ok": False, "reason": "missing", "edition": "lite", "scope": "", "exp": 0, "days_left": 0}
+        reason = "bad_key" if source == "env" else "missing"
+        return {"ok": False, "reason": reason, "edition": "lite", "scope": "", "exp": 0, "days_left": 0}
 
     payload = {k: v for k, v in lic.items() if k != "sig"}
     if not lic.get("sig") or not verify_signature(payload, lic["sig"]):
@@ -251,16 +322,20 @@ def check(now=None):
         return {"ok": False, "reason": "expired", "edition": "lite", "scope": lic.get("scope", ""),
                 "exp": exp, "days_left": days_left}
 
-    hits, compared = match_count(lic.get("fp") or {}, machine_fp())
-    # 门槛：2/3 命中即通过；某项取不到时按实际可比项折算（floor(n/2)+1 对 n=2 是 2 = 全中）
-    need = 2 if compared >= 3 else compared
-    if compared == 0 or hits < need:
-        return {"ok": False, "reason": "machine_mismatch", "edition": "lite", "scope": lic.get("scope", ""),
-                "exp": exp, "days_left": days_left, "matched": f"{hits}/{compared}"}
-
-    return {"ok": True, "reason": "ok", "edition": lic.get("edition") or "pro",
-            "scope": lic.get("scope", ""), "exp": exp, "days_left": days_left,
-            "matched": f"{hits}/{compared}"}
+    days_left = days_left if exp else None
+    result = {"ok": True, "reason": "ok", "edition": lic.get("edition") or "pro",
+              "scope": lic.get("scope", ""), "exp": exp, "days_left": days_left}
+    if lic.get("id"):
+        result["key_id"] = lic["id"]
+    if "fp" in payload:
+        hits, compared = match_count(lic.get("fp") or {}, machine_fp())
+        # 门槛：2/3 命中即通过；某项取不到时按实际可比项折算（floor(n/2)+1 对 n=2 是 2 = 全中）
+        need = 2 if compared >= 3 else compared
+        if compared == 0 or hits < need:
+            return {"ok": False, "reason": "machine_mismatch", "edition": "lite", "scope": lic.get("scope", ""),
+                    "exp": exp, "days_left": days_left, "matched": f"{hits}/{compared}"}
+        result["matched"] = f"{hits}/{compared}"
+    return result
 
 
 def effective_edition(built_edition):
@@ -278,15 +353,16 @@ def effective_edition(built_edition):
     if status["ok"]:
         return "pro"
     print(f"[wechat-mcp] 未获授权（{status['reason']}），本次以基础版运行；"
-          f"授权文件应为 {license_path()}", file=sys.stderr, flush=True)
+          f"请在 MCP 配置的 env 里设置 {LICENSE_KEY_ENV}=<授权密钥>", file=sys.stderr, flush=True)
     return "lite"
 
 
 def describe(status):
     """把状态渲染成给用户看的一行。"""
     table = {
-        "ok": "已授权", "bundled": "灵栖内置（免授权）", "missing": "没有授权文件",
-        "bad_signature": "授权文件签名不合法（被改过？）", "expired": "授权已过期",
+        "ok": "已授权", "bundled": "灵栖内置（免授权）", "missing": f"没有配置授权密钥（{LICENSE_KEY_ENV}）",
+        "bad_key": f"授权密钥格式不对（{LICENSE_KEY_ENV}，是否复制不全？）",
+        "bad_signature": "授权签名不合法（被改过？）", "expired": "授权已过期",
         "clock_rollback": "系统时间被回拨，按过期处理", "machine_mismatch": "授权绑定的不是这台机器",
     }
     line = table.get(status["reason"], status["reason"])
@@ -303,4 +379,5 @@ if __name__ == "__main__":
     # 排障入口：`python licensing.py` 打印当前机器指纹与授权状态
     st = check()
     print(json.dumps({"machine_fp": machine_fp(), "status": st, "human": describe(st),
-                      "license_path": license_path()}, ensure_ascii=False, indent=2))
+                      "license_key_env": LICENSE_KEY_ENV, "license_path": license_path()},
+                     ensure_ascii=False, indent=2))

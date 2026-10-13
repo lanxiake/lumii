@@ -229,18 +229,17 @@ node apps/windows/scripts/pack-wechat-mcp-npm.mjs --publish
 `lite` 版免费、不校验；`pro` 版**打包成 exe** 后校验离线授权，没授权就降级为 lite。
 源码方式跑不校验（开发/测试场景）。完整说明见 [`README.md` §5](README.md)。
 
-**签发三步**
+**批量签发（不绑机器，用户无需配合）**
 
 ```powershell
-# 1. 用户在**自己的机器**上取机器码，把 JSON 发给你
-wechat-mcp.exe --machine-id
-# {"board": "…", "disk": "…", "os": "…"}
-
-# 2. 你离线签（私钥在你手上，见下）
-python tools\sign-license.py --fp '<上面那段 JSON>' --days 365 --out license.json
-
-# 3. 用户放到 %USERPROFILE%\.lumii\wechat-mcp\license.json，再跑 --license-status 核对
+# 主产品 50 条、一年；四件套打包用 --scope wechat-toolkits；--days 0 = 永久
+python tools\sign-license.py --scope retail --count 50 --days 365 --note 第一批
+# 输出 licenses-<scope>-<时间>.csv：id,scope,edition,issued,expires,note,key
 ```
+
+交付给用户 **exe + 一条 key**，用户在 MCP 配置里加
+`"env": { "WECHAT_MCP_LICENSE_KEY": "<key>" }` 并重启该 MCP 服务，`--license-status` 可核对。
+CSV 里的 `id` 用来登记哪条发给了谁（密钥不绑机器，转手只能靠登记追溯）。
 
 **密钥管理（最容易出事的地方）**
 
@@ -252,8 +251,8 @@ python tools\sign-license.py --fp '<上面那段 JSON>' --days 365 --out license
 
 **防迁移强度与边界**
 
-- 授权绑三个子指纹（主板 UUID / 系统盘卷序列号 / 系统 MachineGuid），**2/3 命中即通过**：
-  换网卡、加硬盘、单硬件漂移不误伤；换整机必挂。**刻意不用 MAC**（虚拟网卡/VPN 常变，误伤率最高）。
+- 授权密钥**不绑机器**：RSA 签名挡得住伪造与篡改（改 scope / 改到期都验签失败），挡不住转手共享。
+- 旧版 `license.json`（没配密钥时才读）载荷带 `fp` 时仍按三项机器指纹 2/3 命中校验。
 - 到期按 `exp` 判；`~/.lumii/wechat-mcp/.state.json` 记见过的最大时间，**回拨系统时钟按过期处理**。
 - 灵栖内置的那份**免授权**：灵栖部署 exe 时在同目录写 `.lumii-bundled` 标记
   （`src/main/bundled-mcp-exe.ts`），exe 见到就按已授权处理。

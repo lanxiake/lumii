@@ -20,6 +20,7 @@ recall 会先 `--once` 打底一次，归档库走**临时目录**（`LUMII_WECH
 且 `isError=false`，而当时的探针恰好全都用 username，于是 18 项全绿也照样漏掉。
 """
 import asyncio
+import csv
 import json
 import os
 import subprocess
@@ -265,36 +266,35 @@ def cross_checks():
 
 
 def issue_test_license(lic_dir):
-    """给探针签一张**本机、覆盖四件套、7 天**的授权 → `(license.json 路径 | None, 说明)`。
+    """给探针签**一条覆盖四件套、7 天的授权密钥** → `(密钥串 | None, 说明)`。
 
     为什么要签：门禁之后未授权的 exe **一个工具都调不动**——不签的话整轮探针全是
     `not_licensed`，等于什么都没验。用仓库外的私钥（`~/.wechat-mcp-keys/private.pem`）签，
-    只落到临时目录，**不碰用户真实的授权文件**。
+    只落到临时目录，**不碰用户真实的授权**。
 
+    **授权模型（2026-10-13 起）**：走环境变量 `WECHAT_MCP_LICENSE_KEY`（`WMK1.<载荷>.<签名>`），
+    **不绑机器**——所以这里不再需要机器码，签出来直接注入 exe 的环境即可。
     私钥不在（比如 CI）→ 返回 None，调用方**明说跳过**并计数，不假装通过。
     """
-    exe_path = exe("wechat-file-mcp")
-    try:
-        mid = subprocess.run([exe_path, "--machine-id"], capture_output=True, timeout=180)
-    except subprocess.TimeoutExpired:
-        return None, "--machine-id 超时"
-    fp = mid.stdout.decode("utf-8", "replace").strip()
-    if not fp.startswith("{"):
-        return None, f"--machine-id 没给出 JSON：{fp[:80]!r}"
-    key = os.path.join(os.path.expanduser("~"), ".wechat-mcp-keys", "private.pem")
-    if not os.path.isfile(key):
-        return None, f"本机没有签发私钥（{key}）——授权相关的断言本轮跳过"
-    out = os.path.join(lic_dir, "license.json")
+    priv = os.path.join(os.path.expanduser("~"), ".wechat-mcp-keys", "private.pem")
+    if not os.path.isfile(priv):
+        return None, f"本机没有签发私钥（{priv}）——授权相关的断言本轮跳过"
+    out = os.path.join(lic_dir, "licenses.csv")
     signer = os.path.join(SHARED, "tools", "sign-license.py")
     try:
         r = subprocess.run(["uv", "run", "--no-project", "--with", "pycryptodome", "python",
-                            signer, "--fp", fp, "--scope", "wechat-toolkits", "--days", "7",
-                            "--out", out], capture_output=True, timeout=600)
+                            signer, "--scope", "wechat-toolkits", "--count", "1",
+                            "--days", "7", "--out", out], capture_output=True, timeout=600)
     except subprocess.TimeoutExpired:
         return None, "签发超时"
     if r.returncode != 0 or not os.path.isfile(out):
         return None, (r.stderr or b"").decode("utf-8", "replace").strip()[:140]
-    return out, fp
+    with open(out, encoding="utf-8-sig", newline="") as f:      # utf-8-sig：签发脚本给 Excel 用的
+        rows = list(csv.DictReader(f))
+    key = (rows[-1].get("key") or "").strip() if rows else ""
+    if not key:
+        return None, f"CSV 里没有 key 列：{out}"
+    return key, f"已签发 scope=wechat-toolkits（{rows[-1].get('id')}，{rows[-1].get('expires')} 到期）"
 
 
 async def main():
@@ -308,8 +308,11 @@ async def main():
     # 授权要先签：门禁之后，未授权的 exe **一个工具都调不动**，不签整轮全是 not_licensed
     lic, fp_or_why = issue_test_license(lic_dir)
     rec("<授权>", "<签出测试授权>", bool(lic), fp_or_why[:110])
-    lenv = dict(os.environ, LUMII_WECHAT_LICENSE_DIR=lic_dir)
-    nolic_env = dict(os.environ, LUMII_WECHAT_LICENSE_DIR=empty_lic)
+    # 新模型认环境变量里的**密钥**（不绑机器）；`LUMII_WECHAT_LICENSE_DIR` 一起指到临时目录，
+    # 是为了让"未授权"那一轮**看不见本机可能存在的旧版授权文件**（否则它会回落过去、照样放行）。
+    lenv = dict(os.environ, WECHAT_MCP_LICENSE_KEY=lic or "")
+    nolic_env = {k: v for k, v in os.environ.items() if k != "WECHAT_MCP_LICENSE_KEY"}
+    nolic_env["LUMII_WECHAT_LICENSE_DIR"] = empty_lic
 
     for pkg in ("wechat-file-mcp", "wechat-export-mcp", "wechat-recall-mcp", "wechat-crm-mcp"):
         old = stale(pkg)
@@ -341,7 +344,8 @@ async def main():
         f"hint={str(d.get('hint'))[:60]}…")
 
     # recall 断言建立在前置打底上（没打底 archive_gap 也报 0，会假绿）
-    renv_lic = dict(renv, LUMII_WECHAT_LICENSE_DIR=lic_dir)
+    renv_lic = dict(renv, WECHAT_MCP_LICENSE_KEY=lic or "",
+                    LUMII_WECHAT_LICENSE_DIR=lic_dir)   # 守护也要授权（--once 打底同样过门禁）
     subprocess.run([exe("wechat-recall-mcp"), "--once"], env=renv_lic,
                    capture_output=True, timeout=300)
 

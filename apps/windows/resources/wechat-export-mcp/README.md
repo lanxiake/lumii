@@ -12,7 +12,10 @@
 
 ### 一键装（推荐）
 
-**双击这个 exe 就行**——它会先讲清楚自己是什么，再一键装好（命令行跑 `--install` 效果一样）。
+**双击这个 exe 就行**——它会先讲清楚自己是什么，再**用方向键勾选要装到哪些 AI 客户端**
+（↑/↓ 移动、空格勾选、`a` 全选、回车确认——**不用打字**），然后一键装好。
+
+已经装过时，双击会先问一句：**重新安装 / 卸载（可以只从某些客户端里摘掉）/ 退出**。
 
 ```powershell
 wechat-export-mcp.exe --install
@@ -22,12 +25,19 @@ wechat-export-mcp.exe --install
 
 1. **部署到稳定目录** `%USERPROFILE%\.lumii\mcp\wechat-export-mcp\` —— 这样你以后清理"下载"文件夹，
    也不会把已经注册好的路径弄断。（覆盖旧版用"旧文件改名让位"：Windows 下运行中的 exe 就是不能覆盖。）
-2. **注册到检测到的 MCP 客户端**：Claude Code 走它自己的 `claude mcp` CLI（不手改它的状态文件）；
-   Claude Desktop / Cursor 合并进它们的 JSON 配置；**Codex** 加一段 `[mcp_servers.<名>]`（它是 TOML）
-   —— **改之前备份**，且**只动我们自己那一条**，你的其它配置一个字节都不碰。配置读不出来
-   （比如有语法错）就**拒绝改**，只报告；Codex 那份写完还会**用 TOML 解析器读回来验**，读不回来
-   就整份还原（它可能装着你的明文 API key，容不得拼坏）。
-3. **拷技能包**到 `~/.claude/skills/wechat-export-mcp/`（技能包是**打进 exe** 的，不需要另外下载）。
+2. **注册到已装的 MCP 客户端**：Claude Code / Cursor / Claude Desktop / Codex / Gemini CLI /
+   Qwen Code / OpenCode / VS Code / Zed / Cline / Roo Code / Trae / Warp / Copilot CLI
+   —— 自动检测你装了哪些，让你勾要装到哪几个。Claude Code 走它自己的 `claude mcp` CLI
+   （不手改它的状态文件），其余按**各家格式**合并（JSON 的顶层键各家不同：多数 `mcpServers`、
+   VS Code `servers`、Zed `context_servers`、OpenCode `mcp`；Codex 是 TOML 段）。
+   **改之前备份**，且**只增删我们自己那一条**——你的其它内容不动
+   （文件会被**重新序列化**：格式可能变、内容不变）。
+   配置读不出来（比如有语法错）就**拒绝改**，只报告；**带 `//` 注释的 JSONC 也不动**
+   （重写会把你的注释抹掉），改成给你一段可直接粘贴的配置。Codex 那份写完还会
+   **用 TOML 解析器读回来验**，读不回来就放弃改动（它可能装着你的明文 API key）。
+3. **拷技能包**到对应客户端的技能目录（技能包是**打进 exe** 的，不需要另外下载），
+   并把**部署后的真实 exe 路径**填进去——这样 AI 客户端读技能就能自己把配置配好，
+   你不必知道 exe 在哪。
 
 装完**重启你的 AI 客户端**才会加载。
 
@@ -35,7 +45,7 @@ wechat-export-mcp.exe --install
 |---|---|
 | `--install` | 装（幂等，可重复跑；升级后重跑一遍即可） |
 | `--install-status` | 看装到哪、注册到哪些客户端 |
-| `--uninstall` | 摘注册 + 删技能包 + 删部署的 exe（正被占用则安排重启后删）。**你的数据一律不动** |
+| `--uninstall` | 摘注册 + 删技能包 + 删部署的 exe（正被占用则安排重启后删）。**你的数据一律不动**。交互式跑会先让你**勾要摘哪些客户端**；脚本里跑一律全摘 |
 
 `--install-status` 里有一行**版本对账**：你现在跑的这份 vs 装在客户端里那份。不一致就说明该重跑
 `--install` 升级了。（它读安装时留下的登记，**不去启动部署副本**——onefile 冷启动 1–3 秒，
@@ -61,24 +71,26 @@ wechat-export-mcp.exe --install
 ## 授权
 
 **未授权时本服务不返回任何数据**：每次工具调用都返回
-`{"ok": false, "error_code": "not_licensed", ...}`，并把「授权文件该放哪、机器码怎么拿」写在
+`{"ok": false, "error_code": "not_licensed", ...}`，并把「密钥该配在哪」写在
 `hint` 里。`initialize` 照常完成（连接是通的），**引导词里也会先写明**——这样你的 AI 能一句话
 说清要做什么，而不是看着一个连不上的服务器发懵。
 
-```powershell
-wechat-export-mcp.exe --license-status   # 看状态（已授权退出 0，未授权退出 1）
-wechat-export-mcp.exe --machine-id       # 打印本机机器码，发给签发方换授权
+**配置授权密钥**：在 MCP 客户端配置里给本服务加环境变量，保存后重启该 MCP 服务。
+
+```json
+{ "command": "C:\\path\\to\\wechat-export-mcp.exe", "env": { "WECHAT_MCP_LICENSE_KEY": "WMK1.xxxx.yyyy" } }
 ```
 
-- 授权文件：`%USERPROFILE%\.lumii\wechat-toolkits\license.json`
-  （四个产品共用这一份；`--scope wechat-toolkits` 一份覆盖四个，单卖则签各产品自己的 id）。
-- 授权**绑定机器**（主板 / 磁盘 / 系统三项指纹，2/3 命中即通过），**到期日**与**防时钟回拨**
-  由与主产品同一套的 `licensing.py` 判。
-- **放好授权文件后不用重启**，下一次工具调用就生效。
+```powershell
+wechat-export-mcp.exe --license-status   # 看状态（已授权退出 0，未授权退出 1）
+```
+
+- 四件套共用同一个变量名；打包密钥（scope `wechat-toolkits`）一条覆盖四个，单卖则是各产品自己的 scope。
+- 密钥**不绑机器**；**到期日**与**防时钟回拨**由与主产品同一套的 `licensing.py` 判。
+- 旧版授权文件 `%USERPROFILE%\.lumii\wechat-toolkits\license.json` 仍兼容（没配密钥时才读）。
 - 撤回防护的**守护进程也要求授权**：它守的是「持续留存」这个核心价值，不拦等于白送。
 
-> **隐私**：授权校验**全程离线**（只读本机文件 + 验签），不会把机器码或任何数据发出去。
-> `--machine-id` 只是**打印**，发不发由你决定。
+> **隐私**：授权校验**全程离线**（只做本地验签），不会把任何数据发出去。
 
 ## 典型场景
 

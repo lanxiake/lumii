@@ -16,14 +16,14 @@ description: 用「微信客户分析 MCP」读取用户本机微信的**通讯�
 
 **Claude Code**：
 ```bash
-claude mcp add wechat-crm -s user -- "C:\完整路径\wechat-crm-mcp.exe"
+claude mcp add wechat-crm -s user -- "{{EXE}}"
 ```
 
 **其它客户端**：
 ```json
 {
   "mcpServers": {
-    "wechat-crm": { "command": "C:\\完整路径\\wechat-crm-mcp.exe", "args": [] }
+    "wechat-crm": { "command": "{{EXE_JSON}}", "args": [] }
   }
 }
 ```

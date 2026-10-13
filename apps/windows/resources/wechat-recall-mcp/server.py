@@ -28,7 +28,7 @@ import archive                # noqa: E402
 import mcp_stdio              # noqa: E402
 
 SERVER_NAME = "wechat-recall"
-SERVER_VERSION = "0.10.0"
+SERVER_VERSION = "0.12.0"
 TITLE = "微信撤回防护"
 DEFAULT_LIMIT = 200           # 工具默认一次回多少条撤回（`limit=0` = 全部）
 
@@ -175,6 +175,9 @@ INSTALL_SPEC = {
     # 本产品的核心是**常驻守护**：没有它，撤回发生后就无从查起。所以双击安装时顺口问一句
     # 要不要开开机自启——不问的话，用户装完发现"什么都没查到"，还以为产品坏了。
     "daemon_install": "--install-autostart",
+    # 卸载时连守护一起停（那个 flag 内部也会 `stop_daemon`）。不停的话，
+    # "卸载完了"它还在后台跑——同一类静默错误。
+    "daemon_uninstall": "--uninstall-autostart",
 }
 
 if __name__ == "__main__":

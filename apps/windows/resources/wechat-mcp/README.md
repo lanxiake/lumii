@@ -169,18 +169,25 @@ Windows 上 PATH 里的 `%LOCALAPPDATA%\Microsoft\WindowsApps\python.exe` 是 Mi
 
 源码方式跑（`python server.py`）不做授权校验——那是开发/测试场景。
 
-**三步拿到授权：**
+**授权方式：授权密钥（不绑机器，用户无需配合）**
 
-1. 用户在自己的机器上跑 `wechat-mcp.exe --machine-id`，把输出的 JSON 发给你；
-2. 你离线签发：`python tools/sign-license.py --fp '<上面那段 JSON>' --days 365 --out license.json`
-   （详见 [`tools/sign-license.py`](tools/sign-license.py) 头注释）；
-3. 用户把 `license.json` 放到 `%USERPROFILE%\.lumii\wechat-mcp\license.json`。
+1. 发行方批量签发：`python tools/sign-license.py --scope retail --count 50 --days 365`
+   （输出 CSV，一行一条密钥；详见 [`tools/sign-license.py`](tools/sign-license.py) 头注释）；
+2. 交付给用户：**exe + 一条密钥**；
+3. 用户在 MCP 客户端配置里给该服务加环境变量，保存后重启该 MCP 服务：
 
-排障：`wechat-mcp.exe --license-status` 打印授权状态、生效档位与授权文件路径。
+```json
+{ "env": { "WECHAT_MCP_LICENSE_KEY": "WMK1.xxxx.yyyy" } }
+```
+
+排障：`wechat-mcp.exe --license-status` 打印授权状态（`source` 为 `env` 即读到了密钥）与生效档位。
 `--edition` 打印**构建档位**（产物是哪一档），与生效档位是两回事。
 
-- **机器绑定**：授权绑三个子指纹（主板 UUID / 系统盘卷序列号 / 系统 MachineGuid），
-  **2/3 命中即通过**——换网卡、加硬盘、单硬件漂移都不误伤，换整机必挂。**刻意不用 MAC**（虚拟网卡/VPN 常变）。
+- **密钥格式**：`WMK1.<载荷>.<RSA 签名>`，载荷含 `id / scope / edition / iat / exp`；改任何字段验签即失败。
+  **不绑机器 ⇒ 挡得住伪造与篡改，挡不住转手共享**，靠 CSV 里的 `id` 登记发给了谁。
+- **兼容旧授权文件**：没配密钥时仍读 `%USERPROFILE%\.lumii\wechat-mcp\license.json`；
+  文件载荷带 `fp` 时按机器指纹（主板 UUID / 系统盘卷序列号 / MachineGuid，2/3 命中）校验。
+  **配了密钥就只认密钥**，密钥写错会直接报 `bad_key`，不会被旧文件兜住。
 - **有效期**：签发时定（默认 365 天）；到期后降级为基础版。
 - **防时钟回拨**：`~/.lumii/wechat-mcp/.state.json` 记见过的最大时间，回拨按过期处理。
 - **授权文件不要放 exe 同目录**：灵栖按内容哈希同步 exe 目录，用户也会整目录拷走。

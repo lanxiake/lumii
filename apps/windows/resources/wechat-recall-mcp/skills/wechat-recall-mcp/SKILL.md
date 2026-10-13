@@ -14,14 +14,14 @@ description: 用「微信撤回防护 MCP」查看用户本机微信里**被撤�
 
 **Claude Code**：
 ```bash
-claude mcp add wechat-recall -s user -- "C:\完整路径\wechat-recall-mcp.exe"
+claude mcp add wechat-recall -s user -- "{{EXE}}"
 ```
 
 **其它客户端**：
 ```json
 {
   "mcpServers": {
-    "wechat-recall": { "command": "C:\\完整路径\\wechat-recall-mcp.exe", "args": [] }
+    "wechat-recall": { "command": "{{EXE_JSON}}", "args": [] }
   }
 }
 ```

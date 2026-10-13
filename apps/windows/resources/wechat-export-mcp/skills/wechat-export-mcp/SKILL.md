@@ -14,14 +14,14 @@ description: 用「微信记录导出 MCP」把用户本机微信里某个会话
 
 **Claude Code**：
 ```bash
-claude mcp add wechat-export -s user -- "C:\完整路径\wechat-export-mcp.exe"
+claude mcp add wechat-export -s user -- "{{EXE}}"
 ```
 
 **其它客户端**：
 ```json
 {
   "mcpServers": {
-    "wechat-export": { "command": "C:\\完整路径\\wechat-export-mcp.exe", "args": [] }
+    "wechat-export": { "command": "{{EXE_JSON}}", "args": [] }
   }
 }
 ```

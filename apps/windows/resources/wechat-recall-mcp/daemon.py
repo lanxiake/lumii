@@ -143,10 +143,18 @@ def stop_daemon():
 
 
 def _autostart_command():
-    """开机自启要执行的命令行（冻结产物用 exe 自身；源码运行用当前解释器 + 脚本）。"""
+    """开机自启要执行的命令行（冻结产物用 exe 自身；源码运行用当前解释器 + 脚本）。
+
+    HKCU Run 启动的进程拿不到 MCP 配置里的 `env`，所以安装时环境里有授权密钥就一并写进命令行，
+    否则自启的守护会因未授权直接退出。
+    """
     if getattr(sys, "frozen", False):
-        return f'"{sys.executable}" --daemon'
-    return f'"{sys.executable}" "{os.path.join(HERE, "daemon.py")}" --daemon'
+        cmd = f'"{sys.executable}" --daemon'
+    else:
+        cmd = f'"{sys.executable}" "{os.path.join(HERE, "daemon.py")}" --daemon'
+    import licensing
+    key = licensing.license_key()
+    return f'{cmd} --license-key "{key}"' if key else cmd
 
 
 def install_autostart():
@@ -373,7 +381,11 @@ def main():
     ap.add_argument("--uninstall-autostart", action="store_true")
     ap.add_argument("--stop", action="store_true", help="让正在跑的守护收工（自启项保留）")
     ap.add_argument("--status", action="store_true")
+    ap.add_argument("--license-key", help="授权密钥（等同环境变量 WECHAT_MCP_LICENSE_KEY；开机自启用）")
     a = ap.parse_args()
+    if a.license_key:
+        import licensing
+        os.environ[licensing.LICENSE_KEY_ENV] = a.license_key.strip()
     if a.install_autostart:
         install_autostart()
     elif a.uninstall_autostart:
