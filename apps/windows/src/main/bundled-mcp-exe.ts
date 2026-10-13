@@ -47,13 +47,20 @@ export function getDeployedMcpExePath(name: string): string {
  * 随包可执行文件相对资源目录的位置
  *
  * 打包后由 electron-builder 放在 `<resources>/<name>/<name>.exe`；
- * 开发期是构建脚本的产物 `resources/<name>/dist/<name>.exe`。
+ * 开发期是构建脚本的产物 `resources/<name>/dist/<subdir>/<name>.exe`。
+ *
+ * `subdir` 是**档位子目录**：`wechat-mcp` 有 lite/pro 两档，产物分别落 `dist/pro/` 与 `dist/lite/`
+ * （这样"哪档文件归哪档"是目录结构而不是靠文件名猜）。单档产品留空即可（`dist/<name>.exe`）。
+ *
+ * ⚠️ 注意 wechat-mcp **当前不走这条路**：它已改成插件按需下载（见 `plugins/builtin.ts`），
+ * `mcp-manager.deployBundledExecutables()` 里显式跳过它。这个函数留给将来别的随包 exe 用。
  *
  * @param name 可执行文件名（不含 .exe）
  * @param packaged 是否打包运行
+ * @param subdir 档位子目录（仅开发期的 dist 布局用；打包后由 electron-builder 展平）
  */
-export function getBundledMcpExeRelativePath(name: string, packaged: boolean): string {
-  return packaged ? path.join(name, `${name}.exe`) : path.join(name, 'dist', `${name}.exe`)
+export function getBundledMcpExeRelativePath(name: string, packaged: boolean, subdir = ''): string {
+  return packaged ? path.join(name, `${name}.exe`) : path.join(name, 'dist', subdir, `${name}.exe`)
 }
 
 /**

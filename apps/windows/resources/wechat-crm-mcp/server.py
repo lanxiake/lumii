@@ -26,7 +26,7 @@ import contactscore as S      # noqa: E402
 import mcp_stdio              # noqa: E402
 
 SERVER_NAME = "wechat-crm"
-SERVER_VERSION = "0.12.0"
+SERVER_VERSION = "0.13.0"
 TITLE = "微信客户分析"
 DEFAULT_LIMIT = 200           # 通讯录默认一次回多少条（本机好友 2500+，不掐就是几百 KB 灌进模型）
 

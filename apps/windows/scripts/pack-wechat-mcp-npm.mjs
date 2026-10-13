@@ -21,7 +21,7 @@ import { fileURLToPath } from 'node:url'
 const WINDOWS_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const SRC_DIR = path.join(WINDOWS_ROOT, 'resources', 'wechat-mcp')
 const TEMPLATE_DIR = path.join(SRC_DIR, 'npm')
-const EXE_PATH = path.join(SRC_DIR, 'dist', 'wechat-mcp.exe')
+const EXE_PATH = path.join(SRC_DIR, 'dist', 'pro', 'wechat-mcp.exe')   // 两档分目录存（见 build-wechat-mcp.mjs 的 editionDirOf）
 const STAGE_DIR = path.join(SRC_DIR, 'dist', 'npm')
 const MAIN_PKG = 'wechat-mcp'
 const PLATFORM_PKG = 'wechat-mcp-win32-x64'

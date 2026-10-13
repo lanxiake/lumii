@@ -1465,8 +1465,6 @@ def do_license_status(spec):
         _say(f"\n    {L.how_to_fix(st)}")
     if st.get("source") == "env":
         _say(f"\n  授权来源：环境变量 {L.licensing.LICENSE_KEY_ENV}")
-    else:
-        _say(f"\n  授权来源：未配置 {L.licensing.LICENSE_KEY_ENV}，回落到授权文件 {L.license_path()}")
     return 0 if st["ok"] else 1
 
 

@@ -1227,19 +1227,15 @@ if __name__ == "__main__":
         # 运行期到底生效哪一档看 `--license-status` 的 effective_edition。
         print(_BUILT_EDITION)
         sys.exit(0)
-    if "--machine-id" in sys.argv[1:]:
-        # 客户排障/授权申请用：打印本机指纹 JSON，发给维护者签授权
-        print(json.dumps(_licensing.machine_fp(), ensure_ascii=False))
-        sys.exit(0)
     if "--download-asr-model" in sys.argv[1:]:
         # 显式下载，不做成"首次调用自动下"：78MB 悄悄下会让人以为卡死，离线环境还会白等
         import wechat_asr
         wechat_asr.download_model()
         sys.exit(0)
     if "--license-status" in sys.argv[1:]:
-        # 排障用：授权状态 + 生效档位 + 授权文件路径
+        # 排障用：授权状态 + 生效档位
         _st = _licensing.check()
-        print(json.dumps({"effective_edition": EDITION, "license_path": _licensing.license_path(),
+        print(json.dumps({"effective_edition": EDITION, "license_key_env": _licensing.LICENSE_KEY_ENV,
                           "status": _st, "human": _licensing.describe(_st)}, ensure_ascii=False, indent=2))
         sys.exit(0)
     main()

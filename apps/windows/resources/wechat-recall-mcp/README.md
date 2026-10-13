@@ -102,7 +102,6 @@ wechat-recall-mcp.exe --license-status   # 看状态（已授权退出 0，未�
 
 - 四件套共用同一个变量名；打包密钥（scope `wechat-toolkits`）一条覆盖四个，单卖则是各产品自己的 scope。
 - 密钥**不绑机器**；**到期日**与**防时钟回拨**由与主产品同一套的 `licensing.py` 判。
-- 旧版授权文件 `%USERPROFILE%\.lumii\wechat-toolkits\license.json` 仍兼容（没配密钥时才读）。
 - **守护进程也要求授权**：它守的是「持续留存」这个核心价值，不拦等于白送。
   开机自启读不到 MCP 配置里的 `env`，所以手动运行时用 `--license-key "<密钥>"` 传入；
   在设置了 `WECHAT_MCP_LICENSE_KEY` 的环境里执行 `--install-autostart`，会自动把密钥写进自启命令。

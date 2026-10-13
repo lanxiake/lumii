@@ -1,23 +1,22 @@
 # -*- coding: utf-8 -*-
-"""离线授权：RSA 签名的授权密钥 / 授权文件（无服务端）。
+"""离线授权：RSA 签名的**授权密钥**（无服务端、无授权文件）。
 
-两种载体（**密钥优先**）
-------------------------
-1. **授权密钥**（推荐，v2）：环境变量 `WECHAT_MCP_LICENSE_KEY`，写在 MCP 客户端配置的 `env` 里。
-   形如 `WMK1.<base64url(载荷)>.<base64url(签名)>`，载荷 `{v, id, scope, edition, iat, exp}`，
-   **不绑机器**——发行方用 `tools/sign-license.py --count N` 批量签，用户无需提供任何信息。
-   代价：密钥可被转手，挡得住伪造与篡改（含改到期/改 scope），挡不住共享。
-2. **授权文件**（旧，v1）：`license.json`，载荷带 `fp` 时按机器指纹校验（见下）。
+唯一载体
+--------
+**授权密钥**：环境变量 `WECHAT_MCP_LICENSE_KEY`，写在 MCP 客户端配置的 `env` 里。
+形如 `WMK1.<base64url(载荷)>.<base64url(签名)>`，载荷 `{v, id, scope, edition, iat, exp}`，
+**不绑机器**——发行方用 `tools/sign-license.py --count N` 批量签，用户无需提供任何信息。
+
+> **文件式授权（`license.json`）已移除**（2026-10-13）。它当初是绑机器的（载荷带 `fp`，
+> 按主板/磁盘/系统三项指纹 2/3 命中判定），代价是**每台机器一次往返**：用户先跑 `--machine-id`
+> 把机器码发回来、发行方再签一份专属文件。换成密钥后交付只要「exe + 一条密钥」，而绑机器本来
+> 也只防"换台机器用同一份"，挡不住别的。机器指纹那一整套（`machine_fp`/`match_count`/三个子项
+> 采集）随之删除——留着只会让人以为它还生效。
 
 设计要点
 --------
-- **签名载荷里有 `fp` 才校验机器指纹**（`fp` 在签名覆盖范围内，删掉它签名就对不上）。
-- **机器指纹三个子项各自独立存放，校验时 2/3 命中即通过**——换网卡、加硬盘、单硬件漂移都不误伤，
-  换整机必挂。**刻意不用 MAC**：虚拟网卡 / VPN 常变，误伤率最高。
-- **授权文件** `license.json`：`{v, scope, edition, fp{board,disk,os}, iat, exp}` + `sig`
-  （RSA-2048 PKCS1v15/SHA256，对**除 sig 外**的规范化 JSON 签名）。公钥内嵌本文件，私钥离线保管。
-- **存放位置**：`~/.lumii/wechat-mcp/license.json`。**绝不与 exe 同目录**——灵栖按内容哈希同步
-  exe 目录、用户也会整目录拷走，放那儿等于授权跟着文件走。
+- **验签**：RSA-2048 PKCS1v15/SHA256，对**除 sig 外**的规范化 JSON 签名。公钥内嵌本文件，
+  私钥离线保管（`tools/sign-license.py`，**绝不入库**）。
 - **防时钟回拨**：`~/.lumii/wechat-mcp/.state.json` 记「见过的最大时间」，当前时间早于它就按过期处理。
 - **只对 exe 生效**：源码运行（`python server.py`）是开发/测试场景，不做授权校验。
 
@@ -27,7 +26,6 @@ PyInstaller/Nuitka 产物都能被逆向；把校验 patch 掉是可行的。本
 挡不住**整机转卖**与**逆向 patch**。真强度要靠打包加固（见改造计划 P2）+ 校验多点埋点。
 """
 import base64
-import hashlib
 import json
 import os
 import sys
@@ -52,6 +50,10 @@ CLOCK_SKEW_TOLERANCE = 86400
 # 授权密钥的环境变量名与前缀（四件套与主产品共用，靠载荷里的 scope 区分产品）
 LICENSE_KEY_ENV = "WECHAT_MCP_LICENSE_KEY"
 LICENSE_KEY_PREFIX = "WMK1"
+# `describe()` 的表该覆盖的全部 reason。**这份清单是给单测对账用的**：表里少了某一档用户会看到
+# 裸的 reason 码，多了某一档后来的人会以为那条路还在（删机器指纹时就留下过一条 `machine_mismatch`）。
+# 加新档时这里和 `describe()` 的表一起改，`test_licensing.py` 会发现不一致。
+REASONS = ("ok", "bundled", "missing", "bad_key", "bad_signature", "expired", "clock_rollback")
 
 
 def _data_dir():
@@ -94,10 +96,6 @@ def _exe_dir():
     return os.path.dirname(os.path.abspath(__file__))
 
 
-def license_path():
-    return os.path.join(_data_dir(), "license.json")
-
-
 def _state_path():
     return os.path.join(_data_dir(), ".state.json")
 
@@ -117,89 +115,6 @@ def _write_json(path, data):
             json.dump(data, f, ensure_ascii=False, indent=2)
     except OSError:
         pass
-
-
-def _digest(value):
-    """子指纹一律截断到 16 位十六进制：够区分机器，又不至于把原始硬件号泄露进授权文件。"""
-    return hashlib.sha256(str(value).encode("utf-8")).hexdigest()[:16]
-
-
-# ---------------------------------------------------------------------------
-# 机器指纹
-# ---------------------------------------------------------------------------
-
-def _volume_serial(drive):
-    """系统盘卷序列号（换盘会变，重装系统不变）。"""
-    import ctypes
-    vol = ctypes.create_unicode_buffer(261)
-    fs = ctypes.create_unicode_buffer(261)
-    serial = ctypes.c_uint()
-    maxlen = ctypes.c_uint()
-    flags = ctypes.c_uint()
-    ok = ctypes.windll.kernel32.GetVolumeInformationW(
-        ctypes.c_wchar_p(drive), vol, 261, ctypes.byref(serial),
-        ctypes.byref(maxlen), ctypes.byref(flags), fs, 261)
-    return f"{serial.value:08X}" if ok else ""
-
-
-def _machine_guid():
-    """`HKLM\\SOFTWARE\\Microsoft\\Cryptography\\MachineGuid`（重装系统会变）。"""
-    import winreg
-    try:
-        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE,
-                            r"SOFTWARE\Microsoft\Cryptography") as k:
-            return str(winreg.QueryValueEx(k, "MachineGuid")[0])
-    except OSError:
-        return ""
-
-
-def _smbios_uuid():
-    """主板/整机 UUID（唯一性最好，但取它要起一次 PowerShell，故结果缓存进 .state.json）。"""
-    cached = (_read_json(_state_path()) or {}).get("board_raw")
-    if cached:
-        return cached
-    import subprocess
-    try:
-        out = subprocess.run(
-            ["powershell", "-NoProfile", "-NonInteractive", "-Command",
-             "(Get-CimInstance Win32_ComputerSystemProduct).UUID"],
-            capture_output=True, text=True, timeout=20,
-            creationflags=0x08000000,  # CREATE_NO_WINDOW：别闪黑框
-        )
-        value = (out.stdout or "").strip()
-    except Exception:
-        value = ""
-    # 全 F 是固件没写 UUID 的占位值，等于没有
-    if not value or set(value.upper()) == {"F", "-"}:
-        return ""
-    state = _read_json(_state_path()) or {}
-    state["board_raw"] = value
-    _write_json(_state_path(), state)
-    return value
-
-
-def machine_fp():
-    """三个子指纹（各 16 位十六进制）。取不到的项返回空串——**不参与比较**，也不冤枉用户。
-
-    注意每一项都要先判空再摘要：空串的摘要是**固定值**，不判就会让「取不到」变成
-    「永远命中」，把 2/3 门槛悄悄降成 1/2。
-    """
-    board = _smbios_uuid()
-    disk = _volume_serial(os.environ.get("SystemDrive", "C:") + "\\")
-    guid = _machine_guid()
-    return {
-        "board": _digest(board) if board else "",
-        "disk": _digest(disk) if disk else "",
-        "os": _digest(guid) if guid else "",
-    }
-
-
-def match_count(lic_fp, cur_fp):
-    """命中数 / 参与比较的项数。**只在两边都非空时才参与比较**——取不到的项不冤枉用户。"""
-    compared = [k for k in ("board", "disk", "os") if lic_fp.get(k) and cur_fp.get(k)]
-    hit = [k for k in compared if lic_fp[k] == cur_fp[k]]
-    return len(hit), len(compared)
-
 
 # ---------------------------------------------------------------------------
 # 签名 / 校验
@@ -248,14 +163,19 @@ def license_key():
 
 
 def _load_license():
-    """取授权内容 → `(lic | None, source)`。配了密钥就**只认密钥**，不再回落到文件。
+    """取授权内容 → `(lic | None, 失败原因)`。**只有环境变量密钥这一条路**。
 
-    不回落是故意的：用户既配了密钥又有旧文件时，密钥写错应当报出来，而不是被旧文件悄悄兜住。
+    文件式授权（`license.json`）已移除：它绑机器、每台一次往返，而换成密钥后交付只要
+    「exe + 一条密钥」。**不再回落到任何文件**（回落会让"密钥写错"被旧文件悄悄兜住）。
+
+    失败原因分两种，别混：**没配**（`missing`，用户还没拿到密钥）vs **配了但解不出来**
+    （`bad_key`，多半是复制不全）——提示语完全不同。
     """
     key = license_key()
-    if key:
-        return decode_license_key(key), "env"
-    return _read_json(license_path()), "file"
+    if not key:
+        return None, "missing"
+    lic = decode_license_key(key)
+    return lic, ("ok" if isinstance(lic, dict) else "bad_key")
 
 
 def verify_signature(payload, sig_b64):
@@ -283,10 +203,10 @@ def bundled_exempt():
 def check(now=None):
     """完整校验，返回 `{ok, reason, edition, exp, days_left, scope, source}`。reason 用于排障与提示。
 
-    `source`：`env`（授权密钥）/ `file`（授权文件）/ `bundled`（灵栖内置）。
+    `source`：`env`（授权密钥）/ `bundled`（灵栖内置，免授权）。
     """
     st = _check(now)
-    st.setdefault("source", "bundled" if st["reason"] == "bundled" else ("env" if license_key() else "file"))
+    st.setdefault("source", "bundled" if st["reason"] == "bundled" else "env")
     return st
 
 
@@ -297,10 +217,9 @@ def _check(now=None):
         return {"ok": True, "reason": "bundled", "edition": "pro", "scope": "bundled",
                 "exp": 0, "days_left": None}
 
-    lic, source = _load_license()
+    lic, fail = _load_license()
     if not isinstance(lic, dict):
-        reason = "bad_key" if source == "env" else "missing"
-        return {"ok": False, "reason": reason, "edition": "lite", "scope": "", "exp": 0, "days_left": 0}
+        return {"ok": False, "reason": fail, "edition": "lite", "scope": "", "exp": 0, "days_left": 0}
 
     payload = {k: v for k, v in lic.items() if k != "sig"}
     if not lic.get("sig") or not verify_signature(payload, lic["sig"]):
@@ -327,14 +246,6 @@ def _check(now=None):
               "scope": lic.get("scope", ""), "exp": exp, "days_left": days_left}
     if lic.get("id"):
         result["key_id"] = lic["id"]
-    if "fp" in payload:
-        hits, compared = match_count(lic.get("fp") or {}, machine_fp())
-        # 门槛：2/3 命中即通过；某项取不到时按实际可比项折算（floor(n/2)+1 对 n=2 是 2 = 全中）
-        need = 2 if compared >= 3 else compared
-        if compared == 0 or hits < need:
-            return {"ok": False, "reason": "machine_mismatch", "edition": "lite", "scope": lic.get("scope", ""),
-                    "exp": exp, "days_left": days_left, "matched": f"{hits}/{compared}"}
-        result["matched"] = f"{hits}/{compared}"
     return result
 
 
@@ -363,21 +274,19 @@ def describe(status):
         "ok": "已授权", "bundled": "灵栖内置（免授权）", "missing": f"没有配置授权密钥（{LICENSE_KEY_ENV}）",
         "bad_key": f"授权密钥格式不对（{LICENSE_KEY_ENV}，是否复制不全？）",
         "bad_signature": "授权签名不合法（被改过？）", "expired": "授权已过期",
-        "clock_rollback": "系统时间被回拨，按过期处理", "machine_mismatch": "授权绑定的不是这台机器",
+        "clock_rollback": "系统时间被回拨，按过期处理",
     }
     line = table.get(status["reason"], status["reason"])
     if status.get("exp"):
         line += f"，到期 {time.strftime('%Y-%m-%d', time.localtime(status['exp']))}"
         if status.get("days_left") is not None:
             line += f"（剩 {status['days_left']} 天）"
-    if status.get("matched"):
-        line += f"，机器指纹命中 {status['matched']}"
     return line
 
 
 if __name__ == "__main__":
-    # 排障入口：`python licensing.py` 打印当前机器指纹与授权状态
+    # 排障入口：`python licensing.py` 打印授权状态（不打印密钥本身）
     st = check()
-    print(json.dumps({"machine_fp": machine_fp(), "status": st, "human": describe(st),
-                      "license_key_env": LICENSE_KEY_ENV, "license_path": license_path()},
+    print(json.dumps({"status": st, "human": describe(st),
+                      "license_key_env": LICENSE_KEY_ENV},
                      ensure_ascii=False, indent=2))

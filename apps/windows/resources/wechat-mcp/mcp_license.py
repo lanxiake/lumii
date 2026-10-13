@@ -12,7 +12,7 @@
    `LUMII_WECHAT_LICENSE_DIR` 覆盖口（它的注释写的就是"测试与**多份授权并存**的场景要用"），
    所以**不必改 `licensing.py` 一行**。
 3. **给用户看的出口**：`--license-status`，以及 MCP 侧的 `not_licensed`。
-   （**没有 `--machine-id`**：新密钥不绑机器，机器码在四件套里已是死概念。）
+   （**没有 `--machine-id`**：密钥不绑机器，机器码在四件套里已是死概念。）
 
 **为什么门禁放在"工具调用"而不是"拒绝启动"**：服务器连不上，用户和 Agent 看到的只是
 "这个 MCP 挂了"，没有任何可操作信息；而结构化地拒绝每一次工具调用，Agent 能把
@@ -51,10 +51,6 @@ _bind_env()
 import licensing  # noqa: E402
 
 
-def license_path():
-    return licensing.license_path()
-
-
 def status(scope):
     """本产品的授权状态 → `licensing.check()` 的结果，另加 `scope_ok` / `scope_want`。
 
@@ -87,16 +83,14 @@ def how_to_fix(st):
                                          and st.get("reason") == "ok"):
         return (f"在 MCP 客户端配置里给本服务加环境变量：\"env\": {{\"{env}\": \"<发行方给的授权密钥>\"}}，"
                 f"保存后重启该 MCP 服务。\n"
-                f"    （旧版授权文件仍兼容，位置：{license_path()}）\n"
                 f"    这份授权要覆盖本产品，scope 需为 {st.get('scope_want')}。")
     return {
         "bad_key": f"环境变量 {env} 的值不是合法的授权密钥（复制不全或多了字符？）。"
                    f"重新完整粘贴发行方给的密钥后重启该 MCP 服务。",
         "bad_signature": "授权签名不合法（被改过？）。重新向发行方要一份。",        "expired": "授权已过期。向发行方续期。",
         "clock_rollback": "系统时间被回拨过（本产品据此防绕过到期）。把时间调准后重试。",
-        "machine_mismatch": "这张授权绑定的不是这台机器。用本机机器码重新签发。",
         "bundled": "",
-    }.get(st.get("reason"), f"授权异常（{st.get('reason')}）。见 {license_path()}")
+    }.get(st.get("reason"), f"授权异常（{st.get('reason')}）。")
 
 
 def instruction_block(scope):
@@ -130,5 +124,4 @@ def gate_error(scope):
         "suggestion": "把 hint 里的步骤转达给用户；授权是用户的事，重试工具不会有用。",
         "hint": how_to_fix(st),
         "license_key_env": licensing.LICENSE_KEY_ENV,
-        "license_path": license_path(),
     }

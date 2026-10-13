@@ -61,7 +61,9 @@
 `wechat-mcp.exe` 是 PyInstaller 打出的单文件，依赖全在里面。装了灵栖的机器上它已部署在
 `%USERPROFILE%\.lumii\mcp\wechat-mcp\wechat-mcp.exe`（灵栖每次启动按内容同步，路径固定、不随安装位置变化）；
 也可以自己构建：`pnpm --filter ./apps/windows build:wechat-mcp`——**一次把两档都打出来**
-（`dist/wechat-mcp.exe` + `dist/wechat-mcp-lite.exe`，各带一份按版本命名的副本；需要 [uv](https://docs.astral.sh/uv/)）。
+（`dist/pro/wechat-mcp.exe` + `dist/lite/wechat-mcp-lite.exe`，各带一份按版本命名的副本；
+需要 [uv](https://docs.astral.sh/uv/)）。**两档分目录存**：这样"哪个文件归哪一档"是目录结构
+决定的，而不必靠文件名去猜（曾经因为 pro 的基名是 lite 基名的前缀，清理旧副本时删掉过刚打好的另一档）。
 只想打一档用 `--edition pro` / `--edition lite`，或 `pnpm build:wechat-mcp:lite`；
 加 `--if-stale` 在两档都已是最新时跳过。
 版本号来自 `server.py` 的 `SERVER_VERSION`，也写在 exe 的 Windows 属性（右键 → 详细信息 → 文件版本）里，`wechat-mcp.exe --version` 输出同一值；`--edition` 打印档位（`pro`/`lite`）。
@@ -185,9 +187,8 @@ Windows 上 PATH 里的 `%LOCALAPPDATA%\Microsoft\WindowsApps\python.exe` 是 Mi
 
 - **密钥格式**：`WMK1.<载荷>.<RSA 签名>`，载荷含 `id / scope / edition / iat / exp`；改任何字段验签即失败。
   **不绑机器 ⇒ 挡得住伪造与篡改，挡不住转手共享**，靠 CSV 里的 `id` 登记发给了谁。
-- **兼容旧授权文件**：没配密钥时仍读 `%USERPROFILE%\.lumii\wechat-mcp\license.json`；
-  文件载荷带 `fp` 时按机器指纹（主板 UUID / 系统盘卷序列号 / MachineGuid，2/3 命中）校验。
-  **配了密钥就只认密钥**，密钥写错会直接报 `bad_key`，不会被旧文件兜住。
+- **只有密钥这一条路**：旧的 `license.json` 文件式授权**已移除**（它绑机器、每台一次往返）。
+  没配密钥就是 `missing`、配了但解不出来是 `bad_key` —— 两者提示不同，别混。
 - **有效期**：签发时定（默认 365 天）；到期后降级为基础版。
 - **防时钟回拨**：`~/.lumii/wechat-mcp/.state.json` 记见过的最大时间，回拨按过期处理。
 - **授权文件不要放 exe 同目录**：灵栖按内容哈希同步 exe 目录，用户也会整目录拷走。
@@ -201,10 +202,13 @@ Windows 上 PATH 里的 `%LOCALAPPDATA%\Microsoft\WindowsApps\python.exe` 是 Mi
 同一份源码打两个 exe，差异**只在构建期**注入（构建脚本往临时源码目录写一个 `edition.py`，
 工作区不落这个文件，所以跑源码 = `pro`）：
 
-| 档位 | exe | 工具 | 说明 |
+| 档位 | 产物 | 工具 | 说明 |
 |---|---|---|---|
-| `pro`（高级版，默认） | `wechat-mcp.exe` | 19 个 | 基础读写发送 **+ 媒体 + 用户蒸馏** |
-| `lite`（基础版） | `wechat-mcp-lite.exe` | 12 个 | 只有基础读写发送；**不解媒体**（消息只剩 `[图片 17KB]`/`[语音 3.2 秒]` 摘要） |
+| `pro`（高级版，默认） | `dist/pro/wechat-mcp.exe` | 19 个 | 基础读写发送 **+ 媒体 + 用户蒸馏** |
+| `lite`（基础版） | `dist/lite/wechat-mcp-lite.exe` | 12 个 | 只有基础读写发送；**不解媒体**（消息只剩 `[图片 17KB]`/`[语音 3.2 秒]` 摘要） |
+
+**两档分目录存**（`dist/pro/`、`dist/lite/`）：这样"哪个文件归哪一档"由目录结构决定，
+清理旧副本时不必靠文件名去猜。
 
 构建：`pnpm --filter ./apps/windows build:wechat-mcp`（pro）/ `build:wechat-mcp:lite`（lite）。
 **档位不是运行期开关**：客户端改不了，`tools/list` 只列出本档工具，直接按名字调用被门控的

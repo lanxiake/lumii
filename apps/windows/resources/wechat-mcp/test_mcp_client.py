@@ -26,7 +26,7 @@ except Exception:
 HERE = os.path.dirname(os.path.abspath(__file__))
 # The deployed exe is what the client actually runs; prefer it, fall back to server.py.
 DEPLOYED = os.path.join(os.path.expanduser("~"), ".lumii", "mcp", "wechat-mcp", "wechat-mcp.exe")
-LOCAL_EXE = os.path.join(HERE, "dist", "wechat-mcp.exe")
+LOCAL_EXE = os.path.join(HERE, "dist", "pro", "wechat-mcp.exe")
 PYTHON = os.path.join(os.path.expanduser("~"), ".lumii", "runtimes", "python-embed", "python.exe")
 
 # 期望版本号：从**唯一版本源** server.py 读，别写死字面量（写死就得每次发版手工同步）

@@ -33,7 +33,9 @@ def check(label, cond, extra=""):
 
 
 def exe_of(edition):
-    return os.path.join(DIST, "wechat-mcp.exe" if edition == "pro" else "wechat-mcp-lite.exe")
+    """两档的产物**各占一个目录**（见 build-wechat-mcp.mjs 的 editionDirOf）。"""
+    sub, name = ("pro", "wechat-mcp.exe") if edition == "pro" else ("lite", "wechat-mcp-lite.exe")
+    return os.path.join(DIST, sub, name)
 
 
 def tools_of(exe):

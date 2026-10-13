@@ -68,7 +68,14 @@ describe('随包独立 MCP exe 部署', () => {
   })
 
   it('开发期取构建产物 dist/，打包后取资源目录根', () => {
-    expect(getBundledMcpExeRelativePath('wechat-mcp', false)).toBe(path.join('wechat-mcp', 'dist', 'wechat-mcp.exe'))
+    // 单档产品（四个小工具）：产物直接在 dist/ 下
+    expect(getBundledMcpExeRelativePath('wechat-file-mcp', false))
+      .toBe(path.join('wechat-file-mcp', 'dist', 'wechat-file-mcp.exe'))
+    // 分档产品（wechat-mcp）：产物在 dist/<档位>/ 下——两档分开存，免得清理时靠文件名猜归属
+    expect(getBundledMcpExeRelativePath('wechat-mcp', false, 'pro'))
+      .toBe(path.join('wechat-mcp', 'dist', 'pro', 'wechat-mcp.exe'))
+    // 打包后由 electron-builder 展平到资源目录根，与档位无关
     expect(getBundledMcpExeRelativePath('wechat-mcp', true)).toBe(path.join('wechat-mcp', 'wechat-mcp.exe'))
+    expect(getBundledMcpExeRelativePath('wechat-mcp', true, 'pro')).toBe(path.join('wechat-mcp', 'wechat-mcp.exe'))
   })
 })

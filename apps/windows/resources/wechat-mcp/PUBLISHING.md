@@ -74,10 +74,11 @@ MCP 客户端里的 `npx` 参数**不用改**（仍 `-y @lumii/wechat-mcp`），
 ```powershell
 cd <仓库根>
 pnpm --filter ./apps/windows build:wechat-mcp
-# 一次打出**两档**。产物：apps\windows\resources\wechat-mcp\dist\
-#   wechat-mcp.exe                  pro（高级版）——名字固定，安装包与灵栖部署路径都写死它
-#   wechat-mcp-lite.exe             lite（基础版）——单独分发用，**不进安装包**
-#   wechat-mcp-<version>.exe 等     各自按版本命名的副本，方便区分与单独分发
+# 一次打出**两档**，**各占一个目录**（这样"哪个文件归哪一档"是结构事实，不靠名字猜）：
+#   dist\pro\wechat-mcp.exe            pro（高级版）——名字固定，安装包与灵栖部署路径都写死它
+#   dist\pro\wechat-mcp-<version>.exe
+#   dist\lite\wechat-mcp-lite.exe      lite（基础版）——单独分发用，**不进安装包**
+#   dist\lite\wechat-mcp-lite-<version>.exe
 #
 # 只想出一档：--edition pro / --edition lite（或 pnpm build:wechat-mcp:lite）
 ```
@@ -174,8 +175,9 @@ pnpm --filter ./apps/windows pack:wechat-mcp-npm
 
 脚本会依次：
 
-1. `build-wechat-mcp.mjs --if-stale` → **两档都出**（`wechat-mcp.exe` + `wechat-mcp-lite.exe`，
-   各带一份 `-<version>` 副本）。本步打的档位比 npm 包需要的多一个，无害——下面的步骤只取它要的那份。
+1. `build-wechat-mcp.mjs --if-stale` → **两档都出**（`dist/pro/wechat-mcp.exe` +
+   `dist/lite/wechat-mcp-lite.exe`，各带一份 `-<version>` 副本）。本步打的档位比 npm 包需要的多一个，
+   无害——下面的步骤只取它要的那份（`pack-wechat-mcp-npm.mjs` 取 `dist/pro/`）。
    （**npm 平台包发哪一档尚未定**，见
    [`双版本与授权改造计划`](../../../../docs/plans/渠道与CLI/2026-10-11-微信MCP双版本与授权改造计划.md) P0-5）
 2. 拷贝 npm 模板 → `dist/npm/`，写入 `SERVER_VERSION`
@@ -252,7 +254,7 @@ CSV 里的 `id` 用来登记哪条发给了谁（密钥不绑机器，转手只�
 **防迁移强度与边界**
 
 - 授权密钥**不绑机器**：RSA 签名挡得住伪造与篡改（改 scope / 改到期都验签失败），挡不住转手共享。
-- 旧版 `license.json`（没配密钥时才读）载荷带 `fp` 时仍按三项机器指纹 2/3 命中校验。
+- **只有密钥这一条路**：旧的 `license.json`（绑机器）与其机器指纹校验已整体移除。
 - 到期按 `exp` 判；`~/.lumii/wechat-mcp/.state.json` 记见过的最大时间，**回拨系统时钟按过期处理**。
 - 灵栖内置的那份**免授权**：灵栖部署 exe 时在同目录写 `.lumii-bundled` 标记
   （`src/main/bundled-mcp-exe.ts`），exe 见到就按已授权处理。

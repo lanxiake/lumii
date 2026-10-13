@@ -18,7 +18,7 @@ import { fileURLToPath } from 'node:url'
 const WINDOWS_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const REPO = 'lanxiake/lumii'
 /** 客户端认的资产名（与 builtin.ts 一致） */
-const WECHAT_MCP = path.join(WINDOWS_ROOT, 'resources', 'wechat-mcp', 'dist', 'wechat-mcp.exe')
+const WECHAT_MCP = path.join(WINDOWS_ROOT, 'resources', 'wechat-mcp', 'dist', 'pro', 'wechat-mcp.exe')
 const PET_IDS = ['demo_cartoon_cat', 'ug_official', 'xiaomai']
 
 function log(msg) {

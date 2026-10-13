@@ -306,10 +306,10 @@ async def main():
     renv = dict(os.environ, LUMII_WECHAT_RECALL_DB=os.path.join(rdb, "archive.db"))
 
     # 授权要先签：门禁之后，未授权的 exe **一个工具都调不动**，不签整轮全是 not_licensed
-    lic, fp_or_why = issue_test_license(lic_dir)
-    rec("<授权>", "<签出测试授权>", bool(lic), fp_or_why[:110])
+    lic, key_or_why = issue_test_license(lic_dir)
+    rec("<授权>", "<签出测试授权>", bool(lic), key_or_why[:110])
     # 新模型认环境变量里的**密钥**（不绑机器）；`LUMII_WECHAT_LICENSE_DIR` 一起指到临时目录，
-    # 是为了让"未授权"那一轮**看不见本机可能存在的旧版授权文件**（否则它会回落过去、照样放行）。
+    # 让"未授权"那一轮的反回拨状态落进临时目录，不碰真实状态。
     lenv = dict(os.environ, WECHAT_MCP_LICENSE_KEY=lic or "")
     nolic_env = {k: v for k, v in os.environ.items() if k != "WECHAT_MCP_LICENSE_KEY"}
     nolic_env["LUMII_WECHAT_LICENSE_DIR"] = empty_lic
@@ -340,7 +340,7 @@ async def main():
     rec("wechat-file-未授权", "<工具被拒>", d.get("error_code") == "not_licensed",
         f"error_code={d.get('error_code')}（不能给出数据，也不能是别的错）")
     rec("wechat-file-未授权", "<拒绝里带了怎么办>",
-        bool(d.get("hint")) and "license" in str(d.get("license_path", "")),
+        bool(d.get("hint")) and d.get("license_key_env") == "WECHAT_MCP_LICENSE_KEY",
         f"hint={str(d.get('hint'))[:60]}…")
 
     # recall 断言建立在前置打底上（没打底 archive_gap 也报 0，会假绿）
@@ -378,7 +378,13 @@ async def main():
     # 环境没就绪：指一个**不存在**的账号 → 读取层抛 EnvError → 必须翻成 `env_not_ready` + hint。
     # 本机微信正常运行着，这是唯一能**真造出**环境失败又不动用户环境的姿势
     # （显式清掉 LUMII_WECHAT_DB，否则它会短路掉账号检查，用例就白跑了）。
+    #
+    # ⚠️ **必须一并给上授权密钥**：门禁在**工具入口**，排在 handler 之前——不给密钥就只会
+    # 得到 `not_licensed`，永远走不到环境检查那一步。这条以前是"蹭"到了旧文件授权的回落
+    # （继承来的环境里指向本机真实的 license.json），文件式授权删掉之后它就露馅了。
     badenv = {k: v for k, v in os.environ.items() if k != "LUMII_WECHAT_DB"}
+    badenv["WECHAT_MCP_LICENSE_KEY"] = lic or ""
+    badenv["LUMII_WECHAT_LICENSE_DIR"] = empty_lic
     badenv["LUMII_WECHAT_ACCOUNT"] = "不存在的账号_xyz"
     await run("wechat-file", exe("wechat-file-mcp"), [("list_files", {})],
               env=badenv, label="wechat-file-坏环境")
