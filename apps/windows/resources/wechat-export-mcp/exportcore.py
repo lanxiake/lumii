@@ -18,6 +18,7 @@ _SHARED = os.path.join(os.path.dirname(HERE), "wechat-mcp")   # 共享基础层�
 if _SHARED not in sys.path:
     sys.path.insert(0, _SHARED)
 
+import mcp_stdio  # noqa: E402  （只为了报进度；没装回调时 progress() 是空操作）
 import wechat_core as core  # noqa: E402
 
 MEDIA_NONE, MEDIA_IMAGES, MEDIA_ALL = "none", "images", "all"
@@ -127,9 +128,16 @@ def _export_media(talker, records, assets_dir, media, transcribe_voice, report):
 
     if media in (MEDIA_IMAGES, MEDIA_ALL):
         idx = 0
+        # `idx` 只对**定位成功**的图片自增（决定 img_NNN 的编号，必须保持密集）；
+        # 进度另用一个计数器，否则缺图时进度会跳。
+        n_img = sum(1 for r in records if r["type"] == 3)
+        done = 0
         for rec in records:
             if rec["type"] != 3:
                 continue
+            done += 1
+            if done % 10 == 0 or done == n_img:
+                mcp_stdio.progress(f"导出图片 {done}/{n_img}", total=n_img, n=done)
             try:
                 m = core.image_message(talker, rec["local_id"])
             except Exception:
@@ -150,9 +158,15 @@ def _export_media(talker, records, assets_dir, media, transcribe_voice, report):
 
     if media == MEDIA_ALL:
         idx = 0
+        n_voice = sum(1 for r in records if r["type"] == 34)
+        done = 0
         for rec in records:
             if rec["type"] != 34:
                 continue
+            done += 1
+            # 语音比图片慢（SILK 解码，开转写更慢）→ 每 5 条报一次
+            if done % 5 == 0 or done == n_voice:
+                mcp_stdio.progress(f"导出语音 {done}/{n_voice}", total=n_voice, n=done)
             try:
                 silk = core.voice_file(talker, rec["ts"], rec["local_id"])
             except Exception:
@@ -277,8 +291,12 @@ def export_chat(talker, out_dir, format="md", since=0, until=0, media=MEDIA_NONE
     `split="month"` 时按月拆成子目录（每段一份文件），防单文件过大。
     """
     fmt = format if format in _RENDER else "md"
+    # 进度：跨全部分片读消息 + 逐条解密图片/解码语音，大会话要跑几十秒。
+    # 单调性由 mcp_stdio.progress 兜底，这里不必自己维护递增序列。
+    mcp_stdio.progress("正在读取会话记录（跨全部分片）…")
     data = build_records(talker, since, until)
     records = data["records"]
+    mcp_stdio.progress(f"读到 {len(records)} 条消息，开始写文件")
     session_dir = os.path.join(out_dir, _safe(data["name"]))
     report = {"image_exported": 0, "image_missing": 0,
               "voice_exported": 0, "voice_missing": 0, "transcribe_failed": 0}

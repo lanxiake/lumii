@@ -52,9 +52,9 @@ def exe(pkg):
     return p
 
 
-def rec(server, tool, ok, summary, args=None, data=None):
+def rec(server, tool, ok, summary, args=None, data=None, prog=None):
     OUT.append({"server": server, "tool": tool, "ok": ok, "summary": summary,
-                "args": args or {}, "data": data})
+                "args": args or {}, "data": data, "prog": prog or []})
     print(f"{'PASS' if ok else 'FAIL'}  {server:<15} {tool:<18} {summary}")
 
 
@@ -92,14 +92,15 @@ async def run(server, path, calls, env=None, label=None):
                 f"{init.server_info.name} v{init.server_info.version}")
             rec(tag, "<tools/list>", True, ",".join(t.name for t in tools.tools))
             for name, args in calls:
+                prog = []
                 try:
-                    res = await s.call_tool(name, args)
+                    res = await s.call_tool(name, args, progress_callback=_mk_prog(prog))
                     body = text_of(res)
                     data = json.loads(body) if body.lstrip().startswith(("{", "[")) else body
                     rec(tag, name, not getattr(res, "isError", False),
-                        summarize(name, data), args, data)
+                        summarize(name, data), args, data, prog)
                 except Exception as e:                      # noqa: BLE001
-                    rec(tag, name, False, f"EXC {type(e).__name__}: {e}", args)
+                    rec(tag, name, False, f"EXC {type(e).__name__}: {e}", args, None, prog)
 
 
 def summarize(name, d, args=None):
@@ -146,6 +147,22 @@ def got(*, server=None, tool=None, **args):
                 and all(o["args"].get(k) == v for k, v in args.items()):
             return o["data"] if isinstance(o["data"], dict) else {}
     return {}
+
+
+def got_prog(*, server=None, tool=None, **args):
+    """取回某一次调用期间收到的 `notifications/progress` 列表（`got` 的进度版）。"""
+    for o in OUT:
+        if (server is None or o["server"] == server) and o["tool"] == tool \
+                and all(o["args"].get(k) == v for k, v in args.items()):
+            return o.get("prog") or []
+    return []
+
+
+def _mk_prog(sink):
+    """SDK 的 progress 回调签名是 `(progress, total, message)`，收进 sink 供断言。"""
+    async def _cb(progress, total, message):
+        sink.append({"progress": progress, "total": total, "message": message})
+    return _cb
 
 
 def cross_checks():
@@ -211,6 +228,19 @@ def cross_checks():
     rec("wechat-file-坏环境", "<env 带 hint 与 stage>",
         envd.get("stage") == "env" and bool(envd.get("hint")),
         f"stage={envd.get('stage')} hint={str(envd.get('hint'))[:36]}…")
+
+    # 进度通知：批量工具必须**边干边报**——几百个文件/几千条消息要跑几十秒，界面上什么都不动，
+    # 用户只会以为卡死了。progress 必须严格递增（规范要求，客户端拿它算比例）。
+    aprog = got_prog(server="wechat-file", tool="archive_files", talker=DISPLAY_NAME)
+    aseq = [p["progress"] for p in aprog]
+    rec("wechat-file", "<归档边干边报>", len(aprog) >= 2 and aseq == sorted(set(aseq)),
+        f"{len(aprog)} 条通知 progress={aseq}（须严格递增）")
+    rec("wechat-file", "<进度是人话>", bool(aprog) and all(p.get("message") for p in aprog),
+        f"示例：{aprog[-1].get('message') if aprog else '（一条都没有）'}")
+
+    eprog = got_prog(server="wechat-export", tool="export_chat", talker=DISPLAY_NAME)
+    rec("wechat-export", "<导出边干边报>", len(eprog) >= 2,
+        f"{len(eprog)} 条：{[p.get('message') for p in eprog][:2]}")
 
     # 归档也要走显示名（它和 list_files 是两个工具，别只验一个）
     plan = got(server="wechat-file", tool="archive_files", talker=DISPLAY_NAME)

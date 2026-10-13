@@ -47,6 +47,27 @@ wechat-recall-mcp.exe --uninstall-autostart
 
 `talker` 传会话**显示名**（如「文件传输助手」）或 wxid/群号都可以。
 
+## 守护怎么管
+
+| 想干什么 | 命令 |
+|---|---|
+| 前台跑一会儿（看它到底在干嘛） | `wechat-recall-mcp.exe --daemon` |
+| 开机自启 | `wechat-recall-mcp.exe --install-autostart` |
+| 只停守护，留着自启 | `wechat-recall-mcp.exe --stop` |
+| 关掉自启**并停掉守护** | `wechat-recall-mcp.exe --uninstall-autostart` |
+| 看状态 | `wechat-recall-mcp.exe --status`（或用 MCP 的 `daemon_status` 工具） |
+
+- **守护会自愈**：崩溃后自己重启（退避 5s→300s 封顶）并记日志。它挂了 = 那段时间的撤回
+  **永久查不到**，所以不让它死是硬要求。
+- **不会双开**：再起一个会当场认出"已经有一个在跑"并自己退出（两个一起写库会互相打架）。
+- **停止是优雅的**：`--stop` 发的是信号，守护在 `finally` 里记完停机时间才退，不是杀进程。
+- **日志**：`~/.lumii/wechat-recall/daemon.log`（512KB 滚动一代）。自启动拉起的守护**没有控制台**，
+  出问题就看这个文件。
+
+状态里的 `running` 和 `alive` 要**一起看**：`running` 是进程在不在（最准），`alive` 是心跳新不新。
+刚崩的守护心跳还没过期 → `alive=true` 但 `running=false`；卡住的守护两个都真 → `running=true` 但
+`alive=false`。
+
 ## 失败长什么样
 
 任何失败都是**同一个形状**（四件套一致，也和 wechat-mcp 一致）：
@@ -77,6 +98,7 @@ wechat-recall-mcp.exe --uninstall-autostart
 | `env_not_ready`：未能从微信进程内存取到数据库密钥 | 打开微信并登录、点开一个会话等几秒再试；仍不行多半是微信版本超出已验证范围（见 `wechat_core.VERIFIED_VERSION_PREFIXES`） |
 | `list_recalls` 空，但用户说"明明撤回过" | 先看 `daemon_status()`：守护**没在跑**就什么都存不下来（撤回是**事后读取**看不到的，必须事前留存）；再看 `archive_gap()` 是不是正好覆盖那段时间（关机/休眠） |
 | `daemon_status()` 说守护没跑 | 装自启：`wechat-recall-mcp.exe --install-autostart`；或手动 `--daemon` 起一个 |
+| 守护好像一直在重启 | 看 `~/.lumii/wechat-recall/daemon.log`：每行都带原因（崩溃退避重启、每拍出错、双开被拒都在里面） |
 | 归档库越来越大 | `--retain-days N` 定期修剪（默认 **0 = 永不删**）；修剪只在每日全量那一拍做，顺手 VACUUM |
 
 ## 怎么工作的

@@ -90,6 +90,46 @@ TOOL_CONVENTIONS = """
 """
 
 
+# ---- 进度上报 ---------------------------------------------------------------
+# 客户端用 `_meta.progressToken` 请求通知；**干重活的模块**（`filecore.archive_files`、
+# `exportcore.export_chat`）在长循环里调 `progress("已归档 40/200")`，协议层把槽位接到
+# `notifications/progress` 上。做法照抄主产品 `wechat_sender._progress`：worker 持有槽位、
+# server 注入回调、**调用结束必须还原**（不还原就会把上一次的 token 泄漏给下一次调用）。
+#
+# 为什么要有它：归档 200 个文件 / 导出几千条消息要跑几十秒，期间界面上什么都不动，
+# 用户只会以为卡死了。
+_PROGRESS = {"cb": None, "n": 0}
+
+
+def set_progress(cb):
+    """安装进度回调 `cb(message, progress, total)`（None = 关掉）。返回**旧的**回调，供恢复。
+
+    单进程、stdio 循环里工具调用是同步串行的，所以一个模块级槽位就够，不必线程局部
+    （和主产品同一个判断）。
+    """
+    old = _PROGRESS["cb"]
+    _PROGRESS["cb"] = cb
+    _PROGRESS["n"] = 0
+    return old
+
+
+def progress(message, total=None, n=None):
+    """上报一条进度；**没装回调时是空操作**（所以业务代码可以无脑调，不必判环境）。
+
+    单调性由这里**兜底**：`_PROGRESS["n"] = max(上次+1, n)`——MCP 规范要求 progress 只增不减，
+    而一次调用里可能有多个阶段各报各的（先"读记录"再"导媒体"），让每个调用点自己维护一个
+    递增序列既啰嗦又容易错。批量任务显式传 `n`（= 已处理条数），阶段式播报省略它即可。
+    """
+    cb = _PROGRESS.get("cb")
+    if not cb:
+        return
+    _PROGRESS["n"] = max(_PROGRESS["n"] + 1, n) if n is not None else _PROGRESS["n"] + 1
+    try:
+        cb(message, _PROGRESS["n"], total)
+    except Exception:      # 上报失败绝不能影响干活本身
+        pass
+
+
 def log_env_status(name):
     """启动时把**最便宜**的那条环境事实打进 stderr（微信进程在不在）。
 
@@ -145,6 +185,14 @@ class StdioServer:
         text = data if isinstance(data, str) else json.dumps(data, ensure_ascii=False)
         return {"content": [{"type": "text", "text": text}], "isError": bool(is_error)}
 
+    def emit_progress(self, token, message, n, total=None):
+        """发一条 `notifications/progress`。只在客户端**主动带了** `progressToken` 时调用——
+        不带 token 的上报是无主的，规范也不允许。"""
+        params = {"progressToken": token, "progress": n, "message": message}
+        if total is not None:
+            params["total"] = total
+        self._send({"jsonrpc": "2.0", "method": "notifications/progress", "params": params})
+
     # ---- 协议方法 ----
     def initialize(self, params):
         req = params.get("protocolVersion")
@@ -166,6 +214,14 @@ class StdioServer:
             self.reply_error(mid, INVALID_PARAMS, "arguments 必须是对象")
             return
         log(self.name, "call", name)
+        # 客户端带了 `_meta.progressToken` ⇒ 给干重活的模块装上进度槽，界面就能看到
+        # 「已归档 40/200」而不是盯着转圈。只读的轻工具没人调 progress，装了也是空转。
+        meta = params.get("_meta")
+        token = meta.get("progressToken") if isinstance(meta, dict) else None
+        installed = False
+        if token is not None:
+            set_progress(lambda m, n, t=None: self.emit_progress(token, m, n, t))
+            installed = True
         try:
             data = handler(args)
         except UnknownTalker as e:
@@ -190,6 +246,11 @@ class StdioServer:
             self.reply(mid, self.text_result(
                 tool_error("internal_error", f"{type(e).__name__}: {e}"), is_error=True))
             return
+        finally:
+            # 装了就必须还原（哪怕原来没有槽位）——否则进度槽会泄漏到下一次调用，
+            # 把**上一条请求的 token** 带出去。主产品在同一处踩过，注释也是这么写的。
+            if installed:
+                set_progress(None)
         self.reply(mid, self.text_result(data))
 
     def handle(self, msg):

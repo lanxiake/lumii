@@ -28,20 +28,24 @@ import archive                # noqa: E402
 import mcp_stdio              # noqa: E402
 
 SERVER_NAME = "wechat-recall"
-SERVER_VERSION = "0.3.0"
+SERVER_VERSION = "0.4.0"
 TITLE = "微信撤回防护"
 DEFAULT_LIMIT = 200           # 工具默认一次回多少条撤回（`limit=0` = 全部）
 
-DAEMON_FLAGS = ("--daemon", "--once", "--install-autostart", "--uninstall-autostart", "--status")
+DAEMON_FLAGS = ("--daemon", "--once", "--install-autostart", "--uninstall-autostart",
+                "--stop", "--status")
 
 TOOLS = [
     {
         "name": "daemon_status",
         "description": (
             "【何时用】先看守护在不在跑、归档了多少、有没有停机缺口——**撤回能不能看到全看它**。"
-            "【返回】`alive`（守护是否在跑）/ `archived`（归档条数）/ `oldest`·`newest`（最早/最新"
-            "一条的时间）/ `db_bytes`（归档库体积）/ `backfilled` / `last_tick` / `gaps`（停机缺口数）/ "
-            "`autostart`（是否已开机自启）/ `db_path`。"
+            "【返回】`running`（**进程**在不在，按停止事件判，最准）/ `alive`（**心跳**新不新，"
+            "按周期判）——两个一起看才分得清「没跑」和「跑着但卡住了」：刚崩时心跳还没过期，"
+            "`alive=true` 但 `running=false`。/ `archived`（归档条数）/ `oldest`·`newest`"
+            "（最早/最新一条）/ `db_bytes`（归档库体积）/ `last_tick` / `gaps`（停机缺口数）/ "
+            "`autostart`（是否已开机自启）/ `db_path` / `log_path`（守护日志，自启动的守护"
+            "**没有控制台**，出问题看它）。"
         ),
         "inputSchema": {"type": "object", "properties": {}},
     },

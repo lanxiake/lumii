@@ -14,6 +14,7 @@ import re
 import shutil
 import sqlite3
 import sys
+import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 # 共享基础层：直接复用现有 wechat-mcp 的读取层（零复制；它是权威源）
@@ -21,6 +22,7 @@ _SHARED = os.path.join(os.path.dirname(HERE), "wechat-mcp")
 if _SHARED not in sys.path:
     sys.path.insert(0, _SHARED)
 
+import mcp_stdio  # noqa: E402  （只为了报进度；没装回调时 progress() 是空操作）
 import wechat_core as core  # noqa: E402
 
 FILE_LT = 49                      # 文件/链接类消息的 local_type
@@ -220,7 +222,17 @@ def archive_files(out_dir, talker=None, since=0, until=0, types=None,
     used = set()
     seen_src = set()
     files, copied, skipped, missing, exists = [], 0, 0, 0, 0
-    for rec in recs:
+    # 进度：几百个文件/几个 G 的拷贝要跑几十秒，中间不吭声用户只会以为卡死了。
+    # 按「每 20 条」**或**「距上次 2 秒」报——单文件可能上百 MB，只按条数报会长时间静默。
+    n_all, last_t = len(recs), time.monotonic()
+    mcp_stdio.progress(f"开始归档：共 {n_all} 个文件可定位", total=n_all, n=0)
+    for i, rec in enumerate(recs, 1):
+        # 放在循环**最前面**：后面的 `continue`（dedup/exists/出错）会跳过循环尾部，
+        # 放尾部就会漏报——而"跳过的多"恰恰是要让用户看见的。
+        now = time.monotonic()
+        if i == n_all or i % 20 == 0 or now - last_t >= 2.0:
+            last_t = now
+            mcp_stdio.progress(f"归档中 {i}/{n_all}（已拷贝 {copied}）", total=n_all, n=i)
         src, status = rec["local_path"], rec["status"]
         if status == "missing" or not src:
             missing += 1

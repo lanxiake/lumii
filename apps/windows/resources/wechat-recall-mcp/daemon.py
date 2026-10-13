@@ -17,7 +17,8 @@ MCP 前台是 stdio、随客户端生死，做不了这件事——守护必须�
   python daemon.py --daemon --interval 30
   python daemon.py --daemon --retain-days 365
   python daemon.py --install-autostart      # 写 HKCU Run，开机自启
-  python daemon.py --uninstall-autostart
+  python daemon.py --uninstall-autostart    # 摘 Run 项 **并停掉正在跑的守护**
+  python daemon.py --stop                   # 只停守护（留着自启）
   python daemon.py --status                 # 打印归档库状态
 """
 import argparse
@@ -36,10 +37,109 @@ SAFETY_MARGIN_S = 300          # 每次多回扫 5 分钟：接住异步落库�
 FULL_RESCAN_S = 86400          # 每 24h 全量对账一次（增量捞不到"晚到但时间戳更老"的补历史行）
 RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 RUN_VALUE = "LumiiWechatRecall"
+LOG_MAX_BYTES = 512 * 1024
+# 停止信号用**命名事件**：`--stop` / 卸载能把守护优雅叫停，而不是杀进程。
+# 用 `Local\`（会话内）——自启走 HKCU Run，本来就只在当前登录会话里。
+STOP_EVENT = "Local\\LumiiWechatRecallStop"
 
 
 def log(*a):
-    print(f"[wechat-recall-daemon] {time.strftime('%Y-%m-%d %H:%M:%S')}", *a, file=sys.stderr, flush=True)
+    """既写 stderr 也**落盘**。
+
+    落盘不是可选项：开机自启拉起的进程**没有控制台**，stderr 是黑洞——不落盘的话，
+    守护半夜挂掉、或者库一直被占用而每拍失败，用户和来排查的人都看不到任何痕迹。
+    """
+    line = (f"[wechat-recall-daemon] {time.strftime('%Y-%m-%d %H:%M:%S')} "
+            + " ".join(str(x) for x in a))
+    print(line, file=sys.stderr, flush=True)
+    try:
+        p = log_path()
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        if os.path.exists(p) and os.path.getsize(p) > LOG_MAX_BYTES:
+            os.replace(p, p + ".1")                    # 只留一代，够查最近一段就行
+        with open(p, "a", encoding="utf-8") as f:
+            f.write(line + "\n")
+    except OSError:
+        pass                                           # 写日志失败绝不能影响守护本身
+
+
+def log_path():
+    """守护日志落在归档库旁边（同一份"产品自己的目录"，好找也好一起删）。"""
+    return os.path.join(os.path.dirname(archive.db_path()), "daemon.log")
+
+
+# ---- 停止信号（命名事件）----------------------------------------------------
+# 为什么不用 pid 文件 + 杀进程：pid 会复用，杀之前得确认"这个 pid 现在到底是不是我的守护"，
+# 判错的代价是**杀掉用户别的 Python 进程**；而且 TerminateProcess 是硬停，正在写库时被截断。
+# 命名事件让守护自己在 finally 里收工，`--stop` 只负责喊一声。
+
+def _create_stop_event():
+    """建（或附加到）停止事件 → `(句柄, 是否已存在)`。非 Windows 返回 `(None, False)`。
+
+    `CreateEventW` 遇到同名会返回**已存在**那个的句柄，所以第二个守护能靠
+    `GetLastError()==ERROR_ALREADY_EXISTS` 当场认出"已经在跑了"——比心跳判活更准更即时。
+    """
+    if os.name != "nt":
+        return None, False
+    import ctypes
+    k32 = ctypes.windll.kernel32
+    k32.CreateEventW.restype = ctypes.c_void_p
+    h = k32.CreateEventW(None, True, False, STOP_EVENT)      # manual-reset，初始无信号
+    return h, k32.GetLastError() == 183                      # ERROR_ALREADY_EXISTS
+
+
+def _close_stop_event(h):
+    if h:
+        import ctypes
+        ctypes.windll.kernel32.CloseHandle(ctypes.c_void_p(h))
+
+
+def _stopped(event, interval):
+    """等到下一拍**或**收到停止信号；返回 True 表示该收工了。
+
+    非 Windows（或无句柄）退化成 `time.sleep`——测试在没有命名事件的环境里也能跑。
+    """
+    if not event:
+        time.sleep(interval)
+        return False
+    import ctypes
+    k32 = ctypes.windll.kernel32
+    k32.WaitForSingleObject.argtypes = (ctypes.c_void_p, ctypes.c_uint32)
+    k32.WaitForSingleObject.restype = ctypes.c_uint32
+    return k32.WaitForSingleObject(event, int(interval * 1000)) == 0    # WAIT_OBJECT_0
+
+
+def daemon_running():
+    """守护进程在不在跑（按停止事件句柄判，比心跳即时）。非 Windows 返回 None。"""
+    if os.name != "nt":
+        return None
+    import ctypes
+    k32 = ctypes.windll.kernel32
+    k32.OpenEventW.restype = ctypes.c_void_p
+    h = k32.OpenEventW(0x00100000, False, STOP_EVENT)        # SYNCHRONIZE
+    if not h:
+        return False
+    _close_stop_event(h)
+    return True
+
+
+def stop_daemon():
+    """请求守护收工。返回是否真发了信号（没在跑返回 False，这不算错误）。"""
+    if os.name != "nt":
+        return False
+    import ctypes
+    k32 = ctypes.windll.kernel32
+    k32.OpenEventW.restype = ctypes.c_void_p
+    h = k32.OpenEventW(0x00100000 | 0x0002, False, STOP_EVENT)   # SYNCHRONIZE | EVENT_MODIFY_STATE
+    if not h:
+        log("守护没在跑（停止事件不存在）")
+        return False
+    try:
+        ok = bool(k32.SetEvent(ctypes.c_void_p(h)))
+        log("已请求守护收工" if ok else "发停止信号失败")
+        return ok
+    finally:
+        _close_stop_event(h)
 
 
 def _autostart_command():
@@ -58,6 +158,10 @@ def install_autostart():
 
 
 def uninstall_autostart():
+    """摘掉开机自启，**并且停掉正在跑的守护**。
+
+    只摘 Run 项的话，卸载完它还在后台接着跑——用户说"我关了"，进程还在，这是能吵起来的。
+    """
     import winreg
     try:
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_SET_VALUE) as k:
@@ -65,6 +169,7 @@ def uninstall_autostart():
         log("已移除开机自启")
     except FileNotFoundError:
         log("开机自启本来就没装")
+    stop_daemon()
 
 
 def autostart_installed():
@@ -136,22 +241,18 @@ def round_once(con, retain_days=0, interval=DEFAULT_INTERVAL):
     return added
 
 
-def run(interval=DEFAULT_INTERVAL, once=False, retain_days=0):
+def _loop(interval, retain_days, event):
+    """真正干活的循环：连上库、打底、之后每 `interval` 秒一拍。"""
     con = archive.connect()
-    note_gap(con, int(time.time()), interval)          # 关机缺口
-    added = round_once(con, retain_days, interval)
-    log(f"本轮新增 {added} 条；归档共 {archive.stats(con)['archived']} 条")
-
-    if once:
-        archive.meta_set(con, "last_tick", int(time.time()))
-        con.close()
-        return
-
-    log(f"进入循环，每 {interval}s 一拍（Ctrl-C 退出）"
-        + (f"，保留 {retain_days} 天" if retain_days else ""))
     try:
-        while True:
-            time.sleep(interval)
+        note_gap(con, int(time.time()), interval)          # 关机缺口
+        added = round_once(con, retain_days, interval)
+        archive.meta_set(con, "last_tick", int(time.time()))
+        log(f"本轮新增 {added} 条；归档共 {archive.stats(con)['archived']} 条")
+        log(f"进入循环，每 {interval}s 一拍"
+            + (f"，保留 {retain_days} 天" if retain_days else "")
+            + "（停：--stop）")
+        while not _stopped(event, interval):
             try:
                 note_gap(con, int(time.time()), interval)     # 休眠醒来的缺口也在这里抓
                 n = round_once(con, retain_days, interval)
@@ -160,11 +261,56 @@ def run(interval=DEFAULT_INTERVAL, once=False, retain_days=0):
                     log(f"新增 {n} 条")
             except Exception as e:                      # 单拍失败不能拖垮守护
                 log("本轮出错（继续）：", repr(e))
-    except KeyboardInterrupt:
-        log("收到退出信号，记录停机时间")
+        log("收到停止信号，收工")                        # 没有这条的话，日志最后一行会停在"进入循环"，
+        #                                                  事后看不出到底是停了还是卡住了
     finally:
         archive.meta_set(con, "last_stop", int(time.time()))
         con.close()
+
+
+def _supervise(interval, retain_days, event):
+    """外层**自愈**：任何未预期的异常都不让守护死掉，记日志后重启。
+
+    为什么必须自愈：守护挂着 = 那段时间发生的撤回**永久查不到**（原文只在库里活到撤回那一刻，
+    过了就没了）。而自启动拉起的进程没有控制台——死了以后用户完全无感，等发现时损失已经发生。
+    这一层是"静默且不可逆"的唯一防线。
+
+    重启用**退避**（5s→10s→…→300s 封顶）：库被别的进程占着这类问题会持续一阵，
+    不退避就成了疯狂重试刷日志。
+    """
+    fails = 0
+    while True:
+        try:
+            _loop(interval, retain_days, event)
+            return                                          # 收到停止信号，正常收工
+        except KeyboardInterrupt:
+            log("收到 Ctrl-C，记录停机时间")
+            return
+        except Exception as e:                              # noqa: BLE001 —— 这层就是要兜住一切
+            fails += 1
+            wait = min(300, 5 * fails)
+            log(f"守护崩溃（第 {fails} 次）：{e!r}；{wait}s 后自动重启")
+
+
+def run(interval=DEFAULT_INTERVAL, once=False, retain_days=0):
+    if once:
+        con = archive.connect()
+        note_gap(con, int(time.time()), interval)
+        added = round_once(con, retain_days, interval)
+        log(f"本轮新增 {added} 条；归档共 {archive.stats(con)['archived']} 条")
+        archive.meta_set(con, "last_tick", int(time.time()))
+        con.close()
+        return
+
+    event, already = _create_stop_event()
+    if already:
+        log("已经有一个守护在跑了（停止事件已存在），本次退出——别开第二个")
+        _close_stop_event(event)
+        return
+    try:
+        _supervise(interval, retain_days, event)
+    finally:
+        _close_stop_event(event)
 
 
 def status():
@@ -181,6 +327,10 @@ def status():
     last_tick = st.get("last_tick")
     # 判活按**守护实际跑的周期**算（`--interval 300` 时用 90s 判会把活着的报成死的）
     st["alive"] = bool(last_tick) and (time.time() - int(last_tick)) < iv * 3
+    # `running` 按进程本身判（停止事件还在不在），比心跳即时：守护刚崩时心跳还没过期，
+    # 但进程已经没了——这两个字段一起看才分得清"没跑"和"跑着但卡住了"。
+    st["running"] = daemon_running()
+    st["log_path"] = log_path()
     st["gaps"] = len(archive.gaps(con))
     con.close()
     return st
@@ -195,12 +345,15 @@ def main():
                     help="归档保留天数（0=永不删除；被修剪掉的那段，之后再撤回就查不到了）")
     ap.add_argument("--install-autostart", action="store_true")
     ap.add_argument("--uninstall-autostart", action="store_true")
+    ap.add_argument("--stop", action="store_true", help="让正在跑的守护收工（自启项保留）")
     ap.add_argument("--status", action="store_true")
     a = ap.parse_args()
     if a.install_autostart:
         install_autostart()
     elif a.uninstall_autostart:
         uninstall_autostart()
+    elif a.stop:
+        stop_daemon()
     elif a.status:
         import json
         print(json.dumps(status(), ensure_ascii=False, indent=2))

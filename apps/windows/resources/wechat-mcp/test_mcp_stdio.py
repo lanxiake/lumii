@@ -24,10 +24,22 @@ TOOLS = [{"name": "ok_tool", "description": "demo", "inputSchema": {"type": "obj
          {"name": "boom", "description": "demo", "inputSchema": {"type": "object"}},
          {"name": "unknown_talker", "description": "demo", "inputSchema": {"type": "object"}},
          {"name": "ambiguous", "description": "demo", "inputSchema": {"type": "object"}},
-         {"name": "no_wechat", "description": "demo", "inputSchema": {"type": "object"}}]
+         {"name": "no_wechat", "description": "demo", "inputSchema": {"type": "object"}},
+         {"name": "slow_tool", "description": "demo", "inputSchema": {"type": "object"}}]
+
+
+def _slow(_args):
+    """模拟批量任务：分阶段 + 显式计数（含一次**回退**的 n，验协议层的单调兜底）。"""
+    M.progress("阶段一：开始")
+    M.progress("阶段二：过半", total=2, n=2)
+    M.progress("计数回退也不许倒退", total=2, n=1)     # 单调性由 protocol 层兜底
+    return {"done": True}
+
+
 DISPATCH = {
     "ok_tool": lambda a: {"echo": a.get("x")},
     "boom": lambda a: 1 / 0,
+    "slow_tool": _slow,
     "unknown_talker": lambda a: (_ for _ in ()).throw(UnknownTalker(a.get("talker", ""))),
     # 歧义：本机真有三个 loop —— 报错必须带上候选，否则用户只能干瞪眼
     "ambiguous": lambda a: (_ for _ in ()).throw(UnknownTalker("loop", [
@@ -62,6 +74,14 @@ def _tool(s, buf, name, args=None):
     body = res["result"]["content"][0]["text"]
     data = json.loads(body) if body.lstrip().startswith(("{", "[")) else body
     return data, res["result"].get("isError", False)
+
+
+def _call_all(s, buf, method, params=None, mid=1):
+    """喂一条请求，取回它写出的**全部**消息（进度通知会先于结果发出好几条，`_call` 只看得了一条）。"""
+    buf.seek(0)
+    buf.truncate(0)
+    s.handle({"jsonrpc": "2.0", "id": mid, "method": method, **({"params": params} if params else {})})
+    return [json.loads(line) for line in buf.getvalue().strip().split("\n") if line.strip()]
 
 
 def test_initialize_negotiates_protocol():
@@ -157,6 +177,30 @@ def test_tool_exception_is_iserror():
     print("ok tool_exception_is_iserror")
 
 
+def test_progress_notifications():
+    """进度通知的三条判据（与主产品 `test_watch.py` M 层同一套）。
+
+    ① 客户端**带了** `_meta.progressToken` ⇒ 逐条发 `notifications/progress`、token 原样回传、
+       `progress` 严格递增（规范要求，客户端拿它算比例）；
+    ② 没带 ⇒ **一条都不发**（无主的上报，规范不允许）；
+    ③ 调用结束必须**还原槽位**——不还原就会把上一条请求的 token 泄漏给下一次调用。
+    """
+    s, buf = _server()
+    msgs = _call_all(s, buf, "tools/call",
+                     {"name": "slow_tool", "arguments": {}, "_meta": {"progressToken": "tk-1"}})
+    notifs = [m for m in msgs if m.get("method") == "notifications/progress"]
+    assert len(notifs) == 3, msgs
+    assert all(n["params"]["progressToken"] == "tk-1" for n in notifs), notifs
+    seq = [n["params"]["progress"] for n in notifs]
+    assert seq == sorted(set(seq)), f"progress 必须严格递增，实际 {seq}"
+    assert msgs[-1]["id"] == 1 and "result" in msgs[-1], msgs[-1]   # 结果跟在通知后面
+    assert M._PROGRESS["cb"] is None, "调用结束必须还原进度槽"
+
+    none_msgs = _call_all(s, buf, "tools/call", {"name": "slow_tool", "arguments": {}})
+    assert not [m for m in none_msgs if m.get("method") == "notifications/progress"], none_msgs
+    print("ok progress_notifications")
+
+
 def test_bad_requests():
     s, buf = _server()
     assert _call(s, buf, "tools/call", {"name": "nope"})["error"]["code"] == M.INVALID_PARAMS
@@ -183,5 +227,6 @@ if __name__ == "__main__":
     test_env_error_carries_hint()
     test_ambiguous_talker_lists_candidates()
     test_tool_exception_is_iserror()
+    test_progress_notifications()
     test_bad_requests()
     print("ALL PASS")

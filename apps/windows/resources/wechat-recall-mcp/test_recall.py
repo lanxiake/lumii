@@ -161,6 +161,92 @@ def test_note_gap_on_sleep():
     print("ok note_gap_on_sleep")
 
 
+def test_daemon_log_hits_disk():
+    """`log()` 必须**落盘**，且超限要滚动。
+
+    自启动拉起的守护**没有控制台**，只写 stderr 等于什么都没留下——半夜崩了、或者库一直被
+    占用而每拍失败，用户和来排查的人都看不到痕迹。这是"静默失败"里最贵的一种。
+    """
+    import daemon
+    d = tempfile.mkdtemp(prefix="recall_log_")
+    old = os.environ.get("LUMII_WECHAT_RECALL_DB")
+    os.environ["LUMII_WECHAT_RECALL_DB"] = os.path.join(d, "archive.db")
+    try:
+        daemon.log("测试一条")
+        p = daemon.log_path()
+        assert os.path.isfile(p), f"日志没落盘：{p}"
+        assert "测试一条" in open(p, encoding="utf-8").read()
+        with open(p, "w", encoding="utf-8") as f:      # 撑到超限
+            f.write("x" * (daemon.LOG_MAX_BYTES + 1))
+        daemon.log("滚动之后")
+        assert os.path.isfile(p + ".1"), "超限必须留一代旧日志，不然无限涨"
+        assert "滚动之后" in open(p, encoding="utf-8").read()
+    finally:
+        if old is None:
+            os.environ.pop("LUMII_WECHAT_RECALL_DB", None)
+        else:
+            os.environ["LUMII_WECHAT_RECALL_DB"] = old
+        shutil.rmtree(d, ignore_errors=True)
+    print("ok daemon_log_hits_disk")
+
+
+def test_daemon_self_heals():
+    """守护崩溃后必须**自己重启**，不能死。
+
+    挂了 = 那段时间的撤回永久查不到（原文只在库里活到撤回那一刻）。而自启动的进程没有控制台，
+    死了用户完全无感——这条断言就是那道防线。
+    """
+    import daemon
+    runs = {"n": 0}
+
+    def fake_loop(interval, retain_days, event):
+        runs["n"] += 1
+        if runs["n"] < 3:
+            raise RuntimeError("模拟崩溃")
+
+    real_loop, real_sleep = daemon._loop, time.sleep
+    daemon._loop = fake_loop
+    time.sleep = lambda s: None                        # 别真等退避（5s/10s）
+    try:
+        daemon._supervise(1, 0, None)
+    finally:
+        daemon._loop, time.sleep = real_loop, real_sleep
+    assert runs["n"] == 3, f"崩溃两次后必须跑到第三轮，实际只跑了 {runs['n']} 轮"
+    print("ok daemon_self_heals")
+
+
+def test_daemon_stop_event():
+    """停止信号（命名事件）：判活、防双开、优雅收工。
+
+    为什么不是 pid 文件 + 杀进程：pid 会复用，判定"这个 pid 是不是我的守护"判错的代价是
+    **杀掉用户别的进程**；而且硬杀会把正在写的库截断。命名事件让守护自己在 finally 里收工。
+    """
+    import daemon
+    real_name = daemon.STOP_EVENT
+    daemon.STOP_EVENT = "Local\\LumiiWechatRecallStop__unittest__"   # 别碰真守护的事件
+    h = None
+    try:
+        assert daemon.daemon_running() is False, "没建事件时不该报「在跑」"
+        h, already = daemon._create_stop_event()
+        assert h and not already, "第一次建不该说已存在"
+        assert daemon.daemon_running() is True, "事件在 ⇒ 该报在跑"
+        h2, already2 = daemon._create_stop_event()
+        assert already2, "第二个守护必须认出已经在跑（否则两个一起写库）"
+        daemon._close_stop_event(h2)       # 认出来之后**必须把多拿的句柄关掉**（run() 就是这么做的），
+        #                                    否则事件对象还有活句柄，关掉自己的也销毁不掉
+        assert daemon._stopped(h, 0) is False, "还没发信号 ⇒ 不该收工"
+        assert daemon.stop_daemon() is True, "在跑 ⇒ --stop 必须发得出信号"
+        assert daemon._stopped(h, 0) is True, "发了信号 ⇒ 立刻收工（不用等满一拍）"
+        daemon._close_stop_event(h)
+        h = None
+        assert daemon.daemon_running() is False, "句柄全关了 ⇒ 不该再报在跑"
+        assert daemon.stop_daemon() is False, "没在跑时 --stop 返回 False（不算错）"
+    finally:
+        daemon.STOP_EVENT = real_name
+        daemon._close_stop_event(h)
+    print("ok daemon_stop_event")
+
+
 def test_real_talker_by_display_name():
     """真机只读冒烟（无微信库时跳过）：**显示名**必须解析成同一个 talker。
 
@@ -226,6 +312,9 @@ if __name__ == "__main__":
     test_prune_and_vacuum()
     test_full_scan_due()
     test_note_gap_on_sleep()
+    test_daemon_log_hits_disk()
+    test_daemon_self_heals()
+    test_daemon_stop_event()
     test_real_talker_by_display_name()
     test_real_backfill()
     print("ALL PASS")
