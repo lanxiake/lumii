@@ -128,10 +128,10 @@ jobs:
       # 只增删自己的键、别人的内容一个字节不碰）+ 部署/技能包往返。全在临时目录里跑，
       # **不碰任何真实客户端配置**——所以 CI 上也能真跑。
       - run: python apps/windows/resources/wechat-mcp/test_mcp_install.py
-      # mcp_license（四件套的授权门禁）：临时密钥对 + 临时目录，验「未授权必须被拦」与
-      # **「已授权必须放行」**（误锁死收费产品同样是事故），以及 scope 分流。
-      # 与 test_licensing.py 一样，门禁的失败模式全是静默放行，源码运行永远暴露不出来。
-      - run: python apps/windows/resources/wechat-mcp/test_mcp_license.py
+      # builtin_expiry（五件套共用的内置有效期）：把到期时刻**注入**进去再验——
+      # 源码运行走的是"不判到期"那条路，在源码里跑一遍证明不了任何事。门禁的失败模式
+      # 全是静默放行（取不到到期时刻就当 0），所以这层必须显式覆盖。
+      - run: python apps/windows/resources/wechat-mcp/test_expiry.py
       # wechat-file-mcp（文件归档，独立小工具）：纯函数单测（解析/磁盘映射/归档路径）
       # + 真机只读冒烟（CI 无微信库时自己跳过，不会假绿）。
       - run: python apps/windows/resources/wechat-file-mcp/test_filecore.py

@@ -69,28 +69,22 @@ wechat-crm-mcp.exe --install
 
 技能包：[`skills/wechat-crm-mcp/SKILL.md`](skills/wechat-crm-mcp/SKILL.md)。
 
-## 授权
+## 有效期
 
-**未授权时本服务不返回任何数据**：每次工具调用都返回
-`{"ok": false, "error_code": "not_licensed", ...}`，并把「密钥该配在哪」写在
-`hint` 里。`initialize` 照常完成（连接是通的），**引导词里也会先写明**——这样你的 AI 能一句话
-说清要做什么，而不是看着一个连不上的服务器发懵。
-
-**配置授权密钥**：在 MCP 客户端配置里给本服务加环境变量，保存后重启该 MCP 服务。
-
-```json
-{ "command": "C:\\path\\to\\wechat-crm-mcp.exe", "env": { "WECHAT_MCP_LICENSE_KEY": "WMK1.xxxx.yyyy" } }
-```
+**不需要任何授权密钥**。这份 exe 在**构建时**钉死一个到期日，到期后每次工具调用返回
+`{"ok": false, "error_code": "expired", ...}`，并把「该怎么办」写在 `hint` 里。
+`initialize` 照常完成（连接是通的），**引导词里也会先写明**——这样你的 AI 能一句话说清要做什么，
+而不是看着一个连不上的服务器发懵。
 
 ```powershell
-wechat-crm-mcp.exe --license-status   # 看状态（已授权退出 0，未授权退出 1）
+wechat-crm-mcp.exe --expiry-status   # 看到期日与剩余天数（在有效期内退出 0）
 ```
 
-- 四件套共用同一个变量名；打包密钥（scope `wechat-toolkits`）一条覆盖四个，单卖则是各产品自己的 scope。
-- 密钥**不绑机器**；**到期日**与**防时钟回拨**由与主产品同一套的 `licensing.py` 判。
-- 撤回防护的**守护进程也要求授权**：它守的是「持续留存」这个核心价值，不拦等于白送。
+- 有效期 = **构建日期 + N 天**（N 由构建脚本的 `--days` 定，默认 365）：拿到新版本就重新装一次。
+- **防时钟回拨**：`~/.lumii/wechat-mcp/.state.json` 记见过的最大时间，把系统时间调回去按过期处理。
+- 判据在 `builtin_expiry.py`（五件套共用一份，源码运行不判）。
 
-> **隐私**：授权校验**全程离线**（只做本地验签），不会把任何数据发出去。
+> **隐私**：有效期校验**全程离线**，不会把任何数据发出去。
 
 ## 典型场景
 

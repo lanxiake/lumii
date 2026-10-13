@@ -16,13 +16,17 @@ description: 用「本机微信 MCP 高级版」操作用户本机的微信—�
 
 ## 0. 装（客户端侧一次配好即可）
 
-把本目录放进客户端的 skills 目录（Claude Code：`~/.claude/skills/` 或 `<项目>/.claude/skills/`），
-然后把这个 MCP 服务器注册进去。
+**最省事的一条路**：让用户**双击 `wechat-mcp.exe`**——它自带安装向导，会把 exe 部署到稳定目录、
+把自己注册进选中的客户端、并把本技能包放好。装完重启客户端即可。
+非交互地跑同样的事：`"{{EXE}}" --install`（`--install-status` 看装到哪、`--uninstall` 卸）。
+
+也可以手工配。把本目录放进客户端的 skills 目录（Claude Code：`~/.claude/skills/` 或 `<项目>/.claude/skills/`），
+然后把这个 MCP 服务器注册进去：
 
 **Claude Code**：
 
 ```bash
-claude mcp add wechat-local -s user -- "C:\完整路径\wechat-mcp.exe"
+claude mcp add wechat-local -s user -- "{{EXE}}"
 ```
 
 **其它客户端**（Claude Desktop / Cursor / Cline / 自建——大家都是这份 JSON）：
@@ -31,7 +35,7 @@ claude mcp add wechat-local -s user -- "C:\完整路径\wechat-mcp.exe"
 {
   "mcpServers": {
     "wechat-local": {
-      "command": "C:\\完整路径\\wechat-mcp.exe",
+      "command": "{{EXE_JSON}}",
       "args": [],
       "env": {
         "LUMII_WECHAT_DB": "C:\\Users\\你\\Documents\\xwechat_files\\wxid_xxx\\db_storage"
@@ -42,8 +46,12 @@ claude mcp add wechat-local -s user -- "C:\完整路径\wechat-mcp.exe"
 ```
 
 - `command` 必须是 **exe 的绝对路径**（单文件产物，不需要 Python 环境）。
+  上面的 `{{EXE}}` 由安装器填成真实路径；没走过安装器时（比如别人把技能包直接拷给你），
+  把 `C:\完整路径\wechat-mcp.exe` 换成本机实际路径。
 - `env.LUMII_WECHAT_DB` **可省略**：省略时服务器自己找本机微信数据目录。
   只有「自动找错 / 多个账号 / 数据目录被挪过」时才需要显式给。
+- **不需要任何授权密钥**。这份 exe 带一个**内置有效期**（构建日期 + N 天），到期后工具调用会返回
+  `error_code=expired`——那时把 `hint` 原话转告用户，让他找发行方要新版本，重试没有用。
 - 装完先跑 §5 的最小自检，确认能列会话再往下。
 
 ---

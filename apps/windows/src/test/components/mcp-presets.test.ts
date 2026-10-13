@@ -4,7 +4,6 @@ import { describe, expect, it } from 'vitest'
 import {
   MCP_PRESETS,
   MCP_PRESET_CATEGORIES,
-  WECHAT_MCP_NPM_PACKAGE,
   WECHAT_MCP_VERSION,
   findMcpPreset,
   isReadyToUse,
@@ -13,7 +12,7 @@ import { validateMcpServerEntry } from '../../main/config/mcp-config'
 
 /** apps/windows 根 */
 const windowsRoot = resolve(__dirname, '../../..')
-/** 随包 MCP 的源码目录（server.py 与 npm 模板都在这里） */
+/** 随包 MCP 的源码目录（SERVER_VERSION 在这里） */
 const wechatSrc = resolve(windowsRoot, 'resources/wechat-mcp')
 
 describe('MCP 内置清单', () => {
@@ -90,19 +89,10 @@ describe('MCP 内置清单', () => {
     expect(findMcpPreset('wechat-local')?.bundledVersion).toBe(declared)
   })
 
-  it('npm 包名跟实际发出去的模板一致（外部客户端 npx 装的就是它）', () => {
-    const template = JSON.parse(
-      readFileSync(resolve(wechatSrc, 'npm/wechat-mcp/package.json'), 'utf-8'),
-    ) as { name: string }
-    expect(template.name).toBe(WECHAT_MCP_NPM_PACKAGE)
-    expect(findMcpPreset('wechat-local')?.npmPackage).toBe(WECHAT_MCP_NPM_PACKAGE)
-  })
-
-  it('只有带 bundledExe 的预置项才提供版本与包名，其它项不给假值', () => {
+  it('只有带 bundledExe 的预置项才提供版本，其它项不给假值', () => {
     for (const preset of MCP_PRESETS) {
       if (preset.bundledExe) continue
       expect(preset.bundledVersion, preset.name).toBeUndefined()
-      expect(preset.npmPackage, preset.name).toBeUndefined()
     }
     expect(findMcpPreset('wechat-local')?.bundledVersion).toBeTruthy()
   })

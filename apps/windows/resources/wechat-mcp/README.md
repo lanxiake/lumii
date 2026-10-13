@@ -1,25 +1,23 @@
 # wechat-mcp · 本机微信 MCP 服务
 
-## 社区安装（npm，持续更新）
+## 最快的方式：双击 exe 一键安装
 
-**Windows x64 + Node 18+**，在任意支持 stdio MCP 的客户端（Cursor、Claude Desktop、Cline 等）配置：
+拿到 `wechat-mcp.exe`（见 §3），**双击它**，向导会把你选中的 AI 客户端一次配好——
+部署到稳定目录、写 MCP 配置、放技能包，全程只按方向键勾选，不用手抄路径。
 
-```json
-{
-  "mcpServers": {
-    "wechat-local": {
-      "command": "npx",
-      "args": ["-y", "@lumii/wechat-mcp"]
-    }
-  }
-}
+也可以在终端里非交互地跑：
+
+```powershell
+wechat-mcp.exe --install          # 装（幂等，可重复跑）
+wechat-mcp.exe --install-status   # 看装到哪、注册到哪些客户端
+wechat-mcp.exe --uninstall        # 卸（摘注册 + 删技能包；不删用户数据）
+wechat-mcp.exe --expiry-status    # 这份 exe 的有效期到哪天
 ```
 
-- npm：[@lumii/wechat-mcp](https://www.npmjs.com/package/@lumii/wechat-mcp)（无需本机 Python）
-- **国内网络**：可用 npmmirror（`registry.npmmirror.com`），见 [`PUBLISHING.md` §1.1](PUBLISHING.md#11-国内网络镜像源通常不必-vpn)
-- **离线 / 内网**：exe 或 tgz，见 [`PUBLISHING.md` §1.2](PUBLISHING.md#12-离线安装不依赖-npm-在线拉包)
-- 维护者发版、CI、版本规则：[`PUBLISHING.md`](PUBLISHING.md)
-- 使用灵栖的用户：设置里启用内置 **wechat-local** 即可，exe 在 `%USERPROFILE%\.lumii\mcp\wechat-mcp\`
+- 使用灵栖的用户：设置里启用「微信本机助手」即可，exe 由插件下载到 `%USERPROFILE%\.lumii\mcp\wechat-mcp\`
+- 不想用向导也可以手写配置，见 §3 的 JSON 片段
+- **npm 社区分发（`@lumii/wechat-mcp`）已废弃**（2026-10-13）：改走上面这条「双击 exe」的路
+- 维护者发版与构建：[`PUBLISHING.md`](PUBLISHING.md)
 
 ---
 
@@ -65,7 +63,7 @@
 需要 [uv](https://docs.astral.sh/uv/)）。**两档分目录存**：这样"哪个文件归哪一档"是目录结构
 决定的，而不必靠文件名去猜（曾经因为 pro 的基名是 lite 基名的前缀，清理旧副本时删掉过刚打好的另一档）。
 只想打一档用 `--edition pro` / `--edition lite`，或 `pnpm build:wechat-mcp:lite`；
-加 `--if-stale` 在两档都已是最新时跳过。
+加 `--if-stale` 在两档都已是最新时跳过；`--days N` 定内置有效期（默认 365 天，见 §5）。
 版本号来自 `server.py` 的 `SERVER_VERSION`，也写在 exe 的 Windows 属性（右键 → 详细信息 → 文件版本）里，`wechat-mcp.exe --version` 输出同一值；`--edition` 打印档位（`pro`/`lite`）。
 
 ```json
@@ -78,8 +76,8 @@
 }
 ```
 
-装了 Node 的机器也可以走 npm（同一个 exe，按平台自动下载）——见文首 **社区安装**。
-维护者：`pnpm --filter ./apps/windows pack:wechat-mcp-npm`，发布见 [`PUBLISHING.md`](PUBLISHING.md) 与 Actions **publish-wechat-mcp**；版本号取 `server.py` 的 `SERVER_VERSION`。
+拿到 exe 后**双击它就能自动装到各种 AI 客户端**（见文首），不必手抄路径。
+维护者发版流程见 [`PUBLISHING.md`](PUBLISHING.md)；版本号取 `server.py` 的 `SERVER_VERSION`。
 
 `wechat-mcp.exe --version` 打印版本号。exe 是两层进程（引导进程 + Python），客户端停掉引导进程时内层会跟着退出。
 
@@ -164,36 +162,28 @@ Windows 上 PATH 里的 `%LOCALAPPDATA%\Microsoft\WindowsApps\python.exe` 是 Mi
 
 用 `locate_db` 工具或 `devcli.py accounts` 可查看命中的 `root` 与其 `source`（从哪找到的）。
 
-## 5. 授权与有效期（只影响 pro 版 exe）
+## 5. 内置有效期（五件套同一条规则）
 
-`lite`（基础版）**免费、不校验**。`pro`（高级版）在**打包成 exe** 运行时校验离线授权，
-**没授权就降级为基础版**（不拒绝启动，只是工具集退回 12 个）。
+**不需要任何授权密钥。** 这份 exe 在**构建时**钉死一个到期时刻，到期后所有工具调用返回
+`{"ok": false, "error_code": "expired", ...}`，并把「该怎么办」写在 `hint` 里。
+`initialize` 照常完成（连接是通的），**引导词里也会先写明**——这样你的 AI 能一句话说清要做什么。
 
-源码方式跑（`python server.py`）不做授权校验——那是开发/测试场景。
-
-**授权方式：授权密钥（不绑机器，用户无需配合）**
-
-1. 发行方批量签发：`python tools/sign-license.py --scope retail --count 50 --days 365`
-   （输出 CSV，一行一条密钥；详见 [`tools/sign-license.py`](tools/sign-license.py) 头注释）；
-2. 交付给用户：**exe + 一条密钥**；
-3. 用户在 MCP 客户端配置里给该服务加环境变量，保存后重启该 MCP 服务：
-
-```json
-{ "env": { "WECHAT_MCP_LICENSE_KEY": "WMK1.xxxx.yyyy" } }
+```powershell
+wechat-mcp.exe --expiry-status   # 看到期日与剩余天数（在有效期内退出 0，过了退出 1）
 ```
 
-排障：`wechat-mcp.exe --license-status` 打印授权状态（`source` 为 `env` 即读到了密钥）与生效档位。
-`--edition` 打印**构建档位**（产物是哪一档），与生效档位是两回事。
+- **有效期 = 构建日期 + N 天**（N 由 `build-wechat-mcp.mjs --days` 定，默认 365）。
+  拿到新版本就重新装一次。判据在 [`builtin_expiry.py`](builtin_expiry.py)，五件套共用一份。
+- **防时钟回拨**：`~/.lumii/wechat-mcp/.state.json` 记见过的最大时间；把系统时间调回去按过期处理
+  （有效期是唯一的约束，不防这一步就等于没做）。
+- **源码运行不判**（`python server.py`）：那是开发/测试场景，`expiry.py` 根本没生成。
+  注意这也意味着"在源码里跑一遍没问题"**证明不了产物带上了有效期**——构建冒烟会显式验它。
+- **`--if-stale` 会连有效期一起看**：产物比源码新、但剩余不足 30 天，照样重建。
+  否则一份躺着不动的旧 exe 会带着只剩几天的有效期被发出去，而且是静默的。
+- 诚实边界：纯 Python 校验可被 patch 掉，这套挡的是「过期后继续白用」，**不是**防逆向。
 
-- **密钥格式**：`WMK1.<载荷>.<RSA 签名>`，载荷含 `id / scope / edition / iat / exp`；改任何字段验签即失败。
-  **不绑机器 ⇒ 挡得住伪造与篡改，挡不住转手共享**，靠 CSV 里的 `id` 登记发给了谁。
-- **只有密钥这一条路**：旧的 `license.json` 文件式授权**已移除**（它绑机器、每台一次往返）。
-  没配密钥就是 `missing`、配了但解不出来是 `bad_key` —— 两者提示不同，别混。
-- **有效期**：签发时定（默认 365 天）；到期后降级为基础版。
-- **防时钟回拨**：`~/.lumii/wechat-mcp/.state.json` 记见过的最大时间，回拨按过期处理。
-- **授权文件不要放 exe 同目录**：灵栖按内容哈希同步 exe 目录，用户也会整目录拷走。
-- **灵栖内置的用户免授权**：灵栖把 exe 部署到 `<数据根>/mcp/wechat-mcp/` 时会在同目录写一个
-  `.lumii-bundled` 标记，exe 见到它就按已授权处理。⚠️ 这是**礼貌性豁免，不是安全边界**——标记可伪造。
+> 授权密钥那套（`licensing.py` / `mcp_license.py` / `tools/sign-license.py`）已于 2026-10-13
+> **整体移除**——交付一张要用户贴进配置的密钥，摩擦比它挡住的东西大。
 
 ## 6. 工具
 
@@ -213,6 +203,10 @@ Windows 上 PATH 里的 `%LOCALAPPDATA%\Microsoft\WindowsApps\python.exe` 是 Mi
 构建：`pnpm --filter ./apps/windows build:wechat-mcp`（pro）/ `build:wechat-mcp:lite`（lite）。
 **档位不是运行期开关**：客户端改不了，`tools/list` 只列出本档工具，直接按名字调用被门控的
 工具也会被拒（返回协议错误）。用 `wechat-mcp.exe --edition` 可打印本产物的档位。
+
+两档的 `--install` **落点不同**：pro 装到 `~/.lumii/mcp/wechat-mcp/`（灵栖面板里的条目指的
+就是这里），lite 装到 `~/.lumii/mcp/wechat-mcp-lite/`——**别让 lite 覆盖掉 pro 那份**。
+各自带对应的技能包（`skills/wechat-mcp-pro` / `-lite` 打进 exe）。
 
 `lite` 版**连 `image_path` / `voice_path` 都不返回**——否则「基础版没有图片解析」是句空话。
 
@@ -297,9 +291,8 @@ Windows 上 PATH 里的 `%LOCALAPPDATA%\Microsoft\WindowsApps\python.exe` 是 Mi
 | `wechat_core.py` | 只读读取（发现目录/取密钥/解密/查询/蒸馏/画像） |
 | `wechat_sender.py` | 发送（截图 OCR + SendInput + 剪贴板） |
 | `wxread4.py` / `wxkey4.py` | SQLCipher4 解密 / 进程内存取密钥 |
-| `licensing.py` | 离线授权：机器指纹、RSA 验签、有效期、防回拨、灵栖内置豁免 |
+| `builtin_expiry.py` | 内置有效期：判到期 / 防时钟回拨 / 统一的 `expired` 失败信封（五件套共用一份） |
 | `wechat_asr.py` | 本地语音转写（SILK → Paraformer），仅 pro 版用；含模型目录解析与 `--download-asr-model` 的下载实现 |
-| `tools/sign-license.py` | **离线签发工具（不随 exe 分发）**；私钥在 `~/.wechat-mcp-keys/`，绝不入库 |
 | `DEMO-代聊回路.md` | 用本 MCP 做「本机微信自动回复」的通用回路原型（不分档位；两版技能都由它派生） |
 | `skills/wechat-mcp-pro/` `skills/wechat-mcp-lite/` | **给别的 AI 客户端看的技能包**：安装方式 + 工具面 + 一轮完整回路 + 发送纪律 + 能力边界。放客户端 skills 目录即用 |
 | `devcli.py` | 自检命令行（`status/sessions/history/send/sendfile/reply/watch/selftest/digest/profile/state/clear/accounts...`） |
@@ -311,7 +304,8 @@ Windows 上 PATH 里的 `%LOCALAPPDATA%\Microsoft\WindowsApps\python.exe` 是 Mi
 
 自检：`python devcli.py selftest`（依赖 / 数据目录 / 会话 / 实时读取耗时一次看全）。
 档位自测：`python test_edition.py`（源码跑起来永远是 pro，两个档位的差异在开发机上看不见，靠它兜底）。
-授权自测：`python test_licensing.py`（临时密钥对 + 临时目录，不碰你机器上的授权；验签/指纹/到期/回拨/豁免/降级全覆盖）。
+有效期自测：`python test_expiry.py`（**显式把到期时刻注入**再验；源码运行走的是"不判到期"那条路，
+在那儿跑一遍证明不了任何事）。
 标记/标签自测：`python test_agent_mark.py`、`python test_render_labels.py`（都是纯函数，不碰微信）。
 技能自测：`python test_skills.py`（需先 build 出 dist 的两个 exe；没 build 会自动跳过）。
 盯消息：`python devcli.py watch [since_ts] [--ticks N] [--interval S]` —— 连续打拍，

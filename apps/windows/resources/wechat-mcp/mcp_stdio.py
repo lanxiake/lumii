@@ -7,7 +7,7 @@
 （都是 SDK 能过、手搓对不上的形态）。
 
 **分工**：本模块只管**协议 + 工具边界约定**；`wechat_core` 管读取，各产品的 `*core.py` 管业务。
-现有 `wechat-mcp/server.py` 有自己的分派与授权档位，不在本次收敛范围内（免得动到已发布的产品）。
+现有 `wechat-mcp/server.py` 有自己的分派与档位，不在本次收敛范围内（免得动到已发布的产品）。
 
 **统一错误口径**：业务层抛 `wechat_core.UnknownTalker` 会被翻成
 `{"error": ..., "error_code": "target_not_found"}`。四个产品曾经三种口径（B 报错，A/C/D 静默
@@ -30,6 +30,7 @@ STAGE_BY_CODE = {
     "target_not_found": "target",   # 会话名对不上
     "bad_args": "args",             # 参数缺失或取值非法
     "not_archived": "data",         # 归档里没有这条（守护当时没跑）
+    "expired": "expiry",            # 这份 exe 过了内置有效期
     "internal_error": "internal",   # 兜底：工具自己炸了
 }
 
@@ -40,6 +41,7 @@ FIX_SUGGESTIONS = {
     "target_not_found": "请先用本服务的会话列表工具拿到确切名字，或直接传 wxid / 群号。",
     "bad_args": "请检查参数名与取值；枚举类参数只接受 schema 里列出的那几个值。",
     "not_archived": "这条消息不在归档里。撤回防护要先启动守护（`--daemon`）才会留存历史。",
+    "expired": "这份 exe 的有效期已到。向发行方索取新版本，重新装一次即可继续用。",
     "internal_error": "工具内部出错（多半是 bug）。请把 detail 原文反馈给开发者。",
 }
 
@@ -87,6 +89,8 @@ TOOL_CONVENTIONS = """
 - 每条工具结果都是**一段 JSON 文本**；`isError=true` 只在工具内部真的炸了（bug）时出现
   （此时 `error_code=internal_error`）。业务性失败（上面那些码）**不**置 `isError`——它们是要你
   读并处置的结构化结果，不是协议层故障；只看 `isError` 会漏掉它们。
+- `expired` —— 这份 exe 的有效期到了（**不是**用户用错了）。把 `hint` 转达给用户，
+  重试工具不会有用。
 """
 
 
@@ -163,26 +167,22 @@ def log(name, *a):
 class StdioServer:
     """一次 stdio 会话：读一行 JSON-RPC 请求 → 派发 → 写一行结果。单线程、顺序处理。"""
 
-    def __init__(self, name, title, version, tools, instructions, dispatch, license_scope=None):
+    def __init__(self, name, title, version, tools, instructions, dispatch):
         self.name, self.version = name, version
         self.tools, self.dispatch = tools, dispatch
-        self.license_scope = license_scope
         self.instructions = (instructions or "").rstrip() + "\n" + TOOL_CONVENTIONS
-        if license_scope:
-            # 未授权时**在引导词里就说清**：那是 Agent 调任何工具**之前**就会读到的位置。
-            # 光靠工具报错的话，它会先白调一次、甚至把 not_licensed 当成别的问题。
-            import mcp_license
-            self.instructions += mcp_license.instruction_block(license_scope)
+        # 过期时**在引导词里就说清**：那是 Agent 调任何工具**之前**就会读到的位置。
+        # 光靠工具报错的话，它会先白调一次、甚至把 expired 当成别的问题。
+        import builtin_expiry
+        self.instructions += builtin_expiry.instruction_block()
         self.title = title
         self._out = sys.stdout
 
-    def license_gate(self):
-        """未授权时返回标准失败信封，否则 `None`。**每次调用都重新查**——
-        用户放好授权文件之后不必重启服务。"""
-        if not self.license_scope:
-            return None
-        import mcp_license
-        return mcp_license.gate_error(self.license_scope)
+    def expiry_gate(self):
+        """过了内置有效期就返回标准失败信封，否则 `None`。**每次调用都重新查**——
+        跨过到期时刻的那一刻起就该停，不必重启服务。"""
+        import builtin_expiry
+        return builtin_expiry.gate_error()
 
     # ---- 写 ----
     def _send(self, message):
@@ -227,9 +227,9 @@ class StdioServer:
         if not isinstance(args, dict):
             self.reply_error(mid, INVALID_PARAMS, "arguments 必须是对象")
             return
-        gate = self.license_gate()
-        if gate is not None:                       # 未授权：不干活，只把"该做什么"端出去
-            log(self.name, "not_licensed", name)
+        gate = self.expiry_gate()
+        if gate is not None:                       # 过期：不干活，只把"该做什么"端出去
+            log(self.name, "expired", name)
             self.reply(mid, self.text_result(gate))
             return
         log(self.name, "call", name)
@@ -333,12 +333,11 @@ def serve(name, title, version, tools, instructions, dispatch, install=None):
         if mcp_install.is_interactive():
             return mcp_install.interactive(spec)
     # 下面这行之后就没人往 stdout 写业务输出了：协议流独占 stdout
-    # 门禁只对**四件套**开（它们带着 `install` 规格）——主产品 wechat-mcp 有自己的分派与档位，
-    # 不经过这里，别去替它做主。
-    server = StdioServer(name, title, version, tools, instructions, dispatch,
-                         license_scope=(install or {}).get("product"))
+    server = StdioServer(name, title, version, tools, instructions, dispatch)
     sys.stdout = sys.stderr
     log(name, f"started v{version} (python {sys.version.split()[0]})")
+    import builtin_expiry
+    log(name, "expiry:", builtin_expiry.describe(builtin_expiry.status()))
     log_env_status(name)
     server.loop()
     return 0

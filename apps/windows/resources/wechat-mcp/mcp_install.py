@@ -6,6 +6,7 @@
     wechat-file-mcp.exe --install          # 装（幂等，可重复跑）
     wechat-file-mcp.exe --uninstall        # 卸（摘注册 + 删技能包；**不删用户数据**）
     wechat-file-mcp.exe --install-status   # 看装到哪、注册到哪些客户端
+    wechat-file-mcp.exe --expiry-status    # 看这份 exe 的有效期到哪天
 
 **为什么要它**：原本用户得自己找 exe 路径、手写 `mcpServers` JSON、再手拷技能包目录——
 这是上手门槛最高的一环，也是"能不能卖"的第一道坎。
@@ -712,7 +713,7 @@ def pointer_block(spec, exe):
         f"  - `env_not_ready` —— 微信没就绪（没运行 / 找不到数据目录 / 密钥扫不到）；"
         f"把 `hint` 里的动手步骤转告用户，**别重试**。\n"
         f"  - `bad_args` —— 参数错，按 `detail` 改。\n"
-        f"  - `not_licensed` —— 未授权，把 `hint` 转告用户；重试没用。\n"
+        f"  - `expired` —— 这份 exe 过了内置有效期，把 `hint` 转告用户；重试没用。\n"
         f"- 数据全部**本地处理、不外传**。\n"
     )
 
@@ -1000,15 +1001,15 @@ def do_install(spec, only=None):
     if _footer(seen):
         return 1
 
-    # 装好了但没授权 → 说清楚，否则用户会以为"装完就能用"，然后在客户端里撞一鼻子灰
+    # 装的是过了有效期的 exe → 说清楚，否则用户会以为"装完就能用"，然后在客户端里撞一鼻子灰
     try:
-        import mcp_license as L
-        st = L.status(product)
+        import builtin_expiry as E
+        st = E.status()
         if not st["ok"]:
-            _say(f"\n⚠️  还没有授权：{L.describe(st)}")
-            _say(f"    {L.how_to_fix(st)}")
+            _say(f"\n⚠️  这份 exe 不能用：{E.describe(st)}")
+            _say(f"    {E.how_to_fix(st)}")
     except Exception as e:                                 # noqa: BLE001
-        _say(f"\n（授权状态没查成：{e}）")
+        _say(f"\n（有效期状态没查成：{e}）")
 
     _say("\n⚠️  重启你的 AI 客户端，新的 MCP 服务器才会被加载。")
     _say(f"    验证：`claude mcp get {name}`，或在客户端里问一句试试。")
@@ -1455,16 +1456,14 @@ def interactive(spec, ask=_ask, ask_raw=_ask_raw, keys=None):
     return rc
 
 
-def do_license_status(spec):
-    """`--license-status`：看授权状态、授权来源（环境变量密钥 / 旧版授权文件）与修复步骤。"""
-    import mcp_license as L
-    st = L.status(spec["product"])
-    _say(f"\n{spec.get('label') or spec['product']} 授权状态")
-    _line("授权", "ok" if st["ok"] else "fail", L.describe(st))
+def do_expiry_status(spec):
+    """`--expiry-status`：看这份 exe 的有效期还有多久、到期了该怎么办。"""
+    import builtin_expiry as E
+    st = E.status()
+    _say(f"\n{spec.get('label') or spec['product']} 有效期")
+    _line("有效期", "ok" if st["ok"] else "fail", E.describe(st))
     if not st["ok"]:
-        _say(f"\n    {L.how_to_fix(st)}")
-    if st.get("source") == "env":
-        _say(f"\n  授权来源：环境变量 {L.licensing.LICENSE_KEY_ENV}")
+        _say(f"\n    {E.how_to_fix(st)}")
     return 0 if st["ok"] else 1
 
 
@@ -1488,7 +1487,7 @@ FLAGS = {
     "--install": do_install,
     "--uninstall": do_uninstall,
     "--install-status": do_status,
-    "--license-status": do_license_status,
+    "--expiry-status": do_expiry_status,
 }
 
 
@@ -1497,7 +1496,7 @@ def consume_flags(argv, spec):
 
     只认第一个命中的开关：`--install --uninstall` 一起传是没想清楚，别猜。
     """
-    for f in ("--install", "--uninstall", "--install-status", "--license-status"):
+    for f in ("--install", "--uninstall", "--install-status", "--expiry-status"):
         if f in argv:
             return FLAGS[f](spec) or 0
     return None

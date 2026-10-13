@@ -62,11 +62,10 @@ try:
 except ImportError:
     _BUILT_EDITION = "pro"
 
-import licensing as _licensing  # noqa: E402
+import builtin_expiry as _expiry  # noqa: E402
 
-# 构建档位再叠授权：pro 产物在**没有有效授权**时降级为 lite（不是拒绝启动，用户损失最小）。
-# 授权只对打包出来的 exe 生效——源码运行是开发/测试场景，不校验（见 licensing.effective_edition）。
-EDITION = _licensing.effective_edition(_BUILT_EDITION)
+# 运行期档位 == 构建档位。授权（pro→lite 降级）已移除，档位不再被运行期状态改。
+EDITION = _BUILT_EDITION
 
 import wechat_core as core  # noqa: E402
 
@@ -79,7 +78,7 @@ def force_utf8_stdio():
     """把三个标准流的编码钉成 UTF-8。
 
     为什么必须显式钉：Windows 上**重定向/管道时 Python 用 ANSI 代码页**（本机 cp936），
-    于是带中文的输出（`--license-status` 的 human 字段）出来是 GBK 字节，
+    于是带中文的输出（`--expiry-status` 的 human 字段）出来是 GBK 字节，
     任何按 UTF-8 读的下游（jq、Node、别的 MCP 客户端）都会解析失败。
     实测两个打包产物在 CLI 路径上都是这样——**与打包器无关**，是 `main()` 里那句 reconfigure
     只在 stdio 主循环路径上生效、而 `--xxx` 那几个诊断开关在它之前就打印了。
@@ -779,7 +778,9 @@ _DISTILL = """\
 
 # 基础版没有蒸馏与媒体解析，对应段落整段去掉——留着只会教模型去调不存在的工具。
 INSTRUCTIONS = (_CORE + (_MEDIA_PRO if EDITION == "pro" else _MEDIA_LITE) + _WATCH
-                + (_DISTILL if EDITION == "pro" else ""))
+                + (_DISTILL if EDITION == "pro" else "")
+                # 过期时在**引导词**里就说清：那是 Agent 调任何工具之前就会读到的位置
+                + _expiry.instruction_block())
 
 TOOLS = [
     {"name": "list_sessions",
@@ -1086,6 +1087,12 @@ def handle_tools_call(mid, params):
     args = params.get("arguments")
     if args is None:
         args = {}
+    gate = _expiry.gate_error()
+    if gate is not None:                       # 过了内置有效期：不干活，只把"该做什么"端出去
+        log("expired", name)
+        reply(mid, {"content": [{"type": "text", "text": json.dumps(gate, ensure_ascii=False)}],
+                    "isError": False})
+        return
     if EDITION != "pro" and name in PRO_ONLY_TOOLS:
         reply_error(mid, INVALID_PARAMS, _GATED_MSG)
         return
@@ -1165,6 +1172,20 @@ def handle_message(msg):
         reply_error(mid, METHOD_NOT_FOUND, f"Method not found: {method}")
 
 
+# 一键安装的规格（`--install` / `--uninstall` / `--install-status`，实现见共享层 mcp_install.py）。
+# `product` 是部署目录名与 exe 名——**两档必须用不同的名字**：pro 落 `~/.lumii/mcp/wechat-mcp/`，
+# 与灵栖把插件下载到的是同一个位置（面板里的条目指着它）；lite 是单独分发的，落自己的目录，
+# 否则装一次 lite 就把 pro 那份覆盖掉了。
+# `skill` 是源码模式下的技能包源；冻结后技能包**打进 exe**（构建脚本把 `skills/wechat-mcp-<档位>`
+# 映射成 `skills/<product>`），由 mcp_install.skill_source 从 `sys._MEIPASS` 取。
+INSTALL_SPEC = {
+    "name": SERVER_NAME,
+    "product": "wechat-mcp" if EDITION == "pro" else "wechat-mcp-lite",
+    "skill": os.path.join(HERE, "skills", f"wechat-mcp-{EDITION}"),
+    "label": f"本机微信（{_EDITION_LABEL[EDITION]}）",
+}
+
+
 def _exit_with_parent():
     """打成单文件 exe 后随父进程退出。
 
@@ -1198,6 +1219,7 @@ def main():
     _PROTOCOL_OUT = sys.stdout
     sys.stdout = sys.stderr
     log(f"started v{SERVER_VERSION} (python {sys.version.split()[0]})")
+    log("expiry:", _expiry.describe(_expiry.status()))
     for line in sys.stdin:
         line = line.strip()
         if not line:
@@ -1222,9 +1244,8 @@ if __name__ == "__main__":
         print(SERVER_VERSION)
         sys.exit(0)
     if "--edition" in sys.argv[1:]:
-        # 构建冒烟用：这份 exe **构建成**哪一档。刻意报构建档位而不是运行期生效档位——
-        # 否则在没授权的构建机上（exe 会降级为 lite）冒烟必挂，而挂的原因是机器状态、不是产物。
-        # 运行期到底生效哪一档看 `--license-status` 的 effective_edition。
+        # 构建冒烟用：这份 exe 是哪一档。现在运行期档位 == 构建档位（授权降级已移除），
+        # 但**照旧报构建档位**：冒烟的判据该是"打的是什么"，不该被构建机上任何状态影响。
         print(_BUILT_EDITION)
         sys.exit(0)
     if "--download-asr-model" in sys.argv[1:]:
@@ -1232,10 +1253,20 @@ if __name__ == "__main__":
         import wechat_asr
         wechat_asr.download_model()
         sys.exit(0)
-    if "--license-status" in sys.argv[1:]:
-        # 排障用：授权状态 + 生效档位
-        _st = _licensing.check()
-        print(json.dumps({"effective_edition": EDITION, "license_key_env": _licensing.LICENSE_KEY_ENV,
-                          "status": _st, "human": _licensing.describe(_st)}, ensure_ascii=False, indent=2))
-        sys.exit(0)
+    if "--expiry-status" in sys.argv[1:]:
+        # 排障用：有效期状态 + 生效档位（过了有效期以非零码退出，脚本里拦得住）
+        _st = _expiry.status()
+        print(json.dumps({"effective_edition": EDITION, "status": _st,
+                          "human": _expiry.describe(_st)}, ensure_ascii=False, indent=2))
+        sys.exit(0 if _st["ok"] else 1)
+    # 一键安装（`--install` / `--uninstall` / `--install-status`，实现见共享层 mcp_install.py）。
+    # **必须在这之前拦下**，否则它们会被当成"没有参数"而进 MCP 循环，然后挂在那儿等 stdin。
+    import mcp_install
+    _rc = mcp_install.consume_flags(sys.argv[1:], INSTALL_SPEC)
+    if _rc is not None:
+        sys.exit(_rc)
+    # 没给任何开关，而 stdin 是**终端** ⇒ 用户是双击（或在终端里直接敲）来的，
+    # 面对的是一个人，不是 MCP 客户端。给他走安装向导，别让黑窗口干挂着。
+    if mcp_install.is_interactive():
+        sys.exit(mcp_install.interactive(INSTALL_SPEC))
     main()

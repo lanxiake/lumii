@@ -145,16 +145,12 @@ def stop_daemon():
 def _autostart_command():
     """开机自启要执行的命令行（冻结产物用 exe 自身；源码运行用当前解释器 + 脚本）。
 
-    HKCU Run 启动的进程拿不到 MCP 配置里的 `env`，所以安装时环境里有授权密钥就一并写进命令行，
-    否则自启的守护会因未授权直接退出。
+    只带 `--daemon`：以前还要把授权密钥抄进命令行（HKCU Run 的进程拿不到 MCP 配置里的
+    `env`），授权移除后没有要抄的东西了。
     """
     if getattr(sys, "frozen", False):
-        cmd = f'"{sys.executable}" --daemon'
-    else:
-        cmd = f'"{sys.executable}" "{os.path.join(HERE, "daemon.py")}" --daemon'
-    import licensing
-    key = licensing.license_key()
-    return f'{cmd} --license-key "{key}"' if key else cmd
+        return f'"{sys.executable}" --daemon'
+    return f'"{sys.executable}" "{os.path.join(HERE, "daemon.py")}" --daemon'
 
 
 def install_autostart():
@@ -300,32 +296,29 @@ def _supervise(interval, retain_days, event):
             log(f"守护崩溃（第 {fails} 次）：{e!r}；{wait}s 后自动重启")
 
 
-LICENSE_SCOPE = "wechat-recall-mcp"
+def expiry_gate():
+    """守护也必须**在有效期内**才跑 → `(是否放行, 说明)`。
 
+    **为什么守护也要拦**：它是**持续**跑的东西——跑到一半才发现 exe 过期了，等于白跑一场，
+    而且用户会以为"撤回防护在守着"。启动时先判一次，过期就不进循环。
 
-def license_gate():
-    """守护必须**持证**运行 → `(是否放行, 说明)`。
-
-    **为什么守护也要拦**：它守着本产品最核心的价值——「持续留存、撤回可查」。不拦的话，
-    未授权用户照样白拿；而且守护是**持续**跑的东西，跑到一半才发现没授权等于白跑一场。
-
-    **fail-closed**：授权模块读不出来也算不放行。少一个文件不该把收费产品变成免费产品
-    （模块是打进 exe 的，缺了就是构建出了问题，那种情况该报出来而不是放行）。
+    **fail-closed**：有效期模块读不出来也算不过（模块是打进 exe 的，缺了就是构建出了问题，
+    那种情况该报出来而不是放行）。
     """
     try:
-        import mcp_license as L
-        st = L.status(LICENSE_SCOPE)
+        import builtin_expiry as E
+        st = E.status()
     except Exception as e:                                     # noqa: BLE001
-        return False, f"授权模块不可用（{e!r}）——按未授权处理"
+        return False, f"有效期模块不可用（{e!r}）——按不可用处理"
     if st["ok"]:
         return True, ""
-    return False, f"{L.describe(st)}\n    {L.how_to_fix(st)}"
+    return False, f"{E.describe(st)}\n    {E.how_to_fix(st)}"
 
 
 def run(interval=DEFAULT_INTERVAL, once=False, retain_days=0):
-    ok, why = license_gate()
+    ok, why = expiry_gate()
     if not ok:
-        log("未授权，守护不启动：", why)
+        log("这份 exe 不能用了，守护不启动：", why)
         return 2
     if once:
         con = archive.connect()
@@ -381,11 +374,7 @@ def main():
     ap.add_argument("--uninstall-autostart", action="store_true")
     ap.add_argument("--stop", action="store_true", help="让正在跑的守护收工（自启项保留）")
     ap.add_argument("--status", action="store_true")
-    ap.add_argument("--license-key", help="授权密钥（等同环境变量 WECHAT_MCP_LICENSE_KEY；开机自启用）")
     a = ap.parse_args()
-    if a.license_key:
-        import licensing
-        os.environ[licensing.LICENSE_KEY_ENV] = a.license_key.strip()
     if a.install_autostart:
         install_autostart()
     elif a.uninstall_autostart:
@@ -396,7 +385,7 @@ def main():
         import json
         print(json.dumps(status(), ensure_ascii=False, indent=2))
     elif a.daemon or a.once:
-        # 把退出码带出去：未授权时 `run` 返回 2，调用方（脚本/自启动）据此看得出来没跑成
+        # 把退出码带出去：过了有效期时 `run` 返回 2，调用方（脚本/自启动）据此看得出来没跑成
         sys.exit(run(interval=a.interval, once=a.once, retain_days=a.retain_days) or 0)
     else:
         ap.print_help()

@@ -41,14 +41,12 @@ def exe_of(edition):
 def tools_of(exe):
     """跑一次 initialize + tools/list 取工具名。
 
-    ⚠️ 必须先拷到带 `.lumii-bundled` 标记的目录：dist 里那份 pro 产物既没有灵栖的豁免标记、
-    也没配授权，`effective_edition` 会把它**降级成 lite**（只出 12 个工具）——那是授权设计、
-    不是 bug，但会让「pro 该有 19 个」这条断言假红。拷一份加标记，等价于灵栖的部署环境。
+    直接跑 dist 里那份即可：档位是构建期钉死的，运行期不再有授权降级——旧的
+    `effective_edition` 会把"没带灵栖豁免标记"的 pro 产物降成 lite，授权移除后没这回事了。
     """
     with tempfile.TemporaryDirectory(prefix="skill-check-") as d:
         staged = os.path.join(d, os.path.basename(exe))
         shutil.copyfile(exe, staged)
-        open(os.path.join(d, ".lumii-bundled"), "w").close()
         req = "\n".join([
             json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
                 "protocolVersion": "2025-06-18", "capabilities": {},

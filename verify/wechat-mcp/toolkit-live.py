@@ -20,7 +20,6 @@ recall 会先 `--once` 打底一次，归档库走**临时目录**（`LUMII_WECH
 且 `isError=false`，而当时的探针恰好全都用 username，于是 18 项全绿也照样漏掉。
 """
 import asyncio
-import csv
 import json
 import os
 import subprocess
@@ -265,59 +264,21 @@ def cross_checks():
         f"total={page.get('total')} count={page.get('count')}（默认掐 200）")
 
 
-def issue_test_license(lic_dir):
-    """给探针签**一条覆盖四件套、7 天的授权密钥** → `(密钥串 | None, 说明)`。
-
-    为什么要签：门禁之后未授权的 exe **一个工具都调不动**——不签的话整轮探针全是
-    `not_licensed`，等于什么都没验。用仓库外的私钥（`~/.wechat-mcp-keys/private.pem`）签，
-    只落到临时目录，**不碰用户真实的授权**。
-
-    **授权模型（2026-10-13 起）**：走环境变量 `WECHAT_MCP_LICENSE_KEY`（`WMK1.<载荷>.<签名>`），
-    **不绑机器**——所以这里不再需要机器码，签出来直接注入 exe 的环境即可。
-    私钥不在（比如 CI）→ 返回 None，调用方**明说跳过**并计数，不假装通过。
-    """
-    priv = os.path.join(os.path.expanduser("~"), ".wechat-mcp-keys", "private.pem")
-    if not os.path.isfile(priv):
-        return None, f"本机没有签发私钥（{priv}）——授权相关的断言本轮跳过"
-    out = os.path.join(lic_dir, "licenses.csv")
-    signer = os.path.join(SHARED, "tools", "sign-license.py")
-    try:
-        r = subprocess.run(["uv", "run", "--no-project", "--with", "pycryptodome", "python",
-                            signer, "--scope", "wechat-toolkits", "--count", "1",
-                            "--days", "7", "--out", out], capture_output=True, timeout=600)
-    except subprocess.TimeoutExpired:
-        return None, "签发超时"
-    if r.returncode != 0 or not os.path.isfile(out):
-        return None, (r.stderr or b"").decode("utf-8", "replace").strip()[:140]
-    with open(out, encoding="utf-8-sig", newline="") as f:      # utf-8-sig：签发脚本给 Excel 用的
-        rows = list(csv.DictReader(f))
-    key = (rows[-1].get("key") or "").strip() if rows else ""
-    if not key:
-        return None, f"CSV 里没有 key 列：{out}"
-    return key, f"已签发 scope=wechat-toolkits（{rows[-1].get('id')}，{rows[-1].get('expires')} 到期）"
-
-
 async def main():
     exp = tempfile.mkdtemp(prefix="toolkit_export_")
     arch = tempfile.mkdtemp(prefix="toolkit_arch_")
     rdb = tempfile.mkdtemp(prefix="toolkit_recall_")
-    lic_dir = tempfile.mkdtemp(prefix="toolkit_lic_")
-    empty_lic = tempfile.mkdtemp(prefix="toolkit_nolic_")
-    renv = dict(os.environ, LUMII_WECHAT_RECALL_DB=os.path.join(rdb, "archive.db"))
-
-    # 授权要先签：门禁之后，未授权的 exe **一个工具都调不动**，不签整轮全是 not_licensed
-    lic, key_or_why = issue_test_license(lic_dir)
-    rec("<授权>", "<签出测试授权>", bool(lic), key_or_why[:110])
-    # 新模型认环境变量里的**密钥**（不绑机器）；`LUMII_WECHAT_LICENSE_DIR` 一起指到临时目录，
-    # 让"未授权"那一轮的反回拨状态落进临时目录，不碰真实状态。
-    lenv = dict(os.environ, WECHAT_MCP_LICENSE_KEY=lic or "")
-    nolic_env = {k: v for k, v in os.environ.items() if k != "WECHAT_MCP_LICENSE_KEY"}
-    nolic_env["LUMII_WECHAT_LICENSE_DIR"] = empty_lic
+    # 有效期状态落点指到临时目录：状态文件里记「见过的最大时间」，别碰用户真实的那份
+    statedir = tempfile.mkdtemp(prefix="toolkit_expiry_")
+    renv = dict(os.environ, LUMII_WECHAT_RECALL_DB=os.path.join(rdb, "archive.db"),
+                LUMII_WECHAT_EXPIRY_DIR=statedir)
+    # 四件套已经没有门禁了，跑它们用同一份环境（`renv`）；`lenv` 只是这轮读起来顺手的别名。
+    lenv = renv
 
     for pkg in ("wechat-file-mcp", "wechat-export-mcp", "wechat-recall-mcp", "wechat-crm-mcp"):
         old = stale(pkg)
         rec(pkg[:-4], "<exe 未落后于源码>", not old, "exe 比源码旧——先重打包" if old else "ok")
-        # 安装/授权开关必须被 `serve()` 拦下并**立即退出**。没拦的话它会被当成"没有参数"
+        # 安装/有效期开关必须被 `serve()` 拦下并**立即退出**。没拦的话它会被当成"没有参数"
         # 而进 MCP 循环、挂在那儿等 stdin —— 这里就会超时。用**只读**的开关验，
         # **不跑 --install**（那会真改用户的客户端配置，探针不该有这种副作用）。
         try:
@@ -325,28 +286,19 @@ async def main():
             rec(pkg[:-4], "<--install-status 可用>", r.returncode == 0, f"exit={r.returncode}")
         except subprocess.TimeoutExpired:
             rec(pkg[:-4], "<--install-status 可用>", False, "超时——开关没被拦下，进了 MCP 循环")
-        # `--license-status`：已授权退出 0、未授权退出 1（脚本里好判）
+        # `--expiry-status`：在有效期内退出 0。**同时也验了有效期真的打进了产物**——
+        # 没打进时 `builtin_expiry` 会报"源码运行"，那时仍然退 0，所以再卡一道文本判据。
         try:
-            r = subprocess.run([exe(pkg), "--license-status"], capture_output=True, timeout=180,
+            r = subprocess.run([exe(pkg), "--expiry-status"], capture_output=True, timeout=180,
                                env=lenv)
-            rec(pkg[:-4], "<--license-status 已授权>", r.returncode == 0, f"exit={r.returncode}")
+            out = (r.stdout or b"").decode("utf-8", "replace")
+            rec(pkg[:-4], "<--expiry-status 在有效期内>", r.returncode == 0, f"exit={r.returncode}")
+            rec(pkg[:-4], "<有效期真打进产物了>", "源码运行" not in out, out.strip()[:80])
         except subprocess.TimeoutExpired:
-            rec(pkg[:-4], "<--license-status 已授权>", False, "超时")
-
-    # **未授权必须被拦**。用空授权目录跑一次——验的是真 exe 的真门禁，不是本进程里的假件。
-    await run("wechat-file", exe("wechat-file-mcp"),
-              [("list_files", {})], env=nolic_env, label="wechat-file-未授权")
-    d = got(server="wechat-file-未授权", tool="list_files")
-    rec("wechat-file-未授权", "<工具被拒>", d.get("error_code") == "not_licensed",
-        f"error_code={d.get('error_code')}（不能给出数据，也不能是别的错）")
-    rec("wechat-file-未授权", "<拒绝里带了怎么办>",
-        bool(d.get("hint")) and d.get("license_key_env") == "WECHAT_MCP_LICENSE_KEY",
-        f"hint={str(d.get('hint'))[:60]}…")
+            rec(pkg[:-4], "<--expiry-status 在有效期内>", False, "超时")
 
     # recall 断言建立在前置打底上（没打底 archive_gap 也报 0，会假绿）
-    renv_lic = dict(renv, WECHAT_MCP_LICENSE_KEY=lic or "",
-                    LUMII_WECHAT_LICENSE_DIR=lic_dir)   # 守护也要授权（--once 打底同样过门禁）
-    subprocess.run([exe("wechat-recall-mcp"), "--once"], env=renv_lic,
+    subprocess.run([exe("wechat-recall-mcp"), "--once"], env=renv,
                    capture_output=True, timeout=300)
 
     await run("wechat-file", exe("wechat-file-mcp"),
@@ -366,7 +318,7 @@ async def main():
               [("daemon_status", {}), ("list_recalls", {}), ("archive_gap", {}),
                ("list_recalls", {"talker": USERNAME}),
                ("list_recalls", {"talker": DISPLAY_NAME}),
-               ("list_recalls", {"talker": BOGUS})], env=renv_lic)
+               ("list_recalls", {"talker": BOGUS})], env=renv)
     await run("wechat-crm", exe("wechat-crm-mcp"),
               [("list_contacts", {"scope": "group"}),
                ("list_contacts", {"scope": "friend"}),
@@ -378,13 +330,8 @@ async def main():
     # 环境没就绪：指一个**不存在**的账号 → 读取层抛 EnvError → 必须翻成 `env_not_ready` + hint。
     # 本机微信正常运行着，这是唯一能**真造出**环境失败又不动用户环境的姿势
     # （显式清掉 LUMII_WECHAT_DB，否则它会短路掉账号检查，用例就白跑了）。
-    #
-    # ⚠️ **必须一并给上授权密钥**：门禁在**工具入口**，排在 handler 之前——不给密钥就只会
-    # 得到 `not_licensed`，永远走不到环境检查那一步。这条以前是"蹭"到了旧文件授权的回落
-    # （继承来的环境里指向本机真实的 license.json），文件式授权删掉之后它就露馅了。
     badenv = {k: v for k, v in os.environ.items() if k != "LUMII_WECHAT_DB"}
-    badenv["WECHAT_MCP_LICENSE_KEY"] = lic or ""
-    badenv["LUMII_WECHAT_LICENSE_DIR"] = empty_lic
+    badenv["LUMII_WECHAT_EXPIRY_DIR"] = statedir
     badenv["LUMII_WECHAT_ACCOUNT"] = "不存在的账号_xyz"
     await run("wechat-file", exe("wechat-file-mcp"), [("list_files", {})],
               env=badenv, label="wechat-file-坏环境")

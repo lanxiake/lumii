@@ -803,7 +803,7 @@ def test_pointer_block_and_rule_file():
     exe = r"C:\Users\a\.lumii\mcp\wechat-file-mcp\wechat-file-mcp.exe"
     ptr = I.pointer_block(spec, exe)
     assert exe in ptr, "得写清 exe 在哪（这就是'让 AI 自己配'的前提）"
-    for code in ("target_not_found", "env_not_ready", "bad_args", "not_licensed"):
+    for code in ("target_not_found", "env_not_ready", "bad_args", "expired"):
         assert code in ptr, f"错误码 {code} 的处置要写进去"
     assert "本地处理" in ptr and len(ptr) < 1500, f"指路块要短（{len(ptr)} 字）"
 
@@ -858,20 +858,20 @@ def test_fill_skill_bakes_the_deployed_path():
     print("ok fill_skill_bakes_the_deployed_path")
 
 
-def test_no_network_code_in_install_or_license():
-    """**结构性守卫**：安装与授权这条路上，一条网络请求都不许有。
+def test_no_network_code_in_install_or_expiry():
+    """**结构性守卫**：安装与有效期这条路上，一条网络请求都不许有。
 
     产品红线是「本地处理、**不外传**」（设计 §10）。这里原本有个 `--check-update`（查远端有没有
     新版），2026-10-13 因为**不做对外发布**摘掉了——没有发布通道 ⇒ 它永远只能返回 404，
     是个"注定失败的按钮"。这条测试钉住"别再长回来一个偷偷联网的东西"：
-    联网代码一旦混进来，用户的机器码/会话内容就有被带出去的可能，而那是不可逆的。
+    联网代码一旦混进来，用户的会话内容就有被带出去的可能，而那是不可逆的。
     """
     here = os.path.dirname(os.path.abspath(I.__file__))
-    for mod in ("mcp_install.py", "mcp_license.py"):
+    for mod in ("mcp_install.py", "builtin_expiry.py"):
         src = open(os.path.join(here, mod), encoding="utf-8").read()
         for bad in ("urllib", "urlopen", "requests.", "socket.", "http://", "https://"):
             assert bad not in src, f"{mod} 里出现了网络代码「{bad}」——与「不外传」冲突"
-    print("ok no_network_code_in_install_or_license")
+    print("ok no_network_code_in_install_or_expiry")
 
 
 def test_remove_failure_does_not_block_add():
@@ -976,7 +976,7 @@ if __name__ == "__main__":
     test_merge_block_is_reversible_and_delimited()
     test_pointer_block_and_rule_file()
     test_fill_skill_bakes_the_deployed_path()
-    test_no_network_code_in_install_or_license()
+    test_no_network_code_in_install_or_expiry()
     test_remove_failure_does_not_block_add()
     test_skill_source_uses_skill_id_not_server_name()
     print("ALL PASS")
