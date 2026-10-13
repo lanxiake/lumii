@@ -17,22 +17,93 @@
 import json
 import sys
 
-from wechat_core import UnknownTalker
+from wechat_core import EnvError, UnknownTalker
 
 SUPPORTED_PROTOCOL_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
 
 PARSE_ERROR, INVALID_REQUEST, METHOD_NOT_FOUND, INVALID_PARAMS = -32700, -32600, -32601, -32602
 
+# 错误码 → 卡在**哪一道**。与 `wechat-mcp/server.py` 的 `_STAGE_BY_CODE` 同一口径
+# （那是主产品的成熟模型），四件套沿用同一套字段，用户装两套时一份提示词能通吃。
+STAGE_BY_CODE = {
+    "env_not_ready": "env",         # 微信没运行 / 找不到数据目录 / 密钥扫不到
+    "target_not_found": "target",   # 会话名对不上
+    "bad_args": "args",             # 参数缺失或取值非法
+    "not_archived": "data",         # 归档里没有这条（守护当时没跑）
+    "internal_error": "internal",   # 兜底：工具自己炸了
+}
+
+# 给**用户**看的可操作建议（不是给 Agent 的推理线索）。没命中的码给一句通用的，
+# 不返回空——空字段会被读成"没有建议"。
+FIX_SUGGESTIONS = {
+    "env_not_ready": "微信没就绪。请先打开微信并登录、点开一个会话，然后重试。",
+    "target_not_found": "请先用本服务的会话列表工具拿到确切名字，或直接传 wxid / 群号。",
+    "bad_args": "请检查参数名与取值；枚举类参数只接受 schema 里列出的那几个值。",
+    "not_archived": "这条消息不在归档里。撤回防护要先启动守护（`--daemon`）才会留存历史。",
+    "internal_error": "工具内部出错（多半是 bug）。请把 detail 原文反馈给开发者。",
+}
+
+
+def tool_error(code, message, **extra):
+    """失败的**统一信封**：`{ok:false, detail, error_code, stage, suggestion}`。
+
+    为什么四个产品都用这一个：四件套最初各写各的（A/C/D 静默返回 0 条、B 报错），形状随
+    「错在哪一步」而变，同一份 SKILL 覆盖不了。主产品 `wechat-mcp/server.py` 的 `_fail()`
+    已经踩过同一个坑并收敛过一次，这里直接沿用它的字段命名（`detail` 而不是 `error`），
+    整套产品线只有一个形状。
+
+    `hint` 是环境类错误特有的**动手步骤**，比 `suggestion` 更具体，有就带上。
+    """
+    out = {"ok": False, "detail": message, "error_code": code,
+           "stage": STAGE_BY_CODE.get(code, "internal"),
+           "suggestion": FIX_SUGGESTIONS.get(code, FIX_SUGGESTIONS["internal_error"])}
+    out.update(extra)
+    return out
+
+
+def _candidate_note(cands):
+    """把近似候选压成一句话（Agent 拿它一句问清是哪一个，而不是卡在"没找到"）。"""
+    if not cands:
+        return ""
+    items = "、".join(f"{c['name']}（{c['talker']}）" if c["name"] != c["talker"] else c["talker"]
+                      for c in cands)
+    return f"名字相近的会话有：{items}。"
+
+
 # 追加到每个产品自己的 INSTRUCTIONS 后面（口径统一，别指望四个产品各自记得写）
 TOOL_CONVENTIONS = """
 工具约定（四件套一致）：
-- 会话参数（`talker` / `room`）解析不出**唯一**目标时返回
-  `{"error": ..., "error_code": "target_not_found"}`。这**不是**「没有数据」——别当成空结果，
-  改用确切会话名 / wxid / 群号，或先向用户问清是哪一个。
+- **失败**一律返回同一形状的 JSON：
+  `{"ok": false, "detail": "发生了什么", "error_code": "...", "stage": "...", "suggestion": "该怎么办"}`。
+  收到 `ok: false` 就是**没成功**，不要把同一个结果的其它字段当成数据用。
+- `error_code` 的含义（据它决定下一步，别去猜 `detail` 的措辞）：
+  - `env_not_ready` —— 微信没就绪（没运行 / 找不到数据目录 / 密钥扫不到）。**这不是你的参数问题**，
+    照 `detail` + `hint` 告诉用户该做什么（通常是"先打开微信并登录"）。
+  - `target_not_found` —— 会话名解析不出**唯一**目标。这**不是**「这个会话没有数据」——别当成
+    空结果报给用户。`candidates` 里是名字相近的会话，拿它向用户问清是哪一个。
+  - `bad_args` —— 参数缺失或取值非法，按 `detail` 改正后重试。
 - 结果里带 `total` 与 `count` 时：`total` 是命中总数，`count` 是本次返回条数，两者不等就说明
-  被 `limit` 截断了，别当成"只有这些"。
-- 每条工具结果是**一段 JSON 文本**；服务端异常时 `isError=true` 且文本以 `ERROR:` 开头。
+  被 `limit` 截断了，别当成"只有这些"。要接着翻用 `offset`。
+- 每条工具结果都是**一段 JSON 文本**；`isError=true` 只在工具内部真的炸了（bug）时出现
+  （此时 `error_code=internal_error`）。业务性失败（上面那些码）**不**置 `isError`——它们是要你
+  读并处置的结构化结果，不是协议层故障；只看 `isError` 会漏掉它们。
 """
+
+
+def log_env_status(name):
+    """启动时把**最便宜**的那条环境事实打进 stderr（微信进程在不在）。
+
+    为什么不是一次完整的"前置检查"：MCP 随客户端启动，而用户完全可能**先开客户端、后开微信**，
+    启动就拦等于自找假失败；完整探测（找数据目录会扫盘）也不该卡在握手上。
+    真正的判断留在**调用时**——那时失败会被归类成 `env_not_ready` 并带上动手步骤。
+    这里只留一条"出问题时值得先看"的痕迹，撑支持用。
+    """
+    try:
+        import wxkey4
+        pids = wxkey4.find_wechat_pids()
+        log(name, f"env: 微信进程 {'运行中 pid=' + str(pids[0][1]) if pids else '**未找到**'}")
+    except Exception as e:                         # 探测本身失败不该影响启动
+        log(name, f"env: 微信进程探测跳过（{e!r}）")
 
 
 def force_utf8_stdio():
@@ -98,14 +169,26 @@ class StdioServer:
         try:
             data = handler(args)
         except UnknownTalker as e:
-            log(self.name, "target_not_found", str(e))
-            self.reply(mid, self.text_result({
-                "error": f"会话「{e}」解析不出唯一目标——请用确切的会话名、或 wxid/群号",
-                "error_code": "target_not_found"}))
+            cands = e.candidates
+            log(self.name, "target_not_found", str(e), f"候选={len(cands)}")
+            self.reply(mid, self.text_result(tool_error(
+                "target_not_found",
+                f"会话「{e}」解析不出唯一目标（需与显示名或 wxid/群号完全一致）。"
+                + _candidate_note(cands),
+                candidates=cands)))
+            return
+        except EnvError as e:
+            # 环境的锅，不是调用方的锅——带上动手步骤，别让人对着堆栈猜。
+            # detail 取 `e.message`（不含 hint）：结构化出口里两者分开给，合并会把建议
+            # 塞进"发生了什么"里，客户端想单独显示就得再解析一遍文本。
+            log(self.name, "env_not_ready", e.message)
+            self.reply(mid, self.text_result(
+                tool_error("env_not_ready", e.message, hint=e.hint)))
             return
         except Exception as e:                     # 工具内部失败以 isError 结果返回，不拖垮服务
             log(self.name, "error", name, repr(e))
-            self.reply(mid, self.text_result(f"ERROR: {e}", is_error=True))
+            self.reply(mid, self.text_result(
+                tool_error("internal_error", f"{type(e).__name__}: {e}"), is_error=True))
             return
         self.reply(mid, self.text_result(data))
 
@@ -157,5 +240,6 @@ def serve(name, title, version, tools, instructions, dispatch):
     server = StdioServer(name, title, version, tools, instructions, dispatch)
     sys.stdout = sys.stderr
     log(name, f"started v{version} (python {sys.version.split()[0]})")
+    log_env_status(name)
     server.loop()
     return 0

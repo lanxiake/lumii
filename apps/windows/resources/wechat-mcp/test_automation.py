@@ -605,8 +605,9 @@ def test_integration_list_sessions():
 
         return True
     except Exception as e:
-        # 如果数据目录不存在，这是预期的
-        if "未找到" in str(e) or "不存在" in str(e):
+        # 如果数据目录不存在，这是预期的。**认类型不认文案**——读取层已经用 EnvError
+        # 把「环境没就绪」标出来了，再靠「未找到」三个字匹配，改一次措辞就静默失效。
+        if isinstance(e, core.EnvError) or "未找到" in str(e) or "不存在" in str(e):
             print(f"     ⚠️  数据目录不存在（预期行为）: {str(e)[:50]}...")
             return True
         raise

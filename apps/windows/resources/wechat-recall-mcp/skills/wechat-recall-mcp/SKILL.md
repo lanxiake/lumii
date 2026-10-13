@@ -61,7 +61,13 @@ wechat-recall-mcp.exe --status              # 查状态
 
 ## 4. 硬约束
 
-- **会话名对不上要问，不要当空结果**：`talker`/`room` 解析不出**唯一**目标时返回 `error_code=target_not_found`——那是「名字没对上」，**不是**「没有数据」。换成确切会话名或 wxid/群号再试；**别把 `count: 0` 直接讲给用户听**。
+- **失败一律长成 `ok: false`**：`{"ok": false, "detail": "发生了什么", "error_code": "...", "stage": "...", "suggestion": "该怎么办"}`。
+  **看到 `ok: false` 就是没成功**，别把同一个结果里的其它字段当数据用。按 `error_code` 决定下一步：
+  - `target_not_found` —— `talker`/`room` 没对上**唯一**会话。那是「名字没对上」，**不是**「没有数据」；
+    `candidates` 里是名字相近的会话，拿它向用户问清是哪一个，**别把 `count: 0` 讲给用户听**。
+  - `env_not_ready` —— 微信没就绪（没运行 / 找不到数据目录 / 密钥扫不到）。**不是用户参数的问题**，
+    把 `detail` + `hint` 里的动手步骤转告用户（通常是「先打开微信并登录」），**别重试**。
+  - `bad_args` —— 参数缺失或取值非法，按 `detail` 改正后重试。
 
 - **绝不编造撤回内容**：查不到就说查不到，并说明原因（守护没跑 / 在缺口里 / 早于守护启用）。
 - `daemon_status` 里 `backfilled` 为 false 说明打底还没完成——先让用户等它跑完。

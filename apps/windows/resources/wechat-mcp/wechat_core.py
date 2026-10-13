@@ -35,6 +35,33 @@ os.makedirs(MIRROR_DIR, exist_ok=True)
 _cache = {"rels": None, "msg": None, "contact": None, "root": None}
 
 
+class EnvError(RuntimeError):
+    """**环境没就绪**（不是"这个会话没数据"，也不是调用方传错了参数）。
+
+    三个来源，都是"用户需要动手做点什么"而不是"重试就好"：
+      1. 找不到微信数据目录（没登录过 / 自定义目录在别的盘且探测不到）
+      2. `LUMII_WECHAT_ACCOUNT` 指定的账号不存在
+      3. 读不到数据库密钥（微信没在运行 / 刚重启还没建连接）
+
+    `hint` 是**给用户看的可操作建议**，与 `message`（发生了什么）分开——工具边界把两者
+    一起端出去，别让用户对着 `FileNotFoundError` 猜。MCP 侧统一翻成 `env_not_ready`
+    （见 `mcp_stdio.py`）。
+
+    ⚠️ `__str__` **必须把 hint 一起带出来**：全仓有大量 `except Exception as e: ... str(e)`
+    的兜底路径（主产品 `wechat-mcp/server.py` 的读类工具就是 `ERROR: {e}`、`check_env` 是
+    `db_hint=str(e)`）。只把 hint 放独立属性，这些路径**一个字都看不到**——那等于把用户的
+    修复建议弄丢了，比不分类还糟。
+    """
+
+    def __init__(self, message, hint=""):
+        super().__init__(message)
+        self.message = message        # 不含 hint 的原话，供结构化出口单取
+        self.hint = hint
+
+    def __str__(self):
+        return f"{super().__str__()}\n\n{self.hint}" if self.hint else super().__str__()
+
+
 def deps():
     """依赖自检：报告关键第三方库是否就绪（不导入，避免副作用）。
 
@@ -314,21 +341,24 @@ def db_root_info():
             if a["wxid"] == want or a["dir"] == want:
                 return a["root"], a.get("source", "auto")
         avail = "、".join(a["wxid"] for a in accts) if accts else "（无）"
-        raise RuntimeError(f"LUMII_WECHAT_ACCOUNT={want} 未匹配到账号数据目录。可选账号：{avail}")
+        raise EnvError(
+            f"LUMII_WECHAT_ACCOUNT={want} 未匹配到账号数据目录",
+            hint=f"本机可选的账号有：{avail}。改成其中之一，或清掉这个环境变量让它自动挑。")
     if not accts:
         home = os.path.expanduser("~")
-        hint = ("未找到微信 4.x 数据目录。已尝试：\n"
-                "  - 环境变量 LUMII_WECHAT_DB\n"
-                "  - 配置 %APPDATA%/Tencent/xwechat/config/*.ini\n"
-                "  - 注册表 HKCU\\Software\\Tencent\\Weixin\n"
-                f"  - 默认路径 {home}/xwechat_files、{home}/Documents/xwechat_files\n"
-                "  - 固定盘扫描（深度≤2）")
-        if os.name == "nt":
-            hint += ("\n\n修复建议：\n1. 确认微信已登录并有聊天记录\n"
-                     "2. 在微信「设置 → 文件管理」里确认数据目录\n"
-                     "3. 仍找不到时手动指定："
-                     "LUMII_WECHAT_DB=<数据目录>\\xwechat_files\\<账号>_<4位>\\db_storage")
-        raise RuntimeError(hint)
+        tried = "\n".join(("  - 环境变量 LUMII_WECHAT_DB",
+                           "  - 配置 %APPDATA%/Tencent/xwechat/config/*.ini",
+                           "  - 注册表 HKCU\\Software\\Tencent\\Weixin",
+                           f"  - 默认路径 {home}/xwechat_files、{home}/Documents/xwechat_files",
+                           "  - 固定盘扫描（深度≤2）"))
+        raise EnvError(
+            "未找到微信 4.x 数据目录",
+            hint=("已扫描路径（按优先级，全部落空）：\n" + tried +
+                  "\n\n修复建议：\n"
+                  "1. 确认微信**已登录**（没登录过就没有数据目录）\n"
+                  "2. 在微信「设置 → 文件管理」里看数据目录在哪\n"
+                  "3. 仍找不到时手动指定："
+                  "LUMII_WECHAT_DB=<数据目录>\\xwechat_files\\<账号>_<4位>\\db_storage"))
     return accts[0]["root"], accts[0].get("source", "auto")
 
 
@@ -458,8 +488,13 @@ def keys(root=None, refresh=False):
             break
         wxkey4.scan_pid(pid, files, s2d, km, rem)
     if not km:
-        raise RuntimeError("未能从微信进程内存取到数据库密钥：微信可能没在运行、或刚重启。"
-                           "请确认微信已登录并打开过聊天窗口后重试。")
+        raise EnvError(
+            "未能从微信进程内存取到数据库密钥",
+            hint=("通常是这三种情况：\n"
+                  "1. **微信没在运行** —— 打开微信并登录后重试\n"
+                  "2. 微信**刚启动**、还没打开过任何聊天窗口 —— 点开一个会话，等几秒再试\n"
+                  "3. 微信版本不在已验证范围内（密钥扫描依赖固定内存偏移）"
+                  "—— 见 wechat_core.VERIFIED_VERSION_PREFIXES"))
     _key_cache[root] = (km, time.time())
     return km
 
@@ -1508,7 +1543,14 @@ class UnknownTalker(LookupError):
     `{"count": 0}` 与「这个会话真没消息」在 JSON 里一模一样，四件套里 A/C/D 都踩过这一跤
     （传显示名 → 算出不存在的表 → 0 条，看着像正常回答）。MCP 侧统一翻成 `target_not_found`
     （见 `mcp_stdio.py`）。
+
+    `candidates`：解析失败时的近似候选（见 `suggest_talkers`）。带上它，"找不到"才**可操作**
+    ——本机真有三个 `loop`，把三个列出来，用户或 Agent 才能一句话说清是哪个。
     """
+
+    def __init__(self, query, candidates=None):
+        super().__init__(query)
+        self.candidates = list(candidates or [])
 
 
 def talker_of(query):
@@ -1517,12 +1559,19 @@ def talker_of(query):
     与 `resolve_talker` 的分工：那个是纯解析（返回 None，让调用方按自己的语义决定），
     这个给**工具边界**用——`query` 为空返回 None（表示"不筛会话"），非空则要么给出 talker、
     要么抛。
+
+    失败路径顺手带上近似候选。只在这条路上做（`names()` 本身有缓存），成功路径一点开销不加；
+    取候选本身失败也不能盖掉"找不到会话"这个主因——那会报成 env 问题，更难查。
     """
     if not query:
         return None
     got = resolve_talker(query)
     if got is None:
-        raise UnknownTalker(str(query))
+        try:
+            cands = suggest_talkers(query)
+        except Exception:
+            cands = []
+        raise UnknownTalker(str(query), cands)
     return got
 
 

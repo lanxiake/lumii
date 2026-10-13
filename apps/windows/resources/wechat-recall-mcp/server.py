@@ -28,7 +28,7 @@ import archive                # noqa: E402
 import mcp_stdio              # noqa: E402
 
 SERVER_NAME = "wechat-recall"
-SERVER_VERSION = "0.2.0"
+SERVER_VERSION = "0.3.0"
 TITLE = "微信撤回防护"
 DEFAULT_LIMIT = 200           # 工具默认一次回多少条撤回（`limit=0` = 全部）
 
@@ -142,14 +142,14 @@ def _tool_list(args):
 def _tool_read(args):
     talker, lid = args.get("talker"), args.get("local_id")
     if not talker or lid is None:
-        return {"error": "talker 与 local_id 都必填", "error_code": "bad_args"}
+        return mcp_stdio.tool_error("bad_args", "talker 与 local_id 都必填")
     con = archive.connect()
     try:
         rec = archive.read_recall(con, _resolve(talker), int(lid))
     finally:
         con.close()
     if rec is None:
-        return {"error": "归档里没有这条消息（可能守护当时没在跑）", "error_code": "not_archived"}
+        return mcp_stdio.tool_error("not_archived", "归档里没有这条消息（可能守护当时没在跑）")
     return rec
 
 

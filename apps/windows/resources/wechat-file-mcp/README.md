@@ -39,8 +39,37 @@ Windows x64 + Node 18+（或用独立 exe，不需要 Node/Python）：
 `dedup` 同一磁盘文件被多条消息引用（只拷一次）。
 
 **归档绝不覆盖**：目标已存在又是**另一版本**（大小不同）→ 另存为带时间戳的名字。
-`talker` 传会话**显示名**（如「文件传输助手」）或 wxid/群号都可以；解析不出唯一目标时返回
-`error_code=target_not_found`（**不是**"0 条"）。
+`talker` 传会话**显示名**（如「文件传输助手」）或 wxid/群号都可以。
+
+## 失败长什么样
+
+任何失败都是**同一个形状**（四件套一致，也和 wechat-mcp 一致）：
+
+```json
+{"ok": false, "detail": "发生了什么", "error_code": "target_not_found",
+ "stage": "target", "suggestion": "该怎么办", "candidates": [...]}
+```
+
+**看到 `ok: false` 就是没成功**——别把同一个结果里的其它字段当数据用。
+
+| `error_code` | 含义 | 该怎么办 |
+|---|---|---|
+| `target_not_found` | 会话名没对上**唯一**目标 | 这是「名字没对上」，**不是**「没有数据」；`candidates` 里是相近的会话，挑一个或问用户 |
+| `env_not_ready` | 微信没就绪（没运行 / 找不到数据目录 / 密钥扫不到） | 看 `detail` + `hint` 的动手步骤（通常是「先打开微信并登录」），**不是**参数问题，别重试 |
+| `bad_args` | 参数缺失或取值非法 | 按 `detail` 改正后重试 |
+| `internal_error` | 工具内部出错（bug），此时 `isError=true` | 把 `detail` 原文反馈给开发者 |
+
+`stage` 说的是**卡在哪一道**（`env` / `target` / `args` / `data` / `internal`），
+让你一眼看出是环境的锅还是参数的锅。
+
+## 故障排查
+
+| 现象 | 原因与处置 |
+|---|---|
+| `env_not_ready`：未找到微信数据目录 | 确认微信**已登录**；在微信「设置 → 文件管理」看数据目录；仍不行就设 `LUMII_WECHAT_DB=<数据目录>\xwechat_files\<账号>_<4位>\db_storage` |
+| `env_not_ready`：未能从微信进程内存取到数据库密钥 | 打开微信并登录、点开一个会话等几秒再试；仍不行多半是微信版本超出已验证范围（见 `wechat_core.VERIFIED_VERSION_PREFIXES`） |
+| `status=missing` 的文件很多 | 那是**未下载/已过期**，本地和服务器都没有，归档不了——如实告诉用户，别反复重试 |
+| 归档后目标目录里出现带时间戳的文件名 | 预期行为：同名**不同版本**另存，**绝不覆盖**已归档的文件 |
 
 ## 怎么工作的（一条链）
 

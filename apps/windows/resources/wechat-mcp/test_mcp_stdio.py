@@ -18,15 +18,24 @@ except Exception:
     pass
 
 import mcp_stdio as M
-from wechat_core import UnknownTalker
+from wechat_core import EnvError, UnknownTalker
 
 TOOLS = [{"name": "ok_tool", "description": "demo", "inputSchema": {"type": "object"}},
          {"name": "boom", "description": "demo", "inputSchema": {"type": "object"}},
-         {"name": "unknown_talker", "description": "demo", "inputSchema": {"type": "object"}}]
+         {"name": "unknown_talker", "description": "demo", "inputSchema": {"type": "object"}},
+         {"name": "ambiguous", "description": "demo", "inputSchema": {"type": "object"}},
+         {"name": "no_wechat", "description": "demo", "inputSchema": {"type": "object"}}]
 DISPATCH = {
     "ok_tool": lambda a: {"echo": a.get("x")},
     "boom": lambda a: 1 / 0,
     "unknown_talker": lambda a: (_ for _ in ()).throw(UnknownTalker(a.get("talker", ""))),
+    # 歧义：本机真有三个 loop —— 报错必须带上候选，否则用户只能干瞪眼
+    "ambiguous": lambda a: (_ for _ in ()).throw(UnknownTalker("loop", [
+        {"talker": "wxid_s6piy", "name": "Loop", "has_history": True},
+        {"talker": "wxid_s7vhn", "name": "loop", "has_history": False},
+    ])),
+    "no_wechat": lambda a: (_ for _ in ()).throw(
+        EnvError("读不到微信的数据库密钥（进程内存里没扫到）", hint="打开微信并登录后再试")),
 }
 
 
@@ -74,7 +83,7 @@ def test_initialize_negotiates_protocol():
 def test_tools_list_and_ok_call():
     s, buf = _server()
     tools = _call(s, buf, "tools/list")["result"]["tools"]
-    assert [t["name"] for t in tools] == ["ok_tool", "boom", "unknown_talker"]
+    assert [t["name"] for t in tools] == [t["name"] for t in TOOLS]
     data, is_err = _tool(s, buf, "ok_tool", {"x": 7})
     assert data == {"echo": 7} and is_err is False, (data, is_err)
     print("ok tools_list_and_ok_call")
@@ -85,8 +94,55 @@ def test_unknown_talker_becomes_target_not_found():
     s, buf = _server()
     data, is_err = _tool(s, buf, "unknown_talker", {"talker": "张三"})
     assert data["error_code"] == "target_not_found", data
-    assert "张三" in data["error"] and is_err is False, (data, is_err)
+    assert "张三" in data["detail"] and is_err is False, (data, is_err)
     print("ok unknown_talker_becomes_target_not_found")
+
+
+def test_error_envelope_shape():
+    """**统一信封**：任何失败都长成 `{ok:false, detail, error_code, stage, suggestion}`。
+
+    为什么专门测形状：四件套最初 A/C/D 静默返回 0 条、B 报错，同一份提示词覆盖不了不同形状。
+    收敛成一种之后，这条断言就是防它再漂回去的哨位——**五个键缺一个就等于漂了**。
+    """
+    s, buf = _server()
+    for tool, args in (("unknown_talker", {"talker": "张三"}),
+                       ("no_wechat", {}),
+                       ("boom", {})):
+        data, _ = _tool(s, buf, tool, args)
+        missing = {"ok", "detail", "error_code", "stage", "suggestion"} - set(data)
+        assert not missing, f"{tool} 的结果少了 {missing}：{data}"
+        assert data["ok"] is False and data["detail"], (tool, data)
+        assert data["suggestion"], (tool, data)
+    # stage 要能区分"环境的锅 / 参数的锅 / 会话名的锅"——这正是它存在的理由
+    env, _ = _tool(s, buf, "no_wechat")
+    tgt, _ = _tool(s, buf, "unknown_talker", {"talker": "张三"})
+    assert (env["stage"], tgt["stage"]) == ("env", "target"), (env["stage"], tgt["stage"])
+    print("ok error_envelope_shape")
+
+
+def test_env_error_carries_hint():
+    """环境没就绪 → `env_not_ready` + 给用户的动手步骤；**不置 isError**。
+
+    不置 isError 是有意的：这类失败是"要你读并转告用户"的结构化结果，不是协议层故障。
+    客户端的引导词就是这么教的（`TOOL_CONVENTIONS`），两边必须一致。
+    """
+    s, buf = _server()
+    data, is_err = _tool(s, buf, "no_wechat")
+    assert data["error_code"] == "env_not_ready", data
+    assert "打开微信" in data["hint"], data
+    assert is_err is False, data
+    assert "env_not_ready" in M.TOOL_CONVENTIONS      # 引导词里得教过这个码
+    print("ok env_error_carries_hint")
+
+
+def test_ambiguous_talker_lists_candidates():
+    """歧义时报错要带**候选**——"找不到"不可操作，把人名/ID 列出来才可操作。"""
+    s, buf = _server()
+    data, _ = _tool(s, buf, "ambiguous")
+    assert data["error_code"] == "target_not_found", data
+    assert len(data["candidates"]) == 2, data
+    assert "Loop" in data["detail"] and "wxid_s7vhn" in data["detail"], data["detail"]
+    print("ok ambiguous_talker_lists_candidates")
 
 
 def test_tool_exception_is_iserror():
@@ -94,7 +150,8 @@ def test_tool_exception_is_iserror():
     s, buf = _server()
     data, is_err = _tool(s, buf, "boom")
     assert is_err is True, data
-    assert data.startswith("ERROR: "), data
+    assert data["error_code"] == "internal_error", data
+    assert "ZeroDivisionError" in data["detail"], data
     data2, _ = _tool(s, buf, "ok_tool", {"x": 1})       # 炸过之后服务还得活着
     assert data2 == {"echo": 1}
     print("ok tool_exception_is_iserror")
@@ -122,6 +179,9 @@ if __name__ == "__main__":
     test_initialize_negotiates_protocol()
     test_tools_list_and_ok_call()
     test_unknown_talker_becomes_target_not_found()
+    test_error_envelope_shape()
+    test_env_error_carries_hint()
+    test_ambiguous_talker_lists_candidates()
     test_tool_exception_is_iserror()
     test_bad_requests()
     print("ALL PASS")

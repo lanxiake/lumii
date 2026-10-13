@@ -26,7 +26,7 @@ import contactscore as S      # noqa: E402
 import mcp_stdio              # noqa: E402
 
 SERVER_NAME = "wechat-crm"
-SERVER_VERSION = "0.2.0"
+SERVER_VERSION = "0.3.0"
 TITLE = "微信客户分析"
 DEFAULT_LIMIT = 200           # 通讯录默认一次回多少条（本机好友 2500+，不掐就是几百 KB 灌进模型）
 
@@ -128,7 +128,8 @@ def _tool_contacts(args):
 def _tool_stats(args):
     talker = args.get("talker")
     if not talker:
-        return {"error": "talker 必填", "error_code": "bad_args"}
+        return mcp_stdio.tool_error(
+            "bad_args", "talker 必填（会话名或 wxid/群号）")
     return S.contact_stats(talker, since=int(args.get("since") or 0),
                            until=int(args.get("until") or 0))
 

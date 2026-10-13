@@ -26,7 +26,7 @@ import exportcore as E        # noqa: E402
 import mcp_stdio              # noqa: E402
 
 SERVER_NAME = "wechat-export"
-SERVER_VERSION = "0.2.0"
+SERVER_VERSION = "0.3.0"
 TITLE = "微信记录导出"
 
 # 合法值只有一份来源（exportcore），工具 schema 与校验都读它——别在这里再抄一遍
@@ -104,13 +104,13 @@ def _tool_export(args):
     talker = args.get("talker")
     out_dir = args.get("out_dir")
     if not talker:
-        return {"error": "talker 必填（会话名或 wxid/群号；可先用 list_sessions 查）",
-                "error_code": "bad_args"}
+        return mcp_stdio.tool_error(
+            "bad_args", "talker 必填（会话名或 wxid/群号；可先用 list_sessions 查）")
     if not out_dir:
-        return {"error": "out_dir 必填（导出目标目录的绝对路径）", "error_code": "bad_args"}
+        return mcp_stdio.tool_error("bad_args", "out_dir 必填（导出目标目录的绝对路径）")
     bad = E.bad_args(args)
     if bad:
-        return {"error": "参数不合法：" + "；".join(bad), "error_code": "bad_args"}
+        return mcp_stdio.tool_error("bad_args", "参数不合法：" + "；".join(bad), invalid=bad)
     return E.export_chat(
         talker=talker, out_dir=out_dir,
         format=args.get("format") or "md",

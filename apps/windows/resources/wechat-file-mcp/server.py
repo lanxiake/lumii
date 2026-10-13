@@ -25,7 +25,7 @@ import filecore as F          # noqa: E402
 import mcp_stdio              # noqa: E402
 
 SERVER_NAME = "wechat-file"
-SERVER_VERSION = "0.2.0"
+SERVER_VERSION = "0.3.0"
 TITLE = "微信文件归档"
 DEFAULT_LIMIT = 500           # 默认最多返回多少条（`limit=0` = 全部）
 
@@ -130,7 +130,7 @@ def _tool_list(args):
 def _tool_archive(args):
     out_dir = args.get("out_dir")
     if not out_dir:
-        return {"error": "out_dir 必填（归档目标目录的绝对路径）", "error_code": "bad_args"}
+        return mcp_stdio.tool_error("bad_args", "out_dir 必填（归档目标目录的绝对路径）")
     return F.archive_files(
         out_dir=out_dir,
         talker=args.get("talker") or None,

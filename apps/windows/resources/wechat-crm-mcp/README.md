@@ -34,8 +34,37 @@
 | `contact_stats(talker, since?, until?)` | 单会话：总条数 / 我发对方发 / 活跃小时 / 活跃天 Top / 首末 / 跨度 / 沉默天数 |
 | `interaction_rank(since?, until?, top?, sort?)` | 互动排行；`sort=recent` = 久未联系在前 |
 
-`talker` / `room` 传会话**显示名**（如「文件传输助手」）或 wxid/群号都可以；解析不出唯一目标时
-返回 `error_code=target_not_found`（**不是**"你俩没聊过"——那个"0 条"是能骗过模型的）。
+`talker` / `room` 传会话**显示名**（如「文件传输助手」）或 wxid/群号都可以。
+
+## 失败长什么样
+
+任何失败都是**同一个形状**（四件套一致，也和 wechat-mcp 一致）：
+
+```json
+{"ok": false, "detail": "发生了什么", "error_code": "target_not_found",
+ "stage": "target", "suggestion": "该怎么办", "candidates": [...]}
+```
+
+**看到 `ok: false` 就是没成功**——别把同一个结果里的其它字段当数据用。
+
+| `error_code` | 含义 | 该怎么办 |
+|---|---|---|
+| `target_not_found` | 会话名没对上**唯一**目标 | 这是「名字没对上」，**不是**「你俩没聊过」——`candidates` 里是相近的会话，挑一个或问用户 |
+| `env_not_ready` | 微信没就绪（没运行 / 找不到数据目录 / 密钥扫不到） | 看 `detail` + `hint` 的动手步骤（通常是「先打开微信并登录」），**不是**参数问题，别重试 |
+| `bad_args` | 参数缺失或取值非法 | 按 `detail` 改正后重试 |
+| `internal_error` | 工具内部出错（bug），此时 `isError=true` | 把 `detail` 原文反馈给开发者 |
+
+`stage` 说的是**卡在哪一道**（`env` / `target` / `args` / `data` / `internal`），
+让你一眼看出是环境的锅还是参数的锅。
+
+## 故障排查
+
+| 现象 | 原因与处置 |
+|---|---|
+| `env_not_ready`：未找到微信数据目录 | 确认微信**已登录**；在微信「设置 → 文件管理」看数据目录；仍不行就设 `LUMII_WECHAT_DB=<数据目录>\xwechat_files\<账号>_<4位>\db_storage` |
+| `env_not_ready`：未能从微信进程内存取到数据库密钥 | 打开微信并登录、点开一个会话等几秒再试；仍不行多半是微信版本超出已验证范围（见 `wechat_core.VERIFIED_VERSION_PREFIXES`） |
+| 好友数是 200 / 群成员只有一部分 | 默认 `limit=200`——看 `total` 有没有比 `count` 大，用 `offset` 接着翻 |
+| `contact_stats` 返回 0 条 | 先确认 `talker` 是不是**唯一**对上了（对不上会给 `target_not_found`，不会静默给 0）；真为 0 才是「没聊过」 |
 
 ## 怎么工作的
 

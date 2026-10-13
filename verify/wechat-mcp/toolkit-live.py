@@ -76,25 +76,30 @@ def stale(pkg):
     return os.path.getmtime(dist) < newest
 
 
-async def run(server, path, calls, env=None):
-    """握手 + 列工具 + 逐个调用；任一步抛异常都记 FAIL，不中断其余服务。"""
+async def run(server, path, calls, env=None, label=None):
+    """握手 + 列工具 + 逐个调用；任一步抛异常都记 FAIL，不中断其余服务。
+
+    `label`（默认同 server）：同一个 exe 要用不同环境跑第二遍时，结果得记在**另一个名下**
+    ——`got()` 是按 (server, tool, args 子集) 找的，同名同参会被第一遍盖住，新加的用例就查了个寂寞。
+    """
+    tag = label or server
     params = StdioServerParameters(command=path, args=[], env=env)
     async with stdio_client(params) as (r, w):
         async with ClientSession(r, w) as s:
             init = await s.initialize()
             tools = await s.list_tools()
-            rec(server, "<initialize>", init.server_info.name == server,
+            rec(tag, "<initialize>", init.server_info.name == server,
                 f"{init.server_info.name} v{init.server_info.version}")
-            rec(server, "<tools/list>", True, ",".join(t.name for t in tools.tools))
+            rec(tag, "<tools/list>", True, ",".join(t.name for t in tools.tools))
             for name, args in calls:
                 try:
                     res = await s.call_tool(name, args)
                     body = text_of(res)
                     data = json.loads(body) if body.lstrip().startswith(("{", "[")) else body
-                    rec(server, name, not getattr(res, "isError", False),
+                    rec(tag, name, not getattr(res, "isError", False),
                         summarize(name, data), args, data)
                 except Exception as e:                      # noqa: BLE001
-                    rec(server, name, False, f"EXC {type(e).__name__}: {e}", args)
+                    rec(tag, name, False, f"EXC {type(e).__name__}: {e}", args)
 
 
 def summarize(name, d, args=None):
@@ -171,6 +176,42 @@ def cross_checks():
     rec("wechat-export", "<非法 media>", bad.get("error_code") == "bad_args",
         f"error_code={bad.get('error_code')}（不能静默不出媒体）")
 
+    # 统一错误信封：四个服务的**任何**失败都得长成同一个形状。缺一个键就是漂了——
+    # 而"形状随错在哪一步而变"正是四件套最初的老毛病（A/C/D 静默返回 0 条、B 报错）。
+    ENVELOPE = {"ok", "detail", "error_code", "stage", "suggestion"}
+    shape_bad, stages = [], []
+    for srv, tool, kw, want_stage in (("wechat-file", "list_files", {"talker": BOGUS}, "target"),
+                                      ("wechat-export", "export_chat", {"talker": BOGUS}, "target"),
+                                      ("wechat-recall", "list_recalls", {"talker": BOGUS}, "target"),
+                                      ("wechat-crm", "contact_stats", {"talker": BOGUS}, "target")):
+        d = got(server=srv, tool=tool, **kw)
+        lacking = ENVELOPE - set(d)          # 别叫 miss：上面那个 miss 是 dict，重名会把后面用它的断言打挂
+        if lacking:
+            shape_bad.append(f"{srv} 少 {sorted(lacking)}")
+        elif d["ok"] is not False or not d["detail"] or not d["suggestion"]:
+            shape_bad.append(f"{srv} 字段值不对：{d}")
+        else:
+            stages.append(d["stage"])
+    rec("<四服务>", "<错误信封一致>", not shape_bad,
+        "；".join(shape_bad) if shape_bad else f"ok/detail/error_code/stage/suggestion 齐")
+    rec("<四服务>", "<stage 归位>", stages == ["target"] * 4,
+        f"4 个 target_not_found 的 stage={stages}（应为 target×4）")
+
+    # 近似候选要**看得见**（"找不到"不可操作，把候选列出来才可操作）。
+    # 这里只验**字段在场**（本机的 BOGUS 名没有相近会话，候选自然是空）——"候选真有内容"
+    # 由 test_mcp_stdio 的合成用例覆盖，那条不依赖本机通讯录。
+    n_cand = len(miss.get("candidates") or [])
+    rec("wechat-file", "<候选字段在场>", "candidates" in miss,
+        f"candidates 字段在场（本例 {n_cand} 个）")
+
+    # 环境没就绪要**分类** + 带动手步骤，而不是甩一句原始异常让用户猜
+    envd = got(server="wechat-file-坏环境", tool="list_files")
+    rec("wechat-file-坏环境", "<env_not_ready>", envd.get("error_code") == "env_not_ready",
+        f"error_code={envd.get('error_code')}（不能是 target_not_found / count=0）")
+    rec("wechat-file-坏环境", "<env 带 hint 与 stage>",
+        envd.get("stage") == "env" and bool(envd.get("hint")),
+        f"stage={envd.get('stage')} hint={str(envd.get('hint'))[:36]}…")
+
     # 归档也要走显示名（它和 list_files 是两个工具，别只验一个）
     plan = got(server="wechat-file", tool="archive_files", talker=DISPLAY_NAME)
     rec("wechat-file", "<归档用显示名>", plan.get("total") == tot and plan.get("dry_run") is True,
@@ -221,13 +262,23 @@ async def main():
     await run("wechat-recall", exe("wechat-recall-mcp"),
               [("daemon_status", {}), ("list_recalls", {}), ("archive_gap", {}),
                ("list_recalls", {"talker": USERNAME}),
-               ("list_recalls", {"talker": DISPLAY_NAME})], env=renv)
+               ("list_recalls", {"talker": DISPLAY_NAME}),
+               ("list_recalls", {"talker": BOGUS})], env=renv)
     await run("wechat-crm", exe("wechat-crm-mcp"),
               [("list_contacts", {"scope": "group"}),
                ("list_contacts", {"scope": "friend"}),
                ("contact_stats", {"talker": USERNAME}),
                ("contact_stats", {"talker": DISPLAY_NAME}),
+               ("contact_stats", {"talker": BOGUS}),
                ("interaction_rank", {"top": 5})])
+
+    # 环境没就绪：指一个**不存在**的账号 → 读取层抛 EnvError → 必须翻成 `env_not_ready` + hint。
+    # 本机微信正常运行着，这是唯一能**真造出**环境失败又不动用户环境的姿势
+    # （显式清掉 LUMII_WECHAT_DB，否则它会短路掉账号检查，用例就白跑了）。
+    badenv = {k: v for k, v in os.environ.items() if k != "LUMII_WECHAT_DB"}
+    badenv["LUMII_WECHAT_ACCOUNT"] = "不存在的账号_xyz"
+    await run("wechat-file", exe("wechat-file-mcp"), [("list_files", {})],
+              env=badenv, label="wechat-file-坏环境")
 
     cross_checks()
 
