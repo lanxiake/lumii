@@ -35,6 +35,12 @@ import time
 # 而它由 `src/main/bundled-mcp-exe.ts` 的 `getDeployedMcpExePath()` 决定——沿用，别另开一处。
 DATA_DIRNAME = ".lumii"
 
+# 发布清单（`--check-update` 才会去取；**默认一次网络都不发**，见 do_check_update）。
+# 挂在 App 的 release 上（本仓库的 tag 约定是 `v<App版本>`，主产品 wechat-mcp.exe 就是那么发的），
+# 用 `latest/download/` 固定路径，省得客户端自己解析 tag。
+MANIFEST_URL = "https://github.com/lanxiake/lumii/releases/latest/download/wechat-toolkits.json"
+UPDATE_TIMEOUT_S = 6
+
 # 能安全合并的 JSON 客户端配置。**判据是文件在不在**，不是"这个客户端装没装"——
 # 有的客户端不装也有配置目录，有的装了配置在别的形状里（Codex 是 TOML，见文件头说明）。
 JSON_CLIENTS = (
@@ -75,6 +81,55 @@ def _prune_old(dst_dir, product, keep=2):
             pass                      # 正被占用就留给下次
 
 
+def installed_record_path(product):
+    return os.path.join(install_dir(product), "installed.json")
+
+
+def _read_installed(product):
+    """读装那份的登记（版本/来源/时间）。读不到返回 `{}`。"""
+    try:
+        with open(installed_record_path(product), encoding="utf-8") as f:
+            d = json.load(f)
+        return d if isinstance(d, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _write_installed(product, spec, exe):
+    """登记**装的是哪一版**。
+
+    为什么要落一个文件而不是问部署副本：`wechat-*-mcp.exe --version` 是 PyInstaller onefile，
+    **连打印版本都要先解包，冷启动 1–3 秒**（这条已在 wechat-mcp 那边实测过，主产品因此
+    在 TS 侧留了版本常量镜像）。`--install-status` 每次问一遍就等于把状态查询拖成秒级。
+    """
+    rec = {"product": product, "name": spec["name"], "version": spec.get("version") or "",
+           "label": spec.get("label") or "", "exe": exe,
+           "installed_at": time.strftime("%Y-%m-%d %H:%M:%S")}
+    try:
+        os.makedirs(install_dir(product), exist_ok=True)
+        _write_cfg(installed_record_path(product), rec)
+    except OSError:
+        pass                                   # 登记失败不该让安装失败
+    return rec
+
+
+def version_tuple(v):
+    """`"0.5.0"` → `(0, 5, 0)`；解析不了的段当 0（宁可判成"一样"，也不误报有新版）。"""
+    out = []
+    for part in str(v or "").split("."):
+        m = "".join(ch for ch in part if ch.isdigit())
+        out.append(int(m) if m else 0)
+    return tuple(out) or (0,)
+
+
+def compare_versions(a, b):
+    """`a` 比 `b` 新返回 1，相同 0，更旧 -1。"""
+    ta, tb = version_tuple(a), version_tuple(b)
+    n = max(len(ta), len(tb))
+    ta, tb = ta + (0,) * (n - len(ta)), tb + (0,) * (n - len(tb))
+    return (ta > tb) - (ta < tb)
+
+
 def _clean_install_dir(product):
     """卸载后把部署目录也清掉——**包括 `*.old-*` 残留**。
 
@@ -83,14 +138,19 @@ def _clean_install_dir(product):
     只删**以产品名打头的**文件，再 `rmdir`（目录里还有别的东西时 rmdir 会失败，正好不误删）。
     """
     d = install_dir(product)
+    mine = (product + ".exe", "installed.json", "update.json")
+    left = []
     try:
         for f in os.listdir(d):
-            if f.startswith(product + ".exe"):
+            if f.startswith(mine):
                 try:
                     os.remove(os.path.join(d, f))
                 except OSError:
-                    pass                          # 正被占用：留给下次（或重启后删除）
-        os.rmdir(d)                               # 非空会抛，正好
+                    left.append(f)                # 正被占用：留给下次（或重启后删除）
+            else:
+                left.append(f)                    # 不是我们的东西 ⇒ 目录留着，别误删
+        if not left:
+            os.rmdir(d)
     except OSError:
         pass
 
@@ -320,9 +380,16 @@ def do_install(spec):
     _say(f"\n安装 {spec.get('label') or name}（{name}）")
     seen = []
 
+    prev = _read_installed(product).get("version") or ""
+    cur = spec.get("version") or ""
     exe, how = deploy_self(product)
     if exe:
-        seen.append(_line("部署", "ok", exe))
+        note = exe
+        if prev and cur and prev != cur:
+            arrow = "→"
+            note = f"{exe}\n      v{prev} {arrow} **v{cur}**"
+        seen.append(_line("部署", "ok", note))
+        _write_installed(product, spec, exe)
     else:
         seen.append(_line("部署", "skip", how))
         exe, _args = _own_command()
@@ -393,10 +460,26 @@ def do_status(spec):
     _say(f"\n{spec.get('label') or name}（{name}）安装状态")
 
     dst = deployed_exe(product)
+    cur = spec.get("version") or ""
     if os.path.isfile(dst):
         _line("部署", "ok", f"{dst}（{os.path.getsize(dst) // 1048576}MB）")
     else:
         _line("部署", "skip", f"没装（期望位置 {dst}）")
+
+    # 版本对账（**纯本地**，不联网——本产品的红线是"本地处理、不外传"）：
+    # 你现在跑的这份 vs 装在客户端里那份。不一致就是"该重跑 --install 了"。
+    # 装的那份的版本读 `installed.json`，**不去启动它**：onefile 冷启动 1–3s，
+    # 每次查状态都解一次包，状态查询就变秒级了。
+    inst = _read_installed(product)
+    got = inst.get("version") or ""
+    if not got:
+        _line("版本", "skip", f"当前 v{cur}（没装，或这份登记早于本版本）")
+    elif compare_versions(cur, got) > 0:
+        _line("版本", "fail", f"跑的是 v{cur}，装的是 v{got} —— **重跑 --install 升级**")
+    elif compare_versions(cur, got) < 0:
+        _line("版本", "ok", f"跑的是 v{cur}，装的是 v{got}（装的那份更新）")
+    else:
+        _line("版本", "ok", f"v{got}（与当前一致）")
 
     exe = claude_cli()
     if exe:
@@ -424,10 +507,59 @@ def do_status(spec):
         _line(label, "ok" if entry else "skip",
               (entry or {}).get("command", "未注册") if entry else "未注册")
 
-    dst_skill = os.path.join(skills_root(), name)
+    # 目录名是**技能 id**（= product），不是 MCP 服务名（= name）——见 skill_source 的说明。
+    # 这里跟 skill_apply 用同一份判断，别各写各的（写错过一次：明明装了却报"没装"）。
+    dst_skill = os.path.join(skills_root(), product)
     _line("技能包", "ok" if os.path.isdir(dst_skill) else "skip",
           dst_skill if os.path.isdir(dst_skill) else "没装")
     return 0
+
+
+def do_check_update(spec):
+    """**显式**联网查最新版（`--check-update`）。
+
+    为什么必须由用户自己点：本产品的红线是「全部本地处理、**不外传**」（设计 §10）。自动联网
+    检查虽然不传用户数据，但那也是一次对外请求——跟卖点直接冲突。**默认一次网络都不发。**
+
+    拿不到就**如实说拿不到**，不谎报"已是最新"：清单还没发布、没网、被墙，这三种情况用户看到的
+    都该是"没法确认"，而不是一个让人安心但错误的结论。
+    """
+    name, product = spec["name"], spec["product"]
+    cur = spec.get("version") or ""
+    _say(f"\n检查更新：{spec.get('label') or name}（当前 v{cur}）")
+    latest, why = fetch_latest_version(product)
+    if not latest:
+        _line("远端", "skip", f"拿不到版本清单（{why}）——不代表是最新版")
+        return 0
+    cmp = compare_versions(latest, cur)
+    if cmp > 0:
+        _line("远端", "fail", f"有新版 **v{latest}**（当前 v{cur}）——用新版重跑 --install 即可")
+    elif cmp == 0:
+        _line("远端", "ok", f"v{latest}（已是最新）")
+    else:
+        _line("远端", "ok", f"远端 v{latest} —— 本地 v{cur} 更新（自编译版）")
+    return 0
+
+
+def fetch_latest_version(product):
+    """从发布清单取最新版 → `(版本号 | "", 说明)`。任何失败都返回 `("", 原因)`，**不抛**。"""
+    import urllib.request
+    url = MANIFEST_URL
+    if url.startswith(("http://", "https://")):
+        url += f"?t={int(time.time()) // 3600}"               # 按小时打散，别让 CDN 缓存挡住新版本
+        # （只对 http 加：加了之后 `file://` 会被当成文件名的一部分，测试就没法喂本地清单了）
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "lumii-wechat-toolkit"})
+        with urllib.request.urlopen(req, timeout=UPDATE_TIMEOUT_S) as r:
+            data = json.loads(r.read().decode("utf-8"))
+    except Exception as e:                                     # noqa: BLE001
+        return "", f"{type(e).__name__}: {e}"[:90]
+    entry = (data or {}).get(product)
+    if isinstance(entry, dict):
+        return str(entry.get("version") or ""), "ok"
+    if isinstance(entry, str):
+        return entry, "ok"
+    return "", "清单里没有这个产品"
 
 
 def _delete_on_reboot(path):
@@ -450,6 +582,7 @@ FLAGS = {
     "--install": do_install,
     "--uninstall": do_uninstall,
     "--install-status": do_status,
+    "--check-update": do_check_update,
 }
 
 
@@ -458,7 +591,7 @@ def consume_flags(argv, spec):
 
     只认第一个命中的开关：`--install --uninstall` 一起传是没想清楚，别猜。
     """
-    for f in ("--install", "--uninstall", "--install-status"):
+    for f in ("--install", "--uninstall", "--install-status", "--check-update"):
         if f in argv:
             return FLAGS[f](spec) or 0
     return None

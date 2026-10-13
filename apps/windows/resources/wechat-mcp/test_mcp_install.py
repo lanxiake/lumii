@@ -5,6 +5,7 @@
 """
 import json
 import os
+import pathlib
 import shutil
 import subprocess
 import sys
@@ -190,6 +191,121 @@ def test_consume_flags_routing():
     print("ok consume_flags_routing")
 
 
+def test_version_compare():
+    """版本比较：段数不同、有非数字段、空值都不能炸，且**解析不了时判成"一样"**。"""
+    assert I.compare_versions("0.5.0", "0.4.0") == 1
+    assert I.compare_versions("0.4.0", "0.5.0") == -1
+    assert I.compare_versions("0.5.0", "0.5.0") == 0
+    assert I.compare_versions("0.5", "0.5.0") == 0, "段数不同要按补零比"
+    assert I.compare_versions("0.10.0", "0.9.9") == 1, "别按字符串比（'10' < '9'）"
+    assert I.compare_versions("", "") == 0
+    assert I.compare_versions("1.0.0-beta", "1.0.0") == 0, "非数字段当 0，宁可判成一样也别误报有新版"
+    print("ok version_compare")
+
+
+def test_installed_record_roundtrip_and_stale_detection():
+    """装了要登记版本；`--install-status` 靠它对账——**不去启动部署副本**（onefile 冷启动 1–3s）。"""
+    d = tempfile.mkdtemp(prefix="install_")
+    old_root, old_say, old_skills = I.data_root, I._say, I.skills_root
+    I.data_root = lambda: d
+    I.skills_root = lambda: os.path.join(d, "skills")      # **别碰真实的 ~/.claude/skills**
+    out = []
+    I._say = lambda *a, **k: out.append(" ".join(str(x) for x in a))
+    try:
+        spec = {"name": "wechat-file", "product": "wechat-file-mcp", "version": "0.5.0",
+                "label": "文件归档", "skill": "/nope"}
+        os.makedirs(I.install_dir("wechat-file-mcp"))
+        I._write_installed("wechat-file-mcp", spec, r"C:\fake\x.exe")
+        assert I._read_installed("wechat-file-mcp")["version"] == "0.5.0"
+
+        # 跑的是新版、装的是旧版 ⇒ 必须**报出来**（这正是"没人提醒你该升"的那个洞）
+        out.clear()
+        I.do_status({**spec, "version": "0.6.0"})
+        assert any("重跑 --install" in s for s in out), out
+
+        out.clear()                                  # 一致 ⇒ 不告警
+        I.do_status(spec)
+        assert any("与当前一致" in s for s in out), out
+        assert not any("重跑 --install" in s for s in out), out
+
+        # 技能包那一行必须按**技能 id**（= product）找目录，不是按服务名。
+        # 真机踩过：明明装了却报"没装"（和 skill_apply 同一个坑的第二处，别各写各的）。
+        os.makedirs(os.path.join(I.skills_root(), "wechat-file-mcp"), exist_ok=True)
+        out.clear()
+        I.do_status(spec)
+        skill_line = [s for s in out if "技能包" in s]
+        assert skill_line and "没装" not in skill_line[0], skill_line
+    finally:
+        I.data_root, I._say, I.skills_root = old_root, old_say, old_skills
+        shutil.rmtree(d, ignore_errors=True)
+    print("ok installed_record_roundtrip_and_stale_detection")
+
+
+def test_check_update_never_lies():
+    """联网检查**默认不发生**，且拿不到清单时**不谎报"已是最新"**。
+
+    为什么单独钉这条：这产品卖点是「本地处理、不外传」。自动联网会踩红线（所以只有
+    `--check-update` 才会发请求）；而把"拿不到"说成"已是最新"是更坏的失败——用户会安心地
+    停在旧版上。
+    """
+    src = open(I.__file__, encoding="utf-8").read()
+    # 只有 `--check-update` 这条路会取远端；`--install` / `--install-status` 里不许出现调用
+    assert "fetch_latest_version(" in src
+    for fn in ("def do_install", "def do_status"):
+        body = src.split(fn, 1)[1].split("\ndef ", 1)[0]
+        assert "fetch_latest_version" not in body, f"{fn} 里不该联网"
+
+    old = I.fetch_latest_version
+    I.fetch_latest_version = lambda product: ("", "URLError: 没网")
+    out, old_say = [], I._say
+    I._say = lambda *a, **k: out.append(" ".join(str(x) for x in a))
+    try:
+        I.do_check_update({"name": "wechat-file", "product": "wechat-file-mcp",
+                           "version": "0.5.0", "label": "文件归档"})
+        joined = " ".join(out)
+        assert "拿不到" in joined and "不代表是最新版" in joined, out
+        assert "已是最新" not in joined, out
+
+        out.clear()                                  # 拿到清单 → 正常比对
+        I.fetch_latest_version = lambda product: ("0.6.0", "ok")
+        I.do_check_update({"name": "wechat-file", "product": "wechat-file-mcp",
+                           "version": "0.5.0", "label": "文件归档"})
+        assert any("有新版" in s and "0.6.0" in s for s in out), out
+    finally:
+        I.fetch_latest_version, I._say = old, old_say
+    print("ok check_update_never_lies")
+
+
+def test_fetch_latest_version_parses_manifest():
+    """清单**解析**那一半（真机只验到了 404 那条失败路径）。
+
+    解析写错的话会**静默比错版本**：比如把产品名和版本号读反、或者清单里没有这个产品时当成
+    "版本是空的" → 空版本按 0 比 ⇒ 永远"已是最新"。所以"清单里没有这个产品"必须能区分出来。
+    """
+    d = tempfile.mkdtemp(prefix="install_")
+    p = os.path.join(d, "wechat-toolkits.json")
+    with open(p, "w", encoding="utf-8") as f:
+        json.dump({"wechat-file-mcp": {"version": "9.9.9", "asset": "x.exe"},
+                   "wechat-crm-mcp": "8.8.8"}, f)          # 也支持直接给版本串的简写
+    old = I.MANIFEST_URL
+    I.MANIFEST_URL = pathlib.Path(p).as_uri()
+    try:
+        v, why = I.fetch_latest_version("wechat-file-mcp")
+        assert (v, why) == ("9.9.9", "ok"), (v, why)
+        assert I.fetch_latest_version("wechat-crm-mcp")[0] == "8.8.8", "简写形态也要认"
+        v2, why2 = I.fetch_latest_version("wechat-recall-mcp")
+        assert v2 == "" and "没有这个产品" in why2, (v2, why2)
+        assert I.compare_versions(v2 or "0", "0.6.0") < 0, "读不到不能当成'一样新'"
+
+        os.remove(p)                                     # 清单不存在 = 拿不到，不是"没有这个产品"
+        v3, why3 = I.fetch_latest_version("wechat-file-mcp")
+        assert v3 == "" and why3, (v3, why3)
+    finally:
+        I.MANIFEST_URL = old
+        shutil.rmtree(d, ignore_errors=True)
+    print("ok fetch_latest_version_parses_manifest")
+
+
 def test_remove_failure_does_not_block_add():
     """「先摘再挂」里的**摘**是尽力而为：目标本来就不存在时 `remove` 会失败，
     但**绝不能因此跳过挂载**。
@@ -258,6 +374,10 @@ if __name__ == "__main__":
     test_clean_install_dir_removes_old_leftovers()
     test_subprocess_kwargs_are_python_not_node()
     test_consume_flags_routing()
+    test_version_compare()
+    test_installed_record_roundtrip_and_stale_detection()
+    test_check_update_never_lies()
+    test_fetch_latest_version_parses_manifest()
     test_remove_failure_does_not_block_add()
     test_skill_source_uses_skill_id_not_server_name()
     print("ALL PASS")

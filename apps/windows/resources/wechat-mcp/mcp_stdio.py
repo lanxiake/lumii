@@ -304,7 +304,8 @@ def serve(name, title, version, tools, instructions, dispatch, install=None):
         return 0
     if install:
         import mcp_install
-        rc = mcp_install.consume_flags(sys.argv[1:], install)
+        # 版本由这里注入（各产品的 `INSTALL_SPEC` 就不必自己抄一遍 SERVER_VERSION）
+        rc = mcp_install.consume_flags(sys.argv[1:], {**install, "version": version})
         if rc is not None:
             return rc                     # 装失败要以非零码退出，脚本里才拦得住
     # 下面这行之后就没人往 stdout 写业务输出了：协议流独占 stdout
