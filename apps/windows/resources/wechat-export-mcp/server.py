@@ -26,7 +26,7 @@ import exportcore as E        # noqa: E402
 import mcp_stdio              # noqa: E402
 
 SERVER_NAME = "wechat-export"
-SERVER_VERSION = "0.8.0"
+SERVER_VERSION = "0.9.0"
 TITLE = "微信记录导出"
 
 # 合法值只有一份来源（exportcore），工具 schema 与校验都读它——别在这里再抄一遍

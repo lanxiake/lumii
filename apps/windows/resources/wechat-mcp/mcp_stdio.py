@@ -324,9 +324,14 @@ def serve(name, title, version, tools, instructions, dispatch, install=None):
     if install:
         import mcp_install
         # 版本由这里注入（各产品的 `INSTALL_SPEC` 就不必自己抄一遍 SERVER_VERSION）
-        rc = mcp_install.consume_flags(sys.argv[1:], {**install, "version": version})
+        spec = {**install, "version": version}
+        rc = mcp_install.consume_flags(sys.argv[1:], spec)
         if rc is not None:
             return rc                     # 装失败要以非零码退出，脚本里才拦得住
+        # 没给任何开关，而 stdin 是**终端** ⇒ 用户是双击（或在终端里直接敲）来的，
+        # 面对的是一个人，不是 MCP 客户端。给他走安装向导，别让黑窗口干挂着。
+        if mcp_install.is_interactive():
+            return mcp_install.interactive(spec)
     # 下面这行之后就没人往 stdout 写业务输出了：协议流独占 stdout
     # 门禁只对**四件套**开（它们带着 `install` 规格）——主产品 wechat-mcp 有自己的分派与档位，
     # 不经过这里，别去替它做主。

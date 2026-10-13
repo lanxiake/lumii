@@ -178,6 +178,178 @@ def test_all_client_paths_under_home_or_appdata():
     print("ok all_client_paths_under_home_or_appdata")
 
 
+def test_is_interactive_rejects_nul_stdin():
+    """**双击 ⇒ 向导；客户端 ⇒ 服务器**，而判据不能是 `isatty()`。
+
+    踩过：Windows 上 `NUL` 是**字符设备**，`sys.stdin.isatty()` 对它返回**真**。客户端若拿
+    `NUL` 当 stdin 拉起服务器，服务器就会被弹成一个**安装向导**——然后 stdio 传输彻底堵死
+    （服务器在等回车，客户端在等 JSON）。
+    真正的判据是 `GetConsoleMode`。这条用**真子进程 + stdin=NUL** 把它钉死，并顺带钉住
+    "只靠 isatty 会误判"这个前提（前提没了这条测试也就没意义了）。
+    """
+    probe = ("import sys;sys.path.insert(0, %r);import mcp_install as I;"
+             "print(I.is_interactive())") % os.path.dirname(os.path.abspath(I.__file__))
+    with open(os.devnull, "rb") as nul:
+        r = subprocess.run([sys.executable, "-c", probe], stdin=nul,
+                           capture_output=True, timeout=120, **I._quiet_kwargs())
+    assert r.stdout.strip() == b"False", f"stdin=NUL 时必须是'客户端'：{r.stdout!r} {r.stderr!r}"
+
+    with open(os.devnull, "rb") as nul:                     # 前提：isatty 单独用会误判
+        r2 = subprocess.run([sys.executable, "-c", "import sys;print(sys.stdin.isatty())"],
+                            stdin=nul, capture_output=True, timeout=120, **I._quiet_kwargs())
+    if os.name == "nt":
+        assert r2.stdout.strip() == b"True", \
+            "前提变了（本机 NUL 不再让 isatty 为真）——那这条测试的动机要重写"
+
+    # 测试进程自己：stdin 不是控制台 ⇒ 当客户端
+    assert I.is_interactive() is False, "非控制台 stdin 一律当客户端（安全侧）"
+    print("ok is_interactive_rejects_nul_stdin")
+
+
+def _once(*answers):
+    """按顺序喂答案，喂完就一直给空串（= 回车确认）。
+
+    ⚠️ **不能用固定返回**：`lambda p: "2"` 会每轮都把第 2 项切换一次，来回切、**永不退出**。
+    菜单的退出条件是"用户不再输入"，所以测试必须模拟"输一次然后回车"。
+    """
+    box = list(answers)
+    return lambda p: box.pop(0) if box else ""
+
+
+def test_choose_clients_menu():
+    """勾选客户端：回车 = 默认全勾（已装的），输入序号切换，没装的点不动。"""
+    out, old_say = [], I._say
+    I._say = lambda *a, **k: out.append(" ".join(str(x) for x in a))
+    cs = [{"key": "a", "label": "A", "detected": True},
+          {"key": "b", "label": "B", "detected": True},
+          {"key": "c", "label": "C", "detected": False}]
+    try:
+        assert I._choose_clients(cs, ask_raw=_once()) == {"a", "b"}, "回车 = 已装的全勾"
+        assert I._choose_clients(cs, ask_raw=_once("2")) == {"a"}, "输入 2 = 切掉 B"
+        assert I._choose_clients(cs, ask_raw=_once("3,1")) == {"b"}, "逗号分隔；其中 3 没装、忽略"
+        assert I._choose_clients(cs, ask_raw=_once("1 2")) == set(), "两个都切掉"
+        assert I._choose_clients(cs, ask_raw=_once("3")) == {"a", "b"}, "没装的点了不生效"
+        assert any("没装" in s for s in out), "该说明为什么点它没反应"
+        assert I._choose_clients(cs, ask_raw=_once("99 乱写")) == {"a", "b"}, "越界/乱输入忽略"
+        assert I._choose_clients(cs, ask_raw=lambda p: None) == {"a", "b"}, "EOF 当回车，不卡住"
+    finally:
+        I._say = old_say
+    print("ok choose_clients_menu")
+
+
+def test_interactive_wizard():
+    """双击向导：**勾选客户端** → 确认才动手 → 拒绝就一个字节不改 → 常驻产品顺带问自启。"""
+    d = tempfile.mkdtemp(prefix="install_")
+    calls, ran = [], []
+    old = (I.do_install, I._say, I._pause, I._own_command, I.subprocess.run, I.install_dir,
+           I.clients)
+    I._say = lambda *a, **k: None
+    I._pause = lambda: calls.append("pause")
+    I.do_install = lambda spec, only=None: (calls.append(("install", only)), 0)[1]
+    I.install_dir = lambda p: os.path.join(d, p)
+    I.clients = lambda: [{"key": "a", "label": "A", "kind": "json", "path": "p", "detected": True},
+                         {"key": "b", "label": "B", "kind": "json", "path": "p", "detected": False}]
+
+    class R:
+        returncode = 0
+        stderr = b""
+
+    I._own_command = lambda: ("EXE", [])
+    I.subprocess.run = lambda cmd, **k: (ran.append(cmd), R())[1]
+    spec = {"name": "wechat-file", "product": "wechat-file-mcp", "version": "1.0", "label": "X"}
+    try:
+        # 在菜单里切掉 A（唯一装了的）→ 于是谁都不注册
+        assert I.interactive(spec, ask=lambda p: True, ask_raw=_once("1")) == 0
+        assert calls == [("install", set()), "pause"], f"勾选结果要原样传给 do_install：{calls}"
+
+        # 拒绝确认 ⇒ 连装都不该跑
+        calls.clear()
+        assert I.interactive(spec, ask=lambda p: False, ask_raw=_once()) == 0
+        assert calls == ["pause"], f"拒绝了就什么都不该做：{calls}"
+
+        # 回车走默认（勾上已装的 A）
+        calls.clear()
+        assert I.interactive(spec, ask=lambda p: True, ask_raw=_once()) == 0
+        assert calls == [("install", {"a"}), "pause"], calls
+        assert not ran, "没声明 daemon_install 的产品不该去碰自启"
+
+        # 带常驻的产品：装完会问一句，同意就调自启
+        calls.clear(), ran.clear()
+        I.interactive({**spec, "daemon_install": "--install-autostart"},
+                      ask=lambda p: True, ask_raw=_once())
+        assert ran and ran[0][-1] == "--install-autostart", f"该顺带装常驻：{ran}"
+
+        # 一个客户端都没检测到 ⇒ 只部署，不注册，且不该卡在菜单上
+        calls.clear()
+        I.clients = lambda: [{"key": "a", "label": "A", "kind": "json",
+                              "path": "p", "detected": False}]
+        assert I.interactive(spec, ask=lambda p: True, ask_raw=_once()) == 0
+        assert calls == [("install", set()), "pause"], calls
+    finally:
+        (I.do_install, I._say, I._pause, I._own_command, I.subprocess.run, I.install_dir,
+         I.clients) = old
+        shutil.rmtree(d, ignore_errors=True)
+    print("ok interactive_wizard")
+
+
+def test_ask_and_pause_never_hang():
+    """问句与暂停在 EOF/异常下**不能卡住**——那是个没人看得到的窗口，卡住就是僵死进程。"""
+    out, old_say = [], I._say
+    I._say = lambda *a, **k: out.append(" ".join(str(x) for x in a))
+    old_input = I.input if hasattr(I, "input") else None
+    import builtins
+    real_input = builtins.input
+    try:
+        for boom in (EOFError(), KeyboardInterrupt()):
+            def raiser(*a, **k):
+                raise boom
+            builtins.input = raiser
+            assert I._ask("继续？") is True, "读不到输入 ⇒ 按默认（是）"
+            assert I._ask("继续？", default_yes=False) is False
+            I._pause()                                   # 只要求"不抛、不卡"
+
+        builtins.input = lambda *a, **k: ""              # 直接回车 ⇒ 取默认
+        assert I._ask("继续？") is True
+        assert I._ask("继续？", default_yes=False) is False
+        builtins.input = lambda *a, **k: "n"
+        assert I._ask("继续？") is False
+    finally:
+        builtins.input = real_input
+        I._say = old_say
+    print("ok ask_and_pause_never_hang")
+
+
+def test_say_never_crashes_on_encoding():
+    """stdout 编不出某个字符时，`_say` 必须**降级**而不是抛。
+
+    真机撞见过：控制台是 GBK 时 `✓` 会 `UnicodeEncodeError`——而向导已经走到一半
+    （exe 拷完了、客户端还没注册）。装到一半崩掉比装不上更糟。
+    """
+    class GBKOut:
+        encoding = "gbk"
+
+        def __init__(self):
+            self.buf = []
+
+        def write(self, s):
+            s.encode("gbk")                     # 模仿真 stdout：编不出来就抛
+            self.buf.append(s)
+
+        def flush(self):
+            pass
+
+    old = sys.stdout
+    sys.stdout = GBKOut()
+    try:
+        I._say("勾选 [✓] 完成")                  # 不该抛
+        assert sys.stdout.buf, "降级之后仍然要把话说出来（别静默吞掉）"
+        assert "?" in "".join(sys.stdout.buf), sys.stdout.buf
+        I._say("纯中文没问题")                    # 能编的照常
+    finally:
+        sys.stdout = old
+    print("ok say_never_crashes_on_encoding")
+
+
 def test_codex_appends_isolated_section():
     """`[mcp_servers.x]` 整段删除：**含它的子表**，且不碰紧邻的下一段。"""
     text = ('a = 1\n\n[mcp_servers.x]\ncommand = "c"\n\n[mcp_servers.x.args]\nk = 1\n\n'
@@ -298,10 +470,14 @@ def test_installed_record_roundtrip_and_stale_detection():
     """装了要登记版本；`--install-status` 靠它对账——**不去启动部署副本**（onefile 冷启动 1–3s）。"""
     d = tempfile.mkdtemp(prefix="install_")
     old_root, old_say, old_skills, old_codex = I.data_root, I._say, I.skill_targets, I.CODEX_CONFIG
+    old_clients = I.clients
     I.data_root = lambda: d
-    # **别碰真实的 ~/.claude/skills 与 ~/.codex/config.toml**
+    # **别碰真实的 ~/.claude/skills 与 ~/.codex/config.toml**；
+    # `clients()` 也打桩——否则 `do_status` 会去 spawn 真的 `claude mcp get`（慢且碰真实配置）
     I.skill_targets = lambda: [("Claude Code", os.path.join(d, "skills"))]
     I.CODEX_CONFIG = (d, "codex-config.toml")
+    I.clients = lambda: [{"key": "claude-code", "label": "Claude Code", "kind": "claude_code",
+                          "path": None, "detected": False}]
     out = []
     I._say = lambda *a, **k: out.append(" ".join(str(x) for x in a))
     try:
@@ -329,7 +505,8 @@ def test_installed_record_roundtrip_and_stale_detection():
         skill_line = [s for s in out if "技能包" in s]
         assert skill_line and "没装" not in skill_line[0], skill_line
     finally:
-        I.data_root, I._say, I.skill_targets, I.CODEX_CONFIG = old_root, old_say, old_skills, old_codex
+        (I.data_root, I._say, I.skill_targets, I.CODEX_CONFIG, I.clients) = (
+            old_root, old_say, old_skills, old_codex, old_clients)
         shutil.rmtree(d, ignore_errors=True)
     print("ok installed_record_roundtrip_and_stale_detection")
 
@@ -470,6 +647,11 @@ if __name__ == "__main__":
     test_skill_apply_roundtrip()
     test_codex_toml_roundtrip()
     test_all_client_paths_under_home_or_appdata()
+    test_is_interactive_rejects_nul_stdin()
+    test_choose_clients_menu()
+    test_interactive_wizard()
+    test_ask_and_pause_never_hang()
+    test_say_never_crashes_on_encoding()
     test_codex_appends_isolated_section()
     test_deploy_self_source_mode()
     test_prune_old()

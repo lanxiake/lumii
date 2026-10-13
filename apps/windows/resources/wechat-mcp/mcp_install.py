@@ -24,6 +24,7 @@
 `claude mcp add/remove -s user` 就是干这个的、并且自己知道怎么加锁。**有 CLI 就用 CLI。**
 """
 import json
+import re
 import os
 import shutil
 import subprocess
@@ -50,8 +51,19 @@ JSON_CLIENTS = (
 
 
 def _say(*a):
-    """安装动作是**命令行**行为，直接写 stdout（此时协议循环还没接管 stdout）。"""
-    print(*a, flush=True)
+    """安装动作是**命令行**行为，直接写 stdout（此时协议循环还没接管 stdout）。
+
+    **写不出去也不能崩**：控制台代码页不是 UTF-8 时（中文 Windows 很常见），一个 `✓` 就够
+    让向导抛 `UnicodeEncodeError`——而那是**装到一半的现场**（exe 拷了、客户端还没注册）。
+    真机上就是这么撞见的；所以这里降级成可编码的近似字符，把流程走完。
+    （正常双击路径上 `serve()` 已先 `force_utf8_stdio()`，走到这儿基本不会降级。）
+    """
+    line = " ".join(str(x) for x in a)
+    try:
+        print(line, flush=True)
+    except UnicodeEncodeError:
+        enc = getattr(sys.stdout, "encoding", None) or "ascii"
+        print(line.encode(enc, "replace").decode(enc, "replace"), flush=True)
 
 
 def data_root():
@@ -482,7 +494,78 @@ def _footer(seen):
     return bad
 
 
-def do_install(spec):
+def clients():
+    """本机**可能注册的客户端**及其装没装 → `[{key,label,kind,path,detected}]`。
+
+    判据是"那个客户端自己的东西在不在"（CLI 在不在 PATH / 配置文件在不在），**不是**
+    "我们上次装过没"。所以这份清单随机器变，向导据此只列真正能动的那些。
+
+    `kind` 决定怎么读写：`claude_code`（走它的 CLI）/ `json`（合并 JSON）/ `toml`（Codex）。
+    三家的纪律完全不同，但**对调用方长得一样**——所以三个动作（装/卸/看状态）都只遍历这一份。
+    """
+    out = []
+    cli = claude_cli()
+    out.append({"key": "claude-code", "label": "Claude Code", "kind": "claude_code",
+                "path": cli, "detected": bool(cli)})
+    for label, parts in JSON_CLIENTS:
+        p = _client_path(parts)
+        out.append({"key": label.lower().replace(" ", "-"), "label": label, "kind": "json",
+                    "path": p, "detected": bool(p and os.path.isfile(p))})
+    cp = _client_path(CODEX_CONFIG)
+    out.append({"key": "codex", "label": "Codex", "kind": "toml",
+                "path": cp, "detected": bool(cp and os.path.isfile(cp))})
+    return out
+
+
+def register_client(c, name, entry):
+    """按 `kind` 分派注册 → `(状态, 说明)`。
+
+    Claude Code 那条**先摘再挂**（幂等）；而**摘是尽力而为**——目标本来就不存在时
+    `claude mcp remove` 会失败，那时**照样得挂**。真机实测就漏在这儿：卸载过之后再装，
+    remove 报 "No MCP server named …"，拿它的结果当闸门的话 add 永远不跑，
+    而用户看着"安装"跑完了以为装上了。
+    """
+    if c["kind"] == "claude_code":
+        claude_code_apply(name)
+        return claude_code_apply(name, entry["command"])
+    if c["kind"] == "toml":
+        return codex_apply(name, entry)
+    return json_client_apply(c["label"], c["path"], name, entry)
+
+
+def unregister_client(c, name):
+    if c["kind"] == "claude_code":
+        return claude_code_apply(name)                 # command=None ⇒ 摘
+    if c["kind"] == "toml":
+        return codex_apply(name, None)
+    return json_client_apply(c["label"], c["path"], name, None)
+
+
+def _registered_line(c, name):
+    """看状态用：这个客户端里我们那一条在不在。"""
+    if c["kind"] == "claude_code":
+        r, err = _run([claude_cli(), "mcp", "get", name], 60) if claude_cli() else (None, "没装")
+        if r is None:
+            return "fail", err
+        out = (r.stdout or b"").decode("utf-8", "replace").strip().splitlines()
+        return ("ok" if r.returncode == 0 else "skip"), (out[0][:90] if out else "未注册")
+    if c["kind"] == "toml":
+        try:
+            with open(c["path"], encoding="utf-8") as f:
+                txt = f.read()
+        except OSError as e:
+            return "fail", f"配置读不出来：{e}"
+        has = f"[mcp_servers.{name}]" in txt
+        return ("ok" if has else "skip"), (c["path"] if has else "未注册")
+    try:
+        servers = (_read_cfg(c["path"]).get("mcpServers") or {})
+    except Exception as e:                                     # noqa: BLE001
+        return "fail", f"配置读不出来：{e}"
+    got = servers.get(name)
+    return ("ok" if got else "skip"), (str(got.get("command", "")) if got else "未注册")
+
+
+def do_install(spec, only=None):
     name, product = spec["name"], spec["product"]
     _say(f"\n安装 {spec.get('label') or name}（{name}）")
     seen = []
@@ -501,16 +584,14 @@ def do_install(spec):
         seen.append(_line("部署", "skip", how))
         exe, _args = _own_command()
 
-    # 幂等靠「先摘再挂」，但**摘是尽力而为**：目标本来就不存在时 `claude mcp remove` 会失败，
-    # 那时**照样得挂**。真机实测就是这么漏装了一个——卸载过之后再装，remove 报
-    # "No MCP server named …"，如果拿它的结果当闸门，add 就永远不跑，而用户以为装上了。
-    claude_code_apply(name)
-    seen.append(_line("Claude Code", *claude_code_apply(name, exe)))
-
     entry = {"type": "stdio", "command": exe, "args": [], "env": {}}
-    for label, parts in JSON_CLIENTS:
-        seen.append(_line(label, *json_client_apply(label, _client_path(parts), name, entry)))
-    seen.append(_line("Codex", *codex_apply(name, entry)))
+    for c in clients():
+        if not c["detected"]:
+            seen.append(_line(c["label"], "skip", "未安装（不去给没装的客户端造配置）"))
+        elif only is not None and c["key"] not in only:
+            seen.append(_line(c["label"], "skip", "按你的选择跳过"))
+        else:
+            seen.append(_line(c["label"], *register_client(c, name, entry)))
 
     for label, st, detail in skill_apply(spec):
         seen.append(_line(f"技能包·{label}", st, detail))
@@ -538,11 +619,12 @@ def do_uninstall(spec):
     _say(f"\n卸载 {spec.get('label') or name}（{name}）")
     seen = []
 
-    seen.append(_line("Claude Code", *claude_code_apply(name)))
-
-    for label, parts in JSON_CLIENTS:
-        seen.append(_line(label, *json_client_apply(label, _client_path(parts), name, None)))
-    seen.append(_line("Codex", *codex_apply(name, None)))
+    # 卸载**不问**要摘哪些：装的时候能挑，是因为那是加法；摘干净是减法，留一半更糟
+    for c in clients():
+        if not c["detected"]:
+            seen.append(_line(c["label"], "skip", "未安装"))
+        else:
+            seen.append(_line(c["label"], *unregister_client(c, name)))
 
     for label, st, detail in skill_apply(spec, remove=True):
         seen.append(_line(f"技能包·{label}", st, detail))
@@ -601,46 +683,11 @@ def do_status(spec):
     else:
         _line("版本", "ok", f"v{got}（与当前一致）")
 
-    exe = claude_cli()
-    if exe:
-        r, err = _run([exe, "mcp", "get", name], 60)
-        if r is None:
-            _line("Claude Code", "fail", err)
-        else:
-            out = (r.stdout or b"").decode("utf-8", "replace").strip().splitlines()
-            _line("Claude Code", "ok" if r.returncode == 0 else "skip",
-                  out[0][:100] if out else f"未注册（退出码 {r.returncode}）")
-    else:
-        _line("Claude Code", "skip", "没装 claude CLI")
-
-    for label, parts in JSON_CLIENTS:
-        path = _client_path(parts)
-        if not path or not os.path.isfile(path):
-            _line(label, "skip", "未安装")
+    for c in clients():
+        if not c["detected"]:
+            _line(c["label"], "skip", f"未安装（{c['path'] or '找不到'}）")
             continue
-        try:
-            servers = (_read_cfg(path).get("mcpServers") or {})
-        except Exception as e:                                 # noqa: BLE001
-            _line(label, "fail", f"配置读不出来：{e}")
-            continue
-        entry = servers.get(name)
-        _line(label, "ok" if entry else "skip",
-              (entry or {}).get("command", "未注册") if entry else "未注册")
-
-    # Codex（TOML 那家）：读它的配置看有没有我们那一段
-    cpath = _client_path(CODEX_CONFIG)
-    if not cpath or not os.path.isfile(cpath):
-        _line("Codex", "skip", "未安装")
-    else:
-        try:
-            with open(cpath, encoding="utf-8") as f:
-                txt = f.read()
-        except OSError as e:
-            _line("Codex", "fail", f"配置读不出来：{e}")
-            txt = ""
-        if txt:
-            has = f"[mcp_servers.{name}]" in txt
-            _line("Codex", "ok" if has else "skip", cpath if has else "未注册")
+        _line(c["label"], *_registered_line(c, name))
 
     # 技能包按**技能 id**（= product）找目录，不是按服务名。跟 skill_apply 用同一份判断，
     # 别各写各的（写错过一次：明明装了却报"没装"）。
@@ -652,6 +699,153 @@ def do_status(spec):
         _line(f"技能包·{label}", "ok" if os.path.isdir(dst_skill) else "skip",
               dst_skill if os.path.isdir(dst_skill) else "没装")
     return 0
+
+
+def is_interactive():
+    """**双击 exe**（或在终端里直接敲它）⇒ True；被 MCP 客户端拉起 ⇒ False。
+
+    ⚠️ **不能只用 `sys.stdin.isatty()`**：Windows 上 `NUL` 是**字符设备**，`isatty()` 对它
+    返回**真**（实测）。客户端若拿 `NUL` 当 stdin 拉起服务器，服务器就会被弹成一个安装向导、
+    再也不干活。真正的判据是 **`GetConsoleMode`** —— 它只对**真正的控制台**返回成功：
+
+        新控制台（双击）  isatty=True   GetConsoleMode=True
+        stdin=NUL         isatty=True   GetConsoleMode=False   ← 只有它分得出来
+        真管道（客户端）   isatty=False  GetConsoleMode=False
+
+    判不出来一律当**客户端**（安全侧）：宁可双击时显得没反应（用户会再点一次或看文档），
+    也不能让服务器在客户端里弹向导——那会把 stdio 传输直接堵死。
+    """
+    if os.name == "nt":
+        try:
+            import ctypes
+            k32 = ctypes.windll.kernel32
+            k32.GetConsoleMode.argtypes = (ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32))
+            mode = ctypes.c_uint32(0)
+            h = k32.GetStdHandle(-10)                          # STD_INPUT_HANDLE
+            return bool(k32.GetConsoleMode(ctypes.c_void_p(h), ctypes.byref(mode)))
+        except Exception:                                      # noqa: BLE001
+            return False
+    try:
+        return bool(sys.stdin.isatty())
+    except Exception:                                          # noqa: BLE001
+        return False
+
+
+def _ask_raw(prompt):
+    """读一行**原文**（不是是/否）。EOF / Ctrl-C 返回 `None`——调用方按默认处理，别卡住。"""
+    try:
+        return input(prompt)
+    except (EOFError, KeyboardInterrupt):
+        _say("")
+        return None
+
+
+def _ask(prompt, default_yes=True):
+    """问一句 → 是否同意。回车走默认；EOF/Ctrl-C/看不懂的输入都按默认处理（别卡住）。"""
+    tail = "[回车=是 / n=否]" if default_yes else "[y=是 / 回车=否]"
+    ans = _ask_raw(f"{prompt} {tail} ")
+    if ans is None or not ans.strip():
+        return default_yes
+    return ans.strip().lower() in ("y", "yes", "是")
+
+
+def _choose_clients(cs, ask_raw=_ask_raw):
+    """勾选要注册到哪些客户端 → 选中的 key 集合。
+
+    交互：输入序号**切换**那一项（`2 3` 同时切两个），**直接回车 = 就用当前勾选**。
+    默认把检测到的全勾上；没装的显示「（未安装）」且点了不生效——别让人选一个我们根本
+    找不到的东西。
+    """
+    chosen = {c["key"] for c in cs if c["detected"]}
+    while True:
+        _say("")
+        _say("检测到你装了这些 AI 客户端，要注册到哪些？")
+        for i, c in enumerate(cs, 1):
+            box = "[✓]" if c["key"] in chosen else "[ ]"
+            _say(f"  {i}. {box} {c['label']}" + ("" if c["detected"] else "   （未安装）"))
+        raw = ask_raw("  输入序号切换（空格/逗号分开），直接回车 = 就这些：")
+        if raw is None or not str(raw).strip():
+            return chosen
+        for tok in re.split(r"[\s,，]+", str(raw).strip()):
+            if not tok.isdigit() or not 1 <= int(tok) <= len(cs):
+                continue
+            c = cs[int(tok) - 1]
+            if not c["detected"]:
+                _say(f"     {c['label']} 没装，跳过")
+            elif c["key"] in chosen:
+                chosen.discard(c["key"])
+            else:
+                chosen.add(c["key"])
+        if not chosen:
+            _say("     （一个都没勾：那就只部署 exe，不注册到任何客户端）")
+
+
+def _pause():
+    """**别让窗口一装完就消失**——用户双击来的，输出还没看就没了等于没装。"""
+    try:
+        input("\n按回车关闭这个窗口…")
+    except (EOFError, KeyboardInterrupt):
+        pass
+
+
+def interactive(spec, ask=_ask, ask_raw=_ask_raw):
+    """双击时走的路：说清楚这是什么 → **勾选客户端** → 一键装 → 该常驻的顺带装上。
+
+    `ask` / `ask_raw` 可注入（测试用），默认走真 `input()`。
+    """
+    label = spec.get("label") or spec["product"]
+    _say("=" * 62)
+    _say(f"  {label} v{spec.get('version') or ''}")
+    _say("=" * 62)
+    _say("这是给 AI 客户端用的插件（MCP 服务器）——不是双击就能自己干活的程序。")
+    _say("双击我可以一键装好，之后在 Claude Code / Cursor / Codex 里直接用。")
+    _say("")
+    _say("接下来会做三件事：")
+    _say(f"  1. 把这个 exe 复制到稳定目录 {install_dir(spec['product'])}")
+    _say("     （这样你以后清理「下载」文件夹，也不会把注册好的路径弄断）")
+    _say("  2. 注册到你指定的 AI 客户端（只加我们这一条，改前备份，不动你的其它配置）")
+    _say("  3. 把技能包放到对应客户端的技能目录")
+    _say("")
+    _say("想撤随时可以：跑 `<本 exe> --uninstall`。")
+
+    prev = _read_installed(spec["product"]).get("version") or ""
+    if prev:
+        _say(f"\n（检测到已经装过 v{prev}，这一步会直接覆盖升级。）")
+
+    cs = clients()
+    if any(c["detected"] for c in cs):
+        only = _choose_clients(cs, ask_raw)
+    else:
+        only = set()
+        _say("\n（一个 AI 客户端都没检测到——那就只部署 exe；之后可以跑 `--install` 再来一次。）")
+
+    if not ask("\n现在开始？"):
+        _say("\n好，什么都没做。想装的时候再双击一次（或跑 `--install`）。")
+        _pause()
+        return 0
+
+    rc = do_install(spec, only=only)
+
+    # 需要常驻的产品（撤回防护的守护）：不装它这个功能等于没有，所以顺口问一句
+    daemon_flag = spec.get("daemon_install")
+    if rc == 0 and daemon_flag:
+        _say("")
+        if ask(f"这个产品的「撤回防护」需要它**常驻后台**才有效（{daemon_flag}）。现在开开机自启？"):
+            cmd, args = _own_command()
+            try:
+                r = subprocess.run([cmd, *args, daemon_flag], capture_output=True, timeout=180,
+                                   **_quiet_kwargs())
+                ok = r.returncode == 0
+                _line("开机自启", "ok" if ok else "fail",
+                      "已开启（开机自动留在后台）" if ok
+                      else (r.stderr or b"").decode("utf-8", "replace").strip()[:120])
+            except Exception as e:                              # noqa: BLE001
+                _line("开机自启", "fail", str(e))
+        else:
+            _say("  跳过。想开的时候跑 `<本 exe> --install-autostart`。")
+
+    _pause()
+    return rc
 
 
 def do_license_status(spec):

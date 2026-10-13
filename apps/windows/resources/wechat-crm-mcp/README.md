@@ -13,6 +13,8 @@
 
 ### 一键装（推荐）
 
+**双击这个 exe 就行**——它会先讲清楚自己是什么，再一键装好（命令行跑 `--install` 效果一样）。
+
 ```powershell
 wechat-crm-mcp.exe --install
 ```
