@@ -36,11 +36,11 @@ import time
 # 而它由 `src/main/bundled-mcp-exe.ts` 的 `getDeployedMcpExePath()` 决定——沿用，别另开一处。
 DATA_DIRNAME = ".lumii"
 
-# 发布清单（`--check-update` 才会去取；**默认一次网络都不发**，见 do_check_update）。
-# 挂在 App 的 release 上（本仓库的 tag 约定是 `v<App版本>`，主产品 wechat-mcp.exe 就是那么发的），
-# 用 `latest/download/` 固定路径，省得客户端自己解析 tag。
-MANIFEST_URL = "https://github.com/lanxiake/lumii/releases/latest/download/wechat-toolkits.json"
-UPDATE_TIMEOUT_S = 6
+# 注：这里原本有个 `--check-update`（查远端有没有新版，走 GitHub release 上的清单）。
+# **2026-10-13 摘掉了**：本产品不做对外发布 ⇒ 没有发布通道 ⇒ 那个开关永远只能返回 404，
+# 是个"注定失败的按钮"（比没有这个功能更糟：后来的人会以为它坏了）。设计留档在
+# `docs/design/渠道与CLI/2026-10-12-微信小工具MCP四件套设计.md` §16，要恢复照着捞即可。
+# 本模块因此**一条网络请求都不发**——与产品红线「本地处理、不外传」一致。
 
 # 能安全合并的 JSON 客户端配置。**判据是文件在不在**，不是"这个客户端装没装"——
 # 有的客户端不装也有配置目录，有的装了配置在别的形状里（Codex 是 TOML，见文件头说明）。
@@ -872,53 +872,6 @@ def do_machine_id(_spec):
     return 0
 
 
-def do_check_update(spec):
-    """**显式**联网查最新版（`--check-update`）。
-
-    为什么必须由用户自己点：本产品的红线是「全部本地处理、**不外传**」（设计 §10）。自动联网
-    检查虽然不传用户数据，但那也是一次对外请求——跟卖点直接冲突。**默认一次网络都不发。**
-
-    拿不到就**如实说拿不到**，不谎报"已是最新"：清单还没发布、没网、被墙，这三种情况用户看到的
-    都该是"没法确认"，而不是一个让人安心但错误的结论。
-    """
-    name, product = spec["name"], spec["product"]
-    cur = spec.get("version") or ""
-    _say(f"\n检查更新：{spec.get('label') or name}（当前 v{cur}）")
-    latest, why = fetch_latest_version(product)
-    if not latest:
-        _line("远端", "skip", f"拿不到版本清单（{why}）——不代表是最新版")
-        return 0
-    cmp = compare_versions(latest, cur)
-    if cmp > 0:
-        _line("远端", "fail", f"有新版 **v{latest}**（当前 v{cur}）——用新版重跑 --install 即可")
-    elif cmp == 0:
-        _line("远端", "ok", f"v{latest}（已是最新）")
-    else:
-        _line("远端", "ok", f"远端 v{latest} —— 本地 v{cur} 更新（自编译版）")
-    return 0
-
-
-def fetch_latest_version(product):
-    """从发布清单取最新版 → `(版本号 | "", 说明)`。任何失败都返回 `("", 原因)`，**不抛**。"""
-    import urllib.request
-    url = MANIFEST_URL
-    if url.startswith(("http://", "https://")):
-        url += f"?t={int(time.time()) // 3600}"               # 按小时打散，别让 CDN 缓存挡住新版本
-        # （只对 http 加：加了之后 `file://` 会被当成文件名的一部分，测试就没法喂本地清单了）
-    try:
-        req = urllib.request.Request(url, headers={"User-Agent": "lumii-wechat-toolkit"})
-        with urllib.request.urlopen(req, timeout=UPDATE_TIMEOUT_S) as r:
-            data = json.loads(r.read().decode("utf-8"))
-    except Exception as e:                                     # noqa: BLE001
-        return "", f"{type(e).__name__}: {e}"[:90]
-    entry = (data or {}).get(product)
-    if isinstance(entry, dict):
-        return str(entry.get("version") or ""), "ok"
-    if isinstance(entry, str):
-        return entry, "ok"
-    return "", "清单里没有这个产品"
-
-
 def _delete_on_reboot(path):
     """安排**重启后删除**自己（运行中的 exe 删不掉）。
 
@@ -939,7 +892,6 @@ FLAGS = {
     "--install": do_install,
     "--uninstall": do_uninstall,
     "--install-status": do_status,
-    "--check-update": do_check_update,
     "--license-status": do_license_status,
     "--machine-id": do_machine_id,
 }
@@ -950,7 +902,7 @@ def consume_flags(argv, spec):
 
     只认第一个命中的开关：`--install --uninstall` 一起传是没想清楚，别猜。
     """
-    for f in ("--install", "--uninstall", "--install-status", "--check-update",
+    for f in ("--install", "--uninstall", "--install-status",
               "--license-status", "--machine-id"):
         if f in argv:
             return FLAGS[f](spec) or 0

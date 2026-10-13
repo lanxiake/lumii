@@ -5,7 +5,6 @@
 """
 import json
 import os
-import pathlib
 import shutil
 import subprocess
 import sys
@@ -511,69 +510,25 @@ def test_installed_record_roundtrip_and_stale_detection():
     print("ok installed_record_roundtrip_and_stale_detection")
 
 
-def test_check_update_never_lies():
-    """联网检查**默认不发生**，且拿不到清单时**不谎报"已是最新"**。
+# 注：这里原本有 `--check-update` 与发布清单解析两条测试。
+# 2026-10-13 把那半个联网功能摘掉了（本产品不做对外发布，没有发布通道 ⇒ 永远 404），
+# 测试随之删除。**本模块现在一条网络请求都不发**——与红线「本地处理、不外传」一致。
 
-    为什么单独钉这条：这产品卖点是「本地处理、不外传」。自动联网会踩红线（所以只有
-    `--check-update` 才会发请求）；而把"拿不到"说成"已是最新"是更坏的失败——用户会安心地
-    停在旧版上。
+
+def test_no_network_code_in_install_or_license():
+    """**结构性守卫**：安装与授权这条路上，一条网络请求都不许有。
+
+    产品红线是「本地处理、**不外传**」（设计 §10）。这里原本有个 `--check-update`（查远端有没有
+    新版），2026-10-13 因为**不做对外发布**摘掉了——没有发布通道 ⇒ 它永远只能返回 404，
+    是个"注定失败的按钮"。这条测试钉住"别再长回来一个偷偷联网的东西"：
+    联网代码一旦混进来，用户的机器码/会话内容就有被带出去的可能，而那是不可逆的。
     """
-    src = open(I.__file__, encoding="utf-8").read()
-    # 只有 `--check-update` 这条路会取远端；`--install` / `--install-status` 里不许出现调用
-    assert "fetch_latest_version(" in src
-    for fn in ("def do_install", "def do_status"):
-        body = src.split(fn, 1)[1].split("\ndef ", 1)[0]
-        assert "fetch_latest_version" not in body, f"{fn} 里不该联网"
-
-    old = I.fetch_latest_version
-    I.fetch_latest_version = lambda product: ("", "URLError: 没网")
-    out, old_say = [], I._say
-    I._say = lambda *a, **k: out.append(" ".join(str(x) for x in a))
-    try:
-        I.do_check_update({"name": "wechat-file", "product": "wechat-file-mcp",
-                           "version": "0.5.0", "label": "文件归档"})
-        joined = " ".join(out)
-        assert "拿不到" in joined and "不代表是最新版" in joined, out
-        assert "已是最新" not in joined, out
-
-        out.clear()                                  # 拿到清单 → 正常比对
-        I.fetch_latest_version = lambda product: ("0.6.0", "ok")
-        I.do_check_update({"name": "wechat-file", "product": "wechat-file-mcp",
-                           "version": "0.5.0", "label": "文件归档"})
-        assert any("有新版" in s and "0.6.0" in s for s in out), out
-    finally:
-        I.fetch_latest_version, I._say = old, old_say
-    print("ok check_update_never_lies")
-
-
-def test_fetch_latest_version_parses_manifest():
-    """清单**解析**那一半（真机只验到了 404 那条失败路径）。
-
-    解析写错的话会**静默比错版本**：比如把产品名和版本号读反、或者清单里没有这个产品时当成
-    "版本是空的" → 空版本按 0 比 ⇒ 永远"已是最新"。所以"清单里没有这个产品"必须能区分出来。
-    """
-    d = tempfile.mkdtemp(prefix="install_")
-    p = os.path.join(d, "wechat-toolkits.json")
-    with open(p, "w", encoding="utf-8") as f:
-        json.dump({"wechat-file-mcp": {"version": "9.9.9", "asset": "x.exe"},
-                   "wechat-crm-mcp": "8.8.8"}, f)          # 也支持直接给版本串的简写
-    old = I.MANIFEST_URL
-    I.MANIFEST_URL = pathlib.Path(p).as_uri()
-    try:
-        v, why = I.fetch_latest_version("wechat-file-mcp")
-        assert (v, why) == ("9.9.9", "ok"), (v, why)
-        assert I.fetch_latest_version("wechat-crm-mcp")[0] == "8.8.8", "简写形态也要认"
-        v2, why2 = I.fetch_latest_version("wechat-recall-mcp")
-        assert v2 == "" and "没有这个产品" in why2, (v2, why2)
-        assert I.compare_versions(v2 or "0", "0.6.0") < 0, "读不到不能当成'一样新'"
-
-        os.remove(p)                                     # 清单不存在 = 拿不到，不是"没有这个产品"
-        v3, why3 = I.fetch_latest_version("wechat-file-mcp")
-        assert v3 == "" and why3, (v3, why3)
-    finally:
-        I.MANIFEST_URL = old
-        shutil.rmtree(d, ignore_errors=True)
-    print("ok fetch_latest_version_parses_manifest")
+    here = os.path.dirname(os.path.abspath(I.__file__))
+    for mod in ("mcp_install.py", "mcp_license.py"):
+        src = open(os.path.join(here, mod), encoding="utf-8").read()
+        for bad in ("urllib", "urlopen", "requests.", "socket.", "http://", "https://"):
+            assert bad not in src, f"{mod} 里出现了网络代码「{bad}」——与「不外传」冲突"
+    print("ok no_network_code_in_install_or_license")
 
 
 def test_remove_failure_does_not_block_add():
@@ -660,8 +615,7 @@ if __name__ == "__main__":
     test_consume_flags_routing()
     test_version_compare()
     test_installed_record_roundtrip_and_stale_detection()
-    test_check_update_never_lies()
-    test_fetch_latest_version_parses_manifest()
+    test_no_network_code_in_install_or_license()
     test_remove_failure_does_not_block_add()
     test_skill_source_uses_skill_id_not_server_name()
     print("ALL PASS")
