@@ -124,6 +124,10 @@ jobs:
       # mcp_stdio（四件套共用的协议层）：握手/协议版协商、工具错误码、isError、通知不回帧。
       # 协议循环原先在四个 server.py 里各一份，已踩过两次「手搓对不上 SDK」——收敛后这是唯一的哨位。
       - run: python apps/windows/resources/wechat-mcp/test_mcp_stdio.py
+      # mcp_install（四件套共用的一键安装）：写别人配置文件的三条纪律（读不懂就不动、
+      # 只增删自己的键、别人的内容一个字节不碰）+ 部署/技能包往返。全在临时目录里跑，
+      # **不碰任何真实客户端配置**——所以 CI 上也能真跑。
+      - run: python apps/windows/resources/wechat-mcp/test_mcp_install.py
       # wechat-file-mcp（文件归档，独立小工具）：纯函数单测（解析/磁盘映射/归档路径）
       # + 真机只读冒烟（CI 无微信库时自己跳过，不会假绿）。
       - run: python apps/windows/resources/wechat-file-mcp/test_filecore.py

@@ -91,6 +91,9 @@ function build(uv, env) {
       '--workpath', path.join(workDir, 'build'),
       '--specpath', workDir,
       '--paths', entryDir, '--paths', sharedDir,
+      // 技能包打进 exe：单文件产品不该要求「技能包得跟 exe 放一起」。`--install` 时从
+      // `sys._MEIPASS/skills/<name>/` 拷进客户端技能目录（见 mcp_install.skill_source）。
+      '--add-data', `${path.join(SRC_DIR, 'skills')}${path.delimiter}skills`,
       path.join(entryDir, 'server.py'),
     ]
     log('--- 构建（uv + PyInstaller，首次需下载依赖）---')

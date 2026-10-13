@@ -291,12 +291,22 @@ class StdioServer:
                 log(self.name, "internal error", repr(e))
 
 
-def serve(name, title, version, tools, instructions, dispatch):
-    """跑起来。`--version` 直接打印版本退出（构建脚本的冒烟靠它）。"""
+def serve(name, title, version, tools, instructions, dispatch, install=None):
+    """跑起来。`--version` 直接打印版本退出（构建脚本的冒烟靠它）。
+
+    `install`：本产品的安装规格（`{name, product, skill, label}`）。给了就多支持
+    `--install` / `--uninstall` / `--install-status` 三个命令行开关——**必须在这里拦下**，
+    否则它们会被当成"没有参数"而进 MCP 循环，然后挂在那儿等 stdin。
+    """
     force_utf8_stdio()
     if "--version" in sys.argv[1:]:
         print(version)
         return 0
+    if install:
+        import mcp_install
+        rc = mcp_install.consume_flags(sys.argv[1:], install)
+        if rc is not None:
+            return rc                     # 装失败要以非零码退出，脚本里才拦得住
     # 下面这行之后就没人往 stdout 写业务输出了：协议流独占 stdout
     server = StdioServer(name, title, version, tools, instructions, dispatch)
     sys.stdout = sys.stderr

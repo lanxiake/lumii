@@ -26,7 +26,7 @@ import contactscore as S      # noqa: E402
 import mcp_stdio              # noqa: E402
 
 SERVER_NAME = "wechat-crm"
-SERVER_VERSION = "0.4.0"
+SERVER_VERSION = "0.5.0"
 TITLE = "微信客户分析"
 DEFAULT_LIMIT = 200           # 通讯录默认一次回多少条（本机好友 2500+，不掐就是几百 KB 灌进模型）
 
@@ -142,5 +142,14 @@ def _tool_rank(args):
     return {"count": len(rows), "ranking": rows}
 
 
+# 一键安装的规格（`--install` / `--uninstall` / `--install-status`，实现见共享层 mcp_install.py）。
+INSTALL_SPEC = {
+    "name": SERVER_NAME,
+    "product": "wechat-crm-mcp",
+    "skill": os.path.join(HERE, "skills", SERVER_NAME),
+    "label": TITLE,
+}
+
 if __name__ == "__main__":
-    raise SystemExit(mcp_stdio.serve(SERVER_NAME, TITLE, SERVER_VERSION, TOOLS, INSTRUCTIONS, DISPATCH))
+    raise SystemExit(mcp_stdio.serve(SERVER_NAME, TITLE, SERVER_VERSION, TOOLS, INSTRUCTIONS, DISPATCH,
+                                     install=INSTALL_SPEC))

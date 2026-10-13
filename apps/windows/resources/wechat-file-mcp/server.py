@@ -25,7 +25,7 @@ import filecore as F          # noqa: E402
 import mcp_stdio              # noqa: E402
 
 SERVER_NAME = "wechat-file"
-SERVER_VERSION = "0.4.0"
+SERVER_VERSION = "0.5.0"
 TITLE = "微信文件归档"
 DEFAULT_LIMIT = 500           # 默认最多返回多少条（`limit=0` = 全部）
 
@@ -142,5 +142,16 @@ def _tool_archive(args):
     )
 
 
+# 一键安装的规格（`--install` / `--uninstall` / `--install-status`，实现见共享层 mcp_install.py）。
+# `product` 是部署目录名与 exe 名；`skill` 是源码模式下的技能包源（冻结后技能包打进 exe，
+# 由 mcp_install.skill_source 从 `sys._MEIPASS` 取，不依赖这个路径）。
+INSTALL_SPEC = {
+    "name": SERVER_NAME,
+    "product": "wechat-file-mcp",
+    "skill": os.path.join(HERE, "skills", SERVER_NAME),
+    "label": TITLE,
+}
+
 if __name__ == "__main__":
-    raise SystemExit(mcp_stdio.serve(SERVER_NAME, TITLE, SERVER_VERSION, TOOLS, INSTRUCTIONS, DISPATCH))
+    raise SystemExit(mcp_stdio.serve(SERVER_NAME, TITLE, SERVER_VERSION, TOOLS, INSTRUCTIONS, DISPATCH,
+                                     install=INSTALL_SPEC))

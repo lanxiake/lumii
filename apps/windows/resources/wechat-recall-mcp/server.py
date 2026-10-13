@@ -28,7 +28,7 @@ import archive                # noqa: E402
 import mcp_stdio              # noqa: E402
 
 SERVER_NAME = "wechat-recall"
-SERVER_VERSION = "0.4.0"
+SERVER_VERSION = "0.5.0"
 TITLE = "微信撤回防护"
 DEFAULT_LIMIT = 200           # 工具默认一次回多少条撤回（`limit=0` = 全部）
 
@@ -166,6 +166,14 @@ def _tool_gap(_args):
     return {"count": len(gaps), "gaps": gaps}
 
 
+# 一键安装的规格（`--install` / `--uninstall` / `--install-status`，实现见共享层 mcp_install.py）。
+INSTALL_SPEC = {
+    "name": SERVER_NAME,
+    "product": "wechat-recall-mcp",
+    "skill": os.path.join(HERE, "skills", SERVER_NAME),
+    "label": TITLE,
+}
+
 if __name__ == "__main__":
     mcp_stdio.force_utf8_stdio()
     argv = sys.argv[1:]
@@ -173,4 +181,5 @@ if __name__ == "__main__":
         import daemon
         daemon.main()                                    # 直接吃 sys.argv[1:]
         sys.exit(0)
-    raise SystemExit(mcp_stdio.serve(SERVER_NAME, TITLE, SERVER_VERSION, TOOLS, INSTRUCTIONS, DISPATCH))
+    raise SystemExit(mcp_stdio.serve(SERVER_NAME, TITLE, SERVER_VERSION, TOOLS, INSTRUCTIONS, DISPATCH,
+                                     install=INSTALL_SPEC))

@@ -26,7 +26,7 @@ import exportcore as E        # noqa: E402
 import mcp_stdio              # noqa: E402
 
 SERVER_NAME = "wechat-export"
-SERVER_VERSION = "0.4.0"
+SERVER_VERSION = "0.5.0"
 TITLE = "微信记录导出"
 
 # 合法值只有一份来源（exportcore），工具 schema 与校验都读它——别在这里再抄一遍
@@ -122,5 +122,14 @@ def _tool_export(args):
     )
 
 
+# 一键安装的规格（`--install` / `--uninstall` / `--install-status`，实现见共享层 mcp_install.py）。
+INSTALL_SPEC = {
+    "name": SERVER_NAME,
+    "product": "wechat-export-mcp",
+    "skill": os.path.join(HERE, "skills", SERVER_NAME),
+    "label": TITLE,
+}
+
 if __name__ == "__main__":
-    raise SystemExit(mcp_stdio.serve(SERVER_NAME, TITLE, SERVER_VERSION, TOOLS, INSTRUCTIONS, DISPATCH))
+    raise SystemExit(mcp_stdio.serve(SERVER_NAME, TITLE, SERVER_VERSION, TOOLS, INSTRUCTIONS, DISPATCH,
+                                     install=INSTALL_SPEC))

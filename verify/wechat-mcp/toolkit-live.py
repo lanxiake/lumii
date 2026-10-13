@@ -273,6 +273,14 @@ async def main():
     for pkg in ("wechat-file-mcp", "wechat-export-mcp", "wechat-recall-mcp", "wechat-crm-mcp"):
         old = stale(pkg)
         rec(pkg[:-4], "<exe 未落后于源码>", not old, "exe 比源码旧——先重打包" if old else "ok")
+        # 安装开关必须被 `serve()` 拦下并**立即退出**。没拦的话它会被当成"没有参数"而进
+        # MCP 循环、挂在那儿等 stdin —— 这里就会超时。用只读的 --install-status 验，
+        # **不跑 --install**（那会真改用户的客户端配置，探针不该有这种副作用）。
+        try:
+            r = subprocess.run([exe(pkg), "--install-status"], capture_output=True, timeout=120)
+            rec(pkg[:-4], "<--install-status 可用>", r.returncode == 0, f"exit={r.returncode}")
+        except subprocess.TimeoutExpired:
+            rec(pkg[:-4], "<--install-status 可用>", False, "超时——开关没被拦下，进了 MCP 循环")
 
     # recall 断言建立在前置打底上（没打底 archive_gap 也报 0，会假绿）
     subprocess.run([exe("wechat-recall-mcp"), "--once"], env=renv,
