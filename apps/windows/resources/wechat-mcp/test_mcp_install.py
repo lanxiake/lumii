@@ -74,29 +74,120 @@ def test_json_client_refuses_garbage():
 
 
 def test_skill_apply_roundtrip():
-    """技能包目录整体拷进 / 整体删掉；源不存在时 **skip**（别把空目录拷出去）。"""
+    """技能包整体拷进 / 整体删掉（**两家客户端各一份**）；源不存在时别把空目录拷出去。"""
     d = tempfile.mkdtemp(prefix="install_")
-    src = os.path.join(d, "src", "wechat-file")
+    src = os.path.join(d, "src", "wechat-file-mcp")
     os.makedirs(os.path.join(src, "refs"))
     open(os.path.join(src, "SKILL.md"), "w", encoding="utf-8").write("hello")
     open(os.path.join(src, "refs", "a.txt"), "w", encoding="utf-8").write("x")
 
-    root = os.path.join(d, "skills")
-    old_root = I.skills_root
-    I.skills_root = lambda: root
+    r1, r2 = os.path.join(d, "claude-skills"), os.path.join(d, "codex-skills")
+    old = I.skill_targets
+    I.skill_targets = lambda: [("Claude Code", r1), ("Codex", r2)]
+    spec = {"name": "wechat-file", "product": "wechat-file-mcp", "skill": src}
     try:
-        st, dst = I.skill_apply({"name": "wechat-file", "product": "wechat-file-mcp", "skill": src})
-        assert st == "ok" and os.path.isfile(os.path.join(dst, "SKILL.md")), (st, dst)
-        assert os.path.isfile(os.path.join(dst, "refs", "a.txt")), "子目录没一起拷"
-        assert I.skill_apply({"name": "wechat-file", "product": "wechat-file-mcp", "skill": src})[0] == "ok"     # 覆盖装
-        assert I.skill_apply({"name": "wechat-file", "product": "wechat-file-mcp", "skill": src}, remove=True)[0] == "ok"
-        assert not os.path.isdir(dst), "卸载没删掉技能包"
-        assert I.skill_apply({"name": "wechat-file", "product": "wechat-file-mcp", "skill": src}, remove=True)[0] == "skip"
-        assert I.skill_apply({"name": "x", "product": "x-mcp", "skill": os.path.join(d, "nope")})[0] == "skip"
+        rows = I.skill_apply(spec)
+        assert [r[0] for r in rows] == ["Claude Code", "Codex"], rows
+        assert all(r[1] == "ok" for r in rows), rows
+        for r in (r1, r2):
+            got = os.path.join(r, "wechat-file-mcp")
+            assert os.path.isfile(os.path.join(got, "SKILL.md")), got
+            assert os.path.isfile(os.path.join(got, "refs", "a.txt")), "子目录没一起拷"
+        assert all(r[1] == "ok" for r in I.skill_apply(spec)), "覆盖装不该报错"
+        assert all(r[1] == "ok" for r in I.skill_apply(spec, remove=True))
+        assert not os.path.isdir(os.path.join(r1, "wechat-file-mcp"))
+        assert all(r[1] == "skip" for r in I.skill_apply(spec, remove=True)), "再删 = skip"
+
+        # 源不存在：源码模式 skip（别把空目录拷出去）
+        rows = I.skill_apply({"name": "x", "product": "x-mcp", "skill": os.path.join(d, "nope")})
+        assert all(r[1] == "skip" for r in rows), rows
+
+        I.skill_targets = lambda: []                     # 一个客户端都没有
+        rows = I.skill_apply(spec)
+        assert len(rows) == 1 and rows[0][1] == "skip", rows
     finally:
-        I.skills_root = old_root
+        I.skill_targets = old
         shutil.rmtree(d, ignore_errors=True)
     print("ok skill_apply_roundtrip")
+
+
+def test_codex_toml_roundtrip():
+    """Codex 是 **TOML**，且它的配置里可能有**明文 API key**——所以纪律比 JSON 那两家更硬。
+
+    这条盯三件事：① 反斜杠路径必须转义（不转会写出**非法 TOML**）；
+    ② 写进去的能被 `tomllib` 读回来；③ **别人的内容一个字节不碰**（尤其那串 key）。
+    """
+    import tomllib
+    d = tempfile.mkdtemp(prefix="install_")
+    p = os.path.join(d, "config.toml")
+    key = "sk-SECRET-me"
+    # ⚠️ 裸键只允许 ASCII：`[mcp_servers.别人]` 是**非法 TOML**（第一版夹具就栽在这，
+    #    反过来证明"写完读回来验"那道守卫真会拦住写到非法 TOML 的情况）
+    original = (f'model = "gpt-5.6"\n\n[mcp_servers.other]\ncommand = "npx"\n\n'
+                f'[model_providers.custom]\nexperimental_bearer_token = "{key}"\n')
+    open(p, "w", encoding="utf-8", newline="").write(original)
+
+    old = I.CODEX_CONFIG
+    I.CODEX_CONFIG = (d, "config.toml")              # `_client_path` 原样拼绝对路径段
+    entry = {"command": r"C:\Users\a b\.lumii\mcp\wechat-file-mcp\wechat-file-mcp.exe"}
+    try:
+        st, detail = I.codex_apply("wechat-file", entry)
+        assert st == "ok", (st, detail)
+        got = open(p, encoding="utf-8").read()
+        data = tomllib.loads(got)                     # 必须能读回来
+        assert data["mcp_servers"]["wechat-file"]["command"] == entry["command"], "路径被写坏了"
+        assert data["mcp_servers"]["other"]["command"] == "npx", "别人的段被动过"
+        assert data["model_providers"]["custom"]["experimental_bearer_token"] == key, "API key 被动过！"
+
+        assert I.codex_apply("wechat-file", entry)[0] == "ok"      # 幂等：不该出现两段
+        assert open(p, encoding="utf-8").read().count("[mcp_servers.wechat-file]") == 1
+    finally:
+        I.CODEX_CONFIG = old
+        shutil.rmtree(d, ignore_errors=True)
+    print("ok codex_toml_roundtrip")
+
+
+def test_all_client_paths_under_home_or_appdata():
+    """**结构性守卫**：每个客户端路径都必须只经由 `~` / `%APPDATA%` 解析。
+
+    为什么需要这条：踩过一次——`test_remove_failure_does_not_block_add` 最初没打桩
+    `codex_apply`，于是 `do_install` **真把一段 `[mcp_servers.wechat-file]` 写进了**
+    `~/.codex/config.toml`（那里面还有用户的明文 API key）。打桩是逐点防的、会漏；
+    这条是**面**上防的：把两个根都指到临时目录后，任何一条仍指向真实位置的路径都会当场露出来。
+    """
+    d = tempfile.mkdtemp(prefix="install_")
+    old = {k: os.environ.get(k) for k in ("USERPROFILE", "HOME", "APPDATA")}
+    try:
+        os.environ["USERPROFILE"] = d
+        os.environ["HOME"] = d
+        os.environ["APPDATA"] = os.path.join(d, "AppData", "Roaming")
+        roots = [os.path.join(d, "AppData", "Roaming"), d]
+        paths = [I._client_path(parts) for _, parts in I.JSON_CLIENTS]
+        paths.append(I._client_path(I.CODEX_CONFIG))
+        paths += [I._client_path(r) for _, r, _ in I.SKILL_TARGETS]
+        bad = [p for p in paths if not p or not any(
+            os.path.normcase(p).startswith(os.path.normcase(r)) for r in roots)]
+        assert not bad, f"这些客户端路径没走 ~ / %APPDATA%，测试改根也拦不住：{bad}"
+    finally:
+        for k, v in old.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+        shutil.rmtree(d, ignore_errors=True)
+    print("ok all_client_paths_under_home_or_appdata")
+
+
+def test_codex_appends_isolated_section():
+    """`[mcp_servers.x]` 整段删除：**含它的子表**，且不碰紧邻的下一段。"""
+    text = ('a = 1\n\n[mcp_servers.x]\ncommand = "c"\n\n[mcp_servers.x.args]\nk = 1\n\n'
+            '[mcp_servers.y]\ncommand = "d"\n')
+    out = I._toml_drop_section(text, "[mcp_servers.x]")
+    assert "[mcp_servers.x]" not in out and "[mcp_servers.x.args]" not in out, out
+    assert "[mcp_servers.y]" in out and 'command = "d"' in out, out
+    assert out.startswith("a = 1"), out
+    assert I._toml_drop_section(text, "[mcp_servers.不存在]") == text, "没有的段不该改动文本"
+    print("ok codex_appends_isolated_section")
 
 
 def test_deploy_self_source_mode():
@@ -206,9 +297,11 @@ def test_version_compare():
 def test_installed_record_roundtrip_and_stale_detection():
     """装了要登记版本；`--install-status` 靠它对账——**不去启动部署副本**（onefile 冷启动 1–3s）。"""
     d = tempfile.mkdtemp(prefix="install_")
-    old_root, old_say, old_skills = I.data_root, I._say, I.skills_root
+    old_root, old_say, old_skills, old_codex = I.data_root, I._say, I.skill_targets, I.CODEX_CONFIG
     I.data_root = lambda: d
-    I.skills_root = lambda: os.path.join(d, "skills")      # **别碰真实的 ~/.claude/skills**
+    # **别碰真实的 ~/.claude/skills 与 ~/.codex/config.toml**
+    I.skill_targets = lambda: [("Claude Code", os.path.join(d, "skills"))]
+    I.CODEX_CONFIG = (d, "codex-config.toml")
     out = []
     I._say = lambda *a, **k: out.append(" ".join(str(x) for x in a))
     try:
@@ -230,13 +323,13 @@ def test_installed_record_roundtrip_and_stale_detection():
 
         # 技能包那一行必须按**技能 id**（= product）找目录，不是按服务名。
         # 真机踩过：明明装了却报"没装"（和 skill_apply 同一个坑的第二处，别各写各的）。
-        os.makedirs(os.path.join(I.skills_root(), "wechat-file-mcp"), exist_ok=True)
+        os.makedirs(os.path.join(d, "skills", "wechat-file-mcp"), exist_ok=True)
         out.clear()
         I.do_status(spec)
         skill_line = [s for s in out if "技能包" in s]
         assert skill_line and "没装" not in skill_line[0], skill_line
     finally:
-        I.data_root, I._say, I.skills_root = old_root, old_say, old_skills
+        I.data_root, I._say, I.skill_targets, I.CODEX_CONFIG = old_root, old_say, old_skills, old_codex
         shutil.rmtree(d, ignore_errors=True)
     print("ok installed_record_roundtrip_and_stale_detection")
 
@@ -314,20 +407,23 @@ def test_remove_failure_does_not_block_add():
     拿它的结果当闸门的话 `add` 永远不跑——而用户看着"安装"跑完了以为装上了。
     """
     calls = []
-    old = (I.claude_code_apply, I.deploy_self, I.skill_apply, I.json_client_apply, I._say)
+    # `codex_apply` **必须一起打桩**：它写的是 `~/.codex/config.toml`，而那个文件里有真实 API key
+    old = (I.claude_code_apply, I.deploy_self, I.skill_apply, I.json_client_apply, I.codex_apply, I._say)
     I.claude_code_apply = lambda name, command=None, args=(): (
         calls.append("remove" if command is None else "add"),
         ("fail", "No MCP server named") if command is None else ("ok", "added"))[1]
     I.deploy_self = lambda product: (r"C:\fake\x.exe", "ok")
-    I.skill_apply = lambda spec, remove=False: ("ok", r"C:\fake\skill")
+    I.skill_apply = lambda spec, remove=False: [("Claude Code", "ok", r"C:\fake\skill")]
     I.json_client_apply = lambda *a, **k: ("skip", "未安装")
+    I.codex_apply = lambda *a, **k: ("skip", "未安装")
     I._say = lambda *a, **k: None
     try:
         rc = I.do_install({"name": "wechat-file", "product": "wechat-file-mcp", "label": "x"})
         assert calls == ["remove", "add"], f"摘失败后必须照样挂，实际：{calls}"
         assert rc == 0, f"摘失败不算安装失败：{rc}"
     finally:
-        (I.claude_code_apply, I.deploy_self, I.skill_apply, I.json_client_apply, I._say) = old
+        (I.claude_code_apply, I.deploy_self, I.skill_apply, I.json_client_apply,
+         I.codex_apply, I._say) = old
     print("ok remove_failure_does_not_block_add")
 
 
@@ -343,6 +439,8 @@ def test_skill_source_uses_skill_id_not_server_name():
     open(os.path.join(base, "skills", "wechat-file-mcp", "SKILL.md"), "w").close()
 
     old_frozen, old_meipass = getattr(sys, "frozen", None), getattr(sys, "_MEIPASS", None)
+    old_targets = I.skill_targets
+    I.skill_targets = lambda: [("Claude Code", os.path.join(d, "skills"))]
     sys.frozen, sys._MEIPASS = True, base
     try:
         spec = {"name": "wechat-file", "product": "wechat-file-mcp", "skill": "/nope"}
@@ -350,9 +448,10 @@ def test_skill_source_uses_skill_id_not_server_name():
         assert src == os.path.join(base, "skills", "wechat-file-mcp"), src
         # 冻结模式下源找不到 = 构建漏了 --add-data ⇒ **fail**，不能用 skip 蒙混
         sys._MEIPASS = os.path.join(d, "empty")
-        st, detail = I.skill_apply(spec)
-        assert st == "fail" and "add-data" in detail, (st, detail)
+        rows = I.skill_apply(spec)
+        assert all(r[1] == "fail" and "add-data" in r[2] for r in rows), rows
     finally:
+        I.skill_targets = old_targets
         if old_frozen is None:
             del sys.frozen
         else:
@@ -369,6 +468,9 @@ if __name__ == "__main__":
     test_json_client_add_remove()
     test_json_client_refuses_garbage()
     test_skill_apply_roundtrip()
+    test_codex_toml_roundtrip()
+    test_all_client_paths_under_home_or_appdata()
+    test_codex_appends_isolated_section()
     test_deploy_self_source_mode()
     test_prune_old()
     test_clean_install_dir_removes_old_leftovers()

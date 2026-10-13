@@ -246,6 +246,82 @@ def json_client_apply(label, path, name, entry):
     return "ok", path
 
 
+# ---- 客户端注册：Codex（TOML，额外小心）-------------------------------------
+# ⚠️ `~/.codex/config.toml` 里可能有**明文 API key**（实测本机就有），所以这里的纪律比 JSON
+# 那两家更硬：改前备份 → 写完**立刻用 `tomllib` 读回来验** → 读不回来就**整份还原**。
+# 标准库只有 `tomllib`（只读），所以是**手工拼段**而不是引入写 TOML 的依赖；
+# 手工拼只在"**追加一个还不存在的段**"和"**整段删掉**"这两件事上安全，那就**只做这两件**。
+
+CODEX_CONFIG = ("~", ".codex", "config.toml")
+
+
+def _toml_str(s):
+    """TOML 双引号字符串（**反斜杠必须转义**——Windows 路径全是反斜杠，不转会写出非法 TOML）。"""
+    return '"' + str(s).replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def _toml_drop_section(text, header):
+    """删掉 `[header]` 整段（到下一个段头之前），含它的子表 `[header.x]`。
+
+    行式删除成立的前提：TOML 的段头**独占一行**。所以"从我这行到下一个 `[` 开头"就是这一段。
+    """
+    out, skipping = [], False
+    for ln in text.splitlines(keepends=True):
+        st = ln.strip()
+        if st.startswith("["):
+            skipping = st == header or st.startswith(header[:-1] + ".")
+        if not skipping:
+            out.append(ln)
+    return "".join(out)
+
+
+def codex_apply(name, entry=None):
+    """注册/注销 Codex 的 MCP 条目 → `(状态, 说明)`。文件不存在 = 没装 = skip。"""
+    path = _client_path(CODEX_CONFIG)
+    if not path or not os.path.isfile(path):
+        return "skip", "未安装（没有配置文件）"
+    header = f"[mcp_servers.{name}]"
+    try:
+        with open(path, encoding="utf-8") as f:
+            text = f.read()
+    except OSError as e:
+        return "fail", f"读不出来，**一个字节都没动**：{e}"
+
+    body = _toml_drop_section(text, header)               # 幂等：先摘掉旧的（没有也不报错）
+    if entry is None:                                     # 注销
+        if body == text:
+            return "skip", "本来就没注册"
+    else:
+        if not body.endswith("\n"):
+            body += "\n"
+        body += (f"\n{header}\n"
+                 f"type = \"stdio\"\n"
+                 f"command = {_toml_str(entry['command'])}\n"
+                 f"args = []\n"
+                 f"transport = \"stdio\"\n")
+
+    # **写完读回来验**：TOML 拼坏了自己不一定看得出来，但 `tomllib` 一定看得出来。
+    try:
+        import tomllib
+        tomllib.loads(body)
+    except Exception as e:                                 # noqa: BLE001
+        return "fail", f"拼出来的 TOML 读不回来，**已放弃改动**：{type(e).__name__}: {e}"
+
+    _backup(path)
+    tmp = path + ".tmp"
+    try:
+        with open(tmp, "w", encoding="utf-8", newline="") as f:
+            f.write(body)
+        os.replace(tmp, path)
+    except OSError as e:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        return "fail", f"写入失败（{e}）；原文未动"
+    return "ok", path
+
+
 # ---- 客户端注册：Claude Code（走它自己的 CLI）-------------------------------
 
 def claude_cli():
@@ -313,36 +389,67 @@ def skill_source(spec):
     return spec.get("skill") or ""
 
 
-def skills_root():
-    """Claude Code 的用户级技能目录：`~/.claude/skills/<skill-id>/SKILL.md`。
+# 各客户端的技能目录。判据是**客户端目录在不在**（不是"技能目录在不在"）：
+# 装了客户端、还没放过任何技能时，技能目录往往不存在，那时我们**该**建它。
+# Cursor 不在列：它的 `~/.cursor/skills-cursor/` 旁边有个 `.sync-manifest.json`，
+# 看着是**别人在管**的目录——往一个自己看不懂其管理方式的目录里写，比不写更糟。
+SKILL_TARGETS = (
+    ("Claude Code", ("~", ".claude", "skills"), ("~", ".claude")),
+    ("Codex",       ("~", ".codex", "skills"),  ("~", ".codex")),
+)
 
-    只装这一处：Cursor（`.cursor/skills-cursor/`）与 Codex（`.codex/skills/`）的根目录不同，
-    而 `.cursor/skills-cursor/` 旁边还有个 `.sync-manifest.json`，看着是**别人在管**的目录——
-    往一个自己看不懂其管理方式的目录里写，比不写更糟。
+
+def skill_targets():
+    """装了哪些会读技能包的客户端 → `[(客户端, 技能根目录)]`。
+
+    与 JSON 配置同一条纪律：**不去给没装的客户端造目录**。
     """
-    return os.path.join(os.path.expanduser("~"), ".claude", "skills")
+    out = []
+    for label, root_parts, client_parts in SKILL_TARGETS:
+        if os.path.isdir(_client_path(client_parts)):
+            out.append((label, _client_path(root_parts)))
+    return out
 
 
 def skill_apply(spec, remove=False):
+    """装/卸技能包到**各已装客户端** → `[(客户端, 状态, 说明)]`。
+
+    目录名是**技能 id**（= `spec["product"]`），不是 MCP 服务名（= `spec["name"]`）——
+    这两个名字不一样，混用过一次，后果是技能包静默没装上而其余步骤全绿。
+    """
     src = skill_source(spec)
-    dst = os.path.join(skills_root(), spec["product"])       # 目录名 = 技能 id，不是服务名
-    if remove:
-        if not os.path.isdir(dst):
-            return "skip", "本来就没装"
-        shutil.rmtree(dst, ignore_errors=True)
-        return "ok", dst
-    if not os.path.isdir(src):
-        # 源码模式：技能包就在仓库里，找不到是调用方没给路径 → 跳过
-        # 冻结模式：技能包**本该**打进 exe，找不到就是构建漏了 `--add-data` → **报失败**，
-        #           别用 skip 蒙混过去（用户会以为装好了，实际客户端里没有这个技能）
-        if getattr(sys, "frozen", False):
-            return "fail", f"技能包没打进这个 exe（构建漏了 --add-data）：{src or '未提供'}"
-        return "skip", f"技能包源没找到（{src or '未提供'}）"
-    os.makedirs(skills_root(), exist_ok=True)
-    if os.path.isdir(dst):
-        shutil.rmtree(dst, ignore_errors=True)     # 覆盖装：旧文件别留下
-    shutil.copytree(src, dst)
-    return "ok", dst
+    targets = skill_targets()
+    if not targets:
+        return [("技能包", "skip", "没检测到会读技能包的客户端")]
+    rows = []
+    for label, root in targets:
+        dst = os.path.join(root, spec["product"])
+        if remove:
+            if not os.path.isdir(dst):
+                rows.append((label, "skip", "本来就没装"))
+                continue
+            shutil.rmtree(dst, ignore_errors=True)
+            rows.append((label, "ok", dst))
+            continue
+        if not os.path.isdir(src):
+            # 源码模式：技能包就在仓库里，找不到是调用方没给路径 → 跳过
+            # 冻结模式：技能包**本该**打进 exe，找不到就是构建漏了 `--add-data` → **报失败**，
+            #           别用 skip 蒙混过去（用户会以为装好了，实际客户端里没有这个技能）
+            if getattr(sys, "frozen", False):
+                rows.append((label, "fail",
+                             f"技能包没打进这个 exe（构建漏了 --add-data）：{src or '未提供'}"))
+            else:
+                rows.append((label, "skip", f"技能包源没找到（{src or '未提供'}）"))
+            continue
+        try:
+            os.makedirs(root, exist_ok=True)
+            if os.path.isdir(dst):
+                shutil.rmtree(dst, ignore_errors=True)   # 覆盖装：旧文件别留下
+            shutil.copytree(src, dst)
+            rows.append((label, "ok", dst))
+        except OSError as e:
+            rows.append((label, "fail", f"拷贝失败（{e}）：{dst}"))
+    return rows
 
 
 # ---- 三个动作 ---------------------------------------------------------------
@@ -402,11 +509,11 @@ def do_install(spec):
 
     entry = {"type": "stdio", "command": exe, "args": [], "env": {}}
     for label, parts in JSON_CLIENTS:
-        st, detail = json_client_apply(label, _client_path(parts), name, entry)
-        seen.append(_line(label, st, detail))
+        seen.append(_line(label, *json_client_apply(label, _client_path(parts), name, entry)))
+    seen.append(_line("Codex", *codex_apply(name, entry)))
 
-    st, detail = skill_apply(spec)
-    seen.append(_line("技能包", st, detail))
+    for label, st, detail in skill_apply(spec):
+        seen.append(_line(f"技能包·{label}", st, detail))
 
     if _footer(seen):
         return 1
@@ -424,8 +531,10 @@ def do_uninstall(spec):
 
     for label, parts in JSON_CLIENTS:
         seen.append(_line(label, *json_client_apply(label, _client_path(parts), name, None)))
+    seen.append(_line("Codex", *codex_apply(name, None)))
 
-    seen.append(_line("技能包", *skill_apply(spec, remove=True)))
+    for label, st, detail in skill_apply(spec, remove=True):
+        seen.append(_line(f"技能包·{label}", st, detail))
 
     dst = deployed_exe(product)
     if not os.path.isfile(dst):
@@ -507,11 +616,30 @@ def do_status(spec):
         _line(label, "ok" if entry else "skip",
               (entry or {}).get("command", "未注册") if entry else "未注册")
 
-    # 目录名是**技能 id**（= product），不是 MCP 服务名（= name）——见 skill_source 的说明。
-    # 这里跟 skill_apply 用同一份判断，别各写各的（写错过一次：明明装了却报"没装"）。
-    dst_skill = os.path.join(skills_root(), product)
-    _line("技能包", "ok" if os.path.isdir(dst_skill) else "skip",
-          dst_skill if os.path.isdir(dst_skill) else "没装")
+    # Codex（TOML 那家）：读它的配置看有没有我们那一段
+    cpath = _client_path(CODEX_CONFIG)
+    if not cpath or not os.path.isfile(cpath):
+        _line("Codex", "skip", "未安装")
+    else:
+        try:
+            with open(cpath, encoding="utf-8") as f:
+                txt = f.read()
+        except OSError as e:
+            _line("Codex", "fail", f"配置读不出来：{e}")
+            txt = ""
+        if txt:
+            has = f"[mcp_servers.{name}]" in txt
+            _line("Codex", "ok" if has else "skip", cpath if has else "未注册")
+
+    # 技能包按**技能 id**（= product）找目录，不是按服务名。跟 skill_apply 用同一份判断，
+    # 别各写各的（写错过一次：明明装了却报"没装"）。
+    sts = skill_targets()
+    if not sts:
+        _line("技能包", "skip", "没检测到会读技能包的客户端")
+    for label, root in sts:
+        dst_skill = os.path.join(root, product)
+        _line(f"技能包·{label}", "ok" if os.path.isdir(dst_skill) else "skip",
+              dst_skill if os.path.isdir(dst_skill) else "没装")
     return 0
 
 

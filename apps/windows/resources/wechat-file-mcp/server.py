@@ -25,7 +25,7 @@ import filecore as F          # noqa: E402
 import mcp_stdio              # noqa: E402
 
 SERVER_NAME = "wechat-file"
-SERVER_VERSION = "0.6.0"
+SERVER_VERSION = "0.7.0"
 TITLE = "微信文件归档"
 DEFAULT_LIMIT = 500           # 默认最多返回多少条（`limit=0` = 全部）
 

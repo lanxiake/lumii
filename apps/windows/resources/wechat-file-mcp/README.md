@@ -20,8 +20,10 @@ wechat-file-mcp.exe --install
 1. **部署到稳定目录** `%USERPROFILE%\.lumii\mcp\wechat-file-mcp\` —— 这样你以后清理"下载"文件夹，
    也不会把已经注册好的路径弄断。（覆盖旧版用"旧文件改名让位"：Windows 下运行中的 exe 就是不能覆盖。）
 2. **注册到检测到的 MCP 客户端**：Claude Code 走它自己的 `claude mcp` CLI（不手改它的状态文件）；
-   Claude Desktop / Cursor 合并进它们的配置文件 —— **改之前备份**，且**只动我们自己那一条**，
-   你的其它配置一个字节都不碰。文件读不出来（比如有语法错）就**拒绝改**，只报告。
+   Claude Desktop / Cursor 合并进它们的 JSON 配置；**Codex** 加一段 `[mcp_servers.<名>]`（它是 TOML）
+   —— **改之前备份**，且**只动我们自己那一条**，你的其它配置一个字节都不碰。配置读不出来
+   （比如有语法错）就**拒绝改**，只报告；Codex 那份写完还会**用 TOML 解析器读回来验**，读不回来
+   就整份还原（它可能装着你的明文 API key，容不得拼坏）。
 3. **拷技能包**到 `~/.claude/skills/wechat-file-mcp/`（技能包是**打进 exe** 的，不需要另外下载）。
 
 装完**重启你的 AI 客户端**才会加载。
