@@ -292,7 +292,33 @@ def _supervise(interval, retain_days, event):
             log(f"守护崩溃（第 {fails} 次）：{e!r}；{wait}s 后自动重启")
 
 
+LICENSE_SCOPE = "wechat-recall-mcp"
+
+
+def license_gate():
+    """守护必须**持证**运行 → `(是否放行, 说明)`。
+
+    **为什么守护也要拦**：它守着本产品最核心的价值——「持续留存、撤回可查」。不拦的话，
+    未授权用户照样白拿；而且守护是**持续**跑的东西，跑到一半才发现没授权等于白跑一场。
+
+    **fail-closed**：授权模块读不出来也算不放行。少一个文件不该把收费产品变成免费产品
+    （模块是打进 exe 的，缺了就是构建出了问题，那种情况该报出来而不是放行）。
+    """
+    try:
+        import mcp_license as L
+        st = L.status(LICENSE_SCOPE)
+    except Exception as e:                                     # noqa: BLE001
+        return False, f"授权模块不可用（{e!r}）——按未授权处理"
+    if st["ok"]:
+        return True, ""
+    return False, f"{L.describe(st)}\n    {L.how_to_fix(st)}"
+
+
 def run(interval=DEFAULT_INTERVAL, once=False, retain_days=0):
+    ok, why = license_gate()
+    if not ok:
+        log("未授权，守护不启动：", why)
+        return 2
     if once:
         con = archive.connect()
         note_gap(con, int(time.time()), interval)
@@ -358,7 +384,8 @@ def main():
         import json
         print(json.dumps(status(), ensure_ascii=False, indent=2))
     elif a.daemon or a.once:
-        run(interval=a.interval, once=a.once, retain_days=a.retain_days)
+        # 把退出码带出去：未授权时 `run` 返回 2，调用方（脚本/自启动）据此看得出来没跑成
+        sys.exit(run(interval=a.interval, once=a.once, retain_days=a.retain_days) or 0)
     else:
         ap.print_help()
 

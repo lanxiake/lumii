@@ -1,7 +1,7 @@
 /**
  * 把 resources/wechat-recall-mcp（撤回防护 MCP + 守护，Python 源码）打成单文件 exe。
  *
- * 与另两个同构：单档、无授权；依赖 wechat-mcp 的共享读取层，打包时**保留兄弟目录布局**。
+ * 与另两个同构：单档、**带授权门禁**；依赖 wechat-mcp 的共享读取层，打包时**保留兄弟目录布局**。
  *
  * 这一个产物是**双身份**：不带参数时是 MCP server（stdio），带 `--daemon` 时是常驻守护，
  * `--install-autostart` 写 HKCU Run。所以冒烟除了握手，还验一次 `--status`。

@@ -1,7 +1,7 @@
 /**
  * 把 resources/wechat-file-mcp（文件归档 MCP，Python 源码）打成单文件 exe。
  *
- * 与 `build-wechat-mcp.mjs` 的区别：本产品**单档**、无授权、无 ASR、无随包数据；
+ * 与 `build-wechat-mcp.mjs` 的区别：本产品**单档**、**带授权门禁**（scope 见 mcp_license.py）、无 ASR、无随包数据；
  * 且它**依赖 wechat-mcp 的共享读取层**（wechat_core / wxkey4 / wxread4），
  * 所以打包时要**保留兄弟目录布局**（`wechat-file-mcp/` 与 `wechat-mcp/` 并列），
  * filecore.py 里那句 `sys.path.insert(0, ../wechat-mcp)` 在源码运行与冻结运行时行为一致。

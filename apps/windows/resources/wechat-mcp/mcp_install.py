@@ -517,6 +517,17 @@ def do_install(spec):
 
     if _footer(seen):
         return 1
+
+    # 装好了但没授权 → 说清楚，否则用户会以为"装完就能用"，然后在客户端里撞一鼻子灰
+    try:
+        import mcp_license as L
+        st = L.status(product)
+        if not st["ok"]:
+            _say(f"\n⚠️  还没有授权：{L.describe(st)}")
+            _say(f"    {L.how_to_fix(st)}")
+    except Exception as e:                                 # noqa: BLE001
+        _say(f"\n（授权状态没查成：{e}）")
+
     _say("\n⚠️  重启你的 AI 客户端，新的 MCP 服务器才会被加载。")
     _say(f"    验证：`claude mcp get {name}`，或在客户端里问一句试试。")
     return 0
@@ -643,6 +654,30 @@ def do_status(spec):
     return 0
 
 
+def do_license_status(spec):
+    """`--license-status`：看授权状态 + 授权文件该放哪 + 本机机器码。
+
+    机器码一起打出来是有意的：换授权的整个流程就是「用户把这段发给发行方」，
+    分成两条命令会让人多跑一趟。
+    """
+    import mcp_license as L
+    st = L.status(spec["product"])
+    _say(f"\n{spec.get('label') or spec['product']} 授权状态")
+    _line("授权", "ok" if st["ok"] else "fail", L.describe(st))
+    if not st["ok"]:
+        _say(f"\n    {L.how_to_fix(st)}")
+    _say(f"\n  授权文件：{L.license_path()}")
+    _say(f"  本机机器码（把这段发给签发方）：\n{json.dumps(L.machine_id(), ensure_ascii=False, indent=2)}")
+    return 0 if st["ok"] else 1
+
+
+def do_machine_id(_spec):
+    """`--machine-id`：只打机器码（脚本化调用时好抓）。"""
+    import mcp_license as L
+    _say(json.dumps(L.machine_id(), ensure_ascii=False, indent=2))
+    return 0
+
+
 def do_check_update(spec):
     """**显式**联网查最新版（`--check-update`）。
 
@@ -711,15 +746,18 @@ FLAGS = {
     "--uninstall": do_uninstall,
     "--install-status": do_status,
     "--check-update": do_check_update,
+    "--license-status": do_license_status,
+    "--machine-id": do_machine_id,
 }
 
 
 def consume_flags(argv, spec):
-    """命中安装类开关就执行并返回**退出码**；没命中返回 `None`（调用方据此进 MCP 循环）。
+    """命中命令行开关就执行并返回**退出码**；没命中返回 `None`（调用方据此进 MCP 循环）。
 
     只认第一个命中的开关：`--install --uninstall` 一起传是没想清楚，别猜。
     """
-    for f in ("--install", "--uninstall", "--install-status", "--check-update"):
+    for f in ("--install", "--uninstall", "--install-status", "--check-update",
+              "--license-status", "--machine-id"):
         if f in argv:
             return FLAGS[f](spec) or 0
     return None

@@ -28,7 +28,7 @@ import archive                # noqa: E402
 import mcp_stdio              # noqa: E402
 
 SERVER_NAME = "wechat-recall"
-SERVER_VERSION = "0.7.0"
+SERVER_VERSION = "0.8.0"
 TITLE = "微信撤回防护"
 DEFAULT_LIMIT = 200           # 工具默认一次回多少条撤回（`limit=0` = 全部）
 
@@ -179,7 +179,7 @@ if __name__ == "__main__":
     argv = sys.argv[1:]
     if any(f in argv for f in DAEMON_FLAGS):
         import daemon
-        daemon.main()                                    # 直接吃 sys.argv[1:]
+        daemon.main()                                    # 直接吃 sys.argv[1:]；内部自己 sys.exit
         sys.exit(0)
     raise SystemExit(mcp_stdio.serve(SERVER_NAME, TITLE, SERVER_VERSION, TOOLS, INSTRUCTIONS, DISPATCH,
                                      install=INSTALL_SPEC))

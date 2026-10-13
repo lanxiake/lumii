@@ -8,7 +8,10 @@
 
        python tools/sign-license.py --fp '<上面那段 JSON>' --days 365 --out license.json
 
-3. 把 license.json 发给用户，让他放到 `%USERPROFILE%\\.lumii\\wechat-mcp\\license.json`。
+3. 把 license.json 发给用户，让他放到对应产品的目录：
+   - `wechat-mcp`（主产品）：`%USERPROFILE%\\.lumii\\wechat-mcp\\license.json`
+   - **四件套**：`%USERPROFILE%\\.lumii\\wechat-toolkits\\license.json`
+     （`--scope wechat-toolkits` 一份覆盖四个；单卖就签各产品自己的 id）
 
 私钥默认读 `~/.wechat-mcp-keys/private.pem`，可用 `--key` 指定。
 **私钥丢了 = 以后签不了新的（已发的授权仍然有效）；私钥泄了 = 授权体系失效，须换密钥重签全部。**
@@ -35,7 +38,11 @@ def main():
     ap.add_argument("--fp", help="用户机器指纹 JSON（`wechat-mcp.exe --machine-id` 的输出）")
     ap.add_argument("--fp-file", help="同上，从文件读")
     ap.add_argument("--edition", default="pro", choices=["pro"], help="档位（目前只有 pro 需要授权）")
-    ap.add_argument("--scope", default="retail", help="签发渠道：retail（零售）/ bundled（灵栖内置）")
+    ap.add_argument("--scope", default="retail",
+                    help="签发范围：retail（wechat-mcp 零售）/ bundled（灵栖内置）/ "
+                         "wechat-toolkits（**四件套打包**，一份覆盖四个）/ "
+                         "wechat-file-mcp · wechat-export-mcp · wechat-recall-mcp · wechat-crm-mcp"
+                         "（四件套**单卖**时各签各的）/ all")
     ap.add_argument("--days", type=int, default=365, help="有效期天数，默认 365")
     ap.add_argument("--key", default=os.path.join(os.path.expanduser("~"), ".wechat-mcp-keys", "private.pem"),
                     help="私钥路径")
@@ -76,10 +83,15 @@ def main():
         json.dump(lic, f, ensure_ascii=False, indent=2)
 
     print(f"已签发：{os.path.abspath(args.out)}")
-    print(f"  档位 {args.edition} / 渠道 {args.scope}")
+    print(f"  档位 {args.edition} / 范围 {args.scope}")
     print(f"  有效期 {args.days} 天，到期 {time.strftime('%Y-%m-%d', time.localtime(payload['exp']))}")
     print(f"  指纹 {fp}（命中 {sum(1 for v in fp.values() if v)}/3 项）")
-    print("  交给用户放到 %USERPROFILE%\\.lumii\\wechat-mcp\\license.json")
+    # 放哪儿**取决于签的是哪个产品**——给错路径等于让用户把授权放进一个没人读的地方
+    if args.scope in ("retail", "bundled"):
+        print("  交给用户放到 %USERPROFILE%\\.lumii\\wechat-mcp\\license.json（wechat-mcp）")
+    else:
+        print("  交给用户放到 %USERPROFILE%\\.lumii\\wechat-toolkits\\license.json（四件套）")
+        print("  在四件套里也可以 `wechat-*-mcp.exe --license-status` 核对放对没有")
 
 
 if __name__ == "__main__":

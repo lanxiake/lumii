@@ -1,7 +1,7 @@
 /**
  * 把 resources/wechat-crm-mcp（客户分析 MCP，Python 源码）打成单文件 exe。
  *
- * 与另三个同构：单档、无授权；依赖 wechat-mcp 的共享读取层，打包时**保留兄弟目录布局**。
+ * 与另三个同构：单档、**带授权门禁**；依赖 wechat-mcp 的共享读取层，打包时**保留兄弟目录布局**。
  *
  * 用法：node scripts/build-wechat-crm-mcp.mjs [--if-stale]
  * 产物：resources/wechat-crm-mcp/dist/wechat-crm-mcp.exe（+ 带版本号副本）

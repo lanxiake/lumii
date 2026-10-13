@@ -163,12 +163,26 @@ def log(name, *a):
 class StdioServer:
     """一次 stdio 会话：读一行 JSON-RPC 请求 → 派发 → 写一行结果。单线程、顺序处理。"""
 
-    def __init__(self, name, title, version, tools, instructions, dispatch):
+    def __init__(self, name, title, version, tools, instructions, dispatch, license_scope=None):
         self.name, self.version = name, version
         self.tools, self.dispatch = tools, dispatch
+        self.license_scope = license_scope
         self.instructions = (instructions or "").rstrip() + "\n" + TOOL_CONVENTIONS
+        if license_scope:
+            # 未授权时**在引导词里就说清**：那是 Agent 调任何工具**之前**就会读到的位置。
+            # 光靠工具报错的话，它会先白调一次、甚至把 not_licensed 当成别的问题。
+            import mcp_license
+            self.instructions += mcp_license.instruction_block(license_scope)
         self.title = title
         self._out = sys.stdout
+
+    def license_gate(self):
+        """未授权时返回标准失败信封，否则 `None`。**每次调用都重新查**——
+        用户放好授权文件之后不必重启服务。"""
+        if not self.license_scope:
+            return None
+        import mcp_license
+        return mcp_license.gate_error(self.license_scope)
 
     # ---- 写 ----
     def _send(self, message):
@@ -212,6 +226,11 @@ class StdioServer:
             return
         if not isinstance(args, dict):
             self.reply_error(mid, INVALID_PARAMS, "arguments 必须是对象")
+            return
+        gate = self.license_gate()
+        if gate is not None:                       # 未授权：不干活，只把"该做什么"端出去
+            log(self.name, "not_licensed", name)
+            self.reply(mid, self.text_result(gate))
             return
         log(self.name, "call", name)
         # 客户端带了 `_meta.progressToken` ⇒ 给干重活的模块装上进度槽，界面就能看到
@@ -309,7 +328,10 @@ def serve(name, title, version, tools, instructions, dispatch, install=None):
         if rc is not None:
             return rc                     # 装失败要以非零码退出，脚本里才拦得住
     # 下面这行之后就没人往 stdout 写业务输出了：协议流独占 stdout
-    server = StdioServer(name, title, version, tools, instructions, dispatch)
+    # 门禁只对**四件套**开（它们带着 `install` 规格）——主产品 wechat-mcp 有自己的分派与档位，
+    # 不经过这里，别去替它做主。
+    server = StdioServer(name, title, version, tools, instructions, dispatch,
+                         license_scope=(install or {}).get("product"))
     sys.stdout = sys.stderr
     log(name, f"started v{version} (python {sys.version.split()[0]})")
     log_env_status(name)

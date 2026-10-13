@@ -264,51 +264,112 @@ def cross_checks():
         f"total={page.get('total')} count={page.get('count')}（默认掐 200）")
 
 
+def issue_test_license(lic_dir):
+    """给探针签一张**本机、覆盖四件套、7 天**的授权 → `(license.json 路径 | None, 说明)`。
+
+    为什么要签：门禁之后未授权的 exe **一个工具都调不动**——不签的话整轮探针全是
+    `not_licensed`，等于什么都没验。用仓库外的私钥（`~/.wechat-mcp-keys/private.pem`）签，
+    只落到临时目录，**不碰用户真实的授权文件**。
+
+    私钥不在（比如 CI）→ 返回 None，调用方**明说跳过**并计数，不假装通过。
+    """
+    exe_path = exe("wechat-file-mcp")
+    try:
+        mid = subprocess.run([exe_path, "--machine-id"], capture_output=True, timeout=180)
+    except subprocess.TimeoutExpired:
+        return None, "--machine-id 超时"
+    fp = mid.stdout.decode("utf-8", "replace").strip()
+    if not fp.startswith("{"):
+        return None, f"--machine-id 没给出 JSON：{fp[:80]!r}"
+    key = os.path.join(os.path.expanduser("~"), ".wechat-mcp-keys", "private.pem")
+    if not os.path.isfile(key):
+        return None, f"本机没有签发私钥（{key}）——授权相关的断言本轮跳过"
+    out = os.path.join(lic_dir, "license.json")
+    signer = os.path.join(SHARED, "tools", "sign-license.py")
+    try:
+        r = subprocess.run(["uv", "run", "--no-project", "--with", "pycryptodome", "python",
+                            signer, "--fp", fp, "--scope", "wechat-toolkits", "--days", "7",
+                            "--out", out], capture_output=True, timeout=600)
+    except subprocess.TimeoutExpired:
+        return None, "签发超时"
+    if r.returncode != 0 or not os.path.isfile(out):
+        return None, (r.stderr or b"").decode("utf-8", "replace").strip()[:140]
+    return out, fp
+
+
 async def main():
     exp = tempfile.mkdtemp(prefix="toolkit_export_")
     arch = tempfile.mkdtemp(prefix="toolkit_arch_")
     rdb = tempfile.mkdtemp(prefix="toolkit_recall_")
+    lic_dir = tempfile.mkdtemp(prefix="toolkit_lic_")
+    empty_lic = tempfile.mkdtemp(prefix="toolkit_nolic_")
     renv = dict(os.environ, LUMII_WECHAT_RECALL_DB=os.path.join(rdb, "archive.db"))
+
+    # 授权要先签：门禁之后，未授权的 exe **一个工具都调不动**，不签整轮全是 not_licensed
+    lic, fp_or_why = issue_test_license(lic_dir)
+    rec("<授权>", "<签出测试授权>", bool(lic), fp_or_why[:110])
+    lenv = dict(os.environ, LUMII_WECHAT_LICENSE_DIR=lic_dir)
+    nolic_env = dict(os.environ, LUMII_WECHAT_LICENSE_DIR=empty_lic)
 
     for pkg in ("wechat-file-mcp", "wechat-export-mcp", "wechat-recall-mcp", "wechat-crm-mcp"):
         old = stale(pkg)
         rec(pkg[:-4], "<exe 未落后于源码>", not old, "exe 比源码旧——先重打包" if old else "ok")
-        # 安装开关必须被 `serve()` 拦下并**立即退出**。没拦的话它会被当成"没有参数"而进
-        # MCP 循环、挂在那儿等 stdin —— 这里就会超时。用只读的 --install-status 验，
+        # 安装/授权开关必须被 `serve()` 拦下并**立即退出**。没拦的话它会被当成"没有参数"
+        # 而进 MCP 循环、挂在那儿等 stdin —— 这里就会超时。用**只读**的开关验，
         # **不跑 --install**（那会真改用户的客户端配置，探针不该有这种副作用）。
         try:
             r = subprocess.run([exe(pkg), "--install-status"], capture_output=True, timeout=120)
             rec(pkg[:-4], "<--install-status 可用>", r.returncode == 0, f"exit={r.returncode}")
         except subprocess.TimeoutExpired:
             rec(pkg[:-4], "<--install-status 可用>", False, "超时——开关没被拦下，进了 MCP 循环")
+        # `--license-status`：已授权退出 0、未授权退出 1（脚本里好判）
+        try:
+            r = subprocess.run([exe(pkg), "--license-status"], capture_output=True, timeout=180,
+                               env=lenv)
+            rec(pkg[:-4], "<--license-status 已授权>", r.returncode == 0, f"exit={r.returncode}")
+        except subprocess.TimeoutExpired:
+            rec(pkg[:-4], "<--license-status 已授权>", False, "超时")
+
+    # **未授权必须被拦**。用空授权目录跑一次——验的是真 exe 的真门禁，不是本进程里的假件。
+    await run("wechat-file", exe("wechat-file-mcp"),
+              [("list_files", {})], env=nolic_env, label="wechat-file-未授权")
+    d = got(server="wechat-file-未授权", tool="list_files")
+    rec("wechat-file-未授权", "<工具被拒>", d.get("error_code") == "not_licensed",
+        f"error_code={d.get('error_code')}（不能给出数据，也不能是别的错）")
+    rec("wechat-file-未授权", "<拒绝里带了怎么办>",
+        bool(d.get("hint")) and "license" in str(d.get("license_path", "")),
+        f"hint={str(d.get('hint'))[:60]}…")
 
     # recall 断言建立在前置打底上（没打底 archive_gap 也报 0，会假绿）
-    subprocess.run([exe("wechat-recall-mcp"), "--once"], env=renv,
+    renv_lic = dict(renv, LUMII_WECHAT_LICENSE_DIR=lic_dir)
+    subprocess.run([exe("wechat-recall-mcp"), "--once"], env=renv_lic,
                    capture_output=True, timeout=300)
 
     await run("wechat-file", exe("wechat-file-mcp"),
               [("list_files", {"talker": USERNAME}),
                ("list_files", {"talker": DISPLAY_NAME}),
                ("list_files", {"talker": BOGUS}),
-               ("archive_files", {"out_dir": arch, "talker": DISPLAY_NAME, "dry_run": True})])
+               ("archive_files", {"out_dir": arch, "talker": DISPLAY_NAME, "dry_run": True})],
+              env=lenv)
     await run("wechat-export", exe("wechat-export-mcp"),
               [("list_sessions", {}),
                ("export_chat", {"talker": USERNAME, "out_dir": exp, "format": "md"}),
                ("export_chat", {"talker": DISPLAY_NAME, "out_dir": exp, "format": "md"}),
                ("export_chat", {"talker": BOGUS, "out_dir": exp, "format": "md"}),
-               ("export_chat", {"talker": USERNAME, "out_dir": exp, "media": "image"})])
+               ("export_chat", {"talker": USERNAME, "out_dir": exp, "media": "image"})],
+              env=lenv)
     await run("wechat-recall", exe("wechat-recall-mcp"),
               [("daemon_status", {}), ("list_recalls", {}), ("archive_gap", {}),
                ("list_recalls", {"talker": USERNAME}),
                ("list_recalls", {"talker": DISPLAY_NAME}),
-               ("list_recalls", {"talker": BOGUS})], env=renv)
+               ("list_recalls", {"talker": BOGUS})], env=renv_lic)
     await run("wechat-crm", exe("wechat-crm-mcp"),
               [("list_contacts", {"scope": "group"}),
                ("list_contacts", {"scope": "friend"}),
                ("contact_stats", {"talker": USERNAME}),
                ("contact_stats", {"talker": DISPLAY_NAME}),
                ("contact_stats", {"talker": BOGUS}),
-               ("interaction_rank", {"top": 5})])
+               ("interaction_rank", {"top": 5})], env=lenv)
 
     # 环境没就绪：指一个**不存在**的账号 → 读取层抛 EnvError → 必须翻成 `env_not_ready` + hint。
     # 本机微信正常运行着，这是唯一能**真造出**环境失败又不动用户环境的姿势

@@ -58,6 +58,28 @@ wechat-crm-mcp.exe --install
 
 技能包：[`skills/wechat-crm-mcp/SKILL.md`](skills/wechat-crm-mcp/SKILL.md)。
 
+## 授权
+
+**未授权时本服务不返回任何数据**：每次工具调用都返回
+`{"ok": false, "error_code": "not_licensed", ...}`，并把「授权文件该放哪、机器码怎么拿」写在
+`hint` 里。`initialize` 照常完成（连接是通的），**引导词里也会先写明**——这样你的 AI 能一句话
+说清要做什么，而不是看着一个连不上的服务器发懵。
+
+```powershell
+wechat-crm-mcp.exe --license-status   # 看状态（已授权退出 0，未授权退出 1）
+wechat-crm-mcp.exe --machine-id       # 打印本机机器码，发给签发方换授权
+```
+
+- 授权文件：`%USERPROFILE%\.lumii\wechat-toolkits\license.json`
+  （四个产品共用这一份；`--scope wechat-toolkits` 一份覆盖四个，单卖则签各产品自己的 id）。
+- 授权**绑定机器**（主板 / 磁盘 / 系统三项指纹，2/3 命中即通过），**到期日**与**防时钟回拨**
+  由与主产品同一套的 `licensing.py` 判。
+- **放好授权文件后不用重启**，下一次工具调用就生效。
+- 撤回防护的**守护进程也要求授权**：它守的是「持续留存」这个核心价值，不拦等于白送。
+
+> **隐私**：授权校验**全程离线**（只读本机文件 + 验签），不会把机器码或任何数据发出去。
+> `--machine-id` 只是**打印**，发不发由你决定。
+
 ## 典型场景
 
 **看看最近都在跟谁聊、谁很久没联系了**
