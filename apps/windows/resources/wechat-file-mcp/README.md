@@ -26,6 +26,20 @@ Windows x64 + Node 18+（或用独立 exe，不需要 Node/Python）：
 
 技能包（给别的 AI 客户端看的接入说明）：[`skills/wechat-file-mcp/SKILL.md`](skills/wechat-file-mcp/SKILL.md)。
 
+## 典型场景
+
+**把文件传输助手里的文件备份出来**
+
+1. 你问：「列一下文件传输助手里的文件，哪些已经下不动了？」
+   → AI 调 `list_files(talker="文件传输助手")`，回报条数、体积，以及 `missing`（过期/未下载）有几个。
+2. 你问：「能下的都归档到 `D:\wechat-backup`」
+   → AI 先调 `archive_files(out_dir="D:\\wechat-backup", talker="文件传输助手", dry_run=true)`，
+   把计划（将拷贝 N / 跳过 M / 过期 K）报给你确认——**这时候一个文件都还没落盘**。
+3. 你说「可以」→ AI 用 `dry_run=false` 真拷，回报落盘目录与文件数。
+
+**群文件过期预警**：问「我那些群里哪些文件已经过期了？」→ `list_files(only_missing=true)`。
+过期的**救不回来**（微信服务器上也没了），只能如实告诉用户——这正是要"趁早归档"的理由。
+
 ## 工具（2 个）
 
 | 工具 | 说明 |

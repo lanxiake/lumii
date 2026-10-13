@@ -25,6 +25,26 @@
 
 技能包：[`skills/wechat-export-mcp/SKILL.md`](skills/wechat-export-mcp/SKILL.md)。
 
+## 典型场景
+
+**把某个群/某个人的聊天记录导出成文件**
+
+1. 你问：「我和『两河10组村民群』的聊天记录导出来」
+   → 名字没把握时 AI 先 `list_sessions(query="两河")` 拿**确切**会话名（这一步是为了避免
+   `target_not_found`）。
+2. AI 调 `export_chat(talker="两河10组村民群", out_dir="D:\\导出", format="md")`。
+3. 要连图片：`media="images"`；连语音（转成 wav）：`media="all"`；
+   记录多到一个文件读不动：`split="month"` 按月拆。
+
+产出：
+
+```
+D:\导出\两河10组村民群\
+  chat.md              ← 正文（群聊标发送人）
+  assets\img_001.jpg   ← media=images/all
+  assets\voice_003.wav ← media=all
+```
+
 ## 工具（2 个）
 
 | 工具 | 说明 |

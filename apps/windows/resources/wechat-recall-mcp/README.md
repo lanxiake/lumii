@@ -36,6 +36,21 @@ wechat-recall-mcp.exe --uninstall-autostart
 
 技能包：[`skills/wechat-recall-mcp/SKILL.md`](skills/wechat-recall-mcp/SKILL.md)。
 
+## 典型场景
+
+**看别人撤回了什么**
+
+⚠️ **前提**：守护必须在撤回**发生之前**就已在跑。撤回后原文就从微信库里消失了，
+事后读库看不到任何东西——这是这套东西唯一"过了就没了"的地方。
+
+1. 先装自启（一次）：`wechat-recall-mcp.exe --install-autostart`
+2. 你问：「XX群 最近有人撤回消息吗？」
+   → AI 调 `list_recalls(talker="XX群")`，给被撤回的条目（时间 / 发送者 / 原文摘要）。
+3. 你问：「那条撤回的到底说了什么？」
+   → `read_recall(talker=..., local_id=...)` 取**完整原文**（含引用/图片/文件的元数据）。
+4. 你想确认它没偷懒：「守护在跑吗？有没有漏记的时段？」
+   → `daemon_status()`（`running` / `alive` / `gaps`）+ `archive_gap()`。
+
 ## 工具（4 个）
 
 | 工具 | 说明 |

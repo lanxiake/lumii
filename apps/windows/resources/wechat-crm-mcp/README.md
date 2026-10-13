@@ -26,6 +26,21 @@
 
 技能包：[`skills/wechat-crm-mcp/SKILL.md`](skills/wechat-crm-mcp/SKILL.md)。
 
+## 典型场景
+
+**看看最近都在跟谁聊、谁很久没联系了**
+
+1. 你问：「我最近跟谁聊得最多？」
+   → AI 调 `interaction_rank(top=20)`，给互动排行。
+2. 你问：「哪些人很久没联系了？」
+   → `interaction_rank(sort="recent")`，久未联系的在最前面。
+3. 你问：「我跟老王最近聊得怎么样？」
+   → `contact_stats(talker="老王")`：总条数 / 我发对方发 / 活跃时段 / 沉默天数。
+4. 你问：「这个群里都有谁？」→ `list_contacts(scope="room", room="XX群")`。
+
+**边界要说清**：这里只端上**确定性的清单与数字**——「这个客户意向高不高」由 AI 结合数字来判断，
+本服务**不下结论**。
+
 ## 工具（3 个）
 
 | 工具 | 说明 |

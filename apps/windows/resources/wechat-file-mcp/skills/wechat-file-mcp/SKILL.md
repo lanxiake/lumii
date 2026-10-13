@@ -29,6 +29,19 @@ claude mcp add wechat-file -s user -- "C:\完整路径\wechat-file-mcp.exe"
 `command` 必须是 **exe 的绝对路径**（单文件产物，不需要 Python 环境）。
 数据目录默认自动探测，探测失败时用 `env.LUMII_WECHAT_DB` 指定。
 
+## 0.5 环境要求与失败处置
+
+- **Windows + 微信 4.x 已登录并运行**。工具直读本机微信库，**不联网、不外传**。
+- 出错一律返回**同一形状**：`{"ok": false, "detail", "error_code", "stage", "suggestion"}`。
+  **看到 `ok: false` 就是没成功**，别把同一结果里别的字段当数据用。按 `error_code` 分派：
+  - `env_not_ready` —— 微信没就绪（没运行 / 找不到数据目录 / 密钥扫不到）。**不是用户参数的问题**：
+    把 `detail` + `hint` 里的动手步骤**原话转告用户**（通常是「先打开微信并登录、点开一个会话」），
+    **不要重试**。
+  - `target_not_found` —— 会话名没对上唯一目标。那是「名字没对上」，**不是**「没有数据」；
+    `candidates` 里是名字相近的会话，拿它向用户问清是哪一个，**别把 `count: 0` 讲给用户听**。
+  - `bad_args` —— 参数缺失或取值非法，按 `detail` 改正后重试。
+  - `internal_error` —— 工具内部出错（bug），此时 `isError=true`；把 `detail` 原话反馈，别自己绕。
+
 ## 1. 三条必须先接受的事实
 
 1. **文件可能已经过期**：微信服务器上的文件会过期，过期后本地磁盘没有、**任何工具都救不回来**。
