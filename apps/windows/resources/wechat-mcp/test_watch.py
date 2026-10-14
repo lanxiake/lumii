@@ -2347,6 +2347,61 @@ def suite_P():
         want = {x[4] for x in DATA}
         assert seen == want, "翻页丢了同秒消息：缺 %s" % sorted(want - seen)
     r.case("翻页边界那一秒要整秒给出（不能切在秒中间）", p1_same_second_at_page_edge)
+
+    def p2_search_range_pushed_into_sql():
+        """检索的时间范围要**下推**：否则查老时间段时扫描窗口被更新的消息占满 ⇒ 恒 0 条且不报错。"""
+        # 6 条：前 3 条是"新的"（ts=900+），后 3 条是"老的"（ts=100..102）
+        DATA = [(900 + i, 1, ("新%d" % i).encode(), "", 100 + i, None, None) for i in range(3)] + \
+               [(100 + i, 1, ("老%d" % i).encode(), "", 10 + i, None, None) for i in range(3)]
+
+        def fake(tbl, limit, since=0, before=0, at=0):
+            out = [x for x in DATA
+                   if (not since or x[0] > since) and (not before or x[0] < before)
+                   and (not at or x[0] == at)]
+            out.sort(key=lambda x: x[0], reverse=True)
+            return out[:limit]                       # 真 `_rows_full` 就是"取最新的 limit 条"
+
+        saved = {n: getattr(c, n) for n in ("_rows_full", "tbl_of", "names", "self_wxid", "talkers")}
+        c._rows_full = fake
+        c.tbl_of = lambda t: TBL
+        c.names = lambda: {}
+        c.self_wxid = lambda: "me"
+        c.talkers = lambda: [(TBL, TBL)]
+        try:
+            # scan=3：正好够装下老的这 3 条。旧码的窗口取的是"最新 3 条"（全是新的那些）⇒ 0 命中
+            got = c.search_messages("老", since=99, until=199, scan=3)
+        finally:
+            for n, v in saved.items():
+                setattr(c, n, v)
+        texts = [m["text"] for m in got["messages"]]
+        assert len(texts) == 3, "老时间段的命中被扫描窗口吃掉了：%s" % texts
+        assert all(t.startswith("老") for t in texts), texts
+    r.case("检索的时间范围要下推到 SQL（否则老时间段恒 0 命中）", p2_search_range_pushed_into_sql)
+
+    def p3_search_reports_truncation():
+        """撞上 `scan` 上限必须**如实上报**（多取一条来判断）——静默截断 = 把"没扫到"当成"没有"。"""
+        DATA = [(100 + i, 1, b"hi", "", i, None, None) for i in range(5)]
+
+        def fake(tbl, limit, since=0, before=0, at=0):
+            out = [x for x in DATA if (not at or x[0] == at)]
+            out.sort(key=lambda x: x[0], reverse=True)
+            return out[:limit]
+
+        saved = {n: getattr(c, n) for n in ("_rows_full", "tbl_of", "names", "self_wxid", "talkers")}
+        c._rows_full = fake
+        c.tbl_of = lambda t: TBL
+        c.names = lambda: {}
+        c.self_wxid = lambda: "me"
+        c.talkers = lambda: [(TBL, TBL)]
+        try:
+            cut = c.search_messages("hi", scan=2)
+            whole = c.search_messages("hi", scan=99)
+        finally:
+            for n, v in saved.items():
+                setattr(c, n, v)
+        assert cut.get("truncated") is True, "撞了上限却没报 truncated"
+        assert whole.get("truncated") is False, "没撞上限却报了 truncated"
+    r.case("检索撞上扫描上限要报 truncated", p3_search_reports_truncation)
     return r
 
 

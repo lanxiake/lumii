@@ -2108,29 +2108,37 @@ def search_messages(keyword, talker=None, since=0, until=0, limit=50, scan=3000)
     直接从行里丢掉（`for ct, lt, content, s, _lid, _src, *_`），于是"先搜到一条图片消息、
     再去取图"这条路是**死的**——Agent 手里只有一个 ts，而同秒多条只能靠 local_id 消歧。
     `source`/`packed` 一并带上：@我 与图片文件名本来就在这两列里，扔掉等于让命中成为二等公民。
+
+    返回里的 `truncated`：至少一个会话撞到了 `scan` 上限（多取一条来判断），**如实上报**——
+    "被上限截断"和"这段真没有"在 0 命中时长得一模一样，不报就等于让人把答案当事实。
     """
     _refresh()
     nm = names()
     me = self_wxid()
     pairs = [(talker, tbl_of(talker))] if talker else [(t, tbl) for tbl, t in talkers()]
     hits = []
+    trunc = False
     for t, tbl in pairs:
         try:
-            rows = _rows_full(tbl, scan)
+            # 时间范围**下推到 SQL**（2026-10-14 修）：原先取"最新 `scan` 条"再在内存里过滤，
+            # 于是查一个**老的时间段**时扫描窗口早被更新的消息占满 ⇒ 恒返回 0 条**而且不报错**
+            # ——"这段确实没有"和"根本没扫到"长得一模一样。下推后窗口落在**时间段内**。
+            # `since`/`before` 的取值口径与函数入口一致（都是严格大于 / 严格小于）。
+            rows = _rows_full(tbl, scan + 1, since=since, before=until)
         except Exception:
             continue
+        if len(rows) > scan:               # 多要一条只为**知道**被截断了（如实上报，不静默）
+            trunc = True
+            rows = rows[:scan]
         for ct, lt, content, s, lid, src, *rest in rows:
-            if since and ct <= since:
-                continue
-            if until and ct >= until:
-                continue
             # 搜**渲染后的文本**而不是原始 XML：这样「图片」「语音」「撤回」这些
             # 摘要词才搜得到，也避免命中 XML 属性里的随机十六进制（aeskey/md5 之类）。
             if keyword in _render(lt, content):
                 hits.append(msg_dict(ct, lt, content, nm, talker=t, name=nm.get(t, t), sender=s, me=me,
                                      local_id=lid, source=src, packed=(rest[0] if rest else None)))
     hits.sort(key=lambda d: d["ts"], reverse=True)
-    return {"keyword": keyword, "count": len(hits), "scanned_per_talker": scan, "messages": hits[:limit]}
+    return {"keyword": keyword, "count": len(hits), "scanned_per_talker": scan,
+            "truncated": trunc, "messages": hits[:limit]}
 
 
 def unread():

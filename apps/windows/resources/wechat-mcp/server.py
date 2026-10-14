@@ -919,10 +919,13 @@ TOOLS = [
          "required": ["talker", "quote", "text"]}},
     {"name": "search_messages",
      "description": ("【何时用】要在**用户本人微信**里按**关键词/时间**找旧消息时（「上周谁提过 X」「张三说过什么」）。"
-                     "【别用】渠道(Bot)会话。跨会话检索；给 talker 则只搜该会话。"),
+                     "【别用】渠道(Bot)会话。跨会话检索；给 talker 则只搜该会话。"
+                     "每个会话只扫最近 `scanned_per_talker` 条；结果里的 `truncated=true` 表示**有会话被这个上限截断、"
+                     "更老的还没扫**——那时别把 0 命中当成「没有」，缩小 `since/until` 再搜一次。"),
      "inputSchema": {"type": "object", "properties": {
          "keyword": {"type": "string"}, "talker": {"type": "string", "description": "可选：限定会话"},
-         "since": {"type": "integer", "description": "可选：Unix 秒下界"}, "until": {"type": "integer"},
+         "since": {"type": "integer", "description": "可选：Unix 秒下界（严格大于）"}, "until": {"type": "integer",
+                                                                                    "description": "可选：Unix 秒上界（严格小于）"},
          "limit": {"type": "integer"}}, "required": ["keyword"]}},
     {"name": "list_unread",
      "description": "【何时用】用户问「有哪些没回/没看」、要**批量处理未读**时（返回未读会话 + 最近一条预览）。【别用】渠道(Bot)。",
