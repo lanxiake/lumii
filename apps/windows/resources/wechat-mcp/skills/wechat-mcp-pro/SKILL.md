@@ -77,7 +77,7 @@ claude mcp add wechat-local -s user -- "{{EXE}}"
 | `list_sessions` | 列会话（拿 `talker`）。**别拿它当"有没有新消息"的判据** |
 | `read_history` | 读某个会话的最近 N 条（`cursor`+`before_ts` 可往更早翻，**翻页不丢消息**）。图片/语音/视频消息另带 `image_path`/`voice_path`/`video_path`（视频是客户端已下下来的明文 mp4，**要字节数对得上才给**，所以不是每条都有） |
 | `poll_new(since_ts)` | **增量**新消息。盯梢回路的核心 |
-| `search_messages` | 按关键词/时间找旧消息。命中都带 `local_id` ⇒ **能直接交给 `read_image`/`transcribe_voice`**（先搜后看图这条路是通的）。每个会话只扫最近 3000 条，`truncated: true` 就是**没扫全**（别把 0 命中当"没有"，缩小时间范围重搜） |
+| `search_messages` | 按关键词/时间找旧消息。命中都带 `local_id` ⇒ **能直接交给 `read_image`/`transcribe_voice`**（先搜后看图这条路是通的）。每个会话只扫最近 3000 条，`truncated: true` 就是**没扫全**（别把 0 命中当"没有"，缩小时间范围重搜）。视频命中带 `video_path`（只对**已下载到本机**的那些），用户说「找那段视频」搜到就能给 |
 | `list_unread` | 会话级的未读概览 |
 | `repair_env` | 窗口跑到畸形尺寸/收进托盘时一键规范化。⚠️ **没有 `dry_run`，调了就真动窗口** |
 

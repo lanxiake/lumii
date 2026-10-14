@@ -261,7 +261,7 @@ wechat-mcp.exe --expiry-status   # 看到期日与剩余天数（在有效期内
 | 🅿 `read_image(talker, local_id)` | 取一张图片消息的**内容**：返回 MCP **image 内容块**（内联 base64 位图），跨机/客户端读不到本地文件时用；随图返回 `variant`(hd/thumb) 与 `bytes` |
 | 🅿 `transcribe_voice(talker, local_id)` | **本地**把一条语音转成文字（SILK → Paraformer，音频不外传）。需模型就位，见 §6「语音转写（pro 版）」；较老的语音音频可能已被微信清掉，这时返回 `voice_unavailable` |
 | `poll_new(since_ts)` | 增量新消息（正序）。每条带 `from_me`/`sender`（自己发的也返回），群里 @ 了本人则带 `at_me: true`（按 `msgsource.atuserlist` 里的 wxid 判定，不看昵称）；返回 `next_since_ts` 供下一轮直接用（**别传墙上时钟的 now**，同秒会漏）。走增量快路径：只解密新增的 WAL 帧、只扫有变化的会话表 |
-| `search_messages(keyword, talker?, since?, until?)` | 关键词/时间检索（跨全部时间分片）。每条命中都带 `local_id`，**可以直接交给 `read_image` / `transcribe_voice`**（同一秒多条也只有它分得清）。`since`/`until` 是**严格**开区间；`truncated: true` = 有会话撞了单会话扫描上限（`scanned_per_talker`，更老的没扫）——别把 0 命中当成"没有"，缩小时间范围再搜 |
+| `search_messages(keyword, talker?, since?, until?)` | 关键词/时间检索（跨全部时间分片）。每条命中都带 `local_id`，**可以直接交给 `read_image` / `transcribe_voice`**（同一秒多条也只有它分得清）。`since`/`until` 是**严格**开区间；`truncated: true` = 有会话撞了单会话扫描上限（`scanned_per_talker`，更老的没扫）——别把 0 命中当成"没有"，缩小时间范围再搜。🅿 命中的视频消息带 `video_path`（同 `read_history`：只对**已下载到本机**的那些）——「找那段视频」搜完就能直接给 |
 | `list_unread()` | 未读会话 + 最近一条预览 |
 | `check_env()` | 自检：微信进程/窗口/最小化/前台/尺寸·DPI + 依赖(`deps`)、账号(`accounts`)、数据目录(`db_root`/`db_source`) |
 | `locate_db()` | 只读定位微信数据目录：返回 `root`/`source`（从哪找到的）/`accounts`（所有候选账号），换机排查用 |
