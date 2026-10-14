@@ -17,7 +17,7 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 RES = os.path.join(os.path.dirname(os.path.dirname(HERE)), "apps", "windows", "resources")
-for p in (os.path.join(RES, "wechat-mcp"), os.path.join(RES, "wechat-file-mcp")):
+for p in (os.path.join(RES, "wechat-mcp"), os.path.join(RES, "wechat-export-mcp")):
     sys.path.insert(0, p)
 
 import wechat_core as core                            # noqa: E402

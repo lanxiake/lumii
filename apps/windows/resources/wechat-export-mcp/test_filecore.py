@@ -79,7 +79,10 @@ def test_dest_path():
     used = set()
     rec = {"title": "a/b:c.pdf", "ext": "pdf", "name": "客户群", "talker": "x", "ts": 111}
     d1 = F._dest_path(r"D:\out", rec, "by_session", used)
-    assert d1 == os.path.join(r"D:\out", "客户群", "a_b_c.pdf"), d1
+    # `by_session` 必须与导出**同一棵树**（`<会话名>/files/`），且会话目录由 `session_subdir` 定
+    # ——这里对着那个函数断言，而不是对着字面量：谁单方面改了目录结构，这条就红。
+    assert os.path.dirname(d1) == os.path.join(F.E.session_subdir(r"D:\out", "客户群"), "files"), d1
+    assert d1.endswith("a_b_c.pdf"), d1
     # 同目录同名 → 加时间戳消歧
     d2 = F._dest_path(r"D:\out", rec, "by_session", used)
     assert "(111)" in d2, d2
@@ -118,7 +121,7 @@ def test_archive_never_overwrites(tmp):
     assert not F._conflict(new, new), "同一份不算冲突"
     assert F._conflict(old, new), "同名不同大小 = 冲突"
 
-    target = os.path.join(dest, "客户群", "a.pdf")
+    target = os.path.join(dest, "客户群", "files", "a.pdf")
     os.makedirs(os.path.dirname(target))
     with open(target, "wb") as f:
         f.write(b"x" * 100)                                    # 上次归档的那一版（100 字节）

@@ -4,6 +4,7 @@ import os
 import shutil
 import sys
 import tempfile
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -337,6 +338,108 @@ def test_real_media_by_display_name():
         shutil.rmtree(out, ignore_errors=True)
 
 
+def test_type_name():
+    """类型名**从渲染文本里取**，不另抄映射表——另抄一份的下场有先例（57 被标成"文件"）。"""
+    assert E.type_name({"type": 1, "text": "你好"}) == "文本"
+    assert E.type_name({"type": 3, "text": "[图片 12KB]"}) == "图片"
+    assert E.type_name({"type": 34, "text": "[语音 11.3 秒]"}) == "语音"
+    assert E.type_name({"type": 10000, "text": "你撤回了一条消息"}) == "系统"
+    assert E.type_name({"type": 999, "text": "没见过的形态"}) == "其它"
+    assert E.type_name({}) == "其它", "缺字段不该炸"
+    print("ok type_name")
+
+
+def test_stats_of():
+    """统计报表逐项对账（合成数据）。**时区无关**：期望值由 `localtime` 现算，不写死小时。"""
+    r = _recs()
+    s = E.stats_of(r, media_report={"image_exported": 1})
+    assert (s["count"], s["from_me"], s["from_other"]) == (2, 1, 1), s
+    assert list(s["by_month"]) == ["1970-01"] and s["by_month"]["1970-01"] == 2
+    h = time.localtime(r[0]["ts"]).tm_hour
+    assert s["by_hour"] == {f"{h:02d}": 2}, s["by_hour"]
+    assert sum(s["by_weekday"].values()) == 2 and set(s["by_weekday"]) == set("周一 周二 周三 周四 周五 周六 周日".split())
+    assert s["types"] == [{"type": "文本", "count": 2}], s["types"]
+    assert {t["sender"]: t["count"] for t in s["top_senders"]} == {"张三": 1, "我": 1}
+    assert s["busiest_days"] == [{"day": "1970-01-01", "count": 2}], s["busiest_days"]
+    assert s["active_days"] == 1 and s["first"] == r[0]["time"] and s["last"] == r[-1]["time"]
+    assert s["span_days"] == round((r[1]["ts"] - r[0]["ts"]) / 86400, 1)
+    assert s["media"]["image_exported"] == 1
+    assert E.stats_of([])["count"] == 0 and E.stats_of([])["by_hour"] == {}
+    # 嵌套报表要能铺成一层键值对（xlsx 的「统计」表靠它）
+    flat = E._flat({"a": {"b": 1}, "c": [{"d": 2}], "e": [1, 2]})
+    assert flat == {"a.b": 1, "c[0].d": 2, "e[0]": 1, "e[1]": 2}, flat
+    print("ok stats_of（报表逐项对账 + 铺平）")
+
+
+def test_keyword_hits():
+    """只导命中：大小写不敏感、附件名也算、超上限**保留最新的**并标 `truncated`。"""
+    r = [dict(x, text=x["text"]) for x in _recs()]
+    r[1]["file"] = {"title": "发票-9月.pdf"}
+    assert E.keyword_hits(r, "")[0] is r, "不给关键词 = 原样返回"
+    assert len(E.keyword_hits(r, "吃饭")[0]) == 1
+    assert len(E.keyword_hits(r, "发票")[0]) == 1, "附件名里的词也要搜得到"
+    assert len(E.keyword_hits(r, "PDF")[0]) == 1, "英文大小写不敏感"
+    assert E.keyword_hits(r, "吃饭", limit=1) == ([r[0]], False)
+    many = [dict(x, ts=i, text="命中") for i, x in enumerate(_recs() * 3)]
+    got, trunc = E.keyword_hits(many, "命中", limit=2)
+    assert trunc is True and [x["ts"] for x in got] == [4, 5], "截断要保留**最新**的那几条"
+    print("ok keyword_hits（命中/截断/保留最新）")
+
+
+def test_session_subdir():
+    """目录结构只有一处定义，这里对着它验收（关键词带一层 `q-`，且长词要截断）。"""
+    root = os.path.join(os.sep, "tmp", "导出")
+    assert E.session_subdir(root, "张三") == os.path.join(root, "张三")
+    assert E.session_subdir(root, "张三", "发票").endswith(os.path.join("张三", "q-发票"))
+    last = E.session_subdir(root, "a/b", "c:d").split(os.sep)[-2:]
+    assert last == ["a_b", "q-c_d"], last
+    assert len(E.session_subdir(root, "n", "长" * 200).split(os.sep)[-1]) == 42, "长关键词要截断到 40 字"
+    assert E.session_subdir(root, "张三", "   ") == os.path.join(root, "张三"), "空白关键词 = 没有关键词"
+    print("ok session_subdir")
+
+
+def test_analysis_formats(tmp):
+    """分析向导出：`json` / `md` 都带 `stats`，且 `stats.json` **不挑格式**都落得下来。"""
+    data = {"name": "客户群", "talker": "wxid_x"}
+    recs = _recs()
+    out = tempfile.mkdtemp(dir=tmp, prefix="analysis_")
+    E._write_session(out, data, recs, "json", 0, 0, E.MEDIA_NONE, False, "none", E._INLINE_BUDGET_MB)
+    sdir = os.path.join(out, "客户群")
+    js = json.load(open(os.path.join(sdir, "chat.json"), encoding="utf-8"))
+    assert js["stats"]["count"] == 2, js["stats"]
+    assert json.load(open(os.path.join(sdir, "stats.json"), encoding="utf-8"))["count"] == 2
+    md = E._write_session(out, data, recs, "md", 0, 0, E.MEDIA_NONE, False, "none", E._INLINE_BUDGET_MB)
+    assert "## 统计报表" in open(os.path.join(sdir, "chat.md"), encoding="utf-8").read()
+    assert md["stats"]["session"] == "客户群" and os.path.isdir(md["dir"])
+    assert "xlsx" not in E._FORMATS, "xlsx 已撤（给分析用走 json），别留半条路"
+    print("ok analysis_formats（json 带 stats / md 有报表 / stats.json 都落）")
+
+
+def test_docs_list_all_formats():
+    """**文档漂移守卫**：`server.TOOLS` 里每个工具、每个 `format` 取值，README 与技能包都得提到。
+
+    为什么值得一条：这一版并进了文件面（`list_files` / `archive_files` / `disk_usage`）。
+    README/技能包**不会因为代码改了而报错**——它只会静静地少讲一个工具，谁都不发现，
+    直到有用户来问"你到底能不能收文件"。
+    """
+    import importlib.util
+    root = os.path.dirname(os.path.abspath(__file__))
+    # 按**文件路径**加载，别写 `import server`：共享层的 sys.path 排在前面，那句会拿到
+    # `../wechat-mcp/server.py`（另一个产品），于是断言看着跑过了、其实测的是别人。
+    spec = importlib.util.spec_from_file_location("exp_server", os.path.join(root, "server.py"))
+    srv = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(srv)
+    assert srv.SERVER_NAME == "wechat-export", srv.SERVER_NAME
+    want = [t["name"] for t in srv.TOOLS] + list(srv.FORMATS)
+    for label, p in (("README.md", os.path.join(root, "README.md")),
+                     ("skills/wechat-export-mcp/SKILL.md",
+                      os.path.join(root, "skills", "wechat-export-mcp", "SKILL.md"))):
+        txt = open(p, encoding="utf-8").read()
+        missing = [w for w in want if w not in txt]
+        assert not missing, f"{label} 没提到：{missing}"
+    print(f"ok 文档对账：{len(srv.TOOLS)} 个工具 + {len(srv.FORMATS)} 种格式都在 README 与技能包里")
+
+
 def test_real_smoke():
     """真机只读冒烟（无微信库时跳过，不算失败）：导出最近一个会话的最近 30 条成 md。"""
     try:
@@ -379,6 +482,12 @@ if __name__ == "__main__":
         test_html_day_nav()
         test_file_attachment(_t)
         test_args_are_validated()
+        test_type_name()
+        test_stats_of()
+        test_keyword_hits()
+        test_session_subdir()
+        test_analysis_formats(_t)
+        test_docs_list_all_formats()
         test_real_display_name_talker()
         test_real_media_by_display_name()
         test_real_smoke()

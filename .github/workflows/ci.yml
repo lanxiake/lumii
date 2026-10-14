@@ -136,10 +136,11 @@ jobs:
       # 源码运行走的是"不判到期"那条路，在源码里跑一遍证明不了任何事。门禁的失败模式
       # 全是静默放行（取不到到期时刻就当 0），所以这层必须显式覆盖。
       - run: python apps/windows/resources/wechat-mcp/test_expiry.py
-      # wechat-file-mcp（文件归档，独立小工具）：纯函数单测（解析/磁盘映射/归档路径）
-      # + 真机只读冒烟（CI 无微信库时自己跳过，不会假绿）。
-      - run: python apps/windows/resources/wechat-file-mcp/test_filecore.py
-      # wechat-export-mcp（记录导出）：渲染/转义/代发标记/格式 纯函数测 + 真机只读导出冒烟（无库时跳过）。
+      # wechat-export-mcp（记录导出 + 文件归档，**一个产品两个面**）：
+      #   记录面——渲染/转义/代发标记/格式 纯函数测 + 统计报表/关键词筛选/文档对账 + 真机只读导出冒烟；
+      #   文件面——解析/磁盘映射/归档路径（含"与导出同一棵树"）+ 占用分账 + 真机只读冒烟。
+      # 两条 CI 无微信库时自己跳过，不会假绿。
+      - run: python apps/windows/resources/wechat-export-mcp/test_filecore.py
       - run: python apps/windows/resources/wechat-export-mcp/test_exportcore.py
       # wechat-recall-mcp（撤回防护）：用**合成库**验撤回判定（删行/原地改写两种机制、
       # 假阳性防护、归档永不覆盖）+ 真机只读打底冒烟（无库时跳过）。

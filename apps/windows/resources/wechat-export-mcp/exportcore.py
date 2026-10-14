@@ -28,12 +28,26 @@ _SPLIT = ("none", "month")
 _WIN_BAD = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 _BIG = 10 ** 9
 
+# 全库检索时**允许跳过**的失败：这几个只说明"这一个会话读不动"，不是代码错了。
+# 别的异常一律往上抛——踩过的坑正是"`except Exception` 把逻辑错误（读错了元组顺序）
+# 一起吞掉"，于是全库搜恒返回"命中 0 个"、不报错、看着像个正常结果。
+E_SKIP = (core.UnknownTalker, OSError, sqlite3.Error)
+
 # 自包含 HTML 的内嵌预算（`inline_max_mb=0` = 不限）。**实测**（2026-10-14，探针
 # `verify/wechat-mcp/probe_html_size.py`）：一个 500 条带图的会话，原图 30 MB ⇒ base64 后
 # 40 MB；同样的会话只出文字是 17 KB。也就是说体积**全在图上**，按同一比例，5000 条就是 400 MB
 # 的单文件——浏览器扛不住，也没法发出去。所以给上限：超了**退回落盘**（东西一样不少），
 # 在页首和返回里如实说明"这份不再自包含"。
 _INLINE_BUDGET_MB = 20
+
+# 全库检索导出时最多导出多少个会话（按命中条数从多到少取）。不给上限的话，
+# 一个"你"字能在几十个会话里命中，导出目录直接爆掉；砍掉多少**如实报**（`sessions_skipped`）。
+_MAX_SESSIONS = 20
+
+# 按关键词导出时**每个会话**默认最多导多少条命中。给默认值是刻意的：不给上限的话，
+# 拿"你"这种词搜出来的量级是几万条、写出来是几百 MB 的文件——用户没预期、也打不开。
+# 撞上限会置 `truncated`，如实说。`limit=0` = 不限（调用方明确要求时才这么用）。
+_SCAN_LIMIT = 500
 
 
 def bad_args(args):
@@ -44,12 +58,16 @@ def bad_args(args):
     `format` 更隐蔽：悄悄退回 md，返回里看着一切正常。
     """
     bad = [f"{k}={args[k]!r}（可选 {list(ok)}）"
-           for k, ok in (("format", tuple(_RENDER)), ("media", _MEDIA), ("split", _SPLIT))
+           for k, ok in (("format", _FORMATS), ("media", _MEDIA), ("split", _SPLIT))
            if args.get(k) and args[k] not in ok]
     mb = args.get("inline_max_mb")
     # `True` 也是 int，别放过去当 1 MB
     if mb is not None and (isinstance(mb, bool) or not isinstance(mb, (int, float)) or mb < 0):
         bad.append(f"inline_max_mb={mb!r}（非负数字，0 = 不限）")
+    for k in ("limit", "max_sessions"):     # 负数会变成"从尾部切""取前 -3 个"这种怪语义
+        v = args.get(k)
+        if v is not None and (isinstance(v, bool) or not isinstance(v, int) or v < 0):
+            bad.append(f"{k}={v!r}（非负整数）")
     return bad
 
 
@@ -156,6 +174,110 @@ def build_records(talker, since=0, until=0):
             "forward": forward_of(lt, content), "file": file_of(lt, content),
         })
     return {"name": names.get(talker, talker), "talker": talker, "records": out}
+
+
+def type_name(rec):
+    """消息类型的中文名。**从渲染文本里取**，不另抄一份 `local_type` 映射表。
+
+    另抄一份的下场有先例：57（引用）被标成"文件"，而且谁都看不出来。
+    `[图片 12KB]` → `图片` 就是这个道理——`describe_nontext` 已经把类型写进那对方括号里了。
+
+    `ponytail:` 这段和 C 侧 `wechat-crm-mcp/chatlog.py:type_label` 是同构的两份。**不合并**：
+    两个产品各自打成独立的 onefile，共用就得上抬到共享层 `wechat_core`——为一个纯映射表
+    改共享层（要重跑全部 16 个测试文件）不划算。
+    """
+    lt = rec.get("type") or 0
+    text = rec.get("text") or ""
+    if lt == 1:
+        return "文本"
+    if lt in (10000, 10002):
+        return "系统"
+    if text.startswith("["):
+        end = text.find("]")
+        if 0 < end <= 12:
+            return text[1:end].split(" ")[0]
+    return "其它"
+
+
+def stats_of(records, media_report=None, busiest=10):
+    """统计报表（**纯计数，不下结论**）。
+
+    只出"数得出来的东西"：条数 / 双方占比 / 按月 / 按小时 / 按星期 / 类型 / 发言人 / 首末与跨度。
+    **不做**意向打分、情绪、画像——那是划死的红线（和 C 侧 `customer_brief` 同一条）。
+    报表存在的意义是让模型**先看形状再看原文**，不必把几千条消息全塞进上下文。
+    """
+    n = len(records)
+    me = sum(1 for r in records if r.get("from_me"))
+    by_month, by_day, types, senders = {}, {}, {}, {}
+    hours = [0] * 24
+    week = [0] * 7
+    for r in records:
+        lt = time.localtime(int(r.get("ts") or 0))
+        hours[lt.tm_hour] += 1
+        week[lt.tm_wday] += 1
+        m = r.get("month") or ""
+        by_month[m] = by_month.get(m, 0) + 1
+        d = (r.get("time") or "")[:10]
+        by_day[d] = by_day.get(d, 0) + 1
+        t = type_name(r)
+        types[t] = types.get(t, 0) + 1
+        s = r.get("sender") or "(未知)"
+        senders[s] = senders.get(s, 0) + 1
+    ts = [int(r.get("ts") or 0) for r in records] or [0]
+    return {
+        "count": n, "from_me": me, "from_other": n - me,
+        "first": records[0]["time"] if n else "", "last": records[-1]["time"] if n else "",
+        "span_days": round((max(ts) - min(ts)) / 86400, 1) if n else 0.0,
+        "active_days": len(by_day),
+        # 小时键补零成两位：字典序 = 时间序，喂给模型和铺进表格都不会乱序
+        "by_hour": {f"{h:02d}": c for h, c in enumerate(hours) if c},
+        "by_weekday": {"周" + "一二三四五六日"[i]: c for i, c in enumerate(week)},
+        "by_month": dict(sorted(by_month.items())),
+        # 逐日全量序列太长（三年的会话上千行），只给"最忙的几天"与活跃天数
+        "busiest_days": [{"day": d, "count": c} for d, c in
+                         sorted(by_day.items(), key=lambda kv: -kv[1])[:busiest]],
+        "types": [{"type": k, "count": v} for k, v in sorted(types.items(), key=lambda kv: -kv[1])],
+        "top_senders": [{"sender": k, "count": v} for k, v in
+                        sorted(senders.items(), key=lambda kv: -kv[1])[:15]],
+        "media": media_report,
+    }
+
+
+def _flat(d, prefix=""):
+    """嵌套报表 → 一层键值对（铺进 xlsx 的「统计」表时不能有嵌套）。"""
+    out = {}
+    for k, v in (d or {}).items():
+        if isinstance(v, dict):
+            out.update(_flat(v, f"{prefix}{k}."))
+        elif isinstance(v, list):
+            for i, x in enumerate(v):
+                if isinstance(x, dict):
+                    out.update(_flat(x, f"{prefix}{k}[{i}]."))
+                else:
+                    out[f"{prefix}{k}[{i}]"] = x
+        else:
+            out[prefix + k] = v
+    return out
+
+
+def keyword_hits(records, keyword, limit=0):
+    """按关键词挑出命中记录 → `(命中的记录, 是否被 limit 截断)`。
+
+    匹配的是**渲染后的正文**（`render_text` 的产物，保留换行）加**附件文件名**——
+    于是「图片」「语音」这类摘要词、和"那份叫 XX 的 pdf"都搜得到，和核心层
+    `search_messages` 的口径一致。
+
+    命中过多时保留**最新的** `limit` 条（记录是时间正序），并把截断**如实上报**：
+    "就这么多"和"被上限切了"在结果里长得一模一样，不报就是让人把答案当事实。
+    """
+    kw = (keyword or "").strip().lower()
+    if not kw:
+        return records, False
+    out = [r for r in records
+           if kw in ((r.get("text") or "") + "\n" + ((r.get("file") or {}).get("title") or "")).lower()]
+    if limit and len(out) > limit:
+        return out[-int(limit):], True
+    return out, False
 
 
 def _rel(dest, base):
@@ -393,15 +515,36 @@ def _md_block(rec, asset_prefix=""):
     return "\n".join(lines)
 
 
-def _md(title, records, since, until, asset_prefix=""):
+def _stats_table(stats):
+    """统计报表的 markdown 表（放正文最前面）。**都是计数**，没有一句判断。"""
+    if not stats or not stats["count"]:
+        return ""
+    s = stats
+    rows = [
+        ("条数", f"{s['count']}（我 {s['from_me']} / 对方 {s['from_other']}）"),
+        ("时间范围", f"{s['first']} ~ {s['last']}（跨 {s['span_days']} 天，有消息的 {s['active_days']} 天）"),
+        ("类型", "、".join(f"{t['type']} {t['count']}" for t in s["types"])),
+        ("发言人", "、".join(f"{t['sender']} {t['count']}" for t in s["top_senders"][:5])),
+        ("按月", "、".join(f"{k} {v}" for k, v in s["by_month"].items())),
+        ("按小时", "、".join(f"{k}时 {v}" for k, v in s["by_hour"].items())),
+        ("按星期", "、".join(f"{k} {v}" for k, v in s["by_weekday"].items())),
+        ("最忙的几天", "、".join(f"{d['day']} {d['count']}" for d in s["busiest_days"][:5])),
+    ]
+    if s.get("media"):
+        rows.append(("媒体账", "、".join(f"{k} {v}" for k, v in _flat(s["media"]).items())))
+    body = "\n".join(f"| {k} | {v} |" for k, v in rows if v)
+    return f"## 统计报表\n\n| 项 | 值 |\n|---|---|\n{body}\n\n---\n"
+
+
+def _md(title, records, since, until, asset_prefix="", stats=None):
     span = f"{_clock(since)} ~ {_clock(until)}" if since and until else "全部"
     head = [f"# 与「{title}」的聊天记录", "",
             f"> 导出时间：{_clock(time.time())} ｜ 共 {len(records)} 条 ｜ 时间范围：{span}", "",
-            "---", ""]
+            _stats_table(stats), "---", ""]
     return "\n".join(head) + "\n" + "\n".join(_md_block(r, asset_prefix) for r in records)
 
 
-def _html(title, records, since, until, asset_prefix="", note=""):
+def _html(title, records, since, until, asset_prefix="", note="", stats=None):
     def esc(s):
         return html.escape(s or "").replace("\n", "<br>")
 
@@ -440,6 +583,16 @@ def _html(title, records, since, until, asset_prefix="", note=""):
     nav = ("" if len(toc) < 2 else
            '<nav class="toc">' + "".join(f'<a href="#{a}">{esc(d)}</a>' for d, a in toc) + "</nav>")
     warn = f'<div class="warn">{esc(note)}</div>' if note else ""
+    stat = ""                                          # 报表：只放计数，且默认折叠起来不挤正文
+    if stats and stats["count"]:
+        items = "".join(f"<div><b>{esc(k)}</b>：{esc(v)}</div>" for k, v in (
+            ("条数", f"{stats['count']}（我 {stats['from_me']} / 对方 {stats['from_other']}）"),
+            ("时间范围", f"{stats['first']} ~ {stats['last']}（{stats['active_days']} 天有消息）"),
+            ("类型", "、".join(f"{t['type']} {t['count']}" for t in stats["types"])),
+            ("按小时", "、".join(f"{k}时 {v}" for k, v in stats["by_hour"].items())),
+            ("按月", "、".join(f"{k} {v}" for k, v in stats["by_month"].items())),
+        ))
+        stat = f'<details class="stats"><summary>统计报表</summary>{items}</details>'
     return f"""<!doctype html><html lang="zh"><meta charset="utf-8">
 <title>与「{html.escape(title)}」的聊天记录</title>
 <style>
@@ -458,46 +611,64 @@ audio{{margin-top:6px;max-width:100%}} .vt{{font-size:13px;color:#555;margin-top
 .toc{{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:20px}}
 .toc a{{font-size:12px;color:#576b95;background:#fff;border-radius:10px;padding:2px 8px;text-decoration:none}}
 .fl{{margin-top:6px;font-size:13px}} .fl a{{color:#576b95}}
+.stats{{background:#fff;border-radius:8px;padding:8px 12px;font-size:13px;margin-bottom:16px;color:#555}}
+.stats summary{{cursor:pointer;color:#576b95}}
+.stats div{{margin-top:4px}}
 .warn{{background:#fff7e6;border:1px solid #ffe0a3;color:#8a5a00;border-radius:8px;padding:8px 12px;font-size:13px;margin-bottom:16px}}
 </style>
 <h1>与「{html.escape(title)}」的聊天记录</h1>
 <div class="sub">导出时间：{_clock(time.time())} ｜ 共 {len(records)} 条 ｜ 时间范围：{span}</div>
-{warn}{nav}
+{warn}{stat}{nav}
 {''.join(rows)}
 </html>"""
 
 
-def _json(title, records, since, until):
+def _json(title, records, since, until, stats=None):
     return json.dumps({"title": title, "exported_at": int(time.time()),
                        "since": since, "until": until, "count": len(records),
-                       "messages": records}, ensure_ascii=False, indent=2)
+                       "stats": stats, "messages": records}, ensure_ascii=False, indent=2)
 
 
-_RENDER = {"md": _md, "html": _html, "json": lambda t, r, s, u, p="": _json(t, r, s, u)}
+# 三种格式都是文本，一张表就够。合法值只有一份来源（`_FORMATS`），
+# 工具 schema 与参数校验都读它——别在这里再抄一遍，也别在 server 里再抄一遍。
+_RENDER = {"md": _md, "html": _html, "json": _json}
+_FORMATS = tuple(_RENDER)
 
 
-def export_chat(talker, out_dir, format="md", since=0, until=0, media=MEDIA_NONE,
-                transcribe_voice=False, split="none", inline_max_mb=_INLINE_BUDGET_MB):
-    """导出单个会话。返回 `{out_dir, session, messages, files_written, bytes, media_report}`。
+def session_subdir(out_dir, name, query=""):
+    """会话（+可选检索词）→ 导出子目录。**目录结构只在这一个地方定**。
 
-    `split="month"` 时按月拆成子目录（每段一份文件），防单文件过大。
+    ```
+    <out_dir>/<会话名>/                     split=none
+    <out_dir>/<会话名>/<YYYY-MM>/           split=month
+    <out_dir>/<会话名>/q-<关键词>/          按关键词导出（再叠 split 就在它下面）
+    ```
+
+    为什么检索结果单开一层 `q-<关键词>/`：同一个会话搜三次是**日常用法**，都写在
+    `<会话名>/chat.md` 会让后一次**静默盖掉**前一次。目录里带检索词，导完自己就说清了
+    "这份是什么"。关键词净化后截断到 40 字符——长句子当目录名会撞路径长度上限。
+    """
+    base = os.path.join(out_dir, _safe(name))
+    if (query or "").strip():
+        base = os.path.join(base, "q-" + _safe(query.strip())[:40])
+    return base
+
+
+def _write_session(out_dir, data, records, fmt, since, until, media, transcribe_voice,
+                   split, inline_max_mb, query="", report=None):
+    """把一个会话（已切成要导的那部分）写盘。返回本会话的结果 dict。
 
     **html + media ⇒ 媒体内嵌成 data URI（自包含）**：一个文件就能发给别人、换台机器也不掉图。
-    md 与 json 仍旧把媒体放 `assets/`（md 里塞 base64 没人要）。超过 `inline_max_mb` 的部分
+    md/json 把媒体放 `assets/`（正文里塞 base64 没人要）。超过 `inline_max_mb` 的部分
     **退回落盘**并如实报告（`media_report.inline_fallback`），页首也会写明"这份不再自包含"。
     """
-    fmt = format if format in _RENDER else "md"
-    # 进度：跨全部分片读消息 + 逐条解密图片/解码语音，大会话要跑几十秒。
-    # 单调性由 mcp_stdio.progress 兜底，这里不必自己维护递增序列。
-    mcp_stdio.progress("正在读取会话记录（跨全部分片）…")
-    data = build_records(talker, since, until)
-    records = data["records"]
     mcp_stdio.progress(f"读到 {len(records)} 条消息，开始写文件")
-    session_dir = os.path.join(out_dir, _safe(data["name"]))
-    report = {"image_exported": 0, "image_missing": 0, "image_no_key": 0,
-              "inline_bytes": 0, "inline_fallback": 0,
-              "voice_exported": 0, "voice_missing": 0, "transcribe_failed": 0,
-              "file_exported": 0, "file_missing": 0, "file_mismatch": 0, "file_dup": 0}
+    session_dir = session_subdir(out_dir, data["name"], query)
+    report = report if report is not None else {
+        "image_exported": 0, "image_missing": 0, "image_no_key": 0,
+        "inline_bytes": 0, "inline_fallback": 0,
+        "voice_exported": 0, "voice_missing": 0, "transcribe_failed": 0,
+        "file_exported": 0, "file_missing": 0, "file_mismatch": 0, "file_dup": 0}
     inline = fmt == "html" and media != MEDIA_NONE
     budget = int((inline_max_mb or 0) * 1024 * 1024)
 
@@ -526,10 +697,14 @@ def export_chat(talker, out_dir, format="md", since=0, until=0, media=MEDIA_NONE
         if report["file_exported"]:
             note += (f"本会话还收了 {report['file_exported']} 个文件附件在 files/ 目录，"
                      f"它们不内嵌——要一起发出去请连该目录一起打包。")
-        body = _RENDER[fmt](data["name"], recs, since, until,
-                            **({"note": note} if fmt == "html" else {}))
+        # 报表**在本组自己的记录上算**：split=month 时每份文件讲的是它那个月，不是全年
+        stats = stats_of(recs, report)
         path = os.path.join(base, f"chat.{fmt}")
         tmp = path + ".tmp"
+        kw = {"stats": stats}                           # 报表进每一份正文：md 是一张表，json 是一个字段
+        if fmt == "html":
+            kw["note"] = note
+        body = _RENDER[fmt](data["name"], recs, since, until, **kw)
         with open(tmp, "w", encoding="utf-8") as f:
             f.write(body)
         os.replace(tmp, path)
@@ -545,6 +720,118 @@ def export_chat(talker, out_dir, format="md", since=0, until=0, media=MEDIA_NONE
                 except OSError:
                     pass
 
-    return {"out_dir": os.path.abspath(out_dir), "session": data["name"], "format": fmt,
-            "split": split, "messages": len(records), "files_written": written,
-            "bytes": total_bytes, "media": media, "inline": inline, "media_report": report}
+    # 报表另落一份 `stats.json`：**不管什么格式都在**。md/html 里的报表是给人扫一眼的，
+    # 而"要拿去分析的报表"得有个不依赖格式的机读落点——喂模型、喂脚本都直接读它。
+    out_stats = {**stats_of(records, report), "session": data["name"],
+                 "talker": data["talker"], "since": since, "until": until,
+                 "query": (query or ""), "format": fmt, "exported_at": int(time.time())}
+    sp = os.path.join(session_dir, "stats.json")
+    stmp = sp + ".tmp"
+    with open(stmp, "w", encoding="utf-8") as f:
+        f.write(json.dumps(out_stats, ensure_ascii=False, indent=2))
+    os.replace(stmp, sp)
+
+    return {"dir": session_dir, "session": data["name"], "format": fmt, "split": split,
+            "messages": len(records), "files_written": written, "bytes": total_bytes,
+            "media": media, "inline": inline, "media_report": report, "stats": out_stats}
+
+
+def export_chat(talker, out_dir, format="md", since=0, until=0, media=MEDIA_NONE,
+                transcribe_voice=False, split="none", inline_max_mb=_INLINE_BUDGET_MB,
+                keyword="", limit=0):
+    """导出**单个会话**。返回 `{out_dir, session, messages, stats, files_written, bytes, media_report}`。
+
+    `split="month"` 时按月拆成子目录（每段一份文件），防单文件过大。
+
+    `keyword` 非空时**只导出命中的那些消息**（正文 + 附件名匹配），命中超过 `limit` 条
+    就保留最新的 `limit` 条并置 `truncated`（记录永远时间正序）。
+    """
+    fmt = format if format in _FORMATS else "md"
+    # 进度：跨全部分片读消息 + 逐条解密图片/解码语音，大会话要跑几十秒。
+    # 单调性由 mcp_stdio.progress 兜底，这里不必自己维护递增序列。
+    mcp_stdio.progress("正在读取会话记录（跨全部分片）…")
+    data = build_records(talker, since, until)
+    records, trunc = keyword_hits(data["records"], keyword, limit)
+    res = _write_session(out_dir, data, records, fmt, since, until, media, transcribe_voice,
+                         split, inline_max_mb, query=keyword)
+    res.update({"out_dir": os.path.abspath(out_dir), "keyword": keyword or "",
+                "truncated": trunc, "scanned": len(data["records"])})
+    return res
+
+
+def export_many(out_dir, keyword, format="md", since=0, until=0, media=MEDIA_NONE,
+                transcribe_voice=False, split="none", inline_max_mb=_INLINE_BUDGET_MB,
+                limit=0, max_sessions=_MAX_SESSIONS):
+    """按关键词在**全部会话**里搜，只导出命中的部分——每个命中的会话一个子目录。
+
+    `talker` 不给就是这条路（"帮我全库找一下提到 X 的记录"）。两个刻意的取舍：
+
+    - **先扫完再排序**：命中的会话按命中条数从多到少导，于是 `max_sessions` 砍掉的是尾巴
+      而不是"恰好排在字典序前面的那 20 个"。命中的记录本来就在手上（每会话 ≤ `limit` 条），
+      不重扫第二遍。
+    - **零命中的会话不留空目录**：全库 200 个会话里只 3 个命中，就不该在导出目录里
+      撒 200 个空文件夹。
+    """
+    kw = (keyword or "").strip()
+    if not kw:
+        raise ValueError("keyword 必填（不给 talker 时只能按关键词搜）")
+    core._refresh()
+    # ⚠️ `talkers()` 给的是 `(表名, talker)`——**反了**。曾经按反序取，于是每个会话都抛
+    # `UnknownTalker`，而下面那个 `except` 把它们**全吞了**：全库搜恒返回"命中 0 个"、
+    # 不报错、看着像个正常结果。（实测 72 个会话命中 0，而单会话搜同一个词命中 12。）
+    pairs = list(core.talkers())
+    matched, failed = [], 0
+    for i, (_tbl, t) in enumerate(pairs, 1):
+        mcp_stdio.progress(f"检索会话 {i}/{len(pairs)}", total=len(pairs), n=i)
+        try:
+            data = build_records(t, since, until)
+        except E_SKIP as e:                             # 单个会话读不动（表损坏等）不该拖垮全库，
+            failed += 1                                 # 但**必须计数**——静默跳过就是上面那个坑
+            if failed <= 3:
+                mcp_stdio.progress(f"跳过 {t}：{e}")
+            continue
+        recs, trunc = keyword_hits(data["records"], kw, limit)
+        if recs:
+            matched.append((data, recs, trunc))
+    matched.sort(key=lambda x: -len(x[1]))
+    results, skipped = [], 0
+    for data, recs, trunc in matched:
+        if len(results) >= int(max_sessions or _MAX_SESSIONS):
+            skipped += 1
+            continue
+        mcp_stdio.progress(f"导出 {data['name']}（{len(recs)} 条）")
+        try:
+            r = _write_session(out_dir, data, recs, format if format in _FORMATS else "md",
+                               since, until, media, transcribe_voice, split, inline_max_mb, query=kw)
+        except OSError:
+            continue
+        r.update({"truncated": trunc, "scanned": len(data["records"])})
+        results.append(r)
+    index = _write_index(out_dir, results, kw, since, until) if len(results) > 1 else None
+    for r in results:                                   # 每份 stats 都已落盘，返回里别重复塞两遍
+        r.pop("stats", None)
+    return {"out_dir": os.path.abspath(out_dir), "keyword": kw, "format": format,
+            "sessions_scanned": len(pairs), "sessions_failed": failed,
+            "sessions_matched": len(matched),
+            "sessions_exported": len(results), "sessions_skipped": skipped,
+            "index": index, "results": results}
+
+
+def _write_index(out_dir, results, keyword, since, until):
+    """多会话导出时在根上留一份清单（会话 / 命中 / 时间范围 / 目录）——否则导完只看见一堆文件夹。"""
+    rows = ["| 会话 | 命中 | 时间范围 | 目录 |", "|---|---|---|---|"]
+    for r in results:
+        s = r.get("stats") or {}
+        span = f"{s.get('first', '')} ~ {s.get('last', '')}" if s else ""
+        rows.append(f"| {r['session']} | {r['messages']} | {span} | `{os.path.basename(r['dir'])}/` |")
+    body = "\n".join([
+        "# 导出清单", "",
+        f"> 导出时间：{_clock(time.time())} ｜ 关键词：`{keyword}` ｜ 共 {len(results)} 个会话", "",
+        *rows, "",
+        "每个会话目录里的 `stats.json` 是那份记录的统计报表（机读）；`chat.<格式>` 是正文。", ""])
+    path = os.path.join(out_dir, "index.md")
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(body)
+    os.replace(tmp, path)
+    return os.path.relpath(path, out_dir).replace(os.sep, "/")

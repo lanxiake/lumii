@@ -1,8 +1,9 @@
 /**
- * 把 resources/wechat-export-mcp（记录导出 MCP，Python 源码）打成单文件 exe。
+ * 把 resources/wechat-export-mcp（记录导出 + 文件归档 MCP，Python 源码）打成单文件 exe。
  *
- * 与 `build-wechat-file-mcp.mjs` 同构：单档；依赖 wechat-mcp 的共享读取层，
- * 所以打包时**保留兄弟目录布局**（`wechat-export-mcp/` 与 `wechat-mcp/` 并列）。
+ * 单档；依赖 wechat-mcp 的共享读取层，所以打包时**保留兄弟目录布局**
+ * （`wechat-export-mcp/` 与 `wechat-mcp/` 并列）。文件面（`filecore.py`）已并入本产品，
+ * **不再有** `build-wechat-file-mcp.mjs`。
  *
  * 额外带 `pilk`：`media="all"` 要把语音 SILK 转 wav（stdlib `wave` + `pilk`）。
  * **不带** `sherpa-onnx`（语音转写）：那是可选的，缺了就逐条跳过并计数，不影响导出。

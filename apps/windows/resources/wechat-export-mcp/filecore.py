@@ -1,7 +1,12 @@
-"""A · 文件归档 —— 核心逻辑（纯函数，可单测；不依赖微信运行）。
+"""文件面 —— 核心逻辑（纯函数，可单测；不依赖微信运行）。
 
 职责：把微信消息里的**文件消息**（`local_type=49` 且 appmsg `type=6`）映射到磁盘上的
-真实文件（`msg/file/<YYYY-MM>/<文件名>`），并支持归档（**只拷、不改微信数据**）。
+真实文件（`msg/file/<YYYY-MM>/<文件名>`）：列清单（`list_files`）、算占用（`disk_usage`）、
+归档（`archive_files`，**只拷、不改微信数据**）。
+
+**目录结构与聊天记录导出共用一套**（`exportcore.session_subdir`，别在这里另定一套）：
+归档落在 `<out_dir>/<会话名>/files/`——正是 `export_chat(media="files")` 收附件的地方，
+于是"导记录"与"归档文件"写进同一棵树、同一份文件只存一份。
 
 关键实测事实（2026-10-12，决定了这里的实现）：
 - 消息 `<title>` 与磁盘文件名**直接同名**；同名用 `<totallen>` 对大小消歧。
@@ -21,6 +26,7 @@ _SHARED = os.path.join(os.path.dirname(HERE), "wechat-mcp")
 if _SHARED not in sys.path:
     sys.path.insert(0, _SHARED)
 
+import exportcore as E        # noqa: E402  （只借 `session_subdir`：目录结构只在那里定义一次）
 import mcp_stdio  # noqa: E402  （只为了报进度；没装回调时 progress() 是空操作）
 import wechat_core as core  # noqa: E402
 
@@ -236,14 +242,16 @@ def _dest_path(out_dir, rec, layout, used):
 
     冲突有两个来源：**本次调用内**（`used`，多条消息同名）与**盘上已有的**（`_conflict`，
     上次归档留下的另一版本）。后者不看会静默覆盖——同名不同版本正是重命名后缀存在的理由。
+
+    `by_session`（默认）与导出同构：`<out_dir>/<会话名>/files/`。`by_type`/`flat` 是给
+    "就要一坨文件"的场景留的旁路，不是规范形态。
     """
     if layout == "flat":
-        sub = ""
+        folder = out_dir
     elif layout == "by_type":
-        sub = rec["ext"] or "_noext"
-    else:                                          # by_session（默认）
-        sub = _safe(rec["name"] or rec["talker"])
-    folder = os.path.join(out_dir, sub) if sub else out_dir
+        folder = os.path.join(out_dir, _safe(rec["ext"] or "_noext"))
+    else:                                          # by_session（默认）：与导出的会话树同构
+        folder = os.path.join(E.session_subdir(out_dir, rec["name"] or rec["talker"]), "files")
     target = os.path.join(folder, _safe(rec["title"]))
     if target.lower() in used or _conflict(target, rec.get("local_path")):
         stem, ext = os.path.splitext(target)

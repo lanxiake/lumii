@@ -1,5 +1,8 @@
 # -*- coding: utf-8 -*-
-"""活体探针：四件套 MCP（file/export/recall/crm）的**已打包 exe** 能不能被真客户端驱动。
+"""活体探针：小工具三件套 MCP（export/recall/crm）的**已打包 exe** 能不能被真客户端驱动。
+
+（原文件面 `wechat-file` 已于 2026-10-14 并入 `wechat-export-mcp`——一个 exe 两个面，
+所以下面记录面与文件面共用 `wechat-export` 这一个 server 名。）
 
 和各自目录里的 `test_*.py` 的分工：那边查逻辑（纯函数 + 源码直连），这边查**接线**——
 exe 有没有落后于源码、`initialize` 握手协议版对不对、工具参数校验会不会拒掉正常调用，
@@ -42,6 +45,8 @@ SHARED = os.path.join(RES, "wechat-mcp")
 DISPLAY_NAME = "文件传输助手"        # filehelper 的显示名——会话参数一律用它
 USERNAME = "filehelper"
 BOGUS = "绝对不存在的会话xyz"
+# 小工具三件套——A（文件归档）已并入 B（导出），不再是独立产品。加产品时改这一处。
+PKGS = ("wechat-export-mcp", "wechat-recall-mcp", "wechat-crm-mcp")
 OUT = []          # 每行 {server, tool, ok, summary, args, data}
 
 
@@ -171,13 +176,13 @@ def cross_checks():
     这里才是 P0 的判据——`list_files(talker=显示名)` 曾静默回 0 条，而单条结果看不出
     那是"没有"还是"没找着"。
     """
-    tot = got(server="wechat-file", tool="list_files", talker=USERNAME).get("total")
-    byname = got(server="wechat-file", tool="list_files", talker=DISPLAY_NAME).get("total")
-    rec("wechat-file", "<显示名等价>", bool(tot) and tot == byname,
+    tot = got(server="wechat-export", tool="list_files", talker=USERNAME).get("total")
+    byname = got(server="wechat-export", tool="list_files", talker=DISPLAY_NAME).get("total")
+    rec("wechat-export", "<显示名等价>", bool(tot) and tot == byname,
         f"{DISPLAY_NAME}={byname} vs {USERNAME}={tot}")
 
-    miss = got(server="wechat-file", tool="list_files", talker=BOGUS)
-    rec("wechat-file", "<不存在的会话>", miss.get("error_code") == "target_not_found",
+    miss = got(server="wechat-export", tool="list_files", talker=BOGUS)
+    rec("wechat-export", "<不存在的会话>", miss.get("error_code") == "target_not_found",
         f"error_code={miss.get('error_code')}（不能是 count=0）")
 
     ok = got(server="wechat-export", tool="export_chat", talker=USERNAME).get("messages")
@@ -197,7 +202,7 @@ def cross_checks():
     # 而"形状随错在哪一步而变"正是四件套最初的老毛病（A/C/D 静默返回 0 条、B 报错）。
     ENVELOPE = {"ok", "detail", "error_code", "stage", "suggestion"}
     shape_bad, stages = [], []
-    for srv, tool, kw, want_stage in (("wechat-file", "list_files", {"talker": BOGUS}, "target"),
+    for srv, tool, kw, want_stage in (("wechat-export", "list_files", {"talker": BOGUS}, "target"),
                                       ("wechat-export", "export_chat", {"talker": BOGUS}, "target"),
                                       ("wechat-recall", "list_recalls", {"talker": BOGUS}, "target"),
                                       ("wechat-crm", "contact_stats", {"talker": BOGUS}, "target")):
@@ -209,33 +214,33 @@ def cross_checks():
             shape_bad.append(f"{srv} 字段值不对：{d}")
         else:
             stages.append(d["stage"])
-    rec("<四服务>", "<错误信封一致>", not shape_bad,
+    rec("<各服务>", "<错误信封一致>", not shape_bad,
         "；".join(shape_bad) if shape_bad else f"ok/detail/error_code/stage/suggestion 齐")
-    rec("<四服务>", "<stage 归位>", stages == ["target"] * 4,
+    rec("<各服务>", "<stage 归位>", stages == ["target"] * 4,
         f"4 个 target_not_found 的 stage={stages}（应为 target×4）")
 
     # 近似候选要**看得见**（"找不到"不可操作，把候选列出来才可操作）。
     # 这里只验**字段在场**（本机的 BOGUS 名没有相近会话，候选自然是空）——"候选真有内容"
     # 由 test_mcp_stdio 的合成用例覆盖，那条不依赖本机通讯录。
     n_cand = len(miss.get("candidates") or [])
-    rec("wechat-file", "<候选字段在场>", "candidates" in miss,
+    rec("wechat-export", "<候选字段在场>", "candidates" in miss,
         f"candidates 字段在场（本例 {n_cand} 个）")
 
     # 环境没就绪要**分类** + 带动手步骤，而不是甩一句原始异常让用户猜
-    envd = got(server="wechat-file-坏环境", tool="list_files")
-    rec("wechat-file-坏环境", "<env_not_ready>", envd.get("error_code") == "env_not_ready",
+    envd = got(server="wechat-export-坏环境", tool="list_files")
+    rec("wechat-export-坏环境", "<env_not_ready>", envd.get("error_code") == "env_not_ready",
         f"error_code={envd.get('error_code')}（不能是 target_not_found / count=0）")
-    rec("wechat-file-坏环境", "<env 带 hint 与 stage>",
+    rec("wechat-export-坏环境", "<env 带 hint 与 stage>",
         envd.get("stage") == "env" and bool(envd.get("hint")),
         f"stage={envd.get('stage')} hint={str(envd.get('hint'))[:36]}…")
 
     # 进度通知：批量工具必须**边干边报**——几百个文件/几千条消息要跑几十秒，界面上什么都不动，
     # 用户只会以为卡死了。progress 必须严格递增（规范要求，客户端拿它算比例）。
-    aprog = got_prog(server="wechat-file", tool="archive_files", talker=DISPLAY_NAME)
+    aprog = got_prog(server="wechat-export", tool="archive_files", talker=DISPLAY_NAME)
     aseq = [p["progress"] for p in aprog]
-    rec("wechat-file", "<归档边干边报>", len(aprog) >= 2 and aseq == sorted(set(aseq)),
+    rec("wechat-export", "<归档边干边报>", len(aprog) >= 2 and aseq == sorted(set(aseq)),
         f"{len(aprog)} 条通知 progress={aseq}（须严格递增）")
-    rec("wechat-file", "<进度是人话>", bool(aprog) and all(p.get("message") for p in aprog),
+    rec("wechat-export", "<进度是人话>", bool(aprog) and all(p.get("message") for p in aprog),
         f"示例：{aprog[-1].get('message') if aprog else '（一条都没有）'}")
 
     eprog = got_prog(server="wechat-export", tool="export_chat", talker=DISPLAY_NAME)
@@ -243,8 +248,8 @@ def cross_checks():
         f"{len(eprog)} 条：{[p.get('message') for p in eprog][:2]}")
 
     # 归档也要走显示名（它和 list_files 是两个工具，别只验一个）
-    plan = got(server="wechat-file", tool="archive_files", talker=DISPLAY_NAME)
-    rec("wechat-file", "<归档用显示名>", plan.get("total") == tot and plan.get("dry_run") is True,
+    plan = got(server="wechat-export", tool="archive_files", talker=DISPLAY_NAME)
+    rec("wechat-export", "<归档用显示名>", plan.get("total") == tot and plan.get("dry_run") is True,
         f"total={plan.get('total')} 应等于 list_files 的 {tot}")
 
     # C/D 同类 P0：显示名必须筛出同样的东西
@@ -275,7 +280,7 @@ async def main():
     # 四件套已经没有门禁了，跑它们用同一份环境（`renv`）；`lenv` 只是这轮读起来顺手的别名。
     lenv = renv
 
-    for pkg in ("wechat-file-mcp", "wechat-export-mcp", "wechat-recall-mcp", "wechat-crm-mcp"):
+    for pkg in PKGS:
         old = stale(pkg)
         rec(pkg[:-4], "<exe 未落后于源码>", not old, "exe 比源码旧——先重打包" if old else "ok")
         # 安装/有效期开关必须被 `serve()` 拦下并**立即退出**。没拦的话它会被当成"没有参数"
@@ -301,18 +306,17 @@ async def main():
     subprocess.run([exe("wechat-recall-mcp"), "--once"], env=renv,
                    capture_output=True, timeout=300)
 
-    await run("wechat-file", exe("wechat-file-mcp"),
-              [("list_files", {"talker": USERNAME}),
-               ("list_files", {"talker": DISPLAY_NAME}),
-               ("list_files", {"talker": BOGUS}),
-               ("archive_files", {"out_dir": arch, "talker": DISPLAY_NAME, "dry_run": True})],
-              env=lenv)
+    # 记录面与文件面**同一个 exe**：起一次，两个面的工具都在同一轮里调
     await run("wechat-export", exe("wechat-export-mcp"),
               [("list_sessions", {}),
                ("export_chat", {"talker": USERNAME, "out_dir": exp, "format": "md"}),
                ("export_chat", {"talker": DISPLAY_NAME, "out_dir": exp, "format": "md"}),
                ("export_chat", {"talker": BOGUS, "out_dir": exp, "format": "md"}),
-               ("export_chat", {"talker": USERNAME, "out_dir": exp, "media": "image"})],
+               ("export_chat", {"talker": USERNAME, "out_dir": exp, "media": "image"}),
+               ("list_files", {"talker": USERNAME}),
+               ("list_files", {"talker": DISPLAY_NAME}),
+               ("list_files", {"talker": BOGUS}),
+               ("archive_files", {"out_dir": arch, "talker": DISPLAY_NAME, "dry_run": True})],
               env=lenv)
     await run("wechat-recall", exe("wechat-recall-mcp"),
               [("daemon_status", {}), ("list_recalls", {}), ("archive_gap", {}),
@@ -333,8 +337,8 @@ async def main():
     badenv = {k: v for k, v in os.environ.items() if k != "LUMII_WECHAT_DB"}
     badenv["LUMII_WECHAT_EXPIRY_DIR"] = statedir
     badenv["LUMII_WECHAT_ACCOUNT"] = "不存在的账号_xyz"
-    await run("wechat-file", exe("wechat-file-mcp"), [("list_files", {})],
-              env=badenv, label="wechat-file-坏环境")
+    await run("wechat-export", exe("wechat-export-mcp"), [("list_files", {})],
+              env=badenv, label="wechat-export-坏环境")
 
     cross_checks()
 
