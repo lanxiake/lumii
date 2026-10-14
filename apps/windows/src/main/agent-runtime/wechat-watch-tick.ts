@@ -464,6 +464,16 @@ export interface WechatMessage {
   name?: string
   talker?: string
   text?: string
+  /**
+   * 正文**超过 400 字**时，MCP 把后面那截放在这里（`text` 只是前 400 字，两者直接相接）。
+   *
+   * 为什么要拼：`msg_dict` 的 400 字是**硬截断**，而本机实测 1.4% 的消息超长（最长 3069 字，
+   * 形态是粘日志/长段落）。只喂 `text` 的话，模型拿半句当全文去回话——"看不到就编"。
+   * 最多到全文第 4000 字（MCP 侧封顶），所以 `text` + `text_more` 仍可能短于 `text_len`。
+   */
+  text_more?: string
+  /** 正文真实长度（只在这条被截断时给）。`len(text)+len(text_more) < text_len` ⇒ 还没给全。 */
+  text_len?: number
   from_me?: boolean
   /**
    * 这条消息是 Agent 代发的（MCP 识别出消息末尾带 AGENT_REPLY_MARKER）。
@@ -968,7 +978,8 @@ export interface WatchTurnMeta {
  * 非文本（图片/语音/卡片）在 MCP 侧已被换成 `[非文本消息]`，只有空正文才走兜底。
  */
 export function formatIncomingForHistory(m: WechatMessage): string {
-  const raw = (m.text ?? '').trim() || '（非文本消息）'
+  // `text_more` 必须拼上：`text` 是 400 字硬截断，只喂它的话模型拿半句当全文（见 `text_more` 注释）。
+  const raw = ((m.text ?? '') + (m.text_more ?? '')).trim() || '（非文本消息）'
   // 语音转写、图片识别都**一并落库**：用户翻这个会话时要能看见对方说了什么/发了什么图，
   // 而不是只看到「[语音 1.9 秒]」「[图片 4KB]」。两者都在回路里写进消息（`voice_text`/`image_text`）。
   const t = (m.voice_text ?? '').trim()
