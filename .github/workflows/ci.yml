@@ -144,8 +144,11 @@ jobs:
       # wechat-recall-mcp（撤回防护）：用**合成库**验撤回判定（删行/原地改写两种机制、
       # 假阳性防护、归档永不覆盖）+ 真机只读打底冒烟（无库时跳过）。
       - run: python apps/windows/resources/wechat-recall-mcp/test_recall.py
-      # wechat-crm-mcp（客户分析）：联系人分类纯函数测 + 真机只读冒烟（通讯录/群成员/统计/排行，无库时跳过）。
+      # wechat-crm-mcp（客户分析·通讯录面）：联系人分类纯函数测 + 真机只读冒烟（通讯录/群成员/统计/排行，无库时跳过）。
       - run: python apps/windows/resources/wechat-crm-mcp/test_contactscore.py
+      # wechat-crm-mcp（客户分析·消息面）：简报/切段/问句判定等纯函数测（**合成数据**逐项对账：
+      # 谁主动开场、回复中位数、没接的问句）+ 真机只读冒烟（读正文/检索，无库时跳过）。
+      - run: python apps/windows/resources/wechat-crm-mcp/test_chatlog.py
       # 安装包里随的是独立 wechat-mcp.exe（PyInstaller 单文件）：构建脚本末尾自带 initialize 握手冒烟，
       # 能拦下「源码能跑、冻结后缺模块/缺随包数据」这一类只在 exe 里出现的问题。
       - uses: astral-sh/setup-uv@v5

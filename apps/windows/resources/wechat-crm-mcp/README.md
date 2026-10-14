@@ -101,10 +101,23 @@ wechat-crm-mcp.exe --expiry-status   # 看到期日与剩余天数（在有效�
    → `contact_stats(talker="老王")`：总条数 / 我发对方发 / 活跃时段 / 沉默天数。
 4. 你问：「这个群里都有谁？」→ `list_contacts(room="XX群")`（`room=` 会列成员）。
 
+**看清一个客户最近怎么回事（不用先翻几百条聊天）**
+
+5. 你问：「张三最近什么情况？我有没有漏掉什么？」
+   → `customer_brief(talker="张三")` 一次拿到：614 条 / 127 段（他主动开场 83、我 44）/
+   我回他中位 **52 秒**、他回我 **50 秒** / 类型分布 / 他在聊的高频二字组合 /
+   **他提了 44 句问句、其中 1 句我 24 小时内没回**。
+6. 你问：「他提过报价吗？」→ `search_messages(keyword="报价", talker="张三")`；
+   想圈时间段就再叠 `since`/`until`（范围 = 会话 + 时间 + 关键词的自由组合）。
+7. 你问：「那几句我看看」→ `read_messages(talker="张三", since=…, until=…)`，
+   按**时间正序**给正文，图片带 `image_md5`、视频带 `video_path`。
+
 **边界要说清**：这里只端上**确定性的清单与数字**——「这个客户意向高不高」由 AI 结合数字来判断，
 本服务**不下结论**。
 
-## 工具（4 个）
+## 工具（7 个）
+
+**通讯录面**（不读正文）：
 
 | 工具 | 说明 |
 |---|---|
@@ -112,6 +125,37 @@ wechat-crm-mcp.exe --expiry-status   # 看到期日与剩余天数（在有效�
 | `contact_stats(talker, since?, until?)` | 单会话：总条数 / 我发对方发 / 活跃小时 / 活跃天 Top / 首末 / 跨度 / 沉默天数 |
 | `silence_ladder(scope?, days?, top?)` | **按人**分层：多久没互动 / 从没聊过的人。只给原始时间戳与条数，不打分 |
 | `interaction_rank(since?, until?, top?, sort?)` | **按会话**排行；`sort=recent` = 久未联系在前 |
+
+**消息面**（读正文）：
+
+| 工具 | 说明 |
+|---|---|
+| `read_messages(talker, since?, until?, limit?)` | 读会话**正文**，**时间正序**；非文本给一行摘要（`[图片 12KB]` / `[引用] …`）。`limit` 取时间段内**最近**的若干条，`truncated=true` = 还有更早的没给完 |
+| `search_messages(keyword, talker?, since?, until?, limit?)` | 在**指定范围**里搜正文：`talker` 不传 = **全库**，再叠加时间段 |
+| `customer_brief(talker, since?, until?, top?)` | **一次看清一个客户**：谁主动开场 / 回复间隔中位数 / 消息类型分布 / 高频二字组合 / **对方提问后 24 小时内我没回的那几句** |
+
+`talker` / `room` 传会话**显示名**（如「文件传输助手」）或 wxid/群号都可以。
+
+**做一次客户分析，按这个顺序走**（本产品自己就能闭环，不需要别的工具）：
+
+```
+① 找   list_contacts(keyword=…) / silence_ladder()   → 有哪些人、谁久没联系
+② 看量 contact_stats(talker)                          → 多少条、活跃时段、沉默多久
+③ 摘要 customer_brief(talker)                         → 谁主动、回多快、在聊什么、漏了什么
+④ 细节 read_messages / search_messages                → 读原文、按话题找
+⑤ 判断 —— 由 AI 或你下，工具不下
+```
+
+## 消息面读的是什么（**和通讯录面不是一回事**）
+
+`contactscore`（通讯录面）**从不读正文**：所有落在消息表上的 SQL 只取 `create_time` 与
+`real_sender_id` 两列。`chatlog`（消息面）**会读正文**——`read_messages`/`search_messages`
+直接回原文，`customer_brief` 拿正文做短语与问句统计。
+
+**两者都是只读、都只在本地处理、都不外传**，但"读不读正文"这件事上口径不同，
+别把通讯录面那句"读不到正文"套到消息面上。
+
+数据来源全部是**同一个本机库**（`wechat_core` 共享读取层），没有第二条路径、没有网络请求。
 
 `talker` / `room` 传会话**显示名**（如「文件传输助手」）或 wxid/群号都可以。
 
@@ -157,6 +201,10 @@ wechat-crm-mcp.exe --expiry-status   # 看到期日与剩余天数（在有效�
    在 Python 里聚合。
 4. **沉默分层**：全库按 `real_sender_id` 聚合出"这个人最后一次发言"，与"我们私聊最后一条"
    **分开报**——两个口径不是一回事（前者含群，本机 2520 好友里 45 个有私聊会话、166 个发过言）。
+5. **消息面**（`chatlog.py`）：读正文走共享层的 `_rows_full`（跨分片 + 时间范围**下推到 SQL**），
+   渲染走 `wechat_core._render`（消息渲染的唯一入口）。
+   `customer_brief` 的每个数都是**纯函数**从时间正序的消息序列上算的
+   （切段 / 换手间隔 / 问句判定），喂合成数据就能逐项对账——见 `test_chatlog.py`。
 
 ## 不支持的
 
@@ -166,19 +214,23 @@ wechat-crm-mcp.exe --expiry-status   # 看到期日与剩余天数（在有效�
   （列定义写明是 `a_group_remark`），本机 1980 行里只有 191 行非空（**9.6%**），
   自己的办公群多（27/32）、外部大群几乎没有（1/159）。`name_in_room` 为空串就是"这个群里没设过"，
   **不是查不到**——所以别拿全局名顶上。它也不能用来认人（认人用 `username`）。
-- 出任何"判断"（客户价值 / 关系好坏 / 情绪）——那是接入方 LLM 的事。
+- 出任何"判断"（客户价值 / 关系好坏 / 情绪 / 意向分）——那是接入方 LLM 的事。
+  `customer_brief.unanswered` 是**形态判定**（句尾问号/疑问词 + 24 小时内我没发过消息），
+  不等于"他在催你"；`hot_pairs` 是**线索不是词表**（2-gram 没有词典）。都别当结论用。
 - 读取**别人**的数据（只支持本机已登录账号）。
 
 ## 文件
 
 | 文件 | 作用 |
 |---|---|
-| `server.py` | MCP 入口（stdio JSON-RPC）+ 4 个只读工具 |
-| `contactscore.py` | 核心逻辑：分类 / 通讯录 / 群成员（含群里称呼）/ 会话统计 / 排行 / 沉默分层 |
-| `test_contactscore.py` | 单测（分类纯函数 + 真机只读冒烟，无库时跳过） |
+| `server.py` | MCP 入口（stdio JSON-RPC）+ 7 个只读工具 |
+| `contactscore.py` | **通讯录面**逻辑：分类 / 通讯录 / 群成员（含群里称呼）/ 会话统计 / 排行 / 沉默分层（**不读正文**） |
+| `chatlog.py` | **消息面**逻辑：读正文 / 按范围检索 / 客户简报（**会读正文**） |
+| `test_contactscore.py` | 通讯录面单测（分类纯函数 + 真机只读冒烟，无库时跳过） |
+| `test_chatlog.py` | 消息面单测（简报等纯函数用**合成数据**对账 + 真机只读冒烟，无库时跳过） |
 | `skills/wechat-crm-mcp/SKILL.md` | 给别的 AI 客户端看的技能包 |
 
-**共享基础层**：读取层直接复用 `../wechat-mcp/` 的模块（经 `contactscore.py`），本包**不复制**——详见
+**共享基础层**：读取层直接复用 `../wechat-mcp/` 的模块（经 `contactscore.py` / `chatlog.py`），本包**不复制**——详见
 `docs/design/渠道与CLI/2026-10-12-微信小工具MCP四件套设计.md`。
 
-自检：`python test_contactscore.py`。
+自检：`python test_contactscore.py` + `python test_chatlog.py`。
