@@ -121,6 +121,10 @@ jobs:
       # 装的是纯 python 轮子，秒级。
       - run: python -m pip install --disable-pip-version-check pycryptodome
       - run: python apps/windows/resources/wechat-mcp/test_watch.py
+      # send_confirm（发送落地校验）：钉住「认我们自己发的那条（agent_sent 指纹 / from_me+正文），
+      # 而不是"有新消息"」。旧判据的**假成功**是静默且致命的——发送窗口里对方恰好回一句就判
+      # 「已发送」，而我们那条可能压根没出去，调用方还以为成了。夹具替代 history/时钟，不碰真机。
+      - run: python apps/windows/resources/wechat-mcp/test_send_confirm.py
       # mcp_stdio（四件套共用的协议层）：握手/协议版协商、工具错误码、isError、通知不回帧。
       # 协议循环原先在四个 server.py 里各一份，已踩过两次「手搓对不上 SDK」——收敛后这是唯一的哨位。
       - run: python apps/windows/resources/wechat-mcp/test_mcp_stdio.py
