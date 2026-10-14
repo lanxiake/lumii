@@ -3,6 +3,7 @@
 只用只读方式：进程内存只读扫描取密钥 + SQLCipher4 直读，不改动任何微信文件。
 数据目录自动发现：`~/xwechat_files/<wxid>_<4hex>/db_storage`（可被环境变量 LUMII_WECHAT_DB 覆盖）。
 """
+import glob
 import hashlib
 import json
 import os
@@ -1454,6 +1455,65 @@ def _image_name(packed):
     return m.group(0).decode() if m else None
 
 
+def _video_meta(content):
+    """\u89c6\u9891\u6d88\u606f\uff08`lt=43`\uff09\u2192 `(md5, length)`\uff1b\u53d6\u4e0d\u5230\u5c31\u662f `None` / `0`\u3002
+
+    \u5b57\u6bb5\u5168\u5728 `videomsg` \u81ea\u5df1\u8eab\u4e0a\uff1a`md5` \u662f\u8fd9\u4efd**\u6b63\u7247**\u7684 md5\uff0c`length` \u662f\u5b83\u7684\u5b57\u8282\u6570\u3002
+    `rawmd5`/`newmd5`/`originsourcemd5` \u662f\u53e6\u5916\u51e0\u7248\u2014\u2014\u5b9e\u6d4b**\u90fd\u5bf9\u4e0d\u4e0a**\u78c1\u76d8\u4e0a\u7684\u6587\u4ef6\u540d
+    \uff08`probe_e2_video_map.py` \u9010\u5c5e\u6027\u8bd5\uff0c\u96f6\u547d\u4e2d\uff09\uff0c\u522b\u62ff\u5b83\u4eec\u5f53\u6587\u4ef6\u540d\u3002
+    """
+    try:
+        raw = content if isinstance(content, str) else decode(content)
+    except Exception:
+        return None, 0
+    m = _IMG_MD5_RE.search(raw or "")   # \u540c\u4e00\u4e2a\u6b63\u5219\uff1a\u8d1f\u5411\u540e\u89c6\u5df2\u6321\u6389 rawmd5/newmd5/cdnthumbmd5
+    return (m.group(1) if m else None), _num(raw or "", "length")
+
+
+# `hardlink.db` \u7684\u8bfb\u6cd5\u540c `wechat_image.hardlink_map`\uff08\u90a3\u8fb9\u662f\u56fe\u7247\u8868\uff09\uff1a\u77ed TTL \u7f13\u5b58\uff0c
+# \u56e0\u4e3a `refresh()` \u4f1a\u91cd\u5199\u955c\u50cf\u3001\u800c\u65b0\u89c6\u9891\u662f\u5f02\u6b65\u843d\u5e93\u7684\u3002
+_VIDEO_HL_TTL_S = 30.0
+_video_hl = {}
+
+
+def _video_hardlink():
+    """`{md5: \u78c1\u76d8\u4e0a\u7684 mp4 \u6587\u4ef6\u540d}`\uff08`hardlink.db` \u7684 `video_hardlink_info_v4`\uff09\u3002
+
+    \u5b9e\u6d4b\uff082026-10-14\uff09\u672c\u673a 26 \u884c\u3001`file_name` \u5168\u90e8\u80fd\u5728 `msg/video/<\u6708>/` \u91cc\u627e\u5230\u3002
+    **\u53ea\u8981\u8f6c\u7801\u540e\u7684\u6b63\u7247**\uff1a\u540c\u4e00 stem \u4e0b\u8fd8\u6709 `_raw.mp4`\uff08\u539f\u7247\uff0c\u5b57\u8282\u6570\u662f\u6d88\u606f\u91cc\u7684 `rawlength`\uff09
+    \u548c `_thumb.jpg`\uff08\u7f29\u7565\u56fe\uff09\u2014\u2014\u6df7\u8fdb\u6765\u5c31\u662f"\u7ed9\u9519\u6587\u4ef6"\uff0c\u800c\u9519\u6587\u4ef6\u6bd4\u6ca1\u6709\u6587\u4ef6\u7cdf\u5f97\u591a\u3002
+    """
+    root = db_root()
+    ent = _video_hl.get(root)
+    if ent and time.time() - ent[0] < _VIDEO_HL_TTL_S:
+        return ent[1]
+    out = {}
+    try:
+        m = _mirror("hardlink/hardlink.db")
+        m.refresh()
+        conn = sqlite3.connect(m.out)     # \u73b0\u5f00\u73b0\u5173\uff1arefresh \u4f1a\u91cd\u5199\u955c\u50cf\uff0c\u7f13\u5b58\u8fde\u63a5\u4f1a\u8bfb\u5230\u91cd\u5199\u524d\u7684\u65e7\u9875
+        try:
+            for md5, name in conn.execute("select md5, file_name from video_hardlink_info_v4"):
+                n = (name or "").lower()
+                if md5 and n.endswith(".mp4") and not n.endswith("_raw.mp4"):
+                    out.setdefault(md5.lower(), name)
+        finally:
+            conn.close()
+    except Exception:
+        out = {}
+    _video_hl[root] = (time.time(), out)
+    return out
+
+
+def video_file_path(file_name):
+    """\u78c1\u76d8\u4e0a\u90a3\u4efd mp4\uff1a`msg/video/<\u6708>/<\u6587\u4ef6\u540d>`\uff08\u6309\u6708\u5206\u7247\uff0c\u6587\u4ef6\u540d\u5168\u5c40\u552f\u4e00\uff09\u3002"""
+    if not file_name:
+        return None
+    hits = glob.glob(os.path.join(os.path.dirname(db_root()), "msg", "video", "*",
+                                  os.path.basename(file_name)))
+    return hits[0] if hits else None
+
+
 AGENT_MARK = "\u200b\u200c\u200b"
 
 
@@ -1525,6 +1585,12 @@ def msg_dict(ct, lt, content, nm, talker=None, name=None, sender=None, me=None, 
         nm2 = _image_name(packed)      # 本地真有的那份（原图没下时 `image_md5` 是查不到的死键）
         if nm2:
             d["image_name"] = nm2
+    if (lt & 0xFFFFFFFF) == 43:        # 视频：路径要走 hardlink 换名 + 比大小，见 `attach_video`
+        vmd5, vlen = _video_meta(content)
+        if vmd5:
+            d["video_md5"] = vmd5
+        if vlen:
+            d["video_len"] = vlen
     return d
 
 
@@ -1562,6 +1628,38 @@ def attach_image(msgs):
         return wechat_image.attach_image(msgs)
     except Exception:
         return msgs
+
+
+def attach_video(msgs):
+    """给视频消息补上 `video_path`（客户端**已经下下来**的那份 mp4），失败静默跳过。
+
+    与 `attach_image`/`attach_voice` 同约定：只补路径、不回字节。视频比图片还省事——
+    **不需要 key、不需要模型**，落盘的就是明文 mp4（转发/另存只要一个路径）。
+
+    三条实测事实（2026-10-14，`verify/wechat-mcp/probe_e2_video_map.py`，本机 48 条视频消息）：
+
+    1. 磁盘文件名**既不是**消息的 `md5` 也**不是** `newmd5`（逐属性试，零命中），
+       只能经 `hardlink.db` 的 `video_hardlink_info_v4` 换名；
+    2. 换完必须**再比大小**：消息的 `length` 与磁盘字节数**精确相等**（8/8 命中样本全等）。
+       这是"这条消息 ↔ 这份文件"的**唯一**判据——只凭 md5 换名，换错就是给别人放另一段视频；
+    3. 覆盖受"文件还在不在"限制：磁盘上只留得下最近下过的那几份（≤7 天 3/4，更早的多数已被
+       微信清掉）。取不到就**原样返回**：不猜、不报假路径（与图片 `no_file` 同口径）。
+    """
+    need = [m for m in msgs if m.get("type") == 43 and m.get("video_md5")]
+    if not need:
+        return msgs
+    try:
+        idx = _video_hardlink()
+    except Exception:
+        return msgs
+    for m in need:
+        try:
+            p = video_file_path(idx.get(m["video_md5"].lower()))
+            if p and m.get("video_len") and os.path.getsize(p) == m["video_len"]:
+                m["video_path"] = p
+        except OSError:
+            continue
+    return msgs
 
 
 def attach_voice(msgs, talker):
@@ -1603,6 +1701,7 @@ def history(talker, limit=10, before_ts=0):
             for ct, lt, c, s, lid, src, pk in reversed(rows)]
     attach_voice(msgs, talker)
     attach_image(msgs)
+    attach_video(msgs)
     out = {"talker": talker, "name": nm.get(talker, talker), "count": len(msgs), "messages": msgs}
     if msgs:
         out["cursor"] = msgs[0]["ts"]          # 本页最老一条，供取更早一页
@@ -1782,6 +1881,9 @@ def poll(since_ts, per=20):
             # 图片同理：没缓存图片 AES key 时 `attach_image` 立刻返回，零成本
             if any(m.get("type") == 3 for m in batch):
                 attach_image(batch)
+            # 视频同理（要开 hardlink.db 换名，约 10ms）：一批里没有 type=43 就完全不碰
+            if any(m.get("type") == 43 for m in batch):
+                attach_video(batch)
             out.extend(batch)
     finally:
         for c in conns.values():
@@ -1978,7 +2080,14 @@ def _session_plain():
 
 
 def search_messages(keyword, talker=None, since=0, until=0, limit=50, scan=3000):
-    """按关键词检索消息（跨会话或指定会话；支持时间范围，**跨全部分片**）。逐条解码匹配。"""
+    """按关键词检索消息（跨会话或指定会话；支持时间范围，**跨全部分片**）。逐条解码匹配。
+
+    ⚠️ 每条命中都要带 `local_id`（2026-10-14 修）：它是**唯一**能把命中交回给
+    `read_image` / `transcribe_voice` 的手柄。早先这里把 `local_id`/`source`/`packed`
+    直接从行里丢掉（`for ct, lt, content, s, _lid, _src, *_`），于是"先搜到一条图片消息、
+    再去取图"这条路是**死的**——Agent 手里只有一个 ts，而同秒多条只能靠 local_id 消歧。
+    `source`/`packed` 一并带上：@我 与图片文件名本来就在这两列里，扔掉等于让命中成为二等公民。
+    """
     _refresh()
     nm = names()
     me = self_wxid()
@@ -1989,7 +2098,7 @@ def search_messages(keyword, talker=None, since=0, until=0, limit=50, scan=3000)
             rows = _rows_full(tbl, scan)
         except Exception:
             continue
-        for ct, lt, content, s, _lid, _src, *_ in rows:
+        for ct, lt, content, s, lid, src, *rest in rows:
             if since and ct <= since:
                 continue
             if until and ct >= until:
@@ -1997,7 +2106,8 @@ def search_messages(keyword, talker=None, since=0, until=0, limit=50, scan=3000)
             # 搜**渲染后的文本**而不是原始 XML：这样「图片」「语音」「撤回」这些
             # 摘要词才搜得到，也避免命中 XML 属性里的随机十六进制（aeskey/md5 之类）。
             if keyword in _render(lt, content):
-                hits.append(msg_dict(ct, lt, content, nm, talker=t, name=nm.get(t, t), sender=s, me=me))
+                hits.append(msg_dict(ct, lt, content, nm, talker=t, name=nm.get(t, t), sender=s, me=me,
+                                     local_id=lid, source=src, packed=(rest[0] if rest else None)))
     hits.sort(key=lambda d: d["ts"], reverse=True)
     return {"keyword": keyword, "count": len(hits), "scanned_per_talker": scan, "messages": hits[:limit]}
 

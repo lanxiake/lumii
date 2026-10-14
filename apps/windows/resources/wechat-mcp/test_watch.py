@@ -2225,6 +2225,82 @@ def suite_N():
     return r
 
 
+def suite_O():
+    """O 层：接收侧的两处"取不到"（视频路径 / 检索命中的可寻址性）——都是**判据**测试。
+
+    这两条都是"多一点或少一点就静默给错"的地方：视频是靠 md5 换名 + 比大小来认领文件的，
+    检索命中要是丢了 `local_id`，Agent 就没有任何手柄把命中交回给 `read_image`。
+    """
+    r = R("O 层：视频路径 + 检索命中可寻址")
+    import wechat_core as c
+
+    def o1_video_path_requires_exact_size():
+        """视频要靠**大小精确相等**认领文件：md5 → hardlink 换名 → 比 `length`。
+
+        只凭 md5 换名是不够的——换错就是给别人放另一段视频（"错文件比没文件糟"）。
+        """
+        d = tempfile.mkdtemp(prefix="wxvid-")
+        p = os.path.join(d, "a.mp4")
+        with open(p, "wb") as f:
+            f.write(b"x" * 7)
+        calls = []
+        real_hl, real_vp = c._video_hardlink, c.video_file_path
+
+        def fake_hl():
+            calls.append("hl")
+            return {"ab" * 16: "a.mp4"}          # 表里是小写 md5（实测如此）
+
+        c._video_hardlink = fake_hl
+        c.video_file_path = lambda n: p if n == "a.mp4" else None
+        try:
+            ok = [{"type": 43, "video_md5": "AB" * 16, "video_len": 7}]   # 大写也要认（要 lower）
+            c.attach_video(ok)
+            assert ok[0].get("video_path") == p, "大小对得上却没给路径"
+            bad = [{"type": 43, "video_md5": "AB" * 16, "video_len": 8}]
+            c.attach_video(bad)
+            assert "video_path" not in bad[0], "大小对不上也给了路径——换错名就是放另一段视频"
+            miss = [{"type": 43, "video_md5": "cd" * 16, "video_len": 7}]
+            c.attach_video(miss)
+            assert "video_path" not in miss[0], "hardlink 里没有的 md5 也给了路径"
+            assert len(calls) == 3, "该开库的没开：%d 次" % len(calls)
+            c.attach_video([{"type": 43, "video_len": 7}])               # 没有 md5
+            c.attach_video([{"type": 1, "video_md5": "AB" * 16}])        # 不是视频
+            assert len(calls) == 3, "白开了 hardlink.db：没有可取名的消息也去开库"
+        finally:
+            c._video_hardlink, c.video_file_path = real_hl, real_vp
+
+    def o2_search_hits_are_addressable():
+        """检索命中必须带 `local_id`（+ `source`/`packed`）——它是交回给 read_image 的唯一手柄。"""
+        md5, thumb, base = "a" * 32, "b" * 32, "c" * 32
+        row = (1700000000, 3,
+               '<img aeskey="k" cdnthumbmd5="%s" md5="%s" length="18227"/>' % (thumb, md5),
+               "wxid_me", 42,
+               # 真库的 @我 就长这样（`<atuserlist>` 里的 CDATA 是**必须**的——
+               # `_ATUSERS_RE` 只认这一种形状，别把它当无关细节改掉）
+               "<msgsource><atuserlist><![CDATA[wxid_me]]></atuserlist></msgsource>",
+               b"\x1a\x22\x22\x20" + base.encode())
+        saved = {n: getattr(c, n) for n in
+                 ("_refresh", "talkers", "names", "self_wxid", "_rows_full")}
+        c._refresh = lambda: None
+        c.talkers = lambda: [("Msg_x", TALKER)]
+        c.names = lambda: {}
+        c.self_wxid = lambda: "wxid_me"
+        c._rows_full = lambda tbl, limit, **kw: [row]
+        try:
+            hit = c.search_messages("图片")["messages"][0]
+        finally:
+            for n, v in saved.items():
+                setattr(c, n, v)
+        assert hit.get("local_id") == 42, "命中丢了 local_id：Agent 没法把它交回 read_image"
+        assert hit.get("image_md5") == md5, "命中丢了 image_md5（packed/source 没传下去）"
+        assert hit.get("image_name") == base, "命中丢了 image_name"
+        assert hit.get("at_me") is True, "命中丢了 at_me（source 没传下去）"
+
+    r.case("视频路径要靠大小精确认领（换错名 = 放别人的视频）", o1_video_path_requires_exact_size)
+    r.case("检索命中带 local_id/source/packed（否则读图那条路是死的）", o2_search_hits_are_addressable)
+    return r
+
+
 def main():
     try:
         import Crypto  # noqa: F401
@@ -2239,7 +2315,7 @@ def main():
                                (suite_D, False), (suite_E, False), (suite_F, False),
                                (suite_G, False), (suite_H, False), (suite_I, False),
                                (suite_J, False), (suite_K, False), (suite_L, False),
-                               (suite_M, False), (suite_N, False)):
+                               (suite_M, False), (suite_N, False), (suite_O, False)):
         if need_crypto and not has_crypto:
             print("\n（跳过 A 层：没有 pycryptodome）")
             continue

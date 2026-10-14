@@ -75,9 +75,9 @@ claude mcp add wechat-local -s user -- "{{EXE}}"
 | `check_env` | 任何发送之前先跑。看 `ok` / `can_send` / `deps` / `asr` / `wechat_version` |
 | `locate_db` | 换机、或读不到数据时排第一 |
 | `list_sessions` | 列会话（拿 `talker`）。**别拿它当"有没有新消息"的判据** |
-| `read_history` | 读某个会话的最近 N 条 |
+| `read_history` | 读某个会话的最近 N 条。图片/语音/视频消息另带 `image_path`/`voice_path`/`video_path`（视频是客户端已下下来的明文 mp4，**要字节数对得上才给**，所以不是每条都有） |
 | `poll_new(since_ts)` | **增量**新消息。盯梢回路的核心 |
-| `search_messages` | 按关键词/时间找旧消息 |
+| `search_messages` | 按关键词/时间找旧消息。命中都带 `local_id` ⇒ **能直接交给 `read_image`/`transcribe_voice`**（先搜后看图这条路是通的） |
 | `list_unread` | 会话级的未读概览 |
 | `repair_env` | 窗口跑到畸形尺寸/收进托盘时一键规范化。⚠️ **没有 `dry_run`，调了就真动窗口** |
 
@@ -117,6 +117,7 @@ claude mcp add wechat-local -s user -- "{{EXE}}"
 ④ [pro] 媒体（有才做，没有就跳过）
       图片消息有 local_id → read_image 拿画面（或让客户端直接读 image_path）
       语音消息有 local_id → transcribe_voice 拿文字
+      视频消息有 video_path → 明文 mp4，让客户端自己看/转发（没有就跳过：多数老视频的文件已被微信清掉）
       ▼
 ⑤ 起草回复（用画像里的说话习惯：长度、标点、口头禅）
       ▼

@@ -1034,6 +1034,9 @@ def _strip_media(payload):
 
     pro 版原样返回。**在 server 层裁、不动 wechat_core**——core 的职责是把解密后的路径挂上，
     「给不给模型看」是档位策略，不该渗进读取层。
+    `video_path` 一并剥（2026-10-14）：档位口径是「路径类的媒体信息 = pro」，
+    视频虽是明文 mp4、不需要 key 也不需要模型，但半开半闭更费解——而 `video_md5`/`video_len`
+    这类**摘要字段**留着（它们不是路径，和 `image_md5` 同类）。
     """
     if EDITION == "pro" or not isinstance(payload, dict):
         return payload
@@ -1041,6 +1044,7 @@ def _strip_media(payload):
         if isinstance(m, dict):
             m.pop("image_path", None)
             m.pop("voice_path", None)
+            m.pop("video_path", None)
     return payload
 
 
