@@ -111,11 +111,37 @@ def test_real_smoke():
     print(f"ok 检索：范围内命中 {hits['count']} 条（truncated={hits['truncated']}）")
 
 
+def test_docs_list_all_tools():
+    """**文档漂移守卫**：`server.TOOLS` 里每个工具，README 与技能包里都得提到。
+
+    为什么值得一条：这一版从 4 个工具加到 7 个，而 README/技能包里的"4 个"和工具表
+    **不会因为代码改了而报错**——它只会静静地少讲三个能力，谁都不发现。
+    """
+    # 按**文件路径**加载，别写 `import server`：共享层的 sys.path 排在前面，那句会拿到
+    # `../wechat-mcp/server.py`（19 个工具的另一个产品），于是这条断言看起来跑过了、其实测的是别人。
+    import importlib.util
+    root = os.path.dirname(os.path.abspath(__file__))
+    spec = importlib.util.spec_from_file_location("crm_server", os.path.join(root, "server.py"))
+    srv = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(srv)
+    docs = {
+        "README.md": os.path.join(root, "README.md"),
+        "skills/wechat-crm-mcp/SKILL.md": os.path.join(root, "skills", "wechat-crm-mcp", "SKILL.md"),
+    }
+    for label, p in docs.items():
+        txt = open(p, encoding="utf-8").read()
+        missing = [t["name"] for t in srv.TOOLS if t["name"] not in txt]
+        assert not missing, f"{label} 没提到这些工具：{missing}"
+    assert srv.SERVER_NAME == "wechat-crm", srv.SERVER_NAME      # 认错文件的兜底
+    print(f"ok 文档对账：{len(srv.TOOLS)} 个工具在 README 与技能包里都提到了")
+
+
 if __name__ == "__main__":
     test_type_label()
     test_sessions_of()
     test_is_question()
     test_hot_pairs()
     test_brief_from()
+    test_docs_list_all_tools()
     test_real_smoke()
     print("ALL PASS")
