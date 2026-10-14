@@ -45,26 +45,33 @@ claude mcp add wechat-crm -s user -- "{{EXE}}"
 
 1. **分类按 username 后缀**（`@chatroom`/`gh_`/`@open`/系统名单），**不是**按库里的
    `local_type`——实测后者语义不干净（`wxid_` 既有 1 也有 3），拿它判断会错。
-2. **群成员只有全局显示名**：群内昵称确实存在（在 `chat_room.ext_buffer` 里），但字段语义
-   未解、猜错会张冠李戴，所以**不给**。用户问到就说"暂不支持"，**别编**。
+2. **群里的称呼是稀疏的**：`list_contacts(room=...)` 会同时给 `name`（全局显示名）和
+   `name_in_room`（群里的称呼）。**空串就是"这个群里没设过"**——本机只有 9.6% 的人有，
+   自己的办公群多、外部大群几乎没有。**别拿全局名顶上、也别当成查询失败**。
+   另外它**不能用来认人**（认人一律用 `username`）。
 3. **没有标签**：本地库没有好友↔标签映射表（需逆向），所以没有按标签筛选。
 
-## 2. 工具面（3 个）
+## 2. 工具面（4 个）
 
 | 工具 | 用途 |
 |---|---|
-| `list_contacts(scope?, room?, keyword?, include_deleted?)` | 通讯录；`room=` 时列**该群成员** |
+| `list_contacts(scope?, room?, keyword?, include_deleted?, limit?, offset?)` | 通讯录；`room=` 时列**该群成员**（含 `name_in_room` 与 `name_in_room_with`） |
 | `contact_stats(talker, since?, until?)` | 单会话数字：总条数/我发对方发/活跃小时/活跃天 Top/沉默天数 |
-| `interaction_rank(since?, until?, top?, sort?)` | 互动排行；`sort=recent` = 久未联系在前 |
+| `silence_ladder(scope?, days?, top?)` | **按人**分层：多久没互动 / 从没聊过的人（`never` 桶） |
+| `interaction_rank(since?, until?, top?, sort?)` | **按会话**排行；`sort=recent` = 久未联系在前 |
 
 `scope` ∈ `friend`（默认）/ `group` / `official` / `open` / `system` / `all`。
+
+问「谁最久没联系了」**优先用 `silence_ladder`**：`interaction_rank` 只看得见"有你俩消息的会话"，
+私聊没说过话、只在群里冒过泡的人它完全看不见（本机 2520 个好友里只有 45 个有 1:1 会话）。
 
 ## 3. 一轮完整回路
 
 1. 「我有哪些客户群」→ `list_contacts(scope="group", keyword="客户")`
 2. 「这个群里都有谁」→ `list_contacts(room="群名")`（先从上一步拿到确切群名）
-3. 「谁最久没联系了」→ `interaction_rank(sort="recent", top=20)`
-4. 「我和某某聊得多不多」→ `contact_stats(talker="某某")`
+3. 「谁最久没联系了」→ `silence_ladder(top=20)`；「哪些人从没聊过」→ 看返回里的 `never` 桶
+4. 「哪个会话最活跃」→ `interaction_rank(sort="count")`
+5. 「我和某某聊得多不多」→ `contact_stats(talker="某某")`
 5. **你要下判断时，把数字摆出来再说结论**（例："近 90 天只有 3 条往来，最后联系在 4 个月前"），
    别只丢一句"关系淡了"。
 
