@@ -266,7 +266,7 @@ wechat-mcp.exe --expiry-status   # 看到期日与剩余天数（在有效期内
 | `check_env()` | 自检：微信进程/窗口/最小化/前台/尺寸·DPI + 依赖(`deps`)、账号(`accounts`)、数据目录(`db_root`/`db_source`) |
 | `locate_db()` | 只读定位微信数据目录：返回 `root`/`source`（从哪找到的）/`accounts`（所有候选账号），换机排查用 |
 | `repair_env()` | 确定性环境修复：还原微信窗口 + 规范化到预设尺寸(1280×820) + 重探数据目录；返回修复前后对比 |
-| `wechat_digest(talker?, limit?, since?)` | **蒸馏**：行为统计 + 代表性样本（多分片、本地、不外传） |
+| `wechat_digest(talker?, limit?, since?)` | **蒸馏**：行为统计 + 代表性样本（多分片、本地、不外传）。统计**默认全量**（`limit` 默认 0；设了就是有损的，被截断的会话在 `capped_talkers` 里点名） |
 | `wechat_profile_get(scope?)` | 读回画像（含 `updated`/`age_days`/`stale`）。`scope="self"`（或 `me`/`我`/`本人`）＝ **用户本人**的画像；给会话名/wxid ＝ 该好友/群；**留空**才只列出已产出的画像清单（不含正文） |
 | `wechat_distill_state(action?, scope?, ts?)` | 蒸馏**水位**（增量蒸馏用） |
 

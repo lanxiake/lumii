@@ -2137,6 +2137,12 @@ def search_messages(keyword, talker=None, since=0, until=0, limit=50, scan=3000)
                 hits.append(msg_dict(ct, lt, content, nm, talker=t, name=nm.get(t, t), sender=s, me=me,
                                      local_id=lid, source=src, packed=(rest[0] if rest else None)))
     hits.sort(key=lambda d: d["ts"], reverse=True)
+    # 视频命中要带 `video_path`（2026-10-14 补）：`history`/`poll_new` 都挂了，唯独**检索**
+    # 这条最该挂的没挂——于是「搜到那段视频」返回的是一条**点不开**的消息（实测搜「视频」命中 48 条、
+    # 带路径 0 条），用户要的恰恰是"搜到了就给我"。成本很低：只读 hardlink.db（30s 缓存）+ 比大小，
+    # 不扫内存、不需要 key。取不到就维持没路径——**本地根本没有那份字节**（多数视频从没在微信里点开过，
+    # 点开一次就会下载落盘），不猜、不编。
+    attach_video(hits[:limit])
     return {"keyword": keyword, "count": len(hits), "scanned_per_talker": scan,
             "truncated": trunc, "messages": hits[:limit]}
 
@@ -2413,12 +2419,18 @@ def _pick_pairs(pairs, per_bucket=2):
     return [p for k, _, _ in _LEN_BUCKETS for p in b[k]]
 
 
-def digest(talker=None, limit=500, samples=6, top=15, since=0):
+def digest(talker=None, limit=0, samples=6, top=15, since=0):
     """蒸馏「行为与语料」：全局（`talker` 为空）或指定会话。
 
     ⚠️ **`since` 只收窄「样本」，统计永远基于全量**（见下面 pairs 循环里的说明）——
     这样增量蒸馏拿去覆盖画像时不会把老底丢掉。
-    
+
+    ⚠️ **`limit` 默认 0 = 全量**（2026-10-14 改，原默认 500）：它和上面那句话**本来是打架的**
+    ——「统计永远基于全量」而每个会话只扫最新 500 条时，超过 500 条的会话给出的
+    `self.total`/`hour_hist`/`contacts`/`style` 全是**切片**，而返回里写着 `stats_scope: "all"`。
+    本机就有会话 >500 条（最大 614），所以这是**当下就在错**的一条，不是理论问题。
+    设了 `limit` 就是**有损**的（省时间用），那时 `capped_talkers` 会把被截断的会话列出来
+    ——**别拿它当真值**。
 
     **确定性**：只用本地库统计（**不调用 LLM、不外传**），返回结构化 digest（统计 + 代表性样本
     + **真实对子** `exchange_pairs`），供上层（LLM 或模板）提炼成「用户画像 / 好友画像」。
@@ -2436,6 +2448,7 @@ def digest(talker=None, limit=500, samples=6, top=15, since=0):
     ex_by_talker = {}                 # {talker: [(对方一轮, 我一轮)]}
     per_contact = {}
     total = from_me = 0
+    scanned, capped = 0, []
     for t, tbl in pairs:
         # ⚠️ **统计永远基于全量**（不加 `since`）：`since` 只用来挑「这次要看的**新样本**」。
         #
@@ -2444,7 +2457,13 @@ def digest(talker=None, limit=500, samples=6, top=15, since=0):
         # 若统计也被 `since` 收窄，一次增量蒸馏就会把全量画像换成几天切片的统计——
         # 实测：3 天切片只剩 403 条（全量 3903）、联系人 69→21、活跃时段只有 15 个小时非零，
         # 写出来的画像会把这些当成「事实」。
-        rows = _rows_full(tbl, limit)
+        #
+        # `limit` 默认 0 = 全量（多要一条只为**知道**被截断了，好如实上报 `capped_talkers`）。
+        rows = _rows_full(tbl, (limit + 1) if limit else 10 ** 9)
+        if limit and len(rows) > limit:
+            capped.append(t)
+            rows = rows[:limit]
+        scanned = max(scanned, len(rows))
         tot = fm = ft = 0
         first = last = 0
         sm_me, sm_them = [], []
@@ -2507,7 +2526,8 @@ def digest(talker=None, limit=500, samples=6, top=15, since=0):
         "scope": talker or "all",
         "generated_at": int(time.time()),
         "shards": len(_cache["msg"]),
-        "scanned_per_talker": limit,
+        "scanned_per_talker": scanned,        # 实扫条数（不是上限）；=limit 且 capped 非空即被截断
+        "capped_talkers": capped,
         "since": since,
         # 明确告诉调用方：`since` 只影响 samples_*，下面这些统计是全量的
         "stats_scope": "all",

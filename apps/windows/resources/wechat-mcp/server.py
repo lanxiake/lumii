@@ -523,7 +523,7 @@ def tool_digest(args):
         talker, err = _resolve_or_error(talker)
         if err:
             return {"error_code": "target_not_found", "error": err}
-    return core.digest(talker, int(args.get("limit") or 500), since=int(args.get("since") or 0))
+    return core.digest(talker, int(args.get("limit") or 0), since=int(args.get("since") or 0))
 
 
 def tool_distill_state(args):
@@ -949,7 +949,7 @@ TOOLS = [
                      "`style_samples_from_them`（**对方**的风格实测），别再目测那几条 `sample_from_them`。"),
      "inputSchema": {"type": "object", "properties": {
          "talker": {"type": "string", "description": "可选：限定某个会话（name 或 wxid/群号）"},
-         "limit": {"type": "integer", "description": "每个会话最多扫描条数，默认 500"},
+         "limit": {"type": "integer", "description": "每个会话最多扫描条数；默认 0 = **全量**（推荐）。**设了就变有损**：超过它的会话在返回里的 capped_talkers 里列出来，别拿被截断的统计当真值"},
          "since": {"type": "integer", "description": "可选：只统计该 Unix 秒之后的消息（增量蒸馏用）"}},
          "required": []}},
     {"name": "wechat_distill_state",

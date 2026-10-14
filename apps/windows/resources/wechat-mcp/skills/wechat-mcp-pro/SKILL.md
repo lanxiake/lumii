@@ -96,7 +96,7 @@ claude mcp add wechat-local -s user -- "{{EXE}}"
 |---|---|
 | `read_image` | 按 `talker` + `local_id` 取图，返回 MCP **image 内容块**。`variant` 可能是 `hd` 或 `thumb`（原图没下就只有缩略图）。**要先抓过一次图片密钥**——账号级、只能从微信进程内存扫出来，缺了它会明说是「密钥还没抓过」，这时让用户先在微信里点开一张图、再跑一次 `wechat-mcp.exe --image-key` |
 | `transcribe_voice` | 按 `talker` + `local_id` 本地转写语音（sherpa-onnx，不出网） |
-| `wechat_digest` | 出统计与样本：说话风格、常联系的人、活跃时段——**蒸馏的原料** |
+| `wechat_digest` | 出统计与样本：说话风格、常联系的人、活跃时段——**蒸馏的原料**。统计默认**全量**（别传 `limit`；传了就是有损的，`capped_talkers` 会点名被截断的会话） |
 | `wechat_profile_save` / `wechat_profile_get` | 画像落盘 / 读回。`scope` 留空=用户本人，否则给**真实存在的会话**（名字或 wxid）；不存在的 scope 会被拒 |
 | `wechat_distill_state` | 增量蒸馏的水位（`action=get/set` + `scope` + `ts`） |
 | `wechat_distill_clear` | 删蒸馏产物。给 `scope` 删单个，或显式 `everything: true` 清空——**不给 scope 也不给 everything 会被拒**（防误清） |

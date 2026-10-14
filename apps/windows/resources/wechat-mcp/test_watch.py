@@ -2296,8 +2296,38 @@ def suite_O():
         assert hit.get("image_name") == base, "命中丢了 image_name"
         assert hit.get("at_me") is True, "命中丢了 at_me（source 没传下去）"
 
+    def o3_search_hits_carry_video_path():
+        """**检索**这条路也得挂 `attach_video`（2026-10-14 修）。
+
+        `history`/`poll_new` 都挂了，唯独最该挂的检索没挂——实测搜「视频」命中 48 条、
+        带 `video_path` 的 **0 条**：用户说「主要用来搜索」，搜到了却是一条点不开的消息。
+        """
+        d = tempfile.mkdtemp(prefix="wxvids-")
+        p = os.path.join(d, "a.mp4")
+        with open(p, "wb") as f:
+            f.write(b"x" * 7)
+        mv = ("ab" * 16)
+        row = (1700000000, 43, '<videomsg md5="%s" length="7"/>' % mv, "wxid_me", 43, "", None)
+        saved = {n: getattr(c, n) for n in
+                 ("_refresh", "talkers", "names", "self_wxid", "_rows_full",
+                  "_video_hardlink", "video_file_path")}
+        c._refresh = lambda: None
+        c.talkers = lambda: [("Msg_x", TALKER)]
+        c.names = lambda: {}
+        c.self_wxid = lambda: "wxid_me"
+        c._rows_full = lambda tbl, limit, **kw: [row]
+        c._video_hardlink = lambda: {mv: "a.mp4"}
+        c.video_file_path = lambda n: p if n == "a.mp4" else None
+        try:
+            hit = c.search_messages("视频")["messages"][0]
+        finally:
+            for n, v in saved.items():
+                setattr(c, n, v)
+        assert hit.get("video_path") == p, "检索命中没挂视频路径：搜得到、点不开"
+
     r.case("视频路径要靠大小精确认领（换错名 = 放别人的视频）", o1_video_path_requires_exact_size)
     r.case("检索命中带 local_id/source/packed（否则读图那条路是死的）", o2_search_hits_are_addressable)
+    r.case("检索命中也要挂 video_path（搜到了就得给得了）", o3_search_hits_carry_video_path)
     return r
 
 
@@ -2402,6 +2432,38 @@ def suite_P():
         assert cut.get("truncated") is True, "撞了上限却没报 truncated"
         assert whole.get("truncated") is False, "没撞上限却报了 truncated"
     r.case("检索撞上扫描上限要报 truncated", p3_search_reports_truncation)
+
+    def p4_digest_stats_are_whole_by_default():
+        """蒸馏的统计默认要**全量**（`limit=0`）：默认 500 时，>500 条的会话给出的是**切片**，
+        而返回里写着 `stats_scope: "all"` —— 拿它写画像就是把切片当事实。"""
+        DATA = [(100 + i, 1, ("第%d条" % i).encode(), "", i, None, None) for i in range(6)]
+
+        def fake(tbl, limit, since=0, before=0, at=0):
+            out = [x for x in DATA if (not at or x[0] == at)]
+            out.sort(key=lambda x: x[0], reverse=True)
+            return out[:limit]
+
+        saved = {n: getattr(c, n) for n in ("_rows_full", "tbl_of", "names", "self_wxid",
+                                            "talkers", "_refresh")}
+        c._rows_full = fake
+        c.tbl_of = lambda t: TBL
+        c.names = lambda: {}
+        c.self_wxid = lambda: "me"
+        c.talkers = lambda: [(TBL, TBL)]
+        c._refresh = lambda: None
+        try:
+            whole = c.digest()
+            cut = c.digest(limit=2)
+        finally:
+            for n, v in saved.items():
+                setattr(c, n, v)
+        assert whole["scanned_per_talker"] == 6, "默认没按全量扫：%s" % whole["scanned_per_talker"]
+        assert whole["self"]["total"] == 6, "默认统计不是全量：%s" % whole["self"]["total"]
+        assert whole["capped_talkers"] == [], "全量扫却报了被截断的会话"
+        # 显式设了 limit 才是**有损**的，而且必须如实点名是哪个会话
+        assert cut["scanned_per_talker"] == 2 and cut["self"]["total"] == 2, cut["scanned_per_talker"]
+        assert cut["capped_talkers"] == [TBL], "截断了却不说是哪个会话：%s" % cut["capped_talkers"]
+    r.case("蒸馏统计默认全量（设了 limit 才是有损且要点名）", p4_digest_stats_are_whole_by_default)
     return r
 
 
