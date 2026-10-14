@@ -370,7 +370,14 @@ function buildOne(uv, edition, version, env, days) {
       log(`旧副本删不掉（可能在运行中），忽略：${f}`)
     }
   }
-  fs.copyFileSync(exe, versionedExe)
+  try {
+    fs.copyFileSync(exe, versionedExe)
+  } catch {
+    // 同名副本正被占用（用户双击着上一次打出来的那份在试）⇒ 只丢这一份副本，
+    // **别把已经打好、也已经在盘上的 `wechat-mcp.exe` 一起判失败**。
+    log(`带版本号副本写不进去（同名那份正在运行中），跳过：${path.basename(versionedExe)}`)
+    log(`  —— 注意：留着的那份是**上一次构建**的字节，不是刚才这份；关掉它再跑一次即可对齐。`)
+  }
 
   const sizeMb = (fs.statSync(exe).size / 1024 / 1024).toFixed(1)
   log(`产物：${path.relative(WINDOWS_ROOT, exe)}（${sizeMb} MB）`)
