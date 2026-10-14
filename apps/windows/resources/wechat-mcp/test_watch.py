@@ -2301,6 +2301,55 @@ def suite_O():
     return r
 
 
+def suite_P():
+    """P 层：翻页**不能丢同秒消息**。
+
+    `read_history` 按**条数**切页，而 `create_time` 只到秒 —— 页切在某秒中间时，同秒更早的
+    那些既 `> 本页` 又 `< 下一页`，两边都够不着。假库照 `_rows_full` 的**真语义**过滤
+    （since 严格大于 / before 严格小于 / at 相等），这样"丢"是算法自己产生的，不是夹具编的。
+    """
+    r = R("P 层：翻页不丢同秒消息")
+    import wechat_core as c
+
+    # 三条挤在 ts=100，五条挤在 ts=200
+    DATA = [(200, 1, b"m%d" % lid, "", lid, None, None) for lid in (4, 5, 6, 7, 8)] + \
+           [(100, 1, b"m%d" % lid, "", lid, None, None) for lid in (1, 2, 3)]
+    TBL = "Msg_fake"
+
+    def p1_same_second_at_page_edge():
+        """limit=3 时边界那一秒必须整秒给出（否则那秒剩下的永远取不到）。"""
+        def fake(tbl, limit, since=0, before=0, at=0):
+            out = [x for x in DATA
+                   if (not since or x[0] > since) and (not before or x[0] < before)
+                   and (not at or x[0] == at)]
+            out.sort(key=lambda x: x[0], reverse=True)
+            return out[:limit]
+
+        saved = {n: getattr(c, n) for n in ("_rows_full", "tbl_of", "names", "self_wxid",
+                                            "attach_voice", "attach_image", "attach_video")}
+        c._rows_full = fake
+        c.tbl_of = lambda t: TBL
+        c.names = lambda: {}
+        c.self_wxid = lambda: "me"
+        c.attach_voice = c.attach_image = c.attach_video = lambda *a, **k: None
+        try:
+            seen, before, pages = set(), 0, 0
+            while pages < 10:                       # 照 server 的用法翻页
+                page = c.history(TBL, 3, before)
+                ids = [m["local_id"] for m in page["messages"]]
+                seen |= set(ids)
+                if not page.get("has_more"):
+                    break
+                before, pages = page["cursor"], pages + 1
+        finally:
+            for n, v in saved.items():
+                setattr(c, n, v)
+        want = {x[4] for x in DATA}
+        assert seen == want, "翻页丢了同秒消息：缺 %s" % sorted(want - seen)
+    r.case("翻页边界那一秒要整秒给出（不能切在秒中间）", p1_same_second_at_page_edge)
+    return r
+
+
 def main():
     try:
         import Crypto  # noqa: F401
@@ -2315,7 +2364,8 @@ def main():
                                (suite_D, False), (suite_E, False), (suite_F, False),
                                (suite_G, False), (suite_H, False), (suite_I, False),
                                (suite_J, False), (suite_K, False), (suite_L, False),
-                               (suite_M, False), (suite_N, False), (suite_O, False)):
+                               (suite_M, False), (suite_N, False), (suite_O, False),
+                               (suite_P, False)):
         if need_crypto and not has_crypto:
             print("\n（跳过 A 层：没有 pycryptodome）")
             continue

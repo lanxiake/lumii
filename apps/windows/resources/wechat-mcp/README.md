@@ -257,7 +257,7 @@ wechat-mcp.exe --expiry-status   # 看到期日与剩余天数（在有效期内
 | 工具 | 说明 |
 |---|---|
 | `list_sessions(query?)` | 列会话（显示名 + talker + 最新预览），`query` 按关键词过滤 |
-| `read_history(talker, limit, before_ts?)` | 读历史（正序；带 `cursor`/`has_more` 翻页）；每条带 `from_me`/`sender`，群里 @ 了本人则带 `at_me: true`。🅿 图片/语音消息另带 `image_path`（**已解密的明文位图**）/`voice_path`；🅿 视频消息另带 `video_path`（**客户端已下下来的那份 mp4**，明文、不需要密钥；要**字节数精确对得上**才给——实测只有约 1/6 的历史消息还留着文件，新到的多数能认领回来） |
+| `read_history(talker, limit, before_ts?)` | 读历史（正序；带 `cursor`/`has_more` 翻页。**翻页不丢消息**：页会补到边界那一秒的整秒，所以可能比 `limit` 略多几条）；每条带 `from_me`/`sender`，群里 @ 了本人则带 `at_me: true`。🅿 图片/语音消息另带 `image_path`（**已解密的明文位图**）/`voice_path`；🅿 视频消息另带 `video_path`（**客户端已下下来的那份 mp4**，明文、不需要密钥；要**字节数精确对得上**才给——实测只有约 1/6 的历史消息还留着文件，新到的多数能认领回来） |
 | 🅿 `read_image(talker, local_id)` | 取一张图片消息的**内容**：返回 MCP **image 内容块**（内联 base64 位图），跨机/客户端读不到本地文件时用；随图返回 `variant`(hd/thumb) 与 `bytes` |
 | 🅿 `transcribe_voice(talker, local_id)` | **本地**把一条语音转成文字（SILK → Paraformer，音频不外传）。需模型就位，见 §6「语音转写（pro 版）」；较老的语音音频可能已被微信清掉，这时返回 `voice_unavailable` |
 | `poll_new(since_ts)` | 增量新消息（正序）。每条带 `from_me`/`sender`（自己发的也返回），群里 @ 了本人则带 `at_me: true`（按 `msgsource.atuserlist` 里的 wxid 判定，不看昵称）；返回 `next_since_ts` 供下一轮直接用（**别传墙上时钟的 now**，同秒会漏）。走增量快路径：只解密新增的 WAL 帧、只扫有变化的会话表 |

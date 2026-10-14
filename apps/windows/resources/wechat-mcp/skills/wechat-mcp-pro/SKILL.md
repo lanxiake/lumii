@@ -75,7 +75,7 @@ claude mcp add wechat-local -s user -- "{{EXE}}"
 | `check_env` | 任何发送之前先跑。看 `ok` / `can_send` / `deps` / `asr` / `wechat_version` |
 | `locate_db` | 换机、或读不到数据时排第一 |
 | `list_sessions` | 列会话（拿 `talker`）。**别拿它当"有没有新消息"的判据** |
-| `read_history` | 读某个会话的最近 N 条。图片/语音/视频消息另带 `image_path`/`voice_path`/`video_path`（视频是客户端已下下来的明文 mp4，**要字节数对得上才给**，所以不是每条都有） |
+| `read_history` | 读某个会话的最近 N 条（`cursor`+`before_ts` 可往更早翻，**翻页不丢消息**）。图片/语音/视频消息另带 `image_path`/`voice_path`/`video_path`（视频是客户端已下下来的明文 mp4，**要字节数对得上才给**，所以不是每条都有） |
 | `poll_new(since_ts)` | **增量**新消息。盯梢回路的核心 |
 | `search_messages` | 按关键词/时间找旧消息。命中都带 `local_id` ⇒ **能直接交给 `read_image`/`transcribe_voice`**（先搜后看图这条路是通的） |
 | `list_unread` | 会话级的未读概览 |

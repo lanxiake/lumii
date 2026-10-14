@@ -1689,14 +1689,35 @@ def attach_voice(msgs, talker):
     return msgs
 
 
+def _pad_page(tbl, rows, limit):
+    """把一页补到**边界那一秒的整秒**——否则下一页的 `create_time < cursor` 会把这秒剩下的丢掉。
+
+    `create_time` **只到秒**，而页是按**条数**切的。最老那条所在的秒被切开时，同秒更早的那些
+    `> 本页` 又 `< 下一页`，两边都够不着（和 `poll` 的水位是同一类 bug，见 §9.12 ①）。
+    实测本机：`limit=10` 逐表模拟翻页，**17 张表丢 76/4973 条（1.5%）**，最坏一张 19/87。
+    补秒后 `cursor` 仍是**单个 int**，调用方一个字都不用改。
+    """
+    if len(rows) < limit:                  # 没切在中间（这一页就是剩下的全部）
+        return rows
+    bts = min(r[0] for r in rows)
+    have = {r[4] for r in rows}             # local_id：同秒可能有很多条
+    extra = [r for r in _rows_full(tbl, 10 ** 9, at=bts) if r[4] not in have]
+    if not extra:
+        return rows
+    return sorted(rows + extra, key=lambda r: (r[0], r[4]), reverse=True)
+
+
 def history(talker, limit=10, before_ts=0):
     """读历史（时间正序）。`before_ts` 取更早一页：只返回 create_time 严格小于它的消息。
 
     返回带 `cursor`（本页最老一条的 ts）与 `has_more`，Agent 可用 `before_ts=cursor` 翻更早的页。
+    翻页**不会丢同秒消息**：页会补到边界那一秒的整秒（见 `_pad_page`），所以那一页可能比
+    `limit` 略多几条。
     """
     nm = names()
     me = self_wxid()
-    rows = _rows_full(tbl_of(talker), limit, before=before_ts)
+    tbl = tbl_of(talker)
+    rows = _pad_page(tbl, _rows_full(tbl, limit, before=before_ts), limit)
     msgs = [msg_dict(ct, lt, c, nm, sender=s, me=me, local_id=lid, source=src, packed=pk)
             for ct, lt, c, s, lid, src, pk in reversed(rows)]
     attach_voice(msgs, talker)
@@ -2145,8 +2166,11 @@ _STOP = {"的", "了", "是", "我", "你", "他", "她", "它", "在", "就", "
          "this", "with", "at", "be", "are", "was", "s", "t", "re", "ve", "ll", "don"}
 
 
-def _rows_full(tbl, limit, since=0, before=0):
-    """跨分片取会话消息（带发送者 user_name）：[(create_time, local_type, content, sender)]。"""
+def _rows_full(tbl, limit, since=0, before=0, at=0):
+    """跨分片取会话消息（带发送者 user_name）：[(create_time, local_type, content, sender)]。
+
+    `at` 单独取**某一秒的全部**（`create_time = ?`），只给 `_pad_page` 翻页补秒用。
+    """
     _refresh()
     conds, params = [], []
     if since:
@@ -2155,6 +2179,9 @@ def _rows_full(tbl, limit, since=0, before=0):
     if before:
         conds.append("create_time < ?")
         params.append(before)
+    if at:
+        conds.append("create_time = ?")
+        params.append(at)
     where = (" where " + " and ".join(conds)) if conds else ""
     out = []
     for p in _cache["msg"]:

@@ -726,7 +726,7 @@ _CORE = """\
 
 读取建议：先用 list_sessions 找目标会话名，再用 read_history 拉上下文，然后据此起草回复。
 起草回复时**默认读 10 条**（`read_history(limit=10)`）——够看清一轮来回，又不至于把上下文撑爆；
-要更早的用返回的 `cursor` 配 `before_ts` 翻页。
+要更早的用返回的 `cursor` 配 `before_ts` 翻页（翻页不会丢同秒消息，见 `core._pad_page`）。
 """
 
 # 媒体消息的读法**按档位不同**：lite 只有摘要，pro 给解密后的本地路径与转写。
@@ -808,7 +808,7 @@ TOOLS = [
     {"name": "read_history",
      "description": ("【何时用】要读**用户本人微信**里某个好友/群的聊天记录、或据此起草回复时。【别用】想读渠道(Bot)会话时；——那是渠道(`weixin`)的 Bot 收件箱，与本工具无关。读取**用户本人微信**指定会话的历史消息（按时间正序）。"
                      "talker 可传 list_sessions 返回的 name 或 wxid/群号/filehelper。"
-                     "消息多时可**翻页**：返回带 `cursor`（本页最老一条 ts）与 `has_more`；要读更早的一页再调一次并传 `before_ts=cursor`。"),
+                     "消息多时可**翻页**：返回带 `cursor`（本页最老一条 ts）与 `has_more`；要读更早的一页再调一次并传 `before_ts=cursor`（翻页不丢消息：那一页会把边界那一秒补齐，所以可能比 limit 略多几条）。"),
      "inputSchema": {"type": "object", "properties": {
          "talker": {"type": "string", "description": "会话显示名或 wxid/群号/filehelper"},
          "limit": {"type": "integer", "description": "条数，默认 10"},
