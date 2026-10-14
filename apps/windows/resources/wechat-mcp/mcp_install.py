@@ -1,5 +1,8 @@
 # -*- coding: utf-8 -*-
-"""四件套共用的**一键安装**：部署到稳定目录、注册到检测到的 MCP 客户端、拷上技能包。
+"""四件套共用的**一键安装**：把**这份 exe 自己**注册到检测到的 MCP 客户端、拷上技能包。
+
+不拷贝、不搬运：注册进客户端的路径就是"你双击的这个 exe 现在在哪"。代价写在安装提示里——
+装完**别移动、别删除它**（客户端配置里存的就是这个路径）。安装台账落在 exe 旁边的 `.lumii/`。
 
 每个小工具 exe 自带这几个开关（在 `mcp_stdio.serve()` 里被拦下，不会进 MCP 循环）：
 
@@ -32,9 +35,12 @@ import subprocess
 import sys
 import time
 
-# 部署目录约定：`~/.lumii/mcp/<产品>/<产品>.exe`
-# 为什么是这里：主产品 wechat-mcp 就装在这儿（`wechat-mcp/PUBLISHING.md` §1 方式 C），
-# 而它由 `src/main/bundled-mcp-exe.ts` 的 `getDeployedMcpExePath()` 决定——沿用，别另开一处。
+# 数据目录名。现在有**两个根**，别混：
+#   · 冻结运行时 → **exe 旁边那份** `<exe目录>/.lumii/`（安装台账落这儿，跟着 exe 走）
+#   · 源码模式与老安装器 → `~/.lumii/`（见 `user_root()`）
+# `~/.lumii/mcp/<产品>/` 是**老安装器**的落点（它把 exe 拷到那儿再注册），现在只剩
+# "认领旧拷贝"这一个用途。注意 App 侧 `bundled-mcp-exe.ts::getDeployedMcpExePath()` 也用这条路径
+# 部署**它自己的**那份主产品 exe——那是 App 的事，别去动（我们只删台账里记着的、我们自己拷的那份）。
 DATA_DIRNAME = ".lumii"
 
 # 注：这里原本有个 `--check-update`（查远端有没有新版，走 GitHub release 上的清单）。
@@ -111,14 +117,18 @@ CLIENTS = (
 )
 
 # 各家顶层键 / 条目形状（`kind` → 怎么塞我们那一条）
+# `args` 是**源码模式**才用得上（注册的是"解释器 + 脚本"，脚本路径得进 args）；
+# 冻结模式下恒为空——注册的就是 exe 本身。
 JSON_SHAPES = {
-    "json_mcp": ("mcpServers", lambda exe: {"type": "stdio", "command": exe, "args": [],
-                                            "env": {}}),
-    "json_servers": ("servers", lambda exe: {"type": "stdio", "command": exe, "args": []}),
-    "json_context": ("context_servers", lambda exe: {"command": exe, "args": [], "env": {}}),
+    "json_mcp": ("mcpServers", lambda exe, args=(): {"type": "stdio", "command": exe,
+                                                     "args": list(args), "env": {}}),
+    "json_servers": ("servers", lambda exe, args=(): {"type": "stdio", "command": exe,
+                                                      "args": list(args)}),
+    "json_context": ("context_servers", lambda exe, args=(): {"command": exe,
+                                                              "args": list(args), "env": {}}),
     # OpenCode 三处都不一样：顶层 `mcp`、command 是 **argv 数组**、env 叫 `environment`
-    "json_opencode": ("mcp", lambda exe: {"type": "local", "command": [exe], "args": [],
-                                          "enabled": True, "environment": {}}),
+    "json_opencode": ("mcp", lambda exe, args=(): {"type": "local", "command": [exe, *args],
+                                                   "enabled": True, "environment": {}}),
 }
 
 
@@ -138,31 +148,45 @@ def _say(*a):
         print(line.encode(enc, "replace").decode(enc, "replace"), flush=True)
 
 
-def data_root():
+def own_exe():
+    """**注册的就是你自己**：这份 exe 现在在哪，就往客户端里填哪个路径——一个字节都不拷。
+
+    为什么不拷到"稳定目录"（老做法）：拷完就有两份，用户分不清哪份在跑，升级时还要绕
+    "运行中的 exe 删不掉"这道坎。代价写在安装提示里：装完**别移动、别删除这个 exe**——
+    它本身就是注册路径。源码模式（`python server.py`）返回 `None`：那会儿没有 exe 可注册，
+    调用方退回"解释器 + 脚本"。
+    """
+    return os.path.abspath(sys.executable) if getattr(sys, "frozen", False) else None
+
+
+def user_root():
+    """用户级数据根 `~/.lumii`：**老安装器**的落点，也是源码模式的数据根。"""
     return os.path.join(os.path.expanduser("~"), DATA_DIRNAME)
 
 
+def data_root():
+    """本产品状态根：**exe 旁边那份 `.lumii/`**。
+
+    既然注册的是 exe 当前位置，"装在哪"就等于"exe 在哪"——台账跟着走，才不会出现
+    "exe 换了地方、状态还留在老地方"。**运行数据不在这里**：画像蒸馏 / 撤回归档 / ASR 模型
+    仍在 `~/.lumii`——那些是用户内容，而且 App 与 MCP 共用同一个根（见四件套 README）。
+    """
+    if getattr(sys, "frozen", False):
+        return os.path.join(os.path.dirname(os.path.abspath(sys.executable)), DATA_DIRNAME)
+    return user_root()
+
+
 def install_dir(product):
+    """本产品的状态目录。现在**只放台账**——exe 不再拷进来。"""
     return os.path.join(data_root(), "mcp", product)
 
 
-def deployed_exe(product):
-    return os.path.join(install_dir(product), product + ".exe")
+def legacy_install_dir(product):
+    """**老安装器**（≤0.13.0）的状态目录：exe 拷贝与台账都躺在那儿（`~/.lumii/mcp/<产品>/`）。
 
-
-# ---- 部署自身 ---------------------------------------------------------------
-
-def _prune_old(dst_dir, product, keep=2):
-    """清理 `*.old-*` 残留。
-
-    每次覆盖都会留一个旧 exe（10MB 上下），不清理就是慢性涨盘；留最近两个够回退了。
+    只用于两件事：认得出（状态里说一句）、卸得掉（别留孤儿）。
     """
-    olds = sorted(f for f in os.listdir(dst_dir) if f.startswith(product + ".exe.old-"))
-    for f in olds[:-keep] if keep else olds:
-        try:
-            os.remove(os.path.join(dst_dir, f))
-        except OSError:
-            pass                      # 正被占用就留给下次
+    return os.path.join(user_root(), "mcp", product)
 
 
 def installed_record_path(product):
@@ -170,7 +194,7 @@ def installed_record_path(product):
 
 
 def _read_installed(product):
-    """读装那份的登记（版本/来源/时间）。读不到返回 `{}`。"""
+    """读这份安装的台账（版本 / 注册的路径 / 装到过哪些客户端）。读不到返回 `{}`。"""
     try:
         with open(installed_record_path(product), encoding="utf-8") as f:
             d = json.load(f)
@@ -179,15 +203,29 @@ def _read_installed(product):
         return {}
 
 
-def _write_installed(product, spec, exe):
-    """登记**装的是哪一版**。
+def _read_legacy_installed(product):
+    """读**老安装器**的台账。只给"认领旧拷贝"用（见 `_drop_legacy_copy`）。"""
+    try:
+        with open(os.path.join(legacy_install_dir(product), "installed.json"),
+                  encoding="utf-8") as f:
+            d = json.load(f)
+        return d if isinstance(d, dict) else {}
+    except (OSError, ValueError):
+        return {}
 
-    为什么要落一个文件而不是问部署副本：`wechat-*-mcp.exe --version` 是 PyInstaller onefile，
-    **连打印版本都要先解包，冷启动 1–3 秒**（这条已在 wechat-mcp 那边实测过，主产品因此
-    在 TS 侧留了版本常量镜像）。`--install-status` 每次问一遍就等于把状态查询拖成秒级。
+
+def _write_installed(product, spec, exe, clients=None):
+    """登记**装的是哪一版、注册的是哪个路径、装到了哪些客户端**。
+
+    为什么要落一个文件而不是去问那个 exe：`--version` 是 PyInstaller onefile，**连打印版本都要
+    先解包，冷启动 1–3 秒**（主产品那边实测过）。每次状态查询都启动一遍，状态就变秒级了。
+
+    `clients` 是这次**真注册成**的客户端 key——卸载时靠它分辨"全摘"还是"只摘一部分"：
+    只摘一部分就不该去动技能包和常驻守护。
     """
     rec = {"product": product, "name": spec["name"], "version": spec.get("version") or "",
            "label": spec.get("label") or "", "exe": exe,
+           "clients": sorted(clients or []),
            "installed_at": time.strftime("%Y-%m-%d %H:%M:%S")}
     try:
         os.makedirs(install_dir(product), exist_ok=True)
@@ -214,55 +252,53 @@ def compare_versions(a, b):
     return (ta > tb) - (ta < tb)
 
 
-def _clean_install_dir(product):
-    """卸载后把部署目录也清掉——**包括 `*.old-*` 残留**。
+# ---- 收尾：状态目录与老安装器留的拷贝 ---------------------------------------
 
-    只删 `product.exe` 是不够的：目录里还躺着升级时让位出来的旧 exe（11MB 一个）。
-    用户看到"卸载完了"，磁盘上却还留着一份，这说不过去。
-    只删**以产品名打头的**文件，再 `rmdir`（目录里还有别的东西时 rmdir 会失败，正好不误删）。
+def _drop_state_dir(product):
+    """全摘之后收掉我们自己的状态目录（`<状态根>/mcp/<产品>/`，里面只有那份台账）。
+
+    逐级往上 `rmdir`——每一级都只在**空**的时候才成功，所以别的产品、别人放的东西一律留得住。
     """
-    d = install_dir(product)
-    mine = (product + ".exe", "installed.json", "update.json")
-    left = []
     try:
-        for f in os.listdir(d):
-            if f.startswith(mine):
-                try:
-                    os.remove(os.path.join(d, f))
-                except OSError:
-                    left.append(f)                # 正被占用：留给下次（或重启后删除）
-            else:
-                left.append(f)                    # 不是我们的东西 ⇒ 目录留着，别误删
-        if not left:
-            os.rmdir(d)
+        os.remove(installed_record_path(product))
     except OSError:
         pass
+    d = install_dir(product)
+    for _ in range(3):                          # mcp/<产品> → mcp → 状态根
+        try:
+            os.rmdir(d)
+        except OSError:
+            break
+        d = os.path.dirname(d)
 
 
-def deploy_self(product):
-    """把自身拷到稳定目录 → `(部署后的路径 | None, 说明)`。
+def _drop_legacy_copy(product):
+    """清掉**老安装器**留下的 exe 拷贝 → 删掉的文件名列表（没得清就是空的）。
 
-    **为什么要拷**：用户多半是从"下载"目录双击跑的，那地方随时会被清掉；而注册进客户端
-    配置里的路径必须固定下来。
-
-    覆盖用**「旧文件改名让位」**而不是直接 `copy2` 到目标：Windows 下**运行中的 exe 可以改名、
-    不能覆盖**（直接覆盖是 `WinError 5`）。主产品的 `bundled-mcp-exe.ts` 就是这套做法。
+    ≤0.13.0 那版会把 exe 拷到 `~/.lumii/mcp/<产品>/` 再注册那一份；现在注册的是 exe 本身，
+    那份拷贝没人用了。**只认台账里记着的那个路径**：那个目录里也可能躺着别人放的东西
+    （主产品的 exe 就是 App 自己部署在那儿的），凭"文件名像我们的"就删是危险的。
     """
-    dst = deployed_exe(product)
-    if not getattr(sys, "frozen", False):
-        return None, "源码模式运行：不拷贝自身（用解释器 + 脚本路径注册）"
-    src = os.path.abspath(sys.executable)
-    if src.lower() == os.path.abspath(dst).lower():
-        return dst, "已经在部署目录里，跳过拷贝"
-    dst_dir = os.path.dirname(dst)
-    os.makedirs(dst_dir, exist_ok=True)
-    tmp = dst + ".tmp"
-    shutil.copy2(src, tmp)
-    if os.path.exists(dst):
-        os.replace(dst, f"{dst}.old-{int(time.time() * 1000)}")
-    os.replace(tmp, dst)
-    _prune_old(dst_dir, product)
-    return dst, "ok"
+    rec = _read_legacy_installed(product)
+    old = os.path.abspath(rec.get("exe") or "")
+    d = os.path.abspath(legacy_install_dir(product))
+    if not old or os.path.dirname(old).lower() != d.lower():
+        return []
+    if old.lower() == (own_exe() or "").lower():
+        return []                              # 正在跑的就是那份拷贝（用户直接双击了它）
+    gone = []
+    for f in os.listdir(d) if os.path.isdir(d) else []:
+        if f.startswith(product + ".exe") or f == "installed.json":
+            try:
+                os.remove(os.path.join(d, f))
+                gone.append(f)
+            except OSError:
+                pass                           # 正被占用（比如守护进程在跑）就留给下次
+    try:
+        os.rmdir(d)                            # 里面还有别人的东西 ⇒ 失败，正好不误删
+    except OSError:
+        pass
+    return gone
 
 
 # ---- 客户端注册：JSON 配置（Claude Desktop / Cursor）-------------------------
@@ -458,10 +494,11 @@ def codex_apply(name, entry=None):
     else:
         if not body.endswith("\n"):
             body += "\n"
+        argv = ", ".join(_toml_str(a) for a in (entry.get("args") or ()))
         body += (f"\n{header}\n"
                  f"type = \"stdio\"\n"
                  f"command = {_toml_str(entry['command'])}\n"
-                 f"args = []\n"
+                 f"args = [{argv}]\n"
                  f"transport = \"stdio\"\n")
 
     # **写完读回来验**：TOML 拼坏了自己不一定看得出来，但 `tomllib` 一定看得出来。
@@ -614,23 +651,46 @@ SKILL_TARGETS = (
 # 不能据此断言 Codex 会读。所以 Codex 走**有官方出处**的那条路（合并一小段进 AGENTS.md）。
 
 
-def skill_targets(product):
+def skill_id(spec):
+    """技能落点的名字 = **`SKILL.md` frontmatter 里的 `name`**（那才是技能 id）。
+
+    为什么不拿 `product` 顶替：pro 版 `product` 是 `wechat-mcp`，而技能名是 `wechat-mcp-pro`
+    ——按 product 落，就变成"装在一个名字下、去另一个名字里找"（实测本机 `~/.claude/skills/`
+    里躺着的正是 `wechat-mcp-pro`：状态里看不见，卸载也摘不掉）。三个名字都可能不一样：
+    服务名 `wechat-local` / 产品名 `wechat-mcp` / 技能名 `wechat-mcp-pro`。
+    读不到 frontmatter（源码模式没给技能源、文件坏了）就退回 product。
+    """
+    try:
+        with open(os.path.join(skill_source(spec), "SKILL.md"), encoding="utf-8") as f:
+            head = f.read(600)
+    except OSError:
+        return spec["product"]
+    m = re.search(r"^name:[ \t]*(\S+)", head, re.M)
+    return m.group(1) if m else spec["product"]
+
+
+def _named_path(t, name):
+    """把目标里的 `@P@` 占位换成真名之后的落点（`skill_targets` 与"清老落点"共用这一处）。"""
+    key = "root" if t["kind"] == "skill_dir" else "path"
+    return _client_path([seg.replace("@P@", name) for seg in t[key]])
+
+
+def skill_targets(sid):
     """装了哪些**会读技能/规则**的客户端 → `[目标 dict]`（附 `resolved` 落点）。
 
     与 MCP 配置同一条纪律：**判据是客户端在不在，不是文件在不在**——客户端装了、文件还没建过，
     那时我们该替它建（那正是它自己的 UI 也会做的事）。
 
-    `@P@` 是产品名占位（每个产品的规则**文件名**不一样：`wechat-file-mcp.md` 那种），
-    在这里换成真名——写死就没法四个产品共用了。
+    `sid` 是**技能 id**（见 `skill_id()`），用来填 `@P@` 那个规则文件名的占位——
+    写死就没法几个产品共用了。
     """
     out = []
     for spec in SKILL_TARGETS:
         mark = _client_path(spec["detect"])
         if not (mark and os.path.isdir(mark)):
             continue
-        key = "root" if spec["kind"] == "skill_dir" else "path"
         t = dict(spec)
-        t["resolved"] = _client_path([seg.replace("@P@", product) for seg in spec[key]])
+        t["resolved"] = _named_path(t, sid)
         out.append(t)
     return out
 
@@ -775,12 +835,19 @@ def skill_apply(spec, remove=False, exe=None):
     三种形态（见 `SKILL_TARGETS`）：`skill_dir` 拷整个技能目录、`rule_file` 写一个规则文件、
     `merge_block` 往用户的指令文件里合并一小段。
 
-    目录/文件名是**技能 id**（= `spec["product"]`），不是 MCP 服务名（= `spec["name"]`）——
-    这两个名字不一样，混用过一次，后果是技能静默没装上而其余步骤全绿。
+    落点名字是**技能 id**（`skill_id()`），不是 MCP 服务名、也不是产品名——三个名字都可能
+    不一样，混用过一次，后果是技能静默没装上而其余步骤全绿。
+    `merge_block` 的分隔标记仍用**产品名**：那是"我们写过没写过"的判据，必须跨版本稳定，
+    换名字等于在用户文件里留一段永远摘不掉的孤儿。
+
+    `stale`：老安装器按**产品名**落过一份，换名字之后那份会变成孤儿（而且两份会被同时读到）。
+    所以装和卸都顺带把它清掉——一次性，之后就没它什么事了。
     """
     product = spec["product"]
+    sid = skill_id(spec)
+    stale = product if product != sid else ""
     src = skill_source(spec)
-    targets = skill_targets(product)
+    targets = skill_targets(sid)
     if not targets:
         return [("技能", "skip", "没检测到会读技能/规则的客户端")]
     need_src = any(t["kind"] != "merge_block" for t in targets)
@@ -802,17 +869,23 @@ def skill_apply(spec, remove=False, exe=None):
             continue
         if t["kind"] == "rule_file":
             if remove:
+                if stale:
+                    _remove_file(_named_path(t, stale))
                 rows.append((label, *_remove_file(dst)))
             else:
                 body = skill_body(spec) or "（技能正文缺失）"
                 if exe:
                     body = body.replace("{{EXE}}", exe).replace(
                         "{{EXE_JSON}}", str(exe).replace("\\", "\\\\"))
+                if stale:
+                    _remove_file(_named_path(t, stale))       # 老名字那份别留着，两份会被同时读到
                 rows.append((label, *_write_rule(dst, body)))
             continue
         # skill_dir
-        sub = os.path.join(dst, product)
+        sub = os.path.join(dst, sid)
         if remove:
+            if stale:
+                shutil.rmtree(os.path.join(dst, stale), ignore_errors=True)
             if not os.path.isdir(sub):
                 rows.append((label, "skip", "本来就没装"))
                 continue
@@ -821,6 +894,8 @@ def skill_apply(spec, remove=False, exe=None):
             continue
         try:
             os.makedirs(dst, exist_ok=True)
+            if stale:
+                shutil.rmtree(os.path.join(dst, stale), ignore_errors=True)
             if os.path.isdir(sub):
                 shutil.rmtree(sub, ignore_errors=True)   # 覆盖装：旧文件别留下
             shutil.copytree(src, sub)
@@ -916,8 +991,8 @@ def clients():
     return out
 
 
-def register_client(c, name, exe):
-    """按 `kind` 分派注册 → `(状态, 说明)`。
+def register_client(c, name, exe, args=()):
+    """按 `kind` 分派注册 → `(状态, 说明)`。`args` 只有源码模式非空（解释器 + 脚本）。
 
     Claude Code 那条**先摘再挂**（幂等）；而**摘是尽力而为**——目标本来就不存在时
     `claude mcp remove` 会失败，那时**照样得挂**。真机实测就漏在这儿：卸载过之后再装，
@@ -926,11 +1001,12 @@ def register_client(c, name, exe):
     """
     if c["kind"] == "claude_code":
         claude_code_apply(name)
-        return claude_code_apply(name, exe)
+        return claude_code_apply(name, exe, args)
     if c["kind"] == "toml_codex":
-        return codex_apply(name, {"type": "stdio", "command": exe, "args": [], "env": {}})
+        return codex_apply(name, {"type": "stdio", "command": exe,
+                                  "args": list(args), "env": {}})
     top, shape = JSON_SHAPES[c["kind"]]
-    return json_client_apply(c["label"], c["path"], name, shape(exe), top)
+    return json_client_apply(c["label"], c["path"], name, shape(exe, args), top)
 
 
 def unregister_client(c, name):
@@ -974,29 +1050,39 @@ def do_install(spec, only=None):
 
     prev = _read_installed(product).get("version") or ""
     cur = spec.get("version") or ""
-    deployed, how = deploy_self(product)
-    exe = deployed
-    if deployed:
-        note = deployed
+    mine = own_exe()                     # 注册的就是你自己；源码模式是 None
+    exe, args = (mine, ()) if mine else _own_command()
+    if mine:
+        note = mine
         if prev and cur and prev != cur:
-            note = f"{deployed}\n      v{prev} → **v{cur}**"
-        seen.append(_line("部署", "ok", note))
-        _write_installed(product, spec, deployed)
+            note = f"{mine}\n      v{prev} → **v{cur}**"
+        seen.append(_line("注册的 exe", "ok", note))
     else:
-        seen.append(_line("部署", "skip", how))
-        exe, _args = _own_command()
+        seen.append(_line("注册的 exe", "skip",
+                          f"源码模式：注册 {os.path.basename(exe)} + 脚本路径（不写台账）"))
 
+    done = []
     for c in clients():
         if not c["detected"]:
             seen.append(_line(c["label"], "skip", "未安装（不去给没装的客户端造配置）"))
         elif only is not None and c["key"] not in only:
             seen.append(_line(c["label"], "skip", "按你的选择跳过"))
-        else:
-            seen.append(_line(c["label"], *register_client(c, name, exe)))
+        elif _line(c["label"], *register_client(c, name, exe, args)) == "ok":
+            done.append(c["key"])
 
-    # 技能里落**部署后的真实路径**（源码模式没有部署副本 ⇒ 留着 `{{EXE}}`，那是开发场景）
-    for label, st, detail in skill_apply(spec, exe=deployed):
+    if mine:
+        # 台账记**真注册成**的那几家：卸载时靠它分辨"全摘"与"只摘一部分"
+        _write_installed(product, spec, mine, clients=done)
+
+    # 技能里落**真实路径**（`{{EXE}}` → 这份 exe）；源码模式没有 exe ⇒ 占位符原样留着（开发场景）
+    for label, st, detail in skill_apply(spec, exe=mine):
         seen.append(_line(f"技能包·{label}", st, detail))
+
+    if mine:
+        # 这是新装法**唯一的代价**，得说在明面上：注册路径就是这份 exe 的当前位置
+        _say("\n⚠️  装完**别移动、别删除这个 exe**（客户端配置里存的就是这个路径）：")
+        _say(f"    {mine}")
+        _say("    它旁边那个 `.lumii/` 是我的安装记录，也留着。要换地方，就再双击它装一次。")
 
     if _footer(seen):
         return 1
@@ -1013,14 +1099,28 @@ def do_install(spec, only=None):
 
     _say("\n⚠️  重启你的 AI 客户端，新的 MCP 服务器才会被加载。")
     _say(f"    验证：`claude mcp get {name}`，或在客户端里问一句试试。")
+    _say("    ✅ 装完了——**现在就可以关掉这个窗口**，装好的东西跟窗口没有关系。")
     return 0
 
 
+def _is_full_uninstall(spec, only):
+    """这次算**全摘**吗？技能包与常驻守护只该在全摘时动。
+
+    判据用台账里记的"装到了哪些客户端"：`only` 把它们都盖住了才算全摘。老台账（≤0.13.0
+    没这个字段）⇒ 按全摘处理，行为回到从前，别把用户卡在"卸不干净"里。
+    """
+    if only is None:
+        return True
+    rec = set(_read_installed(spec["product"]).get("clients") or [])
+    return not rec or rec <= set(only)
+
+
 def do_uninstall(spec, only=None):
-    """摘注册 + 删技能包 + 删部署的 exe。`only` 给了就**只从这些客户端**里摘。
+    """摘注册 +（全摘时）删技能包 / 停守护 / 收台账。**exe 一律不动**——那是你自己的文件。
 
     `only=None`（命令行 `--uninstall`）表示全摘——脚本化调用要的就是"清干净"；
-    交互式调用会在向导里先让用户勾。
+    交互式调用会在向导里先让用户勾。只摘一部分时**不碰技能包与常驻守护**：
+    用户只是想从某个客户端里退出来，不是要拆干净。
     """
     name, product = spec["name"], spec["product"]
     _say(f"\n卸载 {spec.get('label') or name}（{name}）")
@@ -1034,45 +1134,40 @@ def do_uninstall(spec, only=None):
         else:
             seen.append(_line(c["label"], *unregister_client(c, name)))
 
-    for label, st, detail in skill_apply(spec, remove=True):
-        seen.append(_line(f"技能包·{label}", st, detail))
-
-    # 需要常驻的产品：**卸载要连守护一起停**，否则"卸载完了"它还在后台跑（同一类静默错误）
-    daemon_flag = spec.get("daemon_uninstall")
-    if daemon_flag:
-        cmd, args = _own_command()
-        try:
-            r = subprocess.run([cmd, *args, daemon_flag], capture_output=True, timeout=180,
-                               **_quiet_kwargs())
-            seen.append(_line("常驻守护", "ok" if r.returncode == 0 else "skip",
-                              "已停掉、并取消开机自启" if r.returncode == 0
-                              else (r.stderr or b"").decode("utf-8", "replace").strip()[:90]
-                              or "本来就没装自启"))
-        except Exception as e:                                  # noqa: BLE001
-            seen.append(_line("常驻守护", "fail", str(e)))
-
-    dst = deployed_exe(product)
-    if not os.path.isfile(dst):
-        seen.append(_line("部署", "skip", "部署目录里没有它"))
-    elif os.path.abspath(sys.executable).lower() == os.path.abspath(dst).lower():
-        # 正在跑的就是它自己：Windows 删不掉运行中的 exe，安排重启后删
-        if _delete_on_reboot(dst):
-            seen.append(_line("部署", "ok", f"正在运行删不掉，已安排**重启后**删除：{dst}"))
-        else:
-            seen.append(_line("部署", "fail", f"删不掉，请手动删除：{dst}"))
+    if not _is_full_uninstall(spec, only):
+        _say("\n（只摘了勾选的客户端 ⇒ 技能包与常驻守护**都留着**；要拆干净就带上")
+        _say("  `--uninstall`，或在菜单里把客户端全勾上。）")
     else:
-        try:
-            os.remove(dst)
-            seen.append(_line("部署", "ok", dst))
-        except OSError as e:
-            seen.append(_line("部署", "fail", f"删除失败（{e}）：{dst}"))
-    _clean_install_dir(product)
+        for label, st, detail in skill_apply(spec, remove=True):
+            seen.append(_line(f"技能包·{label}", st, detail))
 
-    # 用户数据**一律不动**——但要说清留在哪，免得用户以为卸载没干净
-    _say("\nℹ️  你的数据没有动（卸载不该删数据）：")
+        # 需要常驻的产品：**卸载要连守护一起停**，否则"卸载完了"它还在后台跑（同一类静默错误）
+        daemon_flag = spec.get("daemon_uninstall")
+        if daemon_flag:
+            cmd, args = _own_command()
+            try:
+                r = subprocess.run([cmd, *args, daemon_flag], capture_output=True, timeout=180,
+                                   **_quiet_kwargs())
+                seen.append(_line("常驻守护", "ok" if r.returncode == 0 else "skip",
+                                  "已停掉、并取消开机自启" if r.returncode == 0
+                                  else (r.stderr or b"").decode("utf-8", "replace").strip()[:90]
+                                  or "本来就没装自启"))
+            except Exception as e:                                  # noqa: BLE001
+                seen.append(_line("常驻守护", "fail", str(e)))
+
+        if own_exe():          # 源码模式没有"我们的状态目录"，别去动真机上那份台账
+            gone = _drop_legacy_copy(product)
+            if gone:
+                seen.append(_line("老拷贝", "ok",
+                                  f"老安装器拷的那份已清掉（{len(gone)} 个文件）："
+                                  f"{legacy_install_dir(product)}"))
+            _drop_state_dir(product)
+
+    # 用户数据与 exe **一律不动**——但要说清留在哪，免得用户以为卸载没干净
+    _say("\nℹ️  你的数据与这份 exe 都没动（卸载不该删它们）：")
+    _say(f"    · exe（想删自己删）：{own_exe() or '源码模式，没有这份 exe'}")
     _say("    · D 的归档库：~/.lumii/wechat-recall/archive.db")
     _say("    · A/B 归档与导出的文件：你当初指定的 out_dir")
-    _say("    要清就自己删。")
     if _footer(seen):
         return 1
     _say("\n⚠️  重启你的 AI 客户端，被摘掉的服务器才会从列表里消失。")
@@ -1083,18 +1178,22 @@ def do_status(spec):
     name, product = spec["name"], spec["product"]
     _say(f"\n{spec.get('label') or name}（{name}）安装状态")
 
-    dst = deployed_exe(product)
-    cur = spec.get("version") or ""
-    if os.path.isfile(dst):
-        _line("部署", "ok", f"{dst}（{os.path.getsize(dst) // 1048576}MB）")
+    inst = _read_installed(product)
+    exe = inst.get("exe") or ""
+    if exe and os.path.isfile(exe):
+        _line("注册的 exe", "ok", exe)
+    elif exe:
+        # 新模式**唯一的失效方式**：exe 被挪走/删了（注册的是它的绝对路径）
+        _line("注册的 exe", "fail",
+              f"注册的路径已经不在了（挪走 / 删了？）：{exe} —— 重跑 --install 指回现在这份")
     else:
-        _line("部署", "skip", f"没装（期望位置 {dst}）")
+        _line("注册的 exe", "skip", f"没装过（现在这份：{own_exe() or '源码模式'}）")
 
     # 版本对账（**纯本地**，不联网——本产品的红线是"本地处理、不外传"）：
-    # 你现在跑的这份 vs 装在客户端里那份。不一致就是"该重跑 --install 了"。
+    # 你现在跑的这份 vs 注册进客户端的那份。不一致就是"该重跑 --install 了"。
     # 装的那份的版本读 `installed.json`，**不去启动它**：onefile 冷启动 1–3s，
     # 每次查状态都解一次包，状态查询就变秒级了。
-    inst = _read_installed(product)
+    cur = spec.get("version") or ""
     got = inst.get("version") or ""
     if not got:
         _line("版本", "skip", f"当前 v{cur}（没装，或这份登记早于本版本）")
@@ -1111,21 +1210,28 @@ def do_status(spec):
             continue
         _line(c["label"], *_registered_line(c, name))
 
-    # 技能落点按**技能 id**（= product）找，不是按服务名。跟 skill_apply 用同一份判断，
-    # 别各写各的（写错过一次：明明装了却报"没装"）。三种形态各自的"在不在"判据不同。
-    sts = skill_targets(product)
+    # 技能落点按**技能 id** 找（见 `skill_id()`），不是按服务名、也不是按产品名。跟 skill_apply
+    # 用同一份判断，别各写各的（写错过一次：明明装了却报"没装"）。三种形态的"在不在"判据不同。
+    sid = skill_id(spec)
+    sts = skill_targets(sid)
     if not sts:
         _line("技能", "skip", "没检测到会读技能/规则的客户端")
     for t in sts:
         where = t["resolved"]
         if t["kind"] == "skill_dir":
-            where = os.path.join(where, product)
+            where = os.path.join(where, sid)
             there = os.path.isdir(where)
         elif t["kind"] == "rule_file":
             there = os.path.isfile(where)
         else:
             there = os.path.isfile(where) and BLOCK_BEGIN.format(p=product) in _peek(where)
         _line(f"技能·{t['label']}", "ok" if there else "skip", where if there else "没装")
+
+    # 老安装器（≤0.13.0）在 `~/.lumii/mcp/<产品>/` 留的那份拷贝：说一句，免得用户看见磁盘上
+    # 两份 exe 犯迷糊（卸载时会一起清掉）。
+    lexe = _read_legacy_installed(product).get("exe") or ""
+    if lexe and os.path.isfile(lexe) and os.path.normcase(lexe) != os.path.normcase(exe):
+        _line("老拷贝", "skip", f"{lexe}（老安装器拷的，卸载时会一起清掉）")
     return 0
 
 
@@ -1288,10 +1394,10 @@ def pick_clients(cs, title="要注册到哪些 AI 客户端？", keys=None, ask_
         k = next(it, "enter") if it is not None else read()
         if k in ("quit", None):
             return chosen
-        if k == "up":
-            cur = selectable[(selectable.index(cur) - 1) % len(selectable)]
-        elif k == "down":
-            cur = selectable[(selectable.index(cur) + 1) % len(selectable)]
+        if k in ("up", "down"):
+            step = -1 if k == "up" else 1
+            cur = selectable[(selectable.index(cur) + step) % len(selectable)]
+            _menu(title, rows, cur, redraw=True)       # ↑/↓ 得**当场**重画：只改 cur 不重画＝按了没动静
         elif k == "toggle":
             rows[cur] = (rows[cur][0], not rows[cur][1], True, rows[cur][3])
             _menu(title, rows, cur, redraw=True)
@@ -1302,9 +1408,7 @@ def pick_clients(cs, title="要注册到哪些 AI 客户端？", keys=None, ask_
         elif k == "enter":
             _menu(title, rows, cur, redraw=True)
             return {c["key"] for c, r in zip(cs, rows) if r[1] and r[2]}
-        else:                                          # 别的键：光标往下走一格，别没反应
-            cur = selectable[(selectable.index(cur) + 1) % len(selectable)]
-            _menu(title, rows, cur, redraw=True)
+        # 别的键（←/→ 就是「?」）不动光标。以前这里跟着 ↓ 走一格，才显得"是左右键在选"
 
 
 def _menu_one(title, options, cur, redraw):
@@ -1337,7 +1441,7 @@ def pick_one(title, options, keys=None, default=0):
             return len(options) - 1 if len(options) > 1 else default
         if k == "up":
             cur = (cur - 1) % len(options)
-        elif k == "down" or k not in ("enter",):
+        elif k == "down":
             cur = (cur + 1) % len(options)
         if k == "enter":
             _menu_one(title, options, cur, redraw=True)
@@ -1377,7 +1481,24 @@ def _pause():
 
 
 def interactive(spec, ask=_ask, ask_raw=_ask_raw, keys=None):
-    """双击时走的路：说清楚这是什么 → **只按方向键勾客户端** → 一键装 → 该常驻的顺带装上。
+    """双击时走的路。**这一层只管一件事**：出错了别让窗口一闪就没。
+
+    向导本体在 `_wizard()`。双击来的用户看不到任何东西时，只会以为"装上了"（或者"没反应"）
+    ——那比报错难查得多，所以崩了要把栈打出来、并且停住窗口。
+    """
+    try:
+        return _wizard(spec, ask, ask_raw, keys)
+    except Exception:                                          # noqa: BLE001
+        import traceback
+        traceback.print_exc()
+        _say("\n❌ 安装器自己出错了——把上面这段报错发给开发者。")
+        _say("   改过的客户端配置都留了 `.bak` 备份；重跑一次通常能接着往下走。")
+        _pause()
+        return 1
+
+
+def _wizard(spec, ask=_ask, ask_raw=_ask_raw, keys=None):
+    """说清楚这是什么 → **只按方向键勾客户端** → 一键装 → 该常驻的顺带装上。
 
     已经装过时先给一个岔路（重装 / **只从某些客户端摘掉** / 退出）——首次用户看不到这一步。
 
@@ -1391,11 +1512,15 @@ def interactive(spec, ask=_ask, ask_raw=_ask_raw, keys=None):
     _say("双击我可以一键装好，之后在 Claude Code / Cursor / Codex 里直接用。")
     _say("")
     _say("接下来会做三件事：")
-    _say(f"  1. 把这个 exe 复制到稳定目录 {install_dir(spec['product'])}")
-    _say("     （这样你以后清理「下载」文件夹，也不会把注册好的路径弄断）")
+    _say("  1. 把**这份 exe 的当前位置**注册进客户端（不拷贝、不搬运）")
     _say("  2. 注册到你指定的 AI 客户端（只加我们这一条，改前备份，不动你的其它配置）")
     _say("  3. 把技能包放到对应客户端的技能目录")
     _say("")
+    mine = own_exe()
+    if mine:
+        _say("⚠️  装完**别移动、也别删除这个 exe**——客户端里注册的就是它的路径：")
+        _say(f"    {mine}")
+        _say("")
 
     cs = clients()
     detected = [c for c in cs if c["detected"]]
@@ -1411,8 +1536,10 @@ def interactive(spec, ask=_ask, ask_raw=_ask_raw, keys=None):
             _pause()
             return 0
         if idx == 1:
+            # 预勾**台账里记着的那几家**（= 我们真注册过的地方）；老台账没记就回到"全勾"
+            got = set(_read_installed(spec["product"]).get("clients") or [])
             only = pick_clients(detected, "要从哪些客户端里摘掉？", keys, ask_raw,
-                                prechecked={c["key"] for c in detected})
+                                prechecked=got or {c["key"] for c in detected})
             if not only:
                 _say("\n一个都没勾——那就什么都不动。")
                 _pause()
@@ -1425,7 +1552,7 @@ def interactive(spec, ask=_ask, ask_raw=_ask_raw, keys=None):
         only = pick_clients(detected, "要注册到哪些 AI 客户端？", keys, ask_raw)
     else:
         only = set()
-        _say("\n（一个 AI 客户端都没检测到——那就只部署 exe；之后可以跑 `--install` 再来一次。）")
+        _say("\n（一个 AI 客户端都没检测到——那就谁都不注册；exe 还在你手上，什么都不会丢。）")
 
     if not ask("\n现在开始？"):
         _say("\n好，什么都没做。想装的时候再双击一次（或跑 `--install`）。")
@@ -1465,22 +1592,6 @@ def do_expiry_status(spec):
     if not st["ok"]:
         _say(f"\n    {E.how_to_fix(st)}")
     return 0 if st["ok"] else 1
-
-
-def _delete_on_reboot(path):
-    """安排**重启后删除**自己（运行中的 exe 删不掉）。
-
-    `MoveFileEx(..., MOVEFILE_DELAY_UNTIL_REBOOT)` 是 Windows 给这件事的标准口子——
-    比"再起一个进程等几秒再删"稳（不用赌延迟够不够）。
-    """
-    import ctypes
-    MOVEFILE_DELAY_UNTIL_REBOOT = 0x4
-    try:
-        k32 = ctypes.windll.kernel32
-        k32.MoveFileExW.argtypes = (ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_uint32)
-        return bool(k32.MoveFileExW(path, None, MOVEFILE_DELAY_UNTIL_REBOOT))
-    except Exception:                                          # noqa: BLE001
-        return False
 
 
 FLAGS = {

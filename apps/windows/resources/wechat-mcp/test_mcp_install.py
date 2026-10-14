@@ -113,15 +113,19 @@ def test_jsonc_with_comments_is_refused_not_rewritten():
 
 
 def test_install_skips_undetected_clients():
-    """**"客户端在不在"是唯一闸门**：没装的客户端一个字节都不许碰（连目录都不建）。"""
+    """**"客户端在不在"是唯一闸门**：没装的客户端一个字节都不许碰（连目录都不建）。
+
+    顺带钉住新装法的两条：注册的路径**就是这份 exe 自己**（不拷贝），台账里记下装到了哪家。
+    """
     d = tempfile.mkdtemp(prefix="install_")
     touched = []
-    old = (I.clients, I.deploy_self, I._say, I.data_root, I._read_installed, I.skill_apply)
+    old = (I.clients, I.own_exe, I._say, I.data_root, I._read_installed, I.skill_apply)
     I.data_root = lambda: os.path.join(d, "lumii")
     I._read_installed = lambda p: {}
     I._say = lambda *a, **k: None
     I.skill_apply = lambda spec, remove=False, exe=None: []
-    I.deploy_self = lambda product: (r"C:\fake\x.exe", "ok")   # 别真拷 exe
+    mine = os.path.join(d, "下载", "wechat-file-mcp.exe")      # "我"就是这份 exe
+    I.own_exe = lambda: mine
     I.clients = lambda: [
         {"key": "installed", "label": "装了", "kind": "json_mcp",
          "path": os.path.join(d, "ok.json"), "detected": True},
@@ -131,6 +135,7 @@ def test_install_skips_undetected_clients():
 
     def spy(label, path, name, entry, top_key="mcpServers"):
         touched.append(label)
+        assert entry["command"] == mine, f"注册的得是当前这份 exe，实际：{entry}"
         return real(label, path, name, entry, top_key)
 
     I.json_client_apply = spy
@@ -139,8 +144,14 @@ def test_install_skips_undetected_clients():
                       "version": "1.0", "label": "X"})
         assert touched == ["装了"], f"只该碰装了的那家，实际：{touched}"
         assert not os.path.isdir(os.path.join(d, "nope")), "没装的那个连目录都不该建"
+        # **不拷贝**：状态目录里只该有那份台账（老装法会往里拷一份 10MB 的 exe）
+        sdir = I.install_dir("wechat-file-mcp")
+        assert sorted(os.listdir(sdir)) == ["installed.json"], os.listdir(sdir)
+        rec = json.load(open(I.installed_record_path("wechat-file-mcp"), encoding="utf-8"))
+        assert rec["exe"] == mine, rec
+        assert rec["clients"] == ["installed"], f"只记真注册成的那家：{rec}"
     finally:
-        (I.clients, I.deploy_self, I._say, I.data_root, I._read_installed,
+        (I.clients, I.own_exe, I._say, I.data_root, I._read_installed,
          I.skill_apply) = old
         I.json_client_apply = real
         shutil.rmtree(d, ignore_errors=True)
@@ -260,7 +271,7 @@ def test_every_write_target_lives_under_home_or_appdata():
         # **我们自己的写入落点**也得在根底下（第二次就是漏了这一类）
         paths += [I.data_root(), I.install_dir("wechat-file-mcp"),
                   I.installed_record_path("wechat-file-mcp"),
-                  I.deployed_exe("wechat-file-mcp")]
+                  I.legacy_install_dir("wechat-file-mcp")]
         bad = [p for p in paths if not p or not any(
             os.path.normcase(p).startswith(os.path.normcase(r)) for r in roots)]
         assert not bad, f"这些路径没走 ~ / %APPDATA%，测试改根也拦不住：{bad}"
@@ -315,9 +326,10 @@ def _once(*answers):
 def test_pick_clients_by_keys():
     """**只用方向键和空格**勾客户端——不打字（用户明确要求）。
 
-    盯三件事：① 不用打字；② 光标**只停在能选的行上**（没装的不停）；③ 每个键都有反应，
-    不会"按了没动静"。`keys` 注入的是规范化记号（`up`/`down`/`toggle`/`all`/`enter`/`quit`），
-    真机上由 `msvcrt` 逐键读出来。
+    盯三件事：① 不用打字；② 光标**只停在能选的行上**（没装的不停）；③ ↑/↓ 要**看得见地**动
+    （只改 `cur` 不重画＝用户按了没动静，正是"上下键不动、只有左右键动"那个报障的根因）。
+    `keys` 注入的是规范化记号（`up`/`down`/`toggle`/`all`/`enter`/`quit`），真机上由 `msvcrt`
+    逐键读出来——注入路径**绕过渲染**，所以重画得单独断言。
     """
     cs = [{"key": "a", "label": "A", "detected": True},
           {"key": "b", "label": "B", "detected": True},
@@ -333,8 +345,14 @@ def test_pick_clients_by_keys():
         # 光标只在**可选**行间走：a → b → 绕回 a，从不落到没装的 c 上
         assert I.pick_clients(cs, keys=["down", "down", "toggle", "enter"]) == {"b"}
         assert I.pick_clients(cs, keys=["quit"]) == {"a", "b"}, "Esc = 保持现状退出"
-        # 认不出的键不该"没反应"：光标往下走一格（按了就有动静）
-        assert I.pick_clients(cs, keys=["x", "toggle", "enter"]) == {"a"}
+        # ↑/↓ 得**当场**重画：不重画的话屏幕上的 `>` 不动（注入路径没有渲染，只能查 _emit 的文本；
+        # 用 quit 收尾＝不许拿后面 enter 那一次重画来顶替）
+        out.clear()
+        I.pick_clients(cs, keys=["up", "quit"])            # a → 绕回 b（c 没装，不停）
+        assert "> [✓] B" in out[-1], "↑/↓ 之后光标得真的画出来"
+        # 认不出的键（←/→ 解出来的 "?" 就在这）**不动光标**——以前它跟着 ↓ 走一格，
+        # 才显得"只有左右键在选"
+        assert I.pick_clients(cs, keys=["x", "toggle", "enter"]) == {"b"}
         # 全都没装 ⇒ 没有可选行，直接返回空，不能卡住
         assert I.pick_clients([{"key": "c", "label": "C", "detected": False}], keys=[]) == set()
         # 预勾选（卸载路径用）+ 退化路径（没真控制台时仍认打字）
@@ -539,53 +557,124 @@ def test_codex_appends_isolated_section():
     print("ok codex_appends_isolated_section")
 
 
-def test_deploy_self_source_mode():
-    """源码模式下**不拷贝自身**——`sys.executable` 那时是 python.exe，拷过去是错的。"""
+def test_own_exe_in_source_mode():
+    """源码模式下没有"这份 exe"——`own_exe()` 给 `None`，调用方退回"解释器 + 脚本路径"。
+
+    老装法在这里拷 `sys.executable`（那时是 python.exe），拷过去是错的；新装法连拷都不拷。
+    """
     assert not getattr(sys, "frozen", False), "这条只在源码模式有意义"
-    exe, how = I.deploy_self("wechat-file-mcp")
-    assert exe is None and "源码模式" in how, (exe, how)
-    print("ok deploy_self_source_mode")
+    assert I.own_exe() is None
+    cmd, args = I._own_command()
+    assert "thon" in os.path.basename(cmd) and args, (cmd, args)
+    print("ok own_exe_in_source_mode")
 
 
-def test_prune_old():
-    """覆盖部署留下的 `*.old-*` 要清到只剩最近两个（否则每次升级涨一份 10MB）。"""
+class _R:
+    def __init__(self, rc=0):
+        self.returncode, self.stdout, self.stderr = rc, b"", b""
+
+
+def _uninstall_fixture(report):
+    """卸载用例的公共布景：一份"用户的 exe"+一条记着它的台账，桩掉一切对外副作用。"""
     d = tempfile.mkdtemp(prefix="install_")
-    for i in range(5):
-        open(os.path.join(d, f"p.exe.old-{i}"), "w").close()
-    open(os.path.join(d, "p.exe"), "w").close()
-    I._prune_old(d, "p")
-    left = sorted(f for f in os.listdir(d) if ".old-" in f)
-    assert left == ["p.exe.old-3", "p.exe.old-4"], left
-    assert os.path.isfile(os.path.join(d, "p.exe")), "当前在用的 exe 不能被当成残留删掉"
+    exe = os.path.join(d, "下载", "wechat-recall-mcp.exe")
+    os.makedirs(os.path.dirname(exe))
+    open(exe, "w").close()
+    spec = {"name": "wechat-recall", "product": "wechat-recall-mcp", "version": "1.0",
+            "label": "撤回防护", "daemon_uninstall": "--uninstall-autostart"}
+    old = (I.data_root, I.own_exe, I._say, I.clients, I.skill_apply, I.unregister_client,
+           I.legacy_install_dir, I.subprocess.run)
+    I.data_root = lambda: os.path.join(d, "lumii")
+    I.own_exe = lambda: exe
+    I._say = lambda *a, **k: None
+    I.legacy_install_dir = lambda p: os.path.join(d, "老地方", p)
+    I.clients = lambda: [{"key": "a", "label": "A", "kind": "json_mcp", "path": "p",
+                          "detected": True},
+                         {"key": "b", "label": "B", "kind": "json_mcp", "path": "p",
+                          "detected": True}]
+    I.unregister_client = lambda c, n: (report.append(("摘", c["key"])), ("ok", ""))[1]
+    I.skill_apply = lambda spec, remove=False, exe=None: (
+        report.append(("技能", remove)), [("Claude Code", "ok", "")])[1]
+    I.subprocess.run = lambda cmd, **k: (report.append(("守护", cmd[-1])), _R())[1]
+    I._write_installed("wechat-recall-mcp", spec, exe, clients=["a", "b"])
+    return d, exe, spec, old
+
+
+def _uninstall_teardown(d, old):
+    (I.data_root, I.own_exe, I._say, I.clients, I.skill_apply, I.unregister_client,
+     I.legacy_install_dir, I.subprocess.run) = old
     shutil.rmtree(d, ignore_errors=True)
-    print("ok prune_old")
 
 
-def test_clean_install_dir_removes_old_leftovers():
-    """卸载要把部署目录**连同 `*.old-*` 残留**清掉（那是升级让位出来的旧 exe，11MB 一个）；
-    但目录里还有别人的东西时**只删自己的**，不 `rmdir`（别误删）。"""
-    d = tempfile.mkdtemp(prefix="install_")
-    old_root = I.data_root
-    I.data_root = lambda: d
+def test_uninstall_keeps_the_exe_and_drops_only_our_ledger():
+    """**卸载不许删 exe**——那是用户自己下载、自己放着的文件；我们只收自己的台账。
+
+    老装法把 exe 拷进 `~/.lumii/mcp/`，删掉无所谓；现在注册进客户端的就是用户手上那份，
+    删了等于把人家的安装弄坏，而且客户端配置还在指着它。
+    """
+    report = []
+    d, exe, spec, old = _uninstall_fixture(report)
     try:
-        idir = I.install_dir("wechat-file-mcp")
-        os.makedirs(idir)
-        for f in ("wechat-file-mcp.exe", "wechat-file-mcp.exe.old-1", "wechat-file-mcp.exe.old-2"):
-            open(os.path.join(idir, f), "w").close()
-        I._clean_install_dir("wechat-file-mcp")
-        assert not os.path.isdir(idir), "部署目录该被一起清掉"
-
-        os.makedirs(idir)                                  # 目录里还有别的东西 ⇒ 不 rmdir
-        open(os.path.join(idir, "wechat-file-mcp.exe"), "w").close()
-        open(os.path.join(idir, "用户放的东西.txt"), "w").close()
-        I._clean_install_dir("wechat-file-mcp")
-        assert os.path.isdir(idir), "目录里还有别人的东西，不许 rmdir"
-        assert os.path.isfile(os.path.join(idir, "用户放的东西.txt")), "误删了别人的文件"
-        assert not os.path.isfile(os.path.join(idir, "wechat-file-mcp.exe"))
+        assert I.do_uninstall(spec) == 0
+        assert os.path.isfile(exe), "**卸载把用户的 exe 删了**"
+        assert not os.path.isfile(I.installed_record_path("wechat-recall-mcp")), "台账该收掉"
+        assert not os.path.isdir(I.data_root()), "自己建的目录该收干净"
+        assert ("摘", "a") in report and ("摘", "b") in report, report
+        assert ("技能", True) in report, report
+        assert ("守护", "--uninstall-autostart") in report, report
     finally:
-        I.data_root = old_root
+        _uninstall_teardown(d, old)
+    print("ok uninstall_keeps_the_exe_and_drops_only_our_ledger")
+
+
+def test_partial_uninstall_keeps_skills_and_daemon():
+    """只从**某些**客户端里摘 ⇒ 技能包与常驻守护都不许动（用户只是想从那一家退出来）。"""
+    report = []
+    d, exe, spec, old = _uninstall_fixture(report)
+    try:
+        assert I.do_uninstall(spec, only={"a"}) == 0
+        assert ("摘", "a") in report and ("摘", "b") not in report, report
+        assert not [r for r in report if r[0] in ("技能", "守护")], f"部分卸载误动了：{report}"
+        assert os.path.isfile(I.installed_record_path("wechat-recall-mcp")), "还有别家指着它，台账得留"
+        assert os.path.isfile(exe)
+    finally:
+        _uninstall_teardown(d, old)
+    print("ok partial_uninstall_keeps_skills_and_daemon")
+
+
+def test_legacy_copy_is_claimed_by_the_ledger_only():
+    """老装法拷到 `~/.lumii/mcp/<产品>/` 的那份：**只认老台账记着的路径**才删。
+
+    那个目录里可能躺着**别人放的东西**（主产品的 exe 就是 App 自己部署在那儿的），
+    按文件名认领会误删别的产品/App 的东西。
+    """
+    d = tempfile.mkdtemp(prefix="install_")
+    ldir = os.path.join(d, "mcp", "wechat-file-mcp")
+    old = (I.legacy_install_dir, I.own_exe)
+    I.legacy_install_dir = lambda p: os.path.join(d, "mcp", p)
+    I.own_exe = lambda: os.path.join(d, "下载", "wechat-file-mcp.exe")
+    try:
+        os.makedirs(ldir)
+        victim = os.path.join(ldir, "wechat-file-mcp.exe")
+        open(victim, "w").close()
+        # ① 没有老台账 ⇒ 一个字节都不认领（那份 exe 可能就是 App 部署的）
+        assert I._drop_legacy_copy("wechat-file-mcp") == []
+        assert os.path.isfile(victim), "没台账就不许按文件名认领"
+        # ② 台账记的**不是**这个目录里的东西 ⇒ 同样不动
+        I._write_cfg(os.path.join(ldir, "installed.json"), {"exe": r"C:\别处\x.exe"})
+        assert I._drop_legacy_copy("wechat-file-mcp") == []
+        assert os.path.isfile(victim), "台账指向别处，就不该删这儿的文件"
+        # ③ 台账记着它 ⇒ 连 `*.old-*` 残留与老台账一起清掉，目录空了就 rmdir
+        open(victim + ".old-1", "w").close()
+        I._write_cfg(os.path.join(ldir, "installed.json"), {"exe": victim})
+        gone = I._drop_legacy_copy("wechat-file-mcp")
+        assert sorted(gone) == ["installed.json", "wechat-file-mcp.exe",
+                                "wechat-file-mcp.exe.old-1"], gone
+        assert not os.path.isdir(ldir), "清干净了就 rmdir"
+    finally:
+        (I.legacy_install_dir, I.own_exe) = old
         shutil.rmtree(d, ignore_errors=True)
-    print("ok clean_install_dir_removes_old_leftovers")
+    print("ok legacy_copy_is_claimed_by_the_ledger_only")
 
 
 def test_subprocess_kwargs_are_python_not_node():
@@ -644,11 +733,12 @@ def test_version_compare():
 
 
 def test_installed_record_roundtrip_and_stale_detection():
-    """装了要登记版本；`--install-status` 靠它对账——**不去启动部署副本**（onefile 冷启动 1–3s）。"""
+    """装了要登记版本；`--install-status` 靠它对账——**不去启动那份 exe**（onefile 冷启动 1–3s）。"""
     d = tempfile.mkdtemp(prefix="install_")
     old_root, old_say, old_skills, old_codex = I.data_root, I._say, I.skill_targets, I.CODEX_CONFIG
-    old_clients = I.clients
+    old_clients, old_legacy = I.clients, I.legacy_install_dir
     I.data_root = lambda: d
+    I.legacy_install_dir = lambda p: os.path.join(d, "老地方", p)   # 别去读真机上那份老台账
     # **别碰真实的 ~/.claude/skills 与 ~/.codex/config.toml**；
     # `clients()` 也打桩——否则 `do_status` 会去 spawn 真的 `claude mcp get`（慢且碰真实配置）
     I.skill_targets = lambda p: [
@@ -663,7 +753,10 @@ def test_installed_record_roundtrip_and_stale_detection():
         spec = {"name": "wechat-file", "product": "wechat-file-mcp", "version": "0.5.0",
                 "label": "文件归档", "skill": "/nope"}
         os.makedirs(I.install_dir("wechat-file-mcp"))
-        I._write_installed("wechat-file-mcp", spec, r"C:\fake\x.exe")
+        exe = os.path.join(d, "下载", "wechat-file-mcp.exe")     # 得**真存在**，否则先撞上下面那条
+        os.makedirs(os.path.dirname(exe))
+        open(exe, "w").close()
+        I._write_installed("wechat-file-mcp", spec, exe)
         assert I._read_installed("wechat-file-mcp")["version"] == "0.5.0"
 
         # 跑的是新版、装的是旧版 ⇒ 必须**报出来**（这正是"没人提醒你该升"的那个洞）
@@ -676,6 +769,13 @@ def test_installed_record_roundtrip_and_stale_detection():
         assert any("与当前一致" in s for s in out), out
         assert not any("重跑 --install" in s for s in out), out
 
+        # 新装法独有的失效模式：注册进客户端的就是**这份 exe 本身**，挪走/删掉就废了。
+        # 状态必须把这条点出来——否则用户看到全绿，客户端那边却永远连不上。
+        os.remove(exe)
+        out.clear()
+        I.do_status(spec)
+        assert any("注册的路径已经不在了" in s for s in out), out
+
         # 技能包那一行必须按**技能 id**（= product）找目录，不是按服务名。
         # 真机踩过：明明装了却报"没装"（和 skill_apply 同一个坑的第二处，别各写各的）。
         os.makedirs(os.path.join(d, "skills", "wechat-file-mcp"), exist_ok=True)
@@ -684,8 +784,9 @@ def test_installed_record_roundtrip_and_stale_detection():
         skill_line = [s for s in out if "技能·" in s]
         assert skill_line and "没装" not in skill_line[0], skill_line
     finally:
-        (I.data_root, I._say, I.skill_targets, I.CODEX_CONFIG, I.clients) = (
-            old_root, old_say, old_skills, old_codex, old_clients)
+        (I.data_root, I._say, I.skill_targets, I.CODEX_CONFIG, I.clients,
+         I.legacy_install_dir) = (
+            old_root, old_say, old_skills, old_codex, old_clients, old_legacy)
         shutil.rmtree(d, ignore_errors=True)
     print("ok installed_record_roundtrip_and_stale_detection")
 
@@ -886,14 +987,14 @@ def test_remove_failure_does_not_block_add():
     # 三个都要打桩，缺一个就会真写进用户目录：
     #   `codex_apply` → `~/.codex/config.toml`（有明文 API key）
     #   `data_root`   → `~/.lumii/...`（**踩过**：`_write_installed` 真写了个 "C:\fake\x.exe" 进去）
-    #   `deploy_self` → 真拷 exe
-    old = (I.claude_code_apply, I.deploy_self, I.skill_apply, I.json_client_apply, I.codex_apply,
+    #   `own_exe`     → 真把"这份 exe"写进用户目录
+    old = (I.claude_code_apply, I.own_exe, I.skill_apply, I.json_client_apply, I.codex_apply,
            I._say, I.data_root)
     I.data_root = lambda: d
     I.claude_code_apply = lambda name, command=None, args=(): (
         calls.append("remove" if command is None else "add"),
         ("fail", "No MCP server named") if command is None else ("ok", "added"))[1]
-    I.deploy_self = lambda product: (r"C:\fake\x.exe", "ok")
+    I.own_exe = lambda: r"C:\fake\x.exe"
     I.skill_apply = lambda spec, remove=False, exe=None: [("Claude Code", "ok", r"C:\fake\skill")]
     I.json_client_apply = lambda *a, **k: ("skip", "未安装")
     I.codex_apply = lambda *a, **k: ("skip", "未安装")
@@ -903,7 +1004,7 @@ def test_remove_failure_does_not_block_add():
         assert calls == ["remove", "add"], f"摘失败后必须照样挂，实际：{calls}"
         assert rc == 0, f"摘失败不算安装失败：{rc}"
     finally:
-        (I.claude_code_apply, I.deploy_self, I.skill_apply, I.json_client_apply,
+        (I.claude_code_apply, I.own_exe, I.skill_apply, I.json_client_apply,
          I.codex_apply, I._say, I.data_root) = old
         shutil.rmtree(d, ignore_errors=True)
     print("ok remove_failure_does_not_block_add")
@@ -948,6 +1049,50 @@ def test_skill_source_uses_skill_id_not_server_name():
     print("ok skill_source_uses_skill_id_not_server_name")
 
 
+def test_skill_landing_name_comes_from_frontmatter():
+    """技能**落点的名字**取自 `SKILL.md` 的 frontmatter `name`（不是产品名），并清掉老名字那份。
+
+    pro 版三个名字各不相同：服务名 `wechat-local` / 产品名 `wechat-mcp` / 技能名 `wechat-mcp-pro`。
+    按产品名落过的后果实测过：本机 `~/.claude/skills/wechat-mcp-pro` 是 App 装的、安装器去
+    `wechat-mcp` 找——状态里报"没装"，卸载也摘不掉；两份并存时客户端还会同时读到。
+    """
+    d = tempfile.mkdtemp(prefix="install_")
+    src = os.path.join(d, "MEI", "skills", "wechat-mcp")
+    os.makedirs(src)
+    with open(os.path.join(src, "SKILL.md"), "w", encoding="utf-8") as f:
+        f.write("---\nname: wechat-mcp-pro\ndescription: x\n---\n\n# 正文\n")
+    dst = os.path.join(d, "skills")
+    old_targets, old_frozen = I.skill_targets, getattr(sys, "frozen", None)
+    I.skill_targets = lambda sid: [{"label": "Claude Code", "kind": "skill_dir",
+                                    "root": (d, "skills"), "resolved": dst}]
+    sys.frozen = True                                       # 让 skill_source 走 `_MEIPASS`
+    old_meipass = getattr(sys, "_MEIPASS", None)
+    sys._MEIPASS = os.path.join(d, "MEI")
+    spec = {"name": "wechat-local", "product": "wechat-mcp", "version": "1.0", "label": "P"}
+    try:
+        assert I.skill_id(spec) == "wechat-mcp-pro", I.skill_id(spec)
+        os.makedirs(os.path.join(dst, "wechat-mcp"))        # 老装法按产品名落的那份
+        open(os.path.join(dst, "wechat-mcp", "旧文件.md"), "w").close()
+        rows = I.skill_apply(spec)
+        assert rows[0][1] == "ok" and rows[0][2] == os.path.join(dst, "wechat-mcp-pro"), rows
+        assert os.path.isfile(os.path.join(dst, "wechat-mcp-pro", "SKILL.md"))
+        assert not os.path.isdir(os.path.join(dst, "wechat-mcp")), "老名字那份该被清掉（否则两份都被读）"
+        # 卸载：按同一个名字摘，摘得掉（老装法在这儿报"本来就没装"）
+        assert I.skill_apply(spec, remove=True)[0][1] == "ok"
+        assert not os.path.isdir(os.path.join(dst, "wechat-mcp-pro"))
+    finally:
+        I.skill_targets = old_targets
+        del sys.frozen
+        if old_frozen is not None:
+            sys.frozen = old_frozen
+        if old_meipass is None:
+            del sys._MEIPASS
+        else:
+            sys._MEIPASS = old_meipass
+        shutil.rmtree(d, ignore_errors=True)
+    print("ok skill_landing_name_comes_from_frontmatter")
+
+
 if __name__ == "__main__":
     test_json_client_add_remove()
     test_json_client_refuses_garbage()
@@ -964,9 +1109,10 @@ if __name__ == "__main__":
     test_ask_and_pause_never_hang()
     test_say_never_crashes_on_encoding()
     test_codex_appends_isolated_section()
-    test_deploy_self_source_mode()
-    test_prune_old()
-    test_clean_install_dir_removes_old_leftovers()
+    test_own_exe_in_source_mode()
+    test_uninstall_keeps_the_exe_and_drops_only_our_ledger()
+    test_partial_uninstall_keeps_skills_and_daemon()
+    test_legacy_copy_is_claimed_by_the_ledger_only()
     test_subprocess_kwargs_are_python_not_node()
     test_consume_flags_routing()
     test_version_compare()
@@ -979,4 +1125,5 @@ if __name__ == "__main__":
     test_no_network_code_in_install_or_expiry()
     test_remove_failure_does_not_block_add()
     test_skill_source_uses_skill_id_not_server_name()
+    test_skill_landing_name_comes_from_frontmatter()
     print("ALL PASS")
