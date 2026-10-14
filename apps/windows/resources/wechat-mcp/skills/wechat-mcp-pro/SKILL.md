@@ -16,7 +16,7 @@ description: 用「本机微信 MCP 高级版」操作用户本机的微信—�
 
 ## 0. 装（客户端侧一次配好即可）
 
-**最省事的一条路**：让用户**双击 `wechat-mcp.exe`**——它自带安装向导，会把 exe 部署到稳定目录、
+**最省事的一条路**：让用户**双击 `wechat-mcp.exe`**——它自带安装向导，会把**这份 exe 的路径**
 把自己注册进选中的客户端、并把本技能包放好。装完重启客户端即可。
 非交互地跑同样的事：`"{{EXE}}" --install`（`--install-status` 看装到哪、`--uninstall` 卸）。
 
@@ -94,7 +94,7 @@ claude mcp add wechat-local -s user -- "{{EXE}}"
 
 | 工具 | 说明 |
 |---|---|
-| `read_image` | 按 `talker` + `local_id` 取图，返回 MCP **image 内容块**。`variant` 可能是 `hd` 或 `thumb`（原图没下就只有缩略图） |
+| `read_image` | 按 `talker` + `local_id` 取图，返回 MCP **image 内容块**。`variant` 可能是 `hd` 或 `thumb`（原图没下就只有缩略图）。**要先抓过一次图片密钥**——账号级、只能从微信进程内存扫出来，缺了它会明说是「密钥还没抓过」，这时让用户先在微信里点开一张图、再跑一次 `wechat-mcp.exe --image-key` |
 | `transcribe_voice` | 按 `talker` + `local_id` 本地转写语音（sherpa-onnx，不出网） |
 | `wechat_digest` | 出统计与样本：说话风格、常联系的人、活跃时段——**蒸馏的原料** |
 | `wechat_profile_save` / `wechat_profile_get` | 画像落盘 / 读回。`scope` 留空=用户本人，否则给**真实存在的会话**（名字或 wxid）；不存在的 scope 会被拒 |

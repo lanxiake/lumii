@@ -3,14 +3,14 @@
 ## 最快的方式：双击 exe 一键安装
 
 拿到 `wechat-mcp.exe`（见 §3），**双击它**，向导会把你选中的 AI 客户端一次配好——
-部署到稳定目录、写 MCP 配置、放技能包，全程只按方向键勾选，不用手抄路径。
+把**这份 exe 的路径**写进 MCP 配置、放技能包，全程只按方向键勾选，不用手抄路径。
 
 也可以在终端里非交互地跑：
 
 ```powershell
 wechat-mcp.exe --install          # 装（幂等，可重复跑）
 wechat-mcp.exe --install-status   # 看装到哪、注册到哪些客户端
-wechat-mcp.exe --uninstall        # 卸（摘注册 + 删技能包；不删用户数据）
+wechat-mcp.exe --uninstall        # 卸（摘注册 + 删技能包；不删用户数据、不删 exe）
 wechat-mcp.exe --expiry-status    # 这份 exe 的有效期到哪天
 ```
 
@@ -65,6 +65,7 @@ wechat-mcp.exe --expiry-status    # 这份 exe 的有效期到哪天
 只想打一档用 `--edition pro` / `--edition lite`，或 `pnpm build:wechat-mcp:lite`；
 加 `--if-stale` 在两档都已是最新时跳过；`--days N` 定内置有效期（默认 365 天，见 §5）。
 版本号来自 `server.py` 的 `SERVER_VERSION`，也写在 exe 的 Windows 属性（右键 → 详细信息 → 文件版本）里，`wechat-mcp.exe --version` 输出同一值；`--edition` 打印档位（`pro`/`lite`）。
+exe 的其余一次性开关（都是显式触发，**绝不会自动跑**）：`--install` / `--install-status`（见 §1）、`--download-asr-model`（pro 的语音模型，约 78MB）、`--image-key`（pro 的图片密钥，约 50 秒，见 §看图）。
 
 ```json
 {
@@ -204,11 +205,28 @@ wechat-mcp.exe --expiry-status   # 看到期日与剩余天数（在有效期内
 **档位不是运行期开关**：客户端改不了，`tools/list` 只列出本档工具，直接按名字调用被门控的
 工具也会被拒（返回协议错误）。用 `wechat-mcp.exe --edition` 可打印本产物的档位。
 
-两档的 `--install` **落点不同**：pro 装到 `~/.lumii/mcp/wechat-mcp/`（灵栖面板里的条目指的
-就是这里），lite 装到 `~/.lumii/mcp/wechat-mcp-lite/`——**别让 lite 覆盖掉 pro 那份**。
+两档的 `--install` **不搬家**：各把自己**当前所在的那条路径**注册进去，所以两个 exe 可以并排
+放在一起、互不覆盖（也**别在装完之后挪它们**——客户端配置里存的就是那个路径）。
+`~/.lumii/mcp/wechat-mcp/` 那个位置是**灵栖插件**下载 exe 的落点（面板里的条目指的就是它），
+不是 `--install` 拷出来的；灵栖用户不必跑 `--install`。
 各自带对应的技能包（`skills/wechat-mcp-pro` / `-lite` 打进 exe）。
 
 `lite` 版**连 `image_path` / `voice_path` 都不返回**——否则「基础版没有图片解析」是句空话。
+
+### 看图（pro 版）
+
+`read_image` 把一张图片消息解出来（加密 `.dat` → 明文位图，base64 内联返回）。
+
+**要先抓一次图片密钥。** 它是**账号级的 AES key**：不在消息里、也不在任何配置文件里，
+只能从微信进程内存里**只读**扫出来（不注入、不改微信数据）。抓一次就落盘，之后免费。
+
+| 情形 | 怎么办 |
+|---|---|
+| 独立用户（首次） | 先在微信里**点开一张图片**（大图界面，密钥这时才在内存里），再跑 `wechat-mcp.exe --image-key`（本机约 50 秒） |
+| 换过账号 / 图解出来是坏的 | `wechat-mcp.exe --image-key --refresh` 重抓（缓存的旧 key 解出来是**随机字节**，会被当成坏图；代码会把它就地清掉重解） |
+| 没抓 | `read_history` 只给 `[图片 17KB]` 这类摘要；`read_image` 会**明说**是「密钥还没抓过」，不会推给「图没落到本地」 |
+
+状态自查：`check_env` 返回里的 `image_key` 字段（pro 版）。
 
 ### 语音转写（pro 版）
 

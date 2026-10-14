@@ -132,10 +132,6 @@ def _get_fix_suggestion(error_code):
                          "别自己去点、也别叫用户去点，解锁后发送门自己恢复、积压由盯梢回路自动补发。",
         "target_unconfirmed": "没能确认目标会话（发送层 fail-closed：**一个字都没输入**，不会发错、也不会重复）。"
                               "这条已经自动排队、盯梢回路会自己补发——不用改内容，也不用转人工。",
-        "search_skipped": "目标不在当前可见的会话列表里，而微信窗口刚从托盘/最小化还原——这条路上再自动"
-                          "搜索（真键鼠 + 切前台）有把微信界面卡死的风险，所以工具主动放弃了（fail-closed，"
-                          "**一个字都没输入**）。请先手动打开该会话、或让微信窗口处于正常可见状态后再发；"
-                          "内容不用改。",
         "target_not_found": "未找到目标会话，请先用 list_sessions 确认会话名称或 talker ID。",
         "busy": "另一个微信操作正在进行（发送/读取有互斥锁）。等几秒后重试即可，不用做别的。",
         "input_not_landed": "输入框定位失败。建议：1) 确保微信窗口完全可见；2) 稍后重试；3) 检查微信版本（推荐 4.x）。",
@@ -195,9 +191,6 @@ def _code_of(detail):
         return "attachment_not_landed"
     if "输入未落地" in d or "投递输入失败" in d:
         return "input_not_landed"
-    if "跳过搜索兜底" in d:
-        # 目标不在可见会话列表、且窗口是从托盘/最小化还原的：为免真键鼠搜索把界面卡死而主动跳过。
-        return "search_skipped"
     if "目标会话未确认" in d:
         return "target_unconfirmed"
     if "更像其它会话" in d or "校验失败" in d or "不通过" in d:
@@ -219,7 +212,6 @@ _STAGE_BY_CODE = {
     "env_not_ready": "env",        # 进程未运行 / 窗口不可用 / 还原失败 / 前台切不到
     "target_unconfirmed": "target",
     "target_not_found": "target",
-    "search_skipped": "target",
     "verification_failed": "target",
     "input_not_landed": "input",
     "send_unconfirmed": "input",
@@ -251,7 +243,7 @@ def _send_with_retry(send_fn, max_retries=2, retry_delay=0.5):
                        "busy", "clipboard_failed", "verification_failed"}
     NON_RETRIABLE_CODES = {"env_not_ready", "target_unconfirmed", "quote_not_found",
                            "menu_not_found", "bad_args", "send_not_confirmed",
-                           "attachment_missing", "not_found", "target_not_found", "search_skipped"}
+                           "attachment_missing", "not_found", "target_not_found"}
 
     last_ok, last_detail = False, ""
     for attempt in range(1, max_retries + 1):
@@ -302,6 +294,19 @@ def tool_history(args):
     return _strip_media(core.history(talker, int(args.get("limit") or 10), int(args.get("before_ts") or 0)))
 
 
+# `read_image` 取不到图时**逐因给话**。原先四种情形压成一句「不是图片 / 图没落到本地 /
+# 原始图与中图都缺」——而最常见的那个（**图片 AES key 还没抓过**）根本没在里面，调用方照着
+# 那句话只会去查不存在的文件缺失。每句都要能落到「下一步做什么」。
+_IMAGE_WHY = {
+    "not_found": "这个会话里没有这条 local_id（会话选错了？local_id 要用 read_history/poll_new 返回的那个）",
+    "not_image": "这条是图片消息才能取图，该 local_id 指向的不是图片",
+    "no_key": ("取不到：**图片 AES 密钥还没抓过**（图片是加密落盘的，key 不在消息里、也不在配置文件里，"
+               "只能从微信进程内存里扫出来）。跑一次 `wechat-mcp.exe --image-key` 即可——先在微信里"
+               "点开一张图片（大图界面）再跑，抓一次之后所有图都能解"),
+    "no_file": "图没落到本地：原图与中图都缺（微信清过的图，缺失是永久的）",
+}
+
+
 def tool_image(args):
     """取一张图片消息的**内容**（解密后的位图，base64 内联返回）。
 
@@ -318,9 +323,9 @@ def tool_image(args):
     talker, err = _resolve_or_error(args.get("talker"))
     if err:
         return {"error": err}
-    m = core.image_message(talker, args.get("local_id"))
+    m, why = core.image_message(talker, args.get("local_id"))
     if not m:
-        return {"error": "该 local_id 不是可解出的图片消息（不是图片 / 图没落到本地 / 原始图与中图都缺）"}
+        return {"error": _IMAGE_WHY.get(why, "取不到这张图")}
     p = m.get("image_path") or ""
     try:
         with open(p, "rb") as f:
@@ -600,6 +605,18 @@ def tool_status(_args):
                          "ready": _ok, "hint": _why}
         except Exception as e:
             st["asr"] = {"ok": False, "ready": False, "hint": f"{type(e).__name__}: {e}"}
+    # 图片解密（仅 pro 版有 read_image）：前置是**账号级的图片 AES key**，抓一次落盘。
+    # 缺了它 `read_image` 只会说「图没落到本地」那一类话（key 在消息里、配置文件里都没有，
+    # 只能扫微信进程内存），所以自查这一栏必须能一眼看出来。
+    if EDITION == "pro":
+        try:
+            import wechat_image
+            _k = wechat_image.cached_aes_key()
+            st["image_key"] = {"cached": bool(_k), "hint": "" if _k else
+                               "还没抓过图片密钥：先在微信里点开一张图（大图界面），"
+                               "再跑一次 `wechat-mcp.exe --image-key`"}
+        except Exception as e:
+            st["image_key"] = {"cached": False, "hint": f"图片模块不可用：{type(e).__name__}: {e}"}
     # 微信版本：这套代码只在少数版本上真机验过，未知版本要**明确报出来**而不是装作没事
     try:
         st["wechat_version"] = core.wechat_version()
@@ -854,10 +871,12 @@ TOOLS = [
                      "**不需要前台、锁屏也能发**：走窗口消息投递，不移动光标、不动剪贴板、不打断用户操作。"
                      "**默认 dry_run=true 只校验不发送**；仅当用户明确要求真发时才传 dry_run=false。"
                      "发送前依次校验：环境 → 目标会话（数据库锚点匹配）→ 输入落地 → 发送生效；"
-                     "任一不通过即中止，绝不盲发。失败时 detail 会说明卡在哪一步。"),
+                     "任一不通过即中止，绝不盲发。失败时 detail 会说明卡在哪一步。"
+                     "**text 里不要塞换行**：微信输入框收不下 CR/LF，会被压成一个空格（detail 会如实说明）"
+                     "——要发多段就分多次调用，每段一次。"),
      "inputSchema": {"type": "object", "properties": {
          "talker": {"type": "string", "description": "会话显示名或 wxid/群号/filehelper"},
-         "text": {"type": "string", "description": "要发送的文本"},
+         "text": {"type": "string", "description": "要发送的文本（不含换行；多段请分多次调用）"},
          "dry_run": {"type": "boolean", "description": "默认 true（只校验不发送）；真发传 false"}},
          "required": ["talker", "text"]}},
     {"name": "send_file",
@@ -877,12 +896,13 @@ TOOLS = [
      "description": ("【何时用】用户要**把消息发给多个好友/群**（群发、通知、逐个转发同一条）时（**以用户本人身份**，不可撤回）。"
                      "【别用】只发一个目标时——直接用 send_text 更清晰。**默认 dry_run=true 只校验不发送**；"
                      "仅当用户明确要求真发时才传 dry_run=false。对**每个目标独立**走完整校验（环境 → 目标会话 → 输入落地 → 读库确认），"
-                     "一个目标失败**不拖累**其余；逐个返回结果与 error_code，便于你向用户汇报哪些成功、哪些没发。"),
+                     "一个目标失败**不拖累**其余；逐个返回结果与 error_code，便于你向用户汇报哪些成功、哪些没发。"
+                     "每条 text **不要塞换行**（微信输入框收不下 CR/LF，会被压成空格）：多段就拆成多条 item。"),
      "inputSchema": {"type": "object", "properties": {
          "messages": {"type": "array", "description": "要逐条发送的项，每项 {talker, text}",
                       "items": {"type": "object", "properties": {
                           "talker": {"type": "string", "description": "会话显示名或 wxid/群号/filehelper"},
-                          "text": {"type": "string"}}, "required": ["talker", "text"]}},
+                          "text": {"type": "string", "description": "不含换行（微信输入框收不下 CR/LF）；多段拆成多条"}}, "required": ["talker", "text"]}},
          "dry_run": {"type": "boolean", "description": "默认 true（只校验不发送）；真发传 false"}},
          "required": ["messages"]}},
     {"name": "reply_to",
@@ -1127,6 +1147,12 @@ def handle_tools_call(mid, params):
         # 用 `_mcp_content` 直接交出 content 列表（MCP 规范里 image 块就该这么返回，
         # 客户端可原样送进多模态模型，无需碰文件系统）。
         blocks = data.pop("_mcp_content", None) if isinstance(data, dict) else None
+        # 版本门落点（**唯一**一处，见 §9.9）：不在真机验证范围内的微信版本，把这句告警跟着
+        # 每个结果出去——只写进 check_env 等于没有，Agent 不会每次先调它，而"静默给错数据"
+        # 是这套代码最坏的失败形态（内存偏移/窗口类名/AutomationId 都是硬绑版本的假设）。
+        _vw = core.version_warning()
+        if _vw and isinstance(data, dict):
+            data["version_warning"] = _vw
         reply(mid, {"content": blocks if blocks is not None
                     else [{"type": "text", "text": json.dumps(data, ensure_ascii=False)}],
                     "isError": False})
@@ -1173,14 +1199,17 @@ def handle_message(msg):
 
 
 # 一键安装的规格（`--install` / `--uninstall` / `--install-status`，实现见共享层 mcp_install.py）。
-# `product` 是部署目录名与 exe 名——**两档必须用不同的名字**：pro 落 `~/.lumii/mcp/wechat-mcp/`，
-# 与灵栖把插件下载到的是同一个位置（面板里的条目指着它）；lite 是单独分发的，落自己的目录，
-# 否则装一次 lite 就把 pro 那份覆盖掉了。
+# `product` 是**两档各自的标识**（台账目录名 / 技能包在 exe 里的目录名）——**两档必须不同**：
+# pro 与 lite 是两份独立分发，同名会互相覆盖。它**不再**等于"部署目录名"：装的时候不拷贝 exe，
+# 注册进客户端的就是用户手上这份 exe 的当前位置（`mcp_install.own_exe()`）。
+# `version`：四件套走 `mcp_stdio.serve()`，那边会自己把版本填进 spec；**主产品没走那条路**，
+# 所以曾经漏了这个键——后果是"重装时看不到 v 旧 → v 新"、状态里也读不出装的是哪版。填上。
 # `skill` 是源码模式下的技能包源；冻结后技能包**打进 exe**（构建脚本把 `skills/wechat-mcp-<档位>`
 # 映射成 `skills/<product>`），由 mcp_install.skill_source 从 `sys._MEIPASS` 取。
 INSTALL_SPEC = {
     "name": SERVER_NAME,
     "product": "wechat-mcp" if EDITION == "pro" else "wechat-mcp-lite",
+    "version": SERVER_VERSION,
     "skill": os.path.join(HERE, "skills", f"wechat-mcp-{EDITION}"),
     "label": f"本机微信（{_EDITION_LABEL[EDITION]}）",
 }
@@ -1237,6 +1266,28 @@ def main():
                 reply_error(msg.get("id"), -32603, f"Internal error: {e}")
 
 
+def cmd_image_key(args):
+    """`--image-key`：抓一次图片 AES key 并落盘。返回进程退出码（0 成功 / 1 没扫到）。
+
+    图片 AES key 的**唯一用户入口**（对照 `--download-asr-model`：都是一次性的慢准备）。
+    为什么非得给 exe 一个开关：`read_image` 是 pro 的招牌工具，而 key 不在消息里、也不在
+    任何配置文件里，只能扫微信进程内存（只读、不注入）。没有这个开关时，**装好的 exe
+    永远读不出图**——devcli 只在源码树里，宿主 App 也没有这个界面。
+    慢（本机约 50 秒）且必须在**微信里点开过一张图**之后跑，所以只做显式触发、绝不自动。
+    """
+    import wechat_image
+    refresh = "--refresh" in args
+    k = wechat_image.image_aes_key(refresh=refresh)
+    if not k:
+        print(json.dumps({"ok": False, "hint": "扫不到：先在微信里点开一张图片（大图界面），再跑一次"},
+                         ensure_ascii=False))
+        return 1
+    print(json.dumps({"ok": True, "path": wechat_image._key_path(), "refreshed": refresh,
+                      "hint": "已抓取并落盘，之后 read_image 不用再抓（key 是账号级的）"},
+                     ensure_ascii=False))
+    return 0
+
+
 if __name__ == "__main__":
     # 诊断开关在 main() 之前就打印，编码得先钉住——否则中文输出是控制台代码页（见函数注释）
     force_utf8_stdio()
@@ -1248,6 +1299,8 @@ if __name__ == "__main__":
         # 但**照旧报构建档位**：冒烟的判据该是"打的是什么"，不该被构建机上任何状态影响。
         print(_BUILT_EDITION)
         sys.exit(0)
+    if "--image-key" in sys.argv[1:]:
+        sys.exit(cmd_image_key(sys.argv[1:]))
     if "--download-asr-model" in sys.argv[1:]:
         # 显式下载，不做成"首次调用自动下"：78MB 悄悄下会让人以为卡死，离线环境还会白等
         import wechat_asr

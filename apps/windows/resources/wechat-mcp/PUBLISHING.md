@@ -10,8 +10,8 @@
 
 ### 1.1 双击 exe（推荐）
 
-拿到 `wechat-mcp.exe`，**双击**——向导会带你选 AI 客户端，然后一次配好：部署到稳定目录、
-写 MCP 配置、放技能包。全程只按方向键，不用手抄路径。
+拿到 `wechat-mcp.exe`，**双击**——向导会带你选 AI 客户端，然后一次配好：把**这份 exe 的路径**
+写进 MCP 配置、放技能包。全程只按方向键，不用手抄路径。
 
 也可以非交互地跑（脚本化、CI、远程指导用户时用）：
 
@@ -22,7 +22,7 @@ wechat-mcp.exe --uninstall        # 卸（摘注册 + 删技能包；**不删用
 wechat-mcp.exe --expiry-status    # 这份 exe 的有效期到哪天
 ```
 
-**不跑 `--install`、只想手写配置**也可以，把 exe 拷到任意位置（路径无中文空格更稳）：
+**不跑 `--install`、只想手写配置**也可以，把 exe 放到任意位置（路径无中文空格更稳；放定之后就**别挪**）：
 
 ```json
 {
@@ -37,7 +37,8 @@ wechat-mcp.exe --expiry-status    # 这份 exe 的有效期到哪天
 ### 1.2 灵栖已安装
 
 无需任何手工步骤：设置里启用「微信本机助手」，exe 由插件下载到
-`%USERPROFILE%\.lumii\mcp\wechat-mcp\wechat-mcp.exe`（与 `--install` 的 pro 落点是**同一个位置**）。
+`%USERPROFILE%\.lumii\mcp\wechat-mcp\wechat-mcp.exe`（**灵栖自己**下载并注册这一份；独立用户
+双击同一个 exe 时，`--install` 注册的也是它**自己当前所在的路径**）。
 
 ### 1.3 离线 / 内网
 
@@ -98,7 +99,15 @@ dist\lite\wechat-mcp-lite-<version>.exe
 
 构建脚本会自己跑一遍冒烟：MCP 握手 + `--version` 与 `initialize` 版本自洽 + 档位自洽 +
 **有效期真的打进了产物**（`expiry.py` 没被 PyInstaller 收进去时最后一条会当场报错——
-那种产物会静默地"不判到期"，是最坏的失败形态）。
+那种产物会静默地"不判到期"，是最坏的失败形态）。**冒烟不装东西**——装/卸要另外跑一次探针
+（下面这条，五件套通用；它在临时 `USERPROFILE` 里造两个客户端，**不碰你真实的任何配置**）：
+
+```powershell
+& $py <仓库根>\verify\wechat-mcp\probe_frozen_install.py   # 默认 pro；lite 见脚本里的参数
+```
+
+它验的三件只有**真 exe**才成立的事：台账落在 **exe 旁边**、客户端配置里注册的就是**这份 exe
+的路径**（一个字节都没拷贝）、卸载后 **exe 还在**而台账收掉了。
 
 ### 2.3 灵栖插件资产（App 用户拿到的就是它）
 
@@ -152,6 +161,7 @@ node apps/windows/scripts/upload-plugin-assets.mjs             # 真传（需 gh
 | 客户端里连不上 | 先 `wechat-mcp.exe --install-status` 看注册到哪、exe 在哪；再重启客户端（新服务只在重启后加载） |
 | 工具调用报 `expired` | 这份 exe 有效期到了，换新版本重装（`--expiry-status` 看到期日） |
 | `--expiry-status` 说「源码运行」 | 你在跑**源码**，不是产物；或者在跑一份构建期没注入 `expiry.py` 的坏产物 |
+| `read_image` 说「图片 AES 密钥还没抓过」 | 用户侧一次性准备：**先在微信里点开一张图片**（大图界面，密钥这时才进内存），再跑 `wechat-mcp.exe --image-key`（约 50 秒）。换过账号或图是坏的加 `--refresh` 重抓 |
 | 改了 `server.py` 但行为旧 | `--install` 是幂等的，跑一次会重新部署；灵栖那条路要卸载重装插件 |
 | 打包后 `--version` 与属性页对不上 | 构建期间源码被并行改了；脚本会告警并以 exe 实际值为准 |
 
