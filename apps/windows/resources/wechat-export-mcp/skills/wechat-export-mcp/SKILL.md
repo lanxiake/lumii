@@ -54,22 +54,31 @@ claude mcp add wechat-export -s user -- "{{EXE}}"
 | 工具 | 用途 |
 |---|---|
 | `list_sessions(query?)` | 列会话拿确切名字/talker（不确定会话名时先用它） |
-| `export_chat(talker, out_dir, format?, since?, until?, media?, transcribe_voice?, split?)` | 导出 |
+| `export_chat(talker, out_dir, format?, since?, until?, media?, transcribe_voice?, split?, inline_max_mb?)` | 导出 |
 
 `format`：`md`（默认，人读）/ `html`（可分享，带样式）/ `json`（机读）。
-`media`：`none`（默认只文字）/ `images`（+图片）/ `all`（+图片+语音 wav）。
+`media`：`none`（默认只文字）/ `images`（+图片）/ `files`（+文件附件，落到 `files/`）/
+`all`（图片 + 文件 + 语音 wav）。**附件从不内嵌**（几十上百 MB，内嵌进 HTML 就打不开了），
+`files/` 要单独打包发给别人才拿得到；没收全的看 `media_report.file_missing`
+（没下载过 / 已过期 = 微信服务器上也没了，**如实说，别承诺能补**；在微信里点一下该文件再导一次就有了）。
 `split`：`none`（默认单文件）/ `month`（按月拆子目录，记录多时用）。
+`inline_max_mb`：`format=html` 时媒体**内嵌进 HTML**（自包含，单文件即可分享），
+这是体积上限（默认 20 MB，`0` = 不限）；超出的媒体会落到同目录 `assets/`，
+页首有提示、返回里 `media_report.inline_fallback` 有计数 —— **要如实转达"这份不再自包含"**。
 
 ## 3. 一轮完整回路
 
 1. 用户说「把我和张三的聊天记录导出来」→
    `list_sessions(query="张三")` 拿到确切的 `talker`。
-2. 问清**存到哪**、要不要带图片。
+2. 问清**存到哪**、要不要带图片/文件附件。
 3. `export_chat(talker=..., out_dir="D:\\导出\\张三", format="md")`
 4. 回报：导出多少条、落在哪个文件、体积；若带媒体，报告成功与跳过数。
 
 **记录很多**（几百条以上或横跨数月）时用 `split="month"`。
-**要给不装微信的人看**时用 `format="html"`（单文件、可双击打开、带图片）。
+**要给不装微信的人看 / 发出去**时用 `format="html"` + `media="images"`：图内嵌在 HTML 里，
+就一个文件（**md/JSON 是 `assets/` 相对路径，单独发出去图全变空框**）。
+带图的大会话体积可观（实测 500 条约 30–40 MB），所以内嵌默认封顶 20 MB；
+被顶下去的那部分会落盘并在页首说明——**这种情况要主动告诉用户**，别让他以为拿到的是单文件。
 
 ## 4. 硬约束
 

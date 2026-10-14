@@ -23,8 +23,9 @@ wechat-export-mcp.exe --install
 
 它做三件事：
 
-1. **部署到稳定目录** `%USERPROFILE%\.lumii\mcp\wechat-export-mcp\` —— 这样你以后清理"下载"文件夹，
-   也不会把已经注册好的路径弄断。（覆盖旧版用"旧文件改名让位"：Windows 下运行中的 exe 就是不能覆盖。）
+1. **不搬动、不拷贝**：注册进客户端的路径**就是这份 exe 现在所在的位置**。所以装完
+   **别移动、别删掉这个 exe**（客户端配置里存的就是它）；它旁边那个 `.lumii/` 是安装台账，也留着。
+   想换地方，就在新位置再双击一次——它会按新位置重装一遍。
 2. **注册到已装的 MCP 客户端**：Claude Code / Cursor / Claude Desktop / Codex / Gemini CLI /
    Qwen Code / OpenCode / VS Code / Zed / Cline / Roo Code / Trae / Warp / Copilot CLI
    —— 自动检测你装了哪些，让你勾要装到哪几个。Claude Code 走它自己的 `claude mcp` CLI
@@ -36,7 +37,7 @@ wechat-export-mcp.exe --install
    （重写会把你的注释抹掉），改成给你一段可直接粘贴的配置。Codex 那份写完还会
    **用 TOML 解析器读回来验**，读不回来就放弃改动（它可能装着你的明文 API key）。
 3. **拷技能包**到对应客户端的技能目录（技能包是**打进 exe** 的，不需要另外下载），
-   并把**部署后的真实 exe 路径**填进去——这样 AI 客户端读技能就能自己把配置配好，
+   并把**这份 exe 的真实路径**填进去——这样 AI 客户端读技能就能自己把配置配好，
    你不必知道 exe 在哪。
 
 装完**重启你的 AI 客户端**才会加载。
@@ -45,10 +46,10 @@ wechat-export-mcp.exe --install
 |---|---|
 | `--install` | 装（幂等，可重复跑；升级后重跑一遍即可） |
 | `--install-status` | 看装到哪、注册到哪些客户端 |
-| `--uninstall` | 摘注册 + 删技能包 + 删部署的 exe（正被占用则安排重启后删）。**你的数据一律不动**。交互式跑会先让你**勾要摘哪些客户端**；脚本里跑一律全摘 |
+| `--uninstall` | 摘注册 + 删技能包。**你的数据和这份 exe 一律不动**。交互式跑会先让你**勾要摘哪些客户端**；脚本里跑一律全摘 |
 
 `--install-status` 里有一行**版本对账**：你现在跑的这份 vs 装在客户端里那份。不一致就说明该重跑
-`--install` 升级了。（它读安装时留下的登记，**不去启动部署副本**——onefile 冷启动 1–3 秒，
+`--install` 升级了。（它读安装时留下的登记，**不去启动那份 exe**——onefile 冷启动 1–3 秒，
 每次查状态都解一遍包就太慢了。）
 
 ### 手工装
@@ -93,28 +94,50 @@ wechat-export-mcp.exe --expiry-status   # 看到期日与剩余天数（在有�
    → 名字没把握时 AI 先 `list_sessions(query="两河")` 拿**确切**会话名（这一步是为了避免
    `target_not_found`）。
 2. AI 调 `export_chat(talker="两河10组村民群", out_dir="D:\\导出", format="md")`。
-3. 要连图片：`media="images"`；连语音（转成 wav）：`media="all"`；
+3. 要连图片：`media="images"`；连**文件附件**：`media="files"`；全都要：`media="all"`
+   （图片 + 文件 + 语音 wav）；
    记录多到一个文件读不动：`split="month"` 按月拆。
+4. 想**把记录发给别人**（不是给自己看）：`format="html"` + `media="images"` ——
+   图**内嵌在 HTML 里**，就一个文件，换台机器打开也不掉图。
 
-产出：
+产出（md / json）：
 
 ```
 D:\导出\两河10组村民群\
   chat.md              ← 正文（群聊标发送人）
   assets\img_001.jpg   ← media=images/all
   assets\voice_003.wav ← media=all
+  files\合同.pdf        ← media=files/all（附件，**从不内嵌**）
 ```
+
+**文件附件**（`media=files`/`all`）走的是微信消息里的文件名 ↔ 磁盘文件匹配
+（`msg\file\<月>\`）。**没下载过 / 已过期**的在服务器上已经没了，定位不到——这些计入
+`media_report.file_missing`，**不会编一个空文件出来**；同名但大小对不上计入 `file_mismatch`
+（多半是另一版本），同一份文件被多条消息引用只收一次（`file_dup`）。
+本机实测：157 条文件消息 → 145 条可定位（92%）。
+
+产出（**html + media ⇒ 自包含，没有 assets 目录**）：
+
+```
+D:\导出\两河10组村民群\
+  chat.html            ← 正文 + 图（data: URI）+ 语音 + 跨天日期目录
+```
+
+体积：**实测**一个 500 条带图的会话，文字才 17 KB 而原图 30 MB ⇒ base64 后单文件 40 MB。
+所以内嵌有上限 `inline_max_mb`（默认 20）：超出的媒体**退回落盘**到 `assets/`，页首会写明
+"这份不再自包含"，返回里也有 `media_report.inline_fallback`。要全内嵌就调大它（`0` = 不限）。
 
 ## 工具（2 个）
 
 | 工具 | 说明 |
 |---|---|
 | `list_sessions(query?)` | 列会话（拿确切名字/talker） |
-| `export_chat(talker, out_dir, format?, since?, until?, media?, transcribe_voice?, split?)` | 导出 |
+| `export_chat(talker, out_dir, format?, since?, until?, media?, transcribe_voice?, split?, inline_max_mb?)` | 导出 |
 
-- `format`：`md`（默认）/ `html`（可分享，带样式）/ `json`（机读）。
-- `media`：`none`（默认）/ `images` / `all`（+语音 wav）。
+- `format`：`md`（默认）/ `html`（可分享，带样式，**媒体内嵌**）/ `json`（机读）。
+- `media`：`none`（默认）/ `images` / `files`（收附件到 `files/`）/ `all`（图片 + 文件 + 语音 wav）。
 - `split`：`none`（默认）/ `month`（按月拆子目录）。
+- `inline_max_mb`：html 内嵌媒体的体积上限（MB，默认 20，`0` = 不限）；超了退回落盘并留痕。
 - `transcribe_voice`：默认 `false`；需本机装语音识别模型，缺了就逐条跳过并计数。
 - 这三个枚举值**传错会被拒**，**不会静默降级**——否则"参数打错"和"这批消息没图"在返回里分不出来。
 - `talker` 传会话**显示名**（如「文件传输助手」）或 wxid/群号都可以。
@@ -151,7 +174,8 @@ D:\导出\两河10组村民群\
 |---|---|
 | `env_not_ready`：未找到微信数据目录 | 确认微信**已登录**；在微信「设置 → 文件管理」看数据目录；仍不行就设 `LUMII_WECHAT_DB=<数据目录>\xwechat_files\<账号>_<4位>\db_storage` |
 | `env_not_ready`：未能从微信进程内存取到数据库密钥 | 打开微信并登录、点开一个会话等几秒再试；仍不行多半是微信版本超出已验证范围（见 `wechat_core.VERIFIED_VERSION_PREFIXES`） |
-| `media=images` 但一张图都没有 | 看 `media_report.image_missing`：图片解密需要**账号级图片密钥已缓存**（先用带图的会话刷一次） |
+| `media=images` 但一张图都没有 | 先看 `media_report.image_no_key`：图片解密要**账号级图片密钥已缓存**，在微信里**点开任意一张图**就有了；是 `image_missing` 才是原图/中图本地已不存在 |
+| `media=files` 少收了一些附件 | 看 `media_report.file_missing`——**没下载过 / 已过期的文件微信服务器上已经没了**，定位不到；在微信里点一下那个文件（触发下载）再导一次就有了 |
 | `media=all` 但语音是 0 条 | 群里可能本来就没语音；有语音却没导出，看 `media_report.voice_missing` |
 | 语音转写全是跳过 | `sherpa-onnx` **未随 exe 打包**（体积）——转写要本机自备模型，缺了就逐条跳过并计数，**不影响导出** |
 
@@ -162,7 +186,15 @@ D:\导出\客户群\
   chat.md              ← 正文（split=month 时是 2026-08\chat.md 等）
   assets\img_001.jpg   ← media=images/all
   assets\voice_003.wav ← media=all
+  files\合同.pdf        ← media=files/all（附件，**从不内嵌**）
 ```
+
+`format=html` 且带媒体时不一样：图/语音作为 `data:` URI **内嵌在 chat.html 里**，
+没有 assets 目录，单个文件就是完整记录（跨多天时页首还有日期目录，点了直接跳）。
+超出 `inline_max_mb` 的那部分仍会落到 `assets/`，页首有黄条提示。
+
+**附件（files/）是唯一不内嵌的**——一个附件动辄几十上百 MB，内嵌进去 HTML 就没人打得开了；
+要把它们一起发出去，连 `files/` 目录一起打包。html 里附件的落点是**可点的下载链接**。
 
 正文（群聊标发送人）：
 ```markdown

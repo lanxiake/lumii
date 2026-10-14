@@ -16,8 +16,20 @@ import exportcore as E
 
 IMG_XML = ('<msg><img aeskey="x" md5="0123456789abcdef0123456789abcdef" '
            'length="17408"></img></msg>')
+# 照真实落库形状抄（2026-10-14 本机取样）：文件名在 `<title>`，大小在 `<totallen>`
+FILE_MSG = ('<msg><appmsg appid="wx6618" sdkver="0"><title>报表.xlsx</title><type>6</type>'
+            '<appattach><totallen>11</totallen><fileext>xlsx</fileext></appattach></appmsg></msg>')
 GROUP_TEXT = "vicky1990202:\n12345那边回复了"
 MULTILINE = "第一行\n第二行\n第三行"
+# 照真实落库形状抄的（2026-10-14 本机取样）：`datatype="2"` 排在 `<type>19</type>` 之后，
+# 而 `<type>` 是元素——属性名不卡左边界就会把 type=19 读成 2（详见 wechat_core._attr）。
+MERGED = ('<msg><appmsg><title>时遇的聊天记录</title><type>19</type>'
+          '<recorditem><![CDATA[<recordinfo><datalist count="3">'
+          '<dataitem datatype="2" dataid="a1"><cdnthumburl>305f</cdnthumburl></dataitem>'
+          '<dataitem datatype="1" dataid="a2"><datadesc>你如果有自己的意识</datadesc>'
+          '<sourcename>TOOLAN</sourcename><sourcetime>2026-09-06 15:57:22</sourcetime></dataitem>'
+          '<dataitem datatype="8" dataid="a3"><datatitle>日式料理50道.html</datatitle></dataitem>'
+          '</datalist></recordinfo>]]></recorditem></appmsg></msg>')
 
 
 def test_render_plain():
@@ -50,6 +62,29 @@ def test_render_image():
     text, _ = E.render_text(3, IMG_XML.encode("utf-8"))
     assert text.startswith("[图片"), text
     print("ok render_image")
+
+
+def test_render_quote_and_forward():
+    """引用与合并转发：以前导出里只有 `[引用] 回复正文` 和 `[聊天记录] 标题`，被引原文和
+    转发内容整段丢失（那是**导出这个产品最主要的使用场景**）。"""
+    refer = ('<msg><appmsg><title>这是AI回复的</title><type>57</type>'
+             '<refermsg><displayname>TOOLAN</displayname><content>还不晓得 晚点给你说</content>'
+             '</refermsg></appmsg></msg>')
+    text, _ = E.render_text(49, refer.encode("utf-8"))
+    assert text == "[引用] 这是AI回复的 ← TOOLAN: 还不晓得 晚点给你说", repr(text)
+    assert E.forward_of(49, refer.encode("utf-8")) == [], "引用不是合并转发"
+
+    merged = MERGED.encode("utf-8")
+    assert E.forward_of(1, merged) == [], "只有 lt=49 才去解转发"
+    items = E.forward_of(49, merged)
+    assert [it["text"] for it in items] == ["[图片]", "你如果有自己的意识", "日式料理50道.html"], items
+    md = E._md("群", [dict(_recs()[0], forward=items, text="[聊天记录] 时遇的聊天记录（3 条）")], 0, 0)
+    assert "转发的聊天记录（3 条）" in md and "> TOOLAN 2026-09-06 15:57:22：你如果有自己的意识" in md, md
+    html = E._html("群", [dict(_recs()[0], forward=items, text="x")], 0, 0)
+    assert 'class="fw"' in html and "日式料理50道.html" in html and "&lt;" not in html, html[html.find("fw") - 50:]
+    js = json.loads(E._json("群", [dict(_recs()[0], forward=items)], 0, 0))
+    assert js["messages"][0]["forward"][1]["sender"] == "TOOLAN", js["messages"][0]["forward"]
+    print("ok render_quote_and_forward")
 
 
 def test_safe_and_clock():
@@ -96,6 +131,118 @@ def test_split_grouping(tmp):
     print("ok split_grouping")
 
 
+def test_html_inline_media(tmp):
+    """`format=html` + media ⇒ 图**内嵌**（自包含），超预算才退回落盘。
+
+    为什么要内嵌：老实现出的是 `assets/img_001.jpg` 相对路径，把 html 单独发给别人全是红叉。
+    为什么要**上限**：实测 500 条带图的会话原图 30 MB ⇒ base64 后 40 MB（`probe_html_size.py`），
+    同比例 5000 条就是 400 MB——所以超限必须**退回落盘 + 留痕**，不能假装自包含。
+    """
+    png = (b"\x89PNG\r\n\x1a\n" + b"\x00" * 64)          # 内容不重要，要的是「认得出的 png 字节」
+    src = os.path.join(tmp, "src.png")
+    with open(src, "wb") as f:
+        f.write(png)
+    orig = E.core.image_message
+    # 契约是 `(msg, 失败原因)`（见 `core.image_message`），成功时原因是空串
+    E.core.image_message = lambda talker, lid: ({"image_path": src}, "")
+    try:
+        def run(inline, budget):
+            rec = dict(_recs()[0], type=3, image=None, local_id=7)
+            rep = {"image_exported": 0, "image_missing": 0, "image_no_key": 0, "inline_bytes": 0,
+                   "inline_fallback": 0, "voice_exported": 0, "voice_missing": 0,
+                   "transcribe_failed": 0}
+            assets = os.path.join(tmp, "s1", "assets")   # 与生产同构：<会话目录>/assets
+            E._export_media("x", [rec], assets, E.MEDIA_IMAGES, False, rep,
+                            inline=inline, budget=budget)
+            return rec, rep, assets
+
+        rec, rep, assets = run(True, 0)
+        assert rec["image"].startswith("data:image/png;base64,"), rec["image"][:40]
+        assert rep["inline_bytes"] == len(png) and not rep["inline_fallback"], rep
+        assert not os.path.isdir(assets), "内嵌了就不该再落 assets/"
+        html = E._html("客户群", [rec], 0, 0, note="")
+        assert 'src="data:image/png;base64,' in html and "assets/" not in html, html[:400]
+
+        rec, rep, assets = run(True, len(png) - 1)        # 预算不够一格 ⇒ 退回落盘
+        assert rec["image"] == "assets/img_001.png", rec["image"]
+        assert rep["inline_fallback"] == 1 and rep["inline_bytes"] == 0, rep
+        assert os.path.isfile(os.path.join(assets, "img_001.png")), "降级也不能把东西丢了"
+
+        rec, rep, _ = run(False, 0)                       # md 那条路不受影响
+        assert rec["image"] == "assets/img_001.png", rec["image"]
+
+        # key 没抓 ≠ 图没了：两者用户要做的事不同，必须分账（`core.image_message` 特意分的）
+        E.core.image_message = lambda talker, lid: (None, "no_key")
+        _, rep, _ = run(True, 0)
+        assert rep["image_no_key"] == 1 and rep["image_missing"] == 0, rep
+    finally:
+        E.core.image_message = orig
+    print("ok html_inline_media")
+
+
+def test_html_day_nav():
+    """跨天的 html 给**日期目录 + 锚点**（几百条的会话靠它跳），一天的会话不给（那是噪音）。"""
+    r = _recs()
+    one = E._html("客户群", r, 0, 0)
+    assert '<nav class="toc">' not in one and 'class="day"' not in one, "同一天不该有目录/分隔条"
+    two = E._html("客户群", [dict(r[0], time="1970-01-01 08:01"),
+                             dict(r[1], time="1970-01-02 09:00")], 0, 0)
+    assert two.count('class="day"') == 2 and two.count('class="toc"') == 1, two.count("toc")
+    assert '<a href="#d1">1970-01-02</a>' in two and 'id="d1"' in two
+    warned = E._html("群", r, 0, 0, note="有 1 项媒体超限")
+    assert "有 1 项媒体超限" in warned and 'class="warn"' in warned
+    assert "**" not in warned, "note 进的是 HTML，写了 markdown 加粗会原样显示成星号"
+    print("ok html_day_nav")
+
+
+def test_file_attachment(tmp):
+    """文件消息（appmsg type=6）→ 收进 `files/`，同名的另一版本另存、同一份不重复收。
+
+    判重是刻意的：群里同一份文件被转来转去是常态，`file_dup` 计数让"少收了"和"本来就只有一份"
+    分得开。
+    """
+    fm = E.file_of(49, FILE_MSG.encode("utf-8"))
+    assert fm == {"title": "报表.xlsx", "size": 11, "ext": "xlsx"}, fm
+    assert E.file_of(49, b"<msg><appmsg><title>x</title><type>5</type></appmsg></msg>") is None
+    assert E.file_of(1, b"hello") is None
+
+    fdir = os.path.join(tmp, "f1", "files")
+    used = {}
+    assert E._file_dest(fdir, "报表.xlsx", 11, used) == "报表.xlsx"
+    assert E._file_dest(fdir, "报表.xlsx", 11, used) is None, "同一份（同名同大小）不该收第二遍"
+    assert E._file_dest(fdir, "报表.xlsx", 99, used) == "报表 (2).xlsx", "另一版本要另存"
+    assert E._file_dest(fdir, 'a<b>.pdf', 1, used) == "a_b_.pdf", "文件名要净化"
+
+    # 走一遍真拷：造一个"磁盘上的文件"，让共享层的映射找到它
+    src_dir = os.path.join(tmp, "disk")
+    os.makedirs(src_dir, exist_ok=True)
+    with open(os.path.join(src_dir, "报表.xlsx"), "wb") as f:
+        f.write(b"hello world")
+    orig = E.core.build_index
+    E.core.build_index = lambda root=None: orig(src_dir)
+    try:
+        rep = {k: 0 for k in ("image_exported", "image_missing", "inline_bytes", "inline_fallback",
+                              "voice_exported", "voice_missing", "transcribe_failed",
+                              "file_exported", "file_missing", "file_mismatch", "file_dup")}
+        recs = [dict(_recs()[0], type=49, local_id=9, file=dict(fm))]
+        E._export_media("x", recs, os.path.join(tmp, "f1", "assets"), E.MEDIA_FILES, False, rep)
+        assert recs[0]["file"]["path"] == "files/报表.xlsx", recs[0]["file"]
+        assert open(os.path.join(tmp, "f1", "files", "报表.xlsx"), "rb").read() == b"hello world"
+        assert rep["file_exported"] == 1 and rep["file_missing"] == 0, rep
+        md = E._md("群", recs, 0, 0)
+        assert "[附件：报表.xlsx](files/报表.xlsx)" in md, md
+        assert 'href="files/报表.xlsx"' in E._html("群", recs, 0, 0)
+
+        recs = [dict(_recs()[0], type=49, local_id=9,
+                     file={"title": "没有这个.pdf", "size": 3, "ext": "pdf"})]
+        rep["file_missing"] = 0
+        E._export_media("x", recs, os.path.join(tmp, "f1", "assets"), E.MEDIA_FILES, False, rep)
+        assert rep["file_missing"] == 1 and "path" not in recs[0]["file"], "定位不到要计数，不能编路径"
+    finally:
+        E.core.build_index = orig
+    print("ok file_attachment")
+
+
 def test_args_are_validated():
     """非法枚举值必须被**挑出来**，不许静默降级。
 
@@ -111,7 +258,7 @@ def test_args_are_validated():
     assert "format" in E.bad_args({"format": "pdf"})[0]
     assert "split" in E.bad_args({"split": "week"})[0]
     # 合法值只有一份来源：schema 的 enum 与校验读的是同一个元组
-    assert set(E._MEDIA) == {"none", "images", "all"} and E._SPLIT == ("none", "month")
+    assert set(E._MEDIA) == {"none", "images", "files", "all"} and E._SPLIT == ("none", "month")
     print("ok args_are_validated")
 
 
@@ -138,6 +285,56 @@ def test_real_display_name_talker():
     else:
         raise AssertionError("解析不出的会话名必须抛 UnknownTalker，不能静默导出 0 条")
     print(f"ok 显示名可导出：{name} → {len(data['records'])} 条，不存在的名字会被拒")
+
+
+def test_real_media_by_display_name():
+    """真机只读冒烟：**用显示名**导出时媒体也得出得来（无微信库 / 没缓存 key 时跳过）。
+
+    这条是回归钉：`_export_media` 原先把**没解析过的** talker 喂给 `image_message`，而
+    `tbl_of` 是拿字符串算 md5 的——显示名算出来的表根本不存在 ⇒ **每张图都定位不到**，
+    导出的 html 一张图没有、还报 `ok:true`，只有 `image_missing` 在涨。
+    而"用显示名"正是工具说明里推荐的用法（`list_sessions` 返回的就是 name）。
+    """
+    try:
+        root = E.core.db_root()
+    except Exception as e:                                  # noqa: BLE001
+        print(f"skip 媒体冒烟（取不到库: {e}）")
+        return
+    if not root or not os.path.isdir(root):
+        print("skip 媒体冒烟（无数据目录）")
+        return
+    try:
+        import wechat_image
+        if not wechat_image.cached_aes_key():
+            print("skip 媒体冒烟（没缓存图片 AES key，`image_missing` 本来就会全灭）")
+            return
+    except Exception:                                       # noqa: BLE001
+        print("skip 媒体冒烟（wechat_image 不可用）")
+        return
+    out = tempfile.mkdtemp(prefix="export_media_")
+    try:
+        for s in E.core.sessions()[:8]:                     # 挑一个真有图的会话（限前 8 个）
+            name = s.get("name")
+            if not name:
+                continue
+            try:
+                recs = E.build_records(name)["records"]
+            except Exception:                               # noqa: BLE001
+                continue
+            if sum(1 for r in recs if r["type"] == 3) < 1:
+                continue
+            res = E.export_chat(name, out_dir=out, format="html", media="images")
+            rep = res["media_report"]
+            assert rep["image_exported"] >= 1, (name, rep)
+            body = open(os.path.join(out, res["files_written"][0]), encoding="utf-8").read()
+            assert 'src="data:image/' in body, "有图却不内嵌？"
+            assert "assets/" not in body, "自包含的 html 不该再引用 assets/"
+            print(f"ok 显示名导出带图：{res['session'][:12]} 内嵌 {rep['image_exported']} 张 / "
+                  f"{rep['inline_bytes'] / 1e6:.1f} MB，缺 {rep['image_missing']}")
+            return
+        print("skip 媒体冒烟（前 8 个会话里没有带图的）")
+    finally:
+        shutil.rmtree(out, ignore_errors=True)
 
 
 def test_real_smoke():
@@ -174,11 +371,16 @@ if __name__ == "__main__":
         test_render_multiline()
         test_render_agent_mark()
         test_render_image()
+        test_render_quote_and_forward()
         test_safe_and_clock()
         test_render_formats()
         test_split_grouping(_t)
+        test_html_inline_media(_t)
+        test_html_day_nav()
+        test_file_attachment(_t)
         test_args_are_validated()
         test_real_display_name_talker()
+        test_real_media_by_display_name()
         test_real_smoke()
     finally:
         shutil.rmtree(_t, ignore_errors=True)

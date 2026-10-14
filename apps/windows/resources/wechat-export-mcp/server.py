@@ -47,8 +47,11 @@ TOOLS = [
         "description": (
             "【何时用】把某个会话的聊天记录**导出成文件**（md / html / json）。只读，不改微信。"
             "【落点】`<out_dir>/<会话名>/chat.<格式>`；`split=month` 时按月拆子目录（防单文件过大）。"
-            "【媒体】默认 `media=none` 只出文字；`images` 连图片（已解密）；`all` 再加语音 wav。"
+            "【媒体】默认 `media=none` 只出文字；`images` 连图片（已解密）；`files` 收文件附件到 "
+            "`files/`（微信里没下载/已过期的定位不到，会计数）；`all` = 图片+文件+语音 wav。"
             "`transcribe_voice=true` 追加语音转写（**需本机装了语音识别模型**，较慢，默认关）。"
+            "【分享】`format=html` 时媒体**内嵌进 HTML**（自包含，单文件发给别人也能看；"
+            "md/json 仍是 assets/ 相对路径）。超 `inline_max_mb` 的部分退回落盘并如实报告。"
             "【返回】导出条数 / 落盘文件 / 体积 / 媒体成功与跳过计数。"
             "`format`/`media`/`split` 传非法值会被**拒**（`bad_args`），不会静默降级。"
         ),
@@ -65,6 +68,8 @@ TOOLS = [
                 "transcribe_voice": {"type": "boolean", "description": "追加语音转写（需模型，默认 false）"},
                 "split": {"type": "string", "enum": list(SPLIT),
                           "description": "none(默认单文件) / month 按月分段成目录"},
+                "inline_max_mb": {"type": "number",
+                                  "description": "html 内嵌媒体的体积上限（MB，默认 20，0 = 不限）"},
             },
             "required": ["talker", "out_dir"],
         },
@@ -77,7 +82,7 @@ INSTRUCTIONS = """\
 典型用法：
 1. 不确定会话名 → `list_sessions(query="关键词")` 拿到确切的 `talker`。
 2. `export_chat(talker=..., out_dir=..., format="md")` 默认只出文字、单文件。
-3. 要带图片/语音传 `media="images"` / `media="all"`；记录很多传 `split="month"` 分段。
+3. 要带图片/文件/语音传 `media="images"` / `"files"` / `"all"`；记录很多传 `split="month"` 分段。
 4. **语音转写**（`transcribe_voice=true`）需要本机装了识别模型，没装会逐条失败并计数，不会中断导出。
 
 要点：
@@ -119,6 +124,8 @@ def _tool_export(args):
         media=args.get("media") or "none",
         transcribe_voice=bool(args.get("transcribe_voice")),
         split=args.get("split") or "none",
+        inline_max_mb=(args.get("inline_max_mb")
+                       if args.get("inline_max_mb") is not None else E._INLINE_BUDGET_MB),
     )
 
 
