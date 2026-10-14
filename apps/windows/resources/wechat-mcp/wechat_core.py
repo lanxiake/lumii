@@ -1566,6 +1566,14 @@ def msg_dict(ct, lt, content, nm, talker=None, name=None, sender=None, me=None, 
     # 先截断的话标记根本认不出来（标记恒在**末尾**，被截掉就等于没打）。
     text, agent_sent = split_agent_mark(_render(lt, content))
     d = {"time": _ts(ct), "ts": ct, "type": lt & 0xFFFFFFFF, "text": text[:400]}
+    if len(text) > 400:
+        # 截断要**留痕**（2026-10-14）：`text` 只是全文的前 400 字，读的人（Agent）不能拿它当全文
+        # ——本机实测 **73/5101 条（1.4%）** 渲染后超 400 字、最长 3069 字，粘日志/长段落就是这个形态，
+        # 拿前 400 字当全文去总结或回话，是"看不到就编"的同一个坑。
+        # `text_len` 是全文长度（判据），`text_more` 是后面那截（最多再给 3600 字，免得一条长消息
+        # 把工具输出撑爆）；两者相加仍短于 `text_len` ⇒ 还没给全。
+        d["text_len"] = len(text)
+        d["text_more"] = text[400:4000]
     if agent_sent:
         d["agent_sent"] = True               # 客户端据此跳过：这条是助手代发的，不是用户说的
     if local_id is not None:

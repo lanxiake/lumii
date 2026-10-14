@@ -2464,6 +2464,24 @@ def suite_P():
         assert cut["scanned_per_talker"] == 2 and cut["self"]["total"] == 2, cut["scanned_per_talker"]
         assert cut["capped_talkers"] == [TBL], "截断了却不说是哪个会话：%s" % cut["capped_talkers"]
     r.case("蒸馏统计默认全量（设了 limit 才是有损且要点名）", p4_digest_stats_are_whole_by_default)
+
+    def p5_long_text_carries_its_own_length():
+        """400 字硬截断必须**留痕**：`text` 只是前 400 字。
+
+        本机实测 73/5101 条（1.4%）渲染后超 400 字、最长 3069 字——读的人（Agent）拿前 400 字
+        当全文去总结或回话，就是"看不到就编"。所以超长时另给 `text_len`（全文长度）与
+        `text_more`（后一截，最多到全文第 4000 字，免得撑爆工具输出）。
+        """
+        long_msg = c.msg_dict(100, 1, ("甲" * 1200).encode(), {})
+        huge_msg = c.msg_dict(100, 1, ("乙" * 5000).encode(), {})
+        short_msg = c.msg_dict(100, 1, "短".encode(), {})
+        assert long_msg["text_len"] == 1200, long_msg.get("text_len")
+        assert long_msg["text"] + long_msg["text_more"] == "甲" * 1200, "拼起来不是全文"
+        # 上限之外仍然截断：但长度是**真值**，所以读的人知道还没给全
+        assert huge_msg["text_len"] == 5000, huge_msg.get("text_len")
+        assert len(huge_msg["text"]) + len(huge_msg["text_more"]) == 4000 < huge_msg["text_len"]
+        assert "text_len" not in short_msg and "text_more" not in short_msg, short_msg
+    r.case("超 400 字的正文要带全文长度与后一截（截断留痕）", p5_long_text_carries_its_own_length)
     return r
 
 
