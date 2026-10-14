@@ -1553,8 +1553,13 @@ def suite_K():
     BAD = {**RUN, "rect": [0, 0, 894, 578]}
     GONE = {"ok": False, "reason": "未检测到微信进程", "minimized": False, "visible": False,
             "locked": False, "weixin_running": False, "hwnd": 0, "rect": None}
+    # ⚠️ `rect` 必须是**最小化窗口的真实读数**：`GetWindowRect` 在最小化态报哨兵
+    # `-32000,-32000 160x28`（2026-10-14 实测），不是它还原后的几何。早先这里写的是还原后的
+    # `[60,40,1280,820]`，于是这条用例在「最小化」路上走的是**桌面外**那个分支，
+    # 把 `wake_window` 的哨兵混淆整个盖住（真机表现：最小化的微信永远拉不起来）。
     MIN = {"ok": False, "reason": "主窗口已最小化", "minimized": True, "visible": True,
-           "locked": False, "weixin_running": True, "hwnd": 199150, "rect": [60, 40, 1280, 820]}
+           "locked": False, "weixin_running": True, "hwnd": 199150,
+           "rect": [-32000, -32000, 160, 28]}
     NOHWND = {"ok": False, "reason": "找不到主窗口", "minimized": False, "visible": False,
               "locked": False, "weixin_running": True, "hwnd": 0, "rect": None}
     # 2026-10-12 实测现场：`visible=True`、没最小化，但位置在桌面外
@@ -1634,6 +1639,32 @@ def suite_K():
         with_stub([BAD, RUN], 199150, run, rect=(0, 0, 894, 578),
                   db=lambda: (r"C:\x\xwechat_files\wxid_a_1234\db_storage", "stub"))
     r.case("repair_env：尺寸异常 ⇒ 规范化窗口 + 重探数据目录并汇报", k9_repair_env_normalizes)
+
+    # ── 托盘点击的收尾复核（2026-10-14）───────────────────────────────────────────
+    # `tray_click.ps1` 点的是微信托盘图标，而它**按可见性 toggle**：调用时窗口若正显示着，
+    # 这一下就把微信藏进桌面外（`visible=1` 却找不回来）。方向取决于调用那一刻的可见性、
+    # 控制不了 ⇒ `_unfreeze_ui` 点完**无条件复核**位置（`ensure_onscreen`）。这三条钉住它。
+    def k10_ensure_onscreen_after_tray():
+        def run(_s, moved, _st):
+            snd.ensure_onscreen()
+            assert moved == [(60, 40, 440, 452)], f"被收进桌面外要搬回可见区、尺寸照旧：{moved}"
+        with_stub([], 199150, run, rect=(-32000, -32000, 440, 452))
+    r.case("托盘点击后复核：窗口被收进桌面外 ⇒ 搬回（只搬位置，尺寸照旧）",
+           k10_ensure_onscreen_after_tray)
+
+    def k11_ensure_onscreen_noop():
+        def run(_s, moved, _st):
+            snd.ensure_onscreen()
+            assert moved == [], "窗口本来就在可见区，一步都不该动"
+        with_stub([], 199150, run, rect=(60, 40, 1280, 820))
+    r.case("托盘点击后复核：窗口本来正常 ⇒ 一步不动", k11_ensure_onscreen_noop)
+
+    def k12_ensure_onscreen_no_hwnd():
+        def run(_s, moved, _st):
+            snd.ensure_onscreen()          # 拿不到窗口：静默返回，别炸
+            assert moved == [], "拿不到窗口就什么都别动"
+        with_stub([], 0, run, rect=(60, 40, 1280, 820))
+    r.case("托盘点击后复核：拿不到窗口 ⇒ 静默返回", k12_ensure_onscreen_no_hwnd)
 
     # ── 窗口被搬到桌面外（2026-10-12 实测）─────────────────────────────────────────
     # 现场：`visible=True`、`iconic=False`、`rect=-32000,-32000 440x452`——Win32 眼里窗口一直

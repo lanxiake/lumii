@@ -363,6 +363,33 @@ def _bring_onscreen(h, rect=None):
     return win_rect(h)
 
 
+def ensure_onscreen():
+    """窗口只要落在桌面外就搬回可见区（**只搬位置**，尺寸照旧）。本来没事就一步不动。
+
+    **收口在托盘点击之后**（2026-10-14）：`tray_click.ps1` 走的是微信托盘图标的
+    `InvokePattern`，而那个图标是**按可见性 toggle** 的——窗口此刻"显示着"时点它，微信很可能
+    把自己收起（搬到桌面外，`IsWindowVisible` 却仍是 1 ⇒ 用户点任务栏/托盘都找不回来，
+    见 `_offscreen` 记的那次现场）。而调用点（`open_chat_any` 的兜底恢复、`wake_window`）
+    都发生在**窗口可能正显示着**的时候：判据假阳性一次，就等于把用户的微信藏起来。
+
+    点击的"方向"取决于调用那一刻的可见性，我们控制不了——所以**不猜方向，点完无条件复核**：
+    被藏了就搬回来，本来没事就什么都不做。这一步不需要知道微信到底怎么实现的。
+
+    ⚠️ 只认**可见**窗（`find_main_hwnd()` 不带 `include_hidden`）：要救的正是"被藏到桌面外"
+    那种，它的 `IsWindowVisible` 是 1，够找得到；而 `include_hidden=True` 在窗口全隐藏时
+    会被另一个空壳窗的假面积骗走（最小化窗 `GetWindowRect` 报哨兵 `-32000 160x28`）。
+    """
+    try:
+        h = find_main_hwnd()
+        if not h:
+            return
+        rect = win_rect(h)
+        if _offscreen(rect):
+            _bring_onscreen(h, rect)
+    except Exception:
+        pass
+
+
 def weixin_pids():
     """微信进程 PID 列表（用于判断「是否在运行」）。"""
     try:
@@ -496,13 +523,23 @@ def post_click(h, x, y):
 
 _LAST_DROPPED = {"n": 0, "chars": ""}
 
+# 正文里的换行（CRLF / CR / LF 都算一处）——`post_text` 会把它们压成**一个空格**并计数。
+# 为什么不是硬发：**微信的输入框静默丢弃 CR 和 LF**（2026-10-14 实测三轮，见 `post_text`）。
+_NL_RE = re.compile(r"\r\n|\r|\n")
+_LAST_NL = {"n": 0}
+
 
 def dropped_nonbmp():
     """上一次 `post_text` 丢掉的非 BMP 字符（`send_text` 据此在 detail 里如实交代）。"""
     return _LAST_DROPPED["n"], _LAST_DROPPED["chars"]
 
 
-def post_text(h, text, dt=0.05):
+def folded_newlines():
+    """上一次 `post_text` 压成空格的换行数（同步在 detail 里如实交代）。"""
+    return _LAST_NL["n"]
+
+
+def post_text(h, text, dt=0.01):
     """把文本投进输入框。返回是否全部投递成功（非 BMP 字符不算成功也不算失败，见下）。
 
     走 WM_CHAR 而不是剪贴板：**不劫持用户的剪贴板**（用户可能正在复制别的东西）。
@@ -516,10 +553,24 @@ def post_text(h, text, dt=0.05):
       读库还能读到、`ok=True`，整条链没有任何一道会报错（三个 emoji 的差值恒为 0x10000）。
     - 拆成合法的 UTF-16 代理对 `(0xD800+高10位, 0xDC00+低10位)` 分两次投：微信**整个丢掉**。
     两个方向都拿不到 emoji，所以选「少发几个字 + 如实上报」，绝不静默发错字。
+
+    **换行压成一个空格**，并计入 `folded_newlines()`（调用方据此在 detail 里如实交代）。
+    为什么不能硬发：**微信的输入框静默丢弃 CR 和 LF**——`0x0A` 和 `0x0D` 都投过，落库的正文
+    连成一条、既没有换行也**没有触发发送**（2026-10-14 实测；`\t` 反倒留得住）。也没有"只发消息"
+    的替代路：主窗口是 **Qt** 窗口（`Qt51514QWindowIcon`），Qt 的 Windows 插件把 `WM_CHAR`
+    里的控制字符过滤掉，Return/修饰键只认真键盘的 `GetKeyState` 队列（PostMessage 造不出来），
+    粘贴则要动用户的剪贴板+前台——正是本模块刻意不做的。所以选「压成空格 + 如实上报」：
+    英文/列表不会连成 `line oneline two`，调用方拿到 detail 后可以改成分多次发送。
+
+    ⚠️ **`clear_input` 的退格洪峰之后不能立刻调本函数**：输入框要一拍才吃得住第一个字符，
+    否则**首字被静默吃掉**（而 `ok` 照样是 True——只有落库逐字比对看得见）。调用方负责在
+    两者之间留 `_COMPOSER_SETTLE`。
     """
+    text, n_nl = _NL_RE.subn(" ", text)
+    _LAST_NL["n"] = n_nl
     ok = True
     dropped = []
-    for ch in text:
+    for ch in text:            # dt=0.01：PostMessage 是入队、不阻塞，10ms 的间隔绰绰有余
         cp = ord(ch)
         if cp > 0xFFFF:
             dropped.append(ch)
@@ -646,6 +697,13 @@ def read_uia(h=None, tag="uia", all_ctls=False):
     h = h or find_main_hwnd(include_hidden=True)
     if not h:
         return None
+    if h in _UIA_BLANK_HWNDS:
+        # 这个窗口的树本进程已经量过是空的。再 spawn 一次 PowerShell 还是空，而**每次 1.0s**
+        # （2026-10-14 实测：裸 `powershell -STA` 启动 0.59s，真正的 UIA 枚举只占 0.4s）。
+        # 一次发送要读三次（目标确认 / 清空回读 / 正文回读），三次全白跑 3.0s。
+        # **判据必须按窗口存，不能按进程**：`send_attachment` 读的是微信弹出的文件对话框
+        # （`#32770`），那是原生 Win32 窗口、控件树好得很——进程级短路会把附件发送一起掐死。
+        return None
     out = os.path.join(core.WORK, f"uia_{tag}.txt")
     args = ["-Hwnd", str(h), "-Out", out] + (["-All"] if all_ctls else [])
     _run_ps(UIA_READ, args, sta=True)
@@ -690,12 +748,13 @@ def read_uia(h=None, tag="uia", all_ctls=False):
     if not data["win"]:
         return None
     if _uia_tree_blank(data):
-        _note_uia_blank(tag)
+        _note_uia_blank(tag, h)
         return None
     return data
 
 
-_UIA_BLANK_NOTED = False
+_UIA_BLANK_NOTED = False        # 本进程是否见过空树（`check_env` 的报告口径）
+_UIA_BLANK_HWNDS = set()        # 空树是**哪些窗口**上的性质——判据只能按窗口，见 `read_uia`
 
 
 def _uia_tree_blank(data):
@@ -713,13 +772,15 @@ def _uia_tree_blank(data):
                 or data["search_results"])
 
 
-def _note_uia_blank(tag):
-    """空树按进程只记一次指标：每次发送要读好几次 UIA，逐次记会把 metrics 刷屏。"""
+def _note_uia_blank(tag, h):
+    """记下**哪个窗口**的树是空的；指标按进程只记一次（每次发送要读好几次 UIA，逐次记会刷屏）。"""
     global _UIA_BLANK_NOTED
+    _UIA_BLANK_HWNDS.add(h)
     if _UIA_BLANK_NOTED:
         return
     _UIA_BLANK_NOTED = True
-    _metric("uia_blank", 0, False, {"tag": tag, "detail": "微信未暴露 UIA 控件树，退回帧判据"})
+    _metric("uia_blank", 0, False,
+            {"tag": tag, "hwnd": h, "detail": "微信未暴露 UIA 控件树，退回帧判据"})
 
 
 def uia_find_session(data, name):
@@ -952,6 +1013,10 @@ def _unfreeze_ui(tag="tray"):
     ⚠️ **会顺带把微信顶到前台**。两处调用都有明确前提，别在别处乱用：
     ① 已判定 UI 卡死时（恢复用）；② 窗口收在托盘需要**拉起**时（`wake_window`）——
     实测 SW_SHOWNOACTIVATE 拉出来的窗口只渲染不收输入，只有经微信自己的显示+激活才恢复。
+
+    ⚠️ **这一下也可能把窗口收起来**：图标是按可见性 toggle 的，调用时窗口若正显示着，点击反而
+    把它藏进桌面外。收尾 `ensure_onscreen()` 会复核并搬回（见该函数）——所以**别绕过本函数直接
+    去跑 `tray_click.ps1`**，那样就没有这道兜底了。
     """
     out = os.path.join(core.WORK, f"tray_{tag}.txt")
     t0 = time.time()
@@ -963,6 +1028,10 @@ def _unfreeze_ui(tag="tray"):
     _metric("unfreeze_ui", (time.time() - t0) * 1000, ok, {"detail": "托盘图标恢复微信 UI"})
     if ok:
         time.sleep(1.2)      # 给微信一拍去重建窗口
+        # 那个图标是**按可见性 toggle** 的：这一下若正落在"窗口显示着"的时候，微信会把自己
+        # 收起（藏进桌面外，用户再也找不回来）。方向取决于调用那一刻的可见性、我们控制不了，
+        # 所以点完**无条件复核位置**（见 `ensure_onscreen`）——被藏了就搬回来，没事就一步不动。
+        ensure_onscreen()
     return ok
 
 
@@ -1051,10 +1120,16 @@ def wake_window(st=None):
     h = st.get("hwnd") or find_main_hwnd(include_hidden=True)
     if not h:
         return st
-    if _offscreen(st.get("rect")):
-        # 被搬到桌面外：**别走托盘图标那条路**。窗口此刻 `IsWindowVisible=1`，而托盘图标是按
-        # 可见性 toggle 的——点一下很可能变成"藏起来"，越点越乱（这就是用户点不出来的原因）。
-        # 位置是唯一能确定修好的东西：直接搬回可见区。
+    if st.get("visible") and not st.get("minimized") and _offscreen(st.get("rect")):
+        # 被搬到桌面外（**且窗口本来就"显示着"**）：**别走托盘图标那条路**。窗口此刻
+        # `IsWindowVisible=1`，而托盘图标是按可见性 toggle 的——点一下很可能变成"藏起来"，
+        # 越点越乱（这就是用户点不出来的原因）。位置是唯一能确定修好的东西：直接搬回可见区。
+        #
+        # ⚠️ 前两个条件缺不得（2026-10-14 实测）：`_offscreen` 认的是 `GetWindowRect` 那个
+        # `-32000` 哨兵，而**最小化窗口报的也是同一个哨兵**（实测 `SW_MINIMIZE` 后读回
+        # `-32000,-32000 160x28`）。少了它们，最小化态会被一并吞进这里，而 `_bring_onscreen`
+        # 对最小化窗口是**空操作**（实测 MoveWindow 前后都还是 `iconic=True`、几何不变）
+        # ⇒ 下面那条「经微信自己的显示+激活」的路永远走不到，窗口拉不起来、发送静默失败。
         _bring_onscreen(h)
         _ENV["restored"] = True
         time.sleep(0.9)
@@ -1623,7 +1698,7 @@ def _pick_search_result_row(h, name, verbose=False):
     """
     rows = []
     # 已知是空树就别再读：read_uia 一次要 ~1.8s，而微信某些账号整条生命周期都不暴露控件树
-    d = None if _UIA_BLANK_NOTED else read_uia(h, "srchh")
+    d = read_uia(h, "srchh")
     if d and d.get("search_results"):
         o = _uia_origin(d)
         if o:
@@ -1794,7 +1869,7 @@ def _scroll_find_session(h, name, talker, pages=4, verbose=False):
     scrolled = 0
     try:
         for i in range(pages):
-            d = None if _UIA_BLANK_NOTED else read_uia(h, "scr")
+            d = read_uia(h, "scr")
             it = uia_find_session(d, name) if d else None
             if it and uia_click_item(h, d, it):
                 time.sleep(1.1)
@@ -1850,7 +1925,7 @@ def open_chat_any(h, name, talker, verbose=False):
     已撤）。防卡死靠的是别的手段：投递优先、真键鼠只在该路径必要时用一次、失败时
     `_left_only_frame` + `_unfreeze_ui` 兜底恢复。
     """
-    _record_diagnostics(ui_frozen=None, switched_chat=None, search_skipped_restored=None)
+    _record_diagnostics(ui_frozen=None, switched_chat=None)
     if open_chat_post(h, name, talker, verbose):
         # 走到这里就是「目标原先没开着、刚切过去」——切完焦点多半不在消息输入框上，
         # 记一笔让发送层用真实点击激活它（投递正文要靠焦点落地）。
@@ -1877,10 +1952,7 @@ def open_chat_any(h, name, talker, verbose=False):
 
 
 def _target_unconfirmed_detail():
-    """目标未确认时的 detail 文案。跳过搜索兜底时把**原因与出路**说清楚，别让人以为在正常排队。"""
-    if _LAST_DIAGNOSTICS.get("search_skipped_restored"):
-        return ("目标会话未确认（fail-closed）：不在可见会话列表，且微信窗口是从托盘/最小化还原的——"
-                "为避免真键鼠搜索把界面卡死，已跳过搜索兜底；请先手动打开该会话再重试")
+    """目标未确认时的 detail 文案（fail-closed：一个字都没输入，不会发错）。"""
     return "目标会话未确认（fail-closed）"
 
 
@@ -1906,8 +1978,6 @@ _LAST_DIAGNOSTICS = {
     # 本次是否**切过会话**（任一方式）：切完焦点可能不在消息输入框上，投递点击不足以把键盘焦点
     # 移过去，正文（WM_CHAR）就落空——调用方据此改用真实点击激活输入框（见 `_click_input_box`）。
     "switched_chat": None,
-    # 因「窗口是从托盘/最小化还原来的」而**跳过**搜索兜底（避免真键鼠+切前台把界面弄卡）
-    "search_skipped_restored": None,
 }
 
 
@@ -2074,6 +2144,30 @@ def _send_locked(text, talker, name, dry_run, verbose):
     return _send_locked_body(h, text, talker, name, dry_run, verbose, prev_fg)
 
 
+def _needs_geometry_repair(uia, frame_lines, h):
+    """目标没确认上时，还值不值得先「规范化窗口尺寸」再复核一遍？
+
+    值得的只有两种情形：
+    - 帧**压根没读到**（`frame_lines` 空）：可能是旧帧/没重绘，`_repair_geometry_for_send` 里那次
+      `ShowWindow` 加那一拍有机会让它重画出来；
+    - 尺寸**真的漂移了**：帧 OCR 的布局常量按 1280×820 标定，坐标会错位。
+
+    **不值得**的是最常见的那种：帧读到了、表头明明白白写着别的会话——目标就是没开着，修完再读
+    必然是同一个答案。实测这一步白花 **2.65s**（2026-10-14，分段计时），而它后面紧跟着就是切会话，
+    切完那次核对才是真判据。UIA 能读到表头时更不必修：那是精确文本，说了不是就不是。
+
+    **只看尺寸、不看位置**（与 `preflight` 的 `_size_canonical` 同一口径）：布局是**窗口相对**坐标，
+    窗口摆哪儿都不影响读数；而 `_repair_geometry_for_send` 的判据是「位置**或**尺寸偏离 (60,40,1280,820)」，
+    所以**用户的窗口只要不在 (60,40)，它就会搬一次再搬回来**（实测本机窗口在 (775,208)，照样返回了原
+    rect ⇒ 每次"修复"都是一次可见的窗口跳 + 0.8s）。尺寸已经合规就没有任何理由去动用户的窗口。
+    """
+    if uia:
+        return False
+    if not frame_lines:
+        return True
+    return not _size_canonical(win_rect(h))
+
+
 def _repair_geometry_for_send(h):
     """目标确认失败时的**按需修复**：窗口规范化到预设尺寸（**不抢前台**）。
 
@@ -2118,6 +2212,16 @@ def _restore_geometry(h, rect):
         pass
 
 
+# 清空输入框（`clear_input` 投递 200 次退格）之后、投递正文之前的**显式停顿**。
+# 为什么必须有：那一串退格是 400 条入队消息，输入框要等它们消化完才吃得住第一个 WM_CHAR，
+# 否则**首字被静默吃掉**——而 `post_text`/`send_text` 全程 `ok=True`，只有拿落库正文逐字比对
+# 才看得见（2026-10-14 实测复现 6 次，丢的都是首位）。
+# ⚠️ 这一拍原先是**隐式**的：`clear_input` 里那次 `read_uia` 每次都 spawn PowerShell 磨掉 ~1.0s，
+# 顺手当了刹车。`read_uia` 改成空树短路后它没了，于是显式补上——**别再把它当冗余删掉**。
+# 实测阈值在 0～0.15s 之间（0.15/0.25/0.6 均不丢字，0 稳定丢），取 0.4 留余量。
+_COMPOSER_SETTLE = 0.4
+
+
 def _send_locked_body(h, text, talker, name, dry_run, verbose, prev_fg):
     # 目标校验优先用 UIA 的**活表头**（`current_chat_name_label`，精确文本）：这是唯一不受
     # 旧帧影响的判据。窗口被盖住时帧里的会话列表和头部都是几分钟前的，用它校验正是那些
@@ -2133,7 +2237,7 @@ def _send_locked_body(h, text, talker, name, dry_run, verbose, prev_fg):
         else:
             ww, wh, lines = read_ui_stable("s0")
             ok, _why = verify_target(talker, name, lines, ww, wh, verbose)
-        if not ok:
+        if not ok and _needs_geometry_repair(d, lines, h):
             _progress("窗口尺寸漂移，正在把微信窗口规范化")
             # 按需修复：窗口尺寸漂移 / 不在前台时，帧 OCR 布局错位、切会话也会失败
             orig = _repair_geometry_for_send(h)
@@ -2171,6 +2275,7 @@ def _send_locked_body(h, text, talker, name, dry_run, verbose, prev_fg):
         if not ok:
             _give_back_foreground(h, prev_fg)   # 退格也是输入消息，微信可能已经自己跳到前台了
             return False, why
+        time.sleep(_COMPOSER_SETTLE)      # 退格洪峰之后的刹车，见该常量；删了会静默丢首字
         if not post_text(h, text):
             _give_back_foreground(h, prev_fg)
             return False, "投递输入失败（PostMessage 未送达）"
@@ -2187,16 +2292,26 @@ def _send_locked_body(h, text, talker, name, dry_run, verbose, prev_fg):
         _progress("正在发送")
         post_key(h, VK_RETURN)
         _give_back_foreground(h, prev_fg)
-        time.sleep(1.0)
+        # 只留够微信**自激活**的窗口再还一次前台（投递字符会让它自己跳到前台，实测 0.1–0.3s
+        # 内发生，上面那一次可能赶在它前面）。落库要等多久不在这里硬等——交给
+        # `_wait_new_message` 轮询，它首轮立刻读。
+        time.sleep(0.35)
         _progress("正在读库确认消息已送达")
         # 最后一道：**读库确认**新消息真的落在目标会话（防「看着发出去了、其实发到别处」）
-        if not _wait_new_message(talker, base_ts):
+        if not _wait_new_message(talker, base_ts, text):
             return False, "已回车但目标会话未见新消息（可能发到了别处或未生效）"
         # 非 BMP 字符（emoji 等）走 WM_CHAR 投不进去，`post_text` 已把它们跳过。
         # 这里**如实交代**——调用方以为发全了、实际少了几个字，是最难查的那类问题。
         n_drop, _ = dropped_nonbmp()
+        notes = []
         if n_drop:
-            return True, f"已发送（注意：{n_drop} 个 emoji/生僻字符无法投递，已略去）"
+            notes.append(f"{n_drop} 个 emoji/生僻字符无法投递，已略去")
+        n_nl = folded_newlines()
+        if n_nl:
+            notes.append(f"{n_nl} 处换行微信输入框收不下，已压成空格"
+                         f"（要分段请分多次发送）")
+        if notes:
+            return True, "已发送（注意：" + "；".join(notes) + "）"
         return True, "已发送"
     finally:
         if orig:
@@ -2406,6 +2521,10 @@ def _attach_via_dialog(h, path, verbose=False):
             time.sleep(0.5)
 
 
+# 读库确认的轮询节奏：首轮 0（立刻读），之后逐级退避，末档 2.5s 一直重复到超时。
+_POLL_BACKOFF = (0.0, 0.25, 0.4, 0.7, 1.1, 1.6, 2.5)
+
+
 def _talker_latest_ts(talker):
     try:
         msgs = core.history(talker, 1).get("messages") or []
@@ -2414,17 +2533,49 @@ def _talker_latest_ts(talker):
         return 0
 
 
-def _wait_new_message(talker, since_ts, timeout=25):
-    """轮询目标会话是否出现比 since_ts 更新的消息（微信落库有延迟）。"""
+def _wait_new_message(talker, since_ts, like=None, timeout=25):
+    """轮询目标会话，确认**我们刚发的那条**真的落了库（微信落库有延迟）。
+
+    判据演进（2026-10-14）：原先只看「有没有比基线更新的消息」，那条判据会**假成功**——
+    发送窗口里对方恰好回了一句就被判成「已发送」，而我们那条可能根本没出去。消息静默丢失
+    比报错危险得多，何况这道校验存在的**唯一**理由就是防「看着发出去了、其实发到别处」。
+
+    现在认「我们自己发的那条」，顺序：
+      ① `agent_sent` —— 本模块所有文本出口都往正文末尾打零宽标记（`AGENT_MARK`），落库后
+         `msg_dict` 把它还原成 `agent_sent: True`。这是「这串字是 AI 代发的」的**唯一**指纹，
+         对方伪造不来（实测本机 200 条样例里 36 条带它）。
+      ② `from_me` + 正文一致 —— 标记被客户端吞掉或来自旧版时兜底。给了 `like`（正文）就比一次
+         前缀：`msg_dict` 把正文截到 400 字，比前 400 即可；比不一致就继续等（fail-closed，
+         宁可报 `send_not_confirmed` 让人去 read_history，也不谎报成功）。
+      ③ 附件（`send_file`）没有正文可打标记，只能用 `from_me`；若连它都取不到（`sender`
+         未解析出来，字段整个缺席），退回原时间戳判据——不能因为判据升级把发送能力也降级。
+    """
+    base = since_ts or 0
+    plain = core.split_agent_mark(like)[0] if like else None
+    # **首轮立刻读，不给固定等待**：微信落库通常在 1s 内，原先无条件先等 2.5s 是白等（实测
+    # 一次 `core.history(talker,3)` 只要 14.5ms，密着打毫无压力）。之后按 `_POLL_BACKOFF`
+    # 退避：落得快就早返回，落得慢也不把轮询打成忙等。
     t0 = time.time()
+    i = 0
     while time.time() - t0 < timeout:
-        time.sleep(2.5)
+        dt = _POLL_BACKOFF[i] if i < len(_POLL_BACKOFF) else _POLL_BACKOFF[-1]
+        i += 1
+        if dt:
+            time.sleep(dt)
         try:
             msgs = core.history(talker, 3).get("messages") or []
-            if any(m["ts"] > since_ts for m in msgs):
-                return True
         except Exception:
-            pass
+            continue
+        for m in msgs:
+            if (m.get("ts") or 0) <= base:
+                continue                       # 比基线还老：不是这次发出去的
+            if m.get("agent_sent"):
+                return True
+            if m.get("from_me") is True and (plain is None or (m.get("text") or "") == plain[:400]):
+                return True
+        if plain is None and all("from_me" not in m for m in msgs) \
+                and any((m.get("ts") or 0) > base for m in msgs):
+            return True                        # 退化路径：认不出人称时的保底
     return False
 
 
@@ -2461,11 +2612,24 @@ def send_attachment(path, talker, name=None, dry_run=True, verbose=False):
         prev_fg = int(u.GetForegroundWindow())
         _progress("正在确认目标会话")
         d = read_uia(h, "af0")
-        ok = uia_header_is(d, name) if d else False
-        if not ok:
+        ww = wh = 0
+        lines = []
+        if d:
+            ok = uia_header_is(d, name)
+        else:
+            # **与文本路径对称**：UIA 拿不到就退帧判据。原先这里硬写 `if d else False`，
+            # 空树下目标**永远确认不上** ⇒ 每次发附件都白切一次会话，而且会把搜索兜底那条
+            # 「抢剪贴板 + 真鼠标 + 抢前台」的路一起带起来。文本路径同一处已判为 bug。
+            ww, wh, lines = read_ui_stable("af0")
+            ok, _why = verify_target(talker, name, lines, ww, wh, verbose)
+        if not ok and _needs_geometry_repair(d, lines, h):
             orig = _repair_geometry_for_send(h)     # 按需修复：尺寸漂移会让确认失败
             d = read_uia(h, "af0r")
-            ok = uia_header_is(d, name) if d else False
+            if d:
+                ok = uia_header_is(d, name)
+            else:
+                ww, wh, lines = read_ui_stable("af0r")
+                ok, _why = verify_target(talker, name, lines, ww, wh, verbose)
         if not ok:
             _progress("目标不在当前会话，正在切换")
             ok = open_chat_any(h, name, talker, verbose)
@@ -2485,6 +2649,7 @@ def send_attachment(path, talker, name=None, dry_run=True, verbose=False):
         ok, why = clear_input(h, (d or {}).get("input"))   # 残留会跟附件一起发出去
         if not ok:
             return False, why
+        time.sleep(_COMPOSER_SETTLE)     # 同上：退格洪峰之后的刹车（这里护的是随后那下工具栏点击）
         _progress("正在把附件放进输入框")
         _ok, _d = _attach_via_dialog(h, path, verbose)
         if not _ok:
@@ -2492,7 +2657,7 @@ def send_attachment(path, talker, name=None, dry_run=True, verbose=False):
         _progress("正在发送")
         post_key(h, VK_RETURN)
         _give_back_foreground(h, prev_fg)
-        time.sleep(1.5)
+        time.sleep(0.35)      # 同上：只留自激活窗口，落库交给轮询
         _ok = _wait_new_message(talker, base_ts)
         _d = "已发送" if _ok else "已回车但目标会话未见新消息（可能发到了别处或未生效）"
         return _ok, _d
@@ -2698,6 +2863,6 @@ def _reply_locked(quote, text, talker, name, dry_run, verbose):
         base_ts = _talker_latest_ts(talker)
         press(0x0D)
         time.sleep(1.2)
-        if not _wait_new_message(talker, base_ts):
+        if not _wait_new_message(talker, base_ts, text):
             return False, "已回车但目标会话未见新消息（可能未生效）"
         return True, "已发送（引用回复）"
