@@ -50,11 +50,12 @@ claude mcp add wechat-file -s user -- "{{EXE}}"
 3. **文件名是线索不是铁证**：同名文件可能是不同版本，服务器用消息里的大小（`totallen`）消歧，
    对不上时给 `status=size_mismatch`——这时**告诉用户可能不是同一份**，别默认当成原文件。
 
-## 2. 工具面（2 个）
+## 2. 工具面（3 个）
 
 | 工具 | 用途 |
 |---|---|
 | `list_files(talker?, since?, until?, types?, keyword?, only_missing?)` | 列文件消息 + 磁盘定位结果。`only_missing=true` 就是**过期预警** |
+| `disk_usage(session_limit?)` | 占用分析：磁盘各子树小计 + 按会话排行 + 无主占用。**只读、只报告，不删任何东西** |
 | `archive_files(out_dir, talker?, since?, until?, types?, layout?, dry_run?)` | 拷贝归档。`dry_run=true`（默认）只出计划 |
 
 `list_files` 每条返回：`title` / `size` / `ext` / `ts` / `name`(会话) / `sender` / `local_path` / `status`。
@@ -70,6 +71,16 @@ claude mcp add wechat-file -s user -- "{{EXE}}"
 4. 确认后 `dry_run=false` 真归档，回报落盘目录与文件数。
 
 **默认先 dry_run**——真归档前给用户看一眼计划。
+
+**问「微信怎么这么占地方」** → `disk_usage()`。回报时必须守住口径（本机实测数字）：
+
+- `file_own_bytes`（只被一个会话引用的，**删了确实能省**）与 `shared_bytes`（多个会话共用的转发文件，
+  **磁盘只占一份，删了不一定省**）**不能相加**当成"能省的空间"——同一份会被数不止一遍
+  （实测按会话求和 1039 MB > 磁盘 896 MB）。
+- 各会话的 `own_bytes + shared_bytes` 只用来**排序**；要验账请用 `file_own_bytes` /
+  `shared_bytes` / `file_unattributed` 这三个总数（`sessions[]` 是被 `session_limit` 截断的）。
+- `file_unattributed` 是**没被任何消息引用到**的磁盘文件，归属不了；`msg/video`、`msg/attach`
+  只报小计。**别把它们说成"可以清理"**——本工具只读不删，清理是用户自己的事。
 
 ## 4. 硬约束
 

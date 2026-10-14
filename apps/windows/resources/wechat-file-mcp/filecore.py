@@ -8,7 +8,6 @@
 - 本机命中率 140 条 → 129 条 title+大小双命中（92%）；剩 8% 是未下载/已过期。
 - 微信给重名文件加 `(1)`/`(3)` 后缀；少量文件有 `YYYYMMDD` 日期前缀；同一磁盘文件可被多条消息引用。
 """
-import html
 import os
 import re
 import shutil
@@ -26,79 +25,15 @@ import mcp_stdio  # noqa: E402  （只为了报进度；没装回调时 progress
 import wechat_core as core  # noqa: E402
 
 FILE_LT = 49                      # 文件/链接类消息的 local_type
-_APPMSG_TYPE = 6                  # appattach 里的 appmsg 子类型：6 = 文件
-_DATE_PREFIX = re.compile(r"^\d{8}\s*")          # 磁盘侧偶见的 YYYYMMDD 前缀（连同其后的空格）
 _WIN_BAD = re.compile(r'[<>:"/\\|?*\x00-\x1f]')   # Windows 文件名非法字符
 
-
-def unwrap(s):
-    """XML 文本节点 → 去掉 CDATA、反转义 HTML 实体（`&#x20;` 这类在文件名里真实出现过）。"""
-    s = (s or "").strip()
-    if s.startswith("<![CDATA[") and s.endswith("]]>"):
-        s = s[9:-3]
-    return html.unescape(s).strip()
-
-
-def parse_file_msg(raw):
-    """消息原文 → `{title, size, ext}`；**不是文件消息**（非 appmsg / 非 type=6 / 无标题）返回 None。"""
-    if "<appmsg" not in raw:
-        return None
-    if core._num(raw, "type") != _APPMSG_TYPE:
-        return None
-    title = unwrap(core._tag(raw, "title"))
-    if not title:
-        return None
-    size = core._num(raw, "totallen")
-    ext = unwrap(core._tag(raw, "fileext")).lower()
-    if not ext:
-        ext = os.path.splitext(title)[1].lstrip(".").lower()
-    return {"title": title, "size": max(size, 0), "ext": ext}
-
-
-def files_root():
-    """磁盘上的文件根：`<账号目录>/msg/file`。"""
-    return os.path.join(os.path.dirname(core.db_root()), "msg", "file")
-
-
-def build_index(root=None):
-    """扫描磁盘 → `{文件名: [(大小, 路径), …]}`。
-
-    少量文件带 `YYYYMMDD` 日期前缀（磁盘侧有、消息标题没有），所以再给去前缀的名字挂**别名键**
-    （真名优先，别名只在没撞名时加），让 `match_file` 保持一次查表。
-
-    **每次调用都真扫**（2026-10-13 改）：原先按 root 把结果缓存起来且永不失效，后果是
-    「`list_files` 报 8 条过期 → 用户去微信里点下载 → 再跑还是报过期」，直到 MCP 进程重启
-    ——而「过期预警 → 下载 → 归档」正是本产品的卖点路径（原 docstring 还说"重扫传 force"，
-    那个参数**从来就不存在**）。实测整盘重扫本机 135 个文件只要 **8.9 ms**，比同一次调用里读
-    消息库便宜得多，缓存换来的那点时间不值这个 bug。
-    """
-    root = root or files_root()
-    idx = {}
-    for dp, _dirs, fs in os.walk(root):
-        for f in fs:
-            p = os.path.join(dp, f)
-            try:
-                idx.setdefault(f, []).append((os.path.getsize(p), p))
-            except OSError:
-                continue
-    for name, cands in list(idx.items()):
-        alias = _DATE_PREFIX.sub("", name)
-        if alias and alias != name:
-            idx.setdefault(alias, cands)
-    return idx
-
-
-def match_file(idx, title, size):
-    """消息 → 磁盘文件。返回 `(路径 | None, status)`；status ∈ ok / size_mismatch / missing。"""
-    cands = idx.get(title) or idx.get(_DATE_PREFIX.sub("", title))
-    if not cands:
-        return None, "missing"
-    if size:
-        exact = [p for s, p in cands if s == size]
-        if exact:
-            return exact[0], "ok"
-        return cands[0][1], "size_mismatch"        # 同名但大小不符：可能是另一版本
-    return cands[0][1], "ok"
+# 「文件消息 → 磁盘文件」这段**读原语**已上移到共享层 `wechat_core`（B 导出也要用它收附件），
+# 这里只留同名引用：A 的调用点与本文件的测试都不用改，实现只有一份。
+unwrap = core._unxml              # 就是共享层的 `<![CDATA[]]>` + 实体反转义
+parse_file_msg = core.parse_file_msg
+files_root = core.files_root
+build_index = core.build_index
+match_file = core.match_file
 
 
 def _tbl_targets(talker):
@@ -162,6 +97,116 @@ def list_files(talker=None, since=0, until=0, types=None, keyword="", only_missi
             con.close()
     out.sort(key=lambda r: r["ts"])
     return out
+
+
+def _walk_sizes(root, depth=1):
+    """一次 walk 出「路径前 `depth` 层」的体积：`({key: [字节, 文件数]}, 总字节, 总文件数)`。
+
+    微信自己的目录结构就是这个形状（`msg/file/<年月>`），按层聚合比按类型猜更稳。
+    """
+    agg, total, n_files = {}, 0, 0
+    for dp, _dirs, fs in os.walk(root):
+        rel = os.path.relpath(dp, root)
+        key = os.sep.join(([] if rel == "." else rel.split(os.sep))[:depth]) or "."
+        for f in fs:
+            try:
+                n = os.path.getsize(os.path.join(dp, f))
+            except OSError:
+                continue
+            e = agg.setdefault(key, [0, 0])
+            e[0] += n
+            e[1] += 1
+            total += n
+            n_files += 1
+    return agg, total, n_files
+
+
+def disk_usage(session_limit=20):
+    """磁盘占用分析：**磁盘的硬事实** + **能归属的按会话排行**。
+
+    三条实测事实（2026-10-14，探针 `verify/wechat-mcp/probe_disk_usage.py`）决定了这里的分账方式：
+
+    1. **大头不在库里**：`db_storage` 67 MB，而 `msg/` 1322 MB（file 896 / video 270 / attach 157）。
+       所以「为什么占这么大」只能在磁盘上答，会话条数那套读库答不了。
+    2. **只有 74% 能归属**（149 个磁盘文件只有 110 个被消息引用到）。剩下的记
+       `file_unattributed`，**必须单列**——否则各会话加起来对不上总量，用户会以为工具漏了。
+    3. **同一份文件会被多个会话引用**（本机 91 独占 / 15 双主 / 4 三主，共享 281 MB）。
+       于是「按会话求和」会**重复计**（实测求和 1039 MB > 磁盘 896 MB），
+       "删了这个会话能省 X"就成了假话。所以独占 `own_*` 与共享 `shared_*` 分开报：
+       前者删了确实省，后者别人也在用。
+
+    `video/` 与 `attach/` **只报子树小计，不做会话归属**——video 靠消息配对只有 9/48 能唯一定位
+    （计划 §3.4），attach 是 md5 目录名 + 加密 `.dat`。**配不出来就别编**。
+
+    不变式（测试里钉住）：`Σ own_bytes + shared_bytes + file_unattributed.bytes == msg/file 总量`。
+    """
+    root = os.path.dirname(core.db_root())            # 账号目录：占用大头在 db_storage **外面**
+    trees, total, n_all = _walk_sizes(root)
+    msg_path = os.path.join(root, "msg")
+    msg_trees, _mt, _mf = _walk_sizes(msg_path) if os.path.isdir(msg_path) else ({}, 0, 0)
+    file_bytes, file_files = msg_trees.get("file", [0, 0])
+
+    # ── msg/file 的归属：磁盘文件 → 引用它的会话
+    meta, owners = {}, {}                             # 规范化路径 -> {size, ts, ext} / {会话名}
+    for r in list_files():
+        p = r["local_path"]
+        if not p or not os.path.isfile(p):
+            continue
+        k = os.path.normcase(p)
+        owners.setdefault(k, set()).add(r["name"])
+        if k not in meta:                             # 同一份文件被多条消息引用只算一次
+            try:
+                meta[k] = {"size": os.path.getsize(p), "ts": r["ts"], "ext": r["ext"]}
+            except OSError:
+                pass
+
+    sessions, shared_bytes, own_bytes = {}, 0, 0
+    for k, m in meta.items():
+        who = owners[k]
+        if len(who) > 1:
+            shared_bytes += m["size"]
+        else:
+            own_bytes += m["size"]
+        for nm in who:
+            s = sessions.setdefault(nm, {"name": nm, "own_bytes": 0, "own_files": 0,
+                                         "shared_bytes": 0, "shared_files": 0})
+            if len(who) == 1:
+                s["own_bytes"] += m["size"]
+                s["own_files"] += 1
+            else:
+                s["shared_bytes"] += m["size"]
+                s["shared_files"] += 1
+
+    by_month, by_ext = {}, {}
+    for m in meta.values():
+        mon = time.strftime("%Y-%m", time.localtime(m["ts"]))
+        by_month[mon] = by_month.get(mon, 0) + m["size"]
+        ext = m["ext"] or "(无扩展名)"
+        by_ext[ext] = by_ext.get(ext, 0) + m["size"]
+
+    ranked = sorted(sessions.values(), key=lambda s: -(s["own_bytes"] + s["shared_bytes"]))
+    attributed = sum(m["size"] for m in meta.values())
+    return {
+        "root": root,
+        "total_bytes": total, "total_files": n_all,
+        "trees": [{"path": k, "bytes": v[0], "files": v[1]} for k, v in
+                  sorted(trees.items(), key=lambda kv: -kv[1][0])],
+        "msg_trees": [{"path": k, "bytes": v[0], "files": v[1]} for k, v in
+                      sorted(msg_trees.items(), key=lambda kv: -kv[1][0])],
+        "file_bytes": file_bytes, "file_files": file_files,
+        # 三个总量**单独给**：`sessions` 是被 `session_limit` 截断的，拿它去求和必然对不上账
+        # （本机 20 名之外还有会话，实测差 9.6 KB）——调用方要验账请看这三个数。
+        "file_own_bytes": own_bytes,
+        "file_unattributed": {"bytes": file_bytes - attributed, "files": file_files - len(meta)},
+        "shared_bytes": shared_bytes,
+        "session_count": len(sessions),
+        "sessions": ranked[:session_limit] if session_limit > 0 else ranked,
+        "by_month": by_month, "by_ext": by_ext,
+        "note": ("`sessions[].own_bytes` 是**只此一处**引用的文件（删了确实能省）；"
+                 "`shared_bytes` 是多个会话都在用的（删除不一定省）。"
+                 "`file_unattributed` 是没被任何消息引用到的磁盘文件，归属不了。"
+                 "`msg/video`、`msg/attach` 只报小计，不做会话归属。"),
+    }
 
 
 def _safe(name):

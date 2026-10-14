@@ -7,7 +7,8 @@
 把本机微信里收发的**文件**（`msg/file/<月>/`）收出来：列清单、按会话归档到本地目录、报告
 已过期/未下载的文件。**只读**——不修改任何微信数据，归档只做拷贝。
 
-两个工具：`list_files`（列 + 定位）与 `archive_files`（拷贝归档，默认 dry_run）。
+三个工具：`list_files`（列 + 定位）、`disk_usage`（占用分析，只读）、
+`archive_files`（拷贝归档，默认 dry_run）。
 
 协议层与工具边界约定在共享层 `../wechat-mcp/mcp_stdio.py`（四件套共用一份，别在这里再写一遍）；
 读取层（密钥扫描 / SQLCipher 解密 / 多分片镜像 / 路径发现）复用 `../wechat-mcp/wechat_core.py`。
@@ -57,6 +58,25 @@ TOOLS = [
         },
     },
     {
+        "name": "disk_usage",
+        "description": (
+            "【何时用】用户问「微信怎么这么占地方 / 哪个会话最占空间 / 空间都花在哪了」。"
+            "【返回】**磁盘的硬事实**（账号目录下各子树、`msg/` 下 file/video/attach 的字节数与文件数）"
+            "+ **按会话排行**（只对 `msg/file` 能归属的那部分）。"
+            "看 `sessions[].own_bytes`（**只此一处**引用，删了确实能省）与 `shared_bytes`"
+            "（多个会话都在用的，删除不一定省）——两者**不能相加后当成能省的空间**。"
+            "`file_unattributed` 是没被任何消息引用到的磁盘文件（本机 26%），归属不了；"
+            "`msg/video`、`msg/attach` 只报小计。**别把这些数字说成「可以清理 XX」**，本工具只读不删。"
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "session_limit": {"type": "integer",
+                                  "description": "会话排行返回前几名，默认 20；0=全部"},
+            },
+        },
+    },
+    {
         "name": "archive_files",
         "description": (
             "【何时用】把微信里的文件**归档到本地目录**（防过期、做整理）。以用户本人身份、只读微信。"
@@ -91,8 +111,11 @@ INSTRUCTIONS = """\
 1. `list_files()` 先看有哪些文件、哪些已经下不动了（`status=missing` 即过期/未下载）。
 2. `archive_files(out_dir=..., dry_run=true)` 出归档计划给用户确认。
 3. 确认后 `dry_run=false` 真拷贝。
+   问"占用/占地方"用 `disk_usage()`（只读，只报告，**不删任何东西**）。
 
 要点：
+- `disk_usage` 的 `own_bytes`（只此一处引用的）与 `shared_bytes`（多处共用的）**不能相加**
+  当成"能省的空间"；`file_unattributed` 归属不了，如实说。
 - 归档**只做拷贝**，微信原文件不受影响（不会让微信里的「打开文件」失效）。
 - 归档**不会覆盖**已经归档过的东西：同一份跳过（`exists`），另一个版本另存带时间戳的名字。
 - `missing` 的文件是**服务器端已拿不到**的，无法归档——如实告诉用户，别承诺能救回来。
@@ -102,6 +125,7 @@ INSTRUCTIONS = """\
 
 DISPATCH = {
     "list_files": lambda a: _tool_list(a),
+    "disk_usage": lambda a: _tool_disk(a),
     "archive_files": lambda a: _tool_archive(a),
 }
 
@@ -125,6 +149,11 @@ def _tool_list(args):
         "size_mismatch": sum(1 for r in shown if r["status"] == "size_mismatch"),
         "files": shown,
     }
+
+
+def _tool_disk(args):
+    limit = args.get("session_limit")
+    return F.disk_usage(session_limit=20 if limit is None else int(limit))
 
 
 def _tool_archive(args):

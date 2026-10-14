@@ -130,6 +130,86 @@ def test_archive_never_overwrites(tmp):
     print("ok archive_never_overwrites")
 
 
+def test_disk_usage_accounting(tmp):
+    """`disk_usage` 的分账要**对得上账**：独占 + 共享 + 无主 == msg/file 总量。
+
+    这是本工具唯一容易骗人的地方：同一份文件被多个会话引用时，"按会话求和"会把它数不止一遍
+    （真机实测求和 1039 MB > 磁盘 896 MB）。要是拿这个数去说"删了它就能省 400 MB"，就是假话。
+    """
+    acct = os.path.join(tmp, "acct")
+    froot = os.path.join(acct, "msg", "file")
+    for sub in ("2026-09", "2026-10"):
+        os.makedirs(os.path.join(froot, sub))
+    os.makedirs(os.path.join(acct, "msg", "video"))
+    os.makedirs(os.path.join(acct, "db_storage"))
+    sizes = {(("2026-09", "a.pdf")): 100, (("2026-09", "shared.bin")): 300,
+             (("2026-10", "orphan.zip")): 7}
+    for (sub, name), n in sizes.items():
+        open(os.path.join(froot, sub, name), "wb").write(b"x" * n)
+    open(os.path.join(acct, "msg", "video", "v.mp4"), "wb").write(b"v" * 50)
+
+    def fake_recs():
+        return [
+            {"local_path": os.path.join(froot, "2026-09", "a.pdf"), "name": "会话A",
+             "ts": 1757000000, "ext": "pdf"},
+            {"local_path": os.path.join(froot, "2026-09", "shared.bin"), "name": "会话A",
+             "ts": 1757000000, "ext": "bin"},
+            {"local_path": os.path.join(froot, "2026-09", "shared.bin"), "name": "会话B",
+             "ts": 1757000000, "ext": "bin"},
+            {"local_path": None, "name": "会话B", "ts": 1757000000, "ext": "zip"},  # 缺失的跳掉
+        ]
+
+    old_db, old_froot, old_lf = F.core.db_root, F.core.files_root, F.list_files
+    F.core.db_root = lambda: os.path.join(acct, "db_storage")
+    F.core.files_root = lambda: froot
+    F.list_files = fake_recs
+    try:
+        d = F.disk_usage()
+    finally:
+        F.core.db_root, F.core.files_root, F.list_files = old_db, old_froot, old_lf
+
+    by = {s["name"]: s for s in d["sessions"]}
+    assert by["会话A"]["own_bytes"] == 100 and by["会话A"]["own_files"] == 1, by["会话A"]
+    assert by["会话B"]["own_bytes"] == 0, "B 没有独占文件"
+    assert by["会话A"]["shared_bytes"] == 300 and by["会话B"]["shared_bytes"] == 300, by
+    assert d["shared_bytes"] == 300, "共享体积按**去重**算，不是每见一次加一遍"
+    assert d["sessions"][0]["name"] == "会话A", "按引用量排序"
+    assert d["file_unattributed"] == {"bytes": 7, "files": 1}, d["file_unattributed"]
+    own = sum(s["own_bytes"] for s in d["sessions"])
+    assert own == d["file_own_bytes"], "会话没被截断时，求和应等于给的总量"
+    assert d["file_own_bytes"] + d["shared_bytes"] + d["file_unattributed"]["bytes"] == d["file_bytes"], \
+        f"对不上账：{d['file_own_bytes']} + {d['shared_bytes']} + " \
+        f"{d['file_unattributed']['bytes']} != {d['file_bytes']}"
+    assert d["file_bytes"] == 407 and d["file_files"] == 3, (d["file_bytes"], d["file_files"])
+    # 另两块大头只报小计，别假装能归属
+    assert {t["path"] for t in d["msg_trees"]} == {"file", "video"}, d["msg_trees"]
+    assert d["total_bytes"] > d["file_bytes"], "账号总量含 db_storage 等"
+    print("ok disk_usage（独占/共享/无主 对得上账）")
+
+
+def test_disk_usage_real():
+    """真机只读冒烟（无微信库时跳过）：真实数据上那条不变式也得成立。"""
+    try:
+        root = F.core.db_root()
+    except Exception as e:                              # noqa: BLE001
+        print(f"skip disk_usage 冒烟（取不到库: {e}）")
+        return
+    if not root or not os.path.isdir(root):
+        print("skip disk_usage 冒烟（无数据目录）")
+        return
+    d = F.disk_usage()
+    total = d["file_own_bytes"] + d["shared_bytes"] + d["file_unattributed"]["bytes"]
+    assert total == d["file_bytes"], f"真机也对不上账：{total} != {d['file_bytes']}"
+    # 会话榜是截断的（默认前 20）：**别拿它求和去验账**，这一条本机实测差 9.6 KB
+    assert sum(s["own_bytes"] for s in d["sessions"]) <= d["file_own_bytes"]
+    trees = {t["path"]: t["bytes"] for t in d["msg_trees"]}
+    print(f"ok disk_usage 真机：账号 {d['total_bytes']/1048576:.0f} MB，"
+          f"其中 msg/file {d['file_bytes']/1048576:.0f} MB"
+          f"（独占 {d['file_own_bytes']/1048576:.0f} + 共享 {d['shared_bytes']/1048576:.0f} + "
+          f"无主 {d['file_unattributed']['bytes']/1048576:.0f}），"
+          f"video {trees.get('video', 0)/1048576:.0f} MB，{d['session_count']} 个会话有文件")
+
+
 def test_needs_wechat():
     """真机只读冒烟（无微信库时跳过，不算失败）。"""
     try:
@@ -186,6 +266,8 @@ if __name__ == "__main__":
         test_dest_path()
         test_index_has_no_stale_cache(_tmp)
         test_archive_never_overwrites(_tmp)
+        test_disk_usage_accounting(_tmp)
+        test_disk_usage_real()
         test_needs_wechat()
         test_talker_by_display_name()
     finally:
