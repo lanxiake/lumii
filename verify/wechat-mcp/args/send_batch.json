@@ -1,0 +1,13 @@
+﻿{
+    "messages":  [
+                     {
+                         "text":  "e2e 一",
+                         "talker":  "文件传输助手"
+                     },
+                     {
+                         "text":  "e2e 二",
+                         "talker":  "绝对不存在的会话xyz"
+                     }
+                 ],
+    "dry_run":  true
+}
