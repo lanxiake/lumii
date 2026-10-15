@@ -15,7 +15,11 @@
 用法：
   PYTHONIOENCODING=utf-8 python probe_live_version.py <install.7z 或 安装包.exe 或 已解目录>
   PYTHONIOENCODING=utf-8 python probe_live_version.py <...> --backup     # 先备份数据目录
-只读：对微信只 PROCESS_VM_READ；不发送任何消息。
+  PYTHONIOENCODING=utf-8 python probe_live_version.py <...> --need-data  # 等到能读出会话再判
+  PYTHONIOENCODING=utf-8 python probe_live_version.py <...> --send       # 真发一条（**只发文件传输助手**）
+
+只读？`--send` 之外只 PROCESS_VM_READ，不发送任何东西。`--send` 时唯一的外发目标是
+`filehelper`（文件传输助手 = 用户自己），且判据是**读库回读**，不是只看返回值。
 """
 import os
 import re
@@ -33,6 +37,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 SZ = r"C:\Program Files\7-Zip\7z.exe"
 DATA = os.path.join(os.path.expanduser("~"), "Documents", "xwechat_files")
 WAIT_MIN = 8                 # 等扫码的上限（分钟）
+DO_SEND = "--send" in sys.argv   # 真发（默认关；只发**文件传输助手**，即用户自己）
 
 
 def unpack(arg, out):
@@ -133,6 +138,22 @@ def checks():
             out["uia"] = 0
     except Exception as e:                                          # noqa: BLE001
         print("  ✗ check_env/read_uia 失败：%s" % e)
+
+    if DO_SEND:
+        # **发送才是最容易随版本崩的那条路**（切会话 → 输入落地 → 回车 → 读库确认），
+        # 只验读路等于只验了一半。目标**只发 `filehelper`（文件传输助手 = 用户自己）**：
+        # 真实投递、零打扰。`talker` 必须传 wxid：`_header_distinguishes_target` 拿它跟
+        # `names()` 的键比，传显示名会把目标自己当成"别家"一票否掉（踩过，看着像产品 bug）。
+        import wechat_sender as S
+        text = "【版本兼容自检】%s 真发" % out.get("version", "?")
+        ok, det = S.send_text(text, "filehelper", dry_run=False)
+        print("  真发 filehelper：ok=%s %s" % (ok, det))
+        # 判据不能只看返回值——**读库回读**才作数（发出去没落库 = 没发）。
+        h = wc.history("filehelper", 3)
+        got = any(text in str(m.get("text", "")) for m in h["messages"])
+        print("  读库回读：%s" % ("命中刚发的那条 ✓" if got else "✗ 库里没有"))
+        out["send"] = bool(ok and got)
+        out["ok"] = out["ok"] and out["send"]
     return out
 
 

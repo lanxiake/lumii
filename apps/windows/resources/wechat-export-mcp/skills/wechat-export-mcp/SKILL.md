@@ -34,7 +34,9 @@ claude mcp add wechat-export -s user -- "{{EXE}}"
 
 ## 0.5 环境要求与失败处置
 
-- **Windows + 微信 4.x 已登录并运行**。工具直读本机微信库，**不联网、不外传**。
+- **Windows + 微信 4.1.15.x 已登录并运行**（真机验证过的版本）。工具直读本机微信库，**不联网、不外传**。
+  其它 4.x（4.1.6 起）静态扫描全部命中、可以试，但没逐版真机跑过——`check_env` 的
+  `wechat_version.verified` 会是 `false`，**那时结果先抽查几条再当真**。**微信 3.x 不支持**（另一套后端）。
 - 出错一律返回**同一形状**：`{"ok": false, "detail", "error_code", "stage", "suggestion"}`。
   **看到 `ok: false` 就是没成功**，别把同一结果里别的字段当数据用。按 `error_code` 分派：
   - `env_not_ready` —— 微信没就绪（没运行 / 找不到数据目录 / 密钥扫不到）。**不是用户参数的问题**：

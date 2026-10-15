@@ -1124,6 +1124,34 @@ def test_wizard_shows_wechat_version_range():
     print("ok wizard_shows_wechat_version_range")
 
 
+def test_docs_state_wechat_version_range():
+    """**文档漂移守卫**：五件套的安装说明里写的微信版本范围，必须与代码同源。
+
+    值不值得一条：`VERIFIED_VERSION_PREFIXES` 改了（加了新版本、或发现某版其实不行），
+    README 与技能包**不会报错**——它们只会静静地继续讲老话，而这两处恰好是用户决定
+    「装不装、敢不敢信跑出来的数」的地方。判据取 `wechat_compat_line()`（同一个单一来源），
+    并按**路径**扫文件而不是点名，免得以后再加档位时漏一个。
+    """
+    compat = I.wechat_compat_line()
+    assert compat, "取不到 wechat_core 的已验版本（共享层不在 sys.path？）"
+    res = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))     # resources/
+    docs = []
+    for d in sorted(os.listdir(res)):
+        if not d.startswith("wechat-") or not os.path.isdir(os.path.join(res, d)):
+            continue
+        docs.append(os.path.join(res, d, "README.md"))
+        sk = os.path.join(res, d, "skills")
+        for e in (sorted(os.listdir(sk)) if os.path.isdir(sk) else []):
+            docs.append(os.path.join(sk, e, "SKILL.md"))
+    docs = [p for p in docs if os.path.exists(p)]
+    # 一份都没扫到也算"通过"——那是最坏的一种绿，所以门槛写死
+    assert len(docs) >= 9, f"只扫到 {len(docs)} 份安装说明，产物树变了？{docs}"
+    miss = [os.path.relpath(p, res) for p in docs
+            if compat not in open(p, encoding="utf-8").read()]
+    assert not miss, f"这些安装说明里没写已适配的微信版本 {compat}：{miss}"
+    print(f"ok 安装说明版本对账：{len(docs)} 份都写了 {compat}")
+
+
 if __name__ == "__main__":
     test_json_client_add_remove()
     test_json_client_refuses_garbage()
@@ -1158,4 +1186,5 @@ if __name__ == "__main__":
     test_skill_source_uses_skill_id_not_server_name()
     test_skill_landing_name_comes_from_frontmatter()
     test_wizard_shows_wechat_version_range()
+    test_docs_state_wechat_version_range()
     print("ALL PASS")
