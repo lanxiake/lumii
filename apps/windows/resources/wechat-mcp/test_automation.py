@@ -546,6 +546,34 @@ def test_ui_alive_click_without_change_is_dead():
     return True
 
 
+def test_ui_alive_current_scrolled_off_still_probes():
+    """当前会话滚出了可见列表（表头有、列表里没有）时**照样要探**，点不动就判卡死。
+
+    2026-10-15 实测：UI 冻结时开着的会话恰好不在可见区，旧逻辑「找不到当前行 ⇒ 当活的」
+    让托盘恢复永远不触发，发送一直 `target_unconfirmed`。
+    """
+    import wechat_sender as ws
+
+    frame = [l for l in _UI_ALIVE_FRAME if not l[4].startswith(("产 品 技 术 部", "肖 美 虹"))]
+    frame.insert(0, (324, 49, 360, 62, "韩 玉"))       # 表头：不在左侧列表里
+
+    def snap(tag):
+        return "A", 1280, 820, [list(l) for l in frame]
+
+    clicks = []
+    saved = (ws._snap, ws.post_click)
+    try:
+        ws._snap = snap
+        ws.post_click = lambda h, x, y: clicks.append((x, y)) is None
+        alive = ws._ui_alive(4242)
+    finally:
+        ws._snap, ws.post_click = saved
+    assert not alive, "当前会话不在可见区、画面也点不动，却判成了活着"
+    assert clicks == [(168, 168)], f"该点「四川人保财险」且只点一次，实际 {clicks}"
+    print("     ✅ 当前会话滚出可见区 → 照样探，点不动判卡死")
+    return True
+
+
 def test_mcp_server_structure():
     """测试 MCP 服务器结构"""
     import server
@@ -1132,6 +1160,7 @@ def main():
     runner.test("拍不到图不乱判卡死", test_ui_alive_reads_failure_as_alive)
     runner.test("探针不点当前会话/服务号", test_ui_alive_skips_current_row_and_nonchat)
     runner.test("点了画面不动 → 判卡死", test_ui_alive_click_without_change_is_dead)
+    runner.test("当前会话滚出可见区仍探测", test_ui_alive_current_scrolled_off_still_probes)
 
     # ========================================================================
     # MCP 服务器结构

@@ -5,8 +5,10 @@
 
 只读：不改动任何微信数据。
 
-⚠️ **不做标签**：实测 `contact.db` 里只有 `contact_label`（5 个标签**名**），**没有**好友↔标签
-映射表，疑似埋在 `contact.extra_buffer` 的 protobuf 里 —— 需逆向，留研究项。
+**标签**（2026-10-15 逆向，微信 4.1.15）：`contact_label` 只有标签**名**（`label_id_` → `label_name_`），
+好友↔标签的映射在 `contact.extra_buffer` 的 protobuf **字段 30**：逗号分隔的标签 id 串（`"1,4"`）。
+实测本机 87 人带标签，取值全部落在 `contact_label` 的 id 范围内。解不出 = 空列表，不报错
+（换版本字段号漂移时由真机冒烟兜，见 `test_real_labels`）。
 
 ⚠️ **群内昵称**：走 `contact_fts.db.chatroom_member_fts_v3_content`（列定义写明是
 `a_group_remark`）+ 同库 `name2id.rowid` 解 id。**但它是稀疏的**：本机 1980 行里只有 191 行
@@ -14,6 +16,7 @@
 ⇒ 有就给 `name_in_room`，没有就是空串，**别拿全局显示名冒充**（那正是这个字段要区分的东西）。
 （`chat_room.ext_buffer` 那条旧线索已作废：本机 34 个群的该字段都是十几字节的短 blob，装不下名单。）
 """
+import csv
 import os
 import sqlite3
 import sys
@@ -115,11 +118,105 @@ def room_nicknames(room_username):
         con.close()
 
 
-def list_contacts(scope="friend", room=None, keyword="", include_deleted=False, limit=0, offset=0):
+LABEL_FIELD = 30          # extra_buffer 里装标签 id 串的 protobuf 字段号（见模块头）
+
+
+def _varint(buf, i):
+    """读一个 protobuf varint，返回 `(值, 下一个位置)`。"""
+    v = s = 0
+    while True:
+        b = buf[i]
+        i += 1
+        v |= (b & 0x7F) << s
+        if b < 0x80:
+            return v, i
+        s += 7
+
+
+def label_ids(buf):
+    """从 `contact.extra_buffer` 取标签 id 列表（`[1, 4]`）。没有或解不动返回 `[]`。
+
+    只按 wire type 跳过别的字段，不需要完整的 proto 定义；遇到不认识的 wire type
+    就当这条解不动——宁可这个人显示"无标签"，也不能把别的字段的字节当成标签 id。
+    """
+    i, buf = 0, buf or b""
+    try:
+        while i < len(buf):
+            key, i = _varint(buf, i)
+            fn, wt = key >> 3, key & 7
+            if wt == 0:
+                _v, i = _varint(buf, i)
+            elif wt == 2:
+                n, i = _varint(buf, i)
+                if fn == LABEL_FIELD:
+                    raw = bytes(buf[i:i + n]).decode("ascii")
+                    return [int(x) for x in raw.split(",") if x.strip().isdigit()]
+                i += n
+            elif wt in (1, 5):
+                i += 8 if wt == 1 else 4
+            else:
+                return []
+    except (IndexError, UnicodeDecodeError):
+        return []
+    return []
+
+
+def labels():
+    """标签表 `{label_id: 标签名}`（按微信里的排序）。"""
+    con = sqlite3.connect(_contact_db())
+    try:
+        return dict(con.execute(
+            "select label_id_, label_name_ from contact_label order by sort_order_"))
+    finally:
+        con.close()
+
+
+def list_labels():
+    """全部标签 + 每个标签下的好友人数（不含已删除的联系人）。"""
+    names = labels()
+    cnt = Counter(lb for c in list_contacts(scope="friend") for lb in c["labels"])
+    return [{"label_id": i, "name": n, "count": cnt.get(n, 0)} for i, n in names.items()]
+
+
+CSV_FIELDS = ("name", "remark", "nick_name", "alias", "labels", "kind", "username", "deleted")
+CSV_HEAD = ("显示名", "备注", "昵称", "微信号", "标签", "种类", "username", "已删除")
+
+
+def _cell(v):
+    """CSV 单元格：以 `= + - @` 开头的前置单引号，防 Excel 把昵称当公式执行（CSV 注入）。"""
+    s = "" if v is None else str(v)
+    return "'" + s if s[:1] in ("=", "+", "-", "@") else s
+
+
+def write_contacts_csv(rows, out_dir, filename):
+    """把通讯录清单写成 Excel 可直接打开的 CSV（UTF-8 BOM），返回文件绝对路径。
+
+    群成员行多出 `name_in_room` / `is_me` 两列时一并带上（表头按第一行的字段走）。
+    """
+    os.makedirs(out_dir, exist_ok=True)
+    extra = [k for k in ("name_in_room", "is_me") if rows and k in rows[0]]
+    keys = [k for k in CSV_FIELDS if not rows or k in rows[0]] + extra
+    head = dict(zip(CSV_FIELDS, CSV_HEAD), name_in_room="群内称呼", is_me="是我")
+    path = os.path.abspath(os.path.join(out_dir, filename))
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8-sig", newline="") as f:
+        w = csv.writer(f, lineterminator="\n")
+        w.writerow([head[k] for k in keys])
+        for r in rows:
+            w.writerow([_cell("、".join(r[k]) if isinstance(r[k], list)
+                              else ("是" if r[k] is True else "" if r[k] is False else r[k]))
+                        for k in keys])
+    os.replace(tmp, path)
+    return path
+
+
+def list_contacts(scope="friend", room=None, keyword="", include_deleted=False,
+                  limit=0, offset=0, label=""):
     """通讯录清单。
 
-    `room` 给了就返回**该群成员**（此时忽略 scope）；否则按 `scope` 筛种类。
+    `room` 给了就返回**该群成员**（此时忽略 scope / label）；否则按 `scope` 筛种类。
     `scope` ∈ friend / group / official / open / system / all。
+    `label` 给了就只留带这个标签（名字精确匹配）的人；每条都带 `labels`（标签名列表）。
     显示名取「备注 > 昵称 > username」。
 
     P1 修复：添加分页支持
@@ -142,14 +239,16 @@ def list_contacts(scope="friend", room=None, keyword="", include_deleted=False, 
 
     con = sqlite3.connect(_contact_db())
     try:
+        names = dict(con.execute("select label_id_, label_name_ from contact_label"))
         rows = list(con.execute(
-            "select username, remark, nick_name, alias, local_type, delete_flag"
+            "select username, remark, nick_name, alias, local_type, delete_flag, extra_buffer"
             " from contact"))
     finally:
         con.close()
     kw = (keyword or "").strip().lower()
+    want = (label or "").strip()
     out = []
-    for username, remark, nick, alias, lt, deleted in rows:
+    for username, remark, nick, alias, lt, deleted, buf in rows:
         k = kind_of(username)
         if scope and scope != "all" and k != scope:
             continue
@@ -158,9 +257,12 @@ def list_contacts(scope="friend", room=None, keyword="", include_deleted=False, 
         name = remark or nick or username
         if kw and kw not in (name or "").lower() and kw not in (username or "").lower():
             continue
+        tags = [names[i] for i in label_ids(buf) if i in names]
+        if want and want not in tags:
+            continue
         out.append({"username": username, "name": name, "remark": remark or "",
                     "nick_name": nick or "", "alias": alias or "", "kind": k,
-                    "local_type": lt, "deleted": bool(deleted)})
+                    "labels": tags, "local_type": lt, "deleted": bool(deleted)})
     out.sort(key=lambda d: d["name"])
 
     # P1 修复：应用分页

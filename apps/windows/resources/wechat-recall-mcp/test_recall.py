@@ -247,6 +247,31 @@ def test_daemon_stop_event():
     print("ok daemon_stop_event")
 
 
+def test_start_detached():
+    """装自启要**立即**拉起守护（不等下次登录）；已在跑就不再拉第二个；管道必须全接 DEVNULL。"""
+    import subprocess
+    import daemon
+    real_name = daemon.STOP_EVENT
+    daemon.STOP_EVENT = "Local\\LumiiWechatRecallStop__unittest_start__"
+    spawned, h = [], None
+    fake = lambda argv, **kw: spawned.append((argv, kw))          # noqa: E731
+    try:
+        assert daemon.start_detached(argv=["x", "--daemon"], popen=fake) is True
+        argv, kw = spawned[0]
+        assert argv == ["x", "--daemon"], argv
+        assert all(kw[k] is subprocess.DEVNULL for k in ("stdin", "stdout", "stderr")), \
+            "继承了管道，安装向导的 subprocess.run 会一直等到守护退出"
+        assert kw["creationflags"] & 0x8, "必须 DETACHED_PROCESS，否则跟着控制台一起死"
+        h, _ = daemon._create_stop_event()                          # 模拟"守护已在跑"
+        assert daemon.start_detached(argv=["x"], popen=fake) is False and len(spawned) == 1, \
+            "已在跑还再拉一个 ⇒ 两个守护抢着写库"
+        assert daemon._autostart_command().endswith("--daemon"), daemon._autostart_command()
+    finally:
+        daemon.STOP_EVENT = real_name
+        daemon._close_stop_event(h)
+    print("ok start_detached")
+
+
 def test_real_talker_by_display_name():
     """真机只读冒烟（无微信库时跳过）：**显示名**必须解析成同一个 talker。
 
@@ -335,6 +360,7 @@ if __name__ == "__main__":
     test_daemon_self_heals()
     test_daemon_stop_event()
     test_health_check()
+    test_start_detached()
     test_real_talker_by_display_name()
     test_real_backfill()
     print("ALL PASS")

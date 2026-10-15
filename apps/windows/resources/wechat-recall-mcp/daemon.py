@@ -142,23 +142,54 @@ def stop_daemon():
         _close_stop_event(h)
 
 
-def _autostart_command():
-    """开机自启要执行的命令行（冻结产物用 exe 自身；源码运行用当前解释器 + 脚本）。
+def _daemon_argv():
+    """启动守护的参数列表（冻结产物用 exe 自身；源码运行用当前解释器 + 脚本）。
 
     只带 `--daemon`：以前还要把授权密钥抄进命令行（HKCU Run 的进程拿不到 MCP 配置里的
     `env`），授权移除后没有要抄的东西了。
     """
     if getattr(sys, "frozen", False):
-        return f'"{sys.executable}" --daemon'
-    return f'"{sys.executable}" "{os.path.join(HERE, "daemon.py")}" --daemon'
+        return [sys.executable, "--daemon"]
+    return [sys.executable, os.path.join(HERE, "daemon.py"), "--daemon"]
+
+
+def _autostart_command():
+    """开机自启要执行的命令行（写进 HKCU Run 的那一串）。"""
+    return " ".join(f'"{a}"' if a != "--daemon" else a for a in _daemon_argv())
+
+
+def start_detached(argv=None, popen=None):
+    """在后台拉起守护；已经在跑就什么都不做。
+
+    返回 True = 这次拉起了 / False = 本来就在跑 / None = 非 Windows（没有命名事件可判活）。
+    三路句柄全接 DEVNULL：调用方（安装向导）是 `capture_output` 跑本命令的，
+    子进程若继承了管道，`subprocess.run` 会一直等到守护退出——也就是永远。
+    """
+    if os.name != "nt":
+        return None
+    if daemon_running():
+        return False
+    import subprocess
+    flags = 0x00000008 | 0x00000200          # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+    (popen or subprocess.Popen)(argv or _daemon_argv(), creationflags=flags, close_fds=True,
+                                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL)
+    log("已在后台拉起守护")
+    return True
 
 
 def install_autostart():
+    """写开机自启，**并立即拉起守护**。
+
+    只写 Run 项的话，要等下次登录守护才会跑——装完到重启之间的撤回全部漏掉，
+    而安装向导已经告诉用户"已开启"了。
+    """
     import winreg
     # CreateKeyEx 而非 OpenKey：Run 键通常已在，但键缺失时该建出来（也让它能在临时键上被测试）
     with winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_SET_VALUE) as k:
         winreg.SetValueEx(k, RUN_VALUE, 0, winreg.REG_SZ, _autostart_command())
     log("已写入开机自启：", _autostart_command())
+    start_detached()
 
 
 def uninstall_autostart():

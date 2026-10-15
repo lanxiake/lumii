@@ -2787,6 +2787,9 @@ def set_distill_state(scope, ts):
     return {"ok": True, "state_path": p, "scope": scope or "self", "since": int(ts)}
 
 
+_KEEP_ON_CLEAR = {"image_key.json"}        # 同目录里**不属于**蒸馏产物的文件，清空时保留
+
+
 def distill_clear(scope=None, everything=False):
     """**一键清除**蒸馏产物（隐私硬约束）。给 `scope` 清该画像（含 `.prev` 备份与该 scope 水位）；
     `everything=True` 才清空整个产出目录。两者都不给 → 拒绝（避免误清）。"""
@@ -2808,8 +2811,20 @@ def distill_clear(scope=None, everything=False):
             open(sp, "w", encoding="utf-8").write(json.dumps(data, ensure_ascii=False, indent=2))
             removed.append("state.json:" + scope)
     elif everything:
-        shutil.rmtree(d, ignore_errors=True)
-        removed.append("(整个 " + d + ")")
+        # 图片 AES key 也落在这个目录（`wechat_image._key_path`），但它不是蒸馏产物：
+        # 跟着删掉的话，用户「清空画像」之后 read_image 全部变成 no_key，得重新扫内存才能看图。
+        for name in os.listdir(d):
+            if name in _KEEP_ON_CLEAR:
+                continue
+            p = os.path.join(d, name)
+            if os.path.isdir(p):
+                shutil.rmtree(p, ignore_errors=True)
+            else:
+                try:
+                    os.remove(p)
+                except OSError:
+                    continue
+            removed.append(name)
     else:
         return {"ok": False, "error_code": "bad_args",
                 "error": "需给 scope 清除单个画像，或显式 everything=true 清空全部（防误清）"}

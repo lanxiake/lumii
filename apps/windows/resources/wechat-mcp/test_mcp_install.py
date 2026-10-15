@@ -720,6 +720,27 @@ def test_consume_flags_routing():
     print("ok consume_flags_routing")
 
 
+def test_cli_install_turns_on_daemon_by_default():
+    """命令行 `--install` 装带常驻的产品：默认顺带开自启；`--no-autostart` 跳过；装失败不碰。"""
+    ran = []
+    old_flags, old_install = I.FLAGS, I.install_daemon
+    spec = {"daemon_install": "--install-autostart"}
+    try:
+        I.install_daemon = lambda s: (ran.append(s["daemon_install"]), True)[1]
+        I.FLAGS = {"--install": lambda s: 0}
+        assert I.consume_flags(["--install"], spec) == 0
+        assert ran == ["--install-autostart"], f"静默安装也该开常驻：{ran}"
+        ran.clear()
+        assert I.consume_flags(["--install", "--no-autostart"], spec) == 0
+        assert not ran, "显式 --no-autostart 就别开"
+        assert I.consume_flags(["--install"], {}) == 0 and not ran, "没声明常驻的产品不该碰"
+        I.FLAGS = {"--install": lambda s: 1}
+        assert I.consume_flags(["--install"], spec) == 1 and not ran, "装失败了不该接着开自启"
+    finally:
+        I.FLAGS, I.install_daemon = old_flags, old_install
+    print("ok cli_install_turns_on_daemon_by_default")
+
+
 def test_version_compare():
     """版本比较：段数不同、有非数字段、空值都不能炸，且**解析不了时判成"一样"**。"""
     assert I.compare_versions("0.5.0", "0.4.0") == 1
@@ -1244,6 +1265,7 @@ if __name__ == "__main__":
     test_legacy_copy_is_claimed_by_the_ledger_only()
     test_subprocess_kwargs_are_python_not_node()
     test_consume_flags_routing()
+    test_cli_install_turns_on_daemon_by_default()
     test_version_compare()
     test_installed_record_roundtrip_and_stale_detection()
     test_per_client_json_shapes()

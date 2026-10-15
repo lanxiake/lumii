@@ -939,7 +939,8 @@ def _ui_alive(h):
     四条都是实测踩出来的（2026-10-10）：
 
     - **只点一行**，且要挑一个**不在当前会话那一行里**的。所以先得知道「当前开着的是哪个」
-      ——读帧里的表头名字，找不到就干脆不探（返回 True）。
+      ——读帧里的表头名字；表头读不出就不探（返回 True）。表头读得出但列表里没有它（已滚出
+      可见区）时，任一可见行都不是当前会话，照探不误，只是不还原。
     - **「不在那一行」要按整行的范围判，不能只比中心点**：一行会话在 OCR 结果里是**两行文字**
       （名字 + 紧跟其下的消息预览，低约 2 个文字高度），预览行 y 不同、但点它等于点当前会话。
       实测踩过：以为点了"第二行"，其实点的是当前行的预览 ⇒ 微信把聊天区**重绘成空白**
@@ -954,29 +955,34 @@ def _ui_alive(h):
     抢用户的前台（见 `_unfreeze_ui`）。
     """
     base = ww = wh = None
-    lines, cur, cl = [], None, None
+    lines, cur, cl, header = [], None, None, ""
     for i in range(2):                  # 首帧可能正好拍在界面过渡中（OCR 少几行、表头读不出）：重读一次
         base, ww, wh, lines = _snap(f"alive0{i}")
         if not base:
             continue
-        cur = find_session(lines, layout(lines, ww, wh)["header"], ww, wh)
+        header = layout(lines, ww, wh)["header"]
+        cur = find_session(lines, header, ww, wh)
         cl = cur and next((l for l in lines
                            if ((l[0] + l[2]) // 2, (l[1] + l[3]) // 2) == (cur[1], cur[2])), None)
         if cl:
             break
-    if not cl:
-        return True                     # 不知道开的是哪个就点不了"点回来"，索性别动
+    # 表头读得出、但列表里找不到它 ⇒ 当前会话已滚出可见列表（2026-10-15 实测：UI 冻结时正是这样，
+    # 旧逻辑因此一直判"活着"、托盘恢复永远不触发）。此时可见的每一行都不是当前会话，照样能探，
+    # 只是点不回去——调用方本来就要切走，可以接受。表头都读不出才真是判不了。
+    if not cl and not (base and norm(header)):
+        return True
     rows = sorted([(x0, y0, x1, y1, t) for x0, y0, x1, y1, t in lines
                    if x0 < SESSION_COL and y0 > 40 and norm(t)], key=lambda r: r[1])
     if len(rows) < 2:
         return True
-    dh = max(6, cl[3] - cl[1])          # 一个字的高度：行高/行距都按它换算，别写死像素（DPI 会变）
+    # 一个字的高度：行高/行距都按它换算，别写死像素（DPI 会变）
+    dh = max(6, (cl[3] - cl[1]) if cl else sorted(r[3] - r[1] for r in rows)[len(rows) // 2])
 
     def band(r):
         """这一行文字所属**会话行**的纵向范围：名字 + 紧跟着的预览行（低约 3 个字高）。"""
         return (r[1] - dh, r[1] + 3 * dh)
 
-    cur_band = band(cl)
+    cur_band = band(cl) if cl else (-1, -1)
     bad = [band(r) for r in rows if any(n in norm(r[4]) for n in _UI_NONCHAT)]
     tgt = None
     for r in rows:
@@ -994,7 +1000,7 @@ def _ui_alive(h):
     sig, w2, h2, l2 = _snap("alive1")
     if sig == base:                     # 画面一字节不差 ⇒ 这一下没落地
         return False
-    back = find_session(l2, cur[3], w2, h2) if sig else None
+    back = find_session(l2, cur[3], w2, h2) if sig and cur else None
     if back:                            # 还原用户本来开着的会话（列表可能已重排，重新定位）
         post_click(h, back[1], back[2])
         time.sleep(1.1)
@@ -2669,7 +2675,8 @@ def send_attachment(path, talker, name=None, dry_run=True, verbose=False):
             _restore_geometry(h, orig)
         if h:
             _give_back_foreground(h, prev_fg)
-        _metric("send_file", (time.time() - _t0) * 1000, _ok, {"path": os.path.basename(path)})
+        _metric("send_file", (time.time() - _t0) * 1000, _ok,
+                {"path": os.path.basename(path), "dry_run": dry_run})
         _release_ui(lk)
 
 

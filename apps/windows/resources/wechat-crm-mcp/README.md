@@ -104,28 +104,32 @@ wechat-crm-mcp.exe --expiry-status   # 看到期日与剩余天数（在有效�
 3. 你问：「我跟老王最近聊得怎么样？」
    → `contact_stats(talker="老王")`：总条数 / 我发对方发 / 活跃时段 / 沉默天数。
 4. 你问：「这个群里都有谁？」→ `list_contacts(room="XX群")`（`room=` 会列成员）。
+5. 你问：「我标了『客户』的都有谁？导成表格给我。」
+   → `list_labels()` 看有哪些标签 → `list_contacts(label="客户", out_dir="D:\\导出")`：
+   全部命中写成 `通讯录_客户.csv`（带 BOM，Excel/WPS 双击即开），适合离职交接、导客户名单。
 
 **看清一个客户最近怎么回事（不用先翻几百条聊天）**
 
-5. 你问：「张三最近什么情况？我有没有漏掉什么？」
+6. 你问：「张三最近什么情况？我有没有漏掉什么？」
    → `customer_brief(talker="张三")` 一次拿到：614 条 / 127 段（他主动开场 83、我 44）/
    我回他中位 **52 秒**、他回我 **50 秒** / 类型分布 / 他在聊的高频二字组合 /
    **他提了 44 句问句、其中 1 句我 24 小时内没回**。
-6. 你问：「他提过报价吗？」→ `search_messages(keyword="报价", talker="张三")`；
+7. 你问：「他提过报价吗？」→ `search_messages(keyword="报价", talker="张三")`；
    想圈时间段就再叠 `since`/`until`（范围 = 会话 + 时间 + 关键词的自由组合）。
-7. 你问：「那几句我看看」→ `read_messages(talker="张三", since=…, until=…)`，
+8. 你问：「那几句我看看」→ `read_messages(talker="张三", since=…, until=…)`，
    按**时间正序**给正文，图片带 `image_md5`、视频带 `video_path`。
 
 **边界要说清**：这里只端上**确定性的清单与数字**——「这个客户意向高不高」由 AI 结合数字来判断，
 本服务**不下结论**。
 
-## 工具（7 个）
+## 工具（8 个）
 
 **通讯录面**（不读正文）：
 
 | 工具 | 说明 |
 |---|---|
-| `list_contacts(scope?, room?, keyword?, include_deleted?, limit?, offset?)` | 通讯录；`room=` 时列该群成员（含 `name_in_room` = **群里的称呼**，及 `name_in_room_with` 报有几个是真的）。默认只回 200 条，看 `total` 判断有没有被截断，用 `offset` 接着翻 |
+| `list_contacts(scope?, room?, keyword?, include_deleted?, label?, out_dir?, limit?, offset?)` | 通讯录；每条带 `labels`（微信标签）；`label=` 按标签筛（名字精确匹配，打错回 `target_not_found` + 全部标签）；`room=` 时列该群成员（含 `name_in_room` = **群里的称呼**，及 `name_in_room_with` 报有几个是真的）。默认只回 200 条，看 `total` 判断有没有被截断，用 `offset` 接着翻。**`out_dir=` 把全部命中导成 CSV**（不受 limit 限制），只回 `csv_path` 与 `total` |
+| `list_labels()` | 全部标签 + 每个标签下的好友人数 |
 | `contact_stats(talker, since?, until?)` | 单会话：总条数 / 我发对方发 / 活跃小时 / 活跃天 Top / 首末 / 跨度 / 沉默天数 |
 | `silence_ladder(scope?, days?, top?)` | **按人**分层：多久没互动 / 从没聊过的人。只给原始时间戳与条数，不打分 |
 | `interaction_rank(since?, until?, top?, sort?)` | **按会话**排行；`sort=recent` = 久未联系在前 |
@@ -205,15 +209,17 @@ wechat-crm-mcp.exe --expiry-status   # 看到期日与剩余天数（在有效�
    在 Python 里聚合。
 4. **沉默分层**：全库按 `real_sender_id` 聚合出"这个人最后一次发言"，与"我们私聊最后一条"
    **分开报**——两个口径不是一回事（前者含群，本机 2520 好友里 45 个有私聊会话、166 个发过言）。
-5. **消息面**（`chatlog.py`）：读正文走共享层的 `_rows_full`（跨分片 + 时间范围**下推到 SQL**），
+5. **标签**：`contact_label` 只有标签名；好友↔标签映射在 `contact.extra_buffer`（protobuf）的
+   **字段 30**，是逗号分隔的标签 id 串（`"1,4"`）。2026-10-15 在 4.1.15 上逆向确认：本机 87 人带标签，
+   取值全部落在 `contact_label` 的 id 范围内。换版本字段号漂移时 `test_real_labels` 会炸（不会静默全空）。
+6. **消息面**（`chatlog.py`）：读正文走共享层的 `_rows_full`（跨分片 + 时间范围**下推到 SQL**），
    渲染走 `wechat_core._render`（消息渲染的唯一入口）。
    `customer_brief` 的每个数都是**纯函数**从时间正序的消息序列上算的
    （切段 / 换手间隔 / 问句判定），喂合成数据就能逐项对账——见 `test_chatlog.py`。
 
 ## 不支持的
 
-- **标签筛选**：本地库只有标签名（`contact_label`），**没有**好友↔标签映射表（疑似
-  `contact.extra_buffer` 的 protobuf，需逆向）——留研究项。
+- **改标签 / 打标签**：只读，不写回微信。
 - **群里的称呼只对一部分人存在**：来源是 `contact_fts.db` 的 `chatroom_member_fts_v3`
   （列定义写明是 `a_group_remark`），本机 1980 行里只有 191 行非空（**9.6%**），
   自己的办公群多（27/32）、外部大群几乎没有（1/159）。`name_in_room` 为空串就是"这个群里没设过"，

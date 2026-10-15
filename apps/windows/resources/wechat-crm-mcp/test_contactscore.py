@@ -175,6 +175,80 @@ def test_real_ladder():
           f"只在群里冒过泡 {len(only_group)}）")
 
 
+def _pb(*fields):
+    """拼一段最小 protobuf：`(字段号, 值)`，int 走 varint、bytes 走长度前缀（值与长度都 < 128）。"""
+    def key(fn, wt):
+        n, out = fn << 3 | wt, b""
+        while n >= 0x80:
+            out += bytes([n & 0x7F | 0x80])
+            n >>= 7
+        return out + bytes([n])
+
+    out = b""
+    for fn, v in fields:
+        if isinstance(v, int):
+            out += key(fn, 0) + bytes([v])
+        else:
+            out += key(fn, 2) + bytes([len(v)]) + v
+    return out
+
+
+def test_label_ids():
+    """标签 id 串在 extra_buffer 的字段 30；别的字段要被正确跳过，坏数据不炸只回空。"""
+    buf = _pb((2, 1), (4, "签名".encode()), (5, b"CN"), (S.LABEL_FIELD, b"1,4"), (33, b"\n\x00"))
+    assert S.label_ids(buf) == [1, 4], S.label_ids(buf)
+    assert S.label_ids(_pb((S.LABEL_FIELD, b"3"))) == [3]
+    assert S.label_ids(_pb((4, b"x"))) == [], "没有字段 30 = 无标签"
+    assert S.label_ids(None) == [] and S.label_ids(b"") == []
+    assert S.label_ids(b"\xf2\x01\x05ab") == [], "截断的长度前缀不该炸"
+    assert S.label_ids(b"\xf2\x01\x03\xff\xfe1") == [], "非 ASCII 字节不该炸"
+    assert S.label_ids(bytes([3 << 3 | 3])) == [], "不认识的 wire type 当解不动"
+    print("ok label_ids（字段 30 / 跳过别的字段 / 坏数据回空）")
+
+
+def test_contacts_csv():
+    """通讯录 CSV：BOM、标签用顿号连、布尔转「是」、公式开头加单引号；群成员多两列。"""
+    import csv as _csv_mod
+    import tempfile
+    d = tempfile.mkdtemp(prefix="crm_csv_")
+    rows = [{"username": "wxid_a", "name": "=张三", "remark": "", "nick_name": "张三", "alias": "",
+             "kind": "friend", "labels": ["客户", "家人"], "local_type": 1, "deleted": False}]
+    p = S.write_contacts_csv(rows, d, "通讯录_客户.csv")
+    raw = open(p, "rb").read()
+    assert raw.startswith(b"\xef\xbb\xbf"), "没有 BOM，Excel 会把中文读成乱码"
+    got = list(_csv_mod.reader(open(p, encoding="utf-8-sig")))
+    assert got[0][:5] == ["显示名", "备注", "昵称", "微信号", "标签"], got[0]
+    assert got[1][0] == "'=张三" and got[1][4] == "客户、家人" and got[1][-1] == "", got[1]
+    room = [{"username": "wxid_b", "name": "李四", "name_in_room": "老李", "kind": "friend", "is_me": True}]
+    got = list(_csv_mod.reader(open(S.write_contacts_csv(room, d, "群.csv"), encoding="utf-8-sig")))
+    assert got[0] == ["显示名", "种类", "username", "群内称呼", "是我"], got[0]
+    assert got[1] == ["李四", "friend", "wxid_b", "老李", "是"], got[1]
+    print("ok contacts_csv（BOM / 标签 / 防公式注入 / 群成员列）")
+
+
+def test_real_labels():
+    """真机冒烟：本机给好友打过标签，就**必须**有人解出标签——字段号漂移时这里炸，别静默全空。"""
+    try:
+        root = S.core.db_root()
+    except Exception as e:                                  # noqa: BLE001
+        print(f"skip 标签冒烟（取不到库: {e}）")
+        return
+    if not root or not os.path.isdir(root):
+        print("skip 标签冒烟（无数据目录）")
+        return
+    ls = S.list_labels()
+    if not ls:
+        print("skip 标签冒烟（本机没有标签）")
+        return
+    tagged = sum(x["count"] for x in ls)
+    assert tagged > 0, f"有 {len(ls)} 个标签却一个人都解不出 —— extra_buffer 字段 {S.LABEL_FIELD} 可能变了"
+    top = max(ls, key=lambda x: x["count"])
+    hit = S.list_contacts(label=top["name"])
+    assert len(hit) == top["count"] and all(top["name"] in c["labels"] for c in hit), \
+        "按标签筛出来的人数要和 list_labels 的计数一致"
+    print(f"ok 标签：{len(ls)} 个标签，最多的「{top['name']}」{top['count']} 人")
+
+
 def test_real_smoke():
     """真机只读冒烟（无微信库时跳过）。"""
     try:
@@ -215,6 +289,9 @@ if __name__ == "__main__":
     test_room_members()
     test_room_names()
     test_bucket_labels()
+    test_label_ids()
+    test_contacts_csv()
+    test_real_labels()
     test_real_ladder()
     test_real_smoke()
     print("ALL PASS")

@@ -1,6 +1,6 @@
 ---
 name: wechat-crm-mcp
-description: 用「微信客户分析 MCP」读取用户本机微信的**通讯录、互动统计与聊天正文**——列好友/群/公众号/企业微信、列群成员、看某人的互动数字、列互动排行与久未联系的人、读某段聊天正文、按关键词在指定范围内搜消息、把一个人的往来汇总成一份客户简报（谁主动开场、回复多快、在聊什么、有没有没接的问句）。当用户说「我有哪些客户群」「这个群里都有谁」「我和某某聊得多不多」「谁最久没联系了」「张三最近什么情况」「他提过报价吗」「整理一下我的联系人」时使用。只读、本地处理；只给清单、数字和原文，不下判断。
+description: 用「微信客户分析 MCP」读取用户本机微信的**通讯录、互动统计与聊天正文**——列好友/群/公众号/企业微信、列群成员、按微信标签筛人、把名单导成 Excel 表格、看某人的互动数字、列互动排行与久未联系的人、读某段聊天正文、按关键词在指定范围内搜消息、把一个人的往来汇总成一份客户简报（谁主动开场、回复多快、在聊什么、有没有没接的问句）。当用户说「我有哪些客户群」「这个群里都有谁」「我和某某聊得多不多」「谁最久没联系了」「张三最近什么情况」「他提过报价吗」「整理一下我的联系人」「我标了客户的有哪些人」「把客户名单导出来」时使用。只读、本地处理；只给清单、数字和原文，不下判断。
 ---
 
 # 微信客户分析 MCP
@@ -51,15 +51,18 @@ claude mcp add wechat-crm -s user -- "{{EXE}}"
    `name_in_room`（群里的称呼）。**空串就是"这个群里没设过"**——本机只有 9.6% 的人有，
    自己的办公群多、外部大群几乎没有。**别拿全局名顶上、也别当成查询失败**。
    另外它**不能用来认人**（认人一律用 `username`）。
-3. **没有标签**：本地库没有好友↔标签映射表（需逆向），所以没有按标签筛选。
+3. **标签名要精确**：每个联系人带 `labels`（用户在微信里打的标签）；按标签筛用
+   `list_contacts(label="标签名")`，名字拿不准先 `list_labels()`。名字打错会回 `target_not_found`
+   并在 `candidates` 里列出全部标签——那**不是**「这个标签下没人」。
 
-## 2. 工具面（7 个，两面）
+## 2. 工具面（8 个，两面）
 
 **通讯录面**（不读正文）：
 
 | 工具 | 用途 |
 |---|---|
-| `list_contacts(scope?, room?, keyword?, include_deleted?, limit?, offset?)` | 通讯录；`room=` 时列**该群成员**（含 `name_in_room` 与 `name_in_room_with`） |
+| `list_contacts(scope?, room?, keyword?, include_deleted?, label?, out_dir?, limit?, offset?)` | 通讯录；`room=` 时列**该群成员**（含 `name_in_room` 与 `name_in_room_with`）；`label=` 按标签筛；**`out_dir=` 把全部命中导成 CSV**（Excel 直接打开），只回 `csv_path` 与 `total` |
+| `list_labels()` | 用户打过的全部标签 + 每个标签下的好友人数 |
 | `contact_stats(talker, since?, until?)` | 单会话数字：总条数/我发对方发/活跃小时/活跃天 Top/沉默天数 |
 | `silence_ladder(scope?, days?, top?)` | **按人**分层：多久没互动 / 从没聊过的人（`never` 桶）。分层结果同时给 `buckets`（数组）与扁平化键 `within_30` / `31_60` / `61_90` / `90_plus`，直接取键即可，不必遍历数组 |
 | `interaction_rank(since?, until?, top?, sort?)` | **按会话**排行；`sort=recent` = 久未联系在前 |
@@ -94,6 +97,9 @@ claude mcp add wechat-crm -s user -- "{{EXE}}"
 具体问法：
 1. 「我有哪些客户群」→ `list_contacts(scope="group", keyword="客户")`
 2. 「这个群里都有谁」→ `list_contacts(room="群名")`（先从上一步拿到确切群名）
+   「我标了『客户』的有哪些人」→ `list_labels()` 确认标签名 → `list_contacts(label="客户")`
+   「把客户名单导出来 / 离职前交接」→ `list_contacts(label="客户", out_dir="D:\\导出")`
+   （或 `room=` 导群成员）——**用 `out_dir` 落表格，别把几千行贴进对话**
 3. 「谁最久没联系了」→ `silence_ladder(top=20)`；「哪些人从没聊过」→ 看返回里的 `never` 桶
 4. 「我和某某聊得多不多」→ `contact_stats(talker="某某")`
 5. 「某某最近什么情况 / 我有没有漏掉什么」→ `customer_brief(talker="某某")`

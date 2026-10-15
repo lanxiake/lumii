@@ -1,17 +1,21 @@
 """B · 记录导出 —— 核心逻辑（不依赖微信运行；只有需要真库时才去读）。
 
-把某个会话的消息流导出成**能读、能分享、能归档**的文件：md / html / json，
+把某个会话的消息流导出成**能读、能分享、能归档**的文件：md / html / json / csv / pdf，
 可选连图片（已解密）与语音（SILK→wav）、可选语音转写。
 
 只读：不修改任何微信数据。
 """
+import csv
 import html
+import io
 import json
 import os
 import re
 import shutil
 import sqlite3
+import subprocess
 import sys
+import tempfile
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -544,7 +548,8 @@ def _md(title, records, since, until, asset_prefix="", stats=None):
     return "\n".join(head) + "\n" + "\n".join(_md_block(r, asset_prefix) for r in records)
 
 
-def _html(title, records, since, until, asset_prefix="", note="", stats=None):
+def _html(title, records, since, until, asset_prefix="", note="", stats=None, printable=False):
+    """自包含聊天页。`printable=True`（给 PDF 用）时统计报表默认展开——纸面上点不开折叠。"""
     def esc(s):
         return html.escape(s or "").replace("\n", "<br>")
 
@@ -592,7 +597,8 @@ def _html(title, records, since, until, asset_prefix="", note="", stats=None):
             ("按小时", "、".join(f"{k}时 {v}" for k, v in stats["by_hour"].items())),
             ("按月", "、".join(f"{k} {v}" for k, v in stats["by_month"].items())),
         ))
-        stat = f'<details class="stats"><summary>统计报表</summary>{items}</details>'
+        stat = (f'<details class="stats"{" open" if printable else ""}>'
+                f'<summary>统计报表</summary>{items}</details>')
     return f"""<!doctype html><html lang="zh"><meta charset="utf-8">
 <title>与「{html.escape(title)}」的聊天记录</title>
 <style>
@@ -615,6 +621,8 @@ audio{{margin-top:6px;max-width:100%}} .vt{{font-size:13px;color:#555;margin-top
 .stats summary{{cursor:pointer;color:#576b95}}
 .stats div{{margin-top:4px}}
 .warn{{background:#fff7e6;border:1px solid #ffe0a3;color:#8a5a00;border-radius:8px;padding:8px 12px;font-size:13px;margin-bottom:16px}}
+@media print{{body{{background:#fff;max-width:none;margin:0}} .toc,audio{{display:none}}
+.m{{break-inside:avoid}} *{{-webkit-print-color-adjust:exact;print-color-adjust:exact}}}}
 </style>
 <h1>与「{html.escape(title)}」的聊天记录</h1>
 <div class="sub">导出时间：{_clock(time.time())} ｜ 共 {len(records)} 条 ｜ 时间范围：{span}</div>
@@ -629,9 +637,87 @@ def _json(title, records, since, until, stats=None):
                        "stats": stats, "messages": records}, ensure_ascii=False, indent=2)
 
 
-# 三种格式都是文本，一张表就够。合法值只有一份来源（`_FORMATS`），
-# 工具 schema 与参数校验都读它——别在这里再抄一遍，也别在 server 里再抄一遍。
-_RENDER = {"md": _md, "html": _html, "json": _json}
+_CSV_HEAD = ("时间", "发送者", "我发的", "类型", "内容", "附件", "语音转写", "转发的聊天记录")
+
+
+def _cell(v):
+    """CSV 单元格：以 `= + - @` 开头的前置单引号，防 Excel 把聊天内容当公式执行（CSV 注入）。"""
+    s = "" if v is None else str(v)
+    return "'" + s if s[:1] in ("=", "+", "-", "@") else s
+
+
+def _csv(title, records, since, until, stats=None):
+    """表格导出（Excel 直接双击打开）：一条消息一行。
+
+    **带 UTF-8 BOM**：没有它 Excel 按本地代码页（GBK）读，中文全成乱码。
+    不用 xlsx（要 openpyxl 依赖，2026-10-14 已撤）——CSV 加 BOM 在 Excel/WPS 里就是表格。
+    `stats` 不进 CSV（一张表只放一种行），它照常落 `stats.json`。
+    """
+    buf = io.StringIO()
+    w = csv.writer(buf, lineterminator="\n")
+    w.writerow(_CSV_HEAD)
+    for r in records:
+        fw = "\n".join(f"{it['sender']} {it['time']}：{it['text']}" for it in (r.get("forward") or []))
+        w.writerow([_cell(x) for x in (
+            r["time"], r["sender"], "是" if r["from_me"] else "", type_name(r), r["text"],
+            (r.get("file") or {}).get("title") or r.get("image") or "", r.get("voice_text") or "", fw)])
+    return "\ufeff" + buf.getvalue()
+
+
+# PDF = 自包含 HTML 交给本机浏览器无头打印：Windows 自带 Edge，不加任何依赖。
+_BROWSERS = (
+    r"%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe",
+    r"%ProgramFiles%\Microsoft\Edge\Application\msedge.exe",
+    r"%ProgramFiles%\Google\Chrome\Application\chrome.exe",
+    r"%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe",
+    r"%LocalAppData%\Google\Chrome\Application\chrome.exe",
+)
+
+
+def find_browser():
+    """找一个能无头打印 PDF 的 Chromium 系浏览器。`LUMII_BROWSER_EXECUTABLE` 优先；找不到返回 None。"""
+    env = os.environ.get("LUMII_BROWSER_EXECUTABLE")
+    for p in ([env] if env else []) + [os.path.expandvars(x) for x in _BROWSERS]:
+        if p and os.path.isfile(p):
+            return p
+    return None
+
+
+def html_to_pdf(html_path, pdf_path, browser=None, run=None, timeout=180):
+    """HTML → PDF。成功返回 None，失败返回**原因**（调用方据此退回 HTML 并如实报告）。
+
+    独立的 `--user-data-dir`：用户正开着 Edge 时，共用默认配置的无头实例会把活儿
+    转交给那个窗口然后立刻退出——不报错、也不出 PDF。
+    """
+    exe = browser or find_browser()
+    if not exe:
+        return "本机没找到 Edge / Chrome，无法生成 PDF"
+    try:
+        os.remove(pdf_path)                     # 上一次导出的旧 PDF 会让下面的产出检查误判成功
+    except FileNotFoundError:
+        pass
+    except OSError as e:
+        return f"旧的 PDF 删不掉（可能正被阅读器打开）：{e}"
+    profile = tempfile.mkdtemp(prefix="lumii-pdf-")
+    try:
+        argv = [exe, "--headless=new", "--disable-gpu", "--no-first-run",
+                "--no-pdf-header-footer", f"--user-data-dir={profile}",
+                f"--print-to-pdf={pdf_path}", "file:///" + os.path.abspath(html_path).replace(os.sep, "/")]
+        try:
+            (run or subprocess.run)(argv, capture_output=True, timeout=timeout,
+                                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        except (OSError, subprocess.SubprocessError) as e:
+            return f"浏览器打印失败：{e}"
+        if not os.path.isfile(pdf_path) or os.path.getsize(pdf_path) == 0:
+            return "浏览器没有产出 PDF"
+        return None
+    finally:
+        shutil.rmtree(profile, ignore_errors=True)
+
+
+# 合法值只有一份来源（`_FORMATS`），工具 schema 与参数校验都读它——别在这里再抄一遍，
+# 也别在 server 里再抄一遍。pdf 的正文就是 html（落盘后再打印），所以共用渲染函数。
+_RENDER = {"md": _md, "html": _html, "json": _json, "csv": _csv, "pdf": _html}
 _FORMATS = tuple(_RENDER)
 
 
@@ -669,8 +755,9 @@ def _write_session(out_dir, data, records, fmt, since, until, media, transcribe_
         "inline_bytes": 0, "inline_fallback": 0,
         "voice_exported": 0, "voice_missing": 0, "transcribe_failed": 0,
         "file_exported": 0, "file_missing": 0, "file_mismatch": 0, "file_dup": 0}
-    inline = fmt == "html" and media != MEDIA_NONE
+    inline = fmt in ("html", "pdf") and media != MEDIA_NONE
     budget = int((inline_max_mb or 0) * 1024 * 1024)
+    pdf_error = None
 
     groups = {}
     if split == "month":
@@ -702,12 +789,17 @@ def _write_session(out_dir, data, records, fmt, since, until, media, transcribe_
         path = os.path.join(base, f"chat.{fmt}")
         tmp = path + ".tmp"
         kw = {"stats": stats}                           # 报表进每一份正文：md 是一张表，json 是一个字段
-        if fmt == "html":
+        if fmt in ("html", "pdf"):
             kw["note"] = note
+            kw["printable"] = fmt == "pdf"
         body = _RENDER[fmt](data["name"], recs, since, until, **kw)
-        with open(tmp, "w", encoding="utf-8") as f:
-            f.write(body)
-        os.replace(tmp, path)
+        if fmt == "pdf":
+            path, err = _print_pdf(base, body, path)
+            pdf_error = pdf_error or err
+        else:
+            with open(tmp, "w", encoding="utf-8") as f:
+                f.write(body)
+            os.replace(tmp, path)
         n = os.path.getsize(path)
         written.append(os.path.relpath(path, out_dir))
         total_bytes += n
@@ -731,9 +823,30 @@ def _write_session(out_dir, data, records, fmt, since, until, media, transcribe_
         f.write(json.dumps(out_stats, ensure_ascii=False, indent=2))
     os.replace(stmp, sp)
 
-    return {"dir": session_dir, "session": data["name"], "format": fmt, "split": split,
-            "messages": len(records), "files_written": written, "bytes": total_bytes,
-            "media": media, "inline": inline, "media_report": report, "stats": out_stats}
+    res = {"dir": session_dir, "session": data["name"], "format": fmt, "split": split,
+           "messages": len(records), "files_written": written, "bytes": total_bytes,
+           "media": media, "inline": inline, "media_report": report, "stats": out_stats}
+    if pdf_error:
+        res["pdf_error"] = pdf_error + "；已退回为同内容的 chat.html（浏览器打开后可自行打印成 PDF）"
+    return res
+
+
+def _print_pdf(base, body, pdf_path):
+    """把渲染好的 HTML 打印成 PDF。返回 `(实际落盘路径, 失败原因或 None)`。
+
+    打印失败**不丢东西**：同一份内容落成 `chat.html` 交回去，原因进返回值——
+    不许静默产出一份 0 字节的 PDF，也不许让整个导出因为缺浏览器而白跑。
+    """
+    html_path = os.path.join(base, "chat.html")
+    tmp = html_path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(body)
+    os.replace(tmp, html_path)
+    err = html_to_pdf(html_path, pdf_path)
+    if err:
+        return html_path, err
+    os.remove(html_path)
+    return pdf_path, None
 
 
 def export_chat(talker, out_dir, format="md", since=0, until=0, media=MEDIA_NONE,

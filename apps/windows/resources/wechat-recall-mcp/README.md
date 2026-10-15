@@ -21,7 +21,8 @@
 （↑/↓ 移动、空格勾选、`a` 全选、回车确认——**不用打字**），然后一键装好。
 
 已经装过时，双击会先问一句：**重新安装 / 卸载（可以只从某些客户端里摘掉）/ 退出**。
-因为本产品的核心是**常驻守护**，双击时还会顺口问一句要不要开开机自启。
+因为本产品的核心是**常驻守护**，装完会问一句要不要开守护（**默认是**，直接回车即可）：
+开了就**当场在后台拉起守护**并写开机自启——装完立刻开始留档，不用等下次开机。
 
 ```powershell
 wechat-recall-mcp.exe --install
@@ -48,12 +49,13 @@ wechat-recall-mcp.exe --install
 
 装完**重启你的 AI 客户端**才会加载。
 
-> ⚠️ 注意区分：`--install`（本产品）与 `--install-autostart`（那个是**守护进程**的开机自启，
-> 见下面「守护怎么管」）。想让它真的能查到撤回，两个都要装。
+> `--install` 装完**默认顺带开守护**（等同于再跑一次 `--install-autostart`：写开机自启 + 立刻后台拉起）。
+> 不想要守护就加 `--no-autostart`；之后想开再单独跑 `--install-autostart`。
+> **没有守护就查不到任何撤回**——所以默认开。
 
 | 开关 | 作用 |
 |---|---|
-| `--install` | 装（幂等，可重复跑；升级后重跑一遍即可） |
+| `--install` | 装（幂等，可重复跑；升级后重跑一遍即可）；**默认同时开守护**，加 `--no-autostart` 不开 |
 | `--install-status` | 看装到哪、注册到哪些客户端 |
 | `--uninstall` | 摘注册 + 删技能包。**你的数据和这份 exe 一律不动**。交互式跑会先让你**勾要摘哪些客户端**；脚本里跑一律全摘（归档库留在原地） |
 
@@ -74,7 +76,7 @@ wechat-recall-mcp.exe --install
 ### ⚠️ 必须让守护常驻（否则查不到任何撤回）
 
 ```bash
-wechat-recall-mcp.exe --install-autostart   # 写 HKCU Run，开机自启（一次即可）
+wechat-recall-mcp.exe --install-autostart   # 写 HKCU Run 开机自启 + 立刻后台拉起（一次即可；已在跑不会再起一个）
 wechat-recall-mcp.exe --daemon              # 或手动前台跑（--interval 30 可调）
 wechat-recall-mcp.exe --daemon --retain-days 365   # 可选：只留一年（默认 0 = 永不删）
 wechat-recall-mcp.exe --status              # 查状态（归档条数 / 体积 / 缺口 / 自启）

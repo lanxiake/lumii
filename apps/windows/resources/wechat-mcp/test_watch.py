@@ -1399,6 +1399,19 @@ def suite_I():
             assert server.tool_distill_state({"scope": "self"}).get("since") == 1791532458, \
                 "给 scope=self 读水位要与不给一致"
         r.case("水位：set(scope=self) 与 get(不给) 是同一个键", i4)
+
+        def i5():
+            """清空全部画像**不许**带走同目录的图片 AES key（2026-10-15 MCP 端到端逮到）。"""
+            import wechat_core as core
+            key = os.path.join(tmp, "image_key.json")
+            with open(key, "w") as f:
+                f.write('{"aes_key": "00"}')
+            got = core.distill_clear(everything=True)
+            assert got.get("ok") is True, got
+            assert os.path.isfile(key), "清空画像把图片密钥也删了 ⇒ read_image 全变 no_key"
+            assert not os.path.exists(os.path.join(tmp, "self.md")), "画像本身该被清掉"
+            assert not os.path.exists(os.path.join(tmp, "state.json")), "水位该被清掉"
+        r.case("清空全部画像 ⇒ 保留 image_key.json", i5)
     finally:
         if old_env is None:
             os.environ.pop("LUMII_WECHAT_DISTILL", None)

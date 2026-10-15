@@ -1619,26 +1619,40 @@ def _wizard(spec, ask=_ask, ask_raw=_ask_raw, keys=None):
 
     rc = do_install(spec, only=only)
 
-    # 需要常驻的产品（撤回防护的守护）：不装它这个功能等于没有，所以顺口问一句
+    # 需要常驻的产品（撤回防护的守护）：不装它这个功能等于没有，所以顺口问一句（回车 = 开）
     daemon_flag = spec.get("daemon_install")
     if rc == 0 and daemon_flag:
         _say("")
         if ask(f"这个产品的「撤回防护」需要它**常驻后台**才有效（{daemon_flag}）。现在开开机自启？"):
-            cmd, args = _own_command()
-            try:
-                r = subprocess.run([cmd, *args, daemon_flag], capture_output=True, timeout=180,
-                                   **_quiet_kwargs())
-                ok = r.returncode == 0
-                _line("开机自启", "ok" if ok else "fail",
-                      "已开启（开机自动留在后台）" if ok
-                      else (r.stderr or b"").decode("utf-8", "replace").strip()[:120])
-            except Exception as e:                              # noqa: BLE001
-                _line("开机自启", "fail", str(e))
+            install_daemon(spec)
         else:
             _say("  跳过。想开的时候跑 `<本 exe> --install-autostart`。")
 
     _pause()
     return rc
+
+
+def install_daemon(spec):
+    """给需要常驻的产品开开机自启（该 flag 内部也会立即拉起守护）。返回是否成功。
+
+    向导与命令行 `--install` 共用这一条：命令行静默安装原来**不碰守护**，
+    于是脚本化部署出来的撤回防护一条都留不住，用户还以为装好了。
+    """
+    daemon_flag = spec.get("daemon_install")
+    if not daemon_flag:
+        return False
+    cmd, args = _own_command()
+    try:
+        r = subprocess.run([cmd, *args, daemon_flag], capture_output=True, timeout=180,
+                           **_quiet_kwargs())
+    except Exception as e:                                      # noqa: BLE001
+        _line("开机自启", "fail", str(e))
+        return False
+    ok = r.returncode == 0
+    _line("开机自启", "ok" if ok else "fail",
+          "已开启：守护已在后台运行，开机也会自动启动" if ok
+          else (r.stderr or b"").decode("utf-8", "replace").strip()[:120])
+    return ok
 
 
 def do_expiry_status(spec):
@@ -1664,8 +1678,13 @@ def consume_flags(argv, spec):
     """命中命令行开关就执行并返回**退出码**；没命中返回 `None`（调用方据此进 MCP 循环）。
 
     只认第一个命中的开关：`--install --uninstall` 一起传是没想清楚，别猜。
+    `--install` 装成功后，需要常驻的产品**默认**顺带开自启（`--no-autostart` 跳过）。
     """
     for f in ("--install", "--uninstall", "--install-status", "--expiry-status"):
         if f in argv:
-            return FLAGS[f](spec) or 0
+            rc = FLAGS[f](spec) or 0
+            if f == "--install" and rc == 0 and spec.get("daemon_install") \
+                    and "--no-autostart" not in argv:
+                install_daemon(spec)
+            return rc
     return None

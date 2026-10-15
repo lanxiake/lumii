@@ -65,7 +65,10 @@ TOOLS = [
             "`all` = 图片+文件+语音 wav。"
             "`transcribe_voice=true` 追加语音转写（**需本机装了语音识别模型**，较慢，默认关）。"
             "【分享】`format=html` 时媒体**内嵌进 HTML**（自包含，单文件发给别人也能看；"
-            "其它格式仍是 assets/ 相对路径）。超 `inline_max_mb` 的部分退回落盘并如实报告。"
+            "md/json/csv 仍是 assets/ 相对路径）。超 `inline_max_mb` 的部分退回落盘并如实报告。"
+            "**【打印/存档】`format=pdf`**：同一份页面交给本机 Edge/Chrome 打印成 PDF；"
+            "本机没有浏览器时退回 `chat.html` 并在返回里给 `pdf_error`（**别说成导出了 PDF**）。"
+            "**【表格】`format=csv`**：一条消息一行，带 BOM，Excel/WPS 双击即开、中文不乱码。"
             "【返回】导出条数 / 落盘文件 / 体积 / 媒体计数 / `stats` 报表；"
             "`truncated=true` 表示命中被 `limit` 切过（**别当成「就这么多」**）。"
             "`format`/`media`/`split` 传非法值会被**拒**（`bad_args`），不会静默降级。"
@@ -77,7 +80,7 @@ TOOLS = [
                            "description": "会话名（如「文件传输助手」）或 wxid/群号；给了 keyword 时可省（= 全库搜）"},
                 "out_dir": {"type": "string", "description": "导出目标目录（绝对路径）"},
                 "format": {"type": "string", "enum": list(FORMATS),
-                           "description": "默认 md；分析用 json（带统计报表）"},
+                           "description": "默认 md；分析用 json（带统计报表）；打印用 pdf；Excel 用 csv"},
                 "keyword": {"type": "string",
                             "description": "只导出正文/附件名含此关键词的消息（给了它才能省 talker）"},
                 "limit": {"type": "integer",
@@ -229,6 +232,7 @@ INSTRUCTIONS = """\
 2. **先预览再导出**：`preview_export(talker=... 或 keyword=...)` 看条数与体积量级（不落盘）。
 3. 整段导：`export_chat(talker=..., out_dir=..., format="md")`，默认只出文字、单文件。
 4. **给分析用**：`format="json"` —— 带 `stats` **统计报表**；同一份报表另落 `stats.json`。
+   **打印/存档**用 `format="pdf"`（缺浏览器时退回 html 并报 `pdf_error`）；**进 Excel** 用 `format="csv"`。
 5. **只导命中**：给 `keyword`（可再省掉 `talker` = 全库搜）。
    命中过多时 `limit` 截断，返回里 `truncated=true` ——**别当成"就这么多"**。
 6. **多个会话一起导**：`batch_export(talkers=[...], out_dir=...)`，逐条报成功/失败。

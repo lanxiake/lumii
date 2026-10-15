@@ -10,7 +10,7 @@
 
 **只读**——不改动任何微信数据。
 
-工具：`list_contacts` / `contact_stats` / `interaction_rank` / `silence_ladder`（通讯录面）
+工具：`list_contacts` / `list_labels` / `contact_stats` / `interaction_rank` / `silence_ladder`（通讯录面）
 \+ `read_messages` / `search_messages` / `customer_brief`（**消息面**）。
 两面合起来才有闭环：光有数字看不出客户在说什么，光有正文又不知道这人多久没来了。
 
@@ -30,7 +30,7 @@ import contactscore as S      # noqa: E402
 import mcp_stdio              # noqa: E402
 
 SERVER_NAME = "wechat-crm"
-SERVER_VERSION = "0.14.0"
+SERVER_VERSION = "0.15.0"
 TITLE = "微信客户分析"
 DEFAULT_LIMIT = 200           # 通讯录默认一次回多少条（本机好友 2500+，不掐就是几百 KB 灌进模型）
 
@@ -42,8 +42,12 @@ TOOLS = [
             "【分类】按 username 后缀判定（group/open/official/system/friend）——**不是**按 "
             "`local_type`（实测它语义不干净）。"
             "【返回】`total` 命中总数 / `count` 本次条数；每条含 `username` / `name`(备注>昵称) / "
-            "`remark` / `nick_name` / `alias`(微信号) / `kind`。"
+            "`remark` / `nick_name` / `alias`(微信号) / `kind` / `labels`(标签名列表)。"
             "【分页】`limit`=0 返回全部（默认），`limit`>0 配合 `offset` 实现分页。"
+            "【按标签筛】`label=\"客户\"`（标签名精确匹配；不知道有哪些标签先调 `list_labels`）。"
+            "【导出表格】给 `out_dir` 就把**全部命中**（不受 limit 限制）写成 `通讯录*.csv`，"
+            "Excel/WPS 双击即开；返回 `csv_path` 与 `total`，**不再把清单灌回上下文**。"
+            "适合「离职前导出客户名单」「把某标签/某群的人导成表」。"
             "【群成员】`room=` 时返回 `contacts` + `name_in_room_with`：`name` 是**全局显示名**，"
             "`name_in_room` 是**群里的称呼**（可能为空串）。⚠️ 群里称呼是**稀疏的**（本机 9.6%，"
             "自己的办公群多、外部大群少）：**空串 = 这个群里没给它设过**，不是查询失败，"
@@ -58,10 +62,22 @@ TOOLS = [
                 "room": {"type": "string", "description": "给了就列**该群成员**（群名或群号），忽略 scope"},
                 "keyword": {"type": "string", "description": "名字/username 关键词（子串）"},
                 "include_deleted": {"type": "boolean", "description": "是否包含已删除的联系人（默认否）"},
+                "label": {"type": "string", "description": "只列带这个标签的人（标签名，精确匹配）"},
+                "out_dir": {"type": "string",
+                            "description": "给了就把全部命中导出成 CSV 到这个目录（Excel 可直接打开）"},
                 "limit": {"type": "integer", "description": "最多返回条数，0=全部（默认0，保持向后兼容）"},
                 "offset": {"type": "integer", "description": "从第几条开始（翻页用，默认 0）"},
             },
         },
+    },
+    {
+        "name": "list_labels",
+        "description": (
+            "【何时用】看用户在微信里给好友打了哪些**标签**、每个标签下几个人——"
+            "「我的客户标签下有谁」先调它拿准确的标签名，再 `list_contacts(label=…)`。"
+            "【返回】`labels`：`label_id` / `name` / `count`（好友人数，不含已删除）。"
+        ),
+        "inputSchema": {"type": "object", "properties": {}},
     },
     {
         "name": "contact_stats",
@@ -202,7 +218,7 @@ INSTRUCTIONS = """\
 **它只给清单、数字和原文，不做任何判断**——"这个客户值不值得跟"是你的活。
 
 **两面工具**：
-- **通讯录面**（不读正文）：`list_contacts` / `contact_stats` / `interaction_rank` / `silence_ladder`
+- **通讯录面**（不读正文）：`list_contacts` / `list_labels` / `contact_stats` / `interaction_rank` / `silence_ladder`
 - **消息面**（读正文）：`read_messages` / `search_messages` / `customer_brief`
 
 **做一次客户分析，按这个顺序走**（这就是本产品的闭环，不需要别的工具）：
@@ -235,12 +251,16 @@ INSTRUCTIONS = """\
   （`text_more` 是补的那截），**拿 400 字当全文去总结就是"看不到就编"**。
 - `customer_brief.unanswered` 是**形态判定**（句尾问号/疑问词 + 24 小时内我没说话），
   不等于"他在催你"，别替用户发明语气。
-- **不做标签**：本地库没有好友↔标签映射表（需逆向），所以没有按标签筛选的工具。
+- **标签**：`list_labels()` 看有哪些标签，`list_contacts(label="标签名")` 按标签筛；
+  每个联系人都带 `labels`。标签名要**精确**，拿不准先 `list_labels`。
+- **导出成表格**：`list_contacts(..., out_dir="D:\\\\导出")` 把全部命中写成 CSV（Excel 直接打开），
+  返回文件路径——用户要「导出客户名单 / 离职交接」时用它，别把几千行塞进对话。
 - 数据含他人隐私：只读、本地处理、不外传。
 """
 
 DISPATCH = {
     "list_contacts": lambda a: _tool_contacts(a),
+    "list_labels": lambda a: {"labels": S.list_labels()},
     "contact_stats": lambda a: _tool_stats(a),
     "interaction_rank": lambda a: _tool_rank(a),
     "silence_ladder": lambda a: _tool_ladder(a),
@@ -251,13 +271,27 @@ DISPATCH = {
 
 
 def _tool_contacts(args):
-    # P1 修复：直接传递 limit/offset 参数
+    """列通讯录 / 群成员；给 `label` 先校验标签名，给 `out_dir` 就整份落 CSV 只回路径。"""
+    label = (args.get("label") or "").strip()
+    if label and args.get("room") is None:
+        known = list(S.labels().values())
+        if label not in known:
+            # 标签名打错 ≠ 这个标签下没人：前者给候选让模型去问，后者才是 total=0
+            return mcp_stdio.tool_error(
+                "target_not_found", f"没有叫「{label}」的标签", candidates=known,
+                suggestion="从 candidates 里挑一个确切的标签名重试，或调 list_labels 看全部标签。")
     rows = S.list_contacts(scope=args.get("scope") or "friend",
                            room=args.get("room"),
                            keyword=args.get("keyword") or "",
                            include_deleted=bool(args.get("include_deleted")),
                            limit=int(args.get("limit") or 0),
-                           offset=int(args.get("offset") or 0))
+                           offset=int(args.get("offset") or 0),
+                           label=label)
+    if args.get("out_dir"):
+        tag = "_".join(x for x in (args.get("room"), label, args.get("keyword")) if x) or \
+            (args.get("scope") or "friend")
+        fname = "通讯录_%s.csv" % "".join(c if c not in '\\/:*?"<>|' else "_" for c in tag)[:60]
+        return {"total": len(rows), "csv_path": S.write_contacts_csv(rows, args["out_dir"], fname)}
     if args.get("room") is not None:
         # 群成员**不分页**（一个群撑死几百人，切片反而会让"这个群里都有谁"缺人），
         # 但要按同一套字段名报数，并额外报"有几个人的群内称呼是真的"。
@@ -267,7 +301,8 @@ def _tool_contacts(args):
     # 注意：list_contacts 现在已经应用了分页，所以这里不再需要 page_of
     total_before_paging = len(S.list_contacts(scope=args.get("scope") or "friend",
                                               keyword=args.get("keyword") or "",
-                                              include_deleted=bool(args.get("include_deleted"))))
+                                              include_deleted=bool(args.get("include_deleted")),
+                                              label=label))
     return {"total": total_before_paging, "count": len(rows), "offset": int(args.get("offset") or 0),
             "contacts": rows}
 

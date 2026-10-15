@@ -28,7 +28,8 @@ claude mcp add wechat-recall -s user -- "{{EXE}}"
 
 **⚠️ 关键：必须让守护常驻**，否则看不到任何撤回（见下）。
 ```bash
-wechat-recall-mcp.exe --install-autostart   # 写开机自启，一次即可
+wechat-recall-mcp.exe --install-autostart   # 写开机自启并立刻后台拉起，一次即可
+                                            # （用 --install 装的默认已经开好了）
 wechat-recall-mcp.exe --daemon              # 或手动前台跑
 wechat-recall-mcp.exe --status              # 查状态
 ```

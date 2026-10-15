@@ -1,4 +1,5 @@
 """exportcore 单测（纯函数 + 真机只读冒烟）。运行：python test_exportcore.py"""
+import io
 import json
 import os
 import shutil
@@ -256,7 +257,8 @@ def test_args_are_validated():
     for bad in ("image", "IMAGE", "imgs"):          # 空串/None 按"没给"处理（server 里回落默认值）
         got = E.bad_args({"media": bad})
         assert got and "media" in got[0], (bad, got)
-    assert "format" in E.bad_args({"format": "pdf"})[0]
+    assert "format" in E.bad_args({"format": "xlsx"})[0]
+    assert E.bad_args({"format": "pdf"}) == [] and E.bad_args({"format": "csv"}) == []
     assert "split" in E.bad_args({"split": "week"})[0]
     # 合法值只有一份来源：schema 的 enum 与校验读的是同一个元组
     assert set(E._MEDIA) == {"none", "images", "files", "all"} and E._SPLIT == ("none", "month")
@@ -415,6 +417,63 @@ def test_analysis_formats(tmp):
     print("ok analysis_formats（json 带 stats / md 有报表 / stats.json 都落）")
 
 
+def test_csv_format(tmp):
+    """CSV：带 BOM（Excel 不乱码）、一条消息一行、公式开头的内容被转义（CSV 注入）。"""
+    import csv as _csv_mod
+    recs = _recs() + [{**_recs()[0], "text": "=HYPERLINK(\"http://x\")", "local_id": 3}]
+    body = E._csv("客户群", recs, 0, 0)
+    assert body.startswith("\ufeff"), "没有 BOM，Excel 会按 GBK 读成乱码"
+    rows = list(_csv_mod.reader(io.StringIO(body[1:])))
+    assert rows[0] == list(E._CSV_HEAD) and len(rows) == 4, rows
+    assert rows[1][4] == "晚上<一起>吃饭？" and rows[1][5] == "assets/img_001.jpg", rows[1]
+    assert rows[2][2] == "是" and rows[2][6] == "语音内容", rows[2]
+    assert rows[3][4].startswith("'="), "公式开头必须加前置单引号"
+    assert E._cell("-1") == "'-1" and E._cell("正常") == "正常" and E._cell(None) == ""
+    out = tempfile.mkdtemp(dir=tmp, prefix="csv_")
+    res = E._write_session(out, {"name": "客户群", "talker": "wxid_x"}, _recs(), "csv", 0, 0,
+                           E.MEDIA_NONE, False, "none", E._INLINE_BUDGET_MB)
+    assert res["files_written"] == [os.path.join("客户群", "chat.csv")], res["files_written"]
+    print("ok csv_format（BOM / 一行一条 / 防公式注入）")
+
+
+def test_pdf_format(tmp):
+    """PDF：浏览器打印成功只留 chat.pdf；失败退回 chat.html 并报 `pdf_error`，不出 0 字节 PDF。"""
+    seen = {}
+
+    def fake_ok(argv, **_kw):
+        seen["argv"] = argv
+        out = next(a for a in argv if a.startswith("--print-to-pdf=")).split("=", 1)[1]
+        with open(out, "wb") as f:
+            f.write(b"%PDF-1.4 fake")
+
+    data = {"name": "客户群", "talker": "wxid_x"}
+    orig = E.html_to_pdf
+    try:
+        E.html_to_pdf = lambda h, p: orig(h, p, browser="edge.exe", run=fake_ok)
+        out = tempfile.mkdtemp(dir=tmp, prefix="pdf_ok_")
+        res = E._write_session(out, data, _recs(), "pdf", 0, 0, E.MEDIA_NONE, False, "none",
+                               E._INLINE_BUDGET_MB)
+        sdir = os.path.join(out, "客户群")
+        assert "pdf_error" not in res and res["files_written"] == [os.path.join("客户群", "chat.pdf")], res
+        assert not os.path.exists(os.path.join(sdir, "chat.html")), "打印成功后中间 html 要删掉"
+        assert any(a.startswith("--user-data-dir=") for a in seen["argv"]), "必须独立配置目录"
+        assert "--headless=new" in seen["argv"]
+
+        E.html_to_pdf = lambda h, p: orig(h, p, browser="edge.exe", run=lambda *a, **k: None)
+        out = tempfile.mkdtemp(dir=tmp, prefix="pdf_fail_")
+        res = E._write_session(out, data, _recs(), "pdf", 0, 0, E.MEDIA_NONE, False, "none",
+                               E._INLINE_BUDGET_MB)
+        sdir = os.path.join(out, "客户群")
+        assert "没有产出" in res["pdf_error"] and "chat.html" in res["pdf_error"], res
+        assert res["files_written"] == [os.path.join("客户群", "chat.html")], res["files_written"]
+        assert not os.path.exists(os.path.join(sdir, "chat.pdf"))
+        assert '<details class="stats" open>' in open(os.path.join(sdir, "chat.html"), encoding="utf-8").read(), \
+            "打印版的统计报表要展开，不然 PDF 里只有一行标题"
+    finally:
+        E.html_to_pdf = orig
+    print("ok pdf_format（成功只留 pdf / 失败退回 html 并报原因）")
+
+
 def test_docs_list_all_formats():
     """**文档漂移守卫**：`server.TOOLS` 里每个工具、每个 `format` 取值，README 与技能包都得提到。
 
@@ -521,6 +580,8 @@ if __name__ == "__main__":
         test_keyword_hits()
         test_session_subdir()
         test_analysis_formats(_t)
+        test_csv_format(_t)
+        test_pdf_format(_t)
         test_docs_list_all_formats()
         test_incremental_state()
         test_preview_smoke()
