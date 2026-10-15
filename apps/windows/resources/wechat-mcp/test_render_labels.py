@@ -111,6 +111,41 @@ check("datatype=2 无标题 → [图片]（不吞）", items[0]["text"] == "[图
 check("datatype=8 → datatitle", items[2]["text"] == "日式料理50道.html", repr(items[2]))
 check("展不开时返回 []（不假装成功）", core.merged_forward(appmsg(19, "标题")) == [])
 
+# ⑥' 合并转发里**含引用**：`<refermsgitem>` 不是 `<refermsg>`（2026-10-15 实测翻的车）
+# 形状照真机抄：转发进来的引用消息，`<refermsgitem>` 挂在那个 dataitem 的**末尾**。
+# 裸子串 `"<refermsg" in raw` 命中它 ⇒ 整条转发被标成 `[引用] 地图鱼与…的聊天记录（10 条）`。
+MERGED_REF = (
+    '<msg><appmsg><title>地图鱼与一个会打框的男人的聊天记录</title>'
+    '<des>地图鱼: 你刚才说的移动端呢？</des><type>19</type>'
+    '<url>https://support.weixin.qq.com/x</url>'
+    '<recorditem><![CDATA[<recordinfo><title>地图鱼与一个会打框的男人的聊天记录</title>'
+    '<datalist count="2">'
+    '<dataitem datatype="1" dataid="a1"><datadesc>除了自助服务终端，可以是政务网。</datadesc>'
+    '<sourcename>一个会打框的男人</sourcename><sourcetime>2026-10-15 10:12:33</sourcetime>'
+    '<srcMsgCreateTime>1792035175</srcMsgCreateTime>'
+    '<refermsgitem><type>1</type><svrid>2014046013046645628</svrid>'
+    '<displayname>地图鱼</displayname><content>你刚才说的移动端呢？</content>'
+    '<referdesc>你刚才说的移动端呢？</referdesc></refermsgitem></dataitem>'
+    '<dataitem datatype="2" dataid="a2"><cdnthumburl>305f02</cdnthumburl></dataitem>'
+    '</datalist></recordinfo>]]></recorditem></appmsg></msg>')
+out = core.describe_nontext(49, MERGED_REF)
+check("转发里带 refermsgitem → 仍是 [聊天记录]，不是 [引用]",
+      out.startswith("[聊天记录]") and "（2 条）" in out, out[:60])
+check("真 `<refermsg>`（引用回复）照旧认得",
+      core.describe_nontext(49, appmsg(57, "在的", REFER)).startswith("[引用]"))
+
+# ⑥'' 正文进读路径：`_render` 展开；`describe_nontext` **不展开**（导出层直接吃它，
+# 展开了 md/html 会把同一段正文渲染两遍）
+check("describe_nontext 保持一行摘要（只报条数）",
+      "除了自助服务终端" not in core.describe_nontext(49, MERGED_REF))
+rendered = core._render(49, MERGED_REF)
+check("_render 展开转发正文（代聊/检索靠的就是它）",
+      "[聊天记录]" in rendered and "除了自助服务终端" in rendered, rendered[:80])
+check("_render 逐条带说话人，缺图的条不吞", "> 一个会打框的男人 2026-10-15 10:12:33：" in rendered
+      and "> [图片]" in rendered, repr(rendered))
+check("_render 对普通合并转发同样展开", "你如果有自己的意识" in core._render(49, MERGED))
+check("展不开时不补空块（不假装成功）", core._render(49, appmsg(19, "标题")) == "[聊天记录] 标题")
+
 # ⑦ 属性名左边界：`length="` 不能命中 `cdnthumblength="`（原图 vs 缩略图）
 check("_attr(length) 取原图不是缩略图", core._attr(IMG, "length") == "32171", core._attr(IMG, "length"))
 check("图片大小按原图算", core.describe_nontext(3, IMG) == "[图片 31KB]", core.describe_nontext(3, IMG))

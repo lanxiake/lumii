@@ -1066,6 +1066,21 @@ def merged_forward(raw, _depth=0):
     return out
 
 
+def forward_block(raw):
+    """合并转发正文 → `> 说话人 时间：正文` 的多行块；展不开返回 `""`（不假装成功）。
+
+    形状与导出层（`exportcore` 的 md 转发块）**一致**：同一个东西两处长得不一样，
+    下次改的人就得先判断哪个是正本。`datatype=17`（嵌套转发）的 `text` 自带换行，
+    首行挂说话人、续行不挂（照抄 exportcore 的排法）。
+    """
+    out = []
+    for it in merged_forward(raw):
+        head = " ".join(x for x in (it["sender"], it["time"]) if x)
+        for i, ln in enumerate(str(it["text"]).split("\n")):
+            out.append("> " + (head + "：" if head and i == 0 else "") + ln)
+    return "\n".join(out)
+
+
 # ---------------------------------------------------------------------------
 # 文件消息（`appmsg type=6`）→ 磁盘上的真文件
 # ---------------------------------------------------------------------------
@@ -1228,7 +1243,12 @@ def describe_nontext(lt, raw, _depth=0):
         # **有 `<refermsg>` 就是引用**，别按子类型硬编：实测本机 `type=57` 120 条是引用，
         # 而 `type=1`（链接卡片）里也夹着 2 条引用——按 57 判，那 2 条会被当成普通链接、
         # 被引原文整段丢掉（和当初"57 被标成直播"是同一类错：标签错 = 模型判错消息性质）。
-        is_refer = "<refermsg" in raw
+        #
+        # ⚠️ **必须卡住标签名的右边界**（2026-10-15 实测）：合并转发的 `<recorditem>` CDATA 里，
+        # 转发进来的**引用消息**带 `<refermsgitem>`——裸子串 `"<refermsg" in raw` 命中它，
+        # 于是整条合并转发被标成 `[引用] 地图鱼与…的聊天记录（10 条）`。与 `_attr` 的
+        # `datatype`/`cdnthumblength`、以及 57 被标成「直播」是同一根棍子的第三次。
+        is_refer = bool(re.search(r"<refermsg[\s>/]", raw))
         kind = "引用" if is_refer else _LINK_KINDS.get(sub, "链接")
         title = _unxml(_tag(raw, "title")) or _unxml(_attr(raw, "title"))
         pay = _pay_text(raw)
@@ -1390,10 +1410,23 @@ def _render(lt, content):
     """消息 → 一行可读文本。**唯一入口**——历史、会话列表预览、搜索、画像蒸馏都走它，
     免得有的地方还在吐原始 XML / 裸 wxid 前缀。"""
     # 顺序要紧：得在把换行压成空格**之前**剥前缀（纯文本那种形态靠 `\n` 定位）
-    raw = _PREFIX_RE.sub("", decode(content)).replace("\n", " ").strip()
-    if raw.startswith("<"):
-        return describe_nontext(lt & 0xFFFFFFFF, raw)
-    return raw
+    body = _PREFIX_RE.sub("", decode(content))
+    raw = body.replace("\n", " ").strip()
+    if not raw.startswith("<"):
+        return raw
+    out = describe_nontext(lt & 0xFFFFFFFF, raw)
+    if (lt & 0xFFFFFFFF) == 49 and _num(raw, "type") == 19:
+        # 合并转发的**正文**补在这里（2026-10-15）：`describe_nontext` 只报「（N 条）」，
+        # 而那一段正文原先只有导出层（B）要——于是代聊/Agent 拿到的永远只有条数，
+        # 「他转发过来那段说了什么」在**全部**读类工具里都读不到（检索也搜不着，
+        # 因为 `search_messages` 匹配的正是这里的返回值）。
+        # **必须在 `_render` 这一层补、不能进 `describe_nontext`**：导出层的 `render_text`
+        # 是直接调后者的，在那儿展开会让 md/html 把同一段正文渲染两遍。
+        # ⚠️ 用 `body`（未压换行）而不是 `raw`：嵌套转发的预览靠换行分辨说话人。
+        block = forward_block(body)
+        if block:
+            out += "\n" + block
+    return out
 
 
 _ATUSERS_RE = re.compile(r"<atuserlist><!\[CDATA\[(.*?)\]\]></atuserlist>", re.S)
@@ -1613,7 +1646,9 @@ def sessions():
     for tbl, talker in talkers():
         rows = _rows(tbl, 1)
         # 走 _render：不然最后一条是图片/语音时，会话列表预览会吐一整段 XML
-        last = _render(rows[0][1], rows[0][2])[:80] if rows else ""
+        # `split("\n")[0]`：末条是合并转发时 `_render` 会展开成多行（2026-10-15），
+        # 而预览是**单行**字段——不切的话会话列表里会多出一截转发正文。
+        last = _render(rows[0][1], rows[0][2]).split("\n")[0][:80] if rows else ""
         out.append({"talker": talker, "name": nm.get(talker, talker), "last": last})
     out.sort(key=lambda r: r["name"])
     return out

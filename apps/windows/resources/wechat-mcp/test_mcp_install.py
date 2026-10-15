@@ -1093,6 +1093,37 @@ def test_skill_landing_name_comes_from_frontmatter():
     print("ok skill_landing_name_comes_from_frontmatter")
 
 
+def test_wizard_shows_wechat_version_range():
+    """双击引导必须写明**适配的微信版本范围**，且与 `wechat_core` 同源。
+
+    抄一份常量就会漂，而漂的方向恰好是最坏的那种：引导里说"支持"，装完每条工具结果
+    都挂一句「这版没验过」。所以判据不是"引导里有版本号"，是**引导里的那串等于
+    `wechat_core.VERIFIED_VERSION_PREFIXES` 渲染出来的那串**。
+    """
+    lines = []
+    old = (I._say, I._pause, I.do_install, I.clients, I.own_exe)
+    I._say = lambda *a, **k: lines.append(" ".join(str(x) for x in a))
+    I._pause = lambda: None
+    I.do_install = lambda spec, only=None: 0
+    I.clients = lambda: []
+    I.own_exe = lambda: ""
+    try:
+        I.interactive({"name": "wechat-local", "product": "wechat-mcp",
+                       "version": "0.8.0", "label": "X"}, ask=lambda p: True, keys=["enter"])
+    finally:
+        (I._say, I._pause, I.do_install, I.clients, I.own_exe) = old
+
+    compat = I.wechat_compat_line()
+    assert compat, "取不到 wechat_core 的已验版本（共享层不在 sys.path？）"
+    text = "\n".join(lines)
+    assert f"适配的微信版本：{compat}" in text, f"引导里没写适配版本：\n{text}"
+
+    import wechat_core
+    assert compat == "、".join(f"{p}.x" for p in wechat_core.VERIFIED_VERSION_PREFIXES), \
+        f"引导的版本串与 wechat_core 漂了：{compat}"
+    print("ok wizard_shows_wechat_version_range")
+
+
 if __name__ == "__main__":
     test_json_client_add_remove()
     test_json_client_refuses_garbage()
@@ -1126,4 +1157,5 @@ if __name__ == "__main__":
     test_remove_failure_does_not_block_add()
     test_skill_source_uses_skill_id_not_server_name()
     test_skill_landing_name_comes_from_frontmatter()
+    test_wizard_shows_wechat_version_range()
     print("ALL PASS")

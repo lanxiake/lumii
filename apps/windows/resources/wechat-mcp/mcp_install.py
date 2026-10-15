@@ -1480,6 +1480,24 @@ def _pause():
         pass
 
 
+def wechat_compat_line():
+    """安装引导里的「适配的微信版本」一行；取不到返回 `""`。
+
+    **单一来源就是 `wechat_core.VERIFIED_VERSION_PREFIXES`**——运行期给每条工具结果挂告警
+    （`version_warning`）用的是同一个常量。这里**绝不另抄一份**：抄了必然漂，而漂的方向恰好
+    是最坏的那种（引导里说支持，装完每条结果都挂「未验证」）。
+
+    导入失败按"这类产品不关心微信版本"处理（安装器是四件套共用的），**不报错**：
+    引导里少一行，远好过双击就崩。
+    """
+    try:
+        import wechat_core
+        prefixes = tuple(wechat_core.VERIFIED_VERSION_PREFIXES)
+    except Exception:                                    # noqa: BLE001
+        return ""
+    return "、".join(f"{p}.x" for p in prefixes) if prefixes else ""
+
+
 def interactive(spec, ask=_ask, ask_raw=_ask_raw, keys=None):
     """双击时走的路。**这一层只管一件事**：出错了别让窗口一闪就没。
 
@@ -1516,6 +1534,13 @@ def _wizard(spec, ask=_ask, ask_raw=_ask_raw, keys=None):
     _say("  2. 注册到你指定的 AI 客户端（只加我们这一条，改前备份，不动你的其它配置）")
     _say("  3. 把技能包放到对应客户端的技能目录")
     _say("")
+    compat = wechat_compat_line()
+    if compat:
+        # 装机前就告诉用户"你的微信版本在不在适配范围内"——等装完再报，等于让他先折腾一遍。
+        # 范围外**不是不能用**：能读的照读，只是每条结果会挂一句「这版没验过」，得自己核对。
+        _say(f"适配的微信版本：{compat}（其它 4.x 也能跑，但**没在本项目验证过**——"
+             "结果会逐条挂告警，别直接当真）")
+        _say("")
     mine = own_exe()
     if mine:
         _say("⚠️  装完**别移动、也别删除这个 exe**——客户端里注册的就是它的路径：")
