@@ -1,0 +1,11 @@
+[
+ {"tool": "check_env", "args": {}, "label": ""},
+ {"tool": "locate_db", "args": {}, "label": ""},
+ {"tool": "list_sessions", "args": {"query": "文件"}, "label": "按关键词"},
+ {"tool": "read_history", "args": {"talker": "文件传输助手", "limit": 20}, "label": ""},
+ {"tool": "read_history", "args": {"talker": "绝对不存在的会话xyz"}, "label": "错误路径"},
+ {"tool": "search_messages", "args": {"keyword": "图片", "limit": 10}, "label": ""},
+ {"tool": "list_unread", "args": {}, "label": ""},
+ {"tool": "transcribe_voice", "args": {"talker": "filehelper", "local_id": 174}, "label": "专属工具应拒绝"},
+ {"tool": "wechat_profile_get", "args": {}, "label": "专属工具应拒绝"}
+]

@@ -96,3 +96,7 @@ docs/test/memory-eval/v7-pool.json
 # Python 字节码：`verify/` 与各 MCP 目录下的探针脚本一跑就生成，只有机器相关，不入库
 __pycache__/
 *.py[cod]
+
+# 探针从本机微信库里扫出来的真实群/联系人标识（`verify/wechat-mcp/regress-*/args/_probe_history.json`
+# 里有二十多个真群号）。这类「从用户数据里导出的标识」一律不入库 —— 探针脚本本身照常入库。
+verify/**/args/_probe_history.json

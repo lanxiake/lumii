@@ -1,0 +1,13 @@
+[
+ {"tool": "wechat_distill_state", "args": {"action": "set", "scope": "self", "ts": 1791900000}, "label": "set"},
+ {"tool": "wechat_distill_state", "args": {"action": "get", "scope": "self"}, "label": "get"},
+ {"tool": "wechat_distill_state", "args": {"action": "bogus"}, "label": "错误路径：非法 action"},
+ {"tool": "wechat_profile_save", "args": {"content": "# 回归测试画像\n- 只是测试"}, "label": "本人"},
+ {"tool": "wechat_profile_save", "args": {"scope": "文件传输助手", "content": "# 文件传输助手\n- 回归测试"}, "label": "会话"},
+ {"tool": "wechat_profile_save", "args": {"content": ""}, "label": "错误路径：空内容"},
+ {"tool": "wechat_profile_get", "args": {"scope": "self"}, "label": "本人"},
+ {"tool": "wechat_profile_get", "args": {}, "label": "列清单"},
+ {"tool": "wechat_distill_clear", "args": {}, "label": "错误路径：不给 scope"},
+ {"tool": "wechat_distill_clear", "args": {"scope": "文件传输助手"}, "label": "删会话画像"},
+ {"tool": "wechat_profile_get", "args": {}, "label": "删后列清单"}
+]
