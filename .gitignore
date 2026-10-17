@@ -89,3 +89,7 @@ docs/test/memory-eval/v7-pool.json
 # 约定前缀 `.tmp-`，目录与文件都忽略，避免 git add -A 误带进仓库
 .tmp-*/
 .tmp-*
+
+# Python 字节码：`verify/` 与各 MCP 目录下的探针脚本一跑就生成，只有机器相关，不入库
+__pycache__/
+*.py[cod]

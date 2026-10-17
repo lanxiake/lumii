@@ -16,13 +16,17 @@ description: 用「本机微信 MCP 高级版」操作用户本机的微信—�
 
 ## 0. 装（客户端侧一次配好即可）
 
-把本目录放进客户端的 skills 目录（Claude Code：`~/.claude/skills/` 或 `<项目>/.claude/skills/`），
-然后把这个 MCP 服务器注册进去。
+**最省事的一条路**：让用户**双击 `wechat-mcp.exe`**——它自带安装向导，会把**这份 exe 的路径**
+把自己注册进选中的客户端、并把本技能包放好。装完重启客户端即可。
+非交互地跑同样的事：`"{{EXE}}" --install`（`--install-status` 看装到哪、`--uninstall` 卸）。
+
+也可以手工配。把本目录放进客户端的 skills 目录（Claude Code：`~/.claude/skills/` 或 `<项目>/.claude/skills/`），
+然后把这个 MCP 服务器注册进去：
 
 **Claude Code**：
 
 ```bash
-claude mcp add wechat-local -s user -- "C:\完整路径\wechat-mcp.exe"
+claude mcp add wechat-local -s user -- "{{EXE}}"
 ```
 
 **其它客户端**（Claude Desktop / Cursor / Cline / 自建——大家都是这份 JSON）：
@@ -31,7 +35,7 @@ claude mcp add wechat-local -s user -- "C:\完整路径\wechat-mcp.exe"
 {
   "mcpServers": {
     "wechat-local": {
-      "command": "C:\\完整路径\\wechat-mcp.exe",
+      "command": "{{EXE_JSON}}",
       "args": [],
       "env": {
         "LUMII_WECHAT_DB": "C:\\Users\\你\\Documents\\xwechat_files\\wxid_xxx\\db_storage"
@@ -42,8 +46,15 @@ claude mcp add wechat-local -s user -- "C:\完整路径\wechat-mcp.exe"
 ```
 
 - `command` 必须是 **exe 的绝对路径**（单文件产物，不需要 Python 环境）。
+  上面的 `{{EXE}}` 由安装器填成真实路径；没走过安装器时（比如别人把技能包直接拷给你），
+  把 `C:\完整路径\wechat-mcp.exe` 换成本机实际路径。
+- **要求微信 4.1.15.x**（真机验证过）。其它 4.x（4.1.6 起）静态扫描全部命中、可以试，
+  但没逐版真机跑过——`check_env` 的 `wechat_version.verified` 会是 `false`，**那时结果先抽查再当真**；
+  **微信 3.x 不支持**（另一套数据目录与密钥提取，不是同一个后端）。
 - `env.LUMII_WECHAT_DB` **可省略**：省略时服务器自己找本机微信数据目录。
   只有「自动找错 / 多个账号 / 数据目录被挪过」时才需要显式给。
+- **不需要任何授权密钥**。这份 exe 带一个**内置有效期**（构建日期 + N 天），到期后工具调用会返回
+  `error_code=expired`——那时把 `hint` 原话转告用户，让他找发行方要新版本，重试没有用。
 - 装完先跑 §5 的最小自检，确认能列会话再往下。
 
 ---
@@ -67,9 +78,9 @@ claude mcp add wechat-local -s user -- "C:\完整路径\wechat-mcp.exe"
 | `check_env` | 任何发送之前先跑。看 `ok` / `can_send` / `deps` / `asr` / `wechat_version` |
 | `locate_db` | 换机、或读不到数据时排第一 |
 | `list_sessions` | 列会话（拿 `talker`）。**别拿它当"有没有新消息"的判据** |
-| `read_history` | 读某个会话的最近 N 条 |
+| `read_history` | 读某个会话的最近 N 条（`cursor`+`before_ts` 可往更早翻，**翻页不丢消息**）。图片/语音/视频消息另带 `image_path`/`voice_path`/`video_path`（视频是客户端已下下来的明文 mp4，**要字节数对得上才给**，所以不是每条都有） |
 | `poll_new(since_ts)` | **增量**新消息。盯梢回路的核心 |
-| `search_messages` | 按关键词/时间找旧消息 |
+| `search_messages` | 按关键词/时间找旧消息。命中都带 `local_id` ⇒ **能直接交给 `read_image`/`transcribe_voice`**（先搜后看图这条路是通的）。每个会话只扫最近 3000 条，`truncated: true` 就是**没扫全**（别把 0 命中当"没有"，缩小时间范围重搜）。视频命中带 `video_path`（只对**已下载到本机**的那些），用户说「找那段视频」搜到就能给 |
 | `list_unread` | 会话级的未读概览 |
 | `repair_env` | 窗口跑到畸形尺寸/收进托盘时一键规范化。⚠️ **没有 `dry_run`，调了就真动窗口** |
 
@@ -86,9 +97,9 @@ claude mcp add wechat-local -s user -- "C:\完整路径\wechat-mcp.exe"
 
 | 工具 | 说明 |
 |---|---|
-| `read_image` | 按 `talker` + `local_id` 取图，返回 MCP **image 内容块**。`variant` 可能是 `hd` 或 `thumb`（原图没下就只有缩略图） |
+| `read_image` | 按 `talker` + `local_id` 取图，返回 MCP **image 内容块**。`variant` 可能是 `hd` 或 `thumb`（原图没下就只有缩略图）。**要先抓过一次图片密钥**——账号级、只能从微信进程内存扫出来，缺了它会明说是「密钥还没抓过」，这时让用户先在微信里点开一张图、再跑一次 `wechat-mcp.exe --image-key` |
 | `transcribe_voice` | 按 `talker` + `local_id` 本地转写语音（sherpa-onnx，不出网） |
-| `wechat_digest` | 出统计与样本：说话风格、常联系的人、活跃时段——**蒸馏的原料** |
+| `wechat_digest` | 出统计与样本：说话风格、常联系的人、活跃时段——**蒸馏的原料**。统计默认**全量**（别传 `limit`；传了就是有损的，`capped_talkers` 会点名被截断的会话） |
 | `wechat_profile_save` / `wechat_profile_get` | 画像落盘 / 读回。`scope` 留空=用户本人，否则给**真实存在的会话**（名字或 wxid）；不存在的 scope 会被拒 |
 | `wechat_distill_state` | 增量蒸馏的水位（`action=get/set` + `scope` + `ts`） |
 | `wechat_distill_clear` | 删蒸馏产物。给 `scope` 删单个，或显式 `everything: true` 清空——**不给 scope 也不给 everything 会被拒**（防误清） |
@@ -109,6 +120,7 @@ claude mcp add wechat-local -s user -- "C:\完整路径\wechat-mcp.exe"
 ④ [pro] 媒体（有才做，没有就跳过）
       图片消息有 local_id → read_image 拿画面（或让客户端直接读 image_path）
       语音消息有 local_id → transcribe_voice 拿文字
+      视频消息有 video_path → 明文 mp4，让客户端自己看/转发（没有就跳过：多数老视频的文件已被微信清掉）
       ▼
 ⑤ 起草回复（用画像里的说话习惯：长度、标点、口头禅）
       ▼

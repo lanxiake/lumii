@@ -39,20 +39,7 @@ describe('随包独立 MCP exe 部署', () => {
     expect(fs.readdirSync(dir).some((n) => n.startsWith('wechat-mcp.exe.old-'))).toBe(true)
 
     await syncMcpExecutable(source, target)
-    expect(fs.readdirSync(dir).sort()).toEqual(['.lumii-bundled', 'wechat-mcp.exe'])
-  })
-
-  // 内置标记（`.lumii-bundled`）是 wechat-mcp 判定「由灵栖部署」的唯一依据，非灵栖用户不写它、
-  // 也就拿不到免授权。关键在**补写时机**：必须在校验「内容是否相同」之前，否则用户手删过标记、
-  // 或上一版漏写，就会因为「exe 内容没变、直接提前返回」而永远补不回来。
-  it('标记被删后，即使 exe 内容没变也要补回来', async () => {
-    fs.writeFileSync(source, 'v1')
-    await syncMcpExecutable(source, target)
-    const marker = path.join(path.dirname(target), '.lumii-bundled')
-    fs.rmSync(marker)
-
-    await expect(syncMcpExecutable(source, target)).resolves.toMatchObject({ ok: true, updated: false })
-    expect(fs.existsSync(marker)).toBe(true)
+    expect(fs.readdirSync(dir).sort()).toEqual(['wechat-mcp.exe'])
   })
 
   it('随包文件缺失：从未部署则失败，部署过则沿用旧版并告警', async () => {
@@ -68,7 +55,14 @@ describe('随包独立 MCP exe 部署', () => {
   })
 
   it('开发期取构建产物 dist/，打包后取资源目录根', () => {
-    expect(getBundledMcpExeRelativePath('wechat-mcp', false)).toBe(path.join('wechat-mcp', 'dist', 'wechat-mcp.exe'))
+    // 单档产品（三个小工具）：产物直接在 dist/ 下
+    expect(getBundledMcpExeRelativePath('wechat-export-mcp', false))
+      .toBe(path.join('wechat-export-mcp', 'dist', 'wechat-export-mcp.exe'))
+    // 分档产品（wechat-mcp）：产物在 dist/<档位>/ 下——两档分开存，免得清理时靠文件名猜归属
+    expect(getBundledMcpExeRelativePath('wechat-mcp', false, 'pro'))
+      .toBe(path.join('wechat-mcp', 'dist', 'pro', 'wechat-mcp.exe'))
+    // 打包后由 electron-builder 展平到资源目录根，与档位无关
     expect(getBundledMcpExeRelativePath('wechat-mcp', true)).toBe(path.join('wechat-mcp', 'wechat-mcp.exe'))
+    expect(getBundledMcpExeRelativePath('wechat-mcp', true, 'pro')).toBe(path.join('wechat-mcp', 'wechat-mcp.exe'))
   })
 })

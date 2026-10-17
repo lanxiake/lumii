@@ -26,15 +26,6 @@ export type McpExeSyncResult =
 const STALE_MARKER = '.old-'
 
 /**
- * 灵栖内置标记：exe 同目录存在它，随包服务即视为「由灵栖部署」。
- *
- * wechat-mcp 的离线授权据此对灵栖用户免授权（见 `resources/wechat-mcp/licensing.py`
- * 的 `bundled_exempt`）。**刻意在每次同步都补写**——用户手删过、或上一版漏写，都靠这一步恢复。
- * 用 append 而不是覆盖：内容相同的重复写不该动 mtime。
- */
-const BUNDLED_MARKER = '.lumii-bundled'
-
-/**
  * 独立 MCP 可执行文件的固定部署路径（写进 MCP 配置的就是它）
  *
  * @param name 可执行文件名（不含 .exe），同时也是目录名
@@ -47,13 +38,20 @@ export function getDeployedMcpExePath(name: string): string {
  * 随包可执行文件相对资源目录的位置
  *
  * 打包后由 electron-builder 放在 `<resources>/<name>/<name>.exe`；
- * 开发期是构建脚本的产物 `resources/<name>/dist/<name>.exe`。
+ * 开发期是构建脚本的产物 `resources/<name>/dist/<subdir>/<name>.exe`。
+ *
+ * `subdir` 是**档位子目录**：`wechat-mcp` 有 lite/pro 两档，产物分别落 `dist/pro/` 与 `dist/lite/`
+ * （这样"哪档文件归哪档"是目录结构而不是靠文件名猜）。单档产品留空即可（`dist/<name>.exe`）。
+ *
+ * ⚠️ 注意 wechat-mcp **当前不走这条路**：它已改成插件按需下载（见 `plugins/builtin.ts`），
+ * `mcp-manager.deployBundledExecutables()` 里显式跳过它。这个函数留给将来别的随包 exe 用。
  *
  * @param name 可执行文件名（不含 .exe）
  * @param packaged 是否打包运行
+ * @param subdir 档位子目录（仅开发期的 dist 布局用；打包后由 electron-builder 展平）
  */
-export function getBundledMcpExeRelativePath(name: string, packaged: boolean): string {
-  return packaged ? path.join(name, `${name}.exe`) : path.join(name, 'dist', `${name}.exe`)
+export function getBundledMcpExeRelativePath(name: string, packaged: boolean, subdir = ''): string {
+  return packaged ? path.join(name, `${name}.exe`) : path.join(name, 'dist', subdir, `${name}.exe`)
 }
 
 /**
@@ -94,21 +92,6 @@ async function removeStaleCopies(target: string): Promise<void> {
 }
 
 /**
- * 写「由灵栖部署」标记（exe 同目录的 `.lumii-bundled`）。
- *
- * wechat-mcp 的离线授权据此对灵栖用户免授权（见 `resources/wechat-mcp/licensing.py` 的
- * `bundled_exempt`）。用 append：内容相同的重复写不该动 mtime。**幂等**。
- *
- * 除随包同步（`syncMcpExecutable`）外，插件按需下载 exe 后也必须调它——否则全新安装的
- * wechat-mcp 拿不到免授权。
- */
-export async function markLumiiDeployed(exePath: string): Promise<void> {
-  await fs
-    .writeFile(path.join(path.dirname(exePath), BUNDLED_MARKER), '', { flag: 'a' })
-    .catch(() => {})
-}
-
-/**
  * 把随包可执行文件同步到部署位置
  *
  * - 源缺失：已部署过就沿用旧版（带告警），从未部署则失败；
@@ -129,7 +112,6 @@ export async function syncMcpExecutable(source: string, target: string): Promise
 
   await fs.mkdir(path.dirname(target), { recursive: true })
   await removeStaleCopies(target)
-  await markLumiiDeployed(target)
   if (deployed && (await hashFile(source)) === (await hashFile(target))) {
     return { ok: true, path: target, updated: false }
   }

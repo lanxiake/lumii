@@ -4,16 +4,18 @@
  * 产物不依赖任何 Python 环境与灵栖占位符，任意 MCP 客户端写 exe 绝对路径即可用。
  * 构建用 uv 准备隔离的 Python 3.11 + PyInstaller，不污染本机/托管解释器。
  *
- * 用法：node scripts/build-wechat-mcp.mjs [--if-stale] [--edition pro|lite|both] [--self-check]
+ * 用法：node scripts/build-wechat-mcp.mjs [--if-stale] [--edition pro|lite|both] [--days N] [--self-check]
  *   （不带 --edition）= **两档都打**（默认），等价于 --edition both
  *   --edition pro     只打高级版（`wechat-mcp.exe`）
  *   --edition lite    只打基础版（`wechat-mcp-lite.exe`）
- *   --if-stale        两档产物都已存在且比所有源码新时跳过（开发期反复执行不浪费几分钟）
+ *   --days N          内置有效期 = 构建日期 + N 天（默认 365，见 wechat-mcp-expiry.mjs）
+ *   --if-stale        两档产物都比源码新**且剩余有效期足够**时跳过（开发期反复执行不浪费几分钟）
  *   --self-check      只跑 `ownerOf` 的产物归属自检（秒回，不构建）
  *
- * **档位是构建期注入的**：源码整个拷进临时目录，再写一个 `edition.py`（server.py 里
- * `from edition import EDITION`，取不到就默认 pro）。工作区不落这个文件，
- * 所以「跑源码 = pro」，也不会出现"本地改过 edition.py 忘了改回来"。
+ * **档位与有效期都是构建期注入的**：源码整个拷进临时目录，再写一个 `edition.py`
+ * （server.py 里 `from edition import EDITION`，取不到就默认 pro）与一个 `expiry.py`
+ * （`BUILT_EXPIRY`，见 wechat-mcp-expiry.mjs）。工作区不落这两个文件，
+ * 所以「跑源码 = pro、且不判到期」，也不会出现"本地改过一份忘了改回来"。
  * 两档各自用**独立的临时目录**，互不影响。
  *
  * 版本号唯一来源是 server.py 的 SERVER_VERSION（与 pack-wechat-mcp-npm.mjs 一致），
@@ -32,6 +34,8 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { parseDays, remainingDays, STALE_MARGIN_DAYS, writeExpiryPy } from './wechat-mcp-expiry.mjs'
+
 const WINDOWS_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const SRC_DIR = path.join(WINDOWS_ROOT, 'resources', 'wechat-mcp')
 const DIST_DIR = path.join(SRC_DIR, 'dist')
@@ -48,20 +52,10 @@ const DIST_DIR = path.join(SRC_DIR, 'dist')
  * 否则两版体积就没区别了。ASR **模型**（78MB）也不在这里：按需下到 `~/.lumii/models/voice/`。
  */
 const EDITION_SPECS = {
-  pro: { exe: 'wechat-mcp', hidden: ['wechat_sender', 'wechat_asr'], asr: true },
-  lite: { exe: 'wechat-mcp-lite', hidden: ['wechat_sender'], asr: false },
+  pro: { exe: 'wechat-mcp', dir: 'pro', hidden: ['wechat_sender', 'wechat_asr'], asr: true },
+  lite: { exe: 'wechat-mcp-lite', dir: 'lite', hidden: ['wechat_sender'], asr: false },
 }
 const EDITIONS = Object.keys(EDITION_SPECS)
-
-/**
- * 按基名**从长到短**排——用来判定 dist 里的某个文件属于哪一档。
- *
- * 为什么必须最长优先：pro 的基名 `wechat-mcp` 是 lite 的 `wechat-mcp-lite` 的**前缀**，
- * 光按 `startsWith('wechat-mcp-')` 判断会把 `wechat-mcp-lite.exe` 当成 pro 的旧副本删掉
- * （真踩过：pro 构建删掉了刚打好的 lite 产物）。反过来按「第一个匹配上的最长的名字」判定，
- * `wechat-mcp-lite-0.7.0.exe` 归 lite、`wechat-mcp-0.7.0.exe` 归 pro，两个方向都对。
- */
-const NAMES_LONGEST_FIRST = EDITIONS.map((e) => EDITION_SPECS[e].exe).sort((a, b) => b.length - a.length)
 
 /** exe 里需要的随包数据（运行时由 sys._MEIPASS 定位） */
 const DATA_FILES = ['ocr4.ps1', 'uia_read.ps1', 'tray_click.ps1']
@@ -106,9 +100,21 @@ function readServerVersion() {
   return match[1]
 }
 
+/**
+ * 本档的产物目录：`dist/<档位>/`
+ *
+ * **两档分开存**是 2026-10-13 改的，理由是"哪个文件是哪档"曾经要靠**最长前缀匹配**去猜：
+ * pro 的基名 `wechat-mcp` 是 lite 的 `wechat-mcp-lite` 的**前缀**，于是 pro 构建时清理旧副本
+ * 会顺手删掉刚打好的 lite 产物（真踩过，还为此写了 `ownerOf()` 自检）。
+ * 分成两个目录之后，**每个目录只装一档**，「谁属于谁」变成结构事实，不再需要猜。
+ */
+function editionDirOf(spec) {
+  return path.join(DIST_DIR, spec.dir)
+}
+
 /** 无版本号的固定产物路径（灵栖与 electron-builder 认的就是它） */
 function exePathOf(spec) {
-  return path.join(DIST_DIR, `${spec.exe}.exe`)
+  return path.join(editionDirOf(spec), `${spec.exe}.exe`)
 }
 
 /**
@@ -117,39 +123,28 @@ function exePathOf(spec) {
  * @param {string} version 版本号
  */
 function versionedExePath(spec, version) {
-  return path.join(DIST_DIR, `${spec.exe}-${version}.exe`)
+  return path.join(editionDirOf(spec), `${spec.exe}-${version}.exe`)
 }
 
 /**
  * dist 里这个文件归哪一档（不属于任何一档返回 null）
  *
- * ⚠️ 必须同时认「固定名」`<档名>.exe`：只按 `<档名>-` 判前缀时，`wechat-mcp-lite.exe`
- * 一个都不匹配，于是**掉进 pro 的前缀**（`wechat-mcp-`）被判成 pro 的历史副本——
- * 单打 pro 会顺手删掉 lite 的固定名产物（2026-10-12 实测踩到）。
- */
-function ownerOf(fileName) {
-  const hit = NAMES_LONGEST_FIRST.find((n) => fileName === `${n}.exe` || fileName.startsWith(`${n}-`))
-  return hit ?? null
-}
-
-/**
- * `ownerOf` 的唯一可跑检查——它就是那个删错文件的判据，光靠人眼看代码看不出来。
+ * **两档的目录必须不同**——这是"哪档删哪档"的唯一依据。以前靠最长前缀匹配去猜某个文件属于
+ * 哪一档，而 pro 的基名 `wechat-mcp` 是 lite 的 `wechat-mcp-lite` 的**前缀**，猜错一次就
+ * 顺手删掉了刚打好的另一档产物（2026-10-12 实测踩到）。分目录之后这件事变成结构事实。
  *
  * 跑法：`node scripts/build-wechat-mcp.mjs --self-check`（秒回，不构建）；
  * 每次构建也会先跑一遍，回归了就直接停在构建前，不会静默产出「只剩一档」的 dist。
  */
 function selfCheck() {
-  const cases = []
-  for (const [edition, spec] of Object.entries(EDITION_SPECS)) {
-    cases.push([`${spec.exe}.exe`, spec.exe, `${edition} 的固定名产物`])
-    cases.push([`${spec.exe}-0.0.1.exe`, spec.exe, `${edition} 的带版本号副本`])
+  const dirs = Object.entries(EDITION_SPECS).map(([e, s]) => [e, s.dir])
+  const seen = new Set()
+  for (const [edition, dir] of dirs) {
+    if (!dir) throw new Error(`${edition} 没有 dir：两档会同目录，清理时会互相删`)
+    if (seen.has(dir)) throw new Error(`${edition} 与别的档共用目录 ${dir}：清理时会互相删`)
+    seen.add(dir)
   }
-  // 两档互不认领：pro 眼里不能出现 lite 的任何文件（2026-10-12 的 bug 就是这里反了）
-  for (const [name, want, why] of cases) {
-    const got = ownerOf(name)
-    if (got !== want) throw new Error(`ownerOf('${name}') = ${got}，应为 ${want}（${why}）`)
-  }
-  log(`自检通过：ownerOf 正确认领 ${cases.length} 种产物，两档互不误删`)
+  log(`自检通过：${dirs.length} 档各有独立产物目录（${dirs.map(([e, d]) => `${e}=dist/${d}`).join('、')}）`)
 }
 
 
@@ -162,9 +157,10 @@ function selfCheck() {
  * @param {string} workDir 本次构建的临时目录
  * @param {object} spec 档位参数
  * @param {string} edition 档位名（写进 edition.py）
+ * @param {number} days 内置有效期天数（写进 expiry.py）
  * @returns {string} 供 PyInstaller 使用的源码目录（绝对路径）
  */
-function prepareSource(workDir, spec, edition) {
+function prepareSource(workDir, spec, edition, days) {
   const dst = path.join(workDir, 'src')
   fs.mkdirSync(dst, { recursive: true })
   for (const f of fs.readdirSync(SRC_DIR)) {
@@ -175,6 +171,7 @@ function prepareSource(workDir, spec, edition) {
     fs.copyFileSync(src, path.join(dst, f))
   }
   fs.writeFileSync(path.join(dst, 'edition.py'), `# 构建期生成：本产物的档位\nEDITION = "${edition}"\n`)
+  writeExpiryPy(dst, days)
   return dst
 }
 
@@ -206,28 +203,40 @@ function versionInfoSource(version, spec) {
 }
 
 /**
- * 列出参与打包的源文件（.py 与随包数据），用于判断 exe 是否过期
+ * 列出参与打包的源文件（.py、随包数据、以及打进 exe 的技能包），用于判断 exe 是否过期
  * @returns {string[]} 绝对路径列表
  */
 function listSources() {
-  return fs
+  const entry = fs
     .readdirSync(SRC_DIR)
     .filter((f) => (f.endsWith('.py') && !f.startsWith('test_')) || DATA_FILES.includes(f))
     .map((f) => path.join(SRC_DIR, f))
+  // 技能包也打进 exe（`--add-data`），改了它就该重建——否则发出去的 exe 里是旧技能
+  for (const edition of EDITIONS) entry.push(path.join(SRC_DIR, 'skills', `wechat-mcp-${edition}`, 'SKILL.md'))
+  return entry
 }
 
 /**
- * 这一档的 exe 与其带版本号的副本是否都已比全部源码新
+ * 这一档的 exe 与其带版本号的副本是否都已比全部源码新、且剩余有效期还够
  * @param {object} spec 档位参数
  * @param {string} version 版本号
+ * @param {number} days 本次构建的有效期天数
  * @returns {boolean}
  */
-function isUpToDate(spec, version) {
+function isUpToDate(spec, version, days) {
   const exe = exePathOf(spec)
   const versioned = versionedExePath(spec, version)
   if (!fs.existsSync(exe) || !fs.existsSync(versioned)) return false
   const exeTime = fs.statSync(exe).mtimeMs
-  return listSources().every((f) => fs.statSync(f).mtimeMs <= exeTime)
+  if (!listSources().every((f) => fs.statSync(f).mtimeMs <= exeTime)) return false
+  // 有效期是**从构建那一刻**算起的：产物躺着不动，剩余天数每天都在少。
+  // 只看 mtime 会发出一份有效期只剩几天的 exe（静默），所以这里再卡一道。
+  const left = remainingDays(exe, days)
+  if (left <= STALE_MARGIN_DAYS) {
+    log(`产物剩余有效期只有 ${left.toFixed(1)} 天（≤ ${STALE_MARGIN_DAYS}），重新构建`)
+    return false
+  }
+  return true
 }
 
 /**
@@ -279,7 +288,16 @@ function smokeTest(spec, edition) {
   // 后者会因构建机上有没有授权/内置标记而变，拿它当判据等于让机器状态决定构建是否通过。
   const got = spawnSync(exe, ['--edition'], { encoding: 'utf-8', windowsHide: true }).stdout?.trim()
   if (got !== edition) throw new Error(`exe 档位不符：本次构建 --edition ${edition}，产物自报 ${got}`)
-  log(`冒烟通过：${reply.result.serverInfo.name} v${reported} (构建档位 ${got}，运行期 ${reply.result.serverInfo.edition})`)
+  // 有效期必须**真的打进去了**：`expiry.py` 没被 PyInstaller 收进去时，产物会静默地
+  // "不判到期"（builtin_expiry 取不到就当 0），发出去就是全功能免费送、还不报错。
+  const st = JSON.parse(
+    spawnSync(exe, ['--expiry-status'], { encoding: 'utf-8', windowsHide: true }).stdout?.trim() ?? 'null',
+  )
+  if (!(st?.status?.exp > 0)) {
+    throw new Error(`exe 没带上内置有效期（expiry.py 没打进产物？）：${JSON.stringify(st)}`)
+  }
+  log(`冒烟通过：${reply.result.serverInfo.name} v${reported} (构建档位 ${got}，`
+      + `运行期 ${reply.result.serverInfo.edition}，有效期剩 ${st.status.days_left} 天)`)
   return reported
 }
 
@@ -290,15 +308,16 @@ function smokeTest(spec, edition) {
  * @param {string} edition 档位名
  * @param {string} version 构建前读到的版本号
  * @param {object} env 带镜像配置的环境变量
+ * @param {number} days 内置有效期天数
  */
-function buildOne(uv, edition, version, env) {
+function buildOne(uv, edition, version, env, days) {
   const spec = EDITION_SPECS[edition]
   const exe = exePathOf(spec)
 
   const workDir = fs.mkdtempSync(path.join(os.tmpdir(), `wechat-mcp-build-${edition}-`))
   let built
   try {
-    const srcDir = prepareSource(workDir, spec, edition)
+    const srcDir = prepareSource(workDir, spec, edition, days)
     const versionFile = path.join(workDir, 'version_info.txt')
     fs.writeFileSync(versionFile, versionInfoSource(version, spec))
 
@@ -311,12 +330,19 @@ function buildOne(uv, edition, version, env) {
       '--noconfirm', '--clean', '--onefile', '--console',
       '--name', spec.exe,
       '--version-file', versionFile,
-      '--distpath', DIST_DIR,
+      '--distpath', editionDirOf(spec),
       '--workpath', path.join(workDir, 'build'),
       '--specpath', workDir,
       '--paths', srcDir,
       ...spec.hidden.flatMap((m) => ['--hidden-import', m]),
+      // `expiry` 是 `builtin_expiry` 在 try 里惰性导入的，静态分析看得见但显式点名更稳：
+      // 找不到时直接在构建期报错，好过发一份"不判到期"的 exe 出去（那正是最坏的静默失败）。
+      '--hidden-import', 'expiry',
       ...DATA_FILES.flatMap((f) => ['--add-data', `${path.join(srcDir, f)};.`]),
+      // 技能包打进 exe：`--install` 时从 `sys._MEIPASS/skills/<product>/` 拷进客户端技能目录。
+      // **改名映射**：源码目录按档位叫 `skills/wechat-mcp-<档位>`，而 mcp_install 按 **product**
+      // （= exe 基名）去找，所以打进 exe 的路径要落到 product 名下。
+      '--add-data', `${path.join(SRC_DIR, 'skills', `wechat-mcp-${edition}`)};skills/${spec.exe}`,
       path.join(srcDir, 'server.py'),
     ]
     log(`--- 构建 ${edition} 档（uv + PyInstaller，首次需下载依赖）---`)
@@ -330,20 +356,28 @@ function buildOne(uv, edition, version, env) {
     log(`警告：构建期间 server.py 的 SERVER_VERSION 由 ${version} 变成了 ${built}，以 exe 实际版本为准`)
   }
 
-  // dist 里**本档**历史版本的副本清掉，免得堆一堆认不出谁是谁的 exe（正被占用就留给下一次）。
-  // 归属判定走 `ownerOf()`——它按「最长的名字」优先，所以 pro 不会把 lite 的副本当自己的删掉。
+  // 本档目录里历史版本的副本清掉，免得堆一堆认不出谁是谁的 exe（正被占用就留给下一次）。
+  // **只看自己的目录**：另一档的文件根本不在这儿，所以"删错档"这件事结构上不可能发生
+  //（以前靠名字前缀猜，pro 会把 lite 的产物当自己的旧副本删掉）。
   const versionedExe = versionedExePath(spec, built)
-  for (const f of fs.readdirSync(DIST_DIR)) {
-    const full = path.join(DIST_DIR, f)
-    // 本档的固定名产物与刚生成的副本都要留下（固定名现在也被 ownerOf 认领了，得显式排除）
-    if (ownerOf(f) !== spec.exe || full === exe || full === versionedExe) continue
+  for (const f of fs.readdirSync(editionDirOf(spec))) {
+    const full = path.join(editionDirOf(spec), f)
+    if (!f.startsWith(`${spec.exe}-`) || !f.endsWith('.exe')) continue
+    if (full === versionedExe) continue                       // 刚生成的这份留着
     try {
       fs.rmSync(full, { force: true })
     } catch {
       log(`旧副本删不掉（可能在运行中），忽略：${f}`)
     }
   }
-  fs.copyFileSync(exe, versionedExe)
+  try {
+    fs.copyFileSync(exe, versionedExe)
+  } catch {
+    // 同名副本正被占用（用户双击着上一次打出来的那份在试）⇒ 只丢这一份副本，
+    // **别把已经打好、也已经在盘上的 `wechat-mcp.exe` 一起判失败**。
+    log(`带版本号副本写不进去（同名那份正在运行中），跳过：${path.basename(versionedExe)}`)
+    log(`  —— 注意：留着的那份是**上一次构建**的字节，不是刚才这份；关掉它再跑一次即可对齐。`)
+  }
 
   const sizeMb = (fs.statSync(exe).size / 1024 / 1024).toFixed(1)
   log(`产物：${path.relative(WINDOWS_ROOT, exe)}（${sizeMb} MB）`)
@@ -360,8 +394,10 @@ function main() {
   }
   const editions = parseEditions()
   const version = readServerVersion()
+  const days = parseDays()
 
-  if (process.argv.includes('--if-stale') && editions.every((e) => isUpToDate(EDITION_SPECS[e], version))) {
+  if (process.argv.includes('--if-stale')
+      && editions.every((e) => isUpToDate(EDITION_SPECS[e], version, days))) {
     const names = editions.map((e) => `${EDITION_SPECS[e].exe}.exe`).join('、')
     log(`${editions.length > 1 ? '两档' : '本档'}都已是最新，跳过：${names}`)
     return
@@ -374,8 +410,8 @@ function main() {
   const env = { ...process.env }
   if (!env.UV_DEFAULT_INDEX && !env.UV_INDEX_URL && !env.CI) env.UV_DEFAULT_INDEX = DEFAULT_INDEX
 
-  for (const edition of editions) buildOne(uv, edition, version, env)
-  log(`完成：${editions.join(' + ')}`)
+  for (const edition of editions) buildOne(uv, edition, version, env, days)
+  log(`完成：${editions.join(' + ')}（内置有效期 = 构建日期 + ${days} 天）`)
 }
 
 try {

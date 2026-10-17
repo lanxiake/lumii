@@ -45,7 +45,7 @@ function presetTooltip(preset: McpPreset): string {
   return [
     preset.title,
     preset.description,
-    preset.npmPackage ? `脱离灵栖独立使用：npx -y ${preset.npmPackage}` : '',
+    preset.bundledExe ? '脱离灵栖独立使用：把 exe 拷贝到任意位置双击一次即可装到其它 AI 客户端' : '',
   ]
     .filter(Boolean)
     .join('\n')

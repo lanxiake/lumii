@@ -3,6 +3,7 @@
 只用只读方式：进程内存只读扫描取密钥 + SQLCipher4 直读，不改动任何微信文件。
 数据目录自动发现：`~/xwechat_files/<wxid>_<4hex>/db_storage`（可被环境变量 LUMII_WECHAT_DB 覆盖）。
 """
+import glob
 import hashlib
 import json
 import os
@@ -33,6 +34,33 @@ MIRROR_DIR = os.path.join(WORK, f"mirror-{os.getpid()}")
 os.makedirs(MIRROR_DIR, exist_ok=True)
 
 _cache = {"rels": None, "msg": None, "contact": None, "root": None}
+
+
+class EnvError(RuntimeError):
+    """**环境没就绪**（不是"这个会话没数据"，也不是调用方传错了参数）。
+
+    三个来源，都是"用户需要动手做点什么"而不是"重试就好"：
+      1. 找不到微信数据目录（没登录过 / 自定义目录在别的盘且探测不到）
+      2. `LUMII_WECHAT_ACCOUNT` 指定的账号不存在
+      3. 读不到数据库密钥（微信没在运行 / 刚重启还没建连接）
+
+    `hint` 是**给用户看的可操作建议**，与 `message`（发生了什么）分开——工具边界把两者
+    一起端出去，别让用户对着 `FileNotFoundError` 猜。MCP 侧统一翻成 `env_not_ready`
+    （见 `mcp_stdio.py`）。
+
+    ⚠️ `__str__` **必须把 hint 一起带出来**：全仓有大量 `except Exception as e: ... str(e)`
+    的兜底路径（主产品 `wechat-mcp/server.py` 的读类工具就是 `ERROR: {e}`、`check_env` 是
+    `db_hint=str(e)`）。只把 hint 放独立属性，这些路径**一个字都看不到**——那等于把用户的
+    修复建议弄丢了，比不分类还糟。
+    """
+
+    def __init__(self, message, hint=""):
+        super().__init__(message)
+        self.message = message        # 不含 hint 的原话，供结构化出口单取
+        self.hint = hint
+
+    def __str__(self):
+        return f"{super().__str__()}\n\n{self.hint}" if self.hint else super().__str__()
 
 
 def deps():
@@ -314,21 +342,24 @@ def db_root_info():
             if a["wxid"] == want or a["dir"] == want:
                 return a["root"], a.get("source", "auto")
         avail = "、".join(a["wxid"] for a in accts) if accts else "（无）"
-        raise RuntimeError(f"LUMII_WECHAT_ACCOUNT={want} 未匹配到账号数据目录。可选账号：{avail}")
+        raise EnvError(
+            f"LUMII_WECHAT_ACCOUNT={want} 未匹配到账号数据目录",
+            hint=f"本机可选的账号有：{avail}。改成其中之一，或清掉这个环境变量让它自动挑。")
     if not accts:
         home = os.path.expanduser("~")
-        hint = ("未找到微信 4.x 数据目录。已尝试：\n"
-                "  - 环境变量 LUMII_WECHAT_DB\n"
-                "  - 配置 %APPDATA%/Tencent/xwechat/config/*.ini\n"
-                "  - 注册表 HKCU\\Software\\Tencent\\Weixin\n"
-                f"  - 默认路径 {home}/xwechat_files、{home}/Documents/xwechat_files\n"
-                "  - 固定盘扫描（深度≤2）")
-        if os.name == "nt":
-            hint += ("\n\n修复建议：\n1. 确认微信已登录并有聊天记录\n"
-                     "2. 在微信「设置 → 文件管理」里确认数据目录\n"
-                     "3. 仍找不到时手动指定："
-                     "LUMII_WECHAT_DB=<数据目录>\\xwechat_files\\<账号>_<4位>\\db_storage")
-        raise RuntimeError(hint)
+        tried = "\n".join(("  - 环境变量 LUMII_WECHAT_DB",
+                           "  - 配置 %APPDATA%/Tencent/xwechat/config/*.ini",
+                           "  - 注册表 HKCU\\Software\\Tencent\\Weixin",
+                           f"  - 默认路径 {home}/xwechat_files、{home}/Documents/xwechat_files",
+                           "  - 固定盘扫描（深度≤2）"))
+        raise EnvError(
+            "未找到微信 4.x 数据目录",
+            hint=("已扫描路径（按优先级，全部落空）：\n" + tried +
+                  "\n\n修复建议：\n"
+                  "1. 确认微信**已登录**（没登录过就没有数据目录）\n"
+                  "2. 在微信「设置 → 文件管理」里看数据目录在哪\n"
+                  "3. 仍找不到时手动指定："
+                  "LUMII_WECHAT_DB=<数据目录>\\xwechat_files\\<账号>_<4位>\\db_storage"))
     return accts[0]["root"], accts[0].get("source", "auto")
 
 
@@ -429,6 +460,23 @@ def wechat_version():
     return {"path": path, "version": version, "verified": verified, "hint": hint}
 
 
+def version_warning():
+    """版本不在真机验证范围内时给一句告警，否则 `None`。
+
+    这是给 `server.handle_tools_call` 的**单点注入**：本模块对微信内部结构的假设是硬的
+    （`wxkey4` 的固定内存偏移、窗口类名、AutomationId），换版本最怕的不是报错，是**静默给错
+    东西**——所以宁可每个工具结果都挂一句"这版没验过"。
+
+    为什么不能只留在 `check_env` 里：Agent 不会每次先调它，用户更不会。而这条信息**只在
+    出错前有用**，事后补报已经没意义了（与项目既有的 fail-closed 口径一致）。
+
+    微信没运行 / 版本读不出来时**不**告警（那是"未知"，本模块按未知处理，不是故障，
+    挂在每个结果上只会变成噪音）。实测本机 8ms/次，不值得加缓存。
+    """
+    v = wechat_version()
+    return v["hint"] if v["version"] and not v["verified"] else None
+
+
 def self_wxid(root=None):
     """从数据目录名 `<wxid>_<4hex>` 推出本人 wxid。"""
     root = root or db_root()
@@ -458,8 +506,13 @@ def keys(root=None, refresh=False):
             break
         wxkey4.scan_pid(pid, files, s2d, km, rem)
     if not km:
-        raise RuntimeError("未能从微信进程内存取到数据库密钥：微信可能没在运行、或刚重启。"
-                           "请确认微信已登录并打开过聊天窗口后重试。")
+        raise EnvError(
+            "未能从微信进程内存取到数据库密钥",
+            hint=("通常是这三种情况：\n"
+                  "1. **微信没在运行** —— 打开微信并登录后重试\n"
+                  "2. 微信**刚启动**、还没打开过任何聊天窗口 —— 点开一个会话，等几秒再试\n"
+                  "3. 微信版本不在已验证范围内（密钥扫描依赖固定内存偏移）"
+                  "—— 见 wechat_core.VERIFIED_VERSION_PREFIXES"))
     _key_cache[root] = (km, time.time())
     return km
 
@@ -517,8 +570,22 @@ def _plain(km, root, rel, _retry=True):
     out = os.path.join(MIRROR_DIR, "plain_" + os.path.basename(rel))
     tmp = out + ".tmp"
     open(tmp, "wb").write(b"".join(best))
-    os.replace(tmp, out)          # 写完再换名：任何时刻读到的都是完整的一份镜像
-    return out
+    # 写完再换名：任何时刻读到的都是完整的一份镜像。
+    # ⚠️ Windows 不能替换一个**仍被打开**的文件。两种来路：调用方自己持着这个镜像的 sqlite
+    # 连接（设计 §6.6 记过 C 踩的同一坑，修法是"刷新调用一律排在开连接之前"），
+    # 或者杀软/索引器短暂占用。前者重试也没用，所以**重试之外还要把原因说清楚**——
+    # 裸 PermissionError 会让人去查权限，而真正的原因是「你自己没关连接」。
+    for attempt in range(3):
+        try:
+            os.replace(tmp, out)
+            return out
+        except PermissionError as e:
+            if attempt == 2:
+                raise PermissionError(
+                    f"无法替换镜像 {out}：它正被占用。最常见的原因是**本进程还开着这个库的 "
+                    f"sqlite 连接**（Windows 不允许替换已打开的文件）——请先 close() 再解密；"
+                    f"其次是杀软/索引器短暂占用，重试即可。（原始错误：{e}）") from e
+            time.sleep(0.05)
 
 
 # ---------- 明文镜像（增量刷新）：把「读旧 / 读贵」两件事一起解决 ----------
@@ -868,10 +935,23 @@ _LINK_KINDS = {
     2000: "转账", 2001: "红包", 2002: "转账", 2003: "转账",
 }
 
+# 「升级提示页」——实测视频号/转账/小程序的 `<url>` 全指向这几类页面（`support.weixin.qq.com`
+# 的 upgrade 模板、`mp.weixin.qq.com/mp/waerrpage?…&type=upgrade`），它们**不是内容**：
+# 渲染成 `[转账] 微信转账 (https://support.weixin.qq.com/…upgrade…)` 既占地方又误导，
+# 所以一律不往摘要里放。
+_NAG_URL = re.compile(r"support\.weixin\.qq\.com|waerrpage|type=upgrade")
+
 
 def _attr(raw, name):
-    """取 XML 属性值（不引 bs4：这些标签结构固定，正则够用且不引入依赖）。"""
-    m = re.search(name + r'="([^"]*)"', raw)
+    """取 XML 属性值（不引 bs4：这些标签结构固定，正则够用且不引入依赖）。
+
+    ⚠️ **必须卡住属性名的左边界**（`(?<![\\w-])`）：裸 `re.search('type="')` 会命中
+    `datatype="2"`。合并转发正是这样翻的车（2026-10-14 实测）：`<type>19</type>` 是**元素**、
+    不匹配 `type="`，而它后面的 `<dataitem datatype="2">` 是全串第一个 `type="`，
+    于是 type=19 被读成 2 ⇒ 整条合并转发显示成 `[链接] <标题> (<support.weixin.qq.com…>)`。
+    同一根棍子还打中 `length="`（先命中 `cdnthumblength="`，拿缩略图字节数冒充原图大小）。
+    """
+    m = re.search(r"(?<![\w-])" + name + r'="([^"]*)"', raw)
     return m.group(1) if m else ""
 
 
@@ -898,19 +978,244 @@ def _unxml(s):
     return html.unescape(s).strip()
 
 
-def describe_nontext(lt, raw):
+# 合并转发（`appmsg type=19`）里 `<dataitem datatype="N">` 的类型表。
+# 只有 1/2/8/17 在本机实测出现过（40 个 dataitem 样本），其余是**推断**——
+# 推错了只会把某条显示成「内容」，不会吞消息，不值得为它去凑更全的表。
+_MERGED_DT = {1: "文本", 2: "图片", 3: "视频", 4: "链接", 5: "位置", 6: "名片",
+              7: "表情", 8: "文件", 16: "位置", 17: "聊天记录"}
+
+
+def _nested_text(x, _depth=0):
+    """引用/合并转发里**嵌着的原始内容** → 一行摘要。
+
+    `<refermsg><content>` 不一定是纯文本：实测本机 15 条引用里，两条的被引内容是
+    `<msg><img …/></msg>`、一条是 `<msg><appmsg …><type>6</type>`（文件）——直接当文本
+    输出就是把一整段 XML 灌给模型。所以这里判出类型后**复用自己的 describe_nontext**。
+
+    **群里的**引用还多一层坑：被引原文自带「发送者: 」前缀（实测 `wxid_jnt7kck7di1622: <?xml …`）。
+    `_render` 早把换行压成了空格，所以那个前缀长成 `: ` 而不是 `:\n`——不在这儿复用
+    `_PREFIX_RE` 剥一道，整段 XML 会原样漏进用户看到的文本（`test_automation` 全类型扫描逮到，
+    589 条里 2 条）。剥完还是 XML 才继续解析；真是人话就原样留着。
+    """
+    s = (x or "").strip()
+    if not s.startswith("<"):
+        s = _PREFIX_RE.sub("", s)
+        if not s.startswith("<"):
+            return x.strip()
+    if _depth >= 2:                                  # 引用里套引用，到此为止
+        return ""
+    for marker, lt in (("<img", 3), ("<voicemsg", 34), ("<videomsg", 43),
+                       ("<location", 48), ("<appmsg", 49)):
+        if marker in s:
+            return describe_nontext(lt, s, _depth=_depth + 1)
+    return ""
+
+
+def refer_text(raw):
+    """引用（`appmsg type=57`）→ `(谁说的, 被引用的原文)`；不是引用返回 `("", "")`。
+
+    ⚠️ **别把 `<title>` 当被引内容**：实测 15 条 type=57，`<title>` 一律是**回复正文**
+    （"都看过，还是需要很多专业知识的"），被引的原文在 `<refermsg><content>` 里
+    （"AI网文、AI短剧都上了，是吧"）。说话人在 `<refermsg><displayname>`，**可能为空**
+    （转发来的、或引用系统消息时）——空了就别硬填一个名字。
+    """
+    rm = re.search(r"<refermsg>(.*?)</refermsg>", raw, re.S)
+    if not rm:
+        return "", ""
+    body = rm.group(1)
+    return _unxml(_tag(body, "displayname")), _nested_text(_unxml(_tag(body, "content")))
+
+
+def merged_forward(raw, _depth=0):
+    """合并转发（`lt=49` + `appmsg type=19`）→ 逐条 `{sender, time, ts, kind, text}`。
+
+    **整段内容都在 `<recorditem>` 的 CDATA 里**（一段独立的 `<recordinfo>` XML）。
+    展不开就返回 `[]` —— 调用方按「内容不可读」处理，不要假装展开成功。
+
+    实测本机 8 条合并转发、40 个 dataitem 的四类形状：
+
+    | datatype | 内容住哪 | 例 |
+    |---|---|---|
+    | 1  文本 | `<datadesc>` | "你如果有自己的意识…" |
+    | 2  图片 | 只有 `datafmt`/`datasize`，**没有标题** | → `[图片]` |
+    | 8  文件 | `<datatitle>` | "给6岁宝贝的日式料理50道.html" |
+    | 17 嵌套的合并转发 | `<datatitle>` + `<datadesc>`（多行预览） | — |
+
+    `ponytail:` datatype=17 用它自带的 `<datadesc>` 预览（已是人话），没有递归进它自己的
+    `<recordxml>`——真要嵌套展开时再补。
+    """
+    if _depth >= 1:
+        return []
+    inner = _unxml(_tag(raw, "recorditem"))
+    if not inner.startswith("<"):
+        return []
+    out = []
+    for m in re.finditer(r"<dataitem\b([^>]*)>(.*?)</dataitem>", inner, re.S):
+        attrs, body = m.group(1), m.group(2)
+        kind = int(_attr(attrs, "datatype") or 0)
+        text = _unxml(_tag(body, "datadesc")) or _unxml(_tag(body, "datatitle"))
+        if not text:
+            text = "[%s]" % _MERGED_DT.get(kind, "内容")
+        # 压掉多余空白但**留住换行**：datatype=17（嵌套转发）的 `<datadesc>` 是多行预览
+        # （`Miku: xxx\nMiku: yyy`），全压成一行会把 4 个人的发言糊成一大坨（实测）。
+        out.append({"sender": _unxml(_tag(body, "sourcename")),
+                    "time": _unxml(_tag(body, "sourcetime")),
+                    "ts": _num(body, "srcMsgCreateTime"),
+                    "kind": kind,
+                    "text": "\n".join(" ".join(ln.split()) for ln in text.splitlines() if ln.strip())})
+    return out
+
+
+def forward_block(raw):
+    """合并转发正文 → `> 说话人 时间：正文` 的多行块；展不开返回 `""`（不假装成功）。
+
+    形状与导出层（`exportcore` 的 md 转发块）**一致**：同一个东西两处长得不一样，
+    下次改的人就得先判断哪个是正本。`datatype=17`（嵌套转发）的 `text` 自带换行，
+    首行挂说话人、续行不挂（照抄 exportcore 的排法）。
+    """
+    out = []
+    for it in merged_forward(raw):
+        head = " ".join(x for x in (it["sender"], it["time"]) if x)
+        for i, ln in enumerate(str(it["text"]).split("\n")):
+            out.append("> " + (head + "：" if head and i == 0 else "") + ln)
+    return "\n".join(out)
+
+
+# ---------------------------------------------------------------------------
+# 文件消息（`appmsg type=6`）→ 磁盘上的真文件
+# ---------------------------------------------------------------------------
+# 原先住在 `wechat-file-mcp/filecore.py`（A 归档）。B 导出也要"把记录里的文件一起收出来"
+# （用户说的"提取文件"），而这段是**读原语**、不是某个产品的策略，所以上移到共享层：
+# 一份实现，两个产品用。A 只留"归档布局怎么摆"那部分（`_dest_path` / `_conflict` 等）。
+#
+# 关键实测事实（2026-10-12，当时写在 filecore 里的，一并带过来）：
+# - 消息 `<title>` 与磁盘文件名**直接同名**；同名用 `<totallen>` 对大小消歧。
+# - 本机命中率 140 条 → 129 条 title+大小双命中（92%）；剩 8% 是未下载/已过期。
+# - 微信给重名文件加 `(1)`/`(3)` 后缀；少量文件有 `YYYYMMDD` 日期前缀；同一磁盘文件可被多条消息引用。
+_APPMSG_TYPE_FILE = 6
+_DATE_PREFIX = re.compile(r"^\d{8}\s*")          # 磁盘侧偶见的 YYYYMMDD 前缀（连同其后的空格）
+
+
+def parse_file_msg(raw):
+    """消息原文 → `{title, size, ext}`；**不是文件消息**（非 appmsg / 非 type=6 / 无标题）返回 None。"""
+    if "<appmsg" not in raw:
+        return None
+    if _num(raw, "type") != _APPMSG_TYPE_FILE:
+        return None
+    title = _unxml(_tag(raw, "title"))
+    if not title:
+        return None
+    size = _num(raw, "totallen")
+    ext = _unxml(_tag(raw, "fileext")).lower()
+    if not ext:
+        ext = os.path.splitext(title)[1].lstrip(".").lower()
+    return {"title": title, "size": max(size, 0), "ext": ext}
+
+
+def files_root():
+    """磁盘上的文件根：`<账号目录>/msg/file`。"""
+    return os.path.join(os.path.dirname(db_root()), "msg", "file")
+
+
+def build_index(root=None):
+    """扫描磁盘 → `{文件名: [(大小, 路径), …]}`。
+
+    少量文件带 `YYYYMMDD` 日期前缀（磁盘侧有、消息标题没有），所以再给去前缀的名字挂**别名键**
+    （真名优先，别名只在没撞名时加），让 `match_file` 保持一次查表。
+
+    **每次调用都真扫**（2026-10-13 改）：原先按 root 把结果缓存起来且永不失效，后果是
+    「`list_files` 报 8 条过期 → 用户去微信里点下载 → 再跑还是报过期」，直到 MCP 进程重启
+    ——而「过期预警 → 下载 → 归档」正是本产品的卖点路径（原 docstring 还说"重扫传 force"，
+    那个参数**从来就不存在**）。实测整盘重扫本机 135 个文件只要 **8.9 ms**，比同一次调用里读
+    消息库便宜得多，缓存换来的那点时间不值这个 bug。
+    """
+    root = root or files_root()
+    idx = {}
+    for dp, _dirs, fs in os.walk(root):
+        for f in fs:
+            p = os.path.join(dp, f)
+            try:
+                idx.setdefault(f, []).append((os.path.getsize(p), p))
+            except OSError:
+                continue
+    for name, cands in list(idx.items()):
+        alias = _DATE_PREFIX.sub("", name)
+        if alias and alias != name:
+            idx.setdefault(alias, cands)
+    return idx
+
+
+def match_file(idx, title, size):
+    """消息 → 磁盘文件。返回 `(路径 | None, status)`；status ∈ ok / size_mismatch / missing。"""
+    cands = idx.get(title) or idx.get(_DATE_PREFIX.sub("", title))
+    if not cands:
+        return None, "missing"
+    if size:
+        exact = [p for s, p in cands if s == size]
+        if exact:
+            return exact[0], "ok"
+        return cands[0][1], "size_mismatch"        # 同名但大小不符：可能是另一版本
+    return cands[0][1], "ok"
+
+
+def _finder_text(raw):
+    """视频号（appmsg 44/51/63）→ `「作者：描述」`。
+
+    `<title>` 实测是「当前版本不支持展示该内容，请升级至最新版本。」——那是**微信自己的升级提示**，
+    每条视频号都渲染成这句话等于把内容丢了还误导（`<url>` 同理，指向上级升级页）。
+    真东西在 `<finderFeed>`（作品）或 `<finderLive>`（直播）里：`<nickname>` + `<desc>`
+    （实测 51=「菇乡视界／光影定格爱」、63=「Qoder.ai／运营，造自己的工具|第一期收官」）。
+
+    只在 44/51/63 上调它：`<finderLive>` 也会出现在别的卡片里（实测一个小程序里就有），
+    那些卡片的 `<title>` 本身是有内容的，别拿作者名顶掉它。
+    """
+    for tag in ("finderFeed", "finderLive"):
+        body = _tag(raw, tag)
+        if not body:
+            continue
+        name = _unxml(_tag(body, "nickname"))
+        desc = " ".join(_unxml(_tag(body, "desc")).split())
+        out = "：".join(x for x in (name, desc[:60]) if x)
+        if out:
+            return out
+    return ""
+
+
+def _pay_text(raw):
+    """转账（appmsg 2000/2002/2003；实测 `type=0` 里也夹着 2 条带 `<wcpayinfo>` 的）→ 金额。
+
+    金额在 `<wcpayinfo><feedesc>`（实测 `￥1000.00`）。`<des>` 是「收到转账1000.00元。如需收钱，
+    请点此升级至最新版本」——**后半句是升级提示**，所以只取第一句。抽不出就返回空串
+    （红包 2001 的金额根本不在消息里，**别硬编一个 0** 冒充）。
+
+    ⚠️ 必须先确认**这真是转账**再抽 `<des>`：`<des>` 是通用字段——合并转发的 `<des>` 就是
+    内容预览，不判类型的话每条转发都会渲染成 `[转账] 时遇: [图片]`（第一版就是这么翻的，
+    是 `test_render_labels` 的合并转发那条逮住的）。
+    """
+    if "<wcpayinfo" not in raw and _num(raw, "type") not in (2000, 2002, 2003):
+        return ""
+    esc = _unxml(_tag(raw, "feedesc"))
+    if esc:
+        return esc
+    des = " ".join(_unxml(_tag(raw, "des")).split())
+    return re.split(r"[。；，]", des)[0][:40] if des else ""
+
+
+def describe_nontext(lt, raw, _depth=0):
     """非文本消息 → 一行**人能读的摘要**（以前一律是 `[非文本消息]`）。
 
     ⚠️ 只给**元数据**，拿不到内容本身——这一点是实测定死的，别再试：
-    - **图片**：聊天图存在 `msg/attach/<hash>/<月>/Img/*.dat`，是 **V4 加密**
-      （magic `07085632`，V3 是 `...31`）。试过用消息 XML 里的 `aeskey` 做
-      AES-ECB/CBC 解密（398 个密钥 × 8 个偏移）**全部未命中**；文件里嵌明文 JPEG 的只有
-      1.4%（7/504）；`cache/<月>/Message/<hash>/Thumb/` 看着像图片缩略图，实测 85 张
-      **全是 type=49 的文章封面**，没有一张对得上 type=3。→ 要拿图片内容得先逆向 V4，
-      是研究任务，不是顺手能做的。
-    - **语音**：本机**一个音频文件都没有**（全盘搜 `.silk/.slk/.amr` 为空），
-      `Msg` 表也没有转写列，`voicemsg` 只带 `voiceurl`+`aeskey`——
-      音频在微信服务器上，播放时才按需下载。→ 离线拿不到，只能给时长。
+    - **图片**：聊天图存在 `msg/attach/<hash>/<月>/Img/*.dat`，V2 容器（magic `07085632`）。
+      ⇒ **内容由 `wechat_image.py` 解**（`aes_size` + XOR 尾 + 账号级 AES key，实测 464/465
+      命中），这里**只给尺寸**，不重复那份工作。
+      （旧注释写的是"要拿图片内容得先逆向 V4，是研究任务"——**2026-10-14 作废**：
+      它把后来人指到了那条已经走通的路的起点，本次写计划时就被它误导过一次。）
+    - **语音**：**不在磁盘文件里**——音频本体在 `message/media_*.db` 的 `VoiceInfo.voice_data`
+      （明文 SILK_V3，取法见 `voice_file`）。这里只给时长。
+    - **引用**：`appmsg type=57` 的被引原文在 `<refermsg><content>`，走 `refer_text()`；
+      这里**接在标签后面**（一行内），展开成引用块是导出层（B）的事。
+    - **合并转发**：`appmsg type=19` 的正文在 `<recorditem>` CDATA 里，一行装不下
+      ⇒ 这里只报**条数**，逐条展开走 `merged_forward()`。
     """
     if lt == 3:
         n = _attr(raw, "length")             # 中间图字节数
@@ -934,11 +1239,35 @@ def describe_nontext(lt, raw):
         where = " ".join(x for x in (poi, label) if x)
         return f"[位置] {where}" if where else "[位置]"
     if lt == 49:
-        kind = _LINK_KINDS.get(_num(raw, "type"), "链接")
+        sub = _num(raw, "type")
+        # **有 `<refermsg>` 就是引用**，别按子类型硬编：实测本机 `type=57` 120 条是引用，
+        # 而 `type=1`（链接卡片）里也夹着 2 条引用——按 57 判，那 2 条会被当成普通链接、
+        # 被引原文整段丢掉（和当初"57 被标成直播"是同一类错：标签错 = 模型判错消息性质）。
+        #
+        # ⚠️ **必须卡住标签名的右边界**（2026-10-15 实测）：合并转发的 `<recorditem>` CDATA 里，
+        # 转发进来的**引用消息**带 `<refermsgitem>`——裸子串 `"<refermsg" in raw` 命中它，
+        # 于是整条合并转发被标成 `[引用] 地图鱼与…的聊天记录（10 条）`。与 `_attr` 的
+        # `datatype`/`cdnthumblength`、以及 57 被标成「直播」是同一根棍子的第三次。
+        is_refer = bool(re.search(r"<refermsg[\s>/]", raw))
+        kind = "引用" if is_refer else _LINK_KINDS.get(sub, "链接")
         title = _unxml(_tag(raw, "title")) or _unxml(_attr(raw, "title"))
+        pay = _pay_text(raw)
+        if pay:                              # 转账：`<title>` 是「微信转账」，金额才是有用的
+            return f"[转账] {pay}"
+        finder = _finder_text(raw) if sub in (44, 51, 63) else ""
+        if finder:                           # 视频号：`<title>` 是「请升级至最新版本」的升级提示
+            title = finder
         url = _unxml(_tag(raw, "url"))
         out = f"[{kind}] {title}" if title else f"[{kind}]"
-        if url:
+        if sub == 19:                       # 合并转发：正文一行装不下，只报条数
+            items = merged_forward(raw, _depth)
+            return out + (f"（{len(items)} 条）" if items else "")
+        if is_refer:                        # 引用：被引原文接在后面，回复正文就是上面的 title
+            who, quoted = refer_text(raw)
+            if quoted:
+                out += f" ← {who + ': ' if who else ''}{quoted[:120]}"
+            return out
+        if url and not _NAG_URL.search(url):
             out += f" ({url[:120]})"
         return out
     if lt == 50:
@@ -1011,11 +1340,13 @@ def _media_paths():
 # 语音 SILK 的异步下载窗口：只对**这个时长内**的语音等待（更老的数据已永久缺失）
 _VOICE_FRESH_S = 180
 # 有界等待：最多等这么久、每次隔这么久再看一眼。盯梢一拍 15s，这里封顶 6s 不会把节拍拖垮
+# ⚠️ 这是**一批**的额度、不是**一条**的（见 `attach_voice`）：一条一条各给 6s 会累乘，
+#    实测全库任一 180s 窗口里最多 6 条语音 ⇒ 一趟 poll 最坏 36s，正好把 15s 那一拍拖穿。
 _VOICE_WAIT_S = 6.0
 _VOICE_POLL_S = 1.5
 
 
-def voice_file(talker, ct, local_id=None):
+def voice_file(talker, ct, local_id=None, deadline=None):
     """把一条语音的 SILK 落成临时文件，返回路径；没有则 None。
 
     **为什么不直接回字节**：MCP 工具结果是文本，几万字节的 base64 灌进模型上下文纯属浪费，
@@ -1033,11 +1364,16 @@ def voice_file(talker, ct, local_id=None):
     **刚到的语音要等一拍**：SILK 是**异步下载**的——消息先落库、音频几秒后才写进 `VoiceInfo`
     （2026-10-10 实测：14:12:55 的语音，回声处理时读不到、过后就有了）。所以对**最近几分钟**的
     语音做有界重试；老语音不等待——它们的数据是**永久缺失**的，等再久也没有。
+
+    `deadline`：等待的**绝对截止时刻**（`None` = 按这一条自己算；`0` = 只看一眼、不等）。
+    一批语音要**共用一个** `deadline`——它们是**同时**在下载的，等第一条就把整批都等到了，
+    而一条一条各等 6s 会累乘（见 `attach_voice`）。
     """
     if local_id is None:
         return None
-    recent = (time.time() - ct) < _VOICE_FRESH_S
-    deadline = time.time() + (_VOICE_WAIT_S if recent else 0)
+    if deadline is None:
+        recent = (time.time() - ct) < _VOICE_FRESH_S
+        deadline = time.time() + (_VOICE_WAIT_S if recent else 0)
     while True:
         for path in _media_paths():          # 每次都重新取路径（refresh 会重写镜像）
             row = None
@@ -1074,10 +1410,23 @@ def _render(lt, content):
     """消息 → 一行可读文本。**唯一入口**——历史、会话列表预览、搜索、画像蒸馏都走它，
     免得有的地方还在吐原始 XML / 裸 wxid 前缀。"""
     # 顺序要紧：得在把换行压成空格**之前**剥前缀（纯文本那种形态靠 `\n` 定位）
-    raw = _PREFIX_RE.sub("", decode(content)).replace("\n", " ").strip()
-    if raw.startswith("<"):
-        return describe_nontext(lt & 0xFFFFFFFF, raw)
-    return raw
+    body = _PREFIX_RE.sub("", decode(content))
+    raw = body.replace("\n", " ").strip()
+    if not raw.startswith("<"):
+        return raw
+    out = describe_nontext(lt & 0xFFFFFFFF, raw)
+    if (lt & 0xFFFFFFFF) == 49 and _num(raw, "type") == 19:
+        # 合并转发的**正文**补在这里（2026-10-15）：`describe_nontext` 只报「（N 条）」，
+        # 而那一段正文原先只有导出层（B）要——于是代聊/Agent 拿到的永远只有条数，
+        # 「他转发过来那段说了什么」在**全部**读类工具里都读不到（检索也搜不着，
+        # 因为 `search_messages` 匹配的正是这里的返回值）。
+        # **必须在 `_render` 这一层补、不能进 `describe_nontext`**：导出层的 `render_text`
+        # 是直接调后者的，在那儿展开会让 md/html 把同一段正文渲染两遍。
+        # ⚠️ 用 `body`（未压换行）而不是 `raw`：嵌套转发的预览靠换行分辨说话人。
+        block = forward_block(body)
+        if block:
+            out += "\n" + block
+    return out
 
 
 _ATUSERS_RE = re.compile(r"<atuserlist><!\[CDATA\[(.*?)\]\]></atuserlist>", re.S)
@@ -1139,6 +1488,65 @@ def _image_name(packed):
     return m.group(0).decode() if m else None
 
 
+def _video_meta(content):
+    """\u89c6\u9891\u6d88\u606f\uff08`lt=43`\uff09\u2192 `(md5, length)`\uff1b\u53d6\u4e0d\u5230\u5c31\u662f `None` / `0`\u3002
+
+    \u5b57\u6bb5\u5168\u5728 `videomsg` \u81ea\u5df1\u8eab\u4e0a\uff1a`md5` \u662f\u8fd9\u4efd**\u6b63\u7247**\u7684 md5\uff0c`length` \u662f\u5b83\u7684\u5b57\u8282\u6570\u3002
+    `rawmd5`/`newmd5`/`originsourcemd5` \u662f\u53e6\u5916\u51e0\u7248\u2014\u2014\u5b9e\u6d4b**\u90fd\u5bf9\u4e0d\u4e0a**\u78c1\u76d8\u4e0a\u7684\u6587\u4ef6\u540d
+    \uff08`probe_e2_video_map.py` \u9010\u5c5e\u6027\u8bd5\uff0c\u96f6\u547d\u4e2d\uff09\uff0c\u522b\u62ff\u5b83\u4eec\u5f53\u6587\u4ef6\u540d\u3002
+    """
+    try:
+        raw = content if isinstance(content, str) else decode(content)
+    except Exception:
+        return None, 0
+    m = _IMG_MD5_RE.search(raw or "")   # \u540c\u4e00\u4e2a\u6b63\u5219\uff1a\u8d1f\u5411\u540e\u89c6\u5df2\u6321\u6389 rawmd5/newmd5/cdnthumbmd5
+    return (m.group(1) if m else None), _num(raw or "", "length")
+
+
+# `hardlink.db` \u7684\u8bfb\u6cd5\u540c `wechat_image.hardlink_map`\uff08\u90a3\u8fb9\u662f\u56fe\u7247\u8868\uff09\uff1a\u77ed TTL \u7f13\u5b58\uff0c
+# \u56e0\u4e3a `refresh()` \u4f1a\u91cd\u5199\u955c\u50cf\u3001\u800c\u65b0\u89c6\u9891\u662f\u5f02\u6b65\u843d\u5e93\u7684\u3002
+_VIDEO_HL_TTL_S = 30.0
+_video_hl = {}
+
+
+def _video_hardlink():
+    """`{md5: \u78c1\u76d8\u4e0a\u7684 mp4 \u6587\u4ef6\u540d}`\uff08`hardlink.db` \u7684 `video_hardlink_info_v4`\uff09\u3002
+
+    \u5b9e\u6d4b\uff082026-10-14\uff09\u672c\u673a 26 \u884c\u3001`file_name` \u5168\u90e8\u80fd\u5728 `msg/video/<\u6708>/` \u91cc\u627e\u5230\u3002
+    **\u53ea\u8981\u8f6c\u7801\u540e\u7684\u6b63\u7247**\uff1a\u540c\u4e00 stem \u4e0b\u8fd8\u6709 `_raw.mp4`\uff08\u539f\u7247\uff0c\u5b57\u8282\u6570\u662f\u6d88\u606f\u91cc\u7684 `rawlength`\uff09
+    \u548c `_thumb.jpg`\uff08\u7f29\u7565\u56fe\uff09\u2014\u2014\u6df7\u8fdb\u6765\u5c31\u662f"\u7ed9\u9519\u6587\u4ef6"\uff0c\u800c\u9519\u6587\u4ef6\u6bd4\u6ca1\u6709\u6587\u4ef6\u7cdf\u5f97\u591a\u3002
+    """
+    root = db_root()
+    ent = _video_hl.get(root)
+    if ent and time.time() - ent[0] < _VIDEO_HL_TTL_S:
+        return ent[1]
+    out = {}
+    try:
+        m = _mirror("hardlink/hardlink.db")
+        m.refresh()
+        conn = sqlite3.connect(m.out)     # \u73b0\u5f00\u73b0\u5173\uff1arefresh \u4f1a\u91cd\u5199\u955c\u50cf\uff0c\u7f13\u5b58\u8fde\u63a5\u4f1a\u8bfb\u5230\u91cd\u5199\u524d\u7684\u65e7\u9875
+        try:
+            for md5, name in conn.execute("select md5, file_name from video_hardlink_info_v4"):
+                n = (name or "").lower()
+                if md5 and n.endswith(".mp4") and not n.endswith("_raw.mp4"):
+                    out.setdefault(md5.lower(), name)
+        finally:
+            conn.close()
+    except Exception:
+        out = {}
+    _video_hl[root] = (time.time(), out)
+    return out
+
+
+def video_file_path(file_name):
+    """\u78c1\u76d8\u4e0a\u90a3\u4efd mp4\uff1a`msg/video/<\u6708>/<\u6587\u4ef6\u540d>`\uff08\u6309\u6708\u5206\u7247\uff0c\u6587\u4ef6\u540d\u5168\u5c40\u552f\u4e00\uff09\u3002"""
+    if not file_name:
+        return None
+    hits = glob.glob(os.path.join(os.path.dirname(db_root()), "msg", "video", "*",
+                                  os.path.basename(file_name)))
+    return hits[0] if hits else None
+
+
 AGENT_MARK = "\u200b\u200c\u200b"
 
 
@@ -1191,6 +1599,14 @@ def msg_dict(ct, lt, content, nm, talker=None, name=None, sender=None, me=None, 
     # 先截断的话标记根本认不出来（标记恒在**末尾**，被截掉就等于没打）。
     text, agent_sent = split_agent_mark(_render(lt, content))
     d = {"time": _ts(ct), "ts": ct, "type": lt & 0xFFFFFFFF, "text": text[:400]}
+    if len(text) > 400:
+        # 截断要**留痕**（2026-10-14）：`text` 只是全文的前 400 字，读的人（Agent）不能拿它当全文
+        # ——本机实测 **73/5101 条（1.4%）** 渲染后超 400 字、最长 3069 字，粘日志/长段落就是这个形态，
+        # 拿前 400 字当全文去总结或回话，是"看不到就编"的同一个坑。
+        # `text_len` 是全文长度（判据），`text_more` 是后面那截（最多再给 3600 字，免得一条长消息
+        # 把工具输出撑爆）；两者相加仍短于 `text_len` ⇒ 还没给全。
+        d["text_len"] = len(text)
+        d["text_more"] = text[400:4000]
     if agent_sent:
         d["agent_sent"] = True               # 客户端据此跳过：这条是助手代发的，不是用户说的
     if local_id is not None:
@@ -1210,6 +1626,12 @@ def msg_dict(ct, lt, content, nm, talker=None, name=None, sender=None, me=None, 
         nm2 = _image_name(packed)      # 本地真有的那份（原图没下时 `image_md5` 是查不到的死键）
         if nm2:
             d["image_name"] = nm2
+    if (lt & 0xFFFFFFFF) == 43:        # 视频：路径要走 hardlink 换名 + 比大小，见 `attach_video`
+        vmd5, vlen = _video_meta(content)
+        if vmd5:
+            d["video_md5"] = vmd5
+        if vlen:
+            d["video_len"] = vlen
     return d
 
 
@@ -1224,7 +1646,9 @@ def sessions():
     for tbl, talker in talkers():
         rows = _rows(tbl, 1)
         # 走 _render：不然最后一条是图片/语音时，会话列表预览会吐一整段 XML
-        last = _render(rows[0][1], rows[0][2])[:80] if rows else ""
+        # `split("\n")[0]`：末条是合并转发时 `_render` 会展开成多行（2026-10-15），
+        # 而预览是**单行**字段——不切的话会话列表里会多出一截转发正文。
+        last = _render(rows[0][1], rows[0][2]).split("\n")[0][:80] if rows else ""
         out.append({"talker": talker, "name": nm.get(talker, talker), "last": last})
     out.sort(key=lambda r: r["name"])
     return out
@@ -1237,8 +1661,10 @@ def attach_image(msgs):
     交给客户端**本来就有的**那套看图/读文件的能力去处理。
 
     解密需要**账号级的图片 AES key**，而抓它要扫一遍微信内存（本机约 50 秒），绝不能塞进
-    15 秒一拍的盯梢回路。所以这里**只用已缓存的 key**，没有就原样返回——key 的抓取入口
-    在 `wechat_image.image_aes_key()`（设置页的按钮 / devcli）。
+    15 秒一拍的盯梢回路。所以这里**只用已缓存的 key**，没有就原样返回。
+    抓取的**唯一用户入口是 `wechat-mcp.exe --image-key`**（2026-10-14 补：此前只有源码树里的
+    devcli 能抓，而文档里写的「设置页按钮」**根本不存在**——等于装好的 exe 永远读不出图）。
+    `check_env`（pro）会报 `image_key.cached`，调用方据此判断是「key 没抓」还是「图不在本地」。
     """
     try:
         import wechat_image                 # 延迟导入：它依赖本模块（镜像 / 数据目录 / WORK）
@@ -1247,17 +1673,58 @@ def attach_image(msgs):
         return msgs
 
 
+def attach_video(msgs):
+    """给视频消息补上 `video_path`（客户端**已经下下来**的那份 mp4），失败静默跳过。
+
+    与 `attach_image`/`attach_voice` 同约定：只补路径、不回字节。视频比图片还省事——
+    **不需要 key、不需要模型**，落盘的就是明文 mp4（转发/另存只要一个路径）。
+
+    三条实测事实（2026-10-14，`verify/wechat-mcp/probe_e2_video_map.py`，本机 48 条视频消息）：
+
+    1. 磁盘文件名**既不是**消息的 `md5` 也**不是** `newmd5`（逐属性试，零命中），
+       只能经 `hardlink.db` 的 `video_hardlink_info_v4` 换名；
+    2. 换完必须**再比大小**：消息的 `length` 与磁盘字节数**精确相等**（8/8 命中样本全等）。
+       这是"这条消息 ↔ 这份文件"的**唯一**判据——只凭 md5 换名，换错就是给别人放另一段视频；
+    3. 覆盖受"文件还在不在"限制：磁盘上只留得下最近下过的那几份（≤7 天 3/4，更早的多数已被
+       微信清掉）。取不到就**原样返回**：不猜、不报假路径（与图片 `no_file` 同口径）。
+    """
+    need = [m for m in msgs if m.get("type") == 43 and m.get("video_md5")]
+    if not need:
+        return msgs
+    try:
+        idx = _video_hardlink()
+    except Exception:
+        return msgs
+    for m in need:
+        try:
+            p = video_file_path(idx.get(m["video_md5"].lower()))
+            if p and m.get("video_len") and os.path.getsize(p) == m["video_len"]:
+                m["video_path"] = p
+        except OSError:
+            continue
+    return msgs
+
+
 def attach_voice(msgs, talker):
     """给语音消息补上 `voice_path`（本地 SILK 文件），失败静默跳过。
 
     只对 `type=34` 且**真能从 `VoiceInfo` 取到音频**的消息加。客户端拿这个路径去
     解 SILK + 转写（见 `voice_file` 的说明）；取不到就只剩 `[语音 N 秒]` 那段元数据。
+
+    **一批共用一个等待额度**（2026-10-14 修）：一批里的语音是**同时**在下载的，等第一条
+    就把整批都等到了；而一条一条各给 `_VOICE_WAIT_S` 会**累乘**——实测真机全库合并流里，
+    任一 180s 窗口内最多 **6 条**语音 ⇒ 一趟 `poll_new` 最坏 **36s**，把 15s 那一拍整个拖穿
+    （水位在等待**之前**就已提交，重试会拿回同一批，所以不丢消息、只是延迟几十秒到代聊）。
+    老语音仍是只看一眼：它们的数据是**永久缺失**的，等再久也没有。
     """
+    budget = time.time() + _VOICE_WAIT_S
     for m in msgs:
         if m.get("type") != 34:
             continue
         try:
-            p = voice_file(talker, m["ts"], m.get("local_id"))
+            fresh = (time.time() - m["ts"]) < _VOICE_FRESH_S
+            p = voice_file(talker, m["ts"], m.get("local_id"),
+                           deadline=budget if fresh else 0)
         except Exception:
             p = None
         if p:
@@ -1265,18 +1732,40 @@ def attach_voice(msgs, talker):
     return msgs
 
 
+def _pad_page(tbl, rows, limit):
+    """把一页补到**边界那一秒的整秒**——否则下一页的 `create_time < cursor` 会把这秒剩下的丢掉。
+
+    `create_time` **只到秒**，而页是按**条数**切的。最老那条所在的秒被切开时，同秒更早的那些
+    `> 本页` 又 `< 下一页`，两边都够不着（和 `poll` 的水位是同一类 bug，见 §9.12 ①）。
+    实测本机：`limit=10` 逐表模拟翻页，**17 张表丢 76/4973 条（1.5%）**，最坏一张 19/87。
+    补秒后 `cursor` 仍是**单个 int**，调用方一个字都不用改。
+    """
+    if len(rows) < limit:                  # 没切在中间（这一页就是剩下的全部）
+        return rows
+    bts = min(r[0] for r in rows)
+    have = {r[4] for r in rows}             # local_id：同秒可能有很多条
+    extra = [r for r in _rows_full(tbl, 10 ** 9, at=bts) if r[4] not in have]
+    if not extra:
+        return rows
+    return sorted(rows + extra, key=lambda r: (r[0], r[4]), reverse=True)
+
+
 def history(talker, limit=10, before_ts=0):
     """读历史（时间正序）。`before_ts` 取更早一页：只返回 create_time 严格小于它的消息。
 
     返回带 `cursor`（本页最老一条的 ts）与 `has_more`，Agent 可用 `before_ts=cursor` 翻更早的页。
+    翻页**不会丢同秒消息**：页会补到边界那一秒的整秒（见 `_pad_page`），所以那一页可能比
+    `limit` 略多几条。
     """
     nm = names()
     me = self_wxid()
-    rows = _rows_full(tbl_of(talker), limit, before=before_ts)
+    tbl = tbl_of(talker)
+    rows = _pad_page(tbl, _rows_full(tbl, limit, before=before_ts), limit)
     msgs = [msg_dict(ct, lt, c, nm, sender=s, me=me, local_id=lid, source=src, packed=pk)
             for ct, lt, c, s, lid, src, pk in reversed(rows)]
     attach_voice(msgs, talker)
     attach_image(msgs)
+    attach_video(msgs)
     out = {"talker": talker, "name": nm.get(talker, talker), "count": len(msgs), "messages": msgs}
     if msgs:
         out["cursor"] = msgs[0]["ts"]          # 本页最老一条，供取更早一页
@@ -1317,20 +1806,37 @@ def _message_by_id(talker, local_id):
     return None
 
 
+def _image_key_cached():
+    """图片 AES key 是否**已抓过并缓存**（不扫内存，见 `wechat_image.cached_aes_key`）。"""
+    try:
+        import wechat_image
+        return bool(wechat_image.cached_aes_key())
+    except Exception:
+        return False
+
+
 def image_message(talker, local_id):
-    """按 `talker` + `local_id` 定位**单条**图片消息 → 带 `image_path` 的 `msg_dict`。
+    """按 `talker` + `local_id` 定位**单条**图片消息 → `(带 image_path 的 msg_dict, 失败原因)`。
 
     给 MCP 的 `read_image` 用：Agent 先在 `read_history` 里看见图片消息的 `local_id`，
     再按这个 id 单独把图取回去——**别让 `read_history` 每次都内联多张图的 base64**
     （一条原图 base64 后好几 MB，翻一页历史就爆了）。
 
-    找不到 / 不是图片 / 解不出位图 → 返回 None（调用方据此报错，**不要**伪造路径）。
+    `m` 为 None 时看第二个返回值：`not_found`（这个会话里没这条）/ `not_image`（不是图片）/
+    `no_key`（**图片 AES key 还没抓过**）/ `no_file`（原图与中图都没落到本地，永久缺失）。
+    **`no_key` 必须与 `no_file` 分开**（2026-10-14 修）：`attach_image` 拿不到 key 就原样返回，
+    症状与「图没落本地」**一模一样**，调用方分不出来就会去查根本不存在的文件缺失。调用方
+    据此报错，**不要**伪造路径。
     """
     m = _message_by_id(talker, local_id)
-    if not m or m.get("type") != 3:
-        return None
+    if not m:
+        return None, "not_found"
+    if m.get("type") != 3:
+        return None, "not_image"
+    if not _image_key_cached():
+        return None, "no_key"
     attach_image([m])
-    return m if m.get("image_path") else None
+    return (m, "") if m.get("image_path") else (None, "no_file")
 
 
 def voice_message(talker, local_id):
@@ -1347,6 +1853,15 @@ def voice_message(talker, local_id):
     return m if m.get("voice_path") else None
 
 
+# 满量的会话一拍最多放大到这个倍数（`per * _POLL_BURST`）。25×20 = 500 条/会话/拍：
+# 已经远超"15 秒内一个会话能来多少条"，再高只是病态刷屏时白扫，不如承认截断并上报。
+#
+# 已知代价：`since_ts=0`（要全量历史）时会逐表放大 ⇒ 实测 2.5s → 6.8s。**产品路径不会走它**
+# （盯梢首拍用"现在"、水位只有 >0 才落库），所以不为此加复杂度；真要优化得给 create_time
+# 建索引——那是另一件事。
+_POLL_BURST = 25
+
+
 def poll(since_ts, per=20):
     """增量新消息（实时监控用）。返回 `create_time > since_ts` 的消息，按时间正序。
 
@@ -1357,13 +1872,39 @@ def poll(since_ts, per=20):
     只有真变了的表才做那次扫描。`per` 是每会话上限（达到上限的表标记为不完整，不复用）。
 
     返回带 `from_me`/`sender`（自己发的也返回——用户可能自己在手机上回过了，Agent 应当知道）。
+
+    **截断（2026-10-14 修）**：`next_since_ts` 是**全局**水位（所有返回消息里最大的 ts），而
+    `per` 是**每会话**上限。旧实现取每会话**最新**的 `per` 条，某会话 15 秒来了 30 条时返回的是
+    第 11–30 条、水位推到第 30 条 ⇒ **第 1–10 条永久丢失且毫无迹象**（`per=20` 实测本机
+    71 张表里 **39 张满量**，不是罕见分支）。现在：满量的会话**整批放大重取**（同一批的超集，
+    无重复），一拍把它读全，水位照旧推；放大到 `per*_POLL_BURST` 仍满才放弃，并置 `truncated`
+    如实上报。取的是**最早**的那批，所以万一真放弃，留下的是最新的那条尾巴——下一拍水位只推到
+    本批最大 ts，会把它们接着读回来。
+    已知残余（2026-10-14 复查，刻意不修）：若放弃点**恰好切在某一秒中间**，那一秒剩下的既够不着
+    `> 水位`、又够不着 `= 水位且 local_id > 上次表尾`（表尾是本拍扫描时的最大值，已越过它们），
+    这一秒的尾巴就真丢了。要修得让 `_rows_full_conn` 按分片回传"已投递的最大 local_id"（现只回
+    无分片的行），波及 4 个调用方；而触发它要**单表 500 条（per×_POLL_BURST）新消息挤在同一个
+    15 秒窗口**，且那一拍已经带了 `truncated: true`——代价与概率都不支持为它加复杂度。
+
+    **秒级水位（2026-10-14 修，同样是"水位越过消息"这一类）**：`next_since_ts` 取的是
+    "本拍见过的最大 ts"，而 `create_time` **只到秒**。轮询只要**落在某个活跃秒的中间**，水位就已经
+    是那一秒 ⇒ 同一秒后面到达的消息用 `create_time > 水位` **永远取不到**（群聊一个爆发秒里几十条
+    就是这个形态）。实测真机 5067 行里 **195 行**落在"与已见最大 ts 同一秒"，**旧语义全丢**。
+    修法：除了 `create_time > 水位`，再认 **`create_time = 水位 且 local_id > 上次扫描时的最大
+    local_id`**（见 `_rows_full_conn`）——`local_id` 是 AUTOINCREMENT，那条分界线恰好把集合切成
+    "已送达的"与"之后才插入的"，所以这条补集**既不重复也不遗漏**。
+    拿不到那条分界线时（本进程**第一次**扫这张表）退回纯 `>`：**宁可漏掉这一秒的尾巴，也不冒险
+    重复投递**——重复会让代聊把同一条消息回两遍，比漏更难查。
+    真机历史按两套语义对推：旧 **7–195** 条（随轮询密度），新 **0 条 0 重复**
+    （`verify/wechat-mcp/probe_watermark_loss.py`）。
     """
     since_ts = int(since_ts or 0)
     _refresh()
     nm = names()
     me = self_wxid()
     out = []
-    stats = {"tables": 0, "scanned": 0, "reused": 0}
+    stats = {"tables": 0, "scanned": 0, "reused": 0, "truncated": 0}
+    truncated = False                      # 有会话满量 ⇒ 本拍只带走了一部分，下一拍接着读
     conns = {}
     try:
         for tbl, talker in talkers():
@@ -1373,13 +1914,30 @@ def poll(since_ts, per=20):
             stats["tables"] += 1
             ids = tuple(_max_local_id(conns, p, tbl) for p in rels)
             ent = _poll_memo.get(tbl)
+            # 上次扫描时的逐分片高水位 = 那条「已送达 / 之后才插入」的分界线（见 `_rows_full_conn`）。
+            # 拿不到 memo（本进程第一次扫这张表）就没有分界线，只能退回纯 `>` 水位：
+            # **宁可漏掉这一秒的尾巴，也不冒险重复投递**——重复会让代聊把同一条消息回两遍，更难查。
+            cuts = dict(zip(rels, ent["ids"])) if ent and len(ent["ids"]) == len(rels) else None
             rows = None
             if (ent and None not in ids and ent["ids"] == ids
                     and since_ts >= ent["since"] and ent["complete"]):
+                # 复用：`ids` 没变 ⇒ 上次扫描之后**一次插入都没有** ⇒ 没有要补的边界行，
+                # 按 `> since_ts` 过滤即完整（这也是复用路不必带 `cuts` 的原因）。
                 rows = [r for r in ent["rows"] if r[0] > since_ts]
                 stats["reused"] += 1
             if rows is None:
-                rows = _rows_full_conn(conns, rels, tbl, per, since=since_ts)
+                rows = _rows_full_conn(conns, rels, tbl, per, since=since_ts, min_lids=cuts)
+                if len(rows) >= per:
+                    # 满量 ⇒ 多半还有没返回的。**整批放大重取一次**（是同一批的超集：同 since、
+                    # 同升序、只是 limit 更大 ⇒ 只多不少、绝不重复），把这一拍的该会话读全。
+                    # 为什么必须读全：水位是**全局单条** ts，任何别的会话有更新消息就会把它顶上去，
+                    # 越过本会话没返回的那几条 ⇒ **永久丢失**（`per=20` 实测 71 张表里 39 张满量）。
+                    rows = _rows_full_conn(conns, rels, tbl, per * _POLL_BURST, since=since_ts,
+                                           min_lids=cuts)
+                if len(rows) >= per * _POLL_BURST:
+                    # 放大到上限还是满的：认输但**如实上报**，别让它无声（病态刷屏才会到这）
+                    stats["truncated"] += 1
+                    truncated = True
                 _poll_memo[tbl] = {"ids": ids, "since": since_ts, "rows": rows,
                                    "complete": len(rows) < per}
                 stats["scanned"] += 1
@@ -1393,6 +1951,9 @@ def poll(since_ts, per=20):
             # 图片同理：没缓存图片 AES key 时 `attach_image` 立刻返回，零成本
             if any(m.get("type") == 3 for m in batch):
                 attach_image(batch)
+            # 视频同理（要开 hardlink.db 换名，约 10ms）：一批里没有 type=43 就完全不碰
+            if any(m.get("type") == 43 for m in batch):
+                attach_video(batch)
             out.extend(batch)
     finally:
         for c in conns.values():
@@ -1402,7 +1963,10 @@ def poll(since_ts, per=20):
                 pass
     out.sort(key=lambda d: d["ts"])
     return {"count": len(out), "messages": out, "since_ts": since_ts,
-            "next_since_ts": (out[-1]["ts"] if out else since_ts), "stats": stats}
+            "next_since_ts": (out[-1]["ts"] if out else since_ts),
+            # 本拍有条会话没读完（满量）⇒ 调用方**别把它当成"已经追平"**，水位停在
+            # 第 per 条上、下一拍自己会接着读到剩下的。留个显式信号，免得又被无声吞掉。
+            "truncated": truncated, "stats": stats}
 
 
 def _max_local_id(conns, path, tbl):
@@ -1440,9 +2004,18 @@ def _query_rows(c, tbl, where, params, with_source, with_packed=True):
     return []
 
 
-def _rows_full_conn(conns, rels, tbl, limit, since=0):
-    """跨分片取 `[(create_time, local_type, content, sender, local_id, source)]`（复用调用方的连接）。"""
-    where = " where create_time > ?"
+def _rows_full_conn(conns, rels, tbl, limit, since=0, min_lids=None):
+    """跨分片取 `[(create_time, local_type, content, sender, local_id, source)]`（复用调用方的连接）。
+
+    截断时给**最早**的 `limit` 条（升序），这是 `poll` 的水位能安全推进的前提——见 `poll`。
+
+    `min_lids`（{分片路径: local_id}）：把**水位那一秒**里、"上次扫描之后才落库"的那些也纳入
+    （`create_time = since AND local_id > min_lids[分片]`）。为什么必须这样补：`create_time` **只到秒**，
+    而水位是"本拍见过的最大 ts"——轮询落在某个活跃秒中间时，同一秒后面到达的消息用 `> 水位`
+    **永远取不到**（见 `poll` 的 docstring）。`local_id` 是 `INTEGER PRIMARY KEY AUTOINCREMENT`
+    （逐分片单调递增），于是"上次扫描时的最大值"恰好把集合切成两半：**之前就存在的（必然已送达）**
+    与**之后插入的（必然是新的）**——这一个补集既不重复也不遗漏，所以它同时是"不丢"和"不重"的判据。
+    """
     out = []
     for p in rels:
         smap = _cache["senders"].get(p, {})
@@ -1450,12 +2023,18 @@ def _rows_full_conn(conns, rels, tbl, limit, since=0):
             c = conns.get(p)
             if c is None:
                 c = conns[p] = sqlite3.connect(p)
-            rows = _query_rows(c, tbl, where, (since, limit), True)
+            cut = (min_lids or {}).get(p)
+            if cut is None:
+                where, params = " where create_time > ?", (since, limit)
+            else:
+                where = " where create_time > ? or (create_time = ? and local_id > ?)"
+                params = (since, since, cut, limit)
+            rows = _query_rows(c, tbl, where, params, True)
         except Exception:
             continue
         for ct, lt, content, sid, lid, src, pk in rows:
             out.append((ct, lt, content, smap.get(sid, ""), lid, src, pk))
-    out.sort(key=lambda r: r[0], reverse=True)
+    out.sort(key=lambda r: r[0])
     return out[:limit]
 
 
@@ -1501,6 +2080,45 @@ def resolve_talker(query):
     return None
 
 
+class UnknownTalker(LookupError):
+    """会话参数解析不出**唯一**目标（`resolve_talker` 返回 None）。
+
+    为什么要一个专门的类型：工具边界上不能"猜"，也**不允许静默降级成空结果**——
+    `{"count": 0}` 与「这个会话真没消息」在 JSON 里一模一样，四件套里 A/C/D 都踩过这一跤
+    （传显示名 → 算出不存在的表 → 0 条，看着像正常回答）。MCP 侧统一翻成 `target_not_found`
+    （见 `mcp_stdio.py`）。
+
+    `candidates`：解析失败时的近似候选（见 `suggest_talkers`）。带上它，"找不到"才**可操作**
+    ——本机真有三个 `loop`，把三个列出来，用户或 Agent 才能一句话说清是哪个。
+    """
+
+    def __init__(self, query, candidates=None):
+        super().__init__(query)
+        self.candidates = list(candidates or [])
+
+
+def talker_of(query):
+    """用户给的会话名 / wxid / 群号 → talker。解析不出唯一目标就抛 `UnknownTalker`。
+
+    与 `resolve_talker` 的分工：那个是纯解析（返回 None，让调用方按自己的语义决定），
+    这个给**工具边界**用——`query` 为空返回 None（表示"不筛会话"），非空则要么给出 talker、
+    要么抛。
+
+    失败路径顺手带上近似候选。只在这条路上做（`names()` 本身有缓存），成功路径一点开销不加；
+    取候选本身失败也不能盖掉"找不到会话"这个主因——那会报成 env 问题，更难查。
+    """
+    if not query:
+        return None
+    got = resolve_talker(query)
+    if got is None:
+        try:
+            cands = suggest_talkers(query)
+        except Exception:
+            cands = []
+        raise UnknownTalker(str(query), cands)
+    return got
+
+
 def suggest_talkers(query, limit=6):
     """解析失败时的**近似候选**（名字或 talker 包含查询，忽略大小写）。
 
@@ -1532,47 +2150,75 @@ def _session_plain():
 
 
 def search_messages(keyword, talker=None, since=0, until=0, limit=50, scan=3000):
-    """按关键词检索消息（跨会话或指定会话；支持时间范围，**跨全部分片**）。逐条解码匹配。"""
+    """按关键词检索消息（跨会话或指定会话；支持时间范围，**跨全部分片**）。逐条解码匹配。
+
+    ⚠️ 每条命中都要带 `local_id`（2026-10-14 修）：它是**唯一**能把命中交回给
+    `read_image` / `transcribe_voice` 的手柄。早先这里把 `local_id`/`source`/`packed`
+    直接从行里丢掉（`for ct, lt, content, s, _lid, _src, *_`），于是"先搜到一条图片消息、
+    再去取图"这条路是**死的**——Agent 手里只有一个 ts，而同秒多条只能靠 local_id 消歧。
+    `source`/`packed` 一并带上：@我 与图片文件名本来就在这两列里，扔掉等于让命中成为二等公民。
+
+    返回里的 `truncated`：至少一个会话撞到了 `scan` 上限（多取一条来判断），**如实上报**——
+    "被上限截断"和"这段真没有"在 0 命中时长得一模一样，不报就等于让人把答案当事实。
+    """
     _refresh()
     nm = names()
     me = self_wxid()
     pairs = [(talker, tbl_of(talker))] if talker else [(t, tbl) for tbl, t in talkers()]
     hits = []
+    trunc = False
     for t, tbl in pairs:
         try:
-            rows = _rows_full(tbl, scan)
+            # 时间范围**下推到 SQL**（2026-10-14 修）：原先取"最新 `scan` 条"再在内存里过滤，
+            # 于是查一个**老的时间段**时扫描窗口早被更新的消息占满 ⇒ 恒返回 0 条**而且不报错**
+            # ——"这段确实没有"和"根本没扫到"长得一模一样。下推后窗口落在**时间段内**。
+            # `since`/`before` 的取值口径与函数入口一致（都是严格大于 / 严格小于）。
+            rows = _rows_full(tbl, scan + 1, since=since, before=until)
         except Exception:
             continue
-        for ct, lt, content, s, _lid, _src, *_ in rows:
-            if since and ct <= since:
-                continue
-            if until and ct >= until:
-                continue
+        if len(rows) > scan:               # 多要一条只为**知道**被截断了（如实上报，不静默）
+            trunc = True
+            rows = rows[:scan]
+        for ct, lt, content, s, lid, src, *rest in rows:
             # 搜**渲染后的文本**而不是原始 XML：这样「图片」「语音」「撤回」这些
             # 摘要词才搜得到，也避免命中 XML 属性里的随机十六进制（aeskey/md5 之类）。
             if keyword in _render(lt, content):
-                hits.append(msg_dict(ct, lt, content, nm, talker=t, name=nm.get(t, t), sender=s, me=me))
+                hits.append(msg_dict(ct, lt, content, nm, talker=t, name=nm.get(t, t), sender=s, me=me,
+                                     local_id=lid, source=src, packed=(rest[0] if rest else None)))
     hits.sort(key=lambda d: d["ts"], reverse=True)
-    return {"keyword": keyword, "count": len(hits), "scanned_per_talker": scan, "messages": hits[:limit]}
+    # 视频命中要带 `video_path`（2026-10-14 补）：`history`/`poll_new` 都挂了，唯独**检索**
+    # 这条最该挂的没挂——于是「搜到那段视频」返回的是一条**点不开**的消息（实测搜「视频」命中 48 条、
+    # 带路径 0 条），用户要的恰恰是"搜到了就给我"。成本很低：只读 hardlink.db（30s 缓存）+ 比大小，
+    # 不扫内存、不需要 key。取不到就维持没路径——**本地根本没有那份字节**（多数视频从没在微信里点开过，
+    # 点开一次就会下载落盘），不猜、不编。
+    attach_video(hits[:limit])
+    return {"keyword": keyword, "count": len(hits), "scanned_per_talker": scan,
+            "truncated": trunc, "messages": hits[:limit]}
 
 
 def unread():
-    """未读会话（读 session.db 的 unread_count），附最近一条预览。"""
+    """未读会话（读 session.db 的 unread_count），附未读条数与最近一条预览。
+
+    预览用**客户端自己算好的** `SessionTable.summary` —— 微信会话列表上显示的就是它。
+    早先的实现对每个未读会话各调一次 `history(u, 1)` 再渲染：实测本机 128 个未读会话
+    ⇒ **1.8 秒**，比全库检索一次还慢 5 倍，而这一整块信息客户端早就算好躺在同一行里了。
+    summary 覆盖率实测 127/128（剩的是「你撤回了一条消息」这类微信自己也不给预览的），
+    空就空着——预览只用于「先看哪条」，要准确内容应当用 read_history。
+
+    排序按 `last_timestamp` 倒序（最近活跃在前，与微信 UI 一致）；原先按 username
+    字典序返回，顺序对用户没有意义。
+    """
     nm = names()
     try:
         c = sqlite3.connect(_session_plain())
-        users = [r[0] for r in c.execute("select username from SessionTable where unread_count > 0")]
+        rows = list(c.execute(
+            "select username, unread_count, ifnull(summary, ''), ifnull(last_timestamp, 0) "
+            "from SessionTable where unread_count > 0 order by last_timestamp desc"))
         c.close()
     except Exception as e:
         return {"count": 0, "sessions": [], "error": f"session.db 读取失败: {e}"}
-    out = []
-    for u in users:
-        try:                      # session.db 里的会话未必在 message_0.db 有消息表
-            msgs = history(u, 1).get("messages") or []
-            last = msgs[-1]["text"][:80] if msgs else ""
-        except Exception:
-            last = ""
-        out.append({"talker": u, "name": nm.get(u, u), "last": last})
+    out = [{"talker": u, "name": nm.get(u, u), "last": (s or "")[:80], "unread": n}
+           for u, n, s, _ts in rows]
     return {"count": len(out), "sessions": out}
 
 
@@ -1583,8 +2229,11 @@ _STOP = {"的", "了", "是", "我", "你", "他", "她", "它", "在", "就", "
          "this", "with", "at", "be", "are", "was", "s", "t", "re", "ve", "ll", "don"}
 
 
-def _rows_full(tbl, limit, since=0, before=0):
-    """跨分片取会话消息（带发送者 user_name）：[(create_time, local_type, content, sender)]。"""
+def _rows_full(tbl, limit, since=0, before=0, at=0):
+    """跨分片取会话消息（带发送者 user_name）：[(create_time, local_type, content, sender)]。
+
+    `at` 单独取**某一秒的全部**（`create_time = ?`），只给 `_pad_page` 翻页补秒用。
+    """
     _refresh()
     conds, params = [], []
     if since:
@@ -1593,6 +2242,9 @@ def _rows_full(tbl, limit, since=0, before=0):
     if before:
         conds.append("create_time < ?")
         params.append(before)
+    if at:
+        conds.append("create_time = ?")
+        params.append(at)
     where = (" where " + " and ".join(conds)) if conds else ""
     out = []
     for p in _cache["msg"]:
@@ -1816,12 +2468,18 @@ def _pick_pairs(pairs, per_bucket=2):
     return [p for k, _, _ in _LEN_BUCKETS for p in b[k]]
 
 
-def digest(talker=None, limit=500, samples=6, top=15, since=0):
+def digest(talker=None, limit=0, samples=6, top=15, since=0):
     """蒸馏「行为与语料」：全局（`talker` 为空）或指定会话。
 
     ⚠️ **`since` 只收窄「样本」，统计永远基于全量**（见下面 pairs 循环里的说明）——
     这样增量蒸馏拿去覆盖画像时不会把老底丢掉。
-    
+
+    ⚠️ **`limit` 默认 0 = 全量**（2026-10-14 改，原默认 500）：它和上面那句话**本来是打架的**
+    ——「统计永远基于全量」而每个会话只扫最新 500 条时，超过 500 条的会话给出的
+    `self.total`/`hour_hist`/`contacts`/`style` 全是**切片**，而返回里写着 `stats_scope: "all"`。
+    本机就有会话 >500 条（最大 614），所以这是**当下就在错**的一条，不是理论问题。
+    设了 `limit` 就是**有损**的（省时间用），那时 `capped_talkers` 会把被截断的会话列出来
+    ——**别拿它当真值**。
 
     **确定性**：只用本地库统计（**不调用 LLM、不外传**），返回结构化 digest（统计 + 代表性样本
     + **真实对子** `exchange_pairs`），供上层（LLM 或模板）提炼成「用户画像 / 好友画像」。
@@ -1839,6 +2497,7 @@ def digest(talker=None, limit=500, samples=6, top=15, since=0):
     ex_by_talker = {}                 # {talker: [(对方一轮, 我一轮)]}
     per_contact = {}
     total = from_me = 0
+    scanned, capped = 0, []
     for t, tbl in pairs:
         # ⚠️ **统计永远基于全量**（不加 `since`）：`since` 只用来挑「这次要看的**新样本**」。
         #
@@ -1847,7 +2506,13 @@ def digest(talker=None, limit=500, samples=6, top=15, since=0):
         # 若统计也被 `since` 收窄，一次增量蒸馏就会把全量画像换成几天切片的统计——
         # 实测：3 天切片只剩 403 条（全量 3903）、联系人 69→21、活跃时段只有 15 个小时非零，
         # 写出来的画像会把这些当成「事实」。
-        rows = _rows_full(tbl, limit)
+        #
+        # `limit` 默认 0 = 全量（多要一条只为**知道**被截断了，好如实上报 `capped_talkers`）。
+        rows = _rows_full(tbl, (limit + 1) if limit else 10 ** 9)
+        if limit and len(rows) > limit:
+            capped.append(t)
+            rows = rows[:limit]
+        scanned = max(scanned, len(rows))
         tot = fm = ft = 0
         first = last = 0
         sm_me, sm_them = [], []
@@ -1910,7 +2575,8 @@ def digest(talker=None, limit=500, samples=6, top=15, since=0):
         "scope": talker or "all",
         "generated_at": int(time.time()),
         "shards": len(_cache["msg"]),
-        "scanned_per_talker": limit,
+        "scanned_per_talker": scanned,        # 实扫条数（不是上限）；=limit 且 capped 非空即被截断
+        "capped_talkers": capped,
         "since": since,
         # 明确告诉调用方：`since` 只影响 samples_*，下面这些统计是全量的
         "stats_scope": "all",

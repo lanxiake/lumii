@@ -109,7 +109,7 @@ def cmd_unread():
     return 0
 
 
-def cmd_digest(talker=None, limit=500):
+def cmd_digest(talker=None, limit=0):
     """蒸馏统计（确定性、只读、本地）：<talker> 可选，不给则全局。"""
     t = (core.resolve_talker(talker) or talker) if talker else None
     _out(core.digest(t, int(limit)))
@@ -328,7 +328,7 @@ def main(argv):
     if cmd == "search" and len(argv) >= 2:
         return cmd_search(argv[1], argv[2] if len(argv) > 2 else None)
     if cmd == "digest":
-        return cmd_digest(argv[1] if len(argv) > 1 else None, argv[2] if len(argv) > 2 else 500)
+        return cmd_digest(argv[1] if len(argv) > 1 else None, argv[2] if len(argv) > 2 else 0)
     if cmd == "profile":
         return cmd_profile(argv[1] if len(argv) > 1 else None)
     if cmd == "state":

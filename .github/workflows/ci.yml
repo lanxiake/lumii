@@ -121,16 +121,35 @@ jobs:
       # 装的是纯 python 轮子，秒级。
       - run: python -m pip install --disable-pip-version-check pycryptodome
       - run: python apps/windows/resources/wechat-mcp/test_watch.py
-      # wechat-file-mcp（文件归档，独立小工具）：纯函数单测（解析/磁盘映射/归档路径）
-      # + 真机只读冒烟（CI 无微信库时自己跳过，不会假绿）。
-      - run: python apps/windows/resources/wechat-file-mcp/test_filecore.py
-      # wechat-export-mcp（记录导出）：渲染/转义/代发标记/格式 纯函数测 + 真机只读导出冒烟（无库时跳过）。
+      # send_confirm（发送落地校验）：钉住「认我们自己发的那条（agent_sent 指纹 / from_me+正文），
+      # 而不是"有新消息"」。旧判据的**假成功**是静默且致命的——发送窗口里对方恰好回一句就判
+      # 「已发送」，而我们那条可能压根没出去，调用方还以为成了。夹具替代 history/时钟，不碰真机。
+      - run: python apps/windows/resources/wechat-mcp/test_send_confirm.py
+      # mcp_stdio（四件套共用的协议层）：握手/协议版协商、工具错误码、isError、通知不回帧。
+      # 协议循环原先在四个 server.py 里各一份，已踩过两次「手搓对不上 SDK」——收敛后这是唯一的哨位。
+      - run: python apps/windows/resources/wechat-mcp/test_mcp_stdio.py
+      # mcp_install（四件套共用的一键安装）：写别人配置文件的三条纪律（读不懂就不动、
+      # 只增删自己的键、别人的内容一个字节不碰）+ 部署/技能包往返。全在临时目录里跑，
+      # **不碰任何真实客户端配置**——所以 CI 上也能真跑。
+      - run: python apps/windows/resources/wechat-mcp/test_mcp_install.py
+      # builtin_expiry（五件套共用的内置有效期）：把到期时刻**注入**进去再验——
+      # 源码运行走的是"不判到期"那条路，在源码里跑一遍证明不了任何事。门禁的失败模式
+      # 全是静默放行（取不到到期时刻就当 0），所以这层必须显式覆盖。
+      - run: python apps/windows/resources/wechat-mcp/test_expiry.py
+      # wechat-export-mcp（记录导出 + 文件归档，**一个产品两个面**）：
+      #   记录面——渲染/转义/代发标记/格式 纯函数测 + 统计报表/关键词筛选/文档对账 + 真机只读导出冒烟；
+      #   文件面——解析/磁盘映射/归档路径（含"与导出同一棵树"）+ 占用分账 + 真机只读冒烟。
+      # 两条 CI 无微信库时自己跳过，不会假绿。
+      - run: python apps/windows/resources/wechat-export-mcp/test_filecore.py
       - run: python apps/windows/resources/wechat-export-mcp/test_exportcore.py
       # wechat-recall-mcp（撤回防护）：用**合成库**验撤回判定（删行/原地改写两种机制、
       # 假阳性防护、归档永不覆盖）+ 真机只读打底冒烟（无库时跳过）。
       - run: python apps/windows/resources/wechat-recall-mcp/test_recall.py
-      # wechat-crm-mcp（客户分析）：联系人分类纯函数测 + 真机只读冒烟（通讯录/群成员/统计/排行，无库时跳过）。
+      # wechat-crm-mcp（客户分析·通讯录面）：联系人分类纯函数测 + 真机只读冒烟（通讯录/群成员/统计/排行，无库时跳过）。
       - run: python apps/windows/resources/wechat-crm-mcp/test_contactscore.py
+      # wechat-crm-mcp（客户分析·消息面）：简报/切段/问句判定等纯函数测（**合成数据**逐项对账：
+      # 谁主动开场、回复中位数、没接的问句）+ 真机只读冒烟（读正文/检索，无库时跳过）。
+      - run: python apps/windows/resources/wechat-crm-mcp/test_chatlog.py
       # 安装包里随的是独立 wechat-mcp.exe（PyInstaller 单文件）：构建脚本末尾自带 initialize 握手冒烟，
       # 能拦下「源码能跑、冻结后缺模块/缺随包数据」这一类只在 exe 里出现的问题。
       - uses: astral-sh/setup-uv@v5

@@ -1,4 +1,0 @@
-__pycache__/
-*.pyc
-# scripts/build-wechat-file-mcp.mjs 的产物
-dist/

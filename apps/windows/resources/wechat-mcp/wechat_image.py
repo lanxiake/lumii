@@ -100,6 +100,15 @@ def looks_like_image(b):
 _is_image = looks_like_image   # 内存扫描的热路径只做廉价判据，别加重活
 
 
+def _head_ok(path):
+    """落盘文件的开头像不像图（只读前 8 字节）。给**缓存**用——见 `image_file` 里的自愈那一段。"""
+    try:
+        with open(path, "rb") as f:
+            return looks_like_image(f.read(8))
+    except OSError:
+        return False
+
+
 def _png_ok(b):
     """整条 chunk 链的 CRC 全过、且正好以 IEND 收尾。
 
@@ -273,7 +282,15 @@ def image_file(md5, aes_key=None, base=None):
         for ext in (".jpg", ".png"):             # 扩展名跟着内容走，两种都得认缓存
             cached = os.path.join(d, "%s_%s%s" % (kind, key_id, ext))
             if os.path.exists(cached) and os.path.getsize(cached) > 0:
-                return cached
+                # 缓存也要验头（4 字节，1 次 open）。**不自愈就是个死结**：命中在解密**之前**，
+                # 于是「key 陈旧那段窗口里写坏的图」在换回好 key 之后还会被永远命中——
+                # 修好的代码也吐坏图。坏文件是我们自己写的（WORK 目录），直接删掉重解。
+                if _head_ok(cached):
+                    return cached
+                try:
+                    os.remove(cached)
+                except OSError:
+                    pass
         src = attach_path(name)
         if not src:
             continue
@@ -283,6 +300,13 @@ def image_file(md5, aes_key=None, base=None):
         except OSError:
             continue
         if not img or img[:4] == WXGF:            # wxgf 不是位图，退缩略图
+            continue
+        # 解出来**不像图**就不认（换下一份候选）。为什么非有这一道：`attach_image` 走的是
+        # `cached_aes_key()`——**不过 `_verify_key`**。账号换过 / key 文件陈旧时，AES-ECB 解出来
+        # 是**随机字节**，而随机字节前 4 字节大概率既不是 WXGF 也不是 PNG ⇒ 旧代码会把它当原图
+        # 写成 `.jpg` 返回，模型拿到一张**坏图**（= _verify_key 注释里说的「安静地给出错误的图，
+        # 比报错糟得多」）。这里用现成的 `looks_like_image` 廉价拦掉，代价为 0。
+        if not looks_like_image(img):
             continue
         # 本机图片有 JPEG 也有 PNG。一律写 `.jpg` 会让看图的那一侧按 JPEG 解码、
         # 直接报「文件损坏」——内容是对的，错的是名字。

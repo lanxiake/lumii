@@ -12,44 +12,40 @@
 
 工具：`daemon_status` / `list_recalls` / `read_recall` / `archive_gap`。
 
-共享基础层：读取层直接复用同目录 `../wechat-mcp/` 的模块（经 `archive.py`），本包不复制。
+**单文件双身份**：不带参数 = MCP（stdio），带 `--daemon` / `--once` / `--status` /
+`--install-autostart` = 守护侧命令。协议层与工具边界约定在共享层 `../wechat-mcp/mcp_stdio.py`。
 """
-import json
 import os
 import sys
 
-SERVER_NAME = "wechat-recall"
-SERVER_VERSION = "0.1.0"
-SUPPORTED_PROTOCOL_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
-
-PARSE_ERROR, INVALID_REQUEST, METHOD_NOT_FOUND, INVALID_PARAMS = -32700, -32600, -32601, -32602
-
 HERE = os.path.dirname(os.path.abspath(__file__))
-if HERE not in sys.path:
-    sys.path.insert(0, HERE)
+SHARED = os.path.join(os.path.dirname(HERE), "wechat-mcp")   # 共享基础层（零复制）
+for _p in (HERE, SHARED):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
-import archive  # noqa: E402
+import archive                # noqa: E402
+import mcp_stdio              # noqa: E402
 
+SERVER_NAME = "wechat-recall"
+SERVER_VERSION = "0.13.0"
+TITLE = "微信撤回防护"
+DEFAULT_LIMIT = 200           # 工具默认一次回多少条撤回（`limit=0` = 全部）
 
-def log(*a):
-    print("[wechat-recall]", *a, file=sys.stderr, flush=True)
-
-
-def force_utf8_stdio():
-    for stream in (sys.stdout, sys.stderr, sys.stdin):
-        try:
-            stream.reconfigure(encoding="utf-8")
-        except Exception:
-            pass
-
+DAEMON_FLAGS = ("--daemon", "--once", "--install-autostart", "--uninstall-autostart",
+                "--stop", "--status")
 
 TOOLS = [
     {
         "name": "daemon_status",
         "description": (
             "【何时用】先看守护在不在跑、归档了多少、有没有停机缺口——**撤回能不能看到全看它**。"
-            "【返回】`alive`（守护是否在跑）/ `archived`（归档条数）/ `backfilled` / `last_tick` / "
-            "`gaps`（停机缺口数）/ `autostart`（是否已开机自启）/ `db_path`。"
+            "【返回】`running`（**进程**在不在，按停止事件判，最准）/ `alive`（**心跳**新不新，"
+            "按周期判）——两个一起看才分得清「没跑」和「跑着但卡住了」：刚崩时心跳还没过期，"
+            "`alive=true` 但 `running=false`。/ `archived`（归档条数）/ `oldest`·`newest`"
+            "（最早/最新一条）/ `db_bytes`（归档库体积）/ `last_tick` / `gaps`（停机缺口数）/ "
+            "`autostart`（是否已开机自启）/ `db_path` / `log_path`（守护日志，自启动的守护"
+            "**没有控制台**，出问题看它）。"
         ),
         "inputSchema": {"type": "object", "properties": {}},
     },
@@ -59,7 +55,8 @@ TOOLS = [
             "【何时用】看某会话（或全部）**被撤回/删除**的消息。"
             "【判定】归档里有、当前微信库里已没有或已被改写成系统消息。"
             "`reason`：`deleted` 整条消失 / `recalled` 被改写 / `changed` 其它变动。"
-            "【返回】每条含时间、发送者、原**文本**、`local_id`（可据此 read_recall 取完整原文）。"
+            "【返回】`total` 命中总数 / `count` 本次条数（不等说明被 `limit` 截断了，别当成"
+            "\"就这么多\"）；每条含时间、发送者、原**文本**、`local_id`（可据此 read_recall 取完整原文）。"
             "【前提】守护必须**在撤回发生之前**就已在跑；守护启动前的撤回看不到。"
         ),
         "inputSchema": {
@@ -68,7 +65,7 @@ TOOLS = [
                 "talker": {"type": "string", "description": "会话名或 wxid/群号；省略=全部会话"},
                 "since": {"type": "integer", "description": "起始时间（Unix 秒，含）"},
                 "until": {"type": "integer", "description": "结束时间（Unix 秒，含）"},
-                "limit": {"type": "integer", "description": "最多返回条数（默认 200）"},
+                "limit": {"type": "integer", "description": f"最多返回条数（默认 {DEFAULT_LIMIT}，0=全部）"},
             },
         },
     },
@@ -87,7 +84,7 @@ TOOLS = [
     },
     {
         "name": "archive_gap",
-        "description": "【何时用】确认归档有没有**漏记的时间段**（关机/守护没跑的时候）。"
+        "description": "【何时用】确认归档有没有**漏记的时间段**（关机/休眠/守护没跑的时候）。"
                        "有缺口就说明那段期间的撤回看不了——**如实告诉用户，别假装全覆盖**。",
         "inputSchema": {"type": "object", "properties": {}},
     },
@@ -103,7 +100,9 @@ INSTRUCTIONS = """\
 3. `list_recalls(talker=...)` 看被撤回的消息，`read_recall` 取完整原文。
 
 硬约束：
-- 归档只写一次、永不覆盖，所以撤回前的**原文**留得住；但**关机期间漏的补不回来**（看 `archive_gap`）。
+- 归档只写一次、永不覆盖，所以撤回前的**原文**留得住；但**关机/休眠期间漏的补不回来**（看 `archive_gap`）。
+- 归档库是**全量原文、只增不减**（`daemon_status` 的 `db_bytes` 会涨）；要控体积给守护加
+  `--retain-days N`，代价是**那段之后发生的撤回就查不到了**——这个取舍交给用户，别自行修剪。
 - 数据含他人隐私：只读、本地处理、不外传。
 """
 
@@ -115,50 +114,51 @@ DISPATCH = {
 }
 
 
-def _con():
-    return archive.connect()
-
-
-def _resolve(talker):
-    if not talker:
-        return None
-    got = archive.core.resolve_talker(talker)
-    return got if got else talker          # 解析不出就按原样当 talker（可能是 wxid）
-
-
 def _tool_status(_args):
     import daemon
     return daemon.status()
 
 
+def _resolve(talker):
+    """会话参数在**工具边界**解析：解析不出唯一目标就抛 `UnknownTalker`（→ target_not_found）。
+
+    放在这里而不是 `archive.py`：那边要用**合成库**离线跑判定单测，一解析就得读真库的会话名，
+    合成单测在 CI 上就全跑了。原先这里是 `resolve_talker(x) or x`——解析不出的名字会降级成
+    "拿这个名字去比"，`list_recalls` 静默回 0 条，看着就像"这个会话没有撤回"。
+    """
+    return archive.core.talker_of(talker)
+
+
 def _tool_list(args):
-    con = _con()
+    talker = _resolve(args.get("talker"))            # 先解析（错就别去碰归档库了）
+    con = archive.connect()
     try:
-        recs = archive.find_recalls(con, talker=_resolve(args.get("talker")),
+        recs = archive.find_recalls(con, talker=talker,
                                     since=int(args.get("since") or 0),
-                                    until=int(args.get("until") or 0),
-                                    limit=int(args.get("limit") or 200))
+                                    until=int(args.get("until") or 0))
     finally:
         con.close()
-    return {"count": len(recs), "recalls": recs}
+    limit = int(args["limit"]) if args.get("limit") is not None else DEFAULT_LIMIT
+    shown = recs if limit <= 0 else recs[:limit]      # 取**最近**的（`find_recalls` 返回时间倒序）
+    return {"total": len(recs), "count": len(shown), "recalls": shown}
 
 
 def _tool_read(args):
     talker, lid = args.get("talker"), args.get("local_id")
     if not talker or lid is None:
-        return {"error": "talker 与 local_id 都必填"}
-    con = _con()
+        return mcp_stdio.tool_error("bad_args", "talker 与 local_id 都必填")
+    con = archive.connect()
     try:
         rec = archive.read_recall(con, _resolve(talker), int(lid))
     finally:
         con.close()
     if rec is None:
-        return {"error": "归档里没有这条消息（可能守护当时没在跑）", "error_code": "not_archived"}
+        return mcp_stdio.tool_error("not_archived", "归档里没有这条消息（可能守护当时没在跑）")
     return rec
 
 
 def _tool_gap(_args):
-    con = _con()
+    con = archive.connect()
     try:
         gaps = archive.gaps(con)
     finally:
@@ -166,106 +166,26 @@ def _tool_gap(_args):
     return {"count": len(gaps), "gaps": gaps}
 
 
-# ---- 协议层（stdio JSON-RPC）----
-_PROTOCOL_OUT = sys.stdout
-
-
-def _send(message):
-    _PROTOCOL_OUT.write(json.dumps(message, ensure_ascii=False) + "\n")
-    _PROTOCOL_OUT.flush()
-
-
-def reply(mid, result):
-    _send({"jsonrpc": "2.0", "id": mid, "result": result})
-
-
-def reply_error(mid, code, message):
-    _send({"jsonrpc": "2.0", "id": mid, "error": {"code": code, "message": message}})
-
-
-def handle_initialize(params):
-    req = params.get("protocolVersion")
-    return {
-        "protocolVersion": req if req in SUPPORTED_PROTOCOL_VERSIONS else SUPPORTED_PROTOCOL_VERSIONS[0],
-        "capabilities": {"tools": {"listChanged": False}},
-        "serverInfo": {"name": SERVER_NAME, "title": "微信撤回防护", "version": SERVER_VERSION},
-        "instructions": INSTRUCTIONS,
-    }
-
-
-def handle_tools_call(mid, params):
-    name = params.get("name")
-    args = params.get("arguments") or {}
-    handler = DISPATCH.get(name)
-    if handler is None:
-        reply_error(mid, INVALID_PARAMS, f"Unknown tool: {name}")
-        return
-    if not isinstance(args, dict):
-        reply_error(mid, INVALID_PARAMS, "arguments 必须是对象")
-        return
-    log("call", name)
-    try:
-        data = handler(args)
-        reply(mid, {"content": [{"type": "text", "text": json.dumps(data, ensure_ascii=False)}],
-                    "isError": False})
-    except Exception as e:
-        log("error", name, repr(e))
-        reply(mid, {"content": [{"type": "text", "text": f"ERROR: {e}"}], "isError": True})
-
-
-def handle_message(msg):
-    if not isinstance(msg, dict) or msg.get("jsonrpc") != "2.0":
-        reply_error(msg.get("id") if isinstance(msg, dict) else None, INVALID_REQUEST, "Invalid Request")
-        return
-    method = msg.get("method")
-    if not isinstance(method, str) or "id" not in msg:
-        return
-    mid, params = msg.get("id"), msg.get("params")
-    if not isinstance(params, dict):
-        params = {}
-    if method == "initialize":
-        reply(mid, handle_initialize(params))
-    elif method == "ping":
-        reply(mid, {})
-    elif method == "tools/list":
-        reply(mid, {"tools": TOOLS})
-    elif method == "tools/call":
-        handle_tools_call(mid, params)
-    else:
-        reply_error(mid, METHOD_NOT_FOUND, f"Method not found: {method}")
-
-
-def main():
-    global _PROTOCOL_OUT
-    force_utf8_stdio()
-    _PROTOCOL_OUT = sys.stdout
-    sys.stdout = sys.stderr
-    log(f"started v{SERVER_VERSION} (python {sys.version.split()[0]})")
-    for line in sys.stdin:
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            msg = json.loads(line)
-        except Exception:
-            reply_error(None, PARSE_ERROR, "Parse error")
-            continue
-        try:
-            handle_message(msg)
-        except Exception as e:
-            log("internal error", repr(e))
-
+# 一键安装的规格（`--install` / `--uninstall` / `--install-status`，实现见共享层 mcp_install.py）。
+INSTALL_SPEC = {
+    "name": SERVER_NAME,
+    "product": "wechat-recall-mcp",
+    "skill": os.path.join(HERE, "skills", SERVER_NAME),
+    "label": TITLE,
+    # 本产品的核心是**常驻守护**：没有它，撤回发生后就无从查起。所以双击安装时顺口问一句
+    # 要不要开开机自启——不问的话，用户装完发现"什么都没查到"，还以为产品坏了。
+    "daemon_install": "--install-autostart",
+    # 卸载时连守护一起停（那个 flag 内部也会 `stop_daemon`）。不停的话，
+    # "卸载完了"它还在后台跑——同一类静默错误。
+    "daemon_uninstall": "--uninstall-autostart",
+}
 
 if __name__ == "__main__":
-    # 守护/自启/状态 三个开关先把编码钉住，再走各自分支
-    force_utf8_stdio()
+    mcp_stdio.force_utf8_stdio()
     argv = sys.argv[1:]
-    if "--version" in argv:
-        print(SERVER_VERSION)
-        sys.exit(0)
-    if any(f in argv for f in ("--daemon", "--once", "--install-autostart",
-                               "--uninstall-autostart", "--status")):
+    if any(f in argv for f in DAEMON_FLAGS):
         import daemon
-        daemon.main()                                    # 直接吃 sys.argv[1:]，即上面的 argv
+        daemon.main()                                    # 直接吃 sys.argv[1:]；内部自己 sys.exit
         sys.exit(0)
-    main()
+    raise SystemExit(mcp_stdio.serve(SERVER_NAME, TITLE, SERVER_VERSION, TOOLS, INSTRUCTIONS, DISPATCH,
+                                     install=INSTALL_SPEC))

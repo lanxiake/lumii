@@ -463,6 +463,106 @@ def suite_B():
         assert [t for _ts, t, _fm in got] == ["after-checkpoint"], f"checkpoint 后读不到：{got}"
     r.case("主库变化（checkpoint）后内容不丢", b4_main_change_rebuild)
 
+    def b5_burst_not_lost():
+        """满量的会话**一拍读全**：旧实现给"最新 `per` 条"、水位直接推到最新 ⇒ 中间那些永久丢。
+
+        为什么值得锁：`next_since_ts` 是**全局**水位而 `per` 是**每会话**上限，水位一旦越过
+        本会话没返回的消息，它们**再也不会被取到**（`create_time > 水位` 永远为假）。
+        实测本机 71 张表里 **39 张满量**（per=20）——群里刷屏就是这个量级，不是罕见分支。
+        这里用 per=3 逼出满量：修好后一拍就把 12 条全带走；旧实现只带回最后 3 条。
+        """
+        conn = fx.write_via_wal_keep([(2, 6000 + i, f"burst-{i}") for i in range(12)])
+        try:
+            got, since = [], 5500          # 5500：跳过 b4 那条 5000 的，只盯本用例这批
+            for _ in range(10):
+                res = core.poll(since, per=3)
+                got += [m["text"] for m in res["messages"]]
+                nxt = res["next_since_ts"]
+                if not res["messages"] or nxt <= since:
+                    break
+                since = nxt
+            assert sorted(set(got)) == sorted(f"burst-{i}" for i in range(12)), \
+                f"满了 per 就丢中间的：{sorted(set(got))}"
+        finally:
+            conn.close()
+    r.case("满量的会话一拍读全（per 不吃掉中间那些）", b5_burst_not_lost)
+
+    def b6_same_second_tail_not_lost():
+        """**同一秒**里晚到的那批不能丢——水位是秒级的，`create_time > 水位` 会把它们永久关在门外。
+
+        为什么值得锁：`create_time` **只到秒**，而水位取"本拍见过的最大 ts"。轮询只要**落在某个
+        活跃秒的中间**，水位就已经是那一秒；同一秒后面到达的消息（群聊一个爆发秒里几十条就是这个
+        形态）**再也不会被取到**，且毫无迹象。轮询节奏 ~2s 时，约一半的活跃秒会挨这一刀。
+        这是 `b5`（满量截断）的**时间版**：同一个根因——水位越过了还没送达的消息。
+        文档里那句"别传墙上时钟的 now，同秒会漏"只堵了一半：`next_since_ts` 自己就可能是**当前**
+        这一秒的 ts，于是"照文档说的做"照样漏。
+
+        夹具**故意让两批用同一个 create_time**（真机同一秒的消息 create_time 完全相同），
+        中间夹一次 poll——那一拍之后写进去的那批就是被吞掉的那批。
+        """
+        conn = fx.write_via_wal_keep([(2, 7000, f"same-{i}") for i in range(4)])
+        try:
+            res = core.poll(6500, per=20)
+            got = [m["text"] for m in res["messages"]]
+            since = res["next_since_ts"]
+            assert since == 7000, f"夹具前置：水位应推到 7000，实际 {since}"
+            # 同一秒的后半批（真机：轮询已跑过、这一秒还没结束时的那些）
+            _insert(conn, fx.tbl, [(2, 7000, f"same-{i}") for i in range(4, 10)])
+            # **固定轮数、不提前 break**：这一秒的 ts 不会再变（全是 7000），水位也就不再前进，
+            # 于是"补边界那一秒"的实现在此**必须自己停下来**——多投一次就会在这里被抓到。
+            for _ in range(5):
+                res = core.poll(since, per=20)
+                got += [m["text"] for m in res["messages"]]
+                since = res["next_since_ts"]
+            want = sorted(f"same-{i}" for i in range(10))
+            assert sorted(set(got)) == want, f"同一秒的后半批被吞了：{sorted(set(got))}"
+            assert sorted(got) == want, f"有重复投递：{sorted(got)}"
+        finally:
+            conn.close()
+    r.case("同一秒里晚到的那批不丢（水位秒级，会整批关在门外）", b6_same_second_tail_not_lost)
+
+    def b7_voice_wait_is_per_batch_not_per_message():
+        """一批语音**共用**一个等待额度——一条一条各给 6s 会累乘成 N×6s。
+
+        为什么值得锁：SILK 是异步下载的，所以刚到的语音要等一拍（这条不能删）；但等的是
+        **同一批同时在下载**的那些，等第一条就把整批都等到了。逐条给额度的话，实测真机全库
+        合并流任一 180s 窗口里最多 6 条语音 ⇒ 一趟 `poll_new` 最坏 36s，把 15s 那一拍拖穿。
+        老语音要**只看一眼**（它的数据是永久缺失的，等再久也没有）。
+        """
+        orig = core.voice_file
+        seen = []
+
+        def fake(talker, ct, local_id=None, deadline=None):
+            seen.append(deadline)
+            return None
+
+        core.voice_file = fake
+        try:
+            now = int(time.time())
+            fresh = now - 5                       # 刚到的（SILK 还在路上）
+            old = now - 3600                      # 老语音
+            core.attach_voice([{"type": 34, "ts": fresh, "local_id": 1},
+                               {"type": 34, "ts": fresh, "local_id": 2},
+                               {"type": 34, "ts": fresh, "local_id": 3},
+                               {"type": 34, "ts": old, "local_id": 4},
+                               {"type": 1, "ts": fresh, "local_id": 5}], TALKER)
+        finally:
+            core.voice_file = orig
+        assert len(seen) == 4, f"只该对 4 条语音取名，实际 {len(seen)}"
+        assert seen[0] is not None and seen[0] == seen[1] == seen[2], \
+            f"3 条新鲜语音没共用额度：{seen}"
+        assert seen[3] == 0, f"老语音不该等（该看一眼就走）：{seen[3]}"
+        left = seen[0] - time.time()
+        assert 0 < left <= core._VOICE_WAIT_S, f"额度不是一次性的：还剩 {left:.1f}s"
+        # 顺带把 `deadline=0` 的语义**端到端**钉住（不是只钉桩）：真调用一次，必须立刻回
+        t0 = time.time()
+        assert core.voice_file(TALKER, old, 4, deadline=0) is None
+        assert time.time() - t0 < core._VOICE_POLL_S, "deadline=0 还在睡"
+
+
+
+    r.case("一批语音共用一个等待额度（逐条给会累成 N×6s 拖穿一拍）", b7_voice_wait_is_per_batch_not_per_message)
+
     return r
 
 
@@ -634,6 +734,7 @@ def suite_D():
         noted = []
         snd._metric = lambda op, ms, ok, extra=None: noted.append(op)
         snd._UIA_BLANK_NOTED = False
+        snd._UIA_BLANK_HWNDS.clear()
         samples = {
             "blank": "WIN\t623\t270\t1241\t928\r\nHEADER\t",
             # 文件对话框：没有会话列表/表头，但有编辑框和按钮——不是空树
@@ -641,19 +742,28 @@ def suite_D():
                       "BTN\t1\t400\t350\t80\t26\t打开",
         }
         try:
+            # ⚠️ 空树是**按窗口**记的，所以两个样本必须用**不同的 hwnd**（真实文件对话框有自己的
+            # 句柄、树也正常）。拿同一个 hwnd 测，等于把"别把对话框判死"这条性质悄悄绕过去——
+            # 2026-10-14 一度就是这样，于是 `read_uia` 的按窗口短路把附件路径一起掐了。
             for key, body in samples.items():
                 snd._run_ps = lambda script, args, sta=False, b=body: open(args[3], "w", encoding="utf-8").write(b)
-                d = snd.read_uia(1, "blank_" + key)
+                d = snd.read_uia(1 if key == "blank" else 2, "blank_" + key)
                 if key == "blank":
                     assert d is None, f"空树必须当成读不到：{d}"
                 else:
                     assert d and d["btns"] and d["edits"], f"对话框树不能被误判成空树：{d}"
             snd._run_ps = lambda script, args, sta=False: open(args[3], "w", encoding="utf-8").write(samples["blank"])
             assert snd.read_uia(1, "blank_again") is None
+            # 空树已记在 hwnd=1 上：同一窗口不必再 spawn PowerShell（每次省 1.0s），
+            # 但**别的窗口照样要读**——文件对话框正是靠这一条活着。
+            snd._run_ps = lambda script, args, sta=False: open(args[3], "w", encoding="utf-8").write(samples["dialog"])
+            d = snd.read_uia(2, "dialog_again")
+            assert d and d["edits"], f"空树判据只作用于那个窗口，不能波及别的窗口：{d}"
             assert noted == ["uia_blank"], f"空树指标按进程只记一次：{noted}"
         finally:
             snd._run_ps, snd._metric = old_ps, old_metric
             snd._UIA_BLANK_NOTED = False
+            snd._UIA_BLANK_HWNDS.clear()
     r.case('UIA：格式契约 + 会话定位 + 表头校验 + 活几何点击', d4_uia_read_and_target)
     r.case('UIA：空树（微信未暴露控件）= 读不到，退回帧判据', d4b_uia_blank_tree_is_unavailable)
 
@@ -749,6 +859,81 @@ def suite_D():
         assert res("", "你好") == "", "一个字都没进去 = 空框，交给读库兜底"
         assert res("你好abc", "你好") == "abc"
     r.case('发送闸门：正文落地判据（容忍丢字、不容忍残留）', d7_residue)
+
+    def d8_geometry_repair_gate():
+        """目标没确认上时，**值不值得**先"规范化窗口尺寸"再复核一遍。
+
+        为什么值得离线钉住：这一步是**无条件**做的，实测白花 2.65s（修复 0.80 + 重读 2.04），
+        而它后面紧跟着就是切会话——切完那次核对才是真判据。三种情形各有各的答案，
+        松一格就会变成「每次发送都白搬一次用户的窗口」，紧一格就会漏掉"帧是旧帧"那类。
+        """
+        import wechat_sender as snd
+        H = 1
+        canon = (60, 40, snd.NW, snd.NH)
+        shifted = (775, 208, snd.NW, snd.NH)          # 尺寸对、位置是用户自己摆的
+        drifted = (775, 208, 894, 578)                # 实测过的漂移尺寸
+        old = snd.win_rect
+        try:
+            # UIA 表头能读到 ⇒ 精确文本说了算，任何帧都别再修
+            snd.win_rect = lambda h: drifted
+            assert snd._needs_geometry_repair({"header": "别人"}, [], H) is False
+            # 帧压根没读到 ⇒ 可能是旧帧/没重绘，ShowWindow + 那一拍有机会让它重画
+            snd.win_rect = lambda h: canon
+            assert snd._needs_geometry_repair(None, [], H) is True
+            # 尺寸真的漂移了 ⇒ OCR 布局常量按 1280×820 标定，必须修
+            snd.win_rect = lambda h: drifted
+            assert snd._needs_geometry_repair(None, [(1, 2, 3, 4, "x")], H) is True
+            # **帧读到了、尺寸也合规 ⇒ 别修**：表头明明白白写着别的会话，目标就是没开着。
+            # 位置不算数（布局是窗口相对坐标）——用户的窗口不在 (60,40) 是常态，
+            # 拿位置当判据会让每次发送都搬一次窗口再搬回来。
+            snd.win_rect = lambda h: shifted
+            assert snd._needs_geometry_repair(None, [(1, 2, 3, 4, "x")], H) is False
+            snd.win_rect = lambda h: canon
+            assert snd._needs_geometry_repair(None, [(1, 2, 3, 4, "x")], H) is False
+        finally:
+            snd.win_rect = old
+    r.case('发送闸门：目标没确认上时，不白搬用户的窗口', d8_geometry_repair_gate)
+
+    def d9_newline_folded():
+        """正文里的换行**必须被压成空格并计数**——微信输入框静默丢弃 CR/LF。
+
+        为什么值得离线钉住：这条缺陷的表现是 `ok=True`、`detail="已发送"`，而对方收到的是
+        两段连成一串（`line oneline two`）。整条链没有任何一道会报错，**只有落库逐字比对看得见**
+        （2026-10-14 实测三轮：`\\n` / `\\r\\n` / `\\r` 全被吞，且都**没有**误触发发送）。
+        离线能钉住，是因为变换发生在**投递之前**——抓 `PostMessageW` 的 wParam 就看到了。
+        """
+        import wechat_sender as snd
+
+        class FakeU:
+            def __init__(self):
+                self.cps = []
+
+            def PostMessageW(self, h, msg, cp, lp):
+                self.cps.append(cp)
+                return 1
+
+        old_u = snd.u
+        snd.u = FakeU()
+        try:
+            assert snd.post_text(1, "A\nB", dt=0) is True
+            assert snd.folded_newlines() == 1, snd.folded_newlines()
+            assert snd.u.cps == [ord("A"), ord(" "), ord("B")], \
+                f"换行没被换成空格，实际投了 {snd.u.cps}"
+            # CRLF 是**一处**换行不是两处，否则会插两个空格
+            snd.u.cps = []
+            snd.post_text(1, "A\r\nB\rC\nD", dt=0)
+            assert snd.folded_newlines() == 3, snd.folded_newlines()
+            assert "".join(map(chr, snd.u.cps)) == "A B C D", "".join(map(chr, snd.u.cps))
+            # 没换行时计数必须归零，不能被上一次的残留带偏
+            snd.u.cps = []
+            snd.post_text(1, "AB", dt=0)
+            assert snd.folded_newlines() == 0
+            # 两条上报互不干扰：emoji 照旧跳过、换行计数为 0
+            assert snd.post_text(1, "A\U0001F60AB", dt=0) is True
+            assert snd.dropped_nonbmp()[0] == 1 and snd.folded_newlines() == 0
+        finally:
+            snd.u = old_u
+    r.case('发送闸门：正文里的换行压成空格并如实上报', d9_newline_folded)
 
     return r
 
@@ -1368,8 +1553,13 @@ def suite_K():
     BAD = {**RUN, "rect": [0, 0, 894, 578]}
     GONE = {"ok": False, "reason": "未检测到微信进程", "minimized": False, "visible": False,
             "locked": False, "weixin_running": False, "hwnd": 0, "rect": None}
+    # ⚠️ `rect` 必须是**最小化窗口的真实读数**：`GetWindowRect` 在最小化态报哨兵
+    # `-32000,-32000 160x28`（2026-10-14 实测），不是它还原后的几何。早先这里写的是还原后的
+    # `[60,40,1280,820]`，于是这条用例在「最小化」路上走的是**桌面外**那个分支，
+    # 把 `wake_window` 的哨兵混淆整个盖住（真机表现：最小化的微信永远拉不起来）。
     MIN = {"ok": False, "reason": "主窗口已最小化", "minimized": True, "visible": True,
-           "locked": False, "weixin_running": True, "hwnd": 199150, "rect": [60, 40, 1280, 820]}
+           "locked": False, "weixin_running": True, "hwnd": 199150,
+           "rect": [-32000, -32000, 160, 28]}
     NOHWND = {"ok": False, "reason": "找不到主窗口", "minimized": False, "visible": False,
               "locked": False, "weixin_running": True, "hwnd": 0, "rect": None}
     # 2026-10-12 实测现场：`visible=True`、没最小化，但位置在桌面外
@@ -1449,6 +1639,32 @@ def suite_K():
         with_stub([BAD, RUN], 199150, run, rect=(0, 0, 894, 578),
                   db=lambda: (r"C:\x\xwechat_files\wxid_a_1234\db_storage", "stub"))
     r.case("repair_env：尺寸异常 ⇒ 规范化窗口 + 重探数据目录并汇报", k9_repair_env_normalizes)
+
+    # ── 托盘点击的收尾复核（2026-10-14）───────────────────────────────────────────
+    # `tray_click.ps1` 点的是微信托盘图标，而它**按可见性 toggle**：调用时窗口若正显示着，
+    # 这一下就把微信藏进桌面外（`visible=1` 却找不回来）。方向取决于调用那一刻的可见性、
+    # 控制不了 ⇒ `_unfreeze_ui` 点完**无条件复核**位置（`ensure_onscreen`）。这三条钉住它。
+    def k10_ensure_onscreen_after_tray():
+        def run(_s, moved, _st):
+            snd.ensure_onscreen()
+            assert moved == [(60, 40, 440, 452)], f"被收进桌面外要搬回可见区、尺寸照旧：{moved}"
+        with_stub([], 199150, run, rect=(-32000, -32000, 440, 452))
+    r.case("托盘点击后复核：窗口被收进桌面外 ⇒ 搬回（只搬位置，尺寸照旧）",
+           k10_ensure_onscreen_after_tray)
+
+    def k11_ensure_onscreen_noop():
+        def run(_s, moved, _st):
+            snd.ensure_onscreen()
+            assert moved == [], "窗口本来就在可见区，一步都不该动"
+        with_stub([], 199150, run, rect=(60, 40, 1280, 820))
+    r.case("托盘点击后复核：窗口本来正常 ⇒ 一步不动", k11_ensure_onscreen_noop)
+
+    def k12_ensure_onscreen_no_hwnd():
+        def run(_s, moved, _st):
+            snd.ensure_onscreen()          # 拿不到窗口：静默返回，别炸
+            assert moved == [], "拿不到窗口就什么都别动"
+        with_stub([], 0, run, rect=(60, 40, 1280, 820))
+    r.case("托盘点击后复核：拿不到窗口 ⇒ 静默返回", k12_ensure_onscreen_no_hwnd)
 
     # ── 窗口被搬到桌面外（2026-10-12 实测）─────────────────────────────────────────
     # 现场：`visible=True`、`iconic=False`、`rect=-32000,-32000 440x452`——Win32 眼里窗口一直
@@ -1861,7 +2077,7 @@ def suite_M():
     import server
     import wechat_sender as snd
 
-    r = R("M 层：MCP 进度通知接线")
+    r = R("M 层：MCP 服务端接线（进度通知 / 版本门）")
     sent = []
     old_send = server._send
     old_handler = server.DISPATCH.get("send_text")
@@ -1904,14 +2120,399 @@ def suite_M():
         assert snd._PROGRESS["cb"] is None, "调用结束必须清掉进度槽，别泄漏到下一次"
     r.case("调用结束恢复进度槽（不泄漏）", m3_restores)
 
-    def m4_search_skipped_code():
-        detail = ("目标会话未确认（fail-closed）：不在可见会话列表，且微信窗口是从托盘/最小化还原的——"
-                  "为避免真键鼠搜索把界面卡死，已跳过搜索兜底；请先手动打开该会话再重试")
-        assert server._code_of(detail) == "search_skipped", server._code_of(detail)
-        assert server._stage_of("search_skipped") == "target", server._stage_of("search_skipped")
-        assert "卡死" in server._get_fix_suggestion("search_skipped"), server._get_fix_suggestion("search_skipped")
-    r.case("search_skipped：错误码 / 档位 / 建议都对得上", m4_search_skipped_code)
+    def m5_version_gate():
+        """§9.9 版本门：不在真机验证范围内的微信版本，告警要跟着**每个**工具结果出去。
 
+        只写在 check_env 里等于没有——Agent 不会每次先调它，而"静默给错数据"（内存偏移、
+        窗口类名、AutomationId 都是硬绑版本的假设）比报错糟得多。钉两件事：
+        ① 判定本身：未验证才告警；「微信没运行 / 读不到版本」是**未知**不是故障，不该刷屏；
+        ② 注入点在 `handle_tools_call` 唯一那一处 ⇒ 随便哪个工具的结果都带得上。
+        """
+        import json as _json
+
+        import wechat_core as core
+
+        old_ver = core.wechat_version
+        try:
+            for fake, want in (
+                ({"path": "x", "version": "4.2.0.1", "verified": False, "hint": "⚠️ 未验证"}, "⚠️ 未验证"),
+                ({"path": "x", "version": "4.1.15.13", "verified": True, "hint": "已验"}, None),
+                ({"path": "", "version": "", "verified": False, "hint": "微信未运行"}, None),
+            ):
+                core.wechat_version = lambda _f=fake: _f
+                assert core.version_warning() == want, (fake, core.version_warning())
+
+            core.wechat_version = lambda: {"path": "x", "version": "4.2.0.1",
+                                           "verified": False, "hint": "⚠️ 未验证"}
+            sent.clear()
+            with_stub_send(lambda: server.handle_tools_call(
+                9, {"name": "send_text", "arguments": {}}))
+            results = [m for m in sent if m.get("id") == 9 and "result" in m]
+            assert results, f"没拿到最终响应：{sent}"
+            payload = _json.loads(results[-1]["result"]["content"][0]["text"])
+            assert payload.get("version_warning") == "⚠️ 未验证", payload
+        finally:
+            core.wechat_version = old_ver
+    r.case("版本门：未验证的微信版本，告警跟着每个工具结果出去", m5_version_gate)
+
+    def m6_image_key_flag():
+        """`--image-key` 是 exe 抓图片 key 的**唯一口子**、也是 `read_image` 的前提。
+
+        为什么值得锁：key 不在消息里、也不在配置文件里，只能扫微信进程内存；而 MCP 工具表里
+        没有它、宿主 App 也没有这个界面 ⇒ 少了这个开关，装好的 pro exe **永远读不出图**，
+        报错还会把锅推给「图没落到本地」。这里钉三件事：没扫到 ⇒ 非零码 + 教用户先点开一张图；
+        扫到 ⇒ 报落盘路径；`--refresh` 真透传下去（换账号后要能重抓）。
+        """
+        import contextlib
+        import json as _json
+        import wechat_image as IM
+        old_key = IM.image_aes_key
+        seen = []
+
+        def fake_image_aes_key(refresh=False, save=True):
+            seen.append(refresh)
+            return None if len(seen) == 1 else b"\x01" * 32   # 第一次扫不到，第二次拿到
+
+        def run(args):
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                return server.cmd_image_key(args), buf.getvalue()
+
+        IM.image_aes_key = fake_image_aes_key
+        try:
+            rc1, s1 = run([])
+            j1 = _json.loads(s1)
+            assert rc1 == 1 and j1["ok"] is False and "点开" in j1["hint"], f"{rc1} {j1}"
+            rc2, s2 = run(["--refresh"])
+            j2 = _json.loads(s2)
+            assert rc2 == 0 and j2["ok"] is True and j2["path"], f"{rc2} {j2}"
+            assert seen == [False, True], f"--refresh 没透传：{seen}"
+        finally:
+            IM.image_aes_key = old_key
+
+    r.case("--image-key：没扫到给非零码 + 教先点开一张图；--refresh 真透传", m6_image_key_flag)
+
+    def m7_read_image_says_why():
+        """`read_image` 取不到图时**逐因给话**——四种原因不能压成同一句。
+
+        原先只报「不是图片 / 图没落到本地 / 原始图与中图都缺」，而最常见的那个
+        （**图片 AES key 还没抓过**）根本不在里面，调用方照着那句话只会去查不存在的文件缺失。
+        """
+        import json as _json
+        import wechat_core as core
+        old, old_resolve = core.image_message, server._resolve_or_error
+        server._resolve_or_error = lambda t: (TALKER, None)   # 会话解析不是这条用例的题
+        try:
+            for why in ("not_found", "not_image", "no_key", "no_file"):
+                core.image_message = lambda t, l, w=why: (None, w)
+                got = server.tool_image({"talker": TALKER, "local_id": 1})
+                msg = got.get("error") or ""
+                assert msg == server._IMAGE_WHY[why], f"{why} 没给对应的话：{msg}"
+            assert len(set(server._IMAGE_WHY.values())) == len(server._IMAGE_WHY), \
+                "有两条原因共用一句错话，等于没分开"
+        finally:
+            core.image_message, server._resolve_or_error = old, old_resolve
+
+    r.case("read_image 的四种取不到，各自给各自的话（key 没抓 ≠ 文件缺失）", m7_read_image_says_why)
+
+    return r
+
+
+def suite_N():
+    """N 层：图片解密链（`wechat_image`）——**缓存自愈**，以及"宁可没有也不能给错"那一档。
+
+    真机链子（`attach_image` → `cached_aes_key()` → AES-ECB）**不过 `_verify_key`**：账号换过或
+    key 陈旧时解出来是随机字节。随机字节既不是 WXGF 也不是 PNG，旧代码会把它当原图写成
+    `.jpg` 返回——模型拿到一张**坏图**，比报错糟得多（`_verify_key` 注释原话）。
+    """
+    r = R("N 层：图片解密链（缓存自愈）")
+    import wechat_image as IM
+    import wechat_core as _core
+
+    def n1_cache_is_verified_and_self_healing():
+        d = tempfile.mkdtemp(prefix="wximg-")    # 缓存落在 core.WORK 下（`image/`）
+        old_work, old_attach = _core.WORK, IM.attach_path
+        _core.WORK = d
+        IM.attach_path = lambda n: None          # 源 `.dat` 一律不存在：这一条只考缓存那一环
+        try:
+            os.makedirs(os.path.join(d, "image"), exist_ok=True)
+            bad = os.path.join(d, "image", "hd_deadbeef.jpg")
+            with open(bad, "wb") as f:
+                f.write(b"\x9c\x11\x2a\x00 not an image, just random bytes")
+            # ① 坏缓存不能当图返回，而且要**就地清掉**——命中发生在解密之前，不自愈就永远是坏的
+            assert IM.image_file(None, b"\x00" * 32, "deadbeef") is None, "坏缓存被当图返回了"
+            assert not os.path.exists(bad), "坏缓存没被清掉：换回好 key 也永远命中它"
+            # ② 好缓存照旧走快路（不重新解密）：源文件都不存在，能返回路径就只可能是缓存
+            ok = os.path.join(d, "image", "hd_cafebabe.jpg")
+            with open(ok, "wb") as f:
+                f.write(b"\xff\xd8\xff\xe0" + b"\x00" * 64)
+            assert IM.image_file(None, b"\x00" * 32, "cafebabe") == ok, "好缓存被误判成坏图"
+            assert os.path.exists(ok), "好缓存被删了"
+        finally:
+            _core.WORK, IM.attach_path = old_work, old_attach
+
+    r.case("缓存必验头：坏图就地清掉（否则换回好 key 也永远吐坏图）", n1_cache_is_verified_and_self_healing)
+
+    return r
+
+
+def suite_O():
+    """O 层：接收侧的两处"取不到"（视频路径 / 检索命中的可寻址性）——都是**判据**测试。
+
+    这两条都是"多一点或少一点就静默给错"的地方：视频是靠 md5 换名 + 比大小来认领文件的，
+    检索命中要是丢了 `local_id`，Agent 就没有任何手柄把命中交回给 `read_image`。
+    """
+    r = R("O 层：视频路径 + 检索命中可寻址")
+    import wechat_core as c
+
+    def o1_video_path_requires_exact_size():
+        """视频要靠**大小精确相等**认领文件：md5 → hardlink 换名 → 比 `length`。
+
+        只凭 md5 换名是不够的——换错就是给别人放另一段视频（"错文件比没文件糟"）。
+        """
+        d = tempfile.mkdtemp(prefix="wxvid-")
+        p = os.path.join(d, "a.mp4")
+        with open(p, "wb") as f:
+            f.write(b"x" * 7)
+        calls = []
+        real_hl, real_vp = c._video_hardlink, c.video_file_path
+
+        def fake_hl():
+            calls.append("hl")
+            return {"ab" * 16: "a.mp4"}          # 表里是小写 md5（实测如此）
+
+        c._video_hardlink = fake_hl
+        c.video_file_path = lambda n: p if n == "a.mp4" else None
+        try:
+            ok = [{"type": 43, "video_md5": "AB" * 16, "video_len": 7}]   # 大写也要认（要 lower）
+            c.attach_video(ok)
+            assert ok[0].get("video_path") == p, "大小对得上却没给路径"
+            bad = [{"type": 43, "video_md5": "AB" * 16, "video_len": 8}]
+            c.attach_video(bad)
+            assert "video_path" not in bad[0], "大小对不上也给了路径——换错名就是放另一段视频"
+            miss = [{"type": 43, "video_md5": "cd" * 16, "video_len": 7}]
+            c.attach_video(miss)
+            assert "video_path" not in miss[0], "hardlink 里没有的 md5 也给了路径"
+            assert len(calls) == 3, "该开库的没开：%d 次" % len(calls)
+            c.attach_video([{"type": 43, "video_len": 7}])               # 没有 md5
+            c.attach_video([{"type": 1, "video_md5": "AB" * 16}])        # 不是视频
+            assert len(calls) == 3, "白开了 hardlink.db：没有可取名的消息也去开库"
+        finally:
+            c._video_hardlink, c.video_file_path = real_hl, real_vp
+
+    def o2_search_hits_are_addressable():
+        """检索命中必须带 `local_id`（+ `source`/`packed`）——它是交回给 read_image 的唯一手柄。"""
+        md5, thumb, base = "a" * 32, "b" * 32, "c" * 32
+        row = (1700000000, 3,
+               '<img aeskey="k" cdnthumbmd5="%s" md5="%s" length="18227"/>' % (thumb, md5),
+               "wxid_me", 42,
+               # 真库的 @我 就长这样（`<atuserlist>` 里的 CDATA 是**必须**的——
+               # `_ATUSERS_RE` 只认这一种形状，别把它当无关细节改掉）
+               "<msgsource><atuserlist><![CDATA[wxid_me]]></atuserlist></msgsource>",
+               b"\x1a\x22\x22\x20" + base.encode())
+        saved = {n: getattr(c, n) for n in
+                 ("_refresh", "talkers", "names", "self_wxid", "_rows_full")}
+        c._refresh = lambda: None
+        c.talkers = lambda: [("Msg_x", TALKER)]
+        c.names = lambda: {}
+        c.self_wxid = lambda: "wxid_me"
+        c._rows_full = lambda tbl, limit, **kw: [row]
+        try:
+            hit = c.search_messages("图片")["messages"][0]
+        finally:
+            for n, v in saved.items():
+                setattr(c, n, v)
+        assert hit.get("local_id") == 42, "命中丢了 local_id：Agent 没法把它交回 read_image"
+        assert hit.get("image_md5") == md5, "命中丢了 image_md5（packed/source 没传下去）"
+        assert hit.get("image_name") == base, "命中丢了 image_name"
+        assert hit.get("at_me") is True, "命中丢了 at_me（source 没传下去）"
+
+    def o3_search_hits_carry_video_path():
+        """**检索**这条路也得挂 `attach_video`（2026-10-14 修）。
+
+        `history`/`poll_new` 都挂了，唯独最该挂的检索没挂——实测搜「视频」命中 48 条、
+        带 `video_path` 的 **0 条**：用户说「主要用来搜索」，搜到了却是一条点不开的消息。
+        """
+        d = tempfile.mkdtemp(prefix="wxvids-")
+        p = os.path.join(d, "a.mp4")
+        with open(p, "wb") as f:
+            f.write(b"x" * 7)
+        mv = ("ab" * 16)
+        row = (1700000000, 43, '<videomsg md5="%s" length="7"/>' % mv, "wxid_me", 43, "", None)
+        saved = {n: getattr(c, n) for n in
+                 ("_refresh", "talkers", "names", "self_wxid", "_rows_full",
+                  "_video_hardlink", "video_file_path")}
+        c._refresh = lambda: None
+        c.talkers = lambda: [("Msg_x", TALKER)]
+        c.names = lambda: {}
+        c.self_wxid = lambda: "wxid_me"
+        c._rows_full = lambda tbl, limit, **kw: [row]
+        c._video_hardlink = lambda: {mv: "a.mp4"}
+        c.video_file_path = lambda n: p if n == "a.mp4" else None
+        try:
+            hit = c.search_messages("视频")["messages"][0]
+        finally:
+            for n, v in saved.items():
+                setattr(c, n, v)
+        assert hit.get("video_path") == p, "检索命中没挂视频路径：搜得到、点不开"
+
+    r.case("视频路径要靠大小精确认领（换错名 = 放别人的视频）", o1_video_path_requires_exact_size)
+    r.case("检索命中带 local_id/source/packed（否则读图那条路是死的）", o2_search_hits_are_addressable)
+    r.case("检索命中也要挂 video_path（搜到了就得给得了）", o3_search_hits_carry_video_path)
+    return r
+
+
+def suite_P():
+    """P 层：翻页**不能丢同秒消息**。
+
+    `read_history` 按**条数**切页，而 `create_time` 只到秒 —— 页切在某秒中间时，同秒更早的
+    那些既 `> 本页` 又 `< 下一页`，两边都够不着。假库照 `_rows_full` 的**真语义**过滤
+    （since 严格大于 / before 严格小于 / at 相等），这样"丢"是算法自己产生的，不是夹具编的。
+    """
+    r = R("P 层：翻页不丢同秒消息")
+    import wechat_core as c
+
+    # 三条挤在 ts=100，五条挤在 ts=200
+    DATA = [(200, 1, b"m%d" % lid, "", lid, None, None) for lid in (4, 5, 6, 7, 8)] + \
+           [(100, 1, b"m%d" % lid, "", lid, None, None) for lid in (1, 2, 3)]
+    TBL = "Msg_fake"
+
+    def p1_same_second_at_page_edge():
+        """limit=3 时边界那一秒必须整秒给出（否则那秒剩下的永远取不到）。"""
+        def fake(tbl, limit, since=0, before=0, at=0):
+            out = [x for x in DATA
+                   if (not since or x[0] > since) and (not before or x[0] < before)
+                   and (not at or x[0] == at)]
+            out.sort(key=lambda x: x[0], reverse=True)
+            return out[:limit]
+
+        saved = {n: getattr(c, n) for n in ("_rows_full", "tbl_of", "names", "self_wxid",
+                                            "attach_voice", "attach_image", "attach_video")}
+        c._rows_full = fake
+        c.tbl_of = lambda t: TBL
+        c.names = lambda: {}
+        c.self_wxid = lambda: "me"
+        c.attach_voice = c.attach_image = c.attach_video = lambda *a, **k: None
+        try:
+            seen, before, pages = set(), 0, 0
+            while pages < 10:                       # 照 server 的用法翻页
+                page = c.history(TBL, 3, before)
+                ids = [m["local_id"] for m in page["messages"]]
+                seen |= set(ids)
+                if not page.get("has_more"):
+                    break
+                before, pages = page["cursor"], pages + 1
+        finally:
+            for n, v in saved.items():
+                setattr(c, n, v)
+        want = {x[4] for x in DATA}
+        assert seen == want, "翻页丢了同秒消息：缺 %s" % sorted(want - seen)
+    r.case("翻页边界那一秒要整秒给出（不能切在秒中间）", p1_same_second_at_page_edge)
+
+    def p2_search_range_pushed_into_sql():
+        """检索的时间范围要**下推**：否则查老时间段时扫描窗口被更新的消息占满 ⇒ 恒 0 条且不报错。"""
+        # 6 条：前 3 条是"新的"（ts=900+），后 3 条是"老的"（ts=100..102）
+        DATA = [(900 + i, 1, ("新%d" % i).encode(), "", 100 + i, None, None) for i in range(3)] + \
+               [(100 + i, 1, ("老%d" % i).encode(), "", 10 + i, None, None) for i in range(3)]
+
+        def fake(tbl, limit, since=0, before=0, at=0):
+            out = [x for x in DATA
+                   if (not since or x[0] > since) and (not before or x[0] < before)
+                   and (not at or x[0] == at)]
+            out.sort(key=lambda x: x[0], reverse=True)
+            return out[:limit]                       # 真 `_rows_full` 就是"取最新的 limit 条"
+
+        saved = {n: getattr(c, n) for n in ("_rows_full", "tbl_of", "names", "self_wxid", "talkers")}
+        c._rows_full = fake
+        c.tbl_of = lambda t: TBL
+        c.names = lambda: {}
+        c.self_wxid = lambda: "me"
+        c.talkers = lambda: [(TBL, TBL)]
+        try:
+            # scan=3：正好够装下老的这 3 条。旧码的窗口取的是"最新 3 条"（全是新的那些）⇒ 0 命中
+            got = c.search_messages("老", since=99, until=199, scan=3)
+        finally:
+            for n, v in saved.items():
+                setattr(c, n, v)
+        texts = [m["text"] for m in got["messages"]]
+        assert len(texts) == 3, "老时间段的命中被扫描窗口吃掉了：%s" % texts
+        assert all(t.startswith("老") for t in texts), texts
+    r.case("检索的时间范围要下推到 SQL（否则老时间段恒 0 命中）", p2_search_range_pushed_into_sql)
+
+    def p3_search_reports_truncation():
+        """撞上 `scan` 上限必须**如实上报**（多取一条来判断）——静默截断 = 把"没扫到"当成"没有"。"""
+        DATA = [(100 + i, 1, b"hi", "", i, None, None) for i in range(5)]
+
+        def fake(tbl, limit, since=0, before=0, at=0):
+            out = [x for x in DATA if (not at or x[0] == at)]
+            out.sort(key=lambda x: x[0], reverse=True)
+            return out[:limit]
+
+        saved = {n: getattr(c, n) for n in ("_rows_full", "tbl_of", "names", "self_wxid", "talkers")}
+        c._rows_full = fake
+        c.tbl_of = lambda t: TBL
+        c.names = lambda: {}
+        c.self_wxid = lambda: "me"
+        c.talkers = lambda: [(TBL, TBL)]
+        try:
+            cut = c.search_messages("hi", scan=2)
+            whole = c.search_messages("hi", scan=99)
+        finally:
+            for n, v in saved.items():
+                setattr(c, n, v)
+        assert cut.get("truncated") is True, "撞了上限却没报 truncated"
+        assert whole.get("truncated") is False, "没撞上限却报了 truncated"
+    r.case("检索撞上扫描上限要报 truncated", p3_search_reports_truncation)
+
+    def p4_digest_stats_are_whole_by_default():
+        """蒸馏的统计默认要**全量**（`limit=0`）：默认 500 时，>500 条的会话给出的是**切片**，
+        而返回里写着 `stats_scope: "all"` —— 拿它写画像就是把切片当事实。"""
+        DATA = [(100 + i, 1, ("第%d条" % i).encode(), "", i, None, None) for i in range(6)]
+
+        def fake(tbl, limit, since=0, before=0, at=0):
+            out = [x for x in DATA if (not at or x[0] == at)]
+            out.sort(key=lambda x: x[0], reverse=True)
+            return out[:limit]
+
+        saved = {n: getattr(c, n) for n in ("_rows_full", "tbl_of", "names", "self_wxid",
+                                            "talkers", "_refresh")}
+        c._rows_full = fake
+        c.tbl_of = lambda t: TBL
+        c.names = lambda: {}
+        c.self_wxid = lambda: "me"
+        c.talkers = lambda: [(TBL, TBL)]
+        c._refresh = lambda: None
+        try:
+            whole = c.digest()
+            cut = c.digest(limit=2)
+        finally:
+            for n, v in saved.items():
+                setattr(c, n, v)
+        assert whole["scanned_per_talker"] == 6, "默认没按全量扫：%s" % whole["scanned_per_talker"]
+        assert whole["self"]["total"] == 6, "默认统计不是全量：%s" % whole["self"]["total"]
+        assert whole["capped_talkers"] == [], "全量扫却报了被截断的会话"
+        # 显式设了 limit 才是**有损**的，而且必须如实点名是哪个会话
+        assert cut["scanned_per_talker"] == 2 and cut["self"]["total"] == 2, cut["scanned_per_talker"]
+        assert cut["capped_talkers"] == [TBL], "截断了却不说是哪个会话：%s" % cut["capped_talkers"]
+    r.case("蒸馏统计默认全量（设了 limit 才是有损且要点名）", p4_digest_stats_are_whole_by_default)
+
+    def p5_long_text_carries_its_own_length():
+        """400 字硬截断必须**留痕**：`text` 只是前 400 字。
+
+        本机实测 73/5101 条（1.4%）渲染后超 400 字、最长 3069 字——读的人（Agent）拿前 400 字
+        当全文去总结或回话，就是"看不到就编"。所以超长时另给 `text_len`（全文长度）与
+        `text_more`（后一截，最多到全文第 4000 字，免得撑爆工具输出）。
+        """
+        long_msg = c.msg_dict(100, 1, ("甲" * 1200).encode(), {})
+        huge_msg = c.msg_dict(100, 1, ("乙" * 5000).encode(), {})
+        short_msg = c.msg_dict(100, 1, "短".encode(), {})
+        assert long_msg["text_len"] == 1200, long_msg.get("text_len")
+        assert long_msg["text"] + long_msg["text_more"] == "甲" * 1200, "拼起来不是全文"
+        # 上限之外仍然截断：但长度是**真值**，所以读的人知道还没给全
+        assert huge_msg["text_len"] == 5000, huge_msg.get("text_len")
+        assert len(huge_msg["text"]) + len(huge_msg["text_more"]) == 4000 < huge_msg["text_len"]
+        assert "text_len" not in short_msg and "text_more" not in short_msg, short_msg
+    r.case("超 400 字的正文要带全文长度与后一截（截断留痕）", p5_long_text_carries_its_own_length)
     return r
 
 
@@ -1929,7 +2530,8 @@ def main():
                                (suite_D, False), (suite_E, False), (suite_F, False),
                                (suite_G, False), (suite_H, False), (suite_I, False),
                                (suite_J, False), (suite_K, False), (suite_L, False),
-                               (suite_M, False)):
+                               (suite_M, False), (suite_N, False), (suite_O, False),
+                               (suite_P, False)):
         if need_crypto and not has_crypto:
             print("\n（跳过 A 层：没有 pycryptodome）")
             continue

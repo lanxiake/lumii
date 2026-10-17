@@ -96,6 +96,29 @@ def watermark(con):
     return int(row[0]) if row and row[0] else 0
 
 
+def prune(con, keep_days):
+    """删掉 `keep_days` 天前的归档行，返回删除条数（`keep_days<=0` = 不修剪）。
+
+    **为什么要有**：归档是**全量原文**、只增不减——设计 §7.4 写了"膨胀靠定期修剪"，但一直
+    没实现（实测 4696 条 = 1.9 MB，线性涨；多个活跃群一年到几百 MB 是可能的）。
+    代价是**如实存在**的：删掉的那段，之后发生的撤回/删除就查不到了——所以默认**不开**
+    （`--retain-days 0`），要磁盘还是要取证范围，由用户自己定。
+    """
+    if not keep_days or int(keep_days) <= 0:
+        return 0
+    cutoff = int(time.time()) - int(keep_days) * 86400
+    before = con.total_changes
+    con.execute("delete from msg where create_time < ?", (cutoff,))
+    con.commit()
+    return con.total_changes - before
+
+
+def vacuum(con):
+    """压实文件——DELETE 之后不 VACUUM，占的盘不会还回来。**慢**，调用方别每拍都调。"""
+    con.commit()
+    con.execute("vacuum")
+
+
 # ---- 从微信库取行 ----
 
 def live_rows(since=0, talker=None):
@@ -149,11 +172,17 @@ def _safe_names():
         return {}
 
 
-def find_recalls(con, talker=None, since=0, until=0, limit=500):
+def find_recalls(con, talker=None, since=0, until=0, limit=0):
     """归档 ∩ 当前库 的**差集** = 被撤回/删除的消息。
 
-    ⚠️ ponytail: 当前库侧**全量拉进内存**比对（几万条量级没问题）。到十万级再改成
-    按 `(talker, local_id)` 分块流式比对 + 只拉窗口内的 talker。
+    `limit=0`（默认）= 不限。**截断留给调用方**：在这里悄悄截，调用方就看不出"还有多少条"，
+    而"返回 3 条"与"总共就 3 条"必须能分开（工具侧报 `total` 而不是直接切）。
+
+    `talker` 要**已解析**的（工具层用 `core.talker_of`）——解析放在这里的话，合成库单测就没法
+    离线跑了（解析要读真库的会话名），而那几个判定单测正是本模块最值钱的东西。
+
+    ⚠️ ponytail: 当前库侧**全量拉进内存**比对（实测每次 ~0.25s / 全量遍历 0.1s，几万条量级
+    没问题）。到十万级再改成按 `(talker, local_id)` 分块流式比对 + 只拉窗口内的 talker。
     """
     conds, params = [], []
     if talker:
@@ -190,7 +219,7 @@ def find_recalls(con, talker=None, since=0, until=0, limit=500):
                     "create_time": act, "time": core._ts(act), "sender": asender,
                     "type": alt, "reason": reason,
                     "text": _render(alt, acontent)})
-        if len(out) >= limit:
+        if limit and len(out) >= limit:
             break
     return out
 
@@ -203,7 +232,10 @@ def _render(lt, content):
 
 
 def read_recall(con, talker, local_id):
-    """取一条归档消息的**完整原文**（用于看被撤回的内容）。取不到返回 None。"""
+    """取一条归档消息的**完整原文**（用于看被撤回的内容）。取不到返回 None。
+
+    `talker` 同 `find_recalls`：要**已解析**的。
+    """
     row = con.execute(
         "select create_time, local_type, sender, content from msg"
         " where talker=? and local_id=? order by create_time desc limit 1",
@@ -224,6 +256,8 @@ def gaps(con):
 def stats(con):
     total = con.execute("select count(*) from msg").fetchone()[0]
     talkers = con.execute("select count(distinct talker) from msg").fetchone()[0]
+    lo, hi = con.execute("select min(create_time), max(create_time) from msg").fetchone()
     return {"archived": total, "talkers": talkers,
+            "oldest": core._ts(lo) if lo else "", "newest": core._ts(hi) if hi else "",
             "first_seen": meta_get(con, "first_seen"), "last_tick": meta_get(con, "last_tick"),
             "watermark": watermark(con), "backfilled": meta_get(con, "backfilled") == "1"}

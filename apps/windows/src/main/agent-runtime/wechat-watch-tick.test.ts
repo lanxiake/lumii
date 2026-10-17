@@ -805,6 +805,21 @@ describe('回合元数据带上触发这一轮的消息', () => {
       '[非文本消息]',
     )
   })
+
+  it('超 400 字的正文要把 text_more 拼回去（拿半句当全文 = 看不到就编）', () => {
+    const head = '甲'.repeat(400)
+    const rest = '乙'.repeat(600)
+    const one = formatIncomingForHistory({
+      ts: 1,
+      talker: 'wxid_loop',
+      text: head,
+      text_more: rest,
+      text_len: 1000,
+    })
+    expect(one).toBe(head + rest)
+    // 没被截断的消息（没有 text_more）一个字都不能变
+    expect(formatIncomingForHistory({ ts: 1, talker: 'wxid_loop', text: '在吗' })).toBe('在吗')
+  })
 })
 
 describe('formatWechatProfiles（代聊每轮注入的画像前缀）', () => {

@@ -1,6 +1,12 @@
 # wechat-mcp · npm 社区分发（设计说明）
 
-> **状态**：已确认（2026-10-09）  
+> ⛔ **已废弃（2026-10-13）**：npm 社区分发**整条撤掉**了——`npm/` 模板、组装脚本
+> `scripts/pack-wechat-mcp-npm.mjs`、Actions `publish-wechat-mcp.yml` 与 TS 侧的
+> `WECHAT_MCP_NPM_PACKAGE` 全部删除。分发改走「**双击 exe 一键安装**」
+> （`wechat-mcp.exe --install`，与四件套同一套）。本文件只留作**当时的决策记录**，
+> 别再照着它配流程；现行手册见 [`PUBLISHING.md`](../../../apps/windows/resources/wechat-mcp/PUBLISHING.md)。
+
+> **状态**：已确认（2026-10-09）→ **已废弃（2026-10-13）**  
 > **关联计划**：[`docs/plans/渠道与CLI/2026-10-07-微信MCP设计改进计划.md`](../../plans/渠道与CLI/2026-10-07-微信MCP设计改进计划.md)  
 > **操作手册（正本）**：[`apps/windows/resources/wechat-mcp/PUBLISHING.md`](../../../apps/windows/resources/wechat-mcp/PUBLISHING.md)
 

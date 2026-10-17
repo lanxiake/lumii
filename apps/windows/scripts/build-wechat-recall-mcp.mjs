@@ -1,7 +1,7 @@
 /**
  * 把 resources/wechat-recall-mcp（撤回防护 MCP + 守护，Python 源码）打成单文件 exe。
  *
- * 与另两个同构：单档、无授权；依赖 wechat-mcp 的共享读取层，打包时**保留兄弟目录布局**。
+ * 与另两个同构：单档；依赖 wechat-mcp 的共享读取层，打包时**保留兄弟目录布局**。
  *
  * 这一个产物是**双身份**：不带参数时是 MCP server（stdio），带 `--daemon` 时是常驻守护，
  * `--install-autostart` 写 HKCU Run。所以冒烟除了握手，还验一次 `--status`。
@@ -16,6 +16,9 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+// 内置有效期（构建日期 + N 天）的注入与陈旧判据，五个构建脚本共用一份
+import { parseDays, remainingDays, STALE_MARGIN_DAYS, writeExpiryPy } from './wechat-mcp-expiry.mjs'
+
 const WINDOWS_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const SRC_DIR = path.join(WINDOWS_ROOT, 'resources', 'wechat-recall-mcp')
 const SHARED_DIR = path.join(WINDOWS_ROOT, 'resources', 'wechat-mcp')
@@ -24,7 +27,7 @@ const DIST_DIR = path.join(SRC_DIR, 'dist')
 const NAME = 'wechat-recall-mcp'
 const RUNTIME_DEPS = ['pycryptodome>=3.20', 'zstandard>=0.22']
 const PYINSTALLER_SPEC = 'pyinstaller>=6.10'
-const SKIP_DIRS = new Set(['dist', 'npm', '__pycache__'])
+const SKIP_DIRS = new Set(['dist', '__pycache__'])
 
 function log(msg) {
   console.log(`[build-wechat-recall-mcp] ${msg}`)
@@ -45,10 +48,11 @@ function stagePyDir(fromDir, toDir) {
   }
 }
 
-function prepareSource(workDir) {
+function prepareSource(workDir, days) {
   const staged = path.join(workDir, 'staged')
   stagePyDir(SRC_DIR, path.join(staged, 'wechat-recall-mcp'))
   stagePyDir(SHARED_DIR, path.join(staged, 'wechat-mcp'))
+  writeExpiryPy(path.join(staged, 'wechat-mcp'), days)   // 共享层就在这个目录里，运行时 `from expiry import ...` 才找得到
   return path.join(staged, 'wechat-recall-mcp')
 }
 
@@ -75,18 +79,24 @@ function smokeTest(exe) {
   if (st.status !== 0 || !(st.stdout ?? '').includes('archived')) {
     throw new Error(`exe --status 冒烟失败：rc=${st.status} out=${st.stdout} err=${st.stderr}`)
   }
-  log(`冒烟通过：${reply.result.serverInfo.name} v${reported}（MCP 握手 + 守护 --status）`)
+  // 有效期必须真的打进去了：`expiry.py` 没被 PyInstaller 收进去时，产物会静默地「不判到期」
+  // （builtin_expiry 取不到就当 0），发出去就是全功能免费送、还不报错。
+  const expOut = spawnSync(exe, ['--expiry-status'], { encoding: 'utf-8', windowsHide: true }).stdout ?? ''
+  if (expOut.includes('源码运行')) {
+    throw new Error('exe 没带上内置有效期（expiry.py 没打进产物？）：' + expOut)
+  }
+  log(`冒烟通过：${reply.result.serverInfo.name} v${reported}（MCP 握手 + 守护 --status + 内嵌有效期）`)
   return reported
 }
 
-function build(uv, env) {
+function build(uv, env, days) {
   const version = readSourceVersion()
   const exe = path.join(DIST_DIR, `${NAME}.exe`)
   const versioned = path.join(DIST_DIR, `${NAME}-${version}.exe`)
   const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wechat-recall-build-'))
   let built
   try {
-    const entryDir = prepareSource(workDir)
+    const entryDir = prepareSource(workDir, days)
     const sharedDir = path.join(path.dirname(entryDir), 'wechat-mcp')
     const args = [
       'run', '--no-project', '--python', '3.11',
@@ -99,6 +109,12 @@ function build(uv, env) {
       '--workpath', path.join(workDir, 'build'),
       '--specpath', workDir,
       '--paths', entryDir, '--paths', sharedDir,
+      // `expiry` 是 builtin_expiry 在 try 里惰性导入的，显式点名保证它进产物；
+      // 找不到时构建期就报错，好过发一份「不判到期」的 exe 出去。
+      '--hidden-import', 'expiry',
+      // 技能包打进 exe：单文件产品不该要求「技能包得跟 exe 放一起」。`--install` 时从
+      // `sys._MEIPASS/skills/<name>/` 拷进客户端技能目录（见 mcp_install.skill_source）。
+      '--add-data', `${path.join(SRC_DIR, 'skills')}${path.delimiter}skills`,
       path.join(entryDir, 'server.py'),
     ]
     log('--- 构建（uv + PyInstaller，首次需下载依赖）---')
@@ -118,7 +134,7 @@ function build(uv, env) {
   log(`      ${versioned}`)
 }
 
-function isUpToDate() {
+function isUpToDate(days) {
   const version = readSourceVersion()
   const exe = path.join(DIST_DIR, `${NAME}.exe`)
   const versioned = path.join(DIST_DIR, `${NAME}-${version}.exe`)
@@ -126,17 +142,25 @@ function isUpToDate() {
   const t = fs.statSync(exe).mtimeMs
   const srcs = [SRC_DIR, SHARED_DIR].flatMap((d) =>
     fs.readdirSync(d).filter((f) => f.endsWith('.py') && !f.startsWith('test_')).map((f) => path.join(d, f)))
+  // 有效期是**从构建那一刻**算起的：产物躺着不动，剩余天数每天都在少。
+  // 只看 mtime 会发出一份有效期只剩几天的 exe（静默），所以这里再卡一道。
+  const left = remainingDays(exe, days)
+  if (left <= STALE_MARGIN_DAYS) {
+    log(`产物剩余有效期只有 ${left.toFixed(1)} 天（≤ ${STALE_MARGIN_DAYS}），重新构建`)
+    return false
+  }
   return srcs.every((f) => fs.statSync(f).mtimeMs <= t)
 }
 
 function main() {
   const argv = process.argv.slice(2)
+  const days = parseDays(argv)
   const uv = locateUv()
   if (!uv) {
     console.error('找不到 uv，请先安装：https://docs.astral.sh/uv/')
     process.exit(1)
   }
-  if (argv.includes('--if-stale') && isUpToDate()) {
+  if (argv.includes('--if-stale') && isUpToDate(days)) {
     log('产物已是最新，跳过构建')
     return
   }
@@ -144,7 +168,7 @@ function main() {
   if (!env.UV_DEFAULT_INDEX && process.env.npm_config_registry?.includes('npmmirror')) {
     env.UV_DEFAULT_INDEX = 'https://pypi.tuna.tsinghua.edu.cn/simple'
   }
-  build(uv, env)
+  build(uv, env, days)
 }
 
 main()
