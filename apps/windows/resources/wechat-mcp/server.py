@@ -36,6 +36,7 @@ wechat_profile_save / wechat_profile_get。
 import json
 import sys
 import os
+import traceback
 
 SERVER_NAME = "wechat-local"
 SERVER_VERSION = "0.8.0"
@@ -74,6 +75,19 @@ def log(*a):
     print("[wechat-mcp]", *a, file=sys.stderr, flush=True)
 
 
+def format_tool_error(exc):
+    """工具异常收成一行非空的 `ERROR:` 文本。
+
+    不能只写 `ERROR: {exc}`：`StopIteration` 的 `str()` 是空串，客户端只能看到 `ERROR:`，
+    盯梢每拍都无法判断该等微信还是该修代码。类型名永远在，空文案再退回 `repr`。
+    """
+    name = type(exc).__name__
+    detail = str(exc).strip()
+    if not detail:
+        detail = repr(exc)
+    return f"ERROR: {name}: {detail}"
+
+
 def force_utf8_stdio():
     """把三个标准流的编码钉成 UTF-8。
 
@@ -99,21 +113,28 @@ def _resolve(talker):
 def _resolve_or_error(talker):
     """解析会话；失败时给出**近似候选 + 可选清单**（避免宽松匹配发错人）。返回 (talker|None, error|None)。
 
-    为什么要把「近似候选」放最前：本机实测有三个 `loop`（`Loop`/`loop`/`loop`），
-    用户说「发给loop」时正确答案是**拒绝并要求指认**——但必须把候选摆出来
-    （`Loop(wxid_s6piy…)` 等），否则人和 Agent 都只能看到一句「没有这个会话」而卡死。
+    为什么要截断可选清单：本机 287 个会话时，一次失败会把**全部会话**塞进错误文本
+    （实测 39KB），Agent 的上下文直接被这一句占满。相似候选留 5 个、可选清单留 12 个，
+    剩下的让 Agent 用 `list_sessions(query=…)` 自己查。
     """
+    if not talker:
+        return None, "talker 为空（需要会话显示名或 wxid/群号）；先用 list_sessions 拿确切名字"
     t = _resolve(talker)
     if t:
         return t, None
     try:
-        near = core.suggest_talkers(talker)
+        near = core.suggest_talkers(talker)[:5]
     except Exception:
         near = []
     near_s = "；".join(f"{r['name']}({r['talker']})" for r in near) if near else ""
     try:
-        opts = "；".join(f"{s['name']}({s['talker']})" for s in core.sessions())
+        opts_all = core.sessions()
     except Exception:
+        opts_all = []
+    opts = "；".join(f"{s['name']}({s['talker']})" for s in opts_all[:12])
+    if len(opts_all) > 12:
+        opts += f"；…另有 {len(opts_all) - 12} 个（用 list_sessions(query=…) 查）"
+    if not opts:
         opts = "（会话列表读取失败）"
     head = (f"「{talker}」不能唯一确定（相似会话：{near_s}）——请从里面挑**确切的一个**"
             if near_s else f"未找到会话「{talker}」")
@@ -144,6 +165,17 @@ def _get_fix_suggestion(error_code):
         "attachment_missing": "本地文件不存在或不可读，请核对绝对路径后重试。",
         "clipboard_failed": "写剪贴板失败（偶发被其它程序占用）。等几秒重试即可。",
         "bad_args": "参数错误，请检查输入参数是否完整且格式正确。",
+        "not_found": "没找到这条消息：核对 talker 与 local_id（要用 read_history/poll_new 返回的那个），"
+                     "必要时把该消息的 ts 一并传入精确定位。",
+        "not_image": "这条 local_id 指向的不是图片消息；图片消息要用 read_history 返回的 type=3 那条。",
+        "image_key_missing": "图片 AES 密钥还没抓过：让用户先在微信里点开一张图（大图界面），"
+                             "再跑一次 `wechat-mcp.exe --image-key`（抓一次即可，账号级）。",
+        "image_missing": "图没落到本地（原图与中图都缺，微信清过的图永久缺失）。如实告诉用户取不到，别编内容。",
+        "voice_unavailable": "这条语音的音频本地已经没有了（微信清理过），永久缺失；"
+                             "如实告诉用户听不到，**不要编内容**。",
+        "asr_unavailable": "本地语音转写没就绪：装依赖（pip install pilk sherpa-onnx numpy）"
+                           "或用 `wechat-mcp.exe --download-asr-model` 下载模型。",
+        "asr_failed": "转写过程出错，可重试一次；连续失败则检查模型文件是否完整。",
     }
     return suggestions.get(error_code, "请检查微信窗口状态并重试，或查看 detail 字段了解详情。")
 
@@ -220,6 +252,14 @@ _STAGE_BY_CODE = {
     "send_not_confirmed": "send",
     "ui_unresponsive": "send",     # UI 冻结（已自动恢复）
     "busy": "lock",
+    # 媒体读取（read_image / transcribe_voice）
+    "not_found": "media",
+    "not_image": "media",
+    "image_key_missing": "media",
+    "image_missing": "media",
+    "voice_unavailable": "media",
+    "asr_unavailable": "media",
+    "asr_failed": "media",
 }
 
 
@@ -290,7 +330,7 @@ def tool_sessions(args):
 def tool_history(args):
     talker, err = _resolve_or_error(args.get("talker"))
     if err:
-        return {"error": err}
+        return _fail("target_not_found", err)
     return _strip_media(core.history(talker, int(args.get("limit") or 10), int(args.get("before_ts") or 0)))
 
 
@@ -305,6 +345,9 @@ _IMAGE_WHY = {
                "点开一张图片（大图界面）再跑，抓一次之后所有图都能解"),
     "no_file": "图没落到本地：原图与中图都缺（微信清过的图，缺失是永久的）",
 }
+# 取图失败 → 稳定错误码（Agent 按码决策，不必读中文 detail）
+_IMAGE_CODE = {"not_found": "not_found", "not_image": "not_image",
+               "no_key": "image_key_missing", "no_file": "image_missing"}
 
 
 def tool_image(args):
@@ -322,16 +365,16 @@ def tool_image(args):
     import base64
     talker, err = _resolve_or_error(args.get("talker"))
     if err:
-        return {"error": err}
-    m, why = core.image_message(talker, args.get("local_id"))
+        return _fail("target_not_found", err)
+    m, why = core.image_message(talker, args.get("local_id"), ts=int(args.get("ts") or 0))
     if not m:
-        return {"error": _IMAGE_WHY.get(why, "取不到这张图")}
+        return _fail(_IMAGE_CODE.get(why, "image_missing"), _IMAGE_WHY.get(why, "取不到这张图"))
     p = m.get("image_path") or ""
     try:
         with open(p, "rb") as f:
             raw = f.read()
     except OSError as e:
-        return {"error": f"读取解密后的图片失败：{e}"}
+        return _fail("image_missing", f"读取解密后的图片失败：{e}")
     mime = "image/png" if p.lower().endswith(".png") else "image/jpeg"
     meta = {"talker": talker, "local_id": m.get("local_id"), "ts": m.get("ts"),
             "path": p, "bytes": len(raw),
@@ -351,7 +394,7 @@ def tool_transcribe(args):
     talker, err = _resolve_or_error(args.get("talker"))
     if err:
         return _fail("target_not_found", err)
-    m = core.voice_message(talker, args.get("local_id"))
+    m = core.voice_message(talker, args.get("local_id"), ts=int(args.get("ts") or 0))
     if not m:
         return _fail("voice_unavailable",
                      "取不到这条语音的音频：不是语音消息 / 找不到该 local_id / "
@@ -506,7 +549,7 @@ def tool_search(args):
     if talker:
         talker, err = _resolve_or_error(talker)
         if err:
-            return {"error_code": "target_not_found", "error": err}
+            return _fail("target_not_found", err)
     return _strip_media(core.search_messages(str(args.get("keyword") or ""), talker,
                                               int(args.get("since") or 0), int(args.get("until") or 0),
                                               int(args.get("limit") or 50)))
@@ -522,7 +565,7 @@ def tool_digest(args):
     if talker:
         talker, err = _resolve_or_error(talker)
         if err:
-            return {"error_code": "target_not_found", "error": err}
+            return _fail("target_not_found", err)
     return core.digest(talker, int(args.get("limit") or 0), since=int(args.get("since") or 0))
 
 
@@ -583,7 +626,7 @@ def tool_profile_get(args):
     # 显式给了 scope（含 "self"）→ 必须读回正文，不能走上面那条列清单的分支
     scope, err = _resolve_scope(raw)
     if err:
-        return {"error_code": "target_not_found", "error": err}
+        return _fail("target_not_found", err)
     return core.profile_get(scope)
 
 
@@ -736,12 +779,13 @@ _MEDIA_PRO = """\
 - 历史里除了文本，还会有这些**摘要**：`[图片 17KB]`、`[语音 3.2 秒]`、`[视频 38 秒]`、
   `[表情]`、`[位置] 成都市武侯区…`、`[链接] 标题 (url)`、`[名片] 昵称`、`[通话] 通话时长 02:41`、
   以及系统消息（「X 撤回了一条消息」）。**位置/链接/撤回这些本身就有信息**，直接拿来用。
-- **语音**：消息里的 `voice_path` 是本地 SILK 文件。用 `transcribe_voice(talker, local_id)` 取转写
-  文字，**别去猜语音内容**。监控回路在**叫醒你之前**也可能已经转写过一遍，文字会以
+- **语音**：消息里的 `voice_path` 是本地 SILK 文件。用 `transcribe_voice(talker, local_id, ts)` 取转写
+  文字（`ts` 用消息自带的那个——`local_id` 跨时间分片会撞号，带上才能精确锁定），**别去猜语音内容**。监控回路在**叫醒你之前**也可能已经转写过一遍，文字会以
   「（上面这条是语音，本地转写的文字是：…）」的形式**直接摆在【本次触发】里**——有就用，那才是对方说的话。
 - **图片**：消息里的 `image_path` 指向的是**已解密的明文位图**（微信原图是加密 `.dat`，解密这步
   服务端早已完成，你拿到的不是密文）。同机直接读那个文件即可；**跨机 / 客户端读不到本地文件时**，
-  调 `read_image(talker, local_id)` 让它以 **image 块**内联返回。
+  调 `read_image(talker, local_id, ts)` 让它以 **image 块**内联返回（`ts` 用消息自带的那个：
+  `local_id` 跨时间分片会撞号，带上才能精确锁定）。
   ⚠️ `image_path` 指向的**可能只是缩略图**（原图没落盘时会静默退到中图/缩略图，小到 83×180、字看不清）——
   分不清「图模糊是模型的锅还是只拿到缩略图」时，看 `read_image` 返回的 `variant`(hd/thumb) 与 `bytes`。
 - 用户主动贴了文字描述、或把图另存到本地给了路径，才能谈图片内容；**读不到就别编画面内容**。
@@ -830,7 +874,8 @@ TOOLS = [
                      "体积：原图 base64 后可到数 MB，只取真要看的那些张。"),
      "inputSchema": {"type": "object", "properties": {
          "talker": {"type": "string", "description": "会话显示名或 wxid/群号/filehelper"},
-         "local_id": {"type": "integer", "description": "read_history/poll_new 返回的该条图片消息的 local_id"}},
+         "local_id": {"type": "integer", "description": "read_history/poll_new 返回的该条图片消息的 local_id"},
+         "ts": {"type": "integer", "description": "可选：该条消息的 ts（read_history 返回）。local_id 跨时间分片会撞号，给了 ts 才能精确锁定"}},
          "required": ["talker", "local_id"]}},
     {"name": "transcribe_voice",
      "description": ("【何时用】要**听懂一条语音**时——read_history/poll_new 里语音消息带 `local_id`，用它取文字。"
@@ -842,7 +887,8 @@ TOOLS = [
                      "这时返回 `voice_unavailable`——**不要据此编内容**，如实告诉用户听不到。"),
      "inputSchema": {"type": "object", "properties": {
          "talker": {"type": "string", "description": "会话显示名或 wxid/群号/filehelper"},
-         "local_id": {"type": "integer", "description": "read_history/poll_new 返回的该条语音消息的 local_id"}},
+         "local_id": {"type": "integer", "description": "read_history/poll_new 返回的该条语音消息的 local_id"},
+         "ts": {"type": "integer", "description": "可选：该条消息的 ts（read_history 返回）。local_id 跨时间分片会撞号，给了 ts 才能精确锁定"}},
          "required": ["talker", "local_id"]}},
     {"name": "poll_new",
      "description": ("【何时用】要**实时/增量**盯用户本人微信的新消息时（定时轮询、收到回复后等下文）。"
@@ -1170,8 +1216,9 @@ def handle_tools_call(mid, params):
                     else [{"type": "text", "text": json.dumps(data, ensure_ascii=False)}],
                     "isError": False})
     except Exception as e:
-        log("error", name, repr(e))
-        reply(mid, {"content": [{"type": "text", "text": f"ERROR: {e}"}], "isError": True})
+        # 栈写进 stderr（客户端握手后仍保留尾部），返回值里带类型名，避免空的 `ERROR:`
+        log("error", name, traceback.format_exc())
+        reply(mid, {"content": [{"type": "text", "text": format_tool_error(e)}], "isError": True})
     finally:
         # 装了就必须还原（哪怕原来没有回调）——否则进度槽会泄漏到下一次调用，
         # 把上一条请求的 token 带出去。

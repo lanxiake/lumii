@@ -91,14 +91,14 @@ claude mcp add wechat-local -s user -- "{{EXE}}"
 | `send_text` | 发一条文本 |
 | `send_file` | 发一个本地文件。⚠️ 依赖 UIA「发送文件」按钮，拿不到就 fail-closed |
 | `send_batch` | 逐个发多条。参数是 `messages: [{talker, text}]`（**不是** `texts`） |
-| `reply_to` | 带引用的回复。参数 `talker` + `quote` + `text`。⚠️ **`quote` 必须是聊天区里当前可见的原文**（历史里有但滚出可视区 → `quote_not_found`）；且它**要求微信窗口在前台**，与其它发送工具不同 |
+| `reply_to` | 带引用的回复。参数 `talker` + `quote` + `text`。⚠️ **`quote` 必须是聊天区里当前可见的原文**（历史里有但滚出可视区 → `quote_not_found`）；**短消息（2–3 个字的气泡）可能被 OCR 漏行**，优先引用**较长**的那条原文。且它**要求微信窗口在前台**，与其它发送工具不同 |
 
 **[pro] 媒体与画像**
 
 | 工具 | 说明 |
 |---|---|
-| `read_image` | 按 `talker` + `local_id` 取图，返回 MCP **image 内容块**。`variant` 可能是 `hd` 或 `thumb`（原图没下就只有缩略图）。**要先抓过一次图片密钥**——账号级、只能从微信进程内存扫出来，缺了它会明说是「密钥还没抓过」，这时让用户先在微信里点开一张图、再跑一次 `wechat-mcp.exe --image-key` |
-| `transcribe_voice` | 按 `talker` + `local_id` 本地转写语音（sherpa-onnx，不出网） |
+| `read_image` | 按 `talker` + `local_id` 取图，返回 MCP **image 内容块**。`variant` 可能是 `hd` 或 `thumb`（原图没下就只有缩略图）。**要先抓过一次图片密钥**——账号级、只能从微信进程内存扫出来，缺了它会明说是「密钥还没抓过」，这时让用户先在微信里点开一张图、再跑一次 `wechat-mcp.exe --image-key`。⚠️ **把 `read_history` 返回的 `ts` 一并传入**：`local_id` 只在单个时间分片内唯一（跨分片撞号是常态），不给 `ts` 时会按「图片优先 + 最新」兜底，可能取错 |
+| `transcribe_voice` | 按 `talker` + `local_id` 本地转写语音（sherpa-onnx，不出网）。同样**建议带 `ts`** 精确定位（`local_id` 跨时间分片会撞号） |
 | `wechat_digest` | 出统计与样本：说话风格、常联系的人、活跃时段——**蒸馏的原料**。统计默认**全量**（别传 `limit`；传了就是有损的，`capped_talkers` 会点名被截断的会话） |
 | `wechat_profile_save` / `wechat_profile_get` | 画像落盘 / 读回。`scope` 留空=用户本人，否则给**真实存在的会话**（名字或 wxid）；不存在的 scope 会被拒 |
 | `wechat_distill_state` | 增量蒸馏的水位（`action=get/set` + `scope` + `ts`） |
@@ -118,8 +118,8 @@ claude mcp add wechat-local -s user -- "{{EXE}}"
       │  没有 → wechat_digest 拿样本 → 提炼 → wechat_profile_save → wechat_distill_state(set)
       ▼
 ④ [pro] 媒体（有才做，没有就跳过）
-      图片消息有 local_id → read_image 拿画面（或让客户端直接读 image_path）
-      语音消息有 local_id → transcribe_voice 拿文字
+      图片消息有 local_id → read_image(talker, local_id, ts) 拿画面（或让客户端直接读 image_path）
+      语音消息有 local_id → transcribe_voice(talker, local_id, ts) 拿文字
       视频消息有 video_path → 明文 mp4，让客户端自己看/转发（没有就跳过：多数老视频的文件已被微信清掉）
       ▼
 ⑤ 起草回复（用画像里的说话习惯：长度、标点、口头禅）

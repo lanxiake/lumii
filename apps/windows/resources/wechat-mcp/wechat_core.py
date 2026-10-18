@@ -513,8 +513,43 @@ def keys(root=None, refresh=False):
                   "2. 微信**刚启动**、还没打开过任何聊天窗口 —— 点开一个会话，等几秒再试\n"
                   "3. 微信版本不在已验证范围内（密钥扫描依赖固定内存偏移）"
                   "—— 见 wechat_core.VERIFIED_VERSION_PREFIXES"))
-    _key_cache[root] = (km, time.time())
+    remember_keys(root, km, rem)
     return km
+
+
+def lookup_db_key(km, rel):
+    """按相对路径在密钥表里找 key。找不到返回 None。
+
+    不要用 `next(...)`：找不到时抛的是 `StopIteration`，而 `str(StopIteration())` 是空串。
+    MCP 把它收成 `ERROR:`，盯梢每拍都只看到一句空错误，分不清是该等微信还是该修代码。
+    """
+    want = str(rel).replace("\\", "/").lower()
+    for _salt, pair in (km or {}).items():
+        key, path = pair
+        if str(path).replace("\\", "/").lower() == want:
+            return key
+    return None
+
+
+def remember_keys(root, km, remaining):
+    """完整密钥表才写入长缓存；还有库没扫到就不缓存。
+
+    微信刚启动时，进程内存里常常只有一部分库的密钥。这种残缺表若按 `KEY_TTL_S`
+    （10 分钟）缓存，盯梢会在密钥补齐之前每拍都用同一份表失败。返回是否写入了缓存。
+    """
+    if remaining:
+        _key_cache.pop(root, None)
+        return False
+    _key_cache[root] = (km, time.time())
+    return True
+
+
+def _missing_key_error(rel):
+    """某个库在重扫之后仍然没有密钥。文案必须非空，调用方靠它判断「等一等」而不是当硬故障。"""
+    return EnvError(
+        f"未能取到 {rel} 的数据库密钥",
+        hint=("微信可能刚启动，内存里还没有这个库的密钥。"
+              "打开微信并点开一个会话后会自动重试；持续如此再看微信版本是否在已验证范围内。"))
 
 
 def _sqlite_ok(path):
@@ -533,7 +568,12 @@ def _plain(km, root, rel, _retry=True):
 
     ⚠️ 只保留给「全量重建」路径用；实时路径走 `_ShardMirror`（增量重放，见下）。
     """
-    key = next(k for s, (k, r) in km.items() if r.replace("\\", "/").lower() == rel.lower())
+    key = lookup_db_key(km, rel)
+    if key is None and _retry:
+        # 表里没有这个库：作废缓存再扫一次（上次扫早了，或微信重启换了密钥）
+        return _plain(keys(root, refresh=True), root, rel, _retry=False)
+    if key is None:
+        raise _missing_key_error(rel)
     enc = bytes.fromhex(key)
     src = os.path.join(root, rel.replace("/", os.sep))
     dst = os.path.join(MIRROR_DIR, os.path.basename(rel) + ".copy")
@@ -652,8 +692,11 @@ class _ShardMirror:
     def _kmac(self):
         if self._keys is None:
             km = keys(self.root)
-            k = next(k for s, (k, r) in km.items()
-                     if r.replace("\\", "/").lower() == self.rel.lower())
+            k = lookup_db_key(km, self.rel)
+            if k is None:
+                k = lookup_db_key(keys(self.root, refresh=True), self.rel)
+            if k is None:
+                raise _missing_key_error(self.rel)
             enc = bytes.fromhex(k)
             salt = open(self.src, "rb").read(16)
             self._keys = (enc, wxread4.derive_mac_key(enc, salt))
@@ -1641,14 +1684,40 @@ def _ts(ct):
 
 
 def sessions():
+    """列出所有会话（显示名 + talker + 最新一条预览）。
+
+    性能（2026-10-18 实测）：旧实现每个会话调一次 `_rows`，而 `_rows` 每次都新开
+    sqlite 连接——287 个会话 × 逐次 connect ≈ **6.8s**。这里改成**每个分片复用一条连接**，
+    一次遍历该分片的表各取最新一行，再按 create_time 合并（同一 talker 跨分片时取更新的）。
+    实测降到百毫秒级。
+    """
     nm = names()
+    _refresh()
+    latest = {}                      # tbl -> (create_time, local_type, content)
+    for p in _cache["msg"]:
+        tables = _cache["tables"].get(p, ())
+        if not tables:
+            continue
+        c = sqlite3.connect(p)
+        try:
+            for tbl in tables:
+                try:
+                    row = c.execute(
+                        f"select create_time, local_type, message_content from [{tbl}]"
+                        " order by create_time desc limit 1").fetchone()
+                except Exception:
+                    continue
+                if row and (tbl not in latest or row[0] > latest[tbl][0]):
+                    latest[tbl] = row
+        finally:
+            c.close()
     out = []
     for tbl, talker in talkers():
-        rows = _rows(tbl, 1)
+        row = latest.get(tbl)
         # 走 _render：不然最后一条是图片/语音时，会话列表预览会吐一整段 XML
         # `split("\n")[0]`：末条是合并转发时 `_render` 会展开成多行（2026-10-15），
         # 而预览是**单行**字段——不切的话会话列表里会多出一截转发正文。
-        last = _render(rows[0][1], rows[0][2]).split("\n")[0][:80] if rows else ""
+        last = _render(row[1], row[2]).split("\n")[0][:80] if row else ""
         out.append({"talker": talker, "name": nm.get(talker, talker), "last": last})
     out.sort(key=lambda r: r["name"])
     return out
@@ -1740,7 +1809,7 @@ def _pad_page(tbl, rows, limit):
     实测本机：`limit=10` 逐表模拟翻页，**17 张表丢 76/4973 条（1.5%）**，最坏一张 19/87。
     补秒后 `cursor` 仍是**单个 int**，调用方一个字都不用改。
     """
-    if len(rows) < limit:                  # 没切在中间（这一页就是剩下的全部）
+    if not rows or len(rows) < limit:      # 空结果或没切在中间（这一页就是剩下的全部）
         return rows
     bts = min(r[0] for r in rows)
     have = {r[4] for r in rows}             # local_id：同秒可能有很多条
@@ -1773,8 +1842,14 @@ def history(talker, limit=10, before_ts=0):
     return out
 
 
-def _message_by_id(talker, local_id):
+def _message_by_id(talker, local_id, ts=0, want_type=0):
     """按 `talker` + `local_id` 定位**单条**消息 → `msg_dict`（不含媒体路径）。找不到返回 None。
+
+    ⚠️ **`local_id` 只在单个时间分片内唯一**——每个 `message_N.db` 各自从 1 自增，
+    同一会话跨分片撞号是常态（本机实测 3694 处，如 2024 年的语音与 2026 年的系统消息
+    都叫 `local_id=4`）。所以：
+    - 调用方传 `ts`（`read_history` 的 `msg_dict.ts`）→ 精确锁定那一条；
+    - 没传 `ts` → 先按 `want_type`（图片=3 / 语音=34）挑，再取最新的一条。
 
     按 `local_id` 而不是 `create_time`：后者会撞——实测同一秒两条语音，
     lid 41 是 3.4 秒、lid 42 是 34.8 秒，按时间取会**转写出另一个人说的另一段话**。
@@ -1787,23 +1862,34 @@ def _message_by_id(talker, local_id):
         lid = int(local_id)
     except (TypeError, ValueError):
         return None
+    matches = []
     for p in _cache["msg"]:
         if tbl not in _cache["tables"].get(p, ()):
             continue
         c = sqlite3.connect(p)
         try:
-            rows = _query_rows(c, tbl, " where local_id = ?", [lid, 1], True)
+            rows = _query_rows(c, tbl, " where local_id = ?", [lid, 10 ** 9], True)
         except Exception:
             rows = []
         finally:
             c.close()
-        if not rows:
-            continue
-        ct, lt, content, sid, lid2, src, pk = rows[0]
-        return msg_dict(ct, lt, content, nm, talker=talker, name=nm.get(talker, talker),
-                        sender=_cache["senders"].get(p, {}).get(sid, ""), me=me,
-                        local_id=lid2, source=src, packed=pk)
-    return None
+        for row in rows:
+            matches.append((p, row))
+    if not matches:
+        return None
+    if ts:
+        matches = [x for x in matches if int(x[1][0]) == int(ts)]
+        if not matches:
+            return None
+    if want_type:
+        typed = [x for x in matches if (int(x[1][1]) & 0xFFFFFFFF) == want_type]
+        if typed:
+            matches = typed
+    matches.sort(key=lambda x: int(x[1][0]), reverse=True)   # 同秒/没给 ts 时取最新
+    p, (ct, lt, content, sid, lid2, src, pk) = matches[0]
+    return msg_dict(ct, lt, content, nm, talker=talker, name=nm.get(talker, talker),
+                    sender=_cache["senders"].get(p, {}).get(sid, ""), me=me,
+                    local_id=lid2, source=src, packed=pk)
 
 
 def _image_key_cached():
@@ -1815,12 +1901,15 @@ def _image_key_cached():
         return False
 
 
-def image_message(talker, local_id):
+def image_message(talker, local_id, ts=0):
     """按 `talker` + `local_id` 定位**单条**图片消息 → `(带 image_path 的 msg_dict, 失败原因)`。
 
     给 MCP 的 `read_image` 用：Agent 先在 `read_history` 里看见图片消息的 `local_id`，
     再按这个 id 单独把图取回去——**别让 `read_history` 每次都内联多张图的 base64**
     （一条原图 base64 后好几 MB，翻一页历史就爆了）。
+
+    `ts` 可选：`local_id` 跨时间分片撞号（每个分片自增从 1 开始），把 `read_history`
+    返回的 `ts` 一并传进来才能精确锁定；不传则优先挑 `type=3` 的分片。
 
     `m` 为 None 时看第二个返回值：`not_found`（这个会话里没这条）/ `not_image`（不是图片）/
     `no_key`（**图片 AES key 还没抓过**）/ `no_file`（原图与中图都没落到本地，永久缺失）。
@@ -1828,7 +1917,7 @@ def image_message(talker, local_id):
     症状与「图没落本地」**一模一样**，调用方分不出来就会去查根本不存在的文件缺失。调用方
     据此报错，**不要**伪造路径。
     """
-    m = _message_by_id(talker, local_id)
+    m = _message_by_id(talker, local_id, ts=ts, want_type=3)
     if not m:
         return None, "not_found"
     if m.get("type") != 3:
@@ -1839,14 +1928,17 @@ def image_message(talker, local_id):
     return (m, "") if m.get("image_path") else (None, "no_file")
 
 
-def voice_message(talker, local_id):
+def voice_message(talker, local_id, ts=0):
     """按 `talker` + `local_id` 定位**单条**语音消息 → 带 `voice_path` 的 `msg_dict`。
 
     给 MCP 的 `transcribe_voice` 用。返回 None 的三种情形要分开告诉用户：
     不是语音 / 找不到这条 / `VoiceInfo` 里没有音频（本机 47 条语音里 36 条有数据，
     其余更早被清掉了，**永久缺失**）。
+
+    `ts` 可选：`local_id` 跨时间分片撞号，传 `read_history` 返回的 `ts` 才能精确锁定；
+    不传则优先挑 `type=34` 的分片。
     """
-    m = _message_by_id(talker, local_id)
+    m = _message_by_id(talker, local_id, ts=ts, want_type=34)
     if not m or m.get("type") != 34:
         return None
     attach_voice([m], talker)

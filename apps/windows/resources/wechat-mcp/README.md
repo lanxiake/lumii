@@ -260,10 +260,10 @@ wechat-mcp.exe --expiry-status   # 看到期日与剩余天数（在有效期内
 |---|---|
 | `list_sessions(query?)` | 列会话（显示名 + talker + 最新预览），`query` 按关键词过滤 |
 | `read_history(talker, limit, before_ts?)` | 读历史（正序；带 `cursor`/`has_more` 翻页。**翻页不丢消息**：页会补到边界那一秒的整秒，所以可能比 `limit` 略多几条）；每条带 `from_me`/`sender`，群里 @ 了本人则带 `at_me: true`。🅿 图片/语音消息另带 `image_path`（**已解密的明文位图**）/`voice_path`；🅿 视频消息另带 `video_path`（**客户端已下下来的那份 mp4**，明文、不需要密钥；要**字节数精确对得上**才给——实测只有约 1/6 的历史消息还留着文件，新到的多数能认领回来） |
-| 🅿 `read_image(talker, local_id)` | 取一张图片消息的**内容**：返回 MCP **image 内容块**（内联 base64 位图），跨机/客户端读不到本地文件时用；随图返回 `variant`(hd/thumb) 与 `bytes` |
-| 🅿 `transcribe_voice(talker, local_id)` | **本地**把一条语音转成文字（SILK → Paraformer，音频不外传）。需模型就位，见 §6「语音转写（pro 版）」；较老的语音音频可能已被微信清掉，这时返回 `voice_unavailable` |
+| 🅿 `read_image(talker, local_id, ts?)` | 取一张图片消息的**内容**：返回 MCP **image 内容块**（内联 base64 位图），跨机/客户端读不到本地文件时用；随图返回 `variant`(hd/thumb) 与 `bytes`。**建议把 `read_history` 返回的 `ts` 一并传入**：`local_id` 只在单个时间分片内唯一（本机实测跨分片撞号 3694 处），不给 `ts` 时按「图片类型优先 + 最新」兜底 |
+| 🅿 `transcribe_voice(talker, local_id, ts?)` | **本地**把一条语音转成文字（SILK → Paraformer，音频不外传）。需模型就位，见 §6「语音转写（pro 版）」；较老的语音音频可能已被微信清掉，这时返回 `voice_unavailable`。同样**建议带 `ts`** 精确定位（理由同上） |
 | `poll_new(since_ts)` | 增量新消息（正序）。每条带 `from_me`/`sender`（自己发的也返回），群里 @ 了本人则带 `at_me: true`（按 `msgsource.atuserlist` 里的 wxid 判定，不看昵称）；返回 `next_since_ts` 供下一轮直接用（**别传墙上时钟的 now**，同秒会漏）。走增量快路径：只解密新增的 WAL 帧、只扫有变化的会话表 |
-| `search_messages(keyword, talker?, since?, until?)` | 关键词/时间检索（跨全部时间分片）。每条命中都带 `local_id`，**可以直接交给 `read_image` / `transcribe_voice`**（同一秒多条也只有它分得清）。`since`/`until` 是**严格**开区间；`truncated: true` = 有会话撞了单会话扫描上限（`scanned_per_talker`，更老的没扫）——别把 0 命中当成"没有"，缩小时间范围再搜。🅿 命中的视频消息带 `video_path`（同 `read_history`：只对**已下载到本机**的那些）——「找那段视频」搜完就能直接给 |
+| `search_messages(keyword, talker?, since?, until?)` | 关键词/时间检索（跨全部时间分片）。每条命中都带 `local_id`，**可以直接交给 `read_image` / `transcribe_voice`**（同一秒多条由它分得清；跨时间分片会撞号，把命中里的 `ts` 一并传过去即可精确定位）。`since`/`until` 是**严格**开区间；`truncated: true` = 有会话撞了单会话扫描上限（`scanned_per_talker`，更老的没扫）——别把 0 命中当成"没有"，缩小时间范围再搜。🅿 命中的视频消息带 `video_path`（同 `read_history`：只对**已下载到本机**的那些）——「找那段视频」搜完就能直接给 |
 | `list_unread()` | 未读会话 + 最近一条预览 |
 | `check_env()` | 自检：微信进程/窗口/最小化/前台/尺寸·DPI + 依赖(`deps`)、账号(`accounts`)、数据目录(`db_root`/`db_source`) |
 | `locate_db()` | 只读定位微信数据目录：返回 `root`/`source`（从哪找到的）/`accounts`（所有候选账号），换机排查用 |
@@ -329,6 +329,7 @@ wechat-mcp.exe --expiry-status   # 看到期日与剩余天数（在有效期内
 在那儿跑一遍证明不了任何事）。
 标记/标签自测：`python test_agent_mark.py`、`python test_render_labels.py`（都是纯函数，不碰微信）。
 技能自测：`python test_skills.py`（需先 build 出 dist 的两个 exe；没 build 会自动跳过）。
+分片撞号回归：`python test_collision.py`（合成两分片库，覆盖 `local_id` 跨分片撞号与 `limit=0`）。
 盯消息：`python devcli.py watch [since_ts] [--ticks N] [--interval S]` —— 连续打拍，
 输出每拍的新消息、滞后秒数、刷新与查询耗时、快路径命中情况。
 

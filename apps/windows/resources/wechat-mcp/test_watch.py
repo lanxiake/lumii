@@ -2204,10 +2204,12 @@ def suite_M():
         server._resolve_or_error = lambda t: (TALKER, None)   # 会话解析不是这条用例的题
         try:
             for why in ("not_found", "not_image", "no_key", "no_file"):
-                core.image_message = lambda t, l, w=why: (None, w)
+                core.image_message = lambda t, l, w=why, **kw: (None, w)
                 got = server.tool_image({"talker": TALKER, "local_id": 1})
-                msg = got.get("error") or ""
+                msg = got.get("detail") or got.get("error") or ""
                 assert msg == server._IMAGE_WHY[why], f"{why} 没给对应的话：{msg}"
+                assert got.get("ok") is False and got.get("error_code"), \
+                    f"{why} 没走统一失败信封：{got}"
             assert len(set(server._IMAGE_WHY.values())) == len(server._IMAGE_WHY), \
                 "有两条原因共用一句错话，等于没分开"
         finally:
