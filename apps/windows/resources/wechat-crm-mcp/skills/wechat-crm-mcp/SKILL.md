@@ -61,7 +61,7 @@ claude mcp add wechat-crm -s user -- "{{EXE}}"
 |---|---|
 | `list_contacts(scope?, room?, keyword?, include_deleted?, limit?, offset?)` | 通讯录；`room=` 时列**该群成员**（含 `name_in_room` 与 `name_in_room_with`） |
 | `contact_stats(talker, since?, until?)` | 单会话数字：总条数/我发对方发/活跃小时/活跃天 Top/沉默天数 |
-| `silence_ladder(scope?, days?, top?)` | **按人**分层：多久没互动 / 从没聊过的人（`never` 桶） |
+| `silence_ladder(scope?, days?, top?)` | **按人**分层：多久没互动 / 从没聊过的人（`never` 桶）。分层结果同时给 `buckets`（数组）与扁平化键 `within_30` / `31_60` / `61_90` / `90_plus`，直接取键即可，不必遍历数组 |
 | `interaction_rank(since?, until?, top?, sort?)` | **按会话**排行；`sort=recent` = 久未联系在前 |
 
 **消息面**（读正文）：
@@ -102,6 +102,19 @@ claude mcp add wechat-crm -s user -- "{{EXE}}"
 
 **你要下判断时，把数字摆出来再说结论**（例："近 90 天只有 3 条往来，最后联系在 4 个月前"），
 别只丢一句"关系淡了"。
+
+## 3.5 常见误用（都会让答案失真）
+
+- **上来就 `read_messages(limit=5000)`**：先用 `customer_brief` 拿摘要，只有用户追问具体内容时才读原文。
+- **用 `interaction_rank` 回答「谁久没联系」**：它按**会话**统计，看不见"从没私聊、只在群里冒过泡"的人；
+  这个问题用 `silence_ladder`。
+- **把 `hot_pairs` 当话题清单**：2-gram 会带碎片词，说"从高频词看可能在关注…"，别说"他只聊这个"。
+- **只看 `silent_days` 不看两个口径**：`last_msg_*`（私聊最后一条）与 `last_spoke_*`（含群最后一次发言）
+  不同属正常，别拿一个当全部。
+- **忽略 `truncated`**：读正文 / 检索 / 简报撞到扫描上限时**没扫完**，别讲成"就这些"。
+- **全库搜索**：`search_messages` 不传 `talker` 会扫整个微信号库（本机数百会话，数秒到 10s+）；
+  优先单会话，或收窄 `since`/`until`。
+- **通讯录默认 200 条**：看 `total`，不够用 `offset` 翻页，别把一页当成全部。
 
 ## 4. 硬约束
 

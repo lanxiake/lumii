@@ -385,6 +385,41 @@ describe('runWechatWatch', () => {
     expect(kv.has('wechat_watch_last_ts')).toBe(false)
   })
 
+  it('空错误 ERROR: 会重启 MCP 并重试，成功则当正常一拍', async () => {
+    __resetWatchPendingForTest()
+    const resetMcpServer = vi.fn(async () => {})
+    const { d, callMcpTool } = deps({ resetMcpServer })
+    callMcpTool
+      .mockRejectedValueOnce(new Error('ERROR: '))
+      .mockResolvedValueOnce(JSON.stringify({ count: 0, messages: [], next_since_ts: 2000 }))
+    const out = await runWechatWatch(d)
+    expect(resetMcpServer).toHaveBeenCalledWith('wechat-local')
+    expect(callMcpTool).toHaveBeenCalledTimes(2)
+    expect(out).toBe('无新消息')
+  })
+
+  it('冷却期内的空错误不再重启，只跳过', async () => {
+    __resetWatchPendingForTest()
+    const resetMcpServer = vi.fn(async () => {})
+    const { d, callMcpTool } = deps({ resetMcpServer })
+    callMcpTool.mockRejectedValue(new Error('ERROR:'))
+    await runWechatWatch(d)
+    const out = await runWechatWatch(d)
+    expect(resetMcpServer).toHaveBeenCalledTimes(1)
+    expect(out).toContain('poll 失败')
+  })
+
+  it('密钥还没就绪：不当成 poll 失败', async () => {
+    const { d, callMcpTool, showNotification } = deps({})
+    callMcpTool.mockRejectedValueOnce(
+      new Error('ERROR: EnvError: 未能取到 message/message_0.db 的数据库密钥'),
+    )
+    const out = await runWechatWatch(d)
+    expect(out).toContain('密钥未就绪')
+    expect(out).not.toContain('poll 失败')
+    expect(showNotification).not.toHaveBeenCalled()
+  })
+
   it('MCP 没装/没连：安静跳过（客户端不依赖微信 MCP）', async () => {
     const { d, kv, callMcpTool, showNotification } = deps({})
     callMcpTool.mockRejectedValueOnce(new Error('MCP Server [wechat-local] 未连接'))

@@ -38,7 +38,7 @@ wechat-export-mcp.exe --install
 1. **不搬动、不拷贝**：注册进客户端的路径**就是这份 exe 现在所在的位置**。所以装完
    **别移动、别删掉这个 exe**（客户端配置里存的就是它）；它旁边那个 `.lumii/` 是安装台账，也留着。
    想换地方，就在新位置再双击一次——它会按新位置重装一遍。
-2. **注册到已装的 MCP 客户端**：Claude Code / Cursor / Claude Desktop / Codex / Gemini CLI /
+2. **注册到已装的 MCP 客户端**：Lumii / Claude Code / Cursor / Claude Desktop / Codex / Gemini CLI /
    Qwen Code / OpenCode / VS Code / Zed / Cline / Roo Code / Trae / Warp / Copilot CLI
    —— 自动检测你装了哪些，让你勾要装到哪几个。Claude Code 走它自己的 `claude mcp` CLI
    （不手改它的状态文件），其余按**各家格式**合并（JSON 的顶层键各家不同：多数 `mcpServers`、
@@ -187,14 +187,16 @@ D:\导出\两河10组村民群\
 `msg/video`（269 MB）与 `msg/attach`（157 MB，加密 `.dat`）**只报小计、不做会话归属**——
 视频靠消息配对只有 9/48 能唯一定位，attach 是 md5 目录名。配不出来就不编。
 
-## 工具（5 个）
+## 工具（7 个）
 
 记录面：
 
 | 工具 | 说明 |
 |---|---|
 | `list_sessions(query?)` | 列会话（拿确切名字/talker） |
-| `export_chat(talker?, out_dir, format?, keyword?, limit?, since?, until?, media?, transcribe_voice?, split?, inline_max_mb?, max_sessions?)` | 导出（整段 / 只导命中） |
+| `preview_export(talker?, keyword?, since?, until?, limit?, max_sessions?)` | **导出预览**：条数 / 预估体积 / 命中会话。**不写任何文件** |
+| `export_chat(talker?, out_dir, format?, keyword?, limit?, since?, until?, media?, transcribe_voice?, split?, inline_max_mb?, max_sessions?, incremental?)` | 导出（整段 / 只导命中；`incremental=true` 只导上次之后的新消息） |
+| `batch_export(talkers, out_dir, format?, media?, since?, until?, split?)` | **多会话一次导**，逐条报成功/失败，单个失败不影响其余 |
 
 文件面：
 
@@ -209,6 +211,9 @@ D:\导出\两河10组村民群\
 - `format`：`md`（默认）/ `html`（可分享，带样式，**媒体内嵌**）/ `json`（机读，带统计报表）。
 - `keyword`：只导出正文/附件名含它的消息；给了它 `talker` 可省 → **全库搜**（用 `max_sessions` 封顶）。
 - `limit`：按关键词导出时每个会话最多导多少条命中（默认 500，保留**最新**的；`0` = 不限）。
+  **只在给了 `keyword` 时生效**；整段导出会导出该会话的全部记录。
+- `incremental`：`true` 时从**上次导出时间**接着导（状态存 `<out_dir>/.export_state.json`，
+  键是解析后的 talker）；首次调用等同全量。仅单会话有效。
 - `media`：`none`（默认）/ `images` / `files`（收附件到 `files/`）/ `all`（图片 + 文件 + 语音 wav）。
 - `split`：`none`（默认）/ `month`（按月拆子目录）。
 - `inline_max_mb`：html 内嵌媒体的体积上限（MB，默认 20，`0` = 不限）；超了退回落盘并留痕。

@@ -466,6 +466,40 @@ def test_real_smoke():
         shutil.rmtree(out, ignore_errors=True)
 
 
+def test_incremental_state():
+    """增量状态：首次 0，mark 后可读回，previous_ts 记着上一次（纯逻辑，不碰微信）。"""
+    import incremental as INC
+    with tempfile.TemporaryDirectory() as d:
+        assert INC.since_of(d, "wxid_x") == 0
+        info = INC.mark(d, "wxid_x", 12, export_ts=1000)
+        assert info["last_export_ts"] == 1000 and info["messages"] == 12
+        assert INC.since_of(d, "wxid_x") == 1000
+        INC.mark(d, "wxid_x", 3, export_ts=2000)
+        assert INC.load_state(d)["wxid_x"]["previous_ts"] == 1000
+    print("ok incremental_state")
+
+
+def test_preview_smoke():
+    """真机只读：预览条数 == 总扫描数（无 keyword）；无库时跳过。"""
+    try:
+        root = E.core.db_root()
+    except Exception as e:                                  # noqa: BLE001
+        print(f"skip 预览冒烟（取不到库: {e}）")
+        return
+    if not root or not os.path.isdir(root):
+        print("skip 预览冒烟（无数据目录）")
+        return
+    talkers = [tk for _t, tk in E.core.talkers() if tk]
+    if not talkers:
+        print("skip 预览冒烟（无会话）")
+        return
+    import preview as P
+    pv = P.preview_chat(talkers[0])
+    assert pv["matched"] == pv["scanned"] >= 0, pv
+    assert pv["size_estimate"] >= 0
+    print(f"ok 预览冒烟：{pv['name']} 扫描 {pv['scanned']} 条 / 预估 {pv['size_estimate']} 字节")
+
+
 if __name__ == "__main__":
     _t = tempfile.mkdtemp()
     try:
@@ -488,6 +522,8 @@ if __name__ == "__main__":
         test_session_subdir()
         test_analysis_formats(_t)
         test_docs_list_all_formats()
+        test_incremental_state()
+        test_preview_smoke()
         test_real_display_name_talker()
         test_real_media_by_display_name()
         test_real_smoke()

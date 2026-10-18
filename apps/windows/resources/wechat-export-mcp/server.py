@@ -27,10 +27,12 @@ for _p in (HERE, SHARED):
 
 import exportcore as E        # noqa: E402
 import filecore as F          # noqa: E402
+import incremental as INC     # noqa: E402
 import mcp_stdio              # noqa: E402
+import preview as P           # noqa: E402
 
 SERVER_NAME = "wechat-export"
-SERVER_VERSION = "0.15.0"
+SERVER_VERSION = "0.16.0"
 TITLE = "微信导出与文件归档"
 DEFAULT_LIMIT = 500           # `list_files` 默认最多返回多少条（`limit=0` = 全部）
 
@@ -91,8 +93,56 @@ TOOLS = [
                                   "description": "html 内嵌媒体的体积上限（MB，默认 20，0 = 不限）"},
                 "max_sessions": {"type": "integer",
                                  "description": "全库搜时最多导出多少个会话（默认 20，按命中条数取前 N）"},
+                "incremental": {"type": "boolean",
+                                "description": "只导上次导出之后的新消息（状态存在 <out_dir>/.export_state.json；"
+                                               "仅单会话有效，首次等同全量）"},
             },
             "required": ["out_dir"],
+        },
+    },
+    {
+        "name": "preview_export",
+        "description": (
+            "【何时用】在真正导出前**先看规模**：会有多少条、多大、哪些会话命中——不写任何文件。"
+            "用户问「导出来大概多大」「有多少条」「会包含哪些会话」时用。"
+            "【与 export_chat 同参数】`talker` 或 `keyword` 至少给一个（`keyword` 不给 `talker` = 全库预览）。"
+            "【返回】`matched` 命中条数 / `size_estimate` 预估字节（量级参考，不是精确值） / "
+            "`truncated` 是否会被 limit 切 / 类型分布；全库预览另给 `sessions_matched` / "
+            "`sessions_exported` / `sessions_skipped` 与各会话明细。"
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "talker": {"type": "string", "description": "会话名或 wxid/群号；与 keyword 二选一"},
+                "keyword": {"type": "string", "description": "关键词；不给 talker 时 = 全库预览"},
+                "since": {"type": "integer", "description": "起始时间（Unix 秒，含）"},
+                "until": {"type": "integer", "description": "结束时间（Unix 秒，含）"},
+                "limit": {"type": "integer", "description": "按关键词时每个会话的条数上限（默认 500，0=不限）"},
+                "max_sessions": {"type": "integer", "description": "全库预览最多列多少个会话（默认 20）"},
+            },
+        },
+    },
+    {
+        "name": "batch_export",
+        "description": (
+            "【何时用】一次导出**多个会话**（用户给了名单，或先用 wechat-crm-mcp 的 "
+            "`silence_ladder` 拿到待跟进名单）。逐个导出，单个失败不影响其余。"
+            "【返回】`total`/`ok`/`failed` 计数与逐条结果（`messages`/`bytes`/`error`）——"
+            "**有 failed 就如实报**，别只说成功的那部分。"
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "talkers": {"type": "array", "items": {"type": "string"},
+                            "description": "会话名或 wxid/群号的列表"},
+                "out_dir": {"type": "string", "description": "导出目标目录（绝对路径）"},
+                "format": {"type": "string", "enum": list(FORMATS), "description": "默认 md"},
+                "media": {"type": "string", "enum": list(MEDIA), "description": "默认 none"},
+                "since": {"type": "integer", "description": "起始时间（Unix 秒，含）"},
+                "until": {"type": "integer", "description": "结束时间（Unix 秒，含）"},
+                "split": {"type": "string", "enum": list(SPLIT), "description": "默认 none"},
+            },
+            "required": ["talkers", "out_dir"],
         },
     },
     {
@@ -176,12 +226,16 @@ INSTRUCTIONS = """\
 
 典型用法：
 1. 不确定会话名 → `list_sessions(query="关键词")` 拿到确切的 `talker`。
-2. 整段导：`export_chat(talker=..., out_dir=..., format="md")`，默认只出文字、单文件。
-3. **给分析用**：`format="json"` —— 带 `stats` **统计报表**；同一份报表另落 `stats.json`。
-4. **只导命中**：给 `keyword`（可再省掉 `talker` = 全库搜）。
+2. **先预览再导出**：`preview_export(talker=... 或 keyword=...)` 看条数与体积量级（不落盘）。
+3. 整段导：`export_chat(talker=..., out_dir=..., format="md")`，默认只出文字、单文件。
+4. **给分析用**：`format="json"` —— 带 `stats` **统计报表**；同一份报表另落 `stats.json`。
+5. **只导命中**：给 `keyword`（可再省掉 `talker` = 全库搜）。
    命中过多时 `limit` 截断，返回里 `truncated=true` ——**别当成"就这么多"**。
-5. 要带图片/文件/语音传 `media="images"` / `"files"` / `"all"`；记录很多传 `split="month"` 分段。
-6. **文件面**：`list_files()` 先看有哪些、哪些已经下不动了（`status=missing` 即过期/未下载）；
+6. **多个会话一起导**：`batch_export(talkers=[...], out_dir=...)`，逐条报成功/失败。
+7. **只补新增**：`export_chat(..., incremental=true)`，从上次导出时间点接着导
+   （状态在 `<out_dir>/.export_state.json`）。
+8. 要带图片/文件/语音传 `media="images"` / `"files"` / `"all"`；记录很多传 `split="month"` 分段。
+9. **文件面**：`list_files()` 先看有哪些、哪些已经下不动了（`status=missing` 即过期/未下载）；
    要收出来用 `archive_files(out_dir=..., dry_run=true)` 出计划、确认后 `dry_run=false` 真拷贝。
    问"占地方"用 `disk_usage()`（只读，只报告，**不删任何东西**）。
 
@@ -204,7 +258,9 @@ INSTRUCTIONS = """\
 
 DISPATCH = {
     "list_sessions": lambda a: _tool_sessions(a),
+    "preview_export": lambda a: _tool_preview(a),
     "export_chat": lambda a: _tool_export(a),
+    "batch_export": lambda a: _tool_batch(a),
     "list_files": lambda a: _tool_list(a),
     "archive_files": lambda a: _tool_archive(a),
     "disk_usage": lambda a: _tool_disk(a),
@@ -219,6 +275,55 @@ def _tool_sessions(args):
             continue
         out.append({"name": s.get("name"), "talker": s.get("talker"), "last": s.get("last")})
     return {"count": len(out), "sessions": out}
+
+
+def _tool_preview(args):
+    talker = args.get("talker")
+    keyword = (args.get("keyword") or "").strip()
+    if not talker and not keyword:
+        return mcp_stdio.tool_error(
+            "bad_args", "talker 或 keyword 至少给一个"
+                        "（keyword 不给 talker = 全库预览）")
+    bad = E.bad_args(args)
+    if bad:
+        return mcp_stdio.tool_error("bad_args", "参数不合法：" + "；".join(bad), invalid=bad)
+    limit = int(args["limit"]) if args.get("limit") is not None else E._SCAN_LIMIT
+    since, until = int(args.get("since") or 0), int(args.get("until") or 0)
+    if talker:
+        return P.preview_chat(talker, since=since, until=until, keyword=keyword, limit=limit)
+    return P.preview_many(keyword, since=since, until=until, limit=limit,
+                          max_sessions=int(args.get("max_sessions") or E._MAX_SESSIONS))
+
+
+def _tool_batch(args):
+    talkers = args.get("talkers") or []
+    out_dir = args.get("out_dir")
+    if not out_dir:
+        return mcp_stdio.tool_error("bad_args", "out_dir 必填（导出目标目录的绝对路径）")
+    if not isinstance(talkers, list) or not talkers:
+        return mcp_stdio.tool_error("bad_args", "talkers 必填（会话名或 wxid/群号的列表）")
+    bad = E.bad_args(args)
+    if bad:
+        return mcp_stdio.tool_error("bad_args", "参数不合法：" + "；".join(bad), invalid=bad)
+    results, messages, total_bytes = [], 0, 0
+    for t in talkers:
+        try:
+            r = E.export_chat(
+                talker=t, out_dir=out_dir,
+                format=args.get("format") or "md",
+                since=int(args.get("since") or 0), until=int(args.get("until") or 0),
+                media=args.get("media") or "none",
+                split=args.get("split") or "none")
+            results.append({"talker": t, "name": r.get("session"), "ok": True,
+                            "messages": r.get("messages"), "bytes": r.get("bytes")})
+            messages += r.get("messages") or 0
+            total_bytes += r.get("bytes") or 0
+        except (E.core.UnknownTalker, OSError, ValueError) as e:
+            # 单个会话导不动（名字没对上 / 磁盘写不进）不该拖垮整批，但必须逐条报出来
+            results.append({"talker": t, "ok": False, "error": str(e)})
+    ok = sum(1 for r in results if r["ok"])
+    return {"total": len(talkers), "ok": ok, "failed": len(talkers) - ok,
+            "messages": messages, "bytes": total_bytes, "results": results}
 
 
 def _tool_export(args):
@@ -237,9 +342,17 @@ def _tool_export(args):
     # 按关键词导出时**默认给上限**：不给我就取 `_SCAN_LIMIT`，而不是"不限"——一个常见词
     # 命中几万条、写成几百兆的文件，用户既不会预期也没法打开。截断了会如实报 `truncated`。
     limit = int(args["limit"]) if args.get("limit") is not None else E._SCAN_LIMIT
+    since = int(args.get("since") or 0)
+    # 增量：起点取「用户给的 since」和「上次导出时间」里较晚的那个。
+    # 状态键用**解析后的 talker**（写「张三」和写 wxid 要指向同一条记录）。
+    inc = bool(args.get("incremental")) and bool(talker)
+    resolved = None
+    if inc:
+        resolved = E.core.talker_of(talker)
+        since = max(since, INC.since_of(out_dir, resolved))
     kw = dict(
         out_dir=out_dir, format=args.get("format") or "md",
-        since=int(args.get("since") or 0), until=int(args.get("until") or 0),
+        since=since, until=int(args.get("until") or 0),
         media=args.get("media") or "none",
         transcribe_voice=bool(args.get("transcribe_voice")),
         split=args.get("split") or "none",
@@ -249,7 +362,11 @@ def _tool_export(args):
     if not talker:                       # 全库搜：每个命中的会话一个子目录
         return E.export_many(keyword=keyword, limit=limit,
                              max_sessions=int(args.get("max_sessions") or E._MAX_SESSIONS), **kw)
-    return E.export_chat(talker=talker, keyword=keyword, limit=limit, **kw)
+    res = E.export_chat(talker=talker, keyword=keyword, limit=limit, **kw)
+    if inc:
+        res["incremental"] = INC.mark(out_dir, resolved, res.get("messages", 0))
+        res["since"] = since
+    return res
 
 
 def _tool_list(args):

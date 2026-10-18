@@ -31,7 +31,7 @@ wechat-crm-mcp.exe --install
 1. **不搬动、不拷贝**：注册进客户端的路径**就是这份 exe 现在所在的位置**。所以装完
    **别移动、别删掉这个 exe**（客户端配置里存的就是它）；它旁边那个 `.lumii/` 是安装台账，也留着。
    想换地方，就在新位置再双击一次——它会按新位置重装一遍。
-2. **注册到已装的 MCP 客户端**：Claude Code / Cursor / Claude Desktop / Codex / Gemini CLI /
+2. **注册到已装的 MCP 客户端**：Lumii / Claude Code / Cursor / Claude Desktop / Codex / Gemini CLI /
    Qwen Code / OpenCode / VS Code / Zed / Cline / Roo Code / Trae / Warp / Copilot CLI
    —— 自动检测你装了哪些，让你勾要装到哪几个。Claude Code 走它自己的 `claude mcp` CLI
    （不手改它的状态文件），其余按**各家格式**合并（JSON 的顶层键各家不同：多数 `mcpServers`、

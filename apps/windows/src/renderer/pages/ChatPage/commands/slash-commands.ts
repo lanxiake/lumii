@@ -10,7 +10,7 @@
 
 import type { CommandListEntry } from '../../../../shared/agent-runtime-commands'
 
-export type CommandCategory = 'session' | 'memory' | 'backend' | 'info' | 'settings'
+export type CommandCategory = 'session' | 'memory' | 'backend' | 'info' | 'settings' | 'skill'
 
 export interface SlashCommand {
   /** 主命令名（含斜杠），如 "/compact" */
@@ -23,6 +23,12 @@ export interface SlashCommand {
   usage?: string
   /** 命令分类 */
   category: CommandCategory
+  /** 技能命令：本地技能 ID（用于区分普通命令） */
+  skillId?: string
+  /** 技能命令：传给 skill_invoke 的技能名称（展示名，可能不同于命令名） */
+  skillName?: string
+  /** 使用次数（技能取自 executionCount，内置命令取自本地计数），用于导航列表排序 */
+  usageCount?: number
 }
 
 /** 命令分类中文标签 */
@@ -32,6 +38,7 @@ export const CATEGORY_LABELS: Record<CommandCategory, string> = {
   backend: '后端切换',
   info: '信息查询',
   settings: '设置选项',
+  skill: '技能',
 }
 
 /**
@@ -109,6 +116,68 @@ function invalidateSlashCommandsCache(): void {
   cachedCommands = null
 }
 
+// ── 使用次数 ──────────────────────────────────────────────────────
+
+/** 本地命令使用计数（内置命令没有服务端统计，按机器记录） */
+const USAGE_STORAGE_KEY = 'mtbot:slash-command-usage'
+
+function readUsageCounts(): Record<string, number> {
+  if (typeof window === 'undefined' || !window.localStorage) return {}
+  try {
+    const raw = window.localStorage.getItem(USAGE_STORAGE_KEY)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw) as unknown
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
+    const counts: Record<string, number> = {}
+    for (const [name, value] of Object.entries(parsed as Record<string, unknown>)) {
+      if (typeof value === 'number' && Number.isFinite(value) && value > 0) counts[name] = value
+    }
+    return counts
+  } catch {
+    return {}
+  }
+}
+
+/** 记录一次命令使用，并同步更新内存缓存（下次打开面板即按新次数排序） */
+export function recordCommandUsage(name: string): void {
+  const counts = readUsageCounts()
+  counts[name] = (counts[name] ?? 0) + 1
+  try {
+    window.localStorage.setItem(USAGE_STORAGE_KEY, JSON.stringify(counts))
+  } catch {
+    // 写入失败只影响排序，不影响命令执行
+  }
+
+  if (cachedCommands) {
+    cachedCommands = sortCommandsByUsage(
+      cachedCommands.map((cmd) =>
+        cmd.name === name ? { ...cmd, usageCount: (cmd.usageCount ?? 0) + 1 } : cmd,
+      ),
+    )
+  }
+}
+
+/** 把本地计数叠加到命令上（技能次数来自索引 executionCount） */
+function applyLocalUsage(commands: SlashCommand[]): SlashCommand[] {
+  const counts = readUsageCounts()
+  return commands.map((cmd) => ({
+    ...cmd,
+    usageCount: (cmd.usageCount ?? 0) + (counts[cmd.name] ?? 0),
+  }))
+}
+
+/**
+ * 按使用次数降序排序；次数相同（含都未使用）时按名称字母序。
+ * 导出供单测直接验证排序口径。
+ */
+export function sortCommandsByUsage(commands: SlashCommand[]): SlashCommand[] {
+  return [...commands].sort((a, b) => {
+    const diff = (b.usageCount ?? 0) - (a.usageCount ?? 0)
+    if (diff !== 0) return diff
+    return a.name.localeCompare(b.name, 'zh-CN')
+  })
+}
+
 /**
  * 获取当前命令列表（同步）
  *
@@ -118,12 +187,12 @@ function invalidateSlashCommandsCache(): void {
 export function getSlashCommands(): SlashCommand[] {
   if (cachedCommands) return cachedCommands
 
-  // 返回内置默认（与 IPC 基础命令保持一致）
-  return getBuiltinCommands()
+  // 返回内置默认（与 IPC 基础命令保持一致），同样带上本地使用次数
+  return sortCommandsByUsage(applyLocalUsage(getBuiltinCommands()))
 }
 
 /** 内置默认命令列表（与主进程 misc-commands.ts 中 BASE_SLASH_COMMANDS 保持一致） */
-function getBuiltinCommands(): SlashCommand[] {
+function getBuiltinBaseCommands(): SlashCommand[] {
   return [
     // ── 信息查询 ──────────────────────────────────────────────────
     { name: '/help', description: '显示所有可用命令', usage: '/help', category: 'info' },
@@ -137,29 +206,127 @@ function getBuiltinCommands(): SlashCommand[] {
     { name: '/memory', description: '查看当前 Agent 的记忆列表，支持 clear 子命令', usage: '/memory [clear]', category: 'memory' },
     // ── 设置选项 ──────────────────────────────────────────────────
     { name: '/think', aliases: ['/thinking', '/t'], description: '设置思考级别（off/low/medium/high）', usage: '/think <off|low|medium|high>', category: 'settings' },
-    // ── 后端切换（客户端专属） ──────────────────────────────────
-    ...CLIENT_ONLY_COMMANDS,
   ]
 }
 
+function getBuiltinCommands(): SlashCommand[] {
+  return [...getBuiltinBaseCommands(), ...CLIENT_ONLY_COMMANDS]
+}
+
+/** 本地技能索引条目（skills:listLocalInstalled 的返回结构） */
+interface LocalSkillEntry {
+  id: string
+  dirName?: string
+  name?: string
+  description?: string
+  enabled?: boolean
+  /** 技能累计执行次数（skill_invoke 成功加载后由主进程累加） */
+  executionCount?: number
+}
+
+/** 把技能目录名转成可输入的斜杠命令名（保留中文，去掉空格与非法字符） */
+function toSkillSlug(entry: LocalSkillEntry): string {
+  const raw = entry.dirName || entry.id.split('/').pop() || entry.id
+  return raw
+    .trim()
+    .replace(/\s+/g, '-')
+    .replace(/[^a-zA-Z0-9_\-.一-龥]/g, '')
+    .toLowerCase()
+}
+
 /**
- * 从 IPC 异步加载基础命令并更新缓存
+ * 把「用户开启的技能」转换成斜杠命令。
  *
- * 在应用初始化阶段调用一次；加载完成后缓存更新，下次 getSlashCommands() 返回最新列表。
+ * 命令名优先取目录名（ASCII 友好），展示名走 skillName（skill_invoke 按展示名匹配）。
+ * 与内置命令重名时依次尝试 `-skill`、`-skill-2`，避免覆盖内置语义。
  */
-export async function loadSlashCommandsFromIpc(): Promise<void> {
-  const api = window.electronAPI?.agentRuntime
-  if (!api?.sendCommand) return
+export function buildSkillCommands(entries: LocalSkillEntry[], reserved: Set<string>): SlashCommand[] {
+  const used = new Set(reserved)
+  const commands: SlashCommand[] = []
+
+  for (const entry of entries) {
+    if (entry.enabled === false) continue
+    const base = toSkillSlug(entry)
+    if (!base) continue
+
+    let name = `/${base}`
+    if (used.has(name)) {
+      name = `/${base}-skill`
+      let suffix = 2
+      while (used.has(name)) name = `/${base}-skill-${suffix++}`
+    }
+    used.add(name)
+
+    const displayName = entry.name?.trim() || entry.dirName || entry.id
+    const description = entry.description?.trim() || '本地技能'
+    commands.push({
+      name,
+      description: description.length > 80 ? `${description.slice(0, 79)}…` : description,
+      usage: `${name} [需求]`,
+      category: 'skill',
+      skillId: entry.id,
+      skillName: displayName,
+      usageCount: entry.executionCount ?? 0,
+    })
+  }
+
+  return commands
+}
+
+/** 读取已启用技能并转为斜杠命令（失败时静默返回空列表） */
+async function loadEnabledSkillCommands(reserved: Set<string>): Promise<SlashCommand[]> {
+  const skillsApi = window.electronAPI?.skills
+  if (!skillsApi?.listLocalInstalled) return []
 
   try {
-    const entries = await api.sendCommand({ type: 'commands:list' }) as CommandListEntry[]
-    if (!Array.isArray(entries) || entries.length === 0) return
-
-    const baseCommands = entries.map(fromCommandListEntry)
-    cachedCommands = [...baseCommands, ...CLIENT_ONLY_COMMANDS]
+    const raw = await skillsApi.listLocalInstalled()
+    const entries: LocalSkillEntry[] = Array.isArray(raw)
+      ? raw as LocalSkillEntry[]
+      : ((raw as { data?: LocalSkillEntry[] } | null)?.data ?? [])
+    return buildSkillCommands(entries, reserved)
   } catch {
-    // 静默失败，保持内置默认
+    return []
   }
+}
+
+/** 内置命令（base + 客户端专属）的名称与别名，用于避免技能命令重名 */
+function reservedCommandNames(commands: SlashCommand[]): Set<string> {
+  const names = new Set<string>()
+  for (const cmd of commands) {
+    names.add(cmd.name)
+    for (const alias of cmd.aliases ?? []) names.add(alias)
+  }
+  return names
+}
+
+/**
+ * 从 IPC 异步加载基础命令与已启用技能，并更新缓存
+ *
+ * 在应用初始化阶段与 `skills:updated` 事件后调用；
+ * 加载完成后缓存更新，下次 getSlashCommands() 返回最新列表。
+ */
+export async function loadSlashCommandsFromIpc(): Promise<void> {
+  let baseCommands: SlashCommand[] | null = null
+  const api = window.electronAPI?.agentRuntime
+
+  if (api?.sendCommand) {
+    try {
+      const entries = await api.sendCommand({ type: 'commands:list' }) as CommandListEntry[]
+      if (Array.isArray(entries) && entries.length > 0) {
+        baseCommands = entries.map(fromCommandListEntry)
+      }
+    } catch {
+      // 静默失败，保持内置默认
+    }
+  }
+
+  const base = baseCommands ?? getBuiltinBaseCommands()
+  const reserved = reservedCommandNames([...base, ...CLIENT_ONLY_COMMANDS])
+  const skillCommands = await loadEnabledSkillCommands(reserved)
+
+  cachedCommands = sortCommandsByUsage(
+    applyLocalUsage([...base, ...CLIENT_ONLY_COMMANDS, ...skillCommands]),
+  )
 }
 
 /**
@@ -191,7 +358,7 @@ export function searchCommands(query: string): SlashCommand[] {
   const commands = getSlashCommands()
 
   if (!q) {
-    return commands
+    return sortCommandsByUsage(commands)
   }
 
   const prefix: SlashCommand[] = []
@@ -211,5 +378,10 @@ export function searchCommands(query: string): SlashCommand[] {
     }
   }
 
-  return [...prefix, ...contains, ...descContains]
+  // 同一匹配优先级内：按使用次数降序，未使用时按名称字母序
+  return [
+    ...sortCommandsByUsage(prefix),
+    ...sortCommandsByUsage(contains),
+    ...sortCommandsByUsage(descContains),
+  ]
 }

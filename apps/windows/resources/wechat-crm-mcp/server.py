@@ -43,7 +43,7 @@ TOOLS = [
             "`local_type`（实测它语义不干净）。"
             "【返回】`total` 命中总数 / `count` 本次条数；每条含 `username` / `name`(备注>昵称) / "
             "`remark` / `nick_name` / `alias`(微信号) / `kind`。"
-            f"默认只回 {DEFAULT_LIMIT} 条（按名字排序），要接着看传 `offset`，要全量传 `limit=0`。"
+            "【分页】`limit`=0 返回全部（默认），`limit`>0 配合 `offset` 实现分页。"
             "【群成员】`room=` 时返回 `contacts` + `name_in_room_with`：`name` 是**全局显示名**，"
             "`name_in_room` 是**群里的称呼**（可能为空串）。⚠️ 群里称呼是**稀疏的**（本机 9.6%，"
             "自己的办公群多、外部大群少）：**空串 = 这个群里没给它设过**，不是查询失败，"
@@ -58,7 +58,7 @@ TOOLS = [
                 "room": {"type": "string", "description": "给了就列**该群成员**（群名或群号），忽略 scope"},
                 "keyword": {"type": "string", "description": "名字/username 关键词（子串）"},
                 "include_deleted": {"type": "boolean", "description": "是否包含已删除的联系人（默认否）"},
-                "limit": {"type": "integer", "description": f"最多返回条数，默认 {DEFAULT_LIMIT}；0=全部"},
+                "limit": {"type": "integer", "description": "最多返回条数，0=全部（默认0，保持向后兼容）"},
                 "offset": {"type": "integer", "description": "从第几条开始（翻页用，默认 0）"},
             },
         },
@@ -151,6 +151,8 @@ TOOLS = [
             "「这个人提过报价吗」「哪个群里说过 XX」。"
             "【范围】`talker` 给了就只搜那个会话，**不给就是整个微信**；"
             "再叠加 `since`/`until` 圈时间段。三者自由组合，这就是「指定范围」的全部含义。"
+            "⚠️ **全库搜索性能**：不指定 `talker` 时会扫描整个微信数据库，大数据量场景下"
+            "可能耗时较长（数千条以上可能 10s+）。建议优先使用单会话搜索或缩小时间范围。"
             "【返回】`count` 命中数 / `truncated`（撞到扫描上限，**没扫完**，别当成"
             "\"就这么多\"） / 每条带 `talker`/`name`/`sender`/`from_me`/`time`/`text`。"
             "【注意】搜的是**渲染后的文本**，所以「图片」「语音」「撤回」这些词也搜得到。"
@@ -249,17 +251,25 @@ DISPATCH = {
 
 
 def _tool_contacts(args):
+    # P1 修复：直接传递 limit/offset 参数
     rows = S.list_contacts(scope=args.get("scope") or "friend",
                            room=args.get("room"),
                            keyword=args.get("keyword") or "",
-                           include_deleted=bool(args.get("include_deleted")))
+                           include_deleted=bool(args.get("include_deleted")),
+                           limit=int(args.get("limit") or 0),
+                           offset=int(args.get("offset") or 0))
     if args.get("room") is not None:
         # 群成员**不分页**（一个群撑死几百人，切片反而会让"这个群里都有谁"缺人），
         # 但要按同一套字段名报数，并额外报"有几个人的群内称呼是真的"。
         return {"total": len(rows), "count": len(rows), "contacts": rows,
                 "name_in_room_with": sum(1 for r in rows if r["name_in_room"])}
-    limit = int(args["limit"]) if args.get("limit") is not None else DEFAULT_LIMIT
-    return S.page_of(rows, limit, args.get("offset"))
+    # 通讯录列表返回总数和实际条数
+    # 注意：list_contacts 现在已经应用了分页，所以这里不再需要 page_of
+    total_before_paging = len(S.list_contacts(scope=args.get("scope") or "friend",
+                                              keyword=args.get("keyword") or "",
+                                              include_deleted=bool(args.get("include_deleted"))))
+    return {"total": total_before_paging, "count": len(rows), "offset": int(args.get("offset") or 0),
+            "contacts": rows}
 
 
 def _tool_stats(args):
@@ -300,8 +310,9 @@ def _tool_read(args):
 
 def _tool_search(args):
     keyword = args.get("keyword")
-    if not keyword:
-        return mcp_stdio.tool_error("bad_args", "keyword 必填")
+    # P0 修复：参数校验前置（在数据库操作前）
+    if not keyword or not str(keyword).strip():
+        return mcp_stdio.tool_error("bad_args", "keyword 必填且不能为空字符串")
     return L.search_messages(keyword, talker=args.get("talker"),
                              since=int(args.get("since") or 0),
                              until=int(args.get("until") or 0),

@@ -300,6 +300,25 @@ def test_real_backfill():
         shutil.rmtree(d, ignore_errors=True)
 
 
+def test_health_check():
+    """健康检查在临时归档库上可跑：status 合法、check 非空、issues/suggestions 是列表。"""
+    d = tempfile.mkdtemp(prefix="recall_health_")
+    os.environ["LUMII_WECHAT_RECALL_DB"] = os.path.join(d, "archive.db")
+    try:
+        con = A.connect()
+        A.meta_set(con, "last_tick", int(time.time()))
+        con.close()
+        import health_check
+        r = health_check.health()
+        assert r["status"] in ("healthy", "warning", "critical", "unknown"), r
+        assert r["checks"] and isinstance(r["issues"], list)
+        assert isinstance(r["suggestions"], list) and "stats" in r
+        print(f"ok health_check：status={r['status']} / {len(r['checks'])} 项检查")
+    finally:
+        os.environ.pop("LUMII_WECHAT_RECALL_DB", None)
+        shutil.rmtree(d, ignore_errors=True)
+
+
 if __name__ == "__main__":
     test_capture_never_overwrites()
     test_no_change()
@@ -315,6 +334,7 @@ if __name__ == "__main__":
     test_daemon_log_hits_disk()
     test_daemon_self_heals()
     test_daemon_stop_event()
+    test_health_check()
     test_real_talker_by_display_name()
     test_real_backfill()
     print("ALL PASS")

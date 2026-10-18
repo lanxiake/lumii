@@ -7,7 +7,7 @@
 
 import { runtimeStore, updateSessionState } from '../../../hooks/business/useAgentRuntime/agent-runtime-store'
 import { fetchChatModelChoices } from '../../../services/model-config-service'
-import { getSlashCommands, CATEGORY_LABELS, findCommand, type CommandCategory } from './slash-commands'
+import { getSlashCommands, CATEGORY_LABELS, findCommand, recordCommandUsage, type CommandCategory, type SlashCommand } from './slash-commands'
 
 const logger = {
   info: (...args: unknown[]) => console.log('[SlashCommandExecutor]', ...args),
@@ -483,21 +483,52 @@ async function handleThink(args: string, ctx: CommandContext): Promise<void> {
   ctx.showToast?.(`思考级别: ${level}`, 'info')
 }
 
+// ── 技能命令 ──────────────────────────────────────────────────────
+
+/**
+ * 技能命令不是本地动作，而是把输入展开成一条「加载技能」的用户消息。
+ *
+ * 为什么要过 skill_invoke 而不是把 SKILL.md 全文塞进消息：
+ * - skill_invoke 同时返回 skillDir、资源清单，并累计 executionCount；
+ * - 对话记录里用户消息保持简短，不会把整份技能文档刷到界面上。
+ */
+function buildSkillInvocationPrompt(cmd: SlashCommand, args: string): string {
+  const skillName = cmd.skillName ?? cmd.name.slice(1)
+  const task = args.trim()
+    ? `任务与要求：\n${args.trim()}`
+    : '任务：请按该技能的默认流程执行。'
+
+  return [
+    `请先调用 skill_invoke 工具加载技能「${skillName}」（skillName 参数传 "${skillName}"），`,
+    '然后严格按照该技能说明完成下面的任务；不要跳过加载步骤，也不要凭空猜测技能内容。',
+    '',
+    task,
+  ].join('\n')
+}
+
 // ── 主执行入口 ────────────────────────────────────────────────────
+
+/** 斜杠命令执行结果 */
+export interface SlashCommandResult {
+  /** true = 已本地处理（含技能命令），不按原样发给 LLM */
+  handled: boolean
+  /** 有值时：把这段展开文本作为普通用户消息发给 LLM */
+  sendText?: string
+}
 
 /**
  * 执行斜杠命令
  *
  * @param rawInput - 用户原始输入（如 "/compact"、"/memory clear"）
  * @param ctx - 命令上下文
- * @returns 是否已处理（true = 不发给 LLM）
+ * @returns handled=false 表示放行给 LLM；sendText 非空表示发送展开后的文本
  */
 export async function executeSlashCommand(
   rawInput: string,
   ctx: CommandContext,
-): Promise<boolean> {
+): Promise<SlashCommandResult> {
   const trimmed = rawInput.trim()
-  if (!trimmed.startsWith('/')) return false
+  if (!trimmed.startsWith('/')) return { handled: false }
 
   // 解析命令名和参数
   const spaceIdx = trimmed.indexOf(' ')
@@ -508,7 +539,14 @@ export async function executeSlashCommand(
   if (!cmd) {
     // 未知命令：让 LLM 处理（不拦截）
     logger.info(`[executeSlashCommand] 未知命令: ${cmdName}，放行给 LLM`)
-    return false
+    return { handled: false }
+  }
+
+  // 技能命令：展开成加载技能的提示词，交给正常发送链路
+  if (cmd.skillId) {
+    logger.info(`[executeSlashCommand] 技能命令: ${cmd.name} -> ${cmd.skillName ?? cmd.skillId}`)
+    recordCommandUsage(cmd.name)
+    return { handled: true, sendText: buildSkillInvocationPrompt(cmd, args) }
   }
 
   logger.info(`[executeSlashCommand] 执行命令: ${cmd.name}, args="${args}"`)
@@ -590,12 +628,15 @@ export async function executeSlashCommand(
         break
       default:
         // 有注册但无 handler 的命令，fallthrough 给 LLM
-        return false
+        return { handled: false }
     }
+
+    // 成功执行后累计使用次数，供 `/` 导航列表按使用频率排序
+    recordCommandUsage(cmd.name)
   } catch (err) {
     logger.error(`[executeSlashCommand] 命令 ${cmd.name} 执行出错:`, err)
     ctx.addSystemMessage(`❌ 命令执行失败: ${err instanceof Error ? err.message : '未知错误'}`)
   }
 
-  return true
+  return { handled: true }
 }

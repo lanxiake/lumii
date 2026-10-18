@@ -59,14 +59,16 @@ claude mcp add wechat-export -s user -- "{{EXE}}"
 4. **语音转写需要本机模型**：`transcribe_voice=true` 在没装识别模型的机器上会**逐条失败并计数**，
    导出本身不受影响。所以默认 `false`；用户明确要转写时再开，并如实报告有多少条没转成。
 
-## 2. 工具面（5 个）
+## 2. 工具面（7 个）
 
 **记录面**
 
 | 工具 | 用途 |
 |---|---|
 | `list_sessions(query?)` | 列会话拿确切名字/talker（不确定会话名时先用它） |
-| `export_chat(talker?, out_dir, format?, keyword?, limit?, since?, until?, media?, transcribe_voice?, split?, inline_max_mb?, max_sessions?)` | 导出（整段 或 只导命中） |
+| `preview_export(talker?, keyword?, since?, until?, limit?, max_sessions?)` | **导出预览**：会有多少条、多大、哪些会话命中。**不写任何文件** |
+| `export_chat(talker?, out_dir, format?, keyword?, limit?, since?, until?, media?, transcribe_voice?, split?, inline_max_mb?, max_sessions?, incremental?)` | 导出（整段 或 只导命中；`incremental=true` 只导新增） |
+| `batch_export(talkers, out_dir, format?, media?, since?, until?, split?)` | **多会话一次导**，逐条报成功/失败，单个失败不影响其余 |
 
 **文件面**
 
@@ -83,6 +85,9 @@ claude mcp add wechat-export -s user -- "{{EXE}}"
 每个会话目录另有一份 `stats.json`（**任何格式都有**，机读）。
 `keyword`：只导出**正文或附件名含它**的消息；`talker` 可以省（= **全库搜**，此时用 `max_sessions` 封顶）。
 命中过多会被 `limit` 截断（默认 500/会话），**返回里 `truncated=true` 就是"被切过"，别说成"就这么多"**。
+⚠️ **`limit` 只在给了 `keyword` 时生效**：整段导出（无 keyword）会导出该会话的全部记录，不截断。
+`incremental=true`（仅单会话）：从**上次导出时间**接着导，状态落在 `<out_dir>/.export_state.json`；
+返回里的 `incremental` 字段给出上次时间与条数。首次调用等同全量。**别对没导过的目录承诺"只导新增"**。
 `media`：`none`（默认只文字）/ `images`（+图片）/ `files`（+文件附件，落到 `files/`）/
 `all`（图片 + 文件 + 语音 wav）。**附件从不内嵌**（几十上百 MB，内嵌进 HTML 就打不开了），
 `files/` 要单独打包发给别人才拿得到；没收全的看 `media_report.file_missing`
@@ -101,9 +106,17 @@ claude mcp add wechat-export -s user -- "{{EXE}}"
 
 1. 用户说「把我和张三的聊天记录导出来」→
    `list_sessions(query="张三")` 拿到确切的 `talker`。
-2. 问清**存到哪**、要不要带图片/文件附件。
-3. `export_chat(talker=..., out_dir="D:\\导出\\张三", format="md")`
-4. 回报：导出多少条、落在哪个文件、体积；若带媒体，报告成功与跳过数。
+2. **先预览**（用户没概念 / 会话很大时）：`preview_export(talker="张三")` →
+   把"约多少条、预估多大"报给用户；可用 `keyword` 先看某个话题会命中多少。
+3. 问清**存到哪**、要不要带图片/文件附件。
+4. `export_chat(talker=..., out_dir="D:\\导出\\张三", format="md")`
+5. 回报：导出多少条、落在哪个文件、体积；若带媒体，报告成功与跳过数。
+
+**多个会话一起导**：`batch_export(talkers=["张三","李四"], out_dir="D:\\导出", format="json")`。
+返回里 `failed > 0` 要逐条说明原因（会话名没对上 / 写盘失败），**别只报成功的那部分**。
+
+**定期补增量**：同一 `out_dir` 反复导出时传 `incremental=true`，只导上次之后的新消息。
+首次是完整导出；报告时说明"自上次（时间）以来新增 N 条"。
 
 **记录很多**（几百条以上或横跨数月）时用 `split="month"`。
 **要给不装微信的人看 / 发出去**时用 `format="html"` + `media="images"`：图内嵌在 HTML 里，

@@ -269,6 +269,10 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
     logger.info('[ChatPage] 挂载即 refreshLocalSessions', { prevReady })
     void refreshLocalSessions()
     void loadSlashCommandsFromIpc()
+    // 技能启用/禁用、安装、删除后主进程会推送 skills:updated —— 刷新 `/技能名` 命令列表
+    const unsubSkills = window.electronAPI?.skills?.onSkillsUpdated?.(() => {
+      void loadSlashCommandsFromIpc()
+    })
     const unsub = runtimeStore.subscribe(() => {
       const ready = runtimeStore.getState().isReady
       if (ready && !prevReady) {
@@ -278,7 +282,10 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
       }
       prevReady = ready
     })
-    return unsub
+    return () => {
+      unsub()
+      unsubSkills?.()
+    }
   }, [refreshLocalSessions])
 
   /** 切换到「对话」视图时再拉一次（从概览进入对话时兜底） */
@@ -1149,7 +1156,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
     if (valueToSend.trim().startsWith('/')) {
       const sessionKey = runtimeCurrentSessionKey
       if (sessionKey) {
-        const handled = await executeSlashCommand(valueToSend.trim(), {
+        const result = await executeSlashCommand(valueToSend.trim(), {
           sessionKey,
           agentId: activeAgentId,
           addSystemMessage,
@@ -1168,9 +1175,13 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
           },
           selectModel: handleSelectChatModel,
         })
-        if (handled) {
-          clearCurrentInputState(sessionKey)
-          return
+        if (result.handled) {
+          if (!result.sendText) {
+            clearCurrentInputState(sessionKey)
+            return
+          }
+          // 技能命令：用户输入已展开成「加载技能」的提示词，走正常发送链路
+          finalContent = result.sendText
         }
       }
     }

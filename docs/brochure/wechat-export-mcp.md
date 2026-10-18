@@ -135,12 +135,14 @@ AI：已归档到 D:\wechat-backup\文件传输助手\files\，18 个文件
 
 ---
 
-## 功能清单（5 个工具）
+## 功能清单（7 个工具）
 
 | 功能 | 工具 | 说明 |
 |---|---|---|
 | 找会话 | `list_sessions` | 按关键词找到确切的会话名 |
-| 导出聊天记录 | `export_chat` | 格式：`md` / `html` / `json`<br>媒体：`none` / `images` / `files` / `all`（图片 + 文件 + 语音 wav）<br>按关键词导出、全库搜、按时间段、按月拆分、语音转写 |
+| 导出预览 | `preview_export` | 先看会导出多少条、多大、哪些会话命中，**不写文件** |
+| 导出聊天记录 | `export_chat` | 格式：`md` / `html` / `json`<br>媒体：`none` / `images` / `files` / `all`（图片 + 文件 + 语音 wav）<br>按关键词导出、全库搜、按时间段、按月拆分、语音转写、`incremental` 只导新增 |
+| 批量导出 | `batch_export` | 一次导出多个会话，逐条报告成功/失败 |
 | 文件清单 | `list_files` | 按会话、时间、扩展名、文件名筛选；`only_missing` 只看已过期的 |
 | 文件归档 | `archive_files` | 按会话 / 按类型 / 平铺三种摆放方式，默认先预演 |
 | 空间分析 | `disk_usage` | 按目录、会话、扩展名、月份拆分占用 |

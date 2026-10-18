@@ -1124,6 +1124,76 @@ def test_wizard_shows_wechat_version_range():
     print("ok wizard_shows_wechat_version_range")
 
 
+def test_lumii_is_a_registered_client_and_skill_target():
+    """灵栖既是 MCP 客户端，也是技能落点。
+
+    它是这套工具的"主客户端"，用户装的时候最可能就在灵栖里用；漏了它，向导就只会在
+    第三方客户端里找落点。两处路径都必须是灵栖真实读的那两条：
+      · MCP：`~/.lumii/config/mcp-servers.json`（`mcp-config.ts::getMcpConfigPath`）
+      · 技能：`~/.lumii/workspace/skills/<技能 id>`（`directory-manager.ts`）
+    """
+    lumii = next((c for c in I.CLIENTS if c["key"] == "lumii"), None)
+    assert lumii, "CLIENTS 里没有 lumii —— 向导不会把灵栖列为选项"
+    assert lumii["kind"] == "json_mcp", lumii
+    path = I._client_path(lumii["paths"][0])
+    assert os.path.normcase(path).endswith(
+        os.path.normcase(os.path.join(".lumii", "config", "mcp-servers.json"))), path
+    # 判据别用 `~/.lumii`：四件套自己的数据目录（撤回归档等）也会建它，会误判成"装了灵栖"
+    mark = I._client_path(lumii["detect"])
+    assert os.path.normcase(mark).endswith(os.path.normcase(os.path.join(".lumii", "config"))), mark
+
+    target = next((t for t in I.SKILL_TARGETS if t["label"] == "Lumii"), None)
+    assert target, "SKILL_TARGETS 里没有 Lumii —— 技能不会装进灵栖"
+    assert target["kind"] == "skill_dir", target
+    root = I._client_path(target["root"])
+    assert os.path.normcase(root).endswith(
+        os.path.normcase(os.path.join(".lumii", "workspace", "skills"))), root
+
+    # 技能默认目录与真正安装走同一处解析（别另抄一份）
+    dirs = dict(I.skill_dir_defaults("wechat-crm-mcp"))
+    assert dirs["Lumii"] == os.path.join(root, "wechat-crm-mcp"), dirs
+    print("ok lumii_is_a_registered_client_and_skill_target")
+
+
+def test_wizard_prints_manual_fallback_and_skill_dirs():
+    """引导页必须能"整页复制给 AI，让它自己装"。
+
+    所以页面上得有三样机器可用的东西：**MCP 名称**、**可直接粘贴的配置片段**（带真实 exe
+    路径，反斜杠要转义）、**技能默认目录**。只写"装不上就找 AI"而页面上没有这些，
+    AI 拿到也装不了。
+
+    技能目录的判据不是"字符串出现在输出里"，而是**与 `skill_dir_defaults` 完全一致**——
+    它和 `skill_apply` 共用 `_named_path`，另抄一份就会漂。
+    """
+    lines = []
+    exe = r"C:\tools\wechat-mcp\wechat-mcp.exe"
+    old = (I._say, I._pause, I.do_install, I.clients, I.own_exe)
+    I._say = lambda *a, **k: lines.append(" ".join(str(x) for x in a))
+    I._pause = lambda: None
+    I.do_install = lambda spec, only=None: 0
+    I.clients = lambda: []
+    I.own_exe = lambda: exe
+    spec = {"name": "wechat-local", "product": "wechat-mcp",
+            "version": "0.8.0", "label": "X"}
+    try:
+        I.interactive(spec, ask=lambda p: True, keys=["enter"])
+    finally:
+        (I._say, I._pause, I.do_install, I.clients, I.own_exe) = old
+
+    text = "\n".join(lines)
+    assert "接下来会做四件事" in text, text
+    assert "复制给 AI 客户端" in text, "第 4 条兜底说明没打出来"
+    assert "MCP 名称：wechat-local" in text, text
+    # 配置片段必须是**合法 JSON**（反斜杠双写），不能只是"看起来像"
+    blob = next((ln for ln in lines if "配置片段：" in ln), "")
+    assert blob, text
+    cfg = json.loads(blob.split("配置片段：", 1)[1])
+    assert cfg["mcpServers"]["wechat-local"]["command"] == exe, cfg
+    for client_label, dst in I.skill_dir_defaults(I.skill_id(spec)):
+        assert f"{client_label}：{dst}" in text, f"技能默认目录少了 {client_label}：{text}"
+    print("ok wizard_prints_manual_fallback_and_skill_dirs")
+
+
 def test_docs_state_wechat_version_range():
     """**文档漂移守卫**：五件套的安装说明里写的微信版本范围，必须与代码同源。
 
@@ -1186,5 +1256,7 @@ if __name__ == "__main__":
     test_skill_source_uses_skill_id_not_server_name()
     test_skill_landing_name_comes_from_frontmatter()
     test_wizard_shows_wechat_version_range()
+    test_lumii_is_a_registered_client_and_skill_target()
+    test_wizard_prints_manual_fallback_and_skill_dirs()
     test_docs_state_wechat_version_range()
     print("ALL PASS")

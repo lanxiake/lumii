@@ -387,12 +387,14 @@ const ChatInput: React.FC<ChatInputProps> = ({
     if (slashSuggestions.length > 0) {
       if (e.key === 'ArrowDown') {
         e.preventDefault()
-        setSlashSuggestionIndex((i) => Math.min(i + 1, slashSuggestions.length - 1))
+        // 循环导航：到底后回到顶部
+        setSlashSuggestionIndex((i) => (i + 1) % slashSuggestions.length)
         return
       }
       if (e.key === 'ArrowUp') {
         e.preventDefault()
-        setSlashSuggestionIndex((i) => Math.max(i - 1, 0))
+        // 循环导航：在顶部时跳到末尾（从下方开始预览）
+        setSlashSuggestionIndex((i) => (i - 1 + slashSuggestions.length) % slashSuggestions.length)
         return
       }
       if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
@@ -586,6 +588,13 @@ const ChatInput: React.FC<ChatInputProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [slashSuggestions.length])
 
+  // 方向键循环移动时，把当前项滚进可视区（面板高度翻倍后仍需支持长列表）
+  useEffect(() => {
+    if (slashSuggestions.length === 0) return
+    const active = slashPanelRef.current?.querySelector<HTMLElement>('[data-slash-active="true"]')
+    active?.scrollIntoView?.({ block: 'nearest' })
+  }, [slashSuggestionIndex, slashSuggestions])
+
   const tipsEnabled = Boolean(showTips && isConnected && !isStreaming && !innerValue.trim())
   const rotatingTip = useRotatingTip(tipsEnabled)
 
@@ -657,6 +666,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
                     <button
                       key={cmd.name}
                       type="button"
+                      data-slash-active={isActive ? 'true' : undefined}
                       className={clsx(styles['slash-item'], isActive && styles['slash-item--active'])}
                       onMouseEnter={() => setSlashSuggestionIndex(idx)}
                       onClick={() => {

@@ -53,6 +53,9 @@ nul
 .superpowers/
 docs/temp/
 
+# Claude Code 逆向参考（还原源码约 76 MB，可由目录内 tools/ 从 claude.exe 再生），整目录不入库
+docs/reference/claude-code-2.1.143/
+
 # Claude Code 的项目级 MCP 配置：里面是**本机绝对路径**（`C:\Users\<你>\...`），
 # 还带本机微信库位置与账号 id —— 对别的机器没有任何意义，属于机器专属配置。
 # 想共用什么 MCP，请各自 `claude mcp add`，别把它提交上来。

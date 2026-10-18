@@ -706,7 +706,25 @@ export class CloudSyncManager extends EventEmitter {
       }
 
       // 7. 判断远端和本地的关系
-      const baseOids = await git.findMergeBase({ ...p, oids: [localOid, remoteOid] })
+      let baseOids = await git.findMergeBase({ ...p, oids: [localOid, remoteOid] })
+
+      // isomorphic-git 的 _findMergeBase 会**静默吞掉**读取缺失对象的错误并返回空数组，
+      // 把「历史相连但本地对象缺失」误判成「与远端历史无关」——随后走无关历史合并，
+      // 在 walk 远端树时炸出 "Could not find <oid>."（2026-10-18 实测）。
+      // 用系统 git 复核：它读历史不需要那些缺失的树/ blob，能算出 base。
+      if (baseOids.length === 0) {
+        const nativeBase = await this.nativeMergeBase(p, localOid, remoteOid)
+        if (nativeBase) {
+          logger.warn(
+            `[sync] isomorphic-git 未找到 merge base，系统 git 复核为 ${nativeBase.slice(0, 8)}（本地对象可能缺失）`,
+          )
+          await this.assertTreeReadable(p, remoteOid)
+          baseOids = [nativeBase]
+        } else {
+          // 真正无关的历史：先确认远端树完整，否则合并中途才报错（错误信息也看不懂）
+          await this.assertTreeReadable(p, remoteOid)
+        }
+      }
 
       if (baseOids.length === 0) {
         logger.info('[sync] 与远端历史无关，做双亲合并（保留本地）')
@@ -897,9 +915,14 @@ export class CloudSyncManager extends EventEmitter {
     try {
       // packSizeLimit 是关键：不限制就会压出 GB 级单包，而 isomorphic-git 要整个读进内存。
       // 见 PACK_SIZE_LIMIT 的注释。
+      //
+      // prune 不用 now：同步仓库曾在「远端 ref 暂时缺失 → gc --prune=now 删掉对象 →
+      // ref 随后恢复但对象不再重下」的时序下变成「提交在、树缺失」的半损状态，
+      // 表现为同步报 Could not find <oid>.（2026-10-18 实测）。留一天宽限期，
+      // 让正在落盘/待恢复引用的对象躲过这一轮。
       await execFileAsync(
         'git',
-        ['-c', `pack.packSizeLimit=${PACK_SIZE_LIMIT}`, 'gc', '--prune=now'],
+        ['-c', `pack.packSizeLimit=${PACK_SIZE_LIMIT}`, 'gc', '--prune=1.day.ago'],
         { cwd: this.syncDir, timeout: GC_TIMEOUT_MS, windowsHide: true },
       )
       logger.info('[maybePruneObjectStore] git gc 完成')
@@ -1138,6 +1161,65 @@ export class CloudSyncManager extends EventEmitter {
   }
 
   /**
+   * 用系统 git 复核 merge base（isomorphic-git 对象缺失时会静默返回空）。
+   * 系统 git 不可用或无共同祖先时返回 null。
+   */
+  private async nativeMergeBase(
+    p: GitParams,
+    localOid: string,
+    remoteOid: string,
+  ): Promise<string | null> {
+    if (!(await detectGit())) return null
+    try {
+      const r = await runGit({
+        workTree: p.dir,
+        gitDir: p.gitdir,
+        args: ['merge-base', localOid, remoteOid],
+      })
+      const oid = r.stdout.trim().split('\n')[0]?.trim() ?? ''
+      return r.code === 0 && /^[0-9a-f]{40}$/i.test(oid) ? oid : null
+    } catch (err) {
+      logger.warn(`[nativeMergeBase] 系统 git 复核失败: ${err instanceof Error ? err.message : String(err)}`)
+      return null
+    }
+  }
+
+  /**
+   * 确认远端提交的整棵对象树可读。
+   *
+   * 同步仓库被 `gc --prune=now` 或并发写打断后可能出现「提交在、树/ blob 缺失」的半损状态；
+   * isomorphic-git 在遍历时才抛 `Could not find <oid>.`，用户完全无法据此行动。
+   * 这里在进入合并前用系统 git 做一次连通性检查，给出可操作的错误。
+   */
+  private async assertTreeReadable(p: GitParams, oid: string): Promise<void> {
+    if (!(await detectGit())) return
+    let missing: string[]
+    try {
+      const r = await runGit({
+        workTree: p.dir,
+        gitDir: p.gitdir,
+        args: ['rev-list', '--objects', '--missing=print', oid],
+        timeoutMs: 300_000,
+      })
+      missing = r.stdout
+        .split('\n')
+        .map((line) => line.trim())
+        .filter((line) => line.startsWith('?'))
+        .map((line) => line.slice(1))
+    } catch (err) {
+      // 检查失败不阻断同步：真正的错误会在后续步骤暴露
+      logger.warn(`[assertTreeReadable] 连通性检查失败: ${err instanceof Error ? err.message : String(err)}`)
+      return
+    }
+    if (missing.length > 0) {
+      throw new Error(
+        `同步仓库对象缺失（${missing.length} 个，如 ${missing[0].slice(0, 8)}），无法安全合并远端历史。` +
+        '请稍后重试；若持续失败，请清空 ~/.lumii/sync 后重新同步。',
+      )
+    }
+  }
+
+  /**
    * 无关历史（首次同步且两边都有数据）：保留本地历史，与远端做双亲合并。
    *
    * 旧实现（adoptRemote）把分支直接钉到远端 HEAD，本地 git 历史丢失，
@@ -1258,20 +1340,32 @@ export class CloudSyncManager extends EventEmitter {
     const copy: string[] = []
     const deleted: string[] = []
 
-    await git.walk({
-      ...p,
-      trees: [TREE({ ref: baselineOid }), TREE({ ref: headOid })],
-      map: async (filepath, entries) => {
-        // 注意：返回 undefined 不会剪枝子树，返回 null 才会 —— 这里必须返回 undefined
-        if (filepath === '.') return
-        const [before, after] = entries as Array<WalkerEntry | null>
-        const beforeOid = await blobOid(before)
-        const afterOid = await blobOid(after)
-        if (beforeOid === afterOid) return
-        if (afterOid === null) deleted.push(filepath)
-        else copy.push(filepath)
-      },
-    })
+    try {
+      await git.walk({
+        ...p,
+        trees: [TREE({ ref: baselineOid }), TREE({ ref: headOid })],
+        map: async (filepath, entries) => {
+          // 注意：返回 undefined 不会剪枝子树，返回 null 才会 —— 这里必须返回 undefined
+          if (filepath === '.') return
+          const [before, after] = entries as Array<WalkerEntry | null>
+          const beforeOid = await blobOid(before)
+          const afterOid = await blobOid(after)
+          if (beforeOid === afterOid) return
+          if (afterOid === null) deleted.push(filepath)
+          else copy.push(filepath)
+        },
+      })
+    } catch (err) {
+      // isomorphic-git 的原始文案是 "Could not find <oid>."，用户无法据此行动
+      if (isNotFoundError(err)) {
+        const oid = (err as { oid?: string }).oid
+        throw new Error(
+          `同步仓库对象缺失（${oid ? `${oid.slice(0, 8)}…` : '未知对象'}），无法比对文件差异。` +
+          '请稍后重试；若持续失败，请清空 ~/.lumii/sync 后重新同步。',
+        )
+      }
+      throw err
+    }
 
     logger.info(`[computeFileChanges] 树差异：写入 ${copy.length} 项，删除 ${deleted.length} 项`)
     return { copy, delete: deleted }

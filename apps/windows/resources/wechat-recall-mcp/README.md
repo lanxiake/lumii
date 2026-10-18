@@ -32,7 +32,7 @@ wechat-recall-mcp.exe --install
 1. **不搬动、不拷贝**：注册进客户端的路径**就是这份 exe 现在所在的位置**。所以装完
    **别移动、别删掉这个 exe**（客户端配置里存的就是它）；它旁边那个 `.lumii/` 是安装台账，也留着。
    想换地方，就在新位置再双击一次——它会按新位置重装一遍。
-2. **注册到已装的 MCP 客户端**：Claude Code / Cursor / Claude Desktop / Codex / Gemini CLI /
+2. **注册到已装的 MCP 客户端**：Lumii / Claude Code / Cursor / Claude Desktop / Codex / Gemini CLI /
    Qwen Code / OpenCode / VS Code / Zed / Cline / Roo Code / Trae / Warp / Copilot CLI
    —— 自动检测你装了哪些，让你勾要装到哪几个。Claude Code 走它自己的 `claude mcp` CLI
    （不手改它的状态文件），其余按**各家格式**合并（JSON 的顶层键各家不同：多数 `mcpServers`、
@@ -122,11 +122,12 @@ wechat-recall-mcp.exe --expiry-status   # 看到期日与剩余天数（在有�
 4. 你想确认它没偷懒：「守护在跑吗？有没有漏记的时段？」
    → `daemon_status()`（`running` / `alive` / `gaps`）+ `archive_gap()`。
 
-## 工具（4 个）
+## 工具（5 个）
 
 | 工具 | 说明 |
 |---|---|
-| `daemon_status()` | 守护在不在跑 / 归档条数 / **体积** / 最早·最新一条 / 缺口数 / 是否已自启 |
+| `daemon_status()` | 守护在不在跑 / 归档条数 / **体积** / 最早·最新一条 / 缺口数 / 是否已自启（原始事实） |
+| `health_check()` | 把事实翻成**问题 + 修复建议**：`status`（healthy/warning/critical/unknown）+ 逐项检查（daemon/growth/gaps/disk）+ `issues` + `suggestions` |
 | `list_recalls(talker?, since?, until?, limit?)` | 被撤回/删除的消息（`reason`：`deleted`/`recalled`/`changed`）。`total` 是命中总数，与 `count` 不等说明被截断 |
 | `read_recall(talker, local_id)` | 取某条撤回消息的完整原文 |
 | `archive_gap()` | 归档漏记的时间段（关机/休眠）——**如实报告，不假装全覆盖** |

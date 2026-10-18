@@ -2035,6 +2035,8 @@ export class AgentRuntimeBridge {
       getDb: () => this.localDb.db,
       // 走 public 的那个（多一层出站记账）：补发队列也是"以本人身份发消息"，一样要记
       callMcpTool: (server, tool, args) => this.callMcpTool(server, tool, args),
+      // 空的 poll 错误多半是子进程里的残缺密钥缓存，重启后重新扫描
+      resetMcpServer: (name) => this.reconnectMcpServer(name),
       // 第三个参数是会话 id：点通知直接跳到「微信盯梢」看草稿/代回结果
       showNotification: this.config.showCronNotification
         ? (title, body, convId) => this.config.showCronNotification!(title, body, convId)

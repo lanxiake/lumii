@@ -58,23 +58,30 @@ wechat-recall-mcp.exe --status              # 查状态
 2. **归档只写一次、永不覆盖**，所以撤回前的原文留得住；但**没跑守护的时间段是黑洞**。
 3. **只读**：不影响微信里的任何东西。
 
-## 2. 工具面（4 个）
+## 2. 工具面（5 个）
 
 | 工具 | 用途 |
 |---|---|
-| `daemon_status()` | 守护在不在跑、归档多少条、有没有停机缺口、是否已开机自启 |
+| `daemon_status()` | 守护在不在跑、归档多少条、有没有停机缺口、是否已开机自启（**原始事实**） |
+| `health_check()` | 把事实翻成**问题 + 修复建议**：`status`（healthy/warning/critical/unknown）+ 逐项检查（daemon/growth/gaps/disk）+ `issues` + `suggestions` |
 | `list_recalls(talker?, since?, until?, limit?)` | 看被撤回/删除的消息（`reason`：`deleted`/`recalled`/`changed`） |
 | `read_recall(talker, local_id)` | 取某条撤回消息的**完整原文** |
 | `archive_gap()` | 查归档漏记的时间段（关机等） |
 
+**两个状态工具怎么选**：只想回答「在跑吗、归档多少」→ `daemon_status()`；
+用户问「撤回防护正常吗 / 有什么问题 / 要不要处理」→ `health_check()`，
+然后把 `issues` 与 `suggestions` 如实转告（`suggestions` 是可执行的修复步骤）。
+
 ## 3. 一轮完整回路
 
 1. 用户说「张三刚才撤回的是什么」→
-   **先 `daemon_status()`**。
+   **先 `daemon_status()`**（想知道"哪坏了怎么修"就用 `health_check()`）。
 2. `alive=false` 或 `archived=0` → **直接告诉用户守护没在跑，现在看不到**，
    并给出开启方法（`--install-autostart`）。**不要假装查到了**。
 3. `alive=true` → `list_recalls(talker="张三")`；要原文再 `read_recall`。
 4. 若 `archive_gap()` 显示有缺口，且撤回时间落在缺口里 → 如实说明"那段没归档，看不到"。
+5. 用户问「撤回防护正常吗 / 有没有问题」→ `health_check()`；把 `issues` 和
+   `suggestions` 一起转告（建议是可执行的修复步骤，别只报"有问题"）。
 
 ## 4. 硬约束
 

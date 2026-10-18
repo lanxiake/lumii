@@ -115,12 +115,16 @@ def room_nicknames(room_username):
         con.close()
 
 
-def list_contacts(scope="friend", room=None, keyword="", include_deleted=False):
+def list_contacts(scope="friend", room=None, keyword="", include_deleted=False, limit=0, offset=0):
     """通讯录清单。
 
     `room` 给了就返回**该群成员**（此时忽略 scope）；否则按 `scope` 筛种类。
     `scope` ∈ friend / group / official / open / system / all。
     显示名取「备注 > 昵称 > username」。
+
+    P1 修复：添加分页支持
+    - `limit`: 最多返回条数，0=返回全部（默认 0，保持向后兼容）
+    - `offset`: 从第几条开始（默认 0）
 
     ⚠️ **必须先把所有会触发镜像刷新的调用做完，再开 sqlite 连接**：Windows 上无法替换一个
     仍被打开的文件，而 `core.resolve_talker/self_wxid` 会刷新 contact 镜像——持着连接去调
@@ -158,6 +162,15 @@ def list_contacts(scope="friend", room=None, keyword="", include_deleted=False):
                     "nick_name": nick or "", "alias": alias or "", "kind": k,
                     "local_type": lt, "deleted": bool(deleted)})
     out.sort(key=lambda d: d["name"])
+
+    # P1 修复：应用分页
+    limit = int(limit or 0)
+    offset = int(offset or 0)
+    if limit > 0:
+        out = out[offset:offset + limit]
+    elif offset > 0:
+        out = out[offset:]
+
     return out
 
 
@@ -334,24 +347,44 @@ def silence_ladder(scope="friend", days=(30, 60, 90), top=20):
             "silent_days": round((now - last_ts) / 86400, 1) if last_ts else None,
         })
 
+    # 构建分层结果 - 扁平化结构便于调用方使用
     buckets = []
+    result = {
+        "scope": scope, "now": now, "days": list(days), "total": len(people),
+    }
+
     for label, lo, hi in _bucket_labels(days):
         hit = [p for p in people
                if p["last_ts"] and (lo is None or lo < p["silent_days"])
                and (hi is None or p["silent_days"] <= hi)]
         hit.sort(key=lambda p: -p["silent_days"])            # 越久没出现越靠前
-        buckets.append({"label": label, "count": len(hit), "contacts": hit[:top]})
+
+        # 同时存入 buckets 数组（向后兼容）和扁平化键（易用性优化）
+        bucket_data = {"label": label, "count": len(hit), "contacts": hit[:top]}
+        buckets.append(bucket_data)
+
+        # 扁平化键：within_30, 31_60, 61_90 等
+        if lo == 0 or lo is None:
+            key = f"within_{hi}"
+        elif hi is None:
+            key = f"{lo}_plus"
+        else:
+            key = f"{lo + 1}_{hi}"
+        result[key] = bucket_data
+
     never = [p for p in people if not p["last_ts"]]
     never.sort(key=lambda p: p["name"])
-    return {
-        "scope": scope, "now": now, "days": list(days), "total": len(people),
-        "buckets": buckets,
-        "never": {"label": "通讯录里有、全库没有一句发言", "count": len(never),
-                  "contacts": never[:top]},
+    never_data = {"label": "通讯录里有、全库没有一句发言", "count": len(never),
+                  "contacts": never[:top]}
+
+    result.update({
+        "buckets": buckets,  # 保留原有结构（向后兼容）
+        "never": never_data,
         "note": ("每桶只列前 %d 人（看 count 总量）；每条给的是**原始时间戳**："
                  "`last_msg_*` 是我们私聊的最后一条、`last_spoke_*` 是 TA 在任何会话（含群）里"
                  "最后一次发言，两者不同属正常。本服务**不打分、不判意向**。" % top),
-    }
+    })
+    return result
 
 
 def interaction_rank(since=0, until=0, top=20, sort="count"):

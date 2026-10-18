@@ -1029,7 +1029,8 @@
   box-shadow: var(--mt-shadow-xl, 0 8px 32px rgba(0,0,0,0.28));
   overflow: hidden;
   animation: slash-panel-enter 0.15s ease-out;
-  max-height: 320px;
+  /* 命令 + 技能数量变多后，一屏能预览的条目翻倍 */
+  max-height: 640px;
   overflow-y: auto;
 }
 

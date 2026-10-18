@@ -25,10 +25,11 @@ for _p in (HERE, SHARED):
         sys.path.insert(0, _p)
 
 import archive                # noqa: E402
+import health_check as HC     # noqa: E402
 import mcp_stdio              # noqa: E402
 
 SERVER_NAME = "wechat-recall"
-SERVER_VERSION = "0.13.0"
+SERVER_VERSION = "0.14.0"
 TITLE = "微信撤回防护"
 DEFAULT_LIMIT = 200           # 工具默认一次回多少条撤回（`limit=0` = 全部）
 
@@ -88,16 +89,32 @@ TOOLS = [
                        "有缺口就说明那段期间的撤回看不了——**如实告诉用户，别假装全覆盖**。",
         "inputSchema": {"type": "object", "properties": {}},
     },
+    {
+        "name": "health_check",
+        "description": (
+            "【何时用】需要**一句话判断能不能用、哪坏了**时（用户问「撤回防护正常吗」"
+            "「有没有在运行」，或你准备回答撤回问题前的体检）。比 `daemon_status` 多给："
+            "归档是否还在增长、磁盘剩余、以及每项问题对应的**修复建议**。"
+            "【返回】`status`（healthy/warning/critical/unknown，取最差项）+ `checks`（逐项："
+            "daemon/growth/gaps/disk）+ `issues` + `suggestions` + `stats`。"
+            "⚠️ 判活口径与 `daemon_status` 相同（running 按进程、alive 按心跳），这里不另算。"
+        ),
+        "inputSchema": {"type": "object", "properties": {}},
+    },
 ]
 
 INSTRUCTIONS = """\
 本服务查**被撤回/被删除**的微信消息（只读）。
 
 **前提**：必须先有一个常驻守护把消息留档——不然撤回发生后就无从查起。
-1. 先 `daemon_status()` 看守护在不在跑、归档了多少、有没有缺口。
+1. 先 `daemon_status()` 看守护在不在跑、归档了多少、有没有缺口；
+   想连"磁盘/增长/怎么修"一起看就用 `health_check()`（`status` 一句话定性）。
 2. 守护没在跑 → 告诉用户需要启动它（`wechat-recall-mcp.exe --daemon`，或 `--install-autostart` 开机自启）；
    **守护启动之前的撤回是查不到的**，如实说明。
 3. `list_recalls(talker=...)` 看被撤回的消息，`read_recall` 取完整原文。
+
+`daemon_status` 与 `health_check` 的分工：前者是**原始事实**（running/alive/archived/gaps…），
+后者把事实翻成**问题 + 修复建议**（status 按最差项取 critical/warning）。判活口径只有一个来源。
 
 硬约束：
 - 归档只写一次、永不覆盖，所以撤回前的**原文**留得住；但**关机/休眠期间漏的补不回来**（看 `archive_gap`）。
@@ -111,6 +128,7 @@ DISPATCH = {
     "list_recalls": lambda a: _tool_list(a),
     "read_recall": lambda a: _tool_read(a),
     "archive_gap": lambda a: _tool_gap(a),
+    "health_check": lambda a: HC.health(),
 }
 
 

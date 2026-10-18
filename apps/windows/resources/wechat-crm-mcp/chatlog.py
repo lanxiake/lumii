@@ -206,10 +206,17 @@ def search_messages(keyword, talker=None, since=0, until=0, limit=50):
     """在**指定范围**里按关键词检索正文：`talker` 给了就只搜那个会话，否则**全库**；
     再叠加 `since`/`until` 收窄时间段。
 
+    ⚠️ **全库搜索性能提醒**：不指定 `talker` 时会扫描整个微信数据库，在大数据量场景下
+    可能耗时较长（数千条以上可能 10s+）。建议优先使用单会话搜索或缩小时间范围。
+
     直接复用共享层的检索实现，**不另写一份**：它已经把时间范围下推到 SQL（否则查老时间段
     会被更新的消息占满扫描窗、恒返回 0 且不报错），也如实上报 `truncated`——
     两份实现迟早会在这种细节上分叉。
     """
+    # P0 修复：参数校验前置
+    if not keyword or not str(keyword).strip():
+        raise ValueError("keyword 不能为空")
+
     return core.search_messages(keyword, talker=core.talker_of(talker) if talker else None,
                                 since=int(since or 0), until=int(until or 0),
                                 limit=int(limit or 50))
@@ -221,6 +228,10 @@ def customer_brief(talker, since=0, until=0, top=15, scan=_SCAN):
     这是本产品**内容侧**的入口——想知道"这个客户最近在聊什么、我漏了什么"，
     一次调用拿到，不必先去读几百条原文。
     """
+    # 参数验证
+    if not talker or not str(talker).strip():
+        raise ValueError("talker 不能为空")
+
     talker = core.talker_of(talker)
     seq, trunc = _seq(talker, since, until, scan)
     d = brief_from(seq, top=int(top or 15))

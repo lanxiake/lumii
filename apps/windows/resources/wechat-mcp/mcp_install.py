@@ -73,6 +73,12 @@ DATA_DIRNAME = ".lumii"
 #   Windsurf(Devin) —— 顶层键在多个来源里说法不一，且产品已改名 ⇒ 没把握就别动。
 #   Aider       —— MCP 支持至今没合并发布（PR #3672/#3937/#5694 挂着）。
 CLIENTS = (
+    # 灵栖自己的 MCP 配置（`~/.lumii/config/mcp-servers.json`，标准 mcpServers 格式）。
+    # `detect` 用 `config/` 而不是 `~/.lumii`：四件套自己的数据目录（如撤回归档
+    # `~/.lumii/wechat-recall/`）也会建 `~/.lumii`，拿它当判据会把"没装灵栖"误判成装了。
+    {"key": "lumii", "label": "Lumii", "kind": "json_mcp",
+     "paths": (("~", ".lumii", "config", "mcp-servers.json"),),
+     "detect": ("~", ".lumii", "config")},
     {"key": "claude-code", "label": "Claude Code", "kind": "claude_code"},
     {"key": "claude-desktop", "label": "Claude Desktop", "kind": "json_mcp",
      # MSIX/Store 版会被文件系统虚拟化重定向到 Packages 下——两个位置都试
@@ -595,6 +601,10 @@ def skill_source(spec):
 # Cursor 不在列：它的 `~/.cursor/skills-cursor/` 旁边有个 `.sync-manifest.json`，
 # 看着是**别人在管**的目录——往一个自己看不懂其管理方式的目录里写，比不写更糟。
 SKILL_TARGETS = (
+    # 灵栖的工作区技能目录（`directory-manager.ts` 的 `workspace/skills`）。
+    # `detect` 看 `workspace/`：灵栖启动就会建它，而 `config/` 也可能是别的工具建的。
+    {"label": "Lumii", "kind": "skill_dir",
+     "root": ("~", ".lumii", "workspace", "skills"), "detect": ("~", ".lumii", "workspace")},
     # ① **skills 目录**（首选落点）：渐进披露——只在真的用到时才进模型的上下文。
     #    三种形态里最不打扰用户，能放这儿就不往指令文件里塞。
     {"label": "Claude Code", "kind": "skill_dir",
@@ -693,6 +703,19 @@ def skill_targets(sid):
         t["resolved"] = _named_path(t, sid)
         out.append(t)
     return out
+
+
+def skill_dir_defaults(sid):
+    """安装引导要打印的**技能落点目录**：`[(客户端, root/<sid>)]`。
+
+    只取 `skill_dir` 档（Lumii / Claude Code / 通用 skills）——`rule_file` 与 `merge_block`
+    没有"目录"可言。路径与 `skill_apply` 同源（都走 `_named_path` 再拼技能 id），别另抄一份。
+
+    为什么给用户看：装不上时用户会把引导整页复制给 AI，AI 得知道技能该放哪、
+    或从哪份已装的里拷出来。给**精确落点**而不是 skills 根目录——AI 拿到就能直接拷。
+    """
+    return [(t["label"], os.path.join(_named_path(t, sid), sid))
+            for t in SKILL_TARGETS if t["kind"] == "skill_dir"]
 
 
 def fill_skill(dst_root, exe):
@@ -1523,16 +1546,27 @@ def _wizard(spec, ask=_ask, ask_raw=_ask_raw, keys=None):
     `ask` / `ask_raw` / `keys` 可注入（测试用），默认走真 `input()` 与真键盘。
     """
     label = spec.get("label") or spec["product"]
+    mine = own_exe()
     _say("=" * 62)
     _say(f"  {label} v{spec.get('version') or ''}")
     _say("=" * 62)
     _say("这是给 AI 客户端用的插件（MCP 服务器）——不是双击就能自己干活的程序。")
     _say("双击我可以一键装好，之后在 Claude Code / Cursor / Codex 里直接用。")
     _say("")
-    _say("接下来会做三件事：")
+    _say("接下来会做四件事：")
     _say("  1. 把**这份 exe 的当前位置**注册进客户端（不拷贝、不搬运）")
     _say("  2. 注册到你指定的 AI 客户端（只加我们这一条，改前备份，不动你的其它配置）")
     _say("  3. 把技能包放到对应客户端的技能目录")
+    _say("  4. 如果装完还是用不了：把**这一页的全部内容**复制给 AI 客户端，让它照下面的路径自己装")
+    _say("")
+    _say("装不上时的兜底（把这一页整页复制给 AI 客户端，它可照此自行安装）：")
+    _say(f"    MCP 名称：{spec['name']}")
+    snippet = json.dumps({"mcpServers": {spec["name"]: {
+        "command": mine or "<这份 exe 的绝对路径>", "args": []}}}, ensure_ascii=False)
+    _say(f"    配置片段：{snippet}")
+    _say("    技能默认目录：")
+    for client_label, dst in skill_dir_defaults(skill_id(spec)):
+        _say(f"      · {client_label}：{dst}")
     _say("")
     compat = wechat_compat_line()
     if compat:
@@ -1541,7 +1575,6 @@ def _wizard(spec, ask=_ask, ask_raw=_ask_raw, keys=None):
         _say(f"适配的微信版本：{compat}（其它 4.x 也能跑，但**没在本项目验证过**——"
              "结果会逐条挂告警，别直接当真）")
         _say("")
-    mine = own_exe()
     if mine:
         _say("⚠️  装完**别移动、也别删除这个 exe**——客户端里注册的就是它的路径：")
         _say(f"    {mine}")

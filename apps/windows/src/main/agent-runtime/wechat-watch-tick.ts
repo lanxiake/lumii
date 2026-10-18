@@ -207,6 +207,35 @@ const MAX_PENDING_PER_PEER = 50
  */
 export function __resetWatchPendingForTest(): void {
   pendingByPeer.clear()
+  lastOpaqueMcpResetAt = 0
+}
+
+/**
+ * 上一次因「空错误」重启 MCP 的时刻。
+ *
+ * 空的 `ERROR:` 几乎总是进程里那份残缺密钥缓存（见 wechat_core.remember_keys）。
+ * 重启子进程会清掉它；但不能每拍都杀进程，所以同一次空错误最多一分钟重启一次。
+ */
+let lastOpaqueMcpResetAt = 0
+const OPAQUE_MCP_RESET_COOLDOWN_MS = 60_000
+
+/**
+ * 工具异常被收成了没有内容的 `ERROR:`（旧 exe 对 `StopIteration` 就是这样）。
+ */
+function isOpaqueMcpToolError(msg: string): boolean {
+  const t = msg.trim()
+  return t === 'ERROR:' || t === 'ERROR' || /^ERROR:\s*StopIteration:?\s*$/.test(t)
+}
+
+/**
+ * 微信没开、或密钥还没出现在内存里。这是等一等就会好的环境问题，不是本拍的硬故障。
+ */
+function isWechatKeyNotReady(msg: string): boolean {
+  return (
+    msg.includes('未能从微信进程内存取到数据库密钥') ||
+    (msg.includes('未能取到') && msg.includes('密钥')) ||
+    msg.includes('微信可能没在运行')
+  )
 }
 
 /** 消息身份：`local_id` 是会话内稳定序号，比 `ts` 可靠（同秒可能多条）。 */
@@ -889,6 +918,13 @@ export interface WechatWatchDeps {
   getDb: () => DatabaseAdapter
   /** 直接调 MCP 工具（主进程内、不经 Agent 回合），见 `McpManager.callTool` */
   callMcpTool: (server: string, tool: string, args: Record<string, unknown>) => Promise<string>
+  /**
+   * 重启某个 MCP Server（bridge 注入：`reconnectMcpServer`）。
+   *
+   * 只在 `poll_new` 返回空错误时用：旧进程可能缓存了残缺密钥表，重启后重新扫描。
+   * 不给这个回调时，空错误只记一笔跳过，不杀进程。
+   */
+  resetMcpServer?: (server: string) => Promise<void>
   /** 系统通知（第三个参数是会话 id，点击可跳到那个好友的会话） */
   showNotification?: (title: string, body: string, convId?: string) => void
   /**
@@ -1416,6 +1452,37 @@ async function maybeDistillProfiles(
 }
 
 /**
+ * 读一拍增量。空的 `ERROR:` 先重启 MCP 再试一次：旧进程里可能缓存了残缺密钥表。
+ *
+ * 重启失败或冷却未到时，把原来的错误原样抛回去，由 `runWechatWatch` 决定怎么跳过。
+ */
+async function readPollText(deps: WechatWatchDeps, since: number): Promise<string> {
+  const args = { since_ts: since }
+  try {
+    return await deps.callMcpTool(WECHAT_WATCH_MCP_SERVER, WECHAT_WATCH_MCP_TOOL, args)
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    const now = deps.nowMs?.() ?? Date.now()
+    if (
+      !deps.resetMcpServer ||
+      !isOpaqueMcpToolError(msg) ||
+      now - lastOpaqueMcpResetAt < OPAQUE_MCP_RESET_COOLDOWN_MS
+    ) {
+      throw err
+    }
+    lastOpaqueMcpResetAt = now
+    log.warn('[wechat-watch] poll_new 返回空错误，重启 MCP 后重试一次')
+    try {
+      await deps.resetMcpServer(WECHAT_WATCH_MCP_SERVER)
+    } catch (resetErr) {
+      log.warn('[wechat-watch] 重启 MCP 失败:', resetErr)
+      throw err
+    }
+    return await deps.callMcpTool(WECHAT_WATCH_MCP_SERVER, WECHAT_WATCH_MCP_TOOL, args)
+  }
+}
+
+/**
  * 跑一拍。返回一句给 `cron_runs` 的摘要（任务页的「最近执行」能看到）。
  *
  * 注意：**任何失败路径都返回字符串、不抛**——这是 cron 的一次 tick，
@@ -1455,9 +1522,7 @@ export async function runWechatWatch(deps: WechatWatchDeps): Promise<string> {
     let payload: PollPayload | null = null
     try {
       const t0 = Date.now()
-      const text = await deps.callMcpTool(WECHAT_WATCH_MCP_SERVER, WECHAT_WATCH_MCP_TOOL, {
-        since_ts: since,
-      })
+      const text = await readPollText(deps, since)
       const cost = Date.now() - t0
       if (cost > 2000) {
         // 观测用：读取侧正常是几十毫秒；偶发几秒的话，先分清是 MCP 侧还是主进程阻塞
@@ -1471,9 +1536,9 @@ export async function runWechatWatch(deps: WechatWatchDeps): Promise<string> {
       if (msg.includes('未连接')) {
         return '（wechat-local MCP 未连接，本拍跳过）'
       }
-      if (msg.includes('未能从微信进程内存取到数据库密钥') || msg.includes('微信可能没在运行')) {
-        log.warn('[wechat-watch] 微信未运行或密钥取不到，本拍跳过')
-        return `微信未运行，本拍跳过`
+      if (isWechatKeyNotReady(msg)) {
+        log.warn('[wechat-watch] 微信未运行或密钥未就绪，本拍跳过')
+        return '微信未运行或密钥未就绪，本拍跳过'
       }
       log.warn('[wechat-watch] poll_new 调用失败，本拍跳过：', err)
       return `poll 失败，本拍跳过：${msg}`
