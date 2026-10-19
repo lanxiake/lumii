@@ -434,7 +434,7 @@ describe("assistant parts bridge persistence", () => {
       instanceStates.set("instance", state);
       // 严格归属：卡片只留本实例登记过的路径
       clearTurnTouchedPaths("instance");
-      recordTurnTouchedPath("instance", { filePath: "tracked.txt" }, workspaceDir);
+      recordTurnTouchedPath("instance", "file_write", { filePath: "tracked.txt" }, workspaceDir);
 
       const updateMessageContent = vi.fn();
       const forwardIpcEvent = vi.fn();
@@ -486,7 +486,14 @@ describe("assistant parts bridge persistence", () => {
         expect.objectContaining({
           messageId: "message-1",
           contentJson: expect.objectContaining({
-            fileChanges: [{ path: "tracked.txt", status: "modified" }],
+            fileChanges: [
+              {
+                path: "tracked.txt",
+                status: "modified",
+                confidence: "exact",
+                sourceTool: "file_write",
+              },
+            ],
           }),
         }),
       );
@@ -494,7 +501,14 @@ describe("assistant parts bridge persistence", () => {
         expect.objectContaining({
           type: "agent:turn:file-changes",
           messageId: "message-1",
-          fileChanges: [{ path: "tracked.txt", status: "modified" }],
+          fileChanges: [
+            {
+              path: "tracked.txt",
+              status: "modified",
+              confidence: "exact",
+              sourceTool: "file_write",
+            },
+          ],
         }),
       );
       expect(state.turnSnapshotStart).toBeUndefined();

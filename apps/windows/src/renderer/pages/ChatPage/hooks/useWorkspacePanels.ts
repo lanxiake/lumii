@@ -90,5 +90,7 @@ export function useWorkspacePanels(activeView: ViewType | undefined) {
     setWorkbenchLayout,
     revealInFiles,
     locateAbsoluteFile,
+    workspaceDir,
+    toAbsolutePath,
   }
 }

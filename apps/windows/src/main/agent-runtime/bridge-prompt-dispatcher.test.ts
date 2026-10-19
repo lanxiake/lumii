@@ -87,7 +87,14 @@ describe("BridgePromptDispatcher direct image turns", () => {
           role: "assistant",
           contentJson: expect.objectContaining({
             type: "assistant_parts",
-            fileChanges: [{ path: "outputs/generated.png", status: "added" }],
+            fileChanges: [
+              {
+                path: "outputs/generated.png",
+                status: "added",
+                confidence: "exact",
+                sourceTool: "image_generate",
+              },
+            ],
           }),
         }),
       );
@@ -95,7 +102,14 @@ describe("BridgePromptDispatcher direct image turns", () => {
         expect.objectContaining({
           type: "agent:turn:file-changes",
           messageId: "image-message-1",
-          fileChanges: [{ path: "outputs/generated.png", status: "added" }],
+          fileChanges: [
+            {
+              path: "outputs/generated.png",
+              status: "added",
+              confidence: "exact",
+              sourceTool: "image_generate",
+            },
+          ],
         }),
       );
       expect(state.turnSnapshotStart).toBeUndefined();

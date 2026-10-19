@@ -11,7 +11,7 @@ import clsx from 'clsx'
 import { X, RefreshCw } from 'lucide-react'
 import styles from './WorkspaceWorkbench.module.css'
 
-export type WorkbenchTab = 'files' | 'vcs'
+export type WorkbenchTab = 'files' | 'changes' | 'vcs'
 export type WorkbenchLayoutMode = 'default' | 'wide' | 'fullscreen'
 
 export interface WorkspaceWorkbenchProps {
@@ -20,8 +20,11 @@ export interface WorkspaceWorkbenchProps {
   onTabChange: (tab: WorkbenchTab) => void
   onClose: () => void
   uncommittedCount: number
+  /** 会话级变更文件数（「变更」Tab 角标） */
+  changeCount?: number
   onRefresh?: () => void
   childrenFiles: ReactNode
+  childrenChanges?: ReactNode
   childrenVcs: ReactNode
   /** 宽度变化时通知（用于对话区 padding 自适应） */
   onWidthChange?: (width: number) => void
@@ -36,6 +39,7 @@ export interface WorkspaceWorkbenchProps {
 }
 
 const WIDTH_FILES = 280
+const WIDTH_CHANGES = 480
 const WIDTH_VCS = 760
 const WIDTH_VCS_WIDE = 1100
 const WIDTH_MIN = 240
@@ -63,6 +67,7 @@ function resolveWidth(tab: WorkbenchTab, mode: WorkbenchLayoutMode): number {
   const max = getMaxWidth()
   if (mode === 'fullscreen') return max
   if (tab === 'files') return Math.min(WIDTH_FILES, max)
+  if (tab === 'changes') return Math.min(WIDTH_CHANGES, max)
   if (mode === 'wide') return Math.min(WIDTH_VCS_WIDE, max)
   return Math.min(WIDTH_VCS, max)
 }
@@ -76,8 +81,10 @@ export const WorkspaceWorkbench: React.FC<WorkspaceWorkbenchProps> = ({
   onTabChange,
   onClose,
   uncommittedCount,
+  changeCount = 0,
   onRefresh,
   childrenFiles,
+  childrenChanges,
   childrenVcs,
   onWidthChange,
   onResizingChange,
@@ -91,6 +98,7 @@ export const WorkspaceWorkbench: React.FC<WorkspaceWorkbenchProps> = ({
   /** 各 tab 上次拖拽宽度（切换 tab 时恢复） */
   const remembered = useRef<Record<WorkbenchTab, number>>({
     files: WIDTH_FILES,
+    changes: WIDTH_CHANGES,
     vcs: WIDTH_VCS,
   })
   const dragRef = useRef<{ startX: number; startW: number } | null>(null)
@@ -167,6 +175,9 @@ export const WorkspaceWorkbench: React.FC<WorkspaceWorkbenchProps> = ({
         e.preventDefault()
         onTabChange('files')
       } else if (e.key === '2') {
+        e.preventDefault()
+        onTabChange('changes')
+      } else if (e.key === '3') {
         e.preventDefault()
         onTabChange('vcs')
       }
@@ -252,6 +263,16 @@ export const WorkspaceWorkbench: React.FC<WorkspaceWorkbenchProps> = ({
           </button>
           <button
             type="button"
+            className={clsx(styles.tab, tab === 'changes' && styles.tabActive)}
+            onClick={() => onTabChange('changes')}
+          >
+            变更
+            {changeCount > 0 && (
+              <span className={styles.badge}>{changeCount > 99 ? '99+' : changeCount}</span>
+            )}
+          </button>
+          <button
+            type="button"
             className={clsx(styles.tab, tab === 'vcs' && styles.tabActive)}
             onClick={() => onTabChange('vcs')}
           >
@@ -288,6 +309,12 @@ export const WorkspaceWorkbench: React.FC<WorkspaceWorkbenchProps> = ({
           hidden={tab !== 'files'}
         >
           {childrenFiles}
+        </div>
+        <div
+          className={clsx(styles.pane, tab === 'changes' && styles.paneVisible)}
+          hidden={tab !== 'changes'}
+        >
+          {childrenChanges}
         </div>
         <div
           className={clsx(styles.pane, tab === 'vcs' && styles.paneVisible)}

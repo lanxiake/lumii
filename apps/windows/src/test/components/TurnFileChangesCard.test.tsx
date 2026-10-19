@@ -87,4 +87,25 @@ describe('TurnFileChangesCard', () => {
     fireEvent.click(screen.getByRole('button', { name: '收起' }))
     expect(screen.queryByText('src/f6.ts')).not.toBeInTheDocument()
   })
+
+  it('历史数据里的未归属条目直接过滤，不进入卡片', () => {
+    const mixed: FileChangeEntry[] = [
+      { path: 'outputs/mine.txt', status: 'added', confidence: 'exact' },
+      { path: 'outputs/theirs.txt', status: 'modified', confidence: 'unattributed' },
+    ]
+    render(<TurnFileChangesCard changes={mixed} />)
+    expect(screen.getByText('1 个文件变更')).toBeInTheDocument()
+    expect(screen.getByText('outputs/mine.txt')).toBeInTheDocument()
+    expect(screen.queryByText('outputs/theirs.txt')).not.toBeInTheDocument()
+    expect(screen.queryByText(/未归属/)).not.toBeInTheDocument()
+  })
+
+  it('全部都是未归属条目不渲染卡片', () => {
+    const only: FileChangeEntry[] = [
+      { path: 'outputs/a.txt', status: 'added', confidence: 'unattributed' },
+      { path: 'outputs/b.txt', status: 'deleted', confidence: 'unattributed' },
+    ]
+    const { container } = render(<TurnFileChangesCard changes={only} />)
+    expect(container.firstChild).toBeNull()
+  })
 })

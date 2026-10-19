@@ -1,6 +1,9 @@
 /**
  * TurnFileChangesCard — 回合文件净变更卡片
  * 仅展示本轮工作区的新增/修改/删除，无上传语义、无 +/- 行数；点击「查看」定位首个文件。
+ *
+ * 只渲染本会话有证据的变更。历史消息里遗留的 unattributed 条目（旧版本写入）
+ * 在渲染时过滤掉，避免并发会话的文件继续出现在卡片里。
  */
 
 import React, { useState } from 'react'
@@ -49,28 +52,19 @@ function classifyExt(path: string): { label: string; kind: string } {
 /** 超过此数量的文件默认收起，其余由「展开」按钮释放 */
 const COLLAPSED_COUNT = 6
 
-/** 渲染本轮助手回复关联的工作区文件净变更列表 */
-const TurnFileChangesCard: React.FC<TurnFileChangesCardProps> = ({ changes, onReview }) => {
-  const [expanded, setExpanded] = useState(false)
-  if (changes.length === 0) return null
+interface ChangeListProps {
+  changes: readonly FileChangeEntry[]
+  onReview?: (path: string, status: FileChangeEntry['status']) => void
+}
 
+/** 一组文件行（自带折叠状态） */
+const ChangeList: React.FC<ChangeListProps> = ({ changes, onReview }) => {
+  const [expanded, setExpanded] = useState(false)
   const hidden = changes.length - COLLAPSED_COUNT
   const visible = expanded ? changes : changes.slice(0, COLLAPSED_COUNT)
 
   return (
-    <div className={styles.card} data-testid="turn-file-changes-card">
-      <div className={styles.header}>
-        <span className={styles.headerTitle}>{changes.length} 个文件变更</span>
-        {onReview && (
-          <button
-            type="button"
-            className={styles.review}
-            onClick={() => onReview(changes[0].path, changes[0].status)}
-          >
-            查看
-          </button>
-        )}
-      </div>
+    <>
       <div className={styles.list}>
         {visible.map((entry) => {
           const ext = classifyExt(entry.path)
@@ -106,6 +100,31 @@ const TurnFileChangesCard: React.FC<TurnFileChangesCardProps> = ({ changes, onRe
           {expanded ? '收起' : `展开其余 ${hidden} 个文件`}
         </button>
       )}
+    </>
+  )
+}
+
+/** 渲染本轮助手回复关联的工作区文件净变更列表 */
+const TurnFileChangesCard: React.FC<TurnFileChangesCardProps> = ({ changes, onReview }) => {
+  const visible = changes.filter((entry) => entry.confidence !== 'unattributed')
+  if (visible.length === 0) return null
+  const first = visible[0]
+
+  return (
+    <div className={styles.card} data-testid="turn-file-changes-card">
+      <div className={styles.header}>
+        <span className={styles.headerTitle}>{visible.length} 个文件变更</span>
+        {onReview && first && (
+          <button
+            type="button"
+            className={styles.review}
+            onClick={() => onReview(first.path, first.status)}
+          >
+            查看
+          </button>
+        )}
+      </div>
+      <ChangeList changes={visible} onReview={onReview} />
     </div>
   )
 }

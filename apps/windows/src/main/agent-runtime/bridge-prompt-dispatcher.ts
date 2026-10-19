@@ -49,8 +49,8 @@ import type { RouterLlmCaller } from './router/llm-caller'
 import { captureWorkspaceTurnSnapshot } from '../workspace-vcs/workspace-turn-snapshot'
 import {
   clearTurnTouchedPaths,
-  filterOwnFileChanges,
   recordTurnTouchedFilePath,
+  resolveTurnFileChanges,
 } from './turn-touched-paths'
 
 export type WeixinCtxValue = {
@@ -194,9 +194,13 @@ export class BridgePromptDispatcher {
 
   /**
    * 捕获直接生图轮次的工作区起点；失败时不阻断生图。
+   *
+   * 必须先清空上一轮的归属记录：这条路径在正常 prompt 清理之前就 return，
+   * 不清理会让上一轮登记的路径被 stat 合成进本轮变更。
    */
   private async captureDirectImageTurnStart(state: InstanceState | undefined): Promise<void> {
     if (!state) return
+    clearTurnTouchedPaths(state.ctx.instanceId)
     try {
       state.turnSnapshotStart = await captureWorkspaceTurnSnapshot(this.deps.config.getCwd())
     } catch (err) {
@@ -208,23 +212,38 @@ export class BridgePromptDispatcher {
   /**
    * 完成直接生图轮次快照并返回净变更，同时确保起点不会污染下一轮。
    *
-   * 与 pi 内核回合一致按归属过滤：直连生图绕过写文件工具，产出的图片路径由调用方先
-   * 登记，这里只保留本实例登记过的变更，避免把并发会话 / 后台任务的写入算进来。
+   * 直连生图绕过写文件工具，产出的图片路径由调用方先登记。快照失败或起点缺失时
+   * 仍用已登记路径兜底，保证「图片生成了但变更卡片没有」不再发生。
    */
   private async finishDirectImageTurnSnapshot(
     state: InstanceState | undefined,
   ): Promise<FileChangeEntry[] | undefined> {
     const turnSnapshotStart = state?.turnSnapshotStart
     if (state) state.turnSnapshotStart = undefined
-    if (!turnSnapshotStart) return undefined
     const instanceId = state?.ctx.instanceId
+    const cwd = this.deps.config.getCwd()
 
+    let diff: FileChangeEntry[] = []
+    let diffAuthoritative = false
+    if (turnSnapshotStart) {
+      try {
+        const turnSnapshotEnd = await captureWorkspaceTurnSnapshot(cwd)
+        diff = diffTurnSnapshots(turnSnapshotStart, turnSnapshotEnd)
+        diffAuthoritative = true
+      } catch (err) {
+        log.warn(`[turn-snapshot] direct image end failed: ${err instanceof Error ? err.message : String(err)}`)
+      }
+    }
+
+    if (!instanceId) return undefined
     try {
-      const turnSnapshotEnd = await captureWorkspaceTurnSnapshot(this.deps.config.getCwd())
-      const diff = diffTurnSnapshots(turnSnapshotStart, turnSnapshotEnd)
-      return instanceId ? filterOwnFileChanges(instanceId, diff) : []
+      const resolved = await resolveTurnFileChanges(instanceId, diff, cwd, {
+        ...(turnSnapshotStart ? { snapshotStart: turnSnapshotStart } : {}),
+        diffAuthoritative,
+      })
+      return resolved.length > 0 ? resolved : undefined
     } catch (err) {
-      log.warn(`[turn-snapshot] direct image end failed: ${err instanceof Error ? err.message : String(err)}`)
+      log.warn(`[turn-snapshot] direct image resolve failed: ${err instanceof Error ? err.message : String(err)}`)
       return undefined
     }
   }
@@ -556,7 +575,7 @@ export class BridgePromptDispatcher {
           signal: imgAbort.signal,
         })
         // 直连生图不经工具链，先把产出图片登记为本实例本轮写入，供归属过滤保留
-        recordTurnTouchedFilePath(instanceId, result.filePath, this.deps.config.getCwd())
+        recordTurnTouchedFilePath(instanceId, result.filePath, this.deps.config.getCwd(), 'image_generate')
         const durationMs = Date.now() - startMs
         const fileChanges = await this.finishDirectImageTurnSnapshot(state)
         const assistantText = `图片已生成：${result.filePath}（${result.width}×${result.height}，模型：${result.model}）`

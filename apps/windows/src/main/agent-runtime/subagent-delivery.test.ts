@@ -55,6 +55,42 @@ describe('deliverSubagentCompletion', () => {
     expect(parent.followUp).not.toHaveBeenCalled()
   })
 
+  it('idle 开新回合前先准备归属起点（清登记 + 快照），running 不重复准备', async () => {
+    const idleParent = mockParent('idle')
+    const before = vi.fn().mockResolvedValue(undefined)
+    await deliverSubagentCompletion({ parent: idleParent, payload, format, beforeInternalPrompt: before })
+    expect(before).toHaveBeenCalledTimes(1)
+    expect(idleParent.prompt).toHaveBeenCalledTimes(1)
+
+    const runningParent = mockParent('running')
+    const beforeRunning = vi.fn().mockResolvedValue(undefined)
+    await deliverSubagentCompletion({
+      parent: runningParent,
+      payload,
+      format,
+      beforeInternalPrompt: beforeRunning,
+    })
+    // running 走 followUp，沿用父回合已开的快照，不能再重置登记表
+    expect(beforeRunning).not.toHaveBeenCalled()
+  })
+
+  it('起点准备抛错不阻断完成通知', async () => {
+    const parent = mockParent('idle')
+    const before = vi.fn().mockRejectedValue(new Error('snapshot failed'))
+    const mode = await deliverSubagentCompletion({
+      parent,
+      payload,
+      format,
+      beforeInternalPrompt: before,
+    })
+    expect(mode).toBe('prompt')
+    expect(parent.prompt).toHaveBeenCalledWith(
+      expect.stringContaining('[SUBAGENT_COMPLETE]'),
+      undefined,
+      'internal',
+    )
+  })
+
   it('parent paused/error/aborted → deferred', async () => {
     for (const state of ['paused', 'error', 'aborted'] as const) {
       const parent = mockParent(state)

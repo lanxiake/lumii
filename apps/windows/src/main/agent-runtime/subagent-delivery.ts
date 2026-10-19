@@ -20,6 +20,11 @@ export async function deliverSubagentCompletion(opts: {
   parent: AgentInstance
   payload: SubagentCompletionPayload
   format: (p: SubagentCompletionPayload) => string
+  /**
+   * idle 时要开新回合：宿主在这里重置归属登记并捕获工作区起点快照。
+   * 直接 `prompt(internal)` 会绕过用户消息入口的那套开轮逻辑（见 beginStandaloneTurn）。
+   */
+  beforeInternalPrompt?: () => Promise<void>
 }): Promise<SubagentDeliveryMode> {
   const msg = opts.format(opts.payload)
   const state = opts.parent.state
@@ -37,6 +42,14 @@ export async function deliverSubagentCompletion(opts: {
     log.info(
       `[subagent-delivery] prompt(internal) parent=${parentId} child=${childId} name=${name} status=${status} parentState=idle`,
     )
+    try {
+      await opts.beforeInternalPrompt?.()
+    } catch (err) {
+      // 起点准备失败不该丢掉子 Agent 的完成通知：按无快照继续投递
+      log.warn(
+        `[subagent-delivery] beforeInternalPrompt failed parent=${parentId}: ${err instanceof Error ? err.message : String(err)}`,
+      )
+    }
     await opts.parent.prompt(msg, undefined, 'internal')
     return 'prompt'
   }

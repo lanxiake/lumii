@@ -837,6 +837,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
     setWorkbenchLayout: handleWorkbenchLayoutChange,
     revealInFiles,
     locateAbsoluteFile,
+    toAbsolutePath,
   } = useWorkspacePanels(activeView)
   const [autoApprove, setAutoApprove] = useState<boolean>(() => readAutoApproveEnabled())
 
@@ -2025,7 +2026,10 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
         layoutMode={workbenchLayout}
         onLayoutModeChange={handleWorkbenchLayoutChange}
         locateFileTarget={locateFileTarget}
+        messages={runtimeMessages}
+        toAbsolutePath={toAbsolutePath}
         onRevealInFiles={revealInFiles}
+        onRevealChange={handleReviewTurnFileChange}
       />
     </div>
   )

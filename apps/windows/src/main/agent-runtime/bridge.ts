@@ -218,6 +218,8 @@ import { runPlanner, shouldFallbackPlan } from './planner-wiring'
 import { DEFAULT_AGENT_ID } from '../seed-cron-jobs'
 import { OUTREACH_SYSTEM_NOTIFY_TITLE } from '../desktop-notify'
 import { BridgeInstanceFactory } from './bridge-instance-factory'
+import { captureWorkspaceTurnSnapshot } from '../workspace-vcs/workspace-turn-snapshot'
+import { beginStandaloneTurn } from './turn-touched-paths'
 import { BackgroundTaskManager, type BackgroundTaskRecord } from './background-task-manager'
 import { followComfyJob, parseEnqueuedPromptId, resolveComfyBaseUrl } from './comfyui-job-follower'
 import { BridgeToolRegistrar } from './bridge-tool-registrar'
@@ -595,6 +597,7 @@ export class AgentRuntimeBridge {
       createInstance: (def, sessionKey, conversationId, opts) =>
         this.createInstance(def, sessionKey, conversationId, opts),
       prompt: (instanceId, message) => this.prompt(instanceId, message),
+      beginInternalTurn: (instanceId) => this.beginInternalTurn(instanceId),
       getFeatureFlags: () => this.featureFlags,
     })
   }
@@ -3870,6 +3873,19 @@ export class AgentRuntimeBridge {
     return { policy, runner }
   }
 
+  /**
+   * 独立回合起点（不经过用户消息入口的 internal prompt）：重置归属登记 + 捕获快照。
+   * 与 BridgePromptDispatcher 开轮时的两步保持一致，否则异步唤醒的回合会：
+   * 把上一轮登记的路径重复报成变更，或因为没有 diff 而漏掉 bash 写出的产物。
+   */
+  private async beginInternalTurn(instanceId: string): Promise<void> {
+    await beginStandaloneTurn(
+      instanceId,
+      this.instanceStates.get(instanceId),
+      () => captureWorkspaceTurnSnapshot(this.config.getCwd()),
+    )
+  }
+
   /** 取消一个后台任务：标记取消并中断其挂起的执行 */
   cancelBackgroundTask(taskId: string): void {
     this.getBackgroundTaskManager().cancel(taskId)
@@ -3894,6 +3910,7 @@ export class AgentRuntimeBridge {
       if (inst.state === 'running') {
         inst.followUp(text)
       } else if (inst.state === 'idle') {
+        if (task.instanceId) await this.beginInternalTurn(task.instanceId)
         await inst.prompt(text, undefined, 'internal')
       } else {
         log.warn(

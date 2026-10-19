@@ -60,6 +60,11 @@ export interface BridgeLifecycleDeps {
   ) => Promise<string>
   /** 发送消息（用于 orchestrator.prompt 回调） */
   prompt: (instanceId: string, message: string) => Promise<void>
+  /**
+   * 独立回合起点准备：清空上轮归属登记 + 捕获工作区快照。
+   * 子 Agent 完成投递在父实例 idle 时直接走 `prompt(internal)`，必须补这一步。
+   */
+  beginInternalTurn?: (instanceId: string) => Promise<void>
   /** 读取当前 feature flags（主题5：VERDICT 消费 killswitch） */
   getFeatureFlags: () => AgentRuntimeFeatureFlags
 }
@@ -325,6 +330,7 @@ export class BridgeLifecycle {
         parent,
         payload,
         format: (p) => orch.broker.formatCompletionMessage(p),
+        beforeInternalPrompt: () => this.deps.beginInternalTurn?.(payload.parentId) ?? Promise.resolve(),
       })
       if (mode === 'deferred') {
         this.ensureDeferredDrainListener(payload.parentId)
@@ -390,6 +396,7 @@ export class BridgeLifecycle {
           parent,
           payload,
           format: (p) => orch.broker.formatCompletionMessage(p),
+          beforeInternalPrompt: () => this.deps.beginInternalTurn?.(payload.parentId) ?? Promise.resolve(),
         })
         if (mode === 'deferred') {
           orch.broker.enqueueCompletion(payload)

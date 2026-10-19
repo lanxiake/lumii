@@ -33,6 +33,17 @@ export type ToolAssistantPart = Extract<AssistantPart, { type: "tool" }>;
 export type FileChangeEntry = {
   path: string;
   status: "added" | "modified" | "deleted";
+  /**
+   * 归属可信度。缺省视为 exact（兼容历史持久化数据）。
+   *
+   * - exact：本实例本轮明确写入（工具入参 / 工具结果 / 直连生图登记 /
+   *   命令型工具文本证据）；
+   * - unattributed：旧版本写入的「无法确认归属」标记，新数据不再产生；
+   *   渲染层会过滤掉，字段保留只为兼容历史消息。
+   */
+  confidence?: "exact" | "unattributed";
+  /** 产出该变更的工具名（诊断用；未归属变更没有） */
+  sourceTool?: string;
 };
 
 /** 助手消息持久化形态（parts 为唯一真相） */

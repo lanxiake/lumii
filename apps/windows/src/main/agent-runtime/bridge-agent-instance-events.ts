@@ -39,9 +39,12 @@ import { markRunStart, markFirstToken, clearRun } from '../provider-latency'
 import { captureWorkspaceTurnSnapshot } from '../workspace-vcs/workspace-turn-snapshot'
 import {
   collectResultTouchedPaths,
-  filterOwnFileChanges,
+  collectToolEvidence,
+  recordTurnPreState,
   recordTurnTouchedFilePath,
   recordTurnTouchedPath,
+  resolveTurnFileChanges,
+  type TurnToolEvidence,
 } from './turn-touched-paths'
 import { applyConversationCompactToUsage } from '../../shared/context-usage-compact'
 import { isNoReplySentinel } from '../../shared/no-reply-sentinel'
@@ -689,6 +692,9 @@ export function createAgentInstanceRuntimeEventHandler(
         state.lastActivityAt = Date.now()
         const args = (event.args ?? {}) as Record<string, unknown>
         state.toolCallArgs.set(event.toolCallId, args)
+        // 写文件工具：在真正执行前记录目标是否已存在，供回合结束区分新增/修改/删除。
+        // 被快照忽略的路径（uploads/ 等）没有 diff 可依，只能靠这份前置状态。
+        recordTurnPreState(instanceId, event.toolName, args, getCwd())
         state.pendingParts = applyAssistantPartEvent(state.pendingParts, {
           kind: 'tool_start',
           id: event.toolCallId,
@@ -731,24 +737,14 @@ export function createAgentInstanceRuntimeEventHandler(
       }
       persistCurrentStreamingParts('tool:end', true)
 
-      // 兼容新旧两套工具名：
-      // - file_write（覆盖写）、file_edit（按字符串替换写回）使用 params.filePath
-      // - writeLocalFile 为旧命名保留兼容
-      const isWriteTool =
-        event.toolName === 'file_write' ||
-        event.toolName === 'file_edit' ||
-        event.toolName === 'file_mkdir' ||
-        event.toolName === 'file_move' ||
-        event.toolName === 'file_copy' ||
-        event.toolName === 'writeLocalFile'
-      if (isWriteTool && !event.isError) {
-        recordTurnTouchedPath(instanceId, args, getCwd())
-      }
+      // 写文件工具由 recordTurnTouchedPath 按工具语义收路径（file_move 收
+      // source+destination，file_copy 只收 destination）；非写工具内部直接返回。
       // 生图 / 语音 / 截图等工具自身写盘但不走写文件工具，从结果里补登产出路径，
-      // 否则严格归属下这些产物会从变更卡片漏掉
+      // 否则这些产物会从变更卡片漏掉。
       if (!event.isError) {
+        recordTurnTouchedPath(instanceId, event.toolName, args, getCwd())
         for (const outputPath of collectResultTouchedPaths(event.toolName, event.result)) {
-          recordTurnTouchedFilePath(instanceId, outputPath, getCwd())
+          recordTurnTouchedFilePath(instanceId, outputPath, getCwd(), event.toolName)
         }
       }
       const writtenPath =
@@ -978,17 +974,41 @@ export function createAgentInstanceRuntimeEventHandler(
       let fileChanges: FileChangeEntry[] | undefined
       const turnSnapshotStart = state?.turnSnapshotStart
       if (state) state.turnSnapshotStart = undefined
+      const cwd = getCwd()
+      let diff: FileChangeEntry[] = []
+      let diffAuthoritative = false
       if (turnSnapshotStart) {
         try {
-          const turnSnapshotEnd = await captureWorkspaceTurnSnapshot(getCwd())
-          // 各会话共用同一 workspace，diff 会含并发会话的写入，按归属过滤
-          fileChanges = filterOwnFileChanges(
-            instanceId,
-            diffTurnSnapshots(turnSnapshotStart, turnSnapshotEnd),
-          )
+          const turnSnapshotEnd = await captureWorkspaceTurnSnapshot(cwd)
+          diff = diffTurnSnapshots(turnSnapshotStart, turnSnapshotEnd)
+          diffAuthoritative = true
         } catch (err) {
           log.warn(`[turn-snapshot] end failed: ${err instanceof Error ? err.message : String(err)}`)
         }
+      }
+      try {
+        // 各会话共用同一 workspace：diff 里没有本会话证据的路径直接丢弃；
+        // bash / 技能这类命令型工具的入参与输出作为证据，点名过的路径/目录仍算本会话产物。
+        // 本实例登记过的路径即使在 diff 外（被快照忽略的 uploads/ 等）也会用 stat 合成，
+        // 快照失败时同样靠已登记路径兜底，不再整卡消失。
+        const evidence: TurnToolEvidence[] = []
+        let evidenceBudget = 500_000
+        for (const part of partsSnapshot) {
+          if (part.type !== 'tool' || evidenceBudget <= 0) continue
+          const entry = collectToolEvidence(part.name, part.args, part.result)
+          if (!entry) continue
+          const text = entry.text.slice(0, evidenceBudget)
+          evidenceBudget -= text.length
+          evidence.push({ toolName: entry.toolName, text })
+        }
+        const resolved = await resolveTurnFileChanges(instanceId, diff, cwd, {
+          ...(turnSnapshotStart ? { snapshotStart: turnSnapshotStart } : {}),
+          diffAuthoritative,
+          ...(evidence.length > 0 ? { evidence } : {}),
+        })
+        fileChanges = resolved.length > 0 ? resolved : undefined
+      } catch (err) {
+        log.warn(`[turn-snapshot] resolve failed: ${err instanceof Error ? err.message : String(err)}`)
       }
       const contentJson = createAssistantPartsContent(partsSnapshot, {
         usage,
