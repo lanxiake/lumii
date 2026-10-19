@@ -1,11 +1,17 @@
 #!/usr/bin/env node
 /**
- * Wiki P0/P1/P2 CLI 补强套件：覆盖全部 wiki CLI 子命令 + 关键 IPC GAP（via command）。
+ * Wiki CLI 套件（资料层）
+ *
+ * 覆盖 lumii-ui 现存全部 wiki 子命令 + 关键命令总线。
+ * 历史页面（page / revisions / backlinks / rollback / unresolved / concept / attach）
+ * 已随 P3 删除，综述合成（synthesis）已随智能资料库 P2 删除 —— 对应用例一并移除。
+ * 当前结构见 AGENTS.md「Wiki」与 design/Wiki知识库/2026-08-31-Wiki智能资料库设计.md。
+ *
  * 用法：node docs/test/lumii-cli/wiki/run-wiki-cli-suite.mjs
  *
  * 环境变量：
- * - WIKI_CLI_ALLOW_DELETE=1  允许 source:delete（默认只删 wiki-cli-* 页面）
  * - WIKI_CLI_SKIP_AGENT=1    跳过 Agent wiki_search 最小调用
+ * - WIKI_CLI_SKIP_MIGRATE=1  跳过库级迁移用例（会调用模型，且会在 review 留 run）
  */
 import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
@@ -21,8 +27,8 @@ const LUMII_UI = path.join(ROOT, 'apps/windows/resources/app-ui-cli/lumii-ui.mjs
 const EVID = path.join(__dirname, 'wiki-cli-evidence.jsonl')
 const REPORT = path.join(__dirname, 'wiki-cli-test-report.md')
 const DB_PATH = path.join(os.homedir(), '.lumii', 'data', 'agent-runtime.db')
-const ALLOW_DELETE = process.env.WIKI_CLI_ALLOW_DELETE === '1'
 const SKIP_AGENT = process.env.WIKI_CLI_SKIP_AGENT === '1'
+const SKIP_MIGRATE = process.env.WIKI_CLI_SKIP_MIGRATE === '1'
 
 const results = []
 const PROBE = 'wiki-cli'
@@ -107,35 +113,72 @@ function readInboxRow(id) {
   }
 }
 
-function findPage(pathOrTitle) {
-  const pages = asArray(ui(['wiki', 'page', 'list']).json) || []
-  return (
-    pages.find((p) => p.path === pathOrTitle || p.title === pathOrTitle) ||
-    pages.find((p) => String(p.path).includes(pathOrTitle) || String(p.title).includes(pathOrTitle))
-  )
+/** 列表包装：source list 返回 { sources } */
+function sourceList(flags = []) {
+  const r = ui(['wiki', 'source', 'list', ...flags])
+  assert(r.code === 0, r.out.slice(0, 160))
+  return asArray(r.json?.sources) ?? []
+}
+
+/** 分类树会随用户编辑变化，探针从当前树里取第一个大类及其第一个小类 */
+function pickTopic() {
+  const r = ui(['wiki', 'topic', 'tree'])
+  assert(r.code === 0, r.out.slice(0, 160))
+  const tree = r.json?.tree ?? r.json
+  const cat = tree?.categories?.[0]
+  assert(cat?.name, '分类树为空')
+  const subtopic = cat.subtopics?.[0]
+  assert(subtopic, `大类「${cat.name}」下没有小类`)
+  return { category: cat.name, subtopic }
+}
+
+/** 组织一条探针收件箱，返回 sourceId */
+function organizeProbe(title) {
+  const { category, subtopic } = pickTopic()
+  const id = seedInbox(title, `${title} 正文探针`)
+  try {
+    const org = ui([
+      'wiki', 'inbox', 'organize', id,
+      '--category', category,
+      '--subtopic', subtopic,
+      '--title', title,
+    ])
+    assert(org.code === 0, `organize: ${org.out.slice(0, 200)}`)
+    assert(org.json?.sourceId, '缺 sourceId')
+    return { sourceId: org.json.sourceId, category, subtopic }
+  } catch (e) {
+    // 组织失败时探针会留在 pending，必须自己收尾
+    ui(['wiki', 'inbox', 'discard', id])
+    throw e
+  }
+}
+
+function nowIso() {
+  return new Date().toISOString()
 }
 
 function main() {
   fs.writeFileSync(EVID, '', 'utf8')
-  console.log('Wiki CLI suite (full) starting…')
-  const ping = ui(['wiki', 'page', 'list'])
+  console.log('Wiki CLI suite starting…')
+  const ping = ui(['wiki', 'inbox', 'list'])
   if (ping.code === 3 || /connection_failed/.test(ping.out)) {
     console.error('控制口不可达，请先启动应用（pnpm dev）')
     process.exit(3)
   }
 
   runP0()
-  sleep(1500)
+  sleep(1000)
   runP1()
-  sleep(1500)
+  sleep(1000)
   runP2()
-  sleep(1500)
+  sleep(1000)
   runAgent()
   writeReport()
 }
 
+// ---------------------------------------------------------------- P0 摄取与检索
+
 function runP0() {
-  // A 冒烟
   try {
     const { code, json } = ui(['wiki', 'inbox', 'list'])
     assert(code === 0 && asArray(json), 'inbox list')
@@ -155,14 +198,12 @@ function runP0() {
     }
   }
 
-  let pages = []
   try {
-    const all = ui(['wiki', 'page', 'list'])
-    const src = ui(['wiki', 'page', 'list', '--category', 'sources'])
-    assert(all.code === 0 && asArray(all.json), 'page list')
-    pages = all.json
-    assert(src.code === 0 && (asArray(src.json) || []).every((p) => p.category === 'sources'), 'category')
-    record('P0-A03', 'PASS', `pages=${pages.length} sources=${src.json.length}`)
+    const all = sourceList()
+    const { category } = pickTopic()
+    const filtered = sourceList(['--category', category])
+    assert(filtered.every((s) => s.topicCategory === category), 'category 过滤串味')
+    record('P0-A03', 'PASS', `sources=${all.length} ${category}=${filtered.length}`)
   } catch (e) {
     record('P0-A03', 'FAIL', e.message)
   }
@@ -176,77 +217,80 @@ function runP0() {
     record('P0-A04', 'FAIL', e.message)
   }
 
-  // S 金标
-  const gold = [
-    { id: 'P0-S01', q: '架构设计', expect: '架构设计', top: 3 },
-    { id: 'P0-S02', q: '上传', expect: '上传', top: 5 },
-    { id: 'P0-S03', q: 'Wiki 功能', expect: 'Wiki', top: 5 },
-  ]
-  for (const g of gold) {
+  // 检索：先造一条已知锚点，再验证命中 / 空结果 / 参数校验
+  const anchorSourceId = (() => {
     try {
-      const { code, json } = ui(['wiki', 'search', g.q, '--limit', '5'])
-      assert(code === 0 && asArray(json), 'search')
-      const slice = json.slice(0, g.top)
-      const hit = slice.some(
-        (h) => String(h.title).includes(g.expect) || String(h.path).includes(g.expect),
-      )
-      assert(json.length > 0, '空结果')
-      assert(hit, `top-${g.top} 未命中 ${g.expect}`)
-      record(g.id, 'PASS', `top=${slice.map((h) => h.title).join('|')}`, {
-        titles: slice.map((h) => h.title),
-      })
+      const { sourceId } = organizeProbe(`${PROBE}检索锚点资料`)
+      const hits = ui(['wiki', 'search', '检索锚点', '--limit', '5'])
+      assert(hits.code === 0 && Array.isArray(hits.json?.hits), 'search 返回缺 hits')
+      assert(hits.json.hits.some((h) => h.sourceId === sourceId), '锚点未命中')
+      record('P0-S01', 'PASS', `hits=${hits.json.hits.length} mode=${hits.json.mode}`)
+      return sourceId
     } catch (e) {
-      record(g.id, 'FAIL', e.message)
+      record('P0-S01', 'FAIL', e.message)
+      return null
     }
+  })()
+
+  try {
+    const { code, json } = ui(['wiki', 'search', '"引号测试"', '--limit', '5'])
+    assert(code === 0 && Array.isArray(json?.hits), `exit ${code}`)
+    record('P0-S02', 'PASS', '特殊字符 ok')
+  } catch (e) {
+    record('P0-S02', 'FAIL', e.message)
   }
 
   try {
-    const { code } = ui(['wiki', 'search', '"引号测试"', '--limit', '5'])
-    assert(code === 0, `exit ${code}`)
-    record('P0-S04', 'PASS', '特殊字符 ok')
+    // 用纯拉丁稀有串：中文长串会被 bigram 切出「不存在」等常见词而正常召回，
+    // 那不是 bug（查询侧按最小命中数收口），不能拿来当「空结果」判据。
+    const { code, json } = ui(['wiki', 'search', 'xyzzywiki999', '--limit', '5'])
+    assert(code === 0 && Array.isArray(json?.hits), 'search 崩溃')
+    assert(json.hits.length === 0, `稀有串不应召回: ${json.hits.map((h) => h.title).join('|')}`)
+    record('P0-S03', 'PASS', '无结果空数组')
   } catch (e) {
-    record('P0-S04', 'FAIL', e.message)
-  }
-
-  try {
-    const { code, json } = ui(['wiki', 'search', '完全不存在的词xyzzywiki999', '--limit', '5'])
-    assert(code === 0 && asArray(json), 'search 崩溃')
-    assert(json.length === 0, `稀有串不应召回: ${json.map((h) => h.title).join('|')}`)
-    record('P0-S05', 'PASS', '无结果空数组(AND)')
-  } catch (e) {
-    record('P0-S05', 'FAIL', e.message)
+    record('P0-S03', 'FAIL', e.message)
   }
 
   try {
     const { code } = ui(['wiki', 'search', ''])
     assert(code === 2, `期望 2 得 ${code}`)
-    record('P0-S06', 'PASS', '空查询 usage')
+    record('P0-S04', 'PASS', '空查询 usage')
   } catch (e) {
-    record('P0-S06', 'FAIL', e.message)
+    record('P0-S04', 'FAIL', e.message)
   }
 
-  // I 收件箱闭环
   try {
-    const id = seedInbox(`${PROBE}-inbox-org`, '手动归档正文探针')
+    const { code, json } = ui(['wiki', 'search', '检索锚点', '--limit', '3', '--no-vector'])
+    assert(code === 0 && Array.isArray(json?.hits), 'no-vector')
+    assert(json.mode === 'fts', `--no-vector 应为 fts，得 ${json.mode}`)
+    assert(typeof json.degradeReason === 'string' && json.degradeReason.length > 0, '缺降级说明')
+    record('P0-S05', 'PASS', `mode=${json.mode}`)
+  } catch (e) {
+    record('P0-S05', 'FAIL', e.message)
+  }
+
+  if (anchorSourceId) cmd('wiki:source:delete', { sourceIds: [anchorSourceId] })
+
+  // I 收件箱闭环
+  let orgInboxId = null
+  try {
+    const { category, subtopic } = pickTopic()
+    orgInboxId = seedInbox(`${PROBE}-inbox-org`, '手动归档正文探针')
     const org = ui([
-      'wiki',
-      'inbox',
-      'organize',
-      id,
-      '--category',
-      '做事记录',
-      '--subtopic',
-      '项目/任务资料',
-      '--title',
-      'wiki-cli-organized',
+      'wiki', 'inbox', 'organize', orgInboxId,
+      '--category', category,
+      '--subtopic', subtopic,
+      '--title', 'wiki-cli-organized',
     ])
     assert(org.code === 0, `organize: ${org.out.slice(0, 200)}`)
     assert(org.json?.sourceId, '缺 sourceId')
-    assert(org.json?.category === '做事记录', 'category 不匹配')
+    assert(org.json?.category === category, 'category 不匹配')
     const listed = asArray(ui(['wiki', 'inbox', 'list', '--status', 'organized']).json) || []
-    assert(listed.some((x) => x.id === id), '未变 organized')
+    assert(listed.some((x) => x.id === orgInboxId), '未变 organized')
     record('P0-I01', 'PASS', `sourceId=${org.json.sourceId.slice(0, 8)}`)
+    cmd('wiki:source:delete', { sourceIds: [org.json.sourceId] })
   } catch (e) {
+    if (orgInboxId) ui(['wiki', 'inbox', 'discard', orgInboxId])
     record('P0-I01', 'FAIL', e.message)
   }
 
@@ -255,6 +299,7 @@ function runP0() {
     const bad = ui(['wiki', 'inbox', 'organize', id, '--category', '临时存放', '--subtopic', 'x', '--title', 'x'])
     assert(bad.code !== 0, '临时存放应拒绝')
     record('P0-I02', 'PASS', `rejected: ${(bad.json?.message || bad.out).slice(0, 80)}`)
+    ui(['wiki', 'inbox', 'discard', id])
   } catch (e) {
     record('P0-I02', 'FAIL', e.message)
   }
@@ -298,70 +343,36 @@ function runP0() {
     record('P0-I06', 'FAIL', e.message)
   }
 
-  // F 文件夹导入
+  // F 文件夹导入（只导入不分类，避免在本组触发模型）
+  // 不能用 os.tmpdir()：扫描器把临时目录标成 ignored:temp，importable 恒为 0。
+  const tmpDir = path.join(ROOT, '.tmp-wiki-cli-probe')
   try {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), `${PROBE}-folder-`))
-    fs.writeFileSync(path.join(tmpDir, 'cli-probe.md'), '# wiki folder import probe', 'utf8')
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+    fs.mkdirSync(path.join(tmpDir, 'sub'), { recursive: true })
+    fs.writeFileSync(path.join(tmpDir, `${PROBE}-folder-probe.md`), '# wiki folder import probe', 'utf8')
+    fs.writeFileSync(path.join(tmpDir, 'sub', `${PROBE}-nested-probe.md`), '# nested probe', 'utf8')
     const scan = ui(['wiki', 'folder', 'scan', tmpDir, '--recursive'])
     assert(scan.code === 0, scan.out.slice(0, 200))
-    assert((scan.json?.summary?.importable ?? 0) >= 1, 'scan importable')
+    assert((scan.json?.summary?.importable ?? 0) >= 2, 'scan importable')
     const dry = ui(['wiki', 'folder', 'import', tmpDir, '--recursive', '--dry-run'])
     assert(dry.code === 0 && dry.json?.dryRun === true, dry.out.slice(0, 200))
-    const imp = ui(['wiki', 'folder', 'import', tmpDir, '--recursive', '--item-type', 'output'])
-    assert(imp.code === 0 && (imp.json?.imported ?? 0) >= 1, imp.out.slice(0, 200))
+    const imp = ui([
+      'wiki', 'folder', 'import', tmpDir, '--recursive',
+      '--item-type', 'output', '--no-auto-classify',
+    ])
+    assert(imp.code === 0 && (imp.json?.imported ?? 0) >= 2, imp.out.slice(0, 200))
+    assert(imp.json?.autoClassify === false, '未按 --no-auto-classify 走')
     const orgRun = ui(['wiki', 'organize', 'run', '--mode', 'intake', '--item-type', 'output'])
     assert(orgRun.code === 0, orgRun.out.slice(0, 200))
-    fs.rmSync(tmpDir, { recursive: true, force: true })
-    record('P0-F01', 'PASS', `imported=${imp.json.imported} run=${orgRun.json?.status ?? 'ok'}`)
+    for (const id of imp.json.inboxIds ?? []) ui(['wiki', 'inbox', 'discard', id])
+    // intake 会把收件箱转成「未分类资料」，探针必须自己收尾，否则每跑一次库就多几条
+    const leftovers = sourceList(['--unfiled']).filter((s) => s.title.startsWith(PROBE))
+    if (leftovers.length > 0) cmd('wiki:source:delete', { sourceIds: leftovers.map((s) => s.id) })
+    record('P0-F01', 'PASS', `imported=${imp.json.imported} run=${orgRun.json?.status ?? 'ok'} cleaned=${leftovers.length}`)
   } catch (e) {
     record('P0-F01', 'FAIL', e.message)
-  }
-
-  // P 页面
-  try {
-    const u1 = ui([
-      'wiki',
-      'page',
-      'update',
-      '--path',
-      'sources/wiki-cli-p0-page',
-      '--title',
-      'wiki-cli-p0-page',
-      '--content',
-      'v1-page-body',
-    ])
-    assert(u1.code === 0 && u1.json?.pageId, u1.out.slice(0, 120))
-    const got = ui(['wiki', 'page', 'get', u1.json.pageId])
-    assert(got.code === 0 && String(got.json.contentMd).includes('v1-page-body'), 'get')
-    const u2 = ui([
-      'wiki',
-      'page',
-      'update',
-      '--path',
-      'sources/wiki-cli-p0-page',
-      '--title',
-      'wiki-cli-p0-page',
-      '--content',
-      'v2-page-body',
-    ])
-    assert(u2.code === 0 && u2.json.version > u1.json.version, 'version 未升')
-    record('P0-P01', 'PASS', `id=${u1.json.pageId}`)
-    record('P0-P03', 'PASS', `v${u1.json.version}->v${u2.json.version}`)
-  } catch (e) {
-    record('P0-P01', 'FAIL', e.message)
-    record('P0-P03', 'FAIL', e.message)
-  }
-
-  try {
-    const page = findPage('架构设计文档') || pages[0]
-    assert(page, '无页')
-    const ok = ui(['wiki', 'page', 'get', page.id])
-    assert(ok.code === 0 && ok.json?.contentMd != null, 'get')
-    const bad = ui(['wiki', 'page', 'get', 'nonexistent-id'])
-    assert(bad.code !== 0, '不存在应失败')
-    record('P0-P02', 'PASS', 'get ok+missing')
-  } catch (e) {
-    record('P0-P02', 'FAIL', e.message)
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true })
   }
 
   // X 索引
@@ -372,202 +383,72 @@ function runP0() {
     assert(a.json.rebuiltCount === b.json.rebuiltCount, '幂等')
     record('P0-X01', 'PASS', `rebuiltCount=${a.json.rebuiltCount}`)
     record('P0-X02', 'PASS', 'idempotent')
-    const s = ui(['wiki', 'search', '架构设计', '--limit', '3'])
-    assert(s.code === 0 && asArray(s.json)?.length > 0, '重建后空')
-    record('P0-X03', 'PASS', `hits=${s.json.length}`)
+    const s = sourceList().find((x) => /[一-龥]{2,}/.test(x.title))
+    if (!s) {
+      record('P0-X03', 'SKIP', '库内无带中文标题的资料')
+    } else {
+      const q = /[一-龥]{2,}/.exec(s.title)[0].slice(0, 4)
+      const r = ui(['wiki', 'search', q, '--limit', '5', '--no-vector'])
+      assert(r.code === 0, r.out.slice(0, 120))
+      assert(r.json.hits.length > 0, `重建后搜「${q}」无命中`)
+      record('P0-X03', 'PASS', `q=${q} hits=${r.json.hits.length}`)
+    }
   } catch (e) {
     record('P0-X01', 'FAIL', e.message)
     record('P0-X02', 'FAIL', e.message)
     record('P0-X03', 'FAIL', e.message)
   }
 
-  try {
-    const { json } = ui(['wiki', 'runs', 'list', '--limit', '20'])
-    const ok = (asArray(json) || []).find((r) => r.status === 'succeeded' && r.inboxIds?.length)
-    if (!ok) record('P0-R01', 'SKIP', '无成功 run')
-    else record('P0-R01', 'PASS', `run=${ok.id}`)
-  } catch (e) {
-    record('P0-R01', 'FAIL', e.message)
-  }
-
-  // inbox count（CLI 子命令，与 list 同筛选）
+  // inbox count（与 list 同筛选）
   try {
     const list = asArray(ui(['wiki', 'inbox', 'list', '--status', 'organized']).json) || []
     const cnt = ui(['wiki', 'inbox', 'count', '--status', 'organized'])
     assert(cnt.code === 0, cnt.out.slice(0, 120))
-    if (cnt.json?.error === 'not_exposed') {
-      record('P0-G01', 'FAIL', 'wiki:inbox:count 仍未暴露（需重启应用加载新白名单）')
-    } else {
-      assert(typeof cnt.json?.total === 'number', `缺 total: ${cnt.out.slice(0, 100)}`)
-      assert(cnt.json.total === list.length, `count=${cnt.json.total} list=${list.length}`)
-      record('P0-G01', 'PASS', `organized count=${cnt.json.total} 与 list 一致`)
-    }
+    assert(typeof cnt.json?.total === 'number', `缺 total: ${cnt.out.slice(0, 100)}`)
+    // list 有条数上限（实测 100），count 是全量；只能断言不矛盾
+    assert(cnt.json.total >= list.length, `count=${cnt.json.total} < list=${list.length}`)
+    record('P0-G01', 'PASS', `organized count=${cnt.json.total} list=${list.length}（list 有上限）`)
   } catch (e) {
     record('P0-G01', 'FAIL', e.message)
   }
 
   try {
-    const page = findPage('sources/wiki-cli-p0-probe') || findPage('wiki-cli-p0-probe')
-    if (!page) {
-      ui([
-        'wiki',
-        'page',
-        'update',
-        '--path',
-        'sources/wiki-cli-p0-probe-del',
-        '--title',
-        'wiki-cli-p0-probe-del',
-        '--content',
-        'to delete',
-      ])
+    const suggestions = asArray(ui(['wiki', 'cleanup', 'scan']).json) || []
+    if (suggestions.length === 0) {
+      record('P0-G02', 'SKIP', '清理扫描无建议')
+    } else {
+      const sid = suggestions[0]?.sourceId
+      const g = ui(['wiki', 'source', 'get', sid])
+      assert(g.code === 0, g.out.slice(0, 100))
+      // null 也算合法（已失效源）
+      record('P0-G02', 'PASS', g.json ? `title=${g.json.title}` : 'null source')
     }
-    const target =
-      findPage('sources/wiki-cli-p0-probe-del') || findPage('wiki-cli-p0-probe-del') || findPage('wiki-cli-p0-probe')
-    assert(target, '无删除目标')
-    const del = cmd('wiki:page:delete', { pageId: target.id })
-    assert(del.code === 0 && del.json?.success !== false, del.out.slice(0, 120))
-    const gone = ui(['wiki', 'page', 'get', target.id])
-    assert(gone.code !== 0, '删除后仍可读')
-    record('P0-G02', 'PASS', `deleted ${target.path}`)
   } catch (e) {
     record('P0-G02', 'FAIL', e.message)
   }
-
-  try {
-    const suggestions = asArray(ui(['wiki', 'cleanup', 'scan']).json) || []
-    const sid = suggestions[0]?.sourceId
-    if (!sid) record('P0-G03', 'SKIP', '无 sourceId')
-    else {
-      const g = cmd('wiki:source:get', { sourceId: sid })
-      assert(g.code === 0, g.out.slice(0, 100))
-      // null 也算合法（已失效源）
-      record('P0-G03', 'PASS', g.json ? `title=${g.json.title}` : 'null source')
-    }
-  } catch (e) {
-    record('P0-G03', 'FAIL', e.message)
-  }
 }
 
+// ---------------------------------------------------------------- P1 库维护
+
 function runP1() {
-  const arch = findPage('架构设计文档')
+  try {
+    const r = ui(['wiki', 'topic', 'tree'])
+    assert(r.code === 0, r.out.slice(0, 120))
+    const tree = r.json?.tree ?? r.json
+    const categories = asArray(tree?.categories)
+    assert(categories && categories.length > 0, '树为空')
+    record('P1-T01', 'PASS', `categories=${categories.length}`)
+  } catch (e) {
+    record('P1-T01', 'FAIL', e.message)
+  }
 
   try {
-    assert(arch, '无架构页')
-    const { code, json } = ui(['wiki', 'backlinks', arch.id])
-    assert(code === 0 && asArray(json), 'backlinks')
-    record('P1-L01', 'PASS', `n=${json.length}`)
+    const unfiled = sourceList(['--unfiled'])
+    const parking = sourceList(['--parking'])
+    const archived = sourceList(['--archived'])
+    record('P1-L01', 'PASS', `unfiled=${unfiled.length} parking=${parking.length} archived=${archived.length}`)
   } catch (e) {
     record('P1-L01', 'FAIL', e.message)
-  }
-
-  try {
-    assert(arch, '无架构页')
-    const u = ui([
-      'wiki',
-      'page',
-      'update',
-      '--path',
-      'sources/wiki-cli-p1-wikilink',
-      '--title',
-      'wiki-cli-p1-wikilink',
-      '--content',
-      '参见 [[架构设计文档]] 与 [[不存在的页面标题xyz]]。',
-    ])
-    assert(u.code === 0, u.out.slice(0, 120))
-    sleep(200)
-    const bl = asArray(ui(['wiki', 'backlinks', arch.id]).json) || []
-    const hit = bl.some(
-      (b) =>
-        String(b.sourceTitle || '').includes('wiki-cli-p1-wikilink') ||
-        String(b.sourcePath || '').includes('wiki-cli-p1-wikilink'),
-    )
-    assert(hit, '反链未见 wikilink 源')
-    record('P1-L02', 'PASS', 'wikilink 反链可见')
-
-    const got = ui(['wiki', 'page', 'get', u.json.pageId])
-    assert(String(got.json.contentMd).includes('[[不存在的页面标题xyz]]'), '正文被改写')
-    record('P1-L03', 'PASS', '未解析链接保留正文')
-  } catch (e) {
-    record('P1-L02', 'FAIL', e.message)
-    record('P1-L03', 'FAIL', e.message)
-  }
-
-  try {
-    const u = ui([
-      'wiki',
-      'page',
-      'update',
-      '--path',
-      'sources/wiki-cli-p1-isolated',
-      '--title',
-      'wiki-cli-p1-isolated',
-      '--content',
-      'no links',
-    ])
-    const bl = ui(['wiki', 'backlinks', u.json.pageId])
-    assert(bl.code === 0 && asArray(bl.json)?.length === 0, '应空反链')
-    record('P1-L04', 'PASS', 'isolated empty')
-  } catch (e) {
-    record('P1-L04', 'FAIL', e.message)
-  }
-
-  // V 修订
-  try {
-    assert(arch, '无页')
-    const rev = ui(['wiki', 'revisions', arch.id])
-    assert(rev.code === 0 && asArray(rev.json)?.length >= 1, 'revisions')
-    record('P1-V01', 'PASS', `n=${rev.json.length}`)
-  } catch (e) {
-    record('P1-V01', 'FAIL', e.message)
-  }
-
-  try {
-    ui([
-      'wiki',
-      'page',
-      'update',
-      '--path',
-      'sources/wiki-cli-p1-rollback',
-      '--title',
-      'wiki-cli-p1-rollback',
-      '--content',
-      'v1-body',
-    ])
-    ui([
-      'wiki',
-      'page',
-      'update',
-      '--path',
-      'sources/wiki-cli-p1-rollback',
-      '--title',
-      'wiki-cli-p1-rollback',
-      '--content',
-      'v2-body',
-    ])
-    const page = findPage('sources/wiki-cli-p1-rollback')
-    assert(page, 'rollback 页')
-    const before = asArray(ui(['wiki', 'revisions', page.id]).json) || []
-    const maxV = Math.max(...before.map((r) => r.version))
-    const rb = ui(['wiki', 'rollback', page.id, '1'])
-    assert(rb.code === 0, rb.out.slice(0, 120))
-    const after = asArray(ui(['wiki', 'revisions', page.id]).json) || []
-    assert(Math.max(...after.map((r) => r.version)) === maxV + 1, '未增版')
-    const got = ui(['wiki', 'page', 'get', page.id])
-    assert(String(got.json.contentMd).includes('v1-body'), '未回 v1')
-    assert(after.find((r) => r.version === 1)?.contentMd.includes('v1-body'), '旧版变了')
-    record('P1-V02', 'PASS', `->v${maxV + 1}`)
-
-    const bad = ui(['wiki', 'rollback', page.id, '99999'])
-    assert(bad.code !== 0, '非法版本')
-    record('P1-V03', 'PASS', 'bad version rejected')
-
-    const ghost = ui(['wiki', 'rollback', 'ghost-page-id', '1'])
-    assert(ghost.code !== 0, '幽灵页')
-    record('P1-V04', 'PASS', 'ghost page rejected')
-  } catch (e) {
-    record('P1-V02', 'FAIL', e.message)
-    record('P1-V03', 'FAIL', e.message)
-    record('P1-V04', 'FAIL', e.message)
   }
 
   // C 清理
@@ -576,6 +457,7 @@ function runP1() {
     const r = ui(['wiki', 'cleanup', 'scan'])
     assert(r.code === 0 && asArray(r.json), 'scan')
     cleanup = r.json
+    assert(cleanup.every((s) => ['stale', 'broken_source', 'duplicate_content'].includes(s.reason)), '未知原因')
     record('P1-C01', 'PASS', `n=${cleanup.length}`)
   } catch (e) {
     record('P1-C01', 'FAIL', e.message)
@@ -593,297 +475,167 @@ function runP1() {
     const sid = cleanup[0]?.sourceId
     if (!sid) {
       record('P1-C03', 'SKIP', '无 sourceId')
-      record('P1-C04', 'SKIP', '无 sourceId')
     } else {
-      const title = cleanup[0].title
-      const beforeHits = asArray(ui(['wiki', 'search', title, '--limit', '10']).json) || []
       const a = ui(['wiki', 'source', 'archive', sid])
       assert(a.code === 0, a.out.slice(0, 100))
-      const midHits = asArray(ui(['wiki', 'search', title, '--limit', '10']).json) || []
+      const inArchived = sourceList(['--archived']).some((s) => s.id === sid)
+      assert(inArchived, '归档后不在 --archived 列表')
       const b = ui(['wiki', 'source', 'archive', sid, '--restore'])
       assert(b.code === 0, b.out.slice(0, 100))
+      const back = !sourceList(['--archived']).some((s) => s.id === sid)
+      assert(back, '恢复后仍在 --archived 列表')
       record('P1-C03', 'PASS', 'archive+restore')
-      // 观察检索是否排除：不强制 FAIL
-      record(
-        'P1-C04',
-        'PASS',
-        `search before=${beforeHits.length} after-archive=${midHits.length} (观察)`,
-        { before: beforeHits.length, afterArchive: midHits.length },
-      )
     }
   } catch (e) {
     record('P1-C03', 'FAIL', e.message)
-    record('P1-C04', 'FAIL', e.message)
   }
 
   // E 导出
-  try {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wiki-cli-export-'))
-    const r = ui(['wiki', 'export', dir])
-    assert(r.code === 0, r.out.slice(0, 120))
-    const countMd = (d) => {
-      let n = 0
-      for (const name of fs.readdirSync(d)) {
-        const p = path.join(d, name)
-        if (fs.statSync(p).isDirectory()) n += countMd(p)
-        else if (name.endsWith('.md')) n++
-      }
-      return n
+  for (const [id, flags] of [
+    ['P1-E01', []],
+    ['P1-E02', ['--include-sources']],
+    ['P1-E03', ['--include-attachments']],
+  ]) {
+    try {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wiki-cli-export-'))
+      const r = ui(['wiki', 'export', dir, ...flags])
+      assert(r.code === 0, r.out.slice(0, 120))
+      assert(typeof r.json?.exported === 'number', '缺 exported')
+      assert(Array.isArray(r.json?.failed), '缺 failed')
+      const n = countMd(dir)
+      assert(n === r.json.exported, `磁盘 md=${n} 与 exported=${r.json.exported} 不一致`)
+      record(id, 'PASS', `md=${n}${flags.length ? ' ' + flags[0] : ''}`)
+    } catch (e) {
+      record(id, 'FAIL', e.message)
     }
-    const n = countMd(dir)
-    assert(n > 0, '无 md')
-    record('P1-E01', 'PASS', `md=${n}`)
-  } catch (e) {
-    record('P1-E01', 'FAIL', e.message)
   }
 
-  try {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wiki-cli-export-src-'))
-    const r = ui(['wiki', 'export', dir, '--include-sources'])
-    assert(r.code === 0, r.out.slice(0, 100))
-    record('P1-E02', 'PASS', 'include-sources')
-  } catch (e) {
-    record('P1-E02', 'FAIL', e.message)
-  }
-
-  try {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wiki-cli-export-att-'))
-    const r = ui(['wiki', 'export', dir, '--include-attachments'])
-    assert(r.code === 0, r.out.slice(0, 100))
-    record('P1-E03', 'PASS', 'include-attachments')
-  } catch (e) {
-    record('P1-E03', 'FAIL', e.message)
-  }
-
-  record('P1-E04', 'SKIP', '危险路径导出未强制实现')
-
-  // GAP → 已有 CLI wiki unresolved
-  try {
-    const r = ui(['wiki', 'unresolved'])
-    assert(r.code === 0 && asArray(r.json), r.out.slice(0, 120))
-    record('P1-G01', 'PASS', `unresolved=${r.json.length} via CLI`)
-  } catch (e) {
-    record('P1-G01', 'FAIL', e.message)
-  }
-
-  try {
-    const r = cmd('wiki:concept:scan', {})
-    assert(r.code === 0, r.out.slice(0, 120))
-    record('P1-G02', 'PASS', JSON.stringify(r.json).slice(0, 100))
-    const candidates = asArray(r.json) || asArray(r.json?.candidates) || []
-    if (!candidates.length) {
-      record('P1-G03', 'SKIP', '无概念候选')
-    } else {
-      record('P1-G03', 'SKIP', '有候选但不自动 confirm（防污染）')
-    }
-  } catch (e) {
-    record('P1-G02', 'FAIL', e.message)
-    record('P1-G03', 'SKIP', 'scan failed')
-  }
-
-  try {
-    const page = findPage('wiki-cli-p1-wikilink') || findPage('架构设计文档')
-    assert(page, '无页')
-    const r = cmd('wiki:attach:list', { pageId: page.id })
-    assert(r.code === 0 && asArray(r.json), r.out.slice(0, 100))
-    record('P1-G04', 'PASS', `attachments=${r.json.length}`)
-    record('P1-G05', 'SKIP', '无稳定附件文件 fixture')
-  } catch (e) {
-    record('P1-G04', 'FAIL', e.message)
-    record('P1-G05', 'SKIP', 'list failed')
-  }
-
-  if (!ALLOW_DELETE) {
-    record('P1-G06', 'SKIP', 'WIKI_CLI_ALLOW_DELETE!=1')
-  } else {
-    record('P1-G06', 'SKIP', '仍建议手工验证 source:delete')
-  }
-
-  try {
-    const u = ui([
-      'wiki',
-      'page',
-      'update',
-      '--path',
-      'sources/wiki-cli-p1-todelete',
-      '--title',
-      'wiki-cli-p1-todelete',
-      '--content',
-      'bye',
-    ])
-    const del = cmd('wiki:page:delete', { pageId: u.json.pageId })
-    assert(del.code === 0, del.out.slice(0, 100))
-    record('P1-G07', 'PASS', 'page delete probe')
-  } catch (e) {
-    record('P1-G07', 'FAIL', e.message)
-  }
-}
-
-function runP2() {
-  try {
-    const all = ui(['wiki', 'synthesis', 'list'])
-    assert(all.code === 0 && asArray(all.json), 'list')
-    record('P2-Y01', 'PASS', `n=${all.json.length}`)
-    for (const st of ['accepted', 'rejected', 'candidate']) {
-      const r = ui(['wiki', 'synthesis', 'list', '--status', st])
-      assert(r.code === 0 && asArray(r.json), st)
-      assert(r.json.every((x) => x.status === st), `混入 ${st}`)
-    }
-    record('P2-Y01b', 'PASS', 'status filters')
-  } catch (e) {
-    record('P2-Y01', 'FAIL', e.message)
-    record('P2-Y01b', 'FAIL', e.message)
-  }
-
-  let createdId = null
-  let createdStatus = null
-  try {
-    const sources = (asArray(ui(['wiki', 'page', 'list', '--category', 'sources']).json) || []).slice(0, 2)
-    assert(sources.length >= 2, 'sources<2')
-    const c = ui([
-      'wiki',
-      'synthesis',
-      'create',
-      sources[0].id,
-      sources[1].id,
-      '--title',
-      'wiki-cli-p2-synth',
-    ])
-    if (c.code !== 0) {
-      record('P2-Y02', 'SKIP', c.out.slice(0, 160))
-    } else {
-      createdId = c.json?.id || c.json?.synthesisId
-      assert(createdId, c.out.slice(0, 160))
-      createdStatus = (asArray(ui(['wiki', 'synthesis', 'list']).json) || []).find((x) => x.id === createdId)?.status
-      record('P2-Y02', 'PASS', `id=${createdId} status=${createdStatus}`)
-    }
-  } catch (e) {
-    record('P2-Y02', 'FAIL', e.message)
-  }
-
-  try {
-    const sid =
-      createdId ||
-      (asArray(ui(['wiki', 'synthesis', 'list']).json) || [])[0]?.id
-    if (!sid) record('P2-Y03', 'SKIP', '无 synthesis')
-    else {
-      const g = ui(['wiki', 'synthesis', 'get', sid])
-      assert(g.code === 0 && (g.json?.candidateMd != null || g.json?.id), g.out.slice(0, 120))
-      record('P2-Y03', 'PASS', `get ${sid.slice(0, 8)} via CLI`)
-    }
-  } catch (e) {
-    record('P2-Y03', 'FAIL', e.message)
-  }
-
-  // accept / reject
-  try {
-    if (!createdId) {
-      record('P2-Y04', 'SKIP', '无 create')
-      record('P2-Y05', 'SKIP', '无 create')
-    } else if (createdStatus === 'candidate') {
-      const acc = ui(['wiki', 'synthesis', 'accept', createdId])
-      assert(acc.code === 0 && acc.json?.pageId, acc.out.slice(0, 160))
-      const synPages = asArray(ui(['wiki', 'page', 'list', '--category', 'syntheses']).json) || []
-      assert(synPages.some((p) => p.id === acc.json.pageId), 'syntheses 未见')
-      record('P2-Y04', 'PASS', `accepted page=${acc.json.path}`)
-      // 清理页面，保留审计
-      cmd('wiki:page:delete', { pageId: acc.json.pageId })
-      record('P2-Y05', 'SKIP', '本轮走了 accept，reject 另建')
-
-      // 再 create+reject
-      const sources = (asArray(ui(['wiki', 'page', 'list', '--category', 'sources']).json) || []).slice(0, 2)
-      const c2 = ui([
-        'wiki',
-        'synthesis',
-        'create',
-        sources[0].id,
-        sources[1].id,
-        '--title',
-        'wiki-cli-p2-synth-reject',
-      ])
-      if (c2.code === 0) {
-        const id2 = c2.json?.id || c2.json?.synthesisId
-        const st2 = (asArray(ui(['wiki', 'synthesis', 'list']).json) || []).find((x) => x.id === id2)?.status
-        if (st2 === 'candidate') {
-          const rej = ui(['wiki', 'synthesis', 'reject', id2])
-          assert(rej.code === 0, rej.out.slice(0, 100))
-          const rejected = asArray(ui(['wiki', 'synthesis', 'list', '--status', 'rejected']).json) || []
-          assert(rejected.some((x) => x.id === id2), 'rejected 列表未见')
-          record('P2-Y05', 'PASS', `rejected ${id2.slice(0, 8)}`)
-        } else {
-          record('P2-Y05', 'SKIP', `status=${st2}`)
-        }
-      }
-    } else if (createdStatus === 'accepted') {
-      record('P2-Y04', 'PASS', 'create 即时 accepted')
-      record('P2-Y05', 'SKIP', '无 candidate')
-    } else {
-      // 可能直接失败态
-      const rej = ui(['wiki', 'synthesis', 'reject', createdId])
-      if (rej.code === 0) record('P2-Y05', 'PASS', 'reject ok')
-      else record('P2-Y05', 'SKIP', `status=${createdStatus}`)
-      record('P2-Y04', 'SKIP', `status=${createdStatus}`)
-    }
-  } catch (e) {
-    record('P2-Y04', 'FAIL', e.message)
-    record('P2-Y05', 'FAIL', e.message)
-  }
-
-  try {
-    const a = ui(['wiki', 'synthesis', 'accept', 'ghost-synth'])
-    const b = ui(['wiki', 'synthesis', 'reject', 'ghost-synth'])
-    assert(a.code !== 0 && b.code !== 0, '幽灵应失败')
-    record('P2-Y06', 'PASS', 'ghost rejected')
-  } catch (e) {
-    record('P2-Y06', 'FAIL', e.message)
-  }
-
-  try {
-    const h = ui(['wiki', 'search', 'hybrid', '架构', '--limit', '3', '--no-vector'])
-    assert(h.code === 0, `exit ${h.code}: ${h.out.slice(0, 120)}`)
-    assert(Array.isArray(h.json?.hits), `缺 hits: ${h.out.slice(0, 120)}`)
-    assert(h.json.hits.length > 0, 'hits 空')
-    assert(h.json.mode === 'fts' || /向量|全文|vector/i.test(String(h.json.degradeReason || '')), '无降级说明')
-    record('P2-H01', 'PASS', `mode=${h.json.mode}`)
-  } catch (e) {
-    record('P2-H01', 'FAIL', e.message)
-  }
-
-  try {
-    const h = ui(['wiki', 'search', 'hybrid', '架构设计', '--limit', '5'])
-    assert(h.code === 0, `exit ${h.code}: ${h.out.slice(0, 120)}`)
-    assert(Array.isArray(h.json?.hits), `缺 hits: ${h.out.slice(0, 120)}`)
-    record('P2-H02', 'PASS', `hits=${h.json.hits.length} mode=${h.json.mode}`)
-  } catch (e) {
-    record('P2-H02', 'FAIL', e.message)
-  }
-
-  try {
-    const h = ui(['wiki', 'search', 'hybrid', ''])
-    assert(h.code === 2, `期望 2 得 ${h.code}`)
-    record('P2-H03', 'PASS', 'empty usage')
-  } catch (e) {
-    record('P2-H03', 'FAIL', e.message)
-  }
-
+  // V 向量 / 摘要派生
   try {
     const r = ui(['wiki', 'vector', 'rebuild'])
     assert(r.code === 0 || /vector|向量|降级|transformers|backend/i.test(r.out), r.out.slice(0, 120))
-    record('P2-V01', 'PASS', JSON.stringify(r.json || r.out).slice(0, 140))
+    record('P1-V01', 'PASS', JSON.stringify(r.json || r.out).slice(0, 140))
   } catch (e) {
-    record('P2-V01', 'FAIL', e.message)
+    record('P1-V01', 'FAIL', e.message)
+  }
+}
+
+function countMd(dir) {
+  let n = 0
+  for (const name of fs.readdirSync(dir)) {
+    const p = path.join(dir, name)
+    if (fs.statSync(p).isDirectory()) n += countMd(p)
+    else if (name.endsWith('.md')) n++
+  }
+  return n
+}
+
+// ---------------------------------------------------------------- P2 库级迁移与元信息
+
+function runP2() {
+  const existing = cmd('wiki:migrate:get', {})
+  const hasRun = Boolean(existing.json?.run)
+
+  if (SKIP_MIGRATE) {
+    for (const id of ['P2-M01', 'P2-M02', 'P2-M03', 'P2-M04']) {
+      record(id, 'SKIP', 'WIKI_CLI_SKIP_MIGRATE=1')
+    }
+  } else if (hasRun) {
+    for (const id of ['P2-M01', 'P2-M02', 'P2-M03', 'P2-M04']) {
+      record(id, 'SKIP', `已有迁移 run（phase=${existing.json.run.phase}），不覆盖`)
+    }
+  } else {
+    const tmpDir = path.join(ROOT, '.tmp-wiki-cli-migrate')
+    let inboxIds = []
+    try {
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+      fs.mkdirSync(path.join(tmpDir, 'alpha'), { recursive: true })
+      fs.mkdirSync(path.join(tmpDir, 'beta'), { recursive: true })
+      fs.writeFileSync(path.join(tmpDir, 'alpha', `${PROBE}-migrate-a.md`), '# alpha 检索探针\n\n迁移用例正文。', 'utf8')
+      fs.writeFileSync(path.join(tmpDir, 'beta', `${PROBE}-migrate-b.md`), '# beta 检索探针\n\n迁移用例正文。', 'utf8')
+      const imp = ui(['wiki', 'folder', 'import', tmpDir, '--recursive', '--item-type', 'output'])
+      assert(imp.code === 0, imp.out.slice(0, 200))
+      inboxIds = [...(imp.json?.inboxIds ?? [])]
+      const run = imp.json?.migrateRun
+      assert(run, '导入未返回 migrateRun')
+      assert(run.phase === 'review', `导入后应停在 review，得 ${run.phase}`)
+      record('P2-M01', 'PASS', `run=${String(run.runId).slice(0, 8)} mappings=${run.mappings?.length ?? 0}`)
+
+      const got = cmd('wiki:migrate:get', {})
+      assert(got.json?.run?.runId === run.runId, 'get 返回的 runId 不一致')
+      record('P2-M02', 'PASS', `phase=${got.json.run.phase}`)
+
+      const folderRel = run.mappings?.[0]?.folderRel
+      if (!folderRel) {
+        record('P2-M03', 'SKIP', '无映射簇')
+      } else {
+        const upd = cmd('wiki:migrate:update-mapping', { folderRel, patch: { ignored: true } })
+        assert(upd.code === 0, upd.out.slice(0, 120))
+        const mapping = (upd.json?.run?.mappings ?? []).find((m) => m.folderRel === folderRel)
+        assert(mapping?.ignored === true, 'ignored 未生效')
+        record('P2-M03', 'PASS', `ignored ${folderRel}`)
+      }
+
+      const disc = cmd('wiki:migrate:discard', {})
+      assert(disc.code === 0 && disc.json?.success !== false, disc.out.slice(0, 120))
+      assert(cmd('wiki:migrate:get', {}).json?.run == null, 'discard 后 run 仍在')
+      record('P2-M04', 'PASS', 'discard 清空 run')
+    } catch (e) {
+      for (const id of ['P2-M01', 'P2-M02', 'P2-M03', 'P2-M04']) {
+        if (!results.some((r) => r.id === id)) record(id, 'FAIL', e.message)
+      }
+    } finally {
+      for (const id of inboxIds) ui(['wiki', 'inbox', 'discard', id])
+      const leftovers = sourceList(['--unfiled']).filter((s) => s.title.startsWith(PROBE))
+      if (leftovers.length > 0) cmd('wiki:source:delete', { sourceIds: leftovers.map((s) => s.id) })
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  }
+
+  // 元信息编辑（user_path / tags / description）—— P3 UI 的写入面
+  let metaSourceId = null
+  try {
+    const probe = organizeProbe(`${PROBE}元信息探针`)
+    metaSourceId = probe.sourceId
+    const patch = {
+      agentId: 'assistant',
+      sourceId: metaSourceId,
+      category: probe.category,
+      subtopic: probe.subtopic,
+      userPath: ['probe', 'meta'],
+      tags: ['alpha', 'beta'],
+      description: '元信息探针描述',
+    }
+    const upd = cmd('wiki:source:update-topic', patch)
+    assert(upd.code === 0, upd.out.slice(0, 160))
+    const got = ui(['wiki', 'source', 'get', metaSourceId])
+    assert(got.code === 0 && got.json, 'source get 失败')
+    assert(JSON.stringify(got.json.userPath) === JSON.stringify(patch.userPath), `userPath=${JSON.stringify(got.json.userPath)}`)
+    assert(JSON.stringify(got.json.tags) === JSON.stringify(patch.tags), `tags=${JSON.stringify(got.json.tags)}`)
+    assert(got.json.description === patch.description, `description=${got.json.description}`)
+    record('P2-U01', 'PASS', `userPath=${patch.userPath.join('/')} tags=${patch.tags.join(',')}`)
+  } catch (e) {
+    record('P2-U01', 'FAIL', e.message)
+  } finally {
+    if (metaSourceId) cmd('wiki:source:delete', { sourceIds: [metaSourceId] })
   }
 
   try {
-    const r = cmd('wiki:status:scan', {})
-    assert(r.code === 0, r.out.slice(0, 120))
-    record('P2-T01', 'PASS', JSON.stringify(r.json).slice(0, 120))
-    record('P2-T02', 'SKIP', 'confirm 防污染不自动执行')
+    const { category } = pickTopic()
+    const r = cmd('wiki:source:update-topic', {
+      agentId: 'assistant',
+      sourceId: 'ghost-source-id',
+      category,
+      subtopic: null,
+    })
+    assert(r.code !== 0, '幽灵 source 应失败')
+    record('P2-U02', 'PASS', 'ghost rejected')
   } catch (e) {
-    record('P2-T01', 'FAIL', e.message)
-    record('P2-T02', 'SKIP', 'scan failed')
+    record('P2-U02', 'FAIL', e.message)
   }
 }
+
+// ---------------------------------------------------------------- Agent
 
 function runAgent() {
   try {
@@ -900,7 +652,6 @@ function runAgent() {
 
   if (SKIP_AGENT) {
     record('P0-M02', 'SKIP', 'WIKI_CLI_SKIP_AGENT=1')
-    record('P0-M03', 'SKIP', '四路摄入手工')
     return
   }
 
@@ -909,47 +660,40 @@ function runAgent() {
     const session = created.json?.sessionKey
     if (!session) {
       record('P0-M02', 'SKIP', '无法建会话')
-    } else {
-      ui([
-        'send',
-        '--session',
-        session,
-        '--text',
-        '【严格测试】不要解释。只调用工具 wiki_search，参数 keyword=架构设计，limit=3。调用后停止。',
-      ])
-      /** 轮询 assistant 消息，直到出现真实 wiki_search tool 或超时 */
-      const deadline = Date.now() + 90_000
-      let used = false
-      while (Date.now() < deadline) {
-        sleep(3000)
-        const msgs = ui(['context', 'messages', '--session', session, '--limit', '30'])
-        for (const m of msgs.json?.items || []) {
-          if (m.role !== 'assistant') continue
-          try {
-            const cj = JSON.parse(m.contentJson || '{}')
-            const parts = cj.parts || cj.assistant_parts || []
-            for (const p of parts) {
-              if (p.type === 'tool' && p.name === 'wiki_search') used = true
-            }
-            // 兼容 contentJson 嵌套 assistant_parts 字符串
-            if (!used && typeof m.contentJson === 'string' && /"name"\s*:\s*"wiki_search"/.test(m.contentJson) && m.role === 'assistant') {
-              // 仅当非 user 消息体时再细查
-              if (/"type"\s*:\s*"tool"/.test(m.contentJson)) used = true
-            }
-          } catch {
-            /* ignore */
-          }
+      return
+    }
+    ui([
+      'send',
+      '--session',
+      session,
+      '--text',
+      '【严格测试】不要解释。只调用工具 wiki_search，参数 keyword=架构设计，limit=3。调用后停止。',
+    ])
+    /** 轮询 assistant 消息，直到出现真实 wiki_search tool 或超时 */
+    const deadline = Date.now() + 90_000
+    let used = false
+    while (Date.now() < deadline && !used) {
+      sleep(3000)
+      const msgs = ui(['context', 'messages', '--session', session, '--limit', '30'])
+      for (const m of msgs.json?.items || []) {
+        if (m.role !== 'assistant') continue
+        try {
+          const cj = JSON.parse(m.contentJson || '{}')
+          const parts = cj.parts || cj.assistant_parts || []
+          if (parts.some((p) => p.type === 'tool' && p.name === 'wiki_search')) used = true
+        } catch {
+          /* ignore */
+        }
+        if (!used && /"type"\s*:\s*"tool"/.test(m.contentJson || '') && /"name"\s*:\s*"wiki_search"/.test(m.contentJson || '')) {
+          used = true
         }
         if (used) break
       }
-      if (used) record('P0-M02', 'PASS', 'assistant 真实调用 wiki_search')
-      else record('P0-M02', 'SKIP', '90s 内未见 wiki_search tool（模型未配合）')
     }
+    record('P0-M02', used ? 'PASS' : 'SKIP', used ? 'assistant 真实调用 wiki_search' : '90s 内未见 wiki_search tool（模型未配合）')
   } catch (e) {
     record('P0-M02', 'SKIP', e.message)
   }
-
-  record('P0-M03', 'SKIP', '四路摄入手工')
 }
 
 function writeReport() {
@@ -957,16 +701,16 @@ function writeReport() {
   const fail = results.filter((r) => r.status === 'FAIL').length
   const skip = results.filter((r) => r.status === 'SKIP').length
   const lines = [
-    '# Wiki CLI 测试报告（补强）',
+    '# Wiki CLI 测试报告（资料层）',
     '',
-    `- 日期：${new Date().toISOString()}`,
+    `- 日期：${nowIso()}`,
     `- 环境：lumii-ui + ~/.lumii/data/agent-runtime.db`,
     `- 汇总：**PASS ${pass}** / **FAIL ${fail}** / **SKIP ${skip}** / 合计 ${results.length}`,
     '',
     '## 结论',
     '',
     fail === 0
-      ? '可测路径（全部 wiki CLI + 关键 GAP command）已覆盖；SKIP 为防污染/手工/模型未配合。'
+      ? '现存的 wiki CLI 子命令与关键命令总线已覆盖；SKIP 为防污染/手工/模型未配合。'
       : '存在 FAIL，见明细；优先修 CLI/handler 与设计不一致处。',
     '',
     '## 明细',
@@ -981,10 +725,13 @@ function writeReport() {
     '',
     '## 覆盖说明',
     '',
-    '- **P0**：inbox organize/discard/retry、folder scan/import/organize run、金标检索、索引、page CRUD、inbox:count/page:delete/source:get',
-    '- **P1**：wikilink 反链、未解析保留正文、回滚、清理归档观察、导出三选项、unresolved/concept/attach GAP',
-    '- **P2**：synthesis create→accept/reject、synthesis:get、hybrid、vector、status:scan；graph/ero 用例已随知识图谱移除（2026-09-24，见 docs/plans/代码重构/大文件与死代码/2026-09-24-接线守卫与无消费者IPC清单.md §3 第十批）',
+    '- **P0**：inbox list/count/organize/discard/retry、folder scan/import（--no-auto-classify）、organize run、检索（命中/空/特殊字符/空参数/--no-vector）、索引重建、cleanup scan + source get',
+    '- **P1**：主题树、source list 过滤（unfiled/parking/archived）、清理扫描与归档恢复、导出三选项、向量/摘要重建',
+    '- **P2**：库级迁移 plan→review（导入后必须停在 review，不静默落位）、migrate get/update-mapping/discard、元信息编辑（user_path/tags/description）',
     '- **Agent**：tools 含 wiki_*；可选一轮 wiki_search',
+    '',
+    '已删除用例：历史页面（page/revisions/backlinks/rollback/unresolved/concept/attach）随 P3 移除；',
+    'synthesis create/accept/reject 随智能资料库 P2 移除；graph/ero 随知识图谱移除（2026-09-24）。',
     '',
     '证据：`wiki-cli-evidence.jsonl`',
     '',

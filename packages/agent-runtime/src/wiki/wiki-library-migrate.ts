@@ -10,8 +10,12 @@
 import { generateWikiId } from "./types.js";
 import type { WikiInboxItem, WikiSource } from "./types.js";
 import { buildMigrateInventory } from "./wiki-migrate-inventory.js";
+import type { MigrateFolderCluster, MigrateInventory } from "./wiki-migrate-inventory.js";
 import {
+  MIGRATE_CONTENT_SNIPPET_CHARS,
+  MIGRATE_CONTENT_SNIPPETS_PER_CLUSTER,
   MIGRATE_PLAN_BATCH_SIZE,
+  buildMigrateContentPrompt,
   buildMigratePlanPrompt,
   parseMigratePlanResponse,
 } from "./wiki-migrate-prompt.js";
@@ -24,7 +28,7 @@ import type {
 import type { WikiRepo } from "./wiki-repo.js";
 import { WikiReclassifier } from "./wiki-reclassifier.js";
 import type { WikiReclassifyRun } from "./wiki-reclassify-types.js";
-import { validateTopicAssignment } from "./wiki-topic-tree.js";
+import { validateTopicAssignment, type WikiTopicTree } from "./wiki-topic-tree.js";
 
 /** plan / replan 入参 */
 export interface WikiLibraryMigratePlanOptions {
@@ -153,7 +157,7 @@ export class WikiLibraryMigrate {
     this.persistRun(opts.agentId, opts.userId, run);
 
     const batches = chunk(inventory.clusters, MIGRATE_PLAN_BATCH_SIZE);
-    const mappings: MigrateFolderMapping[] = [];
+    let mappings: MigrateFolderMapping[] = [];
     let doneClusters = 0;
 
     try {
@@ -200,6 +204,20 @@ export class WikiLibraryMigrate {
       this.persistRun(opts.agentId, opts.userId, run);
       return run;
     }
+
+    // 内容补救轮（计划 §「后续 P2」）：结构轮只看文件名/路径，判不了的簇标 needContent，
+    // apply 时会被整簇跳过、条目留在收件箱。这里用已抓到的正文预览再问一次。
+    // 失败不影响主方案：needContent 条目照旧留收件箱等人工。
+    mappings = await this.remediateNeedContent({
+      agentId: opts.agentId,
+      userId: opts.userId,
+      runId,
+      tree: topicTree,
+      inventory,
+      inboxItems,
+      mappings,
+      total: inventory.clusters.length,
+    });
 
     const prepared =
       opts.autoApply === false ? mappings : this.prepareMappingsForAutoApply(mappings);
@@ -492,6 +510,73 @@ export class WikiLibraryMigrate {
         subtopic: mapping.subtopic ?? mapping.proposedSubtopic,
       };
     });
+  }
+
+  /**
+   * 内容补救轮：对 `needContent` 的簇附正文片段再问一次模型，返回更新后的映射。
+   *
+   * 只处理**有正文**的簇 —— 图片/音视频的 `content_preview` 为空时补救不了，
+   * 原样保留 needContent（apply 时跳过，条目留在收件箱）。
+   * 只接受补救后 `status === "ok"` 的结果：仍判不了（category null → conflict）
+   * 时保留原来的 needContent 语义，避免把「读不到」伪装成「冲突」。
+   */
+  private async remediateNeedContent(args: {
+    readonly agentId: string;
+    readonly userId: string;
+    readonly runId: string;
+    readonly tree: WikiTopicTree;
+    readonly inventory: MigrateInventory;
+    readonly inboxItems: readonly WikiInboxItem[];
+    readonly mappings: readonly MigrateFolderMapping[];
+    readonly total: number;
+  }): Promise<MigrateFolderMapping[]> {
+    const { agentId, userId, runId, tree, inventory, inboxItems, mappings, total } = args;
+    const needContent = mappings.filter((m) => m.status === "needContent");
+    if (needContent.length === 0) return [...mappings];
+
+    const itemById = new Map(inboxItems.map((i) => [i.id, i]));
+    const clusterByRel = new Map(inventory.clusters.map((c) => [c.folderRel, c]));
+    const contentByFolder = new Map<string, string[]>();
+    const healable: MigrateFolderCluster[] = [];
+
+    for (const mapping of needContent) {
+      const cluster = clusterByRel.get(mapping.folderRel);
+      if (!cluster) continue;
+      const snippets = cluster.inboxIds
+        .slice(0, MIGRATE_CONTENT_SNIPPETS_PER_CLUSTER)
+        .map((id) => (itemById.get(id)?.content_preview ?? "").replace(/\s+/g, " ").trim())
+        .filter((t) => t.length > 0)
+        .map((t) => t.slice(0, MIGRATE_CONTENT_SNIPPET_CHARS));
+      if (snippets.length === 0) continue; // 没有正文可读，补救无从谈起
+      contentByFolder.set(mapping.folderRel, snippets);
+      healable.push(cluster);
+    }
+    if (healable.length === 0) return [...mappings];
+
+    const healed = new Map<string, MigrateFolderMapping>();
+    try {
+      for (const batch of chunk(healable, MIGRATE_PLAN_BATCH_SIZE)) {
+        if (this.isCancelRequested(agentId, userId)) break;
+        this.onProgress?.(
+          this.makeProgress(
+            runId,
+            "planning",
+            total - healable.length,
+            total,
+            batch[0]?.folderRel ?? null,
+          ),
+        );
+        const raw = await this.callLLM(buildMigrateContentPrompt(tree, inventory, batch, contentByFolder));
+        for (const repaired of parseMigratePlanResponse(raw, tree, batch)) {
+          if (repaired.status === "ok") healed.set(repaired.folderRel, repaired);
+        }
+      }
+    } catch {
+      // 补救轮是「尽量多救」：调用失败时整个方案照常产出，needContent 留待人工
+      return [...mappings];
+    }
+
+    return mappings.map((m) => healed.get(m.folderRel) ?? m);
   }
 
   /** 解析 inboxIds 为仍 pending 的条目 */

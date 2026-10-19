@@ -6,7 +6,7 @@
  */
 
 /** 当前 schema 版本号 */
-export const SCHEMA_VERSION = 53;
+export const SCHEMA_VERSION = 54;
 
 /**
  * V1 DDL — 初始 schema
@@ -1835,6 +1835,22 @@ CREATE INDEX IF NOT EXISTS idx_tool_audit_source ON tool_audit_log (source, time
 ALTER TABLE autonomous_satisfaction_scores ADD COLUMN task_summary TEXT;
 ALTER TABLE autonomous_satisfaction_scores ADD COLUMN tool_call_count INTEGER;
 ALTER TABLE autonomous_satisfaction_scores ADD COLUMN error_count INTEGER;
+`,
+  ],
+  // V54: 删除 wiki_syntheses（综述合成已于 2026-08-31 P2 下线，表一直没 DROP）
+  //
+  // 病象：P2（`2026-08-31-Wiki智能资料库P2移除综述合成.md`）删掉了代码，设计里也
+  // 写了「表随 V27 合并 DROP」，但 V27 只删了 6 张页面表，`wiki_syntheses` 漏了。
+  // 结果是这块**死表**仍被云同步每轮导出（`sync-exporter` 的 wiki 表清单）并随
+  // 提交进入 git 历史 —— 一份永远为空、永远有人搬运的包袱。
+  //
+  // 为什么现在删而不是留着：表已零读者（`WikiCategory` 里的 `syntheses` 也一并摘除），
+  // 留着只会让后来人以为该功能还存在。历史数据不迁移：P2 下线后就没再写过，活库实测
+  // 只有 17 行、全部是下线前的候选，内容已在 sources 层有对应资料。
+  [
+    54,
+    `
+DROP TABLE IF EXISTS wiki_syntheses;
 `,
   ],
 ] as const;

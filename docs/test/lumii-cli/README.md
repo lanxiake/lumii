@@ -59,15 +59,18 @@ docs/test/lumii-cli/
 
 | 文件 | 说明 |
 |---|---|
-| [wiki-p0-test-cases.md](./wiki/wiki-p0-test-cases.md) | P0：收件箱闭环、金标检索、页面、索引、GAP |
-| [wiki-p1-test-cases.md](./wiki/wiki-p1-test-cases.md) | P1：双链、修订回滚、清理导出、GAP |
-| [wiki-p2-test-cases.md](./wiki/wiki-p2-test-cases.md) | P2：综述 accept/reject、hybrid、状态 GAP（旧命令；图谱用例已移除） |
-| [wiki-p1-implementation-test-cases.md](./wiki/wiki-p1-implementation-test-cases.md) | 记忆重构一期：用途两级目录、口诀分类器、切断聊天摄入 |
-| [wiki-p2-implementation-test-cases.md](./wiki/wiki-p2-implementation-test-cases.md) | 记忆重构二期：主题树编辑、重新编目、综述改产资料 |
-| [run-wiki-cli-suite.mjs](./wiki/run-wiki-cli-suite.mjs) | Wiki 全子命令 + `command` GAP 执行器 |
+| [run-wiki-cli-suite.mjs](./wiki/run-wiki-cli-suite.mjs) | **当前可执行基线**：资料层全部 wiki 子命令 + 关键 `command`（迁移 review、元信息编辑）。2026-10-19 重写，`PASS 39 / FAIL 0 / SKIP 1` |
 | [run-wiki-real-materials-suite.mjs](./wiki/run-wiki-real-materials-suite.mjs) | 真实文档（materials/）摄入→归档→检索→打开 端到端 |
 | [run-wiki-three-level-classification-test.mjs](./wiki/run-wiki-three-level-classification-test.mjs) | 三级分类落库链路（历史模型） |
+| [wiki-p0-test-cases.md](./wiki/wiki-p0-test-cases.md) | 历史用例：收件箱闭环、金标检索、页面、索引 |
+| [wiki-p1-test-cases.md](./wiki/wiki-p1-test-cases.md) | 历史用例：双链、修订回滚、清理导出 |
+| [wiki-p2-test-cases.md](./wiki/wiki-p2-test-cases.md) | 历史用例：综述 accept/reject、hybrid |
+| [wiki-p1-implementation-test-cases.md](./wiki/wiki-p1-implementation-test-cases.md) | 历史用例：用途两级目录、口诀分类器 |
+| [wiki-p2-implementation-test-cases.md](./wiki/wiki-p2-implementation-test-cases.md) | 历史用例：主题树编辑、重新编目 |
 | 各 `*-report.md` / `*-evidence.jsonl` | 最新报告与逐条证据 |
+
+> **历史用例说明**：页面 / 双链 / 修订回滚（P3）与综述合成（智能资料库 P2）的 CLI 与 IPC 已删除，
+> 上表标「历史用例」的文档只保留当时的测试设计，命令在当前版本不存在，**不要照它执行**。
 
 ### 自主进化专项（autonomous/）
 

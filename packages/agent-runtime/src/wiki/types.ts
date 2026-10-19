@@ -4,8 +4,13 @@
  * 设计：`docs/design/Wiki知识库/2026-08-25-Wiki知识库设计P0P1P2.md`
  */
 
-/** 固定顶层分类，AI 落点被约束在此集合内（P0 仅 sources/media/inbox 可自动写） */
-export type WikiCategory = "sources" | "media" | "inbox" | "concepts" | "entities" | "syntheses";
+/**
+ * 固定顶层分类，AI 落点被约束在此集合内（P0 仅 sources/media/inbox 可自动写）。
+ *
+ * `syntheses` 已于 2026-10-19 移除（V54 DROP 表）：综述合成在 08-31 P2 就下线了，
+ * 分类名却一直留在合法集合里，会让路径校验接受一个没有实现的落点。
+ */
+export type WikiCategory = "sources" | "media" | "inbox" | "concepts" | "entities";
 
 /** P0 允许 AI 自动写入的顶层分类 */
 export const AI_WRITABLE_CATEGORIES: ReadonlySet<WikiCategory> = new Set(["sources", "media", "inbox"]);
@@ -233,7 +238,6 @@ export function validateWikiPath(pathStr: string): { readonly valid: boolean; re
     "inbox",
     "concepts",
     "entities",
-    "syntheses",
   ];
   if (!categories.includes(top as WikiCategory)) {
     return { valid: false, category: null };

@@ -220,3 +220,47 @@
   color: var(--color-text-secondary);
   line-height: 1.5;
 }
+
+/* 元信息编辑（user_path / tags / description） */
+.wiki-source-meta-edit {
+  margin-top: 8px;
+  padding: 0;
+  border: none;
+  background: none;
+  font-size: 12px;
+  color: var(--color-primary);
+  cursor: pointer;
+}
+
+.wiki-source-meta-edit:hover {
+  text-decoration: underline;
+}
+
+.wiki-source-meta-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.wiki-source-meta-editor label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.wiki-source-meta-editor input {
+  padding: 6px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  font-size: 13px;
+}
+
+.wiki-source-meta-editor-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}

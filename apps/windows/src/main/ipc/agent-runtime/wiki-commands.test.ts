@@ -29,6 +29,7 @@ import {
   handleWikiFolderScan,
   handleWikiFolderImport,
   handleWikiMigrateGet,
+  handleWikiMigrateApply,
   handleWikiMigrateDiscard,
   handleWikiSearch,
   handleWikiSourceGet,
@@ -51,8 +52,6 @@ import {
   handleWikiCleanupScan,
   handleWikiVectorRebuild,
   handleWikiSourceSummary,
-  handleWikiLinkAdd,
-  handleWikiLinkSave,
   handleWikiSourceDelete,
 } from './wiki-commands'
 import { DEFAULT_TOPIC_TREE, PARKING_CATEGORY, WikiReclassifier } from '@mtbot/agent-runtime'
@@ -789,7 +788,7 @@ describe('wiki commands', () => {
     expect(rows[0]?.topicSubtopic).toBe('例行')
   })
 
-  it('folder import 开启自动分类时 plan 后直接 apply 入库', async () => {
+  it('folder import 开启自动分类时停在 review，确认后才落位', async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wiki-cmd-migrate-'))
     const outputs = path.join(root, 'outputs')
     const proj = path.join(outputs, 'proj')
@@ -812,9 +811,15 @@ describe('wiki commands', () => {
       dir: outputs,
     }) as { migrateRun?: { phase: string; appliedSourceIds?: string[] } }
 
-    expect(r.migrateRun?.phase).toBe('succeeded')
-    expect(repo.listSources('assistant', 'local-user').filter((s) => s.topic_category)).toHaveLength(2)
+    // 2026-10-19 修正：默认必须停在 review（见 2026-09-05 设计 §86/§753）。
+    // 此前 handler 漏传 autoApply，plan 的默认 true 会让映射未经确认就落位。
+    expect(r.migrateRun?.phase).toBe('review')
+    expect(repo.listSources('assistant', 'local-user').filter((s) => s.topic_category)).toHaveLength(0)
     expect(llm).toHaveBeenCalled()
+
+    // 用户确认后才归档
+    await handleWikiMigrateApply(bridge, { type: 'wiki:migrate:apply', agentId: 'assistant' })
+    expect(repo.listSources('assistant', 'local-user').filter((s) => s.topic_category)).toHaveLength(2)
 
     fs.rmSync(root, { recursive: true, force: true })
   })
@@ -950,22 +955,6 @@ describe('wiki commands', () => {
     await expect(
       handleWikiSourceSummary(bridge, { type: 'wiki:source:summary', agentId: 'assistant', sourceId: 'missing' }),
     ).rejects.toThrow(/资料不存在/)
-  })
-
-  it('link:add 拒绝单独收录网页链接', () => {
-    const repo = createWikiRepo()
-    const bridge = buildBridge(repo)
-    expect(() =>
-      handleWikiLinkAdd(bridge, { type: 'wiki:link:add', agentId: 'assistant', url: 'https://example.com' }),
-    ).toThrow(/只收录文件/)
-  })
-
-  it('link:save 拒绝保存网页为独立资料', async () => {
-    const repo = createWikiRepo()
-    const bridge = buildBridge(repo)
-    await expect(
-      handleWikiLinkSave(bridge, { type: 'wiki:link:save', agentId: 'assistant', sourceId: 'any' }),
-    ).rejects.toThrow(/只收录文件/)
   })
 
   it('source:delete 删除 DB 前先清理 vault 实体', () => {

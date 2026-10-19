@@ -85,7 +85,6 @@ const WIKI_TABLE_MERGE_CONFIG: Record<string, { pk: string; ts: string; del?: st
   wiki_entities: { pk: 'id', ts: 'updated_at', del: 'deleted_at' },
   wiki_observations: { pk: 'id', ts: 'created_at', del: 'retired_at' },
   wiki_relations: { pk: 'id', ts: 'updated_at', del: 'deleted_at' },
-  wiki_syntheses: { pk: 'id', ts: 'created_at', del: 'deleted_at' },
   wiki_organize_runs: { pk: 'id', ts: 'created_at' },
 }
 

@@ -65,6 +65,59 @@ export function buildMigratePlanPrompt(
   ].join("\n");
 }
 
+/** 每个簇在补救轮里最多附几条正文片段 */
+export const MIGRATE_CONTENT_SNIPPETS_PER_CLUSTER = 2;
+
+/** 每条正文片段截断长度（字符）—— 够模型判断主题，又不至于把 prompt 撑爆 */
+export const MIGRATE_CONTENT_SNIPPET_CHARS = 400;
+
+/**
+ * 构造**内容补救轮** prompt：只处理结构轮判不了的簇（needContent），附正文片段再问一次。
+ *
+ * 结构轮（buildMigratePlanPrompt）只给文件名与路径，模型对语义模糊的目录只能
+ * 输出 `needContent: true`；这些簇在 apply 时会被整簇跳过、条目留在收件箱。
+ * 补救轮用已抓到的 `content_preview` 再问一次，能救回多少算多少。
+ *
+ * 与结构轮的两处规则差异：
+ * - **不再允许 needContent**：既然已经给了正文，还判不了就给大类、小类留空；
+ * - 不重复给「wiki 现状/源目录树」—— 补救轮只补语义，上下文沿用结构轮已建立的。
+ */
+export function buildMigrateContentPrompt(
+  tree: WikiTopicTree,
+  inventory: MigrateInventory,
+  batchClusters: readonly MigrateFolderCluster[],
+  contentByFolder: ReadonlyMap<string, readonly string[]>,
+): string {
+  const clusterLines = batchClusters.map((c) => {
+    const samples = c.sampleNames.length > 0 ? c.sampleNames.join("、") : "（无样例）";
+    const snippets = (contentByFolder.get(c.folderRel) ?? [])
+      .map((s) => `    · ${s.replace(/\s+/g, " ").trim().slice(0, MIGRATE_CONTENT_SNIPPET_CHARS)}`)
+      .join("\n");
+    return `- folderRel="${c.folderRel || "（根目录）"}"  文件数=${c.fileCount}  样例：${samples}\n  正文片段：\n${snippets}`;
+  });
+
+  return [
+    buildTaxonomyGuide(tree),
+    "",
+    "## 各目录已有资料数量",
+    inventory.wikiOccupancyText,
+    "",
+    "## 本批文件夹簇（上一轮只看目录名判不了，现附正文片段）",
+    clusterLines.join("\n"),
+    "",
+    "## 映射规则",
+    "- 依据正文片段判断落点；同一文件夹下的文件仍按同一落点处理",
+    "- **不要再输出 needContent**：正文仍不足以判断时，只给大类、小类留 null 即可",
+    "- 优先映射到已有占用非零的叶子目录；空库才自由选择",
+    `- confidence < ${MIGRATE_CONFIDENCE_THRESHOLD} 或无法确定大类 → category 留 null（服务端标 conflict）`,
+    "- tags 是 3-5 个关键词，description 一句话说明用途",
+    "",
+    "## 输出 JSON",
+    '[{"folderRel":"proj","category":"工作","subtopic":"项目","confidence":0.9,"reason":"...","tags":["..."],"description":"..."}]',
+    "仅输出 JSON 数组，不要包含其他文字。",
+  ].join("\n");
+}
+
 /** 从模型回复中解析出 folderRel → 原始记录的映射 */
 function parseRawItems(raw: string): Record<string, unknown>[] {
   const payload = extractJsonPayload(raw);

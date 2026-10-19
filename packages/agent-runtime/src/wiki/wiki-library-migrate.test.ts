@@ -79,6 +79,57 @@ describe("WikiLibraryMigrate.isBusy", () => {
   });
 });
 
+describe("WikiLibraryMigrate 内容补救轮", () => {
+  it("有正文的 needContent 簇补救成功；无正文的保持 needContent", async () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    const withContent = repo.ingestToInbox({
+      agentId: "ag",
+      userId: "u",
+      itemType: "output",
+      title: "a.md",
+      sourcePath: `${IMPORT_ROOT}/proj/a.md`,
+      contentPreview: "这是季度预算与报销流程的说明",
+    });
+    const noContent = repo.ingestToInbox({
+      agentId: "ag",
+      userId: "u",
+      itemType: "output",
+      title: "b.jpg",
+      sourcePath: `${IMPORT_ROOT}/other/b.jpg`,
+      mediaType: "image",
+    });
+
+    const prompts: string[] = [];
+    const llm = vi.fn(async (prompt: string) => {
+      prompts.push(prompt);
+      if (prompt.includes("正文片段")) {
+        return JSON.stringify([
+          { folderRel: "proj", category: "工作", subtopic: "例行", confidence: 0.9, reason: "正文是财务流程" },
+        ]);
+      }
+      return JSON.stringify([
+        { folderRel: "proj", needContent: true, reason: "只看文件名判不了" },
+        { folderRel: "other", needContent: true, reason: "图片要看内容" },
+      ]);
+    });
+
+    const mig = new WikiLibraryMigrate(repo, llm, mkId);
+    const run = await mig.plan({ ...planOpts([withContent.id, noContent.id]), autoApply: false });
+    const byRel = new Map(run.mappings.map((m) => [m.folderRel, m]));
+
+    expect(byRel.get("proj")?.status).toBe("ok");
+    expect(byRel.get("proj")?.category).toBe("工作");
+    // 没有正文可读的簇不发起补救，保持 needContent（apply 时跳过）
+    expect(byRel.get("other")?.status).toBe("needContent");
+
+    // 补救轮只问了一次，且只包含有正文的 proj
+    const contentPrompts = prompts.filter((p) => p.includes("正文片段"));
+    expect(contentPrompts).toHaveLength(1);
+    expect(contentPrompts[0]).toContain('folderRel="proj"');
+    expect(contentPrompts[0]).not.toContain('folderRel="other"');
+  });
+});
+
 describe("WikiLibraryMigrate plan", () => {
   it("plan 默认自动 apply：phase=succeeded 且已归档", async () => {
     const repo = new WikiRepo(createMigratedTestDb());

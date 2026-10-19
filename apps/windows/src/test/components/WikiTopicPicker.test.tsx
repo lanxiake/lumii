@@ -51,7 +51,7 @@ describe('WikiTopicPicker', () => {
     expect(screen.queryByRole('button', { name: '项目' })).not.toBeInTheDocument()
   })
 
-  it('确认时回传大类与小类（未填项目名则第三项为 null）', () => {
+  it('确认时回传大类与小类', () => {
     const onConfirm = vi.fn()
     render(<WikiTopicPicker open tree={TREE} onCancel={() => undefined} onConfirm={onConfirm} />)
 
@@ -59,7 +59,7 @@ describe('WikiTopicPicker', () => {
     fireEvent.click(screen.getByRole('button', { name: '凭据' }))
     fireEvent.click(screen.getByRole('button', { name: '确认归档' }))
 
-    expect(onConfirm).toHaveBeenCalledWith('生活', '凭据', null)
+    expect(onConfirm).toHaveBeenCalledWith('生活', '凭据')
   })
 
   it('选「暂不细分」时小类回传 null', () => {
@@ -70,21 +70,16 @@ describe('WikiTopicPicker', () => {
     fireEvent.click(screen.getByRole('button', { name: '暂不细分' }))
     fireEvent.click(screen.getByRole('button', { name: '确认归档' }))
 
-    expect(onConfirm).toHaveBeenCalledWith('收藏', null, null)
+    expect(onConfirm).toHaveBeenCalledWith('收藏', null)
   })
 
-  it('填了项目名则作为第三项回传', () => {
-    const onConfirm = vi.fn()
-    render(<WikiTopicPicker open tree={TREE} onCancel={() => undefined} onConfirm={onConfirm} />)
+  it('不再要求填项目名（topic_project 已被 user_path 取代）', () => {
+    render(<WikiTopicPicker open tree={TREE} onCancel={() => undefined} onConfirm={() => undefined} />)
 
     fireEvent.click(screen.getByRole('button', { name: '学习' }))
     fireEvent.click(screen.getByRole('button', { name: '在学' }))
-    fireEvent.change(screen.getByPlaceholderText('如：二十四史学习规划'), {
-      target: { value: '一年级语文' },
-    })
-    fireEvent.click(screen.getByRole('button', { name: '确认归档' }))
 
-    expect(onConfirm).toHaveBeenCalledWith('学习', '在学', '一年级语文')
+    expect(screen.queryByPlaceholderText('如：二十四史学习规划')).not.toBeInTheDocument()
   })
 
   it('已归档分区无小类，确定走 onConfirmArchive', () => {

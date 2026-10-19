@@ -336,6 +336,10 @@ export async function handleWikiFolderImport(
     inboxIds: importResult.inboxIds,
     workspaceRoot,
     vaultRoot,
+    // 默认停在 review 等用户确认（见函数头注释与 2026-09-05 设计 §86/§753）。
+    // 2026-10-19 前这里漏传，`plan` 的默认值是 true ⇒ 映射方案没给人看过就直接落位，
+    // `WikiMigrateReviewView` 在生产路径上不可达（只有测试能构造出 review）。
+    autoApply: false,
   })
 
   return {
@@ -412,7 +416,13 @@ export async function handleWikiMigrateReplan(
   const userId = command.userId ?? LOCAL_USER_ID
   const vaultRoot = resolveWikiDir()
   const workspaceRoot = bridge.getCwd()
-  const run = await bridge.wikiLibraryMigrate.replan(agentId, userId, { vaultRoot, workspaceRoot })
+  // 同 handleWikiFolderImport：重新规划也必须停在 review，否则用户在预览页里
+  // 点的「重新规划」会直接把新映射落位（绕过他自己正在看的那一步）。
+  const run = await bridge.wikiLibraryMigrate.replan(agentId, userId, {
+    vaultRoot,
+    workspaceRoot,
+    autoApply: false,
+  })
   return { run: summarizeMigrateRun(run) }
 }
 
@@ -1188,26 +1198,6 @@ export async function handleWikiSourceOpen(
   }
   bridge.wikiRepo.touchSource(agentId, LOCAL_USER_ID, source.id)
   return { success: true }
-}
-
-/**
- * 添加链接引用：已下线。Wiki 只收录文件与文档，链接可嵌入文档正文。
- */
-export function handleWikiLinkAdd(
-  _bridge: AgentRuntimeBridge,
-  _command: Extract<AgentRuntimeCommand, { type: 'wiki:link:add' }>,
-): never {
-  throw new Error('Wiki 只收录文件与文档，不再单独收录网页链接。编写文档时可将链接嵌入正文。')
-}
-
-/**
- * 保存网页正文：已下线。Wiki 只收录文件与文档。
- */
-export async function handleWikiLinkSave(
-  _bridge: AgentRuntimeBridge,
-  _command: Extract<AgentRuntimeCommand, { type: 'wiki:link:save' }>,
-): Promise<never> {
-  throw new Error('Wiki 只收录文件与文档，不再保存网页链接为独立资料。')
 }
 
 /**

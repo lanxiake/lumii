@@ -82,6 +82,8 @@ interface WikiFileListProps {
   onDelete?: (item: WikiSourceListItem) => void
   /** 点击路径/标签时把词加入搜索框并触发搜索（未传则只读展示） */
   onSearchTerm?: (term: string) => void
+  /** 点击路径前缀：按该目录收窄（层级浏览）。未提供时退回搜索 */
+  onFilterPath?: (prefix: readonly string[]) => void
 }
 
 /**
@@ -106,6 +108,7 @@ export const WikiFileList: React.FC<WikiFileListProps> = ({
   onPark,
   onDelete,
   onSearchTerm,
+  onFilterPath,
 }) => {
   const [chip, setChip] = useState<WikiMediaChip>('all')
   const [visibleCount, setVisibleCount] = useState(WIKI_FILE_LIST_PAGE)
@@ -188,7 +191,7 @@ export const WikiFileList: React.FC<WikiFileListProps> = ({
         <ul className={styles['wiki-file-list-items']}>
           {visible.slice(0, visibleCount).map((item) => {
             const Icon = MEDIA_ICONS[(item.mediaType ?? 'document') as keyof typeof MEDIA_ICONS] ?? FileText
-            const topic = formatTopicDisplay(item.topicCategory, item.topicSubtopic, item.topicProject)
+            const topic = formatTopicDisplay(item.topicCategory, item.topicSubtopic)
             const summary = resolveItemSummary(item)
             const ext = resolveWikiFileExt(item.sourcePath, item.title)
             const showExtBadge = shouldShowWikiExtBadge(item.title, ext)
@@ -223,8 +226,16 @@ export const WikiFileList: React.FC<WikiFileListProps> = ({
                       <button
                         type="button"
                         className={`${styles['wiki-file-list-path-prefix']} ${styles['wiki-file-list-term']}`}
-                        title={`搜索路径 ${joinPathPrefix(item.userPath)}`}
-                        onClick={() => onSearchTerm?.(joinPathPrefix(item.userPath))}
+                        title={
+                          onFilterPath
+                            ? `只看「${joinPathPrefix(item.userPath)}」下的资料`
+                            : `搜索路径 ${joinPathPrefix(item.userPath)}`
+                        }
+                        onClick={() =>
+                          onFilterPath
+                            ? onFilterPath(item.userPath ?? [])
+                            : onSearchTerm?.(joinPathPrefix(item.userPath))
+                        }
                       >
                         {joinPathPrefix(item.userPath)}/
                       </button>

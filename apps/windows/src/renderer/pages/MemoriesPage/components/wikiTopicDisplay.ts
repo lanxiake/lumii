@@ -106,11 +106,12 @@ export function navSectionLabel(section: WikiNavSection): string {
 /**
  * 把 DB 中的主题三列格式化为用户可见文案。
  * 小类为空是合法状态（小类可选），此时只显示大类名。
- * v1.2（三级分类）：支持 project 参数，显示「域 / 小类 / 项目」。
+ *
+ * v1.3（2026-10-19）：移除 project 参数 —— `topic_project` 已被 `user_path` 取代
+ * （V39），这里再显示它会和资料列表里的路径面包屑重复且口径不同。
  */
-export function formatTopicDisplay(category: string | null, subtopic: string | null, project?: string | null): string {
+export function formatTopicDisplay(category: string | null, subtopic: string | null): string {
   if (!category) return '收件箱'
   if (category === PARKING_CATEGORY) return '临时存放'
-  if (project) return subtopic ? `${category} / ${subtopic} / ${project}` : `${category} / ${project}`
   return subtopic ? `${category} / ${subtopic}` : category
 }

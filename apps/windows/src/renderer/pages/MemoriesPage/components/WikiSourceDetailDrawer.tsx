@@ -10,6 +10,12 @@ import { FilePreviewModal } from '../../../components/FilePreviewModal/FilePrevi
 import { WikiSourceMeta } from './WikiSourceMeta'
 import type { WikiSourceDetail } from '../../../hooks/business/useWikiPage'
 import { resolveItemSourceUrl, resolvePreviewMode } from './wikiSourcePreview'
+import {
+  formatTagsDraft,
+  formatUserPathDraft,
+  parseTagsDraft,
+  parseUserPathDraft,
+} from './wikiFilters'
 import { openExternalUrl } from '../../../utils/markdown-external-link'
 import shared from './wiki-shared.module.css'
 import styles from './WikiSourceDetailDrawer.module.css'
@@ -142,11 +148,23 @@ export interface WikiSourcePreviewSnapshot {
   readonly mediaType?: string
 }
 
+/** 元信息编辑结果：主题大类/小类沿用当前值，只改这三个字段 */
+export interface WikiSourceMetaPatch {
+  readonly id: string
+  readonly category: string
+  readonly subtopic: string | null
+  readonly userPath: string[] | null
+  readonly tags: string[] | null
+  readonly description: string | null
+}
+
 interface WikiSourceDetailDrawerProps {
   readonly open: boolean
   readonly sourceId: string | null
   readonly snapshot: WikiSourcePreviewSnapshot | null
   readonly getSource: (sourceId: string) => Promise<WikiSourceDetail | null>
+  /** 提供时显示「编辑」：手动改 user_path / tags / description（P3 3.4） */
+  readonly onUpdateMeta?: (patch: WikiSourceMetaPatch) => Promise<void>
   readonly onClose: () => void
 }
 
@@ -158,11 +176,17 @@ export const WikiSourceDetailDrawer: React.FC<WikiSourceDetailDrawerProps> = ({
   sourceId,
   snapshot,
   getSource,
+  onUpdateMeta,
   onClose,
 }: WikiSourceDetailDrawerProps) => {
   const [detail, setDetail] = useState<WikiSourceDetail | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [editingMeta, setEditingMeta] = useState(false)
+  const [savingMeta, setSavingMeta] = useState(false)
+  const [pathDraft, setPathDraft] = useState('')
+  const [tagsDraft, setTagsDraft] = useState('')
+  const [descDraft, setDescDraft] = useState('')
 
   useEffect(() => {
     if (!open) {
@@ -209,6 +233,36 @@ export const WikiSourceDetailDrawer: React.FC<WikiSourceDetailDrawerProps> = ({
       cancelled = true
     }
   }, [open, sourceId, getSource])
+
+  /** 编辑元信息：路径/标签/描述三个字段，主题大类小类保持不变 */
+  const canEditMeta = Boolean(onUpdateMeta && detail?.topicCategory && !loading && !error)
+
+  const startEditMeta = (): void => {
+    setPathDraft(formatUserPathDraft(detail?.userPath))
+    setTagsDraft(formatTagsDraft(detail?.tags))
+    setDescDraft(detail?.description ?? '')
+    setEditingMeta(true)
+  }
+
+  const saveEditMeta = async (): Promise<void> => {
+    if (!detail || !onUpdateMeta || !detail.topicCategory || savingMeta) return
+    setSavingMeta(true)
+    try {
+      await onUpdateMeta({
+        id: detail.id,
+        category: detail.topicCategory,
+        subtopic: detail.topicSubtopic,
+        userPath: parseUserPathDraft(pathDraft),
+        tags: parseTagsDraft(tagsDraft),
+        description: descDraft.trim() || null,
+      })
+      setEditingMeta(false)
+      const refreshed = await getSource(detail.id)
+      if (refreshed) setDetail(refreshed)
+    } finally {
+      setSavingMeta(false)
+    }
+  }
 
   if (!open) return null
 
@@ -285,16 +339,72 @@ export const WikiSourceDetailDrawer: React.FC<WikiSourceDetailDrawerProps> = ({
 
           {!loading && !error && (
             <>
-              {(detail?.userPath?.length || detail?.tags?.length || detail?.description) && (
-                <section className={styles['wiki-source-detail-summary']} aria-label="分类信息">
-                  <WikiSourceMeta
-                    userPath={detail.userPath}
-                    tags={detail.tags}
-                    description={detail.description}
-                    compact={false}
-                  />
-                </section>
-              )}
+              {(detail?.userPath?.length ||
+                detail?.tags?.length ||
+                detail?.description ||
+                editingMeta ||
+                canEditMeta) &&
+                detail && (
+                  <section className={styles['wiki-source-detail-summary']} aria-label="分类信息">
+                    {editingMeta ? (
+                      <div className={styles['wiki-source-meta-editor']}>
+                        <label>
+                          <span>用户路径</span>
+                          <input
+                            type="text"
+                            value={pathDraft}
+                            placeholder="如：outputs / 绘本项目 / 小星星"
+                            onChange={(e) => setPathDraft(e.target.value)}
+                          />
+                        </label>
+                        <label>
+                          <span>标签</span>
+                          <input
+                            type="text"
+                            value={tagsDraft}
+                            placeholder="逗号分隔，如：AI, 绘本"
+                            onChange={(e) => setTagsDraft(e.target.value)}
+                          />
+                        </label>
+                        <label>
+                          <span>描述</span>
+                          <input
+                            type="text"
+                            value={descDraft}
+                            placeholder="一句话说明这份资料的用途"
+                            onChange={(e) => setDescDraft(e.target.value)}
+                          />
+                        </label>
+                        <div className={styles['wiki-source-meta-editor-actions']}>
+                          <Button variant="secondary" onClick={() => setEditingMeta(false)}>
+                            取消
+                          </Button>
+                          <Button onClick={() => void saveEditMeta()} disabled={savingMeta}>
+                            {savingMeta ? '保存中…' : '保存'}
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <WikiSourceMeta
+                          userPath={detail.userPath}
+                          tags={detail.tags}
+                          description={detail.description}
+                          compact={false}
+                        />
+                        {canEditMeta && (
+                          <button
+                            type="button"
+                            className={styles['wiki-source-meta-edit']}
+                            onClick={startEditMeta}
+                          >
+                            编辑分类信息
+                          </button>
+                        )}
+                      </>
+                    )}
+                  </section>
+                )}
 
               {summary && previewMode !== 'web' && (
                 <section className={styles['wiki-source-detail-summary']} aria-label="摘要">

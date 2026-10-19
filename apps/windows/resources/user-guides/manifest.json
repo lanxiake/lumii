@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-10-19T11:16:12.755Z",
+  "generatedAt": "2026-10-19T15:01:43.842Z",
   "guides": [
     {
       "id": "desktop",
@@ -29,7 +29,7 @@
       ],
       "file": "wiki-user-guide.md",
       "seedToWiki": false,
-      "updatedAt": "2026-10-08T01:42:44.798Z"
+      "updatedAt": "2026-10-19T15:01:33.680Z"
     }
   ]
 }

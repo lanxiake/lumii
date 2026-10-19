@@ -34,13 +34,18 @@ import { WikiReclassifyView } from './WikiReclassifyView'
 import { WikiMigrateReviewView } from './WikiMigrateReviewView'
 import { WikiInboxPanel, inboxItemToPreviewSnapshot } from './WikiInboxPanel'
 import { WikiSubtopicPanel } from './WikiSubtopicPanel'
+import { buildTagCounts, filterByTag, filterByUserPathPrefix } from './wikiFilters'
 import { isUrlSourceItem } from './wikiSourcePreview'
 import { WikiHelpDrawer } from './WikiHelpDrawer'
 import { consumeWikiInitNav, OPEN_WIKI_LIBRARY_EVENT } from '../../../utils/open-wiki-library'
 import { pickDirectory } from '../../../services/dialog-service'
 import { WIKI_INBOX_INTRO, WIKI_FOLDER_IMPORT_TOOLTIP } from './wikiTooltips'
 import { WikiMoreMenu } from './WikiMoreMenu'
-import { WikiSourceDetailDrawer, type WikiSourcePreviewSnapshot } from './WikiSourceDetailDrawer'
+import {
+  WikiSourceDetailDrawer,
+  type WikiSourceMetaPatch,
+  type WikiSourcePreviewSnapshot,
+} from './WikiSourceDetailDrawer'
 import { WIKI_MODAL_LAYER } from './wikiModalLayer'
 import { buildWikiBreadcrumbs } from './wikiBreadcrumbs'
 import { buildWikiRemoveConfirmContent } from './wikiRemoveConfirm'
@@ -160,7 +165,8 @@ export const WikiTab: React.FC = () => {
 
   const [nav, setNav] = useState<WikiNav>({ kind: 'inbox' })
   const [sectionSubtopicFilter, setSectionSubtopicFilter] = useState<WikiSubtopicFilter>(WIKI_SUBTOPIC_FILTER_ALL)
-  const [sectionProjectFilter, setSectionProjectFilter] = useState<string | null>(null)
+  const [sectionTagFilter, setSectionTagFilter] = useState<string | null>(null)
+  const [sectionPathFilter, setSectionPathFilter] = useState<readonly string[] | null>(null)
   const [topicTree, setTopicTree] = useState<WikiTopicTree | null>(null)
   const [sources, setSources] = useState<readonly WikiSourceListItem[]>([])
   const [sectionCounts, setSectionCounts] = useState<Record<string, number>>({})
@@ -540,10 +546,9 @@ export const WikiTab: React.FC = () => {
         filtered = filtered.filter((item) => item.topicSubtopic === effectiveSubtopicFilter)
       }
 
-      // 项目筛选（三级分类）
-      if (sectionProjectFilter) {
-        filtered = filtered.filter((item) => item.topicProject === sectionProjectFilter)
-      }
+      // 标签与路径前缀筛选（本地，见 wikiFilters.ts）
+      filtered = filterByTag(filtered, sectionTagFilter)
+      filtered = filterByUserPathPrefix(filtered, sectionPathFilter)
 
       return filtered
     }
@@ -557,12 +562,25 @@ export const WikiTab: React.FC = () => {
   }, [
     categorySectionName,
     effectiveSubtopicFilter,
-    sectionProjectFilter,
+    sectionTagFilter,
+    sectionPathFilter,
     nav.kind,
     sources,
     parkingSources,
     archivedSources,
   ])
+
+  /**
+   * 标签芯片的计数取自**当前大类**的资料（不受小类/标签筛选影响）——
+   * 否则选中一个标签后，其它标签的计数会全部归零，用户没法继续浏览。
+   */
+  const tagCounts = useMemo(() => buildTagCounts(sources), [sources])
+
+  /** 换大类时清掉标签/路径筛选：否则会把上一个类的条件带到新类上（通常是空列表） */
+  useEffect(() => {
+    setSectionTagFilter(null)
+    setSectionPathFilter(null)
+  }, [categorySectionName])
 
   /**
    * 打开任务中心并清除失败任务的未读提示。
@@ -643,7 +661,8 @@ export const WikiTab: React.FC = () => {
   const handleSubtopicFilter = useCallback(
     (filter: WikiSubtopicFilter) => {
       setSectionSubtopicFilter(filter)
-      setSectionProjectFilter(null) // 切换小类时重置项目筛选
+      setSectionTagFilter(null) // 切换小类时重置标签/路径筛选
+      setSectionPathFilter(null)
       if (categorySectionName && nav.kind === 'subtopic') {
         setNav({ kind: 'section', name: categorySectionName })
       }
@@ -653,11 +672,31 @@ export const WikiTab: React.FC = () => {
     [categorySectionName, nav.kind],
   )
 
-  const handleProjectFilter = useCallback((project: string | null) => {
-    setSectionProjectFilter(project)
+  const handleTagFilter = useCallback((tag: string | null) => {
+    setSectionTagFilter(tag)
     setSelectedSourceIds(new Set())
     setHighlightSourceId(null)
   }, [])
+
+  /** 点击资料行里的路径前缀：只看该目录（层级浏览） */
+  const handlePathFilter = useCallback((prefix: readonly string[]) => {
+    setSectionPathFilter(prefix.length > 0 ? prefix : null)
+    setSelectedSourceIds(new Set())
+    setHighlightSourceId(null)
+  }, [])
+
+  /** 详情侧滑里的元信息编辑：只改 userPath/tags/description，主题大类小类不变 */
+  const handleUpdateMeta = useCallback(
+    async (patch: WikiSourceMetaPatch) => {
+      const ok = await updateSourceTopic(patch.id, patch.category, patch.subtopic, null, {
+        userPath: patch.userPath,
+        tags: patch.tags,
+        description: patch.description,
+      })
+      if (ok) await refreshSources()
+    },
+    [updateSourceTopic, refreshSources],
+  )
 
   const toggleSelectSource = useCallback((id: string) => {
     setSelectedSourceIds((prev) => {
@@ -710,17 +749,17 @@ export const WikiTab: React.FC = () => {
   }, [picker, trackedArchiveSources, refreshSources, refreshArchivedSources])
 
   const handleConfirmPicker = useCallback(
-    async (category: string, subtopic: string | null, project: string | null) => {
+    async (category: string, subtopic: string | null) => {
       const target = picker
       setPicker(null)
       setSuggestion(null)
       setSuggestionState('idle')
       if (!target) return
       if (target.mode === 'inbox') {
-        await organizeInbox(target.item.id, category, subtopic, project)
+        await organizeInbox(target.item.id, category, subtopic, null)
         await refreshInbox()
       } else {
-        await updateSourceTopic(target.item.id, category, subtopic, project)
+        await updateSourceTopic(target.item.id, category, subtopic, null)
       }
       await refreshSources()
     },
@@ -750,9 +789,9 @@ export const WikiTab: React.FC = () => {
 
   /** 批量移动：逐条走确定性写入路径 */
   const handleMoveSelected = useCallback(
-    async (category: string, subtopic: string | null, project: string | null) => {
+    async (category: string, subtopic: string | null) => {
       for (const id of selectedSourceIds) {
-        await updateSourceTopic(id, category, subtopic, project)
+        await updateSourceTopic(id, category, subtopic, null)
       }
       setSelectedSourceIds(new Set())
       await refreshSources()
@@ -1232,14 +1271,14 @@ export const WikiTab: React.FC = () => {
    * 批量归档：队列条目走 organizeInbox，待补分走 updateSourceTopic。
    */
   const handleBatchOrganizeInbox = useCallback(
-    async (category: string, subtopic: string | null, project: string | null) => {
+    async (category: string, subtopic: string | null) => {
       const inboxIds = [...selectedInboxIdsRef.current]
       const unfiledIds = [...selectedUnfiledIdsRef.current]
       for (const id of inboxIds) {
-        await organizeInbox(id, category, subtopic, project)
+        await organizeInbox(id, category, subtopic, null)
       }
       for (const id of unfiledIds) {
-        await updateSourceTopic(id, category, subtopic, project)
+        await updateSourceTopic(id, category, subtopic, null)
       }
       setSelectedInboxIds(new Set())
       setSelectedUnfiledIds(new Set())
@@ -1682,6 +1721,7 @@ export const WikiTab: React.FC = () => {
               onMove={(item) => setPicker({ mode: 'source', item })}
               onDelete={handleDeleteSource}
               onSearchTerm={handleAddSearchTerm}
+              onFilterPath={handlePathFilter}
             />
           </div>
         ) : nav.kind === 'cleanup' ? (
@@ -1720,8 +1760,11 @@ export const WikiTab: React.FC = () => {
                 sectionFileCount={sectionCounts[categorySectionName] ?? 0}
                 activeFilter={effectiveSubtopicFilter}
                 onSelectFilter={handleSubtopicFilter}
-                activeProject={sectionProjectFilter}
-                onSelectProject={handleProjectFilter}
+                activeTag={sectionTagFilter}
+                onSelectTag={handleTagFilter}
+                tagCounts={tagCounts}
+                activePathPrefix={sectionPathFilter}
+                onClearPathPrefix={() => handlePathFilter([])}
               />
             </div>
             <WikiFileList
@@ -1819,6 +1862,7 @@ export const WikiTab: React.FC = () => {
         sourceId={sourcePreview?.sourceId ?? null}
         snapshot={sourcePreview?.snapshot ?? null}
         getSource={getSource}
+        onUpdateMeta={handleUpdateMeta}
         onClose={() => setSourcePreview(null)}
       />
       <WikiTaskCenter
@@ -1837,9 +1881,9 @@ export const WikiTab: React.FC = () => {
         includeArchived={false}
         itemTitle={`已选 ${selectedInboxIds.size + selectedUnfiledIds.size} 项`}
         onCancel={() => setInboxBatchPickerOpen(false)}
-        onConfirm={(category, subtopic, project) => {
+        onConfirm={(category, subtopic) => {
           setInboxBatchPickerOpen(false)
-          void handleBatchOrganizeInbox(category, subtopic, project)
+          void handleBatchOrganizeInbox(category, subtopic)
         }}
       />
 
@@ -1849,9 +1893,9 @@ export const WikiTab: React.FC = () => {
         title="批量移动到…"
         itemTitle={`已选 ${selectedSourceIds.size} 个文件`}
         onCancel={() => setBatchPickerOpen(false)}
-        onConfirm={(category, subtopic, project) => {
+        onConfirm={(category, subtopic) => {
           setBatchPickerOpen(false)
-          void handleMoveSelected(category, subtopic, project)
+          void handleMoveSelected(category, subtopic)
         }}
         onConfirmArchive={() => void handleArchiveSelected()}
       />
@@ -1865,7 +1909,7 @@ export const WikiTab: React.FC = () => {
           setSuggestion(null)
           setSuggestionState('idle')
         }}
-        onConfirm={(category, subtopic, project) => void handleConfirmPicker(category, subtopic, project)}
+        onConfirm={(category, subtopic) => void handleConfirmPicker(category, subtopic)}
         onConfirmArchive={picker?.mode === 'source' ? () => void handleArchivePickerTarget() : undefined}
         includeArchived={picker?.mode !== 'inbox'}
         // 只有已进资料层的文件能让 AI 建议：inbox 条目还没 source id
@@ -1876,7 +1920,7 @@ export const WikiTab: React.FC = () => {
         suggestionState={suggestionState}
         onAdoptSuggestion={
           suggestion
-            ? () => void handleConfirmPicker(suggestion.category, suggestion.subtopic, null)
+            ? () => void handleConfirmPicker(suggestion.category, suggestion.subtopic)
             : undefined
         }
       />

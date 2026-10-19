@@ -127,7 +127,18 @@ export class WikiOrganizer {
     if (this.isLongRunningJobBlocking(agentId, userId)) {
       return null;
     }
-    const items = this.repo.takeInboxBatch(agentId, userId, itemType, batchSize);
+    // review 态迁移**不阻塞**后台整理（用户可能长期不确认），但它名下的条目必须
+    // 留给用户确认——否则后台整理器会把预览页正在审阅的那批悄悄归档掉。
+    const migrate = this.repo.getMigrateRun(agentId, userId);
+    const reservedIds = migrate?.phase === "review" ? migrate.inboxIds : [];
+    const items = this.repo.takeInboxBatch(
+      agentId,
+      userId,
+      itemType,
+      batchSize,
+      undefined,
+      reservedIds,
+    );
     if (items.length === 0) return null;
 
     // 内容提取：补齐缺失的正文预览（图片描述等），失败已在 extractor 内降级为 null

@@ -135,6 +135,20 @@ describe("WikiRepo 收件箱", () => {
     expect(batch).toHaveLength(0);
   });
 
+  it("批量取件可排除指定 id，且被排除者不占 LIMIT 名额", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    const a = repo.ingestToInbox({ agentId: "ag", userId: "u", itemType: "upload", title: "a" });
+    const b = repo.ingestToInbox({ agentId: "ag", userId: "u", itemType: "upload", title: "b" });
+    const c = repo.ingestToInbox({ agentId: "ag", userId: "u", itemType: "upload", title: "c" });
+
+    // LIMIT=1 且 a 被排除 → 仍必须取到一条（若在取回后再过滤，会因 a 占位而拿到空批）。
+    // 不能断言具体是 b 还是 c：三条 created_at 常落在同一毫秒，顺序不稳定。
+    const batch = repo.takeInboxBatch("ag", "u", "upload", 1, 4, [a.id]);
+    expect(batch).toHaveLength(1);
+    expect(batch[0].id).not.toBe(a.id);
+    expect([b.id, c.id]).toContain(batch[0].id);
+  });
+
   it("listPendingAgentUserPairs 只返回有 pending 条目的归属组合，去重", () => {
     const repo = new WikiRepo(createMigratedTestDb());
     repo.ingestToInbox({ agentId: "ag1", userId: "u", itemType: "upload", title: "a" });

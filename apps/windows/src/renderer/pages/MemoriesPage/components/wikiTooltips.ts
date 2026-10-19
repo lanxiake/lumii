@@ -21,7 +21,7 @@ export const WIKI_NAV_TOOLTIPS: Record<string, string> = {
 
 /** 左栏「更多」按钮 */
 export const WIKI_MORE_TOOLTIP =
-  '高级功能：清理重复资料、综述合成、重建搜索索引、编辑分类结构、全库 AI 重新编目、历史页面等。'
+  '高级功能：清理重复与失效资料、重建搜索索引、编辑分类结构、全库 AI 重新编目、AI 自动分类开关。'
 
 /** 左栏固定入口（临时存放） */
 export const WIKI_LEFT_FIXED_TOOLTIPS = {
@@ -30,11 +30,11 @@ export const WIKI_LEFT_FIXED_TOOLTIPS = {
 
 /** 顶栏搜索框 */
 export const WIKI_SEARCH_TOOLTIP =
-  '搜索已入库资料的正文与标题。历史摘要页面需进入「更多 → 历史页面」单独浏览。'
+  '搜索已入库资料的正文与标题。标签和用户路径不进全文索引，请在分类筛选条里按标签/路径收窄。'
 
 /** 顶栏任务 pill */
 export const WIKI_TASK_PILL_TOOLTIP =
-  '查看后台任务进度：索引重建、综述生成、重新编目等。'
+  '查看后台任务进度：索引重建、向量与摘要补全、重新编目等。'
 
 /** 收件箱视图说明 */
 export const WIKI_INBOX_INTRO =
@@ -42,16 +42,15 @@ export const WIKI_INBOX_INTRO =
 
 /** 从文件夹导入按钮 */
 export const WIKI_FOLDER_IMPORT_TOOLTIP =
-  '选择本地文件夹，将其中的文件批量登记到 Wiki（引用原路径，不移动文件）。是否 AI 自动分类取决于「更多 → AI 自动分类」开关。'
+  '选择本地文件夹，将其中的文件批量登记到 Wiki（引用原路径，不移动文件）。开启 AI 自动分类后会先给出目录映射方案，确认后才落位。'
 
 /** 更多菜单各项（补充 WikiMoreMenu 内 description） */
 export const WIKI_MORE_MENU_TOOLTIPS: Record<string, string> = {
   autoClassify:
-    '开启后：从文件夹导入、聊天上传等新资料会由 AI 自动归档到目录；已在收件箱里的文件也会随后分类。关闭则只进「收件箱」，可勾选后点「让 AI 分类」。',
+    '开启后：新增资料会由后台整理器自动归档到目录；从文件夹导入仍会先给出映射方案，确认后才落位。关闭则只进「收件箱」，可勾选后手动归档。',
   reclassifyAll:
     '让 AI 扫描已经进工作/学习/生活/收藏的文件并自动调整目录。收件箱里的未分类文件不会被编目，请用「让 AI 分类」。有问题可删除后重来。',
-  editTopicTree: '增删改各分区下的小类名称。分区对应 workspace/wiki/ 下的文件夹结构。',
-  history: '早期自动生成的摘要页面（只读）。新资料请用左侧分类目录浏览原始文件。',
-  cleanup: '扫描重复内容、失效引用、长期未用资料，并给出归档或删除建议。',
+  editTopicTree: '增删改各大类与小类名称。分类树同时决定资料归档时的可选项。',
+  cleanup: '扫描长期未用、来源失效、内容重复的资料，并给出归档或删除建议。',
   rebuild: '重新建立全文检索索引。搜索异常或大量导入后可尝试。',
 }

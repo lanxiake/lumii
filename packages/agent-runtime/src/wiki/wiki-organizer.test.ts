@@ -340,6 +340,29 @@ describe("WikiOrganizer 与库级迁移互斥", () => {
     expect(run!.status).toBe("succeeded");
   });
 
+  it("migrate review 名下的条目不被后台整理器抢走", async () => {
+    const { repo, hook } = setup();
+    hook.ingestUpload("ag", "u", "/tmp/a.md", "a", "text/markdown", "方案内的内容");
+    hook.ingestUpload("ag", "u", "/tmp/b.md", "b", "text/markdown", "方案外的内容");
+    const [reserved, free] = repo.listInbox("ag", "u", "pending");
+    repo.setMigrateRun("ag", "u", {
+      ...migrateRunWithPhase("review"),
+      inboxIds: [reserved!.id],
+    });
+
+    const organizer = new WikiOrganizer(repo, makeLLM(() => DOC_TOPIC), new WikiContentExtractor());
+    const run = await organizer.organizeBatch("ag", "u", "upload");
+
+    // 方案外的条目照常归档；方案内的必须原样留在 pending，等用户确认
+    expect(run).not.toBeNull();
+    expect(run!.status).toBe("succeeded");
+    const pending = repo.listInbox("ag", "u", "pending");
+    expect(pending).toHaveLength(1);
+    expect(pending[0]!.id).toBe(reserved!.id);
+    expect(pending[0]!.attempt_count).toBe(0);
+    expect(free!.id).not.toBe(reserved!.id);
+  });
+
   it("migrate 结束后自动归档恢复", async () => {
     const { repo, hook } = setup();
     hook.ingestUpload("ag", "u", "/tmp/a.md", "a", "text/markdown", "内容");

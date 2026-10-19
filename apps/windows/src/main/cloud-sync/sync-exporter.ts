@@ -42,6 +42,40 @@ async function openReadonlyDb(dbPath: string): Promise<InstanceType<typeof Datab
   return db
 }
 
+/**
+ * 删除 sync/wiki 下**已不在导出清单里**的 `wiki_*.jsonl`，返回被删的文件名。
+ *
+ * 为什么需要：导出只「写」当前清单里的表，从不「删」旧文件 —— 一张表从清单里
+ * 移除后（如 2026-10-19 的 `wiki_syntheses`），它的 jsonl 会永远留在 sync 目录，
+ * 每轮同步继续提交，成为一份没人读的历史包袱。
+ *
+ * 只处理 `wiki_` 前缀 + `.jsonl` 后缀，目录里的其它内容一概不碰。
+ */
+export function pruneStaleWikiExports(
+  wikiDir: string,
+  keepTables: readonly string[],
+): string[] {
+  const keep = new Set(keepTables.map((t) => `${t}.jsonl`))
+  const removed: string[] = []
+  let names: string[]
+  try {
+    names = fs.readdirSync(wikiDir)
+  } catch {
+    return removed // 目录还不存在：首次同步的正常情形
+  }
+  for (const name of names) {
+    if (!name.startsWith('wiki_') || !name.endsWith('.jsonl')) continue
+    if (keep.has(name)) continue
+    try {
+      fs.rmSync(path.join(wikiDir, name), { force: true })
+      removed.push(name)
+    } catch {
+      // 单个文件删不掉不影响其余，下一轮再试
+    }
+  }
+  return removed
+}
+
 export interface SyncExportOptions {
   dbPath: string
   syncDir: string
@@ -132,7 +166,6 @@ export class SyncExporter {
           'wiki/wiki_entities.jsonl',
           'wiki/wiki_observations.jsonl',
           'wiki/wiki_relations.jsonl',
-          'wiki/wiki_syntheses.jsonl',
           'wiki/wiki_organize_runs.jsonl'
         )
       } catch (err) {
@@ -338,7 +371,6 @@ export class SyncExporter {
       'wiki_entities',
       'wiki_observations',
       'wiki_relations',
-      'wiki_syntheses',
       'wiki_organize_runs',
     ]
 
@@ -359,6 +391,15 @@ export class SyncExporter {
       }
     } finally {
       db.close()
+    }
+
+    // 摘除已下线的表（见 pruneStaleWikiExports）
+    try {
+      for (const name of pruneStaleWikiExports(wikiDir, wikiTables)) {
+        logger.info(`[exportWiki] 已删除下线表的导出文件 ${name}`)
+      }
+    } catch (err) {
+      logger.warn(`[exportWiki] 清理下线表导出文件失败（不阻断）: ${String(err)}`)
     }
   }
 

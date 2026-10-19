@@ -1,7 +1,7 @@
 /**
  * WikiSubtopicPanel — 大类下的小类筛选条（默认「全部」，点击小类过滤文件列表）
  */
-import React, { useMemo } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { Tooltip } from '../../../components/ui/Tooltip/Tooltip'
 import type { WikiTopicTree } from '../../../hooks/business/useWikiPage'
 import {
@@ -16,6 +16,10 @@ import {
 } from './wikiTopicDisplay'
 import styles from './WikiSubtopicPanel.module.css'
 import shared from './wiki-shared.module.css'
+import type { WikiTagCount } from './wikiFilters'
+
+/** 标签芯片默认显示数量；超出的收进「更多标签」 */
+const TAG_CHIP_LIMIT = 12
 
 interface WikiSubtopicPanelProps {
   /** v1.1：分区即树中的大类名 */
@@ -26,9 +30,14 @@ interface WikiSubtopicPanelProps {
   readonly sectionFileCount: number
   readonly activeFilter: WikiSubtopicFilter
   readonly onSelectFilter: (filter: WikiSubtopicFilter) => void
-  /** 当前选中的项目（三级分类） */
-  readonly activeProject?: string | null
-  readonly onSelectProject?: (project: string | null) => void
+  /** 当前选中的标签（本地筛选，见 wikiFilters.ts） */
+  readonly activeTag?: string | null
+  readonly onSelectTag?: (tag: string | null) => void
+  /** 当前列表里出现过的标签及次数 */
+  readonly tagCounts?: readonly WikiTagCount[]
+  /** 当前按哪个目录前缀收窄（层级浏览） */
+  readonly activePathPrefix?: readonly string[] | null
+  readonly onClearPathPrefix?: () => void
 }
 
 /**
@@ -41,8 +50,11 @@ export const WikiSubtopicPanel: React.FC<WikiSubtopicPanelProps> = ({
   sectionFileCount,
   activeFilter,
   onSelectFilter,
-  activeProject,
-  onSelectProject,
+  activeTag,
+  onSelectTag,
+  tagCounts,
+  activePathPrefix,
+  onClearPathPrefix,
 }) => {
   /** 除「全部」外的小类 chip */
   const subtopicChips = useMemo(() => {
@@ -86,25 +98,19 @@ export const WikiSubtopicPanel: React.FC<WikiSubtopicPanelProps> = ({
     return items
   }, [section, topicTree, topicCounts])
 
-  /** 当前小类下的项目列表（三级分类） */
-  const projectChips = useMemo(() => {
-    if (!onSelectProject || activeFilter === WIKI_SUBTOPIC_FILTER_ALL || activeFilter === WIKI_SUBTOPIC_FILTER_UNFILED) {
-      return []
-    }
-    const items: Array<{ key: string; label: string; count: number }> = []
-    const subtopic = activeFilter
-    for (const [key, count] of Object.entries(topicCounts)) {
-      if (count <= 0) continue
-      const parsed = parseTopicCountKey(key)
-      if (!parsed || parsed.category !== section || parsed.subtopic !== subtopic || !parsed.project) continue
-      items.push({
-        key: parsed.project,
-        label: parsed.project,
-        count,
-      })
-    }
-    return items.sort((a, b) => b.count - a.count)
-  }, [section, activeFilter, topicCounts, onSelectProject])
+  /**
+   * 标签筛选芯片：计数由调用方按当前列表统计（见 wikiFilters.buildTagCounts）。
+   *
+   * 默认只显示前 TAG_CHIP_LIMIT 个：实测「学习」大类有 100+ 个标签，
+   * 全量渲染会把整块面板撑满、把文件列表挤出视口（2026-10-19 真机截图确认）。
+   * 切换大类时收起，避免上一类的展开状态带到下一类。
+   */
+  const allTagChips = onSelectTag ? (tagCounts ?? []) : []
+  const [showAllTags, setShowAllTags] = useState(false)
+  useEffect(() => {
+    setShowAllTags(false)
+  }, [section])
+  const tagChips = showAllTags ? allTagChips : allTagChips.slice(0, TAG_CHIP_LIMIT)
 
   if (!topicTree) {
     return <p className={shared['wiki-empty-hint']}>加载分类结构…</p>
@@ -162,43 +168,65 @@ export const WikiSubtopicPanel: React.FC<WikiSubtopicPanelProps> = ({
         ))}
       </ul>
 
-      {projectChips.length > 0 && onSelectProject && (
+      {activePathPrefix && activePathPrefix.length > 0 && onClearPathPrefix && (
+        <div className={styles['wiki-subtopic-chips']} role="group" aria-label="路径筛选">
+          <span className={`${styles['wiki-subtopic-chip']} ${styles['wiki-subtopic-chip--active']}`}>
+            <span>路径：{activePathPrefix.join(' / ')}</span>
+          </span>
+          <button type="button" className={styles['wiki-subtopic-chip']} onClick={onClearPathPrefix}>
+            清除路径筛选
+          </button>
+        </div>
+      )}
+
+      {tagChips.length > 0 && onSelectTag && (
         <>
           <p className={`${styles['wiki-subtopic-panel-intro']} wiki-subtopic-panel-intro--projects`}>
-            项目筛选
+            标签筛选
           </p>
-          <ul className={styles['wiki-subtopic-chips']} role="tablist" aria-label="项目筛选">
+          <ul className={styles['wiki-subtopic-chips']} role="tablist" aria-label="标签筛选">
             <li role="presentation">
               <button
                 type="button"
                 role="tab"
-                aria-selected={activeProject === null}
-                className={`${styles['wiki-subtopic-chip']}${activeProject === null ? ` ${styles['wiki-subtopic-chip--active']}` : ''}`}
-                onClick={() => onSelectProject(null)}
+                aria-selected={activeTag === null || activeTag === undefined}
+                className={`${styles['wiki-subtopic-chip']}${activeTag === null || activeTag === undefined ? ` ${styles['wiki-subtopic-chip--active']}` : ''}`}
+                onClick={() => onSelectTag(null)}
               >
-                <span>全部项目</span>
+                <span>全部标签</span>
               </button>
             </li>
-            {projectChips.map((chip) => (
-              <li key={chip.key} role="presentation">
+            {tagChips.map((chip) => (
+              <li key={chip.tag} role="presentation">
                 <Tooltip
-                  content={`只显示「${chip.label}」项目下的资料`}
+                  content={`只显示带「${chip.tag}」标签的资料`}
                   placement="bottom"
                   className={`${styles['wiki-subtopic-chip-tooltip']} ${shared['wiki-tooltip-below']}`}
                 >
                   <button
                     type="button"
                     role="tab"
-                    aria-selected={activeProject === chip.key}
-                    className={`${styles['wiki-subtopic-chip']}${activeProject === chip.key ? ` ${styles['wiki-subtopic-chip--active']}` : ''}`}
-                    onClick={() => onSelectProject(chip.key)}
+                    aria-selected={activeTag === chip.tag}
+                    className={`${styles['wiki-subtopic-chip']}${activeTag === chip.tag ? ` ${styles['wiki-subtopic-chip--active']}` : ''}`}
+                    onClick={() => onSelectTag(chip.tag)}
                   >
-                    <span>{chip.label}</span>
+                    <span>{chip.tag}</span>
                     {chip.count > 0 && <span className={styles['wiki-subtopic-chip-count']}>{chip.count}</span>}
                   </button>
                 </Tooltip>
               </li>
             ))}
+            {allTagChips.length > TAG_CHIP_LIMIT && (
+              <li role="presentation">
+                <button
+                  type="button"
+                  className={styles['wiki-subtopic-chip']}
+                  onClick={() => setShowAllTags((v) => !v)}
+                >
+                  {showAllTags ? '收起标签' : `更多标签 +${allTagChips.length - TAG_CHIP_LIMIT}`}
+                </button>
+              </li>
+            )}
           </ul>
         </>
       )}

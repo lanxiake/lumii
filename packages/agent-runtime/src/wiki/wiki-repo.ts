@@ -224,22 +224,35 @@ export class WikiRepo {
     return row ? inboxRowToItem(row) : null;
   }
 
-  /** 取一批待整理条目（同类型聚合，供批量分类） */
+  /**
+   * 取一批待整理条目（同类型聚合，供批量分类）。
+   *
+   * `excludeIds` 用于把「已归属某个待确认的库级迁移方案」的条目排除在外。
+   * 这些条目仍是 pending，但它们的落点由用户确认迁移方案时决定；后台整理器
+   * 抢先把它们归档，等于把用户正在审阅的方案掏空（2026-10-19 实测：一次
+   * `review` 里的 40 条在两分钟内被后台整理器全部归档，预览页失去意义）。
+   *
+   * 放 SQL 而不是取回后再过滤：后者会让被排除的条目占满 `LIMIT`，
+   * 导致真正可整理的条目取不到（后台轮询会一直空转）。
+   */
   takeInboxBatch(
     agentId: string,
     userId: string,
     itemType: WikiInboxItemType,
     batchSize: number,
     maxAttempts = 4,
+    excludeIds: readonly string[] = [],
   ): readonly WikiInboxItem[] {
+    const excludeClause =
+      excludeIds.length > 0 ? ` AND id NOT IN (${excludeIds.map(() => "?").join(",")})` : "";
     const rows = this.db
       .prepare<WikiInboxRow>(
         `SELECT * FROM wiki_inbox
          WHERE agent_id = ? AND user_id = ? AND status = 'pending' AND item_type = ?
-           AND attempt_count < ?
+           AND attempt_count < ?${excludeClause}
          ORDER BY created_at ASC LIMIT ?`,
       )
-      .all(agentId, userId, itemType, maxAttempts, batchSize);
+      .all(agentId, userId, itemType, maxAttempts, ...excludeIds, batchSize);
     return rows.map(inboxRowToItem);
   }
 

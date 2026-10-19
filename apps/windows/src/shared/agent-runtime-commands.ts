@@ -925,21 +925,6 @@ interface WikiSourceClearTopicCommand {
   readonly sourceId: string
 }
 
-interface WikiLinkAddCommand {
-  readonly type: 'wiki:link:add'
-  readonly sessionKey?: string
-  readonly agentId?: string
-  readonly url: string
-  readonly title?: string
-}
-
-interface WikiLinkSaveCommand {
-  readonly type: 'wiki:link:save'
-  readonly sessionKey?: string
-  readonly agentId?: string
-  readonly sourceId: string
-}
-
 interface WikiVaultEnsureLayoutCommand {
   readonly type: 'wiki:vault:ensure-layout'
   readonly sessionKey?: string
@@ -1766,8 +1751,6 @@ export type AgentRuntimeCommand =
   | WikiAutoClassifyGetCommand
   | WikiAutoClassifySetCommand
   | WikiSourceClearTopicCommand
-  | WikiLinkAddCommand
-  | WikiLinkSaveCommand
   | WikiVaultEnsureLayoutCommand
   | WikiExportCommand
   | WikiVectorRebuildCommand
@@ -2219,8 +2202,6 @@ type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
   : T extends 'wiki:auto-classify:get' ? { enabled: boolean }
   : T extends 'wiki:auto-classify:set' ? void
   : T extends 'wiki:source:clear-topic' ? void
-  : T extends 'wiki:link:add' ? { sourceId: string; title: string }
-  : T extends 'wiki:link:save' ? { sourceId: string; savedPath: string; title: string }
   : T extends 'wiki:vault:ensure-layout' ? { vaultRoot: string; synced: number; createdDirs?: readonly string[] }
   : T extends 'wiki:export' ? {
       exported: number

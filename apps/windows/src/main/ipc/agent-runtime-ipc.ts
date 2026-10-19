@@ -150,8 +150,6 @@ import {
   handleWikiSourceMoveToParking,
   handleWikiSourceOpen,
   handleWikiSourceClearTopic,
-  handleWikiLinkAdd,
-  handleWikiLinkSave,
   handleWikiVaultEnsureLayout,
   handleWikiAutoClassifyGet,
   handleWikiAutoClassifySet,
@@ -993,12 +991,6 @@ export async function handleCommand(
 
       case 'wiki:source:clear-topic':
         return handleWikiSourceClearTopic(bridge, command)
-
-      case 'wiki:link:add':
-        return handleWikiLinkAdd(bridge, command)
-
-      case 'wiki:link:save':
-        return handleWikiLinkSave(bridge, command)
 
       case 'wiki:vault:ensure-layout':
         return handleWikiVaultEnsureLayout(bridge, command)

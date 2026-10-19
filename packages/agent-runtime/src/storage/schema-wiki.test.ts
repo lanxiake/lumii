@@ -113,43 +113,19 @@ describe("wiki schema V18（历史页面表已在 V27 删除，测试改用 pre-
   });
 });
 
-describe("wiki schema V19", () => {
-  function tryDb() {
-    try {
-      return createMigratedTestDb();
-    } catch {
-      return null;
-    }
-  }
-
-  it("建出 wiki_syntheses 表且 SCHEMA_VERSION >= 19", () => {
-    expect(SCHEMA_VERSION).toBeGreaterThanOrEqual(20);
-    const db = tryDb();
-    if (!db) return;
+describe("wiki schema V54", () => {
+  /**
+   * V19 建过 `wiki_syntheses`，但综述合成 2026-08-31 就下线了，表一直漏 DROP。
+   * V54 补上，并把它从云同步的表清单里摘掉。这条用例是那两步的唯一守卫：
+   * 一旦有人把建表语句或导出行加回来，这里立刻红。
+   */
+  it("wiki_syntheses 已被 V54 删除", () => {
+    expect(SCHEMA_VERSION).toBeGreaterThanOrEqual(54);
+    const db = createMigratedTestDb();
     const row = db
       .prepare<{ name: string }>("SELECT name FROM sqlite_master WHERE name = ?")
       .get("wiki_syntheses");
-    expect(row?.name, "表 wiki_syntheses 应存在").toBe("wiki_syntheses");
-    db.close();
-  });
-
-  it("wiki_syntheses 默认 status=candidate，可写入候选行", () => {
-    const db = tryDb();
-    if (!db) return;
-
-    db.prepare(
-      `INSERT INTO wiki_syntheses
-       (id, agent_id, user_id, source_page_ids, title, candidate_md, created_at)
-       VALUES ('s1', 'a', 'u', '["p1"]', '综述', '正文', 'now')`,
-    ).run();
-    const row = db
-      .prepare<{ status: string; candidate_md: string }>(
-        "SELECT status, candidate_md FROM wiki_syntheses WHERE id = 's1'",
-      )
-      .get();
-    expect(row?.status).toBe("candidate");
-    expect(row?.candidate_md).toBe("正文");
-
+    expect(row?.name, "表 wiki_syntheses 应已删除").toBeUndefined();
     db.close();
   });
 });
