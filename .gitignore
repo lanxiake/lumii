@@ -100,3 +100,9 @@ __pycache__/
 # 探针从本机微信库里扫出来的真实群/联系人标识（`verify/wechat-mcp/regress-*/args/_probe_history.json`
 # 里有二十多个真群号）。这类「从用户数据里导出的标识」一律不入库 —— 探针脚本本身照常入库。
 verify/**/args/_probe_history.json
+
+# Agent/会话导出与本机临时工作区（2026-10-19 清理时补）
+.tmp/
+*-this-session-is-being-continued-from-a-previous-c*.txt
+# 牌桌/大厅运行时落盘的座位记录（如 human_games.bin.rooms.jsonl），每局都会变
+*.rooms.jsonl
