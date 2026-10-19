@@ -21,6 +21,7 @@ import {
   speechGenerateToolConfig,
   imageGenerateToolConfig,
   OUTBOUND_CHANNEL_PROFILES,
+  PCWECHAT_SELF_PEER_ID,
 } from '@mtbot/agent-runtime'
 import type { AgentToolResult } from '@earendil-works/pi-agent-core'
 import { agentRuntimeLog as log, jsonToolResult, removeMarkdownSection } from './bridge-utils'
@@ -197,6 +198,26 @@ const peerModeToolConfig: MtBotToolConfig = {
 }
 
 /**
+ * 显式指定渠道但省略 `to` 时，解析「发给用户本人」的默认收件人。
+ *
+ * 这是「完成后用微信/飞书通知我」的确定性路径：不需要模型先 channel_list 猜 id。
+ * pcwechat 恒为文件传输助手；feishu 取已连接账号（label=我，兜底第一个可发送 peer）。
+ * 解析不出来就返回空串，由调用方如实报错——绝不改投其他渠道。
+ */
+export async function resolveSelfPeer(
+  router: { list: () => Promise<readonly ChannelSnapshot[]> },
+  channel: string,
+): Promise<string> {
+  if (channel === 'pcwechat') return PCWECHAT_SELF_PEER_ID
+  if (channel !== 'feishu') return ''
+  const snap = (await router.list()).find((s) => s.channel === 'feishu')
+  if (!snap?.connected) return ''
+  const self = snap.peers.find((p) => p.canSend && p.label === '我')
+    ?? snap.peers.find((p) => p.canSend)
+  return self?.id ?? ''
+}
+
+/**
  * 注册渠道出站工具 channel_list / channel_send（走 ChannelOutboundRouter）。
  */
 export function registerChannelTools(deps: BridgeToolRegistrarDeps): void {
@@ -256,14 +277,22 @@ export function registerChannelTools(deps: BridgeToolRegistrarDeps): void {
           channels: null,
         })
       }
-      const to = requestedTo || origin?.replyTo || ''
+      // 省略 to 的三种语义：显式 peer > 当前会话回信地址 > 「发给用户本人」的默认收件人。
+      // 最后一种只对显式指定的渠道生效（用户说「用微信/飞书通知我」），
+      // 解析不出来就报错，绝不改投别的渠道。
+      const fromSameChannel = Boolean(origin && origin.channelType === channel)
+      const to = requestedTo
+        || (fromSameChannel && origin ? origin.replyTo : '')
+        || (requestedChannel ? await resolveSelfPeer(router, channel) : '')
       if (!to) {
         return jsonToolResult({
           ok: false,
           errorCode: 'PEER_NOT_FOUND',
-          message: origin
-            ? `省略 to 时只能在当前 ${channel} 会话内回复；本会话未提供默认收件人（可能是群聊或非会话内轮次），请先 channel_list 再显式指定 to`
-            : '收件人 to 必填，请先调用 channel_list 获取 peer id',
+          message: requestedChannel
+            ? `${channel} 没有可用的本人收件人（${channel === 'feishu' ? '飞书未连接或没有可发送账号' : '请先 channel_list 取 peer id 并显式传 to'}）`
+            : origin
+              ? `省略 to 时只能在当前 ${channel} 会话内回复；本会话未提供默认收件人（可能是群聊或非会话内轮次），请先 channel_list 再显式指定 to`
+              : '收件人 to 必填，请先调用 channel_list 获取 peer id',
         })
       }
       const result = await router.send({

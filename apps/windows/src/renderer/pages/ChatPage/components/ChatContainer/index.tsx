@@ -526,6 +526,40 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
     return { chatItems: items, subAgentRunsByParent: runsByParent }
   }, [messages, compactionItems])
 
+  /**
+   * 后台任务按发起回合归位：挂到该回合最后一条助手回复下方，
+   * 找不到归属（无 runId / 回合没有助手消息）的留在列表底部。
+   */
+  const { turnTasksByMessageId, looseBackgroundTasks } = useMemo(() => {
+    const byRun = new Map<string, BackgroundTask[]>()
+    const loose: BackgroundTask[] = []
+    for (const task of backgroundTasks ?? []) {
+      if (!task.runId) {
+        loose.push(task)
+        continue
+      }
+      const list = byRun.get(task.runId) ?? []
+      list.push(task)
+      byRun.set(task.runId, list)
+    }
+
+    // 每个 runId 的最后一条助手消息（chatItems 已按时间排序）
+    const lastAssistantByRun = new Map<string, string>()
+    for (const item of chatItems) {
+      if (item.itemType === 'message' && item.role === 'assistant' && item.runId) {
+        lastAssistantByRun.set(item.runId, item.id)
+      }
+    }
+
+    const byMessage = new Map<string, BackgroundTask[]>()
+    for (const [runId, tasks] of byRun) {
+      const messageId = lastAssistantByRun.get(runId)
+      if (messageId) byMessage.set(messageId, tasks)
+      else loose.push(...tasks)
+    }
+    return { turnTasksByMessageId: byMessage, looseBackgroundTasks: loose }
+  }, [backgroundTasks, chatItems])
+
   // Check if we need to show typing indicator (sending state OR streaming with last message from user)
   const showTypingIndicator = (isSending || isStreaming) && messages.length > 0 && messages[messages.length - 1].role === 'user'
 
@@ -604,20 +638,29 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
       ? (filesByMessageId.get(item.id) ?? undefined)
       : undefined
 
+    const turnTasks = turnTasksByMessageId.get(item.id)
+
     return (
-      <ChatMessageRowMemo
-        item={item}
-        isStreaming={isStreaming}
-        isLatestAssistant={isLatestAssistant}
-        streamingThinkingText={streamingThinkingText}
-        // 曾被占位的行重新挂载时补 no-enter：滚回来的旧内容不该再弹一次入场动画
-        noEnterMessages={noEnterMessages || windowed.wasCollapsed(rowKey)}
-        fileAttachments={fileAttachments}
-        replayMessageId={replayMessageId}
-        workflowToolItems={workflowToolItems}
-        subAgentRuns={subAgentRunsByParent.get(item.id)}
-        todoProgress={todoProgress}
-      />
+      <>
+        <ChatMessageRowMemo
+          item={item}
+          isStreaming={isStreaming}
+          isLatestAssistant={isLatestAssistant}
+          streamingThinkingText={streamingThinkingText}
+          // 曾被占位的行重新挂载时补 no-enter：滚回来的旧内容不该再弹一次入场动画
+          noEnterMessages={noEnterMessages || windowed.wasCollapsed(rowKey)}
+          fileAttachments={fileAttachments}
+          replayMessageId={replayMessageId}
+          workflowToolItems={workflowToolItems}
+          subAgentRuns={subAgentRunsByParent.get(item.id)}
+          todoProgress={todoProgress}
+        />
+        {turnTasks && (
+          <div className={styles['session-meta-inline']}>
+            <BackgroundTaskList tasks={turnTasks} />
+          </div>
+        )}
+      </>
     )
   }
 
@@ -697,10 +740,10 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
           </div>
         )}
 
-        {/* 长耗时后台任务（远程视频生成等）：随消息流滚动，运行中可见进度与耗时 */}
-        {backgroundTasks && backgroundTasks.length > 0 && (
+        {/* 无回合归属的后台任务（旧数据/回合被中断）：底部兜底 */}
+        {looseBackgroundTasks.length > 0 && (
           <div className={styles['session-meta-inline']}>
-            <BackgroundTaskList tasks={backgroundTasks} />
+            <BackgroundTaskList tasks={looseBackgroundTasks} />
           </div>
         )}
 

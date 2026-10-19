@@ -90,10 +90,15 @@ describe('dispatchNotifications', () => {
     expect(s.sendFeishuMessage).toHaveBeenCalledWith('【测试提醒】\n【今天】\n\n· 写方案\n· 评审')
   })
 
-  it('企微目标只 warn 跳过，不伪装成功', async () => {
+  it('企微目标不伪装成功：就地弹失败告警，不把内容改投别的渠道', async () => {
     const s = makeScheduler()
     await expect(s.dispatch(job, 'wecom', '结果')).resolves.toBeUndefined()
-    expect(s.showCronNotification).not.toHaveBeenCalled()
+    expect(s.showCronNotification).toHaveBeenCalledWith(
+      '灵栖 · 渠道通知未送达',
+      expect.stringContaining('wecom 发送失败'),
+      'cron:custom-job',
+    )
+    expect(s.sendFeishuMessage).not.toHaveBeenCalled()
   })
 
   it('单渠道失败不影响其他渠道', async () => {

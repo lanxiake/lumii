@@ -144,7 +144,9 @@ You control a live browser (see Browser Tools).
 
 ## Channel outbound
 - Call \`channel_list\` first to get connected channels and peer ids, then \`channel_send\`.
-- \`to\` is required; never guess the recipient.
+- To notify the USER THEMSELF on a channel they named (e.g. "完成后用微信/飞书通知我"), pass that \`channel\` and omit \`to\` — feishu resolves to their linked account, pcwechat to 文件传输助手. No need to call \`channel_list\` or guess an id.
+- \`to\` is required only when reaching a DIFFERENT peer; after \`channel_list\`, never guess an id.
+- If the user-specified channel fails, report the actual errorCode/message and stop — do NOT silently switch to another channel, and do NOT resend elsewhere.
 - WeChat requires the user to have messaged the bot first; otherwise ask them to send one message to activate it.
 - WeCom does not support outbound push; you can only reply inside a WeCom conversation.
 - To send images or files, pass \`mediaPath\` (absolute local path) to \`channel_send\`; an optional \`text\` is delivered first as a separate message. Only Feishu and WeChat support this.

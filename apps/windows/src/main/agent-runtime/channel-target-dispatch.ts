@@ -24,6 +24,14 @@ export interface ChannelTargetDispatchDeps {
   sendFeishuMessage?: (text: string) => Promise<{ ok: boolean; error?: string }>
 }
 
+/** 派发结果：调用方据此如实告警，绝不改投其他渠道 */
+export interface ChannelTargetDispatchResult {
+  ok: boolean
+  /** 没送达但已进补发队列（pcwechat），不算失败告警 */
+  queued?: boolean
+  error?: string
+}
+
 /**
  * 派发单个渠道目标。target 语法 `kind` 或 `kind:peerId`。
  *
@@ -36,7 +44,7 @@ export async function dispatchChannelTarget(
   text: string,
   title: string,
   deps: ChannelTargetDispatchDeps,
-): Promise<void> {
+): Promise<ChannelTargetDispatchResult> {
   const colon = target.indexOf(':')
   const kind = colon > 0 ? target.slice(0, colon) : target
   const explicitPeer = colon > 0 ? target.slice(colon + 1).trim() : ''
@@ -44,15 +52,15 @@ export async function dispatchChannelTarget(
 
   if (kind === 'wecom') {
     log.warn('企业微信不支持主动推送（reply_only），已跳过')
-    return
+    return { ok: false, error: '企业微信不支持主动推送' }
   }
   if (kind !== 'feishu' && kind !== 'weixin' && kind !== 'qbot' && kind !== 'pcwechat') {
     log.warn(`未知渠道目标，已忽略: ${target}`)
-    return
+    return { ok: false, error: `未知渠道目标: ${kind}` }
   }
   if (!peer && kind !== 'feishu') {
     log.warn(`${kind} 目标缺少 peerId，请使用 ${kind}:<peerId>，已跳过`)
-    return
+    return { ok: false, error: `${kind} 目标缺少 peerId` }
   }
 
   const router = deps.getChannelRouter?.()
@@ -63,10 +71,10 @@ export async function dispatchChannelTarget(
       const plain = compiled.kind === 'text' ? compiled.text : compiled.fallbackText
       const res = await deps.sendFeishuMessage(plain)
       if (!res.ok) log.warn('飞书兜底推送失败:', res.error)
-      return
+      return { ok: res.ok, ...(res.error ? { error: res.error } : {}) }
     }
     log.warn(`ChannelOutboundRouter 未就绪，${kind} 推送已跳过`)
-    return
+    return { ok: false, error: '渠道出站 Hub 未就绪' }
   }
 
   let to = peer
@@ -76,10 +84,16 @@ export async function dispatchChannelTarget(
     to = snap?.peers.find((p) => p.canSend)?.id ?? snap?.peers[0]?.id ?? ''
     if (!to) {
       log.warn(`${kind} 无可用 peer，已跳过`)
-      return
+      return { ok: false, error: `${kind} 没有可用的收件人` }
     }
   }
 
   const res = await router.send({ channel: kind, to, text, ...(title ? { title } : {}) })
   if (!res.ok) log.warn(`${kind} 推送失败:`, res.errorCode, res.message)
+  if (res.ok) return { ok: true }
+  return {
+    ok: false,
+    ...(res.queued ? { queued: true } : {}),
+    error: res.message ?? res.errorCode ?? '发送失败',
+  }
 }

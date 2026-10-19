@@ -68,7 +68,7 @@ const OUTPUT_KIND_TEXT: Record<BackgroundTaskOutput['kind'], string> = {
 }
 
 /**
- * 产出文件清单：终态后直接可见（不必展开），有地址的做成外链——
+ * 产出文件清单：随卡片一起展开，有地址的做成外链——
  * 主窗口的 window.open 拦截会交给系统浏览器打开。
  */
 const BackgroundTaskOutputs: React.FC<{ outputs: readonly BackgroundTaskOutput[] }> = ({ outputs }) => (
@@ -94,11 +94,16 @@ const BackgroundTaskOutputs: React.FC<{ outputs: readonly BackgroundTaskOutput[]
   </ul>
 )
 
-/** 单条后台任务卡：折叠头显示标签/状态/耗时；运行中可中断；产出文件直接列出，展开看完整结果或失败原因 */
+/**
+ * 单条后台任务卡：折叠头显示标签/状态/耗时/产出数；运行中可中断。
+ * 产出文件与完整结果/失败原因一起收在展开区，默认只占一行。
+ */
 const BackgroundTaskCard: React.FC<{ task: BackgroundTask }> = ({ task }) => {
   const [expanded, setExpanded] = useState(false)
   const running = task.status === 'running'
   const detail = task.error ?? task.result ?? task.summary
+  const outputCount = task.outputs?.length ?? 0
+  const hasContent = Boolean(detail) || outputCount > 0
   const statusText = running && task.note ? task.note : STATUS_TEXT[task.status]
 
   // 运行中每秒刷新耗时
@@ -122,9 +127,9 @@ const BackgroundTaskCard: React.FC<{ task: BackgroundTask }> = ({ task }) => {
         <button
           type="button"
           className={styles.header}
-          onClick={() => detail && setExpanded((v) => !v)}
-          aria-expanded={expanded}
-          disabled={!detail}
+          onClick={() => hasContent && setExpanded((v) => !v)}
+          aria-expanded={hasContent ? expanded : undefined}
+          disabled={!hasContent}
         >
           <span className={styles.icon}>
             <StatusIcon status={task.status} />
@@ -136,7 +141,10 @@ const BackgroundTaskCard: React.FC<{ task: BackgroundTask }> = ({ task }) => {
           <span className={styles.elapsed}>
             {formatTaskElapsed(task.startedAt, task.endedAt)}
           </span>
-          {detail && (
+          {outputCount > 0 && (
+            <span className={styles.outputCount}>产出 {outputCount}</span>
+          )}
+          {hasContent && (
             <span className={styles.chevron}>
               {expanded
                 ? <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9" /></svg>
@@ -156,11 +164,17 @@ const BackgroundTaskCard: React.FC<{ task: BackgroundTask }> = ({ task }) => {
           </button>
         )}
       </div>
-      {task.outputs && task.outputs.length > 0 && <BackgroundTaskOutputs outputs={task.outputs} />}
-      {expanded && detail && (
-        <pre className={clsx(styles.detail, task.status === 'failed' && styles.detailError)}>
-          {detail}
-        </pre>
+      {expanded && (
+        <>
+          {task.outputs && task.outputs.length > 0 && (
+            <BackgroundTaskOutputs outputs={task.outputs} />
+          )}
+          {detail && (
+            <pre className={clsx(styles.detail, task.status === 'failed' && styles.detailError)}>
+              {detail}
+            </pre>
+          )}
+        </>
       )}
     </div>
   )

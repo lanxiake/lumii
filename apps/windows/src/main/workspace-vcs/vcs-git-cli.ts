@@ -80,7 +80,7 @@ import {
   runGit as sharedRunGit,
   type GitRunResult,
 } from '../git-cli'
-import { VCS_SKIP_DIRS } from './vcs-ignore'
+import { VCS_BINARY_EXTENSIONS, VCS_SKIP_DIRS } from './vcs-ignore'
 
 const log = {
   info: (...args: unknown[]) => console.log('[WorkspaceVcs:git]', ...args),
@@ -114,17 +114,28 @@ const WINDOWS_RESERVED_NAMES = [
  *
  * 纯常量派生，故模块级只算一次。
  */
-const EXCLUDE_CONTENT = (() => {
+export function buildVcsExcludeContent(): string {
   const dirs = [...VCS_SKIP_DIRS].filter((d) => d !== '.git').map((d) => `${d}/`)
+  // 二进制产出统一不进版本库。理由见 VCS_BINARY_EXTENSIONS 的注释：
+  // git 对二进制是「每次改动一整个 blob，且永不回收」，工作区快照按轮次提交，
+  // 一张 50MB 的 atlas.png 改十次就是 500MB，gc 也救不回来。
+  //
+  // 放在硬剪枝层而非 .gitignore：后者「用户已有则不覆盖」，改了对存量工作区无效。
+  const binaries = [...VCS_BINARY_EXTENSIONS].map((ext) => `*${ext}`)
   return [
     '# Lumii VCS 硬剪枝规则（自动生成，请勿手改）',
-    '# 与 vcs-ignore.ts 的 VCS_SKIP_DIRS 对应；由 vcs-git-cli.ts 生成',
+    '# 与 vcs-ignore.ts 的 VCS_SKIP_DIRS / VCS_BINARY_EXTENSIONS 对应；由 vcs-git-cli.ts 生成',
     ...dirs,
     '/projects/',
+    '# 二进制产出（按扩展名）',
+    ...binaries,
     ...WINDOWS_RESERVED_NAMES,
     '',
   ].join('\n')
-})()
+}
+
+/** 纯常量派生，故模块级只算一次 */
+const EXCLUDE_CONTENT = buildVcsExcludeContent()
 
 /** 已确保写过规则文件的 gitdir（每个进程写一次即可） */
 const excludeFileReady = new Set<string>()
@@ -202,11 +213,54 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 const isLockError = (r: GitRunResult) => /index\.lock|Unable to create .*\.lock|File exists/i.test(r.stderr)
 
 /**
+ * 锁文件超过这个年龄且仍冲突 → 判为**进程崩溃遗留的死锁**。
+ *
+ * 10 分钟是刻意保守的：真正持锁的 git 操作在本仓库是亚秒级（实测 `git add -A`
+ * 76ms），最长的一次也不是本仓库的。宁可多等一轮，也不能把正在写入的锁删掉 ——
+ * 那会撕裂 index。
+ */
+const STALE_LOCK_MS = 10 * 60 * 1000
+
+/**
+ * 从 git 报错里取出被拒的锁文件路径，年龄超阈值则删除。
+ *
+ * 只删报错里点名的那个文件（`Unable to create '<path>'`），不猜——
+ * 可能撞的是 `index.lock`、`HEAD.lock` 或 `gc.pid`，删错等于制造更坏的问题。
+ *
+ * 背景（2026-10-19）：线上 workpsace/.mtbot-vcs/index.lock 从 10-11 留到 10-19，
+ * 期间每次快照都失败，日志只有一行 WARN「自动快照失败（已忽略，不影响对话）」，
+ * 8 天无人察觉。重试逻辑当时只会退避、不会清理。
+ *
+ * @returns 被清理的文件路径（未清理返回 null）
+ */
+export function clearStaleLock(stderr: string, now: number = Date.now()): string | null {
+  const m = /Unable to create '([^']+\.lock)'/i.exec(stderr)
+  if (!m) return null
+  const lockPath = m[1]
+  try {
+    const st = fs.statSync(lockPath)
+    const ageMs = now - st.mtimeMs
+    if (ageMs < STALE_LOCK_MS) return null
+    fs.unlinkSync(lockPath)
+    log.warn(
+      `[runWithLockRetry] 清理陈旧锁 ${lockPath}` +
+        `（${Math.round(ageMs / 60000)} 分钟前，疑似进程崩溃遗留）`,
+    )
+    return lockPath
+  } catch {
+    return null // 竞态：锁已被别处清掉，或路径不可读——交给下一轮重试
+  }
+}
+
+/**
  * 带 index.lock 重试地执行 git。
  *
  * 后台快照与用户触发的回滚/还原会并发访问同一 index；真 git 用 index.lock 互斥，
  * 撞上时报 "Unable to create .../index.lock: File exists"。重试比直接失败合理：
  * 两条路径都是短任务，退避几次即可错开。
+ *
+ * 另一类冲突不是并发，而是**上次崩溃留下的死锁**——锁永远不消失，重试再多次也没用。
+ * 所以每轮失败后先检查锁的年龄，过期就清掉立即重试（见 clearStaleLock）。
  */
 async function runWithLockRetry(
   workspaceDir: string,
@@ -218,9 +272,67 @@ async function runWithLockRetry(
     const r = await runGit(workspaceDir, gitdir, args)
     if (r.code === 0 || !isLockError(r)) return r
     last = r
+    if (clearStaleLock(r.stderr)) continue // 死锁已清，立刻重试，不必等退避
     if (i < LOCK_RETRY - 1) await sleep(LOCK_RETRY_DELAY_MS * (i + 1))
   }
   return last!
+}
+
+// ── 对象库维护 ────────────────────────────────────────────────────────────
+
+/** 松对象超过这个数就值得打一次包（本仓库稳态只有几百个） */
+const MAINT_LOOSE_THRESHOLD = 500
+/** 两次维护之间的最小间隔：gc 是 IO 尖峰，没必要每轮快照都试 */
+const MAINT_MIN_INTERVAL_MS = 6 * 60 * 60 * 1000
+/** gc 超时（本仓库稳态 27MB，正常亚秒级；给足余量防止极端工作区） */
+const MAINT_TIMEOUT_MS = 2 * 60 * 1000
+
+/** 各 gitdir 上次维护时刻（进程内记忆即可，重启后重算一次不亏） */
+const lastMaintenance = new Map<string, number>()
+
+/**
+ * 定期打包工作区仓库的对象库。
+ *
+ * 为什么应用侧要做这件事：`pinNoAutoGc` 把 `gc.auto` 钉成 0（避免不可预测的
+ * IO 尖峰落在用户会话中间），代价是**再也没有人打包**。2026-10-19 实测：
+ * 8,706 个松对象、0 个 pack、1.9 GB，其中 1.25 GB 是已被排除的二进制历史。
+ *
+ * 与云同步的 `maybePruneObjectStore` 分开：那个只管 `sync/.git`，
+ * 且注释里「仓库维护交给它」的委托从未接线（本次一并补上）。
+ *
+ * 失败不抛出：维护失败不该让一次快照失败。
+ */
+export async function maybeMaintainVcs(
+  workspaceDir: string,
+  gitdir: string,
+  now: number = Date.now(),
+): Promise<void> {
+  const last = lastMaintenance.get(gitdir) ?? 0
+  if (now - last < MAINT_MIN_INTERVAL_MS) return
+  // 先记账再执行：失败也等下一轮，免得每次快照都白跑一次 count-objects
+  lastMaintenance.set(gitdir, now)
+
+  const co = await runGit(workspaceDir, gitdir, ['count-objects', '-v'])
+  if (co.code !== 0) return
+  const loose = Number(/^count:\s*(\d+)/m.exec(co.stdout)?.[1] ?? 0)
+  if (loose <= MAINT_LOOSE_THRESHOLD) return
+
+  // 上一轮 gc 被超时杀掉会留下 gc.pid，之后每次 gc 都直接被拒（退出码非 0、
+  // 日志只有一句「gc 失败」）—— 不清理就变成另一种静默停摆。
+  try {
+    fs.rmSync(path.join(gitdir, 'gc.pid'), { force: true })
+  } catch {
+    /* 无权限/竞态：交给下面的 gc 自己报错 */
+  }
+
+  log.info(`[maybeMaintainVcs] 松对象 ${loose} 个，执行 git gc…`)
+  // 不用 --prune=now：与 sync 仓库同样的理由 —— 留一天宽限期，让正在落盘的
+  // 对象躲过这一轮（2026-10-18 在 sync 仓库踩过「提交在、树缺失」的半损状态）。
+  const r = await runGit(workspaceDir, gitdir, ['gc', '--prune=1.day.ago'], {
+    timeoutMs: MAINT_TIMEOUT_MS,
+  })
+  if (r.code === 0) log.info('[maybeMaintainVcs] gc 完成')
+  else log.warn(`[maybeMaintainVcs] gc 失败（不影响快照）: ${r.stderr.trim().slice(0, 200)}`)
 }
 
 /**

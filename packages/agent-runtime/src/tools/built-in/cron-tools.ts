@@ -48,6 +48,8 @@ const CronCreateParams = Type.Object({
         "Channels: feishu / qbot:<peerId> / weixin:<peerId> / pcwechat[:<peerId>] — weixin and qbot require an explicit peer id. " +
         "weixin = 个人微信 (Lumii bot, reply-window only: unreliable for scheduled pushes to a quiet chat); " +
         "pcwechat = 本机微信 (desktop WeChat on this PC, can push anytime; without a peer it goes to the user's own 文件传输助手). " +
+        "When the user names a delivery channel (e.g. \"到点用微信通知我\" → pcwechat, \"飞书通知我\" → feishu), " +
+        "you MUST set it here — the default below is only the origin channel, and silently notifying elsewhere is wrong. " +
         "If omitted, defaults to the channel this conversation is happening in.",
     }),
   ),

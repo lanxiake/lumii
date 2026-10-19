@@ -19,8 +19,9 @@ describe('dispatchChannelTarget', () => {
       { id: 'ou_blocked', canSend: false },
       { id: 'ou_ok', canSend: true },
     ])
-    await dispatchChannelTarget('feishu', '正文', '日报', { getChannelRouter: () => router })
+    const res = await dispatchChannelTarget('feishu', '正文', '日报', { getChannelRouter: () => router })
     expect(send).toHaveBeenCalledWith({ channel: 'feishu', to: 'ou_ok', text: '正文', title: '日报' })
+    expect(res).toEqual({ ok: true })
   })
 
   it('feishu:peer 显式指定时不查 list', async () => {
@@ -32,8 +33,10 @@ describe('dispatchChannelTarget', () => {
 
   it('weixin 缺少 peerId 时跳过且不发送', async () => {
     const { router, send } = makeRouter()
-    await dispatchChannelTarget('weixin', '正文', '日报', { getChannelRouter: () => router })
+    const res = await dispatchChannelTarget('weixin', '正文', '日报', { getChannelRouter: () => router })
     expect(send).not.toHaveBeenCalled()
+    expect(res.ok).toBe(false)
+    expect(res.error).toContain('peerId')
   })
 
   it('weixin:peer 走 router.send', async () => {

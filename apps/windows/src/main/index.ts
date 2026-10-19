@@ -49,7 +49,7 @@ process.emitWarning = ((warning: string | Error, ...rest: unknown[]) => {
   ;(originalEmitWarning as (...args: unknown[]) => void)(warning, ...rest)
 }) as typeof process.emitWarning
 
-import { execSync, execFile as _execFile } from 'child_process'
+import { execSync, execFile as _execFile, spawn } from 'child_process'
 import { promisify as _promisify } from 'util'
 import path from 'path'
 import { app, BrowserWindow, dialog } from 'electron'
@@ -1336,6 +1336,7 @@ async function initialize(): Promise<void> {
     await startAppUiControlServer({
       getWindow: (target) => (target === 'main' ? mainWindow : null),
       resizeImageIfNeeded,
+      requestRestart: requestAppRestart,
       getSkillRuntime: () => skillRuntime,
       getSkillWatcher: () => skillWatcher,
       // 渠道登录服务可能晚于控制口初始化，这里用 getter 延迟取值
@@ -1779,8 +1780,62 @@ app.on('window-all-closed', () => {
 })
 
 /**
+ * 从 app 目录向上找到 dev 启动脚本（dev 下 app.getAppPath() 可能是 apps/windows
+ * 或仓库根，别硬编码相对层级）。
+ */
+function findStartDevScript(): string | null {
+  let dir = app.getAppPath()
+  for (let i = 0; i < 5; i++) {
+    const candidate = path.join(dir, 'scripts', 'start-dev.ps1')
+    if (existsSync(candidate)) return candidate
+    const parent = path.dirname(dir)
+    if (parent === dir) break
+    dir = parent
+  }
+  return null
+}
+
+/**
+ * 重启当前客户端（lumii-ui restart）。
+ *
+ * 打包版走 Electron 自带的 relaunch；dev 版不能 relaunch——electron-vite 的
+ * dev server 由父进程持有，直接重拉会只剩一个连不上 HMR 的 Electron。
+ * dev 改为派一个独立 PowerShell：等本进程退出后跑 start-dev.ps1 -Force。
+ */
+function requestAppRestart(): void {
+  if (app.isPackaged) {
+    log.info('[restart] 打包版：app.relaunch()')
+    app.relaunch()
+    app.quit()
+    return
+  }
+
+  const script = findStartDevScript()
+  if (!script) {
+    log.warn('[restart] 找不到 scripts/start-dev.ps1，无法在 dev 模式下重启')
+    app.quit()
+    return
+  }
+  const psCommand = `Wait-Process -Id ${process.pid} -ErrorAction SilentlyContinue; & '${script.replace(/'/g, "''")}' -Force`
+  try {
+    // 不能直接 detached spawn powershell：无控制台时 PS 5.1 会静默 exit 0（实测）。
+    // 经 `cmd /c start /b` 拉起，它才有自己的控制台并活过本进程退出。
+    const child = spawn(
+      'cmd.exe',
+      ['/c', 'start', '/b', '', 'powershell.exe', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', psCommand],
+      { cwd: path.dirname(path.dirname(script)), detached: true, stdio: 'ignore', windowsHide: true },
+    )
+    child.unref()
+    log.info(`[restart] dev 版：已排入重启脚本（pid=${process.pid}）`)
+  } catch (err) {
+    log.warn('[restart] 启动重启脚本失败:', err)
+  }
+  app.quit()
+}
+
+/**
  * 执行清理操作（应用退出前）
- * 
+ *
  * 注意：Electron 的 before-quit 事件不支持异步等待，
  * 因此使用 event.preventDefault() + 手动 app.quit() 模式。
  */

@@ -265,6 +265,8 @@ export type BackgroundTaskStatus = 'running' | 'succeeded' | 'failed' | 'cancell
 /** 一条后台任务快照（渲染为对话内的任务卡） */
 export interface BackgroundTask {
   readonly taskId: string
+  /** 发起该任务的回合 runId（渲染层在任务创建时从 activeRunId 捕获，用于挂到对应回复下方） */
+  readonly runId?: string
   readonly toolName: string
   readonly label: string
   readonly status: BackgroundTaskStatus
@@ -511,7 +513,11 @@ export function upsertBackgroundTask(sessionKey: string, task: BackgroundTask): 
   updateSessionState(sessionKey, (prev) => {
     const idx = prev.backgroundTasks.findIndex((t) => t.taskId === task.taskId)
     if (idx < 0) {
-      return { ...prev, backgroundTasks: [task, ...prev.backgroundTasks] }
+      // 主进程事件里没有 runId：创建时记下当前回合，后续事件沿用（终态时 activeRunId 已是 null）
+      const created = task.runId === undefined && prev.activeRunId
+        ? { ...task, runId: prev.activeRunId }
+        : task
+      return { ...prev, backgroundTasks: [created, ...prev.backgroundTasks] }
     }
     const existing = prev.backgroundTasks[idx]!
     // 无实质变化则保持引用，避免无谓重渲染
@@ -527,7 +533,10 @@ export function upsertBackgroundTask(sessionKey: string, task: BackgroundTask): 
       return prev
     }
     const next = [...prev.backgroundTasks]
-    next[idx] = task
+    // 进度/终态事件不带 runId，别把创建时捕获的归属冲掉
+    next[idx] = task.runId === undefined && existing.runId !== undefined
+      ? { ...task, runId: existing.runId }
+      : task
     return { ...prev, backgroundTasks: next }
   })
 }

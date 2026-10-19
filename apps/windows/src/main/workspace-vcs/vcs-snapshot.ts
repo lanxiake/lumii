@@ -288,6 +288,9 @@ export function maybeSnapshot(params: {
         if (commit) {
           log.info(`[maybeSnapshot] 已快照 oid=${commit.oid.slice(0, 8)} runId=${slot.runId ?? '无'}`)
         }
+        // 对象库维护与快照同队列：本仓库 gc.auto=0，不在这里做就永远没人做。
+        // 内部有 6h 间隔 + 松对象阈值，常态是一次 Map 查询即返回。
+        await repo.maybeMaintain()
         return commit
       } catch (err) {
         // 快照失败不影响对话，只记一行摘要，避免整段 git 堆栈刷屏

@@ -19,6 +19,7 @@ interface Presence {
 function makeRegistrar(opts: {
   presence?: Presence
   instanceId?: string
+  routerList?: () => Promise<unknown[]>
   routerSend?: (params: unknown) => Promise<{
     ok: boolean
     errorCode?: string
@@ -40,7 +41,7 @@ function makeRegistrar(opts: {
     toolRegistry,
     toolContext: {},
     config: {},
-    getChannelRouter: () => ({ send: routerSendMock, list: vi.fn(async () => []) }),
+    getChannelRouter: () => ({ send: routerSendMock, list: vi.fn(opts.routerList ?? (async () => [])) }),
     toolCallInstanceMap: new Map([['call-1', instanceId]]),
     instanceStates: new Map(
       opts.presence ? [[instanceId, { presence: opts.presence }]] : [],
@@ -121,6 +122,57 @@ describe('channel_send 默认回来源渠道', () => {
     const { tool, routerSendMock } = makeRegistrar({ instanceId: 'inst-none' })
 
     const result = await tool.execute('call-x', { text: 'hi' })
+
+    expect(routerSendMock).not.toHaveBeenCalled()
+    expect(textOf(result)).toMatchObject({ ok: false, errorCode: 'PEER_NOT_FOUND' })
+  })
+
+  it('桌面会话显式 pcwechat、省略 to → 发给文件传输助手（用户本人）', async () => {
+    const { tool, routerSendMock } = makeRegistrar({ instanceId: 'inst-none' })
+
+    await tool.execute('call-x', { channel: 'pcwechat', text: '跑完了' })
+
+    expect(routerSendMock).toHaveBeenCalledWith({
+      channel: 'pcwechat',
+      to: 'filehelper',
+      text: '跑完了',
+    })
+  })
+
+  it('桌面会话显式 feishu、省略 to → 解析已连接的本人账号', async () => {
+    const { tool, routerSendMock } = makeRegistrar({
+      instanceId: 'inst-none',
+      routerList: async () => [
+        {
+          channel: 'feishu',
+          connected: true,
+          pushMode: 'native_push',
+          peers: [
+            { id: 'ou_other', label: '同事', canSend: true },
+            { id: 'ou_me', label: '我', canSend: true },
+          ],
+        },
+      ],
+    })
+
+    await tool.execute('call-x', { channel: 'feishu', text: '日报好了' })
+
+    expect(routerSendMock).toHaveBeenCalledWith({
+      channel: 'feishu',
+      to: 'ou_me',
+      text: '日报好了',
+    })
+  })
+
+  it('指定渠道解析不出本人 → 硬失败，不改投别的渠道', async () => {
+    const { tool, routerSendMock } = makeRegistrar({
+      instanceId: 'inst-none',
+      routerList: async () => [
+        { channel: 'feishu', connected: false, pushMode: 'native_push', peers: [] },
+      ],
+    })
+
+    const result = await tool.execute('call-x', { channel: 'feishu', text: 'hi' })
 
     expect(routerSendMock).not.toHaveBeenCalled()
     expect(textOf(result)).toMatchObject({ ok: false, errorCode: 'PEER_NOT_FOUND' })

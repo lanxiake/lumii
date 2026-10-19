@@ -71,7 +71,7 @@ describe('BackgroundTaskList', () => {
     expect(queryByText('后台执行中')).toBeNull()
   })
 
-  it('完成后产出文件直接可见，带打开链接；展开看完整结果而不是截断摘要', () => {
+  it('产出与完整结果默认收起，只露产出数；展开后可见链接与完整结果', () => {
     const task = makeTask({
       status: 'succeeded',
       endedAt: 1_300_000,
@@ -82,15 +82,18 @@ describe('BackgroundTaskList', () => {
         { name: 'thumb.png', path: 'thumb.png', kind: 'image' },
       ],
     })
-    const { getByRole, getByText } = render(<BackgroundTaskList tasks={[task]} />)
+    const { getByRole, getByText, queryByRole, queryByText } = render(<BackgroundTaskList tasks={[task]} />)
 
+    expect(getByText('产出 2')).toBeInTheDocument()
+    expect(queryByRole('link', { name: /Wan_00001\.mp4/ })).toBeNull()
+    expect(queryByText(/完整历史/)).toBeNull()
+
+    fireEvent.click(getByText('ComfyUI: enqueue_workflow'))
     const link = getByRole('link', { name: /Wan_00001\.mp4/ })
     expect(link).toHaveAttribute('href', 'https://cfui/view?filename=Wan_00001.mp4')
     expect(link).toHaveAttribute('target', '_blank')
     // 没有地址的产出只列文件名，不做成链接
     expect(getByText('thumb.png').closest('a')).toBeNull()
-
-    fireEvent.click(getByText('ComfyUI: enqueue_workflow'))
     expect(getByText(/完整历史/)).toBeInTheDocument()
   })
 

@@ -200,7 +200,9 @@ describe('startAppUiControlServer', () => {
   })
 
   /** 绑定随机可用端口 */
-  async function startWithEphemeralPort(): Promise<{ token: string; port: number }> {
+  async function startWithEphemeralPort(
+    extraDeps: Partial<Parameters<typeof startAppUiControlServer>[0]> = {},
+  ): Promise<{ token: string; port: number }> {
     const server = http.createServer()
     await new Promise<void>((resolve) => {
       server.listen(0, '127.0.0.1', () => resolve())
@@ -215,9 +217,30 @@ describe('startAppUiControlServer', () => {
       controller,
       port,
       token: 'test-token-123',
+      ...extraDeps,
     })
     return { token: config.token, port: config.port }
   }
+
+  it('POST /restart 先回 200，再调用注入的重启函数', async () => {
+    const requestRestart = vi.fn()
+    const { token } = await startWithEphemeralPort({ requestRestart })
+
+    const res = await postRoute(port, '/restart', {}, token)
+
+    expect(res).toEqual({ status: 200, json: { ok: true, restarting: true } })
+    await new Promise((resolve) => setTimeout(resolve, 250))
+    expect(requestRestart).toHaveBeenCalledOnce()
+  })
+
+  it('POST /restart 未注入实现时返回 501，不误报成功', async () => {
+    const { token } = await startWithEphemeralPort()
+
+    const res = await postRoute(port, '/restart', {}, token)
+
+    expect(res.status).toBe(501)
+    expect(res.json).toMatchObject({ ok: false, error: 'restart_not_supported' })
+  })
 
   it('缺少或错误 token 返回 401', async () => {
     const { token } = await startWithEphemeralPort()

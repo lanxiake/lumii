@@ -1,0 +1,1261 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>闲鱼商品图源文件</title>
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;background:#e9edf3}
+body{font-family:"Microsoft YaHei","PingFang SC",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+#root{display:flex;flex-direction:column;align-items:center;gap:24px;padding:24px}
+.poster{
+  width:1024px;height:1024px;position:relative;overflow:hidden;flex:0 0 auto;
+  padding:54px 56px 42px;display:flex;flex-direction:column;color:#0f172a;
+  background-size:cover;background-position:center;
+}
+.poster::before{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(255,255,255,.80) 0%,rgba(255,255,255,.56) 48%,rgba(255,255,255,.84) 100%);z-index:0}
+.poster>*{position:relative;z-index:1}
+.head{flex:0 0 auto}
+.kicker{display:inline-flex;align-items:center;gap:10px;font-size:20px;font-weight:800;color:var(--accent);letter-spacing:.02em}
+.kdot{width:10px;height:10px;border-radius:3px;background:var(--accent);flex:0 0 auto}
+.tag{display:inline-flex;align-items:center;border-radius:999px;padding:4px 12px;font-size:15px;font-weight:800;line-height:1.2;margin-left:10px}
+.tag-live{color:#047857;background:#d1fae5}
+.tag-demo{color:#92400e;background:#fef3c7}
+.tag-soft{color:var(--accent);background:var(--soft)}
+.title{font-size:60px;line-height:1.16;font-weight:900;letter-spacing:-.03em;margin:12px 0 10px;max-width:930px}
+.title b{color:var(--accent);font-weight:900}
+.sub{font-size:24px;line-height:1.48;color:#334155;font-weight:500;max-width:900px;margin:0}
+.stage{position:relative;flex:1 1 auto;margin-top:18px;min-height:0;display:flex;flex-direction:column}
+.stage>.win,.stage>.metrics+.win{flex:1;min-height:0}
+.foot{flex:0 0 auto;display:flex;justify-content:space-between;align-items:center;font-size:15px;color:#64748b;margin-top:16px;font-weight:600}
+.foot .pill{border:1px solid rgba(15,23,42,.08);background:rgba(255,255,255,.72);border-radius:999px;padding:5px 12px;color:#475569}
+
+/* window */
+.win{background:rgba(255,255,255,.97);border:1px solid rgba(15,23,42,.08);border-radius:18px;box-shadow:0 26px 60px -24px rgba(15,23,42,.30),0 4px 14px rgba(15,23,42,.06);overflow:hidden;display:flex;flex-direction:column}
+.win-bar{height:46px;flex:0 0 46px;display:flex;align-items:center;gap:10px;padding:0 16px;border-bottom:1px solid #eef2f7;background:linear-gradient(180deg,#fff,#f8fafc)}
+.app-ico{width:26px;height:26px;border-radius:8px;background:var(--soft);color:var(--accent);display:flex;align-items:center;justify-content:center;flex:0 0 auto}
+.win-bar .t{font-size:16px;font-weight:800;color:#1f2937}
+.win-bar .s{margin-left:auto;font-size:13px;font-weight:800;color:#047857;background:#ecfdf5;border-radius:999px;padding:4px 10px;white-space:nowrap}
+.win-bar .s.warn{color:#9a3412;background:#fff7ed}
+.win-body{padding:16px 18px;flex:1;min-height:0;display:flex;flex-direction:column}
+.win-body.tight{padding:12px 14px}
+
+/* generic rows */
+.row{display:flex;align-items:center;gap:12px;padding:9px 0;border-bottom:1px solid #f1f5f9}
+.row:last-child{border-bottom:0}
+.row .grow{flex:1;min-width:0}
+.row .name{font-size:15px;font-weight:800;color:#1f2937;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .msg{font-size:13px;color:#64748b;line-height:1.35;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
+.avatar{width:38px;height:38px;border-radius:11px;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:900;color:#fff;flex:0 0 auto}
+.unread{min-width:26px;height:26px;border-radius:999px;background:#ef4444;color:#fff;font-size:13px;font-weight:900;display:flex;align-items:center;justify-content:center;padding:0 8px;flex:0 0 auto}
+.unread.zero{background:#e2e8f0;color:#64748b}
+.time{font-size:12px;color:#94a3b8;flex:0 0 auto}
+
+/* two pane */
+.panes{display:grid;grid-template-columns:44% 56%;gap:0;flex:1;min-height:0}
+.pane{padding:14px 16px;min-height:0;display:flex;flex-direction:column}
+.pane+.pane{border-left:1px solid #eef2f7;background:#fbfdff}
+.pane-h{font-size:13px;font-weight:900;color:#64748b;letter-spacing:.06em;margin-bottom:6px;display:flex;align-items:center;gap:6px}
+.assist{background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:12px 14px;flex:1;min-height:0}
+.assist-line{display:flex;gap:10px;font-size:14px;line-height:1.55;color:#334155;padding:5px 0}
+.num{width:22px;height:22px;border-radius:7px;background:var(--accent);color:#fff;font-size:12px;font-weight:900;display:flex;align-items:center;justify-content:center;flex:0 0 auto;margin-top:1px}
+.draft{margin-top:auto;background:#fff;border:1px solid #e2e8f0;border-left:4px solid var(--accent);border-radius:10px;padding:10px 12px;font-size:14px;line-height:1.55;color:#334155}
+.draft .btns{display:flex;gap:8px;margin-top:8px}
+.btn{font-size:12px;font-weight:800;border-radius:8px;padding:5px 10px;background:var(--accent);color:#fff}
+.btn.ghost{background:#fff;color:#64748b;border:1px solid #e2e8f0}
+
+/* callouts */
+.callout{position:absolute;z-index:5;background:#fff;border:2px solid var(--accent);color:var(--accent);border-radius:14px;padding:9px 13px;font-size:18px;font-weight:900;box-shadow:0 12px 26px rgba(15,23,42,.16);line-height:1.25;white-space:nowrap}
+.callout small{display:block;font-size:12px;color:#64748b;font-weight:700;margin-top:1px}
+.callout.plain{border-color:rgba(15,23,42,.10);color:#0f172a;box-shadow:0 12px 26px rgba(15,23,42,.10)}
+.callout .big{font-size:30px;line-height:1}
+
+/* metrics */
+.metrics{display:grid;gap:12px;margin-bottom:12px}
+.metrics.c3{grid-template-columns:repeat(3,1fr)}
+.metrics.c4{grid-template-columns:repeat(4,1fr)}
+.metric{background:rgba(255,255,255,.97);border:1px solid rgba(15,23,42,.08);border-radius:15px;padding:13px 15px;box-shadow:0 12px 26px -16px rgba(15,23,42,.24)}
+.metric .n{font-size:40px;font-weight:900;color:var(--accent);line-height:1;letter-spacing:-.02em}
+.metric.c4 .n{font-size:34px}
+.metric .l{font-size:14px;font-weight:800;color:#334155;margin-top:6px}
+.metric .x{font-size:12px;color:#64748b;margin-top:2px}
+
+/* bars */
+.bars{display:flex;flex-direction:column;gap:13px}
+.bar-top{display:flex;justify-content:space-between;align-items:baseline;font-size:15px;font-weight:800;color:#334155;margin-bottom:6px}
+.bar-top .v{color:var(--accent);font-size:18px}
+.bar-track{height:14px;background:#eef2f7;border-radius:999px;overflow:hidden}
+.bar-fill{height:100%;border-radius:999px;background:var(--accent)}
+.bar-fill.muted{background:#cbd5e1}
+.bar-fill.warm{background:#f59e0b}
+
+/* table */
+.tbl{width:100%;border-collapse:collapse;font-size:13.5px}
+.tbl th{text-align:left;color:#64748b;font-weight:800;background:#f8fafc;padding:7px 9px;border-bottom:1px solid #e2e8f0;white-space:nowrap}
+.tbl td{padding:7px 9px;border-bottom:1px solid #f1f5f9;color:#334155;white-space:nowrap}
+.tbl tr:last-child td{border-bottom:0}
+.tbl .hi{color:var(--accent);font-weight:800}
+
+/* tree */
+.tree{display:flex;flex-direction:column;gap:8px;font-size:14.5px}
+.ti{display:flex;align-items:center;gap:9px;color:#334155;font-weight:700}
+.ti .ic{width:24px;height:24px;border-radius:7px;display:flex;align-items:center;justify-content:center;background:var(--soft);color:var(--accent);flex:0 0 auto}
+.ti .meta{margin-left:auto;color:#94a3b8;font-size:12px;font-weight:600}
+.ti.d1{padding-left:26px}
+.ti.d2{padding-left:52px}
+.ti .ok{color:#059669;font-size:13px;font-weight:800;margin-left:6px}
+
+/* comparison */
+.cmp{display:grid;grid-template-columns:1fr 1fr;gap:14px;flex:1;min-height:0}
+.side{background:rgba(255,255,255,.97);border:1px solid rgba(15,23,42,.08);border-radius:16px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 18px 40px -22px rgba(15,23,42,.28)}
+.side .lab{padding:9px 14px;font-size:14px;font-weight:900;display:flex;align-items:center;gap:8px}
+.side.before .lab{background:#f1f5f9;color:#64748b}
+.side.after .lab{background:var(--soft);color:var(--accent)}
+.side .bd{padding:12px 14px;flex:1;min-height:0;display:flex;flex-direction:column}
+
+/* bubbles */
+.bubble{max-width:86%;padding:9px 12px;border-radius:11px;font-size:13.5px;line-height:1.5;margin-bottom:8px}
+.bubble.me{background:var(--accent);color:#fff;margin-left:auto;border-bottom-right-radius:4px}
+.bubble.them{background:#f1f5f9;color:#1f2937;border-bottom-left-radius:4px}
+.sys{text-align:center;font-size:12px;color:#94a3b8;margin:8px 0}
+
+/* flow */
+.flow{display:flex;align-items:stretch;gap:10px}
+.step{flex:1;background:rgba(255,255,255,.97);border:1px solid rgba(15,23,42,.08);border-radius:15px;padding:13px;box-shadow:0 12px 26px -18px rgba(15,23,42,.22)}
+.step .sn{width:26px;height:26px;border-radius:8px;background:var(--accent);color:#fff;font-size:13px;font-weight:900;display:flex;align-items:center;justify-content:center;margin-bottom:8px}
+.step .h{font-size:15px;font-weight:900;color:#1f2937}
+.step .p{font-size:12.5px;color:#64748b;line-height:1.5;margin-top:3px}
+.arrow{display:flex;align-items:center;color:#cbd5e1;flex:0 0 auto}
+
+/* timeline */
+.tl{position:relative;padding-left:26px}
+.tl::before{content:"";position:absolute;left:9px;top:6px;bottom:6px;width:2px;background:#e2e8f0}
+.tli{position:relative;margin-bottom:12px}
+.tli:last-child{margin-bottom:0}
+.tli::before{content:"";position:absolute;left:-23px;top:5px;width:12px;height:12px;border-radius:50%;background:#fff;border:2px solid var(--accent)}
+.tli.gray::before{border-color:#cbd5e1}
+.tli .tm{font-size:12px;color:#94a3b8;font-weight:700}
+.tli .tx{font-size:14px;color:#334155;line-height:1.45;margin-top:2px}
+.tli .tx b{color:#0f172a}
+
+/* document preview */
+.doc{background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:14px;box-shadow:0 8px 18px rgba(15,23,42,.06);flex:1;min-height:0;display:flex;flex-direction:column}
+.doc-h{font-size:15px;font-weight:900;color:#1f2937;border-bottom:1px solid #eef2f7;padding-bottom:7px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center}
+.doc-h .m{font-size:11.5px;color:#94a3b8;font-weight:700}
+.doc-img{background:linear-gradient(135deg,#dbeafe,#e0e7ff);border-radius:7px;display:flex;align-items:center;justify-content:center;color:#64748b;font-size:11px;font-weight:800}
+.doc-img.green{background:linear-gradient(135deg,#d1fae5,#ecfdf5)}
+.doc-img.amber{background:linear-gradient(135deg,#fef3c7,#ffedd5)}
+.chips{display:flex;flex-wrap:wrap;gap:7px}
+.chip{font-size:12.5px;font-weight:800;border-radius:999px;padding:4px 10px;background:#f1f5f9;color:#475569;border:1px solid #e2e8f0}
+.chip.on{background:var(--soft);color:var(--accent);border-color:transparent}
+
+/* misc */
+.kv{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;font-size:13.5px;color:#334155;line-height:1.5}
+.kv .k{color:#64748b}
+.kv .v{font-weight:700;text-align:right}
+.note{border-radius:10px;background:var(--soft);color:var(--accent);padding:9px 12px;font-size:13px;font-weight:800;line-height:1.5}
+.green{color:#059669}
+.mt8{margin-top:8px}.mt10{margin-top:10px}.mt12{margin-top:12px}
+.flex1{flex:1;min-height:0}
+.search{display:flex;align-items:center;gap:10px;border:1.5px solid var(--accent);border-radius:11px;padding:9px 12px;background:#fff}
+.search .q{font-size:15px;font-weight:800;color:#1f2937}
+.search .k{margin-left:auto;font-size:12px;color:#64748b;font-weight:700}
+.hit{padding:9px 0;border-bottom:1px solid #f1f5f9}
+.hit:last-child{border-bottom:0}
+.hit .h{font-size:13.5px;font-weight:800;color:#1f2937}
+.hit .s{font-size:12.5px;color:#64748b;line-height:1.5;margin-top:2px}
+.hit mark{background:#fef08a;color:#713f12;padding:0 2px;border-radius:2px}
+[data-out="export-archive/04"] .hit{padding:7px 0}
+[data-out="message-retention/04"] .sys{margin:5px 0}
+[data-out="message-retention/01"] .tli{margin-bottom:10px}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+const ICONS = {
+  chat:'<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
+  mic:'<path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/>',
+  doc:'<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>',
+  folder:'<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>',
+  search:'<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>',
+  image:'<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>',
+  table:'<rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/>',
+  shield:'<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>',
+  check:'<polyline points="20 6 9 17 4 12"/>',
+  bell:'<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>',
+  lock:'<rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
+  users:'<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+  clock:'<circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/>',
+  file:'<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/>',
+  download:'<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>',
+  zap:'<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>',
+  arrow:'<line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/>',
+  x:'<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>'
+};
+const ico=(n,s=18)=>`<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">${ICONS[n]||''}</svg>`;
+const avatar=(t,c)=>`<div class="avatar" style="background:${c}">${t}</div>`;
+const chatRow=(name,msg,count,color,time)=>`<div class="row">${avatar(name.slice(0,1),color)}<div class="grow"><div class="name">${name}</div><div class="msg">${msg}</div></div>${time?`<span class="time">${time}</span>`:''}${count===0?'<span class="unread zero">0</span>':`<span class="unread">${count}</span>`}</div>`;
+const metric=(n,l,x,cls='')=>`<div class="metric ${cls}"><div class="n">${n}</div><div class="l">${l}</div>${x?`<div class="x">${x}</div>`:''}</div>`;
+const bar=(l,v,w,cls='',note='')=>`<div><div class="bar-top"><span>${l}</span><span class="v">${v}</span></div><div class="bar-track"><div class="bar-fill ${cls}" style="width:${w}%"></div></div>${note?`<div class="x" style="font-size:12px;color:#94a3b8;margin-top:3px">${note}</div>`:''}</div>`;
+const win=(title,status,body,opts={})=>`<div class="win ${opts.cls||''}" style="${opts.style||''}"><div class="win-bar"><span class="app-ico">${ico(opts.icon||'chat',16)}</span><span class="t">${title}</span>${status?`<span class="s ${opts.warn?'warn':''}">${status}</span>`:''}</div><div class="win-body ${opts.tight?'tight':''}">${body}</div></div>`;
+const poster=(out,o)=>`<section class="poster" data-out="${out}" style="--accent:${o.accent};--soft:${o.soft};background-image:url('./images/_bg/${o.bg}.png')">
+<header class="head">
+  <div class="kicker"><span class="kdot"></span>${o.kicker}${o.tag?`<span class="tag ${o.tagCls||'tag-soft'}">${o.tag}</span>`:''}</div>
+  <h1 class="title">${o.title}</h1>
+  <p class="sub">${o.sub}</p>
+</header>
+<div class="stage">${o.stage}</div>
+<footer class="foot"><span>${o.foot||'本机实测 · 联系人与数据已打码'}</span><span class="pill">${o.footR||'Win10 / 11 · 64 位'}</span></footer>
+</section>`;
+
+const posters=[
+/* ============ 01 消息助手 ============ */
+poster('message-assistant/01',{
+  accent:'#2563eb',soft:'#eff6ff',bg:'01-blue',kicker:'功能亮点',tag:'实测',tagCls:'tag-live',
+  title:'132 个未读<br><b>一句话列清</b>',
+  sub:'不用逐个点开，先看谁在等、等什么。',
+  foot:'本机实测 2026-10-14 · 132 个未读会话',
+  stage:`
+  <div style="position:absolute;inset:0">
+    ${win('消息助手 · 未读汇总','2.05 秒',`
+      <div class="panes" style="flex:1">
+        <div class="pane">
+          <div class="pane-h">${ico('chat',14)} 全部会话</div>
+          ${chatRow('客户 · 王**','合同盖章页已发，麻烦确认','3','#2563eb','10:42')}
+          ${chatRow('项目群 · 交付','今晚 8 点前发版','28','#7c3aed','10:38')}
+          ${chatRow('老板 · 周**','上午的报表再看一下','2','#0f766e','10:31')}
+          ${chatRow('家人','周末回来吃饭吗','1','#ea580c','10:12')}
+          ${chatRow('供应商 · 李**','样品周五到','4','#475569','09:56')}
+          ${chatRow('设计外包 · 陈**','第二版初稿发你了','6','#be123c','09:41')}
+          ${chatRow('同学群','周末聚一下','12','#0891b2','08:20')}
+        </div>
+        <div class="pane">
+          <div class="pane-h">${ico('zap',14)} AI 整理结果</div>
+          <div class="assist" style="display:flex;flex-direction:column">
+            <div class="assist-line"><span class="num">1</span><div><b>客户 · 王**</b> 3 条未读：合同盖章页、开票信息、交期确认</div></div>
+            <div class="assist-line"><span class="num">2</span><div><b>项目群</b> 28 条未读：今晚 8 点发版，需要你回「收到」</div></div>
+            <div class="assist-line"><span class="num">3</span><div><b>老板</b> 2 条未读：报表第 3 页数据要改</div></div>
+            <div class="assist-line"><span class="num" style="background:#94a3b8">4</span><div><b>供应商 · 李**</b> 4 条未读：样品周五到，需确认收货地址</div></div>
+            <div class="assist-line"><span class="num" style="background:#cbd5e1">5</span><div><b>其余 3 个会话</b> 共 19 条：广告、闲聊，可稍后处理</div></div>
+            <div class="draft">先回这 3 个会话，其余 4 个可以稍后处理。
+              <div class="btns"><span class="btn">按优先级排列</span><span class="btn ghost">看原文</span></div>
+            </div>
+            <div class="mt12" style="margin-top:auto">
+              <div style="font-size:12px;font-weight:900;color:#64748b;margin-bottom:6px">未读分布</div>
+              <div class="bars" style="gap:8px">
+                ${bar('客户', '3 个会话', 22)}
+                ${bar('项目群', '1 个会话 · 28 条', 68)}
+                ${bar('内部 / 家人', '2 个会话 · 3 条', 14, 'muted')}
+                ${bar('其他', '3 个会话 · 19 条', 34, 'muted')}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>`,{cls:'',style:'height:100%',icon:'chat'})}
+    <div class="callout" style="right:-6px;top:-14px">2.05 秒<small>列出全部未读会话</small></div>
+    <div class="callout plain" style="left:-6px;bottom:-12px">${ico('shield',18)} 本地读取 · 不上传</div>
+  </div>`
+}),
+poster('message-assistant/02',{
+  accent:'#2563eb',soft:'#eff6ff',bg:'01-blue',kicker:'使用场景',tag:'本地识别',tagCls:'tag-soft',
+  title:'开会时<br><b>语音变文字</b>',
+  sub:'不方便听语音，就让它先转成字。',
+  foot:'本机实测 · 13.2 秒语音，3.1 秒转完',
+  stage:`
+  <div class="cmp" style="grid-template-columns:38% 62%">
+    <div class="side after" style="background:rgba(255,255,255,.97)">
+      <div class="lab">${ico('mic',16)} 会议中 · 收到语音</div>
+      <div class="bd" style="display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center">
+        <div style="width:96px;height:96px;border-radius:50%;background:var(--soft);color:var(--accent);display:flex;align-items:center;justify-content:center">${ico('mic',44)}</div>
+        <div style="font-size:46px;font-weight:900;color:#0f172a;margin-top:14px">13.2<span style="font-size:20px;color:#64748b"> 秒</span></div>
+        <div style="font-size:14px;color:#64748b;font-weight:700;margin-top:4px">客户发来的语音</div>
+        <div style="display:flex;gap:3px;align-items:flex-end;height:42px;margin-top:18px">
+          ${[10,18,28,14,34,22,38,16,26,12,30,20,36,14,24,18,32,10,20,14].map(h=>`<span style="width:4px;height:${h}px;border-radius:2px;background:var(--accent);opacity:.65"></span>`).join('')}
+        </div>
+        <div class="row" style="width:100%;margin-top:14px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:8px 10px">
+          <span class="avatar" style="background:#2563eb;width:32px;height:32px;border-radius:9px">${ico('mic',16)}</span>
+          <div class="grow"><div class="name" style="font-size:14px">语音 2 · 6.8 秒</div><div class="msg">刚收到，自动排队转写</div></div>
+          <span class="chip on">已转写</span>
+        </div>
+        <div class="mt12" style="width:100%">
+          <div style="font-size:12px;font-weight:900;color:#64748b;margin-bottom:5px">转写设置</div>
+          <div class="chips" style="justify-content:center"><span class="chip on">普通话</span><span class="chip">粤语</span><span class="chip">英语</span></div>
+          <div class="chips mt8" style="justify-content:center"><span class="chip">单条 5 分钟内</span><span class="chip">长语音自动分段</span></div>
+        </div>
+        <div class="kv mt12" style="width:100%;margin-top:auto">
+          <span class="k">原始语音</span><span class="v">13.2 秒</span>
+          <span class="k">转写耗时</span><span class="v">3.1 秒</span>
+          <span class="k">处理位置</span><span class="v">本机</span>
+          <span class="k">音频保存</span><span class="v">不保存</span>
+        </div>
+      </div>
+    </div>
+    <div class="side after" style="background:rgba(255,255,255,.97)">
+      <div class="lab">${ico('doc',16)} 转写结果 · 可复制</div>
+      <div class="bd">
+        <div class="bubble them" style="max-width:100%;background:#f8fafc;border:1px solid #e2e8f0">
+          王总，合同我们这边已经盖章了，今天下午顺丰寄出，单号晚点发您。发票按上次说的开 13 个点，抬头不变。
+        </div>
+        <div class="sys" style="text-align:left;font-size:12px;color:#94a3b8;margin:2px 0 8px">10:24 · 客户又发来一条 6.8 秒语音</div>
+        <div class="bubble them" style="max-width:100%;background:#f8fafc;border:1px solid #e2e8f0">
+          对了，发票抬头还是上次那个，税号没变。麻烦一起处理下。
+        </div>
+        <div class="chips" style="margin-top:6px"><span class="chip on">本地识别</span><span class="chip">3.1 秒</span><span class="chip">普通话</span><span class="chip">可复制</span></div>
+        <div class="chips mt8"><span class="chip">连续语音自动合并</span><span class="chip">句末自动断句</span></div>
+        <div class="mt12" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:10px 12px">
+          <div style="font-size:12px;font-weight:900;color:#64748b;margin-bottom:5px">分段转写</div>
+          <div class="hit" style="padding:5px 0"><div class="s"><b style="color:#334155">00:00–00:04</b>　王总，合同我们这边已经盖章了</div></div>
+          <div class="hit" style="padding:5px 0"><div class="s"><b style="color:#334155">00:04–00:09</b>　今天下午顺丰寄出，单号晚点发您</div></div>
+          <div class="hit" style="padding:5px 0"><div class="s"><b style="color:#334155">00:09–00:13</b>　发票按上次说的开 13 个点，抬头不变</div></div>
+        </div>
+        <div class="note mt12">${ico('check',14)} 语音不上传，转写在本机完成</div>
+        <div class="mt12" style="display:flex;gap:8px">
+          <span class="btn" style="font-size:13px;padding:7px 12px">复制全文</span>
+          <span class="btn ghost" style="font-size:13px;padding:7px 12px">导出为文本</span>
+          <span class="btn ghost" style="font-size:13px;padding:7px 12px">再转一条</span>
+        </div>
+        <div class="note mt12" style="margin-top:auto;background:#fff;border:1px dashed #e2e8f0;color:#94a3b8;font-weight:600">识别准确率会受口音、背景噪音影响，重要内容建议对照原语音</div>
+      </div>
+    </div>
+  </div>`
+}),
+poster('message-assistant/03',{
+  accent:'#2563eb',soft:'#eff6ff',bg:'01-blue',kicker:'个人成果 1',tag:'实测',tagCls:'tag-live',
+  title:'先回谁<br><b>一眼看到</b>',
+  sub:'132 个未读，按「谁在等结果」排序。',
+  foot:'本机实测 · 132 个未读会话逐条列清',
+  stage:`
+  <div class="metrics c3">
+    ${metric('132','未读会话','全部列清')}
+    ${metric('5','需要先回','客户 / 项目 / 老板')}
+    ${metric('2.05 秒','整理耗时','本地计算')}
+  </div>
+  ${win('未读优先级','已排序',`
+    <div class="row"><span class="num">1</span><div class="grow"><div class="name">客户 · 王**　<span style="font-size:12px;color:#ef4444">3 条 · 等确认</span></div><div class="msg">合同盖章页 / 开票信息 / 交期</div></div><span class="time">10:42</span></div>
+    <div class="row"><span class="num">2</span><div class="grow"><div class="name">项目群 · 交付　<span style="font-size:12px;color:#f59e0b">28 条 · 今晚节点</span></div><div class="msg">今晚 8 点前发版，需要回「收到」</div></div><span class="time">10:38</span></div>
+    <div class="row"><span class="num">3</span><div class="grow"><div class="name">老板 · 周**　<span style="font-size:12px;color:#2563eb">2 条 · 报表修改</span></div><div class="msg">第 3 页数据口径要改</div></div><span class="time">10:31</span></div>
+    <div class="row"><span class="num" style="background:#cbd5e1">4</span><div class="grow"><div class="name">供应商 · 李**</div><div class="msg">样品周五到，无需回复</div></div><span class="time">09:56</span></div>
+    <div class="row"><span class="num" style="background:#e2e8f0;color:#94a3b8">5</span><div class="grow"><div class="name">家人</div><div class="msg">周末回来吃饭吗，无需马上回</div></div><span class="time">10:12</span></div>
+    <div class="row"><span class="num" style="background:#e2e8f0;color:#94a3b8">6</span><div class="grow"><div class="name">同学群</div><div class="msg">12 条闲聊，已折叠</div></div><span class="time">08:20</span></div>
+    <div class="note mt8" style="margin-top:auto">共 132 条未读，按「是否需要你回」排序</div>`,{style:'flex:1',tight:true,icon:'zap'})}
+  <div class="callout" style="right:-8px;bottom:34px">先回这 3 个<small>其余可稍后处理</small></div>`
+}),
+poster('message-assistant/04',{
+  accent:'#2563eb',soft:'#eff6ff',bg:'01-blue',kicker:'个人成果 2',tag:'实测',tagCls:'tag-live',
+  title:'AI 按我的语气<br><b>起草回复</b>',
+  sub:'先看画像，再给草稿；确认后才发送。',
+  foot:'画像来自近 30 天 1119 条真实消息',
+  stage:`
+  <div class="cmp">
+    <div class="side after">
+      <div class="lab">${ico('users',16)} 我的语气画像</div>
+      <div class="bd">
+        <div class="kv">
+          <span class="k">平均句长</span><span class="v">19 字</span>
+          <span class="k">常用开头</span><span class="v">收到 / 好的</span>
+          <span class="k">标点习惯</span><span class="v">简洁，少用感叹号</span>
+          <span class="k">常用结尾</span><span class="v">谢谢 / 辛苦了</span>
+          <span class="k">口头禅</span><span class="v">「我这边」</span>
+          <span class="k">回复中位数</span><span class="v">1 分 12 秒</span>
+          <span class="k">样本量</span><span class="v">1119 条</span>
+          <span class="k">样本区间</span><span class="v">近 30 天</span>
+        </div>
+        <div class="mt12" style="display:flex;align-items:flex-end;gap:6px;height:74px">
+          ${[42,58,50,66,72,64,80,76,88,82,92,86].map((h,i)=>`<div style="flex:1;height:${h}%;border-radius:4px 4px 0 0;background:${i>8?'#2563eb':'#bfdbfe'}"></div>`).join('')}
+        </div>
+        <div style="font-size:11.5px;color:#94a3b8;margin-top:3px">近 12 周消息样本</div>
+        <div class="note mt12">不是通用模板，是照你的写法起草</div>
+        <div class="mt12" style="font-size:12px;font-weight:900;color:#64748b">我的原话样本</div>
+        <div class="bubble me" style="max-width:100%;margin-top:6px;font-size:12.5px">收到，我这边下午处理，好了发您。</div>
+        <div class="bubble me" style="max-width:100%;font-size:12.5px">好的，单号出来我发您，辛苦了。</div>
+        <div class="mt12" style="font-size:12px;font-weight:900;color:#64748b;margin-bottom:4px">常用词</div>
+        <div class="chips"><span class="chip on">收到</span><span class="chip">好的</span><span class="chip">我这边</span><span class="chip">辛苦了</span></div>
+        <div class="kv mt12" style="margin-top:auto">
+          <span class="k">私聊样本</span><span class="v">812 条</span>
+          <span class="k">群聊样本</span><span class="v">307 条</span>
+        </div>
+      </div>
+    </div>
+    <div class="side after">
+      <div class="lab">${ico('chat',16)} 起草结果 · 待确认</div>
+      <div class="bd" style="display:flex;flex-direction:column">
+        <div class="bubble them" style="max-width:92%">王总，盖章页我看到了。发票抬头还是上次那个吗？</div>
+        <div class="bubble me" style="max-width:92%">收到，抬头不变。我这边今天下午把合同寄出，单号出来发您。</div>
+        <div class="bubble them" style="max-width:92%">好的，麻烦尽快。另外开票信息我让财务发你。</div>
+        <div class="chips" style="margin-top:2px"><span class="chip on">更正式</span><span class="chip">更简短</span><span class="chip">加一句交期</span></div>
+        <div class="kin mt12" style="margin-top:12px">
+          <div class="note" style="display:flex;flex-direction:column;gap:3px">
+            <span>${ico('check',13)} 收件人已核对：客户 · 王**</span>
+            <span>${ico('check',13)} 未附带文件，不需要二次确认</span>
+            <span>${ico('check',13)} 没有直接发送，等人工确认</span>
+          </div>
+        </div>
+        <div class="mt12" style="background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:10px 12px">
+          <div style="font-size:11.5px;font-weight:900;color:#64748b;margin-bottom:5px">草稿正文 · 可改</div>
+          <div style="font-size:13.5px;line-height:1.6;color:#334155">收到，抬头不变。我这边今天下午把合同寄出，单号出来发您。发票按 13 个点开。</div>
+          <div class="chips mt8"><span class="chip on">更正式</span><span class="chip">更简短</span><span class="chip">加称呼</span></div>
+          <div style="font-size:11px;color:#94a3b8;margin-top:6px">62 字 · 预计阅读 8 秒</div>
+        </div>
+        <div class="draft" style="margin-top:auto">按我的语气生成，没有直接发。
+          <div class="btns"><span class="btn">${ico('check',13)} 确认后发送</span><span class="btn ghost">改一改</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="callout" style="right:-8px;top:-14px">1119 条<small>真实消息样本</small></div>`
+}),
+poster('message-assistant/05',{
+  accent:'#2563eb',soft:'#eff6ff',bg:'01-blue',kicker:'公司成果 1',tag:'示例',tagCls:'tag-demo',
+  title:'客服话术<br><b>统一成一套</b>',
+  sub:'常用回复进话术库，人工确认后再发。',
+  foot:'示例场景 · 正式上架请替换为真实团队案例并打码',
+  stage:`
+  <div class="flow" style="height:148px">
+    <div class="step"><div class="sn">1</div><div class="h">话术库</div><div class="p">12 条常用回复<br>退换 / 物流 / 开票</div></div>
+    <div class="arrow">${ico('arrow',22)}</div>
+    <div class="step"><div class="sn">2</div><div class="h">AI 起草</div><div class="p">按客户问题取话术<br>自动补上下文</div></div>
+    <div class="arrow">${ico('arrow',22)}</div>
+    <div class="step"><div class="sn">3</div><div class="h">人工确认</div><div class="p">预览后再发送<br>发完读库核对</div></div>
+  </div>
+  <div class="mt12" style="flex:1;min-height:0">
+    ${win('话术库 · 发送预览','人工确认',`
+      <div class="row"><div class="grow"><div class="name">物流到哪了</div><div class="msg">您好，我这边帮您查一下，稍后把物流节点发您。</div></div><span class="chip on">常用</span></div>
+      <div class="row"><div class="grow"><div class="name">可以退换吗</div><div class="msg">可以的，7 天内不影响二次销售可退换，我把地址发您。</div></div><span class="chip">常用</span></div>
+      <div class="row"><div class="grow"><div class="name">发票怎么开</div><div class="msg">请发一下抬头和税号，今天开好发您邮箱。</div></div><span class="chip">常用</span></div>
+      <div class="row"><div class="grow"><div class="name">地址填错了</div><div class="msg">没事，发货前都能改，您把新地址发我。</div></div><span class="chip">常用</span></div>
+      <div class="row"><div class="grow"><div class="name">什么时候发货</div><div class="msg">今天 4 点前的单当天发，之后顺延到明天。</div></div><span class="chip">常用</span></div>
+      <div class="draft mt8">当前会话：客户 · 王**　问题「物流到哪了」
+        <div class="btns"><span class="btn">${ico('check',13)} 确认发送</span><span class="btn ghost">换一条</span></div>
+      </div>
+      <div class="note mt10" style="margin-top:auto">发送后回读数据库核对；没确认到就不重复发</div>`,{style:'height:100%',tight:true,icon:'doc'})}
+  </div>`
+}),
+poster('message-assistant/06',{
+  accent:'#2563eb',soft:'#eff6ff',bg:'01-blue',kicker:'公司成果 2',tag:'示例',tagCls:'tag-demo',
+  title:'见客户前<br><b>30 秒补上下文</b>',
+  sub:'先看上次聊到哪，再决定这次聊什么。',
+  foot:'示例场景 · 正式上架请替换为真实客户案例并打码',
+  stage:`
+  <div style="position:absolute;inset:0">
+    ${win('客户简报 · 王**','30 秒读完',`
+      <div class="metrics c4" style="margin-bottom:10px">
+        ${metric('614','条消息','','c4')}
+        ${metric('127','段往来','','c4')}
+        ${metric('83','对方开场','','c4')}
+        ${metric('2','未接问句','','c4')}
+      </div>
+      <div style="display:grid;grid-template-columns:1.08fr .92fr;gap:16px">
+        <div class="kv">
+          <span class="k">上次聊到</span><span class="v">报价与交期（10 月 14 日）</span>
+          <span class="k">对方关注</span><span class="v">交期、发票、售后</span>
+          <span class="k">回复速度</span><span class="v">双方中位数 52 秒 / 50 秒</span>
+          <span class="k">最近 30 天</span><span class="v">42 条消息，对方主动 6 次</span>
+          <span class="k">共同群</span><span class="v">3 个</span>
+          <span class="k">历史订单</span><span class="v">2 单，最近一单在 9 月</span>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:10px;padding:10px 12px">
+            <div style="font-size:12px;font-weight:900;color:#b91c1c">未接问句</div>
+            <div style="font-size:14px;font-weight:800;color:#991b1b;margin-top:3px">「含税价能再低一点吗？」</div>
+            <div style="font-size:11.5px;color:#94a3b8;margin-top:2px">10 月 14 日 · 还没回</div>
+          </div>
+          <div class="note" style="margin-top:auto">建议开场：先回答价格，再确认交期</div>
+        </div>
+      </div>
+      <div class="mt12" style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+        <div>
+          <div style="font-size:12px;font-weight:900;color:#64748b;margin-bottom:5px">最近往来</div>
+          <div class="tl" style="padding-left:22px">
+            <div class="tli" style="margin-bottom:8px"><div class="tm">10-14</div><div class="tx">报价与交期确认</div></div>
+            <div class="tli" style="margin-bottom:8px"><div class="tm">09-28</div><div class="tx">样品寄出，对方已收到</div></div>
+            <div class="tli" style="margin-bottom:8px"><div class="tm">09-12</div><div class="tx">首次询价，发了报价单</div></div>
+            <div class="tli" style="margin-bottom:8px"><div class="tm">09-02</div><div class="tx">寄过一轮样品，对方确认收到</div></div>
+            <div class="tli"><div class="tm">08-20</div><div class="tx">加上好友，来自展会</div></div>
+          </div>
+        </div>
+        <div>
+          <div style="font-size:12px;font-weight:900;color:#64748b;margin-bottom:5px">建议带的资料</div>
+          <div class="chips"><span class="chip on">报价单</span><span class="chip">合同模板</span><span class="chip">样品清单</span><span class="chip">开票信息</span></div>
+          <div class="note mt8" style="background:#fff;border:1px dashed #e2e8f0;color:#94a3b8;font-weight:600">资料清单来自聊天里提过的内容，需人工确认</div>
+          <div class="mt12" style="font-size:12px;font-weight:900;color:#64748b;margin-bottom:5px">上次成交</div>
+          <div class="row" style="padding:5px 0"><div class="grow"><div class="name" style="font-size:13px">9 月 2 日 · 2 单</div></div><span class="time">已开票</span></div>
+          <div class="row" style="padding:5px 0"><div class="grow"><div class="name" style="font-size:13px">售后问题</div></div><span class="time">无未结</span></div>
+        </div>
+      </div>
+      <div class="note mt12" style="margin-top:auto">只给事实和数字，不替你判断客户值不值得跟</div>`,{style:'height:100%',icon:'users'})}
+  </div>`
+}),
+
+/* ============ 02 记录整理 ============ */
+poster('export-archive/01',{
+  accent:'#4f46e5',soft:'#eef2ff',bg:'02-indigo',kicker:'功能亮点',tag:'实测',tagCls:'tag-live',
+  title:'整段聊天<br><b>一个文件带走</b>',
+  sub:'图片内嵌，换台电脑打开也不掉图。',
+  foot:'本机实测 2026-10-14 · 394 条 + 12 图',
+  stage:`
+  <div style="position:absolute;inset:0">
+    ${win('导出预览 · HTML 单文件','797 KB',`
+      <div style="display:grid;grid-template-columns:1fr 168px;gap:14px;height:100%">
+        <div class="doc">
+          <div class="doc-h"><span>客户 · 王** · 聊天记录</span><span class="m">394 条 · 2026-10-14</span></div>
+          <div class="sys">2026-10-14 09:40</div>
+          <div class="bubble them">合同盖章页已经发您，麻烦确认。</div>
+          <div class="bubble me">收到，我这边看下。</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:7px;margin:2px 0 8px">
+            <div class="doc-img" style="height:64px">图片 1</div><div class="doc-img green" style="height:64px">图片 2</div>
+          </div>
+          <div class="bubble them">快递单号：SF1234 5678 90</div>
+          <div class="bubble me">好的，收到。</div>
+          <div class="sys">2026-10-14 10:05</div>
+          <div class="bubble them">发票按 13 个点开，抬头不变。</div>
+          <div class="bubble me">明白，下午一起处理。</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:7px;margin:2px 0 8px">
+            <div class="doc-img amber" style="height:52px">图片 3</div><div class="doc-img" style="height:52px">图片 4</div><div class="doc-img green" style="height:52px">图片 5</div>
+          </div>
+          <div style="margin-top:auto;font-size:11.5px;color:#94a3b8">图片已内嵌进文件 · 不依赖原电脑</div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <div class="note">${ico('image',14)} 12 张图片<br>全部内嵌</div>
+          <div class="chips">
+            <span class="chip on">HTML</span><span class="chip">PDF</span><span class="chip">Excel</span><span class="chip">CSV</span><span class="chip">MD</span><span class="chip">JSON</span>
+          </div>
+          <div class="metric" style="padding:10px 12px"><div class="n" style="font-size:30px">1 个</div><div class="l">文件</div><div class="x">发给别人也能看</div></div>
+          <div class="metric" style="padding:10px 12px"><div class="n" style="font-size:30px">12</div><div class="l">张图片</div><div class="x">内嵌，不丢</div></div>
+          <div class="metric" style="padding:10px 12px"><div class="n" style="font-size:30px">9</div><div class="l">个附件</div><div class="x">只列清单与文件名</div></div>
+          <div class="note" style="margin-top:auto">导出的文件只读，不改原聊天数据</div>
+        </div>
+      </div>`,{style:'height:100%',icon:'doc'})}
+    <div class="callout" style="right:-8px;top:-14px">394 条 + 12 图<small>→ 797 KB 单文件</small></div>
+  </div>`
+}),
+poster('export-archive/02',{
+  accent:'#4f46e5',soft:'#eef2ff',bg:'02-indigo',kicker:'使用场景',tag:'交接季',tagCls:'tag-soft',
+  title:'离职交接<br><b>记录文件一起打包</b>',
+  sub:'聊天、附件、清单放在同一棵目录里。',
+  foot:'目录结构示意 · 只读、只拷贝，不删除原文件',
+  stage:`
+  <div class="cmp" style="grid-template-columns:60% 40%">
+    <div class="side after">
+      <div class="lab">${ico('folder',16)} 交接包 · 一键归档</div>
+      <div class="bd">
+        <div class="tree">
+          <div class="ti"><span class="ic">${ico('folder',14)}</span> 2026-10 离职交接 <span class="meta">1.8 GB</span></div>
+          <div class="ti d1"><span class="ic">${ico('doc',14)}</span> 聊天记录.html <span class="ok">已生成</span></div>
+          <div class="ti d1"><span class="ic">${ico('folder',14)}</span> 文件归档 <span class="meta">126 个</span></div>
+          <div class="ti d2"><span class="ic">${ico('image',14)}</span> 图片 <span class="meta">48</span></div>
+          <div class="ti d2"><span class="ic">${ico('file',14)}</span> 合同与报价 <span class="meta">32</span></div>
+          <div class="ti d2"><span class="ic">${ico('mic',14)}</span> 语音 <span class="meta">12</span></div>
+          <div class="ti d2"><span class="ic">${ico('doc',14)}</span> 其他文档 <span class="meta">34</span></div>
+          <div class="ti d1"><span class="ic">${ico('table',14)}</span> 文件清单.xlsx <span class="ok">已生成</span></div>
+          <div class="ti d1"><span class="ic">${ico('file',14)}</span> 交接说明.md <span class="ok">已生成</span></div>
+          <div class="ti d1"><span class="ic">${ico('search',14)}</span> 未下载 / 已过期 <span class="meta" style="color:#b45309">3 个</span></div>
+          <div class="ti d2"><span class="ic">${ico('file',14)}</span> 报价单_9月.pdf <span class="meta" style="color:#b45309">缺失</span></div>
+          <div class="ti d2"><span class="ic">${ico('file',14)}</span> 图纸_v2.dwg <span class="meta" style="color:#b45309">缺失</span></div>
+        </div>
+        <div class="mt12" style="font-size:12px;font-weight:900;color:#64748b;margin-bottom:2px">本次预演</div>
+        <div class="row" style="padding:6px 0"><div class="grow"><div class="name" style="font-size:13.5px">可归档</div></div><span class="chip on">126 个</span></div>
+        <div class="row" style="padding:6px 0"><div class="grow"><div class="name" style="font-size:13.5px">已存在，跳过</div></div><span class="chip">4 个</span></div>
+        <div class="row" style="padding:6px 0"><div class="grow"><div class="name" style="font-size:13.5px">另一个版本，另存</div></div><span class="chip">2 个</span></div>
+        <div class="note mt12" style="margin-top:auto">先出清单，确认后再真拷贝；已存在的文件不会覆盖</div>
+      </div>
+    </div>
+    <div class="side after">
+      <div class="lab">${ico('check',16)} 交付前检查</div>
+      <div class="bd">
+        <div class="kv">
+          <span class="k">只读</span><span class="v green">不改原数据</span>
+          <span class="k">归档</span><span class="v green">只拷贝</span>
+          <span class="k">覆盖</span><span class="v green">不覆盖</span>
+          <span class="k">重复运行</span><span class="v green">可反复跑</span>
+          <span class="k">过期文件</span><span class="v" style="color:#b45309">单独标出</span>
+        </div>
+        <div class="metrics c3 mt12" style="grid-template-columns:repeat(3,1fr);margin-bottom:0">
+          ${metric('126','个文件','','c4')}
+          ${metric('1.8 GB','合计','','c4')}
+          ${metric('3','个缺失','','c4')}
+        </div>
+        <div class="mt12" style="font-size:12px;font-weight:900;color:#64748b;margin-bottom:2px">检查结果</div>
+        <div class="row" style="padding:6px 0"><div class="grow"><div class="name" style="font-size:13.5px">目标目录可写</div></div><span class="chip on">通过</span></div>
+        <div class="row" style="padding:6px 0"><div class="grow"><div class="name" style="font-size:13.5px">磁盘空间足够</div></div><span class="chip on">通过</span></div>
+        <div class="row" style="padding:6px 0"><div class="grow"><div class="name" style="font-size:13.5px">原文件可读</div></div><span class="chip on">通过</span></div>
+        <div class="row" style="padding:6px 0"><div class="grow"><div class="name" style="font-size:13.5px">文件名冲突</div></div><span class="chip on">自动改名</span></div>
+        <div class="row" style="padding:6px 0"><div class="grow"><div class="name" style="font-size:13.5px">路径长度</div></div><span class="chip on">已检查</span></div>
+        <div class="row" style="padding:6px 0"><div class="grow"><div class="name" style="font-size:13.5px">缺失文件</div></div><span class="chip" style="color:#b45309">3 个</span></div>
+        <div class="note mt12" style="margin-top:auto">先预演，确认清单后再真拷贝</div>
+      </div>
+    </div>
+  </div>`
+}),
+poster('export-archive/03',{
+  accent:'#4f46e5',soft:'#eef2ff',bg:'02-indigo',kicker:'个人成果 1',tag:'实测',tagCls:'tag-live',
+  title:'图片不丢<br><b>换电脑也能看</b>',
+  sub:'HTML 把 12 张图装进同一个文件。',
+  foot:'本机实测 · HTML 内嵌 12 张图片',
+  stage:`
+  <div class="cmp">
+    <div class="side before">
+      <div class="lab">${ico('x',16)} 以前：图片散落在本地</div>
+      <div class="bd">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          ${['图片 1','图片 2','图片 3','图片 4'].map(()=>`<div style="height:74px;border-radius:8px;background:#f8fafc;border:1.5px dashed #cbd5e1;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:12px;font-weight:800">${ico('image',16)} 加载失败</div>`).join('')}
+        </div>
+        <div style="font-size:12.5px;color:#94a3b8;line-height:1.6;margin-top:10px">换电脑、清理缓存、文件夹改名<br>图片就只剩灰框</div>
+        <div class="mt12" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:9px 11px">
+          <div style="font-size:12px;font-weight:900;color:#64748b;margin-bottom:4px">旧文件怎么引用图片</div>
+          <div style="font-family:Consolas,monospace;font-size:11.5px;color:#64748b;line-height:1.8">src="../image/ab12cd.jpg"<br>src="file:///C:/Users/..."</div>
+        </div>
+        <div class="mt8" style="background:var(--soft);border:1px solid #c7d2fe;border-radius:10px;padding:9px 11px">
+          <div style="font-size:12px;font-weight:900;color:var(--accent);margin-bottom:4px">现在怎么引用</div>
+          <div style="font-family:Consolas,monospace;font-size:11.5px;color:#4338ca;line-height:1.8">src="data:image/jpeg;base64,…"<br>图片就在文件里</div>
+        </div>
+        <div class="hit" style="margin-top:auto"><div class="h">失效路径 1</div><div class="s">…/image/2026-09/ab12cd.jpg</div></div>
+        <div class="hit"><div class="h">失效路径 2</div><div class="s">…/image/2026-09/ef34gh.png</div></div>
+        <div class="hit"><div class="h">失效路径 3</div><div class="s">…/cache/thumb/98ijkl.dat</div></div>
+      </div>
+    </div>
+    <div class="side after">
+      <div class="lab">${ico('check',16)} 现在：一个 HTML 全带走</div>
+      <div class="bd">
+        <div class="doc" style="padding:10px">
+          <div class="doc-h"><span>聊天记录.html</span><span class="m">797 KB</span></div>
+          <div class="sys">2026-10-14 09:40</div>
+          <div class="bubble them">合同盖章页已经发您。</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:6px 0">
+            <div class="doc-img" style="height:52px">图片 1</div><div class="doc-img green" style="height:52px">图片 2</div>
+          </div>
+          <div class="bubble me">收到，图片很清楚。</div>
+          <div class="bubble them">快递单号：SF1234 5678 90</div>
+          <div class="bubble me">好的，下午统一处理。</div>
+          <div class="sys">2026-10-14 10:05</div>
+          <div class="bubble them">发票按 13 个点开。</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin:6px 0">
+            <div class="doc-img amber" style="height:44px">图片 3</div><div class="doc-img" style="height:44px">图片 4</div><div class="doc-img green" style="height:44px">图片 5</div>
+          </div>
+          <div class="bubble me">明白。</div>
+          <div style="margin-top:auto;font-size:11px;color:#94a3b8">图片全部内嵌 · 打开就能看</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="callout" style="right:-8px;bottom:-10px">12 张图<small>全部在文件里</small></div>`
+}),
+poster('export-archive/04',{
+  accent:'#4f46e5',soft:'#eef2ff',bg:'02-indigo',kicker:'个人成果 2',tag:'实测',tagCls:'tag-live',
+  title:'全库找一句话<br><b>3.2 秒</b>',
+  sub:'不记得在哪个会话，也能全库搜。',
+  foot:'本机实测 · 72 个会话，42 个命中',
+  stage:`
+  <div style="position:absolute;inset:0">
+    ${win('全库搜索','3.2 秒',`
+      <div class="search">${ico('search',18)}<span class="q">报价</span><span class="k">72 个会话 · 42 个命中</span></div>
+      <div class="mt10" style="flex:1">
+        <div class="hit"><div class="h">客户 · 王**　<span style="color:#4f46e5">10 月 14 日</span></div><div class="s">含税<mark>报价</mark>我再确认一下，下午发您。</div></div>
+        <div class="hit"><div class="h">项目群 · 交付　<span style="color:#4f46e5">10 月 12 日</span></div><div class="s">这版<mark>报价</mark>按上次的口径，不含运费。</div></div>
+        <div class="hit"><div class="h">供应商 · 李**　<span style="color:#4f46e5">10 月 09 日</span></div><div class="s">样品<mark>报价</mark>单已经发到您邮箱。</div></div>
+        <div class="hit"><div class="h">财务 · 赵**　<span style="color:#4f46e5">09 月 28 日</span></div><div class="s">这个<mark>报价</mark>需要补一份盖章版。</div></div>
+        <div class="hit"><div class="h">客户 · 周**　<span style="color:#4f46e5">09 月 26 日</span></div><div class="s">上次的<mark>报价</mark>还有效吗？</div></div>
+        <div class="hit"><div class="h">项目群 · 交付　<span style="color:#4f46e5">09 月 22 日</span></div><div class="s">最终<mark>报价</mark>以合同附件为准。</div></div>
+        <div class="hit"><div class="h">客户 · 王**　<span style="color:#4f46e5">09 月 18 日</span></div><div class="s">新<mark>报价</mark>比上次低了 3 个点。</div></div>
+        <div class="hit"><div class="h">供应商 · 李**　<span style="color:#4f46e5">09 月 15 日</span></div><div class="s">原材料涨价，<mark>报价</mark>要重新算。</div></div>
+        <div class="hit"><div class="h">财务 · 赵**　<span style="color:#4f46e5">09 月 10 日</span></div><div class="s">这版<mark>报价</mark>的税率写错了。</div></div>
+        <div class="note mt10" style="margin-top:auto">只显示命中的消息，可整段导出</div>
+      </div>
+      `,{style:'height:100%',icon:'search'})}
+    <div class="callout" style="right:-8px;top:-14px">3.2 秒<small>72 个会话全扫完</small></div>
+  </div>`
+}),
+poster('export-archive/05',{
+  accent:'#4f46e5',soft:'#eef2ff',bg:'02-indigo',kicker:'公司成果 1',tag:'示例',tagCls:'tag-demo',
+  title:'项目组交接<br><b>有据可查</b>',
+  sub:'记录、文件、清单一次交付。',
+  foot:'示例场景 · 正式上架请替换为真实项目案例并打码',
+  stage:`
+  <div class="flow" style="height:172px">
+    <div class="step"><div class="sn">1</div><div class="h">聊天记录</div><div class="p">HTML / PDF<br>按项目导出<br>只读原数据</div></div>
+    <div class="arrow">${ico('arrow',22)}</div>
+    <div class="step"><div class="sn">2</div><div class="h">文件归档</div><div class="p">合同 / 图纸 / 图片<br>只拷贝不覆盖<br>已存在就跳过</div></div>
+    <div class="arrow">${ico('arrow',22)}</div>
+    <div class="step"><div class="sn">3</div><div class="h">交接清单</div><div class="p">文件清单.xlsx<br>缺口单独标出<br>可反复跑</div></div>
+  </div>
+  <div class="mt12" style="flex:1;min-height:0">
+    ${win('项目交接包 · 预览','4 个文件',`
+      <div class="tree">
+        <div class="ti"><span class="ic">${ico('folder',14)}</span> 项目 A · 交接包 <span class="meta">1.2 GB</span></div>
+        <div class="ti d1"><span class="ic">${ico('doc',14)}</span> 聊天记录.pdf <span class="meta">218 页</span><span class="ok">已生成</span></div>
+        <div class="ti d1"><span class="ic">${ico('table',14)}</span> 文件清单.xlsx <span class="meta">126 行</span><span class="ok">已生成</span></div>
+        <div class="ti d1"><span class="ic">${ico('folder',14)}</span> 合同与图纸 <span class="meta">64 个</span></div>
+        <div class="ti d2"><span class="ic">${ico('doc',14)}</span> 合同扫描件 <span class="meta">21</span></div>
+        <div class="ti d2"><span class="ic">${ico('image',14)}</span> 图纸导出 <span class="meta">43</span></div>
+        <div class="ti d1"><span class="ic">${ico('mic',14)}</span> 语音记录 <span class="meta">18 条</span></div>
+        <div class="ti d1"><span class="ic">${ico('image',14)}</span> 聊天图片 <span class="meta">96 张</span></div>
+        <div class="ti d1"><span class="ic">${ico('doc',14)}</span> 其他文档 <span class="meta">47 个</span></div>
+        <div class="ti d1"><span class="ic">${ico('file',14)}</span> 交接说明.md <span class="ok">已生成</span></div>
+        <div class="ti d1"><span class="ic">${ico('search',14)}</span> 无法归档 <span class="meta" style="color:#b45309">2 个</span></div>
+      </div>
+      <div class="note mt10" style="margin-top:auto">过期文件已单独标出，无法归档的如实说明</div>`,{style:'height:100%',icon:'folder'})}
+  </div>`
+}),
+poster('export-archive/06',{
+  accent:'#4f46e5',soft:'#eef2ff',bg:'02-indigo',kicker:'公司成果 2',tag:'示例',tagCls:'tag-demo',
+  title:'对账只导命中<br><b>直接进 Excel</b>',
+  sub:'按关键词筛，不用整段翻。',
+  foot:'示例场景 · 中文 CSV 不乱码',
+  stage:`
+  <div style="position:absolute;inset:0">
+    ${win('对账导出 · 关键词「对账」','42 条命中',`
+      <div class="chips" style="margin-bottom:8px"><span class="chip on">关键词：对账</span><span class="chip">时间段：10 月</span><span class="chip">会话：全部</span><span class="chip">格式：CSV</span></div>
+      <table class="tbl">
+        <tr><th>时间</th><th>会话</th><th>发送人</th><th>内容</th></tr>
+        <tr><td>10-14 09:12</td><td>客户 · 王**</td><td>对方</td><td>这周的<span class="hi">对账</span>表发您了</td></tr>
+        <tr><td>10-13 17:40</td><td>财务 · 赵**</td><td>我</td><td><span class="hi">对账</span>差异 3 笔</td></tr>
+        <tr><td>10-12 11:05</td><td>供应商 · 李**</td><td>对方</td><td>麻烦确认<span class="hi">对账</span>金额</td></tr>
+        <tr><td>10-11 10:22</td><td>项目群</td><td>我</td><td><span class="hi">对账</span>已完成</td></tr>
+        <tr><td>10-09 15:08</td><td>客户 · 周**</td><td>对方</td><td>收到<span class="hi">对账</span>文件</td></tr>
+        <tr><td>10-08 14:35</td><td>财务 · 赵**</td><td>我</td><td>本周<span class="hi">对账</span>已发邮箱</td></tr>
+        <tr><td>10-07 09:50</td><td>供应商 · 李**</td><td>对方</td><td><span class="hi">对账</span>金额有 2 笔差异</td></tr>
+        <tr><td>10-06 16:20</td><td>项目群</td><td>我</td><td>请把<span class="hi">对账</span>表同步一下</td></tr>
+        <tr><td>10-05 11:12</td><td>客户 · 王**</td><td>对方</td><td><span class="hi">对账</span>完成，可以开票</td></tr>
+        <tr><td>10-04 17:46</td><td>财务 · 赵**</td><td>我</td><td>差异已核对，<span class="hi">对账</span>表更新</td></tr>
+        <tr><td>10-03 10:30</td><td>供应商 · 李**</td><td>对方</td><td>麻烦发一下上月<span class="hi">对账</span></td></tr>
+        <tr><td>10-02 15:12</td><td>项目群</td><td>我</td><td><span class="hi">对账</span>以财务版为准</td></tr>
+        <tr><td>10-01 09:08</td><td>客户 · 周**</td><td>对方</td><td>节后一起<span class="hi">对账</span></td></tr>
+        <tr><td>09-29 14:25</td><td>财务 · 赵**</td><td>我</td><td>9 月<span class="hi">对账</span>已归档</td></tr>
+      </table>
+      <div style="margin-top:auto;display:flex;justify-content:space-between;align-items:center">
+        <span class="note" style="padding:7px 10px">${ico('table',14)} 中文 CSV 不乱码</span>
+        <span class="chip on">导出 42 条</span>
+      </div>`,{style:'height:100%',icon:'table'})}
+    <div class="callout" style="right:-8px;top:-14px">只导 42 条<small>不用整段翻</small></div>
+  </div>`
+}),
+
+/* ============ 03 联系人整理 ============ */
+poster('contact-organizer/01',{
+  accent:'#059669',soft:'#ecfdf5',bg:'03-green',kicker:'功能亮点',tag:'实测',tagCls:'tag-live',
+  title:'2712 个联系人<br><b>按人分层</b>',
+  sub:'有互动的、没说过话的，分开看。',
+  foot:'本机实测 2026-10-14 · 联系人数据已打码',
+  stage:`
+  <div class="metrics c3">
+    ${metric('2712','全部联系人','好友 / 群 / 公众号')}
+    ${metric('171','有互动','近 90 天')}
+    ${metric('2540','没说过话','单独列出')}
+  </div>
+  ${win('联系人分层','按人统计',`
+    <div style="display:grid;grid-template-columns:1fr 260px;gap:14px;height:100%">
+      <div style="display:flex;flex-direction:column;justify-content:space-between">
+        <div class="row"><span class="name" style="width:120px">30 天未联系</span><div class="grow"><div class="bar-track"><div class="bar-fill" style="width:72%"></div></div></div><span class="time" style="font-size:16px;font-weight:900;color:#059669">117 人</span></div>
+        <div class="row"><span class="name" style="width:120px">31–60 天</span><div class="grow"><div class="bar-track"><div class="bar-fill" style="width:38%"></div></div></div><span class="time" style="font-size:16px;font-weight:900;color:#059669">54 人</span></div>
+        <div class="row"><span class="name" style="width:120px">61–90 天</span><div class="grow"><div class="bar-track"><div class="bar-fill muted" style="width:18%"></div></div></div><span class="time" style="font-size:16px;font-weight:900;color:#64748b">23 人</span></div>
+        <div class="row"><span class="name" style="width:120px">从没说过话</span><div class="grow"><div class="bar-track"><div class="bar-fill muted" style="width:100%"></div></div></div><span class="time" style="font-size:16px;font-weight:900;color:#64748b">2540 人</span></div>
+        <div class="row"><span class="name" style="width:120px">91–180 天</span><div class="grow"><div class="bar-track"><div class="bar-fill muted" style="width:12%"></div></div></div><span class="time" style="font-size:16px;font-weight:900;color:#64748b">9 人</span></div>
+        <div class="row"><span class="name" style="width:120px">今天有互动</span><div class="grow"><div class="bar-track"><div class="bar-fill" style="width:22%"></div></div></div><span class="time" style="font-size:16px;font-weight:900;color:#059669">28 人</span></div>
+        <div class="note mt10">分层按最后一条双向消息计算；只读时间和条数，不读正文</div>
+      </div>
+      <div class="assist" style="display:flex;flex-direction:column;justify-content:center">
+        <div style="font-size:13px;font-weight:900;color:#64748b">按「人」统计</div>
+        <div style="font-size:15px;line-height:1.65;color:#334155;margin-top:6px">私聊没说过、<br>但在群里冒过泡的人<br>也能识别。</div>
+        <div class="kv mt12" style="font-size:12.5px">
+          <span class="k">好友</span><span class="v">2186 人</span>
+          <span class="k">群成员</span><span class="v">486 人</span>
+          <span class="k">公众号</span><span class="v">40 个</span>
+        </div>
+        <div class="mt12" style="font-size:12px;font-weight:900;color:#64748b">今天先联系</div>
+        <div class="row" style="padding:5px 0"><div class="grow"><div class="name" style="font-size:13px">客户 · 王**</div></div><span class="time">32 天</span></div>
+        <div class="row" style="padding:5px 0"><div class="grow"><div class="name" style="font-size:13px">客户 · 周**</div></div><span class="time">35 天</span></div>
+        <div class="row" style="padding:5px 0"><div class="grow"><div class="name" style="font-size:13px">供应商 · 李**</div></div><span class="time">41 天</span></div>
+        <div class="row" style="padding:5px 0"><div class="grow"><div class="name" style="font-size:13px">客户 · 陈**</div></div><span class="time">42 天</span></div>
+        <div class="row" style="padding:5px 0"><div class="grow"><div class="name" style="font-size:13px">客户 · 赵**</div></div><span class="time">45 天</span></div>
+        <div class="note mt10" style="margin-top:auto">不是只按会话统计</div>
+      </div>
+    </div>`,{style:'flex:1',tight:true,icon:'users'})}`
+}),
+poster('contact-organizer/02',{
+  accent:'#059669',soft:'#ecfdf5',bg:'03-green',kicker:'使用场景',tag:'见客户前',tagCls:'tag-soft',
+  title:'见客户前<br><b>先看上次聊到哪</b>',
+  sub:'谁主动、回多快、还有什么没回。',
+  foot:'本机实测 · 614 条消息，127 段往来',
+  stage:`
+  <div class="cmp" style="grid-template-columns:40% 60%">
+    <div class="side after">
+      <div class="lab">${ico('clock',16)} 今天 15:30 · 见客户</div>
+      <div class="bd" style="display:flex;flex-direction:column">
+        <div style="font-size:13px;font-weight:900;color:#64748b">客户</div>
+        <div style="font-size:30px;font-weight:900;color:#0f172a;margin-top:2px">王**</div>
+        <div style="font-size:13px;color:#64748b;font-weight:700;margin-top:6px">上次聊天：10 月 14 日</div>
+        <div class="kv mt12" style="font-size:13px">
+          <span class="k">标签</span><span class="v">客户 / 重点</span>
+          <span class="k">共同群</span><span class="v">3 个</span>
+          <span class="k">最近 30 天</span><span class="v">42 条消息</span>
+          <span class="k">上次回复</span><span class="v">对方 6 分钟</span>
+        </div>
+        <div class="note mt12">见面前 30 秒<br>补完上下文</div>
+        <div class="chips mt12"><span class="chip on">客户简报</span><span class="chip">未接问句</span><span class="chip">高频词</span></div>
+        <div class="mt12">
+          <div style="font-size:12px;font-weight:900;color:#64748b;margin-bottom:6px">回复中位数</div>
+          <div class="bar-top"><span>对方</span><span class="v">52 秒</span></div>
+          <div class="bar-track"><div class="bar-fill" style="width:52%"></div></div>
+          <div class="bar-top" style="margin-top:6px"><span>我</span><span class="v">50 秒</span></div>
+          <div class="bar-track"><div class="bar-fill" style="width:48%"></div></div>
+        </div>
+        <div class="mt12" style="margin-top:auto">
+          <div style="font-size:12px;font-weight:900;color:#64748b;margin-bottom:4px">上次原话</div>
+          <div class="bubble them" style="max-width:100%;font-size:13px">含税价能再低一点吗？能的话这周就定。</div>
+        </div>
+        <div class="mt12">
+          <div style="font-size:12px;font-weight:900;color:#64748b;margin-bottom:4px">建议带的资料</div>
+          <div class="chips"><span class="chip on">报价单</span><span class="chip">合同模板</span><span class="chip">开票信息</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="side after">
+      <div class="lab">${ico('doc',16)} 一页客户简报</div>
+      <div class="bd">
+        <div class="metrics c4" style="margin-bottom:8px">
+          ${metric('614','条消息','','c4')}
+          ${metric('127','段往来','','c4')}
+          ${metric('83','对方开场','','c4')}
+          ${metric('2','未接问句','','c4')}
+        </div>
+        <div class="kv">
+          <span class="k">上次聊到</span><span class="v">报价与交期</span>
+          <span class="k">高频词</span><span class="v">交期、发票、售后</span>
+          <span class="k">回复中位数</span><span class="v">52 秒 / 50 秒</span>
+          <span class="k">未接问句</span><span class="v" style="color:#dc2626">2 个</span>
+          <span class="k">最近 30 天</span><span class="v">42 条消息，对方主动 6 次</span>
+          <span class="k">历史订单</span><span class="v">2 单，最近一单 9 月</span>
+        </div>
+        <div class="note mt12">下次开场：先回答价格，再确认交期</div>
+        <div class="mt12">
+          <div style="font-size:12px;font-weight:900;color:#64748b;margin-bottom:2px">未接问句</div>
+          <div class="hit" style="padding:5px 0"><div class="s">「含税价能再低一点吗？」<span style="color:#94a3b8"> · 10-14</span></div></div>
+          <div class="hit" style="padding:5px 0"><div class="s">「样品周五能到吗？」<span style="color:#94a3b8"> · 10-12</span></div></div>
+        </div>
+        <div class="mt12" style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:auto">
+          <div>
+            <div style="font-size:12px;font-weight:900;color:#64748b;margin-bottom:4px">最近往来</div>
+            <div class="tl" style="padding-left:22px">
+              <div class="tli" style="margin-bottom:8px"><div class="tm">10-14</div><div class="tx">报价与交期确认</div></div>
+              <div class="tli" style="margin-bottom:8px"><div class="tm">09-28</div><div class="tx">样品寄出，对方已收到</div></div>
+              <div class="tli"><div class="tm">09-12</div><div class="tx">首次询价，发了报价单</div></div>
+            </div>
+          </div>
+          <div>
+            <div style="font-size:12px;font-weight:900;color:#64748b;margin-bottom:4px">今天要谈</div>
+            <div class="chips"><span class="chip on">价格</span><span class="chip">交期</span><span class="chip">开票</span><span class="chip">售后</span></div>
+            <div class="note mt8" style="background:#fff;border:1px dashed #e2e8f0;color:#94a3b8;font-weight:600">按聊天记录里的关注点生成，需人工确认</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>`
+}),
+poster('contact-organizer/03',{
+  accent:'#059669',soft:'#ecfdf5',bg:'03-green',kicker:'个人成果 1',tag:'实测',tagCls:'tag-live',
+  title:'谁该联系<br><b>一眼看到</b>',
+  sub:'沉默分层按天算，不靠记忆。',
+  foot:'本机实测 2026-10-14 · 30 天 117 人 / 31–60 天 54 人',
+  stage:`
+  <div class="metrics c3">
+    ${metric('117','30 天未联系','今天优先')}
+    ${metric('54','31–60 天','本周跟进')}
+    ${metric('2540','从没说过话','单独名单')}
+  </div>
+  <div class="note" style="margin-bottom:10px">今天先联系 5 个 · 从 30 天名单里挑，不用全看</div>
+  ${win('沉默分层','按天排序',`
+    <div class="bars" style="height:100%;justify-content:center">
+      ${bar('30 天未联系','117 人',72,'','今天先联系 5 个')}
+      ${bar('31–60 天','54 人',38)}
+      ${bar('61–90 天','23 人',18,'muted')}
+      ${bar('91–180 天','9 人',9,'muted')}
+      ${bar('从没说过话','2540 人',100,'muted','可整份导出，不包含手机号')}
+      ${bar('今天有互动','28 人',22,'','已回复 11 人')}
+    </div>`,{style:'flex:1',tight:true,icon:'clock'})}
+`
+}),
+poster('contact-organizer/04',{
+  accent:'#059669',soft:'#ecfdf5',bg:'03-green',kicker:'个人成果 2',tag:'实测',tagCls:'tag-live',
+  title:'614 条聊天<br><b>压成一页简报</b>',
+  sub:'来往段数、开场次数、回复速度，一页看完。',
+  foot:'本机实测 · 127 段往来，对方开场 83 次',
+  stage:`
+  <div class="cmp" style="grid-template-columns:62% 38%">
+    <div class="side after">
+      <div class="lab">${ico('doc',16)} 客户简报 · 王**</div>
+      <div class="bd">
+        <div class="kv">
+          <span class="k">消息总数</span><span class="v">614 条</span>
+          <span class="k">来往段数</span><span class="v">127 段</span>
+          <span class="k">谁先开口</span><span class="v">对方 83 次 / 我 44 次</span>
+          <span class="k">回复中位数</span><span class="v">对方 52 秒 / 我 50 秒</span>
+          <span class="k">高频词</span><span class="v">报价、交期、样品</span>
+          <span class="k">未接问句</span><span class="v" style="color:#dc2626">2 个</span>
+          <span class="k">最近 30 天</span><span class="v">42 条消息</span>
+          <span class="k">历史订单</span><span class="v">2 单</span>
+        </div>
+        <div class="mt12" style="font-size:12px;font-weight:900;color:#64748b;margin-bottom:3px">未接问句</div>
+        <div class="hit" style="padding:5px 0"><div class="s">「含税价能再低一点吗？」<span style="color:#94a3b8"> · 10-14</span></div></div>
+        <div class="hit" style="padding:5px 0"><div class="s">「样品周五能到吗？」<span style="color:#94a3b8"> · 10-12</span></div></div>
+        <div class="mt10" style="display:flex;align-items:flex-end;gap:6px;flex:1;min-height:0;margin-top:auto">
+          ${[38,52,44,68,58,74,62,80,70,88,76,92].map((h,i)=>`<div style="flex:1;height:${h}%;border-radius:4px 4px 0 0;background:${i>8?'#059669':'#a7f3d0'}"></div>`).join('')}
+        </div>
+        <div style="font-size:11.5px;color:#94a3b8;margin-top:2px">近 12 周消息量</div>
+      </div>
+    </div>
+    <div class="side after">
+      <div class="lab">${ico('zap',16)} 一眼看到</div>
+      <div class="bd" style="display:flex;flex-direction:column;justify-content:center">
+        <div style="font-size:44px;font-weight:900;color:var(--accent);line-height:1">83<span style="font-size:17px;color:#64748b"> 次</span></div>
+        <div style="font-size:13px;color:#64748b;font-weight:700">对方主动开场</div>
+        <div style="font-size:44px;font-weight:900;color:var(--accent);line-height:1;margin-top:16px">52<span style="font-size:17px;color:#64748b"> 秒</span></div>
+        <div style="font-size:13px;color:#64748b;font-weight:700">对方回复中位数</div>
+        <div style="font-size:44px;font-weight:900;color:#dc2626;line-height:1;margin-top:16px">2<span style="font-size:17px;color:#64748b"> 个</span></div>
+        <div style="font-size:13px;color:#64748b;font-weight:700">未接问句</div>
+        <div class="note mt12">只给事实<br>不编客户评分</div>
+        <div class="mt12" style="font-size:12px;font-weight:900;color:#64748b;margin-bottom:4px">高频词</div>
+        <div class="chips"><span class="chip on">报价</span><span class="chip">交期</span><span class="chip">样品</span><span class="chip">售后</span></div>
+        <div class="mt12" style="margin-top:auto">
+          <div style="font-size:12px;font-weight:900;color:#64748b;margin-bottom:4px">最近往来</div>
+          <div class="tl" style="padding-left:22px">
+            <div class="tli" style="margin-bottom:6px"><div class="tm">10-14</div><div class="tx">报价与交期确认</div></div>
+            <div class="tli"><div class="tm">09-28</div><div class="tx">样品寄出，对方已收到</div></div>
+          </div>
+        </div>
+        <div class="mt12">
+          <div style="font-size:12px;font-weight:900;color:#64748b;margin-bottom:4px">建议开场</div>
+          <div class="bubble me" style="max-width:100%;font-size:12.5px">王总，上次说的含税价我这边再算了一下，今天给您一个准数。</div>
+          <div class="chips mt8"><span class="chip on">先回答价格</span><span class="chip">再确认交期</span></div>
+        </div>
+      </div>
+    </div>
+  </div>`
+}),
+poster('contact-organizer/05',{
+  accent:'#059669',soft:'#ecfdf5',bg:'03-green',kicker:'公司成果 1',tag:'示例',tagCls:'tag-demo',
+  title:'销售团队<br><b>每周盘一次</b>',
+  sub:'沉默客户分层，名单直接导出。',
+  foot:'示例场景 · 正式上架请替换为真实团队案例并打码',
+  stage:`
+  <div style="position:absolute;inset:0">
+    ${win('团队盘点 · 本周','3 位成员',`
+      <table class="tbl">
+        <tr><th>成员</th><th>负责联系人</th><th>30 天未联系</th><th>本周已跟进</th><th>名单</th></tr>
+        <tr><td>销售 A</td><td>486</td><td><span class="hi">32</span></td><td>18</td><td><span class="chip on">导出</span></td></tr>
+        <tr><td>销售 B</td><td>392</td><td><span class="hi">27</span></td><td>21</td><td><span class="chip on">导出</span></td></tr>
+        <tr><td>销售 C</td><td>315</td><td><span class="hi">19</span></td><td>12</td><td><span class="chip on">导出</span></td></tr>
+        <tr><td>销售 D</td><td>268</td><td><span class="hi">14</span></td><td>9</td><td><span class="chip on">导出</span></td></tr>
+        <tr><td style="font-weight:800">合计</td><td style="font-weight:800">1461</td><td class="hi" style="font-weight:800">92</td><td style="font-weight:800">60</td><td></td></tr>
+      </table>
+      <div class="metrics c3 mt12">
+        ${metric('78','本周需跟进','30 天名单')}
+        ${metric('51','已完成','本周')}
+        ${metric('27','待跟进','可导出')}
+      </div>
+      <div class="note mt12">清单只有显示名、备注、账号、标签四列，不含手机号</div>
+      <div class="mt12" style="font-size:12px;font-weight:900;color:#64748b;margin-bottom:2px">名单导出预览</div>
+      <table class="tbl">
+        <tr><th>显示名</th><th>备注</th><th>账号</th><th>标签</th></tr>
+        <tr><td>王**</td><td>客户 · 重点</td><td>wxid_ab**</td><td>客户</td></tr>
+        <tr><td>周**</td><td>客户 · 待回访</td><td>wxid_cd**</td><td>客户</td></tr>
+        <tr><td>李**</td><td>供应商</td><td>wxid_ef**</td><td>供应商</td></tr>
+      </table>`,{style:'height:100%',icon:'users'})}
+  </div>`
+}),
+poster('contact-organizer/06',{
+  accent:'#059669',soft:'#ecfdf5',bg:'03-green',kicker:'公司成果 2',tag:'示例',tagCls:'tag-demo',
+  title:'交接不翻记录<br><b>名单摘要待办</b>',
+  sub:'人、聊过什么、下一步，装进一个包。',
+  foot:'示例场景 · 正式上架请替换为真实团队案例并打码',
+  stage:`
+  <div class="flow" style="height:168px">
+    <div class="step"><div class="sn">1</div><div class="h">联系人清单</div><div class="p">显示名 / 备注<br>账号 / 标签<br>不含手机号</div></div>
+    <div class="arrow">${ico('arrow',22)}</div>
+    <div class="step"><div class="sn">2</div><div class="h">往来摘要</div><div class="p">谁主动 / 回多快<br>未接问句<br>只给事实</div></div>
+    <div class="arrow">${ico('arrow',22)}</div>
+    <div class="step"><div class="sn">3</div><div class="h">待办</div><div class="p">按优先级列好<br>接手就能用<br>可反复生成</div></div>
+  </div>
+  <div class="mt12" style="flex:1;min-height:0">
+    ${win('交接包 · 预览','3 份文件',`
+      <div class="tree">
+        <div class="ti"><span class="ic">${ico('folder',14)}</span> 客户交接包 <span class="meta">2026-10</span></div>
+        <div class="ti d1"><span class="ic">${ico('table',14)}</span> 联系人清单.xlsx <span class="meta">386 人</span><span class="ok">已生成</span></div>
+        <div class="ti d1"><span class="ic">${ico('doc',14)}</span> 往来摘要.md <span class="meta">42 份</span><span class="ok">已生成</span></div>
+        <div class="ti d1"><span class="ic">${ico('file',14)}</span> 待办清单.md <span class="meta">17 条</span><span class="ok">已生成</span></div>
+        <div class="ti d1"><span class="ic">${ico('folder',14)}</span> 原始聊天导出 <span class="meta">12 个会话</span></div>
+        <div class="ti d2"><span class="ic">${ico('doc',14)}</span> HTML / PDF <span class="meta">24 份</span></div>
+        <div class="ti d1"><span class="ic">${ico('search',14)}</span> 缺失项 <span class="meta" style="color:#b45309">3 个，已标出</span></div>
+      </div>
+      <div class="mt12" style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+        <div>
+          <div style="font-size:12px;font-weight:900;color:#64748b;margin-bottom:3px">待办预览</div>
+          <div class="row" style="padding:5px 0"><div class="grow"><div class="name" style="font-size:13px">回复含税价</div></div><span class="chip" style="color:#dc2626">高</span></div>
+          <div class="row" style="padding:5px 0"><div class="grow"><div class="name" style="font-size:13px">确认交期</div></div><span class="chip" style="color:#b45309">中</span></div>
+          <div class="row" style="padding:5px 0"><div class="grow"><div class="name" style="font-size:13px">补开发票</div></div><span class="chip">低</span></div>
+        </div>
+        <div>
+          <div style="font-size:12px;font-weight:900;color:#64748b;margin-bottom:3px">摘要预览</div>
+          <div style="font-size:12.5px;line-height:1.6;color:#334155;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:8px 10px">对方最近关注价格与交期；最近一次由对方主动开场；有 2 个问句未回复。</div>
+        </div>
+      </div>
+      <div class="note mt10" style="margin-top:auto">摘要只给事实，不替接手人下判断</div>`,{style:'height:100%',icon:'folder'})}
+  </div>`
+}),
+
+/* ============ 04 消息留痕 ============ */
+poster('message-retention/01',{
+  accent:'#b45309',soft:'#fffbeb',bg:'04-orange',kicker:'功能亮点',tag:'实测',tagCls:'tag-live',
+  title:'撤回之前<br><b>就已经存好</b>',
+  sub:'后台先留一份原文，撤回后还能查。',
+  foot:'本机实测 2026-10-14 · 4713 条 / 71 会话 / 1.9 MB',
+  stage:`
+  <div style="position:absolute;inset:0">
+    ${win('消息留痕 · 原文查询','后台运行中',`
+      <div style="display:grid;grid-template-columns:1fr 280px;gap:16px;height:100%">
+        <div class="tl" style="padding-top:4px">
+          <div class="tli"><div class="tm">10:21</div><div class="tx"><b>客户 · 王**</b>：周五前把合同寄出，发票按 13 个点开。</div></div>
+          <div class="tli gray"><div class="tm">10:24</div><div class="tx" style="color:#94a3b8">对方撤回了一条消息</div></div>
+          <div class="tli"><div class="tm">10:24</div><div class="tx"><b>留档原文</b>：周五前把合同寄出，发票按 13 个点开。<span class="green" style="font-weight:900"> 已保存</span></div></div>
+          <div class="tli"><div class="tm">10:31</div><div class="tx"><b>客户 · 王**</b>：单号出来后发我一下。</div></div>
+          <div class="tli"><div class="tm">10:36</div><div class="tx"><b>我</b>：好的，下午寄出后发您。</div></div>
+          <div class="tli gray"><div class="tm">10:40</div><div class="tx" style="color:#94a3b8">对方又撤回了一条消息</div></div>
+          <div class="tli"><div class="tm">10:40</div><div class="tx"><b>留档原文</b>：发票抬头别写错。<span class="green" style="font-weight:900"> 已保存</span></div></div>
+          <div class="tli"><div class="tm">10:45</div><div class="tx"><b>我</b>：好的，已核对，抬头不变。</div></div>
+          <div class="tli"><div class="tm">11:02</div><div class="tx"><b>客户 · 王**</b>：辛苦，寄出后发单号。</div></div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          ${metric('4713','条留档','','' )}
+          ${metric('71','个会话','','' )}
+          ${metric('1.9 MB','占用空间','约 400 字节/条','' )}
+          ${metric('0','个缺口','','' )}
+          ${metric('10:00','今日对账','逐条比对完成','' )}
+          <div class="note" style="margin-top:auto">后台运行，不挡前台操作</div>
+        </div>
+      </div>`,{style:'height:100%',icon:'shield'})}
+  </div>`
+}),
+poster('message-retention/02',{
+  accent:'#b45309',soft:'#fffbeb',bg:'04-orange',kicker:'使用场景',tag:'群通知',tagCls:'tag-soft',
+  title:'群通知被撤回<br><b>原话还查得到</b>',
+  sub:'按会话、时间段筛选，不用翻聊天记录。',
+  foot:'本机实测 · 只存文字原文和附件信息',
+  stage:`
+  <div class="cmp" style="grid-template-columns:46% 54%">
+    <div class="side after">
+      <div class="lab">${ico('chat',16)} 群「售后 3 组」</div>
+      <div class="bd">
+        <div class="bubble them">今晚 8 点前提交本周名单。</div>
+        <div class="sys">—— 对方撤回了一条消息 ——</div>
+        <div class="bubble them">请把表格发到共享盘。</div>
+        <div class="bubble me">收到，8 点前提交。</div>
+        <div class="sys">—— 10:31 · 群主 ——</div>
+        <div class="bubble them">名单模板在群公告里。</div>
+        <div class="bubble me">好的。</div>
+        <div class="sys">—— 10:40 · 群主 ——</div>
+        <div class="bubble them">有拿不准的，群里直接问。</div>
+        <div class="bubble me">明白，我先按模板填。</div>
+        <div class="hit" style="padding:7px 0"><div class="h">10:52 · 群文件</div><div class="s">本周名单_模板.xlsx（只记文件名）</div></div>
+        <div class="note mt12" style="margin-top:auto">通知被撤回，群里只剩「已撤回」提示</div>
+      </div>
+    </div>
+    <div class="side after">
+      <div class="lab">${ico('search',16)} 留痕查询 · 原文</div>
+      <div class="bd">
+        <div class="chips" style="margin-bottom:8px"><span class="chip on">会话：售后 3 组</span><span class="chip">今天</span><span class="chip">含撤回</span></div>
+        <div class="hit" style="padding-top:0"><div class="h">10:21 · 群主</div><div class="s" style="font-size:14px;color:#0f172a">今晚 8 点前提交本周名单。<span class="green" style="font-weight:900"> 原文已留档</span></div></div>
+        <div class="hit"><div class="h">10:24 · 系统</div><div class="s">对方撤回了一条消息</div></div>
+        <div class="hit"><div class="h">10:26 · 群主</div><div class="s">请把表格发到共享盘。</div></div>
+        <div class="hit"><div class="h">10:31 · 群主</div><div class="s">名单模板在群公告里。</div></div>
+        <div class="hit"><div class="h">10:36 · 我</div><div class="s">收到，8 点前提交。</div></div>
+        <div class="hit"><div class="h">10:40 · 群主</div><div class="s">有拿不准的，群里直接问。</div></div>
+        <div class="hit"><div class="h">10:45 · 我</div><div class="s">明白，我先按模板填。</div></div>
+        <div class="hit"><div class="h">10:52 · 群文件</div><div class="s">本周名单_模板.xlsx</div></div>
+        <div class="note mt10" style="margin-top:auto">按消息编号精确取回，不靠截图</div>
+      </div>
+    </div>
+  </div>`
+}),
+poster('message-retention/03',{
+  accent:'#b45309',soft:'#fffbeb',bg:'04-orange',kicker:'个人成果 1',tag:'实测',tagCls:'tag-live',
+  title:'4713 条留档<br><b>0 个缺口</b>',
+  sub:'每 24 小时全量对账，改没改、删没删都列出来。',
+  foot:'本机实测 · 逐条对账：被改 0，被删 0',
+  stage:`
+  <div class="metrics c4">
+    ${metric('4713','条留档','','c4')}
+    ${metric('4713','条对账','','c4')}
+    ${metric('0','缺口','','c4')}
+    ${metric('0','被改 / 被删','','c4')}
+  </div>
+  ${win('对账结果 · 2026-10-14','全部一致',`
+    <div class="row"><div class="grow"><div class="name">${ico('check',15)} 原文完整</div><div class="msg">4713 条逐条比对，无缺失</div></div><span class="chip on">通过</span></div>
+    <div class="row"><div class="grow"><div class="name">${ico('check',15)} 未被改写</div><div class="msg">内容哈希与留档一致</div></div><span class="chip on">通过</span></div>
+    <div class="row"><div class="grow"><div class="name">${ico('check',15)} 未被删除</div><div class="msg">消息编号全部可查</div></div><span class="chip on">通过</span></div>
+    <div class="row"><div class="grow"><div class="name">${ico('clock',15)} 缺口记录</div><div class="msg">关机、休眠、守护未运行时段如实标出</div></div><span class="chip">0</span></div>
+    <div class="row"><div class="grow"><div class="name">${ico('zap',15)} 守护运行</div><div class="msg">最近 24 小时持续运行，无退出</div></div><span class="chip on">正常</span></div>
+    <div class="row"><div class="grow"><div class="name">${ico('clock',15)} 最近一次对账</div><div class="msg">今天 10:00，耗时 42 秒</div></div><span class="chip">今日</span></div>
+    <div class="row"><div class="grow"><div class="name">${ico('folder',15)} 会话覆盖</div><div class="msg">71 个会话全部有留档</div></div><span class="chip on">71 / 71</span></div>
+    <div class="note mt10" style="margin-top:auto">缺口透明，不假装全覆盖</div>`,{style:'flex:1',tight:true,icon:'shield'})}`
+}),
+poster('message-retention/04',{
+  accent:'#b45309',soft:'#fffbeb',bg:'04-orange',kicker:'个人成果 2',tag:'实测',tagCls:'tag-live',
+  title:'删除和改写<br><b>两种都识别</b>',
+  sub:'整行删除、改成系统消息，都留下原话。',
+  foot:'本机实测 · 114 条撤回通知',
+  stage:`
+  <div class="cmp">
+    <div class="side after">
+      <div class="lab">${ico('x',16)} 整行删除</div>
+      <div class="bd">
+        <div class="bubble them">周五前把合同寄出。</div>
+        <div class="sys">—— 对方撤回了一条消息 ——</div>
+        <div class="hit" style="padding:8px 0"><div class="h">留档原文</div><div class="s" style="font-size:13.5px;color:#0f172a">周五前把合同寄出。<span class="green" style="font-weight:900"> 已保存</span></div></div>
+        <div class="sys" style="margin-top:14px">—— 10:32 · 又一条消息被撤回 ——</div>
+        <div class="bubble them">发票抬头别写错。</div>
+        <div class="sys">—— 对方撤回了一条消息 ——</div>
+        <div class="hit" style="padding:8px 0"><div class="h">留档原文</div><div class="s" style="font-size:13.5px;color:#0f172a">发票抬头别写错。<span class="green" style="font-weight:900"> 已保存</span></div></div>
+        <div class="sys" style="margin-top:14px">—— 10:47 · 又一条消息被撤回 ——</div>
+        <div class="bubble them">报价单按上周的版本发。</div>
+        <div class="sys">—— 对方撤回了一条消息 ——</div>
+        <div class="hit" style="padding:8px 0"><div class="h">留档原文</div><div class="s" style="font-size:13.5px;color:#0f172a">报价单按上周的版本发。<span class="green" style="font-weight:900"> 已保存</span></div></div>
+        <div class="kv mt12" style="margin-top:auto">
+          <span class="k">识别方式</span><span class="v">消息编号对不上</span>
+          <span class="k">原文状态</span><span class="v green">完整</span>
+          <span class="k">处理</span><span class="v">单独列出，不覆盖</span>
+        </div>
+      </div>
+    </div>
+    <div class="side after">
+      <div class="lab">${ico('file',16)} 改写为系统消息</div>
+      <div class="bd">
+        <div class="bubble them">报价按上次口径。</div>
+        <div class="sys">—— 对方修改了一条消息 ——</div>
+        <div class="hit" style="padding:8px 0"><div class="h">留档原文</div><div class="s" style="font-size:13.5px;color:#0f172a">报价按上次口径。<span class="green" style="font-weight:900"> 已保存</span></div></div>
+        <div class="sys" style="margin-top:14px">—— 10:38 · 又一条消息被改写 ——</div>
+        <div class="bubble them">交期不变，还是周五。</div>
+        <div class="sys">—— 对方修改了一条消息 ——</div>
+        <div class="hit" style="padding:8px 0"><div class="h">留档原文</div><div class="s" style="font-size:13.5px;color:#0f172a">交期不变，还是周五。<span class="green" style="font-weight:900"> 已保存</span></div></div>
+        <div class="sys" style="margin-top:14px">—— 10:52 · 又一条消息被改写 ——</div>
+        <div class="bubble them">样品今天下午寄出。</div>
+        <div class="sys">—— 对方修改了一条消息 ——</div>
+        <div class="hit" style="padding:8px 0"><div class="h">留档原文</div><div class="s" style="font-size:13.5px;color:#0f172a">样品今天下午寄出。<span class="green" style="font-weight:900"> 已保存</span></div></div>
+        <div class="kv mt12" style="margin-top:auto">
+          <span class="k">识别方式</span><span class="v">系统消息替换</span>
+          <span class="k">原文状态</span><span class="v green">完整</span>
+          <span class="k">处理</span><span class="v">保留改前版本</span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="note" style="margin-top:12px">114 条撤回通知实测：整行删除和改写为系统消息都能留下原话</div>`
+}),
+poster('message-retention/05',{
+  accent:'#b45309',soft:'#fffbeb',bg:'04-orange',kicker:'公司成果 1',tag:'示例',tagCls:'tag-demo',
+  title:'客服主管<br><b>指定群提醒</b>',
+  sub:'群里有人撤回，提醒另一个账号。',
+  foot:'示例场景 · 正式上架请替换为真实团队案例并打码',
+  stage:`
+  <div style="position:absolute;inset:0">
+    ${win('撤回提醒 · 售后 3 组','刚刚',`
+      <div style="display:flex;gap:14px;height:100%">
+        <div class="assist" style="flex:1;display:flex;flex-direction:column">
+          <div class="pane-h">${ico('bell',14)} 提醒内容</div>
+          <div style="font-size:15px;line-height:1.7;color:#334155">
+            群「售后 3 组」有消息被撤回。<br>
+            原文：<b>今晚 8 点前提交本周名单。</b><br>
+            发送人：群主 · 10:21
+          </div>
+          <div class="note mt10">已通知主管账号</div>
+          <div class="hit mt8" style="padding-top:10px"><div class="h">10:24 · 另一条撤回</div><div class="s">原文：名单模板在群公告里，按新格式填。</div></div>
+          <div class="hit"><div class="h">10:40 · 已处理</div><div class="s">两条原文都留在本地，按会话可查。</div></div>
+          <div class="hit"><div class="h">10:52 · 售后 2 组</div><div class="s">原文：明早 10 点前回填工单。</div></div>
+          <div class="hit"><div class="h">11:03 · 售后 1 组</div><div class="s">原文：今天先处理加急的 3 单。</div></div>
+          <div class="hit"><div class="h">11:18 · 售后 2 组</div><div class="s">原文：本周排班表已更新，按新表执行。</div></div>
+          <div class="hit"><div class="h">11:26 · 售后 3 组</div><div class="s">原文：收到，按这个口径统一回复。</div></div>
+          <div class="note mt10" style="margin-top:auto">提醒只发文字，不带原聊天截图</div>
+        </div>
+        <div class="assist" style="width:250px;display:flex;flex-direction:column">
+          <div class="pane-h">${ico('users',14)} 通知对象</div>
+          <div class="row" style="padding-top:0"><div class="avatar" style="background:#b45309">主</div><div class="grow"><div class="name">主管 · 另一个账号</div><div class="msg">接收提醒</div></div><span class="chip on">已送达</span></div>
+          <div class="row"><div class="avatar" style="background:#475569">备</div><div class="grow"><div class="name">备用账号</div><div class="msg">可选</div></div><span class="chip">未启用</span></div>
+          <div class="kv mt12">
+            <span class="k">监听群</span><span class="v">售后 3 组</span>
+            <span class="k">提醒方式</span><span class="v">文字消息</span>
+            <span class="k">延迟</span><span class="v">约 2 秒</span>
+            <span class="k">安静时段</span><span class="v">23:00–08:00</span>
+            <span class="k">失败处理</span><span class="v">重试 2 次</span>
+          </div>
+          <div class="mt12" style="font-size:12px;font-weight:900;color:#64748b;margin-bottom:2px">最近提醒</div>
+          <div class="row" style="padding:5px 0"><div class="grow"><div class="name" style="font-size:12.5px">售后 3 组</div></div><span class="time">10:24</span></div>
+          <div class="row" style="padding:5px 0"><div class="grow"><div class="name" style="font-size:12.5px">售后 2 组</div></div><span class="time">10:52</span></div>
+          <div class="row" style="padding:5px 0"><div class="grow"><div class="name" style="font-size:12.5px">售后 1 组</div></div><span class="time">11:03</span></div>
+          <div class="row" style="padding:5px 0"><div class="grow"><div class="name" style="font-size:12.5px">售后 2 组</div></div><span class="time">11:18</span></div>
+          <div class="row" style="padding:5px 0"><div class="grow"><div class="name" style="font-size:12.5px">售后 3 组</div></div><span class="time">11:26</span></div>
+          <div class="row" style="padding:5px 0"><div class="grow"><div class="name" style="font-size:12.5px">售后 2 组</div></div><span class="time">11:31</span></div>
+          <div class="note mt10" style="margin-top:auto">只提醒，不改对方操作</div>
+        </div>
+      </div>`,{style:'height:100%',icon:'bell'})}
+  </div>`
+}),
+poster('message-retention/06',{
+  accent:'#b45309',soft:'#fffbeb',bg:'04-orange',kicker:'公司成果 2',tag:'示例',tagCls:'tag-demo',
+  title:'商务留痕<br><b>每日哈希固化</b>',
+  sub:'每天生成一份摘要，配合公证流程使用。',
+  foot:'示例场景 · 留档文件可修改，不能替代公证',
+  stage:`
+  <div class="cmp" style="grid-template-columns:56% 44%">
+    <div class="side after">
+      <div class="lab">${ico('lock',16)} 每日哈希摘要</div>
+      <div class="bd">
+        <div class="doc" style="padding:12px">
+          <div class="doc-h"><span>2026-10-15.sha256</span><span class="m">已生成</span></div>
+          <div class="kv">
+            <span class="k">留档条数</span><span class="v">4713 条</span>
+            <span class="k">会话数</span><span class="v">71 个</span>
+            <span class="k">文件大小</span><span class="v">1.9 MB</span>
+            <span class="k">SHA-256</span><span class="v" style="font-family:Consolas,monospace;font-size:11.5px">9f2c 7a41 d8e0 …</span>
+            <span class="k">生成时间</span><span class="v">今天 23:50</span>
+            <span class="k">保存位置</span><span class="v">本机归档目录</span>
+          </div>
+          <div class="hit mt8"><div class="h">2026-10-14.sha256</div><div class="s">4713 条 · 71 会话 · 7c1e 4b90 …</div></div>
+          <div class="hit"><div class="h">2026-10-13.sha256</div><div class="s">4688 条 · 71 会话 · 2a8f 6d12 …</div></div>
+          <div class="hit"><div class="h">2026-10-12.sha256</div><div class="s">4651 条 · 70 会话 · b93e 0c77 …</div></div>
+          <div class="hit"><div class="h">2026-10-11.sha256</div><div class="s">4620 条 · 70 会话 · 5e71 a3c2 …</div></div>
+          <div class="hit"><div class="h">2026-10-10.sha256</div><div class="s">4594 条 · 69 会话 · c48d 91bb …</div></div>
+          <div class="note mt10" style="margin-top:auto">每日固定时间生成，历史版本可追溯</div>
+        </div>
+      </div>
+    </div>
+    <div class="side after">
+      <div class="lab">${ico('check',16)} 使用方式</div>
+      <div class="bd">
+        <div class="kv">
+          <span class="k">导出</span><span class="v">原文 + 哈希</span>
+          <span class="k">频率</span><span class="v">每日一次</span>
+          <span class="k">用途</span><span class="v">配合公证流程</span>
+          <span class="k">限制</span><span class="v" style="color:#b45309">文件可修改</span>
+        </div>
+        <div class="chips mt12"><span class="chip on">原文导出</span><span class="chip">哈希文件</span><span class="chip">按日归档</span><span class="chip">可追溯</span></div>
+        <div class="mt12" style="font-size:12px;font-weight:900;color:#64748b;margin-bottom:2px">每天做什么</div>
+        <div class="row" style="padding:6px 0"><div class="grow"><div class="name" style="font-size:13.5px">生成当天摘要文件</div></div><span class="time">23:50</span></div>
+        <div class="row" style="padding:6px 0"><div class="grow"><div class="name" style="font-size:13.5px">计算 SHA-256 并落盘</div></div><span class="time">23:51</span></div>
+        <div class="row" style="padding:6px 0"><div class="grow"><div class="name" style="font-size:13.5px">保留历史版本</div></div><span class="time">不覆盖</span></div>
+        <div class="mt12">
+          <div style="font-size:12px;font-weight:900;color:#64748b;margin-bottom:3px">导出内容</div>
+          <div class="kv">
+            <span class="k">原文</span><span class="v">按会话 / 时间段</span>
+            <span class="k">哈希文件</span><span class="v">每日一份</span>
+            <span class="k">清单</span><span class="v">条数 / 会话 / 体积</span>
+          </div>
+        </div>
+        <div class="note mt12" style="margin-top:auto">不承诺「能当证据」<br>只提供本机记录</div>
+      </div>
+    </div>
+  </div>`
+})
+];
+
+document.getElementById('root').innerHTML=posters.join('\n');
+</script>
+</body>
+</html>

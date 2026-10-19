@@ -39,7 +39,7 @@ import type {
   VcsRollbackResult,
 } from './types'
 import { buildDefaultGitignore, stripOutputsIgnoreRules } from './vcs-ignore'
-import { detectGit, pinNoAutoGc, runGit, stageAllCli } from './vcs-git-cli'
+import { detectGit, maybeMaintainVcs, pinNoAutoGc, runGit, stageAllCli } from './vcs-git-cli'
 import {
   GIT_AUTHOR,
   commitCli,
@@ -284,6 +284,23 @@ export class WorkspaceVcs {
       author: opts.author,
       conversationId: opts.conversationId,
       runId: opts.runId,
+    }
+  }
+
+  /**
+   * 定期打包对象库（本仓库 `gc.auto=0`，没有自动维护）。
+   *
+   * 调用方：Turn 快照队列（vcs-snapshot.ts 的 maybeSnapshot）。放在同一队列里
+   * 是为了不与其他写操作并发；函数内部有 6 小时间隔与松对象阈值双重闸门，
+   * 绝大多数调用只做一次进程内的 Map 查询就返回。
+   *
+   * 失败不抛：维护是后台保养，不该让快照失败。
+   */
+  async maybeMaintain(): Promise<void> {
+    try {
+      await maybeMaintainVcs(this.workspaceDir, this.gitdir)
+    } catch (err) {
+      log.warn('[maybeMaintain] 仓库维护异常（不影响快照）:', err)
     }
   }
 

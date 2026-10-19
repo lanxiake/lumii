@@ -15,6 +15,7 @@ import {
   runtimeStore,
   setFocusPermissionRequestId,
   setSteerDraft,
+  updateSessionState,
   type PendingAskUser,
   type PendingPermission,
 } from './agent-runtime-store'
@@ -894,5 +895,16 @@ describe('handleRuntimeEvent background-task routing', () => {
     handleRuntimeEvent({ ...base, taskId: 'tk-b', status: 'running' })
     const tasks = runtimeStore.getState().sessions.get('session-bg')?.backgroundTasks ?? []
     expect(tasks.map((t) => t.taskId).sort()).toEqual(['tk-a', 'tk-b'])
+  })
+
+  it('创建时捕获当前 runId，终态事件不会冲掉归属', () => {
+    updateSessionState('session-bg', (prev) => ({ ...prev, activeRunId: 'run-1' }))
+    handleRuntimeEvent({ ...base, taskId: 'tk-run', status: 'running' })
+    // 回合结束后 activeRunId 已清空，终态事件仍沿用创建时的 runId
+    updateSessionState('session-bg', (prev) => ({ ...prev, activeRunId: null }))
+    handleRuntimeEvent({ ...base, taskId: 'tk-run', status: 'succeeded', endedAt: 2_000 })
+
+    const tasks = runtimeStore.getState().sessions.get('session-bg')?.backgroundTasks ?? []
+    expect(tasks[0]).toMatchObject({ taskId: 'tk-run', status: 'succeeded', runId: 'run-1' })
   })
 })

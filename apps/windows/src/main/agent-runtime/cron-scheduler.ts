@@ -1014,7 +1014,17 @@ export class CronScheduler {
           case 'wecom':
             // 正文以原始 Markdown 交给渠道层编译（飞书卡片 / 企微·QQ markdown / 微信分段），
             // 任务名走 title；wecom 不支持主动推送，由派发层记日志跳过
-            await dispatchChannelTarget(target, payload.body, payload.title ?? label, this.deps)
+            {
+              const res = await dispatchChannelTarget(target, payload.body, payload.title ?? label, this.deps)
+              // 指定渠道失败就地告警（不再静默）：只报错，内容不改投别的渠道
+              if (!res.ok && !res.queued) {
+                this.deps.showCronNotification?.(
+                  '灵栖 · 渠道通知未送达',
+                  `${payload.title ?? label}：${target} 发送失败（${res.error ?? '未知原因'}）。内容未改投其他渠道。`,
+                  `cron:${job.id}`,
+                )
+              }
+            }
             break
           case 'silent':
             // 与多渠道混用时的显式空操作（单独 'silent' 已在上方提前返回）

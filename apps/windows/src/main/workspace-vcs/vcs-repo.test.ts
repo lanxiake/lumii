@@ -61,21 +61,36 @@ describe('WorkspaceVcs', () => {
     expect(c2).toBeNull()
   })
 
-  it('statusDiff: outputs 下 PDF 纳入变更列表且跳过文本 diff', async () => {
+  it('statusDiff: 二进制产出不进版本库（按扩展名硬剪枝）', async () => {
     await vcs.ensureInitialized()
     // 写入伪 PDF 二进制内容
     const pdfRel = path.join('outputs', '合并_同意函.pdf')
     writeFile(pdfRel, '%PDF-1.4 binary\x00\x01\x02 content')
 
+    // 2026-10-19 起二进制一律排除（见 vcs-git-cli.ts 的硬剪枝规则）：
+    // git 对二进制每次改动都存完整 blob 且永不回收，.mtbot-vcs 曾因此涨到 1.9GB。
     const diff = await vcs.statusDiff()
-    const entry = diff.find((d) => d.filepath.replace(/\\/g, '/') === 'outputs/合并_同意函.pdf')
-    expect(entry).toBeDefined()
-    expect(entry?.status).toBe('added')
-    expect(entry?.truncated).toBe(true)
-    expect(entry?.skipReason).toMatch(/二进制/)
+    expect(diff.find((d) => d.filepath.replace(/\\/g, '/') === 'outputs/合并_同意函.pdf')).toBeUndefined()
 
+    // 只有二进制变更 → 没有可提交内容
     const committed = await vcs.commit({ author: 'agent', message: '产出 PDF' })
-    expect(committed).not.toBeNull()
+    expect(committed).toBeNull()
+  })
+
+  it('崩溃遗留的陈旧 index.lock 会被清掉，快照继续工作', async () => {
+    await vcs.ensureInitialized()
+
+    // 复刻 2026-10-11 的现场：一次崩溃留下 0 字节锁，此后每次快照都失败
+    const lock = path.join(workspaceDir, '.mtbot-vcs', 'index.lock')
+    fs.writeFileSync(lock, '')
+    const anHourAgo = new Date(Date.now() - 60 * 60 * 1000)
+    fs.utimesSync(lock, anHourAgo, anHourAgo)
+
+    writeFile('SOUL.md', '# 新人格\n')
+    const commit = await vcs.commit({ author: 'agent', message: '锁死后的第一次快照' })
+
+    expect(commit).not.toBeNull()
+    expect(fs.existsSync(lock)).toBe(false)
   })
 
   it('ensureInitialized: 移除误忽略 outputs/ 的 gitignore 规则', async () => {

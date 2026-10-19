@@ -29,7 +29,8 @@ import {
   writePersistedReasoningEffort,
 } from '../../../shared/session-thinking-prefs'
 import styles from './ChatPage.module.css'
-import { processFilesWithStrategies, appendAttachmentsToMessage } from './utils/file-attachment-strategy'
+import { processFilesWithStrategies, appendAttachmentsToMessage, parseMediaAttachments } from './utils/file-attachment-strategy'
+import { planAbort } from './utils/abort-plan'
 import { isMainAgentSession } from './utils/main-agent-session'
 import { useVoiceCall } from '../../hooks/business/useVoiceCall'
 import { useConversationReplay } from '../../hooks/business/useConversationReplay'
@@ -1677,9 +1678,70 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
 
   // 处理手动中断 Agent
   const handleAbort = useCallback(async () => {
+    const sessionKey = runtimeCurrentSessionKey
+    const session = sessionKey ? runtimeStore.getState().sessions.get(sessionKey) : undefined
+    // 停止前先取快照：abort 会立刻清掉 isStreaming/activeRunId，agent:idle 还会把
+    // steerPending 一并复位——之后再判断就分不清「没注入」和「已注入」了。
+    const plan = planAbort(session?.messages ?? [])
+
     await runtimeActions.abort()
+
+    // 1) 还没被回答的插话：中断后作为新一轮真正发出（否则它会留在历史里、模型从没答过）
+    if (sessionKey && plan.unansweredSteers.length > 0) {
+      const text = plan.unansweredSteers
+        .map((m) => m.content.map((block) => block.text).join(''))
+        .join('\n\n')
+        .trim()
+      // 先删掉「插话」气泡，避免同一条内容在历史里出现两次
+      for (const msg of plan.unansweredSteers) {
+        await runtimeActions.deleteMessage(msg.id, { sessionKey }).catch((err) => {
+          logger.warn(`[handleAbort] 删除未回答插话失败: ${err instanceof Error ? err.message : String(err)}`)
+        })
+      }
+      if (text) {
+        try {
+          await runtimeActions.sendMessage(text, {
+            sessionKey,
+            agentId: activeAgentId,
+            modelId: selectedModelId || undefined,
+          })
+          toast.info('已中断，插话已作为新消息发出')
+          return
+        } catch (err) {
+          logger.error(`[handleAbort] 插话转发送失败: ${err instanceof Error ? err.message : String(err)}`)
+          toast.error('已中断，但插话发送失败')
+          return
+        }
+      }
+    }
+
+    // 2) 刚发出、Agent 还没有任何产出：收回输入框方便修改（连同气泡一起撤掉）
+    if (sessionKey && plan.restoreUserMessage) {
+      const raw = plan.restoreUserMessage.content.map((block) => block.text).join('')
+      // 附件标记是发给模型的元数据，不塞回输入框
+      const text = parseMediaAttachments(raw).textWithoutMedia
+      // 纯附件消息回填不出文字：保留气泡，别把内容删没了
+      if (!text.trim()) {
+        toast.info('已中断回复')
+        return
+      }
+      await runtimeActions.deleteMessage(plan.restoreUserMessage.id, { sessionKey }).catch((err) => {
+        logger.warn(`[handleAbort] 撤回已发送消息失败: ${err instanceof Error ? err.message : String(err)}`)
+      })
+      setInputValue(text)
+      toast.info('已中断，消息已放回输入框')
+      return
+    }
+
     toast.info('已中断回复')
-  }, [runtimeActions, toast])
+  }, [
+    runtimeActions,
+    runtimeCurrentSessionKey,
+    activeAgentId,
+    selectedModelId,
+    setInputValue,
+    toast,
+  ])
 
   // Keyboard shortcuts
   useEffect(() => {

@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>闲鱼商品图源文件</title>
+<!--
+  用法：
+  1. 复制本文件到工作目录，改下面 posters 数组里的两个示例。
+  2. 每张图一个 poster('<产品>/<编号>', {...})，编号 01–06。
+  3. 底图放 ./images/_bg/<名字>.png；没有就删掉 bg 字段，用 CSS 渐变兜底。
+  4. node scripts/check-overflow.mjs posters.html
+     node scripts/render.mjs posters.html images
+-->
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;background:#e9edf3}
+body{font-family:"Microsoft YaHei","PingFang SC",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+#root{display:flex;flex-direction:column;align-items:center;gap:24px;padding:24px}
+
+/* ===== 画布 ===== */
+.poster{width:1024px;height:1024px;position:relative;overflow:hidden;flex:0 0 auto;padding:54px 56px 42px;display:flex;flex-direction:column;color:#0f172a;background-size:cover;background-position:center}
+.poster::before{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(255,255,255,.80) 0%,rgba(255,255,255,.56) 48%,rgba(255,255,255,.84) 100%);z-index:0}
+.poster>*{position:relative;z-index:1}
+
+/* ===== 头部 / 页脚 ===== */
+.head{flex:0 0 auto}
+.kicker{display:inline-flex;align-items:center;gap:10px;font-size:20px;font-weight:800;color:var(--accent);letter-spacing:.02em}
+.kdot{width:10px;height:10px;border-radius:3px;background:var(--accent);flex:0 0 auto}
+.tag{display:inline-flex;align-items:center;border-radius:999px;padding:4px 12px;font-size:15px;font-weight:800;line-height:1.2;margin-left:10px}
+.tag-live{color:#047857;background:#d1fae5}
+.tag-demo{color:#92400e;background:#fef3c7}
+.tag-soft{color:var(--accent);background:var(--soft)}
+.title{font-size:60px;line-height:1.16;font-weight:900;letter-spacing:-.03em;margin:12px 0 10px;max-width:930px}
+.title b{color:var(--accent);font-weight:900}
+.sub{font-size:24px;line-height:1.48;color:#334155;font-weight:500;max-width:900px;margin:0}
+.stage{position:relative;flex:1 1 auto;margin-top:18px;min-height:0;display:flex;flex-direction:column}
+.foot{flex:0 0 auto;display:flex;justify-content:space-between;align-items:center;font-size:15px;color:#64748b;margin-top:16px;font-weight:600}
+.foot .pill{border:1px solid rgba(15,23,42,.08);background:rgba(255,255,255,.72);border-radius:999px;padding:5px 12px;color:#475569}
+
+/* ===== 窗口 ===== */
+.win{background:rgba(255,255,255,.97);border:1px solid rgba(15,23,42,.08);border-radius:18px;box-shadow:0 26px 60px -24px rgba(15,23,42,.30),0 4px 14px rgba(15,23,42,.06);overflow:hidden;display:flex;flex-direction:column}
+.win-bar{height:46px;flex:0 0 46px;display:flex;align-items:center;gap:10px;padding:0 16px;border-bottom:1px solid #eef2f7;background:linear-gradient(180deg,#fff,#f8fafc)}
+.app-ico{width:26px;height:26px;border-radius:8px;background:var(--soft);color:var(--accent);display:flex;align-items:center;justify-content:center;flex:0 0 auto}
+.win-bar .t{font-size:16px;font-weight:800;color:#1f2937}
+.win-bar .s{margin-left:auto;font-size:13px;font-weight:800;color:#047857;background:#ecfdf5;border-radius:999px;padding:4px 10px;white-space:nowrap}
+.win-bar .s.warn{color:#9a3412;background:#fff7ed}
+.win-body{padding:16px 18px;flex:1;min-height:0;display:flex;flex-direction:column}
+.win-body.tight{padding:12px 14px}
+
+/* ===== 行 / 列表 ===== */
+.row{display:flex;align-items:center;gap:12px;padding:9px 0;border-bottom:1px solid #f1f5f9}
+.row:last-child{border-bottom:0}
+.row .grow{flex:1;min-width:0}
+.row .name{font-size:15px;font-weight:800;color:#1f2937;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .msg{font-size:13px;color:#64748b;line-height:1.35;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
+.avatar{width:38px;height:38px;border-radius:11px;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:900;color:#fff;flex:0 0 auto}
+.unread{min-width:26px;height:26px;border-radius:999px;background:#ef4444;color:#fff;font-size:13px;font-weight:900;display:flex;align-items:center;justify-content:center;padding:0 8px;flex:0 0 auto}
+.unread.zero{background:#e2e8f0;color:#64748b}
+.time{font-size:12px;color:#94a3b8;flex:0 0 auto}
+
+/* ===== 左右分栏 ===== */
+.panes{display:grid;grid-template-columns:44% 56%;gap:0;flex:1;min-height:0}
+.pane{padding:14px 16px;min-height:0;display:flex;flex-direction:column}
+.pane+.pane{border-left:1px solid #eef2f7;background:#fbfdff}
+.pane-h{font-size:13px;font-weight:900;color:#64748b;letter-spacing:.06em;margin-bottom:6px;display:flex;align-items:center;gap:6px}
+.assist{background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:12px 14px;flex:1;min-height:0}
+.assist-line{display:flex;gap:10px;font-size:14px;line-height:1.55;color:#334155;padding:5px 0}
+.num{width:22px;height:22px;border-radius:7px;background:var(--accent);color:#fff;font-size:12px;font-weight:900;display:flex;align-items:center;justify-content:center;flex:0 0 auto;margin-top:1px}
+.draft{margin-top:auto;background:#fff;border:1px solid #e2e8f0;border-left:4px solid var(--accent);border-radius:10px;padding:10px 12px;font-size:14px;line-height:1.55;color:#334155}
+.draft .btns{display:flex;gap:8px;margin-top:8px}
+.btn{font-size:12px;font-weight:800;border-radius:8px;padding:5px 10px;background:var(--accent);color:#fff}
+.btn.ghost{background:#fff;color:#64748b;border:1px solid #e2e8f0}
+
+/* ===== 前后对照 ===== */
+.cmp{display:grid;grid-template-columns:1fr 1fr;gap:14px;flex:1;min-height:0}
+.side{background:rgba(255,255,255,.97);border:1px solid rgba(15,23,42,.08);border-radius:16px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 18px 40px -22px rgba(15,23,42,.28)}
+.side .lab{padding:9px 14px;font-size:14px;font-weight:900;display:flex;align-items:center;gap:8px}
+.side.before .lab{background:#f1f5f9;color:#64748b}
+.side.after .lab{background:var(--soft);color:var(--accent)}
+.side .bd{padding:12px 14px;flex:1;min-height:0;display:flex;flex-direction:column}
+
+/* ===== 标注 ===== */
+.callout{position:absolute;z-index:5;background:#fff;border:2px solid var(--accent);color:var(--accent);border-radius:14px;padding:9px 13px;font-size:18px;font-weight:900;box-shadow:0 12px 26px rgba(15,23,42,.16);line-height:1.25;white-space:nowrap}
+.callout small{display:block;font-size:12px;color:#64748b;font-weight:700;margin-top:1px}
+.callout.plain{border-color:rgba(15,23,42,.10);color:#0f172a;box-shadow:0 12px 26px rgba(15,23,42,.10)}
+
+/* ===== 指标 / 条形图 ===== */
+.metrics{display:grid;gap:12px;margin-bottom:12px}
+.metrics.c3{grid-template-columns:repeat(3,1fr)}
+.metrics.c4{grid-template-columns:repeat(4,1fr)}
+.metric{background:rgba(255,255,255,.97);border:1px solid rgba(15,23,42,.08);border-radius:15px;padding:13px 15px;box-shadow:0 12px 26px -16px rgba(15,23,42,.24)}
+.metric .n{font-size:40px;font-weight:900;color:var(--accent);line-height:1;letter-spacing:-.02em}
+.metric.c4 .n{font-size:34px}
+.metric .l{font-size:14px;font-weight:800;color:#334155;margin-top:6px}
+.metric .x{font-size:12px;color:#64748b;margin-top:2px}
+.bars{display:flex;flex-direction:column;gap:13px}
+.bar-top{display:flex;justify-content:space-between;align-items:baseline;font-size:15px;font-weight:800;color:#334155;margin-bottom:6px}
+.bar-top .v{color:var(--accent);font-size:18px}
+.bar-track{height:14px;background:#eef2f7;border-radius:999px;overflow:hidden}
+.bar-fill{height:100%;border-radius:999px;background:var(--accent)}
+.bar-fill.muted{background:#cbd5e1}
+.bar-fill.warm{background:#f59e0b}
+
+/* ===== 表格 / 键值 / 其他 ===== */
+.tbl{width:100%;border-collapse:collapse;font-size:13.5px}
+.tbl th{text-align:left;color:#64748b;font-weight:800;background:#f8fafc;padding:7px 9px;border-bottom:1px solid #e2e8f0;white-space:nowrap}
+.tbl td{padding:7px 9px;border-bottom:1px solid #f1f5f9;color:#334155;white-space:nowrap}
+.tbl tr:last-child td{border-bottom:0}
+.tbl .hi{color:var(--accent);font-weight:800}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;font-size:13.5px;color:#334155;line-height:1.5}
+.kv .k{color:#64748b}
+.kv .v{font-weight:700;text-align:right}
+.chips{display:flex;flex-wrap:wrap;gap:7px}
+.chip{font-size:12.5px;font-weight:800;border-radius:999px;padding:4px 10px;background:#f1f5f9;color:#475569;border:1px solid #e2e8f0}
+.chip.on{background:var(--soft);color:var(--accent);border-color:transparent}
+.flow{display:flex;align-items:stretch;gap:10px}
+.step{flex:1;background:rgba(255,255,255,.97);border:1px solid rgba(15,23,42,.08);border-radius:15px;padding:13px;box-shadow:0 12px 26px -18px rgba(15,23,42,.22)}
+.step .sn{width:26px;height:26px;border-radius:8px;background:var(--accent);color:#fff;font-size:13px;font-weight:900;display:flex;align-items:center;justify-content:center;margin-bottom:8px}
+.step .h{font-size:15px;font-weight:900;color:#1f2937}
+.step .p{font-size:12.5px;color:#64748b;line-height:1.5;margin-top:3px}
+.arrow{display:flex;align-items:center;color:#cbd5e1;flex:0 0 auto}
+.note{border-radius:10px;background:var(--soft);color:var(--accent);padding:9px 12px;font-size:13px;font-weight:800;line-height:1.5}
+.flex1{flex:1;min-height:0}
+.mt8{margin-top:8px}.mt10{margin-top:10px}.mt12{margin-top:12px}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+/* ===== 小工具：图标 / 头像 / 常用块 ===== */
+const ICONS={
+  chat:'<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
+  mic:'<path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/>',
+  doc:'<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>',
+  folder:'<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>',
+  search:'<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>',
+  shield:'<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>',
+  check:'<polyline points="20 6 9 17 4 12"/>',
+  clock:'<circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/>',
+  zap:'<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>',
+  users:'<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>'
+};
+const ico=(n,s=18)=>`<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">${ICONS[n]||''}</svg>`;
+const avatar=(t,c)=>`<div class="avatar" style="background:${c}">${t}</div>`;
+const chatRow=(name,msg,count,color,time)=>`<div class="row">${avatar(name.slice(0,1),color)}<div class="grow"><div class="name">${name}</div><div class="msg">${msg}</div></div>${time?`<span class="time">${time}</span>`:''}${count===0?'<span class="unread zero">0</span>':`<span class="unread">${count}</span>`}</div>`;
+const metric=(n,l,x,cls='')=>`<div class="metric ${cls}"><div class="n">${n}</div><div class="l">${l}</div>${x?`<div class="x">${x}</div>`:''}</div>`;
+const bar=(l,v,w,cls='',note='')=>`<div><div class="bar-top"><span>${l}</span><span class="v">${v}</span></div><div class="bar-track"><div class="bar-fill ${cls}" style="width:${w}%"></div></div>${note?`<div class="x" style="font-size:12px;color:#94a3b8;margin-top:3px">${note}</div>`:''}</div>`;
+const win=(title,status,body,opts={})=>`<div class="win ${opts.cls||''}" style="${opts.style||''}"><div class="win-bar"><span class="app-ico">${ico(opts.icon||'chat',16)}</span><span class="t">${title}</span>${status?`<span class="s ${opts.warn?'warn':''}">${status}</span>`:''}</div><div class="win-body ${opts.tight?'tight':''}">${body}</div></div>`;
+
+/* 每张图的统一外壳。bg 缺省时用 CSS 渐变兜底。 */
+const poster=(out,o)=>`<section class="poster" data-out="${out}" style="--accent:${o.accent};--soft:${o.soft};background-image:${o.bg?`url('./images/_bg/${o.bg}.png'),`:''}linear-gradient(135deg,${o.soft} 0%,#f8fafc 58%,#ffffff 100%)">
+<header class="head">
+  <div class="kicker"><span class="kdot"></span>${o.kicker}${o.tag?`<span class="tag ${o.tagCls||'tag-soft'}">${o.tag}</span>`:''}</div>
+  <h1 class="title">${o.title}</h1>
+  <p class="sub">${o.sub}</p>
+</header>
+<div class="stage">${o.stage}</div>
+<footer class="foot"><span>${o.foot||'本机实测 · 联系人与数据已打码'}</span><span class="pill">${o.footR||'Win10 / 11 · 64 位'}</span></footer>
+</section>`;
+
+/* ===== 两个可直接改的示例 ===== */
+const posters=[
+
+poster('demo-product/01',{
+  accent:'#2563eb',soft:'#eff6ff',bg:'01-blue',kicker:'功能亮点',tag:'实测',tagCls:'tag-live',
+  title:'132 个未读<br><b>一句话列清</b>',
+  sub:'不用逐个点开，先看谁在等、等什么。',
+  foot:'本机实测 2026-10-14 · 132 个未读会话',
+  stage:`
+  <div style="position:absolute;inset:0">
+    ${win('消息助手 · 未读汇总','2.05 秒',`
+      <div class="panes" style="flex:1">
+        <div class="pane">
+          <div class="pane-h">${ico('chat',14)} 全部会话</div>
+          ${chatRow('客户 · 王**','合同盖章页已发，麻烦确认','3','#2563eb','10:42')}
+          ${chatRow('项目群 · 交付','今晚 8 点前发版','28','#7c3aed','10:38')}
+          ${chatRow('老板 · 周**','上午的报表再看一下','2','#0f766e','10:31')}
+          ${chatRow('家人','周末回来吃饭吗','1','#ea580c','10:12')}
+          ${chatRow('供应商 · 李**','样品周五到','4','#475569','09:56')}
+          ${chatRow('设计外包 · 陈**','第二版初稿发你了','6','#be123c','09:41')}
+          ${chatRow('同学群','周末聚一下','12','#0891b2','08:20')}
+        </div>
+        <div class="pane">
+          <div class="pane-h">${ico('zap',14)} AI 整理结果</div>
+          <div class="assist" style="display:flex;flex-direction:column">
+            <div class="assist-line"><span class="num">1</span><div><b>客户 · 王**</b> 3 条未读：合同盖章页、开票信息、交期确认</div></div>
+            <div class="assist-line"><span class="num">2</span><div><b>项目群</b> 28 条未读：今晚 8 点发版，需要你回「收到」</div></div>
+            <div class="assist-line"><span class="num">3</span><div><b>老板</b> 2 条未读：报表第 3 页数据要改</div></div>
+            <div class="assist-line"><span class="num" style="background:#94a3b8">4</span><div><b>供应商 · 李**</b> 4 条未读：样品周五到，需确认收货地址</div></div>
+            <div class="assist-line"><span class="num" style="background:#cbd5e1">5</span><div><b>其余 3 个会话</b> 共 19 条：广告、闲聊，可稍后处理</div></div>
+            <div class="draft">先回这 3 个会话，其余 4 个可以稍后处理。
+              <div class="btns"><span class="btn">按优先级排列</span><span class="btn ghost">看原文</span></div>
+            </div>
+            <div class="mt12" style="margin-top:auto">
+              <div style="font-size:12px;font-weight:900;color:#64748b;margin-bottom:6px">未读分布</div>
+              <div class="bars" style="gap:8px">
+                ${bar('客户','3 个会话',22)}
+                ${bar('项目群','1 个会话 · 28 条',68)}
+                ${bar('内部 / 家人','2 个会话 · 3 条',14,'muted')}
+                ${bar('其他','3 个会话 · 19 条',34,'muted')}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>`,{style:'height:100%',icon:'chat'})}
+    <div class="callout" style="right:-6px;top:-14px">2.05 秒<small>列出全部未读会话</small></div>
+    <div class="callout plain" style="left:-6px;bottom:-12px">${ico('shield',18)} 本地读取 · 不上传</div>
+  </div>`
+}),
+
+poster('demo-product/02',{
+  accent:'#2563eb',soft:'#eff6ff',bg:'01-blue',kicker:'个人成果',tag:'实测',tagCls:'tag-live',
+  title:'一上午的消息<br><b>几分钟处理完</b>',
+  sub:'统一看完，再决定先回谁。',
+  foot:'本机实测 2026-10-14 · 数字来自真实账号',
+  stage:`
+  <div class="metrics c3">
+    ${metric('132','未读会话','其中 17 个需要你回')}
+    ${metric('2.05 秒','完成整理','不用逐个点开')}
+    ${metric('1119 条','参与统计','近 30 天消息')}
+  </div>
+  <div class="win" style="flex:1;min-height:0">
+    <div class="win-bar"><span class="app-ico">${ico('clock',16)}</span><span class="t">今天先回谁</span><span class="s">已排好序</span></div>
+    <div class="win-body">
+      <div class="bars" style="flex:1;justify-content:space-between">
+        ${bar('客户 · 王**','3 条未读 · 合同确认',92,'', '最新一条 10:42 · 等你回复')}
+        ${bar('项目群 · 交付','28 条 · 今晚发版',76,'warm','需要你回「收到」')}
+        ${bar('老板 · 周**','2 条 · 报表要改',64,'', '最新一条 10:31')}
+        ${bar('供应商 · 李**','4 条 · 样品与地址',42,'muted','可以稍后处理')}
+        ${bar('同学群','12 条 · 闲聊',26,'muted','不需要现在回')}
+      </div>
+      <div class="kv mt12">
+        <span class="k">处理顺序</span><span class="v">客户 → 项目群 → 老板</span>
+        <span class="k">数据来源</span><span class="v">本机读取，不上传</span>
+      </div>
+    </div>
+  </div>`
+})
+
+];
+
+document.getElementById('root').innerHTML=posters.join('\n');
+</script>
+</body>
+</html>

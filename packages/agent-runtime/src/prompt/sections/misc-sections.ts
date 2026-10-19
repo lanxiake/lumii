@@ -309,11 +309,11 @@ export function buildMessagingSection(params: {
   if (isLeanStyle(params.style ?? "detailed")) {
     const lines = ["## Messaging"]
     if (hasMessage && hasChannelOutbound) {
-      lines.push("- `message` = in-turn reply only (NO_REPLY flow); cross-peer delivery uses `channel_send` (call `channel_list` first).")
+      lines.push("- `message` = in-turn reply only (NO_REPLY flow); cross-peer delivery uses `channel_send` (call `channel_list` first). To notify the user themself, pass `channel` and omit `to`.")
     } else if (hasMessage) {
       lines.push("- `message` = in-turn reply only in the current conversation (NO_REPLY flow).")
     } else {
-      lines.push("- Cross-peer delivery uses `channel_send` (call `channel_list` first; never guess the recipient).")
+      lines.push("- Cross-peer delivery uses `channel_send` (call `channel_list` first; never guess the recipient). To notify the user themself, pass `channel` and omit `to`.")
     }
     if (hasChannelOutbound) {
       lines.push(WECHAT_CHANNELS_LINE)
@@ -340,10 +340,11 @@ export function buildMessagingSection(params: {
       "",
       "## Channel outbound",
       "- Call `channel_list` first to get connected channels and peer ids, then `channel_send`.",
-      "- `to` is required; never guess the recipient.",
+      "- To notify the USER THEMSELF on a channel they named (e.g. \"完成后用微信/飞书通知我\"), pass that `channel` and omit `to` — feishu resolves to their linked account, pcwechat to 文件传输助手. No need to call `channel_list` or guess an id.",
+      "- `to` is required only when reaching a DIFFERENT peer; after `channel_list`, never guess an id.",
       WECHAT_CHANNELS_LINE,
       "- 个人微信 (`weixin`) requires that peer to have messaged the bot recently; otherwise ask them to send one message to activate it.",
-      `- When 个人微信 cannot deliver a proactive notification (NO_REPLY_CONTEXT / TOKEN_STALE) and 本机微信 is connected with \`${PCWECHAT_SELF_PEER_ID}\` listed, deliver it via \`channel="pcwechat", to="${PCWECHAT_SELF_PEER_ID}"\` and tell the user which channel you used.`,
+      "- If the user-specified channel fails, report the actual errorCode/message and stop — do NOT silently switch to another channel, and do NOT resend elsewhere.",
       "- WeCom does not support outbound push; you can only reply inside a WeCom conversation.",
       "- To send images or files, pass `mediaPath` (absolute local path) to `channel_send`; an optional `text` is delivered first as a separate message. Only Feishu and 个人微信 (`weixin`) support this; 本机微信 (`pcwechat`) is text-only.",
       "- On failure, report the actual errorCode and message; never claim success.",

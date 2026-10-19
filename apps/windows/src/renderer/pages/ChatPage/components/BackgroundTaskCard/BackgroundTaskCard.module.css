@@ -132,6 +132,15 @@
   flex-shrink: 0;
 }
 
+.outputCount {
+  flex-shrink: 0;
+  padding: 0 6px;
+  font-size: 11px;
+  color: var(--mt-fg-4);
+  border: 1px solid var(--mt-border);
+  border-radius: var(--mt-radius-md, 8px);
+}
+
 .chevron {
   display: inline-flex;
   align-items: center;

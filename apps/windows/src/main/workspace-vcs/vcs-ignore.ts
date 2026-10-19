@@ -82,8 +82,15 @@ export function shouldSkipWalkDir(relDir: string, entryName: string): boolean {
   return false
 }
 
-/** 按扩展名判定为二进制，跳过逐行文本 diff（仍纳入 status / commit） */
-const VCS_BINARY_EXTENSIONS: ReadonlySet<string> = new Set([
+/**
+ * 按扩展名判定为二进制。
+ *
+ * 这个名单有**两个**用途：跳过逐行文本 diff，以及从版本库中排除（见
+ * vcs-git-cli.ts 的硬剪枝规则）。2026-10-19 起后者才是主要用途 ——
+ * 实测 `.mtbot-vcs` 长到 1.9 GB，其中 1.25 GB 是 3360 个 PNG，而 git 对二进制
+ * 每次改动都存一个完整 blob 且**永不回收**（blob 始终被某个提交引用，gc 删不掉）。
+ */
+export const VCS_BINARY_EXTENSIONS: ReadonlySet<string> = new Set([
   '.pdf', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.ico',
   '.zip', '.rar', '.7z', '.gz', '.tar', '.bz2',
   '.mp3', '.mp4', '.wav', '.webm', '.mov', '.avi',

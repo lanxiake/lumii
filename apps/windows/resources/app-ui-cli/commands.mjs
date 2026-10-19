@@ -37,6 +37,18 @@ export const COMMANDS = [
     },
   },
   {
+    name: 'restart',
+    group: '系统',
+    usage: 'restart',
+    summary: '重启当前客户端（热重载主进程与界面）',
+    layer: 'system',
+    route: { method: 'POST', path: '/restart' },
+    options: [],
+    build() {
+      return {}
+    },
+  },
+  {
     name: 'setup',
     group: '系统',
     usage: 'setup',

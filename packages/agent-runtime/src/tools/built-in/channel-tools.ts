@@ -134,7 +134,10 @@ const ChannelSendParams = Type.Object({
       description:
         "Peer id from channel_list. OMIT it to reply to the current conversation " +
         "(the peer you are talking to right now); in group chats omission only works " +
-        "within the current group. Set it explicitly — after channel_list — to reach a " +
+        "within the current group. When you set `channel` explicitly to notify the USER " +
+        "THEMSELF (e.g. \"完成后用微信/飞书通知我\"), you may also omit `to`: " +
+        "feishu resolves to the user's linked account, pcwechat to 文件传输助手 — " +
+        "no need to guess an id. Set it explicitly — after channel_list — to reach a " +
         "different peer. Never guess an id.",
     }),
   ),
@@ -170,6 +173,8 @@ export const channelSendToolConfig: MtBotToolConfig<typeof ChannelSendParams> = 
     "conversation this turn came from — do that for 'send it to me'; call channel_list first only " +
     "when you need a DIFFERENT peer or channel. " +
     "Set 'mediaPath' to an absolute local path to send a file. " +
+    "To notify the user themself on a named channel, set only `channel` and omit `to` " +
+    "(feishu → their linked account, pcwechat → 文件传输助手). " +
     "For reports/long content, pass the source Markdown — don't pre-flatten it to plain text. " +
     "Capability limits (report them honestly, never silently switch channel): " +
     "weixin (个人微信, Lumii bot) needs a recent inbound message from that peer (cached context token) and " +

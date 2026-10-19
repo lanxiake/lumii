@@ -70,6 +70,8 @@ export interface AppUiControlServerDeps {
   token?: string
   /** 测试注入：固定端口 */
   port?: number
+  /** 重启当前客户端（index.ts 注入；缺省时 /restart 返回 501） */
+  requestRestart?: () => void
   /** B 层 skills：由 index 注入，避免 server↔index 循环依赖 */
   getSkillRuntime?: () => {
     listLocalInstalled: () => Promise<unknown>
@@ -355,6 +357,17 @@ async function handleRoute(
     }
     case '/status': {
       await handleStatusRoute(res)
+      return
+    }
+    case '/restart': {
+      const restart = activeDeps?.requestRestart
+      if (!restart) {
+        sendJson(res, 501, { ok: false, error: 'restart_not_supported' })
+        return
+      }
+      // 先把响应发完再退进程：CLI 才不会把「连接被重置」当成重启失败
+      sendJson(res, 200, { ok: true, restarting: true })
+      setTimeout(restart, 150)
       return
     }
     case '/channel/login': {

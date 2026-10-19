@@ -4,6 +4,7 @@ import {
   shouldSkipWalkDir,
   stripOutputsIgnoreRules,
 } from './vcs-ignore'
+import { buildVcsExcludeContent } from './vcs-git-cli'
 
 describe('vcs-ignore', () => {
   it('stripOutputsIgnoreRules 移除目录级 outputs 忽略', () => {
@@ -33,5 +34,16 @@ describe('vcs-ignore', () => {
     expect(shouldSkipWalkDir('', 'projects')).toBe(true)
     expect(shouldSkipWalkDir('outputs/demo', 'projects')).toBe(false)
     expect(shouldSkipWalkDir('', 'node_modules')).toBe(true)
+  })
+
+  it('硬剪枝规则排除二进制，但不排除 outputs 目录本身', () => {
+    const c = buildVcsExcludeContent()
+    // 实测 1.9GB 的对象库里 1.25GB 是 PNG —— 这几条是主要收益来源
+    for (const ext of ['*.png', '*.jpg', '*.mp4', '*.mp3', '*.pdf']) {
+      expect(c.split('\n')).toContain(ext)
+    }
+    // outputs/ 必须仍被跟踪（快照要能回滚文档）
+    expect(c.split('\n')).not.toContain('outputs/')
+    expect(c.split('\n')).not.toContain('/outputs/')
   })
 })
