@@ -381,6 +381,12 @@ export class LocalDatabase {
   ): Promise<void> {
     const { dbPath, preferBetterSqlite } = options;
     const maxRecovery = 1;
+    // 开库路径曾整体 3 秒，分段计时找出该动谁（与 bridge 的 [Startup] 前缀保持一致）
+    const tDbOpen = performance.now();
+    // 用 console.log 而不是 console.info：主进程的日志捕获器只收 log/warn/error，
+    // info 不进文件（排查时踩过）
+    const phase = (name: string) =>
+      console.log(`[Startup] localdb.${name} ${(performance.now() - tDbOpen).toFixed(0)}ms`);
 
     const tryOpen = async (openPath: string = dbPath): Promise<DatabaseAdapter> => {
       if (preferBetterSqlite) {
@@ -562,7 +568,9 @@ export class LocalDatabase {
 
     writeActivePathPointer(dbPath, actualDbPath);
     this._dbPath = actualDbPath;
+    phase("1-adapter-ready");
     this.migrate();
+    phase("2-migrated");
 
     const dbAfterMigrate = this._db;
     if (!dbAfterMigrate) {
@@ -603,7 +611,11 @@ export class LocalDatabase {
       throw new Error("Database not initialized before integrity_check.");
     }
 
-    if (!verifyDatabaseIntegrity(dbForIntegrity)) {
+    // 上次是干净关闭 → SQLite 的 WAL 一致性由它自己保证，跳过全库扫描。
+    // 崩溃/断电没有标记，仍走 quick_check。（306MB 实测：跳过省 1.6 秒）
+    const cleanlyClosed = consumeCleanShutdownMarker(actualDbPath);
+
+    if (!cleanlyClosed && !verifyDatabaseIntegrity(dbForIntegrity)) {
       dbForIntegrity.close();
       this._db = null;
       this._dbPath = null;
@@ -617,6 +629,8 @@ export class LocalDatabase {
         "SQLite database failed integrity_check and could not be restored from backup.",
       );
     }
+
+    phase("3-integrity-checked")
 
     if (options.enableScheduledBackup !== false) {
       this._stopBackup?.();
@@ -650,6 +664,7 @@ export class LocalDatabase {
     this._stopBackup?.();
     this._stopBackup = null;
     if (this._db) {
+      const closedPath = this._dbPath;
       try {
         this._db.exec("PRAGMA wal_checkpoint(FULL)");
       } catch {
@@ -658,6 +673,9 @@ export class LocalDatabase {
       this._db.close();
       this._db = null;
       this._dbPath = null;
+      // 干净关闭标记：下次开库见到它就跳过全库完整性扫描（306MB 实测 1.6 秒）。
+      // 崩溃/断电不会写这个标记，那种情况照旧做 quick_check。
+      if (closedPath) writeCleanShutdownMarker(closedPath);
     }
   }
 
@@ -761,11 +779,44 @@ export class LocalDatabase {
 /**
  * 判断当前数据库是否像「刚创建的空库」（无会话与消息）。
  */
+/** 干净关闭标记的路径（与主库同目录，旁路文件）。 */
+function cleanShutdownMarkerPath(dbPath: string): string {
+  return `${dbPath}.clean-shutdown`;
+}
+
+function writeCleanShutdownMarker(dbPath: string): void {
+  try {
+    fs.writeFileSync(cleanShutdownMarkerPath(dbPath), String(Date.now()));
+  } catch {
+    // 写不进去只影响下次是否做完整校验，不影响正确性
+  }
+}
+
+/**
+ * 消费「干净关闭」标记：存在则删掉并返回 true。
+ *
+ * 语义是一次性的——无论这次启动是否正常结束，标记都要重新由 close() 写入，
+ * 否则一次崩溃之后会一直跳过校验。
+ */
+function consumeCleanShutdownMarker(dbPath: string): boolean {
+  const marker = cleanShutdownMarkerPath(dbPath);
+  try {
+    if (!fs.existsSync(marker)) return false;
+    fs.unlinkSync(marker);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function isDatabaseLikelyEmpty(db: DatabaseAdapter): boolean {
   try {
-    const conv = db.prepare<{ c: number }>("SELECT COUNT(*) as c FROM conversations").get();
-    const msg = db.prepare<{ c: number }>("SELECT COUNT(*) as c FROM messages").get();
-    return (conv?.c ?? 0) === 0 && (msg?.c ?? 0) === 0;
+    // 用 LIMIT 1 而不是 COUNT(*)：这里只问「有没有数据」，而 COUNT(*) 要扫全表——
+    // 306MB 的 messages 上实测 1.7 秒，白压在开库路径上。
+    const conv = db.prepare<{ one: number }>("SELECT 1 as one FROM conversations LIMIT 1").get();
+    if (conv) return false;
+    const msg = db.prepare<{ one: number }>("SELECT 1 as one FROM messages LIMIT 1").get();
+    return msg === undefined;
   } catch {
     return false;
   }
