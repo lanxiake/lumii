@@ -77,17 +77,11 @@ import {
   applyMoodImpact,
   writeMood,
   moodToPetEmotion,
-  DIARY_PROMPT,
-  buildDiaryContext,
   readConcerns,
   pickConcernToRaise,
   writeConcerns,
   markConcernRaised,
-  markDiaryWritten,
   hasInnerLife,
-  listRecentDiaries,
-  saveDiary,
-  todayDateKey,
   readSettings,
   drawerPointerId,
 } from '@mtbot/agent-runtime'
@@ -224,6 +218,7 @@ import { beginStandaloneTurn } from './turn-touched-paths'
 import { BackgroundTaskManager, type BackgroundTaskRecord } from './background-task-manager'
 import { followComfyJob, parseEnqueuedPromptId, resolveComfyBaseUrl } from './comfyui-job-follower'
 import { buildBackgroundToolConfig } from './bootstrap/background-tool-config'
+import { writeDiaryFor } from './bootstrap/diary-writer'
 import { BridgeToolRegistrar } from './bridge-tool-registrar'
 import { BridgePromptDispatcher } from './bridge-prompt-dispatcher'
 import { RouterService } from './router/router-service'
@@ -2737,81 +2732,16 @@ export class AgentRuntimeBridge {
    * 症状是宠物的日记与助手的日记慢慢变成两种东西（而它们本该只差主体）。
    */
   private async writeDiaryFor(agentId: string): Promise<string> {
-    // 谁能写日记：助手与宠物（`hasInnerLife`）。两处判据同源，不会再各自漂移
-    if (!hasInnerLife(agentId)) return 'diary-skipped'
-    const repo = this._autonomousRepo
-    if (!repo) return 'diary-unavailable'
-    const goals = repo.listGoals(agentId)
-    const reflections = repo.reflections(agentId, 5)
-    const recentDiaries = listRecentDiaries(this.localDb.db, agentId, 5)
-    // 今日真实事件（目标完成 / 有信息量的定时任务结果）→ 日记落到具体事，防空洞开场
-    const todayStartMs = new Date().setHours(0, 0, 0, 0)
-    const todayEvents: string[] = []
-    try {
-      const doneToday = this.localDb.db
-        .prepare<{ description: string }>(
-          `SELECT description FROM autonomous_goals
-           WHERE agent_id = ? AND status = 'completed' AND completed_at >= ?
-           ORDER BY completed_at DESC LIMIT 5`,
-        )
-        .all(agentId, new Date(todayStartMs).toISOString())
-      for (const g of doneToday) {
-        todayEvents.push(`完成目标：${g.description}`)
-      }
-    } catch {
-      /* 事件素材缺失不阻断日记 */
-    }
-    try {
-      const runs = this.localDb.db
-        .prepare<{ job_id: string; summary: string | null }>(
-          `SELECT job_id, summary FROM local_cron_runs
-           WHERE started_at >= ? AND summary IS NOT NULL
-           ORDER BY started_at DESC LIMIT 12`,
-        )
-        .all(todayStartMs)
-      for (const r of runs) {
-        const s = String(r.summary ?? '')
-        if (!s || /^(idle|skipped)/.test(s)) continue
-        todayEvents.push(`定时任务（${r.job_id}）：${s.slice(0, 80)}`)
-        if (todayEvents.length >= 6) break
-      }
-    } catch {
-      /* 事件素材缺失不阻断日记 */
-    }
-    const context = buildDiaryContext({
-      goals: goals.map((g) => ({ description: g.description, status: g.status })),
-      reflections: reflections.map((r) => ({ primaryIssue: r.primary_issue })),
-      concerns: readConcerns(this.localDb.db, agentId),
-      mood: readMood(this.localDb.db, agentId),
-      recentDiaries,
-      todayEvents,
+    // 实现已搬到 bootstrap/diary-writer.ts：这里只把门面的私有字段包成显式依赖。
+    return writeDiaryFor(agentId, {
+      db: this.localDb.db,
+      autonomousRepo: this._autonomousRepo,
+      conversationRepo: this._conversationRepo,
+      callLLM: (prompt, instanceId, purpose) => this.callLLM(prompt, instanceId, purpose),
+      evolutionConversationIdFor: (id) => this.evolutionConversationIdFor(id),
+      ensurePetConversation: (agentId2, convId) => this.ensurePetConversation(agentId2, convId),
+      pushSavedMessage: (key, id, role, text) => this.pushSavedMessage(key, id, role, text),
     })
-    // recentDiaries 已含在 context 中，不再单独拼接（防双份注入强化套话开场）
-    const prompt = `${DIARY_PROMPT}\n\n今日素材：${JSON.stringify(context)}`
-    const diary = await this.callLLM(prompt, undefined, 'diary')
-    // 会话按 agent 取：助手 `evolution:main`、宠物 `evolution:pet:<模型ID>`。
-    // 用 `ensurePetConversation` 而不是裸的 `ensureConversationExists`——
-    // 宠物会话还要顺带修参与者归属（见那个方法的注释）
-    const diaryConvId = this.evolutionConversationIdFor(agentId)
-    this.ensurePetConversation(agentId, diaryConvId)
-    const askRow = this._conversationRepo?.saveMessage({
-      conversationId: diaryConvId,
-      agentId,
-      role: 'user',
-      contentJson: { type: 'text', text: '写今天的日记' },
-    })
-    const diaryRow = this._conversationRepo?.saveMessage({
-      conversationId: diaryConvId,
-      agentId,
-      role: 'assistant',
-      contentJson: { type: 'text', text: diary },
-    })
-    if (askRow) this.pushSavedMessage(diaryConvId, askRow.id, 'user', '写今天的日记')
-    if (diaryRow) this.pushSavedMessage(diaryConvId, diaryRow.id, 'assistant', diary)
-    // 双写：会话（给用户看）+ 表（给 LLM 做连续性上下文），两者都按 agent 分
-    saveDiary(this.localDb.db, agentId, todayDateKey(), diary)
-    markDiaryWritten(this.localDb.db, agentId)
-    return diary.slice(0, 60)
   }
 
   /**
