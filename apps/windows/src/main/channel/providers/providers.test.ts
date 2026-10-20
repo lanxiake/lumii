@@ -276,6 +276,23 @@ describe('PcwechatChannelProvider', () => {
     })
   })
 
+  it('多开：accountId 透传给 MCP，待补发队列也带上账号', async () => {
+    const { provider, callMcpTool } = make()
+    await provider.sendText({ to: 'wxid_loop', text: '在的', accountId: 'wxid_a' })
+    expect(callMcpTool).toHaveBeenCalledWith('wechat-local', 'send_text', {
+      talker: 'wxid_loop',
+      text: withAgentMarker('在的'),
+      dry_run: false,
+      account: 'wxid_a',
+    })
+
+    const { provider: p2, onUndeliverable } = make({
+      reply: '{"ok":false,"error_code":"env_not_ready","detail":"x"}',
+    })
+    await p2.sendText({ to: 'wxid_loop', text: '在的', accountId: 'wxid_a' })
+    expect(onUndeliverable).toHaveBeenCalledWith('wxid_loop', withAgentMarker('在的'), 'wxid_a')
+  })
+
   it('名单外（含黑名单）不发：Router 之外的第二道白名单', async () => {
     const { provider, callMcpTool } = make({ policy: policy([{ id: 'filehelper', mode: 'ignore' }]) })
     for (const to of ['filehelper', 'wxid_陌生人']) {

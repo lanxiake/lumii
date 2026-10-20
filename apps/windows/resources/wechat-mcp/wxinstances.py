@@ -12,7 +12,7 @@
 这是纯读取（`NtQuerySystemInformation` + `NtQueryObject`），不注入、不改内存。
 
 对外只有四个函数：
-- `instances(refresh=False)`：`[{pid, wxid, hwnd, visible, minimized, title}]`
+- `instances(refresh=False, include_hidden=False)`：`[{pid, wxid, hwnd, visible, minimized, title}]`
 - `window_for_account(wxid, include_hidden=False)`：该账号的主窗口句柄，找不到返回 0
 - `window_for_pid(pid, include_hidden=False)`
 - `accounts_detailed()`：把 `wechat_core.list_accounts()` 与运行态合并

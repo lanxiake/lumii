@@ -64,7 +64,7 @@ export interface PcwechatProviderDeps {
    * 为什么生产者在**这一层**：只有这里拿得到工具的错误码——"内容不对"（名单外/找不到会话）
    * 与"环境够不着"必须分得开，前者重试一万次也没用，后者重试就能成功。
    */
-  onUndeliverable?: (to: string, text: string) => void
+  onUndeliverable?: (to: string, text: string, accountId?: string) => void
 }
 
 export class PcwechatChannelProvider implements IChannelOutboundProvider {
@@ -94,7 +94,13 @@ export class PcwechatChannelProvider implements IChannelOutboundProvider {
     }
   }
 
-  async sendText(params: { to: string; text: string; title?: string }): Promise<ChannelSendResult> {
+  async sendText(params: {
+    to: string
+    text: string
+    title?: string
+    /** 多开：从哪个账号（wxid）发出。缺省由 MCP 用当前选中的账号 */
+    accountId?: string
+  }): Promise<ChannelSendResult> {
     const { to, text } = params
     const fail = (
       errorCode: ChannelSendResult['errorCode'],
@@ -127,6 +133,8 @@ export class PcwechatChannelProvider implements IChannelOutboundProvider {
         text: markedText,
         // 显式 false：工具的默认值是 true（只校验不发送），少写这一次就是"报告已发、其实没发"
         dry_run: false,
+        // 多开：回复必须从收到消息的那个账号发出
+        ...(params.accountId ? { account: params.accountId } : {}),
       })
     } catch (err) {
       return fail(
@@ -156,7 +164,7 @@ export class PcwechatChannelProvider implements IChannelOutboundProvider {
       // 原样带上工具自报的错误码：归一化后的 errorCode 粒度太粗（target_unconfirmed → UPSTREAM_ERROR），
       // 调用方（代聊/日志）看不出到底卡在目标确认还是别处
       const upstream = out.error_code ? { upstreamCode: out.error_code } : {}
-      if (UNDELIVERABLE_CODES.has(out.error_code ?? '') && this.enqueue(to, markedText)) {
+      if (UNDELIVERABLE_CODES.has(out.error_code ?? '') && this.enqueue(to, markedText, params.accountId)) {
         // 内容没问题，只是此刻那双手不在——**排队等门开**，并如实报「排队中」：
         // 报成失败会让调用方（代聊）误判成"发错了"而去改内容或转人工
         return {
@@ -174,10 +182,11 @@ export class PcwechatChannelProvider implements IChannelOutboundProvider {
    * 投进待补发队列，返回是否真的排上了。
    * 没接队列、或队列本身抛错，都算没排上——那就照实报失败，绝不谎报「会自动补发」。
    */
-  private enqueue(to: string, text: string): boolean {
+  private enqueue(to: string, text: string, accountId?: string): boolean {
     if (!this.deps.onUndeliverable) return false
     try {
-      this.deps.onUndeliverable(to, text)
+      if (accountId) this.deps.onUndeliverable(to, text, accountId)
+      else this.deps.onUndeliverable(to, text)
       return true
     } catch {
       return false
