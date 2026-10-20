@@ -52,6 +52,8 @@ export interface ClientPluginApi {
 
 interface LoadedPlugin {
   descriptor: ClientPluginDescriptor
+  /** 保留工厂：新版本激活失败时用它重新激活上一版（回滚） */
+  factory: ClientPluginFactory
   dispose: () => void
 }
 
@@ -59,6 +61,8 @@ const REGISTER_KEY = '__LUMII_REGISTER_PLUGIN__'
 const loaded = new Map<string, LoadedPlugin>()
 const pending = new Map<string, ClientPluginFactory>()
 const disposers = new Map<string, Array<() => void>>()
+/** 已失败过的版本：同一 revision 不重复重试（轮询每秒一次，否则会刷屏） */
+const failedRevision = new Map<string, string>()
 
 declare global {
   // eslint-disable-next-line no-var
@@ -109,8 +113,15 @@ function injectScript(url: string): Promise<void> {
     const el = document.createElement('script')
     el.src = url
     el.async = false
-    el.onload = () => resolve()
-    el.onerror = () => reject(new Error(`脚本加载失败: ${url}`))
+    el.onload = () => {
+      // 加载完就摘掉：热更新每次都插一条，不摘会在长开发会话里堆几百个标签
+      el.remove()
+      resolve()
+    }
+    el.onerror = () => {
+      el.remove()
+      reject(new Error(`脚本加载失败: ${url}`))
+    }
     document.head.appendChild(el)
   })
 }
@@ -135,12 +146,19 @@ function unload(pluginId: string): void {
 }
 
 async function loadOne(descriptor: ClientPluginDescriptor): Promise<void> {
+  const previous = loaded.get(descriptor.id)
   // 先收工厂；同 id 重复注册时以后来的为准（热重载场景）
   pending.delete(descriptor.id)
 
   // URL 用**目录名**定位文件：id 可能被 plugin.json 改写，与目录名不同
   const url = `${SCHEME}/${encodeURIComponent(descriptor.dir)}/${descriptor.entry}?v=${descriptor.revision}`
-  await injectScript(url)
+  try {
+    await injectScript(url)
+  } catch (err) {
+    // 脚本都下不来：旧版本继续服务（先卸后载会让「编辑到一半保存」变成功能消失）
+    console.error(`[client-plugin] ${descriptor.id} 脚本加载失败，保留旧版本`, err)
+    return
+  }
 
   const factory = pending.get(descriptor.id)
   if (!factory) {
@@ -148,19 +166,37 @@ async function loadOne(descriptor: ClientPluginDescriptor): Promise<void> {
     return
   }
 
-  // 注册前先卸旧版本：否则同一 type / slot id 会撞「已注册」而抛错
+  // 注册前必须先卸旧版本：同一 type / slot id 会撞「已注册」而抛错
   unload(descriptor.id)
 
-  let dispose: void | (() => void)
   try {
-    dispose = factory(createApi(descriptor.id))
+    activate(descriptor, factory)
+    failedRevision.delete(descriptor.id)
   } catch (err) {
     console.error(`[client-plugin] ${descriptor.id} 激活失败`, err)
-    return
+    // 记下这个 revision：轮询每秒一次，不记会「每秒重试、每秒回滚、每秒刷错误」
+    failedRevision.set(descriptor.id, descriptor.revision)
+    // 激活过程可能已注册了一部分（卡片成功、槽位失败），一并清掉
+    unload(descriptor.id)
+    if (previous) {
+      try {
+        activate(previous.descriptor, previous.factory)
+        console.warn(`[client-plugin] ${descriptor.id} 已回滚到上一个版本（修好文件后自动重试）`)
+      } catch (rollbackErr) {
+        console.error(`[client-plugin] ${descriptor.id} 回滚也失败，已停止`, rollbackErr)
+        unload(descriptor.id)
+      }
+    }
   }
+}
 
+/** 真正激活：建 api、调工厂、登记。抛错时由调用方决定回滚。 */
+function activate(descriptor: ClientPluginDescriptor, factory: ClientPluginFactory): void {
+  const api = createApi(descriptor.id)
+  const dispose = factory(api)
   loaded.set(descriptor.id, {
     descriptor,
+    factory,
     dispose: () => {
       if (typeof dispose === 'function') dispose()
     },
@@ -169,7 +205,21 @@ async function loadOne(descriptor: ClientPluginDescriptor): Promise<void> {
   console.log(`[client-plugin] ${descriptor.id}@${descriptor.version} 已加载`)
 }
 
+let syncing = false
+
 async function syncOnce(): Promise<void> {
+  // 重入保护：轮询 1 秒一次，而一次加载（脚本下载）可能更久；
+  // 两次并发同步会互相 unload，出现「插件刚加载就被卸掉」
+  if (syncing) return
+  syncing = true
+  try {
+    await syncInner()
+  } finally {
+    syncing = false
+  }
+}
+
+async function syncInner(): Promise<void> {
   const list = await fetchList()
   const seen = new Set<string>()
 
@@ -177,7 +227,14 @@ async function syncOnce(): Promise<void> {
     seen.add(descriptor.id)
     const current = loaded.get(descriptor.id)
     if (current && current.descriptor.revision === descriptor.revision) continue
-    await loadOne(descriptor)
+    // 这个版本刚失败过：等文件改了（revision 变化）再试
+    if (failedRevision.get(descriptor.id) === descriptor.revision) continue
+    try {
+      await loadOne(descriptor)
+    } catch (err) {
+      // 单个插件炸掉不该拖累同轮的其它插件
+      console.error(`[client-plugin] ${descriptor.id} 加载异常`, err)
+    }
   }
 
   for (const id of [...loaded.keys()]) {

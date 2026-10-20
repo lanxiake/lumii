@@ -1,4 +1,4 @@
-import { registerSlot } from '../../components/slots/slot-registry'
+import { getSlotEntries, registerSlot, type SlotEntry } from '../../components/slots/slot-registry'
 import type { ViewType } from '../../components/layout/Sidebar/Sidebar'
 import { NewsFeed } from './components/NewsFeed'
 import { RecentFocus } from './components/RecentFocus'
@@ -23,40 +23,42 @@ export interface DashboardCardContext {
   onViewChange?: (view: ViewType) => void
 }
 
-let registered = false
-
 /**
- * 注册内置卡片（幂等）。
+ * 注册内置卡片（真幂等）。
  *
- * 在模块加载时调用一次：内置卡片与页面同生命周期，不需要注销。
- * 插件卡片走同一套 `registerSlot`，只是 owner 不同、且带注销函数。
+ * **不能只用一个模块级 `registered` 布尔**：Vite HMR 会重新执行本模块，
+ * 标志被重置，而 slot-registry 里的旧条目还在 → `registerSlot` 抛「已存在 id」，
+ * 表现为「改这一行就整页白屏」。
+ * 所以按**注册表里的实际状态**判重，而不是靠本模块的变量。
  */
 export function registerBuiltinDashboardCards(): void {
-  if (registered) return
-  registered = true
+  const ensure = <P,>(slot: string, entry: SlotEntry<P>): void => {
+    if (getSlotEntries(slot).some((e) => e.id === entry.id)) return
+    registerSlot(slot, entry)
+  }
 
-  registerSlot<DashboardCardContext>(DASHBOARD_MAIN_SLOT, {
+  ensure(DASHBOARD_MAIN_SLOT, {
     id: 'builtin.news-feed',
     component: NewsFeed,
     order: 10,
     owner: 'builtin',
-  })
-  registerSlot<DashboardCardContext>(DASHBOARD_GRID_SLOT, {
+  } satisfies SlotEntry<DashboardCardContext>)
+  ensure(DASHBOARD_GRID_SLOT, {
     id: 'builtin.recent-focus',
     component: RecentFocus,
     order: 10,
     owner: 'builtin',
-  })
-  registerSlot<DashboardCardContext>(DASHBOARD_GRID_SLOT, {
+  } satisfies SlotEntry<DashboardCardContext>)
+  ensure(DASHBOARD_GRID_SLOT, {
     id: 'builtin.scenario-suggest',
     component: ScenarioSuggest,
     order: 20,
     owner: 'builtin',
-  })
-  registerSlot<DashboardCardContext>(DASHBOARD_GRID_SLOT, {
+  } satisfies SlotEntry<DashboardCardContext>)
+  ensure(DASHBOARD_GRID_SLOT, {
     id: 'builtin.virtual-human',
     component: VirtualHuman,
     order: 30,
     owner: 'builtin',
-  })
+  } satisfies SlotEntry<DashboardCardContext>)
 }
