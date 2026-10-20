@@ -961,6 +961,47 @@ describe('待补发队列（发送门够不着时排队，门开了自动补发�
     expect(readWechatOutbox(d).map((x) => x.text)).toEqual(['早', '九点零三分'])
   })
 
+  it('多开：同一 peer 的不同账号各自入队（去重键带 account）', () => {
+    const { db } = fakeDb()
+    const d = db as never
+    enqueueWechatOutbox(d, 'wxid_a', '早', 'wxid_1')
+    enqueueWechatOutbox(d, 'wxid_a', '早', 'wxid_2')
+    enqueueWechatOutbox(d, 'wxid_a', '早', 'wxid_1')
+    expect(readWechatOutbox(d).map((x) => x.account)).toEqual(['wxid_1', 'wxid_2'])
+  })
+
+  it('多开：按账号分别轮询，各自推进自己的水位', async () => {
+    const { d, kv, callMcpTool } = deps({
+      listAccounts: async () => [{ wxid: 'wxid_1' }, { wxid: 'wxid_2' }],
+      nowMs: () => 1_800_000,
+    })
+    const mcp = callMcpTool as unknown as {
+      mockImplementation: (
+        fn: (server: string, tool: string, args?: { account?: string }) => Promise<string>,
+      ) => void
+    }
+    mcp.mockImplementation(async (_s, tool, args) => {
+      if (tool === 'poll_new') {
+        return JSON.stringify({
+          count: 0,
+          messages: [],
+          next_since_ts: args?.account === 'wxid_1' ? 2001 : 2002,
+        })
+      }
+      return JSON.stringify({ count: 0, messages: [], next_since_ts: 2000 })
+    })
+    await runWechatWatch(d)
+    const calls = callMcpTool.mock.calls as unknown as [
+      server: string,
+      tool: string,
+      args?: { account?: string },
+    ][]
+    const polls = calls.filter((c) => c[1] === 'poll_new').map((c) => c[2]?.account)
+    expect(polls.sort()).toEqual(['wxid_1', 'wxid_2'])
+    expect(kv.get('wechat_watch_last_ts:wxid_1')).toBe('2001')
+    expect(kv.get('wechat_watch_last_ts:wxid_2')).toBe('2002')
+  })
+
   it('空闲拍补发并清队；摘要里报补了几条', async () => {
     const { d, kv, sent } = outboxDeps()
     const db = d.getDb()
@@ -1496,6 +1537,29 @@ describe('Agent 代发标记', () => {
     for (const p of [buildAutoPrompt(msgs), buildOwnerPrompt(msgs)]) {
       expect(p).toContain('不会有新的')
       expect(p).toContain('收手')
+    }
+  })
+})
+
+describe('多账号路由：回复从来源账号发出', () => {
+  const withAccount: WechatMessage[] = [
+    { ts: 1, talker: 'wxid_x', name: '某人', text: 'hi', from_me: false, account: 'wxid_a' },
+  ]
+  const noAccount: WechatMessage[] = [
+    { ts: 1, talker: 'wxid_x', name: '某人', text: 'hi', from_me: false },
+  ]
+
+  it('auto / owner / draft 三条提示词都把来源账号写进 channel_send', () => {
+    for (const p of [buildAutoPrompt(withAccount), buildOwnerPrompt(withAccount)]) {
+      expect(p).toContain('account="wxid_a"')
+    }
+    // draft 档本身不发送，但读历史要读同一个号
+    expect(buildDraftPrompt(withAccount)).toContain('account="wxid_a"')
+  })
+
+  it('没有账号时不要塞空的 account=', () => {
+    for (const p of [buildAutoPrompt(noAccount), buildOwnerPrompt(noAccount)]) {
+      expect(p).not.toContain('account=')
     }
   })
 })

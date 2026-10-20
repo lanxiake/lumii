@@ -59,6 +59,8 @@ const WECHAT_WATCH_INTERVAL_MS = 15_000
 
 /** 水位键：报过的最新消息 ts（秒）。重启后从这里续读 */
 const KV_KEY_LAST_TS = 'wechat_watch_last_ts'
+/** 多开：每个账号一条独立水位（`wechat_watch_last_ts:<wxid>`） */
+const KV_KEY_LAST_TS_PREFIX = `${KV_KEY_LAST_TS}:`
 /** 通知里最多列几条（其余折叠成一句） */
 const MAX_NOTIFY_ITEMS = 3
 
@@ -492,6 +494,11 @@ export interface WechatMessage {
   ts: number
   name?: string
   talker?: string
+  /**
+   * 多开：这条消息来自哪个微信账号（wxid）。回复必须从同一个号发出
+   * （`channel_send(..., account=...)`），否则会把回复发到另一个微信号上。
+   */
+  account?: string
   text?: string
   /**
    * 正文**超过 400 字**时，MCP 把后面那截放在这里（`text` 只是前 400 字，两者直接相接）。
@@ -722,7 +729,7 @@ export function buildDraftPrompt(
     '（这个人的策略是：起草给我确认。）',
     '',
     '请：',
-    `1. 用 wechat-local 的 read_history 看我和「${who}」最近的对话（talker=${msg.talker}）；`,
+    `1. 用 wechat-local 的 read_history 看我和「${who}」最近的对话（talker=${msg.talker}${msg.account ? `, account="${msg.account}"` : ''}）；`,
     '2. 判档后写一条**以我本人身份**发出的回复草稿（放行/软回那两档）；命中硬停的，就写转人工的措辞。',
     '',
     '⚠️ 这一档**只起草、不要发送**（不要调用 channel_send、也不要碰 MCP 的发送工具）——',
@@ -763,8 +770,11 @@ export function buildAutoPrompt(
     '（这个人的策略是：**允许按护栏直接替我回**。）',
     '',
     '先判档，再走对应的出口：',
-    `- **放行** → \`channel_send\`（channel="pcwechat", to="${msg.talker}", text=你要说的话）直接回；`,
+    `- **放行** → \`channel_send\`（channel="pcwechat", to="${msg.talker}"${msg.account ? `, account="${msg.account}"` : ''}, text=你要说的话）直接回；`,
     '  短、口语，像我本人。这是**唯一允许的发送路径**（渠道层会再挡一道名单并留发送记录，绕开它自己发绝对不要）。',
+    ...(msg.account
+      ? [`  ⚠️ 这条消息来自微信账号 ${msg.account}；**channel_send 必须带 account="${msg.account}"**，不要从另一个微信发。`]
+      : []),
     '- **软回** → 先把那一句「不含任何承诺」的话发出去，再转人工。',
     '- **硬停** → 微信侧一条都不发，只转人工。',
     '',
@@ -805,7 +815,10 @@ export function buildOwnerPrompt(
     ...imageLine(msgs),
     '',
     '照他的指令办——这是**控制渠道**，不是"有人来找我聊天"，别套代聊那套判档：',
-    `- 要你给某人发微信 → \`channel_send\`（channel="pcwechat", to=那个人的 wxid 或显示名）；要回他本人 → \`channel_send\`(channel="pcwechat", to="${msg.talker}")。`,
+    `- 要你给某人发微信 → \`channel_send\`（channel="pcwechat", to=那个人的 wxid 或显示名${msg.account ? `, account="${msg.account}"` : ''}）；要回他本人 → \`channel_send\`(channel="pcwechat", to="${msg.talker}"${msg.account ? `, account="${msg.account}"` : ''})。`,
+    ...(msg.account
+      ? [`- 这条消息来自微信账号 ${msg.account}；除非用户明确要求换号，发送都带 account="${msg.account}"。`]
+      : []),
     '- 要你开始/停止/改成只提醒某人 → `wechat_peer_mode`（改的是本机微信渠道对那个人的策略，不是发消息）。',
     '- 其他（整理资料、设定时提醒、记事、查东西）→ 用你平时那套工具照常做。',
     '',
@@ -857,6 +870,8 @@ async function detectSentTo(
   try {
     const text = await deps.callMcpTool(WECHAT_WATCH_MCP_SERVER, WECHAT_WATCH_MCP_TOOL, {
       since_ts: since,
+      // 多开：必须读回**这条消息所在账号**，否则另一号的新消息会把结果判反
+      ...(msg.account ? { account: msg.account } : {}),
     })
     const payload = JSON.parse(text) as PollPayload
     const mine = (payload.messages ?? []).filter(
@@ -868,23 +883,29 @@ async function detectSentTo(
   }
 }
 
-function readLastTs(db: DatabaseAdapter): number | null {
+function readLastTs(db: DatabaseAdapter, account?: string): number | null {
+  const key = account ? `${KV_KEY_LAST_TS_PREFIX}${account}` : KV_KEY_LAST_TS
   try {
     const row = db
       .prepare<{ value: string }>(`SELECT value FROM runtime_state WHERE key = ?`)
-      .get(KV_KEY_LAST_TS) as { value: string } | undefined
-    if (!row) return null
-    const n = Number(row.value)
-    return Number.isFinite(n) && n > 0 ? n : null
+      .get(key) as { value: string } | undefined
+    if (row) {
+      const n = Number(row.value)
+      if (Number.isFinite(n) && n > 0) return n
+    }
+    // 升级到多账号水位前的旧键：第一次按账号读时沿用它，避免重放历史
+    if (account) return readLastTs(db)
+    return null
   } catch {
     return null
   }
 }
 
-function writeLastTs(db: DatabaseAdapter, ts: number): void {
+function writeLastTs(db: DatabaseAdapter, ts: number, account?: string): void {
+  const key = account ? `${KV_KEY_LAST_TS_PREFIX}${account}` : KV_KEY_LAST_TS
   try {
     db.prepare(`INSERT OR REPLACE INTO runtime_state (key, value, updated_at) VALUES (?, ?, ?)`).run(
-      KV_KEY_LAST_TS,
+      key,
       String(ts),
       new Date().toISOString(),
     )
@@ -950,6 +971,11 @@ export interface WechatWatchDeps {
    */
   getSelfWxids?: () => Promise<readonly string[]>
   /**
+   * 多开：本机微信账号清单（bridge 注入，走 `list_accounts`）。
+   * **不给**时按单账号处理（测试与旧 MCP 的兼容路径）。
+   */
+  listAccounts?: () => Promise<readonly { wxid: string; running?: boolean }[]>
+  /**
    * 代聊 Agent（bridge 注入：`getAgentRecord('wechat-relay')`，见 `wechat-relay-agent.ts`）。
    *
    * **给了它**就说明护栏与工作流已经住在这个 Agent 的 systemPrompt 里，提示词只递「本次触发」；
@@ -997,6 +1023,8 @@ export interface WatchTurnMeta {
   /** 会话标题（`本机微信 · <名字>`） */
   title: string
   mode: WatchMode
+  /** 多开：这批消息来自哪个微信账号（wxid）；channel_send 默认回这个号 */
+  account?: string
   /**
    * 触发这一轮的那批消息（本拍同一会话合并而来的全部）。
    *
@@ -1243,6 +1271,8 @@ const outboxAlerted = new Map<string, number>()
 export interface WechatOutboxItem {
   peer: string
   text: string
+  /** 多开：这条回复应该从哪个账号发出（缺省=入队时 MCP 的选中账号） */
+  account?: string
   /** 入队时刻（ms），仅用于排空顺序与日志 */
   at: number
 }
@@ -1284,14 +1314,21 @@ function writeWechatOutbox(db: DatabaseAdapter, items: readonly WechatOutboxItem
  * 同一 (peer, text) 只留一条：回路重试/模型重述都可能送进同一句，队列不该因此变长。
  * 落盘失败会**抛出**：调用方（出站 Provider）据此照实报失败，而不是对外宣称「已排队」。
  */
-export function enqueueWechatOutbox(db: DatabaseAdapter, peer: string, text: string): void {
+export function enqueueWechatOutbox(
+  db: DatabaseAdapter,
+  peer: string,
+  text: string,
+  account?: string,
+): void {
   const bare = text.trim()
   if (!peer || !bare) return
+  const acct = (account ?? '').trim() || undefined
   const cur = readWechatOutbox(db)
-  if (cur.some((x) => x.peer === peer && x.text === bare)) return
-  const next = [...cur, { peer, text: bare, at: Date.now() }].slice(-OUTBOX_MAX)
+  if (cur.some((x) => x.peer === peer && x.text === bare && (x.account ?? '') === (acct ?? ''))) return
+  const next = [...cur, { peer, text: bare, ...(acct ? { account: acct } : {}), at: Date.now() }]
+    .slice(-OUTBOX_MAX)
   if (!writeWechatOutbox(db, next)) throw new Error('待补发队列写入失败')
-  log.info(`[wechat-watch] 发送门暂不可用，已排队待补发：${peer}（队列 ${next.length} 条）`)
+  log.info(`[wechat-watch] 发送门暂不可用，已排队待补发：${peer}${acct ? `（账号 ${acct}）` : ''}（队列 ${next.length} 条）`)
 }
 
 /**
@@ -1332,7 +1369,7 @@ async function flushWechatOutbox(
           .slice(0, 200),
         watchConversationIdFor(gone[gone.length - 1].peer),
       )
-      for (const x of gone) outboxAlerted.delete(`${x.peer}\n${x.text}`)
+      for (const x of gone) outboxAlerted.delete(`${x.account ?? ''}\n${x.peer}\n${x.text}`)
       queue = kept
       writeWechatOutbox(db, queue)
     }
@@ -1346,6 +1383,7 @@ async function flushWechatOutbox(
         const raw = await deps.callMcpTool(WECHAT_WATCH_MCP_SERVER, 'read_history', {
           talker: item.peer,
           limit: 1,
+          ...(item.account ? { account: item.account } : {}),
         })
         const msgs = (JSON.parse(raw) as { messages?: { from_me?: boolean; ts?: number }[] })
           .messages
@@ -1366,6 +1404,7 @@ async function flushWechatOutbox(
         talker: item.peer,
         text: item.text,
         dry_run: false,
+        ...(item.account ? { account: item.account } : {}),
       })
       const payload = JSON.parse(out) as { ok?: boolean; error_code?: string; detail?: string }
       if (payload.ok !== true) {
@@ -1375,7 +1414,7 @@ async function flushWechatOutbox(
         const why = [payload.error_code, payload.detail].filter(Boolean).join(' ') || '无错误码'
         log.warn(`[wechat-watch] 补发未成功，留队下一拍：${item.peer}（${why}）`)
         // 排队时只报过「已排队」；一直发不出去就得**让用户知道**，不能等到静默丢弃才吭声
-        const key = `${item.peer}\n${item.text}`
+        const key = `${item.account ?? ''}\n${item.peer}\n${item.text}`
         if (nowMs - item.at >= OUTBOX_ALERT_MS && nowMs - (outboxAlerted.get(key) ?? 0) >= OUTBOX_ALERT_MS) {
           outboxAlerted.set(key, nowMs)
           deps.showNotification?.(
@@ -1456,8 +1495,8 @@ async function maybeDistillProfiles(
  *
  * 重启失败或冷却未到时，把原来的错误原样抛回去，由 `runWechatWatch` 决定怎么跳过。
  */
-async function readPollText(deps: WechatWatchDeps, since: number): Promise<string> {
-  const args = { since_ts: since }
+async function readPollText(deps: WechatWatchDeps, since: number, account?: string): Promise<string> {
+  const args = { since_ts: since, ...(account ? { account } : {}) }
   try {
     return await deps.callMcpTool(WECHAT_WATCH_MCP_SERVER, WECHAT_WATCH_MCP_TOOL, args)
   } catch (err) {
@@ -1518,34 +1557,79 @@ export async function runWechatWatch(deps: WechatWatchDeps): Promise<string> {
       }
       if (!migrated) writeKvNumber(db, migratedKey, nowMs)
     }
-    const since = readLastTs(db) ?? nowS // 首次：从现在起，不翻历史
-    let payload: PollPayload | null = null
-    try {
-      const t0 = Date.now()
-      const text = await readPollText(deps, since)
-      const cost = Date.now() - t0
-      if (cost > 2000) {
-        // 观测用：读取侧正常是几十毫秒；偶发几秒的话，先分清是 MCP 侧还是主进程阻塞
-        log.warn(`[wechat-watch] poll_new 耗时 ${cost}ms（读取侧正常 <100ms，值得看一眼）`)
+    const since = readLastTs(db) ?? nowS // 首次：从现在起，不翻历史（旧单账号水位的兜底）
+    let messages: WechatMessage[] = []
+    // 多开：先问 MCP 有哪些账号在跑，每个账号用**自己的水位**增量读。
+    // 不能共用一个水位——A 号的新消息会把水位顶上去，B 号还没读到的旧消息就被跳过了。
+    let accounts: { wxid: string; running?: boolean }[] = []
+    if (deps.listAccounts) {
+      try {
+        accounts = [...(await deps.listAccounts())]
+      } catch {
+        accounts = [] // MCP 没有这个能力：走下面的单账号兜底
       }
-      payload = JSON.parse(text) as PollPayload
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      // 客户端**不依赖** wechat-local 这个 MCP：没装/没连/被禁用时，这里安静跳过即可
-      // （用户可能把这台机器上的 MCP 只给别的 AI 工具用，也可能压根没用微信）
-      if (msg.includes('未连接')) {
-        return '（wechat-local MCP 未连接，本拍跳过）'
+    }
+    const running = accounts.filter((a) => a.running !== false)
+    if (running.length > 0) {
+      let failed = 0
+      let keyNotReady = false
+      for (const acc of running) {
+        const accSince = readLastTs(db, acc.wxid) ?? nowS
+        try {
+          const t0 = Date.now()
+          const text = await readPollText(deps, accSince, acc.wxid)
+          const cost = Date.now() - t0
+          if (cost > 2000) {
+            log.warn(`[wechat-watch] poll_new(${acc.wxid}) 耗时 ${cost}ms（读取侧正常 <100ms）`)
+          }
+          const payload = JSON.parse(text) as PollPayload
+          for (const m of payload?.messages ?? []) {
+            if (!m.account) m.account = acc.wxid
+            messages.push(m)
+          }
+          const next = Number(payload?.next_since_ts ?? accSince)
+          if (Number.isFinite(next) && next > 0) writeLastTs(db, next, acc.wxid)
+        } catch (err) {
+          failed += 1
+          const msg = err instanceof Error ? err.message : String(err)
+          if (msg.includes('未连接')) return '（wechat-local MCP 未连接，本拍跳过）'
+          if (isWechatKeyNotReady(msg)) keyNotReady = true
+          log.warn(`[wechat-watch] 账号 ${acc.wxid} poll 失败，本拍跳过该账号：`, err)
+        }
       }
-      if (isWechatKeyNotReady(msg)) {
+      if (messages.length === 0 && failed === running.length && keyNotReady) {
         log.warn('[wechat-watch] 微信未运行或密钥未就绪，本拍跳过')
         return '微信未运行或密钥未就绪，本拍跳过'
       }
-      log.warn('[wechat-watch] poll_new 调用失败，本拍跳过：', err)
-      return `poll 失败，本拍跳过：${msg}`
+      messages.sort((a, b) => a.ts - b.ts)
+    } else {
+      // 旧版 MCP（没有 list_accounts）或没有运行实例：保持原来的单账号路径
+      let payload: PollPayload | null = null
+      try {
+        const t0 = Date.now()
+        const text = await readPollText(deps, since)
+        const cost = Date.now() - t0
+        if (cost > 2000) {
+          log.warn(`[wechat-watch] poll_new 耗时 ${cost}ms（读取侧正常 <100ms，值得看一眼）`)
+        }
+        payload = JSON.parse(text) as PollPayload
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        // 客户端**不依赖** wechat-local 这个 MCP：没装/没连/被禁用时，这里安静跳过即可
+        if (msg.includes('未连接')) {
+          return '（wechat-local MCP 未连接，本拍跳过）'
+        }
+        if (isWechatKeyNotReady(msg)) {
+          log.warn('[wechat-watch] 微信未运行或密钥未就绪，本拍跳过')
+          return '微信未运行或密钥未就绪，本拍跳过'
+        }
+        log.warn('[wechat-watch] poll_new 调用失败，本拍跳过：', err)
+        return `poll 失败，本拍跳过：${msg}`
+      }
+      messages = Array.isArray(payload?.messages) ? payload!.messages! : []
+      const next = Number(payload?.next_since_ts ?? since)
+      if (Number.isFinite(next) && next > 0) writeLastTs(db, next) // 无论报不报都要推进，免得重复读
     }
-    const messages = Array.isArray(payload?.messages) ? payload!.messages! : []
-    const next = Number(payload?.next_since_ts ?? since)
-    if (Number.isFinite(next) && next > 0) writeLastTs(db, next) // 无论报不报都要推进，免得重复读
     const fresh = selectNewMessages(messages, policy, selfWxids).filter(
       // 自聊回环护栏：助手刚发出去的话会以 from_me 再出现，按文本跳过（普通会话不会走到这里）
       (m) => !(isSelfChatPeer(m.talker, selfWxids) && wasSelfSent(m.talker || '', m.text, nowMs)),
@@ -1721,6 +1805,7 @@ export async function runWechatWatch(deps: WechatWatchDeps): Promise<string> {
           title: watchConversationTitleFor(last.name, peer),
           mode,
           incoming: msgs,
+          ...(last.account ? { account: last.account } : {}),
         })
       } catch (err) {
         log.error(`[wechat-watch] 驱动回合失败（${peer}）：`, err)
