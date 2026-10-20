@@ -44,7 +44,13 @@ const LOCAL_USER_ID = 'local-user'
 export function resolveOriginChannel(
   deps: BridgeToolRegistrarDeps,
   toolCallId: string,
-): { channelType: string; channelUserId: string; channelLabel: string; replyTo: string | null } | null {
+): {
+  channelType: string
+  channelUserId: string
+  channelLabel: string
+  replyTo: string | null
+  replyAccount: string | null
+} | null {
   const instanceId = deps.toolCallInstanceMap.get(toolCallId) ?? deps.getCurrentToolExecutorInstanceId()
   if (!instanceId) return null
   const presence = deps.instanceStates.get(instanceId)?.presence
@@ -55,6 +61,7 @@ export function resolveOriginChannel(
     channelUserId: presence.channelUserId,
     channelLabel: presence.channelLabel ?? presence.channelType,
     replyTo: presence.replyTo ?? null,
+    replyAccount: presence.replyAccount ?? null,
   }
 }
 

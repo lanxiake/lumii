@@ -42,7 +42,7 @@ wechat-mcp.exe --expiry-status    # 这份 exe 的有效期到哪天
 
 ### 1.3 离线 / 内网
 
-把 `wechat-mcp.exe` 和 `skills/wechat-mcp-pro/`（或 `-lite`）一起给出去——后者是给 Agent 看的
+把 `wechat-mcp.exe` 和 `skills/wechat-mcp-pro/`（或 `-lite` / `-plus`）一起给出去——后者是给 Agent 看的
 接入说明（安装方式 + 工具面 + 一轮完整回路 + 能力边界）。**给哪一档就要给对应的那份**：
 基础版的技能里明说了「看不到图片和语音」。
 
@@ -83,18 +83,20 @@ cd apps\windows\resources\wechat-mcp
 
 ```powershell
 cd <仓库根>
-pnpm --filter ./apps/windows build:wechat-mcp         # 两档都打
+pnpm --filter ./apps/windows build:wechat-mcp         # 三档都打
 pnpm --filter ./apps/windows build:wechat-mcp:lite    # 只打 lite
-# 等价：node apps/windows/scripts/build-wechat-mcp.mjs [--edition pro|lite|both] [--days N] [--if-stale]
+# 等价：node apps/windows/scripts/build-wechat-mcp.mjs [--edition pro|lite|plus|both] [--days N] [--if-stale]
 ```
 
-一次打出**两档**，**各占一个目录**（这样"哪个文件归哪一档"是结构事实，不靠名字猜）：
+一次打出**三档**，**各占一个目录**（这样"哪个文件归哪一档"是结构事实，不靠名字猜）：
 
 ```
 dist\pro\wechat-mcp.exe            pro（高级版）——名字固定，插件下载与部署路径都写死它
 dist\pro\wechat-mcp-<version>.exe
 dist\lite\wechat-mcp-lite.exe      lite（基础版）——单独分发用，**不进安装包**
 dist\lite\wechat-mcp-lite-<version>.exe
+dist\plus\wechat-mcp-plus.exe      plus（增强版，hook 发送）——单独分发用，**不进安装包**
+dist\plus\wechat-mcp-plus-<version>.exe
 ```
 
 构建脚本会自己跑一遍冒烟：MCP 握手 + `--version` 与 `initialize` 版本自洽 + 档位自洽 +

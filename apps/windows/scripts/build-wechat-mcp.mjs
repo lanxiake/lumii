@@ -1,13 +1,14 @@
 /**
- * 把 resources/wechat-mcp（Python 源码）打成独立的单文件 exe（**lite 与 pro 各一个**）
+ * 把 resources/wechat-mcp（Python 源码）打成独立的单文件 exe（**lite / pro / plus 各一个**）
  *
  * 产物不依赖任何 Python 环境与灵栖占位符，任意 MCP 客户端写 exe 绝对路径即可用。
  * 构建用 uv 准备隔离的 Python 3.11 + PyInstaller，不污染本机/托管解释器。
  *
- * 用法：node scripts/build-wechat-mcp.mjs [--if-stale] [--edition pro|lite|both] [--days N] [--self-check]
- *   （不带 --edition）= **两档都打**（默认），等价于 --edition both
+ * 用法：node scripts/build-wechat-mcp.mjs [--if-stale] [--edition pro|lite|plus|both] [--days N] [--self-check]
+ *   （不带 --edition）= **三档都打**（默认），等价于 --edition both
  *   --edition pro     只打高级版（`wechat-mcp.exe`）
  *   --edition lite    只打基础版（`wechat-mcp-lite.exe`）
+ *   --edition plus    只打增强版（`wechat-mcp-plus.exe`，hook 发送）
  *   --days N          内置有效期 = 构建日期 + N 天（默认 365，见 wechat-mcp-expiry.mjs）
  *   --if-stale        两档产物都比源码新**且剩余有效期足够**时跳过（开发期反复执行不浪费几分钟）
  *   --self-check      只跑 `ownerOf` 的产物归属自检（秒回，不构建）
@@ -22,7 +23,7 @@
  * 它同时写进 exe 的 Windows 版本资源（右键属性 → 详细信息）。
  *
  * 产物：resources/wechat-mcp/dist/
- *   wechat-mcp.exe / wechat-mcp-lite.exe            名字固定，electron-builder 由此拷进安装包、
+ *   wechat-mcp.exe / wechat-mcp-lite.exe / wechat-mcp-plus.exe   名字固定，electron-builder 由此拷进安装包、
  *                                                   灵栖也据此把 exe 同步到固定的部署路径，不能带版本号
  *   wechat-mcp-<version>.exe / wechat-mcp-lite-<version>.exe
  *                                                   同一份二进制的副本，供人眼区分与单独分发
@@ -52,8 +53,10 @@ const DIST_DIR = path.join(SRC_DIR, 'dist')
  * 否则两版体积就没区别了。ASR **模型**（78MB）也不在这里：按需下到 `~/.lumii/models/voice/`。
  */
 const EDITION_SPECS = {
-  pro: { exe: 'wechat-mcp', dir: 'pro', hidden: ['wechat_sender', 'wechat_asr'], asr: true },
-  lite: { exe: 'wechat-mcp-lite', dir: 'lite', hidden: ['wechat_sender'], asr: false },
+  pro: { exe: 'wechat-mcp', dir: 'pro', hidden: ['wechat_sender', 'wechat_asr', 'wxinstances'], asr: true },
+  lite: { exe: 'wechat-mcp-lite', dir: 'lite', hidden: ['wechat_sender', 'wxinstances'], asr: false },
+  // plus = pro + hook 发送（wechat_hook 是惰性导入，静态分析看不见，必须显式 hidden-import）
+  plus: { exe: 'wechat-mcp-plus', dir: 'plus', hidden: ['wechat_sender', 'wechat_asr', 'wechat_hook', 'wxinstances'], asr: true },
 }
 const EDITIONS = Object.keys(EDITION_SPECS)
 
@@ -418,5 +421,8 @@ try {
   main()
 } catch (err) {
   console.error(`[build-wechat-mcp] 失败：${err instanceof Error ? err.message : err}`)
+  // PyInstaller 的真实原因在子进程 stderr 里；只打印命令本身等于没说
+  const detail = err && (err.stderr ?? err.stdout)
+  if (detail) console.error(String(detail).slice(-4000))
   process.exit(1)
 }

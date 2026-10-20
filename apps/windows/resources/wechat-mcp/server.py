@@ -14,19 +14,21 @@
 - `uv run server.py`：按上方 PEP 723 元数据自动准备隔离环境与依赖，零配置；
 - `python server.py`：需先 `pip install -r requirements.txt`。
 
-**两个档位**（`EDITION`，构建期决定，见下方 import 处注释）：
+**三个档位**（`EDITION`，构建期决定，见下方 import 处注释）：
 - `pro`（高级版，默认）：19 个工具 —— 基础读写发送 + 媒体解析（图片路径 / 语音转写）+ 用户蒸馏；
 - `lite`（基础版）：12 个工具 —— 只保留基础读写发送，且**连 image_path/voice_path 都不给**
   （见 `_strip_media`），消息只剩 `[图片 17KB]`/`[语音 3.2 秒]` 摘要。
+- `plus`（增强版）：与 pro 同工具集，**发送优先走 hook**（`wechat_hook.py`：不抢前台、毫秒级、
+  多微信实例按 talker 自动匹配）；hook 不可用时自动回退窗口投递。读消息仍走 SQLCipher。
 
 工具（详见 TOOLS）：list_sessions / read_history / poll_new / search_messages / list_unread /
-check_env / locate_db / repair_env / send_text / send_file / send_batch / reply_to，以及 **pro 追加**的
+check_env / locate_db / repair_env / send_text / send_file / send_batch / reply_to，以及 **pro/plus 追加**的
 read_image / transcribe_voice / wechat_digest / wechat_distill_state / wechat_distill_clear /
 wechat_profile_save / wechat_profile_get。
 其中 read_image 返回的是 MCP 的 **image 内容块**（内联 base64 位图），其余工具返回 text。
 
 发送前依次校验：环境 → 目标会话（数据库锚点）→ 输入落地 → 发送生效；任一不过即中止（fail-closed）。
-只读部分不改动任何微信文件；发送走「OCR 定位 + SendInput」（零注入）。
+只读部分不改动任何微信文件；pro/lite 的发送走「OCR 定位 + SendInput」（零注入），plus 优先走 hook。
 
 协议约定：
 - 支持协议版本见 SUPPORTED_PROTOCOL_VERSIONS，`initialize` 时按客户端请求协商；
@@ -39,7 +41,7 @@ import os
 import traceback
 
 SERVER_NAME = "wechat-local"
-SERVER_VERSION = "0.8.0"
+SERVER_VERSION = "0.9.0"
 # 新 → 旧；客户端请求的版本在列表中则原样回应，否则回应最新版（由客户端决定是否断开）
 SUPPORTED_PROTOCOL_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
 
@@ -67,6 +69,9 @@ import builtin_expiry as _expiry  # noqa: E402
 
 # 运行期档位 == 构建档位。授权（pro→lite 降级）已移除，档位不再被运行期状态改。
 EDITION = _BUILT_EDITION
+# plus = pro 的全部能力 + hook 发送（见 wechat_hook.py）。除了发送路由，所有
+# 「pro 有、lite 没有」的判断都走这里，别再写 `EDITION == "pro"`。
+_IS_PRO = EDITION in ("pro", "plus")
 
 import wechat_core as core  # noqa: E402
 
@@ -409,7 +414,7 @@ def tool_transcribe(args):
         text = wechat_asr.transcribe(m["voice_path"])
     except Exception as e:
         return _fail("asr_failed", f"转写失败：{type(e).__name__}: {e}")
-    return {"ok": True, "talker": talker, "name": core.names().get(talker, talker),
+    return {"ok": True, "talker": talker, "name": _display_name(talker),
             "local_id": m.get("local_id"), "time": m.get("time"), "text": text,
             "elapsed_ms": round((_t.perf_counter() - t0) * 1000),
             "model": "paraformer-zh-small（sherpa-onnx，本地）"}
@@ -417,6 +422,40 @@ def tool_transcribe(args):
 
 def tool_poll(args):
     return _strip_media(core.poll(int(args.get("since_ts") or 0)))
+
+
+def _current_account():
+    try:
+        return core.self_wxid()
+    except Exception:
+        return None
+
+
+def _display_name(talker):
+    try:
+        return core.names().get(talker) or talker
+    except Exception:
+        return talker
+
+
+def _hook_send(kind, talker, value, account=None):
+    """plus 档优先走 hook。返回 None = 没走 hook（调用方回退窗口投递）。
+
+    只有「hook 完全不可用」才回退；一旦请求发出去，失败结果原样返回——
+    再回退一次窗口投递就可能给好友发第二遍。
+    """
+    if EDITION != "plus":
+        return None
+    try:
+        import wechat_hook
+        res = (wechat_hook.try_send_text(talker, value, account=account) if kind == "text"
+               else wechat_hook.try_send_file(talker, value, account=account))
+    except Exception as e:                      # hook 模块坏了不该拖死发送
+        log(f"hook 不可用，回退窗口投递：{type(e).__name__}: {e}")
+        return None
+    if not res or res.get("_fallback"):
+        return None
+    return res
 
 
 def tool_send(args):
@@ -429,34 +468,42 @@ def tool_send(args):
     dry = args.get("dry_run")
     dry = True if dry is None else bool(dry)
     import wechat_sender
+    account = (args.get("account") or "").strip() or None
 
-    # P0-B 增强：使用重试机制
-    if not dry:
-        # 真实发送时启用重试
-        ok, detail, attempts = _send_with_retry(
-            lambda: wechat_sender.send_text(text, talker, dry_run=False),
-            max_retries=2
-        )
-        # P1 增强：标记工具内部是否已重试
-        if attempts > 1:
-            wechat_sender._record_diagnostics(retry_attempted=True)
-    else:
-        # dry_run 不重试
-        ok, detail = wechat_sender.send_text(text, talker, dry_run=True)
-        attempts = 1
+    with wechat_sender.target(account):
+        hook = None if dry else _hook_send("text", talker, text, account=account)
+        if hook is not None:
+            ok, detail, attempts = hook["ok"], hook["detail"], 1
+        elif not dry:
+            # P0-B 增强：真实发送时启用重试
+            ok, detail, attempts = _send_with_retry(
+                lambda: wechat_sender.send_text(text, talker, dry_run=False),
+                max_retries=2
+            )
+            # P1 增强：标记工具内部是否已重试
+            if attempts > 1:
+                wechat_sender._record_diagnostics(retry_attempted=True)
+        else:
+            # dry_run 不重试
+            ok, detail = wechat_sender.send_text(text, talker, dry_run=True)
+            attempts = 1
 
-    out = {"ok": ok, "detail": detail, "talker": talker, "name": core.names().get(talker, talker),
-           "dry_run": dry, "text": text[:120]}
+    out = {"ok": ok, "detail": detail, "talker": talker, "name": _display_name(talker),
+           "target_account": account or _current_account(),
+           "dry_run": dry, "text": text[:120], "via": "hook" if hook else "uia"}
+    if hook and hook.get("account"):
+        out["account"] = hook["account"]
     if attempts > 1:
         out["attempts"] = attempts  # 标记重试次数
     if not ok:
-        out["error_code"] = _code_of(detail)
+        out["error_code"] = (hook or {}).get("error_code") or _code_of(detail)
         out["stage"] = _stage_of(out["error_code"])
-        out["shot"] = wechat_sender.last_shot()
-        # P1 增强：附加结构化诊断数据
-        diag = wechat_sender.last_diagnostics()
-        if diag:
-            out["diagnostics"] = diag
+        if hook is None:
+            out["shot"] = wechat_sender.last_shot()
+            # P1 增强：附加结构化诊断数据
+            diag = wechat_sender.last_diagnostics()
+            if diag:
+                out["diagnostics"] = diag
         # P0-B 增强：失败时给出可操作的修复建议
         out["suggestion"] = _get_fix_suggestion(out["error_code"])
     return out
@@ -472,14 +519,24 @@ def tool_send_file(args):
     dry = args.get("dry_run")
     dry = True if dry is None else bool(dry)
     import wechat_sender
-    ok, detail = wechat_sender.send_attachment(path, talker, dry_run=dry)
-    out = {"ok": ok, "detail": detail, "talker": talker, "name": core.names().get(talker, talker),
-           "dry_run": dry, "path": path}
+    account = (args.get("account") or "").strip() or None
+    with wechat_sender.target(account):
+        hook = None if dry else _hook_send("file", talker, path, account=account)
+        if hook is not None:
+            ok, detail = hook["ok"], hook["detail"]
+        else:
+            ok, detail = wechat_sender.send_attachment(path, talker, dry_run=dry)
+    out = {"ok": ok, "detail": detail, "talker": talker, "name": _display_name(talker),
+           "target_account": account or _current_account(),
+           "dry_run": dry, "path": path, "via": "hook" if hook else "uia"}
+    if hook and hook.get("account"):
+        out["account"] = hook["account"]
     if not ok:
-        out["error_code"] = _code_of(detail)
+        out["error_code"] = (hook or {}).get("error_code") or _code_of(detail)
         out["stage"] = _stage_of(out["error_code"])
         out["suggestion"] = _get_fix_suggestion(out["error_code"])
-        out["shot"] = wechat_sender.last_shot()
+        if hook is None:
+            out["shot"] = wechat_sender.last_shot()
     return out
 
 
@@ -497,6 +554,9 @@ def tool_send_batch(args):
     results = []
     for it in items:
         it = it or {}
+        # 逐条切账号：不同 item 可以来自不同微信号，会话名/联系人必须按各自账号解析
+        account = (it.get("account") or args.get("account") or "").strip() or None
+        core.set_account(account)
         raw, text = it.get("talker"), (it.get("text") or "")
         talker, err = _resolve_or_error(raw)
         if err:
@@ -505,14 +565,22 @@ def tool_send_batch(args):
         if not text:
             results.append(_fail("bad_args", "text 为空", talker=talker))
             continue
-        ok, detail = wechat_sender.send_text(text, talker, dry_run=dry)
+        with wechat_sender.target(account):
+            hook = None if dry else _hook_send("text", talker, text, account=account)
+            if hook is not None:
+                ok, detail = hook["ok"], hook["detail"]
+            else:
+                ok, detail = wechat_sender.send_text(text, talker, dry_run=dry)
         r = {"ok": ok, "detail": detail, "talker": talker,
-             "name": core.names().get(talker, talker), "dry_run": dry, "text": text[:120]}
+             "name": _display_name(talker), "target_account": account or _current_account(),
+             "dry_run": dry, "text": text[:120],
+             "via": "hook" if hook else "uia"}
         if not ok:
-            r["error_code"] = _code_of(detail)
+            r["error_code"] = (hook or {}).get("error_code") or _code_of(detail)
             r["stage"] = _stage_of(r["error_code"])
             r["suggestion"] = _get_fix_suggestion(r["error_code"])
-            r["shot"] = wechat_sender.last_shot()
+            if hook is None:
+                r["shot"] = wechat_sender.last_shot()
         results.append(r)
     sent = sum(1 for r in results if r["ok"])
     return {"ok": sent == len(results), "total": len(results), "sent": sent,
@@ -533,8 +601,11 @@ def tool_reply(args):
     dry = args.get("dry_run")
     dry = True if dry is None else bool(dry)
     import wechat_sender
-    ok, detail = wechat_sender.reply_text(quote, text, talker, dry_run=dry)
-    out = {"ok": ok, "detail": detail, "talker": talker, "name": core.names().get(talker, talker),
+    account = (args.get("account") or "").strip() or None
+    with wechat_sender.target(account):
+        ok, detail = wechat_sender.reply_text(quote, text, talker, dry_run=dry)
+    out = {"ok": ok, "detail": detail, "talker": talker, "name": _display_name(talker),
+           "target_account": account or _current_account(),
            "dry_run": dry, "quote": quote[:60], "text": text[:120]}
     if not ok:
         out["error_code"] = _code_of(detail)
@@ -630,9 +701,14 @@ def tool_profile_get(args):
     return core.profile_get(scope)
 
 
-def tool_status(_args):
+def tool_status(args):
     import wechat_sender
-    st = wechat_sender.check_env()
+    account = (args.get("account") or "").strip() or None
+    try:
+        pid = int(args.get("pid")) if args.get("pid") else None
+    except (TypeError, ValueError):
+        pid = None
+    st = wechat_sender.check_env(account=account, pid=pid)
     # 数据目录探测（单独一栏，来源可归因）：换机/自定义目录时，这一栏是排查的第一落点
     try:
         root, src = core.db_root_info()
@@ -640,7 +716,7 @@ def tool_status(_args):
     except Exception as e:
         st["db_root"], st["db_source"], st["db_ok"], st["db_hint"] = None, None, False, str(e)
     # 语音转写（仅 pro 版有此工具）：模型缺了要在这里就看得出来，别等调用时才炸
-    if EDITION == "pro":
+    if _IS_PRO:
         try:
             import wechat_asr
             _ok, _why = wechat_asr.available()
@@ -651,7 +727,7 @@ def tool_status(_args):
     # 图片解密（仅 pro 版有 read_image）：前置是**账号级的图片 AES key**，抓一次落盘。
     # 缺了它 `read_image` 只会说「图没落到本地」那一类话（key 在消息里、配置文件里都没有，
     # 只能扫微信进程内存），所以自查这一栏必须能一眼看出来。
-    if EDITION == "pro":
+    if _IS_PRO:
         try:
             import wechat_image
             _k = wechat_image.cached_aes_key()
@@ -660,6 +736,17 @@ def tool_status(_args):
                                "再跑一次 `wechat-mcp.exe --image-key`"}
         except Exception as e:
             st["image_key"] = {"cached": False, "hint": f"图片模块不可用：{type(e).__name__}: {e}"}
+    # hook 发送后端（仅 plus）：端点没起来时发送会自动回退窗口投递，这里是唯一的可见处
+    if EDITION == "plus":
+        try:
+            import wechat_hook
+            eps = wechat_hook.endpoints()
+            st["hook"] = {"available": bool(eps), "endpoints": eps,
+                          "hint": "" if eps else
+                          "没有发现 hook 端点：发送会回退到窗口投递（via=uia）。"
+                          "注入 DLL 后无需重启本服务。"}
+        except Exception as e:
+            st["hook"] = {"available": False, "hint": f"hook 模块不可用：{type(e).__name__}: {e}"}
     # 微信版本：这套代码只在少数版本上真机验过，未知版本要**明确报出来**而不是装作没事
     try:
         st["wechat_version"] = core.wechat_version()
@@ -684,13 +771,21 @@ def tool_locate_db(_args):
         err = None
     except Exception as e:
         root, src, err = None, None, str(e)
-    accts = core.list_accounts()
+    try:
+        import wxinstances
+        accts = wxinstances.accounts_detailed()
+        instances = wxinstances.instances()
+    except Exception:
+        accts, instances = core.list_accounts(), []
     out = {
         "found": bool(root),
         "root": root,
         "source": src,
-        "accounts": [{"wxid": a["wxid"], "dir": a["dir"], "root": a["root"], "source": a.get("source")}
+        "accounts": [{"wxid": a["wxid"], "dir": a["dir"], "root": a["root"],
+                      "source": a.get("source"), "running": a.get("running", False),
+                      "pid": a.get("pid"), "hwnd": a.get("hwnd")}
                      for a in accts],
+        "instances": instances,
     }
     try:
         out["wechat"] = core.wechat_version()
@@ -704,6 +799,20 @@ def tool_locate_db(_args):
     elif root:
         out["wxid"] = core.self_wxid(root)
     return out
+
+
+def tool_accounts(_args):
+    """多开账号清单：每个账号是否在跑、对应哪个 PID/窗口。"""
+    import wxinstances
+    try:
+        active = core.self_wxid()
+    except Exception:
+        active = None
+    return {
+        "active": active,
+        "accounts": wxinstances.accounts_detailed(),
+        "instances": wxinstances.instances(),
+    }
 
 
 def tool_repair_env(_args):
@@ -726,6 +835,10 @@ _CORE = """\
 - 只读（不需要微信窗口）：list_sessions 列会话 / read_history 读历史 / poll_new 读增量新消息 / search_messages 检索 / list_unread 未读。
 - 发送：send_text 发**文本**、send_file 发**图片/文件/视频/音频**、send_batch **群发给多个目标**（逐目标独立校验）—— 这三个都**不需要前台，锁屏也能发**（走窗口消息投递，不移动光标、不动剪贴板、不搬窗口、不打断用户操作）。reply_to **带引用的回复**是唯一还需要微信窗口可见且在前台的。
 - 发送前可先调 check_env 确认环境（微信是否运行、窗口是否可见/最小化）；只有 reply_to 需要它在**前台**。
+- **多账号/多开**：先调 `list_accounts` 看本机有哪些账号、哪些在跑（含 pid/hwnd）。
+  读工具都可以带 `account=<wxid>`；`poll_new` 返回的**每条消息带 `account`**。
+  **回复时必须把同一个 `account` 传给 send_text / send_file / reply_to**，否则可能从另一个微信号发出去。
+  省略 `account` 时使用当前选中的账号（自动挑最新活跃的）。
 
 附件说明（send_file）：
 - path 传本地绝对路径；**不按扩展名分流**，一律走微信「发送文件」入口（图片/视频也照此投递，
@@ -843,9 +956,21 @@ _DISTILL = """\
 **隐私**：画像全在本地、不外传；用户要删时用 wechat_distill_clear（删单个给 scope，清空全部须 everything=true）。
 """
 
+_HOOK = """\
+发送后端（增强版专属）：
+- 本档的 send_text / send_file / send_batch **优先走 hook**（微信进程内的本地 HTTP 服务）：
+  不抢前台、毫秒级返回、可同时服务多个微信实例。结果里的 `via` 字段会注明 `hook` 还是 `uia`。
+- **多账号自动匹配**：按 talker 去各实例的联系人表里找，命中唯一的那个才发；找不到或有歧义会
+  报 `target_not_found`，这时先用 list_sessions 拿到确切 wxid，再发。**不要改成广播重发**。
+- `via: "hook"` 的成功结果不需要再读库确认；`send_not_confirmed` 仍然适用「先 read_history 看，别重发」。
+- hook 端点没起来（没注入 / 版本不匹配）时自动回退到原来的窗口投递，`via` 会是 `uia`；
+  想确认当前有没有 hook，看 `check_env` 返回的 `hook` 字段。
+"""
+
 # 基础版没有蒸馏与媒体解析，对应段落整段去掉——留着只会教模型去调不存在的工具。
-INSTRUCTIONS = (_CORE + (_MEDIA_PRO if EDITION == "pro" else _MEDIA_LITE) + _WATCH
-                + (_DISTILL if EDITION == "pro" else "")
+INSTRUCTIONS = (_CORE + (_MEDIA_PRO if _IS_PRO else _MEDIA_LITE) + _WATCH
+                + (_DISTILL if _IS_PRO else "")
+                + (_HOOK if EDITION == "plus" else "")
                 # 过期时在**引导词**里就说清：那是 Agent 调任何工具之前就会读到的位置
                 + _expiry.instruction_block())
 
@@ -1035,7 +1160,39 @@ TOOLS = [
      "inputSchema": {"type": "object", "properties": {
          "scope": {"type": "string", "description": "self=用户本人；或会话名/wxid/群号；留空=只列出有哪些画像"}}, "required": []}},
 ]
+
+# 多开：这些工具都接受 `account`（wxid）。省略时沿用进程级选中的账号。
+_ACCOUNT_PROP = {
+    "type": "string",
+    "description": "可选：多开时指定账号 wxid（先用 list_accounts 查）。省略则用当前选中的账号。",
+}
+_ACCOUNT_TOOLS = {
+    "list_sessions", "read_history", "read_image", "transcribe_voice", "poll_new",
+    "search_messages", "list_unread", "wechat_digest", "wechat_profile_save",
+    "wechat_profile_get", "wechat_distill_state", "wechat_distill_clear",
+    "send_text", "send_file", "send_batch", "reply_to", "check_env", "locate_db",
+}
+for _tool in TOOLS:
+    if _tool["name"] in _ACCOUNT_TOOLS:
+        _props = _tool.setdefault("inputSchema", {}).setdefault("properties", {})
+        _props["account"] = _ACCOUNT_PROP
+    if _tool["name"] == "send_batch":
+        _tool["inputSchema"]["properties"]["messages"]["items"]["properties"]["account"] = _ACCOUNT_PROP
+    if _tool["name"] == "check_env":
+        _tool["inputSchema"]["properties"]["pid"] = {
+            "type": "integer", "description": "可选：直接指定微信主进程 PID（多开时用它精确锁定实例）",
+        }
+
+TOOLS.append({
+    "name": "list_accounts",
+    "description": ("【何时用】多开/多账号时，先看本机有哪些微信账号、哪些正在运行、对应哪个进程与窗口。"
+                    "【别用】只想读会话（用 list_sessions，可带 account）。"
+                    "返回每个账号的 wxid / 数据目录 / 是否 running / pid / hwnd，以及当前默认选中的账号。"),
+    "inputSchema": {"type": "object", "properties": {}, "required": []},
+})
+
 DISPATCH = {"list_sessions": tool_sessions, "read_history": tool_history,
+            "list_accounts": tool_accounts,
             "read_image": tool_image, "transcribe_voice": tool_transcribe,
             "poll_new": tool_poll, "check_env": tool_status, "locate_db": tool_locate_db,
             "repair_env": tool_repair_env,
@@ -1081,7 +1238,7 @@ PRO_ONLY_TOOLS = {
     "wechat_profile_save", "wechat_profile_get",
 }
 _GATED_MSG = "该工具属于高级版（pro），当前运行的是基础版（lite）"
-_EDITION_LABEL = {"pro": "高级版", "lite": "基础版"}
+_EDITION_LABEL = {"pro": "高级版", "lite": "基础版", "plus": "增强版"}
 
 
 def _strip_media(payload):
@@ -1093,7 +1250,7 @@ def _strip_media(payload):
     视频虽是明文 mp4、不需要 key 也不需要模型，但半开半闭更费解——而 `video_md5`/`video_len`
     这类**摘要字段**留着（它们不是路径，和 `image_md5` 同类）。
     """
-    if EDITION == "pro" or not isinstance(payload, dict):
+    if _IS_PRO or not isinstance(payload, dict):
         return payload
     for m in payload.get("messages") or []:
         if isinstance(m, dict):
@@ -1103,7 +1260,7 @@ def _strip_media(payload):
     return payload
 
 
-if EDITION != "pro":
+if not _IS_PRO:
     TOOLS = [t for t in TOOLS if t["name"] not in PRO_ONLY_TOOLS]
 
 # 协议输出通道：启动时锁定真实 stdout，随后把 sys.stdout 指向 stderr，
@@ -1172,7 +1329,7 @@ def handle_tools_call(mid, params):
         reply(mid, {"content": [{"type": "text", "text": json.dumps(gate, ensure_ascii=False)}],
                     "isError": False})
         return
-    if EDITION != "pro" and name in PRO_ONLY_TOOLS:
+    if not _IS_PRO and name in PRO_ONLY_TOOLS:
         reply_error(mid, INVALID_PARAMS, _GATED_MSG)
         return
     handler = DISPATCH.get(name)
@@ -1196,6 +1353,9 @@ def handle_tools_call(mid, params):
             lambda message, progress, total=None: _emit_progress(token, message, progress, total))
         progress_installed = True
     try:
+        # 多开：每次工具调用先切到目标账号（缺省=自动挑最新），读/发就都落在同一个号上。
+        account = args.get("account")
+        core.set_account(account if isinstance(account, str) else None)
         data = handler(args)
         _dt = (_t.perf_counter() - _t0) * 1000
         if _dt > 1000:
@@ -1268,7 +1428,8 @@ def handle_message(msg):
 # 映射成 `skills/<product>`），由 mcp_install.skill_source 从 `sys._MEIPASS` 取。
 INSTALL_SPEC = {
     "name": SERVER_NAME,
-    "product": "wechat-mcp" if EDITION == "pro" else "wechat-mcp-lite",
+    "product": {"pro": "wechat-mcp", "lite": "wechat-mcp-lite",
+                "plus": "wechat-mcp-plus"}[EDITION],
     "version": SERVER_VERSION,
     "skill": os.path.join(HERE, "skills", f"wechat-mcp-{EDITION}"),
     "label": f"本机微信（{_EDITION_LABEL[EDITION]}）",

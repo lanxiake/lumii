@@ -71,7 +71,7 @@ export interface ChannelSendParams {
   mediaPath?: string
   /** 展示文件名，缺省时从 mediaPath 取 basename */
   fileName?: string
-  /** 预留多账号；一期单账号场景下不生效，Router 不做任何路由判断 */
+  /** 多开：从哪个账号发出（wxid）；缺省用 MCP 当前选中的账号 */
   accountId?: string
 }
 
@@ -83,6 +83,8 @@ export interface ChannelSendMediaParams {
   fileName: string
   /** 可选随附文本，各渠道自行决定是否单独先发一条 */
   text?: string
+  /** 多开：从哪个账号发出（wxid）；缺省用 MCP 当前选中的账号 */
+  accountId?: string
 }
 
 /** 出站结果：失败必须 ok:false + errorCode */
@@ -122,7 +124,7 @@ export interface IChannelOutboundProvider {
   /** 聚合连接态 + peers + 能力 */
   getSnapshot(): ChannelSnapshot | Promise<ChannelSnapshot>
   /** 向指定 peer 发文本；不支持时返回 UNSUPPORTED_PUSH。title 供渠道富文本作标题 */
-  sendText(params: { to: string; text: string; title?: string }): Promise<ChannelSendResult>
+  sendText(params: { to: string; text: string; title?: string; accountId?: string }): Promise<ChannelSendResult>
   /** 向指定 peer 发富媒体；未实现的渠道由 Router 兜底为 UNSUPPORTED_MEDIA */
   sendMedia?(params: ChannelSendMediaParams): Promise<ChannelSendResult>
 }

@@ -157,6 +157,7 @@ const RULE_3 = [
   '   这是唯一允许的路径：渠道层会照「本机微信回复名单」再挡一道，并留下发送记录。',
   '   拿 MCP 的发送工具（或任何脚本）自己发 = 绕开名单，**绝对不要**。',
   '   名单外的人会被渠道拒成 `PEER_NOT_FOUND`——那就**别发**，按下面分档转人工。',
+  '   多开：消息里带 `account` 时，`channel_send` 必须带同一个 `account`——从哪个号来就从哪个号回。',
 ]
 const RULE_4 = [
   `4. **转人工** = \`channel_send\` → channel="feishu"、to="${ESCALATION_FEISHU_TO}"、`,

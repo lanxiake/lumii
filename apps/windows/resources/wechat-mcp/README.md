@@ -24,6 +24,7 @@ wechat-mcp.exe --expiry-status    # 这份 exe 的有效期到哪天
 一个 **stdio MCP server**：让 AI Agent 以**用户本人身份**读本机微信（会话/历史/检索/未读），并能**发消息、发文件、引用回复、群发**，以及**蒸馏用户/好友画像与行为**。
 
 **零注入、零外传、只读优先**：读层用 SQLCipher4 直读（密钥从进程内存**只读**扫描取，不注入、不改微信数据）；写层用**截图 OCR 定位 + SendInput** 模拟真人操作。
+（例外只有 `plus` 档的发送：它优先调用用户自行部署的 hook 端点，**DLL 不属于本项目**；hook 不可用时仍回退上面的零注入路径。）
 
 > ⚠️ 仅用于**你自己的账号、你自己的机器**。数据涉及他人隐私——全部**本地处理、不外传**。
 
@@ -32,9 +33,10 @@ wechat-mcp.exe --expiry-status    # 这份 exe 的有效期到哪天
 
 - [`skills/wechat-mcp-pro/`](skills/wechat-mcp-pro/SKILL.md) —— 高级版（能看图、转写语音、蒸馏画像）
 - [`skills/wechat-mcp-lite/`](skills/wechat-mcp-lite/SKILL.md) —— 基础版（只读收发文本/文件）
+- [`skills/wechat-mcp-plus/`](skills/wechat-mcp-plus/SKILL.md) —— 增强版（与 pro 同能力，发送优先走 hook）
 
 两份都含**安装方式、工具面、一轮完整回路、发送纪律与能力边界**，是给**别的 AI 客户端**看的
-接入说明；[`DEMO-代聊回路.md`](DEMO-代聊回路.md) 是不分档位的通用回路原型，两版技能都由它派生。
+接入说明；[`DEMO-代聊回路.md`](DEMO-代聊回路.md) 是不分档位的通用回路原型，各版技能都由它派生。
 
 ---
 
@@ -50,7 +52,7 @@ wechat-mcp.exe --expiry-status    # 这份 exe 的有效期到哪天
 
 - 传输：**stdio**（换行分隔的 JSON-RPC 2.0），stdout 只输出协议消息，日志走 stderr。
 - 协议版本：`2025-06-18` / `2025-03-26` / `2024-11-05`，`initialize` 时按客户端请求协商。
-- 能力：`tools`（**按档位** 12 或 19 个工具，带 `readOnlyHint` / `destructiveHint` 等 annotations），`initialize` 返回 `instructions` 使用引导与 `edition` 字段。
+- 能力：`tools`（**按档位** 12 或 19 个工具，带 `readOnlyHint` / `destructiveHint` 等 annotations），`initialize` 返回 `instructions` 使用引导与 `edition` 字段（`pro` / `lite` / `plus`）。
 - 支持 `ping`；未知方法回 `-32601`，未知工具回 `-32602`；工具内部失败以 `isError: true` 结果返回。
 - 依赖缺失时服务仍能启动并列出工具，`check_env` 的 `deps` 字段会报告缺什么，相关工具返回带安装命令的错误。
 
@@ -60,13 +62,13 @@ wechat-mcp.exe --expiry-status    # 这份 exe 的有效期到哪天
 
 `wechat-mcp.exe` 是 PyInstaller 打出的单文件，依赖全在里面。装了灵栖的机器上它已部署在
 `%USERPROFILE%\.lumii\mcp\wechat-mcp\wechat-mcp.exe`（灵栖每次启动按内容同步，路径固定、不随安装位置变化）；
-也可以自己构建：`pnpm --filter ./apps/windows build:wechat-mcp`——**一次把两档都打出来**
-（`dist/pro/wechat-mcp.exe` + `dist/lite/wechat-mcp-lite.exe`，各带一份按版本命名的副本；
-需要 [uv](https://docs.astral.sh/uv/)）。**两档分目录存**：这样"哪个文件归哪一档"是目录结构
+也可以自己构建：`pnpm --filter ./apps/windows build:wechat-mcp`——**一次把三档都打出来**
+（`dist/pro/wechat-mcp.exe` + `dist/lite/wechat-mcp-lite.exe` + `dist/plus/wechat-mcp-plus.exe`，各带一份按版本命名的副本；
+需要 [uv](https://docs.astral.sh/uv/)）。**三档分目录存**：这样"哪个文件归哪一档"是目录结构
 决定的，而不必靠文件名去猜（曾经因为 pro 的基名是 lite 基名的前缀，清理旧副本时删掉过刚打好的另一档）。
-只想打一档用 `--edition pro` / `--edition lite`，或 `pnpm build:wechat-mcp:lite`；
-加 `--if-stale` 在两档都已是最新时跳过；`--days N` 定内置有效期（默认 365 天，见 §5）。
-版本号来自 `server.py` 的 `SERVER_VERSION`，也写在 exe 的 Windows 属性（右键 → 详细信息 → 文件版本）里，`wechat-mcp.exe --version` 输出同一值；`--edition` 打印档位（`pro`/`lite`）。
+只想打一档用 `--edition pro` / `--edition lite` / `--edition plus`，或 `pnpm build:wechat-mcp:lite` / `build:wechat-mcp:plus`；
+加 `--if-stale` 在三档都已是最新时跳过；`--days N` 定内置有效期（默认 365 天，见 §5）。
+版本号来自 `server.py` 的 `SERVER_VERSION`，也写在 exe 的 Windows 属性（右键 → 详细信息 → 文件版本）里，`wechat-mcp.exe --version` 输出同一值；`--edition` 打印档位（`pro`/`lite`/`plus`）。
 exe 的其余一次性开关（都是显式触发，**绝不会自动跑**）：`--install` / `--install-status`（见 §1）、`--download-asr-model`（pro 的语音模型，约 78MB）、`--image-key`（pro 的图片密钥，约 50 秒，见 §看图）。
 
 ```json
@@ -190,28 +192,58 @@ wechat-mcp.exe --expiry-status   # 看到期日与剩余天数（在有效期内
 
 ## 6. 工具
 
-### 两个档位
+### 三个档位
 
-同一份源码打两个 exe，差异**只在构建期**注入（构建脚本往临时源码目录写一个 `edition.py`，
+同一份源码打三个 exe，差异**只在构建期**注入（构建脚本往临时源码目录写一个 `edition.py`，
 工作区不落这个文件，所以跑源码 = `pro`）：
 
 | 档位 | 产物 | 工具 | 说明 |
 |---|---|---|---|
 | `pro`（高级版，默认） | `dist/pro/wechat-mcp.exe` | 19 个 | 基础读写发送 **+ 媒体 + 用户蒸馏** |
 | `lite`（基础版） | `dist/lite/wechat-mcp-lite.exe` | 12 个 | 只有基础读写发送；**不解媒体**（消息只剩 `[图片 17KB]`/`[语音 3.2 秒]` 摘要） |
+| `plus`（增强版） | `dist/plus/wechat-mcp-plus.exe` | 19 个 | 与 pro 同能力；**发送优先走 hook**（不抢前台、毫秒级、多微信实例按 talker 自动匹配），hook 不可用自动回退窗口投递 |
 
-**两档分目录存**（`dist/pro/`、`dist/lite/`）：这样"哪个文件归哪一档"由目录结构决定，
+**三档分目录存**（`dist/pro/`、`dist/lite/`、`dist/plus/`）：这样"哪个文件归哪一档"由目录结构决定，
 清理旧副本时不必靠文件名去猜。
 
-构建：`pnpm --filter ./apps/windows build:wechat-mcp`（pro）/ `build:wechat-mcp:lite`（lite）。
+构建：`pnpm --filter ./apps/windows build:wechat-mcp`（全部）/ `build:wechat-mcp:lite` / `build:wechat-mcp:plus`。
 **档位不是运行期开关**：客户端改不了，`tools/list` 只列出本档工具，直接按名字调用被门控的
 工具也会被拒（返回协议错误）。用 `wechat-mcp.exe --edition` 可打印本产物的档位。
 
-两档的 `--install` **不搬家**：各把自己**当前所在的那条路径**注册进去，所以两个 exe 可以并排
+三档的 `--install` **不搬家**：各把自己**当前所在的那条路径**注册进去，所以多个 exe 可以并排
 放在一起、互不覆盖（也**别在装完之后挪它们**——客户端配置里存的就是那个路径）。
 `~/.lumii/mcp/wechat-mcp/` 那个位置是**灵栖插件**下载 exe 的落点（面板里的条目指的就是它），
 不是 `--install` 拷出来的；灵栖用户不必跑 `--install`。
-各自带对应的技能包（`skills/wechat-mcp-pro` / `-lite` 打进 exe）。
+各自带对应的技能包（`skills/wechat-mcp-pro` / `-lite` / `-plus` 打进 exe）。
+
+### plus 的 hook 发送
+
+`plus` 只在**发送**上不同：先探测本机 hook 端点，命中就用它发（微信进程内 HTTP，不抢前台、
+毫秒级、可服务多个微信实例）；没有端点时自动回退到原来的窗口投递，结果里的 `via` 说明走的是哪条路。
+
+端点来源（按优先级）：`WECHAT_HOOK_ENDPOINTS`（逗号分隔）→ `~/.lumii/wechat-mcp/hook.json`
+（`{"endpoints": ["http://127.0.0.1:30001"]}`）→ 扫描 `127.0.0.1:30001..30010`。
+
+hook 侧接口约定（与 [aixed/WeChat-Hook](https://github.com/aixed/WeChat-Hook) 对齐）：
+
+| 接口 | 用途 |
+|---|---|
+| `POST /SendTextMsg` `{wxidorgid, msg}` | 发文本 |
+| `POST /SendFileMsg` `{wxidorgid, path}` | 发文件（扩展；没有时该项回退 UIA） |
+| `POST /GetSelfProfile` `{}` | 探测实例 + 拿账号 |
+| `POST /GetContactList` `{}` | **多账号按 talker 自动匹配的前提**；不支持时只有单实例可用 |
+
+**多账号绝不广播**：匹配不到或有歧义就报 `target_not_found`，不会把同一条消息发给多个账号。
+hook 端点没起来不影响读消息（读仍走 SQLCipher）。
+
+**防封号**：任何注入都可能被检测，`plus` 只能降低"行为像营销号"的概率，不能承诺账号安全。
+本层的硬门限（按账号，默认值可用环境变量覆盖）：发送间隔 ≥3 秒（带随机抖动）、≤20 条/分钟、
+≤200 条/天；同一段话 10 分钟内最多发给 8 个不同会话。超限返回 `risk_limited`，**不发**。
+另有两条纪律：发送超时/未确认**不重试**（重复投递比慢更危险）；**不广播**。
+建议只用**专用小号**试，先发「文件传输助手」；不要为发消息去 patch 微信内存（撤回补丁、多开
+绕过这类改动比"发一条消息"危险得多）。
+
+> ⚠️ `risk_limited` 是闸门不是错误：别换个写法绕过它；要放宽就显式改环境变量并自己承担风险。
 
 `lite` 版**连 `image_path` / `voice_path` / `video_path` 都不返回**——否则「基础版没有媒体解析」是句空话
 （`image_md5`/`video_len` 这类**摘要字段**留着：它们不是路径）。
@@ -247,12 +279,12 @@ wechat-mcp.exe --expiry-status   # 看到期日与剩余天数（在有效期内
 状态自查：`check_env` 返回里的 `asr` 字段（依赖 / 模型目录 / `ready` / 缺失原因）。
 实测耗时：3 秒语音约 **0.5 秒**；首次调用含模型加载约 **3 秒**。
 
-> `sherpa-onnx` / `pilk` / `numpy` 这三个依赖**只有 pro 版带**（lite 版不带，免得两版体积没区别）。
+> `sherpa-onnx` / `pilk` / `numpy` 这三个依赖**只有 pro / plus 版带**（lite 版不带，免得体积没区别）。
 
 ### 工具清单
 
-**仅 pro 版有**：`read_image`、`transcribe_voice`、`wechat_digest`、`wechat_distill_state`、
-`wechat_distill_clear`、`wechat_profile_save`、`wechat_profile_get`。下表其余工具两档都有。
+**pro / plus 版有**：`read_image`、`transcribe_voice`、`wechat_digest`、`wechat_distill_state`、
+`wechat_distill_clear`、`wechat_profile_save`、`wechat_profile_get`。下表其余工具三档都有。
 
 **只读（不需要微信窗口）**
 
@@ -282,6 +314,25 @@ wechat-mcp.exe --expiry-status   # 看到期日与剩余天数（在有效期内
 | `reply_to(talker, quote, text, dry_run)` | **引用回复**（`quote` 传被引用消息的文字定位） |
 | `wechat_profile_save(scope?, content)` | 存画像（Markdown，本地白盒）。本人那份用 `scope="self"`。⚠️ **整份覆盖写**（旧的只留一份 `.prev` 备份）——更新前先 `wechat_profile_get` 读回 |
 | `wechat_distill_clear(scope?, everything?)` | **一键清除**画像/水位（清空全部须 `everything=true`；`scope="self"` 只清本人那份） |
+
+## 6.1 多账号 / 多开
+
+微信 4.1.8+ 原生支持多开。多个实例共用 `xwechat_files` 数据根，每个账号一个
+`wxid_*_xxxx` 子目录；主窗口类名/标题完全相同，**从窗口本身分不清是哪个号**。
+
+本服务用**纯读取**的方式对上：枚举 `Weixin.exe` 的 File 句柄，看它打开了哪个
+`xwechat_files\<wxid>_<4hex>\...`，再取该进程的主窗口。不注入、不改内存。
+
+- **`list_accounts`**：列出账号、是否 running、对应 pid/hwnd。先查它再操作。
+- **读工具**（`list_sessions` / `read_history` / `poll_new` / `search_messages` /
+  `list_unread` / 蒸馏等）都接受 `account=<wxid>`；省略时用当前选中账号
+  （自动挑数据目录最新活跃的那个）。
+- **`poll_new` 的每条消息带 `account`**。回复时把同一个 `account` 传给
+  `send_text` / `send_file` / `reply_to`；缺省时发送侧会用当前选中账号。
+  指定了账号却找不到对应窗口时**返回 0、fail-closed**，绝不回退到另一个号的窗口。
+- 只看**正在运行**的实例；没登录/没运行的账号仍会出现在 `accounts` 里但 `running=false`。
+- 其余三个 MCP（export / crm / recall）仍按单账号工作，可用
+  `LUMII_WECHAT_ACCOUNT=<wxid>` 启动时锁定账号；多开同时抓取需要各起一份。
 
 ## 7. 发送安全（fail-closed）
 
@@ -314,8 +365,8 @@ wechat-mcp.exe --expiry-status   # 看到期日与剩余天数（在有效期内
 | `wxread4.py` / `wxkey4.py` | SQLCipher4 解密 / 进程内存取密钥 |
 | `builtin_expiry.py` | 内置有效期：判到期 / 防时钟回拨 / 统一的 `expired` 失败信封（五件套共用一份） |
 | `wechat_asr.py` | 本地语音转写（SILK → Paraformer），仅 pro 版用；含模型目录解析与 `--download-asr-model` 的下载实现 |
-| `DEMO-代聊回路.md` | 用本 MCP 做「本机微信自动回复」的通用回路原型（不分档位；两版技能都由它派生） |
-| `skills/wechat-mcp-pro/` `skills/wechat-mcp-lite/` | **给别的 AI 客户端看的技能包**：安装方式 + 工具面 + 一轮完整回路 + 发送纪律 + 能力边界。放客户端 skills 目录即用 |
+| `DEMO-代聊回路.md` | 用本 MCP 做「本机微信自动回复」的通用回路原型（不分档位；各版技能都由它派生） |
+| `skills/wechat-mcp-pro/` `skills/wechat-mcp-lite/` `skills/wechat-mcp-plus/` | **给别的 AI 客户端看的技能包**：安装方式 + 工具面 + 一轮完整回路 + 发送纪律 + 能力边界。放客户端 skills 目录即用 |
 | `devcli.py` | 自检命令行（`status/sessions/history/send/sendfile/reply/watch/selftest/digest/profile/state/clear/accounts...`） |
 | `test_edition.py` | 档位切分自测（工具集 / 门控 / 引导词 / 媒体裁剪），不碰微信，秒级 |
 | `test_agent_mark.py` | 代发标记自测（两侧码位一致 / 先剥后截断），不碰微信，毫秒级 |
@@ -324,7 +375,8 @@ wechat-mcp.exe --expiry-status   # 看到期日与剩余天数（在有效期内
 | `ocr4.ps1` | 四角坐标 OCR（PowerShell）；截图已在进程内用 `PrintWindow` 完成，不再有 `shot.ps1` |
 
 自检：`python devcli.py selftest`（依赖 / 数据目录 / 会话 / 实时读取耗时一次看全）。
-档位自测：`python test_edition.py`（源码跑起来永远是 pro，两个档位的差异在开发机上看不见，靠它兜底）。
+档位自测：`python test_edition.py`（源码跑起来永远是 pro，各档位的差异在开发机上看不见，靠它兜底）；
+hook 发送自测：`python test_hook.py`（起假端点，不碰真微信）。
 有效期自测：`python test_expiry.py`（**显式把到期时刻注入**再验；源码运行走的是"不判到期"那条路，
 在那儿跑一遍证明不了任何事）。
 标记/标签自测：`python test_agent_mark.py`、`python test_render_labels.py`（都是纯函数，不碰微信）。

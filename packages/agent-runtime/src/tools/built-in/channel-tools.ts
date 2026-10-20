@@ -141,6 +141,14 @@ const ChannelSendParams = Type.Object({
         "different peer. Never guess an id.",
     }),
   ),
+  account: Type.Optional(
+    Type.String({
+      description:
+        "pcwechat only, multi-account: the wxid to send FROM. Reply with the account the " +
+        "incoming message came from (messages carry `account`). OMIT to use the MCP's " +
+        "currently selected account. Never invent an id.",
+    }),
+  ),
   text: Type.String({
     description:
       "Message body. Markdown is welcome — each channel renders it in its best form " +

@@ -70,7 +70,7 @@ claude mcp add wechat-local -s user -- "{{EXE}}"
 
 ---
 
-## 2. 工具面（12 个）
+## 2. 工具面（13 个）
 
 **读**
 
@@ -78,6 +78,7 @@ claude mcp add wechat-local -s user -- "{{EXE}}"
 |---|---|
 | `check_env` | 任何发送之前先跑。看 `ok` / `can_send` / `deps` / `wechat_version` |
 | `locate_db` | 换机、或读不到数据时排第一 |
+| `list_accounts` | 多开/多账号时先看它：本机有哪些账号、哪些在运行（`pid`/`hwnd`/`visible`）。之后读写都带 `account=<wxid>`；**省略 `account` 会用当前选中的账号，多开时可能读 A 发 B** |
 | `list_sessions` | 列会话（拿 `talker`）。**别拿它当"有没有新消息"的判据** |
 | `read_history` | 读某个会话的最近 N 条 |
 | `poll_new(since_ts)` | **增量**新消息。盯梢回路的核心 |
@@ -165,6 +166,7 @@ claude mcp add wechat-local -s user -- "{{EXE}}"
 ```text
 check_env()      → ok / can_send / deps / wechat_version
 locate_db()      → 数据目录定位（换机后第一个查它）
+list_accounts()  → 本机账号 + 运行实例（多开时先看它）
 list_sessions()  → 能不能正常列会话
 ```
 

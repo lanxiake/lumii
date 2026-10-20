@@ -256,6 +256,7 @@ export function registerChannelTools(deps: BridgeToolRegistrarDeps): void {
       const p = rawParams as {
         channel?: string
         to?: string
+        account?: string
         text?: string
         mediaPath?: string
         fileName?: string
@@ -281,6 +282,9 @@ export function registerChannelTools(deps: BridgeToolRegistrarDeps): void {
       // 最后一种只对显式指定的渠道生效（用户说「用微信/飞书通知我」），
       // 解析不出来就报错，绝不改投别的渠道。
       const fromSameChannel = Boolean(origin && origin.channelType === channel)
+      // 多开：显式 account 优先；省略时回本轮消息的来源账号（同一渠道内）。
+      const requestedAccount = String(p.account ?? '').trim()
+      const accountId = requestedAccount || (fromSameChannel ? (origin?.replyAccount ?? '') : '')
       const to = requestedTo
         || (fromSameChannel && origin ? origin.replyTo : '')
         || (requestedChannel ? await resolveSelfPeer(router, channel) : '')
@@ -299,6 +303,7 @@ export function registerChannelTools(deps: BridgeToolRegistrarDeps): void {
         channel,
         to,
         text: String(p.text ?? ''),
+        ...(accountId ? { accountId } : {}),
         ...(p.mediaPath ? { mediaPath: String(p.mediaPath) } : {}),
         ...(p.fileName ? { fileName: String(p.fileName) } : {}),
       })

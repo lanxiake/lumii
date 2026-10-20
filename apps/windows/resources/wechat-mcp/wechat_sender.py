@@ -12,6 +12,7 @@
 文本与附件都走**全投递**：不抢前台、不碰鼠标键盘、不劫持剪贴板、不搬窗口（锁屏下同样可用）。
 只有 `reply_to`（引用回复）仍是前台模拟键鼠 —— 它的右键菜单还没找到后台通路。
 """
+import contextvars
 import ctypes
 import difflib
 import hashlib
@@ -20,6 +21,7 @@ import re
 import subprocess
 import sys
 import time
+from contextlib import contextmanager
 from ctypes import wintypes
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -219,9 +221,32 @@ def _composer_copy_all():
 
 EnumProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
 
+# 当前工具调用要操作的实例（多开时用）。发送/校验/还原整条链路都从 find_main_hwnd 取窗口，
+# 所以在这里一次设置，内部几十处调用不必逐个改签名。
+_TARGET = contextvars.ContextVar("wechat_target", default=None)
 
-def find_main_hwnd(include_hidden=False):
+
+@contextmanager
+def target(account=None, pid=None):
+    """把后续 find_main_hwnd / check_env / 发送绑定到某个账号或 PID。"""
+    token = _TARGET.set({"account": account or None, "pid": pid})
+    try:
+        yield
+    finally:
+        _TARGET.reset(token)
+
+
+def _target_of(account=None, pid=None):
+    spec = _TARGET.get() or {}
+    return (account or spec.get("account"), pid or spec.get("pid"))
+
+
+def find_main_hwnd(include_hidden=False, account=None, pid=None):
     """微信主窗口句柄（取面积最大的 Qt 窗口）。默认**只看可见窗口**。
+
+    多开时通过上下文指定 `account`（wxid）或 `pid`：只认**这个实例**的主窗口。
+    指定了账号但找不到时返回 0（fail-closed）——绝不回退到另一个账号的窗口，
+    否则就会把回复发到另一个微信号。
 
     默认口径是「这双手现在能不能用」：微信主窗口可以进入「进程在跑、句柄还在、
     `IsWindowVisible=0`（不是最小化）」的隐藏态（用户收进托盘了），那种态不算可用。
@@ -238,6 +263,26 @@ def find_main_hwnd(include_hidden=False):
     （那正是真机上反复出现、一直没定位到的那个失败）。取不到 PID 时退回「只认类名」（今天之前的行为），
     免得工具坏了反而把整条发送链掐死。
     """
+    account, pid = _target_of(account, pid)
+    if not account and not pid:
+        # 默认必须和读取侧（db_root 选中的账号）一致，否则就是「读 A、发 B」。
+        try:
+            account = core.self_wxid()
+        except Exception:
+            # 明确指定了账号却解析不出来：**不能回退**到"面积最大的窗口"，
+            # 那等于把消息发给另一个微信号。
+            if core.current_account_override():
+                return 0
+            account = None
+    if account or pid:
+        try:
+            import wxinstances
+            h = (wxinstances.window_for_account(account, include_hidden)
+                 if account else wxinstances.window_for_pid(pid, include_hidden))
+            return int(h or 0)
+        except Exception:
+            return 0
+
     pids = set(weixin_pids())
     best = [0, 0]        # 微信进程名下：面积最大的
     fallback = [0, 0]    # 进程认不出时的兜底（**只认精确类名**，见下）
@@ -1041,10 +1086,11 @@ def _unfreeze_ui(tag="tray"):
     return ok
 
 
-def check_env():
+def check_env(account=None, pid=None):
     """操作前置检查：微信是否运行 / 主窗口 / 可见 / 已最小化 / 是否前台 / 尺寸·比例 / DPI。
 
     「验证完成再进行操作」——任何 UI 操作前先跑这个，`ok=False` 就绝不动作。
+    多开时可传 `account`/`pid`，只检查目标实例。
     """
     info = {"weixin_running": False, "pids": [], "hwnd": 0, "visible": False, "minimized": False,
             "foreground": False, "locked": False, "onscreen": False,
@@ -1053,16 +1099,22 @@ def check_env():
             # 微信 4.x 可能整条生命周期都不向 UIA 暴露控件树（见 `read_uia` / `_uia_tree_blank`）。
             # 一旦本进程观察到，目标确认就只剩帧判据这一条路——报出来，别让「发不出去」变成玄学。
             "uia_tree": "blank" if _UIA_BLANK_NOTED else "unknown"}
-    try:                      # 多账号：报告本机账号与当前使用的账号（P2-6）
+    target_account, target_pid = _target_of(account, pid)
+    try:                      # 多账号：报告本机账号、运行实例与当前使用的账号
         info["accounts"] = [a["wxid"] for a in core.list_accounts()]
-        info["active_account"] = core.self_wxid()
+        import wxinstances
+        info["instances"] = wxinstances.instances()
     except Exception:
-        info["accounts"], info["active_account"] = [], None
+        info["accounts"], info["instances"] = [], []
+    info["active_account"] = target_account or (core.self_wxid() if info["accounts"] else None)
+    info["target_pid"] = target_pid or next(
+        (i["pid"] for i in info["instances"] if i["wxid"] == info["active_account"]), None)
     pids = weixin_pids()
     info["weixin_running"] = bool(pids)
     info["pids"] = pids
     info["locked"] = session_locked()
-    h = find_main_hwnd()
+    h = (find_main_hwnd(account=account, pid=pid) if (account or pid)
+         else find_main_hwnd())
     if not h:
         info["reason"] = ("微信进程在运行，但找不到可见主窗口（可能收进托盘或未登录；"
                           "发送时会先自动还原一次）"
@@ -1311,15 +1363,15 @@ def _png_from_bgra(buf, w, h):
             + chunk(b"IDAT", zlib.compress(raw, 6)) + chunk(b"IEND", b""))
 
 
-def read_ui(tag):
-    """拍微信主窗口并 OCR。
+def read_ui(tag, h=None):
+    """拍微信主窗口并 OCR。`h` 可指定别的顶层窗口（通讯录管理/标签成员选择等）。
 
     用 `PrintWindow(PW_RENDERFULLCONTENT)` 而不是 BitBlt 屏幕区域：只取**这个窗口**的内容，
     所以窗口在后台、被别的窗口盖住、乃至被锁屏盖住时都拍得到（2026-10-09 实测）。
     BitBlt 拍的是屏幕那一块——锁屏时拍回来的是锁屏壁纸，于是 header 读成空、
     被误判成「目标会话未确认」。顺带也不再 `SetForegroundWindow`，读界面不必抢前台。
     """
-    h = find_main_hwnd()    # 只认可见窗口：调用方（env_gate / 发送路径）已经还原过一次了
+    h = h or find_main_hwnd()    # 只认可见窗口：调用方（env_gate / 发送路径）已经还原过一次了
     if not h:
         return 0, 0, []
     _, _, ww, wh = win_rect(h)

@@ -887,7 +887,8 @@ def test_read_image_returns_content_blocks():
 
     # ④ 取不到就报 error，绝不伪造一张图
     bad = server.tool_image({"talker": "filehelper", "local_id": -1})
-    assert "error" in bad, bad
+    # 统一失败信封是 `ok:false + detail + error_code`（不再是早期的 `error` 字段）
+    assert bad.get("ok") is False and bad.get("error_code") == "not_found", bad
     print("     ✅ 取不到时返回 error，不伪造")
     return True
 

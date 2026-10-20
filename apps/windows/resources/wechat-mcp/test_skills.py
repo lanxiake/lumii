@@ -71,7 +71,7 @@ if missing_exe:
 
 by_edition = {e: tools_of(exe_of(e)) for e in ("pro", "lite")}
 
-for edition, want_n in (("pro", 19), ("lite", 12)):
+for edition, want_n in (("pro", 20), ("lite", 13)):
     print(f"=== {edition} ===")
     names = by_edition[edition]
     check(f"{edition} 工具数 = {want_n}", len(names) == want_n, f"got {len(names)}")

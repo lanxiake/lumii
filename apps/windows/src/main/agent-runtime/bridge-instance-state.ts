@@ -57,6 +57,11 @@ export interface InstanceState {
      * 工具须要求显式 to，不得猜。
      */
     replyTo?: string
+    /**
+     * 多开：本轮消息来自哪个微信账号（wxid）。`channel_send` 省略 account 时用它，
+     * 保证回复从收到消息的那个号发出，而不是面积最大的那个窗口。
+     */
+    replyAccount?: string
   }
   /** toolCallId → 工具入参（tool:end 时合并写入 messages） */
   toolCallArgs: Map<string, Record<string, unknown>>

@@ -33,6 +33,24 @@ WORK = os.path.join(tempfile.gettempdir(), "lumii-wechat-mcp")
 MIRROR_DIR = os.path.join(WORK, f"mirror-{os.getpid()}")
 os.makedirs(MIRROR_DIR, exist_ok=True)
 
+
+def _acct_tag(root):
+    """镜像文件名的账号前缀（`wxid_xxx_1a2b`）。
+
+    同一进程会被多账号共用（每次工具调用切 `_account_override`），而不同账号的分片
+    文件名完全一样（`message_0.db`、`contact.db`…）。不把账号写进文件名，切号后
+    任何残留的旧副本/仍开着的旧连接就可能读到**上一个账号**的明文——那是把 A 的
+    聊天记录当成 B 的返回，比报错严重得多。
+    """
+    name = os.path.basename(os.path.dirname(os.path.normpath(root)))
+    return name or "default"
+
+
+def _copy_path(root, rel):
+    """全量重建时那份**加密副本**的路径（`_plain` 写、`_ShardMirror._full` 读，
+    两处必须同一个约定，否则增量偏移永远建立不起来）。"""
+    return os.path.join(MIRROR_DIR, f"{_acct_tag(root)}_{os.path.basename(rel)}.copy")
+
 _cache = {"rels": None, "msg": None, "contact": None, "root": None}
 
 
@@ -324,12 +342,42 @@ def _root_from_any(p):
     return None
 
 
-def db_root_info():
-    """定位微信数据目录，返回 `(root, source)`；source ∈ env/ini/registry/default/scan。
+_account_override = None
 
-    优先级：`LUMII_WECHAT_DB`（显式路径，最高）> `LUMII_WECHAT_ACCOUNT`（指定 wxid/目录名）
-    > 探测源（ini > 注册表 > 默认 > 固定盘扫描）。探测失败给出可操作提示。
+
+def set_account(account):
+    """切换后续读取的账号（None = 自动挑最新）。
+
+    MCP 是多账号共用的：`list_sessions(account="wxid_b")` 这类调用在执行前会切到这里，
+    下次调用再切走。切换时清掉会话/分片缓存——缓存里存的是**上一个账号**的明文镜像，
+    不清会把两个号的消息混在一起。
     """
+    global _account_override
+    want = (account or "").strip() or None
+    if want == _account_override:
+        return
+    _account_override = want
+    _cache.clear()
+    _cache.update({"rels": None, "msg": None, "contact": None, "root": None})
+
+
+def current_account_override():
+    return _account_override
+
+
+def db_root_info():
+    """定位微信数据目录，返回 `(root, source)`；source ∈ account/env/ini/registry/default/scan。
+
+    优先级：**当前工具调用指定的账号** > `LUMII_WECHAT_DB`（显式路径）
+    > `LUMII_WECHAT_ACCOUNT`（进程级默认账号）> 探测源。探测失败给出可操作提示。
+    """
+    if _account_override:
+        for a in list_accounts():
+            if a["wxid"] == _account_override or a["dir"] == _account_override:
+                return a["root"], "account"
+        raise EnvError(
+            f"账号 {_account_override} 未匹配到数据目录",
+            hint="先用 list_accounts 看本机有哪些账号，再把 account 传成其中一个 wxid。")
     env = os.environ.get("LUMII_WECHAT_DB")
     if env:
         root = _root_from_any(env)
@@ -576,7 +624,9 @@ def _plain(km, root, rel, _retry=True):
         raise _missing_key_error(rel)
     enc = bytes.fromhex(key)
     src = os.path.join(root, rel.replace("/", os.sep))
-    dst = os.path.join(MIRROR_DIR, os.path.basename(rel) + ".copy")
+    # 账号前缀见 `_acct_tag`：同一进程切号时文件名不能撞。
+    tag = _acct_tag(root)
+    dst = _copy_path(root, rel)
     for sfx in ("", "-wal", "-shm"):          # WAL 必须连 -wal/-shm 一起复制
         if os.path.exists(src + sfx):
             shutil.copy2(src + sfx, dst + sfx)
@@ -601,13 +651,13 @@ def _plain(km, root, rel, _retry=True):
             # ② 重放结果必须过 quick_check。
             fresh = dbsize is not None and dbsize >= len(pages)
             if applied and fresh:
-                try_path = os.path.join(MIRROR_DIR, "try_" + os.path.basename(rel))
+                try_path = os.path.join(MIRROR_DIR, f"try_{tag}_{os.path.basename(rel)}")
                 open(try_path, "wb").write(b"".join(wal_pages))
                 if _sqlite_ok(try_path):
                     best = wal_pages
     except Exception:
         pass
-    out = os.path.join(MIRROR_DIR, "plain_" + os.path.basename(rel))
+    out = os.path.join(MIRROR_DIR, f"plain_{tag}_{os.path.basename(rel)}")
     tmp = out + ".tmp"
     open(tmp, "wb").write(b"".join(best))
     # 写完再换名：任何时刻读到的都是完整的一份镜像。
@@ -643,7 +693,9 @@ class _ShardMirror:
         self.root = root
         self.rel = rel
         self.src = os.path.join(root, rel.replace("/", os.sep))
-        self.out = os.path.join(MIRROR_DIR, "plain_" + os.path.basename(self.src))  # 与 _plain 同约定
+        # 与 `_plain` 同约定（含账号前缀，见 `_acct_tag`）
+        self.out = os.path.join(MIRROR_DIR,
+                                f"plain_{_acct_tag(root)}_{os.path.basename(self.src)}")
         self.st = None            # {"key", "wal_off", "salt", "pages"}
         self.version = 0          # 内容版本号：变了才需要上层重建 tables/senders
         self._tables, self._tables_v = set(), -1
@@ -712,7 +764,7 @@ class _ShardMirror:
         #（WAL 刚被 checkpoint 重置时正是「新 salt + 0 帧」，此时 wal_off=32 表示
         # 「这条会话我一个还没消费」——对方接下来追加的第一帧就能被增量接上）。
         try:
-            dst = os.path.join(MIRROR_DIR, os.path.basename(self.rel) + ".copy")
+            dst = _copy_path(self.root, self.rel)
             w = open(dst + "-wal", "rb").read()
             if wxread4.wal_header_ok(w):
                 frames, _off = wxread4.parse_wal_frames(w)
@@ -1642,6 +1694,9 @@ def msg_dict(ct, lt, content, nm, talker=None, name=None, sender=None, me=None, 
     # 先截断的话标记根本认不出来（标记恒在**末尾**，被截掉就等于没打）。
     text, agent_sent = split_agent_mark(_render(lt, content))
     d = {"time": _ts(ct), "ts": ct, "type": lt & 0xFFFFFFFF, "text": text[:400]}
+    if me:
+        # 多开时消息必须知道自己来自哪个账号：回复要发回同一个号（见 server 的出站路由）
+        d["account"] = me
     if len(text) > 400:
         # 截断要**留痕**（2026-10-14）：`text` 只是全文的前 400 字，读的人（Agent）不能拿它当全文
         # ——本机实测 **73/5101 条（1.4%）** 渲染后超 400 字、最长 3069 字，粘日志/长段落就是这个形态，
@@ -1991,6 +2046,7 @@ def poll(since_ts, per=20):
     （`verify/wechat-mcp/probe_watermark_loss.py`）。
     """
     since_ts = int(since_ts or 0)
+    root = db_root()                       # 多账号：poll 的增量记忆按账号隔离
     _refresh()
     nm = names()
     me = self_wxid()
@@ -2005,7 +2061,8 @@ def poll(since_ts, per=20):
                 continue
             stats["tables"] += 1
             ids = tuple(_max_local_id(conns, p, tbl) for p in rels)
-            ent = _poll_memo.get(tbl)
+            memo_key = (root, tbl)
+            ent = _poll_memo.get(memo_key)
             # 上次扫描时的逐分片高水位 = 那条「已送达 / 之后才插入」的分界线（见 `_rows_full_conn`）。
             # 拿不到 memo（本进程第一次扫这张表）就没有分界线，只能退回纯 `>` 水位：
             # **宁可漏掉这一秒的尾巴，也不冒险重复投递**——重复会让代聊把同一条消息回两遍，更难查。
@@ -2030,8 +2087,8 @@ def poll(since_ts, per=20):
                     # 放大到上限还是满的：认输但**如实上报**，别让它无声（病态刷屏才会到这）
                     stats["truncated"] += 1
                     truncated = True
-                _poll_memo[tbl] = {"ids": ids, "since": since_ts, "rows": rows,
-                                   "complete": len(rows) < per}
+                _poll_memo[memo_key] = {"ids": ids, "since": since_ts, "rows": rows,
+                                        "complete": len(rows) < per}
                 stats["scanned"] += 1
             batch = [msg_dict(ct, lt, content, nm, talker=talker, name=nm.get(talker, talker),
                               sender=sender, me=me, local_id=lid, source=src, packed=pk)

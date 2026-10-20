@@ -299,7 +299,8 @@ def suite_A():
     r = R("A 层：真加密 · 重放与护栏（逐字节）")
 
     def img(core, fx):
-        return open(os.path.join(core.MIRROR_DIR, "plain_message_0.db"), "rb").read()
+        # 镜像文件名带账号前缀（见 wechat_core._acct_tag），别硬编码；问镜像自己要路径。
+        return open(core._mirror("message/message_0.db").out, "rb").read()
 
     def a1_stale_wal():
         """陈旧 WAL（dbsize < 主库页数）必须被丢弃——宁可读主库，不可读旧。"""

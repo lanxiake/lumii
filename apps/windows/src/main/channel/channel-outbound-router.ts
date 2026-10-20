@@ -40,6 +40,7 @@ export class ChannelOutboundRouter {
     const text = typeof params.text === 'string' ? params.text : ''
     const title = typeof params.title === 'string' ? params.title.trim() : ''
     const mediaPath = typeof params.mediaPath === 'string' ? params.mediaPath.trim() : ''
+    const accountId = typeof params.accountId === 'string' ? params.accountId.trim() : ''
 
     if (!to) {
       return {
@@ -84,8 +85,14 @@ export class ChannelOutboundRouter {
     }
 
     const result = mediaPath
-      ? await this.dispatchMedia(provider, { to, text, mediaPath, fileName: params.fileName })
-      : await provider.sendText({ to, text, ...(title ? { title } : {}) })
+      ? await this.dispatchMedia(provider, {
+          to, text, mediaPath, fileName: params.fileName,
+          ...(accountId ? { accountId } : {}),
+        })
+      : await provider.sendText({
+          to, text, ...(title ? { title } : {}),
+          ...(accountId ? { accountId } : {}),
+        })
     return {
       ...result,
       channel: result.channel ?? channel,
@@ -98,7 +105,7 @@ export class ChannelOutboundRouter {
    */
   private async dispatchMedia(
     provider: IChannelOutboundProvider,
-    params: { to: string; text: string; mediaPath: string; fileName?: string },
+    params: { to: string; text: string; mediaPath: string; fileName?: string; accountId?: string },
   ): Promise<ChannelSendResult> {
     const channel = provider.channel
     if (!provider.sendMedia) {
@@ -133,6 +140,7 @@ export class ChannelOutboundRouter {
       text: params.text,
       mediaPath: params.mediaPath,
       fileName: params.fileName?.trim() || path.basename(params.mediaPath),
+      ...(params.accountId ? { accountId: params.accountId } : {}),
     })
   }
 }
