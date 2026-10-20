@@ -91,7 +91,8 @@ import { WECHAT_RELAY_AGENT_ID } from './agent-runtime/wechat-relay-agent'
 import { fileLogger } from './file-logger'
 import { SkillWatcher } from './skill-watcher'
 import { seedBundledSkills } from './bundled-skills-seeder'
-import { startBrowserService, stopBrowserService, getBrowserContext } from './browser-service'
+import { stopBrowserService, getBrowserContext } from './browser-service'
+import { startPostReadyServices as startPostReadyStage } from './kernel/stages/post-ready'
 import { directoryManager } from './directory-manager'
 import { ConfigManager } from './config-manager'
 
@@ -1499,20 +1500,12 @@ async function initLocalServices(): Promise<void> {
 
 /** S8：Agent 就绪后的服务——云同步冲突重试、浏览器控制。 */
 async function startPostReadyServices(): Promise<void> {
-  // 注入云同步冲突 Agent 重试回调：SyncScheduler 每次 tick 若仍处于 conflict 且冷却已过，
-  // 自动驱动 Agent 重新处理（与心跳 evolution-tick 同路径）
-  syncScheduler?.setOnConflictPending(async () => {
-    if (!agentRuntimeBridge?.isInitialized) return
-    await agentRuntimeBridge.executeSyncConflictGoal()
+  // 实现在 kernel/stages/post-ready.ts（P2-3 的模板：显式依赖 + 可测回调）。
+  // 这里只把两个模块级单例交出去——本阶段不做任何赋值，所以能干净地搬走。
+  await startPostReadyStage({
+    syncScheduler,
+    getBridge: () => agentRuntimeBridge,
   })
-
-  // 启动浏览器控制服务（控制用户本机浏览器）
-  const browserStarted = await startBrowserService()
-  if (browserStarted) {
-    log.info('浏览器控制服务已就绪')
-  } else {
-    log.warn('浏览器控制服务启动失败，browser.* 命令将不可用')
-  }
 }
 
 /**
