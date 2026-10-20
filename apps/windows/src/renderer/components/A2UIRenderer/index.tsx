@@ -3,6 +3,8 @@
  */
 
 import React from 'react'
+
+import { getCardRenderer, type ActionHandler } from './card-registry'
 import type {
   A2UISpec,
   A2UIComponent,
@@ -88,9 +90,12 @@ const FallbackComponent: React.FC<{ type: string }> = ({ type }) => (
 // 组件分发
 // ---------------------------------------------------------------
 
-type ActionHandler = (componentId: string, action: string, payload?: unknown) => void
-
 const ComponentDispatch: React.FC<{ component: A2UIComponent; onAction?: ActionHandler }> = ({ component, onAction }) => {
+  // 插件卡片优先：统一吃 { component, onAction }
+  const PluginCard = getCardRenderer(component.type)
+  if (PluginCard) return <PluginCard component={component} onAction={onAction} />
+
+  // 内建卡片保持原实现（各自吃具体 props），插件无法覆盖这些 type
   switch (component.type) {
     case 'Text':
       return <TextComponent {...component} />
@@ -120,6 +125,8 @@ const ComponentDispatch: React.FC<{ component: A2UIComponent; onAction?: ActionH
       return <FallbackComponent type={(component as { type: string }).type} />
   }
 }
+
+
 
 // ---------------------------------------------------------------
 // 主渲染器
