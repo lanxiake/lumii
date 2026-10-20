@@ -32,6 +32,7 @@ import { TurnFileChangesCard } from '../TurnFileChangesCard'
 import { ToolBatchGroup, summarizeToolBatch } from '../ToolBatchGroup'
 import { HandoffCard } from '../HandoffCard'
 import { SpawnAgentCard, parseSpawnResult } from '../SpawnAgentCard'
+import { TaskCompleteCard } from '../TaskCompleteCard'
 import { SubAgentRunBlock } from '../SubAgentRun'
 import {
   readRunFailure,
@@ -471,13 +472,14 @@ function readSpawnInstanceId(
   return typeof instanceId === 'string' && instanceId ? instanceId : undefined
 }
 
-/** 时间线渲染单元：思考 / 文本 / 工具批次组 / 转交卡片 / 团队委托卡片 */
+/** 时间线渲染单元：思考 / 文本 / 工具批次组 / 转交 / 委托 / 任务完成 */
 type RenderUnit =
   | { kind: 'thinking'; part: Extract<AssistantPart, { type: 'thinking' }> }
   | { kind: 'text'; part: Extract<AssistantPart, { type: 'text' }> }
   | { kind: 'toolGroup'; items: AgentWorkflowItem[]; key: string }
   | { kind: 'handoff'; part: Extract<AssistantPart, { type: 'tool' }> }
   | { kind: 'spawn'; part: Extract<AssistantPart, { type: 'tool' }> }
+  | { kind: 'taskComplete'; part: Extract<AssistantPart, { type: 'tool' }> }
 
 /**
  * 把扁平的 parts 折叠成渲染单元序列：
@@ -485,6 +487,7 @@ type RenderUnit =
  * 2. 连续的 tool part 合并为一个批次组，遇到 thinking/text 即结束当前组
  * 3. propose_dev_handoff 单独成卡（F2）：按钮必须露在折叠区外，不能进工具批次组
  * 4. spawn_agent 单独成卡（G3）：委托对象 / 状态 / 结果必须露在折叠区外
+ * 5. task_complete 单独成卡：terminate 后无正文，summary 必须露在折叠外
  */
 function buildRenderUnits(parts: readonly AssistantPart[], context: TimelineContext): RenderUnit[] {
   const meaningful = parts.filter((p) => p.type !== 'text' || p.text.trim().length > 0)
@@ -512,6 +515,11 @@ function buildRenderUnits(parts: readonly AssistantPart[], context: TimelineCont
       if (part.name === 'spawn_agent') {
         flush()
         units.push({ kind: 'spawn', part })
+        continue
+      }
+      if (part.name === 'task_complete') {
+        flush()
+        units.push({ kind: 'taskComplete', part })
         continue
       }
       pending.push(part)
@@ -921,6 +929,13 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
         </div>
       )
     }
+    if (unit.kind === 'taskComplete') {
+      return (
+        <div key={unit.part.id} className={styles['part-block']}>
+          <TaskCompleteCard part={unit.part} />
+        </div>
+      )
+    }
     if (unit.kind === 'spawn') {
       // 按 spawn 结果里的 instanceId 把子运行挂到这张卡片下（见 08-委托可见性.md §4）
       const instanceId = readSpawnInstanceId(unit.part)
@@ -952,9 +967,8 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
   /**
    * 按 parts 时间线渲染一段回复（Cursor 式）：父回合与子运行共用。
    * 中间过程（思考 + 工具 + 中间文本）折叠进 ActivityFold，最终答案露在外面。
-   * 转交卡片（handoff）是用户必须可点的动作、委托卡片（spawn）是「团队在干什么」的
-   * 主要线索，二者永远拣出折叠区之外渲染——否则后续的 thinking 会把卡片划进「过程区」
-   * 而被折叠隐藏。
+   * 转交（handoff）/ 委托（spawn）/ 任务完成（taskComplete）永远拣出折叠区之外——
+   * 否则会被划进「过程区」折叠隐藏；task_complete 尤其常作为最后一步且无后续正文。
    */
   const renderTimeline = (
     parts: readonly AssistantPart[],
@@ -973,7 +987,8 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
     const units = buildRenderUnits(parts, context)
     const { process, answer } = splitProcessAndAnswer(units)
     const isStreaming = context.isStreaming
-    const isPinned = (u: RenderUnit) => u.kind === 'handoff' || u.kind === 'spawn'
+    const isPinned = (u: RenderUnit) =>
+      u.kind === 'handoff' || u.kind === 'spawn' || u.kind === 'taskComplete'
     const pinnedUnits = [...process, ...answer].filter(isPinned)
     const processOnly = process.filter((u) => !isPinned(u))
     const answerOnly = answer.filter((u) => !isPinned(u))

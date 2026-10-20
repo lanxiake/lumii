@@ -1,0 +1,71 @@
+/* 任务完成卡：始终露在过程折叠外，避免 summary 被埋进「工作过程」 */
+
+.card {
+  margin: 8px 0;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--mt-success, #3d9a6a) 35%, var(--mt-border-hairline));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--mt-success, #3d9a6a) 8%, var(--mt-surface-3));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cardGate {
+  border-color: color-mix(in srgb, var(--mt-warning, #c9a227) 40%, var(--mt-border-hairline));
+  background: color-mix(in srgb, var(--mt-warning, #c9a227) 8%, var(--mt-surface-3));
+}
+
+.cardFailed {
+  border-color: color-mix(in srgb, var(--mt-error) 35%, var(--mt-border-hairline));
+  background: color-mix(in srgb, var(--mt-error) 8%, var(--mt-surface-3));
+}
+
+.cardRunning {
+  border-color: var(--mt-border-hairline);
+  background: var(--mt-surface-3);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.badge {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--mt-success, #3d9a6a) 18%, transparent);
+  color: var(--mt-success, #3d9a6a);
+  font-weight: 500;
+}
+
+.badgeGate {
+  background: color-mix(in srgb, var(--mt-warning, #c9a227) 18%, transparent);
+  color: var(--mt-warning, #c9a227);
+}
+
+.badgeFailed {
+  background: color-mix(in srgb, var(--mt-error) 18%, transparent);
+  color: var(--mt-error);
+}
+
+.badgeRunning {
+  background: color-mix(in srgb, var(--mt-fg-4) 18%, transparent);
+  color: var(--mt-fg-3);
+}
+
+.summary {
+  font-size: 14px;
+  color: var(--mt-fg-1);
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.hint {
+  font-size: 12.5px;
+  color: var(--mt-fg-3);
+  line-height: 1.45;
+}
