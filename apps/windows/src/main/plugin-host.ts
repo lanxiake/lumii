@@ -11,6 +11,7 @@ import { helloExtension } from './extensions/hello'
 import { perfExtension } from './extensions/perf'
 import { updaterExtension } from './extensions/updater'
 import { cloudSyncExtension } from './extensions/cloud-sync'
+import { screenRecordExtension } from './extensions/screen-record'
 
 /**
  * 内置扩展的统一定义。
@@ -29,6 +30,7 @@ export const BUILTIN_EXTENSIONS: BuiltinExtension[] = [
   perfExtension,
   updaterExtension,
   cloudSyncExtension,
+  screenRecordExtension,
 ]
 
 /**

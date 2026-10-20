@@ -41,7 +41,7 @@ export const cloudSyncExtension = {
       // 冲突检测 → 驱动 Agent 处理。Agent 此时可能还没创建，用延迟绑定的 getter，
       // 回调真正触发时才会解析到实例。
       manager.setOnConflictDetected((conflict) => {
-        const bridge = ctx.get(S.agentRuntime)?.()
+        const bridge = ctx.get(S.agentRuntime)?.get()
         if (!bridge || !bridge.isInitialized) {
           ctx.log.warn(`检测到冲突但 Agent Runtime 未就绪，仅创建目标等待心跳驱动（${conflict.files.length} 个文件）`)
           return

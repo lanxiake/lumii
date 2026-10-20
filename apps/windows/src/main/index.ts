@@ -115,20 +115,12 @@ import { transcribeVoiceFile } from './channel/media-pipeline'
 import {
   setActiveWorkspaceDirGetter,
   ensureWorkspaceTempLayout,
-  resolveRecordingsDir,
 } from './workspace-paths'
 import {
-  createScreenRecordService,
-  createRealScreenRecordServiceDeps,
-  parseScreenRecordSettings,
-  registerScreenRecordIpc,
   type ScreenRecordService,
 } from './screen-record'
-import { setScreenRecordService, getScreenRecordService as getScreenRecordServiceFromAccessor } from './screen-record/accessor'
-import { createNarrateService } from './screen-record/narrate-service'
-import { setNarrateService } from './screen-record/narrate-accessor'
-import { createBurnSubtitlesService } from './screen-record/burn-subtitles-service'
-import { setBurnSubtitlesService } from './screen-record/burn-accessor'
+import { getScreenRecordService as getScreenRecordServiceFromAccessor } from './screen-record/accessor'
+import { registerScreenRecordDisabledStub } from './screen-record/disabled-stub'
 import { clearScreenshotTempDir } from './app-ui-control/screenshot-cleanup'
 import { startAppUiControlServer, stopAppUiControlServer } from './app-ui-control/server'
 import { resizeImageIfNeeded } from './agent-runtime/image-resizer'
@@ -290,84 +282,6 @@ function createWindow(isTestMode: boolean = false, startHidden: boolean = false)
   }, isTestMode, startHidden)
 }
 
-/**
- * 初始化录屏服务（主窗就绪后：desktopCapturer + 写盘 + IPC）。
- */
-function initScreenRecordService(): void {
-  if (screenRecordService) return
-  const deps = createRealScreenRecordServiceDeps({
-    getMainWindow: () => mainWindow,
-    sendToRenderer: (channel, payload) => {
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send(channel, payload)
-      }
-    },
-    readSettingsJson: async () => {
-      if (!mainWindow || mainWindow.isDestroyed()) return null
-      try {
-        return await mainWindow.webContents.executeJavaScript(
-          `localStorage.getItem('mtbot-assistant-settings')`,
-        )
-      } catch {
-        return null
-      }
-    },
-    requestPersistAlwaysAllow: (value) => {
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('screen-record:persist-always-allow', value)
-      }
-    },
-  })
-  const origEmit = deps.emitStatusChanged
-  deps.emitStatusChanged = (detail) => {
-    origEmit(detail)
-    if (detail.ok) {
-      trayManager?.updateScreenRecordState(
-        detail.status === 'recording',
-        detail.elapsedMs ?? 0,
-        detail.status === 'paused',
-      )
-    } else {
-      trayManager?.updateScreenRecordState(false, 0, false)
-    }
-  }
-  screenRecordService = createScreenRecordService(deps)
-  setScreenRecordService(screenRecordService)
-  registerScreenRecordIpc(screenRecordService, mainWindow, performanceMonitor ?? undefined)
-  // 旁白/烧录与录屏 IPC 同步挂接，避免启动窗口期 invoke 得到 disabled。
-  // TTS 通过闭包惰性读取 voiceCallService，语音服务尚未就绪时会返回明确的 tts_unavailable。
-  mountScreenRecordMediaServices()
-  log.info('录屏服务已初始化')
-}
-
-/**
- * 挂接录屏旁白与字幕烧录服务（可重复调用；TTS 依赖模块级 voiceCallService）。
- */
-function mountScreenRecordMediaServices(): void {
-  const screenRecordMediaDeps = {
-    resolveRecordingsDir,
-    readSettings: async () => {
-      let json: string | null = null
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        try {
-          json = await mainWindow.webContents.executeJavaScript(
-            `localStorage.getItem('mtbot-assistant-settings')`,
-          )
-        } catch {
-          json = null
-        }
-      }
-      return parseScreenRecordSettings(json)
-    },
-    generateAudioFile: async (text: string, destDir: string) => {
-      if (!voiceCallService) throw new Error('语音服务未初始化，请稍后再试')
-      return voiceCallService.generateAudioFile(text, destDir)
-    },
-  }
-  setNarrateService(createNarrateService(screenRecordMediaDeps))
-  setBurnSubtitlesService(createBurnSubtitlesService(screenRecordMediaDeps))
-  log.info('录屏旁白/烧录服务已挂接')
-}
 
 function initTray(): void {
   initializeTray({
@@ -893,8 +807,9 @@ async function initAgentRuntime(): Promise<void> {
   setAudioTranscribeCallback((base64, mimeType) => voiceCallService!.transcribeAudioBuffer(base64, mimeType))
   log.info('语音通话服务已注册')
 
-  // 语音就绪后重挂一次，确保 generateAudioFile 闭包拿到最新实例（幂等）
-  mountScreenRecordMediaServices()
+  // 注：原先这里要「语音就绪后重挂一次，确保 generateAudioFile 闭包拿到最新实例」。
+  // 现在录屏扩展的 generateAudioFile 在调用时通过 S.voice getter 解析，天然拿到最新实例，
+  // 不需要重挂。
 
   // VAD 预热：**必须先于 bridge 初始化**。不阻塞启动（后台跑），但顺序是硬要求。
   // 失败只记日志——VAD 不可用不该拦住对话（非 micless 通话会再走一次 ensureInitialized）。
@@ -1345,8 +1260,12 @@ async function startExtensions(): Promise<void> {
   )
   pluginHost = created.host
 
-  // 供早激活的扩展延迟解析 Agent Runtime（它要到 S7 才创建）
-  pluginHost.container.provide(S.agentRuntime, () => agentRuntimeBridge)
+  // 供早激活的扩展延迟解析尚未创建/不属于扩展的东西：
+  // Agent Runtime（S7 才建）、主窗口（S2–S5 才建）、托盘、语音服务
+  pluginHost.container.provide(S.agentRuntime, { get: () => agentRuntimeBridge })
+  pluginHost.container.provide(S.mainWindow, { get: () => mainWindow })
+  pluginHost.container.provide(S.tray, { get: () => trayManager })
+  pluginHost.container.provide(S.voice, { get: () => voiceCallService })
   if (created.skipped.length > 0) {
     log.info(`扩展已按配置禁用: ${created.skipped.join('、')}`)
   }
@@ -1506,8 +1425,13 @@ async function initUiStages(flags: ReturnType<typeof readStartupFlags>): Promise
   if (!isHeadless) {
     initTray()
     initSystemService()
+    // 窗口已就绪：通知等待窗口的扩展（录屏），再把它们提供的单例取回来
     const screenRecordStartTime = performance.now()
-    initScreenRecordService()
+    pluginHost?.eventBus.emit('app:window-ready', { at: Date.now() })
+    screenRecordService = pluginHost?.container.get(S.screenRecord) ?? null
+    // 录屏被禁用时补一个「已禁用」桩：渲染层挂载时会查一次状态，
+    // 没有处理器会在控制台刷 No handler registered（看起来像坏了）
+    if (!screenRecordService) registerScreenRecordDisabledStub()
     performanceMonitor?.recordStartupPhase('screen-record', performance.now() - screenRecordStartTime)
   } else {
     log.info('无头模式：跳过托盘和录屏初始化')
