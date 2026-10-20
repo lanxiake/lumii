@@ -223,6 +223,7 @@ import { captureWorkspaceTurnSnapshot } from '../workspace-vcs/workspace-turn-sn
 import { beginStandaloneTurn } from './turn-touched-paths'
 import { BackgroundTaskManager, type BackgroundTaskRecord } from './background-task-manager'
 import { followComfyJob, parseEnqueuedPromptId, resolveComfyBaseUrl } from './comfyui-job-follower'
+import { buildBackgroundToolConfig } from './bootstrap/background-tool-config'
 import { BridgeToolRegistrar } from './bridge-tool-registrar'
 import { BridgePromptDispatcher } from './bridge-prompt-dispatcher'
 import { RouterService } from './router/router-service'
@@ -2070,6 +2071,20 @@ export class AgentRuntimeBridge {
       log.warn('[wechat-watch] 会话内提示失败（继续）:', err)
     }
     const instanceId = await this.createInstanceById(agentId, meta.convId, meta.convId)
+    if (meta.account) {
+      // 多开：让本轮里的 channel_send 默认回收到消息的那个账号（模型显式传 account 也照用）。
+      const state = this.instanceStates.get(instanceId)
+      if (state) {
+        state.presence = {
+          userAtClient: false,
+          channelLabel: '本机微信',
+          channelType: 'pcwechat',
+          channelUserId: meta.peer,
+          replyTo: meta.peer,
+          replyAccount: meta.account,
+        }
+      }
+    }
     try {
       const profiles = await this.wechatProfilePrompt(meta.peer)
       await this.prompt(instanceId, profiles ? `${profiles}\n\n${prompt}` : prompt)
@@ -2106,6 +2121,16 @@ export class AgentRuntimeBridge {
       getRelayAgent: () => this.wechatRelayAgent(),
       // 本机微信的本人 wxid（自聊识别：文件传输助手 + 本人账号都算"用户发给助手"）
       getSelfWxids: () => this.wechatSelfWxids(),
+      // 多开：每个账号单独读；MCP 没这个工具时回落单账号路径
+      listAccounts: async () => {
+        const raw = await this.callMcpTool(WECHAT_WATCH_MCP_SERVER, 'list_accounts', {})
+        const parsed = JSON.parse(raw) as {
+          accounts?: { wxid?: unknown; running?: unknown }[]
+        }
+        return (parsed.accounts ?? [])
+          .filter((a) => typeof a?.wxid === 'string' && a.wxid.length > 0)
+          .map((a) => ({ wxid: String(a.wxid), running: a.running !== false }))
+      },
       // 入站语音 → 文字（缺这个部件就只剩 `[语音 N 秒]`，不影响这一轮能不能跑）
       transcribeVoice: this.config.transcribeVoice,
       // 入站图片 → 文字。走的是**同一个**视觉槽（设置页 → 模型配置 → 视觉理解）：
@@ -3859,8 +3884,8 @@ export class AgentRuntimeBridge {
    * 装配处（`index.ts` 的渠道 Hub）拿不到本地库，而队列就住在 `runtime_state` 里；
    * 与 `callMcpTool` 同一层——把 bridge 的一小块能力借出去，不开放 `localDb`。
    */
-  enqueueWechatOutbox(to: string, text: string): void {
-    enqueueWechatOutbox(this.localDb.db, to, text)
+  enqueueWechatOutbox(to: string, text: string, account?: string): void {
+    enqueueWechatOutbox(this.localDb.db, to, text, account)
   }
 
   getMcpConfigError(): string | null { return this.mcpManager.getConfigError() }
@@ -3894,89 +3919,15 @@ export class AgentRuntimeBridge {
 
   /** 长耗时工具后台化配置（策略 + 执行器），注入实例装配层 */
   private buildBackgroundToolConfig(): BackgroundToolConfig {
-    const policy = {
-      shouldBackground: (toolName: string): boolean =>
-        this.mcpManager?.getBackgroundToolNames().has(toolName) ?? false,
-    }
-    const runner: BackgroundToolRunner = {
-      run: ({ toolName, label, instanceId, execute }) => {
-        const manager = this.getBackgroundTaskManager()
-        // 工具的 ToolExecutionContext 是共享的、不带 instanceId；真实调用者由本引用标记
-        const ownerId = instanceId ?? this.currentToolExecutorInstanceIdRef.value
-        const sessionKey = ownerId ? this.instanceToRootSessionKey.get(ownerId) : undefined
-        const taskId = manager.start({ instanceId: ownerId, sessionKey, toolName, label })
-
-        // 每个后台任务一个独立中断控制器：任务活过回合结束，可单独取消，看门狗兜底
-        const controller = new AbortController()
-        this.backgroundTaskAborts.set(taskId, controller)
-        const watchdogMs = BACKGROUND_TASK_MAX_MS
-        const watchdog = setTimeout(() => {
-          if (!this.backgroundTaskAborts.has(taskId)) return
-          log.warn(`[background-task] 看门狗超时，判定失败 task=${taskId}`)
-          this.backgroundTaskAborts.delete(taskId)
-          controller.abort()
-          manager.fail(taskId, `后台任务超过 ${Math.round(watchdogMs / 60000)} 分钟未返回，已中止`)
-        }, watchdogMs)
-
-        const settle = (apply: () => void): void => {
-          clearTimeout(watchdog)
-          this.backgroundTaskAborts.delete(taskId)
-          apply()
-        }
-
-        // detached：真实执行不阻塞本轮；结束后回填任务并（终态）唤醒 Agent
-        void (async () => {
-          let comfyJob: { promptId: string; serverName: string } | undefined
-          try {
-            const result = await execute(controller.signal)
-            const text = extractToolResultText(result)
-            log.info(`[background-task] 执行返回 task=${taskId} isError=${result.isError ?? false}`)
-
-            // ComfyUI「入队即返回」：只拿到 prompt_id 时继续跟进到真正出片，再终结任务、唤醒 Agent
-            const promptId = result.isError ? null : parseEnqueuedPromptId(text)
-            const server = promptId ? this.mcpManager.findServerForTool(toolName) : undefined
-            if (promptId && server) {
-              comfyJob = { promptId, serverName: server.name }
-              log.info(`[background-task] 跟进 ComfyUI 任务 task=${taskId} prompt_id=${promptId}`)
-              manager.update(taskId, `ComfyUI 已入队（prompt_id=${promptId}）`)
-              const outcome = await followComfyJob({
-                promptId,
-                callTool: (tool, args) => this.mcpManager.callTool(server.name, tool, args),
-                signal: controller.signal,
-                baseUrl: resolveComfyBaseUrl(server.env),
-                onProgress: (note) => manager.update(taskId, `${note}（prompt_id=${promptId}）`),
-              })
-              settle(() => {
-                log.info(`[background-task] ComfyUI 任务结束 task=${taskId} ok=${outcome.ok} outputs=${outcome.outputs.length}`)
-                if (outcome.ok) manager.complete(taskId, outcome.text || text, { outputs: outcome.outputs })
-                else manager.fail(taskId, outcome.text)
-              })
-              return
-            }
-
-            settle(() => {
-              if (result.isError) manager.fail(taskId, text || '工具执行失败')
-              else manager.complete(taskId, text)
-            })
-          } catch (err) {
-            const message = err instanceof Error ? err.message : String(err)
-            // 用户中断 / 看门狗：顺手撤掉 ComfyUI 侧的任务（排队中撤队列、渲染中打断），尽力而为
-            if (controller.signal.aborted && comfyJob) {
-              const { promptId, serverName } = comfyJob
-              for (const action of ['cancel_queued', 'cancel'] as const) {
-                void this.mcpManager.callTool(serverName, 'queue', { action, prompt_id: promptId }).catch(() => {})
-              }
-            }
-            settle(() => {
-              log.warn(`[background-task] 执行异常 task=${taskId}: ${message}`)
-              manager.fail(taskId, message)
-            })
-          }
-        })()
-        return taskId
-      },
-    }
-    return { policy, runner }
+    // 实现已搬到 bootstrap/background-tool-config.ts：这里只把门面的私有字段
+    // 包成显式依赖，逻辑本身一行没改。
+    return buildBackgroundToolConfig({
+      getMcpManager: () => this.mcpManager ?? null,
+      getBackgroundTaskManager: () => this.getBackgroundTaskManager(),
+      currentToolExecutorInstanceIdRef: this.currentToolExecutorInstanceIdRef,
+      instanceToRootSessionKey: this.instanceToRootSessionKey,
+      backgroundTaskAborts: this.backgroundTaskAborts,
+    })
   }
 
   /**
@@ -4553,23 +4504,6 @@ function extractAssistantTextFromAgentMessage(content: unknown): string {
     })
     .map((block) => block.text.trim())
     .filter(Boolean)
-    .join('\n')
-    .trim()
-}
-
-/**
- * 后台任务看门狗上限：超过即判失败，避免任务卡永远停在「运行中」。
- * 含 ComfyUI 入队后的跟进轮询——远程视频出片常见十几到几十分钟，15 分钟会误杀。
- */
-const BACKGROUND_TASK_MAX_MS = 60 * 60 * 1000
-
-/** 从工具结果里抽纯文本（后台任务的产出摘要来源） */
-function extractToolResultText(result: {
-  content?: readonly { type?: string; text?: string }[]
-}): string {
-  return (result.content ?? [])
-    .filter((c) => c.type === 'text' && typeof c.text === 'string')
-    .map((c) => c.text as string)
     .join('\n')
     .trim()
 }
