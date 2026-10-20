@@ -18,6 +18,7 @@ export class PluginScope {
   private disposers: Array<() => void | Promise<void>> = [];
   private disposed = false;
   private disposing: Promise<DisposeResult> | null = null;
+  private teardownCount = 0;
 
   constructor(private readonly pluginId: string) {}
 
@@ -29,8 +30,23 @@ export class PluginScope {
     return this.disposers.length;
   }
 
-  effect(dispose: () => void | Promise<void>): void {
+  /**
+   * 业务 teardown 的数量（不含服务注册自带的清理）。
+   *
+   * 为什么要分开数：`provide()` 也会注册一个「从容器移除」的清理器，但它不是
+   * 业务资源。混在一起会让 `effects=2` 看起来像「有两个清理器」，掩盖了
+   * 「这个扩展其实没为定时器/监听器登记 teardown」这类真问题。
+   */
+  get teardowns(): number {
+    return this.teardownCount;
+  }
+
+  /**
+   * @param kind `teardown` 计入业务清理数；`internal` 是框架自身的簿记（如 provide）
+   */
+  effect(dispose: () => void | Promise<void>, kind: "teardown" | "internal" = "teardown"): void {
     if (this.disposed) throw new ScopeAlreadyDisposedError(this.pluginId);
+    if (kind === "teardown") this.teardownCount++;
     this.disposers.push(dispose);
   }
 

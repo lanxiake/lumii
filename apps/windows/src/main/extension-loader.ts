@@ -2,7 +2,12 @@ import { readdirSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 
-import type { LumiiPluginManifest, PluginContext, PluginHost } from '@mtbot/plugin-core'
+import {
+  validateManifest,
+  type LumiiPluginManifest,
+  type PluginDefinition,
+  type PluginHost,
+} from '@mtbot/plugin-core'
 
 import type { MainEvents } from './kernel/events'
 import { resolveClientStateDir } from './paths'
@@ -28,7 +33,7 @@ import { resolveClientStateDir } from './paths'
 
 export interface ExternalExtensionModule {
   manifest: LumiiPluginManifest
-  definition: { id: string; apply(ctx: PluginContext<MainEvents>): void | Promise<void> }
+  definition: PluginDefinition<MainEvents>
 }
 
 export interface ExternalExtensionEntry {
@@ -37,6 +42,8 @@ export interface ExternalExtensionEntry {
   /** 上次加载时的 mtime+size，用于判断是否真的变了 */
   revision: string
   manifestId: string
+  /** 保留上一版定义，新版本激活失败时用来回滚 */
+  definition: PluginDefinition<MainEvents>
 }
 
 const ENTRY_FILE = 'main.js'
@@ -57,9 +64,14 @@ export function resolveExtensionsDir(): string {
   return path.join(resolveClientStateDir(), 'extensions')
 }
 
-/** 扫出所有含 main.js 的子目录。目录不存在时返回空数组（不是错误）。 */
-export function discoverExternalExtensions(): Array<{ dir: string; entryFile: string }> {
-  const root = resolveExtensionsDir()
+/**
+ * 扫出所有含 main.js 的子目录。目录不存在时返回空数组（不是错误）。
+ *
+ * 根目录可注入：测试用临时目录，不碰真实 `~/.lumii`。
+ */
+export function discoverExternalExtensions(
+  root: string = resolveExtensionsDir(),
+): Array<{ dir: string; entryFile: string }> {
   let entries: string[]
   try {
     entries = readdirSync(root)
@@ -80,6 +92,40 @@ export function discoverExternalExtensions(): Array<{ dir: string; entryFile: st
     found.push({ dir, entryFile })
   }
   return found
+}
+
+/**
+ * 把未知模块收窄成 `ExternalExtensionModule`。
+ *
+ * 外部模块是运行时读进来的任意 JS，类型系统在这里没有任何保证——所以先做结构校验
+ * 再收窄，而不是 `as never` 把一切都放过。校验失败抛错，由调用方决定「保留旧版本」。
+ */
+export function parseExternalModule(namespace: unknown, appVersion?: string): ExternalExtensionModule {
+  if (typeof namespace !== 'object' || namespace === null) {
+    throw new Error('模块不是对象')
+  }
+
+  // 约定 `export default {...}`；也容忍具名导出（export const manifest / definition）
+  const candidate = (namespace as { default?: unknown }).default ?? namespace
+  if (typeof candidate !== 'object' || candidate === null) {
+    throw new Error('默认导出不是对象')
+  }
+
+  const rawManifest = (candidate as { manifest?: unknown }).manifest
+  const rawDefinition = (candidate as { definition?: unknown }).definition
+  if (rawDefinition === undefined) throw new Error('缺少 definition')
+  if (typeof (rawDefinition as { apply?: unknown }).apply !== 'function') {
+    throw new Error('definition.apply 必须是函数')
+  }
+
+  const manifest = validateManifest(rawManifest, { appVersion })
+  const definition = rawDefinition as PluginDefinition<MainEvents>
+
+  if (definition.id !== manifest.id) {
+    throw new Error(`definition.id(${definition.id}) 与 manifest.id(${manifest.id}) 不一致`)
+  }
+
+  return { manifest, definition }
 }
 
 function revisionOf(file: string): string {
@@ -109,11 +155,18 @@ export class ExternalExtensionRuntime {
       warn(m: string): void
       error(m: string, e?: unknown): void
     },
-  ) {}
+    options: { root?: string; appVersion?: string } = {},
+  ) {
+    this.root = options.root ?? resolveExtensionsDir()
+    this.appVersion = options.appVersion
+  }
+
+  private readonly root: string
+  private readonly appVersion?: string
 
   /** 首次加载全部外部扩展。单个失败只记日志，不影响其他扩展与应用启动。 */
   async loadAll(): Promise<void> {
-    for (const { dir, entryFile } of discoverExternalExtensions()) {
+    for (const { dir, entryFile } of discoverExternalExtensions(this.root)) {
       await this.reload(dir, entryFile)
     }
   }
@@ -124,7 +177,7 @@ export class ExternalExtensionRuntime {
     this.pollTimer = setInterval(() => {
       void this.rescanSafely()
     }, POLL_INTERVAL_MS)
-    this.log.info(`[ext] 轮询外部扩展目录（每 ${POLL_INTERVAL_MS}ms）：${resolveExtensionsDir()}`)
+    this.log.info(`[ext] 轮询外部扩展目录（每 ${POLL_INTERVAL_MS}ms）：${this.root}`)
   }
 
   stopWatching(): void {
@@ -149,7 +202,7 @@ export class ExternalExtensionRuntime {
 
   /** 重扫：新增的加载、变更的重载、消失的摘掉。 */
   async rescan(): Promise<void> {
-    const current = new Map(discoverExternalExtensions().map(e => [e.dir, e.entryFile]))
+    const current = new Map(discoverExternalExtensions(this.root).map(e => [e.dir, e.entryFile]))
 
     for (const dir of [...this.loaded.keys()]) {
       if (!current.has(dir)) {
@@ -168,44 +221,55 @@ export class ExternalExtensionRuntime {
     const revision = revisionOf(entryFile)
     const previous = this.loaded.get(dir)
 
-    // 先卸载旧版本：作用域销毁要等完，否则新旧两份会同时持有服务与监听器
-    if (previous) await this.unload(previous.dir)
-
-    let mod: ExternalExtensionModule | undefined
+    let mod: ExternalExtensionModule
     try {
       // ?v=revision 是唯一可靠的缓存破除手段：ESM 无法真正卸载旧模块对象
-      const ns = (await import(`${pathToFileURL(entryFile).href}?v=${revision}`)) as {
-        default?: ExternalExtensionModule
-      } & Partial<ExternalExtensionModule>
-      // 约定是 `export default {...}`；也容忍具名导出（export const manifest / definition）
-      mod = ns.default ?? (ns as ExternalExtensionModule)
+      mod = parseExternalModule(await import(`${pathToFileURL(entryFile).href}?v=${revision}`), this.appVersion)
     } catch (error) {
-      this.log.error(`[ext] 加载失败 ${entryFile}`, error)
+      // 新代码坏了 → 旧版本继续服务。先卸后载会让「编辑到一半保存」变成功能凭空消失
+      this.log.error(`[ext] 加载失败 ${entryFile}，保留旧版本`, error)
       return
     }
 
-    const manifest = mod?.manifest
-    const definition = mod?.definition
-    if (!manifest?.id || typeof definition?.apply !== 'function') {
-      this.log.error(`[ext] ${entryFile} 未导出 { manifest, definition.apply }`)
+    const { manifest, definition } = mod
+
+    // 与内置扩展撞 id 时给出可读的原因，而不是底层的「重复注册」
+    const occupied = this.host.get(manifest.id)
+    if (occupied && occupied.id !== previous?.manifestId) {
+      this.log.error(`[ext] ${manifest.id} 与已加载的扩展同名，已跳过（${path.basename(dir)}）`)
       return
     }
+
+    // 先卸旧的：作用域销毁要等完，否则新旧两份会同时持有服务与监听器
+    if (previous) await this.unload(previous.dir)
 
     try {
-      this.host.register(definition as never)
+      this.host.register(definition)
       const error = await this.host.activate(manifest.id)
-      if (error) {
-        this.log.error(`[ext] 激活失败 ${manifest.id}`, error)
-        await this.host.unregister(manifest.id)
-        return
-      }
+      if (error) throw error
     } catch (error) {
-      this.log.error(`[ext] 注册失败 ${manifest.id}`, error)
+      this.log.error(`[ext] ${manifest.id} 新版本加载失败`, error)
+      await this.host.unregister(manifest.id).catch(() => undefined)
+      // 卸载已经发生，只有把上一版重新激活才算真回滚
+      if (previous) await this.restore(previous)
       return
     }
 
-    this.loaded.set(dir, { dir, entryFile, revision, manifestId: manifest.id })
+    this.loaded.set(dir, { dir, entryFile, revision, manifestId: manifest.id, definition })
     this.log.info(`[ext] ${manifest.id} 已加载（${path.basename(dir)}）`)
+  }
+
+  /** 新版本失败时把上一版重新挂起来。回滚也失败则如实报告该扩展已停止。 */
+  private async restore(entry: ExternalExtensionEntry): Promise<void> {
+    try {
+      this.host.register(entry.definition)
+      const error = await this.host.activate(entry.manifestId)
+      if (error) throw error
+      this.loaded.set(entry.dir, entry)
+      this.log.warn(`[ext] ${entry.manifestId} 已回滚到上一个版本`)
+    } catch (error) {
+      this.log.error(`[ext] ${entry.manifestId} 回滚也失败，该扩展已停止`, error)
+    }
   }
 
   private async unload(dir: string): Promise<void> {

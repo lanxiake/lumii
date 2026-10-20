@@ -19,7 +19,6 @@ export const helloExtension = {
     description: '验证扩展内核可用性的最小示例',
     engines: { lumii: '>=0.1.0' },
     kind: 'code' as const,
-    main: './hello.js',
   },
   definition: definePlugin<MainEvents>({
     id: 'com.lumii.hello',

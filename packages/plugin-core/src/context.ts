@@ -12,10 +12,12 @@ export class ServiceContainer {
   private readonly values = new Map<string, unknown>();
   private readonly factories = new Map<string, () => unknown>();
 
-  provide<T>(key: ServiceKey<T>, value: T | (() => T)): void {
+  provide<T>(key: ServiceKey<T>, value: T | (() => T), owner = "unknown"): void {
     const name = key as string;
     if (this.values.has(name) || this.factories.has(name)) {
-      throw new DuplicateServiceError("service", name);
+      // owner 必须是发起方，否则冲突日志会写成 `[service] service "x" 已被注册`，
+      // 谁也看不出是谁撞了谁
+      throw new DuplicateServiceError(owner, name);
     }
     if (typeof value === "function") this.factories.set(name, value as () => T);
     else this.values.set(name, value);
@@ -94,8 +96,9 @@ export function createPluginContext<E extends EventMap>(
     log: logger,
 
     provide<T>(key: ServiceKey<T>, value: T | (() => T)): void {
-      container.provide(key, value);
-      scope.effect(() => container.remove(key));
+      container.provide(key, value, pluginId);
+      // internal：这行清理是容器簿记，不是扩展登记的 teardown
+      scope.effect(() => container.remove(key), "internal");
     },
 
     get<T>(key: ServiceKey<T>): T | undefined {

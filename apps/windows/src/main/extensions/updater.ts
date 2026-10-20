@@ -21,7 +21,6 @@ export const updaterExtension = {
     description: '检查、下载并安装新版本',
     engines: { lumii: '>=0.1.0' },
     kind: 'code' as const,
-    main: './updater.js',
   },
   definition: definePlugin<MainEvents>({
     id: 'com.lumii.updater',
@@ -34,6 +33,10 @@ export const updaterExtension = {
         autoInstall: false,
         allowPrerelease: false,
       })
+
+      // 卸载/禁用时停掉定时检查。destroy() 幂等（stopAutoCheck + removeAllListeners），
+      // performCleanup 里那句 destroy 可以在退出路径上重复调用
+      ctx.effect(() => service.destroy())
 
       // 先提供服务再挂副作用：IPC 处理器或自动检查里若能读到 S.updater，必须已经可用
       ctx.provide(S.updater, service)

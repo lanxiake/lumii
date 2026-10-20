@@ -78,6 +78,13 @@ const validateStructure = ajv.compile(MANIFEST_SCHEMA);
 export interface ValidateManifestOptions {
   /** 宿主版本；给了才校验 engines.lumii */
   appVersion?: string;
+  /**
+   * 内置扩展：静态 import 进主进程，没有可加载的入口文件。
+   *
+   * 内置扩展**不要**写 `main` 去凑这个要求——指向一个不存在的构建产物
+   * 比不写更糟（元数据在撒谎）。这里如实放开校验。
+   */
+  builtin?: boolean;
 }
 
 /**
@@ -99,7 +106,7 @@ export function validateManifest(
   const manifest = raw as unknown as LumiiPluginManifest;
   const issues: string[] = [];
 
-  if (manifest.kind === "code" && !manifest.main && !manifest.client) {
+  if (manifest.kind === "code" && !manifest.main && !manifest.client && !options.builtin) {
     issues.push("kind=code 至少要声明 main 或 client 之一");
   }
 

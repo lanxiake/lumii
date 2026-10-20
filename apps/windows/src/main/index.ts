@@ -1337,6 +1337,7 @@ async function startExtensions(): Promise<void> {
       error: (m) => log.error(m),
     },
     disabled,
+    app.getVersion(),
   )
   pluginHost = created.host
 
@@ -1359,7 +1360,10 @@ async function startExtensions(): Promise<void> {
   // 失败项走 error，既进了主日志也进了错误日志
   for (const entry of summarizeExtensions()) {
     if (entry.state === 'active') {
-      log.info(`[ext] ${entry.id} active ${entry.activationMs?.toFixed(0) ?? '?'}ms effects=${entry.effects ?? 0}`)
+      log.info(
+        `[ext] ${entry.id} active ${entry.activationMs?.toFixed(0) ?? '?'}ms ` +
+          `services=${entry.services ?? 0} teardowns=${entry.teardowns ?? 0}`,
+      )
     } else if (entry.state === 'failed') {
       log.error(`[ext] ${entry.id} failed: ${entry.error ?? '未知错误'}`)
     }
@@ -1388,14 +1392,17 @@ function summarizeExtensions(): Array<{
   id: string
   state: string
   activationMs?: number
-  effects?: number
+  services?: number
+  teardowns?: number
   error?: string
 }> {
   return (pluginHost?.list() ?? []).map(entry => ({
     id: entry.id,
     state: entry.state,
     activationMs: entry.activationMs,
-    effects: entry.scope?.size,
+    // 作用域总数 - 业务 teardown = provide 的簿记项，直接算出服务数
+    services: entry.scope ? entry.scope.size - entry.scope.teardowns : undefined,
+    teardowns: entry.scope?.teardowns,
     error: entry.error ? String((entry.error as Error).message ?? entry.error) : undefined,
   }))
 }

@@ -28,9 +28,9 @@ export function resolveExtensionsConfigPath(): string {
  * 任何异常（文件不存在 / JSON 损坏 / 结构不对）一律当作「没有禁用项」，
  * 并交由调用方记 warn——坏掉的偏好文件不该让应用失去功能。
  */
-export function readDisabledExtensionIds(): { disabled: Set<string>; warning?: string } {
-  const file = resolveExtensionsConfigPath()
-
+export function readDisabledExtensionIds(
+  file: string = resolveExtensionsConfigPath(),
+): { disabled: Set<string>; warning?: string } {
   let raw: string
   try {
     raw = readFileSync(file, 'utf8')

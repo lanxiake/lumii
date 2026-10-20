@@ -1,4 +1,10 @@
-import { PluginHost, type LoggerSink, type LumiiPluginManifest, type PluginDefinition } from '@mtbot/plugin-core'
+import {
+  PluginHost,
+  validateManifest,
+  type LoggerSink,
+  type LumiiPluginManifest,
+  type PluginDefinition,
+} from '@mtbot/plugin-core'
 
 import type { MainEvents } from './kernel/events'
 import { helloExtension } from './extensions/hello'
@@ -34,11 +40,17 @@ export const BUILTIN_EXTENSIONS: BuiltinExtension[] = [
 export function createPluginHost(
   loggerSink: LoggerSink,
   disabledIds: ReadonlySet<string> = new Set(),
+  appVersion?: string,
 ): { host: PluginHost<MainEvents>; skipped: string[] } {
   const host = new PluginHost<MainEvents>({ loggerSink })
   const skipped: string[] = []
 
   for (const extension of BUILTIN_EXTENSIONS) {
+    // 清单在注册前校验：id 格式、engines、kind 与入口一致性。
+    // builtin=true 是因为内置扩展静态 import 进 bundle，没有可加载的入口文件，
+    // 与其让 manifest 写一个不存在的路径，不如如实放开这条规则。
+    validateManifest(extension.manifest, { appVersion, builtin: true })
+
     if (disabledIds.has(extension.manifest.id)) {
       skipped.push(extension.manifest.id)
       continue

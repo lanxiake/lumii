@@ -26,7 +26,6 @@ export const perfExtension = {
     description: 'IPC 耗时、慢调用、启动阶段与内存快照',
     engines: { lumii: '>=0.1.0' },
     kind: 'code' as const,
-    main: './perf.js',
   },
   definition: definePlugin<MainEvents>({
     id: 'com.lumii.perf',

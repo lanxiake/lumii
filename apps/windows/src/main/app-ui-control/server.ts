@@ -106,8 +106,15 @@ export interface ExtensionStatusSnapshot {
   id: string
   state: string
   activationMs?: number
-  /** 注册的可逆副作用数量；能直接看出扩展有没有漏清理 */
-  effects?: number
+  /** 提供的服务数量 */
+  services?: number
+  /**
+   * 登记的**业务** teardown 数量（定时器、监听器、子进程等）。
+   *
+   * 与 services 分开：`provide()` 也会挂一个消费器，但那不是业务资源。
+   * 混在一起时「teardowns=2」会让人以为清理齐了，其实一个业务清理都没登记。
+   */
+  teardowns?: number
   error?: string
 }
 

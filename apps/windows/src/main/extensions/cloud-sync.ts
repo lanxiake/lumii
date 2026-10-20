@@ -27,7 +27,6 @@ export const cloudSyncExtension = {
     description: '把用户文件与记忆同步到自建 Git 仓库',
     engines: { lumii: '>=0.1.0' },
     kind: 'code' as const,
-    main: './cloud-sync.js',
   },
   definition: definePlugin<MainEvents>({
     id: 'com.lumii.cloud-sync',
@@ -57,6 +56,10 @@ export const cloudSyncExtension = {
           },
         )
       })
+
+      // 真正的 teardown：热卸载/禁用时停掉调度器与文件监听。
+      // 不做的话，卸载扩展后同步仍在后台跑——只是启动路径上看不出来
+      ctx.effect(() => scheduler.stop())
 
       ctx.provide(S.cloudSync, manager)
       ctx.provide(S.syncScheduler, scheduler)

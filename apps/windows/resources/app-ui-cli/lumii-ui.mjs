@@ -173,7 +173,9 @@ function formatStatus(data) {
       }
       const ms = typeof ext.activationMs === 'number' ? `${Math.round(ext.activationMs)}ms` : '?'
       const icon = ext.state === 'active' ? '✅' : '⏸️'
-      lines.push(`   ${icon} ${ext.id} ${ms} · ${ext.effects ?? 0} effects`)
+      lines.push(
+        `   ${icon} ${ext.id} ${ms} · ${ext.services ?? 0} services · ${ext.teardowns ?? 0} teardowns`,
+      )
     }
     lines.push('')
   }
