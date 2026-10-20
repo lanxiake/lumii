@@ -22,7 +22,7 @@
     "check:wiring:update": "node scripts/check-wiring.mjs --update",
     "check:knip": "pnpm dlx knip@6.38.0 --max-issues 2",
     "check:knip:report": "pnpm dlx knip@6.38.0 --no-exit-code",
-    "verify": "pnpm typecheck && pnpm check:knip && pnpm check:wiring && pnpm check:large-files && pnpm --filter @mtbot/agent-runtime test && pnpm --filter @mtbot/pet-core test && pnpm --filter @mtbot/pet-asset test && pnpm --filter lumii-windows test:all",
+    "verify": "pnpm typecheck && pnpm check:knip && pnpm check:wiring && pnpm check:large-files && pnpm --filter @mtbot/plugin-core test && pnpm --filter @mtbot/agent-runtime test && pnpm --filter @mtbot/pet-core test && pnpm --filter @mtbot/pet-asset test && pnpm --filter lumii-windows test:all",
     "prepare": "echo skip githooks",
     "dist:win": "pnpm --filter ./apps/windows package:win",
     "dist:linux": "pnpm --filter ./apps/windows package:linux",

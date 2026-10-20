@@ -380,6 +380,22 @@ importers:
         specifier: ^2.1.9
         version: 2.1.9(@types/node@25.9.5)(jsdom@28.1.0(@noble/hashes@2.2.0))
 
+  packages/plugin-core:
+    dependencies:
+      ajv:
+        specifier: ^8.20.0
+        version: 8.20.0
+      semver:
+        specifier: ^7.7.0
+        version: 7.8.5
+    devDependencies:
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.9
+        version: 2.1.9(@types/node@25.9.5)(jsdom@28.1.0(@noble/hashes@2.2.0))
+
 packages:
 
   '@acemir/cssom@0.9.31':

@@ -14,7 +14,7 @@
 | [`guide/`](guide/) | **用户指南源文件** — 经 `pnpm sync:guides` 同步进安装包 | 改用户手册（改这里，不要改产物） |
 | [`brochure/`](brochure/README.md) | **产品说明书/宣传手册** — 微信 MCP 五件套：场景、用法、价值、边界 | 介绍或推介这些工具时；想知道"这件东西到底能干嘛" |
 | [`fix/`](fix/) | **问题修复记录** — 症状 / 根因 / 修复 / 回归验证 | 遇到相似故障先来查 |
-| [`reference/`](reference/README.md) | **外部技术参考** — 外部文章剪藏 + 11 个开源项目的解构分析 | 需要通用技术背景时 |
+| [`reference/`](reference/README.md) | **外部技术参考** — 外部文章剪藏 + 12 个开源项目的解构分析 | 需要通用技术背景时 |
 | [`implementation/`](implementation/README.md) | **实施总结**（跨主题通用落点，当前为空） | 查某功能最终交付了什么 |
 | [`analysis/`](analysis/README.md) | **分析与反思**（跨主题通用落点，当前为空） | 做技术选型前 |
 | [`features/`](features/README.md) | **功能需求规格**（跨主题通用落点，当前为空） | 写需求规格时 |
