@@ -161,9 +161,8 @@ import { readDisabledExtensionIds } from './kernel/extension-store'
 import { setPalaceBridgeProvider, setupPalaceIpcHandlers } from './ipc/palace-ipc'
 import { registerAllIpcHandlers } from './ipc/ipc-handlers-registry'
 import { registerCodingDevIpcHandlers } from './ipc/coding-dev-ipc'
-import { CloudSyncManager } from './cloud-sync/sync-manager'
-import { setCloudSyncManager, setCloudSyncWorkspaceChangedHandler } from './cloud-sync/sync-accessor'
-import { SyncScheduler } from './cloud-sync/sync-scheduler'
+import type { CloudSyncManager } from './cloud-sync/sync-manager'
+import type { SyncScheduler } from './cloud-sync/sync-scheduler'
 import { loadCloudSyncConfig } from './cloud-sync/sync-config'
 import { initScriptRuntimes } from './runtime-env'
 import { VoiceModelManager } from './voice/model-manager.js'
@@ -1192,7 +1191,8 @@ async function initialize(): Promise<void> {
 
   await runStartupStage('S2-S5-ui', () => initUiStages(flags))
 
-  initCloudSync()
+  // 云同步管理器已由扩展在 S1b 创建（见 extensions/cloud-sync.ts），
+  // 这里只剩「配置就绪后启动调度器」——它惰性读工作空间目录，不能提前
   setupIpcHandlers()
   if (performanceMonitor) {
     setupPerformanceIpcHandlers(performanceMonitor)
@@ -1339,15 +1339,21 @@ async function startExtensions(): Promise<void> {
     disabled,
   )
   pluginHost = created.host
+
+  // 供早激活的扩展延迟解析 Agent Runtime（它要到 S7 才创建）
+  pluginHost.container.provide(S.agentRuntime, () => agentRuntimeBridge)
   if (created.skipped.length > 0) {
     log.info(`扩展已按配置禁用: ${created.skipped.join('、')}`)
   }
 
   const report = await pluginHost.start()
 
-  // perf / updater 由扩展提供，宿主通过服务容器取回单例，供既有调用点继续使用
+  // perf / updater / cloud-sync 由扩展提供，宿主通过服务容器取回单例，
+  // 既有调用点（十余处）一行不用改
   performanceMonitor = pluginHost.container.get(S.perf) ?? null
   updaterService = pluginHost.container.get(S.updater) ?? null
+  cloudSyncManager = pluginHost.container.get(S.cloudSync) ?? null
+  syncScheduler = pluginHost.container.get(S.syncScheduler) ?? null
 
   // 一张表看清谁起来了、花了多久、注册了几个副作用；
   // 失败项走 error，既进了主日志也进了错误日志
@@ -1498,32 +1504,6 @@ async function initUiStages(flags: ReturnType<typeof readStartupFlags>): Promise
   }
 }
 
-/** S6a：云同步管理器与调度器（须在 setupIpcHandlers 前，让 IPC 订阅到 status 事件）。 */
-function initCloudSync(): void {
-  // 云同步管理器须在 setupIpcHandlers 前创建，使 registerCloudSyncIpcHandlers 能订阅 status 事件
-  cloudSyncManager = new CloudSyncManager()
-  setCloudSyncManager(cloudSyncManager)
-  syncScheduler = new SyncScheduler(cloudSyncManager)
-  setCloudSyncWorkspaceChangedHandler(() => syncScheduler?.onWorkspaceChanged())
-
-  // 注入云同步冲突回调：检测到冲突时创建系统维护目标 + 立即驱动 Agent 处理
-  cloudSyncManager.setOnConflictDetected((conflict) => {
-    if (!agentRuntimeBridge || !agentRuntimeBridge.isInitialized) {
-      log.warn('[CloudSync] 检测到冲突但 agentRuntimeBridge 未就绪，仅创建目标等待心跳驱动')
-      return
-    }
-    // 委托 bridge 创建 system-maintenance 冲突目标并立即驱动 Agent（受限实例）。
-    // bridge.executeSyncConflictGoal 内部有 in-flight 守卫，不重入。
-    void agentRuntimeBridge.executeSyncConflictGoal().then(
-      (summary) => {
-        if (summary) log.info(`[CloudSync] 冲突 Agent 处理完成: ${summary}`)
-      },
-      (err) => {
-        log.error('[CloudSync] 冲突 Agent 处理异常:', err instanceof Error ? err.message : String(err))
-      },
-    )
-  })
-}
 
 /** S6：目录管理器与配置管理器，并挂接工作空间 getter。 */
 async function initConfigAndWorkspace(): Promise<void> {
