@@ -94,6 +94,7 @@ import {
 import type { ArchivePalaceMeta } from '@mtbot/agent-runtime'
 import type { AgentMessage, StreamFn } from '@earendil-works/pi-agent-core'
 import { buildContextUsageBreakdown, calibrateCharsPerToken, countPromptChars, aggregateMcpTokensByServer } from './context-usage-breakdown.js'
+import { clearAgentRuntimeRepos, setAgentRuntimeRepos, setWikiLibraryMigrate } from './accessors.js'
 import type { ContextBudgetSnapshot, ContextUsageBreakdownEntry } from '../../shared/agent-runtime-events'
 import { buildBudgetSnapshot, computeContextBudget, shouldCompactByBudget } from '../../shared/context-budget'
 
@@ -589,6 +590,9 @@ export class AgentRuntimeBridge {
         this._auditRepo = null
         this._runtimeStateRepo = null
         this._autonomousRepo = null
+        // 访问器持有同一批实例，关闭时必须一起清空，
+        // 否则卸载后仍能拿到已关闭数据库上的仓储
+        clearAgentRuntimeRepos()
         void shutdownAutonomousRuntime()
         this.toolContext = null
         this.initialized = false
@@ -648,6 +652,8 @@ export class AgentRuntimeBridge {
         },
       )
     }
+    // 惰性创建后补登访问器，外部模块才能在不 import bridge 的情况下拿到它
+    setWikiLibraryMigrate(this._wikiLibraryMigrate)
     return this._wikiLibraryMigrate
   }
   get wikiOrganizeQueue(): WikiOrganizeQueue { return this.requireInitialized(this._wikiOrganizeQueue, 'wikiOrganizeQueue') }
@@ -1052,6 +1058,30 @@ export class AgentRuntimeBridge {
     } catch (err) {
       log.error('[initialize] finalize 流式残留消息失败:', err)
     }
+
+    // 存储层注册进访问器：新的调用方可以只 import accessors，不必把整个 bridge 拖进依赖图。
+    // 桥上的 getter 仍直读私有字段——它们被 bridge 自己的早期代码路径使用（如上面的
+    // finalize 残留消息），那一刻访问器还没注册。两种读法指向同一批实例。
+    setAgentRuntimeRepos({
+      db,
+      conversationRepo: this.requireInitialized(this._conversationRepo, 'conversationRepo'),
+      segmentRepo: this.requireInitialized(this._segmentRepo, 'segmentRepo'),
+      taskRepo: this.requireInitialized(this._taskRepo, 'taskRepo'),
+      auditRepo: this.requireInitialized(this._auditRepo, 'auditRepo'),
+      bashCommandRepo: this.requireInitialized(this._bashCommandRepo, 'bashCommandRepo'),
+      runtimeStateRepo: this.requireInitialized(this._runtimeStateRepo, 'runtimeStateRepo'),
+      autonomousRepo: this.requireInitialized(this._autonomousRepo, 'autonomousRepo'),
+      fileRepo: this.requireInitialized(this._fileRepo, 'fileRepo'),
+      memoryRepo: this.requireInitialized(this._memoryRepo, 'memoryRepo'),
+      memoryManager: this.requireInitialized(this._memoryManager, 'memoryManager'),
+      segmentMemory: this._segmentMemoryService,
+      wikiRepo: this.requireInitialized(this._wikiRepo, 'wikiRepo'),
+      wikiOrganizer: this.requireInitialized(this._wikiOrganizer, 'wikiOrganizer'),
+      wikiIngestHook: this.requireInitialized(this._wikiIngestHook, 'wikiIngestHook'),
+      wikiReclassifier: this.requireInitialized(this._wikiReclassifier, 'wikiReclassifier'),
+      wikiOrganizeQueue: this.requireInitialized(this._wikiOrganizeQueue, 'wikiOrganizeQueue'),
+      wikiCleanupScanner: this.requireInitialized(this._wikiCleanupScanner, 'wikiCleanupScanner'),
+    })
 
     log.info(`Database opened: ${dbPath}`)
   }
