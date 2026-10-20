@@ -6,6 +6,7 @@
  */
 
 import React from 'react'
+import { getSlotEntries } from './slots/slot-registry'
 import { DashboardPage } from '../pages/DashboardPage/DashboardPage'
 import { ChatPage } from '../pages/ChatPage/ChatPage'
 import { AutonomousPage } from '../pages/AutonomousPage/AutonomousPage'
@@ -28,6 +29,8 @@ export type ViewType =
   | 'cron'
   | 'plugins'
   | 'mcp'
+  /** 插件页面：`plugin:<pluginViewId>`，由 `app.view` 槽位解析 */
+  | `plugin:${string}`
 
 interface RouterProps {
   activeView: ViewType
@@ -47,6 +50,18 @@ export const Router: React.FC<RouterProps> = ({ activeView, onViewChange }) => {
    * 非 chat 主内容：Hub 视图回落到概览，避免空白
    */
   const renderOtherPage = () => {
+    // 插件页面：`plugin:<viewId>` → 在 app.view 槽位里找同 id 的条目。
+    // 找不到就回落到概览，而不是白屏——插件被禁用时用户可能还停在那个视图上。
+    if (activeView.startsWith('plugin:')) {
+      const viewId = activeView.slice('plugin:'.length)
+      const entry = getSlotEntries('app.view').find((e) => e.id === viewId)
+      if (entry) {
+        const PluginView = entry.component as React.ComponentType
+        return <PluginView />
+      }
+      return <DashboardPage onViewChange={onViewChange} />
+    }
+
     switch (activeView) {
       case 'dashboard':
         return <DashboardPage onViewChange={onViewChange} />

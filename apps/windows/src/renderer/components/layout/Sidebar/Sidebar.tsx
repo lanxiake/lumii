@@ -13,6 +13,7 @@ import {
   ChevronLeft,
 } from '../../ui/Icon';
 import { LumiiLogo } from '../../brand/LumiiLogo';
+import { SlotHost } from '../../slots/SlotHost';
 import styles from './Sidebar.module.css';
 
 /**
@@ -29,7 +30,9 @@ export type ViewType =
   | 'agents'
   | 'cron'
   | 'plugins'
-  | 'mcp';
+  | 'mcp'
+  /** 插件页面：`plugin:<pluginViewId>` */
+  | `plugin:${string}`;
 
 /**
  * 导航菜单项
@@ -147,6 +150,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
             {!isCollapsed && <span className={styles['nav-label']}>{item.label}</span>}
           </button>
         ))}
+        {/* 插件导航：条目由 `app.nav` 槽位提供，点击后走 onViewChange('plugin:<id>') */}
+        <SlotHost
+          name="app.nav"
+          context={{ activeView, onViewChange: handleViewChange, collapsed: isCollapsed }}
+        />
       </nav>
 
       {/* 会话列表挂载点：默认/渠道 tab + 列表，由 ChatPage portal 填充。
