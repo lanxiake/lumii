@@ -69,12 +69,12 @@ export function setMiscDependencies(dependencies: MiscDependencies): void {
 // 命令处理器
 // ============================================================
 
-export function handleSessionPreferredModelSet(
+export async function handleSessionPreferredModelSet(
   bridge: AgentRuntimeBridge,
   command: Extract<AgentRuntimeCommand, { type: 'session:preferredModel:set' }>,
-): unknown {
-  bridge.setSessionPreferredModel(command.sessionKey, command.modelId)
-  return bridge.getSessionContextUsage(command.sessionKey)
+): Promise<unknown> {
+  // 切到更小窗口时先 lean 压缩，避免下一条消息才爆 prompt_too_long
+  return bridge.setSessionPreferredModelWithCompact(command.sessionKey, command.modelId)
 }
 
 export function handleSessionPreferredModelPrime(

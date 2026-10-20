@@ -12,6 +12,7 @@ import {
   saveProviderConfig,
   listProviderModels,
   testProviderConnection,
+  probeProviderApiFormat,
   PROVIDER_DEFAULT_BASE_URL,
   PROVIDER_TYPE_DEFAULTS,
   PROVIDER_TYPE_LABEL,
@@ -42,6 +43,7 @@ export function ModelConfigSection() {
   const [slotModelIdsText, setSlotModelIdsText] = useState<Partial<Record<CapabilitySlot, string>>>({})
   const [slotListing, setSlotListing] = useState<Partial<Record<CapabilitySlot, boolean>>>({})
   const [slotTesting, setSlotTesting] = useState<Partial<Record<CapabilitySlot, boolean>>>({})
+  const [slotProbingFormat, setSlotProbingFormat] = useState<Partial<Record<CapabilitySlot, boolean>>>({})
   const [expandedSlots, setExpandedSlots] = useState<Partial<Record<CapabilitySlot, boolean>>>({
     chat: true,
   })
@@ -141,6 +143,7 @@ export function ModelConfigSection() {
           modelId: chat.modelId,
           // 端点级参数一并复制（apiFormat / 思考参数格式属于同一个 Provider）
           apiFormat: chat.apiFormat,
+          apiFormatByModel: { ...(chat.apiFormatByModel ?? {}) },
           thinkingFormat: chat.thinkingFormat,
           allowedModelIds: slot === 'vision' ? [...(chat.allowedModelIds ?? (chat.modelId ? [chat.modelId] : []))] : prev[slot].allowedModelIds,
           enabled: true,
@@ -199,6 +202,26 @@ export function ModelConfigSection() {
     }
   }, [providerSlots, toast])
 
+  /** 探测网关更适合 Completions 还是 Responses，并写回槽级默认格式 */
+  const handleProbeApiFormat = useCallback(async (slot: CapabilitySlot) => {
+    if (!providerSlots) return
+    setSlotProbingFormat((s) => ({ ...s, [slot]: true }))
+    try {
+      const res = await probeProviderApiFormat(slot, { ...providerSlots[slot], enabled: true })
+      if (!res.success || !res.data) {
+        toast.error(res.error ?? '探测 API 格式失败')
+        return
+      }
+      patchSlot(slot, { apiFormat: res.data.recommended })
+      toast.success(res.data.message)
+    } catch (err) {
+      console.error('[ModelConfigSection] 探测 API 格式失败', err)
+      toast.error(err instanceof Error ? err.message : '探测 API 格式失败')
+    } finally {
+      setSlotProbingFormat((s) => ({ ...s, [slot]: false }))
+    }
+  }, [providerSlots, toast, patchSlot])
+
   const handleSaveProvider = useCallback(async () => {
     if (!providerSlots) return
     setProviderSaving(true)
@@ -233,6 +256,16 @@ export function ModelConfigSection() {
       if (value.trim() === '') delete next[modelId]
       else if (Number.isFinite(n) && n > 0) next[modelId] = n
       patchSlot(slot, { contextWindowK: next })
+    }
+    const apiFormatByModel = cfg.apiFormatByModel ?? {}
+    const slotDefaultApiFormat =
+      cfg.apiFormat ?? PROVIDER_TYPE_DEFAULTS[cfg.type]?.apiFormat ?? 'completions'
+    /** 按模型覆盖 API 格式；空 = 跟槽级默认 */
+    const setApiFormatByModel = (modelId: string, value: string) => {
+      const next = { ...apiFormatByModel }
+      if (value === '' || value === 'inherit') delete next[modelId]
+      else if (value === 'completions' || value === 'responses') next[modelId] = value
+      patchSlot(slot, { apiFormatByModel: next })
     }
     const modelReasoning = cfg.modelReasoning ?? {}
     /** 未显式勾选时显示内置默认表推断值（勾一次即落成显式值） */
@@ -281,6 +314,20 @@ export function ModelConfigSection() {
             aria-label={`${modelId} 上下文长度（K）`}
           />
           <span className={styles['setting-desc']}>K</span>
+          {supportsApiFormatChoice(cfg.type) && (
+            <div style={{ width: 160 }}>
+              <Select
+                value={apiFormatByModel[modelId] ?? 'inherit'}
+                aria-label={`${modelId} API 格式`}
+                options={[
+                  { value: 'inherit', label: `格式·默认(${slotDefaultApiFormat})` },
+                  { value: 'completions', label: 'Completions' },
+                  { value: 'responses', label: 'Responses' },
+                ]}
+                onChange={(e) => setApiFormatByModel(modelId, e.target.value)}
+              />
+            </div>
+          )}
           {thinkingCheckbox(modelId)}
         </>
       )
@@ -436,15 +483,23 @@ export function ModelConfigSection() {
                     responses 接口支持 prompt caching（推荐）；completions 为传统接口
                   </span>
                 </div>
-                <div className={styles['setting-control']}>
+                <div className={styles['setting-control']} style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                   <Select
-                    value={cfg.apiFormat ?? 'responses'}
+                    value={cfg.apiFormat ?? PROVIDER_TYPE_DEFAULTS[cfg.type]?.apiFormat ?? 'completions'}
                     options={[
-                      { value: 'responses', label: 'Responses（推荐，支持缓存）' },
-                      { value: 'completions', label: 'Completions（传统）' },
+                      { value: 'completions', label: 'Completions（中转/传统，最稳）' },
+                      { value: 'responses', label: 'Responses（官方 DeepSeek 等，支持缓存）' },
                     ]}
                     onChange={(e) => patchSlot(slot, { apiFormat: e.target.value as 'completions' | 'responses' })}
                   />
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    disabled={slotProbingFormat[slot]}
+                    onClick={() => void handleProbeApiFormat(slot)}
+                  >
+                    {slotProbingFormat[slot] ? '探测中…' : '自动探测'}
+                  </Button>
                 </div>
               </div>
             )}

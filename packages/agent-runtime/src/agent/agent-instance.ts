@@ -26,6 +26,7 @@ import {
   DEFAULT_KEEP_RECENT_TURNS,
   SessionActivityIndex,
   buildActivityIndexAttachment,
+  type CompactConfig,
   type SummaryGeneratorFn,
   type CompactionInfo,
 } from "../compact/index.js";
@@ -279,6 +280,12 @@ export class AgentInstance {
     owner?: string | null;
   }[] = [];
 
+  /**
+   * transformContext 共享的可变压缩配置。
+   * 切模型后宿主可热更新 contextWindow，无需重建实例。
+   */
+  private readonly compactRuntimeConfig: CompactConfig;
+
   /** 会话级文件/技能使用索引（压缩后重建附加消息，兜底摘要遗漏，设计: .qoder/design/agent-context-compact/03-*.md） */
   private readonly sessionIndex = new SessionActivityIndex();
 
@@ -376,39 +383,41 @@ export class AgentInstance {
         this.pendingSteerCount = 0;
         return callerPrepareRequest?.(context, signal);
       },
-      transformContext: createTransformContext({
-        contextWindow: config.contextWindow ?? 1_000_000,
-        triggerRatio: DEFAULT_COMPACTION_TRIGGER_RATIO,
-        keepRecentTurns: DEFAULT_KEEP_RECENT_TURNS,
-        // 主题2 P0-1：MicroCompact 第一级（默认开启，0.7 早于全摘要 0.9，保留最近 8 个工具结果）
-        microCompactRatio: DEFAULT_MICRO_COMPACT_RATIO,
-        keepRecentToolResults: DEFAULT_KEEP_RECENT_TOOL_RESULTS,
-        enableMicroCompact: config.enableMicroCompact ?? true,
-        outputReserveTokens: config.outputReserveTokens ?? 16_384,
-        summaryReserveTokens: config.summaryReserveTokens ?? 8_192,
-        generateSummary: config.generateSummary,
-        domainHint: config.domainHint ?? "general",
-        historyRecallHint: config.historyRecallHint ?? false,
-        sessionKey: config.sessionKey,
-        // Phase 2: Per-Model 阈值动态注入
-        get currentModelName() {
-          return config.model?.name;
-        },
-        get activeTasks() {
-          // 动态读取：每次压缩时取最新任务列表（由宿主通过 updateActiveTasks 更新）
-          return self._activeTasks;
-        },
-        onCompaction: (info: CompactionInfo) => {
-          this.emit({
-            type: "context:compaction",
-            instanceId: this.id,
-            ...info,
-          });
-        },
-        postCompactRebuild: {
-          buildAttachments: async () => buildActivityIndexAttachment(self.sessionIndex.snapshot()),
-        },
-      }),
+      transformContext: createTransformContext(
+        (this.compactRuntimeConfig = {
+          contextWindow: config.contextWindow ?? 1_000_000,
+          triggerRatio: DEFAULT_COMPACTION_TRIGGER_RATIO,
+          keepRecentTurns: DEFAULT_KEEP_RECENT_TURNS,
+          // 主题2 P0-1：MicroCompact 第一级（默认开启，0.7 早于全摘要 0.9，保留最近 8 个工具结果）
+          microCompactRatio: DEFAULT_MICRO_COMPACT_RATIO,
+          keepRecentToolResults: DEFAULT_KEEP_RECENT_TOOL_RESULTS,
+          enableMicroCompact: config.enableMicroCompact ?? true,
+          outputReserveTokens: config.outputReserveTokens ?? 16_384,
+          summaryReserveTokens: config.summaryReserveTokens ?? 8_192,
+          generateSummary: config.generateSummary,
+          domainHint: config.domainHint ?? "general",
+          historyRecallHint: config.historyRecallHint ?? false,
+          sessionKey: config.sessionKey,
+          // Phase 2: Per-Model 阈值动态注入
+          get currentModelName() {
+            return config.model?.name;
+          },
+          get activeTasks() {
+            // 动态读取：每次压缩时取最新任务列表（由宿主通过 updateActiveTasks 更新）
+            return self._activeTasks;
+          },
+          onCompaction: (info: CompactionInfo) => {
+            this.emit({
+              type: "context:compaction",
+              instanceId: this.id,
+              ...info,
+            });
+          },
+          postCompactRebuild: {
+            buildAttachments: async () => buildActivityIndexAttachment(self.sessionIndex.snapshot()),
+          },
+        }),
+      ),
       // beforeToolCall / prepareRequest 已在上面解构掉并做了包装，不在这里展开——
       // 否则宿主的 agentOptions 会把插话拦截钩子整个覆盖掉（且计数不再归零）。
       ...agentOptionsRest,
@@ -866,6 +875,30 @@ export class AgentInstance {
     tasks: readonly { id: string; subject: string; status: string; owner?: string | null }[],
   ): void {
     this._activeTasks = tasks;
+  }
+
+  /**
+   * 热更新压缩预算（切到更小上下文窗口的模型时由宿主调用）。
+   * 直接改 transformContext 闭包持有的同一对象，无需重建 Agent。
+   */
+  updateContextBudget(params: {
+    contextWindow?: number;
+    outputReserveTokens?: number;
+    summaryReserveTokens?: number;
+    keepRecentTurns?: number;
+  }): void {
+    if (params.contextWindow != null && params.contextWindow > 0) {
+      this.compactRuntimeConfig.contextWindow = Math.floor(params.contextWindow);
+    }
+    if (params.outputReserveTokens != null && params.outputReserveTokens > 0) {
+      this.compactRuntimeConfig.outputReserveTokens = Math.floor(params.outputReserveTokens);
+    }
+    if (params.summaryReserveTokens != null && params.summaryReserveTokens > 0) {
+      this.compactRuntimeConfig.summaryReserveTokens = Math.floor(params.summaryReserveTokens);
+    }
+    if (params.keepRecentTurns != null && params.keepRecentTurns >= 0) {
+      this.compactRuntimeConfig.keepRecentTurns = Math.floor(params.keepRecentTurns);
+    }
   }
 
   /**

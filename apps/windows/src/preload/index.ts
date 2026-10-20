@@ -142,6 +142,8 @@ export interface LocalProviderConfigView {
     contextWindowK?: Record<string, number>
     /** API 格式（openai/deepseek 用） */
     apiFormat?: 'completions' | 'responses'
+    /** 按模型覆盖 API 格式 */
+    apiFormatByModel?: Record<string, 'completions' | 'responses'>
     /** 按模型声明是否支持思考 */
     modelReasoning?: Record<string, boolean>
     /** 思考参数格式 */
@@ -333,6 +335,20 @@ export interface ElectronAPI {
     setConfig: (cfg: ProviderSlotsConfigView | LocalProviderConfigView) => Promise<ProviderSlotsConfigView>
     listModels: (slot: CapabilitySlot, draftCfg?: LocalProviderConfigView) => Promise<{ success: boolean; data?: ListedModel[]; error?: string }>
     testConnection: (slot: CapabilitySlot, draftCfg?: LocalProviderConfigView) => Promise<ProviderTestResult>
+    probeApiFormat: (
+      slot: CapabilitySlot,
+      draftCfg?: LocalProviderConfigView,
+    ) => Promise<{
+      success: boolean
+      data?: {
+        recommended: 'completions' | 'responses'
+        responsesAvailable: boolean
+        completionsAvailable: boolean
+        message: string
+        latencyMs: number
+      }
+      error?: string
+    }>
   }
   /** 开机画面（主窗口内全屏�?*/
   splash: {
@@ -1089,6 +1105,18 @@ const electronAPI: ElectronAPI = {
       }>,
     testConnection: (slot: CapabilitySlot, draftCfg?: LocalProviderConfigView) =>
       apiServerApi.testConnection(slot, draftCfg) as Promise<ProviderTestResult>,
+    probeApiFormat: (slot: CapabilitySlot, draftCfg?: LocalProviderConfigView) =>
+      apiServerApi.probeApiFormat(slot, draftCfg) as Promise<{
+        success: boolean
+        data?: {
+          recommended: 'completions' | 'responses'
+          responsesAvailable: boolean
+          completionsAvailable: boolean
+          message: string
+          latencyMs: number
+        }
+        error?: string
+      }>,
   },
 
   splash: splashApi,

@@ -7,9 +7,14 @@ import {
 } from './misc-commands'
 
 describe('session preferred model commands', () => {
-  it('persists an explicit model selection', () => {
+  it('persists an explicit model selection（经 WithCompact）', async () => {
     const bridge = {
       setSessionPreferredModel: vi.fn(),
+      setSessionPreferredModelWithCompact: vi.fn(async () => ({
+        usedTokens: 0,
+        contextWindow: 200_000,
+        triggerThreshold: 0.8,
+      })),
       primeSessionModelCompaction: vi.fn(),
       getSessionContextUsage: vi.fn(() => ({
         usedTokens: 0,
@@ -18,13 +23,13 @@ describe('session preferred model commands', () => {
       })),
     }
 
-    handleSessionPreferredModelSet(bridge as never, {
+    await handleSessionPreferredModelSet(bridge as never, {
       type: 'session:preferredModel:set',
       sessionKey: 'cron:seed-focus-check',
       modelId: 'gpt-5.6-luna',
     })
 
-    expect(bridge.setSessionPreferredModel).toHaveBeenCalledWith(
+    expect(bridge.setSessionPreferredModelWithCompact).toHaveBeenCalledWith(
       'cron:seed-focus-check',
       'gpt-5.6-luna',
     )

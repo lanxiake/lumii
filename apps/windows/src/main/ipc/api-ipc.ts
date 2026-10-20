@@ -20,6 +20,7 @@ import {
   type CapabilitySlot,
 } from '../provider-config'
 import { listProviderModels, testProviderConnection } from '../provider-probe'
+import { probeApiFormat } from '../provider-api-format-probe'
 import { getOpenAtLogin, setOpenAtLogin } from '../platform/autostart'
 import { getFeatureAvailability } from '../platform/feature-probe'
 import { FEATURE_BLOCK_MESSAGES } from '../../shared/feature-availability'
@@ -147,6 +148,18 @@ export function registerApiIpcHandlers(): void {
     if (!isCapabilitySlot(slot)) throw new Error(`无效能力槽: ${slot}`)
     const cfg = draftCfg ?? loadSlotConfig(slot)
     return testProviderConnection(slot, cfg)
+  })
+
+  /** 探测当前 baseUrl 更适合 Completions 还是 Responses（New API 等中转常用） */
+  ipcMain.handle('provider:probeApiFormat', async (_event, slot: CapabilitySlot, draftCfg?: LocalProviderConfigView) => {
+    if (!isCapabilitySlot(slot)) throw new Error(`无效能力槽: ${slot}`)
+    const cfg = draftCfg ?? loadSlotConfig(slot)
+    try {
+      const data = await probeApiFormat(cfg)
+      return { success: true, data }
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) }
+    }
   })
 
   // === 本地用量查询（Task 4.3）===

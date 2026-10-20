@@ -234,7 +234,7 @@ import { waitForSherpa } from '../onnx-runtime-gate'
 import { createTransformersE5Embedder } from './wiki-transformers-embedder'
 import { getCloudSyncManager } from '../cloud-sync/sync-accessor'
 import type { ConflictInfo } from '../cloud-sync/types'
-import { ensureProviderBaseUrl } from '../provider-config'
+import { ensureProviderBaseUrl, resolveApiFormat } from '../provider-config'
 import { resolveModelThinking, apiForProviderType } from '../model-thinking'
 
 /** 单机客户端固定 userId，与 wiki-commands 一致 */
@@ -811,9 +811,8 @@ export class AgentRuntimeBridge {
           credentials: {
             baseUrl: ensureProviderBaseUrl(live.baseUrl, live.type),
             apiKey: live.apiKey,
-            // 与主对话路径保持一致：缺省 responses（旧代码漏传，导致同一槽位在不同
-            // 调用路径落到不同 API 格式）
-            apiFormat: live.apiFormat ?? 'responses',
+            // 与主对话路径一致：按模型解析（含 per-model 覆盖与类型默认值）
+            apiFormat: resolveApiFormat(live, model?.id ?? live.modelId),
           },
           resolveModelProfile: (modelId) => resolveModelThinking(live, modelId),
           log: (msg) => log.info(`[callLlmFallback] ${msg}`),
@@ -3255,6 +3254,62 @@ export class AgentRuntimeBridge {
   }
 
   /**
+   * 切模型：更新偏好 + 热更新实例预算；若历史已超过新窗口阈值则先 lean 压缩。
+   * 大窗模型挂了才切小窗是常见路径，必须在发下一条消息前把上下文压进新窗。
+   */
+  async setSessionPreferredModelWithCompact(
+    sessionKey: string,
+    raw: string | undefined,
+  ): Promise<{
+    usedTokens: number
+    contextWindow: number
+    triggerThreshold: number
+    compacted?: boolean
+    compactFailed?: string
+  }> {
+    this.setSessionPreferredModel(sessionKey, raw)
+    const k = sessionKey.trim()
+    const comp = this.sessionModelCatalog.getCompactionForRootSession(k)
+    const instance = this.resolveMainInstanceForSession(k)
+    instance?.updateContextBudget({
+      contextWindow: comp.contextWindow,
+      outputReserveTokens: comp.outputReserveTokens,
+      summaryReserveTokens: comp.summaryReserveTokens,
+    })
+
+    const usage = this.getSessionContextUsage(k, { withBreakdown: false })
+    const softTrigger = Math.floor(usage.contextWindow * DEFAULT_COMPACTION_TRIGGER_RATIO)
+    const hardFit = Math.max(4_096, usage.contextWindow - comp.outputReserveTokens)
+    const needsCompact = usage.usedTokens > Math.min(softTrigger, hardFit)
+    if (!needsCompact || !instance) {
+      return usage
+    }
+
+    // lean：只留最近 2 轮原文，其余进摘要（对标 Hermes lean / Claude /compact）
+    const LEAN_KEEP_RECENT_TURNS = 2
+    instance.updateContextBudget({ keepRecentTurns: LEAN_KEEP_RECENT_TURNS })
+    try {
+      log.info(
+        `[setSessionPreferredModelWithCompact] 新窗口=${usage.contextWindow} used=${usage.usedTokens}，触发 lean 压缩`,
+      )
+      const r = await this.compactContextAsync(instance.id, k, LEAN_KEEP_RECENT_TURNS)
+      return {
+        ...this.getSessionContextUsage(k, { withBreakdown: false }),
+        compacted: r.success,
+        ...(r.success ? {} : { compactFailed: '压缩未写入（收益过低或已取消）' }),
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      log.warn(`[setSessionPreferredModelWithCompact] lean 压缩失败: ${msg}`)
+      return {
+        ...this.getSessionContextUsage(k, { withBreakdown: false }),
+        compacted: false,
+        compactFailed: msg,
+      }
+    }
+  }
+
+  /**
    * 读取会话当前的首选模型（原始串，未解析）。
    *
    * 与 setSessionPreferredModel 对称：需要「原样转发」该偏好的调用方用它，
@@ -4126,7 +4181,7 @@ export class AgentRuntimeBridge {
       credentials: {
         baseUrl: ensureProviderBaseUrl(cfg.baseUrl, cfg.type),
         apiKey: cfg.apiKey,
-        apiFormat: cfg.apiFormat ?? 'responses',
+        apiFormat: resolveApiFormat(cfg, cfg.modelId),
       },
       // 辅助调用（router/生图意图分类）不传 options.reasoning：qwen 类端点会据此显式
       // 关思考，其余端点不发思考参数——分类任务不该烧思考预算。

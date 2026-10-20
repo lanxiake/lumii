@@ -59,10 +59,15 @@ export interface LocalProviderConfig {
    */
   allowedModelIds?: string[]
   /**
-   * API 格式（仅 openai/deepseek 类型）：completions 或 responses。
-   * 默认 responses（支持 prompt caching）。
+   * API 格式（仅 openai/deepseek 等兼容类型）：completions 或 responses。
+   * 缺省时跟 PROVIDER_TYPE_DEFAULTS（openai 系多为 completions；官方 DeepSeek 为 responses）。
    */
   apiFormat?: 'completions' | 'responses'
+  /**
+   * 按模型覆盖 API 格式（同一中转站上不同模型可能只认一种端点）。
+   * 对话页切模型时优先于槽级 apiFormat。
+   */
+  apiFormatByModel?: Record<string, 'completions' | 'responses'>
   /** 按模型覆盖上下文窗口，单位 K（持久化字段） */
   contextWindowK?: Record<string, number>
   /**
@@ -165,6 +170,7 @@ const DEFAULT_CHAT: LocalProviderConfigView = {
   apiKey: '',
   allowedModelIds: [],
   apiFormat: 'completions', // 通用中转通常不支持 responses
+  apiFormatByModel: {},
   modelReasoning: {},
   thinkingFormat: 'auto',
 }
@@ -177,6 +183,7 @@ const DEFAULT_VISION: LocalProviderConfigView = {
   apiKey: '',
   allowedModelIds: [],
   apiFormat: 'completions',
+  apiFormatByModel: {},
   modelReasoning: {},
   thinkingFormat: 'auto',
 }
@@ -380,7 +387,11 @@ function normalizeSlotView(
     // 只在为真时才带上，避免视图里多一个恒为 false 的字段（该字段不进持久化）
     apiKeyDecryptFailed: decrypted?.failed || undefined,
     allowedModelIds,
-    apiFormat: raw?.apiFormat ?? fallback.apiFormat,
+    apiFormat: normalizeApiFormat(raw?.apiFormat) ?? fallback.apiFormat,
+    apiFormatByModel: normalizeApiFormatByModel(
+      (raw as LocalProviderConfigView | undefined)?.apiFormatByModel ??
+        (raw as PersistedSlot | undefined)?.apiFormatByModel,
+    ),
     contextWindowK: normalizeContextWindowK(raw?.contextWindowK),
     modelReasoning: normalizeModelReasoning(raw?.modelReasoning),
     thinkingFormat: normalizeThinkingFormat(raw?.thinkingFormat) ?? fallback.thinkingFormat ?? 'auto',
@@ -402,6 +413,59 @@ export function normalizeModelReasoning(raw: unknown): Record<string, boolean> {
 export function normalizeThinkingFormat(raw: unknown): ThinkingFormat | undefined {
   if (raw === 'auto' || raw === 'openai' || raw === 'qwen' || raw === 'zai') return raw
   return undefined
+}
+
+/** API 格式字面量 */
+export type ApiFormat = 'completions' | 'responses'
+
+/** 规范化单值 API 格式；非法返回 undefined */
+export function normalizeApiFormat(raw: unknown): ApiFormat | undefined {
+  if (raw === 'completions' || raw === 'responses') return raw
+  return undefined
+}
+
+/**
+ * 规范化按模型的 API 格式表：只保留合法枚举与有效 key
+ */
+export function normalizeApiFormatByModel(raw: unknown): Record<string, ApiFormat> {
+  if (!raw || typeof raw !== 'object') return {}
+  const out: Record<string, ApiFormat> = {}
+  for (const [id, value] of Object.entries(raw as Record<string, unknown>)) {
+    const key = id.trim()
+    const fmt = normalizeApiFormat(value)
+    if (key && fmt) out[key] = fmt
+  }
+  return out
+}
+
+/**
+ * 去掉 provider 前缀后的短模型 id（deepseek/deepseek-v4-flash → deepseek-v4-flash）
+ */
+function shortModelId(modelId: string): string {
+  const t = modelId.trim()
+  const slash = t.lastIndexOf('/')
+  return slash >= 0 ? t.slice(slash + 1) : t
+}
+
+/**
+ * 解析实际调用应使用的 API 格式。
+ *
+ * 优先级：按模型覆盖 → 槽级 apiFormat → PROVIDER_TYPE_DEFAULTS → completions（中转最稳）。
+ */
+export function resolveApiFormat(
+  cfg: Pick<LocalProviderConfig, 'type' | 'apiFormat' | 'apiFormatByModel'>,
+  modelId?: string,
+): ApiFormat {
+  const mid = modelId?.trim()
+  if (mid) {
+    const byModel = cfg.apiFormatByModel ?? {}
+    const hit = byModel[mid] ?? byModel[shortModelId(mid)]
+    const fromModel = normalizeApiFormat(hit)
+    if (fromModel) return fromModel
+  }
+  const fromSlot = normalizeApiFormat(cfg.apiFormat)
+  if (fromSlot) return fromSlot
+  return PROVIDER_TYPE_DEFAULTS[cfg.type]?.apiFormat ?? 'completions'
 }
 
 function normalizeContextWindowK(raw: unknown): Record<string, number> {
@@ -429,6 +493,7 @@ function toPersistedSlot(view: LocalProviderConfigView): PersistedSlot {
     modelId,
     allowedModelIds,
     apiFormat: view.apiFormat,
+    apiFormatByModel: normalizeApiFormatByModel(view.apiFormatByModel),
     contextWindowK: normalizeContextWindowK(view.contextWindowK),
     modelReasoning: normalizeModelReasoning(view.modelReasoning),
     thinkingFormat: normalizeThinkingFormat(view.thinkingFormat) ?? 'auto',

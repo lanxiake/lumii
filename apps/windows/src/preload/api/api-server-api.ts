@@ -11,6 +11,8 @@ export const apiServerApi = {
     ipcRenderer.invoke('provider:listModels', slot, draftCfg),
   testConnection: (slot: string, draftCfg?: unknown) =>
     ipcRenderer.invoke('provider:testConnection', slot, draftCfg),
+  probeApiFormat: (slot: string, draftCfg?: unknown) =>
+    ipcRenderer.invoke('provider:probeApiFormat', slot, draftCfg),
 
   // 用量查询
   queryUsage: (query: unknown) => ipcRenderer.invoke('usage:query', query),

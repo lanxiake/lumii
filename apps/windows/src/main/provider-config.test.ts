@@ -7,6 +7,7 @@ import {
   normalizeModelReasoning,
   normalizeThinkingFormat,
   reconcileModelIdWithAllowlist,
+  resolveApiFormat,
 } from './provider-config'
 
 describe('normalizeAllowedModelIds', () => {
@@ -72,6 +73,29 @@ describe('normalizeModelReasoning', () => {
   it('非对象输入返回空对象（旧配置兼容）', () => {
     expect(normalizeModelReasoning(undefined)).toEqual({})
     expect(normalizeModelReasoning('x')).toEqual({})
+  })
+})
+
+describe('resolveApiFormat', () => {
+  it('按模型覆盖优先于槽级与类型默认', () => {
+    expect(
+      resolveApiFormat(
+        {
+          type: 'openai',
+          apiFormat: 'responses',
+          apiFormatByModel: { 'qwen3.8-flash-next': 'completions' },
+        },
+        'qwen3.8-flash-next',
+      ),
+    ).toBe('completions')
+  })
+
+  it('openai 类型缺省走 completions', () => {
+    expect(resolveApiFormat({ type: 'openai' }, 'any-model')).toBe('completions')
+  })
+
+  it('deepseek 类型缺省走 responses', () => {
+    expect(resolveApiFormat({ type: 'deepseek' })).toBe('responses')
   })
 })
 

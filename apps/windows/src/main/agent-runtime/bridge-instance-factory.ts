@@ -76,7 +76,7 @@ import {
 } from './bridge-agent-instance-events'
 import { agentRuntimeLog as log, filterToolsByDefinition } from './bridge-utils'
 import { SHARED_WIKI_LIBRARY_AGENT_ID } from './wiki-library'
-import { ensureProviderBaseUrl, missingApiKeyMessage } from '../provider-config'
+import { ensureProviderBaseUrl, missingApiKeyMessage, resolveApiFormat } from '../provider-config'
 import { resolveModelThinking, resolveReasoningOptions, apiForProviderType } from '../model-thinking'
 import { resizeImageIfNeeded } from './image-resizer'
 import type { FileMemoryHandler } from './file-memory-handler'
@@ -253,7 +253,8 @@ export class BridgeInstanceFactory {
           credentials: {
             baseUrl: resolveDirectBaseUrl(cfg),
             apiKey: cfg.apiKey,
-            apiFormat: cfg.apiFormat ?? 'responses',
+            // 按当前请求的模型解析：同槽混用 Qwen/DeepSeek 中转时允许 per-model 覆盖
+            apiFormat: resolveApiFormat(cfg, model?.id ?? cfg.modelId),
           },
           // 思考能力由 provider 配置解析：pi-ai 只在 model.reasoning 为真时才发思考参数，
           // 而这里用的是 {id, api} 最小模型，必须由宿主补上（见 model-thinking.ts）。

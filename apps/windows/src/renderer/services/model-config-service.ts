@@ -40,8 +40,10 @@ export interface LocalProviderConfigView {
   apiKeyDecryptFailed?: boolean
   /** chat/vision：对话框可选模型；缺省时回退 [modelId] */
   allowedModelIds?: string[]
-  /** API 格式（openai/deepseek 用）：completions 或 responses，默认 responses */
+  /** API 格式（openai/deepseek 用）：completions 或 responses；缺省跟类型默认值 */
   apiFormat?: 'completions' | 'responses'
+  /** 按模型覆盖 API 格式 */
+  apiFormatByModel?: Record<string, 'completions' | 'responses'>
   contextWindowK?: Record<string, number>
   /** 按模型声明是否支持思考；缺省按内置默认表推断 */
   modelReasoning?: Record<string, boolean>
@@ -109,48 +111,49 @@ const BUILTIN_CONTEXT_WINDOWS_K: Record<string, number> = {
   // DeepSeek
   'deepseek-chat': 128,
   'deepseek-reasoner': 128,
-  'deepseek‑r1': 128,
-  'deepseek‑v4‑flash': 1048,
-  'deepseek‑v4‑pro': 1048,
+  'deepseek-r1': 128,
+  'deepseek-v4-flash': 1048,
+  'deepseek-v4-pro': 1048,
 
   // Qwen 通义千问
   'qwen3': 128,
-  'qwen3‑thinking': 128,
-  'qwen3.6‑27b‑instruct': 256,
-  'qwen3.6‑max‑preview': 256,
-  'qwen3.7‑max': 1048,
-  'qwen3.8‑27b‑instruct': 256,
+  'qwen3-thinking': 128,
+  'qwen3.6-27b-instruct': 256,
+  'qwen3.6-max-preview': 256,
+  'qwen3.7-max': 1048,
+  'qwen3.8-27b-instruct': 256,
+  'qwen3.8-flash-next': 256,
 
   // GLM 智谱
-  'glm‑5': 200,
-  'glm‑5.2': 256,
-  'glm‑5.3': 1048,
+  'glm-5': 200,
+  'glm-5.2': 256,
+  'glm-5.3': 1048,
 
   // Kimi Moonshot
-  'kimi‑k2': 256,
-  'kimi‑k2.6': 256,
+  'kimi-k2': 256,
+  'kimi-k2.6': 256,
 
   // MiniMax
-  'minimax‑01': 4096,
-  'minimax‑m3': 1048,
+  'minimax-01': 4096,
+  'minimax-m3': 1048,
 
   // xAI Grok
-  'grok‑4': 256,
-  'grok‑4.20': 256,
-  'grok‑4.3': 1048,
+  'grok-4': 256,
+  'grok-4.20': 256,
+  'grok-4.3': 1048,
 
   // Meta Llama
-  'llama‑4‑scout': 10000,
-  'llama‑4‑400b‑instruct': 128,
+  'llama-4-scout': 10000,
+  'llama-4-400b-instruct': 128,
 
   // Mistral
-  'mistral‑large‑3': 256,
+  'mistral-large-3': 256,
 
   // StepFun 阶跃星辰
-  'step‑3.7‑flash': 256,
+  'step-3.7-flash': 256,
 
   // Nvidia Nemotron
-  'nemotron‑3‑ultra': 1048,
+  'nemotron-3-ultra': 1048,
 };
 
 export function defaultContextWindowK(modelId: string): number {
@@ -338,6 +341,8 @@ function createDefaultSlotConfig(_slot: CapabilitySlot): LocalProviderConfigView
     modelId: '',
     apiKey: '',
     allowedModelIds: [],
+    apiFormat: 'completions',
+    apiFormatByModel: {},
     modelReasoning: {},
     thinkingFormat: 'auto',
   }
@@ -401,6 +406,24 @@ export async function testProviderConnection(
   draftCfg?: LocalProviderConfigView,
 ): Promise<ProviderTestResult> {
   return window.electronAPI.provider.testConnection(slot, draftCfg)
+}
+
+/** 探测端点推荐的 API 格式（Completions / Responses） */
+export async function probeProviderApiFormat(
+  slot: CapabilitySlot,
+  draftCfg?: LocalProviderConfigView,
+): Promise<{
+  success: boolean
+  data?: {
+    recommended: 'completions' | 'responses'
+    responsesAvailable: boolean
+    completionsAvailable: boolean
+    message: string
+    latencyMs: number
+  }
+  error?: string
+}> {
+  return window.electronAPI.provider.probeApiFormat(slot, draftCfg)
 }
 
 // ── ChatPage 兼容适配层 ──

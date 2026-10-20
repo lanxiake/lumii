@@ -84,7 +84,7 @@ describe("createDirectStreamFn", () => {
     expect(impl.mock.calls[0][2]?.apiKey).toBe("local-no-key");
   });
 
-  it("api='openai' 默认规范化为 openai-responses（支持缓存）", () => {
+  it("api='openai' 默认规范化为 openai-completions（中转兼容）", () => {
     const impl = vi.fn(() => ({}) as never);
     const fn = createDirectStreamFn({
       credentials: { baseUrl: "http://localhost:11434/v1" },
@@ -93,7 +93,7 @@ describe("createDirectStreamFn", () => {
 
     fn(fakeModel({ api: "openai" }), fakeContext, undefined);
 
-    expect(impl.mock.calls[0][0].api).toBe("openai-responses");
+    expect(impl.mock.calls[0][0].api).toBe("openai-completions");
   });
 
   it("补全最小模型的缺失字段（ModelRouter 只产 {id,api}，pi-ai 需 input/cost 等）", () => {
@@ -112,7 +112,7 @@ describe("createDirectStreamFn", () => {
     expect(passed.cost).toBeDefined();
     expect(passed.contextWindow).toBeGreaterThan(0);
     expect(passed.maxTokens).toBeGreaterThan(0);
-    expect(passed.api).toBe("openai-responses"); // 默认 responses
+    expect(passed.api).toBe("openai-completions"); // 缺省 completions
   });
 
   it("透传调用方 options（signal/temperature）", () => {
@@ -167,7 +167,7 @@ describe("createDirectStreamFn", () => {
     expect(impl.mock.calls[0][0].api).toBe("openai-completions");
   });
 
-  it("apiFormat 缺省时默认 responses", () => {
+  it("apiFormat 缺省时默认 completions（中转兼容）", () => {
     const impl = vi.fn(() => ({}) as never);
     const fn = createDirectStreamFn({
       credentials: { baseUrl: "http://localhost:11434/v1" },
@@ -176,7 +176,7 @@ describe("createDirectStreamFn", () => {
 
     fn(fakeModel({ api: "openai" }), fakeContext, undefined);
 
-    expect(impl.mock.calls[0][0].api).toBe("openai-responses");
+    expect(impl.mock.calls[0][0].api).toBe("openai-completions");
   });
 });
 

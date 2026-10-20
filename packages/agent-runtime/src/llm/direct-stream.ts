@@ -191,9 +191,11 @@ export function createDirectStreamFn(opts: CreateDirectStreamFnOptions): StreamF
 
 /** 把宽泛的 api 名规范化为 pi-ai 注册的具体 provider 名 */
 function normalizeApi(api: string, apiFormat?: 'completions' | 'responses'): string {
-  // 裸 "openai" → 根据 apiFormat 选择（默认 responses）
+  // 裸 "openai" → 根据 apiFormat 选择。
+  // 缺省走 completions：自建 / New API 中转多数只实现 chat/completions；
+  // 官方 DeepSeek 等需要 responses 时由宿主显式传入 apiFormat。
   if (api === "openai") {
-    return apiFormat === "completions" ? "openai-completions" : "openai-responses";
+    return apiFormat === "responses" ? "openai-responses" : "openai-completions";
   }
   // 历史别名：pi-ai 注册名是 google-generative-ai，ModelRouter 曾产出 google-genai
   if (api === "google-genai") return "google-generative-ai";
