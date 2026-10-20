@@ -1,7 +1,7 @@
 # 微信导出与文件归档 · wechat-export-mcp
 
 > 安装、参数与体积实测见
-> [`../../apps/windows/resources/wechat-export-mcp/README.md`](../../apps/windows/resources/wechat-export-mcp/README.md)。
+> [`wechat-export-mcp/README.md`](https://github.com/lanxiake/wechat-mcp/blob/main/wechat-export-mcp/README.md)。
 > 文中体积与计数全部来自 2026-10-14 真机运行这套 exe 的原始输出。
 >
 > **一个 exe，两大功能**：聊天记录导出 + 微信文件归档，共用同一套目录结构。

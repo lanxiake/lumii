@@ -15,10 +15,12 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { wechatMcpRepo } from './wechat-mcp-repo.mjs'
+
 const WINDOWS_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const REPO = 'lanxiake/lumii'
-/** 客户端认的资产名（与 builtin.ts 一致） */
-const WECHAT_MCP = path.join(WINDOWS_ROOT, 'resources', 'wechat-mcp', 'dist', 'pro', 'wechat-mcp.exe')
+/** 客户端认的资产名（与 builtin.ts 一致）；源码已迁到独立仓库 */
+const WECHAT_MCP = path.join(wechatMcpRepo(), 'dist', 'pro', 'wechat-mcp.exe')
 const PET_IDS = ['demo_cartoon_cat', 'ug_official', 'xiaomai']
 
 function log(msg) {

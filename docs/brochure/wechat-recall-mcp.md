@@ -1,7 +1,7 @@
 # 微信撤回防护 · wechat-recall-mcp
 
 > 安装、守护管理与判定规则见
-> [`../../apps/windows/resources/wechat-recall-mcp/README.md`](../../apps/windows/resources/wechat-recall-mcp/README.md)。
+> [`wechat-recall-mcp/README.md`](https://github.com/lanxiake/wechat-mcp/blob/main/wechat-recall-mcp/README.md)。
 > 文中数字全部来自 2026-10-14 真机运行这套 exe 的原始输出。
 
 ---

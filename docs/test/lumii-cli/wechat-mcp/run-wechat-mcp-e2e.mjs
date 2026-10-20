@@ -39,8 +39,11 @@ import { fileURLToPath } from 'node:url'
 import * as h from '../lib/cli-harness.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const WX_DIR = path.join(h.ROOT, 'apps/windows/resources/wechat-mcp')
-const DEVCLI = path.join(WX_DIR, 'devcli.py')
+// 源码已迁到独立仓库（与 Lumii 并排）；可用 WECHAT_MCP_DIR 覆盖
+const WX_DIR = process.env.WECHAT_MCP_DIR
+  ? path.resolve(process.env.WECHAT_MCP_DIR)
+  : path.resolve(h.ROOT, '..', 'wechat-mcp')
+const DEVCLI = path.join(WX_DIR, 'common', 'devcli.py')
 const PY = process.env.LUMII_WECHAT_PYTHON || 'python'
 const PREFIX = '[wechat-mcp]'
 const TURN_TIMEOUT = Number(process.env.WM_TURN_TIMEOUT_MS) || 240000

@@ -1,7 +1,7 @@
 # 本机微信助手 · wechat-mcp
 
 > 四件套的**主力产品**。安装与配置细节见
-> [`../../apps/windows/resources/wechat-mcp/README.md`](../../apps/windows/resources/wechat-mcp/README.md)。
+> [`wechat-mcp/README.md`](https://github.com/lanxiake/wechat-mcp/blob/main/README.md)。
 > 文中数字全部来自 2026-10-14 真机运行这套 exe 的原始输出。
 
 ---

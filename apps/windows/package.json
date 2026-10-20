@@ -17,7 +17,7 @@
     "build": "electron-vite build",
     "build:wechat-mcp": "node scripts/build-wechat-mcp.mjs",
     "build:wechat-mcp:lite": "node scripts/build-wechat-mcp.mjs --edition lite",
-    "build:wechat-mcp:plus": "node scripts/build-wechat-mcp.mjs --edition plus",
+    "build:wechat-mcp:pro-hook": "node scripts/build-wechat-mcp.mjs --edition pro-hook",
     "build:wechat-export-mcp": "node scripts/build-wechat-export-mcp.mjs",
     "build:wechat-recall-mcp": "node scripts/build-wechat-recall-mcp.mjs",
     "build:wechat-crm-mcp": "node scripts/build-wechat-crm-mcp.mjs",

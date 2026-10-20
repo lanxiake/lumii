@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
@@ -12,8 +12,11 @@ import { validateMcpServerEntry } from '../../main/config/mcp-config'
 
 /** apps/windows 根 */
 const windowsRoot = resolve(__dirname, '../../..')
-/** 随包 MCP 的源码目录（SERVER_VERSION 在这里） */
-const wechatSrc = resolve(windowsRoot, 'resources/wechat-mcp')
+/** 独立仓库里的 MCP 源码根（SERVER_VERSION 在 common/app.py）；默认与 Lumii 并排 */
+const wechatSrc = process.env.WECHAT_MCP_DIR
+  ? resolve(process.env.WECHAT_MCP_DIR)
+  : resolve(windowsRoot, '../../..', 'wechat-mcp')
+const wechatVersionSrc = resolve(wechatSrc, 'common', 'app.py')
 
 describe('MCP 内置清单', () => {
   it('每条都能通过主进程的配置校验', () => {
@@ -78,13 +81,14 @@ describe('MCP 内置清单', () => {
     expect(wechat?.args).toEqual([])
   })
 
-  it('面板展示的版本跟 server.py 的 SERVER_VERSION 对得上', () => {
-    // 版本号唯一来源是 server.py；TS 侧只是镜像（面板每 5s 轮询，实读 exe 太慢，
-    // 见 mcp-presets.ts 里 WECHAT_MCP_VERSION 的注释）。发版只改 server.py 时这里会红。
-    const declared = readFileSync(resolve(wechatSrc, 'server.py'), 'utf-8').match(
+  // 源码仓库不在（CI / 只拿了 exe 的机器）时没有可对账的对象；在开发机上必须跑。
+  it.skipIf(!existsSync(wechatVersionSrc))('面板展示的版本跟 common/app.py 的 SERVER_VERSION 对得上', () => {
+    // 版本号唯一来源是 common/app.py；TS 侧只是镜像（面板每 5s 轮询，实读 exe 太慢，
+    // 见 mcp-presets.ts 里 WECHAT_MCP_VERSION 的注释）。发版只改 app.py 时这里会红。
+    const declared = readFileSync(wechatVersionSrc, 'utf-8').match(
       /^SERVER_VERSION\s*=\s*"([^"]+)"/m,
     )?.[1]
-    expect(declared, 'server.py 里找不到 SERVER_VERSION').toBeTruthy()
+    expect(declared, 'common/app.py 里找不到 SERVER_VERSION').toBeTruthy()
     expect(WECHAT_MCP_VERSION).toBe(declared)
     expect(findMcpPreset('wechat-local')?.bundledVersion).toBe(declared)
   })

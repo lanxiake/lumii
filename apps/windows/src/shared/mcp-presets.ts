@@ -23,7 +23,7 @@
 /**
  * wechat-mcp 随包 exe 的版本（面板上展示，方便对账用户截图）
  *
- * 版本号唯一来源仍是 `resources/wechat-mcp/server.py` 的 `SERVER_VERSION`，这里是它的
+ * 版本号唯一来源是独立仓库 `wechat-mcp/common/app.py` 的 `SERVER_VERSION`，这里是它的
  * TS 镜像。为什么不运行时实读：`wechat-mcp.exe --version` 是 PyInstaller onefile，
  * 本机实测冷启动 1.0–3.4s，而面板每 5s 轮询一次状态，实读会把轮询拖垮。
  * `mcp-presets.test.ts` 会读回 server.py 对账，发版漏改这里会红，不会静默漂移。
@@ -31,7 +31,7 @@
  * **npm 社区分发已废弃**（2026-10-13）：分发改走「双击 exe 一键安装」
  * （`wechat-mcp.exe --install`，与四件套同一套），不再有 `@lumii/wechat-mcp` 包。
  */
-export const WECHAT_MCP_VERSION = '0.8.0'
+export const WECHAT_MCP_VERSION = '0.10.0'
 
 export type McpPresetCategory =
   | 'office'

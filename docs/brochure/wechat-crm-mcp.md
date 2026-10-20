@@ -1,7 +1,7 @@
 # 微信客户分析 · wechat-crm-mcp
 
 > 安装与工具参数见
-> [`../../apps/windows/resources/wechat-crm-mcp/README.md`](../../apps/windows/resources/wechat-crm-mcp/README.md)。
+> [`wechat-crm-mcp/README.md`](https://github.com/lanxiake/wechat-mcp/blob/main/wechat-crm-mcp/README.md)。
 > 文中数字全部来自 2026-10-14 真机运行这套 exe 的原始输出；涉及的真实会话**只给结构和数字，不写姓名和原文**。
 
 ---
