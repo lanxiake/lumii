@@ -28,7 +28,7 @@ const log = {
   warn: (...args: unknown[]) => console.warn('[pet-asset-protocol]', ...args),
 }
 
-const PET_ASSET_SCHEME = 'lumii-pet'
+export const PET_ASSET_SCHEME = 'lumii-pet'
 const PET_ASSET_HOST = 'model'
 
 /**
@@ -98,23 +98,6 @@ export function petAssetUrlToDiskPath(url: string): string | null {
   const abs = resolve(root, rel)
   if (abs !== root && !abs.startsWith(root + sep)) return null
   return abs
-}
-
-/** app ready 前注册 privileged scheme（否则渲染层无法 fetch / 用作纹理源） */
-export function registerPetAssetSchemePrivileged(): void {
-  protocol.registerSchemesAsPrivileged([
-    {
-      scheme: PET_ASSET_SCHEME,
-      privileges: {
-        standard: true,
-        secure: true,
-        supportFetchAPI: true,
-        stream: true,
-        bypassCSP: true,
-        corsEnabled: true,
-      },
-    },
-  ])
 }
 
 /** app ready 后注册协议处理器 */

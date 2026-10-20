@@ -9,7 +9,7 @@ import { net, protocol } from 'electron'
 import { resolveRecordingsDir, resolveScreenshotTempDir } from './workspace-paths'
 import { isAllowedPreviewPath } from './preview-path-acl'
 
-const LOCAL_MEDIA_SCHEME = 'lumii-local'
+export const LOCAL_MEDIA_SCHEME = 'lumii-local'
 
 let workspaceCwdGetter: (() => string) | null = null
 
@@ -59,25 +59,6 @@ function isAllowedLocalMediaPath(resolvedAbs: string): boolean {
   const abs = path.resolve(resolvedAbs)
   if (extraAllowedLocalMediaPaths.has(abs)) return true
   return isAllowedPreviewPath(abs, resolveAclDirs())
-}
-
-/**
- * 在 app ready 前注册 privileged scheme（否则 renderer 无法 fetch/播放）。
- */
-export function registerLocalMediaSchemePrivileged(): void {
-  protocol.registerSchemesAsPrivileged([
-    {
-      scheme: LOCAL_MEDIA_SCHEME,
-      privileges: {
-        standard: true,
-        secure: true,
-        supportFetchAPI: true,
-        stream: true,
-        bypassCSP: true,
-        corsEnabled: true,
-      },
-    },
-  ])
 }
 
 /**

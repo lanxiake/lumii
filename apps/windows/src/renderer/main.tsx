@@ -159,6 +159,10 @@ if (isPetMode) {
   )
   // 渲染进程内存采样：每分钟上报一次，落进 perf 日志（见 renderer/perf/renderer-memory-probe.ts）
   void import('./perf/renderer-memory-probe').then((m) => m.startRendererMemoryProbe())
+
+  // 客户端插件：拉清单 → 注入脚本 → 注册卡片/槽位。
+  // 放在挂载之后：插件只是往注册表里加东西，不该拖慢首屏；失败也不影响应用。
+  void import('./plugins/client-plugin-host').then((m) => m.initClientPlugins())
 }
 
 console.log('[Renderer] React 应用已挂载')

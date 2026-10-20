@@ -56,15 +56,17 @@ import { app, BrowserWindow, dialog } from 'electron'
 import qrcode from 'qrcode'
 import { showDesktopTaskNotification as showDesktopNotify } from './desktop-notify'
 import {
-  registerLocalMediaSchemePrivileged,
   registerLocalMediaProtocolHandler,
   setLocalMediaWorkspaceCwdGetter,
 } from './local-media-protocol'
 import {
-  registerPetAssetSchemePrivileged,
   registerPetAssetProtocolHandler,
 } from './pet/pet-asset-protocol'
 import { join } from 'path'
+import {
+  registerClientPluginProtocolHandler,
+} from './client-plugin-protocol'
+import { registerAllSchemePrivileges } from './protocol-schemes'
 import { promises as fs, existsSync } from 'fs'
 import { TrayManager } from './tray-manager'
 import { initializeTray } from './tray/tray-bootstrap'
@@ -1157,10 +1159,8 @@ async function prepareAppShell(flags: ReturnType<typeof readStartupFlags>): Prom
     log.info('测试模式已启用，跳过单实例锁定')
   }
 
-  // lumii-local 须在 ready 前注册 privileged scheme
-  registerLocalMediaSchemePrivileged()
-  // 用户宠物目录的资源通道（lumii-pet://），同样须在 ready 前注册
-  registerPetAssetSchemePrivileged()
+  // 所有自定义 scheme 的 privileges 必须一次注册完（分批调用是替换语义，只有最后一批生效）
+  registerAllSchemePrivileges()
 
   // 窗口录制：改用 Windows Graphics Capture，支持被遮挡窗口，减少黑屏
   if (process.platform === 'win32') {
@@ -1193,6 +1193,7 @@ async function prepareAppShell(flags: ReturnType<typeof readStartupFlags>): Prom
   // 初始化文件日志系统（必须在 app.whenReady() 之后）
   fileLogger.initialize()
   registerLocalMediaProtocolHandler()
+  registerClientPluginProtocolHandler()
   // 用户宠物目录的资源通道（lumii-pet://）。与 lumii-local 同理：
   // scheme 须在 ready 前 registerSchemesAsPrivileged（见上），
   // handler 则须在 ready 后 protocol.handle。

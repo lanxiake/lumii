@@ -2,6 +2,20 @@ import React, { useSyncExternalStore } from 'react'
 
 import { getSlotEntries, subscribeSlots } from './slot-registry'
 
+/**
+ * 溢出告警按「slot + 条目集合」去重：React 每次渲染都会走到这里，
+ * 不去重会把同一句话刷满日志（实测一屏两次）。
+ */
+const warnedOverflow = new Set<string>()
+
+function warnOverflowOnce(name: string, max: number, entries: { id: string }[]): void {
+  const dropped = entries.slice(max).map((e) => e.id).join(', ')
+  const key = `${name}|${entries.length}|${dropped}`
+  if (warnedOverflow.has(key)) return
+  warnedOverflow.add(key)
+  console.warn(`[slot] ${name} 注册了 ${entries.length} 个条目，但页面只放得下 ${max} 个；未渲染：${dropped}`)
+}
+
 export interface SlotHostProps<P = Record<string, unknown>> {
   /** slot 名，如 `dashboard.card` */
   name: string
@@ -11,6 +25,11 @@ export interface SlotHostProps<P = Record<string, unknown>> {
   fallback?: React.ReactNode
   /** 包在条目外层的容器；默认不包（由页面自己控制布局） */
   wrap?: (children: React.ReactNode) => React.ReactNode
+  /**
+   * 容量上限：页面布局只放得下 N 个时声明它。
+   * 超出部分不渲染并打一条警告——**静默溢出比报错更糟**（会压坏布局且没人知道为什么）。
+   */
+  max?: number
 }
 
 /**
@@ -27,6 +46,7 @@ export function SlotHost<P extends object = Record<string, unknown>>({
   context,
   fallback = null,
   wrap,
+  max,
 }: SlotHostProps<P>): React.ReactElement | null {
   const entries = useSyncExternalStore(
     subscribeSlots,
@@ -36,7 +56,11 @@ export function SlotHost<P extends object = Record<string, unknown>>({
 
   if (entries.length === 0) return <>{fallback}</>
 
-  const nodes = entries.map((entry) => {
+  const overflow = max !== undefined && entries.length > max
+  const visible = overflow ? entries.slice(0, max) : entries
+  if (overflow) warnOverflowOnce(name, max, entries)
+
+  const nodes = visible.map((entry) => {
     const Component = entry.component as React.ComponentType<P>
     return (
       <React.Fragment key={entry.id}>

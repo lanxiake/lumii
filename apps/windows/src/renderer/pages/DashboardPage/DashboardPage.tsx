@@ -47,6 +47,8 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ onViewChange }) => {
       <SlotHost<DashboardCardContext>
         name={DASHBOARD_GRID_SLOT}
         context={context}
+        // 布局是固定的三栏（1.7fr / 1fr / 216px）且限高，第 4 张会溢出
+        max={3}
         wrap={(children) => <div className={styles['bottom-grid']}>{children}</div>}
       />
     </div>
