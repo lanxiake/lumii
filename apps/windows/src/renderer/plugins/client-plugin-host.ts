@@ -35,6 +35,19 @@ interface ClientPluginDescriptor {
   version: string
   entry: string
   revision: string
+  /** 是否启用（主进程从 extensions.json 写进清单） */
+  enabled: boolean
+}
+
+/** 给设置页看的快照：清单元数据 + 本进程里的真实加载状态 */
+export interface ClientPluginState {
+  id: string
+  name: string
+  version: string
+  dir: string
+  enabled: boolean
+  state: 'loaded' | 'failed' | 'disabled' | 'unknown'
+  error?: string
 }
 
 /** 插件工厂：拿到宿主模块，返回激活函数 */
@@ -63,6 +76,60 @@ const pending = new Map<string, ClientPluginFactory>()
 const disposers = new Map<string, Array<() => void>>()
 /** 已失败过的版本：同一 revision 不重复重试（轮询每秒一次，否则会刷屏） */
 const failedRevision = new Map<string, string>()
+/** 最近一轮清单里的描述符（设置页要显示名字/版本，加载失败的也要显示） */
+const descriptors = new Map<string, ClientPluginDescriptor>()
+/** 最近的错误（按插件 id）；成功后清掉 */
+const errors = new Map<string, string>()
+
+/**
+ * 设置页快照。
+ *
+ * `useSyncExternalStore` 要求同一状态下返回**同一引用**，所以这里缓存，
+ * 并且只在内容真的变化时通知——否则每秒一次轮询会让设置页每秒重渲染一次。
+ */
+let snapshot: ClientPluginState[] = []
+let snapshotSignature = ''
+const listeners = new Set<() => void>()
+
+export function subscribeClientPlugins(listener: () => void): () => void {
+  listeners.add(listener)
+  return () => {
+    listeners.delete(listener)
+  }
+}
+
+export function getClientPluginStates(): ClientPluginState[] {
+  return snapshot
+}
+
+function rebuildStates(): void {
+  const next: ClientPluginState[] = []
+  for (const descriptor of descriptors.values()) {
+    const error = errors.get(descriptor.id)
+    next.push({
+      id: descriptor.id,
+      name: descriptor.name,
+      version: descriptor.version,
+      dir: descriptor.dir,
+      enabled: descriptor.enabled,
+      state: !descriptor.enabled
+        ? 'disabled'
+        : loaded.has(descriptor.id)
+          ? 'loaded'
+          : error
+            ? 'failed'
+            : 'unknown',
+      error,
+    })
+  }
+  next.sort((a, b) => a.id.localeCompare(b.id))
+
+  const signature = next.map((s) => `${s.id}|${s.enabled}|${s.state}|${s.error ?? ''}`).join('\n')
+  if (signature === snapshotSignature) return
+  snapshotSignature = signature
+  snapshot = next
+  for (const listener of listeners) listener()
+}
 
 declare global {
   // eslint-disable-next-line no-var
@@ -156,13 +223,16 @@ async function loadOne(descriptor: ClientPluginDescriptor): Promise<void> {
     await injectScript(url)
   } catch (err) {
     // 脚本都下不来：旧版本继续服务（先卸后载会让「编辑到一半保存」变成功能消失）
+    errors.set(descriptor.id, `脚本加载失败：${(err as Error)?.message ?? String(err)}`)
     console.error(`[client-plugin] ${descriptor.id} 脚本加载失败，保留旧版本`, err)
     return
   }
 
   const factory = pending.get(descriptor.id)
   if (!factory) {
-    console.error(`[client-plugin] ${descriptor.id} 没有调用 __LUMII_REGISTER_PLUGIN__`)
+    const message = '没有调用 __LUMII_REGISTER_PLUGIN__（一个插件只能注册一次，且 id 要与 plugin.json 一致）'
+    errors.set(descriptor.id, message)
+    console.error(`[client-plugin] ${descriptor.id} ${message}`)
     return
   }
 
@@ -172,7 +242,9 @@ async function loadOne(descriptor: ClientPluginDescriptor): Promise<void> {
   try {
     activate(descriptor, factory)
     failedRevision.delete(descriptor.id)
+    errors.delete(descriptor.id)
   } catch (err) {
+    errors.set(descriptor.id, `激活失败：${(err as Error)?.message ?? String(err)}`)
     console.error(`[client-plugin] ${descriptor.id} 激活失败`, err)
     // 记下这个 revision：轮询每秒一次，不记会「每秒重试、每秒回滚、每秒刷错误」
     failedRevision.set(descriptor.id, descriptor.revision)
@@ -223,8 +295,20 @@ async function syncInner(): Promise<void> {
   const list = await fetchList()
   const seen = new Set<string>()
 
+  descriptors.clear()
+  for (const descriptor of list) descriptors.set(descriptor.id, descriptor)
+
   for (const descriptor of list) {
     seen.add(descriptor.id)
+
+    // 被禁用：立刻卸掉。开关写在 extensions.json，主进程下一轮 list.json 就带过来——
+    // 这里不需要额外的 IPC，用户点完开关 ≤1 秒就见效。
+    if (!descriptor.enabled) {
+      unload(descriptor.id)
+      failedRevision.delete(descriptor.id)
+      continue
+    }
+
     const current = loaded.get(descriptor.id)
     if (current && current.descriptor.revision === descriptor.revision) continue
     // 这个版本刚失败过：等文件改了（revision 变化）再试
@@ -233,6 +317,7 @@ async function syncInner(): Promise<void> {
       await loadOne(descriptor)
     } catch (err) {
       // 单个插件炸掉不该拖累同轮的其它插件
+      errors.set(descriptor.id, `加载异常：${(err as Error)?.message ?? String(err)}`)
       console.error(`[client-plugin] ${descriptor.id} 加载异常`, err)
     }
   }
@@ -240,6 +325,11 @@ async function syncInner(): Promise<void> {
   for (const id of [...loaded.keys()]) {
     if (!seen.has(id)) unload(id)
   }
+  for (const id of [...errors.keys()]) {
+    if (!seen.has(id)) errors.delete(id)
+  }
+
+  rebuildStates()
 }
 
 /** 启动插件宿主：拉一次清单，然后按 revision 轮询。重复调用无副作用。 */
@@ -263,6 +353,25 @@ export function stopClientPlugins(): void {
   if (pollTimer) clearInterval(pollTimer)
   pollTimer = null
   for (const id of [...loaded.keys()]) unload(id)
+  descriptors.clear()
+  errors.clear()
+  failedRevision.clear()
   delete globalThis[REGISTER_KEY]
   started = false
+  rebuildStates()
+}
+
+/**
+ * 编辑**本文件**时的自恢复。
+ *
+ * 没有这两行：旧模块的 setInterval 还在跑、新模块的 `loaded` 是空的 →
+ * 重新注册撞「已存在 id」，所有插件报废，只能重开窗口。
+ * 这是 P4 里同类问题（内置卡片用模块级布尔做幂等）的第三次出现，
+ * 所以这里把它写成机制而不是注释。
+ */
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => stopClientPlugins())
+  import.meta.hot.accept((newModule) => {
+    void newModule?.initClientPlugins()
+  })
 }

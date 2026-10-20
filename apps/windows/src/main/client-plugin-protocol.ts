@@ -3,6 +3,7 @@ import path from 'node:path'
 
 import { protocol } from 'electron'
 
+import { readExtensionPrefs } from './kernel/extension-store'
 import { resolveClientStateDir } from './paths'
 
 /**
@@ -39,6 +40,13 @@ export interface ClientPluginDescriptor {
   entry: string
   /** mtime+size，渲染层据此判断是否需要重新加载 */
   revision: string
+  /**
+   * 是否启用（来自 `extensions.json` 的 `disabledClient`）。
+   *
+   * 放在清单里而不是单开一条 IPC：渲染层本来就每秒拉一次清单，
+   * 开关也就随同一轮轮询生效，不需要额外通道、额外 preload。
+   */
+  enabled: boolean
 }
 
 export function resolveClientPluginsDir(): string {
@@ -48,6 +56,8 @@ export function resolveClientPluginsDir(): string {
 /** 扫描客户端插件目录；目录不存在或条目损坏时跳过，不抛错。 */
 export function discoverClientPlugins(): ClientPluginDescriptor[] {
   const root = resolveClientPluginsDir()
+  // 每秒被 list.json 拉一次，读一个小 JSON 的代价可以忽略（已经在 readdir+stat）
+  const { disabledClient } = readExtensionPrefs()
   let dirs: string[]
   try {
     dirs = fs.readdirSync(root)
@@ -70,6 +80,7 @@ export function discoverClientPlugins(): ClientPluginDescriptor[] {
         version: meta.version,
         entry: 'client.js',
         revision: `${Math.floor(stat.mtimeMs)}-${stat.size}`,
+        enabled: !disabledClient.has(meta.id),
       })
     } catch {
       continue

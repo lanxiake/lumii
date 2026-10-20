@@ -156,6 +156,21 @@
   min-height: 0;
 }
 
+/*
+ * 扩展 Tab 同样是「统一列表 + 插件自注册分区」两块纵向堆叠。
+ * 必须包一层滚动容器：`.embedPane > *` 会给**每个直接子节点** flex:1，
+ * 直接把两块塞进去会让它们各抢一半高度、内容互相压盖（实测：列表后 3 行被盖住）。
+ */
+.extensionsPane {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--mt-space-5, 20px);
+  padding-right: var(--mt-space-2, 8px);
+}
+
 /* MCP Tab 是「配置面板 + 工具列表」两块纵向堆叠，整体滚动，不各占一半 */
 .mcpPane {
   flex: 1;

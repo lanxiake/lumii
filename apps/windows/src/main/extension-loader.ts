@@ -42,8 +42,26 @@ export interface ExternalExtensionEntry {
   /** 上次加载时的 mtime+size，用于判断是否真的变了 */
   revision: string
   manifestId: string
-  /** 保留上一版定义，新版本激活失败时用来回滚 */
-  definition: PluginDefinition<MainEvents>
+  name: string
+  version: string
+  /** 上一版定义：新版本激活失败时用来回滚，以及被禁用后仍能列举 */
+  definition?: PluginDefinition<MainEvents>
+  /** 是否已挂到宿主上（被禁用或导入失败时为 false） */
+  enabled: boolean
+  /** 本次加载的错误（导入失败 / 激活失败）；旧版本仍在服务时也会带着它 */
+  error?: string
+}
+
+/** 给 UI 的外部扩展快照：配置上的开关 + 宿主里的真实状态 */
+export interface ExternalExtensionInfo {
+  dir: string
+  id: string
+  name: string
+  version: string
+  enabled: boolean
+  state: string
+  activationMs?: number
+  error?: string
 }
 
 const ENTRY_FILE = 'main.js'
@@ -155,14 +173,36 @@ export class ExternalExtensionRuntime {
       warn(m: string): void
       error(m: string, e?: unknown): void
     },
-    options: { root?: string; appVersion?: string } = {},
+    options: { root?: string; appVersion?: string; disabledIds?: ReadonlySet<string> } = {},
   ) {
     this.root = options.root ?? resolveExtensionsDir()
     this.appVersion = options.appVersion
+    this.disabledIds = options.disabledIds ?? new Set()
   }
 
   private readonly root: string
   private readonly appVersion?: string
+  /** 启动时从 extensions.json 读到的禁用项；运行时不变（开关重启后生效） */
+  private readonly disabledIds: ReadonlySet<string>
+
+  /** 当前已知的外部扩展（含被禁用的与导入失败的）。UI 的列表用它。 */
+  inspect(): ExternalExtensionInfo[] {
+    return [...this.loaded.values()].map((entry) => {
+      const live = this.host.get(entry.manifestId)
+      return {
+        dir: entry.dir,
+        id: entry.manifestId,
+        name: entry.name,
+        version: entry.version,
+        enabled: entry.enabled,
+        state: entry.enabled ? (live?.state ?? 'unknown') : 'disabled',
+        activationMs: live?.activationMs,
+        error:
+          entry.error ??
+          (live?.error ? String((live.error as Error)?.message ?? live.error) : undefined),
+      }
+    })
+  }
 
   /** 首次加载全部外部扩展。单个失败只记日志，不影响其他扩展与应用启动。 */
   async loadAll(): Promise<void> {
@@ -220,6 +260,7 @@ export class ExternalExtensionRuntime {
   private async reload(dir: string, entryFile: string): Promise<void> {
     const revision = revisionOf(entryFile)
     const previous = this.loaded.get(dir)
+    const dirName = path.basename(dir)
 
     let mod: ExternalExtensionModule
     try {
@@ -227,7 +268,24 @@ export class ExternalExtensionRuntime {
       mod = parseExternalModule(await import(`${pathToFileURL(entryFile).href}?v=${revision}`), this.appVersion)
     } catch (error) {
       // 新代码坏了 → 旧版本继续服务。先卸后载会让「编辑到一半保存」变成功能凭空消失
+      const message = (error as Error)?.message ?? String(error)
       this.log.error(`[ext] 加载失败 ${entryFile}，保留旧版本`, error)
+      // 记下这次 revision：否则 rescan 每秒重试一次、每秒刷一条同样的错误
+      this.loaded.set(
+        dir,
+        previous
+          ? { ...previous, revision, error: message }
+          : {
+              dir,
+              entryFile,
+              revision,
+              manifestId: dirName,
+              name: dirName,
+              version: '?',
+              enabled: false,
+              error: message,
+            },
+      )
       return
     }
 
@@ -236,12 +294,29 @@ export class ExternalExtensionRuntime {
     // 与内置扩展撞 id 时给出可读的原因，而不是底层的「重复注册」
     const occupied = this.host.get(manifest.id)
     if (occupied && occupied.id !== previous?.manifestId) {
-      this.log.error(`[ext] ${manifest.id} 与已加载的扩展同名，已跳过（${path.basename(dir)}）`)
+      this.log.error(`[ext] ${manifest.id} 与已加载的扩展同名，已跳过（${dirName}）`)
       return
     }
 
     // 先卸旧的：作用域销毁要等完，否则新旧两份会同时持有服务与监听器
     if (previous) await this.unload(previous.dir)
+
+    // 被禁用：只登记不激活。登记是为了让它在列表里仍然看得见——
+    // 关掉之后就从 UI 里消失，等于逼用户去手改 JSON。
+    if (this.disabledIds.has(manifest.id)) {
+      this.loaded.set(dir, {
+        dir,
+        entryFile,
+        revision,
+        manifestId: manifest.id,
+        name: manifest.name,
+        version: manifest.version,
+        definition,
+        enabled: false,
+      })
+      this.log.info(`[ext] ${manifest.id} 已按配置禁用（${dirName}）`)
+      return
+    }
 
     try {
       this.host.register(definition)
@@ -251,16 +326,26 @@ export class ExternalExtensionRuntime {
       this.log.error(`[ext] ${manifest.id} 新版本加载失败`, error)
       await this.host.unregister(manifest.id).catch(() => undefined)
       // 卸载已经发生，只有把上一版重新激活才算真回滚
-      if (previous) await this.restore(previous)
+      if (previous) await this.restore({ ...previous, error: (error as Error)?.message ?? String(error) })
       return
     }
 
-    this.loaded.set(dir, { dir, entryFile, revision, manifestId: manifest.id, definition })
-    this.log.info(`[ext] ${manifest.id} 已加载（${path.basename(dir)}）`)
+    this.loaded.set(dir, {
+      dir,
+      entryFile,
+      revision,
+      manifestId: manifest.id,
+      name: manifest.name,
+      version: manifest.version,
+      definition,
+      enabled: true,
+    })
+    this.log.info(`[ext] ${manifest.id} 已加载（${dirName}）`)
   }
 
   /** 新版本失败时把上一版重新挂起来。回滚也失败则如实报告该扩展已停止。 */
   private async restore(entry: ExternalExtensionEntry): Promise<void> {
+    if (!entry.definition) return
     try {
       this.host.register(entry.definition)
       const error = await this.host.activate(entry.manifestId)

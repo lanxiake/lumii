@@ -56,8 +56,11 @@ export const Router: React.FC<RouterProps> = ({ activeView, onViewChange }) => {
       const viewId = activeView.slice('plugin:'.length)
       const entry = getSlotEntries('app.view').find((e) => e.id === viewId)
       if (entry) {
-        const PluginView = entry.component as React.ComponentType
-        return <PluginView />
+        const PluginView = entry.component as React.ComponentType<{
+          onViewChange?: (view: ViewType) => void
+        }>
+        // 传 onViewChange：插件页面要能自己跳转（比如「回概览」）
+        return <PluginView onViewChange={onViewChange} />
       }
       return <DashboardPage onViewChange={onViewChange} />
     }

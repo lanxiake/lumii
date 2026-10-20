@@ -153,7 +153,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {/* 插件导航：条目由 `app.nav` 槽位提供，点击后走 onViewChange('plugin:<id>') */}
         <SlotHost
           name="app.nav"
-          context={{ activeView, onViewChange: handleViewChange, collapsed: isCollapsed }}
+          context={{
+            activeView,
+            onViewChange: handleViewChange,
+            collapsed: isCollapsed,
+            // 把侧栏的样式类名交给插件：否则插件只能自己堆 inline style，
+            // 一眼就看得出「不是原生的」。CSS Modules 的类名是哈希的，插件拿不到。
+            classNames: {
+              item: styles['nav-item'],
+              active: styles.active,
+              icon: styles['nav-icon'],
+              label: styles['nav-label'],
+            },
+          }}
         />
       </nav>
 

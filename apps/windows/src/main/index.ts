@@ -151,7 +151,9 @@ import { createPluginHost } from './plugin-host'
 import { ExternalExtensionRuntime } from './extension-loader'
 import { S } from './kernel/services'
 import type { MainEvents } from './kernel/events'
-import { readDisabledExtensionIds } from './kernel/extension-store'
+import { readExtensionPrefs } from './kernel/extension-store'
+import { createExtensionControl, setExtensionControl } from './extension-control'
+import { setupExtensionIpcHandlers } from './ipc/extension-ipc'
 import { setPalaceBridgeProvider, setupPalaceIpcHandlers } from './ipc/palace-ipc'
 import { registerAllIpcHandlers } from './ipc/ipc-handlers-registry'
 import { registerCodingDevIpcHandlers } from './ipc/coding-dev-ipc'
@@ -1217,7 +1219,7 @@ async function prepareAppShell(flags: ReturnType<typeof readStartupFlags>): Prom
  * 等 `config:ready` 事件到了再取真值——而不是把整个宿主往后挪。
  */
 async function startExtensions(): Promise<void> {
-  const { disabled, warning } = readDisabledExtensionIds()
+  const { disabled, warning } = readExtensionPrefs()
   if (warning) log.warn(`[extensions] ${warning}`)
 
   const created = createPluginHost(
@@ -1271,9 +1273,13 @@ async function startExtensions(): Promise<void> {
     info: (m) => log.info(m),
     warn: (m) => log.warn(m),
     error: (m, e) => log.error(m, e),
-  })
+  }, { disabledIds: disabled })
   await externalExtensions.loadAll()
   externalExtensions.startWatching()
+
+  // 设置页「扩展」页签的数据源。放在这里是因为它要 host + 外部扩展运行时；
+  // IPC 通道本身在 S7 注册（用模块级 getter 取，早注册也不会拿到 null）。
+  setExtensionControl(createExtensionControl({ host: pluginHost, external: externalExtensions }))
 }
 
 /**
@@ -1461,6 +1467,8 @@ async function initLocalServices(): Promise<void> {
     },
   })
   setupPluginIpcHandlers()
+  // 代码扩展（主进程扩展 + 客户端插件）的列表与开关
+  setupExtensionIpcHandlers()
 
   // 种子内置技能：必须在 initSkillRuntime 之前。
   // SkillRuntime 初始化时会扫描 workspace/skills 并把结果缓存进 LocalSkillStore.index，

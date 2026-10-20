@@ -967,6 +967,27 @@ export interface ElectronAPI {
     }) => void) => () => void
   }
 
+  /** 代码扩展 API（主进程扩展 + 客户端插件） */
+  extensions: {
+    list: () => Promise<Array<{
+      id: string
+      name: string
+      version: string
+      kind: 'builtin' | 'external'
+      dir?: string
+      enabled: boolean
+      state: string
+      activationMs?: number
+      error?: string
+    }>>
+    /** 主进程扩展开关：写入偏好，**重启后生效** */
+    setEnabled: (id: string, enabled: boolean) => Promise<{ ok: boolean; error?: string; restartRequired?: boolean }>
+    /** 客户端插件开关：渲染层下一轮轮询（≤1 秒）生效 */
+    setClientEnabled: (id: string, enabled: boolean) => Promise<{ ok: boolean; error?: string }>
+    /** 在 ~/.lumii/plugins/ 生成一个可直接生效的示例插件 */
+    createSample: () => Promise<{ ok: boolean; dir?: string; error?: string }>
+  }
+
   // 工作空间 Git 版本管理 (VCS)
   vcs: {
     ensureInit: () => Promise<{ ok: boolean }>
@@ -1237,6 +1258,16 @@ const electronAPI: ElectronAPI = {
     onProgress: (callback: (payload: any) => void): () => void => {
       return createEventListener('plugin:progress', (payload: unknown) => callback(payload))
     },
+  },
+
+  // 代码扩展（主进程扩展 + 客户端插件）
+  extensions: {
+    list: () => ipcRenderer.invoke('extension:list'),
+    setEnabled: (id: string, enabled: boolean) =>
+      ipcRenderer.invoke('extension:set-enabled', id, enabled),
+    setClientEnabled: (id: string, enabled: boolean) =>
+      ipcRenderer.invoke('extension:set-client-enabled', id, enabled),
+    createSample: () => ipcRenderer.invoke('extension:create-sample'),
   },
 
   // 工作空间 Git 版本管理 (VCS)

@@ -7,6 +7,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import clsx from 'clsx'
 import { SlotHost } from '../slots/SlotHost'
+import { ExtensionsPanel } from '../ExtensionsPanel/ExtensionsPanel'
 import { Modal } from '../ui/Modal/Modal'
 import {
   User,
@@ -212,11 +213,14 @@ export const SettingsHubModal: React.FC<{
           </div>
         )
       case 'extensions':
-        // 代码扩展的分区由插件自己注册（settings.section）；
-        // 这里只提供容器与页签，不预置任何具体分区。
+        // 上半是统一列表与开关，下半是插件自己注册的分区（settings.section）。
+        // 两者不是一回事：前者管「装了什么」，后者是「插件想往设置里加什么」。
         return (
           <div className={styles.embedPane}>
-            <SlotHost name="settings.section" />
+            <div className={styles.extensionsPane}>
+              <ExtensionsPanel />
+              <SlotHost name="settings.section" />
+            </div>
           </div>
         )
       default:
