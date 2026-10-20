@@ -18,6 +18,7 @@ import { SlotHost } from '../../components/slots/SlotHost'
 import {
   DASHBOARD_GRID_SLOT,
   DASHBOARD_MAIN_SLOT,
+  DASHBOARD_PLUGINS_SLOT,
   registerBuiltinDashboardCards,
   type DashboardCardContext,
 } from './dashboard-cards'
@@ -50,6 +51,14 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ onViewChange }) => {
         // 布局是固定的三栏（1.7fr / 1fr / 216px）且限高，第 4 张会溢出
         max={3}
         wrap={(children) => <div className={styles['bottom-grid']}>{children}</div>}
+      />
+
+      {/* 插件专属区：页面为它预留固定高度（最多 168px、内部自滚），
+          插件加得再多也不会挤压上面的资讯区与三栏。空的时候整条不渲染。 */}
+      <SlotHost<DashboardCardContext>
+        name={DASHBOARD_PLUGINS_SLOT}
+        context={context}
+        wrap={(children) => <div className={styles['plugin-band']}>{children}</div>}
       />
     </div>
   )

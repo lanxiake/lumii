@@ -16,6 +16,8 @@ import { VirtualHuman } from './components/VirtualHuman'
 export const DASHBOARD_MAIN_SLOT = 'dashboard.main'
 /** 底部三栏区 */
 export const DASHBOARD_GRID_SLOT = 'dashboard.grid'
+/** 插件专属区：页面为它预留了固定高度预算，插件加多少都不会挤压上面的布局 */
+export const DASHBOARD_PLUGINS_SLOT = 'dashboard.plugins'
 
 export interface DashboardCardContext {
   onViewChange?: (view: ViewType) => void

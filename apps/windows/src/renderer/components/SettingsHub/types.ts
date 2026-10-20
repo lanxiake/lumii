@@ -17,6 +17,7 @@ export type SettingsHubTab =
   | 'memories'
   | 'wiki'
   | 'plugins'
+  | 'extensions'
 
 /** 设置区内左侧分类 */
 export type MergedSettingsCategory =
@@ -58,6 +59,8 @@ export const SETTINGS_HUB_TABS: Array<{ id: SettingsHubTab; label: string }> = [
   { id: 'memories', label: '记忆' },
   { id: 'wiki', label: '资料库' },
   { id: 'plugins', label: '插件' },
+  // 代码扩展（~/.lumii/plugins）——与上面的「插件」（资产/组件）是两类东西
+  { id: 'extensions', label: '扩展' },
 ]
 
 /** 可被 Hub 接管的路由视图 */

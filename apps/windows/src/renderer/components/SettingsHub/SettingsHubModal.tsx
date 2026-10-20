@@ -6,6 +6,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react'
 import clsx from 'clsx'
+import { SlotHost } from '../slots/SlotHost'
 import { Modal } from '../ui/Modal/Modal'
 import {
   User,
@@ -208,6 +209,14 @@ export const SettingsHubModal: React.FC<{
         return (
           <div className={styles.embedPane}>
             <PluginCenterPage embedded />
+          </div>
+        )
+      case 'extensions':
+        // 代码扩展的分区由插件自己注册（settings.section）；
+        // 这里只提供容器与页签，不预置任何具体分区。
+        return (
+          <div className={styles.embedPane}>
+            <SlotHost name="settings.section" />
           </div>
         )
       default:

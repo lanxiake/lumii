@@ -113,3 +113,20 @@
     background-clip: unset;
   }
 }
+
+/* ── 插件区：给插件预留的专属预算带 ──
+   为什么单独开一条而不是塞进已有 slot：概览页是像素预算的一屏布局，
+   插件卡片塞进资讯区或三栏都会挤压既有内容（实测过）。
+   这里固定最多 168px、内部自己滚，插件再多也不会压坏上面的布局。 */
+.plugin-band {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed color-mix(in srgb, var(--mt-fg-3) 35%, transparent);
+  flex: 0 0 auto;
+  max-height: 168px;
+  overflow-y: auto;
+  animation: mt-dash-bottom-in 0.55s var(--mt-ease-standard) 0.2s both;
+}
