@@ -7,7 +7,7 @@
  * 3. 提供增强版 compactContext（LLM 摘要 + 内存同步）
  */
 
-import type { AgentRuntimeBridge } from '../agent-runtime/bridge'
+import type { ChannelAgentGateway } from './agent-gateway'
 import { channelLabelOf } from './types'
 import type { ContextStrategy, IChannelAdapter, ChannelSession } from './types'
 
@@ -89,7 +89,7 @@ export class SessionManager {
   /** sessionKey → 卡死看门狗定时器（锁存活期间存在） */
   private readonly stallWatchdogs = new Map<string, ReturnType<typeof setTimeout>>()
 
-  constructor(private readonly bridge: AgentRuntimeBridge) {}
+  constructor(private readonly bridge: ChannelAgentGateway) {}
 
   /**
    * 统一 prompt 入口。

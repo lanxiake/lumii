@@ -6,7 +6,7 @@
  * 用户下一条文字消息被 adapter 拦截 → 解析 → 回填 bridge 的 resolver。
  */
 
-import type { AgentRuntimeBridge } from '../agent-runtime/bridge'
+import type { ChannelAgentGateway } from './agent-gateway'
 import type { ChannelInteractionRequest, ChannelSession, IChannelAdapter } from './types'
 import {
   ChannelInteractionStore,
@@ -33,7 +33,7 @@ export class ChannelInteractionHub {
   /** sessionKey → 最近一次该会话的 adapter + 回复上下文（每轮消息刷新） */
   private readonly routes = new Map<string, RouteEntry>()
 
-  constructor(private readonly bridge: AgentRuntimeBridge) {
+  constructor(private readonly bridge: ChannelAgentGateway) {
     bridge.setChannelInteractionNotifier((req) => this.onInteraction(req))
     // 主动出站（转交完成汇报等异步产出）：入站消息刷新过的会话才推得出去
     bridge.setChannelTextPusher((sessionKey, text) => this.pushText(sessionKey, text))
@@ -178,7 +178,7 @@ export class ChannelInteractionHub {
  */
 let hub: ChannelInteractionHub | null = null
 
-export function getChannelInteractionHub(bridge: AgentRuntimeBridge): ChannelInteractionHub {
+export function getChannelInteractionHub(bridge: ChannelAgentGateway): ChannelInteractionHub {
   if (!hub) hub = new ChannelInteractionHub(bridge)
   return hub
 }
@@ -196,7 +196,7 @@ export function getChannelInteractionHub(bridge: AgentRuntimeBridge): ChannelInt
  */
 export function tryHandleChannelOutOfBand(params: {
   hub: ChannelInteractionHub
-  bridge: AgentRuntimeBridge
+  bridge: ChannelAgentGateway
   adapter: IChannelAdapter
   session: ChannelSession
   text: string

@@ -5,7 +5,7 @@
  * - afterPrompt：清空 Agent 内存（避免 compaction summary 污染下一轮）
  */
 
-import type { AgentRuntimeBridge } from '../../agent-runtime/bridge'
+import type { ChannelAgentGateway } from '../agent-gateway'
 import type { ContextStrategy } from '../types'
 
 const log = {
@@ -14,7 +14,7 @@ const log = {
 }
 
 export class StatelessContextStrategy implements ContextStrategy {
-  constructor(private readonly bridge: AgentRuntimeBridge) {}
+  constructor(private readonly bridge: ChannelAgentGateway) {}
 
   async beforePrompt(instanceId: string, sessionKey: string, pendingUserMsgId?: string): Promise<void> {
     log.info(`[beforePrompt] 从 DB 恢复历史: instanceId=${instanceId} sessionKey=${sessionKey}`)

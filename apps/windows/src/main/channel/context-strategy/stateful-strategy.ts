@@ -9,7 +9,7 @@
  * 若有新增则调用 restoreHistoryForInstance 重新注入（全量替换，保持简单）。
  */
 
-import type { AgentRuntimeBridge } from '../../agent-runtime/bridge'
+import type { ChannelAgentGateway } from '../agent-gateway'
 import type { ContextStrategy } from '../types'
 
 const log = {
@@ -23,7 +23,7 @@ export class StatefulContextStrategy implements ContextStrategy {
   /** 需强制从 DB 全量重注入的 sessionKey（edit-and-resend 截断后，内存比 DB 多，须以 DB 为准） */
   private readonly forceResync = new Set<string>()
 
-  constructor(private readonly bridge: AgentRuntimeBridge) {}
+  constructor(private readonly bridge: ChannelAgentGateway) {}
 
   /** 标记下次 beforePrompt 强制以 DB 为准重注入内存（用于 edit-and-resend / 重新生成的截断重放） */
   markForceResync(sessionKey: string): void {
