@@ -63,26 +63,18 @@ let scheduledTimer: ReturnType<typeof setTimeout> | undefined;
 let dailyInterval: ReturnType<typeof setInterval> | undefined;
 
 /**
- * 执行 PRAGMA integrity_check，返回是否通过。
- */
-/**
  * 开库完整性检查。
  *
  * 用 `quick_check` 而不是 `integrity_check`：后者要全库扫描（306MB 库实测数秒，
  * 直接压在启动关键路径上）。quick_check 跳过「索引内容与表内容是否一致」的逐行比对，
  * 仍然会发现结构性损坏——而对「要不要从备份恢复」这个决策来说，结构性损坏才是判据。
  *
- * 需要逐行全量校验时用 `verifyDatabaseIntegrityFull`（维护/排障路径）。
+ * 真要逐行全量校验时，直接 `db.prepare("PRAGMA integrity_check").get()`；
+ * 封成函数没人调用只会变成死代码（曾被 knip 抓住）。
  */
 export function verifyDatabaseIntegrity(db: DatabaseAdapter): boolean {
   const row = db.prepare<{ quick_check: string }>("PRAGMA quick_check").get();
   return row?.quick_check === "ok";
-}
-
-/** 全量检查：慢（全库扫描），仅用于维护与排障，不要放进启动路径。 */
-export function verifyDatabaseIntegrityFull(db: DatabaseAdapter): boolean {
-  const row = db.prepare<{ integrity_check: string }>("PRAGMA integrity_check").get();
-  return row?.integrity_check === "ok";
 }
 
 /**

@@ -78,35 +78,36 @@ export function clearAgentRuntimeRepos(): void {
   wikiLibraryMigrate = null
 }
 
-function require<K extends keyof AgentRuntimeRepos>(key: K): AgentRuntimeRepos[K] {
+/** 刻意不叫 `require`：knip 会把同名调用当成 CommonJS require，逐条报成「未声明的依赖」。 */
+function mustGet<K extends keyof AgentRuntimeRepos>(key: K): AgentRuntimeRepos[K] {
   if (!repos) {
     throw new Error(`AgentRuntimeBridge not initialized (${key}). Call initialize() first.`)
   }
   return repos[key]
 }
 
-export function getDb(): DatabaseAdapter { return require('db') }
-export function getConversationRepo(): ConversationRepo { return require('conversationRepo') }
-export function getSegmentRepo(): SegmentRepo { return require('segmentRepo') }
-export function getTaskRepo(): TaskRepo { return require('taskRepo') }
-export function getAuditRepo(): AuditRepo { return require('auditRepo') }
-export function getBashCommandRepo(): BashCommandRepo { return require('bashCommandRepo') }
-export function getRuntimeStateRepo(): RuntimeStateRepo { return require('runtimeStateRepo') }
-export function getAutonomousRepo(): AutonomousRepo { return require('autonomousRepo') }
-export function getFileRepo(): FileRepo { return require('fileRepo') }
-export function getMemoryRepo(): AgentMemoryRepo { return require('memoryRepo') }
-export function getMemoryManager(): MemoryManager { return require('memoryManager') }
+export function getDb(): DatabaseAdapter { return mustGet('db') }
+export function getConversationRepo(): ConversationRepo { return mustGet('conversationRepo') }
+export function getSegmentRepo(): SegmentRepo { return mustGet('segmentRepo') }
+export function getTaskRepo(): TaskRepo { return mustGet('taskRepo') }
+export function getAuditRepo(): AuditRepo { return mustGet('auditRepo') }
+export function getBashCommandRepo(): BashCommandRepo { return mustGet('bashCommandRepo') }
+export function getRuntimeStateRepo(): RuntimeStateRepo { return mustGet('runtimeStateRepo') }
+export function getAutonomousRepo(): AutonomousRepo { return mustGet('autonomousRepo') }
+export function getFileRepo(): FileRepo { return mustGet('fileRepo') }
+export function getMemoryRepo(): AgentMemoryRepo { return mustGet('memoryRepo') }
+export function getMemoryManager(): MemoryManager { return mustGet('memoryManager') }
 /** 灰度服务：未开启时返回 null，与桥上 getter 的语义一致 */
 export function getSegmentMemory(): SegmentMemoryService | null { return repos?.segmentMemory ?? null }
-export function getWikiRepo(): WikiRepo { return require('wikiRepo') }
-export function getWikiOrganizer(): WikiOrganizer { return require('wikiOrganizer') }
-export function getWikiIngestHook(): WikiIngestHook { return require('wikiIngestHook') }
-export function getWikiReclassifier(): WikiReclassifier { return require('wikiReclassifier') }
+export function getWikiRepo(): WikiRepo { return mustGet('wikiRepo') }
+export function getWikiOrganizer(): WikiOrganizer { return mustGet('wikiOrganizer') }
+export function getWikiIngestHook(): WikiIngestHook { return mustGet('wikiIngestHook') }
+export function getWikiReclassifier(): WikiReclassifier { return mustGet('wikiReclassifier') }
 export function getWikiLibraryMigrate(): WikiLibraryMigrate {
   if (!wikiLibraryMigrate) {
     throw new Error('AgentRuntimeBridge not initialized (wikiLibraryMigrate). Call initialize() first.')
   }
   return wikiLibraryMigrate
 }
-export function getWikiOrganizeQueue(): WikiOrganizeQueue { return require('wikiOrganizeQueue') }
-export function getWikiCleanupScanner(): WikiCleanupScanner { return require('wikiCleanupScanner') }
+export function getWikiOrganizeQueue(): WikiOrganizeQueue { return mustGet('wikiOrganizeQueue') }
+export function getWikiCleanupScanner(): WikiCleanupScanner { return mustGet('wikiCleanupScanner') }

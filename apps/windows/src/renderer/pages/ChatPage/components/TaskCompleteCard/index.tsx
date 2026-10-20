@@ -68,5 +68,3 @@ export const TaskCompleteCard: React.FC<TaskCompleteCardProps> = ({ part }) => {
     </div>
   )
 }
-
-export { parseTaskCompletePart } from './parse-task-complete'

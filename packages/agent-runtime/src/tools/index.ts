@@ -4,7 +4,6 @@ export { ALL_BUILT_IN_TOOL_CONFIGS } from "./built-in/index.js";
 export { resolveAgentFilePath } from "./resolve-file-path.js";
 export { ToolRunner } from "./tool-runner.js";
 export {
-  buildBackgroundNotice,
   type BackgroundToolConfig,
   type BackgroundToolPolicy,
   type BackgroundToolRunInput,
