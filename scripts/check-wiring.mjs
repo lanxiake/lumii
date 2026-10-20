@@ -782,6 +782,24 @@ const orphanSends = [...sMap.keys()].filter((c) => !lMap.has(c) && !rendererLite
 
 const unregisteredTools = [...report.tools.exported.keys()].filter((n) => !report.tools.registered.has(n)).sort()
 
+// ---- ⑩ IPC 归属
+//
+// 每个注册 handler 的文件都必须在 scripts/ipc-owners.json 里登记归属。
+// 逐通道写 194 行元数据没人维护得动，按**文件**登记 25 行即可回答
+// 「这个通道是谁的」；插件化后 owner 由 manifest 取代。
+const ownersPath = join(ROOT, 'scripts/ipc-owners.json')
+const ipcOwners = existsSync(ownersPath) ? JSON.parse(readFileSync(ownersPath, 'utf8')) : {}
+const MAIN_PREFIX = 'apps/windows/src/main/'
+const ipcRegisteringFiles = new Set()
+for (const h of handlers) {
+  const at = h.at.slice(0, h.at.lastIndexOf(':'))
+  if (at.startsWith(MAIN_PREFIX)) ipcRegisteringFiles.add(at.slice(MAIN_PREFIX.length))
+}
+const unownedIpc = [...ipcRegisteringFiles].filter((f) => !(f in ipcOwners)).sort()
+const staleIpcOwners = Object.keys(ipcOwners)
+  .filter((k) => !k.startsWith('_') && !ipcRegisteringFiles.has(k))
+  .sort()
+
 // ---- ⑥ preload 暴露面 vs renderer 消费
 //
 // ② 的镜像：② 查「preload 引用了但 main 没实现」，这里查「main 和 preload 都齐了、
@@ -1025,6 +1043,18 @@ const graded = gradeDangling(danglingRefs, reach.reachable)
   }
 }
 
+// ⑩
+{
+  const { fresh, known } = splitNew(unownedIpc, 'unownedIpc')
+  section(`⑩ 注册了 IPC 但没登记归属（scripts/ipc-owners.json）— 新增 ${fresh.length}`)
+  for (const f of fresh) console.log(`  ${RED('✗')} ${f}`)
+  if (expandKnown) for (const f of known) console.log(`  ${DIM('·')} ${DIM(f)}`)
+  else if (known.length) console.log(`  ${DIM(`基线内已知 ${known.length} 处（--verbose 展开）`)}`)
+  if (staleIpcOwners.length) {
+    console.log(`  ${YEL('注：')}以下归属项已不再注册 IPC，可删除：${staleIpcOwners.join('、')}`)
+  }
+}
+
 if (VERBOSE && reach.unresolvedSpecs.size) {
   // 按扩展名归类：.css / .json / 图片等资源导入解析不到是正常的（它们不是 TS 模块）。
   // **没有扩展名的**才可疑——那多半是别名没覆盖到，会让 ⑤ 漏报。
@@ -1056,7 +1086,8 @@ const freshCount =
   splitNew(unregisteredTools, 'unregisteredTools').fresh.length +
   splitNew(unreachable.map(rel), 'unreachable').fresh.length +
   splitNew(unconsumedMethods, 'unconsumedMethods').fresh.length +
-  splitNew(unroutedCommands, 'unroutedCommands').fresh.length
+  splitNew(unroutedCommands, 'unroutedCommands').fresh.length +
+  splitNew(unownedIpc, 'unownedIpc').fresh.length
 
 console.log(
   `\n${
