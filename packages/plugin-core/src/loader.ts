@@ -84,42 +84,68 @@ export class PluginHost<E extends EventMap = EventMap> {
       const entry = this.plugins.get(id);
       if (!entry || entry.state !== "registered") continue;
 
-      const missing = (entry.definition.inject ?? []).filter((key) => !this.container.has(key));
-      if (missing.length > 0) {
-        entry.state = "failed";
-        entry.error = new PluginError(id, `缺少依赖服务：${missing.join(", ")}`);
-        report.failed.push({ id, error: entry.error });
-        continue;
-      }
-
-      const startedAt = performance.now();
-      entry.state = "activating";
-
-      const scope = new PluginScope(id);
-      entry.scope = scope;
-      const ctx = createPluginContext({
-        pluginId: id,
-        container: this.container,
-        eventBus: this.eventBus,
-        scope,
-        logger: createPluginLogger(id, this.loggerSink),
-      });
-
-      try {
-        await entry.definition.apply(ctx);
-        entry.state = "active";
-        entry.activationMs = performance.now() - startedAt;
-        report.activated.push(id);
-      } catch (error) {
-        entry.state = "failed";
-        entry.error = error;
-        report.failed.push({ id, error });
-        await scope.dispose();
-        this.dropServices(entry.definition.provides);
-      }
+      const error = await this.activate(id);
+      if (error) report.failed.push({ id, error });
+      else report.activated.push(id);
     }
 
     return report;
+  }
+
+  /**
+   * 激活单个已注册插件。
+   *
+   * @returns 成功返回 undefined，失败返回错误（不抛）——调用方多为加载器/热重载，
+   *          它们需要的是「这一个失败了」而不是整个流程中断。
+   */
+  async activate(id: string): Promise<unknown | undefined> {
+    const entry = this.plugins.get(id);
+    if (!entry || entry.state === "active") return undefined;
+
+    const missing = (entry.definition.inject ?? []).filter((key) => !this.container.has(key));
+    if (missing.length > 0) {
+      entry.state = "failed";
+      entry.error = new PluginError(id, `缺少依赖服务：${missing.join(", ")}`);
+      return entry.error;
+    }
+
+    const startedAt = performance.now();
+    entry.state = "activating";
+
+    const scope = new PluginScope(id);
+    entry.scope = scope;
+    const ctx = createPluginContext({
+      pluginId: id,
+      container: this.container,
+      eventBus: this.eventBus,
+      scope,
+      logger: createPluginLogger(id, this.loggerSink),
+    });
+
+    try {
+      await entry.definition.apply(ctx);
+      entry.state = "active";
+      entry.activationMs = performance.now() - startedAt;
+      return undefined;
+    } catch (error) {
+      entry.state = "failed";
+      entry.error = error;
+      await scope.dispose();
+      this.dropServices(entry.definition.provides);
+      return error;
+    }
+  }
+
+  /**
+   * 把已注册插件整个摘掉（停用 + 从宿主移除）。
+   *
+   * 与 `stop()` 的区别：stop 保留登记，可以再 activate；unregister 之后
+   * `get(id)` 拿到的是 undefined，用于外部扩展目录被删除的场景。
+   */
+  async unregister(id: string): Promise<DisposeResult> {
+    const result = await this.stop(id);
+    this.plugins.delete(id);
+    return result;
   }
 
   /** 停止单个插件：逆序清理作用域，并移除它提供的服务。 */

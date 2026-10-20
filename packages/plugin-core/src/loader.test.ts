@@ -129,6 +129,65 @@ describe("PluginHost", () => {
     expect(host.get("p")?.state).toBe("stopped");
   });
 
+  it("activate 单独激活，unregister 摘掉后 get 为 undefined", async () => {
+    const host = new PluginHost<TestEvents>();
+    let disposed = false;
+
+    host.register(
+      definePlugin<TestEvents>({
+        id: "one",
+        apply(ctx) {
+          ctx.effect(() => {
+            disposed = true;
+          });
+        },
+      }),
+    );
+
+    expect(await host.activate("one")).toBeUndefined();
+    expect(host.get("one")?.state).toBe("active");
+
+    await host.unregister("one");
+
+    expect(disposed).toBe(true);
+    expect(host.get("one")).toBeUndefined();
+  });
+
+  it("activate 失败返回错误而不抛出，且作用域已清理", async () => {
+    const host = new PluginHost<TestEvents>();
+    let cleaned = false;
+
+    host.register(
+      definePlugin<TestEvents>({
+        id: "boom",
+        apply(ctx) {
+          ctx.effect(() => {
+            cleaned = true;
+          });
+          throw new Error("boom");
+        },
+      }),
+    );
+
+    const error = await host.activate("boom");
+
+    expect(error).toBeInstanceOf(Error);
+    expect(host.get("boom")?.state).toBe("failed");
+    expect(cleaned).toBe(true);
+  });
+
+  it("同一 id 可先 unregister 再重新注册（热重载路径）", async () => {
+    const host = new PluginHost<TestEvents>();
+
+    host.register(definePlugin<TestEvents>({ id: "p", apply() {} }));
+    await host.activate("p");
+    await host.unregister("p");
+
+    host.register(definePlugin<TestEvents>({ id: "p", apply() {} }));
+    expect(await host.activate("p")).toBeUndefined();
+    expect(host.get("p")?.state).toBe("active");
+  });
+
   it("重复注册同一 id 抛错", () => {
     const host = new PluginHost<TestEvents>();
     host.register(definePlugin<TestEvents>({ id: "p", apply() {} }));

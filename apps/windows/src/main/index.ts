@@ -154,7 +154,9 @@ import { registerBuiltinPlugins } from './plugins/builtin'
 import { setupPluginIpcHandlers } from './plugins/plugin-manager'
 import type { PluginHost } from '@mtbot/plugin-core'
 import { createPluginHost } from './plugin-host'
+import { ExternalExtensionRuntime } from './extension-loader'
 import { S } from './kernel/services'
+import type { MainEvents } from './kernel/events'
 import { readDisabledExtensionIds } from './kernel/extension-store'
 import { setPalaceBridgeProvider, setupPalaceIpcHandlers } from './ipc/palace-ipc'
 import { registerAllIpcHandlers } from './ipc/ipc-handlers-registry'
@@ -232,8 +234,10 @@ let screenRecordService: ScreenRecordService | null = null
 /** 云同步管理器与调度器（setupIpcHandlers 前创建，setActiveWorkspaceDirGetter 后启动） */
 let cloudSyncManager: CloudSyncManager | null = null
 let syncScheduler: SyncScheduler | null = null
-/** 扩展宿主（P0 只挂 hello 示例；随主进程生命周期，performCleanup 时 stopAll） */
-let pluginHost: PluginHost | null = null
+/** 扩展宿主（随主进程生命周期，performCleanup 时 stopAll） */
+let pluginHost: PluginHost<MainEvents> | null = null
+/** 外部扩展（~/.lumii/extensions/）的加载与热重载 */
+let externalExtensions: ExternalExtensionRuntime | null = null
 
 /**
  * 获取录屏服务单例（供 bridge / 托盘读取）。
@@ -1351,6 +1355,15 @@ async function startExtensions(): Promise<void> {
   for (const failure of report.failed) {
     log.error(`扩展激活失败: ${failure.id}`, failure.error)
   }
+
+  // 外部扩展：代码在 bundle 之外，改完亚秒级重载（内置扩展做不到这一点）
+  externalExtensions = new ExternalExtensionRuntime(pluginHost, {
+    info: (m) => log.info(m),
+    warn: (m) => log.warn(m),
+    error: (m, e) => log.error(m, e),
+  })
+  await externalExtensions.loadAll()
+  externalExtensions.startWatching()
 }
 
 /** S2–S5：主窗口、本机控制口、窗口级 IPC（桌宠/文件预览）、托盘与录屏。 */
@@ -1899,6 +1912,7 @@ async function performCleanup(): Promise<void> {
 
     // 扩展按 LIFO 撤销自己注册的一切；排在业务服务清理之后，
     // 让扩展还能在 stop 里读到运行中的服务状态
+    externalExtensions?.stopWatching()
     if (pluginHost) {
       for (const [id, result] of await pluginHost.stopAll()) {
         if (!result.ok) log.warn(`[performCleanup] 扩展 ${id} 清理有失败项`, result.errors)
