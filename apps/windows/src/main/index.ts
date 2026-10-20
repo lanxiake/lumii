@@ -72,7 +72,7 @@ import { createMainWindow } from './window/main-window'
 import { SystemService } from './system-service'
 import { flushToolUsage } from './tool-usage-store'
 import { normalizePromptStyle, type PromptStyleValue } from '../shared/prompt-style'
-import { UpdaterService, setupUpdaterIpcHandlers } from './updater-service'
+import type { UpdaterService } from './updater-service'
 import { ClientSkillRuntime } from './skill-runtime'
 import {
   loadProviderConfig,
@@ -469,34 +469,6 @@ async function initSkillWatcher(): Promise<void> {
   await skillWatcher.start()
 
   log.info('技能监控器初始化完成')
-}
-
-/**
- * 初始化自动更新服务
- */
-function initUpdaterService(): void {
-  log.info('初始化自动更新服务')
-
-  updaterService = new UpdaterService({
-    autoCheck: false, // 发布渠道未配置前禁用，避免请求不存在的仓库
-    checkInterval: 4 * 60 * 60 * 1000, // 4小时检查一次
-    autoDownload: false,
-    autoInstall: false,
-    allowPrerelease: false,
-  })
-
-  // 设置主窗口引用
-  if (mainWindow) {
-    updaterService.setMainWindow(mainWindow)
-  }
-
-  // 设置 IPC 处理器
-  setupUpdaterIpcHandlers(updaterService)
-
-  // 生产环境下启动自动检查
-  if (process.env.NODE_ENV !== 'development') {
-    updaterService.startAutoCheck()
-  }
 }
 
 /**
@@ -1369,8 +1341,9 @@ async function startExtensions(): Promise<void> {
 
   const report = await pluginHost.start()
 
-  // perf 由扩展提供，宿主通过服务容器取回单例，供十余处既有调用点继续使用
+  // perf / updater 由扩展提供，宿主通过服务容器取回单例，供既有调用点继续使用
   performanceMonitor = pluginHost.container.get(S.perf) ?? null
+  updaterService = pluginHost.container.get(S.updater) ?? null
 
   if (report.activated.length > 0) {
     log.info(`扩展已激活: ${report.activated.join('、')}`)
@@ -1387,6 +1360,12 @@ async function initUiStages(flags: ReturnType<typeof readStartupFlags>): Promise
     const windowStartTime = performance.now()
     await createWindow(isTestMode, isStartupLaunch)
     performanceMonitor?.recordStartupPhase('window', performance.now() - windowStartTime)
+
+    // 更新器要窗口引用：扩展激活时窗口还没建，这里补一次。
+    // 扩展被禁用时 updaterService 为 null，整段自动跳过。
+    if (updaterService && mainWindow) {
+      updaterService.setMainWindow(mainWindow)
+    }
   } else {
     log.info('无头模式：跳过窗口创建')
   }
@@ -1599,9 +1578,7 @@ async function initLocalServices(): Promise<void> {
   log.info('[Main] initScriptRuntimes + 插件预安装已触发，开始 initSkillWatcher')
 
   await initSkillWatcher()  // 初始化技能监控器（此时种子文件已就绪）
-  log.info('[Main] initSkillWatcher 完成，开始 initUpdaterService')
-  initUpdaterService()
-  log.info('[Main] initUpdaterService 完成，开始 initAgentRuntime')
+  log.info('[Main] initSkillWatcher 完成，开始 initAgentRuntime')
 
   // 初始化客户端 Agent Runtime（Feature Flag 默认关闭，需手动启用）
   const agentRuntimeStartTime = performance.now()

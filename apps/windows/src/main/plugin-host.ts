@@ -3,6 +3,7 @@ import { PluginHost, type LoggerSink, type LumiiPluginManifest, type PluginDefin
 import type { MainEvents } from './kernel/events'
 import { helloExtension } from './extensions/hello'
 import { perfExtension } from './extensions/perf'
+import { updaterExtension } from './extensions/updater'
 
 /**
  * 内置扩展的统一定义。
@@ -16,7 +17,7 @@ export interface BuiltinExtension {
 }
 
 /** 内置扩展清单。新增一个功能 = 加一行 import + 一行条目。 */
-export const BUILTIN_EXTENSIONS: BuiltinExtension[] = [helloExtension, perfExtension]
+export const BUILTIN_EXTENSIONS: BuiltinExtension[] = [helloExtension, perfExtension, updaterExtension]
 
 /**
  * 主进程扩展宿主。

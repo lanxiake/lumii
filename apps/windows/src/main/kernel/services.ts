@@ -1,6 +1,7 @@
 import { createServiceKey } from '@mtbot/plugin-core'
 
 import type { PerformanceMonitor } from '../perf/performance-monitor'
+import type { UpdaterService } from '../updater-service'
 
 /**
  * 主进程服务 key 表：类型的单一来源。
@@ -13,4 +14,6 @@ import type { PerformanceMonitor } from '../perf/performance-monitor'
 export const S = {
   /** 性能监控。扩展可以 recordMetric/recordStartupPhase，内部队列不对外开放。 */
   perf: createServiceKey<PerformanceMonitor>('perf'),
+  /** 自动更新。宿主在窗口创建后调 setMainWindow。 */
+  updater: createServiceKey<UpdaterService>('updater'),
 } as const
