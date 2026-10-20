@@ -92,6 +92,23 @@ export interface AppUiControlServerDeps {
    * 二维码经 index.ts 的 qrcode 事件监听打印到终端，本路由只负责发起与回报状态。
    */
   getChannelLoginServices?: () => ChannelLoginServiceMap
+  /**
+   * 扩展宿主快照（index.ts 注入）。
+   *
+   * 不做成 IPC：扩展状态是运维观测面，CLI 一条命令就能拿到，
+   * 而给它开 IPC 通道会让「谁拥有这个 channel」再长一个出来。
+   */
+  getExtensions?: () => ExtensionStatusSnapshot[]
+}
+
+/** `/status` 里返回的单个扩展状态 */
+export interface ExtensionStatusSnapshot {
+  id: string
+  state: string
+  activationMs?: number
+  /** 注册的可逆副作用数量；能直接看出扩展有没有漏清理 */
+  effects?: number
+  error?: string
 }
 
 /** 四个渠道登录服务的公共结构（startLogin/logout/getStatus 签名一致） */
@@ -621,6 +638,8 @@ async function handleStatusRoute(res: http.ServerResponse): Promise<void> {
       skillCount,
       cloudSync: cloudSyncManager != null,
     },
+    // 扩展状态：没注入就返回空数组而不是缺字段，CLI 侧读法保持一致
+    extensions: activeDeps?.getExtensions?.() ?? [],
     configuration: {
       hasProviders: false,
       // 「有密文但解不开」与「没填过」是两回事：前者重填才有用，后者要先去填。

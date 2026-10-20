@@ -162,6 +162,22 @@ function formatStatus(data) {
   lines.push(services.cloudSync ? '   ✅ 云同步' : '   ⚠️  云同步（未配置）')
   lines.push('')
 
+  // 扩展状态。老客户端没有这个字段 → 不打这一段，而不是打「0 个扩展」
+  const extensions = Array.isArray(data.extensions) ? data.extensions : null
+  if (extensions && extensions.length > 0) {
+    lines.push(`✅ 扩展 (${extensions.length})`)
+    for (const ext of extensions) {
+      if (ext.state === 'failed') {
+        lines.push(`   ❌ ${ext.id} — ${ext.error ?? '未知错误'}`)
+        continue
+      }
+      const ms = typeof ext.activationMs === 'number' ? `${Math.round(ext.activationMs)}ms` : '?'
+      const icon = ext.state === 'active' ? '✅' : '⏸️'
+      lines.push(`   ${icon} ${ext.id} ${ms} · ${ext.effects ?? 0} effects`)
+    }
+    lines.push('')
+  }
+
   // 配置检查
   const config2 = data.configuration || {}
   const hasIssues = !config2.hasProviders || !config2.browserExecutable

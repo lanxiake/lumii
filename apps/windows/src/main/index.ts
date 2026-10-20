@@ -1349,11 +1349,17 @@ async function startExtensions(): Promise<void> {
   performanceMonitor = pluginHost.container.get(S.perf) ?? null
   updaterService = pluginHost.container.get(S.updater) ?? null
 
-  if (report.activated.length > 0) {
-    log.info(`扩展已激活: ${report.activated.join('、')}`)
+  // 一张表看清谁起来了、花了多久、注册了几个副作用；
+  // 失败项走 error，既进了主日志也进了错误日志
+  for (const entry of summarizeExtensions()) {
+    if (entry.state === 'active') {
+      log.info(`[ext] ${entry.id} active ${entry.activationMs?.toFixed(0) ?? '?'}ms effects=${entry.effects ?? 0}`)
+    } else if (entry.state === 'failed') {
+      log.error(`[ext] ${entry.id} failed: ${entry.error ?? '未知错误'}`)
+    }
   }
-  for (const failure of report.failed) {
-    log.error(`扩展激活失败: ${failure.id}`, failure.error)
+  if (report.activated.length === 0 && report.failed.length === 0) {
+    log.warn('[ext] 没有可用的扩展')
   }
 
   // 外部扩展：代码在 bundle 之外，改完亚秒级重载（内置扩展做不到这一点）
@@ -1364,6 +1370,28 @@ async function startExtensions(): Promise<void> {
   })
   await externalExtensions.loadAll()
   externalExtensions.startWatching()
+}
+
+/**
+ * 扩展状态快照：给控制口 `/status` 与启动日志共用。
+ *
+ * effects 是「注册了几个可逆副作用」，能直接看出某个扩展是否漏清理——
+ * 这是禁用/热重载时最容易出问题的地方。
+ */
+function summarizeExtensions(): Array<{
+  id: string
+  state: string
+  activationMs?: number
+  effects?: number
+  error?: string
+}> {
+  return (pluginHost?.list() ?? []).map(entry => ({
+    id: entry.id,
+    state: entry.state,
+    activationMs: entry.activationMs,
+    effects: entry.scope?.size,
+    error: entry.error ? String((entry.error as Error).message ?? entry.error) : undefined,
+  }))
 }
 
 /** S2–S5：主窗口、本机控制口、窗口级 IPC（桌宠/文件预览）、托盘与录屏。 */
@@ -1392,6 +1420,7 @@ async function initUiStages(flags: ReturnType<typeof readStartupFlags>): Promise
       requestRestart: requestAppRestart,
       getSkillRuntime: () => skillRuntime,
       getSkillWatcher: () => skillWatcher,
+      getExtensions: () => summarizeExtensions(),
       // 渠道登录服务可能晚于控制口初始化，这里用 getter 延迟取值
       getChannelLoginServices: () => ({
         weixin: weixinLoginService,
