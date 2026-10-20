@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>01 · 通用创作工作台</title>
+<link rel="stylesheet" href="assets/demo.css">
+</head>
+<body>
+<div class="app">
+  <div class="titlebar">
+    <a class="brand" href="index.html"><span class="brand-mark"></span>Lumii <small>创作工作台</small></a>
+    <span class="badge blue">方案 01</span>
+    <span class="badge"><span class="dot" style="background:var(--success)"></span>写作模式</span>
+    <div class="spacer"></div>
+    <button class="btn sm ghost" data-open-palette="all"><span data-icon="search" data-size="13"></span>搜索 <span class="kbd">⌘K</span></button>
+    <button class="btn sm ghost" data-theme-toggle data-icon="sun" title="切换浅色"></button>
+    <div class="win-controls"><i>—</i><i>□</i><i>×</i></div>
+  </div>
+
+  <div class="workspace">
+    <aside class="sidebar">
+      <div class="sidebar-head">
+        <div class="project-switch" data-toast="切换项目（示例）">
+          <div class="project-avatar">潮</div>
+          <div class="project-meta"><b>长篇小说 · 潮汐线</b><span>28 个文件 · 12.4 万字</span></div>
+          <span class="chev" data-icon="chevron-down" data-size="14"></span>
+        </div>
+        <div class="segmented">
+          <button class="active"><span data-icon="folder" data-size="13"></span>文件</button>
+          <button><span data-icon="list" data-size="13"></span>大纲</button>
+        </div>
+        <div class="search-box" data-open-palette="files">
+          <span data-icon="search" data-size="13"></span>
+          <span>搜索文件与全文…</span>
+          <span class="kbd">⌘P</span>
+        </div>
+      </div>
+      <div class="tree">
+        <div class="tree-section">稿件<div class="line"></div></div>
+        <div class="tree-node folder" style="--depth:0"><span class="tw" data-icon="chevron-down" data-size="12"></span><span class="icon" data-icon="folder-open" data-size="14"></span><span class="label">卷一 · 入海口</span><span class="count">6</span></div>
+        <div class="tree-node" style="--depth:1" data-tree-item data-title="第一章 渡口"><span class="tw"></span><span class="icon" data-icon="file-text" data-size="14"></span><span class="label">第一章 渡口</span><span class="status-dot" style="background:var(--warning)"></span></div>
+        <div class="tree-node active" style="--depth:1" data-tree-item data-title="第二章 暗流"><span class="tw"></span><span class="icon" data-icon="file-text" data-size="14"></span><span class="label">第二章 暗流</span><span class="status-dot" style="background:var(--warning)"></span></div>
+        <div class="tree-node" style="--depth:1" data-tree-item data-title="第三章 灯塔"><span class="tw"></span><span class="icon" data-icon="file-text" data-size="14"></span><span class="label">第三章 灯塔</span><span class="status-dot" style="background:var(--fg-4)"></span></div>
+        <div class="tree-node" style="--depth:1" data-tree-item data-title="第四章 退潮"><span class="tw"></span><span class="icon" data-icon="file-text" data-size="14"></span><span class="label">第四章 退潮</span><span class="status-dot" style="background:var(--success)"></span></div>
+        <div class="tree-node folder" style="--depth:0"><span class="tw" data-icon="chevron-right" data-size="12"></span><span class="icon" data-icon="folder" data-size="14"></span><span class="label">卷二 · 深海</span><span class="count">9</span></div>
+        <div class="tree-section">素材与设定<div class="line"></div></div>
+        <div class="tree-node" style="--depth:0" data-tree-item data-title="角色 · 沈砚"><span class="tw"></span><span class="icon" data-icon="users" data-size="14"></span><span class="label">角色 · 沈砚</span></div>
+        <div class="tree-node" style="--depth:0" data-tree-item data-title="角色 · 阿禾"><span class="tw"></span><span class="icon" data-icon="users" data-size="14"></span><span class="label">角色 · 阿禾</span></div>
+        <div class="tree-node" style="--depth:0" data-tree-item data-title="设定 · 潮汐历"><span class="tw"></span><span class="icon" data-icon="book" data-size="14"></span><span class="label">设定 · 潮汐历</span></div>
+        <div class="tree-node" style="--depth:0" data-tree-item data-title="参考 · 港口志"><span class="tw"></span><span class="icon" data-icon="link" data-size="14"></span><span class="label">参考 · 港口志</span><span class="badge">引用 7</span></div>
+        <div class="tree-node folder" style="--depth:0"><span class="tw" data-icon="chevron-right" data-size="12"></span><span class="icon" data-icon="folder" data-size="14"></span><span class="label">废稿</span><span class="count">11</span></div>
+      </div>
+      <div class="sidebar-foot">
+        <div class="tree-node" data-command="openRefs"><span class="icon" data-icon="link" data-size="14"></span><span class="label">引用中心</span><span class="count">23</span></div>
+        <div class="tree-node" data-command="openChanges"><span class="icon" data-icon="history" data-size="14"></span><span class="label">本会话变更</span><span class="count">6</span></div>
+        <div class="tree-node" data-command="export"><span class="icon" data-icon="download" data-size="14"></span><span class="label">导出与备份</span></div>
+      </div>
+    </aside>
+
+    <div class="main">
+      <div class="editor-area">
+        <div class="doc-tabs">
+          <div class="doc-tab active"><span class="doc-dot"></span>第二章 暗流<span class="x" data-icon="x" data-size="11"></span></div>
+          <div class="doc-tab"><span class="doc-dot"></span>角色 · 沈砚<span class="x" data-icon="x" data-size="11"></span></div>
+          <div class="doc-tab"><span class="doc-dot"></span>设定 · 潮汐历<span class="x" data-icon="x" data-size="11"></span></div>
+          <div class="doc-tab" data-toast="打开新的标签页"><span data-icon="plus" data-size="12"></span></div>
+        </div>
+
+        <div class="doc-toolbar">
+          <div class="breadcrumb">卷一 · 入海口 <span class="sep">/</span> <b data-current-title>第二章 暗流</b> <span class="badge green">已保存</span></div>
+          <div class="spacer"></div>
+          <div class="view-tabs" data-tabs="view">
+            <button class="active" data-tab="doc"><span data-icon="file-text" data-size="12"></span>文档</button>
+            <button data-tab="diff"><span data-icon="split" data-size="12"></span>对比</button>
+            <button data-tab="changes"><span data-icon="history" data-size="12"></span>变更</button>
+          </div>
+          <button class="btn sm" data-toast="已分屏：左侧正文，右侧参考资料"><span data-icon="columns" data-size="13"></span>分屏</button>
+          <button class="btn sm primary" data-toast="已让 AI 基于当前文档继续写"><span data-icon="sparkles" data-size="13"></span>继续写</button>
+        </div>
+
+        <div class="pane active" data-panel-group="view" data-panel="doc">
+          <div class="doc-scroll">
+            <div class="doc reading">
+              <h1>第二章 暗流</h1>
+              <div class="meta-line"><span>沈砚 · 第三天</span><span>·</span><span>2,418 字</span><span>·</span><span class="badge warn">有 1 条建议</span></div>
+              <p>退潮后的码头露出黑色的石阶，像一排被海水咬过的牙。<span class="highlight-entity" data-toast="打开 Codex：沈砚">沈砚</span>站在最高一级上，手里攥着那枚从沉船里捞出来的铜扣。</p>
+              <p>“这不是本地的样式。”<span class="highlight-entity" data-toast="打开 Codex：阿禾">阿禾</span>凑近看了一眼，声音压得很低，“<span class="ref-inline">潮汐历<span class="ref-num">1</span><span class="ref-tooltip"><b>素材 · 潮汐历</b>本地以月相与潮位记日，每十九年一轮“大回流”。<span class="ref-src">素材/设定/潮汐历.md#L18-24</span><span class="ref-status"><span class="badge green">引用有效</span><span class="badge">被 7 处引用</span></span></span></span>上也没有这个花纹。”</p>
+              <p>海风从防波堤的缺口灌进来，带着铁锈和柴油的味道。沈砚没有回答。他知道阿禾在等一个解释，而他能给出的每一个解释都会把对方拖进更深的地方。</p>
+
+              <div class="suggestion" data-suggestion>
+                <div class="sug-head"><span data-icon="sparkles" data-size="13"></span><b>AI 修改建议</b><span>· 节奏</span><span>· 本回合</span></div>
+                <div class="sug-body">他知道阿禾在等一个解释，而他能给出的每一个解释<del>都会把对方拖进更深的地方</del><ins>都像一块石头，扔下去就再也捞不回来</ins>。</div>
+                <div class="sug-actions">
+                  <button class="btn xs success" data-suggestion-action="accept"><span data-icon="check" data-size="11"></span>接受</button>
+                  <button class="btn xs danger" data-suggestion-action="reject"><span data-icon="x" data-size="11"></span>拒绝</button>
+                  <span class="hint">会记为一次可回溯的修改</span>
+                </div>
+                <div class="resolved accept"><span data-icon="check" data-size="13"></span>已接受，可随时从版本历史撤回</div>
+                <div class="resolved reject"><span data-icon="x" data-size="13"></span>已拒绝，保留原文</div>
+              </div>
+
+              <p>远处，灯塔的光扫过海面，亮一下，又熄灭。沈砚忽然想起父亲说过的话：<span class="ref-inline stale">暗流不响<span class="ref-num">2</span><span class="ref-tooltip"><b>参考 · 港口志</b>“暗流不响，响的不是暗流。”——老港工的口述记录。<span class="ref-src">参考/港口志.md#L102</span><span class="ref-status"><span class="badge warn">来源已改动</span></span></span></span>。</p>
+
+              <div class="stale-banner">
+                <span data-icon="alert" data-size="15"></span>
+                <span>引用的《港口志》在你上次编辑后有改动，引用块可能已偏移。</span>
+                <div class="spacer"></div>
+                <button class="btn xs" data-toast="已刷新引用位置">刷新引用</button>
+                <button class="btn xs ghost" data-toast="已保留旧快照">保留快照</button>
+              </div>
+
+              <p>他把铜扣翻过来。背面刻着一个几乎被磨平的字——不是“沈”，也不是“陈”。</p>
+              <div class="deco"></div>
+              <p>雨是在半夜落下来的。</p>
+              <div class="end-mark">· · ·</div>
+            </div>
+
+          </div>
+        </div>
+
+        <div class="pane" data-panel-group="view" data-panel="diff">
+          <div class="doc-scroll">
+            <div class="diff-wrap">
+              <div class="diff-toolbar">
+                <b style="font-size:13px">本回合 · 第二章 暗流</b>
+                <span class="badge blue">来自对话</span>
+                <span class="badge">3 处修改</span>
+                <div class="spacer"></div>
+                <div class="mode-switch">
+                  <button class="active">行内</button>
+                  <button data-toast="已切换为并排对比">并排</button>
+                </div>
+                <button class="btn sm" data-toast="已恢复到回合开始">恢复本回合</button>
+              </div>
+              <div class="diff-box">
+                <div class="diff-head"><span data-icon="file-text" data-size="14"></span><b>卷二/第二章 暗流.md</b><span class="path">…/潮汐线/卷二</span><span class="stat"><span class="a">+38</span> <span class="d">−19</span></span></div>
+                <div class="diff">
+                  <div class="diff-row hunk"><span class="ln"></span><span class="ln"></span><span class="code">@@ -118,7 +118,9 @@</span></div>
+                  <div class="diff-row ctx"><span class="ln">118</span><span class="ln">118</span><span class="code">海风从防波堤的缺口灌进来，带着铁锈和柴油的味道。</span></div>
+                  <div class="diff-row del"><span class="ln">119</span><span class="ln"></span><span class="code">沈砚没有回答。他知道阿禾在等一个解释。</span></div>
+                  <div class="diff-row add"><span class="ln"></span><span class="ln">119</span><span class="code">沈砚没有回答。他把铜扣翻了个面，让那道旧痕朝向自己。</span></div>
+                  <div class="diff-row add"><span class="ln"></span><span class="ln">120</span><span class="code">海风把阿禾的话吹散了一半，只剩下尾音。</span></div>
+                  <div class="diff-row ctx"><span class="ln">120</span><span class="ln">121</span><span class="code">他知道阿禾在等一个解释，而他能给出的每一个解释……</span></div>
+                  <div class="diff-row hunk"><span class="ln"></span><span class="ln"></span><span class="code">@@ -131,4 +133,6 @@</span></div>
+                  <div class="diff-row add"><span class="ln"></span><span class="ln">133</span><span class="code">远处，灯塔的光扫过海面，亮一下，又熄灭。</span></div>
+                  <div class="diff-row add"><span class="ln"></span><span class="ln">134</span><span class="code">沈砚忽然想起父亲说过的话：暗流不响。</span></div>
+                </div>
+              </div>
+
+              <div class="card" style="margin-top:14px;padding:12px 14px">
+                <div class="row"><span data-icon="sparkles" data-size="14" style="color:var(--sky)"></span><b style="font-size:12px">这一回合还改了什么</b><span class="spacer"></span><span class="badge">全部来自本会话</span></div>
+                <div class="list-row" style="margin-top:6px;padding-left:0"><span class="icon" data-icon="file-text" data-size="14"></span><span class="grow">素材/角色/阿禾.md<span class="sub">补充「阿禾的说话习惯」一段</span></span><span class="right"><span class="badge green">+6</span></span></div>
+                <div class="list-row" style="padding-left:0"><span class="icon" data-icon="file-text" data-size="14"></span><span class="grow">大纲/卷二.md<span class="sub">把「灯塔」场景从第 6 章移到第 4 章</span></span><span class="right"><span class="badge warn">移动</span></span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="pane" data-panel-group="view" data-panel="changes">
+          <div class="doc-scroll">
+            <div class="doc" style="padding-top:28px">
+              <div class="panel-title"><b>本会话的变更台账</b><span class="badge">6 个文件</span><div class="spacer"></div><button class="btn xs" data-toast="已生成一份变更摘要">生成摘要</button></div>
+              <p class="muted small" style="margin-top:0">只显示由本会话的工具调用实际写过的文件，不再混入后台任务与别的会话的改动。</p>
+              <div class="card" style="margin-bottom:10px;padding:11px 13px">
+                <div class="row"><span data-icon="edit" data-size="14" style="color:var(--accent)"></span><b style="font-size:12px">09:41 · 本轮对话</b><span class="spacer"></span><span class="badge blue">4 个文件</span></div>
+                <div class="list-row" style="padding-left:0"><span class="icon" data-icon="file-text" data-size="14"></span><span class="grow">卷二/第二章 暗流.md<span class="sub">改写结尾节奏；补齐渡口的环境细节</span></span><span class="right"><span class="badge green">+38</span> <span class="badge red">−19</span></span></div>
+                <div class="list-row" style="padding-left:0"><span class="icon" data-icon="users" data-size="14"></span><span class="grow">素材/角色/阿禾.md<span class="sub">新增「阿禾的说话习惯」</span></span><span class="right"><span class="badge green">+6</span></span></div>
+                <div class="list-row" style="padding-left:0"><span class="icon" data-icon="list" data-size="14"></span><span class="grow">大纲/卷二.md<span class="sub">移动场景：灯塔 → 第 4 章</span></span><span class="right"><span class="badge warn">移动</span></span></div>
+                <div class="list-row" style="padding-left:0"><span class="icon" data-icon="image" data-size="14"></span><span class="grow">素材/图/渡口夜色.png<span class="sub">由图像工具生成</span></span><span class="right"><span class="badge">新增</span></span></div>
+              </div>
+              <div class="card" style="padding:11px 13px;opacity:.75">
+                <div class="row"><span data-icon="clock" data-size="14"></span><b style="font-size:12px">09:12 · 后台整理</b><span class="spacer"></span><span class="badge">异步任务</span></div>
+                <div class="list-row" style="padding-left:0"><span class="icon" data-icon="file-text" data-size="14"></span><span class="grow">素材/索引/人物索引.md<span class="sub">后台任务完成后自动投递到父会话</span></span><span class="right"><span class="badge green">+12</span></span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="statusbar">
+          <span class="ok"><span data-icon="check" data-size="11"></span> 已保存</span>
+          <span>2,418 字</span>
+          <span>预计阅读 6 分钟</span>
+          <span class="spacer"></span>
+          <span>项目同步：正常</span>
+          <span>UTF-8</span>
+        </div>
+      </div>
+
+      <aside class="rail">
+        <div class="rail-tabs" data-tabs="rail">
+          <button class="rail-tab active" data-tab="chat"><span data-icon="message" data-size="13"></span>对话 <span class="badge blue">3</span></button>
+          <button class="rail-tab" data-tab="refs"><span data-icon="link" data-size="13"></span>引用</button>
+          <button class="rail-tab" data-tab="check"><span data-icon="file-check" data-size="13"></span>检查 <span class="badge warn">2</span></button>
+        </div>
+        <div class="rail-body">
+          <div class="rail-panel active" data-panel-group="rail" data-panel="chat">
+            <div class="chat-stream" style="flex:1;overflow:auto">
+              <div class="msg user">把渡口这场戏的结尾改得更克制一点，沈砚不要解释。</div>
+              <div class="msg assistant">
+                <div class="msg-meta"><span class="spark" data-icon="sparkles" data-size="11"></span>Lumii · 回合 12</div>
+                <div class="bubble">好，我保留了“解释”这个动作，但把它压进一个具体的小动作里。同时补了两处环境细节，让沉默有地方落。</div>
+                <div class="tool-card">
+                  <div class="tool-icon" data-icon="edit" data-size="13"></div>
+                  <div style="min-width:0;flex:1">
+                    <div><b>已修改 4 个文件</b> · 本轮对话</div>
+                    <div class="tool-files">
+                      <div class="tool-file"><span class="plus">+</span> 卷二/第二章 暗流.md</div>
+                      <div class="tool-file"><span class="plus">+</span> 素材/角色/阿禾.md</div>
+                      <div class="tool-file"><span>↕</span> 大纲/卷二.md</div>
+                    </div>
+                  </div>
+                </div>
+                <div class="change-card">
+                  <div class="change-head"><span data-icon="history" data-size="12"></span>查看本回合改动 <span class="chev" data-icon="chevron-down" data-size="12"></span></div>
+                  <div class="change-row"><span data-icon="file-text" data-size="11"></span>第二章 暗流.md<span class="stat"><span class="a">+38</span> <span class="d">−19</span></span></div>
+                </div>
+              </div>
+              <div class="msg user">阿禾那句“不是本地样式”，改成她先看铜扣再看海面。</div>
+              <div class="msg assistant">
+                <div class="msg-meta"><span class="spark" data-icon="sparkles" data-size="11"></span>Lumii · 正在处理</div>
+                <div class="bubble">明白，动作顺序会调整。我会同时检查阿禾的说话习惯设定，避免和前文冲突。</div>
+              </div>
+            </div>
+            <div class="composer">
+              <div class="context-chips">
+                <span class="chip accent"><span data-icon="file-text" data-size="11"></span>第二章 暗流.md <span class="chip-x">×</span></span>
+                <span class="chip ref"><span data-icon="link" data-size="11"></span>设定 · 潮汐历#L18-24 <span class="chip-x">×</span></span>
+                <span class="chip"><span data-icon="quote" data-size="11"></span>选中段落</span>
+              </div>
+              <div class="composer-box">
+                <div class="composer-input">让阿禾的动作更符合她的性格，别写成侦探……</div>
+                <div class="composer-tools">
+                  <button class="btn icon sm ghost" data-toast="插入文件引用">@</button>
+                  <button class="btn icon sm ghost" data-toast="附加素材">＋</button>
+                  <div class="spacer"></div>
+                  <span class="hint">⌘↵ 发送</span>
+                  <button class="send-btn" data-toast="已发送"><span data-icon="send" data-size="14"></span></button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="rail-panel" data-panel-group="rail" data-panel="refs">
+            <div class="rail-head"><b>引用中心</b><div class="spacer"></div><button class="btn xs" data-toast="已新建一条引用">新建</button></div>
+            <div class="ref-stat">
+              <div class="rs"><b>23</b><span>本文引用</span></div>
+              <div class="rs"><b>4</b><span>来源文件</span></div>
+              <div class="rs"><b>1</b><span>待刷新</span></div>
+            </div>
+            <div class="rail-scroll">
+              <div class="backlink">
+                <div class="bl-top"><span data-icon="book" data-size="13"></span>素材 · 潮汐历<span class="right">被引用 7 次</span></div>
+                <div class="bl-quote">每十九年一轮“大回流”，港口会在同一夜退到最低水位。</div>
+              </div>
+              <div class="backlink">
+                <div class="bl-top"><span data-icon="link" data-size="13"></span>参考 · 港口志<span class="right">被引用 3 次</span></div>
+                <div class="bl-quote">“暗流不响，响的不是暗流。”——老港工的口述记录。</div>
+                <div class="row" style="margin-top:6px"><span class="badge warn">来源已改动</span><button class="btn xs" data-toast="已刷新引用位置">刷新</button></div>
+              </div>
+              <div class="backlink">
+                <div class="bl-top"><span data-icon="users" data-size="13"></span>角色 · 沈砚<span class="right">被引用 9 次</span></div>
+                <div class="bl-quote">沈砚，三十四岁，前海事调查员，习惯把重要的话说成陈述句。</div>
+              </div>
+              <div class="backlink">
+                <div class="bl-top"><span data-icon="users" data-size="13"></span>角色 · 阿禾<span class="right">被引用 4 次</span></div>
+                <div class="bl-quote">阿禾，十九岁，码头修船匠的女儿，说话前会先看海。</div>
+              </div>
+            </div>
+            <div class="composer">
+              <div class="context-chips" style="margin-bottom:0">
+                <span class="chip ref"><span data-icon="link" data-size="11"></span>拖入段落或文件即可创建引用</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="rail-panel" data-panel-group="rail" data-panel="check">
+            <div class="check-summary" data-check-scope>
+              <span class="cs-item"><span class="check-dot error"></span><b data-check-count="error">1</b> 错误</span>
+              <span class="cs-item"><span class="check-dot warn"></span><b data-check-count="warn">2</b> 提醒</span>
+              <span class="cs-item"><span class="check-dot ok"></span><b data-check-count="ok">8</b> 通过</span>
+              <div class="spacer"></div>
+              <button class="btn xs" data-command="runCheck">重新检查</button>
+            </div>
+            <div class="check-list">
+              <div class="check-item" data-severity="error">
+                <div class="check-dot error"></div>
+                <div class="check-body"><b>人物时间线冲突</b><div class="detail">第二章写“沈砚 · 第三天”，但上一章结尾是“第七天夜里”。</div><div class="fix"><button class="btn xs" data-resolve-check>定位并修复</button><button class="btn xs ghost" data-toast="已忽略这条提醒">忽略</button></div></div>
+              </div>
+              <div class="check-item" data-severity="warn">
+                <div class="check-dot warn"></div>
+                <div class="check-body"><b>引用来源已改动</b><div class="detail">《港口志》第 102 行的引用锚点有偏移风险。</div><div class="fix"><button class="btn xs" data-resolve-check>刷新引用</button></div></div>
+              </div>
+              <div class="check-item" data-severity="warn">
+                <div class="check-dot warn"></div>
+                <div class="check-body"><b>重复表达</b><div class="detail">“他知道……他知道……”在相邻两段出现，建议合并。</div><div class="fix"><button class="btn xs" data-resolve-check>查看建议</button></div></div>
+              </div>
+              <div class="check-item" data-severity="ok">
+                <div class="check-dot ok"></div>
+                <div class="check-body"><b>设定一致性</b><div class="detail">沈砚、阿禾的称呼与人物卡一致。</div></div>
+              </div>
+              <div class="check-item" data-severity="ok">
+                <div class="check-dot ok"></div>
+                <div class="check-body"><b>伏笔登记</b><div class="detail">铜扣、灯塔、父亲的话均已登记，暂无回收缺口。</div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </div>
+</div>
+
+<div class="palette-overlay" data-palette>
+  <div class="palette">
+    <div class="palette-input-row">
+      <span class="icon" data-icon="search" data-size="17"></span>
+      <input type="text" placeholder="搜索文件、命令、素材…" autocomplete="off">
+      <span class="kbd">Esc</span>
+    </div>
+    <div class="palette-list" data-palette-list></div>
+    <div class="palette-foot"><span><span class="kbd">↑</span><span class="kbd">↓</span> 选择</span><span><span class="kbd">↵</span> 打开</span><span class="spacer"></span><span>来自当前项目与当前会话</span></div>
+  </div>
+</div>
+
+<script>
+window.DEMO_COMMANDS = [
+  { group: '文件', title: '第二章 暗流', sub: '卷一/第二章 暗流.md · 2,418 字', icon: 'file-text', toast: '已打开 第二章 暗流' },
+  { group: '文件', title: '第一章 渡口', sub: '卷一/第一章 渡口.md · 3,106 字', icon: 'file-text', toast: '已打开 第一章 渡口' },
+  { group: '文件', title: '角色 · 沈砚', sub: '素材/角色/沈砚.md', icon: 'users', toast: '已打开 角色 · 沈砚' },
+  { group: '文件', title: '角色 · 阿禾', sub: '素材/角色/阿禾.md', icon: 'users', toast: '已打开 角色 · 阿禾' },
+  { group: '文件', title: '设定 · 潮汐历', sub: '素材/设定/潮汐历.md', icon: 'book', toast: '已打开 设定 · 潮汐历' },
+  { group: '文件', title: '参考 · 港口志', sub: '参考/港口志.md · 被引用 7 次', icon: 'link', toast: '已打开 参考 · 港口志' },
+  { group: '操作', title: '打开引用中心', sub: '本文的引用、反链与失效检查', icon: 'link', action: 'openRefs' },
+  { group: '操作', title: '查看本会话变更', sub: '6 个文件 · 按回合归属', icon: 'history', action: 'openChanges' },
+  { group: '操作', title: '对比本回合', sub: '查看工具实际写入的 diff', icon: 'split', target: '[data-tab="diff"]' },
+  { group: '操作', title: '运行一致性检查', sub: '人物、时间线、引用、伏笔', icon: 'file-check', action: 'runCheck' },
+  { group: '操作', title: '导出当前稿', sub: 'Markdown / DOCX / PDF', icon: 'download', action: 'export' }
+];
+window.DEMO_ACTIONS = {
+  openRefs: function () { document.querySelector('[data-tab="refs"]').click(); toast('已打开引用中心'); },
+  openChanges: function () { document.querySelector('[data-tab="changes"]').click(); toast('已打开本会话变更'); },
+  runCheck: function () { document.querySelector('[data-tab="check"]').click(); toast('一致性检查已重新运行'); },
+  export: function () { toast('已生成导出文件（示例）'); }
+};
+</script>
+<script src="assets/demo.js"></script>
+</body>
+</html>

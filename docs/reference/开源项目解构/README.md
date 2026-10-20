@@ -1,6 +1,6 @@
 # 开源项目解构
 
-11 个外部开源项目（记忆 / LLM Wiki / 知识管理方向）的解构分析，每个项目一个目录：
+12 个外部开源项目的解构分析，每个项目一个目录：
 
 ```
 <项目名>/
@@ -10,6 +10,7 @@
 
 | 项目 | 方向 |
 | --- | --- |
+| `deepseek-harness` | **Everything-is-a-plugin 的 Agent Harness**：Cordis 内核、Profile/Bundle/Patch 组合、客户端模块系统与 Slot、会话节点装配、插件管理器与热更新 |
 | `aaronsb-memory-graph` | 记忆图谱 |
 | `chenly255-llm-wiki` | LLM Wiki |
 | `erickmbugua-llm-wiki` | LLM Wiki |

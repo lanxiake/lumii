@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lumii 创作工作台 · 视觉方案</title>
+<link rel="stylesheet" href="assets/demo.css">
+</head>
+<body>
+<div class="index-page">
+  <div class="index-wrap">
+    <div class="index-hero">
+      <div class="hero-mark"></div>
+      <div>
+        <h1>创作型工作的前端方案</h1>
+        <p>面向写小说、写公众号、做短视频的用户：把「大量文件的阅读、修改、对比、引用、整理」做成一套可复用的工作台原语，再按场景组装。每个方案都是可交互的静态页，直接点开对比。</p>
+      </div>
+      <div class="spacer"></div>
+      <button class="btn icon" data-theme-toggle data-icon="sun" title="切换浅色"></button>
+    </div>
+
+    <div class="demo-grid">
+      <a class="demo-card" href="01-generic-workbench.html">
+        <div class="dc-top">
+          <span class="dc-no">01</span>
+          <span class="badge blue"><span class="dot"></span>推荐底座</span>
+        </div>
+        <h3>通用创作工作台</h3>
+        <p>扩展现有 ChatPage 工作台，增加「聊天 / 写作」双模式：左边文件、中间文档、右边对话。写作模式复用同一套聊天与工具卡片，不另起一个 App。</p>
+        <div class="dc-tags">
+          <span class="badge">模式切换</span><span class="badge">文件树</span><span class="badge">文档</span><span class="badge">工具卡片</span>
+        </div>
+        <div class="dc-go">打开方案 <span data-icon="arrow-right" data-size="13"></span></div>
+      </a>
+
+      <a class="demo-card" href="02-novel.html">
+        <div class="dc-top">
+          <span class="dc-no">02</span>
+          <span class="badge violet">小说</span>
+        </div>
+        <h3>小说创作台</h3>
+        <p>Binder 层级 + 卡片板 + 大纲 + 时间线 + 矩阵，外加 Codex 设定卡与一致性检查。面向长篇：章节、场景、人物、伏笔都要能一眼调度。</p>
+        <div class="dc-tags">
+          <span class="badge">Binder</span><span class="badge">Corkboard</span><span class="badge">时间线</span><span class="badge">Codex</span>
+        </div>
+        <div class="dc-go">打开方案 <span data-icon="arrow-right" data-size="13"></span></div>
+      </a>
+
+      <a class="demo-card" href="03-wechat.html">
+        <div class="dc-top">
+          <span class="dc-no">03</span>
+          <span class="badge green">公众号</span>
+        </div>
+        <h3>公众号编辑器</h3>
+        <p>标题候选、手机端实时预览、发布前检查、素材图与引用来源并列。把「写」和「发」之间的返工压到一次完成。</p>
+        <div class="dc-tags">
+          <span class="badge">标题候选</span><span class="badge">手机预览</span><span class="badge">发布检查</span><span class="badge">素材</span>
+        </div>
+        <div class="dc-go">打开方案 <span data-icon="arrow-right" data-size="13"></span></div>
+      </a>
+
+      <a class="demo-card" href="04-video.html">
+        <div class="dc-top">
+          <span class="dc-no">04</span>
+          <span class="badge pink">短视频</span>
+        </div>
+        <h3>短视频分镜台</h3>
+        <p>分镜卡 + 脚本 + 素材网格 + 9:16 预览 + 字幕检查。让脚本、画面、时长、字幕在同一个界面里对齐，而不是散在四个工具中。</p>
+        <div class="dc-tags">
+          <span class="badge">分镜</span><span class="badge">9:16 预览</span><span class="badge">素材</span><span class="badge">字幕</span>
+        </div>
+        <div class="dc-go">打开方案 <span data-icon="arrow-right" data-size="13"></span></div>
+      </a>
+
+      <a class="demo-card" href="05-standalone.html">
+        <div class="dc-top">
+          <span class="dc-no">05</span>
+          <span class="badge warn">沉浸</span>
+        </div>
+        <h3>独立创作空间</h3>
+        <p>不挂在聊天页里：一块干净的稿纸 + 底部浮动 AI dock。适合「只想写，不想看文件树」的时刻，引用与工具收进 dock 的抽屉。</p>
+        <div class="dc-tags">
+          <span class="badge">沉浸写作</span><span class="badge">浮动 dock</span><span class="badge">划词动作</span>
+        </div>
+        <div class="dc-go">打开方案 <span data-icon="arrow-right" data-size="13"></span></div>
+      </a>
+
+      <a class="demo-card" href="06-references.html">
+        <div class="dc-top">
+          <span class="dc-no">06</span>
+          <span class="badge blue">引用</span>
+        </div>
+        <h3>三种引用模型</h3>
+        <p>同一个案例切换三种深度：轻量稳定引用、块级 transclusion、文件级引用。用来决定第一版做到哪一层，以及失效时怎么回退。</p>
+        <div class="dc-tags">
+          <span class="badge">稳定引用</span><span class="badge">块引用</span><span class="badge">反链</span>
+        </div>
+        <div class="dc-go">打开方案 <span data-icon="arrow-right" data-size="13"></span></div>
+      </a>
+    </div>
+
+    <div class="matrix-card">
+      <h2>三个待拍板的取舍</h2>
+      <table>
+        <thead>
+          <tr><th>决策点</th><th>方案 A</th><th>方案 B</th><th>方案 C</th><th>当前建议</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><b>工作台形态</b></td>
+            <td>扩展现有 ChatPage 工作台</td>
+            <td>独立创作空间</td>
+            <td>三个垂直 App</td>
+            <td><span class="badge green">A</span> 复用工具链与变更台账</td>
+          </tr>
+          <tr>
+            <td><b>首批场景</b></td>
+            <td>公众号先行</td>
+            <td>小说先行</td>
+            <td>短视频先行</td>
+            <td><span class="badge green">A</span> 闭环最短，发布检查收益直接</td>
+          </tr>
+          <tr>
+            <td><b>引用深度</b></td>
+            <td>轻量稳定引用（链接 + 快照）</td>
+            <td>块级 transclusion</td>
+            <td>文件级 @ 引用</td>
+            <td><span class="badge green">A</span> 先能引用能回退，块级后置</td>
+          </tr>
+          <tr>
+            <td><b>文档对比</b></td>
+            <td>会话回合快照</td>
+            <td>段落级建议模式</td>
+            <td>命名版本</td>
+            <td><span class="badge warn">A + B</span> 回合快照先上，建议模式同批</td>
+          </tr>
+        </tbody>
+      </table>
+      <p class="index-foot">页面零外部依赖，可直接双击打开。快捷键：<span class="kbd">Ctrl/⌘ K</span> 命令面板，<span class="kbd">Ctrl/⌘ P</span> 文件搜索，<span class="kbd">Esc</span> 关闭浮层。右上角可切浅色主题。</p>
+    </div>
+  </div>
+</div>
+<script src="assets/demo.js"></script>
+</body>
+</html>

@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>04 · 短视频分镜台</title>
+<link rel="stylesheet" href="assets/demo.css">
+</head>
+<body>
+<div class="app">
+  <div class="titlebar">
+    <a class="brand" href="index.html"><span class="brand-mark"></span>Lumii <small>短视频分镜台</small></a>
+    <span class="badge pink">方案 04</span>
+    <span class="badge">《退潮》· 竖屏 9:16</span>
+    <span class="badge green"><span class="dot"></span>已保存</span>
+    <div class="spacer"></div>
+    <button class="btn sm ghost" data-open-palette="all"><span data-icon="search" data-size="13"></span>搜索 <span class="kbd">⌘K</span></button>
+    <button class="btn sm" data-toast="已生成剪映草稿（示例）"><span data-icon="download" data-size="13"></span>导出剪映草稿</button>
+    <button class="btn sm primary" data-toast="已按脚本生成 3 个新镜头"><span data-icon="sparkles" data-size="13"></span>生成镜头</button>
+    <button class="btn icon sm ghost" data-theme-toggle data-icon="sun" title="切换浅色"></button>
+    <div class="win-controls"><i>—</i><i>□</i><i>×</i></div>
+  </div>
+
+  <div class="workspace">
+    <aside class="sidebar">
+      <div class="sidebar-head">
+        <div class="project-switch" data-toast="切换项目（示例）">
+          <div class="project-avatar" style="background:linear-gradient(135deg,rgba(244,114,182,.2),rgba(139,92,246,.3));color:#f9a8d4">退</div>
+          <div class="project-meta"><b>退潮 · 竖屏短片</b><span>23 秒 · 6 个镜头 · 抖音 / 视频号</span></div>
+          <span class="chev" data-icon="chevron-down" data-size="14"></span>
+        </div>
+        <div class="segmented">
+          <button class="active"><span data-icon="video" data-size="13"></span>分镜</button>
+          <button data-toast="已切换到素材库"><span data-icon="image" data-size="13"></span>素材</button>
+        </div>
+        <div class="search-box" data-open-palette="files"><span data-icon="search" data-size="13"></span><span>搜索镜头、素材、字幕…</span><span class="kbd">⌘P</span></div>
+      </div>
+      <div class="tree">
+        <div class="tree-section">本条视频<div class="line"></div></div>
+        <div class="tree-node active" style="--depth:0" data-tree-item data-title="分镜脚本 v3"><span class="tw"></span><span class="icon" data-icon="file-text" data-size="14"></span><span class="label">分镜脚本 v3</span><span class="badge green">当前</span></div>
+        <div class="tree-node" style="--depth:0" data-tree-item data-title="口播稿"><span class="tw"></span><span class="icon" data-icon="type" data-size="14"></span><span class="label">口播稿</span></div>
+        <div class="tree-node" style="--depth:0" data-tree-item data-title="字幕轨"><span class="tw"></span><span class="icon" data-icon="captions" data-size="14"></span><span class="label">字幕轨</span><span class="badge warn">2 处</span></div>
+        <div class="tree-section">素材<div class="line"></div></div>
+        <div class="tree-node" style="--depth:0" data-tree-item data-title="实拍 · 码头退潮"><span class="tw"></span><span class="icon" data-icon="video" data-size="14"></span><span class="label">实拍 · 码头退潮</span><span class="count">4</span></div>
+        <div class="tree-node" style="--depth:0" data-tree-item data-title="AI 生成 · 铜扣特写"><span class="tw"></span><span class="icon" data-icon="image" data-size="14"></span><span class="label">AI 生成 · 铜扣特写</span><span class="count">3</span></div>
+        <div class="tree-node" style="--depth:0" data-tree-item data-title="音乐 · 低频暗涌"><span class="tw"></span><span class="icon" data-icon="music" data-size="14"></span><span class="label">音乐 · 低频暗涌</span><span class="badge">0:23</span></div>
+        <div class="tree-node" style="--depth:0" data-tree-item data-title="配音 · 女声 v2"><span class="tw"></span><span class="icon" data-icon="volume-2" data-size="14"></span><span class="label">配音 · 女声 v2</span></div>
+        <div class="tree-section">历史版本<div class="line"></div></div>
+        <div class="tree-node" style="--depth:0" data-tree-item data-title="分镜脚本 v2"><span class="tw"></span><span class="icon" data-icon="history" data-size="14"></span><span class="label">分镜脚本 v2</span><span class="tiny muted">昨天</span></div>
+        <div class="tree-node" style="--depth:0" data-tree-item data-title="分镜脚本 v1"><span class="tw"></span><span class="icon" data-icon="history" data-size="14"></span><span class="label">分镜脚本 v1</span><span class="tiny muted">10-17</span></div>
+      </div>
+      <div class="sidebar-foot">
+        <div class="tree-node" data-command="openChecks"><span class="icon" data-icon="file-check" data-size="14"></span><span class="label">成片检查</span><span class="count">4</span></div>
+        <div class="tree-node" data-toast="已打开交付记录"><span class="icon" data-icon="send" data-size="14"></span><span class="label">交付记录</span></div>
+      </div>
+    </aside>
+
+    <div class="main">
+      <div class="editor-area">
+        <div class="doc-tabs">
+          <div class="doc-tab active"><span class="doc-dot"></span>分镜脚本 v3<span class="x" data-icon="x" data-size="11"></span></div>
+          <div class="doc-tab"><span class="doc-dot"></span>口播稿<span class="x" data-icon="x" data-size="11"></span></div>
+          <div class="doc-tab"><span class="doc-dot"></span>字幕轨<span class="x" data-icon="x" data-size="11"></span></div>
+        </div>
+
+        <div class="doc-toolbar">
+          <div class="breadcrumb">退潮 · 竖屏短片 <span class="sep">/</span> <b data-current-title>分镜脚本 v3</b> <span class="badge">23 秒 · 6 镜头</span></div>
+          <div class="spacer"></div>
+          <div class="view-tabs" data-tabs="view">
+            <button class="active" data-tab="board"><span data-icon="grid" data-size="12"></span>分镜</button>
+            <button data-tab="script"><span data-icon="type" data-size="12"></span>脚本</button>
+            <button data-tab="assets"><span data-icon="image" data-size="12"></span>素材</button>
+            <button data-tab="captions"><span data-icon="captions" data-size="12"></span>字幕</button>
+          </div>
+          <button class="btn sm" data-toast="已切换到时间轴视图"><span data-icon="clock" data-size="13"></span>时间轴</button>
+        </div>
+
+        <div class="pane active" data-panel-group="view" data-panel="board">
+          <div class="doc-scroll">
+            <div class="storyboard-wrap">
+              <div class="board-head">
+                <h2>分镜板</h2>
+                <span class="badge">23.0 秒</span>
+                <span class="badge green">4 已生成</span>
+                <span class="badge warn">2 待生成</span>
+                <div class="spacer"></div>
+                <div class="segmented" style="width:auto">
+                  <button class="active">按镜头</button><button data-toast="已按场景分组">按场景</button>
+                </div>
+                <button class="btn sm" data-toast="已新增一个镜头"><span data-icon="plus" data-size="13"></span>镜头</button>
+              </div>
+              <div class="storyboard">
+                <div class="shot-card selected" data-shot data-shot-no="01" data-duration="0:00–0:03" data-caption="凌晨四点十八分，海水退到了不该退的位置。">
+                  <div class="shot-thumb thumb-1"><span class="shot-num">01</span><span class="shot-dur">0:03</span><span class="shot-status"><span class="badge green">已生成</span></span></div>
+                  <div class="shot-body">
+                    <div class="shot-title">开场 · 退潮</div>
+                    <div class="shot-line"><span class="k">画面</span><span class="v">码头石阶从水里一层层露出来，天还没亮。</span></div>
+                    <div class="shot-line"><span class="k">运镜</span><span class="v ellipsis">缓慢下摇 + 轻微手持</span></div>
+                    <div class="shot-line"><span class="k">台词</span><span class="v">凌晨四点十八分，海水退到了不该退的位置。</span></div>
+                  </div>
+                </div>
+
+                <div class="shot-card" data-shot data-shot-no="02" data-duration="0:03–0:07" data-caption="一枚铜扣躺在船板的缝隙里，背面刻着看不清的字。">
+                  <div class="shot-thumb thumb-2"><span class="shot-num">02</span><span class="shot-dur">0:04</span><span class="shot-status"><span class="badge green">已生成</span></span></div>
+                  <div class="shot-body">
+                    <div class="shot-title">铜扣特写</div>
+                    <div class="shot-line"><span class="k">画面</span><span class="v">微距，铜扣表面的盐渍与划痕。</span></div>
+                    <div class="shot-line"><span class="k">运镜</span><span class="v ellipsis">推近，焦点从边缘移到刻字</span></div>
+                    <div class="shot-line"><span class="k">音效</span><span class="v">低频暗涌 + 一声金属轻响</span></div>
+                  </div>
+                </div>
+
+                <div class="shot-card" data-shot data-shot-no="03" data-duration="0:07–0:11" data-caption="阿禾的手停在半空，她没有去接那枚铜扣。">
+                  <div class="shot-thumb thumb-3"><span class="shot-num">03</span><span class="shot-dur">0:04</span><span class="shot-status"><span class="badge green">已生成</span></span></div>
+                  <div class="shot-body">
+                    <div class="shot-title">阿禾的手</div>
+                    <div class="shot-line"><span class="k">画面</span><span class="v">手部特写，指节上有洗不掉的机油。</span></div>
+                    <div class="shot-line"><span class="k">动作</span><span class="v ellipsis">伸手 → 停住 → 收回</span></div>
+                    <div class="shot-line"><span class="k">台词</span><span class="v">“不是本地的。”</span></div>
+                  </div>
+                </div>
+
+                <div class="shot-card" data-shot data-shot-no="04" data-duration="0:11–0:15" data-caption="灯塔的光扫过海面，亮一下，又熄灭。">
+                  <div class="shot-thumb thumb-4"><span class="shot-num">04</span><span class="shot-dur">0:04</span><span class="shot-status"><span class="badge green">已生成</span></span></div>
+                  <div class="shot-body">
+                    <div class="shot-title">灯塔扫光</div>
+                    <div class="shot-line"><span class="k">画面</span><span class="v">远景，光束切开雾，海面反光。</span></div>
+                    <div class="shot-line"><span class="k">运镜</span><span class="v ellipsis">固定机位，等光扫过</span></div>
+                    <div class="shot-line"><span class="k">节奏</span><span class="v">此处留白 0.5 秒</span></div>
+                  </div>
+                </div>
+
+                <div class="shot-card" data-shot data-shot-no="05" data-duration="0:15–0:20" data-caption="旧报纸上的日期，停在十九年前。">
+                  <div class="shot-thumb thumb-8"><span class="shot-num">05</span><span class="shot-dur">0:05</span><span class="shot-status"><span class="badge warn">待生成</span></span></div>
+                  <div class="shot-body">
+                    <div class="shot-title">旧报纸</div>
+                    <div class="shot-line"><span class="k">画面</span><span class="v">泛黄报纸，标题被手指压住一半。</span></div>
+                    <div class="shot-line"><span class="k">运镜</span><span class="v ellipsis">俯拍，手指移开</span></div>
+                    <div class="shot-line"><span class="k">台词</span><span class="v">“浙渔 0417，失踪，无生还。”</span></div>
+                  </div>
+                </div>
+
+                <div class="shot-card" data-shot data-shot-no="06" data-duration="0:20–0:23" data-caption="黑场。只剩一句话：暗流不响。">
+                  <div class="shot-thumb thumb-5"><span class="shot-num">06</span><span class="shot-dur">0:03</span><span class="shot-status"><span class="badge warn">待生成</span></span></div>
+                  <div class="shot-body">
+                    <div class="shot-title">黑场 · 钩子</div>
+                    <div class="shot-line"><span class="k">画面</span><span class="v">纯黑背景，白色字幕。</span></div>
+                    <div class="shot-line"><span class="k">文字</span><span class="v ellipsis">暗流不响。</span></div>
+                    <div class="shot-line"><span class="k">音频</span><span class="v">音乐骤停，留 0.8 秒静音</span></div>
+                  </div>
+                </div>
+
+                <div class="storyboard-add" data-toast="已新增一个空白镜头"><span data-icon="plus" data-size="18"></span><span class="small">新增镜头</span><span class="tiny">或从脚本拖入</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="pane" data-panel-group="view" data-panel="script">
+          <div class="doc-scroll">
+            <div class="doc" style="padding-top:30px">
+              <h1 style="font-size:22px">口播稿 · 退潮</h1>
+              <div class="meta-line"><span>女声 · 23 秒</span><span>·</span><span>语速 4.8 字/秒</span><span>·</span><span class="badge green">与分镜对齐</span></div>
+              <p><b>01 · 0:00–0:03</b><br>凌晨四点十八分，海水退到了不该退的位置。</p>
+              <p><b>02 · 0:03–0:07</b><br>船板的缝隙里，躺着一枚铜扣。</p>
+              <p><b>03 · 0:07–0:11</b><br>阿禾只看了一眼：“不是本地的。”</p>
+              <p><b>04 · 0:11–0:15</b><br>灯塔的光扫过来，又熄灭。</p>
+              <p><b>05 · 0:15–0:20</b><br>十九年前，这片海也沉过一艘船。档案里只有一行字。</p>
+              <p><b>06 · 0:20–0:23</b><br>暗流不响。</p>
+              <div class="stale-banner"><span data-icon="clock" data-size="15"></span><span>第 5 句比镜头长 0.6 秒，导出时会自动放慢 4%。</span><div class="spacer"></div><button class="btn xs" data-toast="已改为更短的句子">自动精简</button></div>
+              <div class="deco"></div>
+              <p class="muted small">语气提示：全程压低、接近耳语；第 6 句之前留半拍。</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="pane" data-panel-group="view" data-panel="assets">
+          <div class="doc-scroll">
+            <div class="board-wrap">
+              <div class="board-head">
+                <h2>素材库</h2><span class="badge">12 个素材</span><span class="badge green">9 可用</span><span class="badge warn">3 缺失</span>
+                <div class="spacer"></div>
+                <div class="segmented" style="width:auto">
+                  <button class="active" data-material-filter="all">全部</button>
+                  <button data-material-filter="video">视频</button>
+                  <button data-material-filter="image">图片</button>
+                  <button data-material-filter="audio">音频</button>
+                </div>
+                <button class="btn sm" data-toast="已打开素材导入"><span data-icon="upload" data-size="13"></span>导入</button>
+              </div>
+              <div class="material-grid" style="padding:0">
+                <div class="material-tile" data-material-type="video" data-toast="已选中素材：码头退潮 01">
+                  <div class="material-thumb thumb-1"><span class="mt-label">码头退潮 01</span><span class="mt-dur">0:08</span></div>
+                  <div class="material-meta"><b>码头退潮 01.mp4</b><span>4K · 25fps · 已用于镜头 01</span></div>
+                </div>
+                <div class="material-tile" data-material-type="image" data-toast="已选中素材：铜扣特写">
+                  <div class="material-thumb thumb-2"><span class="mt-label">铜扣特写</span><span class="mt-dur">4:5</span></div>
+                  <div class="material-meta"><b>铜扣特写_v2.png</b><span>AI 生成 · 2048px</span></div>
+                </div>
+                <div class="material-tile" data-material-type="video" data-toast="已选中素材：手部动作">
+                  <div class="material-thumb thumb-3"><span class="mt-label">手部动作</span><span class="mt-dur">0:06</span></div>
+                  <div class="material-meta"><b>阿禾的手.mp4</b><span>实拍 · 已用于镜头 03</span></div>
+                </div>
+                <div class="material-tile" data-material-type="image" data-toast="已选中素材：灯塔">
+                  <div class="material-thumb thumb-4"><span class="mt-label">灯塔</span><span class="mt-dur">16:9</span></div>
+                  <div class="material-meta"><b>灯塔夜景.jpg</b><span>需裁切为 9:16</span></div>
+                </div>
+                <div class="material-tile" data-material-type="image" data-toast="已选中素材：旧报纸">
+                  <div class="material-thumb thumb-8"><span class="mt-label">旧报纸</span><span class="mt-dur">4:3</span><span class="material-missing"><span class="badge red">缺失</span></span></div>
+                  <div class="material-meta"><b>报纸_1997.jpg</b><span>已标记缺失 · 生成中</span></div>
+                </div>
+                <div class="material-tile" data-material-type="audio" data-toast="已选中素材：低频暗涌">
+                  <div class="material-thumb thumb-5" style="display:grid;place-items:center"><span data-icon="music" data-size="26" style="color:rgba(255,255,255,.75)"></span><span class="mt-dur">0:23</span></div>
+                  <div class="material-meta"><b>低频暗涌.wav</b><span>音乐 · 已铺满全片</span></div>
+                </div>
+                <div class="material-tile" data-material-type="audio" data-toast="已选中素材：女声配音">
+                  <div class="material-thumb thumb-6" style="display:grid;place-items:center"><span data-icon="volume-2" data-size="26" style="color:rgba(255,255,255,.75)"></span><span class="mt-dur">0:23</span></div>
+                  <div class="material-meta"><b>配音_女声_v2.wav</b><span>TTS · 与口播稿一致</span></div>
+                </div>
+                <div class="material-tile" data-material-type="video" data-toast="已选中素材：黑场">
+                  <div class="material-thumb thumb-7" style="display:grid;place-items:center"><span data-icon="video" data-size="26" style="color:rgba(255,255,255,.75)"></span><span class="mt-dur">0:03</span></div>
+                  <div class="material-meta"><b>黑场_字幕底.mp4</b><span>占位 · 等待字幕渲染</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="pane" data-panel-group="view" data-panel="captions">
+          <div class="doc-scroll">
+            <div class="board-wrap">
+              <div class="board-head"><h2>字幕轨</h2><span class="badge">6 段</span><span class="badge warn">2 处待处理</span><div class="spacer"></div><button class="btn sm" data-toast="已按配音重新对齐字幕">重新对齐</button></div>
+              <div class="card">
+                <div class="list-row"><span class="mono tiny" style="color:var(--sky);width:74px">0:00–0:03</span><span class="grow">凌晨四点十八分，海水退到了不该退的位置。<div class="sub">1 行 · 18 字 · 与镜头 01 对齐</div></span><span class="right"><span class="badge green">正常</span></span></div>
+                <div class="list-row"><span class="mono tiny" style="color:var(--sky);width:74px">0:03–0:07</span><span class="grow">船板的缝隙里，躺着一枚铜扣。<div class="sub">1 行 · 14 字 · 与镜头 02 对齐</div></span><span class="right"><span class="badge green">正常</span></span></div>
+                <div class="list-row"><span class="mono tiny" style="color:var(--sky);width:74px">0:07–0:11</span><span class="grow">阿禾只看了一眼：“不是本地的。”<div class="sub">1 行 · 13 字 · 与镜头 03 对齐</div></span><span class="right"><span class="badge green">正常</span></span></div>
+                <div class="list-row"><span class="mono tiny" style="color:var(--sky);width:74px">0:11–0:15</span><span class="grow">灯塔的光扫过来，又熄灭。<div class="sub">1 行 · 11 字 · 与镜头 04 对齐</div></span><span class="right"><span class="badge green">正常</span></span></div>
+                <div class="list-row active"><span class="mono tiny" style="color:var(--warning);width:74px">0:15–0:20</span><span class="grow">十九年前，这片海也沉过一艘船。档案里只有一行字。<div class="sub">2 行 · 25 字 · 超出镜头 0.6 秒</div></span><span class="right"><span class="badge warn">超时</span></span></div>
+                <div class="list-row"><span class="mono tiny" style="color:var(--error);width:74px">0:20–0:23</span><span class="grow">暗流不响。<div class="sub">1 行 · 5 字 · 结尾留白不足</div></span><span class="right"><span class="badge red">待调整</span></span></div>
+              </div>
+              <div class="stale-banner" style="margin-top:14px"><span data-icon="captions" data-size="15"></span><span>字幕安全区检查：竖屏底部被平台 UI 遮挡，建议整体上移 96px。</span><div class="spacer"></div><button class="btn xs" data-toast="已整体上移字幕">一键上移</button></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="statusbar">
+          <span class="ok"><span data-icon="check" data-size="11"></span> 已保存</span>
+          <span>总时长 23.0 秒</span>
+          <span>6 镜头 · 4 已生成</span>
+          <span>字幕 6 段 · 2 待处理</span>
+          <span class="spacer"></span>
+          <span>目标：抖音 / 视频号 · 1080×1920</span>
+        </div>
+      </div>
+
+      <aside class="rail wide">
+        <div class="rail-tabs" data-tabs="rail">
+          <button class="rail-tab active" data-tab="preview"><span data-icon="play" data-size="13"></span>预览</button>
+          <button class="rail-tab" data-tab="shot"><span data-icon="video" data-size="13"></span>镜头</button>
+          <button class="rail-tab" data-tab="check"><span data-icon="file-check" data-size="13"></span>检查 <span class="badge warn">4</span></button>
+          <button class="rail-tab" data-tab="chat"><span data-icon="message" data-size="13"></span>对话</button>
+        </div>
+        <div class="rail-body">
+          <div class="rail-panel active" data-panel-group="rail" data-panel="preview">
+            <div class="phone-toolbar"><b style="font-size:12px">成片预览</b><span class="badge pink">9:16</span><div class="spacer"></div><button class="btn xs" data-toast="已从头播放">播放</button></div>
+            <div class="phone-stage">
+              <div class="phone video">
+                <div class="phone-screen">
+                  <div class="video-frame">
+                    <div class="vf-scene"></div>
+                    <div class="vf-grid"></div>
+                    <div class="vf-badge"><span class="badge" style="background:rgba(0,0,0,.5);color:#fff" data-live-shot>镜头 01</span></div>
+                    <div class="vf-caption" data-live-caption><span>凌晨四点十八分，海水退到了不该退的位置。</span></div>
+                    <div class="vf-bottom">
+                      <div class="vf-play"><span data-icon="play" data-size="12"></span></div>
+                      <div class="vf-progress"><span></span></div>
+                      <span class="vf-time" data-live-duration>0:00–0:03</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="panel-section" style="border-top:1px solid var(--border-soft)">
+              <div class="row"><span class="badge green">已生成</span><b style="font-size:12px">镜头 01 · 开场</b><div class="spacer"></div><span class="tiny muted">点击左侧分镜卡切换</span></div>
+              <div class="small muted" style="margin-top:6px;line-height:1.6">实拍素材 + 手持轻微抖动。字幕在安全区内，底部预留平台 UI 空间。</div>
+            </div>
+          </div>
+
+          <div class="rail-panel" data-panel-group="rail" data-panel="shot">
+            <div class="rail-head"><b>镜头 01 · 开场</b><span class="badge green">已生成</span><div class="spacer"></div><button class="btn xs" data-toast="已重新生成这个镜头">重生成</button></div>
+            <div class="rail-scroll">
+              <div class="panel-section"><h4>生成参数</h4>
+                <div class="row" style="justify-content:space-between"><span class="small muted">模型</span><span class="small">video-gen v2</span></div>
+                <div class="row" style="margin-top:5px;justify-content:space-between"><span class="small muted">时长</span><span class="small">3.0 秒</span></div>
+                <div class="row" style="margin-top:5px;justify-content:space-between"><span class="small muted">比例</span><span class="small">9:16 · 1080×1920</span></div>
+                <div class="row" style="margin-top:5px;justify-content:space-between"><span class="small muted">风格</span><span class="small">纪实 · 低饱和</span></div>
+              </div>
+              <div class="panel-section"><h4>提示词</h4>
+                <div class="card" style="padding:10px 12px;font-size:11px;line-height:1.7;color:var(--fg-3)">黎明前的渔港码头，退潮后露出的湿润石阶，低机位缓慢下摇，冷蓝灰色调，薄雾，手持轻微抖动，电影感。</div>
+                <button class="btn xs" style="margin-top:8px" data-copy="黎明前的渔港码头，退潮后露出的湿涯石阶"><span data-icon="copy" data-size="11"></span>复制提示词</button>
+              </div>
+              <div class="panel-section"><h4>关联素材</h4>
+                <div class="material-grid" style="padding:0;grid-template-columns:repeat(2,1fr)">
+                  <div class="material-tile"><div class="material-thumb thumb-1"><span class="mt-label">码头退潮 01</span></div></div>
+                  <div class="material-tile"><div class="material-thumb thumb-7"><span class="mt-label">黑场底</span></div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="rail-panel" data-panel-group="rail" data-panel="check">
+            <div class="check-summary" data-check-scope>
+              <span class="cs-item"><span class="check-dot error"></span><b data-check-count="error">1</b> 阻塞</span>
+              <span class="cs-item"><span class="check-dot warn"></span><b data-check-count="warn">3</b> 提醒</span>
+              <span class="cs-item"><span class="check-dot ok"></span><b data-check-count="ok">7</b> 通过</span>
+              <div class="spacer"></div><button class="btn xs" data-toast="已重新检查成片">重跑</button>
+            </div>
+            <div class="check-list">
+              <div class="check-item" data-severity="error"><div class="check-dot error"></div><div class="check-body"><b>素材缺失</b><div class="detail">镜头 05 依赖的“报纸_1997.jpg”尚未生成。</div><div class="fix"><button class="btn xs" data-resolve-check>重新生成</button><button class="btn xs ghost" data-toast="已换成占位图">用占位图</button></div></div></div>
+              <div class="check-item" data-severity="warn"><div class="check-dot warn"></div><div class="check-body"><b>字幕超出镜头时长</b><div class="detail">镜头 05 的字幕比画面长 0.6 秒。</div><div class="fix"><button class="btn xs" data-resolve-check>精简文案</button></div></div></div>
+              <div class="check-item" data-severity="warn"><div class="check-dot warn"></div><div class="check-body"><b>字幕安全区</b><div class="detail">底部 96px 会被平台按钮遮挡。</div><div class="fix"><button class="btn xs" data-resolve-check>整体上移</button></div></div></div>
+              <div class="check-item" data-severity="warn"><div class="check-dot warn"></div><div class="check-body"><b>封面未选择</b><div class="detail">建议使用镜头 02 的铜扣特写作为封面。</div><div class="fix"><button class="btn xs" data-resolve-check>设为封面</button></div></div></div>
+              <div class="check-item" data-severity="ok"><div class="check-dot ok"></div><div class="check-body"><b>分辨率与比例</b><div class="detail">1080×1920 · 9:16 · 25fps，符合两个平台要求。</div></div></div>
+            </div>
+          </div>
+
+          <div class="rail-panel" data-panel-group="rail" data-panel="chat">
+            <div class="chat-stream" style="flex:1;overflow:auto">
+              <div class="msg user">按这个口播稿生成 6 个镜头，竖屏、纪实感，不要过度运镜。</div>
+              <div class="msg assistant"><div class="msg-meta"><span class="spark" data-icon="sparkles" data-size="11"></span>Lumii · 回合 8</div><div class="bubble">已生成 6 个镜头卡，总时长 23 秒。镜头 05 的素材还在生成，其余已可预览。字幕按 4.8 字/秒对齐。</div>
+                <div class="tool-card"><div class="tool-icon" data-icon="video" data-size="13"></div><div><b>已生成 4 个镜头</b><div class="small muted" style="margin-top:3px">镜头 05、06 仍在队列中</div></div></div>
+              </div>
+              <div class="msg user">第五个镜头太慢了，把台词压短一点。</div>
+              <div class="msg assistant"><div class="msg-meta"><span class="spark" data-icon="sparkles" data-size="11"></span>Lumii</div><div class="bubble">可以把“十九年前，这片海也沉过一艘船。档案里只有一行字。”压成“十九年前，这片海也沉过一艘船。”——省 9 个字，正好落回 5 秒。</div></div>
+            </div>
+            <div class="composer">
+              <div class="context-chips"><span class="chip accent"><span data-icon="video" data-size="11"></span>分镜脚本 v3</span><span class="chip ref"><span data-icon="music" data-size="11"></span>低频暗涌.wav</span></div>
+              <div class="composer-box">
+                <div class="composer-input">把结尾再收紧一点，留白别超过一秒……</div>
+                <div class="composer-tools"><button class="btn icon sm ghost">@</button><button class="btn icon sm ghost">＋</button><div class="spacer"></div><span class="hint">⌘↵</span><button class="send-btn"><span data-icon="send" data-size="14"></span></button></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </div>
+</div>
+
+<div class="palette-overlay" data-palette>
+  <div class="palette">
+    <div class="palette-input-row"><span class="icon" data-icon="search" data-size="17"></span><input type="text" placeholder="搜索镜头、素材、版本…" autocomplete="off"><span class="kbd">Esc</span></div>
+    <div class="palette-list" data-palette-list></div>
+    <div class="palette-foot"><span><span class="kbd">↑</span><span class="kbd">↓</span> 选择</span><span><span class="kbd">↵</span> 打开</span><span class="spacer"></span><span>当前短片</span></div>
+  </div>
+</div>
+
+<script>
+window.DEMO_COMMANDS = [
+  { group: '镜头', title: '01 · 开场 / 退潮', sub: '0:00–0:03 · 已生成', icon: 'video', target: '[data-tab="board"]' },
+  { group: '镜头', title: '02 · 铜扣特写', sub: '0:03–0:07 · 已生成', icon: 'video', toast: '已选中镜头 02' },
+  { group: '镜头', title: '05 · 旧报纸', sub: '0:15–0:20 · 待生成', icon: 'video', toast: '已选中镜头 05' },
+  { group: '视图', title: '分镜板', sub: '6 个镜头卡', icon: 'grid', target: '[data-tab="board"]' },
+  { group: '视图', title: '口播稿', sub: '与分镜逐段对齐', icon: 'type', target: '[data-tab="script"]' },
+  { group: '视图', title: '素材库', sub: '12 个素材 · 3 个缺失', icon: 'image', target: '[data-tab="assets"]' },
+  { group: '视图', title: '字幕轨', sub: '6 段 · 2 处待处理', icon: 'captions', target: '[data-tab="captions"]' },
+  { group: '素材', title: '低频暗涌.wav', sub: '音乐 · 0:23', icon: 'music', toast: '已选中音乐素材' },
+  { group: '素材', title: '配音_女声_v2.wav', sub: 'TTS · 与口播稿一致', icon: 'volume-2', toast: '已选中配音' },
+  { group: '操作', title: '成片检查', sub: '素材、字幕、安全区、封面', icon: 'file-check', action: 'openChecks' },
+  { group: '操作', title: '导出剪映草稿', sub: '生成 draft_content.json', icon: 'download', toast: '已导出剪映草稿（示例）' }
+];
+window.DEMO_ACTIONS = {
+  openChecks: function () { document.querySelector('[data-tab="check"]').click(); toast('已打成片检查'); }
+};
+</script>
+<script src="assets/demo.js"></script>
+</body>
+</html>

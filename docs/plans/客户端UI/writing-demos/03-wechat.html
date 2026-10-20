@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>03 · 公众号编辑器</title>
+<link rel="stylesheet" href="assets/demo.css">
+</head>
+<body>
+<div class="app">
+  <div class="titlebar">
+    <a class="brand" href="index.html"><span class="brand-mark"></span>Lumii <small>公众号编辑器</small></a>
+    <span class="badge green">方案 03</span>
+    <span class="badge"><span class="dot" style="background:var(--success)"></span>草稿已同步</span>
+    <span class="badge violet">微信沙盒</span>
+    <div class="spacer"></div>
+    <button class="btn sm ghost" data-open-palette="all"><span data-icon="search" data-size="13"></span>搜索 <span class="kbd">⌘K</span></button>
+    <button class="btn sm" data-toast="已另存为草稿"><span data-icon="download" data-size="13"></span>存草稿</button>
+    <button class="btn sm primary" data-toast="已提交群发（示例，未真实发布）"><span data-icon="send" data-size="13"></span>发布</button>
+    <button class="btn icon sm ghost" data-theme-toggle data-icon="sun" title="切换浅色"></button>
+    <div class="win-controls"><i>—</i><i>□</i><i>×</i></div>
+  </div>
+
+  <div class="workspace">
+    <aside class="sidebar">
+      <div class="sidebar-head">
+        <div class="project-switch" data-toast="切换公众号（示例）">
+          <div class="project-avatar" style="background:linear-gradient(135deg,rgba(34,197,94,.22),rgba(56,189,248,.28));color:#4ade80">潮</div>
+          <div class="project-meta"><b>潮汐线 · 连载号</b><span>订阅 12,408 · 平均阅读 6.2k</span></div>
+          <span class="chev" data-icon="chevron-down" data-size="14"></span>
+        </div>
+        <div class="segmented">
+          <button class="active"><span data-icon="file-text" data-size="13"></span>文章</button>
+          <button data-toast="已切换到素材库"><span data-icon="image" data-size="13"></span>素材</button>
+        </div>
+        <div class="search-box" data-open-palette="files"><span data-icon="search" data-size="13"></span><span>搜索文章与素材…</span><span class="kbd">⌘P</span></div>
+      </div>
+      <div class="tree">
+        <div class="tree-section">本周选题<div class="line"></div></div>
+        <div class="tree-node active" style="--depth:0" data-tree-item data-title="退潮之后，海底露出一艘船"><span class="tw"></span><span class="icon" data-icon="file-text" data-size="14"></span><span class="label">退潮之后，海底露出一艘船</span><span class="status-dot" style="background:var(--warning)"></span></div>
+        <div class="tree-node" style="--depth:0" data-tree-item data-title="一个港口家族的十九年"><span class="tw"></span><span class="icon" data-icon="file-text" data-size="14"></span><span class="label">一个港口家族的十九年</span><span class="status-dot" style="background:var(--fg-4)"></span></div>
+        <div class="tree-node" style="--depth:0" data-tree-item data-title="铜扣背面的那个字"><span class="tw"></span><span class="icon" data-icon="file-text" data-size="14"></span><span class="label">铜扣背面的那个字</span><span class="status-dot" style="background:var(--success)"></span></div>
+        <div class="tree-section">资料与引用<div class="line"></div></div>
+        <div class="tree-node" style="--depth:0" data-tree-item data-title="港口志 · 口述记录"><span class="tw"></span><span class="icon" data-icon="book" data-size="14"></span><span class="label">港口志 · 口述记录</span><span class="badge">引用 4</span></div>
+        <div class="tree-node" style="--depth:0" data-tree-item data-title="潮汐历对照表"><span class="tw"></span><span class="icon" data-icon="book" data-size="14"></span><span class="label">潮汐历对照表</span></div>
+        <div class="tree-node" style="--depth:0" data-tree-item data-title="采访：修船匠阿禾"><span class="tw"></span><span class="icon" data-icon="quote" data-size="14"></span><span class="label">采访：修船匠阿禾</span></div>
+        <div class="tree-section">素材图<div class="line"></div></div>
+        <div class="tree-node" style="--depth:0" data-tree-item data-title="码头退潮 01.jpg"><span class="tw"></span><span class="icon" data-icon="image" data-size="14"></span><span class="label">码头退潮 01.jpg</span><span class="badge green">已上传</span></div>
+        <div class="tree-node" style="--depth:0" data-tree-item data-title="铜扣特写.jpg"><span class="tw"></span><span class="icon" data-icon="image" data-size="14"></span><span class="label">铜扣特写.jpg</span><span class="badge warn">未上传</span></div>
+        <div class="tree-node" style="--depth:0" data-tree-item data-title="灯塔夜景.jpg"><span class="tw"></span><span class="icon" data-icon="image" data-size="14"></span><span class="label">灯塔夜景.jpg</span><span class="badge green">已上传</span></div>
+      </div>
+      <div class="sidebar-foot">
+        <div class="tree-node" data-command="openRefs"><span class="icon" data-icon="link" data-size="14"></span><span class="label">引用中心</span><span class="count">9</span></div>
+        <div class="tree-node" data-command="openCheck"><span class="icon" data-icon="file-check" data-size="14"></span><span class="label">发布检查</span><span class="count">3</span></div>
+      </div>
+    </aside>
+
+    <div class="main">
+      <div class="editor-area">
+        <div class="doc-tabs">
+          <div class="doc-tab active"><span class="doc-dot"></span>退潮之后，海底露出一艘船<span class="x" data-icon="x" data-size="11"></span></div>
+          <div class="doc-tab"><span class="doc-dot"></span>铜扣特写.jpg<span class="x" data-icon="x" data-size="11"></span></div>
+          <div class="doc-tab"><span class="doc-dot"></span>港口志 · 口述记录<span class="x" data-icon="x" data-size="11"></span></div>
+        </div>
+
+        <div class="doc-toolbar">
+          <div class="breadcrumb">本周选题 <span class="sep">/</span> <b data-current-title>退潮之后，海底露出一艘船</b></div>
+          <div class="spacer"></div>
+          <div class="view-tabs" data-tabs="view">
+            <button class="active" data-tab="edit"><span data-icon="edit" data-size="12"></span>编辑</button>
+            <button data-tab="sources"><span data-icon="link" data-size="12"></span>来源</button>
+            <button data-tab="check"><span data-icon="file-check" data-size="12"></span>发布检查</button>
+          </div>
+          <button class="btn sm" data-toast="已插入一个微信兼容的引用块"><span data-icon="quote" data-size="13"></span>引用块</button>
+        </div>
+
+        <div class="pane active" data-panel-group="view" data-panel="edit">
+          <div class="doc-toolbar" style="height:40px;border-bottom:1px solid var(--border-soft)">
+            <button class="btn xs ghost" data-toast="加粗">B</button>
+            <button class="btn xs ghost" data-toast="斜体"><i>I</i></button>
+            <button class="btn xs ghost" data-toast="标题 2">H2</button>
+            <button class="btn xs ghost" data-toast="引用">❝</button>
+            <button class="btn xs ghost" data-toast="有序列表">1.</button>
+            <button class="btn xs ghost" data-toast="分隔线">—</button>
+            <div class="spacer"></div>
+            <span class="tiny muted">微信只保留内联样式 · 已自动清洗 class 与外链</span>
+            <span class="badge">1,842 字</span>
+          </div>
+          <div class="doc-scroll">
+            <div class="doc">
+              <h1 data-live-title>退潮之后，海底露出一艘船</h1>
+              <div class="meta-line"><span>潮汐线 · 连载号</span><span>·</span><span>原创</span><span>·</span><span>预计阅读 5 分钟</span><span class="badge green">排版兼容</span></div>
+              <p>退潮发生在凌晨四点十八分。</p>
+              <p>那天码头上的灯全灭了，只有防波堤尽头还亮着一盏。住在附近的人说，那是给夜航船留的，可那天海上没有船。</p>
+              <p>沈砚站在石阶最高一级，看见海底露出一截黑色的木头。它不属于任何一艘还在册的渔船。</p>
+              <div class="wx-img" style="height:150px;border-radius:8px;background:linear-gradient(135deg,#0f2f4a,#0e7490 55%,#f59e0b);display:grid;place-items:center;color:#fff;font-size:12px;font-weight:700;margin:18px 0">图：退潮后的码头 · 点击替换</div>
+              <h2>一枚不该出现的铜扣</h2>
+              <p>铜扣是在船舱的夹层里找到的。它比常见的样式小一圈，背面刻着一个几乎被磨平的字。</p>
+              <p>“不是本地的。”阿禾只看了一眼就下了判断。她父亲是码头最后一个修船匠，她从小在船底长大，“<span class="ref-inline">港口的船不用这种扣<span class="ref-num">1</span><span class="ref-tooltip"><b>港口志 · 口述记录</b>“本港渔船多用杉木钉与麻绳，金属扣是外来船的特征。”<span class="ref-src">资料/港口志.md#L88</span><span class="ref-status"><span class="badge green">引用有效</span></span></span></span>。”</p>
+              <blockquote>“暗流不响，响的不是暗流。”<br>——老港工的口述，记录于 2007 年</blockquote>
+              <p>十九年前，这片海域也沉过一艘船。档案里只有一行字：<em>“浙渔 0417，失踪，无生还。”</em></p>
+              <p>但阿禾说，她记得那艘船回来过。</p>
+              <div class="deco"></div>
+              <p class="muted small">本文部分细节来自口述记录，人物为化名。</p>
+              <div class="stale-banner"><span data-icon="alert" data-size="15"></span><span>正文中有 1 个外链在微信内不可点击，建议改为文末“阅读原文”。</span><div class="spacer"></div><button class="btn xs" data-toast="已改为文末引导">改为文末</button></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="pane" data-panel-group="view" data-panel="sources">
+          <div class="doc-scroll">
+            <div class="doc" style="padding-top:28px">
+              <div class="panel-title"><b>引用与来源</b><span class="badge">9 处引用 · 4 个来源</span><div class="spacer"></div><button class="btn xs" data-toast="已新建引用">＋ 新建</button></div>
+              <div class="card" style="margin-bottom:10px;padding:13px 15px">
+                <div class="row"><span data-icon="book" data-size="14" style="color:var(--sky)"></span><b style="font-size:12.5px">港口志 · 口述记录</b><span class="badge green">引用有效</span><div class="spacer"></div><span class="tiny muted">被引用 4 次</span></div>
+                <div class="bl-quote" style="margin-top:8px">“本港渔船多用杉木钉与麻绳，金属扣是外来船的特征。”<div class="muted tiny" style="margin-top:4px">资料/港口志.md#L88 · 采集于 2007-09-12</div></div>
+              </div>
+              <div class="card" style="margin-bottom:10px;padding:13px 15px">
+                <div class="row"><span data-icon="quote" data-size="14" style="color:var(--violet)"></span><b style="font-size:12.5px">采访：修船匠阿禾</b><span class="badge warn">来源已改动</span><div class="spacer"></div><span class="tiny muted">被引用 2 次</span></div>
+                <div class="bl-quote" style="margin-top:8px">“我记得那艘船回来过。那年我六岁。”<div class="muted tiny" style="margin-top:4px">资料/采访-阿禾.md#L12-18 · 2026-08-30</div></div>
+                <div class="row" style="margin-top:8px"><button class="btn xs" data-toast="已刷新引用位置">刷新引用</button><button class="btn xs ghost" data-toast="已保留旧快照">保留快照</button></div>
+              </div>
+              <div class="card" style="padding:13px 15px">
+                <div class="row"><span data-icon="book" data-size="14" style="color:var(--success)"></span><b style="font-size:12.5px">潮汐历对照表</b><span class="badge green">引用有效</span><div class="spacer"></div><span class="tiny muted">被引用 3 次</span></div>
+                <div class="bl-quote" style="margin-top:8px">十九年一轮“大回流”，最低水位出现在凌晨 4:18。</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="pane" data-panel-group="view" data-panel="check">
+          <div class="doc-scroll">
+            <div class="doc" style="padding-top:28px">
+              <div class="check-summary" data-check-scope style="border:1px solid var(--border-soft);border-radius:10px;background:var(--surface)">
+                <span class="cs-item"><span class="check-dot error"></span><b data-check-count="error">1</b> 阻塞</span>
+                <span class="cs-item"><span class="check-dot warn"></span><b data-check-count="warn">2</b> 建议</span>
+                <span class="cs-item"><span class="check-dot ok"></span><b data-check-count="ok">6</b> 通过</span>
+                <div class="spacer"></div><button class="btn xs" data-toast="已重新运行发布检查">重新检查</button>
+              </div>
+              <div class="check-list" style="margin-top:12px;border:1px solid var(--border-soft);border-radius:10px;overflow:hidden;background:var(--surface)">
+                <div class="check-item" data-severity="error"><div class="check-dot error"></div><div class="check-body"><b>正文外链不可点击</b><div class="detail">微信正文只允许公众号文章链接，外部 URL 会被过滤。位置：第 6 段。</div><div class="fix"><button class="btn xs" data-resolve-check>改为文末“阅读原文”</button><button class="btn xs ghost" data-toast="已保留外链并标记">保留</button></div></div></div>
+                <div class="check-item" data-severity="warn"><div class="check-dot warn"></div><div class="check-body"><b>图片尚未上传图床</b><div class="detail">“铜扣特写.jpg”仍是本地路径，发布后可能显示空白。</div><div class="fix"><button class="btn xs" data-resolve-check>上传并替换</button></div></div></div>
+                <div class="check-item" data-severity="warn"><div class="check-dot warn"></div><div class="check-body"><b>引用来源已改动</b><div class="detail">《采访：修船匠阿禾》在 09:20 有改动，引用锚点可能偏移。</div><div class="fix"><button class="btn xs" data-resolve-check>刷新引用</button></div></div></div>
+                <div class="check-item" data-severity="ok"><div class="check-dot ok"></div><div class="check-body"><b>排版兼容</b><div class="detail">已移除 class / script / 外部字体，仅保留内联样式。</div></div></div>
+                <div class="check-item" data-severity="ok"><div class="check-dot ok"></div><div class="check-body"><b>标题长度</b><div class="detail">当前标题 14 字，在列表页可完整显示。</div></div></div>
+                <div class="check-item" data-severity="ok"><div class="check-dot ok"></div><div class="check-body"><b>原创声明</b><div class="detail">已开启原创，白名单转载将自动附带来源。</div></div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="statusbar">
+          <span class="ok"><span data-icon="check" data-size="11"></span> 草稿已同步</span>
+          <span>1,842 字</span>
+          <span>8 张图 · 3 张已上传</span>
+          <span class="spacer"></span>
+          <span>定时群发：未设置</span>
+        </div>
+      </div>
+
+      <aside class="rail wide">
+        <div class="rail-tabs" data-tabs="rail">
+          <button class="rail-tab active" data-tab="titles"><span data-icon="type" data-size="13"></span>标题 <span class="badge blue">4</span></button>
+          <button class="rail-tab" data-tab="preview"><span data-icon="eye" data-size="13"></span>手机预览</button>
+          <button class="rail-tab" data-tab="chat"><span data-icon="message" data-size="13"></span>对话</button>
+        </div>
+        <div class="rail-body">
+          <div class="rail-panel active" data-panel-group="rail" data-panel="titles">
+            <div class="rail-head"><b>标题候选</b><span class="badge">基于全文与历史数据</span><div class="spacer"></div><button class="btn xs" data-toast="已重新生成 4 个标题">重生成</button></div>
+            <div class="rail-scroll">
+              <div class="title-list">
+                <div class="title-candidate selected" data-title-candidate data-title="退潮之后，海底露出一艘船">
+                  <div class="tc-top"><div class="tc-title">退潮之后，海底露出一艘船</div><div class="tc-score">92</div></div>
+                  <div class="tc-meta"><span class="badge green">当前使用</span><span>信息量高</span><span>14 字</span></div>
+                  <div class="tc-reason">画面感与悬念兼具，符合连载号的“现场感”基调；在订阅列表里可完整显示。</div>
+                  <div class="score-bar"><span style="width:92%"></span></div>
+                </div>
+                <div class="title-candidate" data-title-candidate data-title="我在码头等了十九年，只为那枚铜扣">
+                  <div class="tc-top"><div class="tc-title">我在码头等了十九年，只为那枚铜扣</div><div class="tc-score">88</div></div>
+                  <div class="tc-meta"><span class="badge blue">第一人称</span><span>情绪强</span><span class="use-label">点击采用</span></div>
+                  <div class="tc-reason">代入感强，但“我”在正文中其实是第三人称，可能造成预期偏差。</div>
+                  <div class="score-bar"><span style="width:88%"></span></div>
+                </div>
+                <div class="title-candidate" data-title-candidate data-title="父亲留下的铜扣，背面刻着别人的姓">
+                  <div class="tc-top"><div class="tc-title">父亲留下的铜扣，背面刻着别人的姓</div><div class="tc-score">86</div></div>
+                  <div class="tc-meta"><span class="badge violet">悬念</span><span>家庭线</span><span class="use-label">点击采用</span></div>
+                  <div class="tc-reason">把谜题从“物”推进到“人”，适合作为系列中段的钩子。</div>
+                  <div class="score-bar"><span style="width:86%"></span></div>
+                </div>
+                <div class="title-candidate" data-title-candidate data-title="暗流不响：一个港口家族的十九年">
+                  <div class="tc-top"><div class="tc-title">暗流不响：一个港口家族的十九年</div><div class="tc-score">74</div></div>
+                  <div class="tc-meta"><span class="badge">偏文学</span><span>较长</span><span class="use-label">点击采用</span></div>
+                  <div class="tc-reason">气质贴切，但缺少具体画面，打开率通常低于前三个。</div>
+                  <div class="score-bar"><span style="width:74%"></span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="rail-panel" data-panel-group="rail" data-panel="preview">
+            <div class="phone-toolbar"><b style="font-size:12px">手机预览</b><span class="badge">微信 · 夜间模式</span><div class="spacer"></div><button class="btn xs" data-toast="已切换到安卓尺寸">iOS</button></div>
+            <div class="phone-stage">
+              <div class="phone">
+                <div class="phone-screen">
+                  <div class="wx-status"><span>9:41</span><span class="right">●●● ▮</span></div>
+                  <div class="wx-article">
+                    <h1 data-live-title>退潮之后，海底露出一艘船</h1>
+                    <div class="wx-meta"><span class="wx-name">潮汐线 · 连载号</span><span>2026-10-19</span><span>原创</span></div>
+                    <p>退潮发生在凌晨四点十八分。</p>
+                    <p>那天码头上的灯全灭了，只有防波堤尽头还亮着一盏。</p>
+                    <div class="wx-img">码头退潮 · 实拍</div>
+                    <p>沈砚站在石阶最高一级，看见海底露出一截黑色的木头。</p>
+                    <h2>一枚不该出现的铜扣</h2>
+                    <p>铜扣比常见的样式小一圈，背面刻着一个几乎被磨平的字。</p>
+                    <blockquote>“暗流不响，响的不是暗流。”<br>——老港工的口述</blockquote>
+                    <p>十九年前，这片海域也沉过一艘船。<a class="wx-ref">阅读原文</a></p>
+                    <div class="wx-footer">阅读 6,204 · 在看 128 · 点赞 341<br>本文部分细节来自口述记录。</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="rail-panel" data-panel-group="rail" data-panel="chat">
+            <div class="chat-stream" style="flex:1;overflow:auto">
+              <div class="msg user">根据这篇文章给我几个标题，要有画面、别太标题党。</div>
+              <div class="msg assistant"><div class="msg-meta"><span class="spark" data-icon="sparkles" data-size="11"></span>Lumii</div><div class="bubble">已按“画面感 / 悬念 / 与正文一致”三个维度生成 4 个，最推荐第一个。点击标题卡片可立刻替换并在手机预览里同步。</div></div>
+              <div class="msg user">再检查一下能不能直接发，重点看微信的格式限制。</div>
+              <div class="msg assistant"><div class="msg-meta"><span class="spark" data-icon="sparkles" data-size="11"></span>Lumii</div><div class="bubble">有 1 个阻塞项：正文外链在微信里不可点击。另有 2 个建议：图片未上传图床、引用来源刚被改过。</div>
+                <div class="tool-card"><div class="tool-icon" data-icon="file-check" data-size="13"></div><div><b>发布检查完成</b><div class="small muted" style="margin-top:3px">9 项检查 · 1 阻塞 · 2 建议 · 6 通过</div></div></div>
+              </div>
+            </div>
+            <div class="composer">
+              <div class="context-chips"><span class="chip accent"><span data-icon="file-text" data-size="11"></span>当前文章</span><span class="chip ref"><span data-icon="link" data-size="11"></span>3 个引用来源</span></div>
+              <div class="composer-box">
+                <div class="composer-input">帮我把结尾改得更有余味，别总结……</div>
+                <div class="composer-tools"><button class="btn icon sm ghost">@</button><button class="btn icon sm ghost">＋</button><div class="spacer"></div><span class="hint">⌘↵</span><button class="send-btn"><span data-icon="send" data-size="14"></span></button></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </div>
+</div>
+
+<div class="palette-overlay" data-palette>
+  <div class="palette">
+    <div class="palette-input-row"><span class="icon" data-icon="search" data-size="17"></span><input type="text" placeholder="搜索文章、素材、引用…" autocomplete="off"><span class="kbd">Esc</span></div>
+    <div class="palette-list" data-palette-list></div>
+    <div class="palette-foot"><span><span class="kbd">↑</span><span class="kbd">↓</span> 选择</span><span><span class="kbd">↵</span> 打开</span><span class="spacer"></span><span>公众号项目</span></div>
+  </div>
+</div>
+
+<script>
+window.DEMO_COMMANDS = [
+  { group: '文章', title: '退潮之后，海底露出一艘船', sub: '草稿 · 1,842 字 · 今天 09:41', icon: 'file-text', toast: '已打开当前文章' },
+  { group: '文章', title: '一个港口家族的十九年', sub: '草稿 · 0 字', icon: 'file-text', toast: '已打开文章' },
+  { group: '文章', title: '铜扣背面的那个字', sub: '已发布 · 阅读 6.2k', icon: 'file-check', toast: '已打开文章' },
+  { group: '素材', title: '码头退潮 01.jpg', sub: '已上传图床 · 2.4 MB', icon: 'image', toast: '已打开素材' },
+  { group: '素材', title: '铜扣特写.jpg', sub: '本地文件 · 尚未上传', icon: 'image', toast: '已打开素材：铜扣特写' },
+  { group: '资料', title: '港口志 · 口述记录', sub: '被引用 4 次', icon: 'book', toast: '已打开资料' },
+  { group: '资料', title: '采访：修船匠阿禾', sub: '被引用 2 次 · 来源有改动', icon: 'quote', toast: '已打开采访记录' },
+  { group: '操作', title: '切换标题候选', sub: '4 个候选 · 可即时预览', icon: 'type', action: 'openTitles' },
+  { group: '操作', title: '手机预览', sub: '微信排版与夜间模式', icon: 'eye', action: 'openPreview' },
+  { group: '操作', title: '发布检查', sub: '格式、图片、外链、引用', icon: 'file-check', action: 'openCheck' }
+];
+window.DEMO_ACTIONS = {
+  openTitles: function () { document.querySelector('[data-tab="titles"]').click(); toast('已打开标题候选'); },
+  openPreview: function () { document.querySelector('[data-tab="preview"]').click(); toast('已打开手机预览'); },
+  openCheck: function () { document.querySelector('[data-tab="check"]').click(); toast('已打开发布检查'); },
+  openRefs: function () { document.querySelector('[data-tab="sources"]').click(); toast('已打开来源面板'); }
+};
+</script>
+<script src="assets/demo.js"></script>
+</body>
+</html>

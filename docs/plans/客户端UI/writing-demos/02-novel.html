@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>02 · 小说创作台</title>
+<link rel="stylesheet" href="assets/demo.css">
+</head>
+<body>
+<div class="app">
+  <div class="titlebar">
+    <a class="brand" href="index.html"><span class="brand-mark"></span>Lumii <small>小说创作台</small></a>
+    <span class="badge violet">方案 02</span>
+    <span class="badge">《潮汐线》</span>
+    <span class="badge green"><span class="dot"></span>自动保存</span>
+    <div class="spacer"></div>
+    <button class="btn sm ghost" data-open-palette="all"><span data-icon="search" data-size="13"></span>搜索 <span class="kbd">⌘K</span></button>
+    <button class="btn sm" data-toast="已创建命名快照：第二稿·渡口"><span data-icon="history" data-size="13"></span>快照</button>
+    <button class="btn sm primary" data-toast="已打开新的创作回合"><span data-icon="sparkles" data-size="13"></span>继续写</button>
+    <button class="btn icon sm ghost" data-theme-toggle data-icon="sun" title="切换浅色"></button>
+    <div class="win-controls"><i>—</i><i>□</i><i>×</i></div>
+  </div>
+
+  <div class="workspace">
+    <aside class="sidebar">
+      <div class="sidebar-head">
+        <div class="project-switch" data-toast="切换项目（示例）">
+          <div class="project-avatar">潮</div>
+          <div class="project-meta"><b>潮汐线</b><span>长篇 · 第二稿 · 12.4 万字</span></div>
+          <span class="chev" data-icon="chevron-down" data-size="14"></span>
+        </div>
+        <div class="segmented">
+          <button class="active"><span data-icon="book" data-size="13"></span>Binder</button>
+          <button data-toast="已切换到研究资料视图"><span data-icon="layers" data-size="13"></span>资料</button>
+        </div>
+        <div class="search-box" data-open-palette="files"><span data-icon="search" data-size="13"></span><span>在全书范围内搜索…</span><span class="kbd">⌘P</span></div>
+      </div>
+      <div class="tree">
+        <div class="tree-node folder" style="--depth:0"><span class="tw" data-icon="chevron-down" data-size="12"></span><span class="icon" data-icon="folder-open" data-size="14"></span><span class="label">卷一 · 入海口</span><span class="count">6 章</span></div>
+        <div class="tree-node" style="--depth:1" data-tree-item data-title="第一章 渡口"><span class="tw"></span><span class="icon" data-icon="file-text" data-size="14"></span><span class="label">第一章 渡口</span><span class="count">3.1k</span></div>
+        <div class="tree-node active" style="--depth:1" data-tree-item data-title="第二章 暗流"><span class="tw"></span><span class="icon" data-icon="file-text" data-size="14"></span><span class="label">第二章 暗流</span><span class="count">2.4k</span></div>
+        <div class="tree-node" style="--depth:1" data-tree-item data-title="第三章 灯塔"><span class="tw"></span><span class="icon" data-icon="file-text" data-size="14"></span><span class="label">第三章 灯塔</span><span class="count">2.9k</span></div>
+        <div class="tree-node" style="--depth:1" data-tree-item data-title="第四章 退潮"><span class="tw"></span><span class="icon" data-icon="file-text" data-size="14"></span><span class="label">第四章 退潮</span><span class="count">3.4k</span></div>
+        <div class="tree-node folder" style="--depth:0"><span class="tw" data-icon="chevron-right" data-size="12"></span><span class="icon" data-icon="folder" data-size="14"></span><span class="label">卷二 · 深海</span><span class="count">9 章</span></div>
+        <div class="tree-section">故事圣经<div class="line"></div></div>
+        <div class="tree-node folder" style="--depth:0"><span class="tw" data-icon="chevron-down" data-size="12"></span><span class="icon" data-icon="users" data-size="14"></span><span class="label">角色</span><span class="count">8</span></div>
+        <div class="tree-node" style="--depth:1" data-tree-item data-title="沈砚"><span class="tw"></span><span class="icon" data-icon="user" data-size="13"></span><span class="label">沈砚</span><span class="badge blue">POV</span></div>
+        <div class="tree-node" style="--depth:1" data-tree-item data-title="阿禾"><span class="tw"></span><span class="icon" data-icon="user" data-size="13"></span><span class="label">阿禾</span></div>
+        <div class="tree-node" style="--depth:1" data-tree-item data-title="陈叔"><span class="tw"></span><span class="icon" data-icon="user" data-size="13"></span><span class="label">陈叔</span></div>
+        <div class="tree-node folder" style="--depth:0"><span class="tw" data-icon="chevron-right" data-size="12"></span><span class="icon" data-icon="folder" data-size="14"></span><span class="label">地点与设定</span><span class="count">14</span></div>
+        <div class="tree-node folder" style="--depth:0"><span class="tw" data-icon="chevron-right" data-size="12"></span><span class="icon" data-icon="folder" data-size="14"></span><span class="label">伏笔登记</span><span class="count">6</span></div>
+        <div class="tree-node folder" style="--depth:0"><span class="tw" data-icon="chevron-right" data-size="12"></span><span class="icon" data-icon="folder" data-size="14"></span><span class="label">废弃片段</span><span class="count">11</span></div>
+      </div>
+      <div class="sidebar-foot">
+        <div class="tree-node" data-command="openCodex"><span class="icon" data-icon="book" data-size="14"></span><span class="label">打开 Codex</span><span class="count">8 人物</span></div>
+        <div class="tree-node" data-command="openCheck"><span class="icon" data-icon="file-check" data-size="14"></span><span class="label">一致性检查</span><span class="count">3</span></div>
+      </div>
+    </aside>
+
+    <div class="main">
+      <div class="editor-area">
+        <div class="doc-tabs">
+          <div class="doc-tab active"><span class="doc-dot"></span>卷二 · 场景板<span class="x" data-icon="x" data-size="11"></span></div>
+          <div class="doc-tab"><span class="doc-dot"></span>第二章 暗流<span class="x" data-icon="x" data-size="11"></span></div>
+          <div class="doc-tab"><span class="doc-dot"></span>人物关系<span class="x" data-icon="x" data-size="11"></span></div>
+          <div class="doc-tab" data-toast="新建视图"><span data-icon="plus" data-size="12"></span></div>
+        </div>
+
+        <div class="doc-toolbar">
+          <div class="breadcrumb">卷一 · 入海口 <span class="sep">/</span> <b data-current-title>场景板</b> <span class="badge">6 个场景 · 18.2k 字</span></div>
+          <div class="spacer"></div>
+          <div class="view-tabs" data-tabs="view">
+            <button class="active" data-tab="board"><span data-icon="grid" data-size="12"></span>卡片板</button>
+            <button data-tab="outline"><span data-icon="list" data-size="12"></span>大纲</button>
+            <button data-tab="timeline"><span data-icon="clock" data-size="12"></span>时间线</button>
+            <button data-tab="matrix"><span data-icon="columns" data-size="12"></span>矩阵</button>
+            <button data-tab="manuscript"><span data-icon="file-text" data-size="12"></span>正文</button>
+          </div>
+          <button class="btn sm" data-toast="已进入专注模式"><span data-icon="maximize" data-size="13"></span>专注</button>
+        </div>
+
+        <div class="pane active" data-panel-group="view" data-panel="board">
+          <div class="doc-scroll">
+            <div class="board-wrap">
+              <div class="board-head">
+                <h2>卷一 · 入海口</h2>
+                <span class="badge">6 个场景</span>
+                <span class="badge green">4 已定稿</span>
+                <div class="spacer"></div>
+                <div class="segmented" style="width:auto">
+                  <button class="active">场景</button><button data-toast="已按章节分组">按章</button><button data-toast="已按 POV 分组">按 POV</button>
+                </div>
+                <button class="btn sm" data-toast="已新建一张场景卡"><span data-icon="plus" data-size="13"></span>场景</button>
+              </div>
+              <div class="board">
+                <div class="scene-card" data-toast="打开场景：归港">
+                  <div class="scene-top"><span class="scene-no">01</span><span class="scene-title">归港</span><span class="badge green">定稿</span><span class="drag" data-icon="more" data-size="13"></span></div>
+                  <div class="synopsis">沈砚在夜航船上醒来，港口只剩一盏灯。他带着一只不属于自己的箱子下船。</div>
+                  <div class="scene-meta"><span class="badge blue">沈砚 POV</span><span>清晨</span><span class="spacer"></span><span>3.1k</span></div>
+                </div>
+                <div class="scene-card selected" data-toast="打开场景：暗流">
+                  <div class="scene-top"><span class="scene-no">02</span><span class="scene-title">暗流</span><span class="badge warn">修改中</span><span class="drag" data-icon="more" data-size="13"></span></div>
+                  <div class="synopsis">退潮后的码头。铜扣出现，阿禾认出花纹，沈砚第一次撒谎。</div>
+                  <div class="scene-meta"><span class="badge blue">沈砚 POV</span><span>同日</span><span class="spacer"></span><span>2.4k</span></div>
+                </div>
+                <div class="scene-card" data-toast="打开场景：灯塔">
+                  <div class="scene-top"><span class="scene-no">03</span><span class="scene-title">灯塔</span><span class="badge green">定稿</span><span class="drag" data-icon="more" data-size="13"></span></div>
+                  <div class="synopsis">两人夜访灯塔。陈叔提到十九年前的沉船，话说到一半被电话打断。</div>
+                  <div class="scene-meta"><span class="badge violet">阿禾 POV</span><span>夜里</span><span class="spacer"></span><span>2.9k</span></div>
+                </div>
+                <div class="scene-card" data-toast="打开场景：退潮">
+                  <div class="scene-top"><span class="scene-no">04</span><span class="scene-title">退潮</span><span class="badge green">定稿</span><span class="drag" data-icon="more" data-size="13"></span></div>
+                  <div class="synopsis">最低水位露出沉船残骸。沈砚在船舱里找到第二枚铜扣，和一张父亲的照片。</div>
+                  <div class="scene-meta"><span class="badge blue">沈砚 POV</span><span>次日</span><span class="spacer"></span><span>3.4k</span></div>
+                </div>
+                <div class="scene-card" data-toast="打开场景：空屋">
+                  <div class="scene-top"><span class="scene-no">05</span><span class="scene-title">空屋</span><span class="badge">待写</span><span class="drag" data-icon="more" data-size="13"></span></div>
+                  <div class="synopsis">阿禾回修船铺，发现父亲留下的工具箱被动过。她开始怀疑陈叔。</div>
+                  <div class="scene-meta"><span class="badge violet">阿禾 POV</span><span>傍晚</span><span class="spacer"></span><span>—</span></div>
+                </div>
+                <div class="scene-card" data-toast="打开场景：电话">
+                  <div class="scene-top"><span class="scene-no">06</span><span class="scene-title">电话</span><span class="badge">待写</span><span class="drag" data-icon="more" data-size="13"></span></div>
+                  <div class="synopsis">沈砚接到一个没有来电显示的号码。对方知道铜扣背面的字。</div>
+                  <div class="scene-meta"><span class="badge blue">沈砚 POV</span><span>深夜</span><span class="spacer"></span><span>—</span></div>
+                </div>
+                <div class="scene-card add" data-toast="已新建一张场景卡"><span data-icon="plus" data-size="18"></span><span class="small">新建场景</span><span class="tiny">或从大纲拖入</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="pane" data-panel-group="view" data-panel="outline">
+          <div class="doc-scroll">
+            <div class="outline-wrap">
+              <div class="board-head"><h2>大纲</h2><span class="badge">卷二 · 深海</span><div class="spacer"></div><button class="btn sm" data-toast="已把大纲同步到卡片板">同步卡片板</button></div>
+              <table class="outline-table">
+                <thead><tr><th>场景</th><th>功能</th><th>POV</th><th>状态</th><th>推进度</th><th>伏笔</th></tr></thead>
+                <tbody>
+                  <tr class="group"><td colspan="6">卷一 · 入海口</td></tr>
+                  <tr><td><span class="num">01</span> <b>归港</b></td><td>建立世界与主角困境</td><td><span class="badge blue">沈砚</span></td><td><span class="badge green">定稿</span></td><td><div class="bar"><span style="width:100%"></span></div></td><td>箱子</td></tr>
+                  <tr><td><span class="num">02</span> <b>暗流</b></td><td>引入核心谜题</td><td><span class="badge blue">沈砚</span></td><td><span class="badge warn">修改中</span></td><td><div class="bar"><span style="width:64%"></span></div></td><td>铜扣</td></tr>
+                  <tr><td><span class="num">03</span> <b>灯塔</b></td><td>第一次信息释放</td><td><span class="badge violet">阿禾</span></td><td><span class="badge green">定稿</span></td><td><div class="bar"><span style="width:100%"></span></div></td><td>沉船 / 陈叔</td></tr>
+                  <tr><td><span class="num">04</span> <b>退潮</b></td><td>第一次转折</td><td><span class="badge blue">沈砚</span></td><td><span class="badge green">定稿</span></td><td><div class="bar"><span style="width:100%"></span></div></td><td>第二枚铜扣</td></tr>
+                  <tr><td><span class="num">05</span> <b>空屋</b></td><td>关系裂痕</td><td><span class="badge violet">阿禾</span></td><td><span class="badge">待写</span></td><td><div class="bar"><span style="width:0%"></span></div></td><td>工具箱</td></tr>
+                  <tr><td><span class="num">06</span> <b>电话</b></td><td>卷一收束 / 钩子</td><td><span class="badge blue">沈砚</span></td><td><span class="badge">待写</span></td><td><div class="bar"><span style="width:0%"></span></div></td><td>无名来电</td></tr>
+                  <tr class="group"><td colspan="6">卷二 · 深海</td></tr>
+                  <tr><td class="indent"><span class="num">07</span> <b>下潜</b></td><td>进入新空间</td><td><span class="badge blue">沈砚</span></td><td><span class="badge">待写</span></td><td><div class="bar"><span style="width:0%"></span></div></td><td>—</td></tr>
+                  <tr><td class="indent"><span class="num">08</span> <b>压在海底的名字</b></td><td>中点揭示</td><td><span class="badge blue">沈砚</span></td><td><span class="badge">待写</span></td><td><div class="bar"><span style="width:0%"></span></div></td><td>父亲</td></tr>
+                </tbody>
+              </table>
+              <div class="stale-banner" style="margin-top:16px"><span data-icon="lightbulb" data-size="15"></span><span>第 8 章“压在海底的名字”与第 2 章铜扣背面的刻画尚未建立明确关联。</span><div class="spacer"></div><button class="btn xs" data-toast="已生成一条伏笔关联建议">生成关联</button></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="pane" data-panel-group="view" data-panel="timeline">
+          <div class="doc-scroll">
+            <div class="timeline-wrap">
+              <div class="board-head"><h2>故事时间线</h2><span class="badge">双线并行</span><div class="spacer"></div><span class="tiny muted">实线 = 现在 · 点线 = 十九年前</span></div>
+              <div class="timeline-scale"><span>第三天</span><span>·</span><span>第七天</span><span>·</span><span>第九天</span><span>·</span><span>第十九天</span><span class="spacer"></span><span class="badge warn">检测到 1 处时间冲突</span></div>
+              <div class="timeline-track">
+                <div class="timeline-item done"><div class="dot"></div><div class="tl-label">归港</div><div class="tl-sub">第三天 · 清晨</div><div class="tl-card">沈砚下船，箱子被错认。</div></div>
+                <div class="timeline-item current"><div class="dot"></div><div class="tl-label">暗流</div><div class="tl-sub">第三天 · 退潮</div><div class="tl-card">铜扣出现。时间线冲突：与上一章“第七天夜里”不一致。</div></div>
+                <div class="timeline-item done"><div class="dot"></div><div class="tl-label">灯塔</div><div class="tl-sub">第七天 · 夜</div><div class="tl-card">陈叔提到十九年前的沉船。</div></div>
+                <div class="timeline-item done"><div class="dot"></div><div class="tl-label">退潮</div><div class="tl-sub">第九天 · 最低水位</div><div class="tl-card">第二枚铜扣与父亲的照片。</div></div>
+                <div class="timeline-item"><div class="dot"></div><div class="tl-label">空屋</div><div class="tl-sub">第九天 · 傍晚</div><div class="tl-card">阿禾发现工具箱被动过。</div></div>
+                <div class="timeline-item"><div class="dot"></div><div class="tl-label">电话</div><div class="tl-sub">第十九天 · 深夜</div><div class="tl-card">无名来电。卷一收束。</div></div>
+              </div>
+              <div class="card" style="margin-top:20px;padding:13px 15px">
+                <div class="row"><span data-icon="git-branch" data-size="14" style="color:var(--violet)"></span><b style="font-size:12px">十九年前 · 暗线</b><div class="spacer"></div><button class="btn xs" data-toast="已展开暗线">展开</button></div>
+                <div class="small muted" style="margin-top:6px">沉船、父亲、陈叔的沉默，都在这条线上。当前只在第 3 章的对话里露出两次。</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="pane" data-panel-group="view" data-panel="matrix">
+          <div class="doc-scroll">
+            <div class="matrix-wrap">
+              <div class="board-head"><h2>人物 × 章节 矩阵</h2><span class="badge">看谁在哪一章消失</span><div class="spacer"></div><button class="btn sm" data-toast="已切换为地点矩阵">地点矩阵</button></div>
+              <table class="matrix">
+                <thead><tr><th>人物</th><th>01 归港</th><th>02 暗流</th><th>03 灯塔</th><th>04 退潮</th><th>05 空屋</th><th>06 电话</th><th>07 下潜</th><th>08 名字</th></tr></thead>
+                <tbody>
+                  <tr><td>沈砚</td><td><span class="m-dot major">P</span></td><td><span class="m-dot major">P</span></td><td><span class="m-dot on">·</span></td><td><span class="m-dot major">P</span></td><td><span class="m-dot">—</span></td><td><span class="m-dot major">P</span></td><td><span class="m-dot major">P</span></td><td><span class="m-dot major">P</span></td></tr>
+                  <tr><td>阿禾</td><td><span class="m-dot on">·</span></td><td><span class="m-dot major">P</span></td><td><span class="m-dot major">P</span></td><td><span class="m-dot on">·</span></td><td><span class="m-dot major">P</span></td><td><span class="m-dot on">·</span></td><td><span class="m-dot on">·</span></td><td><span class="m-dot on">·</span></td></tr>
+                  <tr><td>陈叔</td><td><span class="m-dot">—</span></td><td><span class="m-dot on">·</span></td><td><span class="m-dot on">·</span></td><td><span class="m-dot">—</span></td><td><span class="m-dot on">·</span></td><td><span class="m-dot on">·</span></td><td><span class="m-dot">—</span></td><td><span class="m-dot on">·</span></td></tr>
+                  <tr><td>父亲</td><td><span class="m-dot on">回</span></td><td><span class="m-dot on">回</span></td><td><span class="m-dot on">提</span></td><td><span class="m-dot major">照</span></td><td><span class="m-dot">—</span></td><td><span class="m-dot on">·</span></td><td><span class="m-dot on">·</span></td><td><span class="m-dot major">揭</span></td></tr>
+                  <tr><td>无名来电者</td><td><span class="m-dot">—</span></td><td><span class="m-dot">—</span></td><td><span class="m-dot">—</span></td><td><span class="m-dot">—</span></td><td><span class="m-dot">—</span></td><td><span class="m-dot major">登</span></td><td><span class="m-dot on">·</span></td><td><span class="m-dot on">·</span></td></tr>
+                </tbody>
+              </table>
+              <div class="row small muted" style="margin-top:14px;gap:14px">
+                <span class="tiny muted"><span class="m-dot major" style="display:inline-grid">P</span> POV 视角</span>
+                <span class="tiny muted"><span class="m-dot on" style="display:inline-grid">·</span> 出场</span>
+                <span class="tiny muted"><span class="m-dot" style="display:inline-grid">—</span> 缺席</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="pane" data-panel-group="view" data-panel="manuscript">
+          <div class="doc-scroll">
+            <div class="doc reading">
+              <h1>第二章 暗流</h1>
+              <div class="meta-line"><span>卷一 · 入海口</span><span>·</span><span>2,418 字</span><span>·</span><span class="badge warn">1 条建议</span></div>
+              <p>退潮后的码头露出黑色的石阶，像一排被海水咬过的牙。沈砚站在最高一级上，手里攥着那枚从沉船里捞出来的铜扣。</p>
+              <p>“这不是本地的样式。”阿禾凑近看了一眼，声音压得很低，“潮汐历上也没有这个花纹。”</p>
+              <p>海风从防波堤的缺口灌进来，带着铁锈和柴油的味道。沈砚没有回答。他知道阿禾在等一个解释，而他能给出的每一个解释都会把对方拖进更深的地方。</p>
+              <blockquote>他忽然想起父亲说过的话：暗流不响。</blockquote>
+              <p>远处，灯塔的光扫过海面，亮一下，又熄灭。</p>
+              <div class="end-mark">· · ·</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="statusbar">
+          <span class="ok"><span data-icon="check" data-size="11"></span> 已保存</span>
+          <span>本卷 18,204 字</span>
+          <span>今日 +1,206</span>
+          <span>连续写作 6 天</span>
+          <span class="spacer"></span>
+          <span>快照：第二稿 · 09:32</span>
+        </div>
+      </div>
+
+      <aside class="rail">
+        <div class="rail-tabs" data-tabs="rail">
+          <button class="rail-tab active" data-tab="codex"><span data-icon="book" data-size="13"></span>Codex</button>
+          <button class="rail-tab" data-tab="chat"><span data-icon="message" data-size="13"></span>对话</button>
+          <button class="rail-tab" data-tab="check"><span data-icon="file-check" data-size="13"></span>检查 <span class="badge warn">3</span></button>
+        </div>
+        <div class="rail-body">
+          <div class="rail-panel active" data-panel-group="rail" data-panel="codex">
+            <div class="rail-head"><b>故事圣经</b><span class="badge">8 人物 · 14 设定</span><div class="spacer"></div><button class="btn xs" data-toast="已新建条目">＋</button></div>
+            <div class="rail-scroll">
+              <div class="codex-list">
+                <div class="codex-card selected" data-toast="打开 Codex：沈砚">
+                  <div class="codex-avatar" style="background:rgba(59,130,246,.2);color:#60a5fa">沈</div>
+                  <div class="codex-body"><b>沈砚</b><div class="alias">别名：老沈 · 沈调查员</div><div class="tags"><span class="badge blue">主角</span><span class="badge">POV</span><span class="badge">34 岁</span></div></div>
+                </div>
+                <div class="codex-card" data-toast="打开 Codex：阿禾">
+                  <div class="codex-avatar" style="background:rgba(139,92,246,.2);color:#c4b5fd">禾</div>
+                  <div class="codex-body"><b>阿禾</b><div class="alias">别名：小禾 · 阿禾姑娘</div><div class="tags"><span class="badge violet">视角人物</span><span class="badge">19 岁</span></div></div>
+                </div>
+                <div class="codex-card" data-toast="打开 Codex：陈叔">
+                  <div class="codex-avatar" style="background:rgba(245,158,11,.2);color:#fbbf24">陈</div>
+                  <div class="codex-body"><b>陈叔</b><div class="alias">别名：老陈 · 陈守义</div><div class="tags"><span class="badge warn">信息持有者</span><span class="badge">58 岁</span></div></div>
+                </div>
+                <div class="codex-card" data-toast="打开 Codex：无名来电者">
+                  <div class="codex-avatar" style="background:rgba(239,68,68,.16);color:#f87171">?</div>
+                  <div class="codex-body"><b>无名来电者</b><div class="alias">尚未揭示身份</div><div class="tags"><span class="badge red">伏笔</span><span class="badge">第 6 章登场</span></div></div>
+                </div>
+              </div>
+              <div class="panel-section">
+                <h4>当前条目</h4>
+                <div class="row" style="margin-bottom:6px"><b style="font-size:12.5px">沈砚</b><span class="badge green">出场 9 次</span></div>
+                <div class="small muted" style="line-height:1.7">前海事调查员，因一次失败的搜救离开岗位。习惯把重要的话说成陈述句，紧张时会反复摸左手腕的旧伤。</div>
+                <div class="hr"></div>
+                <div class="small"><span class="muted">自定义字段</span></div>
+                <div class="row" style="margin-top:6px;justify-content:space-between"><span class="small muted">口头禅</span><span class="small">“先看看再说。”</span></div>
+                <div class="row" style="margin-top:4px;justify-content:space-between"><span class="small muted">禁忌</span><span class="small">不碰别人的船</span></div>
+                <div class="row" style="margin-top:4px;justify-content:space-between"><span class="small muted">关系</span><span class="small">阿禾（保护 / 隐瞒）</span></div>
+              </div>
+              <div class="panel-section">
+                <h4>最近出现</h4>
+                <div class="list-row" style="padding-left:0"><span class="icon" data-icon="file-text" data-size="13"></span><span class="grow">第二章 暗流<span class="sub">“这不是本地的样式。”</span></span></div>
+                <div class="list-row" style="padding-left:0"><span class="icon" data-icon="file-text" data-size="13"></span><span class="grow">第一章 渡口<span class="sub">“先看看再说。”</span></span></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="rail-panel" data-panel-group="rail" data-panel="chat">
+            <div class="chat-stream" style="flex:1;overflow:auto">
+              <div class="msg user">帮我检查第二章的人物行为是否和 Codex 一致。</div>
+              <div class="msg assistant">
+                <div class="msg-meta"><span class="spark" data-icon="sparkles" data-size="11"></span>Lumii · 回合 21</div>
+                <div class="bubble">有两处值得注意：<br>1. 沈砚在阿禾面前直接说出“沉船”二字，与他“先看看再说”的设定冲突；<br>2. 阿禾的紧张动作写成了“摸左手腕”，那是沈砚的习惯。</div>
+                <div class="tool-card"><div class="tool-icon" data-icon="users" data-size="13"></div><div><b>已核对 3 个人物</b><div class="small muted" style="margin-top:3px">沈砚 / 阿禾 / 陈叔 · 共 42 条出场</div></div></div>
+              </div>
+              <div class="msg user">把阿禾的动作改掉，沈砚那句也收一收。</div>
+              <div class="msg assistant"><div class="msg-meta"><span class="spark" data-icon="sparkles" data-size="11"></span>Lumii · 正在处理</div><div class="bubble">好，我会保留两人各自的习惯动作，并把“沉船”改成阿禾先提、沈砚回避。</div></div>
+            </div>
+            <div class="composer">
+              <div class="context-chips"><span class="chip accent"><span data-icon="file-text" data-size="11"></span>第二章 暗流.md</span><span class="chip ref"><span data-icon="book" data-size="11"></span>Codex · 沈砚</span></div>
+              <div class="composer-box">
+                <div class="composer-input">让这一章的对话更符合两个人的说话方式……</div>
+                <div class="composer-tools"><button class="btn icon sm ghost">@</button><button class="btn icon sm ghost">＋</button><div class="spacer"></div><span class="hint">⌘↵</span><button class="send-btn"><span data-icon="send" data-size="14"></span></button></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="rail-panel" data-panel-group="rail" data-panel="check">
+            <div class="check-summary" data-check-scope>
+              <span class="cs-item"><span class="check-dot error"></span><b data-check-count="error">1</b> 冲突</span>
+              <span class="cs-item"><span class="check-dot warn"></span><b data-check-count="warn">2</b> 提醒</span>
+              <span class="cs-item"><span class="check-dot ok"></span><b data-check-count="ok">9</b> 通过</span>
+              <div class="spacer"></div><button class="btn xs" data-toast="已重新运行一致性检查">重跑</button>
+            </div>
+            <div class="check-list">
+              <div class="check-item" data-severity="error"><div class="check-dot error"></div><div class="check-body"><b>时间线冲突</b><div class="detail">第二章开头“第三天”与上一章结尾“第七天夜里”矛盾。</div><div class="fix"><button class="btn xs" data-resolve-check>改为第七天</button><button class="btn xs ghost" data-toast="已标记为待定">待定</button></div></div></div>
+              <div class="check-item" data-severity="warn"><div class="check-dot warn"></div><div class="check-body"><b>行为与人物卡不一致</b><div class="detail">阿禾使用了沈砚的标志性动作“摸左手腕”。</div><div class="fix"><button class="btn xs" data-resolve-check>替换动作</button></div></div></div>
+              <div class="check-item" data-severity="warn"><div class="check-dot warn"></div><div class="check-body"><b>伏笔未回收</b><div class="detail">第 1 章“箱子里的第二层”尚未在任何场景中被提及。</div><div class="fix"><button class="btn xs" data-resolve-check>加入回收点</button></div></div></div>
+              <div class="check-item" data-severity="ok"><div class="check-dot ok"></div><div class="check-body"><b>别名一致</b><div class="detail">沈砚 / 老沈 / 沈调查员 在全书中的指代清晰。</div></div></div>
+            </div>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </div>
+</div>
+
+<div class="palette-overlay" data-palette>
+  <div class="palette">
+    <div class="palette-input-row"><span class="icon" data-icon="search" data-size="17"></span><input type="text" placeholder="搜索场景、人物、设定…" autocomplete="off"><span class="kbd">Esc</span></div>
+    <div class="palette-list" data-palette-list></div>
+    <div class="palette-foot"><span><span class="kbd">↑</span><span class="kbd">↓</span> 选择</span><span><span class="kbd">↵</span> 打开</span><span class="spacer"></span><span>全书范围</span></div>
+  </div>
+</div>
+
+<script>
+window.DEMO_COMMANDS = [
+  { group: '场景', title: '归港', sub: '卷一 · 第 1 场景 · 3,106 字', icon: 'file-text', toast: '已打开场景：归港' },
+  { group: '场景', title: '暗流', sub: '卷一 · 第 2 场景 · 2,418 字', icon: 'file-text', target: '[data-tab="manuscript"]' },
+  { group: '场景', title: '灯塔', sub: '卷一 · 第 3 场景 · 2,940 字', icon: 'file-text', toast: '已打开场景：灯塔' },
+  { group: '视图', title: '卡片板', sub: '按场景卡片浏览本卷', icon: 'grid', target: '[data-tab="board"]' },
+  { group: '视图', title: '大纲', sub: '场景功能、POV、推进度', icon: 'list', target: '[data-tab="outline"]' },
+  { group: '视图', title: '时间线', sub: '检查故事内时间冲突', icon: 'clock', target: '[data-tab="timeline"]' },
+  { group: '视图', title: '人物 × 章节矩阵', sub: '看谁在哪一章消失', icon: 'columns', target: '[data-tab="matrix"]' },
+  { group: '人物', title: '沈砚', sub: '主角 · 出场 9 次', icon: 'user', action: 'openCodex' },
+  { group: '人物', title: '阿禾', sub: '视角人物 · 出场 6 次', icon: 'user', action: 'openCodex' },
+  { group: '操作', title: '运行一致性检查', sub: '时间线、人物行为、伏笔', icon: 'file-check', action: 'openCheck' },
+  { group: '操作', title: '创建命名快照', sub: '第二稿 · 渡口', icon: 'history', toast: '已创建命名快照' }
+];
+window.DEMO_ACTIONS = {
+  openCodex: function () { document.querySelector('[data-tab="codex"]').click(); toast('已打开 Codex'); },
+  openCheck: function () { document.querySelector('[data-tab="check"]').click(); toast('一致性检查已更新'); }
+};
+</script>
+<script src="assets/demo.js"></script>
+</body>
+</html>

@@ -1,0 +1,930 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lumii · 会话变更台账 DEMO</title>
+<style>
+  :root {
+    --bg: #f3f0e9;
+    --panel: #fbfaf7;
+    --chat: #f0ede6;
+    --surface: #fff;
+    --surface-2: #f4f1ea;
+    --surface-3: #e9e4da;
+    --fg: #2c2a26;
+    --fg-2: #6b665c;
+    --fg-3: #9b958a;
+    --line: #e4dfd5;
+    --line-strong: #d6cfc1;
+    --accent: #b9855c;
+    --green: #16a34a;
+    --amber: #d97706;
+    --red: #dc2626;
+    --shadow: 0 10px 30px rgb(60 48 30 / 10%);
+    --mono: ui-monospace, SFMono-Regular, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; }
+  body {
+    background:
+      radial-gradient(1200px 500px at 15% -10%, #fffdf8 0%, transparent 60%),
+      var(--bg);
+    color: var(--fg);
+    font: 13px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  }
+
+  /* ---------- 顶部 ---------- */
+  .topbar {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 14px 22px;
+    border-bottom: 1px solid var(--line);
+    background: rgb(251 250 247 / 86%);
+    backdrop-filter: blur(10px);
+    position: sticky;
+    top: 0;
+    z-index: 20;
+  }
+  .brand { font-weight: 700; letter-spacing: .2px; }
+  .brand small { color: var(--fg-3); font-weight: 500; margin-left: 6px; }
+  .segmented {
+    display: inline-flex;
+    gap: 2px;
+    padding: 2px;
+    border-radius: 8px;
+    background: var(--surface-2);
+  }
+  .segmented button {
+    border: 0;
+    background: transparent;
+    color: var(--fg-3);
+    padding: 5px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .segmented button.active {
+    background: var(--surface);
+    color: var(--fg);
+    box-shadow: 0 1px 3px rgb(0 0 0 / 10%);
+  }
+  .mode-note { color: var(--fg-3); font-size: 12px; }
+  .mode-note b { color: var(--fg-2); }
+
+  /* ---------- 舞台 ---------- */
+  .stage {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 480px;
+    gap: 18px;
+    padding: 18px 22px 8px;
+    max-width: 1500px;
+    margin: 0 auto;
+  }
+  .chat, .workbench {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    box-shadow: var(--shadow);
+    overflow: hidden;
+  }
+  .chat { display: flex; flex-direction: column; min-height: 720px; }
+  .chat-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 18px;
+    border-bottom: 1px solid var(--line);
+    font-weight: 600;
+  }
+  .chat-title .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+  .messages { padding: 18px 22px 26px; display: flex; flex-direction: column; gap: 20px; overflow: auto; }
+
+  .msg-user { display: flex; justify-content: flex-end; }
+  .bubble-user {
+    max-width: 600px;
+    padding: 10px 14px;
+    border-radius: 12px 12px 4px 12px;
+    background: #e8e1d2;
+    color: #4b4438;
+    white-space: pre-wrap;
+  }
+  .msg-assistant { display: flex; flex-direction: column; gap: 8px; }
+  .assistant-meta { display: flex; align-items: center; gap: 8px; color: var(--fg-3); font-size: 11px; }
+  .assistant-meta .avatar {
+    width: 20px; height: 20px; border-radius: 50%;
+    display: grid; place-items: center;
+    background: linear-gradient(140deg, #dbc3a2, #b9855c);
+    color: #fff; font-size: 10px; font-weight: 700;
+  }
+  .exec-fold {
+    display: inline-flex; align-items: center; gap: 6px;
+    align-self: flex-start;
+    padding: 4px 9px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--surface);
+    color: var(--fg-3);
+    font-size: 11px;
+  }
+  .assistant-text {
+    padding: 10px 14px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--surface);
+    color: var(--fg-2);
+    white-space: pre-wrap;
+  }
+
+  /* ---------- 逐轮变更卡片 ---------- */
+  .turn-card {
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--surface);
+    overflow: hidden;
+  }
+  .turn-card-head {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--line);
+    color: var(--fg-2);
+    font-size: 12px;
+  }
+  .turn-card-head b { color: var(--fg); }
+  .turn-card-head .link { margin-left: auto; color: var(--accent); font-size: 11px; cursor: pointer; }
+  .change-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 12px;
+    border-top: 1px solid color-mix(in srgb, var(--line) 55%, transparent);
+    cursor: pointer;
+  }
+  .change-row:first-child { border-top: 0; }
+  .change-row:hover { background: var(--surface-2); }
+  .status-badge {
+    width: 18px; height: 18px; border-radius: 4px;
+    display: inline-grid; place-items: center;
+    color: #fff; font: 700 10px/1 var(--mono);
+    flex-shrink: 0;
+  }
+  .st-added { background: var(--green); }
+  .st-modified { background: var(--amber); }
+  .st-deleted { background: var(--red); }
+  .ext-badge {
+    min-width: 26px; padding: 1px 4px;
+    border-radius: 3px;
+    background: var(--surface-3);
+    color: var(--fg-2);
+    font: 700 9px/1.5 var(--mono);
+    text-align: center;
+    flex-shrink: 0;
+  }
+  .path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tag-unattributed {
+    padding: 0 6px; border: 1px dashed var(--line-strong); border-radius: 8px;
+    color: var(--fg-3); font-size: 10px; flex-shrink: 0;
+  }
+  .tool-tag { color: var(--fg-3); font: 10px/1.4 var(--mono); flex-shrink: 0; }
+  .status-text { font-size: 10px; font-weight: 700; flex-shrink: 0; }
+  .status-text.added { color: var(--green); }
+  .status-text.modified { color: var(--amber); }
+  .status-text.deleted { color: var(--red); }
+  .excluded-head {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 12px;
+    border-top: 1px dashed var(--line-strong);
+    color: var(--fg-3);
+    font-size: 11px;
+    background: color-mix(in srgb, var(--surface-2) 60%, transparent);
+  }
+
+  /* ---------- 工作台 ---------- */
+  .workbench { display: flex; flex-direction: column; min-height: 720px; }
+  .wb-head {
+    display: flex; align-items: center; gap: 4px;
+    padding: 10px 12px 0;
+  }
+  .wb-tab {
+    border: 0; background: transparent; cursor: pointer;
+    padding: 8px 10px 10px;
+    color: var(--fg-3); font-size: 12px;
+    border-bottom: 2px solid transparent;
+  }
+  .wb-tab.active { color: var(--fg); border-bottom-color: var(--accent); font-weight: 600; }
+  .wb-badge {
+    display: inline-block; margin-left: 5px;
+    min-width: 15px; padding: 0 4px;
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+    color: var(--accent);
+    font-size: 9px; font-weight: 700; text-align: center;
+  }
+  .wb-tools { margin-left: auto; display: flex; gap: 4px; }
+  .icon-btn {
+    width: 26px; height: 26px; display: grid; place-items: center;
+    border: 0; border-radius: 6px; background: transparent; color: var(--fg-3); cursor: pointer;
+  }
+  .icon-btn:hover { background: var(--surface-2); color: var(--fg); }
+  .wb-body { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+  .placeholder {
+    flex: 1; display: grid; place-items: center;
+    color: var(--fg-3); font-size: 12px; line-height: 1.9; text-align: center;
+  }
+
+  .summary { display: flex; align-items: center; gap: 8px; padding: 10px 12px 6px; }
+  .summary-text { flex: 1; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; color: var(--fg-3); font-size: 11px; }
+  .summary-text strong { color: var(--fg); font-size: 13px; }
+  .count-added { color: var(--green); }
+  .count-modified { color: var(--amber); }
+  .count-deleted { color: var(--red); }
+  .count-unattributed {
+    padding: 0 6px; border: 1px dashed var(--line-strong); border-radius: 8px;
+    color: var(--fg-3);
+  }
+  .modes { display: flex; gap: 2px; padding: 2px; border-radius: 7px; background: var(--surface-2); }
+  .mode-btn {
+    display: inline-flex; align-items: center; gap: 4px;
+    border: 0; border-radius: 5px; padding: 3px 8px;
+    background: transparent; color: var(--fg-3); font-size: 11px; cursor: pointer;
+  }
+  .mode-btn.active { background: var(--surface); color: var(--fg); box-shadow: 0 1px 2px rgb(0 0 0 / 8%); }
+  .mode-badge {
+    min-width: 14px; padding: 0 3px; border-radius: 7px;
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    color: var(--accent); font-size: 9px; font-weight: 700; text-align: center;
+  }
+  .toolbar {
+    display: flex; flex-direction: column; gap: 6px;
+    padding: 0 12px 8px;
+    border-bottom: 1px solid var(--line);
+  }
+  .search {
+    display: flex; align-items: center; gap: 6px;
+    padding: 4px 8px;
+    border: 1px solid var(--line); border-radius: 7px;
+    background: color-mix(in srgb, var(--surface) 70%, transparent);
+    color: var(--fg-3);
+  }
+  .search input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--fg); font-size: 12px; }
+  .filters { display: flex; flex-wrap: wrap; gap: 4px; }
+  .filter {
+    border: 1px solid transparent; border-radius: 9px;
+    padding: 2px 8px; background: transparent;
+    color: var(--fg-3); font-size: 11px; cursor: pointer;
+  }
+  .filter:hover { color: var(--fg); background: var(--surface-2); }
+  .filter.active { border-color: var(--line); background: var(--surface-2); color: var(--fg); }
+
+  .scroll { flex: 1; min-height: 0; overflow: auto; padding: 4px 6px 10px; }
+  .empty { padding: 34px 18px; color: var(--fg-3); text-align: center; font-size: 12px; line-height: 1.8; }
+
+  .ledger-turn { margin-bottom: 2px; }
+  .ledger-head {
+    display: flex; align-items: center; gap: 6px; width: 100%;
+    padding: 6px 8px;
+    border: 0; border-radius: 6px;
+    background: transparent; color: var(--fg-3);
+    font-size: 11px; text-align: left; cursor: pointer;
+  }
+  .ledger-head:hover { background: var(--surface-2); color: var(--fg); }
+  .ledger-time { font-family: var(--mono); color: var(--fg-2); }
+  .ledger-agent { padding: 0 5px; border-radius: 7px; background: var(--surface-2); font-size: 10px; }
+  .ledger-count { margin-left: auto; }
+  .ledger-body { display: flex; flex-direction: column; padding: 0 2px 4px; }
+  .ledger-row-wrap { display: flex; align-items: center; border-radius: 6px; }
+  .ledger-row-wrap:hover { background: var(--surface-2); }
+  .ledger-row {
+    flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px;
+    padding: 4px 6px; border: 0; border-radius: 6px;
+    background: transparent; color: var(--fg);
+    font-size: 12px; text-align: left; cursor: pointer;
+  }
+  .reveal {
+    width: 24px; height: 24px; margin-right: 2px;
+    display: grid; place-items: center;
+    border: 0; border-radius: 5px; background: transparent; color: var(--fg-3);
+    cursor: pointer; opacity: 0;
+  }
+  .ledger-row-wrap:hover .reveal { opacity: 1; }
+  .reveal:hover { background: var(--surface-3); color: var(--fg); }
+
+  .batch { margin: 6px 6px 12px; }
+  .batch-head { display: flex; align-items: center; gap: 8px; padding: 0 2px 6px; color: var(--fg-3); font-size: 11px; }
+  .batch-dir { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); color: var(--fg-2); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 8px; }
+  .artifact {
+    display: flex; flex-direction: column; gap: 4px;
+    border: 0; background: transparent; padding: 0; text-align: left; cursor: pointer;
+  }
+  .thumb {
+    position: relative; aspect-ratio: 1 / 1; overflow: hidden;
+    border: 1px solid var(--line); border-radius: 8px;
+    background: var(--surface-2);
+  }
+  .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .artifact:hover .thumb { border-color: color-mix(in srgb, var(--accent) 60%, var(--line)); }
+  .status-dot {
+    position: absolute; top: 4px; left: 4px;
+    width: 14px; height: 14px; border-radius: 3px;
+    display: grid; place-items: center;
+    color: #fff; font: 700 9px/1 var(--mono);
+  }
+  .thumb-flag {
+    position: absolute; right: 4px; bottom: 4px;
+    padding: 0 4px; border-radius: 6px;
+    background: rgb(0 0 0 / 55%); color: #fff; font-size: 9px;
+  }
+  .artifact-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-2); font-size: 11px; }
+
+  .diag {
+    border-top: 1px solid var(--line);
+    background: color-mix(in srgb, var(--surface-2) 55%, transparent);
+    font-size: 11px;
+  }
+  .diag summary {
+    padding: 7px 12px; cursor: pointer; color: var(--fg-3);
+    list-style: none;
+  }
+  .diag summary::-webkit-details-marker { display: none; }
+  .diag summary:hover { color: var(--fg-2); }
+  .diag-list { padding: 0 12px 10px; display: flex; flex-direction: column; gap: 4px; }
+  .diag-item { display: flex; gap: 6px; color: var(--fg-3); font-size: 10.5px; }
+  .diag-item .path { color: var(--fg-2); }
+  .diag-reason { flex-shrink: 0; }
+
+  /* ---------- 方案说明 ---------- */
+  .rules {
+    max-width: 1500px; margin: 8px auto 40px; padding: 0 22px;
+    display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px;
+  }
+  .rule-card {
+    border: 1px solid var(--line); border-radius: 12px;
+    background: var(--panel); padding: 14px 16px;
+  }
+  .rule-card h3 { margin: 0 0 6px; font-size: 13px; }
+  .rule-card p, .rule-card li { color: var(--fg-2); font-size: 12px; line-height: 1.7; margin: 0; }
+  .rule-card ol { margin: 0; padding-left: 18px; }
+  .rule-card code { font-family: var(--mono); font-size: 11px; background: var(--surface-3); padding: 0 4px; border-radius: 3px; }
+  .rule-card .muted { color: var(--fg-3); }
+
+  /* ---------- 预览弹窗 ---------- */
+  .modal-mask {
+    position: fixed; inset: 0; z-index: 50;
+    display: none; place-items: center;
+    background: rgb(30 26 20 / 42%);
+    backdrop-filter: blur(3px);
+  }
+  .modal-mask.open { display: grid; }
+  .modal {
+    width: min(720px, 88vw); max-height: 84vh;
+    display: flex; flex-direction: column;
+    border-radius: 12px; background: var(--surface);
+    box-shadow: 0 24px 70px rgb(0 0 0 / 30%);
+    overflow: hidden;
+  }
+  .modal-head {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 14px; border-bottom: 1px solid var(--line);
+    color: var(--fg-2); font-size: 12px;
+  }
+  .modal-head b { color: var(--fg); font-weight: 600; }
+  .modal-head .icon-btn { margin-left: auto; }
+  .modal-body { padding: 16px; overflow: auto; display: grid; place-items: center; }
+  .modal-body img { max-width: 100%; max-height: 64vh; border-radius: 8px; }
+  .text-preview {
+    width: 100%; padding: 14px;
+    border: 1px solid var(--line); border-radius: 8px;
+    background: var(--surface-2);
+    font: 12px/1.7 var(--mono); color: var(--fg-2); white-space: pre-wrap;
+  }
+
+  @media (max-width: 1080px) {
+    .stage { grid-template-columns: 1fr; }
+    .rules { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">Lumii · 会话变更台账 <small>DEMO</small></div>
+  <div class="segmented" id="modeSwitch">
+    <button data-mode="old">现状</button>
+    <button data-mode="new" class="active">提案</button>
+  </div>
+  <div class="mode-note" id="modeNote"></div>
+</header>
+
+<main class="stage">
+  <section class="chat">
+    <div class="chat-title"><span class="dot"></span><span id="chatTitle"></span></div>
+    <div class="messages" id="chatMessages"></div>
+  </section>
+
+  <aside class="workbench">
+    <div class="wb-head">
+      <button class="wb-tab" data-wbtab="files">文件</button>
+      <button class="wb-tab active" data-wbtab="changes">变更<span class="wb-badge" id="tabBadge">0</span></button>
+      <button class="wb-tab" data-wbtab="vcs">版本<span class="wb-badge">21</span></button>
+      <div class="wb-tools">
+        <button class="icon-btn" title="关闭">✕</button>
+      </div>
+    </div>
+    <div class="wb-body" id="wbBody"></div>
+  </aside>
+</main>
+
+<section class="rules">
+  <div class="rule-card">
+    <h3>提案规则：只留本会话</h3>
+    <ol>
+      <li>写文件工具直接登记（<code>file_write</code> / <code>edit</code> / <code>move</code> …）。</li>
+      <li>bash / 脚本产物：路径必须在本轮命令文本或工具输出里出现（或落在命令点名的目录下），才计入。</li>
+      <li>同一 workspace 的其他会话、后台进程改动一律不进入卡片与台账。</li>
+      <li>归属记录仍是「本轮」粒度，不影响历史消息里已落盘的 <code>fileChanges</code>。</li>
+    </ol>
+  </div>
+  <div class="rule-card">
+    <h3>与现状的差别</h3>
+    <p>现状（切到「现状」查看）：diff 里没人认领的路径会作为「未归属」并入本轮卡片，
+    于是别的会话改的宠物素材也出现了。</p>
+    <p style="margin-top:6px">提案：这类路径直接排除；本会话 bash 明确写到的文件仍保留，
+    并标出来源（<span class="muted">bash · 命令中出现</span>）。</p>
+  </div>
+  <div class="rule-card">
+    <h3>可讨论的点</h3>
+    <p>1. 诊断入口是否保留：面板底部默认收起的「已排除 N 个非本会话改动」。</p>
+    <p>2. bash 动态批量产物（路径没出现在命令里）是否接受“不计入”，还是给一个目录级兜底。</p>
+    <p>3. 逐轮卡片与右侧台账都采用同一套过滤结果。</p>
+  </div>
+</section>
+
+<div class="modal-mask" id="modal">
+  <div class="modal">
+    <div class="modal-head"><b id="modalTitle"></b><span id="modalMeta" style="color:var(--fg-3)"></span><button class="icon-btn" id="modalClose">✕</button></div>
+    <div class="modal-body" id="modalBody"></div>
+  </div>
+</div>
+
+<script>
+/* ------------------------------------------------------------------ *
+ * 演示数据
+ * ------------------------------------------------------------------ */
+const DATA = {
+  title: 'P0 变更归属验证',
+  turns: [
+    {
+      id: 't1',
+      time: '20:16',
+      agent: 'lumii',
+      user: '这是文件变更归属的实测，请严格按下面执行：\n1. 用 file_write 写入 uploads/p0-verify-exact.txt；\n2. 用 bash 执行命令写入 outputs/p0-verify-unattributed.txt。',
+      fold: '思考 · 编辑 1 个文件 · 执行 1 条命令',
+      text: '写好了两个文件：uploads/p0-verify-exact.txt（file_write，exact）和 outputs/p0-verify-unattributed.txt（bash 输出，按命令证据归属）。',
+      changes: [
+        { path: 'uploads/p0-verify-exact.txt', status: 'added', confidence: 'exact', tool: 'file_write' },
+        { path: 'outputs/p0-verify-unattributed.txt', status: 'added', confidence: 'exact', tool: 'bash · 命令中出现' },
+      ],
+      excluded: [
+        { path: 'outputs/宠物素材与设计/pet-motion/staged/moonrabbit-floaty.png', status: 'modified', reason: '其他会话写入', tool: 'unattributed' },
+      ],
+    },
+    {
+      id: 't2',
+      time: '21:05',
+      agent: '短剧助手',
+      user: '按第一集脚本生成 6 张分镜图，输出到 uploads/短剧/第一集/。',
+      fold: '思考 · 调用 image_generate 6 次',
+      text: '6 张分镜图已生成：shot-01.png ~ shot-06.png，全部在 uploads/短剧/第一集/。',
+      changes: Array.from({ length: 6 }, (_, i) => ({
+        path: 'uploads/短剧/第一集/shot-' + String(i + 1).padStart(2, '0') + '.png',
+        status: 'added',
+        confidence: 'exact',
+        tool: 'image_generate',
+      })),
+      excluded: [
+        { path: 'outputs/宠物素材与设计/pet-motion/staged/moonrabbit-hop.json', status: 'modified', reason: '其他会话（宠物管线）', tool: 'unattributed' },
+        { path: 'outputs/宠物素材与设计/pet-motion/staged/moonrabbit-hop.png', status: 'modified', reason: '其他会话（宠物管线）', tool: 'unattributed' },
+        { path: 'outputs/宠物素材与设计/pet-motion/staged/moonrabbit-hop.ratio699.bak.json', status: 'modified', reason: '其他会话（宠物管线）', tool: 'unattributed' },
+        { path: 'outputs/宠物素材与设计/pet-motion/staged/moonrabbit-hop.ratio699.bak.png', status: 'modified', reason: '其他会话（宠物管线）', tool: 'unattributed' },
+        { path: 'outputs/宠物素材与设计/pet-motion/staged/moonrabbit-purring.json', status: 'modified', reason: '其他会话（宠物管线）', tool: 'unattributed' },
+        { path: 'outputs/宠物素材与设计/pet-motion/staged/moonrabbit-purring.png', status: 'modified', reason: '其他会话（宠物管线）', tool: 'unattributed' },
+      ],
+    },
+  ],
+};
+
+/* ------------------------------------------------------------------ *
+ * 工具函数
+ * ------------------------------------------------------------------ */
+const IMAGE_EXT = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'avif', 'bmp', 'svg']);
+const MEDIA_EXT = new Set([...IMAGE_EXT, 'mp4', 'mov', 'webm', 'mkv', 'avi', 'mp3', 'wav', 'm4a', 'ogg', 'flac']);
+const STATUS_SHORT = { added: 'A', modified: 'M', deleted: 'D' };
+const STATUS_TEXT = { added: '新增', modified: '修改', deleted: '删除' };
+const FILTERS = [
+  ['all', '全部'],
+  ['added', '新增'],
+  ['modified', '修改'],
+  ['deleted', '删除'],
+  ['unattributed', '未归属'],
+];
+
+function extOf(p) {
+  const base = p.split('/').pop() || p;
+  const dot = base.lastIndexOf('.');
+  return dot > 0 ? base.slice(dot + 1).toLowerCase() : '';
+}
+function isMedia(p) { return MEDIA_EXT.has(extOf(p)); }
+function isImage(p) { return IMAGE_EXT.has(extOf(p)); }
+function dirOf(p) { const i = p.lastIndexOf('/'); return i >= 0 ? p.slice(0, i) : ''; }
+function fileName(p) { return p.split('/').pop() || p; }
+function extLabel(p) { const e = extOf(p); return e ? e.slice(0, 4).toUpperCase() : '·'; }
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+/** 生成分镜图 / 宠物图占位缩略图（内联 SVG，Demo 不依赖外部资源） */
+function thumb(label, a, b, rabbit) {
+  const art = rabbit
+    ? '<circle cx="120" cy="112" r="46" fill="#fff" opacity=".92"/><ellipse cx="98" cy="42" rx="16" ry="44" fill="#fff" opacity=".92" transform="rotate(-14 98 42)"/><ellipse cx="142" cy="42" rx="16" ry="44" fill="#fff" opacity=".92" transform="rotate(14 142 42)"/><circle cx="104" cy="108" r="5" fill="#5b4a3a"/><circle cx="136" cy="108" r="5" fill="#5b4a3a"/><path d="M112 126 q8 8 16 0" stroke="#5b4a3a" stroke-width="3" fill="none" stroke-linecap="round"/>'
+    : '<rect x="46" y="62" width="148" height="106" rx="12" fill="#fff" opacity=".86"/><circle cx="120" cy="115" r="26" fill="' + a + '" opacity=".75"/><path d="M62 152 l38 -42 30 28 24 -22 46 44z" fill="' + b + '" opacity=".8"/>';
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="240" height="240" viewBox="0 0 240 240">'
+    + '<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">'
+    + '<stop offset="0" stop-color="' + a + '"/><stop offset="1" stop-color="' + b + '"/>'
+    + '</linearGradient></defs>'
+    + '<rect width="240" height="240" fill="url(#g)"/>' + art
+    + '<rect x="0" y="196" width="240" height="44" fill="rgb(0 0 0 / 35%)"/>'
+    + '<text x="14" y="224" font-family="Consolas, monospace" font-size="17" font-weight="700" fill="#fff">' + esc(label) + '</text>'
+    + '</svg>';
+  return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+}
+
+const SHOT_COLORS = [
+  ['#f7c873', '#e88b5f'],
+  ['#9ad0c2', '#4f9d9a'],
+  ['#b8b5e8', '#7772c4'],
+  ['#f2a7b8', '#c25f7c'],
+  ['#a8c7e8', '#527fae'],
+  ['#d9c68f', '#a88a4e'],
+];
+const RABBIT_COLORS = ['#c7d8e8', '#8aa7c4'];
+
+function previewFor(change) {
+  if (isImage(change.path)) {
+    const name = fileName(change.path);
+    if (name.indexOf('shot-') === 0) {
+      const n = Math.max(0, Math.min(5, Number(name.match(/\d+/)?.[0] || 1) - 1));
+      const c = SHOT_COLORS[n];
+      return { type: 'image', src: thumb(name.replace('.png', '').toUpperCase(), c[0], c[1], false), meta: 'PNG · 1.8 MB' };
+    }
+    return { type: 'image', src: thumb('PET MOTION', RABBIT_COLORS[0], RABBIT_COLORS[1], true), meta: 'PNG · 254.7 KB' };
+  }
+  return {
+    type: 'text',
+    content: change.path.indexOf('p0-verify-exact') >= 0
+      ? 'p0-verify-exact\n\n（file_write 写入，本会话 exact 归属）'
+      : 'p0-verify-unattributed\n\n（bash 命令写入，命令文本中出现该路径）',
+  };
+}
+
+/* ------------------------------------------------------------------ *
+ * 台账计算（与真实实现同口径）
+ * ------------------------------------------------------------------ */
+function turnChanges(turn, mode) {
+  return mode === 'new' ? turn.changes : [...turn.changes, ...turn.excluded.map((e) => ({
+    ...e, confidence: 'unattributed', tool: 'unattributed',
+  }))];
+}
+
+function ledger(mode) {
+  const turns = DATA.turns.map((turn) => ({ ...turn, items: turnChanges(turn, mode) })).reverse();
+  const latest = new Map();
+  for (const turn of [...DATA.turns]) {
+    for (const item of turnChanges(turn, mode)) latest.set(item.path, item);
+  }
+  const counts = { files: latest.size, added: 0, modified: 0, deleted: 0, unattributed: 0 };
+  for (const item of latest.values()) {
+    if (item.confidence === 'unattributed') counts.unattributed += 1;
+    if (item.status === 'added') counts.added += 1;
+    else if (item.status === 'modified') counts.modified += 1;
+    else if (item.status === 'deleted') counts.deleted += 1;
+  }
+
+  const seen = new Set();
+  const map = new Map();
+  for (const turn of turns) {
+    for (const item of turn.items) {
+      if (item.status === 'deleted' || !isMedia(item.path) || seen.has(item.path)) continue;
+      seen.add(item.path);
+      const dir = dirOf(item.path);
+      if (!map.has(dir)) map.set(dir, []);
+      map.get(dir).push(item);
+    }
+  }
+  return { turns, counts, artifacts: [...map].map(([dir, items]) => ({ dir, items })), artifactCount: seen.size };
+}
+
+/* ------------------------------------------------------------------ *
+ * 状态
+ * ------------------------------------------------------------------ */
+const state = {
+  mode: 'new',
+  wbTab: 'changes',
+  view: 'list',
+  filter: 'all',
+  query: '',
+  collapsed: new Set(),
+  preview: null,
+  diagOpen: false,
+};
+
+/* ------------------------------------------------------------------ *
+ * 渲染：聊天区
+ * ------------------------------------------------------------------ */
+function renderChat() {
+  document.getElementById('chatTitle').textContent = DATA.title;
+  const host = document.getElementById('chatMessages');
+  host.innerHTML = DATA.turns.map((turn) => {
+    const items = turnChanges(turn, state.mode);
+    const owned = items.filter((item) => item.confidence !== 'unattributed');
+    const unattr = items.filter((item) => item.confidence === 'unattributed');
+    const head = state.mode === 'new'
+      ? '<b>' + owned.length + '</b> 个文件变更'
+      : '<b>' + owned.length + '</b> 个文件变更 · 另有 <b>' + unattr.length + '</b> 个未归属';
+
+    const row = (item) => (
+      '<div class="change-row" data-preview="' + esc(item.path) + '">'
+        + '<span class="status-badge st-' + item.status + '">' + STATUS_SHORT[item.status] + '</span>'
+        + '<span class="ext-badge">' + extLabel(item.path) + '</span>'
+        + '<span class="path">' + esc(item.path) + '</span>'
+        + (item.confidence === 'unattributed' ? '<span class="tag-unattributed">未归属</span>' : '')
+        + (item.confidence !== 'unattributed' && item.tool ? '<span class="tool-tag">' + esc(item.tool) + '</span>' : '')
+        + '<span class="status-text ' + item.status + '">' + STATUS_TEXT[item.status] + '</span>'
+      + '</div>'
+    );
+
+    return (
+      '<div class="msg-user"><div class="bubble-user">' + esc(turn.user) + '</div></div>'
+      + '<div class="msg-assistant">'
+        + '<div class="assistant-meta"><span class="avatar">' + (turn.agent === 'lumii' ? 'L' : '短') + '</span>'
+        + '<span>' + esc(turn.agent) + '</span><span>' + turn.time + '</span></div>'
+        + '<div class="exec-fold">▸ ' + esc(turn.fold) + '　展开</div>'
+        + '<div class="assistant-text">' + esc(turn.text) + '</div>'
+        + '<div class="turn-card">'
+          + '<div class="turn-card-head">' + head + '<span class="link" data-wb-goto="changes">在工作台查看</span></div>'
+          + owned.map(row).join('')
+          + (unattr.length
+            ? '<div class="excluded-head">未归属 · 可能来自其他会话或后台任务</div>' + unattr.map(row).join('')
+            : '')
+        + '</div>'
+      + '</div>'
+    );
+  }).join('');
+
+  host.querySelectorAll('[data-preview]').forEach((el) => {
+    el.addEventListener('click', () => openPreview(el.getAttribute('data-preview')));
+  });
+  host.querySelectorAll('[data-wb-goto]').forEach((el) => {
+    el.addEventListener('click', () => { state.wbTab = 'changes'; state.view = 'list'; renderWb(); });
+  });
+}
+
+/* ------------------------------------------------------------------ *
+ * 渲染：工作台
+ * ------------------------------------------------------------------ */
+function renderWb() {
+  document.querySelectorAll('.wb-tab').forEach((tab) => {
+    tab.classList.toggle('active', tab.getAttribute('data-wbtab') === state.wbTab);
+  });
+  const body = document.getElementById('wbBody');
+  const data = ledger(state.mode);
+  document.getElementById('tabBadge').textContent = data.counts.files;
+
+  if (state.wbTab === 'files') {
+    body.innerHTML = '<div class="placeholder">文件树（Demo 省略）<br>从左侧「P0 变更归属验证」/「uploads/短剧/第一集」进入</div>';
+    return;
+  }
+  if (state.wbTab === 'vcs') {
+    body.innerHTML = '<div class="placeholder">版本面板（Demo 省略）<br>本次改动不涉及 VCS</div>';
+    return;
+  }
+
+  const c = data.counts;
+  const filters = FILTERS.filter(([key]) => key !== 'unattributed' || state.mode === 'old');
+  body.innerHTML =
+    '<div class="summary">'
+      + '<div class="summary-text"><strong>' + c.files + '</strong> 个文件 <span>·</span>'
+      + '<span class="count-added">新增 ' + c.added + '</span>'
+      + '<span class="count-modified">修改 ' + c.modified + '</span>'
+      + '<span class="count-deleted">删除 ' + c.deleted + '</span>'
+      + (c.unattributed ? '<span class="count-unattributed">未归属 ' + c.unattributed + '</span>' : '')
+      + '</div>'
+      + '<div class="modes">'
+        + '<button class="mode-btn ' + (state.view === 'list' ? 'active' : '') + '" data-view="list">☰ 列表</button>'
+        + '<button class="mode-btn ' + (state.view === 'artifacts' ? 'active' : '') + '" data-view="artifacts">▦ 产物'
+          + (data.artifactCount ? '<span class="mode-badge">' + data.artifactCount + '</span>' : '') + '</button>'
+      + '</div>'
+    + '</div>'
+    + '<div class="toolbar">'
+      + '<label class="search">⌕<input id="searchInput" type="search" placeholder="搜索文件路径…" value="' + esc(state.query) + '"></label>'
+      + '<div class="filters">' + filters.map(([key, label]) =>
+          '<button class="filter ' + (state.filter === key ? 'active' : '') + '" data-filter="' + key + '">' + label + '</button>').join('') + '</div>'
+    + '</div>'
+    + '<div class="scroll" id="scrollArea"></div>'
+    + renderDiag();
+
+  document.querySelectorAll('[data-view]').forEach((el) => {
+    el.addEventListener('click', () => { state.view = el.getAttribute('data-view'); renderWb(); });
+  });
+  document.querySelectorAll('[data-filter]').forEach((el) => {
+    el.addEventListener('click', () => { state.filter = el.getAttribute('data-filter'); renderWb(); });
+  });
+  const search = document.getElementById('searchInput');
+  search.addEventListener('input', () => {
+    state.query = search.value;
+    renderScroll(data);
+  });
+
+  renderScroll(data, true);
+}
+
+function matches(item, filter, query) {
+  if (filter === 'unattributed' && item.confidence !== 'unattributed') return false;
+  if (filter !== 'all' && filter !== 'unattributed' && item.status !== filter) return false;
+  return !query || item.path.toLowerCase().indexOf(query) >= 0;
+}
+
+function renderScroll(data, initial) {
+  const host = document.getElementById('scrollArea');
+  if (!host) return;
+  const query = state.query.trim().toLowerCase();
+  const filter = state.filter;
+
+  if (state.view === 'list') {
+    const turns = data.turns
+      .map((turn) => ({ ...turn, items: turn.items.filter((item) => matches(item, filter, query)) }))
+      .filter((turn) => turn.items.length > 0);
+    if (!turns.length) {
+      host.innerHTML = '<div class="empty">没有匹配的文件。</div>';
+      return;
+    }
+    host.innerHTML = turns.map((turn) => {
+      const collapsed = state.collapsed.has(turn.id);
+      return '<section class="ledger-turn">'
+        + '<button class="ledger-head" data-collapse="' + turn.id + '">' + (collapsed ? '▸' : '▾')
+          + '<span class="ledger-time">' + turn.time + '</span>'
+          + '<span class="ledger-agent">' + esc(turn.agent) + '</span>'
+          + '<span class="ledger-count">' + turn.items.length + ' 个文件</span></button>'
+        + (collapsed ? '' : '<div class="ledger-body">' + turn.items.map(ledgerRow).join('') + '</div>')
+      + '</section>';
+    }).join('');
+  } else {
+    const batches = data.artifacts.map((batch) => ({
+      dir: batch.dir,
+      items: batch.items.filter((item) => matches(item, filter, query)),
+    })).filter((batch) => batch.items.length);
+    if (!batches.length) {
+      host.innerHTML = '<div class="empty">本会话还没有匹配的图片/视频/音频产物。</div>';
+      return;
+    }
+    host.innerHTML = batches.map((batch) => (
+      '<section class="batch">'
+        + '<div class="batch-head"><span class="batch-dir">' + esc(batch.dir || '（根目录）') + '</span><span>' + batch.items.length + ' 个</span></div>'
+        + '<div class="grid">' + batch.items.map(artifactCard).join('') + '</div>'
+      + '</section>'
+    )).join('');
+  }
+
+  host.querySelectorAll('[data-collapse]').forEach((el) => {
+    el.addEventListener('click', () => {
+      const id = el.getAttribute('data-collapse');
+      if (state.collapsed.has(id)) state.collapsed.delete(id); else state.collapsed.add(id);
+      renderScroll(data);
+    });
+  });
+  host.querySelectorAll('[data-preview]').forEach((el) => {
+    el.addEventListener('click', (ev) => {
+      if (ev.target.closest('.reveal')) return;
+      openPreview(el.getAttribute('data-preview'));
+    });
+  });
+  host.querySelectorAll('[data-reveal]').forEach((el) => {
+    el.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      state.wbTab = 'files';
+      renderWb();
+    });
+  });
+}
+
+function ledgerRow(item) {
+  return '<div class="ledger-row-wrap">'
+    + '<button class="ledger-row" data-preview="' + esc(item.path) + '">'
+      + '<span class="status-badge st-' + item.status + '">' + STATUS_SHORT[item.status] + '</span>'
+      + '<span class="ext-badge">' + extLabel(item.path) + '</span>'
+      + '<span class="path">' + esc(item.path) + '</span>'
+      + (item.confidence === 'unattributed' ? '<span class="tag-unattributed">未归属</span>' : '')
+      + (item.confidence !== 'unattributed' && item.tool ? '<span class="tool-tag">' + esc(item.tool) + '</span>' : '')
+      + '<span class="status-text ' + item.status + '">' + STATUS_TEXT[item.status] + '</span>'
+    + '</button>'
+    + '<button class="reveal" data-reveal="' + esc(item.path) + '" title="在文件中定位">▣</button>'
+  + '</div>';
+}
+
+function artifactCard(item) {
+  const image = isImage(item.path);
+  let inner = '<span class="ext-badge" style="font-size:12px">' + extLabel(item.path) + '</span>';
+  if (image) {
+    const name = fileName(item.path);
+    let src;
+    if (name.indexOf('shot-') === 0) {
+      const n = Math.max(0, Math.min(5, Number(name.match(/\d+/)?.[0] || 1) - 1));
+      src = thumb(name.replace('.png', '').toUpperCase(), SHOT_COLORS[n][0], SHOT_COLORS[n][1], false);
+    } else {
+      src = thumb('PET MOTION', RABBIT_COLORS[0], RABBIT_COLORS[1], true);
+    }
+    inner = '<img src="' + src + '" alt="">';
+  }
+  return '<button class="artifact" data-preview="' + esc(item.path) + '" title="' + esc(item.path) + '">'
+    + '<span class="thumb">' + inner
+      + '<span class="status-dot st-' + item.status + '">' + STATUS_SHORT[item.status] + '</span>'
+      + (item.confidence === 'unattributed' ? '<span class="thumb-flag">未归属</span>' : '')
+    + '</span>'
+    + '<span class="artifact-name">' + esc(fileName(item.path)) + '</span>'
+  + '</button>';
+}
+
+function renderDiag() {
+  const excluded = DATA.turns.flatMap((turn) => turn.excluded);
+  if (state.mode === 'old') {
+    return '<details class="diag"><summary>诊断：' + excluded.length + ' 个未归属改动已并入上方列表（其他会话写入）</summary>'
+      + '<div class="diag-list">' + excluded.map((item) =>
+          '<div class="diag-item"><span class="path">' + esc(item.path) + '</span><span class="diag-reason">' + esc(item.reason) + '</span></div>').join('')
+      + '</div></details>';
+  }
+  return '<details class="diag"><summary>诊断：已排除 ' + excluded.length + ' 个非本会话改动</summary>'
+    + '<div class="diag-list">' + excluded.map((item) =>
+        '<div class="diag-item"><span class="path">' + esc(item.path) + '</span><span class="diag-reason">' + esc(item.reason) + '</span></div>').join('')
+    + '</div></details>';
+}
+
+/* ------------------------------------------------------------------ *
+ * 预览弹窗
+ * ------------------------------------------------------------------ */
+function openPreview(path) {
+  const change = DATA.turns.flatMap((turn) => turnChanges(turn, state.mode))
+    .find((item) => item.path === path) || { path, status: 'added' };
+  const preview = previewFor(change);
+  document.getElementById('modalTitle').textContent = fileName(path);
+  document.getElementById('modalMeta').textContent = preview.type === 'image'
+    ? preview.meta
+    : '文本 · 本会话写入';
+  document.getElementById('modalBody').innerHTML = preview.type === 'image'
+    ? '<img src="' + preview.src + '" alt="">'
+    : '<div class="text-preview">' + esc(preview.content) + '</div>';
+  document.getElementById('modal').classList.add('open');
+}
+
+document.getElementById('modalClose').addEventListener('click', () => {
+  document.getElementById('modal').classList.remove('open');
+});
+document.getElementById('modal').addEventListener('click', (ev) => {
+  if (ev.target === ev.currentTarget) ev.currentTarget.classList.remove('open');
+});
+document.addEventListener('keydown', (ev) => {
+  if (ev.key === 'Escape') document.getElementById('modal').classList.remove('open');
+});
+
+/* ------------------------------------------------------------------ *
+ * 顶部与 Tab 切换
+ * ------------------------------------------------------------------ */
+document.getElementById('modeSwitch').addEventListener('click', (ev) => {
+  const btn = ev.target.closest('button[data-mode]');
+  if (!btn) return;
+  state.mode = btn.getAttribute('data-mode');
+  state.filter = 'all';
+  document.querySelectorAll('#modeSwitch button').forEach((b) => b.classList.toggle('active', b === btn));
+  renderAll();
+});
+
+document.querySelectorAll('.wb-tab').forEach((tab) => {
+  tab.addEventListener('click', () => {
+    state.wbTab = tab.getAttribute('data-wbtab');
+    renderWb();
+  });
+});
+
+function renderModeNote() {
+  document.getElementById('modeNote').innerHTML = state.mode === 'new'
+    ? '<b>提案：</b>只显示本会话工具能佐证的文件，其他会话改动已排除。'
+    : '<b>现状：</b>diff 里无人认领的文件会作为「未归属」并入，于是出现其他会话的文件。';
+}
+
+function renderAll() {
+  renderModeNote();
+  renderChat();
+  renderWb();
+}
+
+renderAll();
+</script>
+</body>
+</html>
