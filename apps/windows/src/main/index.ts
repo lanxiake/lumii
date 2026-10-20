@@ -154,6 +154,8 @@ import { registerBuiltinPlugins } from './plugins/builtin'
 import { setupPluginIpcHandlers } from './plugins/plugin-manager'
 import type { PluginHost } from '@mtbot/plugin-core'
 import { createPluginHost } from './plugin-host'
+import { S } from './kernel/services'
+import { readDisabledExtensionIds } from './kernel/extension-store'
 import { setPalaceBridgeProvider, setupPalaceIpcHandlers } from './ipc/palace-ipc'
 import { registerAllIpcHandlers } from './ipc/ipc-handlers-registry'
 import { registerCodingDevIpcHandlers } from './ipc/coding-dev-ipc'
@@ -173,7 +175,7 @@ import {
   defaultWorkspaceFallback,
   resolveCodingDevAcpWorkspacePath,
 } from './coding-dev-env.js'
-import { resolveClientStateDir, resolvePerfLogsDir } from './paths'
+import { resolveClientStateDir } from './paths'
 import { hasHeadlessFlag } from './platform/feature-probe'
 import { PerformanceMonitor } from './perf/performance-monitor'
 import { setupPerformanceIpcHandlers } from './ipc/performance-ipc'
@@ -273,7 +275,6 @@ let channelHub: ChannelHub | null = null  // 渠道出站 Hub（list/send）
 let agentRuntimeBridge: AgentRuntimeBridge | null = null  // 客户端 Agent Runtime
 let voiceCallService: VoiceCallService | null = null  // 语音通话服务
 let performanceMonitor: PerformanceMonitor | null = null  // 性能监控（IPC 耗时/内存/启动阶段）
-let performanceMonitorTimer: NodeJS.Timeout | null = null  // 周期性内存快照定时器
 let isQuitting = false
 let isCleaningUp = false // 防止 before-quit 清理期间重复触发
 
@@ -1205,8 +1206,7 @@ async function initialize(): Promise<void> {
 
   // 单实例锁失败时 prepareAppShell 已 app.quit()，这里直接结束初始化
   if (!(await runStartupStage('S0-app-shell', () => prepareAppShell(flags)))) return
-  await runStartupStage('S1-perf', async () => initPerformanceMonitor())
-  await runStartupStage('S1b-extensions', () => startExtensions())
+  await runStartupStage('S1-extensions', () => startExtensions())
   log.info('应用已就绪')
 
   // 先注册 Agent Runtime IPC handler，再加载渲染进程。
@@ -1337,60 +1337,41 @@ async function prepareAppShell(flags: ReturnType<typeof readStartupFlags>): Prom
   return true
 }
 
-/** S1：性能监控（IPC 耗时 / 慢调用 / 内存快照），落主日志目录同层的 perf 子目录。 */
-function initPerformanceMonitor(): void {
-  const perfMemorySnapshotIntervalMs = 60000
-  performanceMonitor = new PerformanceMonitor({
-    enabled: true,
-    ipcSlowThresholdMs: 200,
-    memorySnapshotIntervalMs: perfMemorySnapshotIntervalMs,
-    maxQueueSize: 200,
-    logDir: resolvePerfLogsDir(),
-  })
-  log.info('性能监控系统已初始化')
-
-  // 周期性捕获内存快照并落盘：flush() 内部有游标保护，重复调用不会重写历史聚合事件；
-  // 定时器与 performanceMonitor 生命周期一致，在 performCleanup() 中一并清理
-  performanceMonitorTimer = setInterval(() => {
-    if (!performanceMonitor) return
-    const memoryUsage = process.memoryUsage()
-    performanceMonitor.recordMemorySnapshot({
-      timestamp: Date.now(),
-      kind: 'memory.snapshot',
-      mainProcess: {
-        heapUsed: memoryUsage.heapUsed,
-        heapTotal: memoryUsage.heapTotal,
-        external: memoryUsage.external,
-        arrayBuffers: memoryUsage.arrayBuffers,
-        rss: memoryUsage.rss,
-      },
-      childProcesses: app.getAppMetrics().map(metric => ({
-        pid: metric.pid,
-        type: metric.type,
-        workingSetSize: metric.memory.workingSetSize,
-        privateBytes: metric.memory.privateBytes ?? 0,
-      })),
-    })
-    void performanceMonitor.flush().catch(err => {
-      log.error('[perfMonitorTimer] 性能日志落盘失败', err)
-    })
-  }, perfMemorySnapshotIntervalMs)
-}
 
 /**
  * S1b：扩展宿主。
  *
  * 单个扩展激活失败只标记 failed 并继续，不拖垮启动——这是内核 PluginHost 的既定语义，
  * 这里把结果如实写进日志，方便一眼看出谁没起来。
+ *
+ * 激活放在 S1b（配置之前）是刻意的：`installAgentRuntimeCommandIpc(performanceMonitor)`
+ * 更早就需要 perf 实例，晚于它会静默丢掉 agent-runtime:command 的耗时统计。
+ * 将来需要配置的扩展（云同步等）走 `S.config` getter：激活时拿到的是「还没就绪」，
+ * 等 `config:ready` 事件到了再取真值——而不是把整个宿主往后挪。
  */
 async function startExtensions(): Promise<void> {
-  pluginHost = createPluginHost({
-    debug: (m) => log.debug(m),
-    info: (m) => log.info(m),
-    warn: (m) => log.warn(m),
-    error: (m) => log.error(m),
-  })
+  const { disabled, warning } = readDisabledExtensionIds()
+  if (warning) log.warn(`[extensions] ${warning}`)
+
+  const created = createPluginHost(
+    {
+      debug: (m) => log.debug(m),
+      info: (m) => log.info(m),
+      warn: (m) => log.warn(m),
+      error: (m) => log.error(m),
+    },
+    disabled,
+  )
+  pluginHost = created.host
+  if (created.skipped.length > 0) {
+    log.info(`扩展已按配置禁用: ${created.skipped.join('、')}`)
+  }
+
   const report = await pluginHost.start()
+
+  // perf 由扩展提供，宿主通过服务容器取回单例，供十余处既有调用点继续使用
+  performanceMonitor = pluginHost.container.get(S.perf) ?? null
+
   if (report.activated.length > 0) {
     log.info(`扩展已激活: ${report.activated.join('、')}`)
   }
@@ -1994,11 +1975,7 @@ async function performCleanup(): Promise<void> {
       log.warn('[performCleanup] ACP 运行清理失败:', err)
     }
 
-    // 性能监控：停止周期快照定时器，把内存里尚未落盘的事件写完后再销毁流
-    if (performanceMonitorTimer) {
-      clearInterval(performanceMonitorTimer)
-      performanceMonitorTimer = null
-    }
+    // 性能监控：周期快照定时器已随扩展作用域停掉，这里只把尚未落盘的事件写完再销毁流
     if (performanceMonitor) {
       await performanceMonitor.flush()
       performanceMonitor.cleanOldLogs()
