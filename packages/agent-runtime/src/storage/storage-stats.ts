@@ -114,6 +114,14 @@ export function maybeRunAutoVacuumSync(
   }
 
   db.exec("VACUUM");
+  // VACUUM 在 WAL 模式下会把整库重写一遍进 WAL —— 306MB 的库会留下 ~300MB 的
+  // -wal 文件，后续每次开库都要连带处理它（实测 quick_check 从 1s 涨到 6s）。
+  // 必须紧跟一次 TRUNCATE checkpoint 把 WAL 收回并截断。
+  try {
+    db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+  } catch {
+    // checkpoint 失败不影响数据正确性（WAL 里的内容会被后续读取正常处理）
+  }
   try {
     fs.writeFileSync(markPath, String(Date.now()));
   } catch {
