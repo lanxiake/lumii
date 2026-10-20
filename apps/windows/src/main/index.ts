@@ -1195,21 +1195,83 @@ function printHeadlessWelcome(): void {
 async function initialize(): Promise<void> {
   log.info('灵栖 Lumii 启动中...')
 
-  // 检查是否在测试模式（用于 E2E 测试）
-  const isTestMode = process.argv.includes('--test-mode')
-  // 检查是否在无头模式（不创建窗口/托盘/桌宠/录屏）
-  const isHeadless = hasHeadlessFlag()
-  if (isHeadless) {
-    log.info('无头模式已启用，将跳过 UI 层初始化')
+  const flags = readStartupFlags()
+  if (flags.isHeadless) log.info('无头模式已启用，将跳过 UI 层初始化')
+  if (flags.isStartupLaunch) log.info('检测到开机启动，应用将直接最小化到托盘')
+
+  // 单实例锁失败时 prepareAppShell 已 app.quit()，这里直接结束初始化
+  if (!(await runStartupStage('S0-app-shell', () => prepareAppShell(flags)))) return
+  await runStartupStage('S1-perf', async () => initPerformanceMonitor())
+  log.info('应用已就绪')
+
+  // 先注册 Agent Runtime IPC handler，再加载渲染进程。
+  // dev 模式下 renderer 可能在 initAgentRuntime 完成前调用 agent-runtime:command；
+  // 提前注册可让调用得到 NOT_READY 并走前端重试，避免 Electron 抛 No handler registered。
+  installAgentRuntimeCommandIpc(performanceMonitor ?? undefined)
+
+  await runStartupStage('S2-S5-ui', () => initUiStages(flags))
+
+  initCloudSync()
+  setupIpcHandlers()
+  if (performanceMonitor) {
+    setupPerformanceIpcHandlers(performanceMonitor)
+    log.info('性能监控 IPC handlers 已注册')
   }
 
+  await runStartupStage('S6-config', () => initConfigAndWorkspace())
+  await runStartupStage('S7-services', () => initLocalServices())
+  await runStartupStage('S8-post-ready', () => startPostReadyServices())
+
+  log.info('灵栖 Lumii 启动完成')
+
+  // 三个渠道登录服务移出关键路径：setImmediate 后台异步初始化，不阻塞首屏；
+  // 装配逻辑见 initChannelServices()，失败仅记日志。
+  setImmediate(() => {
+    void initChannelServices().catch((err) => {
+      log.warn('[Main] 渠道服务后台初始化失败:', err instanceof Error ? err.message : err)
+    })
+  })
+}
+
+/** 启动期开关：三个开关只读一次，后续阶段共用同一份快照。 */
+function readStartupFlags() {
+  return {
+    isTestMode: process.argv.includes('--test-mode'),
+    isHeadless: hasHeadlessFlag(),
+    isStartupLaunch: process.argv.includes('--startup-launched'),
+  }
+}
+
+/**
+ * 跑一个启动阶段：测耗时、写进性能监控、失败照常上抛。
+ *
+ * 阶段名进性能日志的 startupPhase，是「启动预算」那条门禁的数据来源。
+ */
+async function runStartupStage<T>(name: string, fn: () => Promise<T> | T): Promise<T> {
+  const startedAt = performance.now()
+  try {
+    return await fn()
+  } finally {
+    const durationMs = performance.now() - startedAt
+    performanceMonitor?.recordStartupPhase(name, durationMs)
+    log.info(`[Startup] ${name} ${durationMs.toFixed(0)}ms`)
+  }
+}
+
+/**
+ * S0：单实例锁、privileged scheme、Electron 开关、等待 ready、文件日志与协议 handler。
+ *
+ * 返回 false 表示已有实例在跑、本进程已退出，调用方必须直接结束初始化。
+ */
+async function prepareAppShell(flags: ReturnType<typeof readStartupFlags>): Promise<boolean> {
+  const { isTestMode, isHeadless } = flags
   // 单实例锁定（测试模式下跳过）
   if (!isTestMode) {
     const gotTheLock = app.requestSingleInstanceLock()
     if (!gotTheLock) {
       log.warn('已有实例在运行，退出')
       app.quit()
-      return
+      return false
     }
 
     // 第二个实例尝试启动时，聚焦到现有窗口（无头模式下跳过）
@@ -1267,8 +1329,11 @@ async function initialize(): Promise<void> {
   // 服务启动时在控制台打印日志文件路径
   log.info('日志文件:', fileLogger.getCurrentLogFilePath())
   log.info('错误日志文件:', fileLogger.getCurrentErrorLogFilePath())
+  return true
+}
 
-  // 初始化性能监控（IPC 耗时/慢调用/内存快照），日志与主日志目录同层级下的 perf 子目录
+/** S1：性能监控（IPC 耗时 / 慢调用 / 内存快照），落主日志目录同层的 perf 子目录。 */
+function initPerformanceMonitor(): void {
   const perfMemorySnapshotIntervalMs = 60000
   performanceMonitor = new PerformanceMonitor({
     enabled: true,
@@ -1305,23 +1370,11 @@ async function initialize(): Promise<void> {
       log.error('[perfMonitorTimer] 性能日志落盘失败', err)
     })
   }, perfMemorySnapshotIntervalMs)
+}
 
-  log.info('应用已就绪')
-
-  // 检测是否由开机启动触发（--startup-launched 参数由 setLoginItemSettings 注入）
-  const isStartupLaunch = process.argv.includes('--startup-launched')
-  if (isStartupLaunch) {
-    log.info('检测到开机启动，应用将直接最小化到托盘')
-  }
-
-  // 先注册 Agent Runtime IPC handler，再加载渲染进程。
-  // dev 模式下 renderer 可能在 initAgentRuntime 完成前调用 agent-runtime:command；
-  // 提前注册可让调用得到 NOT_READY 并走前端重试，避免 Electron 抛 No handler registered。
-  installAgentRuntimeCommandIpc(performanceMonitor ?? undefined)
-
-  // 初始化各模块（开机启动时隐藏窗口，只显示托盘图标）
-  // 等待开机画面完整播放后再显示主窗口
-  // 无头模式下跳过窗口创建
+/** S2–S5：主窗口、本机控制口、窗口级 IPC（桌宠/文件预览）、托盘与录屏。 */
+async function initUiStages(flags: ReturnType<typeof readStartupFlags>): Promise<void> {
+  const { isTestMode, isHeadless, isStartupLaunch } = flags
   if (!isHeadless) {
     const windowStartTime = performance.now()
     await createWindow(isTestMode, isStartupLaunch)
@@ -1414,7 +1467,10 @@ async function initialize(): Promise<void> {
     log.info('无头模式：跳过托盘和录屏初始化')
     initSystemService()  // 系统服务保留（非 UI 层）
   }
+}
 
+/** S6a：云同步管理器与调度器（须在 setupIpcHandlers 前，让 IPC 订阅到 status 事件）。 */
+function initCloudSync(): void {
   // 云同步管理器须在 setupIpcHandlers 前创建，使 registerCloudSyncIpcHandlers 能订阅 status 事件
   cloudSyncManager = new CloudSyncManager()
   setCloudSyncManager(cloudSyncManager)
@@ -1438,13 +1494,10 @@ async function initialize(): Promise<void> {
       },
     )
   })
+}
 
-  setupIpcHandlers()
-  if (performanceMonitor) {
-    setupPerformanceIpcHandlers(performanceMonitor)
-    log.info('性能监控 IPC handlers 已注册')
-  }
-
+/** S6：目录管理器与配置管理器，并挂接工作空间 getter。 */
+async function initConfigAndWorkspace(): Promise<void> {
   // 初始化目录管理器和配置管理器（必须在其他模块之前）
   await directoryManager.initialize()
   configManager = new ConfigManager(directoryManager)
@@ -1494,7 +1547,10 @@ async function initialize(): Promise<void> {
 
   // 云同步调度：工作空间 getter 挂接后再启动（sync 惰性读工作空间目录）
   syncScheduler?.start(loadCloudSyncConfig())
+}
 
+/** S7：技能种子与运行时、脚本运行时、插件预装、更新检查、Agent Runtime。 */
+async function initLocalServices(): Promise<void> {
   // 灵栖/Lumii 独立版：无后端、无登录。
   // 不构造 apiClient / gatewayClient / nodeModeCoordinator / devicePairingService，
   // 这些实例保持 null，相关能力（provider 配置、agents 存储）由本地能力层（阶段 4/5）接管。
@@ -1544,7 +1600,10 @@ async function initialize(): Promise<void> {
   await initAgentRuntime()
   performanceMonitor?.recordStartupPhase('agent-runtime', performance.now() - agentRuntimeStartTime)
   log.info('[Main] initAgentRuntime 完成')
+}
 
+/** S8：Agent 就绪后的服务——云同步冲突重试、浏览器控制。 */
+async function startPostReadyServices(): Promise<void> {
   // 注入云同步冲突 Agent 重试回调：SyncScheduler 每次 tick 若仍处于 conflict 且冷却已过，
   // 自动驱动 Agent 重新处理（与心跳 evolution-tick 同路径）
   syncScheduler?.setOnConflictPending(async () => {
@@ -1559,16 +1618,6 @@ async function initialize(): Promise<void> {
   } else {
     log.warn('浏览器控制服务启动失败，browser.* 命令将不可用')
   }
-
-  log.info('灵栖 Lumii 启动完成')
-
-  // 三个渠道登录服务移出关键路径：setImmediate 后台异步初始化，不阻塞首屏；
-  // 装配逻辑见 initChannelServices()，失败仅记日志。
-  setImmediate(() => {
-    void initChannelServices().catch((err) => {
-      log.warn('[Main] 渠道服务后台初始化失败:', err instanceof Error ? err.message : err)
-    })
-  })
 }
 
 /**
