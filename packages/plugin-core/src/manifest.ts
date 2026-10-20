@@ -1,4 +1,8 @@
 import { Ajv } from "ajv";
+// semver 本体不带类型、@types/semver 不在本机离线缓存里。只用到 satisfies 一个函数，
+// 用 @ts-ignore 就地收窄签名，比为一个函数新增依赖或手写 semver 区间匹配都稳。
+// 用 ts-ignore 而非 ts-expect-error：将来类型补上时不会反过来报「未使用」。
+// @ts-ignore -- semver 无类型声明
 import semverSatisfies from "semver/functions/satisfies.js";
 import { ManifestValidationError } from "./errors.js";
 

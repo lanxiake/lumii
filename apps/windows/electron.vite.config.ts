@@ -197,6 +197,8 @@ export default defineConfig({
         exclude: [
           'electron-updater', 'ws', 'bufferutil', 'utf-8-validate', 'iconv-lite',
           '@mtbot/agent-runtime', '@mtbot/browser-control', '@mtbot/pet-core',
+          // 同 pet-core：TS 源码包，外部化后 Node 不做 `.js`→`.ts` 改写，启动即 ERR_MODULE_NOT_FOUND
+          '@mtbot/plugin-core',
           // P1-b：工具链在主进程内执行（见 main/pet/pet-asset-ipc.ts）。它 import sharp，
           // 而 sharp 是原生模块、不进白名单 → 外部化由 Electron 运行时从 node_modules 解析。
           '@mtbot/pet-asset',
@@ -272,6 +274,7 @@ export default defineConfig({
         '@mtbot/agent-runtime/browser': workspacePath.agentRuntimeBrowser,
         '@mtbot/agent-runtime': workspacePath.agentRuntime,
         '@mtbot/browser-control': workspacePath.browserControl,
+        '@mtbot/plugin-core': workspacePath.pluginCore,
         // qqbot-connector 的传递依赖，仅用于终端打印二维码；客户端用不到，
         // 且其 CJS require 形式 Rollup 无法静态解析，内联会构建失败
         'qrcode-terminal': appPath.qrcodeTerminalStub,

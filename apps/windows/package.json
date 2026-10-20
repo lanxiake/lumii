@@ -62,6 +62,7 @@
     "@mtbot/browser-control": "workspace:*",
     "@mtbot/pet-asset": "workspace:*",
     "@mtbot/pet-core": "workspace:*",
+    "@mtbot/plugin-core": "workspace:*",
     "@sinclair/typebox": "^0.34.33",
     "@tencent-connect/qqbot-connector": "1.2.0",
     "@wecom/aibot-node-sdk": "^1.0.7",

@@ -53,6 +53,9 @@ importers:
       '@mtbot/pet-core':
         specifier: workspace:*
         version: link:../../packages/pet-core
+      '@mtbot/plugin-core':
+        specifier: workspace:*
+        version: link:../../packages/plugin-core
       '@sinclair/typebox':
         specifier: 0.34.47
         version: 0.34.47

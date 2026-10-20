@@ -152,6 +152,8 @@ import {
 } from './ipc/plugin-ipc'
 import { registerBuiltinPlugins } from './plugins/builtin'
 import { setupPluginIpcHandlers } from './plugins/plugin-manager'
+import type { PluginHost } from '@mtbot/plugin-core'
+import { createPluginHost } from './plugin-host'
 import { setPalaceBridgeProvider, setupPalaceIpcHandlers } from './ipc/palace-ipc'
 import { registerAllIpcHandlers } from './ipc/ipc-handlers-registry'
 import { registerCodingDevIpcHandlers } from './ipc/coding-dev-ipc'
@@ -228,6 +230,8 @@ let screenRecordService: ScreenRecordService | null = null
 /** 云同步管理器与调度器（setupIpcHandlers 前创建，setActiveWorkspaceDirGetter 后启动） */
 let cloudSyncManager: CloudSyncManager | null = null
 let syncScheduler: SyncScheduler | null = null
+/** 扩展宿主（P0 只挂 hello 示例；随主进程生命周期，performCleanup 时 stopAll） */
+let pluginHost: PluginHost | null = null
 
 /**
  * 获取录屏服务单例（供 bridge / 托盘读取）。
@@ -1202,6 +1206,7 @@ async function initialize(): Promise<void> {
   // 单实例锁失败时 prepareAppShell 已 app.quit()，这里直接结束初始化
   if (!(await runStartupStage('S0-app-shell', () => prepareAppShell(flags)))) return
   await runStartupStage('S1-perf', async () => initPerformanceMonitor())
+  await runStartupStage('S1b-extensions', () => startExtensions())
   log.info('应用已就绪')
 
   // 先注册 Agent Runtime IPC handler，再加载渲染进程。
@@ -1370,6 +1375,28 @@ function initPerformanceMonitor(): void {
       log.error('[perfMonitorTimer] 性能日志落盘失败', err)
     })
   }, perfMemorySnapshotIntervalMs)
+}
+
+/**
+ * S1b：扩展宿主。
+ *
+ * 单个扩展激活失败只标记 failed 并继续，不拖垮启动——这是内核 PluginHost 的既定语义，
+ * 这里把结果如实写进日志，方便一眼看出谁没起来。
+ */
+async function startExtensions(): Promise<void> {
+  pluginHost = createPluginHost({
+    debug: (m) => log.debug(m),
+    info: (m) => log.info(m),
+    warn: (m) => log.warn(m),
+    error: (m) => log.error(m),
+  })
+  const report = await pluginHost.start()
+  if (report.activated.length > 0) {
+    log.info(`扩展已激活: ${report.activated.join('、')}`)
+  }
+  for (const failure of report.failed) {
+    log.error(`扩展激活失败: ${failure.id}`, failure.error)
+  }
 }
 
 /** S2–S5：主窗口、本机控制口、窗口级 IPC（桌宠/文件预览）、托盘与录屏。 */
@@ -1911,6 +1938,14 @@ async function performCleanup(): Promise<void> {
 
     // 销毁宠物模式窗口（透明置顶窗口，需在主窗口关闭前释放 GPU 资源）
     disposePetModeIpc()
+
+    // 扩展按 LIFO 撤销自己注册的一切；排在业务服务清理之后，
+    // 让扩展还能在 stop 里读到运行中的服务状态
+    if (pluginHost) {
+      for (const [id, result] of await pluginHost.stopAll()) {
+        if (!result.ok) log.warn(`[performCleanup] 扩展 ${id} 清理有失败项`, result.errors)
+      }
+    }
 
     await skillWatcher?.stop()
     // 云同步：停掉定时器与 workspace 文件监听（fs.watch 句柄需显式关闭）

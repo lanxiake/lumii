@@ -31,4 +31,5 @@ export const workspacePath = {
   agentRuntimeBrowser: resolve(REPO_ROOT, 'packages/agent-runtime/src/browser.ts'),
   agentRuntime: resolve(REPO_ROOT, 'packages/agent-runtime/src/index.ts'),
   browserControl: resolve(REPO_ROOT, 'packages/browser-control/src/index.ts'),
+  pluginCore: resolve(REPO_ROOT, 'packages/plugin-core/src/index.ts'),
 } as const
