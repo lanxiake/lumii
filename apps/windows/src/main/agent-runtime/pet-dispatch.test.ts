@@ -478,8 +478,9 @@ describe.skipIf(!hasFts5Db)('宠物硬闸门（T3.2 的常量，判定在派发�
 /**
  * P3 断言（计划 §五「★ 断言：播报不经过 dispatchNotifications」）。
  *
- * `executePetGoal` 住在 bridge 里，整个类要跑起来才能单测（代价远超这条断言的价值），
- * 所以这里改成**读源码**：把那个方法的函数体抠出来，断言它一次都没提通知。
+ * `executePetGoal` 原来是 bridge 的私有方法，整个类要跑起来才能单测（代价远超这条断言的价值），
+ * 所以这里改成**读源码**：把函数体抠出来，断言它一次都没提通知。
+ * 2026-10-20 起它住在 `bootstrap/pet-goal-runner.ts`，读的就是那份源码。
  *
  * 为什么值得单独立一条：`executeGoal`（自主进化那条路）**是发系统通知的**——
  * 照抄它就会让同一件事既冒宠物气泡又弹系统通知。这个错误不报错、单元测试也照过，
@@ -519,11 +520,16 @@ describe('P5/P3 守卫：宠物的播报通道只有气泡', () => {
     const { readFileSync } = await import('node:fs')
     const { fileURLToPath } = await import('node:url')
     const path = await import('node:path')
-    const bridgePath = path.join(path.dirname(fileURLToPath(import.meta.url)), 'bridge.ts')
-    const body = extractMethodBody(readFileSync(bridgePath, 'utf8'), 'private async executePetGoal')
+    // 2026-10-20：方法体搬到 bootstrap/pet-goal-runner.ts（P2 服务分解第一刀）。
+    // 守卫跟着代码走，而不是把代码挪回去——抠不到时必须红，否则它就成了摆设。
+    const runnerPath = path.join(
+      path.dirname(fileURLToPath(import.meta.url)),
+      'bootstrap/pet-goal-runner.ts',
+    )
+    const body = extractMethodBody(readFileSync(runnerPath, 'utf8'), 'export async function runPetGoal(')
 
     // 抠取失败必须让测试红——否则这条守卫会变成永不失败的摆设
-    expect(body, '没能从 bridge.ts 抠出 executePetGoal（方法被改名/挪走了？）').toBeTruthy()
+    expect(body, '没能从 bootstrap/pet-goal-runner.ts 抠出 runPetGoal（函数被改名/挪走了？）').toBeTruthy()
     expect(body!.length, 'executePetGoal 的方法体短得可疑，抠取可能搞错了').toBeGreaterThan(300)
 
     const code = stripComments(body!)

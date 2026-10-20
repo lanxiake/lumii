@@ -149,6 +149,9 @@ import { BridgeSessionModelCatalog } from './bridge-session-model-catalog'
 import { BridgeSessionThinkingPrefs } from './bridge-session-thinking-prefs'
 import { loadStoredThinkingPrefs, saveStoredThinkingPrefs } from './session-thinking-store'
 import { BridgeRendererIpcChannel } from './bridge-renderer-ipc'
+import { runPetGoal } from './bootstrap/pet-goal-runner'
+import { reportPetGoalReceipt } from './bootstrap/pet-goal-receipt'
+import { withTimeout } from './with-timeout'
 import { initToolUsageStore } from '../tool-usage-store'
 import { setDashboardFeedDb } from '../dashboard-feed-store'
 import { setMaintenanceReportDb } from '../maintenance-report-store'
@@ -207,7 +210,6 @@ import {
 } from '../../shared/channel-policy'
 import { ensurePetEvolveCronJobSeeded, runPetEvolve, syncPetEvolveJobEnabled } from './pet-evolve'
 import { recordPetPersonalityEvent } from './pet-personality'
-import { persistPetTaskReceipt, readPetTaskDimension, recordPetTaskOutcome } from './pet-task-store'
 import { syncAutonomousManagedCronJobs } from './autonomous-cron-linkage'
 import { runPlanner, shouldFallbackPlan } from './planner-wiring'
 import { DEFAULT_AGENT_ID } from '../seed-cron-jobs'
@@ -245,31 +247,8 @@ function formatWikiEroExtractSummary(result: WikiEroExtractSourceResult): string
   return `scanned:${result.sourcesScanned} skipped:${result.sourcesSkipped} failed:${result.sourcesFailed} entities:${result.entitiesUpserted} relations:${result.relationsUpserted} obs:${result.observationsAdded}${errPart}`
 }
 
-/** 给 Promise 加超时兜底；超时仅 reject 竞速结果，不取消原 Promise（调用方负责 destroy 实例等清理） */
-function withTimeout<T>(p: Promise<T>, ms: number, message: string): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined
-  const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error(message)), ms)
-    timer.unref?.()
-  })
-  return Promise.race([p, timeout]).finally(() => {
-    if (timer) clearTimeout(timer)
-  })
-}
-
 /** 云同步冲突处理单轮执行超时：实例被用户中止（cascade abort）时 prompt/waitForIdle 可能不 settle，需兜底释放互斥 */
 const SYNC_CONFLICT_EXEC_TIMEOUT_MS = 10 * 60 * 1000
-
-/**
- * 宠物目标单轮执行超时（T3.3 派发循环）。
- *
- * 比同步冲突那 10 分钟短得多：宠物做的是"看一眼"级别的小事（`PET_MAX_TURNS = 20`），
- * 而用户就坐在桌面前等着看它说话——挂了五分钟的"还在跑"，体验上已经等于没做成。
- *
- * 与 `SYNC_CONFLICT_EXEC_TIMEOUT_MS` 同一条理由：不 settle 则 `finally` 不执行，
- * 实例（连同它的单飞锁）永久留在注册表里，之后每一拍都是 `skipped: busy`。
- */
-const PET_GOAL_EXEC_TIMEOUT_MS = 5 * 60 * 1000
 
 export type { AgentRuntimeBridgeConfig }
 
@@ -1691,165 +1670,26 @@ export class AgentRuntimeBridge {
    * **不变量：本方法一旦返回，这个目标一定有终态、且一定推过一条回执。**
    * 三条出口（跑完 / 执行炸 / 超时）都收敛到 {@link reportPetGoalResult}。
    */
-  private async executePetGoal(goal: PetGoalSignal): Promise<string> {
-    const { agentId } = goal
-    const convId = this.evolutionConversationIdFor(agentId)
-    let instanceId: string | null = null
-    try {
-      /**
-       * ⚠ 会话必须在**建实例之前**就位（2026-09-24 回归修复）。
-       *
-       * 这句话一度只留在 {@link reportPetGoalResult} 里——那意味着**第一次**在一条新会话上
-       * 干活时（首次使用、换宠物模型、用户删过那条会话），整轮的落库全被跳过
-       * （`bridge-agent-instance-events` 的两处守卫都按"会话不存在"处理），
-       * 用户只看到开始和回执，中间干了什么一片空白。收尾那次补建治不了这个。
-       */
-      this.ensurePetConversation(agentId, convId)
-      const created = await this.createInstance(
-        buildPetDefinition(agentId),
-        convId,
-        convId,
-      )
-      /**
-       * ⚠ `instanceId` 赋值在 `createInstance` **之后**，而整个创建过程在 `try` **里面**。
-       *
-       * 两件事都不能省。`createInstance` 把实例注册进 agentRegistry 之后还有若干 await
-       * （动态 import 提示词注入器、读记忆注入设置、拼提示词），模型没配好时还会直接抛错。
-       * 创建写在 `try` 外面的话，那些点抛错时 `finally { this.destroy(...) }` **结构上不可达**
-       * → 实例永远留在注册表里 → 此后每一拍 `findActivePetAgent()` 都返回它 →
-       * 宠物到进程重启前恒为 `skipped: busy`（单飞锁只认"注册表里还有没有"）。
-       */
-      instanceId = created
-      /**
-       * 超时兜底。与 `executeSyncConflictGoal` 同一条理由：实例被中止（cascade abort）或
-       * 模型端点挂住时 `prompt` / `waitForIdle` 未必 settle，而它们不 settle，`finally`
-       * 就不执行 → 实例常驻注册表 → 与上面同一种"宠物永久 busy"。
-       */
-      await withTimeout(
-        (async () => {
-          await this.prompt(created, goal.description)
-          await this.waitForInstanceIdle(created)
-        })(),
-        PET_GOAL_EXEC_TIMEOUT_MS,
-        `宠物目标执行超时（${Math.round(PET_GOAL_EXEC_TIMEOUT_MS / 60_000)} 分钟未收尾）`,
-      )
-
-      const output = (this.getAssistantOutputFromInstance(created) ?? '').trim()
-      const state = this.instanceStates.get(created)
-      /**
-       * 失败原因：本轮的 LLM 错误 / 中止。`InstanceState` 里这两个字段**干净收场时会被清空**，
-       * 所以"读到了"就等于"这一轮没跑成"（见 `bridge-instance-state.ts` 的注释）。
-       */
-      const failure =
-        state?.lastLlmError?.message?.trim() || (state?.lastAborted ? '这一轮被中断了' : '')
-      /**
-       * 结论口径（2026-09-24 修，原为 `ok = output.length > 0`）：
-       *
-       * 1. **没说话 = 没做成**。对宠物这不是苛刻：`PET_PROMPT` 的第一条要求就是
-       *    "第一句就是结论"——用户交代这件事，要的就是那句回执。只调了工具不写正文，
-       *    对用户而言就是**没有回音**（这条判据保留原来的一半）。
-       * 2. **报了错 / 被中断也算没做成**，哪怕它吐了半句话——半句不能让用户以为办妥了。
-       *
-       * 于是"失败必有原因可说"：`failure` 优先当文案，`PET_GOAL_FAILED_PREFIX`
-       * 那条分支因此在链路上真的会走到（此前它恒不可达——失败 ⇔ 正文为空）。
-       */
-      const ok = output.length > 0 && failure === ''
-      const reported = failure || output
-      finalizeGoal(this.localDb.db, goal.id, { success: ok, output: reported })
-      // 成对落独白：宠物看到的（目标描述）+ 它报回来的。回执写库失败不该影响目标状态
-      this.reportPetGoalResult(goal, ok, reported, { userTurn: goal.description })
-      /**
-       * T5.5 的举止反馈：**它替你把事办了会高兴，没办成会蔫**（设计 §7.3）。
-       *
-       * 走的是宠物自己的事件名，不是 `goal_completed` / `task_failed`——
-       * 那两条是"自主进化"这个身份的口味（`goal_completed` 的 arousal 是 **↓**，
-       * 即"一件事收尾了、落地"），而宠物办成事的那一下是**兴奋**。
-       * 共用会让第四期接在 valence 跨越上的 `Cheer` 几乎永远不够阈值
-       * （详见 `mood.ts` 里 `pet_task_done` 的注释）。
-       */
-      this.recordMoodEvent(ok ? 'pet_task_done' : 'pet_task_failed', agentId)
-      /**
-       * 七期 T7.3 的「每次真实成败」：**没做成 → 一次 `error-handled`**。
-       *
-       * 为什么成功那条不发事件：Big Five 上"办成一件事"该往哪挪说不清
-       * （更外向？更开放？），而"办砸过一次"有明确方向——更谨慎、更神经质。
-       * 塑造这只宠物的应当是**这个人和它的关系**，不是它的绩效；
-       * 被回应 / 被冷落那两条由反思汇总后发（`pet-evolve.ts`）。
-       *
-       * 走到这里就一定真跑过（实例建起来了、有输出或报错），
-       * 所以不必再判 `instanceId`——那个判断留给下面 catch 那条路。
-       */
-      if (!ok) {
-        void recordPetPersonalityEvent('error-handled', agentId, {
-          goalId: goal.id,
-          source: 'pet-task',
-        })
-      }
-      // T5.4 的"真实笨拙"要**真数据**：把这一次的成败记进它自己的能力维度，
-      // 下一次受理才判得出"这个我不太拿手"（详见 pet-task-store.ts）
-      await recordPetTaskOutcome(
-        this.localDb.db,
-        agentId,
-        readPetTaskDimension(this.localDb.db, goal.id),
-        ok,
-        goal.description,
-      )
-      log.info(
-        `[executePetGoal] agent=${agentId} goalId=${goal.id} ok=${ok} output=${reported.slice(0, 120) || '（空）'}`,
-      )
-      return ok ? 'completed' : failure ? 'failed' : 'empty-output'
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      log.error(`[executePetGoal] agent=${agentId} goalId=${goal.id} 执行异常:`, msg)
-      // 炸了也要有终态 + 回执：否则目标烂在 executing 里每 5 分钟被重捞一次，
-      // 而两道闸门都拦不住它（次数门数的是"跑过几条"，重试不增加；预算门读的是恒为 0 的记账）
-      try {
-        finalizeGoal(this.localDb.db, goal.id, { success: false, output: msg })
-      } catch (finalizeErr) {
-        log.error(
-          `[executePetGoal] 终态落库失败 goalId=${goal.id}:`,
-          finalizeErr instanceof Error ? finalizeErr.message : finalizeErr,
-        )
-      }
-      try {
-        this.reportPetGoalResult(goal, false, msg)
-      } catch (reportErr) {
-        log.error(
-          `[executePetGoal] 回执发送失败 goalId=${goal.id}:`,
-          reportErr instanceof Error ? reportErr.message : reportErr,
-        )
-      }
-      /**
-       * 记账与情绪只在这**真跑过**时才做（`instanceId` 非空 = 实例建起来了）。
-       *
-       * 判据不能少：`createInstance` 就抛错时（模型没配好、提示词拼不起来）
-       * 这一轮**一次模型往返都没有**，把它算成"宠物在这类事上不行"是冤枉——
-       * 那是我这边的故障，不是它的能力问题。而能力表是**长期**的，
-       * 一次错记要在它后面几次受理里一直起作用。
-       */
-      if (instanceId) {
-        this.recordMoodEvent('pet_task_failed', agentId)
-        // 七期 T7.3：真跑过（实例建起来了）但炸了 —— 与上面 `!ok` 那条同一个事件，
-        // 只是路径不同（抛错 vs 有输出但报错）。**`instanceId` 这一判不能省**：
-        // `createInstance` 就抛错时这一轮一次模型往返都没有，那是我的故障不是它的失败
-        void recordPetPersonalityEvent('error-handled', agentId, {
-          goalId: goal.id,
-          source: 'pet-task',
-          thrown: true,
-        })
-        await recordPetTaskOutcome(
-          this.localDb.db,
-          agentId,
-          readPetTaskDimension(this.localDb.db, goal.id),
-          false,
-          goal.description,
-        )
-      }
-      return `error: ${msg}`
-    } finally {
-      // 只在真拿到 id 时销毁；创建阶段就抛错的话注册表里本来就没有它
-      if (instanceId) this.destroy(instanceId)
-    }
+  /**
+   * 宠物目标的单轮执行：实现在 `bootstrap/pet-goal-runner.ts`。
+   *
+   * 这里只做组装——11 个依赖逐个显式给出，既是可测的接口，也是「这段代码到底碰了什么」的清单。
+   */
+  private executePetGoal(goal: PetGoalSignal): Promise<string> {
+    return runPetGoal(goal, {
+      db: this.localDb.db,
+      conversationIdFor: (agentId) => this.evolutionConversationIdFor(agentId),
+      ensureConversation: (agentId, conversationId) => this.ensurePetConversation(agentId, conversationId),
+      createInstance: (agentId, conversationId) =>
+        this.createInstance(buildPetDefinition(agentId), conversationId, conversationId),
+      prompt: (instanceId, message) => this.prompt(instanceId, message),
+      waitForIdle: (instanceId) => this.waitForInstanceIdle(instanceId),
+      assistantOutput: (instanceId) => this.getAssistantOutputFromInstance(instanceId),
+      instanceState: (instanceId) => this.instanceStates.get(instanceId),
+      reportResult: (g, ok, text, opts) => this.reportPetGoalResult(g, ok, text, opts),
+      recordMood: (event, agentId) => this.recordMoodEvent(event, agentId),
+      destroy: (instanceId) => this.destroy(instanceId),
+    })
   }
 
   /**
@@ -1871,54 +1711,13 @@ export class AgentRuntimeBridge {
     text: string,
     opts: { userTurn?: string } = {},
   ): void {
-    const convId = this.evolutionConversationIdFor(goal.agentId)
-    // 这条也顺带补建：被硬闸门拒 / 执行抛错那两条路**根本没建过实例**，
-    // 会话可能还不存在，而回执是用户唯一能看见的东西（详见 `ensurePetConversation`）
-    this.ensurePetConversation(goal.agentId, convId)
-    try {
-      if (opts.userTurn) {
-        this._conversationRepo?.saveMessage({
-          conversationId: convId,
-          agentId: goal.agentId,
-          role: 'user',
-          contentJson: { type: 'text', text: opts.userTurn },
-        })
-      }
-      this._conversationRepo?.saveMessage({
-        conversationId: convId,
-        agentId: goal.agentId,
-        role: 'assistant',
-        contentJson: { type: 'text', text: text || '（没有产出）' },
-      })
-    } catch (err) {
-      // 回执写库失败不该把一次已完成的目标炸成失败——日志是最后一道可见性
-      log.warn(
-        `[reportPetGoalResult] 回执写库失败 goalId=${goal.id}:`,
-        err instanceof Error ? err.message : err,
-      )
-    }
-    // 播报：**只推这一条事件**，宠物窗把它折成 report 档通知（气泡 + 控制坞一行）。
-    // 不走 `showCronNotification` —— P3 断言：同一件事既冒气泡又弹系统通知就是重复打扰。
-    this.ipcChannel.forwardIpcEvent({
-      type: 'pet:goal:result',
-      sessionKey: convId,
-      petAgentId: goal.agentId,
-      goalId: goal.id,
-      ok,
-      text,
+    reportPetGoalReceipt(goal, ok, text, opts, {
+      db: this.localDb.db,
+      conversationIdFor: (agentId) => this.evolutionConversationIdFor(agentId),
+      ensureConversation: (agentId, conversationId) => this.ensurePetConversation(agentId, conversationId),
+      saveMessage: (message) => this._conversationRepo?.saveMessage(message),
+      forwardEvent: (payload) => this.ipcChannel.forwardIpcEvent(payload),
     })
-    /**
-     * 回执**再落一次库**（五期 T5.8，设计 §4.2.2）。
-     *
-     * 上面那条事件与这条写库解决的是两件不同的事，缺一不可：
-     * - 事件 = **当下被看见**（气泡），但它是瞬时的：用户点完「让它去做」去倒杯水，
-     *   气泡对着空气说完就没了，回来什么都没有，以为没执行；
-     * - 写库 = **回来能看到**（控制坞宠物流那条持久条目 + 未读高亮）。
-     *
-     * `t` 取**现在**而不是调用方传进来的时刻：这是一条"我报回来了"的时间戳，
-     * 未读游标按它比大小，跨零点也不会错（与 `recordTokensIfLive` 同一条口径）。
-     */
-    persistPetTaskReceipt(this.localDb.db, goal.id, ok, text, new Date().toISOString())
   }
 
   /**
