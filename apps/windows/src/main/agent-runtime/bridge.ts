@@ -835,14 +835,22 @@ export class AgentRuntimeBridge {
   async initialize(): Promise<void> {
     if (this.initialized) return
 
-    await this.initializeDatabaseAndRepos()
+    // 七个子块逐段计时：整体曾 9.4 秒，不拆开只能靠猜。
+    // 实测结果：1-db-and-repos 独占 8 秒（开库备份同步拷 306MB），其余六块合计 <100ms。
+    const step = async (name: string, fn: () => void | Promise<void>): Promise<void> => {
+      const startedAt = performance.now()
+      await fn()
+      log.info(`[Startup] bridge.${name} ${(performance.now() - startedAt).toFixed(0)}ms`)
+    }
+
+    await step('1-db-and-repos', () => this.initializeDatabaseAndRepos())
     this.reconcileStoredSessionModelPreferences()
-    this.initializeToolContextAndRegistry()
-    this.initializeCronScheduler()
-    this.initializeDefinitionStoreAndMcp()
-    this.initializeInstanceFactory()
-    this.initializePromptDispatcher()
-    this.finalizeInitialize()
+    await step('2-tools', () => this.initializeToolContextAndRegistry())
+    await step('3-cron', () => this.initializeCronScheduler())
+    await step('4-defs-mcp', () => this.initializeDefinitionStoreAndMcp())
+    await step('5-instance-factory', () => this.initializeInstanceFactory())
+    await step('6-prompt-dispatcher', () => this.initializePromptDispatcher())
+    await step('7-finalize', () => this.finalizeInitialize())
   }
 
   /** initialize() 子块 1/7：开库、创建 Repos、恢复禁用工具集合、段落记忆服务、中断检测、finalize 残留流式消息 */
@@ -854,7 +862,20 @@ export class AgentRuntimeBridge {
 
     await this.localDb.open({ dbPath, backupOnOpen: true })
     const db = this.localDb.db
-    void maybeRunAutoVacuumSync(db, dbPath)
+    // VACUUM 是同步的：306MB 库实测 9.7 秒，主线程全程阻塞。推迟 30 秒再跑，
+    // 避开首屏与首批 IPC；再靠 maybeRunAutoVacuumSync 内部的 7 天节流，
+    // 保证绝大多数启动根本不触发。unref 免得这个定时器拖住进程退出。
+    const vacuumTimer = setTimeout(() => {
+      try {
+        const startedAt = performance.now()
+        if (maybeRunAutoVacuumSync(db, dbPath)) {
+          log.info(`[initialize] 自动 VACUUM 完成，耗时 ${(performance.now() - startedAt).toFixed(0)}ms`)
+        }
+      } catch (err) {
+        log.warn('[initialize] 自动 VACUUM 失败（不影响使用）:', err)
+      }
+    }, 30_000)
+    vacuumTimer.unref?.()
 
     // 资讯存储注入：dashboard-feed-store 从文件覆盖写切换为 SQLite 累积（schema V35）
     setDashboardFeedDb(db)

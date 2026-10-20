@@ -34,6 +34,29 @@ export interface ScheduledBackupOptions {
 }
 
 const DEFAULT_MAX_BACKUP_COUNT = 10;
+
+/**
+ * 开库备份的最小间隔：24 小时内已有备份就跳过。
+ *
+ * 与每日定时备份配合——开库这份只为兜住「定时任务没跑成」，
+ * 不需要每次启动都拷一遍几百 MB。
+ */
+const BACKUP_ON_OPEN_MIN_INTERVAL_MS = 24 * 60 * 60 * 1000;
+
+/** 备份目录里是否存在 intervalMs 内生成的 .db.bak */
+export function hasRecentBackup(backupDir: string, intervalMs: number): boolean {
+  try {
+    const newest = fs
+      .readdirSync(backupDir)
+      .filter((name) => name.startsWith('agent-runtime_') && name.endsWith('.db.bak'))
+      .map((name) => fs.statSync(path.join(backupDir, name)).mtimeMs)
+      .sort((a, b) => b - a)[0];
+    return newest !== undefined && Date.now() - newest < intervalMs;
+  } catch {
+    // 目录不存在/不可读 → 当作没有备份，让它照常备份（宁可多备份一次）
+    return false;
+  }
+}
 const DEFAULT_HOUR = 3;
 
 let scheduledTimer: ReturnType<typeof setTimeout> | undefined;
@@ -42,7 +65,22 @@ let dailyInterval: ReturnType<typeof setInterval> | undefined;
 /**
  * 执行 PRAGMA integrity_check，返回是否通过。
  */
+/**
+ * 开库完整性检查。
+ *
+ * 用 `quick_check` 而不是 `integrity_check`：后者要全库扫描（306MB 库实测数秒，
+ * 直接压在启动关键路径上）。quick_check 跳过「索引内容与表内容是否一致」的逐行比对，
+ * 仍然会发现结构性损坏——而对「要不要从备份恢复」这个决策来说，结构性损坏才是判据。
+ *
+ * 需要逐行全量校验时用 `verifyDatabaseIntegrityFull`（维护/排障路径）。
+ */
 export function verifyDatabaseIntegrity(db: DatabaseAdapter): boolean {
+  const row = db.prepare<{ quick_check: string }>("PRAGMA quick_check").get();
+  return row?.quick_check === "ok";
+}
+
+/** 全量检查：慢（全库扫描），仅用于维护与排障，不要放进启动路径。 */
+export function verifyDatabaseIntegrityFull(db: DatabaseAdapter): boolean {
   const row = db.prepare<{ integrity_check: string }>("PRAGMA integrity_check").get();
   return row?.integrity_check === "ok";
 }
@@ -254,7 +292,12 @@ export function startScheduledDatabaseBackup(opts: ScheduledBackupOptions): () =
     pruneOldBackups(backupDir, maxCount);
   };
 
-  if (opts.backupOnOpen) {
+  // 开库备份只在「今天还没有备份」时做。
+  //
+  // 原来每次都无条件 run()：主库 306MB 时，`fs.copyFileSync` 同步拷贝要 8 秒，
+  // 直接把启动主线程钉住（2026-10-20 实测 bridge.initialize 9.4 秒里 8 秒在这里）。
+  // 而下面本来就有每日定时备份，开库备份只需要兜住「定时任务没跑成」的场景。
+  if (opts.backupOnOpen && !hasRecentBackup(backupDir, BACKUP_ON_OPEN_MIN_INTERVAL_MS)) {
     run();
   }
 

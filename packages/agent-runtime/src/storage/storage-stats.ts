@@ -73,12 +73,28 @@ export function getLocalStorageStats(db: DatabaseAdapter, dbPath: string): Local
   };
 }
 
+/** VACUUM 的最小间隔：默认 7 天。 */
+const AUTO_VACUUM_MIN_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** 上次 VACUUM 的时间戳落在这个旁路文件里（不进库，避免为记一个时间戳改 schema）。 */
+function vacuumMarkPath(dbPath: string): string {
+  return `${dbPath}.last-vacuum`;
+}
+
 /**
  * 若数据库文件超过阈值则执行 VACUUM（需在无长事务时调用）。
  *
+ * **这个调用是同步的**：306MB 的库实测要 9.7 秒，期间主线程完全阻塞。
+ * 因此它不该出现在启动关键路径上——调用方要推迟到首屏之后，并且靠下面的
+ * 间隔节流保证「大多数启动根本不跑」。
+ *
  * @returns 是否执行了 VACUUM
  */
-export function maybeRunAutoVacuumSync(db: DatabaseAdapter, dbPath: string): boolean {
+export function maybeRunAutoVacuumSync(
+  db: DatabaseAdapter,
+  dbPath: string,
+  minIntervalMs: number = AUTO_VACUUM_MIN_INTERVAL_MS,
+): boolean {
   let size = 0;
   try {
     size = fs.statSync(dbPath).size;
@@ -88,7 +104,21 @@ export function maybeRunAutoVacuumSync(db: DatabaseAdapter, dbPath: string): boo
   if (size < AUTO_VACUUM_THRESHOLD_BYTES) {
     return false;
   }
+
+  const markPath = vacuumMarkPath(dbPath);
+  try {
+    const last = Number(fs.readFileSync(markPath, "utf8"));
+    if (Number.isFinite(last) && Date.now() - last < minIntervalMs) return false;
+  } catch {
+    // 没有标记 → 当作从未做过，让它跑一次
+  }
+
   db.exec("VACUUM");
+  try {
+    fs.writeFileSync(markPath, String(Date.now()));
+  } catch {
+    // 标记写不进去只影响下次是否重复 VACUUM，不影响正确性
+  }
   return true;
 }
 

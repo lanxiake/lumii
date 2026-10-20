@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   deleteDatabaseBackup,
   deleteSqliteSidecarFiles,
+  hasRecentBackup,
   listDatabaseBackups,
   pruneOldBackups,
   restoreDatabaseFromBackup,
@@ -31,6 +32,28 @@ describe("backup", () => {
     for (const dir of tmpDirs.splice(0)) {
       fs.rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  it("hasRecentBackup：目录不存在时返回 false（照常备份，宁可多备一次）", () => {
+    expect(hasRecentBackup(path.join(makeTmpDir(), "nope"), 24 * 60 * 60 * 1000)).toBe(false);
+  });
+
+  it("hasRecentBackup：刚写的备份算作近期，超过间隔的不算", () => {
+    const dir = makeTmpDir();
+    const fresh = path.join(dir, "agent-runtime_2026-10-20_10-00-00.db.bak");
+    fs.writeFileSync(fresh, "x");
+
+    expect(hasRecentBackup(dir, 24 * 60 * 60 * 1000)).toBe(true);
+    // 间隔设为 0：任何已存在的备份都不算「近期」→ 会重新备份
+    expect(hasRecentBackup(dir, 0)).toBe(false);
+  });
+
+  it("hasRecentBackup：只认 .db.bak，不认同目录里的其它文件", () => {
+    const dir = makeTmpDir();
+    fs.writeFileSync(path.join(dir, "notes.json"), "x");
+    fs.writeFileSync(path.join(dir, "other.db"), "x");
+
+    expect(hasRecentBackup(dir, 24 * 60 * 60 * 1000)).toBe(false);
   });
 
   it("listDatabaseBackups 按修改时间降序返回 .db.bak 文件", () => {

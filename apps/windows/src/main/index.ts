@@ -876,7 +876,9 @@ async function initAgentRuntime(): Promise<void> {
   // bridge 侧还有一道 `waitForSherpa()` 兜底（挂起而非放行），两处一起构成顺序保证。
   const voiceServiceStartTime = performance.now()
   const voiceModelManager = new VoiceModelManager()
+  const voiceConfigStart = performance.now()
   const savedVoiceConfig = await loadVoiceEngineConfig()
+  log.info(`[Startup] S7.4.1-voice-config ${(performance.now() - voiceConfigStart).toFixed(0)}ms`)
   voiceCallService = new VoiceCallService(
     mainWindow!,
     (sessionKey, content, audioWavBase64) => submitVoiceTranscript(sessionKey, content, audioWavBase64),
@@ -901,7 +903,9 @@ async function initAgentRuntime(): Promise<void> {
     .then(() => log.info('语音引擎预热完成（VAD 已占 ONNX 运行时）'))
     .catch((e) => log.warn(`语音引擎预热失败（非致命）: ${e.message}`))
 
+  const bridgeInitStart = performance.now()
   await agentRuntimeBridge.initialize()
+  log.info(`[Startup] S7.4.2-bridge-initialize ${(performance.now() - bridgeInitStart).toFixed(0)}ms`)
   log.info('客户端 Agent Runtime 初始化完成（新协议 agent-runtime:command）')
 
   // ── 技能自进化引擎（已关闭）──
@@ -1592,10 +1596,10 @@ async function initLocalServices(): Promise<void> {
   const mtbotDataDirForSeed = resolveClientStateDir()
   const seedWorkspaceDir = configManager?.getAppConfig().workspaceDirectory
     || join(mtbotDataDirForSeed, 'workspace')
-  await seedBundledSkills(seedWorkspaceDir, mtbotDataDirForSeed)
-  log.info('[Main] seedBundledSkills 完成，开始 initSkillRuntime')
+  // S7 内部逐段计时：这一段曾整体 7086ms，不拆开就没法知道该动谁
+  await runStartupStage('S7.1-seed-skills', () => seedBundledSkills(seedWorkspaceDir, mtbotDataDirForSeed))
 
-  await initSkillRuntime()  // 初始化技能运行时（此时种子文件已就绪）
+  await runStartupStage('S7.2-skill-runtime', () => initSkillRuntime())
 
   // 脚本运行环境：写 node/python shim，缺 Python 时后台下载内置运行时。
   // 脚本运行时按需懒加载，不阻塞首屏（首次会下载内置 Python，改 fire-and-forget）。
@@ -1606,14 +1610,10 @@ async function initLocalServices(): Promise<void> {
   initPluginDependenciesOnStartup()
   log.info('[Main] initScriptRuntimes + 插件预安装已触发，开始 initSkillWatcher')
 
-  await initSkillWatcher()  // 初始化技能监控器（此时种子文件已就绪）
-  log.info('[Main] initSkillWatcher 完成，开始 initAgentRuntime')
+  await runStartupStage('S7.3-skill-watcher', () => initSkillWatcher())
 
   // 初始化客户端 Agent Runtime（Feature Flag 默认关闭，需手动启用）
-  const agentRuntimeStartTime = performance.now()
-  await initAgentRuntime()
-  performanceMonitor?.recordStartupPhase('agent-runtime', performance.now() - agentRuntimeStartTime)
-  log.info('[Main] initAgentRuntime 完成')
+  await runStartupStage('S7.4-agent-runtime', () => initAgentRuntime())
 }
 
 /** S8：Agent 就绪后的服务——云同步冲突重试、浏览器控制。 */
