@@ -46,8 +46,8 @@ export const S = {
   mainWindow: createServiceKey<LateRef<BrowserWindow>>('mainWindow'),
   /** 托盘（S2–S5 才创建） */
   tray: createServiceKey<LateRef<TrayManager>>('tray'),
-  /** 语音服务（S7 才创建） */
-  voice: createServiceKey<LateRef<VoiceCallService>>('voice'),
+  /** 语音服务（由 extensions/voice.ts 在窗口就绪后提供） */
+  voice: createServiceKey<VoiceCallService>('voice'),
   /** 录屏服务（扩展提供；窗口就绪后才创建） */
   screenRecord: createServiceKey<ScreenRecordService>('screenRecord'),
 } as const

@@ -788,35 +788,10 @@ async function initAgentRuntime(): Promise<void> {
   //
   // 因此：**初始化语音服务后立刻预热 VAD**，抢在 bridge 初始化里任何 E5 之前。
   // bridge 侧还有一道 `waitForSherpa()` 兜底（挂起而非放行），两处一起构成顺序保证。
-  const voiceServiceStartTime = performance.now()
-  const voiceModelManager = new VoiceModelManager()
-  const voiceConfigStart = performance.now()
-  const savedVoiceConfig = await loadVoiceEngineConfig()
-  log.info(`[Startup] S7.4.1-voice-config ${(performance.now() - voiceConfigStart).toFixed(0)}ms`)
-  voiceCallService = new VoiceCallService(
-    mainWindow!,
-    (sessionKey, content, audioWavBase64) => submitVoiceTranscript(sessionKey, content, audioWavBase64),
-    voiceModelManager,
-    savedVoiceConfig,
-  )
-  registerVoiceIpc(mainWindow!, voiceCallService, voiceModelManager, performanceMonitor ?? undefined)
-  performanceMonitor?.recordStartupPhase('voice-service', performance.now() - voiceServiceStartTime)
-  // 渠道语音失败提示：按 Paraformer 是否已下载分流文案
-  setChannelAsrReadyChecker(() => voiceModelManager.isModelDownloaded('asr-paraformer-zh'))
-  // 注入音频 ASR 转录能力到文件导入 IPC
-  setAudioTranscribeCallback((base64, mimeType) => voiceCallService!.transcribeAudioBuffer(base64, mimeType))
-  log.info('语音通话服务已注册')
+  // 语音服务由 extensions/voice.ts 在窗口就绪时装配（必须早于 bridge 初始化，
+  // 否则 VAD 会绑到 onnxruntime 1.14 上原生崩溃）。这里只把实例从容器取回来。
+  voiceCallService = pluginHost?.container.get(S.voice) ?? null
 
-  // 注：原先这里要「语音就绪后重挂一次，确保 generateAudioFile 闭包拿到最新实例」。
-  // 现在录屏扩展的 generateAudioFile 在调用时通过 S.voice getter 解析，天然拿到最新实例，
-  // 不需要重挂。
-
-  // VAD 预热：**必须先于 bridge 初始化**。不阻塞启动（后台跑），但顺序是硬要求。
-  // 失败只记日志——VAD 不可用不该拦住对话（非 micless 通话会再走一次 ensureInitialized）。
-  void voiceCallService
-    .ensureInitialized()
-    .then(() => log.info('语音引擎预热完成（VAD 已占 ONNX 运行时）'))
-    .catch((e) => log.warn(`语音引擎预热失败（非致命）: ${e.message}`))
 
   const bridgeInitStart = performance.now()
   await agentRuntimeBridge.initialize()
@@ -1265,7 +1240,6 @@ async function startExtensions(): Promise<void> {
   pluginHost.container.provide(S.agentRuntime, { get: () => agentRuntimeBridge })
   pluginHost.container.provide(S.mainWindow, { get: () => mainWindow })
   pluginHost.container.provide(S.tray, { get: () => trayManager })
-  pluginHost.container.provide(S.voice, { get: () => voiceCallService })
   if (created.skipped.length > 0) {
     log.info(`扩展已按配置禁用: ${created.skipped.join('、')}`)
   }

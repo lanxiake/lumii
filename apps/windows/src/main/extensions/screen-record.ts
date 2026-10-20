@@ -111,7 +111,7 @@ export const screenRecordExtension = {
             return parseScreenRecordSettings(json)
           },
           generateAudioFile: async (text: string, destDir: string) => {
-            const voice = ctx.get(S.voice)?.get()
+            const voice = ctx.get(S.voice)
             if (!voice) throw new Error('语音服务未初始化，请稍后再试')
             return voice.generateAudioFile(text, destDir)
           },
