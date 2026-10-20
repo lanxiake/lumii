@@ -13,6 +13,7 @@ import { updaterExtension } from './extensions/updater'
 import { cloudSyncExtension } from './extensions/cloud-sync'
 import { screenRecordExtension } from './extensions/screen-record'
 import { voiceExtension } from './extensions/voice'
+import { petExtension } from './extensions/pet'
 
 /**
  * 内置扩展的统一定义。
@@ -33,6 +34,7 @@ export const BUILTIN_EXTENSIONS: BuiltinExtension[] = [
   cloudSyncExtension,
   screenRecordExtension,
   voiceExtension,
+  petExtension,
 ]
 
 /**

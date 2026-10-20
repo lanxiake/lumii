@@ -173,11 +173,7 @@ import { hasHeadlessFlag } from './platform/feature-probe'
 import { PerformanceMonitor } from './perf/performance-monitor'
 import { setupPerformanceIpcHandlers } from './ipc/performance-ipc'
 import { registerSkillnetStoreHandlers } from './skillnet-store'
-import {
-  registerPetModeIpc,
-  isPetForceIgnore,
-  disposePetModeIpc,
-} from './pet/pet-mode-ipc'
+import { disposePetModeIpc } from './pet/pet-mode-ipc'
 import { registerFilePreviewWindowIpc } from './file-preview/preview-window-ipc'
 import { applyWikiEmbeddingEnvDefaults } from './agent-runtime/wiki-embedding-config'
 import { applyPluginBootstrapEnvDefaults } from './plugin-bootstrap-config'
@@ -1358,29 +1354,7 @@ async function initUiStages(flags: ReturnType<typeof readStartupFlags>): Promise
     log.warn('App UI 本机控制口启动失败:', err instanceof Error ? err.message : err)
   }
 
-  // 注册宠物模式 IPC（独立透明窗口，与 mainWindow 解耦）
-  // 无头模式下跳过桌宠
-  if (!isHeadless) {
-    registerPetModeIpc({
-      getMainWindow: () => mainWindow,
-      preloadPath: join(__dirname, '../preload/index.js'),
-      rendererUrl: process.env.ELECTRON_RENDERER_URL,
-      indexHtmlPath: join(__dirname, '../renderer/index.html'),
-      onForceIgnoreChanged: (forceIgnore) => {
-        trayManager?.updateForceIgnore(forceIgnore)
-      },
-      onModeChanged: (mode) => {
-        // 所有切换路径（托盘/快捷键/控制坞/设置页）统一在此同步托盘文案与设置页状态
-        trayManager?.updatePetMode(mode === 'pet')
-        trayManager?.updateForceIgnore(isPetForceIgnore())
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('pet-mode-changed', mode)
-        }
-      },
-    })
-  } else {
-    log.info('无头模式：跳过宠物模式 IPC 注册')
-  }
+  // 桌宠模式 IPC 由 extensions/pet.ts 在窗口就绪时注册（无头模式下自然不装配）
 
   // 文件预览独立窗口（可拖出主窗口外）
   // 无头模式下跳过文件预览窗口
