@@ -60,9 +60,13 @@ export const cloudSyncExtension = {
         )
       })
 
-      // 真正的 teardown：热卸载/禁用时停掉调度器与文件监听。
-      // 不做的话，卸载扩展后同步仍在后台跑——只是启动路径上看不出来
-      ctx.effect(() => scheduler.stop())
+      // 真正的 teardown：热卸载/禁用/卸载扩展时停掉调度器与文件监听，
+      // 并把访问器清空——否则 IPC/工具层还会拿旧实例继续手动同步。
+      ctx.effect(() => {
+        scheduler.stop()
+        setCloudSyncManager(null)
+        setCloudSyncWorkspaceChangedHandler(null)
+      })
 
       ctx.provide(S.cloudSync, manager)
       ctx.provide(S.syncScheduler, scheduler)

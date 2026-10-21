@@ -20,7 +20,8 @@ const shared: SharedAccessor = ((globalThis as Record<symbol, unknown>)[SHARED_K
   onWorkspaceChanged: null,
 }) as SharedAccessor
 
-export function setCloudSyncManager(m: CloudSyncManager): void {
+/** 传 null 表示扩展已卸载：IPC/工具层不应再读到旧实例 */
+export function setCloudSyncManager(m: CloudSyncManager | null): void {
   shared.manager = m
 }
 

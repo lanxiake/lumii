@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 
 vi.mock('electron', () => ({
-  ipcMain: { handle: vi.fn() },
+  ipcMain: { handle: vi.fn(), removeHandler: vi.fn() },
   shell: { openPath: vi.fn(async () => '') },
 }))
 
@@ -41,7 +41,7 @@ describe('Performance IPC Handlers', () => {
   })
 
   it('should register performance:getReport handler', () => {
-    setupPerformanceIpcHandlers(mockMonitor)
+    setupPerformanceIpcHandlers(() => mockMonitor)
 
     expect(ipcMain.handle).toHaveBeenCalledWith(
       'performance:getReport',
@@ -50,7 +50,7 @@ describe('Performance IPC Handlers', () => {
   })
 
   it('should return performance report', async () => {
-    setupPerformanceIpcHandlers(mockMonitor)
+    setupPerformanceIpcHandlers(() => mockMonitor)
 
     const calls = (ipcMain.handle as ReturnType<typeof vi.fn>).mock.calls
     const getReportCall = calls.find(c => c[0] === 'performance:getReport')
@@ -62,7 +62,7 @@ describe('Performance IPC Handlers', () => {
   })
 
   it('should handle performance:capture', async () => {
-    setupPerformanceIpcHandlers(mockMonitor)
+    setupPerformanceIpcHandlers(() => mockMonitor)
 
     const calls = (ipcMain.handle as ReturnType<typeof vi.fn>).mock.calls
     const captureCall = calls.find(c => c[0] === 'performance:capture')
@@ -74,7 +74,7 @@ describe('Performance IPC Handlers', () => {
   })
 
   it('should handle performance:openLogFolder', async () => {
-    setupPerformanceIpcHandlers(mockMonitor)
+    setupPerformanceIpcHandlers(() => mockMonitor)
 
     const calls = (ipcMain.handle as ReturnType<typeof vi.fn>).mock.calls
     const openCall = calls.find(c => c[0] === 'performance:openLogFolder')
@@ -85,7 +85,7 @@ describe('Performance IPC Handlers', () => {
   })
 
   it('should return ipc aggregate and memory snapshot history', async () => {
-    setupPerformanceIpcHandlers(mockMonitor)
+    setupPerformanceIpcHandlers(() => mockMonitor)
 
     const calls = (ipcMain.handle as ReturnType<typeof vi.fn>).mock.calls
     const historyCall = calls.find(c => c[0] === 'performance:getHistory')
@@ -101,14 +101,14 @@ describe('Performance IPC Handlers', () => {
   describe('performance:recordRendererMemory', () => {
     /** 取注册好的处理器；sender 用于提供渲染进程 pid */
     function getRendererMemoryHandler() {
-      setupPerformanceIpcHandlers(mockMonitor)
+      setupPerformanceIpcHandlers(() => mockMonitor)
       const calls = (ipcMain.handle as ReturnType<typeof vi.fn>).mock.calls
       const call = calls.find(c => c[0] === 'performance:recordRendererMemory')
       return { handler: call![1], event: { sender: { getOSProcessId: () => 4321 } } }
     }
 
     it('registers the renderer memory handler', () => {
-      setupPerformanceIpcHandlers(mockMonitor)
+      setupPerformanceIpcHandlers(() => mockMonitor)
       expect(ipcMain.handle).toHaveBeenCalledWith(
         'performance:recordRendererMemory',
         expect.any(Function),
@@ -221,6 +221,20 @@ describe('normalizeRendererSample', () => {
     expect(sample?.native.selfPrivate).toBe(0)
     expect(sample?.native.blinkTotal).toBe(0)
     expect(sample?.native.arrayBuffers).toBe(0)
+  })
+
+  it('perf 扩展被卸载（getter 返回 null）时：历史为空、采样返回 perf_disabled', async () => {
+    vi.clearAllMocks()
+    setupPerformanceIpcHandlers(() => null)
+    const calls = (ipcMain.handle as ReturnType<typeof vi.fn>).mock.calls
+    const getHistory = calls.findLast((c) => c[0] === 'performance:getHistory')![1]
+    const recordRenderer = calls.findLast((c) => c[0] === 'performance:recordRendererMemory')![1]
+
+    expect(await getHistory({})).toEqual({ ipcAggregates: [], memorySnapshots: [] })
+    expect(await recordRenderer({ sender: { getOSProcessId: () => 1 } }, { jsHeapUsed: 1 })).toEqual({
+      success: false,
+      error: 'perf_disabled',
+    })
   })
 
   it('fills a missing or non-object native block with zeros', () => {

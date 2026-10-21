@@ -77,10 +77,33 @@ export function normalizeRendererSample(raw: unknown): RendererMemorySample | nu
   }
 }
 
-export function setupPerformanceIpcHandlers(performanceMonitor: PerformanceMonitor): void {
+const HANDLE_CHANNELS = [
+  'performance:getReport',
+  'performance:getHistory',
+  'performance:capture',
+  'performance:recordRendererMemory',
+  'performance:openLogFolder',
+] as const
+
+/** 摘掉本模块的 IPC（热重载/重装/卸载时用；重复注册会抛 second handler） */
+export function unregisterPerformanceIpcHandlers(): void {
+  for (const channel of HANDLE_CHANNELS) ipcMain.removeHandler(channel)
+}
+
+/**
+ * 注册性能诊断 IPC。
+ *
+ * `getMonitor` 而不是直接传实例：perf 是官方外部扩展，运行期可能被卸载/重装/热重载；
+ * 每次调用现取容器里的最新实例，卸载后自动变成「不可用」，不会绑在旧实例上。
+ */
+export function setupPerformanceIpcHandlers(getMonitor: () => PerformanceMonitor | null): void {
+  unregisterPerformanceIpcHandlers()
+
   // 获取性能诊断报告
   ipcMain.handle('performance:getReport', async () => {
     try {
+      const performanceMonitor = getMonitor()
+      if (!performanceMonitor) throw new Error('perf_disabled')
       const report = performanceMonitor.getReport()
       log.info(`[getReport] 报告生成完成，健康状态: ${report.health}`)
       return report
@@ -93,6 +116,8 @@ export function setupPerformanceIpcHandlers(performanceMonitor: PerformanceMonit
   // 获取历史时间序列（IPC 60秒窗口聚合 + 内存快照序列），供设置页画趋势图
   ipcMain.handle('performance:getHistory', async () => {
     try {
+      const performanceMonitor = getMonitor()
+      if (!performanceMonitor) return { ipcAggregates: [], memorySnapshots: [] }
       const ipcAggregates = performanceMonitor.getIpcAggregateHistory()
       const memorySnapshots = performanceMonitor.getMemorySnapshotHistory()
       log.info(
@@ -108,6 +133,8 @@ export function setupPerformanceIpcHandlers(performanceMonitor: PerformanceMonit
   // 手动捕获一次内存快照
   ipcMain.handle('performance:capture', async () => {
     try {
+      const performanceMonitor = getMonitor()
+      if (!performanceMonitor) return { success: false, error: 'perf_disabled' }
       const memoryUsage = process.memoryUsage()
       performanceMonitor.recordMemorySnapshot({
         timestamp: Date.now(),
@@ -138,6 +165,8 @@ export function setupPerformanceIpcHandlers(performanceMonitor: PerformanceMonit
         log.warn('[recordRendererMemory] 采样载荷非法，已忽略')
         return { success: false, error: 'invalid-sample' }
       }
+      const performanceMonitor = getMonitor()
+      if (!performanceMonitor) return { success: false, error: 'perf_disabled' }
       performanceMonitor.recordRendererMemory({
         timestamp: Date.now(),
         kind: 'renderer.memory',

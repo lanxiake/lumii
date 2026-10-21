@@ -965,7 +965,10 @@ function setupIpcHandlers(): void {
     reapplyCodingDevAcpEnv: reapplyCodingDevAcpEnvFromConfig,
     setMemoryInjectionSettings: setMemoryInjectionSettingsCache,
     setPromptStyleSettings: setPromptStyleSettingsCache,
-    restartCloudSyncScheduler: (cfg) => { syncScheduler?.start(cfg) },
+    // 现取容器：云同步被卸载后这里应是 no-op，而不是拿旧调度器继续跑
+    restartCloudSyncScheduler: (cfg) => {
+      pluginHost?.container.get(S.syncScheduler)?.start(cfg)
+    },
     log,
   })
 
@@ -1222,7 +1225,8 @@ async function prepareAppShell(flags: ReturnType<typeof readStartupFlags>): Prom
 /** perf 的 IPC 注册（启动时与运行期安装共用；只能成功一次） */
 function registerPerformanceIpcIfNeeded(): void {
   if (!performanceMonitor || performanceIpcRegistered) return
-  setupPerformanceIpcHandlers(performanceMonitor)
+  // 传 getter：perf 是外部扩展，卸载/重装/热重载后要读容器里的最新实例
+  setupPerformanceIpcHandlers(() => pluginHost?.container.get(S.perf) ?? null)
   performanceIpcRegistered = true
   log.info('性能监控 IPC handlers 已注册')
 }
