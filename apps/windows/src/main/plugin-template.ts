@@ -147,6 +147,23 @@ __LUMII_REGISTER_PLUGIN__(id, (api) => {
 })
 \`\`\`
 
+## 读应用数据：\`window.electronAPI\`
+
+插件脚本和页面**同一个 JS 上下文**（不做沙箱），所以 preload 暴露的
+\`window.electronAPI\` 直接可用——这是插件拿应用数据的唯一通道，不需要宿主再包一层：
+
+\`\`\`js
+await window.electronAPI.performance.getReport()   // 性能诊断
+await window.electronAPI.plugins.list()            // 资产插件状态
+await window.electronAPI.extensions.list()         // 扩展与客户端插件列表
+\`\`\`
+
+主进程侧同理：外部扩展（\`~/.lumii/extensions/<dir>/main.js\`）里
+\`ctx.get('agentRuntime')\` 拿到的是 \`LateRef\`，\`.get()\` 返回整个 Agent Runtime 桥；
+\`ctx.get('perf')\` / \`'cloudSync'\` / \`'mainWindow'\` 等见 \`kernel/services.ts\`。
+
+> 这是**自用客户端**的选择：完全信任、不做权限。插件代码就是你的代码。
+
 ## 可用槽位
 
 | 槽位 | 位置 | props |
