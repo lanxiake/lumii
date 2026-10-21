@@ -20,6 +20,15 @@ import { MCP_PRESETS } from '../../shared/mcp-presets'
 import { presetToEntry, type McpServerEntry } from '../config/mcp-config'
 import { resolvePluginRuntimeDir } from '../paths'
 import { resolveUserPetModelsDir } from '../pet/pet-asset-protocol'
+import { resolveExtensionsDir } from '../extension-loader'
+import { setMainExtensionEnabled } from '../kernel/extension-store'
+import {
+  installOfficialExtension,
+  isOfficialExtensionInstalled,
+  loadOfficialCatalog,
+  removeOfficialExtension,
+  type OfficialCatalogEntry,
+} from '../official-extensions'
 
 /** CloakBrowser 的落点（历史上就在 homedir，不在客户端数据根，保持不变） */
 const CLOAK_DIR = join(os.homedir(), '.cloakbrowser')
@@ -136,6 +145,60 @@ function wechatMcpEntry(): McpServerEntry {
   return { ...presetToEntry(preset), enabled: true }
 }
 
+/** 官方扩展清单的随包位置：dev 下在仓库里，打包后由 extraResources 放到 resources/extensions */
+function officialExtensionsSourceDir(): string {
+  return app.isPackaged
+    ? join(process.resourcesPath, 'extensions')
+    : join(app.getAppPath(), 'resources', 'extensions')
+}
+
+/**
+ * 按需安装的官方扩展：复用 `plugin:install` 骨架（进度、取消、单插件 AbortController）。
+ *
+ * 安装落点就是 `~/.lumii/extensions/<id>`，外部扩展加载器 1 秒内会把它捡起来
+ * ——不需要额外的「装完刷新」回调。
+ */
+function registerOfficialExtensionPlugins(catalog: OfficialCatalogEntry[]): void {
+  const extensionsDir = resolveExtensionsDir()
+  for (const entry of catalog) {
+    registerPlugin({
+      id: `ext:${entry.id}`,
+      async status() {
+        return isOfficialExtensionInstalled(extensionsDir, entry.id)
+          ? { installed: true, version: entry.version }
+          : { installed: false }
+      },
+      async install(onProgress, signal) {
+        await installOfficialExtension({
+          entry,
+          extensionsDir,
+          onProgress,
+          signal,
+          download: (destFile, report, sig) =>
+            installGithubAsset({
+              repo: WECHAT_MCP_REPO,
+              tag: RELEASE_TAG(),
+              asset: entry.asset,
+              destFile,
+              sha256: entry.sha256,
+              onProgress: report,
+              signal: sig,
+            }),
+        })
+        // 以前禁用过同一 id：装完要能直接用，否则要用户再点一次启用 + 重启
+        try {
+          setMainExtensionEnabled(entry.id, true)
+        } catch {
+          /* 偏好清理失败不影响安装 */
+        }
+      },
+      async uninstall() {
+        removeOfficialExtension(extensionsDir, entry.id)
+      },
+    })
+  }
+}
+
 /** 注册全部内置插件。必须在 `setupPluginIpcHandlers()` 之前调用。 */
 export function registerBuiltinPlugins(deps: PluginDeps = {}): void {
   registerPlugin({
@@ -214,4 +277,7 @@ export function registerBuiltinPlugins(deps: PluginDeps = {}): void {
   })
 
   for (const id of PET_PLUGIN_IDS) registerPetPlugin(id)
+
+  // 官方扩展：装/卸都落 ~/.lumii/extensions，与随包同步共用同一套覆盖策略
+  registerOfficialExtensionPlugins(loadOfficialCatalog(officialExtensionsSourceDir()))
 }

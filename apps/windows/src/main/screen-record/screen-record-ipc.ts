@@ -50,14 +50,56 @@ function guardRecordingPath(
   return { ok: true, abs }
 }
 
+/** 本模块独占的通道；重复注册会抛「second handler」 */
+const HANDLE_CHANNELS = [
+  'screen-record:list-sources',
+  'screen-record:start',
+  'screen-record:stop',
+  'screen-record:narrate',
+  'screen-record:list-recordings',
+  'screen-record:delete-recording',
+  'screen-record:restore-original',
+  'screen-record:load-subtitle-project',
+  'screen-record:save-subtitle-project',
+  'screen-record:burn-subtitles',
+  'screen-record:pause',
+  'screen-record:resume',
+  'screen-record:status',
+] as const
+
+const ON_CHANNELS = [
+  'screen-record:confirm-respond',
+  'screen-record:chunk',
+  'screen-record:stream-ended',
+  'screen-record:capture-error',
+] as const
+
+/**
+ * 摘掉本模块注册的 IPC。
+ *
+ * 两条路径需要它：
+ * - 外部扩展开启热重载/卸载 → 重载时重新注册同一批通道会抛
+ *   `Attempted to register a second handler`；
+ * - 扩展未安装时主进程注册了 disabled-stub（占着 `screen-record:status`），
+ *   按需安装后必须先把桩摘掉。
+ */
+export function unregisterScreenRecordIpc(): void {
+  for (const channel of HANDLE_CHANNELS) ipcMain.removeHandler(channel)
+  for (const channel of ON_CHANNELS) ipcMain.removeAllListeners(channel)
+}
+
 /**
  * 注册录屏相关 ipcMain handle/on，绑定到单一 ScreenRecordService。
+ *
+ * 幂等：注册前先清掉自己的旧注册（含 disabled-stub），见 `unregisterScreenRecordIpc`。
  */
 export function registerScreenRecordIpc(
   service: ScreenRecordService,
   _mainWindow: BrowserWindow | null,
   performanceMonitor?: PerformanceMonitor,
 ): void {
+  unregisterScreenRecordIpc()
+
   ipcMain.handle('screen-record:list-sources', async (_e, p?: { includeThumbnail?: boolean }) => {
     return service.listSources(p?.includeThumbnail)
   })

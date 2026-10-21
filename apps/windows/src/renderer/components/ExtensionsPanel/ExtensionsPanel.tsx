@@ -23,10 +23,13 @@ interface ExtensionInfo {
   version: string
   kind: 'builtin' | 'external'
   origin: 'builtin' | 'user' | 'agent' | 'official'
+  description?: string
   requires?: { assets?: string[]; optional?: boolean }
   dir?: string
   enabled: boolean
   state: string
+  /** 官方清单里有、还没下载安装 */
+  installable?: boolean
   activationMs?: number
   error?: string
   /** 开关已改，等重启生效 */
@@ -41,6 +44,7 @@ const STATE_LABELS: Record<string, string> = {
   stopped: '已停止',
   disabled: '已禁用',
   incompatible: '不兼容',
+  available: '可安装',
   loaded: '已加载',
   unknown: '未知',
 }
@@ -57,6 +61,8 @@ function originLabel(origin: 'builtin' | 'user' | 'agent' | 'official'): string 
 type DeleteTarget = {
   target: { kind: 'external' | 'client'; id: string; dir?: string }
   name: string
+  /** 官方扩展叫「卸载」（之后还能从清单里重新安装） */
+  verb?: '删除' | '卸载'
 }
 
 type SortBy = 'name' | 'state' | 'origin'
@@ -69,9 +75,10 @@ const STATE_RANK: Record<string, number> = {
   registered: 1,
   incompatible: 2,
   failed: 3,
-  disabled: 4,
-  stopped: 4,
-  unknown: 5,
+  available: 4,
+  disabled: 5,
+  stopped: 5,
+  unknown: 6,
 }
 
 const ORIGIN_RANK: Record<string, number> = { builtin: 0, official: 1, agent: 2, user: 3 }
@@ -137,7 +144,10 @@ export const ExtensionsPanel: React.FC = () => {
   /** 搜索 + 排序后的两栏（搜索对名称/id/版本/目录/描述/错误都生效） */
   const visibleMain = sortExtensions(
     items.filter((item) =>
-      matchesQuery([item.name, item.id, item.version, item.dir, item.error], query),
+      matchesQuery(
+        [item.name, item.id, item.version, item.dir, item.description, item.error],
+        query,
+      ),
     ),
     (item) => ({ name: item.name, state: item.state, origin: item.origin }),
     sortBy,
@@ -243,6 +253,30 @@ export const ExtensionsPanel: React.FC = () => {
     }
   }, [deleteTarget, refresh])
 
+  /** 按需安装官方扩展：走通用 plugin:install（进度/取消都在 PluginsProvider 里） */
+  const installOfficial = useCallback(
+    async (item: ExtensionInfo) => {
+      const runtimeId = `ext:${item.id}` as PluginId
+      setBusy(item.id)
+      setNotice(null)
+      try {
+        await installAsset(runtimeId)
+        // usePlugins 把失败写进 status 而不抛错，这里回读一次确认真装上了
+        const list = await window.electronAPI.plugins.list()
+        if (!list[runtimeId]?.installed) {
+          setNotice(`${item.name} 安装失败，详情见下方状态`)
+          return
+        }
+        setNotice(`${item.name} 已安装，1 秒内加载`)
+        // 外部扩展宿主每秒扫一次目录；稍等再刷新，避免读到安装前的快照
+        setTimeout(() => void refresh(), 1500)
+      } finally {
+        setBusy(null)
+      }
+    },
+    [installAsset, refresh],
+  )
+
   const createSample = useCallback(async () => {
     setBusy(CREATE_KEY)
     setNotice(null)
@@ -305,7 +339,11 @@ export const ExtensionsPanel: React.FC = () => {
           <p className={styles.empty}>没有匹配的扩展</p>
         ) : (
           <div className={styles.grid}>
-            {visibleMain.map((item) => (
+            {visibleMain.map((item) => {
+              // 按需安装的官方扩展复用通用插件通道：id = ext:<扩展 id>
+              const runtimeId = `ext:${item.id}` as PluginId
+              const runtimeStatus = assetStatuses[runtimeId]
+              return (
               <article key={item.id} className={styles.card}>
                 <div className={styles.meta}>
                   <div className={styles.titleRow}>
@@ -325,6 +363,7 @@ export const ExtensionsPanel: React.FC = () => {
                     {item.id} · v{item.version}
                     {item.dir ? ` · ${item.dir}` : ''}
                   </div>
+                  {item.description && <div className={styles.desc}>{item.description}</div>}
                   {item.error && <div className={styles.error}>{item.error}</div>}
                   {item.requires?.assets?.length ? (
                     <div className={styles.deps}>
@@ -366,7 +405,8 @@ export const ExtensionsPanel: React.FC = () => {
                   ) : null}
                 </div>
                 <div className={styles.actions}>
-                  {item.kind === 'external' && (
+                  {/* 未安装的官方向导没有目录可打开 */}
+                  {item.kind === 'external' && item.dir && (
                     <>
                       <button
                         className={styles.action}
@@ -374,32 +414,56 @@ export const ExtensionsPanel: React.FC = () => {
                       >
                         打开目录
                       </button>
-                      {/* 官方扩展随包分发，删了下次启动会被同步回来；只允许禁用 */}
-                      {item.origin !== 'official' && (
+                      {/* 官方扩展：卸载后回到「可安装」，不再随安装包回来 */}
+                      <button
+                        className={styles.action}
+                        onClick={() =>
+                          setDeleteTarget({
+                            target: { kind: 'external', id: item.id },
+                            name: item.name,
+                            verb: item.origin === 'official' ? '卸载' : '删除',
+                          })
+                        }
+                      >
+                        {item.origin === 'official' ? '卸载' : '删除'}
+                      </button>
+                    </>
+                  )}
+                  {item.installable ? (
+                    <>
+                      <button
+                        className={styles.toggle}
+                        disabled={busy === item.id || Boolean(runtimeStatus?.installing)}
+                        onClick={() => void installOfficial(item)}
+                      >
+                        {runtimeStatus?.installing
+                          ? `安装中 ${runtimeStatus.progress?.percent ?? 0}%`
+                          : busy === item.id
+                            ? '安装中…'
+                            : '安装'}
+                      </button>
+                      {runtimeStatus?.installing && (
                         <button
                           className={styles.action}
-                          onClick={() =>
-                            setDeleteTarget({
-                              target: { kind: 'external', id: item.id },
-                              name: item.name,
-                            })
-                          }
+                          onClick={() => void cancelAsset(runtimeId)}
                         >
-                          删除
+                          取消
                         </button>
                       )}
                     </>
+                  ) : (
+                    <button
+                      className={styles.toggle}
+                      disabled={busy === item.id}
+                      onClick={() => void toggleMain(item)}
+                    >
+                      {item.enabled ? '禁用' : '启用'}
+                    </button>
                   )}
-                  <button
-                    className={styles.toggle}
-                    disabled={busy === item.id}
-                    onClick={() => void toggleMain(item)}
-                  >
-                    {item.enabled ? '禁用' : '启用'}
-                  </button>
                 </div>
               </article>
-            ))}
+              )
+            })}
           </div>
         )}
       </section>
@@ -490,13 +554,13 @@ export const ExtensionsPanel: React.FC = () => {
 
       <ConfirmModal
         open={deleteTarget !== null}
-        title="删除"
+        title={deleteTarget?.verb ?? '删除'}
         content={
           deleteTarget
-            ? `确定删除「${deleteTarget.name}」？会移除磁盘上的代码目录，不可撤销。`
+            ? `确定${deleteTarget.verb ?? '删除'}「${deleteTarget.name}」？会移除磁盘上的代码目录，不可撤销。`
             : ''
         }
-        confirmText="删除"
+        confirmText={deleteTarget?.verb ?? '删除'}
         confirmVariant="danger"
         layer="aboveHub"
         onConfirm={() => void confirmDelete()}

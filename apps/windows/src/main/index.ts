@@ -150,7 +150,7 @@ import { setupPluginIpcHandlers } from './plugins/plugin-manager'
 import type { PluginHost } from '@mtbot/plugin-core'
 import { createPluginHost } from './plugin-host'
 import { ExternalExtensionRuntime, resolveExtensionsDir } from './extension-loader'
-import { syncOfficialExtensions } from './official-extensions'
+import { loadOfficialCatalog, syncOfficialExtensions } from './official-extensions'
 import { S } from './kernel/services'
 import type { MainEvents } from './kernel/events'
 import { readExtensionPrefs } from './kernel/extension-store'
@@ -1301,7 +1301,14 @@ async function startExtensions(): Promise<void> {
 
   // 设置页「扩展」页签的数据源。放在这里是因为它要 host + 外部扩展运行时；
   // IPC 通道本身在 S7 注册（用模块级 getter 取，早注册也不会拿到 null）。
-  setExtensionControl(createExtensionControl({ host: pluginHost, external: externalExtensions }))
+  setExtensionControl(
+    createExtensionControl({
+      host: pluginHost,
+      external: externalExtensions,
+      // 清单随包（安装包里没有代码）；有清单没目录 = 可安装
+      officialCatalog: loadOfficialCatalog(officialExtensionsRoot),
+    }),
+  )
 }
 
 /**

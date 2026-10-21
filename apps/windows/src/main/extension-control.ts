@@ -13,6 +13,7 @@ import {
 } from './kernel/extension-store'
 import { BUILTIN_EXTENSIONS, type BuiltinExtension } from './plugin-host'
 import { resolveClientPluginsDir } from './plugin-paths'
+import type { OfficialCatalogEntry } from './official-extensions'
 
 /**
  * 扩展控制面：给设置页「扩展」页签提供**统一列表**与**启用开关**。
@@ -34,12 +35,17 @@ export interface ExtensionInfo {
   kind: ExtensionKind
   /** 来源：内置 / 用户手写 / Agent 自举开发 / 官方可选扩展（只是展示，不是权限） */
   origin: 'builtin' | 'user' | 'agent' | 'official'
+  /** 一句话说明（官方可选扩展来自 catalog） */
+  description?: string
   /** 运行时组件依赖（只用于展示与安装引导） */
   requires?: LumiiPluginManifest['requires']
   /** 外部扩展才有 */
   dir?: string
   enabled: boolean
-  state: PluginState | 'disabled' | 'unknown'
+  /** available = 官方清单里有、但还没下载安装 */
+  state: PluginState | 'disabled' | 'available' | 'unknown'
+  /** 显示「安装」按钮（按需下载的官方扩展） */
+  installable?: boolean
   activationMs?: number
   error?: string
   /** 开关已改但进程还是启动时的那份配置——需要重启才生效 */
@@ -76,6 +82,8 @@ export interface ExtensionControlDeps {
   storeFile?: string
   /** 客户端插件根目录；测试注入临时目录 */
   clientPluginsRoot?: string
+  /** 官方扩展清单（安装包里只有清单，代码按需下载） */
+  officialCatalog?: OfficialCatalogEntry[]
 }
 
 function messageOf(err: unknown): string {
@@ -138,7 +146,29 @@ export function createExtensionControl(deps: ExtensionControlDeps): ExtensionCon
       }
     })
 
-    return [...builtinItems, ...externalItems]
+    /**
+     * 官方清单里有、但用户目录里没有的：显示成「可安装」。
+     *
+     * 判据用运行时列表而不是文件系统：装坏了/加载失败的条目已经在 externalItems 里
+     * （state=failed），不能同时再出现一个「可安装」的重复行。
+     */
+    const known = new Set([...builtinItems, ...externalItems].map((item) => item.id))
+    const availableItems: ExtensionInfo[] = (deps.officialCatalog ?? [])
+      .filter((entry) => !known.has(entry.id))
+      .map((entry) => ({
+        id: entry.id,
+        name: entry.name,
+        version: entry.version,
+        kind: 'external',
+        origin: 'official',
+        description: entry.description,
+        enabled: false,
+        state: 'available',
+        installable: true,
+        pendingRestart: false,
+      }))
+
+    return [...builtinItems, ...externalItems, ...availableItems]
   }
 
   const clientRoot = deps.clientPluginsRoot ?? resolveClientPluginsDir()

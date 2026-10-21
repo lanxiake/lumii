@@ -56,6 +56,7 @@ __LUMII_REGISTER_PLUGIN__('my-plugin', (api) => {
 | 4 | 定时器、订阅、`requestAnimationFrame` 放 **effect 清理**里 | 同上；边界捕获不到 effect 之外的泄漏 |
 | 5 | `app.view` 的条目 id 必须与 `plugin:<id>` 里的 id 一致 | 对不上时 Router 回落概览，页面“点了没反应” |
 | 6 | **复制插件目录时改掉 `plugin.json` 的 id** | 两个目录共用一个 id 时只会加载一个（按目录名取第一个），另一个永远不生效；日志有告警（每个重复对只报一次） |
+| 7 | **主进程扩展注册的 `ipcMain.handle` 必须在 teardown 里摘掉** | 外部扩展热重载 / 按需卸载后重装时，第二次注册会抛 `Attempted to register a second handler`，表现为「装上了但没起来」。用 `ctx.effect(() => ipcMain.removeHandler(ch))`（参考 `screen-record-ipc.ts` 的 `unregisterScreenRecordIpc`） |
 
 ## 2. 槽位与布局预算
 
@@ -171,8 +172,10 @@ api.storage.keys() / remove(key) / clear()
 | 删除 | **不允许**，只能禁用 | 支持（二次确认；先卸载再删目录） |
 
 - Agent 生成的插件必须写 `origin: "agent"`，面板会显示「Agent 创建」；
-- 官方可选扩展写 `origin: "official"`，面板显示「官方」；它随安装包分发，启动时按
-  sha256 同步到 `~/.lumii/extensions/`，**只允许禁用、不显示删除**（删了下次启动会回来）；
+- 官方可选扩展写 `origin: "official"`，面板显示「官方」；安装包只带扩展清单
+  （`catalog.json`），代码按需从 GitHub Release 下载并校验 sha256，装到
+  `~/.lumii/extensions/`。未安装时显示「可安装」；已安装可「卸载」，卸载后回到可安装。
+  开发模式下 `resources/extensions/` 有完整目录，启动时按 sha256 自动同步；
 - 来源只是显示/治理标记，**不是权限**——三者与主进程同权限（D1/D2）；
 - 外部扩展删除时会先卸载（执行清理），再删目录；客户端插件删除后渲染层在 ≤1 秒内卸载。
 

@@ -6,4 +6,4 @@ export {
   type ScreenRecordService,
 } from './screen-record-service'
 export { createRealScreenRecordServiceDeps, parseScreenRecordSettings } from './real-deps'
-export { registerScreenRecordIpc } from './screen-record-ipc'
+export { registerScreenRecordIpc, unregisterScreenRecordIpc } from './screen-record-ipc'

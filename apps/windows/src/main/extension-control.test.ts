@@ -91,6 +91,30 @@ describe('createExtensionControl', () => {
     expect(list[1]).toMatchObject({ kind: 'external', enabled: true, state: 'active', pendingRestart: false })
   })
 
+  it('官方清单里未安装的扩展 → 可安装行（不与已加载条目重复）', () => {
+    const control = createExtensionControl({
+      host,
+      builtins,
+      external: fakeExternal([{ id: 'com.test.ext', enabled: true }]),
+      storeFile,
+      officialCatalog: [
+        { id: 'com.test.ext', name: '已装的', description: '', version: '1', asset: 'a.js', sha256: 'x' },
+        { id: 'com.test.optional', name: '可选', description: '按需下载', version: '0.1.0', asset: 'b.js', sha256: 'y' },
+      ],
+    })
+
+    const list = control.list()
+    expect(list.filter((x) => x.id === 'com.test.ext')).toHaveLength(1)
+    expect(list.find((x) => x.id === 'com.test.ext')).toMatchObject({ state: 'active' })
+    expect(list.find((x) => x.id === 'com.test.optional')).toMatchObject({
+      state: 'available',
+      installable: true,
+      origin: 'official',
+      description: '按需下载',
+      enabled: false,
+    })
+  })
+
   it('内置扩展：改完开关到重启前 pendingRestart=true', () => {
     const control = createExtensionControl({ host, builtins, storeFile })
 

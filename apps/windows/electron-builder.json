@@ -161,7 +161,7 @@
       "from": "resources/extensions",
       "to": "extensions",
       "filter": [
-        "**/*"
+        "catalog.json"
       ]
     }
   ],

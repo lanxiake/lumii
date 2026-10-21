@@ -7,12 +7,14 @@ import {
   createRealScreenRecordServiceDeps,
   parseScreenRecordSettings,
   registerScreenRecordIpc,
+  unregisterScreenRecordIpc,
 } from '../screen-record'
 import { setScreenRecordService } from '../screen-record/accessor'
 import { createNarrateService } from '../screen-record/narrate-service'
 import { setNarrateService } from '../screen-record/narrate-accessor'
 import { createBurnSubtitlesService } from '../screen-record/burn-subtitles-service'
 import { setBurnSubtitlesService } from '../screen-record/burn-accessor'
+import { registerScreenRecordDisabledStub } from '../screen-record/disabled-stub'
 import { resolveRecordingsDir } from '../workspace-paths'
 
 /**
@@ -97,6 +99,12 @@ export const screenRecordExtension = {
         const service = createScreenRecordService(deps)
         setScreenRecordService(service)
         registerScreenRecordIpc(service, win, ctx.get(S.perf) ?? undefined)
+        // 热重载/卸载/按需卸载后重装：不摘掉旧 handler 会抛 second handler。
+        // 摘掉后补一个 disabled 桩，渲染层卸载期间查状态不会刷 No handler registered。
+        ctx.effect(() => {
+          unregisterScreenRecordIpc()
+          registerScreenRecordDisabledStub()
+        })
 
         // 旁白/烧录挂接：TTS 闭包惰性读语音服务，未就绪时返回明确的 tts_unavailable
         const mediaDeps = {

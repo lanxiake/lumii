@@ -1,5 +1,7 @@
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
+
+import type { PluginProgress } from './plugins/plugin-manager'
 
 /**
  * 官方扩展同步：把随安装包分发的扩展同步到用户扩展目录。
@@ -32,6 +34,91 @@ export interface OfficialExtensionSyncResult {
 
 const MARKER = '.official.json'
 const BUILD_INFO = 'build-info.json'
+const CATALOG = 'catalog.json'
+
+/** `catalog.json` 的一项：安装包只带这份清单，代码按需下载 */
+export interface OfficialCatalogEntry {
+  id: string
+  name: string
+  description: string
+  version: string
+  /** GitHub Release 资产名 */
+  asset: string
+  sha256: string
+}
+
+/** 读官方扩展清单。文件缺失/损坏时返回空数组（开发模式下目录形式仍然可用）。 */
+export function loadOfficialCatalog(sourceDir: string): OfficialCatalogEntry[] {
+  try {
+    const raw = JSON.parse(readFileSync(path.join(sourceDir, CATALOG), 'utf8')) as {
+      extensions?: OfficialCatalogEntry[]
+    }
+    return Array.isArray(raw.extensions) ? raw.extensions.filter((e) => e?.id && e?.asset && e?.sha256) : []
+  } catch {
+    return []
+  }
+}
+
+/** 用户目录里是否装了某个官方扩展（只看 main.js，够不够用由加载器判） */
+export function isOfficialExtensionInstalled(extensionsDir: string, id: string): boolean {
+  return existsSync(path.join(extensionsDir, id, 'main.js'))
+}
+
+/**
+ * 按需安装：下载 `ext-<id>.js` → `<extensionsDir>/<id>/main.js`，再写 build-info 与 marker。
+ *
+ * `download` 由调用方注入（默认实现走 GitHub Release + 镜像测速），这样本模块
+ * 不依赖 electron / 网络，单测可以直接喂字节。
+ *
+ * 覆盖策略与随包同步一致：目标目录没有 marker 时视为用户自己的扩展，拒绝覆盖。
+ * 先下载到根目录的 `.staging-<id>.js` 再改名进目录 —— 外部加载器只扫**子目录**，
+ * 下载中途不会被当成半截扩展加载。
+ */
+export async function installOfficialExtension(opts: {
+  entry: OfficialCatalogEntry
+  extensionsDir: string
+  download: (destFile: string, onProgress: (p: PluginProgress) => void, signal?: AbortSignal) => Promise<void>
+  onProgress: (p: PluginProgress) => void
+  signal?: AbortSignal
+}): Promise<{ dir: string }> {
+  const { entry, extensionsDir, download, onProgress, signal } = opts
+  const destDir = path.join(extensionsDir, entry.id)
+  if (existsSync(destDir) && readMarker(destDir) === null) {
+    throw new Error(`目录 ${entry.id} 已存在且不是官方扩展，拒绝覆盖`)
+  }
+
+  mkdirSync(extensionsDir, { recursive: true })
+  const staging = path.join(extensionsDir, `.staging-${entry.id}.js`)
+  try {
+    await download(staging, onProgress, signal)
+    onProgress({ phase: 'extracting' })
+    if (existsSync(destDir)) rmSync(destDir, { recursive: true, force: true })
+    mkdirSync(destDir, { recursive: true })
+    renameSync(staging, path.join(destDir, 'main.js'))
+    writeFileSync(
+      path.join(destDir, BUILD_INFO),
+      `${JSON.stringify({ id: entry.id, version: entry.version, sha256: entry.sha256 }, null, 2)}\n`,
+      'utf8',
+    )
+    writeFileSync(
+      path.join(destDir, MARKER),
+      `${JSON.stringify({ ...entry, installedAt: new Date().toISOString() }, null, 2)}\n`,
+      'utf8',
+    )
+    onProgress({ phase: 'done' })
+    return { dir: destDir }
+  } finally {
+    rmSync(staging, { force: true })
+  }
+}
+
+/** 卸载：只删官方扩展（有 marker），用户自己的目录不动。 */
+export function removeOfficialExtension(extensionsDir: string, id: string): boolean {
+  const dir = path.join(extensionsDir, id)
+  if (readMarker(dir) === null) return false
+  rmSync(dir, { recursive: true, force: true })
+  return true
+}
 
 function readInfo(dir: string): OfficialExtensionInfo | null {
   try {

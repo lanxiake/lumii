@@ -960,10 +960,13 @@ export interface ElectronAPI {
       version: string
       kind: 'builtin' | 'external'
       origin: 'builtin' | 'user' | 'agent' | 'official'
+      description?: string
       requires?: { assets?: string[]; optional?: boolean }
       dir?: string
       enabled: boolean
       state: string
+      /** 官方清单里有、还没下载安装 */
+      installable?: boolean
       activationMs?: number
       error?: string
       /** 开关已改但还没重启（主进程扩展） */

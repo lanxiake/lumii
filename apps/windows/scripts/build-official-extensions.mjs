@@ -1,9 +1,13 @@
 /**
  * 构建「官方扩展」：把可选的主进程功能从主 bundle 拆出去，成为独立的外部扩展。
  *
- * 产物：`resources/extensions/<id>/main.js` + `build-info.json`。
- * 启动时由 `official-extensions.ts` 按 sha256 同步到 `~/.lumii/extensions/<id>/`，
- * 再由现有的外部扩展加载器加载——代码不再进主进程 bundle，禁用/删除/热更新都走同一套。
+ * 产物：`resources/extensions/<id>/main.js` + `build-info.json`，以及一份 `catalog.json`
+ * （id / 名称 / 版本 / 资产名 / sha256）。
+ *
+ * 分发有两条路：
+ * - 开发（`pnpm dev`）：resources 里有完整目录，启动时由 `syncOfficialExtensions` 拷到用户目录；
+ * - 安装包：只带 `catalog.json`（electron-builder filter），设置页显示「可安装」，
+ *   点安装后从 GitHub Release 下载 `ext-<id>.js`（复用 `plugin:install` 骨架）。
  *
  * 目前有 perf / cloud-sync / screen-record 三个试点。新增官方扩展时在 ENTRIES 里加一行。
  */
@@ -22,23 +26,33 @@ const OUT_ROOT = path.join(ROOT, 'resources', 'extensions')
 const ENTRIES = [
   {
     id: 'com.lumii.perf',
+    name: '性能监控',
+    description: 'IPC 耗时、慢调用、启动阶段与内存快照',
     version: '0.1.0',
     entry: 'src/main/extensions/perf.ts',
   },
   {
     id: 'com.lumii.cloud-sync',
+    name: '云同步',
+    description: '把用户文件与记忆同步到自建 Git 仓库',
     version: '0.1.0',
     entry: 'src/main/extensions/cloud-sync.ts',
   },
   {
     id: 'com.lumii.screen-record',
+    name: '录屏',
+    description: '窗口/屏幕录制、旁白配音与字幕烧录',
     version: '0.1.0',
     entry: 'src/main/extensions/screen-record.ts',
   },
 ]
 
+/** GitHub Release 上的资产名；安装时按它拼 URL */
+const assetName = (id) => `ext-${id}.js`
+
 async function main() {
   mkdirSync(OUT_ROOT, { recursive: true })
+  const catalog = []
   for (const item of ENTRIES) {
     const outDir = path.join(OUT_ROOT, item.id)
     mkdirSync(outDir, { recursive: true })
@@ -68,8 +82,23 @@ async function main() {
       `${JSON.stringify({ id: item.id, version: item.version, sha256 }, null, 2)}\n`,
       'utf8',
     )
+    catalog.push({
+      id: item.id,
+      name: item.name,
+      description: item.description,
+      version: item.version,
+      asset: assetName(item.id),
+      sha256,
+    })
     console.log(`[official-ext] ${item.id} v${item.version} → ${path.relative(ROOT, outfile)} (${sha256.slice(0, 12)})`)
   }
+
+  writeFileSync(
+    path.join(OUT_ROOT, 'catalog.json'),
+    `${JSON.stringify({ version: 1, extensions: catalog }, null, 2)}\n`,
+    'utf8',
+  )
+  console.log(`[official-ext] catalog.json（${catalog.length} 项）`)
 }
 
 main().catch((err) => {
