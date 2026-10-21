@@ -15,6 +15,7 @@ import { Loading } from '../../components/ui/Loading/Loading'
 import { Empty } from '../../components/ui/Empty/Empty'
 import { useToast } from '../../components/ui/Toast/useToast'
 import { ToolCard } from '../SkillsPage/components/ToolCard'
+import { AssetPluginCard } from '../../components/AssetPluginCard/AssetPluginCard'
 import { ToolEvolutionPanel } from './ToolEvolutionPanel'
 import { AgentUsageView } from './AgentUsageView'
 import { SearchToolsSection } from '../SettingsPage/components/SearchToolsSection'
@@ -127,6 +128,14 @@ export const ToolsPage: React.FC<ToolsPageProps> = ({ embedded = false }) => {
             title="内建工具"
             subtitle={`共 ${toolStats.total - (groupedTools.get('channel')?.length ?? 0)} 个系统工具`}
           />
+          {/* 浏览器工具的可选依赖放在使用它的地方，不再单独开「运行时组件」页 */}
+          <div className={styles.assetBlock}>
+            <h3 className={styles.groupTitle}>浏览器控制</h3>
+            <p className={styles.assetHint}>
+              浏览器工具可选使用反检测浏览器；不安装也能用系统浏览器。
+            </p>
+            <AssetPluginCard id="cloak-browser" compact />
+          </div>
           <div className={styles.toolbar}>
             {/* 全局合计答不了「这个工具到底有没有人用」——那要按 Agent 看 */}
             <div className={styles.segmented}>

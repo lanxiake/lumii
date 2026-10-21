@@ -12,6 +12,7 @@ import { useToast } from '../ui/Toast/useToast'
 import { formatToolUsageCount, formatToolUsageTitle, useToolSearch } from '../../hooks/business/useToolSearch'
 import { formatTokenCount } from '../../utils/format-token-count'
 import { openExternalUrl } from '../../utils/markdown-external-link'
+import { AssetPluginCard } from '../AssetPluginCard/AssetPluginCard'
 import { ConfirmModal } from '../ui/Modal/ConfirmModal'
 import type { McpServerConfigInput } from '@shared/agent-runtime-commands'
 import { findMcpPreset, type McpPreset } from '@shared/mcp-presets'
@@ -232,6 +233,12 @@ export const McpServersPanel: React.FC = () => {
             <Plus size={14} /> 添加
           </Button>
         </div>
+      </div>
+
+      {/* 微信本机助手是可选的外部 MCP 服务；安装入口放在 MCP 页，不再单独开「运行时组件」 */}
+      <div className={styles['asset-block']}>
+        <h4 className={styles['asset-title']}>微信本机助手（可选组件）</h4>
+        <AssetPluginCard id="wechat-mcp" compact />
       </div>
 
       {servers.length > 0 && (

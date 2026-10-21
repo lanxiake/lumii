@@ -25,6 +25,8 @@ export type UsePluginsResult = {
   uninstall: (id: PluginId) => Promise<void>
   cancel: (id: PluginId) => Promise<void>
   refresh: (id: PluginId) => Promise<void>
+  /** 重扫全部运行时组件状态（页面挂载时用，避免拿到应用启动时的旧快照） */
+  refreshAll: () => Promise<void>
 }
 
 const DEFAULT_STATUS = (id: PluginId): PluginStatus => ({
@@ -139,5 +141,5 @@ export function usePlugins(): UsePluginsResult {
     [refreshAll],
   )
 
-  return { statuses, install, uninstall, cancel, refresh }
+  return { statuses, install, uninstall, cancel, refresh, refreshAll }
 }

@@ -1032,3 +1032,10 @@
   color: var(--color-text-secondary);
   word-break: break-all;
 }
+
+/* 宠物形象资源：可选组件卡片按需安装 */
+.petAssetGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+}

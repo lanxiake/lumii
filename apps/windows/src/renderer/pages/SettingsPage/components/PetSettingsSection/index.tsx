@@ -27,10 +27,15 @@ import {
 } from '../../../../../shared/virtual-human'
 import { useFeatureAvailability } from '../../../../hooks/business/useFeatureAvailability'
 import { expressionCapability, type ExpressionCapability } from '@mtbot/pet-core'
+import { usePluginsContext } from '../../../../contexts/PluginsContext/PluginsContext'
+import { AssetPluginCard } from '../../../../components/AssetPluginCard/AssetPluginCard'
 import styles from '../../SettingsPage.module.css'
 
 /** 宠物模式 Agent 选择的本地存储键 */
 const PET_AGENT_STORAGE_KEY = 'mtbot:pet-agent-id'
+
+/** 可选形象对应的运行时组件 id（安装入口在本页，不再单独开「运行时组件」页） */
+const PET_ASSET_IDS = ['pet:demo_cartoon_cat', 'pet:ug_official', 'pet:xiaomai'] as const
 
 /**
  * 模型的表情层能力 → 给用户看的一句话（设计 §8.5）。
@@ -62,6 +67,7 @@ export const PetSettingsSection: React.FC = () => {
   const toast = useToast()
   const { isAvailable, blockMessage, ready } = useFeatureAvailability()
   const petModeBlocked = !isAvailable('petMode')
+  const { statuses: assetStatuses, refreshAll: refreshAssets } = usePluginsContext()
 
   // 宠物模式 Agent + 模型 + 设置
   const [petAgents, setPetAgents] = useState<Agent[]>([])
@@ -117,6 +123,29 @@ export const PetSettingsSection: React.FC = () => {
       cancelled = true
     }
   }, [ready, petModeBlocked, vhCurrentModelId, vhModels])
+
+  // 页面挂载时重扫形象包状态（应用启动时的快照可能已过期）
+  useEffect(() => {
+    void refreshAssets()
+  }, [refreshAssets])
+
+  /**
+   * 形象包安装/卸载后刷新模型列表。
+   *
+   * 只看 installed 的布尔组合，不看 progress：否则下载进度每变一次就重扫一遍模型。
+   */
+  const petAssetsKey = PET_ASSET_IDS.map((id) => (assetStatuses[id]?.installed ? '1' : '0')).join('')
+  useEffect(() => {
+    if (!ready || petModeBlocked) return
+    let cancelled = false
+    void listPetModels().then((models) => {
+      if (!cancelled) setVhModels([...models])
+    })
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- petAssetsKey 就是 installed 的聚合
+  }, [ready, petModeBlocked, petAssetsKey])
 
   const currentModel = vhModels.find((m) => m.id === vhCurrentModelId) ?? vhModels[0]
   const patchVh = async (patch: Partial<VirtualHumanSettingsDTO>) => {
@@ -174,6 +203,18 @@ export const PetSettingsSection: React.FC = () => {
                 {capabilityHint(expressionCapability(currentModel.emotionMap))}
               </span>
             )}
+          </div>
+
+          <div className={styles['setting-item']}>
+            <label className={styles['setting-label']} data-app-ui-label>形象资源</label>
+            <span className={styles['setting-hint']}>
+              可选形象按需下载；装完会出现在上面的模型列表里。
+            </span>
+            <div className={styles['petAssetGrid']}>
+              {PET_ASSET_IDS.map((id) => (
+                <AssetPluginCard key={id} id={id} compact />
+              ))}
+            </div>
           </div>
 
           {/* 气质标签（宠物智能化第一期）：宠物是独立 Agent，它的脾气与助手互不影响 */}

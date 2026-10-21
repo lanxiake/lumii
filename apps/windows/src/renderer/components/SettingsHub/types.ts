@@ -16,7 +16,6 @@ export type SettingsHubTab =
   | 'cron'
   | 'memories'
   | 'wiki'
-  | 'plugins'
   | 'extensions'
 
 /** 设置区内左侧分类 */
@@ -58,9 +57,8 @@ export const SETTINGS_HUB_TABS: Array<{ id: SettingsHubTab; label: string }> = [
   { id: 'cron', label: '定时任务' },
   { id: 'memories', label: '记忆' },
   { id: 'wiki', label: '资料库' },
-  // 按需下载的二进制/模型/外部服务（原「插件」）
-  { id: 'plugins', label: '运行时组件' },
   // 代码扩展：主进程扩展 + 客户端插件（~/.lumii/extensions、~/.lumii/plugins）
+  // 运行时组件不再单独成页：装到各自的功能页里（录屏→ffmpeg、MCP→微信助手、桌宠→形象）
   { id: 'extensions', label: '代码扩展' },
 ]
 
@@ -74,7 +72,6 @@ const HUB_VIEW_TABS = [
   'cron',
   'memories',
   'wiki',
-  'plugins',
 ] as const
 
 export type HubViewType = (typeof HUB_VIEW_TABS)[number]

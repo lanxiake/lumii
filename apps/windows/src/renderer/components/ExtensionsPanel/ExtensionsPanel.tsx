@@ -5,8 +5,8 @@ import {
   subscribeClientPlugins,
   type ClientPluginState,
 } from '../../plugins/client-plugin-host'
-import { PLUGIN_REGISTRY } from '../../data/asset-plugins'
-import { useSettingsHub } from '../SettingsHub/SettingsHubContext'
+import { PLUGIN_REGISTRY, type PluginId } from '../../data/asset-plugins'
+import { usePluginsContext } from '../../contexts/PluginsContext/PluginsContext'
 import { ConfirmModal } from '../ui/Modal/ConfirmModal'
 import styles from './ExtensionsPanel.module.css'
 
@@ -113,11 +113,15 @@ export const ExtensionsPanel: React.FC = () => {
   const [busy, setBusy] = useState<string | null>(null)
   const [restarting, setRestarting] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null)
-  /** 运行时组件安装状态（扩展声明的 requires.assets 用它显示已装/未装） */
-  const [assets, setAssets] = useState<Record<string, { installed: boolean }>>({})
   const [query, setQuery] = useState('')
   const [sortBy, setSortBy] = useState<SortBy>('name')
-  const { setTab } = useSettingsHub()
+  // 运行时组件状态来自全局 context：依赖行直接装，不再跳「运行时组件」页签
+  const {
+    statuses: assetStatuses,
+    install: installAsset,
+    cancel: cancelAsset,
+    refreshAll: refreshAssets,
+  } = usePluginsContext()
 
   /** 主进程扩展：偏好已改、进程里还是启动时那份配置 */
   const pendingRestartCount = items.filter((item) => item.pendingRestart).length
@@ -156,16 +160,9 @@ export const ExtensionsPanel: React.FC = () => {
     }
   }, [])
 
-  const refreshAssets = useCallback(async () => {
-    try {
-      setAssets(await window.electronAPI.plugins.list())
-    } catch {
-      // 组件状态读不到不影响扩展列表本身
-    }
-  }, [])
-
   useEffect(() => {
     void refresh()
+    // 依赖行的安装状态以磁盘为准；页面挂载时重扫一次，避免拿到应用启动时的旧快照
     void refreshAssets()
   }, [refresh, refreshAssets])
 
@@ -333,19 +330,32 @@ export const ExtensionsPanel: React.FC = () => {
                       <span>{item.requires.optional ? '可选依赖' : '依赖'}：</span>
                       {item.requires.assets.map((assetId) => {
                         const def = PLUGIN_REGISTRY.find((d) => d.id === assetId)
-                        const installed = Boolean(assets[assetId]?.installed)
+                        const status = assetStatuses[assetId]
+                        const installed = Boolean(status?.installed)
+                        const installing = Boolean(status?.installing)
                         return (
                           <span key={assetId} className={styles.dep}>
                             {def?.name ?? assetId}
                             <span className={installed ? styles.depOk : styles.depMissing}>
-                              {installed ? '已安装' : '未安装'}
+                              {installed ? '已安装' : installing ? '安装中' : '未安装'}
                             </span>
                             {!installed && (
                               <button
                                 className={styles.depLink}
-                                onClick={() => setTab('plugins')}
+                                disabled={installing}
+                                onClick={() => void installAsset(assetId as PluginId)}
                               >
-                                去安装
+                                {installing
+                                  ? `${status?.progress?.percent ?? 0}%`
+                                  : '安装'}
+                              </button>
+                            )}
+                            {installing && (
+                              <button
+                                className={styles.depLink}
+                                onClick={() => void cancelAsset(assetId as PluginId)}
+                              >
+                                取消
                               </button>
                             )}
                           </span>

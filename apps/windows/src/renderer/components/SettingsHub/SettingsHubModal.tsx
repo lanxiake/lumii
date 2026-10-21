@@ -32,7 +32,6 @@ import { ToolsPage } from '../../pages/ToolsPage/ToolsPage'
 import { CronPage } from '../../pages/CronPage/CronPage'
 import { MemoriesPage } from '../../pages/MemoriesPage/MemoriesPage'
 import { WikiTab } from '../../pages/MemoriesPage/components/WikiTab'
-import { PluginCenterPage } from '../../pages/PluginCenterPage/PluginCenterPage'
 import { getAutonomousStatus } from '../../services/autonomous-service'
 import type { ViewType } from '../Router'
 import { useSettingsHub } from './SettingsHubContext'
@@ -204,12 +203,6 @@ export const SettingsHubModal: React.FC<{
         return (
           <div className={styles.embedPane}>
             <WikiTab />
-          </div>
-        )
-      case 'plugins':
-        return (
-          <div className={styles.embedPane}>
-            <PluginCenterPage embedded />
           </div>
         )
       case 'extensions':

@@ -67,6 +67,18 @@
   align-items: center;
 }
 
+.assetBlock {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+}
+
+.assetHint {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
 .exportBtn {
   margin-left: auto;
   display: inline-flex;

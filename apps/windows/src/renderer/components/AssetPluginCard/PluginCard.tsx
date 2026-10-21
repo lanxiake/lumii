@@ -1,9 +1,9 @@
 import React, { useState } from 'react'
 import type { PluginDef } from '../../data/asset-plugins'
 import { CATEGORY_LABELS } from '../../data/asset-plugins'
-import type { SettingsHubTab } from '../../components/SettingsHub/types'
+import type { SettingsHubTab } from '../SettingsHub/types'
 import type { PluginStatus } from '../../hooks/business/usePlugins/usePlugins'
-import { ConfirmModal } from '../../components/ui/Modal/ConfirmModal'
+import { ConfirmModal } from '../ui/Modal/ConfirmModal'
 import styles from './PluginCard.module.css'
 
 type Props = {
@@ -14,6 +14,8 @@ type Props = {
   onCancel?: () => void
   /** 「用于：xxx」里的可跳转标签（设置中心内切页签） */
   onNavigateTab?: (tab: SettingsHubTab) => void
+  /** 嵌在功能页里时用紧凑形态（不放功能清单） */
+  compact?: boolean
 }
 
 function formatBytes(bytes: number): string {
@@ -28,6 +30,7 @@ export const PluginCard: React.FC<Props> = ({
   onUninstall,
   onCancel,
   onNavigateTab,
+  compact = false,
 }) => {
   const [showConfirm, setShowConfirm] = useState(false)
 
@@ -50,7 +53,7 @@ export const PluginCard: React.FC<Props> = ({
   const { text: stText, cls: stCls } = statusLabel()
 
   return (
-    <div className={styles.card}>
+    <div className={`${styles.card}${compact ? ` ${styles.compact}` : ''}`}>
       <div className={styles.header}>
         <span className={styles.icon}>{def.icon}</span>
         <div className={styles.meta}>
@@ -68,7 +71,7 @@ export const PluginCard: React.FC<Props> = ({
 
       <p className={styles.desc}>{def.description}</p>
 
-      {def.features && (
+      {!compact && def.features && (
         <ul className={styles.features}>
           {def.features.map((f) => (
             <li key={f}>{f}</li>
