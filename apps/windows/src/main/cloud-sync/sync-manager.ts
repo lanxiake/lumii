@@ -13,7 +13,9 @@ import git, { TREE } from 'isomorphic-git'
 import type { PromiseFsClient, WalkerEntry } from 'isomorphic-git'
 import { gitHttp } from './git-http'
 import { nativeFetch, nativePush } from './git-network'
-import { enqueueSyncMaintenance, enqueueWorkspace, getWorkspaceQueueDepth } from '../workspace-vcs/vcs-snapshot'
+// 直接取队列模块：vcs-snapshot 还 re-export 它，但云同步打的是外部扩展 bundle，
+// 不该把 WorkspaceVcs 整套实现拖进来。
+import { enqueueSyncMaintenance, enqueueWorkspace, getWorkspaceQueueDepth } from '../workspace-vcs/workspace-queue'
 import { detectGit, runGit } from '../git-cli'
 import { SyncLargeQueue, type LargeQueueStats } from './sync-large-queue'
 import { scopeRulesFromConfig } from './sync-scope'

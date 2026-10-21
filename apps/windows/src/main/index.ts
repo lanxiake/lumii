@@ -1247,10 +1247,8 @@ async function startExtensions(): Promise<void> {
 
   const report = await pluginHost.start()
 
-  // updater / cloud-sync 由内置扩展提供；perf 已拆成官方外部扩展，必须等外部加载后再取
+  // updater 由内置扩展提供；perf / cloud-sync 已拆成官方外部扩展，必须等外部加载后再取
   updaterService = pluginHost.container.get(S.updater) ?? null
-  cloudSyncManager = pluginHost.container.get(S.cloudSync) ?? null
-  syncScheduler = pluginHost.container.get(S.syncScheduler) ?? null
 
   /**
    * 官方扩展：随安装包分发的可选功能，启动时同步到 ~/.lumii/extensions。
@@ -1278,9 +1276,12 @@ async function startExtensions(): Promise<void> {
   await externalExtensions.loadAll()
   externalExtensions.startWatching()
 
-  // perf 可能由官方外部扩展提供：必须在 loadAll 之后读
+  // perf / cloud-sync 可能由官方外部扩展提供：必须在 loadAll 之后读
   performanceMonitor = pluginHost.container.get(S.perf) ?? null
   log.info(`[ext] perf 服务: ${performanceMonitor ? '就绪' : '未提供'}`)
+  cloudSyncManager = pluginHost.container.get(S.cloudSync) ?? null
+  syncScheduler = pluginHost.container.get(S.syncScheduler) ?? null
+  log.info(`[ext] cloud-sync 服务: ${cloudSyncManager ? '就绪' : '未提供'}`)
 
   // 一张表看清谁起来了、花了多久、注册了几个副作用；
   // 失败项走 error，既进了主日志也进了错误日志

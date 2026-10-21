@@ -12,7 +12,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import type { DatabaseSync, SQLInputValue } from 'node:sqlite'
-import { SQLITE_BUSY_TIMEOUT_MS, reconcilePersonalMemory } from '@mtbot/agent-runtime'
+import { SQLITE_BUSY_TIMEOUT_MS, reconcilePersonalMemory } from '@mtbot/agent-runtime/shared'
 import { createLogger } from '../logger'
 import { copySyncDirectory } from './sync-copy'
 import { decideMemoryMerge } from './memory-merge-decision'

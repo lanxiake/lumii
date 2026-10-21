@@ -27,6 +27,9 @@ export const cloudSyncExtension = {
     description: '把用户文件与记忆同步到自建 Git 仓库',
     engines: { lumii: '>=0.1.0' },
     kind: 'code' as const,
+    // 官方可选扩展：由 build-official-extensions.mjs 打包，启动时同步到 ~/.lumii/extensions
+    origin: 'official' as const,
+    main: './main.js',
   },
   definition: definePlugin<MainEvents>({
     id: 'com.lumii.cloud-sync',
@@ -67,3 +70,6 @@ export const cloudSyncExtension = {
     },
   }),
 }
+
+// 外部扩展加载器按 `export default { manifest, definition }` 读取。
+export default cloudSyncExtension

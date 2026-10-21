@@ -12,7 +12,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
-import { SQLITE_BUSY_TIMEOUT_MS, reconcilePersonalMemory } from '@mtbot/agent-runtime'
+import { SQLITE_BUSY_TIMEOUT_MS, reconcilePersonalMemory } from '@mtbot/agent-runtime/shared'
 import { createLogger } from '../logger'
 import { SYNC_OUTPUTS_MAX_BYTES, copySyncDirectory } from './sync-copy'
 import type { CopySyncDirectoryResult } from './sync-copy'

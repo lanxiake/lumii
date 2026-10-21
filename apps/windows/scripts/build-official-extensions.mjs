@@ -5,7 +5,7 @@
  * 启动时由 `official-extensions.ts` 按 sha256 同步到 `~/.lumii/extensions/<id>/`，
  * 再由现有的外部扩展加载器加载——代码不再进主进程 bundle，禁用/删除/热更新都走同一套。
  *
- * 目前只有 perf 一个试点。新增官方扩展时在 ENTRIES 里加一行。
+ * 目前有 perf / cloud-sync 两个试点。新增官方扩展时在 ENTRIES 里加一行。
  */
 import { createHash } from 'node:crypto'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
@@ -25,6 +25,11 @@ const ENTRIES = [
     version: '0.1.0',
     entry: 'src/main/extensions/perf.ts',
   },
+  {
+    id: 'com.lumii.cloud-sync',
+    version: '0.1.0',
+    entry: 'src/main/extensions/cloud-sync.ts',
+  },
 ]
 
 async function main() {
@@ -42,6 +47,13 @@ async function main() {
       target: 'node20',
       // electron 由主进程提供；node 内置模块 esbuild 在 platform=node 下自动外置
       external: ['electron'],
+      // esbuild 的 ESM 输出没有 `require`，而 CJS 依赖（isomorphic-git → sha.js →
+      // safe-buffer → require('buffer')）会在打包后的 `__require` 里炸
+      // 「Dynamic require of "buffer" is not supported」。banner 里的 createRequire
+      // 让 `__require` 的 `typeof require` 分支拿到可用实现（实测 2026-10-21）。
+      banner: {
+        js: "import { createRequire as __lumiiCreateRequire } from 'node:module'; const require = __lumiiCreateRequire(import.meta.url);",
+      },
       legalComments: 'none',
       logLevel: 'warning',
     })

@@ -23,6 +23,18 @@ describe('workspace-paths', () => {
     if (ws) fs.rmSync(ws, { recursive: true, force: true })
   })
 
+  it('getter 挂在 globalThis 槽位（云同步外部扩展是另一份模块拷贝）', () => {
+    ws = fs.mkdtempSync(path.join(os.tmpdir(), 'lumii-ws-'))
+    setActiveWorkspaceDirGetter(() => ws)
+
+    const slot = (globalThis as Record<symbol, unknown>)[
+      Symbol.for('lumii.workspace-paths.active-workspace-getter')
+    ] as { get: (() => string) | null }
+    // 退回模块级变量时，外部 bundle 的那份永远读不到主进程注入的 getter，
+    // 会静默同步到默认工作空间（不报错，只是同步了错目录）
+    expect(slot?.get?.()).toBe(ws)
+  })
+
   it('跟随注入的工作空间目录，并自动创建 temp/recordings、temp/screenshots', () => {
     ws = fs.mkdtempSync(path.join(os.tmpdir(), 'lumii-ws-'))
     setActiveWorkspaceDirGetter(() => ws)

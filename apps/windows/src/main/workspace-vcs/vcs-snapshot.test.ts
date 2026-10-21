@@ -24,6 +24,23 @@ describe("vcs-snapshot 队列", () => {
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
+  it("队列状态挂在 globalThis 槽位（云同步外部扩展是另一份模块拷贝）", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const blocked = enqueueWorkspace(dir, () => gate, "test:shared");
+    const state = (globalThis as Record<symbol, unknown>)[Symbol.for("lumii.workspace-vcs.queue")] as {
+      depths: Map<string, number>;
+    };
+    // 状态必须在全局槽位里；退回模块级 Map 会让外部 bundle 另起一条队列（静默）
+    expect(state?.depths.get(dir)).toBe(1);
+    expect(getWorkspaceQueueDepth(dir)).toBe(1);
+    release();
+    await blocked;
+    expect(state.depths.get(dir)).toBe(0);
+  });
+
   it("队列深度可观测：空队列为 0，被占用时为 1", async () => {
     expect(getWorkspaceQueueDepth(dir)).toBe(0);
 

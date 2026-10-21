@@ -272,6 +272,8 @@ export default defineConfig({
         '@shared': appPath.shared,
         // monorepo workspace 包 - 指向源码确保 Vite 能正确解析
         '@mtbot/agent-runtime/browser': workspacePath.agentRuntimeBrowser,
+        // 轻量出口：只给会被单独打包的调用方（云同步官方扩展）用
+        '@mtbot/agent-runtime/shared': workspacePath.agentRuntimeShared,
         '@mtbot/agent-runtime': workspacePath.agentRuntime,
         '@mtbot/browser-control': workspacePath.browserControl,
         '@mtbot/plugin-core': workspacePath.pluginCore,

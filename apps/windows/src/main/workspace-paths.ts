@@ -14,28 +14,38 @@ const WORKSPACE_TEMP_DIRNAME = 'temp'
 /** 截图临时子目录（相对 workspace/temp） */
 const SCREENSHOTS_TEMP_DIRNAME = 'screenshots'
 
-let activeWorkspaceDirGetter: (() => string) | null = null
+/**
+ * getter 挂在 `globalThis`：云同步是官方外部扩展，bundle 里有本模块的第二份拷贝。
+ * 模块级变量会让它永远读不到主进程注入的 getter，静默回落到默认工作空间
+ * （同步到错目录，且不报错）。用全局槽位后两份代码读写同一个 getter。
+ */
+const WORKSPACE_GETTER_KEY = Symbol.for('lumii.workspace-paths.active-workspace-getter')
+
+function sharedGetter(): { get: (() => string) | null } {
+  const g = globalThis as Record<symbol, unknown>
+  return (g[WORKSPACE_GETTER_KEY] ??= { get: null }) as { get: (() => string) | null }
+}
 
 /**
  * 注入当前生效工作空间根目录获取器（config 就绪后设置）。
  * 未注入时回退到 `{dataRoot}/workspace`。
  */
 export function setActiveWorkspaceDirGetter(getter: () => string): void {
-  activeWorkspaceDirGetter = getter
+  sharedGetter().get = getter
 }
 
 /**
  * 测试用：清空 getter。
  */
 export function _resetActiveWorkspaceDirGetterForTest(): void {
-  activeWorkspaceDirGetter = null
+  sharedGetter().get = null
 }
 
 /**
  * 解析当前生效的工作空间根目录。
  */
 export function resolveActiveWorkspaceDir(): string {
-  const fromGetter = activeWorkspaceDirGetter?.()?.trim()
+  const fromGetter = sharedGetter().get?.()?.trim()
   if (fromGetter) {
     return path.resolve(fromGetter)
   }

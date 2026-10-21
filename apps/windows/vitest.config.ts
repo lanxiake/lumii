@@ -14,6 +14,7 @@ export default defineConfig({
       // 注意不要带末尾斜杠：path.resolve 会剥掉它，前缀替换后会拼成 assetslogo.png
       "@app-assets": appPath.assets,
       "@mtbot/agent-runtime/browser": workspacePath.agentRuntimeBrowser,
+      "@mtbot/agent-runtime/shared": workspacePath.agentRuntimeShared,
       "@mtbot/agent-runtime": workspacePath.agentRuntime,
     },
   },
