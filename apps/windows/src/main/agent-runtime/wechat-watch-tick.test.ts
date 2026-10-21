@@ -12,7 +12,11 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { _resetWindowsClientDataRootCacheForTest } from '../client-data-root'
-import { parseChannelPolicy, resolvePeerPolicy } from '../../shared/channel-policy'
+import {
+  parseChannelPolicy,
+  resolvePeerPolicy,
+  type ChannelPolicy,
+} from '../../shared/channel-policy'
 import { agentRuntimeLog as log } from './bridge-utils'
 import {
   __resetWatchPendingForTest,
@@ -35,6 +39,7 @@ import {
   policyFromWatchConfig,
   profileScopesFromFiles,
   readWechatOutbox,
+  rememberSelfSends,
   resolveWorkspacePath,
   runWechatWatch,
   selectNewMessages,
@@ -418,6 +423,55 @@ describe('runWechatWatch', () => {
     expect(out).toContain('密钥未就绪')
     expect(out).not.toContain('poll 失败')
     expect(showNotification).not.toHaveBeenCalled()
+  })
+
+  it('微信未运行：60 秒内不再调 MCP，到点才重新自检', async () => {
+    let now = 1_800_000
+    const listAccounts = vi.fn(async () => [{ wxid: 'wxid_1', running: false }])
+    const { d, callMcpTool } = deps({ listAccounts, nowMs: () => now })
+
+    expect(await runWechatWatch(d)).toContain('微信未运行')
+    expect(listAccounts).toHaveBeenCalledTimes(1)
+    expect(callMcpTool).not.toHaveBeenCalled()
+
+    now += 15_000
+    expect(await runWechatWatch(d)).toContain('下一分钟')
+    expect(listAccounts).toHaveBeenCalledTimes(1)   // 60 秒内不再探
+
+    now += 46_000                                    // 距首次 61 秒
+    await runWechatWatch(d)
+    expect(listAccounts).toHaveBeenCalledTimes(2)   // 到点重新自检
+  })
+
+  it('密钥未就绪：60 秒内不再反复 poll', async () => {
+    let now = 1_800_000
+    const { d, callMcpTool } = deps({ nowMs: () => now })
+    callMcpTool.mockRejectedValue(
+      new Error('ERROR: EnvError: 未能取到 message/message_0.db 的数据库密钥'),
+    )
+
+    expect(await runWechatWatch(d)).toContain('密钥未就绪')
+    const calls = callMcpTool.mock.calls.length
+    now += 15_000
+    expect(await runWechatWatch(d)).toContain('下一分钟')
+    expect(callMcpTool.mock.calls.length).toBe(calls)
+  })
+
+  it('微信恢复后立刻继续盯梢', async () => {
+    let now = 1_800_000
+    const listAccounts = vi
+      .fn()
+      .mockResolvedValueOnce([{ wxid: 'wxid_1', running: false }])
+      .mockResolvedValue([{ wxid: 'wxid_1', running: true }])
+    const { d, callMcpTool } = deps({ listAccounts, nowMs: () => now })
+
+    await runWechatWatch(d)                          // 判定未运行，进入退避
+    now += 61_000
+    expect(await runWechatWatch(d)).toBe('无新消息')
+    expect(callMcpTool).toHaveBeenCalledWith('wechat-local', 'poll_new', {
+      since_ts: 1861,        // 首轮无水位：从当前时钟起，不翻历史
+      account: 'wxid_1',
+    })
   })
 
   it('MCP 没装/没连：安静跳过（客户端不依赖微信 MCP）', async () => {
@@ -1000,6 +1054,113 @@ describe('待补发队列（发送门够不着时排队，门开了自动补发�
     expect(polls.sort()).toEqual(['wxid_1', 'wxid_2'])
     expect(kv.get('wechat_watch_last_ts:wxid_1')).toBe('2001')
     expect(kv.get('wechat_watch_last_ts:wxid_2')).toBe('2002')
+  })
+
+  it('多开：策略按消息来自的账号取；会话也按账号分线（标题带账号备注）', async () => {
+    const policy: ChannelPolicy = {
+      defaultMode: 'auto',
+      peers: [{ id: 'wxid_loop', mode: 'auto' }],
+      accounts: {
+        // 1 号：名单外只提醒 —— 即使顶层是 auto，这个号也不许叫模型
+        wxid_1: { defaultMode: 'notify', peers: [] },
+        wxid_2: {
+          label: '工作号',
+          defaultMode: 'auto',
+          peers: [{ id: 'wxid_loop', mode: 'auto' }],
+        },
+      },
+    }
+    const driveTurn = vi.fn(async () => 'ok')
+    const { d, callMcpTool } = deps({
+      getPolicy: () => policy,
+      setPolicy: () => {},
+      listAccounts: async () => [{ wxid: 'wxid_1' }, { wxid: 'wxid_2' }],
+      driveTurn,
+    })
+    const mcp = callMcpTool as unknown as {
+      mockImplementation: (
+        fn: (
+          server: string,
+          tool: string,
+          args?: { account?: string },
+        ) => Promise<string>,
+      ) => void
+    }
+    mcp.mockImplementation(async (_s, tool, args) => {
+      if (tool !== 'poll_new') return JSON.stringify({ messages: [], next_since_ts: 2000 })
+      return JSON.stringify({
+        messages: [
+          {
+            ts: 1990,
+            name: 'Loop',
+            talker: 'wxid_loop',
+            from_me: false,
+            text: '在吗',
+            account: args?.account,
+          },
+        ],
+        next_since_ts: 1990,
+      })
+    })
+    await runWechatWatch(d)
+
+    // 只有 2 号那一轮被驱动；1 号走只提醒
+    expect(driveTurn).toHaveBeenCalledTimes(1)
+    const [, meta] = driveTurn.mock.calls[0] as unknown as [
+      string,
+      { convId: string; title: string; account?: string },
+    ]
+    expect(meta.account).toBe('wxid_2')
+    expect(meta.convId).toBe('pcwechat:wxid_2:wxid_loop')
+    expect(meta.title).toBe('本机微信 · Loop（工作号）')
+  })
+
+  it('多开：兄弟号刚发出的回复不会被这个号当成入站（否则两台会互相代回）', async () => {
+    const policy: ChannelPolicy = {
+      defaultMode: 'notify',
+      peers: [],
+      accounts: {
+        wxid_main: { defaultMode: 'auto', peers: [{ id: 'wxid_loop', mode: 'auto' }] },
+        wxid_loop: { defaultMode: 'auto', peers: [{ id: 'wxid_main', mode: 'auto' }] },
+      },
+    }
+    const driveTurn = vi.fn(async () => 'ok')
+    const { d, callMcpTool } = deps({
+      getPolicy: () => policy,
+      setPolicy: () => {},
+      listAccounts: async () => [{ wxid: 'wxid_main' }, { wxid: 'wxid_loop' }],
+      getSelfWxids: async () => ['wxid_main', 'wxid_loop'],
+      driveTurn,
+    })
+    // Loop 代回主号的那句话：台账记在发送方（wxid_loop）名下，key = wxid_loop\nwxid_main
+    rememberSelfSends('wxid_main', ['收到，我来处理'], 1_800_000, 'wxid_loop')
+
+    const mcp = callMcpTool as unknown as {
+      mockImplementation: (
+        fn: (server: string, tool: string, args?: { account?: string }) => Promise<string>,
+      ) => void
+    }
+    mcp.mockImplementation(async (_s, tool, args) => {
+      if (tool !== 'poll_new') return JSON.stringify({ messages: [], next_since_ts: 2000 })
+      const messages =
+        args?.account === 'wxid_main'
+          ? [
+              // 主号看到的是 Loop 的回复（from_me=false，talker=兄弟号）
+              { ts: 1990, name: 'Loop', talker: 'wxid_loop', from_me: false, text: '收到，我来处理', account: 'wxid_main' },
+            ]
+          : args?.account === 'wxid_loop'
+            ? [
+                // 对照：Loop 收到主号的一句新话，不在台账里 → 应当照常触发
+                { ts: 1991, name: '主号', talker: 'wxid_main', from_me: false, text: '在吗', account: 'wxid_loop' },
+              ]
+            : []
+      return JSON.stringify({ messages, next_since_ts: 1991 })
+    })
+
+    await runWechatWatch(d)
+    expect(driveTurn).toHaveBeenCalledTimes(1)
+    const [, meta] = driveTurn.mock.calls[0] as unknown as [string, { account?: string }]
+    expect(meta.account).toBe('wxid_loop')
   })
 
   it('空闲拍补发并清队；摘要里报补了几条', async () => {

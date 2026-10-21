@@ -9,6 +9,7 @@
  * 只是不能从微信里挑人（如实把原因带回给界面，不假装列表是完整的）。
  */
 import type { ChannelPolicy } from '../../shared/channel-policy'
+import { policyForAccount } from '../../shared/channel-policy'
 
 /** 一个候选（微信好友或群） */
 export interface WechatContact {
@@ -73,15 +74,24 @@ export function mergeWechatContacts(
 }
 
 /** 已配过的条目也要能出现在候选里（否则界面上"名单里有、选项里没有"） */
-export function contactsFromPolicy(policy: ChannelPolicy): WechatContact[] {
-  return policy.peers.map((p) => ({ id: p.id, label: p.label ?? p.id, isGroup: p.id.endsWith('@chatroom') }))
+export function contactsFromPolicy(policy: ChannelPolicy, account?: string): WechatContact[] {
+  return policyForAccount(policy, account).peers.map((p) => ({
+    id: p.id,
+    label: p.label ?? p.id,
+    isGroup: p.id.endsWith('@chatroom'),
+  }))
 }
 
-/** 读一份候选名单；微信读不到时不抛，把原因放在 `error` 里 */
-export async function loadWechatContacts(deps: WechatContactsDeps): Promise<WechatContactsResult> {
-  const configured = contactsFromPolicy(deps.getPolicy())
+/** 读一份候选名单；微信读不到时不抛，把原因放在 `error` 里。`account` 限定读哪个号。 */
+export async function loadWechatContacts(
+  deps: WechatContactsDeps,
+  account?: string,
+): Promise<WechatContactsResult> {
+  const configured = contactsFromPolicy(deps.getPolicy(), account)
   try {
-    const raw = await deps.callMcpTool(deps.mcpServer, 'list_sessions', {})
+    const raw = await deps.callMcpTool(deps.mcpServer, 'list_sessions', {
+      ...(account ? { account } : {}),
+    })
     if (/未连接|not connected/i.test(raw.slice(0, 200))) {
       return { contacts: configured, error: '本机微信的 MCP 没连上，现在只能编辑已有名单' }
     }

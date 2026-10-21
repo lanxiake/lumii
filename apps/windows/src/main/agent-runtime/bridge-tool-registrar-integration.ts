@@ -45,7 +45,13 @@ import {
 } from './scene-memory-store'
 import { resolveChannel } from './scene-resolver'
 import { Type } from '@sinclair/typebox'
-import { isSamePeer, type ChannelPeerPolicy, type PeerReplyMode } from '../../shared/channel-policy'
+import {
+  isSamePeer,
+  peersForAccount,
+  withPeersForAccount,
+  type ChannelPeerPolicy,
+  type PeerReplyMode,
+} from '../../shared/channel-policy'
 import { getChannelPolicyStore } from '../channel/channel-policy-store'
 import { PCWECHAT_CHANNEL } from './wechat-watch-tick'
 
@@ -144,6 +150,12 @@ const PeerModeParams = Type.Object({
   label: Type.Optional(
     Type.String({ description: '显示名（peer 只给了 wxid 时补上，方便用户看懂）' }),
   ),
+  account: Type.Optional(
+    Type.String({
+      description:
+        '多开：改哪个微信号的策略（wxid）。省略 = 默认那一份（未单独配置的号都沿用它）',
+    }),
+  ),
 })
 
 const peerModeToolConfig: MtBotToolConfig = {
@@ -156,16 +168,19 @@ const peerModeToolConfig: MtBotToolConfig = {
     'Use this when the user asks to start / stop / soften 代聊 for someone. ' +
     'It sends NO message — it changes future behaviour, effective on the next watch tick (≤15s). ' +
     'The peer table doubles as the outbound allowlist, so「停止代聊」means mode=ignore (or notify), ' +
-    'NOT removing the peer — remove them and channel_send can no longer reach them at all.',
+    'NOT removing the peer — remove them and channel_send can no longer reach them at all. ' +
+    'With multiple WeChat accounts, pass account=<wxid> to change only that account’s table; ' +
+    'omit it to change the default table inherited by accounts without their own.',
   parameters: PeerModeParams,
   category: 'channel',
   isReadOnly: false,
   needsPermission: true,
   async execute(_toolCallId: string, rawParams: unknown): Promise<AgentToolResult<unknown>> {
-    const p = rawParams as { peer?: string; mode?: string; label?: string }
+    const p = rawParams as { peer?: string; mode?: string; label?: string; account?: string }
     const peer = String(p.peer ?? '').trim()
     const mode = String(p.mode ?? '').trim()
     const label = String(p.label ?? '').trim()
+    const account = String(p.account ?? '').trim() || undefined
     if (!peer) {
       return jsonToolResult({ ok: false, errorCode: 'PEER_NOT_FOUND', message: 'peer 必填' })
     }
@@ -178,20 +193,31 @@ const peerModeToolConfig: MtBotToolConfig = {
     }
     const store = getChannelPolicyStore()
     const policy = store.get(PCWECHAT_CHANNEL)
-    const next = store.set(PCWECHAT_CHANNEL, {
-      ...policy,
-      peers: applyPeerMode(policy.peers, { peer, mode: mode as PeerReplyMode, label: label || undefined }),
-    })
+    // 多开：只在指定账号的那份名单里改；省略账号改默认那份（与设置页「默认」页签同语义）。
+    // 账号还没分账时 `withPeersForAccount` 会给它新建一份，defaultMode 继承顶层。
+    const peers = peersForAccount(policy, account)
+    const next = store.set(
+      PCWECHAT_CHANNEL,
+      withPeersForAccount(policy, account, applyPeerMode(peers, {
+        peer,
+        mode: mode as PeerReplyMode,
+        label: label || undefined,
+      })),
+    )
     // 回执报**名单里的真键**（模型多半给的是显示名，它需要知道最终改的是哪一条）
-    const target = next.peers[next.peers.length - 1]
-    log.info(`[wechat_peer_mode] ${peer} → ${target?.id ?? peer} = ${mode}（名单 ${next.peers.length} 人）`)
+    const nextPeers = peersForAccount(next, account)
+    const target = nextPeers[nextPeers.length - 1]
+    log.info(
+      `[wechat_peer_mode] ${account ? `[${account}] ` : ''}${peer} → ${target?.id ?? peer} = ${mode}（名单 ${nextPeers.length} 人）`,
+    )
     return jsonToolResult({
       ok: true,
       channel: PCWECHAT_CHANNEL,
+      ...(account ? { account } : {}),
       peer: target?.id ?? peer,
       label: target?.label,
       mode,
-      peers: next.peers.length,
+      peers: nextPeers.length,
       message: `已把「${target?.label || peer}」设为 ${mode}，下一拍盯梢（≤15 秒）生效`,
     })
   },

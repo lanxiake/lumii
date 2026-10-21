@@ -33,9 +33,12 @@ import path from 'node:path'
 import type { DatabaseAdapter } from '@mtbot/agent-runtime'
 import { resolveWindowsClientDataRoot } from '../client-data-root'
 import {
+  allPolicyPeers,
   isSamePeer,
   NON_AGENT_MODES,
+  peersForAccount,
   resolvePeerPolicy,
+  withPeersForAccount,
   type ChannelPeerPolicy,
   type ChannelPolicy,
   type PeerReplyMode,
@@ -53,6 +56,18 @@ export const WECHAT_WATCH_INSTRUCTION = '__wechat_watch__'
 export const WECHAT_WATCH_MCP_SERVER = 'wechat-local'
 /** 导出给开发期回放用：它要认出「哪一次调用是 poll」才好在返回里追加合成消息 */
 export const WECHAT_WATCH_MCP_TOOL = 'poll_new'
+
+/**
+ * 微信未运行时的自检退避。
+ *
+ * 盯梢是 15 秒一拍；微信关着时每一拍都会 poll 失败，逐账号的 warn + 汇总 warn 会在几分钟内
+ * 把日志刷满。这里把「已知未运行」记进 runtime_state：60 秒内直接跳过，不再调 MCP、不再写日志；
+ * 60 秒后重新探一次。状态切换（未运行 ↔ 恢复）各留一条 info，之后保持安静。
+ * 存库而不是模块变量：cron 每拍都是同一进程，但重启后也该沿用上一次的判断。
+ */
+const WATCH_DOWN_BACKOFF_MS = 60_000
+const KV_WATCH_DOWN_UNTIL = 'wechat_watch_down_until'
+const KV_WATCH_DOWN_NOTED = 'wechat_watch_down_noted'
 const WECHAT_WATCH_CRON_ID = 'wechat-watch'
 const WECHAT_WATCH_NAME = '微信消息盯梢'
 const WECHAT_WATCH_INTERVAL_MS = 15_000
@@ -146,6 +161,23 @@ export function isSelfChatPeer(talker: string | undefined, selfWxids: readonly s
 }
 
 /**
+ * talker 是不是**另一个自己的号**（多开）。
+ *
+ * 用于识别跨号回声：A 号代回的回复，在 B 号的轮询里是一条普通的入站消息
+ * （`from_me=false`、talker=A）。两个号都是自聊 peer，不拦就会互相代回、无限乒乓。
+ */
+export function isSiblingSelfAccount(
+  talker: string | undefined,
+  account: string | undefined,
+  selfWxids: readonly string[] = [],
+): boolean {
+  const t = (talker ?? '').trim().toLowerCase()
+  const a = (account ?? '').trim().toLowerCase()
+  if (!t || !a || t === a) return false
+  return selfWxids.some((w) => !!w && w.trim().toLowerCase() === t)
+}
+
+/**
  * 确保自聊 peer 在名单里且**可回**（`auto`）：用户显式要求「把自己的微信号默认加入白名单」。
  *
  * `flipIgnore`：只在该 peer 从未被处理过时（一次性迁移）把旧默认的 `ignore` 纠成 `auto`；
@@ -155,10 +187,10 @@ export function isSelfChatPeer(talker: string | undefined, selfWxids: readonly s
 export function withSelfPeers(
   policy: ChannelPolicy,
   selfWxids: readonly string[],
-  opts: { flipIgnore?: boolean } = {},
+  opts: { flipIgnore?: boolean; account?: string } = {},
 ): { policy: ChannelPolicy; changed: boolean } {
   const ids = [FILE_HELPER_TALKER, ...selfWxids.filter((w) => !!w && w.trim())]
-  const peers = [...policy.peers]
+  const peers = [...peersForAccount(policy, opts.account)]
   let changed = false
   for (const id of ids) {
     const idx = peers.findIndex((p) => isSamePeer(p.id, id))
@@ -179,7 +211,9 @@ export function withSelfPeers(
       changed = true
     }
   }
-  return changed ? { policy: { ...policy, peers }, changed } : { policy, changed }
+  return changed
+    ? { policy: withPeersForAccount(policy, opts.account, peers), changed }
+    : { policy, changed }
 }
 
 // 自聊回环护栏：助手刚发出去的话，下一拍会以 `from_me` 出现在同一会话里——不记住的话会被
@@ -245,9 +279,25 @@ function msgKey(m: WechatMessage): string {
   return String(m.local_id ?? m.ts)
 }
 
-function deferPeer(peer: string, msgs: WechatMessage[]): void {
+/**
+ * 待办 / 冷却的键：`(账号, 会话)`。
+ *
+ * 多开时同一个好友可能同时给两个号发消息（群、工作关系都常见）。只按 talker 分账的话，
+ * A 号刚设的冷却会把 B 号的新消息一起挡掉，还能把两号的消息合并进同一个提示词——
+ * 「从哪个号来就从哪个号回」在这里就断了。单账号时分账键里账号为空，与原行为等价。
+ */
+function peerKeyOf(m: WechatMessage): string {
+  return `${(m.account ?? '').trim().toLowerCase()}\n${m.talker || m.name || '?'}`
+}
+
+/** 会话分组键（不含账号）：日志、标题、画像这些「按人」的地方用它。 */
+function peerOf(m: WechatMessage | undefined): string {
+  return m?.talker || m?.name || '?'
+}
+
+function deferPeer(key: string, msgs: WechatMessage[]): void {
   const keep = msgs.length > MAX_PENDING_PER_PEER ? msgs.slice(-MAX_PENDING_PER_PEER) : msgs
-  pendingByPeer.set(peer, keep)
+  pendingByPeer.set(key, keep)
 }
 
 /**
@@ -283,15 +333,36 @@ export function stripAgentMarker(text: string): string {
 const SELF_SEND_TTL_MS = 5 * 60_000
 const recentSelfSends = new Map<string, { text: string; at: number }[]>()
 
-export function rememberSelfSends(peer: string, texts: readonly string[], nowMs: number): void {
-  if (!peer || !texts.length) return
-  const fresh = (recentSelfSends.get(peer) ?? []).filter((x) => nowMs - x.at <= SELF_SEND_TTL_MS)
-  for (const t of texts) if (t && t.trim()) fresh.push({ text: t, at: nowMs })
-  recentSelfSends.set(peer, fresh)
+/**
+ * 自回环台账的键：多开时**同一好友可能同时给两个号发消息**，只按 talker 记账会让
+ * B 号发出去的话把 A 号同样的回复当成回声吞掉。给了账号就按 (账号, talker) 分账。
+ */
+function selfSendKey(peer: string, account?: string): string {
+  const p = peer.trim().toLowerCase()
+  const a = (account ?? '').trim().toLowerCase()
+  return a ? `${a}\n${p}` : p
 }
 
-function wasSelfSent(peer: string, text: string | undefined, nowMs: number): boolean {
-  const arr = recentSelfSends.get(peer)
+export function rememberSelfSends(
+  peer: string,
+  texts: readonly string[],
+  nowMs: number,
+  account?: string,
+): void {
+  if (!peer || !texts.length) return
+  const key = selfSendKey(peer, account)
+  const fresh = (recentSelfSends.get(key) ?? []).filter((x) => nowMs - x.at <= SELF_SEND_TTL_MS)
+  for (const t of texts) if (t && t.trim()) fresh.push({ text: t, at: nowMs })
+  recentSelfSends.set(key, fresh)
+}
+
+function wasSelfSent(
+  peer: string,
+  text: string | undefined,
+  nowMs: number,
+  account?: string,
+): boolean {
+  const arr = recentSelfSends.get(selfSendKey(peer, account))
   if (!arr || !text) return false
   return arr.some((x) => nowMs - x.at <= SELF_SEND_TTL_MS && x.text === text)
 }
@@ -312,7 +383,7 @@ const OUTBOUND_TOOLS = new Set(['send_text', 'reply_to'])
  */
 export function noteWechatOutbound(tool: string, args: Record<string, unknown>, raw: string): void {
   if (!OUTBOUND_TOOLS.has(tool)) return
-  let out: { ok?: boolean; dry_run?: boolean; talker?: unknown; text?: unknown }
+  let out: { ok?: boolean; dry_run?: boolean; talker?: unknown; text?: unknown; account?: unknown }
   try {
     out = JSON.parse(raw) as typeof out
   } catch {
@@ -322,13 +393,18 @@ export function noteWechatOutbound(tool: string, args: Record<string, unknown>, 
   // 回执里的 `talker` 是**解析后的 wxid/群号**，`args.talker` 可能只是显示名（如「周礼」）——
   // 轮询侧的 peer 恒为前者，名字对名字是永远对不上的
   const peer = typeof out.talker === 'string' && out.talker ? out.talker : String(args.talker ?? '')
+  // 多开：同一个人在两个号上都聊时，只按 talker 记账会把另一号的话吞掉
+  const account =
+    typeof out.account === 'string' && out.account
+      ? out.account
+      : String(args.account ?? '')
   // ⚠️ **必须剥掉代发标记再记账**：回执里的 `text` 是 MCP 原样回显的**入参**（带标记），
   // 而轮询侧 `poll_new` 的 `msg_dict` 已把标记剥掉。`wasSelfSent` 按**全等**比字符串，
   // 不剥就是永远对不上——那条防自回环的台账会**静默失效**（不报错，只是下一拍把自己的
   // 话当成用户新指令，自聊会话里就是自问自答）。
   const raw2 = typeof out.text === 'string' ? out.text : ''
   const text = stripAgentMarker(raw2)
-  if (peer && text.trim()) rememberSelfSends(peer, [text], Date.now())
+  if (peer && text.trim()) rememberSelfSends(peer, [text], Date.now(), account || undefined)
 }
 
 /** 配置文件路径（用户可手改；`LUMII_CLIENT_DATA_DIR` 生效，便于隔离测试） */
@@ -465,18 +541,20 @@ export function policyFromWatchConfig(cfg: WechatWatchConfig): ChannelPolicy {
 export function healPeerBinding(
   policy: ChannelPolicy,
   peer: { id?: string; label?: string },
+  account?: string,
 ): ChannelPolicy | null {
   const id = peer.id?.trim()
   const label = peer.label?.trim()
   if (!id || !label) return null
-  if (policy.peers.some((p) => isSamePeer(p.id, id))) return null // 已经对得上，别动
-  const idx = policy.peers.findIndex(
+  const current = peersForAccount(policy, account)
+  if (current.some((p) => isSamePeer(p.id, id))) return null // 已经对得上，别动
+  const idx = current.findIndex(
     (p) => isSamePeer(p.id, label) || (p.label ? isSamePeer(p.label, label) : false),
   )
   if (idx < 0) return null
-  const peers = [...policy.peers]
+  const peers = [...current]
   peers[idx] = { ...peers[idx], id, label }
-  return { ...policy, peers }
+  return withPeersForAccount(policy, account, peers)
 }
 
 export function loadWechatWatchConfig(configPath = wechatWatchConfigPath()): WechatWatchConfig {
@@ -608,7 +686,8 @@ export function selectNewMessages(
     // 跳过 Agent 自己发出去的消息（按标记识别，比文本匹配更精确）
     if (m.agent_sent) return false
     if (m.from_me && !isSelfChatPeer(m.talker, selfWxids)) return false
-    const resolved = resolvePeerPolicy(policy, { id: m.talker, label: m.name })
+    // 多开：每个号可能有自己的一份策略（同一好友在两个号上可以是不同档）
+    const resolved = resolvePeerPolicy(policy, { id: m.talker, label: m.name }, m.account)
     if (resolved.mode === 'ignore') return false
     if (resolved.mode === 'notify') return true // 只提醒：不叫模型，没什么可挡的
     return triggerAllows(m, resolved)
@@ -1109,14 +1188,34 @@ ${parts.join('\n\n')}`
 export const PCWECHAT_CHANNEL = 'pcwechat'
 export const PCWECHAT_CONV_PREFIX = `${PCWECHAT_CHANNEL}:`
 
-export function watchConversationIdFor(peer: string): string {
-  return `${PCWECHAT_CONV_PREFIX}${peer}`
+/**
+ * 会话 id。多开时同一好友可能在两个号上都聊：给了 `account` 就分线，
+ * **单账号保持原格式**（老会话的历史不断档）。
+ */
+export function watchConversationIdFor(peer: string, account?: string): string {
+  const acct = (account ?? '').trim()
+  return acct ? `${PCWECHAT_CONV_PREFIX}${acct}:${peer}` : `${PCWECHAT_CONV_PREFIX}${peer}`
 }
 
-export function watchConversationTitleFor(name: string | undefined, peer: string): string {
+export function watchConversationTitleFor(
+  name: string | undefined,
+  peer: string,
+  accountLabel?: string,
+): string {
   // 不能写 `(name || peer).trim()`：`'   '` 是真值，会 trim 成空 → 标题只剩「本机微信 · 」
   const display = (name ?? '').trim() || peer.trim() || '微信好友'
-  return `本机微信 · ${display}`
+  const suffix = (accountLabel ?? '').trim()
+  return `本机微信 · ${display}${suffix ? `（${suffix}）` : ''}`
+}
+
+/** 多开会话标题里的账号注脚：用户备注优先，没备注就用 wxid。 */
+function accountRemarkFor(policy: ChannelPolicy, account?: string): string {
+  const id = (account ?? '').trim().toLowerCase()
+  if (!id) return ''
+  for (const [key, val] of Object.entries(policy.accounts ?? {})) {
+    if (key.trim().toLowerCase() === id) return (val.label ?? '').trim() || key
+  }
+  return (account ?? '').trim()
 }
 
 /** 画像巡检的间隔：空闲拍上给名单里**还没有画像**的人补一张（一轮一个，不是批量刷） */
@@ -1237,6 +1336,26 @@ function writeKvNumber(db: DatabaseAdapter, key: string, value: number): void {
   }
 }
 
+/** 判定微信未运行：记 60 秒退避；状态切换只留一条 info。 */
+function noteWatchDown(db: DatabaseAdapter, nowMs: number): void {
+  writeKvNumber(db, KV_WATCH_DOWN_UNTIL, nowMs + WATCH_DOWN_BACKOFF_MS)
+  if (readKvNumber(db, KV_WATCH_DOWN_NOTED) > 0) return
+  writeKvNumber(db, KV_WATCH_DOWN_NOTED, 1)
+  log.info('[wechat-watch] 微信未运行，暂停盯梢（每分钟自检一次，恢复后自动继续）')
+}
+
+/** 恢复正常：清掉退避；状态切换只留一条 info。 */
+function noteWatchUp(db: DatabaseAdapter): void {
+  // 正常运行时每 15 秒都会走到这里；两个键都已是 0 就别再写库。
+  if (readKvNumber(db, KV_WATCH_DOWN_UNTIL) === 0 && readKvNumber(db, KV_WATCH_DOWN_NOTED) === 0) {
+    return
+  }
+  writeKvNumber(db, KV_WATCH_DOWN_UNTIL, 0)
+  if (readKvNumber(db, KV_WATCH_DOWN_NOTED) === 0) return
+  writeKvNumber(db, KV_WATCH_DOWN_NOTED, 0)
+  log.info('[wechat-watch] 微信已恢复，继续盯梢')
+}
+
 /**
  * 待补发的出站（**发送门暂时够不着**：微信没运行 / 主窗口收进托盘 / 会话切不过去）。
  *
@@ -1345,7 +1464,11 @@ async function flushWechatOutbox(
   deps: WechatWatchDeps,
   nowMs: number,
   peers: readonly { id: string; label?: string }[] = [],
+  multiAccount = false,
 ): Promise<string> {
+  // 通知要跳到「这条消息当初所在的那个号的会话」——多开时会话 id 带账号
+  const convIdFor = (peer: string, account?: string) =>
+    watchConversationIdFor(peer, multiAccount ? account : undefined)
   try {
     const db = deps.getDb()
     let queue = readWechatOutbox(db)
@@ -1367,7 +1490,7 @@ async function flushWechatOutbox(
           .map((x) => `${label(x.peer)}：${x.text.slice(0, 40)}`)
           .join('\n')
           .slice(0, 200),
-        watchConversationIdFor(gone[gone.length - 1].peer),
+        convIdFor(gone[gone.length - 1].peer, gone[gone.length - 1].account),
       )
       for (const x of gone) outboxAlerted.delete(`${x.account ?? ''}\n${x.peer}\n${x.text}`)
       queue = kept
@@ -1420,7 +1543,7 @@ async function flushWechatOutbox(
           deps.showNotification?.(
             '微信消息发不出去 · 正在重试',
             `${label(item.peer)}：${item.text.slice(0, 40)}\n${why}`,
-            watchConversationIdFor(item.peer),
+            convIdFor(item.peer, item.account),
           )
         }
         break
@@ -1434,7 +1557,7 @@ async function flushWechatOutbox(
       deps.showNotification?.(
         `微信补发成功 · ${name}`,
         item.text,
-        watchConversationIdFor(item.peer),
+        convIdFor(item.peer, item.account),
       )
     }
     return sent > 0 ? `补发 ${sent} 条` : ''
@@ -1543,6 +1666,10 @@ export async function runWechatWatch(deps: WechatWatchDeps): Promise<string> {
   try {
     if (!cfg.enabled) return '（盯梢已关闭：配置 enabled=false）'
     const db = deps.getDb()
+    // 上一次自检判定「微信未运行」且还没到 60 秒：这一拍什么都不做，连 MCP 都不调。
+    if (readKvNumber(db, KV_WATCH_DOWN_UNTIL) > nowMs) {
+      return '（微信未运行，下一分钟再查）'
+    }
     // 自聊 peer（文件传输助手 / 本人 wxid）默认加入名单且可回 —— 用户显式要的"当作入站渠道"。
     // **一次性**迁移：旧装机把 filehelper 播种成了黑名单(ignore)，第一次把它纠成 auto 并落盘；
     // 之后只补缺不覆盖（用户在设置页把它改回 ignore/notify 是用户的选择，尊重）。
@@ -1570,6 +1697,34 @@ export async function runWechatWatch(deps: WechatWatchDeps): Promise<string> {
       }
     }
     const running = accounts.filter((a) => a.running !== false)
+    // 同一好友可能在两个号上都有会话：**同时有两个号在跑**才分线，避免两号的历史混进同一个会话。
+    // 只认账号目录不够——登过一次的旧目录会永远留着，那会让单号用户的历史无故另起一条。
+    const multiAccount = running.length > 1
+    // 单独配置过的账号要有自己的「自聊」条目（它自己的 wxid + 文件传输助手）；
+    // 没单独配置的账号沿用顶层，不替用户凭空造一份分账（造了会把它冻在当时的顶层快照上）。
+    if (running.length > 0) {
+      let selfChanged = false
+      for (const acc of running) {
+        const configured = Object.keys(policy.accounts ?? {}).some(
+          (k) => k.trim().toLowerCase() === acc.wxid.trim().toLowerCase(),
+        )
+        if (!configured) continue
+        const r = withSelfPeers(policy, [acc.wxid], { account: acc.wxid })
+        if (r.changed) {
+          policy = r.policy
+          selfChanged = true
+        }
+      }
+      if (selfChanged) {
+        deps.setPolicy?.(policy)
+        log.info('[wechat-watch] 已给单独配置的账号补上自聊条目')
+      }
+    }
+    if (accounts.length > 0 && running.length === 0) {
+      // 账号目录都在、但没有一个实例在跑：微信没启动。记退避，下一分钟再探。
+      noteWatchDown(db, nowMs)
+      return '微信未运行，本拍跳过'
+    }
     if (running.length > 0) {
       let failed = 0
       let keyNotReady = false
@@ -1593,14 +1748,20 @@ export async function runWechatWatch(deps: WechatWatchDeps): Promise<string> {
           failed += 1
           const msg = err instanceof Error ? err.message : String(err)
           if (msg.includes('未连接')) return '（wechat-local MCP 未连接，本拍跳过）'
-          if (isWechatKeyNotReady(msg)) keyNotReady = true
+          // 微信没运行 / 密钥没就绪是「环境还没好」，不是账号级故障：
+          // 不逐账号刷 warn，交给下面的汇总统一退避。
+          if (isWechatKeyNotReady(msg)) {
+            keyNotReady = true
+            continue
+          }
           log.warn(`[wechat-watch] 账号 ${acc.wxid} poll 失败，本拍跳过该账号：`, err)
         }
       }
       if (messages.length === 0 && failed === running.length && keyNotReady) {
-        log.warn('[wechat-watch] 微信未运行或密钥未就绪，本拍跳过')
+        noteWatchDown(db, nowMs)
         return '微信未运行或密钥未就绪，本拍跳过'
       }
+      if (failed < running.length) noteWatchUp(db)   // 至少有一个账号读成功才算恢复
       messages.sort((a, b) => a.ts - b.ts)
     } else {
       // 旧版 MCP（没有 list_accounts）或没有运行实例：保持原来的单账号路径
@@ -1620,28 +1781,37 @@ export async function runWechatWatch(deps: WechatWatchDeps): Promise<string> {
           return '（wechat-local MCP 未连接，本拍跳过）'
         }
         if (isWechatKeyNotReady(msg)) {
-          log.warn('[wechat-watch] 微信未运行或密钥未就绪，本拍跳过')
+          noteWatchDown(db, nowMs)
           return '微信未运行或密钥未就绪，本拍跳过'
         }
         log.warn('[wechat-watch] poll_new 调用失败，本拍跳过：', err)
         return `poll 失败，本拍跳过：${msg}`
       }
+      noteWatchUp(db)
       messages = Array.isArray(payload?.messages) ? payload!.messages! : []
       const next = Number(payload?.next_since_ts ?? since)
       if (Number.isFinite(next) && next > 0) writeLastTs(db, next) // 无论报不报都要推进，免得重复读
     }
     const fresh = selectNewMessages(messages, policy, selfWxids).filter(
-      // 自聊回环护栏：助手刚发出去的话会以 from_me 再出现，按文本跳过（普通会话不会走到这里）
-      (m) => !(isSelfChatPeer(m.talker, selfWxids) && wasSelfSent(m.talker || '', m.text, nowMs)),
+      // 自聊回环护栏：助手刚发出去的话会以 from_me 再出现，按文本跳过（普通会话不会走到这里）。
+      // 多开还有第二种回声：**兄弟号**刚发给这个号的回复，台账记在发送方名下（key=发送号\n这个号），
+      // 于是这里的 `wasSelfSent(talker, …, m.account)` 查不到，必须反向再查一次。
+      (m) =>
+        !(
+          isSelfChatPeer(m.talker, selfWxids) &&
+          (wasSelfSent(m.talker || '', m.text, nowMs, m.account) ||
+            (isSiblingSelfAccount(m.talker, m.account, selfWxids) &&
+              wasSelfSent(m.account || '', m.text, nowMs, m.talker)))
+        ),
     )
     pruneOwnRuns(db)
     // 画像巡检只针对**人**：自聊（文件传输助手/本人账号）不是"某个人"，给它蒸馏画像是白花 token
-    const personPeers = policy.peers.filter((p) => !isSelfChatPeer(p.id, selfWxids))
+    const personPeers = allPolicyPeers(policy).filter((p) => !isSelfChatPeer(p.id, selfWxids))
     if (fresh.length === 0 && pendingByPeer.size === 0) {
       // 空闲拍：先把锁屏/抢不到前台时积压的送出去（见 flushWechatOutbox），
       // 再给名单里还没有画像的人补一张（见 maybeDistillProfiles）。
       // 两件都只在空闲拍做——有活回合时它们会跟这一轮抢那双手和那个端点。
-      const flushed = await flushWechatOutbox(deps, nowMs, policy.peers)
+      const flushed = await flushWechatOutbox(deps, nowMs, allPolicyPeers(policy), multiAccount)
       const swept = await maybeDistillProfiles(deps, personPeers, nowMs)
       const base = messages.length > 0 ? `新消息 ${messages.length} 条（均被过滤，不报）` : '无新消息'
       return [base, flushed, swept].filter(Boolean).join('｜')
@@ -1655,7 +1825,7 @@ export async function runWechatWatch(deps: WechatWatchDeps): Promise<string> {
     const byPeer = new Map<string, WechatMessage[]>()
     for (const [peerKey, arr] of pendingByPeer) byPeer.set(peerKey, [...arr])
     for (const m of fresh) {
-      const key = m.talker || m.name || '?'
+      const key = peerKeyOf(m)
       const arr = byPeer.get(key)
       if (!arr) {
         byPeer.set(key, [m])
@@ -1688,12 +1858,12 @@ export async function runWechatWatch(deps: WechatWatchDeps): Promise<string> {
       // 自聊会话的 from_me **不代表"用户刚手动回了"**（那正是用户发给助手的消息本身），
       // 给它推冷却会把刚到的入站消息直接降级成提醒、代聊永远收不到——跳过。
       if (isSelfChatPeer(m.talker, selfWxids)) continue
-      const key = m.talker || m.name || '?'
+      const key = peerKeyOf(m)
       // ⚠️ **我们自己刚发出去的那条也会以 `from_me` 回来**（回合里 channel_send 发的）。
       // 不排掉的话：助手每回一次就把自己关进「用户正在聊」一整个冷却窗口——期间对方
       // 再说话只会弹个通知、**既不回也不落库**（2026-10-10 实测：连发三条语音全丢）。
       // `rememberSelfSends` 记的是**读库实测**发出去的原话，所以文本能对上。
-      if (wasSelfSent(key, m.text, nowForSent)) continue
+      if (wasSelfSent(m.talker || m.name || '?', m.text, nowForSent, m.account)) continue
       if ((cooldown[key] ?? 0) < nowForSent) {
         cooldown[key] = nowForSent
         cooldownDirty = true
@@ -1701,13 +1871,15 @@ export async function runWechatWatch(deps: WechatWatchDeps): Promise<string> {
 
     }
 
-    for (const [peer, msgs] of byPeer) {
+    for (const [peerKey, msgs] of byPeer) {
       const last = msgs[msgs.length - 1]
+      const peer = peerOf(last)
+      const account = last.account
       // 这一批里有没有**上一拍攒下的**：有就说明它们已经等过一轮了，**这一拍必须处理**，
       // 不能再让冷却把它们挡回去（那样攒着就退化成丢弃了）。
-      const wasPending = pendingByPeer.has(peer)
+      const wasPending = pendingByPeer.has(peerKey)
       // 人名条目在这里自愈成真 wxid（此刻才知道 talker↔名字的对应），改动立即落盘
-      const healed = healPeerBinding(policy, { id: last.talker, label: last.name })
+      const healed = healPeerBinding(policy, { id: last.talker, label: last.name }, account)
       if (healed) {
         policy = healed
         deps.setPolicy?.(healed)
@@ -1715,19 +1887,21 @@ export async function runWechatWatch(deps: WechatWatchDeps): Promise<string> {
           `[wechat-watch] 名单里的人名条目「${last.name}」已绑到真 wxid（${last.talker}）`,
         )
       }
-      const { mode, cooldownSeconds: cd, matchedBy } = resolvePeerPolicy(policy, {
-        id: last.talker,
-        label: last.name,
-      })
-      const convId = watchConversationIdFor(peer)
+      // 策略按**消息来的那个号**取：同一个好友在 A 号上只提醒、在 B 号上自动回，是合法配置
+      const { mode, cooldownSeconds: cd, matchedBy } = resolvePeerPolicy(
+        policy,
+        { id: last.talker, label: last.name },
+        account,
+      )
+      const convId = watchConversationIdFor(peer, multiAccount ? account : undefined)
       if (mode === 'notify') {
         notifyOnly.push(...msgs)
         notifyConvIds.add(convId)
-        pendingByPeer.delete(peer)
+        pendingByPeer.delete(peerKey)
         continue
       }
       const nowMsNow = deps.nowMs?.() ?? Date.now()
-      if (!wasPending && (cooldown[peer] ?? 0) + cd * 1000 > nowMsNow) {
+      if (!wasPending && (cooldown[peerKey] ?? 0) + cd * 1000 > nowMsNow) {
         // **冷却期 = 等后续消息累计**（不是静默丢弃）。
         //
         // 用户连发几条时，第一条触发回合并设下冷却；随后到的那些**攒进待办**，
@@ -1738,14 +1912,14 @@ export async function runWechatWatch(deps: WechatWatchDeps): Promise<string> {
         //
         // ⚠️ 攒着的消息**冷却期没到也会在下一拍放行**（`wasPending` 就是为了这个）——
         // 否则「等冷却」会变成事实上的丢弃。
-        deferPeer(peer, msgs)
+        deferPeer(peerKey, msgs)
         log.info(`[wechat-watch] ${peer} 冷却期内收到 ${msgs.length} 条，攒到下一轮合并处理`)
         continue
       }
       if (!deps.driveTurn) {
         notifyOnly.push(...msgs)
         notifyConvIds.add(convId)
-        pendingByPeer.delete(peer)
+        pendingByPeer.delete(peerKey)
         continue
       }
       // 语音消息：MCP 已把 SILK 落成文件（`voice_path`），这里转成文字再拼进提示词。
@@ -1788,7 +1962,7 @@ export async function runWechatWatch(deps: WechatWatchDeps): Promise<string> {
           }
         }
       }
-      pendingByPeer.delete(peer)
+      pendingByPeer.delete(peerKey)
       // 自聊（文件传输助手 / 本人微信号）= 主人渠道：那里的消息是用户本人的指令，换一套提示词
       // （代聊那套会把他当第三方好友先判档；见 buildOwnerPrompt）
       const ownerChannel = isSelfChatPeer(peer, selfWxids)
@@ -1802,7 +1976,11 @@ export async function runWechatWatch(deps: WechatWatchDeps): Promise<string> {
         result = await deps.driveTurn(prompt, {
           peer,
           convId,
-          title: watchConversationTitleFor(last.name, peer),
+          title: watchConversationTitleFor(
+            last.name,
+            peer,
+            multiAccount ? accountRemarkFor(policy, account) : undefined,
+          ),
           mode,
           incoming: msgs,
           ...(last.account ? { account: last.account } : {}),
@@ -1811,7 +1989,7 @@ export async function runWechatWatch(deps: WechatWatchDeps): Promise<string> {
         log.error(`[wechat-watch] 驱动回合失败（${peer}）：`, err)
         result = `回合失败：${err instanceof Error ? err.message : String(err)}`
       }
-      cooldown[peer] = nowMsNow
+      cooldown[peerKey] = nowMsNow
       cooldownDirty = true
       // **读库实测**这一轮到底发没发（回合的说法只是文本）：
       // - auto：真发了才敢写「已代回」；没发就写「未发」，别替它邀功；
@@ -1819,7 +1997,7 @@ export async function runWechatWatch(deps: WechatWatchDeps): Promise<string> {
       const sentInfo = await detectSentTo(deps, last, last.ts)
       const sent = sentInfo.sent
       // 记住"我们刚发出去的话"：下一拍它会以 from_me 再出现，自聊会话按文本跳过（防自回环）
-      rememberSelfSends(last.talker || peer, sentInfo.texts, nowMsNow)
+      rememberSelfSends(last.talker || peer, sentInfo.texts, nowMsNow, account)
       const label =
         mode === 'auto' ? (sent ? '已代回' : '未发') : sent ? '草稿⚠️疑似已发出' : '草稿'
       acted.push(`${label}·${last.name || peer}：${(last.text || '').slice(0, 40)}`)

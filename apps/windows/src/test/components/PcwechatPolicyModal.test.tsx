@@ -13,11 +13,16 @@ function mockChannelService(overrides: {
   policy?: unknown
   contacts?: Array<{ id: string; label: string; isGroup: boolean }>
   contactsError?: string
+  accounts?: Array<{ wxid: string; running: boolean }>
 }) {
   const setPolicy = vi.fn(async (_c: string, p: unknown) => p)
   ;(window as any).channelService = {
     getPolicy: vi.fn(async () => overrides.policy ?? { defaultMode: 'notify', peers: [] }),
     setPolicy,
+    // 没有「默认」页签：至少得有一个账号，弹窗才有内容
+    listWechatAccounts: vi.fn(async () => ({
+      accounts: overrides.accounts ?? [{ wxid: 'wxid_me', running: true }],
+    })),
     listWechatContacts: vi.fn(async () => ({
       contacts: overrides.contacts ?? [],
       ...(overrides.contactsError ? { error: overrides.contactsError } : {}),
@@ -154,13 +159,69 @@ describe('PcwechatPolicyModal', () => {
     fireEvent.click(screen.getByRole('button', { name: '保存' }))
     await waitFor(() => expect(setPolicy).toHaveBeenCalledTimes(1))
     expect(setPolicy.mock.calls[0]?.[0]).toBe('pcwechat')
+    // 没有「默认」页签了：改动落在当前账号自己的那一节，顶层策略原样保留
     expect(setPolicy.mock.calls[0]?.[1]).toMatchObject({
-      defaultMode: 'notify',
-      peers: [
-        { id: 'wxid_a', label: '阿呆', mode: 'auto' },
-        { id: 'wxid_b', label: '阿宝', mode: 'auto' },
-      ],
+      accounts: {
+        wxid_me: {
+          defaultMode: 'notify',
+          peers: [
+            { id: 'wxid_a', label: '阿呆', mode: 'auto' },
+            { id: 'wxid_b', label: '阿宝', mode: 'auto' },
+          ],
+        },
+      },
     })
+  })
+
+  it('每个号一个页签：页签带名字+wxid，切过去重新拉这个号的数据', async () => {
+    const calls: Array<string | undefined> = []
+    ;(window as any).channelService = {
+      getPolicy: vi.fn(async () => ({
+        defaultMode: 'ignore',
+        peers: [],
+        accounts: {
+          wxid_a: { defaultMode: 'ignore', peers: [{ id: 'a1', label: '甲', mode: 'auto' }] },
+          wxid_b: { defaultMode: 'ignore', peers: [{ id: 'b1', label: '乙', mode: 'auto' }] },
+        },
+      })),
+      setPolicy: vi.fn(),
+      listWechatAccounts: vi.fn(async () => ({
+        accounts: [
+          { wxid: 'wxid_a', running: true },
+          { wxid: 'wxid_b', running: true },
+        ],
+      })),
+      listWechatContacts: vi.fn(async (account?: string) => {
+        calls.push(account)
+        return {
+          contacts: [
+            {
+              id: account ?? '',
+              label: account === 'wxid_a' ? '甲号' : '乙号',
+              isGroup: false,
+            },
+          ],
+        }
+      }),
+    }
+    render(<PolicyModal open onClose={() => undefined} />)
+
+    // 页签上用「微信里的名字（wxid）」区分账号
+    expect(await screen.findByRole('button', { name: '甲号（wxid_a）' })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: '乙号（wxid_b）' })).toBeInTheDocument()
+
+    // 默认选中第一个号，名单是它自己的
+    expect(await screen.findByText('甲')).toBeInTheDocument()
+
+    const before = calls.filter((c) => c === 'wxid_b').length
+    fireEvent.click(screen.getByRole('button', { name: '乙号（wxid_b）' }))
+
+    // 切换会重新拉这个号的会话，并显示它自己的名单（不是上一个号的）
+    expect(await screen.findByText('乙')).toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByText('甲')).not.toBeInTheDocument())
+    await waitFor(() =>
+      expect(calls.filter((c) => c === 'wxid_b').length).toBeGreaterThan(before),
+    )
   })
 
   it('读不到微信会话时如实说明，但仍能改已有名单', async () => {

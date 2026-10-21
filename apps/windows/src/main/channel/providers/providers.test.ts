@@ -293,6 +293,25 @@ describe('PcwechatChannelProvider', () => {
     expect(onUndeliverable).toHaveBeenCalledWith('wxid_loop', withAgentMarker('在的'), 'wxid_a')
   })
 
+  it('多开：快照是各号并集，发送白名单按**实际账号**判（不许跨号发名单外的人）', async () => {
+    const { provider, callMcpTool } = make({
+      policy: policy([], {
+        accounts: {
+          wxid_a: { defaultMode: 'notify', peers: [{ id: 'wxid_loop', label: 'Loop', mode: 'auto' }] },
+        },
+      }),
+    })
+    // 快照要看得见只在 A 号名单里的人，否则 Agent 永远不知道这个人能发
+    expect(provider.getSnapshot().peers.map((p) => p.id)).toEqual(['wxid_loop'])
+
+    const ok = await provider.sendText({ to: 'wxid_loop', text: '在的', accountId: 'wxid_a' })
+    expect(ok.ok).toBe(true)
+    // B 号没有自己的分账 → 沿用顶层（顶层名单是空的）：这个人不许从 B 号发出
+    const denied = await provider.sendText({ to: 'wxid_loop', text: '在的', accountId: 'wxid_b' })
+    expect(denied.errorCode).toBe('PEER_NOT_FOUND')
+    expect(callMcpTool).toHaveBeenCalledTimes(1)
+  })
+
   it('名单外（含黑名单）不发：Router 之外的第二道白名单', async () => {
     const { provider, callMcpTool } = make({ policy: policy([{ id: 'filehelper', mode: 'ignore' }]) })
     for (const to of ['filehelper', 'wxid_陌生人']) {

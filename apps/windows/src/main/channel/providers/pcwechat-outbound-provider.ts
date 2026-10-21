@@ -20,7 +20,7 @@
 
 import { withAgentMarker } from '../../agent-runtime/wechat-watch-tick'
 import type { ChannelPolicy } from '../../../shared/channel-policy'
-import { isSamePeer } from '../../../shared/channel-policy'
+import { allPolicyPeers, isSamePeer, policyForAccount } from '../../../shared/channel-policy'
 import type {
   ChannelSendResult,
   ChannelSnapshot,
@@ -80,9 +80,11 @@ export class PcwechatChannelProvider implements IChannelOutboundProvider {
       connected,
       // 我们有 GUI 自动化这双手：想什么时候发就什么时候发，不受"被动回复窗口"限制
       pushMode: 'native_push',
-      // MCP 没连时不给任何 peer：让 Agent 看到"这个渠道没在线"，而不是列一堆发不出去的名单
+      // MCP 没连时不给任何 peer：让 Agent 看到"这个渠道没在线"，而不是列一堆发不出去的名单。
+      // 多开取**各账号名单的并集**：同一个好友可能只在工作号名单里，快照把它整个漏掉
+      // 就等于 Agent 永远看不到这个人；具体从哪个号发由 `accountId` 决定，发送前再按号判一次。
       peers: connected
-        ? policy.peers
+        ? allPolicyPeers(policy)
             .filter((p) => p.mode !== 'ignore')
             .map((p) => ({
               id: p.id,
@@ -111,14 +113,16 @@ export class PcwechatChannelProvider implements IChannelOutboundProvider {
       return fail('CHANNEL_NOT_CONNECTED', '本机微信的 wechat-local MCP 没连上')
     }
     // 兜底白名单：Router 已经按快照挡过一次，但「策略刚被改成 ignore」与快照之间有窗口，
-    // 而发出去就收不回——这里再判一次，宁可多判
-    const allowed = this.deps
-      .getPolicy()
-      .peers.some((p) => p.mode !== 'ignore' && isSamePeer(p.id, to))
+    // 而发出去就收不回——这里再判一次，宁可多判。
+    // **按实际发送的账号判**：快照是各号并集，这个人可能只在另一个号的名单里。
+    const allowed = policyForAccount(this.deps.getPolicy(), params.accountId).peers.some(
+      (p) => p.mode !== 'ignore' && isSamePeer(p.id, to),
+    )
     if (!allowed) {
+      const where = params.accountId ? `账号 ${params.accountId} 的` : ''
       return fail(
         'PEER_NOT_FOUND',
-        `「${to}」不在本机微信的回复名单里（设置 → 渠道 → 本机微信 里加），名单外的人不能代发`,
+        `「${to}」不在本机微信${where}回复名单里（设置 → 渠道 → 本机微信 里加），名单外的人不能代发`,
       )
     }
 

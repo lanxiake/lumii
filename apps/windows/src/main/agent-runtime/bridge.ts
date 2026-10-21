@@ -1940,7 +1940,9 @@ export class AgentRuntimeBridge {
   /**
    * 本机微信的本人 wxid（缓存 5 分钟）。
    *
-   * 从 MCP `locate_db` 拿（换机自动探测数据目录后，`wxid` 就是从目录名反推的本人账号）。
+   * 两个来源取并集：`locate_db`（数据目录名反推的默认账号）与 `list_accounts`
+   * （多开时每个登录过的号）。只认前者的话，非默认账号在自聊里给助手发消息会被当成
+   * 「别人发来的」走代聊提示词，而且它自己的 from_me 回声也认不出来。
    * 拿不到就返回上次的缓存 / 空数组——盯梢只认 `filehelper`，不影响主流程。
    */
   private selfWxidCache: { ids: string[]; at: number } = { ids: [], at: 0 }
@@ -1948,17 +1950,30 @@ export class AgentRuntimeBridge {
   private async wechatSelfWxids(): Promise<readonly string[]> {
     const now = Date.now()
     if (now - this.selfWxidCache.at < 5 * 60_000) return this.selfWxidCache.ids
+    const ids = new Set<string>()
+    let anyOk = false
     try {
       const raw = await this.mcpManager.callTool(WECHAT_WATCH_MCP_SERVER, 'locate_db', {})
       const out = JSON.parse(raw) as { wxid?: string }
-      const ids = out.wxid ? [out.wxid] : []
-      this.selfWxidCache = { ids, at: now }
-      return ids
-    } catch (err) {
-      // 记时刻避免每拍都撞（MCP 没连/未配置时不该反复重试）；沿用上次的结果
-      this.selfWxidCache = { ids: this.selfWxidCache.ids, at: now }
-      return this.selfWxidCache.ids
+      if (out.wxid) ids.add(out.wxid)
+      anyOk = true
+    } catch {
+      /* 单个来源失败不拖累另一个 */
     }
+    try {
+      const raw = await this.mcpManager.callTool(WECHAT_WATCH_MCP_SERVER, 'list_accounts', {})
+      const out = JSON.parse(raw) as { accounts?: { wxid?: unknown }[] }
+      for (const a of out.accounts ?? []) {
+        if (typeof a?.wxid === 'string' && a.wxid.trim()) ids.add(a.wxid.trim())
+      }
+      anyOk = true
+    } catch {
+      /* 旧版 MCP 没有 list_accounts */
+    }
+    // 记时刻避免每拍都撞（MCP 没连/未配置时不该反复重试）；全失败就沿用上次的结果
+    if (anyOk) this.selfWxidCache = { ids: [...ids], at: now }
+    else this.selfWxidCache = { ids: this.selfWxidCache.ids, at: now }
+    return this.selfWxidCache.ids
   }
 
   /**

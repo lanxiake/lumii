@@ -59,16 +59,38 @@ export interface ChannelPeerPolicy {
   keywords?: string[]
 }
 
+/**
+ * **一个微信账号**的回复策略。
+ *
+ * 多开时每个号的好友/群、能代回的人、名单外怎么处理都可能不一样：
+ * 工作号只提醒、生活号直接代回，是常态而不是边角。所以策略按账号分账，
+ * 没单独配过的账号沿用顶层那一份（迁移零成本）。
+ */
+export interface ChannelAccountPolicy {
+  /** 给用户看的备注（如「工作号」），不参与任何匹配 */
+  label?: string
+  /** 这个号的名单外的人怎么处理 */
+  defaultMode: PeerReplyMode
+  /** 这个号的每人一档 */
+  peers: ChannelPeerPolicy[]
+}
+
 export interface ChannelPolicy {
   /**
-   * 盯哪个账号（带哪个身份说这些话）。
-   * 本机微信 = 登录的 wxid；留空 = 本机默认账号。
+   * 默认账号（带哪个身份说这些话）。
+   * 本机微信 = 登录的 wxid；留空 = 本机当前选中的账号。
+   * 多账号的分账在 `accounts` 里；这里只是缺省值。
    */
   accountId?: string
-  /** 没列在 `peers` 里的人怎么处理 */
+  /** 没列在 `peers` 里的人怎么处理（未单独配置的账号也用它） */
   defaultMode: PeerReplyMode
   /** 每人一档；同一个 peer 只保留第一条（见 `parseChannelPolicy`） */
   peers: ChannelPeerPolicy[]
+  /**
+   * 多账号：按 wxid 分账。**没出现的账号沿用顶层 `defaultMode` / `peers`**。
+   * 键是账号 wxid（大小写不敏感比较，见 `policyForAccount`）。
+   */
+  accounts?: Record<string, ChannelAccountPolicy>
 }
 
 /** 冷却缺省值（秒）。与盯梢的老默认保持一致，避免迁移后行为突变。 */
@@ -117,6 +139,54 @@ export function isSamePeer(a: string, b: string): boolean {
   return a.trim().toLowerCase() === b.trim().toLowerCase()
 }
 
+/** 名单外**只能是非-agent 档**（见 `NON_AGENT_MODES`），坏值退回 `notify`。 */
+function parseDefaultMode(raw: unknown): PeerReplyMode {
+  return isPeerReplyMode(raw) && NON_AGENT_MODES.includes(raw) ? raw : 'notify'
+}
+
+/** 容错解析一份「每人一档」名单（顶层与每个账号共用同一套规则）。 */
+function parsePeers(raw: unknown): ChannelPeerPolicy[] {
+  const out: ChannelPeerPolicy[] = []
+  if (!Array.isArray(raw)) return out
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue
+    const p = item as Partial<ChannelPeerPolicy>
+    const id = typeof p.id === 'string' ? p.id.trim() : ''
+    if (!id || !isPeerReplyMode(p.mode)) continue
+    if (out.some((x) => isSamePeer(x.id, id))) continue // 同一个 peer 只认先出现的
+    const label = typeof p.label === 'string' ? p.label.trim() : ''
+    const trigger = isPeerTrigger(p.trigger) ? p.trigger : undefined
+    const keywords = Array.isArray(p.keywords)
+      ? p.keywords
+          .filter((k): k is string => typeof k === 'string' && k.trim().length > 0)
+          .map((k) => k.trim())
+      : []
+    out.push({
+      id,
+      mode: p.mode,
+      ...(label ? { label } : {}),
+      ...(typeof p.cooldownSeconds === 'number' && p.cooldownSeconds >= 0
+        ? { cooldownSeconds: p.cooldownSeconds }
+        : {}),
+      // 只在真的不是默认行为时落字段：`all` 不写、空关键字不写——配置少一堆噪音
+      ...(trigger && trigger !== 'all' ? { trigger } : {}),
+      ...(trigger && KEYWORD_TRIGGERS.includes(trigger) && keywords.length ? { keywords } : {}),
+    })
+  }
+  return out
+}
+
+function parseAccountPolicy(raw: unknown): ChannelAccountPolicy | null {
+  if (!raw || typeof raw !== 'object') return null
+  const o = raw as Record<string, unknown>
+  const label = typeof o.label === 'string' ? o.label.trim() : ''
+  return {
+    ...(label ? { label } : {}),
+    defaultMode: parseDefaultMode(o.defaultMode),
+    peers: parsePeers(o.peers),
+  }
+}
+
 /**
  * 容错解析：坏字段逐项退回默认，**绝不抛**。
  *
@@ -128,35 +198,95 @@ export function parseChannelPolicy(raw: unknown): ChannelPolicy {
   const o = raw as Record<string, unknown>
   if (typeof o.accountId === 'string' && o.accountId.trim()) out.accountId = o.accountId.trim()
   // 名单外**收敛到非-agent 档**（见 NON_AGENT_MODES）：老配置里的 draft/auto 一律退回 notify
-  if (isPeerReplyMode(o.defaultMode) && NON_AGENT_MODES.includes(o.defaultMode)) {
-    out.defaultMode = o.defaultMode
-  }
-  if (Array.isArray(o.peers)) {
-    for (const item of o.peers) {
-      if (!item || typeof item !== 'object') continue
-      const p = item as Partial<ChannelPeerPolicy>
-      const id = typeof p.id === 'string' ? p.id.trim() : ''
-      if (!id || !isPeerReplyMode(p.mode)) continue
-      if (out.peers.some((x) => isSamePeer(x.id, id))) continue // 同一个 peer 只认先出现的
-      const label = typeof p.label === 'string' ? p.label.trim() : ''
-      const trigger = isPeerTrigger(p.trigger) ? p.trigger : undefined
-      const keywords = Array.isArray(p.keywords)
-        ? p.keywords
-            .filter((k): k is string => typeof k === 'string' && k.trim().length > 0)
-            .map((k) => k.trim())
-        : []
-      out.peers.push({
-        id,
-        mode: p.mode,
-        ...(label ? { label } : {}),
-        ...(typeof p.cooldownSeconds === 'number' && p.cooldownSeconds >= 0
-          ? { cooldownSeconds: p.cooldownSeconds }
-          : {}),
-        // 只在真的不是默认行为时落字段：`all` 不写、空关键字不写——配置少一堆噪音
-        ...(trigger && trigger !== 'all' ? { trigger } : {}),
-        ...(trigger && KEYWORD_TRIGGERS.includes(trigger) && keywords.length ? { keywords } : {}),
-      })
+  out.defaultMode = parseDefaultMode(o.defaultMode)
+  out.peers = parsePeers(o.peers)
+  if (o.accounts && typeof o.accounts === 'object') {
+    const accounts: Record<string, ChannelAccountPolicy> = {}
+    for (const [rawKey, value] of Object.entries(o.accounts as Record<string, unknown>)) {
+      const key = rawKey.trim()
+      if (!key || key.startsWith('_')) continue // `_hint` 之类的说明字段
+      const parsed = parseAccountPolicy(value)
+      if (parsed) accounts[key] = parsed
     }
+    if (Object.keys(accounts).length) out.accounts = accounts
+  }
+  return out
+}
+
+function findAccountEntry(
+  accounts: Record<string, ChannelAccountPolicy> | undefined,
+  accountId: string,
+): { key: string; value: ChannelAccountPolicy } | undefined {
+  if (!accounts) return undefined
+  if (accounts[accountId]) return { key: accountId, value: accounts[accountId] }
+  const lower = accountId.toLowerCase()
+  for (const [key, value] of Object.entries(accounts)) {
+    if (key.toLowerCase() === lower) return { key, value }
+  }
+  return undefined
+}
+
+/** 某个账号实际生效的策略：有分账用自己的，没有就沿用顶层（迁移零成本）。 */
+export function policyForAccount(
+  policy: ChannelPolicy,
+  accountId?: string | null,
+): { defaultMode: PeerReplyMode; peers: ChannelPeerPolicy[]; label?: string } {
+  const id = (accountId ?? '').trim()
+  const hit = id ? findAccountEntry(policy.accounts, id) : undefined
+  if (hit) {
+    return {
+      defaultMode: hit.value.defaultMode,
+      peers: hit.value.peers,
+      ...(hit.value.label ? { label: hit.value.label } : {}),
+    }
+  }
+  return { defaultMode: policy.defaultMode, peers: policy.peers }
+}
+
+/** 某个账号的名单（写回时与 `withPeersForAccount` 配对使用）。 */
+export function peersForAccount(
+  policy: ChannelPolicy,
+  accountId?: string | null,
+): ChannelPeerPolicy[] {
+  return policyForAccount(policy, accountId).peers
+}
+
+/**
+ * 把某个账号的名单写回去；`accountId` 为空 = 写顶层。
+ *
+ * 账号**还没有分账**时新建一份，`defaultMode` 继承顶层——「只改这个号的人」不该
+ * 顺手把它对名单外的人的处置也改掉。
+ */
+export function withPeersForAccount(
+  policy: ChannelPolicy,
+  accountId: string | null | undefined,
+  peers: ChannelPeerPolicy[],
+): ChannelPolicy {
+  const id = (accountId ?? '').trim()
+  if (!id) return { ...policy, peers }
+  const hit = findAccountEntry(policy.accounts, id)
+  const accounts = { ...(policy.accounts ?? {}) }
+  if (hit) delete accounts[hit.key] // 同名不同大小写的键只留一个
+  accounts[id] = {
+    ...(hit?.value.label ? { label: hit.value.label } : {}),
+    defaultMode: hit?.value.defaultMode ?? policy.defaultMode,
+    peers,
+  }
+  return { ...policy, accounts }
+}
+
+/** 全部账号的名单并集（去重）：给画像巡检、日志这类「不关心是哪个号」的地方用。 */
+export function allPolicyPeers(policy: ChannelPolicy): ChannelPeerPolicy[] {
+  const out: ChannelPeerPolicy[] = []
+  const seen = new Set<string>()
+  for (const p of [
+    ...policy.peers,
+    ...Object.values(policy.accounts ?? {}).flatMap((a) => a.peers),
+  ]) {
+    const key = p.id.trim().toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(p)
   }
   return out
 }
@@ -173,7 +303,10 @@ export interface ResolvedPeerPolicy {
 
 /**
  * 取某个 peer 的策略：先按 **id**（wxid / 群号）匹配，再按 **label**（备注名）匹配，
- * 都没有就走 `defaultMode`。
+ * 都没有就走这个账号的 `defaultMode`。
+ *
+ * `accountId`（多开）：给了就查该账号的分账，没配过沿用顶层——同一句调用在单账号
+ * 与多账号下都对。省略时按顶层（旧调用点不必改）。
  *
  * 为什么要按名字兜底：`wechat-watch.json` 时代用户是按显示名手写的（`peers: ["Loop"]`），
  * 首次播种出来的条目 id 就是那个名字。留着这条，迁移不丢策略。
@@ -181,12 +314,14 @@ export interface ResolvedPeerPolicy {
 export function resolvePeerPolicy(
   policy: ChannelPolicy,
   peer: { id?: string; label?: string },
+  accountId?: string | null,
 ): ResolvedPeerPolicy {
+  const effective = policyForAccount(policy, accountId)
   const keys = [peer.id, peer.label]
     .filter((x): x is string => typeof x === 'string' && x.trim().length > 0)
     .map((x) => x.trim().toLowerCase())
   for (const key of keys) {
-    const hit = policy.peers.find(
+    const hit = effective.peers.find(
       (p) =>
         p.id.trim().toLowerCase() === key ||
         (p.label ? p.label.trim().toLowerCase() === key : false),
@@ -202,7 +337,7 @@ export function resolvePeerPolicy(
     }
   }
   return {
-    mode: policy.defaultMode,
+    mode: effective.defaultMode,
     cooldownSeconds: DEFAULT_POLICY_COOLDOWN_S,
     matchedBy: null,
     trigger: 'all',

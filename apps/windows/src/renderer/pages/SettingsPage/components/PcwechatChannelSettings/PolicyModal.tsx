@@ -8,7 +8,7 @@
  * （`list_sessions`，带真名），用户勾名字；wxid 只在名字下面以小字存在，
  * 用来区分同名的人。名单里每条就是「谁 + 怎么处理」。
  */
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '../../../../components/ui/Button/Button'
 import { Input } from '../../../../components/ui/Input/Input'
 import { Select } from '../../../../components/ui/Select/Select'
@@ -18,6 +18,8 @@ import {
   GROUP_ONLY_TRIGGERS,
   KEYWORD_TRIGGERS,
   NON_AGENT_MODES,
+  policyForAccount,
+  type ChannelAccountPolicy,
   type ChannelPeerPolicy,
   type ChannelPolicy,
   type PeerReplyMode,
@@ -108,6 +110,26 @@ function toPeers(rows: DraftPeer[]): ChannelPeerPolicy[] {
 /** 名单里的显示名：有备注名就显示它，wxid 只当副标题 */
 const nameOf = (r: DraftPeer): string => r.label.trim() || r.id
 
+/** 一个账号页签的编辑态（每个微信账号一份） */
+interface AccountDraft {
+  label: string
+  defaultMode: PeerReplyMode
+  rows: DraftPeer[]
+}
+
+const emptyDraft = (defaultMode: PeerReplyMode = 'notify'): AccountDraft => ({
+  label: '',
+  defaultMode,
+  rows: [],
+})
+
+/** 账号键大小写不敏感（wxid 大小写混写见得多），找到就用已有那份 */
+function findDraftKey(map: Record<string, AccountDraft>, key: string): string | undefined {
+  if (!key) return map[''] ? '' : undefined
+  if (map[key]) return key
+  return Object.keys(map).find((k) => k && k.toLowerCase() === key.toLowerCase())
+}
+
 interface PolicyModalProps {
   open: boolean
   onClose: () => void
@@ -116,9 +138,20 @@ interface PolicyModalProps {
 }
 
 export const PolicyModal: React.FC<PolicyModalProps> = ({ open, onClose, onSaved }) => {
-  const [accountId, setAccountId] = useState('')
-  const [defaultMode, setDefaultMode] = useState<PeerReplyMode>('notify')
-  const [rows, setRows] = useState<DraftPeer[]>([])
+  // 本机登录过的微信号（含没在跑的）；读不到就没有页签可选
+  const [accounts, setAccounts] = useState<Array<{ wxid: string; running: boolean }>>([])
+  const [accountsError, setAccountsError] = useState<string | null>(null)
+  // 当前页签 = wxid（没有「默认」页签：每个号各配各的）
+  const [active, setActive] = useState('')
+  const activeRef = useRef('')
+  const [drafts, setDrafts] = useState<Record<string, AccountDraft>>({})
+  // 只有**改过**或**原本就有**的账号才落单独一份
+  const [touched, setTouched] = useState<Set<string>>(new Set())
+  const touchedRef = useRef(touched)
+  // 账号自己的显示名（从该号的会话列表里「自己那条」读）；页签显示「名字（wxid）」
+  const [accountNames, setAccountNames] = useState<Record<string, string>>({})
+  // 顶层策略不在界面里编辑（没有默认页签了），保存时原样带上
+  const [basePolicy, setBasePolicy] = useState<ChannelPolicy | null>(null)
   const [checked, setChecked] = useState<Set<string>>(new Set())
   const [batchMode, setBatchMode] = useState<PeerReplyMode>('draft')
 
@@ -134,25 +167,71 @@ export const PolicyModal: React.FC<PolicyModalProps> = ({ open, onClose, onSaved
   const [pickerChecked, setPickerChecked] = useState<Set<string>>(new Set())
   const [search, setSearch] = useState('')
 
-  const applyPolicy = useCallback((p: ChannelPolicy) => {
-    setAccountId(p.accountId ?? '')
-    setDefaultMode(p.defaultMode)
-    setRows(toDraft(p.peers))
-    setChecked(new Set())
-  }, [])
+  const applyLoaded = useCallback(
+    (p: ChannelPolicy, list: Array<{ wxid: string; running: boolean }>) => {
+      const next: Record<string, AccountDraft> = {}
+      const explicit = new Set<string>()
+      for (const [key, value] of Object.entries(p.accounts ?? {})) {
+        if (!key.trim()) continue
+        next[key] = {
+          label: value.label ?? '',
+          defaultMode: value.defaultMode,
+          rows: toDraft(value.peers),
+        }
+        explicit.add(key.trim().toLowerCase())
+      }
+      // 没单独配过的号也物化一份「当前生效的策略」，切页签看到的就是它自己的数据
+      for (const a of list) {
+        if (findDraftKey(next, a.wxid) !== undefined) continue
+        const eff = policyForAccount(p, a.wxid)
+        next[a.wxid] = {
+          label: eff.label ?? '',
+          defaultMode: eff.defaultMode,
+          rows: toDraft(eff.peers),
+        }
+      }
+      const first = list[0]?.wxid ?? Object.keys(next)[0] ?? ''
+      activeRef.current = first
+      setBasePolicy(p)
+      setAccounts(list)
+      setDrafts(next)
+      setTouched(explicit)
+      setActive(first)
+      setChecked(new Set())
+      setCandidates(null)
+      setPickerOpen(false)
+    },
+    [],
+  )
 
-  // 每次打开都重新读一遍：用户可能在别处（或另一个窗口）改过
+  useEffect(() => {
+    touchedRef.current = touched
+  }, [touched])
+
+  // 每次打开都重新读一遍：用户可能在别处（或另一个窗口）改过；
+  // 账号列表与策略并行读，账号读失败不影响策略页（只是不能按号分账）
   useEffect(() => {
     if (!open) return
     let cancelled = false
     setLoading(true)
     setErrorMsg(null)
+    setAccountsError(null)
     setPickerOpen(false)
     setCandidates(null)
     void (async () => {
       try {
         const p = await window.channelService?.getPolicy?.('pcwechat')
-        if (!cancelled && p) applyPolicy(p)
+        let accountRes:
+          | { accounts?: Array<{ wxid: string; running: boolean }>; error?: string }
+          | undefined
+        try {
+          accountRes = await window.channelService?.listWechatAccounts?.()
+        } catch (e: unknown) {
+          accountRes = { accounts: [], error: e instanceof Error ? e.message : String(e) }
+        }
+        if (cancelled) return
+        if (p) applyLoaded(p, accountRes?.accounts ?? [])
+        if (accountRes?.error) setAccountsError(accountRes.error)
       } catch (e: unknown) {
         if (!cancelled) setErrorMsg(e instanceof Error ? e.message : String(e))
       } finally {
@@ -162,13 +241,167 @@ export const PolicyModal: React.FC<PolicyModalProps> = ({ open, onClose, onSaved
     return () => {
       cancelled = true
     }
-  }, [open, applyPolicy])
+  }, [open, applyLoaded])
+
+  // 当前页签的编辑态（每个号一份，互不影响）
+  const currentDraft = useMemo(() => {
+    const key = findDraftKey(drafts, active)
+    return (key !== undefined ? drafts[key] : undefined) ?? emptyDraft()
+  }, [drafts, active])
+  const { rows, defaultMode } = currentDraft
+
+  /** 改当前页签；账号页签第一次改动时物化成它自己的那一份 */
+  const mutateCurrent = useCallback(
+    (mut: (d: AccountDraft) => AccountDraft) => {
+      const key = active
+      setDrafts((prev) => {
+        const found = findDraftKey(prev, key)
+        const seed = found !== undefined ? prev[found] : emptyDraft()
+        const next = { ...prev }
+        // 同名不同大小写的键只留一个（否则保存时会写出两份账号分账）
+        for (const k of Object.keys(next)) {
+          if (k && k.toLowerCase() === key.toLowerCase() && k !== key) delete next[k]
+        }
+        next[key] = mut(seed ?? emptyDraft())
+        return next
+      })
+      if (key) {
+        const lower = key.toLowerCase()
+        setTouched((prev) => (prev.has(lower) ? prev : new Set(prev).add(lower)))
+      }
+    },
+    [active],
+  )
+
+  const setRows = useCallback(
+    (updater: (prev: DraftPeer[]) => DraftPeer[]) => {
+      mutateCurrent((d) => ({ ...d, rows: updater(d.rows) }))
+    },
+    [mutateCurrent],
+  )
+
+  const setDefaultMode = useCallback(
+    (mode: PeerReplyMode) => mutateCurrent((d) => ({ ...d, defaultMode: mode })),
+    [mutateCurrent],
+  )
+
+  /** 读这个号自己的会话列表：拿「自己那条」的显示名，也顺手备好挑人面板的数据 */
+  const fetchAccountMeta = useCallback(async (wxid: string) => {
+    if (!wxid) return null
+    try {
+      const res = await window.channelService?.listWechatContacts?.(wxid)
+      const self = (res?.contacts ?? []).find((c) => c.id.toLowerCase() === wxid.toLowerCase())
+      const name = self?.label.trim()
+      if (name && name.toLowerCase() !== wxid.toLowerCase()) {
+        setAccountNames((prev) =>
+          prev[wxid.toLowerCase()] ? prev : { ...prev, [wxid.toLowerCase()]: name },
+        )
+      }
+      return res ?? null
+    } catch {
+      return null
+    }
+  }, [])
+
+  /** 切页签时重新拉这个号的数据（策略 + 会话）；有未保存编辑的页签不覆盖 */
+  const refreshAccount = useCallback(
+    async (wxid: string) => {
+      if (!wxid) return
+      const lower = wxid.toLowerCase()
+      const [res, p] = await Promise.all([
+        fetchAccountMeta(wxid),
+        Promise.resolve(window.channelService?.getPolicy?.('pcwechat')).catch(() => undefined),
+      ])
+      if (p) {
+        setBasePolicy(p)
+        setDrafts((prev) => {
+          if (touchedRef.current.has(lower)) return prev
+          const key = findDraftKey(prev, wxid) ?? wxid
+          const eff = policyForAccount(p, wxid)
+          return {
+            ...prev,
+            [key]: {
+              label: eff.label ?? '',
+              defaultMode: eff.defaultMode,
+              rows: toDraft(eff.peers),
+            },
+          }
+        })
+      }
+      if (activeRef.current === lower && res) {
+        setCandidates(res.contacts)
+        setCandidateError(res.error ?? null)
+      }
+    },
+    [fetchAccountMeta],
+  )
+
+  const switchAccount = useCallback(
+    (key: string) => {
+      activeRef.current = key
+      setActive(key)
+      setChecked(new Set())
+      setPickerOpen(false)
+      setCandidates(null)
+      setCandidateError(null)
+      // 每个页签的数据各拉各的：切过去就重新读这个号
+      void refreshAccount(key)
+    },
+    [refreshAccount],
+  )
+
+  // 打开弹窗后把每个号的显示名先读出来（页签要用；不阻塞弹窗）
+  useEffect(() => {
+    if (!open) return
+    for (const a of accounts) void fetchAccountMeta(a.wxid)
+  }, [open, accounts, fetchAccountMeta])
+
+  /** 这个号改回沿用默认：删掉它单独的配置（下次保存就不再带这一节） */
+  const resetAccount = useCallback(() => {
+    if (!active) return
+    const found = findDraftKey(drafts, active)
+    setDrafts((prev) => {
+      if (found === undefined) return prev
+      const next = { ...prev }
+      delete next[found]
+      // 删掉单独配置后，界面立刻回到它当前生效的那份（顶层），不是空表
+      if (basePolicy) {
+        const eff = policyForAccount(basePolicy, active)
+        next[active] = {
+          label: eff.label ?? '',
+          defaultMode: eff.defaultMode,
+          rows: toDraft(eff.peers),
+        }
+      }
+      return next
+    })
+    const lower = active.toLowerCase()
+    setTouched((prev) => {
+      if (!prev.has(lower)) return prev
+      const next = new Set(prev)
+      next.delete(lower)
+      return next
+    })
+  }, [active, drafts, basePolicy])
+
+  // 页签 = 本机读到的账号 ∪ 已经单独配过的账号（离线/删号的也要能编辑、能清掉）
+  const accountTabs = useMemo(() => {
+    const out = [...accounts]
+    const seen = new Set(accounts.map((a) => a.wxid.toLowerCase()))
+    for (const key of Object.keys(drafts)) {
+      if (!key || seen.has(key.toLowerCase())) continue
+      out.push({ wxid: key, running: false })
+      seen.add(key.toLowerCase())
+    }
+    return out
+  }, [accounts, drafts])
 
   const loadCandidates = useCallback(async () => {
     setCandidateLoading(true)
     setCandidateError(null)
     try {
-      const res = await window.channelService?.listWechatContacts?.()
+      // 多开：候选是**这个号**自己的会话列表
+      const res = await window.channelService?.listWechatContacts?.(active || undefined)
       setCandidates(res?.contacts ?? [])
       if (res?.error) setCandidateError(res.error)
       setPickerChecked(new Set())
@@ -178,7 +411,7 @@ export const PolicyModal: React.FC<PolicyModalProps> = ({ open, onClose, onSaved
     } finally {
       setCandidateLoading(false)
     }
-  }, [])
+  }, [active])
 
   const openPicker = useCallback(() => {
     setPickerOpen(true)
@@ -249,22 +482,33 @@ export const PolicyModal: React.FC<PolicyModalProps> = ({ open, onClose, onSaved
     setSaving(true)
     setErrorMsg(null)
     try {
-      const saved = await window.channelService?.setPolicy?.('pcwechat', {
-        ...(accountId.trim() ? { accountId: accountId.trim() } : {}),
-        defaultMode,
-        peers: toPeers(rows),
-      })
-      if (saved) {
-        applyPolicy(saved)
-        onSaved?.(saved)
+      // 只落**改过或原本就有**的账号分账；没动过的继续沿用顶层
+      const nextAccounts: Record<string, ChannelAccountPolicy> = {}
+      for (const [key, d] of Object.entries(drafts)) {
+        if (!key) continue
+        if (!touched.has(key.trim().toLowerCase())) continue
+        nextAccounts[key] = {
+          ...(d.label.trim() ? { label: d.label.trim() } : {}),
+          defaultMode: d.defaultMode,
+          peers: toPeers(d.rows),
+        }
       }
+      // 顶层策略（老字段与未单独配置账号的回落）界面上不再编辑，原样保留
+      const payload: ChannelPolicy = {
+        ...(basePolicy?.accountId ? { accountId: basePolicy.accountId } : {}),
+        defaultMode: basePolicy?.defaultMode ?? 'notify',
+        peers: basePolicy?.peers ?? [],
+        ...(Object.keys(nextAccounts).length ? { accounts: nextAccounts } : {}),
+      }
+      const saved = await window.channelService?.setPolicy?.('pcwechat', payload)
+      if (saved) onSaved?.(saved)
       onClose()
     } catch (e: unknown) {
       setErrorMsg(e instanceof Error ? e.message : String(e))
     } finally {
       setSaving(false)
     }
-  }, [accountId, defaultMode, rows, applyPolicy, onSaved, onClose])
+  }, [basePolicy, drafts, touched, onSaved, onClose])
 
   const footer = (
     <>
@@ -291,30 +535,74 @@ export const PolicyModal: React.FC<PolicyModalProps> = ({ open, onClose, onSaved
           <div style={{ color: 'var(--mt-error)', fontSize: 13 }}>{errorMsg}</div>
         )}
 
-        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-          <div style={{ flex: '1 1 220px', minWidth: 200 }}>
-            <Input
-              label="账号（备注）"
-              value={accountId}
-              onChange={(e) => setAccountId(e.target.value)}
-              placeholder="留空即本机登录的那个号"
-              disabled={loading}
-            />
+        {/* 多开：每个微信号一个页签，名单与名单外处置各管各的 */}
+        <div>
+          <div style={{ fontSize: 12, color: 'var(--mt-fg-3)', marginBottom: 6 }}>按账号配置</div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {accountTabs.map((a) => {
+              const key = findDraftKey(drafts, a.wxid)
+              const remark = key !== undefined ? drafts[key]?.label.trim() : ''
+              // 页签上要能区分账号：微信里的名字 + wxid（名字读不到就退回备注）
+              const name = accountNames[a.wxid.toLowerCase()] || remark
+              return (
+                <Button
+                  key={a.wxid}
+                  size="sm"
+                  variant={active.toLowerCase() === a.wxid.toLowerCase() ? 'primary' : 'ghost'}
+                  onClick={() => switchAccount(a.wxid)}
+                  disabled={loading}
+                  title={name ? `${name}（${a.wxid}）` : a.wxid}
+                >
+                  {name ? `${name}（${a.wxid}）` : a.wxid}
+                  {a.running ? '' : ' · 离线'}
+                </Button>
+              )
+            })}
+            {accountTabs.length === 0 && !loading && (
+              <span style={{ fontSize: 12, color: 'var(--mt-fg-3)' }}>
+                没读到本机微信账号；确认微信已登录后再打开这个弹窗
+              </span>
+            )}
           </div>
-          <div style={{ flex: '1 1 200px', minWidth: 180 }}>
-            <Select
-              label="名单外的人怎么处理"
-              value={defaultMode}
-              options={DEFAULT_MODE_OPTIONS}
-              onChange={(e) => setDefaultMode(e.target.value as PeerReplyMode)}
-              disabled={loading}
-            />
-          </div>
+          {accountsError && (
+            <p style={{ margin: '6px 0 0', color: 'var(--mt-fg-3)', fontSize: 12 }}>
+              {accountsError}
+            </p>
+          )}
         </div>
+
+        {active && (
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+            <div style={{ flex: '1 1 220px', minWidth: 200 }}>
+              <Input
+                label="账号备注（如「工作号」）"
+                value={currentDraft.label}
+                onChange={(e) => mutateCurrent((d) => ({ ...d, label: e.target.value }))}
+                placeholder="只给你自己看；留空就显示 wxid"
+                disabled={loading}
+              />
+            </div>
+            <div style={{ flex: '1 1 200px', minWidth: 180 }}>
+              <Select
+                label="名单外的人怎么处理"
+                value={defaultMode}
+                options={DEFAULT_MODE_OPTIONS}
+                onChange={(e) => setDefaultMode(e.target.value as PeerReplyMode)}
+                disabled={loading}
+              />
+            </div>
+            {touched.has(active.toLowerCase()) && (
+              <Button size="sm" variant="ghost" onClick={resetAccount} disabled={loading}>
+                改回沿用默认
+              </Button>
+            )}
+          </div>
+        )}
         <p style={{ margin: 0, color: 'var(--mt-fg-3)', fontSize: 12 }}>
-          账号只给你自己区分是哪个微信（实际发送永远走本机此刻登录的那个）；
+          每个微信号一个页签，名单与档位各配各的（工作号只提醒、生活号直接代回）；
+          <strong>切换页签会重新读这个号的会话与策略</strong>，没保存的改动留在原页签里。
           名单外的人一律<strong>不叫模型</strong>（不烧 token）——最多弹条通知。
-          想让助手回谁，把人加进下面的名单。
+          回复永远从收到消息的那个号发出。
         </p>
 
         <div style={{ borderTop: '1px solid var(--mt-border-hairline)', paddingTop: 12 }}>

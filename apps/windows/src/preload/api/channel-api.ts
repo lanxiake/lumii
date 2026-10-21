@@ -77,10 +77,16 @@ export const channelApi = {
   setPolicy: (channel: string, policy: ChannelPolicy): Promise<ChannelPolicy> =>
     ipcRenderer.invoke('channel:setPolicy', channel, policy),
   /** 本机微信可选的人员名单（真名 + wxid；读不到微信时只回已配过的条目并在 error 里说明） */
-  listWechatContacts: (): Promise<{
+  listWechatContacts: (account?: string): Promise<{
     contacts: Array<{ id: string; label: string; isGroup: boolean }>
     error?: string
-  }> => ipcRenderer.invoke('channel:listWechatContacts'),
+  }> => ipcRenderer.invoke('channel:listWechatContacts', account),
+  /** 多开：本机登录过的微信号（含没在跑的），设置页按账号分账用 */
+  listWechatAccounts: (): Promise<{
+    active?: string
+    accounts: Array<{ wxid: string; running: boolean; pid?: number }>
+    error?: string
+  }> => ipcRenderer.invoke('channel:listWechatAccounts'),
   /** 本机微信环境自检（MCP check_env + locate_db；确定性、不叫模型） */
   wechatSelfcheck: (): Promise<WechatSelfcheckResult | null> => ipcRenderer.invoke('wechat:selfcheck'),
   /** 一键修复本机微信环境（还原/规范化窗口 + 重探数据目录），随后返回复检结果 */

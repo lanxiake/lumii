@@ -13,7 +13,11 @@ import { Button } from '../../../../components/ui/Button/Button'
 import { ChannelCard, type ChannelMetaItem } from '../ChannelCard'
 import { ChannelBrandIcon } from '../../../../components/brand/ChannelBrandIcon'
 import type { ChannelSnapshot } from '../ChannelsSection/useChannelSnapshots'
-import type { ChannelPolicy, PeerReplyMode } from '../../../../../shared/channel-policy'
+import {
+  allPolicyPeers,
+  type ChannelPolicy,
+  type PeerReplyMode,
+} from '../../../../../shared/channel-policy'
 import type { WechatSelfcheckResult } from '../../../../../preload/api/channel-api'
 import { PolicyModal, MODE_OPTIONS } from './PolicyModal'
 
@@ -103,14 +107,17 @@ export const PcwechatChannelSettings: React.FC<PcwechatChannelSettingsProps> = (
   const handleSaved = useCallback((p: ChannelPolicy) => setPolicy(p), [])
 
   const connected = snapshot?.connected ?? false
-  // 能被代回的人数 = 名单里除黑名单之外的（与出站 provider 的 peers 同一口径）
-  const sendable = policy?.peers.filter((p) => p.mode !== 'ignore') ?? []
+  // 能被代回的人数 = **各账号名单的并集**里除黑名单之外的（与出站 provider 同一口径）
+  const sendable = policy ? allPolicyPeers(policy).filter((p) => p.mode !== 'ignore') : []
+  const accountSections = policy ? Object.entries(policy.accounts ?? {}) : []
 
   const meta: ChannelMetaItem[] = [
     { label: '在线', value: connected ? '本机微信已就绪' : '本机微信未就绪（MCP 没连上）' },
     {
       label: '可代回',
-      value: sendable.length === 0 ? '还没有人' : `${sendable.length} 人`,
+      value:
+        (sendable.length === 0 ? '还没有人' : `${sendable.length} 人`) +
+        (accountSections.length > 0 ? ` · ${accountSections.length} 个号单独配置` : ''),
     },
     {
       label: '名单外的人',
@@ -121,10 +128,18 @@ export const PcwechatChannelSettings: React.FC<PcwechatChannelSettingsProps> = (
   const summary =
     sendable.length === 0
       ? '还没配人：助手不会替任何人回消息'
-      : sendable
-          .slice(0, 4)
-          .map((p) => `${p.label ?? p.id}·${MODE_LABELS.get(p.mode) ?? p.mode}`)
-          .join('，') + (sendable.length > 4 ? ` 等 ${sendable.length} 人` : '')
+      : accountSections.length > 0
+        ? accountSections
+            .slice(0, 3)
+            .map(([wxid, a]) => {
+              const n = a.peers.filter((p) => p.mode !== 'ignore').length
+              return `${a.label || wxid}：${n} 人`
+            })
+            .join('，') + (accountSections.length > 3 ? ` 等 ${accountSections.length} 个号` : '')
+        : sendable
+            .slice(0, 4)
+            .map((p) => `${p.label ?? p.id}·${MODE_LABELS.get(p.mode) ?? p.mode}`)
+            .join('，') + (sendable.length > 4 ? ` 等 ${sendable.length} 人` : '')
 
   // —— 环境自检（确定性：MCP check_env + locate_db；换机/自定义数据目录后一眼看出哪步不对）——
   const envOk = check?.env?.ok === true

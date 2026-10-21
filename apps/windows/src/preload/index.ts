@@ -1369,8 +1369,13 @@ declare global {
       }) => Promise<unknown>
       getPolicy: (channel: string) => Promise<ChannelPolicy>
       setPolicy: (channel: string, policy: ChannelPolicy) => Promise<ChannelPolicy>
-      listWechatContacts: () => Promise<{
+      listWechatContacts: (account?: string) => Promise<{
         contacts: Array<{ id: string; label: string; isGroup: boolean }>
+        error?: string
+      }>
+      listWechatAccounts: () => Promise<{
+        active?: string
+        accounts: Array<{ wxid: string; running: boolean; pid?: number }>
         error?: string
       }>
       wechatSelfcheck: () => Promise<WechatSelfcheckResult | null>

@@ -146,20 +146,52 @@ export function registerChannelIpcHandlers(): void {
   ipcMain.handle('channel:setPolicy', (_event, channel: unknown, policy: unknown) =>
     getChannelPolicyStore().set(String(channel ?? ''), policy as ChannelPolicy),
   )
-  // 本机微信「从微信里挑人」：候选 = 微信会话（真名 + wxid）∪ 已配过的条目
+  // 本机微信「从微信里挑人」：候选 = 微信会话（真名 + wxid）∪ 已配过的条目。
+  // `account` 限定读哪个号——多开时每个号的会话列表不一样。
   ipcMain.handle(
     'channel:listWechatContacts',
-    (): Promise<WechatContactsResult> =>
-      loadWechatContacts({
-        mcpServer: WECHAT_WATCH_MCP_SERVER,
-        callMcpTool: (server, tool, args) => {
-          const bridge = deps!.getAgentRuntimeBridge()
-          if (!bridge) throw new Error('Agent Runtime 尚未就绪，读不了微信会话')
-          return bridge.callMcpTool(server, tool, args)
+    (_event, account?: unknown): Promise<WechatContactsResult> =>
+      loadWechatContacts(
+        {
+          mcpServer: WECHAT_WATCH_MCP_SERVER,
+          callMcpTool: (server, tool, args) => {
+            const bridge = deps!.getAgentRuntimeBridge()
+            if (!bridge) throw new Error('Agent Runtime 尚未就绪，读不了微信会话')
+            return bridge.callMcpTool(server, tool, args)
+          },
+          getPolicy: () => getChannelPolicyStore().get(PCWECHAT_CHANNEL),
         },
-        getPolicy: () => getChannelPolicyStore().get(PCWECHAT_CHANNEL),
-      }),
+        typeof account === 'string' && account.trim() ? account.trim() : undefined,
+      ),
   )
+
+  // 多开：设置页的账号页签要列出本机有哪些号（含没在跑的）。读不到就空表 + 原因，
+  // 界面退回「只配默认」——不能因为 MCP 没连上就让策略页打不开。
+  ipcMain.handle('channel:listWechatAccounts', async () => {
+    const bridge = deps!.getAgentRuntimeBridge()
+    if (!bridge) return { accounts: [], error: 'Agent Runtime 尚未就绪' }
+    try {
+      const raw = await bridge.callMcpTool(WECHAT_WATCH_MCP_SERVER, 'list_accounts', {})
+      const parsed = JSON.parse(raw) as { active?: unknown; accounts?: unknown }
+      const accounts = (Array.isArray(parsed.accounts) ? parsed.accounts : [])
+        .filter((a): a is Record<string, unknown> => !!a && typeof a === 'object')
+        .filter((a) => typeof a.wxid === 'string' && a.wxid.trim().length > 0)
+        .map((a) => ({
+          wxid: String(a.wxid),
+          running: a.running !== false,
+          ...(typeof a.pid === 'number' ? { pid: a.pid } : {}),
+        }))
+      return {
+        ...(typeof parsed.active === 'string' && parsed.active ? { active: parsed.active } : {}),
+        accounts,
+      }
+    } catch (err) {
+      return {
+        accounts: [],
+        error: `读微信账号失败：${err instanceof Error ? err.message : String(err)}`,
+      }
+    }
+  })
 
   // === 本机微信环境自检（确定性：check_env + locate_db；不叫模型） ===
   const withBridge =
