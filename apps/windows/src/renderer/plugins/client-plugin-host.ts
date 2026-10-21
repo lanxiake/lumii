@@ -339,12 +339,35 @@ async function syncInner(): Promise<void> {
   const list = await fetchList()
   const seen = new Set<string>()
 
+  /**
+   * 清单里的**集合**变了（插件被加进来 / 删掉）→ 清掉失败记录。
+   *
+   * 为什么：`failedRevision` 只认「自己文件的 revision」。一个插件因为**和别的插件撞
+   * 槽位 id** 而失败时，对方的文件没变、自己的也没变——用户删掉冲突方后，
+   * 它会永远停在失败态（2026-10-21 探针实测）。集合一变就整体重试一次，代价可忽略。
+   */
+  const previousIds = new Set(descriptors.keys())
+  const nextIds = new Set(list.map((d) => d.id))
+  const setChanged =
+    previousIds.size !== nextIds.size || [...nextIds].some((id) => !previousIds.has(id))
+  if (setChanged && previousIds.size > 0) failedRevision.clear()
+
   descriptors.clear()
   for (const descriptor of list) descriptors.set(descriptor.id, descriptor)
+  for (const descriptor of list) seen.add(descriptor.id)
+
+  /**
+   * **先卸掉清单里消失的，再加载**。
+   *
+   * 顺序不能反：被删掉的插件占着的槽位 id 必须在本轮就释放，
+   * 否则同轮里因为撞 id 而失败的插件会再失败一次（实测：删掉冲突方后 B 仍然报
+   * 「已存在 id pair.test」，因为清理放在了加载之后）。
+   */
+  for (const id of [...loaded.keys()]) {
+    if (!seen.has(id)) unload(id)
+  }
 
   for (const descriptor of list) {
-    seen.add(descriptor.id)
-
     // 被禁用：立刻卸掉。开关写在 extensions.json，主进程下一轮 list.json 就带过来——
     // 这里不需要额外的 IPC，用户点完开关 ≤1 秒就见效。
     if (!descriptor.enabled) {
@@ -366,9 +389,6 @@ async function syncInner(): Promise<void> {
     }
   }
 
-  for (const id of [...loaded.keys()]) {
-    if (!seen.has(id)) unload(id)
-  }
   for (const id of [...errors.keys()]) {
     if (!seen.has(id)) errors.delete(id)
   }
