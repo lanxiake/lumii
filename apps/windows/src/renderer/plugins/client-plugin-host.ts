@@ -227,13 +227,21 @@ function injectScript(url: string): Promise<ScriptLoadResult> {
 
 function unload(pluginId: string): void {
   const entry = loaded.get(pluginId)
-  if (!entry) return
-  loaded.delete(pluginId)
-  try {
-    entry.dispose()
-  } catch (err) {
-    console.error(`[client-plugin] ${pluginId} 卸载失败`, err)
+  if (entry) {
+    loaded.delete(pluginId)
+    try {
+      entry.dispose()
+    } catch (err) {
+      console.error(`[client-plugin] ${pluginId} 卸载失败`, err)
+    }
   }
+  /**
+   * ⚠ **不能因为「没有 loaded 条目」就提前返回**：激活中途抛错时，工厂已经注册了一部分
+   * 槽位（有的成功、有的撞 id），而 `loaded` 只在激活成功后才有值。
+   * 早退会让这些半截条目永久留在注册表里——下次重试会撞上**自己上次留下的** id，
+   * 于是这个插件从此永远起不来（2026-10-21 探针实测：冲突一次后重试报
+   * `slot "dashboard.grid" 里已存在 id "probe.slots.grid"`）。
+   */
   for (const off of disposers.get(pluginId) ?? []) {
     try {
       off()
