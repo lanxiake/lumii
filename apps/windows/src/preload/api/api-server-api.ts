@@ -28,8 +28,4 @@ export const apiServerApi = {
   refreshDashboardFeed: () => ipcRenderer.invoke('dashboard-feed:refresh'),
   setActiveDashboardFeed: (feedId: string) =>
     ipcRenderer.invoke('dashboard-feed:set-active', feedId),
-
-  // 维护体检报告（概览页「资产体检」卡片）
-  getMaintenanceReportOverview: (limit?: number) =>
-    ipcRenderer.invoke('maintenance-report:overview', limit),
 }

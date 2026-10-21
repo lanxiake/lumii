@@ -3,17 +3,17 @@
 .card {
   margin: 8px 0;
   padding: 12px 14px;
-  border: 1px solid color-mix(in srgb, var(--mt-success, #3d9a6a) 35%, var(--mt-border-hairline));
+  border: 1px solid color-mix(in srgb, var(--mt-success) 35%, var(--mt-border-hairline));
   border-radius: 10px;
-  background: color-mix(in srgb, var(--mt-success, #3d9a6a) 8%, var(--mt-surface-3));
+  background: color-mix(in srgb, var(--mt-success) 8%, var(--mt-surface-3));
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
 .cardGate {
-  border-color: color-mix(in srgb, var(--mt-warning, #c9a227) 40%, var(--mt-border-hairline));
-  background: color-mix(in srgb, var(--mt-warning, #c9a227) 8%, var(--mt-surface-3));
+  border-color: color-mix(in srgb, var(--mt-warning) 40%, var(--mt-border-hairline));
+  background: color-mix(in srgb, var(--mt-warning) 8%, var(--mt-surface-3));
 }
 
 .cardFailed {
@@ -36,14 +36,14 @@
 .badge {
   padding: 1px 8px;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--mt-success, #3d9a6a) 18%, transparent);
-  color: var(--mt-success, #3d9a6a);
+  background: color-mix(in srgb, var(--mt-success) 18%, transparent);
+  color: var(--mt-success);
   font-weight: 500;
 }
 
 .badgeGate {
-  background: color-mix(in srgb, var(--mt-warning, #c9a227) 18%, transparent);
-  color: var(--mt-warning, #c9a227);
+  background: color-mix(in srgb, var(--mt-warning) 18%, transparent);
+  color: var(--mt-warning);
 }
 
 .badgeFailed {

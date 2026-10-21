@@ -22,9 +22,20 @@ function stubModelManager(): VoiceModelManager {
   } as unknown as VoiceModelManager
 }
 
+/**
+ * 真去连 Edge TTS 会让这两条用例依赖外网（2026-10 起稳定 403，全量天天红）。
+ * 被测的是**推送守卫**，不是 TTS 建连——所以把 provider 创建打桩：
+ * `emitRuntimeStatus` 仍然照常发事件，那才是这两条要断言的东西。
+ */
+function stubTtsProvider(svc: VoiceCallService): void {
+  vi.spyOn(svc as unknown as { createTtsProviderFrom: () => Promise<unknown> }, 'createTtsProviderFrom')
+    .mockResolvedValue({ destroy: () => {} })
+}
+
 describe('VoiceCallService 窗口为空的推送守卫', () => {
   it('无头（win=null）：ensureTtsInitialized 不因推送空引用失败', async () => {
     const svc = new VoiceCallService(null, async () => {}, stubModelManager())
+    stubTtsProvider(svc)
     await expect(svc.ensureTtsInitialized()).resolves.toBeUndefined()
   })
 
@@ -32,6 +43,7 @@ describe('VoiceCallService 窗口为空的推送守卫', () => {
     const send = vi.fn()
     const fakeWin = { isDestroyed: () => false, webContents: { send } } as never
     const svc = new VoiceCallService(fakeWin, async () => {}, stubModelManager())
+    stubTtsProvider(svc)
 
     await svc.ensureTtsInitialized()
 

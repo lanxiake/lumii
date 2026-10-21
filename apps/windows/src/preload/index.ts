@@ -18,7 +18,6 @@ import type { FEATURE_BLOCK_MESSAGES } from '../shared/feature-availability'
 // 仅类型引用，编译期擦除，不会把主进程代码打进 preload
 import type { UsageSummary } from '../main/usage-store'
 import type { DashboardFeedSnapshot, DashboardFeedPage, DashboardFeedMeta, DashboardFeedBatchPage } from '../main/dashboard-feed-store'
-import type { MaintenanceReport, FindingDiff } from '../main/maintenance-report-store'
 import type { LatencyView } from '../main/provider-latency'
 import type { PingReport } from '../shared/net-latency-types'
 import type { PerformanceReport, IpcAggregateEvent, MemorySnapshotEvent, RendererMemorySample } from '../main/perf/performance-types'
@@ -94,13 +93,6 @@ function subscribeVoiceEvent(callback: (event: unknown) => void): () => void {
 }
 
 import type { ProjectGitStatus } from '../main/project-git/types'
-
-/** 概览页「资产体检」卡片一次拉取的载荷：最近几期 + 最新一期对上一期的差分 */
-export interface MaintenanceReportOverview {
-  reports: MaintenanceReport[]
-  /** 只有一期报告时为 null（没有可比对象） */
-  diff: FindingDiff | null
-}
 
 /**
  * ACP 项目条目（与 main/config/types.ts 的 CodingDevProject 对齐）
@@ -302,13 +294,6 @@ export interface ElectronAPI {
   }
 
   /** 维护体检报告（概览页「资产体检」卡片） */
-  maintenanceReport: {
-    overview: (limit?: number) => Promise<{
-      success: boolean
-      data?: MaintenanceReportOverview | null
-      error?: string
-    }>
-  }
 
   // 窗口操作
   window: {
@@ -1103,10 +1088,6 @@ const electronAPI: ElectronAPI = {
   },
 
   /** 维护体检报告：最近 N 期 + 最新一期与上一期的差分 */
-  maintenanceReport: {
-    overview: (limit?: number) => apiServerApi.getMaintenanceReportOverview(limit),
-  },
-
   // 窗口操作 API
   window: windowApi,
 

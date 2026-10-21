@@ -33,7 +33,6 @@ import {
   newsFeedConversationTitle,
   resolveNewsFeedJob,
 } from '../news-feed-job'
-import { diffFindings, listMaintenanceReports } from '../maintenance-report-store'
 import {
   readActiveDashboardFeedSnapshot,
   readActiveDashboardFeedId,
@@ -277,27 +276,14 @@ export function registerApiIpcHandlers(): void {
   })
 
   /**
-   * 维护体检报告（概览页「资产体检」卡片）。
+   * 维护体检报告**没有** IPC 读口：概览页那张「资产体检」卡片已按需求整段移除
+   * （见 `DashboardPage/components/RecentFocus` 的头注释）。
+   * 报告本身仍由「灵栖维护」产出，模型通过 `maintenance_report_read` 工具读——
+   * 那条路走 `bridge-maintenance-tools`，不经过渲染层。
    *
-   * 一次返回最近 N 期 + 「最新一期 vs 上一期」的差分：差分在主进程算，
-   * 因为它依赖 findings 的稳定 key 语义（`diffFindings`），渲染层不该重复实现一遍。
+   * 这里曾留着一个 `maintenance-report:overview` 处理器与对应的 preload 方法，
+   * 消费者删掉后它就成了死链路（接线守卫 ⑥ 报的正是它），已一并删除。
    */
-  ipcMain.handle('maintenance-report:overview', async (_event, limit?: number) => {
-    try {
-      const reports = listMaintenanceReports({ limit: Math.max(1, Math.min(10, Math.trunc(limit ?? 5))) })
-      const [latest, previous] = reports
-      return {
-        success: true,
-        data: {
-          reports,
-          diff: latest && previous ? diffFindings(previous.findings, latest.findings) : null,
-        },
-      }
-    } catch (error) {
-      console.error('[IPC] maintenance-report:overview 失败:', error)
-      return { success: false, error: error instanceof Error ? error.message : String(error) }
-    }
-  })
 
   // === 开机启动 ===
   // 平台差异收敛到 platform/autostart.ts：Windows/macOS 走 Electron 的
