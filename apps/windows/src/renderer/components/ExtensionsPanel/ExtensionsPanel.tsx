@@ -22,7 +22,7 @@ interface ExtensionInfo {
   name: string
   version: string
   kind: 'builtin' | 'external'
-  origin: 'builtin' | 'user' | 'agent'
+  origin: 'builtin' | 'user' | 'agent' | 'official'
   requires?: { assets?: string[]; optional?: boolean }
   dir?: string
   enabled: boolean
@@ -47,9 +47,10 @@ const STATE_LABELS: Record<string, string> = {
 
 const CREATE_KEY = '__create__'
 
-/** 来源徽标：内置 / 外部 / Agent 自举开发 */
-function originLabel(origin: 'builtin' | 'user' | 'agent'): string {
+/** 来源徽标：内置 / 官方 / 外部 / Agent 自举开发 */
+function originLabel(origin: 'builtin' | 'user' | 'agent' | 'official'): string {
   if (origin === 'builtin') return '内置'
+  if (origin === 'official') return '官方'
   return origin === 'agent' ? 'Agent 创建' : '外部'
 }
 
@@ -73,12 +74,12 @@ const STATE_RANK: Record<string, number> = {
   unknown: 5,
 }
 
-const ORIGIN_RANK: Record<string, number> = { builtin: 0, agent: 1, user: 2 }
+const ORIGIN_RANK: Record<string, number> = { builtin: 0, official: 1, agent: 2, user: 3 }
 
 interface SortableExtension {
   name: string
   state: string
-  origin: 'builtin' | 'user' | 'agent'
+  origin: 'builtin' | 'user' | 'agent' | 'official'
 }
 
 function sortExtensions<T>(
@@ -373,17 +374,20 @@ export const ExtensionsPanel: React.FC = () => {
                       >
                         打开目录
                       </button>
-                      <button
-                        className={styles.action}
-                        onClick={() =>
-                          setDeleteTarget({
-                            target: { kind: 'external', id: item.id },
-                            name: item.name,
-                          })
-                        }
-                      >
-                        删除
-                      </button>
+                      {/* 官方扩展随包分发，删了下次启动会被同步回来；只允许禁用 */}
+                      {item.origin !== 'official' && (
+                        <button
+                          className={styles.action}
+                          onClick={() =>
+                            setDeleteTarget({
+                              target: { kind: 'external', id: item.id },
+                              name: item.name,
+                            })
+                          }
+                        >
+                          删除
+                        </button>
+                      )}
                     </>
                   )}
                   <button

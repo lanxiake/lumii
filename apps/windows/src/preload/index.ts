@@ -959,7 +959,7 @@ export interface ElectronAPI {
       name: string
       version: string
       kind: 'builtin' | 'external'
-      origin: 'builtin' | 'user' | 'agent'
+      origin: 'builtin' | 'user' | 'agent' | 'official'
       requires?: { assets?: string[]; optional?: boolean }
       dir?: string
       enabled: boolean

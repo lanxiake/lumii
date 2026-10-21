@@ -44,8 +44,8 @@ export interface ExternalExtensionEntry {
   manifestId: string
   name: string
   version: string
-  /** 来源标记：Agent 自举开发 / 用户手写（只是展示，不是权限） */
-  origin: 'agent' | 'user'
+  /** 来源标记：Agent 自举开发 / 用户手写 / 官方可选扩展（只是展示，不是权限） */
+  origin: 'agent' | 'user' | 'official'
   /** 运行时组件依赖（只用于设置页展示与安装引导） */
   requires?: LumiiPluginManifest['requires']
   /** 上一版定义：新版本激活失败时用来回滚，以及被禁用后仍能列举 */
@@ -62,7 +62,7 @@ export interface ExternalExtensionInfo {
   id: string
   name: string
   version: string
-  origin: 'agent' | 'user'
+  origin: 'agent' | 'user' | 'official'
   requires?: LumiiPluginManifest['requires']
   enabled: boolean
   state: string
@@ -152,8 +152,10 @@ export function parseExternalModule(namespace: unknown, appVersion?: string): Ex
   return { manifest, definition }
 }
 
-function originOf(manifest: LumiiPluginManifest): 'agent' | 'user' {
-  return manifest.origin === 'agent' ? 'agent' : 'user'
+function originOf(manifest: LumiiPluginManifest): 'agent' | 'user' | 'official' {
+  if (manifest.origin === 'agent') return 'agent'
+  if (manifest.origin === 'official') return 'official'
+  return 'user'
 }
 
 function revisionOf(file: string): string {

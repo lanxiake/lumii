@@ -41,10 +41,11 @@ export interface LumiiPluginManifest {
   description?: string;
   icon?: string;
   /**
-   * 来源标记：`agent` = 客户端 Agent 自举开发，`user` = 用户手写。
-   * 只是展示/治理用，**不是权限**——两者同权限（决策 D1/D2）。
+   * 来源标记：`agent` = 客户端 Agent 自举开发，`user` = 用户手写，
+   * `official` = 随安装包分发的官方可选扩展。
+   * 只是展示/治理用，**不是权限**——三者同权限（决策 D1/D2）。
    */
-  origin?: "agent" | "user";
+  origin?: "agent" | "user" | "official";
   author?: string;
   /** 宿主版本范围，semver range */
   engines: { lumii: string };

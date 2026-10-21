@@ -76,6 +76,8 @@ docs/reference/claude-code-2.1.143/
 **/.lumii/models/wiki-embeddings/
 apps/windows/resources/wiki-embeddings/Xenova/
 apps/windows/resources/wiki-embeddings/.lumii-complete
+# 官方扩展构建产物（pnpm build:official-extensions 生成，随安装包分发）
+apps/windows/resources/extensions/
 
 # 测试素材：真实文档样本（docx/mp4/PDF）体积大，需手动放置，不入库
 # 见 docs/test/lumii-cli/CLI-TEST-SPEC.md §6

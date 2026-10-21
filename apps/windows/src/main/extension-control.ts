@@ -32,8 +32,8 @@ export interface ExtensionInfo {
   name: string
   version: string
   kind: ExtensionKind
-  /** 来源：内置 / 用户手写 / Agent 自举开发（只是展示，不是权限） */
-  origin: 'builtin' | 'user' | 'agent'
+  /** 来源：内置 / 用户手写 / Agent 自举开发 / 官方可选扩展（只是展示，不是权限） */
+  origin: 'builtin' | 'user' | 'agent' | 'official'
   /** 运行时组件依赖（只用于展示与安装引导） */
   requires?: LumiiPluginManifest['requires']
   /** 外部扩展才有 */

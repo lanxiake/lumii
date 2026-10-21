@@ -8,7 +8,6 @@ import {
 
 import type { MainEvents } from './kernel/events'
 import { helloExtension } from './extensions/hello'
-import { perfExtension } from './extensions/perf'
 import { updaterExtension } from './extensions/updater'
 import { cloudSyncExtension } from './extensions/cloud-sync'
 import { screenRecordExtension } from './extensions/screen-record'
@@ -29,7 +28,7 @@ export interface BuiltinExtension {
 /** 内置扩展清单。新增一个功能 = 加一行 import + 一行条目。 */
 export const BUILTIN_EXTENSIONS: BuiltinExtension[] = [
   helloExtension,
-  perfExtension,
+  // perf 已拆为官方外部扩展（官方扩展试点）：代码不再进主 bundle，见 official-extensions.ts
   updaterExtension,
   cloudSyncExtension,
   screenRecordExtension,

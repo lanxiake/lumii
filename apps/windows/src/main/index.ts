@@ -149,7 +149,8 @@ import { registerBuiltinPlugins } from './plugins/builtin'
 import { setupPluginIpcHandlers } from './plugins/plugin-manager'
 import type { PluginHost } from '@mtbot/plugin-core'
 import { createPluginHost } from './plugin-host'
-import { ExternalExtensionRuntime } from './extension-loader'
+import { ExternalExtensionRuntime, resolveExtensionsDir } from './extension-loader'
+import { syncOfficialExtensions } from './official-extensions'
 import { S } from './kernel/services'
 import type { MainEvents } from './kernel/events'
 import { readExtensionPrefs } from './kernel/extension-store'
@@ -1246,12 +1247,40 @@ async function startExtensions(): Promise<void> {
 
   const report = await pluginHost.start()
 
-  // perf / updater / cloud-sync 由扩展提供，宿主通过服务容器取回单例，
-  // 既有调用点（十余处）一行不用改
-  performanceMonitor = pluginHost.container.get(S.perf) ?? null
+  // updater / cloud-sync 由内置扩展提供；perf 已拆成官方外部扩展，必须等外部加载后再取
   updaterService = pluginHost.container.get(S.updater) ?? null
   cloudSyncManager = pluginHost.container.get(S.cloudSync) ?? null
   syncScheduler = pluginHost.container.get(S.syncScheduler) ?? null
+
+  /**
+   * 官方扩展：随安装包分发的可选功能，启动时同步到 ~/.lumii/extensions。
+   *
+   * 同步放在外部加载之前；内容没变时只读 marker、不碰用户目录。
+   * dev 下由 `pnpm dev` 先跑 build-official-extensions.mjs 生成 resources/extensions。
+   */
+  const officialExtensionsRoot = app.isPackaged
+    ? join(process.resourcesPath, 'extensions')
+    : join(app.getAppPath(), 'resources', 'extensions')
+  const officialSync = syncOfficialExtensions(officialExtensionsRoot, resolveExtensionsDir())
+  if (officialSync.installed.length > 0) {
+    log.info(`[ext] 官方扩展已同步: ${officialSync.installed.join('、')}`)
+  }
+  for (const message of officialSync.errors) {
+    log.warn(`[ext] 官方扩展同步失败: ${message}`)
+  }
+
+  // 外部扩展：代码在 bundle 之外，改完亚秒级重载（内置扩展做不到这一点）
+  externalExtensions = new ExternalExtensionRuntime(pluginHost, {
+    info: (m) => log.info(m),
+    warn: (m) => log.warn(m),
+    error: (m, e) => log.error(m, e),
+  }, { disabledIds: disabled })
+  await externalExtensions.loadAll()
+  externalExtensions.startWatching()
+
+  // perf 可能由官方外部扩展提供：必须在 loadAll 之后读
+  performanceMonitor = pluginHost.container.get(S.perf) ?? null
+  log.info(`[ext] perf 服务: ${performanceMonitor ? '就绪' : '未提供'}`)
 
   // 一张表看清谁起来了、花了多久、注册了几个副作用；
   // 失败项走 error，既进了主日志也进了错误日志
@@ -1268,15 +1297,6 @@ async function startExtensions(): Promise<void> {
   if (report.activated.length === 0 && report.failed.length === 0) {
     log.warn('[ext] 没有可用的扩展')
   }
-
-  // 外部扩展：代码在 bundle 之外，改完亚秒级重载（内置扩展做不到这一点）
-  externalExtensions = new ExternalExtensionRuntime(pluginHost, {
-    info: (m) => log.info(m),
-    warn: (m) => log.warn(m),
-    error: (m, e) => log.error(m, e),
-  }, { disabledIds: disabled })
-  await externalExtensions.loadAll()
-  externalExtensions.startWatching()
 
   // 设置页「扩展」页签的数据源。放在这里是因为它要 host + 外部扩展运行时；
   // IPC 通道本身在 S7 注册（用模块级 getter 取，早注册也不会拿到 null）。

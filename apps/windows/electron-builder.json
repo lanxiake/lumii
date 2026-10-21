@@ -156,6 +156,13 @@
       "filter": [
         "**/*"
       ]
+    },
+    {
+      "from": "resources/extensions",
+      "to": "extensions",
+      "filter": [
+        "**/*"
+      ]
     }
   ],
   "asar": true,

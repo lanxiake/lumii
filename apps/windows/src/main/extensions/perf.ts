@@ -26,6 +26,9 @@ export const perfExtension = {
     description: 'IPC 耗时、慢调用、启动阶段与内存快照',
     engines: { lumii: '>=0.1.0' },
     kind: 'code' as const,
+    // 官方可选扩展：由 build-official-extensions.mjs 打包，启动时同步到 ~/.lumii/extensions
+    origin: 'official' as const,
+    main: './main.js',
   },
   definition: definePlugin<MainEvents>({
     id: 'com.lumii.perf',
@@ -69,3 +72,7 @@ export const perfExtension = {
     },
   }),
 }
+
+// 外部扩展加载器按 `export default { manifest, definition }` 读取；
+// 内置导入仍用命名导出，两者可以共存。
+export default perfExtension
