@@ -15,6 +15,7 @@ interface WorkspaceIpcDeps {
   getConfigManager: () => ConfigManager | null
   getDirectoryManager: () => DirectoryManager
   reapplyCodingDevAcpEnv: () => void
+  pluginEventBus?: import('@mtbot/plugin-core').EventBus<import('../kernel/events').MainEvents> | null
 }
 
 let deps: WorkspaceIpcDeps | null = null
@@ -73,6 +74,7 @@ export function registerWorkspaceIpcHandlers(): void {
     }
     deps!.reapplyCodingDevAcpEnv()
     ensureWorkspaceTempLayout(resolved)
+    deps!.pluginEventBus?.emit('workspace:changed', { oldDir: null, newDir: resolved, at: Date.now() })
     return (resolved).replace(/\\/g, '/')
   })
 
@@ -95,6 +97,7 @@ export function registerWorkspaceIpcHandlers(): void {
     }
     deps!.reapplyCodingDevAcpEnv()
     ensureWorkspaceTempLayout(resolved)
+    deps!.pluginEventBus?.emit('workspace:changed', { oldDir: null, newDir: resolved, at: Date.now() })
     // 灵栖/Lumii 独立版：无网关/节点连接，工作空间变更仅更新本地配置，Agent 运行时通过 getCwd 读取新路径
   })
 

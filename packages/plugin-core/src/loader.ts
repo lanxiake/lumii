@@ -35,6 +35,11 @@ export interface PluginHostOptions<E extends EventMap> {
   eventBus?: EventBus<E>;
   container?: ServiceContainer;
   loggerSink?: LoggerSink;
+  /** 主进程 IPC 注册器（渲染层不提供） */
+  ipcRegistry?: {
+    register(channel: string, handler: (event: unknown, ...args: unknown[]) => unknown): void;
+    unregister(channel: string): void;
+  };
 }
 
 /**
@@ -48,11 +53,13 @@ export class PluginHost<E extends EventMap = EventMap> {
 
   private readonly plugins = new Map<string, LoadedPlugin>();
   private readonly loggerSink?: LoggerSink;
+  private readonly ipcRegistry?: PluginHostOptions<E>['ipcRegistry'];
 
   constructor(options: PluginHostOptions<E> = {}) {
     this.eventBus = options.eventBus ?? new EventBus<E>();
     this.container = options.container ?? new ServiceContainer();
     this.loggerSink = options.loggerSink;
+    this.ipcRegistry = options.ipcRegistry;
   }
 
   register(definition: PluginDefinition<E>): void {
@@ -120,6 +127,7 @@ export class PluginHost<E extends EventMap = EventMap> {
       eventBus: this.eventBus,
       scope,
       logger: createPluginLogger(id, this.loggerSink),
+      ipcRegistry: this.ipcRegistry,
     });
 
     try {

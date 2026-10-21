@@ -280,6 +280,7 @@ export class AgentRuntimeBridge {
   /** 当前打开的 SQLite 主文件路径（initialize 后可用） */
   private resolvedDbPath: string | null = null
   private config: AgentRuntimeBridgeConfig
+  private pluginEventBus: import('@mtbot/plugin-core').EventBus<import('../kernel/events').MainEvents> | null = null
   private featureFlags: AgentRuntimeFeatureFlags
   private initialized = false
   get isInitialized(): boolean { return this.initialized }
@@ -495,6 +496,7 @@ export class AgentRuntimeBridge {
     // 由本类持有，index.ts 的回调闭包拿不到 DB 句柄（见 palace-backend.ts 的说明）。
     // 向量索引走 getter：它需要 DB 句柄，而 DB 到 initialize 才打开（见该字段注释）。
     this.config = withBuiltinPalace(config, this.localDb, () => this._palaceVectorIndex)
+    this.pluginEventBus = config.getPluginEventBus?.() ?? null
     this.featureFlags = createFeatureFlags()
     this.imageServices = new BridgeImageServices({
       getModelRouter: () => this.modelRouter,
@@ -2649,6 +2651,7 @@ export class AgentRuntimeBridge {
       calibrateSessionCharsPerToken: (sk, modelId, tokens) =>
         this.calibrateSessionCharsPerToken(sk, modelId, tokens),
       clearSessionProviderInputTokens: (sk) => this.clearSessionProviderInputTokens(sk),
+      pluginEventBus: this.pluginEventBus,
     })
   }
 

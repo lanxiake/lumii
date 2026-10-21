@@ -7,7 +7,9 @@ import {
 } from '@mtbot/plugin-core'
 
 import type { MainEvents } from './kernel/events'
+import { createIpcRegistry } from './kernel/ipc-registry'
 import { helloExtension } from './extensions/hello'
+import { eventLoggerExtension } from './extensions/event-logger'
 import { updaterExtension } from './extensions/updater'
 import { voiceExtension } from './extensions/voice'
 import { petExtension } from './extensions/pet'
@@ -26,6 +28,7 @@ export interface BuiltinExtension {
 /** 内置扩展清单。新增一个功能 = 加一行 import + 一行条目。 */
 export const BUILTIN_EXTENSIONS: BuiltinExtension[] = [
   helloExtension,
+  eventLoggerExtension,
   // perf 已拆为官方外部扩展（官方扩展试点）：代码不再进主 bundle，见 official-extensions.ts
   updaterExtension,
   // cloud-sync / screen-record 已拆为官方外部扩展：代码不再进主 bundle，见 official-extensions.ts
@@ -43,8 +46,9 @@ export function createPluginHost(
   loggerSink: LoggerSink,
   disabledIds: ReadonlySet<string> = new Set(),
   appVersion?: string,
-): { host: PluginHost<MainEvents>; skipped: string[] } {
-  const host = new PluginHost<MainEvents>({ loggerSink })
+): { host: PluginHost<MainEvents>; skipped: string[]; eventBus: PluginHost<MainEvents>['eventBus'] } {
+  const ipcRegistry = createIpcRegistry()
+  const host = new PluginHost<MainEvents>({ loggerSink, ipcRegistry })
   const skipped: string[] = []
 
   for (const extension of BUILTIN_EXTENSIONS) {
@@ -60,5 +64,5 @@ export function createPluginHost(
     host.register(extension.definition)
   }
 
-  return { host, skipped }
+  return { host, skipped, eventBus: host.eventBus }
 }

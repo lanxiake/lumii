@@ -84,6 +84,7 @@ export interface IpcHandlersDeps {
   }) => void
   setPromptStyleSettings: (settings: { style?: PromptStyleValue }) => void
   restartCloudSyncScheduler?: (cfg: CloudSyncConfig) => void
+  pluginEventBus?: import('@mtbot/plugin-core').EventBus<import('../kernel/events').MainEvents> | null
   log: {
     debug: (...args: unknown[]) => void
     info: (...args: unknown[]) => void
@@ -99,6 +100,7 @@ export function registerAllIpcHandlers(deps: IpcHandlersDeps): void {
     getConfigManager: deps.getConfigManager,
     getDirectoryManager: deps.getDirectoryManager,
     reapplyCodingDevAcpEnv: deps.reapplyCodingDevAcpEnv,
+    pluginEventBus: deps.pluginEventBus,
   })
 
   setVcsIpcDeps({

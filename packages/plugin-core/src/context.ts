@@ -70,6 +70,17 @@ export interface PluginContext<E extends EventMap = EventMap> {
   /** 注册可逆副作用；dispose 按 LIFO 执行。 */
   effect(dispose: () => void | Promise<void>): void;
 
+  /**
+   * 注册 IPC 处理器（仅主进程可用）。
+   *
+   * 插件卸载时自动 `removeHandler`；重复注册同一通道会先摘掉旧的。
+   * 渲染层不支持此 API（调用时静默 no-op）。
+   *
+   * @param channel - IPC 通道名（约定：扩展自有通道用 `ext:<id>:*` 前缀避免冲突）
+   * @param handler - 处理函数，签名与 `ipcMain.handle` 一致
+   */
+  registerIpc?(channel: string, handler: (event: unknown, ...args: unknown[]) => unknown): void;
+
   on<K extends keyof E & string>(name: K, listener: Listener<E[K]>): void;
   onWaterfall<K extends keyof E & string>(name: K, listener: WaterfallListener<E[K]>): void;
   emit<K extends keyof E & string>(name: K, payload: E[K]): void;
@@ -84,14 +95,19 @@ export interface ContextDeps<E extends EventMap> {
   eventBus: EventBus<E>;
   scope: PluginScope;
   logger: PluginLogger;
+  /** 可选：主进程 IPC 注册器（渲染层不提供） */
+  ipcRegistry?: {
+    register(channel: string, handler: (event: unknown, ...args: unknown[]) => unknown): void;
+    unregister(channel: string): void;
+  };
 }
 
 export function createPluginContext<E extends EventMap>(
   deps: ContextDeps<E>,
 ): PluginContext<E> {
-  const { pluginId, container, eventBus, scope, logger } = deps;
+  const { pluginId, container, eventBus, scope, logger, ipcRegistry } = deps;
 
-  return {
+  const ctx: PluginContext<E> = {
     pluginId,
     log: logger,
 
@@ -139,4 +155,14 @@ export function createPluginContext<E extends EventMap>(
       return eventBus.parallel(name, payload);
     },
   };
+
+  // 主进程才有 IPC 注册能力
+  if (ipcRegistry) {
+    ctx.registerIpc = (channel, handler) => {
+      ipcRegistry.register(channel, handler);
+      scope.effect(() => ipcRegistry.unregister(channel));
+    };
+  }
+
+  return ctx;
 }

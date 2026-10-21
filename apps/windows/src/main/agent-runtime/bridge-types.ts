@@ -188,6 +188,10 @@ export interface AgentRuntimeBridgeConfig {
     userId?: string
     metadata?: Record<string, unknown>
   }) => Promise<{ drawerId?: string } | undefined>
+  /**
+   * 获取插件事件总线（用于发射生命周期事件给插件）
+   */
+  getPluginEventBus?: () => import('@mtbot/plugin-core').EventBus<import('../kernel/events').MainEvents> | null
 }
 
 /** 记忆宫殿检索命中项 */

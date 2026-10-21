@@ -229,6 +229,7 @@ let cloudSyncManager: CloudSyncManager | null = null
 let syncScheduler: SyncScheduler | null = null
 /** 扩展宿主（随主进程生命周期，performCleanup 时 stopAll） */
 let pluginHost: PluginHost<MainEvents> | null = null
+let pluginEventBus: PluginHost<MainEvents>['eventBus'] | null = null
 /** 外部扩展（~/.lumii/extensions/）的加载与热重载 */
 let externalExtensions: ExternalExtensionRuntime | null = null
 
@@ -280,7 +281,11 @@ let isCleaningUp = false // 防止 before-quit 清理期间重复触发
 function createWindow(isTestMode: boolean = false, startHidden: boolean = false): Promise<void> {
   return createMainWindow({
     logger: log,
-    setMainWindow: (window) => { mainWindow = window },
+    setMainWindow: (window) => {
+      mainWindow = window
+      // 窗口创建完成，发射事件
+      pluginEventBus?.emit('app:window-ready', { at: Date.now() })
+    },
     isQuitting: () => isQuitting,
     getScreenRecordService: () => screenRecordService,
   }, isTestMode, startHidden)
@@ -775,6 +780,7 @@ async function initAgentRuntime(): Promise<void> {
       }
     },
     getBrowserContext: () => getBrowserContext(),
+    getPluginEventBus: () => pluginEventBus,
   })
 
   // 先挂接 Bridge，再注册 IPC handler，确保 handler 注册时 bridge 已就绪
@@ -965,6 +971,7 @@ function setupIpcHandlers(): void {
     reapplyCodingDevAcpEnv: reapplyCodingDevAcpEnvFromConfig,
     setMemoryInjectionSettings: setMemoryInjectionSettingsCache,
     setPromptStyleSettings: setPromptStyleSettingsCache,
+    pluginEventBus,
     // 现取容器：云同步被卸载后这里应是 no-op，而不是拿旧调度器继续跑
     restartCloudSyncScheduler: (cfg) => {
       pluginHost?.container.get(S.syncScheduler)?.start(cfg)
@@ -1272,7 +1279,7 @@ async function startExtensions(): Promise<void> {
   const { disabled, warning } = readExtensionPrefs()
   if (warning) log.warn(`[extensions] ${warning}`)
 
-  const created = createPluginHost(
+  const { host, skipped, eventBus } = createPluginHost(
     {
       debug: (m) => log.debug(m),
       info: (m) => log.info(m),
@@ -1282,15 +1289,16 @@ async function startExtensions(): Promise<void> {
     disabled,
     app.getVersion(),
   )
-  pluginHost = created.host
+  pluginHost = host
+  pluginEventBus = eventBus
 
   // 供早激活的扩展延迟解析尚未创建/不属于扩展的东西：
   // Agent Runtime（S7 才建）、主窗口（S2–S5 才建）、托盘、语音服务
   pluginHost.container.provide(S.agentRuntime, { get: () => agentRuntimeBridge })
   pluginHost.container.provide(S.mainWindow, { get: () => mainWindow })
   pluginHost.container.provide(S.tray, { get: () => trayManager })
-  if (created.skipped.length > 0) {
-    log.info(`扩展已按配置禁用: ${created.skipped.join('、')}`)
+  if (skipped.length > 0) {
+    log.info(`扩展已按配置禁用: ${skipped.join('、')}`)
   }
 
   const report = await pluginHost.start()
@@ -1795,6 +1803,7 @@ async function initChannelServices(): Promise<void> {
 
 // macOS 特殊处理
 app.on('activate', () => {
+  pluginEventBus?.emit('app:activated', { at: Date.now() })
   if (BrowserWindow.getAllWindows().length === 0) {
     void createWindow()
   } else {

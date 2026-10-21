@@ -273,6 +273,8 @@ export interface BridgeAgentInstanceEventDeps {
   onAssistantMessagePersisted?: (params: { conversationId: string; runId: string }) => void
   /** 技能进化：轮次结束后回调（fire-and-forget） */
   onTurnComplete?: (instanceId: string, messages: import('../skill-evolution/types').ConversationMessage[]) => void
+  /** 插件事件总线（用于发射生命周期事件给插件） */
+  pluginEventBus?: import('@mtbot/plugin-core').EventBus<import('../kernel/events').MainEvents> | null
 }
 
 /**
@@ -318,6 +320,7 @@ export function createAgentInstanceRuntimeEventHandler(
     getCwd,
     onTurnComplete,
     onAssistantMessagePersisted,
+    pluginEventBus,
   } = deps
   const sourceAgentInfo = isSubAgent && agentName ? { instanceId, label: agentName } : undefined
   const streamingPersistIntervalMs = 100
@@ -455,6 +458,11 @@ export function createAgentInstanceRuntimeEventHandler(
     }
 
     if (event.type === 'agent:start') {
+      pluginEventBus?.emit('agent:turn-start', {
+        instanceId,
+        conversationId: instanceToConversation.get(instanceId),
+        at: Date.now()
+      })
       cancelPendingStreamingPersist()
       markRunStart(instanceId)
       const state = instanceStates.get(instanceId)
@@ -837,6 +845,15 @@ export function createAgentInstanceRuntimeEventHandler(
         }
         state.pendingParts = createAssistantPartsContent(state.pendingParts).parts
       }
+
+      pluginEventBus?.emit('llm:after-response', {
+        instanceId,
+        conversationId: instanceToConversation.get(instanceId),
+        success: !event.llmError,
+        modelId: ctx.resolvedModelId,
+        usage: event.usage,
+        at: Date.now()
+      })
       if (event.usage && ctx.sessionKey === ctx.rootSessionKey) {
         const promptTokens = providerPromptTokens(event.usage)
         if (promptTokens > 0) {
@@ -1174,6 +1191,13 @@ export function createAgentInstanceRuntimeEventHandler(
           rootSessionKey: ctx.rootSessionKey,
         })
       }
+
+      pluginEventBus?.emit('agent:turn-end', {
+        instanceId,
+        conversationId: instanceToConversation.get(instanceId),
+        success: persistSuccess,
+        at: Date.now()
+      })
 
     }
 

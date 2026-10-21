@@ -171,6 +171,8 @@ export interface BridgeInstanceFactoryDeps {
   /** 用真实回执标定该模型的字符/token 比 */
   calibrateSessionCharsPerToken: (sessionKey: string, modelId: string, promptTokens: number) => void
   clearSessionProviderInputTokens: (sessionKey: string) => void
+  /** 插件事件总线（用于发射生命周期事件给插件） */
+  pluginEventBus?: import('@mtbot/plugin-core').EventBus<import('../kernel/events').MainEvents> | null
 }
 
 export class BridgeInstanceFactory {
@@ -676,6 +678,7 @@ export class BridgeInstanceFactory {
           log.warn(`[工作记忆] 规则提取失败: ${err instanceof Error ? err.message : String(err)}`)
         }
       },
+      pluginEventBus: this.deps.pluginEventBus,
     })
     const eventSink: EventSink = { emit: (event) => richHandler(event) }
 

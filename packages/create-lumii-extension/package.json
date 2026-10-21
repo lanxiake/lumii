@@ -1,0 +1,25 @@
+{
+  "name": "create-lumii-extension",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Lumii 扩展脚手架",
+  "bin": {
+    "create-lumii-extension": "./dist/index.js"
+  },
+  "files": [
+    "dist",
+    "template"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "dependencies": {
+    "prompts": "^2.4.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.5",
+    "@types/prompts": "^2.4.9",
+    "typescript": "^5.3.3"
+  }
+}

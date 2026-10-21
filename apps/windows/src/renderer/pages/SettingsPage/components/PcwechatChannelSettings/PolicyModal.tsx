@@ -249,6 +249,8 @@ export const PolicyModal: React.FC<PolicyModalProps> = ({ open, onClose, onSaved
     return (key !== undefined ? drafts[key] : undefined) ?? emptyDraft()
   }, [drafts, active])
   const { rows, defaultMode } = currentDraft
+  const activeName = accountNames[active.toLowerCase()] || currentDraft.label.trim()
+  const activeLabel = active ? (activeName ? `${activeName}（${active}）` : active) : ''
 
   /** 改当前页签；账号页签第一次改动时物化成它自己的那一份 */
   const mutateCurrent = useCallback(
@@ -610,6 +612,22 @@ export const PolicyModal: React.FC<PolicyModalProps> = ({ open, onClose, onSaved
             <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--mt-fg-2)' }}>
               谁可以被代回（{rows.length}）
             </span>
+            {/* 名单是**当前页签那个号**的；不标出来两边的名单看起来像同一份 */}
+            {active && (
+              <span
+                title="下面这份名单只对当前页签的微信号生效"
+                style={{
+                  fontSize: 11,
+                  padding: '1px 8px',
+                  borderRadius: 999,
+                  color: 'var(--mt-fg-2)',
+                  border: '1px solid var(--mt-border-hairline)',
+                  background: 'var(--mt-bg-overlay)',
+                }}
+              >
+                当前：{activeLabel}
+              </span>
+            )}
             <Button size="sm" variant="secondary" onClick={openPicker} disabled={loading}>
               {pickerOpen ? '收起' : '从微信里挑人'}
             </Button>
