@@ -40,6 +40,12 @@ export interface LumiiPluginManifest {
   version: string;
   description?: string;
   icon?: string;
+  /**
+   * 来源标记：`agent` = 客户端 Agent 自举开发，`user` = 用户手写。
+   * 只是展示/治理用，**不是权限**——两者同权限（决策 D1/D2）。
+   */
+  origin?: "agent" | "user";
+  author?: string;
   /** 宿主版本范围，semver range */
   engines: { lumii: string };
   kind: "code" | "asset";

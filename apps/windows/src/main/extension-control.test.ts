@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { PluginHost } from '@mtbot/plugin-core'
@@ -43,6 +43,12 @@ function fakeExternal(
         state: e.enabled ? 'active' : 'disabled',
       })),
     startupDisabledIds: () => new Set(disabledAtStartup),
+    dirOf: (id: string) =>
+      entries.some((e) => e.id === id) ? path.join('C:/fake-ext', id) : null,
+    remove: async (id: string) =>
+      entries.some((e) => e.id === id)
+        ? { ok: true as const, dir: path.join('C:/fake-ext', id) }
+        : { ok: false as const, error: `找不到 ${id}` },
   } as unknown as ExternalExtensionRuntime
 }
 
@@ -112,6 +118,64 @@ describe('createExtensionControl', () => {
     expect(control.setEnabled('nope', false)).toMatchObject({ ok: false })
 
     expect(readExtensionPrefs(storeFile).disabled.size).toBe(0)
+  })
+
+  it('内置扩展不能删除，只能禁用', async () => {
+    const control = createExtensionControl({ host, builtins, storeFile })
+
+    const result = await control.remove({ kind: 'builtin', id: 'com.test.alpha' })
+
+    expect(result).toMatchObject({ ok: false })
+    expect(control.dirOf({ kind: 'builtin', id: 'com.test.alpha' })).toBeNull()
+  })
+
+  it('删除外部扩展：删目录并清掉禁用记录', async () => {
+    const control = createExtensionControl({
+      host,
+      builtins,
+      storeFile,
+      external: fakeExternal([{ id: 'com.test.ext', enabled: true }]),
+    })
+    control.setEnabled('com.test.ext', false)
+    expect(readExtensionPrefs(storeFile).disabled.size).toBe(1)
+
+    const result = await control.remove({ kind: 'external', id: 'com.test.ext' })
+
+    expect(result).toMatchObject({ ok: true })
+    expect(readExtensionPrefs(storeFile).disabled.size).toBe(0)
+  })
+
+  it('删除客户端插件：删目录并清掉 disabledClient', async () => {
+    const clientRoot = path.join(dir, 'plugins')
+    mkdirSync(path.join(clientRoot, 'demo'), { recursive: true })
+    writeFileSync(path.join(clientRoot, 'demo', 'client.js'), '', 'utf8')
+    const control = createExtensionControl({
+      host,
+      builtins,
+      storeFile,
+      clientPluginsRoot: clientRoot,
+    })
+    control.setClientEnabled('demo', false)
+
+    const result = await control.remove({ kind: 'client', id: 'demo', dir: 'demo' })
+
+    expect(result).toMatchObject({ ok: true })
+    expect(existsSync(path.join(clientRoot, 'demo'))).toBe(false)
+    expect(readExtensionPrefs(storeFile).disabledClient.size).toBe(0)
+  })
+
+  it('客户端目录名拒绝路径穿越', async () => {
+    const clientRoot = path.join(dir, 'plugins-safe')
+    mkdirSync(clientRoot, { recursive: true })
+    const control = createExtensionControl({
+      host,
+      builtins,
+      storeFile,
+      clientPluginsRoot: clientRoot,
+    })
+
+    expect(control.dirOf({ kind: 'client', id: '..', dir: '..' })).toBeNull()
+    expect(await control.remove({ kind: 'client', id: '..', dir: '..' })).toMatchObject({ ok: false })
   })
 
   it('客户端插件开关写到 disabledClient，不碰主进程集合', () => {

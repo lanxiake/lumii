@@ -959,6 +959,7 @@ export interface ElectronAPI {
       name: string
       version: string
       kind: 'builtin' | 'external'
+      origin: 'builtin' | 'user' | 'agent'
       dir?: string
       enabled: boolean
       state: string
@@ -973,6 +974,10 @@ export interface ElectronAPI {
     setClientEnabled: (id: string, enabled: boolean) => Promise<{ ok: boolean; error?: string }>
     /** 在 ~/.lumii/plugins/ 生成一个可直接生效的示例插件 */
     createSample: () => Promise<{ ok: boolean; dir?: string; error?: string }>
+    /** 在文件管理器中打开插件目录（内置扩展没有目录） */
+    openDir: (target: { kind: 'builtin' | 'external' | 'client'; id: string; dir?: string }) => Promise<{ ok: boolean; error?: string }>
+    /** 删除插件目录（内置扩展只允许禁用） */
+    remove: (target: { kind: 'builtin' | 'external' | 'client'; id: string; dir?: string }) => Promise<{ ok: boolean; error?: string; dir?: string }>
     /** 重启客户端（让主进程扩展开关生效） */
     restart: () => Promise<{ ok: boolean; error?: string }>
     /** 渲染层 → 主进程：上报客户端插件的加载状态（Agent 工具要读） */
@@ -982,6 +987,7 @@ export interface ElectronAPI {
       version: string
       dir: string
       enabled: boolean
+      origin: 'agent' | 'user'
       state: string
       error?: string
     }>) => void
@@ -1263,6 +1269,8 @@ const electronAPI: ElectronAPI = {
     setClientEnabled: (id: string, enabled: boolean) =>
       ipcRenderer.invoke('extension:set-client-enabled', id, enabled),
     createSample: () => ipcRenderer.invoke('extension:create-sample'),
+    openDir: (target) => ipcRenderer.invoke('extension:open-dir', target),
+    remove: (target) => ipcRenderer.invoke('extension:delete', target),
     restart: () => ipcRenderer.invoke('extension:restart'),
     reportClientStates: (states) => ipcRenderer.send('extension:client-states', states),
   },

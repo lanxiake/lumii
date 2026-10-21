@@ -1,6 +1,6 @@
 import path from 'node:path'
 
-import { resolveClientPluginsDir } from './client-plugin-protocol'
+import { resolveClientPluginsDir } from './plugin-paths'
 import { resolveExtensionsDir } from './extension-loader'
 import { resolveClientStateDir } from './paths'
 import { KNOWN_SLOTS } from './plugin-dev-check'
@@ -111,18 +111,34 @@ export function buildPluginDevGuide(): Record<string, unknown> {
     },
 
     workflow: [
-      '1. 用 file_write 写 <client>/<id>/client.js（以及可选的 plugin.json）',
+      '1. 用 file_write 写 <client>/<id>/plugin.json（origin:"agent"）与 client.js',
       '2. 调 plugin_dev check（kind=client, id=<id>）做静态体检',
       '3. 调 plugin_dev status 看渲染层是否加载成功、错误是什么',
       '4. 改文件保存即可，不需要重启；只有主进程扩展开关的启用/禁用才需要重启',
-      '5. 交给用户的成品是 ~/.lumii 下的文件，重启客户端后仍然存在',
+      '5. 交给用户的成品是 ~/.lumii 下的文件；用户可以在设置 › 扩展里打开目录或删除',
     ],
 
     client: {
       files: {
         'client.js': '必需。经典脚本（<script> 注入），不能用 import/require。',
-        'plugin.json': '可选。{ id, name, version }；缺省 id = 目录名。id 必须全局唯一。',
+        'plugin.json':
+          '可选。{ id, name, version, description?, author?, origin?, engines? }；缺省 id = 目录名。' +
+          'id 必须全局唯一。Agent 生成的插件请写 origin:"agent"、description 与 engines.lumii。',
       },
+      manifest_example: {
+        id: 'my-plugin',
+        name: '我的插件',
+        version: '0.1.0',
+        description: '一句话说明它做什么',
+        author: 'agent',
+        origin: 'agent',
+        engines: { lumii: '>=0.1.0' },
+      },
+      manifest_notes: [
+        'origin 只是来源标记（agent / user），不是权限；面板据此显示「Agent 创建」。',
+        'engines.lumii 用 semver range；不满足当前客户端时插件不会被激活，面板显示「不兼容」。',
+        '改 plugin.json 也会触发重新加载（revision 包含它）。',
+      ],
       contract: '一个插件 = 一个 id = 一次 __LUMII_REGISTER_PLUGIN__(id, (api) => void | cleanup)。',
       example: CLIENT_EXAMPLE,
       api: {
@@ -163,7 +179,8 @@ export function buildPluginDevGuide(): Record<string, unknown> {
     },
 
     verify: {
-      static: 'plugin_dev check 覆盖：文件形状、client.js 语法、注册次数/id、槽位名、明显违规写法',
+      static:
+        'plugin_dev check 覆盖：plugin.json 结构与 engines、client.js 语法、注册次数/id、槽位名、明显违规写法',
       runtime: 'plugin_dev status 返回主进程扩展的 state/error 与渲染层上报的客户端插件 state/error',
       limit: 'main.js 是 ESM，无法在静态检查里编译；它的语法错误由加载器在 ≤1 秒内作为运行时错误返回。',
     },

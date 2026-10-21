@@ -11,8 +11,24 @@
 ```
 ~/.lumii/plugins/<目录>/
   ├── client.js     必需
-  └── plugin.json   可选 { id, name, version }
+  └── plugin.json   可选 { id, name, version, description?, author?, origin?, engines? }
 ```
+
+```json
+{
+  "id": "my-plugin",
+  "name": "我的插件",
+  "version": "0.1.0",
+  "description": "一句话说明它做什么",
+  "author": "agent",
+  "origin": "agent",
+  "engines": { "lumii": ">=0.1.0" }
+}
+```
+
+- `origin`：`agent`（Agent 自举开发）或 `user`（用户手写），面板据此显示来源徽标；
+- `engines.lumii`：semver range；不满足当前客户端时**不会加载**，面板显示「不兼容」；
+- 改 `plugin.json` 也会触发热更新（revision 包含它）。
 
 ```js
 // 一个插件 = 一个 id = 一次 REGISTER。保存即生效（约 0.3 秒）。
@@ -146,7 +162,19 @@ api.storage.keys() / remove(key) / clear()
 
 打开 设置 › 扩展 能看到每个插件的状态（已加载 / 失败 + 原因），失败不用翻日志。
 
-## 8. 验收清单
+## 8. 来源与生命周期
+
+| 操作 | 内置扩展 | 外部扩展 / 客户端插件 |
+|---|---|---|
+| 启用 / 禁用 | 支持（重启生效） | 支持（主进程重启生效；客户端 ≤1 秒） |
+| 打开目录 | —（代码在 bundle 里） | 支持 |
+| 删除 | **不允许**，只能禁用 | 支持（二次确认；先卸载再删目录） |
+
+- Agent 生成的插件必须写 `origin: "agent"`，面板会显示「Agent 创建」；
+- 来源只是显示/治理标记，**不是权限**——三者与主进程同权限（D1/D2）；
+- 外部扩展删除时会先卸载（执行清理），再删目录；客户端插件删除后渲染层在 ≤1 秒内卸载。
+
+## 9. 验收清单
 
 - [ ] 保存后约 0.3 秒看到变化；改出语法错误时**旧界面还在**
 - [ ] 侧栏入口、整页、卡片都在该在的位置；找不到页面时回落概览而不是白屏
@@ -157,7 +185,7 @@ api.storage.keys() / remove(key) / clear()
 - [ ] 整页左右边距与概览页一致（用了 `api.Page`，没有额外 padding）
 - [ ] 持久化数据用 `api.storage`（客户端）或 `~/.lumii/plugin-data/<id>/`（主进程）
 
-## 9. Agent 自举开发
+## 10. Agent 自举开发
 
 客户端 Agent 可以给自己写插件。写文件走现有 `file_write`（`~/.lumii` 已在允许根内），
 `plugin_dev` 只提供契约与反馈：
@@ -166,12 +194,13 @@ api.storage.keys() / remove(key) / clear()
 |---|---|
 | `guide` | 两个插件根目录的**绝对路径**、热更时效、模块契约、槽位表、`api` 全量、工作流、无构建步骤说明 |
 | `status` | 主进程扩展的 `state/error/pendingRestart` + 渲染层上报的客户端插件 `state/error`（含上报时间） |
-| `check {kind,id}` | 静态体检：文件形状、语法、注册次数与 id、槽位名、`import/require`、硬编码色 |
+| `check {kind,id}` | 静态体检：plugin.json 与 engines、文件形状、语法、注册次数与 id、槽位名、`import/require`、硬编码色 |
 
 工作流：
 
 1. `plugin_dev guide` 拿路径与契约；
-2. `file_write` 写 `<client>/<id>/client.js`（或 `<main>/<id>/main.js`）；
+2. `file_write` 写 `<client>/<id>/plugin.json`（**必须写 `origin: "agent"`**，建议写
+   `description` 与 `engines.lumii`）与 `client.js`（或 `<main>/<id>/main.js`）；
 3. `plugin_dev check` 体检；
 4. `plugin_dev status` 看加载结果（加载有 0.3–1 秒延迟，刚写完可能还是上一版）；
 5. 改文件保存即可；**只有主进程扩展的启用/禁用需要重启**。

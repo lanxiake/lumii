@@ -8,11 +8,13 @@
  * 已经有权限、回读校验和分段写入。
  */
 
+import { app } from 'electron'
+
 import { createMtBotTool, type MtBotTool, type MtBotToolConfig } from '@mtbot/agent-runtime'
 import { Type } from '@sinclair/typebox'
 
 import { getClientPluginStateReport } from '../client-plugin-state-report'
-import { resolveClientPluginsDir } from '../client-plugin-protocol'
+import { resolveClientPluginsDir } from '../plugin-paths'
 import { checkPlugin, type PluginKind } from '../plugin-dev-check'
 import { buildPluginDevGuide, resolvePluginDevRoots } from '../plugin-dev-guide'
 import { getExtensionControl } from '../extension-control'
@@ -71,6 +73,7 @@ export function registerPluginDevTools(deps: BridgeToolRegistrarDeps): void {
             id: item.id,
             name: item.name,
             kind: item.kind,
+            origin: item.origin,
             enabled: item.enabled,
             state: item.state,
             pendingRestart: item.pendingRestart,
@@ -95,6 +98,7 @@ export function registerPluginDevTools(deps: BridgeToolRegistrarDeps): void {
           id: params.id,
           clientRoot: resolveClientPluginsDir(),
           mainRoot: resolveExtensionsDir(),
+          appVersion: app.getVersion(),
         })
 
         // 运行时错误单独给：加载有 0.3s/1s 延迟，刚写完可能还是上一版的状态，

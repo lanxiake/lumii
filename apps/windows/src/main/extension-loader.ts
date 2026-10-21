@@ -1,4 +1,4 @@
-import { readdirSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, rmSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 
@@ -44,6 +44,8 @@ export interface ExternalExtensionEntry {
   manifestId: string
   name: string
   version: string
+  /** 来源标记：Agent 自举开发 / 用户手写（只是展示，不是权限） */
+  origin: 'agent' | 'user'
   /** 上一版定义：新版本激活失败时用来回滚，以及被禁用后仍能列举 */
   definition?: PluginDefinition<MainEvents>
   /** 是否已挂到宿主上（被禁用或导入失败时为 false） */
@@ -58,6 +60,7 @@ export interface ExternalExtensionInfo {
   id: string
   name: string
   version: string
+  origin: 'agent' | 'user'
   enabled: boolean
   state: string
   activationMs?: number
@@ -146,6 +149,10 @@ export function parseExternalModule(namespace: unknown, appVersion?: string): Ex
   return { manifest, definition }
 }
 
+function originOf(manifest: LumiiPluginManifest): 'agent' | 'user' {
+  return manifest.origin === 'agent' ? 'agent' : 'user'
+}
+
 function revisionOf(file: string): string {
   try {
     const stat = statSync(file)
@@ -203,6 +210,7 @@ export class ExternalExtensionRuntime {
         id: entry.manifestId,
         name: entry.name,
         version: entry.version,
+        origin: entry.origin,
         enabled: entry.enabled,
         state: entry.enabled ? (live?.state ?? 'unknown') : 'disabled',
         activationMs: live?.activationMs,
@@ -211,6 +219,50 @@ export class ExternalExtensionRuntime {
           (live?.error ? String((live.error as Error)?.message ?? live.error) : undefined),
       }
     })
+  }
+
+  /** 按 manifest id 或目录名找一条已登记的条目 */
+  private entryOf(idOrDir: string): ExternalExtensionEntry | undefined {
+    return [...this.loaded.values()].find(
+      (entry) => entry.manifestId === idOrDir || path.basename(entry.dir) === idOrDir,
+    )
+  }
+
+  /**
+   * 可打开/删除的绝对目录。
+   *
+   * 先查已登记的条目（能拿到 manifest id 对应的真实目录）；没登记过时才按目录名
+   * 拼路径，并校验没有越出扩展根目录。
+   */
+  dirOf(idOrDir: string): string | null {
+    const entry = this.entryOf(idOrDir)
+    if (entry) return entry.dir
+
+    const root = path.resolve(this.root)
+    const candidate = path.resolve(root, idOrDir)
+    if (candidate !== root && !candidate.startsWith(root + path.sep)) return null
+    return existsSync(candidate) ? candidate : null
+  }
+
+  /**
+   * 用户主动删除外部扩展：先卸载（执行清理），再删目录。
+   *
+   * 不做「只从列表里移除」——那会留下一个下次启动又被扫回来的目录，
+   * 界面上表现为「删了又回来」。
+   */
+  async remove(
+    idOrDir: string,
+  ): Promise<{ ok: true; dir: string } | { ok: false; error: string }> {
+    const dir = this.dirOf(idOrDir)
+    if (!dir) return { ok: false, error: `找不到外部扩展目录：${idOrDir}` }
+    try {
+      await this.unload(dir)
+      rmSync(dir, { recursive: true, force: true })
+      this.log.info(`[ext] 已删除外部扩展目录：${dir}`)
+      return { ok: true, dir }
+    } catch (error) {
+      return { ok: false, error: `删除失败：${(error as Error).message}` }
+    }
   }
 
   /** 首次加载全部外部扩展。单个失败只记日志，不影响其他扩展与应用启动。 */
@@ -291,6 +343,7 @@ export class ExternalExtensionRuntime {
               manifestId: dirName,
               name: dirName,
               version: '?',
+              origin: 'user',
               enabled: false,
               error: message,
             },
@@ -320,6 +373,7 @@ export class ExternalExtensionRuntime {
         manifestId: manifest.id,
         name: manifest.name,
         version: manifest.version,
+        origin: originOf(manifest),
         definition,
         enabled: false,
       })
@@ -351,6 +405,7 @@ export class ExternalExtensionRuntime {
           manifestId: manifest.id,
           name: manifest.name,
           version: manifest.version,
+          origin: originOf(manifest),
           definition,
           enabled: false,
           error: message,
@@ -366,6 +421,7 @@ export class ExternalExtensionRuntime {
       manifestId: manifest.id,
       name: manifest.name,
       version: manifest.version,
+      origin: originOf(manifest),
       definition,
       enabled: true,
     })

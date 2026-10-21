@@ -2,6 +2,8 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import path from 'node:path'
 import vm from 'node:vm'
 
+import { parseClientPluginMeta, type ClientPluginMeta } from './client-plugin-meta'
+
 /**
  * `plugin_dev check` 的静态体检。
  *
@@ -32,6 +34,8 @@ export interface PluginCheckInput {
   id: string
   clientRoot: string
   mainRoot: string
+  /** 宿主版本；给了才校验 client 的 engines.lumii */
+  appVersion?: string
 }
 
 export interface PluginCheckResult {
@@ -41,7 +45,7 @@ export interface PluginCheckResult {
   errors: PluginIssue[]
   warnings: PluginIssue[]
   /** 从 plugin.json 读到的元数据（客户端） */
-  meta?: { id: string; name: string; version: string }
+  meta?: ClientPluginMeta
 }
 
 function issue(code: string, message: string): PluginIssue {
@@ -57,22 +61,6 @@ function safeDir(root: string, id: string): string | null {
   const resolvedDir = path.resolve(dir)
   if (resolvedDir !== resolvedRoot && !resolvedDir.startsWith(resolvedRoot + path.sep)) return null
   return dir
-}
-
-function readClientMeta(dir: string): { meta: PluginCheckResult['meta']; error?: string } {
-  const file = path.join(dir, 'plugin.json')
-  if (!existsSync(file)) return { meta: undefined }
-  try {
-    const raw = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>
-    const meta = {
-      id: typeof raw.id === 'string' ? raw.id : '',
-      name: typeof raw.name === 'string' ? raw.name : '',
-      version: typeof raw.version === 'string' ? raw.version : '',
-    }
-    return { meta }
-  } catch (err) {
-    return { meta: undefined, error: `plugin.json 不是合法 JSON：${(err as Error).message}` }
-  }
 }
 
 /** 扫描同目录下其它插件，找出重复 id（复制目录忘改 id 是最常见的配置错误）。 */
@@ -93,8 +81,8 @@ function duplicateIds(root: string, selfDirName: string, selfId: string): string
     } catch {
       continue
     }
-    const { meta } = readClientMeta(dir)
-    if ((meta?.id || dirName) === selfId) hits.push(dirName)
+    const meta = parseClientPluginMeta(dir, dirName)
+    if (meta.id === selfId) hits.push(dirName)
   }
   return hits
 }
@@ -106,11 +94,12 @@ function checkClient(input: PluginCheckInput, dir: string, errors: PluginIssue[]
     return undefined
   }
 
-  const { meta, error } = readClientMeta(dir)
-  if (error) errors.push(issue('manifest_json', error))
+  const meta = parseClientPluginMeta(dir, input.id, { appVersion: input.appVersion })
+  if (meta.manifestError) errors.push(issue('manifest', meta.manifestError))
+  if (meta.incompatibleReason) errors.push(issue('incompatible', meta.incompatibleReason))
 
-  const id = meta?.id || input.id
-  if (meta?.id && meta.id !== input.id) {
+  const id = meta.id
+  if (meta.id !== input.id) {
     // 不是错误（目录名只用于定位文件），但会让「改哪个 id」变得不直观
     warnings.push(issue('id_differs_from_dir', `plugin.json 的 id（${meta.id}）与目录名（${input.id}）不同`))
   }

@@ -8,7 +8,7 @@
  * 渲染层只在快照签名变化时上报，频率与插件增删/失败一致，不是每秒一次。
  */
 
-export type ClientPluginLoadState = 'loaded' | 'failed' | 'disabled' | 'unknown'
+export type ClientPluginLoadState = 'loaded' | 'failed' | 'disabled' | 'incompatible' | 'unknown'
 
 export interface ClientPluginStateReport {
   id: string
@@ -16,6 +16,7 @@ export interface ClientPluginStateReport {
   version: string
   dir: string
   enabled: boolean
+  origin: 'agent' | 'user'
   state: ClientPluginLoadState
   error?: string
 }
@@ -28,7 +29,13 @@ export interface ClientPluginStateSnapshot {
 
 /** 插件数量是个位数；设上限只是防止异常载荷把内存撑大。 */
 const MAX_ENTRIES = 200
-const VALID_STATES: ReadonlySet<string> = new Set(['loaded', 'failed', 'disabled', 'unknown'])
+const VALID_STATES: ReadonlySet<string> = new Set([
+  'loaded',
+  'failed',
+  'disabled',
+  'incompatible',
+  'unknown',
+])
 
 let states: ClientPluginStateReport[] = []
 let reportedAt = 0
@@ -56,6 +63,7 @@ export function setClientPluginStateReport(raw: unknown): void {
       version: str(r.version),
       dir: str(r.dir),
       enabled: r.enabled === true,
+      origin: r.origin === 'agent' ? 'agent' : 'user',
       state: (VALID_STATES.has(state) ? state : 'unknown') as ClientPluginLoadState,
       ...(typeof r.error === 'string' && r.error ? { error: r.error } : {}),
     })

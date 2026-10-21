@@ -1,6 +1,6 @@
-import { ipcMain } from 'electron'
+import { ipcMain, shell } from 'electron'
 
-import { getExtensionControl } from '../extension-control'
+import { getExtensionControl, type PluginTarget } from '../extension-control'
 import {
   getClientPluginStateReport,
   setClientPluginStateReport,
@@ -10,7 +10,7 @@ import { createSamplePlugin } from '../plugin-template'
 /**
  * 设置页「扩展」页签的数据面 + Agent 自举开发的状态面。
  *
- * 通道只有六个：列表、两个开关、生成示例、渲染层状态上报、重启。
+ * 通道只有八个：列表、两个开关、生成示例、渲染层状态上报、重启、打开目录、删除。
  * **不加**运行日志/内存之类的通道——那些在日志与 `/status` 里已经有了。
  *
  * 开关的生效时机不同（主进程要重启、客户端插件 ≤1 秒），返回里带
@@ -19,6 +19,16 @@ import { createSamplePlugin } from '../plugin-template'
 export interface ExtensionIpcDeps {
   /** 重启当前客户端（`index.ts` 注入已有的 `requestAppRestart`） */
   restart?: () => void
+}
+
+function isTarget(value: unknown): value is PluginTarget {
+  if (typeof value !== 'object' || value === null) return false
+  const t = value as Record<string, unknown>
+  return (
+    (t.kind === 'builtin' || t.kind === 'external' || t.kind === 'client') &&
+    typeof t.id === 'string' &&
+    (t.dir === undefined || typeof t.dir === 'string')
+  )
 }
 
 export function setupExtensionIpcHandlers(deps: ExtensionIpcDeps = {}): void {
@@ -58,6 +68,24 @@ export function setupExtensionIpcHandlers(deps: ExtensionIpcDeps = {}): void {
     if (changed) {
       console.log(`[extension] 渲染层上报 ${after.states.length} 个客户端插件状态`)
     }
+  })
+
+  ipcMain.handle('extension:open-dir', async (_event, value: unknown) => {
+    if (!isTarget(value)) return { ok: false, error: '非法的扩展目标' }
+    const control = getExtensionControl()
+    if (!control) return { ok: false, error: '扩展宿主尚未就绪' }
+    const dir = control.dirOf(value)
+    if (!dir) return { ok: false, error: '该扩展没有可打开的目录' }
+    // shell.openPath 返回空串表示成功，非空是系统给的错误文案
+    const error = await shell.openPath(dir)
+    return error ? { ok: false, error } : { ok: true }
+  })
+
+  ipcMain.handle('extension:delete', async (_event, value: unknown) => {
+    if (!isTarget(value)) return { ok: false, error: '非法的扩展目标' }
+    const control = getExtensionControl()
+    if (!control) return { ok: false, error: '扩展宿主尚未就绪' }
+    return control.remove(value)
   })
 
   ipcMain.handle('extension:restart', () => {

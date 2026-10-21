@@ -36,10 +36,18 @@ interface ClientPluginDescriptor {
   id: string
   name: string
   version: string
+  description?: string
+  author?: string
+  /** 来源标记（agent = Agent 自举开发） */
+  origin: 'agent' | 'user'
   entry: string
   revision: string
   /** 是否启用（主进程从 extensions.json 写进清单） */
   enabled: boolean
+  /** 清单可解析且 engines 满足当前客户端 */
+  compatible: boolean
+  manifestError?: string
+  incompatibleReason?: string
 }
 
 /** 给设置页看的快照：清单元数据 + 本进程里的真实加载状态 */
@@ -47,9 +55,11 @@ export interface ClientPluginState {
   id: string
   name: string
   version: string
+  description?: string
   dir: string
   enabled: boolean
-  state: 'loaded' | 'failed' | 'disabled' | 'unknown'
+  origin: 'agent' | 'user'
+  state: 'loaded' | 'failed' | 'disabled' | 'incompatible' | 'unknown'
   error?: string
 }
 
@@ -126,26 +136,43 @@ export function getClientPluginStates(): ClientPluginState[] {
 function rebuildStates(): void {
   const next: ClientPluginState[] = []
   for (const descriptor of descriptors.values()) {
-    const error = errors.get(descriptor.id)
+    const runtimeError = errors.get(descriptor.id)
+    /**
+     * 清单问题优先于运行时错误：
+     * - manifestError → failed（清单写坏了）
+     * - engines 不满足 → incompatible（版本不兼容，面板要据此提示）
+     * 这两种都不会被激活（syncInner 里直接跳过）。
+     */
+    const blockedError =
+      descriptor.manifestError ??
+      (!descriptor.compatible ? descriptor.incompatibleReason ?? '不兼容当前客户端版本' : undefined)
     next.push({
       id: descriptor.id,
       name: descriptor.name,
       version: descriptor.version,
+      ...(descriptor.description ? { description: descriptor.description } : {}),
       dir: descriptor.dir,
       enabled: descriptor.enabled,
+      origin: descriptor.origin,
       state: !descriptor.enabled
         ? 'disabled'
-        : loaded.has(descriptor.id)
-          ? 'loaded'
-          : error
-            ? 'failed'
-            : 'unknown',
-      error,
+        : descriptor.manifestError
+          ? 'failed'
+          : !descriptor.compatible
+            ? 'incompatible'
+            : loaded.has(descriptor.id)
+              ? 'loaded'
+              : runtimeError
+                ? 'failed'
+                : 'unknown',
+      error: blockedError ?? runtimeError,
     })
   }
   next.sort((a, b) => a.id.localeCompare(b.id))
 
-  const signature = next.map((s) => `${s.id}|${s.enabled}|${s.state}|${s.error ?? ''}`).join('\n')
+  const signature = next
+    .map((s) => `${s.id}|${s.enabled}|${s.state}|${s.error ?? ''}|${s.origin}|${s.version}`)
+    .join('\n')
   if (signature === shared.signature) return
   shared.signature = signature
   shared.snapshot = next
@@ -163,12 +190,13 @@ function rebuildStates(): void {
 function reportToMain(states: ClientPluginState[]): void {
   try {
     window.electronAPI?.extensions?.reportClientStates?.(
-      states.map(({ id, name, version, dir, enabled, state, error }) => ({
+      states.map(({ id, name, version, dir, enabled, origin, state, error }) => ({
         id,
         name,
         version,
         dir,
         enabled,
+        origin,
         state,
         ...(error ? { error } : {}),
       })),
@@ -409,6 +437,13 @@ async function syncInner(): Promise<void> {
     // 被禁用：立刻卸掉。开关写在 extensions.json，主进程下一轮 list.json 就带过来——
     // 这里不需要额外的 IPC，用户点完开关 ≤1 秒就见效。
     if (!descriptor.enabled) {
+      unload(descriptor.id)
+      failedRevision.delete(descriptor.id)
+      continue
+    }
+
+    // 清单坏了或版本不兼容：不激活，但保留在列表里（rebuildStates 会给出原因）
+    if (descriptor.manifestError || !descriptor.compatible) {
       unload(descriptor.id)
       failedRevision.delete(descriptor.id)
       continue

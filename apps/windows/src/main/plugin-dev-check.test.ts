@@ -31,8 +31,8 @@ describe('checkPlugin（客户端）', () => {
     rmSync(root, { recursive: true, force: true })
   })
 
-  function check(id: string) {
-    return checkPlugin({ kind: 'client', id, clientRoot: root, mainRoot })
+  function check(id: string, appVersion?: string) {
+    return checkPlugin({ kind: 'client', id, clientRoot: root, mainRoot, appVersion })
   }
 
   it('好插件：ok 且无错误', () => {
@@ -43,6 +43,20 @@ describe('checkPlugin（客户端）', () => {
     expect(result.ok).toBe(true)
     expect(result.errors).toEqual([])
     expect(result.meta).toMatchObject({ id: 'good', version: '0.1.0' })
+  })
+
+  it('engines 不满足当前客户端：报 incompatible，且来源标记可读', () => {
+    writeClient(root, 'future', GOOD, {
+      id: 'future',
+      version: '0.1.0',
+      origin: 'agent',
+      engines: { lumii: '>=99.0.0' },
+    })
+
+    const result = check('future', '0.1.5')
+
+    expect(result.errors.map((e) => e.code)).toContain('incompatible')
+    expect(result.meta).toMatchObject({ origin: 'agent' })
   })
 
   it('「新建示例插件」生成的东西必须自己过体检（模板与检查器不能各说各话）', () => {

@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 
-import { resolveClientPluginsDir } from './client-plugin-protocol'
+import { resolveClientPluginsDir } from './plugin-paths'
 
 /**
  * 「新建示例插件」。
@@ -55,7 +55,20 @@ export function createSamplePlugin(root: string = resolveClientPluginsDir()): Cr
 }
 
 function PLUGIN_JSON(id: string): string {
-  return JSON.stringify({ id, name: '我的插件', version: '0.1.0' }, null, 2) + '\n'
+  return (
+    JSON.stringify(
+      {
+        id,
+        name: '我的插件',
+        version: '0.1.0',
+        description: '一句话说明这个插件做什么',
+        origin: 'user',
+        engines: { lumii: '>=0.1.0' },
+      },
+      null,
+      2,
+    ) + '\n'
+  )
 }
 
 /**
@@ -141,7 +154,8 @@ function README(id: string): string {
 放在 \`~/.lumii/plugins/${id}/\`，保存即生效（约 0.3 秒）。
 
 - \`client.js\` —— 插件代码，必需
-- \`plugin.json\` —— \`{ id, name, version }\`，可选（缺省 id = 目录名）
+- \`plugin.json\` —— \`{ id, name, version, description?, author?, origin?, engines? }\`，可选
+  （缺省 id = 目录名；Agent 生成的插件应写 \`origin: "agent"\`）
 
 ## 宿主给什么
 

@@ -1,10 +1,10 @@
 import fs from 'node:fs'
 import path from 'node:path'
 
-import { protocol } from 'electron'
+import { app, protocol } from 'electron'
 
-import { readExtensionPrefs } from './kernel/extension-store'
-import { resolveClientStateDir } from './paths'
+import { discoverClientPlugins } from './client-plugin-discovery'
+import { resolveClientPluginsDir } from './plugin-paths'
 
 /**
  * 渲染层插件的文件通道：`lumii-plugin://local/<插件目录>/<文件>`
@@ -30,109 +30,6 @@ import { resolveClientStateDir } from './paths'
 export const CLIENT_PLUGIN_SCHEME = 'lumii-plugin'
 const HOST = 'local'
 
-export interface ClientPluginDescriptor {
-  /** 插件根目录名（URL 用它定位文件；id 可被 plugin.json 覆盖，两者可能不同） */
-  dir: string
-  id: string
-  name: string
-  version: string
-  /** 相对插件根的入口文件 */
-  entry: string
-  /** mtime+size，渲染层据此判断是否需要重新加载 */
-  revision: string
-  /**
-   * 是否启用（来自 `extensions.json` 的 `disabledClient`）。
-   *
-   * 放在清单里而不是单开一条 IPC：渲染层本来就每秒拉一次清单，
-   * 开关也就随同一轮轮询生效，不需要额外通道、额外 preload。
-   */
-  enabled: boolean
-}
-
-export function resolveClientPluginsDir(): string {
-  return path.join(resolveClientStateDir(), 'plugins')
-}
-
-/**
- * 已告警过的重复 id。清单每秒被拉一次，不去重会把同一句话刷满日志
- * （与扩展加载器的 revision 去重、渲染层宿主去重是同一条教训）。
- */
-let warnedDuplicateKeys = new Set<string>()
-
-/** 扫描客户端插件目录；目录不存在或条目损坏时跳过，不抛错。 */
-export function discoverClientPlugins(): ClientPluginDescriptor[] {
-  const root = resolveClientPluginsDir()
-  // 每秒被 list.json 拉一次，读一个小 JSON 的代价可以忽略（已经在 readdir+stat）
-  const { disabledClient } = readExtensionPrefs()
-  let dirs: string[]
-  try {
-    dirs = fs.readdirSync(root)
-  } catch {
-    return []
-  }
-
-  const found: ClientPluginDescriptor[] = []
-  /** id → 已经用它的目录名：**复制插件时忘了改 id** 是最常见的配置错误 */
-  const idToDir = new Map<string, string>()
-  const dupKeys = new Set<string>()
-  for (const dirName of [...dirs].sort()) {
-    const dir = path.join(root, dirName)
-    const entryFile = path.join(dir, 'client.js')
-    try {
-      if (!fs.statSync(dir).isDirectory()) continue
-      const stat = fs.statSync(entryFile)
-      const meta = readMeta(dir, dirName)
-      const taken = idToDir.get(meta.id)
-      if (taken) {
-        // 不静默丢：同一 id 的两个目录只会加载一个，另一个永远不会生效，
-        // 而界面上看不出任何异常（复制目录后忘改 plugin.json 的典型现场）。
-        const key = `${meta.id}|${taken}|${dirName}`
-        dupKeys.add(key)
-        if (!warnedDuplicateKeys.has(key)) {
-          console.warn(
-            `[client-plugin] 插件 id 重复："${meta.id}" 同时出现在 ${taken}/ 与 ${dirName}/，` +
-              `只加载 ${taken}/。要两个都跑，请改其中一个的 plugin.json id。`,
-          )
-        }
-        continue
-      }
-      idToDir.set(meta.id, dirName)
-      found.push({
-        dir: dirName,
-        id: meta.id,
-        name: meta.name,
-        version: meta.version,
-        entry: 'client.js',
-        revision: `${Math.floor(stat.mtimeMs)}-${stat.size}`,
-        enabled: !disabledClient.has(meta.id),
-      })
-    } catch {
-      continue
-    }
-  }
-  // 本轮还在的重复对保留告警记录；不再重复的（已修好）清掉，下次再犯会重新告警
-  warnedDuplicateKeys = dupKeys
-  return found.sort((a, b) => a.id.localeCompare(b.id))
-}
-
-function readMeta(dir: string, dirName: string): { id: string; name: string; version: string } {
-  const fallback = { id: dirName, name: dirName, version: '0.0.0' }
-  try {
-    const raw = JSON.parse(fs.readFileSync(path.join(dir, 'plugin.json'), 'utf8')) as Partial<{
-      id: string
-      name: string
-      version: string
-    }>
-    return {
-      id: typeof raw.id === 'string' && raw.id ? raw.id : fallback.id,
-      name: typeof raw.name === 'string' && raw.name ? raw.name : fallback.name,
-      version: typeof raw.version === 'string' && raw.version ? raw.version : fallback.version,
-    }
-  } catch {
-    return fallback
-  }
-}
-
 /**
  * 须在 app ready 后调用。
  *
@@ -154,7 +51,7 @@ export function registerClientPluginProtocolHandler(): void {
     const rel = decodeURIComponent(url.pathname).replace(/^\/+/, '')
 
     if (rel === 'list.json') {
-      return jsonResponse(discoverClientPlugins())
+      return jsonResponse(discoverClientPlugins({ appVersion: app.getVersion() }))
     }
 
     const target = path.resolve(root, rel)
