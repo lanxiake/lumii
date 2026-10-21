@@ -2,7 +2,7 @@
  * 内置插件注册表（主进程）
  *
  * 每接入一个插件就在这里 `registerPlugin({...})`。新增插件时同步在
- * `renderer/pages/PluginCenterPage/plugins-registry.ts` 的 `PLUGIN_REGISTRY` 里加一条
+ * `renderer/data/asset-plugins.ts` 的 `PLUGIN_REGISTRY` 里加一条
  * UI 元数据（id 必须一致）——渲染层据它出卡片，主进程据这里认 id。
  *
  * 需要触达外部系统（如 MCP 配置）的插件，通过 `PluginDeps` 注入回调——**不直接 import

@@ -22,6 +22,7 @@ const builtins: BuiltinExtension[] = [
       version: '1.0.0',
       engines: { lumii: '>=0.1.0' },
       kind: 'code',
+      requires: { assets: ['ffmpeg'], optional: true },
     },
     definition: { id: 'com.test.alpha', apply() {} },
   },
@@ -80,7 +81,13 @@ describe('createExtensionControl', () => {
     const list = control.list()
 
     expect(list.map((x) => x.id)).toEqual(['com.test.alpha', 'com.test.ext'])
-    expect(list[0]).toMatchObject({ kind: 'builtin', enabled: true, state: 'active', pendingRestart: false })
+    expect(list[0]).toMatchObject({
+      kind: 'builtin',
+      enabled: true,
+      state: 'active',
+      pendingRestart: false,
+      requires: { assets: ['ffmpeg'], optional: true },
+    })
     expect(list[1]).toMatchObject({ kind: 'external', enabled: true, state: 'active', pendingRestart: false })
   })
 

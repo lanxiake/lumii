@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
-import type { PluginDef } from './plugins-registry'
-import { CATEGORY_LABELS } from './plugins-registry'
+import type { PluginDef } from '../../data/asset-plugins'
+import { CATEGORY_LABELS } from '../../data/asset-plugins'
+import type { SettingsHubTab } from '../../components/SettingsHub/types'
 import type { PluginStatus } from '../../hooks/business/usePlugins/usePlugins'
 import { ConfirmModal } from '../../components/ui/Modal/ConfirmModal'
 import styles from './PluginCard.module.css'
@@ -11,6 +12,8 @@ type Props = {
   onInstall: () => void
   onUninstall: () => void
   onCancel?: () => void
+  /** 「用于：xxx」里的可跳转标签（设置中心内切页签） */
+  onNavigateTab?: (tab: SettingsHubTab) => void
 }
 
 function formatBytes(bytes: number): string {
@@ -18,7 +21,14 @@ function formatBytes(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
 
-export const PluginCard: React.FC<Props> = ({ def, status, onInstall, onUninstall, onCancel }) => {
+export const PluginCard: React.FC<Props> = ({
+  def,
+  status,
+  onInstall,
+  onUninstall,
+  onCancel,
+  onNavigateTab,
+}) => {
   const [showConfirm, setShowConfirm] = useState(false)
 
   const { installed, installing, uninstalling, progress, error, version } = status
@@ -64,6 +74,28 @@ export const PluginCard: React.FC<Props> = ({ def, status, onInstall, onUninstal
             <li key={f}>{f}</li>
           ))}
         </ul>
+      )}
+
+      {def.usedBy && def.usedBy.length > 0 && (
+        <div className={styles.usedBy}>
+          <span>用于：</span>
+          {def.usedBy.map((item, index) => (
+            <React.Fragment key={item.label}>
+              {index > 0 && <span className={styles.usedBySep}>·</span>}
+              {item.tab ? (
+                <button
+                  type="button"
+                  className={styles.usedByLink}
+                  onClick={() => onNavigateTab?.(item.tab!)}
+                >
+                  {item.label}
+                </button>
+              ) : (
+                <span>{item.label}</span>
+              )}
+            </React.Fragment>
+          ))}
+        </div>
       )}
 
       {/* 下载进度条 */}

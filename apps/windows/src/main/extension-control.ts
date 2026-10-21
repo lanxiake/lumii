@@ -1,7 +1,7 @@
 import { rmSync } from 'node:fs'
 import path from 'node:path'
 
-import type { PluginHost, PluginState } from '@mtbot/plugin-core'
+import type { LumiiPluginManifest, PluginHost, PluginState } from '@mtbot/plugin-core'
 
 import type { ExternalExtensionRuntime } from './extension-loader'
 import type { MainEvents } from './kernel/events'
@@ -34,6 +34,8 @@ export interface ExtensionInfo {
   kind: ExtensionKind
   /** 来源：内置 / 用户手写 / Agent 自举开发（只是展示，不是权限） */
   origin: 'builtin' | 'user' | 'agent'
+  /** 运行时组件依赖（只用于展示与安装引导） */
+  requires?: LumiiPluginManifest['requires']
   /** 外部扩展才有 */
   dir?: string
   enabled: boolean
@@ -96,6 +98,7 @@ export function createExtensionControl(deps: ExtensionControlDeps): ExtensionCon
         version: manifest.version,
         kind: 'builtin',
         origin: 'builtin',
+        ...(manifest.requires ? { requires: manifest.requires } : {}),
         enabled,
         state: enabled ? (live?.state ?? 'unknown') : 'disabled',
         activationMs: live?.activationMs,
@@ -125,6 +128,7 @@ export function createExtensionControl(deps: ExtensionControlDeps): ExtensionCon
         version: entry.version,
         kind: 'external',
         origin: entry.origin,
+        ...(entry.requires ? { requires: entry.requires } : {}),
         dir: entry.dir,
         enabled,
         state: enabled ? (entry.state as ExtensionInfo['state']) : 'disabled',

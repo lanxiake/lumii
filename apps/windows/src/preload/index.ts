@@ -960,6 +960,7 @@ export interface ElectronAPI {
       version: string
       kind: 'builtin' | 'external'
       origin: 'builtin' | 'user' | 'agent'
+      requires?: { assets?: string[]; optional?: boolean }
       dir?: string
       enabled: boolean
       state: string

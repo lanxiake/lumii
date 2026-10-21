@@ -33,6 +33,8 @@ export const screenRecordExtension = {
     description: '窗口/屏幕录制、旁白配音与字幕烧录',
     engines: { lumii: '>=0.1.0' },
     kind: 'code' as const,
+    // ffmpeg 有包内/系统 PATH 两级回退，缺了只是「导出 MP4/烧字幕」用不了
+    requires: { assets: ['ffmpeg'], optional: true },
   },
   definition: definePlugin<MainEvents>({
     id: 'com.lumii.screen-record',

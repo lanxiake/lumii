@@ -58,9 +58,10 @@ export const SETTINGS_HUB_TABS: Array<{ id: SettingsHubTab; label: string }> = [
   { id: 'cron', label: '定时任务' },
   { id: 'memories', label: '记忆' },
   { id: 'wiki', label: '资料库' },
-  { id: 'plugins', label: '插件' },
-  // 代码扩展（~/.lumii/plugins）——与上面的「插件」（资产/组件）是两类东西
-  { id: 'extensions', label: '扩展' },
+  // 按需下载的二进制/模型/外部服务（原「插件」）
+  { id: 'plugins', label: '运行时组件' },
+  // 代码扩展：主进程扩展 + 客户端插件（~/.lumii/extensions、~/.lumii/plugins）
+  { id: 'extensions', label: '代码扩展' },
 ]
 
 /** 可被 Hub 接管的路由视图 */

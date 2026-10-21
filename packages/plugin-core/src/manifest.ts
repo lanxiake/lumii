@@ -54,6 +54,18 @@ export interface LumiiPluginManifest {
   client?: { entry: string; styles?: string[] };
   /** 省略 = ["onStartup"] */
   activation?: ActivationEvent[];
+  /**
+   * 运行时依赖：由「运行时组件」（插件中心的资产）提供，例如录屏扩展 → ffmpeg。
+   *
+   * 只用于设置页展示与安装引导，**不是加载门槛**——缺了也照常激活，
+   * 由扩展自己决定降级路径（ffmpeg 就有包内/系统 PATH 两级回退）。
+   */
+  requires?: {
+    /** 资产 id（见 `plugins-registry`） */
+    assets?: string[];
+    /** 缺省视为必需；true 表示未安装也能工作（有回退路径） */
+    optional?: boolean;
+  };
   contributes?: PluginContributions;
   configSchema?: Record<string, unknown>;
   /** 内置功能迁移期的过渡开关 */

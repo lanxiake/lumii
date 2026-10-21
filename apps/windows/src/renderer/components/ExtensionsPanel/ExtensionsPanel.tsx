@@ -5,6 +5,8 @@ import {
   subscribeClientPlugins,
   type ClientPluginState,
 } from '../../plugins/client-plugin-host'
+import { PLUGIN_REGISTRY } from '../../data/asset-plugins'
+import { useSettingsHub } from '../SettingsHub/SettingsHubContext'
 import { ConfirmModal } from '../ui/Modal/ConfirmModal'
 import styles from './ExtensionsPanel.module.css'
 
@@ -21,6 +23,7 @@ interface ExtensionInfo {
   version: string
   kind: 'builtin' | 'external'
   origin: 'builtin' | 'user' | 'agent'
+  requires?: { assets?: string[]; optional?: boolean }
   dir?: string
   enabled: boolean
   state: string
@@ -61,6 +64,9 @@ export const ExtensionsPanel: React.FC = () => {
   const [busy, setBusy] = useState<string | null>(null)
   const [restarting, setRestarting] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null)
+  /** 运行时组件安装状态（扩展声明的 requires.assets 用它显示已装/未装） */
+  const [assets, setAssets] = useState<Record<string, { installed: boolean }>>({})
+  const { setTab } = useSettingsHub()
 
   /** 主进程扩展：偏好已改、进程里还是启动时那份配置 */
   const pendingRestartCount = items.filter((item) => item.pendingRestart).length
@@ -80,9 +86,18 @@ export const ExtensionsPanel: React.FC = () => {
     }
   }, [])
 
+  const refreshAssets = useCallback(async () => {
+    try {
+      setAssets(await window.electronAPI.plugins.list())
+    } catch {
+      // 组件状态读不到不影响扩展列表本身
+    }
+  }, [])
+
   useEffect(() => {
     void refresh()
-  }, [refresh])
+    void refreshAssets()
+  }, [refresh, refreshAssets])
 
   const toggleMain = useCallback(
     async (item: ExtensionInfo) => {
@@ -215,6 +230,31 @@ export const ExtensionsPanel: React.FC = () => {
                     {item.dir ? ` · ${item.dir}` : ''}
                   </div>
                   {item.error && <div className={styles.error}>{item.error}</div>}
+                  {item.requires?.assets?.length ? (
+                    <div className={styles.deps}>
+                      <span>{item.requires.optional ? '可选依赖' : '依赖'}：</span>
+                      {item.requires.assets.map((assetId) => {
+                        const def = PLUGIN_REGISTRY.find((d) => d.id === assetId)
+                        const installed = Boolean(assets[assetId]?.installed)
+                        return (
+                          <span key={assetId} className={styles.dep}>
+                            {def?.name ?? assetId}
+                            <span className={installed ? styles.depOk : styles.depMissing}>
+                              {installed ? '已安装' : '未安装'}
+                            </span>
+                            {!installed && (
+                              <button
+                                className={styles.depLink}
+                                onClick={() => setTab('plugins')}
+                              >
+                                去安装
+                              </button>
+                            )}
+                          </span>
+                        )
+                      })}
+                    </div>
+                  ) : null}
                 </div>
                 <div className={styles.actions}>
                   {item.kind === 'external' && (
@@ -318,7 +358,13 @@ export const ExtensionsPanel: React.FC = () => {
         <button className={styles.primary} disabled={busy === CREATE_KEY} onClick={() => void createSample()}>
           新建示例插件
         </button>
-        <button className={styles.secondary} onClick={() => void refresh()}>
+        <button
+          className={styles.secondary}
+          onClick={() => {
+            void refresh()
+            void refreshAssets()
+          }}
+        >
           刷新
         </button>
       </div>
@@ -327,10 +373,10 @@ export const ExtensionsPanel: React.FC = () => {
 
       <ConfirmModal
         open={deleteTarget !== null}
-        title="删除插件"
+        title="删除"
         content={
           deleteTarget
-            ? `确定删除「${deleteTarget.name}」？会移除磁盘上的插件目录，不可撤销。`
+            ? `确定删除「${deleteTarget.name}」？会移除磁盘上的代码目录，不可撤销。`
             : ''
         }
         confirmText="删除"

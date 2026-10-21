@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
-import { PLUGIN_REGISTRY } from '../../../pages/PluginCenterPage/plugins-registry'
-import type { PluginId } from '../../../pages/PluginCenterPage/plugins-registry'
+import { PLUGIN_REGISTRY } from '../../../data/asset-plugins'
+import type { PluginId } from '../../../data/asset-plugins'
 
 export type PluginStatus = {
   id: PluginId
