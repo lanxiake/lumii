@@ -967,6 +967,8 @@ export interface ElectronAPI {
       state: string
       /** 官方清单里有、还没下载安装 */
       installable?: boolean
+      /** 已装的官方扩展落后于当前清单 */
+      updatable?: boolean
       activationMs?: number
       error?: string
       /** 开关已改但还没重启（主进程扩展） */

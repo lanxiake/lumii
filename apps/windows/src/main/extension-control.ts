@@ -13,7 +13,7 @@ import {
 } from './kernel/extension-store'
 import { BUILTIN_EXTENSIONS, type BuiltinExtension } from './plugin-host'
 import { resolveClientPluginsDir } from './plugin-paths'
-import type { OfficialCatalogEntry } from './official-extensions'
+import { readInstalledOfficial, type OfficialCatalogEntry } from './official-extensions'
 
 /**
  * 扩展控制面：给设置页「扩展」页签提供**统一列表**与**启用开关**。
@@ -46,6 +46,8 @@ export interface ExtensionInfo {
   state: PluginState | 'disabled' | 'available' | 'unknown'
   /** 显示「安装」按钮（按需下载的官方扩展） */
   installable?: boolean
+  /** 已装的官方扩展与当前清单 sha256 不同 → 显示「更新」 */
+  updatable?: boolean
   activationMs?: number
   error?: string
   /** 开关已改但进程还是启动时的那份配置——需要重启才生效 */
@@ -119,6 +121,8 @@ export function createExtensionControl(deps: ExtensionControlDeps): ExtensionCon
       }
     })
 
+    const catalogById = new Map((deps.officialCatalog ?? []).map((entry) => [entry.id, entry]))
+
     const externalItems: ExtensionInfo[] = (deps.external?.inspect() ?? []).map((entry) => {
       /**
        * `enabled` 以**偏好文件**为准，不以运行时为准。
@@ -130,6 +134,9 @@ export function createExtensionControl(deps: ExtensionControlDeps): ExtensionCon
       const enabled = !disabled.has(entry.id)
       // 启动快照里的禁用表；运行时 `entry.enabled` 会被导入失败影响，不能拿来比
       const enabledAtStartup = !deps.external?.startupDisabledIds().has(entry.id)
+      // 官方扩展：已装 marker 的 sha256 与当前清单不同 → 可更新（安装包不会自动覆盖）
+      const catalogEntry = entry.origin === 'official' ? catalogById.get(entry.id) : undefined
+      const installedSha = catalogEntry ? readInstalledOfficial(entry.dir)?.sha256 : undefined
       return {
         id: entry.id,
         name: entry.name,
@@ -140,6 +147,9 @@ export function createExtensionControl(deps: ExtensionControlDeps): ExtensionCon
         dir: entry.dir,
         enabled,
         state: enabled ? (entry.state as ExtensionInfo['state']) : 'disabled',
+        ...(catalogEntry && installedSha && installedSha !== catalogEntry.sha256
+          ? { updatable: true }
+          : {}),
         activationMs: entry.activationMs,
         error: entry.error,
         pendingRestart: enabled !== enabledAtStartup,

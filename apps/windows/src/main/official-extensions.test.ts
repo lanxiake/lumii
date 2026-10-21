@@ -8,6 +8,7 @@ import {
   installOfficialExtension,
   isOfficialExtensionInstalled,
   loadOfficialCatalog,
+  readInstalledOfficial,
   removeOfficialExtension,
   syncOfficialExtensions,
   type OfficialCatalogEntry,
@@ -148,9 +149,7 @@ describe('installOfficialExtension', () => {
       version: ENTRY.version,
       sha256: ENTRY.sha256,
     })
-    expect(JSON.parse(readFileSync(path.join(extensionsDir, ENTRY.id, '.official.json'), 'utf8')).sha256).toBe(
-      ENTRY.sha256,
-    )
+    expect(readInstalledOfficial(path.join(extensionsDir, ENTRY.id))?.sha256).toBe(ENTRY.sha256)
     expect(phases.at(-1)).toBe('done')
     // 下载中的临时文件不能留在根目录（外部加载器只扫子目录，但别攒垃圾）
     expect(existsSync(path.join(extensionsDir, `.staging-${ENTRY.id}.js`))).toBe(false)

@@ -30,6 +30,8 @@ interface ExtensionInfo {
   state: string
   /** 官方清单里有、还没下载安装 */
   installable?: boolean
+  /** 已装的官方扩展落后于当前清单 */
+  updatable?: boolean
   activationMs?: number
   error?: string
   /** 开关已改，等重启生效 */
@@ -428,6 +430,17 @@ export const ExtensionsPanel: React.FC = () => {
                         {item.origin === 'official' ? '卸载' : '删除'}
                       </button>
                     </>
+                  )}
+                  {item.updatable && (
+                    <button
+                      className={styles.toggle}
+                      disabled={busy === item.id || Boolean(runtimeStatus?.installing)}
+                      onClick={() => void installOfficial(item)}
+                    >
+                      {runtimeStatus?.installing
+                        ? `更新中 ${runtimeStatus.progress?.percent ?? 0}%`
+                        : '更新'}
+                    </button>
                   )}
                   {item.installable ? (
                     <>

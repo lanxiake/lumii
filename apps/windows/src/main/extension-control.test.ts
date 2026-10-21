@@ -115,6 +115,58 @@ describe('createExtensionControl', () => {
     })
   })
 
+  it('官方扩展已装的 sha256 与清单不同 → updatable；相同则不标', () => {
+    const extDir = path.join(dir, 'exts', 'com.test.official')
+    mkdirSync(extDir, { recursive: true })
+    writeFileSync(
+      path.join(extDir, '.official.json'),
+      JSON.stringify({ id: 'com.test.official', sha256: 'old-sha' }),
+      'utf8',
+    )
+    const external = {
+      inspect: () => [
+        {
+          dir: extDir,
+          id: 'com.test.official',
+          name: '官方',
+          version: '0.1.0',
+          origin: 'official',
+          enabled: true,
+          state: 'active',
+        },
+      ],
+      startupDisabledIds: () => new Set<string>(),
+      dirOf: () => extDir,
+      remove: async () => ({ ok: true as const, dir: extDir }),
+    } as unknown as ExternalExtensionRuntime
+    const officialCatalog = [
+      {
+        id: 'com.test.official',
+        name: '官方',
+        description: '',
+        version: '0.1.0',
+        asset: 'a.js',
+        sha256: 'new-sha',
+      },
+    ]
+
+    const control = createExtensionControl({ host, builtins, external, storeFile, officialCatalog })
+    expect(control.list().find((x) => x.id === 'com.test.official')).toMatchObject({
+      origin: 'official',
+      updatable: true,
+    })
+
+    writeFileSync(
+      path.join(extDir, '.official.json'),
+      JSON.stringify({ id: 'com.test.official', sha256: 'new-sha' }),
+      'utf8',
+    )
+    expect(
+      createExtensionControl({ host, builtins, external, storeFile, officialCatalog }).list()
+        .find((x) => x.id === 'com.test.official')?.updatable,
+    ).toBeUndefined()
+  })
+
   it('内置扩展：改完开关到重启前 pendingRestart=true', () => {
     const control = createExtensionControl({ host, builtins, storeFile })
 

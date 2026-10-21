@@ -64,6 +64,24 @@ export function isOfficialExtensionInstalled(extensionsDir: string, id: string):
   return existsSync(path.join(extensionsDir, id, 'main.js'))
 }
 
+/** 读已安装官方扩展的 marker（目录里没有 `.official.json` 时返回 null） */
+export function readInstalledOfficial(dir: string): OfficialCatalogEntry | null {
+  try {
+    const raw = JSON.parse(readFileSync(path.join(dir, MARKER), 'utf8')) as Partial<OfficialCatalogEntry>
+    if (!raw.id || !raw.sha256) return null
+    return {
+      id: raw.id,
+      name: raw.name ?? raw.id,
+      description: raw.description ?? '',
+      version: raw.version ?? '0.0.0',
+      asset: raw.asset ?? '',
+      sha256: raw.sha256,
+    }
+  } catch {
+    return null
+  }
+}
+
 /**
  * 按需安装：下载 `ext-<id>.js` → `<extensionsDir>/<id>/main.js`，再写 build-info 与 marker。
  *
