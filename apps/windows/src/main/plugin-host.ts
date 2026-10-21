@@ -13,6 +13,8 @@ import { eventLoggerExtension } from './extensions/event-logger'
 import { updaterExtension } from './extensions/updater'
 import { voiceExtension } from './extensions/voice'
 import { petExtension } from './extensions/pet'
+import { relayExtension } from './extensions/relay'
+import { browserExtension } from './extensions/browser'
 
 /**
  * 内置扩展的统一定义。
@@ -34,6 +36,8 @@ export const BUILTIN_EXTENSIONS: BuiltinExtension[] = [
   // cloud-sync / screen-record 已拆为官方外部扩展：代码不再进主 bundle，见 official-extensions.ts
   voiceExtension,
   petExtension,
+  relayExtension,
+  browserExtension,
 ]
 
 /**
