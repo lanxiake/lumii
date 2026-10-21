@@ -39,6 +39,7 @@ import { ModelConfigSection } from './components/ModelConfigSection'
 import { VoiceSettingsSection } from './components/VoiceSettingsSection'
 import { WorkspaceSection } from './components/WorkspaceSection'
 import { CloudSyncSection } from './components/CloudSyncSection'
+import { OfficialExtensionGate } from '../../components/OfficialExtensionGate/OfficialExtensionGate'
 import { ExperimentalSection } from './components/ExperimentalSection'
 import { AppearanceSection } from './components/AppearanceSection'
 import type {
@@ -335,9 +336,16 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
    */
   const renderCloudSyncSettings = () => {
     return (
-      <div className={styles['settings-section']}>
-        <CloudSyncSection />
-      </div>
+      // 安装包只带 catalog：全新安装时先让用户在这里把它装上
+      <OfficialExtensionGate
+        id="com.lumii.cloud-sync"
+        name="云同步"
+        description="把用户文件与记忆同步到自建 Git 仓库"
+      >
+        <div className={styles['settings-section']}>
+          <CloudSyncSection />
+        </div>
+      </OfficialExtensionGate>
     )
   }
 
@@ -581,6 +589,11 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   const renderScreenRecordSettings = () => {
     const screenRecord = { ...DEFAULT_SETTINGS.screenRecord, ...settings.screenRecord }
     return (
+      <OfficialExtensionGate
+        id="com.lumii.screen-record"
+        name="录屏"
+        description="窗口/屏幕录制、旁白配音与字幕烧录"
+      >
       <div className={styles['settings-panel']}>
         <header className={styles['panel-header']}>
           <h3 data-app-ui-section-title className={styles['panel-title']}>
@@ -709,6 +722,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
           </div>
         )}
       </div>
+      </OfficialExtensionGate>
     )
   }
 

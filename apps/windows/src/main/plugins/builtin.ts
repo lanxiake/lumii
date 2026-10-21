@@ -136,6 +136,13 @@ export interface PluginDeps {
    * 在面板里对它的任何调整一并抹掉。停用则非破坏、可逆，重装即恢复。
    */
   setMcpServerEnabled?: (name: string, enabled: boolean) => Promise<void>
+  /**
+   * 官方扩展**运行期**装好之后的补接线。
+   *
+   * 启动时读一次的服务（perf 的 IPC、云同步的调度器 start）不会因为扩展被装上而
+   * 自动重跑；宿主约 1 秒后才把服务放进容器，所以这里只负责调度，真正的轮询在 index.ts。
+   */
+  onOfficialExtensionInstalled?: (id: string) => void
 }
 
 /** 由内置预设构造 wechat-local 的配置条目（command 指向部署路径），并置为启用 */
@@ -158,7 +165,7 @@ function officialExtensionsSourceDir(): string {
  * 安装落点就是 `~/.lumii/extensions/<id>`，外部扩展加载器 1 秒内会把它捡起来
  * ——不需要额外的「装完刷新」回调。
  */
-function registerOfficialExtensionPlugins(catalog: OfficialCatalogEntry[]): void {
+function registerOfficialExtensionPlugins(catalog: OfficialCatalogEntry[], deps: PluginDeps): void {
   const extensionsDir = resolveExtensionsDir()
   for (const entry of catalog) {
     registerPlugin({
@@ -191,6 +198,8 @@ function registerOfficialExtensionPlugins(catalog: OfficialCatalogEntry[]): void
         } catch {
           /* 偏好清理失败不影响安装 */
         }
+        // 运行期补接线（启动时只读一次的服务不会自己回来）
+        deps.onOfficialExtensionInstalled?.(entry.id)
       },
       async uninstall() {
         removeOfficialExtension(extensionsDir, entry.id)
@@ -279,5 +288,5 @@ export function registerBuiltinPlugins(deps: PluginDeps = {}): void {
   for (const id of PET_PLUGIN_IDS) registerPetPlugin(id)
 
   // 官方扩展：装/卸都落 ~/.lumii/extensions，与随包同步共用同一套覆盖策略
-  registerOfficialExtensionPlugins(loadOfficialCatalog(officialExtensionsSourceDir()))
+  registerOfficialExtensionPlugins(loadOfficialCatalog(officialExtensionsSourceDir()), deps)
 }
