@@ -53,6 +53,7 @@
         // resources/extensions，不在任何 import 图里（这正是拆出去的目的）
         "src/main/extensions/perf.ts",
         "src/main/extensions/cloud-sync.ts",
+        "src/main/extensions/screen-record.ts",
 
         // UI 自动化 CLI：被 scripts/ 与文档以 `node .../lumii-ui.mjs` 方式 spawn，
         // 永远不以 import 形式出现（lumii-ui.mjs 自己 import ./commands.mjs，

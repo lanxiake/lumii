@@ -35,6 +35,9 @@ export const screenRecordExtension = {
     kind: 'code' as const,
     // ffmpeg 有包内/系统 PATH 两级回退，缺了只是「导出 MP4/烧字幕」用不了
     requires: { assets: ['ffmpeg'], optional: true },
+    // 官方可选扩展：由 build-official-extensions.mjs 打包，启动时同步到 ~/.lumii/extensions
+    origin: 'official' as const,
+    main: './main.js',
   },
   definition: definePlugin<MainEvents>({
     id: 'com.lumii.screen-record',
@@ -135,3 +138,6 @@ export const screenRecordExtension = {
     },
   }),
 }
+
+// 外部扩展加载器按 `export default { manifest, definition }` 读取。
+export default screenRecordExtension

@@ -9,7 +9,6 @@ import {
 import type { MainEvents } from './kernel/events'
 import { helloExtension } from './extensions/hello'
 import { updaterExtension } from './extensions/updater'
-import { screenRecordExtension } from './extensions/screen-record'
 import { voiceExtension } from './extensions/voice'
 import { petExtension } from './extensions/pet'
 
@@ -29,8 +28,7 @@ export const BUILTIN_EXTENSIONS: BuiltinExtension[] = [
   helloExtension,
   // perf 已拆为官方外部扩展（官方扩展试点）：代码不再进主 bundle，见 official-extensions.ts
   updaterExtension,
-  // cloud-sync 已拆为官方外部扩展（第二个试点）：代码不再进主 bundle，见 official-extensions.ts
-  screenRecordExtension,
+  // cloud-sync / screen-record 已拆为官方外部扩展：代码不再进主 bundle，见 official-extensions.ts
   voiceExtension,
   petExtension,
 ]

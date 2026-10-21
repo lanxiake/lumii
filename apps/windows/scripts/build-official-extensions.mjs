@@ -5,7 +5,7 @@
  * 启动时由 `official-extensions.ts` 按 sha256 同步到 `~/.lumii/extensions/<id>/`，
  * 再由现有的外部扩展加载器加载——代码不再进主进程 bundle，禁用/删除/热更新都走同一套。
  *
- * 目前有 perf / cloud-sync 两个试点。新增官方扩展时在 ENTRIES 里加一行。
+ * 目前有 perf / cloud-sync / screen-record 三个试点。新增官方扩展时在 ENTRIES 里加一行。
  */
 import { createHash } from 'node:crypto'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
@@ -29,6 +29,11 @@ const ENTRIES = [
     id: 'com.lumii.cloud-sync',
     version: '0.1.0',
     entry: 'src/main/extensions/cloud-sync.ts',
+  },
+  {
+    id: 'com.lumii.screen-record',
+    version: '0.1.0',
+    entry: 'src/main/extensions/screen-record.ts',
   },
 ]
 

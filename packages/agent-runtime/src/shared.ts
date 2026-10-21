@@ -8,3 +8,4 @@
 export { SQLITE_BUSY_TIMEOUT_MS } from './storage/local-database.js'
 export { reconcilePersonalMemory } from './memory/personal-memory-entries.js'
 export { ProgressFence } from './compact/progress-fence.js'
+export { resolveCommand } from './tools/mcp/mcp-client.js'

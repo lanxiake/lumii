@@ -1,7 +1,7 @@
 {
   "_comment": "接线守卫基线（棘轮）：这里的断线是已知存量，守卫只报新增。清理后跑 node scripts/check-wiring.mjs --update 收紧。",
   "_updated": "2026-09-24",
-  "_unreachable_note": "perf.ts / cloud-sync.ts 是官方外部扩展的构建入口（build-official-extensions.mjs 以路径字符串引用），不在静态 import 图里——拆出去正是目的。",
+  "_unreachable_note": "perf.ts / cloud-sync.ts / screen-record.ts 是官方外部扩展的构建入口（build-official-extensions.mjs 以路径字符串引用），不在静态 import 图里——拆出去正是目的。",
   "orphanHandlers": [],
   "danglingRefs": [],
   "orphanSends": [],
@@ -17,7 +17,8 @@
     "apps/windows/src/main/skill-evolution/types.ts",
     "apps/windows/src/main/skill-evolution/user-dialog.ts",
     "apps/windows/src/main/extensions/perf.ts",
-    "apps/windows/src/main/extensions/cloud-sync.ts"
+    "apps/windows/src/main/extensions/cloud-sync.ts",
+    "apps/windows/src/main/extensions/screen-record.ts"
   ],
   "unconsumedMethods": [
     "updater.checkForUpdates",

@@ -7,7 +7,7 @@
 import { spawn as nodeSpawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
-import { resolveCommand } from '@mtbot/agent-runtime'
+import { resolveCommand } from '@mtbot/agent-runtime/shared'
 import { refreshCommonCliPathsInProcessEnv } from '../cli-user-path'
 import { resolvePluginRuntimeDir } from '../paths'
 import { createLogger } from '../logger'
