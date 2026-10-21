@@ -29,6 +29,7 @@ const BRIDGE_SOURCES = [
   'bridge-browser-tools.ts',
   'bridge-app-ui-tools.ts',
   'bridge-screen-record-tools.ts',
+  'bridge-plugin-dev-tools.ts',
 ] as const
 
 describe('bridge 注册工具的提示词分组', () => {

@@ -27,8 +27,11 @@ const builtins: BuiltinExtension[] = [
   },
 ]
 
-/** 只实现控制面用到的那一个方法 */
-function fakeExternal(entries: Array<{ id: string; enabled: boolean }>): ExternalExtensionRuntime {
+/** 只实现控制面用到的方法 */
+function fakeExternal(
+  entries: Array<{ id: string; enabled: boolean }>,
+  disabledAtStartup: string[] = [],
+): ExternalExtensionRuntime {
   return {
     inspect: () =>
       entries.map((e) => ({
@@ -39,6 +42,7 @@ function fakeExternal(entries: Array<{ id: string; enabled: boolean }>): Externa
         enabled: e.enabled,
         state: e.enabled ? 'active' : 'disabled',
       })),
+    startupDisabledIds: () => new Set(disabledAtStartup),
   } as unknown as ExternalExtensionRuntime
 }
 
@@ -70,8 +74,28 @@ describe('createExtensionControl', () => {
     const list = control.list()
 
     expect(list.map((x) => x.id)).toEqual(['com.test.alpha', 'com.test.ext'])
-    expect(list[0]).toMatchObject({ kind: 'builtin', enabled: true, state: 'active' })
-    expect(list[1]).toMatchObject({ kind: 'external', enabled: true, state: 'active' })
+    expect(list[0]).toMatchObject({ kind: 'builtin', enabled: true, state: 'active', pendingRestart: false })
+    expect(list[1]).toMatchObject({ kind: 'external', enabled: true, state: 'active', pendingRestart: false })
+  })
+
+  it('内置扩展：改完开关到重启前 pendingRestart=true', () => {
+    const control = createExtensionControl({ host, builtins, storeFile })
+
+    control.setEnabled('com.test.alpha', false)
+
+    expect(control.list()[0]).toMatchObject({ enabled: false, pendingRestart: true })
+  })
+
+  it('外部扩展：按启动快照判断待重启，而不是按运行时 enabled', () => {
+    // 启动时被禁用、偏好里现在没禁用 → 已启用但还没重启
+    const control = createExtensionControl({
+      host,
+      builtins,
+      storeFile,
+      external: fakeExternal([{ id: 'com.test.ext', enabled: false }], ['com.test.ext']),
+    })
+
+    expect(control.list()[1]).toMatchObject({ enabled: true, pendingRestart: true })
   })
 
   it('被禁用的内置扩展：enabled=false、state=disabled', () => {

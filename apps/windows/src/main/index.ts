@@ -1469,7 +1469,8 @@ async function initLocalServices(): Promise<void> {
   })
   setupPluginIpcHandlers()
   // 代码扩展（主进程扩展 + 客户端插件）的列表与开关
-  setupExtensionIpcHandlers()
+  // 重启入口复用 lumii-ui restart 的同一条已验证路径（打包版 relaunch / dev 版排脚本）
+  setupExtensionIpcHandlers({ restart: requestAppRestart })
 
   // 种子内置技能：必须在 initSkillRuntime 之前。
   // SkillRuntime 初始化时会扫描 workspace/skills 并把结果缓存进 LocalSkillStore.index，

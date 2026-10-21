@@ -185,6 +185,15 @@ export class ExternalExtensionRuntime {
   /** 启动时从 extensions.json 读到的禁用项；运行时不变（开关重启后生效） */
   private readonly disabledIds: ReadonlySet<string>
 
+  /**
+   * 启动时从 `extensions.json` 读到的禁用表（只读快照）。
+   *
+   * 「开关改了但还没重启」只能靠它判断：运行时状态里看不出用户刚刚改过偏好。
+   */
+  startupDisabledIds(): ReadonlySet<string> {
+    return this.disabledIds
+  }
+
   /** 当前已知的外部扩展（含被禁用的与导入失败的）。UI 的列表用它。 */
   inspect(): ExternalExtensionInfo[] {
     return [...this.loaded.values()].map((entry) => {

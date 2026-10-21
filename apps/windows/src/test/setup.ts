@@ -98,6 +98,11 @@ beforeAll(() => {
       clear: () => {
         store = {}
       },
+      // Storage 的标准读法：枚举/计数。少了它们，依赖遍历的代码在测试里会静默拿到空
+      get length() {
+        return Object.keys(store).length
+      },
+      key: (index: number) => Object.keys(store)[index] ?? null,
     }
   })()
 

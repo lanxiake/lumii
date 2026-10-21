@@ -23,8 +23,10 @@ __LUMII_REGISTER_PLUGIN__('my-plugin', (api) => {
 ```
 
 - 用 `api.React`，**不要自带第二份 React**（两份 React 会让 hooks 直接抛错）；
+- 整页用 **`api.Page`** 包起来（标题/副标题/操作区 + 内容区自滚），**不要再自己加 padding**；
 - 数据用 `window.electronAPI.*`（与页面同一 JS 上下文，不做沙箱）；
-- 样式用设计令牌 `var(--color-…)` / `var(--spacing-…)`，**不写死颜色**（否则主题切换不跟随）。
+- 样式用设计令牌 `var(--color-…)` / `var(--spacing-…)`，**不写死颜色**（否则主题切换不跟随）；
+- 持久化用 `api.storage`，格式化用 `api.format`——不要每个插件各写一份。
 
 ---
 
@@ -47,7 +49,7 @@ __LUMII_REGISTER_PLUGIN__('my-plugin', (api) => {
 | `dashboard.grid` | 概览底部三栏 | **最多 3 个**，第 4 个不渲染 + 一条去重告警 |
 | `dashboard.plugins` | 概览插件专属带 | 168px 高，**内部滚动**，加多少都不挤压上面的布局 |
 | `app.nav` | 侧栏导航下方 | 用 context 里的 `classNames` 跟原生导航一致 |
-| `app.view` | 整页 | 自己掌握布局 |
+| `app.view` | 整页 | 用 `api.Page` 起手（主内容区已有 20px 内边距） |
 | `settings.section` | 设置 › 扩展 | 与其它插件分区并列 |
 
 **先问「这个页面有给插件的布局预算吗」再开槽位**——概览是像素预算的一屏，
@@ -72,9 +74,17 @@ __LUMII_REGISTER_PLUGIN__('my-plugin', (api) => {
 | 注册了但没注册成 | 日志报「没有调用 `__LUMII_REGISTER_PLUGIN__`」——检查是不是 id 与 `plugin.json` 不一致 |
 | 状态 | 热更新会重建组件，**组件内 state 不保留** |
 | 撞 id 失败后 | 删掉冲突方、或改本插件文件，都会自动重试（1 秒内） |
+| 主进程扩展**改文件** | 外部扩展 ≤1 秒热重载；内置扩展要重启主进程 |
+| 主进程扩展**启用/禁用** | 写偏好，**必须重启**才生效；设置页会显示「待重启」横幅与「立即重启」 |
+
+> 注意区分「热更新代码」与「切换启用状态」：前者外部扩展亚秒级生效，
+> 后者对主进程扩展一律要重启——原因是启动时取出的服务单例被各处直接引用。
 
 ## 5. 样式
 
+- 整页用 `api.Page`：它按内置页的口径设置最大宽度（`--mt-page-max`）与高度，
+  **不再加 padding**——`.main-layout-content-inner` 已经有 20px，再加 24 会变成 44px，
+  这是插件页看起来比内置页「胖一圈」的直接原因；
 - 只用设计令牌：颜色 `--color-*`、间距 `--spacing-*`、圆角 `--radius-*`、字号 `--font-size-*`；
 - **不要给令牌写死 fallback**（`var(--color-success, #16a34a)`）——主题/字号切换时 fallback
   会成为异色；仓库有守卫测试会红；
@@ -94,6 +104,38 @@ await window.electronAPI.extensions.list()                          // 扩展状
 `ctx.get('perf' | 'cloudSync' | 'mainWindow' | 'tray' | 'mcp'?)` 见 `kernel/services.ts`。
 `LateRef` 要 `.get()`，每次现取（**不要** `provide(key, () => x)`，工厂结果会被缓存）。
 
+### 6.1 共享格式化 `api.format`
+
+```js
+api.format.number(1234.5)        // 1,234.5
+api.format.percent(0.426, 1)     // 42.6%
+api.format.currency(1234)        // ¥1,234.00
+api.format.bytes(1536)           // 1.5 KB
+api.format.date(iso)             // 2026/10/21
+api.format.dateTime(iso)         // 2026/10/21 10:08
+api.format.relative(ts)          // 3 分钟前 / 2 小时后 / 超过 7 天回落日期
+```
+
+不要在每个插件里重写 `formatBytes`——仓库里已经有四个版本，口径开始分叉。
+
+### 6.2 页面壳 `api.Page`
+
+```js
+h(api.Page, { title: '我的插件', subtitle: '…', actions: h(Button) }, children)
+```
+
+负责最大宽度、标题层级、内容区滚动；**不负责内边距**（主内容区已有 20px）。
+
+### 6.3 持久化 `api.storage`
+
+```js
+api.storage.set('settings', { theme: 'dark' })
+api.storage.get('settings', {})   // 按插件 id 前缀隔离，不会和别的插件串 key
+api.storage.keys() / remove(key) / clear()
+```
+
+主进程扩展写 `~/.lumii/plugin-data/<插件 id>/`（`~/.lumii` 在文件工具的允许根内）。
+
 ## 7. 调试
 
 | 做法 | 结果 |
@@ -112,3 +154,26 @@ await window.electronAPI.extensions.list()                          // 扩展状
 - [ ] 深色主题 + 四档字号下没有硬编码色块
 - [ ] 故意在渲染里 `throw`：只有那一块显示「渲染失败」，侧栏还在
 - [ ] 与另一个插件同槽位共存时顺序符合 `order`
+- [ ] 整页左右边距与概览页一致（用了 `api.Page`，没有额外 padding）
+- [ ] 持久化数据用 `api.storage`（客户端）或 `~/.lumii/plugin-data/<id>/`（主进程）
+
+## 9. Agent 自举开发
+
+客户端 Agent 可以给自己写插件。写文件走现有 `file_write`（`~/.lumii` 已在允许根内），
+`plugin_dev` 只提供契约与反馈：
+
+| action | 用途 |
+|---|---|
+| `guide` | 两个插件根目录的**绝对路径**、热更时效、模块契约、槽位表、`api` 全量、工作流、无构建步骤说明 |
+| `status` | 主进程扩展的 `state/error/pendingRestart` + 渲染层上报的客户端插件 `state/error`（含上报时间） |
+| `check {kind,id}` | 静态体检：文件形状、语法、注册次数与 id、槽位名、`import/require`、硬编码色 |
+
+工作流：
+
+1. `plugin_dev guide` 拿路径与契约；
+2. `file_write` 写 `<client>/<id>/client.js`（或 `<main>/<id>/main.js`）；
+3. `plugin_dev check` 体检；
+4. `plugin_dev status` 看加载结果（加载有 0.3–1 秒延迟，刚写完可能还是上一版）；
+5. 改文件保存即可；**只有主进程扩展的启用/禁用需要重启**。
+
+限制：`main.js` 是 ESM，静态检查无法编译，语法错误由加载器在 ≤1 秒内作为运行时错误返回。

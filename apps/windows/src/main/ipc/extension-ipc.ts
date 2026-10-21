@@ -1,18 +1,27 @@
 import { ipcMain } from 'electron'
 
 import { getExtensionControl } from '../extension-control'
+import {
+  getClientPluginStateReport,
+  setClientPluginStateReport,
+} from '../client-plugin-state-report'
 import { createSamplePlugin } from '../plugin-template'
 
 /**
- * 设置页「扩展」页签的数据面。
+ * 设置页「扩展」页签的数据面 + Agent 自举开发的状态面。
  *
- * 只有四个通道：列表、两个开关、生成示例。**不加**运行日志/内存之类的通道——
- * 那些在日志与 `/status` 里已经有了，抄一遍到 UI 只是装饰。
+ * 通道只有六个：列表、两个开关、生成示例、渲染层状态上报、重启。
+ * **不加**运行日志/内存之类的通道——那些在日志与 `/status` 里已经有了。
  *
  * 开关的生效时机不同（主进程要重启、客户端插件 ≤1 秒），返回里带
- * `restartRequired`，由 UI 负责如实显示。
+ * `restartRequired` / `pendingRestart`，由 UI 负责如实显示。
  */
-export function setupExtensionIpcHandlers(): void {
+export interface ExtensionIpcDeps {
+  /** 重启当前客户端（`index.ts` 注入已有的 `requestAppRestart`） */
+  restart?: () => void
+}
+
+export function setupExtensionIpcHandlers(deps: ExtensionIpcDeps = {}): void {
   ipcMain.handle('extension:list', () => getExtensionControl()?.list() ?? [])
 
   ipcMain.handle('extension:set-enabled', (_event, id: string, enabled: boolean) => {
@@ -28,4 +37,37 @@ export function setupExtensionIpcHandlers(): void {
   })
 
   ipcMain.handle('extension:create-sample', () => createSamplePlugin())
+
+  /**
+   * 渲染层上报客户端插件加载状态（fire-and-forget）。
+   *
+   * 客户端插件跑在渲染层，加载失败的具体原因（语法错误 / 契约写错 / 槽位撞车）
+   * 主进程看不到；Agent 的 `plugin_dev status` 要靠这份快照。
+   */
+  ipcMain.on('extension:client-states', (_event, states: unknown) => {
+    const before = getClientPluginStateReport()
+    setClientPluginStateReport(states)
+    const after = getClientPluginStateReport()
+    const changed =
+      before.states.length !== after.states.length ||
+      before.states.some((s, i) => {
+        const next = after.states[i]
+        return !next || s.id !== next.id || s.state !== next.state || s.error !== next.error
+      })
+    // 只在真的变了时记一行：上报按签名变化触发，正常是低频事件
+    if (changed) {
+      console.log(`[extension] 渲染层上报 ${after.states.length} 个客户端插件状态`)
+    }
+  })
+
+  ipcMain.handle('extension:restart', () => {
+    if (!deps.restart) return { ok: false, error: '重启入口未注入' }
+    try {
+      // 重启是异步进行的（打包版 relaunch / dev 版排脚本），先回执再退
+      setTimeout(deps.restart, 100)
+      return { ok: true }
+    } catch (err) {
+      return { ok: false, error: `重启失败：${(err as Error).message}` }
+    }
+  })
 }

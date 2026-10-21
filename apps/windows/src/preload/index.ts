@@ -964,6 +964,8 @@ export interface ElectronAPI {
       state: string
       activationMs?: number
       error?: string
+      /** 开关已改但还没重启（主进程扩展） */
+      pendingRestart: boolean
     }>>
     /** 主进程扩展开关：写入偏好，**重启后生效** */
     setEnabled: (id: string, enabled: boolean) => Promise<{ ok: boolean; error?: string; restartRequired?: boolean }>
@@ -971,6 +973,18 @@ export interface ElectronAPI {
     setClientEnabled: (id: string, enabled: boolean) => Promise<{ ok: boolean; error?: string }>
     /** 在 ~/.lumii/plugins/ 生成一个可直接生效的示例插件 */
     createSample: () => Promise<{ ok: boolean; dir?: string; error?: string }>
+    /** 重启客户端（让主进程扩展开关生效） */
+    restart: () => Promise<{ ok: boolean; error?: string }>
+    /** 渲染层 → 主进程：上报客户端插件的加载状态（Agent 工具要读） */
+    reportClientStates: (states: Array<{
+      id: string
+      name: string
+      version: string
+      dir: string
+      enabled: boolean
+      state: string
+      error?: string
+    }>) => void
   }
 
   // 工作空间 Git 版本管理 (VCS)
@@ -1249,6 +1263,8 @@ const electronAPI: ElectronAPI = {
     setClientEnabled: (id: string, enabled: boolean) =>
       ipcRenderer.invoke('extension:set-client-enabled', id, enabled),
     createSample: () => ipcRenderer.invoke('extension:create-sample'),
+    restart: () => ipcRenderer.invoke('extension:restart'),
+    reportClientStates: (states) => ipcRenderer.send('extension:client-states', states),
   },
 
   // 工作空间 Git 版本管理 (VCS)

@@ -34,6 +34,8 @@ export interface ExtensionInfo {
   state: PluginState | 'disabled' | 'unknown'
   activationMs?: number
   error?: string
+  /** 开关已改但进程还是启动时的那份配置——需要重启才生效 */
+  pendingRestart: boolean
 }
 
 export interface ExtensionControl {
@@ -75,6 +77,11 @@ export function createExtensionControl(deps: ExtensionControlDeps): ExtensionCon
         state: enabled ? (live?.state ?? 'unknown') : 'disabled',
         activationMs: live?.activationMs,
         error: live?.error ? messageOf(live.error) : undefined,
+        /**
+         * 宿主里是否存在该条目 = 启动时是否启用。
+         * 不能用 `state`：激活失败的内置扩展也会留下条目（state='failed'）。
+         */
+        pendingRestart: enabled !== Boolean(live),
       }
     })
 
@@ -87,6 +94,8 @@ export function createExtensionControl(deps: ExtensionControlDeps): ExtensionCon
        * 主进程扩展的开关本来就是「写盘、重启后生效」，按内置行的口径显示即可。
        */
       const enabled = !disabled.has(entry.id)
+      // 启动快照里的禁用表；运行时 `entry.enabled` 会被导入失败影响，不能拿来比
+      const enabledAtStartup = !deps.external?.startupDisabledIds().has(entry.id)
       return {
         id: entry.id,
         name: entry.name,
@@ -97,6 +106,7 @@ export function createExtensionControl(deps: ExtensionControlDeps): ExtensionCon
         state: enabled ? (entry.state as ExtensionInfo['state']) : 'disabled',
         activationMs: entry.activationMs,
         error: entry.error,
+        pendingRestart: enabled !== enabledAtStartup,
       }
     })
 

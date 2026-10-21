@@ -73,6 +73,7 @@ const TOOL_SUMMARIES: Record<string, string> = {
   // Self-Configuration
   profile_memory: "Read/update the user profile",
   system_prompt: "Read/evolve your own SOUL",
+  plugin_dev: "Develop this client's own plugins: contract, live load state, static check",
 
   // Memory & Knowledge — Wiki
   wiki_overview: "Wiki category map",
@@ -179,7 +180,7 @@ const MEMORY_TOOLS = new Set([
   "wiki_read",
 ])
 const MESSAGING_TOOLS = new Set(["message", "channel_list", "channel_send", "wechat_peer_mode"])
-const SELF_CONFIG_TOOLS = new Set(["profile_memory", "system_prompt"])
+const SELF_CONFIG_TOOLS = new Set(["profile_memory", "system_prompt", "plugin_dev"])
 const INTERACTION_TOOLS = new Set(["ask_user_question"])
 const DASHBOARD_TOOLS = new Set(["dashboard_feed_write", "dashboard_feed_read"])
 const MAINTENANCE_TOOLS = new Set([

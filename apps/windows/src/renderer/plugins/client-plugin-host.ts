@@ -3,7 +3,10 @@ import * as ReactDOM from 'react-dom'
 import * as JsxRuntime from 'react/jsx-runtime'
 
 import { registerCard, type CardRenderer } from '../components/A2UIRenderer/card-registry'
+import { PluginPage } from '../components/slots/PluginPage'
 import { registerSlot, type SlotEntry } from '../components/slots/slot-registry'
+import { pluginFormat } from '../utils/format'
+import { createPluginStorage, type PluginStorage } from './plugin-storage'
 
 /**
  * 渲染层插件宿主。
@@ -61,6 +64,12 @@ export interface ClientPluginApi {
   registerCard: (type: string, renderer: CardRenderer) => () => void
   /** 往槽位里加条目 */
   registerSlot: <P>(slot: string, entry: SlotEntry<P>) => () => void
+  /** 整页外壳：与内置页同口径（令牌 + 主内容区 20px 内边距） */
+  Page: typeof PluginPage
+  /** 共享格式化：number / percent / currency / bytes / date / dateTime / relative */
+  format: typeof pluginFormat
+  /** 按插件 id 命名空间隔离的持久化 */
+  storage: PluginStorage
 }
 
 interface LoadedPlugin {
@@ -141,6 +150,32 @@ function rebuildStates(): void {
   shared.signature = signature
   shared.snapshot = next
   for (const listener of shared.listeners) listener()
+  reportToMain(next)
+}
+
+/**
+ * 把加载状态同步给主进程。
+ *
+ * 客户端插件的加载结果只在渲染层（语法错误、契约写错、槽位撞车），
+ * 而 Agent 的 `plugin_dev status` 跑在主进程——不上报的话它只能猜。
+ * 只在签名变化时发，与设置页重渲染同频；失败不影响宿主本身。
+ */
+function reportToMain(states: ClientPluginState[]): void {
+  try {
+    window.electronAPI?.extensions?.reportClientStates?.(
+      states.map(({ id, name, version, dir, enabled, state, error }) => ({
+        id,
+        name,
+        version,
+        dir,
+        enabled,
+        state,
+        ...(error ? { error } : {}),
+      })),
+    )
+  } catch (err) {
+    console.warn('[client-plugin] 状态上报失败（不影响插件运行）', err)
+  }
 }
 
 declare global {
@@ -162,6 +197,9 @@ function createApi(pluginId: string): ClientPluginApi {
     React,
     ReactDOM,
     jsx: JsxRuntime,
+    Page: PluginPage,
+    format: pluginFormat,
+    storage: createPluginStorage(pluginId),
     registerCard: (type, renderer) => {
       const off = registerCard(type, renderer)
       own.push(off)

@@ -103,9 +103,17 @@ __LUMII_REGISTER_PLUGIN__('${id}', (api) => {
     id: VIEW_ID,
     component: ({ onViewChange }) =>
       h(
-        'div',
-        { style: { padding: 24 } },
-        h('h2', null, '这是 ${id} 提供的页面'),
+        // 整页用 api.Page：与内置页同一套边距/最大宽度，别再自己加 padding
+        api.Page,
+        { title: '${id}', subtitle: '这是插件提供的整页' },
+        h(
+          'p',
+          null,
+          '示例：' +
+            api.format.bytes(1536) +
+            ' · ' +
+            api.format.relative(Date.now() - 3 * 60_000),
+        ),
         h(
           'button',
           { onClick: () => onViewChange('dashboard') },
@@ -144,8 +152,14 @@ __LUMII_REGISTER_PLUGIN__(id, (api) => {
   api.jsx         // react/jsx-runtime
   api.registerCard(type, renderer)   // 新增 A2UI 卡片类型
   api.registerSlot(slot, entry)      // 往槽位加条目
+  api.Page                           // 整页外壳（标题/副标题/操作区 + 内容区自滚）
+  api.format                         // number / percent / currency / bytes / date / dateTime / relative
+  api.storage                        // 按插件 id 隔离的持久化：get / set / remove / keys / clear
 })
 \`\`\`
+
+整页请用 \`api.Page\` 包起来：主内容区已经有 20px 内边距，
+再写 \`padding: 24\` 实际会变成 44px，看起来比内置页「胖一圈」。
 
 ## 读应用数据：\`window.electronAPI\`
 
@@ -180,6 +194,11 @@ await window.electronAPI.extensions.list()         // 扩展与客户端插件�
 1. 同一槽位内 \`id\` 唯一，重复注册会抛错（不静默覆盖）；
 2. 注册函数返回注销函数，卸载/热更新靠它清理；别在全局留自己的副本；
 3. \`app.view\` 的条目 id 要和 \`plugin:<id>\` 里的 id 对上。
+
+## 持久化
+
+- 客户端插件：\`api.storage.set/get\`（localStorage，按插件 id 前缀隔离）；
+- 主进程扩展：写 \`~/.lumii/plugin-data/<插件 id>/\`。
 
 关掉这个插件：设置 › 扩展 › 客户端插件，1 秒内生效。
 `

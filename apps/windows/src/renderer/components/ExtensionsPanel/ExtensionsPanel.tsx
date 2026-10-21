@@ -24,6 +24,8 @@ interface ExtensionInfo {
   state: string
   activationMs?: number
   error?: string
+  /** 开关已改，等重启生效 */
+  pendingRestart: boolean
 }
 
 const STATE_LABELS: Record<string, string> = {
@@ -43,6 +45,10 @@ export const ExtensionsPanel: React.FC = () => {
   const [items, setItems] = useState<ExtensionInfo[]>([])
   const [notice, setNotice] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
+  const [restarting, setRestarting] = useState(false)
+
+  /** 主进程扩展：偏好已改、进程里还是启动时那份配置 */
+  const pendingRestartCount = items.filter((item) => item.pendingRestart).length
 
   // 客户端插件不上 IPC：清单与加载状态都在渲染层自己手里
   const clients = useSyncExternalStore(
@@ -98,6 +104,22 @@ export const ExtensionsPanel: React.FC = () => {
     }
   }, [])
 
+  const restart = useCallback(async () => {
+    setRestarting(true)
+    setNotice(null)
+    try {
+      const result = await window.electronAPI.extensions.restart()
+      // 正常情况下窗口在这之前就被主进程关了；能走到下面说明重启入口有问题
+      if (!result.ok) {
+        setRestarting(false)
+        setNotice(result.error ?? '重启失败')
+      }
+    } catch (err) {
+      setRestarting(false)
+      setNotice(`重启失败：${(err as Error).message}`)
+    }
+  }, [])
+
   const createSample = useCallback(async () => {
     setBusy(CREATE_KEY)
     setNotice(null)
@@ -111,6 +133,17 @@ export const ExtensionsPanel: React.FC = () => {
 
   return (
     <div className={styles.panel}>
+      {pendingRestartCount > 0 && (
+        <div className={styles.restartBanner}>
+          <span className={styles.restartText}>
+            {pendingRestartCount} 项主进程扩展改动待重启生效
+          </span>
+          <button className={styles.primary} disabled={restarting} onClick={() => void restart()}>
+            {restarting ? '正在重启…' : '立即重启'}
+          </button>
+        </div>
+      )}
+
       <section className={styles.section}>
         <header className={styles.sectionHeader}>
           <h3 className={styles.sectionTitle}>主进程扩展</h3>
@@ -132,6 +165,9 @@ export const ExtensionsPanel: React.FC = () => {
                     </span>
                     {item.activationMs !== undefined && (
                       <span className={styles.timing}>{item.activationMs.toFixed(0)}ms</span>
+                    )}
+                    {item.pendingRestart && (
+                      <span className={`${styles.state} ${styles.statePending}`}>待重启</span>
                     )}
                   </div>
                   <div className={styles.id}>

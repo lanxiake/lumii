@@ -29,6 +29,7 @@ import { getNarrateService } from '../screen-record/narrate-accessor'
 import { resizeImageIfNeeded } from './image-resizer'
 import { agentRuntimeLog as log, jsonToolResult, parseTaskStatus } from './bridge-utils'
 import { registerGuideTools } from './bridge-tool-registrar-guide'
+import { registerPluginDevTools } from './bridge-plugin-dev-tools'
 import { registerLocalCronTools, registerDashboardFeedTool, registerWorkReportReadTool } from './bridge-tool-registrar-cron'
 import { registerSyncConflictTool } from './bridge-tool-registrar-sync'
 import { registerChannelTools, registerIntegrationTools } from './bridge-tool-registrar-integration'
@@ -66,6 +67,8 @@ export class BridgeToolRegistrar {
     this.registerScreenRecordTools()
     // 渐进式加载指南工具（a2ui_guide / cron_guide）
     registerGuideTools(this.deps)
+    // 自举开发：契约 / 加载状态 / 静态体检（只读；写文件仍走 file_write）
+    registerPluginDevTools(this.deps)
     // 客户端集成工具（message/memory/profile/system_prompt/tts/image），不依赖 Gateway，始终注册。
     // 原实现为链式调用（integration → clientCommand → agentManagement），摊平为显式调用；
     // 三者共享同一次 ctx 判空结果，ctx 为空时原链条整体不注册，此处保持一致。

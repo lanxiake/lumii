@@ -5,6 +5,22 @@
   padding: var(--spacing-2) 0;
 }
 
+.restartBanner {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-3);
+  padding: var(--spacing-3) var(--spacing-4);
+  background: var(--color-warning-15);
+  border: 1px solid var(--color-warning);
+  border-radius: var(--radius-lg);
+}
+
+.restartText {
+  flex: 1;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
+}
+
 .section {
   display: flex;
   flex-direction: column;
@@ -94,6 +110,10 @@
 .state-disabled,
 .state-stopped {
   color: var(--color-text-tertiary);
+}
+
+.statePending {
+  color: var(--color-warning);
 }
 
 .timing {
