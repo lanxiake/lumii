@@ -49,6 +49,34 @@ function writeExtension(root: string, dirName: string, marker: string, id = 'com
   return dir
 }
 
+/** manifest 合法、但 apply 会抛错的扩展：用于测「失败后不再每秒重试」。 */
+function writeThrowingExtension(root: string, dirName: string, id = 'com.test.ext'): void {
+  const dir = path.join(root, dirName)
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(
+    path.join(dir, 'main.js'),
+    `export default {
+  manifest: {
+    id: ${JSON.stringify(id)},
+    name: '会炸的扩展',
+    version: '0.1.0',
+    engines: { lumii: '>=0.1.0' },
+    kind: 'code',
+    main: './main.js',
+  },
+  definition: {
+    id: ${JSON.stringify(id)},
+    apply() {
+      globalThis.__extMarkers = globalThis.__extMarkers || []
+      globalThis.__extMarkers.push('boom')
+      throw new Error('apply 故意炸')
+    },
+  },
+}
+`,
+  )
+}
+
 function markers(): string[] {
   return (globalThis as unknown as { __extMarkers?: string[] }).__extMarkers ?? []
 }
@@ -207,5 +235,37 @@ describe('ExternalExtensionRuntime', () => {
 
     expect(markers()).toEqual([]) // 没被外部版本覆盖
     expect(host.get('com.test.ext')?.state).toBe('active')
+  })
+
+  it('激活失败（apply 抛错）后，同一 revision 重扫不会反复重试', async () => {
+    writeThrowingExtension(root, 'ext-bad')
+    const runtime = new ExternalExtensionRuntime(host, silentLog, { root })
+
+    await runtime.loadAll()
+    expect(markers()).toEqual(['boom'])
+    expect(runtime.inspect()[0]?.error).toContain('apply 故意炸')
+
+    // 文件没变 → 不该再导入/激活（否则日志每秒刷一条、宿主每秒 register/unregister）
+    await runtime.rescan()
+    await runtime.rescan()
+    expect(markers()).toEqual(['boom'])
+  })
+
+  it('新版本 apply 抛错时回滚旧版，之后也不再每秒重试', async () => {
+    writeExtension(root, 'ext-a', 'v1')
+    const runtime = new ExternalExtensionRuntime(host, silentLog, { root })
+    await runtime.loadAll()
+
+    writeThrowingExtension(root, 'ext-a')
+    await runtime.rescan()
+
+    // v1 → 新版本炸 → 回滚把 v1 重新挂起来
+    expect(markers()).toEqual(['v1', 'boom', 'v1'])
+    expect(host.get('com.test.ext')?.state).toBe('active')
+
+    await runtime.rescan()
+    await runtime.rescan()
+    expect(markers()).toEqual(['v1', 'boom', 'v1'])
+    expect(runtime.inspect()[0]?.enabled).toBe(true)
   })
 })

@@ -78,17 +78,27 @@ export function createExtensionControl(deps: ExtensionControlDeps): ExtensionCon
       }
     })
 
-    const externalItems: ExtensionInfo[] = (deps.external?.inspect() ?? []).map((entry) => ({
-      id: entry.id,
-      name: entry.name,
-      version: entry.version,
-      kind: 'external',
-      dir: entry.dir,
-      enabled: entry.enabled,
-      state: entry.state as ExtensionInfo['state'],
-      activationMs: entry.activationMs,
-      error: entry.error,
-    }))
+    const externalItems: ExtensionInfo[] = (deps.external?.inspect() ?? []).map((entry) => {
+      /**
+       * `enabled` 以**偏好文件**为准，不以运行时为准。
+       *
+       * `inspect().enabled` 是启动时冻结的；用户点了开关之后它会一直是旧值，
+       * 于是按钮和状态徽标毫无反馈（实测：同一页上内置行翻了、外部行没翻）。
+       * 主进程扩展的开关本来就是「写盘、重启后生效」，按内置行的口径显示即可。
+       */
+      const enabled = !disabled.has(entry.id)
+      return {
+        id: entry.id,
+        name: entry.name,
+        version: entry.version,
+        kind: 'external',
+        dir: entry.dir,
+        enabled,
+        state: enabled ? (entry.state as ExtensionInfo['state']) : 'disabled',
+        activationMs: entry.activationMs,
+        error: entry.error,
+      }
+    })
 
     return [...builtinItems, ...externalItems]
   }

@@ -323,10 +323,30 @@ export class ExternalExtensionRuntime {
       const error = await this.host.activate(manifest.id)
       if (error) throw error
     } catch (error) {
+      const message = (error as Error)?.message ?? String(error)
       this.log.error(`[ext] ${manifest.id} 新版本加载失败`, error)
       await this.host.unregister(manifest.id).catch(() => undefined)
-      // 卸载已经发生，只有把上一版重新激活才算真回滚
-      if (previous) await this.restore({ ...previous, error: (error as Error)?.message ?? String(error) })
+      // 卸载已经发生，只有把上一版重新激活才算真回滚。
+      // ⚠ `revision` 必须用**这一次的**：用旧版的 revision 会让 rescan 每秒判定
+      // 「文件又变了」→ 每秒 重试 → 失败 → 回滚，刷屏且反复 register/unregister
+      // （与上面「导入失败」同一个坑，2026-10-21 代码审查抓到）。
+      if (previous?.definition) {
+        await this.restore({ ...previous, revision, error: message })
+      } else {
+        // 没有可回滚的旧版（首次加载就失败，或上一版本身是「导入失败」的条目）：
+        // 直接记下这次 revision，否则每秒重试一次。
+        this.loaded.set(dir, {
+          dir,
+          entryFile,
+          revision,
+          manifestId: manifest.id,
+          name: manifest.name,
+          version: manifest.version,
+          definition,
+          enabled: false,
+          error: message,
+        })
+      }
       return
     }
 
@@ -354,6 +374,9 @@ export class ExternalExtensionRuntime {
       this.log.warn(`[ext] ${entry.manifestId} 已回滚到上一个版本`)
     } catch (error) {
       this.log.error(`[ext] ${entry.manifestId} 回滚也失败，该扩展已停止`, error)
+      // 仍然登记这次 revision（enabled=false）：不登记的话 rescan 会把「没记录」当成
+      // 「还没加载」而每秒重试一遍，而每次重试都要把整轮失败/回滚再走一遭。
+      this.loaded.set(entry.dir, { ...entry, enabled: false })
     }
   }
 
