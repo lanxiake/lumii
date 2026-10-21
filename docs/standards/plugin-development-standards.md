@@ -37,6 +37,7 @@ __LUMII_REGISTER_PLUGIN__('my-plugin', (api) => {
 | 3 | 注册时拿到的注销函数与工厂返回的 `dispose` **都会在卸载时执行** | 在模块顶层开定时器/监听器，卸载后继续跑（禁用插件后 ticker 仍在涨） |
 | 4 | 定时器、订阅、`requestAnimationFrame` 放 **effect 清理**里 | 同上；边界捕获不到 effect 之外的泄漏 |
 | 5 | `app.view` 的条目 id 必须与 `plugin:<id>` 里的 id 一致 | 对不上时 Router 回落概览，页面“点了没反应” |
+| 6 | **复制插件目录时改掉 `plugin.json` 的 id** | 两个目录共用一个 id 时只会加载一个（按目录名取第一个），另一个永远不生效；日志有告警（每个重复对只报一次） |
 
 ## 2. 槽位与布局预算
 

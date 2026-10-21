@@ -53,6 +53,12 @@ export function resolveClientPluginsDir(): string {
   return path.join(resolveClientStateDir(), 'plugins')
 }
 
+/**
+ * 已告警过的重复 id。清单每秒被拉一次，不去重会把同一句话刷满日志
+ * （与扩展加载器的 revision 去重、渲染层宿主去重是同一条教训）。
+ */
+let warnedDuplicateKeys = new Set<string>()
+
 /** 扫描客户端插件目录；目录不存在或条目损坏时跳过，不抛错。 */
 export function discoverClientPlugins(): ClientPluginDescriptor[] {
   const root = resolveClientPluginsDir()
@@ -66,13 +72,31 @@ export function discoverClientPlugins(): ClientPluginDescriptor[] {
   }
 
   const found: ClientPluginDescriptor[] = []
-  for (const dirName of dirs) {
+  /** id → 已经用它的目录名：**复制插件时忘了改 id** 是最常见的配置错误 */
+  const idToDir = new Map<string, string>()
+  const dupKeys = new Set<string>()
+  for (const dirName of [...dirs].sort()) {
     const dir = path.join(root, dirName)
     const entryFile = path.join(dir, 'client.js')
     try {
       if (!fs.statSync(dir).isDirectory()) continue
       const stat = fs.statSync(entryFile)
       const meta = readMeta(dir, dirName)
+      const taken = idToDir.get(meta.id)
+      if (taken) {
+        // 不静默丢：同一 id 的两个目录只会加载一个，另一个永远不会生效，
+        // 而界面上看不出任何异常（复制目录后忘改 plugin.json 的典型现场）。
+        const key = `${meta.id}|${taken}|${dirName}`
+        dupKeys.add(key)
+        if (!warnedDuplicateKeys.has(key)) {
+          console.warn(
+            `[client-plugin] 插件 id 重复："${meta.id}" 同时出现在 ${taken}/ 与 ${dirName}/，` +
+              `只加载 ${taken}/。要两个都跑，请改其中一个的 plugin.json id。`,
+          )
+        }
+        continue
+      }
+      idToDir.set(meta.id, dirName)
       found.push({
         dir: dirName,
         id: meta.id,
@@ -86,6 +110,8 @@ export function discoverClientPlugins(): ClientPluginDescriptor[] {
       continue
     }
   }
+  // 本轮还在的重复对保留告警记录；不再重复的（已修好）清掉，下次再犯会重新告警
+  warnedDuplicateKeys = dupKeys
   return found.sort((a, b) => a.id.localeCompare(b.id))
 }
 
