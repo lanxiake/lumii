@@ -58,6 +58,55 @@ type DeleteTarget = {
   name: string
 }
 
+type SortBy = 'name' | 'state' | 'origin'
+
+/** 状态排序：能用的排前面，需要处理的排后面 */
+const STATE_RANK: Record<string, number> = {
+  active: 0,
+  loaded: 0,
+  activating: 1,
+  registered: 1,
+  incompatible: 2,
+  failed: 3,
+  disabled: 4,
+  stopped: 4,
+  unknown: 5,
+}
+
+const ORIGIN_RANK: Record<string, number> = { builtin: 0, agent: 1, user: 2 }
+
+interface SortableExtension {
+  name: string
+  state: string
+  origin: 'builtin' | 'user' | 'agent'
+}
+
+function sortExtensions<T>(
+  list: T[],
+  pick: (item: T) => SortableExtension,
+  by: SortBy,
+): T[] {
+  const rank = (item: T) => pick(item)
+  return [...list].sort((a, b) => {
+    const x = rank(a)
+    const y = rank(b)
+    const byName = () => x.name.localeCompare(y.name, 'zh-CN')
+    if (by === 'state') {
+      return (STATE_RANK[x.state] ?? 99) - (STATE_RANK[y.state] ?? 99) || byName()
+    }
+    if (by === 'origin') {
+      return (ORIGIN_RANK[x.origin] ?? 99) - (ORIGIN_RANK[y.origin] ?? 99) || byName()
+    }
+    return byName()
+  })
+}
+
+function matchesQuery(fields: Array<string | undefined>, query: string): boolean {
+  const q = query.trim().toLowerCase()
+  if (!q) return true
+  return fields.some((field) => field?.toLowerCase().includes(q))
+}
+
 export const ExtensionsPanel: React.FC = () => {
   const [items, setItems] = useState<ExtensionInfo[]>([])
   const [notice, setNotice] = useState<string | null>(null)
@@ -66,6 +115,8 @@ export const ExtensionsPanel: React.FC = () => {
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null)
   /** 运行时组件安装状态（扩展声明的 requires.assets 用它显示已装/未装） */
   const [assets, setAssets] = useState<Record<string, { installed: boolean }>>({})
+  const [query, setQuery] = useState('')
+  const [sortBy, setSortBy] = useState<SortBy>('name')
   const { setTab } = useSettingsHub()
 
   /** 主进程扩展：偏好已改、进程里还是启动时那份配置 */
@@ -76,6 +127,25 @@ export const ExtensionsPanel: React.FC = () => {
     subscribeClientPlugins,
     getClientPluginStates,
     getClientPluginStates,
+  )
+
+  /** 搜索 + 排序后的两栏（搜索对名称/id/版本/目录/描述/错误都生效） */
+  const visibleMain = sortExtensions(
+    items.filter((item) =>
+      matchesQuery([item.name, item.id, item.version, item.dir, item.error], query),
+    ),
+    (item) => ({ name: item.name, state: item.state, origin: item.origin }),
+    sortBy,
+  )
+  const visibleClients = sortExtensions(
+    clients.filter((plugin) =>
+      matchesQuery(
+        [plugin.name, plugin.id, plugin.version, plugin.dir, plugin.description, plugin.error],
+        query,
+      ),
+    ),
+    (plugin) => ({ name: plugin.name, state: plugin.state, origin: plugin.origin }),
+    sortBy,
   )
 
   const refresh = useCallback(async () => {
@@ -199,18 +269,46 @@ export const ExtensionsPanel: React.FC = () => {
         </div>
       )}
 
+      <div className={styles.toolbar}>
+        <input
+          className={styles.search}
+          type="search"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="搜索扩展名称 / id / 版本"
+          aria-label="搜索扩展"
+        />
+        <label className={styles.sortLabel}>
+          排序
+          <select
+            className={styles.sort}
+            value={sortBy}
+            onChange={(event) => setSortBy(event.target.value as SortBy)}
+          >
+            <option value="name">名称</option>
+            <option value="state">状态</option>
+            <option value="origin">来源</option>
+          </select>
+        </label>
+      </div>
+
       <section className={styles.section}>
         <header className={styles.sectionHeader}>
           <h3 className={styles.sectionTitle}>主进程扩展</h3>
           <span className={styles.hint}>开关重启应用后生效</span>
+          <span className={styles.count}>
+            {visibleMain.length}/{items.length}
+          </span>
         </header>
 
         {items.length === 0 ? (
           <p className={styles.empty}>扩展宿主尚未就绪</p>
+        ) : visibleMain.length === 0 ? (
+          <p className={styles.empty}>没有匹配的扩展</p>
         ) : (
-          <ul className={styles.list}>
-            {items.map((item) => (
-              <li key={item.id} className={styles.row}>
+          <div className={styles.grid}>
+            {visibleMain.map((item) => (
+              <article key={item.id} className={styles.card}>
                 <div className={styles.meta}>
                   <div className={styles.titleRow}>
                     <span className={styles.name}>{item.name}</span>
@@ -286,9 +384,9 @@ export const ExtensionsPanel: React.FC = () => {
                     {item.enabled ? '禁用' : '启用'}
                   </button>
                 </div>
-              </li>
+              </article>
             ))}
-          </ul>
+          </div>
         )}
       </section>
 
@@ -296,16 +394,21 @@ export const ExtensionsPanel: React.FC = () => {
         <header className={styles.sectionHeader}>
           <h3 className={styles.sectionTitle}>客户端插件</h3>
           <span className={styles.hint}>开关 1 秒内生效</span>
+          <span className={styles.count}>
+            {visibleClients.length}/{clients.length}
+          </span>
         </header>
 
         {clients.length === 0 ? (
           <p className={styles.empty}>
             还没有客户端插件。点下面的「新建示例插件」，生成一个马上能跑的。
           </p>
+        ) : visibleClients.length === 0 ? (
+          <p className={styles.empty}>没有匹配的扩展</p>
         ) : (
-          <ul className={styles.list}>
-            {clients.map((plugin) => (
-              <li key={plugin.id} className={styles.row}>
+          <div className={styles.grid}>
+            {visibleClients.map((plugin) => (
+              <article key={plugin.id} className={styles.card}>
                 <div className={styles.meta}>
                   <div className={styles.titleRow}>
                     <span className={styles.name}>{plugin.name}</span>
@@ -348,9 +451,9 @@ export const ExtensionsPanel: React.FC = () => {
                     {plugin.enabled ? '禁用' : '启用'}
                   </button>
                 </div>
-              </li>
+              </article>
             ))}
-          </ul>
+          </div>
         )}
       </section>
 
