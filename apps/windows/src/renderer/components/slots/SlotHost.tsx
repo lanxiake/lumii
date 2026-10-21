@@ -1,5 +1,6 @@
 import React, { useSyncExternalStore } from 'react'
 
+import { PluginErrorBoundary } from './PluginErrorBoundary'
 import { getSlotEntries, subscribeSlots } from './slot-registry'
 
 /**
@@ -63,9 +64,10 @@ export function SlotHost<P extends object = Record<string, unknown>>({
   const nodes = visible.map((entry) => {
     const Component = entry.component as React.ComponentType<P>
     return (
-      <React.Fragment key={entry.id}>
+      // 每个条目各自一个边界：一个插件的卡片炸了，其余条目与整个界面照常
+      <PluginErrorBoundary key={entry.id} label={entry.owner ?? entry.id}>
         <Component {...((context ?? {}) as P)} />
-      </React.Fragment>
+      </PluginErrorBoundary>
     )
   })
 

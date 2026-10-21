@@ -86,20 +86,32 @@ const errors = new Map<string, string>()
  *
  * `useSyncExternalStore` 要求同一状态下返回**同一引用**，所以这里缓存，
  * 并且只在内容真的变化时通知——否则每秒一次轮询会让设置页每秒重渲染一次。
+ *
+ * ⚠️ **这三样必须跨 HMR 存活**：Vite 热替换会重新执行本模块，模块级 `new Set()`
+ * 会变成新的一批，而已经挂载的消费者（`ExtensionsPanel`）仍持有**旧模块**的
+ * `subscribeClientPlugins` / `getClientPluginStates` 引用。表现是
+ * 「插件在跑、侧栏入口也在，设置页却永远显示『还没有客户端插件』」（2026-10-21 实测，
+ * 整机重启才恢复）。挂到 globalThis 后新旧实例读写同一份，订阅不断。
  */
-let snapshot: ClientPluginState[] = []
-let snapshotSignature = ''
-const listeners = new Set<() => void>()
+interface SharedState {
+  listeners: Set<() => void>
+  snapshot: ClientPluginState[]
+  signature: string
+}
+
+const SHARED_KEY = Symbol.for('lumii.client-plugin-host.shared')
+const shared: SharedState = ((globalThis as Record<symbol, unknown>)[SHARED_KEY] ??=
+  { listeners: new Set<() => void>(), snapshot: [], signature: '' }) as SharedState
 
 export function subscribeClientPlugins(listener: () => void): () => void {
-  listeners.add(listener)
+  shared.listeners.add(listener)
   return () => {
-    listeners.delete(listener)
+    shared.listeners.delete(listener)
   }
 }
 
 export function getClientPluginStates(): ClientPluginState[] {
-  return snapshot
+  return shared.snapshot
 }
 
 function rebuildStates(): void {
@@ -125,10 +137,10 @@ function rebuildStates(): void {
   next.sort((a, b) => a.id.localeCompare(b.id))
 
   const signature = next.map((s) => `${s.id}|${s.enabled}|${s.state}|${s.error ?? ''}`).join('\n')
-  if (signature === snapshotSignature) return
-  snapshotSignature = signature
-  snapshot = next
-  for (const listener of listeners) listener()
+  if (signature === shared.signature) return
+  shared.signature = signature
+  shared.snapshot = next
+  for (const listener of shared.listeners) listener()
 }
 
 declare global {
@@ -175,17 +187,37 @@ async function fetchList(): Promise<ClientPluginDescriptor[]> {
   }
 }
 
-function injectScript(url: string): Promise<void> {
+interface ScriptLoadResult {
+  /** 非空 = 脚本拉下来了但**执行时**抛错（语法错误、顶层 throw） */
+  runtimeError: Error | null
+}
+
+function injectScript(url: string): Promise<ScriptLoadResult> {
   return new Promise((resolve, reject) => {
+    let runtimeError: Error | null = null
+    /**
+     * 脚本执行期抛错（含 SyntaxError）**不触发** `<script>` 的 onerror——onload 照常触发。
+     * 不监听 window 的 error，下面就只能报「没有调用 __LUMII_REGISTER_PLUGIN__」，
+     * 把执行错误误报成注册错误，会把人往错方向带（实测：改出语法错误时日志就是这么写的）。
+     */
+    const onWindowError = (event: ErrorEvent) => {
+      if (event.filename !== url) return
+      runtimeError = event.error instanceof Error ? event.error : new Error(event.message)
+    }
+    const cleanup = () => window.removeEventListener('error', onWindowError)
+    window.addEventListener('error', onWindowError)
+
     const el = document.createElement('script')
     el.src = url
     el.async = false
     el.onload = () => {
       // 加载完就摘掉：热更新每次都插一条，不摘会在长开发会话里堆几百个标签
+      cleanup()
       el.remove()
-      resolve()
+      resolve({ runtimeError })
     }
     el.onerror = () => {
+      cleanup()
       el.remove()
       reject(new Error(`脚本加载失败: ${url}`))
     }
@@ -219,8 +251,9 @@ async function loadOne(descriptor: ClientPluginDescriptor): Promise<void> {
 
   // URL 用**目录名**定位文件：id 可能被 plugin.json 改写，与目录名不同
   const url = `${SCHEME}/${encodeURIComponent(descriptor.dir)}/${descriptor.entry}?v=${descriptor.revision}`
+  let runtimeError: Error | null = null
   try {
-    await injectScript(url)
+    runtimeError = (await injectScript(url)).runtimeError
   } catch (err) {
     // 脚本都下不来：旧版本继续服务（先卸后载会让「编辑到一半保存」变成功能消失）
     errors.set(descriptor.id, `脚本加载失败：${(err as Error)?.message ?? String(err)}`)
@@ -230,9 +263,12 @@ async function loadOne(descriptor: ClientPluginDescriptor): Promise<void> {
 
   const factory = pending.get(descriptor.id)
   if (!factory) {
-    const message = '没有调用 __LUMII_REGISTER_PLUGIN__（一个插件只能注册一次，且 id 要与 plugin.json 一致）'
+    // 区分「执行时抛错」与「跑完了但没注册」：前者看上面那条 SyntaxError，后者才是契约写错
+    const message = runtimeError
+      ? `脚本执行出错：${runtimeError.message}`
+      : '没有调用 __LUMII_REGISTER_PLUGIN__（一个插件只能注册一次，且 id 要与 plugin.json 一致）'
     errors.set(descriptor.id, message)
-    console.error(`[client-plugin] ${descriptor.id} ${message}`)
+    console.error(`[client-plugin] ${descriptor.id} ${message}`, runtimeError ?? '')
     return
   }
 
@@ -341,7 +377,14 @@ export async function initClientPlugins(): Promise<void> {
     pending.set(id, factory)
   }
 
-  await syncOnce()
+  try {
+    await syncOnce()
+  } catch (err) {
+    // 起不来就把 started 放回去。否则一次瞬时错误（HMR 期间改到一半的版本、
+    // 协议还没就绪）会让宿主**永久停摆**——之后既不再轮询，也没人能再调 init。
+    started = false
+    throw err
+  }
   console.log(`[client-plugin] 宿主已启动（已加载 ${loaded.size} 个插件）`)
   pollTimer = setInterval(() => {
     void syncOnce().catch((err) => console.warn('[client-plugin] 同步失败', err))
@@ -372,6 +415,10 @@ export function stopClientPlugins(): void {
 if (import.meta.hot) {
   import.meta.hot.dispose(() => stopClientPlugins())
   import.meta.hot.accept((newModule) => {
-    void newModule?.initClientPlugins()
+    void newModule
+      ?.initClientPlugins()
+      .catch((err: unknown) => console.error('[client-plugin] HMR 重启宿主失败', err))
   })
 }
+
+

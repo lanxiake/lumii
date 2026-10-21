@@ -5,8 +5,9 @@
  * 设置与低频功能页由 Settings Hub 浮层承载，不再作为全页路由。
  */
 
-import React from 'react'
-import { getSlotEntries } from './slots/slot-registry'
+import React, { useSyncExternalStore } from 'react'
+import { PluginErrorBoundary } from './slots/PluginErrorBoundary'
+import { getSlotEntries, subscribeSlots } from './slots/slot-registry'
 import { DashboardPage } from '../pages/DashboardPage/DashboardPage'
 import { ChatPage } from '../pages/ChatPage/ChatPage'
 import { AutonomousPage } from '../pages/AutonomousPage/AutonomousPage'
@@ -47,6 +48,19 @@ export const Router: React.FC<RouterProps> = ({ activeView, onViewChange }) => {
   const showChat = activeView === 'chat'
 
   /**
+   * `app.view` 的条目必须**订阅**，不能只在渲染时读一次。
+   *
+   * 不订阅的后果（2026-10-21 探针实测）：停在插件页时禁用该插件，槽位条目已经注销，
+   * 但 Router 不重渲染 → 插件页面继续挂着 → 里面的 setInterval / 监听器**永远不停**。
+   * （导航与卡片走 `SlotHost`，它们本来就订阅了，所以只有整页有这个洞。）
+   */
+  const pluginViews = useSyncExternalStore(
+    subscribeSlots,
+    () => getSlotEntries('app.view'),
+    () => getSlotEntries('app.view'),
+  )
+
+  /**
    * 非 chat 主内容：Hub 视图回落到概览，避免空白
    */
   const renderOtherPage = () => {
@@ -54,13 +68,18 @@ export const Router: React.FC<RouterProps> = ({ activeView, onViewChange }) => {
     // 找不到就回落到概览，而不是白屏——插件被禁用时用户可能还停在那个视图上。
     if (activeView.startsWith('plugin:')) {
       const viewId = activeView.slice('plugin:'.length)
-      const entry = getSlotEntries('app.view').find((e) => e.id === viewId)
+      const entry = pluginViews.find((e) => e.id === viewId)
       if (entry) {
         const PluginView = entry.component as React.ComponentType<{
           onViewChange?: (view: ViewType) => void
         }>
-        // 传 onViewChange：插件页面要能自己跳转（比如「回概览」）
-        return <PluginView onViewChange={onViewChange} />
+        // 传 onViewChange：插件页面要能自己跳转（比如「回概览」）。
+        // 页面用边界包住：插件渲染抛错只毁这一块，不该让整个客户端变错误页。
+        return (
+          <PluginErrorBoundary label={entry.owner ?? entry.id}>
+            <PluginView onViewChange={onViewChange} />
+          </PluginErrorBoundary>
+        )
       }
       return <DashboardPage onViewChange={onViewChange} />
     }
