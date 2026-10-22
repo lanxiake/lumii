@@ -45,7 +45,7 @@ import type { AgentRuntimeBridge } from '../agent-runtime'
  * - [x] 创建插件文件（`extensions/selection.ts`）
  * - [x] 导出 `registerSelectionIpc` 函数，迁移 IPC 注册逻辑
  * - [x] 复用 `ipc/selection-ipc.ts` 的注册函数
- * - [ ] 删除原调用点（`ipc-handlers-registry.ts` L54, L169）
+ * - [x] 原调用点已改为调用插件导出函数（`ipc-handlers-registry.ts` L107-110）
  * - [ ] 验证：禁用插件后划词动作不可用
  * - [ ] 验证：启用插件后划词动作正常工作
  */

@@ -49,7 +49,7 @@ import type { MainEvents } from '../kernel/events'
  * - [x] 创建插件文件（`extensions/vcs.ts`）
  * - [x] 导出 `registerVcsIpc` 函数，迁移 IPC 注册逻辑
  * - [x] 复用 `ipc/vcs-ipc.ts` 的 setDeps + register 函数
- * - [ ] 删除原调用点（`ipc-handlers-registry.ts` L106-109, L164）
+ * - [x] 原调用点已改为调用插件导出函数（`ipc-handlers-registry.ts` L101-105）
  * - [ ] 验证：禁用插件后 VCS IPC 不可用
  * - [ ] 验证：启用插件后 VCS 功能正常工作
  */
