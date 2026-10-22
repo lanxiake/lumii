@@ -51,7 +51,6 @@ import {
   registerSettingsIpcHandlers
 } from './settings-ipc'
 import { registerUserGuidesIpcHandlers } from './user-guides-ipc'
-import { registerSelectionIpcHandlers } from './selection-ipc'
 import { registerAutonomousIpcHandlers } from './autonomous-ipc'
 import { setAutonomousIpcDeps } from './autonomous-ipc'
 import { registerNetIpcHandlers } from './net-ipc'
@@ -103,6 +102,11 @@ export function registerAllIpcHandlers(deps: IpcHandlersDeps): void {
   registerVcsIpc({
     getWorkspaceDir: deps.getWorkspaceDir,
     log: deps.log,
+  })
+
+  const { registerSelectionIpc } = require('../extensions/selection')
+  registerSelectionIpc({
+    getAgentRuntimeBridge: deps.getAgentRuntimeBridge,
   })
 
   setWindowIpcDeps({
@@ -166,7 +170,6 @@ export function registerAllIpcHandlers(deps: IpcHandlersDeps): void {
   registerApiIpcHandlers()
   registerSettingsIpcHandlers()
   registerUserGuidesIpcHandlers()
-  registerSelectionIpcHandlers({ getAgentRuntimeBridge: deps.getAgentRuntimeBridge })
   registerAutonomousIpcHandlers()
   registerCloudSyncIpcHandlers()
   registerNetIpcHandlers()
