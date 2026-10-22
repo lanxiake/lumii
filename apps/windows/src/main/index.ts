@@ -61,7 +61,7 @@ import {
 } from './local-media-protocol'
 import {
   registerPetAssetProtocolHandler,
-} from './pet/pet-asset-protocol'
+} from './plugins/builtin/pet/pet-asset-protocol'
 import { join } from 'path'
 import {
   registerClientPluginProtocolHandler,
@@ -168,7 +168,7 @@ import { hasHeadlessFlag } from './platform/feature-probe'
 import { PerformanceMonitor } from './perf/performance-monitor'
 import { setupPerformanceIpcHandlers } from './ipc/performance-ipc'
 import { registerSkillnetStoreHandlers } from './skillnet-store'
-import { disposePetModeIpc } from './pet/pet-mode-ipc'
+import { disposePetModeIpc } from './plugins/builtin/pet/pet-mode-ipc'
 import { applyWikiEmbeddingEnvDefaults } from './agent-runtime/wiki-embedding-config'
 import { applyPluginBootstrapEnvDefaults } from './plugins/external/bootstrap-config'
 import { initPluginDependenciesOnStartup } from './plugins/external/bootstrap'

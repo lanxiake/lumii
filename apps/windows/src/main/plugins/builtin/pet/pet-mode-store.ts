@@ -15,7 +15,7 @@ import fs from 'node:fs'
 import {
   type VirtualHumanSettingsDTO,
   DEFAULT_VH_SETTINGS,
-} from '../../shared/virtual-human'
+} from '../../../../shared/virtual-human'
 
 const log = {
   info: (...args: unknown[]) => console.log('[pet-mode-store]', ...args),

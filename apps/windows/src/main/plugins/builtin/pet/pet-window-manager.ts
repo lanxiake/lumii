@@ -24,8 +24,8 @@ import {
   type VirtualHumanSettingsDTO,
   PET_IPC,
   PET_DEFAULT_MODEL_ID,
-} from '../../shared/pet-mode'
-import { addVoiceEventMirror } from '../plugins/builtin/voice/voice-service'
+} from '../../../../shared/pet-mode'
+import { addVoiceEventMirror } from '../voice/voice-service'
 import { setStoredModelId, getVirtualHumanSettings, setVirtualHumanSettings } from './pet-mode-store'
 
 const log = {

@@ -5,7 +5,7 @@ import { definePlugin } from '@mtbot/plugin-core'
 
 import type { MainEvents } from '../../../kernel/events'
 import { S } from '../../../kernel/services'
-import { registerPetModeIpc, isPetForceIgnore, disposePetModeIpc } from '../../../pet/pet-mode-ipc'
+import { registerPetModeIpc, isPetForceIgnore, disposePetModeIpc } from './pet-mode-ipc'
 
 /**
  * 桌宠扩展（主进程侧）。

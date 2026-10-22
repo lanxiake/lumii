@@ -14,7 +14,7 @@
 
 import type { DatabaseAdapter } from '@mtbot/agent-runtime'
 import { consolidateUserMemory, needsPersonalMemoryConsolidation } from '@mtbot/agent-runtime'
-import { getVirtualHumanSettings, setVirtualHumanSettings } from '../pet/pet-mode-store'
+import { getVirtualHumanSettings, setVirtualHumanSettings } from '../plugins/builtin/pet/pet-mode-store'
 import { DEFAULT_VH_SETTINGS } from '../../shared/virtual-human'
 import { isQuietHour } from '@mtbot/pet-core'
 

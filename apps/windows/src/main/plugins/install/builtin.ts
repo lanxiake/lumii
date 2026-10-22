@@ -19,7 +19,7 @@ import { getDeployedMcpExePath } from '../../bundled-mcp-exe'
 import { MCP_PRESETS } from '../../../shared/mcp-presets'
 import { presetToEntry, type McpServerEntry } from '../../config/mcp-config'
 import { resolvePluginRuntimeDir } from '../../paths'
-import { resolveUserPetModelsDir } from '../../pet/pet-asset-protocol'
+import { resolveUserPetModelsDir } from '../builtin/pet/pet-asset-protocol'
 import { resolveExtensionsDir } from '../external/loader'
 import { setMainExtensionEnabled } from '../../kernel/extension-store'
 import {

@@ -14,7 +14,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const RESOURCES = join(dirname(fileURLToPath(import.meta.url)), '../../../resources/pet-models')
+const RESOURCES = join(dirname(fileURLToPath(import.meta.url)), '../../../../../resources/pet-models')
 
 interface RawModel {
   id: string

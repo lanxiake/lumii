@@ -16,7 +16,7 @@ import {
   type PetModeSwitchResult,
   type PetPerchEvent,
   PET_IPC,
-} from '../../shared/pet-mode'
+} from '../../../../shared/pet-mode'
 import { PetWindowManager, type PetWindowManagerDeps } from './pet-window-manager'
 import { startPerchTracking, stopPerchTracking, getCurrentPerchRect } from './pet-perch-tracker'
 import { startIdleWatching, stopIdleWatching, getCurrentIdleStage } from './idle-watcher'
@@ -25,8 +25,8 @@ import {
   getVirtualHumanSettings,
   setVirtualHumanSettings,
 } from './pet-mode-store'
-import type { VirtualHumanSettingsDTO } from '../../shared/virtual-human'
-import type { IpcHandleRegistrar } from '../kernel/ipc-registry'
+import type { VirtualHumanSettingsDTO } from '../../../../shared/virtual-human'
+import type { IpcHandleRegistrar } from '../../../kernel/ipc-registry'
 
 const log = {
   info: (...args: unknown[]) => console.log('[pet]', ...args),
@@ -362,7 +362,7 @@ export function registerPetModeIpc(
   ipc.handle(PET_IPC.getVirtualHumanSettings, () => getVirtualHumanSettings())
   ipc.handle(
     PET_IPC.setVirtualHumanSettings,
-    (_evt, patch: Partial<import('../../shared/virtual-human').VirtualHumanSettingsDTO>) => {
+    (_evt, patch: Partial<import('../../../../shared/virtual-human').VirtualHumanSettingsDTO>) => {
       const merged = setVirtualHumanSettings(patch)
       // 穿透默认值变更：宠物模式运行中时立即生效（setForceIgnoreMouse 已含持久化，此处不重复写）
       if (
@@ -416,7 +416,7 @@ export function registerPetModeIpc(
    */
   ipc.handle(PET_IPC.getPetPersonality, async (_evt, configId: string) => {
     try {
-      const { getPetPersonalityLabel } = await import('../agent-runtime/pet-personality')
+      const { getPetPersonalityLabel } = await import('../../../agent-runtime/pet-personality')
       return await getPetPersonalityLabel(configId)
     } catch (err) {
       log.warn(`getPetPersonality 失败: ${err instanceof Error ? err.message : String(err)}`)
@@ -436,7 +436,7 @@ export function registerPetModeIpc(
    */
   ipc.handle(PET_IPC.petTaskCreate, async (_evt, text: string) => {
     try {
-      const { createPetTask } = await import('../agent-runtime/pet-task-service')
+      const { createPetTask } = await import('../../../agent-runtime/pet-task-service')
       return await createPetTask(typeof text === 'string' ? text : '')
     } catch (err) {
       log.warn(`petTaskCreate 失败: ${err instanceof Error ? err.message : String(err)}`)
@@ -446,7 +446,7 @@ export function registerPetModeIpc(
 
   ipc.handle(PET_IPC.petTaskState, async () => {
     try {
-      const { getPetTaskState } = await import('../agent-runtime/pet-task-service')
+      const { getPetTaskState } = await import('../../../agent-runtime/pet-task-service')
       return getPetTaskState()
     } catch (err) {
       log.warn(`petTaskState 失败: ${err instanceof Error ? err.message : String(err)}`)
@@ -456,7 +456,7 @@ export function registerPetModeIpc(
 
   ipc.handle(PET_IPC.petTaskMarkRead, async () => {
     try {
-      const { markPetTaskRead } = await import('../agent-runtime/pet-task-service')
+      const { markPetTaskRead } = await import('../../../agent-runtime/pet-task-service')
       markPetTaskRead()
     } catch (err) {
       log.warn(`petTaskMarkRead 失败: ${err instanceof Error ? err.message : String(err)}`)
@@ -472,7 +472,7 @@ export function registerPetModeIpc(
    * 而这条 handler 走惰性 import，多引一个常量就多拽一份依赖起来。
    */
   ipc.on?.(PET_IPC.petExperienceReport, (_evt, kind: unknown) => {
-    void import('../agent-runtime/pet-experience-service')
+    void import('../../../agent-runtime/pet-experience-service')
       .then(({ reportPetExperience }) => reportPetExperience(kind))
       .catch((err: unknown) => {
         log.warn(`petExperienceReport 失败: ${err instanceof Error ? err.message : String(err)}`)
@@ -481,7 +481,7 @@ export function registerPetModeIpc(
 
   ipc.handle(PET_IPC.petExperienceSummary, async () => {
     try {
-      const { getPetExperience } = await import('../agent-runtime/pet-experience-service')
+      const { getPetExperience } = await import('../../../agent-runtime/pet-experience-service')
       return await getPetExperience()
     } catch (err) {
       log.warn(`petExperienceSummary 失败: ${err instanceof Error ? err.message : String(err)}`)
@@ -508,7 +508,7 @@ export function registerPetModeIpc(
       if (win.isMinimized()) win.restore()
       win.show()
       win.focus()
-      const { buildPetHandoffText } = await import('../agent-runtime/pet-task-service')
+      const { buildPetHandoffText } = await import('../../../agent-runtime/pet-task-service')
       const composed = buildPetHandoffText({ description: payload?.description?.trim() || '一件事', text })
       log.info(`[petHandoffToMain] 交给主助手: ${composed.slice(0, 60)}`)
       win.webContents.send(PET_IPC.evtMainHandoff, composed)

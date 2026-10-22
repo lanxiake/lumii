@@ -21,7 +21,7 @@ import { existsSync, statSync } from 'node:fs'
 import { join, relative, resolve, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { net, protocol } from 'electron'
-import { resolveClientStateDir } from '../client-data-root'
+import { resolveClientStateDir } from '../../../client-data-root'
 
 const log = {
   info: (...args: unknown[]) => console.log('[pet-asset-protocol]', ...args),

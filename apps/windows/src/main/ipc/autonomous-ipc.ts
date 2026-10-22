@@ -15,7 +15,7 @@ import { notifyAutonomousGoalApproved } from '../agent-runtime/autonomous-wiring
 import { readSettings, writeSettings } from '@mtbot/agent-runtime'
 import type { AutonomousSettings } from '@mtbot/agent-runtime'
 import { readMood, readConcerns } from '@mtbot/agent-runtime'
-import { currentPetAgentId } from '../pet/pet-subject'
+import { currentPetAgentId } from '../plugins/builtin/pet/pet-subject'
 
 const ENABLED_KEY = 'autonomous.enabled'
 

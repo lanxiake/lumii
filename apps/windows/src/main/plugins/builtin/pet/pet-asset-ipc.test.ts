@@ -18,7 +18,7 @@ import {
   isPetAssetOp,
   runPetAssetOp,
 } from './pet-asset-ipc'
-import { setActiveWorkspaceDirGetter, _resetActiveWorkspaceDirGetterForTest } from '../workspace-paths'
+import { setActiveWorkspaceDirGetter, _resetActiveWorkspaceDirGetterForTest } from '../../../workspace-paths'
 
 let root: string
 let savedPetDir: string | undefined

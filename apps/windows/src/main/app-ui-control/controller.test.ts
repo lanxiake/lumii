@@ -8,7 +8,7 @@ import { createAppUiController, VIEW_STATE_SCRIPT } from './controller'
 import { clearScreenshotTempDir, getScreenshotTempDir } from './screenshot-cleanup'
 import type { RawSnapshotNode } from './types'
 
-vi.mock('../pet/pet-mode-ipc', () => ({
+vi.mock('../plugins/builtin/pet/pet-mode-ipc', () => ({
   getPetWindowManager: vi.fn(() => null),
 }))
 
@@ -16,7 +16,7 @@ vi.mock('./annotate', () => ({
   annotateSnapshot: vi.fn(async (buf: Buffer) => Buffer.from(`${buf.toString()}-annotated`)),
 }))
 
-import { getPetWindowManager } from '../pet/pet-mode-ipc'
+import { getPetWindowManager } from '../plugins/builtin/pet/pet-mode-ipc'
 import { annotateSnapshot } from './annotate'
 
 const mockedGetPetWindowManager = vi.mocked(getPetWindowManager)

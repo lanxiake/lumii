@@ -41,7 +41,7 @@ import {
   runValidate,
   type SheetBatchSpec,
 } from '@mtbot/pet-asset'
-import { resolveActiveWorkspaceDir } from '../workspace-paths'
+import { resolveActiveWorkspaceDir } from '../../../workspace-paths'
 import { checkIdlePin, pinIdleFrames, type SpriteFrameRef } from '@mtbot/pet-core'
 
 const log = {

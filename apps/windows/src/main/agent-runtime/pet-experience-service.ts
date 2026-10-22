@@ -32,7 +32,7 @@ import {
   type DatabaseAdapter,
 } from '@mtbot/agent-runtime'
 import type { PetExperienceDTO } from '../../shared/pet-mode'
-import { currentPetAgentId } from '../pet/pet-subject'
+import { currentPetAgentId } from '../plugins/builtin/pet/pet-subject'
 import { getAgentRuntimeBridge } from '../ipc/agent-runtime-ipc'
 import { toAsyncClient } from './autonomous-wiring'
 import { toTraitValues } from './pet-personality'

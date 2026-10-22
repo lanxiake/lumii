@@ -12,7 +12,7 @@ vi.mock('electron', () => ({
 }))
 
 import { renderVirtualHumanPromptSection } from './virtual-human-context'
-import type { VirtualHumanPromptContext } from '../../shared/virtual-human'
+import type { VirtualHumanPromptContext } from '../../../../shared/virtual-human'
 
 const base: VirtualHumanPromptContext = {
   modelId: 'mao_pro',

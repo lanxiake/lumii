@@ -12,7 +12,7 @@ import { describe, it, expect, vi } from 'vitest'
 const DATA_ROOT = 'C:\\fake\\data\\lumii'
 const USER_PET_DIR = `${DATA_ROOT}\\pet-models`
 
-vi.mock('../client-data-root', () => ({
+vi.mock('../../../client-data-root', () => ({
   resolveClientStateDir: () => DATA_ROOT,
   resolveWindowsClientDataRoot: () => DATA_ROOT,
 }))

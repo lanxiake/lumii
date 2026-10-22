@@ -8,7 +8,7 @@
  * 查询并注入表情/动作/persona 段。stopCall / 退出模式时清除，避免污染普通 Chat。
  */
 
-import type { VirtualHumanPromptContext } from '../../shared/virtual-human'
+import type { VirtualHumanPromptContext } from '../../../../shared/virtual-human'
 
 const log = {
   info: (...args: unknown[]) => console.log('[vh]', ...args),

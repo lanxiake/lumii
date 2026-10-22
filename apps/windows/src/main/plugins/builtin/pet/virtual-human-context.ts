@@ -11,7 +11,7 @@
 import {
   type VirtualHumanPromptContext,
   type VirtualHumanMotionAction,
-} from '../../shared/virtual-human'
+} from '../../../../shared/virtual-human'
 import { getVirtualHumanSettings } from './pet-mode-store'
 import { getPetModelConfig, resolveModelMotionActions } from './pet-model-resolver'
 

@@ -142,8 +142,8 @@ import {
   migrateLocalCompanionPrefsToVhSettings,
 } from './local-companion-handler'
 import { ensureSeedCronJobsSeeded } from '../seed-cron-jobs'
-import { isPetMode, onVirtualHumanSettingsChanged } from '../pet/pet-mode-ipc'
-import { getStoredModelId, getVirtualHumanSettings } from '../pet/pet-mode-store'
+import { isPetMode, onVirtualHumanSettingsChanged } from '../plugins/builtin/pet/pet-mode-ipc'
+import { getStoredModelId, getVirtualHumanSettings } from '../plugins/builtin/pet/pet-mode-store'
 import { petAgentId } from '@mtbot/pet-core'
 import { BridgeSessionModelCatalog } from './bridge-session-model-catalog'
 import { BridgeSessionThinkingPrefs } from './bridge-session-thinking-prefs'

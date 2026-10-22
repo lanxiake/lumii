@@ -1,7 +1,7 @@
 import { protocol } from 'electron'
 
 import { LOCAL_MEDIA_SCHEME } from './local-media-protocol'
-import { PET_ASSET_SCHEME } from './pet/pet-asset-protocol'
+import { PET_ASSET_SCHEME } from './plugins/builtin/pet/pet-asset-protocol'
 import { CLIENT_PLUGIN_SCHEME } from './client-plugin-protocol'
 
 /**

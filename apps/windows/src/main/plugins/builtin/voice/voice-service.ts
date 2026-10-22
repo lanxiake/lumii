@@ -420,7 +420,7 @@ export class VoiceCallService {
    */
   private async activateVirtualHumanContextIfPetMode(sessionKey: string): Promise<void> {
     try {
-      const { activateVirtualHumanContextForSession } = await import('../../../pet/virtual-human-context')
+      const { activateVirtualHumanContextForSession } = await import('../pet/virtual-human-context')
       await activateVirtualHumanContextForSession(sessionKey)
     } catch (err) {
       log.warn(`[activateVirtualHumanContextIfPetMode] 跳过: ${(err as Error).message}`)
@@ -430,7 +430,7 @@ export class VoiceCallService {
   /** 清除会话的虚拟人 Prompt 上下文 */
   private async clearVirtualHumanContext(sessionKey: string): Promise<void> {
     try {
-      const { clearVirtualHumanContext } = await import('../../../pet/virtual-human-activation')
+      const { clearVirtualHumanContext } = await import('../pet/virtual-human-activation')
       clearVirtualHumanContext(sessionKey)
     } catch {
       // 忽略
@@ -440,7 +440,7 @@ export class VoiceCallService {
   /** 非宠物模式才清除 VH 上下文；宠物模式连续对话需保持注入态 */
   private async clearVirtualHumanContextIfNotPetMode(sessionKey: string): Promise<void> {
     try {
-      const { getPetWindowManager } = await import('../../../pet/pet-mode-ipc')
+      const { getPetWindowManager } = await import('../pet/pet-mode-ipc')
       if (getPetWindowManager()?.getMode() === 'pet') return
       await this.clearVirtualHumanContext(sessionKey)
     } catch {
