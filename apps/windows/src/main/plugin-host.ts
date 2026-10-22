@@ -22,6 +22,7 @@ import { channelQbotExtension } from './extensions/channel-qbot'
 import { dashboardFeedExtension } from './extensions/dashboard-feed'
 import { filePreviewExtension } from './extensions/file-preview'
 import { usageExtension } from './extensions/usage'
+import { vcsExtension } from './extensions/vcs'
 
 /**
  * 内置扩展的统一定义。
@@ -52,6 +53,7 @@ export const BUILTIN_EXTENSIONS: BuiltinExtension[] = [
   dashboardFeedExtension,
   filePreviewExtension,
   usageExtension,
+  vcsExtension,
 ]
 
 /**

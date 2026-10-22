@@ -23,10 +23,6 @@ import {
   registerWorkspaceIpcHandlers
 } from './workspace-ipc'
 import {
-  setVcsIpcDeps,
-  registerVcsIpcHandlers
-} from './vcs-ipc'
-import {
   setWindowIpcDeps,
   registerWindowIpcHandlers
 } from './window-ipc'
@@ -103,7 +99,8 @@ export function registerAllIpcHandlers(deps: IpcHandlersDeps): void {
     pluginEventBus: deps.pluginEventBus,
   })
 
-  setVcsIpcDeps({
+  const { registerVcsIpc } = require('../extensions/vcs')
+  registerVcsIpc({
     getWorkspaceDir: deps.getWorkspaceDir,
     log: deps.log,
   })
@@ -161,7 +158,6 @@ export function registerAllIpcHandlers(deps: IpcHandlersDeps): void {
 
   // 注册所有 IPC handlers
   registerWorkspaceIpcHandlers()
-  registerVcsIpcHandlers()
   registerWindowIpcHandlers()
   registerChannelIpcHandlers()
   registerFileSystemIpcHandlers()
