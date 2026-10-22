@@ -19,8 +19,15 @@ import { readFileSync, writeFileSync, existsSync } from 'fs'
 import { join } from 'path'
 import { homedir } from 'os'
 
-const stateDir = join(homedir(), '.lumii', 'state')
-const configPath = join(stateDir, 'extensions.json')
+/**
+ * 配置文件在**数据根**下，不是 `<数据根>/state/` 下
+ * （见 `apps/windows/src/main/client-data-root.ts` 的 `resolveClientStateDir`）。
+ *
+ * 2026-10-22 之前这里写的是 `~/.lumii/state/extensions.json`——那个文件主进程根本不读，
+ * 所以「禁用桌宠」跑完看起来没生效，其实是根本没写到地方。
+ */
+const dataRoot = process.env.LUMII_CLIENT_DATA_DIR?.trim() || join(homedir(), '.lumii')
+const configPath = join(dataRoot, 'extensions.json')
 
 function readConfig() {
   if (!existsSync(configPath)) {

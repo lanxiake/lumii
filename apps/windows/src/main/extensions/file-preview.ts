@@ -2,6 +2,7 @@ import { definePlugin } from '@mtbot/plugin-core'
 
 import type { MainEvents } from '../kernel/events'
 import type { PreviewWindowManagerDeps } from '../file-preview/preview-window-manager'
+import { registerFilePreviewWindowIpc } from '../file-preview/preview-window-ipc'
 
 /**
  * 文件预览扩展。
@@ -79,7 +80,8 @@ export const filePreviewExtension = {
  * 时序在插件 apply() 之后、Electron app 就绪后。
  */
 export function registerFilePreviewIpc(deps: PreviewWindowManagerDeps): void {
-  // 直接复用原有的注册逻辑
-  const { registerFilePreviewWindowIpc } = require('../file-preview/preview-window-ipc')
+  // 直接复用原有的注册逻辑。
+  // **必须静态 import**：`require(...)` 会被原样打进 `out/main/index.js`，
+  // 运行时按产物目录解析成 `out/file-preview/...`（不存在）——真启动就炸，tsc 看不见。
   registerFilePreviewWindowIpc(deps)
 }

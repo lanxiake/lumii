@@ -1,6 +1,7 @@
 import { definePlugin } from '@mtbot/plugin-core'
 
 import type { MainEvents } from '../kernel/events'
+import { registerVcsIpcHandlers, setVcsIpcDeps } from '../ipc/vcs-ipc'
 
 /**
  * VCS（版本控制）扩展。
@@ -86,8 +87,9 @@ export interface VcsIpcDeps {
  * 由 IPC 注册器在初始化时调用。
  */
 export function registerVcsIpc(deps: VcsIpcDeps): void {
-  // 直接复用原有的注册逻辑
-  const { setVcsIpcDeps, registerVcsIpcHandlers } = require('../ipc/vcs-ipc')
+  // 直接复用原有的注册逻辑。
+  // **必须静态 import**：`require('../ipc/vcs-ipc')` 会被原样打进 `out/main/index.js`，
+  // 运行时按产物目录解析成 `out/ipc/vcs-ipc`（不存在）——tsc 看不见，只有真启动才报。
   setVcsIpcDeps(deps)
   registerVcsIpcHandlers()
 }

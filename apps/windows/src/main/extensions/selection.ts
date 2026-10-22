@@ -2,6 +2,7 @@ import { definePlugin } from '@mtbot/plugin-core'
 
 import type { MainEvents } from '../kernel/events'
 import type { AgentRuntimeBridge } from '../agent-runtime'
+import { registerSelectionIpcHandlers } from '../ipc/selection-ipc'
 
 /**
  * 划词动作扩展（翻译/解释/总结/润色）。
@@ -78,6 +79,7 @@ export interface SelectionIpcDeps {
  * 由 IPC 注册器在初始化时调用。
  */
 export function registerSelectionIpc(deps: SelectionIpcDeps): void {
-  const { registerSelectionIpcHandlers } = require('../ipc/selection-ipc')
+  // **必须静态 import**：`require('../ipc/selection-ipc')` 会被原样打进
+  // `out/main/index.js`，运行时按产物目录解析（不存在）——只有真启动才报。
   registerSelectionIpcHandlers(deps)
 }
