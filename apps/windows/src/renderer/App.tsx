@@ -26,6 +26,7 @@ import { useToast } from './components/ui/Toast/useToast'
 import { getProviderConfig, isChatProviderReady } from './services/model-config-service'
 import { getAppVersion } from './services/app-service'
 import { PetSessionSync } from './components/PetSessionSync'
+import { PluginRuntime } from '@/plugins/renderer/runtime'
 import { useAgentRuntimeActions } from './hooks/business/useAgentRuntime/useAgentRuntime'
 import { subscribeMainEvent } from './services/event-bus-service'
 import { PET_IPC } from '../shared/pet-mode'
@@ -301,6 +302,8 @@ const AuthenticatedApp: React.FC<AuthenticatedAppProps> = ({ onShellReady }) => 
         version={appVersion ? `v${appVersion}` : undefined}
       >
         <PetSessionSync />
+        {/* 插件启停的前端半边：按主进程状态 setup / teardown 插件 UI */}
+        <PluginRuntime />
         <Router activeView={activeView} onViewChange={handleViewChange} />
         <SettingsHubModal onViewChange={handleViewChange} />
         <ScreenRecordRoot />

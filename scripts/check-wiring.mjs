@@ -51,11 +51,12 @@ if (argv.includes('--help') || argv.includes('-h')) {
 }
 
 const SRC = join(ROOT, 'apps/windows/src')
-const SCAN_DIRS = [join(SRC, 'main'), join(SRC, 'preload'), join(SRC, 'shared'), join(SRC, 'renderer')]
+const SCAN_DIRS = [join(SRC, 'main'), join(SRC, 'plugins'), join(SRC, 'preload'), join(SRC, 'shared'), join(SRC, 'renderer')]
 const SKIP_DIRS = new Set(['node_modules', 'dist', 'out', 'release', '.git', '__tests__'])
 
 const rel = (p) => relative(ROOT, p).replace(/\\/g, '/')
-const isMainFile = (p) => rel(p).startsWith('apps/windows/src/main/')
+// src/plugins 是主进程侧的插件代码：它同样会 webContents.send / 注册 handler
+const isMainFile = (p) => rel(p).startsWith('apps/windows/src/main/') || rel(p).startsWith('apps/windows/src/plugins/')
 const isRendererSide = (p) => {
   const r = rel(p)
   return r.startsWith('apps/windows/src/preload/') || r.startsWith('apps/windows/src/renderer/')
@@ -807,6 +808,7 @@ const unregisteredTools = [...report.tools.exported.keys()].filter((n) => !repor
 const ownersPath = join(ROOT, 'scripts/ipc-owners.json')
 const ipcOwners = existsSync(ownersPath) ? JSON.parse(readFileSync(ownersPath, 'utf8')) : {}
 const MAIN_PREFIX = 'apps/windows/src/main/'
+const PLUGIN_PREFIX = 'apps/windows/src/plugins/'
 const ipcRegisteringFiles = new Set()
 for (const h of handlers) {
   const at = h.at.slice(0, h.at.lastIndexOf(':'))
@@ -816,14 +818,14 @@ const unownedIpc = [...ipcRegisteringFiles].filter((f) => !(f in ipcOwners)).sor
 
 // ---- ⑪ 核心直接 import 插件实现
 //
-// 插件目录迁进 `src/main/plugins/builtin/<id>/` 之后，边界才看得见：核心（plugins/ 以外的
+// 插件目录迁进 `src/plugins/builtin/<id>/` 之后，边界才看得见：核心（plugins/ 以外的
 // main 代码）每一条 import 都是一处「插件停用了但它还在被调用」的隐患。
 // 现状是存量（48 条），**只禁止新增**：迁移一条就从基线里删一条。
 const coreImportsPluginImpl = (() => {
   const out = new Set()
   for (const f of files) {
     const r = rel(f)
-    if (!r.startsWith(MAIN_PREFIX) || r.startsWith(`${MAIN_PREFIX}plugins/`)) continue
+    if (!r.startsWith(MAIN_PREFIX) || r.startsWith(PLUGIN_PREFIX)) continue
     const sf = getModule(f).sf
     if (!sf) continue
     const add = (spec) => {

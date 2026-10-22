@@ -81,7 +81,7 @@ import { resolveModelThinking, resolveReasoningOptions, apiForProviderType } fro
 import { resizeImageIfNeeded } from './image-resizer'
 import type { FileMemoryHandler } from './file-memory-handler'
 import type { WikiIngestHook } from '@mtbot/agent-runtime'
-import { maybeSnapshot } from '../plugins/builtin/vcs/vcs-snapshot'
+import { maybeSnapshot } from '../../plugins/builtin/vcs/vcs-snapshot'
 import { notifyCloudSyncWorkspaceChanged } from '../cloud-sync/sync-accessor'
 import { selectPromptVariantForSession } from './autonomous-wiring'
 
@@ -791,7 +791,7 @@ export class BridgeInstanceFactory {
     // 这里按宿主语义重建并二次 setSystemPrompt，最终态与改前完全一致。
     let promptResult = res.prompt.initial
     if (this.deps.config.skillEvolutionEngine) {
-      const { injectEvolutionGuidanceIntoResult } = await import('../plugins/builtin/skill-evolution/prompt-injector')
+      const { injectEvolutionGuidanceIntoResult } = await import('../../plugins/builtin/skill-evolution/prompt-injector')
       promptResult = injectEvolutionGuidanceIntoResult(promptResult)
     }
 

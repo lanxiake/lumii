@@ -1,7 +1,7 @@
 /**
  * 发版：把所有按需下载的资产上传到 GitHub Release。
  *
- * 客户端按需下载这些资产（走 gh 镜像加速，见 `src/main/plugins/github-fetch.ts`）：
+ * 客户端按需下载这些资产（走 gh 镜像加速，见 `src/plugins/github-fetch.ts`）：
  *   wechat-mcp.exe          → 微信本机助手插件（tag 必须 = `v<App版本>`）
  *   pet-<id>.zip            → 移出随包的宠物（id 见 main/plugins/builtin.ts 的 PET_PLUGIN_IDS）
  *   ext-<id>.js             → 官方外部扩展（清单见 resources/extensions/catalog.json）

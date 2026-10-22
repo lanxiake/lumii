@@ -15,7 +15,7 @@ import { gitHttp } from './git-http'
 import { nativeFetch, nativePush } from './git-network'
 // 直接取队列模块：vcs-snapshot 还 re-export 它，但云同步打的是外部扩展 bundle，
 // 不该把 WorkspaceVcs 整套实现拖进来。
-import { enqueueSyncMaintenance, enqueueWorkspace, getWorkspaceQueueDepth } from '../plugins/builtin/vcs/workspace-queue'
+import { enqueueSyncMaintenance, enqueueWorkspace, getWorkspaceQueueDepth } from '../../plugins/builtin/vcs/workspace-queue'
 import { detectGit, runGit } from '../git-cli'
 import { SyncLargeQueue, type LargeQueueStats } from './sync-large-queue'
 import { scopeRulesFromConfig } from './sync-scope'

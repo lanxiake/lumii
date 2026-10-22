@@ -142,8 +142,8 @@ import {
   migrateLocalCompanionPrefsToVhSettings,
 } from './local-companion-handler'
 import { ensureSeedCronJobsSeeded } from '../seed-cron-jobs'
-import { isPetMode, onVirtualHumanSettingsChanged } from '../plugins/builtin/pet/pet-mode-ipc'
-import { getStoredModelId, getVirtualHumanSettings } from '../plugins/builtin/pet/pet-mode-store'
+import { isPetMode, onVirtualHumanSettingsChanged } from '../../plugins/builtin/pet/pet-mode-ipc'
+import { getStoredModelId, getVirtualHumanSettings } from '../../plugins/builtin/pet/pet-mode-store'
 import { petAgentId } from '@mtbot/pet-core'
 import { BridgeSessionModelCatalog } from './bridge-session-model-catalog'
 import { BridgeSessionThinkingPrefs } from './bridge-session-thinking-prefs'
@@ -153,7 +153,7 @@ import { runPetGoal } from './bootstrap/pet-goal-runner'
 import { reportPetGoalReceipt } from './bootstrap/pet-goal-receipt'
 import { withTimeout } from './with-timeout'
 import { initToolUsageStore } from '../tool-usage-store'
-import { setDashboardFeedDb } from '../plugins/builtin/dashboard-feed/store'
+import { setDashboardFeedDb } from '../../plugins/builtin/dashboard-feed/store'
 import { BridgePromptComposer } from './bridge-prompt-composer'
 import {
   agentRuntimeLog as log,
@@ -214,14 +214,14 @@ import { runPlanner, shouldFallbackPlan } from './planner-wiring'
 import { DEFAULT_AGENT_ID } from '../seed-cron-jobs'
 import { OUTREACH_SYSTEM_NOTIFY_TITLE } from '../desktop-notify'
 import { BridgeInstanceFactory } from './bridge-instance-factory'
-import { captureWorkspaceTurnSnapshot } from '../plugins/builtin/vcs/workspace-turn-snapshot'
+import { captureWorkspaceTurnSnapshot } from '../../plugins/builtin/vcs/workspace-turn-snapshot'
 import { beginStandaloneTurn } from './turn-touched-paths'
 import { BackgroundTaskManager, type BackgroundTaskRecord } from './background-task-manager'
 import { followComfyJob, parseEnqueuedPromptId, resolveComfyBaseUrl } from './comfyui-job-follower'
 import { buildBackgroundToolConfig } from './bootstrap/background-tool-config'
 import { writeDiaryFor } from './bootstrap/diary-writer'
 import { BridgeToolRegistrar, type BridgeToolRegistrarDeps } from './bridge-tool-registrar'
-import { registerDashboardFeedTools } from '../plugins/builtin/dashboard-feed/index'
+import { registerDashboardFeedTools } from '../../plugins/builtin/dashboard-feed/index'
 import { BridgePromptDispatcher } from './bridge-prompt-dispatcher'
 import { RouterService } from './router/router-service'
 import { RouterLlmCallerImpl } from './router/llm-caller'
@@ -232,7 +232,7 @@ import { setupPalaceVector, backfillPalaceVectors } from './palace-vector-runtim
 import { waitForSherpa } from '../onnx-runtime-gate'
 import { createTransformersE5Embedder } from './wiki-transformers-embedder'
 import { getCloudSyncManager } from '../cloud-sync/sync-accessor'
-import { isExtensionActive } from '../plugins/active'
+import { isExtensionActive } from '../../plugins/active'
 import type { ConflictInfo } from '../cloud-sync/types'
 import { ensureProviderBaseUrl, resolveApiFormat } from '../provider-config'
 import { resolveModelThinking, apiForProviderType } from '../model-thinking'
@@ -691,11 +691,11 @@ export class AgentRuntimeBridge {
     return this._wikiEmbedderCache
   }
 
-  setSkillEvolutionEngine(engine: import('../plugins/builtin/skill-evolution/engine').SkillEvolutionEngine): void {
+  setSkillEvolutionEngine(engine: import('../../plugins/builtin/skill-evolution/engine').SkillEvolutionEngine): void {
     this.config.skillEvolutionEngine = engine
   }
 
-  getSkillEvolutionEngine(): import('../plugins/builtin/skill-evolution/engine').SkillEvolutionEngine | undefined {
+  getSkillEvolutionEngine(): import('../../plugins/builtin/skill-evolution/engine').SkillEvolutionEngine | undefined {
     return this.config.skillEvolutionEngine
   }
 

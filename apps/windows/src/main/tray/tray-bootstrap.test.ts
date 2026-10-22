@@ -39,7 +39,7 @@ vi.mock('electron', () => ({
   BrowserWindow: class {},
 }))
 
-vi.mock('../plugins/builtin/pet/pet-mode-ipc', () => ({
+vi.mock('../../plugins/builtin/pet/pet-mode-ipc', () => ({
   isPetMode: () => false,
   switchPetMode: vi.fn(),
   isPetForceIgnore: () => false,

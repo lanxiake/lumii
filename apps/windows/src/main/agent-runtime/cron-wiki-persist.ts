@@ -18,7 +18,7 @@ import {
   DEFAULT_DASHBOARD_FEED_ID,
   readDashboardFeedSnapshot,
   type DashboardFeedSnapshot,
-} from '../plugins/builtin/dashboard-feed/store'
+} from '../../plugins/builtin/dashboard-feed/store'
 import { DEFAULT_AGENT_ID } from '../seed-cron-jobs'
 import { ensureWikiVaultLayoutOnDisk, syncWikiSourceToVault } from './wiki-vault-host'
 

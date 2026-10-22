@@ -61,7 +61,7 @@ import {
 } from './local-media-protocol'
 import {
   registerPetAssetProtocolHandler,
-} from './plugins/builtin/pet/pet-asset-protocol'
+} from '../plugins/builtin/pet/pet-asset-protocol'
 import { join } from 'path'
 import {
   registerClientPluginProtocolHandler,
@@ -91,7 +91,7 @@ import { WECHAT_RELAY_AGENT_ID } from './agent-runtime/wechat-relay-agent'
 import { fileLogger } from './file-logger'
 import { SkillWatcher } from './skill-watcher'
 import { seedBundledSkills } from './bundled-skills-seeder'
-import { stopBrowserService, getBrowserContext } from './plugins/builtin/browser/service'
+import { stopBrowserService, getBrowserContext } from '../plugins/builtin/browser/service'
 import { startPostReadyServices as startPostReadyStage } from './kernel/stages/post-ready'
 import { directoryManager } from './directory-manager'
 import { ConfigManager } from './config-manager'
@@ -133,17 +133,17 @@ import {
   writeSoulFile,
   writeUserMemoryFile,
 } from './ipc/plugin-ipc'
-import { registerBuiltinPlugins } from './plugins/install/builtin'
-import { setupPluginIpcHandlers } from './plugins/install/plugin-manager'
+import { registerBuiltinPlugins } from '../plugins/install/builtin'
+import { setupPluginIpcHandlers } from '../plugins/install/plugin-manager'
 import type { PluginHost } from '@mtbot/plugin-core'
-import { createPluginHost } from './plugins/host'
-import { isExtensionActive, setActiveExtensionIds, setExtensionActiveResolver } from './plugins/active'
-import { ExternalExtensionRuntime, resolveExtensionsDir } from './plugins/external/loader'
-import { loadOfficialCatalog, syncOfficialExtensions } from './plugins/external/official'
+import { createPluginHost } from '../plugins/host'
+import { isExtensionActive, setActiveExtensionIds, setExtensionActiveResolver } from '../plugins/active'
+import { ExternalExtensionRuntime, resolveExtensionsDir } from '../plugins/external/loader'
+import { loadOfficialCatalog, syncOfficialExtensions } from '../plugins/external/official'
 import { S } from './kernel/services'
 import type { MainEvents } from './kernel/events'
 import { readExtensionPrefs } from './kernel/extension-store'
-import { createExtensionControl, setExtensionControl } from './plugins/control'
+import { createExtensionControl, setExtensionControl } from '../plugins/control'
 import { setupExtensionIpcHandlers } from './ipc/extension-ipc'
 import { setPalaceBridgeProvider, setupPalaceIpcHandlers } from './ipc/palace-ipc'
 import { registerAllIpcHandlers } from './ipc/ipc-handlers-registry'
@@ -152,10 +152,10 @@ import type { CloudSyncManager } from './cloud-sync/sync-manager'
 import type { SyncScheduler } from './cloud-sync/sync-scheduler'
 import { loadCloudSyncConfig } from './cloud-sync/sync-config'
 import { initScriptRuntimes } from './runtime-env'
-import { VoiceModelManager } from './plugins/builtin/voice/model-manager.js'
-import { VoiceCallService } from './plugins/builtin/voice/voice-service.js'
-import { registerVoiceIpc } from './plugins/builtin/voice/voice-ipc.js'
-import { loadVoiceEngineConfig } from './plugins/builtin/voice/voice-config-store.js'
+import { VoiceModelManager } from '../plugins/builtin/voice/model-manager.js'
+import { VoiceCallService } from '../plugins/builtin/voice/voice-service.js'
+import { registerVoiceIpc } from '../plugins/builtin/voice/voice-ipc.js'
+import { loadVoiceEngineConfig } from '../plugins/builtin/voice/voice-config-store.js'
 import { setChannelAsrReadyChecker } from './channel/channel-voice-asr-hint.js'
 import { findBuiltInAgent, mapApiRecordToAgentDefinition, reconcilePersonalMemory } from '@mtbot/agent-runtime'
 import {
@@ -168,10 +168,10 @@ import { hasHeadlessFlag } from './platform/feature-probe'
 import { PerformanceMonitor } from './perf/performance-monitor'
 import { setupPerformanceIpcHandlers } from './ipc/performance-ipc'
 import { registerSkillnetStoreHandlers } from './skillnet-store'
-import { disposePetModeIpc } from './plugins/builtin/pet/pet-mode-ipc'
+import { disposePetModeIpc } from '../plugins/builtin/pet/pet-mode-ipc'
 import { applyWikiEmbeddingEnvDefaults } from './agent-runtime/wiki-embedding-config'
-import { applyPluginBootstrapEnvDefaults } from './plugins/external/bootstrap-config'
-import { initPluginDependenciesOnStartup } from './plugins/external/bootstrap'
+import { applyPluginBootstrapEnvDefaults } from '../plugins/external/bootstrap-config'
+import { initPluginDependenciesOnStartup } from '../plugins/external/bootstrap'
 
 /** Wiki 向量检索默认配置（国内镜像 + 启动预下载） */
 applyWikiEmbeddingEnvDefaults()
@@ -1354,6 +1354,10 @@ async function startExtensions(): Promise<void> {
       external: externalExtensions,
       // 清单随包（安装包里没有代码）；有清单没目录 = 可安装
       officialCatalog: loadOfficialCatalog(officialExtensionsRoot),
+      // 前后端一起启停：渲染层的 PluginRuntime 订阅这个推送
+      onStateChanged: (id, enabled) => {
+        mainWindow?.webContents.send('plugin:state-changed', { id, enabled })
+      },
     }),
   )
 }

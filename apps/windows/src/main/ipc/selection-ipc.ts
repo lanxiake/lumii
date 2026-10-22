@@ -11,7 +11,7 @@
 
 import { ipcMain } from 'electron'
 import type { AgentRuntimeBridge } from '../agent-runtime'
-import { SelectionLlmService } from '../plugins/builtin/selection/selection-llm'
+import { SelectionLlmService } from '../../plugins/builtin/selection/selection-llm'
 import type { SelectionLlmRequest, SelectionLlmResult } from '../../shared/selection-llm-types'
 import type { IpcHandleRegistrar } from '../kernel/ipc-registry'
 

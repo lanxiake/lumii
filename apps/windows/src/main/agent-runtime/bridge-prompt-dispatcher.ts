@@ -46,7 +46,7 @@ import { toRouterResultLite, type RouterAgentInfo, type RouterSkillInfo } from '
 import { summarizeRecentTurns } from './router/recent-turns-summarizer'
 import { classifyImageModel, IMAGE_MODEL_SIMPLE } from './image-intent-classifier'
 import type { RouterLlmCaller } from './router/llm-caller'
-import { captureWorkspaceTurnSnapshot } from '../plugins/builtin/vcs/workspace-turn-snapshot'
+import { captureWorkspaceTurnSnapshot } from '../../plugins/builtin/vcs/workspace-turn-snapshot'
 import {
   clearTurnTouchedPaths,
   recordTurnTouchedFilePath,
@@ -74,7 +74,7 @@ export interface BridgePromptDispatcherDeps {
   instanceFactory: BridgeInstanceFactory
   modelRouter: ModelRouter
   config: AgentRuntimeBridgeConfig
-  getSkillEvolutionEngine: () => import('../plugins/builtin/skill-evolution/engine').SkillEvolutionEngine | undefined
+  getSkillEvolutionEngine: () => import('../../plugins/builtin/skill-evolution/engine').SkillEvolutionEngine | undefined
   /** 工具进化审批回复消费（可选，未装配时跳过） */
   getToolEvolutionEngine?: () => import('./bash-tool-evolution/tool-evolution-engine').ToolEvolutionEngine | null
   getConversationRepo: () => ConversationRepo | null

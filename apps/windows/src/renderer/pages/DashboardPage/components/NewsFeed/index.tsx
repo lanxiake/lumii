@@ -18,7 +18,7 @@ import { Card } from '../../../../components/ui/Card/Card'
 import { NewsPreferencesPanel } from '../NewsPreferences'
 import type { ViewType } from '../../../../components/layout/Sidebar/Sidebar'
 import { fetchFeedMeta, fetchFeedBatches, refreshDashboardFeed } from '../../../../services/dashboard-feed-service'
-import type { DashboardFeedBatch, DashboardFeedBatchCursor } from '@main/plugins/builtin/dashboard-feed/store'
+import type { DashboardFeedBatch, DashboardFeedBatchCursor } from '@/plugins/builtin/dashboard-feed/store'
 import { openExternalUrl } from '../../../../utils/markdown-external-link'
 import styles from './NewsFeed.module.css'
 

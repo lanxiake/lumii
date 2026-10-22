@@ -1,4 +1,4 @@
-import { startBrowserService } from '../../plugins/builtin/browser/service'
+import { startBrowserService } from '../../../plugins/builtin/browser/service'
 import { createLogger } from '../../logger'
 
 /**

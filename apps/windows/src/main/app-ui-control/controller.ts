@@ -22,7 +22,7 @@ import {
 import { annotateSnapshot } from './annotate'
 import { devicePixelsToDip } from './coords'
 import { parseGotoInput } from './goto'
-import { getPetWindowManager } from '../plugins/builtin/pet/pet-mode-ipc'
+import { getPetWindowManager } from '../../plugins/builtin/pet/pet-mode-ipc'
 import { filterSnapshotNodes, nextSnapshotId, SEMANTIC_ROLES, SNAPSHOT_SCRIPT } from './snapshot'
 import { getScreenshotTempDir } from './screenshot-cleanup'
 import type {

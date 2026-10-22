@@ -4,7 +4,7 @@ import path from 'node:path'
 import { app, protocol } from 'electron'
 
 import { discoverClientPlugins } from './client-plugin-discovery'
-import { resolveClientPluginsDir } from './plugins/external/paths'
+import { resolveClientPluginsDir } from '../plugins/external/paths'
 
 /**
  * 渲染层插件的文件通道：`lumii-plugin://local/<插件目录>/<文件>`

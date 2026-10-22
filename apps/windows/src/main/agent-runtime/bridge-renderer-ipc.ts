@@ -4,9 +4,9 @@
 
 import type { BrowserWindow } from 'electron'
 import type { AgentRuntimeEvent as IpcEvent } from '../../shared/agent-runtime-events'
-import { getPetWindowManager } from '../plugins/builtin/pet/pet-mode-ipc.js'
+import { getPetWindowManager } from '../../plugins/builtin/pet/pet-mode-ipc.js'
 import { agentRuntimeLog as log } from './bridge-utils'
-import { voiceEventBus } from '../plugins/builtin/voice/voice-event-bus.js'
+import { voiceEventBus } from '../../plugins/builtin/voice/voice-event-bus.js'
 
 type Queued = { event: IpcEvent; timestamp: number }
 

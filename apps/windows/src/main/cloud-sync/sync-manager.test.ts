@@ -73,7 +73,7 @@ import {
   _resetActiveWorkspaceDirGetterForTest,
 } from '../workspace-paths'
 import { _resetWindowsClientDataRootCacheForTest } from '../client-data-root'
-import { enqueueWorkspace, resetWorkspaceVcs } from '../plugins/builtin/vcs/vcs-snapshot'
+import { enqueueWorkspace, resetWorkspaceVcs } from '../../plugins/builtin/vcs/vcs-snapshot'
 
 const REMOTE_FS = { promises: fsp } as unknown as PromiseFsClient
 

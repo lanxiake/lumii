@@ -14,7 +14,7 @@ import { MIGRATIONS } from '../../../../../packages/agent-runtime/src/storage/sc
 import { createTestSqliteAdapter } from '../../../../../packages/agent-runtime/src/__tests__/helpers/sqlite-test-db'
 
 const prependMock = vi.fn(async () => undefined)
-vi.mock('../plugins/builtin/dashboard-feed/store', () => ({
+vi.mock('../../plugins/builtin/dashboard-feed/store', () => ({
   prependActiveDashboardFeedItem: prependMock,
   readDashboardFeedSnapshot: vi.fn(async () => null),
   getDashboardFeedWriteVersion: vi.fn(() => 0),

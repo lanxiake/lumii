@@ -3,7 +3,7 @@ import path from 'node:path'
 
 import { readExtensionPrefs } from './kernel/extension-store'
 import { parseClientPluginMeta, type ClientPluginMeta } from './client-plugin-meta'
-import { resolveClientPluginsDir } from './plugins/external/paths'
+import { resolveClientPluginsDir } from '../plugins/external/paths'
 
 /**
  * 客户端插件目录扫描。

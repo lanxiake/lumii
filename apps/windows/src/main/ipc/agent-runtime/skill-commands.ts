@@ -19,7 +19,7 @@ export async function handleSkillConfirmDraft(
   try {
     const engine = bridge.getSkillEvolutionEngine()
     if (!engine) throw new Error('SkillEvolutionEngine 未初始化')
-    await engine.confirmDraft(command.draft.id, command.draft as import('../../plugins/builtin/skill-evolution/types').SkillDraft)
+    await engine.confirmDraft(command.draft.id, command.draft as import('../../../plugins/builtin/skill-evolution/types').SkillDraft)
     log.info(`[skill:confirm_draft] 草稿已确认: draftId=${command.draft.id}`)
     return { ok: true }
   } catch (err) {

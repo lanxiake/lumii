@@ -1,7 +1,7 @@
 import { app, type BrowserWindow } from 'electron'
 import { TrayManager } from '../tray-manager'
 import type { ScreenRecordService } from '../screen-record'
-import { isPetMode, switchPetMode, isPetForceIgnore, disablePetForceIgnore } from '../plugins/builtin/pet/pet-mode-ipc'
+import { isPetMode, switchPetMode, isPetForceIgnore, disablePetForceIgnore } from '../../plugins/builtin/pet/pet-mode-ipc'
 
 interface TrayLogger {
   info: (...args: unknown[]) => void

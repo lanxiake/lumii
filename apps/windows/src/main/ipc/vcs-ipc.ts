@@ -2,7 +2,7 @@
  * 工作空间 Git 版本控制 (VCS) IPC handlers
  */
 import { ipcMain } from 'electron'
-import { getWorkspaceVcs } from '../plugins/builtin/vcs/vcs-snapshot'
+import { getWorkspaceVcs } from '../../plugins/builtin/vcs/vcs-snapshot'
 import type { IpcHandleRegistrar } from '../kernel/ipc-registry'
 
 interface VcsIpcDeps {

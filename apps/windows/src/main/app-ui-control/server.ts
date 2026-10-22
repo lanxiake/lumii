@@ -472,7 +472,7 @@ async function handlePetSwitchModeRoute(body: unknown, res: http.ServerResponse)
     sendJson(res, 200, { ok: false, error: 'usage' })
     return
   }
-  const { switchPetMode, getPetWindowManager } = await import('../plugins/builtin/pet/pet-mode-ipc')
+  const { switchPetMode, getPetWindowManager } = await import('../../plugins/builtin/pet/pet-mode-ipc')
   const result = await switchPetMode(mode, typeof modelId === 'string' ? modelId : undefined)
   sendJson(res, 200, { ok: true, result, mode: getPetWindowManager()?.getMode() ?? mode })
 }
@@ -481,7 +481,7 @@ async function handlePetSwitchModeRoute(body: unknown, res: http.ServerResponse)
  * B 层：查询当前桌宠模式。
  */
 async function handlePetGetModeRoute(res: http.ServerResponse): Promise<void> {
-  const { getPetWindowManager } = await import('../plugins/builtin/pet/pet-mode-ipc')
+  const { getPetWindowManager } = await import('../../plugins/builtin/pet/pet-mode-ipc')
   sendJson(res, 200, { ok: true, mode: getPetWindowManager()?.getMode() ?? 'desktop' })
 }
 
@@ -494,7 +494,7 @@ async function handlePetListModelsRoute(res: http.ServerResponse): Promise<void>
     sendJson(res, 200, { ok: true, models })
     return
   }
-  const { loadPetModelRegistry } = await import('../plugins/builtin/pet/pet-model-resolver')
+  const { loadPetModelRegistry } = await import('../../plugins/builtin/pet/pet-model-resolver')
   const { models } = await loadPetModelRegistry()
   sendJson(res, 200, { ok: true, models })
 }
@@ -510,7 +510,7 @@ async function handlePetListModelsRoute(res: http.ServerResponse): Promise<void>
  * 另有 `op: 'roots'` 返回允许写入的根目录，便于调用方决定输出落点。
  */
 async function handlePetAssetRoute(body: unknown, res: http.ServerResponse): Promise<void> {
-  const { runPetAssetOp, isPetAssetOp, describeRoots } = await import('../plugins/builtin/pet/pet-asset-ipc')
+  const { runPetAssetOp, isPetAssetOp, describeRoots } = await import('../../plugins/builtin/pet/pet-asset-ipc')
   const op = (body as { op?: unknown } | null)?.op
   const args = (body as { args?: Record<string, unknown> } | null)?.args
 

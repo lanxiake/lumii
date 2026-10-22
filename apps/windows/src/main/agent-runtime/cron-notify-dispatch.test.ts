@@ -7,7 +7,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const prependMock = vi.fn(async () => undefined)
-vi.mock('../plugins/builtin/dashboard-feed/store', () => ({
+vi.mock('../../plugins/builtin/dashboard-feed/store', () => ({
   prependActiveDashboardFeedItem: prependMock,
   getDashboardFeedWriteVersion: () => 0,
   readDashboardFeedSnapshot: async () => null,

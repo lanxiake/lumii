@@ -47,8 +47,8 @@ import {
   readTodayTokenUsage,
 } from '@mtbot/agent-runtime'
 import { getAgentRuntimeBridge } from '../ipc/agent-runtime-ipc'
-import { currentPetAgentId } from '../plugins/builtin/pet/pet-subject'
-import { getVirtualHumanSettings } from '../plugins/builtin/pet/pet-mode-store'
+import { currentPetAgentId } from '../../plugins/builtin/pet/pet-subject'
+import { getVirtualHumanSettings } from '../../plugins/builtin/pet/pet-mode-store'
 import type { PetTaskCreateResult, PetTaskStateDTO } from '../../shared/pet-mode'
 import { agentRuntimeLog as log } from './bridge-utils'
 import {

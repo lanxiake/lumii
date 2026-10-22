@@ -128,11 +128,11 @@ export interface AgentRuntimeBridgeConfig {
   /**
    * 获取浏览器路由上下文（由 index.ts 注入，供浏览器工具调用 browser.proxy 命令）
    */
-  getBrowserContext?: () => import('../plugins/builtin/browser/service.js').BrowserRouteContext | null
+  getBrowserContext?: () => import('../../plugins/builtin/browser/service.js').BrowserRouteContext | null
   /**
    * 技能自进化引擎（可选，由 index.ts 注入）
    */
-  skillEvolutionEngine?: import('../plugins/builtin/skill-evolution/engine').SkillEvolutionEngine
+  skillEvolutionEngine?: import('../../plugins/builtin/skill-evolution/engine').SkillEvolutionEngine
   /**
    * 记忆宫殿检索（由 bridge 注入自建 SQLite 实现，见 palace-backend.ts）。
    * 返回 null 表示后端不可用，此时降级到 user_memory 文本搜索。

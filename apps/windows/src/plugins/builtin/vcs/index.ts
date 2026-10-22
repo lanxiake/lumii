@@ -1,0 +1,84 @@
+import { definePlugin } from '@mtbot/plugin-core'
+
+import type { MainEvents } from '../../../main/kernel/events'
+import { S } from '../../../main/kernel/services'
+import { registerVcsIpcHandlers, setVcsIpcDeps } from '../../../main/ipc/vcs-ipc'
+
+/**
+ * VCS（版本控制）扩展。
+ *
+ * ## 架构定位
+ *
+ * 内建插件,可禁用。禁用后:
+ * - VCS IPC (`vcs:ensureInit` / `vcs:commit` / `vcs:log` / `vcs:statusDiff` / `vcs:diff` / `vcs:restore`) 不可用
+ * - 工作空间快照功能不可用
+ * - 渲染层 VCS 相关 UI（版本历史/差异查看）应隐藏或禁用
+ *
+ * ## 依赖与时序
+ *
+ * - **工作空间目录**: VCS 操作需要 `getWorkspaceDir()` 定位工作空间根目录
+ * - **日志系统**: 用于输出 VCS 操作的警告和错误
+ * - **激活时机**: IPC 注册器初始化时调用（`ipc-handlers-registry.ts`）
+ *
+ * ## 核心逻辑
+ *
+ * 1. **VCS 快照** (`workspace-vcs/vcs-snapshot.ts`):
+ *    - 基于 isomorphic-git 的 Git 仓库管理
+ *    - 自动初始化工作空间 Git 仓库
+ *    - 支持提交、日志查询、状态差异、文件还原
+ *
+ * 2. **IPC 注册** (`ipc/vcs-ipc.ts`):
+ *    - `vcs:ensureInit`: 确保 Git 仓库已初始化
+ *    - `vcs:commit`: 提交当前工作空间状态
+ *    - `vcs:log`: 查询提交历史
+ *    - `vcs:statusDiff`: 查询当前状态与指定提交的差异
+ *    - `vcs:diff`: 查询两个提交之间的差异
+ *    - `vcs:restore`: 从指定提交恢复文件
+ *
+ * 3. **渲染层集成**:
+ *    - 工作空间管理页面调用 VCS IPC 查询版本历史
+ *    - 差异查看器调用 VCS IPC 获取文件差异
+ *
+ * ## P1 vs P2
+ *
+ * - **P1**（包装式）：只声明插件，IPC 注册仍在核心模块里，禁用不影响功能
+ * - **P2**（IPC 迁移式，当前实现）：IPC 注册逻辑迁移到插件内，导出 `registerVcsIpc` 函数，
+ *   调用点用 `isExtensionActive('com.lumii.vcs')` 决定接不接线
+ *   - 禁用插件 = 不注册 IPC，VCS 功能不可用
+ *   - 调用点必须保留（否则无法在运行期判断），但**不能无条件调用**
+ *
+ * ## 迁移检查清单
+ *
+ * - [x] 创建插件文件（`extensions/vcs.ts`）
+ * - [x] 导出 `registerVcsIpc` 函数，迁移 IPC 注册逻辑
+ * - [x] 复用 `ipc/vcs-ipc.ts` 的 setDeps + register 函数
+ * - [x] 调用点接入插件状态门（`ipc-handlers-registry.ts` L102）
+ * - [ ] 端到端验证：`extensions.json` 禁用后重启，`vcs:log` 应报 no handler
+ */
+export const vcsExtension = {
+  manifest: {
+    id: 'com.lumii.vcs',
+    name: 'VCS 版本控制',
+    version: '0.2.0',
+    description: '工作空间 Git 版本控制（快照/历史/差异/还原）',
+    engines: { lumii: '>=0.1.0' },
+    kind: 'code' as const,
+  },
+  definition: definePlugin<MainEvents>({
+    id: 'com.lumii.vcs',
+    provides: ['vcs'],
+    apply(ctx) {
+      // 接线就在 apply 里：`ctx.registerIpc` 把通道挂在插件作用域上，
+      // 停用时由 scope 自动 `removeHandler` —— 这是「关掉开关立刻生效」的前提。
+      const workspaceDir = ctx.get(S.workspaceDir)
+      setVcsIpcDeps({
+        getWorkspaceDir: () => workspaceDir?.get() ?? '',
+        log: ctx.log,
+      })
+      registerVcsIpcHandlers({
+        handle: (channel, listener) => ctx.registerIpc?.(channel, listener),
+      })
+      ctx.log.info('VCS 插件已启动')
+    },
+  }),
+}

@@ -6,7 +6,7 @@ import {
   matchRuleAgainstItems,
   ruleMatchesItem,
 } from './news-preference-match'
-import type { DashboardFeedItem } from './plugins/builtin/dashboard-feed/store'
+import type { DashboardFeedItem } from '../plugins/builtin/dashboard-feed/store'
 import { NEWS_PREF_PRIORITY } from './news-preferences'
 
 const item = (over: Partial<DashboardFeedItem> & { title: string }): DashboardFeedItem => ({

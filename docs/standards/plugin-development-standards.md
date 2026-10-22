@@ -213,7 +213,7 @@ api.storage.keys() / remove(key) / clear()
 ### 8.1 内置插件的代码放哪
 
 ```
-src/main/plugins/builtin/<name>/
+src/plugins/builtin/<name>/
   index.ts   manifest + apply（接线全在这里）
   *.ts       该插件独占的实现与测试
 ```

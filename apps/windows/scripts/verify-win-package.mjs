@@ -227,7 +227,7 @@ function checkSizeBudget(header) {
 /**
  * wechat-mcp.exe 的打包内落点（**现在必须为空**）。
  *
- * 2026-10-11 起它改为「微信本机助手」插件按需下载（见 `src/main/plugins/builtin.ts`），
+ * 2026-10-11 起它改为「微信本机助手」插件按需下载（见 `src/plugins/builtin.ts`），
  * 不再随包。extraResources 的 from 缺失时 electron-builder **不报错**、静默少拷，
  * 所以反过来守一道：一旦它又出现在产物里（约 37MB）就判失败。
  */
@@ -247,7 +247,7 @@ function cmdResources() {
   }
   if (fs.existsSync(WECHAT_MCP_PACKED)) {
     red(`wechat-mcp.exe 又随包了：${WECHAT_MCP_PACKED}`)
-    console.log('  它已改为插件（src/main/plugins/builtin.ts）按需下载，随包白增约 37MB。')
+    console.log('  它已改为插件（src/plugins/builtin.ts）按需下载，随包白增约 37MB。')
     console.log('  检查 electron-builder.json 的 extraResources 是否又加回了 wechat-mcp。')
     return false
   }

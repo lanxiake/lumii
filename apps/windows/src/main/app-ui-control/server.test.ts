@@ -13,12 +13,12 @@ import {
   stopAppUiControlServer,
 } from './server'
 
-vi.mock('../plugins/builtin/pet/pet-mode-ipc', () => ({
+vi.mock('../../plugins/builtin/pet/pet-mode-ipc', () => ({
   switchPetMode: vi.fn(async (mode: string) => ({ success: true, mode, durationMs: 0 })),
   getPetWindowManager: vi.fn(() => null),
 }))
 
-import { getPetWindowManager, switchPetMode } from '../plugins/builtin/pet/pet-mode-ipc'
+import { getPetWindowManager, switchPetMode } from '../../plugins/builtin/pet/pet-mode-ipc'
 
 const mockedSwitchPetMode = vi.mocked(switchPetMode)
 const mockedGetPetWindowManager = vi.mocked(getPetWindowManager)

@@ -16,8 +16,8 @@ import type { PromptStyleValue } from '../shared/prompt-style'
 import type { FeatureAvailability, FeatureId } from '../shared/feature-availability'
 import type { FEATURE_BLOCK_MESSAGES } from '../shared/feature-availability'
 // 仅类型引用，编译期擦除，不会把主进程代码打进 preload
-import type { UsageSummary } from '../main/plugins/builtin/usage/store'
-import type { DashboardFeedSnapshot, DashboardFeedPage, DashboardFeedMeta, DashboardFeedBatchPage } from '../main/plugins/builtin/dashboard-feed/store'
+import type { UsageSummary } from '../plugins/builtin/usage/store'
+import type { DashboardFeedSnapshot, DashboardFeedPage, DashboardFeedMeta, DashboardFeedBatchPage } from '../plugins/builtin/dashboard-feed/store'
 import type { LatencyView } from '../main/provider-latency'
 import type { PingReport } from '../shared/net-latency-types'
 import type { PerformanceReport, IpcAggregateEvent, MemorySnapshotEvent, RendererMemorySample } from '../main/perf/performance-types'
@@ -974,8 +974,15 @@ export interface ElectronAPI {
       /** 开关已改但还没重启（主进程扩展） */
       pendingRestart: boolean
     }>>
-    /** 主进程扩展开关：写入偏好，**重启后生效** */
+    /**
+     * 主进程扩展开关。
+     *
+     * `restartRequired:false` 表示当场生效，随后主进程会推一次
+     * `plugin:state-changed`；`true` 表示写盘、重启后生效（不会推）。
+     */
     setEnabled: (id: string, enabled: boolean) => Promise<{ ok: boolean; error?: string; restartRequired?: boolean }>
+    /** 订阅运行期启停结果（只有 `restartRequired:false` 的会推） */
+    onStateChanged: (callback: (payload: { id: string; enabled: boolean }) => void) => () => void
     /** 客户端插件开关：渲染层下一轮轮询（≤1 秒）生效 */
     setClientEnabled: (id: string, enabled: boolean) => Promise<{ ok: boolean; error?: string }>
     /** 在 ~/.lumii/plugins/ 生成一个可直接生效的示例插件 */
@@ -1272,6 +1279,10 @@ const electronAPI: ElectronAPI = {
     list: () => ipcRenderer.invoke('extension:list'),
     setEnabled: (id: string, enabled: boolean) =>
       ipcRenderer.invoke('extension:set-enabled', id, enabled),
+    onStateChanged: (callback) =>
+      createEventListener('plugin:state-changed', (payload: unknown) =>
+        callback(payload as { id: string; enabled: boolean }),
+      ),
     setClientEnabled: (id: string, enabled: boolean) =>
       ipcRenderer.invoke('extension:set-client-enabled', id, enabled),
     createSample: () => ipcRenderer.invoke('extension:create-sample'),

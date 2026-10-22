@@ -1,0 +1,370 @@
+/**
+ * Workspace VCS — 写路径（暂存、排除规则、index 锁重试、仓库配置）
+ *
+ * ## 为什么工作区仓库改用真 git
+ *
+ * 原实现全部走 isomorphic-git（纯 JS）。它的 `git.add('.')` 会**按内容重算全部 blob
+ * hash**，而这条路径挂在「每持久化一条助手消息」上（bridge-instance-factory.ts 的
+ * onAssistantMessagePersisted）。实测工作区 2.7GB / 12866 文件时：
+ *
+ *   isomorphic-git：中位 19,933ms，p90 27,594ms，最大 53,550ms   ← 全在主进程主线程上
+ *   真 git 子进程  ：约 100ms
+ *
+ * 主线程被占住 = 渲染进程拿不到响应、日志停写。2026-09-18 实测因此触发
+ * Windows 事件 1002「Application Hang」，electron.exe 被系统杀掉（用户侧表现为「客户端卡死」）。
+ *
+ * 子进程调用与配置隔离的底座在 `../git-cli.ts`（cloud-sync 共用同一份，
+ * 因为「哪些 -c 是必须的」这种事复制两份必然漂移）。
+ *
+ * ## 为什么最后把 isomorphic-git 整体摘掉（2026-09-19）
+ *
+ * 中间版本是「真 git 暂存 + iso 提交/读历史」的混合。复盘后判定**双实现共用同一仓库
+ * 本身就是全部麻烦的源头**：仓库形状必须迁就能力更弱的那一方，于是要禁自动 gc、
+ * 限单包尺寸、gc 后自检，gitdir 里不能留瞬时文件，连 `git commit` 都要让位。
+ * 这些都是靠约定维系的防线，每一道都被踩穿过一次（绕开「禁 gc」的拆包脚本毁掉 1.3GB 历史）。
+ *
+ * 现在写路径在本文件、读路径与提交在 `git-ops.ts`，**全部走真 git**。
+ * 真 git 因此成为硬依赖（已确认接受）：detectGit() 失败时 VCS 停用并给出明确日志，
+ * 而不是退回一个会把主线程冻死的实现。cloud-sync 那侧仍用 iso 做 fetch/merge/push
+ * （网络与三方合并语义，替换风险高于收益），所以那个仓库仍需迁就它。
+ *
+ * ## 为什么用 git 默认的 stat 缓存就够（2026-09-19 修正）
+ *
+ * 本文件曾经每次暂存都强制全量重算 hash（临时 index + 原子改名，线上实测 2920ms），
+ * 论据是「必须检出『等长 + utimesSync 还原 mtime』的改写，因为云同步导入路径会
+ * utimesSync」。**括号里那句是错的**，复核 cloud-sync 后：
+ *
+ *   - sync-copy.ts 的 utimesSync 只在 `skipUnchanged: true` 时执行；
+ *   - 只有 sync-exporter.ts 传了它，目标是 **sync 目录**，不是工作区；
+ *     sync-large-queue.ts 的回写目标同样是 sync 目录；
+ *   - 真正写工作区的 sync-importer.ts 只 copyFileSync、**不回写 mtime**，
+ *     sync-copy.ts 的注释还专门写明「仅应在 export 方向开启」。
+ *
+ * 所以工作区里根本不存在「等长 + mtime 不变」的改写。scripts/probe-vcs-stat-cache-sufficiency.mjs
+ * 用两组对照实测：importer 的真实行为（等长 + 不回写 mtime）被 stat 缓存**正确检出**
+ * （mtime 变新 → git 重读内容），而人为还原 mtime 的场景确实漏检 —— 但那个场景不会发生。
+ *
+ * 线上 workspace 仓库（2148 个 index 条目）实测：
+ *   stat 缓存      76ms     ← 采用
+ *   强制全量重算   2920ms
+ *   isomorphic-git 19933ms  （且**在主线程上**，正是卡死的成因）
+ *
+ * ⚠️ 这条结论依赖一个可检查的前提：**没有任何路径在写工作区文件后还原它的 mtime**。
+ * 若将来 sync-importer 开启 `skipUnchanged`，或新增别的「覆盖内容 + 保留 mtime」的
+ * 导入路径，这个假设就破了，必须同步回来改这里（重开全量重算，或给受影响路径
+ * 显式标记待重扫）。probe-vcs-stat-cache-sufficiency.mjs 的组 B 就是那个场景的复现。
+ *
+ * ## 排除防线为什么放 core.excludesFile
+ *
+ * 真 git 的 `add -A` 会走整个工作树，而原实现靠 walkWorktreeFiles 在 JS 侧硬剪枝。
+ * 由 scripts/probe-vcs-exclude-combos.mjs 实测的六种组合决定用哪种机制：
+ *
+ *   A. .gitignore 有规则 + 命令行 `:(exclude)` → ❌ 退出码 1
+ *      （git 拒绝「已被忽略的路径又被显式命名」，而默认 .gitignore 本来就含 `.mtbot-vcs/`，
+ *        所以这条在正常场景下必挂）
+ *   B. .gitignore 有规则 + 无排除              → ✅（靠 .gitignore）
+ *   C. .gitignore 清空 + 命令行排除            → ✅
+ *   D. .gitignore 清空 + 无排除                → ❌ 灾难：.mtbot-vcs/objects、index.lock 自我索引
+ *   E. .gitignore 有规则 + excludesFile        → ✅
+ *   F. .gitignore 清空 + excludesFile          → ✅（**唯一两种场景都成立**）
+ *
+ * 另需挡住 Windows 保留设备名：工作区里真有一个 `nul`（某次 shell 重定向 `> nul`
+ * 误建成真文件），真 git 对它 fatal（`error: short read while indexing nul`）。
+ * 这个文件至今还在线上工作区里，挡不住就是每次快照都直接挂。
+ */
+
+import fs from 'node:fs'
+import path from 'node:path'
+import {
+  detectGit,
+  runGit as sharedRunGit,
+  type GitRunResult,
+} from '../../../main/git-cli'
+import { VCS_BINARY_EXTENSIONS, VCS_SKIP_DIRS } from './vcs-ignore'
+
+const log = {
+  info: (...args: unknown[]) => console.log('[WorkspaceVcs:git]', ...args),
+  warn: (...args: unknown[]) => console.warn('[WorkspaceVcs:git]', ...args),
+}
+
+/** index.lock 争用时的重试（用户回滚与后台快照并发时会撞上） */
+const LOCK_RETRY = 3
+const LOCK_RETRY_DELAY_MS = 300
+
+/**
+ * Windows 保留设备名。
+ *
+ * 这些名字在 Win32 上是设备而非文件，真 git 无法索引它们、遇到即 fatal
+ * （实测 `error: short read while indexing nul` + `fatal: updating files failed`）。
+ * 但 shell 重定向 `> nul` 在非 cmd.exe 语境下会**真的建出文件**，工作区里就撞上过一个。
+ */
+const WINDOWS_RESERVED_NAMES = [
+  'nul', 'con', 'aux', 'prn',
+  'com1', 'com2', 'com3', 'com4', 'com5', 'com6', 'com7', 'com8', 'com9',
+  'lpt1', 'lpt2', 'lpt3', 'lpt4', 'lpt5', 'lpt6', 'lpt7', 'lpt8', 'lpt9',
+]
+
+/**
+ * 硬剪枝规则（gitignore 语法）。
+ *
+ * 目录名从 VCS_SKIP_DIRS **派生**而非重抄一遍：两份名单一旦漂移，
+ * 就会出现「JS 路径剪了、CLI 路径没剪」这种只在一半场景暴露的漏洞。
+ * `projects` 只剪工作区根层（加前导斜杠），镜像 shouldSkipWalkDir 的语义 ——
+ * 深层同名目录是用户自己的内容，不该误伤。
+ *
+ * 纯常量派生，故模块级只算一次。
+ */
+export function buildVcsExcludeContent(): string {
+  const dirs = [...VCS_SKIP_DIRS].filter((d) => d !== '.git').map((d) => `${d}/`)
+  // 二进制产出统一不进版本库。理由见 VCS_BINARY_EXTENSIONS 的注释：
+  // git 对二进制是「每次改动一整个 blob，且永不回收」，工作区快照按轮次提交，
+  // 一张 50MB 的 atlas.png 改十次就是 500MB，gc 也救不回来。
+  //
+  // 放在硬剪枝层而非 .gitignore：后者「用户已有则不覆盖」，改了对存量工作区无效。
+  const binaries = [...VCS_BINARY_EXTENSIONS].map((ext) => `*${ext}`)
+  return [
+    '# Lumii VCS 硬剪枝规则（自动生成，请勿手改）',
+    '# 与 vcs-ignore.ts 的 VCS_SKIP_DIRS / VCS_BINARY_EXTENSIONS 对应；由 vcs-git-cli.ts 生成',
+    ...dirs,
+    '/projects/',
+    '# 二进制产出（按扩展名）',
+    ...binaries,
+    ...WINDOWS_RESERVED_NAMES,
+    '',
+  ].join('\n')
+}
+
+/** 纯常量派生，故模块级只算一次 */
+const EXCLUDE_CONTENT = buildVcsExcludeContent()
+
+/** 已确保写过规则文件的 gitdir（每个进程写一次即可） */
+const excludeFileReady = new Set<string>()
+
+/** 写（或复用）排除规则文件，返回绝对路径 */
+export function ensureExcludeFile(gitdir: string): string {
+  const p = path.join(gitdir, 'mtbot-vcs-exclude')
+  if (excludeFileReady.has(gitdir)) return p
+  try {
+    fs.mkdirSync(gitdir, { recursive: true })
+    // 内容比对而非存在即跳过：VCS_SKIP_DIRS 改了要能自动跟上
+    if (!fs.existsSync(p) || fs.readFileSync(p, 'utf-8') !== EXCLUDE_CONTENT) {
+      fs.writeFileSync(p, EXCLUDE_CONTENT, 'utf-8')
+    }
+    excludeFileReady.add(gitdir)
+  } catch (err) {
+    log.warn('写入排除规则文件失败（硬剪枝防线将缺失）:', err)
+  }
+  return p
+}
+
+/** 在本仓库上跑 git（自动带上硬剪枝的 excludesFile） */
+export function runGit(
+  workspaceDir: string,
+  gitdir: string,
+  args: string[],
+  opts: { timeoutMs?: number } = {},
+): Promise<GitRunResult> {
+  return sharedRunGit({
+    workTree: workspaceDir,
+    gitDir: gitdir,
+    args,
+    config: ['-c', `core.excludesFile=${ensureExcludeFile(gitdir)}`],
+    timeoutMs: opts.timeoutMs,
+  })
+}
+
+export { detectGit }
+
+/**
+ * 把「本仓库不跑自动 gc」写死进仓库自身的 config。
+ *
+ * **2026-09-19 修正理由**：这条原先是为了迁就 isomorphic-git（它把整个 pack 读进内存，
+ * 1.38GB 单包直接读不动），同时还要配 `pack.packSizeLimit` 限单包尺寸。isomorphic-git
+ * 已从工作区仓库整体摘除，那两条理由都不成立了，`packSizeLimit` 随之去掉。
+ *
+ * 保留 `gc.auto=0` 换了个理由：本仓库是**规模敏感**的 —— 工作区可达数 GB，而
+ * `gc --auto` 会在某次提交后顺带跑一次 repack，那是一次不可预测的 IO 尖峰，
+ * 正好落在用户会话中间。仓库维护交给 cloud-sync 的 maybePruneObjectStore
+ * （它有明确节奏，且带 packSizeLimit 迁就 sync 仓库那侧的 isomorphic-git）。
+ *
+ * 调用方每次都带 `-c gc.auto=0`，这里再落一道到仓库自己身上 —— 防止任何不带那些参数
+ * 的 git 调用（手工调试、将来的新代码、用户自己敲的 git）意外触发 gc。
+ * 失败不抛：真 git 不可用时本就没有这个风险。
+ */
+/** 已确保写过安全配置的 gitdir（每进程一次即可，避免每个消息都多一次子进程） */
+const safeConfigReady = new Set<string>()
+
+export async function pinNoAutoGc(workspaceDir: string, gitdir: string): Promise<void> {
+  if (safeConfigReady.has(gitdir)) return
+  try {
+    const r = await runGit(workspaceDir, gitdir, ['config', '--local', 'gc.auto', '0'])
+    if (r.code !== 0) {
+      log.warn(`[pinNoAutoGc] 写入 gc.auto 失败（退出码 ${r.code}）：${r.stderr.trim().slice(0, 160)}`)
+      return // 不记账，下次再试
+    }
+  } catch (err) {
+    log.warn('[pinNoAutoGc] 写入 gc.auto 异常（真 git 不可用时可忽略）:', err)
+    return
+  }
+  safeConfigReady.add(gitdir)
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+const isLockError = (r: GitRunResult) => /index\.lock|Unable to create .*\.lock|File exists/i.test(r.stderr)
+
+/**
+ * 锁文件超过这个年龄且仍冲突 → 判为**进程崩溃遗留的死锁**。
+ *
+ * 10 分钟是刻意保守的：真正持锁的 git 操作在本仓库是亚秒级（实测 `git add -A`
+ * 76ms），最长的一次也不是本仓库的。宁可多等一轮，也不能把正在写入的锁删掉 ——
+ * 那会撕裂 index。
+ */
+const STALE_LOCK_MS = 10 * 60 * 1000
+
+/**
+ * 从 git 报错里取出被拒的锁文件路径，年龄超阈值则删除。
+ *
+ * 只删报错里点名的那个文件（`Unable to create '<path>'`），不猜——
+ * 可能撞的是 `index.lock`、`HEAD.lock` 或 `gc.pid`，删错等于制造更坏的问题。
+ *
+ * 背景（2026-10-19）：线上 workpsace/.mtbot-vcs/index.lock 从 10-11 留到 10-19，
+ * 期间每次快照都失败，日志只有一行 WARN「自动快照失败（已忽略，不影响对话）」，
+ * 8 天无人察觉。重试逻辑当时只会退避、不会清理。
+ *
+ * @returns 被清理的文件路径（未清理返回 null）
+ */
+export function clearStaleLock(stderr: string, now: number = Date.now()): string | null {
+  const m = /Unable to create '([^']+\.lock)'/i.exec(stderr)
+  if (!m) return null
+  const lockPath = m[1]
+  try {
+    const st = fs.statSync(lockPath)
+    const ageMs = now - st.mtimeMs
+    if (ageMs < STALE_LOCK_MS) return null
+    fs.unlinkSync(lockPath)
+    log.warn(
+      `[runWithLockRetry] 清理陈旧锁 ${lockPath}` +
+        `（${Math.round(ageMs / 60000)} 分钟前，疑似进程崩溃遗留）`,
+    )
+    return lockPath
+  } catch {
+    return null // 竞态：锁已被别处清掉，或路径不可读——交给下一轮重试
+  }
+}
+
+/**
+ * 带 index.lock 重试地执行 git。
+ *
+ * 后台快照与用户触发的回滚/还原会并发访问同一 index；真 git 用 index.lock 互斥，
+ * 撞上时报 "Unable to create .../index.lock: File exists"。重试比直接失败合理：
+ * 两条路径都是短任务，退避几次即可错开。
+ *
+ * 另一类冲突不是并发，而是**上次崩溃留下的死锁**——锁永远不消失，重试再多次也没用。
+ * 所以每轮失败后先检查锁的年龄，过期就清掉立即重试（见 clearStaleLock）。
+ */
+async function runWithLockRetry(
+  workspaceDir: string,
+  gitdir: string,
+  args: string[],
+): Promise<GitRunResult> {
+  let last: GitRunResult | undefined
+  for (let i = 0; i < LOCK_RETRY; i++) {
+    const r = await runGit(workspaceDir, gitdir, args)
+    if (r.code === 0 || !isLockError(r)) return r
+    last = r
+    if (clearStaleLock(r.stderr)) continue // 死锁已清，立刻重试，不必等退避
+    if (i < LOCK_RETRY - 1) await sleep(LOCK_RETRY_DELAY_MS * (i + 1))
+  }
+  return last!
+}
+
+// ── 对象库维护 ────────────────────────────────────────────────────────────
+
+/** 松对象超过这个数就值得打一次包（本仓库稳态只有几百个） */
+const MAINT_LOOSE_THRESHOLD = 500
+/** 两次维护之间的最小间隔：gc 是 IO 尖峰，没必要每轮快照都试 */
+const MAINT_MIN_INTERVAL_MS = 6 * 60 * 60 * 1000
+/** gc 超时（本仓库稳态 27MB，正常亚秒级；给足余量防止极端工作区） */
+const MAINT_TIMEOUT_MS = 2 * 60 * 1000
+
+/** 各 gitdir 上次维护时刻（进程内记忆即可，重启后重算一次不亏） */
+const lastMaintenance = new Map<string, number>()
+
+/**
+ * 定期打包工作区仓库的对象库。
+ *
+ * 为什么应用侧要做这件事：`pinNoAutoGc` 把 `gc.auto` 钉成 0（避免不可预测的
+ * IO 尖峰落在用户会话中间），代价是**再也没有人打包**。2026-10-19 实测：
+ * 8,706 个松对象、0 个 pack、1.9 GB，其中 1.25 GB 是已被排除的二进制历史。
+ *
+ * 与云同步的 `maybePruneObjectStore` 分开：那个只管 `sync/.git`，
+ * 且注释里「仓库维护交给它」的委托从未接线（本次一并补上）。
+ *
+ * 失败不抛出：维护失败不该让一次快照失败。
+ */
+export async function maybeMaintainVcs(
+  workspaceDir: string,
+  gitdir: string,
+  now: number = Date.now(),
+): Promise<void> {
+  const last = lastMaintenance.get(gitdir) ?? 0
+  if (now - last < MAINT_MIN_INTERVAL_MS) return
+  // 先记账再执行：失败也等下一轮，免得每次快照都白跑一次 count-objects
+  lastMaintenance.set(gitdir, now)
+
+  const co = await runGit(workspaceDir, gitdir, ['count-objects', '-v'])
+  if (co.code !== 0) return
+  const loose = Number(/^count:\s*(\d+)/m.exec(co.stdout)?.[1] ?? 0)
+  if (loose <= MAINT_LOOSE_THRESHOLD) return
+
+  // 上一轮 gc 被超时杀掉会留下 gc.pid，之后每次 gc 都直接被拒（退出码非 0、
+  // 日志只有一句「gc 失败」）—— 不清理就变成另一种静默停摆。
+  try {
+    fs.rmSync(path.join(gitdir, 'gc.pid'), { force: true })
+  } catch {
+    /* 无权限/竞态：交给下面的 gc 自己报错 */
+  }
+
+  log.info(`[maybeMaintainVcs] 松对象 ${loose} 个，执行 git gc…`)
+  // 不用 --prune=now：与 sync 仓库同样的理由 —— 留一天宽限期，让正在落盘的
+  // 对象躲过这一轮（2026-10-18 在 sync 仓库踩过「提交在、树缺失」的半损状态）。
+  const r = await runGit(workspaceDir, gitdir, ['gc', '--prune=1.day.ago'], {
+    timeoutMs: MAINT_TIMEOUT_MS,
+  })
+  if (r.code === 0) log.info('[maybeMaintainVcs] gc 完成')
+  else log.warn(`[maybeMaintainVcs] gc 失败（不影响快照）: ${r.stderr.trim().slice(0, 200)}`)
+}
+
+/**
+ * 暂存工作区全部变更（新增 / 修改 / **删除**）。
+ *
+ * 就是一条普通的 `git add -A`，走 git 自己的 index stat 缓存。为什么这样够用、
+ * 以及它依赖的那个**可检查前提**，见本文件头「为什么用 git 默认的 stat 缓存就够」。
+ *
+ * ⚠️ 别改成 `git add -A --renormalize` 来「顺手强制重算」：它带 `-u` 语义，
+ * 工作区有删除时会 `fatal: unable to stat '<已删文件>'`。
+ *
+ * ⚠️ 也别改回「临时 index（GIT_INDEX_FILE）+ 原子改名」那套强制全量重算：
+ * 线上实测 2920ms vs 76ms，而它要防的场景在工作区里不会发生。若某天前提真的破了，
+ * 那套写法本身是对的（尤其**不能**退化成 `rm index` —— 那会制造读者可见的空窗，
+ * isomorphic-git 的 statusMatrix 此刻读不到 index 会直接报 internal error，
+ * 2026-09-18 日志里的 `[VCS-IPC] statusDiff 失败` 就是这么来的）。
+ */
+export async function stageAllCli(workspaceDir: string, gitdir: string): Promise<void> {
+  const r = await runWithLockRetry(workspaceDir, gitdir, ['add', '-A'])
+  if (r.code !== 0) {
+    throw new Error(`git add -A 退出码 ${r.code}: ${r.stderr.trim().slice(0, 300)}`)
+  }
+}
+
+/*
+ * hasStagedChangesCli 与 commitCli 都在 git-ops.ts —— 它们属于「读/提交」路径，
+ * 不属于这里（写 index 的路径）。
+ *
+ * 本文件的边界：暂存、排除规则文件、index 锁重试、仓库自身的安全配置。
+ *
+ * 曾经这里有一条「别用真 git 做 commit」的约束，理由是 `git commit` 产生的
+ * `index.lock` 会与 isomorphic-git 自己的 walk 撞出 TOCTOU
+ * （`ENOENT: lstat '.mtbot-vcs/index.lock'`）。isomorphic-git 已在 2026-09-19
+ * 从工作区仓库整体摘除，没有第二个实现去 lstat gitdir，那条约束随之消失。
+ */
