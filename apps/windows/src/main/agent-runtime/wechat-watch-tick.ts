@@ -1357,6 +1357,28 @@ function noteWatchUp(db: DatabaseAdapter): void {
 }
 
 /**
+ * 单个账号「密钥没就绪」的边沿提示。
+ *
+ * 为什么要按账号记：多开时汇总退避只在**全部账号**都失败时触发。A 号密钥没就绪、
+ * B 号正常读的时候，A 号每 15 秒静默失败一次，日志里一条都没有——用户只会看到
+ * 「A 号的消息怎么不回了」。所以这里按账号做边沿：进状态说一次，恢复时说一次。
+ */
+const KV_ACCOUNT_KEY_NOT_READY = 'wechat_watch_key_not_ready:'
+
+function noteAccountKeyNotReady(db: DatabaseAdapter, account: string): void {
+  if (readKvNumber(db, KV_ACCOUNT_KEY_NOT_READY + account) > 0) return
+  writeKvNumber(db, KV_ACCOUNT_KEY_NOT_READY + account, 1)
+  log.warn(`[wechat-watch] 账号 ${account} 数据库密钥未就绪，本拍跳过（恢复后继续）`)
+}
+
+/** 账号恢复读取：只在之前报过没就绪时说一句。 */
+function noteAccountKeyReady(db: DatabaseAdapter, account: string): void {
+  if (readKvNumber(db, KV_ACCOUNT_KEY_NOT_READY + account) === 0) return
+  writeKvNumber(db, KV_ACCOUNT_KEY_NOT_READY + account, 0)
+  log.info(`[wechat-watch] 账号 ${account} 已恢复读取`)
+}
+
+/**
  * 待补发的出站（**发送门暂时够不着**：微信没运行 / 主窗口收进托盘 / 会话切不过去）。
  *
  * 为什么要有它：`channel_send` 失败分两类——「内容不对」（名单外、找不到会话）与
@@ -1733,6 +1755,7 @@ export async function runWechatWatch(deps: WechatWatchDeps): Promise<string> {
         try {
           const t0 = Date.now()
           const text = await readPollText(deps, accSince, acc.wxid)
+          noteAccountKeyReady(db, acc.wxid)
           const cost = Date.now() - t0
           if (cost > 2000) {
             log.warn(`[wechat-watch] poll_new(${acc.wxid}) 耗时 ${cost}ms（读取侧正常 <100ms）`)
@@ -1749,9 +1772,12 @@ export async function runWechatWatch(deps: WechatWatchDeps): Promise<string> {
           const msg = err instanceof Error ? err.message : String(err)
           if (msg.includes('未连接')) return '（wechat-local MCP 未连接，本拍跳过）'
           // 微信没运行 / 密钥没就绪是「环境还没好」，不是账号级故障：
-          // 不逐账号刷 warn，交给下面的汇总统一退避。
+          // 不逐拍刷 warn，交给下面的汇总统一退避。
           if (isWechatKeyNotReady(msg)) {
             keyNotReady = true
+            // 但**混合场景**下汇总退避不触发（另一个号读成功），这个号就会一直静默失败。
+            // 按账号做边沿提示：进这个状态说一次，恢复时说一次。
+            noteAccountKeyNotReady(db, acc.wxid)
             continue
           }
           log.warn(`[wechat-watch] 账号 ${acc.wxid} poll 失败，本拍跳过该账号：`, err)

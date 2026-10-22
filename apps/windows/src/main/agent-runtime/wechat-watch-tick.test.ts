@@ -1056,6 +1056,48 @@ describe('待补发队列（发送门够不着时排队，门开了自动补发�
     expect(kv.get('wechat_watch_last_ts:wxid_2')).toBe('2002')
   })
 
+  it('多开：某个号密钥没就绪时按账号边沿提示（汇总退避在混合场景不触发）', async () => {
+    const { d, callMcpTool } = deps({
+      listAccounts: async () => [{ wxid: 'wxid_ok' }, { wxid: 'wxid_bad' }],
+      nowMs: () => 1_800_000,
+    })
+    const warn = vi.spyOn(log, 'warn').mockImplementation(() => {})
+    const info = vi.spyOn(log, 'info').mockImplementation(() => {})
+    const mcp = callMcpTool as unknown as {
+      mockImplementation: (
+        fn: (server: string, tool: string, args?: { account?: string }) => Promise<string>,
+      ) => void
+    }
+    let badReady = false
+    mcp.mockImplementation(async (_s, tool, args) => {
+      if (args?.account === 'wxid_bad' && !badReady) {
+        throw new Error('未能从微信进程内存取到数据库密钥')
+      }
+      return JSON.stringify({ count: 0, messages: [], next_since_ts: 2000 })
+    })
+
+    const keyNotReadyWarns = () =>
+      warn.mock.calls.filter((c) => String(c[0]).includes('wxid_bad') && String(c[0]).includes('密钥未就绪'))
+
+    await runWechatWatch(d)
+    expect(keyNotReadyWarns()).toHaveLength(1)
+
+    // 第二拍仍没就绪：不再刷同一条
+    await runWechatWatch(d)
+    expect(keyNotReadyWarns()).toHaveLength(1)
+
+    // 恢复：说一次「已恢复」，之后不再提
+    badReady = true
+    await runWechatWatch(d)
+    expect(info.mock.calls.some((c) => String(c[0]).includes('wxid_bad') && String(c[0]).includes('已恢复'))).toBe(true)
+    const recovered = info.mock.calls.filter((c) => String(c[0]).includes('已恢复')).length
+    await runWechatWatch(d)
+    expect(info.mock.calls.filter((c) => String(c[0]).includes('已恢复')).length).toBe(recovered)
+
+    warn.mockRestore()
+    info.mockRestore()
+  })
+
   it('多开：策略按消息来自的账号取；会话也按账号分线（标题带账号备注）', async () => {
     const policy: ChannelPolicy = {
       defaultMode: 'auto',
