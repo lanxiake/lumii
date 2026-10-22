@@ -121,8 +121,8 @@ function resolveHelperScript(): string {
   const candidates = [
     packagedAssets,
     path.join(__dirname, 'modelscope_voice_download.py'),
-    path.join(app.getAppPath(), 'src/main/voice/modelscope_voice_download.py'),
-    path.join(process.cwd(), 'apps/windows/src/main/voice/modelscope_voice_download.py'),
+    path.join(app.getAppPath(), 'src/main/plugins/builtin/voice/modelscope_voice_download.py'),
+    path.join(process.cwd(), 'apps/windows/src/main/plugins/builtin/voice/modelscope_voice_download.py'),
   ]
   for (const c of candidates) {
     if (fs.existsSync(c)) return c
