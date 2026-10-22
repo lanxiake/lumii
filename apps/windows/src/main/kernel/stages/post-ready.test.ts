@@ -121,4 +121,24 @@ describe('startPostReadyServices', () => {
     expect(info).toEqual([])
     expect(warn).toEqual(['浏览器控制服务启动失败，browser.* 命令将不可用'])
   })
+
+  it('浏览器插件被禁用 → 不启动、也不报「启动失败」', async () => {
+    const { logger, warn, info } = makeLogger()
+    let started = 0
+
+    await startPostReadyServices({
+      syncScheduler: null,
+      getBridge: () => null,
+      browserPluginEnabled: false,
+      startBrowserService: async () => {
+        started += 1
+        return true
+      },
+      logger,
+    })
+
+    expect(started).toBe(0)
+    expect(warn).toEqual([])
+    expect(info).toEqual(['浏览器插件已禁用：跳过控制服务启动'])
+  })
 })

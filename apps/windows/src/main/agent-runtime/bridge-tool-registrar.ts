@@ -86,8 +86,8 @@ export class BridgeToolRegistrar {
       // 维护体检报告工具：maintenance_report_write / maintenance_report_read
       registerMaintenanceReportTools(this.deps)
     }
-    // 浏览器控制工具（getBrowserContext 配置存在时注册）
-    if (this.deps.config.getBrowserContext) {
+    // 浏览器控制工具（配置存在且插件启用时注册）
+    if (this.deps.config.getBrowserContext && isExtensionActive('com.lumii.browser')) {
       this.registerBrowserTools()
     }
   }

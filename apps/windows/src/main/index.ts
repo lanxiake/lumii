@@ -1598,6 +1598,7 @@ async function startPostReadyServices(): Promise<void> {
   await startPostReadyStage({
     syncScheduler,
     getBridge: () => agentRuntimeBridge,
+    browserPluginEnabled: isExtensionActive('com.lumii.browser'),
   })
 }
 

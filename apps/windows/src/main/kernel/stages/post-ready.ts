@@ -28,6 +28,11 @@ export interface PostReadyDeps {
   getBridge: () => ConflictDrivenBridge | null
   /** 可注入：单测里不真的去拉 Chromium */
   startBrowserService?: () => Promise<boolean>
+  /**
+   * 浏览器插件这两次启动是否启用（`isExtensionActive('com.lumii.browser')`）。
+   * 关掉时整段跳过——否则会走「启动失败」那条 WARN，看着像服务坏了。
+   */
+  browserPluginEnabled?: boolean
   logger?: { info(message: string): void; warn(message: string): void }
 }
 
@@ -44,6 +49,10 @@ export async function startPostReadyServices(deps: PostReadyDeps): Promise<void>
   })
 
   // 启动浏览器控制服务（控制用户本机浏览器）
+  if (deps.browserPluginEnabled === false) {
+    logger.info('浏览器插件已禁用：跳过控制服务启动')
+    return
+  }
   const started = await (deps.startBrowserService ?? startBrowserService)()
   if (started) {
     logger.info('浏览器控制服务已就绪')

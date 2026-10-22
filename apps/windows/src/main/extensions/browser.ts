@@ -38,16 +38,16 @@ import type { MainEvents } from '../kernel/events'
  * - P2: 服务启动与工具注册迁移到插件内（`ctx.provide(BROWSER_SERVICE)` +
  *   `ctx.registerTool(...)`），按需激活
  *
- * ## 为什么 P1 不做热插拔
+ * ## 禁用的实现（P2 状态门，不是真热插拔）
  *
- * 浏览器服务在 `post-ready.ts` 里启动，这是 S8 阶段（bridge 已初始化、IPC 已注册）。
- * 工具注册在 `bridge-tool-registrar.ts` 的构造期完成（通过 `getBrowserContext` 判断
- * 是否注册）。要做真正的热插拔需要：
- * 1. 将 `startBrowserService` 移到插件 `apply(ctx)`
- * 2. 将工具注册从 bridge 构造期移到插件激活期
- * 3. 支持工具动态注销（目前 `toolRegistry` 无 unregister API）
+ * 服务启动与工具注册都不在 `apply()` 里，而是在两个核心模块中——用
+ * `isExtensionActive('com.lumii.browser')` 决定接不接线：
+ * - `kernel/stages/post-ready.ts`：`browserPluginEnabled` 为 false 时整段跳过
+ *   （不走「启动失败」WARN，那看着像服务坏了）
+ * - `bridge-tool-registrar.ts`：配置存在**且**插件启用才注册 browser.* 工具
  *
- * P1 先做声明式包装，P2 再做执行期迁移。
+ * 仍是启动期判定：在设置里关掉要重启才生效（与扩展开关「重启后生效」一致）。
+ * 真正的执行期激活需要工具动态注销（`toolRegistry` 无 unregister API），未做。
  */
 export const browserExtension = {
   manifest: {
@@ -62,20 +62,9 @@ export const browserExtension = {
     id: 'com.lumii.browser',
     provides: ['browser'],
     apply(ctx) {
-      // 浏览器服务实际启动在 `post-ready.ts`（S8 阶段），工具注册在
-      // `bridge-tool-registrar.ts` 构造期。本插件作为"声明式开关"存在：
-      // - 启用时：服务正常启动，工具正常注册
-      // - 禁用时：P2 改造后在此处跳过服务启动与工具注册
-      //
-      // P1 阶段禁用插件 = 代码不加载，但 `post-ready.ts` 照旧执行，
-      // 浏览器服务照旧启动——所以 P1 禁用插件**不影响**浏览器功能。
-      //
-      // 为什么不在这里调 `startBrowserService`：
-      // 1. 服务启动需要 app ready（主窗口已创建、IPC 已注册）
-      // 2. 工具注册在 bridge 构造期（早于 app:ready）
-      // 3. 移动启动点会破坏现有初始化顺序，且工具注册缺 unregister API
-      //
-      // P1 目标：包装 + 文档完善，不改行为；P2 才做真正的按需激活。
+      // 服务启动在 `post-ready.ts`（S8）、工具注册在 `bridge-tool-registrar.ts`；
+      // 两处都查 `isExtensionActive`，所以本插件被禁用时它们都不会接线。
+      // 不在这里启动：服务要等 app ready，工具注册早于 app ready。
 
       ctx.log.info('浏览器插件已加载（服务启动由 post-ready.ts 执行）')
 
