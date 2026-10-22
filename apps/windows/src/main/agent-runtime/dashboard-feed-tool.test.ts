@@ -17,7 +17,7 @@ vi.mock('../dashboard-feed-store', async (importOriginal) => {
   }
 })
 
-const { registerDashboardFeedTool } = await import('./bridge-tool-registrar-cron')
+const { registerDashboardFeedTools } = await import('../extensions/dashboard-feed')
 
 function makeRegistrar() {
   const registered = new Map<string, { execute: (...args: unknown[]) => unknown }>()
@@ -29,8 +29,8 @@ function makeRegistrar() {
   const deps = {
     toolRegistry,
     toolContext: {},
-  } as unknown as Parameters<typeof registerDashboardFeedTool>[0]
-  registerDashboardFeedTool(deps)
+  } as unknown as Parameters<typeof registerDashboardFeedTools>[0]
+  registerDashboardFeedTools(deps)
   return registered.get('dashboard_feed_write')!
 }
 

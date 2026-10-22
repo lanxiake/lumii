@@ -30,11 +30,12 @@ import { resizeImageIfNeeded } from './image-resizer'
 import { agentRuntimeLog as log, jsonToolResult, parseTaskStatus } from './bridge-utils'
 import { registerGuideTools } from './bridge-tool-registrar-guide'
 import { registerPluginDevTools } from './bridge-plugin-dev-tools'
-import { registerLocalCronTools, registerDashboardFeedTool, registerWorkReportReadTool } from './bridge-tool-registrar-cron'
+import { registerLocalCronTools, registerWorkReportReadTool } from './bridge-tool-registrar-cron'
 import { registerSyncConflictTool } from './bridge-tool-registrar-sync'
 import { registerChannelTools, registerIntegrationTools } from './bridge-tool-registrar-integration'
 import { registerClientCommandTools, registerAgentManagementTools } from './bridge-tool-registrar-client-cmd'
 import { registerHandoffTools } from './bridge-tool-registrar-handoff'
+import { registerDashboardFeedTools } from '../extensions/dashboard-feed'
 import type { BridgeToolRegistrarDeps } from './bridge-tool-registrar-types'
 
 export type { BridgeToolRegistrarDeps } from './bridge-tool-registrar-types'
@@ -55,8 +56,8 @@ export class BridgeToolRegistrar {
     registerLocalCronTools(this.deps)
     // 云同步冲突解决（resolve_sync_conflict / cloud_sync_read_file），始终注册
     registerSyncConflictTool(this.deps)
-    // 资讯卡片写入，供 Agent 驱动的资讯抓取任务落盘结构化结果
-    registerDashboardFeedTool(this.deps)
+    // 资讯卡片写入（从插件迁移），供 Agent 驱动的资讯抓取任务落盘结构化结果
+    registerDashboardFeedTools(this.deps)
     // 工作日报/复盘只读工具，供早间简报/每周复盘取真实「进行中/明天优先」
     registerWorkReportReadTool(this.deps)
     // 渠道出站：不依赖 Gateway，始终注册
