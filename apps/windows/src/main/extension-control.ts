@@ -113,7 +113,10 @@ export function createExtensionControl(deps: ExtensionControlDeps): ExtensionCon
 
     const builtinItems: ExtensionInfo[] = builtins.map(({ manifest }) => {
       const live = deps.host.get(manifest.id)
-      const enabled = !disabled.has(manifest.id)
+      // `manifest.disabled`：代码留着但产品上停用的（如 skill-evolution）。
+      // 它不是「用户关掉的」，开关也不该能打开；显示成 disabled 而不是 registered。
+      const permanentlyOff = manifest.disabled === true
+      const enabled = !permanentlyOff && !disabled.has(manifest.id)
       /**
        * 内置插件**总是**登记在宿主里（禁用的只是不激活，见 plugin-host.ts），
        * 所以判「有没有在跑」只能看 state：registered/stopped = 没跑；
@@ -131,7 +134,7 @@ export function createExtensionControl(deps: ExtensionControlDeps): ExtensionCon
         state: enabled ? (live?.state ?? 'unknown') : 'disabled',
         activationMs: live?.activationMs,
         error: live?.error ? messageOf(live.error) : undefined,
-        pendingRestart: enabled !== running,
+        pendingRestart: permanentlyOff ? false : enabled !== running,
       }
     })
 

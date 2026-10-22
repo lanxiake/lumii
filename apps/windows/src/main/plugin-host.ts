@@ -113,6 +113,8 @@ export function createPluginHost(
     host.register(extension.definition)
   }
 
-  const disabled = new Set([...disabledIds].filter((id) => !permanentlyDisabled.has(id)))
+  // `manifest.disabled`（如 skill-evolution）是「代码留着但别跑」：它们不进激活名单，
+  // 但也没有「用户关掉」这回事，所以 UI 那边单列（见 extension-control 的 list）。
+  const disabled = new Set([...disabledIds, ...permanentlyDisabled])
   return { host, disabled, eventBus: host.eventBus }
 }
