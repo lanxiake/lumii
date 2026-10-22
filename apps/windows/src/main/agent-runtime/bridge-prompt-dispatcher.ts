@@ -46,7 +46,7 @@ import { toRouterResultLite, type RouterAgentInfo, type RouterSkillInfo } from '
 import { summarizeRecentTurns } from './router/recent-turns-summarizer'
 import { classifyImageModel, IMAGE_MODEL_SIMPLE } from './image-intent-classifier'
 import type { RouterLlmCaller } from './router/llm-caller'
-import { captureWorkspaceTurnSnapshot } from '../../plugins/builtin/vcs/workspace-turn-snapshot'
+import { getVcsService } from './vcs-accessor'
 import {
   clearTurnTouchedPaths,
   recordTurnTouchedFilePath,
@@ -202,7 +202,7 @@ export class BridgePromptDispatcher {
     if (!state) return
     clearTurnTouchedPaths(state.ctx.instanceId)
     try {
-      state.turnSnapshotStart = await captureWorkspaceTurnSnapshot(this.deps.config.getCwd())
+      state.turnSnapshotStart = (await getVcsService()?.captureTurnSnapshot(this.deps.config.getCwd())) ?? new Map<string, string>()
     } catch (err) {
       state.turnSnapshotStart = undefined
       log.warn(`[turn-snapshot] direct image start failed: ${err instanceof Error ? err.message : String(err)}`)
@@ -227,7 +227,7 @@ export class BridgePromptDispatcher {
     let diffAuthoritative = false
     if (turnSnapshotStart) {
       try {
-        const turnSnapshotEnd = await captureWorkspaceTurnSnapshot(cwd)
+        const turnSnapshotEnd = (await getVcsService()?.captureTurnSnapshot(cwd)) ?? new Map<string, string>()
         diff = diffTurnSnapshots(turnSnapshotStart, turnSnapshotEnd)
         diffAuthoritative = true
       } catch (err) {
@@ -724,7 +724,7 @@ export class BridgePromptDispatcher {
       if (state) {
         clearTurnTouchedPaths(instanceId)
         try {
-          state.turnSnapshotStart = await captureWorkspaceTurnSnapshot(this.deps.config.getCwd())
+          state.turnSnapshotStart = (await getVcsService()?.captureTurnSnapshot(this.deps.config.getCwd())) ?? new Map<string, string>()
         } catch (err) {
           state.turnSnapshotStart = undefined
           log.warn(`[turn-snapshot] start failed: ${err instanceof Error ? err.message : String(err)}`)

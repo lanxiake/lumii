@@ -7,11 +7,17 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const prependMock = vi.fn(async () => undefined)
-vi.mock('../../plugins/builtin/dashboard-feed/store', () => ({
-  prependActiveDashboardFeedItem: prependMock,
-  getDashboardFeedWriteVersion: () => 0,
-  readDashboardFeedSnapshot: async () => null,
-}))
+{
+  const { setDashboardFeedAccessor } = await import('./dashboard-feed-accessor')
+  setDashboardFeedAccessor(
+    () =>
+      ({
+        prependActiveItem: prependMock,
+        readVersion: () => 0,
+        readSnapshot: async () => null,
+      }) as never,
+  )
+}
 
 const { CronScheduler } = await import('./cron-scheduler')
 

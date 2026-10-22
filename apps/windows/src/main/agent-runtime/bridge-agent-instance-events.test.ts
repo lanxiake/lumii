@@ -10,6 +10,17 @@ import {
   createAssistantPartsContent,
 } from "./bridge-agent-instance-events";
 import { recordTurnTouchedPath, clearTurnTouchedPaths } from "./turn-touched-paths";
+import { captureWorkspaceTurnSnapshot } from "../../plugins/builtin/vcs/workspace-turn-snapshot";
+import { setVcsAccessor } from "./vcs-accessor";
+
+// 回合快照现在经服务访问器拿：本文件量的是「净变更写进消息」，注入真实实现
+setVcsAccessor(
+  () =>
+    ({
+      captureTurnSnapshot: captureWorkspaceTurnSnapshot,
+      maybeSnapshot: async () => null,
+    }) as never,
+);
 
 describe("Wiki 摄入钩子接线", () => {
   function buildHandler(getWikiIngestHook: () => never) {

@@ -11,13 +11,13 @@
 import { WorkspaceVcs } from './vcs-repo'
 import type { VcsCommit } from './types'
 // 队列状态与其他拷贝（云同步官方扩展）共享，见 workspace-queue.ts
-import { enqueue, resetWorkspaceQueue } from './workspace-queue'
+import { enqueue, resetWorkspaceQueue } from '../../../main/workspace-queue'
 // 保持原有公开出口（sync-manager / IPC / 测试都从这里取）
 export {
   enqueueSyncMaintenance,
   enqueueWorkspace,
   getWorkspaceQueueDepth,
-} from './workspace-queue'
+} from '../../../main/workspace-queue'
 
 const log = {
   info: (...args: unknown[]) => console.log('[WorkspaceVcsSnapshot]', ...args),

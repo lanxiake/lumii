@@ -12,10 +12,21 @@ import { agentRuntimeLog as log, jsonToolResult } from '../../../main/agent-runt
 import {
   writeDashboardFeedSnapshot,
   readDashboardFeedPage,
+  readDashboardFeedBatches,
+  readDashboardFeedSnapshot,
+  readDashboardFeedMeta,
+  readActiveDashboardFeedId,
+  readActiveDashboardFeedSnapshot,
+  prependActiveDashboardFeedItem,
+  ensureDashboardFeedMigrated,
+  setActiveDashboardFeedId,
+  setDashboardFeedDb,
+  getDashboardFeedWriteVersion,
   countDashboardFeedItems,
   DEFAULT_DASHBOARD_FEED_ID,
   uniqueDashboardFeedItemId,
 } from './store'
+import type { DashboardFeedService } from './service-api'
 import type { BridgeToolRegistrarDeps } from '../../../main/agent-runtime/bridge-tool-registrar-types'
 
 /**
@@ -92,6 +103,21 @@ export const dashboardFeedExtension = {
     id: 'com.lumii.dashboard-feed',
     provides: ['dashboard-feed'],
     apply(ctx) {
+      ctx.provide(S.dashboardFeed, {
+        setDb: setDashboardFeedDb,
+        installTools: registerDashboardFeedTools,
+        readVersion: getDashboardFeedWriteVersion,
+        readSnapshot: readDashboardFeedSnapshot,
+        readMeta: readDashboardFeedMeta,
+        readActiveFeedId: readActiveDashboardFeedId,
+        readActiveSnapshot: readActiveDashboardFeedSnapshot,
+        readPage: readDashboardFeedPage,
+        readBatches: readDashboardFeedBatches,
+        prependActiveItem: prependActiveDashboardFeedItem,
+        ensureMigrated: ensureDashboardFeedMigrated,
+        setActiveFeedId: setActiveDashboardFeedId,
+      } satisfies DashboardFeedService)
+
       // 工具要 registrar 那份上下文（会话归属、toolContext），由 bridge 提供入口。
       // bridge 在 S7.4 才建，插件在 S1 激活——没建好就等 `agent:runtime-ready`。
       const install = (): boolean => {

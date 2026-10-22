@@ -61,13 +61,17 @@ export const S = {
   channelContinuity: createServiceKey<import('../channel/continuity-accessor').ChannelContinuityService>('channelContinuity'),
   /** 自主进化（插件提供；停用后核心拿不到 ⇒ 心跳/规划/反馈全部 no-op） */
   autonomous: createServiceKey<import('../../plugins/builtin/autonomous/service').AutonomousService>('autonomous'),
-  /** 应用配置（部分插件 IPC 需要写 app.json） */
+  /** 工作空间版本管理（插件提供；停用后快照直接跳过） */
+  vcs: createServiceKey<import('../../plugins/builtin/vcs/service-api').VcsService>('vcs'),
+  /** 概览信息流（插件提供；停用后 cron/API/卡片都静默跳过） */
+  dashboardFeed: createServiceKey<import('../../plugins/builtin/dashboard-feed/service-api').DashboardFeedService>('dashboardFeed'),
   /** 用量查询（插件提供；停用后 query 不可用） */
   usage: createServiceKey<import('../../plugins/builtin/usage/service-api').UsageService>('usage'),
   /** 技能进化（插件默认停用 ⇒ 服务不存在 ⇒ 注入跳过） */
   skillEvolution: createServiceKey<import('../../plugins/builtin/skill-evolution/service-api').SkillEvolutionService>('skillEvolution'),
   /** 浏览器控制（插件提供；停用后启动/停止/取上下文全部 no-op） */
   browser: createServiceKey<import('../../plugins/builtin/browser/service-api').BrowserService>('browser'),
+  /** 应用配置（部分插件 IPC 需要写 app.json） */
   config: createServiceKey<LateRef<import('../config-manager').ConfigManager>>('config'),
   /** 录屏服务（扩展提供；窗口就绪后才创建） */
   screenRecord: createServiceKey<ScreenRecordService>('screenRecord'),

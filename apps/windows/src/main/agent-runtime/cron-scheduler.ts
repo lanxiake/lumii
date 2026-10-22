@@ -15,7 +15,7 @@ import path from 'node:path'
 import fs from 'node:fs'
 import { Cron } from 'croner'
 import { SELF_CRON_ID_PREFIX, type LocalDatabase, type FileRepo } from '@mtbot/agent-runtime'
-import { prependActiveDashboardFeedItem, readDashboardFeedSnapshot, getDashboardFeedWriteVersion } from '../../plugins/builtin/dashboard-feed/store'
+import { getDashboardFeedService } from './dashboard-feed-accessor'
 import { DEFAULT_AGENT_ID } from '../seed-cron-jobs'
 import { formatForTarget, formatDashboardFeedForPush } from './cron-notify-format'
 import { shouldSkipCronFocusMemoryWrite } from './cron-focus-memory'
@@ -961,7 +961,7 @@ export class CronScheduler {
             this.deps.showCronNotification?.(payload.title ?? '灵栖 定时任务', payload.body, `cron:${job.id}`)
             break
           case 'news':
-            await prependActiveDashboardFeedItem(
+            await getDashboardFeedService()?.prependActiveItem(
               {
                 id: `cron-${Date.now()}`,
                 title: payload.title ?? label,
@@ -1252,7 +1252,7 @@ export class CronScheduler {
       // 记录执行前的 feed 写版本：资讯类任务的结果落在 feed 里（dashboard_feed_write），
       // 文本回复不是结果。执行后若版本变化，说明本次运行写了 feed，改用 feed 内容作推送正文，
       // 而不是把任务指令原文当结果推出去。
-      const feedVersionBefore = getDashboardFeedWriteVersion()
+      const feedVersionBefore = getDashboardFeedService()?.readVersion() ?? 0
       let output = job.task_text
       if (job.agent_id) {
         output = await this.driveAgent(job, currentRow, job.agent_id, startedAt)
@@ -1273,8 +1273,8 @@ export class CronScheduler {
         return
       }
       let notifyTargets = currentRow.notify_targets
-      if (getDashboardFeedWriteVersion() > feedVersionBefore) {
-        const snapshot = await readDashboardFeedSnapshot()
+      if ((getDashboardFeedService()?.readVersion() ?? feedVersionBefore) > feedVersionBefore) {
+        const snapshot = await getDashboardFeedService()?.readSnapshot()
         if (snapshot && snapshot.items.length > 0) {
           output = formatDashboardFeedForPush(snapshot)
           // 资讯卡片已由 dashboard_feed_write 直接写入，news 渠道再 prepend 会重复塞一张

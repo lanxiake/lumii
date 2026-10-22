@@ -35,7 +35,7 @@ import type {
 import type { InstanceStateStore } from './bridge-instance-state'
 import { agentRuntimeLog as log } from './bridge-utils'
 import { markRunStart, markFirstToken, clearRun } from '../provider-latency'
-import { captureWorkspaceTurnSnapshot } from '../../plugins/builtin/vcs/workspace-turn-snapshot'
+import { getVcsService } from './vcs-accessor'
 import {
   collectResultTouchedPaths,
   collectToolEvidence,
@@ -984,7 +984,7 @@ export function createAgentInstanceRuntimeEventHandler(
       let diffAuthoritative = false
       if (turnSnapshotStart) {
         try {
-          const turnSnapshotEnd = await captureWorkspaceTurnSnapshot(cwd)
+          const turnSnapshotEnd = (await getVcsService()?.captureTurnSnapshot(cwd)) ?? new Map<string, string>()
           diff = diffTurnSnapshots(turnSnapshotStart, turnSnapshotEnd)
           diffAuthoritative = true
         } catch (err) {

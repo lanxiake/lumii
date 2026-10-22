@@ -76,6 +76,8 @@ import { flushToolUsage } from './tool-usage-store'
 import { getPromptStyleSettings, setPromptStyleAccessor } from './agent-runtime/prompt-style-accessor'
 import { setBrowserAccessor } from './agent-runtime/browser-accessor'
 import { setUsageAccessor } from './ipc/usage-accessor'
+import { setDashboardFeedAccessor } from './agent-runtime/dashboard-feed-accessor'
+import { setVcsAccessor } from './agent-runtime/vcs-accessor'
 import { setSkillEvolutionAccessor } from './agent-runtime/skill-evolution-accessor'
 import type { UpdaterService } from './updater-service'
 import { ClientSkillRuntime } from './skill-runtime'
@@ -1319,6 +1321,8 @@ async function startExtensions(): Promise<void> {
   setBrowserAccessor(() => pluginHost?.container.get(S.browser) ?? null)
   setUsageAccessor(() => pluginHost?.container.get(S.usage) ?? null)
   setSkillEvolutionAccessor(() => pluginHost?.container.get(S.skillEvolution) ?? null)
+  setDashboardFeedAccessor(() => pluginHost?.container.get(S.dashboardFeed) ?? null)
+  setVcsAccessor(() => pluginHost?.container.get(S.vcs) ?? null)
 
   // 一张表看清谁起来了、花了多久、注册了几个副作用；
   // 失败项走 error，既进了主日志也进了错误日志

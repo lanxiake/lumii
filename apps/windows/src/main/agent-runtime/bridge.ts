@@ -153,7 +153,7 @@ import { runPetGoal } from './bootstrap/pet-goal-runner'
 import { reportPetGoalReceipt } from './bootstrap/pet-goal-receipt'
 import { withTimeout } from './with-timeout'
 import { initToolUsageStore } from '../tool-usage-store'
-import { setDashboardFeedDb } from '../../plugins/builtin/dashboard-feed/store'
+import { getDashboardFeedService } from './dashboard-feed-accessor'
 import { BridgePromptComposer } from './bridge-prompt-composer'
 import {
   agentRuntimeLog as log,
@@ -203,14 +203,14 @@ import { recordPetPersonalityEvent } from './pet-personality'
 import { DEFAULT_AGENT_ID } from '../seed-cron-jobs'
 import { OUTREACH_SYSTEM_NOTIFY_TITLE } from '../desktop-notify'
 import { BridgeInstanceFactory } from './bridge-instance-factory'
-import { captureWorkspaceTurnSnapshot } from '../../plugins/builtin/vcs/workspace-turn-snapshot'
+import { getVcsService } from './vcs-accessor'
 import { beginStandaloneTurn } from './turn-touched-paths'
 import { BackgroundTaskManager, type BackgroundTaskRecord } from './background-task-manager'
 import { followComfyJob, parseEnqueuedPromptId, resolveComfyBaseUrl } from './comfyui-job-follower'
 import { buildBackgroundToolConfig } from './bootstrap/background-tool-config'
 import { writeDiaryFor } from './bootstrap/diary-writer'
 import { BridgeToolRegistrar, type BridgeToolRegistrarDeps } from './bridge-tool-registrar'
-import { registerDashboardFeedTools } from '../../plugins/builtin/dashboard-feed/index'
+
 import { BridgePromptDispatcher } from './bridge-prompt-dispatcher'
 import { RouterService } from './router/router-service'
 import { RouterLlmCallerImpl } from './router/llm-caller'
@@ -847,7 +847,7 @@ export class AgentRuntimeBridge {
     vacuumTimer.unref?.()
 
     // 资讯存储注入：dashboard-feed-store 从文件覆盖写切换为 SQLite 累积（schema V35）
-    setDashboardFeedDb(db)
+    getDashboardFeedService()?.setDb(db)
 
     // 工具使用统计：注入 SQLite 适配器，并迁移旧 JSON（如存在）
     try {
@@ -3595,7 +3595,7 @@ export class AgentRuntimeBridge {
    * 所以由 bridge 提供入口，而不是让插件自己拼一份 deps。
    */
   installDashboardFeedTools(): () => void {
-    registerDashboardFeedTools(this.toolRegistrarDeps)
+    getDashboardFeedService()?.installTools(this.toolRegistrarDeps)
     return () => {
       this.toolRegistry.unregister('dashboard_feed_write')
       this.toolRegistry.unregister('dashboard_feed_read')
@@ -3719,7 +3719,7 @@ export class AgentRuntimeBridge {
     await beginStandaloneTurn(
       instanceId,
       this.instanceStates.get(instanceId),
-      () => captureWorkspaceTurnSnapshot(this.config.getCwd()),
+      () => getVcsService()?.captureTurnSnapshot(this.config.getCwd()) ?? Promise.resolve(new Map<string, string>()),
     )
   }
 

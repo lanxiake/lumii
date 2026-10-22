@@ -7,6 +7,8 @@
  * 注意：outputs/ 故意纳入版本管理；uploads/ 下的大媒体/PDF 默认忽略。
  */
 
+import { WORKSPACE_SKIP_DIRS } from '../../../main/workspace-skip-dirs'
+
 /** 默认忽略条目（每行一条 .gitignore 规则） */
 const DEFAULT_VCS_IGNORE_RULES: readonly string[] = [
   '# Lumii 工作空间版本管理默认忽略规则（自动生成，可手动追加）',
@@ -61,14 +63,10 @@ export function stripOutputsIgnoreRules(gitignoreContent: string): string {
  * 注意：不得包含 outputs —— Agent 产出目录需要进入版本管理。
  * 根层 `projects/` 见 shouldSkipWalkDir，不在此 Set 内。
  */
-export const VCS_SKIP_DIRS: ReadonlySet<string> = new Set([
-  '.git',
-  '.mtbot-vcs',
-  'node_modules',
-  '.cache',
-  'tmp',
-  'temp',
-])
+// 名单在核心（文件搜索也在用）：插件 import，不反向定义
+export { WORKSPACE_SKIP_DIRS as VCS_SKIP_DIRS }
+/** 本文件内沿用的短名 */
+const VCS_SKIP_DIRS = WORKSPACE_SKIP_DIRS
 
 /**
  * 遍历工作树时是否跳过该目录项。

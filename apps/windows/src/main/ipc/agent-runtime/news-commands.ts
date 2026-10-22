@@ -14,7 +14,7 @@
  */
 
 import { readUserMemoryFile } from '../plugin-ipc'
-import { readActiveDashboardFeedSnapshot } from '../../../plugins/builtin/dashboard-feed/store'
+import { getDashboardFeedService } from '../../agent-runtime/dashboard-feed-accessor'
 import {
   NEWS_PREF_FIELDS,
   NEWS_PREF_PRIORITY_SUMMARY,
@@ -26,7 +26,7 @@ import { MATCHABLE_FIELDS, matchPreferencesAgainstItems } from '../../news-prefe
 export async function handleNewsPreferencePreview(): Promise<unknown> {
   const file = await readUserMemoryFile()
   const prefs = readNewsPreferences(file?.content ?? '')
-  const snapshot = await readActiveDashboardFeedSnapshot()
+  const snapshot = await getDashboardFeedService()?.readActiveSnapshot()
   const items = snapshot?.items ?? []
 
   return {

@@ -3,6 +3,9 @@ import { definePlugin } from '@mtbot/plugin-core'
 import type { MainEvents } from '../../../main/kernel/events'
 import { S } from '../../../main/kernel/services'
 import { registerVcsIpcHandlers, setVcsIpcDeps } from './ipc'
+import { captureWorkspaceTurnSnapshot } from './workspace-turn-snapshot'
+import { maybeSnapshot } from './vcs-snapshot'
+import type { VcsService } from './service-api'
 
 /**
  * VCS（版本控制）扩展。
@@ -68,6 +71,11 @@ export const vcsExtension = {
     id: 'com.lumii.vcs',
     provides: ['vcs'],
     apply(ctx) {
+      ctx.provide(S.vcs, {
+        captureTurnSnapshot: captureWorkspaceTurnSnapshot,
+        maybeSnapshot,
+      } satisfies VcsService)
+
       // 接线就在 apply 里：`ctx.registerIpc` 把通道挂在插件作用域上，
       // 停用时由 scope 自动 `removeHandler` —— 这是「关掉开关立刻生效」的前提。
       const workspaceDir = ctx.get(S.workspaceDir)

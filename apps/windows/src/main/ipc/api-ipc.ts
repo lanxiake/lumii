@@ -34,15 +34,17 @@ import {
   newsFeedConversationTitle,
   resolveNewsFeedJob,
 } from '../news-feed-job'
-import {
-  readActiveDashboardFeedSnapshot,
-  readActiveDashboardFeedId,
-  readDashboardFeedMeta,
-  readDashboardFeedPage,
-  readDashboardFeedBatches,
-  ensureDashboardFeedMigrated,
-  setActiveDashboardFeedId,
-} from '../../plugins/builtin/dashboard-feed/store'
+import { getDashboardFeedService } from '../agent-runtime/dashboard-feed-accessor'
+
+/**
+ * 首页信息流插件未启用时抛错：上层 `try/catch` 统一变成 `{ success:false, error }`。
+ * 不能返回空数据——那会被读成「这个 feed 没有资讯」。
+ */
+function feed() {
+  const service = getDashboardFeedService()
+  if (!service) throw new Error('首页信息流插件未启用')
+  return service
+}
 import {
   listAgents,
   getAgentRecord,
@@ -180,8 +182,8 @@ export function registerApiIpcHandlers(): void {
   // === Dashboard 通用 feed（资讯只是默认 feed，后续工作流可替换其内容）===
   ipcMain.handle('dashboard-feed:latest', async () => {
     try {
-      await ensureDashboardFeedMigrated(await readActiveDashboardFeedId())
-      return { success: true, data: await readActiveDashboardFeedSnapshot() }
+      await feed().ensureMigrated(await feed().readActiveFeedId())
+      return { success: true, data: await feed().readActiveSnapshot() }
     } catch (error) {
       console.error('[IPC] dashboard-feed:latest 失败:', error)
       return { success: false, error: error instanceof Error ? error.message : String(error) }
@@ -194,8 +196,8 @@ export function registerApiIpcHandlers(): void {
   ipcMain.handle('dashboard-feed:meta', async (_event, feedId: string) => {
     try {
       const id = feedId ?? 'news'
-      await ensureDashboardFeedMigrated(id)
-      return { success: true, data: await readDashboardFeedMeta(id) }
+      await feed().ensureMigrated(id)
+      return { success: true, data: await feed().readMeta(id) }
     } catch (error) {
       console.error('[IPC] dashboard-feed:meta 失败:', error)
       return { success: false, error: error instanceof Error ? error.message : String(error) }
@@ -209,8 +211,8 @@ export function registerApiIpcHandlers(): void {
   ipcMain.handle('dashboard-feed:page', async (_event, feedId: string, opts?: { limit?: number; before?: { timestamp: number; id: string } | null }) => {
     try {
       const id = feedId ?? 'news'
-      await ensureDashboardFeedMigrated(id)
-      return { success: true, data: await readDashboardFeedPage(id, opts ?? {}) }
+      await feed().ensureMigrated(id)
+      return { success: true, data: await feed().readPage(id, opts ?? {}) }
     } catch (error) {
       console.error('[IPC] dashboard-feed:page 失败:', error)
       return { success: false, error: error instanceof Error ? error.message : String(error) }
@@ -226,8 +228,8 @@ export function registerApiIpcHandlers(): void {
     async (_event, feedId: string, opts?: { limit?: number; before?: { createdAt: string; id: string } | null }) => {
       try {
         const id = feedId ?? 'news'
-        await ensureDashboardFeedMigrated(id)
-        return { success: true, data: await readDashboardFeedBatches(id, opts ?? {}) }
+        await feed().ensureMigrated(id)
+        return { success: true, data: await feed().readBatches(id, opts ?? {}) }
       } catch (error) {
         console.error('[IPC] dashboard-feed:batches 失败:', error)
         return { success: false, error: error instanceof Error ? error.message : String(error) }
@@ -261,7 +263,7 @@ export function registerApiIpcHandlers(): void {
       } finally {
         agentRuntimeBridge.destroy(instanceId)
       }
-      return { success: true, data: { snapshot: await readActiveDashboardFeedSnapshot() } }
+      return { success: true, data: { snapshot: await feed().readActiveSnapshot() } }
     } catch (error) {
       console.error('[IPC] dashboard-feed:refresh 失败:', error)
       return { success: false, error: error instanceof Error ? error.message : String(error) }
@@ -270,8 +272,8 @@ export function registerApiIpcHandlers(): void {
 
   ipcMain.handle('dashboard-feed:set-active', async (_event, feedId: string) => {
     try {
-      await setActiveDashboardFeedId(feedId)
-      return { success: true, data: await readActiveDashboardFeedSnapshot() }
+      await feed().setActiveFeedId(feedId)
+      return { success: true, data: await feed().readActiveSnapshot() }
     } catch (error) {
       console.error('[IPC] dashboard-feed:set-active 失败:', error)
       return { success: false, error: error instanceof Error ? error.message : String(error) }

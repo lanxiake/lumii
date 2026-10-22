@@ -81,7 +81,7 @@ import { resolveModelThinking, resolveReasoningOptions, apiForProviderType } fro
 import { resizeImageIfNeeded } from './image-resizer'
 import type { FileMemoryHandler } from './file-memory-handler'
 import type { WikiIngestHook } from '@mtbot/agent-runtime'
-import { maybeSnapshot } from '../../plugins/builtin/vcs/vcs-snapshot'
+import { getVcsService } from './vcs-accessor'
 import { notifyCloudSyncWorkspaceChanged } from '../cloud-sync/sync-accessor'
 import { getAutonomousService } from './autonomous-accessor'
 import { getSkillEvolutionService } from './skill-evolution-accessor'
@@ -650,7 +650,7 @@ export class BridgeInstanceFactory {
       onAssistantMessagePersisted: ({ conversationId, runId }) => {
         const cwd = this.deps.config.getCwd()
         if (cwd) {
-          void maybeSnapshot({ workspaceDir: cwd, conversationId, runId })
+          void getVcsService()?.maybeSnapshot({ workspaceDir: cwd, conversationId, runId })
           notifyCloudSyncWorkspaceChanged()
         }
       },

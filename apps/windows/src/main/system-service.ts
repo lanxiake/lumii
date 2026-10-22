@@ -19,14 +19,14 @@ import {
   SecurityError,
   createSearchRegExp,
 } from './security-utils'
-import { VCS_SKIP_DIRS } from '../plugins/builtin/vcs/vcs-ignore'
+import { WORKSPACE_SKIP_DIRS } from './workspace-skip-dirs'
 import { getDiskInfo as platformGetDiskInfo } from './platform/system-info'
 
 const execAsync = promisify(exec)
 
 /** 文件搜索时直接剪枝的重目录（避免扫进 node_modules 等） */
 const FILE_SEARCH_SKIP_DIRS: ReadonlySet<string> = new Set([
-  ...VCS_SKIP_DIRS,
+  ...WORKSPACE_SKIP_DIRS,
   'dist',
   'out',
   'build',

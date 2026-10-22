@@ -14,11 +14,9 @@ import {
   type WikiRepo,
   type WikiSource,
 } from '@mtbot/agent-runtime'
-import {
-  DEFAULT_DASHBOARD_FEED_ID,
-  readDashboardFeedSnapshot,
-  type DashboardFeedSnapshot,
-} from '../../plugins/builtin/dashboard-feed/store'
+import { DEFAULT_DASHBOARD_FEED_ID } from '../../shared/dashboard-feed'
+import type { DashboardFeedSnapshot } from '../../plugins/builtin/dashboard-feed/store'
+import { getDashboardFeedService } from './dashboard-feed-accessor'
 import { DEFAULT_AGENT_ID } from '../seed-cron-jobs'
 import { ensureWikiVaultLayoutOnDisk, syncWikiSourceToVault } from './wiki-vault-host'
 
@@ -177,7 +175,8 @@ async function buildCronWikiMarkdown(
   finishedAt: Date,
 ): Promise<string | null> {
   if (params.jobId === 'news-pipeline') {
-    return formatNewsFeedMarkdown(await readDashboardFeedSnapshot(DEFAULT_DASHBOARD_FEED_ID), finishedAt, spec)
+    const feed = await getDashboardFeedService()?.readSnapshot(DEFAULT_DASHBOARD_FEED_ID)
+    return formatNewsFeedMarkdown(feed ?? null, finishedAt, spec)
   }
   const body = params.output.trim()
   if (!body) return null

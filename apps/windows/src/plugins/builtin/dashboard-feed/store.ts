@@ -13,11 +13,11 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import type { DatabaseAdapter } from '@mtbot/agent-runtime'
 import { resolveWindowsClientDataRoot } from '../../../main/client-data-root'
+import { DEFAULT_DASHBOARD_FEED_ID, MAX_FEED_ITEMS } from '../../../shared/dashboard-feed'
 
-export const DEFAULT_DASHBOARD_FEED_ID = 'news'
-
-/** 每个 feed 最多保留的条目数（概览页滑动分页上限） */
-export const MAX_FEED_ITEMS = 1000
+// 常量在 `shared/dashboard-feed.ts`：核心（cron 写资讯、API 读分页）也要用，
+// 留在插件里会让核心为一个字符串去 import 插件实现。
+export { DEFAULT_DASHBOARD_FEED_ID, MAX_FEED_ITEMS }
 
 /**
  * 写盘版本计数。每次 writeDashboardFeedSnapshot 成功 +1，
