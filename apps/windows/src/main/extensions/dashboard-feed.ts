@@ -55,20 +55,20 @@ import type { BridgeToolRegistrarDeps } from '../agent-runtime/bridge-tool-regis
  *
  * ## P1 vs P2
  *
- * - **P1**（包装式）：只声明插件，工具注册仍在 `bridge-tool-registrar.ts` L59
- * - **P2**（工具迁移式，当前实现）：工具注册逻辑迁移到插件内，订阅工具注册机制
- *   - 禁用插件 = 不注册工具，工具调用失败（真正的热插拔）
- *   - 原调用点（`bridge-tool-registrar.ts` L59）**必须删除**，否则重复注册
+ * - **P1**（包装式）：只声明插件，工具注册仍在 `bridge-tool-registrar.ts`，禁用不影响功能
+ * - **P2**（工具迁移式，当前实现）：工具注册逻辑迁移到插件内，调用点用
+ *   `isExtensionActive('com.lumii.dashboard-feed')` 决定接不接线
+ *   - 禁用插件 = 不注册工具，工具调用失败
+ * - **P3**（未做）：数据库注入仍在 `bridge.ts`（`setDashboardFeedDb`）
  *
  * ## 迁移检查清单
  *
  * - [x] 创建插件文件（`extensions/dashboard-feed.ts`）
- * - [x] 将 `registerDashboardFeedTool` 逻辑迁移到插件 `apply()`
+ * - [x] 将 `registerDashboardFeedTool` 逻辑迁移到插件导出函数
  * - [x] 复用 `dashboard-feed-store.ts` 的存储函数
- * - [x] 删除原调用点（`bridge-tool-registrar.ts` L59）
- * - [ ] 验证：禁用插件后工具不可用
- * - [ ] 验证：启用插件后工具正常工作
- * - [ ] P3: 数据库注入迁移到插件（目前仍在 bridge.ts L858）
+ * - [x] 调用点接入插件状态门（`bridge-tool-registrar.ts` L61）
+ * - [ ] 端到端验证：禁用后重启，Agent 工具表里不应出现 `dashboard_feed_write`
+ * - [ ] P3: 数据库注入迁移到插件（目前仍在 bridge.ts）
  */
 export const dashboardFeedExtension = {
   manifest: {

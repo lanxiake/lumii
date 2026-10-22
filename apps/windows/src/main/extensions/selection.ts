@@ -35,19 +35,19 @@ import type { AgentRuntimeBridge } from '../agent-runtime'
  *
  * ## P1 vs P2
  *
- * - **P1**（包装式）：只声明插件，IPC 注册仍在 `ipc-handlers-registry.ts` L169
- * - **P2**（IPC 迁移式，当前实现）：IPC 注册逻辑迁移到插件内，导出 `registerSelectionIpc` 函数
- *   - 禁用插件 = 不注册 IPC，划词动作不可用（真正的热插拔）
- *   - 原调用点（`ipc-handlers-registry.ts` L169）**必须删除**，否则重复注册
+ * - **P1**（包装式）：只声明插件，IPC 注册仍在核心模块里，禁用不影响功能
+ * - **P2**（IPC 迁移式，当前实现）：IPC 注册逻辑迁移到插件内，导出 `registerSelectionIpc` 函数，
+ *   调用点用 `isExtensionActive('com.lumii.selection')` 决定接不接线
+ *   - 禁用插件 = 不注册 IPC，划词动作不可用
+ *   - 调用点必须保留（否则无法在运行期判断），但**不能无条件调用**
  *
  * ## 迁移检查清单
  *
  * - [x] 创建插件文件（`extensions/selection.ts`）
  * - [x] 导出 `registerSelectionIpc` 函数，迁移 IPC 注册逻辑
  * - [x] 复用 `ipc/selection-ipc.ts` 的注册函数
- * - [x] 原调用点已改为调用插件导出函数（`ipc-handlers-registry.ts` L107-110）
- * - [ ] 验证：禁用插件后划词动作不可用
- * - [ ] 验证：启用插件后划词动作正常工作
+ * - [x] 调用点接入插件状态门（`ipc-handlers-registry.ts` L109）
+ * - [ ] 端到端验证：`extensions.json` 禁用后重启，`selection:run` 应报 no handler
  */
 export const selectionExtension = {
   manifest: {

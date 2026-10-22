@@ -41,19 +41,18 @@ import type { PreviewWindowManagerDeps } from '../file-preview/preview-window-ma
  *
  * ## P1 vs P2
  *
- * - **P1**（包装式）：只声明插件，IPC 注册仍在 `index.ts` L1454
- * - **P2**（IPC 迁移式，当前实现）：IPC 注册逻辑迁移到插件内，导出 `registerFilePreviewIpc` 函数
- *   - 禁用插件 = 不注册 IPC，预览窗口不可用（真正的热插拔）
- *   - 原调用点（`index.ts` L1454）**必须删除**，否则重复注册
+ * - **P1**（包装式）：只声明插件，IPC 注册仍在核心模块里，禁用不影响功能
+ * - **P2**（IPC 迁移式，当前实现）：IPC 注册逻辑迁移到插件内，导出 `registerFilePreviewIpc` 函数，
+ *   调用点用 `isExtensionActive('com.lumii.file-preview')` 决定接不接线
+ *   - 禁用插件 = 不注册 IPC，预览窗口不可用
  *
  * ## 迁移检查清单
  *
  * - [x] 创建插件文件（`extensions/file-preview.ts`）
  * - [x] 将 `registerFilePreviewWindowIpc` 逻辑迁移到插件导出函数
  * - [x] 复用 `preview-window-ipc.ts` 的注册逻辑
- * - [x] 删除原调用点（`index.ts` L1454）
- * - [ ] 验证：禁用插件后预览窗口不可用
- * - [ ] 验证：启用插件后预览窗口正常工作
+ * - [x] 调用点接入插件状态门（`index.ts` L1454）
+ * - [ ] 端到端验证：禁用后重启，`file-preview:open` 应报 no handler
  */
 export const filePreviewExtension = {
   manifest: {

@@ -39,19 +39,19 @@ import type { MainEvents } from '../kernel/events'
  *
  * ## P1 vs P2
  *
- * - **P1**（包装式）：只声明插件，IPC 注册仍在 `ipc-handlers-registry.ts` L164
- * - **P2**（IPC 迁移式，当前实现）：IPC 注册逻辑迁移到插件内，导出 `registerVcsIpc` 函数
- *   - 禁用插件 = 不注册 IPC，VCS 功能不可用（真正的热插拔）
- *   - 原调用点（`ipc-handlers-registry.ts` L164）**必须删除**，否则重复注册
+ * - **P1**（包装式）：只声明插件，IPC 注册仍在核心模块里，禁用不影响功能
+ * - **P2**（IPC 迁移式，当前实现）：IPC 注册逻辑迁移到插件内，导出 `registerVcsIpc` 函数，
+ *   调用点用 `isExtensionActive('com.lumii.vcs')` 决定接不接线
+ *   - 禁用插件 = 不注册 IPC，VCS 功能不可用
+ *   - 调用点必须保留（否则无法在运行期判断），但**不能无条件调用**
  *
  * ## 迁移检查清单
  *
  * - [x] 创建插件文件（`extensions/vcs.ts`）
  * - [x] 导出 `registerVcsIpc` 函数，迁移 IPC 注册逻辑
  * - [x] 复用 `ipc/vcs-ipc.ts` 的 setDeps + register 函数
- * - [x] 原调用点已改为调用插件导出函数（`ipc-handlers-registry.ts` L101-105）
- * - [ ] 验证：禁用插件后 VCS IPC 不可用
- * - [ ] 验证：启用插件后 VCS 功能正常工作
+ * - [x] 调用点接入插件状态门（`ipc-handlers-registry.ts` L102）
+ * - [ ] 端到端验证：`extensions.json` 禁用后重启，`vcs:log` 应报 no handler
  */
 export const vcsExtension = {
   manifest: {

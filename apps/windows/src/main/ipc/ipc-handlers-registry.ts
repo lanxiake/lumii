@@ -56,6 +56,7 @@ import { setAutonomousIpcDeps } from './autonomous-ipc'
 import { registerNetIpcHandlers } from './net-ipc'
 import { setCloudSyncIpcDeps, registerCloudSyncIpcHandlers } from '../cloud-sync/sync-ipc'
 import type { CloudSyncConfig } from '../cloud-sync/types'
+import { isExtensionActive } from '../extensions/active'
 
 export interface IpcHandlersDeps {
   getMainWindow: () => BrowserWindow | null
@@ -98,16 +99,21 @@ export function registerAllIpcHandlers(deps: IpcHandlersDeps): void {
     pluginEventBus: deps.pluginEventBus,
   })
 
-  const { registerVcsIpc } = require('../extensions/vcs')
-  registerVcsIpc({
-    getWorkspaceDir: deps.getWorkspaceDir,
-    log: deps.log,
-  })
+  // 插件被禁用时跳过接线：否则「可禁用」只是文档上的说法
+  if (isExtensionActive('com.lumii.vcs')) {
+    const { registerVcsIpc } = require('../extensions/vcs')
+    registerVcsIpc({
+      getWorkspaceDir: deps.getWorkspaceDir,
+      log: deps.log,
+    })
+  }
 
-  const { registerSelectionIpc } = require('../extensions/selection')
-  registerSelectionIpc({
-    getAgentRuntimeBridge: deps.getAgentRuntimeBridge,
-  })
+  if (isExtensionActive('com.lumii.selection')) {
+    const { registerSelectionIpc } = require('../extensions/selection')
+    registerSelectionIpc({
+      getAgentRuntimeBridge: deps.getAgentRuntimeBridge,
+    })
+  }
 
   setWindowIpcDeps({
     getMainWindow: deps.getMainWindow,

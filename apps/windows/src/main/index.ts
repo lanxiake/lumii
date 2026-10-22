@@ -149,6 +149,7 @@ import { registerBuiltinPlugins } from './plugins/builtin'
 import { setupPluginIpcHandlers } from './plugins/plugin-manager'
 import type { PluginHost } from '@mtbot/plugin-core'
 import { createPluginHost } from './plugin-host'
+import { isExtensionActive, setActiveExtensionIds } from './extensions/active'
 import { ExternalExtensionRuntime, resolveExtensionsDir } from './extension-loader'
 import { loadOfficialCatalog, syncOfficialExtensions } from './official-extensions'
 import { S } from './kernel/services'
@@ -1330,6 +1331,9 @@ async function startExtensions(): Promise<void> {
   }, { disabledIds: disabled })
   await externalExtensions.loadAll()
   externalExtensions.startWatching()
+  // 禁用项压根没进 host，所以 list() 就是「这次真起来了谁」。
+  // 给仍留在核心模块里的注册点判断该不该接线（见 extensions/active.ts）。
+  setActiveExtensionIds(new Set(pluginHost.list().map((p) => p.id)))
 
   // perf / cloud-sync 可能由官方外部扩展提供：必须在 loadAll 之后读
   performanceMonitor = pluginHost.container.get(S.perf) ?? null
@@ -1448,8 +1452,8 @@ async function initUiStages(flags: ReturnType<typeof readStartupFlags>): Promise
   // 桌宠模式 IPC 由 extensions/pet.ts 在窗口就绪时注册（无头模式下自然不装配）
 
   // 文件预览独立窗口（可拖出主窗口外）
-  // 无头模式下跳过文件预览窗口
-  if (!isHeadless) {
+  // 无头模式下跳过文件预览窗口；插件被禁用时也不接线
+  if (!isHeadless && isExtensionActive('com.lumii.file-preview')) {
     const { registerFilePreviewIpc } = await import('./extensions/file-preview')
     registerFilePreviewIpc({
       getMainWindow: () => mainWindow,
@@ -1458,7 +1462,7 @@ async function initUiStages(flags: ReturnType<typeof readStartupFlags>): Promise
       indexHtmlPath: join(__dirname, '../renderer/index.html'),
     })
   } else {
-    log.info('无头模式：跳过文件预览窗口 IPC 注册')
+    log.info('无头模式或插件已禁用：跳过文件预览窗口 IPC 注册')
   }
 
 
