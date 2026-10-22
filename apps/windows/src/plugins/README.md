@@ -69,6 +69,28 @@ extension:set-enabled → host.activate/stop（IPC/定时器随作用域拆）
 `S`（`kernel/services.ts`，用 `LateRef`），核心按需取；取不到就走默认行为
 （例如提示词风格回落到 `terse`、接续能力为 `undefined`）。这样禁用才是真的禁用。
 
+核心侧通常再包一层**访问器**（`main/agent-runtime/autonomous-accessor.ts`、
+`main/channel/continuity-accessor.ts`）：`index.ts` 注入「从容器现取」的 getter，
+调用点只认访问器。type-only import 插件类型不算运行期耦合，守卫 ⑪ 也不计。
+
+### 渲染层接入的两种形态
+
+| 形态 | 用在 | 写法 |
+|---|---|---|
+| **槽位** | 整页 / 卡片 / 设置分区 | `renderer.tsx` 的 `RendererPlugin.setup(api)` 里 `api.registerSlot(...)`，返回注销函数 |
+| **实验项** | 设置 › 实验功能 | 导出 `{ id, title, Summary, Detail }`，登记到 `renderer/experiments.ts`；列表按 `usePluginEnabled(id)` 过滤 |
+
+两种都读同一个状态源（`renderer/state.ts`），禁用后 UI 整条消失，不是灰掉。
+
+### 插件内注册 IPC 的写法
+
+`apply` 里不要直接 `ipcMain.handle`（停用摘不掉）。两种现成写法：
+
+- 直接 `ctx.registerIpc('通道', handler)`；
+- handler 很多时先 `registerChannel('通道', fn)` 攒进数组，再
+  `registerXxxIpcHandlers({ handle: (ch, fn) => ctx.registerIpc?.(ch, fn) })` 统一挂上去。
+  守卫认 `registerIpc` / `registerChannel` 这两个名字。
+
 ## 生命周期
 
 | 操作 | 要做的事 |
