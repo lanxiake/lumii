@@ -232,6 +232,7 @@ import { setupPalaceVector, backfillPalaceVectors } from './palace-vector-runtim
 import { waitForSherpa } from '../onnx-runtime-gate'
 import { createTransformersE5Embedder } from './wiki-transformers-embedder'
 import { getCloudSyncManager } from '../cloud-sync/sync-accessor'
+import { isExtensionActive } from '../extensions/active'
 import type { ConflictInfo } from '../cloud-sync/types'
 import { ensureProviderBaseUrl, resolveApiFormat } from '../provider-config'
 import { resolveModelThinking, apiForProviderType } from '../model-thinking'
@@ -2443,7 +2444,11 @@ export class AgentRuntimeBridge {
       const mcpConfigured = loadMcpServerConfigs().some(
         (s) => s.name === WECHAT_WATCH_MCP_SERVER && s.enabled !== false,
       )
-      ensureWechatWatchCronJobSeeded(this.localDb.db, { mcpConfigured })
+      ensureWechatWatchCronJobSeeded(this.localDb.db, {
+        mcpConfigured,
+        // 代聊插件被禁用时把循环真停掉（含已播种的既有任务）
+        pluginEnabled: isExtensionActive('com.lumii.relay'),
+      })
     } catch (err) {
       log.warn('[bridge] wechat-watch 播种失败（不影响启动）:', err)
     }

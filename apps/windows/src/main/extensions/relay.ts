@@ -35,10 +35,15 @@ import { ensureWechatWatchCronJobSeeded } from '../agent-runtime/wechat-watch-ti
  *    - 四档：`ignore` / `notify` / `draft` / `auto`
  *    - peer 粒度（可按群/人配置），带冷却与熔断
  *
- * ## P1 vs P2
+ * ## 禁用的实现（启动期状态门）
  *
- * - P1: 包装成插件，支持禁用/启用，核心逻辑不动（cron 任务在 bridge 初始化时播种，见 `bridge.ts`）
- * - P2: 代聊配置迁移到插件配置系统（目前散落在多处 JSON）
+ * 盯梢循环是 `wechat-watch` cron，播种在 bridge 初始化时（`bridge.ts` 的
+ * `ensureWechatWatchCronJobSeeded`）。那里传 `pluginEnabled: isExtensionActive('com.lumii.relay')`：
+ * - 插件禁用 → **已存在的任务也被停掉**（`UPDATE ... SET enabled = 0`），
+ *   只挡住新播种的话，装过这版的机器上那条 15 秒循环照转
+ * - 与「MCP 没配」共用同一条暂停路径和自动恢复标记
+ *
+ * 未做：代聊配置迁到插件配置系统（目前散落在多处 JSON）。
  */
 export const relayExtension = {
   manifest: {
@@ -53,29 +58,10 @@ export const relayExtension = {
     id: 'com.lumii.relay',
     provides: ['relay'],
     apply(ctx) {
-      // 代聊的实际激活在 bridge 初始化时完成（见 `bridge.ts` S7 阶段调用
-      // `ensureWechatWatchCronJobSeeded`）。本插件作为"声明式开关"存在：
-      // - 启用时：cron 任务正常注册并运行
-      // - 禁用时：P2 改造后在此处禁用 cron（P1 阶段插件禁用 = 代码不加载，
-      //   但 bridge 照旧初始化，cron 照旧播种——所以 P1 禁用插件**不影响**代聊运行）
-      //
-      // 为什么不在这里调 `ensureWechatWatchCronJobSeeded`：
-      // 1. bridge 在 S7 初始化，app:ready 在 S8，时序已定
-      // 2. 盯梢需要 bridge.driveTurn / db / mcpManager，都在 bridge 构造时注入
-      // 3. 移动播种点会破坏现有初始化顺序，风险 > 收益
-      //
-      // P1 目标：包装 + 文档完善，不改行为；P2 才做真正的热插拔（禁用 = 停 cron）。
+      // cron 播种不在这里：bridge 在 S7 初始化，盯梢要它注入的 db / driveTurn / mcpManager，
+      // 移动播种点风险 > 收益。禁用由播种处的 `pluginEnabled` 门负责（见文件头）。
 
       ctx.log.info('代聊插件已加载（cron 任务由 bridge 初始化时播种）')
-
-      // P2: 禁用时清理 cron
-      // ctx.effect(() => {
-      //   const bridge = ctx.get(S.bridge)
-      //   if (bridge?.db) {
-      //     bridge.db.prepare(`UPDATE local_cron_jobs SET enabled = 0 WHERE id = ?`).run('wechat-watch')
-      //     ctx.log.info('代聊插件卸载，已禁用 wechat-watch cron')
-      //   }
-      // })
     },
   }),
 }

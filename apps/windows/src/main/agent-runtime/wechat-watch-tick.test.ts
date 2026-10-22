@@ -1596,6 +1596,18 @@ describe('ensureWechatWatchCronJobSeeded', () => {
     expect(runs).toHaveLength(0)
   })
 
+  it('代聊插件被禁用：已存在的任务要真停（只挡新播种的话 15 秒循环照转）', () => {
+    const runs: unknown[][] = []
+    const db = {
+      prepare: vi.fn((sql: string) => ({
+        get: () => ({ id: 'wechat-watch' }),
+        run: (...args: unknown[]) => { runs.push([sql, ...args]); return { changes: 1 } },
+      })),
+    }
+    ensureWechatWatchCronJobSeeded(db as never, { mcpConfigured: true, pluginEnabled: false })
+    expect(String(runs[0][0])).toContain('SET enabled = 0')
+  })
+
   it('未配置 MCP 但任务已存在：停掉它，避免任务页里一条永远「未连接」的循环', () => {
     const runs: unknown[][] = []
     const db = {

@@ -13,13 +13,21 @@ const KEY = Symbol.for('lumii.extensions.active')
 
 const shared = ((globalThis as Record<symbol, unknown>)[KEY] ??= {
   ids: new Set<string>(),
-}) as { ids: ReadonlySet<string> }
+  ready: false,
+}) as { ids: ReadonlySet<string>; ready: boolean }
 
 export function setActiveExtensionIds(ids: ReadonlySet<string>): void {
   shared.ids = ids
+  shared.ready = true
 }
 
-/** 插件本次启动是否激活（禁用项不在集合里）。 */
+/**
+ * 插件本次启动是否激活（禁用项不在集合里）。
+ *
+ * **快照还没写时一律当作启用**：空集合若被当成「全都禁用」，任何在 `startExtensions()`
+ * 之前跑的消费方（单测里直接构造 bridge、启动早期阶段）都会悄悄把功能关掉，
+ * 而症状是「功能没了」——比「禁用了没关掉」难查得多。
+ */
 export function isExtensionActive(id: string): boolean {
-  return shared.ids.has(id)
+  return !shared.ready || shared.ids.has(id)
 }

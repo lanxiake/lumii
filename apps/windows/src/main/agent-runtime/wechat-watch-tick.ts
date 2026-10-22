@@ -2090,19 +2090,25 @@ function consumeAutoPausedMarker(): boolean {
 
 export function ensureWechatWatchCronJobSeeded(
   db: DatabaseAdapter,
-  opts: { mcpConfigured: boolean },
+  opts: { mcpConfigured: boolean; pluginEnabled?: boolean },
 ): void {
   try {
     const existing = db
       .prepare<{ id: string }>(`SELECT id FROM local_cron_jobs WHERE id = ?`)
       .get(WECHAT_WATCH_CRON_ID)
-    if (!opts.mcpConfigured) {
+    // 两个停用理由共用同一条暂停路径：插件被禁用（`com.lumii.relay`）与 MCP 没配。
+    // 都已存在任务时都要真的停掉——只挡住「新播种」的话，已装机器上那条 15 秒循环照转。
+    const pausedReason =
+      opts.pluginEnabled === false
+        ? '代聊插件已禁用'
+        : !opts.mcpConfigured
+          ? 'wechat-local MCP 未配置/未启用'
+          : null
+    if (pausedReason) {
       if (existing) {
         db.prepare(`UPDATE local_cron_jobs SET enabled = 0 WHERE id = ?`).run(WECHAT_WATCH_CRON_ID)
         markAutoPaused()
-        log.info(
-          `[ensureWechatWatchCronJobSeeded] wechat-local MCP 未配置/未启用，暂停 job id=${WECHAT_WATCH_CRON_ID}`,
-        )
+        log.info(`[ensureWechatWatchCronJobSeeded] ${pausedReason}，暂停 job id=${WECHAT_WATCH_CRON_ID}`)
       }
       return
     }
