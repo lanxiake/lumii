@@ -22,15 +22,21 @@ const getStatus = vi.fn(async () => ({
     breakdown: { taskCompletion: 0, userFeedback: 0, efficiency: 0, knowledgeGrowth: 0 },
   },
 }))
-/** 渠道功能开关（跨渠道会话接续）：主进程 JSON，渲染层经 channelService 读写 */
-const getFeatures = vi.fn(async () => ({ crossChannelContinuityEnabled: false }))
-const setFeatures = vi.fn(async (patch: Record<string, unknown>) => ({
-  crossChannelContinuityEnabled: false,
-  ...patch,
-}))
+/**
+ * 渠道功能开关（跨渠道会话接续）：主进程 JSON，渲染层经 channelService 读写。
+ * 必须是有状态的假后端：列表摘要是一个独立组件，返回列表时会**重新读一次**，
+ * 用固定返回值的 mock 会把「已开启」变回「已关闭」。
+ */
+let channelFeatures: Record<string, unknown> = { crossChannelContinuityEnabled: false }
+const getFeatures = vi.fn(async () => ({ ...channelFeatures }))
+const setFeatures = vi.fn(async (patch: Record<string, unknown>) => {
+  channelFeatures = { ...channelFeatures, ...patch }
+  return { ...channelFeatures }
+})
 
 beforeEach(() => {
   localStorage.clear()
+  channelFeatures = { crossChannelContinuityEnabled: false }
   __resetPluginStateForTests()
   updatePromptStyle.mockClear()
   getStatus.mockClear()
@@ -41,7 +47,10 @@ beforeEach(() => {
     autonomous: { getStatus },
     // 提示词风格已插件化：条目是否显示取决于扩展列表（见 plugins/renderer/state.ts）
     extensions: {
-      list: async () => [{ id: 'com.lumii.prompt-style', enabled: true, state: 'active' }],
+      list: async () => [
+        { id: 'com.lumii.prompt-style', enabled: true, state: 'active' },
+        { id: 'com.lumii.channel-continuity', enabled: true, state: 'active' },
+      ],
       onStateChanged: () => () => {},
     },
   }
@@ -162,14 +171,14 @@ describe('ExperimentalSection — 列表与栈导航', () => {
 describe('ExperimentalSection — 跨渠道会话接续开关（2026-09-15 从渠道设置搬入）', () => {
   it('列表展示该项与当前状态', async () => {
     render(<ExperimentalSection />)
-    expect(screen.getByRole('button', { name: /跨渠道会话接续/ })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: /跨渠道会话接续/ })).toBeInTheDocument()
     await waitFor(() => expect(screen.getByText('状态：已关闭')).toBeInTheDocument())
     expect(getFeatures).toHaveBeenCalled()
   })
 
   it('进入详情可开启：写主进程开关，返回列表状态同步', async () => {
     render(<ExperimentalSection />)
-    fireEvent.click(screen.getByRole('button', { name: /跨渠道会话接续/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /跨渠道会话接续/ }))
 
     expect(screen.getByRole('heading', { name: '跨渠道会话接续' })).toBeInTheDocument()
     const sw = screen.getByRole('switch')

@@ -23,9 +23,9 @@
  *     用户换会话（/new、/resume、/back）后自然可以再提示一次。
  */
 
-import type { ChannelSession, IChannelAdapter } from './types'
-import { isDelegatedOwnership, resolveChannelIdentity } from './channel-identity'
-import { RECENT_SCAN_LIMIT, sortByUpdatedAtDesc } from './recent-conversations'
+import type { ChannelSession, IChannelAdapter } from '../../../main/channel/types'
+import { isDelegatedOwnership, resolveChannelIdentity } from '../../../main/channel/channel-identity'
+import { RECENT_SCAN_LIMIT, sortByUpdatedAtDesc } from '../../../main/channel/recent-conversations'
 
 const log = {
   info: (...args: unknown[]) => console.log('[CrossChannelContinuity]', ...args),
@@ -341,4 +341,12 @@ export function resolveContinuityForChannel(params: {
     lookupOwnership: (conversationId) =>
       params.bridge.getConversationOwnership?.(conversationId) ?? null,
   })
+}
+
+/**
+ * 插件停用时清掉单例：提示记录与「已提示过的路由」都是进程内状态，
+ * 留着会让「关掉再打开」沿用关闭前的旧提示（有效期 10 分钟）。
+ */
+export function resetContinuityInstance(): void {
+  instance = null
 }

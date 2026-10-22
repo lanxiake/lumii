@@ -1,5 +1,6 @@
 import type React from 'react'
 
+import { channelContinuityExperiment } from '../builtin/channel-continuity/renderer'
 import { promptStyleExperiment } from '../builtin/prompt-style/renderer'
 
 /**
@@ -21,4 +22,7 @@ export interface ExperimentEntry {
   Detail: React.ComponentType<{ onBack: () => void }>
 }
 
-export const PLUGIN_EXPERIMENT_ENTRIES: readonly ExperimentEntry[] = [promptStyleExperiment]
+export const PLUGIN_EXPERIMENT_ENTRIES: readonly ExperimentEntry[] = [
+  promptStyleExperiment,
+  channelContinuityExperiment,
+]

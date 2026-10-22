@@ -26,11 +26,10 @@ import {
   CHANNEL_ACK_TEXT,
   buildChannelErrorMessage,
 } from '../channel-error-helper'
-import { resolveContinuityForChannel } from '../cross-channel-continuity'
+import { getChannelContinuityService } from '../continuity-accessor'
 import { getChannelSessionStore, type RouteSource } from '../channel-session-store'
 import { ChannelRouteService } from '../channel-route'
 import { registerChannelAdapter } from '../channel-adapter-registry'
-import { getChannelFeatures } from '../channel-feature-store'
 import type { ChannelPeerStore } from '../channel-peer-store'
 import type { QbotChannelProvider } from '../providers/qbot-outbound-provider'
 import {
@@ -195,10 +194,7 @@ export class QbotChannelAdapter implements IChannelAdapter {
 
   /** 跨渠道接续状态机（§5.4）；开关每次读，设置页关掉即时生效 */
   private continuity() {
-    return resolveContinuityForChannel({
-      enabled: getChannelFeatures().crossChannelContinuityEnabled,
-      bridge: this.bridge,
-    })
+    return getChannelContinuityService()?.forChannel(this.bridge)
   }
 
   /** 当前活跃 sessionKey（路由表 > /link 绑定 > 渠道默认；决策在 ChannelRouteService） */

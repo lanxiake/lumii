@@ -11,7 +11,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { ChevronLeft, ChevronRight } from '../../../../components/ui/Icon'
 import { Badge } from '../../../../components/ui/Badge/Badge'
-import { Switch } from '../../../../components/ui/Switch/Switch'
 import { AutonomousPage } from '../../../AutonomousPage/AutonomousPage'
 import { getAutonomousStatus } from '../../../../services/autonomous-service'
 import {
@@ -19,52 +18,10 @@ import {
   type ExperimentEntry,
 } from '../../../../../plugins/renderer/experiments'
 import { usePluginEnabled } from '../../../../../plugins/renderer/state'
-import { useChannelFeatures } from './useChannelFeatures'
 import settingsStyles from '../../SettingsPage.module.css'
 import styles from './ExperimentalSection.module.css'
 
-type ExperimentalView = 'list' | 'autonomous' | 'channelContinuity'
-
-/**
- * 跨渠道会话接续详情：一个开关 + 行为说明。
- *
- * 开关值在主进程（`channel-features.json`），渠道 adapter 每条消息现读，
- * 所以切换后**下一轮渠道消息即生效，无需重启**。
- */
-function ChannelContinuityDetail({
-  onBack,
-  enabled,
-  saving,
-  onToggle,
-}: {
-  onBack: () => void
-  enabled: boolean
-  saving: boolean
-  onToggle: (value: boolean) => void
-}) {
-  return (
-    <div className={styles.detail}>
-      <DetailHeader title="跨渠道会话接续" onBack={onBack} />
-      <div className={`${settingsStyles['settings-section']} ${styles.detailBody}`}>
-        <div className={settingsStyles['setting-row']}>
-          <span className={settingsStyles['setting-label']}>启用接续询问</span>
-          <Switch
-            id="channel-cross-continuity"
-            checked={enabled}
-            disabled={saving}
-            onChange={onToggle}
-          />
-        </div>
-        <p className={settingsStyles['setting-hint']}>
-          在渠道（微信 / QQ / 飞书 / 企微）里发消息时，若你近期在客户端或其它渠道有进行中的对话，
-          会提示你是否继续那条对话：回复「接续」继续（本条消息仍在当前会话回答），回复「不接续」忽略；
-          不回则什么都不变。同一会话只提示一次，正等审批答复时不会提示。
-          关闭后渠道消息一律留在本渠道自己的会话里。切换后下一轮渠道消息即生效，无需重启。
-        </p>
-      </div>
-    </div>
-  )
-}
+type ExperimentalView = 'list' | 'autonomous'
 
 /** 详情子页顶栏：返回 + 标题 */
 function DetailHeader({ title, onBack }: { title: string; onBack: () => void }) {  return (
@@ -136,8 +93,6 @@ export function ExperimentalSection() {
   }, [openPluginId, openPluginEnabled])
   const [autonomousEnabled, setAutonomousEnabled] = useState<boolean | null>(null)
   const [pendingGoals, setPendingGoals] = useState(0)
-  const { features, loading: featuresLoading, saving: featuresSaving, setFeature } =
-    useChannelFeatures()
 
   const autonomousSummary =
     autonomousEnabled === null
@@ -145,11 +100,6 @@ export function ExperimentalSection() {
       : autonomousEnabled
         ? '状态：已启用'
         : '状态：已禁用'
-  const continuitySummary = featuresLoading
-    ? '加载中…'
-    : features.crossChannelContinuityEnabled
-      ? '状态：已启用'
-      : '状态：已关闭'
 
   useEffect(() => {
     let cancelled = false
@@ -175,17 +125,6 @@ export function ExperimentalSection() {
 
   if (openPlugin && openPluginEnabled) {
     return <openPlugin.Detail onBack={() => setOpenPluginId(null)} />
-  }
-
-  if (view === 'channelContinuity') {
-    return (
-      <ChannelContinuityDetail
-        onBack={goList}
-        enabled={features.crossChannelContinuityEnabled}
-        saving={featuresSaving}
-        onToggle={(v) => void setFeature('crossChannelContinuityEnabled', v)}
-      />
-    )
   }
 
   if (view === 'autonomous') {
@@ -215,11 +154,6 @@ export function ExperimentalSection() {
             onOpen={() => setOpenPluginId(entry.id)}
           />
         ))}
-        <FeatureRow
-          title="跨渠道会话接续"
-          summary={continuitySummary}
-          onClick={() => setView('channelContinuity')}
-        />
         <FeatureRow
           title="自主进化"
           summary={autonomousSummary}

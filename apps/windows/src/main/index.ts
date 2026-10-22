@@ -144,6 +144,7 @@ import { S } from './kernel/services'
 import type { MainEvents } from './kernel/events'
 import { readExtensionPrefs } from './kernel/extension-store'
 import { createExtensionControl, setExtensionControl } from '../plugins/control'
+import { setChannelContinuityAccessor } from './channel/continuity-accessor'
 import { setupExtensionIpcHandlers } from './ipc/extension-ipc'
 import { setPalaceBridgeProvider, setupPalaceIpcHandlers } from './ipc/palace-ipc'
 import { registerAllIpcHandlers } from './ipc/ipc-handlers-registry'
@@ -1311,6 +1312,9 @@ async function startExtensions(): Promise<void> {
   cloudSyncManager = pluginHost.container.get(S.cloudSync) ?? null
   syncScheduler = pluginHost.container.get(S.syncScheduler) ?? null
   log.info(`[ext] cloud-sync 服务: ${cloudSyncManager ? '就绪' : '未提供'}`)
+
+  // 跨渠道接续：adapter / 斜杠命令每次现取，插件停用后容器里没有 ⇒ 按功能关闭处理
+  setChannelContinuityAccessor(() => pluginHost?.container.get(S.channelContinuity) ?? null)
 
   // 一张表看清谁起来了、花了多久、注册了几个副作用；
   // 失败项走 error，既进了主日志也进了错误日志

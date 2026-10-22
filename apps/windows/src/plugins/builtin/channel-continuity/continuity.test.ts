@@ -9,8 +9,8 @@ import {
   parseContinuityReply,
   pickContinuityCandidate,
   type RecentConversation,
-} from './cross-channel-continuity'
-import type { ChannelSession, IChannelAdapter } from './types'
+} from './continuity'
+import type { ChannelSession, IChannelAdapter } from '../../../main/channel/types'
 
 const NOW = Date.parse('2026-09-11T12:00:00.000Z')
 const iso = (msAgo: number) => new Date(NOW - msAgo).toISOString()

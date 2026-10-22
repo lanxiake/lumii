@@ -14,7 +14,7 @@ import fs from 'node:fs'
 import {
   DEFAULT_CHANNEL_FEATURES,
   type ChannelFeatureSettings,
-} from '../../shared/channel-features'
+} from '../../../shared/channel-features'
 
 const log = {
   info: (...args: unknown[]) => console.log('[channel-feature-store]', ...args),

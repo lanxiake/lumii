@@ -57,6 +57,8 @@ export const S = {
    * 类型用结构化的最小面，避免核心反向 import 插件实现。
    */
   promptStyle: createServiceKey<{ get(): Promise<{ style: 'detailed' | 'terse' | 'minimal' }> }>('promptStyle'),
+  /** 跨渠道会话接续（插件提供；停用后核心按「功能关闭」处理） */
+  channelContinuity: createServiceKey<import('../channel/continuity-accessor').ChannelContinuityService>('channelContinuity'),
   /** 录屏服务（扩展提供；窗口就绪后才创建） */
   screenRecord: createServiceKey<ScreenRecordService>('screenRecord'),
 } as const

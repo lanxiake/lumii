@@ -3,11 +3,6 @@
  */
 import { ipcMain } from 'electron'
 import { handleChannelList, handleChannelSend } from '../channel/channel-service-ipc'
-import {
-  getChannelFeatures,
-  setChannelFeatures,
-  type ChannelFeatureSettings,
-} from '../channel/channel-feature-store'
 import type { WeixinLoginService } from '../weixin-login-service'
 import type { WecomLoginService } from '../wecom-login-service'
 import type { FeishuLoginService } from '../feishu-login-service'
@@ -133,11 +128,9 @@ export function registerChannelIpcHandlers(): void {
   ipcMain.handle('channel:list', async () => handleChannelList(deps!.getChannelHub()))
   ipcMain.handle('channel:send', async (_event, params: unknown) => handleChannelSend(deps!.getChannelHub(), params))
 
-  // === 渠道实验性功能开关（§5.4 跨渠道接续） ===
-  ipcMain.handle('channel:getFeatures', () => getChannelFeatures())
-  ipcMain.handle('channel:setFeatures', (_event, patch: Partial<ChannelFeatureSettings>) =>
-    setChannelFeatures(patch ?? {}),
-  )
+  // 渠道实验性功能开关（跨渠道接续）已插件化：
+  // channel:getFeatures / channel:setFeatures 由 com.lumii.channel-continuity 在
+  // 自己的作用域里注册，停用时随作用域摘掉。
 
   // === 渠道绑定级回复策略（设置 → 渠道 里按 peer 配；盯梢循环每拍读同一份缓存） ===
   ipcMain.handle('channel:getPolicy', (_event, channel: unknown) =>

@@ -11,7 +11,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   DEFAULT_CHANNEL_FEATURES,
   type ChannelFeatureSettings,
-} from '../../../../../shared/channel-features'
+} from '../../../shared/channel-features'
 
 /** 读取失败时的回落值：与主进程同一份默认（全关） */
 const DEFAULTS = DEFAULT_CHANNEL_FEATURES

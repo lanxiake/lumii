@@ -844,7 +844,11 @@ const coreImportsPluginImpl = (() => {
         node.moduleSpecifier &&
         ts.isStringLiteral(node.moduleSpecifier)
       ) {
-        add(node.moduleSpecifier.text)
+        // type-only 引用会被编译擦除，不构成运行期耦合（核心正是靠它拿插件类型）
+        const typeOnly =
+          (ts.isImportDeclaration(node) && node.importClause?.isTypeOnly) ||
+          (ts.isExportDeclaration(node) && node.isTypeOnly)
+        if (!typeOnly) add(node.moduleSpecifier.text)
       } else if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
         const a = node.arguments[0]
         if (a && ts.isStringLiteral(a)) add(a.text)
