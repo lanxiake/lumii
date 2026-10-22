@@ -180,7 +180,6 @@ import { PerformanceMonitor } from './perf/performance-monitor'
 import { setupPerformanceIpcHandlers } from './ipc/performance-ipc'
 import { registerSkillnetStoreHandlers } from './skillnet-store'
 import { disposePetModeIpc } from './pet/pet-mode-ipc'
-import { registerFilePreviewWindowIpc } from './file-preview/preview-window-ipc'
 import { applyWikiEmbeddingEnvDefaults } from './agent-runtime/wiki-embedding-config'
 import { applyPluginBootstrapEnvDefaults } from './plugin-bootstrap-config'
 import { initPluginDependenciesOnStartup } from './plugin-bootstrap'
@@ -1451,7 +1450,8 @@ async function initUiStages(flags: ReturnType<typeof readStartupFlags>): Promise
   // 文件预览独立窗口（可拖出主窗口外）
   // 无头模式下跳过文件预览窗口
   if (!isHeadless) {
-    registerFilePreviewWindowIpc({
+    const { registerFilePreviewIpc } = await import('./extensions/file-preview')
+    registerFilePreviewIpc({
       getMainWindow: () => mainWindow,
       preloadPath: join(__dirname, '../preload/index.js'),
       rendererUrl: process.env.ELECTRON_RENDERER_URL,
@@ -1460,6 +1460,7 @@ async function initUiStages(flags: ReturnType<typeof readStartupFlags>): Promise
   } else {
     log.info('无头模式：跳过文件预览窗口 IPC 注册')
   }
+
 
   // 无头模式下跳过托盘和录屏初始化
   if (!isHeadless) {

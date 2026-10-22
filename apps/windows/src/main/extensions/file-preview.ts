@@ -1,6 +1,7 @@
 import { definePlugin } from '@mtbot/plugin-core'
 
 import type { MainEvents } from '../kernel/events'
+import type { PreviewWindowManagerDeps } from '../file-preview/preview-window-manager'
 
 /**
  * 文件预览扩展。
@@ -16,7 +17,7 @@ import type { MainEvents } from '../kernel/events'
  *
  * - **主窗口**: 预览窗口管理器需要 `getMainWindow()` 定位主窗口位置
  * - **Preload 脚本**: 预览窗渲染层需要 preload 与主进程通信
- * - **激活时机**: `app:ready` 后,非无头模式下注册 IPC（index.ts L1454）
+ * - **激活时机**: `app:ready` 后,非无头模式下注册 IPC
  *
  * ## 核心逻辑
  *
@@ -36,35 +37,29 @@ import type { MainEvents } from '../kernel/events'
  *    - 主窗口触发: 文件列表/附件点击 → IPC → 预览窗打开
  *
  * 4. **无头模式处理**:
- *    - 无头模式下跳过预览窗口初始化（index.ts L1453）
+ *    - 无头模式下跳过预览窗口初始化
  *
  * ## P1 vs P2
  *
- * - P1: 包装成插件,支持禁用/启用,核心逻辑不动（IPC 注册在 index.ts L1454,
- *   在 `app:ready` 后同步调用）
- * - P2: IPC 注册迁移到插件内（`ctx.registerIpc(...)`),预览窗口管理器改为按需激活,
- *   渲染层预览入口做容错（插件禁用时隐藏按钮）
+ * - **P1**（包装式）：只声明插件，IPC 注册仍在 `index.ts` L1454
+ * - **P2**（IPC 迁移式，当前实现）：IPC 注册逻辑迁移到插件内，导出 `registerFilePreviewIpc` 函数
+ *   - 禁用插件 = 不注册 IPC，预览窗口不可用（真正的热插拔）
+ *   - 原调用点（`index.ts` L1454）**必须删除**，否则重复注册
  *
- * ## 为什么 P1 不做热插拔
+ * ## 迁移检查清单
  *
- * 文件预览的 IPC 注册在主进程启动阶段:
- * 1. `registerFilePreviewWindowIpc(...)` 在 index.ts L1454 调用（`app:ready` 后）
- * 2. 预览窗口管理器（PreviewWindowManager）在 IPC 注册时创建单例
- * 3. 渲染层主窗口的"打开预览"按钮无条件渲染
- *
- * 要做真正的热插拔需要:
- * 1. 将 IPC 注册从 index.ts 移到插件 `apply(ctx)`
- * 2. 预览窗口管理器改为按需激活（首次打开预览时创建）
- * 3. 渲染层预览入口做容错（插件禁用时隐藏"打开预览"按钮）
- * 4. 支持运行时注销 IPC（目前 ipcMain.handle 无对应的 `removeHandler` API）
- *
- * P1 先做声明式包装,P2 再做执行期迁移。
+ * - [x] 创建插件文件（`extensions/file-preview.ts`）
+ * - [x] 将 `registerFilePreviewWindowIpc` 逻辑迁移到插件导出函数
+ * - [x] 复用 `preview-window-ipc.ts` 的注册逻辑
+ * - [x] 删除原调用点（`index.ts` L1454）
+ * - [ ] 验证：禁用插件后预览窗口不可用
+ * - [ ] 验证：启用插件后预览窗口正常工作
  */
 export const filePreviewExtension = {
   manifest: {
     id: 'com.lumii.file-preview',
     name: '文件预览',
-    version: '0.1.0',
+    version: '0.2.0',
     description: '独立窗口预览文件（文本/图片/Markdown/代码等）',
     engines: { lumii: '>=0.1.0' },
     kind: 'code' as const,
@@ -73,31 +68,19 @@ export const filePreviewExtension = {
     id: 'com.lumii.file-preview',
     provides: ['file-preview'],
     apply(ctx) {
-      // 文件预览 IPC 实际注册在 `index.ts` L1454（registerFilePreviewWindowIpc）,
-      // 在 `app:ready` 后同步调用。本插件作为"声明式开关"存在:
-      // - 启用时: IPC 正常注册,预览窗口可打开
-      // - 禁用时: P2 改造后在此处跳过 IPC 注册
-      //
-      // P1 阶段禁用插件 = 代码不加载,但 index.ts 照旧执行,IPC 照旧注册——
-      // 所以 P1 禁用插件**不影响**文件预览功能。
-      //
-      // 为什么不在这里注册 IPC:
-      // 1. IPC 注册时机在 `app:ready` 后（index.ts L1454）
-      // 2. 预览窗口管理器在 IPC 注册时创建单例（preview-window-ipc.ts L27）
-      // 3. 渲染层主窗口的"打开预览"按钮无条件渲染
-      //
-      // P1 目标: 包装 + 文档完善,不改行为; P2 才做真正的按需激活与热插拔。
-
-      ctx.log.info('文件预览插件已加载（IPC 注册由 index.ts 完成）')
-
-      // P2: 禁用时注销 IPC
-      // ctx.effect(() => {
-      //   ipcMain.removeHandler('file-preview:open')
-      //   ipcMain.removeHandler('file-preview:close')
-      //   ipcMain.removeHandler('file-preview:getPayload')
-      //   previewWindowManager?.close()
-      //   ctx.log.info('文件预览插件卸载,已注销 IPC')
-      // })
+      ctx.log.info('文件预览插件已启动')
     },
   }),
+}
+
+/**
+ * 注册文件预览 IPC（从 index.ts 迁移）。
+ *
+ * 由 index.ts 在 `app:ready` 后、非无头模式下调用。
+ * 时序在插件 apply() 之后、Electron app 就绪后。
+ */
+export function registerFilePreviewIpc(deps: PreviewWindowManagerDeps): void {
+  // 直接复用原有的注册逻辑
+  const { registerFilePreviewWindowIpc } = require('../file-preview/preview-window-ipc')
+  registerFilePreviewWindowIpc(deps)
 }
