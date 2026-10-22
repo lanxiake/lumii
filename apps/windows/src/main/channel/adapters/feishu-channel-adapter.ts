@@ -170,8 +170,11 @@ export class FeishuChannelAdapter implements IChannelAdapter {
   /**
    * 启动飞书消息监听。
    */
+  private messageHandler: ((msg: FeishuNormalizedMessage) => void) | null = null
+
   startListening(): void {
-    this.feishuLoginService.on('message', (msg: FeishuNormalizedMessage) => {
+    if (this.messageHandler) return
+    this.messageHandler = (msg: FeishuNormalizedMessage) => {
       const userId = msg.channelUserId
       // 插队路径：答复挂起的提问/审批、以及 /stop 打断，都必须绕过 userQueues。
       // 正在运行的那一轮还占着队列，排队等于永远等不到（提问在等答复，答复在等提问结束）。
@@ -183,8 +186,17 @@ export class FeishuChannelAdapter implements IChannelAdapter {
           log.error(`[startListening] 失败: ${err instanceof Error ? err.message : String(err)}`)
         })
       this.userQueues.set(userId, next)
-    })
+    }
+    this.feishuLoginService.on('message', this.messageHandler)
     log.info('[startListening] 飞书消息监听已启动')
+  }
+
+  /** 停监听（插件停用）：只摘 `message`，不登出、不关连接。 */
+  stopListening(): void {
+    if (!this.messageHandler) return
+    this.feishuLoginService.off('message', this.messageHandler)
+    this.messageHandler = null
+    log.info('[stopListening] 飞书消息监听已停止')
   }
 
   /** 插队处理提问/审批/接续答复与 /stop（详见 tryHandleChannelOutOfBand） */

@@ -150,8 +150,11 @@ export class QbotChannelAdapter implements IChannelAdapter {
     return this.contextStrategy
   }
 
+  private messageHandler: ((msg: QbotNormalizedMessage) => void) | null = null
+
   startListening(): void {
-    this.qbotLoginService.on('message', (msg: QbotNormalizedMessage) => {
+    if (this.messageHandler) return
+    this.messageHandler = (msg: QbotNormalizedMessage) => {
       const userId = msg.channelUserId
       // 记录在插队判定之前：哪怕消息被 out-of-band 路径接走，也是这个 peer 在说话
       this.recordInboundPeer(msg)
@@ -163,8 +166,17 @@ export class QbotChannelAdapter implements IChannelAdapter {
           log.error(`[startListening] 失败: ${err instanceof Error ? err.message : String(err)}`)
         })
       this.userQueues.set(userId, next)
-    })
+    }
+    this.qbotLoginService.on('message', this.messageHandler)
     log.info('[startListening] QQ 消息监听已启动')
+  }
+
+  /** 停监听（插件停用）：只摘 `message`，不登出、不关连接。 */
+  stopListening(): void {
+    if (!this.messageHandler) return
+    this.qbotLoginService.off('message', this.messageHandler)
+    this.messageHandler = null
+    log.info('[stopListening] QQ 消息监听已停止')
   }
 
   private tryHandleOutOfBand(msg: QbotNormalizedMessage): boolean {

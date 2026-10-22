@@ -185,8 +185,11 @@ export class WecomChannelAdapter implements IChannelAdapter {
   /**
    * 启动企微消息监听。
    */
+  private messageHandler: ((msg: WecomNormalizedMessage) => void) | null = null
+
   startListening(): void {
-    this.wecomLoginService.on('message', (msg: WecomNormalizedMessage) => {
+    if (this.messageHandler) return
+    this.messageHandler = (msg: WecomNormalizedMessage) => {
       const userId = msg.channelUserId
       // 记录在插队判定之前：哪怕消息被 out-of-band 路径接走，也是这个 peer 在说话
       this.recordInboundPeer(msg)
@@ -200,8 +203,21 @@ export class WecomChannelAdapter implements IChannelAdapter {
           log.error(`[startListening] 消息处理失败: ${err instanceof Error ? err.message : String(err)}`)
         })
       this.userQueues.set(userId, next)
-    })
+    }
+    this.wecomLoginService.on('message', this.messageHandler)
     log.info('[startListening] 企业微信消息监听已启动')
+  }
+
+  /**
+   * 停监听（插件停用）。
+   *
+   * 只摘 `message` 监听，**不登出、不关连接**——重新启用时不必重新扫码。
+   */
+  stopListening(): void {
+    if (!this.messageHandler) return
+    this.wecomLoginService.off('message', this.messageHandler)
+    this.messageHandler = null
+    log.info('[stopListening] 企业微信消息监听已停止')
   }
 
   /** 插队处理提问/审批/接续答复与 /stop（详见 tryHandleChannelOutOfBand） */

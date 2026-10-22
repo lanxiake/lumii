@@ -46,6 +46,8 @@ export const S = {
   mainWindow: createServiceKey<LateRef<BrowserWindow>>('mainWindow'),
   /** 工作空间目录（S6 才解析出来；用 LateRef 现取，别缓存成启动那一刻的值） */
   workspaceDir: createServiceKey<LateRef<string>>('workspaceDir'),
+  /** 渠道出站 Hub（S1 建，Provider 由各渠道插件装配时注册） */
+  channelHub: createServiceKey<LateRef<import('../channel/channel-hub-bootstrap').ChannelHub>>('channelHub'),
   /** 托盘（S2–S5 才创建） */
   tray: createServiceKey<LateRef<TrayManager>>('tray'),
   /** 语音服务（由 extensions/voice.ts 在窗口就绪后提供） */

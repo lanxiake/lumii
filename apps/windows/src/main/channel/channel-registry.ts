@@ -18,6 +18,15 @@ export class ChannelRegistry {
   }
 
   /**
+   * 摘掉某渠道的 Provider（插件停用）。
+   *
+   * @returns 是否真的摘掉了（没注册过返回 false）
+   */
+  unregister(channel: OutboundChannelId): boolean {
+    return this.providers.delete(channel)
+  }
+
+  /**
    * 按渠道取 Provider；未注册返回 undefined。
    */
   getProvider(channel: OutboundChannelId): IChannelOutboundProvider | undefined {

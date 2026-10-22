@@ -78,6 +78,10 @@ export const HOT_SWAPPABLE_BUILTINS: ReadonlySet<string> = new Set([
   'com.lumii.browser',
   'com.lumii.pet',
   'com.lumii.voice',
+  'com.lumii.channel-weixin',
+  'com.lumii.channel-wecom',
+  'com.lumii.channel-feishu',
+  'com.lumii.channel-qbot',
 ])
 
 /**

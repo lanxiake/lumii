@@ -1,6 +1,9 @@
 import { definePlugin } from '@mtbot/plugin-core'
 
 import type { MainEvents } from '../kernel/events'
+import { S } from '../kernel/services'
+import { startChannel } from '../channel/channel-runtime'
+import { hasHeadlessFlag } from '../platform/feature-probe'
 
 /**
  * 微信个人号渠道扩展。
@@ -68,10 +71,31 @@ export const channelWeixinExtension = {
     id: 'com.lumii.channel-weixin',
     provides: ['channel-weixin'],
     apply(ctx) {
-      // 构造点在 `index.ts`（依赖登录服务、bridge、ACP 管理器，都在那里初始化），
-      // 那边按 `isExtensionActive('com.lumii.channel-weixin')` 决定装不装。
-
-      ctx.log.info('微信个人号渠道插件已加载（适配器由 index.ts 按插件状态装配）')
+      // 装配在 channel-runtime 里做：登录服务 + 适配器 + 出站 Provider。
+      // 要 bridge（S7.4 才有）与 Hub（S1 就建好），所以先等 agent:runtime-ready。
+      const wire = (): boolean => {
+        const bridge = ctx.get(S.agentRuntime)?.get()
+        const hub = ctx.get(S.channelHub)?.get()
+        if (!bridge || !hub) return false
+        const pending = startChannel('weixin', {
+          getBridge: () => ctx.get(S.agentRuntime)?.get() ?? null,
+          getMainWindow: () => ctx.get(S.mainWindow)?.get() ?? null,
+          getVoice: () => ctx.get(S.voice) ?? null,
+          isHeadless: hasHeadlessFlag(),
+        })
+        // 停用：等装配完再拆（异步装配中就被关掉的窗口不能漏）
+        ctx.effect(async () => {
+          const dispose = await pending
+          dispose()
+        })
+        return true
+      }
+      if (!wire()) {
+        ctx.on('agent:runtime-ready', () => {
+          wire()
+        })
+      }
+      ctx.log.info('微信个人号渠道插件已加载（随插件启停装配）')
     },
   }),
 }

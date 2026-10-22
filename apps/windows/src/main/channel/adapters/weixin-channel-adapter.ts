@@ -182,8 +182,11 @@ export class WeixinChannelAdapter implements IChannelAdapter {
   // ── 消息入口 ──────────────────────────────────────────────────────────────
 
   /** 启动微信消息监听（在 WeixinLoginService 初始化后调用） */
+  private messageHandler: ((msg: WeixinNormalizedMessage) => void) | null = null
+
   startListening(): void {
-    this.weixinLoginService.on('message', (msg: WeixinNormalizedMessage) => {
+    if (this.messageHandler) return
+    this.messageHandler = (msg: WeixinNormalizedMessage) => {
       const userId = msg.channelUserId
       // 入站即落盘 reply context：出站 token 的保鲜只应以「用户发过消息」为准，
       // 不能依赖后续处理路径（斜杠命令/接续提示会提前 return）
@@ -197,8 +200,21 @@ export class WeixinChannelAdapter implements IChannelAdapter {
         log.error(`[startListening] 消息处理失败: ${err instanceof Error ? err.message : String(err)}`)
       })
       this.userQueues.set(userId, next)
-    })
+    }
+    this.weixinLoginService.on('message', this.messageHandler)
     log.info('[startListening] 微信消息监听已启动')
+  }
+
+  /**
+   * 停监听（插件停用）。
+   *
+   * 只摘 `message` 监听，**不登出、不关连接**——重新启用时不必重新扫码。
+   */
+  stopListening(): void {
+    if (!this.messageHandler) return
+    this.weixinLoginService.off('message', this.messageHandler)
+    this.messageHandler = null
+    log.info('[stopListening] 微信消息监听已停止')
   }
 
   /** 插队处理提问/审批/接续答复与 /stop（详见 tryHandleChannelOutOfBand） */
