@@ -101,10 +101,6 @@ const SIDEBAR_SYSTEM_GROUP_UI: Record<string, { label: string; emptyDesc: string
     label: '开发',
     emptyDesc: '绑定项目，完成可验证的代码改动',
   },
-  'system-keeper': {
-    label: '维护',
-    emptyDesc: '维护 Wiki、记忆与用户指南，并可代操客户端设置',
-  },
   chronicler: {
     label: '记事',
     emptyDesc: '日报、周复盘、早间简报与专注提醒',
@@ -114,6 +110,9 @@ const SIDEBAR_SYSTEM_GROUP_UI: Record<string, { label: string; emptyDesc: string
     emptyDesc: '按偏好策展资讯，筛选噪声并整理推送',
   },
 }
+
+/** 每个分组展开时默认展示的最近会话条数（更早的走「查看全部」） */
+const SESSIONS_PREVIEW_COUNT = 8
 
 /**
  * 解析侧栏分组显示名：系统五组用两字短名，其余回退 Agent 全名。
@@ -151,6 +150,12 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
   const [contentMatches, setContentMatches] = useState<ReadonlyMap<string, string>>(() => new Map())
   /** 已折叠的渠道 key */
   const [collapsedChannels, setCollapsedChannels] = useState<Set<string>>(() => new Set())
+  /** 已展开的 Agent 分组 key（默认只展开系统默认组，其余收起） */
+  const [expandedAgentGroups, setExpandedAgentGroups] = useState<Set<string>>(
+    () => new Set(['__main__']),
+  )
+  /** 已点过「查看全部」的 Agent 分组 key（否则每组只显示最近 8 条） */
+  const [showAllGroups, setShowAllGroups] = useState<Set<string>>(() => new Set())
   /** 绑定渠道弹窗 */
   const [bindModalOpen, setBindModalOpen] = useState(false)
   /** 默认会话 / 渠道会话 / 系统会话 三态切换 */
@@ -480,6 +485,32 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
   }, [])
 
   /**
+   * 切换 Agent 分组折叠。
+   *
+   * 与渠道分组分开维护：Agent 组的默认态是「只有系统默认组展开」，而渠道组是「全部展开」，
+   * 共用一份 set 会让两者的默认态互相打架。折叠时一并忘掉「查看全部」，重开回到 8 条。
+   */
+  const toggleAgentGroup = useCallback((key: string) => {
+    setExpandedAgentGroups((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+    setShowAllGroups((prev) => {
+      if (!prev.has(key)) return prev
+      const next = new Set(prev)
+      next.delete(key)
+      return next
+    })
+  }, [])
+
+  // 切换 tab 后所有组的「查看全部」回到默认收起
+  useEffect(() => {
+    setShowAllGroups(new Set())
+  }, [tab])
+
+  /**
    * 取某 Agent 分组的全量会话（不受搜索过滤影响，清空历史用）。
    *
    * 只含默认渠道：分组里同时展示的定时任务记录（channel='cron'）是任务产出，
@@ -680,8 +711,12 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
             <div className={styles['no-conversations']}>暂无会话，点击上方按钮创建</div>
           ) : (
             agentGroups.map((g) => {
-              const collapseKey = `agent:${g.key}`
-              const isCollapsed = collapsedChannels.has(collapseKey)
+              // 搜索态强制展开：命中的会话藏在收起组里等于搜不到
+              const isCollapsed = !channelGroups.isSearch && !expandedAgentGroups.has(g.key)
+              const showAll = showAllGroups.has(g.key)
+              const visibleSessions = showAll
+                ? g.sessions
+                : g.sessions.slice(0, SESSIONS_PREVIEW_COUNT)
               const groupHasRunning = [...g.pinned, ...g.sessions].some((s) => s.isStreaming)
               const agentInfo = g.agentId ? agentsMap.get(g.agentId) : null
               const groupLabel = resolveSidebarGroupLabel(
@@ -693,15 +728,16 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
                 <div key={g.key} className={styles['channel-group']}>
                   <div
                     className={`${styles['channel-group-label']} ${styles['channel-group-label--collapsible']}`}
-                    onClick={() => toggleChannel(collapseKey)}
+                    onClick={() => toggleAgentGroup(g.key)}
                     role="button"
                     tabIndex={0}
+                    aria-expanded={!isCollapsed}
                     onKeyDown={(e) => {
                       // 只在组头自身聚焦时响应；避免吞掉「⋯」按钮上的 Enter/空格
                       if (e.target !== e.currentTarget) return
                       if (e.key === 'Enter' || e.key === ' ') {
                         e.preventDefault()
-                        toggleChannel(collapseKey)
+                        toggleAgentGroup(g.key)
                       }
                     }}
                   >
@@ -747,7 +783,18 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
                             {renderTimeSubGroup('更早', g.earlier)}
                           </>
                         ) : (
-                          renderSessionsScrollable(g.key, g.sessions)
+                          <>
+                            {renderSessionsScrollable(g.key, visibleSessions)}
+                            {g.sessions.length > visibleSessions.length && (
+                              <button
+                                type="button"
+                                className={styles['group-show-all']}
+                                onClick={() => setShowAllGroups((prev) => new Set(prev).add(g.key))}
+                              >
+                                查看全部 ({g.sessions.length})
+                              </button>
+                            )}
+                          </>
                         )}
                       </>
                     )}

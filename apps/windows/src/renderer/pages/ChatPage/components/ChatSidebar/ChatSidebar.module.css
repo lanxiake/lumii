@@ -421,6 +421,22 @@
   scroll-snap-type: y proximity;
 }
 
+.group-show-all {
+  display: block;
+  width: 100%;
+  padding: 4px 16px 8px;
+  border: none;
+  background: none;
+  text-align: left;
+  font-size: calc(12px * var(--app-font-scale, 1));
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+
+.group-show-all:hover {
+  color: var(--color-text-primary);
+}
+
 .group-scroll > * {
   scroll-snap-align: start;
 }

@@ -455,7 +455,7 @@ describe('Phase 4: 会话管理 - ChatSidebar组件', () => {
 
     it.each([
       ['info-curator', '情报', '定时任务 · 资讯抓取与综述'],
-      ['system-keeper', '维护', '定时任务 · 工作区文件整理'],
+      ['chronicler', '记事', '定时任务 · 早间简报'],
     ])('归属 %s 的定时任务记录出现在「%s」分组下', (agentId, label, title) => {
       renderSidebar({ sessions: [cronSession(agentId, title)] })
 
@@ -527,6 +527,59 @@ describe('Phase 4: 会话管理 - ChatSidebar组件', () => {
       await screen.findByRole('button', { name: '「开发」更多操作' })
       expect(screen.queryByRole('button', { name: '「assistant-at8」更多操作' })).not.toBeInTheDocument()
       expect(screen.queryByText('assistant-at8')).not.toBeInTheDocument()
+    })
+  })
+
+  describe('TC-4.8 分组折叠默认态与 8 条上限', () => {
+    // 组头的可访问名以组名开头（「默认」更多操作按钮的名字以「开头，不会撞上）
+    const groupHeader = (label: string) =>
+      screen.getByRole('button', { name: new RegExp(`^${label}`) })
+
+    it('TC-4.8.1: 默认组默认展开，其余 Agent 组默认收起', () => {
+      renderSidebar({
+        sessions: [
+          createMockSession({ id: 's1' }),
+          createMockSession({ id: 's2', agentId: 'code-dev', title: '改个 bug' }),
+        ],
+      })
+
+      expect(groupHeader('默认')).toHaveAttribute('aria-expanded', 'true')
+      expect(groupHeader('开发')).toHaveAttribute('aria-expanded', 'false')
+    })
+
+    it('TC-4.8.2: 组展开默认只显示最近 8 条，点「查看全部」显示全部', () => {
+      const sessions = Array.from({ length: 10 }, (_, i) =>
+        createMockSession({ id: `s${i}`, title: `会话${i}` }),
+      )
+      renderSidebar({ sessions })
+
+      expect(screen.getAllByText(/^会话\d+$/)).toHaveLength(8)
+      fireEvent.click(screen.getByText('查看全部 (10)'))
+      expect(screen.getAllByText(/^会话\d+$/)).toHaveLength(10)
+      expect(screen.queryByText('查看全部 (10)')).not.toBeInTheDocument()
+    })
+
+    it('TC-4.8.3: 折叠再展开后回到只显示 8 条', () => {
+      const sessions = Array.from({ length: 10 }, (_, i) =>
+        createMockSession({ id: `s${i}`, title: `会话${i}` }),
+      )
+      renderSidebar({ sessions })
+
+      fireEvent.click(screen.getByText('查看全部 (10)'))
+      fireEvent.click(groupHeader('默认')) // 折叠
+      fireEvent.click(groupHeader('默认')) // 再展开
+      expect(screen.getAllByText(/^会话\d+$/)).toHaveLength(8)
+    })
+
+    it('TC-4.8.4: 收起的分组点开后可看到会话', () => {
+      renderSidebar({
+        sessions: [createMockSession({ id: 's1', agentId: 'code-dev', title: '改个 bug' })],
+      })
+
+      expect(groupHeader('开发')).toHaveAttribute('aria-expanded', 'false')
+      fireEvent.click(groupHeader('开发'))
+      expect(groupHeader('开发')).toHaveAttribute('aria-expanded', 'true')
+      expect(screen.getByText('改个 bug')).toBeInTheDocument()
     })
   })
 })
