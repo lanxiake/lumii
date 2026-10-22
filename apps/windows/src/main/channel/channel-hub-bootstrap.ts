@@ -24,10 +24,14 @@ import {
 
 export { ChannelPeerStore }
 
+/**
+ * 登录服务全部可缺省：渠道是可选插件（`com.lumii.channel-*`），被禁用时服务根本不建。
+ * 缺省的渠道只是**不注册进 registry**，`router.send` 会照常回 `CHANNEL_NOT_CONNECTED`。
+ */
 export interface ChannelHubDeps {
-  feishu: FeishuLoginService
+  feishu?: FeishuLoginService
   weixin?: WeixinLoginService
-  wecom: WecomLoginService
+  wecom?: WecomLoginService
   qbot?: QbotLoginService
   /** 本机微信（pcwechat）：不走登录服务，靠 wechat-local MCP + 渠道策略名单 */
   pcwechat?: PcwechatProviderDeps
@@ -45,7 +49,8 @@ export interface ChannelHub {
   weixinStore: WeixinReplyContextStore
   /** 入站 peer 持久化：adapter 与 Provider 共用同一实例 */
   peerStore: ChannelPeerStore
-  wecomProvider: WecomChannelProvider
+  /** 企微 Provider（企微登录服务缺席时为 null，供 adapter 注入） */
+  wecomProvider: WecomChannelProvider | null
   /** QQ Provider（qbot 登录服务缺席时为 null，供 adapter 注入） */
   qbotProvider: QbotChannelProvider | null
   /** 把持久化的最近入站 peer 恢复到 Provider 快照（仅启动时调用） */
@@ -88,11 +93,11 @@ export function createChannelHub(deps: ChannelHubDeps): ChannelHub {
     deps.weixinStore ?? createWeixinReplyContextStore(deps.dataRoot)
   const peerStore = deps.peerStore ?? createChannelPeerStore(deps.dataRoot)
   const registry = new ChannelRegistry()
-  const wecomProvider = new WecomChannelProvider(deps.wecom)
+  const wecomProvider = deps.wecom ? new WecomChannelProvider(deps.wecom) : null
   const qbotProvider = deps.qbot ? new QbotChannelProvider(deps.qbot) : null
-  registry.register(new FeishuChannelProvider(deps.feishu))
+  if (deps.feishu) registry.register(new FeishuChannelProvider(deps.feishu))
   if (deps.weixin) registry.register(new WeixinChannelProvider(deps.weixin, weixinStore))
-  registry.register(wecomProvider)
+  if (wecomProvider) registry.register(wecomProvider)
   if (qbotProvider) registry.register(qbotProvider)
   if (deps.pcwechat) registry.register(new PcwechatChannelProvider(deps.pcwechat))
   const router = new ChannelOutboundRouter(registry)
@@ -110,7 +115,7 @@ export function createChannelHub(deps: ChannelHubDeps): ChannelHub {
       qbotProvider?.setSnapshotRestore(
         ChannelPeerStore.toPeers(peerStore.listByChannel('qbot'), now),
       )
-      wecomProvider.setSnapshotRestore(
+      wecomProvider?.setSnapshotRestore(
         ChannelPeerStore.toPeers(peerStore.listByChannel('wecom'), now),
       )
     },
