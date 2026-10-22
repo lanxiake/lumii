@@ -61,6 +61,25 @@ export const BUILTIN_EXTENSIONS: BuiltinExtension[] = [
 ]
 
 /**
+ * 接线全部在 `apply(ctx)` 里、因此**可以在运行期启停**的内置插件。
+ *
+ * 判据不是「这个插件有没有 apply」，而是：禁用时它的功能是不是真的消失。
+ * 没进这张表的内置插件，设置页的开关仍会要求重启——它们的初始化散在核心启动路径上
+ * （渠道适配器要先建登录服务、语音的 ONNX 顺序闸不可逆等）。
+ *
+ * 迁移一个插件 = 把接线搬进 apply（`ctx.registerIpc` / `ctx.effect`），然后加到这里。
+ */
+export const HOT_SWAPPABLE_BUILTINS: ReadonlySet<string> = new Set([
+  'com.lumii.vcs',
+  'com.lumii.selection',
+  'com.lumii.file-preview',
+  'com.lumii.dashboard-feed',
+  'com.lumii.relay',
+  'com.lumii.browser',
+  'com.lumii.pet',
+])
+
+/**
  * 主进程扩展宿主。
  *
  * 注意：这里**不做**权限与隔离——自用客户端，扩展与主进程同权限，
@@ -70,23 +89,25 @@ export function createPluginHost(
   loggerSink: LoggerSink,
   disabledIds: ReadonlySet<string> = new Set(),
   appVersion?: string,
-): { host: PluginHost<MainEvents>; skipped: string[]; eventBus: PluginHost<MainEvents>['eventBus'] } {
+): { host: PluginHost<MainEvents>; disabled: ReadonlySet<string>; eventBus: PluginHost<MainEvents>['eventBus'] } {
   const ipcRegistry = createIpcRegistry()
   const host = new PluginHost<MainEvents>({ loggerSink, ipcRegistry })
-  const skipped: string[] = []
+
+  // 禁用的插件**也要注册**，只是启动时不激活（`host.start({ exclude })`）：
+  // 这是运行时启用的前提——用户在设置页打开开关时只需要 `host.activate(id)`，
+  // 不必重新 register（register 之后 id 就重复了）。
+  const permanentlyDisabled = new Set(
+    BUILTIN_EXTENSIONS.filter((e) => e.manifest.disabled).map((e) => e.manifest.id),
+  )
 
   for (const extension of BUILTIN_EXTENSIONS) {
     // 清单在注册前校验：id 格式、engines、kind 与入口一致性。
     // builtin=true 是因为内置扩展静态 import 进 bundle，没有可加载的入口文件，
     // 与其让 manifest 写一个不存在的路径，不如如实放开这条规则。
     validateManifest(extension.manifest, { appVersion, builtin: true })
-
-    if (disabledIds.has(extension.manifest.id)) {
-      skipped.push(extension.manifest.id)
-      continue
-    }
     host.register(extension.definition)
   }
 
-  return { host, skipped, eventBus: host.eventBus }
+  const disabled = new Set([...disabledIds].filter((id) => !permanentlyDisabled.has(id)))
+  return { host, disabled, eventBus: host.eventBus }
 }

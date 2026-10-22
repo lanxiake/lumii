@@ -39,6 +39,38 @@ describe("PluginHost", () => {
     expect(report.failed).toEqual([]);
   });
 
+  it("exclude 里的插件不激活但仍登记，之后可以 activate 起来（运行时启用的前提）", async () => {
+    const host = new PluginHost<TestEvents>();
+    const applied: string[] = [];
+
+    host.register(
+      definePlugin<TestEvents>({
+        id: "off",
+        apply() {
+          applied.push("off");
+        },
+      }),
+    );
+    host.register(
+      definePlugin<TestEvents>({
+        id: "on",
+        apply() {
+          applied.push("on");
+        },
+      }),
+    );
+
+    const report = await host.start({ exclude: new Set(["off"]) });
+
+    expect(applied).toEqual(["on"]);
+    expect(report.activated).toEqual(["on"]);
+    expect(host.get("off")?.state).toBe("registered");
+
+    expect(await host.activate("off")).toBeUndefined();
+    expect(applied).toEqual(["on", "off"]);
+    expect(host.get("off")?.state).toBe("active");
+  });
+
   it("缺必需依赖的插件标记 failed，其余照常激活", async () => {
     const host = new PluginHost<TestEvents>();
     const applied: string[] = [];

@@ -78,16 +78,20 @@ export class PluginHost<E extends EventMap = EventMap> {
   }
 
   /**
-   * 按依赖顺序激活全部已注册插件。
+   * 按依赖顺序激活已注册插件。
    *
    * 单个插件失败只标记 failed 并继续，不拖垮宿主；
    * 依赖成环直接抛错 —— 那是编排错误，不该带病运行。
+   *
+   * `exclude` 里的插件**保持 registered、不激活**：它们仍然登记在宿主里，
+   * 之后可以随时 `activate(id)` 起来（运行时启用的前提）。
    */
-  async start(): Promise<StartReport> {
+  async start(options: { exclude?: ReadonlySet<string> } = {}): Promise<StartReport> {
     const order = this.resolveOrder();
     const report: StartReport = { activated: [], failed: [] };
 
     for (const id of order) {
+      if (options.exclude?.has(id)) continue;
       const entry = this.plugins.get(id);
       if (!entry || entry.state !== "registered") continue;
 

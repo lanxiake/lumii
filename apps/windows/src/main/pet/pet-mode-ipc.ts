@@ -26,6 +26,7 @@ import {
   setVirtualHumanSettings,
 } from './pet-mode-store'
 import type { VirtualHumanSettingsDTO } from '../../shared/virtual-human'
+import type { IpcHandleRegistrar } from '../kernel/ipc-registry'
 
 const log = {
   info: (...args: unknown[]) => console.log('[pet]', ...args),
@@ -221,7 +222,12 @@ function startMainWindowFocusBroadcast(): void {
   log.info('[mainWindowFocus] 已开始把主窗焦点变化转给宠物窗口')
 }
 
-export function registerPetModeIpc(deps: PetWindowManagerDeps): void {
+export function registerPetModeIpc(
+  deps: PetWindowManagerDeps,
+  // 插件传 `ctx.registerIpc` / 作用域化的 on，停用时通道随作用域一起摘掉；
+  // 默认直连 ipcMain（不经过插件的调用方仍可用）。
+  ipc: IpcHandleRegistrar = ipcMain as unknown as IpcHandleRegistrar,
+): void {
   if (process.platform === 'linux') {
     log.info('Linux 平台不注册宠物模式（D13：后续以精灵图形态重写）')
     return
@@ -239,56 +245,56 @@ export function registerPetModeIpc(deps: PetWindowManagerDeps): void {
   log.info(`PetWindowManager 已创建，恢复模型 ID=${storedModelId || '(默认)'}`)
 
   // 切换模式
-  ipcMain.handle(PET_IPC.switchMode, async (_evt, mode: AppMode, modelId?: string) => {
+  ipc.handle(PET_IPC.switchMode, async (_evt, mode: AppMode, modelId?: string) => {
     return switchPetMode(mode, modelId)
   })
 
   // 获取当前模式
-  ipcMain.handle(PET_IPC.getMode, () => petWindowManager?.getMode() ?? 'desktop')
+  ipc.handle(PET_IPC.getMode, () => petWindowManager?.getMode() ?? 'desktop')
 
   // 渲染就绪握手
-  ipcMain.handle(PET_IPC.rendererReady, (_evt, targetMode: AppMode) => {
+  ipc.handle(PET_IPC.rendererReady, (_evt, targetMode: AppMode) => {
     petWindowManager?.notifyRendererReady(targetMode)
   })
 
   // hover 报告（遗留）
-  ipcMain.on(PET_IPC.reportHover, (_evt, update: PetHoverUpdate) => {
+  ipc.on?.(PET_IPC.reportHover, (_evt, update: PetHoverUpdate) => {
     petWindowManager?.reportHover(update)
   })
 
   // 强制穿透切换
-  ipcMain.handle(PET_IPC.toggleForceIgnoreMouse, () => {
+  ipc.handle(PET_IPC.toggleForceIgnoreMouse, () => {
     return petWindowManager?.toggleForceIgnoreMouse() ?? false
   })
 
   // 模型 ID 读写（同步持久化到 store，重启后保留）
-  ipcMain.handle(PET_IPC.getCurrentModelId, () => petWindowManager?.getCurrentModelId() ?? '')
-  ipcMain.handle(PET_IPC.setCurrentModelId, (_evt, modelId: string) => {
+  ipc.handle(PET_IPC.getCurrentModelId, () => petWindowManager?.getCurrentModelId() ?? '')
+  ipc.handle(PET_IPC.setCurrentModelId, (_evt, modelId: string) => {
     petWindowManager?.setCurrentModelId(modelId, true)
   })
 
   // 当前闲置阶段（渲染层挂载时补问一次，见 idle-watcher 的 getCurrentIdleStage）
-  ipcMain.handle(PET_IPC.getIdleStage, () => getCurrentIdleStage() ?? 'awake')
+  ipc.handle(PET_IPC.getIdleStage, () => getCurrentIdleStage() ?? 'awake')
 
   // 当前可攀附矩形（渲染层挂载时补问一次，见 pet-perch-tracker 的 getCurrentPerchRect）
-  ipcMain.handle(PET_IPC.getPerchRect, () => getCurrentPerchRect())
+  ipc.handle(PET_IPC.getPerchRect, () => getCurrentPerchRect())
 
   // 模型注册表
-  ipcMain.handle(PET_IPC.listModels, async () => {
+  ipc.handle(PET_IPC.listModels, async () => {
     const { loadPetModelRegistry } = await import('./pet-model-resolver')
     const { models } = await loadPetModelRegistry()
     return models
   })
-  ipcMain.handle(PET_IPC.getModelConfig, async (_evt, modelId: string) => {
+  ipc.handle(PET_IPC.getModelConfig, async (_evt, modelId: string) => {
     const { getPetModelConfig } = await import('./pet-model-resolver')
     return getPetModelConfig(modelId)
   })
 
   // 会话跟随：主窗口同步 currentSessionKey，宠物窗口读取
-  ipcMain.handle(PET_IPC.setActiveSessionKey, (_evt, sessionKey: string) => {
+  ipc.handle(PET_IPC.setActiveSessionKey, (_evt, sessionKey: string) => {
     petWindowManager?.setActiveSessionKey(sessionKey)
   })
-  ipcMain.handle(PET_IPC.getActiveSessionKey, () => petWindowManager?.getActiveSessionKey() ?? '')
+  ipc.handle(PET_IPC.getActiveSessionKey, () => petWindowManager?.getActiveSessionKey() ?? '')
 
   /**
    * 宠物窗口请主窗口切到某个会话（控制坞的多会话清单点一条）。
@@ -297,7 +303,7 @@ export function registerPetModeIpc(deps: PetWindowManagerDeps): void {
    * 把主窗带到前台 + 把 `app-ui:goto`（带 sessionKey）发过去。
    * **不在这里直接改会话**——主进程没有会话状态，硬改就是两份真相。
    */
-  ipcMain.handle(PET_IPC.focusSession, (_evt, sessionKey: string) => {
+  ipc.handle(PET_IPC.focusSession, (_evt, sessionKey: string) => {
     const win = petWindowManager?.getMainWindow()
     if (!win || win.isDestroyed() || !sessionKey) return
     if (win.isMinimized()) win.restore()
@@ -313,7 +319,7 @@ export function registerPetModeIpc(deps: PetWindowManagerDeps): void {
    * 渲染层），它只多带一个 `requestId`，让主窗把那张审批卡滚进视野并高亮。
    * 卡不在了（用户刚在主窗处置过）由渲染层安静降级为"只切会话"。
    */
-  ipcMain.handle(
+  ipc.handle(
     PET_IPC.focusNotice,
     (_evt, payload: { sessionKey?: string; requestId?: string } | undefined) => {
       const win = petWindowManager?.getMainWindow()
@@ -331,7 +337,7 @@ export function registerPetModeIpc(deps: PetWindowManagerDeps): void {
   )
 
   // 读当前实际生效的穿透状态（诊断/验证用，见 PET_IPC.getMouseIgnoreState 的注释）
-  ipcMain.handle(PET_IPC.getMouseIgnoreState, () =>
+  ipc.handle(PET_IPC.getMouseIgnoreState, () =>
     petWindowManager?.getMouseIgnoreState() ?? { clickable: false, components: [] },
   )
 
@@ -342,19 +348,19 @@ export function registerPetModeIpc(deps: PetWindowManagerDeps): void {
    * 主进程只在**变化时**推，而宠物窗口挂载的那一刻主窗可能早就失焦了——那次推送是丢的。
    * 不补问的话，"用户走开了"这个判据会一直按"在看"算。
    */
-  ipcMain.handle(PET_IPC.getMainWindowFocus, () => {
+  ipc.handle(PET_IPC.getMainWindowFocus, () => {
     const win = petWindowManager?.getMainWindow()
     return Boolean(win && !win.isDestroyed() && win.isFocused())
   })
 
-  ipcMain.handle(PET_IPC.getCubismCoreUrl, async () => {
+  ipc.handle(PET_IPC.getCubismCoreUrl, async () => {
     const { resolveCubismCoreUrl } = await import('./pet-model-resolver')
     return resolveCubismCoreUrl()
   })
 
   // 虚拟人设置持久化（主进程 store ↔ 渲染层设置页）
-  ipcMain.handle(PET_IPC.getVirtualHumanSettings, () => getVirtualHumanSettings())
-  ipcMain.handle(
+  ipc.handle(PET_IPC.getVirtualHumanSettings, () => getVirtualHumanSettings())
+  ipc.handle(
     PET_IPC.setVirtualHumanSettings,
     (_evt, patch: Partial<import('../../shared/virtual-human').VirtualHumanSettingsDTO>) => {
       const merged = setVirtualHumanSettings(patch)
@@ -382,18 +388,18 @@ export function registerPetModeIpc(deps: PetWindowManagerDeps): void {
   )
 
   // 文字输入聚焦/失焦时临时切换窗口键盘焦点
-  ipcMain.handle(PET_IPC.setFocusable, (_evt, focusable: boolean) => {
+  ipc.handle(PET_IPC.setFocusable, (_evt, focusable: boolean) => {
     petWindowManager?.setFocusable(focusable)
   })
 
   // 激活会话的虚拟人 Prompt 上下文（文字发送前调用，确保表情/persona 注入；语音 startCall 已自带激活）
-  ipcMain.handle(PET_IPC.activateVirtualHumanContext, async (_evt, sessionKey: string) => {
+  ipc.handle(PET_IPC.activateVirtualHumanContext, async (_evt, sessionKey: string) => {
     const { activateVirtualHumanContextForSession } = await import('./virtual-human-context')
     await activateVirtualHumanContextForSession(sessionKey)
   })
 
   // 渲染层获取模型可触发动作映射（tag → 动作组/index），用于播放 [motion:tag]
-  ipcMain.handle(PET_IPC.getModelMotionActions, async (_evt, modelId: string) => {
+  ipc.handle(PET_IPC.getModelMotionActions, async (_evt, modelId: string) => {
     const { getPetModelConfig, resolveModelMotionActions } = await import('./pet-model-resolver')
     const config = await getPetModelConfig(modelId)
     if (!config) return []
@@ -408,7 +414,7 @@ export function registerPetModeIpc(deps: PetWindowManagerDeps): void {
    * 惰性 import agent-runtime：pet 这一层不该在启动期就拽起整个运行时，
    * 而且 bridge 未就绪时它会返回 null，渲染层按「暂时读不到」处理。
    */
-  ipcMain.handle(PET_IPC.getPetPersonality, async (_evt, configId: string) => {
+  ipc.handle(PET_IPC.getPetPersonality, async (_evt, configId: string) => {
     try {
       const { getPetPersonalityLabel } = await import('../agent-runtime/pet-personality')
       return await getPetPersonalityLabel(configId)
@@ -428,7 +434,7 @@ export function registerPetModeIpc(deps: PetWindowManagerDeps): void {
    * 用户那句话递进来、把 `reason` 说出来。判断只能有一份——两份迟早漂移，
    * 而漂移的后果是"按钮说可以、派发侧说不行"。
    */
-  ipcMain.handle(PET_IPC.petTaskCreate, async (_evt, text: string) => {
+  ipc.handle(PET_IPC.petTaskCreate, async (_evt, text: string) => {
     try {
       const { createPetTask } = await import('../agent-runtime/pet-task-service')
       return await createPetTask(typeof text === 'string' ? text : '')
@@ -438,7 +444,7 @@ export function registerPetModeIpc(deps: PetWindowManagerDeps): void {
     }
   })
 
-  ipcMain.handle(PET_IPC.petTaskState, async () => {
+  ipc.handle(PET_IPC.petTaskState, async () => {
     try {
       const { getPetTaskState } = await import('../agent-runtime/pet-task-service')
       return getPetTaskState()
@@ -448,7 +454,7 @@ export function registerPetModeIpc(deps: PetWindowManagerDeps): void {
     }
   })
 
-  ipcMain.handle(PET_IPC.petTaskMarkRead, async () => {
+  ipc.handle(PET_IPC.petTaskMarkRead, async () => {
     try {
       const { markPetTaskRead } = await import('../agent-runtime/pet-task-service')
       markPetTaskRead()
@@ -465,7 +471,7 @@ export function registerPetModeIpc(deps: PetWindowManagerDeps): void {
    * `PET_EXPERIENCE_KINDS` 判）——那里能直接拿到运行时的名单，
    * 而这条 handler 走惰性 import，多引一个常量就多拽一份依赖起来。
    */
-  ipcMain.on(PET_IPC.petExperienceReport, (_evt, kind: unknown) => {
+  ipc.on?.(PET_IPC.petExperienceReport, (_evt, kind: unknown) => {
     void import('../agent-runtime/pet-experience-service')
       .then(({ reportPetExperience }) => reportPetExperience(kind))
       .catch((err: unknown) => {
@@ -473,7 +479,7 @@ export function registerPetModeIpc(deps: PetWindowManagerDeps): void {
       })
   })
 
-  ipcMain.handle(PET_IPC.petExperienceSummary, async () => {
+  ipc.handle(PET_IPC.petExperienceSummary, async () => {
     try {
       const { getPetExperience } = await import('../agent-runtime/pet-experience-service')
       return await getPetExperience()
@@ -493,7 +499,7 @@ export function registerPetModeIpc(deps: PetWindowManagerDeps): void {
    * 与 `focusSession` / `focusNotice` 的差别只有载荷：那两条送的是"去哪"，
    * 这条送的是"说什么"。三者都带主窗到前台，因为用户按的是一个"请你处理"的按钮。
    */
-  ipcMain.handle(
+  ipc.handle(
     PET_IPC.petHandoffToMain,
     async (_evt, payload: { description?: string; text?: string } | undefined) => {
       const win = petWindowManager?.getMainWindow()

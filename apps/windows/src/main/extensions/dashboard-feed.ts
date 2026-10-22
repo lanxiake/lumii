@@ -7,6 +7,7 @@ import {
 } from '@mtbot/agent-runtime'
 
 import type { MainEvents } from '../kernel/events'
+import { S } from '../kernel/services'
 import { agentRuntimeLog as log, jsonToolResult } from '../agent-runtime/bridge-utils'
 import {
   writeDashboardFeedSnapshot,
@@ -91,6 +92,19 @@ export const dashboardFeedExtension = {
     id: 'com.lumii.dashboard-feed',
     provides: ['dashboard-feed'],
     apply(ctx) {
+      // 工具要 registrar 那份上下文（会话归属、toolContext），由 bridge 提供入口。
+      // bridge 在 S7.4 才建，插件在 S1 激活——没建好就等 `agent:runtime-ready`。
+      const install = (): boolean => {
+        const bridge = ctx.get(S.agentRuntime)?.get()
+        if (!bridge) return false
+        ctx.effect(bridge.installDashboardFeedTools())
+        return true
+      }
+      if (!install()) {
+        ctx.on('agent:runtime-ready', () => {
+          install()
+        })
+      }
       ctx.log.info('首页信息流插件已启动')
     },
   }),

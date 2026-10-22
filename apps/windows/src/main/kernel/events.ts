@@ -19,7 +19,12 @@ export interface MainEvents {
 
   // ── Agent Runtime ──────────────────────────────────────────────────────
 
-  /** Agent Runtime 已初始化（S7，在所有 IPC 注册之后） */
+  /**
+   * Agent Runtime 已初始化（S7.4 末尾，bridge 构造完成之后）。
+   *
+   * 插件在 S1 就激活，这时 `ctx.get(S.agentRuntime)?.get()` 还是 null——
+   * 需要桥的接线（工具注册、盯梢循环）靠这个事件补上。
+   */
   'agent:runtime-ready': { at: number }
 
   /**

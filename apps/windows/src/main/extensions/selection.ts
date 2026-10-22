@@ -1,7 +1,7 @@
 import { definePlugin } from '@mtbot/plugin-core'
 
 import type { MainEvents } from '../kernel/events'
-import type { AgentRuntimeBridge } from '../agent-runtime'
+import { S } from '../kernel/services'
 import { registerSelectionIpcHandlers } from '../ipc/selection-ipc'
 
 /**
@@ -63,23 +63,13 @@ export const selectionExtension = {
     id: 'com.lumii.selection',
     provides: ['selection'],
     apply(ctx) {
+      // 接线在 apply 里，通道挂在插件作用域上：停用即摘，重新启用即装。
+      const bridge = ctx.get(S.agentRuntime)
+      registerSelectionIpcHandlers(
+        { getAgentRuntimeBridge: () => bridge?.get() ?? null },
+        { handle: (channel, listener) => ctx.registerIpc?.(channel, listener) },
+      )
       ctx.log.info('划词动作插件已启动')
     },
   }),
-}
-
-/** Selection IPC 注册依赖 */
-export interface SelectionIpcDeps {
-  getAgentRuntimeBridge: () => AgentRuntimeBridge | null
-}
-
-/**
- * 注册划词动作 IPC（从 ipc-handlers-registry.ts 迁移）。
- *
- * 由 IPC 注册器在初始化时调用。
- */
-export function registerSelectionIpc(deps: SelectionIpcDeps): void {
-  // **必须静态 import**：`require('../ipc/selection-ipc')` 会被原样打进
-  // `out/main/index.js`，运行时按产物目录解析（不存在）——只有真启动才报。
-  registerSelectionIpcHandlers(deps)
 }

@@ -220,7 +220,8 @@ import { BackgroundTaskManager, type BackgroundTaskRecord } from './background-t
 import { followComfyJob, parseEnqueuedPromptId, resolveComfyBaseUrl } from './comfyui-job-follower'
 import { buildBackgroundToolConfig } from './bootstrap/background-tool-config'
 import { writeDiaryFor } from './bootstrap/diary-writer'
-import { BridgeToolRegistrar } from './bridge-tool-registrar'
+import { BridgeToolRegistrar, type BridgeToolRegistrarDeps } from './bridge-tool-registrar'
+import { registerDashboardFeedTools } from '../extensions/dashboard-feed'
 import { BridgePromptDispatcher } from './bridge-prompt-dispatcher'
 import { RouterService } from './router/router-service'
 import { RouterLlmCallerImpl } from './router/llm-caller'
@@ -473,6 +474,8 @@ export class AgentRuntimeBridge {
   private readonly lifecycle: BridgeLifecycle
   private instanceFactory!: BridgeInstanceFactory
   private toolRegistrar!: BridgeToolRegistrar
+  /** registrar 的依赖原样留一份：插件运行期装/卸工具时要重建同一个上下文 */
+  private toolRegistrarDeps!: BridgeToolRegistrarDeps
   private promptDispatcher!: BridgePromptDispatcher
   private routerHitRateTracker: RouterHitRateTracker = new RouterHitRateTracker()
   /** onVirtualHumanSettingsChanged 取消订阅（shutdown/re-init 时防重复注册） */
@@ -1188,7 +1191,7 @@ export class AgentRuntimeBridge {
       this.toolRegistry.register(createMtBotTool(toolConfig, toolContext))
     }
 
-    this.toolRegistrar = new BridgeToolRegistrar({
+    this.toolRegistrarDeps = {
       toolRegistry: this.toolRegistry,
       toolContext,
       config: this.config,
@@ -1233,7 +1236,8 @@ export class AgentRuntimeBridge {
         import('../ipc/agent-runtime/dev-handoff-executor').then(({ runHandoffFromProposal }) =>
           runHandoffFromProposal({ bridge: this, ...params }),
         ),
-    })
+    }
+    this.toolRegistrar = new BridgeToolRegistrar(this.toolRegistrarDeps)
     this.toolRegistrar.registerAll()
   }
 
@@ -3592,6 +3596,49 @@ export class AgentRuntimeBridge {
 
   listTools(): Array<{ name: string; label: string; description: string; category: string; isReadOnly: boolean; needsPermission: boolean; enabled: boolean }> {
     return this.toolRegistry.getToolStatus()
+  }
+
+  /**
+   * 运行期装/卸「首页信息流」两个工具（`com.lumii.dashboard-feed` 的启停用）。
+   *
+   * 依赖的是 registrar 那份上下文（会话归属、工具上下文都在里面），
+   * 所以由 bridge 提供入口，而不是让插件自己拼一份 deps。
+   */
+  installDashboardFeedTools(): () => void {
+    registerDashboardFeedTools(this.toolRegistrarDeps)
+    return () => {
+      this.toolRegistry.unregister('dashboard_feed_write')
+      this.toolRegistry.unregister('dashboard_feed_read')
+    }
+  }
+
+  /**
+   * 运行期装/卸浏览器工具（`com.lumii.browser` 的启停用）。
+   *
+   * 只在配置了 `getBrowserContext` 时注册；返回的 disposer 按名字摘掉本次注册的工具。
+   */
+  installBrowserTools(): () => void {
+    const names = this.toolRegistrar.registerBrowserTools()
+    return () => {
+      for (const name of names) this.toolRegistry.unregister(name)
+    }
+  }
+
+  /**
+   * 运行期开关代聊盯梢循环（`com.lumii.relay` 的启停用）。
+   *
+   * 与启动时的播种走同一个函数：禁用会真的把已存在的 `wechat-watch` 任务停掉，
+   * 启用时按 MCP 是否配置决定播种/恢复。
+   */
+  setRelayLoopEnabled(enabled: boolean): void {
+    try {
+      const mcpConfigured = loadMcpServerConfigs().some(
+        (s) => s.name === WECHAT_WATCH_MCP_SERVER && s.enabled !== false,
+      )
+      ensureWechatWatchCronJobSeeded(this.localDb.db, { mcpConfigured, pluginEnabled: enabled })
+    } catch (err) {
+      log.warn('[bridge] 切换代聊盯梢循环失败:', err)
+    }
   }
 
   getMcpStatus(): McpServerRuntimeStatus[] { return this.mcpManager.getStatus() }

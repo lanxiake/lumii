@@ -14,20 +14,34 @@ const KEY = Symbol.for('lumii.extensions.active')
 const shared = ((globalThis as Record<symbol, unknown>)[KEY] ??= {
   ids: new Set<string>(),
   ready: false,
-}) as { ids: ReadonlySet<string>; ready: boolean }
+  resolve: null as ((id: string) => boolean) | null,
+}) as { ids: ReadonlySet<string>; ready: boolean; resolve: ((id: string) => boolean) | null }
 
+/** 快照式：启动时算一次，运行期不变。 */
 export function setActiveExtensionIds(ids: ReadonlySet<string>): void {
   shared.ids = ids
   shared.ready = true
 }
 
 /**
- * 插件本次启动是否激活（禁用项不在集合里）。
+ * 实时式：直接问宿主「这个插件现在是 active 吗」。
  *
- * **快照还没写时一律当作启用**：空集合若被当成「全都禁用」，任何在 `startExtensions()`
- * 之前跑的消费方（单测里直接构造 bridge、启动早期阶段）都会悄悄把功能关掉，
- * 而症状是「功能没了」——比「禁用了没关掉」难查得多。
+ * 运行期启停（设置页开关不再重启）之后，启动快照会过期——插件已经停了，
+ * 快照还说它开着。装配阶段的一次性消费方无所谓，但**运行期还会再读的地方**
+ * （如 bridge 播种盯梢任务）必须拿到实时状态。
+ */
+export function setExtensionActiveResolver(resolve: ((id: string) => boolean) | null): void {
+  shared.resolve = resolve
+}
+
+/**
+ * 插件当前是否生效。
+ *
+ * **既没解析器也没快照时一律当作启用**：空集合若被当成「全都禁用」，任何在
+ * `startExtensions()` 之前跑的消费方（单测里直接构造 bridge、启动早期阶段）都会悄悄把
+ * 功能关掉，而症状是「功能没了」——比「禁用了没关掉」难查得多。
  */
 export function isExtensionActive(id: string): boolean {
+  if (shared.resolve) return shared.resolve(id)
   return !shared.ready || shared.ids.has(id)
 }

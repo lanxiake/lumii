@@ -189,7 +189,13 @@ export const ExtensionsPanel: React.FC = () => {
           setNotice(result.error ?? '操作失败')
           return
         }
-        setNotice(`${item.name} 已${item.enabled ? '禁用' : '启用'}，重启应用后生效`)
+        // 接线在 apply() 里的内置插件是**立刻生效**的；其余（外部扩展、尚未迁移的
+        // 内置插件）仍要重启。以主进程返回的 restartRequired 为准，别替它猜。
+        setNotice(
+          result.restartRequired === false
+            ? `${item.name} 已${item.enabled ? '禁用' : '启用'}，已生效`
+            : `${item.name} 已${item.enabled ? '禁用' : '启用'}，重启应用后生效`,
+        )
         await refresh()
       } finally {
         setBusy(null)

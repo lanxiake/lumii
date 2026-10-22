@@ -117,7 +117,7 @@ export function registerBrowserTools(
   toolRegistry: ToolRegistry,
   ctx: ToolExecutionContext,
   getBrowserContext: GetBrowserContext,
-): void {
+): string[] {
   const dispatchRoute = async (path: string, req: BrowserRouteRequest = {}): Promise<unknown> => {
     const browserCtx = getBrowserContext()
     if (!browserCtx) {
@@ -161,8 +161,14 @@ export function registerBrowserTools(
       }
     }
 
+  // 记下注册了哪些名字：插件停用时按名字摘掉（见 bridge.installBrowserTools 的 disposer）
+  const registered: string[] = []
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const reg = (tool: any) => toolRegistry.register(tool as MtBotTool)
+  const reg = (tool: any) => {
+    toolRegistry.register(tool as MtBotTool)
+    if (tool?.name) registered.push(String(tool.name))
+  }
+
 
   reg(createMtBotTool({
     name: 'browser_navigate', label: 'Navigate Browser', category: 'channel' as const,
@@ -337,4 +343,5 @@ export function registerBrowserTools(
   }, ctx))
 
   log.info('[registerBrowserTools] browser tools registered')
+  return registered
 }

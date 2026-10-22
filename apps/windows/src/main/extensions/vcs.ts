@@ -1,6 +1,7 @@
 import { definePlugin } from '@mtbot/plugin-core'
 
 import type { MainEvents } from '../kernel/events'
+import { S } from '../kernel/services'
 import { registerVcsIpcHandlers, setVcsIpcDeps } from '../ipc/vcs-ipc'
 
 /**
@@ -67,29 +68,17 @@ export const vcsExtension = {
     id: 'com.lumii.vcs',
     provides: ['vcs'],
     apply(ctx) {
+      // 接线就在 apply 里：`ctx.registerIpc` 把通道挂在插件作用域上，
+      // 停用时由 scope 自动 `removeHandler` —— 这是「关掉开关立刻生效」的前提。
+      const workspaceDir = ctx.get(S.workspaceDir)
+      setVcsIpcDeps({
+        getWorkspaceDir: () => workspaceDir?.get() ?? '',
+        log: ctx.log,
+      })
+      registerVcsIpcHandlers({
+        handle: (channel, listener) => ctx.registerIpc?.(channel, listener),
+      })
       ctx.log.info('VCS 插件已启动')
     },
   }),
-}
-
-/** VCS IPC 注册依赖 */
-export interface VcsIpcDeps {
-  getWorkspaceDir: () => string
-  log: {
-    info: (...args: unknown[]) => void
-    warn: (...args: unknown[]) => void
-  }
-}
-
-/**
- * 注册 VCS IPC（从 ipc-handlers-registry.ts 迁移）。
- *
- * 由 IPC 注册器在初始化时调用。
- */
-export function registerVcsIpc(deps: VcsIpcDeps): void {
-  // 直接复用原有的注册逻辑。
-  // **必须静态 import**：`require('../ipc/vcs-ipc')` 会被原样打进 `out/main/index.js`，
-  // 运行时按产物目录解析成 `out/ipc/vcs-ipc`（不存在）——tsc 看不见，只有真启动才报。
-  setVcsIpcDeps(deps)
-  registerVcsIpcHandlers()
 }

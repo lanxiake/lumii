@@ -149,7 +149,7 @@ import { registerBuiltinPlugins } from './plugins/builtin'
 import { setupPluginIpcHandlers } from './plugins/plugin-manager'
 import type { PluginHost } from '@mtbot/plugin-core'
 import { createPluginHost } from './plugin-host'
-import { isExtensionActive, setActiveExtensionIds } from './extensions/active'
+import { isExtensionActive, setActiveExtensionIds, setExtensionActiveResolver } from './extensions/active'
 import { ExternalExtensionRuntime, resolveExtensionsDir } from './extension-loader'
 import { loadOfficialCatalog, syncOfficialExtensions } from './official-extensions'
 import { S } from './kernel/services'
@@ -857,6 +857,10 @@ async function initAgentRuntime(): Promise<void> {
     bridge: agentRuntimeBridge!,
     getMainWindow: () => mainWindow,
   })
+
+  // 扩展在 S1 激活，此时 bridge 还没建；等它的插件靠这个事件补接线
+  // （dashboard-feed 的工具、relay 的盯梢循环）。
+  pluginEventBus?.emit('agent:runtime-ready', { at: Date.now() })
 }
 
 /**
@@ -1279,7 +1283,7 @@ async function startExtensions(): Promise<void> {
   const { disabled, warning } = readExtensionPrefs()
   if (warning) log.warn(`[extensions] ${warning}`)
 
-  const { host, skipped, eventBus } = createPluginHost(
+  const { host, disabled: disabledPlugins, eventBus } = createPluginHost(
     {
       debug: (m) => log.debug(m),
       info: (m) => log.info(m),
@@ -1297,11 +1301,13 @@ async function startExtensions(): Promise<void> {
   pluginHost.container.provide(S.agentRuntime, { get: () => agentRuntimeBridge })
   pluginHost.container.provide(S.mainWindow, { get: () => mainWindow })
   pluginHost.container.provide(S.tray, { get: () => trayManager })
-  if (skipped.length > 0) {
-    log.info(`扩展已按配置禁用: ${skipped.join('、')}`)
+  pluginHost.container.provide(S.workspaceDir, { get: () => getWorkspaceDir() })
+  if (disabledPlugins.size > 0) {
+    log.info(`扩展已按配置禁用: ${[...disabledPlugins].join('、')}`)
   }
 
-  const report = await pluginHost.start()
+  // 禁用的只注册不激活（保留在宿主里，运行时可在设置页直接 activate）
+  const report = await pluginHost.start({ exclude: disabledPlugins })
 
   // updater 由内置扩展提供；perf / cloud-sync 已拆成官方外部扩展，必须等外部加载后再取
   updaterService = pluginHost.container.get(S.updater) ?? null
@@ -1331,9 +1337,10 @@ async function startExtensions(): Promise<void> {
   }, { disabledIds: disabled })
   await externalExtensions.loadAll()
   externalExtensions.startWatching()
-  // 禁用项压根没进 host，所以 list() 就是「这次真起来了谁」。
   // 给仍留在核心模块里的注册点判断该不该接线（见 extensions/active.ts）。
+  // 解析器优先：运行期开关之后，启动快照会过期（插件已经停了，快照还说它开着）。
   setActiveExtensionIds(new Set(pluginHost.list().map((p) => p.id)))
+  setExtensionActiveResolver((id) => pluginHost?.get(id)?.state === 'active')
 
   // perf / cloud-sync 可能由官方外部扩展提供：必须在 loadAll 之后读
   performanceMonitor = pluginHost.container.get(S.perf) ?? null
@@ -1451,19 +1458,8 @@ async function initUiStages(flags: ReturnType<typeof readStartupFlags>): Promise
 
   // 桌宠模式 IPC 由 extensions/pet.ts 在窗口就绪时注册（无头模式下自然不装配）
 
-  // 文件预览独立窗口（可拖出主窗口外）
-  // 无头模式下跳过文件预览窗口；插件被禁用时也不接线
-  if (!isHeadless && isExtensionActive('com.lumii.file-preview')) {
-    const { registerFilePreviewIpc } = await import('./extensions/file-preview')
-    registerFilePreviewIpc({
-      getMainWindow: () => mainWindow,
-      preloadPath: join(__dirname, '../preload/index.js'),
-      rendererUrl: process.env.ELECTRON_RENDERER_URL,
-      indexHtmlPath: join(__dirname, '../renderer/index.html'),
-    })
-  } else {
-    log.info('无头模式或插件已禁用：跳过文件预览窗口 IPC 注册')
-  }
+  // 文件预览的窗口与 IPC 由 extensions/file-preview.ts 在自己的 apply() 里装
+  // （无头模式在插件内跳过）——它的启停不再依赖这里的时序。
 
 
   // 无头模式下跳过托盘和录屏初始化

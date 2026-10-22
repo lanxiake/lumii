@@ -3,12 +3,13 @@
  */
 import { ipcMain } from 'electron'
 import { getWorkspaceVcs } from '../workspace-vcs/vcs-snapshot'
+import type { IpcHandleRegistrar } from '../kernel/ipc-registry'
 
 interface VcsIpcDeps {
   getWorkspaceDir: () => string
   log: {
-    info: (...args: unknown[]) => void
-    warn: (...args: unknown[]) => void
+    info(message: string, data?: unknown): void
+    warn(message: string, data?: unknown): void
   }
 }
 
@@ -23,16 +24,18 @@ function vcsWarn(msg: string): void {
   deps.log.warn(`[VCS-IPC] ${msg}`)
 }
 
-export function registerVcsIpcHandlers(): void {
+export function registerVcsIpcHandlers(
+  registrar: IpcHandleRegistrar = ipcMain as unknown as IpcHandleRegistrar,
+): void {
   if (!deps) throw new Error('VcsIpc deps not set')
 
-  ipcMain.handle('vcs:ensureInit', async () => {
+  registrar.handle('vcs:ensureInit', async () => {
     const repo = getWorkspaceVcs(deps!.getWorkspaceDir())
     await repo.ensureInitialized()
     return { ok: true }
   })
 
-  ipcMain.handle('vcs:commit', async (_event, opts?: { message?: string }) => {
+  registrar.handle('vcs:commit', async (_event, opts?: { message?: string }) => {
     try {
       const repo = getWorkspaceVcs(deps!.getWorkspaceDir())
       const commit = await repo.commit({
@@ -46,7 +49,7 @@ export function registerVcsIpcHandlers(): void {
     }
   })
 
-  ipcMain.handle('vcs:log', async (_event, opts?: { limit?: number; offset?: number }) => {
+  registrar.handle('vcs:log', async (_event, opts?: { limit?: number; offset?: number }) => {
     try {
       const repo = getWorkspaceVcs(deps!.getWorkspaceDir())
       const entries = await repo.log(opts)
@@ -57,7 +60,7 @@ export function registerVcsIpcHandlers(): void {
     }
   })
 
-  ipcMain.handle('vcs:statusDiff', async (_event, opts?: { baseOid?: string }) => {
+  registrar.handle('vcs:statusDiff', async (_event, opts?: { baseOid?: string }) => {
     try {
       const repo = getWorkspaceVcs(deps!.getWorkspaceDir())
       const diff = await repo.statusDiff(opts?.baseOid)
@@ -68,7 +71,7 @@ export function registerVcsIpcHandlers(): void {
     }
   })
 
-  ipcMain.handle('vcs:diff', async (_event, opts: { fromOid: string; toOid: string; withHunks?: boolean }) => {
+  registrar.handle('vcs:diff', async (_event, opts: { fromOid: string; toOid: string; withHunks?: boolean }) => {
     try {
       const repo = getWorkspaceVcs(deps!.getWorkspaceDir())
       const diff = await repo.diffCommits(opts.fromOid, opts.toOid, { withHunks: opts.withHunks })
@@ -79,7 +82,7 @@ export function registerVcsIpcHandlers(): void {
     }
   })
 
-  ipcMain.handle(
+  registrar.handle(
     'vcs:diffFile',
     async (_event, opts: { fromOid: string; toOid: string; filepath: string }) => {
       try {
@@ -93,7 +96,7 @@ export function registerVcsIpcHandlers(): void {
     },
   )
 
-  ipcMain.handle('vcs:readFileAt', async (_event, opts: { oid: string; filepath: string }) => {
+  registrar.handle('vcs:readFileAt', async (_event, opts: { oid: string; filepath: string }) => {
     try {
       const repo = getWorkspaceVcs(deps!.getWorkspaceDir())
       const content = await repo.readFileAt(opts.oid, opts.filepath)
@@ -104,7 +107,7 @@ export function registerVcsIpcHandlers(): void {
     }
   })
 
-  ipcMain.handle('vcs:rollback', async (_event, opts: { oid: string }) => {
+  registrar.handle('vcs:rollback', async (_event, opts: { oid: string }) => {
     try {
       const repo = getWorkspaceVcs(deps!.getWorkspaceDir())
       const result = await repo.rollbackTo(opts.oid)
@@ -116,7 +119,7 @@ export function registerVcsIpcHandlers(): void {
     }
   })
 
-  ipcMain.handle('vcs:revertFile', async (_event, opts: { oid: string; filepath: string }) => {
+  registrar.handle('vcs:revertFile', async (_event, opts: { oid: string; filepath: string }) => {
     try {
       const repo = getWorkspaceVcs(deps!.getWorkspaceDir())
       const result = await repo.revertFile(opts.oid, opts.filepath)
@@ -128,7 +131,7 @@ export function registerVcsIpcHandlers(): void {
     }
   })
 
-  ipcMain.handle('vcs:findCommitByConversation', async (_event, opts: { conversationId: string }) => {
+  registrar.handle('vcs:findCommitByConversation', async (_event, opts: { conversationId: string }) => {
     try {
       const repo = getWorkspaceVcs(deps!.getWorkspaceDir())
       const commit = await repo.findCommitByConversation(opts.conversationId)

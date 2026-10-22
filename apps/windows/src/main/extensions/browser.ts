@@ -1,6 +1,8 @@
 import { definePlugin } from '@mtbot/plugin-core'
 
 import type { MainEvents } from '../kernel/events'
+import { S } from '../kernel/services'
+import { startBrowserService, stopBrowserService } from '../browser-service'
 
 /**
  * 浏览器控制扩展（CDP + 扩展中继）。
@@ -62,17 +64,26 @@ export const browserExtension = {
     id: 'com.lumii.browser',
     provides: ['browser'],
     apply(ctx) {
-      // 服务启动在 `post-ready.ts`（S8）、工具注册在 `bridge-tool-registrar.ts`；
-      // 两处都查 `isExtensionActive`，所以本插件被禁用时它们都不会接线。
-      // 不在这里启动：服务要等 app ready，工具注册早于 app ready。
+      // 工具要 registrar 的上下文（bridge 在 S7.4 才建），服务要配置就绪——都等
+      // `agent:runtime-ready`。启动时 `post-ready.ts` 还会兜一次 start（幂等）。
+      const wire = (): boolean => {
+        const bridge = ctx.get(S.agentRuntime)?.get()
+        if (!bridge) return false
+        ctx.effect(bridge.installBrowserTools())
+        void startBrowserService()
+        ctx.effect(() => {
+          ctx.log.info('浏览器插件卸载，停止控制服务')
+          void stopBrowserService()
+        })
+        return true
+      }
+      if (!wire()) {
+        ctx.on('agent:runtime-ready', () => {
+          wire()
+        })
+      }
 
-      ctx.log.info('浏览器插件已加载（服务启动由 post-ready.ts 执行）')
-
-      // P2: 禁用时停止服务
-      // ctx.effect(() => {
-      //   stopBrowserService()
-      //   ctx.log.info('浏览器插件卸载，已停止浏览器服务')
-      // })
+      ctx.log.info('浏览器插件已加载（服务与工具随插件启停）')
     },
   }),
 }

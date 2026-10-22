@@ -11,7 +11,7 @@ import {
   setMainExtensionEnabled,
   resolveExtensionsConfigPath,
 } from './kernel/extension-store'
-import { BUILTIN_EXTENSIONS, type BuiltinExtension } from './plugin-host'
+import { BUILTIN_EXTENSIONS, HOT_SWAPPABLE_BUILTINS, type BuiltinExtension } from './plugin-host'
 import { resolveClientPluginsDir } from './plugin-paths'
 import { readInstalledOfficial, type OfficialCatalogEntry } from './official-extensions'
 
@@ -66,8 +66,16 @@ export interface PluginTarget {
 
 export interface ExtensionControl {
   list(): ExtensionInfo[]
-  /** 主进程扩展开关（内置与外部共用一张禁用表） */
-  setEnabled(id: string, enabled: boolean): { ok: true; restartRequired: true } | { ok: false; error: string }
+  /**
+   * 主进程扩展开关（内置与外部共用一张禁用表）。
+   *
+   * `restartRequired: false` 表示**已经生效**（内置插件里接线在 `apply()` 的那批）。
+   * 外部扩展与尚未迁移的内置插件仍返回 true——它们的初始化散在核心启动路径上。
+   */
+  setEnabled(
+    id: string,
+    enabled: boolean,
+  ): Promise<{ ok: true; restartRequired: boolean } | { ok: false; error: string }>
   /** 客户端插件开关（写盘后渲染层下一轮轮询即生效） */
   setClientEnabled(id: string, enabled: boolean): { ok: true } | { ok: false; error: string }
   /** 可打开/删除的绝对目录；内置或找不到时 null */
@@ -81,6 +89,8 @@ export interface ExtensionControlDeps {
   external?: ExternalExtensionRuntime | null
   /** 可注入：单测用它替掉真实清单（真实清单会连带 import voice/onnx 整条依赖链） */
   builtins?: BuiltinExtension[]
+  /** 可注入：哪些内置插件支持运行期启停（默认 `HOT_SWAPPABLE_BUILTINS`） */
+  hotSwappable?: ReadonlySet<string>
   storeFile?: string
   /** 客户端插件根目录；测试注入临时目录 */
   clientPluginsRoot?: string
@@ -94,6 +104,8 @@ function messageOf(err: unknown): string {
 
 export function createExtensionControl(deps: ExtensionControlDeps): ExtensionControl {
   const builtins = deps.builtins ?? BUILTIN_EXTENSIONS
+  const builtinIds = new Set(builtins.map(({ manifest }) => manifest.id))
+  const hotSwappable = deps.hotSwappable ?? HOT_SWAPPABLE_BUILTINS
   const storeFile = deps.storeFile ?? resolveExtensionsConfigPath()
 
   function list(): ExtensionInfo[] {
@@ -102,6 +114,12 @@ export function createExtensionControl(deps: ExtensionControlDeps): ExtensionCon
     const builtinItems: ExtensionInfo[] = builtins.map(({ manifest }) => {
       const live = deps.host.get(manifest.id)
       const enabled = !disabled.has(manifest.id)
+      /**
+       * 内置插件**总是**登记在宿主里（禁用的只是不激活，见 plugin-host.ts），
+       * 所以判「有没有在跑」只能看 state：registered/stopped = 没跑；
+       * failed 算「已经尝试过」，不该一直挂着「待重启」。
+       */
+      const running = live?.state === 'active' || live?.state === 'failed'
       return {
         id: manifest.id,
         name: manifest.name,
@@ -113,11 +131,7 @@ export function createExtensionControl(deps: ExtensionControlDeps): ExtensionCon
         state: enabled ? (live?.state ?? 'unknown') : 'disabled',
         activationMs: live?.activationMs,
         error: live?.error ? messageOf(live.error) : undefined,
-        /**
-         * 宿主里是否存在该条目 = 启动时是否启用。
-         * 不能用 `state`：激活失败的内置扩展也会留下条目（state='failed'）。
-         */
-        pendingRestart: enabled !== Boolean(live),
+        pendingRestart: enabled !== running,
       }
     })
 
@@ -234,14 +248,33 @@ export function createExtensionControl(deps: ExtensionControlDeps): ExtensionCon
     }
   }
 
-  function setEnabled(id: string, enabled: boolean): ReturnType<ExtensionControl['setEnabled']> {
+  async function setEnabled(
+    id: string,
+    enabled: boolean,
+  ): Promise<ReturnType<ExtensionControl['setEnabled']> extends Promise<infer R> ? R : never> {
     const known = list().some((item) => item.id === id)
     if (!known) return { ok: false, error: `未知扩展：${id}` }
     try {
       setMainExtensionEnabled(id, enabled, storeFile)
-      return { ok: true, restartRequired: true }
     } catch (err) {
       return { ok: false, error: `写入偏好失败：${messageOf(err)}` }
+    }
+
+    // 外部扩展由 ExternalExtensionRuntime 管（有自己的一套加载/回滚），这里不碰
+    if (!builtinIds.has(id) || !hotSwappable.has(id)) {
+      return { ok: true, restartRequired: true }
+    }
+
+    try {
+      if (enabled) {
+        const error = await deps.host.activate(id)
+        if (error) return { ok: false, error: `启用失败：${messageOf(error)}` }
+      } else {
+        await deps.host.stop(id)
+      }
+      return { ok: true, restartRequired: false }
+    } catch (err) {
+      return { ok: false, error: `切换失败：${messageOf(err)}` }
     }
   }
 

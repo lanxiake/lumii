@@ -2,7 +2,6 @@ import { definePlugin } from '@mtbot/plugin-core'
 
 import type { MainEvents } from '../kernel/events'
 import { S } from '../kernel/services'
-import { ensureWechatWatchCronJobSeeded } from '../agent-runtime/wechat-watch-tick'
 
 /**
  * 代聊扩展（微信消息盯梢 + 自动回复）。
@@ -58,10 +57,23 @@ export const relayExtension = {
     id: 'com.lumii.relay',
     provides: ['relay'],
     apply(ctx) {
-      // cron 播种不在这里：bridge 在 S7 初始化，盯梢要它注入的 db / driveTurn / mcpManager，
-      // 移动播种点风险 > 收益。禁用由播种处的 `pluginEnabled` 门负责（见文件头）。
+      // 播种点仍在 bridge（要它注入的 db / driveTurn / mcpManager），但**开关归插件**：
+      // 启用即恢复/播种，停用即真的把那条 15 秒循环停掉。bridge 在 S7.4 才建，
+      // 插件在 S1 激活——没建好就等 `agent:runtime-ready`。
+      const wire = (): boolean => {
+        const bridge = ctx.get(S.agentRuntime)?.get()
+        if (!bridge) return false
+        bridge.setRelayLoopEnabled(true)
+        ctx.effect(() => bridge.setRelayLoopEnabled(false))
+        return true
+      }
+      if (!wire()) {
+        ctx.on('agent:runtime-ready', () => {
+          wire()
+        })
+      }
 
-      ctx.log.info('代聊插件已加载（cron 任务由 bridge 初始化时播种）')
+      ctx.log.info('代聊插件已加载（盯梢循环随插件启停）')
     },
   }),
 }

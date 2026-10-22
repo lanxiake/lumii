@@ -44,6 +44,8 @@ export const S = {
   agentRuntime: createServiceKey<LateRef<AgentRuntimeBridge>>('agentRuntime'),
   /** 主窗口（S2–S5 才创建） */
   mainWindow: createServiceKey<LateRef<BrowserWindow>>('mainWindow'),
+  /** 工作空间目录（S6 才解析出来；用 LateRef 现取，别缓存成启动那一刻的值） */
+  workspaceDir: createServiceKey<LateRef<string>>('workspaceDir'),
   /** 托盘（S2–S5 才创建） */
   tray: createServiceKey<LateRef<TrayManager>>('tray'),
   /** 语音服务（由 extensions/voice.ts 在窗口就绪后提供） */

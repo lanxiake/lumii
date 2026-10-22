@@ -1,7 +1,10 @@
+import { join } from 'node:path'
+
 import { definePlugin } from '@mtbot/plugin-core'
 
 import type { MainEvents } from '../kernel/events'
-import type { PreviewWindowManagerDeps } from '../file-preview/preview-window-manager'
+import { S } from '../kernel/services'
+import { hasHeadlessFlag } from '../platform/feature-probe'
 import { registerFilePreviewWindowIpc } from '../file-preview/preview-window-ipc'
 
 /**
@@ -68,20 +71,23 @@ export const filePreviewExtension = {
     id: 'com.lumii.file-preview',
     provides: ['file-preview'],
     apply(ctx) {
+      if (hasHeadlessFlag()) {
+        ctx.log.info('无头模式：跳过文件预览窗口 IPC 注册')
+        return
+      }
+      const mainWindow = ctx.get(S.mainWindow)
+      // 窗口管理器随插件实例一起建/拆：停用时关掉已开的预览窗，处理器由 scope 摘掉。
+      const { dispose } = registerFilePreviewWindowIpc(
+        {
+          getMainWindow: () => mainWindow?.get() ?? null,
+          preloadPath: join(__dirname, '../preload/index.js'),
+          rendererUrl: process.env.ELECTRON_RENDERER_URL,
+          indexHtmlPath: join(__dirname, '../renderer/index.html'),
+        },
+        { handle: (channel, listener) => ctx.registerIpc?.(channel, listener) },
+      )
+      ctx.effect(() => dispose())
       ctx.log.info('文件预览插件已启动')
     },
   }),
-}
-
-/**
- * 注册文件预览 IPC（从 index.ts 迁移）。
- *
- * 由 index.ts 在 `app:ready` 后、非无头模式下调用。
- * 时序在插件 apply() 之后、Electron app 就绪后。
- */
-export function registerFilePreviewIpc(deps: PreviewWindowManagerDeps): void {
-  // 直接复用原有的注册逻辑。
-  // **必须静态 import**：`require(...)` 会被原样打进 `out/main/index.js`，
-  // 运行时按产物目录解析成 `out/file-preview/...`（不存在）——真启动就炸，tsc 看不见。
-  registerFilePreviewWindowIpc(deps)
 }

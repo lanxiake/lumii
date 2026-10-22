@@ -167,12 +167,58 @@ describe('createExtensionControl', () => {
     ).toBeUndefined()
   })
 
-  it('内置扩展：改完开关到重启前 pendingRestart=true', () => {
+  it('内置扩展（不可热插拔）：改完开关到重启前 pendingRestart=true', async () => {
     const control = createExtensionControl({ host, builtins, storeFile })
 
-    control.setEnabled('com.test.alpha', false)
+    await control.setEnabled('com.test.alpha', false)
 
     expect(control.list()[0]).toMatchObject({ enabled: false, pendingRestart: true })
+  })
+
+  it('内置扩展（可热插拔）：关掉即停，开回来即活，不算待重启', async () => {
+    let applyCount = 0
+    const hotBuiltins: BuiltinExtension[] = [
+      {
+        manifest: {
+          id: 'com.test.hot',
+          name: 'Hot',
+          version: '1.0.0',
+          engines: { lumii: '>=0.1.0' },
+          kind: 'code',
+        },
+        definition: {
+          id: 'com.test.hot',
+          apply() {
+            applyCount += 1
+          },
+        },
+      },
+    ]
+    const hotHost = new PluginHost<MainEvents>()
+    hotHost.register(hotBuiltins[0].definition)
+    await hotHost.activate('com.test.hot')
+
+    const control = createExtensionControl({
+      host: hotHost,
+      builtins: hotBuiltins,
+      hotSwappable: new Set(['com.test.hot']),
+      storeFile,
+    })
+
+    expect(await control.setEnabled('com.test.hot', false)).toEqual({
+      ok: true,
+      restartRequired: false,
+    })
+    expect(hotHost.get('com.test.hot')?.state).toBe('stopped')
+    expect(control.list()[0]).toMatchObject({ enabled: false, state: 'disabled', pendingRestart: false })
+
+    expect(await control.setEnabled('com.test.hot', true)).toEqual({
+      ok: true,
+      restartRequired: false,
+    })
+    expect(hotHost.get('com.test.hot')?.state).toBe('active')
+    expect(applyCount).toBe(2)
+    expect(control.list()[0]).toMatchObject({ enabled: true, state: 'active', pendingRestart: false })
   })
 
   it('外部扩展：按启动快照判断待重启，而不是按运行时 enabled', () => {
@@ -187,18 +233,18 @@ describe('createExtensionControl', () => {
     expect(control.list()[1]).toMatchObject({ enabled: true, pendingRestart: true })
   })
 
-  it('被禁用的内置扩展：enabled=false、state=disabled', () => {
+  it('被禁用的内置扩展：enabled=false、state=disabled', async () => {
     const control = createExtensionControl({ host, builtins, storeFile })
-    expect(control.setEnabled('com.test.alpha', false)).toEqual({ ok: true, restartRequired: true })
+    expect(await control.setEnabled('com.test.alpha', false)).toEqual({ ok: true, restartRequired: true })
 
     expect(control.list()[0]).toMatchObject({ enabled: false, state: 'disabled' })
     expect([...readExtensionPrefs(storeFile).disabled]).toEqual(['com.test.alpha'])
   })
 
-  it('未知 id 不写盘', () => {
+  it('未知 id 不写盘', async () => {
     const control = createExtensionControl({ host, builtins, storeFile })
 
-    expect(control.setEnabled('nope', false)).toMatchObject({ ok: false })
+    expect(await control.setEnabled('nope', false)).toMatchObject({ ok: false })
 
     expect(readExtensionPrefs(storeFile).disabled.size).toBe(0)
   })

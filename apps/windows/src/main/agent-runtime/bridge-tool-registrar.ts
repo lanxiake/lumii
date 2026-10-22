@@ -35,7 +35,6 @@ import { registerSyncConflictTool } from './bridge-tool-registrar-sync'
 import { registerChannelTools, registerIntegrationTools } from './bridge-tool-registrar-integration'
 import { registerClientCommandTools, registerAgentManagementTools } from './bridge-tool-registrar-client-cmd'
 import { registerHandoffTools } from './bridge-tool-registrar-handoff'
-import { registerDashboardFeedTools } from '../extensions/dashboard-feed'
 import { isExtensionActive } from '../extensions/active'
 import type { BridgeToolRegistrarDeps } from './bridge-tool-registrar-types'
 
@@ -57,8 +56,8 @@ export class BridgeToolRegistrar {
     registerLocalCronTools(this.deps)
     // 云同步冲突解决（resolve_sync_conflict / cloud_sync_read_file），始终注册
     registerSyncConflictTool(this.deps)
-    // 资讯卡片写入（从插件迁移），供 Agent 驱动的资讯抓取任务落盘结构化结果
-    if (isExtensionActive('com.lumii.dashboard-feed')) registerDashboardFeedTools(this.deps)
+    // 资讯卡片工具不在这里装：归属 `com.lumii.dashboard-feed` 插件，
+    // 由它的 apply() 调 `bridge.installDashboardFeedTools()`——这样启停才是运行期生效的。
     // 工作日报/复盘只读工具，供早间简报/每周复盘取真实「进行中/明天优先」
     registerWorkReportReadTool(this.deps)
     // 渠道出站：不依赖 Gateway，始终注册
@@ -86,10 +85,8 @@ export class BridgeToolRegistrar {
       // 资讯偏好结构化读写（资讯策展 Agent 用）
       registerNewsPreferenceTool(this.deps)
     }
-    // 浏览器控制工具（配置存在且插件启用时注册）
-    if (this.deps.config.getBrowserContext && isExtensionActive('com.lumii.browser')) {
-      this.registerBrowserTools()
-    }
+    // 浏览器工具不在这里装：归属 `com.lumii.browser` 插件，
+    // 由它的 apply() 调 `bridge.installBrowserTools()`（配置齐了才装）。
   }
 
   /**
@@ -386,10 +383,11 @@ export class BridgeToolRegistrar {
     }
   }
 
-  private registerBrowserTools(): void {
+  /** 注册浏览器工具，返回注册了哪些名字（插件停用时按名字摘）。 */
+  registerBrowserTools(): string[] {
     const getBrowserContext = this.deps.config.getBrowserContext
-    if (!this.deps.toolContext || !getBrowserContext) return
-    registerBrowserToolsFn(this.deps.toolRegistry, this.deps.toolContext, getBrowserContext)
+    if (!this.deps.toolContext || !getBrowserContext) return []
+    return registerBrowserToolsFn(this.deps.toolRegistry, this.deps.toolContext, getBrowserContext)
   }
 
   /** 注册 Agent App UI 控制工具（app_screenshot 等） */

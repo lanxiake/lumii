@@ -11,33 +11,37 @@ import {
   PreviewWindowManager,
   type PreviewWindowManagerDeps,
 } from './preview-window-manager'
-
-let manager: PreviewWindowManager | null = null
-let registered = false
+import type { IpcHandleRegistrar } from '../kernel/ipc-registry'
 
 /**
- * 注册 file-preview:* IPC，并初始化 PreviewWindowManager
+ * 注册 file-preview:* IPC，并创建一个 PreviewWindowManager。
+ *
+ * 管理器**不再挂在模块级**：插件禁用时要把窗口关掉、处理器摘掉，重新启用时再建一套。
+ * 以前用模块级单例 + `registered` 标志，第二次注册会被「已注册」挡掉，
+ * 那是「只能重启恢复」的根。
+ *
+ * 返回的 `dispose` 由插件接进 `ctx.effect`。
  */
-export function registerFilePreviewWindowIpc(deps: PreviewWindowManagerDeps): void {
-  if (registered) {
-    console.warn('[PreviewWindowIpc] 已注册，跳过')
-    return
-  }
-  registered = true
-  manager = new PreviewWindowManager(deps)
+export function registerFilePreviewWindowIpc(
+  deps: PreviewWindowManagerDeps,
+  registrar: IpcHandleRegistrar = ipcMain as unknown as IpcHandleRegistrar,
+): { dispose(): void } {
+  const manager = new PreviewWindowManager(deps)
 
-  ipcMain.handle(FILE_PREVIEW_IPC.open, async (_evt, payload: FilePreviewWindowPayload) => {
+  registrar.handle(FILE_PREVIEW_IPC.open, async (_evt, payload: FilePreviewWindowPayload) => {
     if (!payload?.fileName || (!payload.fileId && !payload.filePath)) {
       throw new Error('file-preview:open 需要 fileName 与 fileId/filePath')
     }
-    await manager!.open(payload)
+    await manager.open(payload)
     return { ok: true as const }
   })
 
-  ipcMain.handle(FILE_PREVIEW_IPC.close, () => {
-    manager?.close()
+  registrar.handle(FILE_PREVIEW_IPC.close, () => {
+    manager.close()
     return { ok: true as const }
   })
 
-  ipcMain.handle(FILE_PREVIEW_IPC.getPayload, () => manager?.getPayload() ?? null)
+  registrar.handle(FILE_PREVIEW_IPC.getPayload, () => manager.getPayload() ?? null)
+
+  return { dispose: () => manager.close() }
 }

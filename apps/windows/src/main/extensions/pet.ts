@@ -1,5 +1,6 @@
 import { join } from 'node:path'
 
+import { ipcMain } from 'electron'
 import { definePlugin } from '@mtbot/plugin-core'
 
 import type { MainEvents } from '../kernel/events'
@@ -61,25 +62,38 @@ export const petExtension = {
         const getMainWindow = () => mainWindowRef.get()
         const getTray = () => ctx.get(S.tray)?.get() ?? null
 
-        registerPetModeIpc({
-          getMainWindow,
-          preloadPath: join(__dirname, '../preload/index.js'),
-          rendererUrl: process.env.ELECTRON_RENDERER_URL,
-          indexHtmlPath: join(__dirname, '../renderer/index.html'),
-          onForceIgnoreChanged: (forceIgnore) => {
-            getTray()?.updateForceIgnore(forceIgnore)
+        registerPetModeIpc(
+          {
+            getMainWindow,
+            preloadPath: join(__dirname, '../preload/index.js'),
+            rendererUrl: process.env.ELECTRON_RENDERER_URL,
+            indexHtmlPath: join(__dirname, '../renderer/index.html'),
+            onForceIgnoreChanged: (forceIgnore) => {
+              getTray()?.updateForceIgnore(forceIgnore)
+            },
+            onModeChanged: (mode) => {
+              // 所有切换路径（托盘/快捷键/控制坞/设置页）统一在此同步托盘文案与设置页状态
+              const tray = getTray()
+              tray?.updatePetMode(mode === 'pet')
+              tray?.updateForceIgnore(isPetForceIgnore())
+              const win = getMainWindow()
+              if (win && !win.isDestroyed()) {
+                win.webContents.send('pet-mode-changed', mode)
+              }
+            },
           },
-          onModeChanged: (mode) => {
-            // 所有切换路径（托盘/快捷键/控制坞/设置页）统一在此同步托盘文案与设置页状态
-            const tray = getTray()
-            tray?.updatePetMode(mode === 'pet')
-            tray?.updateForceIgnore(isPetForceIgnore())
-            const win = getMainWindow()
-            if (win && !win.isDestroyed()) {
-              win.webContents.send('pet-mode-changed', mode)
-            }
+          {
+            // 通道挂在插件作用域上：停用桌宠时这些 handler 与监听一并摘掉
+            handle: (channel, listener) => ctx.registerIpc?.(channel, listener),
+            on: (channel, listener) => {
+              if (!ctx.registerIpc) return
+              ipcMain.on(channel, listener as never)
+              ctx.effect(() => {
+                ipcMain.removeListener(channel, listener as never)
+              })
+            },
           },
-        })
+        )
 
         // 卸载/退出时销毁透明置顶窗口，释放 GPU 资源（与 performCleanup 里的调用同源，幂等）
         ctx.effect(() => {

@@ -56,9 +56,6 @@ import { setAutonomousIpcDeps } from './autonomous-ipc'
 import { registerNetIpcHandlers } from './net-ipc'
 import { setCloudSyncIpcDeps, registerCloudSyncIpcHandlers } from '../cloud-sync/sync-ipc'
 import type { CloudSyncConfig } from '../cloud-sync/types'
-import { isExtensionActive } from '../extensions/active'
-import { registerVcsIpc } from '../extensions/vcs'
-import { registerSelectionIpc } from '../extensions/selection'
 
 export interface IpcHandlersDeps {
   getMainWindow: () => BrowserWindow | null
@@ -101,21 +98,8 @@ export function registerAllIpcHandlers(deps: IpcHandlersDeps): void {
     pluginEventBus: deps.pluginEventBus,
   })
 
-  // 插件被禁用时跳过接线：否则「可禁用」只是文档上的说法。
-  // 用静态 import（不是 require）：require 会被原样打进 out/main/index.js，
-  // 运行时按产物目录解析 `../extensions/vcs`（不存在）——真启动才炸。
-  if (isExtensionActive('com.lumii.vcs')) {
-    registerVcsIpc({
-      getWorkspaceDir: deps.getWorkspaceDir,
-      log: deps.log,
-    })
-  }
-
-  if (isExtensionActive('com.lumii.selection')) {
-    registerSelectionIpc({
-      getAgentRuntimeBridge: deps.getAgentRuntimeBridge,
-    })
-  }
+  // VCS / 划词的 IPC 现在由各自插件在 apply() 里装（通道挂在插件作用域上，
+  // 停用即摘）——这里不再接线，也不再看启动快照。
 
   setWindowIpcDeps({
     getMainWindow: deps.getMainWindow,
