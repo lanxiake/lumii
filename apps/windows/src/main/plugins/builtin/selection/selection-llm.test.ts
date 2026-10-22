@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import { SelectionLlmService, type SelectionChatStream } from './selection-llm'
-import type { SelectionLlmAction } from '../../shared/selection-llm-types'
+import type { SelectionLlmAction } from '../../../../shared/selection-llm-types'
 
-vi.mock('../logger', () => ({
+vi.mock('../../../logger', () => ({
   createLogger: () => ({ info: () => {}, warn: () => {}, error: () => {}, debug: () => {} }),
 }))
 

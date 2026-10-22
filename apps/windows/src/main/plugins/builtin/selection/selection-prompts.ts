@@ -8,7 +8,7 @@
  * 与「提示词风格」实验功能的关系是设计 §十一 的开放问题，P1 明确不做。
  */
 
-import type { SelectionLlmAction } from '../../shared/selection-llm-types'
+import type { SelectionLlmAction } from '../../../../shared/selection-llm-types'
 
 /** 选中文本的包裹标记。用 XML 风格是因为它对模型最不容易歧义 */
 const TEXT_OPEN = '<选中文本>'

@@ -6,12 +6,12 @@ import { ipcMain } from 'electron'
 import {
   FILE_PREVIEW_IPC,
   type FilePreviewWindowPayload,
-} from '../../shared/file-preview-window'
+} from '../../../../shared/file-preview-window'
 import {
   PreviewWindowManager,
   type PreviewWindowManagerDeps,
 } from './preview-window-manager'
-import type { IpcHandleRegistrar } from '../kernel/ipc-registry'
+import type { IpcHandleRegistrar } from '../../../kernel/ipc-registry'
 
 /**
  * 注册 file-preview:* IPC，并创建一个 PreviewWindowManager。

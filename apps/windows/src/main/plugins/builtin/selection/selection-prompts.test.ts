@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { buildSelectionPrompt } from './selection-prompts'
-import type { SelectionLlmAction } from '../../shared/selection-llm-types'
+import type { SelectionLlmAction } from '../../../../shared/selection-llm-types'
 
 const ACTIONS: readonly SelectionLlmAction[] = ['translate', 'explain', 'summarize', 'polish']
 

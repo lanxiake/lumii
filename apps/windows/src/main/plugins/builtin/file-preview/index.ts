@@ -5,7 +5,7 @@ import { definePlugin } from '@mtbot/plugin-core'
 import type { MainEvents } from '../../../kernel/events'
 import { S } from '../../../kernel/services'
 import { hasHeadlessFlag } from '../../../platform/feature-probe'
-import { registerFilePreviewWindowIpc } from '../../../file-preview/preview-window-ipc'
+import { registerFilePreviewWindowIpc } from './preview-window-ipc'
 
 /**
  * 文件预览扩展。

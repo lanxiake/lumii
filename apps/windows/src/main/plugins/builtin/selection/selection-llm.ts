@@ -14,9 +14,9 @@ import type { Model, Context } from '@earendil-works/pi-ai/compat'
 // 新版 streamFn 收品牌类型 TranscriptContext，旧式 Context 经官方转换器过一道
 import { normalizeContext } from '@earendil-works/pi-ai/compat'
 import type { StreamFn } from '@earendil-works/pi-agent-core'
-import { createLogger } from '../logger'
+import { createLogger } from '../../../logger'
 import { buildSelectionPrompt } from './selection-prompts'
-import type { SelectionLlmRequest, SelectionLlmResult } from '../../shared/selection-llm-types'
+import type { SelectionLlmRequest, SelectionLlmResult } from '../../../../shared/selection-llm-types'
 
 const log = createLogger('selection-llm')
 

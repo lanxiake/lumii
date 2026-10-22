@@ -6,8 +6,8 @@
  */
 
 import { BrowserWindow, screen } from 'electron'
-import type { FilePreviewWindowPayload } from '../../shared/file-preview-window'
-import { installPreviewZoomGuard } from '../window/preview-zoom-guard'
+import type { FilePreviewWindowPayload } from '../../../../shared/file-preview-window'
+import { installPreviewZoomGuard } from '../../../window/preview-zoom-guard'
 
 const log = {
   info: (...args: unknown[]) => console.log('[PreviewWindow]', ...args),
