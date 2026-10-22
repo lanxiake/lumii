@@ -6,6 +6,9 @@ import { ipcMain } from 'electron'
 export interface IpcRegistry {
   register(channel: string, handler: (event: unknown, ...args: unknown[]) => unknown): void
   unregister(channel: string): void
+  /** 单向消息（`ipcRenderer.send`）：随插件作用域移除 */
+  registerListener(channel: string, listener: (event: unknown, ...args: unknown[]) => void): void
+  unregisterListener(channel: string, listener: (event: unknown, ...args: unknown[]) => void): void
 }
 
 /**
@@ -44,6 +47,14 @@ export function createIpcRegistry(): IpcRegistry {
       } catch {
         // 已经被摘掉或从未注册，ignore
       }
+    },
+
+    registerListener(channel, listener) {
+      ipcMain.on(channel, listener as never)
+    },
+
+    unregisterListener(channel, listener) {
+      ipcMain.removeListener(channel, listener as never)
     },
   }
 }

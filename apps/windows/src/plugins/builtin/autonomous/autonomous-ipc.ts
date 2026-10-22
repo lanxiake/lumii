@@ -14,6 +14,7 @@ import { notifyAutonomousGoalApproved } from './autonomous-wiring'
 import { readSettings, writeSettings } from '@mtbot/agent-runtime'
 import type { AutonomousSettings } from '@mtbot/agent-runtime'
 import { readMood, readConcerns } from '@mtbot/agent-runtime'
+import { createIpcTable, type IpcRegistrarLike } from '../../../plugins/api'
 import { currentPetAgentId } from '../pet/pet-subject'
 
 const ENABLED_KEY = 'autonomous.enabled'
@@ -38,13 +39,10 @@ function subjectAgentId(): string {
 }
 
 /** app 配置访问（由 ipc-handlers-registry 注入；未注入时相关 handler 降级为空） */
-/** 通道在这里先攒着，由插件 apply 时统一挂到作用域上（这样停用能整批摘掉） */
-type IpcHandler = (event: unknown, ...args: any[]) => unknown
-const HANDLERS: Array<[string, IpcHandler]> = []
-function registerChannel(channel: string, handler: IpcHandler): void {
-  HANDLERS.push([channel, handler])
-}
+// 通道先攒成一张表，由插件 apply 时统一挂到作用域上（停用能整批摘掉）
+const ipcTable = createIpcTable()
 
+/** app 配置访问（插件 apply 注入；未注入时相关 handler 降级为空） */
 let _getConfigManager: (() => ConfigManager | null) | null = null
 
 export function setAutonomousIpcDeps(deps: { getConfigManager: () => ConfigManager | null }): void {
@@ -122,7 +120,7 @@ function emptyStatus(enabled = false) {
   }
 }
 
-registerChannel('autonomous:getStatus', async () => {
+ipcTable.register('autonomous:getStatus', async () => {
   try {
     const bridge = requireBridge()
     const enabled = readEnabled(bridge)
@@ -156,7 +154,7 @@ registerChannel('autonomous:getStatus', async () => {
 })
 
 /** 最近目标（全状态，时间倒序，最多 limit 条），附生成时回填的关联反思 ID */
-registerChannel('autonomous:getGoals', async (_event, limit = 20) => {
+ipcTable.register('autonomous:getGoals', async (_event, limit = 20) => {
   try {
     const bridge = requireBridge()
     const goals = bridge.autonomousRepo.listGoals(subjectAgentId()).slice(0, limit)
@@ -178,7 +176,7 @@ registerChannel('autonomous:getGoals', async (_event, limit = 20) => {
 })
 
 /** 规划器产出的目标（planned_by='planner'，时间倒序），含计划执行时间 scheduledFor */
-registerChannel('autonomous:getPlannedGoals', async (_event, limit = 50) => {
+ipcTable.register('autonomous:getPlannedGoals', async (_event, limit = 50) => {
   try {
     const bridge = requireBridge()
     const goals = bridge.autonomousRepo
@@ -205,7 +203,7 @@ registerChannel('autonomous:getPlannedGoals', async (_event, limit = 50) => {
 })
 
 /** 删除规划目标（硬删，供「规划任务」tab 移除被规划的任务） */
-registerChannel('autonomous:deleteGoal', async (_event, goalId: string) => {
+ipcTable.register('autonomous:deleteGoal', async (_event, goalId: string) => {
   const bridge = requireBridge()
   const ok = bridge.autonomousRepo.deleteGoal(goalId)
   if (!ok) throw new Error('目标不存在')
@@ -213,7 +211,7 @@ registerChannel('autonomous:deleteGoal', async (_event, goalId: string) => {
 })
 
 /** 手动触发某个主体重新规划（供「规划任务」tab 重置按钮） */
-registerChannel('autonomous:replan', async () => {
+ipcTable.register('autonomous:replan', async () => {
   const bridge = requireBridge()
   const agentId = subjectAgentId()
   if (agentId === NO_SUBJECT_AGENT_ID) return { success: false }
@@ -221,7 +219,7 @@ registerChannel('autonomous:replan', async () => {
   return { success: ok }
 })
 
-registerChannel('autonomous:approveGoal', async (_event, goalId: string, note?: string) => {
+ipcTable.register('autonomous:approveGoal', async (_event, goalId: string, note?: string) => {
   const bridge = requireBridge()
   const ok = bridge.autonomousRepo.approveGoal(goalId, note)
   if (!ok) throw new Error('目标不存在或不处于 pending 状态')
@@ -229,14 +227,14 @@ registerChannel('autonomous:approveGoal', async (_event, goalId: string, note?: 
   return { success: true, goalId }
 })
 
-registerChannel('autonomous:rejectGoal', async (_event, goalId: string, options?: { reason?: string }) => {
+ipcTable.register('autonomous:rejectGoal', async (_event, goalId: string, options?: { reason?: string }) => {
   const bridge = requireBridge()
   const ok = bridge.autonomousRepo.rejectGoal(goalId, options?.reason)
   if (!ok) throw new Error('目标不存在或不处于 pending 状态')
   return { success: true, goalId }
 })
 
-registerChannel('autonomous:getCapabilities', async () => {
+ipcTable.register('autonomous:getCapabilities', async () => {
   try {
     const bridge = requireBridge()
     const result: Record<string, unknown> = {}
@@ -255,7 +253,7 @@ registerChannel('autonomous:getCapabilities', async () => {
   }
 })
 
-registerChannel('autonomous:getCapabilityTests', async (_event, dimension?: string, limit = 100) => {
+ipcTable.register('autonomous:getCapabilityTests', async (_event, dimension?: string, limit = 100) => {
   try {
     const bridge = requireBridge()
     return bridge.autonomousRepo.capabilityTests(subjectAgentId(), dimension, limit).map((t) => ({
@@ -274,7 +272,7 @@ registerChannel('autonomous:getCapabilityTests', async (_event, dimension?: stri
   }
 })
 
-registerChannel('autonomous:getReflections', async (_event, limit = 10) => {
+ipcTable.register('autonomous:getReflections', async (_event, limit = 10) => {
   try {
     const bridge = requireBridge()
     return bridge.autonomousRepo.reflections(subjectAgentId(), limit).map((r) => ({
@@ -295,7 +293,7 @@ registerChannel('autonomous:getReflections', async (_event, limit = 10) => {
   }
 })
 
-registerChannel('autonomous:getSatisfactionHistory', async (_event, window = '7d') => {
+ipcTable.register('autonomous:getSatisfactionHistory', async (_event, window = '7d') => {
   try {
     const bridge = requireBridge()
     const rows = bridge.autonomousRepo.satisfactionHistory(subjectAgentId(), windowStart(window))
@@ -312,7 +310,7 @@ registerChannel('autonomous:getSatisfactionHistory', async (_event, window = '7d
   }
 })
 
-registerChannel('autonomous:getPromptStats', async () => {
+ipcTable.register('autonomous:getPromptStats', async () => {
   try {
     const bridge = requireBridge()
     const grouped = new Map<string, unknown[]>()
@@ -336,7 +334,7 @@ registerChannel('autonomous:getPromptStats', async () => {
   }
 })
 
-registerChannel('autonomous:setEnabled', async (_event, enabled: boolean) => {
+ipcTable.register('autonomous:setEnabled', async (_event, enabled: boolean) => {
   const bridge = requireBridge()
   bridge.runtimeStateRepo.set(ENABLED_KEY, enabled ? 'true' : 'false')
   // 即时生效：重播 evolution tick cron（enabled 跟随开关）+ 重载本地 cron 调度
@@ -344,12 +342,12 @@ registerChannel('autonomous:setEnabled', async (_event, enabled: boolean) => {
   return { success: true, enabled }
 })
 
-registerChannel('autonomous:settings:get', async () => {
+ipcTable.register('autonomous:settings:get', async () => {
   const bridge = requireBridge()
   return readSettings(bridge.db)
 })
 
-registerChannel('autonomous:settings:update', async (_event, settings: Partial<AutonomousSettings>) => {
+ipcTable.register('autonomous:settings:update', async (_event, settings: Partial<AutonomousSettings>) => {
   const bridge = requireBridge()
   writeSettings(bridge.db, settings)
   // 心跳周期变更即时生效（与 CLI autonomous settings set 同一路径）
@@ -357,7 +355,7 @@ registerChannel('autonomous:settings:update', async (_event, settings: Partial<A
   return readSettings(bridge.db)
 })
 
-registerChannel('autonomous:getMood', async () => {
+ipcTable.register('autonomous:getMood', async () => {
   const bridge = requireBridge()
   const agentId = subjectAgentId()
   // `readMood` 对"没有记录"返回的是**默认心情**而不是空 —— 不在宠物模式时要说的是
@@ -366,12 +364,12 @@ registerChannel('autonomous:getMood', async () => {
   return readMood(bridge.db, agentId)
 })
 
-registerChannel('autonomous:getConcerns', async () => {
+ipcTable.register('autonomous:getConcerns', async () => {
   const bridge = requireBridge()
   return readConcerns(bridge.db, subjectAgentId())
 })
 
-registerChannel(
+ipcTable.register(
   'autonomous:getDiary',
   async (_event, limit = 20, before?: { timestamp: number; id: string }) => {
     const bridge = requireBridge()
@@ -408,12 +406,12 @@ registerChannel(
 )
 
 /** 读取开启自主能力的额外 Agent id 列表（除 assistant 外；assistant 恒参与不列入） */
-registerChannel('autonomous:getAgents', async () => {
+ipcTable.register('autonomous:getAgents', async () => {
   return _getConfigManager?.()?.getAppConfig().autonomousAgents ?? []
 })
 
 /** 设置开启自主能力的额外 Agent id 列表（去重、去空、排除 assistant） */
-registerChannel('autonomous:setAgents', async (_event, agentIds: unknown) => {
+ipcTable.register('autonomous:setAgents', async (_event, agentIds: unknown) => {
   const raw = Array.isArray(agentIds) ? agentIds : []
   const sanitized = [
     ...new Set(
@@ -428,8 +426,6 @@ registerChannel('autonomous:setAgents', async (_event, agentIds: unknown) => {
   return { ok: true }
 })
 
-export function registerAutonomousIpcHandlers(registrar: {
-  handle(channel: string, listener: (event: unknown, ...args: any[]) => unknown): void
-}): void {
-  for (const [channel, handler] of HANDLERS) registrar.handle(channel, handler)
+export function registerAutonomousIpcHandlers(registrar: IpcRegistrarLike): void {
+  ipcTable.install(registrar)
 }

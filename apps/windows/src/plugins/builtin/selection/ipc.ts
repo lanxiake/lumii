@@ -10,10 +10,10 @@
  */
 
 import { ipcMain } from 'electron'
-import type { AgentRuntimeBridge } from '../agent-runtime'
-import { SelectionLlmService } from '../../plugins/builtin/selection/selection-llm'
-import type { SelectionLlmRequest, SelectionLlmResult } from '../../shared/selection-llm-types'
-import type { IpcHandleRegistrar } from '../kernel/ipc-registry'
+import type { AgentRuntimeBridge } from '../../../main/agent-runtime'
+import { SelectionLlmService } from './selection-llm'
+import type { SelectionLlmRequest, SelectionLlmResult } from '../../../shared/selection-llm-types'
+import type { IpcHandleRegistrar } from '../../../main/kernel/ipc-registry'
 
 interface SelectionIpcDeps {
   getAgentRuntimeBridge: () => AgentRuntimeBridge | null

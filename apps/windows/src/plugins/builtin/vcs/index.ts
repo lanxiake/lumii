@@ -2,7 +2,7 @@ import { definePlugin } from '@mtbot/plugin-core'
 
 import type { MainEvents } from '../../../main/kernel/events'
 import { S } from '../../../main/kernel/services'
-import { registerVcsIpcHandlers, setVcsIpcDeps } from '../../../main/ipc/vcs-ipc'
+import { registerVcsIpcHandlers, setVcsIpcDeps } from './ipc'
 
 /**
  * VCS（版本控制）扩展。

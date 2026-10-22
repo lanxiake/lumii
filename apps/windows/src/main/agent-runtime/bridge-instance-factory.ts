@@ -84,6 +84,7 @@ import type { WikiIngestHook } from '@mtbot/agent-runtime'
 import { maybeSnapshot } from '../../plugins/builtin/vcs/vcs-snapshot'
 import { notifyCloudSyncWorkspaceChanged } from '../cloud-sync/sync-accessor'
 import { getAutonomousService } from './autonomous-accessor'
+import { getSkillEvolutionService } from './skill-evolution-accessor'
 
 /** 引用盒子（mutable reference）— 允许多处共享同一个可变插槽 */
 interface MutableRef<T> {
@@ -790,9 +791,9 @@ export class BridgeInstanceFactory {
     // assembleAgent 内部已用 prompt.initial.fullPrompt 设过一次（不含宿主记忆/技能进化）；
     // 这里按宿主语义重建并二次 setSystemPrompt，最终态与改前完全一致。
     let promptResult = res.prompt.initial
+    // 技能进化：插件提供注入函数；插件停用（默认就是停用）⇒ 跳过
     if (this.deps.config.skillEvolutionEngine) {
-      const { injectEvolutionGuidanceIntoResult } = await import('../../plugins/builtin/skill-evolution/prompt-injector')
-      promptResult = injectEvolutionGuidanceIntoResult(promptResult)
+      promptResult = getSkillEvolutionService()?.injectInto(promptResult) ?? promptResult
     }
 
     // 存储结构化基础提示词（不含用户记忆）、prompt 重建闭包、skills 快照到 InstanceState

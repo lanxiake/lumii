@@ -1,4 +1,4 @@
-import type { RendererPlugin } from '../renderer-api'
+import type { RendererPlugin } from '../api/renderer'
 
 /**
  * 有渲染层半边的内置插件。

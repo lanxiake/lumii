@@ -370,7 +370,9 @@ function scanFile(absPath) {
           (callee.obj && REGISTRAR_RE.test(callee.obj) &&
             ['handle', 'handleOnce', 'on', 'once'].includes(callee.prop)) ||
           callee.prop === 'registerIpc' ||
-          callee.prop === 'registerChannel'
+          callee.prop === 'registerChannel' ||
+          // createIpcTable() 返回的表：ipcTable.register('ch', fn)
+          (callee.prop === 'register' && callee.obj && /table$/i.test(callee.obj))
         ) {
           if (ch) for (const c of ch) handlers.push({ channel: c, at, raw })
           else unresolved.push({ at, raw, why: 'main handler channel 无法解析' })
@@ -944,6 +946,77 @@ function loadBaseline() {
   }
 }
 
+// ---- ⑫ 插件边界（低耦合 / 高内聚）
+//
+// 三条规则，都是「写下去就不该再犯」的那类：
+//   B3 插件之间不得有**运行期** import（type-only 可以；共享代码下沉 shared 或核心）
+//   B4 渲染层插件文件只许 import renderer / shared / plugins/api
+//   B5 插件内不得直接 ipcMain.handle（停用摘不掉，必须走 ctx.registerIpc）
+const pluginBoundary = (() => {
+  const problems = []
+  const isPluginFile = (p) => rel(p).startsWith(PLUGIN_PREFIX)
+  const isRendererSide = (p) => {
+    const r = rel(p)
+    return (
+      r.startsWith(`${PLUGIN_PREFIX}renderer/`) ||
+      /\/renderer\.tsx?$/.test(r) ||
+      r.includes('/ui/')
+    )
+  }
+
+  for (const f of files) {
+    if (!isPluginFile(f)) continue
+    const r = rel(f)
+    if (r.startsWith(`${PLUGIN_PREFIX}external/`) || r.startsWith(`${PLUGIN_PREFIX}install/`)) continue
+    const sf = getModule(f).sf
+    if (!sf) continue
+
+    const visit = (node) => {
+      if (ts.isCallExpression(node)) {
+        const callee = calleeName(node.expression)
+        if (callee && callee.obj === 'ipcMain' && (callee.prop === 'handle' || callee.prop === 'on' || callee.prop === 'handleOnce')) {
+          const line = sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1
+          problems.push(`${r}:${line} 直接 ipcMain.${callee.prop}（应走 ctx.registerIpc）`)
+        }
+      }
+      ts.forEachChild(node, visit)
+    }
+    ts.forEachChild(sf, visit)
+
+    for (const stmt of sf.statements) {
+      if (!ts.isImportDeclaration(stmt) && !ts.isExportDeclaration(stmt)) continue
+      const spec = stmt.moduleSpecifier
+      if (!spec || !ts.isStringLiteral(spec)) continue
+      const typeOnly =
+        (ts.isImportDeclaration(stmt) && stmt.importClause?.isTypeOnly) ||
+        (ts.isExportDeclaration(stmt) && stmt.isTypeOnly)
+      const target = resolveModule(f, spec.text)
+      if (!target || typeOnly) continue
+      const tr = rel(target)
+
+      // B3：跨插件运行期 import
+      if (tr.startsWith(`${PLUGIN_PREFIX}builtin/`)) {
+        // apps/windows/src/plugins/builtin/<id>/... → 取 <id>
+        const mine = r.split('/')[5]
+        const theirs = tr.split('/')[5]
+        if (r.startsWith(`${PLUGIN_PREFIX}builtin/`) && mine !== theirs) {
+          problems.push(`${r} → ${tr}（跨插件运行期 import）`)
+        }
+      }
+
+      // B4：渲染层插件文件把主进程代码拖进 renderer bundle
+      if (isRendererSide(f)) {
+        const ok =
+          tr.startsWith('apps/windows/src/renderer/') ||
+          tr.startsWith('apps/windows/src/shared/') ||
+          tr.startsWith(PLUGIN_PREFIX)
+        if (!ok) problems.push(`${r} → ${tr}（渲染层插件 import 了非渲染代码）`)
+      }
+    }
+  }
+  return [...new Set(problems)].sort()
+})()
+
 const baseline = UPDATE ? null : loadBaseline()
 const baselineHas = (key) => new Set(baseline && Array.isArray(baseline[key]) ? baseline[key] : [])
 /** 拆成「本次新增」与「基线内已知」；无基线时一律算已知（首次运行不该满屏红） */
@@ -966,6 +1039,7 @@ if (UPDATE) {
     unconsumedMethods,
     unroutedCommands,
     coreImportsPluginImpl,
+    pluginBoundary,
   }
   writeFileSync(BASELINE_PATH, JSON.stringify(out, null, 2) + '\n', 'utf8')
   console.log(`已写入基线 ${rel(BASELINE_PATH)}：`)
@@ -1152,6 +1226,16 @@ if (VERBOSE && unresolved.length) {
   else if (known.length) console.log(`  ${DIM(`基线内已知 ${known.length} 处（--verbose 展开）`)}`)
 }
 
+
+// ⑫
+{
+  const { fresh, known } = splitNew(pluginBoundary, 'pluginBoundary')
+  section(`⑫ 插件边界（跨插件 import / 渲染层拖主进程代码 / 直连 ipcMain）— 新增 ${fresh.length} / 已知 ${known.length}`)
+  for (const p of fresh) console.log(`  ${RED('!')} ${p}`)
+  if (expandKnown) for (const p of known) console.log(`  ${DIM('·')} ${DIM(p)}`)
+  else if (known.length) console.log(`  ${DIM(`基线内已知 ${known.length} 处（--verbose 展开）`)}`)
+}
+
 // ---- 结论
 const freshCount =
   splitNew(orphanHandlers, 'orphanHandlers').fresh.length +
@@ -1162,7 +1246,8 @@ const freshCount =
   splitNew(unconsumedMethods, 'unconsumedMethods').fresh.length +
   splitNew(unroutedCommands, 'unroutedCommands').fresh.length +
   splitNew(unownedIpc, 'unownedIpc').fresh.length +
-  splitNew(coreImportsPluginImpl, 'coreImportsPluginImpl').fresh.length
+  splitNew(coreImportsPluginImpl, 'coreImportsPluginImpl').fresh.length +
+  splitNew(pluginBoundary, 'pluginBoundary').fresh.length
 
 console.log(
   `\n${

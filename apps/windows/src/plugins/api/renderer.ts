@@ -1,5 +1,5 @@
-import { registerCard } from '../renderer/components/A2UIRenderer/card-registry'
-import { registerSlot } from '../renderer/components/slots/slot-registry'
+import { registerCard } from '../../renderer/components/A2UIRenderer/card-registry'
+import { registerSlot } from '../../renderer/components/slots/slot-registry'
 
 /**
  * 渲染层插件契约。

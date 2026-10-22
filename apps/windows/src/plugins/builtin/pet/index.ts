@@ -1,6 +1,5 @@
 import { join } from 'node:path'
 
-import { ipcMain } from 'electron'
 import { definePlugin } from '@mtbot/plugin-core'
 
 import type { MainEvents } from '../../../main/kernel/events'
@@ -85,13 +84,7 @@ export const petExtension = {
           {
             // 通道挂在插件作用域上：停用桌宠时这些 handler 与监听一并摘掉
             handle: (channel, listener) => ctx.registerIpc?.(channel, listener),
-            on: (channel, listener) => {
-              if (!ctx.registerIpc) return
-              ipcMain.on(channel, listener as never)
-              ctx.effect(() => {
-                ipcMain.removeListener(channel, listener as never)
-              })
-            },
+            on: (channel, listener) => ctx.registerIpcListener?.(channel, listener),
           },
         )
 

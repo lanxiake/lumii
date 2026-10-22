@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useSyncExternalStore } from 'react'
 
-import { rendererApi, type RendererPlugin, type RendererPluginApi } from '../renderer-api'
+import { rendererApi, type RendererPlugin, type RendererPluginApi } from '../api/renderer'
 import { RENDERER_PLUGINS } from './registry'
 import { getPluginStateSnapshot, subscribePluginState } from './state'
 import { syncRendererPlugins } from './sync'

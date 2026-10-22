@@ -6,6 +6,7 @@
 
 ```
 plugins/
+  api/               **对外唯一入口**：defineServiceAccessor / createIpcTable / RendererPlugin 类型
   registry.ts        唯一清单：BUILTIN_EXTENSIONS + hot 标记（HOT_SWAPPABLE_BUILTINS 由它派生）
   host.ts            createPluginHost：注册、校验 manifest、按禁用表排除启动
   control.ts         设置页的控制面：list / setEnabled / remove（运行期启停也在这里）
@@ -84,12 +85,38 @@ extension:set-enabled → host.activate/stop（IPC/定时器随作用域拆）
 
 ### 插件内注册 IPC 的写法
 
-`apply` 里不要直接 `ipcMain.handle`（停用摘不掉）。两种现成写法：
+`apply` 里**不要直接碰 `ipcMain`**（停用摘不掉，守卫 ⑫ 会红）。三种现成写法：
 
-- 直接 `ctx.registerIpc('通道', handler)`；
-- handler 很多时先 `registerChannel('通道', fn)` 攒进数组，再
-  `registerXxxIpcHandlers({ handle: (ch, fn) => ctx.registerIpc?.(ch, fn) })` 统一挂上去。
-  守卫认 `registerIpc` / `registerChannel` 这两个名字。
+```ts
+ctx.registerIpc('foo:bar', handler)              // 单个
+ctx.registerIpcListener('foo:event', listener)   // 单向 ipcRenderer.send
+const ipcTable = createIpcTable()                // 多个：攒表
+ipcTable.register('foo:a', fn)
+ipcTable.install((ch, fn) => ctx.registerIpc?.(ch, fn))
+```
+
+### 核心 ↔ 插件：服务访问器
+
+```ts
+// 核心侧（main/**/*-accessor.ts）
+const accessor = defineServiceAccessor<FooService>('foo')
+export const setFooAccessor = (fn) => accessor.setResolver(fn)
+export const getFooService = () => accessor.get()
+
+// index.ts 注入一次
+setFooAccessor(() => pluginHost?.container.get(S.foo) ?? null)
+```
+
+服务接口类型写在插件目录（`service.ts`），核心 **type-only** 引用。
+插件停用 → 容器里没了 → `getFooService()` 返回 null → 核心按「功能关闭」处理。
+
+### 边界规则（守卫 ⑫）
+
+| 规则 | 说明 |
+|---|---|
+| 插件之间不得运行期 import | type-only 可以；共享代码下沉 `src/shared` 或核心 |
+| 渲染层插件文件只许 import `renderer/`、`shared/`、`plugins/` | 否则会把 node 模块拖进 renderer bundle |
+| 插件内不得直接 `ipcMain.handle/on` | 走 `ctx.registerIpc` / `registerIpcListener` |
 
 ## 生命周期
 

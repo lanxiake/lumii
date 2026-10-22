@@ -24,7 +24,8 @@ import { probeApiFormat } from '../provider-api-format-probe'
 import { getOpenAtLogin, setOpenAtLogin } from '../platform/autostart'
 import { getFeatureAvailability } from '../platform/feature-probe'
 import { FEATURE_BLOCK_MESSAGES } from '../../shared/feature-availability'
-import { queryUsage, type UsageQuery } from '../../plugins/builtin/usage/store'
+import type { UsageQuery } from '../../plugins/builtin/usage/store'
+import { getUsageService } from './usage-accessor'
 import { getLatency } from '../provider-latency'
 import { NEWS_PIPELINE_TASK_TEXT, NEWS_PIPELINE_SYSTEM_PROMPT } from '../seed-cron-jobs'
 import {
@@ -164,7 +165,9 @@ export function registerApiIpcHandlers(): void {
   // === 本地用量查询（Task 4.3）===
   ipcMain.handle('usage:query', async (_e, query: UsageQuery) => {
     try {
-      return { success: true, data: await queryUsage(query) }
+      const service = getUsageService()
+      if (!service) return { success: false, error: '用量统计插件未启用' }
+      return { success: true, data: await service.query(query) }
     } catch (error) {
       console.error('[IPC] usage:query 失败:', error)
       return { success: false, error: error instanceof Error ? error.message : String(error) }

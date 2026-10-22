@@ -1,4 +1,4 @@
-import { startBrowserService } from '../../../plugins/builtin/browser/service'
+import { getBrowserService } from '../../agent-runtime/browser-accessor'
 import { createLogger } from '../../logger'
 
 /**
@@ -53,7 +53,8 @@ export async function startPostReadyServices(deps: PostReadyDeps): Promise<void>
     logger.info('浏览器插件已禁用：跳过控制服务启动')
     return
   }
-  const started = await (deps.startBrowserService ?? startBrowserService)()
+  // 插件停用 → 服务为空 → 跳过（不当作「启动失败」）
+  const started = await (deps.startBrowserService ?? (() => getBrowserService()?.start() ?? Promise.resolve(false)))()
   if (started) {
     logger.info('浏览器控制服务已就绪')
   } else {

@@ -1,7 +1,9 @@
 import { definePlugin } from '@mtbot/plugin-core'
 
 import type { MainEvents } from '../../../main/kernel/events'
-import { recordUsage } from './store'
+import { recordUsage, queryUsage } from './store'
+import type { UsageService } from './service-api'
+import { S } from '../../../main/kernel/services'
 
 /**
  * 用量统计扩展。
@@ -73,6 +75,8 @@ export const usageExtension = {
     id: 'com.lumii.usage',
     provides: ['usage-recording'],
     apply(ctx) {
+      ctx.provide(S.usage, { query: (query) => queryUsage(query) } satisfies UsageService)
+
       // 订阅 LLM 响应事件，记录用量
       ctx.on('llm:after-response', (event) => {
         // 只记录成功的调用 + 有真实 usage 明细的（服务商返回 token 数）

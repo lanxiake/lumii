@@ -2,7 +2,7 @@ import { definePlugin } from '@mtbot/plugin-core'
 
 import type { MainEvents } from '../../../main/kernel/events'
 import { S } from '../../../main/kernel/services'
-import { registerSelectionIpcHandlers } from '../../../main/ipc/selection-ipc'
+import { registerSelectionIpcHandlers } from './ipc'
 
 /**
  * 划词动作扩展（翻译/解释/总结/润色）。

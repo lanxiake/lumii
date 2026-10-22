@@ -1,6 +1,9 @@
 import { definePlugin } from '@mtbot/plugin-core'
 
 import type { MainEvents } from '../../../main/kernel/events'
+import { S } from '../../../main/kernel/services'
+import { injectEvolutionGuidanceIntoResult } from './prompt-injector'
+import type { SkillEvolutionService } from './service-api'
 
 /**
  * 技能自进化扩展（已停用但保留）。
@@ -81,6 +84,10 @@ export const skillEvolutionExtension = {
     id: 'com.lumii.skill-evolution',
     provides: ['skill-evolution'],
     apply(ctx) {
+      ctx.provide(S.skillEvolution, {
+        injectInto: injectEvolutionGuidanceIntoResult,
+      } satisfies SkillEvolutionService)
+
       ctx.log.info('技能自进化插件已声明（disabled=true，不初始化）')
       // 不初始化 SkillEvolutionEngine
       // 不订阅任何事件

@@ -2,7 +2,8 @@ import { definePlugin } from '@mtbot/plugin-core'
 
 import type { MainEvents } from '../../../main/kernel/events'
 import { S } from '../../../main/kernel/services'
-import { startBrowserService, stopBrowserService } from './service'
+import { getBrowserContext, startBrowserService, stopBrowserService } from './service'
+import type { BrowserService } from './service-api'
 
 /**
  * 浏览器控制扩展（CDP + 扩展中继）。
@@ -64,6 +65,12 @@ export const browserExtension = {
     id: 'com.lumii.browser',
     provides: ['browser'],
     apply(ctx) {
+      ctx.provide(S.browser, {
+        start: startBrowserService,
+        stop: stopBrowserService,
+        getContext: getBrowserContext,
+      } satisfies BrowserService)
+
       // 工具要 registrar 的上下文（bridge 在 S7.4 才建），服务要配置就绪——都等
       // `agent:runtime-ready`。启动时 `post-ready.ts` 还会兜一次 start（幂等）。
       const wire = (): boolean => {

@@ -80,6 +80,11 @@ export interface PluginContext<E extends EventMap = EventMap> {
    * @param handler - 处理函数，签名与 `ipcMain.handle` 一致
    */
   registerIpc?(channel: string, handler: (event: unknown, ...args: unknown[]) => unknown): void;
+  /**
+   * 注册单向 IPC 监听（对应 `ipcMain.on`）：随插件作用域移除。
+   * 插件**不要**直接碰 ipcMain——那样停用摘不掉。
+   */
+  registerIpcListener?(channel: string, listener: (event: unknown, ...args: unknown[]) => void): void;
 
   on<K extends keyof E & string>(name: K, listener: Listener<E[K]>): void;
   onWaterfall<K extends keyof E & string>(name: K, listener: WaterfallListener<E[K]>): void;
@@ -99,6 +104,8 @@ export interface ContextDeps<E extends EventMap> {
   ipcRegistry?: {
     register(channel: string, handler: (event: unknown, ...args: unknown[]) => unknown): void;
     unregister(channel: string): void;
+    registerListener?(channel: string, listener: (event: unknown, ...args: unknown[]) => void): void;
+    unregisterListener?(channel: string, listener: (event: unknown, ...args: unknown[]) => void): void;
   };
 }
 
@@ -161,6 +168,10 @@ export function createPluginContext<E extends EventMap>(
     ctx.registerIpc = (channel, handler) => {
       ipcRegistry.register(channel, handler);
       scope.effect(() => ipcRegistry.unregister(channel));
+    };
+    ctx.registerIpcListener = (channel, listener) => {
+      ipcRegistry.registerListener?.(channel, listener);
+      scope.effect(() => ipcRegistry.unregisterListener?.(channel, listener));
     };
   }
 

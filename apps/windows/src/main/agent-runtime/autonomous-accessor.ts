@@ -1,3 +1,4 @@
+import { defineServiceAccessor } from '../../plugins/api'
 import type { AutonomousService } from '../../plugins/builtin/autonomous/service'
 
 /**
@@ -9,12 +10,12 @@ import type { AutonomousService } from '../../plugins/builtin/autonomous/service
  *
  * type-only import 不产生运行期依赖（编译期擦除）。
  */
-let accessor: (() => AutonomousService | null) | null = null
+const accessor = defineServiceAccessor<AutonomousService>('autonomous')
 
 export function setAutonomousAccessor(fn: (() => AutonomousService | null) | null): void {
-  accessor = fn
+  accessor.setResolver(fn)
 }
 
 export function getAutonomousService(): AutonomousService | null {
-  return accessor?.() ?? null
+  return accessor.get()
 }

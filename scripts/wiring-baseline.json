@@ -24,14 +24,12 @@
     "updater.downloadUpdate",
     "updater.installUpdate",
     "updater.onStateChange",
-    "updater.startAutoCheck",
     "updater.stopAutoCheck",
     "updater.updateConfig"
   ],
   "unroutedCommands": [],
   "coreImportsPluginImpl": [
     "apps/windows/src/main/agent-runtime/bridge-agent-instance-events.ts → vcs",
-    "apps/windows/src/main/agent-runtime/bridge-instance-factory.ts → skill-evolution",
     "apps/windows/src/main/agent-runtime/bridge-instance-factory.ts → vcs",
     "apps/windows/src/main/agent-runtime/bridge-prompt-composer.ts → pet",
     "apps/windows/src/main/agent-runtime/bridge-prompt-dispatcher.ts → vcs",
@@ -47,24 +45,19 @@
     "apps/windows/src/main/agent-runtime/pet-task-service.ts → pet",
     "apps/windows/src/main/app-ui-control/controller.ts → pet",
     "apps/windows/src/main/app-ui-control/server.ts → pet",
-    "apps/windows/src/main/channel/channel-runtime.ts → voice",
     "apps/windows/src/main/cloud-sync/sync-manager.ts → vcs",
-    "apps/windows/src/main/index.ts → browser",
     "apps/windows/src/main/index.ts → pet",
     "apps/windows/src/main/index.ts → voice",
     "apps/windows/src/main/ipc/agent-runtime-ipc.ts → pet",
     "apps/windows/src/main/ipc/agent-runtime-ipc.ts → voice",
     "apps/windows/src/main/ipc/agent-runtime/news-commands.ts → dashboard-feed",
     "apps/windows/src/main/ipc/api-ipc.ts → dashboard-feed",
-    "apps/windows/src/main/ipc/api-ipc.ts → usage",
-    "apps/windows/src/main/ipc/autonomous-ipc.ts → pet",
-    "apps/windows/src/main/ipc/selection-ipc.ts → selection",
-    "apps/windows/src/main/ipc/vcs-ipc.ts → vcs",
-    "apps/windows/src/main/kernel/services.ts → voice",
-    "apps/windows/src/main/kernel/stages/post-ready.ts → browser",
-    "apps/windows/src/main/news-preference-match.ts → dashboard-feed",
     "apps/windows/src/main/protocol-schemes.ts → pet",
     "apps/windows/src/main/system-service.ts → vcs",
     "apps/windows/src/main/tray/tray-bootstrap.ts → pet"
+  ],
+  "pluginBoundary": [
+    "apps/windows/src/plugins/builtin/autonomous/autonomous-ipc.ts → apps/windows/src/plugins/builtin/pet/pet-subject.ts（跨插件运行期 import）",
+    "apps/windows/src/plugins/builtin/pet/pet-window-manager.ts → apps/windows/src/plugins/builtin/voice/voice-service.ts（跨插件运行期 import）"
   ]
 }

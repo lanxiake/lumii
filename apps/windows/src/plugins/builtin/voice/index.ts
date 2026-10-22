@@ -1,4 +1,3 @@
-import { ipcMain } from 'electron'
 import { definePlugin } from '@mtbot/plugin-core'
 
 import type { MainEvents } from '../../../main/kernel/events'
@@ -81,13 +80,7 @@ export const voiceExtension = {
           ctx.get(S.perf) ?? undefined,
           {
             handle: (channel, listener) => ctx.registerIpc?.(channel, listener),
-            on: (channel, listener) => {
-              if (!ctx.registerIpc) return
-              ipcMain.on(channel, listener as never)
-              ctx.effect(() => {
-                ipcMain.removeListener(channel, listener as never)
-              })
-            },
+            on: (channel, listener) => ctx.registerIpcListener?.(channel, listener),
           },
         )
 

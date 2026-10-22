@@ -1,4 +1,4 @@
-import type { RendererPlugin, RendererPluginApi } from '../renderer-api'
+import type { RendererPlugin, RendererPluginApi } from '../api/renderer'
 
 /**
  * 把「哪些插件是启用的」同步成「哪些插件已经 setup」。

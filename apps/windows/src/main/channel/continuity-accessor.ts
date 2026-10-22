@@ -1,4 +1,8 @@
-import type { CrossChannelContinuity, RecentConversation } from '../../plugins/builtin/channel-continuity/continuity'
+import { defineServiceAccessor } from '../../plugins/api'
+import type {
+  CrossChannelContinuity,
+  RecentConversation,
+} from '../../plugins/builtin/channel-continuity/continuity'
 import { DEFAULT_CHANNEL_FEATURES, type ChannelFeatureSettings } from '../../shared/channel-features'
 
 /**
@@ -20,15 +24,17 @@ export interface ChannelContinuityService {
   }): CrossChannelContinuity | undefined
 }
 
-let accessor: (() => ChannelContinuityService | null) | null = null
+const accessor = defineServiceAccessor<ChannelContinuityService>('channelContinuity')
 
 /** `index.ts` 在宿主建好后注入：每次现取容器，插件停用后自动变成 null */
-export function setChannelContinuityAccessor(fn: (() => ChannelContinuityService | null) | null): void {
-  accessor = fn
+export function setChannelContinuityAccessor(
+  fn: (() => ChannelContinuityService | null) | null,
+): void {
+  accessor.setResolver(fn)
 }
 
 export function getChannelContinuityService(): ChannelContinuityService | null {
-  return accessor?.() ?? null
+  return accessor.get()
 }
 
 /** 功能开关（插件不在时用默认值：接续关闭） */

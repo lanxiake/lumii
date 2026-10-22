@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import type { RendererPlugin, RendererPluginApi } from '../renderer-api'
+import type { RendererPlugin, RendererPluginApi } from '../api/renderer'
 import { syncRendererPlugins } from './sync'
 
 const api = { registerSlot: vi.fn(), registerCard: vi.fn() } as unknown as RendererPluginApi

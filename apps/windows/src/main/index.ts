@@ -73,7 +73,10 @@ import { initializeTray } from './tray/tray-bootstrap'
 import { createMainWindow } from './window/main-window'
 import { SystemService } from './system-service'
 import { flushToolUsage } from './tool-usage-store'
-import { DEFAULT_PROMPT_STYLE } from '../shared/prompt-style'
+import { getPromptStyleSettings, setPromptStyleAccessor } from './agent-runtime/prompt-style-accessor'
+import { setBrowserAccessor } from './agent-runtime/browser-accessor'
+import { setUsageAccessor } from './ipc/usage-accessor'
+import { setSkillEvolutionAccessor } from './agent-runtime/skill-evolution-accessor'
 import type { UpdaterService } from './updater-service'
 import { ClientSkillRuntime } from './skill-runtime'
 import {
@@ -91,7 +94,7 @@ import { WECHAT_RELAY_AGENT_ID } from './agent-runtime/wechat-relay-agent'
 import { fileLogger } from './file-logger'
 import { SkillWatcher } from './skill-watcher'
 import { seedBundledSkills } from './bundled-skills-seeder'
-import { stopBrowserService, getBrowserContext } from '../plugins/builtin/browser/service'
+import { getBrowserService } from './agent-runtime/browser-accessor'
 import { startPostReadyServices as startPostReadyStage } from './kernel/stages/post-ready'
 import { directoryManager } from './directory-manager'
 import { ConfigManager } from './config-manager'
@@ -599,14 +602,8 @@ async function initAgentRuntime(): Promise<void> {
       memoryInjectionSettingsCache = resolved
       return resolved
     },
-    /**
-     * 读取系统提示词风格（实验功能）。
-     *
-     * 由 `com.lumii.prompt-style` 插件提供：停用后容器里没有这个服务，
-     * 这里回落到默认档——「禁用即功能消失」靠的就是这一条。
-     */
-    getPromptStyleSettings: async () =>
-      (await pluginHost?.container.get(S.promptStyle)?.get()) ?? { style: DEFAULT_PROMPT_STYLE },
+    // 提示词风格：由 com.lumii.prompt-style 插件提供，停用即回落默认档
+    getPromptStyleSettings,
     /**
      * 更新用户记忆（写入本地文件 ~/.lumii/data/user-memory.md）。
      *
@@ -769,7 +766,7 @@ async function initAgentRuntime(): Promise<void> {
         return { ok: false, error: err instanceof Error ? err.message : String(err) }
       }
     },
-    getBrowserContext: () => getBrowserContext(),
+    getBrowserContext: () => getBrowserService()?.getContext() ?? null,
     getPluginEventBus: () => pluginEventBus,
   })
 
@@ -1318,6 +1315,10 @@ async function startExtensions(): Promise<void> {
   // 跨渠道接续：adapter / 斜杠命令每次现取，插件停用后容器里没有 ⇒ 按功能关闭处理
   setChannelContinuityAccessor(() => pluginHost?.container.get(S.channelContinuity) ?? null)
   setAutonomousAccessor(() => pluginHost?.container.get(S.autonomous) ?? null)
+  setPromptStyleAccessor(() => pluginHost?.container.get(S.promptStyle) ?? null)
+  setBrowserAccessor(() => pluginHost?.container.get(S.browser) ?? null)
+  setUsageAccessor(() => pluginHost?.container.get(S.usage) ?? null)
+  setSkillEvolutionAccessor(() => pluginHost?.container.get(S.skillEvolution) ?? null)
 
   // 一张表看清谁起来了、花了多久、注册了几个副作用；
   // 失败项走 error，既进了主日志也进了错误日志
@@ -1682,7 +1683,7 @@ async function performCleanup(): Promise<void> {
     // 云同步：停掉定时器与 workspace 文件监听（fs.watch 句柄需显式关闭）
     syncScheduler?.stop()
     await stopAppUiControlServer()
-    await stopBrowserService()
+    await getBrowserService()?.stop()
 
     // 微信登出清理（登录服务现在归渠道运行时）
     shutdownChannels()
