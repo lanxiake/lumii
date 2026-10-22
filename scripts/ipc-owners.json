@@ -21,7 +21,7 @@
   "ipc/window-ipc.ts": "kernel",
   "ipc/workspace-ipc.ts": "workspace",
   "pet/pet-mode-ipc.ts": "pet",
-  "plugins/plugin-manager.ts": "assets",
+  "plugins/install/plugin-manager.ts": "assets",
   "screen-record/disabled-stub.ts": "screen-record",
   "screen-record/screen-record-ipc.ts": "screen-record",
   "skillnet-store.ts": "skills",

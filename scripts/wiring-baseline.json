@@ -16,9 +16,9 @@
     "apps/windows/src/main/skill-evolution/skill-writer.ts",
     "apps/windows/src/main/skill-evolution/types.ts",
     "apps/windows/src/main/skill-evolution/user-dialog.ts",
-    "apps/windows/src/main/extensions/perf.ts",
-    "apps/windows/src/main/extensions/cloud-sync.ts",
-    "apps/windows/src/main/extensions/screen-record.ts"
+    "apps/windows/src/main/plugins/external-src/perf/index.ts",
+    "apps/windows/src/main/plugins/external-src/cloud-sync/index.ts",
+    "apps/windows/src/main/plugins/external-src/screen-record/index.ts"
   ],
   "unconsumedMethods": [
     "updater.checkForUpdates",

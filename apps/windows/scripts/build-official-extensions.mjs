@@ -29,21 +29,21 @@ const ENTRIES = [
     name: '性能监控',
     description: 'IPC 耗时、慢调用、启动阶段与内存快照',
     version: '0.1.0',
-    entry: 'src/main/extensions/perf.ts',
+    entry: 'src/main/plugins/external-src/perf/index.ts',
   },
   {
     id: 'com.lumii.cloud-sync',
     name: '云同步',
     description: '把用户文件与记忆同步到自建 Git 仓库',
     version: '0.1.0',
-    entry: 'src/main/extensions/cloud-sync.ts',
+    entry: 'src/main/plugins/external-src/cloud-sync/index.ts',
   },
   {
     id: 'com.lumii.screen-record',
     name: '录屏',
     description: '窗口/屏幕录制、旁白配音与字幕烧录',
     version: '0.1.0',
-    entry: 'src/main/extensions/screen-record.ts',
+    entry: 'src/main/plugins/external-src/screen-record/index.ts',
   },
 ]
 

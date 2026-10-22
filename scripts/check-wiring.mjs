@@ -310,6 +310,11 @@ const rendererLiterals = new Set()
 
 const IPC_MAIN_RE = /^ipcMain$/
 const IPC_RENDERER_RE = /^ipcRenderer$/
+/**
+ * 作用域化注册器的形参名。只认这两个名字而不是「任意 .handle()」：
+ * `child.on('data')` / `res.on('end')` 这类同在 main 里的调用会灌满假阳性。
+ */
+const REGISTRAR_RE = /^(registrar|ipc)$/
 
 function calleeName(node) {
   // 支持 x.y(...) 与 独立函数(...)
@@ -355,6 +360,15 @@ function scanFile(absPath) {
         const at = `${rel(absPath)}:${line}`
         const ch = arg0 ? evalExpr(arg0, absPath, nextScope) : null
         const raw = arg0 ? arg0.getText(sf).slice(0, 60) : '<无实参>'
+
+        // 插件化的注册器：handler 挂在插件作用域上（ctx.registerIpc），停用时随作用域摘掉。
+        // 形态是 `registrar.handle(channel, fn)` / `ipc.handle(...)`，等价于 ipcMain.handle。
+        if (callee.obj && REGISTRAR_RE.test(callee.obj)) {
+          if (['handle', 'handleOnce', 'on', 'once'].includes(callee.prop)) {
+            if (ch) for (const c of ch) handlers.push({ channel: c, at, raw })
+            else unresolved.push({ at, raw, why: 'main handler channel 无法解析' })
+          }
+        }
 
         if (callee.obj && IPC_MAIN_RE.test(callee.obj)) {
           if (['handle', 'handleOnce', 'on', 'once', 'removeHandler', 'removeAllListeners'].includes(callee.prop)) {
@@ -419,9 +433,12 @@ function scanToolRegistry(report) {
   const exported = new Map()
   for (const f of walk(dir)) {
     const src = readFileSync(f, 'utf8')
-    const re = /export\s+const\s+(\w+ToolConfig)\b/g
+    // 行内 `@wiring-ignore` 表示「运行时注册」（如插件在 apply 里装工具），不要求进静态清单
+    const re = /export\s+const\s+(\w+ToolConfig)\b[^\n]*/g
     let m
-    while ((m = re.exec(src))) exported.set(m[1], rel(f))
+    while ((m = re.exec(src))) {
+      if (!m[0].includes('@wiring-ignore')) exported.set(m[1], rel(f))
+    }
   }
   report.tools = { registered, exported }
 }

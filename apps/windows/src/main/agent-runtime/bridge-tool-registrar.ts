@@ -35,7 +35,7 @@ import { registerSyncConflictTool } from './bridge-tool-registrar-sync'
 import { registerChannelTools, registerIntegrationTools } from './bridge-tool-registrar-integration'
 import { registerClientCommandTools, registerAgentManagementTools } from './bridge-tool-registrar-client-cmd'
 import { registerHandoffTools } from './bridge-tool-registrar-handoff'
-import { isExtensionActive } from '../extensions/active'
+import { isExtensionActive } from '../plugins/active'
 import type { BridgeToolRegistrarDeps } from './bridge-tool-registrar-types'
 
 export type { BridgeToolRegistrarDeps } from './bridge-tool-registrar-types'

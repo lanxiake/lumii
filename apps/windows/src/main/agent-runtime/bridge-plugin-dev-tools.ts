@@ -14,11 +14,11 @@ import { createMtBotTool, type MtBotTool, type MtBotToolConfig } from '@mtbot/ag
 import { Type } from '@sinclair/typebox'
 
 import { getClientPluginStateReport } from '../client-plugin-state-report'
-import { resolveClientPluginsDir } from '../plugin-paths'
-import { checkPlugin, type PluginKind } from '../plugin-dev-check'
+import { resolveClientPluginsDir } from '../plugins/external/paths'
+import { checkPlugin, type PluginKind } from '../plugins/external/dev-check'
 import { buildPluginDevGuide, resolvePluginDevRoots } from '../plugin-dev-guide'
-import { getExtensionControl } from '../extension-control'
-import { resolveExtensionsDir } from '../extension-loader'
+import { getExtensionControl } from '../plugins/control'
+import { resolveExtensionsDir } from '../plugins/external/loader'
 import { jsonToolResult } from './bridge-utils'
 import type { BridgeToolRegistrarDeps } from './bridge-tool-registrar-types'
 

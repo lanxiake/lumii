@@ -1,11 +1,11 @@
 import { ipcMain, shell } from 'electron'
 
-import { getExtensionControl, type PluginTarget } from '../extension-control'
+import { getExtensionControl, type PluginTarget } from '../plugins/control'
 import {
   getClientPluginStateReport,
   setClientPluginStateReport,
 } from '../client-plugin-state-report'
-import { createSamplePlugin } from '../plugin-template'
+import { createSamplePlugin } from '../plugins/external/template'
 
 /**
  * 设置页「扩展」页签的数据面 + Agent 自举开发的状态面。

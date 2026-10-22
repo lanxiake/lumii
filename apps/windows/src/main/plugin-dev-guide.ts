@@ -1,9 +1,9 @@
 import path from 'node:path'
 
-import { resolveClientPluginsDir } from './plugin-paths'
-import { resolveExtensionsDir } from './extension-loader'
+import { resolveClientPluginsDir } from './plugins/external/paths'
+import { resolveExtensionsDir } from './plugins/external/loader'
 import { resolveClientStateDir } from './paths'
-import { KNOWN_SLOTS } from './plugin-dev-check'
+import { KNOWN_SLOTS } from './plugins/external/dev-check'
 
 /**
  * `plugin_dev guide` 的返回体：Agent 自举开发时需要的**全部可执行事实**。

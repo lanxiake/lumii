@@ -17,7 +17,7 @@ vi.mock('../dashboard-feed-store', async (importOriginal) => {
   }
 })
 
-const { registerDashboardFeedTools } = await import('../extensions/dashboard-feed')
+const { registerDashboardFeedTools } = await import('../plugins/builtin/dashboard-feed/index')
 
 function makeRegistrar() {
   const registered = new Map<string, { execute: (...args: unknown[]) => unknown }>()

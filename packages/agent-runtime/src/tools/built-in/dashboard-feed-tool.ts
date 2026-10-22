@@ -37,7 +37,7 @@ const DashboardFeedWriteParams = Type.Object({
 
 type DashboardFeedWriteInput = Static<typeof DashboardFeedWriteParams>;
 
-export const dashboardFeedWriteToolConfig: MtBotToolConfig<typeof DashboardFeedWriteParams> = {
+export const dashboardFeedWriteToolConfig: MtBotToolConfig<typeof DashboardFeedWriteParams> = { // @wiring-ignore 由 dashboard-feed 插件运行时注册，不进静态清单
   name: "dashboard_feed_write",
   label: "Write Dashboard Feed",
   description:
@@ -74,7 +74,7 @@ const DashboardFeedReadParams = Type.Object({
 
 type DashboardFeedReadInput = Static<typeof DashboardFeedReadParams>;
 
-export const dashboardFeedReadToolConfig: MtBotToolConfig<typeof DashboardFeedReadParams> = {
+export const dashboardFeedReadToolConfig: MtBotToolConfig<typeof DashboardFeedReadParams> = { // @wiring-ignore 同上
   name: "dashboard_feed_read",
   label: "Read Dashboard Feed",
   description:
