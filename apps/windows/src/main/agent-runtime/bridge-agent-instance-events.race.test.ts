@@ -15,7 +15,7 @@ import { createAgentInstanceRuntimeEventHandler } from "./bridge-agent-instance-
 
 const mocks = vi.hoisted(() => ({ capture: vi.fn() }));
 
-vi.mock("../workspace-vcs/workspace-turn-snapshot", () => ({
+vi.mock("../plugins/builtin/vcs/workspace-turn-snapshot", () => ({
   captureWorkspaceTurnSnapshot: mocks.capture,
 }));
 

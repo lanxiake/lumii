@@ -19,7 +19,7 @@ import {
   SecurityError,
   createSearchRegExp,
 } from './security-utils'
-import { VCS_SKIP_DIRS } from './workspace-vcs/vcs-ignore'
+import { VCS_SKIP_DIRS } from './plugins/builtin/vcs/vcs-ignore'
 import { getDiskInfo as platformGetDiskInfo } from './platform/system-info'
 
 const execAsync = promisify(exec)

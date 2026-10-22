@@ -9,7 +9,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { shouldSkipWalkDir } from "./vcs-ignore";
-import { createLogger } from "../logger";
+import { createLogger } from "../../../logger";
 
 const logger = createLogger("workspace-vcs/turn-snapshot");
 

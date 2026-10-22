@@ -35,7 +35,7 @@ import type {
 import type { InstanceStateStore } from './bridge-instance-state'
 import { agentRuntimeLog as log } from './bridge-utils'
 import { markRunStart, markFirstToken, clearRun } from '../provider-latency'
-import { captureWorkspaceTurnSnapshot } from '../workspace-vcs/workspace-turn-snapshot'
+import { captureWorkspaceTurnSnapshot } from '../plugins/builtin/vcs/workspace-turn-snapshot'
 import {
   collectResultTouchedPaths,
   collectToolEvidence,

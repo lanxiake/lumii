@@ -79,7 +79,7 @@ import {
   detectGit,
   runGit as sharedRunGit,
   type GitRunResult,
-} from '../git-cli'
+} from '../../../git-cli'
 import { VCS_BINARY_EXTENSIONS, VCS_SKIP_DIRS } from './vcs-ignore'
 
 const log = {

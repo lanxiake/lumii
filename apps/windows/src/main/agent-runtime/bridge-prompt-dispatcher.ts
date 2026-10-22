@@ -46,7 +46,7 @@ import { toRouterResultLite, type RouterAgentInfo, type RouterSkillInfo } from '
 import { summarizeRecentTurns } from './router/recent-turns-summarizer'
 import { classifyImageModel, IMAGE_MODEL_SIMPLE } from './image-intent-classifier'
 import type { RouterLlmCaller } from './router/llm-caller'
-import { captureWorkspaceTurnSnapshot } from '../workspace-vcs/workspace-turn-snapshot'
+import { captureWorkspaceTurnSnapshot } from '../plugins/builtin/vcs/workspace-turn-snapshot'
 import {
   clearTurnTouchedPaths,
   recordTurnTouchedFilePath,

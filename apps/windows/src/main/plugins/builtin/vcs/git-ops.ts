@@ -34,7 +34,7 @@
 
 import path from 'node:path'
 import fs from 'node:fs'
-import { runGit as sharedRunGit, hasFatalError, type GitRunResult } from '../git-cli'
+import { runGit as sharedRunGit, hasFatalError, type GitRunResult } from '../../../git-cli'
 import type { VcsDiffEntry, VcsFileStatus } from './types'
 import { isVcsBinaryPath } from './vcs-ignore'
 import { computeDiffStats, computeFileDiff, MAX_DIFF_BYTES } from './vcs-diff'

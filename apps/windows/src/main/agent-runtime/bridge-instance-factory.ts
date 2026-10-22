@@ -81,7 +81,7 @@ import { resolveModelThinking, resolveReasoningOptions, apiForProviderType } fro
 import { resizeImageIfNeeded } from './image-resizer'
 import type { FileMemoryHandler } from './file-memory-handler'
 import type { WikiIngestHook } from '@mtbot/agent-runtime'
-import { maybeSnapshot } from '../workspace-vcs/vcs-snapshot'
+import { maybeSnapshot } from '../plugins/builtin/vcs/vcs-snapshot'
 import { notifyCloudSyncWorkspaceChanged } from '../cloud-sync/sync-accessor'
 import { selectPromptVariantForSession } from './autonomous-wiring'
 
