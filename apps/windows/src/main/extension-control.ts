@@ -146,7 +146,7 @@ export function createExtensionControl(deps: ExtensionControlDeps): ExtensionCon
        * 主进程扩展的开关本来就是「写盘、重启后生效」，按内置行的口径显示即可。
        */
       const enabled = !disabled.has(entry.id)
-      // 启动快照里的禁用表；运行时 `entry.enabled` 会被导入失败影响，不能拿来比
+      // 外部扩展仍是「写盘、重启后生效」：用启动快照比对，改了开关就显示待重启
       const enabledAtStartup = !deps.external?.startupDisabledIds().has(entry.id)
       // 官方扩展：已装 marker 的 sha256 与当前清单不同 → 可更新（安装包不会自动覆盖）
       const catalogEntry = entry.origin === 'official' ? catalogById.get(entry.id) : undefined
@@ -260,7 +260,9 @@ export function createExtensionControl(deps: ExtensionControlDeps): ExtensionCon
       return { ok: false, error: `写入偏好失败：${messageOf(err)}` }
     }
 
-    // 外部扩展由 ExternalExtensionRuntime 管（有自己的一套加载/回滚），这里不碰
+    // 外部扩展仍要重启：它们的服务句柄（S.perf / S.cloudSync / S.syncScheduler）
+    // 在启动期被 index.ts 取走并缓存，卸载扩展只是拆掉它自己的作用域，
+    // 已经分发给核心的调度器照旧在跑——那种「关掉了但还在工作」比要求重启更糟。
     if (!builtinIds.has(id) || !hotSwappable.has(id)) {
       return { ok: true, restartRequired: true }
     }
