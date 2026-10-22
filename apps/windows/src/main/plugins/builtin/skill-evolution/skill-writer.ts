@@ -5,7 +5,7 @@
 
 import path from 'node:path'
 import fs from 'node:fs/promises'
-import { resolveLegacySkillsDir } from '../paths'
+import { resolveLegacySkillsDir } from '../../../paths'
 import type { SkillMeta, EvolutionRecord, SkillDraft } from './types'
 
 const SKILLS_BASE_DIR = resolveLegacySkillsDir()

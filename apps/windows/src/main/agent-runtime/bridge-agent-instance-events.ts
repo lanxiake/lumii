@@ -271,7 +271,7 @@ export interface BridgeAgentInstanceEventDeps {
   /** 每条 assistant 消息持久化完成后回调（用于自动快照等工作） */
   onAssistantMessagePersisted?: (params: { conversationId: string; runId: string }) => void
   /** 技能进化：轮次结束后回调（fire-and-forget） */
-  onTurnComplete?: (instanceId: string, messages: import('../skill-evolution/types').ConversationMessage[]) => void
+  onTurnComplete?: (instanceId: string, messages: import('../plugins/builtin/skill-evolution/types').ConversationMessage[]) => void
   /** 插件事件总线（用于发射生命周期事件给插件） */
   pluginEventBus?: import('@mtbot/plugin-core').EventBus<import('../kernel/events').MainEvents> | null
 }

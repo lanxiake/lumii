@@ -691,11 +691,11 @@ export class AgentRuntimeBridge {
     return this._wikiEmbedderCache
   }
 
-  setSkillEvolutionEngine(engine: import('../skill-evolution/index').SkillEvolutionEngine): void {
+  setSkillEvolutionEngine(engine: import('../plugins/builtin/skill-evolution/engine').SkillEvolutionEngine): void {
     this.config.skillEvolutionEngine = engine
   }
 
-  getSkillEvolutionEngine(): import('../skill-evolution/index').SkillEvolutionEngine | undefined {
+  getSkillEvolutionEngine(): import('../plugins/builtin/skill-evolution/engine').SkillEvolutionEngine | undefined {
     return this.config.skillEvolutionEngine
   }
 

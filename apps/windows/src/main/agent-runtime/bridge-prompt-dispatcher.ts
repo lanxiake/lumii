@@ -74,7 +74,7 @@ export interface BridgePromptDispatcherDeps {
   instanceFactory: BridgeInstanceFactory
   modelRouter: ModelRouter
   config: AgentRuntimeBridgeConfig
-  getSkillEvolutionEngine: () => import('../skill-evolution/index').SkillEvolutionEngine | undefined
+  getSkillEvolutionEngine: () => import('../plugins/builtin/skill-evolution/engine').SkillEvolutionEngine | undefined
   /** 工具进化审批回复消费（可选，未装配时跳过） */
   getToolEvolutionEngine?: () => import('./bash-tool-evolution/tool-evolution-engine').ToolEvolutionEngine | null
   getConversationRepo: () => ConversationRepo | null

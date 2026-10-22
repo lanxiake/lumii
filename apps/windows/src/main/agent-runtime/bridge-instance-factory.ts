@@ -791,7 +791,7 @@ export class BridgeInstanceFactory {
     // 这里按宿主语义重建并二次 setSystemPrompt，最终态与改前完全一致。
     let promptResult = res.prompt.initial
     if (this.deps.config.skillEvolutionEngine) {
-      const { injectEvolutionGuidanceIntoResult } = await import('../skill-evolution/prompt-injector')
+      const { injectEvolutionGuidanceIntoResult } = await import('../plugins/builtin/skill-evolution/prompt-injector')
       promptResult = injectEvolutionGuidanceIntoResult(promptResult)
     }
 

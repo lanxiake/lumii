@@ -132,7 +132,7 @@ export interface AgentRuntimeBridgeConfig {
   /**
    * 技能自进化引擎（可选，由 index.ts 注入）
    */
-  skillEvolutionEngine?: import('../skill-evolution/index').SkillEvolutionEngine
+  skillEvolutionEngine?: import('../plugins/builtin/skill-evolution/engine').SkillEvolutionEngine
   /**
    * 记忆宫殿检索（由 bridge 注入自建 SQLite 实现，见 palace-backend.ts）。
    * 返回 null 表示后端不可用，此时降级到 user_memory 文本搜索。
