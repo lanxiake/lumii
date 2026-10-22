@@ -1,6 +1,8 @@
+import { ipcMain } from 'electron'
 import { definePlugin } from '@mtbot/plugin-core'
 
 import type { MainEvents } from '../kernel/events'
+import { isSherpaLoaded, onnxGateState } from '../onnx-runtime-gate'
 import { S } from '../kernel/services'
 import { submitVoiceTranscript } from '../ipc/agent-runtime-ipc.js'
 import { setChannelAsrReadyChecker } from '../channel/channel-voice-asr-hint.js'
@@ -43,13 +45,24 @@ export const voiceExtension = {
   definition: definePlugin<MainEvents>({
     id: 'com.lumii.voice',
     provides: ['voice'],
-    apply(ctx) {
+    async apply(ctx) {
       let started = false
 
       const setup = async (): Promise<void> => {
         if (started) return
         const win = ctx.get(S.mainWindow)?.get() ?? null
         if (!win) return
+
+        // ONNX 运行时是进程级、不可逆的：E5（onnxruntime 1.14）一旦跑过，
+        // 再加载 sherpa（1.27）会在原生层崩（见 onnx-runtime-gate.ts）。
+        // 所以「启动时被禁用、运行期想启用」这条路上，晚于 E5 的启用必须拒绝，
+        // 让设置页如实显示「需要重启」——而不是让用户点开就崩。
+        // 判据是「这个进程绑的是谁」：sherpa 加载过就安全（重新加载同一份 1.27）；
+        // 没加载过而 E5 已经跑过，再加载 sherpa 会崩——那种情况只能重启。
+        if (!isSherpaLoaded() && onnxGateState().phase === 'e5Running') {
+          throw new Error('ONNX 运行时已被 E5 占用，启用语音需要重启应用')
+        }
+
         started = true
 
         const modelManager = new VoiceModelManager()
@@ -61,7 +74,31 @@ export const voiceExtension = {
           config,
         )
 
-        registerVoiceIpc(win, service, modelManager, ctx.get(S.perf) ?? undefined)
+        registerVoiceIpc(
+          win,
+          service,
+          modelManager,
+          ctx.get(S.perf) ?? undefined,
+          {
+            handle: (channel, listener) => ctx.registerIpc?.(channel, listener),
+            on: (channel, listener) => {
+              if (!ctx.registerIpc) return
+              ipcMain.on(channel, listener as never)
+              ctx.effect(() => {
+                ipcMain.removeListener(channel, listener as never)
+              })
+            },
+          },
+        )
+
+        // 停用：释放引擎（VAD/ASR/TTS 原生实例）并把两条全局回调复位，
+        // 否则渠道 ASR 与文件导入会继续把活派给一个已释放的服务。
+        ctx.effect(() => {
+          setChannelAsrReadyChecker(() => false)
+          setAudioTranscribeCallback(null)
+          void service.dispose().catch((e: Error) => ctx.log.warn(`语音释放失败: ${e.message}`))
+          ctx.log.info('语音插件卸载，引擎已释放')
+        })
 
         // 渠道语音失败提示：按 Paraformer 是否已下载分流文案
         setChannelAsrReadyChecker(() => modelManager.isModelDownloaded('asr-paraformer-zh'))
@@ -80,7 +117,8 @@ export const voiceExtension = {
       }
 
       if (ctx.get(S.mainWindow)?.get()) {
-        void setup()
+        // 运行期重新启用：**等装配完成**，失败要让 activate 如实报错（不吞成 unhandled rejection）
+        await setup()
       } else {
         // 事件监听器签名是同步的，这里显式兜住异步装配的异常，避免变成未处理 rejection
         ctx.on('app:window-ready', () => {

@@ -268,7 +268,16 @@ export function createExtensionControl(deps: ExtensionControlDeps): ExtensionCon
     try {
       if (enabled) {
         const error = await deps.host.activate(id)
-        if (error) return { ok: false, error: `启用失败：${messageOf(error)}` }
+        if (error) {
+          // 启用失败就把偏好改回去：否则开关停在「开」、插件却是停的，
+          // 下次启动又会尝试一次（语音这类失败每次都会重演）。
+          try {
+            setMainExtensionEnabled(id, false, storeFile)
+          } catch {
+            /* 写回失败只影响显示，不影响结论 */
+          }
+          return { ok: false, error: `启用失败：${messageOf(error)}` }
+        }
       } else {
         await deps.host.stop(id)
       }

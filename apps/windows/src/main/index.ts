@@ -271,7 +271,13 @@ let feishuLoginService: FeishuLoginService | null = null  // 飞书扫码服务
 let qbotLoginService: QbotLoginService | null = null  // QQ 机器人扫码服务
 let channelHub: ChannelHub | null = null  // 渠道出站 Hub（list/send）
 let agentRuntimeBridge: AgentRuntimeBridge | null = null  // 客户端 Agent Runtime
-let voiceCallService: VoiceCallService | null = null  // 语音通话服务
+let voiceCallService: VoiceCallService | null = null  // 语音通话服务（启动期快照，仅用于 VAD 预热时序）
+/**
+ * 语音服务**现取**：插件支持运行期启停，停用后容器里就没这个服务了，
+ * 拿启动期那个变量会得到一个已经 dispose 的实例（调它等于用坏掉的对象）。
+ */
+const currentVoiceService = (): VoiceCallService | null =>
+  pluginHost?.container.get(S.voice) ?? null
 let performanceMonitor: PerformanceMonitor | null = null  // 性能监控（IPC 耗时/内存/启动阶段）
 /** perf 的 IPC 只能注册一次（重复 ipcMain.handle 会抛错）；运行期安装时补注册用 */
 let performanceIpcRegistered = false
@@ -677,10 +683,11 @@ async function initAgentRuntime(): Promise<void> {
      * `voiceCallService` 是懒取的（它可能晚于本配置创建），没有就返回空串，绝不抛。
      */
     transcribeVoice: async (absPath: string) => {
-      if (!voiceCallService) return ''
+      const voice = currentVoiceService()
+      if (!voice) return ''
       try {
         return await transcribeVoiceFile(absPath, (samples, sampleRate) =>
-          voiceCallService!.transcribePcm(samples, sampleRate),
+          voice.transcribePcm(samples, sampleRate),
         )
       } catch (e) {
         log.warn('[WechatVoice] 转写失败:', e instanceof Error ? e.message : String(e))
@@ -692,11 +699,12 @@ async function initAgentRuntime(): Promise<void> {
       text: string,
       opts?: { speaker?: string; speed?: number },
     ) => {
-      if (!voiceCallService) throw new Error('语音通话服务未初始化')
+      const voice = currentVoiceService()
+      if (!voice) throw new Error('语音通话服务未初始化')
       const workspaceDir = getWorkspaceDir()
       const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '')
       const destDir = join(workspaceDir, 'uploads', dateStr)
-      return voiceCallService.generateAudioFile(text, destDir, opts)
+      return voice.generateAudioFile(text, destDir, opts)
     },
     /** 执行本地 executable 技能（由 execute_skill 工具调用） */
     executeSkill: async (skillId: string, params: Record<string, unknown>) => {
@@ -1621,7 +1629,7 @@ async function initChannelServices(): Promise<void> {
       weixinLoginService = new WeixinLoginService()
       await weixinLoginService.initialize()
       // 注入 SILK ASR 转录回调
-      weixinLoginService.silkAsrCallback = (samples, sampleRate) => voiceCallService!.transcribePcm(samples, sampleRate)
+      weixinLoginService.silkAsrCallback = (samples, sampleRate) => currentVoiceService()?.transcribePcm(samples, sampleRate) ?? Promise.resolve('')
     } catch (err) {
       log.warn('微信(iLink)服务初始化失败:', err instanceof Error ? err.message : err)
       // 不 return：微信失败不应阻断企微/飞书/QQ 的初始化
@@ -1698,7 +1706,7 @@ async function initChannelServices(): Promise<void> {
       // 模型未就绪时返回空字符串，不阻塞消息处理
       feishuLoginService.asrCallback = async (absPath) => {
         try {
-          return await transcribeVoiceFile(absPath, (samples, sampleRate) => voiceCallService!.transcribePcm(samples, sampleRate))
+          return await transcribeVoiceFile(absPath, (samples, sampleRate) => currentVoiceService()?.transcribePcm(samples, sampleRate) ?? Promise.resolve(''))
         } catch (e) {
           console.warn('[Feishu ASR] 转录失败（可能语音模型未下载）:', e instanceof Error ? e.message : String(e))
           return ''
@@ -1736,7 +1744,7 @@ async function initChannelServices(): Promise<void> {
       // silk-wasm 未加载或模型未就绪时返回空字符串，不阻塞消息处理
       qbotLoginService.asrCallback = async (absPath) => {
         try {
-          return await transcribeVoiceFile(absPath, (samples, sampleRate) => voiceCallService!.transcribePcm(samples, sampleRate))
+          return await transcribeVoiceFile(absPath, (samples, sampleRate) => currentVoiceService()?.transcribePcm(samples, sampleRate) ?? Promise.resolve(''))
         } catch (e) {
           console.warn('[Qbot ASR] 转录失败（silk-wasm 未加载或语音模型未下载）:', e instanceof Error ? e.message : String(e))
           return ''

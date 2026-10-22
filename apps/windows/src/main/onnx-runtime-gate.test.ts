@@ -11,6 +11,7 @@ import {
   sherpaDone,
   waitForSherpa,
   onnxGateState,
+  isSherpaLoaded,
   __resetOnnxGateForTest,
 } from './onnx-runtime-gate'
 
@@ -66,5 +67,25 @@ describe('onnx-runtime-gate', () => {
     expect(sherpaFirst()).toBe(true)
     expect(sherpaFirst()).toBe(true)
     sherpaDone()
+  })
+
+  /**
+   * 运行期重新启用语音要问的是「这个进程绑的是谁」，不是「phase 现在叫什么」：
+   * VAD 跑完之后 `waitForSherpa()` 也会把 phase 推成 e5Running，
+   * 那时 sherpa 早就加载过了，重新加载同一份是安全的。
+   */
+  it('sherpa 加载过之后再起 E5，仍然允许重新加载 sherpa（运行期重启语音的依据）', async () => {
+    expect(sherpaFirst()).toBe(true)
+    sherpaDone()
+    await waitForSherpa()
+    expect(onnxGateState().phase).toBe('e5Running')
+    expect(isSherpaLoaded()).toBe(true)
+    expect(sherpaFirst()).toBe(true)
+  })
+
+  it('sherpa 从未加载过而 E5 已跑：拒绝（这时只能重启）', async () => {
+    await waitForSherpa()
+    expect(isSherpaLoaded()).toBe(false)
+    expect(sherpaFirst()).toBe(false)
   })
 })

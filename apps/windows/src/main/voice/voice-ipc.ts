@@ -3,6 +3,7 @@
  * 注册 voice:command 和 voice:audio:chunk 两个 IPC 通道
  */
 import { ipcMain, type BrowserWindow } from 'electron'
+import type { IpcHandleRegistrar } from '../kernel/ipc-registry'
 import { type VoiceCallService } from './voice-service.js'
 import { type VoiceModelManager, PYTORCH_CUDA_RUNTIME_ID } from './model-manager.js'
 import { AsrTestSession } from './asr-test-session.js'
@@ -24,8 +25,6 @@ const log = {
   warn: (...args: unknown[]) => console.warn('[VoiceIPC]', ...args),
   error: (...args: unknown[]) => console.error('[VoiceIPC]', ...args),
 }
-
-let voiceIpcInstalled = false
 
 /**
  * 若已下载任意 Qwen3 TTS 权重，后台预装 qwen-tts（不阻塞 UI）
@@ -56,12 +55,10 @@ export function registerVoiceIpc(
   voiceService: VoiceCallService,
   modelManager: VoiceModelManager,
   performanceMonitor?: PerformanceMonitor,
+  // 插件传入 ctx.registerIpc：通道挂在插件作用域上，停用时自动摘掉。
+  // 默认直连 ipcMain；幂等由注册器负责（它会先 removeHandler 再 handle）。
+  ipc: IpcHandleRegistrar = ipcMain as unknown as IpcHandleRegistrar,
 ): void {
-  if (voiceIpcInstalled) {
-    log.info('voice IPC 已注册，跳过重复 install')
-    return
-  }
-  voiceIpcInstalled = true
 
   const asrTest = new AsrTestSession(modelManager, () => voiceService.getConfig())
 
@@ -383,18 +380,20 @@ export function registerVoiceIpc(
     }
   }
 
-  ipcMain.handle(
+  ipc.handle(
     'voice:command',
-    performanceMonitor
+    // 处理器形参写的是 Electron 的 IpcMainInvokeEvent，注册器接口用 unknown 收窄；
+    // 这是纯类型层面的差异（实际调用方就是 ipcMain），断言一次即可。
+    (performanceMonitor
       ? createMeasuredHandler('voice:command', voiceCommandHandler, performanceMonitor)
-      : voiceCommandHandler,
+      : voiceCommandHandler) as never,
   )
 
   // ── 音频帧通道（send 模式，单向高频，不需要响应）──────────────────────
   let lastAudioErrorMsg = ''
   let audioErrorRepeatCount = 0
 
-  ipcMain.on('voice:audio:chunk', (_event, callId: string, buffer: Buffer) => {
+  ipc.on?.('voice:audio:chunk', (_event, callId: string, buffer: Buffer) => {
     const samples = new Float32Array(buffer.buffer, buffer.byteOffset, buffer.byteLength / 4)
 
     // ASR 测试会话优先消费音频

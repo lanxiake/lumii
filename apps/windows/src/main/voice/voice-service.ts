@@ -995,6 +995,41 @@ export class VoiceCallService {
     })
   }
 
+  /**
+   * 插件停用：结束通话并释放引擎。
+   *
+   * 释放的是 VAD / ASR / TTS 三套原生实例（与 `setConfig` 的重置同源），
+   * 下次启用时 `ensureInitialized()` 会重新加载——前提是进程里的 ONNX 运行时
+   * 仍绑在 sherpa 上（见 `onnx-runtime-gate.ts`；E5 已经跑过的进程不能再起语音）。
+   */
+  async dispose(): Promise<void> {
+    try {
+      await this.stopCall()
+    } catch (err) {
+      log.warn(`[dispose] 结束通话失败（继续释放引擎）: ${(err as Error).message}`)
+    }
+    this.ttsAbort?.abort()
+    this.ttsAbort = null
+    this.agentEventUnsubscribe?.()
+    this.agentEventUnsubscribe = null
+    try {
+      this.vad?.destroy()
+      this.asrProvider?.destroy()
+      this.ttsProvider?.destroy()
+    } catch (err) {
+      log.warn(`[dispose] 释放引擎失败: ${(err as Error).message}`)
+    }
+    this.vad = null
+    this.asrProvider = null
+    this.ttsProvider = null
+    this.asrStream = null
+    this.initialized = false
+    this.ttsInitialized = false
+    this.ttsQueue = []
+    this.isTtsBusy = false
+    log.info('[dispose] 语音服务已释放')
+  }
+
   // ── 渲染侧播放完毕通知 ─────────────────────────────────────────────────
 
   /** 渲染进程通知：TTS 音频已完全播放完毕，可以缩短冷却期 */

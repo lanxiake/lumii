@@ -77,6 +77,7 @@ export const HOT_SWAPPABLE_BUILTINS: ReadonlySet<string> = new Set([
   'com.lumii.relay',
   'com.lumii.browser',
   'com.lumii.pet',
+  'com.lumii.voice',
 ])
 
 /**

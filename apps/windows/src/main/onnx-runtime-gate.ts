@@ -54,6 +54,14 @@
 export type OnnxGatePhase = 'idle' | 'sherpaHolding' | 'sherpaDone' | 'e5Running'
 
 let phase: OnnxGatePhase = 'idle'
+/**
+ * 本进程里 sherpa 是否**成功抢到过**运行时。
+ *
+ * 光看 `phase` 不够：`waitForSherpa()` 即使是因为「VAD 已经初始化完了」而立刻返回，
+ * 也会把 phase 推成 `e5Running`。而运行期重新启用语音需要知道的是
+ * 「这个进程绑的到底是 sherpa 还是 E5」——只要 sherpa 先加载过，之后重新加载它就安全。
+ */
+let sherpaLoaded = false
 const e5Waiters: Array<() => void> = []
 
 /**
@@ -63,9 +71,20 @@ const e5Waiters: Array<() => void> = []
  *          会在原生层失败，调用方应**如实报错并跳过**，不要硬上。
  */
 export function sherpaFirst(): boolean {
-  if (phase === 'e5Running') return false
+  if (phase === 'e5Running' && !sherpaLoaded) return false
   if (phase === 'idle') phase = 'sherpaHolding'
+  sherpaLoaded = true
   return true
+}
+
+/**
+ * sherpa 是否已在**本进程**加载过。
+ *
+ * 运行期重新启用语音时用它判断安全性：加载过 → 进程绑的就是 1.27，重新加载安全；
+ * 没加载过而 E5 已跑 → 再加载 sherpa 会在原生层崩，必须要求重启。
+ */
+export function isSherpaLoaded(): boolean {
+  return sherpaLoaded
 }
 
 /** VAD 初始化结束（成功或失败）后调用：放行等待中的 E5 初始化 */
@@ -97,5 +116,6 @@ export function onnxGateState(): { phase: OnnxGatePhase; pendingE5: number } {
 /** 仅测试用：重置进程级状态 */
 export function __resetOnnxGateForTest(): void {
   phase = 'idle'
+  sherpaLoaded = false
   e5Waiters.length = 0
 }
