@@ -813,6 +813,40 @@ for (const h of handlers) {
   if (at.startsWith(MAIN_PREFIX)) ipcRegisteringFiles.add(at.slice(MAIN_PREFIX.length))
 }
 const unownedIpc = [...ipcRegisteringFiles].filter((f) => !(f in ipcOwners)).sort()
+
+// ---- ⑪ 核心直接 import 插件实现
+//
+// 插件目录迁进 `src/main/plugins/builtin/<id>/` 之后，边界才看得见：核心（plugins/ 以外的
+// main 代码）每一条 import 都是一处「插件停用了但它还在被调用」的隐患。
+// 现状是存量（48 条），**只禁止新增**：迁移一条就从基线里删一条。
+const coreImportsPluginImpl = (() => {
+  const out = new Set()
+  for (const f of files) {
+    const r = rel(f)
+    if (!r.startsWith(MAIN_PREFIX) || r.startsWith(`${MAIN_PREFIX}plugins/`)) continue
+    const sf = getModule(f).sf
+    if (!sf) continue
+    const add = (spec) => {
+      const m = spec.match(/plugins\/builtin\/([^/'"]+)/)
+      if (m) out.add(`${r} → ${m[1]}`)
+    }
+    const visit = (node) => {
+      if (
+        (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) &&
+        node.moduleSpecifier &&
+        ts.isStringLiteral(node.moduleSpecifier)
+      ) {
+        add(node.moduleSpecifier.text)
+      } else if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
+        const a = node.arguments[0]
+        if (a && ts.isStringLiteral(a)) add(a.text)
+      }
+      ts.forEachChild(node, visit)
+    }
+    ts.forEachChild(sf, visit)
+  }
+  return [...out].sort()
+})()
 const staleIpcOwners = Object.keys(ipcOwners)
   .filter((k) => !k.startsWith('_') && !ipcRegisteringFiles.has(k))
   .sort()
@@ -918,6 +952,7 @@ if (UPDATE) {
     unreachable: unreachable.map(rel).sort(),
     unconsumedMethods,
     unroutedCommands,
+    coreImportsPluginImpl,
   }
   writeFileSync(BASELINE_PATH, JSON.stringify(out, null, 2) + '\n', 'utf8')
   console.log(`已写入基线 ${rel(BASELINE_PATH)}：`)
@@ -925,7 +960,7 @@ if (UPDATE) {
     `  孤儿 handler ${orphanHandlers.length}｜悬空引用 ${danglingRefs.length}｜` +
       `无人监听 ${orphanSends.length}｜未注册工具 ${unregisteredTools.length}｜` +
       `不可达文件 ${unreachable.length}｜无消费者 ${unconsumedMethods.length}｜` +
-      `未接分派 ${unroutedCommands.length}`,
+      `未接分派 ${unroutedCommands.length}｜核心直连插件 ${coreImportsPluginImpl.length}`,
   )
   process.exit(0)
 }
@@ -1095,6 +1130,15 @@ if (VERBOSE && unresolved.length) {
   if (unresolved.length > 60) console.log(`  ... 另有 ${unresolved.length - 60} 处`)
 }
 
+// ⑪
+{
+  const { fresh, known } = splitNew(coreImportsPluginImpl, 'coreImportsPluginImpl')
+  section(`⑪ 核心直接 import 插件实现（应经由服务契约）— 新增 ${fresh.length} / 已知 ${known.length}`)
+  for (const e of fresh) console.log(`  ${RED('!')} ${e}`)
+  if (expandKnown) for (const e of known) console.log(`  ${DIM('·')} ${DIM(e)}`)
+  else if (known.length) console.log(`  ${DIM(`基线内已知 ${known.length} 处（--verbose 展开）`)}`)
+}
+
 // ---- 结论
 const freshCount =
   splitNew(orphanHandlers, 'orphanHandlers').fresh.length +
@@ -1104,7 +1148,8 @@ const freshCount =
   splitNew(unreachable.map(rel), 'unreachable').fresh.length +
   splitNew(unconsumedMethods, 'unconsumedMethods').fresh.length +
   splitNew(unroutedCommands, 'unroutedCommands').fresh.length +
-  splitNew(unownedIpc, 'unownedIpc').fresh.length
+  splitNew(unownedIpc, 'unownedIpc').fresh.length +
+  splitNew(coreImportsPluginImpl, 'coreImportsPluginImpl').fresh.length
 
 console.log(
   `\n${

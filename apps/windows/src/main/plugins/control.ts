@@ -18,11 +18,13 @@ import { readInstalledOfficial, type OfficialCatalogEntry } from './external/off
 /**
  * 扩展控制面：给设置页「扩展」页签提供**统一列表**与**启用开关**。
  *
- * 两类扩展的生效时机不同，这个差别必须写在 UI 上（见 P5 计划 §1）：
+ * 生效时机有三档，这个差别必须写在 UI 上（见 P5 计划 §1）：
  *
- * - 主进程扩展（内置 + 外部）：开关写入 `extensions.json`，**重启后生效**。
- *   原因是启动时取出的 `performanceMonitor` 等单例被十余处直接引用，
- *   运行时卸载后变量仍指向旧实例；语音扩展更硬——ONNX 顺序闸不可逆。
+ * - 标了 `hot: true` 的内置插件：`activate` / `stop` 当场生效，返回 `restartRequired:false`。
+ *   前提是接线全在 `apply(ctx)` 里（`ctx.registerIpc` / `ctx.effect`）。
+ * - 外部扩展与未标 hot 的内置插件：开关写入 `extensions.json`，**重启后生效**。
+ *   外部扩展是因为核心在启动期就把 `S.perf` / `S.cloudSync` / `S.syncScheduler` 取走并缓存，
+ *   卸载只拆扩展自己的作用域——已经分发出去的调度器照旧在跑。
  * - 客户端插件：渲染层宿主每秒轮询 `list.json`，**≤1 秒生效**。
  */
 
@@ -118,7 +120,7 @@ export function createExtensionControl(deps: ExtensionControlDeps): ExtensionCon
       const permanentlyOff = manifest.disabled === true
       const enabled = !permanentlyOff && !disabled.has(manifest.id)
       /**
-       * 内置插件**总是**登记在宿主里（禁用的只是不激活，见 plugin-host.ts），
+       * 内置插件**总是**登记在宿主里（禁用的只是不激活，见 host.ts），
        * 所以判「有没有在跑」只能看 state：registered/stopped = 没跑；
        * failed 算「已经尝试过」，不该一直挂着「待重启」。
        */

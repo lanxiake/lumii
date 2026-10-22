@@ -120,8 +120,8 @@ await window.electronAPI.extensions.list()                          // 扩展状
 ### 字段清单（别靠猜）
 
 插件是纯 JS，看不到 preload 的类型声明。下面是真用得到的几张表的**返回字段**
-（定义在 `main/usage-store.ts` / `main/provider-latency.ts` / `main/dashboard-feed-store.ts` /
-`main/extension-control.ts`，改字段时这里跟着改）。
+（定义在 `main/plugins/builtin/usage/store.ts` / `main/provider-latency.ts` /
+`main/plugins/builtin/dashboard-feed/store.ts` / `main/plugins/control.ts`，改字段时这里跟着改）。
 
 **多数查询接口包一层信封**：`{ success: boolean, data?: T, error?: string }`——
 先判 `success`，`error` 是给人看的原文，不要当枚举解析。
@@ -202,9 +202,25 @@ api.storage.keys() / remove(key) / clear()
 
 | 操作 | 内置扩展 | 外部扩展 / 客户端插件 |
 |---|---|---|
-| 启用 / 禁用 | 支持（重启生效） | 支持（主进程重启生效；客户端 ≤1 秒） |
+| 启用 / 禁用 | 支持；标了 `hot: true` 的**即时生效**，其余重启生效 | 支持（主进程重启生效；客户端 ≤1 秒） |
 | 打开目录 | —（代码在 bundle 里） | 支持 |
 | 删除 | **不允许**，只能禁用 | 支持（二次确认；先卸载再删目录） |
+
+> 为什么外部扩展仍是「重启生效」：它们的服务句柄（`S.perf` / `S.cloudSync` / `S.syncScheduler`）
+> 在启动期被核心取走并缓存，卸载扩展只拆自己的作用域，已经分发出去的调度器照旧在跑。
+> 内置插件没有这个问题——接线在 `apply(ctx)` 里，作用域一拆功能就没了。
+
+### 8.1 内置插件的代码放哪
+
+```
+src/main/plugins/builtin/<name>/
+  index.ts   manifest + apply（接线全在这里）
+  *.ts       该插件独占的实现与测试
+```
+
+加插件 = 建目录 + `plugins/registry.ts` 加两行（import + 条目，需要即时启停就标 `hot: true`）。
+删插件 = 删目录 + 删那两行，`tsc` 会把残留引用列全。完整约定与生命周期清单见
+[`apps/windows/src/main/plugins/README.md`](../../apps/windows/src/main/plugins/README.md)。
 
 - Agent 生成的插件必须写 `origin: "agent"`，面板会显示「Agent 创建」；
 - 官方可选扩展写 `origin: "official"`，面板显示「官方」；安装包只带扩展清单

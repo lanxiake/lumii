@@ -7,7 +7,7 @@
  * 于是「禁用插件」只跳过了 `host.register()`，功能照旧接线——文档上的「可禁用」是假的。
  *
  * 由 `startExtensions()` 在外部扩展加载完之后写一次；扩展开关本来就是「重启后生效」
- * （见 extension-control.ts），所以这里是快照而不是实时查询。
+ * （见 control.ts），所以这里是快照而不是实时查询。
  */
 const KEY = Symbol.for('lumii.extensions.active')
 

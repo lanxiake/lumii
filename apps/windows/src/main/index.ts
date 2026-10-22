@@ -1318,7 +1318,7 @@ async function startExtensions(): Promise<void> {
   }, { disabledIds: disabled })
   await externalExtensions.loadAll()
   externalExtensions.startWatching()
-  // 给仍留在核心模块里的注册点判断该不该接线（见 extensions/active.ts）。
+  // 给仍留在核心模块里的注册点判断该不该接线（见 plugins/active.ts）。
   // 解析器优先：运行期开关之后，启动快照会过期（插件已经停了，快照还说它开着）。
   setActiveExtensionIds(new Set(pluginHost.list().map((p) => p.id)))
   setExtensionActiveResolver((id) => pluginHost?.get(id)?.state === 'active')
