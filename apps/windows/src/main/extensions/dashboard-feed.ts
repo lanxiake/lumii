@@ -58,8 +58,15 @@ import type { BridgeToolRegistrarDeps } from '../agent-runtime/bridge-tool-regis
  * - **P1**（包装式）：只声明插件，工具注册仍在 `bridge-tool-registrar.ts`，禁用不影响功能
  * - **P2**（工具迁移式，当前实现）：工具注册逻辑迁移到插件内，调用点用
  *   `isExtensionActive('com.lumii.dashboard-feed')` 决定接不接线
- *   - 禁用插件 = 不注册工具，工具调用失败
+ *   - 禁用插件 = 工具**根本不进注册表**（`tools:list` 里看不到），不是「还在但报错」
  * - **P3**（未做）：数据库注入仍在 `bridge.ts`（`setDashboardFeedDb`）
+ *
+ * ## 为什么 schema 不在 `ALL_BUILT_IN_TOOL_CONFIGS` 里
+ *
+ * 那两个 config 只有 stub（`execute` 返回 `not_implemented`），真实现是本文件的覆盖注册。
+ * 留在总表里的话，插件被禁用后工具仍会出现在 Agent 的工具表里，模型白白调用一次再拿到
+ * `not_implemented`。所以总表里删掉了它们，schema 仍从 `@mtbot/agent-runtime` 导出复用。
+ * （实测：禁用后 `tools:list` 160 项、无 feed 工具；启用后 162 项、两个都在。）
  *
  * ## 迁移检查清单
  *
@@ -67,7 +74,8 @@ import type { BridgeToolRegistrarDeps } from '../agent-runtime/bridge-tool-regis
  * - [x] 将 `registerDashboardFeedTool` 逻辑迁移到插件导出函数
  * - [x] 复用 `dashboard-feed-store.ts` 的存储函数
  * - [x] 调用点接入插件状态门（`bridge-tool-registrar.ts` L61）
- * - [ ] 端到端验证：禁用后重启，Agent 工具表里不应出现 `dashboard_feed_write`
+ * - [x] 端到端验证（2026-10-22）：禁用后重启，`tools:list` 160 项、无 feed 工具；
+ *       恢复后 162 项、两个都在
  * - [ ] P3: 数据库注入迁移到插件（目前仍在 bridge.ts）
  */
 export const dashboardFeedExtension = {

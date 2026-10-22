@@ -169,8 +169,10 @@ export const ALL_BUILT_IN_TOOL_CONFIGS: readonly MtBotToolConfig<any, any>[] = [
   cronCreateToolConfig,
   cronListToolConfig,
   cronDeleteToolConfig,
-  dashboardFeedWriteToolConfig,
-  dashboardFeedReadToolConfig,
+  // 注意：dashboard_feed_write / dashboard_feed_read 不在这里。
+  // 它们只有 stub（execute 返回 not_implemented），真正的实现在客户端扩展
+  // `com.lumii.dashboard-feed` 里注册。放进这张总表就等于「插件禁用后工具还在」，
+  // 模型会看见一个只会回 not_implemented 的工具。schema 仍从本包导出，供扩展复用。
   maintenanceReportWriteToolConfig,
   maintenanceReportReadToolConfig,
   assetCheckupToolConfig,
