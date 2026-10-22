@@ -128,7 +128,7 @@ export interface AgentRuntimeBridgeConfig {
   /**
    * 获取浏览器路由上下文（由 index.ts 注入，供浏览器工具调用 browser.proxy 命令）
    */
-  getBrowserContext?: () => import('../browser-service.js').BrowserRouteContext | null
+  getBrowserContext?: () => import('../plugins/builtin/browser/service.js').BrowserRouteContext | null
   /**
    * 技能自进化引擎（可选，由 index.ts 注入）
    */

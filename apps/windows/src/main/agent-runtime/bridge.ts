@@ -153,7 +153,7 @@ import { runPetGoal } from './bootstrap/pet-goal-runner'
 import { reportPetGoalReceipt } from './bootstrap/pet-goal-receipt'
 import { withTimeout } from './with-timeout'
 import { initToolUsageStore } from '../tool-usage-store'
-import { setDashboardFeedDb } from '../dashboard-feed-store'
+import { setDashboardFeedDb } from '../plugins/builtin/dashboard-feed/store'
 import { BridgePromptComposer } from './bridge-prompt-composer'
 import {
   agentRuntimeLog as log,

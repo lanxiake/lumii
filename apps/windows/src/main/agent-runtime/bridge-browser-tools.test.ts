@@ -14,7 +14,7 @@ import { ToolRegistry, type ToolExecutionContext } from '@mtbot/agent-runtime'
 import type { BrowserRouteContext } from '@mtbot/browser-control'
 import { registerBrowserTools, browserErrorText, browserEvalPayload } from './bridge-browser-tools'
 import { parseJsonToolResultPayload } from './bridge-utils'
-import { buildWindowsBrowserConfig } from '../browser-service'
+import { buildWindowsBrowserConfig } from '../plugins/builtin/browser/service'
 
 /** 假 context 的标记：走到 ensureTabAvailable 即证明路由命中 */
 const ROUTE_REACHED = 'browser-route-reached'

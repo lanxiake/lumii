@@ -8,8 +8,8 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import type { BrowserMediaStore } from '@mtbot/browser-control'
-import { createLogger } from './logger'
-import { resolveScreenshotTempDir } from './workspace-paths'
+import { createLogger } from '../../../logger'
+import { resolveScreenshotTempDir } from '../../../workspace-paths'
 
 const log = createLogger('BrowserMediaStore')
 

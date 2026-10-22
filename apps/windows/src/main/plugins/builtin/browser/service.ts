@@ -32,7 +32,7 @@ const log = {
 // ============================================================================
 
 import type { BrowserServerState, BrowserRouteContext, ResolvedBrowserConfig } from '@mtbot/browser-control'
-import { killPidTree } from './platform/process-kill'
+import { killPidTree } from '../../../platform/process-kill'
 
 export type { BrowserRouteContext }
 
@@ -143,7 +143,7 @@ function isMtbotChrome(commandLine: string | undefined): boolean {
  * 不 kill 用户自己的 Chrome 或其他非 mtbot 进程
  */
 async function killMtbotStaleBrowserProcess(port: number): Promise<boolean> {
-  const { inspectPortUsage } = await import('./vendor/ports-inspect.js')
+  const { inspectPortUsage } = await import('../../../vendor/ports-inspect.js')
 
   try {
     const usage = await inspectPortUsage(port)
@@ -180,7 +180,7 @@ async function killMtbotStaleBrowserProcess(port: number): Promise<boolean> {
  * 找不到空闲端口时返回 startPort + PORT_MAX_RETRIES * PORT_INCREMENT
  */
 async function findAvailablePort(startPort: number, label: string): Promise<number> {
-  const { inspectPortUsage } = await import('./vendor/ports-inspect.js')
+  const { inspectPortUsage } = await import('../../../vendor/ports-inspect.js')
 
   for (let i = 0; i < PORT_MAX_RETRIES; i++) {
     const port = startPort + i * PORT_INCREMENT
@@ -205,7 +205,7 @@ async function findAvailablePort(startPort: number, label: string): Promise<numb
  * CDP 端口探测：在通用探测基础上，额外处理 mtbot Chrome 残留（kill 后复用该端口）
  */
 async function findAvailableCdpPort(startPort = DEFAULT_CDP_PORT): Promise<number> {
-  const { inspectPortUsage } = await import('./vendor/ports-inspect.js')
+  const { inspectPortUsage } = await import('../../../vendor/ports-inspect.js')
 
   for (let i = 0; i < PORT_MAX_RETRIES; i++) {
     const port = startPort + i * PORT_INCREMENT
@@ -245,7 +245,7 @@ export async function startBrowserService(): Promise<boolean> {
 
   try {
     const { createBrowserRouteContext, ensureChromeExtensionRelayServer, resolveProfile, setBrowserMediaStore } = await import('@mtbot/browser-control')
-    const { createBrowserMediaStore } = await import('./browser-media-store.js')
+    const { createBrowserMediaStore } = await import('./media-store.js')
 
     // 截图 / PDF / labels 快照路由需要宿主落盘实现（未注入时这些路由恒定失败）
     setBrowserMediaStore(createBrowserMediaStore())

@@ -9,8 +9,8 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { describe, it, expect, afterEach } from 'vitest'
-import { buildBrowserMediaFileName, createBrowserMediaStore, sanitizeMediaPrefix } from './browser-media-store'
-import { _resetActiveWorkspaceDirGetterForTest, setActiveWorkspaceDirGetter } from './workspace-paths'
+import { buildBrowserMediaFileName, createBrowserMediaStore, sanitizeMediaPrefix } from './media-store'
+import { _resetActiveWorkspaceDirGetterForTest, setActiveWorkspaceDirGetter } from '../../../workspace-paths'
 
 describe('sanitizeMediaPrefix', () => {
   it('保留字母数字与连字符', () => {

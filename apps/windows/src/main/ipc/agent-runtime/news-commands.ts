@@ -14,7 +14,7 @@
  */
 
 import { readUserMemoryFile } from '../plugin-ipc'
-import { readActiveDashboardFeedSnapshot } from '../../dashboard-feed-store'
+import { readActiveDashboardFeedSnapshot } from '../../plugins/builtin/dashboard-feed/store'
 import {
   NEWS_PREF_FIELDS,
   NEWS_PREF_PRIORITY_SUMMARY,

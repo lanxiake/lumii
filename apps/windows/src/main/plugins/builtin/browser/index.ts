@@ -2,7 +2,7 @@ import { definePlugin } from '@mtbot/plugin-core'
 
 import type { MainEvents } from '../../../kernel/events'
 import { S } from '../../../kernel/services'
-import { startBrowserService, stopBrowserService } from '../../../browser-service'
+import { startBrowserService, stopBrowserService } from './service'
 
 /**
  * 浏览器控制扩展（CDP + 扩展中继）。

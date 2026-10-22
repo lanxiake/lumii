@@ -24,7 +24,7 @@ import { probeApiFormat } from '../provider-api-format-probe'
 import { getOpenAtLogin, setOpenAtLogin } from '../platform/autostart'
 import { getFeatureAvailability } from '../platform/feature-probe'
 import { FEATURE_BLOCK_MESSAGES } from '../../shared/feature-availability'
-import { queryUsage, type UsageQuery } from '../usage-store'
+import { queryUsage, type UsageQuery } from '../plugins/builtin/usage/store'
 import { getLatency } from '../provider-latency'
 import { NEWS_PIPELINE_TASK_TEXT, NEWS_PIPELINE_SYSTEM_PROMPT } from '../seed-cron-jobs'
 import {
@@ -41,7 +41,7 @@ import {
   readDashboardFeedBatches,
   ensureDashboardFeedMigrated,
   setActiveDashboardFeedId,
-} from '../dashboard-feed-store'
+} from '../plugins/builtin/dashboard-feed/store'
 import {
   listAgents,
   getAgentRecord,

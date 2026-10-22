@@ -15,7 +15,7 @@ import {
   countDashboardFeedItems,
   DEFAULT_DASHBOARD_FEED_ID,
   uniqueDashboardFeedItemId,
-} from '../../../dashboard-feed-store'
+} from './store'
 import type { BridgeToolRegistrarDeps } from '../../../agent-runtime/bridge-tool-registrar-types'
 
 /**

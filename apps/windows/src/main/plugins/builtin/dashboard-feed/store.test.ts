@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { readDashboardFeedSnapshot, __testables } from './dashboard-feed-store'
+import { readDashboardFeedSnapshot, __testables } from './store'
 
 describe('dashboard-feed-store', () => {
   it('兼容旧新闻快照字段并转换成通用 feed 字段', () => {

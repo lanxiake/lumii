@@ -1,7 +1,7 @@
 import { definePlugin } from '@mtbot/plugin-core'
 
 import type { MainEvents } from '../../../kernel/events'
-import { recordUsage } from '../../../usage-store'
+import { recordUsage } from './store'
 
 /**
  * 用量统计扩展。

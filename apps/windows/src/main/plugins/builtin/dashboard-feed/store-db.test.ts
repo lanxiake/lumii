@@ -12,7 +12,7 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { createTestSqliteAdapter } from '../../../../packages/agent-runtime/src/__tests__/helpers/sqlite-test-db'
+import { createTestSqliteAdapter } from '../../../../../../../packages/agent-runtime/src/__tests__/helpers/sqlite-test-db'
 import type { DatabaseAdapter } from '@mtbot/agent-runtime'
 import {
   setDashboardFeedDb,
@@ -26,7 +26,7 @@ import {
   __testables,
   MAX_FEED_ITEMS,
   type DashboardFeedSnapshot,
-} from './dashboard-feed-store'
+} from './store'
 
 function createFeedDb(): DatabaseAdapter {
   const db = createTestSqliteAdapter()

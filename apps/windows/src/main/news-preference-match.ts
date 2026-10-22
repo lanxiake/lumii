@@ -19,7 +19,7 @@
  *    大部分命中其实是规则写下之前就已经推出去的。
  */
 
-import type { DashboardFeedItem } from './dashboard-feed-store'
+import type { DashboardFeedItem } from './plugins/builtin/dashboard-feed/store'
 import { NEWS_PREF_PRIORITY, type NewsPrefField, type NewsPreferences } from './news-preferences'
 
 /**

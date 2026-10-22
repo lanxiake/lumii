@@ -9,8 +9,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 // 标注入参：否则 mock.calls 元素为空元组 []，断言 calls[0][0] 会报 TS2493
 const writeDashboardFeedSnapshotMock = vi.fn(async (_snapshot?: unknown) => undefined)
-vi.mock('../dashboard-feed-store', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../dashboard-feed-store')>()
+vi.mock('../plugins/builtin/dashboard-feed/store', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../plugins/builtin/dashboard-feed/store')>()
   return {
     ...actual,
     writeDashboardFeedSnapshot: writeDashboardFeedSnapshotMock,

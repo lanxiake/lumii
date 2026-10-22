@@ -9,7 +9,7 @@ import { Type } from '@sinclair/typebox'
 import { ToolRegistry, createMtBotTool, type ToolExecutionContext, type MtBotTool } from '@mtbot/agent-runtime'
 import { agentRuntimeLog as log, jsonToolResult } from './bridge-utils'
 
-type GetBrowserContext = () => import('../browser-service.js').BrowserRouteContext | null
+type GetBrowserContext = () => import('../plugins/builtin/browser/service.js').BrowserRouteContext | null
 
 /** 浏览器路由请求：/snapshot 是 GET + query，其余路由都是 POST + body */
 type BrowserRouteRequest = {

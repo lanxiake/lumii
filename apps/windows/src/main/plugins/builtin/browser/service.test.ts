@@ -15,7 +15,7 @@
  *   它关掉的是渲染进程沙箱，**宁可误判为「不开」也不能误判为「开」**
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { buildWindowsBrowserConfig } from './browser-service'
+import { buildWindowsBrowserConfig } from './service'
 
 const ENV_PATH = 'LUMII_BROWSER_EXECUTABLE'
 const ENV_NO_SANDBOX = 'LUMII_BROWSER_NO_SANDBOX'

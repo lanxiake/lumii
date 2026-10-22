@@ -27,7 +27,7 @@ afterEach(async () => {
 })
 
 async function store() {
-  return import('./usage-store')
+  return import('./store')
 }
 
 const DAY = 86_400_000

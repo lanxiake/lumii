@@ -12,7 +12,7 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import type { DatabaseAdapter } from '@mtbot/agent-runtime'
-import { resolveWindowsClientDataRoot } from './client-data-root'
+import { resolveWindowsClientDataRoot } from '../../../client-data-root'
 
 export const DEFAULT_DASHBOARD_FEED_ID = 'news'
 

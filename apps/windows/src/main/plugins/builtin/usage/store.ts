@@ -11,8 +11,8 @@
 
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
-import { resolveWindowsClientDataRoot } from './client-data-root'
-import { estimateCostYuan } from '../shared/model-pricing'
+import { resolveWindowsClientDataRoot } from '../../../client-data-root'
+import { estimateCostYuan } from '../../../../shared/model-pricing'
 
 const log = {
   warn: (...a: unknown[]) => console.warn('[UsageStore]', ...a),

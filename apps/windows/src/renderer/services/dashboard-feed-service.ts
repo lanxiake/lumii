@@ -8,7 +8,7 @@ import type {
   DashboardFeedMeta,
   DashboardFeedBatchPage,
   DashboardFeedBatchCursor,
-} from '@main/dashboard-feed-store'
+} from '@main/plugins/builtin/dashboard-feed/store'
 
 /** 当前激活 feed 的元信息（标题/综述/更新时间）；失败返回 null */
 export async function fetchFeedMeta(feedId: string): Promise<DashboardFeedMeta | null> {
