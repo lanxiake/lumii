@@ -349,6 +349,16 @@ describe('PcwechatChannelProvider', () => {
     expect(res.message).toContain('已排队待补发')
   })
 
+  it('user_busy = 用户一直在用电脑（空闲闸排队超时）：也进队列（一个字都没发）', async () => {
+    const { provider, onUndeliverable } = make({
+      reply: '{"ok":false,"error_code":"user_busy","detail":"用户正在使用电脑（键鼠空闲不足 2 秒）"}',
+    })
+    const res = await provider.sendText({ to: 'wxid_loop', text: '在的' })
+    expect(onUndeliverable).toHaveBeenCalledWith('wxid_loop', withAgentMarker('在的'))
+    expect(res.ok).toBe(false)
+    expect(res.queued).toBe(true)
+  })
+
   it('没排上（内容问题 / 没接队列）就不带 queued：照实报失败', async () => {
     const { provider } = make({
       reply: '{"ok":false,"error_code":"target_not_found","detail":"未找到目标会话"}',

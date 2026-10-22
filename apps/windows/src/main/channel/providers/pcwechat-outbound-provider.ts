@@ -34,8 +34,11 @@ import type {
  *
  * `target_unconfirmed` 是发送层的 fail-closed 兜底：目标会话没能确认下来，**一个字都没输入**，
  * 所以补发绝不会重复发。不排它的话，切换一失败那条回复就**静默没了**（2026-10-09 定）。
+ *
+ * `user_busy` 同理：发送前有「用户空闲才发」的闸（键鼠空闲不足 2 秒就排队等，最多 120 秒），
+ * 等不到就返回它——**一个字都没发**。用户一直忙时这条回复该等，不该丢。
  */
-const UNDELIVERABLE_CODES = new Set(['env_not_ready', 'target_unconfirmed'])
+const UNDELIVERABLE_CODES = new Set(['env_not_ready', 'target_unconfirmed', 'user_busy'])
 
 /** 发送工具（wechat-local 的 send_text）返回的最小面 */
 interface SendTextPayload {
