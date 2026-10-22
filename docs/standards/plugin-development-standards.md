@@ -117,6 +117,41 @@ await window.electronAPI.dashboardFeed.latest()                     // 资讯
 await window.electronAPI.extensions.list()                          // 扩展状态
 ```
 
+### 字段清单（别靠猜）
+
+插件是纯 JS，看不到 preload 的类型声明。下面是真用得到的几张表的**返回字段**
+（定义在 `main/usage-store.ts` / `main/provider-latency.ts` / `main/dashboard-feed-store.ts` /
+`main/extension-control.ts`，改字段时这里跟着改）。
+
+**多数查询接口包一层信封**：`{ success: boolean, data?: T, error?: string }`——
+先判 `success`，`error` 是给人看的原文，不要当枚举解析。
+
+`usage.query(...)` → `UsageSummary`
+
+| 字段 | 含义 |
+|---|---|
+| `totalCalls` / `totalPromptTokens` / `totalCompletionTokens` | 区间内总计 |
+| `totalCacheReadTokens` / `totalCacheWriteTokens` | 缓存命中/写入（判断省了多少靠它） |
+| `totalCostYuan` | 已知价格部分的花费合计（**人民币元**，不是分） |
+| `unpricedCalls` | 价格未知的调用数——`>0` 时金额只是下限，UI 要标注 |
+| `buckets[]` | 按 `groupBy` 分桶：`ts`(epoch ms) / `calls` / `promptTokens` / `completionTokens` / `cacheReadTokens` / `cacheWriteTokens` / `costYuan` / `unpricedCalls` / `byModel[]` |
+| `byModel[]` | 模型聚合（花费降序）：`model` / `calls` / 同上各 token / `costYuan` / `unpricedCalls` |
+
+`usage.latency()` → `LatencyView`：`medianMs?`（无样本时缺省）/ `sampleCount` / `isLocal`
+（`isLocal=true` 是本地推理，没有网络往返，别直接叫「延迟」）。
+
+`dashboardFeed.latest()` → `DashboardFeedSnapshot | null`：`feedId` / `title` / `updatedAt` /
+`summary?` / `items[]` / `batch?`。单条 item：`id` / `title` / `summary?` / `href?` /
+`source?` / `timestamp?` / `kind?`（工作流自定义，日报/任务/资讯都能走它）/ `metadata?`（任意键值）。
+`batch` 记这一期的出处：`source`（`agent` / `cron` / `manual` / `legacy`）、会话、综述。
+
+`extensions.list()` → `ExtensionInfo[]`（**裸数组，没有信封**）：`id` / `name` / `version` /
+`kind`（`builtin` / `external` / `client`）/ `origin`（`builtin` / `user` / `agent` / `official`）/
+`enabled` / `state`（`active` / `failed` / `disabled` / `available` / `unknown`…）/ `pendingRestart`
+（开关改了但还没重启）/ `activationMs?` / `error?` / `description?` / `installable?` / `updatable?`。
+
+> `pendingRestart` 才是「这个开关现在生效没」的判据；`enabled` 只表示偏好文件里怎么写的。
+
 主进程扩展：`ctx.get('agentRuntime')?.get()` 拿到整个 Agent Runtime 桥；
 `ctx.get('perf' | 'cloudSync' | 'mainWindow' | 'tray' | 'mcp'?)` 见 `kernel/services.ts`。
 `LateRef` 要 `.get()`，每次现取（**不要** `provide(key, () => x)`，工厂结果会被缓存）。
