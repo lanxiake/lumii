@@ -61,6 +61,7 @@ export interface MainEvents {
       cacheRead?: number
       cacheWrite?: number
     }
+    sessionKey?: string
     at: number
   }
 

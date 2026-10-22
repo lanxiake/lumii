@@ -34,7 +34,6 @@ import type {
 } from '../../shared/agent-runtime-events'
 import type { InstanceStateStore } from './bridge-instance-state'
 import { agentRuntimeLog as log } from './bridge-utils'
-import { recordUsage } from '../usage-store'
 import { markRunStart, markFirstToken, clearRun } from '../provider-latency'
 import { captureWorkspaceTurnSnapshot } from '../workspace-vcs/workspace-turn-snapshot'
 import {
@@ -852,6 +851,7 @@ export function createAgentInstanceRuntimeEventHandler(
         success: !event.llmError,
         modelId: ctx.resolvedModelId,
         usage: event.usage,
+        sessionKey: ctx.rootSessionKey,
         at: Date.now()
       })
       if (event.usage && ctx.sessionKey === ctx.rootSessionKey) {
@@ -866,18 +866,6 @@ export function createAgentInstanceRuntimeEventHandler(
           // 放在标定之后——明细的固定部分直算依赖刚更新的 charsPerToken。
           pushContextUsage(ctx.rootSessionKey)
         }
-      }
-      // 落盘用量：只在服务商真给了 usage 时记，估算值不入库（否则花费统计会失真）
-      // cacheRead / cacheWrite 也一并落盘，用于计费重算（Claude、GPT 新系列 cache 独立定价）
-      if (event.usage && ctx.resolvedModelId) {
-        void recordUsage({
-          model: ctx.resolvedModelId,
-          promptTokens: event.usage.inputTokens ?? 0,
-          completionTokens: event.usage.outputTokens ?? 0,
-          cacheReadTokens: event.usage.cacheRead,
-          cacheWriteTokens: event.usage.cacheWrite,
-          sessionKey: ctx.rootSessionKey,
-        })
       }
       const msgId = state?.streamingAssistantMsgId
       const convId = instanceToConversation.get(instanceId)
