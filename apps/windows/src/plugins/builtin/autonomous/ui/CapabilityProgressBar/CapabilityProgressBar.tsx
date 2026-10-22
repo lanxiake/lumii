@@ -4,11 +4,11 @@
  * 展示单个能力维度的进度，包括水平、置信度、测试次数与趋势。
  */
 
-import { Tooltip } from '../ui/Tooltip/Tooltip'
+import { Tooltip } from '../../../../../renderer/components/ui/Tooltip/Tooltip'
 import {
   TIP_CAPABILITY_FIELD,
   TIP_DIMENSION,
-} from '../../pages/AutonomousPage/autonomousTooltips'
+} from '../autonomousTooltips'
 import './CapabilityProgressBar.css'
 
 /**

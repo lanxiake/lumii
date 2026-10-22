@@ -369,7 +369,8 @@ function scanFile(absPath) {
         if (
           (callee.obj && REGISTRAR_RE.test(callee.obj) &&
             ['handle', 'handleOnce', 'on', 'once'].includes(callee.prop)) ||
-          callee.prop === 'registerIpc'
+          callee.prop === 'registerIpc' ||
+          callee.prop === 'registerChannel'
         ) {
           if (ch) for (const c of ch) handlers.push({ channel: c, at, raw })
           else unresolved.push({ at, raw, why: 'main handler channel 无法解析' })

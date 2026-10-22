@@ -27,7 +27,7 @@ import {
   type PlannerInput,
   type PlannerBudget,
 } from '@mtbot/agent-runtime'
-import { agentRuntimeLog as log } from './bridge-utils'
+import { agentRuntimeLog as log } from '../../../main/agent-runtime/bridge-utils'
 
 export interface PlannerWiringDeps {
   db: DatabaseAdapter

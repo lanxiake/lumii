@@ -9,7 +9,7 @@
 
 import type { AgentRuntimeBridge } from '../../agent-runtime/bridge'
 import type { AgentRuntimeCommand } from '../../../shared/agent-runtime-commands'
-import { notifyAutonomousGoalApproved, reflectAutonomous } from '../../agent-runtime/autonomous-wiring'
+import { getAutonomousService } from '../../agent-runtime/autonomous-accessor'
 import { readSettings, writeSettings } from '@mtbot/agent-runtime'
 
 const ENABLED_KEY = 'autonomous.enabled'
@@ -126,7 +126,7 @@ export function handleAutonomousGoalsApprove(
     return { success: false, goalId: command.goalId, reason: '目标不存在或不处于 pending 状态' }
   }
   // 审批成功后通知协调器，让目标流转到 executing 并记录进化人格事件
-  notifyAutonomousGoalApproved(command.goalId)
+  getAutonomousService()?.notifyGoalApproved(command.goalId)
   return { success: true, goalId: command.goalId, status: 'approved' }
 }
 
@@ -267,7 +267,8 @@ export async function handleAutonomousReflect(
     return { success: false, reason: '自主进化功能未启用', agentId }
   }
   // 反思会真实调用一次 LLM，可能耗时数十秒；失败时抛给控制口返回错误
-  const output = await reflectAutonomous(agentId, 'user-request')
+  const output = await getAutonomousService()?.reflect(agentId, 'user-request')
+  if (!output) return { ok: false, error: '自主进化插件未启用' }
   return {
     success: true,
     agentId,

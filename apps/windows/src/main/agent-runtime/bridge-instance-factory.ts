@@ -83,7 +83,7 @@ import type { FileMemoryHandler } from './file-memory-handler'
 import type { WikiIngestHook } from '@mtbot/agent-runtime'
 import { maybeSnapshot } from '../../plugins/builtin/vcs/vcs-snapshot'
 import { notifyCloudSyncWorkspaceChanged } from '../cloud-sync/sync-accessor'
-import { selectPromptVariantForSession } from './autonomous-wiring'
+import { getAutonomousService } from './autonomous-accessor'
 
 /** 引用盒子（mutable reference）— 允许多处共享同一个可变插槽 */
 interface MutableRef<T> {
@@ -831,7 +831,7 @@ export class BridgeInstanceFactory {
     // Prompt 进化：ε-greedy 选变体并末尾追加（best-effort，失败/无变体则不注入）
     let promptVariantText = ''
     try {
-      const variant = await selectPromptVariantForSession(conversationId ?? '')
+      const variant = await getAutonomousService()?.selectPromptVariantForSession(conversationId ?? '')
       if (variant?.variantText) promptVariantText = variant.variantText
     } catch (err) {
       log.warn('[PromptEvo] 变体注入失败，跳过:', err instanceof Error ? err.message : err)

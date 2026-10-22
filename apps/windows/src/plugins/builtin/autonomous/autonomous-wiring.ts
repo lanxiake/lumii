@@ -36,7 +36,8 @@ import {
   type ReflectionOutput,
   type Concern,
 } from '@mtbot/agent-runtime'
-import { agentRuntimeLog as log } from './bridge-utils'
+import { toAsyncClient } from '../../../main/agent-runtime/async-db-client'
+import { agentRuntimeLog as log } from '../../../main/agent-runtime/bridge-utils'
 import {
   readCounters,
   resetCounters,
@@ -86,20 +87,8 @@ function readOpenness(db: DatabaseAdapter, agentId: string): number {
   }
 }
 
-/**
- * sync DatabaseAdapter → async DatabaseClient。
- * better-sqlite3 本身同步，包一层 Promise 只为满足引擎接口，无真实异步开销。
- */
-export function toAsyncClient(db: DatabaseAdapter) {
-  return {
-    async execute(sql: string, params: unknown[] = []) {
-      return db.prepare(sql).run(...params)
-    },
-    async query<T>(sql: string, params: unknown[] = []): Promise<T[]> {
-      return db.prepare(sql).all(...params) as T[]
-    },
-  }
-}
+// `toAsyncClient` 已提到 `main/agent-runtime/async-db-client.ts`（宠物链也在用）
+
 
 interface AutonomousRuntime {
   coordinator: AutonomousCoordinator

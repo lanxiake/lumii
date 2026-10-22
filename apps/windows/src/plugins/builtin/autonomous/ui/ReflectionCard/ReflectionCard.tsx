@@ -7,8 +7,8 @@
 
 import React from 'react'
 import { HelpCircle } from 'lucide-react'
-import { Tooltip } from '../ui/Tooltip/Tooltip'
-import { TIP_REFLECTION } from '../../pages/AutonomousPage/autonomousTooltips'
+import { Tooltip } from '../../../../../renderer/components/ui/Tooltip/Tooltip'
+import { TIP_REFLECTION } from '../autonomousTooltips'
 import './ReflectionCard.css'
 
 /**

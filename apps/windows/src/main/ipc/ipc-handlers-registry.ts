@@ -50,8 +50,6 @@ import {
   registerSettingsIpcHandlers
 } from './settings-ipc'
 import { registerUserGuidesIpcHandlers } from './user-guides-ipc'
-import { registerAutonomousIpcHandlers } from './autonomous-ipc'
-import { setAutonomousIpcDeps } from './autonomous-ipc'
 import { registerNetIpcHandlers } from './net-ipc'
 import { setCloudSyncIpcDeps, registerCloudSyncIpcHandlers } from '../cloud-sync/sync-ipc'
 import type { CloudSyncConfig } from '../cloud-sync/types'
@@ -140,10 +138,6 @@ export function registerAllIpcHandlers(deps: IpcHandlersDeps): void {
     setMemoryInjectionSettings: deps.setMemoryInjectionSettings,
   })
 
-  setAutonomousIpcDeps({
-    getConfigManager: deps.getConfigManager,
-  })
-
   setCloudSyncIpcDeps({
     getMainWindow: deps.getMainWindow,
     onConfigChanged: deps.restartCloudSyncScheduler,
@@ -159,7 +153,6 @@ export function registerAllIpcHandlers(deps: IpcHandlersDeps): void {
   registerApiIpcHandlers()
   registerSettingsIpcHandlers()
   registerUserGuidesIpcHandlers()
-  registerAutonomousIpcHandlers()
   registerCloudSyncIpcHandlers()
   registerNetIpcHandlers()
 }

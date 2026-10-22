@@ -1,5 +1,6 @@
 import type React from 'react'
 
+import { autonomousExperiment } from '../builtin/autonomous/renderer'
 import { channelContinuityExperiment } from '../builtin/channel-continuity/renderer'
 import { promptStyleExperiment } from '../builtin/prompt-style/renderer'
 
@@ -25,4 +26,5 @@ export interface ExperimentEntry {
 export const PLUGIN_EXPERIMENT_ENTRIES: readonly ExperimentEntry[] = [
   promptStyleExperiment,
   channelContinuityExperiment,
+  autonomousExperiment,
 ]

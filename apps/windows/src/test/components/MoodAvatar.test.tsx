@@ -10,8 +10,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import '@testing-library/jest-dom'
-import { MoodAvatar, moodToEmotion } from '../../renderer/pages/AutonomousPage/MoodAvatar'
-import { moodLottieData } from '../../renderer/pages/AutonomousPage/MoodAvatar.lottie'
+import { MoodAvatar, moodToEmotion } from '../../plugins/builtin/autonomous/ui/MoodAvatar'
+import { moodLottieData } from '../../plugins/builtin/autonomous/ui/MoodAvatar.lottie'
 
 const { loadAnimation } = vi.hoisted(() => ({
   loadAnimation: vi.fn(() => ({ setSpeed: vi.fn(), destroy: vi.fn() })),

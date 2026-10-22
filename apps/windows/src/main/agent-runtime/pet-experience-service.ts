@@ -34,7 +34,7 @@ import {
 import type { PetExperienceDTO } from '../../shared/pet-mode'
 import { currentPetAgentId } from '../../plugins/builtin/pet/pet-subject'
 import { getAgentRuntimeBridge } from '../ipc/agent-runtime-ipc'
-import { toAsyncClient } from './autonomous-wiring'
+import { toAsyncClient } from './async-db-client'
 import { toTraitValues } from './pet-personality'
 import { agentRuntimeLog as log } from './bridge-utils'
 

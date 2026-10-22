@@ -8,7 +8,7 @@ import {
   type MemoryManager,
   type WikiRepo,
 } from '@mtbot/agent-runtime'
-import { agentRuntimeLog as log } from './bridge-utils'
+import { agentRuntimeLog as log } from '../../../main/agent-runtime/bridge-utils'
 
 const AGENT_ID = 'assistant'
 const LOCAL_USER_ID = 'local-user'

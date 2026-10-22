@@ -10,7 +10,8 @@ import { PluginErrorBoundary } from './slots/PluginErrorBoundary'
 import { getSlotEntries, subscribeSlots } from './slots/slot-registry'
 import { DashboardPage } from '../pages/DashboardPage/DashboardPage'
 import { ChatPage } from '../pages/ChatPage/ChatPage'
-import { AutonomousPage } from '../pages/AutonomousPage/AutonomousPage'
+import { AutonomousPage } from '../../plugins/builtin/autonomous/ui/AutonomousPage'
+import { usePluginEnabled } from '../../plugins/renderer/state'
 
 /**
  * 视图类型
@@ -45,6 +46,8 @@ interface RouterProps {
  * 保留 useChat 状态（streamMap、runIdToMessageIdRef 等）不因页面切换而丢失。
  */
 export const Router: React.FC<RouterProps> = ({ activeView, onViewChange }) => {
+  // 自主进化整页路由：插件禁用后回落到概览（通道已摘，页面点进去只会报错）
+  const autonomousEnabled = usePluginEnabled('com.lumii.autonomous')
   const showChat = activeView === 'chat'
 
   /**

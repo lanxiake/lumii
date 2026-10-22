@@ -116,7 +116,6 @@ import { registerScreenRecordDisabledStub } from './screen-record/disabled-stub'
 import { clearScreenshotTempDir } from './app-ui-control/screenshot-cleanup'
 import { startAppUiControlServer, stopAppUiControlServer } from './app-ui-control/server'
 import { resizeImageIfNeeded } from './agent-runtime/image-resizer'
-import { notifyAutonomousTurnEnd } from './agent-runtime/autonomous-wiring'
 import { maybeGenerateConversationTitle } from './ipc/agent-runtime/conversation-commands'
 import { initToolEvolutionRuntime } from './agent-runtime/bash-tool-evolution/engine-assembly'
 import {
@@ -145,6 +144,7 @@ import type { MainEvents } from './kernel/events'
 import { readExtensionPrefs } from './kernel/extension-store'
 import { createExtensionControl, setExtensionControl } from '../plugins/control'
 import { setChannelContinuityAccessor } from './channel/continuity-accessor'
+import { getAutonomousService, setAutonomousAccessor } from './agent-runtime/autonomous-accessor'
 import { setupExtensionIpcHandlers } from './ipc/extension-ipc'
 import { setPalaceBridgeProvider, setupPalaceIpcHandlers } from './ipc/palace-ipc'
 import { registerAllIpcHandlers } from './ipc/ipc-handlers-registry'
@@ -729,7 +729,7 @@ async function initAgentRuntime(): Promise<void> {
       // 2026-09-18 教训（差异 #19）：这条路径原先直连 Python 而不在后端开关里，
       // 换了后端却漏切，旧库当天仍在增长而新检索读不到。
       // 自主进化：回合结束触发满意度评分与目标生成（旁路，失败不影响会话）
-      void notifyAutonomousTurnEnd(convId)
+      void getAutonomousService()?.notifyTurnEnd(convId)
       // 首轮结束补一次模型命名，替代「取用户第一句」的粗糙标题（旁路，失败不影响会话）
       if (agentRuntimeBridge) {
         void maybeGenerateConversationTitle(agentRuntimeBridge, convId, assistantText)
@@ -1261,6 +1261,8 @@ async function startExtensions(): Promise<void> {
   pluginHost.container.provide(S.agentRuntime, { get: () => agentRuntimeBridge })
   pluginHost.container.provide(S.mainWindow, { get: () => mainWindow })
   pluginHost.container.provide(S.tray, { get: () => trayManager })
+  // 配置：插件（自主进化的目标 Agent 名单）要写 app.json
+  pluginHost.container.provide(S.config, { get: () => configManager })
   pluginHost.container.provide(S.workspaceDir, { get: () => getWorkspaceDir() })
   // 渠道 Hub 现在要在插件之前就位：渠道插件在 apply() 里往它上面注册 Provider
   // （以前 Hub 在 initChannelServices 里晚建，那时插件早已激活，只能"重启生效"）。
@@ -1315,6 +1317,7 @@ async function startExtensions(): Promise<void> {
 
   // 跨渠道接续：adapter / 斜杠命令每次现取，插件停用后容器里没有 ⇒ 按功能关闭处理
   setChannelContinuityAccessor(() => pluginHost?.container.get(S.channelContinuity) ?? null)
+  setAutonomousAccessor(() => pluginHost?.container.get(S.autonomous) ?? null)
 
   // 一张表看清谁起来了、花了多久、注册了几个副作用；
   // 失败项走 error，既进了主日志也进了错误日志

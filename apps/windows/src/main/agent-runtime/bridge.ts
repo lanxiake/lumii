@@ -132,7 +132,7 @@ import { SegmentMemoryService } from './segment-memory-service'
 import { CronScheduler } from './cron-scheduler'
 import { dispatchChannelTarget } from './channel-target-dispatch'
 import { persistCronOutputToWiki } from './cron-wiki-persist'
-import { persistLearningOutcome, recordProactiveAction } from './evolution-memory-persist'
+import { getAutonomousService } from './autonomous-accessor'
 import { purgeCronFocusNoiseMemories } from './cron-focus-memory'
 import {
   isLocalCompanionInstruction,
@@ -164,15 +164,6 @@ import { BridgeImageServices } from './bridge-image-services'
 import { BridgeContextCompactor, createLlmSummaryGenerator } from './bridge-context-compactor'
 import { BridgeConversationManager } from './bridge-conversation-manager'
 import { BridgeLifecycle } from './bridge-lifecycle'
-import {
-  initAutonomousRuntime,
-  shutdownAutonomousRuntime,
-  readAutonomousEnabled,
-  reflectAutonomous,
-  setAutonomousNotifier,
-  notifyNewPendingGoals,
-} from './autonomous-wiring'
-import { handleEvolutionTick } from './evolution-tick'
 import { ensurePetDispatchCronJobSeeded, runPetDispatch, syncPetDispatchJobEnabled } from './pet-dispatch'
 import { ensurePetSensingCronJobSeeded, runPetSensing } from './pet-sensing-tick'
 import {
@@ -209,8 +200,6 @@ import {
 } from '../../shared/channel-policy'
 import { ensurePetEvolveCronJobSeeded, runPetEvolve, syncPetEvolveJobEnabled } from './pet-evolve'
 import { recordPetPersonalityEvent } from './pet-personality'
-import { syncAutonomousManagedCronJobs } from './autonomous-cron-linkage'
-import { runPlanner, shouldFallbackPlan } from './planner-wiring'
 import { DEFAULT_AGENT_ID } from '../seed-cron-jobs'
 import { OUTREACH_SYSTEM_NOTIFY_TITLE } from '../desktop-notify'
 import { BridgeInstanceFactory } from './bridge-instance-factory'
@@ -573,7 +562,7 @@ export class AgentRuntimeBridge {
         // 访问器持有同一批实例，关闭时必须一起清空，
         // 否则卸载后仍能拿到已关闭数据库上的仓储
         clearAgentRuntimeRepos()
-        void shutdownAutonomousRuntime()
+        void getAutonomousService()?.shutdown()
         this.toolContext = null
         this.initialized = false
       },
@@ -927,10 +916,10 @@ export class AgentRuntimeBridge {
     this._autonomousRepo = new AutonomousRepo(db)
     // 自主进化引擎接线：装配失败已在内部降级，不影响运行时启动。
     // 反思引擎复用桥接的独立 LLM 管道（同记忆提取/整理），无实例时走 callLLM 兜底 stream。
-    setAutonomousNotifier((title, body, convId) =>
+    getAutonomousService()?.setNotifier((title, body, convId) =>
       this.config.showCronNotification?.(title, body, convId),
     )
-    initAutonomousRuntime(db, (prompt) => this.callLLM(prompt, undefined, 'reflection'))
+    getAutonomousService()?.init(db, (prompt) => this.callLLM(prompt, undefined, 'reflection'))
     this._fileRepo = new FileRepo(db)
 
     // 恢复用户手动禁用的工具集合（重启后不丢失），并注册变更回调持久化
@@ -1250,7 +1239,7 @@ export class AgentRuntimeBridge {
    */
   private async runPlannerNow(agentId: string): Promise<boolean> {
     try {
-      const plan = await runPlanner(
+      const plan = await getAutonomousService()?.runPlanner(
         {
           db: this.localDb.db,
           callLLM: (prompt) => this.callLLM(prompt, undefined, 'planning'),
@@ -1261,9 +1250,9 @@ export class AgentRuntimeBridge {
       )
       // planner 目标可能已落库为 pending；做待审批增量提醒
       if (plan !== null) {
-        notifyNewPendingGoals()
+        getAutonomousService()?.notifyNewPendingGoals()
         // 兜底：手动 replan 在开关关闭时也会落地 enabled=1 的自建任务，同步一次立刻挂起
-        syncAutonomousManagedCronJobs(this.localDb.db, readAutonomousEnabled(this.localDb.db))
+        getAutonomousService()?.syncCronFromDb(this.localDb.db)
       }
       return plan !== null
     } catch (err) {
@@ -2161,10 +2150,10 @@ export class AgentRuntimeBridge {
               return formatWikiInvalidFilePurgeSummary(deleted, titles)
             },
             runEvolutionTick: () =>
-              handleEvolutionTick({
+              getAutonomousService()?.handleTick({
                 getDb: () => this.localDb.db,
                 isShuttingDown: () => !this.localDb.isOpen,
-                isAutonomousEnabled: () => readAutonomousEnabled(this.localDb.db),
+                isAutonomousEnabled: () => getAutonomousService()?.readEnabled(this.localDb.db) ?? false,
                 driveConflictGoal: () => this.executeSyncConflictGoal(),
                 listAutonomousAgentIds: () => this.listAutonomousAgentIds(),
                 hasActiveUserTurn: () => this.hasActiveUserTurn(),
@@ -2228,7 +2217,7 @@ export class AgentRuntimeBridge {
                       })
                       // 学习产出沉淀进工作记忆 + Wiki（失败仅记日志，不影响目标状态）
                       if (this._memoryManager && this._wikiRepo) {
-                        persistLearningOutcome(
+                        getAutonomousService()?.persistLearningOutcome(
                           { memoryManager: this._memoryManager, wikiRepo: this._wikiRepo },
                           goal,
                           output,
@@ -2307,12 +2296,13 @@ export class AgentRuntimeBridge {
                   finalizeGoal(this.localDb.db, goal.id, { success: true, output: goal.description })
                   if (agentId === 'assistant') this.recordMoodEvent('user_initiates')
                   if (this._memoryManager) {
-                    recordProactiveAction(this._memoryManager, goal, 'sent', agentId)
+                    getAutonomousService()?.recordProactiveAction(this._memoryManager, goal, 'sent', agentId)
                   }
                   return 'sent'
                 },
                 reflect: async (agentId) => {
-                  const output = await reflectAutonomous(agentId, 'scheduled')
+                  const output = await getAutonomousService()?.reflect(agentId, 'scheduled')
+                  if (!output) return '自主进化插件未启用'
                   const summary = output.diagnosis.primaryIssue
                   const convId = this.evolutionConversationIdFor(agentId)
                   this.ensureConversationExists(
@@ -2344,11 +2334,11 @@ export class AgentRuntimeBridge {
                   // 谁能排自己的期：助手与宠物（`hasInnerLife`）——系统 Agent 不排
                   if (!hasInnerLife(agentId)) return null
                   // 心跳兜底：静默时段 + 距上次规划满 24h 才拉起规划，否则返回 null 表示不规划
-                  if (!shouldFallbackPlan(this.localDb.db, agentId, new Date())) return null
+                  if (!(getAutonomousService()?.shouldFallbackPlan(this.localDb.db, agentId, new Date()) ?? false)) return null
                   const ok = await this.runPlannerNow(agentId)
                   return ok ? 'planned' : null
                 },
-              }),
+              }) ?? Promise.resolve('自主进化插件未启用'),
             runPetDispatch: () => this.dispatchPetGoalsNow(),
             runPetSensing: (options) =>
               runPetSensing({
@@ -2411,7 +2401,7 @@ export class AgentRuntimeBridge {
     migrateLocalCompanionPrefsToVhSettings(this.localDb.db)
     ensureCompanionCronJobsSeeded(this.localDb.db)
     // 心跳与 Agent 自建任务跟随自主进化总开关：关闭时一并暂停，开启时恢复
-    syncAutonomousManagedCronJobs(this.localDb.db, readAutonomousEnabled(this.localDb.db))
+    getAutonomousService()?.syncCronFromDb(this.localDb.db)
     // 资讯任务已并入 ensureSeedCronJobsSeeded，不再单独播种
     ensureSeedCronJobsSeeded(this.localDb.db)
     // 宠物派发循环：独立于自主进化总开关（宠物是独立 Agent，设计 §3.7），首启置开、之后用户自管
@@ -2530,8 +2520,8 @@ export class AgentRuntimeBridge {
     const plannerSubject = isPetMode() ? petAgentId(getStoredModelId()) : null
     if (
       plannerSubject &&
-      readAutonomousEnabled(this.localDb.db) &&
-      shouldFallbackPlan(this.localDb.db, plannerSubject, new Date())
+      (getAutonomousService()?.readEnabled(this.localDb.db) ?? false) &&
+      (getAutonomousService()?.shouldFallbackPlan(this.localDb.db, plannerSubject, new Date()) ?? false)
     ) {
       setTimeout(() => {
         void this.runPlannerNow(plannerSubject)
@@ -4033,7 +4023,7 @@ export class AgentRuntimeBridge {
   /** 开关切换/设置页改动心跳周期后：同步托管任务状态（enabled 跟随开关）+ 重载调度器 */
   syncEvolutionTickSettings(): void {
     if (!this.localDb) return
-    syncAutonomousManagedCronJobs(this.localDb.db, readAutonomousEnabled(this.localDb.db))
+    getAutonomousService()?.syncCronFromDb(this.localDb.db)
     this.cronScheduler?.reloadLocalCronScheduler()
   }
 

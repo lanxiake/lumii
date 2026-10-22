@@ -3,8 +3,8 @@
  */
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { DatabaseAdapter } from '@mtbot/agent-runtime'
-import { MIGRATIONS } from '../../../../../packages/agent-runtime/src/storage/schema'
-import { createTestSqliteAdapter } from '../../../../../packages/agent-runtime/src/__tests__/helpers/sqlite-test-db'
+import { MIGRATIONS } from '../../../../../../packages/agent-runtime/src/storage/schema'
+import { createTestSqliteAdapter } from '../../../../../../packages/agent-runtime/src/__tests__/helpers/sqlite-test-db'
 import {
   SUSPENDED_AUTONOMOUS_JOBS_KEY,
   syncAutonomousManagedCronJobs,

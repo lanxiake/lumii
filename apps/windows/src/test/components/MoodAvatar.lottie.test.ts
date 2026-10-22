@@ -10,7 +10,7 @@
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import lottie from 'lottie-web'
-import { moodLottieData } from '../../renderer/pages/AutonomousPage/MoodAvatar.lottie'
+import { moodLottieData } from '../../plugins/builtin/autonomous/ui/MoodAvatar.lottie'
 
 /**
  * 收拾 lottie-web 的模块级轮询定时器。

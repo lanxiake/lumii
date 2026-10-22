@@ -9,7 +9,7 @@ import type { AgentRuntimeCommand } from '../../../shared/agent-runtime-commands
 import { BASE_SLASH_COMMANDS } from '../../../shared/slash-command-metadata'
 import type { AgentRuntimeBridge } from '../../agent-runtime/bridge'
 import { StatefulContextStrategy } from '../../channel/context-strategy/stateful-strategy'
-import { recordFeedbackSignal } from '../../agent-runtime/autonomous-wiring'
+import { getAutonomousService } from '../../agent-runtime/autonomous-accessor'
 
 const log = {
   info: (...args: unknown[]) => console.log('[AgentRuntime:IPC]', ...args),
@@ -126,7 +126,7 @@ export async function handleMessageEditAndResend(
   const { sessionKey: convId, messageId, newContent } = command
   log.info(`[message:edit-and-resend] convId=${convId} messageId=${messageId}`)
   // 重发是比单纯编辑更强的否定信号；删改都不留历史，只能在此刻记录
-  recordFeedbackSignal(convId, 'resend')
+  getAutonomousService()?.recordFeedbackSignal(convId, 'resend')
   try {
     // 0. 目标消息必须真在本会话里。
     //

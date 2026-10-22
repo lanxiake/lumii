@@ -7,8 +7,8 @@
  */
 
 import React from 'react'
-import { Tooltip } from '../ui/Tooltip/Tooltip'
-import { TIP_PROMPT_FIELD } from '../../pages/AutonomousPage/autonomousTooltips'
+import { Tooltip } from '../../../../../renderer/components/ui/Tooltip/Tooltip'
+import { TIP_PROMPT_FIELD } from '../autonomousTooltips'
 import './PromptVariantStats.css'
 
 /**

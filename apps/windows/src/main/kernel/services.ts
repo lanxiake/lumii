@@ -59,6 +59,10 @@ export const S = {
   promptStyle: createServiceKey<{ get(): Promise<{ style: 'detailed' | 'terse' | 'minimal' }> }>('promptStyle'),
   /** 跨渠道会话接续（插件提供；停用后核心按「功能关闭」处理） */
   channelContinuity: createServiceKey<import('../channel/continuity-accessor').ChannelContinuityService>('channelContinuity'),
+  /** 自主进化（插件提供；停用后核心拿不到 ⇒ 心跳/规划/反馈全部 no-op） */
+  autonomous: createServiceKey<import('../../plugins/builtin/autonomous/service').AutonomousService>('autonomous'),
+  /** 应用配置（部分插件 IPC 需要写 app.json） */
+  config: createServiceKey<LateRef<import('../config-manager').ConfigManager>>('config'),
   /** 录屏服务（扩展提供；窗口就绪后才创建） */
   screenRecord: createServiceKey<ScreenRecordService>('screenRecord'),
 } as const

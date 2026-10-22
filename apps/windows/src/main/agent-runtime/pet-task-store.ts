@@ -33,7 +33,7 @@ import {
   type PetTaskBoundary,
 } from '@mtbot/agent-runtime'
 import type { PetTaskItemDTO, PetTaskStateDTO } from '../../shared/pet-mode'
-import { toAsyncClient } from './autonomous-wiring'
+import { toAsyncClient } from './async-db-client'
 import { agentRuntimeLog as log } from './bridge-utils'
 
 /**

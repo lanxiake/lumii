@@ -8,7 +8,7 @@ import '@testing-library/jest-dom'
 import { ExperimentalSection } from '../../renderer/pages/SettingsPage/components/ExperimentalSection'
 import { __resetPluginStateForTests } from '../../plugins/renderer/state'
 
-vi.mock('../../renderer/pages/AutonomousPage/AutonomousPage', () => ({
+vi.mock('../../plugins/builtin/autonomous/ui/AutonomousPage', () => ({
   AutonomousPage: () => <div data-testid="autonomous-page" />,
 }))
 
@@ -50,6 +50,7 @@ beforeEach(() => {
       list: async () => [
         { id: 'com.lumii.prompt-style', enabled: true, state: 'active' },
         { id: 'com.lumii.channel-continuity', enabled: true, state: 'active' },
+        { id: 'com.lumii.autonomous', enabled: true, state: 'active' },
       ],
       onStateChanged: () => () => {},
     },
@@ -75,7 +76,7 @@ describe('ExperimentalSection — 列表与栈导航', () => {
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /提示词风格（实验）/ })).toBeInTheDocument()
     })
-    expect(screen.getByRole('button', { name: /自主进化/ })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: /自主进化/ })).toBeInTheDocument()
     expect(screen.queryByTestId('autonomous-page')).not.toBeInTheDocument()
     expect(screen.queryByRole('radiogroup', { name: '系统提示词风格' })).not.toBeInTheDocument()
     await waitFor(() => {
@@ -123,9 +124,9 @@ describe('ExperimentalSection — 列表与栈导航', () => {
     expect(updatePromptStyle.mock.calls.length).toBe(callsAfterSwitch)
   })
 
-  it('进入自主进化详情并返回', () => {
+  it('进入自主进化详情并返回', async () => {
     render(<ExperimentalSection />)
-    fireEvent.click(screen.getByRole('button', { name: /自主进化/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /自主进化/ }))
     expect(screen.getByRole('heading', { name: '自主进化' })).toBeInTheDocument()
     expect(screen.getByTestId('autonomous-page')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '返回实验功能列表' }))
@@ -138,6 +139,7 @@ describe('ExperimentalSection — 列表与栈导航', () => {
     ;(window as unknown as { electronAPI: { extensions: unknown } }).electronAPI.extensions = {
       list: async () => [
         { id: 'com.lumii.prompt-style', enabled: true, state: 'active' },
+        { id: 'com.lumii.autonomous', enabled: true, state: 'active' },
         { id: 'com.lumii.other', enabled: true, state: 'active' },
       ],
       onStateChanged: (cb: (payload: { id: string; enabled: boolean }) => void) => {

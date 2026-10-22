@@ -6,7 +6,7 @@
  */
 
 import React from 'react'
-import { useThemeAttr } from '../../hooks/common/useDataThemeColorMode/useDataThemeColorMode'
+import { useThemeAttr } from '../../../../../renderer/hooks/common/useDataThemeColorMode/useDataThemeColorMode'
 import './SatisfactionChart.css'
 
 /**

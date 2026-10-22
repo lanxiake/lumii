@@ -20,8 +20,8 @@ import {
   recordTokenUsage,
   type ApprovedGoalSignal,
 } from '@mtbot/agent-runtime'
-import { agentRuntimeLog as log } from './bridge-utils'
-import { seedCompanionCronJob } from './companion-cron-seed'
+import { agentRuntimeLog as log } from '../../../main/agent-runtime/bridge-utils'
+import { seedCompanionCronJob } from '../../../main/agent-runtime/companion-cron-seed'
 
 const EVOLUTION_TICK_CRON_ID = 'autonomous-tick'
 const EVOLUTION_TICK_NAME = '自主进化心跳'

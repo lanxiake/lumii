@@ -4,7 +4,7 @@
 
 import React from 'react'
 import { HelpCircle } from 'lucide-react'
-import { Tooltip } from '../../components/ui/Tooltip/Tooltip'
+import { Tooltip } from '../../../../renderer/components/ui/Tooltip/Tooltip'
 import styles from './AutonomousPage.module.css'
 
 interface MetricTipProps {

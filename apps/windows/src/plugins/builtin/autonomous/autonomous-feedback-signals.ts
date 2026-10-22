@@ -22,7 +22,7 @@
  */
 
 import type { DatabaseAdapter } from '@mtbot/agent-runtime'
-import { agentRuntimeLog as log } from './bridge-utils'
+import { agentRuntimeLog as log } from '../../../main/agent-runtime/bridge-utils'
 
 const KEY_PREFIX = 'feedback:'
 const LOG_KEY_PREFIX = 'feedback-log:'

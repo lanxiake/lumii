@@ -9,7 +9,7 @@ import type { AgentRuntimeCommand } from '../../../shared/agent-runtime-commands
 import type { AgentRuntimeBridge } from '../../agent-runtime/bridge'
 import type { AgentRuntimeEvent } from '../../../shared/agent-runtime-events'
 import { deriveConversationTitleFromUserText } from '../../../shared/conversation-title'
-import { recordFeedbackSignal } from '../../agent-runtime/autonomous-wiring'
+import { getAutonomousService } from '../../agent-runtime/autonomous-accessor'
 import { StatefulContextStrategy } from '../../channel/context-strategy/stateful-strategy'
 import { channelOwnershipFromKey } from '../../channel/channel-identity'
 import type { CodingDevBackendId } from '../../coding-dev-backends-stub/contracts.js'
@@ -358,7 +358,7 @@ export function handleUserAbort(
   // 用户打断意图此刻已明确，与后续走哪条中止分支无关；
   // 打断不落库，自主进化的反馈信号只能在这里采集
   if (command.sessionKey) {
-    recordFeedbackSignal(command.sessionKey, 'abort')
+    getAutonomousService()?.recordFeedbackSignal(command.sessionKey, 'abort')
   }
 
   // 1. 尝试中止 ACP run（按 runId 精确中止 / 按 sessionKey 全部中止）

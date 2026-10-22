@@ -7,17 +7,17 @@
  */
 
 import { useState, useEffect, useMemo, useRef } from 'react'
-import { Card } from '../../components/ui/Card/Card'
-import { Tooltip } from '../../components/ui/Tooltip/Tooltip'
-import { Modal } from '../../components/ui/Modal/Modal'
-import { CapabilityRadar } from '../../components/CapabilityRadar/CapabilityRadar'
-import { CapabilityProgressBar } from '../../components/CapabilityProgressBar/CapabilityProgressBar'
-import { ReflectionCard, type Reflection } from '../../components/ReflectionCard/ReflectionCard'
-import { SatisfactionChart, type SatisfactionDataPoint } from '../../components/SatisfactionChart/SatisfactionChart'
-import { PromptVariantStats, type PromptFragmentStats } from '../../components/PromptVariantStats/PromptVariantStats'
+import { Card } from '../../../../renderer/components/ui/Card/Card'
+import { Tooltip } from '../../../../renderer/components/ui/Tooltip/Tooltip'
+import { Modal } from '../../../../renderer/components/ui/Modal/Modal'
+import { CapabilityRadar } from '../../../../renderer/components/CapabilityRadar/CapabilityRadar'
+import { CapabilityProgressBar } from './CapabilityProgressBar/CapabilityProgressBar'
+import { ReflectionCard, type Reflection } from './ReflectionCard/ReflectionCard'
+import { SatisfactionChart, type SatisfactionDataPoint } from './SatisfactionChart/SatisfactionChart'
+import { PromptVariantStats, type PromptFragmentStats } from './PromptVariantStats/PromptVariantStats'
 import { LabeledMetric, MetricTip, TitledHeader } from './MetricTip'
 import { MoodAvatar } from './MoodAvatar'
-import * as autonomousService from '../../services/autonomous-service'
+import * as autonomousService from './autonomous-service'
 import {
   TIP_BREAKDOWN,
   TIP_CAPABILITY_DIMENSIONS,

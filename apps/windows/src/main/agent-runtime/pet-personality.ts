@@ -13,7 +13,7 @@ import {
 import { petAgentId, traitLabel, type TraitValues } from '@mtbot/pet-core'
 import type { PetPersonalityDTO, PetTraitValues } from '../../shared/pet-mode'
 import { getAgentRuntimeBridge } from '../ipc/agent-runtime-ipc'
-import { toAsyncClient } from './autonomous-wiring'
+import { toAsyncClient } from './async-db-client'
 import { agentRuntimeLog as log } from './bridge-utils'
 
 /**

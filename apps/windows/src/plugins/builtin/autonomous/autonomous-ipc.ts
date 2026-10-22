@@ -7,15 +7,14 @@
  * 开关状态存 runtime_state 的 autonomous.enabled，与 CLI 的
  * autonomous enable/disable 及引擎的启用判断是同一个键。
  */
-import { ipcMain } from 'electron'
-import { getAgentRuntimeBridge } from './agent-runtime-ipc'
-import type { AgentRuntimeBridge } from '../agent-runtime/bridge'
-import type { ConfigManager } from '../config-manager'
-import { notifyAutonomousGoalApproved } from '../agent-runtime/autonomous-wiring'
+import { getAgentRuntimeBridge } from '../../../main/ipc/agent-runtime-ipc'
+import type { AgentRuntimeBridge } from '../../../main/agent-runtime/bridge'
+import type { ConfigManager } from '../../../main/config-manager'
+import { notifyAutonomousGoalApproved } from './autonomous-wiring'
 import { readSettings, writeSettings } from '@mtbot/agent-runtime'
 import type { AutonomousSettings } from '@mtbot/agent-runtime'
 import { readMood, readConcerns } from '@mtbot/agent-runtime'
-import { currentPetAgentId } from '../../plugins/builtin/pet/pet-subject'
+import { currentPetAgentId } from '../pet/pet-subject'
 
 const ENABLED_KEY = 'autonomous.enabled'
 
@@ -39,6 +38,13 @@ function subjectAgentId(): string {
 }
 
 /** app 配置访问（由 ipc-handlers-registry 注入；未注入时相关 handler 降级为空） */
+/** 通道在这里先攒着，由插件 apply 时统一挂到作用域上（这样停用能整批摘掉） */
+type IpcHandler = (event: unknown, ...args: any[]) => unknown
+const HANDLERS: Array<[string, IpcHandler]> = []
+function registerChannel(channel: string, handler: IpcHandler): void {
+  HANDLERS.push([channel, handler])
+}
+
 let _getConfigManager: (() => ConfigManager | null) | null = null
 
 export function setAutonomousIpcDeps(deps: { getConfigManager: () => ConfigManager | null }): void {
@@ -116,7 +122,7 @@ function emptyStatus(enabled = false) {
   }
 }
 
-ipcMain.handle('autonomous:getStatus', async () => {
+registerChannel('autonomous:getStatus', async () => {
   try {
     const bridge = requireBridge()
     const enabled = readEnabled(bridge)
@@ -150,7 +156,7 @@ ipcMain.handle('autonomous:getStatus', async () => {
 })
 
 /** 最近目标（全状态，时间倒序，最多 limit 条），附生成时回填的关联反思 ID */
-ipcMain.handle('autonomous:getGoals', async (_event, limit = 20) => {
+registerChannel('autonomous:getGoals', async (_event, limit = 20) => {
   try {
     const bridge = requireBridge()
     const goals = bridge.autonomousRepo.listGoals(subjectAgentId()).slice(0, limit)
@@ -172,7 +178,7 @@ ipcMain.handle('autonomous:getGoals', async (_event, limit = 20) => {
 })
 
 /** 规划器产出的目标（planned_by='planner'，时间倒序），含计划执行时间 scheduledFor */
-ipcMain.handle('autonomous:getPlannedGoals', async (_event, limit = 50) => {
+registerChannel('autonomous:getPlannedGoals', async (_event, limit = 50) => {
   try {
     const bridge = requireBridge()
     const goals = bridge.autonomousRepo
@@ -199,7 +205,7 @@ ipcMain.handle('autonomous:getPlannedGoals', async (_event, limit = 50) => {
 })
 
 /** 删除规划目标（硬删，供「规划任务」tab 移除被规划的任务） */
-ipcMain.handle('autonomous:deleteGoal', async (_event, goalId: string) => {
+registerChannel('autonomous:deleteGoal', async (_event, goalId: string) => {
   const bridge = requireBridge()
   const ok = bridge.autonomousRepo.deleteGoal(goalId)
   if (!ok) throw new Error('目标不存在')
@@ -207,7 +213,7 @@ ipcMain.handle('autonomous:deleteGoal', async (_event, goalId: string) => {
 })
 
 /** 手动触发某个主体重新规划（供「规划任务」tab 重置按钮） */
-ipcMain.handle('autonomous:replan', async () => {
+registerChannel('autonomous:replan', async () => {
   const bridge = requireBridge()
   const agentId = subjectAgentId()
   if (agentId === NO_SUBJECT_AGENT_ID) return { success: false }
@@ -215,7 +221,7 @@ ipcMain.handle('autonomous:replan', async () => {
   return { success: ok }
 })
 
-ipcMain.handle('autonomous:approveGoal', async (_event, goalId: string, note?: string) => {
+registerChannel('autonomous:approveGoal', async (_event, goalId: string, note?: string) => {
   const bridge = requireBridge()
   const ok = bridge.autonomousRepo.approveGoal(goalId, note)
   if (!ok) throw new Error('目标不存在或不处于 pending 状态')
@@ -223,14 +229,14 @@ ipcMain.handle('autonomous:approveGoal', async (_event, goalId: string, note?: s
   return { success: true, goalId }
 })
 
-ipcMain.handle('autonomous:rejectGoal', async (_event, goalId: string, options?: { reason?: string }) => {
+registerChannel('autonomous:rejectGoal', async (_event, goalId: string, options?: { reason?: string }) => {
   const bridge = requireBridge()
   const ok = bridge.autonomousRepo.rejectGoal(goalId, options?.reason)
   if (!ok) throw new Error('目标不存在或不处于 pending 状态')
   return { success: true, goalId }
 })
 
-ipcMain.handle('autonomous:getCapabilities', async () => {
+registerChannel('autonomous:getCapabilities', async () => {
   try {
     const bridge = requireBridge()
     const result: Record<string, unknown> = {}
@@ -249,7 +255,7 @@ ipcMain.handle('autonomous:getCapabilities', async () => {
   }
 })
 
-ipcMain.handle('autonomous:getCapabilityTests', async (_event, dimension?: string, limit = 100) => {
+registerChannel('autonomous:getCapabilityTests', async (_event, dimension?: string, limit = 100) => {
   try {
     const bridge = requireBridge()
     return bridge.autonomousRepo.capabilityTests(subjectAgentId(), dimension, limit).map((t) => ({
@@ -268,7 +274,7 @@ ipcMain.handle('autonomous:getCapabilityTests', async (_event, dimension?: strin
   }
 })
 
-ipcMain.handle('autonomous:getReflections', async (_event, limit = 10) => {
+registerChannel('autonomous:getReflections', async (_event, limit = 10) => {
   try {
     const bridge = requireBridge()
     return bridge.autonomousRepo.reflections(subjectAgentId(), limit).map((r) => ({
@@ -289,7 +295,7 @@ ipcMain.handle('autonomous:getReflections', async (_event, limit = 10) => {
   }
 })
 
-ipcMain.handle('autonomous:getSatisfactionHistory', async (_event, window = '7d') => {
+registerChannel('autonomous:getSatisfactionHistory', async (_event, window = '7d') => {
   try {
     const bridge = requireBridge()
     const rows = bridge.autonomousRepo.satisfactionHistory(subjectAgentId(), windowStart(window))
@@ -306,7 +312,7 @@ ipcMain.handle('autonomous:getSatisfactionHistory', async (_event, window = '7d'
   }
 })
 
-ipcMain.handle('autonomous:getPromptStats', async () => {
+registerChannel('autonomous:getPromptStats', async () => {
   try {
     const bridge = requireBridge()
     const grouped = new Map<string, unknown[]>()
@@ -330,7 +336,7 @@ ipcMain.handle('autonomous:getPromptStats', async () => {
   }
 })
 
-ipcMain.handle('autonomous:setEnabled', async (_event, enabled: boolean) => {
+registerChannel('autonomous:setEnabled', async (_event, enabled: boolean) => {
   const bridge = requireBridge()
   bridge.runtimeStateRepo.set(ENABLED_KEY, enabled ? 'true' : 'false')
   // 即时生效：重播 evolution tick cron（enabled 跟随开关）+ 重载本地 cron 调度
@@ -338,12 +344,12 @@ ipcMain.handle('autonomous:setEnabled', async (_event, enabled: boolean) => {
   return { success: true, enabled }
 })
 
-ipcMain.handle('autonomous:settings:get', async () => {
+registerChannel('autonomous:settings:get', async () => {
   const bridge = requireBridge()
   return readSettings(bridge.db)
 })
 
-ipcMain.handle('autonomous:settings:update', async (_event, settings: Partial<AutonomousSettings>) => {
+registerChannel('autonomous:settings:update', async (_event, settings: Partial<AutonomousSettings>) => {
   const bridge = requireBridge()
   writeSettings(bridge.db, settings)
   // 心跳周期变更即时生效（与 CLI autonomous settings set 同一路径）
@@ -351,7 +357,7 @@ ipcMain.handle('autonomous:settings:update', async (_event, settings: Partial<Au
   return readSettings(bridge.db)
 })
 
-ipcMain.handle('autonomous:getMood', async () => {
+registerChannel('autonomous:getMood', async () => {
   const bridge = requireBridge()
   const agentId = subjectAgentId()
   // `readMood` 对"没有记录"返回的是**默认心情**而不是空 —— 不在宠物模式时要说的是
@@ -360,12 +366,12 @@ ipcMain.handle('autonomous:getMood', async () => {
   return readMood(bridge.db, agentId)
 })
 
-ipcMain.handle('autonomous:getConcerns', async () => {
+registerChannel('autonomous:getConcerns', async () => {
   const bridge = requireBridge()
   return readConcerns(bridge.db, subjectAgentId())
 })
 
-ipcMain.handle(
+registerChannel(
   'autonomous:getDiary',
   async (_event, limit = 20, before?: { timestamp: number; id: string }) => {
     const bridge = requireBridge()
@@ -402,12 +408,12 @@ ipcMain.handle(
 )
 
 /** 读取开启自主能力的额外 Agent id 列表（除 assistant 外；assistant 恒参与不列入） */
-ipcMain.handle('autonomous:getAgents', async () => {
+registerChannel('autonomous:getAgents', async () => {
   return _getConfigManager?.()?.getAppConfig().autonomousAgents ?? []
 })
 
 /** 设置开启自主能力的额外 Agent id 列表（去重、去空、排除 assistant） */
-ipcMain.handle('autonomous:setAgents', async (_event, agentIds: unknown) => {
+registerChannel('autonomous:setAgents', async (_event, agentIds: unknown) => {
   const raw = Array.isArray(agentIds) ? agentIds : []
   const sanitized = [
     ...new Set(
@@ -422,6 +428,8 @@ ipcMain.handle('autonomous:setAgents', async (_event, agentIds: unknown) => {
   return { ok: true }
 })
 
-export function registerAutonomousIpcHandlers() {
-  // handler 已在模块加载时通过 ipcMain.handle 注册
+export function registerAutonomousIpcHandlers(registrar: {
+  handle(channel: string, listener: (event: unknown, ...args: any[]) => unknown): void
+}): void {
+  for (const [channel, handler] of HANDLERS) registrar.handle(channel, handler)
 }

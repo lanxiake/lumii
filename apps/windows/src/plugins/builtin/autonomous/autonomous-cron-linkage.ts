@@ -11,7 +11,7 @@
 
 import type { DatabaseAdapter } from '@mtbot/agent-runtime'
 import { SELF_CRON_ID_PREFIX } from '@mtbot/agent-runtime'
-import { agentRuntimeLog as log } from './bridge-utils'
+import { agentRuntimeLog as log } from '../../../main/agent-runtime/bridge-utils'
 import { ensureEvolutionCronJobSeeded } from './evolution-tick'
 
 export const SUSPENDED_AUTONOMOUS_JOBS_KEY = 'autonomous.suspendedCronJobs'

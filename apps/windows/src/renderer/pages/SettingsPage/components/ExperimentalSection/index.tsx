@@ -1,39 +1,22 @@
 /**
  * ExperimentalSection - 实验功能设置
  *
- * 列表入口 + 设置内栈式详情：提示词风格、自主进化、跨渠道会话接续。
+ * **列表本身不写死任何条目**：提示词风格、跨渠道会话接续、自主进化都是插件提供的
+ * （`plugins/renderer/experiments.ts`），插件被禁用时整条消失（`usePluginEnabled`）。
  *
- * **提示词风格已插件化**（`plugins/builtin/prompt-style`）：列表行与详情子页都由插件提供，
- * 插件被禁用时整条消失（`usePluginEnabled`）。另两个还留在本文件，迁完后的样子见
- * docs/plans/工程基建/2026-10-22-实验功能插件化与前后端一体化启停实施计划.md。
+ * 页面只负责：标题 + 行的样式 + 「打开哪一条详情」的状态。详情子页由插件渲染，
+ * 复用这里的 CSS（`ExperimentalSection.module.css`）。
  */
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { ChevronLeft, ChevronRight } from '../../../../components/ui/Icon'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { ChevronRight } from '../../../../components/ui/Icon'
 import { Badge } from '../../../../components/ui/Badge/Badge'
-import { AutonomousPage } from '../../../AutonomousPage/AutonomousPage'
-import { getAutonomousStatus } from '../../../../services/autonomous-service'
 import {
   PLUGIN_EXPERIMENT_ENTRIES,
   type ExperimentEntry,
 } from '../../../../../plugins/renderer/experiments'
 import { usePluginEnabled } from '../../../../../plugins/renderer/state'
-import settingsStyles from '../../SettingsPage.module.css'
 import styles from './ExperimentalSection.module.css'
-
-type ExperimentalView = 'list' | 'autonomous'
-
-/** 详情子页顶栏：返回 + 标题 */
-function DetailHeader({ title, onBack }: { title: string; onBack: () => void }) {  return (
-    <div className={styles.detailHeader}>
-      <button type="button" className={styles.backBtn} onClick={onBack} aria-label="返回实验功能列表">
-        <ChevronLeft size={18} aria-hidden />
-        <span>返回</span>
-      </button>
-      <h3 className={styles.detailTitle}>{title}</h3>
-    </div>
-  )
-}
 
 /** 实验功能列表行 */
 function FeatureRow({
@@ -75,12 +58,9 @@ function PluginExperimentRow({ entry, onOpen }: { entry: ExperimentEntry; onOpen
 }
 
 /**
- * 实验功能设置：默认列表；点选进入详情子页。
- *
- * 插件条目与核心条目共用一个列表；插件被禁用时它的行与详情一起消失。
+ * 实验功能设置：默认列表；点选进入该条目的详情子页。
  */
 export function ExperimentalSection() {
-  const [view, setView] = useState<ExperimentalView>('list')
   const [openPluginId, setOpenPluginId] = useState<string | null>(null)
   const openPlugin = useMemo(
     () => PLUGIN_EXPERIMENT_ENTRIES.find((entry) => entry.id === openPluginId) ?? null,
@@ -91,51 +71,9 @@ export function ExperimentalSection() {
   useEffect(() => {
     if (openPluginId && !openPluginEnabled) setOpenPluginId(null)
   }, [openPluginId, openPluginEnabled])
-  const [autonomousEnabled, setAutonomousEnabled] = useState<boolean | null>(null)
-  const [pendingGoals, setPendingGoals] = useState(0)
-
-  const autonomousSummary =
-    autonomousEnabled === null
-      ? '加载中…'
-      : autonomousEnabled
-        ? '状态：已启用'
-        : '状态：已禁用'
-
-  useEffect(() => {
-    let cancelled = false
-    void (async () => {
-      try {
-        const status = await getAutonomousStatus()
-        if (cancelled) return
-        setAutonomousEnabled(Boolean(status?.enabled))
-        setPendingGoals(typeof status?.pendingGoalsCount === 'number' ? status.pendingGoalsCount : 0)
-      } catch {
-        if (!cancelled) {
-          setAutonomousEnabled(false)
-          setPendingGoals(0)
-        }
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [view])
-
-  const goList = useCallback(() => setView('list'), [])
 
   if (openPlugin && openPluginEnabled) {
     return <openPlugin.Detail onBack={() => setOpenPluginId(null)} />
-  }
-
-  if (view === 'autonomous') {
-    return (
-      <div className={styles.detail}>
-        <DetailHeader title="自主进化" onBack={goList} />
-        <div className={`${settingsStyles['autonomous-embed']} ${styles.detailBody}`}>
-          <AutonomousPage embedded />
-        </div>
-      </div>
-    )
   }
 
   return (
@@ -154,12 +92,6 @@ export function ExperimentalSection() {
             onOpen={() => setOpenPluginId(entry.id)}
           />
         ))}
-        <FeatureRow
-          title="自主进化"
-          summary={autonomousSummary}
-          badge={pendingGoals > 0}
-          onClick={() => setView('autonomous')}
-        />
       </div>
     </div>
   )

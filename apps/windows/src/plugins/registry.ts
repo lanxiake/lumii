@@ -20,6 +20,7 @@ import { selectionExtension } from './builtin/selection'
 import { skillEvolutionExtension } from './builtin/skill-evolution'
 import { promptStyleExtension } from './builtin/prompt-style'
 import { channelContinuityExtension } from './builtin/channel-continuity'
+import { autonomousExtension } from './builtin/autonomous'
 
 /**
  * 内置扩展的统一定义。**这里是唯一的清单**：新增一个插件 = 建 `builtin/<name>/` 目录，
@@ -61,6 +62,7 @@ export const BUILTIN_EXTENSIONS: BuiltinExtension[] = [
   { ...skillEvolutionExtension, hot: false },
   { ...promptStyleExtension, hot: true },
   { ...channelContinuityExtension, hot: true },
+  { ...autonomousExtension, hot: true },
 ]
 
 /** 可由设置页即时启停的内置插件（由上面的 `hot` 标记派生，不再手工维护第二份清单）。 */
