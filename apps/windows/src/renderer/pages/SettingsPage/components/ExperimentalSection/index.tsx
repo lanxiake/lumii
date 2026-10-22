@@ -2,97 +2,28 @@
  * ExperimentalSection - 实验功能设置
  *
  * 列表入口 + 设置内栈式详情：提示词风格、自主进化、跨渠道会话接续。
- * 工具进化已移至「工具」菜单。提示词风格切换写 localStorage 并经 IPC
- * 同步主进程缓存，下一轮对话生效；跨渠道接续写主进程 JSON，下次渠道消息即时生效。
+ *
+ * **提示词风格已插件化**（`plugins/builtin/prompt-style`）：列表行与详情子页都由插件提供，
+ * 插件被禁用时整条消失（`usePluginEnabled`）。另两个还留在本文件，迁完后的样子见
+ * docs/plans/工程基建/2026-10-22-实验功能插件化与前后端一体化启停实施计划.md。
  */
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { ChevronLeft, ChevronRight } from '../../../../components/ui/Icon'
 import { Badge } from '../../../../components/ui/Badge/Badge'
 import { Switch } from '../../../../components/ui/Switch/Switch'
 import { AutonomousPage } from '../../../AutonomousPage/AutonomousPage'
-import {
-  useSettings,
-  SETTINGS_STORAGE_KEY,
-  SETTINGS_UPDATE_EVENT,
-} from '../../../../hooks/business/useSettings'
-import { updatePromptStyle } from '../../../../services/settings-service'
-import { normalizePromptStyle, type PromptStyleValue } from '../../../../../shared/prompt-style'
 import { getAutonomousStatus } from '../../../../services/autonomous-service'
+import {
+  PLUGIN_EXPERIMENT_ENTRIES,
+  type ExperimentEntry,
+} from '../../../../../plugins/renderer/experiments'
+import { usePluginEnabled } from '../../../../../plugins/renderer/state'
 import { useChannelFeatures } from './useChannelFeatures'
 import settingsStyles from '../../SettingsPage.module.css'
 import styles from './ExperimentalSection.module.css'
 
-type ExperimentalView = 'list' | 'promptStyle' | 'autonomous' | 'channelContinuity'
-
-/** 提示词风格详情：详细/简要/极简三态切换与说明（无段清单表） */
-function PromptStyleDetail({ onBack }: { onBack: () => void }) {
-  const { settings } = useSettings()
-  const currentStyle = normalizePromptStyle(settings.promptStyle?.style)
-
-  const handleStyleChange = useCallback(
-    (style: PromptStyleValue) => {
-      if (style === currentStyle) return
-      const nextSettings = {
-        ...settings,
-        promptStyle: { ...settings.promptStyle, style },
-      }
-      try {
-        localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(nextSettings))
-        window.dispatchEvent(new CustomEvent(SETTINGS_UPDATE_EVENT, { detail: nextSettings }))
-        void updatePromptStyle({ style })
-      } catch {
-        // 忽略本地存储写入失败
-      }
-    },
-    [settings, currentStyle],
-  )
-
-  return (
-    <div className={styles.detail}>
-      <DetailHeader title="提示词风格（实验）" onBack={onBack} />
-      <div className={`${settingsStyles['settings-section']} ${styles.detailBody}`}>
-        <div className={settingsStyles['setting-row']}>
-          <span className={settingsStyles['setting-label']}>全局风格</span>
-          <div className={styles['style-switch']} role="radiogroup" aria-label="系统提示词风格">
-            <button
-              type="button"
-              role="radio"
-              aria-checked={currentStyle === 'detailed'}
-              className={currentStyle === 'detailed' ? styles['style-switch-active'] : undefined}
-              onClick={() => handleStyleChange('detailed')}
-            >
-              详细
-            </button>
-            <button
-              type="button"
-              role="radio"
-              aria-checked={currentStyle === 'terse'}
-              className={currentStyle === 'terse' ? styles['style-switch-active'] : undefined}
-              onClick={() => handleStyleChange('terse')}
-            >
-              简要
-            </button>
-            <button
-              type="button"
-              role="radio"
-              aria-checked={currentStyle === 'minimal'}
-              className={currentStyle === 'minimal' ? styles['style-switch-active'] : undefined}
-              onClick={() => handleStyleChange('minimal')}
-            >
-              极简
-            </button>
-          </div>
-        </div>
-        <p className={settingsStyles['setting-hint']}>
-          简要档按索引式渲染系统提示词段落（段尾附展开引导，模型可按需获取完整规则）。
-          极简档在简要基础上，把发给模型的工具定义收缩为「名称 + 参数」（复杂工具保留使用提示），
-          MCP 章节等残余描述一并收敛，面向强模型进一步降开销。切换后下一轮对话生效。
-        </p>
-      </div>
-    </div>
-  )
-}
+type ExperimentalView = 'list' | 'autonomous' | 'channelContinuity'
 
 /**
  * 跨渠道会话接续详情：一个开关 + 行为说明。
@@ -155,7 +86,8 @@ function FeatureRow({
   onClick,
 }: {
   title: string
-  summary: string
+  /** 字符串或组件产出的文本（插件条目的摘要是活的） */
+  summary: ReactNode
   badge?: boolean
   onClick: () => void
 }) {
@@ -174,19 +106,39 @@ function FeatureRow({
 }
 
 /**
- * 实验功能设置：默认列表；点选进入提示词风格或自主进化详情子页。
+ * 插件提供的实验项：列表行。
+ *
+ * 单独一个组件是为了能在里面调 hook——在 map 里调 `usePluginEnabled` 会让 hook 数量
+ * 随条数变化，React 直接报 "Rendered more hooks than during the previous render"。
+ */
+function PluginExperimentRow({ entry, onOpen }: { entry: ExperimentEntry; onOpen: () => void }) {
+  const enabled = usePluginEnabled(entry.id)
+  if (!enabled) return null
+  return <FeatureRow title={entry.title} summary={<entry.Summary />} onClick={onOpen} />
+}
+
+/**
+ * 实验功能设置：默认列表；点选进入详情子页。
+ *
+ * 插件条目与核心条目共用一个列表；插件被禁用时它的行与详情一起消失。
  */
 export function ExperimentalSection() {
-  const { settings } = useSettings()
   const [view, setView] = useState<ExperimentalView>('list')
+  const [openPluginId, setOpenPluginId] = useState<string | null>(null)
+  const openPlugin = useMemo(
+    () => PLUGIN_EXPERIMENT_ENTRIES.find((entry) => entry.id === openPluginId) ?? null,
+    [openPluginId],
+  )
+  // 详情开着时插件被禁用 → 退回列表（否则留一个空面板）
+  const openPluginEnabled = usePluginEnabled(openPluginId ?? '__none__')
+  useEffect(() => {
+    if (openPluginId && !openPluginEnabled) setOpenPluginId(null)
+  }, [openPluginId, openPluginEnabled])
   const [autonomousEnabled, setAutonomousEnabled] = useState<boolean | null>(null)
   const [pendingGoals, setPendingGoals] = useState(0)
   const { features, loading: featuresLoading, saving: featuresSaving, setFeature } =
     useChannelFeatures()
 
-  const currentStyle = normalizePromptStyle(settings.promptStyle?.style)
-  const styleSummary =
-    currentStyle === 'terse' ? '当前：简要' : currentStyle === 'minimal' ? '当前：极简' : '当前：详细'
   const autonomousSummary =
     autonomousEnabled === null
       ? '加载中…'
@@ -221,8 +173,8 @@ export function ExperimentalSection() {
 
   const goList = useCallback(() => setView('list'), [])
 
-  if (view === 'promptStyle') {
-    return <PromptStyleDetail onBack={goList} />
+  if (openPlugin && openPluginEnabled) {
+    return <openPlugin.Detail onBack={() => setOpenPluginId(null)} />
   }
 
   if (view === 'channelContinuity') {
@@ -256,11 +208,13 @@ export function ExperimentalSection() {
         </p>
       </div>
       <div className={styles.featureList}>
-        <FeatureRow
-          title="提示词风格（实验）"
-          summary={styleSummary}
-          onClick={() => setView('promptStyle')}
-        />
+        {PLUGIN_EXPERIMENT_ENTRIES.map((entry) => (
+          <PluginExperimentRow
+            key={entry.id}
+            entry={entry}
+            onOpen={() => setOpenPluginId(entry.id)}
+          />
+        ))}
         <FeatureRow
           title="跨渠道会话接续"
           summary={continuitySummary}

@@ -52,6 +52,11 @@ export const S = {
   tray: createServiceKey<LateRef<TrayManager>>('tray'),
   /** 语音服务（由 extensions/voice.ts 在窗口就绪后提供） */
   voice: createServiceKey<VoiceCallService>('voice'),
+  /**
+   * 系统提示词风格（实验功能插件提供）。停用后核心读不到 ⇒ 回落默认档。
+   * 类型用结构化的最小面，避免核心反向 import 插件实现。
+   */
+  promptStyle: createServiceKey<{ get(): Promise<{ style: 'detailed' | 'terse' | 'minimal' }> }>('promptStyle'),
   /** 录屏服务（扩展提供；窗口就绪后才创建） */
   screenRecord: createServiceKey<ScreenRecordService>('screenRecord'),
 } as const

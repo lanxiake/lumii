@@ -6,6 +6,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import '@testing-library/jest-dom'
 import { ExperimentalSection } from '../../renderer/pages/SettingsPage/components/ExperimentalSection'
+import { __resetPluginStateForTests } from '../../plugins/renderer/state'
 
 vi.mock('../../renderer/pages/AutonomousPage/AutonomousPage', () => ({
   AutonomousPage: () => <div data-testid="autonomous-page" />,
@@ -30,6 +31,7 @@ const setFeatures = vi.fn(async (patch: Record<string, unknown>) => ({
 
 beforeEach(() => {
   localStorage.clear()
+  __resetPluginStateForTests()
   updatePromptStyle.mockClear()
   getStatus.mockClear()
   getFeatures.mockClear()
@@ -37,6 +39,11 @@ beforeEach(() => {
   ;(window as unknown as { electronAPI?: unknown }).electronAPI = {
     settings: { updatePromptStyle },
     autonomous: { getStatus },
+    // 提示词风格已插件化：条目是否显示取决于扩展列表（见 plugins/renderer/state.ts）
+    extensions: {
+      list: async () => [{ id: 'com.lumii.prompt-style', enabled: true, state: 'active' }],
+      onStateChanged: () => () => {},
+    },
   }
   ;(window as unknown as { channelService?: unknown }).channelService = { getFeatures, setFeatures }
 })
@@ -47,10 +54,18 @@ afterEach(() => {
 })
 
 describe('ExperimentalSection — 列表与栈导航', () => {
+  /** 插件条目在扩展状态加载完才出现，点它之前先等 */
+  const openPromptStyle = async () => {
+    fireEvent.click(await screen.findByRole('button', { name: /提示词风格（实验）/ }))
+  }
+
   it('默认渲染实验功能列表，不展开详情', async () => {
     render(<ExperimentalSection />)
     expect(screen.getByRole('heading', { name: '实验功能' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /提示词风格（实验）/ })).toBeInTheDocument()
+    // 插件条目要等扩展状态加载完才出现（未加载完按「禁用」处理，不闪一个空壳行）
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /提示词风格（实验）/ })).toBeInTheDocument()
+    })
     expect(screen.getByRole('button', { name: /自主进化/ })).toBeInTheDocument()
     expect(screen.queryByTestId('autonomous-page')).not.toBeInTheDocument()
     expect(screen.queryByRole('radiogroup', { name: '系统提示词风格' })).not.toBeInTheDocument()
@@ -61,7 +76,7 @@ describe('ExperimentalSection — 列表与栈导航', () => {
 
   it('进入提示词风格详情：默认简要档，可切极简并回列表同步', async () => {
     render(<ExperimentalSection />)
-    fireEvent.click(screen.getByRole('button', { name: /提示词风格（实验）/ }))
+    await openPromptStyle()
 
     expect(screen.getByRole('heading', { name: '提示词风格（实验）' })).toBeInTheDocument()
     const detailedBtn = screen.getByRole('radio', { name: '详细' })
@@ -86,7 +101,7 @@ describe('ExperimentalSection — 列表与栈导航', () => {
 
   it('重复点击当前档位不触发写入', async () => {
     render(<ExperimentalSection />)
-    fireEvent.click(screen.getByRole('button', { name: /提示词风格（实验）/ }))
+    await openPromptStyle()
     // 先切到极简，确保当前档位与再点击目标一致（默认简要 → 直接点简要本就是 no-op）
     fireEvent.click(screen.getByRole('radio', { name: '极简' }))
     await waitFor(() => expect(updatePromptStyle).toHaveBeenCalledWith({ style: 'minimal' }))
@@ -109,9 +124,36 @@ describe('ExperimentalSection — 列表与栈导航', () => {
     expect(screen.queryByTestId('autonomous-page')).not.toBeInTheDocument()
   })
 
-  it('不渲染提示词段清单表格', () => {
+  it('插件被禁用时，它的实验项整条消失（不是灰掉）', async () => {
+    let push: ((payload: { id: string; enabled: boolean }) => void) | null = null
+    ;(window as unknown as { electronAPI: { extensions: unknown } }).electronAPI.extensions = {
+      list: async () => [
+        { id: 'com.lumii.prompt-style', enabled: true, state: 'active' },
+        { id: 'com.lumii.other', enabled: true, state: 'active' },
+      ],
+      onStateChanged: (cb: (payload: { id: string; enabled: boolean }) => void) => {
+        push = cb
+        return () => {}
+      },
+    }
+
     render(<ExperimentalSection />)
-    fireEvent.click(screen.getByRole('button', { name: /提示词风格（实验）/ }))
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /提示词风格（实验）/ })).toBeInTheDocument(),
+    )
+
+    push!({ id: 'com.lumii.prompt-style', enabled: false })
+
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: /提示词风格（实验）/ })).not.toBeInTheDocument(),
+    )
+    // 其它条目不受影响
+    expect(screen.getByRole('button', { name: /自主进化/ })).toBeInTheDocument()
+  })
+
+  it('不渲染提示词段清单表格', async () => {
+    render(<ExperimentalSection />)
+    await openPromptStyle()
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
     expect(screen.queryByText('段 ID')).not.toBeInTheDocument()
   })

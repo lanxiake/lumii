@@ -362,13 +362,17 @@ function scanFile(absPath) {
         const ch = arg0 ? evalExpr(arg0, absPath, nextScope) : null
         const raw = arg0 ? arg0.getText(sf).slice(0, 60) : '<无实参>'
 
-        // 插件化的注册器：handler 挂在插件作用域上（ctx.registerIpc），停用时随作用域摘掉。
-        // 形态是 `registrar.handle(channel, fn)` / `ipc.handle(...)`，等价于 ipcMain.handle。
-        if (callee.obj && REGISTRAR_RE.test(callee.obj)) {
-          if (['handle', 'handleOnce', 'on', 'once'].includes(callee.prop)) {
-            if (ch) for (const c of ch) handlers.push({ channel: c, at, raw })
-            else unresolved.push({ at, raw, why: 'main handler channel 无法解析' })
-          }
+        // 插件化的注册器：handler 挂在插件作用域上，停用时随作用域摘掉。
+        // 三种形态，都等价于 ipcMain.handle：
+        //   registrar.handle(channel, fn) / ipc.handle(...)  —— 注入的注册器形参
+        //   ctx.registerIpc(channel, fn)                     —— 插件作用域 API
+        if (
+          (callee.obj && REGISTRAR_RE.test(callee.obj) &&
+            ['handle', 'handleOnce', 'on', 'once'].includes(callee.prop)) ||
+          callee.prop === 'registerIpc'
+        ) {
+          if (ch) for (const c of ch) handlers.push({ channel: c, at, raw })
+          else unresolved.push({ at, raw, why: 'main handler channel 无法解析' })
         }
 
         if (callee.obj && IPC_MAIN_RE.test(callee.obj)) {
@@ -525,7 +529,9 @@ function collectRendererUsage() {
   if (_rendererUsage) return _rendererUsage
   const chained = new Map() // 'api.getAgents' -> 调用点文件
   const bare = new Set() // 任意 `.name` 属性访问到的名字（保守豁免用）
-  for (const f of walk(join(SRC, 'renderer'))) {
+  // 插件目录里也有渲染层代码（src/plugins/renderer/*、builtin/*/renderer.tsx）：
+  // 不扫它们会把插件 UI 对 electronAPI 的调用当成「无人调用」。
+  for (const f of [...walk(join(SRC, 'renderer')), ...walk(join(SRC, 'plugins'))]) {
     const sf = getModule(f).sf
     if (!sf) continue
     const visit = (node) => {

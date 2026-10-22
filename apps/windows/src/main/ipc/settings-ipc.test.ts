@@ -7,34 +7,19 @@ vi.mock('electron', () => ({
 import { registerSettingsIpcHandlers, setSettingsIpcDeps } from './settings-ipc'
 import { ipcMain } from 'electron'
 
-describe('Settings IPC 通道（提示词风格实验 P0-T4）', () => {
+describe('Settings IPC 通道（记忆注入；提示词风格已插件化）', () => {
   const setMemory = vi.fn()
-  const setPromptStyle = vi.fn()
 
   beforeEach(() => {
     vi.clearAllMocks()
     setSettingsIpcDeps({
       setMemoryInjectionSettings: setMemory,
-      setPromptStyleSettings: setPromptStyle,
     })
     registerSettingsIpcHandlers()
   })
 
   const handlerFor = (channel: string) =>
     (ipcMain.handle as ReturnType<typeof vi.fn>).mock.calls.find((c) => c[0] === channel)![1]
-
-  it('注册 settings:updatePromptStyle 并转发 payload', async () => {
-    const handler = handlerFor('settings:updatePromptStyle')
-    await handler({}, { style: 'terse' })
-    expect(setPromptStyle).toHaveBeenCalledWith({ style: 'terse' })
-  })
-
-  it('非对象 payload 被忽略', async () => {
-    const handler = handlerFor('settings:updatePromptStyle')
-    await handler({}, undefined)
-    await handler({}, 'weird')
-    expect(setPromptStyle).not.toHaveBeenCalled()
-  })
 
   it('既有记忆注入通道不受影响', async () => {
     const handler = handlerFor('settings:updateMemoryInjection')

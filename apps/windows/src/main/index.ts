@@ -73,7 +73,7 @@ import { initializeTray } from './tray/tray-bootstrap'
 import { createMainWindow } from './window/main-window'
 import { SystemService } from './system-service'
 import { flushToolUsage } from './tool-usage-store'
-import { normalizePromptStyle, type PromptStyleValue } from '../shared/prompt-style'
+import { DEFAULT_PROMPT_STYLE } from '../shared/prompt-style'
 import type { UpdaterService } from './updater-service'
 import { ClientSkillRuntime } from './skill-runtime'
 import {
@@ -598,18 +598,14 @@ async function initAgentRuntime(): Promise<void> {
       memoryInjectionSettingsCache = resolved
       return resolved
     },
-    /** 读取系统提示词风格（实验功能；从渲染进程 localStorage 同步，缺省 = 简要档） */
-    getPromptStyleSettings: async () => {
-      if (promptStyleSettingsCache) {
-        return promptStyleSettingsCache
-      }
-      const settings = await getRendererSettings()
-      const resolved = {
-        style: normalizePromptStyle(settings?.promptStyle?.style),
-      }
-      promptStyleSettingsCache = resolved
-      return resolved
-    },
+    /**
+     * 读取系统提示词风格（实验功能）。
+     *
+     * 由 `com.lumii.prompt-style` 插件提供：停用后容器里没有这个服务，
+     * 这里回落到默认档——「禁用即功能消失」靠的就是这一条。
+     */
+    getPromptStyleSettings: async () =>
+      (await pluginHost?.container.get(S.promptStyle)?.get()) ?? { style: DEFAULT_PROMPT_STYLE },
     /**
      * 更新用户记忆（写入本地文件 ~/.lumii/data/user-memory.md）。
      *
@@ -881,22 +877,9 @@ function setMemoryInjectionSettingsCache(settings: {
   }
 }
 
-/** 系统提示词风格主进程缓存（避免 executeJavaScript 失败时始终回退为默认档） */
-let promptStyleSettingsCache: { style: PromptStyleValue } | null = null
-
-/**
- * 同步系统提示词风格到主进程缓存（渲染进程切换时 IPC 调用；实验功能）
- */
-function setPromptStyleSettingsCache(settings: { style?: PromptStyleValue }): void {
-  promptStyleSettingsCache = {
-    style: normalizePromptStyle(settings.style),
-  }
-}
-
 async function getRendererSettings(): Promise<{
   workspace?: { directory?: string }
   memory?: { injectPersonalMemory?: boolean; injectWorkMemory?: boolean }
-  promptStyle?: { style?: PromptStyleValue }
 } | null> {
   if (!mainWindow || mainWindow.isDestroyed()) {
     return null
@@ -967,7 +950,6 @@ function setupIpcHandlers(): void {
     getWorkspaceDir,
     reapplyCodingDevAcpEnv: reapplyCodingDevAcpEnvFromConfig,
     setMemoryInjectionSettings: setMemoryInjectionSettingsCache,
-    setPromptStyleSettings: setPromptStyleSettingsCache,
     pluginEventBus,
     // 现取容器：云同步被卸载后这里应是 no-op，而不是拿旧调度器继续跑
     restartCloudSyncScheduler: (cfg) => {

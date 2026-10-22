@@ -16,7 +16,6 @@ import type { FeishuLoginService } from '../feishu-login-service'
 import type { QbotLoginService } from '../qbot-login-service'
 import type { ChannelHub } from '../channel/channel-hub-bootstrap'
 import type { AgentRuntimeBridge } from '../agent-runtime'
-import type { PromptStyleValue } from '../../shared/prompt-style'
 
 import {
   setWorkspaceIpcDeps,
@@ -77,7 +76,6 @@ export interface IpcHandlersDeps {
     injectPersonalMemory?: boolean
     injectWorkMemory?: boolean
   }) => void
-  setPromptStyleSettings: (settings: { style?: PromptStyleValue }) => void
   restartCloudSyncScheduler?: (cfg: CloudSyncConfig) => void
   pluginEventBus?: import('@mtbot/plugin-core').EventBus<import('../kernel/events').MainEvents> | null
   log: {
@@ -140,7 +138,6 @@ export function registerAllIpcHandlers(deps: IpcHandlersDeps): void {
 
   setSettingsIpcDeps({
     setMemoryInjectionSettings: deps.setMemoryInjectionSettings,
-    setPromptStyleSettings: deps.setPromptStyleSettings,
   })
 
   setAutonomousIpcDeps({
