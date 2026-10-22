@@ -4,7 +4,7 @@
  * 为什么需要它：cron 执行是**全新实例、跑完即销毁**（`restoreHistoryForInstance`
  * 只在上下文压缩时被调用），所以 `cron:<jobId>` 会话里累积的「上一轮/上上轮」记录，
  * Agent 在执行时**看不到**。它每轮都从零开始：不知道自己昨天推过什么、
- * 上次体检发现了什么、同一件事是不是已经做过。
+ * 同一件事是不是已经做过。
  *
  * 为什么不是「恢复历史」：
  * - 全量历史贵且噪声大（调研：朴素的摘要式巩固会破坏信息，35.3% vs 98.0%）
@@ -19,12 +19,6 @@ export interface SelfBriefingInput {
   lastOutput: string | null
   /** 上次产出落库时刻（epoch ms）；无则 null */
   lastOutputAt: number | null
-  /** 上期维护报告的一句话结论；非维护任务或没有报告时为 null */
-  lastMaintenanceSummary?: string | null
-  /** 上期报告的资产范围（记忆 / Wiki…），用来把结论说全 */
-  lastMaintenanceScope?: string | null
-  /** 上期报告发现了几项 */
-  lastMaintenanceFindingCount?: number | null
   /** 当前时刻；注入以便单测 */
   now: number
 }
@@ -83,14 +77,6 @@ export function buildSelfBriefing(input: SelfBriefingInput): string {
   const lastOutput = input.lastOutput?.trim()
   if (lastOutput) {
     lines.push(`上次产出：${condense(lastOutput, LAST_OUTPUT_MAX_CHARS)}`)
-  }
-
-  const summary = input.lastMaintenanceSummary?.trim()
-  if (summary) {
-    const scope = input.lastMaintenanceScope?.trim()
-    const count = input.lastMaintenanceFindingCount ?? 0
-    const detail = count > 0 ? `，发现 ${count} 项` : '，未发现问题'
-    lines.push(`上期体检：${condense(summary, 160)}（范围${scope ? `：${scope}` : ''}${detail}）`)
   }
 
   if (lines.length === 0) return ''

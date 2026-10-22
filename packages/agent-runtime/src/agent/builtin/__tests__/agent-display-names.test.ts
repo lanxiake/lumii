@@ -55,7 +55,6 @@ describe("resolveBuiltinDisplayName", () => {
   });
 
   it("团队专家显示中文名", () => {
-    expect(resolveBuiltinDisplayName("system-keeper")).toBe("灵栖维护");
     expect(resolveBuiltinDisplayName("code-dev")).toBe("灵栖开发");
     expect(resolveBuiltinDisplayName("chronicler")).toBe("灵栖记事");
     expect(resolveBuiltinDisplayName("info-curator")).toBe("灵栖情报");

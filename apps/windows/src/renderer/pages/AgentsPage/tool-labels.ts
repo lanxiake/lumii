@@ -64,16 +64,13 @@ const TOOL_LABELS: Record<string, string> = {
   work_report_read: '工作痕迹',
   dashboard_feed_write: '资讯卡',
   dashboard_feed_read: '读资讯卡',
-  maintenance_report_write: '写体检报告',
-  maintenance_report_read: '读体检报告',
-  asset_checkup: '资产体检',
   news_preference: '资讯偏好',
   spawn_agent: '协调子 Agent',
   send_message: '给其他 Agent 发消息',
   message: '回复用户',
   channel_list: '渠道列表',
   channel_send: '渠道发消息',
-  // 客户端界面（system-keeper）
+  // 客户端界面
   app_screenshot: '查看客户端界面',
   app_goto_and_screenshot: '查看客户端界面',
   app_goto: '操作客户端界面',

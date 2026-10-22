@@ -278,11 +278,8 @@ export function registerApiIpcHandlers(): void {
   /**
    * 维护体检报告**没有** IPC 读口：概览页那张「资产体检」卡片已按需求整段移除
    * （见 `DashboardPage/components/RecentFocus` 的头注释）。
-   * 报告本身仍由「灵栖维护」产出，模型通过 `maintenance_report_read` 工具读——
-   * 那条路走 `bridge-maintenance-tools`，不经过渲染层。
-   *
-   * 这里曾留着一个 `maintenance-report:overview` 处理器与对应的 preload 方法，
-   * 消费者删掉后它就成了死链路（接线守卫 ⑥ 报的正是它），已一并删除。
+   * 「灵栖维护」Agent 与 maintenance_report_* 工具已于 2026-10-22 整体下线，
+   * 因此这里也没有任何报告读写链路。
    */
 
   // === 开机启动 ===

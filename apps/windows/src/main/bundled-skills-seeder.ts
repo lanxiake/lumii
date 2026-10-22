@@ -82,6 +82,8 @@ export const RETIRED_BUNDLED_SKILLS: readonly string[] = [
   '数字人与视频配音/dream-video-prompt-generator',
   '数字人与视频配音/infinitetalk',
   '数字人与视频配音/infinitetalk-shopping-avatar',
+  // —— 2026-10-22 「灵栖维护」整线下线，其手册技能一并移除 ——
+  '系统维护/system-keeper-handbook',
 ]
 
 /** 读取上次种子时的 app 版本 */

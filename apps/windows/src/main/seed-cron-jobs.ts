@@ -175,26 +175,6 @@ const SEED_JOBS: readonly SeedJob[] = [
     enabled: true,
   },
   {
-    id: 'seed-workspace-tidy',
-    // 团队转正（2026-09-16）：工作区体检由「灵栖维护」执行——它是资产维护者，
-    // 工具面（list_dir/glob/grep/file_read）与「只体检、不擅自清理」的红线都对得上。
-    agentId: 'system-keeper',
-    name: '工作区文件整理',
-    taskText: '检查工作区里新增的文件，按类型归类并指出可以清理的内容。',
-    systemPrompt: [
-      '你在帮用户整理本地工作区。请：',
-      '1. 列出最近新增或修改的文件，按用途归类（文档 / 代码 / 数据 / 临时产物）；',
-      '2. 指出明显可以清理的内容（重复文件、空文件、过期临时产物），说明判断依据；',
-      '3. 给出建议的归档位置。',
-      '只做检查和建议，不要实际移动或删除任何文件 —— 清理由用户确认后自己执行。',
-      '全文不超过 400 字，没有发现可整理的内容就直接说明。',
-    ].join('\n'),
-    scheduleType: 'cron',
-    scheduleExpr: '0 20 * * 0',
-    activeDays: '0',
-    notifyTargets: 'system',
-  },
-  {
     id: 'wiki-purge-invalid-files',
     name: 'Wiki 无效文件清理',
     taskText: '__wiki_purge_invalid_files__',
@@ -227,7 +207,7 @@ export function ensureSeedCronJobsSeeded(db: DatabaseAdapter): void {
   migrateWorkReportsToChronicler(db)
   migrateNewsPipelineToInfoCurator(db)
   migrateNewsFeedJobsToInfoCurator(db)
-  migrateWorkspaceTidyToSystemKeeper(db)
+  migrateRemovedWorkspaceTidyCron(db)
   migrateRemovedWikiEroExtractCron(db)
   migrateRemovedWikiAutoSynthesisCron(db)
   migrateSystemPromptsForWorkReports(db)
@@ -485,23 +465,16 @@ function migrateLegacyNewsPipeline(db: DatabaseAdapter): void {
 export const __testables = { SEED_JOBS, seededKey }
 
 /**
- * 工作区体检任务转正（2026-09-16）：执行者 assistant → system-keeper。
- *
- * 与 `migrateWorkReportsToChronicler` 同规格：只迁移「未被用户改过」的行
- * （agent_id 仍为 'assistant'）；用户改过执行者 / 删过任务的不碰。
+ * 移除已下线的工作区文件整理任务（「灵栖维护」随该 Agent 一并下线）。
  */
-function migrateWorkspaceTidyToSystemKeeper(db: DatabaseAdapter): void {
+function migrateRemovedWorkspaceTidyCron(db: DatabaseAdapter): void {
   try {
-    const result = db
-      .prepare(
-        `UPDATE local_cron_jobs SET agent_id = 'system-keeper' WHERE id = 'seed-workspace-tidy' AND agent_id = 'assistant'`,
-      )
-      .run()
+    const result = db.prepare(`DELETE FROM local_cron_jobs WHERE id = ?`).run('seed-workspace-tidy')
     if (result.changes > 0) {
-      log.info('[migrateWorkspaceTidyToSystemKeeper] seed-workspace-tidy → system-keeper')
+      log.info('[migrateRemovedWorkspaceTidyCron] 已移除工作区文件整理定时任务')
     }
   } catch (err) {
-    log.error('[migrateWorkspaceTidyToSystemKeeper] 迁移失败:', err)
+    log.error('[migrateRemovedWorkspaceTidyCron] 迁移失败:', err)
   }
 }
 

@@ -154,7 +154,6 @@ import { reportPetGoalReceipt } from './bootstrap/pet-goal-receipt'
 import { withTimeout } from './with-timeout'
 import { initToolUsageStore } from '../tool-usage-store'
 import { setDashboardFeedDb } from '../dashboard-feed-store'
-import { setMaintenanceReportDb } from '../maintenance-report-store'
 import { BridgePromptComposer } from './bridge-prompt-composer'
 import {
   agentRuntimeLog as log,
@@ -375,7 +374,7 @@ export class AgentRuntimeBridge {
     // 工作记忆注入（构建期填充占位符）：按实例 definitionId 注入对应 Agent 的 agent_memories
     // （2026-09-13 共享层修正：此前硬编码 'assistant'，专家自己积累的记忆注不进模型）
     // （2026-09-15 作用域修正：definition 声明 memory.scope === "user" 的 Agent —— assistant/
-    //  code-dev/system-keeper/chronicler/info-curator —— 按用户级跨 Agent 读取；此前该声明
+    //  code-dev/chronicler/info-curator —— 按用户级跨 Agent 读取；此前该声明
     //  从未被实现，导致 chronicler 这类汇总 Agent 只读到自己的空库，日报永远「工作记忆为空」）
     fillWorkMemoryPlaceholder: (prompt, query, instanceId) => {
       const mgr = this._memoryManager
@@ -858,9 +857,6 @@ export class AgentRuntimeBridge {
     // 资讯存储注入：dashboard-feed-store 从文件覆盖写切换为 SQLite 累积（schema V35）
     setDashboardFeedDb(db)
 
-    // 维护体检报告存储注入（schema V42）：概览页「资产体检」卡片与 maintenance_report_* 工具读它
-    setMaintenanceReportDb(db)
-
     // 工具使用统计：注入 SQLite 适配器，并迁移旧 JSON（如存在）
     try {
       initToolUsageStore(db)
@@ -1203,11 +1199,6 @@ export class AgentRuntimeBridge {
       getConversationRepo: () => this._conversationRepo,
       getWikiRepo: () => this._wikiRepo,
       getWikiIngestHook: () => this._wikiIngestHook,
-      // 段落管线统计：供记忆体检回答「记忆产出是否停滞」——停摆无报错、无崩溃，
-      // 只表现为「记忆不再增长」，只有计数能暴露（P1-3）
-      getSegmentStats: () => this._segmentMemoryService?.getStats() ?? null,
-      // 宫殿归档统计：失败只有 WARN、没有消费者，表现是「宫殿检索永远返回空」（P2-3）
-      getPalaceStats: () => this._segmentMemoryService?.getPalaceStats() ?? null,
       getFeatureFlags: () => this.featureFlags,
       agentRegistry: this.agentRegistry,
       ipcChannel: this.ipcChannel,
@@ -1483,7 +1474,7 @@ export class AgentRuntimeBridge {
    *
    * **2026-09-24 主体迁移：`assistant` 已摘掉**（用户拍板"助手那份不再跑"）。
    * 剩下的只有 `app.json` 的 `autonomousAgents` —— `chronicler` / `info-curator` /
-   * `system-keeper` 这三个系统 Agent（"专项 Agent"那条线的，各有十几条目标在跑）。
+   * `chronicler` 这些系统 Agent（"专项 Agent"那条线的，各有十几条目标在跑）。
    *
    * 宠物**不走这里**：它有自己的链（`pet-dispatch` / `pet-sensing` / `pet-evolve`）。
    * `pet-dispatch.ts` 文件头那张"为什么不塞进来"的表**依然成立**，本次变的只是

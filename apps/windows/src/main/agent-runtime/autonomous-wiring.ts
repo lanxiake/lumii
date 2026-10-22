@@ -135,7 +135,7 @@ export function setAutonomousNotifier(
  *
  * ⚠ **2026-09-24 起统计的是全部主体**（原先写死 `agent_id = 'assistant'`）：
  * 助手摘出心跳后不再产目标，而系统 Agent（`chronicler` / `info-curator` /
- * `system-keeper`）的目标**同样走审批** —— 只数助手等于那三家永远不提醒。
+ * `chronicler`）的目标**同样走审批** —— 只数助手等于那两家永远不提醒。
  * 宠物不在其中：它的目标直接落 `executing`（`pet-task-service`），不经过审批。
  *
  * 跳转目标仍是 `evolution:main`（哪怕新增的其实是系统 Agent 的目标）——

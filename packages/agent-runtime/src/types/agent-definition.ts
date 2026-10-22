@@ -267,7 +267,7 @@ export interface AgentDefinition {
   readonly category?: string
   /**
    * 是否出现在会话选择器（默认 false）。
-   * 仅为对话型系统 Agent（如 code-dev / system-keeper）开启；
+   * 仅为对话型系统 Agent（如 code-dev / chronicler）开启；
    * builtin:* 子 Agent 与普通系统 Agent 不进选择器。
    */
   readonly selectable?: boolean

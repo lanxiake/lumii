@@ -18,7 +18,7 @@ export interface MemoryListItem {
   /** 对应的记忆宫殿语义片段（内容寻址 drawer_id），可空 */
   readonly palaceDrawerId: string | null
   /**
-   * 归属 Agent 定义 ID（assistant / code-dev / system-keeper …）。
+   * 归属 Agent 定义 ID（assistant / code-dev / chronicler …）。
    * 全量列表是跨 Agent 的，渲染层靠它区分来源与筛选。
    */
   readonly agentId: string

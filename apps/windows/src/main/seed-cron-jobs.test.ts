@@ -156,16 +156,8 @@ describe('ensureSeedCronJobsSeeded', () => {
     expect(__testables.SEED_JOBS.find((j) => j.id === 'news-pipeline')?.agentId).toBe('info-curator')
   })
 
-  it('工作区体检挂到 system-keeper（维护的活归维护）', () => {
+  it('已下线的工作区文件整理任务在启动时被清掉', () => {
     const db = createFakeDb()
-    ensureSeedCronJobsSeeded(db.adapter)
-    expect(db.jobs.get('seed-workspace-tidy')![COL.agentId]).toBe('system-keeper')
-    expect(__testables.SEED_JOBS.find((j) => j.id === 'seed-workspace-tidy')?.agentId).toBe('system-keeper')
-  })
-
-  it('老库升级：工作区体检从 assistant 迁到 system-keeper', () => {
-    const db = createFakeDb()
-    // 模拟老库：已按旧定义种下、执行者仍是 assistant
     db.jobs.set('seed-workspace-tidy', [
       'seed-workspace-tidy',
       '工作区文件整理',
@@ -184,30 +176,8 @@ describe('ensureSeedCronJobsSeeded', () => {
       'system',
     ])
     ensureSeedCronJobsSeeded(db.adapter)
-    expect(db.jobs.get('seed-workspace-tidy')![COL.agentId]).toBe('system-keeper')
-  })
-
-  it('用户改过执行者的任务不被归属迁移覆盖', () => {
-    const db = createFakeDb()
-    db.jobs.set('seed-workspace-tidy', [
-      'seed-workspace-tidy',
-      '工作区文件整理',
-      '检查工作区里新增的文件',
-      'code-dev',
-      'cron',
-      '0 20 * * 0',
-      0,
-      null,
-      1,
-      0,
-      null,
-      null,
-      null,
-      null,
-      'system',
-    ])
-    ensureSeedCronJobsSeeded(db.adapter)
-    expect(db.jobs.get('seed-workspace-tidy')![COL.agentId]).toBe('code-dev')
+    expect(db.jobs.has('seed-workspace-tidy')).toBe(false)
+    expect(__testables.SEED_JOBS.find((j) => j.id === 'seed-workspace-tidy')).toBeUndefined()
   })
 
   it('用户自建的资讯任务也迁到 info-curator（按指令里的 dashboard_feed_write 认领）', () => {

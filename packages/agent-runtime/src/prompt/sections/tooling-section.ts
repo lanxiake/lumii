@@ -108,9 +108,6 @@ const TOOL_SUMMARIES: Record<string, string> = {
   // Dashboard
   dashboard_feed_write: "Persist news items to the dashboard feed card",
   dashboard_feed_read: "Read what is already on the dashboard feed card (dedupe before writing)",
-  maintenance_report_write: "Persist a maintenance check-up report (shows on the dashboard, diffed against the previous one)",
-  maintenance_report_read: "Read previous maintenance reports (what was found, and whether it is still there)",
-  asset_checkup: "Run the mechanical check-up items (budget, exact duplicates, residue, stale) — deterministic and free",
   news_preference: "Read/update the user's news curation preferences (topics, avoid, sources, timing)",
 
   // Cloud Sync —— 2026-09-18 补：此前这 5 个宿主工具不在任何分组，生产里落进
@@ -183,12 +180,7 @@ const MESSAGING_TOOLS = new Set(["message", "channel_list", "channel_send", "wec
 const SELF_CONFIG_TOOLS = new Set(["profile_memory", "system_prompt", "plugin_dev"])
 const INTERACTION_TOOLS = new Set(["ask_user_question"])
 const DASHBOARD_TOOLS = new Set(["dashboard_feed_write", "dashboard_feed_read"])
-const MAINTENANCE_TOOLS = new Set([
-  "maintenance_report_write",
-  "maintenance_report_read",
-  "asset_checkup",
-  "news_preference",
-])
+const NEWS_CURATION_TOOLS = new Set(["news_preference"])
 /**
  * 云同步工具（宿主注册，见 apps/windows/.../bridge-tool-registrar-sync.ts）。
  *
@@ -253,7 +245,7 @@ export const PROMPT_TOOL_GROUPS: Readonly<Record<string, ReadonlySet<string>>> =
   "Self-Configuration": SELF_CONFIG_TOOLS,
   Interaction: INTERACTION_TOOLS,
   Dashboard: DASHBOARD_TOOLS,
-  "Maintenance & Curation": MAINTENANCE_TOOLS,
+  "News Curation": NEWS_CURATION_TOOLS,
   "Cloud Sync": CLOUD_SYNC_TOOLS,
   "Browser Tools": BROWSER_TOOLS,
   "Session & Settings": SESSION_TOOLS,

@@ -125,11 +125,6 @@ const FAILURE_SEMANTICS: Record<string, FileFailureSemantics> = {
     how: "失败全部走 throw",
     sites: 0,
   },
-  "asset-checkup-tool.ts": {
-    tools: ["asset_checkup"],
-    how: "失败全部走 throw",
-    sites: 0,
-  },
   "channel-tools.ts": {
     tools: ["channel_list", "channel_send"],
     how: "失败全部走 throw（渠道能力不足时如实抛错，不改投）",
@@ -186,11 +181,6 @@ const FAILURE_SEMANTICS: Record<string, FileFailureSemantics> = {
       "system_prompt",
       "speech_generate",
     ],
-    how: "失败全部走 throw",
-    sites: 0,
-  },
-  "maintenance-report-tool.ts": {
-    tools: ["maintenance_report_write", "maintenance_report_read"],
     how: "失败全部走 throw",
     sites: 0,
   },

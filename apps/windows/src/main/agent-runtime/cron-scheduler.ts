@@ -22,16 +22,12 @@ import { shouldSkipCronFocusMemoryWrite } from './cron-focus-memory'
 import { dispatchChannelTarget } from './channel-target-dispatch'
 import { isNoReplySentinel } from '../../shared/no-reply-sentinel'
 import { buildSelfBriefing } from './self-briefing'
-import { readLatestMaintenanceReport } from '../maintenance-report-store'
 
 const log = {
   info: (...args: unknown[]) => console.log('[CronScheduler]', ...args),
   warn: (...args: unknown[]) => console.warn('[CronScheduler]', ...args),
   error: (...args: unknown[]) => console.error('[CronScheduler]', ...args),
 }
-
-/** 资产体检的归属 Agent。自述里带上期体检结论，只对它有意义 */
-const MAINTENANCE_AGENT_ID = 'system-keeper'
 
 /** 本地 Cron 任务记录（与 SQLite 表字段对应） */
 export type LocalCronJobRow = {
@@ -917,32 +913,17 @@ export class CronScheduler {
    * 拼「你上次的情况」段（B4）。
    *
    * cron 执行是全新实例、跑完即销毁，会话里累积的记录 Agent 看不到——
-   * 不显式注入，它每轮都从零开始：不知道昨天推过什么、上次体检发现了什么。
-   *
-   * 维护类任务额外带上期体检结论：那是 `maintenance_report_read` 本来就取得到的信息，
-   * 直接给它省一次工具调用，也免得它「忘了看」。
+   * 不显式注入，它每轮都从零开始：不知道昨天推过什么、同一件事是不是已经做过。
    */
-  private buildSelfBriefingFor(convId: string, agentId: string): string {
+  private buildSelfBriefingFor(convId: string): string {
     const prev = this.readPreviousAssistantTurn(convId)
     // NO_REPLY 是「本轮无话可说」的哨兵，不是产出——拿它当"上次说到哪"只会误导
     const lastOutput = prev?.text && !isNoReplySentinel(prev.text) ? prev.text : null
     const lastOutputAt = prev?.at || null
 
-    let report: ReturnType<typeof readLatestMaintenanceReport> = null
-    if (agentId === MAINTENANCE_AGENT_ID) {
-      try {
-        report = readLatestMaintenanceReport(agentId)
-      } catch (err) {
-        log.warn('[buildSelfBriefingFor] 读上期体检报告失败（忽略）:', err)
-      }
-    }
-
     return buildSelfBriefing({
       lastOutput,
       lastOutputAt,
-      lastMaintenanceSummary: report?.summary ?? null,
-      lastMaintenanceScope: report?.scope ?? null,
-      lastMaintenanceFindingCount: report?.findings.length ?? null,
       now: Date.now(),
     })
   }
@@ -1127,7 +1108,7 @@ export class CronScheduler {
       const systemPart = currentRow.system_prompt ? `${currentRow.system_prompt}${notifyPrompt}` : ''
       // 自述必须在 prompt() 之前取——晚一步就会读到本轮自己的回复。
       // 放在任务指令之前：先「上次说到哪」，再「这次要做什么」。
-      const selfBriefing = this.buildSelfBriefingFor(convId, resolvedAgentId)
+      const selfBriefing = this.buildSelfBriefingFor(convId)
       log.info(
         selfBriefing
           ? `[driveAgent] 已注入自述 jobId=${job.id} ${selfBriefing.length} 字`

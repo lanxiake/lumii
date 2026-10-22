@@ -40,7 +40,7 @@ type ToolFailureAudit = (row: {
 
 export interface ToolUsageHookDeps {
   /**
-   * 记到哪个 Agent 名下——**定义 id**（`system-keeper`），不是实例 id。
+   * 记到哪个 Agent 名下——**定义 id**（`chronicler`），不是实例 id。
    * 刻意做成必填：漏传会让所有调用静默落进 'unknown'，
    * 而那正是 V44 之前「查不出谁在用」的老毛病，不该有第二次机会。
    */

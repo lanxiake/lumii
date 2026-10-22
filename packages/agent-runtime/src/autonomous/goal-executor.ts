@@ -104,41 +104,10 @@ export function getGoalToolAllowlist(_goalType: string): string[] {
 }
 
 /**
- * system-keeper 的自主档工具白名单：维护类只读 + 记忆写入 + 自组织。
- * 不含 bash / file_write / app_* —— 维护者自主运行只出建议，改动类动作需用户在场（设计 §6.4）。
- *
- * 与交互档的差别只应是「写盘类」：`scene_memory`（项目/渠道记忆也是资产，体检要读得到）
- * 与 `cron_guide`（排期口径，自主档自己建巡检任务时要查）都属于读/自组织，故一并保留。
- * 导出供单测断言「写类工具确实不在其中」。
- */
-const SYSTEM_KEEPER_AUTONOMOUS_TOOLS: readonly string[] = [
-  'cron_list',
-  'cron_create',
-  'cron_delete',
-  'cron_guide',
-  'wiki_overview',
-  'wiki_search',
-  'wiki_read',
-  'memory_search',
-  'memory_read',
-  'memory_manage',
-  'profile_memory',
-  'scene_memory',
-  'skill_search',
-  'skill_invoke',
-  'todo_write',
-  // 报告落库/回读：自主巡检同样要留痕，否则用户看不到它半夜查出了什么
-  'maintenance_report_write',
-  'maintenance_report_read',
-  'asset_checkup',
-];
-
-/**
- * 按执行者选择自主档工具白名单：system-keeper 用维护白名单（无写类工具），
- * 其余 Agent 沿用 getGoalToolAllowlist（含 T2 写类，受 token 预算约束）。
+ * 按执行者选择自主档工具白名单：目前只有宠物需要单独收窄，其余 Agent 沿用
+ * getGoalToolAllowlist（含 T2 写类，受 token 预算约束）。
  */
 export function getAutonomousToolsForAgent(agentId: string, goalType: string): string[] {
-  if (agentId === 'system-keeper') return [...SYSTEM_KEEPER_AUTONOMOUS_TOOLS];
   // 宠物走的是自己的派发循环（T3.3），本不该到这里。但万一被谁顺手接到通用路径上，
   // 它会拿到 getGoalToolAllowlist —— 那份含 file_write / cron_create / message，比宠物的
   // 白名单**宽得多**，而且是静默放宽。硬规则做成函数内部短路，不靠调用方自觉

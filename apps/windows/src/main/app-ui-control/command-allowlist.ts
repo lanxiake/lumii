@@ -92,7 +92,7 @@ export const COMMAND_ALLOWLIST: ReadonlySet<string> = new Set([
   // 编码后端
   'codingDev:getBackend', 'codingDev:listBackends', 'codingDev:setBackend',
   // 开发上下文（B 片）：getDevContext 只读；setProject 写会话级项目名（存 name 不存路径，
-  // 经 codingDevProjects 白名单解析），与 setBackend 同级风险。供自动化测试与 system-keeper 控制面使用。
+  // 经 codingDevProjects 白名单解析），与 setBackend 同级风险。供自动化测试与客户端控制面使用。
   'codingDev:setProject', 'codingDev:getDevContext',
   // 自主进化：状态查询、目标管理、能力监控、Prompt 进化控制
   'autonomous:status', 'autonomous:goals:list', 'autonomous:goals:approve', 'autonomous:goals:reject',

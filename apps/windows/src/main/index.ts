@@ -533,7 +533,7 @@ async function initAgentRuntime(): Promise<void> {
       // 灵栖/Lumii：用户自建 Agent + 常驻专家团队（注入系统提示词多 Agent 段，同时进入 Router 候选）。
       // 常驻专家供主助手经 spawn_agent 委托执行（子实例记忆归属 = 其 definitionId）。
       // 不含 code-dev：ACP 会话型，交接走「转交」流程（见 docs/plans/专项Agent/05-队长制-主助手接团队.md）。
-      const delegatableSystemAgentIds = ['system-keeper', 'chronicler', 'info-curator']
+      const delegatableSystemAgentIds = ['chronicler', 'info-curator']
       const systemExperts = delegatableSystemAgentIds
         .map((id) => findBuiltInAgent(id))
         .filter((d): d is NonNullable<typeof d> => Boolean(d))

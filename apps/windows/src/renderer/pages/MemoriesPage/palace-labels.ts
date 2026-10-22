@@ -12,7 +12,6 @@ const AGENT_LABELS: Record<string, string> = {
   'code-dev': '开发助手',
   chronicler: '灵栖记事',
   'info-curator': '情报官',
-  'system-keeper': '系统管家',
 }
 
 export function agentLabel(agentId: string): string {

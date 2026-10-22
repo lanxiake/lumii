@@ -27,7 +27,7 @@ describe("buildTaskOrchestrationSection", () => {
 
 describe("buildAgentCollaborationSection · send_message 语义", () => {
   const agents: CustomAgentInfo[] = [
-    { id: "system-keeper", name: "灵栖维护", sourceType: "system", description: "记忆与资料库维护" },
+    { id: "chronicler", name: "灵栖记事", sourceType: "system", description: "工作痕迹汇总" },
   ];
 
   it("有 send_message 时说明「给正在跑的任务追加」并给出未命中时的出路", () => {

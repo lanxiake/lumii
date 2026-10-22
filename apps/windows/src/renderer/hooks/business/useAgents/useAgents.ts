@@ -27,7 +27,7 @@ export interface UseAgentsReturn {
   systemAgents: Agent[]
   /** 用户 Agent 列表 */
   userAgents: Agent[]
-  /** 会话选择器可选集合（用户 Agent + selectable 系统 Agent，如「灵栖开发」「灵栖维护」） */
+  /** 会话选择器可选集合（用户 Agent + selectable 系统 Agent，如「灵栖开发」「灵栖记事」） */
   selectableAgents: Agent[]
   /** 主系统 Agent 的 ID（用于"系统默认"对话） */
   mainAgentId: string | null

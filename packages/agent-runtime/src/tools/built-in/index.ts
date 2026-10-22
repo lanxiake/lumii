@@ -7,11 +7,6 @@ export { sendMessageToolConfig } from "./send-message-tool.js";
 export { todoWriteToolConfig } from "./task-tools.js";
 export { cronCreateToolConfig, cronListToolConfig, cronDeleteToolConfig } from "./cron-tools.js";
 export { dashboardFeedWriteToolConfig, dashboardFeedReadToolConfig } from "./dashboard-feed-tool.js";
-export {
-  maintenanceReportWriteToolConfig,
-  maintenanceReportReadToolConfig,
-} from "./maintenance-report-tool.js";
-export { assetCheckupToolConfig } from "./asset-checkup-tool.js";
 export { newsPreferenceToolConfig } from "./news-preference-tool.js";
 export { workReportReadToolConfig } from "./work-report-tool.js";
 export {
@@ -97,11 +92,6 @@ import { sendMessageToolConfig } from "./send-message-tool.js";
 import { todoWriteToolConfig } from "./task-tools.js";
 import { cronCreateToolConfig, cronListToolConfig, cronDeleteToolConfig } from "./cron-tools.js";
 import { dashboardFeedWriteToolConfig, dashboardFeedReadToolConfig } from "./dashboard-feed-tool.js";
-import {
-  maintenanceReportWriteToolConfig,
-  maintenanceReportReadToolConfig,
-} from "./maintenance-report-tool.js";
-import { assetCheckupToolConfig } from "./asset-checkup-tool.js";
 import { newsPreferenceToolConfig } from "./news-preference-tool.js";
 import { workReportReadToolConfig } from "./work-report-tool.js";
 import {
@@ -173,9 +163,6 @@ export const ALL_BUILT_IN_TOOL_CONFIGS: readonly MtBotToolConfig<any, any>[] = [
   // 它们只有 stub（execute 返回 not_implemented），真正的实现在客户端扩展
   // `com.lumii.dashboard-feed` 里注册。放进这张总表就等于「插件禁用后工具还在」，
   // 模型会看见一个只会回 not_implemented 的工具。schema 仍从本包导出，供扩展复用。
-  maintenanceReportWriteToolConfig,
-  maintenanceReportReadToolConfig,
-  assetCheckupToolConfig,
   newsPreferenceToolConfig,
   workReportReadToolConfig,
   messageToolConfig,

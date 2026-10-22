@@ -30,8 +30,8 @@ const TOOL_BUDGET: Record<string, number> = {
   // 56 = 55 + `session_rename`（2026-10-04 加入，用于用户显式要求改名的场景；
   // 会话的**自动**标题由宿主在每轮结束时确定性生成/刷新，不依赖该工具，见
   // apps/windows conversation-commands.ts 的 maybeGenerateConversationTitle）
-  assistant: 56,
-  'system-keeper': 31,
+  // 52：2026-10-22「灵栖维护」下线后总表 51 项（-3：maintenance_report_write/read + asset_checkup），留 1 个余量
+  assistant: 52,
   'info-curator': 13,
   chronicler: 10,
   'code-dev': 18,
@@ -48,6 +48,9 @@ const RETIRED_TOOLS = [
   'skill_list', // 2026-09-16 收敛
   'app_scroll_to_bottom', // 2026-09-16 收敛
   'bing_search', // 已并入 web_search 作为默认第一 provider，不再独立注册
+  'maintenance_report_write', // 2026-10-22「灵栖维护」下线
+  'maintenance_report_read',
+  'asset_checkup',
 ]
 
 function toolCount(agentId: string): number {

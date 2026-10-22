@@ -58,7 +58,7 @@ describe('listAgentDefinitions 运行时定义（供 DefinitionStore 同步缓�
     for (const id of ['assistant', 'code-dev']) {
       expect(defs.find((d) => d.id === id)?.memory?.readView ?? 'own', id).toBe('own')
     }
-    for (const id of ['chronicler', 'system-keeper', 'info-curator']) {
+    for (const id of ['chronicler', 'info-curator']) {
       expect(defs.find((d) => d.id === id)?.memory?.readView, id).toBe('user')
     }
   })
@@ -73,9 +73,9 @@ describe('agents-repo 系统 Agent 定义镜像', () => {
     expect(codeDev?.definition?.maxTurns).toBe(80)
     expect(codeDev?.definition?.memoryScope).toBe('user')
 
-    const keeper = agents.find((a) => a.id === 'system-keeper')
-    expect(keeper?.definition?.tools).toContain('app_screenshot')
-    expect(keeper?.definition?.canSpawnSubAgents).toBe(false)
+    const chronicler = agents.find((a) => a.id === 'chronicler')
+    expect(chronicler?.definition?.tools).toContain('wiki_read')
+    expect(chronicler?.definition?.canSpawnSubAgents).toBe(false)
 
     // 只读子 Agent 的禁用工具面（permissionMode=readOnly）
     const explore = agents.find((a) => a.id === 'builtin:explore')

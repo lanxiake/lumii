@@ -96,7 +96,7 @@ export function todayDateKey(now = new Date()): string {
  *
  * - `assistant`：生命感系统的原始主体（自主进化 11 号文档 §9）
  * - `pet:<模型ID>`：宠物（2026-09-24 起）—— 它有自己的会话、自己的人格、自己的账
- * - 系统 Agent（`chronicler` / `info-curator` / `system-keeper`）：**没有**。
+ * - 系统 Agent（`chronicler` / `info-curator`）：**没有**。
  *   它们是干活的（写简报、抓资讯、清工作区），给它们排"自己想做什么"的期没有意义，
  *   一天多三篇没人看的独白也只是成本
  *

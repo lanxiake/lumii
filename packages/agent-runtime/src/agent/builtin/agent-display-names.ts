@@ -19,7 +19,6 @@ export const BUILTIN_AGENT_DISPLAY_NAMES: Readonly<Record<string, string>> = {
   "builtin:plan": "Plan (架构规划)",
   "builtin:verify": "Verify (对抗性验证)",
   "code-dev": "灵栖开发",
-  "system-keeper": "灵栖维护",
   chronicler: "灵栖记事",
   "info-curator": "灵栖情报",
 };

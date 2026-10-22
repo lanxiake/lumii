@@ -19,7 +19,7 @@ const SpawnAgentParams = Type.Object({
     Type.String({
       description:
         "Optional. Registered agent id from Multi-Agent Collaboration " +
-        '(e.g. "builtin:explore", "system-keeper"). ' +
+        '(e.g. "builtin:explore", "chronicler"). ' +
         "If omitted, defaults to the system assistant (系统默认). " +
         "Do NOT use invented labels like worker/researcher — omit this field and describe the role in `prompt` instead. " +
         "Unknown ids are treated as omitted (assistant + role in prompt) with a note in the result.",

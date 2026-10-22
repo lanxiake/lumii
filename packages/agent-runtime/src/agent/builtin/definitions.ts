@@ -20,7 +20,6 @@
  *    - `builtin:plan`：架构规划子 Agent
  *    - `builtin:verify`：对抗性验证子 Agent
  *    - `code-dev`（灵栖开发）：绑定项目的开发会话（selectable 对话型系统 Agent）
- *    - `system-keeper`（灵栖维护）：资产维护 + 代操客户端（selectable 对话型系统 Agent）
  *    - `chronicler`（灵栖记事）：日报 / 周复盘 / 早间简报 / 专注提醒
  *    - `info-curator`（灵栖情报）：按偏好的资讯策展
  *
@@ -62,8 +61,6 @@ import {
   INFO_CURATOR_WHEN_TO_USE,
   PLAN_AGENT_PROMPT,
   PLAN_WHEN_TO_USE,
-  SYSTEM_KEEPER_PROMPT,
-  SYSTEM_KEEPER_WHEN_TO_USE,
   VERIFY_AGENT_PROMPT,
   VERIFY_CRITICAL_REMINDER,
   VERIFY_WHEN_TO_USE,
@@ -200,10 +197,9 @@ const CODE_DEV_DEF: AgentDefinition = {
     GREP_TOOL_NAME,
     TODO_WRITE_TOOL_NAME,
     "profile_memory",
-    // 工作记忆（project/reference/general）的读写入口：记事与维护的提示词都把
-    // 「开发 Agent 记代码任务」当作既定事实（CHRONICLER_PROMPT 的取数来源、
-    // SYSTEM_KEEPER_PROMPT 的跨 Agent 去重素材），缺这组工具时开发名下只剩
-    // 分段总结自动产出的那几条，那两个 Agent 的输入里永远缺一块。
+    // 工作记忆（project/reference/general）的读写入口：记事的提示词把
+    // 「开发 Agent 记代码任务」当作既定事实（CHRONICLER_PROMPT 的取数来源），
+    // 缺这组工具时开发名下只剩分段总结自动产出的那几条，记事的输入里永远缺一块。
     // search 一并给：manage 的 list 只按重要度排序，攒多了没法按关键词找。
     // 仅在**内核兜底档**生效——走 ACP 时工具面由 CLI 自己决定（见上方「运行方式」）。
     "memory_manage",
@@ -217,86 +213,6 @@ const CODE_DEV_DEF: AgentDefinition = {
   // v1 工具面收敛：不派生子 Agent（后续按需开放）
   canSpawnSubAgents: false,
   memory: { scope: "user", autoExtract: true },
-  selectable: true,
-  isActive: true,
-};
-
-/**
- * system-keeper 的客户端面板工具集（app_* 前缀；均在工具注册表中存在）
- *
- * 2026-09-16 收敛：只动了 `app_scroll_to_bottom`——它并入 `app_scroll_to_text` 的
- * `to='bottom'`，能力不变、只剩一个入口（近 7 天 1 次）。
- *
- * **另外两个复核后决定保留**，理由写在这里避免以后又被当成"语义重叠"砍掉：
- * - `app_goto_and_screenshot`：它确实是宏，但 screen-tutorial-pipeline 的设计正是靠
- *   这批高层工具把教程任务的工具调用从 40~60 次压到 8~15 次，设计文档明确要求
- *   「goto → screenshot 分两步 ❌ 改用本工具」。删它是把既定优化反向推回去。
- * - `app_fill_form`：`app_act` 的 type **必须给 ref**（label 只用于 select 选项），
- *   按字段 label 定位填表只有它能做——这不是语义重叠，是唯一路径。
- */
-const APP_UI_TOOL_NAMES: readonly string[] = [
-  "app_screenshot",
-  "app_goto",
-  "app_act",
-  "app_fill_form",
-  "app_scroll_to_text",
-  "app_goto_and_screenshot",
-];
-
-// --- System Keeper（灵栖维护：资产维护 + 代操客户端） ---
-
-/**
- * 对话型系统 Agent：出现在会话选择器（selectable）。
- * 交互档工具面在此；自主档工具面由 getAutonomousToolsForAgent 收窄
- * （无 bash / file_write / app_*，见 goal-executor.ts）。
- */
-const SYSTEM_KEEPER_DEF: AgentDefinition = {
-  id: "system-keeper",
-  name: "灵栖维护",
-  description: SYSTEM_KEEPER_WHEN_TO_USE,
-  sourceType: "system",
-  version: 1,
-  systemPrompt: SYSTEM_KEEPER_PROMPT,
-  modelTier: "balanced",
-  defaultPurpose: "chat",
-  tools: [
-    BASH_TOOL_NAME,
-    FILE_READ_TOOL_NAME,
-    FILE_WRITE_TOOL_NAME,
-    FILE_EDIT_TOOL_NAME,
-    LIST_DIR_TOOL_NAME,
-    GLOB_TOOL_NAME,
-    GREP_TOOL_NAME,
-    "cron_create",
-    "cron_list",
-    "cron_delete",
-    "cron_guide",
-    "wiki_overview",
-    "wiki_search",
-    "wiki_read",
-    "memory_search",
-    "memory_read",
-    "memory_manage",
-    "profile_memory",
-    "scene_memory",
-    // 体检报告的落库与回读：报告是维护的产出载体（概览页「资产体检」卡片读它），
-    // 回读让它能接着上期说「上次那批问题还在不在」，而不是每期从零开始。
-    "maintenance_report_write",
-    "maintenance_report_read",
-    // 机械检查项：能判的交给代码，模型只做判断与表述
-    "asset_checkup",
-    SKILL_SEARCH_TOOL_NAME,
-    SKILL_INVOKE_TOOL_NAME,
-    TODO_WRITE_TOOL_NAME,
-    ...APP_UI_TOOL_NAMES,
-  ],
-  maxTurns: 60,
-  canSpawnSubAgents: false,
-  // readView: "user" —— 维护者的体检对象就是**全用户**的工作记忆。
-  // 默认的 "own" 只让 Agent 读到自己写的条目：system-keeper 平时不参与干活，
-  // 自己名下几乎是空的，拿它做「去重 / 找矛盾 / 清过期」等于在量空气。
-  // 写操作仍按写入者归属（memory_manage 的写路径不受 readView 影响）。
-  memory: { scope: "user", readView: "user", autoExtract: true },
   selectable: true,
   isActive: true,
 };
@@ -392,7 +308,6 @@ export const BUILTIN_AGENT_DEFINITIONS: readonly AgentDefinition[] = [
   PLAN_DEF,
   VERIFY_DEF,
   CODE_DEV_DEF,
-  SYSTEM_KEEPER_DEF,
   CHRONICLER_DEF,
   INFO_CURATOR_DEF,
 ];
