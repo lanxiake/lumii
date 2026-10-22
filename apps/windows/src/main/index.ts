@@ -59,9 +59,6 @@ import {
   registerLocalMediaProtocolHandler,
   setLocalMediaWorkspaceCwdGetter,
 } from './local-media-protocol'
-import {
-  registerPetAssetProtocolHandler,
-} from '../plugins/builtin/pet/pet-asset-protocol'
 import { join } from 'path'
 import {
   registerClientPluginProtocolHandler,
@@ -158,10 +155,7 @@ import type { CloudSyncManager } from './cloud-sync/sync-manager'
 import type { SyncScheduler } from './cloud-sync/sync-scheduler'
 import { loadCloudSyncConfig } from './cloud-sync/sync-config'
 import { initScriptRuntimes } from './runtime-env'
-import { VoiceModelManager } from '../plugins/builtin/voice/model-manager.js'
-import { VoiceCallService } from '../plugins/builtin/voice/voice-service.js'
-import { registerVoiceIpc } from '../plugins/builtin/voice/voice-ipc.js'
-import { loadVoiceEngineConfig } from '../plugins/builtin/voice/voice-config-store.js'
+import type { VoiceCallService } from '../plugins/builtin/voice/voice-service.js'
 import { setChannelAsrReadyChecker } from './channel/channel-voice-asr-hint.js'
 import { findBuiltInAgent, mapApiRecordToAgentDefinition, reconcilePersonalMemory } from '@mtbot/agent-runtime'
 import {
@@ -174,7 +168,7 @@ import { hasHeadlessFlag } from './platform/feature-probe'
 import { PerformanceMonitor } from './perf/performance-monitor'
 import { setupPerformanceIpcHandlers } from './ipc/performance-ipc'
 import { registerSkillnetStoreHandlers } from './skillnet-store'
-import { disposePetModeIpc } from '../plugins/builtin/pet/pet-mode-ipc'
+import { getPetService, setPetAccessor } from './agent-runtime/pet-accessor'
 import { applyWikiEmbeddingEnvDefaults } from './agent-runtime/wiki-embedding-config'
 import { applyPluginBootstrapEnvDefaults } from '../plugins/external/bootstrap-config'
 import { initPluginDependenciesOnStartup } from '../plugins/external/bootstrap'
@@ -261,7 +255,6 @@ let configManager: ConfigManager | null = null
 
 let channelHub: ChannelHub | null = null  // 渠道出站 Hub（list/send）
 let agentRuntimeBridge: AgentRuntimeBridge | null = null  // 客户端 Agent Runtime
-let voiceCallService: VoiceCallService | null = null  // 语音通话服务（启动期快照，仅用于 VAD 预热时序）
 /**
  * 语音服务**现取**：插件支持运行期启停，停用后容器里就没这个服务了，
  * 拿启动期那个变量会得到一个已经 dispose 的实例（调它等于用坏掉的对象）。
@@ -789,7 +782,7 @@ async function initAgentRuntime(): Promise<void> {
   // bridge 侧还有一道 `waitForSherpa()` 兜底（挂起而非放行），两处一起构成顺序保证。
   // 语音服务由 extensions/voice.ts 在窗口就绪时装配（必须早于 bridge 初始化，
   // 否则 VAD 会绑到 onnxruntime 1.14 上原生崩溃）。这里只把实例从容器取回来。
-  voiceCallService = pluginHost?.container.get(S.voice) ?? null
+  // 语音服务本身由插件装配；这里不再留启动期快照（停用后会指向已 dispose 的实例）
 
 
   const bridgeInitStart = performance.now()
@@ -1173,7 +1166,7 @@ async function prepareAppShell(flags: ReturnType<typeof readStartupFlags>): Prom
   // 用户宠物目录的资源通道（lumii-pet://）。与 lumii-local 同理：
   // scheme 须在 ready 前 registerSchemesAsPrivileged（见上），
   // handler 则须在 ready 后 protocol.handle。
-  registerPetAssetProtocolHandler()
+
   // 服务启动时在控制台打印日志文件路径
   log.info('日志文件:', fileLogger.getCurrentLogFilePath())
   log.info('错误日志文件:', fileLogger.getCurrentErrorLogFilePath())
@@ -1323,6 +1316,7 @@ async function startExtensions(): Promise<void> {
   setSkillEvolutionAccessor(() => pluginHost?.container.get(S.skillEvolution) ?? null)
   setDashboardFeedAccessor(() => pluginHost?.container.get(S.dashboardFeed) ?? null)
   setVcsAccessor(() => pluginHost?.container.get(S.vcs) ?? null)
+  setPetAccessor(() => pluginHost?.container.get(S.pet) ?? null)
 
   // 一张表看清谁起来了、花了多久、注册了几个副作用；
   // 失败项走 error，既进了主日志也进了错误日志
@@ -1672,7 +1666,7 @@ async function performCleanup(): Promise<void> {
     }
 
     // 销毁宠物模式窗口（透明置顶窗口，需在主窗口关闭前释放 GPU 资源）
-    disposePetModeIpc()
+    getPetService()?.disposeIpc()
 
     // 扩展按 LIFO 撤销自己注册的一切；排在业务服务清理之后，
     // 让扩展还能在 stop 里读到运行中的服务状态

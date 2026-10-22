@@ -28,7 +28,8 @@ const log = {
   warn: (...args: unknown[]) => console.warn('[pet-asset-protocol]', ...args),
 }
 
-export const PET_ASSET_SCHEME = 'lumii-pet'
+import { PET_ASSET_SCHEME } from '../../../shared/pet-asset'
+export { PET_ASSET_SCHEME }
 const PET_ASSET_HOST = 'model'
 
 /**

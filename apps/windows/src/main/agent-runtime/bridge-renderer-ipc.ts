@@ -4,9 +4,9 @@
 
 import type { BrowserWindow } from 'electron'
 import type { AgentRuntimeEvent as IpcEvent } from '../../shared/agent-runtime-events'
-import { getPetWindowManager } from '../../plugins/builtin/pet/pet-mode-ipc.js'
+import { getPetService } from './pet-accessor'
 import { agentRuntimeLog as log } from './bridge-utils'
-import { voiceEventBus } from '../../plugins/builtin/voice/voice-event-bus.js'
+import { emitAgentEvent } from '../kernel/agent-event-stream'
 
 type Queued = { event: IpcEvent; timestamp: number }
 
@@ -55,7 +55,7 @@ export class BridgeRendererIpcChannel {
    * 宠物窗口与主窗口分离，主进程 Bridge 默认只推主窗口；虚拟人 UI 依赖此镜像收流式 delta。
    */
   private mirrorToPetWindow(event: IpcEvent): void {
-    const petWin = getPetWindowManager()?.getPetBrowserWindow()
+    const petWin = getPetService()?.getWindowManager()?.getPetBrowserWindow()
     const mainWin = this.getWindow()
     if (!petWin || petWin.isDestroyed()) return
     if (mainWin && petWin === mainWin) return
@@ -125,7 +125,7 @@ export class BridgeRendererIpcChannel {
     }
     // renderer 与 voice service 共用新格式事件，统一从此处分发
     try {
-      voiceEventBus.emit('agent-event', event)
+      emitAgentEvent(event)
     } catch (e) {
       log.error(`[forwardIpcEvent] voiceEventBus 回调异常 type=${evtType}: ${(e as Error).message}`)
     }

@@ -12,8 +12,8 @@ import os from 'node:os'
 import { ipcMain, type BrowserWindow } from 'electron'
 import type { AgentRuntimeCommand } from '../../shared/agent-runtime-commands'
 import type { AgentRuntimeEvent } from '../../shared/agent-runtime-events'
-import { voiceEventBus } from '../../plugins/builtin/voice/voice-event-bus.js'
-import { getPetWindowManager } from '../../plugins/builtin/pet/pet-mode-ipc.js'
+import { emitAgentEvent } from '../kernel/agent-event-stream'
+import { getPetService } from '../agent-runtime/pet-accessor'
 import type { AgentRuntimeBridge } from '../agent-runtime/bridge'
 import { resolveRecordingsDir, resolveScreenshotTempDir } from '../workspace-paths'
 import { isAllowedPreviewPath as checkAllowedPreviewPath } from '../preview-path-acl'
@@ -631,7 +631,7 @@ function pushEvent(win: BrowserWindow, event: AgentRuntimeEvent): void {
     }
   }
   // 宠物模式独立窗口需同步 Agent 流式输出（字幕/状态）
-  const petWin = getPetWindowManager()?.getPetBrowserWindow()
+  const petWin = getPetService()?.getWindowManager()?.getPetBrowserWindow()
   if (petWin && !petWin.isDestroyed() && petWin !== win) {
     try {
       petWin.webContents.send('agent-runtime:event', event)
@@ -641,7 +641,7 @@ function pushEvent(win: BrowserWindow, event: AgentRuntimeEvent): void {
   }
   // 同步通知语音通话服务（如通话进行中需要 Agent 事件）
   try {
-    voiceEventBus.emit('agent-event', event)
+    emitAgentEvent(event)
   } catch (e) {
     log.error(`[pushEvent] voiceEventBus 回调异常 type=${(event as any)?.type}: ${(e as Error).message}`)
   }

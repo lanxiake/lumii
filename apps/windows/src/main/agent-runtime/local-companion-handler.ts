@@ -14,7 +14,7 @@
 
 import type { DatabaseAdapter } from '@mtbot/agent-runtime'
 import { consolidateUserMemory, needsPersonalMemoryConsolidation } from '@mtbot/agent-runtime'
-import { getVirtualHumanSettings, setVirtualHumanSettings } from '../../plugins/builtin/pet/pet-mode-store'
+import { getPetService } from './pet-accessor'
 import { DEFAULT_VH_SETTINGS } from '../../shared/virtual-human'
 import { isQuietHour } from '@mtbot/pet-core'
 
@@ -495,7 +495,7 @@ const COMPANION_CRON_JOBS = [
  */
 export function ensureCompanionCronJobsSeeded(db: DatabaseAdapter): void {
   try {
-    const careEnabled = getVirtualHumanSettings().proactiveCareEnabled
+    const careEnabled = (getPetService()?.getVirtualHumanSettings() ?? DEFAULT_VH_SETTINGS).proactiveCareEnabled
     const now = Date.now()
     for (const job of COMPANION_CRON_JOBS) {
       const isTick = job.id === 'companion-tick'
@@ -572,7 +572,7 @@ export function migrateLocalCompanionPrefsToVhSettings(db: DatabaseAdapter): voi
       ).run(KV_KEY_MIGRATED, '1', now)
     }
 
-    const currentVh = getVirtualHumanSettings()
+    const currentVh = getPetService()?.getVirtualHumanSettings() ?? DEFAULT_VH_SETTINGS
     const isStillDefault =
       currentVh.proactiveCareEnabled === DEFAULT_VH_SETTINGS.proactiveCareEnabled
       && currentVh.proactiveCareMode === DEFAULT_VH_SETTINGS.proactiveCareMode
@@ -590,7 +590,7 @@ export function migrateLocalCompanionPrefsToVhSettings(db: DatabaseAdapter): voi
       const oldPrefs = { ...DEFAULT_PREFS, ...JSON.parse(prefsRow.value) } as LocalCompanionPrefs
       const enabled = oldPrefs.enabled && oldPrefs.mode !== 'off'
       const mode: 'gentle' | 'active' = oldPrefs.mode === 'active' ? 'active' : 'gentle'
-      setVirtualHumanSettings({
+      getPetService()?.setVirtualHumanSettings({
         proactiveCareEnabled: enabled,
         proactiveCareMode: mode,
         proactiveCareNickname: oldPrefs.nickname,

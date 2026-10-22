@@ -31,7 +31,6 @@
   "coreImportsPluginImpl": [
     "apps/windows/src/main/agent-runtime/bridge-prompt-composer.ts → pet",
     "apps/windows/src/main/agent-runtime/bridge-renderer-ipc.ts → pet",
-    "apps/windows/src/main/agent-runtime/bridge-renderer-ipc.ts → voice",
     "apps/windows/src/main/agent-runtime/bridge.ts → pet",
     "apps/windows/src/main/agent-runtime/local-companion-handler.ts → pet",
     "apps/windows/src/main/agent-runtime/pet-experience-service.ts → pet",
@@ -41,12 +40,10 @@
     "apps/windows/src/main/index.ts → pet",
     "apps/windows/src/main/index.ts → voice",
     "apps/windows/src/main/ipc/agent-runtime-ipc.ts → pet",
-    "apps/windows/src/main/ipc/agent-runtime-ipc.ts → voice",
     "apps/windows/src/main/protocol-schemes.ts → pet",
     "apps/windows/src/main/tray/tray-bootstrap.ts → pet"
   ],
   "pluginBoundary": [
-    "apps/windows/src/plugins/builtin/autonomous/autonomous-ipc.ts → apps/windows/src/plugins/builtin/pet/pet-subject.ts（跨插件运行期 import）",
-    "apps/windows/src/plugins/builtin/pet/pet-window-manager.ts → apps/windows/src/plugins/builtin/voice/voice-service.ts（跨插件运行期 import）"
+    "apps/windows/src/plugins/builtin/autonomous/autonomous-ipc.ts → apps/windows/src/plugins/builtin/pet/pet-subject.ts（跨插件运行期 import）"
   ]
 }

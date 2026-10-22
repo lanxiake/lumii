@@ -12,7 +12,7 @@ import { createTtsProvider, type TtsProvider } from './tts-engine.js'
 import { SentenceSplitter } from './sentence-splitter.js'
 import { VoiceCallStateMachine } from './voice-state-machine.js'
 import { type VoiceModelManager } from './model-manager.js'
-import { voiceEventBus } from './voice-event-bus.js'
+import { onAgentEvent } from '../../../main/kernel/agent-event-stream'
 import type { VoiceEngineConfig, VoiceRuntimePhase } from '../../../shared/voice-events.js'
 import { isQwen3CloneVariant } from '../../../shared/voice-events.js'
 import type { TtsChunk } from './tts-engine.js'
@@ -44,19 +44,7 @@ const log = {
   error: (...args: unknown[]) => console.error('[VoiceService]', ...args),
 }
 
-/**
- * voice:event 镜像目标（除主窗口外的额外接收者）。
- * 宠物模式独立窗口需收到 voice:tts:chunk / voice:call:state 等事件做口型与动画，
- * 但不在主窗口渲染上下文，故注册其 WebContents 到此处接收同样的广播。
- */
-const mirrorWebContents = new Set<Electron.WebContents>()
-
-/** 注册一个额外的 voice:event 接收者（如宠物窗口），返回注销函数 */
-export function addVoiceEventMirror(wc: Electron.WebContents): () => void {
-  mirrorWebContents.add(wc)
-  wc.once('destroyed', () => mirrorWebContents.delete(wc))
-  return () => mirrorWebContents.delete(wc)
-}
+import { getVoiceEventMirrors } from '../../../main/kernel/voice-event-mirror'
 
 export class VoiceCallService {
   private callId: string | null = null
@@ -695,12 +683,12 @@ export class VoiceCallService {
       }
     }
 
-    voiceEventBus.on('agent-event', onDelta)
-    voiceEventBus.on('agent-event', onEnd)
+    const offDelta = onAgentEvent(onDelta)
+    const offEnd = onAgentEvent(onEnd)
 
     this.agentEventUnsubscribe = () => {
-      voiceEventBus.off('agent-event', onDelta)
-      voiceEventBus.off('agent-event', onEnd)
+      offDelta()
+      offEnd()
     }
   }
 
@@ -1489,11 +1477,7 @@ export class VoiceCallService {
       }
     }
     // 镜像到额外接收者（如宠物窗口）
-    for (const wc of mirrorWebContents) {
-      if (wc.isDestroyed()) {
-        mirrorWebContents.delete(wc)
-        continue
-      }
+    for (const wc of getVoiceEventMirrors()) {
       try {
         wc.send('voice:event', event)
       } catch (e) {

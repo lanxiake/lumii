@@ -8,19 +8,21 @@ import { createAppUiController, VIEW_STATE_SCRIPT } from './controller'
 import { clearScreenshotTempDir, getScreenshotTempDir } from './screenshot-cleanup'
 import type { RawSnapshotNode } from './types'
 
-vi.mock('../../plugins/builtin/pet/pet-mode-ipc', () => ({
-  getPetWindowManager: vi.fn(() => null),
-}))
-
 vi.mock('./annotate', () => ({
   annotateSnapshot: vi.fn(async (buf: Buffer) => Buffer.from(`${buf.toString()}-annotated`)),
 }))
 
-import { getPetWindowManager } from '../../plugins/builtin/pet/pet-mode-ipc'
+import { setPetAccessor } from '../agent-runtime/pet-accessor'
 import { annotateSnapshot } from './annotate'
 
-const mockedGetPetWindowManager = vi.mocked(getPetWindowManager)
+/** 桌宠窗口管理器：测试里用可变引用替换（核心走服务访问器，不再直接 import 插件） */
+let petManager: unknown = null
+setPetAccessor(() => ({ getWindowManager: () => petManager }) as never)
 const mockedAnnotateSnapshot = vi.mocked(annotateSnapshot)
+
+function assignPetManager(value: unknown): void {
+  petManager = value
+}
 
 /** 构造 fake NativeImage，供 capturePage mock 使用 */
 function fakeNativeImage(width = 1920, height = 1080): NativeImage {
@@ -79,7 +81,7 @@ describe('createAppUiController', () => {
   beforeEach(() => {
     tmpDataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lumii-screenshot-'))
     clearScreenshotTempDir(tmpDataRoot)
-    mockedGetPetWindowManager.mockReturnValue(null)
+    assignPetManager(null)
     mockedAnnotateSnapshot.mockClear()
   })
 
@@ -131,7 +133,7 @@ describe('createAppUiController', () => {
   })
 
   it('target=pet 且桌宠未运行返回 pet_not_running', async () => {
-    mockedGetPetWindowManager.mockReturnValue(null)
+    assignPetManager(null)
     const { controller } = makeController(() => fakeWindow({}))
     const result = await controller.screenshot({ target: 'pet' })
     expect(result).toEqual({ ok: false, error: 'pet_not_running' })
@@ -139,7 +141,7 @@ describe('createAppUiController', () => {
 
   it('target=pet 且桌宠窗口可用时成功截图', async () => {
     const petWin = fakeWindow({ visible: true })
-    mockedGetPetWindowManager.mockReturnValue({
+    assignPetManager({
       getPetBrowserWindow: () => petWin,
     } as never)
 

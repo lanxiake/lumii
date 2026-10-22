@@ -1,7 +1,7 @@
 import { app, type BrowserWindow } from 'electron'
 import { TrayManager } from '../tray-manager'
 import type { ScreenRecordService } from '../screen-record'
-import { isPetMode, switchPetMode, isPetForceIgnore, disablePetForceIgnore } from '../../plugins/builtin/pet/pet-mode-ipc'
+import { getPetService } from '../agent-runtime/pet-accessor'
 
 interface TrayLogger {
   info: (...args: unknown[]) => void
@@ -73,13 +73,13 @@ function createTrayManager(options: TrayBootstrapOptions): void {
       getMainWindow()?.webContents.send('navigate-to-settings')
     },
     onTogglePetMode: () => {
-      const next = isPetMode() ? 'desktop' : 'pet'
+      const next = (getPetService()?.isPetMode() ?? false) ? 'desktop' : 'pet'
       // 托盘/设置页状态同步由 onModeChanged 统一处理，无需在此重复
-      void switchPetMode(next)
+      void getPetService()?.switchMode(next)
     },
     onDisableForceIgnore: () => {
-      disablePetForceIgnore()
-      trayManager?.updateForceIgnore(isPetForceIgnore())
+      getPetService()?.disableForceIgnoreMouse()
+      trayManager?.updateForceIgnore((getPetService()?.isForceIgnoreMouse() ?? false))
     },
     onStartScreenRecord: () => {
       getMainWindow()?.show()

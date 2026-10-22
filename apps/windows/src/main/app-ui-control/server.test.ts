@@ -13,15 +13,19 @@ import {
   stopAppUiControlServer,
 } from './server'
 
-vi.mock('../../plugins/builtin/pet/pet-mode-ipc', () => ({
-  switchPetMode: vi.fn(async (mode: string) => ({ success: true, mode, durationMs: 0 })),
-  getPetWindowManager: vi.fn(() => null),
-}))
 
-import { getPetWindowManager, switchPetMode } from '../../plugins/builtin/pet/pet-mode-ipc'
+import { setPetAccessor } from '../agent-runtime/pet-accessor'
 
-const mockedSwitchPetMode = vi.mocked(switchPetMode)
-const mockedGetPetWindowManager = vi.mocked(getPetWindowManager)
+/** 桌宠服务：核心走访问器，测试注入可变假实现 */
+const mockedSwitchPetMode = vi.fn(async (mode: string) => ({ success: true, mode, durationMs: 0 }))
+let petManager: unknown = null
+setPetAccessor(
+  () =>
+    ({
+      switchMode: mockedSwitchPetMode,
+      getWindowManager: () => petManager,
+    }) as never,
+)
 
 vi.mock('../vendor/ports-inspect.js', () => ({
   inspectPortUsage: vi.fn(),
@@ -658,8 +662,7 @@ describe('POST /ipc/skills/* 与 /ipc/pet/*', () => {
     port = 0
     mockedInspectPortUsage.mockReset()
     mockedSwitchPetMode.mockClear()
-    mockedGetPetWindowManager.mockReset()
-    mockedGetPetWindowManager.mockReturnValue(null)
+    petManager = null
   })
 
   afterEach(async () => {
@@ -735,7 +738,7 @@ describe('POST /ipc/skills/* 与 /ipc/pet/*', () => {
   })
 
   it('/ipc/pet/switchMode 调用 switchPetMode', async () => {
-    mockedGetPetWindowManager.mockReturnValue({ getMode: () => 'pet' } as never)
+    petManager = { getMode: () => 'pet' } as never
     const { token } = await startWith({})
 
     const res = await postRoute(port, '/ipc/pet/switchMode', { mode: 'pet' }, token)

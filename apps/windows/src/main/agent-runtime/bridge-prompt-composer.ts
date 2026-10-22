@@ -16,8 +16,8 @@ import {
 } from '@mtbot/agent-runtime'
 import type { InstanceStateStore } from './bridge-instance-state'
 import { agentRuntimeLog as log } from './bridge-utils'
-import { getVirtualHumanContext } from '../../plugins/builtin/pet/virtual-human-activation'
-import { renderVirtualHumanPromptSection } from '../../plugins/builtin/pet/virtual-human-context'
+import { getPetService } from './pet-accessor'
+
 import { resolveWindowsClientDataRoot } from '../client-data-root'
 import { getLocalDateString } from '../local-time'
 import { resolveSceneHits } from './scene-resolver'
@@ -366,9 +366,9 @@ export class BridgePromptComposer {
 
     // 宠物模式：按 sessionKey 注入表情/动作/persona 段（ADR-14，主进程单一数据源）
     const sessionKey = this.deps.instanceToConversation.get(instanceId)
-    const vhContext = getVirtualHumanContext(sessionKey)
+    const vhContext = getPetService()?.getVirtualHumanContext(sessionKey)
     if (vhContext) {
-      const vhSection = renderVirtualHumanPromptSection(vhContext)
+      const vhSection = getPetService()?.renderVirtualHumanPromptSection(vhContext)
       if (vhSection) {
         dynamicParts.push(vhSection)
         log.info(

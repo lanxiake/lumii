@@ -47,8 +47,8 @@ import {
   readTodayTokenUsage,
 } from '@mtbot/agent-runtime'
 import { getAgentRuntimeBridge } from '../ipc/agent-runtime-ipc'
-import { currentPetAgentId } from '../../plugins/builtin/pet/pet-subject'
-import { getVirtualHumanSettings } from '../../plugins/builtin/pet/pet-mode-store'
+import { getPetService } from './pet-accessor'
+import { DEFAULT_VH_SETTINGS } from '../../shared/virtual-human'
 import type { PetTaskCreateResult, PetTaskStateDTO } from '../../shared/pet-mode'
 import { agentRuntimeLog as log } from './bridge-utils'
 import {
@@ -78,7 +78,7 @@ export async function createPetTask(text: string): Promise<PetTaskCreateResult> 
   if (!trimmed) return { ok: false, reason: '想说让我去看什么？' }
 
   const bridge = getAgentRuntimeBridge()
-  const agentId = currentPetAgentId()
+  const agentId = (getPetService()?.currentAgentId() ?? null)
   if (!bridge || !agentId) return { ok: false, reason: NOT_READY_REASON }
 
   const db = bridge.db
@@ -93,7 +93,7 @@ export async function createPetTask(text: string): Promise<PetTaskCreateResult> 
      * 但两处都要有：那个是心跳的兜底（用户可能在设置页之外改了它），
      * 这里管的是"别受理"——已受理的目标会一直挂在 `executing` 里等开关打开。
      */
-    if (!getVirtualHumanSettings().enablePetTask) {
+    if (!(getPetService()?.getVirtualHumanSettings() ?? DEFAULT_VH_SETTINGS).enablePetTask) {
       return { ok: false, reason: '我现在不主动做事（设置里关着呢），要用的话先去打开。' }
     }
 
@@ -211,7 +211,7 @@ function classifyOnly(text: string) {
  */
 export function getPetTaskState(): PetTaskStateDTO | null {
   const bridge = getAgentRuntimeBridge()
-  const agentId = currentPetAgentId()
+  const agentId = (getPetService()?.currentAgentId() ?? null)
   if (!bridge || !agentId) return null
   return readPetTaskState(bridge.db, agentId)
 }
@@ -224,7 +224,7 @@ export function getPetTaskState(): PetTaskStateDTO | null {
  */
 export function markPetTaskRead(): void {
   const bridge = getAgentRuntimeBridge()
-  const agentId = currentPetAgentId()
+  const agentId = (getPetService()?.currentAgentId() ?? null)
   if (!bridge || !agentId) return
   try {
     writePetTaskReadCursor(bridge.db, agentId, new Date().toISOString())

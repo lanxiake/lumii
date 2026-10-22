@@ -1,10 +1,28 @@
 import { join } from 'node:path'
 
 import { definePlugin } from '@mtbot/plugin-core'
+import { protocol } from 'electron'
 
 import type { MainEvents } from '../../../main/kernel/events'
 import { S } from '../../../main/kernel/services'
-import { registerPetModeIpc, isPetForceIgnore, disposePetModeIpc } from './pet-mode-ipc'
+import type { PetService } from './service-api'
+import {
+  registerPetModeIpc,
+  isPetForceIgnore,
+  disposePetModeIpc,
+  disablePetForceIgnore,
+  getPetWindowManager,
+  isPetMode,
+  onVirtualHumanSettingsChanged,
+  switchPetMode,
+} from './pet-mode-ipc'
+import { getStoredModelId, getVirtualHumanSettings, setVirtualHumanSettings } from './pet-mode-store'
+import { currentPetAgentId } from './pet-subject'
+import { getVirtualHumanContext } from './virtual-human-activation'
+import { renderVirtualHumanPromptSection } from './virtual-human-context'
+import { PET_ASSET_SCHEME, registerPetAssetProtocolHandler } from './pet-asset-protocol'
+import { loadPetModelRegistry } from './pet-model-resolver'
+import { describeRoots, isPetAssetOp, runPetAssetOp } from './pet-asset-ipc'
 
 /**
  * 桌宠扩展（主进程侧）。
@@ -50,6 +68,44 @@ export const petExtension = {
     id: 'com.lumii.pet',
     provides: ['pet'],
     apply(ctx) {
+      // 核心只认 S.pet：停用后服务消失 → 窗口/提示词/托盘/资产协议全部按「没有桌宠」处理
+      ctx.provide(S.pet, {
+        getWindowManager: getPetWindowManager,
+        isPetMode,
+        isForceIgnoreMouse: isPetForceIgnore,
+        disableForceIgnoreMouse: disablePetForceIgnore,
+        switchMode: switchPetMode,
+        disposeIpc: disposePetModeIpc,
+        onVirtualHumanSettingsChanged,
+        getStoredModelId,
+        getVirtualHumanSettings,
+        setVirtualHumanSettings,
+        getVirtualHumanContext,
+        renderVirtualHumanPromptSection,
+        currentAgentId: currentPetAgentId,
+        assetScheme: PET_ASSET_SCHEME,
+        registerAssetProtocol: registerPetAssetProtocolHandler,
+        loadModelRegistry: loadPetModelRegistry,
+        isAssetOp: isPetAssetOp,
+        runAssetOp: runPetAssetOp,
+        describeAssetRoots: describeRoots,
+      } satisfies PetService)
+
+      // 资产协议：scheme 的特权在核心启动期注册，handler 归插件——
+      // 停用后连 `lumii-pet://` 都不再响应（渲染层拿不到模型图，自然退回空态）
+      try {
+        registerPetAssetProtocolHandler()
+        ctx.effect(() => {
+          try {
+            protocol.unhandle(PET_ASSET_SCHEME)
+          } catch {
+            /* 未注册或已被摘掉 */
+          }
+        })
+      } catch (error) {
+        ctx.log.warn(`宠物资产协议注册失败：${error instanceof Error ? error.message : error}`)
+      }
+
       let started = false
 
       const setup = (): void => {

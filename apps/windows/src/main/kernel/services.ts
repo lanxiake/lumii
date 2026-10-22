@@ -61,6 +61,8 @@ export const S = {
   channelContinuity: createServiceKey<import('../channel/continuity-accessor').ChannelContinuityService>('channelContinuity'),
   /** 自主进化（插件提供；停用后核心拿不到 ⇒ 心跳/规划/反馈全部 no-op） */
   autonomous: createServiceKey<import('../../plugins/builtin/autonomous/service').AutonomousService>('autonomous'),
+  /** 桌宠（插件提供；停用后窗口/提示词/托盘/资产协议全部按「没有桌宠」处理） */
+  pet: createServiceKey<import('../../plugins/builtin/pet/service-api').PetService>('pet'),
   /** 工作空间版本管理（插件提供；停用后快照直接跳过） */
   vcs: createServiceKey<import('../../plugins/builtin/vcs/service-api').VcsService>('vcs'),
   /** 概览信息流（插件提供；停用后 cron/API/卡片都静默跳过） */

@@ -110,6 +110,24 @@ setFooAccessor(() => pluginHost?.container.get(S.foo) ?? null)
 服务接口类型写在插件目录（`service.ts`），核心 **type-only** 引用。
 插件停用 → 容器里没了 → `getFooService()` 返回 null → 核心按「功能关闭」处理。
 
+### 服务清单（核心 ↔ 插件）
+
+| 服务键 | 插件 | 核心拿不到时 |
+|---|---|---|
+| `S.autonomous` | autonomous | 心跳/规划/反馈全部 no-op |
+| `S.promptStyle` | prompt-style | 回落默认档 `terse` |
+| `S.channelContinuity` | channel-continuity | 不做接续 |
+| `S.browser` | browser | 不启动、不注册工具 |
+| `S.usage` | usage | `usage:query` 如实报错 |
+| `S.skillEvolution` | skill-evolution | 不注入进化引导 |
+| `S.dashboardFeed` | dashboard-feed | cron/API/卡片静默跳过 |
+| `S.vcs` | vcs | 回合快照跳过 |
+| `S.voice` | voice | 语音入口不可用 |
+| `S.pet` | pet | 无桌宠（窗口/提示词/托盘/资产协议全关） |
+
+**守卫 ⑪ 现在是零容忍**（基线为空）：核心任何一处新的 `import '../plugins/builtin/...'`
+（非 type-only）都会当场报红。
+
 ### 边界规则（守卫 ⑫）
 
 | 规则 | 说明 |

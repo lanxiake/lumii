@@ -142,8 +142,8 @@ import {
   migrateLocalCompanionPrefsToVhSettings,
 } from './local-companion-handler'
 import { ensureSeedCronJobsSeeded } from '../seed-cron-jobs'
-import { isPetMode, onVirtualHumanSettingsChanged } from '../../plugins/builtin/pet/pet-mode-ipc'
-import { getStoredModelId, getVirtualHumanSettings } from '../../plugins/builtin/pet/pet-mode-store'
+import { getPetService } from './pet-accessor'
+import { DEFAULT_VH_SETTINGS } from '../../shared/virtual-human'
 import { petAgentId } from '@mtbot/pet-core'
 import { BridgeSessionModelCatalog } from './bridge-session-model-catalog'
 import { BridgeSessionThinkingPrefs } from './bridge-session-thinking-prefs'
@@ -1570,7 +1570,7 @@ export class AgentRuntimeBridge {
       // （写进宠物会话 + 推气泡），保证"用户交代的事必有回音"
       reportGoalResult: (goal, ok, text) => this.reportPetGoalResult(goal, ok, text),
       // 五期 T5.9 的总开关：判在入口（见 syncPetDispatchJobEnabled 的注释）
-      isPetTaskEnabled: () => getVirtualHumanSettings().enablePetTask,
+      isPetTaskEnabled: () => (getPetService()?.getVirtualHumanSettings() ?? DEFAULT_VH_SETTINGS).enablePetTask,
     })
   }
 
@@ -2108,9 +2108,9 @@ export class AgentRuntimeBridge {
             showNotification: this.config.showCronNotification
               ? (title, body) => this.config.showCronNotification!(title, body)
               : undefined,
-            isPetMode: () => isPetMode(),
+            isPetMode: () => (getPetService()?.isPetMode() ?? false),
             getProactiveCare: () => {
-              const s = getVirtualHumanSettings()
+              const s = (getPetService()?.getVirtualHumanSettings() ?? DEFAULT_VH_SETTINGS)
               return {
                 enabled: s.proactiveCareEnabled,
                 mode: s.proactiveCareMode,
@@ -2345,7 +2345,7 @@ export class AgentRuntimeBridge {
                 getDb: () => this.localDb.db,
                 isShuttingDown: () => !this.localDb.isOpen,
                 // 不在宠物模式就没有宠物窗：读 mood 的键会落到一只没被选中的模型上
-                getPetAgentId: () => (isPetMode() ? petAgentId(getStoredModelId()) : null),
+                getPetAgentId: () => ((getPetService()?.isPetMode() ?? false) ? petAgentId((getPetService()?.getStoredModelId() ?? '')) : null),
                 recordMood: (agentId, event) => this.recordMoodEvent(event, agentId),
                 pushSensingEvent: (event) => this.ipcChannel.forwardIpcEvent(event),
                 manual: options?.manual,
@@ -2368,9 +2368,9 @@ export class AgentRuntimeBridge {
                 getDb: () => this.localDb.db,
                 isShuttingDown: () => !this.localDb.isOpen,
                 hasActiveUserTurn: () => this.hasActiveUserTurn(),
-                getPetAgentId: () => (isPetMode() ? petAgentId(getStoredModelId()) : null),
+                getPetAgentId: () => ((getPetService()?.isPetMode() ?? false) ? petAgentId((getPetService()?.getStoredModelId() ?? '')) : null),
                 // 反思、排期、日记三件都跟这个开关（理由见 PetEvolveDeps.isPetTaskEnabled）
-                isPetTaskEnabled: () => getVirtualHumanSettings().enablePetTask,
+                isPetTaskEnabled: () => (getPetService()?.getVirtualHumanSettings() ?? DEFAULT_VH_SETTINGS).enablePetTask,
                 callLLM: (prompt) => this.callLLM(prompt, undefined, 'reflection'),
                 writeDiary: (agentId) => this.writeDiaryFor(agentId),
                 recordPersonality: (eventType, agentId, context) =>
@@ -2409,7 +2409,7 @@ export class AgentRuntimeBridge {
     // 五期 T5.9：「允许宠物主动做事」接管这个 job 的 enabled。
     // **启动时也同步一次**，否则会出现"设置里关着、任务页里开着"——两个开关互相打架
     // （详见 syncPetDispatchJobEnabled 的注释）
-    syncPetDispatchJobEnabled(this.localDb.db, getVirtualHumanSettings().enablePetTask)
+    syncPetDispatchJobEnabled(this.localDb.db, (getPetService()?.getVirtualHumanSettings() ?? DEFAULT_VH_SETTINGS).enablePetTask)
     // 宠物感知循环（四期）：同样是独立的一条——它**不能**挂在派发上，
     // 派发在用户回合进行中让路，而感知恰恰要在用户干活时看着（见 pet-sensing-tick.ts 文件头）
     ensurePetSensingCronJobSeeded(this.localDb.db)
@@ -2491,13 +2491,13 @@ export class AgentRuntimeBridge {
     // 宠物侧**两条** job 都跟「允许宠物主动做事」（五期 T5.9 / 七期 T7.4）。
     // **启动时也同步一次**，否则会出现"设置里关着、任务页里开着"——两个开关互相打架
     // （详见 setCompanionCronJobEnabled 的注释）
-    syncPetEvolveJobEnabled(this.localDb.db, getVirtualHumanSettings().enablePetTask)
+    syncPetEvolveJobEnabled(this.localDb.db, (getPetService()?.getVirtualHumanSettings() ?? DEFAULT_VH_SETTINGS).enablePetTask)
     this.purgeCronFocusNoiseMemoriesOnce()
     // 设置页改两个开关时要同步 job 的 enabled 并重载本地 cron 调度：
     // companion-tick 跟「主动联系」；宠物侧**两条**（派发 + 反思）都跟
     // 「允许宠物主动做事」（五期 T5.9 / 七期 T7.4）
     this.unsubscribeVhSettings?.()
-    this.unsubscribeVhSettings = onVirtualHumanSettingsChanged((_settings, patch) => {
+    this.unsubscribeVhSettings = getPetService()?.onVirtualHumanSettingsChanged((_settings, patch) => {
       let touched = false
       if (patch.proactiveCareEnabled !== undefined) {
         syncCompanionTickJobEnabled(this.localDb.db, patch.proactiveCareEnabled)
@@ -2517,7 +2517,7 @@ export class AgentRuntimeBridge {
     // 主体是宠物（2026-09-24 主体迁移）：助手不再跑自主进化，见实施计划第六期 T6.4。
     // 不在宠物模式就什么都不做——心跳的 `plan` 动作下次照样会兜底。
     // 不阻塞启动流程；runPlannerNow 内部已 try-catch，失败只记日志。
-    const plannerSubject = isPetMode() ? petAgentId(getStoredModelId()) : null
+    const plannerSubject = (getPetService()?.isPetMode() ?? false) ? petAgentId((getPetService()?.getStoredModelId() ?? '')) : null
     if (
       plannerSubject &&
       (getAutonomousService()?.readEnabled(this.localDb.db) ?? false) &&

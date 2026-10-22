@@ -32,7 +32,7 @@ import {
   type DatabaseAdapter,
 } from '@mtbot/agent-runtime'
 import type { PetExperienceDTO } from '../../shared/pet-mode'
-import { currentPetAgentId } from '../../plugins/builtin/pet/pet-subject'
+import { getPetService } from './pet-accessor'
 import { getAgentRuntimeBridge } from '../ipc/agent-runtime-ipc'
 import { toAsyncClient } from './async-db-client'
 import { toTraitValues } from './pet-personality'
@@ -56,7 +56,7 @@ const DIARIES_LIMIT = 5
 export function reportPetExperience(kind: unknown): void {
   if (!isPetExperienceKind(kind)) return
   const bridge = getAgentRuntimeBridge()
-  const agentId = currentPetAgentId()
+  const agentId = (getPetService()?.currentAgentId() ?? null)
   if (!bridge || !agentId) return
   appendPetExperience(bridge.db, agentId, kind)
 }
@@ -72,7 +72,7 @@ export function reportPetExperience(kind: unknown): void {
  */
 export async function getPetExperience(): Promise<PetExperienceDTO | null> {
   const bridge = getAgentRuntimeBridge()
-  const agentId = currentPetAgentId()
+  const agentId = (getPetService()?.currentAgentId() ?? null)
   if (!bridge || !agentId) return null
 
   const db = bridge.db

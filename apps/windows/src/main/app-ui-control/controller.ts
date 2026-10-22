@@ -22,7 +22,7 @@ import {
 import { annotateSnapshot } from './annotate'
 import { devicePixelsToDip } from './coords'
 import { parseGotoInput } from './goto'
-import { getPetWindowManager } from '../../plugins/builtin/pet/pet-mode-ipc'
+import { getPetService } from '../agent-runtime/pet-accessor'
 import { filterSnapshotNodes, nextSnapshotId, SEMANTIC_ROLES, SNAPSHOT_SCRIPT } from './snapshot'
 import { getScreenshotTempDir } from './screenshot-cleanup'
 import type {
@@ -681,7 +681,7 @@ function resolveScreenshotWindow(
   getWindow: (t: AppUiWindowTarget) => BrowserWindow | null,
 ): BrowserWindow | null {
   if (target === 'pet') {
-    return getPetWindowManager()?.getPetBrowserWindow() ?? null
+    return getPetService()?.getWindowManager()?.getPetBrowserWindow() ?? null
   }
   return getWindow('main')
 }
