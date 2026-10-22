@@ -15,6 +15,10 @@ import { voiceExtension } from './extensions/voice'
 import { petExtension } from './extensions/pet'
 import { relayExtension } from './extensions/relay'
 import { browserExtension } from './extensions/browser'
+import { channelWeixinExtension } from './extensions/channel-weixin'
+import { channelWecomExtension } from './extensions/channel-wecom'
+import { channelFeishuExtension } from './extensions/channel-feishu'
+import { channelQbotExtension } from './extensions/channel-qbot'
 
 /**
  * 内置扩展的统一定义。
@@ -38,6 +42,10 @@ export const BUILTIN_EXTENSIONS: BuiltinExtension[] = [
   petExtension,
   relayExtension,
   browserExtension,
+  channelWeixinExtension,
+  channelWecomExtension,
+  channelFeishuExtension,
+  channelQbotExtension,
 ]
 
 /**
