@@ -4,7 +4,7 @@
  * 整段文本拆成句子分别缓存，跨消息可复用相同句子，单条体积小、命中率更高。
  */
 import { createHash } from 'node:crypto'
-import type { VoiceTtsConfig } from '../../shared/voice-events.js'
+import type { VoiceTtsConfig } from '../../../../shared/voice-events.js'
 import type { TtsChunk } from './tts-engine.js'
 
 const log = {

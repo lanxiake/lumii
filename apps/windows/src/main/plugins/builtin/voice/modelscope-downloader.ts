@@ -12,8 +12,8 @@ import {
   ensureBundledPython,
   getBundledPythonExe,
   hasPackage,
-} from '../python-env.js'
-import { ensurePythonVenv } from '../python-venv.js'
+} from '../../../python-env.js'
+import { ensurePythonVenv } from '../../../python-venv.js'
 
 const log = {
   info: (...a: unknown[]) => console.log('[ModelScopeDownload]', ...a),

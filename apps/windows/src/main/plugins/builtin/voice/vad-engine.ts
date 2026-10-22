@@ -3,7 +3,7 @@
  * 使用 sherpa-onnx Silero VAD 模型
  */
 
-import { sherpaFirst, sherpaDone } from '../onnx-runtime-gate'
+import { sherpaFirst, sherpaDone } from '../../../onnx-runtime-gate'
 
 const log = {
   info: (...args: unknown[]) => console.log('[VadEngine]', ...args),

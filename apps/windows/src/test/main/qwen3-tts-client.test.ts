@@ -6,7 +6,7 @@
  */
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { spawn, type ChildProcess, type ChildProcessWithoutNullStreams } from 'node:child_process'
-import { Qwen3TtsClient } from '../../main/voice/qwen3-tts-client'
+import { Qwen3TtsClient } from '../../main/plugins/builtin/voice/qwen3-tts-client'
 import { bigPayload, rejectionOf, settle, spawnFakeChild, trackUncaughtExceptions } from './fake-child-process'
 
 vi.mock('electron', () => ({

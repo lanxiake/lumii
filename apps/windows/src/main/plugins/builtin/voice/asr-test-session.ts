@@ -7,7 +7,7 @@ import type { BrowserWindow } from 'electron'
 import { createAsrProvider, type AsrProvider, type AsrStream } from './asr-engine.js'
 import { VadEngine } from './vad-engine.js'
 import type { VoiceModelManager } from './model-manager.js'
-import type { VoiceEngineConfig } from '../../shared/voice-events.js'
+import type { VoiceEngineConfig } from '../../../../shared/voice-events.js'
 
 const log = {
   info: (...args: unknown[]) => console.log('[AsrTestSession]', ...args),

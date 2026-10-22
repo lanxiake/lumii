@@ -3,12 +3,12 @@
  * 注册 voice:command 和 voice:audio:chunk 两个 IPC 通道
  */
 import { ipcMain, type BrowserWindow } from 'electron'
-import type { IpcHandleRegistrar } from '../kernel/ipc-registry'
+import type { IpcHandleRegistrar } from '../../../kernel/ipc-registry'
 import { type VoiceCallService } from './voice-service.js'
 import { type VoiceModelManager, PYTORCH_CUDA_RUNTIME_ID } from './model-manager.js'
 import { AsrTestSession } from './asr-test-session.js'
-import type { VoiceCommand } from '../../shared/voice-commands.js'
-import { isQwen3CloneVariant } from '../../shared/voice-events.js'
+import type { VoiceCommand } from '../../../../shared/voice-commands.js'
+import { isQwen3CloneVariant } from '../../../../shared/voice-events.js'
 import { saveVoiceEngineConfig } from './voice-config-store.js'
 import {
   prepareQwen3TtsRuntime,
@@ -16,8 +16,8 @@ import {
   resetSharedQwen3TtsClient,
 } from './qwen3-tts-client.js'
 import { saveTempCloneRefAudio } from './voice-temp-ref.js'
-import { createMeasuredHandler } from '../perf/performance-ipc'
-import type { PerformanceMonitor } from '../perf/performance-monitor'
+import { createMeasuredHandler } from '../../../perf/performance-ipc'
+import type { PerformanceMonitor } from '../../../perf/performance-monitor'
 
 const log = {
   info: (...args: unknown[]) => console.log('[VoiceIPC]', ...args),

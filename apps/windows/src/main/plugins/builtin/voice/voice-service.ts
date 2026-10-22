@@ -13,8 +13,8 @@ import { SentenceSplitter } from './sentence-splitter.js'
 import { VoiceCallStateMachine } from './voice-state-machine.js'
 import { type VoiceModelManager } from './model-manager.js'
 import { voiceEventBus } from './voice-event-bus.js'
-import type { VoiceEngineConfig, VoiceRuntimePhase } from '../../shared/voice-events.js'
-import { isQwen3CloneVariant } from '../../shared/voice-events.js'
+import type { VoiceEngineConfig, VoiceRuntimePhase } from '../../../../shared/voice-events.js'
+import { isQwen3CloneVariant } from '../../../../shared/voice-events.js'
 import type { TtsChunk } from './tts-engine.js'
 import { VoiceProfileStore } from './voice-profile-store.js'
 import {
@@ -26,7 +26,7 @@ import {
   TTS_PREVIEW_CACHE_MAX_TEXT_CHARS,
   TTS_SENTENCE_CACHE_MAX_CHARS,
 } from './tts-preview-cache.js'
-import { stripVirtualHumanTags } from '../../shared/virtual-human.js'
+import { stripVirtualHumanTags } from '../../../../shared/virtual-human.js'
 import { resolveQwen3TtsLanguage, sanitizeTtsPlainText } from './tts-text-utils.js'
 import {
   setQwen3TtsStatusCallback,
@@ -35,7 +35,7 @@ import {
   getQwen3SynthConcurrency,
 } from './qwen3-tts-client.js'
 import { transcribePcm, transcribeAudioBuffer } from './voice-transcription.js'
-import { sherpaFirst, sherpaDone } from '../onnx-runtime-gate'
+import { sherpaFirst, sherpaDone } from '../../../onnx-runtime-gate'
 
 const log = {
   info: (...args: unknown[]) => console.log('[VoiceService]', ...args),
@@ -278,7 +278,7 @@ export class VoiceCallService {
    */
   private mergeTtsOverride(
     base: VoiceEngineConfig['tts'],
-    override: import('../../shared/voice-commands.js').VoiceTtsPreviewOverride,
+    override: import('../../../../shared/voice-commands.js').VoiceTtsPreviewOverride,
   ): VoiceEngineConfig['tts'] {
     const next: VoiceEngineConfig['tts'] = { ...base }
     if (override.provider) next.provider = override.provider
@@ -420,7 +420,7 @@ export class VoiceCallService {
    */
   private async activateVirtualHumanContextIfPetMode(sessionKey: string): Promise<void> {
     try {
-      const { activateVirtualHumanContextForSession } = await import('../pet/virtual-human-context')
+      const { activateVirtualHumanContextForSession } = await import('../../../pet/virtual-human-context')
       await activateVirtualHumanContextForSession(sessionKey)
     } catch (err) {
       log.warn(`[activateVirtualHumanContextIfPetMode] 跳过: ${(err as Error).message}`)
@@ -430,7 +430,7 @@ export class VoiceCallService {
   /** 清除会话的虚拟人 Prompt 上下文 */
   private async clearVirtualHumanContext(sessionKey: string): Promise<void> {
     try {
-      const { clearVirtualHumanContext } = await import('../pet/virtual-human-activation')
+      const { clearVirtualHumanContext } = await import('../../../pet/virtual-human-activation')
       clearVirtualHumanContext(sessionKey)
     } catch {
       // 忽略
@@ -440,7 +440,7 @@ export class VoiceCallService {
   /** 非宠物模式才清除 VH 上下文；宠物模式连续对话需保持注入态 */
   private async clearVirtualHumanContextIfNotPetMode(sessionKey: string): Promise<void> {
     try {
-      const { getPetWindowManager } = await import('../pet/pet-mode-ipc')
+      const { getPetWindowManager } = await import('../../../pet/pet-mode-ipc')
       if (getPetWindowManager()?.getMode() === 'pet') return
       await this.clearVirtualHumanContext(sessionKey)
     } catch {
@@ -1061,7 +1061,7 @@ export class VoiceCallService {
   async previewTts(
     text: string,
     win: import('electron').BrowserWindow,
-    override?: import('../../shared/voice-commands.js').VoiceTtsPreviewOverride,
+    override?: import('../../../../shared/voice-commands.js').VoiceTtsPreviewOverride,
     previewId?: string,
   ): Promise<void> {
     // 停止上一次预览（如果有）

@@ -17,7 +17,7 @@ import type { BrowserWindow } from 'electron'
 
 import type { AgentRuntimeBridge } from '../agent-runtime'
 import { setWeixinBindingManagerForIpc } from '../agent-runtime'
-import type { VoiceCallService } from '../voice/voice-service'
+import type { VoiceCallService } from '../plugins/builtin/voice/voice-service'
 import { transcribeVoiceFile } from './media-pipeline'
 import { WeixinLoginService } from '../weixin-login-service'
 import { WeixinChannelAdapter } from './adapters/weixin-channel-adapter'

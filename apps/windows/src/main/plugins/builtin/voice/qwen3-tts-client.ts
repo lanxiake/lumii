@@ -10,10 +10,10 @@ import {
   BUNDLED_ONNXRUNTIME_SPEC,
   ensureBundledPython,
   getBundledPythonExe,
-} from '../python-env.js'
-import { ensurePythonVenv, getPythonVenvExe } from '../python-venv.js'
-import { resolveWindowsClientDataRoot } from '../client-data-root.js'
-import type { VoiceRuntimePhase } from '../../shared/voice-events.js'
+} from '../../../python-env.js'
+import { ensurePythonVenv, getPythonVenvExe } from '../../../python-venv.js'
+import { resolveWindowsClientDataRoot } from '../../../client-data-root.js'
+import type { VoiceRuntimePhase } from '../../../../shared/voice-events.js'
 
 const log = {
   info: (...a: unknown[]) => console.log('[Qwen3TtsClient]', ...a),

@@ -7,10 +7,10 @@ import { S } from '../../../kernel/services'
 import { submitVoiceTranscript } from '../../../ipc/agent-runtime-ipc.js'
 import { setChannelAsrReadyChecker } from '../../../channel/channel-voice-asr-hint.js'
 import { setAudioTranscribeCallback } from '../../../agent-runtime'
-import { VoiceCallService } from '../../../voice/voice-service.js'
-import { VoiceModelManager } from '../../../voice/model-manager.js'
-import { registerVoiceIpc } from '../../../voice/voice-ipc.js'
-import { loadVoiceEngineConfig } from '../../../voice/voice-config-store.js'
+import { VoiceCallService } from './voice-service.js'
+import { VoiceModelManager } from './model-manager.js'
+import { registerVoiceIpc } from './voice-ipc.js'
+import { loadVoiceEngineConfig } from './voice-config-store.js'
 
 /**
  * 语音扩展（ASR / TTS / 来电）。

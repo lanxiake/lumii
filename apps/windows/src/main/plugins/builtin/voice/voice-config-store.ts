@@ -4,9 +4,9 @@
  */
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
-import { resolveSharedConfigDir } from '../paths.js'
-import type { VoiceEngineConfig } from '../../shared/voice-events.js'
-import { DEFAULT_VOICE_ENGINE_CONFIG, isQwen3CloneVariant } from '../../shared/voice-events.js'
+import { resolveSharedConfigDir } from '../../../paths.js'
+import type { VoiceEngineConfig } from '../../../../shared/voice-events.js'
+import { DEFAULT_VOICE_ENGINE_CONFIG, isQwen3CloneVariant } from '../../../../shared/voice-events.js'
 
 const log = {
   info: (...args: unknown[]) => console.log('[VoiceConfigStore]', ...args),

@@ -10,7 +10,7 @@ import https from 'node:https'
 import http from 'node:http'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { resolveWindowsClientDataRoot } from '../client-data-root.js'
+import { resolveWindowsClientDataRoot } from '../../../client-data-root.js'
 import {
   downloadViaModelScopeSdk,
   type ModelScopeDownloadSpec,
@@ -42,7 +42,7 @@ const log = {
   error: (...args: unknown[]) => console.error('[VoiceModelManager]', ...args),
 }
 
-import type { VoiceModelDownloadState } from '../../shared/voice-events.js'
+import type { VoiceModelDownloadState } from '../../../../shared/voice-events.js'
 
 /** 单项下载任务状态（与 shared 对齐） */
 export type { VoiceModelDownloadState }

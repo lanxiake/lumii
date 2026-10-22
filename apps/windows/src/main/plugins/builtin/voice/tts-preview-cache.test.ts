@@ -12,7 +12,7 @@ import {
   ttsPreviewCache,
   TTS_SENTENCE_CACHE_MAX_CHARS,
 } from './tts-preview-cache.js'
-import type { VoiceTtsConfig } from '../../shared/voice-events.js'
+import type { VoiceTtsConfig } from '../../../../shared/voice-events.js'
 
 /** 构造最小 TTS 配置 */
 function makeTts(partial: Partial<VoiceTtsConfig> = {}): VoiceTtsConfig {

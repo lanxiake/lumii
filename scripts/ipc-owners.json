@@ -26,5 +26,5 @@
   "screen-record/screen-record-ipc.ts": "screen-record",
   "skillnet-store.ts": "skills",
   "updater-service.ts": "updater",
-  "voice/voice-ipc.ts": "voice"
+  "plugins/builtin/voice/voice-ipc.ts": "voice"
 }

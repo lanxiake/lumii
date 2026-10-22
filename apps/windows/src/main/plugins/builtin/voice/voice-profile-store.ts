@@ -5,8 +5,8 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
-import { resolveWindowsClientDataRoot } from '../client-data-root.js'
-import type { Qwen3TtsVariant, VoiceCloneProfile } from '../../shared/voice-events.js'
+import { resolveWindowsClientDataRoot } from '../../../client-data-root.js'
+import type { Qwen3TtsVariant, VoiceCloneProfile } from '../../../../shared/voice-events.js'
 
 const log = {
   info: (...a: unknown[]) => console.log('[VoiceProfileStore]', ...a),
