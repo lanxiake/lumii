@@ -7,8 +7,8 @@ import type { UpdaterService } from '../updater-service'
 import type { ScreenRecordService } from './screen-record-contract'
 import type { TrayManager } from '../tray-manager'
 import type { VoiceCallService } from '../../plugins/builtin/voice/voice-service'
-import type { CloudSyncManager } from '../cloud-sync/sync-manager'
-import type { SyncScheduler } from '../cloud-sync/sync-scheduler'
+import type { CloudSyncManagerLike } from './cloud-sync-contract'
+import type { SyncSchedulerLike } from './cloud-sync-contract'
 import type { AgentRuntimeBridge } from '../agent-runtime'
 
 /**
@@ -37,9 +37,9 @@ export const S = {
   /** 自动更新。宿主在窗口创建后调 setMainWindow。 */
   updater: createServiceKey<UpdaterService>('updater'),
   /** 云同步管理器。 */
-  cloudSync: createServiceKey<CloudSyncManager>('cloudSync'),
+  cloudSync: createServiceKey<CloudSyncManagerLike>('cloudSync'),
   /** 云同步调度器。宿主在配置就绪后调 start()。 */
-  syncScheduler: createServiceKey<SyncScheduler>('syncScheduler'),
+  syncScheduler: createServiceKey<SyncSchedulerLike>('syncScheduler'),
   /** Agent Runtime（S7 才创建，扩展在 S1 就要能引用） */
   agentRuntime: createServiceKey<LateRef<AgentRuntimeBridge>>('agentRuntime'),
   /** 主窗口（S2–S5 才创建） */

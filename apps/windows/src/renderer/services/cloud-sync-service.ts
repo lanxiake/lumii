@@ -4,8 +4,8 @@
  * 读取类接口失败 / 无数据返回 null（原调用点均为「静默跳过」）；
  * 动作类接口原样返回 {success, error} 结果，由调用方负责提示。
  */
-import type { CloudSyncConfigView, SyncStatus } from '@main/cloud-sync/types'
-import type { SyncLogEntry } from '@main/cloud-sync/sync-log'
+import type { CloudSyncConfigView, SyncStatus } from '@shared/cloud-sync'
+import type { SyncLogEntry } from '@shared/cloud-sync'
 
 export interface CloudSyncActionResult {
   success: boolean

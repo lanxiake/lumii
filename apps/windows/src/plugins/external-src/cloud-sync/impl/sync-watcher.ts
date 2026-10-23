@@ -14,7 +14,7 @@
  */
 import fs from 'node:fs'
 import path from 'node:path'
-import { createLogger } from '../logger'
+import { createLogger } from '../../../../main/logger'
 import type { CloudSyncManager } from './sync-manager'
 
 const logger = createLogger('cloud-sync/watcher')

@@ -9,7 +9,7 @@
 import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
-import { createLogger } from '../logger'
+import { createLogger } from '../../../../main/logger'
 
 const logger = createLogger('cloud-sync/copy')
 

@@ -4,7 +4,7 @@
  * 三家平台在 isomorphic-git 视角只差认证头拼法与 URL 校验，接口按此收窄，
  * 不做泛化的平台 SDK 层。扩展 GitHub / Gitee 时各加一个 ~10 行实现并注册。
  */
-import type { GitProviderType } from './types'
+import type { GitProviderType } from '../../../../shared/cloud-sync'
 import { gitcodeProvider } from './gitcode-provider'
 
 export interface GitProvider {

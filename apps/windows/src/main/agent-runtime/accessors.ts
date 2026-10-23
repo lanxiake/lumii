@@ -5,7 +5,7 @@
  * 都得 import 整个 bridge（连带它的全部依赖进依赖图）。这些仓储本身是被动的
  * 数据访问对象，没有生命周期，不需要穿过门面。
  *
- * 与 `cloud-sync/sync-accessor.ts` 同模式：bridge.initialize() 时 set，
+ * 与 `kernel/cloud-sync-contract.ts` 同模式：bridge.initialize() 时 set，
  * 调用方 get。语义与桥上的 getter 一致——**未初始化就抛错**，不返回 undefined
  * （只有 segmentMemory 例外，它本身是可选灰度服务）。
  *

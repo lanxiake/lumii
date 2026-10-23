@@ -10,7 +10,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { SyncFileWatcher } from './sync-watcher'
 import type { CloudSyncManager } from './sync-manager'
-import type { SyncState } from './types'
+import type { SyncState } from '../../../../shared/cloud-sync'
 
 let root: string
 

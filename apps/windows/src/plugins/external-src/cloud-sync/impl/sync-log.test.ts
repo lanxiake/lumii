@@ -6,7 +6,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-import { _resetWindowsClientDataRootCacheForTest } from '../client-data-root'
+import { _resetWindowsClientDataRootCacheForTest } from '../../../../main/client-data-root'
 import { appendSyncLog, loadSyncLogs, MAX_SYNC_LOGS } from './sync-log'
 
 describe('sync-log', () => {

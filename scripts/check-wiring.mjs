@@ -995,13 +995,17 @@ const pluginBoundary = (() => {
       const tr = rel(target)
 
       // B3：跨插件运行期 import
-      if (tr.startsWith(`${PLUGIN_PREFIX}builtin/`)) {
-        // apps/windows/src/plugins/builtin/<id>/... → 取 <id>
-        const mine = r.split('/')[5]
-        const theirs = tr.split('/')[5]
-        if (r.startsWith(`${PLUGIN_PREFIX}builtin/`) && mine !== theirs) {
-          problems.push(`${r} → ${tr}（跨插件运行期 import）`)
-        }
+      // apps/windows/src/plugins/(builtin|external-src)/<id>/... → 取 <id>
+      const pluginIdOf = (p) => {
+        const parts = p.split('/')
+        if (parts[3] !== 'plugins') return null
+        if (parts[4] !== 'builtin' && parts[4] !== 'external-src') return null
+        return parts[5] ?? null
+      }
+      const mine = pluginIdOf(r)
+      const theirs = pluginIdOf(tr)
+      if (mine && theirs && mine !== theirs) {
+        problems.push(`${r} → ${tr}（跨插件运行期 import）`)
       }
 
       // B4：渲染层插件文件把主进程代码拖进 renderer bundle

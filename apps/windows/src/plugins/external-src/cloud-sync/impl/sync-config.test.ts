@@ -14,7 +14,7 @@ vi.mock('electron', () => ({
   },
 }))
 
-import { _resetWindowsClientDataRootCacheForTest } from '../client-data-root'
+import { _resetWindowsClientDataRootCacheForTest } from '../../../../main/client-data-root'
 import {
   DEFAULT_CLOUD_SYNC_CONFIG,
   decryptToken,

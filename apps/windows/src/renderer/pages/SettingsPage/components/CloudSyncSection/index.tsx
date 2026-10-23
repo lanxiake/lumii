@@ -4,8 +4,8 @@ import { Input } from '../../../../components/ui/Input/Input'
 import { Select } from '../../../../components/ui/Select/Select'
 import { Switch } from '../../../../components/ui/Switch/Switch'
 import { useToast } from '../../../../components/ui/Toast/useToast'
-import type { CloudSyncConfigView, SyncStatus } from '../../../../../main/cloud-sync/types'
-import type { SyncLogEntry } from '../../../../../main/cloud-sync/sync-log'
+import type { CloudSyncConfigView, SyncStatus } from '@shared/cloud-sync'
+import type { SyncLogEntry } from '@shared/cloud-sync'
 import {
   fetchCloudSyncConfig,
   fetchCloudSyncStatus,

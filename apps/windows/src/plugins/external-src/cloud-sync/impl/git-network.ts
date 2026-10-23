@@ -29,7 +29,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { randomBytes } from 'node:crypto'
-import { detectGit, runGit } from '../git-cli'
+import { detectGit, runGit } from '../../../../main/git-cli'
 
 const log = {
   info: (...args: unknown[]) => console.log('[cloud-sync/git-network]', ...args),

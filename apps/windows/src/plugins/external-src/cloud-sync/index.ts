@@ -2,22 +2,25 @@ import { definePlugin } from '@mtbot/plugin-core'
 
 import type { MainEvents } from '../../../main/kernel/events'
 import { S } from '../../../main/kernel/services'
-import { CloudSyncManager } from '../../../main/cloud-sync/sync-manager'
-import { SyncScheduler } from '../../../main/cloud-sync/sync-scheduler'
-import { setCloudSyncManager, setCloudSyncWorkspaceChangedHandler } from '../../../main/cloud-sync/sync-accessor'
+import {
+  setCloudSyncManager,
+  setCloudSyncWorkspaceChangedHandler,
+} from '../../../main/kernel/cloud-sync-contract'
+import { CloudSyncManager } from './impl/sync-manager'
+import { SyncScheduler } from './impl/sync-scheduler'
+import { registerCloudSyncIpc } from './impl/sync-ipc'
 
 /**
  * 云同步扩展。
  *
- * 这一片**只搬生命周期，不搬实现**：`sync-manager` / `sync-scheduler` / 18 个
- * cloud-sync 文件原地不动，扩展负责「谁来创建、谁来回调、谁来销毁」。
- * 这正是「先接线后搬家」——先让云同步能被关掉，再谈把 5000 行搬进插件目录。
+ * 实现全在 `impl/`，核心只认 `main/kernel/cloud-sync-contract.ts` 里的接口与访问器。
+ * IPC（`cloudSync:*`）也由这里注册：停用后设置页的云同步区块随 `OfficialExtensionGate`
+ * 一起消失，不存在「没有 handler」的窗口。
  *
- * 时序上的两个约束（不是巧合，是既有代码的要求）：
- * 1. 管理器必须在 `setupIpcHandlers()` 之前创建，否则 `registerCloudSyncIpcHandlers`
- *    订阅不到 status 事件 —— 扩展在 S1b 激活，早于它，满足。
- * 2. 调度器**不能**在这里 start：`syncScheduler.start()` 惰性读工作空间目录，
- *    必须等配置就绪。start 仍留在 index.ts 的配置阶段之后。
+ * 时序约束：
+ * 1. 管理器与 IPC 同步创建/注册，status 事件订阅不会落空；
+ * 2. 调度器**不能**在这里 start：`start()` 惰性读工作空间目录，必须等工作空间 getter
+ *    就绪。start 仍由核心在配置阶段之后调（`scheduler.start()` 自己读已保存配置）。
  */
 export const cloudSyncExtension = {
   manifest: {
@@ -59,6 +62,16 @@ export const cloudSyncExtension = {
           },
         )
       })
+
+      // 设置页改配置 → 按新间隔重启调度（配置已由 sync-config 落盘）
+      registerCloudSyncIpc(
+        { handle: (channel, listener) => ctx.registerIpc?.(channel, listener) },
+        manager,
+        {
+          getMainWindow: () => ctx.get(S.mainWindow)?.get() ?? null,
+          onConfigChanged: (cfg) => scheduler.start(cfg),
+        },
+      )
 
       // 真正的 teardown：热卸载/禁用/卸载扩展时停掉调度器与文件监听，
       // 并把访问器清空——否则 IPC/工具层还会拿旧实例继续手动同步。

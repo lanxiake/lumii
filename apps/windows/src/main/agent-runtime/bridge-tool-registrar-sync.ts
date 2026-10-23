@@ -6,7 +6,7 @@
 import { Type } from '@sinclair/typebox'
 import { createMtBotTool, type MtBotToolConfig } from '@mtbot/agent-runtime'
 import { agentRuntimeLog as log, jsonToolResult } from './bridge-utils'
-import { getCloudSyncManager } from '../cloud-sync/sync-accessor'
+import { getCloudSyncManager } from '../kernel/cloud-sync-contract'
 import type { BridgeToolRegistrarDeps } from './bridge-tool-registrar-types'
 
 export function registerSyncConflictTool(deps: BridgeToolRegistrarDeps): void {

@@ -8,9 +8,9 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { safeStorage } from 'electron'
-import { resolveWindowsClientDataRoot } from '../client-data-root'
-import { createLogger } from '../logger'
-import type { CloudSyncConfig, CloudSyncConfigView } from './types'
+import { resolveWindowsClientDataRoot } from '../../../../main/client-data-root'
+import { createLogger } from '../../../../main/logger'
+import type { CloudSyncConfig, CloudSyncConfigView } from '../../../../shared/cloud-sync'
 
 const logger = createLogger('cloud-sync/config')
 

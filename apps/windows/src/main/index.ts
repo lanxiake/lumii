@@ -151,9 +151,7 @@ import { setupExtensionIpcHandlers } from './ipc/extension-ipc'
 import { setPalaceBridgeProvider, setupPalaceIpcHandlers } from './ipc/palace-ipc'
 import { registerAllIpcHandlers } from './ipc/ipc-handlers-registry'
 import { registerCodingDevIpcHandlers } from './ipc/coding-dev-ipc'
-import type { CloudSyncManager } from './cloud-sync/sync-manager'
-import type { SyncScheduler } from './cloud-sync/sync-scheduler'
-import { loadCloudSyncConfig } from './cloud-sync/sync-config'
+import type { SyncSchedulerLike } from './kernel/cloud-sync-contract'
 import { initScriptRuntimes } from './runtime-env'
 import type { VoiceCallService } from '../plugins/builtin/voice/voice-service.js'
 import { setChannelAsrReadyChecker } from './channel/channel-voice-asr-hint.js'
@@ -211,9 +209,8 @@ let mainWindow: BrowserWindow | null = null
 let trayManager: TrayManager | null = null
 /** 录屏服务单例（主窗创建后初始化） */
 let screenRecordService: ScreenRecordService | null = null
-/** 云同步管理器与调度器（setupIpcHandlers 前创建，setActiveWorkspaceDirGetter 后启动） */
-let cloudSyncManager: CloudSyncManager | null = null
-let syncScheduler: SyncScheduler | null = null
+/** 云同步调度器（扩展装配后从容器现取；setActiveWorkspaceDirGetter 后启动） */
+let syncScheduler: SyncSchedulerLike | null = null
 /** 扩展宿主（随主进程生命周期，performCleanup 时 stopAll） */
 let pluginHost: PluginHost<MainEvents> | null = null
 let pluginEventBus: PluginHost<MainEvents>['eventBus'] | null = null
@@ -942,10 +939,6 @@ function setupIpcHandlers(): void {
     reapplyCodingDevAcpEnv: reapplyCodingDevAcpEnvFromConfig,
     setMemoryInjectionSettings: setMemoryInjectionSettingsCache,
     pluginEventBus,
-    // 现取容器：云同步被卸载后这里应是 no-op，而不是拿旧调度器继续跑
-    restartCloudSyncScheduler: (cfg) => {
-      pluginHost?.container.get(S.syncScheduler)?.start(cfg)
-    },
     log,
   })
 
@@ -1204,12 +1197,10 @@ async function wireOfficialExtensionInstalled(id: string): Promise<void> {
         return
       }
     } else {
-      const manager = pluginHost?.container.get(S.cloudSync) ?? null
       const scheduler = pluginHost?.container.get(S.syncScheduler) ?? null
-      if (manager && scheduler) {
-        cloudSyncManager = manager
+      if (scheduler) {
         syncScheduler = scheduler
-        scheduler.start(loadCloudSyncConfig())
+        scheduler.start()
         log.info('[ext] cloud-sync 运行期装配完成（调度器已启动）')
         return
       }
@@ -1291,9 +1282,8 @@ async function startExtensions(): Promise<void> {
   // perf / cloud-sync 可能由官方外部扩展提供：必须在 loadAll 之后读
   performanceMonitor = pluginHost.container.get(S.perf) ?? null
   log.info(`[ext] perf 服务: ${performanceMonitor ? '就绪' : '未提供'}`)
-  cloudSyncManager = pluginHost.container.get(S.cloudSync) ?? null
   syncScheduler = pluginHost.container.get(S.syncScheduler) ?? null
-  log.info(`[ext] cloud-sync 服务: ${cloudSyncManager ? '就绪' : '未提供'}`)
+  log.info(`[ext] cloud-sync 服务: ${syncScheduler ? '就绪' : '未提供'}`)
 
   // 跨渠道接续：adapter / 斜杠命令每次现取，插件停用后容器里没有 ⇒ 按功能关闭处理
   setChannelContinuityAccessor(() => pluginHost?.container.get(S.channelContinuity) ?? null)
@@ -1487,7 +1477,7 @@ async function initConfigAndWorkspace(): Promise<void> {
   log.info('工作空间 temp 布局已确保（temp/recordings、temp/screenshots）')
 
   // 云同步调度：工作空间 getter 挂接后再启动（sync 惰性读工作空间目录）
-  syncScheduler?.start(loadCloudSyncConfig())
+  syncScheduler?.start()
 }
 
 /** S7：技能种子与运行时、脚本运行时、插件预装、更新检查、Agent Runtime。 */

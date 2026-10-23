@@ -71,9 +71,9 @@ import { CloudSyncManager, PushTimeoutError, computeStagePlan } from './sync-man
 import {
   setActiveWorkspaceDirGetter,
   _resetActiveWorkspaceDirGetterForTest,
-} from '../workspace-paths'
-import { _resetWindowsClientDataRootCacheForTest } from '../client-data-root'
-import { enqueueWorkspace, resetWorkspaceVcs } from '../../plugins/builtin/vcs/vcs-snapshot'
+} from '../../../../main/workspace-paths'
+import { _resetWindowsClientDataRootCacheForTest } from '../../../../main/client-data-root'
+import { enqueueWorkspace, resetWorkspaceQueue } from '../../../../main/workspace-queue'
 
 const REMOTE_FS = { promises: fsp } as unknown as PromiseFsClient
 
@@ -258,7 +258,7 @@ describe('CloudSyncManager', () => {
   afterEach(() => {
     vi.restoreAllMocks()
     _resetActiveWorkspaceDirGetterForTest()
-    resetWorkspaceVcs()
+    resetWorkspaceQueue()
     delete process.env.LUMII_CLIENT_DATA_DIR
     _resetWindowsClientDataRootCacheForTest()
     fs.rmSync(clientRoot, { recursive: true, force: true })

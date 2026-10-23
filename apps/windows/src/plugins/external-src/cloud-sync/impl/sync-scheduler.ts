@@ -6,11 +6,12 @@
  *  - Turn 快照后 60s 防抖（onWorkspaceChanged）
  *  - workspace 文件变更（SyncFileWatcher，仅本地自动 commit，不 fetch/push）
  */
-import { createLogger } from '../logger'
-import { resolveActiveWorkspaceDir } from '../workspace-paths'
+import { createLogger } from '../../../../main/logger'
+import { resolveActiveWorkspaceDir } from '../../../../main/workspace-paths'
 import type { CloudSyncManager } from './sync-manager'
 import { SyncFileWatcher } from './sync-watcher'
-import type { SyncStatus } from './types'
+import type { SyncStatus } from '../../../../shared/cloud-sync'
+import { loadCloudSyncConfig } from './sync-config'
 
 const logger = createLogger('cloud-sync/scheduler')
 
@@ -55,7 +56,7 @@ export class SyncScheduler {
     this.onConflictPendingCb = cb
   }
 
-  start(cfg: { enabled: boolean; intervalMinutes: number }): void {
+  start(cfg: { enabled: boolean; intervalMinutes: number } = loadCloudSyncConfig()): void {
     this.stop()
     if (!cfg.enabled) return
     const interval = Math.max(1, cfg.intervalMinutes) * 60_000

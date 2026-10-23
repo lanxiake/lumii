@@ -51,8 +51,6 @@ import {
 } from './settings-ipc'
 import { registerUserGuidesIpcHandlers } from './user-guides-ipc'
 import { registerNetIpcHandlers } from './net-ipc'
-import { setCloudSyncIpcDeps, registerCloudSyncIpcHandlers } from '../cloud-sync/sync-ipc'
-import type { CloudSyncConfig } from '../cloud-sync/types'
 
 export interface IpcHandlersDeps {
   getMainWindow: () => BrowserWindow | null
@@ -74,7 +72,6 @@ export interface IpcHandlersDeps {
     injectPersonalMemory?: boolean
     injectWorkMemory?: boolean
   }) => void
-  restartCloudSyncScheduler?: (cfg: CloudSyncConfig) => void
   pluginEventBus?: import('@mtbot/plugin-core').EventBus<import('../kernel/events').MainEvents> | null
   log: {
     debug: (...args: unknown[]) => void
@@ -138,11 +135,6 @@ export function registerAllIpcHandlers(deps: IpcHandlersDeps): void {
     setMemoryInjectionSettings: deps.setMemoryInjectionSettings,
   })
 
-  setCloudSyncIpcDeps({
-    getMainWindow: deps.getMainWindow,
-    onConfigChanged: deps.restartCloudSyncScheduler,
-  })
-
   // 注册所有 IPC handlers
   registerWorkspaceIpcHandlers()
   registerWindowIpcHandlers()
@@ -153,6 +145,5 @@ export function registerAllIpcHandlers(deps: IpcHandlersDeps): void {
   registerApiIpcHandlers()
   registerSettingsIpcHandlers()
   registerUserGuidesIpcHandlers()
-  registerCloudSyncIpcHandlers()
   registerNetIpcHandlers()
 }

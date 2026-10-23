@@ -82,7 +82,7 @@ import { resizeImageIfNeeded } from './image-resizer'
 import type { FileMemoryHandler } from './file-memory-handler'
 import type { WikiIngestHook } from '@mtbot/agent-runtime'
 import { getVcsService } from './vcs-accessor'
-import { notifyCloudSyncWorkspaceChanged } from '../cloud-sync/sync-accessor'
+import { notifyCloudSyncWorkspaceChanged } from '../kernel/cloud-sync-contract'
 import { getAutonomousService } from './autonomous-accessor'
 import { getSkillEvolutionService } from './skill-evolution-accessor'
 

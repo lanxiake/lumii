@@ -19,7 +19,7 @@ import path from 'node:path'
 import git from 'isomorphic-git'
 import type { PromiseFsClient } from 'isomorphic-git'
 import { ProgressFence } from '@mtbot/agent-runtime/shared'
-import { createLogger } from '../logger'
+import { createLogger } from '../../../../main/logger'
 import { SYNC_MTIME_TOLERANCE_MS, SYNC_SKIP_DIR_NAMES } from './sync-copy'
 import { isExcluded, type SyncScopeRules } from './sync-scope'
 
@@ -176,17 +176,10 @@ export interface PumpResult {
   yielded: boolean
 }
 
-/** 阶段二进度快照（供 UI 展示；来自最近一次扫描，非实时） */
-export interface LargeQueueStats {
-  /** 最近一次扫描时的待传文件数 */
-  pendingFiles: number
-  /** 最近一次扫描时的待传字节数 */
-  pendingBytes: number
-  /** 是否正在 pump */
-  pumping: boolean
-  /** 统计时间戳；0 表示尚未扫描过 */
-  at: number
-}
+import type { LargeQueueStats } from '../../../../shared/cloud-sync'
+
+/** 阶段二进度快照（供 UI 展示；来自最近一次扫描，非实时）。契约在 shared/cloud-sync.ts */
+export type { LargeQueueStats }
 
 export class SyncLargeQueue {
   private pumping = false

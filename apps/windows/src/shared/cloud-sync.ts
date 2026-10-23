@@ -80,3 +80,23 @@ export interface ConflictInfo {
   remoteOid: string
   baseOid: string
 }
+
+/** 同步历史日志条目（设置页「同步日志」回看） */
+export interface SyncLogEntry {
+  /** 时间戳（ms） */
+  ts: number
+  state: SyncState
+  message: string
+}
+
+/** 阶段二（大文件队列）进度，设置页展示「还剩多少在传」 */
+export interface LargeQueueStats {
+  /** 最近一次扫描时的待传文件数 */
+  pendingFiles: number
+  /** 最近一次扫描时的待传字节数 */
+  pendingBytes: number
+  /** 是否正在 pump */
+  pumping: boolean
+  /** 统计时间戳；0 表示尚未扫描过 */
+  at: number
+}

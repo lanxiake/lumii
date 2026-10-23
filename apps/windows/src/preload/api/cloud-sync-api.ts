@@ -2,8 +2,8 @@
  * 云同步 Preload API（设置页 + Agent 冲突解决只读通道）。
  */
 import { ipcRenderer } from 'electron'
-import type { CloudSyncConfigView, SyncState, SyncStatus } from '../../main/cloud-sync/types'
-import type { SyncLogEntry } from '../../main/cloud-sync/sync-log'
+import type { CloudSyncConfigView, SyncState, SyncStatus } from '../../shared/cloud-sync'
+import type { SyncLogEntry } from '../../shared/cloud-sync'
 
 export const cloudSyncApi = {
   getConfig: (): Promise<{ success: boolean; data?: CloudSyncConfigView; error?: string }> =>

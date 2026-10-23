@@ -7,11 +7,11 @@ import { describe, it, expect, vi } from 'vitest'
 import { registerSyncConflictTool } from './bridge-tool-registrar-sync'
 import type { BridgeToolRegistrarDeps } from './bridge-tool-registrar-types'
 
-vi.mock('../cloud-sync/sync-accessor', () => ({
+vi.mock('../kernel/cloud-sync-contract', () => ({
   getCloudSyncManager: vi.fn(),
 }))
 
-import { getCloudSyncManager } from '../cloud-sync/sync-accessor'
+import { getCloudSyncManager } from '../kernel/cloud-sync-contract'
 
 interface RegisteredTool {
   name: string

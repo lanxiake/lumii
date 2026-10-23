@@ -6,20 +6,13 @@
  */
 import fs from 'node:fs'
 import path from 'node:path'
-import { resolveWindowsClientDataRoot } from '../client-data-root'
-import { createLogger } from '../logger'
-import type { SyncState } from './types'
+import { resolveWindowsClientDataRoot } from '../../../../main/client-data-root'
+import { createLogger } from '../../../../main/logger'
+import type { SyncLogEntry, SyncState } from '../../../../shared/cloud-sync'
 
 const logger = createLogger('cloud-sync/log')
 
 export const MAX_SYNC_LOGS = 100
-
-export interface SyncLogEntry {
-  /** 时间戳（ms） */
-  ts: number
-  state: SyncState
-  message: string
-}
 
 const logFile = (): string =>
   path.join(resolveWindowsClientDataRoot(), 'config', 'cloud-sync-log.json')
