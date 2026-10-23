@@ -359,7 +359,7 @@ describe('runWechatWatch', () => {
   it('首次运行（无水位）只从现在起看，不翻历史', async () => {
     const { d, callMcpTool } = deps()
     await runWechatWatch(d)
-    expect(callMcpTool).toHaveBeenCalledWith('wechat-local', 'poll_new', { since_ts: 1800 })
+    expect(callMcpTool).toHaveBeenCalledWith('wechat-chat', 'poll_new', { since_ts: 1800 })
   })
 
   it('有新消息：通知正文含名字与内容，水位照推进', async () => {
@@ -398,7 +398,7 @@ describe('runWechatWatch', () => {
       .mockRejectedValueOnce(new Error('ERROR: '))
       .mockResolvedValueOnce(JSON.stringify({ count: 0, messages: [], next_since_ts: 2000 }))
     const out = await runWechatWatch(d)
-    expect(resetMcpServer).toHaveBeenCalledWith('wechat-local')
+    expect(resetMcpServer).toHaveBeenCalledWith('wechat-chat')
     expect(callMcpTool).toHaveBeenCalledTimes(2)
     expect(out).toBe('无新消息')
   })
@@ -468,7 +468,7 @@ describe('runWechatWatch', () => {
     await runWechatWatch(d)                          // 判定未运行，进入退避
     now += 61_000
     expect(await runWechatWatch(d)).toBe('无新消息')
-    expect(callMcpTool).toHaveBeenCalledWith('wechat-local', 'poll_new', {
+    expect(callMcpTool).toHaveBeenCalledWith('wechat-chat', 'poll_new', {
       since_ts: 1861,        // 首轮无水位：从当前时钟起，不翻历史
       account: 'wxid_1',
     })

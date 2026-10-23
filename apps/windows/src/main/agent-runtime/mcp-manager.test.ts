@@ -161,7 +161,7 @@ describe('McpManager.disconnectAll（连接中竞态）', () => {
  */
 describe('McpManager.callTool', () => {
   function makeCallToolManager(callTool: (name: string, args: unknown) => Promise<unknown>) {
-    const clients = new Map([['wechat-local', { callTool } as never]])
+    const clients = new Map([['wechat-chat', { callTool } as never]])
     const toolRegistry = { register: vi.fn(), unregister: vi.fn() }
     return new McpManager(toolRegistry as never, clients as never)
   }
@@ -175,7 +175,7 @@ describe('McpManager.callTool', () => {
       ],
       isError: false,
     }))
-    await expect(manager.callTool('wechat-local', 'poll_new', { since_ts: 1 })).resolves.toBe(
+    await expect(manager.callTool('wechat-chat', 'poll_new', { since_ts: 1 })).resolves.toBe(
       '{"count":0}\n第二段',
     )
   })
@@ -185,7 +185,7 @@ describe('McpManager.callTool', () => {
       content: [{ type: 'text', text: 'ERROR: boom' }],
       isError: true,
     }))
-    await expect(manager.callTool('wechat-local', 'poll_new', {})).rejects.toThrow('boom')
+    await expect(manager.callTool('wechat-chat', 'poll_new', {})).rejects.toThrow('boom')
   })
 
   it('Server 未连接时抛错（而不是静默返回空）', async () => {

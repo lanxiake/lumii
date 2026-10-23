@@ -1493,8 +1493,8 @@ async function initLocalServices(): Promise<void> {
   setPalaceBridgeProvider(() => agentRuntimeBridge)
   setupPalaceIpcHandlers()
   registerBuiltinPlugins({
-    upsertMcpServer: async (entry) => {
-      await agentRuntimeBridge?.upsertMcpServer(entry)
+    upsertMcpServer: async (entry, originalName) => {
+      await agentRuntimeBridge?.upsertMcpServer(entry, originalName)
     },
     setMcpServerEnabled: async (name, enabled) => {
       await agentRuntimeBridge?.setMcpServerEnabled(name, enabled)

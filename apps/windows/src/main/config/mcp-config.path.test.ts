@@ -8,6 +8,7 @@ import {
   computeBackgroundToolNames,
   getDefaultMcpDocumentsDir,
   migrateBundledExeCommands,
+  migrateWechatMcpEntry,
   reconcileBuiltinMcpPresets,
   resolveMcpEntryPaths,
   validateMcpServerEntry,
@@ -189,15 +190,22 @@ describe('MCP 后台化工具配置', () => {
 })
 
 describe('内置自研 MCP 迁移为独立 exe', () => {
-  const wechatArgs = ['{{LUMII_RESOURCES}}/wechat-mcp/server.py']
+  const wechatArgs = ['{{LUMII_RESOURCES}}/wechat-chat-mcp/server.py']
   const managedExe = path.join(os.tmpdir(), 'lumii-test', 'python-embed', 'python.exe')
-  const deployedExe = path.join(os.tmpdir(), 'lumii-test', 'mcp', 'wechat-mcp', 'wechat-mcp.exe')
-  const resolveExe = (name: string) => (name === 'wechat-mcp' ? deployedExe : `unexpected:${name}`)
+  const deployedExe = path.join(
+    os.tmpdir(),
+    'lumii-test',
+    'mcp',
+    'wechat-chat-mcp',
+    'wechat-chat-mcp.exe',
+  )
+  const resolveExe = (name: string) =>
+    name === 'wechat-chat-mcp' ? deployedExe : `unexpected:${name}`
 
   it('占位符 / 裸 python / 写死的托管解释器都迁成 exe 绝对路径，且不再带参数', () => {
     for (const command of ['{{LUMII_PYTHON}}', 'python', 'python3', 'Python.exe', managedExe]) {
       const [migrated] = migrateBundledExeCommands(
-        [{ name: 'wechat-local', command, args: wechatArgs, enabled: true, env: { LUMII_WECHAT_ACCOUNT: 'wxid_a' } }],
+        [{ name: 'wechat-chat', command, args: wechatArgs, enabled: true, env: { LUMII_WECHAT_ACCOUNT: 'wxid_a' } }],
         [managedExe],
         resolveExe,
       )
@@ -211,17 +219,17 @@ describe('内置自研 MCP 迁移为独立 exe', () => {
 
   it('用户自定义的解释器、改过脚本路径、已是 exe 或非内置项都不动', () => {
     const entries: McpServerEntry[] = [
-      { name: 'wechat-local', command: 'D:/my-python/python.exe', args: wechatArgs },
-      { name: 'wechat-local', command: 'python', args: ['D:/fork/server.py'] },
-      { name: 'wechat-local', command: deployedExe, args: [] },
+      { name: 'wechat-chat', command: 'D:/my-python/python.exe', args: wechatArgs },
+      { name: 'wechat-chat', command: 'python', args: ['D:/fork/server.py'] },
+      { name: 'wechat-chat', command: deployedExe, args: [] },
       { name: 'my-py-mcp', command: 'python', args: wechatArgs },
     ]
     expect(migrateBundledExeCommands(entries, [managedExe], resolveExe)).toEqual(entries)
   })
 
-  it('播种出的 wechat-local 不含任何占位符，command 指向部署后的 exe', () => {
-    const wechat = computeMcpPresetBackfill([], new Set()).added.find((e) => e.name === 'wechat-local')
-    expect(wechat?.command).toMatch(/[\\/]mcp[\\/]wechat-mcp[\\/]wechat-mcp\.exe$/)
+  it('播种出的微信 MCP 不含任何占位符，command 指向部署后的 exe', () => {
+    const wechat = computeMcpPresetBackfill([], new Set()).added.find((e) => e.name === 'wechat-chat')
+    expect(wechat?.command).toMatch(/[\\/]mcp[\\/]wechat-chat-mcp[\\/]wechat-chat-mcp\.exe$/)
     expect(path.isAbsolute(wechat!.command)).toBe(true)
     expect(JSON.stringify(wechat)).not.toContain('{{')
     // 2026-10-11：exe 不再随包，改由「微信本机助手」插件按需下载。
@@ -229,5 +237,50 @@ describe('内置自研 MCP 迁移为独立 exe', () => {
     // 装插件后由插件改回启用。这条断言写于随包时代、一直没跟着改：
     // 过期的是断言，不是实现（见 mcp-presets.ts 里 wechat-local 的注释）。
     expect(wechat?.enabled).toBe(false)
+  })
+})
+
+describe('微信 MCP 条目改名与超时补齐', () => {
+  it('只有旧条目时改名保留（env/开关不丢）并补 5 分钟超时', () => {
+    const [migrated] = migrateWechatMcpEntry([
+      {
+        name: 'wechat-local',
+        command: 'C:/old/wechat-mcp.exe',
+        enabled: true,
+        env: { LUMII_WECHAT_DB: 'C:/db' },
+      },
+    ])
+    expect(migrated.name).toBe('wechat-chat')
+    expect(migrated.command).toBe('C:/old/wechat-mcp.exe')
+    expect(migrated.enabled).toBe(true)
+    expect(migrated.env).toEqual({ LUMII_WECHAT_DB: 'C:/db' })
+    expect(migrated.timeoutMs).toBe(300_000)
+  })
+
+  it('新旧同时存在时只留一条，规范条目优先、旧条目补空字段', () => {
+    const entries = migrateWechatMcpEntry([
+      { name: 'wechat-local', command: 'C:/old.exe', enabled: false, env: { A: '1', B: 'old' } },
+      { name: 'wechat-chat', command: 'C:/new.exe', env: { B: 'new' } },
+    ])
+    expect(entries).toHaveLength(1)
+    expect(entries[0].name).toBe('wechat-chat')
+    expect(entries[0].command).toBe('C:/new.exe')
+    expect(entries[0].env).toEqual({ A: '1', B: 'new' })
+    expect(entries[0].enabled).toBe(false)
+    expect(entries[0].timeoutMs).toBe(300_000)
+  })
+
+  it('产品自带 --install 写出的条目（无 timeout/enabled）被补齐', () => {
+    const [entry] = migrateWechatMcpEntry([
+      { name: 'wechat-chat', command: 'C:/x/wechat-chat-mcp-0.10.0.exe', args: [], env: {} },
+    ])
+    expect(entry.timeoutMs).toBe(300_000)
+    // 原本没有的人为开关不被凭空写成 true/false
+    expect(entry.enabled).toBeUndefined()
+  })
+
+  it('其它 Server 原样保留', () => {
+    const other = { name: 'excel-mcp', command: 'npx', args: ['-y', 'excel-mcp'] }
+    expect(migrateWechatMcpEntry([other])).toEqual([other])
   })
 })

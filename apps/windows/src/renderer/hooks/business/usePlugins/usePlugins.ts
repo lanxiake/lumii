@@ -6,6 +6,8 @@ export type PluginStatus = {
   id: PluginId
   installed: boolean
   version?: string
+  /** 应用内置/随包的最新版本；与 `version` 不同即可升级（资产不提供时缺省） */
+  latestVersion?: string
   exePath?: string
   installing: boolean
   uninstalling: boolean
@@ -55,7 +57,9 @@ export function usePlugins(): UsePluginsResult {
 
   // 统一进度通道：载荷带 id，据此分发到对应插件
   useEffect(() => {
-    const unsub = window.electronAPI.plugins.onProgress((p) => {
+    const api = window.electronAPI?.plugins
+    if (!api) return
+    const unsub = api.onProgress((p) => {
       const id = p.id as PluginId
       if (p.phase === 'cancelled') {
         patch(id, { installing: false, progress: undefined, error: undefined })
@@ -76,7 +80,7 @@ export function usePlugins(): UsePluginsResult {
   }, [patch])
 
   const refreshAll = useCallback(async () => {
-    const list = await window.electronAPI.plugins.list()
+    const list = (await window.electronAPI?.plugins?.list?.()) ?? {}
     setStatuses((prev) => {
       const next: Record<string, PluginStatus> = { ...prev }
       for (const def of PLUGIN_REGISTRY) {
@@ -85,6 +89,7 @@ export function usePlugins(): UsePluginsResult {
           ...(prev[def.id] ?? DEFAULT_STATUS(def.id)),
           installed: s.installed,
           version: s.version,
+          latestVersion: s.latestVersion,
           exePath: s.exePath,
         }
       }
@@ -100,7 +105,8 @@ export function usePlugins(): UsePluginsResult {
     async (id: PluginId) => {
       patch(id, { installing: true, error: undefined, progress: undefined })
       try {
-        const result = await window.electronAPI.plugins.install(id)
+        const result = await window.electronAPI?.plugins?.install?.(id)
+        if (!result) return
         // cancelled 不算失败，静默处理
         if (!result.success && !result.cancelled && result.error) throw new Error(result.error)
         await refreshAll()
@@ -117,7 +123,8 @@ export function usePlugins(): UsePluginsResult {
     async (id: PluginId) => {
       patch(id, { uninstalling: true, error: undefined })
       try {
-        const result = await window.electronAPI.plugins.uninstall(id)
+        const result = await window.electronAPI?.plugins?.uninstall?.(id)
+        if (!result) return
         if (!result.success) throw new Error(result.error ?? '卸载失败')
         await refreshAll()
       } catch (err) {
@@ -131,7 +138,7 @@ export function usePlugins(): UsePluginsResult {
 
   const cancel = useCallback(async (id: PluginId) => {
     // 状态由 progress cancelled 事件回调复位，此处不重复 patch
-    await window.electronAPI.plugins.cancel(id)
+    await window.electronAPI?.plugins?.cancel?.(id)
   }, [])
 
   const refresh = useCallback(

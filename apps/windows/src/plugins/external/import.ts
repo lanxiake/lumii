@@ -19,6 +19,7 @@ import path from 'node:path'
 import { dialog } from 'electron'
 
 import { extractZip } from '../install/zip'
+import { compareVersions } from '../../shared/version'
 import { resolveClientPluginsDir, resolveExtensionsDir } from './paths'
 
 export type ImportSourceKind = 'zip' | 'folder'
@@ -137,20 +138,8 @@ export function normalizeVersion(value: string | undefined): string | null {
   return v
 }
 
-/** 比较 x.y.z[-tag]；返回值 >0 表示 a 更新 */
-export function compareVersions(a: string, b: string): number {
-  const core = (v: string) => v.split(/[-+]/, 1)[0]!.split('.').map((n) => Number(n) || 0)
-  const [aCore, bCore] = [core(a), core(b)]
-  for (let i = 0; i < 3; i++) {
-    const diff = (aCore[i] ?? 0) - (bCore[i] ?? 0)
-    if (diff !== 0) return diff
-  }
-  // 正式版 > 预发布版；同为预发布时按字符串比较（够用且稳定）
-  const aPre = /[-+]/.test(a)
-  const bPre = /[-+]/.test(b)
-  if (aPre !== bPre) return aPre ? -1 : 1
-  return a.localeCompare(b)
-}
+/** 比较 x.y.z[-tag]；返回值 >0 表示 a 更新（实现在 shared/version，渲染层同用） */
+export { compareVersions }
 
 /**
  * 从一个本地路径导入（zip 文件或目录）。UI 走 `importPluginFromDialog`，

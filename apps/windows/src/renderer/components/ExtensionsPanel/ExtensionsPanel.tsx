@@ -12,6 +12,7 @@ import {
   type PluginId,
 } from '../../data/asset-plugins'
 import { usePluginsContext } from '../../contexts/PluginsContext/PluginsContext'
+import { isNewerVersion } from '../../../shared/version'
 import { useSettingsHub } from '../SettingsHub/SettingsHubContext'
 import { Modal } from '../ui/Modal/Modal'
 import { ConfirmModal } from '../ui/Modal/ConfirmModal'
@@ -196,7 +197,13 @@ function buildPluginBrief(brief: string): string {
 }
 
 /** 独立运行时组件 → 统一行（安装状态由 PluginsContext 提供） */
-function assetRow(def: PluginDef, installed: boolean, installing: boolean, version?: string): ExtensionInfo {
+function assetRow(
+  def: PluginDef,
+  installed: boolean,
+  installing: boolean,
+  version?: string,
+  latestVersion?: string,
+): ExtensionInfo {
   return {
     id: def.id,
     name: def.name,
@@ -208,6 +215,11 @@ function assetRow(def: PluginDef, installed: boolean, installing: boolean, versi
     state: installing ? 'installing' : installed ? 'installed' : 'not-installed',
     ...(installing ? { activationMs: undefined } : {}),
     pendingRestart: false,
+    // 老安装没有 version.json 边车：版本未知时也给「更新」，重新装一次就能补上边车
+    updatable:
+      installed &&
+      Boolean(latestVersion) &&
+      (!version || isNewerVersion(latestVersion, version)),
     asset: def,
   }
 }
@@ -250,7 +262,13 @@ export const ExtensionsPanel: React.FC<ExtensionsPanelProps> = ({ onViewChange }
   const rows = useMemo<ExtensionInfo[]>(() => {
     const standalone = PLUGIN_REGISTRY.filter((def) => def.standalone).map((def) => {
       const status = assetStatuses[def.id]
-      return assetRow(def, Boolean(status?.installed), Boolean(status?.installing), status?.version)
+      return assetRow(
+        def,
+        Boolean(status?.installed),
+        Boolean(status?.installing),
+        status?.version,
+        status?.latestVersion,
+      )
     })
     return [...items, ...clients.map(clientRow), ...standalone]
   }, [items, clients, assetStatuses])
@@ -632,13 +650,25 @@ export const ExtensionsPanel: React.FC<ExtensionsPanelProps> = ({ onViewChange }
                 取消
               </button>
             ) : row.enabled ? (
-              <button
-                className={styles.toggle}
-                disabled={busy === row.id}
-                onClick={() => setAssetUninstall(row.asset!)}
-              >
-                卸载
-              </button>
+              <>
+                {row.updatable && (
+                  <button
+                    className={styles.toggle}
+                    disabled={busy === row.id}
+                    title={`已安装 ${row.version || '未知版本'}，可更新到 ${assetStatus?.latestVersion ?? '最新版'}`}
+                    onClick={() => void installAsset(row.asset!.id)}
+                  >
+                    更新
+                  </button>
+                )}
+                <button
+                  className={styles.toggle}
+                  disabled={busy === row.id}
+                  onClick={() => setAssetUninstall(row.asset!)}
+                >
+                  卸载
+                </button>
+              </>
             ) : (
               <button
                 className={styles.toggle}

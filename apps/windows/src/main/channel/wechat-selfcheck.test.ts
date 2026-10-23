@@ -25,7 +25,7 @@ describe('writeWechatDbToConfig', () => {
   })
 
   it('配置里没有 LUMII_WECHAT_DB ⇒ 补写并落盘', () => {
-    loadMock.mockReturnValue([{ name: 'wechat-local', command: 'x.exe', enabled: true }])
+    loadMock.mockReturnValue([{ name: 'wechat-chat', command: 'x.exe', enabled: true }])
     expect(writeWechatDbToConfig(ROOT)).toBe(true)
     expect(saveMock).toHaveBeenCalledTimes(1)
     const written = saveMock.mock.calls[0]![0] as Array<{ env?: Record<string, string> }>
@@ -34,7 +34,7 @@ describe('writeWechatDbToConfig', () => {
 
   it('用户已显式填过 ⇒ 绝不覆盖', () => {
     loadMock.mockReturnValue([
-      { name: 'wechat-local', command: 'x.exe', enabled: true, env: { LUMII_WECHAT_DB: 'C:\\mine' } },
+      { name: 'wechat-chat', command: 'x.exe', enabled: true, env: { LUMII_WECHAT_DB: 'C:\\mine' } },
     ])
     expect(writeWechatDbToConfig(ROOT)).toBe(false)
     expect(saveMock).not.toHaveBeenCalled()
@@ -51,7 +51,7 @@ describe('runWechatSelfcheck', () => {
   beforeEach(() => {
     loadMock.mockReset()
     saveMock.mockReset()
-    loadMock.mockReturnValue([{ name: 'wechat-local', command: 'x.exe', enabled: true }])
+    loadMock.mockReturnValue([{ name: 'wechat-chat', command: 'x.exe', enabled: true }])
   })
 
   it('数据目录找到 + 环境 ok ⇒ ok=true，且补写了配置', async () => {

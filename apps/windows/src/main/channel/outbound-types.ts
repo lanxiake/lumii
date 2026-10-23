@@ -9,7 +9,7 @@
  *
  * `pcwechat`（本机微信）是第 5 个：助手在这台电脑上以用户身份跟微信好友说话，
  * 方向与 `weixin`（用户在微信里找 Lumii）相反。它没有登录服务，靠本机的
- * wechat-local MCP，出站名单来自渠道策略（见 providers/pcwechat-outbound-provider.ts）。
+ * wechat-chat MCP，出站名单来自渠道策略（见 providers/pcwechat-outbound-provider.ts）。
  *
  * 清单与类型都从 agent-runtime 的 channel 工具契约取（**唯一一份**）：
  * 那边用它生成 `channel_send` 的 JSON schema enum，这边用它做 Router 入参校验，
@@ -101,7 +101,7 @@ export interface ChannelSendResult {
    */
   queued?: boolean
   /**
-   * 上游工具（如 wechat-local MCP）自报的**原始错误码**，供调用方看清真实来路。
+   * 上游工具（如 wechat-chat MCP）自报的**原始错误码**，供调用方看清真实来路。
    * `errorCode` 是渠道内归一化后的码，粒度粗（目前 `target_unconfirmed` 只能退成
    * `UPSTREAM_ERROR`）；这里保留原值，Agent 才能分辨「卡在目标确认」还是别的。
    */

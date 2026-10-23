@@ -9,11 +9,11 @@
  * 用来区分同名的人。名单里每条就是「谁 + 怎么处理」。
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Button } from '../../../../components/ui/Button/Button'
-import { Input } from '../../../../components/ui/Input/Input'
-import { Select } from '../../../../components/ui/Select/Select'
-import { Checkbox } from '../../../../components/ui/Checkbox/Checkbox'
-import { Modal } from '../../../../components/ui/Modal/Modal'
+import { Button } from '../../../../../renderer/components/ui/Button/Button'
+import { Input } from '../../../../../renderer/components/ui/Input/Input'
+import { Select } from '../../../../../renderer/components/ui/Select/Select'
+import { Checkbox } from '../../../../../renderer/components/ui/Checkbox/Checkbox'
+import { Modal } from '../../../../../renderer/components/ui/Modal/Modal'
 import {
   GROUP_ONLY_TRIGGERS,
   KEYWORD_TRIGGERS,

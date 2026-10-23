@@ -1,5 +1,5 @@
 /**
- * 随包独立 MCP 可执行文件（如 wechat-mcp.exe）的部署
+ * 随包独立 MCP 可执行文件的部署（微信 MCP 已改为插件按需下载，见 `plugins/install/builtin.ts`）
  *
  * 这类 MCP 要能**脱离灵栖独立使用**：配置里只写一个 exe 的绝对路径，不带任何占位符，
  * 复制到 Claude Desktop / Cursor 等客户端也能直接跑。所以 exe 不能留在安装目录里

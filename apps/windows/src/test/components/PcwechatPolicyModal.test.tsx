@@ -7,7 +7,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import '@testing-library/jest-dom'
-import { PolicyModal } from '../../renderer/pages/SettingsPage/components/PcwechatChannelSettings/PolicyModal'
+import { PolicyModal } from '../../plugins/builtin/pcwechat/ui/Settings/PolicyModal'
 
 function mockChannelService(overrides: {
   policy?: unknown

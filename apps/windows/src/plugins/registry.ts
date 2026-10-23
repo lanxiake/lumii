@@ -12,6 +12,7 @@ import { channelWeixinExtension } from './builtin/channel-weixin'
 import { channelWecomExtension } from './builtin/channel-wecom'
 import { channelFeishuExtension } from './builtin/channel-feishu'
 import { channelQbotExtension } from './builtin/channel-qbot'
+import { pcwechatExtension } from './builtin/pcwechat'
 import { dashboardFeedExtension } from './builtin/dashboard-feed'
 import { filePreviewExtension } from './builtin/file-preview'
 import { usageExtension } from './builtin/usage'
@@ -54,6 +55,7 @@ export const BUILTIN_EXTENSIONS: BuiltinExtension[] = [
   { ...channelWecomExtension, hot: true },
   { ...channelFeishuExtension, hot: true },
   { ...channelQbotExtension, hot: true },
+  { ...pcwechatExtension, hot: true },
   { ...dashboardFeedExtension, hot: true },
   { ...filePreviewExtension, hot: true },
   { ...usageExtension, hot: false },

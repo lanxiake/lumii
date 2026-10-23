@@ -32,6 +32,7 @@ import { WeixinChannelProvider } from './providers/weixin-outbound-provider'
 import { WecomChannelProvider } from './providers/wecom-outbound-provider'
 import { FeishuChannelProvider } from './providers/feishu-outbound-provider'
 import { QbotChannelProvider } from './providers/qbot-outbound-provider'
+import { PcwechatChannelProvider } from './providers/pcwechat-outbound-provider'
 import {
   createChannelHub,
   createChannelPeerStore,
@@ -79,38 +80,54 @@ export function initChannelHub(): ChannelHub {
   peerStore = createChannelPeerStore(resolveWindowsClientDataRoot())
   weixinStore = createWeixinReplyContextStore(resolveWindowsClientDataRoot())
   hub = createChannelHub({
-    // 本机微信：没有登录服务——"在线"= wechat-local MCP 连着，名单 = 渠道策略里配过的人
-    pcwechat: {
-      getPolicy: () => getChannelPolicyStore().get(PCWECHAT_CHANNEL),
-      mcpServer: WECHAT_WATCH_MCP_SERVER,
-      isMcpConnected: () => {
-        try {
-          return (
-            getBridge()
-              ?.getMcpStatus()
-              .some((s) => s.name === WECHAT_WATCH_MCP_SERVER && s.connected) ?? false
-          )
-        } catch {
-          return false
-        }
-      },
-      callMcpTool: (server, tool, args) => {
-        const bridge = getBridge()
-        if (!bridge) throw new Error('Agent Runtime 尚未就绪，无法调用 MCP 工具')
-        return bridge.callMcpTool(server, tool, args)
-      },
-      // 「此刻发不出去」（锁屏 / 窗口抢不到前台）：排队，盯梢回路下一拍自己补发
-      onUndeliverable: (to, text, account) => {
-        const bridge = getBridge()
-        if (!bridge) throw new Error('Agent Runtime 尚未就绪，无法排队补发')
-        bridge.enqueueWechatOutbox(to, text, account)
-      },
-    },
     dataRoot: resolveWindowsClientDataRoot(),
     weixinStore,
     peerStore,
   })
   return hub
+}
+
+/**
+ * 装配本机微信渠道（注册出站 Provider）。
+ *
+ * 由 `com.lumii.pcwechat` 插件在 `apply` 里调用，停用即摘掉 Provider——与另外四个
+ * 渠道同一套启停语义。`getBridge` **现取**：插件在 S1 激活，Agent Runtime 到 S7.4
+ * 才建，闭包里抓实例会一直拿到 null。
+ *
+ * 没有登录服务：「在线」= wechat-chat MCP 连着，名单 = 渠道策略里配过的人。
+ */
+export function startPcwechat(
+  hub: ChannelHub,
+  getBridge: () => AgentRuntimeBridge | null,
+): () => void {
+  const provider = new PcwechatChannelProvider({
+    getPolicy: () => getChannelPolicyStore().get(PCWECHAT_CHANNEL),
+    mcpServer: WECHAT_WATCH_MCP_SERVER,
+    isMcpConnected: () => {
+      try {
+        return (
+          getBridge()
+            ?.getMcpStatus()
+            .some((s) => s.name === WECHAT_WATCH_MCP_SERVER && s.connected) ?? false
+        )
+      } catch {
+        return false
+      }
+    },
+    callMcpTool: (server, tool, args) => {
+      const bridge = getBridge()
+      if (!bridge) throw new Error('Agent Runtime 尚未就绪，无法调用 MCP 工具')
+      return bridge.callMcpTool(server, tool, args)
+    },
+    // 「此刻发不出去」（锁屏 / 窗口抢不到前台）：排队，盯梢回路下一拍自己补发
+    onUndeliverable: (to, text, account) => {
+      const bridge = getBridge()
+      if (!bridge) throw new Error('Agent Runtime 尚未就绪，无法排队补发')
+      bridge.enqueueWechatOutbox(to, text, account)
+    },
+  })
+  hub.registry.register(provider)
+  return () => hub.registry.unregister('pcwechat')
 }
 
 export function getChannelHub(): ChannelHub | null {
@@ -129,15 +146,6 @@ export function getChannelLoginServices(): {
     feishu: feishuLoginService,
     qbot: qbotLoginService,
   }
-}
-
-/** bridge 在 S7.4 才建；Hub 的 pcwechat Provider 每次调用都现取，这里只留一个入口。 */
-let bridgeRef: AgentRuntimeBridge | null = null
-function getBridge(): AgentRuntimeBridge | null {
-  return bridgeRef
-}
-export function setChannelBridge(bridge: AgentRuntimeBridge | null): void {
-  bridgeRef = bridge
 }
 
 /** 无头模式下二维码打到终端而不是渲染进程。 */
@@ -171,7 +179,6 @@ export async function startChannel(
   id: ChannelId,
   deps: ChannelRuntimeDeps,
 ): Promise<() => void> {
-  setChannelBridge(deps.getBridge())
   windowGetter = deps.getMainWindow
   const channelHub = initChannelHub()
 

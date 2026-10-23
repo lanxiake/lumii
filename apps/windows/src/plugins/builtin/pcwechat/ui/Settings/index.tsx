@@ -1,7 +1,7 @@
 /**
  * 本机微信（pcwechat）渠道卡片：**摘要 + 一个「配置」按钮**。
  *
- * 与另外四张卡片不同，这里没有"登录"——"在线"就等于本机 wechat-local MCP 连着
+ * 与另外四张卡片不同，这里没有"登录"——"在线"就等于本机 wechat-chat MCP 连着
  * （助手用这台电脑上已登录的微信说话）。主体是回复策略，但表单本身放在
  * `PolicyModal` 里单独弹窗（用户 2026-10-08 指定：卡片上塞不下，也不该塞）。
  * 卡片上只说三句人话：在线没有、名单里有几个人、名单外的人怎么处理。
@@ -9,15 +9,17 @@
  * 这份策略是**唯一真源**：盯梢循环每拍从主进程同一份缓存读，弹窗里改完立刻生效。
  */
 import React, { useCallback, useEffect, useState } from 'react'
-import { Button } from '../../../../components/ui/Button/Button'
-import { ChannelCard, type ChannelMetaItem } from '../ChannelCard'
-import { ChannelBrandIcon } from '../../../../components/brand/ChannelBrandIcon'
-import type { ChannelSnapshot } from '../ChannelsSection/useChannelSnapshots'
+import { Button } from '../../../../../renderer/components/ui/Button/Button'
+import { ChannelCard, type ChannelMetaItem } from '../../../../../renderer/pages/SettingsPage/components/ChannelCard'
+import { ChannelBrandIcon } from '../../../../../renderer/components/brand/ChannelBrandIcon'
+import type { ChannelSnapshot } from '../../../../../renderer/pages/SettingsPage/components/ChannelsSection/useChannelSnapshots'
+import { usePlugins } from '../../../../../renderer/hooks/business/usePlugins/usePlugins'
 import {
   allPolicyPeers,
   type ChannelPolicy,
   type PeerReplyMode,
 } from '../../../../../shared/channel-policy'
+import { isNewerVersion } from '../../../../../shared/version'
 import type { WechatSelfcheckResult } from '../../../../../preload/api/channel-api'
 import { PolicyModal, MODE_OPTIONS } from './PolicyModal'
 
@@ -48,6 +50,15 @@ export const PcwechatChannelSettings: React.FC<PcwechatChannelSettingsProps> = (
   const [modalOpen, setModalOpen] = useState(false)
   const [check, setCheck] = useState<WechatSelfcheckResult | null>(null)
   const [checking, setChecking] = useState(false)
+  // 「微信本机助手」（wechat-chat-mcp）是运行时资产：卡片直接装/升，不用先去插件页找
+  const { statuses, install, cancel } = usePlugins()
+  const mcp = statuses['wechat-chat-mcp']
+  const mcpInstalled = Boolean(mcp?.installed)
+  const mcpInstalling = Boolean(mcp?.installing)
+  const mcpUpdatable =
+    mcpInstalled &&
+    Boolean(mcp?.latestVersion) &&
+    (!mcp?.version || isNewerVersion(mcp?.latestVersion, mcp?.version))
 
   const refreshCheck = useCallback(async () => {
     setChecking(true)
@@ -85,6 +96,12 @@ export const PcwechatChannelSettings: React.FC<PcwechatChannelSettingsProps> = (
     }
   }, [])
 
+  const installAssistant = useCallback(async () => {
+    await install('wechat-chat-mcp')
+    // 装完主进程会把 MCP 条目写进配置并热重连；给它几秒再自检
+    window.setTimeout(() => void refreshCheck(), 3000)
+  }, [install, refreshCheck])
+
   useEffect(() => {
     void refreshCheck()
   }, [refreshCheck])
@@ -112,7 +129,24 @@ export const PcwechatChannelSettings: React.FC<PcwechatChannelSettingsProps> = (
   const accountSections = policy ? Object.entries(policy.accounts ?? {}) : []
 
   const meta: ChannelMetaItem[] = [
-    { label: '在线', value: connected ? '本机微信已就绪' : '本机微信未就绪（MCP 没连上）' },
+    {
+      label: '助手',
+      value: mcpInstalling
+        ? `安装中 ${mcp?.progress?.percent ?? 0}%`
+        : !mcpInstalled
+          ? '未安装'
+          : mcp?.version
+            ? `v${mcp.version}`
+            : '已安装',
+    },
+    {
+      label: '在线',
+      value: connected
+        ? '本机微信已就绪'
+        : mcpInstalled
+          ? '本机微信未就绪（MCP 没连上）'
+          : '先安装「微信本机助手」',
+    },
     {
       label: '可代回',
       value:
@@ -150,9 +184,13 @@ export const PcwechatChannelSettings: React.FC<PcwechatChannelSettingsProps> = (
       : '数据目录：未找到（确认微信已登录；换机后可在微信「设置 → 文件管理」核对路径）'
   const envLine = !check
     ? ''
-    : !check.connected
-      ? '微信：wechat-local MCP 未连接'
-      : `微信：${envOk ? '就绪' : String(check.env?.reason ?? '不可用')}`
+    : !mcpInstalled
+      ? '微信：还没安装「微信本机助手」'
+      : !check.connected
+        ? '微信：wechat-chat MCP 未连接'
+        : `微信：${envOk ? '就绪' : String(check.env?.reason ?? '不可用')}`
+
+  const statusLabel = connected ? '已连接' : mcpInstalling ? '安装中' : mcpInstalled ? '未接入' : '未安装'
 
   return (
     <>
@@ -161,15 +199,48 @@ export const PcwechatChannelSettings: React.FC<PcwechatChannelSettingsProps> = (
         name="本机微信"
         description="以你本人身份，跟你微信里的好友说话（用这台电脑上登录的微信）"
         capability="只对名单里的人"
-        state={connected ? 'connected' : 'idle'}
-        statusLabel={connected ? '已连接' : '未接入'}
+        state={connected ? 'connected' : mcpInstalling ? 'pending' : 'idle'}
+        statusLabel={statusLabel}
         actions={
-          <Button size="sm" variant="secondary" onClick={() => setModalOpen(true)}>
-            配置
-          </Button>
+          mcpInstalling ? (
+            <Button size="sm" variant="secondary" onClick={() => void cancel('wechat-chat-mcp')}>
+              取消
+            </Button>
+          ) : !mcpInstalled ? (
+            <Button size="sm" onClick={() => void installAssistant()}>
+              安装微信本机助手
+            </Button>
+          ) : (
+            <>
+              {mcpUpdatable && (
+                <Button size="sm" onClick={() => void installAssistant()}>
+                  更新到 v{mcp?.latestVersion}
+                </Button>
+              )}
+              <Button size="sm" variant="secondary" onClick={() => setModalOpen(true)}>
+                配置
+              </Button>
+            </>
+          )
         }
         meta={meta}
       >
+        {!mcpInstalled && !mcpInstalling && (
+          <p style={{ margin: '10px 0 0', fontSize: 12, color: 'var(--mt-fg-3)', lineHeight: 1.7 }}>
+            「微信本机助手」是本地 MCP（约 38 MB）：装好会自动接入，不需要重启。
+            使用前请先打开并登录微信。
+          </p>
+        )}
+        {mcpUpdatable && (
+          <p style={{ margin: '10px 0 0', fontSize: 12, color: 'var(--mt-fg-3)' }}>
+            已安装 v{mcp?.version}，可更新到 v{mcp?.latestVersion}。
+          </p>
+        )}
+        {mcp?.error && (
+          <p style={{ margin: '10px 0 0', fontSize: 12, color: 'var(--mt-danger-500)' }}>
+            {mcp.error}
+          </p>
+        )}
         <p style={{ margin: '10px 0 0', fontSize: 13, color: 'var(--mt-fg-2)' }}>{summary}</p>
         <div
           style={{

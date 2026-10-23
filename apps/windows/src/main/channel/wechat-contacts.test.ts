@@ -50,7 +50,7 @@ describe('wechat-contacts', () => {
   it('微信读不到时退回已配名单并如实给原因', async () => {
     const policy = policyOf([{ id: 'wxid_a', label: '阿呆', mode: 'auto' }])
     const res = await loadWechatContacts({
-      mcpServer: 'wechat-local',
+      mcpServer: 'wechat-chat',
       callMcpTool: async () => '错误：MCP 未连接',
       getPolicy: () => policy,
     })
@@ -61,7 +61,7 @@ describe('wechat-contacts', () => {
   it('读成功时微信会话在前、已配的补在后', async () => {
     const policy = policyOf([{ id: 'wxid_old', label: '老同学', mode: 'draft' }])
     const res = await loadWechatContacts({
-      mcpServer: 'wechat-local',
+      mcpServer: 'wechat-chat',
       callMcpTool: async () => '[{"talker":"wxid_mama","name":"妈妈","last":"在吗"}]',
       getPolicy: () => policy,
     })

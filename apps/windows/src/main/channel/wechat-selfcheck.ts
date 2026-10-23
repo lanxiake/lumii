@@ -9,7 +9,7 @@
  * 与它共用同一份实现；「一键修复」= 调 MCP `repair_env`（还原窗口 + 规范化 + 重探目录）+ 复检。
  *
  * 另按用户决策"两者都做"：探测到数据目录、而 MCP 配置里没显式写 `LUMII_WECHAT_DB` 时**补写**一次。
- * 补写只针对 `wechat-local` 且**只在缺失时**（用户显式填过的值不覆盖）。
+ * 补写只针对 `wechat-chat` 且**只在缺失时**（用户显式填过的值不覆盖）。
  */
 import { loadMcpServerConfigs, saveMcpServerConfigs } from '../config/mcp-config'
 import { WECHAT_WATCH_MCP_SERVER } from '../agent-runtime/wechat-watch-tick'
@@ -17,7 +17,7 @@ import { WECHAT_WATCH_MCP_SERVER } from '../agent-runtime/wechat-watch-tick'
 export interface WechatSelfcheck {
   /** 自检时刻（ms） */
   at: number
-  /** wechat-local MCP 是否连着 */
+  /** wechat-chat MCP 是否连着 */
   connected: boolean
   /** 数据目录定位结果 */
   db: {
@@ -84,7 +84,7 @@ export async function runWechatSelfcheck(
     out.env = JSON.parse(envRaw) as Record<string, unknown>
     out.connected = true
   } catch (err) {
-    out.reason = `wechat-local MCP 未连接：${err instanceof Error ? err.message : String(err)}`
+    out.reason = `wechat-chat MCP 未连接：${err instanceof Error ? err.message : String(err)}`
     return out
   }
   try {

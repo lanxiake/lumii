@@ -225,33 +225,38 @@ function checkSizeBudget(header) {
 // ------------------------------------------------------------ resources
 
 /**
- * wechat-mcp.exe 的打包内落点（**现在必须为空**）。
+ * 微信 MCP exe 的打包内落点（**现在必须为空**）。
  *
- * 2026-10-11 起它改为「微信本机助手」插件按需下载（见 `src/plugins/builtin.ts`），
+ * 2026-10-11 起它改为「微信本机助手」插件按需下载（见 `src/plugins/install/builtin.ts`），
  * 不再随包。extraResources 的 from 缺失时 electron-builder **不报错**、静默少拷，
  * 所以反过来守一道：一旦它又出现在产物里（约 37MB）就判失败。
+ * 新产品名 `wechat-chat-mcp` 与旧名 `wechat-mcp` 都查（迁移期两种布局都可能被误加回来）。
  */
-const WECHAT_MCP_PACKED = path.join(UNPACKED, 'resources', 'wechat-mcp', 'wechat-mcp.exe')
+const WECHAT_MCP_PACKED = ['wechat-chat-mcp', 'wechat-mcp'].map((name) =>
+  path.join(UNPACKED, 'resources', name, `${name}.exe`),
+)
 
 /**
  * 断言随包独立 MCP exe **没有**被打进产物。
  *
- * 它已改为插件按需下载：装了才落到 `<数据根>/mcp/wechat-mcp/wechat-mcp.exe`。随包白增约 37MB。
+ * 它已改为插件按需下载：装了才落到 `<数据根>/mcp/wechat-chat-mcp/wechat-chat-mcp.exe`。
+ * 随包白增约 37MB。
  */
 function cmdResources() {
-  step('随包资源体检：wechat-mcp.exe 不应再随包（已改为插件按需下载）')
+  step('随包资源体检：微信 MCP exe 不应再随包（已改为插件按需下载）')
 
   if (!fs.existsSync(UNPACKED)) {
     red(`缺少 ${UNPACKED} —— 先跑 pnpm package:win`)
     return false
   }
-  if (fs.existsSync(WECHAT_MCP_PACKED)) {
-    red(`wechat-mcp.exe 又随包了：${WECHAT_MCP_PACKED}`)
-    console.log('  它已改为插件（src/plugins/builtin.ts）按需下载，随包白增约 37MB。')
-    console.log('  检查 electron-builder.json 的 extraResources 是否又加回了 wechat-mcp。')
+  const packed = WECHAT_MCP_PACKED.find((file) => fs.existsSync(file))
+  if (packed) {
+    red(`微信 MCP exe 又随包了：${packed}`)
+    console.log('  它已改为插件（src/plugins/install/builtin.ts）按需下载，随包白增约 37MB。')
+    console.log('  检查 electron-builder.json 的 extraResources 是否又加回了它。')
     return false
   }
-  grn('wechat-mcp.exe 未随包（符合预期）')
+  grn('微信 MCP exe 未随包（符合预期）')
   return true
 }
 

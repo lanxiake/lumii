@@ -5,7 +5,7 @@
  * 与另外四个渠道的两点根本差别
  * ---------------------------------------------------------------------------
  * 1. **没有登录服务**：另外四家的"在线"是某个 token/会话还在；本机微信的"在线"是
- *    **本机的 wechat-local MCP 连着**（那个 MCP 才是读、发微信的那双手，零注入、
+ *    **本机的 wechat-chat MCP 连着**（那个 MCP 才是读、发微信的那双手，零注入、
  *    只读解密 + GUI 自动化）。所以连接态从 McpManager 的运行时真值读，不碰任何凭证文件。
  *
  * 2. **peers 不是「最近跟谁聊过」，而是渠道策略里配过的名单**
@@ -40,7 +40,7 @@ import type {
  */
 const UNDELIVERABLE_CODES = new Set(['env_not_ready', 'target_unconfirmed', 'user_busy'])
 
-/** 发送工具（wechat-local 的 send_text）返回的最小面 */
+/** 发送工具（wechat-chat 的 send_text）返回的最小面 */
 interface SendTextPayload {
   ok?: boolean
   detail?: string
@@ -54,7 +54,7 @@ interface SendTextPayload {
 export interface PcwechatProviderDeps {
   /** 当前策略（名单即白名单，每拍现读，设置页改完下一个请求就生效） */
   getPolicy: () => ChannelPolicy
-  /** wechat-local 的 MCP server 名（装配处给，不写死在 Provider 里） */
+  /** wechat-chat 的 MCP server 名（装配处给，不写死在 Provider 里） */
   mcpServer: string
   /** 该 MCP 现在连着没有（McpManager 的运行时状态，不是配置文件） */
   isMcpConnected: () => boolean
@@ -113,7 +113,7 @@ export class PcwechatChannelProvider implements IChannelOutboundProvider {
     ): ChannelSendResult => ({ ok: false, errorCode, message, channel: 'pcwechat', to })
 
     if (!this.deps.isMcpConnected()) {
-      return fail('CHANNEL_NOT_CONNECTED', '本机微信的 wechat-local MCP 没连上')
+      return fail('CHANNEL_NOT_CONNECTED', '本机微信的 wechat-chat MCP 没连上')
     }
     // 兜底白名单：Router 已经按快照挡过一次，但「策略刚被改成 ignore」与快照之间有窗口，
     // 而发出去就收不回——这里再判一次，宁可多判。

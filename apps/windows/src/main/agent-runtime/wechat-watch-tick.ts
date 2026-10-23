@@ -8,7 +8,7 @@
  * 「没事发生」上，用户实测 30s 一拍，一天就是几千次白跑），要么根本没人看着。
  * 本模块照 `pet-sensing-tick.ts` 的先例，把「盯」做成**零 token 的确定性读库**：
  *
- *   一拍 = 主进程直接调 MCP 工具 `wechat-local.poll_new`（不经 Agent 回合、不叫模型）
+ *   一拍 = 主进程直接调 MCP 工具 `wechat-chat.poll_new`（不经 Agent 回合、不叫模型）
  *        ├─ 没有新消息 → 什么都不做（不通知、不建会话、零 token）
  *        └─ 有新消息   → 推进水位 + 通知用户（系统通知/气泡）
  *
@@ -44,16 +44,21 @@ import {
   type PeerReplyMode,
   type ResolvedPeerPolicy,
 } from '../../shared/channel-policy'
+import { WECHAT_MCP_SERVER_NAME } from '../../shared/mcp-presets'
 import { agentRuntimeLog as log } from './bridge-utils'
 import { relayOwnedSection } from './wechat-relay-agent'
 
 export const WECHAT_WATCH_INSTRUCTION = '__wechat_watch__'
 /**
- * 数据源（MCP Server 名 + 工具名）：**客户端与 wechat-mcp 解耦**——这里只依赖
+ * 数据源（MCP Server 名 + 工具名）：**客户端与 MCP 实现解耦**——这里只依赖
  * 「有个 MCP Server 暴露了一个 `poll_new(since_ts)`」这个契约。没配/没连/被禁用时
  * 盯梢安静跳过（见 `runWechatWatch` 的「未连接」分支），客户端不因此不可用。
+ *
+ * Server 名对齐产品自己的 `SERVER_NAME`（`wechat-chat`）；旧名 `wechat-local` 由
+ * `mcp-config` 的迁移函数合并过来，所以「产品自带 `--install`」与「客户端插件安装」
+ * 写出来的是同一条配置，不会重复加载两份工具。
  */
-export const WECHAT_WATCH_MCP_SERVER = 'wechat-local'
+export const WECHAT_WATCH_MCP_SERVER = WECHAT_MCP_SERVER_NAME
 /** 导出给开发期回放用：它要认出「哪一次调用是 poll」才好在返回里追加合成消息 */
 export const WECHAT_WATCH_MCP_TOOL = 'poll_new'
 
@@ -808,7 +813,7 @@ export function buildDraftPrompt(
     '（这个人的策略是：起草给我确认。）',
     '',
     '请：',
-    `1. 用 wechat-local 的 read_history 看我和「${who}」最近的对话（talker=${msg.talker}${msg.account ? `, account="${msg.account}"` : ''}）；`,
+    `1. 用 wechat-chat 的 read_history 看我和「${who}」最近的对话（talker=${msg.talker}${msg.account ? `, account="${msg.account}"` : ''}）；`,
     '2. 判档后写一条**以我本人身份**发出的回复草稿（放行/软回那两档）；命中硬停的，就写转人工的措辞。',
     '',
     '⚠️ 这一档**只起草、不要发送**（不要调用 channel_send、也不要碰 MCP 的发送工具）——',
@@ -1770,7 +1775,7 @@ export async function runWechatWatch(deps: WechatWatchDeps): Promise<string> {
         } catch (err) {
           failed += 1
           const msg = err instanceof Error ? err.message : String(err)
-          if (msg.includes('未连接')) return '（wechat-local MCP 未连接，本拍跳过）'
+          if (msg.includes('未连接')) return '（wechat-chat MCP 未连接，本拍跳过）'
           // 微信没运行 / 密钥没就绪是「环境还没好」，不是账号级故障：
           // 不逐拍刷 warn，交给下面的汇总统一退避。
           if (isWechatKeyNotReady(msg)) {
@@ -1802,9 +1807,9 @@ export async function runWechatWatch(deps: WechatWatchDeps): Promise<string> {
         payload = JSON.parse(text) as PollPayload
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
-        // 客户端**不依赖** wechat-local 这个 MCP：没装/没连/被禁用时，这里安静跳过即可
+        // 客户端**不依赖** wechat-chat 这个 MCP：没装/没连/被禁用时，这里安静跳过即可
         if (msg.includes('未连接')) {
-          return '（wechat-local MCP 未连接，本拍跳过）'
+          return '（wechat-chat MCP 未连接，本拍跳过）'
         }
         if (isWechatKeyNotReady(msg)) {
           noteWatchDown(db, nowMs)
@@ -2077,7 +2082,7 @@ export async function runWechatWatch(deps: WechatWatchDeps): Promise<string> {
 /**
  * 播种 cron（存在则把形态改回来，与 pet-sensing 同一套口径）。
  *
- * **只在 `wechat-local` 这个 MCP Server 被配置且启用时才建/保留这条任务**：
+ * **只在 `wechat-chat` 这个 MCP Server 被配置且启用时才建/保留这条任务**：
  * 客户端不依赖微信 MCP——用户可能把这台机器上的 MCP 只给别的 AI 工具用、也可能根本不用微信，
  * 那时任务列表里不该出现一条永远「未连接」的循环。反过来，启用 MCP 后下次启动会自动建好。
  * 用户自己的启停（任务页开关）不会被这里覆盖。
@@ -2128,7 +2133,7 @@ export function ensureWechatWatchCronJobSeeded(
       opts.pluginEnabled === false
         ? '代聊插件已禁用'
         : !opts.mcpConfigured
-          ? 'wechat-local MCP 未配置/未启用'
+          ? 'wechat-chat MCP 未配置/未启用'
           : null
     if (pausedReason) {
       if (existing) {
@@ -2143,7 +2148,7 @@ export function ensureWechatWatchCronJobSeeded(
       if (consumeAutoPausedMarker()) {
         db.prepare(`UPDATE local_cron_jobs SET enabled = 1 WHERE id = ?`).run(WECHAT_WATCH_CRON_ID)
         log.info(
-          `[ensureWechatWatchCronJobSeeded] wechat-local MCP 已恢复，自动重新启用 job id=${WECHAT_WATCH_CRON_ID}`,
+          `[ensureWechatWatchCronJobSeeded] wechat-chat MCP 已恢复，自动重新启用 job id=${WECHAT_WATCH_CRON_ID}`,
         )
       }
       db.prepare(

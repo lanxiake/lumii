@@ -21,17 +21,35 @@
  */
 
 /**
- * wechat-mcp 随包 exe 的版本（面板上展示，方便对账用户截图）
+ * 微信 MCP（`wechat-chat-mcp`，统一档位）的版本
  *
- * 版本号唯一来源是独立仓库 `wechat-mcp/common/app.py` 的 `SERVER_VERSION`，这里是它的
- * TS 镜像。为什么不运行时实读：`wechat-mcp.exe --version` 是 PyInstaller onefile，
- * 本机实测冷启动 1.0–3.4s，而面板每 5s 轮询一次状态，实读会把轮询拖垮。
+ * 版本号唯一来源是独立仓库 `src/common/app.py` 的 `SERVER_VERSION`，这里是它的
+ * TS 镜像。为什么不运行时实读：exe 是 PyInstaller onefile，本机实测冷启动 1.0–3.4s，
+ * 而面板每 5s 轮询一次状态，实读会把轮询拖垮。
  * `mcp-presets.test.ts` 会读回 server.py 对账，发版漏改这里会红，不会静默漂移。
  *
- * **npm 社区分发已废弃**（2026-10-13）：分发改走「双击 exe 一键安装」
- * （`wechat-mcp.exe --install`，与四件套同一套），不再有 `@lumii/wechat-mcp` 包。
+ * **与 App 版本解耦**：二进制发在独立 tag `wechat-chat-mcp-v<版本>` 下、
+ * 资产名固定 `wechat-chat-mcp.exe`，升级 MCP 不需要跟着 App 发版
+ * （`scripts/upload-wechat-mcp.mjs`）。旧名 `wechat-mcp` 已废弃。
  */
 export const WECHAT_MCP_VERSION = '0.10.0'
+
+/** 客户端下载时认的资产名（独立于独立仓库里的产品文件名） */
+export const WECHAT_MCP_ASSET = 'wechat-chat-mcp.exe'
+
+/** MCP 自己的 release tag：不跟 `v<App 版本>` 走 */
+export const WECHAT_MCP_RELEASE_TAG = `wechat-chat-mcp-v${WECHAT_MCP_VERSION}`
+
+/**
+ * MCP 在客户端配置里的 Server 名（= 产品自己的 `SERVER_NAME`）。
+ *
+ * 旧名 `wechat-local` 已废弃；`migrateWechatMcpEntry` 会把老条目合并到这个名字，
+ * 并带上 5 分钟超时（产品自带安装器写出的条目没有这个字段）。
+ */
+export const WECHAT_MCP_SERVER_NAME = 'wechat-chat'
+
+/** 本机微信的长任务超时（切会话/读 UIA 的单发实测可达 36s） */
+export const WECHAT_MCP_TIMEOUT_MS = 300_000
 
 export type McpPresetCategory =
   | 'office'
@@ -96,21 +114,21 @@ export function isReadyToUse(preset: McpPreset): boolean {
 
 export const MCP_PRESETS: readonly McpPreset[] = [
   {
-    name: 'wechat-local',
+    name: WECHAT_MCP_SERVER_NAME,
     title: '本机微信',
     description: '读取本机微信会话、历史消息、检索聊天记录，并能发送消息、文件、引用回复、群发，以及蒸馏用户/好友画像',
     categories: ['life'],
     // 独立单文件 exe（scripts/build-wechat-mcp.mjs），不依赖 Python 与灵栖占位符
-    command: 'wechat-mcp.exe',
+    command: 'wechat-chat-mcp.exe',
     args: [],
-    bundledExe: 'wechat-mcp',
+    bundledExe: 'wechat-chat-mcp',
     bundledVersion: WECHAT_MCP_VERSION,
     // 每条回复都要走一整串 GUI 安全网（UIA 全树读 ≈3–4s/次 × 5–6 次 + 切会话 + 读库确认），
     // 表头不对、要走切会话那条路时单发实测 36.2s；服务端 tool_send 外面还套了
     // `_send_with_retry(max_retries=2)`，最坏两轮 ⇒ 30s 默认值会把**已经发成功**的那次
     // 报成失败（2026-10-09 15:15 实测：消息 15:15:50 落库，服务端 36.2s 自报 ok，客户端
     // 15:15:46 超时）。给足 5 分钟，让本地这双手自己把结论说完。
-    timeoutMs: 300_000,
+    timeoutMs: WECHAT_MCP_TIMEOUT_MS,
     // 2026-10-11：exe 不再随包（改为「微信本机助手」插件按需下载，见 plugins/install/builtin.ts）。
     // 默认**停用**——未装插件时部署路径上没有 exe，启用只会连不上；装插件时由插件改回启用。
     defaultEnabled: false,

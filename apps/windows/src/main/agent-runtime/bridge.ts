@@ -2359,7 +2359,7 @@ export class AgentRuntimeBridge {
              */
             /**
              * 微信消息盯梢（本机微信）：零 token 的确定性读库——
-             * 主进程直接调 MCP 工具 `wechat-local.poll_new`，没有新消息就什么都不做。
+             * 主进程直接调 MCP 工具 `wechat-chat.poll_new`，没有新消息就什么都不做。
              * 见 wechat-watch-tick.ts 文件头（为什么不能靠"每 N 分钟叫一次模型问一句"）。
              */
             runWechatWatch: () => runWechatWatch(this.wechatWatchDeps()),

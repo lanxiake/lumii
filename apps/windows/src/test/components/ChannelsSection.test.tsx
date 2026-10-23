@@ -10,6 +10,7 @@ import { channelWeixinRenderer } from '../../plugins/builtin/channel-weixin/rend
 import { channelWecomRenderer } from '../../plugins/builtin/channel-wecom/renderer'
 import { channelFeishuRenderer } from '../../plugins/builtin/channel-feishu/renderer'
 import { channelQbotRenderer } from '../../plugins/builtin/channel-qbot/renderer'
+import { pcwechatRenderer } from '../../plugins/builtin/pcwechat/renderer'
 
 /**
  * 构造三个渠道登录服务的最小 mock；返回值统一为 idle，便于按用例覆盖。
@@ -45,18 +46,31 @@ function mockChannelServices(overrides: {
     getPolicy: vi.fn(async () => ({ defaultMode: 'notify', peers: [] })),
     setPolicy: vi.fn(async (_c: string, p: unknown) => p),
   }
+  // 本机微信卡片会读「微信本机助手」的安装状态（已装才显示「配置」）
+  ;(window as any).electronAPI = {
+    plugins: {
+      list: vi.fn(async () => ({
+        'wechat-chat-mcp': { installed: true, version: '0.10.0', latestVersion: '0.10.0' },
+      })),
+      install: vi.fn(async () => ({ success: true })),
+      uninstall: vi.fn(async () => ({ success: true })),
+      cancel: vi.fn(async () => ({ success: true })),
+      onProgress: vi.fn(() => () => undefined),
+    },
+  }
 }
 
 describe('ChannelsSection', () => {
   let slotDisposers: Array<() => void> = []
 
   beforeEach(() => {
-    // 四个渠道卡片由插件注册（与真实运行同一条 setup 路径）
+    // 五个渠道卡片由插件注册（与真实运行同一条 setup 路径）
     slotDisposers = [
       channelWeixinRenderer.setup(rendererApi),
       channelWecomRenderer.setup(rendererApi),
       channelFeishuRenderer.setup(rendererApi),
       channelQbotRenderer.setup(rendererApi),
+      pcwechatRenderer.setup(rendererApi),
     ]
     vi.restoreAllMocks()
   })
@@ -104,6 +118,14 @@ describe('ChannelsSection', () => {
     expect(screen.getByText('阿呆·直接代回')).toBeInTheDocument()
     expect(screen.getByText('不处理（黑名单）')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '配置' })).toBeInTheDocument()
+  })
+
+  it('助手未安装时卡片直接给安装入口', async () => {
+    mockChannelServices({})
+    ;(window as any).electronAPI.plugins.list = vi.fn(async () => ({}))
+    render(<ChannelsSection />)
+
+    expect(await screen.findByRole('button', { name: '安装微信本机助手' })).toBeInTheDocument()
   })
 
   it('微信已连接时展示 meta 与可发送对象芯片', async () => {

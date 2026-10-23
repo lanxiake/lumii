@@ -21,7 +21,7 @@ import { S } from '../../../main/kernel/services'
  * ## 核心逻辑
  *
  * 1. **盯梢循环** (`wechat-watch-tick.ts`):
- *    - 15 秒一拍，零 token 读库（`wechat-local.poll_new`）
+ *    - 15 秒一拍，零 token 读库（`wechat-chat.poll_new`）
  *    - 有新消息 → 按渠道策略（`channel-policies.json`）决定行动
  *    - `notify` → 系统通知；`draft` → 起草待审；`auto` → 直接发送
  *

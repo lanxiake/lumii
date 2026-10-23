@@ -26,6 +26,8 @@ export type PluginProgress = {
 export type PluginInstalledStatus = {
   installed: boolean
   version?: string
+  /** 随包/当前可用的最新版本；安装了旧版时 UI 据此显示「可更新」 */
+  latestVersion?: string
   exePath?: string
 }
 

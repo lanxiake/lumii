@@ -90,7 +90,7 @@ export class McpManager {
   private readonly exeDeployErrors = new Map<string, string>()
 
   /**
-   * 把随包独立 exe（如 wechat-mcp.exe）同步到数据根下的固定位置
+   * 把随包独立 exe 同步到数据根下的固定位置（微信 MCP 已改为插件按需下载，见下方跳过）
    *
    * 不论灵栖里是否启用都同步：部署路径也是给其他 MCP 客户端用的。
    * 失败不抛错，只记原因，连接该 Server 时展示。
@@ -99,10 +99,10 @@ export class McpManager {
     if (process.platform !== 'win32') return
     for (const preset of MCP_PRESETS) {
       if (!preset.bundledExe) continue
-      // wechat-mcp 已改为插件按需下载（见 plugins/builtin.ts），不再随包同步：否则 dev 下
-      // 仓库里有源、会在启动时把它同步回部署路径，与打包版行为不一致（卸载后面又「复活」）。
+      // 微信 MCP 已改为插件按需下载（见 plugins/install/builtin.ts），不再随包同步：否则 dev 下
+      // 仓库里有源、会在启动时把它同步回部署路径，与打包版行为不一致（卸载后又「复活」）。
       // 部署现在由插件在安装时负责。
-      if (preset.bundledExe === 'wechat-mcp') continue
+      if (preset.bundledExe === 'wechat-chat-mcp') continue
       const source = resolveBundledMcpExe(preset.bundledExe)
       const target = getDeployedMcpExePath(preset.bundledExe)
       const result = await syncMcpExecutable(source, target).catch(

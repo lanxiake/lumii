@@ -144,6 +144,23 @@ export default {
 核心与插件之间只认 `main/kernel/*-contract.ts` 的服务契约；插件停用后核心拿不到实例，
 按「功能关闭」降级。**不要**让核心直接 import 你的实现。
 
+## 4.5 运行时资产依赖（只有需要下载二进制时才用）
+
+插件可以依赖一个可下载的运行时组件（如 `wechat-chat-mcp`、`ffmpeg`），但**自己不要写下载器**：
+
+```js
+manifest: {
+  // …
+  requires: { assets: ['ffmpeg'], optional: true },   // optional: 缺了也能降级工作
+}
+```
+
+- 设置 › 插件里会显示依赖状态与就地安装按钮；安装/升级/卸载统一走 `plugin:install`；
+- 这不是加载门槛：缺了照样激活，自己决定降级路径（例如提示用户去装）；
+- 资产版本由安装器管（安装时写 `version.json` 边车、与内置 `latestVersion` 比较），
+  插件侧不要复制这套逻辑；
+- 资产 id 见 `src/renderer/data/asset-plugins.ts` 的 `PLUGIN_REGISTRY`。
+
 ## 5. 生命周期与启停
 
 - 保存文件 → 热重载（客户端 0.3s / 主进程 ≤1s）；语法错误时**旧版本继续服务**。

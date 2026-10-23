@@ -15,7 +15,13 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
-import { MCP_PRESETS, isReadyToUse, type McpPreset } from '../../shared/mcp-presets'
+import {
+  MCP_PRESETS,
+  WECHAT_MCP_SERVER_NAME,
+  WECHAT_MCP_TIMEOUT_MS,
+  isReadyToUse,
+  type McpPreset,
+} from '../../shared/mcp-presets'
 import { resolveClientStateDir, resolveSharedConfigDir } from '../paths.js'
 import { LUMII_PYTHON_TOKEN, getManagedPythonExePaths } from '../mcp-python'
 import { getDeployedMcpExePath } from '../bundled-mcp-exe'
@@ -342,6 +348,53 @@ export function migrateBundledExeCommands(
   })
 }
 
+/** 废弃的微信 MCP Server 名（旧客户端、旧产品自带安装器写过） */
+const LEGACY_WECHAT_SERVER_NAMES = new Set(['wechat-local'])
+
+/**
+ * 微信 MCP 的 Server 名归一 + 超时补齐。
+ *
+ * 两件事：
+ * 1. 产品改名后，客户端叫 `wechat-chat`（= 产品 `SERVER_NAME`），旧条目 `wechat-local`
+ *    合并进来——**保留一份**，否则两个条目各起一个进程、工具重复加载两套。
+ * 2. 产品自带的 `--install` 写出的条目没有 `timeoutMs`，会退回 30s 默认值：切会话那条路
+ *    单发实测 36s，会把**已经发成功**的发送报成失败。这里统一补成 5 分钟。
+ *
+ * 纯函数（加载时跑，签名变了才写回），便于单测。
+ */
+export function migrateWechatMcpEntry(entries: readonly McpServerEntry[]): McpServerEntry[] {
+  const canonical = entries.filter((e) => !LEGACY_WECHAT_SERVER_NAMES.has(e.name))
+  const legacy = entries.filter((e) => LEGACY_WECHAT_SERVER_NAMES.has(e.name))
+  const idx = canonical.findIndex((e) => e.name === WECHAT_MCP_SERVER_NAME)
+
+  if (idx === -1) {
+    const inherited = legacy.find((e) => e.enabled !== false) ?? legacy[0]
+    if (inherited) {
+      canonical.push({
+        ...inherited,
+        name: WECHAT_MCP_SERVER_NAME,
+        timeoutMs: inherited.timeoutMs ?? WECHAT_MCP_TIMEOUT_MS,
+      })
+    }
+  } else if (legacy.length > 0) {
+    const inherited = legacy.find((e) => e.enabled !== false) ?? legacy[0]
+    const cur = canonical[idx]
+    canonical[idx] = {
+      ...cur,
+      // 规范条目优先；旧条目只补空字段（用户在旧条目里填过的 env/开关不丢）
+      timeoutMs: cur.timeoutMs ?? inherited.timeoutMs ?? WECHAT_MCP_TIMEOUT_MS,
+      env: { ...(inherited.env ?? {}), ...(cur.env ?? {}) },
+      enabled: cur.enabled ?? inherited.enabled,
+    }
+  }
+
+  return canonical.map((e) =>
+    e.name === WECHAT_MCP_SERVER_NAME && e.timeoutMs === undefined
+      ? { ...e, timeoutMs: WECHAT_MCP_TIMEOUT_MS }
+      : e,
+  )
+}
+
 /** 记录「哪些内置项已经推给过用户」，避免删掉的项每次启动又回来 */
 function getSeededPresetsPath(): string {
   return path.join(resolveClientStateDir(), 'state', 'mcp-seeded-presets.json')
@@ -424,7 +477,7 @@ export function loadMcpServerConfigs(): McpServerEntry[] {
 
   const original = parseMcpServerConfigs(raw)
   const entries = reconcileBuiltinMcpPresets(
-    migrateBundledExeCommands(original.map(resolveMcpEntryPaths)),
+    migrateWechatMcpEntry(migrateBundledExeCommands(original.map(resolveMcpEntryPaths))),
   )
 
   // 老用户没有记档文件：按「当前配置即已推过」立档，只补这之后新增的内置项

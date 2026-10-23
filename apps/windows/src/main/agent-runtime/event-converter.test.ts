@@ -53,7 +53,7 @@ describe('convertOldEventToIpcEvents agent:end', () => {
  * 于是 MCP 上报的进度永远显示不出来 —— 微信发送几十秒里用户只看到转圈。
  */
 describe('convertOldEventToIpcEvents tool:update', () => {
-  const base = { type: 'tool:update' as const, instanceId: INSTANCE_ID, toolCallId: 't1', toolName: 'mcp__wechat-local__send_text' }
+  const base = { type: 'tool:update' as const, instanceId: INSTANCE_ID, toolCallId: 't1', toolName: 'mcp__wechat-chat__send_text' }
 
   it('partialResult 是 AgentToolResult（content 文本块）⇒ progressText 取出文本', () => {
     const ctx = createRunContext(SESSION_KEY, INSTANCE_ID, SESSION_KEY)

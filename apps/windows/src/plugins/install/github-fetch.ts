@@ -110,7 +110,7 @@ export async function installGithubAsset(opts: {
   repo: string
   /** 形如 `v0.1.4` */
   tag: string
-  /** 资产文件名，如 `wechat-mcp.exe` */
+  /** 资产文件名，如 `wechat-chat-mcp.exe` */
   asset: string
   destFile: string
   sha256?: string

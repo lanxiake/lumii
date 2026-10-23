@@ -237,7 +237,7 @@ describe('PcwechatChannelProvider', () => {
     const onUndeliverable = vi.fn()
     const provider = new PcwechatChannelProvider({
       getPolicy: () => opts.policy ?? policy([{ id: 'wxid_loop', label: 'Loop', mode: 'auto' }]),
-      mcpServer: 'wechat-local',
+      mcpServer: 'wechat-chat',
       isMcpConnected: () => opts.connected ?? true,
       callMcpTool,
       onUndeliverable,
@@ -269,7 +269,7 @@ describe('PcwechatChannelProvider', () => {
     const { provider, callMcpTool } = make()
     const res = await provider.sendText({ to: 'wxid_loop', text: '在的' })
     expect(res).toEqual({ ok: true, channel: 'pcwechat', to: 'wxid_loop' })
-    expect(callMcpTool).toHaveBeenCalledWith('wechat-local', 'send_text', {
+    expect(callMcpTool).toHaveBeenCalledWith('wechat-chat', 'send_text', {
       talker: 'wxid_loop',
       text: withAgentMarker('在的'),
       dry_run: false,
@@ -279,7 +279,7 @@ describe('PcwechatChannelProvider', () => {
   it('多开：accountId 透传给 MCP，待补发队列也带上账号', async () => {
     const { provider, callMcpTool } = make()
     await provider.sendText({ to: 'wxid_loop', text: '在的', accountId: 'wxid_a' })
-    expect(callMcpTool).toHaveBeenCalledWith('wechat-local', 'send_text', {
+    expect(callMcpTool).toHaveBeenCalledWith('wechat-chat', 'send_text', {
       talker: 'wxid_loop',
       text: withAgentMarker('在的'),
       dry_run: false,
@@ -367,7 +367,7 @@ describe('PcwechatChannelProvider', () => {
 
     const bare = new PcwechatChannelProvider({
       getPolicy: () => policy([{ id: 'wxid_loop', mode: 'auto' }]),
-      mcpServer: 'wechat-local',
+      mcpServer: 'wechat-chat',
       isMcpConnected: () => true,
       callMcpTool: async () => '{"ok":false,"error_code":"target_unconfirmed","detail":"x"}',
     })

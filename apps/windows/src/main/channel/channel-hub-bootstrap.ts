@@ -33,7 +33,7 @@ export interface ChannelHubDeps {
   weixin?: WeixinLoginService
   wecom?: WecomLoginService
   qbot?: QbotLoginService
-  /** 本机微信（pcwechat）：不走登录服务，靠 wechat-local MCP + 渠道策略名单 */
+  /** 本机微信（pcwechat）：不走登录服务，靠 wechat-chat MCP + 渠道策略名单 */
   pcwechat?: PcwechatProviderDeps
   /** 客户端数据根（默认 ~/.lumii） */
   dataRoot: string

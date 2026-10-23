@@ -936,7 +936,12 @@ export interface ElectronAPI {
   }
   /** 插件中心 API（通用：按 id 分发） */
   plugins: {
-    list: () => Promise<Record<string, { installed: boolean; version?: string; exePath?: string }>>
+    list: () => Promise<Record<string, {
+      installed: boolean
+      version?: string
+      latestVersion?: string
+      exePath?: string
+    }>>
     install: (id: string) => Promise<{ success: boolean; error?: string; cancelled?: boolean }>
     uninstall: (id: string) => Promise<{ success: boolean; error?: string }>
     cancel: (id: string) => Promise<{ success: boolean }>

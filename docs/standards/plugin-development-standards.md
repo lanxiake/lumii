@@ -93,7 +93,7 @@ __LUMII_REGISTER_PLUGIN__('my-plugin', (api) => {
 | `settings.section` | 设置 › 扩展 | 与其它插件分区并列 |
 | `settings.section.<名字>` | 混合页面里的单块 | 如 `settings.section.perf`（隐私页诊断卡）、`settings.section.updater`（关于页更新面板） |
 | `settings.category.<id>` | 设置中心左侧一级菜单 | 插件独占的设置页；目录用 `plugins/renderer/settings-categories.ts` 的 `PLUGIN_SETTINGS_CATEGORIES` 登记，停用后菜单项一起消失 |
-| `settings.channel.<channel>` | 设置 › 渠道设置 | 渠道插件把自己的账号面板挂进来（`weixin` / `wecom` / `feishu` / `qbot`） |
+| `settings.channel.<channel>` | 设置 › 渠道设置 | 渠道插件把自己的账号面板挂进来（`weixin` / `wecom` / `feishu` / `qbot` / `pcwechat`） |
 | `workspace.version` | 工作区「文件 / 变更 / 版本」区 | VCS 面板；宿主提供 context 快照（loading 态由槽位参数给） |
 
 **插件独占的 UI 一律放插件目录的 `ui/`，由 `renderer.tsx` 注册槽位**——核心页面不要 import
@@ -293,7 +293,7 @@ src/plugins/external-src/<name>/
 |---|---|
 | CloakBrowser | 插件 › 外部插件 |
 | ffmpeg | 插件 › 录屏卡片（依赖行直接安装） |
-| wechat-mcp | 插件 › 外部插件 |
+| wechat-chat-mcp | 插件 › 外部插件 / 设置 › 渠道 › 本机微信（就地安装/升级） |
 | 宠物模型 | 设置 › 宠物模式 › 形象资源 |
 
 主进程扩展可在 manifest 声明运行时依赖，扩展卡片会显示安装状态并允许就地安装/取消：
@@ -308,6 +308,25 @@ manifest: {
 - `assets` 用运行时组件的 id；`optional: true` 表示未安装也能工作（有回退路径）；
 - **不是加载门槛**——缺了照常激活，由扩展自己决定降级；
 - 运行时组件卡片上的「用于：…」是反向链接，能定位到页签的直接可点。
+
+**本机微信是这条规则的完整样例**：
+
+- 插件 `com.lumii.pcwechat`（`builtin/pcwechat/`）声明 `requires: { assets: ['wechat-chat-mcp'] }`，
+  但它自己**不下载**任何东西——安装器在 `plugins/install/builtin.ts`；
+- 资产 `wechat-chat-mcp` 的 `status()` 返回 `version`（安装时写进 `<exe 目录>/version.json` 的边车）
+  与 `latestVersion`（`shared/mcp-presets.ts` 的 `WECHAT_MCP_VERSION`）；两者不一致才显示「更新」；
+- 安装 = 下载 exe → 写边车 → `upsertMcpServer(wechat-chat)`（启用 + 热重连），同版本直接跳过；
+- 卸载 = 先停用 MCP（断开子进程）再删目录；配置条目保留，重装即恢复；
+- 渠道卡片与插件页共用同一个安装通道（`plugin:install <id>`），不各写一套下载逻辑。
+
+**MCP 与 App 解耦发布**：二进制发到独立 tag `wechat-chat-mcp-v<版本>`（资产名
+`wechat-chat-mcp.exe`），由 `scripts/upload-wechat-mcp.mjs` 单独上传；升级不需要跟着
+App 发版。旧的 `wechat-mcp` 目录仍被识别为已安装，升级/卸载时清理。
+
+**Server 名必须等于产品自己的 `SERVER_NAME`（`wechat-chat`）**：产品自带 `--install` 也写
+这条名字。客户端若另起一个名字（历史名 `wechat-local`），同机会出现两个条目、各起一个
+进程、工具加载两套。`migrateWechatMcpEntry` 在加载时合并旧条目并补 `timeoutMs: 300000`
+（产品安装器不写这个字段，30s 默认值会把已发成功的发送报成失败）。
 
 ### 8.3 导入与 AI 创建
 

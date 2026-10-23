@@ -20,6 +20,7 @@ plugins/
     <name>/index.ts    主进程：manifest + apply，接线全部写在这里
     <name>/renderer.tsx 渲染层：注册槽位（可选）
     <name>/*.ts(x)     该插件独占的实现与测试
+    pcwechat/          本机微信渠道：出站 Provider + 渠道卡片（依赖运行时资产 wechat-chat-mcp）
   external/
     loader.ts        外部扩展（~/.lumii/extensions/<dir>/main.js）加载与热重载
     official.ts      官方扩展同步（resources/extensions → 用户目录）
@@ -36,8 +37,9 @@ plugins/
   install/           插件中心的运行时依赖安装（CloakBrowser / ffmpeg …），不是本系统的插件
 ```
 
-`channel/` 不在这里：它是四个 channel-* 插件共享的子系统（Hub、适配器、Provider、
-出站路由），被 agent-runtime 直接使用，搬进某个插件目录只会制造假边界。
+`channel/` 不在这里：它是各渠道插件共享的子系统（Hub、适配器、Provider、出站路由），
+被 agent-runtime 直接使用，搬进某个插件目录只会制造假边界。`builtin/pcwechat/` 只放
+「本机微信这条渠道的接线与卡片」，Provider 实现仍在 `channel/providers/`。
 
 ## 前后端一体
 
@@ -186,6 +188,48 @@ setFooAccessor(() => pluginHost?.container.get(S.foo) ?? null)
 | 插件之间不得运行期 import | type-only 可以；共享代码下沉 `src/shared` 或核心 |
 | 渲染层插件文件只许 import `renderer/`、`shared/`、`plugins/` | 否则会把 node 模块拖进 renderer bundle |
 | 插件内不得直接 `ipcMain.handle/on` | 走 `ctx.registerIpc` / `registerIpcListener` |
+
+## 带运行时依赖的插件：以「本机微信」为例
+
+一个插件可能自己不产生代码，而是**依赖一个可下载的运行时资产**。本机微信就是标准形：
+
+| 层 | 位置 | 管什么 |
+|---|---|---|
+| 插件 `com.lumii.pcwechat` | `builtin/pcwechat/` | 渠道出站 Provider（`channel_send` 走它）；设置 › 渠道里的卡片；随插件启停 |
+| 运行时资产 `wechat-chat-mcp` | `plugins/install/builtin.ts` 的 `registerPlugin` | 下载 `wechat-chat-mcp.exe` 到 `<数据根>/mcp/wechat-chat-mcp/`；写/启用 `mcp-servers.json` 的 `wechat-chat`；卸载 |
+| 盯梢与代回 | `builtin/relay/` | `wechat-watch` 循环与代聊 Agent（关掉只是不回消息） |
+
+两者用 **manifest 依赖**连起来，不互相 import：
+
+```ts
+manifest: {
+  id: 'com.lumii.pcwechat',
+  // ...
+  requires: { assets: ['wechat-chat-mcp'] },   // 设置页据此显示「依赖：微信本机助手 未装 [安装]」
+}
+```
+
+`requires` **不是加载门槛**：资产没装，插件照样激活，渠道卡片显示「未安装」并给出安装入口
+（缺了是能力降级，不是插件坏了）。安装完成后主进程把 `wechat-chat` 条目写进 MCP 配置并
+热重连，不需要重启 App。
+
+### 安装 / 升级 / 卸载
+
+| 操作 | 入口 | 实际动作 |
+|---|---|---|
+| **安装** | 设置 › 插件（依赖行或资产卡）或 设置 › 渠道 › 本机微信 | `plugin:install wechat-chat-mcp` → 独立 Release tag `wechat-chat-mcp-v<版本>` 下 `wechat-chat-mcp.exe` → 写 `version.json` 边车 → `upsertMcpServer(wechat-chat)`（启用 + 热重连） |
+| **升级** | 资产卡上的「更新」/ 渠道卡片的「更新到 vX」 | 状态里 `version`（边车）与 `latestVersion`（`WECHAT_MCP_VERSION`）不一致即可更新；同路径重下覆盖，同版本直接跳过（幂等，不重复拉 37 MB） |
+| **卸载** | 设置 › 插件 › 微信本机助手 › 卸载 | 先停用 MCP（断开子进程），再删目录；**不删配置条目**，重装即恢复 |
+
+版本号的唯一来源是独立仓库 `src/common/app.py` 的 `SERVER_VERSION`；App 侧
+`shared/mcp-presets.ts` 的 `WECHAT_MCP_VERSION` 是镜像（`mcp-presets.test.ts` 对账）。
+安装时写进边车，**不跑 `--version`**：PyInstaller onefile 冷启动 1–3s，面板轮询扛不住。
+
+**发版与 App 解耦**：MCP 发到自己的 tag `wechat-chat-mcp-v<版本>`、资产名
+`wechat-chat-mcp.exe`，由 `scripts/upload-wechat-mcp.mjs` 单独上传并按 sha256 回验。
+升级 MCP 时只改独立仓库版本 + 本仓库的 `WECHAT_MCP_VERSION`，**不需要**跟着 App 发版，
+也不会再出现「某个 App 版本的 release 漏传资产 → 安装 404」。旧产品名 `wechat-mcp`
+的安装目录会被识别为已安装，升级/卸载时自动清理。
 
 ## 生命周期
 

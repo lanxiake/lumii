@@ -17,7 +17,7 @@ import type { SettingsHubTab } from '../components/SettingsHub/types'
 export type PluginId =
   | 'cloak-browser'
   | 'ffmpeg'
-  | 'wechat-mcp'
+  | 'wechat-chat-mcp'
   | 'pet:demo_cartoon_cat'
   | 'pet:ug_official'
   | 'pet:xiaomai'
@@ -75,15 +75,15 @@ export const PLUGIN_REGISTRY: PluginDef[] = [
     usedBy: [{ label: '录屏扩展', tab: 'extensions' }],
   },
   {
-    id: 'wechat-mcp',
+    id: 'wechat-chat-mcp',
     name: '微信本机助手',
     description:
-      '以你本人身份读写本机微信：会话 / 历史 / 检索，发消息·文件·引用·群发，以及画像蒸馏。按需下载（约 37 MB），装完自动接入 MCP。',
+      '以你本人身份读写本机微信：会话 / 历史 / 检索，发消息·文件·引用·群发，以及画像蒸馏。按需下载（约 37 MB），装完自动接入 MCP；独立版本，可单独升级。',
     icon: '💬',
     category: 'comm',
     installSize: '~37 MB',
     features: ['读取本机微信会话与历史', '以本人身份发送消息 / 文件 / 引用', '本地画像蒸馏'],
-    usedBy: [{ label: '微信渠道与 MCP 工具' }],
+    usedBy: [{ label: '设置 › 渠道 › 本机微信（也可在那里直接安装/升级）' }],
     standalone: true,
   },
   {

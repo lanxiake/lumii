@@ -161,7 +161,7 @@ export const ChannelBindModal: React.FC<ChannelBindModalProps> = ({
             | null
           if (sess?.appIdMasked) detail = `App ${sess.appIdMasked}`
         } else if (def.id === 'pcwechat') {
-          // 就绪 = 本机 wechat-local MCP 连上（与设置页那张卡片同一个判据，不叫模型）
+          // 就绪 = 本机 wechat-chat MCP 连上（与设置页那张卡片同一个判据，不叫模型）
           const r = await window.channelService?.wechatSelfcheck?.()
           raw = r?.connected ? 'connected' : 'idle'
           if (r?.db?.root) detail = '已就绪，可配回复名单'

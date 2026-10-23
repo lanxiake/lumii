@@ -10,13 +10,13 @@ describe('buildFormEntry（MCP 编辑弹窗的表单 → 配置）', () => {
     const entry = buildFormEntry({
       ...base,
       editing: {
-        name: 'wechat-local',
+        name: 'wechat-chat',
         command: 'wechat-mcp.exe',
         enabled: true,
         timeoutMs: 300000,
         backgroundTools: ['enqueue_workflow'],
       },
-      name: 'wechat-local',
+      name: 'wechat-chat',
       command: 'wechat-mcp.exe',
       timeoutMsText: '300000',
     })
