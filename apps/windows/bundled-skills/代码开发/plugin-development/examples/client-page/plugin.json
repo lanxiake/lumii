@@ -1,0 +1,8 @@
+{
+  "id": "__PLUGIN_ID__",
+  "name": "今日用量",
+  "version": "0.1.0",
+  "description": "在侧栏加一个入口，整页显示今天的模型调用次数与花费",
+  "origin": "agent",
+  "engines": { "lumii": ">=0.1.0" }
+}

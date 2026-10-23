@@ -163,26 +163,59 @@ export default {
 7. 透传外部输入要校验（路径、URL、ipc 载荷），不要信任渲染层。
 8. 别自带第二份 React。
 
-## 7. 自检与验证
+## 7. 固定开发流程（照这个顺序做）
 
-写完先跑 `plugin_dev`：
+本技能自带一个**不依赖 App/Electron** 的脚本（Node 18+）：
 
-1. `plugin_dev { action: "guide" }` — 拿本机路径与契约；
-2. `plugin_dev { action: "check", kind: "client"|"main", id }` — 静态体检；
-3. `plugin_dev { action: "status" }` — 看加载状态与错误（有 0.3–1 秒延迟）。
+```bash
+SKILL_DIR=<本 SKILL.md 所在目录>
+node "$SKILL_DIR/scripts/plugin-dev.mjs" <命令>
+```
 
-手工验收：设置 › 插件能看到它、状态为「运行中 / 已加载」；禁用后页面与入口一起消失；
-再启用立即回来。
+| 命令 | 作用 |
+|---|---|
+| `examples` | 列出内置示例（名称、形态、说明、绝对路径） |
+| `new <example> <id> [--dir <父目录>]` | 从示例复制一份并替换 id（默认直接放进插件根，立刻能被加载） |
+| `validate <dir>` | 静态校验：入口文件、plugin.json 字段/版本格式、ESM/脚本语法、禁用 `ipcMain`/`require`/`import`、槽位名 |
+| `test <dir>` | 冒烟测试：`client.js` 在 VM 里跑注册工厂并检查槽位条目；`main.js` 动态导入并校验 manifest/apply（依赖 Electron 时跳过 apply） |
+| `deploy <dir> [--data-dir <dir>]` | 部署到插件根；**同名且版本更高才升级**，同版本/降级拒绝，失败自动还原 |
 
-## 8. 分发（导入压缩包 / 文件夹）
+数据根默认 `~/.lumii`；dev 实例用 `--data-dir <它自己的数据根>`。所有命令输出一行 JSON，
+退出码非 0 即失败。
 
-插件页支持手动导入：
+**推荐流程**：
 
-- `.zip` 里可以套一层同名目录（自动剥掉）；
-- 必须包含 `main.js` 或 `client.js`；
+1. `plugin_dev { action: "guide" }`（或读本技能）确认落点与契约；
+2. `examples` 选一个最接近的示例 → `new <example> <my-id>`；
+3. 用文件工具改代码；
+4. `validate <dir>` → 0 error；
+5. `test <dir>` → 0 error；
+6. `deploy <dir>`（或让用户用「设置 › 插件 › 导入插件」导入 zip）；
+7. `plugin_dev { action: "status" }` 确认真的加载（有 0.3–1 秒延迟）；
+8. 在设置 › 插件里禁用再启用一次，确认页面/入口一起消失、回来。
+
+### 内置示例（`examples/`）
+
+| 示例 | 形态 | 覆盖点 |
+|---|---|---|
+| `client-card` | 客户端 | `dashboard.plugins` 卡片 + `api.storage` 持久化 + hooks |
+| `client-page` | 客户端 | `app.view` 整页 + `app.nav` 侧栏入口 + 读取 `window.electronAPI` 已有数据 |
+| `main-ipc` | 主进程 | `manifest + definition`、`ctx.registerIpc`/`registerIpcListener`、`ctx.effect` 清理定时器 |
+
+示例里用 `__PLUGIN_ID__` 占位，`new` 会自动替换；直接读代码参考也可以。
+
+## 8. 分发与版本
+
+插件页「导入插件」支持 `.zip` 或文件夹（也可用脚本 `deploy`）：
+
+- `.zip` 里可以套一层同名目录（自动剥掉）；必须包含 `main.js` 或 `client.js`；
 - 含 `main.js` 装到外部扩展目录，只有 `client.js` 装到客户端插件目录；
-- 同名目录不会被覆盖（先删旧的再导入）；
-- `node_modules` / `.git` 不会被打包复制。
+- `node_modules` / `.git` 不会被复制；
+- **版本规则**：`plugin.json.version` 写成 `x.y.z`（可带 `-tag`）。同名插件已存在时：
+  - 新版本更高 → 升级（旧目录备份到插件根之外，失败自动还原）；
+  - 同版本或更低 → **拒绝**，不会静默覆盖；
+  - 任一方没有 version → 无法判断升级，拒绝并要求先删除旧版本。
+- 升级前的运行期状态（启用/禁用）由插件偏好保存，不会因为换文件被重置。
 
 参考：`docs/standards/plugin-development-standards.md`（踩坑与验收清单）、
 `apps/windows/src/plugins/README.md`（仓库内插件的完整约定）。

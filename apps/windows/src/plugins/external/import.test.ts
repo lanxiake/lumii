@@ -96,6 +96,79 @@ describe('importPluginFrom', () => {
     expect(existsSync(path.join(result.dir, 'client.js'))).toBe(true)
   })
 
+  it('同名插件且版本更高 → 升级覆盖，备份放在插件根之外并清理', async () => {
+    const v1 = await makeZip({
+      'demo/plugin.json': JSON.stringify({ id: 'demo', version: '0.1.0' }),
+      'demo/client.js': '// v1',
+    })
+    expect(await importPluginFrom(v1, 'zip', roots)).toMatchObject({ ok: true })
+
+    const v2 = await makeZip({
+      'demo/plugin.json': JSON.stringify({ id: 'demo', version: '0.2.0' }),
+      'demo/client.js': '// v2',
+    })
+    const result = await importPluginFrom(v2, 'zip', roots)
+
+    expect(result).toMatchObject({
+      ok: true,
+      id: 'demo',
+      upgraded: { from: '0.1.0', to: '0.2.0' },
+    })
+    if (!result.ok) return
+    const { readFileSync, existsSync, readdirSync } = await import('node:fs')
+    expect(readFileSync(path.join(result.dir, 'client.js'), 'utf8')).toBe('// v2')
+    // 备份不能留在插件根里（否则会被扫描成第二个插件）；备份根下也不应残留条目
+    expect(existsSync(path.join(roots.plugins, '.plugin-backup'))).toBe(false)
+    const backupRoot = path.join(root, '.plugin-backup')
+    expect(existsSync(backupRoot) ? readdirSync(backupRoot).length : 0).toBe(0)
+  })
+
+  it('同版本 / 更低版本 → 拒绝', async () => {
+    const v2 = await makeZip({
+      'demo/plugin.json': JSON.stringify({ id: 'demo', version: '0.2.0' }),
+      'demo/client.js': '// v2',
+    })
+    await importPluginFrom(v2, 'zip', roots)
+
+    expect(await importPluginFrom(v2, 'zip', roots)).toMatchObject({
+      ok: false,
+      error: expect.stringContaining('不高于已安装版本'),
+    })
+
+    const v1 = await makeZip({
+      'demo/plugin.json': JSON.stringify({ id: 'demo', version: '0.1.0' }),
+      'demo/client.js': '// v1',
+    })
+    expect(await importPluginFrom(v1, 'zip', roots)).toMatchObject({
+      ok: false,
+      error: expect.stringContaining('不高于已安装版本'),
+    })
+  })
+
+  it('版本号格式不合法 → 拒绝', async () => {
+    const bad = await makeZip({
+      'demo/plugin.json': JSON.stringify({ id: 'demo', version: 'v1' }),
+      'demo/client.js': '// bad',
+    })
+    expect(await importPluginFrom(bad, 'zip', roots)).toMatchObject({
+      ok: false,
+      error: expect.stringContaining('版本号格式不合法'),
+    })
+  })
+
+  it('同名目录存在但没有可比较的版本 → 拒绝并提示删除旧版本', async () => {
+    mkdirSync(path.join(roots.plugins, 'demo'), { recursive: true })
+    const zip = await makeZip({
+      'demo/plugin.json': JSON.stringify({ id: 'demo', version: '0.2.0' }),
+      'demo/client.js': '// v2',
+    })
+
+    expect(await importPluginFrom(zip, 'zip', roots)).toMatchObject({
+      ok: false,
+      error: expect.stringContaining('无法判断升级'),
+    })
+  })
+
   it('路径名会净化成安全目录名', async () => {
     const sourceDir = path.join(root, 'weird name!')
     mkdirSync(sourceDir, { recursive: true })

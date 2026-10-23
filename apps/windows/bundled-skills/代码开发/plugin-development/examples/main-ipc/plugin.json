@@ -1,0 +1,8 @@
+{
+  "id": "__PLUGIN_ID__",
+  "name": "示例扩展",
+  "version": "0.1.0",
+  "description": "主进程扩展示例：注册 IPC、定时器与随插件停用清理的副作用",
+  "origin": "agent",
+  "engines": { "lumii": ">=0.1.0" }
+}

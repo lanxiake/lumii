@@ -460,7 +460,11 @@ export const ExtensionsPanel: React.FC<ExtensionsPanelProps> = ({ onViewChange }
         }
         const kindLabel =
           result.kind === 'both' ? '前后端插件' : result.kind === 'main' ? '主进程扩展' : '客户端插件'
-        setNotice(`已导入 ${result.id}（${kindLabel}），1 秒内加载`)
+        setNotice(
+          result.upgraded
+            ? `已升级 ${result.id}：${result.upgraded.from} → ${result.upgraded.to}，1 秒内生效`
+            : `已导入 ${result.id}（${kindLabel}），1 秒内加载`,
+        )
         // 外部扩展宿主每秒扫一次目录；稍等再刷新，读到的是加载后的状态
         setTimeout(() => void refresh(), 1500)
       } catch (err) {
@@ -865,7 +869,9 @@ export const ExtensionsPanel: React.FC<ExtensionsPanelProps> = ({ onViewChange }
         <div className={styles.createForm}>
           <p className={styles.formHint}>
             支持 <code>.zip</code> 压缩包或插件文件夹。含 <code>main.js</code> 的装到外部扩展，
-            只有 <code>client.js</code> 的装到客户端插件；同名目录不会被覆盖。
+            只有 <code>client.js</code> 的装到客户端插件。同名插件只有在{' '}
+            <strong>版本更高</strong>时才升级（比较 <code>plugin.json.version</code>）；
+            同版本或降级会被拒绝，升级失败会自动还原旧版本。
           </p>
           <div className={styles.modalActions}>
             <button

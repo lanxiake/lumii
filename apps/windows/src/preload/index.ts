@@ -989,11 +989,11 @@ export interface ElectronAPI {
     createSample: () => Promise<{ ok: boolean; dir?: string; error?: string }>
     /** 导入 .zip 插件包（系统对话框选文件） */
     importZip: () => Promise<
-      { ok: true; dir: string; id: string; kind: 'main' | 'client' | 'both' } | { ok: false; error: string; cancelled?: boolean }
+      { ok: true; dir: string; id: string; kind: 'main' | 'client' | 'both'; upgraded?: { from: string; to: string } } | { ok: false; error: string; cancelled?: boolean }
     >
     /** 导入插件文件夹（系统对话框选目录） */
     importFolder: () => Promise<
-      { ok: true; dir: string; id: string; kind: 'main' | 'client' | 'both' } | { ok: false; error: string; cancelled?: boolean }
+      { ok: true; dir: string; id: string; kind: 'main' | 'client' | 'both'; upgraded?: { from: string; to: string } } | { ok: false; error: string; cancelled?: boolean }
     >
     /** 在文件管理器中打开插件目录（内置扩展没有目录） */
     openDir: (target: { kind: 'builtin' | 'external' | 'client'; id: string; dir?: string }) => Promise<{ ok: boolean; error?: string }>

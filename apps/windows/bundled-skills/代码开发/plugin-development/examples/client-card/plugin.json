@@ -1,0 +1,8 @@
+{
+  "id": "__PLUGIN_ID__",
+  "name": "喝水打卡",
+  "version": "0.1.0",
+  "description": "在概览页加一张卡片，记录今天喝了几杯水，数据保存在本地",
+  "origin": "agent",
+  "engines": { "lumii": ">=0.1.0" }
+}
