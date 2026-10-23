@@ -987,6 +987,14 @@ export interface ElectronAPI {
     setClientEnabled: (id: string, enabled: boolean) => Promise<{ ok: boolean; error?: string }>
     /** 在 ~/.lumii/plugins/ 生成一个可直接生效的示例插件 */
     createSample: () => Promise<{ ok: boolean; dir?: string; error?: string }>
+    /** 导入 .zip 插件包（系统对话框选文件） */
+    importZip: () => Promise<
+      { ok: true; dir: string; id: string; kind: 'main' | 'client' | 'both' } | { ok: false; error: string; cancelled?: boolean }
+    >
+    /** 导入插件文件夹（系统对话框选目录） */
+    importFolder: () => Promise<
+      { ok: true; dir: string; id: string; kind: 'main' | 'client' | 'both' } | { ok: false; error: string; cancelled?: boolean }
+    >
     /** 在文件管理器中打开插件目录（内置扩展没有目录） */
     openDir: (target: { kind: 'builtin' | 'external' | 'client'; id: string; dir?: string }) => Promise<{ ok: boolean; error?: string }>
     /** 删除插件目录（内置扩展只允许禁用） */
@@ -1286,6 +1294,10 @@ const electronAPI: ElectronAPI = {
     setClientEnabled: (id: string, enabled: boolean) =>
       ipcRenderer.invoke('extension:set-client-enabled', id, enabled),
     createSample: () => ipcRenderer.invoke('extension:create-sample'),
+    /** 导入 .zip 插件包（系统对话框选文件） */
+    importZip: () => ipcRenderer.invoke('extension:import-zip'),
+    /** 导入插件文件夹（系统对话框选目录） */
+    importFolder: () => ipcRenderer.invoke('extension:import-folder'),
     openDir: (target) => ipcRenderer.invoke('extension:open-dir', target),
     remove: (target) => ipcRenderer.invoke('extension:delete', target),
     restart: () => ipcRenderer.invoke('extension:restart'),

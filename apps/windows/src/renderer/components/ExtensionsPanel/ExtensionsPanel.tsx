@@ -12,6 +12,8 @@ import {
   type PluginId,
 } from '../../data/asset-plugins'
 import { usePluginsContext } from '../../contexts/PluginsContext/PluginsContext'
+import { useSettingsHub } from '../SettingsHub/SettingsHubContext'
+import { Modal } from '../ui/Modal/Modal'
 import { ConfirmModal } from '../ui/Modal/ConfirmModal'
 import styles from './ExtensionsPanel.module.css'
 
@@ -172,6 +174,27 @@ function clientRow(plugin: ClientPluginState): ExtensionInfo {
   }
 }
 
+/**
+ * AI 新建插件的开场白。
+ *
+ * 只写「要做什么」+ 必须遵守的落点与自检方式；规范细节交给 `plugin-development` 技能，
+ * 避免把整份文档塞进每一条对话。
+ */
+function buildPluginBrief(brief: string): string {
+  return [
+    `请帮我创建一个 Lumii 插件：${brief}`,
+    '',
+    '开始前先阅读并使用 plugin-development 技能（Lumii 插件开发规范）。要求：',
+    '- 一个插件 = 一个 id = 一次注册；先判断形态：',
+    '  · 只有界面 → ~/.lumii/plugins/<id>/client.js',
+    '  · 需要主进程能力 → ~/.lumii/extensions/<id>/main.js',
+    '  · 两者都要 → 放同一个目录（extensions）',
+    '- 必须写 plugin.json：id / name / version / description / engines，origin 写 "agent"',
+    '- 界面走槽位注册（app.view / app.nav / dashboard.* / settings.*），不要改核心页面',
+    '- 写完用 plugin_dev 工具做 check 与 status 自检，并告诉我怎么验证',
+  ].join('\n')
+}
+
 /** 独立运行时组件 → 统一行（安装状态由 PluginsContext 提供） */
 function assetRow(def: PluginDef, installed: boolean, installing: boolean, version?: string): ExtensionInfo {
   return {
@@ -189,13 +212,22 @@ function assetRow(def: PluginDef, installed: boolean, installing: boolean, versi
   }
 }
 
-export const ExtensionsPanel: React.FC = () => {
+export interface ExtensionsPanelProps {
+  /** 切到别的 Hub 页签（AI 新建插件后跳去对话） */
+  onViewChange?: (view: 'chat') => void
+}
+
+export const ExtensionsPanel: React.FC<ExtensionsPanelProps> = ({ onViewChange }) => {
+  const { closeHub } = useSettingsHub()
   const [items, setItems] = useState<ExtensionInfo[]>([])
   const [notice, setNotice] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [restarting, setRestarting] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null)
   const [assetUninstall, setAssetUninstall] = useState<PluginDef | null>(null)
+  const [createOpen, setCreateOpen] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
+  const [aiBrief, setAiBrief] = useState('')
   const [query, setQuery] = useState('')
   const [sortBy, setSortBy] = useState<SortBy>('name')
   // 运行时组件状态来自全局 context：依赖行与独立组件卡片共用
@@ -387,10 +419,58 @@ export const ExtensionsPanel: React.FC = () => {
     try {
       const result = await window.electronAPI.extensions.createSample()
       setNotice(result.ok ? `已生成示例插件：${result.dir}` : (result.error ?? '生成失败'))
+      setCreateOpen(false)
     } finally {
       setBusy(null)
     }
   }, [])
+
+  /** AI 新建：开一个新会话并带上插件开发规范（技能名 plugin-development） */
+  const startAiCreate = useCallback(() => {
+    const brief = aiBrief.trim()
+    if (!brief) {
+      setNotice('先写一句：这个插件要做什么')
+      return
+    }
+    setCreateOpen(false)
+    setAiBrief('')
+    closeHub()
+    window.dispatchEvent(
+      new CustomEvent('mtbot:chat-draft-request', {
+        detail: { text: buildPluginBrief(brief), newSession: true },
+      }),
+    )
+    onViewChange?.('chat')
+  }, [aiBrief, closeHub, onViewChange])
+
+  /** 手动导入：压缩包或文件夹（系统对话框选来源） */
+  const importFrom = useCallback(
+    async (kind: 'zip' | 'folder') => {
+      setBusy(`import:${kind}`)
+      setNotice(null)
+      setImportOpen(false)
+      try {
+        const result =
+          kind === 'zip'
+            ? await window.electronAPI.extensions.importZip()
+            : await window.electronAPI.extensions.importFolder()
+        if (!result.ok) {
+          if (!result.cancelled) setNotice(result.error ?? '导入失败')
+          return
+        }
+        const kindLabel =
+          result.kind === 'both' ? '前后端插件' : result.kind === 'main' ? '主进程扩展' : '客户端插件'
+        setNotice(`已导入 ${result.id}（${kindLabel}），1 秒内加载`)
+        // 外部扩展宿主每秒扫一次目录；稍等再刷新，读到的是加载后的状态
+        setTimeout(() => void refresh(), 1500)
+      } catch (err) {
+        setNotice(`导入失败：${(err as Error).message}`)
+      } finally {
+        setBusy(null)
+      }
+    },
+    [refresh],
+  )
 
   const renderRow = (row: ExtensionInfo): React.ReactElement => {
     // 按需安装的官方扩展复用通用插件通道：id = ext:<插件 id>
@@ -640,12 +720,11 @@ export const ExtensionsPanel: React.FC = () => {
         >
           刷新
         </button>
-        <button
-          className={styles.primary}
-          disabled={busy === CREATE_KEY}
-          onClick={() => void createSample()}
-        >
-          {busy === CREATE_KEY ? '生成中…' : '新建插件'}
+        <button className={styles.secondary} onClick={() => setImportOpen(true)}>
+          导入插件
+        </button>
+        <button className={styles.primary} onClick={() => setCreateOpen(true)}>
+          新建插件
         </button>
       </div>
 
@@ -729,6 +808,83 @@ export const ExtensionsPanel: React.FC = () => {
         onConfirm={() => void confirmAssetUninstall()}
         onCancel={() => setAssetUninstall(null)}
       />
+
+      {/* 新建插件：AI 生成（默认）或生成示例插件 */}
+      <Modal
+        open={createOpen}
+        title="新建插件"
+        width={560}
+        layer="aboveHub"
+        onClose={() => setCreateOpen(false)}
+        footer={
+          <div className={styles.modalActions}>
+            <button
+              className={styles.secondary}
+              disabled={busy === CREATE_KEY}
+              onClick={() => void createSample()}
+            >
+              {busy === CREATE_KEY ? '生成中…' : '生成示例插件'}
+            </button>
+            <button
+              className={styles.primary}
+              disabled={!aiBrief.trim()}
+              onClick={startAiCreate}
+            >
+              让 AI 创建
+            </button>
+          </div>
+        }
+      >
+        <div className={styles.createForm}>
+          <label className={styles.formLabel} htmlFor="plugin-ai-brief">
+            这个插件要做什么？
+          </label>
+          <textarea
+            id="plugin-ai-brief"
+            className={styles.textarea}
+            rows={4}
+            value={aiBrief}
+            onChange={(event) => setAiBrief(event.target.value)}
+            placeholder="例：在概览页加一张卡片，显示今天喝了几杯水，点一下 +1，数据本地保存"
+          />
+          <p className={styles.formHint}>
+            AI 会新开一个会话，按「plugin-development」技能实现、自检并告诉你怎么验证。
+            也可以先生成示例插件，再让 AI 基于它改。
+          </p>
+        </div>
+      </Modal>
+
+      {/* 导入插件：压缩包或文件夹 */}
+      <Modal
+        open={importOpen}
+        title="导入插件"
+        width={480}
+        layer="aboveHub"
+        onClose={() => setImportOpen(false)}
+      >
+        <div className={styles.createForm}>
+          <p className={styles.formHint}>
+            支持 <code>.zip</code> 压缩包或插件文件夹。含 <code>main.js</code> 的装到外部扩展，
+            只有 <code>client.js</code> 的装到客户端插件；同名目录不会被覆盖。
+          </p>
+          <div className={styles.modalActions}>
+            <button
+              className={styles.primary}
+              disabled={busy === 'import:zip'}
+              onClick={() => void importFrom('zip')}
+            >
+              {busy === 'import:zip' ? '导入中…' : '选择压缩包 (.zip)'}
+            </button>
+            <button
+              className={styles.secondary}
+              disabled={busy === 'import:folder'}
+              onClick={() => void importFrom('folder')}
+            >
+              {busy === 'import:folder' ? '导入中…' : '选择文件夹'}
+            </button>
+          </div>
+        </div>
+      </Modal>
     </div>
   )
 }

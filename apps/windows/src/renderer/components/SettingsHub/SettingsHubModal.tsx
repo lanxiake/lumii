@@ -214,7 +214,7 @@ export const SettingsHubModal: React.FC<{
         return (
           <div className={styles.embedPane}>
             <div className={styles.extensionsPane}>
-              <ExtensionsPanel />
+              <ExtensionsPanel onViewChange={onViewChange} />
               <SlotHost name="settings.section" />
             </div>
           </div>

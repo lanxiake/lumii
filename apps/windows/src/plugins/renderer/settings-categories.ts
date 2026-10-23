@@ -10,6 +10,8 @@ export const PLUGIN_SETTINGS_CATEGORIES: Readonly<Record<string, string>> = {
   usage: 'com.lumii.usage',
   voice: 'com.lumii.voice',
   pet: 'com.lumii.pet',
+  cloudSync: 'com.lumii.cloud-sync',
+  screenRecord: 'com.lumii.screen-record',
 }
 
 /**

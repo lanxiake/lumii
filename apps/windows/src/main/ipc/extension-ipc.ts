@@ -6,6 +6,7 @@ import {
   setClientPluginStateReport,
 } from '../client-plugin-state-report'
 import { createSamplePlugin } from '../../plugins/external/template'
+import { importPluginFromDialog } from '../../plugins/external/import'
 
 /**
  * 设置页「扩展」页签的数据面 + Agent 自举开发的状态面。
@@ -47,6 +48,10 @@ export function setupExtensionIpcHandlers(deps: ExtensionIpcDeps = {}): void {
   })
 
   ipcMain.handle('extension:create-sample', () => createSamplePlugin())
+
+  // 手动导入：压缩包或文件夹（弹系统对话框选来源；目标根目录由内容决定）
+  ipcMain.handle('extension:import-zip', () => importPluginFromDialog('zip'))
+  ipcMain.handle('extension:import-folder', () => importPluginFromDialog('folder'))
 
   /**
    * 渲染层上报客户端插件加载状态（fire-and-forget）。

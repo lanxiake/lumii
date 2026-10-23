@@ -192,6 +192,9 @@ setFooAccessor(() => pluginHost?.container.get(S.foo) ?? null)
 | 操作 | 要做的事 |
 |---|---|
 | **新增** | 建 `builtin/<name>/index.ts`（`export const xxxExtension = { manifest, definition }`）；`registry.ts` 加一行 import + 一行条目；需要即时启停就标 `hot: true`。**manifest 必须写 `description`**（插件页展示功能说明）。核心若要在启动阶段取它的服务，通过 `S`（`kernel/services.ts`）交出去，不要让核心 import 实现。 |
+| **导入** | 设置 › 插件 › **导入插件**：支持 `.zip` 或文件夹（可套一层目录）。含 `main.js` 装到 `~/.lumii/extensions/<id>/`，只有 `client.js` 装到 `~/.lumii/plugins/<id>/`；**同名目录不覆盖**，`node_modules/.git` 不复制。 |
+| **AI 新建** | 设置 › 插件 › **新建插件** → 填一句需求 → 新开对话，按 `plugin-development` 技能实现并自检（也可先生成示例插件再改）。规范随包种到 `workspace/skills/代码开发/plugin-development/`。 |
+| **禁用** | 插件注册的页面/导航/浮层/设置分区随作用域注销；整块设置分类在 `renderer/settings-categories.ts` 登记归属后，左侧导航也一起隐藏。 |
 | **修改** | 改 `builtin/<name>/` 下的文件即可。只改 `packages/*` 或主进程后必须重启 dev（见根 AGENTS.md）。 |
 | **删除** | `rm -rf builtin/<name>/` + 删 `registry.ts` 里两行；`tsc` 会把残留引用全部列出来（核心通过 `isExtensionActive` 判门，删掉后功能自然消失）。再跑 `node scripts/check-wiring.mjs` 与 `scripts/ipc-owners.json` 对账。 |
 | **升级** | 内置插件随应用发版；外部扩展改文件即热重载（1s 轮询）；官方扩展走 `external-src/` → `pnpm build:official-extensions` → 发布脚本。 |
