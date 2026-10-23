@@ -14,7 +14,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import '@testing-library/jest-dom'
 import { PetContextMenu, type PetContextMenuProps } from './PetContextMenu'
-import type { PetModelConfigDTO } from '../../../shared/pet-mode'
+import type { PetModelConfigDTO } from '../../../../../shared/pet-mode'
 
 /** 只填 PetContextMenu 用得到的字段，其余照类型补齐（多出来的必填项与用例无关） */
 function makeModel(id: string, name: string): PetModelConfigDTO {

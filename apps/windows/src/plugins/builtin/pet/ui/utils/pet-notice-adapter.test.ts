@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { noticeFromEvent } from '@mtbot/pet-core'
-import type { PetGoalResultEvent, PetSensingEvent } from '../../../shared/agent-runtime-events'
+import type { PetGoalResultEvent, PetSensingEvent } from '../../../../../shared/agent-runtime-events'
 import {
   INITIAL_TURN_FACTS,
   advanceTurnFacts,

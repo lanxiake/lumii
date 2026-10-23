@@ -7,7 +7,7 @@
  * PetOrchestrator 消费这些事件驱动动画。MVP 不做表情，故无 agent:emotion。
  */
 
-import type { VoiceCallState } from '../../../shared/voice-events'
+import type { VoiceCallState } from '../../../../../shared/voice-events'
 
 /** 语音状态事件 */
 interface PetBusVoiceState {

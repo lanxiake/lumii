@@ -7,9 +7,9 @@
 import React, { useState, useCallback, useMemo } from 'react'
 import clsx from 'clsx'
 import { ChevronRight } from 'lucide-react'
-import { useCodingDevProjects } from '../../../../hooks/business/useCodingDevProjects'
-import { useProjectGitStatus } from '../../../../hooks/business/useProjectGitStatus'
-import type { VcsDiffItem } from '../../../../hooks/business/useWorkspaceVcs'
+import { useCodingDevProjects } from '../../../../../renderer/hooks/business/useCodingDevProjects'
+import { useProjectGitStatus } from '../../../../../renderer/hooks/business/useProjectGitStatus'
+import type { VcsDiffItem } from '../../../../../renderer/hooks/business/useWorkspaceVcs'
 import { DiffFileCard } from './DiffFileCard'
 import styles from './ProjectGitSection.module.css'
 

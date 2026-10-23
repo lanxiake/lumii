@@ -6,8 +6,8 @@
  */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react'
-import type { VoiceCallState } from '../../../shared/voice-events'
-import type { PetModelConfigDTO, PetExperienceDTO, PetTaskItemDTO, PetTaskStateDTO } from '../../../shared/pet-mode'
+import type { VoiceCallState } from '../../../../../shared/voice-events'
+import type { PetModelConfigDTO, PetExperienceDTO, PetTaskItemDTO, PetTaskStateDTO } from '../../../../../shared/pet-mode'
 import {
   MicIcon,
   VolumeOnIcon,

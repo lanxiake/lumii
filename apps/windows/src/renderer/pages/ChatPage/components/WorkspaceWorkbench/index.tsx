@@ -25,7 +25,9 @@ export interface WorkspaceWorkbenchProps {
   onRefresh?: () => void
   childrenFiles: ReactNode
   childrenChanges?: ReactNode
-  childrenVcs: ReactNode
+  childrenVcs?: ReactNode
+  /** 版本页签归 vcs 插件：插件停用时整页签消失（不是留一个空面板） */
+  vcsEnabled?: boolean
   /** 宽度变化时通知（用于对话区 padding 自适应） */
   onWidthChange?: (width: number) => void
   /** 拖拽改宽进行中（对话区关闭 padding 过渡） */
@@ -86,12 +88,15 @@ export const WorkspaceWorkbench: React.FC<WorkspaceWorkbenchProps> = ({
   childrenFiles,
   childrenChanges,
   childrenVcs,
+  vcsEnabled = true,
   onWidthChange,
   onResizingChange,
   layoutMode = 'default',
   onLayoutModeChange,
 }) => {
   const [width, setWidth] = useState(() => resolveWidth(tab, layoutMode))
+  /** 版本插件停用时的等效页签：退回「文件」，不留空面板 */
+  const visibleTab: WorkbenchTab = vcsEnabled || tab !== 'vcs' ? tab : 'files'
   const [resizing, setResizing] = useState(false)
   const widthRef = useRef(width)
   widthRef.current = width
@@ -271,16 +276,18 @@ export const WorkspaceWorkbench: React.FC<WorkspaceWorkbenchProps> = ({
               <span className={styles.badge}>{changeCount > 99 ? '99+' : changeCount}</span>
             )}
           </button>
-          <button
-            type="button"
-            className={clsx(styles.tab, tab === 'vcs' && styles.tabActive)}
-            onClick={() => onTabChange('vcs')}
-          >
-            版本
-            {uncommittedCount > 0 && (
-              <span className={styles.badge}>{uncommittedCount}</span>
-            )}
-          </button>
+          {vcsEnabled && (
+            <button
+              type="button"
+              className={clsx(styles.tab, visibleTab === 'vcs' && styles.tabActive)}
+              onClick={() => onTabChange('vcs')}
+            >
+              版本
+              {uncommittedCount > 0 && (
+                <span className={styles.badge}>{uncommittedCount}</span>
+              )}
+            </button>
+          )}
         </nav>
         <div className={styles.actions}>
           {onRefresh && (
@@ -317,8 +324,8 @@ export const WorkspaceWorkbench: React.FC<WorkspaceWorkbenchProps> = ({
           {childrenChanges}
         </div>
         <div
-          className={clsx(styles.pane, tab === 'vcs' && styles.paneVisible)}
-          hidden={tab !== 'vcs'}
+          className={clsx(styles.pane, visibleTab === 'vcs' && styles.paneVisible)}
+          hidden={visibleTab !== 'vcs'}
         >
           {childrenVcs}
         </div>

@@ -20,11 +20,23 @@ import {
   validateSpriteManifest,
 } from '@mtbot/pet-core'
 
-/** apps/windows/resources/pet-models（自本文件上溯 5 级到 apps/windows） */
-const RESOURCES = join(
-  dirname(fileURLToPath(import.meta.url)),
-  '../../../../../resources/pet-models',
-)
+/**
+ * apps/windows/resources/pet-models —— 往上找，不数 `../`。
+ *
+ * 数层级在搬目录时会静默断掉（本文件已经从 renderer/ 搬进 plugins/builtin/pet/ui/），
+ * 断了只报 ENOENT，看不出是路径问题。
+ */
+function findResources(): string {
+  let dir = dirname(fileURLToPath(import.meta.url))
+  for (let i = 0; i < 12; i += 1) {
+    const candidate = join(dir, 'resources', 'pet-models')
+    if (existsSync(candidate)) return candidate
+    dir = dirname(dir)
+  }
+  throw new Error('找不到 resources/pet-models（测试文件的向上查找链断了）')
+}
+
+const RESOURCES = findResources()
 
 /**
  * 三方案变体的夹具（P0-b 对比用，**不是随包资源**）。

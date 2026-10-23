@@ -8,7 +8,7 @@
  */
 
 import { useEffect, useState, useCallback, useRef } from 'react'
-import type { AppMode, PetModeChangedEvent } from '../../../shared/pet-mode'
+import type { AppMode, PetModeChangedEvent } from '../../../../../shared/pet-mode'
 import { petMetrics } from '../telemetry/pet-metrics'
 
 export function usePetMode() {

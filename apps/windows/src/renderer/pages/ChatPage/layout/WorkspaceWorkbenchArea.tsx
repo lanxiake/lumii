@@ -2,7 +2,8 @@ import React, { useRef, useCallback, useMemo } from 'react'
 import type { FileChangeEntry } from '@mtbot/agent-runtime/browser'
 import { WorkspaceWorkbench, type WorkbenchLayoutMode, type WorkbenchTab } from '../components/WorkspaceWorkbench'
 import { WorkspaceFilePanel } from '../components/WorkspaceFilePanel'
-import { WorkspaceVersionPanel } from '../components/WorkspaceVersionPanel/WorkspaceVersionPanel'
+import { SlotHost } from '../../../components/slots/SlotHost'
+import { usePluginEnabled } from '../../../../plugins/renderer/state'
 import { WorkspaceChangesPanel } from '../components/WorkspaceChangesPanel'
 import { buildChangeLedger } from '../components/WorkspaceChangesPanel/ledger'
 import type { RuntimeMessage } from '../../../hooks/business/useAgentRuntime/agent-runtime-store'
@@ -42,6 +43,7 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
   onRevealInFiles,
   onRevealChange,
 }) => {
+  const vcsEnabled = usePluginEnabled('com.lumii.vcs')
   const fileRefreshRef = useRef<(() => void) | null>(null)
   const vcsRefreshRef = useRef<(() => Promise<void>) | null>(null)
 
@@ -87,15 +89,21 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
           onRevealInFiles={onRevealChange}
         />
       }
+      vcsEnabled={vcsEnabled}
       childrenVcs={
-        <WorkspaceVersionPanel
-          open={workbench.open}
-          onClose={onClose}
-          embedded
-          layoutMode={layoutMode}
-          onLayoutModeChange={onLayoutModeChange}
-          onRevealInFiles={onRevealInFiles}
-          refreshRef={vcsRefreshRef}
+        <SlotHost
+          name="workspace.version"
+          context={
+            {
+              open: workbench.open,
+              onClose,
+              embedded: true,
+              layoutMode,
+              onLayoutModeChange,
+              onRevealInFiles,
+              refreshRef: vcsRefreshRef,
+            } as unknown as Record<string, unknown>
+          }
         />
       }
     />

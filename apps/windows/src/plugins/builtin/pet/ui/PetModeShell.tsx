@@ -28,8 +28,8 @@ import { spawnClickFireworks, spawnIdleSparkles } from './components/pet-particl
 import { PetOrchestrator, type PetAvatarStatus } from './orchestrator/PetOrchestrator'
 import { PetEmotionMapper } from './orchestrator/PetEmotionMapper'
 import { announceDurationMs, isPetSessionKey, mapAgentEvent, pendingNotices, traitLabel, type PetIdleStage, type PetNotice } from '@mtbot/pet-core'
-import { useVoiceCall } from '../hooks/business/useVoiceCall/useVoiceCall'
-import { useAgentRuntimeActions } from '../hooks/business/useAgentRuntime/useAgentRuntime'
+import { useVoiceCall } from '../../../../renderer/hooks/business/useVoiceCall/useVoiceCall'
+import { useAgentRuntimeActions } from '../../../../renderer/hooks/business/useAgentRuntime/useAgentRuntime'
 import type { PetModelConfig } from './config/pet-model-types'
 import type { PetRendererProvider } from './renderer/types'
 import { petMetrics } from './telemetry/pet-metrics'
@@ -41,7 +41,7 @@ import {
   VH_STORAGE_KEYS,
   DEFAULT_VH_SETTINGS,
   type VirtualHumanSettingsDTO,
-} from '../../shared/virtual-human'
+} from '../../../../shared/virtual-human'
 import type { PetChatMessage } from './components/PetControlDock'
 import type {
   PetExperienceDTO,
@@ -49,7 +49,7 @@ import type {
   PetModelConfigDTO,
   PetPersonalityDTO,
   PetTaskStateDTO,
-} from '../../shared/pet-mode'
+} from '../../../../shared/pet-mode'
 import { usePrefersReducedMotion } from './utils/use-prefers-reduced-motion'
 import { resolveEmotionKeyByIndex } from './utils/pet-status-labels'
 import { pickStatusGlyph } from './utils/pet-status-glyph'
@@ -62,8 +62,8 @@ import {
   sweepStale,
   type SessionActivityState,
 } from './utils/session-activity'
-import { readPersistedSessionThinkingPrefs } from '../../shared/session-thinking-prefs'
-import { notifyDesktop } from '../services/app-service'
+import { readPersistedSessionThinkingPrefs } from '../../../../shared/session-thinking-prefs'
+import { notifyDesktop } from '../../../../renderer/services/app-service'
 import { petSessionMatchesEvent } from './utils/pet-session-match'
 import { applyPetTheme, readPetTheme, subscribePetTheme } from './utils/pet-theme'
 import {

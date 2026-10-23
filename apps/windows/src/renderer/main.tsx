@@ -119,7 +119,7 @@ if (isPetMode) {
   styleEl.textContent = 'html,body,#root{background:transparent!important;overflow:hidden!important}'
   document.head.appendChild(styleEl)
   const PetModeShell = React.lazy(() =>
-    import('./pet/PetModeShell').then((m) => ({ default: m.PetModeShell })),
+    import('../plugins/builtin/pet/ui/PetModeShell').then((m) => ({ default: m.PetModeShell })),
   )
   root.render(
     <React.StrictMode>

@@ -7,7 +7,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { WorkspaceWorkbench } from '../../renderer/pages/ChatPage/components/WorkspaceWorkbench'
 import { WorkspaceFilePanel } from '../../renderer/pages/ChatPage/components/WorkspaceFilePanel'
-import { WorkspaceVersionPanel } from '../../renderer/pages/ChatPage/components/WorkspaceVersionPanel/WorkspaceVersionPanel'
+import { WorkspaceVersionPanel } from '../../plugins/builtin/vcs/ui/WorkspaceVersionPanel/WorkspaceVersionPanel'
 
 const refreshVcs = vi.fn(async () => undefined)
 

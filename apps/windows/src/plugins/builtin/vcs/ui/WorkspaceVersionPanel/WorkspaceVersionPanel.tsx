@@ -13,12 +13,12 @@ import {
   useWorkspaceVcs,
   type VcsDiffItem,
   type VcsLogEntry,
-} from '../../../../hooks/business/useWorkspaceVcs'
-import { ConfirmModal } from '../../../../components/ui/Modal/ConfirmModal'
+} from '../../../../../renderer/hooks/business/useWorkspaceVcs'
+import { ConfirmModal } from '../../../../../renderer/components/ui/Modal/ConfirmModal'
 import { DiffFileCard } from './DiffFileCard'
 import { ChangedFilesRail } from './ChangedFilesRail'
 import { ProjectGitSection } from './ProjectGitSection'
-import type { WorkbenchLayoutMode } from '../WorkspaceWorkbench'
+import type { WorkbenchLayoutMode } from '../../../../../renderer/pages/ChatPage/components/WorkspaceWorkbench'
 import styles from './WorkspaceVersionPanel.module.css'
 
 type Subnav = 'changes' | 'history'

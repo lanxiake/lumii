@@ -20,7 +20,7 @@
  */
 
 import React, { useState } from 'react'
-import type { PetExperienceDTO } from '../../../shared/pet-mode'
+import type { PetExperienceDTO } from '../../../../../shared/pet-mode'
 import { traitLabel } from '@mtbot/pet-core'
 import { light, dark, selectableText } from './pet-dock-theme'
 

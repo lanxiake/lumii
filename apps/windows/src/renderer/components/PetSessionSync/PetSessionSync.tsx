@@ -17,23 +17,26 @@ import {
 import { useFeatureAvailability } from '../../hooks/business/useFeatureAvailability'
 import { readPersistedSessionThinkingPrefs } from '../../../shared/session-thinking-prefs'
 import { setActiveSessionKey } from '../../services/pet-service'
+import { usePluginEnabled } from '../../../plugins/renderer/state'
 
 export const PetSessionSync: React.FC = () => {
   const currentSessionKey = useAgentRuntimeGlobalState((s) => s.currentSessionKey)
   const runtimeActions = useAgentRuntimeActions()
   const { isAvailable, ready } = useFeatureAvailability()
   const petModeBlocked = !isAvailable('petMode')
+  // 插件停用 ⇒ pet:* handler 没注册，同样不能发（与屏蔽平台同一条短路）
+  const petEnabled = usePluginEnabled('com.lumii.pet')
 
   useEffect(() => {
     if (!currentSessionKey) return
     // **必须等 `ready`**：`isAvailable` 在矩阵取回前返回 true（刻意的降级取向，
     // 见 hook 文件头）。只判 petModeBlocked 的话首次渲染就把请求发出去了，
     // 这条短路等于没加。
-    if (ready && !petModeBlocked) void setActiveSessionKey(currentSessionKey)
+    if (ready && !petModeBlocked && petEnabled) void setActiveSessionKey(currentSessionKey)
 
     const prefs = readPersistedSessionThinkingPrefs()
     void runtimeActions.setSessionThinkingPrefs(currentSessionKey, prefs)
-  }, [currentSessionKey, runtimeActions, ready, petModeBlocked])
+  }, [currentSessionKey, runtimeActions, ready, petModeBlocked, petEnabled])
 
   return null
 }

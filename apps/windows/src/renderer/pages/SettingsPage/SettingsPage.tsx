@@ -36,7 +36,7 @@ import { VIRTUAL_HUMAN_PRODUCT_NAME } from '../../../shared/virtual-human'
 import { getAutonomousStatus } from '../../../plugins/builtin/autonomous/ui/autonomous-service'
 import { getWorkspaceDir, ensureWorkspaceDir, notifyWorkspaceChanged } from '../../services/workspace-service'
 import { getAppVersion, getOpenAtLogin, setOpenAtLogin as applyOpenAtLogin, openLogFile } from '../../services/app-service'
-import { PetSettingsSection } from './components/PetSettingsSection'
+import { PetSettingsSection } from '../../../plugins/builtin/pet/ui/PetSettingsSection'
 import { ModelConfigSection } from './components/ModelConfigSection'
 import { VoiceSettingsSection } from '../../../plugins/builtin/voice/ui/VoiceSettingsSection'
 import { WorkspaceSection } from './components/WorkspaceSection'
@@ -874,7 +874,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
       case 'experimental':
         return <ExperimentalSection />
       case 'pet':
-        return <PetSettingsSection />
+        // 整块由桌宠插件注册；停用后槽位为空、左侧入口消失
+        return <SlotHost name="settings.category.pet" />
       case 'usage':
         // 整块由插件注册；插件停用后槽位为空（左侧入口也会一起消失）
         return <SlotHost name="settings.category.usage" />

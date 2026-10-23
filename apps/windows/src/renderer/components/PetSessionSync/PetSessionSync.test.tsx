@@ -14,6 +14,8 @@
  *      只判 blocked 的写法首次渲染就会漏出去，等于没加（第一次修得不彻底就是这么来的）
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+// 本文件测的是「插件启用时」的 pet:* 调用；停用判门由 usePluginEnabled 负责
+vi.mock('../../../plugins/renderer/state', () => ({ usePluginEnabled: () => true }))
 import { render, waitFor } from '@testing-library/react'
 
 const SESSION_KEY = 'local:desktop'

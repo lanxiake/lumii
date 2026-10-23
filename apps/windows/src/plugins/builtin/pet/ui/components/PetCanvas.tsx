@@ -27,7 +27,7 @@ import { PET_MOTION_GROUP_UNNAMED } from '../config/pet-model-types'
 import { estimateVelocity, isThrowable, stepThrow, dragBoundsOf, needsExpressivenessCompensation, NO_EXPRESSION_LAYER_GAIN, shouldRefuse, type AmbientTuningInput, type DragSample, type ThrowBody, type PetPose, type TraitValues } from '@mtbot/pet-core'
 import { PetWanderDriver } from '../behavior/PetWanderDriver'
 import { petMetrics } from '../telemetry/pet-metrics'
-import type { PetHoverUpdate } from '../../../shared/pet-mode'
+import type { PetHoverUpdate } from '../../../../../shared/pet-mode'
 import { spawnClickFireworks, disposePetParticles } from './pet-particles'
 
 const log = {

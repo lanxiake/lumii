@@ -36,7 +36,7 @@ import { describeRoots, isPetAssetOp, runPetAssetOp } from './pet-asset-ipc'
  * - 全局快捷键不占用
  * - GPU 资源不占用
  *
- * 渲染层（`renderer/pet/`，13142 行）仍由现有路由提供，P4 才做 slot 化——
+ * 渲染层代码在 `ui/`（原 `renderer/pet/`）；设置分区走 `settings.category.pet` 槽位，
  * 所以现在桌宠「能禁用」但「不能独立升级」（要升级需更新整个应用）。
  *
  * ## 依赖与时序

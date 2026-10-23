@@ -19,9 +19,10 @@ import { PawPrint } from 'lucide-react'
 import { useToast } from '../ui/Toast/useToast'
 import { useFeatureAvailability } from '../../hooks/business/useFeatureAvailability'
 import { getPetMode, switchPetMode, subscribePetModeChanged } from '../../services/pet-service'
+import { usePluginEnabled } from '../../../plugins/renderer/state'
 import styles from './PetModeTitleControl.module.css'
 
-export const PetModeTitleControl: React.FC = () => {
+const PetModeTitleControlInner: React.FC = () => {
   const toast = useToast()
   const { isAvailable, blockMessage } = useFeatureAvailability()
   // 屏蔽平台（pet:* handler 未注册）必须给出原因，不能点了才发现（D4）。
@@ -89,4 +90,13 @@ export const PetModeTitleControl: React.FC = () => {
       <PawPrint size={14} strokeWidth={1.8} />
     </button>
   )
+}
+
+/**
+ * 标题栏宠物开关：桌宠插件停用时整颗按钮消失（而不是点了报错）。
+ * 外层只做启停判门，状态逻辑仍在 Inner 里（挂载即读主进程，禁用时不挂载）。
+ */
+export const PetModeTitleControl: React.FC = () => {
+  const enabled = usePluginEnabled('com.lumii.pet')
+  return enabled ? <PetModeTitleControlInner /> : null
 }

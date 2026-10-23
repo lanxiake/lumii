@@ -12,6 +12,9 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import '@testing-library/jest-dom'
 import { ToastProvider } from '../ui/Toast/ToastContainer'
 
+// 标题栏开关现在按插件启停隐藏；本文件测的是「启用时」的行为
+vi.mock('../../../plugins/renderer/state', () => ({ usePluginEnabled: () => true }))
+
 const getMode = vi.fn()
 const switchMode = vi.fn()
 const getFeatureAvailability = vi.fn()

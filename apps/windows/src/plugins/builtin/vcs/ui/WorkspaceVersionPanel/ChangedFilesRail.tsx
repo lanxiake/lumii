@@ -9,7 +9,7 @@
 import React, { useMemo, useState } from 'react'
 import clsx from 'clsx'
 import { ChevronRight, ChevronDown, PanelRightClose, PanelRight } from 'lucide-react'
-import type { VcsDiffItem } from '../../../../hooks/business/useWorkspaceVcs'
+import type { VcsDiffItem } from '../../../../../renderer/hooks/business/useWorkspaceVcs'
 import styles from './ChangedFilesRail.module.css'
 
 export interface ChangedFilesRailProps {

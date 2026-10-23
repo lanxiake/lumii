@@ -26,8 +26,8 @@
  */
 
 import React, { useEffect, useRef, useState } from 'react'
-import type { VoiceCallState } from '../../../shared/voice-events'
-import type { PetModelConfigDTO } from '../../../shared/pet-mode'
+import type { VoiceCallState } from '../../../../../shared/voice-events'
+import type { PetModelConfigDTO } from '../../../../../shared/pet-mode'
 
 export interface PetContextMenuProps {
   /** 菜单左上角（画布坐标，CSS 像素） */

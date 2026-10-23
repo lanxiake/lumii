@@ -2,13 +2,13 @@
  * 宠物模式设置区块：虚拟人模型选择、对话 Agent、表情/动作/语音等开关、主动联系与打开/关闭按钮
  */
 import React, { useEffect, useState } from 'react'
-import { Card } from '../../../../components/ui/Card/Card'
-import { Button } from '../../../../components/ui/Button/Button'
-import { Input } from '../../../../components/ui/Input/Input'
-import { Checkbox } from '../../../../components/ui/Checkbox/Checkbox'
-import { Select } from '../../../../components/ui/Select/Select'
-import { useToast } from '../../../../components/ui/Toast/useToast'
-import { getAgents, type Agent } from '../../../../services/agent-service'
+import { Card } from '../../../../../renderer/components/ui/Card/Card'
+import { Button } from '../../../../../renderer/components/ui/Button/Button'
+import { Input } from '../../../../../renderer/components/ui/Input/Input'
+import { Checkbox } from '../../../../../renderer/components/ui/Checkbox/Checkbox'
+import { Select } from '../../../../../renderer/components/ui/Select/Select'
+import { useToast } from '../../../../../renderer/components/ui/Toast/useToast'
+import { getAgents, type Agent } from '../../../../../renderer/services/agent-service'
 import {
   subscribePetModeChanged,
   listPetModels,
@@ -19,17 +19,17 @@ import {
   setVirtualHumanSettings,
   setCurrentPetModelId,
   switchPetMode,
-} from '../../../../services/pet-service'
+} from '../../../../../renderer/services/pet-service'
 import type { PetModelConfigDTO } from '../../../../../shared/pet-mode'
 import {
   type VirtualHumanSettingsDTO,
   DEFAULT_VH_SETTINGS,
 } from '../../../../../shared/virtual-human'
-import { useFeatureAvailability } from '../../../../hooks/business/useFeatureAvailability'
+import { useFeatureAvailability } from '../../../../../renderer/hooks/business/useFeatureAvailability'
 import { expressionCapability, type ExpressionCapability } from '@mtbot/pet-core'
-import { usePluginsContext } from '../../../../contexts/PluginsContext/PluginsContext'
-import { AssetPluginCard } from '../../../../components/AssetPluginCard/AssetPluginCard'
-import styles from '../../SettingsPage.module.css'
+import { usePluginsContext } from '../../../../../renderer/contexts/PluginsContext/PluginsContext'
+import { AssetPluginCard } from '../../../../../renderer/components/AssetPluginCard/AssetPluginCard'
+import styles from '../../../../../renderer/pages/SettingsPage/SettingsPage.module.css'
 
 /** 宠物模式 Agent 选择的本地存储键 */
 const PET_AGENT_STORAGE_KEY = 'mtbot:pet-agent-id'

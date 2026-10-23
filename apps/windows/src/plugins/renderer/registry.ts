@@ -5,6 +5,8 @@ import { channelWeixinRenderer } from '../builtin/channel-weixin/renderer'
 import { channelWecomRenderer } from '../builtin/channel-wecom/renderer'
 import { channelFeishuRenderer } from '../builtin/channel-feishu/renderer'
 import { channelQbotRenderer } from '../builtin/channel-qbot/renderer'
+import { vcsRenderer } from '../builtin/vcs/renderer'
+import { petRenderer } from '../builtin/pet/renderer'
 import { voiceRenderer } from '../builtin/voice/renderer'
 
 /**
@@ -22,4 +24,6 @@ export const RENDERER_PLUGINS: readonly RendererPlugin[] = [
   channelWecomRenderer,
   channelFeishuRenderer,
   channelQbotRenderer,
+  vcsRenderer,
+  petRenderer,
 ]

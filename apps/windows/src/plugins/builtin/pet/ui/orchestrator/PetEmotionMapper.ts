@@ -13,7 +13,7 @@
 
 import {
   extractEmotionTags,
-} from '../../../shared/virtual-human'
+} from '../../../../../shared/virtual-human'
 
 const log = {
   info: (...args: unknown[]) => console.log('[PetEmotionMapper]', ...args),

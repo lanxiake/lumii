@@ -7,7 +7,7 @@
  */
 
 import type { PetModelConfig } from './pet-model-types'
-import type { PetModelConfigDTO } from '../../../shared/pet-mode'
+import type { PetModelConfigDTO } from '../../../../../shared/pet-mode'
 
 /** DTO → PetModelConfig（结构一致，仅类型收敛） */
 function toPetModelConfig(dto: PetModelConfigDTO): PetModelConfig {
