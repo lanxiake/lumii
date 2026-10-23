@@ -151,8 +151,8 @@ await window.electronAPI.extensions.list()                          // 扩展状
 ### 字段清单（别靠猜）
 
 插件是纯 JS，看不到 preload 的类型声明。下面是真用得到的几张表的**返回字段**
-（定义在 `main/plugins/builtin/usage/store.ts` / `main/provider-latency.ts` /
-`main/plugins/builtin/dashboard-feed/store.ts` / `main/plugins/control.ts`，改字段时这里跟着改）。
+（定义在 `plugins/builtin/usage/store.ts` / `main/provider-latency.ts` /
+`plugins/builtin/dashboard-feed/store.ts` / `plugins/control.ts`，改字段时这里跟着改）。
 
 **多数查询接口包一层信封**：`{ success: boolean, data?: T, error?: string }`——
 先判 `success`，`error` 是给人看的原文，不要当枚举解析。
@@ -285,14 +285,14 @@ src/plugins/external-src/<name>/
 
 ### 8.2 界面命名与依赖联动
 
-设置中心只保留一个 **代码扩展** 页签（主进程扩展 + 客户端插件）。
-「运行时组件」不再单独成页，安装入口放回使用它的功能：
+设置中心只保留一个 **插件** 页签：外部插件（主进程扩展 + 客户端插件 + 独立运行时组件）在上、内置插件在下；「新建插件」在顶部工具栏。
+运行时组件不再单独成页：**独立组件**（用户会主动安装的）同时出现在「插件 › 外部插件」组，其余在使用它的功能页就地安装：
 
 | 组件 | 安装入口 |
 |---|---|
-| CloakBrowser | 工具 › 浏览器控制 |
-| ffmpeg | 代码扩展 › 录屏卡片（依赖行直接安装） |
-| wechat-mcp | MCP › 微信本机助手（可选组件） |
+| CloakBrowser | 插件 › 外部插件（也保留 工具 › 浏览器控制） |
+| ffmpeg | 插件 › 录屏卡片（依赖行直接安装） |
+| wechat-mcp | 插件 › 外部插件（也保留 MCP › 微信本机助手） |
 | 宠物模型 | 设置 › 宠物模式 › 形象资源 |
 
 主进程扩展可在 manifest 声明运行时依赖，扩展卡片会显示安装状态并允许就地安装/取消：

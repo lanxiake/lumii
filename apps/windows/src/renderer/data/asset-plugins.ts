@@ -3,10 +3,10 @@ import type { SettingsHubTab } from '../components/SettingsHub/types'
 /**
  * 运行时组件（资产插件）注册表。
  *
- * 判据：**有下载、有运行时、可卸载 = 运行时组件**。它们不是代码扩展：
+ * 判据：**有下载、有运行时、可卸载 = 运行时组件**。它们不是代码插件：
  * 这里登记的是二进制/模型/外部服务，装完由对应功能使用。
  *
- * 与「代码扩展」（设置 › 代码扩展）的关系用 `usedBy` 表达：卡片上显示
+ * 与「插件」（设置 › 插件）的关系用 `usedBy` 表达：卡片上显示
  * 「用于：…」，能定位到某个页签时可直接跳过去。
  *
  * 记忆宫殿曾作为 MemPalace 插件在此登记（Python + chromadb，~300MB）。
@@ -39,6 +39,14 @@ export type PluginDef = {
   features?: string[]
   /** 哪些功能在用这个组件（设置页展示，可选跳转） */
   usedBy?: AssetUsedBy[]
+  /**
+   * 在「设置 › 插件」页按**外部插件**展示（与官方/用户外部扩展同组）。
+   *
+   * 只是展示归组：这类条目仍是运行时组件（下载二进制、按插件管理器安装/卸载），
+   * 不是代码插件——它们没有 `main.js` / `client.js`，加载器也不认它们。
+   * 适用范围：用户会主动安装、且不属于某个代码插件依赖的独立能力。
+   */
+  standalone?: boolean
 }
 
 export const PLUGIN_REGISTRY: PluginDef[] = [
@@ -52,6 +60,7 @@ export const PLUGIN_REGISTRY: PluginDef[] = [
     installSize: '~200 MB',
     features: ['reCAPTCHA v3 得分 0.9', 'Cloudflare Turnstile 直接放行', '14 项反检测测试全通过'],
     usedBy: [{ label: '浏览器控制工具', tab: 'tools' }],
+    standalone: true,
   },
   {
     id: 'ffmpeg',
@@ -75,6 +84,7 @@ export const PLUGIN_REGISTRY: PluginDef[] = [
     installSize: '~37 MB',
     features: ['读取本机微信会话与历史', '以本人身份发送消息 / 文件 / 引用', '本地画像蒸馏'],
     usedBy: [{ label: '微信渠道与 MCP 工具' }],
+    standalone: true,
   },
   {
     id: 'pet:demo_cartoon_cat',

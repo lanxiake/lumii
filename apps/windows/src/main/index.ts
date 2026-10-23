@@ -1504,7 +1504,7 @@ async function initLocalServices(): Promise<void> {
     },
   })
   setupPluginIpcHandlers()
-  // 代码扩展（主进程扩展 + 客户端插件）的列表与开关
+  // 插件（内置 / 外部扩展 / 客户端插件）的列表与开关
   // 重启入口复用 lumii-ui restart 的同一条已验证路径（打包版 relaunch / dev 版排脚本）
   setupExtensionIpcHandlers({ restart: requestAppRestart })
 

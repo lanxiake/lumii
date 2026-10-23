@@ -5,24 +5,35 @@ import {
   subscribeClientPlugins,
   type ClientPluginState,
 } from '../../plugins/client-plugin-host'
-import { PLUGIN_REGISTRY, type PluginId } from '../../data/asset-plugins'
+import {
+  PLUGIN_REGISTRY,
+  CATEGORY_LABELS,
+  type PluginDef,
+  type PluginId,
+} from '../../data/asset-plugins'
 import { usePluginsContext } from '../../contexts/PluginsContext/PluginsContext'
 import { ConfirmModal } from '../ui/Modal/ConfirmModal'
 import styles from './ExtensionsPanel.module.css'
 
 /**
- * 设置 › 扩展：**一张表**看清「进程里有哪些扩展、谁没起来、为什么」。
+ * 设置 › 插件：**一张表**看清「装了哪些插件、谁没起来、为什么」。
  *
- * 三种来源（内置 / 外部 / 客户端插件）共用同一套卡片与开关；差别只在字段：
- * 客户端插件在渲染层自己手里（1 秒轮询），主进程扩展走 IPC。
+ * 分两组展示：
+ * - **外部插件**：主进程外部扩展、客户端插件，以及用户会主动安装的独立运行时组件
+ *   （反检测浏览器 / 微信本机助手）。组件只在这里「按外部插件展示」，安装/卸载仍走
+ *   插件管理器（它们没有 main.js/client.js，不是代码插件）。
+ * - **内置插件**：随应用发版，只能禁用不能删除。
+ *
+ * 卡片力求紧凑：标题行给出状态与来源，第二行给 id/版本/目录，描述最多两行，
+ * 其余信息（依赖、激活耗时、安装体积）按需出现，操作按钮贴底。
  */
 
 interface ExtensionInfo {
   id: string
   name: string
   version: string
-  kind: 'builtin' | 'external' | 'client'
-  origin: 'builtin' | 'user' | 'agent' | 'official'
+  kind: 'builtin' | 'external' | 'client' | 'asset'
+  origin: 'builtin' | 'user' | 'agent' | 'official' | 'asset'
   description?: string
   requires?: { assets?: string[]; optional?: boolean }
   dir?: string
@@ -38,6 +49,8 @@ interface ExtensionInfo {
   pendingRestart: boolean
   /** 客户端插件才有：删除/打开目录要用渲染层快照里的 dir */
   client?: ClientPluginState
+  /** 运行时组件才有 */
+  asset?: PluginDef
 }
 
 const STATE_LABELS: Record<string, string> = {
@@ -50,16 +63,29 @@ const STATE_LABELS: Record<string, string> = {
   incompatible: '不兼容',
   available: '可安装',
   loaded: '已加载',
+  installed: '已安装',
+  installing: '安装中',
+  'not-installed': '未安装',
   unknown: '未知',
 }
 
 const CREATE_KEY = '__create__'
 
-/** 来源徽标：内置 / 官方 / 外部 / Agent 自举开发 */
-function originLabel(origin: 'builtin' | 'user' | 'agent' | 'official'): string {
-  if (origin === 'builtin') return '内置'
-  if (origin === 'official') return '官方'
-  return origin === 'agent' ? 'Agent 创建' : '外部'
+/** 来源徽标 */
+function originLabel(row: ExtensionInfo): string {
+  if (row.origin === 'builtin') return '内置'
+  if (row.origin === 'official') return '官方'
+  if (row.origin === 'agent') return 'Agent 创建'
+  if (row.origin === 'asset') return '组件'
+  if (row.kind === 'client') return '外部'
+  return '外部'
+}
+
+/** 目录只显示最后两段，完整路径放 title，省掉卡片里最占宽的一行 */
+function shortDir(dir?: string): string {
+  if (!dir) return ''
+  const parts = dir.split(/[\\/]/).filter(Boolean)
+  return parts.slice(-2).join('/')
 }
 
 type DeleteTarget = {
@@ -75,22 +101,31 @@ type SortBy = 'name' | 'state' | 'origin'
 const STATE_RANK: Record<string, number> = {
   active: 0,
   loaded: 0,
+  installed: 0,
   activating: 1,
   registered: 1,
+  installing: 1,
   incompatible: 2,
   failed: 3,
   available: 4,
+  'not-installed': 4,
   disabled: 5,
   stopped: 5,
   unknown: 6,
 }
 
-const ORIGIN_RANK: Record<string, number> = { builtin: 0, official: 1, agent: 2, user: 3 }
+const ORIGIN_RANK: Record<string, number> = {
+  official: 0,
+  agent: 1,
+  user: 2,
+  asset: 3,
+  builtin: 9,
+}
 
 interface SortableExtension {
   name: string
   state: string
-  origin: 'builtin' | 'user' | 'agent' | 'official'
+  origin: ExtensionInfo['origin']
 }
 
 function sortExtensions<T>(
@@ -137,18 +172,37 @@ function clientRow(plugin: ClientPluginState): ExtensionInfo {
   }
 }
 
+/** 独立运行时组件 → 统一行（安装状态由 PluginsContext 提供） */
+function assetRow(def: PluginDef, installed: boolean, installing: boolean, version?: string): ExtensionInfo {
+  return {
+    id: def.id,
+    name: def.name,
+    version: version ?? '',
+    kind: 'asset',
+    origin: 'asset',
+    description: def.description,
+    enabled: installed,
+    state: installing ? 'installing' : installed ? 'installed' : 'not-installed',
+    ...(installing ? { activationMs: undefined } : {}),
+    pendingRestart: false,
+    asset: def,
+  }
+}
+
 export const ExtensionsPanel: React.FC = () => {
   const [items, setItems] = useState<ExtensionInfo[]>([])
   const [notice, setNotice] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [restarting, setRestarting] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null)
+  const [assetUninstall, setAssetUninstall] = useState<PluginDef | null>(null)
   const [query, setQuery] = useState('')
   const [sortBy, setSortBy] = useState<SortBy>('name')
-  // 运行时组件状态来自全局 context：依赖行直接装，不再跳「运行时组件」页签
+  // 运行时组件状态来自全局 context：依赖行与独立组件卡片共用
   const {
     statuses: assetStatuses,
     install: installAsset,
+    uninstall: uninstallAsset,
     cancel: cancelAsset,
     refreshAll: refreshAssets,
   } = usePluginsContext()
@@ -161,36 +215,49 @@ export const ExtensionsPanel: React.FC = () => {
   )
 
   /** 三种来源合成一张表；同一套搜索、排序、开关 */
-  const rows = useMemo<ExtensionInfo[]>(
-    () => [...items, ...clients.map(clientRow)],
-    [items, clients],
-  )
+  const rows = useMemo<ExtensionInfo[]>(() => {
+    const standalone = PLUGIN_REGISTRY.filter((def) => def.standalone).map((def) => {
+      const status = assetStatuses[def.id]
+      return assetRow(def, Boolean(status?.installed), Boolean(status?.installing), status?.version)
+    })
+    return [...items, ...clients.map(clientRow), ...standalone]
+  }, [items, clients, assetStatuses])
+
+  const externalRows = rows.filter((row) => row.kind !== 'builtin')
+  const builtinRows = rows.filter((row) => row.kind === 'builtin')
 
   /** 主进程扩展：偏好已改、进程里还是启动时那份配置 */
   const pendingRestartCount = rows.filter((row) => row.pendingRestart).length
 
-  const visibleRows = sortExtensions(
-    rows.filter((row) =>
-      matchesQuery(
-        [row.name, row.id, row.version, row.dir, row.description, row.error],
-        query,
+  const filter = useCallback(
+    (list: ExtensionInfo[]) =>
+      sortExtensions(
+        list.filter((row) =>
+          matchesQuery(
+            [row.name, row.id, row.version, row.dir, row.description, row.error],
+            query,
+          ),
+        ),
+        (row) => ({ name: row.name, state: row.state, origin: row.origin }),
+        sortBy,
       ),
-    ),
-    (row) => ({ name: row.name, state: row.state, origin: row.origin }),
-    sortBy,
+    [query, sortBy],
   )
+
+  const visibleExternal = filter(externalRows)
+  const visibleBuiltin = filter(builtinRows)
 
   const refresh = useCallback(async () => {
     try {
       setItems(await window.electronAPI.extensions.list())
     } catch (err) {
-      setNotice(`读取扩展列表失败：${(err as Error).message}`)
+      setNotice(`读取插件列表失败：${(err as Error).message}`)
     }
   }, [])
 
   useEffect(() => {
     void refresh()
-    // 依赖行的安装状态以磁盘为准；页面挂载时重扫一次，避免拿到应用启动时的快照
+    // 依赖行与独立组件的安装状态以磁盘为准；页面挂载时重扫一次
     void refreshAssets()
   }, [refresh, refreshAssets])
 
@@ -204,8 +271,6 @@ export const ExtensionsPanel: React.FC = () => {
           setNotice(result.error ?? '操作失败')
           return
         }
-        // 接线在 apply() 里的内置插件与全部外部扩展是**立刻生效**的；其余仍要重启。
-        // 以主进程返回的 restartRequired 为准，别替它猜。
         setNotice(
           result.restartRequired === false
             ? `${row.name} 已${row.enabled ? '禁用' : '启用'}，已生效`
@@ -228,7 +293,6 @@ export const ExtensionsPanel: React.FC = () => {
         setNotice(result.error ?? '操作失败')
         return
       }
-      // 宿主每秒拉一次清单，快照自己会更新；这里只给一句确认
       setNotice(`${row.name} 已${row.enabled ? '禁用' : '启用'}，1 秒内生效`)
     } finally {
       setBusy(null)
@@ -276,6 +340,23 @@ export const ExtensionsPanel: React.FC = () => {
     }
   }, [deleteTarget, refresh])
 
+  const confirmAssetUninstall = useCallback(async () => {
+    if (!assetUninstall) return
+    const def = assetUninstall
+    setAssetUninstall(null)
+    setBusy(def.id)
+    setNotice(null)
+    try {
+      await uninstallAsset(def.id)
+      setNotice(`已卸载 ${def.name}`)
+      await refreshAssets()
+    } catch (err) {
+      setNotice(`卸载失败：${(err as Error).message}`)
+    } finally {
+      setBusy(null)
+    }
+  }, [assetUninstall, uninstallAsset, refreshAssets])
+
   /** 按需安装官方扩展：走通用 plugin:install（进度/取消都在 PluginsProvider 里） */
   const installOfficial = useCallback(
     async (row: ExtensionInfo) => {
@@ -311,27 +392,211 @@ export const ExtensionsPanel: React.FC = () => {
     }
   }, [])
 
+  const renderRow = (row: ExtensionInfo): React.ReactElement => {
+    // 按需安装的官方扩展复用通用插件通道：id = ext:<插件 id>
+    const runtimeId = `ext:${row.id}` as PluginId
+    const runtimeStatus = row.kind === 'external' ? assetStatuses[runtimeId] : undefined
+    const assetStatus = row.asset ? assetStatuses[row.asset.id] : undefined
+    const assetInstalling = Boolean(assetStatus?.installing)
+    const assetProgress = assetStatus?.progress
+    const shortPath = shortDir(row.dir)
+
+    return (
+      <article key={`${row.kind}:${row.id}`} className={styles.card}>
+        <div className={styles.meta}>
+          <div className={styles.titleRow}>
+            {row.asset && <span className={styles.assetIcon}>{row.asset.icon}</span>}
+            <span className={styles.name}>{row.name}</span>
+            <span className={styles.badge}>{originLabel(row)}</span>
+            <span className={`${styles.state} ${styles[`state-${row.state}`] ?? ''}`}>
+              {STATE_LABELS[row.state] ?? row.state}
+            </span>
+            {row.activationMs !== undefined && (
+              <span className={styles.timing}>{row.activationMs.toFixed(0)}ms</span>
+            )}
+            {row.pendingRestart && (
+              <span className={`${styles.state} ${styles.statePending}`}>待重启</span>
+            )}
+            {row.updatable && (
+              <span className={`${styles.state} ${styles.statePending}`}>可更新</span>
+            )}
+          </div>
+
+          <div className={styles.id} title={row.dir}>
+            {row.id}
+            {row.version ? ` · v${row.version}` : ''}
+            {shortPath ? ` · ${shortPath}` : ''}
+          </div>
+
+          {row.description && <div className={styles.desc}>{row.description}</div>}
+
+          {row.asset && (
+            <div className={styles.assetMeta}>
+              <span className={styles.badge}>{CATEGORY_LABELS[row.asset.category]}</span>
+              {row.asset.installSize && <span>{row.asset.installSize}</span>}
+              {row.asset.usedBy?.length ? (
+                <span>用于：{row.asset.usedBy.map((u) => u.label).join('、')}</span>
+              ) : null}
+            </div>
+          )}
+
+          {row.error && <div className={styles.error}>{row.error}</div>}
+
+          {row.requires?.assets?.length ? (
+            <div className={styles.deps}>
+              <span>{row.requires.optional ? '可选依赖' : '依赖'}：</span>
+              {row.requires.assets.map((assetId) => {
+                const def = PLUGIN_REGISTRY.find((d) => d.id === assetId)
+                const status = assetStatuses[assetId]
+                const installed = Boolean(status?.installed)
+                const installing = Boolean(status?.installing)
+                return (
+                  <span key={assetId} className={styles.dep}>
+                    {def?.name ?? assetId}
+                    <span className={installed ? styles.depOk : styles.depMissing}>
+                      {installed ? '已装' : installing ? '安装中' : '未装'}
+                    </span>
+                    {!installed && (
+                      <button
+                        className={styles.depLink}
+                        disabled={installing}
+                        onClick={() => void installAsset(assetId as PluginId)}
+                      >
+                        {installing ? `${status?.progress?.percent ?? 0}%` : '安装'}
+                      </button>
+                    )}
+                    {installing && (
+                      <button
+                        className={styles.depLink}
+                        onClick={() => void cancelAsset(assetId as PluginId)}
+                      >
+                        取消
+                      </button>
+                    )}
+                  </span>
+                )
+              })}
+            </div>
+          ) : null}
+        </div>
+
+        <div className={styles.actions}>
+          {/* 未安装的官方向导没有目录可打开 */}
+          {(row.kind === 'external' || row.kind === 'client') && row.dir && (
+            <button
+              className={styles.action}
+              onClick={() =>
+                void openDir(
+                  row.kind === 'client'
+                    ? { kind: 'client', id: row.id, dir: row.dir }
+                    : { kind: 'external', id: row.id },
+                )
+              }
+            >
+              打开目录
+            </button>
+          )}
+          {(row.kind === 'external' || row.kind === 'client') && (
+            <button
+              className={styles.action}
+              onClick={() =>
+                setDeleteTarget(
+                  row.kind === 'client'
+                    ? {
+                        target: { kind: 'client', id: row.id, dir: row.dir },
+                        name: row.name,
+                      }
+                    : {
+                        target: { kind: 'external', id: row.id },
+                        name: row.name,
+                        verb: row.origin === 'official' ? '卸载' : '删除',
+                      },
+                )
+              }
+            >
+              {row.kind === 'external' && row.origin === 'official' ? '卸载' : '删除'}
+            </button>
+          )}
+
+          {row.asset ? (
+            assetInstalling ? (
+              <button
+                className={styles.action}
+                onClick={() => void cancelAsset(row.asset!.id)}
+              >
+                取消
+              </button>
+            ) : row.enabled ? (
+              <button
+                className={styles.toggle}
+                disabled={busy === row.id}
+                onClick={() => setAssetUninstall(row.asset!)}
+              >
+                卸载
+              </button>
+            ) : (
+              <button
+                className={styles.toggle}
+                disabled={busy === row.id}
+                onClick={() => void installAsset(row.asset!.id)}
+              >
+                安装
+              </button>
+            )
+          ) : row.updatable ? (
+            <button
+              className={styles.toggle}
+              disabled={busy === row.id || Boolean(runtimeStatus?.installing)}
+              onClick={() => void installOfficial(row)}
+            >
+              {runtimeStatus?.installing
+                ? `更新中 ${runtimeStatus.progress?.percent ?? 0}%`
+                : '更新'}
+            </button>
+          ) : row.installable ? (
+            <button
+              className={styles.toggle}
+              disabled={busy === row.id || Boolean(runtimeStatus?.installing)}
+              onClick={() => void installOfficial(row)}
+            >
+              {runtimeStatus?.installing
+                ? `安装中 ${runtimeStatus.progress?.percent ?? 0}%`
+                : busy === row.id
+                  ? '安装中…'
+                  : '安装'}
+            </button>
+          ) : (
+            <button
+              className={styles.toggle}
+              disabled={busy === row.id}
+              onClick={() =>
+                void (row.kind === 'client' ? toggleClient(row) : toggleMain(row))
+              }
+            >
+              {row.enabled ? '禁用' : '启用'}
+            </button>
+          )}
+        </div>
+
+        {row.asset && assetInstalling && (
+          <div className={styles.progress}>
+            <div className={styles.progressFill} style={{ width: `${assetProgress?.percent ?? 0}%` }} />
+          </div>
+        )}
+      </article>
+    )
+  }
+
   return (
     <div className={styles.panel}>
-      {pendingRestartCount > 0 && (
-        <div className={styles.restartBanner}>
-          <span className={styles.restartText}>
-            {pendingRestartCount} 项主进程扩展改动待重启生效
-          </span>
-          <button className={styles.primary} disabled={restarting} onClick={() => void restart()}>
-            {restarting ? '正在重启…' : '立即重启'}
-          </button>
-        </div>
-      )}
-
       <div className={styles.toolbar}>
         <input
           className={styles.search}
           type="search"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="搜索扩展名称 / id / 版本"
-          aria-label="搜索扩展"
+          placeholder="搜索插件名称 / id / 版本"
+          aria-label="搜索插件"
         />
         <label className={styles.sortLabel}>
           排序
@@ -345,181 +610,6 @@ export const ExtensionsPanel: React.FC = () => {
             <option value="origin">来源</option>
           </select>
         </label>
-      </div>
-
-      <section className={styles.section}>
-        <header className={styles.sectionHeader}>
-          <h3 className={styles.sectionTitle}>扩展</h3>
-          <span className={styles.hint}>开关即时生效；客户端插件 1 秒内生效</span>
-          <span className={styles.count}>
-            {visibleRows.length}/{rows.length}
-          </span>
-        </header>
-
-        {rows.length === 0 ? (
-          <p className={styles.empty}>扩展宿主尚未就绪</p>
-        ) : visibleRows.length === 0 ? (
-          <p className={styles.empty}>没有匹配的扩展</p>
-        ) : (
-          <div className={styles.grid}>
-            {visibleRows.map((row) => {
-              // 按需安装的官方扩展复用通用插件通道：id = ext:<扩展 id>
-              const runtimeId = `ext:${row.id}` as PluginId
-              const runtimeStatus = row.kind === 'external' ? assetStatuses[runtimeId] : undefined
-              return (
-                <article key={`${row.kind}:${row.id}`} className={styles.card}>
-                  <div className={styles.meta}>
-                    <div className={styles.titleRow}>
-                      <span className={styles.name}>{row.name}</span>
-                      <span className={styles.badge}>{originLabel(row.origin)}</span>
-                      <span className={`${styles.state} ${styles[`state-${row.state}`] ?? ''}`}>
-                        {STATE_LABELS[row.state] ?? row.state}
-                      </span>
-                      {row.activationMs !== undefined && (
-                        <span className={styles.timing}>{row.activationMs.toFixed(0)}ms</span>
-                      )}
-                      {row.pendingRestart && (
-                        <span className={`${styles.state} ${styles.statePending}`}>待重启</span>
-                      )}
-                    </div>
-                    <div className={styles.id}>
-                      {row.id} · v{row.version}
-                      {row.dir ? ` · ${row.dir}` : ''}
-                    </div>
-                    {row.description && <div className={styles.desc}>{row.description}</div>}
-                    {row.error && <div className={styles.error}>{row.error}</div>}
-                    {row.requires?.assets?.length ? (
-                      <div className={styles.deps}>
-                        <span>{row.requires.optional ? '可选依赖' : '依赖'}：</span>
-                        {row.requires.assets.map((assetId) => {
-                          const def = PLUGIN_REGISTRY.find((d) => d.id === assetId)
-                          const status = assetStatuses[assetId]
-                          const installed = Boolean(status?.installed)
-                          const installing = Boolean(status?.installing)
-                          return (
-                            <span key={assetId} className={styles.dep}>
-                              {def?.name ?? assetId}
-                              <span className={installed ? styles.depOk : styles.depMissing}>
-                                {installed ? '已安装' : installing ? '安装中' : '未安装'}
-                              </span>
-                              {!installed && (
-                                <button
-                                  className={styles.depLink}
-                                  disabled={installing}
-                                  onClick={() => void installAsset(assetId as PluginId)}
-                                >
-                                  {installing
-                                    ? `${status?.progress?.percent ?? 0}%`
-                                    : '安装'}
-                                </button>
-                              )}
-                              {installing && (
-                                <button
-                                  className={styles.depLink}
-                                  onClick={() => void cancelAsset(assetId as PluginId)}
-                                >
-                                  取消
-                                </button>
-                              )}
-                            </span>
-                          )
-                        })}
-                      </div>
-                    ) : null}
-                  </div>
-                  <div className={styles.actions}>
-                    {/* 未安装的官方向导没有目录可打开 */}
-                    {(row.kind === 'external' || row.kind === 'client') && row.dir && (
-                      <button
-                        className={styles.action}
-                        onClick={() =>
-                          void openDir(
-                            row.kind === 'client'
-                              ? { kind: 'client', id: row.id, dir: row.dir }
-                              : { kind: 'external', id: row.id },
-                          )
-                        }
-                      >
-                        打开目录
-                      </button>
-                    )}
-                    {(row.kind === 'external' || row.kind === 'client') && (
-                      <button
-                        className={styles.action}
-                        onClick={() =>
-                          setDeleteTarget(
-                            row.kind === 'client'
-                              ? {
-                                  target: { kind: 'client', id: row.id, dir: row.dir },
-                                  name: row.name,
-                                }
-                              : {
-                                  target: { kind: 'external', id: row.id },
-                                  name: row.name,
-                                  verb: row.origin === 'official' ? '卸载' : '删除',
-                                },
-                          )
-                        }
-                      >
-                        {row.kind === 'external' && row.origin === 'official' ? '卸载' : '删除'}
-                      </button>
-                    )}
-                    {row.updatable && (
-                      <button
-                        className={styles.toggle}
-                        disabled={busy === row.id || Boolean(runtimeStatus?.installing)}
-                        onClick={() => void installOfficial(row)}
-                      >
-                        {runtimeStatus?.installing
-                          ? `更新中 ${runtimeStatus.progress?.percent ?? 0}%`
-                          : '更新'}
-                      </button>
-                    )}
-                    {row.installable ? (
-                      <>
-                        <button
-                          className={styles.toggle}
-                          disabled={busy === row.id || Boolean(runtimeStatus?.installing)}
-                          onClick={() => void installOfficial(row)}
-                        >
-                          {runtimeStatus?.installing
-                            ? `安装中 ${runtimeStatus.progress?.percent ?? 0}%`
-                            : busy === row.id
-                              ? '安装中…'
-                              : '安装'}
-                        </button>
-                        {runtimeStatus?.installing && (
-                          <button
-                            className={styles.action}
-                            onClick={() => void cancelAsset(runtimeId)}
-                          >
-                            取消
-                          </button>
-                        )}
-                      </>
-                    ) : (
-                      <button
-                        className={styles.toggle}
-                        disabled={busy === row.id}
-                        onClick={() =>
-                          void (row.kind === 'client' ? toggleClient(row) : toggleMain(row))
-                        }
-                      >
-                        {row.enabled ? '禁用' : '启用'}
-                      </button>
-                    )}
-                  </div>
-                </article>
-              )
-            })}
-          </div>
-        )}
-      </section>
-
-      <div className={styles.footer}>
-        <button className={styles.primary} disabled={busy === CREATE_KEY} onClick={() => void createSample()}>
-          新建示例插件
-        </button>
         <button
           className={styles.secondary}
           onClick={() => {
@@ -529,7 +619,63 @@ export const ExtensionsPanel: React.FC = () => {
         >
           刷新
         </button>
+        <button
+          className={styles.primary}
+          disabled={busy === CREATE_KEY}
+          onClick={() => void createSample()}
+        >
+          {busy === CREATE_KEY ? '生成中…' : '新建插件'}
+        </button>
       </div>
+
+      {pendingRestartCount > 0 && (
+        <div className={styles.restartBanner}>
+          <span className={styles.restartText}>
+            {pendingRestartCount} 项插件改动待重启生效
+          </span>
+          <button className={styles.primary} disabled={restarting} onClick={() => void restart()}>
+            {restarting ? '正在重启…' : '立即重启'}
+          </button>
+        </div>
+      )}
+
+      {rows.length === 0 ? (
+        <p className={styles.empty}>插件宿主尚未就绪</p>
+      ) : (
+        <>
+          <section className={styles.section}>
+            <header className={styles.sectionHeader}>
+              <h3 className={styles.sectionTitle}>外部插件</h3>
+              <span className={styles.hint}>即时生效；组件按需下载</span>
+              <span className={styles.count}>
+                {visibleExternal.length}/{externalRows.length}
+              </span>
+            </header>
+            {externalRows.length === 0 ? (
+              <p className={styles.empty}>还没有外部插件</p>
+            ) : visibleExternal.length === 0 ? (
+              <p className={styles.empty}>没有匹配的插件</p>
+            ) : (
+              <div className={styles.grid}>{visibleExternal.map(renderRow)}</div>
+            )}
+          </section>
+
+          <section className={styles.section}>
+            <header className={styles.sectionHeader}>
+              <h3 className={styles.sectionTitle}>内置插件</h3>
+              <span className={styles.hint}>随应用发版，只能禁用</span>
+              <span className={styles.count}>
+                {visibleBuiltin.length}/{builtinRows.length}
+              </span>
+            </header>
+            {visibleBuiltin.length === 0 ? (
+              <p className={styles.empty}>没有匹配的插件</p>
+            ) : (
+              <div className={styles.grid}>{visibleBuiltin.map(renderRow)}</div>
+            )}
+          </section>
+        </>
+      )}
 
       {notice && <p className={styles.notice}>{notice}</p>}
 
@@ -546,6 +692,21 @@ export const ExtensionsPanel: React.FC = () => {
         layer="aboveHub"
         onConfirm={() => void confirmDelete()}
         onCancel={() => setDeleteTarget(null)}
+      />
+
+      <ConfirmModal
+        open={assetUninstall !== null}
+        title="卸载"
+        content={
+          assetUninstall
+            ? `确定卸载「${assetUninstall.name}」？相关功能（${assetUninstall.usedBy?.map((u) => u.label).join('、') ?? '依赖它的功能'}）会不可用。`
+            : ''
+        }
+        confirmText="卸载"
+        confirmVariant="danger"
+        layer="aboveHub"
+        onConfirm={() => void confirmAssetUninstall()}
+        onCancel={() => setAssetUninstall(null)}
       />
     </div>
   )

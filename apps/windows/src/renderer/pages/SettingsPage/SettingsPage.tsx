@@ -347,7 +347,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
             name="settings.category.cloudSync"
             fallback={
               <p className={styles['panel-desc']}>
-                云同步已禁用。到「设置 › 代码扩展」里启用后即可使用。
+                云同步已禁用。到「设置 › 插件」里启用后即可使用。
               </p>
             }
           />
@@ -609,7 +609,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
           context={{ screenRecord, update: updateScreenRecord, save: screenRecordSave }}
           fallback={
             <p className={styles['panel-desc']}>
-              录屏扩展已禁用。到「设置 › 代码扩展」里启用后即可使用。
+              录屏扩展已禁用。到「设置 › 插件」里启用后即可使用。
             </p>
           }
         />

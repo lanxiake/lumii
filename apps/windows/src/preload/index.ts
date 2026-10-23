@@ -952,7 +952,7 @@ export interface ElectronAPI {
     }) => void) => () => void
   }
 
-  /** 代码扩展 API（主进程扩展 + 客户端插件） */
+  /** 插件 API（内置 / 外部扩展 / 客户端插件 / 运行时组件） */
   extensions: {
     list: () => Promise<Array<{
       id: string
@@ -1274,7 +1274,7 @@ const electronAPI: ElectronAPI = {
     },
   },
 
-  // 代码扩展（主进程扩展 + 客户端插件）
+  // 插件（内置 / 外部扩展 / 客户端插件）
   extensions: {
     list: () => ipcRenderer.invoke('extension:list'),
     setEnabled: (id: string, enabled: boolean) =>

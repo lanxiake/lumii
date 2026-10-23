@@ -57,9 +57,9 @@ export const SETTINGS_HUB_TABS: Array<{ id: SettingsHubTab; label: string }> = [
   { id: 'cron', label: '定时任务' },
   { id: 'memories', label: '记忆' },
   { id: 'wiki', label: '资料库' },
-  // 代码扩展：主进程扩展 + 客户端插件（~/.lumii/extensions、~/.lumii/plugins）
-  // 运行时组件不再单独成页：装到各自的功能页里（录屏→ffmpeg、MCP→微信助手、桌宠→形象）
-  { id: 'extensions', label: '代码扩展' },
+  // 插件：内置 / 外部（主进程扩展 + 客户端插件）/ 运行时组件
+  // 运行时组件的安装也在这里（按需下载），功能页里仍保留就地安装入口
+  { id: 'extensions', label: '插件' },
 ]
 
 /** 可被 Hub 接管的路由视图 */

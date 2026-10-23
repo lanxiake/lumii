@@ -21,6 +21,7 @@ vi.mock('../../contexts/PluginsContext/PluginsContext', () => ({
   usePluginsContext: () => ({
     statuses: {},
     install: vi.fn(async () => {}),
+    uninstall: vi.fn(async () => {}),
     cancel: vi.fn(),
     refreshAll: vi.fn(async () => {}),
   }),
@@ -82,16 +83,39 @@ beforeEach(() => {
   }
 })
 
-describe('ExtensionsPanel — 统一列表', () => {
-  it('内置 / 外部 / 客户端三种来源出现在同一张表里', async () => {
+describe('ExtensionsPanel — 分组列表', () => {
+  it('外部插件在上、内置插件在下；独立运行时组件归入外部组', async () => {
     render(<ExtensionsPanel />)
 
     expect(await screen.findByText('Alpha')).toBeTruthy()
     expect(screen.getByText('Ext')).toBeTruthy()
     expect(screen.getByText('Client Plug')).toBeTruthy()
-    // 一个 section、一份计数
-    expect(screen.getByText('3/3')).toBeTruthy()
-    expect(screen.queryByText('客户端插件')).toBeNull()
+    // 独立组件（反检测浏览器 / 微信本机助手）按外部插件展示
+    expect(screen.getByText('反检测浏览器')).toBeTruthy()
+    expect(screen.getByText('微信本机助手')).toBeTruthy()
+
+    // 两组标题与计数：外部 = Ext + Client + 2 个组件；内置 = Alpha
+    expect(screen.getByText('外部插件')).toBeTruthy()
+    expect(screen.getByText('内置插件')).toBeTruthy()
+    expect(screen.getByText('4/4')).toBeTruthy()
+    expect(screen.getByText('1/1')).toBeTruthy()
+
+    const externalSection = screen.getByText('外部插件').closest('section')!
+    const builtinSection = screen.getByText('内置插件').closest('section')!
+    expect(within(externalSection).getByText('Client Plug')).toBeTruthy()
+    expect(within(builtinSection).getByText('Alpha')).toBeTruthy()
+    expect(within(builtinSection).queryByText('Client Plug')).toBeNull()
+  })
+
+  it('「新建插件」在主工具栏，不占页脚', async () => {
+    render(<ExtensionsPanel />)
+    await screen.findByText('Alpha')
+
+    const create = screen.getByRole('button', { name: '新建插件' })
+    expect(create).toBeTruthy()
+    // 与搜索框同属工具栏（第一个 .toolbar 容器）
+    const toolbar = create.closest('div')!
+    expect(within(toolbar).getByLabelText('搜索插件')).toBeTruthy()
   })
 
   it('客户端插件行走 setClientEnabled，主进程行走 setEnabled', async () => {
