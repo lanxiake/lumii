@@ -20,11 +20,10 @@ import { readInstalledOfficial, type OfficialCatalogEntry } from './external/off
  *
  * 生效时机有三档，这个差别必须写在 UI 上（见 P5 计划 §1）：
  *
- * - 标了 `hot: true` 的内置插件：`activate` / `stop` 当场生效，返回 `restartRequired:false`。
- *   前提是接线全在 `apply(ctx)` 里（`ctx.registerIpc` / `ctx.effect`）。
- * - 外部扩展与未标 hot 的内置插件：开关写入 `extensions.json`，**重启后生效**。
- *   外部扩展是因为核心在启动期就把 `S.perf` / `S.cloudSync` / `S.syncScheduler` 取走并缓存，
- *   卸载只拆扩展自己的作用域——已经分发出去的调度器照旧在跑。
+ * - 标了 `hot: true` 的内置插件与**全部外部扩展**：`activate` / `stop` 当场生效，
+ *   返回 `restartRequired:false`。前提是接线全在 `apply(ctx)` 里
+ *   （`ctx.registerIpc` / `ctx.effect`），核心对服务的引用走访问器/容器现取。
+ * - 未标 hot 的内置插件：开关写入 `extensions.json`，**重启后生效**。
  * - 客户端插件：渲染层宿主每秒轮询 `list.json`，**≤1 秒生效**。
  */
 
@@ -101,6 +100,13 @@ export interface ExtensionControlDeps {
    * 提前拆 UI，而主进程还在跑旧代码。
    */
   onStateChanged?: (id: string, enabled: boolean) => void
+  /**
+   * 外部扩展启用成功后的补接线钩子。
+   *
+   * 有些官方扩展的启动动作在核心（云同步调度器要等工作空间 getter 就绪才 start），
+   * 插件自己不知道那个时机。由 index.ts 注入，按 id 决定做不做事。
+   */
+  onActivated?: (id: string) => void | Promise<void>
   /** 客户端插件根目录；测试注入临时目录 */
   clientPluginsRoot?: string
   /** 官方扩展清单（安装包里只有清单，代码按需下载） */
@@ -158,8 +164,8 @@ export function createExtensionControl(deps: ExtensionControlDeps): ExtensionCon
        * 主进程扩展的开关本来就是「写盘、重启后生效」，按内置行的口径显示即可。
        */
       const enabled = !disabled.has(entry.id)
-      // 外部扩展仍是「写盘、重启后生效」：用启动快照比对，改了开关就显示待重启
-      const enabledAtStartup = !deps.external?.startupDisabledIds().has(entry.id)
+      // 外部扩展也是运行期启停：与内置同口径，按宿主真实状态判断「待重启」
+      const running = entry.state === 'active' || entry.state === 'failed'
       // 官方扩展：已装 marker 的 sha256 与当前清单不同 → 可更新（安装包不会自动覆盖）
       const catalogEntry = entry.origin === 'official' ? catalogById.get(entry.id) : undefined
       const installedSha = catalogEntry ? readInstalledOfficial(entry.dir)?.sha256 : undefined
@@ -178,7 +184,7 @@ export function createExtensionControl(deps: ExtensionControlDeps): ExtensionCon
           : {}),
         activationMs: entry.activationMs,
         error: entry.error,
-        pendingRestart: enabled !== enabledAtStartup,
+        pendingRestart: enabled !== running,
       }
     })
 
@@ -272,10 +278,35 @@ export function createExtensionControl(deps: ExtensionControlDeps): ExtensionCon
       return { ok: false, error: `写入偏好失败：${messageOf(err)}` }
     }
 
-    // 外部扩展仍要重启：它们的服务句柄（S.perf / S.cloudSync / S.syncScheduler）
-    // 在启动期被 index.ts 取走并缓存，卸载扩展只是拆掉它自己的作用域，
-    // 已经分发给核心的调度器照旧在跑——那种「关掉了但还在工作」比要求重启更糟。
-    if (!builtinIds.has(id) || !hotSwappable.has(id)) {
+    // 外部扩展：运行期启停。禁用态的条目在加载器里从没注册进宿主，启用时由它补
+    // register + activate；核心对服务的引用已全部改成访问器/容器现取（阶段 4），
+    // 不会再出现「关掉了但调度器照旧在跑」。
+    if (!builtinIds.has(id)) {
+      if (!deps.external) return { ok: true, restartRequired: true }
+      const result = await deps.external.setEnabled(id, enabled)
+      if (!result.ok) {
+        try {
+          setMainExtensionEnabled(id, !enabled, storeFile)
+        } catch {
+          /* 写回失败只影响显示 */
+        }
+        return { ok: false, error: `切换失败：${result.error}` }
+      }
+      try {
+        deps.onStateChanged?.(id, enabled)
+      } catch {
+        /* 推送失败只影响渲染层即时性 */
+      }
+      // 启用后的补接线（如云同步调度器需要等容器里的实例就绪后 start）
+      try {
+        if (enabled) await deps.onActivated?.(id)
+      } catch {
+        /* 补接线失败已记在各自日志里 */
+      }
+      return { ok: true, restartRequired: false }
+    }
+
+    if (!hotSwappable.has(id)) {
       return { ok: true, restartRequired: true }
     }
 

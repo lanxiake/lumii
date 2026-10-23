@@ -182,3 +182,9 @@ setFooAccessor(() => pluginHost?.container.get(S.foo) ?? null)
 
 核心启动期**不要缓存**插件服务句柄（`const svc = S.xxx.get()`）：插件停用后变量仍指着旧实例，
 表现为「关掉了但还在工作」。启动期取值的服务用 `LateRef`，或者每次现取。
+
+**外部扩展（含官方可选扩展）同样运行期启停**（`restartRequired:false`）：加载器在启用时补
+`register` + `activate`，停用只拆作用域；`~/.lumii/extensions` 下的条目禁用期间也不会被
+1s 轮询重新拉起来。前置条件同上——官方的 perf / cloud-sync / screen-record 已经全部改走
+`main/kernel/*-contract.ts` 的访问器。第三方扩展若在 `apply` 里把服务缓存给核心，禁用后
+同样会出现「关掉了但还在工作」，所以外部扩展也要遵守上面这条。

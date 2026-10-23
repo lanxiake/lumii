@@ -268,4 +268,35 @@ describe('ExternalExtensionRuntime', () => {
     expect(markers()).toEqual(['v1', 'boom', 'v1'])
     expect(runtime.inspect()[0]?.enabled).toBe(true)
   })
+
+  it('禁用态启动只登记不注册；运行期启用补 register+activate，停用拆作用域', async () => {
+    writeExtension(root, 'ext-a', 'v1')
+    const runtime = new ExternalExtensionRuntime(host, silentLog, {
+      root,
+      disabledIds: new Set(['com.test.ext']),
+    })
+    await runtime.loadAll()
+
+    // 没注册进宿主：列表里看得见，但拿不到 handler
+    expect(markers()).toEqual([])
+    expect(host.get('com.test.ext')).toBeUndefined()
+    expect(runtime.inspect()[0]).toMatchObject({ enabled: false, state: 'disabled' })
+
+    expect(await runtime.setEnabled('com.test.ext', true)).toEqual({ ok: true })
+    expect(markers()).toEqual(['v1'])
+    expect(host.get('com.test.ext')?.state).toBe('active')
+
+    expect(await runtime.setEnabled('com.test.ext', false)).toEqual({ ok: true })
+    expect(disposed()).toEqual(['v1'])
+    expect(runtime.inspect()[0]).toMatchObject({ enabled: false, state: 'disabled' })
+
+    // 禁用期间改文件：rescan 不得把它又激活回去
+    writeExtension(root, 'ext-a', 'v2-longer')
+    await runtime.rescan()
+    expect(markers()).toEqual(['v1'])
+
+    // 再启用拿到的是新版本
+    expect(await runtime.setEnabled('com.test.ext', true)).toEqual({ ok: true })
+    expect(markers()).toEqual(['v1', 'v2-longer'])
+  })
 })

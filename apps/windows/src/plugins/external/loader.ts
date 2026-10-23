@@ -189,12 +189,15 @@ export class ExternalExtensionRuntime {
     this.root = options.root ?? resolveExtensionsDir()
     this.appVersion = options.appVersion
     this.disabledIds = options.disabledIds ?? new Set()
+    this.disabledNow = new Set(this.disabledIds)
   }
 
   private readonly root: string
   private readonly appVersion?: string
-  /** 启动时从 extensions.json 读到的禁用项；运行时不变（开关重启后生效） */
+  /** 启动时从 extensions.json 读到的禁用项（只读快照，用于展示「启动时是什么样」） */
   private readonly disabledIds: ReadonlySet<string>
+  /** 当前生效的禁用表：启动快照 + 运行期开关；rescan 用它决定要不要激活 */
+  private readonly disabledNow: Set<string>
 
   /**
    * 启动时从 `extensions.json` 读到的禁用表（只读快照）。
@@ -247,6 +250,41 @@ export class ExternalExtensionRuntime {
     const candidate = path.resolve(root, idOrDir)
     if (candidate !== root && !candidate.startsWith(root + path.sep)) return null
     return existsSync(candidate) ? candidate : null
+  }
+
+  /**
+   * 运行期启停（与内置插件同口径：`restartRequired:false`）。
+   *
+   * 禁用态启动的条目**从没注册进宿主**，所以启用时要补 `register`；
+   * 停用只拆作用域、保留注册——再启用不必重扫目录。
+   * 同时更新 `disabledNow`，避免用户手动改了扩展文件后被 rescan 又激活回去。
+   */
+  async setEnabled(
+    idOrDir: string,
+    enabled: boolean,
+  ): Promise<{ ok: true } | { ok: false; error: string }> {
+    const entry = this.entryOf(idOrDir)
+    if (!entry) return { ok: false, error: `未知外部扩展：${idOrDir}` }
+    try {
+      if (enabled) {
+        if (!entry.definition) {
+          return { ok: false, error: '没有可用的扩展定义（上次导入失败）' }
+        }
+        if (!this.host.get(entry.manifestId)) this.host.register(entry.definition)
+        const error = await this.host.activate(entry.manifestId)
+        if (error) throw error
+        entry.enabled = true
+        entry.error = undefined
+      } else {
+        await this.host.stop(entry.manifestId)
+        entry.enabled = false
+      }
+      if (enabled) this.disabledNow.delete(entry.manifestId)
+      else this.disabledNow.add(entry.manifestId)
+      return { ok: true }
+    } catch (error) {
+      return { ok: false, error: (error as Error)?.message ?? String(error) }
+    }
   }
 
   /**
@@ -370,7 +408,7 @@ export class ExternalExtensionRuntime {
 
     // 被禁用：只登记不激活。登记是为了让它在列表里仍然看得见——
     // 关掉之后就从 UI 里消失，等于逼用户去手改 JSON。
-    if (this.disabledIds.has(manifest.id)) {
+    if (this.disabledNow.has(manifest.id)) {
       this.loaded.set(dir, {
         dir,
         entryFile,

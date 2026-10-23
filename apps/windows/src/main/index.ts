@@ -1324,6 +1324,8 @@ async function startExtensions(): Promise<void> {
       onStateChanged: (id, enabled) => {
         mainWindow?.webContents.send('plugin:state-changed', { id, enabled })
       },
+      // 云同步调度器等工作空间 getter 就绪才 start；运行期启用后这里补一次
+      onActivated: (id) => wireOfficialExtensionInstalled(id),
     }),
   )
 }

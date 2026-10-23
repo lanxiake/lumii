@@ -44,6 +44,13 @@ function fakeExternal(
         state: e.enabled ? 'active' : 'disabled',
       })),
     startupDisabledIds: () => new Set(disabledAtStartup),
+    // 运行期启停：直接翻转假清单里的 enabled（控制面据此判断 pendingRestart）
+    setEnabled: async (id: string, enabled: boolean) => {
+      const e = entries.find((x) => x.id === id)
+      if (!e) return { ok: false as const, error: `找不到 ${id}` }
+      e.enabled = enabled
+      return { ok: true as const }
+    },
     dirOf: (id: string) =>
       entries.some((e) => e.id === id) ? path.join('C:/fake-ext', id) : null,
     remove: async (id: string) =>
@@ -268,16 +275,41 @@ describe('createExtensionControl', () => {
     ])
   })
 
-  it('外部扩展：按启动快照判断待重启，而不是按运行时 enabled', () => {
-    // 启动时被禁用、偏好里现在没禁用 → 已启用但还没重启
+  it('外部扩展：运行期启停当场生效（不再要求重启）', async () => {
+    // 启动时被禁用；偏好里已是「启用」→ 列表先显示待重启，点开关后立刻转 active
+    const external = fakeExternal([{ id: 'com.test.ext', enabled: false }], ['com.test.ext'])
+    const events: Array<[string, boolean]> = []
+    const activated: string[] = []
     const control = createExtensionControl({
       host,
       builtins,
       storeFile,
-      external: fakeExternal([{ id: 'com.test.ext', enabled: false }], ['com.test.ext']),
+      external,
+      onStateChanged: (id, enabled) => events.push([id, enabled]),
+      onActivated: (id) => {
+        activated.push(id)
+      },
     })
 
     expect(control.list()[1]).toMatchObject({ enabled: true, pendingRestart: true })
+
+    expect(await control.setEnabled('com.test.ext', true)).toEqual({
+      ok: true,
+      restartRequired: false,
+    })
+    expect(events).toEqual([['com.test.ext', true]])
+    expect(activated).toEqual(['com.test.ext'])
+    expect(control.list()[1]).toMatchObject({
+      enabled: true,
+      state: 'active',
+      pendingRestart: false,
+    })
+
+    expect(await control.setEnabled('com.test.ext', false)).toEqual({
+      ok: true,
+      restartRequired: false,
+    })
+    expect(control.list()[1]).toMatchObject({ enabled: false, state: 'disabled', pendingRestart: false })
   })
 
   it('被禁用的内置扩展：enabled=false、state=disabled', async () => {
