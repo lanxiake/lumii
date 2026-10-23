@@ -61,11 +61,5 @@
   "coreImportsPluginImpl": [],
   "pluginBoundary": [],
   "brokenRelativeImports": [],
-  "rendererImportsPluginUi": [
-    "apps/windows/src/renderer/components/Router.tsx",
-    "apps/windows/src/renderer/components/SettingsHub/SettingsHubModal.tsx",
-    "apps/windows/src/renderer/pages/DashboardPage/dashboard-cards.tsx",
-    "apps/windows/src/renderer/pages/SettingsPage/SettingsPage.tsx",
-    "apps/windows/src/renderer/pages/SettingsPage/components/ChannelsSection/index.tsx"
-  ]
+  "rendererImportsPluginUi": []
 }

@@ -33,12 +33,9 @@ import { filterPluginCategories } from '../../../plugins/renderer/settings-categ
 import { LumiiLogo } from '../../components/brand/LumiiLogo'
 import { openExternalUrl } from '../../utils/markdown-external-link'
 import { VIRTUAL_HUMAN_PRODUCT_NAME } from '../../../shared/virtual-human'
-import { getAutonomousStatus } from '../../../plugins/builtin/autonomous/ui/autonomous-service'
 import { getWorkspaceDir, ensureWorkspaceDir, notifyWorkspaceChanged } from '../../services/workspace-service'
 import { getAppVersion, getOpenAtLogin, setOpenAtLogin as applyOpenAtLogin, openLogFile } from '../../services/app-service'
-import { PetSettingsSection } from '../../../plugins/builtin/pet/ui/PetSettingsSection'
 import { ModelConfigSection } from './components/ModelConfigSection'
-import { VoiceSettingsSection } from '../../../plugins/builtin/voice/ui/VoiceSettingsSection'
 import { WorkspaceSection } from './components/WorkspaceSection'
 import { CloudSyncSection } from './components/CloudSyncSection'
 import { OfficialExtensionGate } from '../../components/OfficialExtensionGate/OfficialExtensionGate'
@@ -119,7 +116,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
     let cancelled = false
     const load = async () => {
       try {
-        const status = await getAutonomousStatus()
+        const status = await window.electronAPI.autonomous.getStatus()
         if (!cancelled && typeof status?.pendingGoalsCount === 'number') {
           setPendingAutonomousGoals(status.pendingGoalsCount)
         }

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 
+import type { RendererPlugin } from '../../api'
 import settingsStyles from '../../../renderer/pages/SettingsPage/SettingsPage.module.css'
 import sectionStyles from '../../../renderer/pages/SettingsPage/components/ExperimentalSection/ExperimentalSection.module.css'
 import { ChevronLeft } from '../../../renderer/components/ui/Icon'
@@ -72,4 +73,23 @@ export const autonomousExperiment = {
   title: '自主进化',
   Summary: AutonomousSummary,
   Detail: AutonomousDetail,
+}
+
+/**
+ * 渲染层半边：整页注册到 `app.view`（路由用 `plugin:autonomous` 寻址），
+ * 实验功能里的条目走上面的 `autonomousExperiment`。
+ *
+ * 页面本身不接收路由参数——跳转由侧栏负责；包一层零参组件，
+ * 免得 Router 传来的 `onViewChange` 与 AutonomousPage 的 props 打架。
+ */
+export const autonomousRenderer: RendererPlugin = {
+  id: 'com.lumii.autonomous',
+  setup(api) {
+    return api.registerSlot('app.view', {
+      id: 'autonomous',
+      component: () => <AutonomousPage />,
+      order: 10,
+      owner: 'com.lumii.autonomous',
+    })
+  },
 }

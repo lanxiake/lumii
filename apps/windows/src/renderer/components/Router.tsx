@@ -10,8 +10,6 @@ import { PluginErrorBoundary } from './slots/PluginErrorBoundary'
 import { getSlotEntries, subscribeSlots } from './slots/slot-registry'
 import { DashboardPage } from '../pages/DashboardPage/DashboardPage'
 import { ChatPage } from '../pages/ChatPage/ChatPage'
-import { AutonomousPage } from '../../plugins/builtin/autonomous/ui/AutonomousPage'
-import { usePluginEnabled } from '../../plugins/renderer/state'
 
 /**
  * 视图类型
@@ -46,8 +44,6 @@ interface RouterProps {
  * 保留 useChat 状态（streamMap、runIdToMessageIdRef 等）不因页面切换而丢失。
  */
 export const Router: React.FC<RouterProps> = ({ activeView, onViewChange }) => {
-  // 自主进化整页路由：插件禁用后回落到概览（通道已摘，页面点进去只会报错）
-  const autonomousEnabled = usePluginEnabled('com.lumii.autonomous')
   const showChat = activeView === 'chat'
 
   /**
@@ -67,10 +63,15 @@ export const Router: React.FC<RouterProps> = ({ activeView, onViewChange }) => {
    * 非 chat 主内容：Hub 视图回落到概览，避免空白
    */
   const renderOtherPage = () => {
-    // 插件页面：`plugin:<viewId>` → 在 app.view 槽位里找同 id 的条目。
-    // 找不到就回落到概览，而不是白屏——插件被禁用时用户可能还停在那个视图上。
-    if (activeView.startsWith('plugin:')) {
-      const viewId = activeView.slice('plugin:'.length)
+    // 插件页面：`plugin:<viewId>`，以及历史遗留的 `autonomous`。
+    // 统一在 app.view 槽位里按 id 找条目；找不到就回落概览——插件被禁用时
+    // 用户可能还停在那个视图上，此时条目已注销，页面必须跟着消失。
+    const viewId = activeView.startsWith('plugin:')
+      ? activeView.slice('plugin:'.length)
+      : activeView === 'autonomous'
+        ? 'autonomous'
+        : null
+    if (viewId) {
       const entry = pluginViews.find((e) => e.id === viewId)
       if (entry) {
         const PluginView = entry.component as React.ComponentType<{
@@ -90,8 +91,6 @@ export const Router: React.FC<RouterProps> = ({ activeView, onViewChange }) => {
     switch (activeView) {
       case 'dashboard':
         return <DashboardPage onViewChange={onViewChange} />
-      case 'autonomous':
-        return <AutonomousPage />
       case 'chat':
         return null
       default:

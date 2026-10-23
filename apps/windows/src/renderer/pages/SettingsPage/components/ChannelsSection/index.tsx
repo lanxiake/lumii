@@ -8,10 +8,6 @@
  * 由 ExperimentalSection 管理；本分区只留渠道本身的连接与卡片）。
  */
 import React from 'react'
-import { WeixinChannelSettings } from '../../../../../plugins/builtin/channel-weixin/ui/Settings'
-import { WecomChannelSettings } from '../../../../../plugins/builtin/channel-wecom/ui/Settings'
-import { FeishuChannelSettings } from '../../../../../plugins/builtin/channel-feishu/ui/Settings'
-import { QbotChannelSettings } from '../../../../../plugins/builtin/channel-qbot/ui/Settings'
 import { PcwechatChannelSettings } from '../PcwechatChannelSettings'
 import { SlotHost } from '../../../../components/slots/SlotHost'
 import { useChannelSnapshots } from './useChannelSnapshots'

@@ -1,6 +1,5 @@
 import { getSlotEntries, registerSlot, type SlotEntry } from '../../components/slots/slot-registry'
 import type { ViewType } from '../../components/layout/Sidebar/Sidebar'
-import { NewsFeed } from '../../../plugins/builtin/dashboard-feed/ui/NewsFeed'
 import { RecentFocus } from './components/RecentFocus'
 import { ScenarioSuggest } from './components/ScenarioSuggest'
 import { VirtualHuman } from './components/VirtualHuman'
