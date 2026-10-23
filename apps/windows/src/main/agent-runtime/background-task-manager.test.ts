@@ -153,3 +153,67 @@ describe('BackgroundTaskManager', () => {
     expect(ids.size).toBe(50)
   })
 })
+
+describe('BackgroundTaskManager 进度 / 日志 / 里程碑', () => {
+  it('updateProgress 钳制到 0–100 并推事件，重复值不推', () => {
+    const { manager, events } = makeManager()
+    const taskId = manager.start({ toolName: 't', label: 'L' })
+    manager.updateProgress(taskId, 40, '渲染')
+    manager.updateProgress(taskId, 40, '渲染')
+    manager.updateProgress(taskId, 150)
+    manager.updateProgress(taskId, -10)
+    expect(manager.get(taskId)?.progress).toBe(0)
+    expect(manager.get(taskId)?.currentStep).toBe('渲染')
+    expect(events).toHaveLength(4)
+  })
+
+  it('addLog 追加并在超过 1000 条时丢掉最早的', () => {
+    const { manager, events } = makeManager({ now: () => 10 })
+    const taskId = manager.start({ toolName: 't', label: 'L' })
+    for (let i = 0; i < 1001; i++) manager.addLog(taskId, 'info', `m-${i}`)
+    const logs = manager.get(taskId)?.logs ?? []
+    expect(logs).toHaveLength(1000)
+    expect(logs[0]?.message).toBe('m-1')
+    expect(logs[999]?.message).toBe('m-1000')
+    expect(events.at(-1)).toMatchObject({ type: 'agent:background-task', logs })
+  })
+
+  it('setMilestones / updateMilestone 按步骤更新，未知步骤不推事件', () => {
+    const { manager, events } = makeManager({ now: () => 5_000 })
+    const taskId = manager.start({ toolName: 't', label: 'L' })
+    const before = events.length
+    manager.setMilestones(taskId, [
+      { step: '准备', status: 'pending' },
+      { step: '渲染', status: 'pending' },
+    ])
+    manager.updateMilestone(taskId, '准备', 'in-progress')
+    manager.updateMilestone(taskId, '准备', 'completed', 1200)
+    manager.updateMilestone(taskId, '不存在', 'failed')
+    expect(manager.get(taskId)?.milestones).toEqual([
+      { step: '准备', status: 'completed', startTime: 5_000, duration: 1200 },
+      { step: '渲染', status: 'pending' },
+    ])
+    expect(events.length).toBe(before + 3)
+  })
+
+  it('终态之后进度和日志更新被忽略，已有日志仍保留', () => {
+    const { manager, events } = makeManager()
+    const taskId = manager.start({ toolName: 't', label: 'L' })
+    manager.addLog(taskId, 'info', '开始')
+    manager.complete(taskId, 'ok')
+    const after = events.length
+    manager.updateProgress(taskId, 80, '太晚了')
+    manager.addLog(taskId, 'error', '不该写入')
+    expect(manager.get(taskId)?.logs?.map((log) => log.message)).toEqual(['开始'])
+    expect(manager.get(taskId)?.progress).toBeUndefined()
+    expect(events).toHaveLength(after)
+  })
+
+  it('未知 taskId 的进度更新是 no-op', () => {
+    const { manager, events } = makeManager()
+    expect(() => manager.updateProgress('missing', 10)).not.toThrow()
+    expect(() => manager.addLog('missing', 'info', 'x')).not.toThrow()
+    expect(() => manager.setMilestones('missing', [])).not.toThrow()
+    expect(events).toHaveLength(0)
+  })
+})
