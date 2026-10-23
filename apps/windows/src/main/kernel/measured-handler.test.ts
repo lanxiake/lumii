@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { IpcMainInvokeEvent } from 'electron'
-import { createMeasuredHandler } from './performance-ipc'
-import type { PerformanceMonitor } from './performance-monitor'
+import { createMeasuredHandler } from './measured-handler'
+import type { PerfMonitorLike } from '../../shared/performance'
 
 describe('performance-ipc', () => {
-  let mockMonitor: PerformanceMonitor
+  let mockMonitor: PerfMonitorLike
   const mockEvent = {} as IpcMainInvokeEvent
 
   beforeEach(() => {
@@ -18,7 +18,7 @@ describe('performance-ipc', () => {
       cleanOldLogs: vi.fn(),
       destroy: vi.fn(),
       getCurrentLogDate: vi.fn(() => '2026-08-22'),
-    } as unknown as PerformanceMonitor
+    } as unknown as PerfMonitorLike
   })
 
   it('should wrap handler and measure execution time', async () => {

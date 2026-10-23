@@ -4,7 +4,7 @@ import type {
   IpcSlowEvent,
   MemorySnapshotEvent,
   PerformanceReport,
-} from './performance-types'
+} from './performance'
 
 describe('performance-types', () => {
   it('should define PerformanceEvent union type with all event kinds', () => {

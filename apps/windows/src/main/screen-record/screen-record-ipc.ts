@@ -25,8 +25,8 @@ import {
 } from './subtitle-project'
 import { resolveRecordingsDir } from '../workspace-paths'
 import { isPathUnderDir } from '../preview-path-acl'
-import { createMeasuredHandler } from '../perf/performance-ipc'
-import type { PerformanceMonitor } from '../perf/performance-monitor'
+import { createMeasuredHandler } from '../kernel/measured-handler'
+import type { PerfMonitorLike } from '../../shared/performance'
 
 /**
  * 校验渲染层传来的成片路径：必须是 recordings 根目录下的 webm/mp4。
@@ -96,7 +96,7 @@ export function unregisterScreenRecordIpc(): void {
 export function registerScreenRecordIpc(
   service: ScreenRecordService,
   _mainWindow: BrowserWindow | null,
-  performanceMonitor?: PerformanceMonitor,
+  performanceMonitor?: PerfMonitorLike,
 ): void {
   unregisterScreenRecordIpc()
 

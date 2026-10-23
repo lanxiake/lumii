@@ -1,6 +1,6 @@
 {
   "_comment": "接线守卫基线（棘轮）：这里的断线是已知存量，守卫只报新增。清理后跑 node scripts/check-wiring.mjs --update 收紧。",
-  "_updated": "2026-10-22",
+  "_updated": "2026-10-23",
   "orphanHandlers": [],
   "danglingRefs": [],
   "orphanSends": [],
@@ -16,7 +16,10 @@
     "apps/windows/src/plugins/builtin/skill-evolution/types.ts",
     "apps/windows/src/plugins/builtin/skill-evolution/user-dialog.ts",
     "apps/windows/src/plugins/external-src/cloud-sync/index.ts",
+    "apps/windows/src/plugins/external-src/perf/impl/performance-aggregator.ts",
+    "apps/windows/src/plugins/external-src/perf/impl/performance-monitor.ts",
     "apps/windows/src/plugins/external-src/perf/index.ts",
+    "apps/windows/src/plugins/external-src/perf/ipc.ts",
     "apps/windows/src/plugins/external-src/screen-record/index.ts"
   ],
   "unconsumedMethods": [
@@ -28,22 +31,7 @@
     "updater.updateConfig"
   ],
   "unroutedCommands": [],
-  "coreImportsPluginImpl": [
-    "apps/windows/src/main/agent-runtime/bridge-prompt-composer.ts → pet",
-    "apps/windows/src/main/agent-runtime/bridge-renderer-ipc.ts → pet",
-    "apps/windows/src/main/agent-runtime/bridge.ts → pet",
-    "apps/windows/src/main/agent-runtime/local-companion-handler.ts → pet",
-    "apps/windows/src/main/agent-runtime/pet-experience-service.ts → pet",
-    "apps/windows/src/main/agent-runtime/pet-task-service.ts → pet",
-    "apps/windows/src/main/app-ui-control/controller.ts → pet",
-    "apps/windows/src/main/app-ui-control/server.ts → pet",
-    "apps/windows/src/main/index.ts → pet",
-    "apps/windows/src/main/index.ts → voice",
-    "apps/windows/src/main/ipc/agent-runtime-ipc.ts → pet",
-    "apps/windows/src/main/protocol-schemes.ts → pet",
-    "apps/windows/src/main/tray/tray-bootstrap.ts → pet"
-  ],
-  "pluginBoundary": [
-    "apps/windows/src/plugins/builtin/autonomous/autonomous-ipc.ts → apps/windows/src/plugins/builtin/pet/pet-subject.ts（跨插件运行期 import）"
-  ]
+  "coreImportsPluginImpl": [],
+  "pluginBoundary": [],
+  "brokenRelativeImports": []
 }

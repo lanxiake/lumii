@@ -3,8 +3,9 @@ import { definePlugin } from '@mtbot/plugin-core'
 
 import type { MainEvents } from '../../../main/kernel/events'
 import { S } from '../../../main/kernel/services'
-import { PerformanceMonitor } from '../../../main/perf/performance-monitor'
+import { PerformanceMonitor } from './impl/performance-monitor'
 import { resolvePerfLogsDir } from '../../../main/paths'
+import { registerPerformanceIpc } from './ipc'
 
 const MEMORY_SNAPSHOT_INTERVAL_MS = 60_000
 
@@ -65,6 +66,9 @@ export const perfExtension = {
           ctx.log.error('性能日志落盘失败', err)
         })
       }, MEMORY_SNAPSHOT_INTERVAL_MS)
+
+      // 诊断 IPC 随扩展作用域挂载：停用即整批摘掉（不再由核心启动期注册一次）
+      registerPerformanceIpc({ handle: (ch, fn) => ctx.registerIpc?.(ch, fn) }, () => monitor)
 
       ctx.effect(() => clearInterval(timer))
       ctx.provide(S.perf, monitor)

@@ -27,7 +27,7 @@ import type {
   PerformanceReport,
   IpcAggregateEvent,
   MemorySnapshotEvent,
-} from '../../../../../main/perf/performance-types'
+} from '../../../../../shared/performance'
 import {
   getPerformanceReport,
   getPerformanceHistory,

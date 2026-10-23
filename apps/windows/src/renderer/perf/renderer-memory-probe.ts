@@ -19,7 +19,7 @@
  * 采样发往主进程而非写本地日志，渲染进程崩溃后样本仍在主进程手里。
  */
 
-import type { RendererMemorySample, RendererPageSample, RendererNativeMemory } from '@main/perf/performance-types'
+import type { RendererMemorySample, RendererPageSample, RendererNativeMemory } from '@shared/performance'
 import { runtimeStore } from '../hooks/business/useAgentRuntime/agent-runtime-store'
 
 /** 采样间隔：够密能看清趋势，又不至于自己污染读数 */

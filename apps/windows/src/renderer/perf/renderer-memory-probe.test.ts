@@ -5,7 +5,7 @@
  * 算错口径就等于下次出事仍然查不出来，所以各口计数都要锁住。
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import type { RendererMemorySample, RendererNativeMemory } from '@main/perf/performance-types'
+import type { RendererMemorySample, RendererNativeMemory } from '@shared/performance'
 import {
   collectRendererMemorySample,
   startRendererMemoryProbe,

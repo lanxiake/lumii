@@ -2,7 +2,7 @@ import { createServiceKey } from '@mtbot/plugin-core'
 
 import type { BrowserWindow } from 'electron'
 
-import type { PerformanceMonitor } from '../perf/performance-monitor'
+import type { PerfMonitorLike } from '../../shared/performance'
 import type { UpdaterService } from '../updater-service'
 import type { ScreenRecordService } from '../screen-record'
 import type { TrayManager } from '../tray-manager'
@@ -33,7 +33,7 @@ export interface LateRef<T> {
 
 export const S = {
   /** 性能监控。扩展可以 recordMetric/recordStartupPhase，内部队列不对外开放。 */
-  perf: createServiceKey<PerformanceMonitor>('perf'),
+  perf: createServiceKey<PerfMonitorLike>('perf'),
   /** 自动更新。宿主在窗口创建后调 setMainWindow。 */
   updater: createServiceKey<UpdaterService>('updater'),
   /** 云同步管理器。 */

@@ -22,7 +22,7 @@ import type {
   PerformanceReport,
   IpcAggregateEvent,
   StartupPhaseEvent,
-} from './performance-types'
+} from '../../../../shared/performance'
 
 interface IpcChannelData {
   totalCalls: number

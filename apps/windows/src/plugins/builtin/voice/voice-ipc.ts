@@ -16,8 +16,8 @@ import {
   resetSharedQwen3TtsClient,
 } from './qwen3-tts-client.js'
 import { saveTempCloneRefAudio } from './voice-temp-ref.js'
-import { createMeasuredHandler } from '../../../main/perf/performance-ipc'
-import type { PerformanceMonitor } from '../../../main/perf/performance-monitor'
+import { createMeasuredHandler } from '../../../main/kernel/measured-handler'
+import type { PerfMonitorLike } from '../../../shared/performance'
 
 const log = {
   info: (...args: unknown[]) => console.log('[VoiceIPC]', ...args),
@@ -54,7 +54,7 @@ export function registerVoiceIpc(
   win: BrowserWindow,
   voiceService: VoiceCallService,
   modelManager: VoiceModelManager,
-  performanceMonitor?: PerformanceMonitor,
+  performanceMonitor?: PerfMonitorLike,
   // 插件传入 ctx.registerIpc：通道挂在插件作用域上，停用时自动摘掉。
   // 默认直连 ipcMain；幂等由注册器负责（它会先 removeHandler 再 handle）。
   ipc: IpcHandleRegistrar = ipcMain as unknown as IpcHandleRegistrar,

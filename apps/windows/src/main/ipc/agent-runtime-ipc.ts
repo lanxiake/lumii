@@ -22,8 +22,8 @@ import { IpcChannelAdapter } from '../channel/adapters/ipc-channel-adapter'
 import type { WeixinSessionBindingManager } from '../channel/weixin-session-binding'
 import { handleImageRecognize, handleImageGenerate, handleImageProcess } from './agent-runtime/image-commands'
 import { handleMessageDelete, handleMessageEdit } from './agent-runtime/message-commands'
-import { createMeasuredHandler } from '../perf/performance-ipc'
-import type { PerformanceMonitor } from '../perf/performance-monitor'
+import { createMeasuredHandler } from '../kernel/measured-handler'
+import type { PerfMonitorLike } from '../../shared/performance'
 import {
   handleCronCreate,
   handleCronList,
@@ -517,7 +517,7 @@ export function setIpcMainWindow(win: BrowserWindow | null): void {
  */
 let agentRuntimeCommandIpcInstalled = false
 
-export function installAgentRuntimeCommandIpc(performanceMonitor?: PerformanceMonitor): void {
+export function installAgentRuntimeCommandIpc(performanceMonitor?: PerfMonitorLike): void {
   if (agentRuntimeCommandIpcInstalled) {
     log.info('agent-runtime:command 已注册，跳过重复 install')
     return

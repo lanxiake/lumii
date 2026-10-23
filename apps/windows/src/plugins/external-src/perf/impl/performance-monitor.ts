@@ -9,7 +9,7 @@ import type {
   RendererMemoryEvent,
   StartupPhaseEvent,
   IpcAggregateEvent,
-} from './performance-types'
+} from '../../../../shared/performance'
 
 export class PerformanceMonitor {
   private aggregator: PerformanceAggregator

@@ -165,8 +165,7 @@ import {
 } from './coding-dev-env.js'
 import { resolveClientStateDir } from './paths'
 import { hasHeadlessFlag } from './platform/feature-probe'
-import { PerformanceMonitor } from './perf/performance-monitor'
-import { setupPerformanceIpcHandlers } from './ipc/performance-ipc'
+import type { PerfMonitorLike } from '../shared/performance'
 import { registerSkillnetStoreHandlers } from './skillnet-store'
 import { getPetService, setPetAccessor } from './agent-runtime/pet-accessor'
 import { applyWikiEmbeddingEnvDefaults } from './agent-runtime/wiki-embedding-config'
@@ -261,9 +260,8 @@ let agentRuntimeBridge: AgentRuntimeBridge | null = null  // 客户端 Agent Run
  */
 const currentVoiceService = (): VoiceCallService | null =>
   pluginHost?.container.get(S.voice) ?? null
-let performanceMonitor: PerformanceMonitor | null = null  // 性能监控（IPC 耗时/内存/启动阶段）
+let performanceMonitor: PerfMonitorLike | null = null  // 性能监控（IPC 耗时/内存/启动阶段）
 /** perf 的 IPC 只能注册一次（重复 ipcMain.handle 会抛错）；运行期安装时补注册用 */
-let performanceIpcRegistered = false
 let isQuitting = false
 let isCleaningUp = false // 防止 before-quit 清理期间重复触发
 
@@ -1058,7 +1056,6 @@ async function initialize(): Promise<void> {
   // 云同步管理器已由扩展在 S1b 创建（见 extensions/cloud-sync.ts），
   // 这里只剩「配置就绪后启动调度器」——它惰性读工作空间目录，不能提前
   setupIpcHandlers()
-  registerPerformanceIpcIfNeeded()
 
   await runStartupStage('S6-config', () => initConfigAndWorkspace())
   await runStartupStage('S7-services', () => initLocalServices())
@@ -1185,20 +1182,12 @@ async function prepareAppShell(flags: ReturnType<typeof readStartupFlags>): Prom
  * 将来需要配置的扩展（云同步等）走 `S.config` getter：激活时拿到的是「还没就绪」，
  * 等 `config:ready` 事件到了再取真值——而不是把整个宿主往后挪。
  */
-/** perf 的 IPC 注册（启动时与运行期安装共用；只能成功一次） */
-function registerPerformanceIpcIfNeeded(): void {
-  if (!performanceMonitor || performanceIpcRegistered) return
-  // 传 getter：perf 是外部扩展，卸载/重装/热重载后要读容器里的最新实例
-  setupPerformanceIpcHandlers(() => pluginHost?.container.get(S.perf) ?? null)
-  performanceIpcRegistered = true
-  log.info('性能监控 IPC handlers 已注册')
-}
-
 /**
  * 官方扩展**运行期**安装后的补接线。
  *
  * 启动阶段读取的服务不会因为扩展后装而自动重跑：
- * - perf：`setupPerformanceIpcHandlers` 只在启动时注册一次，后装要补；
+ * - perf：诊断 IPC 由扩展自己在 apply 里注册，这里只需要把服务重新读进模块变量
+ *   （启动阶段那几次 `recordStartupPhase` 用的是变量）；
  * - cloud-sync：调度器只在配置就绪后 `start` 过，后装要补 `start`（工作空间 getter 此时已就绪）。
  *
  * 外部宿主约 1 秒后才把服务放进容器，所以这里轮询最多 10 秒；其他扩展（如录屏）
@@ -1211,7 +1200,6 @@ async function wireOfficialExtensionInstalled(id: string): Promise<void> {
       const monitor = pluginHost?.container.get(S.perf) ?? null
       if (monitor) {
         performanceMonitor = monitor
-        registerPerformanceIpcIfNeeded()
         log.info('[ext] perf 运行期装配完成')
         return
       }

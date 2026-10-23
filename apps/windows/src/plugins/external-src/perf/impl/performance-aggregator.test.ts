@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { PerformanceAggregator } from './performance-aggregator'
-import type { MemorySnapshotEvent } from './performance-types'
+import type { MemorySnapshotEvent } from '../../../../shared/performance'
 
 describe('PerformanceAggregator', () => {
   let aggregator: PerformanceAggregator

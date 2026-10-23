@@ -1,8 +1,8 @@
-import { ipcMain, shell } from 'electron'
-import type { PerformanceMonitor } from '../perf/performance-monitor'
-import type { RendererMemorySample, RendererNativeMemory } from '../perf/performance-types'
-import { resolvePerfLogsDir } from '../paths'
-import { createLogger } from '../logger'
+import { shell } from 'electron'
+import type { PerformanceMonitor } from './impl/performance-monitor'
+import type { RendererMemorySample, RendererNativeMemory } from '../../../shared/performance'
+import { resolvePerfLogsDir } from '../../../main/paths'
+import { createLogger } from '../../../main/logger'
 
 const log = createLogger('ipc/performance')
 
@@ -77,30 +77,23 @@ export function normalizeRendererSample(raw: unknown): RendererMemorySample | nu
   }
 }
 
-const HANDLE_CHANNELS = [
-  'performance:getReport',
-  'performance:getHistory',
-  'performance:capture',
-  'performance:recordRendererMemory',
-  'performance:openLogFolder',
-] as const
-
-/** 摘掉本模块的 IPC（热重载/重装/卸载时用；重复注册会抛 second handler） */
-export function unregisterPerformanceIpcHandlers(): void {
-  for (const channel of HANDLE_CHANNELS) ipcMain.removeHandler(channel)
-}
 
 /**
  * 注册性能诊断 IPC。
  *
- * `getMonitor` 而不是直接传实例：perf 是官方外部扩展，运行期可能被卸载/重装/热重载；
- * 每次调用现取容器里的最新实例，卸载后自动变成「不可用」，不会绑在旧实例上。
+ * `getMonitor` 而不是直接传实例：perf 可能被运行期卸载/重装/热重载；
+ * 每次调用现取容器里的最新实例，卸载后自动变成「不可用」。
+ *
+ * 通道经**注册器**挂载（扩展 apply 里传 `ctx.registerIpc`），停用时随作用域摘除——
+ * 直接 `ipcMain.handle` 摘不掉，守卫 ⑫ 会红。
  */
-export function setupPerformanceIpcHandlers(getMonitor: () => PerformanceMonitor | null): void {
-  unregisterPerformanceIpcHandlers()
+export function registerPerformanceIpc(
+  registrar: { handle(channel: string, listener: (event: unknown, ...args: any[]) => unknown): void },
+  getMonitor: () => PerformanceMonitor | null,
+): void {
 
   // 获取性能诊断报告
-  ipcMain.handle('performance:getReport', async () => {
+  registrar.handle('performance:getReport', async () => {
     try {
       const performanceMonitor = getMonitor()
       if (!performanceMonitor) throw new Error('perf_disabled')
@@ -114,7 +107,7 @@ export function setupPerformanceIpcHandlers(getMonitor: () => PerformanceMonitor
   })
 
   // 获取历史时间序列（IPC 60秒窗口聚合 + 内存快照序列），供设置页画趋势图
-  ipcMain.handle('performance:getHistory', async () => {
+  registrar.handle('performance:getHistory', async () => {
     try {
       const performanceMonitor = getMonitor()
       if (!performanceMonitor) return { ipcAggregates: [], memorySnapshots: [] }
@@ -131,7 +124,7 @@ export function setupPerformanceIpcHandlers(getMonitor: () => PerformanceMonitor
   })
 
   // 手动捕获一次内存快照
-  ipcMain.handle('performance:capture', async () => {
+  registrar.handle('performance:capture', async () => {
     try {
       const performanceMonitor = getMonitor()
       if (!performanceMonitor) return { success: false, error: 'perf_disabled' }
@@ -158,7 +151,7 @@ export function setupPerformanceIpcHandlers(getMonitor: () => PerformanceMonitor
 
   // 渲染进程内存采样：渲染层每分钟上报一次，与 memory.snapshot 落在同一份 perf 日志里。
   // 时间戳与 pid 由主进程补——渲染层自填的 pid 没有可信度，而崩溃后要靠它认领进程。
-  ipcMain.handle('performance:recordRendererMemory', async (event, raw: unknown) => {
+  registrar.handle('performance:recordRendererMemory', async (event, raw: unknown) => {
     try {
       const sample = normalizeRendererSample(raw)
       if (!sample) {
@@ -170,7 +163,7 @@ export function setupPerformanceIpcHandlers(getMonitor: () => PerformanceMonitor
       performanceMonitor.recordRendererMemory({
         timestamp: Date.now(),
         kind: 'renderer.memory',
-        pid: event.sender.getOSProcessId(),
+        pid: (event as Electron.IpcMainInvokeEvent).sender.getOSProcessId(),
         ...sample,
       })
       return { success: true }
@@ -181,7 +174,7 @@ export function setupPerformanceIpcHandlers(getMonitor: () => PerformanceMonitor
   })
 
   // 打开性能日志文件夹
-  ipcMain.handle('performance:openLogFolder', async () => {
+  registrar.handle('performance:openLogFolder', async () => {
     try {
       const logPath = resolvePerfLogsDir()
       const openError = await shell.openPath(logPath)

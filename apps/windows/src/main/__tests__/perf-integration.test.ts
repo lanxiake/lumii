@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { PerformanceMonitor } from '../perf/performance-monitor'
-import { createMeasuredHandler } from '../perf/performance-ipc'
+import { PerformanceMonitor } from '../../plugins/external-src/perf/impl/performance-monitor'
+import { createMeasuredHandler } from '../kernel/measured-handler'
 import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'

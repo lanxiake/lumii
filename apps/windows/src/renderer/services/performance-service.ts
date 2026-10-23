@@ -3,7 +3,7 @@
  *
  * 错误向调用方抛出（原调用点负责 setError / toast 提示）。
  */
-import type { PerformanceReport, IpcAggregateEvent, MemorySnapshotEvent } from '@main/perf/performance-types'
+import type { PerformanceReport, IpcAggregateEvent, MemorySnapshotEvent } from '@shared/performance'
 
 /** 获取性能诊断报告（IPC 耗时 / 启动阶段 / 内存占用 / 健康状态） */
 export async function getPerformanceReport(): Promise<PerformanceReport> {

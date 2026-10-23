@@ -16,7 +16,7 @@
  */
 
 import { webFrame } from 'electron'
-import type { RendererNativeMemory } from '../main/perf/performance-types'
+import type { RendererNativeMemory } from '../shared/performance'
 
 const ZERO: RendererNativeMemory = {
   rss: 0,

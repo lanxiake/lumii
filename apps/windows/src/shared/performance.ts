@@ -256,3 +256,17 @@ export interface PerformanceMonitorConfig {
   maxQueueSize: number
   logDir?: string
 }
+
+/**
+ * 核心对性能监控的**最小依赖面**（type-only）。
+ *
+ * 实现在官方扩展 `plugins/external-src/perf/`；核心只把它当容器里的一个服务用。
+ * 类型放在 shared 是为了让核心（含预加载/渲染层的报告类型）不必 import 扩展实现。
+ */
+export interface PerfMonitorLike {
+  recordIpcCall(channel: string, durationMs: number, error: boolean): void
+  recordStartupPhase(phase: string, durationMs: number): void
+  flush(): Promise<void>
+  cleanOldLogs(): void
+  destroy(): void
+}

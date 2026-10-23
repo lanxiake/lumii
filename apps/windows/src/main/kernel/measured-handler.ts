@@ -1,7 +1,7 @@
-import type { PerformanceMonitor } from './performance-monitor'
+import type { PerfMonitorLike } from '../../shared/performance'
 
 /**
- * 包装一个 IPC handler，自动测量执行耗时并上报给 PerformanceMonitor。
+ * 包装一个 IPC handler，自动测量执行耗时并上报给 PerfMonitorLike。
  * 无论 handler 是同步还是异步、成功还是抛错，都会记录一次调用
  * （error=true 表示本次调用失败），耗时统计口径与 recordIpcCall 的
  * ipcSlowThresholdMs 判定保持一致。参数类型用泛型 TArgs 透传，
@@ -11,7 +11,7 @@ import type { PerformanceMonitor } from './performance-monitor'
 export function createMeasuredHandler<TArgs extends unknown[], TResult>(
   channel: string,
   originalHandler: (...args: TArgs) => TResult | Promise<TResult>,
-  monitor: PerformanceMonitor,
+  monitor: PerfMonitorLike,
 ): (...args: TArgs) => Promise<TResult> {
   return async (...args: TArgs) => {
     const startTime = performance.now()
