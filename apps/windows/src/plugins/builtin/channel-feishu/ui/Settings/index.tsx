@@ -1,27 +1,26 @@
 /**
- * 企业微信（WeCom）AI Bot 扫码接入设置。
- *
- * 对齐个人微信体验：扫码 → 自动获取 botId/secret → WebSocket 长连接收发消息。
- * 不再要求填写自建应用 Webhook（CorpId/Token/AESKey/回调 URL）。
+ * 飞书渠道设置：扫码新建机器人（流程对齐上游飞书 CLI 参考实现 / Nemo 的官方插件式接入）。
  */
 
 import React, { useState, useEffect, useCallback } from 'react'
-import { Button } from '../../../../components/ui/Button/Button'
-import { ChannelCard, type ChannelMetaItem } from '../ChannelCard'
-import type { ChannelConnectionState } from '../ChannelStatusPill'
-import { ChannelBrandIcon } from '../../../../components/brand/ChannelBrandIcon'
-import { Modal } from '../../../../components/ui/Modal/Modal'
-import type { ChannelSnapshot } from '../ChannelsSection/useChannelSnapshots'
+import { Button } from '../../../../../renderer/components/ui/Button/Button'
+import { ChannelCard, type ChannelMetaItem } from '../../../../../renderer/pages/SettingsPage/components/ChannelCard'
+import type { ChannelConnectionState } from '../../../../../renderer/pages/SettingsPage/components/ChannelStatusPill'
+import { ChannelBrandIcon } from '../../../../../renderer/components/brand/ChannelBrandIcon'
+import { Modal } from '../../../../../renderer/components/ui/Modal/Modal'
+import type { ChannelSnapshot } from '../../../../../renderer/pages/SettingsPage/components/ChannelsSection/useChannelSnapshots'
 
-type WecomStatus = 'idle' | 'waiting_qrcode' | 'scanned' | 'connected' | 'error'
+type FeishuStatus = 'idle' | 'waiting_qrcode' | 'scanned' | 'connected' | 'error'
 
-interface WecomSessionPublic {
-  botId: string
+interface FeishuSessionPublic {
+  appId: string
+  appIdMasked: string
+  domain: 'feishu' | 'lark'
+  openId?: string
   loginAt: number
-  botIdMasked: string
 }
 
-const STATUS_LABELS: Record<WecomStatus, string> = {
+const STATUS_LABELS: Record<FeishuStatus, string> = {
   idle: '未接入',
   waiting_qrcode: '等待扫码',
   scanned: '已扫码',
@@ -29,7 +28,7 @@ const STATUS_LABELS: Record<WecomStatus, string> = {
   error: '异常',
 }
 
-const STATUS_STATES: Record<WecomStatus, ChannelConnectionState> = {
+const STATUS_STATES: Record<FeishuStatus, ChannelConnectionState> = {
   idle: 'idle',
   waiting_qrcode: 'pending',
   scanned: 'pending',
@@ -37,21 +36,21 @@ const STATUS_STATES: Record<WecomStatus, ChannelConnectionState> = {
   error: 'error',
 }
 
-interface WecomChannelSettingsProps {
+interface FeishuChannelSettingsProps {
   /** 渠道出站快照（由分区统一拉取） */
   snapshot?: ChannelSnapshot
   snapshotLoading?: boolean
 }
 
 /**
- * 企业微信渠道设置卡片（扫码接入）。
+ * 飞书渠道设置卡片（扫码新建机器人）。
  */
-export const WecomChannelSettings: React.FC<WecomChannelSettingsProps> = ({
+export const FeishuChannelSettings: React.FC<FeishuChannelSettingsProps> = ({
   snapshot,
   snapshotLoading = false,
 }) => {
-  const [status, setStatus] = useState<WecomStatus>('idle')
-  const [session, setSession] = useState<WecomSessionPublic | null>(null)
+  const [status, setStatus] = useState<FeishuStatus>('idle')
+  const [session, setSession] = useState<FeishuSessionPublic | null>(null)
   const [qrcodeDataUrl, setQrcodeDataUrl] = useState<string | null>(null)
   const [qrModalOpen, setQrModalOpen] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -60,35 +59,33 @@ export const WecomChannelSettings: React.FC<WecomChannelSettingsProps> = ({
   useEffect(() => {
     const init = async () => {
       try {
-        const s = await window.wecomService?.getStatus?.()
-        if (s) setStatus(s as WecomStatus)
-        const sess = await window.wecomService?.getSession?.()
-        if (sess) setSession(sess as WecomSessionPublic)
+        const s = await window.feishuService?.getStatus?.()
+        if (s) setStatus(s as FeishuStatus)
+        const sess = await window.feishuService?.getSession?.()
+        if (sess) setSession(sess as FeishuSessionPublic)
       } catch {
         // ignore
       }
     }
     void init()
 
-    const removeStatus = window.wecomService?.onStatusChange?.((s: string, sess?: unknown) => {
-      setStatus(s as WecomStatus)
-      if (sess) setSession(sess as WecomSessionPublic)
+    const removeStatus = window.feishuService?.onStatusChange?.((s: string, sess?: unknown) => {
+      setStatus(s as FeishuStatus)
+      if (sess) setSession(sess as FeishuSessionPublic)
       if (s === 'connected') {
         setQrModalOpen(false)
         setLoading(false)
       }
-      if (s === 'error') {
-        setLoading(false)
-      }
+      if (s === 'error') setLoading(false)
     })
 
-    const removeQrcode = window.wecomService?.onQrcode?.((dataUrl: string) => {
+    const removeQrcode = window.feishuService?.onQrcode?.((dataUrl: string) => {
       setQrcodeDataUrl(dataUrl)
       setQrModalOpen(true)
       setLoading(false)
     })
 
-    const removeError = window.wecomService?.onError?.((msg: string) => {
+    const removeError = window.feishuService?.onError?.((msg: string) => {
       setErrorMsg(msg)
       setLoading(false)
       setQrModalOpen(false)
@@ -102,34 +99,32 @@ export const WecomChannelSettings: React.FC<WecomChannelSettingsProps> = ({
   }, [])
 
   /**
-   * 点击「扫码接入」：向主进程请求二维码。
+   * 发起扫码新建飞书机器人。
    */
   const handleConnect = useCallback(async () => {
     setLoading(true)
     setErrorMsg(null)
     try {
-      await window.wecomService?.startLogin?.()
+      await window.feishuService?.startLogin?.()
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e)
-      setErrorMsg(msg)
+      setErrorMsg(e instanceof Error ? e.message : String(e))
       setLoading(false)
     }
   }, [])
 
   /**
-   * 断开企微长连接并清除本地凭证。
+   * 断开飞书长连接并清除本地凭证。
    */
   const handleDisconnect = useCallback(async () => {
     setLoading(true)
     setErrorMsg(null)
     try {
-      await window.wecomService?.logout?.()
+      await window.feishuService?.logout?.()
       setSession(null)
       setQrcodeDataUrl(null)
       setStatus('idle')
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e)
-      setErrorMsg(msg)
+      setErrorMsg(e instanceof Error ? e.message : String(e))
     } finally {
       setLoading(false)
     }
@@ -153,7 +148,7 @@ export const WecomChannelSettings: React.FC<WecomChannelSettingsProps> = ({
           loading={loading || isPending}
           disabled={loading || isPending}
         >
-          {isPending ? '扫码中' : '扫码接入'}
+          {isPending ? '扫码中' : '扫码新建机器人'}
         </Button>
       ) : (
         <Button
@@ -169,25 +164,24 @@ export const WecomChannelSettings: React.FC<WecomChannelSettingsProps> = ({
     </>
   )
 
-  /**
-   * 企微仅支持会话内被动回复，meta 里如实标注能力边界。
-   */
   const meta: ChannelMetaItem[] | undefined =
     isConnected && session
       ? [
-          { label: '推送能力', value: '仅会话内被动回复' },
+          { label: '推送能力', value: '原生推送（无时间限制）' },
           { label: '接入时间', value: new Date(session.loginAt).toLocaleString() },
-          { label: 'Bot', value: session.botIdMasked, mono: true },
+          { label: '应用', value: session.appIdMasked, mono: true },
+          ...(session.openId
+            ? [{ label: '登录账号', value: session.openId, mono: true } as ChannelMetaItem]
+            : []),
         ]
       : undefined
 
   return (
     <>
       <ChannelCard
-        icon={<ChannelBrandIcon kind="wecom" />}
-        name="企业微信"
-        description="扫码接入 AI 智能机器人，无需公网回调地址"
-        capability="仅会话内被动回复"
+        icon={<ChannelBrandIcon kind="feishu" />}
+        name="飞书"
+        description="扫码一键创建飞书机器人，无需手动填写 App Secret"
         state={STATUS_STATES[status] ?? 'idle'}
         statusLabel={STATUS_LABELS[status] ?? status}
         actions={actions}
@@ -199,7 +193,7 @@ export const WecomChannelSettings: React.FC<WecomChannelSettingsProps> = ({
 
       <Modal
         open={qrModalOpen}
-        title="扫码接入企业微信"
+        title="扫码新建飞书机器人"
         onClose={() => setQrModalOpen(false)}
         width={320}
         layer="aboveHub"
@@ -213,7 +207,7 @@ export const WecomChannelSettings: React.FC<WecomChannelSettingsProps> = ({
           {qrcodeDataUrl ? (
             <img
               src={qrcodeDataUrl}
-              alt="企业微信扫码二维码"
+              alt="飞书扫码二维码"
               style={{ width: 256, height: 256, display: 'block', margin: '0 auto' }}
             />
           ) : (
@@ -233,9 +227,7 @@ export const WecomChannelSettings: React.FC<WecomChannelSettingsProps> = ({
             </div>
           )}
           <p style={{ marginTop: 12, color: 'var(--mt-fg-3)', fontSize: 13 }}>
-            {status === 'scanned'
-              ? '已扫码，请在企业微信中确认授权'
-              : '请使用企业微信扫描二维码授权接入'}
+            请使用飞书 App 扫描二维码，授权创建机器人应用
           </p>
         </div>
       </Modal>

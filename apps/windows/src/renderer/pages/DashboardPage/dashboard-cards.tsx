@@ -1,6 +1,6 @@
 import { getSlotEntries, registerSlot, type SlotEntry } from '../../components/slots/slot-registry'
 import type { ViewType } from '../../components/layout/Sidebar/Sidebar'
-import { NewsFeed } from './components/NewsFeed'
+import { NewsFeed } from '../../../plugins/builtin/dashboard-feed/ui/NewsFeed'
 import { RecentFocus } from './components/RecentFocus'
 import { ScenarioSuggest } from './components/ScenarioSuggest'
 import { VirtualHuman } from './components/VirtualHuman'
@@ -37,12 +37,7 @@ export function registerBuiltinDashboardCards(): void {
     registerSlot(slot, entry)
   }
 
-  ensure(DASHBOARD_MAIN_SLOT, {
-    id: 'builtin.news-feed',
-    component: NewsFeed,
-    order: 10,
-    owner: 'builtin',
-  } satisfies SlotEntry<DashboardCardContext>)
+  // 资讯卡（dashboard.main）由 com.lumii.dashboard-feed 插件在 setup 里注册
   ensure(DASHBOARD_GRID_SLOT, {
     id: 'builtin.recent-focus',
     component: RecentFocus,

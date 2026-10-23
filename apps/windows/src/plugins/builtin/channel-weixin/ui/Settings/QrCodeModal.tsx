@@ -1,6 +1,6 @@
 import React from 'react'
-import { Modal } from '../../../../components/ui/Modal/Modal'
-import { Button } from '../../../../components/ui/Button/Button'
+import { Modal } from '../../../../../renderer/components/ui/Modal/Modal'
+import { Button } from '../../../../../renderer/components/ui/Button/Button'
 
 interface QrCodeModalProps {
   open: boolean

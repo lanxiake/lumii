@@ -14,12 +14,12 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Newspaper, RefreshCw, SlidersHorizontal, Sparkles } from 'lucide-react'
-import { Card } from '../../../../components/ui/Card/Card'
-import { NewsPreferencesPanel } from '../NewsPreferences'
-import type { ViewType } from '../../../../components/layout/Sidebar/Sidebar'
-import { fetchFeedMeta, fetchFeedBatches, refreshDashboardFeed } from '../../../../services/dashboard-feed-service'
+import { Card } from '../../../../../renderer/components/ui/Card/Card'
+import { NewsPreferencesPanel } from '../../../../../renderer/pages/DashboardPage/components/NewsPreferences'
+import type { ViewType } from '../../../../../renderer/components/layout/Sidebar/Sidebar'
+import { fetchFeedMeta, fetchFeedBatches, refreshDashboardFeed } from '../dashboard-feed-service'
 import type { DashboardFeedBatch, DashboardFeedBatchCursor } from '@/plugins/builtin/dashboard-feed/store'
-import { openExternalUrl } from '../../../../utils/markdown-external-link'
+import { openExternalUrl } from '../../../../../renderer/utils/markdown-external-link'
 import styles from './NewsFeed.module.css'
 
 /** Dashboard 通用 feed 条目 */

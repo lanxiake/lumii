@@ -2,8 +2,8 @@
  * Qwen3 克隆音色档案管理面板（含麦克风朗读录制样本）
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react'
-import { Button } from '../../../../components/ui/Button/Button'
-import { Input } from '../../../../components/ui/Input/Input'
+import { Button } from '../../../../../renderer/components/ui/Button/Button'
+import { Input } from '../../../../../renderer/components/ui/Input/Input'
 import type { VoiceCloneProfile } from '../../../../../shared/voice-events'
 import styles from '../VoiceModelsPanel/VoiceModelsPanel.module.css'
 import {
@@ -14,7 +14,7 @@ import {
   type CloneSampleSource,
 } from './clone-ref-prompt'
 import { arrayBufferToBase64, encodePcmToWav } from './encode-wav'
-import { WaveformVisualizer } from '../../../ChatPage/components/VoiceCallPanel/WaveformVisualizer'
+import { WaveformVisualizer } from '../../../../../renderer/pages/ChatPage/components/VoiceCallPanel/WaveformVisualizer'
 
 interface Props {
   /** 当前选中的克隆音色（用于高亮）；由父组件统一音色选择器传入 */

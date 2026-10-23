@@ -16,8 +16,8 @@ import {
   TrendingUp,
   Zap,
 } from 'lucide-react'
-import { useDashboard, type UsageRange } from '../../../../hooks/business/useDashboard'
-import { UsageChart } from '../../../DashboardPage/components/UsageChart'
+import { useDashboard, type UsageRange } from '../../../../../renderer/hooks/business/useDashboard'
+import { UsageChart } from '../../../../../renderer/pages/DashboardPage/components/UsageChart'
 import { formatCostYuan as formatCost } from '../../../../../shared/model-pricing'
 
 /** 模型 id 去掉 provider 前缀，展示更短 */

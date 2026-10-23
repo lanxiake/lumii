@@ -15,13 +15,13 @@ const fetchFeedMeta = vi.fn()
 const fetchFeedBatches = vi.fn()
 const refreshDashboardFeed = vi.fn()
 
-vi.mock('../../renderer/services/dashboard-feed-service', () => ({
+vi.mock('../../plugins/builtin/dashboard-feed/ui/dashboard-feed-service', () => ({
   fetchFeedMeta: (...args: unknown[]) => fetchFeedMeta(...args),
   fetchFeedBatches: (...args: unknown[]) => fetchFeedBatches(...args),
   refreshDashboardFeed: (...args: unknown[]) => refreshDashboardFeed(...args),
 }))
 
-const { NewsFeed } = await import('../../renderer/pages/DashboardPage/components/NewsFeed')
+const { NewsFeed } = await import('../../plugins/builtin/dashboard-feed/ui/NewsFeed')
 
 /**
  * 锚定「今天」的时刻。

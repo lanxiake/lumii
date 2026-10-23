@@ -3,8 +3,8 @@
  * 支持下载 / 暂停 / 取消 / 卸载已就绪项。
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { Button } from '../../../../components/ui/Button/Button'
-import { ConfirmModal } from '../../../../components/ui/Modal/ConfirmModal'
+import { Button } from '../../../../../renderer/components/ui/Button/Button'
+import { ConfirmModal } from '../../../../../renderer/components/ui/Modal/ConfirmModal'
 import type { VoiceModelDownloadState, VoiceModelStatus } from '../../../../../shared/voice-events'
 import styles from './VoiceModelsPanel.module.css'
 

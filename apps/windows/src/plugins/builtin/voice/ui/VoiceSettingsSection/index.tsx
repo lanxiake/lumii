@@ -1,19 +1,19 @@
 import { useState, useEffect, useRef } from 'react'
 import { Eye, EyeOff } from 'lucide-react'
-import { Button } from '../../../../components/ui/Button/Button'
-import { Input } from '../../../../components/ui/Input/Input'
-import { Checkbox } from '../../../../components/ui/Checkbox/Checkbox'
-import { Select } from '../../../../components/ui/Select/Select'
+import { Button } from '../../../../../renderer/components/ui/Button/Button'
+import { Input } from '../../../../../renderer/components/ui/Input/Input'
+import { Checkbox } from '../../../../../renderer/components/ui/Checkbox/Checkbox'
+import { Select } from '../../../../../renderer/components/ui/Select/Select'
 import { VoiceModelsPanel } from '../VoiceModelsPanel'
 import { VoiceProfilesPanel } from '../VoiceProfilesPanel'
 import { AsrLiveTestPanel } from '../AsrLiveTestPanel'
-import { useFeatureAvailability } from '../../../../hooks/business/useFeatureAvailability'
+import { useFeatureAvailability } from '../../../../../renderer/hooks/business/useFeatureAvailability'
 import {
   EDGE_TTS_VOICES,
   QWEN3_CUSTOM_SPEAKERS,
   QWEN3_TTS_LANGUAGES,
 } from '../../../../../shared/voice-events'
-import styles from '../../SettingsPage.module.css'
+import styles from '../../../../../renderer/pages/SettingsPage/SettingsPage.module.css'
 
 export function VoiceSettingsSection() {
   // D15 → D26（二期运行时对等）：本地 TTS（MeloTTS）依赖随包的 sherpa-onnx，

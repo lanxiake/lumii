@@ -3,14 +3,14 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react'
-import { Button } from '../../../../components/ui/Button/Button'
-import { Input } from '../../../../components/ui/Input/Input'
-import { Modal } from '../../../../components/ui/Modal/Modal'
-import { ChannelCard, type ChannelMetaItem } from '../ChannelCard'
-import type { ChannelConnectionState } from '../ChannelStatusPill'
-import { ChannelBrandIcon } from '../../../../components/brand/ChannelBrandIcon'
-import type { ChannelSnapshot } from '../ChannelsSection/useChannelSnapshots'
-import { openExternalUrl } from '../../../../utils/markdown-external-link'
+import { Button } from '../../../../../renderer/components/ui/Button/Button'
+import { Input } from '../../../../../renderer/components/ui/Input/Input'
+import { Modal } from '../../../../../renderer/components/ui/Modal/Modal'
+import { ChannelCard, type ChannelMetaItem } from '../../../../../renderer/pages/SettingsPage/components/ChannelCard'
+import type { ChannelConnectionState } from '../../../../../renderer/pages/SettingsPage/components/ChannelStatusPill'
+import { ChannelBrandIcon } from '../../../../../renderer/components/brand/ChannelBrandIcon'
+import type { ChannelSnapshot } from '../../../../../renderer/pages/SettingsPage/components/ChannelsSection/useChannelSnapshots'
+import { openExternalUrl } from '../../../../../renderer/utils/markdown-external-link'
 
 type QbotStatus = 'idle' | 'waiting_qrcode' | 'waiting_credential' | 'connected' | 'error'
 

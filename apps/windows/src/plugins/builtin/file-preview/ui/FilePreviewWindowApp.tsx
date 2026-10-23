@@ -8,14 +8,14 @@ import React, { useEffect, useState, useCallback } from 'react'
 import {
   FilePreviewModal,
   type FilePreviewModalProps,
-} from '../components/FilePreviewModal'
-import { ThemeProvider } from '../contexts/ThemeContext/ThemeContext'
+} from '../../../../renderer/components/FilePreviewModal'
+import { ThemeProvider } from '../../../../renderer/contexts/ThemeContext/ThemeContext'
 import {
   closeFilePreviewWindow,
   getFilePreviewPayload,
   onFilePreviewPayloadUpdated,
-} from '../services/file-preview-service'
-import type { FilePreviewWindowPayload } from '../../shared/file-preview-window'
+} from '../../../../renderer/services/file-preview-service'
+import type { FilePreviewWindowPayload } from '../../../../shared/file-preview-window'
 
 type PreviewProps = Omit<FilePreviewModalProps, 'onClose' | 'variant'>
 

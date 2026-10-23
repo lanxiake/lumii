@@ -1017,6 +1017,53 @@ const pluginBoundary = (() => {
   return [...new Set(problems)].sort()
 })()
 
+// ---- ⑬ 相对 import 解析不到
+//
+// tsc 看不见的两类：`.module.css`（有通配声明，任何路径都算合法）与 `.json`。
+// 搬目录时这两类最容易断，而且只在浏览器里炸（Vite 500 → 整页「界面加载失败」）。
+const brokenRelativeImports = (() => {
+  const EXTS = ['', '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.css', '.json', '.md']
+  const INDEX = ['index.ts', 'index.tsx', 'index.js', 'index.mjs']
+  const problems = []
+  const resolveAny = (fromFile, spec) => {
+    // Vite 的 `?raw` / `?url` 后缀不是路径的一部分
+    const clean = spec.split('?')[0]
+    const base = resolve(dirname(fromFile), clean)
+    const cands = []
+    for (const e of EXTS) cands.push(base + e)
+    for (const i of INDEX) cands.push(join(base, i))
+    // TS 的 NodeNext 写法：`./x.js` 实际指向 `x.ts`
+    if (/\.(js|jsx|mjs)$/.test(base)) {
+      const stem = base.replace(/\.(js|jsx|mjs)$/, '')
+      cands.push(stem + '.ts', stem + '.tsx', stem + '.mts', stem + '.d.ts')
+    }
+    return cands.some((c) => existsSync(c) && statSync(c).isFile())
+  }
+  for (const f of files) {
+    const sf = getModule(f).sf
+    if (!sf) continue
+    const visit = (node) => {
+      const spec =
+        (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) &&
+        node.moduleSpecifier &&
+        ts.isStringLiteral(node.moduleSpecifier)
+          ? node.moduleSpecifier.text
+          : ts.isCallExpression(node) &&
+              node.expression.kind === ts.SyntaxKind.ImportKeyword &&
+              node.arguments[0] &&
+              ts.isStringLiteral(node.arguments[0])
+            ? node.arguments[0].text
+            : null
+      if (spec && spec.startsWith('.') && !resolveAny(f, spec)) {
+        problems.push(`${rel(f)} → ${spec}`)
+      }
+      ts.forEachChild(node, visit)
+    }
+    ts.forEachChild(sf, visit)
+  }
+  return [...new Set(problems)].sort()
+})()
+
 const baseline = UPDATE ? null : loadBaseline()
 const baselineHas = (key) => new Set(baseline && Array.isArray(baseline[key]) ? baseline[key] : [])
 /** 拆成「本次新增」与「基线内已知」；无基线时一律算已知（首次运行不该满屏红） */
@@ -1040,6 +1087,7 @@ if (UPDATE) {
     unroutedCommands,
     coreImportsPluginImpl,
     pluginBoundary,
+    brokenRelativeImports,
   }
   writeFileSync(BASELINE_PATH, JSON.stringify(out, null, 2) + '\n', 'utf8')
   console.log(`已写入基线 ${rel(BASELINE_PATH)}：`)
@@ -1236,6 +1284,15 @@ if (VERBOSE && unresolved.length) {
   else if (known.length) console.log(`  ${DIM(`基线内已知 ${known.length} 处（--verbose 展开）`)}`)
 }
 
+// ⑬
+{
+  const { fresh, known } = splitNew(brokenRelativeImports, 'brokenRelativeImports')
+  section(`⑬ 相对 import 解析不到（搬家/改名后的断链）— 新增 ${fresh.length} / 已知 ${known.length}`)
+  for (const p of fresh) console.log(`  ${RED('✗')} ${p}`)
+  if (expandKnown) for (const p of known) console.log(`  ${DIM('·')} ${DIM(p)}`)
+  else if (known.length) console.log(`  ${DIM(`基线内已知 ${known.length} 处（--verbose 展开）`)}`)
+}
+
 // ---- 结论
 const freshCount =
   splitNew(orphanHandlers, 'orphanHandlers').fresh.length +
@@ -1247,7 +1304,8 @@ const freshCount =
   splitNew(unroutedCommands, 'unroutedCommands').fresh.length +
   splitNew(unownedIpc, 'unownedIpc').fresh.length +
   splitNew(coreImportsPluginImpl, 'coreImportsPluginImpl').fresh.length +
-  splitNew(pluginBoundary, 'pluginBoundary').fresh.length
+  splitNew(pluginBoundary, 'pluginBoundary').fresh.length +
+  splitNew(brokenRelativeImports, 'brokenRelativeImports').fresh.length
 
 console.log(
   `\n${

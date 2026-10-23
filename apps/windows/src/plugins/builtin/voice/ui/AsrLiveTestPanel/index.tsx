@@ -4,10 +4,10 @@
  * 仅用户点击「开始 ASR 测试」后开麦；测试中显示麦克风音量。
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react'
-import { Button } from '../../../../components/ui/Button/Button'
-import { loadAudioWorkletModule } from '../../../../hooks/business/useVoiceCall/load-audio-worklet'
-import { pcmProcessorSource } from '../../../../hooks/business/useVoiceCall/worklets/pcm-processor-source'
-import { WaveformVisualizer } from '../../../ChatPage/components/VoiceCallPanel/WaveformVisualizer'
+import { Button } from '../../../../../renderer/components/ui/Button/Button'
+import { loadAudioWorkletModule } from '../../../../../renderer/hooks/business/useVoiceCall/load-audio-worklet'
+import { pcmProcessorSource } from '../../../../../renderer/hooks/business/useVoiceCall/worklets/pcm-processor-source'
+import { WaveformVisualizer } from '../../../../../renderer/pages/ChatPage/components/VoiceCallPanel/WaveformVisualizer'
 import styles from './AsrLiveTestPanel.module.css'
 
 /**

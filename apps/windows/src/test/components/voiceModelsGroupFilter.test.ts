@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest'
 import {
   filterVoiceModelsByGroups,
   resolveVoiceModelGroup,
-} from '../../renderer/pages/SettingsPage/components/VoiceModelsPanel/index'
+} from '../../plugins/builtin/voice/ui/VoiceModelsPanel/index'
 import type { VoiceModelStatus } from '../../shared/voice-events'
 
 function model(id: string, group?: VoiceModelStatus['group']): VoiceModelStatus {

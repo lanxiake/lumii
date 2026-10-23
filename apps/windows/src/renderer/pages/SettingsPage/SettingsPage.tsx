@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, ReactNode } from 'react'
+import React, { useState, useEffect, useCallback, useSyncExternalStore, ReactNode } from 'react'
 import clsx from 'clsx'
 import {
   User,
@@ -27,7 +27,9 @@ import { useToast } from '../../components/ui/Toast/useToast'
 import { PageHeader } from '../../components/ui/PageHeader/PageHeader'
 import { CodingDevAcpPanel } from './components/CodingDevAcpPanel'
 import { ChannelsSection } from './components/ChannelsSection'
-import { UsagePanel } from './components/UsagePanel'
+import { SlotHost } from '../../components/slots/SlotHost'
+import { getPluginStateSnapshot, subscribePluginState } from '../../../plugins/renderer/state'
+import { filterPluginCategories } from '../../../plugins/renderer/settings-categories'
 import { LumiiLogo } from '../../components/brand/LumiiLogo'
 import { openExternalUrl } from '../../utils/markdown-external-link'
 import { VIRTUAL_HUMAN_PRODUCT_NAME } from '../../../shared/virtual-human'
@@ -36,7 +38,7 @@ import { getWorkspaceDir, ensureWorkspaceDir, notifyWorkspaceChanged } from '../
 import { getAppVersion, getOpenAtLogin, setOpenAtLogin as applyOpenAtLogin, openLogFile } from '../../services/app-service'
 import { PetSettingsSection } from './components/PetSettingsSection'
 import { ModelConfigSection } from './components/ModelConfigSection'
-import { VoiceSettingsSection } from './components/VoiceSettingsSection'
+import { VoiceSettingsSection } from '../../../plugins/builtin/voice/ui/VoiceSettingsSection'
 import { WorkspaceSection } from './components/WorkspaceSection'
 import { CloudSyncSection } from './components/CloudSyncSection'
 import { OfficialExtensionGate } from '../../components/OfficialExtensionGate/OfficialExtensionGate'
@@ -93,6 +95,9 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   activeCategory: controlledCategory,
 }) => {
   const toast = useToast()
+  // 归插件的设置分区：插件停用后入口不显示（内容槽位也会是空的）
+  const pluginState = useSyncExternalStore(subscribePluginState, getPluginStateSnapshot)
+  const visibleCategories = filterPluginCategories(CATEGORIES, (id) => pluginState.get(id) === true)
   const {
     settings,
     updateNotification,
@@ -854,7 +859,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
       case 'modelConfig':
         return <ModelConfigSection />
       case 'voice':
-        return <VoiceSettingsSection />
+        // 整块由语音插件注册；停用后槽位为空、左侧入口消失
+        return <SlotHost name="settings.category.voice" />
       case 'channels':
         return renderChannelsSettings()
       case 'codingDev':
@@ -870,7 +876,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
       case 'pet':
         return <PetSettingsSection />
       case 'usage':
-        return <UsagePanel />
+        // 整块由插件注册；插件停用后槽位为空（左侧入口也会一起消失）
+        return <SlotHost name="settings.category.usage" />
       case 'aboutAndUpdate':
         return renderAboutAndUpdateSettings()
       default:
@@ -888,7 +895,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
 
       <div className={styles['settings-body']}>
         <nav className={styles['settings-nav']}>
-          {CATEGORIES.map((category) => (
+          {visibleCategories.map((category) => (
             <button
               key={category.id}
               className={clsx(styles['settings-nav-item'], activeCategory === category.id && styles['active'])}

@@ -83,6 +83,15 @@ extension:set-enabled → host.activate/stop（IPC/定时器随作用域拆）
 
 两种都读同一个状态源（`renderer/state.ts`），禁用后 UI 整条消失，不是灰掉。
 
+**现成的槽位约定**：
+
+| 槽位 | 用途 |
+|---|---|
+| `settings.category.<分类id>` | 整块设置分区。同时在 `renderer/settings-categories.ts` 登记归属，停用后左侧导航一起隐藏 |
+| `settings.channel.<渠道>` | 渠道设置里的单张卡片（context: `{ snapshot, snapshotLoading }`） |
+| `dashboard.main` / `dashboard.grid` / `dashboard.plugins` | 概览页的三块区域 |
+| `settings.section` | 设置 › 扩展 页下半的「插件自述」分区 |
+
 ### 插件内注册 IPC 的写法
 
 `apply` 里**不要直接碰 `ipcMain`**（停用摘不掉，守卫 ⑫ 会红）。三种现成写法：

@@ -133,7 +133,7 @@ if (isPetMode) {
 } else if (isFilePreviewMode) {
   console.log('[Renderer] 文件预览独立窗口启动')
   const FilePreviewWindowApp = React.lazy(() =>
-    import('./file-preview/FilePreviewWindowApp').then((m) => ({
+    import('../plugins/builtin/file-preview/ui/FilePreviewWindowApp').then((m) => ({
       default: m.FilePreviewWindowApp,
     })),
   )

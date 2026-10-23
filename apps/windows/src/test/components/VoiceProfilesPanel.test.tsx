@@ -4,8 +4,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import '@testing-library/jest-dom'
-import { VoiceProfilesPanel } from '../../renderer/pages/SettingsPage/components/VoiceProfilesPanel'
-import { CLONE_REF_PROMPT_ZH } from '../../renderer/pages/SettingsPage/components/VoiceProfilesPanel/clone-ref-prompt'
+import { VoiceProfilesPanel } from '../../plugins/builtin/voice/ui/VoiceProfilesPanel'
+import { CLONE_REF_PROMPT_ZH } from '../../plugins/builtin/voice/ui/VoiceProfilesPanel/clone-ref-prompt'
 
 describe('VoiceProfilesPanel', () => {
   beforeEach(() => {

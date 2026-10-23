@@ -4,7 +4,7 @@
  * 顶部横栏切换模块；「设置」Tab 内左侧分类 + 右侧面板。
  */
 
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import clsx from 'clsx'
 import { SlotHost } from '../slots/SlotHost'
 import { ExtensionsPanel } from '../ExtensionsPanel/ExtensionsPanel'
@@ -33,6 +33,8 @@ import { CronPage } from '../../pages/CronPage/CronPage'
 import { MemoriesPage } from '../../pages/MemoriesPage/MemoriesPage'
 import { WikiTab } from '../../pages/MemoriesPage/components/WikiTab'
 import { getAutonomousStatus } from '../../../plugins/builtin/autonomous/ui/autonomous-service'
+import { getPluginStateSnapshot, subscribePluginState } from '../../../plugins/renderer/state'
+import { filterPluginCategories } from '../../../plugins/renderer/settings-categories'
 import type { ViewType } from '../Router'
 import { useSettingsHub } from './SettingsHubContext'
 import { VIRTUAL_HUMAN_PRODUCT_NAME } from '../../../shared/virtual-human'
@@ -96,14 +98,16 @@ export const SettingsHubModal: React.FC<{
     }
   }, [isOpen])
 
+  // 归插件的分类：插件停用后不显示（内容由插件的 `settings.category.<id>` 槽位提供）
+  const pluginState = useSyncExternalStore(subscribePluginState, getPluginStateSnapshot)
   const settingsCategories = useMemo(
     () =>
-      SETTINGS_CATEGORIES.map((item) =>
+      filterPluginCategories(SETTINGS_CATEGORIES, (id) => pluginState.get(id) === true).map((item) =>
         item.id === 'experimental' && pendingAutonomousGoals > 0
           ? { ...item, badgeDot: true }
           : item,
       ),
-    [pendingAutonomousGoals],
+    [pendingAutonomousGoals, pluginState],
   )
 
   const header = useMemo(

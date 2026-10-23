@@ -8,11 +8,12 @@
  * 由 ExperimentalSection 管理；本分区只留渠道本身的连接与卡片）。
  */
 import React from 'react'
-import { WeixinChannelSettings } from '../WeixinChannelSettings'
-import { WecomChannelSettings } from '../WecomChannelSettings'
-import { FeishuChannelSettings } from '../FeishuChannelSettings'
-import { QbotChannelSettings } from '../QbotChannelSettings'
+import { WeixinChannelSettings } from '../../../../../plugins/builtin/channel-weixin/ui/Settings'
+import { WecomChannelSettings } from '../../../../../plugins/builtin/channel-wecom/ui/Settings'
+import { FeishuChannelSettings } from '../../../../../plugins/builtin/channel-feishu/ui/Settings'
+import { QbotChannelSettings } from '../../../../../plugins/builtin/channel-qbot/ui/Settings'
 import { PcwechatChannelSettings } from '../PcwechatChannelSettings'
+import { SlotHost } from '../../../../components/slots/SlotHost'
 import { useChannelSnapshots } from './useChannelSnapshots'
 import styles from './ChannelsSection.module.css'
 
@@ -44,10 +45,11 @@ export const ChannelsSection: React.FC = () => {
       </div>
 
       <div className={styles.list}>
-        <WeixinChannelSettings snapshot={snapshots.weixin} snapshotLoading={loading} />
-        <WecomChannelSettings snapshot={snapshots.wecom} snapshotLoading={loading} />
-        <FeishuChannelSettings snapshot={snapshots.feishu} snapshotLoading={loading} />
-        <QbotChannelSettings snapshot={snapshots.qbot} snapshotLoading={loading} />
+        {/* 四个渠道卡片由各自插件注册；插件停用后那一张就不出现 */}
+        <SlotHost name="settings.channel.weixin" context={{ snapshot: snapshots.weixin, snapshotLoading: loading }} />
+        <SlotHost name="settings.channel.wecom" context={{ snapshot: snapshots.wecom, snapshotLoading: loading }} />
+        <SlotHost name="settings.channel.feishu" context={{ snapshot: snapshots.feishu, snapshotLoading: loading }} />
+        <SlotHost name="settings.channel.qbot" context={{ snapshot: snapshots.qbot, snapshotLoading: loading }} />
         <PcwechatChannelSettings snapshot={snapshots.pcwechat} snapshotLoading={loading} />
       </div>
 

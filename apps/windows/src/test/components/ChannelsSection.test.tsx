@@ -1,10 +1,15 @@
 /**
  * ChannelsSection：渠道设置分区的连接汇总与 peer 合并展示
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import '@testing-library/jest-dom'
 import { ChannelsSection } from '../../renderer/pages/SettingsPage/components/ChannelsSection'
+import { rendererApi } from '../../plugins/api'
+import { channelWeixinRenderer } from '../../plugins/builtin/channel-weixin/renderer'
+import { channelWecomRenderer } from '../../plugins/builtin/channel-wecom/renderer'
+import { channelFeishuRenderer } from '../../plugins/builtin/channel-feishu/renderer'
+import { channelQbotRenderer } from '../../plugins/builtin/channel-qbot/renderer'
 
 /**
  * 构造三个渠道登录服务的最小 mock；返回值统一为 idle，便于按用例覆盖。
@@ -43,8 +48,22 @@ function mockChannelServices(overrides: {
 }
 
 describe('ChannelsSection', () => {
+  let slotDisposers: Array<() => void> = []
+
   beforeEach(() => {
+    // 四个渠道卡片由插件注册（与真实运行同一条 setup 路径）
+    slotDisposers = [
+      channelWeixinRenderer.setup(rendererApi),
+      channelWecomRenderer.setup(rendererApi),
+      channelFeishuRenderer.setup(rendererApi),
+      channelQbotRenderer.setup(rendererApi),
+    ]
     vi.restoreAllMocks()
+  })
+
+  afterEach(() => {
+    for (const dispose of slotDisposers) dispose()
+    slotDisposers = []
   })
 
   it('五个渠道均未连接时汇总显示 0 / 5', async () => {
