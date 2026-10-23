@@ -188,6 +188,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
   const { pending: runtimePendingAskUser } = useAnyPendingAskUser()
   const runtimeContextUsage = useAgentRuntimeState((s) => s.contextUsage)
   const runtimeIsAutoCompacting = useAgentRuntimeState((s) => s.isAutoCompacting)
+  const runtimeCompactionOrigin = useAgentRuntimeState((s) => s.compactionOrigin)
   const runtimeFileEvents = useAgentRuntimeState((s) => s.fileEvents)
   const runtimeCompactionEvents = useAgentRuntimeState((s) => s.compactionEvents)
   const runtimeHistoryPaging = useAgentRuntimeState((s) => s.historyPaging)
@@ -950,7 +951,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
       const api = window.electronAPI?.agentRuntime
       if (!api?.sendCommand) return
       // 手动压缩：立即设置压缩中状态，让按钮显示 spinner
-      updateSessionState(sessionKey, (prev) => ({ ...prev, isAutoCompacting: true }))
+      updateSessionState(sessionKey, (prev) => ({ ...prev, isAutoCompacting: true, compactionOrigin: 'manual' }))
       toast.info('正在压缩上下文，请稍候...')
       const result = await api.sendCommand({
         type: 'user:compact-context',
@@ -974,7 +975,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
       toast.error('压缩失败')
     } finally {
       // compacted 事件只在成功时推送，失败/未压缩时必须自己收尾，否则 spinner 永久转
-      updateSessionState(sessionKey, (prev) => ({ ...prev, isAutoCompacting: false }))
+      updateSessionState(sessionKey, (prev) => ({ ...prev, isAutoCompacting: false, compactionOrigin: null }))
     }
   }, [runtimeCurrentSessionKey, runtimeActions, toast])
 
@@ -986,7 +987,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
       const api = window.electronAPI?.agentRuntime
       if (!api?.sendCommand) return
       await api.sendCommand({ type: 'user:abort-compact-context', sessionKey })
-      updateSessionState(sessionKey, (prev) => ({ ...prev, isAutoCompacting: false }))
+      updateSessionState(sessionKey, (prev) => ({ ...prev, isAutoCompacting: false, compactionOrigin: null }))
       toast.info('已停止压缩')
     } catch (err) {
       logger.error('[handleStopCompactContext] 停止压缩失败:', err)
@@ -1947,7 +1948,8 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
             contextUsage={runtimeContextUsage}
             isCompacting={runtimeIsAutoCompacting}
             onCompactContext={handleCompactContext}
-            onStopCompactContext={handleStopCompactContext}
+            // 自动压缩在请求前同步发生，没有可用的 abort 通道：不给停止入口，免得点了「已停止」却没停
+            onStopCompactContext={runtimeCompactionOrigin === 'manual' ? handleStopCompactContext : undefined}
             pendingAttachments={pendingAttachments}
             onFileUpload={handleFilesImport}
             onRemoveAttachment={handleRemoveAttachment}

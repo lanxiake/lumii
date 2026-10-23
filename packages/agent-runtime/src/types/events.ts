@@ -108,6 +108,20 @@ export type AgentRuntimeEvent =
       isError: boolean;
     }
   | {
+      /**
+       * 摘要压缩开始（LLM 调用前）。
+       *
+       * onCompaction 只在压缩完成后发；摘要本身可能耗时数十秒，期间没有任何流式输出。
+       * 宿主据此在 UI 上显示"压缩中"，否则用户会以为会话卡死。
+       */
+      type: "context:compaction-start";
+      instanceId: string;
+      tokensBefore: number;
+      threshold: number;
+      messagesBefore: number;
+      strategy: "summary";
+    }
+  | {
       type: "context:compaction";
       instanceId: string;
       tokensBefore: number;

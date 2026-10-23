@@ -302,6 +302,11 @@ export interface PerSessionState {
   readonly contextUsage: ContextUsage | null
   /** 上下文自动压缩进行中（ratio >= triggerThreshold 时设为 true，压缩完成后清除） */
   readonly isAutoCompacting: boolean
+  /**
+   * 压缩由谁发起：auto = 请求前自动触发（无法从 UI 中断），manual = 用户点 /compact。
+   * 只有 manual 才允许点「停止」；auto 时按钮只显示进度。
+   */
+  readonly compactionOrigin: 'auto' | 'manual' | null
   /** 当前会话内 Agent 生成的文件列表（按 messageId 分组） */
   readonly fileEvents: readonly RuntimeFileEvent[]
   /** 上下文自动压缩事件列表（渲染为聊天分隔卡片） */
@@ -407,6 +412,7 @@ const DEFAULT_PER_SESSION_STATE: PerSessionState = {
   activeAgents: EMPTY_ACTIVE_AGENTS,
   contextUsage: null,
   isAutoCompacting: false,
+  compactionOrigin: null,
   fileEvents: EMPTY_FILE_EVENTS,
   compactionEvents: EMPTY_COMPACTION_EVENTS,
   lastTaskCompletion: null,

@@ -490,3 +490,39 @@ describe("createTransformContext — historyRecallHint 端到端", () => {
     expect(summaryMsg.content).toContain("memory_read");
   });
 });
+
+describe("createTransformContext — 压缩开始回调", () => {
+  const buildFullSummaryMessages = (): AgentMessage[] => {
+    const messages: AgentMessage[] = [];
+    for (let i = 0; i < 40; i++) {
+      messages.push(user("x".repeat(500)));
+      messages.push({ role: "assistant", content: "y".repeat(500) } as AgentMessage);
+    }
+    return messages;
+  };
+
+  it("摘要压缩在调用模型前先回调 onCompactionStart", async () => {
+    const order: string[] = [];
+    const transform = createTransformContext({
+      contextWindow: 10_000,
+      triggerRatio: 0.9,
+      keepRecentTurns: 4,
+      outputReserveTokens: 500,
+      summaryReserveTokens: 500,
+      generateSummary: async () => {
+        order.push("summary")
+        return "<summary>compressed</summary>"
+      },
+      onCompactionStart: (info) => {
+        order.push(`start:${info.strategy}`)
+        expect(info.tokensBefore).toBeGreaterThan(0)
+        expect(info.messagesBefore).toBeGreaterThan(0)
+      },
+    })
+
+    await transform(buildFullSummaryMessages(), undefined)
+
+    // 摘要开始前必须已经通知宿主：否则 UI 在模型调用期间完全静默
+    expect(order).toEqual(["start:summary", "summary"])
+  })
+});

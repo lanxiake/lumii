@@ -1767,6 +1767,17 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
       break
     }
 
+    case 'agent:context:compacting': {
+      // LLM 摘要在跑：输入框显示「压缩中」，避免整段静默被当成卡死。
+      // 收尾走 agent:context:compacted（它会把 isAutoCompacting 置回 false）。
+      updateSessionState(sessionKey, (prev) =>
+        prev.isAutoCompacting && prev.compactionOrigin === 'auto'
+          ? prev
+          : { ...prev, isAutoCompacting: true, compactionOrigin: 'auto' },
+      )
+      break
+    }
+
     case 'agent:context:compacted': {
       updateSessionState(sessionKey, (prev) => {
         const ratio = prev.contextUsage && prev.contextUsage.contextWindow > 0
@@ -1804,6 +1815,7 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
         return {
           ...prev,
           isAutoCompacting: false,
+          compactionOrigin: null,
           compactionEvents: mergeable && last
             ? [...prev.compactionEvents.slice(0, -1), newCompactionEvent]
             : [...prev.compactionEvents, newCompactionEvent],

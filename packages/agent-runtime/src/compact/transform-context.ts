@@ -228,6 +228,13 @@ export function createTransformContext(
     }
 
     // 尝试 LLM 摘要（含 PTL 重试，B2）；未注入 generateSummary 时返回 null 走占位降级
+    // 先通知宿主「要开跑了」：这一步之前没有任何流式输出，UI 不提示就像卡死。
+    config.onCompactionStart?.({
+      tokensBefore: estimation.totalTokens,
+      threshold: estimation.threshold,
+      messagesBefore: working.length,
+      strategy: "summary",
+    });
     const stage = await runSummaryStage(oldMessages, config, signal);
     let summaryMessage = stage.summaryMessage;
     if (summaryMessage) {

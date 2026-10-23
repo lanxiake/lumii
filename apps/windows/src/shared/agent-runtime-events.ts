@@ -519,6 +519,24 @@ export interface AgentContextUsageEvent {
 }
 
 /**
+ * 上下文压缩开始事件（自动压缩的 LLM 摘要阶段）
+ *
+ * 摘要要先跑一次模型调用，期间没有流式输出也没有工具事件。推这条让 UI 显示「压缩中」，
+ * 结束统一由 agent:context:compacted 收尾（成功后由 bridge 推送）。
+ */
+interface AgentContextCompactingEvent {
+  readonly type: 'agent:context:compacting'
+  readonly sessionKey: string
+  /** 压缩前整窗占用（与占用卡片同一口径） */
+  readonly tokensBefore: number
+  /** 触发压缩的阈值 */
+  readonly threshold: number
+  /** 压缩前消息条数 */
+  readonly messagesBefore?: number
+  readonly timestamp: number
+}
+
+/**
  * 上下文压缩完成事件（手动或自动压缩后由 bridge 推送）
  */
 interface AgentContextCompactedEvent {
@@ -777,6 +795,7 @@ export type AgentRuntimeEvent =
   | AgentSubagentCompletedEvent
   | AgentBackgroundTaskEvent
   | AgentContextUsageEvent
+  | AgentContextCompactingEvent
   | AgentContextCompactedEvent
   | AgentFileCreatedEvent
   | AgentRuntimeReadyEvent

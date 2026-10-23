@@ -965,7 +965,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
                           )
                         : styles['context-compact-safe'],
                   )}
-                  aria-label={isCompacting ? '正在压缩，点击可停止' : contextUsageLabel}
+                  aria-label={isCompacting ? (onStopCompactContext ? '正在压缩，点击可停止' : '正在压缩') : contextUsageLabel}
                   onClick={() => (isCompacting ? onStopCompactContext?.() : onCompactContext?.())}
                   disabled={(isCompacting ? !onStopCompactContext : !onCompactContext) || isDisabled}
                 >

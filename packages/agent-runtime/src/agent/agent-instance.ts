@@ -406,6 +406,13 @@ export class AgentInstance {
             // 动态读取：每次压缩时取最新任务列表（由宿主通过 updateActiveTasks 更新）
             return self._activeTasks;
           },
+          onCompactionStart: (info) => {
+            this.emit({
+              type: "context:compaction-start",
+              instanceId: this.id,
+              ...info,
+            });
+          },
           onCompaction: (info: CompactionInfo) => {
             this.emit({
               type: "context:compaction",

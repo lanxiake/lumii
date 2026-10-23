@@ -228,6 +228,18 @@ export interface CompactConfig {
    */
   onCompaction?: (info: CompactionInfo) => void;
   /**
+   * 压缩开始时的回调（可选）
+   *
+   * 与 onCompaction 成对：LLM 摘要可能耗时数十秒，宿主可据此在 UI 上显示「压缩中」，
+   * 避免用户误以为会话卡死。只在 summary 策略触发（micro / hard-trim 是同步的静默清理）。
+   */
+  onCompactionStart?: (info: {
+    tokensBefore: number;
+    threshold: number;
+    messagesBefore: number;
+    strategy: "summary";
+  }) => void;
+  /**
    * 当前会话的活跃任务列表（可选）
    *
    * 注入到摘要提示词中，确保 LLM 摘要明确记录待处理任务，

@@ -430,6 +430,18 @@ export function convertOldEventToIpcEvents(
       return []
     }
 
+    case 'context:compaction-start': {
+      // 摘要开跑前的提示：之后到 compacted 之间可能几十秒没有任何事件
+      return [{
+        type: 'agent:context:compacting',
+        sessionKey: ctx.sessionKey,
+        tokensBefore: oldEvent.tokensBefore,
+        threshold: oldEvent.threshold,
+        messagesBefore: oldEvent.messagesBefore,
+        timestamp: now,
+      }]
+    }
+
     case 'context:compaction': {
       return [{
         type: 'agent:context:compacted',
