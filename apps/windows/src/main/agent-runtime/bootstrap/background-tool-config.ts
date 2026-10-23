@@ -4,6 +4,13 @@ import { agentRuntimeLog as log } from '../bridge-utils'
 import { followComfyJob, parseEnqueuedPromptId, resolveComfyBaseUrl } from '../comfyui-job-follower'
 import type { McpManager } from '../mcp-manager'
 import type { BackgroundTaskManager } from '../background-task-manager'
+import {
+  reportBackgroundToolStart,
+  reportComfyEnqueued,
+  reportComfyNote,
+  reportTaskFailure,
+  reportTaskSuccess,
+} from '../background-task-progress'
 
 /** 后台任务看门狗上限：超过判定失败（一个回合不可能等这么久） */
 const BACKGROUND_TASK_MAX_MS = 60 * 60 * 1000
@@ -61,7 +68,9 @@ export function buildBackgroundToolConfig(deps: BackgroundToolConfigDeps): Backg
         log.warn(`[background-task] 看门狗超时，判定失败 task=${taskId}`)
         deps.backgroundTaskAborts.delete(taskId)
         controller.abort()
-        manager.fail(taskId, `后台任务超过 ${Math.round(watchdogMs / 60000)} 分钟未返回，已中止`)
+        const message = `后台任务超过 ${Math.round(watchdogMs / 60000)} 分钟未返回，已中止`
+        reportTaskFailure(manager, taskId, message)
+        manager.fail(taskId, message)
       }, watchdogMs)
 
       const settle = (apply: () => void): void => {
@@ -74,6 +83,7 @@ export function buildBackgroundToolConfig(deps: BackgroundToolConfigDeps): Backg
       void (async () => {
         let comfyJob: { promptId: string; serverName: string } | undefined
         try {
+          reportBackgroundToolStart(manager, taskId, toolName)
           const result = await execute(controller.signal)
           const text = extractToolResultText(result)
           log.info(`[background-task] 执行返回 task=${taskId} isError=${result.isError ?? false}`)
@@ -84,26 +94,41 @@ export function buildBackgroundToolConfig(deps: BackgroundToolConfigDeps): Backg
             comfyJob = { promptId, serverName: server.name }
             log.info(`[background-task] 跟进 ComfyUI 任务 task=${taskId} prompt_id=${promptId}`)
             manager.update(taskId, `ComfyUI 已入队（prompt_id=${promptId}）`)
+            reportComfyEnqueued(manager, taskId, promptId)
             const outcome = await followComfyJob({
               promptId,
               callTool: (tool, args) => deps.getMcpManager()!.callTool(server.name, tool, args),
               signal: controller.signal,
               baseUrl: resolveComfyBaseUrl(server.env),
-              onProgress: (note) => manager.update(taskId, `${note}（prompt_id=${promptId}）`),
+              onProgress: (note) => {
+                manager.update(taskId, `${note}（prompt_id=${promptId}）`)
+                reportComfyNote(manager, taskId, note)
+              },
             })
             settle(() => {
               log.info(
                 `[background-task] ComfyUI 任务结束 task=${taskId} ok=${outcome.ok} outputs=${outcome.outputs.length}`,
               )
-              if (outcome.ok) manager.complete(taskId, outcome.text || text, { outputs: outcome.outputs })
-              else manager.fail(taskId, outcome.text)
+              if (outcome.ok) {
+                reportTaskSuccess(manager, taskId)
+                manager.complete(taskId, outcome.text || text, { outputs: outcome.outputs })
+              } else {
+                reportTaskFailure(manager, taskId, outcome.text)
+                manager.fail(taskId, outcome.text)
+              }
             })
             return
           }
 
           settle(() => {
-            if (result.isError) manager.fail(taskId, text || '工具执行失败')
-            else manager.complete(taskId, text)
+            if (result.isError) {
+              const message = text || '工具执行失败'
+              reportTaskFailure(manager, taskId, message)
+              manager.fail(taskId, message)
+            } else {
+              reportTaskSuccess(manager, taskId)
+              manager.complete(taskId, text)
+            }
           })
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err)
@@ -119,6 +144,7 @@ export function buildBackgroundToolConfig(deps: BackgroundToolConfigDeps): Backg
           }
           settle(() => {
             log.warn(`[background-task] 执行异常 task=${taskId}: ${message}`)
+            reportTaskFailure(manager, taskId, message)
             manager.fail(taskId, message)
           })
         }

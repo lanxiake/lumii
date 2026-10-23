@@ -15,6 +15,8 @@ import type {
   ContentBlock,
   ContextBudgetSnapshot,
   ContextUsageBreakdownEntry,
+  Milestone,
+  TaskLog,
   TokenUsage,
 } from '../../../../shared/agent-runtime-events'
 import type { AssistantPart, FileChangeEntry } from '@mtbot/agent-runtime/browser'
@@ -280,6 +282,41 @@ export interface BackgroundTask {
   /** 运行中进度说明 */
   readonly note?: string
   readonly error?: string
+  /** 0–100。缺省表示工具尚未上报百分比 */
+  readonly progress?: number
+  /** 当前步骤描述 */
+  readonly currentStep?: string
+  /** 实时日志（主进程最多保留 1000 条） */
+  readonly logs?: readonly TaskLog[]
+  /** 任务里程碑 */
+  readonly milestones?: readonly Milestone[]
+}
+
+/** 日志是否与上次快照实质相同（比长度和末条，避免每次全量深比较） */
+function sameTaskLogs(left: readonly TaskLog[] | undefined, right: readonly TaskLog[] | undefined): boolean {
+  if (left === right) return true
+  if (!left || !right || left.length !== right.length) return !left && !right
+  const lastLeft = left[left.length - 1]
+  const lastRight = right[right.length - 1]
+  return lastLeft?.timestamp === lastRight?.timestamp
+    && lastLeft?.message === lastRight?.message
+    && lastLeft?.level === lastRight?.level
+}
+
+/** 里程碑状态是否未变 */
+function sameMilestones(
+  left: readonly Milestone[] | undefined,
+  right: readonly Milestone[] | undefined,
+): boolean {
+  if (left === right) return true
+  if (!left || !right || left.length !== right.length) return !left && !right
+  return left.every((milestone, index) => {
+    const other = right[index]
+    return milestone.step === other?.step
+      && milestone.status === other?.status
+      && milestone.duration === other?.duration
+      && milestone.error === other?.error
+  })
 }
 
 export interface PerSessionState {
@@ -534,7 +571,11 @@ export function upsertBackgroundTask(sessionKey: string, task: BackgroundTask): 
       existing.outputs?.length === task.outputs?.length &&
       existing.note === task.note &&
       existing.error === task.error &&
-      existing.endedAt === task.endedAt
+      existing.endedAt === task.endedAt &&
+      existing.progress === task.progress &&
+      existing.currentStep === task.currentStep &&
+      sameTaskLogs(existing.logs, task.logs) &&
+      sameMilestones(existing.milestones, task.milestones)
     ) {
       return prev
     }

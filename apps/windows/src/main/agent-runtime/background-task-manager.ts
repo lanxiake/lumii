@@ -15,6 +15,10 @@ import type {
   AgentRuntimeEvent,
   BackgroundTaskOutput,
   BackgroundTaskStatus,
+  Milestone,
+  MilestoneStatus,
+  TaskLog,
+  TaskLogLevel,
 } from '../../shared/agent-runtime-events'
 import { agentRuntimeLog as log } from './bridge-utils'
 
@@ -38,7 +42,18 @@ export interface BackgroundTaskRecord {
   readonly note?: string
   /** 失败原因 */
   readonly error?: string
+  /** 0–100。缺省表示尚未上报百分比 */
+  readonly progress?: number
+  /** 当前步骤描述 */
+  readonly currentStep?: string
+  /** 内存日志，最多保留最后 1000 条 */
+  readonly logs?: readonly TaskLog[]
+  /** 任务里程碑 */
+  readonly milestones?: readonly Milestone[]
 }
+
+/** 单任务内存日志上限。超出后丢弃最早的一条 */
+const MAX_TASK_LOGS = 1000
 
 /** complete 的附加产出 */
 export interface BackgroundTaskCompleteExtras {
@@ -159,6 +174,103 @@ export class BackgroundTaskManager {
     this.settle({ ...rest, status: 'cancelled', endedAt: this.now() })
   }
 
+  /**
+   * 更新进度百分比（钳制到 0–100）和当前步骤。
+   * 未知任务、终态、或数值非有限时忽略；值未变不重复推事件。
+   */
+  updateProgress(taskId: string, progress: number, currentStep?: string): void {
+    if (!Number.isFinite(progress)) return
+    const clamped = Math.min(100, Math.max(0, progress))
+    this.patchRunning(taskId, (rec) => {
+      const step = currentStep !== undefined ? currentStep : rec.currentStep
+      if (rec.progress === clamped && rec.currentStep === step) return null
+      return {
+        ...rec,
+        progress: clamped,
+        ...(step !== undefined ? { currentStep: step } : {}),
+      }
+    })
+  }
+
+  /**
+   * 追加一条日志。超过 1000 条时丢掉最早的一条。
+   * 未知任务或终态时忽略。
+   */
+  addLog(
+    taskId: string,
+    level: TaskLogLevel,
+    message: string,
+    context?: Record<string, unknown>,
+  ): void {
+    this.patchRunning(taskId, (rec) => {
+      const entry: TaskLog = {
+        level,
+        message,
+        timestamp: this.now(),
+        ...(context !== undefined ? { context } : {}),
+      }
+      const logs = [...(rec.logs ?? []), entry]
+      if (logs.length > MAX_TASK_LOGS) logs.splice(0, logs.length - MAX_TASK_LOGS)
+      return { ...rec, logs }
+    })
+  }
+
+  /** 替换里程碑列表。未知任务或终态时忽略 */
+  setMilestones(taskId: string, milestones: readonly Milestone[]): void {
+    this.patchRunning(taskId, (rec) => ({
+      ...rec,
+      milestones: milestones.map((milestone) => ({ ...milestone })),
+    }))
+  }
+
+  /**
+   * 按步骤名更新单个里程碑。
+   * 进入 in-progress 时补 startTime；首次结束且未给耗时则用 startTime 推算。
+   * 已有耗时不会被重算，避免重复上报改写历史。
+   */
+  updateMilestone(
+    taskId: string,
+    step: string,
+    status: MilestoneStatus,
+    duration?: number,
+    error?: string,
+  ): void {
+    this.patchRunning(taskId, (rec) => {
+      if (!rec.milestones || rec.milestones.length === 0) return null
+      let changed = false
+      const milestones = rec.milestones.map((milestone) => {
+        if (milestone.step !== step) return milestone
+        const startTime = milestone.startTime ?? (status === 'in-progress' ? this.now() : undefined)
+        const resolvedDuration = duration !== undefined
+          ? duration
+          : milestone.duration !== undefined
+            ? milestone.duration
+            : startTime !== undefined && (status === 'completed' || status === 'failed')
+              ? Math.max(0, this.now() - startTime)
+              : undefined
+        const resolvedError = error !== undefined ? error : milestone.error
+        if (
+          milestone.status === status
+          && milestone.startTime === startTime
+          && milestone.duration === resolvedDuration
+          && milestone.error === resolvedError
+        ) {
+          return milestone
+        }
+        changed = true
+        return {
+          ...milestone,
+          status,
+          ...(startTime !== undefined ? { startTime } : {}),
+          ...(resolvedDuration !== undefined ? { duration: resolvedDuration } : {}),
+          ...(resolvedError !== undefined ? { error: resolvedError } : {}),
+        }
+      })
+      if (!changed) return null
+      return { ...rec, milestones }
+    })
+  }
+
   get(taskId: string): BackgroundTaskRecord | undefined {
     return this.tasks.get(taskId)
   }
@@ -170,6 +282,19 @@ export class BackgroundTaskManager {
   /** 按会话过滤（供 UI 恢复视图） */
   listBySession(sessionKey: string): readonly BackgroundTaskRecord[] {
     return [...this.tasks.values()].filter((t) => t.sessionKey === sessionKey)
+  }
+
+  /** 运行中任务的局部更新。mutate 返回 null 表示无变化，不推事件 */
+  private patchRunning(
+    taskId: string,
+    mutate: (record: BackgroundTaskRecord) => BackgroundTaskRecord | null,
+  ): void {
+    const rec = this.tasks.get(taskId)
+    if (!rec || TERMINAL.has(rec.status)) return
+    const next = mutate(rec)
+    if (!next) return
+    this.tasks.set(taskId, next)
+    this.push(next)
   }
 
   private settle(record: BackgroundTaskRecord): void {

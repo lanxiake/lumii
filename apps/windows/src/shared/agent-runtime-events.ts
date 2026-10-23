@@ -426,6 +426,29 @@ export interface BackgroundTaskOutput {
   readonly url?: string
 }
 
+/** 后台任务日志级别（与 console 四级对齐） */
+export type TaskLogLevel = 'debug' | 'info' | 'warn' | 'error'
+
+/** 一条后台任务日志。timestamp 用毫秒时间戳，便于 IPC 结构化克隆 */
+export interface TaskLog {
+  readonly level: TaskLogLevel
+  readonly message: string
+  readonly timestamp: number
+  readonly context?: Readonly<Record<string, unknown>>
+}
+
+/** 后台任务里程碑状态 */
+export type MilestoneStatus = 'pending' | 'in-progress' | 'completed' | 'failed'
+
+/** 一个里程碑步骤。新字段全部可选，旧工具不填也不影响任务卡 */
+export interface Milestone {
+  readonly step: string
+  readonly status: MilestoneStatus
+  readonly startTime?: number
+  readonly duration?: number
+  readonly error?: string
+}
+
 /**
  * 后台任务快照事件。
  *
@@ -457,6 +480,14 @@ export interface AgentBackgroundTaskEvent {
   readonly note?: string
   /** 失败原因 */
   readonly error?: string
+  /** 0–100。缺省表示工具尚未上报百分比 */
+  readonly progress?: number
+  /** 当前步骤描述 */
+  readonly currentStep?: string
+  /** 内存日志，主进程最多保留 1000 条 */
+  readonly logs?: readonly TaskLog[]
+  /** 任务里程碑 */
+  readonly milestones?: readonly Milestone[]
 }
 
 // ============================================================

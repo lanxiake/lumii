@@ -3,6 +3,10 @@ import clsx from 'clsx'
 import type { BackgroundTask } from '../../../../hooks/business/useAgentRuntime/agent-runtime-store'
 import type { BackgroundTaskOutput } from '../../../../../shared/agent-runtime-events'
 import { formatTaskElapsed } from './format'
+import { detectCodeFence, ResultPreviewPanel, tryParseJsonResult } from './ResultPreviewPanel'
+import { TaskLogs } from './TaskLogs'
+import { TaskMilestones } from './TaskMilestones'
+import { TaskProgressBar } from './TaskProgressBar'
 import styles from './BackgroundTaskCard.module.css'
 
 const STATUS_TEXT: Record<BackgroundTask['status'], string> = {
@@ -101,9 +105,17 @@ const BackgroundTaskOutputs: React.FC<{ outputs: readonly BackgroundTaskOutput[]
 const BackgroundTaskCard: React.FC<{ task: BackgroundTask }> = ({ task }) => {
   const [expanded, setExpanded] = useState(false)
   const running = task.status === 'running'
-  const detail = task.error ?? task.result ?? task.summary
+  const structuredResult = Boolean(
+    task.result && (detectCodeFence(task.result) || tryParseJsonResult(task.result)),
+  )
+  const detail = task.error ?? (structuredResult ? task.summary : (task.result ?? task.summary))
   const outputCount = task.outputs?.length ?? 0
-  const hasContent = Boolean(detail) || outputCount > 0
+  const showProgress = running || typeof task.progress === 'number'
+  const hasContent = Boolean(detail)
+    || outputCount > 0
+    || showProgress
+    || (task.logs?.length ?? 0) > 0
+    || (task.milestones?.length ?? 0) > 0
   const statusText = running && task.note ? task.note : STATUS_TEXT[task.status]
 
   // 运行中每秒刷新耗时
@@ -164,8 +176,19 @@ const BackgroundTaskCard: React.FC<{ task: BackgroundTask }> = ({ task }) => {
           </button>
         )}
       </div>
+      {showProgress && (
+        <TaskProgressBar
+          progress={task.progress}
+          currentStep={task.currentStep}
+          startTime={task.startedAt}
+          status={task.status}
+        />
+      )}
       {expanded && (
         <>
+          <TaskMilestones milestones={task.milestones} />
+          <TaskLogs logs={task.logs} />
+          <ResultPreviewPanel outputs={task.outputs} result={task.result} />
           {task.outputs && task.outputs.length > 0 && (
             <BackgroundTaskOutputs outputs={task.outputs} />
           )}

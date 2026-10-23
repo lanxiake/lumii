@@ -1707,7 +1707,7 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
     }
 
     case 'agent:background-task': {
-      // 长耗时工具后台化：开始/终态各推一次，按 taskId 合并进会话的后台任务列表
+      // 长耗时工具后台化：开始、进度和终态都按 taskId 合并进会话的后台任务列表
       const task: BackgroundTask = {
         taskId: event.taskId,
         toolName: event.toolName,
@@ -1720,6 +1720,10 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
         ...(event.outputs !== undefined ? { outputs: event.outputs } : {}),
         ...(event.note !== undefined ? { note: event.note } : {}),
         ...(event.error !== undefined ? { error: event.error } : {}),
+        ...(event.progress !== undefined ? { progress: event.progress } : {}),
+        ...(event.currentStep !== undefined ? { currentStep: event.currentStep } : {}),
+        ...(event.logs !== undefined ? { logs: event.logs } : {}),
+        ...(event.milestones !== undefined ? { milestones: event.milestones } : {}),
       }
       upsertBackgroundTask(sessionKey, task)
       break

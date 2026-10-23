@@ -907,4 +907,38 @@ describe('handleRuntimeEvent background-task routing', () => {
     const tasks = runtimeStore.getState().sessions.get('session-bg')?.backgroundTasks ?? []
     expect(tasks[0]).toMatchObject({ taskId: 'tk-run', status: 'succeeded', runId: 'run-1' })
   })
+
+  it('进度、日志和里程碑按 taskId 合并，相同快照不换引用', () => {
+    const progress = {
+      ...base,
+      taskId: 'tk-p',
+      status: 'running' as const,
+      progress: 35,
+      currentStep: '排队',
+      logs: [{ level: 'info' as const, message: '排队中', timestamp: 1 }],
+      milestones: [{ step: '排队', status: 'in-progress' as const }],
+    }
+    handleRuntimeEvent(progress)
+    const first = runtimeStore.getState().sessions.get('session-bg')
+    handleRuntimeEvent(progress)
+    expect(runtimeStore.getState().sessions.get('session-bg')).toBe(first)
+
+    handleRuntimeEvent({
+      ...progress,
+      progress: 70,
+      currentStep: '渲染',
+      logs: [
+        { level: 'info' as const, message: '排队中', timestamp: 1 },
+        { level: 'info' as const, message: '渲染中', timestamp: 2 },
+      ],
+      milestones: [
+        { step: '排队', status: 'completed' as const },
+        { step: '渲染', status: 'in-progress' as const },
+      ],
+    })
+    const task = runtimeStore.getState().sessions.get('session-bg')?.backgroundTasks[0]
+    expect(task).toMatchObject({ progress: 70, currentStep: '渲染' })
+    expect(task?.logs).toHaveLength(2)
+    expect(task?.milestones?.[1]?.status).toBe('in-progress')
+  })
 })

@@ -1,0 +1,67 @@
+.container {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 4px 12px 8px;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.text {
+  font-weight: var(--mt-fw-medium, 500);
+  color: var(--mt-fg-2);
+}
+
+.remaining {
+  flex-shrink: 0;
+  color: var(--mt-fg-4);
+  font-size: 11px;
+}
+
+.bar,
+.indeterminate {
+  width: 100%;
+  height: 6px;
+  border: none;
+  border-radius: 3px;
+  overflow: hidden;
+  background: var(--mt-border);
+  accent-color: var(--mt-accent-500);
+}
+
+.bar::-webkit-progress-bar,
+.indeterminate::-webkit-progress-bar {
+  background: var(--mt-border);
+}
+
+.bar::-webkit-progress-value {
+  background: var(--mt-accent-500);
+  transition: width 0.3s ease;
+}
+
+.indeterminate::-webkit-progress-value,
+.indeterminate::-moz-progress-bar {
+  background-image: linear-gradient(90deg, transparent, var(--mt-accent-500), transparent);
+  background-size: 40px 100%;
+  animation: task-progress-slide 1.5s linear infinite;
+}
+
+@keyframes task-progress-slide {
+  from { background-position: 0 0; }
+  to { background-position: 40px 0; }
+}
+
+.step {
+  font-size: 12px;
+  color: var(--mt-fg-3);
+  padding: 4px 8px;
+  border-radius: 4px;
+  border-left: 3px solid var(--mt-accent-500);
+  background: var(--mt-bg-overlay);
+}
