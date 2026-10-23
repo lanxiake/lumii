@@ -530,10 +530,20 @@ describe('Phase 4: 会话管理 - ChatSidebar组件', () => {
     })
   })
 
-  describe('TC-4.8 分组折叠默认态与 8 条上限', () => {
+  describe('TC-4.8 分组折叠默认态与滚轮分页', () => {
     // 组头的可访问名以组名开头（「默认」更多操作按钮的名字以「开头，不会撞上）
     const groupHeader = (label: string) =>
       screen.getByRole('button', { name: new RegExp(`^${label}`) })
+
+    /** 模拟组内滚动容器已触底，触发下一页加载 */
+    const scrollGroupToEnd = (groupKey: string) => {
+      const el = document.querySelector(`[data-group="${groupKey}"]`)
+      expect(el).toBeTruthy()
+      Object.defineProperty(el, 'scrollHeight', { value: 800, configurable: true })
+      Object.defineProperty(el, 'clientHeight', { value: 320, configurable: true })
+      Object.defineProperty(el, 'scrollTop', { value: 500, configurable: true })
+      fireEvent.scroll(el!)
+    }
 
     it('TC-4.8.1: 默认组默认展开，其余 Agent 组默认收起', () => {
       renderSidebar({
@@ -547,28 +557,32 @@ describe('Phase 4: 会话管理 - ChatSidebar组件', () => {
       expect(groupHeader('开发')).toHaveAttribute('aria-expanded', 'false')
     })
 
-    it('TC-4.8.2: 组展开默认只显示最近 8 条，点「查看全部」显示全部', () => {
-      const sessions = Array.from({ length: 10 }, (_, i) =>
+    it('TC-4.8.2: 组展开默认只显示最近 10 条，触底滚动再加载，无「查看全部」', () => {
+      const sessions = Array.from({ length: 15 }, (_, i) =>
         createMockSession({ id: `s${i}`, title: `会话${i}` }),
       )
       renderSidebar({ sessions })
 
-      expect(screen.getAllByText(/^会话\d+$/)).toHaveLength(8)
-      fireEvent.click(screen.getByText('查看全部 (10)'))
       expect(screen.getAllByText(/^会话\d+$/)).toHaveLength(10)
-      expect(screen.queryByText('查看全部 (10)')).not.toBeInTheDocument()
+      expect(screen.queryByText(/查看全部/)).not.toBeInTheDocument()
+      expect(screen.getByText('(15)')).toBeInTheDocument()
+
+      scrollGroupToEnd('__main__')
+      expect(screen.getAllByText(/^会话\d+$/)).toHaveLength(15)
     })
 
-    it('TC-4.8.3: 折叠再展开后回到只显示 8 条', () => {
-      const sessions = Array.from({ length: 10 }, (_, i) =>
+    it('TC-4.8.3: 折叠再展开后回到只显示 10 条', () => {
+      const sessions = Array.from({ length: 15 }, (_, i) =>
         createMockSession({ id: `s${i}`, title: `会话${i}` }),
       )
       renderSidebar({ sessions })
 
-      fireEvent.click(screen.getByText('查看全部 (10)'))
+      scrollGroupToEnd('__main__')
+      expect(screen.getAllByText(/^会话\d+$/)).toHaveLength(15)
+
       fireEvent.click(groupHeader('默认')) // 折叠
       fireEvent.click(groupHeader('默认')) // 再展开
-      expect(screen.getAllByText(/^会话\d+$/)).toHaveLength(8)
+      expect(screen.getAllByText(/^会话\d+$/)).toHaveLength(10)
     })
 
     it('TC-4.8.4: 收起的分组点开后可看到会话', () => {

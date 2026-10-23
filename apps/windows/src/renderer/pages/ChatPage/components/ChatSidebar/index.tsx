@@ -111,8 +111,66 @@ const SIDEBAR_SYSTEM_GROUP_UI: Record<string, { label: string; emptyDesc: string
   },
 }
 
-/** 每个分组展开时默认展示的最近会话条数（更早的走「查看全部」） */
-const SESSIONS_PREVIEW_COUNT = 8
+/** 每个分组展开时默认展示条数；滚轮触底后再按同页大小追加 */
+const SESSIONS_PAGE_SIZE = 10
+/** 距底部小于该像素时触发下一页加载 */
+const SCROLL_LOAD_THRESHOLD_PX = 24
+
+interface GroupSessionsScrollProps {
+  groupKey: string
+  sessions: ChatSession[]
+  visibleCount: number
+  onNeedMore: (groupKey: string, total: number) => void
+  renderItems: (sessions: ChatSession[]) => React.ReactNode
+}
+
+/**
+ * 分组内可滚动会话列表：首屏一页，触底（或内容未撑满视口）再追加下一页。
+ */
+function GroupSessionsScroll({
+  groupKey,
+  sessions,
+  visibleCount,
+  onNeedMore,
+  renderItems,
+}: GroupSessionsScrollProps) {
+  const ref = useRef<HTMLDivElement>(null)
+  const visible = sessions.slice(0, visibleCount)
+  const hasMore = visibleCount < sessions.length
+
+  /** 向父级申请再渲染一页（触底或无滚动条时调用） */
+  const tryLoadMore = useCallback(() => {
+    if (!hasMore) return
+    onNeedMore(groupKey, sessions.length)
+  }, [hasMore, onNeedMore, groupKey, sessions.length])
+
+  // 一页刚好贴满视口时没有滚动条，靠滚轮无法继续加载——无溢出则自动再要一页
+  useEffect(() => {
+    const el = ref.current
+    if (!el || !hasMore) return
+    // jsdom / 未布局时 clientHeight 为 0，跳过，避免一次灌满
+    if (el.clientHeight <= 0) return
+    if (el.scrollHeight <= el.clientHeight + SCROLL_LOAD_THRESHOLD_PX) {
+      tryLoadMore()
+    }
+  }, [hasMore, visibleCount, sessions.length, tryLoadMore])
+
+  return (
+    <div
+      ref={ref}
+      className={styles['group-scroll']}
+      data-group={groupKey}
+      onScroll={(e) => {
+        const el = e.currentTarget
+        if (el.scrollTop + el.clientHeight >= el.scrollHeight - SCROLL_LOAD_THRESHOLD_PX) {
+          tryLoadMore()
+        }
+      }}
+    >
+      {renderItems(visible)}
+    </div>
+  )
+}
 
 /**
  * 解析侧栏分组显示名：系统五组用两字短名，其余回退 Agent 全名。
@@ -154,8 +212,8 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
   const [expandedAgentGroups, setExpandedAgentGroups] = useState<Set<string>>(
     () => new Set(['__main__']),
   )
-  /** 已点过「查看全部」的 Agent 分组 key（否则每组只显示最近 8 条） */
-  const [showAllGroups, setShowAllGroups] = useState<Set<string>>(() => new Set())
+  /** 各分组当前已渲染条数（未记录则默认一页）；折叠/切 tab 后清掉，重开回到首页 */
+  const [visibleCountByGroup, setVisibleCountByGroup] = useState<Record<string, number>>({})
   /** 绑定渠道弹窗 */
   const [bindModalOpen, setBindModalOpen] = useState(false)
   /** 默认会话 / 渠道会话 / 系统会话 三态切换 */
@@ -447,12 +505,16 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
     return list
   }, [filteredSessions, searchQuery, tab, selectableAgentList, agentsMap])
 
-  /** 非搜索态会话列表：固定高度容器，约 5 条可见，滚轮在组内滑动分页（布局不动） */
-  const renderSessionsScrollable = (groupKey: string, list: ChatSession[]) => (
-    <div className={styles['group-scroll']} data-group={groupKey}>
-      {renderSessionItems(list)}
-    </div>
-  )
+  /**
+   * 分组申请下一页：在现有可见条数上再加一页，封顶为全量。
+   */
+  const growGroupPage = useCallback((groupKey: string, total: number) => {
+    setVisibleCountByGroup((prev) => {
+      const current = prev[groupKey] ?? SESSIONS_PAGE_SIZE
+      if (current >= total) return prev
+      return { ...prev, [groupKey]: Math.min(current + SESSIONS_PAGE_SIZE, total) }
+    })
+  }, [])
 
   // 新出现的非默认渠道默认折叠，避免列表过长抢焦点
   const prevChannelKeysRef = useRef<string[]>([])
@@ -473,22 +535,10 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
   }, [channelGroups.visible])
 
   /**
-   * 切换渠道折叠。
-   */
-  const toggleChannel = useCallback((key: string) => {
-    setCollapsedChannels((prev) => {
-      const next = new Set(prev)
-      if (next.has(key)) next.delete(key)
-      else next.add(key)
-      return next
-    })
-  }, [])
-
-  /**
    * 切换 Agent 分组折叠。
    *
    * 与渠道分组分开维护：Agent 组的默认态是「只有系统默认组展开」，而渠道组是「全部展开」，
-   * 共用一份 set 会让两者的默认态互相打架。折叠时一并忘掉「查看全部」，重开回到 8 条。
+   * 共用一份 set 会让两者的默认态互相打架。折叠时清掉分页进度，重开回到首页 10 条。
    */
   const toggleAgentGroup = useCallback((key: string) => {
     setExpandedAgentGroups((prev) => {
@@ -497,17 +547,36 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
       else next.add(key)
       return next
     })
-    setShowAllGroups((prev) => {
-      if (!prev.has(key)) return prev
-      const next = new Set(prev)
-      next.delete(key)
+    setVisibleCountByGroup((prev) => {
+      if (prev[key] === undefined) return prev
+      const next = { ...prev }
+      delete next[key]
       return next
     })
   }, [])
 
-  // 切换 tab 后所有组的「查看全部」回到默认收起
+  /**
+   * 切换渠道折叠；折叠时清掉该组分页进度，重开回到首页 10 条。
+   */
+  const toggleChannel = useCallback((key: string) => {
+    setCollapsedChannels((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+    const pageKey = `ch:${key}`
+    setVisibleCountByGroup((prev) => {
+      if (prev[pageKey] === undefined) return prev
+      const next = { ...prev }
+      delete next[pageKey]
+      return next
+    })
+  }, [])
+
+  // 切换 tab 后所有组分页回到首页
   useEffect(() => {
-    setShowAllGroups(new Set())
+    setVisibleCountByGroup({})
   }, [tab])
 
   /**
@@ -602,6 +671,17 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
         searchQuery={searchQuery.trim() || undefined}
       />
     ))
+
+  /** 非搜索态：固定高度约 10 条，触底分页追加，组外布局不跟着长 */
+  const renderSessionsScrollable = (groupKey: string, list: ChatSession[]) => (
+    <GroupSessionsScroll
+      groupKey={groupKey}
+      sessions={list}
+      visibleCount={visibleCountByGroup[groupKey] ?? SESSIONS_PAGE_SIZE}
+      onNeedMore={growGroupPage}
+      renderItems={renderSessionItems}
+    />
+  )
 
   /**
    * 渲染渠道内的时间小分组（仅搜索模式）。
@@ -713,10 +793,6 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
             agentGroups.map((g) => {
               // 搜索态强制展开：命中的会话藏在收起组里等于搜不到
               const isCollapsed = !channelGroups.isSearch && !expandedAgentGroups.has(g.key)
-              const showAll = showAllGroups.has(g.key)
-              const visibleSessions = showAll
-                ? g.sessions
-                : g.sessions.slice(0, SESSIONS_PREVIEW_COUNT)
               const groupHasRunning = [...g.pinned, ...g.sessions].some((s) => s.isStreaming)
               const agentInfo = g.agentId ? agentsMap.get(g.agentId) : null
               const groupLabel = resolveSidebarGroupLabel(
@@ -783,18 +859,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
                             {renderTimeSubGroup('更早', g.earlier)}
                           </>
                         ) : (
-                          <>
-                            {renderSessionsScrollable(g.key, visibleSessions)}
-                            {g.sessions.length > visibleSessions.length && (
-                              <button
-                                type="button"
-                                className={styles['group-show-all']}
-                                onClick={() => setShowAllGroups((prev) => new Set(prev).add(g.key))}
-                              >
-                                查看全部 ({g.sessions.length})
-                              </button>
-                            )}
-                          </>
+                          renderSessionsScrollable(g.key, g.sessions)
                         )}
                       </>
                     )}

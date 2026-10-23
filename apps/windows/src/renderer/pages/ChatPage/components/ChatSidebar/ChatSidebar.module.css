@@ -413,32 +413,11 @@
   font-weight: var(--mt-fw-medium);
 }
 
-/* 分组内会话列表：固定高度（约 5 条），超出部分组内滚轮滑动，不影响其他分组布局 */
+/* 分组内会话列表：固定高度约 10 条，触底分页加载更多；无 scroll-snap，避免滚轮顿挫 */
 .group-scroll {
-  max-height: 160px;
+  max-height: 320px;
   overflow-y: auto;
   overscroll-behavior: contain;
-  scroll-snap-type: y proximity;
-}
-
-.group-show-all {
-  display: block;
-  width: 100%;
-  padding: 4px 16px 8px;
-  border: none;
-  background: none;
-  text-align: left;
-  font-size: calc(12px * var(--app-font-scale, 1));
-  color: var(--color-text-secondary);
-  cursor: pointer;
-}
-
-.group-show-all:hover {
-  color: var(--color-text-primary);
-}
-
-.group-scroll > * {
-  scroll-snap-align: start;
 }
 
 .group-scroll::-webkit-scrollbar {
