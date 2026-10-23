@@ -18,6 +18,19 @@ import { registerSlot } from '../../renderer/components/slots/slot-registry'
 export interface RendererPluginApi {
   registerSlot: typeof registerSlot
   registerCard: typeof registerCard
+
+  /**
+   * 以下是**外部/客户端插件宿主**额外注入的能力（可选）。
+   *
+   * 内置插件的 `renderer.tsx` 直接 import React 与这些工具即可，不需要它们；
+   * 外部插件是运行时读进来的裸 JS，拿不到模块系统，宿主才把这几样注入进去。
+   * 类型放在同一处，是为了让两种宿主提供**同一形状**的 api（阶段 3b）。
+   */
+  React?: typeof import('react')
+  ReactDOM?: typeof import('react-dom')
+  Page?: typeof import('../../renderer/components/slots/PluginPage').PluginPage
+  format?: typeof import('../../renderer/utils/format').pluginFormat
+  storage?: ReturnType<typeof import('../../renderer/plugins/plugin-storage').createPluginStorage>
 }
 
 export interface RendererPlugin {

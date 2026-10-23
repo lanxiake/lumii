@@ -33,6 +33,8 @@ const POLL_INTERVAL_MS = 1000
 
 interface ClientPluginDescriptor {
   dir: string
+  /** 来自哪个根：URL 第一段（`plugins` = 只有渲染层半边；`extensions` = 主进程 + 渲染层） */
+  root: 'plugins' | 'extensions'
   id: string
   name: string
   version: string
@@ -324,7 +326,7 @@ async function loadOne(descriptor: ClientPluginDescriptor): Promise<void> {
   pending.delete(descriptor.id)
 
   // URL 用**目录名**定位文件：id 可能被 plugin.json 改写，与目录名不同
-  const url = `${SCHEME}/${encodeURIComponent(descriptor.dir)}/${descriptor.entry}?v=${descriptor.revision}`
+  const url = `${SCHEME}/${descriptor.root}/${encodeURIComponent(descriptor.dir)}/${descriptor.entry}?v=${descriptor.revision}`
   let runtimeError: Error | null = null
   try {
     runtimeError = (await injectScript(url)).runtimeError

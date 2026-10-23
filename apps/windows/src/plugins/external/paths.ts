@@ -11,3 +11,8 @@ import { resolveClientStateDir } from '../../main/paths'
 export function resolveClientPluginsDir(): string {
   return path.join(resolveClientStateDir(), 'plugins')
 }
+
+/** 外部扩展目录：主进程半边 `main.js` + 可选的渲染层半边 `client.js` */
+export function resolveExtensionsDir(): string {
+  return path.join(resolveClientStateDir(), 'extensions')
+}

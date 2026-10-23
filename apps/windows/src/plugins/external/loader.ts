@@ -10,7 +10,7 @@ import {
 } from '@mtbot/plugin-core'
 
 import type { MainEvents } from '../../main/kernel/events'
-import { resolveClientStateDir } from '../../main/paths'
+import { resolveExtensionsDir } from './paths'
 
 /**
  * 外部扩展：`~/.lumii/extensions/<目录>/main.js`
@@ -84,9 +84,8 @@ const ENTRY_FILE = 'main.js'
  */
 const POLL_INTERVAL_MS = 1000
 
-export function resolveExtensionsDir(): string {
-  return path.join(resolveClientStateDir(), 'extensions')
-}
+// 路径定义统一在 paths.ts（客户端插件扫描也要用同一个根）
+export { resolveExtensionsDir } from './paths'
 
 /**
  * 扫出所有含 main.js 的子目录。目录不存在时返回空数组（不是错误）。

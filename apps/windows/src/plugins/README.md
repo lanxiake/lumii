@@ -74,6 +74,20 @@ extension:set-enabled → host.activate/stop（IPC/定时器随作用域拆）
 `main/channel/continuity-accessor.ts`）：`index.ts` 注入「从容器现取」的 getter，
 调用点只认访问器。type-only import 插件类型不算运行期耦合，守卫 ⑪ 也不计。
 
+### 外部插件也可以是前后端一体
+
+```
+~/.lumii/extensions/<目录>/
+  main.js       主进程半边（扩展加载器负责，热重载）
+  client.js     渲染层半边（可选；有它才会出现在渲染层清单里）
+  plugin.json   可选清单（缺省 id = 目录名）
+```
+
+`~/.lumii/plugins/<目录>/` 仍然合法（只有 `client.js`）。
+两种来源在渲染层用同一个 `lumii-plugin://local/<根>/<目录>/<文件>` 协议加载，
+清单里带 `root` 字段；扩展根的启停跟主进程扩展开关走（`disabled`），
+客户端插件根跟 `disabledClient` 走。
+
 ### 渲染层接入的两种形态
 
 | 形态 | 用在 | 写法 |

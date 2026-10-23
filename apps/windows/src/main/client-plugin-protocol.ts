@@ -3,11 +3,18 @@ import path from 'node:path'
 
 import { app, protocol } from 'electron'
 
-import { discoverClientPlugins } from './client-plugin-discovery'
-import { resolveClientPluginsDir } from '../plugins/external/paths'
+import {
+  defaultClientPluginRoots,
+  discoverClientPlugins,
+  type ClientPluginRoot,
+} from './client-plugin-discovery'
 
 /**
- * 渲染层插件的文件通道：`lumii-plugin://local/<插件目录>/<文件>`
+ * 渲染层插件的文件通道：`lumii-plugin://local/<根>/<插件目录>/<文件>`
+ *
+ * `<根>` 是 `plugins`（`~/.lumii/plugins`，只有渲染层半边）或
+ * `extensions`（`~/.lumii/extensions`，主进程半边 + 可选的 `client.js`）。
+ * 旧 URL `lumii-plugin://local/<目录>/<文件>` 仍按 `plugins` 根解析。
  *
  * ## 为什么用协议而不是 IPC
  *
@@ -19,8 +26,8 @@ import { resolveClientPluginsDir } from '../plugins/external/paths'
  * ## 目录约定
  *
  * ```
- * ~/.lumii/plugins/<目录>/
- *   ├── client.js      必需，导出/注册插件
+ * ~/.lumii/plugins/<目录>/        或  ~/.lumii/extensions/<目录>/
+ *   ├── client.js      渲染层入口（必需，才会计入清单）
  *   └── plugin.json    可选，{ id, name, version }；缺省时 id = 目录名
  * ```
  *
@@ -29,6 +36,11 @@ import { resolveClientPluginsDir } from '../plugins/external/paths'
 
 export const CLIENT_PLUGIN_SCHEME = 'lumii-plugin'
 const HOST = 'local'
+const ROOTS: readonly ClientPluginRoot[] = ['plugins', 'extensions']
+
+function isRoot(value: string): value is ClientPluginRoot {
+  return (ROOTS as readonly string[]).includes(value)
+}
 
 /**
  * 须在 app ready 后调用。
@@ -37,7 +49,9 @@ const HOST = 'local'
  * 路径经过 `path.resolve` + 前缀校验，杜绝 `../` 穿越。
  */
 export function registerClientPluginProtocolHandler(): void {
-  const root = path.resolve(resolveClientPluginsDir())
+  const roots = new Map<string, string>(
+    defaultClientPluginRoots().map(({ kind, dir }) => [kind, path.resolve(dir)]),
+  )
 
   protocol.handle(CLIENT_PLUGIN_SCHEME, async (request) => {
     let url: URL
@@ -48,11 +62,22 @@ export function registerClientPluginProtocolHandler(): void {
     }
     if (url.hostname !== HOST) return new Response('not found', { status: 404 })
 
-    const rel = decodeURIComponent(url.pathname).replace(/^\/+/, '')
+    let rel = decodeURIComponent(url.pathname).replace(/^\/+/, '')
 
     if (rel === 'list.json') {
-      return jsonResponse(discoverClientPlugins({ appVersion: app.getVersion() }))
+      return jsonResponse(
+        discoverClientPlugins({ appVersion: app.getVersion(), roots: defaultClientPluginRoots() }),
+      )
     }
+
+    // `<根>/<rel>`；旧 URL 没有根段，默认 plugins
+    const slash = rel.indexOf('/')
+    const maybeRoot = slash > 0 ? rel.slice(0, slash) : rel
+    const kind: ClientPluginRoot = isRoot(maybeRoot) ? maybeRoot : 'plugins'
+    if (isRoot(maybeRoot)) rel = rel.slice(slash + 1)
+
+    const root = roots.get(kind)
+    if (!root) return new Response('not found', { status: 404 })
 
     const target = path.resolve(root, rel)
     // 只允许插件根目录内的文件
