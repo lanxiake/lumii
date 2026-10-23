@@ -1,8 +1,9 @@
 # 插件目录
 
-一份代码只在一个地方：**插件的清单、接线、实现、测试都在 `builtin/<id>/` 下**。
-`src/main/` 只剩核心（kernel / ipc / agent-runtime / channel 等），不再散落插件代码。
-**一个插件可以同时有主进程与渲染层两半**，见下面的「前后端一体」。
+一份代码只在一个地方：**插件的清单、接线、实现、测试都在 `builtin/<id>/`（内置）或
+`external-src/<id>/`（官方外部扩展）下**。`src/main/` 只剩核心（kernel / ipc / agent-runtime /
+channel 等），`src/renderer/` 只剩宿主与共享渲染基础设施，不再散落插件代码。
+**一个插件可以同时有主进程与渲染层两半**，见下面的「前后端一体」与「UI 归属」。
 
 ```
 plugins/
@@ -29,7 +30,9 @@ plugins/
     bootstrap-config.ts
   external-src/      官方外部扩展的**源码**（构建成 resources/extensions/<id>/main.js）
     <id>/index.ts    外壳：manifest + apply（装配服务、注册 IPC、挂访问器）
-    <id>/impl/**     实现（可自由组织；核心只认 main/kernel 里的服务契约，不 import 这里）
+    <id>/impl/**     主进程实现（核心只认 main/kernel 里的服务契约，不 import 这里）
+    <id>/renderer.tsx 渲染层半边：注册槽位（随主包打 bundle，见下方「UI 归属」）
+    <id>/ui/**       该插件独占的页面/组件/采集器
   install/           插件中心的运行时依赖安装（CloakBrowser / ffmpeg …），不是本系统的插件
 ```
 
@@ -102,10 +105,34 @@ extension:set-enabled → host.activate/stop（IPC/定时器随作用域拆）
 
 | 槽位 | 用途 |
 |---|---|
+| `app.view` | 整页（路由 `plugin:<条目id>`）。条目注销即回落概览 |
+| `app.overlay` | 全局浮层（划词层、录屏面板/确认弹窗…），挂在应用最外层 |
+| `app.titlebar.actions` | 标题栏右侧常驻控件（录屏、宠物模式开关） |
 | `settings.category.<分类id>` | 整块设置分区。同时在 `renderer/settings-categories.ts` 登记归属，停用后左侧导航一起隐藏 |
 | `settings.channel.<渠道>` | 渠道设置里的单张卡片（context: `{ snapshot, snapshotLoading }`） |
+| `settings.section.<名字>` | 混合页面里的单块（如 `settings.section.perf` = 隐私页的诊断卡、`settings.section.updater`） |
 | `dashboard.main` / `dashboard.grid` / `dashboard.plugins` | 概览页的三块区域 |
-| `settings.section` | 设置 › 扩展 页下半的「插件自述」分区 |
+| `workspace.version` | 工作区「文件 / 变更 / 版本」区（context: 快照与 loading） |
+
+### UI 归属（什么该搬进插件目录）
+
+**插件独占的界面一律放在插件目录里**（`<id>/ui/`），由 `renderer.tsx` 注册槽位，
+核心页面不直接 import（守卫 ⑭）。包括：整页、设置分区、浮层、标题栏控件、诊断面板。
+
+留在核心的只有「跨插件共享的渲染基础设施」：
+
+| 留在核心 | 为什么 |
+|---|---|
+| `renderer/services/*-service.ts` 薄封装 | 同一份数据被核心页面与插件 UI 共用（用量、桌宠、VCS…） |
+| `FilePreviewModal` / `ImageLightbox` | 聊天、工具卡、wiki 共用的预览壳，不属于 file-preview 插件的独立窗口 |
+| `PetSessionSync` | 主进程事件的渲染层镜像，不是 UI |
+| `useSettings` / `renderer/state.ts` | 全局设置与插件启停状态源 |
+| `renderer/services/quote-bridge.ts`、`webview-selection-bridge.ts` | 核心（ChatInput / FilePreviewModal）↔ 划词插件之间的契约 |
+
+**官方外部扩展的渲染层半边目前随主包打 bundle**：`external-src/<id>/renderer.tsx` 进
+`renderer/registry.ts`，与内置插件同一套槽位与启停。它们**不会**通过 `client.js` 分发——
+外部 client 半边只支持 `__LUMII_REGISTER_PLUGIN__` + `api` 提供的能力，
+不支持 TSX / 核心组件 / CSS Modules。要在意安装包体积时，再补官方 client 构建管线。
 
 ### 插件内注册 IPC 的写法
 

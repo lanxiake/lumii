@@ -17,7 +17,7 @@
 | 形态 | 位置 | 形态 |
 |---|---|---|
 | 内置插件 | `apps/windows/src/plugins/builtin/<id>/` | `index.ts`（主进程）+ `renderer.tsx` / `ui/`（渲染层），随应用发版 |
-| 官方外部扩展 | `apps/windows/src/plugins/external-src/<id>/` → 构建成 `~/.lumii/extensions/<id>/` | `index.ts` + `impl/`（主进程），可选 `client.js` |
+| 官方外部扩展 | `apps/windows/src/plugins/external-src/<id>/` → 构建成 `~/.lumii/extensions/<id>/` | `index.ts` + `impl/`（主进程）+ `renderer.tsx` / `ui/`（渲染层，**随主包打 bundle**） |
 | 外部插件 | `~/.lumii/extensions/<id>/{main.js, client.js?, plugin.json?}` | 主进程半边必需；渲染层半边可选 |
 | 客户端插件 | `~/.lumii/plugins/<id>/{client.js, plugin.json?}` | 只有渲染层半边 |
 
@@ -86,11 +86,18 @@ __LUMII_REGISTER_PLUGIN__('my-plugin', (api) => {
 | `dashboard.grid` | 概览底部三栏 | **最多 3 个**，第 4 个不渲染 + 一条去重告警 |
 | `dashboard.plugins` | 概览插件专属带 | 168px 高，**内部滚动**，加多少都不挤压上面的布局 |
 | `app.nav` | 侧栏导航下方 | 用 context 里的 `classNames` 跟原生导航一致 |
-| `app.view` | 整页 | 用 `api.Page` 起手（主内容区已有 20px 内边距） |
+| `app.view` | 整页 | 用 `api.Page` 起手（主内容区已有 20px 内边距）；路由地址是 `plugin:<条目id>` |
+| `app.overlay` | 全局浮层（挂在应用最外层） | 划词层、录屏面板/确认弹窗这类 fixed 定位的 UI |
+| `app.titlebar.actions` | 标题栏右侧常驻控件 | 录屏按钮、宠物模式开关 |
 | `settings.section` | 设置 › 扩展 | 与其它插件分区并列 |
+| `settings.section.<名字>` | 混合页面里的单块 | 如 `settings.section.perf`（隐私页诊断卡）、`settings.section.updater`（关于页更新面板） |
 | `settings.category.<id>` | 设置中心左侧一级菜单 | 插件独占的设置页；目录用 `plugins/renderer/settings-categories.ts` 的 `PLUGIN_SETTINGS_CATEGORIES` 登记，停用后菜单项一起消失 |
 | `settings.channel.<channel>` | 设置 › 渠道设置 | 渠道插件把自己的账号面板挂进来（`weixin` / `wecom` / `feishu` / `qbot`） |
 | `workspace.version` | 工作区「文件 / 变更 / 版本」区 | VCS 面板；宿主提供 context 快照（loading 态由槽位参数给） |
+
+**插件独占的 UI 一律放插件目录的 `ui/`，由 `renderer.tsx` 注册槽位**——核心页面不要 import
+（守卫 ⑭）。留在核心的只有共享渲染基础设施（薄服务封装、FilePreviewModal、settings store、
+quote/webview 桥等），清单见 [`plugins/README.md`](../../apps/windows/src/plugins/README.md) 的「UI 归属」。
 
 **先问「这个页面有给插件的布局预算吗」再开槽位**——概览是像素预算的一屏，
 `dashboard.grid` 第 4 张会被裁掉（实测）。
@@ -247,6 +254,8 @@ src/plugins/builtin/<name>/
 src/plugins/external-src/<name>/
   index.ts      外壳：manifest + apply（装配服务、注册 IPC、挂访问器）
   impl/**       主进程实现（测试随迁）
+  renderer.tsx  渲染层半边：注册槽位（随主包打 bundle，不走 client.js）
+  ui/**         该插件独占的页面 / 组件 / 采集器
 ```
 
 - 加插件 = 建目录 + `plugins/registry.ts` 加两行（import + 条目，需要即时启停就标 `hot: true`）；
