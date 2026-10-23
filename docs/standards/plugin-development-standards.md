@@ -43,6 +43,7 @@
 }
 ```
 
+- `description`：**必填**（一句话功能说明），设置 › 插件页直接展示；缺失时显示「未填写功能说明」；
 - `origin`：`agent`（Agent 自举开发）或 `user`（用户手写），面板据此显示来源徽标；
 - `engines.lumii`：semver range；不满足当前客户端时**不会加载**，面板显示「不兼容」；
 - 改 `plugin.json` 也会触发热更新（revision 包含它）。

@@ -94,7 +94,6 @@
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  align-items: start;
   gap: var(--spacing-2);
 }
 
@@ -107,6 +106,7 @@
   background: var(--color-bg-secondary);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
+  min-height: 136px;
 }
 
 .meta {
@@ -117,17 +117,23 @@
 .titleRow {
   display: flex;
   align-items: center;
-  gap: var(--spacing-2);
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  min-width: 0;
+  gap: var(--spacing-1);
 }
 
 .name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: var(--font-size-sm);
   font-weight: 600;
   color: var(--color-text-primary);
 }
 
 .badge {
+  flex-shrink: 0;
   padding: 1px 6px;
   border-radius: var(--radius-sm);
   font-size: var(--font-size-xs);
@@ -136,6 +142,7 @@
 }
 
 .state {
+  flex-shrink: 0;
   padding: 1px 6px;
   border-radius: var(--radius-sm);
   font-size: var(--font-size-xs);
@@ -175,11 +182,12 @@
 .deps {
   display: flex;
   align-items: baseline;
-  flex-wrap: wrap;
   gap: var(--spacing-2);
-  margin-top: var(--spacing-1);
+  margin-top: 2px;
   font-size: var(--font-size-xs);
   color: var(--color-text-tertiary);
+  overflow: hidden;
+  white-space: nowrap;
 }
 
 .dep {
@@ -236,6 +244,7 @@
 }
 
 .timing {
+  flex-shrink: 0;
   font-size: var(--font-size-xs);
   color: var(--color-text-tertiary);
   font-variant-numeric: tabular-nums;
@@ -251,10 +260,12 @@
 }
 
 .error {
-  margin-top: var(--spacing-1);
+  margin-top: 2px;
   font-size: var(--font-size-xs);
   color: var(--color-error);
-  word-break: break-word;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .empty {
@@ -309,16 +320,6 @@
   line-height: 1;
 }
 
-.assetMeta {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: var(--spacing-2);
-  margin-top: 2px;
-  font-size: var(--font-size-xs);
-  color: var(--color-text-tertiary);
-}
-
 .progress {
   height: 3px;
   margin-top: var(--spacing-1);
@@ -331,4 +332,16 @@
   height: 100%;
   background: var(--color-primary);
   transition: width 0.2s ease;
+}
+
+.version {
+  flex-shrink: 0;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.descMissing {
+  color: var(--color-text-tertiary);
+  font-style: italic;
 }

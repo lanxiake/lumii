@@ -406,8 +406,14 @@ export const ExtensionsPanel: React.FC = () => {
         <div className={styles.meta}>
           <div className={styles.titleRow}>
             {row.asset && <span className={styles.assetIcon}>{row.asset.icon}</span>}
-            <span className={styles.name}>{row.name}</span>
-            <span className={styles.badge}>{originLabel(row)}</span>
+            <span className={styles.name} title={row.name}>{row.name}</span>
+            {/* 组件的版本号可能很长（Chromium 版本），放到第二行并截断，避免标题行换行 */}
+            {!row.asset && row.version ? (
+              <span className={styles.version}>
+                {row.version.startsWith('v') ? row.version : `v${row.version}`}
+              </span>
+            ) : null}
+            {!row.asset && <span className={styles.badge}>{originLabel(row)}</span>}
             <span className={`${styles.state} ${styles[`state-${row.state}`] ?? ''}`}>
               {STATE_LABELS[row.state] ?? row.state}
             </span>
@@ -422,28 +428,43 @@ export const ExtensionsPanel: React.FC = () => {
             )}
           </div>
 
-          <div className={styles.id} title={row.dir}>
+          <div className={styles.id} title={[row.id, row.version, row.asset?.installSize, row.dir].filter(Boolean).join(' · ')}>
             {row.id}
-            {row.version ? ` · v${row.version}` : ''}
+            {row.asset ? (
+              <>
+                {row.asset.installSize ? ` · ${row.asset.installSize}` : ''}
+                {row.version ? ` · ${row.version}` : ''}
+              </>
+            ) : null}
             {shortPath ? ` · ${shortPath}` : ''}
           </div>
 
-          {row.description && <div className={styles.desc}>{row.description}</div>}
+          <div
+            className={`${styles.desc} ${row.description ? '' : styles.descMissing}`}
+            title={
+              row.description
+                ? [
+                    row.description,
+                    row.asset ? CATEGORY_LABELS[row.asset.category] : '',
+                    row.asset?.usedBy?.length
+                      ? `用于：${row.asset.usedBy.map((u) => u.label).join('、')}`
+                      : '',
+                  ]
+                    .filter(Boolean)
+                    .join('\n')
+                : '该插件没有填写功能说明（plugin.json 的 description）'
+            }
+          >
+            {row.description ?? '未填写功能说明'}
+          </div>
 
-          {row.asset && (
-            <div className={styles.assetMeta}>
-              <span className={styles.badge}>{CATEGORY_LABELS[row.asset.category]}</span>
-              {row.asset.installSize && <span>{row.asset.installSize}</span>}
-              {row.asset.usedBy?.length ? (
-                <span>用于：{row.asset.usedBy.map((u) => u.label).join('、')}</span>
-              ) : null}
-            </div>
-          )}
-
-          {row.error && <div className={styles.error}>{row.error}</div>}
+          {row.error && <div className={styles.error} title={row.error}>{row.error}</div>}
 
           {row.requires?.assets?.length ? (
-            <div className={styles.deps}>
+            <div
+              className={styles.deps}
+              title={`${row.requires.optional ? '可选依赖' : '依赖'}：${row.requires.assets.join('、')}`}
+            >
               <span>{row.requires.optional ? '可选依赖' : '依赖'}：</span>
               {row.requires.assets.map((assetId) => {
                 const def = PLUGIN_REGISTRY.find((d) => d.id === assetId)

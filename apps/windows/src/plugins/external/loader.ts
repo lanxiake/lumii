@@ -44,6 +44,8 @@ export interface ExternalExtensionEntry {
   manifestId: string
   name: string
   version: string
+  /** 一句话功能说明（manifest.description；插件页直接展示） */
+  description?: string
   /** 来源标记：Agent 自举开发 / 用户手写 / 官方可选扩展（只是展示，不是权限） */
   origin: 'agent' | 'user' | 'official'
   /** 运行时组件依赖（只用于设置页展示与安装引导） */
@@ -62,6 +64,7 @@ export interface ExternalExtensionInfo {
   id: string
   name: string
   version: string
+  description?: string
   origin: 'agent' | 'user' | 'official'
   requires?: LumiiPluginManifest['requires']
   enabled: boolean
@@ -217,6 +220,7 @@ export class ExternalExtensionRuntime {
         id: entry.manifestId,
         name: entry.name,
         version: entry.version,
+        ...(entry.description ? { description: entry.description } : {}),
         origin: entry.origin,
         ...(entry.requires ? { requires: entry.requires } : {}),
         enabled: entry.enabled,
@@ -416,6 +420,7 @@ export class ExternalExtensionRuntime {
         manifestId: manifest.id,
         name: manifest.name,
         version: manifest.version,
+        ...(manifest.description ? { description: manifest.description } : {}),
         origin: originOf(manifest),
         ...(manifest.requires ? { requires: manifest.requires } : {}),
         definition,
@@ -449,6 +454,7 @@ export class ExternalExtensionRuntime {
           manifestId: manifest.id,
           name: manifest.name,
           version: manifest.version,
+          ...(manifest.description ? { description: manifest.description } : {}),
           origin: originOf(manifest),
           ...(manifest.requires ? { requires: manifest.requires } : {}),
           definition,
@@ -466,6 +472,7 @@ export class ExternalExtensionRuntime {
       manifestId: manifest.id,
       name: manifest.name,
       version: manifest.version,
+      ...(manifest.description ? { description: manifest.description } : {}),
       origin: originOf(manifest),
       ...(manifest.requires ? { requires: manifest.requires } : {}),
       definition,

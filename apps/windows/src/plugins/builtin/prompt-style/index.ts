@@ -53,6 +53,7 @@ export const promptStyleExtension = {
     id: 'com.lumii.prompt-style',
     name: '提示词风格',
     version: '0.1.0',
+    description: '提示词风格档位（详细 / 简要 / 极简）与变体效果统计',
     engines: { lumii: '>=0.1.0' },
     kind: 'code' as const,
   },

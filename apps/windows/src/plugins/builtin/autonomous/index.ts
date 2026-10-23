@@ -69,6 +69,7 @@ export const autonomousExtension = {
     id: 'com.lumii.autonomous',
     name: '自主进化',
     version: '0.1.0',
+    description: '自主目标规划与执行、心跳反思、能力评测与满意度统计',
     engines: { lumii: '>=0.1.0' },
     kind: 'code' as const,
   },

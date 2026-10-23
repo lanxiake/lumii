@@ -26,6 +26,7 @@ export const channelContinuityExtension = {
     id: 'com.lumii.channel-continuity',
     name: '跨渠道会话接续',
     version: '0.1.0',
+    description: '同一会话在多个渠道间接续上下文（微信 / 企业微信 / 飞书 / QQ）',
     engines: { lumii: '>=0.1.0' },
     kind: 'code' as const,
   },
