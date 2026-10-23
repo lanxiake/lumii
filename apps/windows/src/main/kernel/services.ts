@@ -4,7 +4,7 @@ import type { BrowserWindow } from 'electron'
 
 import type { PerfMonitorLike } from '../../shared/performance'
 import type { UpdaterService } from '../updater-service'
-import type { ScreenRecordService } from '../screen-record'
+import type { ScreenRecordService } from './screen-record-contract'
 import type { TrayManager } from '../tray-manager'
 import type { VoiceCallService } from '../../plugins/builtin/voice/voice-service'
 import type { CloudSyncManager } from '../cloud-sync/sync-manager'

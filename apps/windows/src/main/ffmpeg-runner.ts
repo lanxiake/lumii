@@ -8,9 +8,9 @@ import { spawn as nodeSpawn, type ChildProcessWithoutNullStreams } from 'node:ch
 import fs from 'node:fs'
 import path from 'node:path'
 import { resolveCommand } from '@mtbot/agent-runtime/shared'
-import { refreshCommonCliPathsInProcessEnv } from '../cli-user-path'
-import { resolvePluginRuntimeDir } from '../paths'
-import { createLogger } from '../logger'
+import { refreshCommonCliPathsInProcessEnv } from './cli-user-path'
+import { resolvePluginRuntimeDir } from './paths'
+import { createLogger } from './logger'
 
 const log = createLogger('FfmpegRunner')
 

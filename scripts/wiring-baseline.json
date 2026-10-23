@@ -20,6 +20,17 @@
     "apps/windows/src/plugins/external-src/perf/impl/performance-monitor.ts",
     "apps/windows/src/plugins/external-src/perf/index.ts",
     "apps/windows/src/plugins/external-src/perf/ipc.ts",
+    "apps/windows/src/plugins/external-src/screen-record/impl/audio-duration.ts",
+    "apps/windows/src/plugins/external-src/screen-record/impl/burn-accessor.ts",
+    "apps/windows/src/plugins/external-src/screen-record/impl/burn-subtitles-service.ts",
+    "apps/windows/src/plugins/external-src/screen-record/impl/disk-space.ts",
+    "apps/windows/src/plugins/external-src/screen-record/impl/narrate-service.ts",
+    "apps/windows/src/plugins/external-src/screen-record/impl/real-deps.ts",
+    "apps/windows/src/plugins/external-src/screen-record/impl/screen-record-ipc.ts",
+    "apps/windows/src/plugins/external-src/screen-record/impl/screen-record-service.ts",
+    "apps/windows/src/plugins/external-src/screen-record/impl/srt.ts",
+    "apps/windows/src/plugins/external-src/screen-record/impl/subtitle-project.ts",
+    "apps/windows/src/plugins/external-src/screen-record/impl/subtitle-style.ts",
     "apps/windows/src/plugins/external-src/screen-record/index.ts"
   ],
   "unconsumedMethods": [

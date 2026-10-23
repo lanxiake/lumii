@@ -7,7 +7,7 @@ import path from 'node:path'
 import type {
   ScreenRecordInspectResult,
   ScreenRecordSubtitleStyle,
-} from '../../shared/screen-record'
+} from '../../../../shared/screen-record'
 import { cuesToSrt, parseSrt, type SrtCue } from './srt'
 import { normalizeSubtitleStyle } from './subtitle-style'
 

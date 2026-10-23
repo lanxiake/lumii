@@ -33,7 +33,7 @@ import {
 /** CloakBrowser 的落点（历史上就在 homedir，不在客户端数据根，保持不变） */
 const CLOAK_DIR = join(os.homedir(), '.cloakbrowser')
 
-/** ffmpeg 落点（客户端数据根的插件运行时目录；解析链见 screen-record/ffmpeg-runner.ts） */
+/** ffmpeg 落点（客户端数据根的插件运行时目录；解析链见 main/ffmpeg-runner.ts） */
 const FFMPEG_DIR = resolvePluginRuntimeDir('ffmpeg')
 const FFMPEG_EXE = join(FFMPEG_DIR, process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg')
 

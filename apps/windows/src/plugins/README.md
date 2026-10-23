@@ -28,7 +28,8 @@ plugins/
     bootstrap.ts     依赖预安装（反检测浏览器等）
     bootstrap-config.ts
   external-src/      官方外部扩展的**源码**（构建成 resources/extensions/<id>/main.js）
-    perf/ cloud-sync/ screen-record/
+    <id>/index.ts    外壳：manifest + apply（装配服务、注册 IPC、挂访问器）
+    <id>/impl/**     实现（可自由组织；核心只认 main/kernel 里的服务契约，不 import 这里）
   install/           插件中心的运行时依赖安装（CloakBrowser / ffmpeg …），不是本系统的插件
 ```
 

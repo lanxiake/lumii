@@ -7,9 +7,9 @@ import type {
   ScreenRecordBurnSubtitlesParams,
   ScreenRecordBurnSubtitlesResult,
   ScreenRecordConfig,
-} from '../../shared/screen-record'
-import { SCREEN_RECORD_SETTINGS_DEFAULTS } from '../../shared/screen-record'
-import { isPathUnderDir } from '../preview-path-acl'
+} from '../../../../shared/screen-record'
+import { SCREEN_RECORD_SETTINGS_DEFAULTS } from '../../../../shared/screen-record'
+import { isPathUnderDir } from '../../../../main/preview-path-acl'
 import { probeMediaDurationMs } from './audio-duration'
 import {
   buildDubFilterArgs,
@@ -18,7 +18,7 @@ import {
   resolveBurnFontPath,
 } from './narrate-service'
 import { buildSubtitleForceStyle, normalizeSubtitleStyle } from './subtitle-style'
-import { runFfmpeg, webmToMp4, type FfmpegRunResult } from './ffmpeg-runner'
+import { runFfmpeg, webmToMp4, type FfmpegRunResult } from '../../../../main/ffmpeg-runner'
 import { cuesToSrt } from './srt'
 import {
   cuesToProjectCues,

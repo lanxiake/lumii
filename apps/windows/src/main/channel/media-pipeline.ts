@@ -9,7 +9,7 @@ import path from 'node:path'
 import { spawn } from 'node:child_process'
 import { promises as fs } from 'node:fs'
 import { resolveActiveWorkspaceDir } from '../workspace-paths.js'
-import { resolveFfmpegExecutable } from '../screen-record/ffmpeg-runner.js'
+import { resolveFfmpegExecutable } from '../ffmpeg-runner.js'
 
 const log = {
   info: (...args: unknown[]) => console.log('[MediaPipeline]', ...args),

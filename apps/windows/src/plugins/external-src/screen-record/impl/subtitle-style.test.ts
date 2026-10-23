@@ -2,7 +2,7 @@
  * 字幕样式 → ASS force_style 转换单测
  */
 import { describe, expect, it } from 'vitest'
-import { SCREEN_RECORD_SUBTITLE_STYLE_DEFAULTS } from '../../shared/screen-record'
+import { SCREEN_RECORD_SUBTITLE_STYLE_DEFAULTS } from '../../../../shared/screen-record'
 import { buildSubtitleForceStyle, hexToAssColor, normalizeSubtitleStyle, SUBTITLE_FONT_NAME } from './subtitle-style'
 
 describe('hexToAssColor', () => {

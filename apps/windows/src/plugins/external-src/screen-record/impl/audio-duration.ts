@@ -3,7 +3,7 @@
  */
 import { spawn } from 'node:child_process'
 import fs from 'node:fs'
-import { resolveFfmpegExecutable } from './ffmpeg-runner'
+import { resolveFfmpegExecutable } from '../../../../main/ffmpeg-runner'
 
 /**
  * 从 WAV 头解析时长（ms）；非标准 WAV 返回 null。

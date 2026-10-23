@@ -112,9 +112,9 @@ import {
 } from './workspace-paths'
 import {
   type ScreenRecordService,
-} from './screen-record'
-import { getScreenRecordService as getScreenRecordServiceFromAccessor } from './screen-record/accessor'
-import { registerScreenRecordDisabledStub } from './screen-record/disabled-stub'
+  getScreenRecordService as getScreenRecordServiceFromAccessor,
+} from './kernel/screen-record-contract'
+import { registerScreenRecordDisabledStub } from './kernel/screen-record-disabled-stub'
 import { clearScreenshotTempDir } from './app-ui-control/screenshot-cleanup'
 import { startAppUiControlServer, stopAppUiControlServer } from './app-ui-control/server'
 import { resizeImageIfNeeded } from './agent-runtime/image-resizer'

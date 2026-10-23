@@ -3,19 +3,19 @@ import { definePlugin } from '@mtbot/plugin-core'
 import type { MainEvents } from '../../../main/kernel/events'
 import { S } from '../../../main/kernel/services'
 import {
-  createScreenRecordService,
-  createRealScreenRecordServiceDeps,
-  parseScreenRecordSettings,
-  registerScreenRecordIpc,
-  unregisterScreenRecordIpc,
-} from '../../../main/screen-record'
-import { setScreenRecordService } from '../../../main/screen-record/accessor'
-import { createNarrateService } from '../../../main/screen-record/narrate-service'
-import { setNarrateService } from '../../../main/screen-record/narrate-accessor'
-import { createBurnSubtitlesService } from '../../../main/screen-record/burn-subtitles-service'
-import { setBurnSubtitlesService } from '../../../main/screen-record/burn-accessor'
-import { registerScreenRecordDisabledStub } from '../../../main/screen-record/disabled-stub'
+  setNarrateService,
+  setRecordingInspector,
+  setScreenRecordService,
+} from '../../../main/kernel/screen-record-contract'
+import { registerScreenRecordDisabledStub } from '../../../main/kernel/screen-record-disabled-stub'
 import { resolveRecordingsDir } from '../../../main/workspace-paths'
+import { createScreenRecordService } from './impl/screen-record-service'
+import { createRealScreenRecordServiceDeps, parseScreenRecordSettings } from './impl/real-deps'
+import { registerScreenRecordIpc } from './impl/screen-record-ipc'
+import { createNarrateService } from './impl/narrate-service'
+import { createBurnSubtitlesService } from './impl/burn-subtitles-service'
+import { setBurnSubtitlesService } from './impl/burn-accessor'
+import { inspectRecording } from './impl/subtitle-project'
 
 /**
  * 录屏扩展。
@@ -98,13 +98,26 @@ export const screenRecordExtension = {
 
         const service = createScreenRecordService(deps)
         setScreenRecordService(service)
-        registerScreenRecordIpc(service, win, ctx.get(S.perf) ?? undefined)
-        // 热重载/卸载/按需卸载后重装：不摘掉旧 handler 会抛 second handler。
-        // 摘掉后补一个 disabled 桩，渲染层卸载期间查状态不会刷 No handler registered。
+
+        // 通道随作用域摘除后补一个 disabled 桩，渲染层卸载期间查状态不会刷 No handler registered。
+        // effect 按 LIFO 执行：这条必须**第一时间登记**才能最后跑，排在所有通道摘除之后。
+        ctx.effect(() => registerScreenRecordDisabledStub())
+
+        // 停用/卸载时摘掉访问器上的实例：核心工具层不该再拿到一个已停掉的会话
         ctx.effect(() => {
-          unregisterScreenRecordIpc()
-          registerScreenRecordDisabledStub()
+          setScreenRecordService(null)
+          setNarrateService(null)
+          setRecordingInspector(null)
         })
+
+        registerScreenRecordIpc(
+          {
+            handle: (channel, listener) => ctx.registerIpc?.(channel, listener),
+            on: (channel, listener) => ctx.registerIpcListener?.(channel, listener),
+          },
+          service,
+          ctx.get(S.perf) ?? undefined,
+        )
 
         // 旁白/烧录挂接：TTS 闭包惰性读语音服务，未就绪时返回明确的 tts_unavailable
         const mediaDeps = {
@@ -131,6 +144,8 @@ export const screenRecordExtension = {
         }
         setNarrateService(createNarrateService(mediaDeps))
         setBurnSubtitlesService(createBurnSubtitlesService(mediaDeps))
+        // Agent 工具读成片旁的字幕工程；纯文件读，跟录制状态无关
+        setRecordingInspector(inspectRecording)
 
         ctx.effect(() => {
           // 退出/卸载时把进行中的录制收尾，避免留下坏文件

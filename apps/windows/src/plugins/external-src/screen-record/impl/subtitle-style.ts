@@ -7,7 +7,7 @@
 import {
   SCREEN_RECORD_SUBTITLE_STYLE_DEFAULTS,
   type ScreenRecordSubtitleStyle,
-} from '../../shared/screen-record'
+} from '../../../../shared/screen-record'
 
 /** 字号可选区间（ASS 基准，非最终像素） */
 const SUBTITLE_FONT_SIZE_MIN = 10

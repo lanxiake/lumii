@@ -3,7 +3,6 @@
  */
 import fs from 'node:fs'
 import path from 'node:path'
-import { ipcMain, type BrowserWindow } from 'electron'
 import type { ScreenRecordService } from './screen-record-service'
 import type {
   ScreenRecordStartParams,
@@ -12,8 +11,8 @@ import type {
   ScreenRecordBurnSubtitlesParams,
   ScreenRecordSubtitleCue,
   ScreenRecordSubtitleStyle,
-} from '../../shared/screen-record'
-import { getNarrateService } from './narrate-accessor'
+} from '../../../../shared/screen-record'
+import { getNarrateService } from '../../../../main/kernel/screen-record-contract'
 import { getBurnSubtitlesService } from './burn-accessor'
 import {
   listRecordings,
@@ -23,10 +22,11 @@ import {
   cuesToProjectCues,
   deleteRecordingArtifacts,
 } from './subtitle-project'
-import { resolveRecordingsDir } from '../workspace-paths'
-import { isPathUnderDir } from '../preview-path-acl'
-import { createMeasuredHandler } from '../kernel/measured-handler'
-import type { PerfMonitorLike } from '../../shared/performance'
+import { resolveRecordingsDir } from '../../../../main/workspace-paths'
+import { isPathUnderDir } from '../../../../main/preview-path-acl'
+import { createMeasuredHandler } from '../../../../main/kernel/measured-handler'
+import type { IpcHandleRegistrar } from '../../../../main/kernel/ipc-registry'
+import type { PerfMonitorLike } from '../../../../shared/performance'
 
 /**
  * 校验渲染层传来的成片路径：必须是 recordings 根目录下的 webm/mp4。
@@ -50,75 +50,37 @@ function guardRecordingPath(
   return { ok: true, abs }
 }
 
-/** 本模块独占的通道；重复注册会抛「second handler」 */
-const HANDLE_CHANNELS = [
-  'screen-record:list-sources',
-  'screen-record:start',
-  'screen-record:stop',
-  'screen-record:narrate',
-  'screen-record:list-recordings',
-  'screen-record:delete-recording',
-  'screen-record:restore-original',
-  'screen-record:load-subtitle-project',
-  'screen-record:save-subtitle-project',
-  'screen-record:burn-subtitles',
-  'screen-record:pause',
-  'screen-record:resume',
-  'screen-record:status',
-] as const
-
-const ON_CHANNELS = [
-  'screen-record:confirm-respond',
-  'screen-record:chunk',
-  'screen-record:stream-ended',
-  'screen-record:capture-error',
-] as const
-
 /**
- * 摘掉本模块注册的 IPC。
+ * 注册录屏 IPC，绑定到单一 ScreenRecordService。
  *
- * 两条路径需要它：
- * - 外部扩展开启热重载/卸载 → 重载时重新注册同一批通道会抛
- *   `Attempted to register a second handler`；
- * - 扩展未安装时主进程注册了 disabled-stub（占着 `screen-record:status`），
- *   按需安装后必须先把桩摘掉。
- */
-export function unregisterScreenRecordIpc(): void {
-  for (const channel of HANDLE_CHANNELS) ipcMain.removeHandler(channel)
-  for (const channel of ON_CHANNELS) ipcMain.removeAllListeners(channel)
-}
-
-/**
- * 注册录屏相关 ipcMain handle/on，绑定到单一 ScreenRecordService。
- *
- * 幂等：注册前先清掉自己的旧注册（含 disabled-stub），见 `unregisterScreenRecordIpc`。
+ * 通道经**注册器**挂载（扩展 apply 里传 `ctx.registerIpc` / `ctx.registerIpcListener`）：
+ * 停用/热重载时随扩展作用域摘除；注册器本身对重复 handler 幂等（先摘旧再挂）。
  */
 export function registerScreenRecordIpc(
+  registrar: IpcHandleRegistrar,
   service: ScreenRecordService,
-  _mainWindow: BrowserWindow | null,
   performanceMonitor?: PerfMonitorLike,
 ): void {
-  unregisterScreenRecordIpc()
 
-  ipcMain.handle('screen-record:list-sources', async (_e, p?: { includeThumbnail?: boolean }) => {
+  registrar.handle('screen-record:list-sources', async (_e, p?: { includeThumbnail?: boolean }) => {
     return service.listSources(p?.includeThumbnail)
   })
 
   const startHandler = async (
-    _e: Electron.IpcMainInvokeEvent,
+    _e: unknown,
     p: { params: ScreenRecordStartParams } | ScreenRecordStartParams,
   ) => {
     const params = 'params' in p && p.params ? p.params : (p as ScreenRecordStartParams)
     return service.start(params)
   }
-  ipcMain.handle(
+  registrar.handle(
     'screen-record:start',
     performanceMonitor
       ? createMeasuredHandler('screen-record:start', startHandler, performanceMonitor)
       : startHandler,
   )
 
-  ipcMain.handle('screen-record:stop', async (_e, p?: { params?: ScreenRecordStopParams } | ScreenRecordStopParams) => {
+  registrar.handle('screen-record:stop', async (_e, p?: { params?: ScreenRecordStopParams } | ScreenRecordStopParams) => {
     const params =
       p && typeof p === 'object' && 'params' in p && p.params
         ? p.params
@@ -126,13 +88,13 @@ export function registerScreenRecordIpc(
     return service.stop(params)
   })
 
-  ipcMain.handle('screen-record:narrate', async (_e, p: { params: ScreenRecordNarrateParams }) => {
+  registrar.handle('screen-record:narrate', async (_e, p: { params: ScreenRecordNarrateParams }) => {
     const narrate = getNarrateService()
     if (!narrate) return { ok: false, error: 'disabled' }
     return narrate.narrate(p.params)
   })
 
-  ipcMain.handle('screen-record:list-recordings', async () => {
+  registrar.handle('screen-record:list-recordings', async () => {
     try {
       const items = listRecordings(resolveRecordingsDir())
       return { ok: true, items }
@@ -145,19 +107,19 @@ export function registerScreenRecordIpc(
     }
   })
 
-  ipcMain.handle('screen-record:delete-recording', async (_e, p: { path: string }) => {
+  registrar.handle('screen-record:delete-recording', async (_e, p: { path: string }) => {
     const guarded = guardRecordingPath(p?.path)
     if (!guarded.ok) return guarded.error
     return deleteRecordingArtifacts(guarded.abs)
   })
 
-  ipcMain.handle('screen-record:restore-original', async (_e, p: { path: string }) => {
+  registrar.handle('screen-record:restore-original', async (_e, p: { path: string }) => {
     const guarded = guardRecordingPath(p?.path)
     if (!guarded.ok) return guarded.error
     return restoreOriginalRecording(guarded.abs)
   })
 
-  ipcMain.handle('screen-record:load-subtitle-project', async (_e, p: { path: string }) => {
+  registrar.handle('screen-record:load-subtitle-project', async (_e, p: { path: string }) => {
     const videoPath = p?.path
     if (!videoPath) return { ok: false, error: 'invalid_cues', message: 'path required' }
     const abs = path.resolve(videoPath)
@@ -178,7 +140,7 @@ export function registerScreenRecordIpc(
     }
   })
 
-  ipcMain.handle(
+  registrar.handle(
     'screen-record:save-subtitle-project',
     async (
       _e,
@@ -215,7 +177,7 @@ export function registerScreenRecordIpc(
     },
   )
 
-  ipcMain.handle(
+  registrar.handle(
     'screen-record:burn-subtitles',
     async (_e, p: { params: ScreenRecordBurnSubtitlesParams }) => {
       const burn = getBurnSubtitlesService()
@@ -230,20 +192,20 @@ export function registerScreenRecordIpc(
     },
   )
 
-  ipcMain.handle('screen-record:pause', async () => service.pause())
+  registrar.handle('screen-record:pause', async () => service.pause())
 
-  ipcMain.handle('screen-record:resume', async () => service.resume())
+  registrar.handle('screen-record:resume', async () => service.resume())
 
-  ipcMain.handle('screen-record:status', async () => service.getStatus())
+  registrar.handle('screen-record:status', async () => service.getStatus())
 
-  ipcMain.on(
+  registrar.on?.(
     'screen-record:confirm-respond',
     (_e, p: { sessionId: string; allow: boolean; rememberAlwaysAllow?: boolean }) => {
       void service.respondConfirm(p)
     },
   )
 
-  ipcMain.on(
+  registrar.on?.(
     'screen-record:chunk',
     (
       _e,
@@ -253,11 +215,11 @@ export function registerScreenRecordIpc(
     },
   )
 
-  ipcMain.on('screen-record:stream-ended', (_e, p: { sessionId: string }) => {
+  registrar.on?.('screen-record:stream-ended', (_e, p: { sessionId: string }) => {
     void service.handleStreamEnded(p)
   })
 
-  ipcMain.on(
+  registrar.on?.(
     'screen-record:capture-error',
     (_e, p: { sessionId: string; reason: string }) => {
       void service.handleCaptureError(p)

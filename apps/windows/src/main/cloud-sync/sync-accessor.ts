@@ -1,6 +1,6 @@
 /**
  * CloudSyncManager 单例访问器。
- * 与 screen-record/accessor.ts 同模式：main/index.ts 启动时 set，IPC / 工具层 get。
+ * 与 kernel/screen-record-contract.ts 同模式：main/index.ts 启动时 set，IPC / 工具层 get。
  *
  * 状态挂在 `globalThis`（按 Symbol 取）：云同步正在从内置扩展迁成官方外部扩展，
  * 外部 bundle 会各自打一份本模块；模块级变量会变成两份互不相干的单例，

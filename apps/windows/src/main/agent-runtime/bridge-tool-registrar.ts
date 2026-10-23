@@ -24,8 +24,7 @@ import { registerWikiTools } from './bridge-wiki-tools'
 import { registerNewsPreferenceTool } from './bridge-news-preference-tools'
 import { registerAppUiTools as registerAppUiToolsFn } from './bridge-app-ui-tools'
 import { registerScreenRecordTools as registerScreenRecordToolsFn } from './bridge-screen-record-tools'
-import { getScreenRecordService } from '../screen-record/accessor'
-import { getNarrateService } from '../screen-record/narrate-accessor'
+import { getNarrateService, getRecordingInspector, getScreenRecordService } from '../kernel/screen-record-contract'
 import { resizeImageIfNeeded } from './image-resizer'
 import { agentRuntimeLog as log, jsonToolResult, parseTaskStatus } from './bridge-utils'
 import { registerGuideTools } from './bridge-tool-registrar-guide'
@@ -417,6 +416,7 @@ export class BridgeToolRegistrar {
     registerScreenRecordToolsFn(this.deps.toolRegistry, this.deps.toolContext, {
       getService: () => getScreenRecordService(),
       getNarrateService: () => getNarrateService(),
+      getInspector: () => getRecordingInspector(),
     })
   }
 }

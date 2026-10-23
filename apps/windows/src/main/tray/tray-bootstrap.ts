@@ -1,6 +1,6 @@
 import { app, type BrowserWindow } from 'electron'
 import { TrayManager } from '../tray-manager'
-import type { ScreenRecordService } from '../screen-record'
+import type { ScreenRecordService } from '../kernel/screen-record-contract'
 import { getPetService } from '../agent-runtime/pet-accessor'
 
 interface TrayLogger {

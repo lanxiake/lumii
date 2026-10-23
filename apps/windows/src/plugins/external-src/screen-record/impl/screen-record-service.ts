@@ -4,6 +4,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
+import type { ScreenRecordService } from '../../../../main/kernel/screen-record-contract'
 import type {
   ScreenRecordAnnotateParams,
   ScreenRecordAnnotateResult,
@@ -26,14 +27,14 @@ import type {
   ScreenRecordTimelineEntry,
   ScreenScreenshotParams,
   ScreenScreenshotResult,
-} from '../../shared/screen-record'
+} from '../../../../shared/screen-record'
 import {
   isScreenRecordAnnotation,
   MAX_DURATION_SEC_CAP,
   MIN_FREE_DISK_BYTES,
   SCREEN_RECORD_SETTINGS_DEFAULTS,
   SCREEN_SCREENSHOT_MAX_DIMENSION,
-} from '../../shared/screen-record'
+} from '../../../../shared/screen-record'
 import path from 'node:path'
 
 /** 写流抽象（测试可注入 mock） */
@@ -170,44 +171,8 @@ interface InternalState {
   timeline: ScreenRecordTimelineEntry[]
 }
 
-/** 对外服务接口 */
-export interface ScreenRecordService {
-  listSources: (includeThumbnail?: boolean) => Promise<ScreenRecordListSourcesResult>
-  start: (params: ScreenRecordStartParams) => Promise<ScreenRecordStartResult>
-  stop: (params?: ScreenRecordStopParams) => Promise<ScreenRecordStopResult>
-  /** 暂停录制（仅 recording） */
-  pause: () => Promise<ScreenRecordPauseResult>
-  /** 继续录制（仅 paused） */
-  resume: () => Promise<ScreenRecordResumeResult>
-  /**
-   * 活跃时钟打点（仅 recording）。
-   * 教程：resume 后先 mark 再操作；stop 返回 timeline 供 narrate cues。
-   */
-  mark: (params: ScreenRecordMarkParams) => ScreenRecordMarkResult
-  /**
-   * 画面标注入 timeline（recording 或 paused 均可）。
-   * 后期由 narrate ffmpeg 烧录，录制期不叠加。
-   */
-  annotate: (params: ScreenRecordAnnotateParams) => ScreenRecordAnnotateResult
-  /** 截取整屏/窗口单帧（可与录屏并行；确认槽独立） */
-  screenshot: (params: ScreenScreenshotParams) => Promise<ScreenScreenshotResult>
-  getStatus: () => ScreenRecordStatusResult
-  respondConfirm: (p: {
-    sessionId: string
-    allow: boolean
-    rememberAlwaysAllow?: boolean
-  }) => Promise<void>
-  handleChunk: (p: {
-    sessionId: string
-    chunkBase64: string
-    index: number
-    isLast: boolean
-  }) => Promise<void>
-  handleStreamEnded: (p: { sessionId: string }) => Promise<void>
-  handleCaptureError: (p: { sessionId: string; reason: string }) => Promise<void>
-  handleRendererGone: () => Promise<void>
-  flushBeforeQuit: () => Promise<void>
-}
+/** 对外服务接口：契约由核心持有（见 main/kernel/screen-record-contract.ts） */
+export type { ScreenRecordService }
 
 /** 创建空闲初始状态 */
 function createIdleState(): InternalState {

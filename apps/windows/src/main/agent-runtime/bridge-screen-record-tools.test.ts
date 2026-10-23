@@ -5,7 +5,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { ToolRegistry, type ToolExecutionContext } from '@mtbot/agent-runtime'
 import { registerScreenRecordTools } from './bridge-screen-record-tools'
 import { parseJsonToolResultPayload } from './bridge-utils'
-import type { ScreenRecordService } from '../screen-record'
+import type { ScreenRecordService } from '../kernel/screen-record-contract'
 
 /** 最小 ToolExecutionContext stub */
 function stubContext(): ToolExecutionContext {

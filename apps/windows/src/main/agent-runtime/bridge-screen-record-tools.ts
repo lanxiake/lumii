@@ -12,9 +12,11 @@ import {
   type MtBotTool,
 } from '@mtbot/agent-runtime'
 import { agentRuntimeLog as log, jsonToolResult } from './bridge-utils'
-import type { ScreenRecordService } from '../screen-record'
-import type { NarrateService } from '../screen-record/narrate-service'
-import { inspectRecording } from '../screen-record/subtitle-project'
+import type {
+  NarrateService,
+  RecordingInspector,
+  ScreenRecordService,
+} from '../kernel/screen-record-contract'
 import { isPathUnderDir } from '../preview-path-acl'
 import { resolveRecordingsDir } from '../workspace-paths'
 import { MAX_DURATION_SEC_CAP } from '../../shared/screen-record'
@@ -23,6 +25,8 @@ import { MAX_DURATION_SEC_CAP } from '../../shared/screen-record'
 export interface RegisterScreenRecordToolsDeps {
   getService: () => ScreenRecordService | null
   getNarrateService?: () => NarrateService | null
+  /** 成片旁字幕工程检查器（扩展未装配时缺席） */
+  getInspector?: () => RecordingInspector | null
   /** 可选：从 app-ui snapshot 缓存把 ref 换成归一化坐标 */
   getSnapshotCache?: (snapshotId: string) =>
     | { refs: Array<{ ref: string; x: number; y: number; w: number; h: number }>; bounds?: { width: number; height: number } }
@@ -434,7 +438,9 @@ export function registerScreenRecordTools(
                 message: 'path must be under recordings/',
               })
             }
-            return jsonToolResult(inspectRecording(abs))
+            const inspector = deps.getInspector?.() ?? null
+            if (!inspector) return jsonToolResult({ ok: false, error: 'disabled' })
+            return jsonToolResult(inspector(abs))
           } catch (e) {
             log.error('[screen_record_inspect]', e)
             return jsonToolResult({

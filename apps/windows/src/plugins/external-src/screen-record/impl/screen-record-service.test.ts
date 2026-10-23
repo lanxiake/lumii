@@ -8,8 +8,8 @@ import {
   type ScreenRecordServiceDeps,
   type ScreenRecordWriteStream,
 } from './screen-record-service'
-import type { ScreenRecordSource, ScreenRecordStatus } from '../../shared/screen-record'
-import { MIN_FREE_DISK_BYTES } from '../../shared/screen-record'
+import type { ScreenRecordSource, ScreenRecordStatus } from '../../../../shared/screen-record'
+import { MIN_FREE_DISK_BYTES } from '../../../../shared/screen-record'
 
 /** 取当前状态；查询失败返回 undefined（避免联合类型多次调用无法收窄） */
 function statusOf(svc: ScreenRecordService): ScreenRecordStatus | undefined {
