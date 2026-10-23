@@ -111,7 +111,7 @@ export const MCP_PRESETS: readonly McpPreset[] = [
     // 报成失败（2026-10-09 15:15 实测：消息 15:15:50 落库，服务端 36.2s 自报 ok，客户端
     // 15:15:46 超时）。给足 5 分钟，让本地这双手自己把结论说完。
     timeoutMs: 300_000,
-    // 2026-10-11：exe 不再随包（改为「微信本机助手」插件按需下载，见 main/plugins/builtin.ts）。
+    // 2026-10-11：exe 不再随包（改为「微信本机助手」插件按需下载，见 plugins/install/builtin.ts）。
     // 默认**停用**——未装插件时部署路径上没有 exe，启用只会连不上；装插件时由插件改回启用。
     defaultEnabled: false,
     // Agent 使用指南**不在这里**——它随 MCP 协议从 `server.py` 的 INSTRUCTIONS 走

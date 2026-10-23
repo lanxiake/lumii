@@ -60,8 +60,8 @@ function resolveSidecarScript(): string {
     : path.join(__dirname, '../../assets/scripts/qwen3_tts_sidecar.py')
   const candidates = [
     // 开发态：优先 src 主文件，防止 assets 副本未同步
-    path.join(process.cwd(), 'apps/windows/src/main/plugins/builtin/voice/qwen3_tts_sidecar.py'),
-    path.join(app.getAppPath(), 'src/main/plugins/builtin/voice/qwen3_tts_sidecar.py'),
+    path.join(process.cwd(), 'apps/windows/src/plugins/builtin/voice/qwen3_tts_sidecar.py'),
+    path.join(app.getAppPath(), 'src/plugins/builtin/voice/qwen3_tts_sidecar.py'),
     path.join(__dirname, 'qwen3_tts_sidecar.py'),
     packaged,
   ]

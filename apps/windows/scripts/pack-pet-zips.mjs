@@ -17,7 +17,7 @@ import JSZip from 'jszip'
 const WINDOWS_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const SRC = path.join(WINDOWS_ROOT, 'resources', 'pet-models')
 const OUT = path.join(SRC, 'dist')
-/** 与 main/plugins/builtin.ts 的 PET_PLUGIN_IDS 保持一致 */
+/** 与 src/plugins/install/builtin.ts 的 PET_PLUGIN_IDS 保持一致 */
 const IDS = ['demo_cartoon_cat', 'ug_official', 'xiaomai']
 
 /**
